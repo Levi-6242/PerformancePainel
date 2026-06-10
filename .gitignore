@@ -1,0 +1,42 @@
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# ── Segredos / credenciais (NUNCA commitar) ───────────────────────────────────
+.env
+*.env
+!.env.example
+pg_password.txt
+plat_token.txt
+se_cookie.txt
+se_credentials.txt
+_ck.txt
+credentials.json
+token_gmail.json
+
+# ── Estado local / dados de runtime ───────────────────────────────────────────
+owen_accum.json
+ufv_state.json
+tracker_issues.json
+tracker_issues.bak.json
+string_notas.json
+spv_stringbox.json
+sunop_etm_accum.json
+server.log
+*.log
+
+# ── Planilhas (dados internos da empresa — ficam no SharePoint/OneDrive) ──────
+*.xlsx
+*.xlsm
+
+# ── Ferramentas locais ────────────────────────────────────────────────────────
+.claude/
+
+# ── SO / editor ───────────────────────────────────────────────────────────────
+Thumbs.db
+.DS_Store
+.vscode/
+.idea/

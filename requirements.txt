@@ -1,0 +1,9 @@
+flask==3.1.0
+requests==2.32.3
+plotly==5.24.1
+pandas==2.2.3
+openpyxl==3.1.5
+gunicorn==23.0.0
+pycognito
+psycopg2-binary
+python-dotenv
