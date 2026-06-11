@@ -16,7 +16,15 @@ echo       que aparecer abaixo (a senha e a DASH_PASSWORD do .env). ***
 echo.
 echo   *** Para PARAR: feche esta janela E a janela "Dashboard Server". ***
 echo.
-cloudflared tunnel --url http://localhost:5050
+
+REM Acha o cloudflared: primeiro no PATH, senao no caminho do WinGet
+set "CF=cloudflared"
+where cloudflared >nul 2>nul
+if errorlevel 1 (
+  set "CF=%LOCALAPPDATA%\Microsoft\WinGet\Packages\Cloudflare.cloudflared_Microsoft.Winget.Source_8wekyb3d8bbwe\cloudflared.exe"
+)
+
+"%CF%" tunnel --url http://localhost:5050
 echo.
 echo (Tunel encerrado.)
 pause
