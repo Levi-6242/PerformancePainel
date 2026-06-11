@@ -157,15 +157,27 @@ def _se_headers() -> dict:
 #   • Potência (kWp)                     → potência por inversor (POWER_INV)
 # As chaves supervisório são exatamente os nomes que cada API usa (plant['nome'] / device_name).
 # Usa SEMPRE a versão ONLINE (OneDrive→SharePoint, master da equipe); fallback p/ cópia local.
-_BD_PERF_ONLINE = os.environ.get("BD_PERF_PATH", os.path.join(
-    os.path.expanduser("~"), "OneDrive - GRID CO", "Grid Co_ - 4. O&M", "6.Gerencial",
-    "4. Gestão à vista", "1. Banco de Dados", "BD_Performance.xlsx"))
+# O Desktop ("Área de Trabalho") pode estar DENTRO do OneDrive, então a pasta
+# "Grid Co_ - 4. O&M" aparece tanto na raiz quanto sob "Área de Trabalho" — testamos os dois.
+_BD_REL = os.path.join("Grid Co_ - 4. O&M", "6.Gerencial", "4. Gestão à vista",
+                       "1. Banco de Dados", "BD_Performance.xlsx")
+_OD_ROOT = os.path.join(os.path.expanduser("~"), "OneDrive - GRID CO")
+_BD_PERF_ONLINE_CANDS = [p for p in [
+    os.environ.get("BD_PERF_PATH"),
+    os.path.join(_OD_ROOT, _BD_REL),
+    os.path.join(_OD_ROOT, "Área de Trabalho", _BD_REL),
+] if p]
 _BD_PERF_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "BD_Performance.xlsx")
+
+
 def _bd_perf_path() -> str:
     """Caminho do BD_Performance — SEMPRE prioriza a versão ONLINE (OneDrive, atualizada
-    em tempo real pela equipe). A cópia local é só último recurso, caso a online esteja
-    indisponível (ex.: desidratada pelo OneDrive Files On-Demand). Reavaliado a cada carga."""
-    return _BD_PERF_ONLINE if os.path.exists(_BD_PERF_ONLINE) else _BD_PERF_LOCAL
+    em tempo real pela equipe), testando os caminhos candidatos. A cópia local é só último
+    recurso, se nenhuma online existir (ex.: desidratada). Reavaliado a cada carga."""
+    for p in _BD_PERF_ONLINE_CANDS:
+        if os.path.exists(p):
+            return p
+    return _BD_PERF_LOCAL
 
 # Globais preenchidas por load_equipamentos() (recarregáveis em runtime)
 ESPERADO_INV  = {}   # {usina_sup: {equip_sup: strings_esperadas}}
@@ -264,7 +276,7 @@ def load_equipamentos():
         except OSError:
             _bd_mtime = 0.0
         _n_pot = sum(len(v) for v in power_inv.values())
-        _src = "ONLINE" if path == _BD_PERF_ONLINE else "LOCAL (fallback)"
+        _src = "LOCAL (fallback)" if path == _BD_PERF_LOCAL else "ONLINE"
         print(f"[OK] BD_Performance/Equipamentos [{_src}]: {len(esperado_inv)} usinas c/ esperadas | "
               f"{len(FULL_OM)} Full O&M | {len(STRING_BOX)} String Box | {_n_pot} aliases de potência")
     except Exception as e:
