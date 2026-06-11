@@ -2178,13 +2178,21 @@ def api_pv_trackers_chart(idusina):
     return jsonify({"plant": idusina, "date": data, "trackers": trackers, "alvo": None})
 
 
-@app.route("/api/pv/trackers/token", methods=["POST"])
+@app.route("/api/pv/trackers/token", methods=["POST", "OPTIONS"])
 def api_pv_trackers_token():
-    """Salva o token da PV Plataforma (usado pelo bookmarklet de 1 clique)."""
+    """Salva o token da PV Plataforma (usado pelo bookmarklet de 1 clique).
+    CORS liberado: o bookmarklet roda na origem plataforma.pvoperation.com."""
+    if flask_request.method == "OPTIONS":      # preflight do navegador
+        resp = app.make_response(("", 204))
+        resp.headers["Access-Control-Allow-Origin"] = "*"
+        resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        return resp
     body = flask_request.get_json(force=True, silent=True) or {}
     tok = (body.get("token") or "").strip()
     if tok.count(".") != 2:
-        return jsonify({"ok": False, "error": "token inválido"}), 400
+        r = jsonify({"ok": False, "error": "token inválido"}); r.headers["Access-Control-Allow-Origin"] = "*"
+        return r, 400
     try:
         with open(_PLAT_TOKEN_PATH, "w", encoding="utf-8") as f:
             f.write(tok)
@@ -2198,7 +2206,8 @@ def api_pv_trackers_token():
         exp = json.loads(base64.urlsafe_b64decode(pl)).get("exp")
     except Exception:
         pass
-    return jsonify({"ok": True, "exp": exp})
+    r = jsonify({"ok": True, "exp": exp}); r.headers["Access-Control-Allow-Origin"] = "*"
+    return r
 
 
 # ── Tracker Watch ─────────────────────────────────────────────────────────────
