@@ -2397,7 +2397,10 @@ function renderTrkChart(pid){
   // ruins por cima (z-order) p/ não sumirem no feixe
   const ordem={parado:3,desvio:2,atraso:1};
   vis.sort((a,b)=>(ordem[stMap[a.id]]||0)-(ordem[stMap[b.id]]||0));
-  const _toDt=arr=>(arr||[]).map(s=>{const dt=new Date(s);return isNaN(dt)?s:dt;});   // RFC/ISO → Date (eixo de tempo)
+  // RFC/ISO (em GMT) → Date usando os componentes UTC como "hora de parede" (sem deslocar
+  // p/ o fuso do navegador, senão o dia escolhido começaria às 21h do dia anterior).
+  const _toDt=arr=>(arr||[]).map(s=>{const dt=new Date(s);return isNaN(dt)?s:
+    new Date(dt.getUTCFullYear(),dt.getUTCMonth(),dt.getUTCDate(),dt.getUTCHours(),dt.getUTCMinutes(),dt.getUTCSeconds());});
   const traces=vis.map(t=>({x:_toDt(t.x),y:t.y,name:t.id,type:'scatter',mode:'lines',
     line:corLinha(stMap[t.id]),hovertemplate:t.id+' ('+(stMap[t.id]||'normal')+'): %{y:.1f}°<extra></extra>',showlegend:false}));
   if(d.alvo&&d.alvo.y&&d.alvo.y.length){traces.push({x:_toDt(d.alvo.x),y:d.alvo.y,name:'Alvo',type:'scatter',mode:'lines',
@@ -2407,15 +2410,12 @@ function renderTrkChart(pid){
   if(!traces.length){Plotly.purge(box);box.innerHTML='<p style="text-align:center;color:var(--muted);padding:40px 0">Nenhum tracker selecionado.</p>';return;}
   Plotly.purge(box); box.innerHTML='';   // remove o spinner / plot anterior antes de redesenhar
   Plotly.newPlot(box, traces, {
-    margin:{t:22,r:14,b:36,l:46},
+    margin:{t:10,r:14,b:36,l:46},
     xaxis:{title:'Hora', type:'date', tickformat:'%H:%M', hoverformat:'%H:%M', tickfont:{size:10}, nticks:12},
     yaxis:{title:'Ângulo (°)'},
     legend:{orientation:'h', y:1.15},
     font:{family:'Inter', size:11},
     plot_bgcolor:'#f8fafc', paper_bgcolor:'#fff',
-    annotations: d.date ? [{xref:'paper', yref:'paper', x:1, y:1.04, xanchor:'right', yanchor:'bottom',
-      text:'📅 '+d.date, showarrow:false, font:{size:12, color:'#374151'},
-      bgcolor:'#f3f4f6', bordercolor:'#d1d5db', borderwidth:1, borderpad:3}] : [],
   }, {displayModeBar:false, responsive:true});
 }
 function toggleTrkFiltro(pid,id,el){
