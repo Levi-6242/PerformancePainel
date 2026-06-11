@@ -1632,7 +1632,8 @@ function renderPvStr(prev){
   prev=prev||getLastSt();
   const tb=document.getElementById('pv-tbody'),f=document.getElementById('filtro-str').value.toLowerCase();
   tb.innerHTML='';
-  pvRows.filter(r=>(!f||r.usina.toLowerCase().includes(f))).forEach(r=>{
+  // Oculta usinas string-box (BD_Performance): sem visão real de strings na aba Strings
+  pvRows.filter(r=>!r.stringbox && (!f||r.usina.toLowerCase().includes(f))).forEach(r=>{
     tb.appendChild(pvStrRow(r,prev));
     if(pvExp.has(r.plant_id)){if(pvCache[r.plant_id])appendPvInvs(tb,r.plant_id,pvCache[r.plant_id]);else appendPvLoad(tb,r.plant_id);}
   });

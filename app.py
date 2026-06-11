@@ -450,8 +450,9 @@ def pr_previsto(usina_display, ano=None, mes=None):
 
 
 def geracao_alvo_mwh(usina_display, ipoa, ano=None, mes=None):
-    """Geração alvo (MWh) = IPOA × PR Previsto × Potência (MWp) — fórmula do Power BI.
-    Passe o IPOA acumulado até AGORA para obter a meta proporcional ao dia parcial."""
+    """Geração alvo (MWh) pelo ramo IPOA: IPOA × PR Meta × Potência (MWp).
+    É APENAS o ramo 2 do DAX 'Meta Mensal Geração' (sem o fallback P50). Para a meta
+    fiel ao Power BI por dia, use meta_geracao_dia() — que trata Validação=0 e IPOA<=0."""
     g = info_geral(usina_display)
     rec = pr_previsto(usina_display, ano, mes)
     if not g or not rec or ipoa is None:
@@ -461,6 +462,32 @@ def geracao_alvo_mwh(usina_display, ipoa, ano=None, mes=None):
     if pot is None or pr is None:
         return None
     return ipoa * pr * pot
+
+
+def meta_geracao_dia(usina_display, data, ipoa, validacao):
+    """Meta de geração do DIA (MWh) — espelha fielmente a coluna DAX 'Meta Mensal Geração':
+        1. Validação == 0          -> P50 mensal / dias do mês
+        2. IPOA > 0 (e validado)   -> IPOA × PR Meta × Potência (MWp)
+        3. senão (IPOA <= 0/nulo)  -> P50 mensal / dias do mês
+    `data` = date/datetime da linha; `ipoa` em kWh/m²; `validacao` numérico (0 = não validado).
+    P50 mensal e PR Meta vêm da Info Mensal; potência da Info Geral. None se faltar insumo."""
+    if data is None:
+        return None
+    ano, mes = data.year, data.month
+    rec = pr_previsto(usina_display, ano, mes)
+    g = info_geral(usina_display)
+    dias_no_mes = calendar.monthrange(ano, mes)[1]
+    p50 = rec.get("p50_mwh") if rec else None
+    fallback = (p50 / dias_no_mes) if (p50 is not None and dias_no_mes) else None
+
+    val = _num(validacao)
+    if val == 0:                                   # 1. dia não validado
+        return fallback
+    pr  = rec.get("pr_previsto") if rec else None
+    pot = g.get("potencia_mwp") if g else None
+    if ipoa is not None and ipoa > 0 and pr is not None and pot is not None:
+        return ipoa * pr * pot                     # 2. ramo IPOA
+    return fallback                                # 3. IPOA <= 0 ou nulo
 
 
 load_equipamentos()   # carga inicial do cadastro mestre
@@ -477,7 +504,9 @@ def _auto_reload_bd():
 
 
 def maybe_reload_tickets():
-    """Recarrega a planilha de Tickets se ela mudou (verificação barata por mtime)."""
+    """Recarrega a planilha de Tickets se ela mudou (mtime). Com LOCK: o botão Atualizar
+    dispara vários force=1 em paralelo e ler o xlsx em várias threads ao mesmo tempo
+    (pandas/openpyxl) pode derrubar o processo."""
     path = _tickets_path()
     if not path:
         return
@@ -485,7 +514,11 @@ def maybe_reload_tickets():
         m = os.path.getmtime(path)
     except OSError:
         return
-    if m != _tickets_mtime:
+    if m == _tickets_mtime:
+        return
+    with _tickets_lock:
+        if m == _tickets_mtime:        # outra thread já recarregou
+            return
         print("[Tickets] planilha alterada -> recarregando ocorrências...")
         load_tickets_trackers()
 
@@ -590,6 +623,7 @@ def build_summary(plant: dict, records: list) -> dict:
         "ultima_leitura": ts_max or None,
         "sem_dados": False,
         "falha_comunicacao": falha,
+        "stringbox": plant["nome"].strip() in STRING_BOX,
     }
 
 
@@ -600,7 +634,8 @@ def process_plant(token: str, plant: dict, timeout: int = 45) -> dict:
     base = {"usina": nome, "plant_id": pid,
             "qtd_inversores": None, "strings_ativas": None,
             "temp_media": None, "ultima_leitura": None,
-            "sem_dados": True, "falha_comunicacao": False}
+            "sem_dados": True, "falha_comunicacao": False,
+            "stringbox": plant["nome"].strip() in STRING_BOX}
     try:
         records = requests.post(f"{BASE_URL}/day_inverter",
                                 headers={"x-access-token": token},
@@ -2232,6 +2267,7 @@ _TICKETS_CANDS = [p for p in [
 ] if p]
 TICKETS_TRK    = {}     # usina_norm → {"nums": {int: status}, "statuses": set}
 _tickets_mtime = 0.0
+_tickets_lock  = threading.Lock()
 
 
 def _tk_norm(s) -> str:
