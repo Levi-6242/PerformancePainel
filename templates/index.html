@@ -805,8 +805,6 @@
     <button class="gc-btn-export" id="btn-ger-export" onclick="exportPgGeracao()">📥 Exportar Excel</button>
   </div>
   <div class="gc-bar-right" id="bar-trackers" style="display:none">
-    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)">Data
-      <input class="gc-bar-search" type="date" id="trk-data" style="width:auto" onchange="trkDataChange()"></label>
     <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer">
       <input type="checkbox" id="trk-soalerta" style="accent-color:#ef4444;cursor:pointer" onchange="renderSoTrackers()"> só com alerta
     </label>
@@ -2335,6 +2333,7 @@ async function renderTrkDetail(pid){
   cell.innerHTML=`
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
       <button class="gc-btn-sm" style="display:inline-block" onclick="toggleGraficoTrackers('${pid}')">📈 Curva do dia</button>
+      <label style="font-size:11px;color:var(--muted)">Data <input type="date" id="trk-data-${cid}" value="${_trkHoje()}" onchange="trkChartReload('${pid}')" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
       <span style="font-size:11px;color:var(--muted)">Filtrar:</span>
       <button class="gc-btn-sm" style="display:inline-block" onclick="trkPreset('${pid}','ruins')">Ruins</button>
       <button class="gc-btn-sm" style="display:inline-block" onclick="trkPreset('${pid}','bons')">Bons</button>
@@ -2357,21 +2356,18 @@ function _trkChip(pid,t){
     style="border:1px solid ${cor};color:${cor};border-radius:8px;padding:3px 7px;font-size:11px;cursor:pointer;white-space:nowrap;opacity:${sel?1:0.3}"
     title="${t.status.toUpperCase()} · alvo ${t.alvo}° · atual ${t.atual}° · amplitude no dia ${amp} · disparidade atual ${disp} · máx do dia ${md}${tip} — clique p/ filtrar">${t.id}: ${disp}${mark}</span>`;
 }
-function _trkDateQS(){ const d=document.getElementById('trk-data'); return (d&&d.value)?('?date='+d.value):''; }
-async function trkDataChange(){
-  // data mudou → limpa o cache de curvas e re-busca os gráficos que estão abertos
-  Object.keys(trkChartCache).forEach(k=>delete trkChartCache[k]);
-  for(const box of document.querySelectorAll('[id^="trk-chart-"]')){
-    if(box.style.display==='none')continue;
-    const cid=box.id.replace('trk-chart-',''), real=trkRows.find(r=>_trkCss(r.plant_id)===cid);
-    if(!real)continue;
-    box.innerHTML='<div class="gc-loading" style="min-height:320px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
-    const pid=real.plant_id, ckey=pid+'|'+(document.getElementById('trk-data')?.value||'');
-    try{ trkChartCache[ckey]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart'+_trkDateQS()).then(r=>r.json()); }
-    catch(e){ trkChartCache[ckey]={trackers:[]}; }
-    trkChartCache[pid]=trkChartCache[ckey];
-    renderTrkChart(pid);
-  }
+function _trkHoje(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function _trkDataDe(pid){ const el=document.getElementById('trk-data-'+_trkCss(pid)); return (el&&el.value)?el.value:''; }
+async function trkChartReload(pid){
+  // data daquela usina mudou → re-busca a curva se ela estiver aberta
+  const box=document.getElementById('trk-chart-'+_trkCss(pid));
+  if(!box || box.style.display==='none')return;
+  box.innerHTML='<div class="gc-loading" style="min-height:320px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
+  const ds=_trkDataDe(pid), ckey=pid+'|'+ds;
+  try{ trkChartCache[ckey]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart'+(ds?('?date='+ds):'')).then(r=>r.json()); }
+  catch(e){ trkChartCache[ckey]={trackers:[]}; }
+  trkChartCache[pid]=trkChartCache[ckey];
+  renderTrkChart(pid);
 }
 async function toggleGraficoTrackers(pid){
   const box=document.getElementById('trk-chart-'+_trkCss(pid));
@@ -2379,9 +2375,9 @@ async function toggleGraficoTrackers(pid){
   if(box.style.display!=='none'){ box.style.display='none'; return; }   // fechar
   box.style.display='';
   box.innerHTML='<div class="gc-loading" style="min-height:320px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
-  const ckey=pid+'|'+(document.getElementById('trk-data')?.value||'');
+  const ds=_trkDataDe(pid), ckey=pid+'|'+ds;
   if(!trkChartCache[ckey]){
-    try{ trkChartCache[ckey]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart'+_trkDateQS()).then(r=>r.json()); }
+    try{ trkChartCache[ckey]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart'+(ds?('?date='+ds):'')).then(r=>r.json()); }
     catch(e){ trkChartCache[ckey]={trackers:[]}; }
   }
   trkChartCache[pid]=trkChartCache[ckey];   // renderTrkChart lê por pid
@@ -2401,21 +2397,25 @@ function renderTrkChart(pid){
   // ruins por cima (z-order) p/ não sumirem no feixe
   const ordem={parado:3,desvio:2,atraso:1};
   vis.sort((a,b)=>(ordem[stMap[a.id]]||0)-(ordem[stMap[b.id]]||0));
-  const traces=vis.map(t=>({x:t.x,y:t.y,name:t.id,type:'scatter',mode:'lines',
+  const _toDt=arr=>(arr||[]).map(s=>{const dt=new Date(s);return isNaN(dt)?s:dt;});   // RFC/ISO → Date (eixo de tempo)
+  const traces=vis.map(t=>({x:_toDt(t.x),y:t.y,name:t.id,type:'scatter',mode:'lines',
     line:corLinha(stMap[t.id]),hovertemplate:t.id+' ('+(stMap[t.id]||'normal')+'): %{y:.1f}°<extra></extra>',showlegend:false}));
-  if(d.alvo&&d.alvo.y&&d.alvo.y.length){traces.push({x:d.alvo.x,y:d.alvo.y,name:'Alvo',type:'scatter',mode:'lines',
+  if(d.alvo&&d.alvo.y&&d.alvo.y.length){traces.push({x:_toDt(d.alvo.x),y:d.alvo.y,name:'Alvo',type:'scatter',mode:'lines',
     line:{color:'#111827',width:2.2,dash:'dash'},hovertemplate:'Alvo: %{y:.1f}°<extra></extra>'});}
   const hint=document.getElementById('trk-hint-'+cid);
   if(hint)hint.textContent=`mostrando ${vis.length} de ${(d.trackers||[]).length}`;
   if(!traces.length){Plotly.purge(box);box.innerHTML='<p style="text-align:center;color:var(--muted);padding:40px 0">Nenhum tracker selecionado.</p>';return;}
   Plotly.purge(box); box.innerHTML='';   // remove o spinner / plot anterior antes de redesenhar
   Plotly.newPlot(box, traces, {
-    margin:{t:10,r:14,b:36,l:46},
-    xaxis:{title:'Hora', tickfont:{size:10}, nticks:12},
+    margin:{t:22,r:14,b:36,l:46},
+    xaxis:{title:'Hora', type:'date', tickformat:'%H:%M', hoverformat:'%H:%M', tickfont:{size:10}, nticks:12},
     yaxis:{title:'Ângulo (°)'},
     legend:{orientation:'h', y:1.15},
     font:{family:'Inter', size:11},
     plot_bgcolor:'#f8fafc', paper_bgcolor:'#fff',
+    annotations: d.date ? [{xref:'paper', yref:'paper', x:1, y:1.04, xanchor:'right', yanchor:'bottom',
+      text:'📅 '+d.date, showarrow:false, font:{size:12, color:'#374151'},
+      bgcolor:'#f3f4f6', bordercolor:'#d1d5db', borderwidth:1, borderpad:3}] : [],
   }, {displayModeBar:false, responsive:true});
 }
 function toggleTrkFiltro(pid,id,el){

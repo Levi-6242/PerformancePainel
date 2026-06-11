@@ -1,6 +1,7 @@
 import os
 import re
 import unicodedata
+import calendar
 import io
 import csv
 import time
@@ -31,6 +32,8 @@ except ImportError:
     pass
 
 app = Flask(__name__)
+app.config["TEMPLATES_AUTO_RELOAD"] = True   # relê o index.html sem precisar reiniciar o servidor
+app.jinja_env.auto_reload = True
 
 BASE_URL = "https://apipv.pvoperation.com.br/api/v1"
 USERNAME = os.environ.get("PV_USERNAME", "")
