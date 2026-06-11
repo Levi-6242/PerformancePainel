@@ -1222,7 +1222,7 @@
         <div class="gc-table-wrap">
           <table>
             <thead><tr>
-              <th>Usina</th><th>Trackers</th><th>Severos</th><th>Leves</th><th>Fora da linha</th><th>Pior disparidade</th><th>Última Leitura</th><th>Status</th>
+              <th>Usina</th><th>Trackers</th><th>Severos</th><th>Leves</th><th>Fora da linha</th><th title="Normais no tempo real, mas ainda como Parado/Com problema na planilha de Tickets">Normalizados</th><th>Pior disparidade</th><th>Última Leitura</th><th>Status</th>
             </tr></thead>
             <tbody id="trk-tbody"></tbody>
           </table>
@@ -2293,7 +2293,7 @@ function renderSoTrackers(){
   if(soAlerta) lista=lista.filter(r=>r.severos||r.leves||r.fora_media);
   if(trkOnlyNovos) lista=lista.filter(r=>(r.novos||0)>0);
   const tb=document.getElementById('trk-tbody'); tb.innerHTML='';
-  if(!lista.length){tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">Nenhuma usina.</td></tr>';return;}
+  if(!lista.length){tb.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px">Nenhuma usina.</td></tr>';return;}
   lista.forEach(r=>{
     const exp=trkExp.has(r.plant_id);
     const novoTag=(r.novos)?` <span class="badge b-err" title="${r.novos} fora da planilha de Tickets${r.ambiguo?' (usina agrupada na planilha — revisar)':''}">${r.novos} novo${r.novos>1?'s':''}</span>`:(r.tem_ticket?' <span class="badge b-ok" title="acompanhado na planilha">na planilha</span>':'');
@@ -2303,6 +2303,7 @@ function renderSoTrackers(){
       <td style="color:${r.severos?'#dc2626':'inherit'};font-weight:${r.severos?700:400}">${r.severos}</td>
       <td style="color:${r.leves?'#b45309':'inherit'}">${r.leves}</td>
       <td style="color:${r.fora_media?'#1d4ed8':'inherit'}">${r.fora_media}</td>
+      <td style="color:${r.normalizados?'#2563eb':'var(--muted)'};font-weight:${r.normalizados?700:400}" title="normais no tempo real, mas ainda na planilha como problema">${r.normalizados!=null?r.normalizados:'—'}</td>
       <td>${r.pior_disparidade!=null?r.pior_disparidade.toFixed(1)+'°':'—'}</td>
       <td>${r.ultima_leitura?r.ultima_leitura.slice(11,16):'—'}</td>
       <td>${_trkBadge(r)}</td>`;
@@ -2310,7 +2311,7 @@ function renderSoTrackers(){
     tb.appendChild(tr);
     if(exp){
       const det=document.createElement('tr');
-      det.innerHTML=`<td colspan="8" style="background:#fafbff;padding:8px 14px"><div id="trk-det-${_trkCss(r.plant_id)}" style="color:var(--muted);font-size:12px">Carregando trackers...</div></td>`;
+      det.innerHTML=`<td colspan="9" style="background:#fafbff;padding:8px 14px"><div id="trk-det-${_trkCss(r.plant_id)}" style="color:var(--muted);font-size:12px">Carregando trackers...</div></td>`;
       tb.appendChild(det);
       renderTrkDetail(r.plant_id);
     }
@@ -2351,7 +2352,8 @@ function _trkChip(pid,t){
   const cor=_trkCor(t.status), disp=t.disparidade!=null?t.disparidade.toFixed(1)+'°':'—';
   const amp=t.amplitude!=null?t.amplitude+'°':'—', md=t.max_disp!=null?t.max_disp+'°':'—';
   let mark='', tip='';
-  if(t.na_planilha){ mark=' <span style="color:#16a34a">✓</span>'; tip=' · NA PLANILHA'+(t.ticket_status?(' ('+t.ticket_status+')'):''); }
+  if(t.normalizado){ mark=' <span style="color:#2563eb;font-weight:700">✓</span>'; tip=' · NORMALIZADO (normal agora, mas ainda como '+(t.ticket_status||'problema')+' na planilha)'; }
+  else if(t.na_planilha){ mark=' <span style="color:#16a34a">✓</span>'; tip=' · NA PLANILHA'+(t.ticket_status?(' ('+t.ticket_status+')'):''); }
   else if(t.status==='desvio'||t.status==='atraso'){ mark=' <span style="color:#b91c1c;font-weight:700">novo</span>'; tip=' · FORA DA PLANILHA (novo)'; }
   return `<span data-tid="${t.id}" onclick="toggleTrkFiltro('${pid}','${t.id}',this)"
     style="border:1px solid ${cor};color:${cor};border-radius:8px;padding:3px 7px;font-size:11px;cursor:pointer;white-space:nowrap;opacity:${sel?1:0.3}"

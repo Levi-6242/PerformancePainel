@@ -2372,11 +2372,15 @@ def _pv_trackers_analise(idusina, nome_disp, date=None) -> dict:
     # Cruzamento com a planilha de Tickets (nome da usina + nº do tracker)
     tick, ambiguo = _tickets_lookup(_tk_norm(nome_disp))
     nums = (tick or {}).get("nums", {})
-    novos = acomp = 0
+    novos = acomp = normalizados = 0
     for t in lst:
         ts = nums.get(_pv_trk_num(t["id"]))
         t["na_planilha"] = ts is not None
         t["ticket_status"] = ts
+        # Normalizado = está NORMAL no tempo real mas a planilha lista como problema
+        t["normalizado"] = bool(t["na_planilha"] and t["status"] == "normal")
+        if t["normalizado"]:
+            normalizados += 1
         if t["status"] in ("desvio", "atraso"):           # anômalo no tempo real
             if t["na_planilha"]:
                 acomp += 1
@@ -2392,7 +2396,7 @@ def _pv_trackers_analise(idusina, nome_disp, date=None) -> dict:
                  "media_angulo": round(sum(atuais) / len(atuais), 1) if atuais else None,
                  "ultima_leitura": (j.get("ultimaLeitura") or None), "trackers": lst,
                  "tem_ticket": tick is not None, "ambiguo": ambiguo,
-                 "novos": novos, "acompanhados": acomp})
+                 "novos": novos, "acompanhados": acomp, "normalizados": normalizados})
     return base
 
 
@@ -2423,7 +2427,7 @@ def api_pv_trackers():
                     _pv_trk_plant[r["plant_id"]] = {"ts": agora, "payload": r}
                     rows.append({k: r[k] for k in ("plant_id", "usina", "total", "severos", "leves",
                                  "fora_media", "pior_disparidade", "ultima_leitura", "media_angulo",
-                                 "novos", "acompanhados", "tem_ticket", "ambiguo")})
+                                 "novos", "acompanhados", "normalizados", "tem_ticket", "ambiguo")})
             except Exception:
                 pass
     # ordena: mais NOVOS (fora da planilha) no topo, depois severidade
@@ -2433,7 +2437,8 @@ def api_pv_trackers():
                            "severos": sum(r["severos"] for r in rows),
                            "leves": sum(r["leves"] for r in rows),
                            "novos": sum(r.get("novos") or 0 for r in rows),
-                           "acompanhados": sum(r.get("acompanhados") or 0 for r in rows)},
+                           "acompanhados": sum(r.get("acompanhados") or 0 for r in rows),
+                           "normalizados": sum(r.get("normalizados") or 0 for r in rows)},
                "cache_ts": datetime.now().strftime("%H:%M:%S")}
     _pv_trk_cache["payload"] = payload; _pv_trk_cache["ts"] = agora
     return jsonify(payload)
