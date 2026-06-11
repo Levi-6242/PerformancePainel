@@ -773,11 +773,11 @@
 <div class="gc-secondary-bar">
   <div class="gc-secondary-tabs">
     <button class="gc-secondary-tab active" id="stab-strings" onclick="switchSecondary('strings')">Strings</button>
-    <button class="gc-secondary-tab" id="stab-etm" onclick="switchSecondary('etm')">🔎 ETM</button>
-    <button class="gc-secondary-tab" id="stab-geracao" style="display:none" onclick="switchSecondary('geracao')">📊 Geração</button>
-    <button class="gc-secondary-tab" id="stab-trackers" style="display:none" onclick="switchSecondary('trackers')">🛰️ Trackers</button>
-    <button class="gc-secondary-tab" id="stab-pr" style="display:none" onclick="switchSecondary('pr')">📊 PR Inversores</button>
-    <button class="gc-secondary-tab" id="stab-curvastr" style="display:none" onclick="switchSecondary('curvastr')">📈 Curva das strings</button>
+    <button class="gc-secondary-tab" id="stab-etm" onclick="switchSecondary('etm')">ETM</button>
+    <button class="gc-secondary-tab" id="stab-geracao" style="display:none" onclick="switchSecondary('geracao')">Geração</button>
+    <button class="gc-secondary-tab" id="stab-trackers" style="display:none" onclick="switchSecondary('trackers')">Trackers</button>
+    <button class="gc-secondary-tab" id="stab-pr" style="display:none" onclick="switchSecondary('pr')">PR Inversores</button>
+    <button class="gc-secondary-tab" id="stab-curvastr" style="display:none" onclick="switchSecondary('curvastr')">Curva das strings</button>
   </div>
   <div class="gc-bar-right" id="bar-strings">
     <button class="gc-btn-sm" id="btn-ocultas" onclick="abrirModalOcultas()">👁 Ocultas (<span id="count-ocultas">0</span>)</button>
@@ -805,6 +805,8 @@
     <button class="gc-btn-export" id="btn-ger-export" onclick="exportPgGeracao()">📥 Exportar Excel</button>
   </div>
   <div class="gc-bar-right" id="bar-trackers" style="display:none">
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)">Data
+      <input class="gc-bar-search" type="date" id="trk-data" style="width:auto" onchange="trkDataChange()"></label>
     <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer">
       <input type="checkbox" id="trk-soalerta" style="accent-color:#ef4444;cursor:pointer" onchange="renderSoTrackers()"> só com alerta
     </label>
@@ -2328,16 +2330,34 @@ function _trkChip(pid,t){
     style="border:1px solid ${cor};color:${cor};border-radius:8px;padding:3px 7px;font-size:11px;cursor:pointer;white-space:nowrap;opacity:${sel?1:0.3}"
     title="${t.status.toUpperCase()} · alvo ${t.alvo}° · atual ${t.atual}° · amplitude no dia ${t.amplitude}° · disparidade atual ${disp} · máx do dia ${t.max_disp!=null?t.max_disp+'°':'—'} — clique p/ filtrar">${t.id}: ${disp}</span>`;
 }
+function _trkDateQS(){ const d=document.getElementById('trk-data'); return (d&&d.value)?('?date='+d.value):''; }
+async function trkDataChange(){
+  // data mudou → limpa o cache de curvas e re-busca os gráficos que estão abertos
+  Object.keys(trkChartCache).forEach(k=>delete trkChartCache[k]);
+  for(const box of document.querySelectorAll('[id^="trk-chart-"]')){
+    if(box.style.display==='none')continue;
+    const cid=box.id.replace('trk-chart-',''), real=trkRows.find(r=>_trkCss(r.plant_id)===cid);
+    if(!real)continue;
+    box.innerHTML='<div class="gc-loading" style="min-height:320px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
+    const pid=real.plant_id, ckey=pid+'|'+(document.getElementById('trk-data')?.value||'');
+    try{ trkChartCache[ckey]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart'+_trkDateQS()).then(r=>r.json()); }
+    catch(e){ trkChartCache[ckey]={trackers:[]}; }
+    trkChartCache[pid]=trkChartCache[ckey];
+    renderTrkChart(pid);
+  }
+}
 async function toggleGraficoTrackers(pid){
   const box=document.getElementById('trk-chart-'+_trkCss(pid));
   if(!box)return;
   if(box.style.display!=='none'){ box.style.display='none'; return; }   // fechar
   box.style.display='';
   box.innerHTML='<div class="gc-loading" style="min-height:320px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
-  if(!trkChartCache[pid]){
-    try{ trkChartCache[pid]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart').then(r=>r.json()); }
-    catch(e){ trkChartCache[pid]={trackers:[]}; }
+  const ckey=pid+'|'+(document.getElementById('trk-data')?.value||'');
+  if(!trkChartCache[ckey]){
+    try{ trkChartCache[ckey]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart'+_trkDateQS()).then(r=>r.json()); }
+    catch(e){ trkChartCache[ckey]={trackers:[]}; }
   }
+  trkChartCache[pid]=trkChartCache[ckey];   // renderTrkChart lê por pid
   renderTrkChart(pid);
 }
 function renderTrkChart(pid){
