@@ -4705,7 +4705,7 @@ def api_spv_pdf():
                 if len(invs) > CHUNK:
                     fig.text(0.5, 0.892, f"Inversores {ini+1}–{ini+len(grupo)} de {len(invs)}",
                              color="#94a3b8", fontsize=8, ha="center", style="italic")
-                gs = fig.add_gridspec(2, CHUNK, height_ratios=[2.5, 1.5], hspace=0.34, wspace=0.28,
+                gs = fig.add_gridspec(2, CHUNK, height_ratios=[2.0, 1.6], hspace=0.40, wspace=0.28,
                                       left=0.052, right=0.975, top=0.85, bottom=0.09)
                 for j in range(CHUNK):
                     axc = fig.add_subplot(gs[0, j]); axt = fig.add_subplot(gs[1, j]); axt.axis("off")
@@ -4719,6 +4719,12 @@ def api_spv_pdf():
                         (pc.x1 - pc.x0) + 0.026, (pc.y1 - ptx.y0) + 0.052,
                         boxstyle="round,pad=0,rounding_size=0.012", transform=fig.transFigure,
                         facecolor="#fbfcfe", edgecolor="#e6e9f0", linewidth=0.9, zorder=-3))
+                    # faixa colorida no topo do card (estilo border-top dos cards do ETM)
+                    _cx0 = pc.x0 - 0.013; _cw = (pc.x1 - pc.x0) + 0.026
+                    _ctop = (ptx.y0 - 0.016) + (pc.y1 - ptx.y0) + 0.052
+                    fig.add_artist(Rectangle((_cx0 + 0.006, _ctop - 0.007), _cw - 0.012, 0.005,
+                                   transform=fig.transFigure, facecolor=(RED if iv["abaixo"] else OK),
+                                   edgecolor="none", zorder=-2))
                     subnames = {s["nome"] for s in iv["strings"] if s["sub"]}
                     xs = next(iter(iv["curva"].values()))["x"] if iv["curva"] else []
                     for st, c in iv["curva"].items():                    # normais ao fundo
@@ -4737,9 +4743,9 @@ def api_spv_pdf():
                         step = max(1, len(xs) // 4)
                         axc.set_xticks(range(0, len(xs), step)); axc.set_xticklabels(xs[::step], fontsize=6.5)
                     if j == 0:
-                        axc.set_ylabel("Potência (kW)", fontsize=8)
+                        axc.set_ylabel("Corrente (A)", fontsize=8)
                     # ── Observações do inversor ──────────────────────────────
-                    status = f"med {iv['mediana']} kWh    ·    " + (f"{iv['abaixo']} abaixo" if iv["abaixo"] else "OK")
+                    status = f"med {iv['mediana']}    ·    " + (f"{iv['abaixo']} abaixo" if iv["abaixo"] else "OK")
                     axt.text(0, 1.0, status, transform=axt.transAxes, va="top", ha="left",
                              fontsize=8, fontweight="bold", color=RED if iv["abaixo"] else OK)
                     outs = ", ".join(f"{s['nome']} {s['pct']}%" for s in iv["strings"] if s["sub"]) or "nenhum"
