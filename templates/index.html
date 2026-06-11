@@ -1689,8 +1689,8 @@ function appendPvInvs(tb,pid,invs){
     const ik=`${pid}-${inv.id}`,isE=pvInvExp.has(ik);
     const tr=document.createElement('tr');tr.className='inv-header-row';tr.dataset.pvp=pid;tr.dataset.pvik=ik;
     if(inv.diferenca!=null&&inv.diferenca<0)tr.classList.add('inv-diff');
-    const sc=inv.desligado?'b-none':inv.falha_comunicacao?'b-comm':inv.strings_ativas===0?'b-err':'b-ok';
-    const st=inv.desligado?'⚫ Desligado':inv.falha_comunicacao?'📡 Falha':inv.strings_ativas===0?'Sem geração':'Normal';
+    const sc=inv.desligado?'b-none':inv.falha_comunicacao?'b-comm':inv.strings_ativas===0?'b-err':inv.diferenca<0?'b-string':'b-ok';
+    const st=inv.desligado?'⚫ Desligado':inv.falha_comunicacao?'📡 Falha':inv.strings_ativas===0?'Sem geração':inv.diferenca<0?`⚡ ${-inv.diferenca} faltando`:'Normal';
     const {sty,txt}=difCell(inv.diferenca);
     const leit=inv.ultima_leitura?inv.ultima_leitura.slice(0,16).replace('T',' '):'—';
     tr.innerHTML=`<td><b><span class="chevron${isE?' open':''}">▶</span>${inv.nome}</b> <span style="color:var(--muted);font-size:10px;margin-left:5px">${inv.eday!=null?inv.eday+' kWh':'—'}</span></td>
@@ -1822,8 +1822,8 @@ function appendSoInvs(tb,pid,invs){
     const ik=`${pid}-${inv.id}`,isE=soInvExp.has(ik);
     const tr=document.createElement('tr');tr.className='inv-header-row';tr.dataset.sop=pid;tr.dataset.soik=ik;
     if(inv.diferenca!=null&&inv.diferenca<0)tr.classList.add('inv-diff');
-    const sc=inv.desligado?'b-none':inv.falha_comunicacao?'b-comm':inv.strings_ativas===0?'b-err':'b-ok';
-    const st=inv.desligado?'⚫ Desligado':inv.falha_comunicacao?'📡 Falha':inv.strings_ativas===0?'Sem geração':'Normal';
+    const sc=inv.desligado?'b-none':inv.falha_comunicacao?'b-comm':inv.strings_ativas===0?'b-err':inv.diferenca<0?'b-string':'b-ok';
+    const st=inv.desligado?'⚫ Desligado':inv.falha_comunicacao?'📡 Falha':inv.strings_ativas===0?'Sem geração':inv.diferenca<0?`⚡ ${-inv.diferenca} faltando`:'Normal';
     const {sty,txt}=difCell(inv.diferenca);
     const leit=inv.ultima_leitura?inv.ultima_leitura.slice(0,16).replace('T',' '):'—';
     tr.innerHTML=`<td><b><span class="chevron${isE?' open':''}">▶</span>${inv.nome}</b> <span style="color:var(--muted);font-size:10px;margin-left:5px">${inv.eday!=null?inv.eday+' kWh':'—'}</span></td>
