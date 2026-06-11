@@ -3552,7 +3552,15 @@ def api_state_comment():
 # ══ FONTE E-MAIL (Owen) — CSVs SCADA via Gmail (ARA/IPX/STL/TUP) ═══════════════
 #   Formato longo: Point name,Time,Value,Rendered,Annotation (latin-1).
 #   Point name codifica UFV + dispositivo + medida. Acumula os CSVs das pastas.
-OWEN_ROOT = os.environ.get("OWEN_ROOT", r"C:\Users\Levi Maia\Desktop\Projetos e-mail")
+# Pasta dos CSVs do 2C — resolve entre candidatos (o Desktop fica DENTRO do OneDrive,
+# então a pasta real é a "irmã" do projeto em ...\temp\Projetos e-mail).
+_OWEN_CANDS = [p for p in [
+    os.environ.get("OWEN_ROOT"),
+    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Projetos e-mail"),
+    os.path.join(os.path.expanduser("~"), "Desktop", "Projetos e-mail"),
+    os.path.join(os.path.expanduser("~"), "OneDrive - GRID CO", "Área de Trabalho", "temp", "Projetos e-mail"),
+] if p]
+OWEN_ROOT = next((p for p in _OWEN_CANDS if os.path.isdir(p)), _OWEN_CANDS[-1])
 OWEN_UFVS = {"ARA": "Araputanga", "IPX": "Ipixuna do Pará",
              "STL": "Sete Lagoas 2", "TUP": "Tupi Paulista"}   # fallback (código→nome)
 
