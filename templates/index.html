@@ -1207,6 +1207,11 @@
         <div class="gc-stat red">   <div class="gc-stat-icon">⚠️</div><div class="gc-stat-body"><div class="n" id="trk-sev">—</div><div class="l">Disparidade severa</div></div></div>
         <div class="gc-stat yellow"><div class="gc-stat-icon">↪️</div><div class="gc-stat-body"><div class="n" id="trk-leve">—</div><div class="l">Disparidade leve</div></div></div>
       </div>
+      <div id="trk-novos-banner" style="display:none;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px">
+        <b style="color:#b91c1c">⚠️ <span id="trk-novos-n">0</span> tracker(s) em alerta FORA da planilha de Tickets</b>
+        <span style="color:#6b7280"> · <span id="trk-acomp-n">0</span> já acompanhado(s) na planilha de Tickets.</span>
+        <button class="gc-btn-sm" id="trk-novos-btn" style="background:#b91c1c;color:#fff;margin-left:8px;display:inline-block" onclick="trkToggleNovos()">Ver só os novos</button>
+      </div>
       <div class="gc-table-card">
         <div class="gc-table-hdr">
           <span class="gc-table-title"><span id="trk-title-src">SunOp</span> — Trackers por Usina <small>— clique para expandir; disparidade = |alvo − atual|</small></span>
@@ -2252,10 +2257,26 @@ async function loadSoTrackers(force){
     document.getElementById('trk-total').textContent=d.summary.trackers;
     document.getElementById('trk-sev').textContent=d.summary.severos;
     document.getElementById('trk-leve').textContent=d.summary.leves;
+    // Banner de NOVOS (fora da planilha de Tickets) — só na API PV
+    const ban=document.getElementById('trk-novos-banner');
+    if(ban){
+      if(primary==='pv' && d.summary.novos!=null){
+        ban.style.display='';
+        document.getElementById('trk-novos-n').textContent=d.summary.novos;
+        document.getElementById('trk-acomp-n').textContent=d.summary.acompanhados||0;
+      } else { ban.style.display='none'; trkOnlyNovos=false; }
+    }
     renderSoTrackers();
     document.getElementById('trk-load').style.display='none';
     document.getElementById('trk-cont').style.display='';
   }catch(e){ document.getElementById('trk-load').innerHTML='<p style="color:#dc2626">Erro: '+e.message+'</p>'; }
+}
+let trkOnlyNovos=false;
+function trkToggleNovos(){
+  trkOnlyNovos=!trkOnlyNovos;
+  const b=document.getElementById('trk-novos-btn');
+  if(b){b.textContent=trkOnlyNovos?'Mostrar todas':'Ver só os novos';b.style.opacity=trkOnlyNovos?1:.85;}
+  renderSoTrackers();
 }
 function _trkBadge(r){
   if(r.severos) return '<span class="badge b-err">Severo</span>';
@@ -2271,12 +2292,14 @@ function renderSoTrackers(){
   const soAlerta=document.getElementById('trk-soalerta').checked;
   let lista=trkRows.filter(r=>!f||r.usina.toLowerCase().includes(f));
   if(soAlerta) lista=lista.filter(r=>r.severos||r.leves||r.fora_media);
+  if(trkOnlyNovos) lista=lista.filter(r=>(r.novos||0)>0);
   const tb=document.getElementById('trk-tbody'); tb.innerHTML='';
   if(!lista.length){tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">Nenhuma usina.</td></tr>';return;}
   lista.forEach(r=>{
     const exp=trkExp.has(r.plant_id);
+    const novoTag=(r.novos)?` <span class="badge b-err" title="${r.novos} fora da planilha de Tickets${r.ambiguo?' (usina agrupada na planilha — revisar)':''}">${r.novos} novo${r.novos>1?'s':''}</span>`:(r.tem_ticket?' <span class="badge b-ok" title="acompanhado na planilha">na planilha</span>':'');
     const tr=document.createElement('tr'); tr.className='plant-row'; tr.style.cursor='pointer';
-    tr.innerHTML=`<td>${exp?'▾':'▸'} ${r.usina}</td>
+    tr.innerHTML=`<td>${exp?'▾':'▸'} ${r.usina}${novoTag}</td>
       <td>${r.total}</td>
       <td style="color:${r.severos?'#dc2626':'inherit'};font-weight:${r.severos?700:400}">${r.severos}</td>
       <td style="color:${r.leves?'#b45309':'inherit'}">${r.leves}</td>
@@ -2326,9 +2349,13 @@ async function renderTrkDetail(pid){
 function _trkChip(pid,t){
   const sel=trkSel[pid]?trkSel[pid].has(t.id):true;
   const cor=_trkCor(t.status), disp=t.disparidade!=null?t.disparidade.toFixed(1)+'°':'—';
+  const amp=t.amplitude!=null?t.amplitude+'°':'—', md=t.max_disp!=null?t.max_disp+'°':'—';
+  let mark='', tip='';
+  if(t.na_planilha){ mark=' <span style="color:#16a34a">✓</span>'; tip=' · NA PLANILHA'+(t.ticket_status?(' ('+t.ticket_status+')'):''); }
+  else if(t.status==='desvio'||t.status==='atraso'){ mark=' <span style="color:#b91c1c;font-weight:700">novo</span>'; tip=' · FORA DA PLANILHA (novo)'; }
   return `<span data-tid="${t.id}" onclick="toggleTrkFiltro('${pid}','${t.id}',this)"
     style="border:1px solid ${cor};color:${cor};border-radius:8px;padding:3px 7px;font-size:11px;cursor:pointer;white-space:nowrap;opacity:${sel?1:0.3}"
-    title="${t.status.toUpperCase()} · alvo ${t.alvo}° · atual ${t.atual}° · amplitude no dia ${t.amplitude}° · disparidade atual ${disp} · máx do dia ${t.max_disp!=null?t.max_disp+'°':'—'} — clique p/ filtrar">${t.id}: ${disp}</span>`;
+    title="${t.status.toUpperCase()} · alvo ${t.alvo}° · atual ${t.atual}° · amplitude no dia ${amp} · disparidade atual ${disp} · máx do dia ${md}${tip} — clique p/ filtrar">${t.id}: ${disp}${mark}</span>`;
 }
 function _trkDateQS(){ const d=document.getElementById('trk-data'); return (d&&d.value)?('?date='+d.value):''; }
 async function trkDataChange(){

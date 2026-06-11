@@ -1,5 +1,6 @@
 import os
 import re
+import unicodedata
 import io
 import csv
 import time
@@ -309,9 +310,158 @@ def maybe_reload_equipamentos():
             return
         print("[BD] BD_Performance alterado -> recarregando cadastro (esperadas/nomes/Full O&M/potência)...")
         load_equipamentos()
+        load_metas()
+
+
+# ── Metas / previsto: BD_Performance, abas "Info Geral" e "Info Mensal" ───────
+# Espelha as queries M do Power BI (InfoGeral / InfoMensal). São a fonte das METAS
+# usadas para comparar a performance ao vivo:
+#   • Info Geral  → potência da UFV, nº de inversores, P50, perdas por degradação (por usina)
+#   • Info Mensal → PR Previsto 1° Ano (%) e IPOA/GHI Previsto (por usina × mês)
+# Regra do Power BI: PR Previsto (%) = PR Previsto 1° Ano (%) + Perdas por degradação.
+# Chave de join = nome de EXIBIÇÃO da usina (coluna "Usina", ex.: "Araputanga"),
+# o mesmo que nome_usina()/USINA_DISPLAY devolvem para o lado ao vivo.
+INFO_GERAL    = {}   # {usina_nrm: {usina, cliente, potencia_kwp, potencia_mwp, degradacao, qtd_inv, p50_mwh}}
+PR_PREVISTO   = {}   # {usina_nrm: {(ano, mes): {pr_previsto, pr_previsto_1ano, ipoa_previsto, ghi_previsto, p50_mwh, disp_alvo}}}
+_metas_mtime  = 0.0
+
+
+def _unaccent(s) -> str:
+    return "".join(c for c in unicodedata.normalize("NFKD", str(s)) if not unicodedata.combining(c))
+
+
+def _col(cols, *needles, exclude=()):
+    """Acha a 1ª coluna cujo nome (sem acento, minúsculo) contém todos os `needles`
+    e nenhum dos `exclude`. Robusto a acentos/variações de cabeçalho da planilha."""
+    nd = [_unaccent(n).lower() for n in needles]
+    ex = [_unaccent(e).lower() for e in exclude]
+    for c in cols:
+        cl = _unaccent(c).lower()
+        if all(n in cl for n in nd) and not any(e in cl for e in ex):
+            return c
+    return None
+
+
+def _num(v):
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f == f else None   # descarta NaN
+
+
+def load_metas():
+    """(Re)carrega as METAS das abas 'Info Geral' e 'Info Mensal' do BD_Performance.
+    Preenche INFO_GERAL (por usina) e PR_PREVISTO (por usina × mês). Mesma fonte do
+    cadastro, então é recarregada junto pelo mtime."""
+    global INFO_GERAL, PR_PREVISTO, _metas_mtime
+    try:
+        path = _bd_perf_path()
+
+        # --- Info Geral (cabeçalho na 1ª linha) ---
+        dg = pd.read_excel(path, sheet_name="Info Geral", header=0)
+        dg.columns = [str(c).strip() for c in dg.columns]
+        gc_us  = _col(dg.columns, "usina")
+        gc_kwp = _col(dg.columns, "potencia", "kwp")
+        gc_mwp = _col(dg.columns, "potencia", "mwp")
+        gc_deg = _col(dg.columns, "degrada")
+        gc_inv = _col(dg.columns, "quantidade", "inversor")
+        gc_p50 = _col(dg.columns, "p50")
+        gc_cli = _col(dg.columns, "cliente")
+        info = {}
+        for _, r in dg.iterrows():
+            if not gc_us or pd.isna(r[gc_us]):
+                continue
+            u = str(r[gc_us]).strip()
+            if not u:
+                continue
+            info[_nrm(u)] = {
+                "usina":        u,
+                "cliente":      str(r[gc_cli]).strip() if gc_cli and pd.notna(r[gc_cli]) else None,
+                "potencia_kwp": _num(r[gc_kwp]) if gc_kwp else None,
+                "potencia_mwp": _num(r[gc_mwp]) if gc_mwp else None,
+                "degradacao":   (_num(r[gc_deg]) or 0.0) if gc_deg else 0.0,
+                "qtd_inv":      _num(r[gc_inv]) if gc_inv else None,
+                "p50_mwh":      _num(r[gc_p50]) if gc_p50 else None,
+            }
+
+        # --- Info Mensal (cabeçalho na 2ª linha; 1ª coluna é índice em branco) ---
+        dm = pd.read_excel(path, sheet_name="Info Mensal", header=1)
+        dm.columns = [str(c).strip() for c in dm.columns]
+        mc_us   = _col(dm.columns, "usina")
+        mc_mes  = _col(dm.columns, "mes", exclude=("comenta",))
+        mc_pr   = _col(dm.columns, "pr previsto")
+        mc_ipoa = _col(dm.columns, "ipoa", "previsto")
+        mc_ghi  = _col(dm.columns, "ghi", "previsto")
+        mc_p50  = _col(dm.columns, "p50")
+        mc_disp = _col(dm.columns, "disponibilidade")
+        prev = {}
+        for _, r in dm.iterrows():
+            if not mc_us or pd.isna(r[mc_us]) or not mc_mes or pd.isna(r[mc_mes]):
+                continue
+            u = str(r[mc_us]).strip()
+            ts = pd.to_datetime(r[mc_mes], errors="coerce", dayfirst=True)
+            if pd.isna(ts):
+                continue
+            deg = info.get(_nrm(u), {}).get("degradacao", 0.0) or 0.0
+            pr1 = _num(r[mc_pr]) if mc_pr else None
+            prev.setdefault(_nrm(u), {})[(ts.year, ts.month)] = {
+                "pr_previsto":      (pr1 + deg) if pr1 is not None else None,   # = regra do Power BI
+                "pr_previsto_1ano": pr1,
+                "ipoa_previsto":    _num(r[mc_ipoa]) if mc_ipoa else None,
+                "ghi_previsto":     _num(r[mc_ghi]) if mc_ghi else None,
+                "p50_mwh":          _num(r[mc_p50]) if mc_p50 else None,
+                "disp_alvo":        _num(r[mc_disp]) if mc_disp else None,
+            }
+
+        INFO_GERAL, PR_PREVISTO = info, prev
+        try:
+            _metas_mtime = os.path.getmtime(path)
+        except OSError:
+            _metas_mtime = 0.0
+        print(f"[OK] BD_Performance/Info Geral+Mensal: {len(info)} usinas | "
+              f"{sum(len(v) for v in prev.values())} linhas mensais de meta")
+    except Exception as e:
+        print(f"[AVISO] BD_Performance (Info Geral/Mensal) não carregado: {e}")
+
+
+def info_geral(usina_display):
+    """Metadados da UFV (potência, P50, degradação) pelo nome de exibição. None se ausente."""
+    return INFO_GERAL.get(_nrm(usina_display)) if usina_display else None
+
+
+def pr_previsto(usina_display, ano=None, mes=None):
+    """PR Previsto (fração, já com degradação) da usina no mês. Sem ano/mês usa o mês atual.
+    Faz fallback para o mesmo mês de outro ano, ou a meta mais recente, se faltar o exato."""
+    d = PR_PREVISTO.get(_nrm(usina_display)) if usina_display else None
+    if not d:
+        return None
+    if ano is None or mes is None:
+        hoje = datetime.now()
+        ano, mes = hoje.year, hoje.month
+    rec = d.get((ano, mes))
+    if rec is None:
+        mesmo_mes = [v for (y, m), v in d.items() if m == mes]
+        rec = mesmo_mes[-1] if mesmo_mes else d[max(d)]
+    return rec
+
+
+def geracao_alvo_mwh(usina_display, ipoa, ano=None, mes=None):
+    """Geração alvo (MWh) = IPOA × PR Previsto × Potência (MWp) — fórmula do Power BI.
+    Passe o IPOA acumulado até AGORA para obter a meta proporcional ao dia parcial."""
+    g = info_geral(usina_display)
+    rec = pr_previsto(usina_display, ano, mes)
+    if not g or not rec or ipoa is None:
+        return None
+    pot = g.get("potencia_mwp")
+    pr  = rec.get("pr_previsto")
+    if pot is None or pr is None:
+        return None
+    return ipoa * pr * pot
 
 
 load_equipamentos()   # carga inicial do cadastro mestre
+load_metas()          # carga inicial das metas (Info Geral / Info Mensal)
 
 
 @app.before_request
@@ -320,6 +470,21 @@ def _auto_reload_bd():
     Robusto independente da versão do frontend em cache no navegador."""
     if flask_request.args.get("force") == "1":
         maybe_reload_equipamentos()
+        maybe_reload_tickets()
+
+
+def maybe_reload_tickets():
+    """Recarrega a planilha de Tickets se ela mudou (verificação barata por mtime)."""
+    path = _tickets_path()
+    if not path:
+        return
+    try:
+        m = os.path.getmtime(path)
+    except OSError:
+        return
+    if m != _tickets_mtime:
+        print("[Tickets] planilha alterada -> recarregando ocorrências...")
+        load_tickets_trackers()
 
 
 def nome_usina(plant_id, nome_api):
@@ -2052,6 +2217,85 @@ def _pv_trk_num(nome) -> int:
         return 999
 
 
+# ── Tickets de Performance (aba Trackers): ocorrências JÁ acompanhadas ─────────
+#   Cruza com o tempo real p/ saber o que já está na planilha vs o que é NOVO.
+#   Ignora "Em conformidade". Casa por NOME da usina (sem "(NNN)") + nº do tracker.
+_TICKETS_REL = os.path.join("Grid Co_ - 4. O&M", "9.Pós Operação", "3. Análises de Performance",
+                            "Tickets de Performance (atualizada).xlsx")
+_TICKETS_CANDS = [p for p in [
+    os.environ.get("TICKETS_PATH"),
+    os.path.join(_OD_ROOT, _TICKETS_REL),
+    os.path.join(_OD_ROOT, "Área de Trabalho", _TICKETS_REL),
+] if p]
+TICKETS_TRK    = {}     # usina_norm → {"nums": {int: status}, "statuses": set}
+_tickets_mtime = 0.0
+
+
+def _tk_norm(s) -> str:
+    return re.sub(r"\(.*?\)", "", str(s)).strip().lower()
+
+
+def _tickets_path():
+    for p in _TICKETS_CANDS:
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def load_tickets_trackers():
+    """(Re)carrega a aba Trackers da planilha de Tickets (ocorrências não-conformes)."""
+    global TICKETS_TRK, _tickets_mtime
+    path = _tickets_path()
+    if not path:
+        print("[AVISO] Tickets de Performance não encontrada (cruzamento desativado)")
+        return
+    try:
+        df = pd.read_excel(path, sheet_name="Trackers", header=3)
+        df.columns = [str(c).strip() for c in df.columns]
+        c_us = next(c for c in df.columns if c.lower() == "usina")
+        c_st = next(c for c in df.columns if c.lower() == "status")
+        c_nt = next(c for c in df.columns if "tracker" in c.lower() and "identif" in c.lower())
+        m = {}
+        for _, row in df.iterrows():
+            st = str(row[c_st]).strip()
+            if not st or st.lower() in ("nan", "em conformidade"):
+                continue
+            u = _tk_norm(row[c_us])
+            if not u:
+                continue
+            try:
+                n = int(float(row[c_nt]))
+            except (TypeError, ValueError):
+                n = None
+            e = m.setdefault(u, {"nums": {}, "statuses": set()})
+            e["statuses"].add(st)
+            if n is not None:
+                e["nums"][n] = st
+        TICKETS_TRK = m
+        try:
+            _tickets_mtime = os.path.getmtime(path)
+        except OSError:
+            _tickets_mtime = 0.0
+        print(f"[OK] Tickets/Trackers: {len(m)} usinas com ocorrências (fora 'Em conformidade')")
+    except Exception as e:
+        print(f"[AVISO] Tickets/Trackers não carregado: {e}")
+
+
+def _tickets_lookup(plant_norm):
+    """→ (entrada|None, ambiguo). Casa exato por nome; senão por prefixo (usina agrupada
+    na planilha, ex.: 'altair' ⊂ 'altair 1') marcando ambíguo."""
+    e = TICKETS_TRK.get(plant_norm)
+    if e:
+        return e, False
+    for k, v in TICKETS_TRK.items():
+        if plant_norm == k or plant_norm.startswith(k + " "):
+            return v, True
+    return None, False
+
+
+load_tickets_trackers()   # carga inicial
+
+
 def _pv_trackers_analise(idusina, nome_disp, date=None) -> dict:
     """Analisa os trackers de UMA usina (estado atual da Plataforma): disparidade =
     |posAg - posAl| vs limiares (parametros). Formato compatível c/ a aba Trackers."""
@@ -2086,6 +2330,19 @@ def _pv_trackers_analise(idusina, nome_disp, date=None) -> dict:
                         "amplitude": None, "max_disp": round(disp, 2) if disp is not None else None,
                         "status": status})
     lst.sort(key=lambda x: _pv_trk_num(x["id"]))
+    # Cruzamento com a planilha de Tickets (nome da usina + nº do tracker)
+    tick, ambiguo = _tickets_lookup(_tk_norm(nome_disp))
+    nums = (tick or {}).get("nums", {})
+    novos = acomp = 0
+    for t in lst:
+        ts = nums.get(_pv_trk_num(t["id"]))
+        t["na_planilha"] = ts is not None
+        t["ticket_status"] = ts
+        if t["status"] in ("desvio", "atraso"):           # anômalo no tempo real
+            if t["na_planilha"]:
+                acomp += 1
+            else:
+                novos += 1
     desv = sum(1 for t in lst if t["status"] == "desvio")
     atr  = sum(1 for t in lst if t["status"] == "atraso")
     pior = max((t["disparidade"] for t in lst if t["disparidade"] is not None), default=None)
@@ -2094,7 +2351,9 @@ def _pv_trackers_analise(idusina, nome_disp, date=None) -> dict:
                  "sem_alvo": all(t["alvo"] is None for t in lst) if lst else False,
                  "pior_disparidade": round(pior, 2) if pior is not None else None,
                  "media_angulo": round(sum(atuais) / len(atuais), 1) if atuais else None,
-                 "ultima_leitura": (j.get("ultimaLeitura") or None), "trackers": lst})
+                 "ultima_leitura": (j.get("ultimaLeitura") or None), "trackers": lst,
+                 "tem_ticket": tick is not None, "ambiguo": ambiguo,
+                 "novos": novos, "acompanhados": acomp})
     return base
 
 
@@ -2124,17 +2383,40 @@ def api_pv_trackers():
                 if r.get("tem_trackers"):
                     _pv_trk_plant[r["plant_id"]] = {"ts": agora, "payload": r}
                     rows.append({k: r[k] for k in ("plant_id", "usina", "total", "severos", "leves",
-                                 "fora_media", "pior_disparidade", "ultima_leitura", "media_angulo")})
+                                 "fora_media", "pior_disparidade", "ultima_leitura", "media_angulo",
+                                 "novos", "acompanhados", "tem_ticket", "ambiguo")})
             except Exception:
                 pass
-    rows.sort(key=lambda x: (-(x["severos"] * 10 + x["leves"]), x["usina"]))
+    # ordena: mais NOVOS (fora da planilha) no topo, depois severidade
+    rows.sort(key=lambda x: (-(x.get("novos") or 0), -(x["severos"] * 10 + x["leves"]), x["usina"]))
     payload = {"rows": rows,
                "summary": {"usinas": len(rows), "trackers": sum(r["total"] for r in rows),
                            "severos": sum(r["severos"] for r in rows),
-                           "leves": sum(r["leves"] for r in rows)},
+                           "leves": sum(r["leves"] for r in rows),
+                           "novos": sum(r.get("novos") or 0 for r in rows),
+                           "acompanhados": sum(r.get("acompanhados") or 0 for r in rows)},
                "cache_ts": datetime.now().strftime("%H:%M:%S")}
     _pv_trk_cache["payload"] = payload; _pv_trk_cache["ts"] = agora
     return jsonify(payload)
+
+
+@app.route("/api/pv/trackers/alertas")
+def api_pv_trackers_alertas():
+    """Trackers anômalos no tempo real que NÃO estão na planilha de Tickets (= NOVOS).
+    Usa o cache do overview; chame /api/pv/trackers antes (ou force=1)."""
+    if not _pv_trk_cache["payload"]:
+        api_pv_trackers()                       # popula o cache
+    alertas = []
+    for idusina, ent in _pv_trk_plant.items():
+        p = ent["payload"]
+        for t in p.get("trackers", []):
+            if t["status"] in ("desvio", "atraso") and not t.get("na_planilha"):
+                alertas.append({"plant_id": idusina, "usina": p["usina"], "tracker": t["id"],
+                                "status": t["status"], "disparidade": t["disparidade"],
+                                "atual": t["atual"], "alvo": t["alvo"], "ambiguo": p.get("ambiguo")})
+    alertas.sort(key=lambda a: -(a["disparidade"] or 0))
+    return jsonify({"total": len(alertas), "alertas": alertas,
+                    "cache_ts": datetime.now().strftime("%H:%M:%S")})
 
 
 @app.route("/api/pv/trackers/<int:idusina>")
