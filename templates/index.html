@@ -2815,7 +2815,7 @@ function renderSpvUsina(id){
   const linhas=pd.inversores.filter(iv=>iv.abaixo).map(iv=>{
     const outs=iv.strings.filter(s=>s.sub).sort((a,b)=>a.pct-b.pct)
       .map(s=>`${s.nome} (${s.pct}%)`).join(', ');
-    return `<div style="margin:2px 0"><b>${iv.nome}</b> <span style="color:#9ca3af">·med ${iv.mediana}kWh·</span> ${outs}`
+    return `<div style="margin:2px 0"><b>${iv.nome}</b> <span style="color:#9ca3af">·med ${iv.mediana}·</span> ${outs}`
       +(iv.nota?` <span style="color:#7c3aed">— motivo: ${iv.nota.replace(/</g,'&lt;')}</span>`:'')+`</div>`;
   }).join('');
   const obs = pd.total_abaixo
@@ -2830,12 +2830,12 @@ function renderSpvUsina(id){
 }
 function _spvCard(id,iv){
   const cid=`${id}_${iv.id}`;
-  const chips=iv.strings.map(s=>`<span title="${s.energia} kWh"
+  const chips=iv.strings.map(s=>`<span title="índice de corrente: ${s.energia} (${s.pct}% da mediana)"
      style="font-size:10.5px;padding:2px 6px;border-radius:6px;white-space:nowrap;border:1px solid ${s.sub?'#dc2626':'#d1d5db'};color:${s.sub?'#dc2626':'#6b7280'};font-weight:${s.sub?700:400}">${s.nome}: ${s.pct}%</span>`).join(' ');
   return `<div style="border:1px solid ${iv.abaixo?'#fecaca':'#e5e7eb'};border-radius:10px;padding:10px 12px;background:#fff;min-width:0;overflow:hidden">
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
       <strong style="color:#16192a">${iv.nome}</strong>
-      <span style="font-size:11px;color:${iv.abaixo?'#dc2626':'#16a34a'};font-weight:600">${iv.abaixo?(iv.abaixo+' abaixo'):'OK'} · med ${iv.mediana} kWh</span>
+      <span style="font-size:11px;color:${iv.abaixo?'#dc2626':'#16a34a'};font-weight:600">${iv.abaixo?(iv.abaixo+' abaixo'):'OK'} · med ${iv.mediana} (índice)</span>
     </div>
     <div id="spv-chart-${cid}" style="width:100%;max-width:100%;height:200px;overflow:hidden"></div>
     <div style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0">${chips}</div>
@@ -2858,7 +2858,7 @@ function _spvPlot(id,iv){
   });
   Plotly.newPlot(el,traces,{autosize:true,margin:{l:38,r:10,t:6,b:28},showlegend:true,
     legend:{font:{size:9},orientation:'h',y:1.12},
-    xaxis:{tickfont:{size:8},nticks:6},yaxis:{title:{text:'kW',font:{size:9}},tickfont:{size:8}}},
+    xaxis:{tickfont:{size:8},nticks:6},yaxis:{title:{text:'Corrente (A)',font:{size:9}},tickfont:{size:8}}},
     {displayModeBar:false,responsive:true})
     .then(()=>{ try{Plotly.Plots.resize(el);}catch(e){} });
 }
