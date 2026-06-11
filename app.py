@@ -148,89 +148,92 @@ def _se_headers() -> dict:
     }
 
 
-# ── Carrega esperados da planilha Check Diário ────────────────────────────────
-# Estrutura nova:
-#   aba "Strings"   → esperadas por (Usina, Equipamento) display  [coluna "Strings Ativas"]
-#   aba "Strings 2" → mapa (Usina/Equipamento display) ↔ (Usina/Equip Supervisório) + Full O&M
-# ESPERADO_INV fica chaveado pelos nomes SUPERVISÓRIOS (que cada API usa),
-# puxando o valor esperado da aba "Strings" via os nomes display.
-# Check Diário: usa SEMPRE a versão ONLINE (OneDrive→SharePoint, master da equipe).
-# Fallback p/ a cópia local se o OneDrive não estiver sincronizado.
-_CHECK_ONLINE = os.environ.get("CHECK_PATH", os.path.join(
+# ── Cadastro mestre: BD_Performance, aba "Equipamentos" ───────────────────────
+# Fonte ÚNICA do cadastro (substitui a antiga planilha "Check Diário"):
+#   • Usina / Usina Supervisório         → nome de exibição da usina (USINA_DISPLAY)
+#   • Equipamento / Equip. Supervisório  → nome de exibição por inversor (EQUIP_NAMES)
+#   • Strings Ativas                     → esperadas por inversor (ESPERADO_INV / ESPERADO)
+#   • Full O&M                           → conjunto de usinas Full O&M (FULL_OM)
+#   • Potência (kWp)                     → potência por inversor (POWER_INV)
+# As chaves supervisório são exatamente os nomes que cada API usa (plant['nome'] / device_name).
+# Usa SEMPRE a versão ONLINE (OneDrive→SharePoint, master da equipe); fallback p/ cópia local.
+_BD_PERF_ONLINE = os.environ.get("BD_PERF_PATH", os.path.join(
     os.path.expanduser("~"), "OneDrive - GRID CO", "Grid Co_ - 4. O&M", "6.Gerencial",
-    "4. Gestão à vista", "1. Banco de Dados", "Check Diário - Geração e ETM.xlsx"))
-_CHECK_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                            "Check Diário - Geração e ETM.xlsx")
-STRINGS_PATH = _CHECK_ONLINE if os.path.exists(_CHECK_ONLINE) else _CHECK_LOCAL
+    "4. Gestão à vista", "1. Banco de Dados", "BD_Performance.xlsx"))
+_BD_PERF_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "BD_Performance.xlsx")
+BD_PERF_PATH = _BD_PERF_ONLINE if os.path.exists(_BD_PERF_ONLINE) else _BD_PERF_LOCAL
 
-# Globais preenchidas por load_check_spreadsheet() (recarregáveis em runtime)
-ESP_BY_DISPLAY = {}
-ESPERADO_INV   = {}   # {usina_sup: {equip_sup: str_esp}}
-EQUIP_NAMES    = {}   # {usina_sup: {equip_sup: equipamento_display}}
-USINA_DISPLAY  = {}   # {usina_sup: usina_display}
-ESPERADO       = {}
-FULL_OM        = set()
-_check_mtime   = 0.0
-_check_lock    = threading.Lock()
+# Globais preenchidas por load_equipamentos() (recarregáveis em runtime)
+ESPERADO_INV  = {}   # {usina_sup: {equip_sup: strings_esperadas}}
+EQUIP_NAMES   = {}   # {usina_sup: {equip_sup: equipamento_display}}
+USINA_DISPLAY = {}   # {usina_sup: usina_display}
+ESPERADO      = {}   # {usina_sup: {"inv_esp": n, "str_esp": soma}}
+FULL_OM       = set()
+POWER_INV     = {}   # {usina_sup: {alias_norm: potencia_kwp}}  alias = equip_sup e display
+_bd_mtime     = 0.0
+_bd_lock      = threading.Lock()
 
 
-def load_check_spreadsheet():
-    """(Re)carrega a planilha Check para as globais. Chamada na init e quando o arquivo muda."""
-    global ESP_BY_DISPLAY, ESPERADO_INV, EQUIP_NAMES, USINA_DISPLAY, ESPERADO, FULL_OM, _check_mtime
+def _nrm(s) -> str:
+    return re.sub(r"\s+", "", str(s)).strip().lower()
+
+
+def load_equipamentos():
+    """(Re)carrega TODO o cadastro a partir da aba 'Equipamentos' do BD_Performance:
+    esperadas (Strings Ativas), nomes de exibição, Full O&M e potência por inversor.
+    Chamada na init e sempre que o arquivo muda (mtime). Uma só leitura alimenta tudo."""
+    global ESPERADO_INV, EQUIP_NAMES, USINA_DISPLAY, ESPERADO, FULL_OM, POWER_INV, _bd_mtime
     try:
-        # 1) Esperadas por nome de exibição (aba "Strings")
-        _strg = pd.read_excel(STRINGS_PATH, sheet_name="Strings", header=1)
-        _strg.columns = [str(c).strip() for c in _strg.columns]
-        _su  = next(c for c in _strg.columns if c.lower() == "usina")
-        _eq  = next(c for c in _strg.columns if c.lower() == "equipamento")
-        _sa  = next(c for c in _strg.columns if "string" in c.lower())
-        esp_by_display = {}
-        for _, row in _strg.iterrows():
-            u = str(row[_su]).strip(); e = str(row[_eq]).strip(); v = row[_sa]
-            if u and e and pd.notna(v):
-                try:
-                    esp_by_display[(u, e)] = int(round(float(v)))
-                except (TypeError, ValueError):
-                    pass
+        df = pd.read_excel(BD_PERF_PATH, sheet_name="Equipamentos", header=2)
+        df.columns = [str(c).strip() for c in df.columns]
+        c_us   = next(c for c in df.columns if "supervis" in c.lower() and "usina" in c.lower())
+        c_usd  = next(c for c in df.columns if c.lower() == "usina")
+        c_es   = next(c for c in df.columns if "supervis" in c.lower() and "equip" in c.lower())
+        c_eq   = next(c for c in df.columns if c.lower() == "equipamento")
+        c_pot  = next(c for c in df.columns if c.lower().startswith("pot"))
+        c_full = next((c for c in df.columns if "full" in c.lower()), None)
+        c_sa   = next((c for c in df.columns if "string" in c.lower() and "ativ" in c.lower()), None)
 
-        # 2) Mapa supervisório ↔ display (aba "Strings 2")
-        _s2 = pd.read_excel(STRINGS_PATH, sheet_name="Strings 2", header=1)
-        _s2.columns = [str(c).strip() for c in _s2.columns]
-        _sup_col       = next(c for c in _s2.columns if "supervis" in c.lower() and "usina" in c.lower())
-        _equip_sup_col = next(c for c in _s2.columns if "supervis" in c.lower() and "equip" in c.lower())
-        _usina_disp_col= next(c for c in _s2.columns if c.lower() == "usina")
-        _equip_col     = next(c for c in _s2.columns if c.lower() == "equipamento")
-        _fullom_col    = next((c for c in _s2.columns if "full" in c.lower()), None)
-        # Coluna de esperadas NA PRÓPRIA Strings 2 ("Número de Strings ativas") = fonte de verdade.
-        _str2_esp_col  = next((c for c in _s2.columns if "string" in c.lower()), None)
-        _s2 = _s2[_s2[_sup_col].notna()].copy()
-        _s2[_sup_col] = _s2[_sup_col].astype(str).str.strip()
-
-        esperado_inv, equip_names, usina_display = {}, {}, {}
-        for _, row in _s2.iterrows():
-            usina_s = str(row[_sup_col]).strip()
-            equip_s = str(row[_equip_sup_col]).strip() if pd.notna(row[_equip_sup_col]) else None
-            usina_d = str(row[_usina_disp_col]).strip() if pd.notna(row[_usina_disp_col]) else None
-            equip_d = str(row[_equip_col]).strip() if pd.notna(row[_equip_col]) else None
-            if usina_d:
-                usina_display[usina_s] = usina_d
-            if not equip_s:
+        esperado_inv, equip_names, usina_display, power_inv = {}, {}, {}, {}
+        full_om = set()
+        for _, row in df.iterrows():
+            if pd.isna(row[c_us]):
                 continue
-            if equip_d:
-                equip_names.setdefault(usina_s, {})[equip_s] = equip_d
-            # Esperadas: lê a coluna da própria Strings 2; fallback p/ aba "Strings" (display) se vazia.
-            esp = None
-            if _str2_esp_col is not None and pd.notna(row[_str2_esp_col]):
-                try:
-                    esp = int(round(float(row[_str2_esp_col])))
-                except (TypeError, ValueError):
-                    esp = None
-            if esp is None:
-                esp = esp_by_display.get((usina_d, equip_d))
-            if esp is not None:
-                esperado_inv.setdefault(usina_s, {})[equip_s] = esp
+            us = str(row[c_us]).strip()
+            # Nome de exibição da usina (dedup de nomes ambíguos é feito depois)
+            if pd.notna(row[c_usd]):
+                ud = str(row[c_usd]).strip()
+                if ud:
+                    usina_display[us] = ud
+            # Full O&M — marcado por linha, consistente por usina
+            if c_full and str(row[c_full]).strip().lower() == "sim":
+                full_om.add(us)
+            # Daqui pra baixo: só inversores individuais
+            eq = row[c_eq]
+            if pd.isna(eq) or not str(eq).strip().lower().startswith("inversor"):
+                continue
+            eq = str(eq).strip()
+            es = str(row[c_es]).strip() if pd.notna(row[c_es]) else None
+            # Potência (kWp) — indexada por equip_sup e display (ambas chaves possíveis da API)
+            try:
+                pk = float(row[c_pot])
+            except (TypeError, ValueError):
+                pk = None
+            if pk is not None:
+                d = power_inv.setdefault(us, {})
+                for alias in (es, eq):
+                    if alias:
+                        d[_nrm(alias)] = pk
+            # Esperadas (Strings Ativas) + nome de exibição — chaveados por equip_sup (chave da API)
+            if es:
+                equip_names.setdefault(us, {})[es] = eq
+                if c_sa is not None and pd.notna(row[c_sa]):
+                    try:
+                        esperado_inv.setdefault(us, {})[es] = int(round(float(row[c_sa])))
+                    except (TypeError, ValueError):
+                        pass
 
-        # 2b) Remove nomes de exibição AMBÍGUOS (mesmo nome p/ várias usinas, ex.: "Altair" x5).
+        # Remove nomes de exibição AMBÍGUOS (mesmo display p/ vários supervisórios, ex.: "Altair" x5).
         _disp_count = {}
         for _d in usina_display.values():
             _disp_count[_d] = _disp_count.get(_d, 0) + 1
@@ -240,82 +243,22 @@ def load_check_spreadsheet():
             print(f"[AVISO] {_ambiguos} usinas com nome de exibição duplicado na planilha — "
                   f"mantido o nome supervisório/API nessas (evita ambiguidade)")
 
-        # 3) Totais por usina (nível usina)
+        # Totais por usina (nível usina)
         esperado = {us: {"inv_esp": len(eq), "str_esp": sum(eq.values())}
                     for us, eq in esperado_inv.items()}
 
-        # 4) Full O&M
-        if _fullom_col:
-            _full_mask = _s2[_fullom_col].astype(str).str.strip().str.lower() == "sim"
-            full_om = set(_s2.loc[_full_mask, _sup_col].dropna().astype(str).str.strip().unique())
-        else:
-            full_om = set()
-
         # Publica de uma vez (substitui as globais)
-        ESP_BY_DISPLAY, ESPERADO_INV, EQUIP_NAMES = esp_by_display, esperado_inv, equip_names
-        USINA_DISPLAY, ESPERADO, FULL_OM = usina_display, esperado, full_om
+        ESPERADO_INV, EQUIP_NAMES, USINA_DISPLAY = esperado_inv, equip_names, usina_display
+        ESPERADO, FULL_OM, POWER_INV = esperado, full_om, power_inv
         try:
-            _check_mtime = os.path.getmtime(STRINGS_PATH)
+            _bd_mtime = os.path.getmtime(BD_PERF_PATH)
         except OSError:
-            _check_mtime = 0.0
-        print(f"[OK] Check Diário: {len(ESP_BY_DISPLAY)} inversores na aba Strings | "
-              f"{len(ESPERADO)} usinas com esperadas | {len(FULL_OM)} Full O&M")
+            _bd_mtime = 0.0
+        _n_pot = sum(len(v) for v in power_inv.values())
+        print(f"[OK] BD_Performance/Equipamentos: {len(esperado_inv)} usinas c/ esperadas | "
+              f"{len(ESPERADO)} totais | {len(FULL_OM)} Full O&M | {_n_pot} aliases de potência")
     except Exception as e:
-        print(f"[AVISO] Planilha Check Diário não carregada: {e}")
-
-
-# ── Equipamentos (BD_Performance): potência por inversor ───────────────────────
-#   Substitui o Check "Strings 2" como cadastro mestre (mesmas chaves supervisório),
-#   adicionando a Potência (kWp) por inversor — base para o PR por inversor.
-_BD_PERF_ONLINE = os.environ.get("BD_PERF_PATH", os.path.join(
-    os.path.expanduser("~"), "OneDrive - GRID CO", "Grid Co_ - 4. O&M", "6.Gerencial",
-    "4. Gestão à vista", "1. Banco de Dados", "BD_Performance.xlsx"))
-_BD_PERF_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "BD_Performance.xlsx")
-BD_PERF_PATH = _BD_PERF_ONLINE if os.path.exists(_BD_PERF_ONLINE) else _BD_PERF_LOCAL
-
-POWER_INV    = {}    # {usina_sup: {alias_norm: potencia_kwp}}  alias = equip_sup e equip display
-_equip_mtime = 0.0
-
-
-def _nrm(s) -> str:
-    return re.sub(r"\s+", "", str(s)).strip().lower()
-
-
-def load_equip_power():
-    """(Re)carrega a Potência (kWp) por inversor da aba Equipamentos (BD_Performance)."""
-    global POWER_INV, _equip_mtime
-    try:
-        df = pd.read_excel(BD_PERF_PATH, sheet_name="Equipamentos", header=2)
-        df.columns = [str(c).strip() for c in df.columns]
-        c_sup  = next(c for c in df.columns if "supervis" in c.lower() and "usina" in c.lower())
-        c_esup = next(c for c in df.columns if "supervis" in c.lower() and "equip" in c.lower())
-        c_eq   = next(c for c in df.columns if c.lower() == "equipamento")
-        c_pot  = next(c for c in df.columns if c.lower().startswith("pot"))
-        m = {}
-        for _, row in df.iterrows():
-            us, es, eq, pot = row[c_sup], row[c_esup], row[c_eq], row[c_pot]
-            if pd.isna(us) or pd.isna(pot) or pd.isna(eq):
-                continue
-            if not str(eq).strip().lower().startswith("inversor"):   # só inversores individuais
-                continue
-            try:
-                pk = float(pot)
-            except (TypeError, ValueError):
-                continue
-            us = str(us).strip()
-            d = m.setdefault(us, {})
-            for alias in (es, eq):                                   # indexa por equip_sup e display
-                if pd.notna(alias):
-                    d[_nrm(alias)] = pk
-        POWER_INV = m
-        try:
-            _equip_mtime = os.path.getmtime(BD_PERF_PATH)
-        except OSError:
-            _equip_mtime = 0.0
-        n_inv = sum(len(v) for v in m.values())
-        print(f"[OK] Equipamentos: potência carregada ({n_inv} aliases em {len(m)} usinas)")
-    except Exception as e:
-        print(f"[AVISO] Equipamentos (BD_Performance) não carregado: {e}")
+        print(f"[AVISO] BD_Performance (Equipamentos) não carregado: {e}")
 
 
 def _pot_inv(plant_sup: str, inv_api: str, inv_disp: str = None):
@@ -331,51 +274,34 @@ def _pot_inv(plant_sup: str, inv_api: str, inv_disp: str = None):
     return None
 
 
-def maybe_reload_equip():
-    """Recarrega a potência se o BD_Performance mudou (verificação por mtime)."""
+def maybe_reload_equipamentos():
+    """Recarrega o cadastro se o BD_Performance mudou (verificação barata por mtime)."""
     try:
         m = os.path.getmtime(BD_PERF_PATH)
     except OSError:
         return
-    if m == _equip_mtime:
+    if m == _bd_mtime:
         return
-    with _check_lock:
-        if m == _equip_mtime:
+    with _bd_lock:
+        if m == _bd_mtime:           # outro thread já recarregou
             return
-        print("[Equip] BD_Performance alterado -> recarregando potências...")
-        load_equip_power()
+        print("[BD] BD_Performance alterado -> recarregando cadastro (esperadas/nomes/Full O&M/potência)...")
+        load_equipamentos()
 
 
-def maybe_reload_check():
-    """Recarrega a planilha se o arquivo mudou desde a última leitura (verificação barata por mtime)."""
-    try:
-        m = os.path.getmtime(STRINGS_PATH)
-    except OSError:
-        return
-    if m == _check_mtime:
-        return
-    with _check_lock:
-        if m == _check_mtime:           # outro thread já recarregou
-            return
-        print("[Check] planilha alterada -> recarregando esperadas/nomes...")
-        load_check_spreadsheet()
-
-
-load_check_spreadsheet()   # carga inicial
-load_equip_power()         # carga inicial das potências (Equipamentos)
+load_equipamentos()   # carga inicial do cadastro mestre
 
 
 @app.before_request
-def _auto_reload_check():
-    """Qualquer refresh forçado (force=1, o que o botão Atualizar faz) relê as planilhas se mudaram.
+def _auto_reload_bd():
+    """Qualquer refresh forçado (force=1, o que o botão Atualizar faz) relê o BD_Performance se mudou.
     Robusto independente da versão do frontend em cache no navegador."""
     if flask_request.args.get("force") == "1":
-        maybe_reload_check()
-        maybe_reload_equip()
+        maybe_reload_equipamentos()
 
 
 def nome_usina(plant_id, nome_api):
-    # Nome de exibição vem da planilha Check (coluna "Usina"); senão, o nome da própria API
+    # Nome de exibição vem do BD_Performance (coluna "Usina"); senão, o nome da própria API
     return USINA_DISPLAY.get(nome_api.strip()) or nome_api.strip()
 
 
@@ -1415,7 +1341,7 @@ def process_plant_sunop(plant_name: str) -> dict:
     if qtd_inv_com_dados == 0:
         return base
 
-    # Esperados: vêm da planilha Check Diário (ESPERADO_INV), mesma fonte da API PV.
+    # Esperados: vêm do BD_Performance/Equipamentos (ESPERADO_INV), mesma fonte da API PV.
     # Soma apenas os inversores presentes na metadata (respeita limites como MTS100 > INV_40).
     esp_inv  = ESPERADO_INV.get(plant_name, {})
     esp_vals = [esp_inv[inv] for inv in meta["inv_strings"] if inv in esp_inv]
@@ -1547,7 +1473,7 @@ def api_sunop_plant(plant_name):
         eday       = _ov("EPD")
         str_ativas  = sum(flags)
         desligado   = len(strings) == 0
-        # Strings esperadas vêm da planilha Check Diário (ESPERADO_INV), igual à API PV
+        # Strings esperadas vêm do BD_Performance/Equipamentos (ESPERADO_INV), igual à API PV
         str_esp_inv = ESPERADO_INV.get(plant_name, {}).get(inv_name)
         inv_diferenca = (str_ativas - str_esp_inv) if (str_esp_inv is not None and not desligado) else None
 
@@ -2367,7 +2293,7 @@ def se_string_power(site_id, uuids, tzname) -> dict:
 def process_site_solaredge(site: dict) -> dict:
     sid  = site["id"]
     nome = site["nome"]                              # supervisório (chave p/ ESPERADO_INV)
-    nome_disp = USINA_DISPLAY.get(nome, nome)        # nome de exibição (planilha Check)
+    nome_disp = USINA_DISPLAY.get(nome, nome)        # nome de exibição (BD_Performance)
     base = {
         "usina": nome_disp, "plant_id": sid,
         "qtd_inversores": None, "strings_ativas": None,
@@ -2388,7 +2314,7 @@ def process_site_solaredge(site: dict) -> dict:
         return base
     ativas = sum(1 for u in uuids if (power.get(u) is not None and power[u] > SE_STRING_MIN_W))
     total  = len(strings)
-    # Esperadas vêm da planilha Check (ESPERADO_INV); fallback = total físico
+    # Esperadas vêm do BD_Performance (ESPERADO_INV); fallback = total físico
     esp_map = ESPERADO_INV.get(nome, {})
     str_esp = sum(esp_map.values()) if esp_map else total
     return {
@@ -2492,7 +2418,7 @@ def api_solaredge_plant(site_id):
         str_esp_inv = esp_inv_map.get(nome_inv)            # esperadas da planilha
         if str_esp_inv is None:
             str_esp_inv = total                            # fallback = total físico
-        nome_disp = equip_disp_map.get(nome_inv, nome_inv) # nome de exibição (planilha Check)
+        nome_disp = equip_disp_map.get(nome_inv, nome_inv) # nome de exibição (BD_Performance)
         inversores.append({
             "id": parent, "nome": nome_disp, "nome_api": nome_inv,
             "ultima_leitura": None, "falha_comunicacao": False, "desligado": desligado,
@@ -3021,7 +2947,7 @@ OWEN_UFVS = {"ARA": "Araputanga", "IPX": "Ipixuna do Pará",
 
 
 def _owen_nome(code):
-    """Nome de exibição da UFV: vem do Check (USINA_DISPLAY: Usina Supervisório→Usina),
+    """Nome de exibição da UFV: vem do BD_Performance (USINA_DISPLAY: Usina Supervisório→Usina),
     igual às outras abas; cai no fallback fixo se não estiver cadastrado."""
     return USINA_DISPLAY.get(code) or OWEN_UFVS.get(code) or code
 # Acumulador persistente: como os e-mails são INCREMENTAIS (cada janela traz só o pedaço
@@ -3231,11 +3157,11 @@ def _owen_strings_build():
 
 
 def _owen_inv_tag(code, inv):
-    return f"{code}_Inv_{inv}"   # nomenclatura supervisório (igual ao que está no Check)
+    return f"{code}_Inv_{inv}"   # nomenclatura supervisório (igual ao que está no BD_Performance)
 
 
 def _owen_esp(code, inv):
-    """Esperadas do Check pela chave SUPERVISÓRIO (Usina Sup=código, Equip Sup=tag),
+    """Esperadas do BD_Performance pela chave SUPERVISÓRIO (Usina Sup=código, Equip Sup=tag),
     igual à API PV/SunOp. None se NÃO cadastrado — não inventa contagem física."""
     return ESPERADO_INV.get(code, {}).get(_owen_inv_tag(code, inv))
 
@@ -3259,7 +3185,7 @@ def api_owen_strings_data():
             tmax = max((t for t, _ in strs.values()), default=None)
             if tmax and (ts_max is None or tmax > ts_max):
                 ts_max = tmax
-        esp_map = ESPERADO_INV.get(u, {})                  # esperado vem SÓ do Check
+        esp_map = ESPERADO_INV.get(u, {})                  # esperado vem SÓ do BD_Performance
         str_esp = sum(esp_map.values()) if esp_map else None
         rows.append({"usina": nome, "plant_id": u, "qtd_inversores": len(invs),
                      "strings_ativas": ativas, "str_esp": str_esp,
@@ -3289,7 +3215,7 @@ def api_owen_strings_plant(plant_id):
         chips = [{"id": s, "corrente": strs[s][1], "ativa": a} for s, a in zip(ids, flags)]
         ativas = sum(flags)
         tag = _owen_inv_tag(plant_id, inv)
-        esp = ESPERADO_INV.get(plant_id, {}).get(tag)          # SÓ do Check (None se não cadastrado)
+        esp = ESPERADO_INV.get(plant_id, {}).get(tag)          # SÓ do BD_Performance (None se não cadastrado)
         nome_inv = EQUIP_NAMES.get(plant_id, {}).get(tag, f"Inversor {inv}")
         ts_inv = max((t for t, _ in strs.values()), default=None)
         inversores.append({"id": inv, "nome": nome_inv, "nome_api": tag,
@@ -3855,37 +3781,18 @@ def api_pv_pr_plant(plant_id):
     return jsonify(_pv_pr_compute(_pv_pr_collect(token, plant), token))
 
 
-# ── API PV Plataforma: curva diária de STRINGS por inversor (aba "Strings") ────
-#   Fonte: apiplataforma.pvoperation.com (≠ apipv). idusina é COMPARTILHADO com a
-#   API PV. Cadeia: get_plants (catálogo) → getlistainversores(idusina) →
-#   trygenerate(idInversor,type=9) = energia/string do dia + curva de potência/string.
-#   Detecta strings em subperformance vs MEDIANA das strings do inversor.
-PLAT_BASE = "https://apiplataforma.pvoperation.com"
-_PLAT_TOKEN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plat_token.txt")
-SPV_SUB_FRAC   = 0.90   # string com energia < 90% da mediana = subperformance
+# ── Curva diária de STRINGS por inversor (aba "Strings") — fonte: API PV ───────
+#   Migrado da PV Plataforma (apiplataforma, protegida por CAPTCHA+MFA) para a
+#   API PV (apipv): day_inverter → corrente por string (Ipv*). As strings reais são
+#   filtradas com _ipv_ativas (mesma régua da visão principal, descarta canais de
+#   hardware não usados) e a subperformance é detectada vs MEDIANA da corrente
+#   integrada do dia. idusina/idinversor são COMPARTILHADOS com a API PV
+#   (id da Plataforma == idefinversor da API PV).
+SPV_SUB_FRAC          = 0.90   # string com corrente < 90% da mediana = subperformance
+SPV_STRINGBOX_MAX_STR = 1      # inversor com ≤1 string esperada = string-box (sem visão real)
 SPV_NOTAS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "string_notas.json")
-SPV_STRINGBOX_MAX_IPV = 1   # usina com ≤1 string/inversor = string-box (sem visão real) → excluir
-_SPV_SBOX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "spv_stringbox.json")
 _spv_cache     = {}     # (idusina, data) → {ts, payload}
-_spv_sbox      = None   # {str(idusina): bool}  (classificação string-box, persistida)
 _spv_lock      = threading.Lock()
-
-
-def _plat_token() -> str:
-    t = os.environ.get("PLAT_TOKEN", "")
-    if t:
-        return t.strip()
-    try:
-        with open(_PLAT_TOKEN_PATH, encoding="utf-8") as f:
-            return f.read().strip()
-    except Exception:
-        return ""
-
-
-def _plat_headers() -> dict:
-    return {"accept": "application/json", "origin": "https://plataforma.pvoperation.com",
-            "referer": "https://plataforma.pvoperation.com/", "user-agent": "Mozilla/5.0",
-            "x-auth-token-update": _plat_token()}
 
 
 def _spv_stnum(nome: str) -> int:
@@ -3895,88 +3802,13 @@ def _spv_stnum(nome: str) -> int:
         return 999
 
 
-def _plat_inversores(idusina) -> list:
-    try:
-        r = requests.get(f"{PLAT_BASE}/v2/relatorios/getlistainversores",
-                         headers=_plat_headers(), params={"idusina": idusina}, timeout=30)
-        out = []
-        for i in (r.json().get("inversores") or []):
-            out.append({"id": i["id"], "nome": i.get("nome") or i.get("descricao") or str(i["id"])})
-        out.sort(key=lambda x: [int(p) for p in re.findall(r"\d+", x["nome"])] or [9999])
-        return out
-    except Exception:
-        return []
-
-
-def _spv_load_sbox() -> dict:
-    global _spv_sbox
-    if _spv_sbox is None:
-        try:
-            with open(_SPV_SBOX_PATH, encoding="utf-8") as f:
-                _spv_sbox = json.load(f)
-        except Exception:
-            _spv_sbox = {}
-    return _spv_sbox
-
-
-def _spv_save_sbox():
-    try:
-        tmp = _SPV_SBOX_PATH + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(_spv_sbox, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, _SPV_SBOX_PATH)
-    except Exception as e:
-        print(f"[SPV] erro salvando classificação string-box: {e}")
-
-
-def _spv_is_stringbox(idusina):
-    """True=string-box (≤1 string/inversor), False=tem visão de strings, None=desconhecido.
-    Conta campos Ipv* na 'leitura' dos inversores (via getlistainversores, 1 chamada/usina)."""
-    try:
-        r = requests.get(f"{PLAT_BASE}/v2/relatorios/getlistainversores",
-                         headers=_plat_headers(), params={"idusina": idusina}, timeout=30)
-        invs = r.json().get("inversores") or []
-    except Exception:
-        return None
-    if not invs:
-        return None
-    maxipv, viu = 0, False
-    for iv in invs:
-        lt = iv.get("leitura") or {}
-        n = sum(1 for k in lt if str(k).lower().startswith("ipv"))
-        if n > 0:
-            viu = True
-            maxipv = max(maxipv, n)
-    if not viu:
-        return None
-    return maxipv <= SPV_STRINGBOX_MAX_IPV
-
-
-def _plat_string_report(idinversor, data: str) -> dict:
-    """→ {energia:{ST:kWh}, curva:{ST:{x:[hh:mm], y:[kW]}}}"""
-    try:
-        r = requests.get(f"{PLAT_BASE}/v2/relatorios/trygenerate", headers=_plat_headers(),
-                         params={"idInversor": idinversor, "data": data, "type": 9, "status": 2},
-                         timeout=60)
-        j = r.json()
-    except Exception:
-        return {"energia": {}, "curva": {}}
-    en = j.get("dados_energia_dia") or {}
-    ps = j.get("dados_potencia_string") or {}
-
-    def _hhmm(ts):
-        try:
-            return parsedate_to_datetime(ts).strftime("%H:%M")
-        except Exception:
-            return ""
-
-    curva = {}
-    for st, serie in ps.items():
-        step = max(1, len(serie) // 160)               # downsample p/ ~160 pts
-        s = serie[::step]
-        curva[st] = {"x": [_hhmm(p.get("tsleitura", "")) for p in s],
-                     "y": [round((p.get("potencia") or 0) / 1000.0, 2) for p in s]}
-    return {"energia": {k: round(float(v), 1) for k, v in en.items()}, "curva": curva}
+def _spv_is_stringbox(plant_nome_api) -> bool:
+    """String-box = inversores com ≤1 string (sem visão real por string). Derivado do
+    BD_Performance (ESPERADO_INV), sem custo de API. Desconhecido → não exclui."""
+    esp = ESPERADO_INV.get((plant_nome_api or "").strip(), {})
+    if not esp:
+        return False
+    return max(esp.values()) <= SPV_STRINGBOX_MAX_STR
 
 
 def _spv_load_notas() -> dict:
@@ -3997,60 +3829,106 @@ def _spv_save_notas(d: dict):
         print(f"[SPV] erro salvando notas: {e}")
 
 
-def _spv_analise_inversor(idinversor, nome, data, notas) -> dict:
-    rep = _plat_string_report(idinversor, data)
-    en  = rep["energia"]
-    vals = sorted(en.values())
+def _spv_day_records(idusina, token, data: str) -> list:
+    """Leituras por inversor da usina na data. Hoje → day_inverter (rápido, completo);
+    datas passadas → custom_query (best-effort, pode ser lento/timeout)."""
+    H = {"x-access-token": token}
+    hoje = datetime.now().strftime("%d/%m/%Y")
+    if data == hoje:
+        return requests.post(f"{BASE_URL}/day_inverter", headers=H,
+                             json={"id": idusina}, timeout=60).json() or []
+    try:
+        d = datetime.strptime(data, "%d/%m/%Y")
+        body = {"id": idusina, "data_type": "inverter", "period": d.strftime("%Y-%m"), "day": d.day}
+        return requests.post(f"{BASE_URL}/custom_query", headers=H, json=body, timeout=120).json() or []
+    except Exception:
+        return []
+
+
+def _spv_analise_inversor(idinv, nome, recs, data, notas) -> dict:
+    """Strings reais (via _ipv_ativas no pico solar) → corrente integrada por string +
+    curva (A) + subperformance vs mediana. Retorna None se não há visão de strings.
+    O campo 'energia' carrega a corrente integrada do dia (índice relativo, não kWh);
+    o que importa p/ subperformance é o 'pct' vs mediana, que é adimensional."""
+    recs = [r for r in recs if r.get("conteudojson")]
+    if not recs:
+        return None
+    recs.sort(key=lambda r: r.get("tsleitura_new") or "")
+
+    def _tot(r):
+        cj = parse_cj(r.get("conteudojson"))
+        return sum(v for k, v in cj.items()
+                   if k.startswith("Ipv") and isinstance(v, (int, float)) and v > 0)
+
+    peak    = max(recs, key=_tot)                       # pico solar = maior corrente total
+    cj_peak = parse_cj(peak.get("conteudojson"))
+    ipv_keys = sorted([k for k in cj_peak if k.startswith("Ipv")
+                       and isinstance(cj_peak[k], (int, float))], key=_spv_stnum)
+    if not ipv_keys:
+        return None
+    ativas = _ipv_ativas([cj_peak[k] for k in ipv_keys], em_janela=True)   # pico = sol forte
+    reais  = [k for k, a in zip(ipv_keys, ativas) if a]
+    if not reais:
+        return None
+
+    soma  = {k: 0.0 for k in reais}
+    curva = {k: {"x": [], "y": []} for k in reais}
+    step  = max(1, len(recs) // 160)                    # downsample p/ ~160 pts na curva
+    for i, r in enumerate(recs):
+        cj   = parse_cj(r.get("conteudojson"))
+        hhmm = (r.get("tsleitura_new") or "")[11:16]
+        emt  = (i % step == 0)
+        for k in reais:
+            v = cj.get(k)
+            if isinstance(v, (int, float)):
+                soma[k] += max(0.0, v)
+                if emt:
+                    curva[k]["x"].append(hhmm)
+                    curva[k]["y"].append(round(v, 2))
+
+    vals = sorted(soma.values())
     med  = vals[len(vals) // 2] if vals else 0.0
     avg  = sum(vals) / len(vals) if vals else 0.0
     strings, abaixo = [], 0
-    for st in sorted(en, key=_spv_stnum):
-        e   = en[st]
+    for k in sorted(reais, key=_spv_stnum):
+        e   = soma[k]
         sub = (med > 0 and e < med * SPV_SUB_FRAC)
         if sub:
             abaixo += 1
-        strings.append({"nome": st, "energia": e,
+        strings.append({"nome": f"ST {_spv_stnum(k):02d}", "energia": round(e, 1),
                         "pct": round(100.0 * e / med) if med else None, "sub": sub})
-    nota = notas.get(f"{data}|{idinversor}", "")
-    return {"id": idinversor, "nome": nome, "n_strings": len(en),
+    curva_fmt = {f"ST {_spv_stnum(k):02d}": curva[k] for k in reais}
+    nota = notas.get(f"{data}|{idinv}", "")
+    return {"id": idinv, "nome": nome, "n_strings": len(reais),
             "mediana": round(med, 1), "media": round(avg, 1), "abaixo": abaixo,
-            "strings": strings, "curva": rep["curva"], "nota": nota}
+            "strings": strings, "curva": curva_fmt, "nota": nota}
 
 
 @app.route("/api/spv/usinas")
 def api_spv_usinas():
     """Catálogo de usinas (ids compartilhados com a API PV), EXCLUINDO string-box
     (usinas sem visão real de strings — análise por string não se aplica a elas).
-    A classificação string-box é cara só na 1ª vez (1 chamada/usina) e fica em cache."""
+    String-box é derivado do BD_Performance (ESPERADO_INV) — instantâneo, sem API."""
     try:
-        token = get_token()
-        plants = get_plants(token)
+        plants = get_plants(get_token())
     except Exception as e:
         return jsonify({"rows": [], "erro": f"API PV indisponível: {e}"})
     plants = [p for p in plants if p["nome"].strip() in FULL_OM] if FULL_OM else plants
-    sbox = _spv_load_sbox()
-    faltam = [p for p in plants if str(p["id"]) not in sbox]
-    if flask_request.args.get("force", "0") == "1":     # força reclassificar tudo
-        faltam = plants
-    if faltam:
-        with ThreadPoolExecutor(max_workers=8) as ex:
-            futs = {ex.submit(_spv_is_stringbox, p["id"]): p for p in faltam}
-            for f in as_completed(futs):
-                p = futs[f]
-                v = f.result()
-                if v is not None:
-                    sbox[str(p["id"])] = v
-        _spv_save_sbox()
-    rows = [{"id": p["id"], "usina": nome_usina(p["id"], p["nome"])}
-            for p in plants if not sbox.get(str(p["id"]), False)]   # exclui string-box
+    rows, n_sbox = [], 0
+    for p in plants:
+        if _spv_is_stringbox(p["nome"]):
+            n_sbox += 1
+        else:
+            rows.append({"id": p["id"], "usina": nome_usina(p["id"], p["nome"])})
     rows.sort(key=lambda x: x["usina"])
-    n_sbox = sum(1 for p in plants if sbox.get(str(p["id"]), False))
     return jsonify({"rows": rows, "excluidas_stringbox": n_sbox})
 
 
 @app.route("/api/spv/usina/<int:idusina>")
 def api_spv_usina(idusina):
-    """Inversores da usina + análise de strings (curva + subperformance) p/ a data."""
+    """Inversores da usina + análise de strings (curva de corrente + subperformance).
+    Fonte: API PV (day_inverter hoje; custom_query p/ datas passadas). Uma chamada por
+    usina traz todos os inversores — o resto é processamento das correntes Ipv*."""
     data = (flask_request.args.get("data") or datetime.now().strftime("%d/%m/%Y")).strip()
     force = flask_request.args.get("force", "0") == "1"
     key = (idusina, data)
@@ -4059,21 +3937,62 @@ def api_spv_usina(idusina):
         ent = _spv_cache.get(key)
         if ent and (agora - ent["ts"]) < CACHE_TTL:
             return jsonify(ent["payload"])
-    invs = _plat_inversores(idusina)
-    if not invs:
-        payload = {"idusina": idusina, "data": data, "inversores": [],
-                   "msg": "Sem inversores nesta usina na plataforma (ou token expirado)."}
-        return jsonify(payload)
+    try:
+        token = get_token()
+        records = _spv_day_records(idusina, token, data)
+    except Exception as e:
+        return jsonify({"idusina": idusina, "data": data, "inversores": [],
+                        "msg": f"API PV indisponível: {e}"})
+    if not records:
+        return jsonify({"idusina": idusina, "data": data, "inversores": [],
+                        "msg": "Sem dados de inversores para esta usina/data (API PV)."})
+    # Nome da usina (p/ EQUIP_NAMES) + nomes dos dispositivos (idefinversor → nome)
+    plant_nome_api = ""
+    try:
+        plant_nome_api = next((p["nome"].strip() for p in get_plants(token) if p["id"] == idusina), "")
+    except Exception:
+        pass
+    dev_names = {}
+    try:
+        devs_raw = requests.get(f"{BASE_URL}/plant_devices", headers={"x-access-token": token},
+                                json={"id": idusina}, timeout=20).json()
+        devs = devs_raw
+        if isinstance(devs_raw, list) and devs_raw and "plant_devices" in devs_raw[0]:
+            devs = devs_raw[0]["plant_devices"]
+        elif isinstance(devs_raw, dict):
+            devs = devs_raw.get("plant_devices", [])
+        dev_names = {d["device_id"]: str(d.get("device_name", "")).strip() for d in devs}
+    except Exception:
+        pass
+    # Agrupa registros por inversor (filtrando à data quando o timestamp permite)
+    iso = None
+    try:
+        iso = datetime.strptime(data, "%d/%m/%Y").strftime("%Y-%m-%d")
+    except Exception:
+        pass
+    by_inv = {}
+    for r in records:
+        ts = r.get("tsleitura_new") or ""
+        if iso and ts and not ts.startswith(iso):
+            continue
+        by_inv.setdefault(r.get("idefinversor"), []).append(r)
     notas = _spv_load_notas()
     results = {}
-    with ThreadPoolExecutor(max_workers=5) as ex:
-        futs = {ex.submit(_spv_analise_inversor, iv["id"], iv["nome"], data, notas): iv["id"] for iv in invs}
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        futs = {}
+        for idinv, recs in by_inv.items():
+            nome_api = dev_names.get(idinv, f"INV-{idinv}")
+            nome = EQUIP_NAMES.get(plant_nome_api, {}).get(nome_api, nome_api)
+            futs[ex.submit(_spv_analise_inversor, idinv, nome, recs, data, notas)] = idinv
         for f in as_completed(futs):
             try:
-                r = f.result(); results[r["id"]] = r
+                rr = f.result()
+                if rr:
+                    results[rr["id"]] = rr
             except Exception:
                 pass
-    ordem = [results[iv["id"]] for iv in invs if iv["id"] in results]
+    ordem = sorted(results.values(),
+                   key=lambda x: [int(p) for p in re.findall(r"\d+", x["nome"])] or [9999])
     payload = {"idusina": idusina, "data": data, "inversores": ordem,
                "total_abaixo": sum(i["abaixo"] for i in ordem),
                "cache_ts": datetime.now().strftime("%H:%M:%S")}
@@ -4131,9 +4050,8 @@ def api_spv_pdf():
         usinas_ids = [int(x) for x in sel.split(",") if x.strip().isdigit()]
         usinas_ids.sort(key=lambda i: nomes.get(i, str(i)))
     elif alvo == "todas":
-        sbox = _spv_load_sbox()
         cat = [p for p in plants if (not FULL_OM or p["nome"].strip() in FULL_OM)]
-        usinas_ids = [p["id"] for p in cat if not sbox.get(str(p["id"]), False)]
+        usinas_ids = [p["id"] for p in cat if not _spv_is_stringbox(p["nome"])]
         usinas_ids.sort(key=lambda i: nomes.get(i, str(i)))
     elif alvo and alvo != "all":
         usinas_ids = [int(alvo)]
@@ -4172,7 +4090,7 @@ def api_spv_pdf():
                 fig.patches.append(Rectangle((0, 0.915), 1, 0.085, transform=fig.transFigure,
                                              facecolor=GREEN, edgecolor="none", zorder=-1))
                 fig.text(0.028, 0.953, usina_nome, color="white", fontsize=16, fontweight="bold", va="center")
-                fig.text(0.028, 0.928, "Relatório de Strings  ·  Curva de potência diária por string",
+                fig.text(0.028, 0.928, "Relatório de Strings  ·  Curva de corrente diária por string",
                          color=GREEN_LT, fontsize=8.5, va="center")
                 fig.text(0.975, 0.957, data, color="white", fontsize=11.5, fontweight="bold", ha="right", va="center")
                 fig.text(0.975, 0.930, f"{tot_abaixo} string(s) abaixo da mediana" if tot_abaixo else "Sem outliers",
@@ -4247,12 +4165,12 @@ def api_spv_pdf():
 
 @app.route("/api/check/reload", methods=["POST", "GET"])
 def api_check_reload():
-    """Recarrega a planilha Check se ela mudou (chamado pelo botão Atualizar)."""
-    antes = _check_mtime
-    maybe_reload_check()
+    """Recarrega o cadastro (BD_Performance) se ele mudou (chamado pelo botão Atualizar)."""
+    antes = _bd_mtime
+    maybe_reload_equipamentos()
     return jsonify({
-        "reloaded": _check_mtime != antes,
-        "inversores": len(ESP_BY_DISPLAY),
+        "reloaded": _bd_mtime != antes,
+        "inversores": sum(len(v) for v in ESPERADO_INV.values()),
         "usinas_esperadas": len(ESPERADO),
         "full_om": len(FULL_OM),
     })
@@ -4270,6 +4188,20 @@ def _owen_loop():
         time.sleep(600)
 
 
+def _sunop_keepalive_loop():
+    """Mantém o token do SunOp sempre vivo: chama get_sunop_token() (que valida e, se
+    preciso, renova via /refresh_token) a cada 6 h — bem dentro da janela de ~7 dias.
+    Enquanto o servidor estiver de pé, nunca precisa colar token novo manualmente."""
+    print("[SunOp] keep-alive iniciado (renova token a cada 6 h)")
+    while True:
+        time.sleep(21600)   # 6 horas
+        try:
+            get_sunop_token()
+        except Exception as e:
+            print(f"[SunOp] keep-alive erro: {e}")
+
+
 if __name__ == "__main__":
     threading.Thread(target=_owen_loop, daemon=True).start()
+    threading.Thread(target=_sunop_keepalive_loop, daemon=True).start()
     app.run(debug=False, port=5050, threaded=True)
