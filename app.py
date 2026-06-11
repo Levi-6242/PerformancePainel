@@ -161,7 +161,11 @@ _BD_PERF_ONLINE = os.environ.get("BD_PERF_PATH", os.path.join(
     os.path.expanduser("~"), "OneDrive - GRID CO", "Grid Co_ - 4. O&M", "6.Gerencial",
     "4. Gestão à vista", "1. Banco de Dados", "BD_Performance.xlsx"))
 _BD_PERF_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "BD_Performance.xlsx")
-BD_PERF_PATH = _BD_PERF_ONLINE if os.path.exists(_BD_PERF_ONLINE) else _BD_PERF_LOCAL
+def _bd_perf_path() -> str:
+    """Caminho do BD_Performance — SEMPRE prioriza a versão ONLINE (OneDrive, atualizada
+    em tempo real pela equipe). A cópia local é só último recurso, caso a online esteja
+    indisponível (ex.: desidratada pelo OneDrive Files On-Demand). Reavaliado a cada carga."""
+    return _BD_PERF_ONLINE if os.path.exists(_BD_PERF_ONLINE) else _BD_PERF_LOCAL
 
 # Globais preenchidas por load_equipamentos() (recarregáveis em runtime)
 ESPERADO_INV  = {}   # {usina_sup: {equip_sup: strings_esperadas}}
@@ -169,6 +173,7 @@ EQUIP_NAMES   = {}   # {usina_sup: {equip_sup: equipamento_display}}
 USINA_DISPLAY = {}   # {usina_sup: usina_display}
 ESPERADO      = {}   # {usina_sup: {"inv_esp": n, "str_esp": soma}}
 FULL_OM       = set()
+STRING_BOX    = set()   # {usina_sup}  usinas com coluna "String Box"=Sim (sem visão por string)
 POWER_INV     = {}   # {usina_sup: {alias_norm: potencia_kwp}}  alias = equip_sup e display
 _bd_mtime     = 0.0
 _bd_lock      = threading.Lock()
@@ -182,9 +187,10 @@ def load_equipamentos():
     """(Re)carrega TODO o cadastro a partir da aba 'Equipamentos' do BD_Performance:
     esperadas (Strings Ativas), nomes de exibição, Full O&M e potência por inversor.
     Chamada na init e sempre que o arquivo muda (mtime). Uma só leitura alimenta tudo."""
-    global ESPERADO_INV, EQUIP_NAMES, USINA_DISPLAY, ESPERADO, FULL_OM, POWER_INV, _bd_mtime
+    global ESPERADO_INV, EQUIP_NAMES, USINA_DISPLAY, ESPERADO, FULL_OM, STRING_BOX, POWER_INV, _bd_mtime
     try:
-        df = pd.read_excel(BD_PERF_PATH, sheet_name="Equipamentos", header=2)
+        path = _bd_perf_path()
+        df = pd.read_excel(path, sheet_name="Equipamentos", header=2)
         df.columns = [str(c).strip() for c in df.columns]
         c_us   = next(c for c in df.columns if "supervis" in c.lower() and "usina" in c.lower())
         c_usd  = next(c for c in df.columns if c.lower() == "usina")
@@ -193,9 +199,10 @@ def load_equipamentos():
         c_pot  = next(c for c in df.columns if c.lower().startswith("pot"))
         c_full = next((c for c in df.columns if "full" in c.lower()), None)
         c_sa   = next((c for c in df.columns if "string" in c.lower() and "ativ" in c.lower()), None)
+        c_sb   = next((c for c in df.columns if "string" in c.lower() and "box" in c.lower()), None)
 
         esperado_inv, equip_names, usina_display, power_inv = {}, {}, {}, {}
-        full_om = set()
+        full_om, string_box = set(), set()
         for _, row in df.iterrows():
             if pd.isna(row[c_us]):
                 continue
@@ -205,9 +212,11 @@ def load_equipamentos():
                 ud = str(row[c_usd]).strip()
                 if ud:
                     usina_display[us] = ud
-            # Full O&M — marcado por linha, consistente por usina
+            # Full O&M e String Box — marcados por linha, consistentes por usina
             if c_full and str(row[c_full]).strip().lower() == "sim":
                 full_om.add(us)
+            if c_sb and str(row[c_sb]).strip().lower() == "sim":
+                string_box.add(us)
             # Daqui pra baixo: só inversores individuais
             eq = row[c_eq]
             if pd.isna(eq) or not str(eq).strip().lower().startswith("inversor"):
@@ -249,14 +258,15 @@ def load_equipamentos():
 
         # Publica de uma vez (substitui as globais)
         ESPERADO_INV, EQUIP_NAMES, USINA_DISPLAY = esperado_inv, equip_names, usina_display
-        ESPERADO, FULL_OM, POWER_INV = esperado, full_om, power_inv
+        ESPERADO, FULL_OM, STRING_BOX, POWER_INV = esperado, full_om, string_box, power_inv
         try:
-            _bd_mtime = os.path.getmtime(BD_PERF_PATH)
+            _bd_mtime = os.path.getmtime(path)
         except OSError:
             _bd_mtime = 0.0
         _n_pot = sum(len(v) for v in power_inv.values())
-        print(f"[OK] BD_Performance/Equipamentos: {len(esperado_inv)} usinas c/ esperadas | "
-              f"{len(ESPERADO)} totais | {len(FULL_OM)} Full O&M | {_n_pot} aliases de potência")
+        _src = "ONLINE" if path == _BD_PERF_ONLINE else "LOCAL (fallback)"
+        print(f"[OK] BD_Performance/Equipamentos [{_src}]: {len(esperado_inv)} usinas c/ esperadas | "
+              f"{len(FULL_OM)} Full O&M | {len(STRING_BOX)} String Box | {_n_pot} aliases de potência")
     except Exception as e:
         print(f"[AVISO] BD_Performance (Equipamentos) não carregado: {e}")
 
@@ -277,7 +287,7 @@ def _pot_inv(plant_sup: str, inv_api: str, inv_disp: str = None):
 def maybe_reload_equipamentos():
     """Recarrega o cadastro se o BD_Performance mudou (verificação barata por mtime)."""
     try:
-        m = os.path.getmtime(BD_PERF_PATH)
+        m = os.path.getmtime(_bd_perf_path())
     except OSError:
         return
     if m == _bd_mtime:
@@ -3788,8 +3798,7 @@ def api_pv_pr_plant(plant_id):
 #   hardware não usados) e a subperformance é detectada vs MEDIANA da corrente
 #   integrada do dia. idusina/idinversor são COMPARTILHADOS com a API PV
 #   (id da Plataforma == idefinversor da API PV).
-SPV_SUB_FRAC          = 0.90   # string com corrente < 90% da mediana = subperformance
-SPV_STRINGBOX_MAX_STR = 1      # inversor com ≤1 string esperada = string-box (sem visão real)
+SPV_SUB_FRAC   = 0.90   # string com corrente < 90% da mediana = subperformance
 SPV_NOTAS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "string_notas.json")
 _spv_cache     = {}     # (idusina, data) → {ts, payload}
 _spv_lock      = threading.Lock()
@@ -3803,12 +3812,9 @@ def _spv_stnum(nome: str) -> int:
 
 
 def _spv_is_stringbox(plant_nome_api) -> bool:
-    """String-box = inversores com ≤1 string (sem visão real por string). Derivado do
-    BD_Performance (ESPERADO_INV), sem custo de API. Desconhecido → não exclui."""
-    esp = ESPERADO_INV.get((plant_nome_api or "").strip(), {})
-    if not esp:
-        return False
-    return max(esp.values()) <= SPV_STRINGBOX_MAX_STR
+    """String-box = usina com coluna 'String Box' = Sim no BD_Performance (sem visão
+    real por string). Fonte direta da planilha, sem custo de API."""
+    return (plant_nome_api or "").strip() in STRING_BOX
 
 
 def _spv_load_notas() -> dict:
