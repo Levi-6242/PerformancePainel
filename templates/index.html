@@ -1323,6 +1323,7 @@
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <label style="font-size:12px;color:var(--muted)">Data <input class="gc-bar-search" type="date" id="spv-data" style="width:auto" onchange="spvData={};spvExp.clear();renderSpvList()"></label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer" title="Mostra apenas os inversores que têm string(s) abaixo da mediana"><input type="checkbox" id="spv-soabaixo" style="accent-color:#dc2626;cursor:pointer" onchange="spvToggleSoAbaixo()"> só inversores abaixo</label>
         <input class="gc-bar-search" type="text" id="spv-filtro" placeholder="🔍  Filtrar usina..." oninput="renderSpvList()">
         <button class="gc-btn-sm" style="background:#f3f4f6" onclick="spvSelTodas()" title="Marcar todas as usinas visíveis">☑ Todas</button>
         <button class="gc-btn-sm" style="background:#f3f4f6" onclick="spvSelNenhuma()" title="Desmarcar todas">☐ Nenhuma</button>
@@ -2873,10 +2874,20 @@ function renderSpvUsina(id){
          <b style="color:#b45309">⚠️ Outliers — strings abaixo de 90% da mediana do inversor (${pd.total_abaixo} no total)</b>
          <div style="margin-top:6px;color:#374151">${linhas}</div></div>`
     : `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12.5px;color:#166534">✅ Sem outliers — todas as strings dentro da faixa da mediana</div>`;
-  body.innerHTML=obs+`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px">`
-    + pd.inversores.map(iv=>_spvCard(id,iv)).join('') + `</div>`;
-  // plota cada inversor
-  pd.inversores.forEach(iv=>_spvPlot(id,iv));
+  // Filtro: só inversores com strings abaixo da mediana (se ligado na barra)
+  const invs = spvSoAbaixo ? pd.inversores.filter(iv=>iv.abaixo) : pd.inversores;
+  const grid = invs.length
+    ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px">`
+      + invs.map(iv=>_spvCard(id,iv)).join('') + `</div>`
+    : `<p style="color:var(--muted);font-size:13px">Nenhum inversor com strings abaixo da mediana nesta usina.</p>`;
+  body.innerHTML=obs+grid;
+  // plota cada inversor visível
+  invs.forEach(iv=>_spvPlot(id,iv));
+}
+let spvSoAbaixo=false;
+function spvToggleSoAbaixo(){
+  spvSoAbaixo=document.getElementById('spv-soabaixo').checked;
+  [...spvExp].forEach(id=>renderSpvUsina(id));   // re-renderiza as usinas abertas
 }
 function _spvCard(id,iv){
   const cid=`${id}_${iv.id}`;
