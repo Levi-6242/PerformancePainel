@@ -4822,7 +4822,25 @@ def _sunop_keepalive_loop():
             print(f"[SunOp] keep-alive erro: {e}")
 
 
+def _prewarm_loop():
+    """Pré-aquece o cache da API PV (/api/data) logo após subir e o mantém quente, pra
+    ninguém pegar a 'carga fria' lenta (a 1ª busca varre as ~71 usinas, ~60-90s).
+    Só a API PV (aba padrão e a mais lenta); reaquece antes do cache expirar."""
+    import time as _t
+    _t.sleep(5)
+    while True:
+        t0 = _t.time()
+        try:
+            with app.test_request_context("/api/data"):
+                api_data()
+            print(f"[prewarm] /api/data aquecido em {_t.time()-t0:.0f}s")
+        except Exception as e:
+            print(f"[prewarm] erro: {e}")
+        _t.sleep(max(60, CACHE_TTL - 30))   # reaquece antes de expirar (~4,5 min)
+
+
 if __name__ == "__main__":
     threading.Thread(target=_owen_loop, daemon=True).start()
     threading.Thread(target=_sunop_keepalive_loop, daemon=True).start()
+    threading.Thread(target=_prewarm_loop, daemon=True).start()
     app.run(debug=False, port=5050, threaded=True)
