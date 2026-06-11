@@ -1,6 +1,6 @@
 @echo off
 cd /d "%~dp0"
-title Dashboard O&M - Compartilhar (Grid Co.)
+title Dashboard O^&M - Compartilhar (Grid Co.)
 echo ===============================================
 echo    Dashboard O^&M  -  COMPARTILHAR (link publico)
 echo ===============================================
