@@ -1412,7 +1412,7 @@ function _secsDisponiveis(t){
   if(t==='pg')        return ['strings','etm','geracao','trackers'];  // PG: + histórico de geração + trackers
   if(t==='sunop')     return ['strings','etm','trackers']; // SunOp: + trackers
   if(t==='owen')      return ['strings','etm','trackers']; // E-mail: strings+etm+trackers
-  if(t==='pv')        return ['strings','etm','pr','curvastr']; // PV: + PR por inversor + curva das strings
+  if(t==='pv')        return ['strings','etm','pr','curvastr','trackers']; // PV: + PR + curva strings + trackers
   return ['strings','etm'];                       // ETM agora é a pré-análise (cards)
 }
 function _aplicaBarras(){
@@ -2231,11 +2231,11 @@ function exportPgGeracao(){
 
 /* ── SunOp · Trackers ─────────────────────────────────────────────────────── */
 let trkRows=[], trkLoadedSrc=''; const trkExp=new Set(), trkCache={}, trkSel={}, trkChartCache={};
-function _trkBase(){ return primary==='owen' ? '/api/owen/trackers' : primary==='pg' ? '/api/pg/trackers' : '/api/sunop/trackers'; }
+function _trkBase(){ return primary==='pv' ? '/api/pv/trackers' : primary==='owen' ? '/api/owen/trackers' : primary==='pg' ? '/api/pg/trackers' : '/api/sunop/trackers'; }
 async function loadSoTrackers(force){
   const base=_trkBase();
   const _src=document.getElementById('trk-title-src');
-  if(_src)_src.textContent = primary==='pg'?'Banco de Dados (Thopen)' : primary==='owen'?'2C' : 'SunOp (Athon)';
+  if(_src)_src.textContent = primary==='pv'?'PV Plataforma' : primary==='pg'?'Banco de Dados (Thopen)' : primary==='owen'?'2C' : 'SunOp (Athon)';
   if(loaded.sotrk && trkLoadedSrc===primary && !force){ renderSoTrackers(); return; }
   document.getElementById('trk-cont').style.display='none';
   document.getElementById('trk-load').style.display='';

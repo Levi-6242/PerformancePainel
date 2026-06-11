@@ -2017,6 +2017,190 @@ def api_sunop_trackers_chart(plant_name):
                     "trackers": trackers, "alvo": alvo})
 
 
+# ── API PV · Trackers (fonte: PV Plataforma) ──────────────────────────────────
+#   A API PV (apipv) NÃO expõe posição de tracker; o dado só existe na PV Plataforma
+#   (mesma idusina). Endpoints: /v2/usinas/trackers (estado atual: posAg=atual,
+#   posAl=alvo, parametros.{alertaPosicao,criticoPosicao}) e /v2/usinas/trackerschart
+#   (curva do dia por tracker). Token manual (CAPTCHA+MFA) em plat_token.txt.
+PLAT_BASE        = "https://apiplataforma.pvoperation.com"
+_PLAT_TOKEN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plat_token.txt")
+_pv_trk_cache    = {"payload": None, "ts": 0.0}
+_pv_trk_plant    = {}   # idusina → {ts, payload}  (análise por usina, reusada no drill-down)
+
+
+def _plat_token() -> str:
+    t = os.environ.get("PLAT_TOKEN", "")
+    if t:
+        return t.strip()
+    try:
+        with open(_PLAT_TOKEN_PATH, encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+
+def _plat_headers() -> dict:
+    return {"accept": "application/json", "origin": "https://plataforma.pvoperation.com",
+            "referer": "https://plataforma.pvoperation.com/", "user-agent": "Mozilla/5.0",
+            "x-auth-token-update": _plat_token()}
+
+
+def _pv_trk_num(nome) -> int:
+    try:
+        return int("".join(c for c in str(nome) if c.isdigit()) or 999)
+    except Exception:
+        return 999
+
+
+def _pv_trackers_analise(idusina, nome_disp, date=None) -> dict:
+    """Analisa os trackers de UMA usina (estado atual da Plataforma): disparidade =
+    |posAg - posAl| vs limiares (parametros). Formato compatível c/ a aba Trackers."""
+    base = {"plant_id": idusina, "usina": nome_disp, "total": 0, "severos": 0, "leves": 0,
+            "fora_media": 0, "parados": 0, "desvios": 0, "atrasos": 0, "sem_alvo": False,
+            "pior_disparidade": None, "media_angulo": None, "ultima_leitura": None,
+            "trackers": [], "tem_trackers": False}
+    try:
+        date = date or datetime.now().strftime("%d/%m/%Y")
+        r = requests.get(f"{PLAT_BASE}/v2/usinas/trackers", headers=_plat_headers(),
+                         params={"idusina": idusina, "date": date}, timeout=30)
+        j = r.json() if r.status_code == 200 else {}
+    except Exception:
+        return base
+    lst, atuais = [], []
+    for inv in (j.get("dados") or []):
+        for t in (inv.get("trackers") or []):
+            ul = t.get("ultimaleitura") or {}
+            par = t.get("parametros") or {}
+            atual = ul.get("posAg"); alvo = ul.get("posAl")
+            atual = float(atual) if isinstance(atual, (int, float)) else None
+            alvo  = float(alvo)  if isinstance(alvo,  (int, float)) else None
+            disp  = abs(atual - alvo) if (atual is not None and alvo is not None) else None
+            al_th = par.get("alertaPosicao") or 1.5
+            cr_th = par.get("criticoPosicao") or 3
+            status = ("desvio" if (disp is not None and disp > cr_th)
+                      else "atraso" if (disp is not None and disp > al_th) else "normal")
+            if atual is not None:
+                atuais.append(atual)
+            lst.append({"id": t.get("nome") or f"TRK{len(lst)+1}", "alvo": alvo, "atual": atual,
+                        "disparidade": round(disp, 2) if disp is not None else None,
+                        "amplitude": None, "max_disp": round(disp, 2) if disp is not None else None,
+                        "status": status})
+    lst.sort(key=lambda x: _pv_trk_num(x["id"]))
+    desv = sum(1 for t in lst if t["status"] == "desvio")
+    atr  = sum(1 for t in lst if t["status"] == "atraso")
+    pior = max((t["disparidade"] for t in lst if t["disparidade"] is not None), default=None)
+    base.update({"total": len(lst), "tem_trackers": bool(lst),
+                 "severos": desv, "leves": atr, "desvios": desv, "atrasos": atr,
+                 "sem_alvo": all(t["alvo"] is None for t in lst) if lst else False,
+                 "pior_disparidade": round(pior, 2) if pior is not None else None,
+                 "media_angulo": round(sum(atuais) / len(atuais), 1) if atuais else None,
+                 "ultima_leitura": (j.get("ultimaLeitura") or None), "trackers": lst})
+    return base
+
+
+@app.route("/api/pv/trackers")
+def api_pv_trackers():
+    """Overview de trackers das usinas API PV (Full O&M). Fonte: PV Plataforma."""
+    force = flask_request.args.get("force", "0") == "1"
+    agora = time.time()
+    if not force and _pv_trk_cache["payload"] and (agora - _pv_trk_cache["ts"]) < CACHE_TTL:
+        return jsonify(_pv_trk_cache["payload"])
+    if not _plat_token():
+        return jsonify({"rows": [], "summary": {"usinas": 0, "trackers": 0, "severos": 0, "leves": 0},
+                        "sem_token": True, "cache_ts": datetime.now().strftime("%H:%M:%S")})
+    try:
+        plants = get_plants(get_token())
+    except Exception as e:
+        return jsonify({"rows": [], "summary": {"usinas": 0, "trackers": 0, "severos": 0, "leves": 0},
+                        "erro": f"API PV indisponível: {e}"})
+    alvo_plants = [p for p in plants if (not FULL_OM or p["nome"].strip() in FULL_OM)]
+    rows = []
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futs = {ex.submit(_pv_trackers_analise, p["id"], nome_usina(p["id"], p["nome"])): p
+                for p in alvo_plants}
+        for f in as_completed(futs):
+            try:
+                r = f.result()
+                if r.get("tem_trackers"):
+                    _pv_trk_plant[r["plant_id"]] = {"ts": agora, "payload": r}
+                    rows.append({k: r[k] for k in ("plant_id", "usina", "total", "severos", "leves",
+                                 "fora_media", "pior_disparidade", "ultima_leitura", "media_angulo")})
+            except Exception:
+                pass
+    rows.sort(key=lambda x: (-(x["severos"] * 10 + x["leves"]), x["usina"]))
+    payload = {"rows": rows,
+               "summary": {"usinas": len(rows), "trackers": sum(r["total"] for r in rows),
+                           "severos": sum(r["severos"] for r in rows),
+                           "leves": sum(r["leves"] for r in rows)},
+               "cache_ts": datetime.now().strftime("%H:%M:%S")}
+    _pv_trk_cache["payload"] = payload; _pv_trk_cache["ts"] = agora
+    return jsonify(payload)
+
+
+@app.route("/api/pv/trackers/<int:idusina>")
+def api_pv_trackers_plant(idusina):
+    ent = _pv_trk_plant.get(idusina)
+    if ent and (time.time() - ent["ts"]) < CACHE_TTL:
+        return jsonify(ent["payload"])
+    try:
+        nome = next((nome_usina(p["id"], p["nome"]) for p in get_plants(get_token())
+                     if p["id"] == idusina), str(idusina))
+    except Exception:
+        nome = str(idusina)
+    r = _pv_trackers_analise(idusina, nome)
+    _pv_trk_plant[idusina] = {"ts": time.time(), "payload": r}
+    return jsonify(r)
+
+
+@app.route("/api/pv/trackers/<int:idusina>/chart")
+def api_pv_trackers_chart(idusina):
+    """Curva diária de posição por tracker (PV Plataforma /v2/usinas/trackerschart)."""
+    data = (flask_request.args.get("date") or datetime.now().strftime("%d/%m/%Y")).strip()
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", data):     # aceita YYYY-MM-DD do <input type=date>
+        data = datetime.strptime(data, "%Y-%m-%d").strftime("%d/%m/%Y")
+    try:
+        r = requests.get(f"{PLAT_BASE}/v2/usinas/trackerschart", headers=_plat_headers(),
+                         params={"idusina": idusina, "dataleitura": data}, timeout=90)
+        g = (r.json() or {}).get("grafico") or {}
+    except Exception:
+        g = {}
+
+    def _down(serie, mx=180):
+        step = max(1, len(serie) // mx)
+        return serie[::step]
+
+    trackers = []
+    for nome in sorted(g.keys(), key=_pv_trk_num):
+        s = _down(g[nome] or [])
+        trackers.append({"id": nome, "x": [p.get("x") for p in s],
+                         "y": [round(p.get("y"), 2) if isinstance(p.get("y"), (int, float)) else None
+                               for p in s]})
+    return jsonify({"plant": idusina, "date": data, "trackers": trackers, "alvo": None})
+
+
+@app.route("/api/pv/trackers/token", methods=["POST"])
+def api_pv_trackers_token():
+    """Salva o token da PV Plataforma (usado pelo bookmarklet de 1 clique)."""
+    body = flask_request.get_json(force=True, silent=True) or {}
+    tok = (body.get("token") or "").strip()
+    if tok.count(".") != 2:
+        return jsonify({"ok": False, "error": "token inválido"}), 400
+    try:
+        with open(_PLAT_TOKEN_PATH, "w", encoding="utf-8") as f:
+            f.write(tok)
+        _pv_trk_cache["payload"] = None   # invalida overview p/ recarregar com token novo
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    exp = None
+    try:
+        import base64
+        pl = tok.split(".")[1]; pl += "=" * (-len(pl) % 4)
+        exp = json.loads(base64.urlsafe_b64decode(pl)).get("exp")
+    except Exception:
+        pass
+    return jsonify({"ok": True, "exp": exp})
+
+
 # ── Tracker Watch ─────────────────────────────────────────────────────────────
 try:
     import tracker_watch as _tw
