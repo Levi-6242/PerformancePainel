@@ -20,7 +20,7 @@ try:
 except Exception:
     ZoneInfo = None
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from flask import Flask, render_template, jsonify, request as flask_request, send_file
+from flask import Flask, render_template, jsonify, request as flask_request, send_file, session, redirect
 import plotly.graph_objects as go
 import plotly.utils
 
@@ -34,6 +34,76 @@ except ImportError:
 app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = True   # relê o index.html sem precisar reiniciar o servidor
 app.jinja_env.auto_reload = True
+
+# ── Autenticação (senha única DASH_PASSWORD) ──────────────────────────────────
+# Protege o dashboard quando exposto (Cloudflare Tunnel). Se DASH_PASSWORD estiver
+# vazia, o app fica ABERTO (uso local). secret_key derivada da senha = estável entre
+# reinícios sem precisar de outra variável.
+import hashlib
+DASH_PASSWORD = os.environ.get("DASH_PASSWORD", "").strip()
+app.secret_key = os.environ.get("SECRET_KEY") or hashlib.sha256(
+    ("gridco-dash-" + DASH_PASSWORD).encode()).hexdigest()
+app.permanent_session_lifetime = timedelta(days=30)
+
+_LOGIN_HTML = """<!doctype html><html lang="pt-br"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Grid Co. — Acesso</title><style>
+*{box-sizing:border-box;font-family:Inter,system-ui,Arial,sans-serif}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+background:#0b0e16;color:#e5e7eb}
+.card{background:#11151f;border:1px solid #1f2733;border-radius:14px;padding:34px 30px;width:320px;
+box-shadow:0 10px 40px rgba(0,0,0,.4)}
+h1{margin:0 0 4px;font-size:20px}.s{color:#9aa4b2;font-size:13px;margin:0 0 22px}
+.lb{display:block;color:#cfd6e0;font-size:13px;margin-bottom:6px}
+input{width:100%;padding:11px 12px;border-radius:9px;border:1px solid #2a3340;background:#0b0e16;
+color:#fff;font-size:15px}
+button{width:100%;margin-top:16px;padding:11px;border:0;border-radius:9px;background:#a3e635;
+color:#0b0e16;font-weight:700;font-size:15px;cursor:pointer}
+.err{color:#f87171;font-size:13px;margin-top:12px;min-height:16px;text-align:center}
+.g{color:#a3e635}</style></head>
+<body><form class="card" method="post" action="/login">
+<h1>Grid <span class="g">Co.</span></h1><p class="s">Monitoramento O&amp;M — acesso restrito</p>
+<label class="lb">Senha</label><input type="password" name="senha" autofocus autocomplete="current-password">
+<button type="submit">Entrar</button><div class="err">{{erro}}</div></form></body></html>"""
+
+
+@app.before_request
+def _auth_gate():
+    if not DASH_PASSWORD:                       # sem senha → app aberto (dev local)
+        return
+    p = flask_request.path
+    if p == "/login" or p == "/healthz" or p.startswith("/static/"):
+        return
+    if session.get("auth"):
+        return
+    if p.startswith("/api/"):
+        return jsonify({"error": "não autenticado"}), 401
+    return redirect("/login")
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if flask_request.method == "POST":
+        if (flask_request.form.get("senha") or "").strip() == DASH_PASSWORD:
+            session.permanent = True
+            session["auth"] = True
+            return redirect("/")
+        return _LOGIN_HTML.replace("{{erro}}", "Senha incorreta"), 401
+    if session.get("auth"):
+        return redirect("/")
+    return _LOGIN_HTML.replace("{{erro}}", "")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect("/login")
+
+
+@app.route("/healthz")
+def healthz():
+    return "ok", 200
+
 
 BASE_URL = "https://apipv.pvoperation.com.br/api/v1"
 USERNAME = os.environ.get("PV_USERNAME", "")
