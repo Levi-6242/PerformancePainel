@@ -599,10 +599,39 @@ def nome_usina(plant_id, nome_api):
 
 
 # ── Auth & helpers ─────────────────────────────────────────────────────────────
-def get_token() -> str:
-    r = requests.post(f"{BASE_URL}/authenticate",
-                      json={"username": USERNAME, "password": PASSWORD}, timeout=30)
-    return r.json()["token"]
+# Token da API PV CACHEADO: antes, autenticava a CADA chamada (cada /api/data, cada
+# detalhe, cada prewarm) — o que fazia a API PV limitar/bloquear o /authenticate e
+# devolver resposta não-JSON (500). Agora autentica 1× e reusa pela validade do JWT.
+_pv_token      = {"token": "", "exp": 0.0}
+_pv_token_lock = threading.Lock()
+
+
+def get_token(force=False) -> str:
+    now = time.time()
+    if not force and _pv_token["token"] and now < _pv_token["exp"]:
+        return _pv_token["token"]
+    with _pv_token_lock:
+        if not force and _pv_token["token"] and time.time() < _pv_token["exp"]:
+            return _pv_token["token"]
+        r = requests.post(f"{BASE_URL}/authenticate",
+                          json={"username": USERNAME, "password": PASSWORD}, timeout=30)
+        try:
+            tok = r.json()["token"]
+        except Exception:
+            if _pv_token["token"]:                 # resposta inválida → reusa o anterior
+                return _pv_token["token"]
+            raise RuntimeError(f"API PV /authenticate falhou (HTTP {r.status_code})")
+        exp = time.time() + 2700                   # fallback 45 min
+        try:
+            import base64
+            pl = tok.split(".")[1]; pl += "=" * (-len(pl) % 4)
+            jexp = json.loads(base64.urlsafe_b64decode(pl)).get("exp")
+            if jexp:
+                exp = float(jexp) - 60             # 1 min de folga antes do vencimento
+        except Exception:
+            pass
+        _pv_token.update({"token": tok, "exp": exp})
+        return tok
 
 
 def get_plants(token: str) -> list:
@@ -937,16 +966,13 @@ def index():
     return render_template("index.html", today=datetime.now().strftime("%d/%m/%Y"))
 
 
-@app.route("/api/data")
-def api_data():
-    # ── Cache: evita refazer 142 chamadas a cada clique em Atualizar ──────────
-    force = flask_request.args.get("force", "0") == "1"
-    agora = time.time()
-    if not force and _cache["payload"] and (agora - _cache["ts"]) < CACHE_TTL:
-        return jsonify(_cache["payload"])
+_data_refreshing   = {"on": False}
+_data_refresh_lock = threading.Lock()
 
+
+def _build_data_payload():
+    """Busca TUDO e monta o payload da aba Strings (parte cara: ~71 usinas da API PV)."""
     rows = fetch_all()
-
     # Salva último dado conhecido para cada usina com dados reais
     for r in rows:
         if not r.get("sem_dados"):
@@ -1016,10 +1042,42 @@ def api_data():
         "alertas_comm_list":    [{"usina": r["usina"], "ultima_leitura": r.get("ultima_leitura")} for r in alertas_comm],
         "cache_ts": datetime.now().strftime("%H:%M:%S"),
     }
-    _cache["payload"] = payload
-    # Se ainda houver sem_dados após retry, não guarda no cache (tenta de novo no próximo request)
-    _cache["ts"] = agora  # sempre salva cache; _last_known cobre plantas sem_dados
-    return jsonify(payload)
+    return payload
+
+
+def _refresh_data_cache():
+    """Atualiza o cache do /api/data (com lock, sem refreshes concorrentes)."""
+    with _data_refresh_lock:
+        if _data_refreshing["on"]:
+            return
+        _data_refreshing["on"] = True
+    try:
+        _cache["payload"] = _build_data_payload()
+        _cache["ts"] = time.time()
+    except Exception as e:
+        print(f"[api/data] refresh falhou: {e}")
+    finally:
+        _data_refreshing["on"] = False
+
+
+@app.route("/api/data")
+def api_data():
+    # Stale-while-revalidate: NUNCA bloqueia na busca lenta (~71 usinas). Serve o cache
+    # na hora e atualiza em background. O prewarm mantém o cache sempre quente.
+    force = flask_request.args.get("force", "0") == "1"
+    agora = time.time()
+    fresh = bool(_cache["payload"]) and (agora - _cache["ts"]) < CACHE_TTL
+    if force or not fresh:
+        threading.Thread(target=_refresh_data_cache, daemon=True).start()
+    if _cache["payload"]:
+        out = dict(_cache["payload"]); out["stale"] = not fresh
+        return jsonify(out)
+    # 1ª carga, cache ainda vazio → resposta leve "carregando" (frontend re-tenta)
+    return jsonify({"rows": [], "alertas_comm_list": [], "alertas_strings_list": [],
+                    "alertas_temp_list": [], "chart_strings": {}, "chart_temp": {},
+                    "summary": {"total_usinas": 0, "total_strings": 0, "alertas_strings": 0,
+                                "alertas_temp": 0, "alertas_comm": 0},
+                    "carregando": True, "cache_ts": datetime.now().strftime("%H:%M:%S")})
 
 
 # ── ETM helpers ────────────────────────────────────────────────────────────────
@@ -4831,8 +4889,7 @@ def _prewarm_loop():
     while True:
         t0 = _t.time()
         try:
-            with app.test_request_context("/api/data"):
-                api_data()
+            _refresh_data_cache()
             print(f"[prewarm] /api/data aquecido em {_t.time()-t0:.0f}s")
         except Exception as e:
             print(f"[prewarm] erro: {e}")

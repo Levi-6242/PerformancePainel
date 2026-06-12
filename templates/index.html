@@ -1615,6 +1615,14 @@ async function loadPvStr(force){
   const L=document.getElementById('pvs-load'),C=document.getElementById('pvs-cont');
   L.style.display='flex';C.style.display='none';
   const data=await fetch(force?'/api/data?force=1':'/api/data').then(r=>r.json());
+  if(data.carregando){   // cache ainda sendo montado em background → re-tenta sozinho
+    L.innerHTML='<div class="gc-spinner"></div><p>Primeira coleta das usinas (pode levar ~1 min)... carregando em segundo plano.</p>';
+    loaded.pvs=false; window._pvRetry=(window._pvRetry||0)+1;
+    if(window._pvRetry<=25){ setTimeout(()=>loadPvStr(force), 6000); }
+    else { L.innerHTML='<p style="color:#dc2626;padding:20px">A API PV não respondeu a tempo. Clique em Atualizar em instantes.</p>'; }
+    return;
+  }
+  window._pvRetry=0;
   pvRows=data.rows||[]; loaded.pvs=true;
   document.getElementById('pv-total').textContent=data.summary.total_usinas;
   document.getElementById('pv-str').textContent=(data.summary.total_strings||0).toLocaleString('pt-BR');
