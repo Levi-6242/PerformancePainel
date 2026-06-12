@@ -7,3 +7,4 @@ gunicorn==23.0.0
 pycognito
 psycopg2-binary
 python-dotenv
+matplotlib

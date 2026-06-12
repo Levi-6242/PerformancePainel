@@ -773,11 +773,11 @@
 <div class="gc-secondary-bar">
   <div class="gc-secondary-tabs">
     <button class="gc-secondary-tab active" id="stab-strings" onclick="switchSecondary('strings')">Strings</button>
-    <button class="gc-secondary-tab" id="stab-etm" onclick="switchSecondary('etm')">🔎 ETM</button>
-    <button class="gc-secondary-tab" id="stab-geracao" style="display:none" onclick="switchSecondary('geracao')">📊 Geração</button>
-    <button class="gc-secondary-tab" id="stab-trackers" style="display:none" onclick="switchSecondary('trackers')">🛰️ Trackers</button>
-    <button class="gc-secondary-tab" id="stab-pr" style="display:none" onclick="switchSecondary('pr')">📊 PR Inversores</button>
-    <button class="gc-secondary-tab" id="stab-curvastr" style="display:none" onclick="switchSecondary('curvastr')">📈 Curva das strings</button>
+    <button class="gc-secondary-tab" id="stab-etm" onclick="switchSecondary('etm')">ETM</button>
+    <button class="gc-secondary-tab" id="stab-geracao" style="display:none" onclick="switchSecondary('geracao')">Geração</button>
+    <button class="gc-secondary-tab" id="stab-trackers" style="display:none" onclick="switchSecondary('trackers')">Trackers</button>
+    <button class="gc-secondary-tab" id="stab-pr" style="display:none" onclick="switchSecondary('pr')">PR Inversores</button>
+    <button class="gc-secondary-tab" id="stab-curvastr" style="display:none" onclick="switchSecondary('curvastr')">Curva das strings</button>
   </div>
   <div class="gc-bar-right" id="bar-strings">
     <button class="gc-btn-sm" id="btn-ocultas" onclick="abrirModalOcultas()">👁 Ocultas (<span id="count-ocultas">0</span>)</button>
@@ -1205,6 +1205,11 @@
         <div class="gc-stat red">   <div class="gc-stat-icon">⚠️</div><div class="gc-stat-body"><div class="n" id="trk-sev">—</div><div class="l">Disparidade severa</div></div></div>
         <div class="gc-stat yellow"><div class="gc-stat-icon">↪️</div><div class="gc-stat-body"><div class="n" id="trk-leve">—</div><div class="l">Disparidade leve</div></div></div>
       </div>
+      <div id="trk-novos-banner" style="display:none;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px">
+        <b style="color:#b91c1c">⚠️ <span id="trk-novos-n">0</span> tracker(s) em alerta FORA da planilha de Tickets</b>
+        <span style="color:#6b7280"> · <span id="trk-acomp-n">0</span> já acompanhado(s) na planilha de Tickets.</span>
+        <button class="gc-btn-sm" id="trk-novos-btn" style="background:#b91c1c;color:#fff;margin-left:8px;display:inline-block" onclick="trkToggleNovos()">Ver só os novos</button>
+      </div>
       <div class="gc-table-card">
         <div class="gc-table-hdr">
           <span class="gc-table-title"><span id="trk-title-src">SunOp</span> — Trackers por Usina <small>— clique para expandir; disparidade = |alvo − atual|</small></span>
@@ -1217,7 +1222,7 @@
         <div class="gc-table-wrap">
           <table>
             <thead><tr>
-              <th>Usina</th><th>Trackers</th><th>Severos</th><th>Leves</th><th>Fora da linha</th><th>Pior disparidade</th><th>Última Leitura</th><th>Status</th>
+              <th>Usina</th><th>Trackers</th><th>Severos</th><th>Leves</th><th>Fora da linha</th><th title="Normais no tempo real, mas ainda como Parado/Com problema na planilha de Tickets">Normalizados</th><th>Pior disparidade</th><th>Última Leitura</th><th>Status</th>
             </tr></thead>
             <tbody id="trk-tbody"></tbody>
           </table>
@@ -1318,6 +1323,7 @@
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
         <label style="font-size:12px;color:var(--muted)">Data <input class="gc-bar-search" type="date" id="spv-data" style="width:auto" onchange="spvData={};spvExp.clear();renderSpvList()"></label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer" title="Mostra apenas os inversores que têm string(s) abaixo da mediana"><input type="checkbox" id="spv-soabaixo" style="accent-color:#dc2626;cursor:pointer" onchange="spvToggleSoAbaixo()"> só inversores abaixo</label>
         <input class="gc-bar-search" type="text" id="spv-filtro" placeholder="🔍  Filtrar usina..." oninput="renderSpvList()">
         <button class="gc-btn-sm" style="background:#f3f4f6" onclick="spvSelTodas()" title="Marcar todas as usinas visíveis">☑ Todas</button>
         <button class="gc-btn-sm" style="background:#f3f4f6" onclick="spvSelNenhuma()" title="Desmarcar todas">☐ Nenhuma</button>
@@ -1412,7 +1418,7 @@ function _secsDisponiveis(t){
   if(t==='pg')        return ['strings','etm','geracao','trackers'];  // PG: + histórico de geração + trackers
   if(t==='sunop')     return ['strings','etm','trackers']; // SunOp: + trackers
   if(t==='owen')      return ['strings','etm','trackers']; // E-mail: strings+etm+trackers
-  if(t==='pv')        return ['strings','etm','pr','curvastr']; // PV: + PR por inversor + curva das strings
+  if(t==='pv')        return ['strings','etm','pr','curvastr','trackers']; // PV: + PR + curva strings + trackers
   return ['strings','etm'];                       // ETM agora é a pré-análise (cards)
 }
 function _aplicaBarras(){
@@ -1609,6 +1615,14 @@ async function loadPvStr(force){
   const L=document.getElementById('pvs-load'),C=document.getElementById('pvs-cont');
   L.style.display='flex';C.style.display='none';
   const data=await fetch(force?'/api/data?force=1':'/api/data').then(r=>r.json());
+  if(data.carregando){   // cache ainda sendo montado em background → re-tenta sozinho
+    L.innerHTML='<div class="gc-spinner"></div><p>Primeira coleta das usinas (pode levar ~1 min)... carregando em segundo plano.</p>';
+    loaded.pvs=false; window._pvRetry=(window._pvRetry||0)+1;
+    if(window._pvRetry<=25){ setTimeout(()=>loadPvStr(force), 6000); }
+    else { L.innerHTML='<p style="color:#dc2626;padding:20px">A API PV não respondeu a tempo. Clique em Atualizar em instantes.</p>'; }
+    return;
+  }
+  window._pvRetry=0;
   pvRows=data.rows||[]; loaded.pvs=true;
   document.getElementById('pv-total').textContent=data.summary.total_usinas;
   document.getElementById('pv-str').textContent=(data.summary.total_strings||0).toLocaleString('pt-BR');
@@ -1627,7 +1641,8 @@ function renderPvStr(prev){
   prev=prev||getLastSt();
   const tb=document.getElementById('pv-tbody'),f=document.getElementById('filtro-str').value.toLowerCase();
   tb.innerHTML='';
-  pvRows.filter(r=>(!f||r.usina.toLowerCase().includes(f))).forEach(r=>{
+  // Oculta usinas string-box (BD_Performance): sem visão real de strings na aba Strings
+  pvRows.filter(r=>!r.stringbox && (!f||r.usina.toLowerCase().includes(f))).forEach(r=>{
     tb.appendChild(pvStrRow(r,prev));
     if(pvExp.has(r.plant_id)){if(pvCache[r.plant_id])appendPvInvs(tb,r.plant_id,pvCache[r.plant_id]);else appendPvLoad(tb,r.plant_id);}
   });
@@ -1682,8 +1697,8 @@ function appendPvInvs(tb,pid,invs){
     const ik=`${pid}-${inv.id}`,isE=pvInvExp.has(ik);
     const tr=document.createElement('tr');tr.className='inv-header-row';tr.dataset.pvp=pid;tr.dataset.pvik=ik;
     if(inv.diferenca!=null&&inv.diferenca<0)tr.classList.add('inv-diff');
-    const sc=inv.desligado?'b-none':inv.falha_comunicacao?'b-comm':inv.strings_ativas===0?'b-err':'b-ok';
-    const st=inv.desligado?'⚫ Desligado':inv.falha_comunicacao?'📡 Falha':inv.strings_ativas===0?'Sem geração':'Normal';
+    const sc=inv.desligado?'b-none':inv.falha_comunicacao?'b-comm':inv.strings_ativas===0?'b-err':inv.diferenca<0?'b-string':'b-ok';
+    const st=inv.desligado?'⚫ Desligado':inv.falha_comunicacao?'📡 Falha':inv.strings_ativas===0?'Sem geração':inv.diferenca<0?`⚡ ${-inv.diferenca} faltando`:'Normal';
     const {sty,txt}=difCell(inv.diferenca);
     const leit=inv.ultima_leitura?inv.ultima_leitura.slice(0,16).replace('T',' '):'—';
     tr.innerHTML=`<td><b><span class="chevron${isE?' open':''}">▶</span>${inv.nome}</b> <span style="color:var(--muted);font-size:10px;margin-left:5px">${inv.eday!=null?inv.eday+' kWh':'—'}</span></td>
@@ -1697,13 +1712,96 @@ function appendPvInvs(tb,pid,invs){
 function togglePvInv(pid,inv,ik){
   if(pvInvExp.has(ik)){pvInvExp.delete(ik);document.querySelectorAll(`[data-pvis="${ik}"]`).forEach(e=>e.remove());const t=document.querySelector(`[data-pvik="${ik}"]`);if(t)t.querySelector('.chevron').classList.remove('open');return;}
   pvInvExp.add(ik);const t=document.querySelector(`[data-pvik="${ik}"]`);if(t)t.querySelector('.chevron').classList.add('open');
-  appendPvStrs(document.getElementById('pv-tbody'),pid,ik,inv.strings);
+  appendPvStrs(document.getElementById('pv-tbody'),pid,ik,inv);
 }
-function appendPvStrs(tb,pid,ik,strings){
+function appendPvStrs(tb,pid,ik,inv){
+  const strings=inv.strings||[];
   const tr=document.createElement('tr');tr.className='strings-row';tr.dataset.pvp=pid;tr.dataset.pvis=ik;
-  const chips=strings.map(s=>`<div class="string-chip ${s.ativa?'ativa':'inativa'}"><span class="s-id">${s.id}</span><span class="s-val">${s.corrente.toFixed(2)} A</span></div>`).join('');
-  tr.innerHTML=`<td colspan="9"><div class="strings-grid">${chips}</div></td>`;
+  const cid=`pvcurva-${pid}-${inv.id}`, nm=(inv.nome||'').replace(/['"\\]/g,'');
+  const chips=strings.map(s=>{const n=(''+s.id).replace(/\D/g,'')||'0';
+    return `<div class="string-chip ${s.ativa?'ativa':'inativa'}" data-cid="${cid}" data-n="${n}" style="cursor:pointer"
+      onmouseenter="pvCurvaHi('${cid}',${n},1)" onmouseleave="pvCurvaHi('${cid}',${n},0)" onclick="pvCurvaToggle('${cid}',${n},this)"
+      title="passe o mouse p/ destacar · clique p/ ocultar no gráfico"><span class="s-id">${s.id}</span><span class="s-val">${s.corrente.toFixed(2)} A</span></div>`;}).join('');
+  tr.innerHTML=`<td colspan="9">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="pvCurvaInv(${pid},${inv.id},'${nm}','${cid}')">📈 Curva do dia</button>
+        <label style="font-size:11px;color:var(--muted)">Data <input type="date" id="${cid}-data" value="${_trkHoje()}" onchange="pvCurvaInv(${pid},${inv.id},'${nm}','${cid}',true)" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
+        <span id="${cid}-presets" style="display:none;align-items:center;gap:4px;flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--muted)">| Mostrar:</span>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','todas')">Todas</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','nenhuma')">Nenhuma</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','ativas')">Só ativas</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','inativas')">Só inativas</button>
+        </span>
+      </div>
+      <div id="${cid}" style="display:none;width:100%;max-width:100%;height:250px;overflow:hidden;margin-bottom:10px"></div>
+      <div class="strings-grid">${chips}</div></td>`;
   const it=document.querySelector(`[data-pvik="${ik}"]`);if(it&&it.nextSibling)tb.insertBefore(tr,it.nextSibling);else tb.appendChild(tr);
+}
+const _pvCurvaCache={}, _pvCurvaState={};
+function _pvIso2Br(s){ if(!s)return ''; const p=s.split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:s; }
+async function pvCurvaInv(pid,invId,invNome,cid,reload){
+  const box=document.getElementById(cid); if(!box)return;
+  const pres=document.getElementById(cid+'-presets');
+  if(!reload && box.style.display!=='none'){ box.style.display='none'; if(pres)pres.style.display='none'; return; }
+  box.style.display='';
+  box.innerHTML='<div class="gc-loading" style="min-height:200px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
+  const dt=document.getElementById(cid+'-data')?.value||'';
+  const isHoje = dt===_trkHoje();
+  const dataBR=dt?_pvIso2Br(dt):_spvDataBR();
+  const ckey=pid+'|'+dataBR;
+  if(reload||!_pvCurvaCache[ckey]){
+    try{ _pvCurvaCache[ckey]=await fetch(`/api/spv/usina/${pid}?full=1&data=${encodeURIComponent(dataBR)}`).then(r=>r.json()); }
+    catch(e){ _pvCurvaCache[ckey]={inversores:[]}; }
+  }
+  // Match pela identidade canônica do BD_Performance (nome do Equipamento), não pelo id cru
+  const _nz=v=>String(v||'').replace(/['"\\]/g,'').trim().toLowerCase();
+  const iv=((_pvCurvaCache[ckey].inversores)||[]).find(x=>_nz(x.nome)===_nz(invNome));
+  if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:16px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; if(pres)pres.style.display='none'; return; }
+  const sub=iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK';
+  box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:0 0 2px">${invNome} — corrente por string · med ${iv.mediana} (índice)${sub}</div><div id="${cid}-plot" style="width:100%;height:222px"></div>`;
+  if(pres)pres.style.display='inline-flex';
+  _spvPlotInto(document.getElementById(cid+'-plot'),iv,cid,isHoje);
+}
+function _spvPlotInto(el,iv,cid,isHoje){
+  if(!el||!window.Plotly)return;
+  const subSet=new Set(iv.strings.filter(s=>s.sub).map(s=>s.nome));
+  const ativaBy={}; (iv.strings||[]).forEach(s=>{ativaBy[s.nome]=s.ativa!==false;});
+  const idxByNum={}, ativaByNum={}, baseW=[], baseC=[];
+  const traces=Object.entries(iv.curva).map(([st,c],idx)=>{
+    const n=parseInt(st.replace(/\D/g,''))||0, sub=subSet.has(st), ativa=ativaBy[st]!==false;
+    idxByNum[n]=idx; ativaByNum[n]=ativa;
+    const col=sub?'#dc2626':(ativa?'rgba(100,116,139,0.6)':'rgba(190,190,190,0.5)'), w=sub?2.4:(ativa?0.9:0.7);
+    baseW.push(w); baseC.push(col);
+    return {x:c.x.map(t=>'2000-01-01 '+t),y:c.y,type:'scatter',mode:'lines',name:st,
+      line:{width:w,color:col,dash:ativa?'solid':'dot'},
+      hovertemplate:'<b>'+st+'</b>: %{y:.2f} A<extra></extra>',showlegend:false};});
+  _pvCurvaState[cid]={idxByNum,ativaByNum,baseW,baseC,hidden:new Set()};
+  const xaxis={type:'date',tickformat:'%H:%M',hoverformat:'%H:%M',tickfont:{size:8},nticks:8};
+  if(isHoje) xaxis.range=['2000-01-01 05:00','2000-01-01 19:00'];   // dia atual: janela fixa 05-19
+  Plotly.newPlot(el,traces,{autosize:true,margin:{l:42,r:10,t:6,b:28},showlegend:false,hovermode:'closest',
+    xaxis:xaxis,yaxis:{title:{text:'Corrente (A)',font:{size:9}},tickfont:{size:8}}},
+    {displayModeBar:false,responsive:true}).then(()=>{try{Plotly.Plots.resize(el);}catch(e){}});
+}
+function pvCurvaHi(cid,n,on){
+  const s=_pvCurvaState[cid]; if(!s)return; const idx=s.idxByNum[n]; if(idx==null||s.hidden.has(n))return;
+  const el=document.getElementById(cid+'-plot'); if(!el||!window.Plotly)return;
+  try{ Plotly.restyle(el,{'line.width':[on?3.4:s.baseW[idx]],'line.color':[on?'#f59e0b':s.baseC[idx]]},[idx]); }catch(e){}
+}
+function pvCurvaToggle(cid,n,chip){
+  const s=_pvCurvaState[cid]; if(!s)return; const idx=s.idxByNum[n]; if(idx==null)return;
+  const el=document.getElementById(cid+'-plot'); if(!el||!window.Plotly)return;
+  if(s.hidden.has(n)){ s.hidden.delete(n); try{Plotly.restyle(el,{visible:true},[idx]);}catch(e){} if(chip)chip.style.opacity=1; }
+  else { s.hidden.add(n); try{Plotly.restyle(el,{visible:false},[idx]);}catch(e){} if(chip)chip.style.opacity=0.35; }
+}
+function pvCurvaPreset(cid,which){
+  const s=_pvCurvaState[cid]; if(!s)return; const el=document.getElementById(cid+'-plot'); if(!el||!window.Plotly)return;
+  s.hidden=new Set(); const idxList=[], visList=[];
+  Object.entries(s.idxByNum).forEach(([n,idx])=>{const num=parseInt(n),ativa=s.ativaByNum[num];
+    const show = which==='nenhuma'?false : which==='ativas'?ativa : which==='inativas'?!ativa : true;
+    if(!show)s.hidden.add(num); idxList.push(idx); visList.push(show);});
+  try{ Plotly.restyle(el,{visible:visList},idxList); }catch(e){}
+  document.querySelectorAll(`[data-cid="${cid}"]`).forEach(ch=>{const num=parseInt(ch.dataset.n);ch.style.opacity=s.hidden.has(num)?0.35:1;});
 }
 function insAfterPv(tb,pid,nr){
   const rows=tb.querySelectorAll(`[data-pvp="${pid}"]`);
@@ -1815,8 +1913,8 @@ function appendSoInvs(tb,pid,invs){
     const ik=`${pid}-${inv.id}`,isE=soInvExp.has(ik);
     const tr=document.createElement('tr');tr.className='inv-header-row';tr.dataset.sop=pid;tr.dataset.soik=ik;
     if(inv.diferenca!=null&&inv.diferenca<0)tr.classList.add('inv-diff');
-    const sc=inv.desligado?'b-none':inv.falha_comunicacao?'b-comm':inv.strings_ativas===0?'b-err':'b-ok';
-    const st=inv.desligado?'⚫ Desligado':inv.falha_comunicacao?'📡 Falha':inv.strings_ativas===0?'Sem geração':'Normal';
+    const sc=inv.desligado?'b-none':inv.falha_comunicacao?'b-comm':inv.strings_ativas===0?'b-err':inv.diferenca<0?'b-string':'b-ok';
+    const st=inv.desligado?'⚫ Desligado':inv.falha_comunicacao?'📡 Falha':inv.strings_ativas===0?'Sem geração':inv.diferenca<0?`⚡ ${-inv.diferenca} faltando`:'Normal';
     const {sty,txt}=difCell(inv.diferenca);
     const leit=inv.ultima_leitura?inv.ultima_leitura.slice(0,16).replace('T',' '):'—';
     tr.innerHTML=`<td><b><span class="chevron${isE?' open':''}">▶</span>${inv.nome}</b> <span style="color:var(--muted);font-size:10px;margin-left:5px">${inv.eday!=null?inv.eday+' kWh':'—'}</span></td>
@@ -2231,11 +2329,11 @@ function exportPgGeracao(){
 
 /* ── SunOp · Trackers ─────────────────────────────────────────────────────── */
 let trkRows=[], trkLoadedSrc=''; const trkExp=new Set(), trkCache={}, trkSel={}, trkChartCache={};
-function _trkBase(){ return primary==='owen' ? '/api/owen/trackers' : primary==='pg' ? '/api/pg/trackers' : '/api/sunop/trackers'; }
+function _trkBase(){ return primary==='pv' ? '/api/pv/trackers' : primary==='owen' ? '/api/owen/trackers' : primary==='pg' ? '/api/pg/trackers' : '/api/sunop/trackers'; }
 async function loadSoTrackers(force){
   const base=_trkBase();
   const _src=document.getElementById('trk-title-src');
-  if(_src)_src.textContent = primary==='pg'?'Banco de Dados (Thopen)' : primary==='owen'?'2C' : 'SunOp (Athon)';
+  if(_src)_src.textContent = primary==='pv'?'PV Plataforma' : primary==='pg'?'Banco de Dados (Thopen)' : primary==='owen'?'2C' : 'SunOp (Athon)';
   if(loaded.sotrk && trkLoadedSrc===primary && !force){ renderSoTrackers(); return; }
   document.getElementById('trk-cont').style.display='none';
   document.getElementById('trk-load').style.display='';
@@ -2250,10 +2348,26 @@ async function loadSoTrackers(force){
     document.getElementById('trk-total').textContent=d.summary.trackers;
     document.getElementById('trk-sev').textContent=d.summary.severos;
     document.getElementById('trk-leve').textContent=d.summary.leves;
+    // Banner de NOVOS (fora da planilha de Tickets) — só na API PV
+    const ban=document.getElementById('trk-novos-banner');
+    if(ban){
+      if(primary==='pv' && d.summary.novos!=null){
+        ban.style.display='';
+        document.getElementById('trk-novos-n').textContent=d.summary.novos;
+        document.getElementById('trk-acomp-n').textContent=d.summary.acompanhados||0;
+      } else { ban.style.display='none'; trkOnlyNovos=false; }
+    }
     renderSoTrackers();
     document.getElementById('trk-load').style.display='none';
     document.getElementById('trk-cont').style.display='';
   }catch(e){ document.getElementById('trk-load').innerHTML='<p style="color:#dc2626">Erro: '+e.message+'</p>'; }
+}
+let trkOnlyNovos=false;
+function trkToggleNovos(){
+  trkOnlyNovos=!trkOnlyNovos;
+  const b=document.getElementById('trk-novos-btn');
+  if(b){b.textContent=trkOnlyNovos?'Mostrar todas':'Ver só os novos';b.style.opacity=trkOnlyNovos?1:.85;}
+  renderSoTrackers();
 }
 function _trkBadge(r){
   if(r.severos) return '<span class="badge b-err">Severo</span>';
@@ -2269,16 +2383,19 @@ function renderSoTrackers(){
   const soAlerta=document.getElementById('trk-soalerta').checked;
   let lista=trkRows.filter(r=>!f||r.usina.toLowerCase().includes(f));
   if(soAlerta) lista=lista.filter(r=>r.severos||r.leves||r.fora_media);
+  if(trkOnlyNovos) lista=lista.filter(r=>(r.novos||0)>0);
   const tb=document.getElementById('trk-tbody'); tb.innerHTML='';
-  if(!lista.length){tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">Nenhuma usina.</td></tr>';return;}
+  if(!lista.length){tb.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px">Nenhuma usina.</td></tr>';return;}
   lista.forEach(r=>{
     const exp=trkExp.has(r.plant_id);
+    const novoTag=(r.novos)?` <span class="badge b-err" title="${r.novos} fora da planilha de Tickets${r.ambiguo?' (usina agrupada na planilha — revisar)':''}">${r.novos} novo${r.novos>1?'s':''}</span>`:(r.tem_ticket?' <span class="badge b-ok" title="acompanhado na planilha">na planilha</span>':'');
     const tr=document.createElement('tr'); tr.className='plant-row'; tr.style.cursor='pointer';
-    tr.innerHTML=`<td>${exp?'▾':'▸'} ${r.usina}</td>
+    tr.innerHTML=`<td>${exp?'▾':'▸'} ${r.usina}${novoTag}</td>
       <td>${r.total}</td>
       <td style="color:${r.severos?'#dc2626':'inherit'};font-weight:${r.severos?700:400}">${r.severos}</td>
       <td style="color:${r.leves?'#b45309':'inherit'}">${r.leves}</td>
       <td style="color:${r.fora_media?'#1d4ed8':'inherit'}">${r.fora_media}</td>
+      <td style="color:${r.normalizados?'#2563eb':'var(--muted)'};font-weight:${r.normalizados?700:400}" title="normais no tempo real, mas ainda na planilha como problema">${r.normalizados!=null?r.normalizados:'—'}</td>
       <td>${r.pior_disparidade!=null?r.pior_disparidade.toFixed(1)+'°':'—'}</td>
       <td>${r.ultima_leitura?r.ultima_leitura.slice(11,16):'—'}</td>
       <td>${_trkBadge(r)}</td>`;
@@ -2286,7 +2403,7 @@ function renderSoTrackers(){
     tb.appendChild(tr);
     if(exp){
       const det=document.createElement('tr');
-      det.innerHTML=`<td colspan="8" style="background:#fafbff;padding:8px 14px"><div id="trk-det-${_trkCss(r.plant_id)}" style="color:var(--muted);font-size:12px">Carregando trackers...</div></td>`;
+      det.innerHTML=`<td colspan="9" style="background:#fafbff;padding:8px 14px"><div id="trk-det-${_trkCss(r.plant_id)}" style="color:var(--muted);font-size:12px">Carregando trackers...</div></td>`;
       tb.appendChild(det);
       renderTrkDetail(r.plant_id);
     }
@@ -2310,6 +2427,7 @@ async function renderTrkDetail(pid){
   cell.innerHTML=`
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
       <button class="gc-btn-sm" style="display:inline-block" onclick="toggleGraficoTrackers('${pid}')">📈 Curva do dia</button>
+      <label style="font-size:11px;color:var(--muted)">Data <input type="date" id="trk-data-${cid}" value="${_trkHoje()}" onchange="trkChartReload('${pid}')" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
       <span style="font-size:11px;color:var(--muted)">Filtrar:</span>
       <button class="gc-btn-sm" style="display:inline-block" onclick="trkPreset('${pid}','ruins')">Ruins</button>
       <button class="gc-btn-sm" style="display:inline-block" onclick="trkPreset('${pid}','bons')">Bons</button>
@@ -2324,9 +2442,27 @@ async function renderTrkDetail(pid){
 function _trkChip(pid,t){
   const sel=trkSel[pid]?trkSel[pid].has(t.id):true;
   const cor=_trkCor(t.status), disp=t.disparidade!=null?t.disparidade.toFixed(1)+'°':'—';
+  const amp=t.amplitude!=null?t.amplitude+'°':'—', md=t.max_disp!=null?t.max_disp+'°':'—';
+  let mark='', tip='';
+  if(t.normalizado){ mark=' <span style="color:#2563eb;font-weight:700">✓</span>'; tip=' · NORMALIZADO (normal agora, mas ainda como '+(t.ticket_status||'problema')+' na planilha)'; }
+  else if(t.na_planilha){ mark=' <span style="color:#16a34a">✓</span>'; tip=' · NA PLANILHA'+(t.ticket_status?(' ('+t.ticket_status+')'):''); }
+  else if(t.status==='desvio'||t.status==='atraso'){ mark=' <span style="color:#b91c1c;font-weight:700">novo</span>'; tip=' · FORA DA PLANILHA (novo)'; }
   return `<span data-tid="${t.id}" onclick="toggleTrkFiltro('${pid}','${t.id}',this)"
     style="border:1px solid ${cor};color:${cor};border-radius:8px;padding:3px 7px;font-size:11px;cursor:pointer;white-space:nowrap;opacity:${sel?1:0.3}"
-    title="${t.status.toUpperCase()} · alvo ${t.alvo}° · atual ${t.atual}° · amplitude no dia ${t.amplitude}° · disparidade atual ${disp} · máx do dia ${t.max_disp!=null?t.max_disp+'°':'—'} — clique p/ filtrar">${t.id}: ${disp}</span>`;
+    title="${t.status.toUpperCase()} · alvo ${t.alvo}° · atual ${t.atual}° · amplitude no dia ${amp} · disparidade atual ${disp} · máx do dia ${md}${tip} — clique p/ filtrar">${t.id}: ${disp}${mark}</span>`;
+}
+function _trkHoje(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function _trkDataDe(pid){ const el=document.getElementById('trk-data-'+_trkCss(pid)); return (el&&el.value)?el.value:''; }
+async function trkChartReload(pid){
+  // data daquela usina mudou → re-busca a curva se ela estiver aberta
+  const box=document.getElementById('trk-chart-'+_trkCss(pid));
+  if(!box || box.style.display==='none')return;
+  box.innerHTML='<div class="gc-loading" style="min-height:320px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
+  const ds=_trkDataDe(pid), ckey=pid+'|'+ds;
+  try{ trkChartCache[ckey]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart'+(ds?('?date='+ds):'')).then(r=>r.json()); }
+  catch(e){ trkChartCache[ckey]={trackers:[]}; }
+  trkChartCache[pid]=trkChartCache[ckey];
+  renderTrkChart(pid);
 }
 async function toggleGraficoTrackers(pid){
   const box=document.getElementById('trk-chart-'+_trkCss(pid));
@@ -2334,10 +2470,12 @@ async function toggleGraficoTrackers(pid){
   if(box.style.display!=='none'){ box.style.display='none'; return; }   // fechar
   box.style.display='';
   box.innerHTML='<div class="gc-loading" style="min-height:320px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
-  if(!trkChartCache[pid]){
-    try{ trkChartCache[pid]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart').then(r=>r.json()); }
-    catch(e){ trkChartCache[pid]={trackers:[]}; }
+  const ds=_trkDataDe(pid), ckey=pid+'|'+ds;
+  if(!trkChartCache[ckey]){
+    try{ trkChartCache[ckey]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart'+(ds?('?date='+ds):'')).then(r=>r.json()); }
+    catch(e){ trkChartCache[ckey]={trackers:[]}; }
   }
+  trkChartCache[pid]=trkChartCache[ckey];   // renderTrkChart lê por pid
   renderTrkChart(pid);
 }
 function renderTrkChart(pid){
@@ -2354,9 +2492,13 @@ function renderTrkChart(pid){
   // ruins por cima (z-order) p/ não sumirem no feixe
   const ordem={parado:3,desvio:2,atraso:1};
   vis.sort((a,b)=>(ordem[stMap[a.id]]||0)-(ordem[stMap[b.id]]||0));
-  const traces=vis.map(t=>({x:t.x,y:t.y,name:t.id,type:'scatter',mode:'lines',
+  // RFC/ISO (em GMT) → Date usando os componentes UTC como "hora de parede" (sem deslocar
+  // p/ o fuso do navegador, senão o dia escolhido começaria às 21h do dia anterior).
+  const _toDt=arr=>(arr||[]).map(s=>{const dt=new Date(s);return isNaN(dt)?s:
+    new Date(dt.getUTCFullYear(),dt.getUTCMonth(),dt.getUTCDate(),dt.getUTCHours(),dt.getUTCMinutes(),dt.getUTCSeconds());});
+  const traces=vis.map(t=>({x:_toDt(t.x),y:t.y,name:t.id,type:'scatter',mode:'lines',
     line:corLinha(stMap[t.id]),hovertemplate:t.id+' ('+(stMap[t.id]||'normal')+'): %{y:.1f}°<extra></extra>',showlegend:false}));
-  if(d.alvo&&d.alvo.y&&d.alvo.y.length){traces.push({x:d.alvo.x,y:d.alvo.y,name:'Alvo',type:'scatter',mode:'lines',
+  if(d.alvo&&d.alvo.y&&d.alvo.y.length){traces.push({x:_toDt(d.alvo.x),y:d.alvo.y,name:'Alvo',type:'scatter',mode:'lines',
     line:{color:'#111827',width:2.2,dash:'dash'},hovertemplate:'Alvo: %{y:.1f}°<extra></extra>'});}
   const hint=document.getElementById('trk-hint-'+cid);
   if(hint)hint.textContent=`mostrando ${vis.length} de ${(d.trackers||[]).length}`;
@@ -2364,7 +2506,7 @@ function renderTrkChart(pid){
   Plotly.purge(box); box.innerHTML='';   // remove o spinner / plot anterior antes de redesenhar
   Plotly.newPlot(box, traces, {
     margin:{t:10,r:14,b:36,l:46},
-    xaxis:{title:'Hora', tickfont:{size:10}, nticks:12},
+    xaxis:{title:'Hora', type:'date', tickformat:'%H:%M', hoverformat:'%H:%M', tickfont:{size:10}, nticks:12},
     yaxis:{title:'Ângulo (°)'},
     legend:{orientation:'h', y:1.15},
     font:{family:'Inter', size:11},
@@ -2815,7 +2957,7 @@ function renderSpvUsina(id){
   const linhas=pd.inversores.filter(iv=>iv.abaixo).map(iv=>{
     const outs=iv.strings.filter(s=>s.sub).sort((a,b)=>a.pct-b.pct)
       .map(s=>`${s.nome} (${s.pct}%)`).join(', ');
-    return `<div style="margin:2px 0"><b>${iv.nome}</b> <span style="color:#9ca3af">·med ${iv.mediana}kWh·</span> ${outs}`
+    return `<div style="margin:2px 0"><b>${iv.nome}</b> <span style="color:#9ca3af">·med ${iv.mediana}·</span> ${outs}`
       +(iv.nota?` <span style="color:#7c3aed">— motivo: ${iv.nota.replace(/</g,'&lt;')}</span>`:'')+`</div>`;
   }).join('');
   const obs = pd.total_abaixo
@@ -2823,19 +2965,29 @@ function renderSpvUsina(id){
          <b style="color:#b45309">⚠️ Outliers — strings abaixo de 90% da mediana do inversor (${pd.total_abaixo} no total)</b>
          <div style="margin-top:6px;color:#374151">${linhas}</div></div>`
     : `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12.5px;color:#166534">✅ Sem outliers — todas as strings dentro da faixa da mediana</div>`;
-  body.innerHTML=obs+`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px">`
-    + pd.inversores.map(iv=>_spvCard(id,iv)).join('') + `</div>`;
-  // plota cada inversor
-  pd.inversores.forEach(iv=>_spvPlot(id,iv));
+  // Filtro: só inversores com strings abaixo da mediana (se ligado na barra)
+  const invs = spvSoAbaixo ? pd.inversores.filter(iv=>iv.abaixo) : pd.inversores;
+  const grid = invs.length
+    ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px">`
+      + invs.map(iv=>_spvCard(id,iv)).join('') + `</div>`
+    : `<p style="color:var(--muted);font-size:13px">Nenhum inversor com strings abaixo da mediana nesta usina.</p>`;
+  body.innerHTML=obs+grid;
+  // plota cada inversor visível
+  invs.forEach(iv=>_spvPlot(id,iv));
+}
+let spvSoAbaixo=false;
+function spvToggleSoAbaixo(){
+  spvSoAbaixo=document.getElementById('spv-soabaixo').checked;
+  [...spvExp].forEach(id=>renderSpvUsina(id));   // re-renderiza as usinas abertas
 }
 function _spvCard(id,iv){
   const cid=`${id}_${iv.id}`;
-  const chips=iv.strings.map(s=>`<span title="${s.energia} kWh"
+  const chips=iv.strings.map(s=>`<span title="índice de corrente: ${s.energia} (${s.pct}% da mediana)"
      style="font-size:10.5px;padding:2px 6px;border-radius:6px;white-space:nowrap;border:1px solid ${s.sub?'#dc2626':'#d1d5db'};color:${s.sub?'#dc2626':'#6b7280'};font-weight:${s.sub?700:400}">${s.nome}: ${s.pct}%</span>`).join(' ');
   return `<div style="border:1px solid ${iv.abaixo?'#fecaca':'#e5e7eb'};border-radius:10px;padding:10px 12px;background:#fff;min-width:0;overflow:hidden">
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
       <strong style="color:#16192a">${iv.nome}</strong>
-      <span style="font-size:11px;color:${iv.abaixo?'#dc2626':'#16a34a'};font-weight:600">${iv.abaixo?(iv.abaixo+' abaixo'):'OK'} · med ${iv.mediana} kWh</span>
+      <span style="font-size:11px;color:${iv.abaixo?'#dc2626':'#16a34a'};font-weight:600">${iv.abaixo?(iv.abaixo+' abaixo'):'OK'} · med ${iv.mediana} (índice)</span>
     </div>
     <div id="spv-chart-${cid}" style="width:100%;max-width:100%;height:200px;overflow:hidden"></div>
     <div style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0">${chips}</div>
@@ -2858,7 +3010,7 @@ function _spvPlot(id,iv){
   });
   Plotly.newPlot(el,traces,{autosize:true,margin:{l:38,r:10,t:6,b:28},showlegend:true,
     legend:{font:{size:9},orientation:'h',y:1.12},
-    xaxis:{tickfont:{size:8},nticks:6},yaxis:{title:{text:'kW',font:{size:9}},tickfont:{size:8}}},
+    xaxis:{tickfont:{size:8},nticks:6},yaxis:{title:{text:'Corrente (A)',font:{size:9}},tickfont:{size:8}}},
     {displayModeBar:false,responsive:true})
     .then(()=>{ try{Plotly.Plots.resize(el);}catch(e){} });
 }

@@ -9,6 +9,7 @@ chegando agora; os demais documentos aprofundam regras e integrações específi
 | [**Regras de Negócio**](regras-de-negocio.md) | Detalhamento funcional: regra de "string ativa", pré-análise ETM, critérios de trackers (parado/desvio/atraso), planilha Check Diário, estado compartilhado da equipe. |
 | [**API PV Operation**](api-pv-operation.md) | Referência da apipv (Thopen): autenticação, endpoints, o que existe e o que não existe, como os scripts de coleta funcionam. |
 | [**API SunOp**](coleta-sunop.md) | Referência da SunOp (Athon): endpoint `analog_values` (histórico), pathnames, cálculo de energia (EPD) e irradiância, autenticação JWT. |
+| [**Dashboard em Tempo Real**](dashboard-tempo-real.md) | Blueprint para replicar o PR por usina/inversor do Power BI numa visão ao vivo: histórico do BD + tempo real da API, fórmula de PR, dia parcial, loaders de metas (Info Geral/Mensal) e próximos passos. |
 
 ## Convenções
 
