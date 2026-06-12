@@ -4518,11 +4518,13 @@ def _spv_day_records(idusina, token, data: str) -> list:
         return []
 
 
-def _spv_analise_inversor(idinv, nome, recs, data, notas) -> dict:
+def _spv_analise_inversor(idinv, nome, recs, data, notas, full=False) -> dict:
     """Strings reais (via _ipv_ativas no pico solar) → corrente integrada por string +
     curva (A) + subperformance vs mediana. Retorna None se não há visão de strings.
     O campo 'energia' carrega a corrente integrada do dia (índice relativo, não kWh);
-    o que importa p/ subperformance é o 'pct' vs mediana, que é adimensional."""
+    o que importa p/ subperformance é o 'pct' vs mediana, que é adimensional.
+    full=True inclui TAMBÉM as strings inativas na curva (cada string ganha flag 'ativa');
+    mediana/subperformance seguem só nas ativas."""
     recs = [r for r in recs if r.get("conteudojson")]
     if not recs:
         return None
@@ -4543,18 +4545,21 @@ def _spv_analise_inversor(idinv, nome, recs, data, notas) -> dict:
     reais  = [k for k, a in zip(ipv_keys, ativas) if a]
     if not reais:
         return None
+    ativa_set = set(reais)
+    plot_keys = ipv_keys if full else reais             # full = inclui inativas na curva
 
-    soma  = {k: 0.0 for k in reais}
-    curva = {k: {"x": [], "y": []} for k in reais}
+    soma  = {k: 0.0 for k in reais}                     # média/sub só nas ativas
+    curva = {k: {"x": [], "y": []} for k in plot_keys}
     step  = max(1, len(recs) // 160)                    # downsample p/ ~160 pts na curva
     for i, r in enumerate(recs):
         cj   = parse_cj(r.get("conteudojson"))
         hhmm = (r.get("tsleitura_new") or "")[11:16]
         emt  = (i % step == 0)
-        for k in reais:
+        for k in plot_keys:
             v = cj.get(k)
             if isinstance(v, (int, float)):
-                soma[k] += max(0.0, v)
+                if k in ativa_set:
+                    soma[k] += max(0.0, v)
                 if emt:
                     curva[k]["x"].append(hhmm)
                     curva[k]["y"].append(round(v, 2))
@@ -4563,14 +4568,16 @@ def _spv_analise_inversor(idinv, nome, recs, data, notas) -> dict:
     med  = vals[len(vals) // 2] if vals else 0.0
     avg  = sum(vals) / len(vals) if vals else 0.0
     strings, abaixo = [], 0
-    for k in sorted(reais, key=_spv_stnum):
-        e   = soma[k]
-        sub = (med > 0 and e < med * SPV_SUB_FRAC)
+    for k in sorted(plot_keys, key=_spv_stnum):
+        ativa = k in ativa_set
+        e   = soma.get(k, 0.0)
+        sub = (ativa and med > 0 and e < med * SPV_SUB_FRAC)
         if sub:
             abaixo += 1
-        strings.append({"nome": f"ST {_spv_stnum(k):02d}", "energia": round(e, 1),
-                        "pct": round(100.0 * e / med) if med else None, "sub": sub})
-    curva_fmt = {f"ST {_spv_stnum(k):02d}": curva[k] for k in reais}
+        strings.append({"nome": f"ST {_spv_stnum(k):02d}", "ativa": ativa,
+                        "energia": round(e, 1) if ativa else 0.0,
+                        "pct": round(100.0 * e / med) if (ativa and med) else None, "sub": sub})
+    curva_fmt = {f"ST {_spv_stnum(k):02d}": curva[k] for k in plot_keys}
     nota = notas.get(f"{data}|{idinv}", "")
     return {"id": idinv, "nome": nome, "n_strings": len(reais),
             "mediana": round(med, 1), "media": round(avg, 1), "abaixo": abaixo,
@@ -4604,7 +4611,8 @@ def api_spv_usina(idusina):
     usina traz todos os inversores — o resto é processamento das correntes Ipv*."""
     data = (flask_request.args.get("data") or datetime.now().strftime("%d/%m/%Y")).strip()
     force = flask_request.args.get("force", "0") == "1"
-    key = (idusina, data)
+    full = flask_request.args.get("full", "0") == "1"   # inclui strings inativas na curva
+    key = (idusina, data, full)
     agora = time.time()
     if not force:
         ent = _spv_cache.get(key)
@@ -4656,7 +4664,7 @@ def api_spv_usina(idusina):
         for idinv, recs in by_inv.items():
             nome_api = dev_names.get(idinv, f"INV-{idinv}")
             nome = EQUIP_NAMES.get(plant_nome_api, {}).get(nome_api, nome_api)
-            futs[ex.submit(_spv_analise_inversor, idinv, nome, recs, data, notas)] = idinv
+            futs[ex.submit(_spv_analise_inversor, idinv, nome, recs, data, notas, full)] = idinv
         for f in as_completed(futs):
             try:
                 rr = f.result()

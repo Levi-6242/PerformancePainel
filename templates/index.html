@@ -1717,50 +1717,91 @@ function togglePvInv(pid,inv,ik){
 function appendPvStrs(tb,pid,ik,inv){
   const strings=inv.strings||[];
   const tr=document.createElement('tr');tr.className='strings-row';tr.dataset.pvp=pid;tr.dataset.pvis=ik;
-  const chips=strings.map(s=>`<div class="string-chip ${s.ativa?'ativa':'inativa'}"><span class="s-id">${s.id}</span><span class="s-val">${s.corrente.toFixed(2)} A</span></div>`).join('');
   const cid=`pvcurva-${pid}-${inv.id}`, nm=(inv.nome||'').replace(/['"\\]/g,'');
+  const chips=strings.map(s=>{const n=(''+s.id).replace(/\D/g,'')||'0';
+    return `<div class="string-chip ${s.ativa?'ativa':'inativa'}" data-cid="${cid}" data-n="${n}" style="cursor:pointer"
+      onmouseenter="pvCurvaHi('${cid}',${n},1)" onmouseleave="pvCurvaHi('${cid}',${n},0)" onclick="pvCurvaToggle('${cid}',${n},this)"
+      title="passe o mouse p/ destacar · clique p/ ocultar no gráfico"><span class="s-id">${s.id}</span><span class="s-val">${s.corrente.toFixed(2)} A</span></div>`;}).join('');
   tr.innerHTML=`<td colspan="9">
-      <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
         <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="pvCurvaInv(${pid},${inv.id},'${nm}','${cid}')">📈 Curva do dia</button>
         <label style="font-size:11px;color:var(--muted)">Data <input type="date" id="${cid}-data" value="${_trkHoje()}" onchange="pvCurvaInv(${pid},${inv.id},'${nm}','${cid}',true)" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
+        <span id="${cid}-presets" style="display:none;align-items:center;gap:4px;flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--muted)">| Mostrar:</span>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','todas')">Todas</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','nenhuma')">Nenhuma</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','ativas')">Só ativas</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','inativas')">Só inativas</button>
+        </span>
       </div>
       <div id="${cid}" style="display:none;width:100%;max-width:100%;height:250px;overflow:hidden;margin-bottom:10px"></div>
       <div class="strings-grid">${chips}</div></td>`;
   const it=document.querySelector(`[data-pvik="${ik}"]`);if(it&&it.nextSibling)tb.insertBefore(tr,it.nextSibling);else tb.appendChild(tr);
 }
-const _pvCurvaCache={};
+const _pvCurvaCache={}, _pvCurvaState={};
 function _pvIso2Br(s){ if(!s)return ''; const p=s.split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:s; }
 async function pvCurvaInv(pid,invId,invNome,cid,reload){
   const box=document.getElementById(cid); if(!box)return;
-  if(!reload && box.style.display!=='none'){ box.style.display='none'; return; }   // 2º clique fecha
+  const pres=document.getElementById(cid+'-presets');
+  if(!reload && box.style.display!=='none'){ box.style.display='none'; if(pres)pres.style.display='none'; return; }
   box.style.display='';
-  box.innerHTML='<div class="gc-loading" style="min-height:200px"><div class="gc-spinner"></div><p>Carregando curva do inversor...</p></div>';
+  box.innerHTML='<div class="gc-loading" style="min-height:200px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
   const dt=document.getElementById(cid+'-data')?.value||'';
+  const isHoje = dt===_trkHoje();
   const dataBR=dt?_pvIso2Br(dt):_spvDataBR();
   const ckey=pid+'|'+dataBR;
   if(reload||!_pvCurvaCache[ckey]){
-    try{ _pvCurvaCache[ckey]=await fetch(`/api/spv/usina/${pid}?data=${encodeURIComponent(dataBR)}`).then(r=>r.json()); }
+    try{ _pvCurvaCache[ckey]=await fetch(`/api/spv/usina/${pid}?full=1&data=${encodeURIComponent(dataBR)}`).then(r=>r.json()); }
     catch(e){ _pvCurvaCache[ckey]={inversores:[]}; }
   }
-  // Match pela identidade canônica do BD_Performance (nome do Equipamento), não pelo id
-  // cru (device_id da aba Strings difere do idefinversor do day_inverter p/ alguns inv.).
+  // Match pela identidade canônica do BD_Performance (nome do Equipamento), não pelo id cru
   const _nz=v=>String(v||'').replace(/['"\\]/g,'').trim().toLowerCase();
   const iv=((_pvCurvaCache[ckey].inversores)||[]).find(x=>_nz(x.nome)===_nz(invNome));
-  if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:16px;font-size:12px">Sem curva para este inversor nesta data (usina string-box ou sem dados).</p>'; return; }
+  if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:16px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; if(pres)pres.style.display='none'; return; }
   const sub=iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK';
   box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:0 0 2px">${invNome} — corrente por string · med ${iv.mediana} (índice)${sub}</div><div id="${cid}-plot" style="width:100%;height:222px"></div>`;
-  _spvPlotInto(document.getElementById(cid+'-plot'),iv);
+  if(pres)pres.style.display='inline-flex';
+  _spvPlotInto(document.getElementById(cid+'-plot'),iv,cid,isHoje);
 }
-function _spvPlotInto(el,iv){
+function _spvPlotInto(el,iv,cid,isHoje){
   if(!el||!window.Plotly)return;
   const subSet=new Set(iv.strings.filter(s=>s.sub).map(s=>s.nome));
-  const traces=Object.entries(iv.curva).map(([st,c])=>{const s=subSet.has(st);
-    return {x:c.x,y:c.y,type:'scatter',mode:'lines',name:st,
-      line:{width:s?2.2:0.8,color:s?'#dc2626':'rgba(148,163,184,0.55)'},hoverinfo:s?'name+y':'skip',showlegend:s};});
-  Plotly.newPlot(el,traces,{autosize:true,margin:{l:40,r:10,t:6,b:28},showlegend:true,
-    legend:{font:{size:9},orientation:'h',y:1.12},
-    xaxis:{tickfont:{size:8},nticks:6},yaxis:{title:{text:'Corrente (A)',font:{size:9}},tickfont:{size:8}}},
+  const ativaBy={}; (iv.strings||[]).forEach(s=>{ativaBy[s.nome]=s.ativa!==false;});
+  const idxByNum={}, ativaByNum={}, baseW=[], baseC=[];
+  const traces=Object.entries(iv.curva).map(([st,c],idx)=>{
+    const n=parseInt(st.replace(/\D/g,''))||0, sub=subSet.has(st), ativa=ativaBy[st]!==false;
+    idxByNum[n]=idx; ativaByNum[n]=ativa;
+    const col=sub?'#dc2626':(ativa?'rgba(100,116,139,0.6)':'rgba(190,190,190,0.5)'), w=sub?2.4:(ativa?0.9:0.7);
+    baseW.push(w); baseC.push(col);
+    return {x:c.x.map(t=>'2000-01-01 '+t),y:c.y,type:'scatter',mode:'lines',name:st,
+      line:{width:w,color:col,dash:ativa?'solid':'dot'},
+      hovertemplate:'<b>'+st+'</b>: %{y:.2f} A<extra></extra>',showlegend:false};});
+  _pvCurvaState[cid]={idxByNum,ativaByNum,baseW,baseC,hidden:new Set()};
+  const xaxis={type:'date',tickformat:'%H:%M',hoverformat:'%H:%M',tickfont:{size:8},nticks:8};
+  if(isHoje) xaxis.range=['2000-01-01 05:00','2000-01-01 19:00'];   // dia atual: janela fixa 05-19
+  Plotly.newPlot(el,traces,{autosize:true,margin:{l:42,r:10,t:6,b:28},showlegend:false,hovermode:'closest',
+    xaxis:xaxis,yaxis:{title:{text:'Corrente (A)',font:{size:9}},tickfont:{size:8}}},
     {displayModeBar:false,responsive:true}).then(()=>{try{Plotly.Plots.resize(el);}catch(e){}});
+}
+function pvCurvaHi(cid,n,on){
+  const s=_pvCurvaState[cid]; if(!s)return; const idx=s.idxByNum[n]; if(idx==null||s.hidden.has(n))return;
+  const el=document.getElementById(cid+'-plot'); if(!el||!window.Plotly)return;
+  try{ Plotly.restyle(el,{'line.width':[on?3.4:s.baseW[idx]],'line.color':[on?'#f59e0b':s.baseC[idx]]},[idx]); }catch(e){}
+}
+function pvCurvaToggle(cid,n,chip){
+  const s=_pvCurvaState[cid]; if(!s)return; const idx=s.idxByNum[n]; if(idx==null)return;
+  const el=document.getElementById(cid+'-plot'); if(!el||!window.Plotly)return;
+  if(s.hidden.has(n)){ s.hidden.delete(n); try{Plotly.restyle(el,{visible:true},[idx]);}catch(e){} if(chip)chip.style.opacity=1; }
+  else { s.hidden.add(n); try{Plotly.restyle(el,{visible:false},[idx]);}catch(e){} if(chip)chip.style.opacity=0.35; }
+}
+function pvCurvaPreset(cid,which){
+  const s=_pvCurvaState[cid]; if(!s)return; const el=document.getElementById(cid+'-plot'); if(!el||!window.Plotly)return;
+  s.hidden=new Set(); const idxList=[], visList=[];
+  Object.entries(s.idxByNum).forEach(([n,idx])=>{const num=parseInt(n),ativa=s.ativaByNum[num];
+    const show = which==='nenhuma'?false : which==='ativas'?ativa : which==='inativas'?!ativa : true;
+    if(!show)s.hidden.add(num); idxList.push(idx); visList.push(show);});
+  try{ Plotly.restyle(el,{visible:visList},idxList); }catch(e){}
+  document.querySelectorAll(`[data-cid="${cid}"]`).forEach(ch=>{const num=parseInt(ch.dataset.n);ch.style.opacity=s.hidden.has(num)?0.35:1;});
 }
 function insAfterPv(tb,pid,nr){
   const rows=tb.querySelectorAll(`[data-pvp="${pid}"]`);
