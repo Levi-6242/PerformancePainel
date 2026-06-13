@@ -2563,6 +2563,61 @@ def _sunop_analog_history(pathnames: list, start: str, end: str) -> dict:
     return out
 
 
+# ── SunOp: curva diária de corrente por string (botão "Curva do dia") ──────────
+#   Mesma FORMA do SPV (reusa _spvPlotInto). Fonte = histórico analógico das strings.
+def _sunop_strings_curva(plant_name: str, dia: str) -> dict:
+    ensure_sunop_meta()
+    meta = _sunop_meta.get(plant_name)
+    if not meta:
+        return {"plant_id": plant_name, "data": dia, "inversores": []}
+    allp = [p for paths in meta["inv_strings"].values() for p in paths]
+    hist = _sunop_analog_history(allp, f"{dia}T00:00:00", f"{dia}T23:59:59")
+
+    def _invnum(x):
+        try: return int(x.split("_")[1])
+        except Exception: return 999
+
+    def _pvnum(x):
+        t = x.rsplit("I_PV", 1)[-1]
+        return int(t) if t.isdigit() else 999
+
+    out = []
+    for inv_name in sorted(meta["inv_strings"].keys(), key=_invnum):
+        soma, curva = {}, {}
+        for p in sorted(meta["inv_strings"][inv_name], key=_pvnum):
+            serie = hist.get(p, [])
+            if not serie:
+                continue
+            num = "".join(c for c in p.split(".")[-1] if c.isdigit()) or "0"
+            lbl = f"ST {int(num):02d}"
+            soma[lbl] = sum(max(0.0, v) for _, v in serie)
+            step = max(1, len(serie) // 160); sp = serie[::step]
+            curva[lbl] = {"x": [str(t)[11:16] for t, _ in sp], "y": [round(v, 2) for _, v in sp]}
+        if not curva:
+            continue
+        vals = sorted(soma.values()); med = vals[len(vals) // 2] if vals else 0.0
+        strings, abaixo = [], 0
+        for lbl in sorted(soma, key=_spv_stnum):
+            e = soma[lbl]; sub = (med > 0 and e < med * SPV_SUB_FRAC); abaixo += 1 if sub else 0
+            strings.append({"nome": lbl, "ativa": e > 0, "sub": sub,
+                            "energia": round(e, 1), "pct": round(100.0 * e / med) if med else None})
+        out.append({"id": inv_name, "nome": EQUIP_NAMES.get(plant_name, {}).get(inv_name, inv_name),
+                    "nome_api": inv_name, "curva": curva, "mediana": round(med, 1),
+                    "abaixo": abaixo, "strings": strings})
+    return {"plant_id": plant_name, "data": dia, "inversores": out}
+
+
+@app.route("/api/sunop/curva/<plant_name>")
+def api_sunop_curva(plant_name):
+    dia = (flask_request.args.get("data") or datetime.now().strftime("%Y-%m-%d")).strip()
+    if re.match(r"^\d{2}/\d{2}/\d{4}$", dia):
+        dia = datetime.strptime(dia, "%d/%m/%Y").strftime("%Y-%m-%d")
+    try:
+        return jsonify(_sunop_strings_curva(plant_name, dia))
+    except Exception as e:
+        return jsonify({"error": str(e), "inversores": []}), 500
+
+
 @app.route("/api/sunop/trackers/<plant_name>/chart")
 def api_sunop_trackers_chart(plant_name):
     ensure_sunop_meta()

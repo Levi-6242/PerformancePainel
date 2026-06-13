@@ -2032,10 +2032,53 @@ function toggleSoInv(pid,inv,ik){
   soInvExp.add(ik);const t=document.querySelector(`[data-soik="${ik}"]`);if(t)t.querySelector('.chevron').classList.add('open');
   appendSoStrs(document.getElementById('so-tbody'),pid,ik,inv);
 }
+const _soCurvaCache={};
+async function soCurvaInv(pid,invId,invNome,cid,reload){
+  const box=document.getElementById(cid); if(!box)return;
+  const pres=document.getElementById(cid+'-presets');
+  if(!reload && box.style.display!=='none'){ box.style.display='none'; if(pres)pres.style.display='none'; return; }
+  box.style.display='';
+  box.innerHTML='<div class="gc-loading" style="min-height:200px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
+  const dt=document.getElementById(cid+'-data')?.value||_trkHoje();
+  const isHoje=dt===_trkHoje(); const ckey=pid+'|'+dt;
+  if(reload||!_soCurvaCache[ckey]){
+    try{
+      const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
+      const r=await fetch(`/api/sunop/curva/${encodeURIComponent(pid)}?data=${dt}`,{signal:ctrl.signal}); clearTimeout(tmo);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const j=await r.json(); if(j&&j.error) throw new Error(j.error);
+      _soCurvaCache[ckey]=j;
+    }catch(e){
+      delete _soCurvaCache[ckey];
+      box.innerHTML=`<p style="color:#dc2626;padding:16px;font-size:12px">Não consegui carregar a curva (${e.name==='AbortError'?'demorou demais — o SunOp pode estar lento':e.message}). Clique de novo para tentar.</p>`;
+      if(pres)pres.style.display='none'; return;
+    }
+  }
+  const iv=((_soCurvaCache[ckey].inversores)||[]).find(x=>String(x.id)===String(invId));
+  if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:16px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; if(pres)pres.style.display='none'; return; }
+  const sub=iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK';
+  box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:0 0 2px">${invNome} — corrente por string · med ${iv.mediana} (índice)${sub}</div><div id="${cid}-plot" style="width:100%;height:222px"></div>`;
+  if(pres)pres.style.display='inline-flex';
+  _spvPlotInto(document.getElementById(cid+'-plot'),iv,cid,isHoje);
+}
 function appendSoStrs(tb,pid,ik,inv){
   const tr=document.createElement('tr');tr.className='strings-row';tr.dataset.sop=pid;tr.dataset.sois=ik;
+  const cid=`socurva-${(''+pid).replace(/[^a-zA-Z0-9]/g,'')}-${(''+inv.id).replace(/[^a-zA-Z0-9]/g,'')}`, nm=(inv.nome||'').replace(/['"\\]/g,'');
   const chips=(inv.strings||[]).map(s=>_strChipSimple(s,'so',pid,inv.id)).join('');
-  tr.innerHTML=`<td colspan="9"><div class="strings-grid">${chips}</div></td>`;
+  tr.innerHTML=`<td colspan="9">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="soCurvaInv(${JSON.stringify(pid)},${JSON.stringify(inv.id)},'${nm}','${cid}')">📈 Curva do dia</button>
+        <label style="font-size:11px;color:var(--muted)">Data <input type="date" id="${cid}-data" value="${_trkHoje()}" onchange="soCurvaInv(${JSON.stringify(pid)},${JSON.stringify(inv.id)},'${nm}','${cid}',true)" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
+        <span id="${cid}-presets" style="display:none;align-items:center;gap:4px;flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--muted)">| Mostrar:</span>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','todas')">Todas</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','nenhuma')">Nenhuma</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','ativas')">Só ativas</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','inativas')">Só inativas</button>
+        </span>
+      </div>
+      <div id="${cid}" style="display:none;width:100%;max-width:100%;height:250px;overflow:hidden;margin-bottom:10px"></div>
+      <div class="strings-grid">${chips}</div></td>`;
   const it=document.querySelector(`[data-soik="${ik}"]`);if(it&&it.nextSibling)tb.insertBefore(tr,it.nextSibling);else tb.appendChild(tr);
 }
 function insAfterSo(tb,pid,nr){
