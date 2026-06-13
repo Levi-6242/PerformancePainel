@@ -1445,7 +1445,7 @@ const pgExp=new Set(), pgInvExp=new Set(), pgCache={};
 /* ══ TABS ═══════════════════════════════════════════════════════════════════ */
 function _secsDisponiveis(t){
   if(t==='solaredge') return ['strings'];        // SolarEdge só tem Strings
-  if(t==='pg')        return ['strings','etm','geracao','trackers'];  // PG: + histórico de geração + trackers
+  if(t==='pg')        return ['strings','etm','pr','geracao','trackers'];  // PG (Thopen): + PR (do banco) + geração + trackers
   if(t==='sunop')     return ['strings','etm','trackers']; // SunOp: + trackers
   if(t==='owen')      return ['strings','etm','trackers']; // E-mail: strings+etm+trackers
   if(t==='pv')        return ['strings','etm','pr','curvastr','trackers']; // PV: + PR + curva strings + trackers
@@ -1841,8 +1841,20 @@ async function pvCurvaInv(pid,invId,invNome,cid,reload){
   const dataBR=dt?_pvIso2Br(dt):_spvDataBR();
   const ckey=pid+'|'+dataBR;
   if(reload||!_pvCurvaCache[ckey]){
-    try{ _pvCurvaCache[ckey]=await fetch(`/api/spv/usina/${pid}?full=1&data=${encodeURIComponent(dataBR)}`).then(r=>r.json()); }
-    catch(e){ _pvCurvaCache[ckey]={inversores:[]}; }
+    try{
+      const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
+      const r=await fetch(`/api/spv/usina/${pid}?full=1&data=${encodeURIComponent(dataBR)}`,{signal:ctrl.signal});
+      clearTimeout(tmo);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const j=await r.json();
+      if(j&&j.error) throw new Error(j.error);
+      _pvCurvaCache[ckey]=j;
+    }catch(e){
+      delete _pvCurvaCache[ckey];   // NÃO cacheia falha → clicar de novo re-tenta de verdade
+      box.innerHTML=`<p style="color:#dc2626;padding:16px;font-size:12px">Não consegui carregar a curva (${e.name==='AbortError'?'demorou demais — a API PV pode estar lenta agora':e.message}). Clique de novo em "Curva do dia" para tentar.</p>`;
+      if(pres)pres.style.display='none';
+      return;
+    }
   }
   // Match pela identidade canônica do BD_Performance (nome do Equipamento), não pelo id cru
   const _nz=v=>String(v||'').replace(/['"\\]/g,'').trim().toLowerCase();
@@ -2225,10 +2237,53 @@ function togglePgInv(pid,inv,ik){
   pgInvExp.add(ik);const t=document.querySelector(`[data-pgik="${ik}"]`);if(t)t.querySelector('.chevron').classList.add('open');
   appendPgStrs(document.getElementById('pg-tbody'),pid,ik,inv);
 }
+const _pgCurvaCache={};
+async function pgCurvaInv(pid,invId,invNome,cid,reload){
+  const box=document.getElementById(cid); if(!box)return;
+  const pres=document.getElementById(cid+'-presets');
+  if(!reload && box.style.display!=='none'){ box.style.display='none'; if(pres)pres.style.display='none'; return; }
+  box.style.display='';
+  box.innerHTML='<div class="gc-loading" style="min-height:200px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
+  const dt=document.getElementById(cid+'-data')?.value||_trkHoje();
+  const isHoje=dt===_trkHoje(); const ckey=pid+'|'+dt;
+  if(reload||!_pgCurvaCache[ckey]){
+    try{
+      const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
+      const r=await fetch(`/api/pg/curva/${pid}?data=${dt}`,{signal:ctrl.signal}); clearTimeout(tmo);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const j=await r.json(); if(j&&j.error) throw new Error(j.error);
+      _pgCurvaCache[ckey]=j;
+    }catch(e){
+      delete _pgCurvaCache[ckey];
+      box.innerHTML=`<p style="color:#dc2626;padding:16px;font-size:12px">Não consegui carregar a curva (${e.name==='AbortError'?'demorou demais — o banco pode estar lento':e.message}). Clique de novo para tentar.</p>`;
+      if(pres)pres.style.display='none'; return;
+    }
+  }
+  const iv=((_pgCurvaCache[ckey].inversores)||[]).find(x=>String(x.id)===String(invId));
+  if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:16px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; if(pres)pres.style.display='none'; return; }
+  const sub=iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK';
+  box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:0 0 2px">${invNome} — corrente por string · med ${iv.mediana} (índice)${sub}</div><div id="${cid}-plot" style="width:100%;height:222px"></div>`;
+  if(pres)pres.style.display='inline-flex';
+  _spvPlotInto(document.getElementById(cid+'-plot'),iv,cid,isHoje);
+}
 function appendPgStrs(tb,pid,ik,inv){
   const tr=document.createElement('tr');tr.className='strings-row';tr.dataset.pgp=pid;tr.dataset.pgis=ik;
+  const cid=`pgcurva-${pid}-${inv.id}`, nm=(inv.nome||'').replace(/['"\\]/g,'');
   const chips=(inv.strings||[]).map(s=>_strChipSimple(s,'pg',pid,inv.id)).join('');
-  tr.innerHTML=`<td colspan="9"><div class="strings-grid">${chips}</div></td>`;
+  tr.innerHTML=`<td colspan="9">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="pgCurvaInv(${pid},${inv.id},'${nm}','${cid}')">📈 Curva do dia</button>
+        <label style="font-size:11px;color:var(--muted)">Data <input type="date" id="${cid}-data" value="${_trkHoje()}" onchange="pgCurvaInv(${pid},${inv.id},'${nm}','${cid}',true)" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
+        <span id="${cid}-presets" style="display:none;align-items:center;gap:4px;flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--muted)">| Mostrar:</span>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','todas')">Todas</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','nenhuma')">Nenhuma</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','ativas')">Só ativas</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','inativas')">Só inativas</button>
+        </span>
+      </div>
+      <div id="${cid}" style="display:none;width:100%;max-width:100%;height:250px;overflow:hidden;margin-bottom:10px"></div>
+      <div class="strings-grid">${chips}</div></td>`;
   const it=document.querySelector(`[data-pgik="${ik}"]`);if(it&&it.nextSibling)tb.insertBefore(tr,it.nextSibling);else tb.appendChild(tr);
 }
 function insAfterPg(tb,pid,nr){

@@ -3523,6 +3523,69 @@ def api_pg_plant(plant_id):
     return jsonify({"plant_id": plant_id, "inversores": detail.get(plant_id, [])})
 
 
+# ── PG: curva diária de corrente por string (botão "Curva do dia" do drill-down) ─
+#   Mesma FORMA do SPV (API PV) p/ reusar o plot do frontend (_spvPlotInto):
+#   por inversor → curva {ST_xx: {x,y}}, mediana da corrente integrada do dia e
+#   strings em subperformance (< SPV_SUB_FRAC da mediana). Fonte = stg_inverter_string_data.
+def _pg_strings_curva(plant_id: int, dia: str) -> dict:
+    sql = """
+      SELECT s.device_id, d.device_name, p.name AS pname,
+             s.string_number, s.timestamp, s.string_current
+      FROM dbt.stg_inverter_string_data s
+      JOIN public.tb_devices d ON d.id = s.device_id
+      LEFT JOIN public.tb_power_plants p ON p.id = s.power_plant_id
+      WHERE s.power_plant_id = %(pid)s AND s.timestamp::date = %(dia)s
+      ORDER BY s.device_id, s.string_number, s.timestamp
+    """
+    conn = _pg_conn(); cur = conn.cursor()
+    cur.execute(sql, {"pid": plant_id, "dia": dia})
+    recs = cur.fetchall(); conn.close()
+
+    sup, invs = "", {}
+    for dev_id, dev_name, pname, snum, ts, curr in recs:
+        sup = sup or (pname or "").strip()
+        inv = invs.setdefault(dev_id, {"nome_api": (dev_name or f"INV {dev_id}").strip(), "strings": {}})
+        inv["strings"].setdefault(str(snum), []).append((ts, float(curr) if curr is not None else 0.0))
+
+    out = []
+    for dev_id in sorted(invs):
+        inv = invs[dev_id]
+        soma, curva = {}, {}
+        for snum, serie in inv["strings"].items():
+            serie.sort(key=lambda x: x[0])
+            lbl = f"ST {int(snum):02d}" if snum.isdigit() else f"ST {snum}"
+            soma[lbl] = sum(max(0.0, v) for _, v in serie)
+            step = max(1, len(serie) // 160)
+            sp   = serie[::step]
+            curva[lbl] = {"x": [t.strftime("%H:%M") for t, _ in sp],
+                          "y": [round(v, 2) for _, v in sp]}
+        vals = sorted(soma.values())
+        med  = vals[len(vals) // 2] if vals else 0.0
+        strings, abaixo = [], 0
+        for lbl in sorted(soma, key=_spv_stnum):
+            e   = soma[lbl]
+            sub = (med > 0 and e < med * SPV_SUB_FRAC)
+            abaixo += 1 if sub else 0
+            strings.append({"nome": lbl, "ativa": e > 0, "sub": sub,
+                            "energia": round(e, 1), "pct": round(100.0 * e / med) if med else None})
+        out.append({"id": dev_id,
+                    "nome": (EQUIP_NAMES.get(sup, {}) or {}).get(inv["nome_api"], inv["nome_api"]),
+                    "nome_api": inv["nome_api"], "curva": curva,
+                    "mediana": round(med, 1), "abaixo": abaixo, "strings": strings})
+    return {"plant_id": plant_id, "data": dia, "inversores": out}
+
+
+@app.route("/api/pg/curva/<int:plant_id>")
+def api_pg_curva(plant_id):
+    dia = (flask_request.args.get("data") or datetime.now().strftime("%Y-%m-%d")).strip()
+    if re.match(r"^\d{2}/\d{2}/\d{4}$", dia):              # aceita dd/mm/aaaa
+        dia = datetime.strptime(dia, "%d/%m/%Y").strftime("%Y-%m-%d")
+    try:
+        return jsonify(_pg_strings_curva(plant_id, dia))
+    except Exception as e:
+        return jsonify({"error": str(e), "inversores": []}), 500
+
+
 # ── PG: ETM (estações meteorológicas) ──────────────────────────────────────────
 def _build_pg_etm_payload():
     sql = """
