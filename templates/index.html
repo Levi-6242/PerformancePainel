@@ -558,6 +558,17 @@
     .string-chip.ativa  .s-val { color: #15803d }
     .string-chip.inativa { border-color: #fca5a5; background: #fff5f5 }
     .string-chip.inativa .s-val { color: #dc2626 }
+    /* régua nova de strings (API PV): 5 estados */
+    .string-chip.s-ativa     { border-color: #86efac; background: #f0fdf4 }
+    .string-chip.s-ativa     .s-val { color: #15803d }
+    .string-chip.s-sem       { border-color: #fca5a5; background: #fff5f5 }
+    .string-chip.s-sem       .s-val { color: #dc2626 }
+    .string-chip.s-baixa     { border-color: #fcd34d; background: #fffbeb }
+    .string-chip.s-baixa     .s-val { color: #b45309 }
+    .string-chip.s-trancada  { border-color: #93c5fd; background: #eff6ff }
+    .string-chip.s-trancada  .s-val, .string-chip.s-trancada .s-id { color: #2563eb }
+    .string-chip.s-inativa   { border-color: #e5e7eb; background: #fff }
+    .string-chip.s-inativa   .s-val { color: #9ca3af }
 
     /* ── ETM STATION TAG ─────────────────────────────────────────────────── */
     .etm-tag {
@@ -1764,10 +1775,16 @@ function appendPvStrs(tb,pid,ik,inv){
   const strings=inv.strings||[];
   const tr=document.createElement('tr');tr.className='strings-row';tr.dataset.pvp=pid;tr.dataset.pvis=ik;
   const cid=`pvcurva-${pid}-${inv.id}`, nm=(inv.nome||'').replace(/['"\\]/g,'');
+  const SCLS={trancada:'s-trancada',sem_corrente:'s-sem',baixa_perf:'s-baixa',ativa:'s-ativa',inativa:'s-inativa'};
+  const SLBL={trancada:'trancada (sem string conectada)',sem_corrente:'sem corrente (0 A)',baixa_perf:'baixa performance (<60% da mediana)',ativa:'ativa',inativa:'inativa (inversor parado)'};
   const chips=strings.map(s=>{const n=(''+s.id).replace(/\D/g,'')||'0';
-    return `<div class="string-chip ${s.ativa?'ativa':'inativa'}" data-cid="${cid}" data-n="${n}" style="cursor:pointer"
+    const st=s.status||(s.ativa?'ativa':'inativa'), cls=SCLS[st]||'s-inativa';
+    return `<div class="string-chip ${cls}" data-cid="${cid}" data-n="${n}" style="cursor:pointer"
       onmouseenter="pvCurvaHi('${cid}',${n},1)" onmouseleave="pvCurvaHi('${cid}',${n},0)" onclick="pvCurvaToggle('${cid}',${n},this)"
-      title="passe o mouse p/ destacar · clique p/ ocultar no gráfico"><span class="s-id">${s.id}</span><span class="s-val">${s.corrente.toFixed(2)} A</span></div>`;}).join('');
+      title="${s.id}: ${s.corrente.toFixed(2)} A · ${SLBL[st]||st} · clique p/ ocultar no gráfico">
+      <label onclick="event.stopPropagation()" title="Trancar: string aberta/não conectada (MPPT sem string) — sai da contagem de ativas" style="display:flex;align-items:center;gap:2px;cursor:pointer;font-size:9px;color:#2563eb;margin-bottom:1px">
+        <input type="checkbox" ${s.trancada?'checked':''} onchange="event.stopPropagation();pvTrancaStr(${pid},${inv.id},'${s.id}',this.checked)" style="margin:0;width:11px;height:11px;cursor:pointer">🔒</label>
+      <span class="s-id">${s.id}</span><span class="s-val">${s.corrente.toFixed(2)} A</span></div>`;}).join('');
   tr.innerHTML=`<td colspan="9">
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
         <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="pvCurvaInv(${pid},${inv.id},'${nm}','${cid}')">📈 Curva do dia</button>
@@ -1783,6 +1800,13 @@ function appendPvStrs(tb,pid,ik,inv){
       <div id="${cid}" style="display:none;width:100%;max-width:100%;height:250px;overflow:hidden;margin-bottom:10px"></div>
       <div class="strings-grid">${chips}</div></td>`;
   const it=document.querySelector(`[data-pvik="${ik}"]`);if(it&&it.nextSibling)tb.insertBefore(tr,it.nextSibling);else tb.appendChild(tr);
+}
+/* Marca/desmarca string trancada (MPPT sem string) e recarrega o detalhe da usina */
+async function pvTrancaStr(pid,invId,sid,trancada){
+  try{ await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({plant_id:pid,inv_id:invId,string:sid,trancada})}); }catch(e){}
+  try{ const d=await fetch('/api/plant/'+pid).then(r=>r.json()); pvCache[pid]=d.inversores||[]; }catch(e){}
+  renderPvStr();
 }
 const _pvCurvaCache={}, _pvCurvaState={};
 function _pvIso2Br(s){ if(!s)return ''; const p=s.split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:s; }

@@ -115,6 +115,15 @@ STRING_JANELA_MIN_A    = 1.0    # API PV + SunOp (DENTRO de 9-15h): ativa se cor
 STRING_JANELA_INI      = 9      # hora inicial da janela de sol confiável (inclusiva)
 STRING_JANELA_FIM      = 15     # hora final da janela de sol confiável (exclusiva)
 SUNOP_STRING_THRESHOLD = 0.5    # (legado) — SunOp agora usa a regra da média, igual à API PV
+# Régua NOVA de strings (API PV) — instantânea, relativa à mediana do próprio inversor:
+#   • trancada (marcada à mão) = MPPT sem string conectada → fora da contagem, pintada azul
+#   • sem_corrente = corrente <= STRING_SEM_CORRENTE_A (string morta) → FALHA tipo 1 (vermelho)
+#   • baixa_perf   = corrente < STRING_BAIXA_PERF_FRAC × mediana das demais → FALHA tipo 2 (laranja)
+#   • se o inversor não está produzindo (mediana < STRING_INV_MIN_MED_A) nada é falha (noite/nublado)
+STRING_SEM_CORRENTE_A  = 0.1    # A — abaixo disto a string conta como "sem corrente" (=0)
+STRING_BAIXA_PERF_FRAC = 0.60   # < 60% da mediana das demais = baixa performance (40% abaixo)
+STRING_INV_MIN_MED_A   = 0.5    # mediana do inversor abaixo disto = inversor parado → não classifica falha
+_trancadas = set()              # chaves "plant_id|inv_id|Ipv" das strings trancadas (preenchido do estado)
 TEMP_ALERT         = 65.0
 COMM_ALERT_MINUTES = 30
 CACHE_TTL          = 300   # segundos — cache de 5 min
@@ -836,6 +845,45 @@ def _ipv_ativas(correntes: list, em_janela=None) -> list:
             for c in correntes]
 
 
+def _str_key(plant_id, inv_id, ipv) -> str:
+    return f"{plant_id}|{inv_id}|{ipv}"
+
+
+def _classifica_strings(plant_id, inv_id, ipv_keys, correntes):
+    """Classifica as strings de UM inversor (instantâneo, relativo à mediana do PRÓPRIO
+    inversor). → lista de status alinhada a ipv_keys, em {trancada, sem_corrente,
+    baixa_perf, ativa, inativa}.
+      • trancada   = marcada à mão (MPPT sem string) → fora da contagem de ativas
+      • inativa    = inversor parado (mediana ~0: noite/nublado) → NÃO é falha
+      • sem_corrente = string morta (=0) com o inversor produzindo → falha tipo 1
+      • baixa_perf = corrente < 60% da mediana das demais → falha tipo 2
+      • ativa      = produzindo normal
+    'ativas' = ativa + baixa_perf (produzindo, descontadas as trancadas)."""
+    trancada = [_str_key(plant_id, inv_id, k) in _trancadas for k in ipv_keys]
+    prod = sorted(c for c, t in zip(correntes, trancada)
+                  if (not t) and isinstance(c, (int, float)) and c > STRING_SEM_CORRENTE_A)
+    med  = prod[len(prod) // 2] if prod else 0.0
+    produzindo = med >= STRING_INV_MIN_MED_A
+    out = []
+    for c, t in zip(correntes, trancada):
+        cv = c if isinstance(c, (int, float)) else 0.0
+        if t:
+            out.append("trancada")
+        elif not produzindo:
+            out.append("inativa")
+        elif cv <= STRING_SEM_CORRENTE_A:
+            out.append("sem_corrente")
+        elif cv < STRING_BAIXA_PERF_FRAC * med:
+            out.append("baixa_perf")
+        else:
+            out.append("ativa")
+    return out
+
+
+def _str_ativas(statuses) -> int:
+    return sum(1 for s in statuses if s in ("ativa", "baixa_perf"))
+
+
 # ── Monta resumo de usina a partir dos registros brutos ───────────────────────
 def build_summary(plant: dict, records: list) -> dict:
     pid  = plant["id"]
@@ -862,8 +910,11 @@ def build_summary(plant: dict, records: list) -> dict:
     temps = []
     for rec in latest.values():
         cj = parse_cj(rec.get("conteudojson"))
-        correntes = [v for k, v in cj.items() if k.startswith("Ipv") and isinstance(v, (int, float))]
-        strings_ativas += sum(_ipv_ativas(correntes))   # ativa = relativa à média do inversor
+        inv_id = rec.get("idefinversor")
+        ipv_keys  = [k for k in cj if k.startswith("Ipv") and isinstance(cj[k], (int, float))]
+        correntes = [cj[k] for k in ipv_keys]
+        # exclui trancadas e aplica a régua relativa à mediana do inversor
+        strings_ativas += _str_ativas(_classifica_strings(pid, inv_id, ipv_keys, correntes))
         t = cj.get("Temp")
         if isinstance(t, (int, float)):
             temps.append(t)
@@ -1044,10 +1095,11 @@ def api_plant_detail(plant_id):
             cj = parse_cj(rec.get("conteudojson"))
             ipv_keys  = [k for k in sorted(cj.keys()) if k.startswith("Ipv") and isinstance(cj[k], (int, float))]
             correntes = [cj[k] for k in ipv_keys]
-            flags     = _ipv_ativas(correntes)   # ativa = relativa à média do inversor
-            strings   = [{"id": k, "corrente": c, "ativa": a}
-                         for k, c, a in zip(ipv_keys, correntes, flags)]
-            strings_ativas = sum(flags)
+            stt       = _classifica_strings(plant_id, inv_id, ipv_keys, correntes)
+            strings   = [{"id": k, "corrente": c, "status": s,
+                          "ativa": s in ("ativa", "baixa_perf"), "trancada": s == "trancada"}
+                         for k, c, s in zip(ipv_keys, correntes, stt)]
+            strings_ativas = _str_ativas(stt)
             temp   = cj.get("Temp")
             eday   = cj.get("Eday")
             ts_rec = rec.get("tsleitura_new", "")
@@ -3880,6 +3932,7 @@ def _load_state() -> dict:
     d.setdefault("comments", {})   # {chave: texto}
     d.setdefault("tracking", {})   # {chave: int}  → strings em acompanhamento
     d.setdefault("manutencao", [])  # lista de chaves de ETM em manutenção (ex.: "etm:pv:22854")
+    d.setdefault("strings_trancadas", [])  # chaves "plant_id|inv_id|Ipv" de strings trancadas (MPPT sem string)
     return d
 
 
@@ -3890,10 +3943,36 @@ def _save_state(d: dict) -> None:
     os.replace(tmp, STATE_PATH)   # gravação atômica
 
 
+_trancadas = set(_load_state().get("strings_trancadas", []))   # carga inicial em memória
+
+
 @app.route("/api/state")
 def api_state_get():
     with _state_lock:
         return jsonify(_load_state())
+
+
+@app.route("/api/state/string-trancada", methods=["POST"])
+def api_state_string_trancada():
+    """Marca/desmarca uma string como 'trancada' (MPPT sem string conectada). Persiste no
+    estado e atualiza o set em memória (usado por _classifica_strings)."""
+    global _trancadas
+    body     = flask_request.get_json(force=True, silent=True) or {}
+    plant_id = str(body.get("plant_id", "")).strip()
+    inv_id   = str(body.get("inv_id", "")).strip()
+    string   = str(body.get("string", "")).strip()
+    trancada = bool(body.get("trancada"))
+    if not (plant_id and inv_id and string):
+        return jsonify({"error": "plant_id, inv_id e string obrigatórios"}), 400
+    key = f"{plant_id}|{inv_id}|{string}"
+    with _state_lock:
+        d = _load_state()
+        s = set(d.get("strings_trancadas", []))
+        s.add(key) if trancada else s.discard(key)
+        d["strings_trancadas"] = sorted(s)
+        _save_state(d)
+        _trancadas = s
+    return jsonify({"ok": True, "trancadas": len(s)})
 
 
 @app.route("/api/state/verified", methods=["POST"])
