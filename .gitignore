@@ -34,6 +34,11 @@ server.log
 *.xlsx
 *.xlsm
 
+# ── Logos: versiona só as cópias de nome limpo (grid-*.png); ignora os originais
+#    com acentos/espaços que o time dropar na pasta.
+static/logos/*.png
+!static/logos/grid-*.png
+
 # ── Ferramentas locais ────────────────────────────────────────────────────────
 .claude/
 
