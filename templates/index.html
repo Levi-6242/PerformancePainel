@@ -1808,6 +1808,26 @@ async function pvTrancaStr(pid,invId,sid,trancada){
   try{ const d=await fetch('/api/plant/'+pid).then(r=>r.json()); pvCache[pid]=d.inversores||[]; }catch(e){}
   renderPvStr();
 }
+/* Chip de string com checkbox de trancar + cor por estado (SunOp/PG). src='so'|'pg' */
+const _SCLS={trancada:'s-trancada',sem_corrente:'s-sem',baixa_perf:'s-baixa',ativa:'s-ativa',inativa:'s-inativa'};
+const _SLBL={trancada:'trancada (sem string conectada)',sem_corrente:'sem corrente (0 A)',baixa_perf:'baixa performance (<60% da mediana)',ativa:'ativa',inativa:'inativa (inversor parado)'};
+function _strChipSimple(s,src,pid,invId){
+  const st=s.status||(s.ativa?'ativa':'inativa'), cls=_SCLS[st]||'s-inativa';
+  const v=(s.unidade==='W')?Math.round(s.corrente).toLocaleString('pt-BR')+' W':s.corrente.toFixed(2)+' A';
+  return `<div class="string-chip ${cls}" title="${s.id}: ${v} · ${_SLBL[st]||st}">`
+    +`<label onclick="event.stopPropagation()" title="Trancar: string aberta/não conectada (MPPT sem string) — sai da contagem de ativas" style="display:flex;align-items:center;gap:2px;cursor:pointer;font-size:9px;color:#2563eb;margin-bottom:1px">`
+    +`<input type="checkbox" ${s.trancada?'checked':''} onchange="trancaStr('${src}',${JSON.stringify(pid)},${JSON.stringify(invId)},${JSON.stringify(s.id)},this.checked)" style="margin:0;width:11px;height:11px;cursor:pointer">🔒</label>`
+    +`<span class="s-id">${s.id}</span><span class="s-val">${v}</span></div>`;
+}
+async function trancaStr(src,pid,invId,sid,trancada){
+  try{ await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({plant_id:pid,inv_id:invId,string:sid,trancada})}); }catch(e){}
+  const ep=src==='so'?'/api/sunop/plant/':src==='pg'?'/api/pg/plant/':'/api/plant/';
+  const cache=src==='so'?soCache:src==='pg'?pgCache:pvCache;
+  const rend=src==='so'?renderSoStr:src==='pg'?renderPgStr:renderPvStr;
+  try{ const d=await fetch(ep+encodeURIComponent(pid)).then(r=>r.json()); cache[pid]=d.inversores||[]; }catch(e){}
+  rend();
+}
 const _pvCurvaCache={}, _pvCurvaState={};
 function _pvIso2Br(s){ if(!s)return ''; const p=s.split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:s; }
 async function pvCurvaInv(pid,invId,invNome,cid,reload){
@@ -1992,17 +2012,17 @@ function appendSoInvs(tb,pid,invs){
       <td style="${sty}">${txt}</td><td>—</td><td>${inv.temp!=null?inv.temp+'°C':'—'}</td>
       <td style="font-size:11px;color:var(--muted)">${leit}</td><td><span class="badge ${sc}">${st}</span></td>`;
     tr.addEventListener('click',e=>{e.stopPropagation();toggleSoInv(pid,inv,ik);});
-    insAfterSo(tb,pid,tr);if(isE)appendSoStrs(tb,pid,ik,inv.strings);
+    insAfterSo(tb,pid,tr);if(isE)appendSoStrs(tb,pid,ik,inv);
   });
 }
 function toggleSoInv(pid,inv,ik){
   if(soInvExp.has(ik)){soInvExp.delete(ik);document.querySelectorAll(`[data-sois="${ik}"]`).forEach(e=>e.remove());const t=document.querySelector(`[data-soik="${ik}"]`);if(t)t.querySelector('.chevron').classList.remove('open');return;}
   soInvExp.add(ik);const t=document.querySelector(`[data-soik="${ik}"]`);if(t)t.querySelector('.chevron').classList.add('open');
-  appendSoStrs(document.getElementById('so-tbody'),pid,ik,inv.strings);
+  appendSoStrs(document.getElementById('so-tbody'),pid,ik,inv);
 }
-function appendSoStrs(tb,pid,ik,strings){
+function appendSoStrs(tb,pid,ik,inv){
   const tr=document.createElement('tr');tr.className='strings-row';tr.dataset.sop=pid;tr.dataset.sois=ik;
-  const chips=strings.map(s=>`<div class="string-chip ${s.ativa?'ativa':'inativa'}"><span class="s-id">${s.id}</span><span class="s-val">${s.corrente.toFixed(2)} A</span></div>`).join('');
+  const chips=(inv.strings||[]).map(s=>_strChipSimple(s,'so',pid,inv.id)).join('');
   tr.innerHTML=`<td colspan="9"><div class="strings-grid">${chips}</div></td>`;
   const it=document.querySelector(`[data-soik="${ik}"]`);if(it&&it.nextSibling)tb.insertBefore(tr,it.nextSibling);else tb.appendChild(tr);
 }
@@ -2197,17 +2217,17 @@ function appendPgInvs(tb,pid,invs){
       <td style="${sty}">${txt}</td><td>—</td><td>—</td>
       <td style="font-size:11px;color:var(--muted)">${leit}</td><td><span class="badge ${sc}">${st}</span></td>`;
     tr.addEventListener('click',e=>{e.stopPropagation();togglePgInv(pid,inv,ik);});
-    insAfterPg(tb,pid,tr);if(isE)appendPgStrs(tb,pid,ik,inv.strings);
+    insAfterPg(tb,pid,tr);if(isE)appendPgStrs(tb,pid,ik,inv);
   });
 }
 function togglePgInv(pid,inv,ik){
   if(pgInvExp.has(ik)){pgInvExp.delete(ik);document.querySelectorAll(`[data-pgis="${ik}"]`).forEach(e=>e.remove());const t=document.querySelector(`[data-pgik="${ik}"]`);if(t)t.querySelector('.chevron').classList.remove('open');return;}
   pgInvExp.add(ik);const t=document.querySelector(`[data-pgik="${ik}"]`);if(t)t.querySelector('.chevron').classList.add('open');
-  appendPgStrs(document.getElementById('pg-tbody'),pid,ik,inv.strings);
+  appendPgStrs(document.getElementById('pg-tbody'),pid,ik,inv);
 }
-function appendPgStrs(tb,pid,ik,strings){
+function appendPgStrs(tb,pid,ik,inv){
   const tr=document.createElement('tr');tr.className='strings-row';tr.dataset.pgp=pid;tr.dataset.pgis=ik;
-  const chips=strings.map(s=>`<div class="string-chip ${s.ativa?'ativa':'inativa'}"><span class="s-id">${s.id}</span><span class="s-val">${s.corrente.toFixed(2)} A</span></div>`).join('');
+  const chips=(inv.strings||[]).map(s=>_strChipSimple(s,'pg',pid,inv.id)).join('');
   tr.innerHTML=`<td colspan="9"><div class="strings-grid">${chips}</div></td>`;
   const it=document.querySelector(`[data-pgik="${ik}"]`);if(it&&it.nextSibling)tb.insertBefore(tr,it.nextSibling);else tb.appendChild(tr);
 }

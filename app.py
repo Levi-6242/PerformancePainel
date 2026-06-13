@@ -1843,7 +1843,7 @@ def process_plant_sunop(plant_name: str) -> dict:
     qtd_inv_com_dados = 0
 
     for inv_name, str_paths in meta["inv_strings"].items():
-        correntes = []
+        correntes, ids = [], []
         for p in sorted(str_paths,
                         key=lambda x: int(x.rsplit("I_PV", 1)[-1]) if x.rsplit("I_PV", 1)[-1].isdigit() else 999):
             if p not in by_path:
@@ -1853,12 +1853,13 @@ def process_plant_sunop(plant_name: str) -> dict:
             if ts > ts_max:
                 ts_max = ts
             if isinstance(v, (int, float)):
-                correntes.append(v)
+                ids.append(p.split(".")[-1]); correntes.append(v)
 
         if not correntes:
             continue
         qtd_inv_com_dados += 1
-        ativas = sum(_ipv_ativas(correntes))   # ativa = relativa à média do inversor
+        # régua nova (igual API PV): exclui trancadas e classifica vs mediana do inversor
+        ativas = _str_ativas(_classifica_strings(plant_name, inv_name, ids, correntes))
         total_str   += len(correntes)
         total_ativas += ativas
 
@@ -1987,9 +1988,10 @@ def api_sunop_plant(plant_name):
                 ts_inv = ts
             if isinstance(v, (int, float)):
                 ids.append(p.split(".")[-1]); correntes.append(v)
-        flags   = _ipv_ativas(correntes)   # ativa = relativa à média do inversor
-        strings = [{"id": i, "corrente": c, "ativa": a}
-                   for i, c, a in zip(ids, correntes, flags)]
+        _st     = _classifica_strings(plant_name, inv_name, ids, correntes)
+        strings = [{"id": i, "corrente": c, "status": s,
+                    "ativa": s in ("ativa", "baixa_perf"), "trancada": s == "trancada"}
+                   for i, c, s in zip(ids, correntes, _st)]
 
         others = meta["inv_other"].get(inv_name, {})
         def _ov(key):
@@ -1998,7 +2000,7 @@ def api_sunop_plant(plant_name):
 
         temp       = _ov("TEMP_INT")
         eday       = _ov("EPD")
-        str_ativas  = sum(flags)
+        str_ativas  = _str_ativas(_st)
         desligado   = len(strings) == 0
         # Strings esperadas vêm do BD_Performance/Equipamentos (ESPERADO_INV), igual à API PV
         str_esp_inv = ESPERADO_INV.get(plant_name, {}).get(inv_name)
@@ -2378,6 +2380,14 @@ def _sunop_trackers_plant(plant_name: str) -> dict:
             t["status"] = "normal"
     pior = max((t["disparidade"] for t in lst if t["disparidade"] is not None), default=None)
     _trk_accum_feed(plant_name, ts_max, [(t["id"], t["disparidade"], t["atual"]) for t in lst])
+    # travado o dia todo (amplitude ~0 enquanto a usina girou) — sobrepõe o instantâneo e conta como severo
+    _par = _trk_accum_parados(plant_name)
+    for t in lst:
+        if str(t["id"]) in _par:
+            t["status"] = "parado"
+    sev  = sum(1 for t in lst if t["status"] in ("severo", "parado"))
+    leve = sum(1 for t in lst if t["status"] == "leve")
+    fora = sum(1 for t in lst if t["status"] == "fora_media")
     base.update({"total": len(lst), "severos": sev, "leves": leve, "fora_media": fora,
                  "media_angulo": round(media, 1) if media is not None else None,
                  "pior_disparidade": round(pior, 2) if pior is not None else None,
@@ -3421,7 +3431,14 @@ def _pg_build_snapshot():
         for dev_id in sorted(p["invs"]):
             inv = p["invs"][dev_id]
             inv["strings"].sort(key=lambda s: int(s["id"]) if s["id"].isdigit() else 999)
-            ativas = sum(1 for s in inv["strings"] if s["ativa"])
+            # régua nova (igual API PV): trancada/sem_corrente/baixa_perf/ativa/inativa vs mediana do inversor
+            _keys = [s["id"] for s in inv["strings"]]
+            _st   = _classifica_strings(pid, dev_id, _keys, [s["corrente"] for s in inv["strings"]])
+            for s, stt in zip(inv["strings"], _st):
+                s["status"] = stt
+                s["ativa"]  = stt in ("ativa", "baixa_perf")
+                s["trancada"] = stt == "trancada"
+            ativas = _str_ativas(_st)
             total  = len(inv["strings"])
             str_esp = esp_map.get(inv["dev"], total)     # esperadas da planilha; fallback = total
             tot_ativas += ativas; tot_esp += str_esp
@@ -4508,18 +4525,27 @@ def _pg_trackers_overview() -> dict:
             if t["alvo"] is not None and t["atual"] is not None:
                 grupos.setdefault(round(t["alvo"], 1), []).append(t["atual"])
         media_grupo = {k: sum(v) / len(v) for k, v in grupos.items()}
-        sev = leve = fora = 0
         for t in lst:
             disp, alvo, atual = t["disp"], t["alvo"], t["atual"]
             gk = round(alvo, 1) if alvo is not None else None
             if disp is not None and disp > TRK_DISP_SEVERO:
-                sev += 1
+                t["st"] = "severo"
             elif disp is not None and disp > TRK_DISP_LEVE:
-                leve += 1
+                t["st"] = "leve"
             elif gk in media_grupo and atual is not None and abs(atual - media_grupo[gk]) > TRK_FORA_MEDIA:
-                fora += 1
+                t["st"] = "fora_media"
+            else:
+                t["st"] = "normal"
         pior = max((t["disp"] for t in lst if t["disp"] is not None), default=None)
         _trk_accum_feed(pid, p["ts"], [(t["tid"], t["disp"], t["atual"]) for t in lst])
+        # travado o dia todo (amplitude ~0 enquanto a usina girou) — conta como severo
+        _par = _trk_accum_parados(pid)
+        for t in lst:
+            if str(t["tid"]) in _par:
+                t["st"] = "parado"
+        sev  = sum(1 for t in lst if t["st"] in ("severo", "parado"))
+        leve = sum(1 for t in lst if t["st"] == "leve")
+        fora = sum(1 for t in lst if t["st"] == "fora_media")
         out.append({
             "usina": p["usina"], "plant_id": pid, "total": len(lst),
             "severos": sev, "leves": leve, "fora_media": fora,
