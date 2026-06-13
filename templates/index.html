@@ -3131,7 +3131,8 @@ async function exportSpvPdf(){
   if(upd)upd.textContent=`Gerando PDF de ${spvSel.size} usina(s) — carrega ao vivo, pode levar um tempo proporcional...`;
   try{
     const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),600000); // 10 min
-    const r=await fetch(`/api/spv/pdf?data=${encodeURIComponent(_spvDataBR())}&usinas=${usinas}`,{signal:ctrl.signal});
+    const soAb=document.getElementById('spv-soabaixo')?.checked?1:0;
+    const r=await fetch(`/api/spv/pdf?data=${encodeURIComponent(_spvDataBR())}&usinas=${usinas}&soabaixo=${soAb}`,{signal:ctrl.signal});
     clearTimeout(tmo);
     if(!r.ok){const j=await r.json().catch(()=>({}));if(upd)upd.textContent='⚠️ '+(j.error||('Erro '+r.status));return;}
     const blob=await r.blob();

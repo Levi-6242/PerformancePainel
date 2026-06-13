@@ -5174,15 +5174,37 @@ def api_spv_pdf():
         usinas_ids = [k[0] for k in _spv_cache if k[1] == data]
 
     from matplotlib.patches import Rectangle, FancyBboxPatch
+    from matplotlib import font_manager as _fm
+    import matplotlib.image as _mpimg
+    _STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+    # Fonte Satoshi se o arquivo (.ttf/.otf) estiver em static/fonts/; senão, fallback limpo.
+    _pdf_font = "DejaVu Sans"
+    try:
+        _fdir = os.path.join(_STATIC, "fonts")
+        if os.path.isdir(_fdir):
+            for _ff in os.listdir(_fdir):
+                if _ff.lower().endswith((".ttf", ".otf")) and "satoshi" in _ff.lower():
+                    _fm.fontManager.addfont(os.path.join(_fdir, _ff))
+            _sato = next((f.name for f in _fm.fontManager.ttflist if "satoshi" in f.name.lower()), None)
+            if _sato:
+                _pdf_font = _sato
+    except Exception:
+        pass
+    # Logo da Grid no rodapé (horizontal, sobre branco)
+    try:
+        _logo = _mpimg.imread(os.path.join(_STATIC, "logos", "grid-h-verde-azul.png"))
+    except Exception:
+        _logo = None
     plt.rcParams.update({
-        "font.family": "DejaVu Sans", "axes.edgecolor": "#cbd5e1", "axes.linewidth": 0.7,
+        "font.family": _pdf_font, "axes.edgecolor": "#cbd5e1", "axes.linewidth": 0.7,
         "axes.labelcolor": "#64748b", "xtick.color": "#94a3b8", "ytick.color": "#94a3b8",
         "text.color": "#1f2937",
     })
     GREEN, GREEN_LT = "#3f6212", "#d9f99d"
     GRAY_LN, RED, OK = "#c3cedd", "#dc2626", "#16a34a"
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
-    CHUNK, Wtxt = 4, 34     # 4 inversores por página (charts maiores); Wtxt = chars/linha do texto
+    so_abaixo = flask_request.args.get("soabaixo", "0") == "1"   # só inversores com string abaixo
+    CHUNK, Wtxt = 3, 46     # 3 inversores por página (charts mais largos); Wtxt = chars/linha do texto
     paginas = 0
     buf = io.BytesIO()
     with PdfPages(buf) as pdf:
@@ -5194,6 +5216,8 @@ def api_spv_pdf():
                 with app.test_request_context(f"/api/spv/usina/{idu}?data={data}"):
                     payload = api_spv_usina(idu).get_json()
             invs = payload.get("inversores", [])
+            if so_abaixo:
+                invs = [iv for iv in invs if iv.get("abaixo")]
             if not invs:
                 continue
             usina_nome = nomes.get(idu, str(idu))
@@ -5253,12 +5277,12 @@ def api_spv_pdf():
                     if j == 0:
                         axc.set_ylabel("Corrente (A)", fontsize=8)
                     # ── Observações do inversor ──────────────────────────────
-                    status = f"med {iv['mediana']}    ·    " + (f"{iv['abaixo']} abaixo" if iv["abaixo"] else "OK")
+                    status = f"Mediana do dia: {iv['mediana']}   ·   " + (f"{iv['abaixo']} abaixo" if iv["abaixo"] else "todas OK")
                     axt.text(0, 1.0, status, transform=axt.transAxes, va="top", ha="left",
                              fontsize=8, fontweight="bold", color=RED if iv["abaixo"] else OK)
-                    outs = ", ".join(f"{s['nome']} {s['pct']}%" for s in iv["strings"] if s["sub"]) or "nenhum"
+                    outs = ", ".join(f"{s['nome']}: {s['pct']}% da mediana" for s in iv["strings"] if s["sub"]) or "nenhuma"
                     y = 0.80
-                    axt.text(0, y, "Outliers:", transform=axt.transAxes, va="top", fontsize=7,
+                    axt.text(0, y, "Strings abaixo:", transform=axt.transAxes, va="top", fontsize=7,
                              fontweight="bold", color="#64748b"); y -= 0.115
                     for ln in textwrap.wrap(outs, Wtxt)[:3]:
                         axt.text(0, y, ln, transform=axt.transAxes, va="top", fontsize=6.8, color="#475569"); y -= 0.115
@@ -5271,8 +5295,11 @@ def api_spv_pdf():
                 # ── Rodapé ───────────────────────────────────────────────────
                 fig.patches.append(Rectangle((0.052, 0.062), 0.923, 0.0012, transform=fig.transFigure,
                                              facecolor="#e5e7eb", edgecolor="none"))
-                fig.text(0.028, 0.036, "Grid Co.  ·  Monitoramento O&M", color="#94a3b8", fontsize=7.5, va="center")
-                fig.text(0.5, 0.036, "linha cinza = strings normais        linha vermelha = abaixo da mediana",
+                if _logo is not None:
+                    _lax = fig.add_axes([0.028, 0.016, 0.12, 0.038]); _lax.axis("off"); _lax.imshow(_logo)
+                else:
+                    fig.text(0.028, 0.036, "Grid Co.  ·  Monitoramento O&M", color="#94a3b8", fontsize=7.5, va="center")
+                fig.text(0.5, 0.036, "linha cinza = strings normais   ·   linha vermelha = abaixo da mediana (corrente integrada do dia)",
                          color="#94a3b8", fontsize=7.5, ha="center", va="center")
                 fig.text(0.975, 0.036, f"Gerado em {agora}", color="#94a3b8", fontsize=7.5, ha="right", va="center")
                 pdf.savefig(fig, facecolor="white"); plt.close(fig)
