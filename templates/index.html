@@ -1816,7 +1816,7 @@ function _strChipSimple(s,src,pid,invId){
   const v=(s.unidade==='W')?Math.round(s.corrente).toLocaleString('pt-BR')+' W':s.corrente.toFixed(2)+' A';
   return `<div class="string-chip ${cls}" title="${s.id}: ${v} · ${_SLBL[st]||st}">`
     +`<label onclick="event.stopPropagation()" title="Trancar: string aberta/não conectada (MPPT sem string) — sai da contagem de ativas" style="display:flex;align-items:center;gap:2px;cursor:pointer;font-size:9px;color:#2563eb;margin-bottom:1px">`
-    +`<input type="checkbox" ${s.trancada?'checked':''} onchange="trancaStr('${src}',${JSON.stringify(pid)},${JSON.stringify(invId)},${JSON.stringify(s.id)},this.checked)" style="margin:0;width:11px;height:11px;cursor:pointer">🔒</label>`
+    +`<input type="checkbox" ${s.trancada?'checked':''} onchange="trancaStr('${src}','${pid}','${invId}','${s.id}',this.checked)" style="margin:0;width:11px;height:11px;cursor:pointer">🔒</label>`
     +`<span class="s-id">${s.id}</span><span class="s-val">${v}</span></div>`;
 }
 async function trancaStr(src,pid,invId,sid,trancada){
@@ -2067,8 +2067,8 @@ function appendSoStrs(tb,pid,ik,inv){
   const chips=(inv.strings||[]).map(s=>_strChipSimple(s,'so',pid,inv.id)).join('');
   tr.innerHTML=`<td colspan="9">
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
-        <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="soCurvaInv(${JSON.stringify(pid)},${JSON.stringify(inv.id)},'${nm}','${cid}')">📈 Curva do dia</button>
-        <label style="font-size:11px;color:var(--muted)">Data <input type="date" id="${cid}-data" value="${_trkHoje()}" onchange="soCurvaInv(${JSON.stringify(pid)},${JSON.stringify(inv.id)},'${nm}','${cid}',true)" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
+        <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="soCurvaInv('${pid}','${inv.id}','${nm}','${cid}')">📈 Curva do dia</button>
+        <label style="font-size:11px;color:var(--muted)">Data <input type="date" id="${cid}-data" value="${_trkHoje()}" onchange="soCurvaInv('${pid}','${inv.id}','${nm}','${cid}',true)" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
         <span id="${cid}-presets" style="display:none;align-items:center;gap:4px;flex-wrap:wrap">
           <span style="font-size:11px;color:var(--muted)">| Mostrar:</span>
           <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','todas')">Todas</button>
