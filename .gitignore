@@ -25,6 +25,8 @@ tracker_issues.bak.json
 string_notas.json
 spv_stringbox.json
 sunop_etm_accum.json
+cache_snapshot.json
+cache_snapshot.json.tmp
 server.log
 *.log
 

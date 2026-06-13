@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grid Co. — Monitoramento O&M</title>
+  <link rel="icon" type="image/png" href="/static/logos/grid-icone-verde.png">
+  <link rel="apple-touch-icon" href="/static/logos/grid-icone-verde.png">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
   <style>
@@ -70,6 +72,7 @@
     }
     .gc-logo-text { color: #fff; font-weight: 700; font-size: 16px; letter-spacing: -.2px }
     .gc-logo-text span { color: var(--green) }
+    .gc-logo-img { height: 30px; display: block; object-fit: contain }
     .gc-nav-center {
       display: flex;
       align-items: center;
@@ -703,8 +706,7 @@
 <!-- ▸ NAVBAR -->
 <nav class="gc-nav">
   <a class="gc-logo" href="#">
-    <div class="gc-logo-icon">G</div>
-    <span class="gc-logo-text">Grid <span>Co.</span></span>
+    <img class="gc-logo-img" src="/static/logos/grid-h-branco.png" alt="Grid Co.">
   </a>
   <div class="gc-nav-center">
     <span class="gc-live"><span class="gc-live-dot"></span>Live</span>
@@ -857,6 +859,12 @@
             <tbody id="pv-tbody"></tbody>
           </table>
         </div>
+      </div>
+      <div class="gc-table-card" style="margin-top:14px">
+        <div id="pv-chart-strings" style="width:100%;height:400px"></div>
+      </div>
+      <div class="gc-table-card" style="margin-top:14px">
+        <div id="pv-chart-temp" style="width:100%;height:400px"></div>
       </div>
     </div>
   </div>
@@ -1222,7 +1230,7 @@
         <div class="gc-table-wrap">
           <table>
             <thead><tr>
-              <th>Usina</th><th>Trackers</th><th>Severos</th><th>Leves</th><th>Fora da linha</th><th title="Normais no tempo real, mas ainda como Parado/Com problema na planilha de Tickets">Normalizados</th><th>Pior disparidade</th><th>Última Leitura</th><th>Status</th>
+              <th>Usina</th><th>Trackers</th><th>Severos</th><th>Leves</th><th>Fora da linha</th><th title="Normais no tempo real, mas ainda como Parado/Com problema na planilha de Tickets">Normalizados</th><th title="média de |alvo − atual| de todos os trackers ao longo do dia (janela 9h–15h)">Desvio médio</th><th>Última Leitura</th><th>Status</th>
             </tr></thead>
             <tbody id="trk-tbody"></tbody>
           </table>
@@ -1282,10 +1290,21 @@
   <div id="panel-pv-pr" style="display:none">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
       <div>
-        <h2 style="margin:0;font-size:1.12rem;color:#16192a">📊 PR por Inversor <small style="color:#888;font-weight:400">— usinas string-box (sem visão de strings)</small></h2>
-        <p style="margin:2px 0 0;font-size:.8em;color:#888">PR = Geração ÷ (IPOA × Potência). Inversor abaixo da mediana da usina = candidato a perda. <span id="pvpr-upd"></span></p>
+        <h2 style="margin:0;font-size:1.12rem;color:#16192a">📊 PR por Inversor <small style="color:#888;font-weight:400">— fonte: banco (BD_Thopen)</small></h2>
+        <p style="margin:2px 0 0;font-size:.8em;color:#888">PR = Geração ÷ (IPOA × Potência). <b>Sinal principal: inversor abaixo da mediana da usina</b> (robusto à calibração do sensor). O PR absoluto depende da qualidade da irradiância — veja o selo. <span id="pvpr-upd"></span></p>
       </div>
-      <div style="display:flex;gap:8px;align-items:center">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label style="font-size:12px;color:var(--muted)">Data <input class="gc-bar-search" type="date" id="pvpr-data" style="width:auto" onchange="loaded.pvpr=false;loadPvPr(true)"></label>
+        <div style="display:inline-flex;border:1px solid #d1d5db;border-radius:8px;overflow:hidden">
+          <button id="pvpr-vis-pr"  onclick="pvPrSetVisao('pr')"      style="border:0;padding:5px 11px;font-size:12px;cursor:pointer;background:#16a34a;color:#fff">PR</button>
+          <button id="pvpr-vis-ger" onclick="pvPrSetVisao('geracao')" style="border:0;padding:5px 11px;font-size:12px;cursor:pointer;background:#fff;color:#374151">Geração</button>
+        </div>
+        <label style="font-size:12px;color:var(--muted)">Ordenar
+          <select id="pvpr-ordem" onchange="renderPvPr()" style="font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:6px">
+            <option value="valor">por valor</option>
+            <option value="inversor">por inversor</option>
+          </select>
+        </label>
         <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer">
           <input type="checkbox" id="pvpr-soalerta" style="accent-color:#ef4444;cursor:pointer" onchange="renderPvPr()"> só com alerta
         </label>
@@ -1298,7 +1317,7 @@
 
     <div id="pvpr-cont" style="display:none">
       <div class="gc-stats gc-stats-4" style="margin-bottom:18px">
-        <div class="gc-stat-card"><div class="gc-stat-val" id="pvpr-usinas">—</div><div class="gc-stat-lbl">Usinas string-box</div></div>
+        <div class="gc-stat-card"><div class="gc-stat-val" id="pvpr-usinas">—</div><div class="gc-stat-lbl">Usinas com dados</div></div>
         <div class="gc-stat-card"><div class="gc-stat-val" id="pvpr-invs">—</div><div class="gc-stat-lbl">Inversores</div></div>
         <div class="gc-stat-card" style="border-top:3px solid #b91c1c"><div class="gc-stat-val" id="pvpr-abaixo" style="color:#b91c1c">—</div><div class="gc-stat-lbl">Abaixo da mediana</div></div>
         <div class="gc-stat-card" style="border-top:3px solid #d97706"><div class="gc-stat-val" id="pvpr-sempot" style="color:#d97706">—</div><div class="gc-stat-lbl">Sem potência cadastrada</div></div>
@@ -1306,7 +1325,7 @@
       <div style="overflow-x:auto">
         <table class="gc-table" style="width:100%">
           <thead>
-            <tr><th>Usina</th><th>Inversores</th><th>PR usina</th><th>PR mediana</th><th>Abaixo</th><th>IPOA (kWh/m²)</th><th>Geração (kWh)</th><th>Última leitura</th></tr>
+            <tr><th>Usina</th><th>Inversores</th><th>Abaixo da mediana</th><th>PR mediana</th><th>Geração (kWh)</th><th>IPOA (kWh/m²)</th><th>Irradiância</th></tr>
           </thead>
           <tbody id="pvpr-tbody"></tbody>
         </table>
@@ -1634,8 +1653,35 @@ async function loadPvStr(force){
   if(data.alertas_strings_list.length){al.innerHTML+=`<div class="gc-alert" style="border-left-color:#ef4444"><div class="t" style="color:#ef4444">⚠️ Sem strings — ${data.alertas_strings_list.length} usinas</div><div class="b">${data.alertas_strings_list.join(' · ')}</div></div>`;}
   if(data.alertas_temp_list.length){const l=data.alertas_temp_list.map(r=>`${r.usina} (${r.temp}°C)`).join(' · ');al.innerHTML+=`<div class="gc-alert" style="border-left-color:#f59e0b"><div class="t" style="color:#d97706">🌡️ Temp elevada — ${data.alertas_temp_list.length} usinas</div><div class="b">${l}</div></div>`;}
   const prev=getLastSt();saveLastSt(pvRows);
-  renderPvStr(prev);setTs(data.cache_ts);
+  renderPvStr(prev);renderPvCharts();setTs(data.cache_ts);
   L.style.display='none';C.style.display='block';
+}
+/* Gráficos de barras (antes vinham prontos do servidor em chart_strings/chart_temp;
+   agora são montados aqui a partir de rows — payload do /api/data muito menor). */
+function _pvChartLayout(title,ytitle){
+  return {title:{text:title},height:400,margin:{t:50,b:150,l:50,r:20},showlegend:false,
+    plot_bgcolor:'#f4f6f2',paper_bgcolor:'#ffffff',font:{family:'Inter'},
+    xaxis:{tickangle:-45,tickfont:{size:9,family:'Inter'}},yaxis:{title:{text:ytitle}}};
+}
+function renderPvCharts(){
+  const cfg={displayModeBar:false,responsive:true};
+  const com=pvRows.filter(r=>!r.sem_dados);
+  Plotly.react('pv-chart-strings',[{
+    type:'bar',x:com.map(r=>r.usina),y:com.map(r=>r.strings_ativas),
+    marker:{color:com.map(r=>r.strings_ativas===0?'#ef4444':'#a3d900')},
+    hovertemplate:'<b>%{x}</b><br>Strings ativas: %{y}<extra></extra>'
+  }],_pvChartLayout('Strings Ativas por Usina','Strings ativas (>0,5A)'),cfg);
+  const rt=com.filter(r=>r.temp_media!=null);
+  const lt=_pvChartLayout('Temperatura Média dos Inversores','Temperatura (°C)');
+  lt.shapes=[{type:'line',xref:'paper',x0:0,x1:1,yref:'y',y0:65,y1:65,
+    line:{color:'#ef4444',width:1.5,dash:'dash'}}];
+  lt.annotations=[{xref:'paper',x:1,xanchor:'right',yref:'y',y:65,yanchor:'bottom',
+    text:'Alerta (65°C)',showarrow:false,font:{color:'#ef4444',size:11,family:'Inter'}}];
+  Plotly.react('pv-chart-temp',[{
+    type:'bar',x:rt.map(r=>r.usina),y:rt.map(r=>r.temp_media),
+    marker:{color:rt.map(r=>r.temp_media>=65?'#ef4444':'#f59e0b')},
+    hovertemplate:'<b>%{x}</b><br>Temp: %{y}°C<extra></extra>'
+  }],lt,cfg);
 }
 function renderPvStr(prev){
   prev=prev||getLastSt();
@@ -2396,7 +2442,7 @@ function renderSoTrackers(){
       <td style="color:${r.leves?'#b45309':'inherit'}">${r.leves}</td>
       <td style="color:${r.fora_media?'#1d4ed8':'inherit'}">${r.fora_media}</td>
       <td style="color:${r.normalizados?'#2563eb':'var(--muted)'};font-weight:${r.normalizados?700:400}" title="normais no tempo real, mas ainda na planilha como problema">${r.normalizados!=null?r.normalizados:'—'}</td>
-      <td>${r.pior_disparidade!=null?r.pior_disparidade.toFixed(1)+'°':'—'}</td>
+      <td>${r.desvio_medio!=null?r.desvio_medio.toFixed(1)+'°':'—'}</td>
       <td>${r.ultima_leitura?r.ultima_leitura.slice(11,16):'—'}</td>
       <td>${_trkBadge(r)}</td>`;
     tr.addEventListener('click',()=>{exp?trkExp.delete(r.plant_id):trkExp.add(r.plant_id);renderSoTrackers();});
@@ -2597,7 +2643,10 @@ async function abrirGraficoEtm(pid, usina, src, est){
   area.innerHTML='<div class="gc-loading" style="min-height:380px"><div class="gc-spinner"></div><p>Carregando curva do dia...</p></div>';
   try{
     const d=await fetch(url).then(r=>r.json());
-    const mk=(nome,arr,cor)=>({x:d.labels,y:arr,name:nome,type:'scatter',mode:'lines',line:{color:cor,width:2},connectgaps:false});
+    // Eixo X fixo de 06:00 às 18:00: mapeia "HH:MM" p/ datetime de um dia fictício
+    // e fixa o range, pra todos os gráficos de ETM começarem e terminarem no mesmo horário.
+    const xdt=(d.labels||[]).map(t=>'2000-01-01 '+t);
+    const mk=(nome,arr,cor)=>({x:xdt,y:arr,name:nome,type:'scatter',mode:'lines',line:{color:cor,width:2},connectgaps:false});
     const traces=[];
     if(d.poa  && d.poa.some(v=>v!=null))   traces.push(mk('POA',   d.poa,  '#5a8a00'));
     if(d.ghi  && d.ghi.some(v=>v!=null))   traces.push(mk('GHI',   d.ghi,  '#3b82f6'));
@@ -2606,7 +2655,8 @@ async function abrirGraficoEtm(pid, usina, src, est){
     if(!traces.length){area.innerHTML='<p style="text-align:center;color:var(--muted);padding:60px 0">Sem dados de irradiância para hoje.</p>';return;}
     Plotly.newPlot(area, traces, {
       margin:{t:10,r:14,b:42,l:54},
-      xaxis:{title:'Hora', tickfont:{size:10}, nticks:12},
+      xaxis:{title:'Hora', type:'date', range:['2000-01-01 06:00','2000-01-01 18:00'],
+             tickformat:'%H:%M', dtick:3600000, tickfont:{size:10}},
       yaxis:{title:'W/m²', rangemode:'tozero'},
       legend:{orientation:'h', y:1.12},
       font:{family:'Inter', size:11},
@@ -2777,24 +2827,37 @@ async function atualizarWatch(){
   }
 }
 
-/* ══ PR por inversor (string-box, API PV) ════════════════════════════════════ */
-let pvPrRows=[], pvPrDetail={}, pvPrExp=new Set();
-const PR_COR={severo:'#b91c1c',leve:'#d97706',ok:'#16a34a',sem_dados:'#9ca3af'};
+/* ══ PR por inversor (banco / BD_Thopen) ═════════════════════════════════════ */
+let pvPrRows=[], pvPrDetail={}, pvPrExp=new Set(), pvPrVisao='pr';
 function _prFmt(v){return v==null?'—':(v*100).toFixed(1)+'%';}
+function _gerFmt(v){return v==null?'—':Math.round(v).toLocaleString('pt-BR');}
+function _pvPrData(){
+  const el=document.getElementById('pvpr-data');
+  if(el&&!el.value){const d=new Date();d.setDate(d.getDate()-1);el.value=d.toISOString().slice(0,10);}
+  return el?el.value:'';
+}
+function pvPrSetVisao(v){
+  pvPrVisao=v;
+  const a=document.getElementById('pvpr-vis-pr'), b=document.getElementById('pvpr-vis-ger');
+  a.style.background=v==='pr'?'#16a34a':'#fff'; a.style.color=v==='pr'?'#fff':'#374151';
+  b.style.background=v==='geracao'?'#16a34a':'#fff'; b.style.color=v==='geracao'?'#fff':'#374151';
+  renderPvPr();
+}
 async function loadPvPr(force){
+  const dia=_pvPrData();
   if(loaded.pvpr&&!force){renderPvPr();return;}
   loaded.pvpr=true;
   document.getElementById('pvpr-cont').style.display='none';
   document.getElementById('pvpr-load').style.display='';
-  document.getElementById('pvpr-load').innerHTML='<div class="gc-spinner"></div><p>Calculando PR por inversor (API PV)... pode levar ~1 min na 1ª vez</p>';
+  document.getElementById('pvpr-load').innerHTML='<div class="gc-spinner"></div><p>Calculando PR por inversor...</p>';
   try{
-    const d=await fetch(force?'/api/pv/pr?force=1':'/api/pv/pr').then(r=>r.json());
+    const d=await fetch('/api/pg/pr?date='+encodeURIComponent(dia)+(force?'&force=1':'')).then(r=>r.json());
     pvPrRows=d.rows||[]; pvPrDetail={}; if(force)pvPrExp.clear();
     document.getElementById('pvpr-usinas').textContent=d.summary.usinas;
     document.getElementById('pvpr-invs').textContent=d.summary.inversores;
     document.getElementById('pvpr-abaixo').textContent=d.summary.abaixo;
     document.getElementById('pvpr-sempot').textContent=d.summary.sem_pot;
-    document.getElementById('pvpr-upd').textContent='• '+(d.cache_ts||'');
+    document.getElementById('pvpr-upd').textContent='• '+(d.data||'')+' • '+(d.cache_ts||'');
     renderPvPr();
     document.getElementById('pvpr-load').style.display='none';
     document.getElementById('pvpr-cont').style.display='';
@@ -2806,42 +2869,52 @@ function renderPvPr(){
   let lista=pvPrRows.filter(r=>!f||(r.usina||'').toLowerCase().includes(f));
   if(soAl)lista=lista.filter(r=>r.abaixo);
   const tb=document.getElementById('pvpr-tbody');tb.innerHTML='';
-  if(!lista.length){tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">Nenhuma usina string-box encontrada.</td></tr>';return;}
+  if(!lista.length){tb.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">Nenhuma usina com dados neste dia.</td></tr>';return;}
   lista.forEach(r=>{
     const exp=pvPrExp.has(r.plant_id);
+    const selo=r.confiavel
+      ? '<span style="color:#16a34a" title="irradiância confiável">● confiável</span>'
+      : `<span style="color:#d97706" title="irradiância incompleta ou sensor com leitura baixa — PR absoluto pouco confiável; use a comparação entre inversores">▲ baixa${r.cobertura!=null?' ('+r.cobertura+'%)':''}</span>`;
+    const prTxt=r.confiavel?_prFmt(r.pr_mediana):`<span style="color:#9ca3af">${_prFmt(r.pr_mediana)}</span>`;
     const tr=document.createElement('tr');tr.className='plant-row';tr.style.cursor='pointer';
     tr.innerHTML=`<td>${exp?'▾':'▸'} <strong>${r.usina}</strong></td>
       <td>${r.total||0}</td>
-      <td>${_prFmt(r.pr)}</td>
-      <td>${_prFmt(r.pr_mediana)}</td>
       <td style="color:${r.abaixo?'#b91c1c':'inherit'};font-weight:${r.abaixo?700:400}">${r.abaixo||0}</td>
+      <td>${prTxt}</td>
+      <td>${_gerFmt(r.geracao_kwh)}</td>
       <td>${r.ipoa!=null?r.ipoa.toFixed(2):'—'}</td>
-      <td>${r.geracao_kwh!=null?Math.round(r.geracao_kwh).toLocaleString('pt-BR'):'—'}</td>
-      <td>${r.ultima_leitura?r.ultima_leitura.slice(11,16):'—'}</td>`;
+      <td style="font-size:11px">${selo}</td>`;
     tr.addEventListener('click',()=>{exp?pvPrExp.delete(r.plant_id):pvPrExp.add(r.plant_id);renderPvPr();});
     tb.appendChild(tr);
     if(exp){
       const det=document.createElement('tr');
-      det.innerHTML=`<td colspan="8" style="background:#fafbff;padding:8px 14px"><div id="pvpr-det-${r.plant_id}" style="color:var(--muted);font-size:12px">Carregando inversores...</div></td>`;
+      det.innerHTML=`<td colspan="7" style="background:#fafbff;padding:8px 14px"><div id="pvpr-det-${r.plant_id}" style="color:var(--muted);font-size:12px">Carregando inversores...</div></td>`;
       tb.appendChild(det);
-      renderPvPrDetail(r.plant_id);
+      renderPvPrDetail(r.plant_id, r);
     }
   });
 }
-async function renderPvPrDetail(pid){
+async function renderPvPrDetail(pid, row){
   let d=pvPrDetail[pid];
-  if(!d){try{d=await fetch('/api/pv/pr/'+pid).then(r=>r.json());pvPrDetail[pid]=d;}catch(e){d={inversores:[]};}}
+  if(!d){try{const dia=_pvPrData();d=await fetch('/api/pg/pr/'+pid+'?date='+encodeURIComponent(dia)).then(r=>r.json());pvPrDetail[pid]=d;}catch(e){d={inversores:[]};}}
   const cell=document.getElementById('pvpr-det-'+pid);if(!cell)return;
-  const invs=d.inversores||[];
+  let invs=(d.inversores||[]).slice();
   if(!invs.length){cell.innerHTML='<span>Sem inversores.</span>';return;}
+  const ordem=document.getElementById('pvpr-ordem').value;
+  const val=i=>pvPrVisao==='pr'?i.pr:i.geracao_kwh;
+  const num=i=>parseInt((i.nome_api||'').replace(/\D+/g,''))||999;
+  if(ordem==='valor') invs.sort((a,b)=>((val(b)??-1)-(val(a)??-1)));
+  else                invs.sort((a,b)=>num(a)-num(b));
   const chips=invs.map(i=>{
-    const cor=PR_COR[i.status]||'#374151';
-    const pr=i.pr!=null?(i.pr*100).toFixed(1)+'%':'—';
-    const pot=i.pot_kwp!=null?i.pot_kwp+' kWp':'sem pot.';
+    const cor=i.abaixo?'#b91c1c':(val(i)==null?'#9ca3af':'#16a34a');
+    const txt=pvPrVisao==='pr'?(i.pr!=null?(i.pr*100).toFixed(1)+'%':'—'):(i.geracao_kwh!=null?Math.round(i.geracao_kwh)+' kWh':'—');
+    const pot=i.pot_kwp!=null?i.pot_kwp.toFixed(1)+' kWp':'sem pot.';
     return `<span style="border:1px solid ${cor};color:${cor};border-radius:8px;padding:3px 8px;font-size:11px;white-space:nowrap"
-      title="${i.id} · ${pot} · Eday ${i.eday!=null?i.eday+' kWh':'—'} · ${i.ipv} string(s) · PR ${pr}">${i.id}: <b>${pr}</b></span>`;
+      title="${i.nome} · ${pot} · Geração ${i.geracao_kwh!=null?Math.round(i.geracao_kwh)+' kWh':'—'} · PR ${i.pr!=null?(i.pr*100).toFixed(1)+'%':'—'}${i.abaixo?' · ABAIXO DA MEDIANA':''}">${i.nome}: <b>${txt}</b></span>`;
   }).join('');
-  cell.innerHTML=`<div style="margin-bottom:6px;font-size:11px">IPOA <b>${d.ipoa!=null?d.ipoa+' kWh/m²':'—'}</b> · PR usina <b>${d.pr!=null?(d.pr*100).toFixed(1)+'%':'—'}</b> · mediana ${d.pr_mediana!=null?(d.pr_mediana*100).toFixed(1)+'%':'—'} <span style="color:#9ca3af">(borda vermelha = abaixo da mediana)</span></div>`
+  const med=pvPrVisao==='pr'?(row&&row.pr_mediana!=null?(row.pr_mediana*100).toFixed(1)+'%':'—'):'—';
+  const aviso=row&&!row.confiavel?' <span style="color:#d97706">— irradiância pouco confiável: confie na comparação entre inversores, não no PR absoluto</span>':'';
+  cell.innerHTML=`<div style="margin-bottom:6px;font-size:11px">IPOA <b>${(row&&row.ipoa!=null)?row.ipoa+' kWh/m²':'—'}</b> · PR mediana <b>${med}</b> · visão <b>${pvPrVisao==='pr'?'PR':'Geração'}</b> <span style="color:#9ca3af">(borda vermelha = abaixo da mediana da usina)</span>${aviso}</div>`
     +`<div style="display:flex;flex-wrap:wrap;gap:6px">${chips}</div>`;
 }
 

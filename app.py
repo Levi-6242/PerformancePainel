@@ -21,8 +21,7 @@ except Exception:
     ZoneInfo = None
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, render_template, jsonify, request as flask_request, send_file, session, redirect
-import plotly.graph_objects as go
-import plotly.utils
+from flask_compress import Compress
 
 # Credenciais ficam fora do código: .env na raiz do projeto (ver .env.example)
 try:
@@ -34,6 +33,7 @@ except ImportError:
 app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = True   # relê o index.html sem precisar reiniciar o servidor
 app.jinja_env.auto_reload = True
+Compress(app)   # gzip nas respostas (JSON do /api/data cai ~10x)
 
 # ── Autenticação (senha única DASH_PASSWORD) ──────────────────────────────────
 # Protege o dashboard quando exposto (Cloudflare Tunnel). Se DASH_PASSWORD estiver
@@ -62,7 +62,8 @@ color:#0b0e16;font-weight:700;font-size:15px;cursor:pointer}
 .err{color:#f87171;font-size:13px;margin-top:12px;min-height:16px;text-align:center}
 .g{color:#a3e635}</style></head>
 <body><form class="card" method="post" action="/login">
-<h1>Grid <span class="g">Co.</span></h1><p class="s">Monitoramento O&amp;M — acesso restrito</p>
+<img src="/static/logos/grid-h-branco.png" alt="Grid Co." style="height:38px;display:block;margin:0 auto 18px">
+<p class="s" style="text-align:center">Monitoramento O&amp;M — acesso restrito</p>
 <label class="lb">Senha</label><input type="password" name="senha" autofocus autocomplete="current-password">
 <button type="submit">Entrar</button><div class="err">{{erro}}</div></form></body></html>"""
 
@@ -121,6 +122,66 @@ CACHE_TTL          = 300   # segundos — cache de 5 min
 _cache        = {"payload": None, "ts": 0.0}
 _last_known   = {}   # plant_id → último resultado com dados reais
 _etm_cache    = {"payload": None, "ts": 0.0}
+
+
+# ── HTTP: sessão por thread com pool de conexões (keep-alive) ──────────────────
+# Cada refresh dispara centenas de chamadas aos mesmos 4 hosts; reusar a conexão
+# TCP/TLS corta o handshake de cada uma e reduz o throttling da API PV.
+_http_local = threading.local()
+
+
+def _http() -> requests.Session:
+    s = getattr(_http_local, "s", None)
+    if s is None:
+        s = requests.Session()
+        ad = requests.adapters.HTTPAdapter(pool_connections=8, pool_maxsize=32)
+        s.mount("https://", ad)
+        s.mount("http://", ad)
+        _http_local.s = s
+    return s
+
+
+# ── Persistência: marca os caches como "sujos" p/ o loop salvar em disco ───────
+_persist_flag = {"dirty": False}
+
+
+def _persist_mark():
+    _persist_flag["dirty"] = True
+
+
+# ── Stale-while-revalidate genérico ─────────────────────────────────────────────
+def _swr(cache: dict, build, force: bool = False) -> dict:
+    """Serve o cache na hora e atualiza em thread de fundo quando expirou — nenhuma
+    aba bloqueia o usuário na busca lenta. Exceções: force=1 (botão Atualizar) e a
+    1ª carga continuam síncronos, pra quem pediu dado fresco receber dado fresco."""
+    agora = time.time()
+    payload = cache.get("payload")
+    fresh = payload is not None and (agora - cache.get("ts", 0.0)) < CACHE_TTL
+    lock = cache.setdefault("_lock", threading.Lock())
+    if payload is None or force:
+        with lock:
+            # outro pedido pode ter acabado de construir enquanto esperávamos o lock
+            if cache.get("payload") is not None and cache.get("ts", 0.0) >= agora:
+                return dict(cache["payload"], stale=False)
+            novo = build()
+            cache["payload"] = novo
+            cache["ts"] = time.time()
+            _persist_mark()
+            return dict(novo, stale=False)
+    if not fresh:
+        def _bg():
+            if not lock.acquire(blocking=False):
+                return                       # já tem refresh em andamento
+            try:
+                cache["payload"] = build()
+                cache["ts"] = time.time()
+                _persist_mark()
+            except Exception as e:
+                print(f"[swr] refresh em fundo falhou: {e}")
+            finally:
+                lock.release()
+        threading.Thread(target=_bg, daemon=True).start()
+    return dict(payload, stale=not fresh)
 
 # ── SunOp ─────────────────────────────────────────────────────────────────────
 SUNOP_CONFIG  = "https://gridco-api.sunop.net/api"
@@ -243,11 +304,110 @@ _BD_PERF_ONLINE_CANDS = [p for p in [
 ] if p]
 _BD_PERF_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "BD_Performance.xlsx")
 
+# ── BD_Performance direto do SharePoint (Microsoft Graph, app-only) ────────────
+# Elimina a dependência do OneDrive sincronizado (que desidrata e quebra o cadastro).
+# Fluxo client credentials com permissão Sites.Selected: o app só enxerga o site
+# liberado pelo TI. Enquanto as credenciais não existirem no .env, tudo continua
+# funcionando pelo OneDrive/cópia local — o Graph é aditivo, não substitui o fallback.
+AZ_TENANT_ID     = os.environ.get("AZ_TENANT_ID", "").strip()
+AZ_CLIENT_ID     = os.environ.get("AZ_CLIENT_ID", "").strip()
+AZ_CLIENT_SECRET = os.environ.get("AZ_CLIENT_SECRET", "").strip()
+GRAPH_SITE_HOST  = os.environ.get("GRAPH_SITE_HOST", "").strip()   # ex.: gridco.sharepoint.com
+GRAPH_SITE_PATH  = os.environ.get("GRAPH_SITE_PATH", "").strip()   # ex.: /sites/OeM
+GRAPH_FILE_PATH  = os.environ.get("GRAPH_FILE_PATH", "").strip()   # caminho do .xlsx dentro da biblioteca
+GRAPH_FILE_URL   = os.environ.get("GRAPH_FILE_URL", "").strip()    # URL do arquivo (Doc.aspx/compartilhar) — alternativa ao path
+GRAPH_SYNC_SECS  = int(os.environ.get("GRAPH_SYNC_SECS", "300"))   # checa mudança a cada 5 min
+_BD_PERF_GRAPH   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "BD_Performance_sharepoint.xlsx")
+_graph_tok   = {"token": "", "exp": 0.0}
+_graph_state = {"site_id": None, "etag": None, "ok_ts": 0.0}
+
+
+def _graph_enabled() -> bool:
+    # Endereça o arquivo por URL (endpoint /shares) OU por caminho (site + file_path).
+    tem_arquivo = bool(GRAPH_FILE_URL) or bool(GRAPH_SITE_HOST and GRAPH_SITE_PATH and GRAPH_FILE_PATH)
+    return bool(AZ_TENANT_ID and AZ_CLIENT_ID and AZ_CLIENT_SECRET and tem_arquivo)
+
+
+def _graph_share_id(url: str) -> str:
+    """Converte uma URL de compartilhamento do SharePoint no 'share id' do Graph
+    (u! + base64url, sem padding) — aceita Doc.aspx, link de 'Copiar link', etc."""
+    import base64
+    b64 = base64.urlsafe_b64encode(url.encode("utf-8")).decode("ascii").rstrip("=")
+    return "u!" + b64
+
+
+def _graph_token() -> str:
+    if _graph_tok["token"] and time.time() < _graph_tok["exp"] - 60:
+        return _graph_tok["token"]
+    r = _http().post(f"https://login.microsoftonline.com/{AZ_TENANT_ID}/oauth2/v2.0/token",
+                     data={"client_id": AZ_CLIENT_ID, "client_secret": AZ_CLIENT_SECRET,
+                           "scope": "https://graph.microsoft.com/.default",
+                           "grant_type": "client_credentials"}, timeout=20)
+    r.raise_for_status()
+    j = r.json()
+    _graph_tok["token"] = j["access_token"]
+    _graph_tok["exp"]   = time.time() + int(j.get("expires_in", 3600))
+    return _graph_tok["token"]
+
+
+def _graph_site_id() -> str:
+    if _graph_state["site_id"]:
+        return _graph_state["site_id"]
+    H = {"Authorization": f"Bearer {_graph_token()}"}
+    r = _http().get(f"https://graph.microsoft.com/v1.0/sites/{GRAPH_SITE_HOST}:{GRAPH_SITE_PATH}",
+                    headers=H, timeout=20)
+    r.raise_for_status()
+    _graph_state["site_id"] = r.json()["id"]
+    return _graph_state["site_id"]
+
+
+def _graph_sync_bd() -> bool:
+    """Baixa o BD_Performance do SharePoint SE mudou (eTag) — senão não transfere nada.
+    O download atualiza o mtime do arquivo, e a recarga automática por mtime
+    (maybe_reload_equipamentos) faz o resto. → True se baixou versão nova."""
+    H = {"Authorization": f"Bearer {_graph_token()}"}
+    if GRAPH_FILE_URL:
+        # endpoint /shares: resolve a URL direto pro arquivo (robusto a mudança de pasta)
+        base = f"https://graph.microsoft.com/v1.0/shares/{_graph_share_id(GRAPH_FILE_URL)}/driveItem"
+        content_url = base + "/content"
+    else:
+        fp   = requests.utils.quote(GRAPH_FILE_PATH, safe="/")
+        base = f"https://graph.microsoft.com/v1.0/sites/{_graph_site_id()}/drive/root:/{fp}"
+        content_url = base + ":/content"
+    meta = _http().get(base, headers=H, timeout=20)
+    meta.raise_for_status()
+    etag = meta.json().get("eTag") or meta.json().get("lastModifiedDateTime")
+    if etag and etag == _graph_state["etag"] and os.path.exists(_BD_PERF_GRAPH):
+        _graph_state["ok_ts"] = time.time()
+        return False
+    r = _http().get(content_url, headers=H, timeout=120)
+    r.raise_for_status()
+    tmp = _BD_PERF_GRAPH + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(r.content)
+    os.replace(tmp, _BD_PERF_GRAPH)
+    _graph_state["etag"]  = etag
+    _graph_state["ok_ts"] = time.time()
+    print(f"[graph] BD_Performance baixado do SharePoint ({len(r.content) // 1024} KB)")
+    return True
+
+
+def _graph_loop():
+    print(f"[graph] sync do BD_Performance via SharePoint ativado (checa a cada {GRAPH_SYNC_SECS}s)")
+    while True:
+        try:
+            _graph_sync_bd()
+        except Exception as e:
+            print(f"[graph] sync falhou ({e}) — seguindo com OneDrive/cópia local")
+        time.sleep(GRAPH_SYNC_SECS)
+
 
 def _bd_perf_path() -> str:
-    """Caminho do BD_Performance — SEMPRE prioriza a versão ONLINE (OneDrive, atualizada
-    em tempo real pela equipe), testando os caminhos candidatos. A cópia local é só último
-    recurso, se nenhuma online existir (ex.: desidratada). Reavaliado a cada carga."""
+    """Caminho do BD_Performance — prioridade: (1) cópia baixada do SharePoint via Graph,
+    se o sync está saudável (<1 h desde o último sucesso); (2) versão ONLINE do OneDrive;
+    (3) cópia local como último recurso. Reavaliado a cada carga."""
+    if os.path.exists(_BD_PERF_GRAPH) and (time.time() - _graph_state["ok_ts"]) < 3600:
+        return _BD_PERF_GRAPH
     for p in _BD_PERF_ONLINE_CANDS:
         if os.path.exists(p):
             return p
@@ -613,7 +773,7 @@ def get_token(force=False) -> str:
     with _pv_token_lock:
         if not force and _pv_token["token"] and time.time() < _pv_token["exp"]:
             return _pv_token["token"]
-        r = requests.post(f"{BASE_URL}/authenticate",
+        r = _http().post(f"{BASE_URL}/authenticate",
                           json={"username": USERNAME, "password": PASSWORD}, timeout=30)
         try:
             tok = r.json()["token"]
@@ -635,7 +795,7 @@ def get_token(force=False) -> str:
 
 
 def get_plants(token: str) -> list:
-    r = requests.get(f"{BASE_URL}/plants", headers={"x-access-token": token}, timeout=30)
+    r = _http().get(f"{BASE_URL}/plants", headers={"x-access-token": token}, timeout=30)
     return r.json()
 
 
@@ -736,7 +896,7 @@ def process_plant(token: str, plant: dict, timeout: int = 45) -> dict:
             "sem_dados": True, "falha_comunicacao": False,
             "stringbox": plant["nome"].strip() in STRING_BOX}
     try:
-        records = requests.post(f"{BASE_URL}/day_inverter",
+        records = _http().post(f"{BASE_URL}/day_inverter",
                                 headers={"x-access-token": token},
                                 json={"id": pid}, timeout=timeout).json()
     except Exception:
@@ -812,7 +972,7 @@ def fetch_all() -> list:
 def api_plant_detail(plant_id):
     token = get_token()
     try:
-        records = requests.post(f"{BASE_URL}/day_inverter",
+        records = _http().post(f"{BASE_URL}/day_inverter",
                                 headers={"x-access-token": token},
                                 json={"id": plant_id}, timeout=60).json()
     except Exception:
@@ -832,7 +992,7 @@ def api_plant_detail(plant_id):
     # Busca nomes dos dispositivos
     dev_names = {}
     try:
-        devs_raw = requests.get(f"{BASE_URL}/plant_devices",
+        devs_raw = _http().get(f"{BASE_URL}/plant_devices",
                                 headers={"x-access-token": token},
                                 json={"id": plant_id}, timeout=20).json()
         devs = devs_raw
@@ -995,37 +1155,8 @@ def _build_data_payload():
     alertas_temp    = [r for r in rows_com_dados if r["temp_media"] and r["temp_media"] >= TEMP_ALERT]
     alertas_comm    = [r for r in rows if r.get("sem_dados") or r.get("falha_comunicacao")]
 
-    fig_strings = go.Figure(go.Bar(
-        x=[r["usina"] for r in rows_com_dados],
-        y=[r["strings_ativas"] for r in rows_com_dados],
-        marker_color=["#ef4444" if r["strings_ativas"] == 0 else "#a3d900" for r in rows_com_dados],
-        hovertemplate="<b>%{x}</b><br>Strings ativas: %{y}<extra></extra>",
-    ))
-    fig_strings.update_layout(
-        title="Strings Ativas por Usina",
-        xaxis=dict(tickangle=-45, tickfont=dict(size=9, family="Inter")),
-        yaxis_title="Strings ativas (>0,5A)",
-        height=400, margin=dict(t=50, b=150, l=50, r=20),
-        plot_bgcolor="#f4f6f2", paper_bgcolor="#ffffff", font=dict(family="Inter"),
-    )
-
-    rows_temp = [r for r in rows_com_dados if r["temp_media"] is not None]
-    fig_temp = go.Figure(go.Bar(
-        x=[r["usina"] for r in rows_temp],
-        y=[r["temp_media"] for r in rows_temp],
-        marker_color=["#ef4444" if r["temp_media"] >= TEMP_ALERT else "#f59e0b" for r in rows_temp],
-        hovertemplate="<b>%{x}</b><br>Temp: %{y}°C<extra></extra>",
-    ))
-    fig_temp.add_hline(y=TEMP_ALERT, line_dash="dash", line_color="#ef4444",
-                       annotation_text=f"Alerta ({TEMP_ALERT}°C)", annotation_position="top right")
-    fig_temp.update_layout(
-        title="Temperatura Média dos Inversores",
-        xaxis=dict(tickangle=-45, tickfont=dict(size=9, family="Inter")),
-        yaxis_title="Temperatura (°C)",
-        height=400, margin=dict(t=50, b=150, l=50, r=20),
-        plot_bgcolor="#f4f6f2", paper_bgcolor="#ffffff", font=dict(family="Inter"),
-    )
-
+    # Gráficos de barras (strings ativas + temperatura) são montados no navegador
+    # a partir de "rows" (renderPvCharts no index.html) — nada de Plotly no payload.
     payload = {
         "rows": rows,
         "summary": {
@@ -1035,8 +1166,6 @@ def _build_data_payload():
             "alertas_temp": len(alertas_temp),
             "alertas_comm": len(alertas_comm),
         },
-        "chart_strings": json.loads(plotly.utils.PlotlyJSONEncoder().encode(fig_strings)),
-        "chart_temp":    json.loads(plotly.utils.PlotlyJSONEncoder().encode(fig_temp)),
         "alertas_strings_list": [r["usina"] for r in alertas_strings],
         "alertas_temp_list":    [{"usina": r["usina"], "temp": r["temp_media"]} for r in alertas_temp],
         "alertas_comm_list":    [{"usina": r["usina"], "ultima_leitura": r.get("ultima_leitura")} for r in alertas_comm],
@@ -1054,6 +1183,7 @@ def _refresh_data_cache():
     try:
         _cache["payload"] = _build_data_payload()
         _cache["ts"] = time.time()
+        _persist_mark()
     except Exception as e:
         print(f"[api/data] refresh falhou: {e}")
     finally:
@@ -1074,7 +1204,7 @@ def api_data():
         return jsonify(out)
     # 1ª carga, cache ainda vazio → resposta leve "carregando" (frontend re-tenta)
     return jsonify({"rows": [], "alertas_comm_list": [], "alertas_strings_list": [],
-                    "alertas_temp_list": [], "chart_strings": {}, "chart_temp": {},
+                    "alertas_temp_list": [],
                     "summary": {"total_usinas": 0, "total_strings": 0, "alertas_strings": 0,
                                 "alertas_temp": 0, "alertas_comm": 0},
                     "carregando": True, "cache_ts": datetime.now().strftime("%H:%M:%S")})
@@ -1139,7 +1269,7 @@ def fetch_etm_plant(token: str, plant: dict) -> dict:
         "sem_dados": True, "ultima_leitura": None,
     }
     try:
-        recs = requests.post(f"{BASE_URL}/day_meteo",
+        recs = _http().post(f"{BASE_URL}/day_meteo",
                              headers={"x-access-token": token},
                              json={"id": pid}, timeout=30).json()
     except Exception:
@@ -1178,12 +1308,7 @@ def etm_severidade(r: dict) -> int:
 
 
 # ── Visão geral ETM ────────────────────────────────────────────────────────────
-@app.route("/api/etm")
-def api_etm():
-    force = flask_request.args.get("force", "0") == "1"
-    agora = time.time()
-    if not force and _etm_cache["payload"] and (agora - _etm_cache["ts"]) < CACHE_TTL:
-        return jsonify(_etm_cache["payload"])
+def _build_etm_payload():
     token      = get_token()
     all_plants = get_plants(token)
     plants     = [p for p in all_plants if p["nome"].strip() in FULL_OM] if FULL_OM else all_plants
@@ -1193,10 +1318,13 @@ def api_etm():
         for f in as_completed(futures):
             rows.append(f.result())
     rows.sort(key=lambda x: (etm_severidade(x), x["usina"]))
-    payload = {"rows": rows, "cache_ts": datetime.now().strftime("%H:%M:%S")}
-    _etm_cache["payload"] = payload
-    _etm_cache["ts"] = agora
-    return jsonify(payload)
+    return {"rows": rows, "cache_ts": datetime.now().strftime("%H:%M:%S")}
+
+
+@app.route("/api/etm")
+def api_etm():
+    force = flask_request.args.get("force", "0") == "1"
+    return jsonify(_swr(_etm_cache, _build_etm_payload, force))
 
 
 # ── Export ETM CSV ─────────────────────────────────────────────────────────────
@@ -1214,7 +1342,7 @@ def api_etm_export():
     except Exception:
         nome = str(plant_id)
     try:
-        all_recs = requests.post(f"{BASE_URL}/day_meteo",
+        all_recs = _http().post(f"{BASE_URL}/day_meteo",
                                   headers={"x-access-token": token},
                                   json={"id": plant_id}, timeout=30).json() or []
     except Exception as e:
@@ -1257,7 +1385,7 @@ def api_etm_chart():
         return jsonify({"error": "plant_id required"}), 400
     token = get_token()
     try:
-        recs = requests.post(f"{BASE_URL}/day_meteo",
+        recs = _http().post(f"{BASE_URL}/day_meteo",
                              headers={"x-access-token": token},
                              json={"id": plant_id}, timeout=30).json() or []
     except Exception as e:
@@ -1377,7 +1505,7 @@ def _analisa_etm_plant(token: str, plant: dict) -> dict:
             "spark": {"labels": [], "poa": [], "ghi": []},
             "ultima_leitura": None, "sem_dados": True}
     try:
-        recs = requests.post(f"{BASE_URL}/day_meteo",
+        recs = _http().post(f"{BASE_URL}/day_meteo",
                              headers={"x-access-token": token},
                              json={"id": pid}, timeout=30).json() or []
     except Exception:
@@ -1432,12 +1560,7 @@ def _agrupar_skids_etm(rows: list) -> list:
     return out
 
 
-@app.route("/api/etm/analise")
-def api_etm_analise():
-    force = flask_request.args.get("force", "0") == "1"
-    agora = time.time()
-    if not force and _etm_analise_cache["payload"] and (agora - _etm_analise_cache["ts"]) < CACHE_TTL:
-        return jsonify(_etm_analise_cache["payload"])
+def _build_etm_analise_payload():
     token      = get_token()
     all_plants = get_plants(token)
     plants     = [p for p in all_plants if p["nome"].strip() in FULL_OM] if FULL_OM else all_plants
@@ -1458,7 +1581,7 @@ def api_etm_analise():
             return 2   # Atenção
         return 3       # Normal
     rows.sort(key=lambda x: (_ana_rank(x), x["usina"]))
-    payload = {
+    return {
         "rows": rows,
         "summary": {
             "total":   len(rows),
@@ -1468,9 +1591,12 @@ def api_etm_analise():
         },
         "cache_ts": datetime.now().strftime("%H:%M:%S"),
     }
-    _etm_analise_cache["payload"] = payload
-    _etm_analise_cache["ts"] = agora
-    return jsonify(payload)
+
+
+@app.route("/api/etm/analise")
+def api_etm_analise():
+    force = flask_request.args.get("force", "0") == "1"
+    return jsonify(_swr(_etm_analise_cache, _build_etm_analise_payload, force))
 
 
 # ── SunOp: autenticação ───────────────────────────────────────────────────────
@@ -1478,13 +1604,13 @@ def get_sunop_token() -> str:
     tok = _sunop_token["token"]
     H   = {"Authorization": f"JWT {tok}", "Content-Type": "application/json"}
     try:
-        if requests.get(f"{SUNOP_CONFIG}/check_token", headers=H, timeout=8).status_code == 200:
+        if _http().get(f"{SUNOP_CONFIG}/check_token", headers=H, timeout=8).status_code == 200:
             return tok
     except Exception:
         pass
     # Tenta renovar automaticamente
     try:
-        r = requests.get(f"{SUNOP_CONFIG}/refresh_token", headers=H, timeout=10)
+        r = _http().get(f"{SUNOP_CONFIG}/refresh_token", headers=H, timeout=10)
         if r.status_code == 200:
             new_tok = r.json()
             if isinstance(new_tok, str):
@@ -1505,7 +1631,7 @@ def _sunop_headers() -> dict:
 def _load_sunop_plant_meta(plant_name: str) -> dict:
     H = _sunop_headers()
     try:
-        r = requests.get(f"{SUNOP_DATA}/v2/metadata", headers=H,
+        r = _http().get(f"{SUNOP_DATA}/v2/metadata", headers=H,
                          params={"plant": plant_name, "size": 6000}, timeout=30)
         items = r.json().get("data", [])
     except Exception:
@@ -1590,7 +1716,7 @@ def ensure_sunop_meta():
         return
     H = _sunop_headers()
     try:
-        plants = requests.get(f"{SUNOP_CONFIG}/plants", headers=H, timeout=15).json()
+        plants = _http().get(f"{SUNOP_CONFIG}/plants", headers=H, timeout=15).json()
     except Exception as e:
         print(f"[SUNOP] Erro plants: {e}")
         return
@@ -1644,7 +1770,7 @@ def process_plant_sunop(plant_name: str) -> dict:
     for i in range(0, len(pathnames), 500):
         batch = pathnames[i:i+500]
         try:
-            r = requests.post(f"{SUNOP_DATA}/v2/last_values", headers=H,
+            r = _http().post(f"{SUNOP_DATA}/v2/last_values", headers=H,
                               json={"pathnames": batch}, timeout=30)
             if r.status_code == 200:
                 all_vals.extend(r.json())
@@ -1744,17 +1870,10 @@ def fetch_all_sunop() -> list:
 
 
 # ── SunOp: visão geral ────────────────────────────────────────────────────────
-@app.route("/api/sunop/data")
-def api_sunop_data():
-    force = flask_request.args.get("force", "0") == "1"
-    agora = time.time()
-    if not force and _sunop_cache["payload"] and (agora - _sunop_cache["ts"]) < CACHE_TTL:
-        return jsonify(_sunop_cache["payload"])
-
+def _build_sunop_payload():
     rows = fetch_all_sunop()
-
     rows_com = [r for r in rows if not r.get("sem_dados")]
-    payload = {
+    return {
         "rows":     rows,
         "summary": {
             "total_usinas":    len(rows),
@@ -1765,9 +1884,12 @@ def api_sunop_data():
         },
         "cache_ts": datetime.now().strftime("%H:%M:%S"),
     }
-    _sunop_cache["payload"] = payload
-    _sunop_cache["ts"] = agora
-    return jsonify(payload)
+
+
+@app.route("/api/sunop/data")
+def api_sunop_data():
+    force = flask_request.args.get("force", "0") == "1"
+    return jsonify(_swr(_sunop_cache, _build_sunop_payload, force))
 
 
 # ── SunOp: drill-down inversores ──────────────────────────────────────────────
@@ -1788,7 +1910,7 @@ def api_sunop_plant(plant_name):
     all_vals = []
     for i in range(0, len(pathnames), 500):
         try:
-            r = requests.post(f"{SUNOP_DATA}/v2/last_values", headers=H,
+            r = _http().post(f"{SUNOP_DATA}/v2/last_values", headers=H,
                               json={"pathnames": pathnames[i:i+500]}, timeout=30)
             if r.status_code == 200:
                 all_vals.extend(r.json())
@@ -1889,7 +2011,7 @@ def fetch_sunop_etm_plant(plant_name: str) -> list:
     by_path = {}
     if all_paths:
         try:
-            r = requests.post(f"{SUNOP_DATA}/v2/last_values", headers=H,
+            r = _http().post(f"{SUNOP_DATA}/v2/last_values", headers=H,
                               json={"pathnames": all_paths}, timeout=15)
             if r.status_code == 200:
                 by_path = {v["pathname"]: v for v in (r.json() or [])}
@@ -1931,12 +2053,7 @@ def fetch_sunop_etm_plant(plant_name: str) -> list:
     return rows
 
 
-@app.route("/api/sunop/etm")
-def api_sunop_etm():
-    force = flask_request.args.get("force", "0") == "1"
-    agora = time.time()
-    if not force and _sunop_etm_cache["payload"] and (agora - _sunop_etm_cache["ts"]) < CACHE_TTL:
-        return jsonify(_sunop_etm_cache["payload"])
+def _build_sunop_etm_payload():
     ensure_sunop_meta()
     rows = []
     with ThreadPoolExecutor(max_workers=5) as ex:
@@ -1944,10 +2061,13 @@ def api_sunop_etm():
         for f in as_completed(futures):
             rows.extend(f.result())   # uma ou mais linhas por planta (uma por estação)
     rows.sort(key=lambda x: (etm_severidade(x), x["usina"], x.get("etm", "")))
-    payload = {"rows": rows, "cache_ts": datetime.now().strftime("%H:%M:%S")}
-    _sunop_etm_cache["payload"] = payload
-    _sunop_etm_cache["ts"] = agora
-    return jsonify(payload)
+    return {"rows": rows, "cache_ts": datetime.now().strftime("%H:%M:%S")}
+
+
+@app.route("/api/sunop/etm")
+def api_sunop_etm():
+    force = flask_request.args.get("force", "0") == "1"
+    return jsonify(_swr(_sunop_etm_cache, _build_sunop_etm_payload, force))
 
 
 # ── SunOp: pré-análise ETM (CURVA REAL via /data/v2/analog_values) ─────────────
@@ -1978,12 +2098,7 @@ def _merge_etm(hist: dict, paths: dict):
     return [(ts, d.get("poa"), d.get("ghi"), d.get("poari")) for ts, d in sorted(byts.items())]
 
 
-@app.route("/api/sunop/etm/analise")
-def api_sunop_etm_analise():
-    force = flask_request.args.get("force", "0") == "1"
-    agora_ts = time.time()
-    if not force and _sunop_analise_cache["payload"] and (agora_ts - _sunop_analise_cache["ts"]) < CACHE_TTL:
-        return jsonify(_sunop_analise_cache["payload"])
+def _build_sunop_analise_payload():
     ensure_sunop_meta()
     estacoes = _sunop_etm_estacoes()
     dia = datetime.now().strftime("%Y-%m-%d")
@@ -2017,7 +2132,7 @@ def api_sunop_etm_analise():
         rows.append({"usina": nome, "plant_id": plant, "etm_est": st,
                      "sem_dados": False, "sem_curva": False, **diag})
     rows.sort(key=lambda x: (x["severidade"], x["usina"]))
-    payload = {
+    return {
         "rows": rows,
         "summary": {"total": len(rows),
                     "criticos": sum(1 for r in rows if r["severidade"] == 0),
@@ -2025,9 +2140,12 @@ def api_sunop_etm_analise():
                     "sem_dados": sum(1 for r in rows if r.get("sem_dados"))},
         "cache_ts": datetime.now().strftime("%H:%M:%S"),
     }
-    _sunop_analise_cache["payload"] = payload
-    _sunop_analise_cache["ts"] = agora_ts
-    return jsonify(payload)
+
+
+@app.route("/api/sunop/etm/analise")
+def api_sunop_etm_analise():
+    force = flask_request.args.get("force", "0") == "1"
+    return jsonify(_swr(_sunop_analise_cache, _build_sunop_analise_payload, force))
 
 
 @app.route("/api/sunop/etm/chart")
@@ -2066,6 +2184,79 @@ TRK_ATRASO_DELTA = 10.0  # ° — disparidade MÁX do dia acima da MEDIANA da pl
 _sunop_trk_cache = {"payload": None, "ts": 0.0}
 _sunop_trk_hist  = {}    # cache {(plant,date): {ts, posat:{name:serie}, posal:{name:serie}}}
 
+# ── Acumulador intradiário de disparidade dos trackers ─────────────────────────
+# "Desvio médio do dia" SEM rebaixar a curva inteira de cada usina a cada refresh
+# (pesado; a PV Plataforma throttla). Aproveitamos a leitura INSTANTÂNEA que o
+# overview já faz: a cada amostra nova (ts avançou, dentro de 9h-15h) somamos
+# |alvo-atual| por tracker. Desvio médio = soma÷contagem → O(1) de memória.
+# Persiste junto do snapshot de cache e zera na virada do dia. Compartilhado pelas
+# três fontes (PV Plataforma, SunOp, PG) — a aba Trackers é a mesma.
+TRK_DIA_INI = 9     # hora inicial da janela do desvio do dia (inclusiva)
+TRK_DIA_FIM = 15    # hora final (exclusiva)
+_trk_accum = {"date": "", "plants": {}}   # plants[str(pid)] = {"last_ts": str, "trk": {tid: {"n","sum"}}}
+_trk_accum_lock = threading.Lock()
+
+
+def _trk_accum_feed(pid, ts, trios):
+    """trios = [(tracker_id, disparidade|None, ângulo_atual|None)]. Acumula 1 amostra por
+    usina durante o horário de operação (9-15h, HORA LOCAL — robusto a leituras em UTC),
+    usando o ts da leitura só p/ não contar a mesma duas vezes. Por tracker guarda a soma
+    da disparidade (→ desvio médio) e o mín/máx do ângulo (→ amplitude, p/ achar travado).
+    Zera na virada do dia."""
+    agora = datetime.now()
+    hoje  = agora.strftime("%Y-%m-%d")
+    key   = str(pid)
+    # chave de dedup: o ts da leitura; se vier vazio, um balde de 5 min do relógio
+    sts = str(ts) if ts else agora.strftime("%Y-%m-%dT%H:") + str(agora.minute // 5)
+    with _trk_accum_lock:
+        if _trk_accum["date"] != hoje:
+            _trk_accum["date"], _trk_accum["plants"] = hoje, {}
+        if not (TRK_DIA_INI <= agora.hour < TRK_DIA_FIM):
+            return                      # fora do horário de operação — não amostra
+        ent = _trk_accum["plants"].setdefault(key, {"last_ts": "", "samples": 0, "trk": {}})
+        if sts == ent["last_ts"]:
+            return                      # mesma leitura — não conta de novo
+        ent["last_ts"] = sts
+        ent["samples"] = ent.get("samples", 0) + 1
+        for tid, disp, atual in trios:
+            d = ent["trk"].setdefault(str(tid), {"n": 0, "sum": 0.0, "amin": None, "amax": None})
+            if disp is not None:
+                d["n"] += 1
+                d["sum"] += abs(disp)
+            if atual is not None:       # .get() tolera entradas antigas (sem amin/amax)
+                d["amin"] = atual if d.get("amin") is None else min(d["amin"], atual)
+                d["amax"] = atual if d.get("amax") is None else max(d["amax"], atual)
+    _persist_mark()
+
+
+def _trk_accum_desvio(pid):
+    """Desvio médio do dia = média (entre trackers) da disparidade média de cada
+    tracker na janela 9-15h. None enquanto não houver amostras (ex.: antes das 9h)."""
+    with _trk_accum_lock:
+        ent = _trk_accum["plants"].get(str(pid))
+        medias = [d["sum"] / d["n"] for d in ent["trk"].values() if d["n"] > 0] if ent else []
+    return round(sum(medias) / len(medias), 2) if medias else None
+
+
+def _trk_accum_parados(pid):
+    """IDs dos trackers 'travados' hoje: amplitude do ângulo < TRK_PARADO_AMP enquanto a
+    usina girou (mediana das amplitudes > TRK_ALVO_MOVE_MIN). Exige um mínimo de amostras
+    p/ não acusar travado no começo do dia, quando ninguém girou ainda. Pega o tracker
+    parado o dia inteiro — que o instantâneo (alvo×atual) perde quando o sol cruza o ângulo
+    em que ele congelou."""
+    with _trk_accum_lock:
+        ent = _trk_accum["plants"].get(str(pid))
+        if not ent or ent.get("samples", 0) < 6:
+            return set()
+        amps = {tid: (d["amax"] - d["amin"]) for tid, d in ent["trk"].items()
+                if d.get("amin") is not None and d.get("amax") is not None}
+    if not amps:
+        return set()
+    med = sorted(amps.values())[len(amps) // 2]
+    if med < TRK_ALVO_MOVE_MIN:
+        return set()                    # a usina como um todo não girou — não dá p/ julgar
+    return {tid for tid, a in amps.items() if a < TRK_PARADO_AMP}
+
 
 def _sunop_trackers_plant(plant_name: str) -> dict:
     """Lê e analisa os trackers de uma planta SunOp → resumo + lista por tracker."""
@@ -2082,7 +2273,7 @@ def _sunop_trackers_plant(plant_name: str) -> dict:
     by_path, H = {}, _sunop_headers()
     for i in range(0, len(paths), 500):
         try:
-            r = requests.post(f"{SUNOP_DATA}/v2/last_values", headers=H,
+            r = _http().post(f"{SUNOP_DATA}/v2/last_values", headers=H,
                               json={"pathnames": paths[i:i + 500]}, timeout=30)
             if r.status_code == 200:
                 for v in (r.json() or []):
@@ -2134,9 +2325,11 @@ def _sunop_trackers_plant(plant_name: str) -> dict:
         else:
             t["status"] = "normal"
     pior = max((t["disparidade"] for t in lst if t["disparidade"] is not None), default=None)
+    _trk_accum_feed(plant_name, ts_max, [(t["id"], t["disparidade"], t["atual"]) for t in lst])
     base.update({"total": len(lst), "severos": sev, "leves": leve, "fora_media": fora,
                  "media_angulo": round(media, 1) if media is not None else None,
                  "pior_disparidade": round(pior, 2) if pior is not None else None,
+                 "desvio_medio": _trk_accum_desvio(plant_name),
                  "ultima_leitura": ts_max or None, "trackers": lst})
     return base
 
@@ -2246,12 +2439,7 @@ def _trk_severidade(r) -> int:
     return 3
 
 
-@app.route("/api/sunop/trackers")
-def api_sunop_trackers():
-    force = flask_request.args.get("force", "0") == "1"
-    agora = time.time()
-    if not force and _sunop_trk_cache["payload"] and (agora - _sunop_trk_cache["ts"]) < CACHE_TTL:
-        return jsonify(_sunop_trk_cache["payload"])
+def _build_sunop_trk_payload():
     ensure_sunop_meta()
     plantas = [p for p, m in _sunop_meta.items() if m.get("trackers")]
     rows = []
@@ -2262,7 +2450,7 @@ def api_sunop_trackers():
             r.pop("trackers", None)   # overview não carrega a lista completa
             rows.append(r)
     rows.sort(key=lambda x: (_trk_severidade(x), x["usina"]))
-    payload = {
+    return {
         "rows": rows,
         "summary": {
             "usinas":  len(rows),
@@ -2272,9 +2460,12 @@ def api_sunop_trackers():
         },
         "cache_ts": datetime.now().strftime("%H:%M:%S"),
     }
-    _sunop_trk_cache["payload"] = payload
-    _sunop_trk_cache["ts"] = agora
-    return jsonify(payload)
+
+
+@app.route("/api/sunop/trackers")
+def api_sunop_trackers():
+    force = flask_request.args.get("force", "0") == "1"
+    return jsonify(_swr(_sunop_trk_cache, _build_sunop_trk_payload, force))
 
 
 @app.route("/api/sunop/trackers/<plant_name>")
@@ -2296,7 +2487,7 @@ def _sunop_analog_history(pathnames: list, start: str, end: str) -> dict:
     for i in range(0, len(pathnames), 40):
         batch = pathnames[i:i + 40]
         try:
-            r = requests.post(f"{SUNOP_DATA}/v2/analog_values", headers=H,
+            r = _http().post(f"{SUNOP_DATA}/v2/analog_values", headers=H,
                               params=params, json={"pathnames": batch}, timeout=60)
             if r.status_code == 200:
                 for rec in (r.json() or []):
@@ -2472,7 +2663,7 @@ def _pv_trackers_analise(idusina, nome_disp, date=None) -> dict:
             "trackers": [], "tem_trackers": False}
     try:
         date = date or datetime.now().strftime("%d/%m/%Y")
-        r = requests.get(f"{PLAT_BASE}/v2/usinas/trackers", headers=_plat_headers(),
+        r = _http().get(f"{PLAT_BASE}/v2/usinas/trackers", headers=_plat_headers(),
                          params={"idusina": idusina, "date": date}, timeout=30)
         j = r.json() if r.status_code == 200 else {}
     except Exception:
@@ -2497,6 +2688,15 @@ def _pv_trackers_analise(idusina, nome_disp, date=None) -> dict:
                         "amplitude": None, "max_disp": round(disp, 2) if disp is not None else None,
                         "status": status})
     lst.sort(key=lambda x: _pv_trk_num(x["id"]))
+    # Alimenta o acumulador do dia (disparidade + ângulo) e marca os travados: amplitude
+    # ~0 enquanto a usina girou → "parado" sobrepõe o status instantâneo (que perderia um
+    # tracker congelado no meio do dia, quando o sol cruza o ângulo em que ele travou).
+    _ult = (j.get("ultimaLeitura") or None)
+    _trk_accum_feed(idusina, _ult, [(t["id"], t["disparidade"], t["atual"]) for t in lst])
+    parados_set = _trk_accum_parados(idusina)
+    for t in lst:
+        if str(t["id"]) in parados_set:
+            t["status"] = "parado"
     # Cruzamento com a planilha de Tickets (nome da usina + nº do tracker)
     tick, ambiguo = _tickets_lookup(_tk_norm(nome_disp))
     nums = (tick or {}).get("nums", {})
@@ -2509,40 +2709,30 @@ def _pv_trackers_analise(idusina, nome_disp, date=None) -> dict:
         t["normalizado"] = bool(t["na_planilha"] and t["status"] == "normal")
         if t["normalizado"]:
             normalizados += 1
-        if t["status"] in ("desvio", "atraso"):           # anômalo no tempo real
+        if t["status"] in ("desvio", "atraso", "parado"):  # anômalo (inclui travado o dia todo)
             if t["na_planilha"]:
                 acomp += 1
             else:
                 novos += 1
     desv = sum(1 for t in lst if t["status"] == "desvio")
     atr  = sum(1 for t in lst if t["status"] == "atraso")
+    par  = sum(1 for t in lst if t["status"] == "parado")
     pior = max((t["disparidade"] for t in lst if t["disparidade"] is not None), default=None)
     base.update({"total": len(lst), "tem_trackers": bool(lst),
-                 "severos": desv, "leves": atr, "desvios": desv, "atrasos": atr,
+                 "severos": desv + par, "leves": atr, "desvios": desv, "atrasos": atr, "parados": par,
                  "sem_alvo": all(t["alvo"] is None for t in lst) if lst else False,
                  "pior_disparidade": round(pior, 2) if pior is not None else None,
+                 "desvio_medio": _trk_accum_desvio(idusina),
                  "media_angulo": round(sum(atuais) / len(atuais), 1) if atuais else None,
-                 "ultima_leitura": (j.get("ultimaLeitura") or None), "trackers": lst,
+                 "ultima_leitura": _ult, "trackers": lst,
                  "tem_ticket": tick is not None, "ambiguo": ambiguo,
                  "novos": novos, "acompanhados": acomp, "normalizados": normalizados})
     return base
 
 
-@app.route("/api/pv/trackers")
-def api_pv_trackers():
-    """Overview de trackers das usinas API PV (Full O&M). Fonte: PV Plataforma."""
-    force = flask_request.args.get("force", "0") == "1"
+def _build_pv_trk_payload():
+    plants = get_plants(get_token())
     agora = time.time()
-    if not force and _pv_trk_cache["payload"] and (agora - _pv_trk_cache["ts"]) < CACHE_TTL:
-        return jsonify(_pv_trk_cache["payload"])
-    if not _plat_token():
-        return jsonify({"rows": [], "summary": {"usinas": 0, "trackers": 0, "severos": 0, "leves": 0},
-                        "sem_token": True, "cache_ts": datetime.now().strftime("%H:%M:%S")})
-    try:
-        plants = get_plants(get_token())
-    except Exception as e:
-        return jsonify({"rows": [], "summary": {"usinas": 0, "trackers": 0, "severos": 0, "leves": 0},
-                        "erro": f"API PV indisponível: {e}"})
     alvo_plants = [p for p in plants if (not FULL_OM or p["nome"].strip() in FULL_OM)]
     rows = []
     with ThreadPoolExecutor(max_workers=8) as ex:
@@ -2554,22 +2744,35 @@ def api_pv_trackers():
                 if r.get("tem_trackers"):
                     _pv_trk_plant[r["plant_id"]] = {"ts": agora, "payload": r}
                     rows.append({k: r[k] for k in ("plant_id", "usina", "total", "severos", "leves",
-                                 "fora_media", "pior_disparidade", "ultima_leitura", "media_angulo",
-                                 "novos", "acompanhados", "normalizados", "tem_ticket", "ambiguo")})
+                                 "fora_media", "pior_disparidade", "desvio_medio", "ultima_leitura",
+                                 "media_angulo", "novos", "acompanhados", "normalizados",
+                                 "tem_ticket", "ambiguo")})
             except Exception:
                 pass
     # ordena: mais NOVOS (fora da planilha) no topo, depois severidade
     rows.sort(key=lambda x: (-(x.get("novos") or 0), -(x["severos"] * 10 + x["leves"]), x["usina"]))
-    payload = {"rows": rows,
-               "summary": {"usinas": len(rows), "trackers": sum(r["total"] for r in rows),
-                           "severos": sum(r["severos"] for r in rows),
-                           "leves": sum(r["leves"] for r in rows),
-                           "novos": sum(r.get("novos") or 0 for r in rows),
-                           "acompanhados": sum(r.get("acompanhados") or 0 for r in rows),
-                           "normalizados": sum(r.get("normalizados") or 0 for r in rows)},
-               "cache_ts": datetime.now().strftime("%H:%M:%S")}
-    _pv_trk_cache["payload"] = payload; _pv_trk_cache["ts"] = agora
-    return jsonify(payload)
+    return {"rows": rows,
+            "summary": {"usinas": len(rows), "trackers": sum(r["total"] for r in rows),
+                        "severos": sum(r["severos"] for r in rows),
+                        "leves": sum(r["leves"] for r in rows),
+                        "novos": sum(r.get("novos") or 0 for r in rows),
+                        "acompanhados": sum(r.get("acompanhados") or 0 for r in rows),
+                        "normalizados": sum(r.get("normalizados") or 0 for r in rows)},
+            "cache_ts": datetime.now().strftime("%H:%M:%S")}
+
+
+@app.route("/api/pv/trackers")
+def api_pv_trackers():
+    """Overview de trackers das usinas API PV (Full O&M). Fonte: PV Plataforma."""
+    force = flask_request.args.get("force", "0") == "1"
+    if not _plat_token():
+        return jsonify({"rows": [], "summary": {"usinas": 0, "trackers": 0, "severos": 0, "leves": 0},
+                        "sem_token": True, "cache_ts": datetime.now().strftime("%H:%M:%S")})
+    try:
+        return jsonify(_swr(_pv_trk_cache, _build_pv_trk_payload, force))
+    except Exception as e:
+        return jsonify({"rows": [], "summary": {"usinas": 0, "trackers": 0, "severos": 0, "leves": 0},
+                        "erro": f"API PV indisponível: {e}"})
 
 
 @app.route("/api/pv/trackers/alertas")
@@ -2613,7 +2816,7 @@ def api_pv_trackers_chart(idusina):
     if re.match(r"^\d{4}-\d{2}-\d{2}$", data):     # aceita YYYY-MM-DD do <input type=date>
         data = datetime.strptime(data, "%Y-%m-%d").strftime("%d/%m/%Y")
     try:
-        r = requests.get(f"{PLAT_BASE}/v2/usinas/trackerschart", headers=_plat_headers(),
+        r = _http().get(f"{PLAT_BASE}/v2/usinas/trackerschart", headers=_plat_headers(),
                          params={"idusina": idusina, "dataleitura": data}, timeout=90)
         g = (r.json() or {}).get("grafico") or {}
     except Exception:
@@ -2768,7 +2971,7 @@ def _sunop_etm_snapshot() -> dict:
     for i in range(0, len(all_paths), 500):
         batch = all_paths[i:i + 500]
         try:
-            r = requests.post(f"{SUNOP_DATA}/v2/last_values", headers=H,
+            r = _http().post(f"{SUNOP_DATA}/v2/last_values", headers=H,
                               json={"pathnames": batch}, timeout=20)
             if r.status_code == 200:
                 for v in (r.json() or []):
@@ -2868,7 +3071,7 @@ def se_sites() -> list:
         "siteMagnitudeFilter": None, "geoBoundingBox": None,
     }
     try:
-        r = requests.post(f"{SE_BASE}/services/sitelist/searchSites",
+        r = _http().post(f"{SE_BASE}/services/sitelist/searchSites",
                           headers=_se_headers(),
                           params={"v": int(time.time() * 1000)}, json=body, timeout=30)
         if r.status_code != 200:
@@ -2888,7 +3091,7 @@ def se_sites() -> list:
 # ── SolarEdge: dispositivos de um site (inversores + strings) ──────────────────
 def se_devices(site_id) -> list:
     try:
-        r = requests.get(f"{SE_BASE}/services/cni/ui-api/pages/site/analysis/custom/site/{site_id}/devices",
+        r = _http().get(f"{SE_BASE}/services/cni/ui-api/pages/site/analysis/custom/site/{site_id}/devices",
                          headers=_se_headers(), timeout=30)
         if r.status_code != 200:
             return []
@@ -2934,7 +3137,7 @@ def se_string_power(site_id, uuids, tzname) -> dict:
             }],
         }
         try:
-            r = requests.post(
+            r = _http().post(
                 f"{SE_BASE}/services/cni/ui-api/pages/site/analysis/custom/site/{site_id}/generate-chart",
                 headers=H, json=payload, timeout=40)
             if r.status_code != 200:
@@ -3010,15 +3213,10 @@ def fetch_all_solaredge() -> list:
     return sorted(rows, key=lambda x: (severidade(x), x["usina"]))
 
 
-@app.route("/api/solaredge/data")
-def api_solaredge_data():
-    force = flask_request.args.get("force", "0") == "1"
-    agora = time.time()
-    if not force and _se_cache["payload"] and (agora - _se_cache["ts"]) < CACHE_TTL:
-        return jsonify(_se_cache["payload"])
+def _build_se_payload():
     rows = fetch_all_solaredge()
     rows_com = [r for r in rows if not r.get("sem_dados")]
-    payload = {
+    return {
         "rows": rows,
         "summary": {
             "total_usinas":    len(rows),
@@ -3029,9 +3227,12 @@ def api_solaredge_data():
         },
         "cache_ts": datetime.now().strftime("%H:%M:%S"),
     }
-    _se_cache["payload"] = payload
-    _se_cache["ts"] = agora
-    return jsonify(payload)
+
+
+@app.route("/api/solaredge/data")
+def api_solaredge_data():
+    force = flask_request.args.get("force", "0") == "1"
+    return jsonify(_swr(_se_cache, _build_se_payload, force))
 
 
 @app.route("/api/solaredge/plant/<int:site_id>")
@@ -3195,13 +3396,30 @@ def _pg_build_snapshot():
 
 
 def _pg_get_snapshot(force=False):
+    """SWR: serve o snapshot atual na hora; quando expira, atualiza em fundo.
+    force=1 e a 1ª carga continuam síncronos."""
     agora = time.time()
-    with _pg_lock:
-        if not force and _pg_cache["summary"] is not None and (agora - _pg_cache["ts"]) < CACHE_TTL:
-            return _pg_cache["summary"], _pg_cache["detail"]
-        summary, detail = _pg_build_snapshot()
-        _pg_cache.update({"summary": summary, "detail": detail, "ts": agora})
-        return summary, detail
+    if force or _pg_cache["summary"] is None:
+        with _pg_lock:
+            if _pg_cache["summary"] is None or _pg_cache["ts"] < agora:
+                summary, detail = _pg_build_snapshot()
+                _pg_cache.update({"summary": summary, "detail": detail, "ts": time.time()})
+                _persist_mark()
+        return _pg_cache["summary"], _pg_cache["detail"]
+    if (agora - _pg_cache["ts"]) >= CACHE_TTL:
+        def _bg():
+            if not _pg_lock.acquire(blocking=False):
+                return
+            try:
+                summary, detail = _pg_build_snapshot()
+                _pg_cache.update({"summary": summary, "detail": detail, "ts": time.time()})
+                _persist_mark()
+            except Exception as e:
+                print(f"[pg] refresh em fundo falhou: {e}")
+            finally:
+                _pg_lock.release()
+        threading.Thread(target=_bg, daemon=True).start()
+    return _pg_cache["summary"], _pg_cache["detail"]
 
 
 # ── PG: visão geral de strings por usina ───────────────────────────────────────
@@ -3237,13 +3455,7 @@ def api_pg_plant(plant_id):
 
 
 # ── PG: ETM (estações meteorológicas) ──────────────────────────────────────────
-@app.route("/api/pg/etm")
-def api_pg_etm():
-    force = flask_request.args.get("force", "0") == "1"
-    agora = time.time()
-    if not force and _pg_etm_cache["payload"] and (agora - _pg_etm_cache["ts"]) < CACHE_TTL:
-        return jsonify(_pg_etm_cache["payload"])
-
+def _build_pg_etm_payload():
     sql = """
       SELECT w.power_plant_id, p.name, w.timestamp,
              w.irradiance_poa, w.irradiance_ghi, w.module_temperature
@@ -3252,45 +3464,42 @@ def api_pg_etm():
       ORDER BY p.name;
     """
     rows = []
+    conn = _pg_conn(); cur = conn.cursor()
+    cur.execute(sql)
+    for pid, nome, ts, poa, ghi, tmod in cur.fetchall():
+        poa = float(poa) if poa is not None else None
+        ghi = float(ghi) if ghi is not None else None
+        _usina_sup = (nome or f"Usina {pid}").strip()
+        rows.append({
+            "usina": USINA_DISPLAY.get(_usina_sup, _usina_sup), "plant_id": pid,
+            "poa": round(poa, 2) if poa is not None else None,
+            "ghi": round(ghi, 2) if ghi is not None else None,
+            "poari": round(float(tmod), 1) if tmod is not None else None,  # 3ª coluna = temp módulo
+            "poa_status":   _sensor_status(poa),
+            "ghi_status":   _sensor_status(ghi),
+            "poari_status": "ok" if tmod is not None else "sem",
+            "sem_dados": False,
+            "ultima_leitura": ts.strftime("%Y-%m-%d %H:%M") if ts else None,
+        })
+    conn.close()
+    rows.sort(key=lambda x: (etm_severidade(x), x["usina"]))
+    return {"rows": rows, "cache_ts": datetime.now().strftime("%H:%M:%S")}
+
+
+@app.route("/api/pg/etm")
+def api_pg_etm():
+    force = flask_request.args.get("force", "0") == "1"
     try:
-        conn = _pg_conn(); cur = conn.cursor()
-        cur.execute(sql)
-        for pid, nome, ts, poa, ghi, tmod in cur.fetchall():
-            poa = float(poa) if poa is not None else None
-            ghi = float(ghi) if ghi is not None else None
-            _usina_sup = (nome or f"Usina {pid}").strip()
-            rows.append({
-                "usina": USINA_DISPLAY.get(_usina_sup, _usina_sup), "plant_id": pid,
-                "poa": round(poa, 2) if poa is not None else None,
-                "ghi": round(ghi, 2) if ghi is not None else None,
-                "poari": round(float(tmod), 1) if tmod is not None else None,  # 3ª coluna = temp módulo
-                "poa_status":   _sensor_status(poa),
-                "ghi_status":   _sensor_status(ghi),
-                "poari_status": "ok" if tmod is not None else "sem",
-                "sem_dados": False,
-                "ultima_leitura": ts.strftime("%Y-%m-%d %H:%M") if ts else None,
-            })
-        conn.close()
+        return jsonify(_swr(_pg_etm_cache, _build_pg_etm_payload, force))
     except Exception as e:
         return jsonify({"error": str(e), "rows": []}), 500
-
-    rows.sort(key=lambda x: (etm_severidade(x), x["usina"]))
-    payload = {"rows": rows, "cache_ts": datetime.now().strftime("%H:%M:%S")}
-    _pg_etm_cache["payload"] = payload
-    _pg_etm_cache["ts"] = agora
-    return jsonify(payload)
 
 
 # ── PG: pré-análise ETM (curva intradiária do banco) ───────────────────────────
 _pg_analise_cache = {"payload": None, "ts": 0.0}
 
 
-@app.route("/api/pg/etm/analise")
-def api_pg_etm_analise():
-    force = flask_request.args.get("force", "0") == "1"
-    agora = time.time()
-    if not force and _pg_analise_cache["payload"] and (agora - _pg_analise_cache["ts"]) < CACHE_TTL:
-        return jsonify(_pg_analise_cache["payload"])
+def _build_pg_analise_payload():
     sql = """
       SELECT w.power_plant_id, p.name, w.timestamp, w.irradiance_poa, w.irradiance_ghi
       FROM dbt.stg_weather_station_analogic_data w
@@ -3298,11 +3507,8 @@ def api_pg_etm_analise():
       WHERE w.timestamp::date = CURRENT_DATE
       ORDER BY w.power_plant_id, w.timestamp;
     """
-    try:
-        conn = _pg_conn(); cur = conn.cursor(); cur.execute(sql)
-        recs = cur.fetchall(); conn.close()
-    except Exception as e:
-        return jsonify({"error": str(e), "rows": [], "summary": {}}), 500
+    conn = _pg_conn(); cur = conn.cursor(); cur.execute(sql)
+    recs = cur.fetchall(); conn.close()
 
     plants = {}
     for pid, nome, ts, poa, ghi in recs:
@@ -3320,7 +3526,7 @@ def api_pg_etm_analise():
         else:
             rows.append({"usina": usina, "plant_id": pid, "sem_dados": False, **diag})
     rows.sort(key=lambda x: (x["severidade"], x["usina"]))
-    payload = {
+    return {
         "rows": rows,
         "summary": {"total": len(rows),
                     "criticos": sum(1 for r in rows if r["severidade"] == 0),
@@ -3328,9 +3534,15 @@ def api_pg_etm_analise():
                     "sem_dados": sum(1 for r in rows if r.get("sem_dados"))},
         "cache_ts": datetime.now().strftime("%H:%M:%S"),
     }
-    _pg_analise_cache["payload"] = payload
-    _pg_analise_cache["ts"] = agora
-    return jsonify(payload)
+
+
+@app.route("/api/pg/etm/analise")
+def api_pg_etm_analise():
+    force = flask_request.args.get("force", "0") == "1"
+    try:
+        return jsonify(_swr(_pg_analise_cache, _build_pg_analise_payload, force))
+    except Exception as e:
+        return jsonify({"error": str(e), "rows": [], "summary": {}}), 500
 
 
 @app.route("/api/pg/etm/chart")
@@ -3453,6 +3665,152 @@ def _periodo_args():
     if start > end:
         start, end = end, start
     return (start, end), None
+
+
+# ── PG: PR por inversor (BD_Thopen) — qualquer data ────────────────────────────
+#   PR_inv = geração_inv_dia (kWh) ÷ (IPOA_dia (kWh/m²) × potência_inv (kWp)).
+#   Geração = MAX(daily_active_energy) do inversor no dia (acumulado que zera 0h);
+#   IPOA = integração trapezoidal da irradiância da estação da usina (mesma régua
+#   do /api/pg/geracao); potência por inversor vem do Equipamentos (POWER_INV).
+#   Inversor "abaixo" = PR < mediana da usina × (1 - PR_REL_SEVERO).
+_pg_pr_cache = {}      # "YYYY-MM-DD" → {ts, summary, detail}
+_pg_pr_lock  = threading.Lock()
+
+
+def _pg_pr_build(dia: str):
+    sql = """
+      WITH gen AS (
+        SELECT a.power_plant_id AS pid, a.device_id AS did, d.device_name AS dev,
+               MAX(a.daily_active_energy) AS ger
+        FROM dbt.stg_inverter_analogic_data a
+        JOIN public.tb_devices d ON d.id = a.device_id
+        WHERE a.timestamp::date = %(dia)s
+        GROUP BY a.power_plant_id, a.device_id, d.device_name
+      ),
+      pts AS (
+        SELECT power_plant_id, timestamp AS ts, irradiance_poa AS poa,
+               LAG(timestamp)      OVER w AS pts_prev,
+               LAG(irradiance_poa) OVER w AS poa_prev
+        FROM dbt.stg_weather_station_analogic_data
+        WHERE timestamp::date = %(dia)s
+        WINDOW w AS (PARTITION BY power_plant_id ORDER BY timestamp)
+      ),
+      irr AS (
+        SELECT power_plant_id,
+               ROUND(SUM(CASE WHEN pts_prev IS NOT NULL
+                              AND EXTRACT(EPOCH FROM (ts - pts_prev)) <= %(gapcap)s
+                         THEN (poa + poa_prev)/2.0
+                              * EXTRACT(EPOCH FROM (ts - pts_prev))/3600.0
+                         ELSE 0 END) / 1000.0, 3) AS ipoa,
+               COUNT(*) AS n_leituras,
+               ROUND(MAX(CASE WHEN pts_prev IS NOT NULL
+                              AND EXTRACT(HOUR FROM ts) BETWEEN 8 AND 16
+                         THEN EXTRACT(EPOCH FROM (ts - pts_prev))/60.0 END)) AS gap_diurno_min
+        FROM pts GROUP BY power_plant_id
+      )
+      SELECT p.name, g.pid, g.did, g.dev, g.ger, i.ipoa, i.n_leituras, i.gap_diurno_min
+      FROM gen g
+      LEFT JOIN irr i ON i.power_plant_id = g.pid
+      LEFT JOIN public.tb_power_plants p ON p.id = g.pid
+      ORDER BY p.name, g.dev;
+    """
+    conn = _pg_conn(); cur = conn.cursor()
+    cur.execute(sql, {"dia": dia, "gapcap": PG_IRR_GAP_CAP_MIN * 60})
+    recs = cur.fetchall(); conn.close()
+
+    plants = {}
+    for nome, pid, did, dev, ger, ipoa, nleit, gapd in recs:
+        sup = (nome or f"Usina {pid}").strip()
+        p   = plants.setdefault(pid, {"sup": sup,
+                                      "ipoa": float(ipoa) if ipoa is not None else None,
+                                      "n": int(nleit) if nleit is not None else None,
+                                      "gap": int(gapd) if gapd is not None else None, "invs": []})
+        ger = float(ger) if ger is not None else None
+        pot = _pot_inv(sup, dev)
+        pr  = round(ger / (p["ipoa"] * pot), 3) if (ger is not None and p["ipoa"] and pot) else None
+        p["invs"].append({"id": did, "nome": (EQUIP_NAMES.get(sup, {}) or {}).get(dev, dev),
+                          "nome_api": dev, "geracao_kwh": round(ger, 1) if ger is not None else None,
+                          "pot_kwp": pot, "pr": pr})
+
+    summary, detail = [], {}
+    for pid, p in plants.items():
+        invs = sorted(p["invs"], key=lambda x: _pv_trk_num(x["nome_api"]))
+        prs  = sorted(x["pr"] for x in invs if x["pr"] is not None)
+        med  = prs[len(prs) // 2] if prs else None
+        lim  = med * (1 - PR_REL_SEVERO) if med is not None else None
+        abaixo = 0
+        for x in invs:
+            x["abaixo"] = bool(x["pr"] is not None and lim is not None and x["pr"] < lim)
+            abaixo += 1 if x["abaixo"] else 0
+        # A estação grava ~150-210 leituras/dia (não 288), então cobertura é informativa;
+        # a confiabilidade do PR é gateada por: sem buraco diurno grande, IPOA fisicamente
+        # plausível (dia incompleto/sensor com falha → IPOA baixa → PR inflado) e nº mínimo
+        # de leituras. Mesmo assim o ABSOLUTO depende da calibração do POA — a leitura
+        # robusta é a comparação RELATIVA entre inversores da mesma usina (mesmo IPOA).
+        cobertura = round(100.0 * p["n"] / 288.0) if p["n"] is not None else None
+        # Confiável p/ PR ABSOLUTO: irradiância sem buraco grande, com leituras suficientes,
+        # E PR fisicamente plausível (≤1,05). PR > 1,05 denuncia sensor POA lendo baixo /
+        # dia de nuvem variável — aí só a comparação relativa entre inversores vale.
+        confiavel = ((p["ipoa"] or 0) >= 2.0 and (p["n"] or 0) >= 100
+                     and (p["gap"] is None or p["gap"] <= 30)
+                     and med is not None and med <= 1.05)
+        detail[pid] = invs
+        summary.append({
+            "usina": USINA_DISPLAY.get(p["sup"], p["sup"]), "plant_id": pid,
+            "ipoa": p["ipoa"], "pr_mediana": med,
+            "geracao_kwh": round(sum(x["geracao_kwh"] or 0 for x in invs), 1),
+            "total": len(invs), "abaixo": abaixo,
+            "sem_pot": sum(1 for x in invs if x["pot_kwp"] is None),
+            "cobertura": cobertura, "confiavel": confiavel,
+        })
+    # confiáveis primeiro; dentro de cada grupo, mais inversores abaixo no topo
+    summary.sort(key=lambda x: (0 if x["confiavel"] else 1,
+                                0 if x["abaixo"] else 1, -(x["abaixo"] or 0), x["usina"]))
+    return summary, detail
+
+
+def _pg_pr_get(dia: str, force=False):
+    agora = time.time()
+    with _pg_pr_lock:
+        ent = _pg_pr_cache.get(dia)
+        if not force and ent and (agora - ent["ts"]) < CACHE_TTL:
+            return ent["summary"], ent["detail"]
+        summary, detail = _pg_pr_build(dia)
+        _pg_pr_cache[dia] = {"ts": agora, "summary": summary, "detail": detail}
+        return summary, detail
+
+
+def _pr_dia_arg() -> str:
+    """Data do PR (YYYY-MM-DD) vinda do ?date=; default = hoje."""
+    d = (flask_request.args.get("date") or "").strip()
+    return d if re.match(r"^\d{4}-\d{2}-\d{2}$", d) else datetime.now().date().isoformat()
+
+
+@app.route("/api/pg/pr")
+def api_pg_pr():
+    """Overview de PR por usina (BD_Thopen). Cada usina abre em PR/Geração por inversor."""
+    dia = _pr_dia_arg()
+    force = flask_request.args.get("force", "0") == "1"
+    try:
+        summary, _ = _pg_pr_get(dia, force)
+    except Exception as e:
+        return jsonify({"error": str(e), "rows": [], "data": dia, "summary": {}}), 500
+    return jsonify({"rows": summary, "data": dia,
+                    "summary": {"usinas": len(summary),
+                                "inversores": sum(r["total"] for r in summary),
+                                "abaixo": sum(r["abaixo"] for r in summary),
+                                "sem_pot": sum(r["sem_pot"] for r in summary)},
+                    "cache_ts": datetime.now().strftime("%H:%M:%S")})
+
+
+@app.route("/api/pg/pr/<int:plant_id>")
+def api_pg_pr_plant(plant_id):
+    dia = _pr_dia_arg()
+    try:
+        _, detail = _pg_pr_get(dia)
+    except Exception as e:
+        return jsonify({"error": str(e), "inversores": []}), 500
+    return jsonify({"plant_id": plant_id, "data": dia, "inversores": detail.get(plant_id, [])})
 
 
 @app.route("/api/pg/geracao")
@@ -4061,7 +4419,7 @@ def _pg_trackers_overview() -> dict:
         p = plants.setdefault(str(pid), {"usina": pname, "trks": [], "ts": None})
         if ts and (p["ts"] is None or ts > p["ts"]):
             p["ts"] = ts
-        p["trks"].append({"alvo": alvo, "atual": atual, "disp": disp})
+        p["trks"].append({"alvo": alvo, "atual": atual, "disp": disp, "tid": dname})
 
     out = []
     for pid, p in plants.items():
@@ -4082,10 +4440,12 @@ def _pg_trackers_overview() -> dict:
             elif gk in media_grupo and atual is not None and abs(atual - media_grupo[gk]) > TRK_FORA_MEDIA:
                 fora += 1
         pior = max((t["disp"] for t in lst if t["disp"] is not None), default=None)
+        _trk_accum_feed(pid, p["ts"], [(t["tid"], t["disp"], t["atual"]) for t in lst])
         out.append({
             "usina": p["usina"], "plant_id": pid, "total": len(lst),
             "severos": sev, "leves": leve, "fora_media": fora,
             "pior_disparidade": round(pior, 2) if pior is not None else None,
+            "desvio_medio": _trk_accum_desvio(pid),
             "ultima_leitura": p["ts"].strftime("%Y-%m-%d %H:%M") if p["ts"] else None,
             "tem_trackers": True,
         })
@@ -4217,17 +4577,11 @@ def _pg_trackers_analise(plant_id: str, date: str = None) -> dict:
 @app.route("/api/pg/trackers")
 def api_pg_trackers():
     force = flask_request.args.get("force", "0") == "1"
-    agora = time.time()
-    if not force and _pg_trk_cache["payload"] and (agora - _pg_trk_cache["ts"]) < CACHE_TTL:
-        return jsonify(_pg_trk_cache["payload"])
     try:
-        payload = _pg_trackers_overview()
+        return jsonify(_swr(_pg_trk_cache, _pg_trackers_overview, force))
     except Exception as e:
         return jsonify({"rows": [], "summary": {"usinas": 0, "trackers": 0, "severos": 0, "leves": 0},
                         "erro": str(e), "cache_ts": datetime.now().strftime("%H:%M:%S")})
-    _pg_trk_cache["payload"] = payload
-    _pg_trk_cache["ts"] = agora
-    return jsonify(payload)
 
 
 @app.route("/api/pg/trackers/<plant_id>")
@@ -4300,7 +4654,7 @@ def _pv_pr_collect(token: str, plant: dict) -> dict:
     raw  = {"usina": nome_usina(pid, plant["nome"]), "plant_id": pid, "plant_sup": psup,
             "stringbox": False, "invs": [], "ts_max": ""}
     try:
-        recs = requests.post(f"{BASE_URL}/day_inverter", headers={"x-access-token": token},
+        recs = _http().post(f"{BASE_URL}/day_inverter", headers={"x-access-token": token},
                              json={"id": pid}, timeout=45).json()
     except Exception:
         return raw
@@ -4308,7 +4662,7 @@ def _pv_pr_collect(token: str, plant: dict) -> dict:
         return raw
     dev_names = {}
     try:
-        dr = requests.get(f"{BASE_URL}/plant_devices", headers={"x-access-token": token},
+        dr = _http().get(f"{BASE_URL}/plant_devices", headers={"x-access-token": token},
                           json={"id": pid}, timeout=20).json()
         devs = dr
         if isinstance(dr, list) and dr and "plant_devices" in dr[0]:
@@ -4365,7 +4719,7 @@ def _pv_pr_compute(raw: dict, token: str) -> dict:
     pid = raw["plant_id"]
     ipoa = None
     try:
-        meteo = requests.post(f"{BASE_URL}/day_meteo", headers={"x-access-token": token},
+        meteo = _http().post(f"{BASE_URL}/day_meteo", headers={"x-access-token": token},
                               json={"id": pid}, timeout=30).json() or []
         ipoa = _ipoa_from_meteo(meteo)
     except Exception:
@@ -4402,19 +4756,9 @@ def _pv_pr_compute(raw: dict, token: str) -> dict:
     return raw
 
 
-@app.route("/api/pv/pr")
-def api_pv_pr():
-    """Overview de PR por inversor — só usinas string-box (sem visão real de strings)."""
-    force = flask_request.args.get("force", "0") == "1"
-    agora = time.time()
-    if not force and _pv_pr_cache["payload"] and (agora - _pv_pr_cache["ts"]) < CACHE_TTL:
-        return jsonify(_pv_pr_cache["payload"])
-    try:
-        token = get_token()
-        plants = get_plants(token)
-    except Exception as e:
-        return jsonify({"rows": [], "summary": {"usinas": 0, "inversores": 0, "abaixo": 0, "sem_pot": 0},
-                        "erro": f"API PV indisponível: {e}", "cache_ts": datetime.now().strftime("%H:%M:%S")})
+def _build_pv_pr_payload():
+    token = get_token()
+    plants = get_plants(token)
     plants = [p for p in plants if p["nome"].strip() in FULL_OM] if FULL_OM else plants
     # Fase A — todas as usinas (detecta string-box)
     raws = []
@@ -4439,8 +4783,19 @@ def api_pv_pr():
         "abaixo": sum(r.get("abaixo") or 0 for r in rows),
         "sem_pot": sum(r.get("sem_pot") or 0 for r in rows)},
         "cache_ts": datetime.now().strftime("%H:%M:%S")}
-    _pv_pr_cache.update({"payload": payload, "ts": agora, "detail": detail})
-    return jsonify(payload)
+    _pv_pr_cache["detail"] = detail
+    return payload
+
+
+@app.route("/api/pv/pr")
+def api_pv_pr():
+    """Overview de PR por inversor — só usinas string-box (sem visão real de strings)."""
+    force = flask_request.args.get("force", "0") == "1"
+    try:
+        return jsonify(_swr(_pv_pr_cache, _build_pv_pr_payload, force))
+    except Exception as e:
+        return jsonify({"rows": [], "summary": {"usinas": 0, "inversores": 0, "abaixo": 0, "sem_pot": 0},
+                        "erro": f"API PV indisponível: {e}", "cache_ts": datetime.now().strftime("%H:%M:%S")})
 
 
 @app.route("/api/pv/pr/<int:plant_id>")
@@ -4508,12 +4863,12 @@ def _spv_day_records(idusina, token, data: str) -> list:
     H = {"x-access-token": token}
     hoje = datetime.now().strftime("%d/%m/%Y")
     if data == hoje:
-        return requests.post(f"{BASE_URL}/day_inverter", headers=H,
+        return _http().post(f"{BASE_URL}/day_inverter", headers=H,
                              json={"id": idusina}, timeout=60).json() or []
     try:
         d = datetime.strptime(data, "%d/%m/%Y")
         body = {"id": idusina, "data_type": "inverter", "period": d.strftime("%Y-%m"), "day": d.day}
-        return requests.post(f"{BASE_URL}/custom_query", headers=H, json=body, timeout=120).json() or []
+        return _http().post(f"{BASE_URL}/custom_query", headers=H, json=body, timeout=120).json() or []
     except Exception:
         return []
 
@@ -4635,7 +4990,7 @@ def api_spv_usina(idusina):
         pass
     dev_names = {}
     try:
-        devs_raw = requests.get(f"{BASE_URL}/plant_devices", headers={"x-access-token": token},
+        devs_raw = _http().get(f"{BASE_URL}/plant_devices", headers={"x-access-token": token},
                                 json={"id": idusina}, timeout=20).json()
         devs = devs_raw
         if isinstance(devs_raw, list) and devs_raw and "plant_devices" in devs_raw[0]:
@@ -4889,9 +5244,10 @@ def _sunop_keepalive_loop():
 
 
 def _prewarm_loop():
-    """Pré-aquece o cache da API PV (/api/data) logo após subir e o mantém quente, pra
-    ninguém pegar a 'carga fria' lenta (a 1ª busca varre as ~71 usinas, ~60-90s).
-    Só a API PV (aba padrão e a mais lenta); reaquece antes do cache expirar."""
+    """Mantém TODAS as abas quentes: o /api/data (aba padrão e a mais lenta) é
+    reaquecido a cada ciclo; as demais fontes são reconstruídas EM SÉRIE quando o
+    cache delas está perto de expirar (os acessos dos usuários via SWR já ajudam a
+    manter quente — aqui é a rede de segurança pra ninguém pegar busca fria)."""
     import time as _t
     _t.sleep(5)
     while True:
@@ -4901,11 +5257,146 @@ def _prewarm_loop():
             print(f"[prewarm] /api/data aquecido em {_t.time()-t0:.0f}s")
         except Exception as e:
             print(f"[prewarm] erro: {e}")
+        outros = [
+            ("ETM",            _etm_cache,           _build_etm_payload),
+            ("ETM análise",    _etm_analise_cache,   _build_etm_analise_payload),
+            ("SunOp",          _sunop_cache,         _build_sunop_payload),
+            ("SunOp ETM",      _sunop_etm_cache,     _build_sunop_etm_payload),
+            ("SunOp ETM anál", _sunop_analise_cache, _build_sunop_analise_payload),
+            ("SunOp trackers", _sunop_trk_cache,     _build_sunop_trk_payload),
+            ("SolarEdge",      _se_cache,            _build_se_payload),
+            ("PG ETM",         _pg_etm_cache,        _build_pg_etm_payload),
+            ("PG ETM análise", _pg_analise_cache,    _build_pg_analise_payload),
+            ("PG trackers",    _pg_trk_cache,        _pg_trackers_overview),
+            ("PV PR",          _pv_pr_cache,         _build_pv_pr_payload),
+        ]
+        if _plat_token():
+            outros.append(("PV trackers", _pv_trk_cache, _build_pv_trk_payload))
+        for nome, cache, build in outros:
+            if (_t.time() - cache.get("ts", 0.0)) < CACHE_TTL - 30:
+                continue                      # ainda fresco (usuário acabou de buscar)
+            lock = cache.setdefault("_lock", threading.Lock())
+            if not lock.acquire(blocking=False):
+                continue                      # já tem refresh em andamento
+            try:
+                t1 = _t.time()
+                cache["payload"] = build()
+                cache["ts"] = _t.time()
+                _persist_mark()
+                print(f"[prewarm] {nome} aquecido em {_t.time()-t1:.0f}s")
+            except Exception as e:
+                print(f"[prewarm] {nome} falhou: {e}")
+            finally:
+                lock.release()
+        try:
+            _pg_get_snapshot()                # PG strings (snapshot) também sempre quente
+        except Exception as e:
+            print(f"[prewarm] PG snapshot falhou: {e}")
         _t.sleep(max(60, CACHE_TTL - 30))   # reaquece antes de expirar (~4,5 min)
 
 
+# ── Persistência dos caches em disco ───────────────────────────────────────────
+# Os caches vivem em memória; sem isto, um reinício do servidor perde tudo e todo
+# mundo pega carga fria. O loop salva um snapshot por minuto (quando algo mudou) e
+# o boot recarrega: o dashboard volta servindo o último dado conhecido na hora,
+# enquanto o prewarm/SWR busca dado fresco em fundo.
+_PERSIST_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache_snapshot.json")
+
+
+def _persist_registry():
+    return {
+        "data":          _cache,
+        "etm":           _etm_cache,
+        "etm_analise":   _etm_analise_cache,
+        "sunop":         _sunop_cache,
+        "sunop_etm":     _sunop_etm_cache,
+        "sunop_analise": _sunop_analise_cache,
+        "sunop_trk":     _sunop_trk_cache,
+        "pv_trk":        _pv_trk_cache,
+        "se":            _se_cache,
+        "pg_etm":        _pg_etm_cache,
+        "pg_analise":    _pg_analise_cache,
+        "pg_trk":        _pg_trk_cache,
+        "pv_pr":         _pv_pr_cache,
+    }
+
+
+def _cache_save():
+    data = {"saved_at": time.time(),
+            "last_known": _last_known,
+            "trk_accum": _trk_accum,
+            "pg": {"summary": _pg_cache["summary"], "detail": _pg_cache["detail"],
+                   "ts": _pg_cache["ts"]},
+            "caches": {}}
+    for nome, c in _persist_registry().items():
+        data["caches"][nome] = {k: v for k, v in c.items() if not k.startswith("_")}
+    tmp = _PERSIST_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, default=str)
+    os.replace(tmp, _PERSIST_PATH)
+
+
+def _int_keys(d):
+    return {int(k): v for k, v in (d or {}).items() if str(k).lstrip("-").isdigit()}
+
+
+def _cache_load():
+    if not os.path.exists(_PERSIST_PATH):
+        return
+    try:
+        with open(_PERSIST_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"[persist] snapshot ilegível ({e}) — começando frio")
+        return
+    n = 0
+    for nome, c in _persist_registry().items():
+        saved = (data.get("caches") or {}).get(nome)
+        if saved and saved.get("payload") is not None:
+            c.update(saved)
+            n += 1
+    # chaves int viram str no JSON — restaura
+    _pv_pr_cache["detail"] = _int_keys(_pv_pr_cache.get("detail"))
+    _last_known.update(_int_keys(data.get("last_known")))
+    saved_trk = data.get("trk_accum")
+    if isinstance(saved_trk, dict) and saved_trk.get("plants") is not None:
+        _trk_accum.update(saved_trk)
+    pg = data.get("pg") or {}
+    if pg.get("summary") is not None:
+        _pg_cache.update({"summary": pg["summary"], "detail": _int_keys(pg.get("detail")),
+                          "ts": pg.get("ts", 0.0)})
+        n += 1
+    idade = (time.time() - data.get("saved_at", 0)) / 60
+    print(f"[persist] snapshot carregado: {n} caches restaurados ({idade:.0f} min atrás) — "
+          f"servindo último dado conhecido enquanto o prewarm atualiza")
+
+
+def _persist_loop():
+    while True:
+        time.sleep(60)
+        if not _persist_flag["dirty"]:
+            continue
+        try:
+            _persist_flag["dirty"] = False
+            _cache_save()
+        except Exception as e:
+            print(f"[persist] save falhou: {e}")
+
+
 if __name__ == "__main__":
+    _cache_load()
     threading.Thread(target=_owen_loop, daemon=True).start()
     threading.Thread(target=_sunop_keepalive_loop, daemon=True).start()
     threading.Thread(target=_prewarm_loop, daemon=True).start()
-    app.run(debug=False, port=5050, threaded=True)
+    threading.Thread(target=_persist_loop, daemon=True).start()
+    if _graph_enabled():
+        threading.Thread(target=_graph_loop, daemon=True).start()
+    else:
+        print("[graph] desativado (faltam AZ_*/GRAPH_* no .env) — BD_Performance via OneDrive/local")
+    try:
+        from waitress import serve
+        print("[server] waitress em http://0.0.0.0:5050 (threads=16)")
+        serve(app, host="0.0.0.0", port=5050, threads=16)
+    except ImportError:
+        print("[server] waitress não instalado — usando o servidor de dev do Flask")
+        app.run(debug=False, port=5050, threaded=True)
