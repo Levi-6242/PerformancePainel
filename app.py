@@ -5177,17 +5177,21 @@ def api_spv_pdf():
     from matplotlib import font_manager as _fm
     import matplotlib.image as _mpimg
     _STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
-    # Fonte Satoshi se o arquivo (.ttf/.otf) estiver em static/fonts/; senão, fallback limpo.
+    # Registra qualquer .ttf/.otf de static/fonts/ e prefere Poppins (depois Satoshi);
+    # senão, fallback limpo (DejaVu Sans).
     _pdf_font = "DejaVu Sans"
     try:
         _fdir = os.path.join(_STATIC, "fonts")
         if os.path.isdir(_fdir):
             for _ff in os.listdir(_fdir):
-                if _ff.lower().endswith((".ttf", ".otf")) and "satoshi" in _ff.lower():
+                if _ff.lower().endswith((".ttf", ".otf")):
                     _fm.fontManager.addfont(os.path.join(_fdir, _ff))
-            _sato = next((f.name for f in _fm.fontManager.ttflist if "satoshi" in f.name.lower()), None)
-            if _sato:
-                _pdf_font = _sato
+            _avail = {f.name for f in _fm.fontManager.ttflist}
+            for _pref in ("Poppins", "Satoshi"):
+                _hit = next((n for n in _avail if _pref.lower() in n.lower()), None)
+                if _hit:
+                    _pdf_font = _hit
+                    break
     except Exception:
         pass
     # Logo da Grid no rodapé (horizontal, sobre branco)
