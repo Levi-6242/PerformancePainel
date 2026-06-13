@@ -2618,6 +2618,113 @@ def api_sunop_curva(plant_name):
         return jsonify({"error": str(e), "inversores": []}), 500
 
 
+# ── SunOp (Athon): PR por inversor ─────────────────────────────────────────────
+#   PR_inv = geração_inv_dia (EPD, kWh) ÷ (IPOA_dia × potência_inv). EPD = MAX da
+#   energia diária do inversor no histórico; IPOA = integração trapezoidal do POA
+#   do ETM SunOp; potência do Equipamentos (POWER_INV). Mesmo formato do /api/pg/pr.
+#   O POA do SunOp é bem calibrado (PR realista ~0,6-0,8), diferente do PG.
+_sunop_pr_cache = {}
+_sunop_pr_lock  = threading.Lock()
+
+
+def _sunop_pr_one(plant_name: str, dia: str):
+    """→ (ipoa, n_leituras_poa, [inversores]) de uma planta SunOp no dia."""
+    meta = _sunop_meta.get(plant_name) or {}
+    epd  = {inv: o.get("EPD") for inv, o in (meta.get("inv_other") or {}).items() if o.get("EPD")}
+    stations = meta.get("etm_stations") or {}
+    poa_path = next((p["poa"] for p in stations.values() if p.get("poa")), f"{plant_name}.ESTM.POA.IRAD")
+    hist  = _sunop_analog_history(list(epd.values()) + [poa_path], f"{dia}T00:00:00", f"{dia}T23:59:59")
+    serie = hist.get(poa_path, [])
+    ipoa  = 0.0
+    for i in range(1, len(serie)):
+        try:
+            t0 = datetime.fromisoformat(str(serie[i-1][0])[:19]); t1 = datetime.fromisoformat(str(serie[i][0])[:19])
+        except Exception:
+            continue
+        dth = (t1 - t0).total_seconds() / 3600.0
+        if 0 < dth <= 1:
+            ipoa += (serie[i-1][1] + serie[i][1]) / 2.0 * dth
+    ipoa = round(ipoa / 1000.0, 3)
+    invs = []
+    for inv_name, ep in epd.items():
+        eday = max((v for _, v in hist.get(ep, [])), default=None)
+        disp = (EQUIP_NAMES.get(plant_name, {}) or {}).get(inv_name)
+        pot  = _pot_inv(plant_name, inv_name, disp)
+        pr   = round(eday / (ipoa * pot), 3) if (eday and ipoa and pot) else None
+        invs.append({"id": inv_name, "nome": disp or inv_name, "nome_api": inv_name,
+                     "geracao_kwh": round(eday, 1) if eday else None, "pot_kwp": pot, "pr": pr})
+    return ipoa, len(serie), invs
+
+
+def _sunop_pr_build(dia: str):
+    ensure_sunop_meta()
+    plantas = [p for p, m in _sunop_meta.items() if m.get("inv_strings")]
+
+    def _one(pn):
+        try:    return pn, _sunop_pr_one(pn, dia)
+        except Exception: return pn, (None, 0, [])
+
+    summary, detail = [], {}
+    with ThreadPoolExecutor(max_workers=5) as ex:
+        for pn, (ipoa, npoa, invs) in ex.map(_one, plantas):
+            if not invs:
+                continue
+            invs.sort(key=lambda x: _pv_trk_num(x["nome_api"]))
+            prs = sorted(x["pr"] for x in invs if x["pr"] is not None)
+            med = prs[len(prs) // 2] if prs else None
+            lim = med * (1 - PR_REL_SEVERO) if med is not None else None
+            abaixo = 0
+            for x in invs:
+                x["abaixo"] = bool(x["pr"] is not None and lim is not None and x["pr"] < lim)
+                abaixo += 1 if x["abaixo"] else 0
+            confiavel = ((ipoa or 0) >= 2.0 and npoa >= 50 and med is not None and med <= 1.05)
+            detail[pn] = invs
+            summary.append({"usina": USINA_DISPLAY.get(pn, pn), "plant_id": pn, "ipoa": ipoa,
+                            "pr_mediana": med, "geracao_kwh": round(sum(x["geracao_kwh"] or 0 for x in invs), 1),
+                            "total": len(invs), "abaixo": abaixo,
+                            "sem_pot": sum(1 for x in invs if x["pot_kwp"] is None),
+                            "cobertura": None, "confiavel": confiavel})
+    summary.sort(key=lambda x: (0 if x["confiavel"] else 1, 0 if x["abaixo"] else 1,
+                                -(x["abaixo"] or 0), x["usina"]))
+    return summary, detail
+
+
+def _sunop_pr_get(dia: str, force=False):
+    agora = time.time()
+    with _sunop_pr_lock:
+        ent = _sunop_pr_cache.get(dia)
+        if not force and ent and (agora - ent["ts"]) < CACHE_TTL:
+            return ent["summary"], ent["detail"]
+        summary, detail = _sunop_pr_build(dia)
+        _sunop_pr_cache[dia] = {"ts": agora, "summary": summary, "detail": detail}
+        return summary, detail
+
+
+@app.route("/api/sunop/pr")
+def api_sunop_pr():
+    dia = _pr_dia_arg()
+    force = flask_request.args.get("force", "0") == "1"
+    try:
+        summary, _ = _sunop_pr_get(dia, force)
+    except Exception as e:
+        return jsonify({"error": str(e), "rows": [], "data": dia, "summary": {}}), 500
+    return jsonify({"rows": summary, "data": dia,
+                    "summary": {"usinas": len(summary), "inversores": sum(r["total"] for r in summary),
+                                "abaixo": sum(r["abaixo"] for r in summary),
+                                "sem_pot": sum(r["sem_pot"] for r in summary)},
+                    "cache_ts": datetime.now().strftime("%H:%M:%S")})
+
+
+@app.route("/api/sunop/pr/<plant_name>")
+def api_sunop_pr_plant(plant_name):
+    dia = _pr_dia_arg()
+    try:
+        _, detail = _sunop_pr_get(dia)
+    except Exception as e:
+        return jsonify({"error": str(e), "inversores": []}), 500
+    return jsonify({"plant_id": plant_name, "data": dia, "inversores": detail.get(plant_name, [])})
+
+
 @app.route("/api/sunop/trackers/<plant_name>/chart")
 def api_sunop_trackers_chart(plant_name):
     ensure_sunop_meta()

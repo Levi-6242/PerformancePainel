@@ -1301,7 +1301,7 @@
   <div id="panel-pv-pr" style="display:none">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
       <div>
-        <h2 style="margin:0;font-size:1.12rem;color:#16192a">📊 PR por Inversor <small style="color:#888;font-weight:400">— fonte: banco (BD_Thopen)</small></h2>
+        <h2 style="margin:0;font-size:1.12rem;color:#16192a">📊 PR por Inversor <small id="pvpr-fonte" style="color:#888;font-weight:400">— fonte: banco (BD_Thopen)</small></h2>
         <p style="margin:2px 0 0;font-size:.8em;color:#888">PR = Geração ÷ (IPOA × Potência). <b>Sinal principal: inversor abaixo da mediana da usina</b> (robusto à calibração do sensor). O PR absoluto depende da qualidade da irradiância — veja o selo. <span id="pvpr-upd"></span></p>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -1446,7 +1446,7 @@ const pgExp=new Set(), pgInvExp=new Set(), pgCache={};
 function _secsDisponiveis(t){
   if(t==='solaredge') return ['strings'];        // SolarEdge só tem Strings
   if(t==='pg')        return ['strings','etm','pr','geracao','trackers'];  // PG (Thopen): + PR (do banco) + geração + trackers
-  if(t==='sunop')     return ['strings','etm','trackers']; // SunOp: + trackers
+  if(t==='sunop')     return ['strings','etm','pr','trackers']; // SunOp (Athon): + PR + trackers
   if(t==='owen')      return ['strings','etm','trackers']; // E-mail: strings+etm+trackers
   if(t==='pv')        return ['strings','etm','pr','curvastr','trackers']; // PV: + PR + curva strings + trackers
   return ['strings','etm'];                       // ETM agora é a pré-análise (cards)
@@ -2985,15 +2985,18 @@ function pvPrSetVisao(v){
   b.style.background=v==='geracao'?'#16a34a':'#fff'; b.style.color=v==='geracao'?'#fff':'#374151';
   renderPvPr();
 }
+function _prBase(){ return primary==='sunop' ? '/api/sunop/pr' : '/api/pg/pr'; }
 async function loadPvPr(force){
   const dia=_pvPrData();
+  const _base=_prBase(); if(_base!==window._pvPrSrc){ force=true; window._pvPrSrc=_base; }  // trocou de fonte → recarrega
   if(loaded.pvpr&&!force){renderPvPr();return;}
   loaded.pvpr=true;
+  const _f=document.getElementById('pvpr-fonte'); if(_f)_f.textContent = primary==='sunop' ? '— fonte: SunOp (Athon): EPD + POA do ETM' : '— fonte: banco (BD_Thopen)';
   document.getElementById('pvpr-cont').style.display='none';
   document.getElementById('pvpr-load').style.display='';
   document.getElementById('pvpr-load').innerHTML='<div class="gc-spinner"></div><p>Calculando PR por inversor...</p>';
   try{
-    const d=await fetch('/api/pg/pr?date='+encodeURIComponent(dia)+(force?'&force=1':'')).then(r=>r.json());
+    const d=await fetch(_prBase()+'?date='+encodeURIComponent(dia)+(force?'&force=1':'')).then(r=>r.json());
     pvPrRows=d.rows||[]; pvPrDetail={}; if(force)pvPrExp.clear();
     document.getElementById('pvpr-usinas').textContent=d.summary.usinas;
     document.getElementById('pvpr-invs').textContent=d.summary.inversores;
@@ -3038,7 +3041,7 @@ function renderPvPr(){
 }
 async function renderPvPrDetail(pid, row){
   let d=pvPrDetail[pid];
-  if(!d){try{const dia=_pvPrData();d=await fetch('/api/pg/pr/'+pid+'?date='+encodeURIComponent(dia)).then(r=>r.json());pvPrDetail[pid]=d;}catch(e){d={inversores:[]};}}
+  if(!d){try{const dia=_pvPrData();d=await fetch(_prBase()+'/'+encodeURIComponent(pid)+'?date='+encodeURIComponent(dia)).then(r=>r.json());pvPrDetail[pid]=d;}catch(e){d={inversores:[]};}}
   const cell=document.getElementById('pvpr-det-'+pid);if(!cell)return;
   let invs=(d.inversores||[]).slice();
   if(!invs.length){cell.innerHTML='<span>Sem inversores.</span>';return;}
