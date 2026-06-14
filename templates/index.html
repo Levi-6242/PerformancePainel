@@ -1344,6 +1344,24 @@
     </div>
   </div>
 
+  <!-- CURVA DAS STRINGS (genérico: SunOp/Athon e PG/Thopen) -->
+  <div id="panel-curvagen" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+      <div>
+        <h2 style="margin:0;font-size:1.12rem;color:#16192a">🔬 Curva das strings <small id="curvagen-fonte" style="color:#888;font-weight:400"></small></h2>
+        <p style="margin:2px 0 0;font-size:.8em;color:#888">Clique numa usina para ver a curva de corrente por string de cada inversor. Strings abaixo da mediana em vermelho. <span id="curvagen-upd"></span></p>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label style="font-size:12px;color:var(--muted)">Data <input class="gc-bar-search" type="date" id="curvagen-data" style="width:auto" onchange="curvagenCache={};loadCurvaGen(true)"></label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer" title="Mostra só inversores com string(s) abaixo da mediana"><input type="checkbox" id="curvagen-soabaixo" style="accent-color:#dc2626;cursor:pointer" onchange="renderCurvaGen()"> só com strings abaixo</label>
+        <input class="gc-bar-search" type="text" id="curvagen-filtro" placeholder="🔍  Filtrar usina..." oninput="renderCurvaGen()">
+        <button class="gc-btn-sm" style="background:#7c3aed;color:#fff;font-weight:600" onclick="loadCurvaGen(true)">↻ Atualizar</button>
+      </div>
+    </div>
+    <div id="curvagen-load" class="gc-loading"><div class="gc-spinner"></div><p>Carregando usinas...</p></div>
+    <div id="curvagen-cont" style="display:none"></div>
+  </div>
+
   <!-- API PV Plataforma · STRINGS (curva diária por inversor) -->
   <div id="panel-spv" style="display:none">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
@@ -1445,8 +1463,8 @@ const pgExp=new Set(), pgInvExp=new Set(), pgCache={};
 /* ══ TABS ═══════════════════════════════════════════════════════════════════ */
 function _secsDisponiveis(t){
   if(t==='solaredge') return ['strings'];        // SolarEdge só tem Strings
-  if(t==='pg')        return ['strings','etm','pr','geracao','trackers'];  // PG (Thopen): + PR (do banco) + geração + trackers
-  if(t==='sunop')     return ['strings','etm','pr','trackers']; // SunOp (Athon): + PR + trackers
+  if(t==='pg')        return ['strings','etm','pr','curvastr','geracao','trackers'];  // PG (Thopen): + PR + curva strings + geração + trackers
+  if(t==='sunop')     return ['strings','etm','pr','curvastr','trackers']; // SunOp (Athon): + PR + curva strings + trackers
   if(t==='owen')      return ['strings','etm','trackers']; // E-mail: strings+etm+trackers
   if(t==='pv')        return ['strings','etm','pr','curvastr','trackers']; // PV: + PR + curva strings + trackers
   return ['strings','etm'];                       // ETM agora é a pré-análise (cards)
@@ -1478,12 +1496,12 @@ function switchSecondary(t){
 }
 function show(force){
   _aplicaBarras();   // garante que as sub-abas certas apareçam já no 1º carregamento
-  const panels=['pv-strings','pv-analise','pv-pr','sunop-strings','sunop-analise','sunop-trackers','solaredge-strings','pg-strings','pg-analise','pg-geracao','owen-strings','owen-analise','owen-trackers','spv'];
+  const panels=['pv-strings','pv-analise','pv-pr','sunop-strings','sunop-analise','sunop-trackers','solaredge-strings','pg-strings','pg-analise','pg-geracao','owen-strings','owen-analise','owen-trackers','spv','curvagen'];
   panels.forEach(p=>{const el=document.getElementById(`panel-${p}`);if(el)el.style.display='none';});
-  // Curva das strings (plataforma) = sub-aba da API PV, painel próprio
+  // Curva das strings: API PV usa o painel SPV (plataforma); SunOp/PG usam o painel genérico
   if(secondary==='curvastr'){
-    const el=document.getElementById('panel-spv');if(el)el.style.display='';
-    loadSpv(force);
+    if(primary==='pv'){ const el=document.getElementById('panel-spv');if(el)el.style.display=''; loadSpv(force); }
+    else { const el=document.getElementById('panel-curvagen');if(el)el.style.display=''; loadCurvaGen(force); }
     return;
   }
   // PR = painel de PR por inversor (sub-aba da API PV)
@@ -3061,6 +3079,82 @@ async function renderPvPrDetail(pid, row){
   const aviso=row&&!row.confiavel?' <span style="color:#d97706">— irradiância pouco confiável: confie na comparação entre inversores, não no PR absoluto</span>':'';
   cell.innerHTML=`<div style="margin-bottom:6px;font-size:11px">IPOA <b>${(row&&row.ipoa!=null)?row.ipoa+' kWh/m²':'—'}</b> · PR mediana <b>${med}</b> · visão <b>${pvPrVisao==='pr'?'PR':'Geração'}</b> <span style="color:#9ca3af">(borda vermelha = abaixo da mediana da usina)</span>${aviso}</div>`
     +`<div style="display:flex;flex-wrap:wrap;gap:6px">${chips}</div>`;
+}
+
+/* ══ Curva das strings (genérica: SunOp/Athon e PG/Thopen) ═══════════════════ */
+let curvagenRows=[], curvagenCache={}, curvagenExp=new Set();
+function _curvagenSrc(){ return primary==='sunop'?'sunop':'pg'; }
+function _curvagenData(){ const el=document.getElementById('curvagen-data'); if(el&&!el.value){el.value=new Date().toISOString().slice(0,10);} return el?el.value:''; }
+async function loadCurvaGen(force){
+  const src=_curvagenSrc(); _curvagenData();
+  const fEl=document.getElementById('curvagen-fonte'); if(fEl)fEl.textContent = src==='sunop'?'— SunOp (Athon)':'— Banco (BD_Thopen)';
+  if(window._curvagenSrc!==src){ force=true; window._curvagenSrc=src; curvagenExp.clear(); curvagenCache={}; }
+  if(loaded.curvagen&&!force){renderCurvaGen();return;}
+  loaded.curvagen=true;
+  document.getElementById('curvagen-cont').style.display='none';
+  document.getElementById('curvagen-load').style.display='';
+  try{
+    const ep = src==='sunop'?'/api/sunop/data':'/api/pg/data';
+    const d=await fetch(force?ep+'?force=1':ep).then(r=>r.json());
+    curvagenRows=(d.rows||[]).filter(r=>!r.sem_dados);
+    document.getElementById('curvagen-upd').textContent='• '+curvagenRows.length+' usinas';
+    renderCurvaGen();
+    document.getElementById('curvagen-load').style.display='none';
+    document.getElementById('curvagen-cont').style.display='';
+  }catch(e){document.getElementById('curvagen-load').innerHTML='<p style="color:#dc2626">Erro: '+e+'</p>';}
+}
+function renderCurvaGen(){
+  const f=(document.getElementById('curvagen-filtro').value||'').toLowerCase();
+  const cont=document.getElementById('curvagen-cont'); if(!cont)return; cont.innerHTML='';
+  const lista=curvagenRows.filter(r=>!f||(r.usina||'').toLowerCase().includes(f));
+  if(!lista.length){cont.innerHTML='<p style="color:var(--muted);padding:20px;text-align:center">Nenhuma usina.</p>';return;}
+  lista.forEach(r=>{
+    const exp=curvagenExp.has(r.plant_id);
+    const row=document.createElement('div');
+    row.style.cssText='border:1px solid #e6e9f0;border-radius:8px;margin-bottom:8px;background:#fff;overflow:hidden';
+    const head=document.createElement('div');
+    head.style.cssText='padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;font-weight:600;color:#16192a';
+    head.innerHTML=`<span>${exp?'▾':'▸'}</span> ${r.usina}`;
+    head.addEventListener('click',()=>{exp?curvagenExp.delete(r.plant_id):curvagenExp.add(r.plant_id);renderCurvaGen();});
+    row.appendChild(head);
+    if(exp){
+      const body=document.createElement('div'); body.style.cssText='padding:0 14px 12px'; body.id='curvagen-body-'+r.plant_id;
+      body.innerHTML='<div class="gc-loading" style="min-height:110px"><div class="gc-spinner"></div><p>Carregando curvas...</p></div>';
+      row.appendChild(body);
+      renderCurvaGenUsina(r.plant_id);
+    }
+    cont.appendChild(row);
+  });
+}
+async function renderCurvaGenUsina(pid){
+  const src=_curvagenSrc(), dia=_curvagenData(), ckey=src+'|'+pid+'|'+dia;
+  let d=curvagenCache[ckey];
+  if(!d){
+    try{
+      const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
+      const r=await fetch(`/api/${src}/curva/${encodeURIComponent(pid)}?data=${dia}`,{signal:ctrl.signal}); clearTimeout(tmo);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      d=await r.json(); if(d&&d.error) throw new Error(d.error);
+      curvagenCache[ckey]=d;
+    }catch(e){
+      const el=document.getElementById('curvagen-body-'+pid); if(el)el.innerHTML=`<p style="color:#dc2626;padding:10px;font-size:12px">Não consegui carregar (${e.name==='AbortError'?'demorou demais — clique na usina de novo':e.message}).</p>`;
+      return;
+    }
+  }
+  const el=document.getElementById('curvagen-body-'+pid); if(!el)return;
+  const soAb=document.getElementById('curvagen-soabaixo').checked;
+  let invs=(d.inversores||[]).filter(iv=>iv.curva&&Object.keys(iv.curva).length);
+  if(soAb) invs=invs.filter(iv=>iv.abaixo);
+  if(!invs.length){el.innerHTML='<p style="color:var(--muted);padding:10px;font-size:12px">Sem curvas para este dia'+(soAb?' (nenhum inversor abaixo)':' (sem geração/dados)')+'.</p>';return;}
+  el.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px">'+invs.map(iv=>{
+    const cid='cg-'+(''+pid).replace(/[^a-zA-Z0-9]/g,'')+'-'+(''+iv.id).replace(/[^a-zA-Z0-9]/g,'');
+    const sub=iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK';
+    return `<div style="border:1px solid #eef2f7;border-radius:8px;padding:8px"><div style="font-size:11px;color:var(--muted);margin-bottom:2px"><b>${iv.nome}</b> · med ${iv.mediana}${sub}</div><div id="${cid}" style="width:100%;height:200px"></div></div>`;
+  }).join('')+'</div>';
+  invs.forEach(iv=>{
+    const cid='cg-'+(''+pid).replace(/[^a-zA-Z0-9]/g,'')+'-'+(''+iv.id).replace(/[^a-zA-Z0-9]/g,'');
+    _spvPlotInto(document.getElementById(cid),iv,cid,true);
+  });
 }
 
 /* ══ Strings (API PV Plataforma) — curva diária por inversor ═════════════════ */
