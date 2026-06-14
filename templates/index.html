@@ -563,7 +563,7 @@
     .string-chip.s-ativa     .s-val { color: #15803d }
     .string-chip.s-sem       { border-color: #fca5a5; background: #fff5f5 }
     .string-chip.s-sem       .s-val { color: #dc2626 }
-    .string-chip.s-baixa     { border-color: #fcd34d; background: #fffbeb }
+    .string-chip.s-baixa     { border-color: #dc2626; border-width: 2px; background: #fffbeb }
     .string-chip.s-baixa     .s-val { color: #b45309 }
     .string-chip.s-trancada  { border-color: #93c5fd; background: #eff6ff }
     .string-chip.s-trancada  .s-val, .string-chip.s-trancada .s-id { color: #2563eb }
@@ -1801,7 +1801,7 @@ function appendPvStrs(tb,pid,ik,inv){
       onmouseenter="pvCurvaHi('${cid}',${n},1)" onmouseleave="pvCurvaHi('${cid}',${n},0)" onclick="pvCurvaToggle('${cid}',${n},this)"
       title="${s.id}: ${s.corrente.toFixed(2)} A · ${SLBL[st]||st} · clique p/ ocultar no gráfico">
       <label onclick="event.stopPropagation()" title="Trancar: string aberta/não conectada (MPPT sem string) — sai da contagem de ativas" style="display:flex;align-items:center;gap:2px;cursor:pointer;font-size:9px;color:#2563eb;margin-bottom:1px">
-        <input type="checkbox" ${s.trancada?'checked':''} onchange="event.stopPropagation();pvTrancaStr(${pid},${inv.id},'${s.id}',this.checked)" style="margin:0;width:11px;height:11px;cursor:pointer">🔒</label>
+        <input type="checkbox" ${s.trancada?'checked':''} onchange="event.stopPropagation();pvTrancaStr(${pid},${inv.id},'${s.id}',this.checked,this)" style="margin:0;width:11px;height:11px;cursor:pointer">🔒</label>
       <span class="s-id">${s.id}</span><span class="s-val">${s.corrente.toFixed(2)} A</span></div>`;}).join('');
   tr.innerHTML=`<td colspan="9">
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
@@ -1820,7 +1820,10 @@ function appendPvStrs(tb,pid,ik,inv){
   const it=document.querySelector(`[data-pvik="${ik}"]`);if(it&&it.nextSibling)tb.insertBefore(tr,it.nextSibling);else tb.appendChild(tr);
 }
 /* Marca/desmarca string trancada (MPPT sem string) e recarrega o detalhe da usina */
-async function pvTrancaStr(pid,invId,sid,trancada){
+async function pvTrancaStr(pid,invId,sid,trancada,cb){
+  // feedback imediato: pinta o chip de trancada (azul) na hora, sem esperar o round-trip/re-render
+  const chip=cb&&cb.closest&&cb.closest('.string-chip');
+  if(chip&&trancada) chip.className='string-chip s-trancada';
   try{ await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},
        body:JSON.stringify({plant_id:pid,inv_id:invId,string:sid,trancada})}); }catch(e){}
   try{ const d=await fetch('/api/plant/'+pid).then(r=>r.json()); pvCache[pid]=d.inversores||[]; }catch(e){}
@@ -1836,10 +1839,13 @@ function _strChipSimple(s,src,pid,invId,cid){
   const hov = cid ? ` data-cid="${cid}" data-n="${n}" onmouseenter="pvCurvaHi('${cid}',${n},1)" onmouseleave="pvCurvaHi('${cid}',${n},0)" onclick="pvCurvaToggle('${cid}',${n},this)"` : '';
   return `<div class="string-chip ${cls}"${hov} style="cursor:pointer" title="${s.id}: ${v} · ${_SLBL[st]||st}${cid?' · clique p/ ocultar no gráfico':''}">`
     +`<label onclick="event.stopPropagation()" title="Trancar: string aberta/não conectada (MPPT sem string) — sai da contagem de ativas" style="display:flex;align-items:center;gap:2px;cursor:pointer;font-size:9px;color:#2563eb;margin-bottom:1px">`
-    +`<input type="checkbox" ${s.trancada?'checked':''} onchange="trancaStr('${src}','${pid}','${invId}','${s.id}',this.checked)" style="margin:0;width:11px;height:11px;cursor:pointer">🔒</label>`
+    +`<input type="checkbox" ${s.trancada?'checked':''} onchange="trancaStr('${src}','${pid}','${invId}','${s.id}',this.checked,this)" style="margin:0;width:11px;height:11px;cursor:pointer">🔒</label>`
     +`<span class="s-id">${s.id}</span><span class="s-val">${v}</span></div>`;
 }
-async function trancaStr(src,pid,invId,sid,trancada){
+async function trancaStr(src,pid,invId,sid,trancada,cb){
+  // feedback imediato: pinta o chip de trancada (azul) na hora, sem esperar o round-trip/re-render
+  const chip=cb&&cb.closest&&cb.closest('.string-chip');
+  if(chip&&trancada) chip.className='string-chip s-trancada';
   try{ await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},
        body:JSON.stringify({plant_id:pid,inv_id:invId,string:sid,trancada})}); }catch(e){}
   const ep=src==='so'?'/api/sunop/plant/':src==='pg'?'/api/pg/plant/':'/api/plant/';

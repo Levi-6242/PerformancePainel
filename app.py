@@ -3685,7 +3685,22 @@ def api_pg_plant(plant_id):
         _, detail = _pg_get_snapshot(False)
     except Exception as e:
         return jsonify({"error": str(e), "inversores": []}), 500
-    return jsonify({"plant_id": plant_id, "inversores": detail.get(plant_id, [])})
+    invs = detail.get(plant_id, [])
+    # Reaplica a régua de trancadas no ato: o snapshot é cacheado (SWR), então uma string
+    # recém-(des)marcada não estaria refletida aqui. Reclassifica sobre as correntes já no
+    # snapshot p/ o drill-down ficar consistente com _trancadas sem reconstruir tudo.
+    for inv in invs:
+        keys = [s["id"] for s in inv["strings"]]
+        st   = _classifica_strings(plant_id, inv["id"], keys,
+                                   [s["corrente"] for s in inv["strings"]])
+        for s, stt in zip(inv["strings"], st):
+            s["status"]   = stt
+            s["ativa"]    = stt in ("ativa", "baixa_perf")
+            s["trancada"] = stt == "trancada"
+        inv["strings_ativas"] = _str_ativas(st)
+        if inv.get("str_esp") is not None:
+            inv["diferenca"] = inv["strings_ativas"] - inv["str_esp"]
+    return jsonify({"plant_id": plant_id, "inversores": invs})
 
 
 # ── PG: curva diária de corrente por string (botão "Curva do dia" do drill-down) ─
