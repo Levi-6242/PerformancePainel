@@ -5666,10 +5666,10 @@ def api_spv_pdf():
                 fig.patches.append(Rectangle((0, 0.915), 1, 0.085, transform=fig.transFigure,
                                              facecolor=GREEN, edgecolor="none", zorder=-1))
                 fig.text(0.028, 0.953, usina_nome, color="white", fontsize=16, fontweight="bold", va="center")
-                fig.text(0.028, 0.928, "Relatório de Strings  ·  Curva de corrente diária por string",
+                fig.text(0.028, 0.928, "Relatório de Strings  ·  corrente de cada string ao longo do dia",
                          color=GREEN_LT, fontsize=8.5, va="center")
                 fig.text(0.975, 0.957, data, color="white", fontsize=11.5, fontweight="bold", ha="right", va="center")
-                fig.text(0.975, 0.930, f"{tot_abaixo} string(s) abaixo da mediana" if tot_abaixo else "Sem outliers",
+                fig.text(0.975, 0.930, f"{tot_abaixo} string(s) abaixo do esperado" if tot_abaixo else "Todas as strings dentro do esperado",
                          color=GREEN_LT, fontsize=9, ha="right", va="center")
                 if len(invs) > CHUNK:
                     fig.text(0.5, 0.892, f"Inversores {ini+1}–{ini+len(grupo)} de {len(invs)}",
@@ -5714,19 +5714,19 @@ def api_spv_pdf():
                     if j == 0:
                         axc.set_ylabel("Corrente (A)", fontsize=8)
                     # ── Observações do inversor ──────────────────────────────
-                    status = f"Mediana do dia: {iv['mediana']}   ·   " + (f"{iv['abaixo']} abaixo" if iv["abaixo"] else "todas OK")
+                    status = f"Referência (mediana): {iv['mediana']}   ·   " + (f"{iv['abaixo']} abaixo" if iv["abaixo"] else "todas OK")
                     axt.text(0, 1.0, status, transform=axt.transAxes, va="top", ha="left",
                              fontsize=8, fontweight="bold", color=RED if iv["abaixo"] else OK)
-                    outs = ", ".join(f"{s['nome']}: {s['pct']}% da mediana" for s in iv["strings"] if s["sub"]) or "nenhuma"
+                    outs = ", ".join(f"{s['nome']}: {s['pct']}%" for s in iv["strings"] if s["sub"]) or "nenhuma"
                     y = 0.80
-                    axt.text(0, y, "Strings abaixo:", transform=axt.transAxes, va="top", fontsize=7,
+                    axt.text(0, y, "Strings abaixo (% da referência):", transform=axt.transAxes, va="top", fontsize=7,
                              fontweight="bold", color="#64748b"); y -= 0.115
                     for ln in textwrap.wrap(outs, Wtxt)[:3]:
                         axt.text(0, y, ln, transform=axt.transAxes, va="top", fontsize=6.8, color="#475569"); y -= 0.115
                     y -= 0.05
-                    axt.text(0, y, "Motivo:", transform=axt.transAxes, va="top", fontsize=7,
+                    axt.text(0, y, "Motivo (preenchido pela análise):", transform=axt.transAxes, va="top", fontsize=7,
                              fontweight="bold", color="#64748b"); y -= 0.115
-                    for ln in textwrap.wrap(iv["nota"] or "—", Wtxt)[:3]:
+                    for ln in textwrap.wrap(iv["nota"] or "sem observação registrada", Wtxt)[:3]:
                         axt.text(0, y, ln, transform=axt.transAxes, va="top", fontsize=6.8,
                                  color="#7c3aed" if iv["nota"] else "#9ca3af"); y -= 0.115
                 # ── Rodapé ───────────────────────────────────────────────────
@@ -5736,7 +5736,7 @@ def api_spv_pdf():
                     _lax = fig.add_axes([0.028, 0.016, 0.12, 0.038]); _lax.axis("off"); _lax.imshow(_logo)
                 else:
                     fig.text(0.028, 0.036, "Grid Co.  ·  Monitoramento O&M", color="#94a3b8", fontsize=7.5, va="center")
-                fig.text(0.5, 0.036, "linha cinza = strings normais   ·   linha vermelha = abaixo da mediana (corrente integrada do dia)",
+                fig.text(0.5, 0.036, "linha cinza = strings normais   ·   linha vermelha = string abaixo do esperado   ·   referência = mediana da corrente acumulada no dia",
                          color="#94a3b8", fontsize=7.5, ha="center", va="center")
                 fig.text(0.975, 0.036, f"Gerado em {agora}", color="#94a3b8", fontsize=7.5, ha="right", va="center")
                 pdf.savefig(fig, facecolor="white"); plt.close(fig)
