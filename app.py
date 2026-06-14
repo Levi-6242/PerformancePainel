@@ -5656,7 +5656,7 @@ def api_spv_pdf():
         "axes.labelcolor": "#64748b", "xtick.color": "#94a3b8", "ytick.color": "#94a3b8",
         "text.color": "#1f2937",
     })
-    GREEN, GREEN_LT = "#3f6212", "#d9f99d"
+    HDR, HDR_LT = "#1d4ed8", "#bfdbfe"   # cabeçalho azul Grid (antes verde) + texto azul claro
     GRAY_LN, RED, OK = "#c3cedd", "#dc2626", "#16a34a"
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
     so_abaixo = flask_request.args.get("soabaixo", "0") == "1"   # só inversores com string abaixo
@@ -5683,18 +5683,18 @@ def api_spv_pdf():
                 fig = plt.figure(figsize=(11.69, 8.27))                  # A4 paisagem
                 # ── Faixa de cabeçalho ───────────────────────────────────────
                 fig.patches.append(Rectangle((0, 0.915), 1, 0.085, transform=fig.transFigure,
-                                             facecolor=GREEN, edgecolor="none", zorder=-1))
+                                             facecolor=HDR, edgecolor="none", zorder=-1))
                 fig.text(0.028, 0.953, usina_nome, color="white", fontsize=16, fontweight="bold", va="center")
                 fig.text(0.028, 0.928, "Relatório de Strings  ·  corrente de cada string ao longo do dia",
-                         color=GREEN_LT, fontsize=8.5, va="center")
+                         color=HDR_LT, fontsize=8.5, va="center")
                 fig.text(0.975, 0.957, data, color="white", fontsize=11.5, fontweight="bold", ha="right", va="center")
                 fig.text(0.975, 0.930, f"{tot_abaixo} string(s) abaixo do esperado" if tot_abaixo else "Todas as strings dentro do esperado",
-                         color=GREEN_LT, fontsize=9, ha="right", va="center")
+                         color=HDR_LT, fontsize=9, ha="right", va="center")
                 if len(invs) > CHUNK:
                     fig.text(0.5, 0.892, f"Inversores {ini+1}–{ini+len(grupo)} de {len(invs)}",
                              color="#94a3b8", fontsize=8, ha="center", style="italic")
-                gs = fig.add_gridspec(2, CHUNK, height_ratios=[2.0, 1.6], hspace=0.40, wspace=0.28,
-                                      left=0.052, right=0.975, top=0.85, bottom=0.09)
+                gs = fig.add_gridspec(2, CHUNK, height_ratios=[2.0, 1.6], hspace=0.40, wspace=0.16,
+                                      left=0.034, right=0.985, top=0.85, bottom=0.09)
                 for j in range(CHUNK):
                     axc = fig.add_subplot(gs[0, j]); axt = fig.add_subplot(gs[1, j]); axt.axis("off")
                     if j >= len(grupo):
@@ -5730,8 +5730,6 @@ def api_spv_pdf():
                     if xs:
                         step = max(1, len(xs) // 4)
                         axc.set_xticks(range(0, len(xs), step)); axc.set_xticklabels(xs[::step], fontsize=6.5)
-                    if j == 0:
-                        axc.set_ylabel("Corrente (A)", fontsize=8)
                     # ── Observações do inversor ──────────────────────────────
                     status = f"Referência (mediana): {iv['mediana']}   ·   " + (f"{iv['abaixo']} abaixo" if iv["abaixo"] else "todas OK")
                     axt.text(0, 1.0, status, transform=axt.transAxes, va="top", ha="left",
