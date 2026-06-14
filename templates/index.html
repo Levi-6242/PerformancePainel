@@ -4,6 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Grid Co. — Monitoramento O&M</title>
+  <link rel="icon" type="image/png" href="/static/logos/grid-icone-verde.png">
+  <link rel="apple-touch-icon" href="/static/logos/grid-icone-verde.png">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
   <style>
@@ -70,6 +72,7 @@
     }
     .gc-logo-text { color: #fff; font-weight: 700; font-size: 16px; letter-spacing: -.2px }
     .gc-logo-text span { color: var(--green) }
+    .gc-logo-img { height: 30px; display: block; object-fit: contain }
     .gc-nav-center {
       display: flex;
       align-items: center;
@@ -555,6 +558,17 @@
     .string-chip.ativa  .s-val { color: #15803d }
     .string-chip.inativa { border-color: #fca5a5; background: #fff5f5 }
     .string-chip.inativa .s-val { color: #dc2626 }
+    /* régua nova de strings (API PV): 5 estados */
+    .string-chip.s-ativa     { border-color: #86efac; background: #f0fdf4 }
+    .string-chip.s-ativa     .s-val { color: #15803d }
+    .string-chip.s-sem       { border-color: #fca5a5; background: #fff5f5 }
+    .string-chip.s-sem       .s-val { color: #dc2626 }
+    .string-chip.s-baixa     { border-color: #fcd34d; background: #fffbeb }
+    .string-chip.s-baixa     .s-val { color: #b45309 }
+    .string-chip.s-trancada  { border-color: #93c5fd; background: #eff6ff }
+    .string-chip.s-trancada  .s-val, .string-chip.s-trancada .s-id { color: #2563eb }
+    .string-chip.s-inativa   { border-color: #e5e7eb; background: #fff }
+    .string-chip.s-inativa   .s-val { color: #9ca3af }
 
     /* ── ETM STATION TAG ─────────────────────────────────────────────────── */
     .etm-tag {
@@ -703,8 +717,7 @@
 <!-- ▸ NAVBAR -->
 <nav class="gc-nav">
   <a class="gc-logo" href="#">
-    <div class="gc-logo-icon">G</div>
-    <span class="gc-logo-text">Grid <span>Co.</span></span>
+    <img class="gc-logo-img" src="/static/logos/grid-h-branco.png" alt="Grid Co.">
   </a>
   <div class="gc-nav-center">
     <span class="gc-live"><span class="gc-live-dot"></span>Live</span>
@@ -857,6 +870,12 @@
             <tbody id="pv-tbody"></tbody>
           </table>
         </div>
+      </div>
+      <div class="gc-table-card" style="margin-top:14px">
+        <div id="pv-chart-strings" style="width:100%;height:400px"></div>
+      </div>
+      <div class="gc-table-card" style="margin-top:14px">
+        <div id="pv-chart-temp" style="width:100%;height:400px"></div>
       </div>
     </div>
   </div>
@@ -1222,7 +1241,7 @@
         <div class="gc-table-wrap">
           <table>
             <thead><tr>
-              <th>Usina</th><th>Trackers</th><th>Severos</th><th>Leves</th><th>Fora da linha</th><th title="Normais no tempo real, mas ainda como Parado/Com problema na planilha de Tickets">Normalizados</th><th>Pior disparidade</th><th>Última Leitura</th><th>Status</th>
+              <th>Usina</th><th>Trackers</th><th>Severos</th><th>Leves</th><th>Fora da linha</th><th title="Normais no tempo real, mas ainda como Parado/Com problema na planilha de Tickets">Normalizados</th><th title="média de |alvo − atual| de todos os trackers ao longo do dia (janela 9h–15h)">Desvio médio</th><th>Última Leitura</th><th>Status</th>
             </tr></thead>
             <tbody id="trk-tbody"></tbody>
           </table>
@@ -1282,10 +1301,21 @@
   <div id="panel-pv-pr" style="display:none">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
       <div>
-        <h2 style="margin:0;font-size:1.12rem;color:#16192a">📊 PR por Inversor <small style="color:#888;font-weight:400">— usinas string-box (sem visão de strings)</small></h2>
-        <p style="margin:2px 0 0;font-size:.8em;color:#888">PR = Geração ÷ (IPOA × Potência). Inversor abaixo da mediana da usina = candidato a perda. <span id="pvpr-upd"></span></p>
+        <h2 style="margin:0;font-size:1.12rem;color:#16192a">📊 PR por Inversor <small id="pvpr-fonte" style="color:#888;font-weight:400">— fonte: banco (BD_Thopen)</small></h2>
+        <p style="margin:2px 0 0;font-size:.8em;color:#888">PR = Geração ÷ (IPOA × Potência). <b>Sinal principal: inversor abaixo da mediana da usina</b> (robusto à calibração do sensor). O PR absoluto depende da qualidade da irradiância — veja o selo. <span id="pvpr-upd"></span></p>
       </div>
-      <div style="display:flex;gap:8px;align-items:center">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label style="font-size:12px;color:var(--muted)">Data <input class="gc-bar-search" type="date" id="pvpr-data" style="width:auto" onchange="loaded.pvpr=false;loadPvPr(true)"></label>
+        <div style="display:inline-flex;border:1px solid #d1d5db;border-radius:8px;overflow:hidden">
+          <button id="pvpr-vis-pr"  onclick="pvPrSetVisao('pr')"      style="border:0;padding:5px 11px;font-size:12px;cursor:pointer;background:#16a34a;color:#fff">PR</button>
+          <button id="pvpr-vis-ger" onclick="pvPrSetVisao('geracao')" style="border:0;padding:5px 11px;font-size:12px;cursor:pointer;background:#fff;color:#374151">Geração</button>
+        </div>
+        <label style="font-size:12px;color:var(--muted)">Ordenar
+          <select id="pvpr-ordem" onchange="renderPvPr()" style="font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:6px">
+            <option value="valor">por valor</option>
+            <option value="inversor">por inversor</option>
+          </select>
+        </label>
         <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer">
           <input type="checkbox" id="pvpr-soalerta" style="accent-color:#ef4444;cursor:pointer" onchange="renderPvPr()"> só com alerta
         </label>
@@ -1298,7 +1328,7 @@
 
     <div id="pvpr-cont" style="display:none">
       <div class="gc-stats gc-stats-4" style="margin-bottom:18px">
-        <div class="gc-stat-card"><div class="gc-stat-val" id="pvpr-usinas">—</div><div class="gc-stat-lbl">Usinas string-box</div></div>
+        <div class="gc-stat-card"><div class="gc-stat-val" id="pvpr-usinas">—</div><div class="gc-stat-lbl">Usinas com dados</div></div>
         <div class="gc-stat-card"><div class="gc-stat-val" id="pvpr-invs">—</div><div class="gc-stat-lbl">Inversores</div></div>
         <div class="gc-stat-card" style="border-top:3px solid #b91c1c"><div class="gc-stat-val" id="pvpr-abaixo" style="color:#b91c1c">—</div><div class="gc-stat-lbl">Abaixo da mediana</div></div>
         <div class="gc-stat-card" style="border-top:3px solid #d97706"><div class="gc-stat-val" id="pvpr-sempot" style="color:#d97706">—</div><div class="gc-stat-lbl">Sem potência cadastrada</div></div>
@@ -1306,12 +1336,30 @@
       <div style="overflow-x:auto">
         <table class="gc-table" style="width:100%">
           <thead>
-            <tr><th>Usina</th><th>Inversores</th><th>PR usina</th><th>PR mediana</th><th>Abaixo</th><th>IPOA (kWh/m²)</th><th>Geração (kWh)</th><th>Última leitura</th></tr>
+            <tr><th>Usina</th><th>Inversores</th><th>Abaixo da mediana</th><th>PR mediana</th><th>Geração (kWh)</th><th>IPOA (kWh/m²)</th><th>Irradiância</th></tr>
           </thead>
           <tbody id="pvpr-tbody"></tbody>
         </table>
       </div>
     </div>
+  </div>
+
+  <!-- CURVA DAS STRINGS (genérico: SunOp/Athon e PG/Thopen) -->
+  <div id="panel-curvagen" style="display:none">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+      <div>
+        <h2 style="margin:0;font-size:1.12rem;color:#16192a">🔬 Curva das strings <small id="curvagen-fonte" style="color:#888;font-weight:400"></small></h2>
+        <p style="margin:2px 0 0;font-size:.8em;color:#888">Clique numa usina para ver a curva de corrente por string de cada inversor. Strings abaixo da mediana em vermelho. <span id="curvagen-upd"></span></p>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <label style="font-size:12px;color:var(--muted)">Data <input class="gc-bar-search" type="date" id="curvagen-data" style="width:auto" onchange="curvagenCache={};loadCurvaGen(true)"></label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer" title="Mostra só inversores com string(s) abaixo da mediana"><input type="checkbox" id="curvagen-soabaixo" style="accent-color:#dc2626;cursor:pointer" onchange="renderCurvaGen()"> só com strings abaixo</label>
+        <input class="gc-bar-search" type="text" id="curvagen-filtro" placeholder="🔍  Filtrar usina..." oninput="renderCurvaGen()">
+        <button class="gc-btn-sm" style="background:#7c3aed;color:#fff;font-weight:600" onclick="loadCurvaGen(true)">↻ Atualizar</button>
+      </div>
+    </div>
+    <div id="curvagen-load" class="gc-loading"><div class="gc-spinner"></div><p>Carregando usinas...</p></div>
+    <div id="curvagen-cont" style="display:none"></div>
   </div>
 
   <!-- API PV Plataforma · STRINGS (curva diária por inversor) -->
@@ -1415,8 +1463,8 @@ const pgExp=new Set(), pgInvExp=new Set(), pgCache={};
 /* ══ TABS ═══════════════════════════════════════════════════════════════════ */
 function _secsDisponiveis(t){
   if(t==='solaredge') return ['strings'];        // SolarEdge só tem Strings
-  if(t==='pg')        return ['strings','etm','geracao','trackers'];  // PG: + histórico de geração + trackers
-  if(t==='sunop')     return ['strings','etm','trackers']; // SunOp: + trackers
+  if(t==='pg')        return ['strings','etm','pr','curvastr','geracao','trackers'];  // PG (Thopen): + PR + curva strings + geração + trackers
+  if(t==='sunop')     return ['strings','etm','pr','curvastr','trackers']; // SunOp (Athon): + PR + curva strings + trackers
   if(t==='owen')      return ['strings','etm','trackers']; // E-mail: strings+etm+trackers
   if(t==='pv')        return ['strings','etm','pr','curvastr','trackers']; // PV: + PR + curva strings + trackers
   return ['strings','etm'];                       // ETM agora é a pré-análise (cards)
@@ -1448,12 +1496,12 @@ function switchSecondary(t){
 }
 function show(force){
   _aplicaBarras();   // garante que as sub-abas certas apareçam já no 1º carregamento
-  const panels=['pv-strings','pv-analise','pv-pr','sunop-strings','sunop-analise','sunop-trackers','solaredge-strings','pg-strings','pg-analise','pg-geracao','owen-strings','owen-analise','owen-trackers','spv'];
+  const panels=['pv-strings','pv-analise','pv-pr','sunop-strings','sunop-analise','sunop-trackers','solaredge-strings','pg-strings','pg-analise','pg-geracao','owen-strings','owen-analise','owen-trackers','spv','curvagen'];
   panels.forEach(p=>{const el=document.getElementById(`panel-${p}`);if(el)el.style.display='none';});
-  // Curva das strings (plataforma) = sub-aba da API PV, painel próprio
+  // Curva das strings: API PV usa o painel SPV (plataforma); SunOp/PG usam o painel genérico
   if(secondary==='curvastr'){
-    const el=document.getElementById('panel-spv');if(el)el.style.display='';
-    loadSpv(force);
+    if(primary==='pv'){ const el=document.getElementById('panel-spv');if(el)el.style.display=''; loadSpv(force); }
+    else { const el=document.getElementById('panel-curvagen');if(el)el.style.display=''; loadCurvaGen(force); }
     return;
   }
   // PR = painel de PR por inversor (sub-aba da API PV)
@@ -1634,8 +1682,35 @@ async function loadPvStr(force){
   if(data.alertas_strings_list.length){al.innerHTML+=`<div class="gc-alert" style="border-left-color:#ef4444"><div class="t" style="color:#ef4444">⚠️ Sem strings — ${data.alertas_strings_list.length} usinas</div><div class="b">${data.alertas_strings_list.join(' · ')}</div></div>`;}
   if(data.alertas_temp_list.length){const l=data.alertas_temp_list.map(r=>`${r.usina} (${r.temp}°C)`).join(' · ');al.innerHTML+=`<div class="gc-alert" style="border-left-color:#f59e0b"><div class="t" style="color:#d97706">🌡️ Temp elevada — ${data.alertas_temp_list.length} usinas</div><div class="b">${l}</div></div>`;}
   const prev=getLastSt();saveLastSt(pvRows);
-  renderPvStr(prev);setTs(data.cache_ts);
+  renderPvStr(prev);renderPvCharts();setTs(data.cache_ts);
   L.style.display='none';C.style.display='block';
+}
+/* Gráficos de barras (antes vinham prontos do servidor em chart_strings/chart_temp;
+   agora são montados aqui a partir de rows — payload do /api/data muito menor). */
+function _pvChartLayout(title,ytitle){
+  return {title:{text:title},height:400,margin:{t:50,b:150,l:50,r:20},showlegend:false,
+    plot_bgcolor:'#f4f6f2',paper_bgcolor:'#ffffff',font:{family:'Inter'},
+    xaxis:{tickangle:-45,tickfont:{size:9,family:'Inter'}},yaxis:{title:{text:ytitle}}};
+}
+function renderPvCharts(){
+  const cfg={displayModeBar:false,responsive:true};
+  const com=pvRows.filter(r=>!r.sem_dados);
+  Plotly.react('pv-chart-strings',[{
+    type:'bar',x:com.map(r=>r.usina),y:com.map(r=>r.strings_ativas),
+    marker:{color:com.map(r=>r.strings_ativas===0?'#ef4444':'#a3d900')},
+    hovertemplate:'<b>%{x}</b><br>Strings ativas: %{y}<extra></extra>'
+  }],_pvChartLayout('Strings Ativas por Usina','Strings ativas (>0,5A)'),cfg);
+  const rt=com.filter(r=>r.temp_media!=null);
+  const lt=_pvChartLayout('Temperatura Média dos Inversores','Temperatura (°C)');
+  lt.shapes=[{type:'line',xref:'paper',x0:0,x1:1,yref:'y',y0:65,y1:65,
+    line:{color:'#ef4444',width:1.5,dash:'dash'}}];
+  lt.annotations=[{xref:'paper',x:1,xanchor:'right',yref:'y',y:65,yanchor:'bottom',
+    text:'Alerta (65°C)',showarrow:false,font:{color:'#ef4444',size:11,family:'Inter'}}];
+  Plotly.react('pv-chart-temp',[{
+    type:'bar',x:rt.map(r=>r.usina),y:rt.map(r=>r.temp_media),
+    marker:{color:rt.map(r=>r.temp_media>=65?'#ef4444':'#f59e0b')},
+    hovertemplate:'<b>%{x}</b><br>Temp: %{y}°C<extra></extra>'
+  }],lt,cfg);
 }
 function renderPvStr(prev){
   prev=prev||getLastSt();
@@ -1718,10 +1793,16 @@ function appendPvStrs(tb,pid,ik,inv){
   const strings=inv.strings||[];
   const tr=document.createElement('tr');tr.className='strings-row';tr.dataset.pvp=pid;tr.dataset.pvis=ik;
   const cid=`pvcurva-${pid}-${inv.id}`, nm=(inv.nome||'').replace(/['"\\]/g,'');
+  const SCLS={trancada:'s-trancada',sem_corrente:'s-sem',baixa_perf:'s-baixa',ativa:'s-ativa',inativa:'s-inativa'};
+  const SLBL={trancada:'trancada (sem string conectada)',sem_corrente:'sem corrente (0 A)',baixa_perf:'baixa performance (<60% da mediana)',ativa:'ativa',inativa:'inativa (inversor parado)'};
   const chips=strings.map(s=>{const n=(''+s.id).replace(/\D/g,'')||'0';
-    return `<div class="string-chip ${s.ativa?'ativa':'inativa'}" data-cid="${cid}" data-n="${n}" style="cursor:pointer"
+    const st=s.status||(s.ativa?'ativa':'inativa'), cls=SCLS[st]||'s-inativa';
+    return `<div class="string-chip ${cls}" data-cid="${cid}" data-n="${n}" style="cursor:pointer"
       onmouseenter="pvCurvaHi('${cid}',${n},1)" onmouseleave="pvCurvaHi('${cid}',${n},0)" onclick="pvCurvaToggle('${cid}',${n},this)"
-      title="passe o mouse p/ destacar · clique p/ ocultar no gráfico"><span class="s-id">${s.id}</span><span class="s-val">${s.corrente.toFixed(2)} A</span></div>`;}).join('');
+      title="${s.id}: ${s.corrente.toFixed(2)} A · ${SLBL[st]||st} · clique p/ ocultar no gráfico">
+      <label onclick="event.stopPropagation()" title="Trancar: string aberta/não conectada (MPPT sem string) — sai da contagem de ativas" style="display:flex;align-items:center;gap:2px;cursor:pointer;font-size:9px;color:#2563eb;margin-bottom:1px">
+        <input type="checkbox" ${s.trancada?'checked':''} onchange="event.stopPropagation();pvTrancaStr(${pid},${inv.id},'${s.id}',this.checked)" style="margin:0;width:11px;height:11px;cursor:pointer">🔒</label>
+      <span class="s-id">${s.id}</span><span class="s-val">${s.corrente.toFixed(2)} A</span></div>`;}).join('');
   tr.innerHTML=`<td colspan="9">
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
         <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="pvCurvaInv(${pid},${inv.id},'${nm}','${cid}')">📈 Curva do dia</button>
@@ -1738,6 +1819,35 @@ function appendPvStrs(tb,pid,ik,inv){
       <div class="strings-grid">${chips}</div></td>`;
   const it=document.querySelector(`[data-pvik="${ik}"]`);if(it&&it.nextSibling)tb.insertBefore(tr,it.nextSibling);else tb.appendChild(tr);
 }
+/* Marca/desmarca string trancada (MPPT sem string) e recarrega o detalhe da usina */
+async function pvTrancaStr(pid,invId,sid,trancada){
+  try{ await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({plant_id:pid,inv_id:invId,string:sid,trancada})}); }catch(e){}
+  try{ const d=await fetch('/api/plant/'+pid).then(r=>r.json()); pvCache[pid]=d.inversores||[]; }catch(e){}
+  renderPvStr();
+}
+/* Chip de string com checkbox de trancar + cor por estado (SunOp/PG). src='so'|'pg' */
+const _SCLS={trancada:'s-trancada',sem_corrente:'s-sem',baixa_perf:'s-baixa',ativa:'s-ativa',inativa:'s-inativa'};
+const _SLBL={trancada:'trancada (sem string conectada)',sem_corrente:'sem corrente (0 A)',baixa_perf:'baixa performance (<60% da mediana)',ativa:'ativa',inativa:'inativa (inversor parado)'};
+function _strChipSimple(s,src,pid,invId,cid){
+  const st=s.status||(s.ativa?'ativa':'inativa'), cls=_SCLS[st]||'s-inativa';
+  const v=(s.unidade==='W')?Math.round(s.corrente).toLocaleString('pt-BR')+' W':s.corrente.toFixed(2)+' A';
+  const n=(''+s.id).replace(/\D/g,'')||'0';
+  const hov = cid ? ` data-cid="${cid}" data-n="${n}" onmouseenter="pvCurvaHi('${cid}',${n},1)" onmouseleave="pvCurvaHi('${cid}',${n},0)" onclick="pvCurvaToggle('${cid}',${n},this)"` : '';
+  return `<div class="string-chip ${cls}"${hov} style="cursor:pointer" title="${s.id}: ${v} · ${_SLBL[st]||st}${cid?' · clique p/ ocultar no gráfico':''}">`
+    +`<label onclick="event.stopPropagation()" title="Trancar: string aberta/não conectada (MPPT sem string) — sai da contagem de ativas" style="display:flex;align-items:center;gap:2px;cursor:pointer;font-size:9px;color:#2563eb;margin-bottom:1px">`
+    +`<input type="checkbox" ${s.trancada?'checked':''} onchange="trancaStr('${src}','${pid}','${invId}','${s.id}',this.checked)" style="margin:0;width:11px;height:11px;cursor:pointer">🔒</label>`
+    +`<span class="s-id">${s.id}</span><span class="s-val">${v}</span></div>`;
+}
+async function trancaStr(src,pid,invId,sid,trancada){
+  try{ await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({plant_id:pid,inv_id:invId,string:sid,trancada})}); }catch(e){}
+  const ep=src==='so'?'/api/sunop/plant/':src==='pg'?'/api/pg/plant/':'/api/plant/';
+  const cache=src==='so'?soCache:src==='pg'?pgCache:pvCache;
+  const rend=src==='so'?renderSoStr:src==='pg'?renderPgStr:renderPvStr;
+  try{ const d=await fetch(ep+encodeURIComponent(pid)).then(r=>r.json()); cache[pid]=d.inversores||[]; }catch(e){}
+  rend();
+}
 const _pvCurvaCache={}, _pvCurvaState={};
 function _pvIso2Br(s){ if(!s)return ''; const p=s.split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:s; }
 async function pvCurvaInv(pid,invId,invNome,cid,reload){
@@ -1751,8 +1861,20 @@ async function pvCurvaInv(pid,invId,invNome,cid,reload){
   const dataBR=dt?_pvIso2Br(dt):_spvDataBR();
   const ckey=pid+'|'+dataBR;
   if(reload||!_pvCurvaCache[ckey]){
-    try{ _pvCurvaCache[ckey]=await fetch(`/api/spv/usina/${pid}?full=1&data=${encodeURIComponent(dataBR)}`).then(r=>r.json()); }
-    catch(e){ _pvCurvaCache[ckey]={inversores:[]}; }
+    try{
+      const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
+      const r=await fetch(`/api/spv/usina/${pid}?full=1&data=${encodeURIComponent(dataBR)}`,{signal:ctrl.signal});
+      clearTimeout(tmo);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const j=await r.json();
+      if(j&&j.error) throw new Error(j.error);
+      _pvCurvaCache[ckey]=j;
+    }catch(e){
+      delete _pvCurvaCache[ckey];   // NÃO cacheia falha → clicar de novo re-tenta de verdade
+      box.innerHTML=`<p style="color:#dc2626;padding:16px;font-size:12px">Não consegui carregar a curva (${e.name==='AbortError'?'demorou demais — a API PV pode estar lenta agora':e.message}). Clique de novo em "Curva do dia" para tentar.</p>`;
+      if(pres)pres.style.display='none';
+      return;
+    }
   }
   // Match pela identidade canônica do BD_Performance (nome do Equipamento), não pelo id cru
   const _nz=v=>String(v||'').replace(/['"\\]/g,'').trim().toLowerCase();
@@ -1922,18 +2044,61 @@ function appendSoInvs(tb,pid,invs){
       <td style="${sty}">${txt}</td><td>—</td><td>${inv.temp!=null?inv.temp+'°C':'—'}</td>
       <td style="font-size:11px;color:var(--muted)">${leit}</td><td><span class="badge ${sc}">${st}</span></td>`;
     tr.addEventListener('click',e=>{e.stopPropagation();toggleSoInv(pid,inv,ik);});
-    insAfterSo(tb,pid,tr);if(isE)appendSoStrs(tb,pid,ik,inv.strings);
+    insAfterSo(tb,pid,tr);if(isE)appendSoStrs(tb,pid,ik,inv);
   });
 }
 function toggleSoInv(pid,inv,ik){
   if(soInvExp.has(ik)){soInvExp.delete(ik);document.querySelectorAll(`[data-sois="${ik}"]`).forEach(e=>e.remove());const t=document.querySelector(`[data-soik="${ik}"]`);if(t)t.querySelector('.chevron').classList.remove('open');return;}
   soInvExp.add(ik);const t=document.querySelector(`[data-soik="${ik}"]`);if(t)t.querySelector('.chevron').classList.add('open');
-  appendSoStrs(document.getElementById('so-tbody'),pid,ik,inv.strings);
+  appendSoStrs(document.getElementById('so-tbody'),pid,ik,inv);
 }
-function appendSoStrs(tb,pid,ik,strings){
+const _soCurvaCache={};
+async function soCurvaInv(pid,invId,invNome,cid,reload){
+  const box=document.getElementById(cid); if(!box)return;
+  const pres=document.getElementById(cid+'-presets');
+  if(!reload && box.style.display!=='none'){ box.style.display='none'; if(pres)pres.style.display='none'; return; }
+  box.style.display='';
+  box.innerHTML='<div class="gc-loading" style="min-height:200px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
+  const dt=document.getElementById(cid+'-data')?.value||_trkHoje();
+  const isHoje=dt===_trkHoje(); const ckey=pid+'|'+dt;
+  if(reload||!_soCurvaCache[ckey]){
+    try{
+      const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
+      const r=await fetch(`/api/sunop/curva/${encodeURIComponent(pid)}?data=${dt}`,{signal:ctrl.signal}); clearTimeout(tmo);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const j=await r.json(); if(j&&j.error) throw new Error(j.error);
+      _soCurvaCache[ckey]=j;
+    }catch(e){
+      delete _soCurvaCache[ckey];
+      box.innerHTML=`<p style="color:#dc2626;padding:16px;font-size:12px">Não consegui carregar a curva (${e.name==='AbortError'?'demorou demais — o SunOp pode estar lento':e.message}). Clique de novo para tentar.</p>`;
+      if(pres)pres.style.display='none'; return;
+    }
+  }
+  const iv=((_soCurvaCache[ckey].inversores)||[]).find(x=>String(x.id)===String(invId));
+  if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:16px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; if(pres)pres.style.display='none'; return; }
+  const sub=iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK';
+  box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:0 0 2px">${invNome} — corrente por string · med ${iv.mediana} (índice)${sub}</div><div id="${cid}-plot" style="width:100%;height:222px"></div>`;
+  if(pres)pres.style.display='inline-flex';
+  _spvPlotInto(document.getElementById(cid+'-plot'),iv,cid,isHoje);
+}
+function appendSoStrs(tb,pid,ik,inv){
   const tr=document.createElement('tr');tr.className='strings-row';tr.dataset.sop=pid;tr.dataset.sois=ik;
-  const chips=strings.map(s=>`<div class="string-chip ${s.ativa?'ativa':'inativa'}"><span class="s-id">${s.id}</span><span class="s-val">${s.corrente.toFixed(2)} A</span></div>`).join('');
-  tr.innerHTML=`<td colspan="9"><div class="strings-grid">${chips}</div></td>`;
+  const cid=`socurva-${(''+pid).replace(/[^a-zA-Z0-9]/g,'')}-${(''+inv.id).replace(/[^a-zA-Z0-9]/g,'')}`, nm=(inv.nome||'').replace(/['"\\]/g,'');
+  const chips=(inv.strings||[]).map(s=>_strChipSimple(s,'so',pid,inv.id,cid)).join('');
+  tr.innerHTML=`<td colspan="9">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="soCurvaInv('${pid}','${inv.id}','${nm}','${cid}')">📈 Curva do dia</button>
+        <label style="font-size:11px;color:var(--muted)">Data <input type="date" id="${cid}-data" value="${_trkHoje()}" onchange="soCurvaInv('${pid}','${inv.id}','${nm}','${cid}',true)" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
+        <span id="${cid}-presets" style="display:none;align-items:center;gap:4px;flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--muted)">| Mostrar:</span>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','todas')">Todas</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','nenhuma')">Nenhuma</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','ativas')">Só ativas</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','inativas')">Só inativas</button>
+        </span>
+      </div>
+      <div id="${cid}" style="display:none;width:100%;max-width:100%;height:250px;overflow:hidden;margin-bottom:10px"></div>
+      <div class="strings-grid">${chips}</div></td>`;
   const it=document.querySelector(`[data-soik="${ik}"]`);if(it&&it.nextSibling)tb.insertBefore(tr,it.nextSibling);else tb.appendChild(tr);
 }
 function insAfterSo(tb,pid,nr){
@@ -2127,18 +2292,61 @@ function appendPgInvs(tb,pid,invs){
       <td style="${sty}">${txt}</td><td>—</td><td>—</td>
       <td style="font-size:11px;color:var(--muted)">${leit}</td><td><span class="badge ${sc}">${st}</span></td>`;
     tr.addEventListener('click',e=>{e.stopPropagation();togglePgInv(pid,inv,ik);});
-    insAfterPg(tb,pid,tr);if(isE)appendPgStrs(tb,pid,ik,inv.strings);
+    insAfterPg(tb,pid,tr);if(isE)appendPgStrs(tb,pid,ik,inv);
   });
 }
 function togglePgInv(pid,inv,ik){
   if(pgInvExp.has(ik)){pgInvExp.delete(ik);document.querySelectorAll(`[data-pgis="${ik}"]`).forEach(e=>e.remove());const t=document.querySelector(`[data-pgik="${ik}"]`);if(t)t.querySelector('.chevron').classList.remove('open');return;}
   pgInvExp.add(ik);const t=document.querySelector(`[data-pgik="${ik}"]`);if(t)t.querySelector('.chevron').classList.add('open');
-  appendPgStrs(document.getElementById('pg-tbody'),pid,ik,inv.strings);
+  appendPgStrs(document.getElementById('pg-tbody'),pid,ik,inv);
 }
-function appendPgStrs(tb,pid,ik,strings){
+const _pgCurvaCache={};
+async function pgCurvaInv(pid,invId,invNome,cid,reload){
+  const box=document.getElementById(cid); if(!box)return;
+  const pres=document.getElementById(cid+'-presets');
+  if(!reload && box.style.display!=='none'){ box.style.display='none'; if(pres)pres.style.display='none'; return; }
+  box.style.display='';
+  box.innerHTML='<div class="gc-loading" style="min-height:200px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
+  const dt=document.getElementById(cid+'-data')?.value||_trkHoje();
+  const isHoje=dt===_trkHoje(); const ckey=pid+'|'+dt;
+  if(reload||!_pgCurvaCache[ckey]){
+    try{
+      const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
+      const r=await fetch(`/api/pg/curva/${pid}?data=${dt}`,{signal:ctrl.signal}); clearTimeout(tmo);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      const j=await r.json(); if(j&&j.error) throw new Error(j.error);
+      _pgCurvaCache[ckey]=j;
+    }catch(e){
+      delete _pgCurvaCache[ckey];
+      box.innerHTML=`<p style="color:#dc2626;padding:16px;font-size:12px">Não consegui carregar a curva (${e.name==='AbortError'?'demorou demais — o banco pode estar lento':e.message}). Clique de novo para tentar.</p>`;
+      if(pres)pres.style.display='none'; return;
+    }
+  }
+  const iv=((_pgCurvaCache[ckey].inversores)||[]).find(x=>String(x.id)===String(invId));
+  if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:16px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; if(pres)pres.style.display='none'; return; }
+  const sub=iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK';
+  box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:0 0 2px">${invNome} — corrente por string · med ${iv.mediana} (índice)${sub}</div><div id="${cid}-plot" style="width:100%;height:222px"></div>`;
+  if(pres)pres.style.display='inline-flex';
+  _spvPlotInto(document.getElementById(cid+'-plot'),iv,cid,isHoje);
+}
+function appendPgStrs(tb,pid,ik,inv){
   const tr=document.createElement('tr');tr.className='strings-row';tr.dataset.pgp=pid;tr.dataset.pgis=ik;
-  const chips=strings.map(s=>`<div class="string-chip ${s.ativa?'ativa':'inativa'}"><span class="s-id">${s.id}</span><span class="s-val">${s.corrente.toFixed(2)} A</span></div>`).join('');
-  tr.innerHTML=`<td colspan="9"><div class="strings-grid">${chips}</div></td>`;
+  const cid=`pgcurva-${pid}-${inv.id}`, nm=(inv.nome||'').replace(/['"\\]/g,'');
+  const chips=(inv.strings||[]).map(s=>_strChipSimple(s,'pg',pid,inv.id,cid)).join('');
+  tr.innerHTML=`<td colspan="9">
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
+        <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="pgCurvaInv(${pid},${inv.id},'${nm}','${cid}')">📈 Curva do dia</button>
+        <label style="font-size:11px;color:var(--muted)">Data <input type="date" id="${cid}-data" value="${_trkHoje()}" onchange="pgCurvaInv(${pid},${inv.id},'${nm}','${cid}',true)" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
+        <span id="${cid}-presets" style="display:none;align-items:center;gap:4px;flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--muted)">| Mostrar:</span>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','todas')">Todas</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','nenhuma')">Nenhuma</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','ativas')">Só ativas</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="pvCurvaPreset('${cid}','inativas')">Só inativas</button>
+        </span>
+      </div>
+      <div id="${cid}" style="display:none;width:100%;max-width:100%;height:250px;overflow:hidden;margin-bottom:10px"></div>
+      <div class="strings-grid">${chips}</div></td>`;
   const it=document.querySelector(`[data-pgik="${ik}"]`);if(it&&it.nextSibling)tb.insertBefore(tr,it.nextSibling);else tb.appendChild(tr);
 }
 function insAfterPg(tb,pid,nr){
@@ -2396,7 +2604,7 @@ function renderSoTrackers(){
       <td style="color:${r.leves?'#b45309':'inherit'}">${r.leves}</td>
       <td style="color:${r.fora_media?'#1d4ed8':'inherit'}">${r.fora_media}</td>
       <td style="color:${r.normalizados?'#2563eb':'var(--muted)'};font-weight:${r.normalizados?700:400}" title="normais no tempo real, mas ainda na planilha como problema">${r.normalizados!=null?r.normalizados:'—'}</td>
-      <td>${r.pior_disparidade!=null?r.pior_disparidade.toFixed(1)+'°':'—'}</td>
+      <td>${r.desvio_medio!=null?r.desvio_medio.toFixed(1)+'°':'—'}</td>
       <td>${r.ultima_leitura?r.ultima_leitura.slice(11,16):'—'}</td>
       <td>${_trkBadge(r)}</td>`;
     tr.addEventListener('click',()=>{exp?trkExp.delete(r.plant_id):trkExp.add(r.plant_id);renderSoTrackers();});
@@ -2597,7 +2805,10 @@ async function abrirGraficoEtm(pid, usina, src, est){
   area.innerHTML='<div class="gc-loading" style="min-height:380px"><div class="gc-spinner"></div><p>Carregando curva do dia...</p></div>';
   try{
     const d=await fetch(url).then(r=>r.json());
-    const mk=(nome,arr,cor)=>({x:d.labels,y:arr,name:nome,type:'scatter',mode:'lines',line:{color:cor,width:2},connectgaps:false});
+    // Eixo X fixo de 06:00 às 18:00: mapeia "HH:MM" p/ datetime de um dia fictício
+    // e fixa o range, pra todos os gráficos de ETM começarem e terminarem no mesmo horário.
+    const xdt=(d.labels||[]).map(t=>'2000-01-01 '+t);
+    const mk=(nome,arr,cor)=>({x:xdt,y:arr,name:nome,type:'scatter',mode:'lines',line:{color:cor,width:2},connectgaps:false});
     const traces=[];
     if(d.poa  && d.poa.some(v=>v!=null))   traces.push(mk('POA',   d.poa,  '#5a8a00'));
     if(d.ghi  && d.ghi.some(v=>v!=null))   traces.push(mk('GHI',   d.ghi,  '#3b82f6'));
@@ -2606,7 +2817,8 @@ async function abrirGraficoEtm(pid, usina, src, est){
     if(!traces.length){area.innerHTML='<p style="text-align:center;color:var(--muted);padding:60px 0">Sem dados de irradiância para hoje.</p>';return;}
     Plotly.newPlot(area, traces, {
       margin:{t:10,r:14,b:42,l:54},
-      xaxis:{title:'Hora', tickfont:{size:10}, nticks:12},
+      xaxis:{title:'Hora', type:'date', range:['2000-01-01 06:00','2000-01-01 18:00'],
+             tickformat:'%H:%M', dtick:3600000, tickfont:{size:10}},
       yaxis:{title:'W/m²', rangemode:'tozero'},
       legend:{orientation:'h', y:1.12},
       font:{family:'Inter', size:11},
@@ -2777,24 +2989,40 @@ async function atualizarWatch(){
   }
 }
 
-/* ══ PR por inversor (string-box, API PV) ════════════════════════════════════ */
-let pvPrRows=[], pvPrDetail={}, pvPrExp=new Set();
-const PR_COR={severo:'#b91c1c',leve:'#d97706',ok:'#16a34a',sem_dados:'#9ca3af'};
+/* ══ PR por inversor (banco / BD_Thopen) ═════════════════════════════════════ */
+let pvPrRows=[], pvPrDetail={}, pvPrExp=new Set(), pvPrVisao='pr';
 function _prFmt(v){return v==null?'—':(v*100).toFixed(1)+'%';}
+function _gerFmt(v){return v==null?'—':Math.round(v).toLocaleString('pt-BR');}
+function _pvPrData(){
+  const el=document.getElementById('pvpr-data');
+  if(el&&!el.value){const d=new Date();d.setDate(d.getDate()-1);el.value=d.toISOString().slice(0,10);}
+  return el?el.value:'';
+}
+function pvPrSetVisao(v){
+  pvPrVisao=v;
+  const a=document.getElementById('pvpr-vis-pr'), b=document.getElementById('pvpr-vis-ger');
+  a.style.background=v==='pr'?'#16a34a':'#fff'; a.style.color=v==='pr'?'#fff':'#374151';
+  b.style.background=v==='geracao'?'#16a34a':'#fff'; b.style.color=v==='geracao'?'#fff':'#374151';
+  renderPvPr();
+}
+function _prBase(){ return primary==='sunop' ? '/api/sunop/pr' : '/api/pg/pr'; }
 async function loadPvPr(force){
+  const dia=_pvPrData();
+  const _base=_prBase(); if(_base!==window._pvPrSrc){ force=true; window._pvPrSrc=_base; }  // trocou de fonte → recarrega
   if(loaded.pvpr&&!force){renderPvPr();return;}
   loaded.pvpr=true;
+  const _f=document.getElementById('pvpr-fonte'); if(_f)_f.textContent = primary==='sunop' ? '— fonte: SunOp (Athon): EPD + POA do ETM' : '— fonte: banco (BD_Thopen)';
   document.getElementById('pvpr-cont').style.display='none';
   document.getElementById('pvpr-load').style.display='';
-  document.getElementById('pvpr-load').innerHTML='<div class="gc-spinner"></div><p>Calculando PR por inversor (API PV)... pode levar ~1 min na 1ª vez</p>';
+  document.getElementById('pvpr-load').innerHTML='<div class="gc-spinner"></div><p>Calculando PR por inversor...</p>';
   try{
-    const d=await fetch(force?'/api/pv/pr?force=1':'/api/pv/pr').then(r=>r.json());
+    const d=await fetch(_prBase()+'?date='+encodeURIComponent(dia)+(force?'&force=1':'')).then(r=>r.json());
     pvPrRows=d.rows||[]; pvPrDetail={}; if(force)pvPrExp.clear();
     document.getElementById('pvpr-usinas').textContent=d.summary.usinas;
     document.getElementById('pvpr-invs').textContent=d.summary.inversores;
     document.getElementById('pvpr-abaixo').textContent=d.summary.abaixo;
     document.getElementById('pvpr-sempot').textContent=d.summary.sem_pot;
-    document.getElementById('pvpr-upd').textContent='• '+(d.cache_ts||'');
+    document.getElementById('pvpr-upd').textContent='• '+(d.data||'')+' • '+(d.cache_ts||'');
     renderPvPr();
     document.getElementById('pvpr-load').style.display='none';
     document.getElementById('pvpr-cont').style.display='';
@@ -2806,43 +3034,152 @@ function renderPvPr(){
   let lista=pvPrRows.filter(r=>!f||(r.usina||'').toLowerCase().includes(f));
   if(soAl)lista=lista.filter(r=>r.abaixo);
   const tb=document.getElementById('pvpr-tbody');tb.innerHTML='';
-  if(!lista.length){tb.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px">Nenhuma usina string-box encontrada.</td></tr>';return;}
+  if(!lista.length){tb.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px">Nenhuma usina com dados neste dia.</td></tr>';return;}
   lista.forEach(r=>{
     const exp=pvPrExp.has(r.plant_id);
+    const selo=r.confiavel
+      ? '<span style="color:#16a34a" title="irradiância confiável">● confiável</span>'
+      : `<span style="color:#d97706" title="irradiância incompleta ou sensor com leitura baixa — PR absoluto pouco confiável; use a comparação entre inversores">▲ baixa${r.cobertura!=null?' ('+r.cobertura+'%)':''}</span>`;
+    const prTxt=r.confiavel?_prFmt(r.pr_mediana):`<span style="color:#9ca3af">${_prFmt(r.pr_mediana)}</span>`;
     const tr=document.createElement('tr');tr.className='plant-row';tr.style.cursor='pointer';
     tr.innerHTML=`<td>${exp?'▾':'▸'} <strong>${r.usina}</strong></td>
       <td>${r.total||0}</td>
-      <td>${_prFmt(r.pr)}</td>
-      <td>${_prFmt(r.pr_mediana)}</td>
       <td style="color:${r.abaixo?'#b91c1c':'inherit'};font-weight:${r.abaixo?700:400}">${r.abaixo||0}</td>
+      <td>${prTxt}</td>
+      <td>${_gerFmt(r.geracao_kwh)}</td>
       <td>${r.ipoa!=null?r.ipoa.toFixed(2):'—'}</td>
-      <td>${r.geracao_kwh!=null?Math.round(r.geracao_kwh).toLocaleString('pt-BR'):'—'}</td>
-      <td>${r.ultima_leitura?r.ultima_leitura.slice(11,16):'—'}</td>`;
+      <td style="font-size:11px">${selo}</td>`;
     tr.addEventListener('click',()=>{exp?pvPrExp.delete(r.plant_id):pvPrExp.add(r.plant_id);renderPvPr();});
     tb.appendChild(tr);
     if(exp){
       const det=document.createElement('tr');
-      det.innerHTML=`<td colspan="8" style="background:#fafbff;padding:8px 14px"><div id="pvpr-det-${r.plant_id}" style="color:var(--muted);font-size:12px">Carregando inversores...</div></td>`;
+      det.innerHTML=`<td colspan="7" style="background:#fafbff;padding:8px 14px"><div id="pvpr-det-${r.plant_id}" style="color:var(--muted);font-size:12px">Carregando inversores...</div></td>`;
       tb.appendChild(det);
-      renderPvPrDetail(r.plant_id);
+      renderPvPrDetail(r.plant_id, r);
     }
   });
 }
-async function renderPvPrDetail(pid){
+async function renderPvPrDetail(pid, row){
   let d=pvPrDetail[pid];
-  if(!d){try{d=await fetch('/api/pv/pr/'+pid).then(r=>r.json());pvPrDetail[pid]=d;}catch(e){d={inversores:[]};}}
+  if(!d){try{const dia=_pvPrData();d=await fetch(_prBase()+'/'+encodeURIComponent(pid)+'?date='+encodeURIComponent(dia)).then(r=>r.json());pvPrDetail[pid]=d;}catch(e){d={inversores:[]};}}
   const cell=document.getElementById('pvpr-det-'+pid);if(!cell)return;
-  const invs=d.inversores||[];
+  let invs=(d.inversores||[]).slice();
   if(!invs.length){cell.innerHTML='<span>Sem inversores.</span>';return;}
+  const ordem=document.getElementById('pvpr-ordem').value;
+  const val=i=>pvPrVisao==='pr'?i.pr:i.geracao_kwh;
+  const num=i=>parseInt((i.nome_api||'').replace(/\D+/g,''))||999;
+  if(ordem==='valor') invs.sort((a,b)=>((val(b)??-1)-(val(a)??-1)));
+  else                invs.sort((a,b)=>num(a)-num(b));
   const chips=invs.map(i=>{
-    const cor=PR_COR[i.status]||'#374151';
-    const pr=i.pr!=null?(i.pr*100).toFixed(1)+'%':'—';
-    const pot=i.pot_kwp!=null?i.pot_kwp+' kWp':'sem pot.';
+    const cor=i.abaixo?'#b91c1c':(val(i)==null?'#9ca3af':'#16a34a');
+    const txt=pvPrVisao==='pr'?(i.pr!=null?(i.pr*100).toFixed(1)+'%':'—'):(i.geracao_kwh!=null?Math.round(i.geracao_kwh)+' kWh':'—');
+    const pot=i.pot_kwp!=null?i.pot_kwp.toFixed(1)+' kWp':'sem pot.';
     return `<span style="border:1px solid ${cor};color:${cor};border-radius:8px;padding:3px 8px;font-size:11px;white-space:nowrap"
-      title="${i.id} · ${pot} · Eday ${i.eday!=null?i.eday+' kWh':'—'} · ${i.ipv} string(s) · PR ${pr}">${i.id}: <b>${pr}</b></span>`;
+      title="${i.nome} · ${pot} · Geração ${i.geracao_kwh!=null?Math.round(i.geracao_kwh)+' kWh':'—'} · PR ${i.pr!=null?(i.pr*100).toFixed(1)+'%':'—'}${i.abaixo?' · ABAIXO DA MEDIANA':''}">${i.nome}: <b>${txt}</b></span>`;
   }).join('');
-  cell.innerHTML=`<div style="margin-bottom:6px;font-size:11px">IPOA <b>${d.ipoa!=null?d.ipoa+' kWh/m²':'—'}</b> · PR usina <b>${d.pr!=null?(d.pr*100).toFixed(1)+'%':'—'}</b> · mediana ${d.pr_mediana!=null?(d.pr_mediana*100).toFixed(1)+'%':'—'} <span style="color:#9ca3af">(borda vermelha = abaixo da mediana)</span></div>`
+  const med=pvPrVisao==='pr'?(row&&row.pr_mediana!=null?(row.pr_mediana*100).toFixed(1)+'%':'—'):'—';
+  const aviso=row&&!row.confiavel?' <span style="color:#d97706">— irradiância pouco confiável: confie na comparação entre inversores, não no PR absoluto</span>':'';
+  cell.innerHTML=`<div style="margin-bottom:6px;font-size:11px">IPOA <b>${(row&&row.ipoa!=null)?row.ipoa+' kWh/m²':'—'}</b> · PR mediana <b>${med}</b> · visão <b>${pvPrVisao==='pr'?'PR':'Geração'}</b> <span style="color:#9ca3af">(borda vermelha = abaixo da mediana da usina)</span>${aviso}</div>`
     +`<div style="display:flex;flex-wrap:wrap;gap:6px">${chips}</div>`;
+}
+
+/* ══ Curva das strings (genérica: SunOp/Athon e PG/Thopen) ═══════════════════ */
+let curvagenRows=[], curvagenCache={}, curvagenExp=new Set();
+function _curvagenSrc(){ return primary==='sunop'?'sunop':'pg'; }
+function _curvagenData(){ const el=document.getElementById('curvagen-data'); if(el&&!el.value){el.value=new Date().toISOString().slice(0,10);} return el?el.value:''; }
+async function loadCurvaGen(force){
+  const src=_curvagenSrc(); _curvagenData();
+  const fEl=document.getElementById('curvagen-fonte'); if(fEl)fEl.textContent = src==='sunop'?'— SunOp (Athon)':'— Banco (BD_Thopen)';
+  if(window._curvagenLastSrc!==src){ force=true; window._curvagenLastSrc=src; curvagenExp.clear(); curvagenCache={}; }  // trocou de fonte → recarrega
+  if(loaded.curvagen&&!force){renderCurvaGen();return;}
+  loaded.curvagen=true;
+  document.getElementById('curvagen-cont').style.display='none';
+  document.getElementById('curvagen-load').style.display='';
+  try{
+    const ep = src==='sunop'?'/api/sunop/data':'/api/pg/data';
+    const d=await fetch(force?ep+'?force=1':ep).then(r=>r.json());
+    curvagenRows=(d.rows||[]).filter(r=>!r.sem_dados);
+    document.getElementById('curvagen-upd').textContent='• '+curvagenRows.length+' usinas';
+    renderCurvaGen();
+    document.getElementById('curvagen-load').style.display='none';
+    document.getElementById('curvagen-cont').style.display='';
+  }catch(e){document.getElementById('curvagen-load').innerHTML='<p style="color:#dc2626">Erro: '+e+'</p>';}
+}
+function renderCurvaGen(){
+  const f=(document.getElementById('curvagen-filtro').value||'').toLowerCase();
+  const cont=document.getElementById('curvagen-cont'); if(!cont)return; cont.innerHTML='';
+  const lista=curvagenRows.filter(r=>!f||(r.usina||'').toLowerCase().includes(f));
+  if(!lista.length){cont.innerHTML='<p style="color:var(--muted);padding:20px;text-align:center">Nenhuma usina.</p>';return;}
+  lista.forEach(r=>{
+    const exp=curvagenExp.has(r.plant_id);
+    const row=document.createElement('div');
+    row.style.cssText='border:1px solid #e6e9f0;border-radius:8px;margin-bottom:8px;background:#fff;overflow:hidden';
+    const head=document.createElement('div');
+    head.style.cssText='padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;font-weight:600;color:#16192a';
+    head.innerHTML=`<span>${exp?'▾':'▸'}</span> ${r.usina}`;
+    head.addEventListener('click',()=>{exp?curvagenExp.delete(r.plant_id):curvagenExp.add(r.plant_id);renderCurvaGen();});
+    row.appendChild(head);
+    if(exp){
+      const body=document.createElement('div'); body.style.cssText='padding:0 14px 12px'; body.id='curvagen-body-'+r.plant_id;
+      body.innerHTML='<div class="gc-loading" style="min-height:110px"><div class="gc-spinner"></div><p>Carregando curvas...</p></div>';
+      row.appendChild(body);
+      renderCurvaGenUsina(r.plant_id);
+    }
+    cont.appendChild(row);
+  });
+}
+async function renderCurvaGenUsina(pid){
+  const src=_curvagenSrc(), el=document.getElementById('curvagen-body-'+pid); if(!el)return;
+  // lista LEVE de inversores (drill-down) — sem carregar nenhuma curva ainda
+  let det=curvagenCache['det|'+src+'|'+pid];
+  if(!det){
+    try{
+      const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
+      const ep=src==='sunop'?'/api/sunop/plant/':'/api/pg/plant/';
+      const r=await fetch(ep+encodeURIComponent(pid),{signal:ctrl.signal}); clearTimeout(tmo);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      det=await r.json(); curvagenCache['det|'+src+'|'+pid]=det;
+    }catch(e){ el.innerHTML=`<p style="color:#dc2626;padding:10px;font-size:12px">Não consegui listar os inversores (${e.name==='AbortError'?'demorou demais':e.message}).</p>`; return; }
+  }
+  const soAb=document.getElementById('curvagen-soabaixo').checked;
+  let invs=(det.inversores||[]);
+  if(soAb) invs=invs.filter(iv=>(iv.diferenca!=null && iv.diferenca<0));
+  if(!invs.length){ el.innerHTML='<p style="color:var(--muted);padding:10px;font-size:12px">'+(soAb?'Nenhum inversor com strings faltando.':'Sem inversores.')+'</p>'; return; }
+  el.innerHTML=invs.map(iv=>{
+    const cid='cg-'+(''+pid).replace(/[^a-zA-Z0-9]/g,'')+'-'+(''+iv.id).replace(/[^a-zA-Z0-9]/g,'');
+    const dif=(iv.diferenca!=null&&iv.diferenca<0)?` <span style="color:#dc2626;font-weight:700" title="strings faltando vs esperado">${iv.diferenca}</span>`:'';
+    const nm=(iv.nome||'').replace(/['"\\]/g,'');
+    return `<div style="border-top:1px solid #f0f2ed;padding:7px 0">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="curvagenInvCurva('${pid}','${iv.id}','${nm}','${cid}')">📈 Curva</button>
+        <b style="font-size:12px;color:#16192a">${iv.nome}</b>
+        <span style="font-size:11px;color:var(--muted)">${iv.strings_ativas!=null?iv.strings_ativas:'—'}/${iv.total_strings!=null?iv.total_strings:'—'} ativas${dif}</span>
+      </div>
+      <div id="${cid}-box" style="display:none;margin-top:6px"></div>
+    </div>`;
+  }).join('');
+}
+async function curvagenInvCurva(pid,invId,invNome,cid,reload){
+  const src=_curvagenSrc(), box=document.getElementById(cid+'-box'); if(!box)return;
+  if(!reload && box.style.display!=='none'){ box.style.display='none'; return; }
+  box.style.display='';
+  box.innerHTML='<div class="gc-loading" style="min-height:110px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
+  const dia=_curvagenData(), ckey=src+'|'+pid+'|'+invId+'|'+dia;
+  let d=curvagenCache[ckey];
+  if(!d){
+    try{
+      const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
+      const r=await fetch(`/api/${src}/curva/${encodeURIComponent(pid)}?inv=${encodeURIComponent(invId)}&data=${dia}`,{signal:ctrl.signal}); clearTimeout(tmo);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      d=await r.json(); if(d&&d.error) throw new Error(d.error);
+      curvagenCache[ckey]=d;
+    }catch(e){ box.innerHTML=`<p style="color:#dc2626;padding:8px;font-size:12px">Não consegui carregar (${e.name==='AbortError'?'demorou demais — clique de novo':e.message}).</p>`; return; }
+  }
+  const iv=(d.inversores||[]).find(x=>String(x.id)===String(invId)) || (d.inversores||[])[0];
+  if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:8px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; return; }
+  const sub=iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK';
+  box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:0 0 2px">${invNome} — corrente por string · med ${iv.mediana} (índice)${sub}</div><div id="${cid}-plot" style="width:100%;max-width:560px;height:210px"></div>`;
+  _spvPlotInto(document.getElementById(cid+'-plot'),iv,cid,true);
 }
 
 /* ══ Strings (API PV Plataforma) — curva diária por inversor ═════════════════ */
@@ -3034,7 +3371,8 @@ async function exportSpvPdf(){
   if(upd)upd.textContent=`Gerando PDF de ${spvSel.size} usina(s) — carrega ao vivo, pode levar um tempo proporcional...`;
   try{
     const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),600000); // 10 min
-    const r=await fetch(`/api/spv/pdf?data=${encodeURIComponent(_spvDataBR())}&usinas=${usinas}`,{signal:ctrl.signal});
+    const soAb=document.getElementById('spv-soabaixo')?.checked?1:0;
+    const r=await fetch(`/api/spv/pdf?data=${encodeURIComponent(_spvDataBR())}&usinas=${usinas}&soabaixo=${soAb}`,{signal:ctrl.signal});
     clearTimeout(tmo);
     if(!r.ok){const j=await r.json().catch(()=>({}));if(upd)upd.textContent='⚠️ '+(j.error||('Erro '+r.status));return;}
     const blob=await r.blob();

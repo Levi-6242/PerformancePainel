@@ -25,12 +25,19 @@ tracker_issues.bak.json
 string_notas.json
 spv_stringbox.json
 sunop_etm_accum.json
+cache_snapshot.json
+cache_snapshot.json.tmp
 server.log
 *.log
 
 # ── Planilhas (dados internos da empresa — ficam no SharePoint/OneDrive) ──────
 *.xlsx
 *.xlsm
+
+# ── Logos: versiona só as cópias de nome limpo (grid-*.png); ignora os originais
+#    com acentos/espaços que o time dropar na pasta.
+static/logos/*.png
+!static/logos/grid-*.png
 
 # ── Ferramentas locais ────────────────────────────────────────────────────────
 .claude/

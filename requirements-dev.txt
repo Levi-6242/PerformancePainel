@@ -1,0 +1,4 @@
+# Dependencias de desenvolvimento/testes (NAO vao para producao).
+# Instala: pip install -r requirements-dev.txt
+-r requirements.txt
+pytest
