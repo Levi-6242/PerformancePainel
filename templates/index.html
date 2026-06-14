@@ -1829,10 +1829,12 @@ async function pvTrancaStr(pid,invId,sid,trancada){
 /* Chip de string com checkbox de trancar + cor por estado (SunOp/PG). src='so'|'pg' */
 const _SCLS={trancada:'s-trancada',sem_corrente:'s-sem',baixa_perf:'s-baixa',ativa:'s-ativa',inativa:'s-inativa'};
 const _SLBL={trancada:'trancada (sem string conectada)',sem_corrente:'sem corrente (0 A)',baixa_perf:'baixa performance (<60% da mediana)',ativa:'ativa',inativa:'inativa (inversor parado)'};
-function _strChipSimple(s,src,pid,invId){
+function _strChipSimple(s,src,pid,invId,cid){
   const st=s.status||(s.ativa?'ativa':'inativa'), cls=_SCLS[st]||'s-inativa';
   const v=(s.unidade==='W')?Math.round(s.corrente).toLocaleString('pt-BR')+' W':s.corrente.toFixed(2)+' A';
-  return `<div class="string-chip ${cls}" title="${s.id}: ${v} · ${_SLBL[st]||st}">`
+  const n=(''+s.id).replace(/\D/g,'')||'0';
+  const hov = cid ? ` data-cid="${cid}" data-n="${n}" onmouseenter="pvCurvaHi('${cid}',${n},1)" onmouseleave="pvCurvaHi('${cid}',${n},0)" onclick="pvCurvaToggle('${cid}',${n},this)"` : '';
+  return `<div class="string-chip ${cls}"${hov} style="cursor:pointer" title="${s.id}: ${v} · ${_SLBL[st]||st}${cid?' · clique p/ ocultar no gráfico':''}">`
     +`<label onclick="event.stopPropagation()" title="Trancar: string aberta/não conectada (MPPT sem string) — sai da contagem de ativas" style="display:flex;align-items:center;gap:2px;cursor:pointer;font-size:9px;color:#2563eb;margin-bottom:1px">`
     +`<input type="checkbox" ${s.trancada?'checked':''} onchange="trancaStr('${src}','${pid}','${invId}','${s.id}',this.checked)" style="margin:0;width:11px;height:11px;cursor:pointer">🔒</label>`
     +`<span class="s-id">${s.id}</span><span class="s-val">${v}</span></div>`;
@@ -2082,7 +2084,7 @@ async function soCurvaInv(pid,invId,invNome,cid,reload){
 function appendSoStrs(tb,pid,ik,inv){
   const tr=document.createElement('tr');tr.className='strings-row';tr.dataset.sop=pid;tr.dataset.sois=ik;
   const cid=`socurva-${(''+pid).replace(/[^a-zA-Z0-9]/g,'')}-${(''+inv.id).replace(/[^a-zA-Z0-9]/g,'')}`, nm=(inv.nome||'').replace(/['"\\]/g,'');
-  const chips=(inv.strings||[]).map(s=>_strChipSimple(s,'so',pid,inv.id)).join('');
+  const chips=(inv.strings||[]).map(s=>_strChipSimple(s,'so',pid,inv.id,cid)).join('');
   tr.innerHTML=`<td colspan="9">
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
         <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="soCurvaInv('${pid}','${inv.id}','${nm}','${cid}')">📈 Curva do dia</button>
@@ -2330,7 +2332,7 @@ async function pgCurvaInv(pid,invId,invNome,cid,reload){
 function appendPgStrs(tb,pid,ik,inv){
   const tr=document.createElement('tr');tr.className='strings-row';tr.dataset.pgp=pid;tr.dataset.pgis=ik;
   const cid=`pgcurva-${pid}-${inv.id}`, nm=(inv.nome||'').replace(/['"\\]/g,'');
-  const chips=(inv.strings||[]).map(s=>_strChipSimple(s,'pg',pid,inv.id)).join('');
+  const chips=(inv.strings||[]).map(s=>_strChipSimple(s,'pg',pid,inv.id,cid)).join('');
   tr.innerHTML=`<td colspan="9">
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
         <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="pgCurvaInv(${pid},${inv.id},'${nm}','${cid}')">📈 Curva do dia</button>
