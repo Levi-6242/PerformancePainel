@@ -2564,19 +2564,25 @@ def _sunop_analog_history(pathnames: list, start: str, end: str) -> dict:
     H = _sunop_headers()
     params = {"fill_missing": "false", "source": "Historical",
               "start_time": start, "end_time": end, "use_plant_timezone": "true"}
-    out = {}
-    for i in range(0, len(pathnames), 40):
-        batch = pathnames[i:i + 40]
+    batches = [pathnames[i:i + 40] for i in range(0, len(pathnames), 40)]
+
+    def _fetch(batch):
         try:
             r = _http().post(f"{SUNOP_DATA}/v2/analog_values", headers=H,
                               params=params, json={"pathnames": batch}, timeout=60)
-            if r.status_code == 200:
-                for rec in (r.json() or []):
-                    v = rec.get("value")
-                    if isinstance(v, (int, float)):
-                        out.setdefault(rec["pathname"], []).append((rec["timestamp"], v))
+            return r.json() or [] if r.status_code == 200 else []
         except Exception:
-            pass
+            return []
+
+    out = {}
+    # lotes em paralelo: 1 inversor já é ~28 paths (1 lote); a usina inteira eram ~18 lotes
+    # em série — o serial era o que deixava a curva do dia lenta.
+    with ThreadPoolExecutor(max_workers=min(6, len(batches) or 1)) as ex:
+        for recs in ex.map(_fetch, batches):
+            for rec in recs:
+                v = rec.get("value")
+                if isinstance(v, (int, float)):
+                    out.setdefault(rec["pathname"], []).append((rec["timestamp"], v))
     for p in out:
         out[p].sort()
     return out

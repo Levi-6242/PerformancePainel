@@ -2074,11 +2074,11 @@ async function soCurvaInv(pid,invId,invNome,cid,reload){
   box.style.display='';
   box.innerHTML='<div class="gc-loading" style="min-height:200px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
   const dt=document.getElementById(cid+'-data')?.value||_trkHoje();
-  const isHoje=dt===_trkHoje(); const ckey=pid+'|'+dt;
+  const isHoje=dt===_trkHoje(); const ckey=pid+'|'+invId+'|'+dt;   // por inversor: carrega só as strings dele (bem mais rápido)
   if(reload||!_soCurvaCache[ckey]){
     try{
       const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
-      const r=await fetch(`/api/sunop/curva/${encodeURIComponent(pid)}?data=${dt}`,{signal:ctrl.signal}); clearTimeout(tmo);
+      const r=await fetch(`/api/sunop/curva/${encodeURIComponent(pid)}?inv=${encodeURIComponent(invId)}&data=${dt}`,{signal:ctrl.signal}); clearTimeout(tmo);
       if(!r.ok) throw new Error('HTTP '+r.status);
       const j=await r.json(); if(j&&j.error) throw new Error(j.error);
       _soCurvaCache[ckey]=j;
@@ -2088,7 +2088,7 @@ async function soCurvaInv(pid,invId,invNome,cid,reload){
       if(pres)pres.style.display='none'; return;
     }
   }
-  const iv=((_soCurvaCache[ckey].inversores)||[]).find(x=>String(x.id)===String(invId));
+  const iv=((_soCurvaCache[ckey].inversores)||[]).find(x=>String(x.id)===String(invId))||(_soCurvaCache[ckey].inversores||[])[0];
   if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:16px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; if(pres)pres.style.display='none'; return; }
   const sub=iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK';
   box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:0 0 2px">${invNome} — corrente por string · med ${iv.mediana} (índice)${sub}</div><div id="${cid}-plot" style="width:100%;height:222px"></div>`;
