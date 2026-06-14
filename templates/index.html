@@ -3088,7 +3088,7 @@ function _curvagenData(){ const el=document.getElementById('curvagen-data'); if(
 async function loadCurvaGen(force){
   const src=_curvagenSrc(); _curvagenData();
   const fEl=document.getElementById('curvagen-fonte'); if(fEl)fEl.textContent = src==='sunop'?'— SunOp (Athon)':'— Banco (BD_Thopen)';
-  if(window._curvagenSrc!==src){ force=true; window._curvagenSrc=src; curvagenExp.clear(); curvagenCache={}; }
+  if(window._curvagenLastSrc!==src){ force=true; window._curvagenLastSrc=src; curvagenExp.clear(); curvagenCache={}; }  // trocou de fonte → recarrega
   if(loaded.curvagen&&!force){renderCurvaGen();return;}
   loaded.curvagen=true;
   document.getElementById('curvagen-cont').style.display='none';
@@ -3127,34 +3127,57 @@ function renderCurvaGen(){
   });
 }
 async function renderCurvaGenUsina(pid){
-  const src=_curvagenSrc(), dia=_curvagenData(), ckey=src+'|'+pid+'|'+dia;
+  const src=_curvagenSrc(), el=document.getElementById('curvagen-body-'+pid); if(!el)return;
+  // lista LEVE de inversores (drill-down) — sem carregar nenhuma curva ainda
+  let det=curvagenCache['det|'+src+'|'+pid];
+  if(!det){
+    try{
+      const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
+      const ep=src==='sunop'?'/api/sunop/plant/':'/api/pg/plant/';
+      const r=await fetch(ep+encodeURIComponent(pid),{signal:ctrl.signal}); clearTimeout(tmo);
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      det=await r.json(); curvagenCache['det|'+src+'|'+pid]=det;
+    }catch(e){ el.innerHTML=`<p style="color:#dc2626;padding:10px;font-size:12px">Não consegui listar os inversores (${e.name==='AbortError'?'demorou demais':e.message}).</p>`; return; }
+  }
+  const soAb=document.getElementById('curvagen-soabaixo').checked;
+  let invs=(det.inversores||[]);
+  if(soAb) invs=invs.filter(iv=>(iv.diferenca!=null && iv.diferenca<0));
+  if(!invs.length){ el.innerHTML='<p style="color:var(--muted);padding:10px;font-size:12px">'+(soAb?'Nenhum inversor com strings faltando.':'Sem inversores.')+'</p>'; return; }
+  el.innerHTML=invs.map(iv=>{
+    const cid='cg-'+(''+pid).replace(/[^a-zA-Z0-9]/g,'')+'-'+(''+iv.id).replace(/[^a-zA-Z0-9]/g,'');
+    const dif=(iv.diferenca!=null&&iv.diferenca<0)?` <span style="color:#dc2626;font-weight:700" title="strings faltando vs esperado">${iv.diferenca}</span>`:'';
+    const nm=(iv.nome||'').replace(/['"\\]/g,'');
+    return `<div style="border-top:1px solid #f0f2ed;padding:7px 0">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="curvagenInvCurva('${pid}','${iv.id}','${nm}','${cid}')">📈 Curva</button>
+        <b style="font-size:12px;color:#16192a">${iv.nome}</b>
+        <span style="font-size:11px;color:var(--muted)">${iv.strings_ativas!=null?iv.strings_ativas:'—'}/${iv.total_strings!=null?iv.total_strings:'—'} ativas${dif}</span>
+      </div>
+      <div id="${cid}-box" style="display:none;margin-top:6px"></div>
+    </div>`;
+  }).join('');
+}
+async function curvagenInvCurva(pid,invId,invNome,cid,reload){
+  const src=_curvagenSrc(), box=document.getElementById(cid+'-box'); if(!box)return;
+  if(!reload && box.style.display!=='none'){ box.style.display='none'; return; }
+  box.style.display='';
+  box.innerHTML='<div class="gc-loading" style="min-height:110px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
+  const dia=_curvagenData(), ckey=src+'|'+pid+'|'+invId+'|'+dia;
   let d=curvagenCache[ckey];
   if(!d){
     try{
       const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
-      const r=await fetch(`/api/${src}/curva/${encodeURIComponent(pid)}?data=${dia}`,{signal:ctrl.signal}); clearTimeout(tmo);
+      const r=await fetch(`/api/${src}/curva/${encodeURIComponent(pid)}?inv=${encodeURIComponent(invId)}&data=${dia}`,{signal:ctrl.signal}); clearTimeout(tmo);
       if(!r.ok) throw new Error('HTTP '+r.status);
       d=await r.json(); if(d&&d.error) throw new Error(d.error);
       curvagenCache[ckey]=d;
-    }catch(e){
-      const el=document.getElementById('curvagen-body-'+pid); if(el)el.innerHTML=`<p style="color:#dc2626;padding:10px;font-size:12px">Não consegui carregar (${e.name==='AbortError'?'demorou demais — clique na usina de novo':e.message}).</p>`;
-      return;
-    }
+    }catch(e){ box.innerHTML=`<p style="color:#dc2626;padding:8px;font-size:12px">Não consegui carregar (${e.name==='AbortError'?'demorou demais — clique de novo':e.message}).</p>`; return; }
   }
-  const el=document.getElementById('curvagen-body-'+pid); if(!el)return;
-  const soAb=document.getElementById('curvagen-soabaixo').checked;
-  let invs=(d.inversores||[]).filter(iv=>iv.curva&&Object.keys(iv.curva).length);
-  if(soAb) invs=invs.filter(iv=>iv.abaixo);
-  if(!invs.length){el.innerHTML='<p style="color:var(--muted);padding:10px;font-size:12px">Sem curvas para este dia'+(soAb?' (nenhum inversor abaixo)':' (sem geração/dados)')+'.</p>';return;}
-  el.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px">'+invs.map(iv=>{
-    const cid='cg-'+(''+pid).replace(/[^a-zA-Z0-9]/g,'')+'-'+(''+iv.id).replace(/[^a-zA-Z0-9]/g,'');
-    const sub=iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK';
-    return `<div style="border:1px solid #eef2f7;border-radius:8px;padding:8px"><div style="font-size:11px;color:var(--muted);margin-bottom:2px"><b>${iv.nome}</b> · med ${iv.mediana}${sub}</div><div id="${cid}" style="width:100%;height:200px"></div></div>`;
-  }).join('')+'</div>';
-  invs.forEach(iv=>{
-    const cid='cg-'+(''+pid).replace(/[^a-zA-Z0-9]/g,'')+'-'+(''+iv.id).replace(/[^a-zA-Z0-9]/g,'');
-    _spvPlotInto(document.getElementById(cid),iv,cid,true);
-  });
+  const iv=(d.inversores||[]).find(x=>String(x.id)===String(invId)) || (d.inversores||[])[0];
+  if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:8px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; return; }
+  const sub=iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK';
+  box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:0 0 2px">${invNome} — corrente por string · med ${iv.mediana} (índice)${sub}</div><div id="${cid}-plot" style="width:100%;max-width:560px;height:210px"></div>`;
+  _spvPlotInto(document.getElementById(cid+'-plot'),iv,cid,true);
 }
 
 /* ══ Strings (API PV Plataforma) — curva diária por inversor ═════════════════ */

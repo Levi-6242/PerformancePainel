@@ -2565,13 +2565,15 @@ def _sunop_analog_history(pathnames: list, start: str, end: str) -> dict:
 
 # ── SunOp: curva diária de corrente por string (botão "Curva do dia") ──────────
 #   Mesma FORMA do SPV (reusa _spvPlotInto). Fonte = histórico analógico das strings.
-def _sunop_strings_curva(plant_name: str, dia: str) -> dict:
+def _sunop_strings_curva(plant_name: str, dia: str, inv=None) -> dict:
     ensure_sunop_meta()
     meta = _sunop_meta.get(plant_name)
     if not meta:
         return {"plant_id": plant_name, "data": dia, "inversores": []}
-    allp = [p for paths in meta["inv_strings"].values() for p in paths]
-    hist = _sunop_analog_history(allp, f"{dia}T00:00:00", f"{dia}T23:59:59")
+    inv_strings = meta["inv_strings"]
+    nomes = [inv] if (inv and inv in inv_strings) else list(inv_strings.keys())
+    allp  = [p for n in nomes for p in inv_strings.get(n, [])]
+    hist  = _sunop_analog_history(allp, f"{dia}T00:00:00", f"{dia}T23:59:59")
 
     def _invnum(x):
         try: return int(x.split("_")[1])
@@ -2582,7 +2584,7 @@ def _sunop_strings_curva(plant_name: str, dia: str) -> dict:
         return int(t) if t.isdigit() else 999
 
     out = []
-    for inv_name in sorted(meta["inv_strings"].keys(), key=_invnum):
+    for inv_name in sorted(nomes, key=_invnum):
         soma, curva = {}, {}
         for p in sorted(meta["inv_strings"][inv_name], key=_pvnum):
             serie = hist.get(p, [])
@@ -2612,8 +2614,9 @@ def api_sunop_curva(plant_name):
     dia = (flask_request.args.get("data") or datetime.now().strftime("%Y-%m-%d")).strip()
     if re.match(r"^\d{2}/\d{2}/\d{4}$", dia):
         dia = datetime.strptime(dia, "%d/%m/%Y").strftime("%Y-%m-%d")
+    inv = (flask_request.args.get("inv") or "").strip() or None   # opcional: só um inversor (inv_name)
     try:
-        return jsonify(_sunop_strings_curva(plant_name, dia))
+        return jsonify(_sunop_strings_curva(plant_name, dia, inv))
     except Exception as e:
         return jsonify({"error": str(e), "inversores": []}), 500
 
@@ -3689,7 +3692,7 @@ def api_pg_plant(plant_id):
 #   Mesma FORMA do SPV (API PV) p/ reusar o plot do frontend (_spvPlotInto):
 #   por inversor → curva {ST_xx: {x,y}}, mediana da corrente integrada do dia e
 #   strings em subperformance (< SPV_SUB_FRAC da mediana). Fonte = stg_inverter_string_data.
-def _pg_strings_curva(plant_id: int, dia: str) -> dict:
+def _pg_strings_curva(plant_id: int, dia: str, inv=None) -> dict:
     sql = """
       SELECT s.device_id, d.device_name, p.name AS pname,
              s.string_number, s.timestamp, s.string_current
@@ -3697,10 +3700,11 @@ def _pg_strings_curva(plant_id: int, dia: str) -> dict:
       JOIN public.tb_devices d ON d.id = s.device_id
       LEFT JOIN public.tb_power_plants p ON p.id = s.power_plant_id
       WHERE s.power_plant_id = %(pid)s AND s.timestamp::date = %(dia)s
+        AND (%(inv)s IS NULL OR s.device_id = %(inv)s)
       ORDER BY s.device_id, s.string_number, s.timestamp
     """
     conn = _pg_conn(); cur = conn.cursor()
-    cur.execute(sql, {"pid": plant_id, "dia": dia})
+    cur.execute(sql, {"pid": plant_id, "dia": dia, "inv": inv})
     recs = cur.fetchall(); conn.close()
 
     sup, invs = "", {}
@@ -3742,8 +3746,9 @@ def api_pg_curva(plant_id):
     dia = (flask_request.args.get("data") or datetime.now().strftime("%Y-%m-%d")).strip()
     if re.match(r"^\d{2}/\d{2}/\d{4}$", dia):              # aceita dd/mm/aaaa
         dia = datetime.strptime(dia, "%d/%m/%Y").strftime("%Y-%m-%d")
+    inv = flask_request.args.get("inv", type=int)          # opcional: só um inversor (device_id)
     try:
-        return jsonify(_pg_strings_curva(plant_id, dia))
+        return jsonify(_pg_strings_curva(plant_id, dia, inv))
     except Exception as e:
         return jsonify({"error": str(e), "inversores": []}), 500
 
