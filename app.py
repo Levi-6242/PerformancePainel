@@ -1057,11 +1057,12 @@ def api_plant_detail(plant_id):
     except Exception:
         pass
 
-    # Registro mais recente por inversor
-    latest = {}
+    # Registro mais recente por inversor (+ todos os registros do dia p/ fallback de strings)
+    latest, by_inv = {}, {}
     for rec in records:
         inv_id = rec.get("idefinversor")
         ts     = rec.get("tsleitura_new", "")
+        by_inv.setdefault(inv_id, []).append(rec)
         if inv_id not in latest or ts > latest[inv_id]["tsleitura_new"]:
             latest[inv_id] = rec
 
@@ -1094,7 +1095,19 @@ def api_plant_detail(plant_id):
         if rec:
             cj = parse_cj(rec.get("conteudojson"))
             ipv_keys  = [k for k in sorted(cj.keys()) if k.startswith("Ipv") and isinstance(cj[k], (int, float))]
-            correntes = [cj[k] for k in ipv_keys]
+            scj = cj
+            # O ping mais recente às vezes vem só com Eday/Temp (sem Ipv). Pra um inversor que
+            # está gerando não aparecer "0/0" ao expandir, usa o registro mais recente do DIA
+            # que tenha corrente por string (dado real) — mantém Eday/Temp/leitura do último.
+            if not ipv_keys:
+                for prev in sorted(by_inv.get(inv_id, []),
+                                   key=lambda r: r.get("tsleitura_new", ""), reverse=True):
+                    pcj = parse_cj(prev.get("conteudojson"))
+                    pk  = [k for k in sorted(pcj.keys()) if k.startswith("Ipv") and isinstance(pcj[k], (int, float))]
+                    if pk:
+                        scj, ipv_keys = pcj, pk
+                        break
+            correntes = [scj[k] for k in ipv_keys]
             stt       = _classifica_strings(plant_id, inv_id, ipv_keys, correntes)
             strings   = [{"id": k, "corrente": c, "status": s,
                           "ativa": s in ("ativa", "baixa_perf"), "trancada": s == "trancada"}
@@ -1978,16 +1991,22 @@ def api_sunop_plant(plant_name):
         str_paths = meta["inv_strings"][inv_name]
         ids, correntes = [], []
         ts_inv = ""
+        n_real = 0      # quantas strings vieram com leitura numérica real (não o fallback 0 A)
         for p in sorted(str_paths,
                         key=lambda x: int(x.rsplit("I_PV", 1)[-1]) if x.rsplit("I_PV", 1)[-1].isdigit() else 999):
-            if p not in by_path:
-                continue
-            v  = by_path[p].get("value")
-            ts = by_path[p].get("timestamp", "")
+            d  = by_path.get(p) or {}
+            v  = d.get("value")
+            ts = d.get("timestamp", "")
             if ts > ts_inv:
                 ts_inv = ts
+            # Lista TODAS as strings conhecidas do inversor (metadata), mesmo sem leitura:
+            # valor real quando a API devolve, senão 0 A — assim um inversor sem geração
+            # ainda mostra suas strings (em 0 A) ao expandir, em vez de vir vazio.
+            ids.append(p.split(".")[-1])
             if isinstance(v, (int, float)):
-                ids.append(p.split(".")[-1]); correntes.append(v)
+                correntes.append(v); n_real += 1
+            else:
+                correntes.append(0.0)
         _st     = _classifica_strings(plant_name, inv_name, ids, correntes)
         strings = [{"id": i, "corrente": c, "status": s,
                     "ativa": s in ("ativa", "baixa_perf"), "trancada": s == "trancada"}
@@ -2001,7 +2020,7 @@ def api_sunop_plant(plant_name):
         temp       = _ov("TEMP_INT")
         eday       = _ov("EPD")
         str_ativas  = _str_ativas(_st)
-        desligado   = len(strings) == 0
+        desligado   = n_real == 0      # nenhuma leitura real → inversor desligado/sem comunicação
         # Strings esperadas vêm do BD_Performance/Equipamentos (ESPERADO_INV), igual à API PV
         str_esp_inv = ESPERADO_INV.get(plant_name, {}).get(inv_name)
         inv_diferenca = (str_ativas - str_esp_inv) if (str_esp_inv is not None and not desligado) else None
