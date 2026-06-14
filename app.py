@@ -3530,6 +3530,168 @@ def api_solaredge_plant(site_id):
     return jsonify({"plant_id": site_id, "inversores": inversores})
 
 
+# ── SolarEdge: PR por inversor (render-chart MONTH) ────────────────────────────
+#   UM render-chart por site já traz, junto, a energia diária de cada inversor (Wh)
+#   E a série "Global Irradiance" (W/m²) — sem precisar do generate-chart (que 500a
+#   no nível INVERTER). Para a data pedida pega-se o ponto diário (MONTH = 1 pt/dia,
+#   janela dos últimos ~31 dias, valor FECHADO de dias passados).
+#     IPOA (kWh/m²) = irr_diário × 0,25 / 1000   (validado: soma das 96 amostras 15min
+#                     do DAY == valor diário do MONTH).
+#     geração_inv (kWh) = ponto_diário (Wh) / 1000.
+#     PR_inv = geração ÷ (IPOA × potência_inv);  potência via Equipamentos (POWER_INV).
+#   Xavantina 2 e Colíder 2 não têm sensor → herdam a irradiância da co-localizada
+#   (Xavantina 1 / Colíder 1) pelo SE_IRR_MIRROR.
+SE_IRR_MIRROR = {"UFV Xavantina 2": "UFV Xavantina 1",
+                 "UFV Colider 2":   "UFV Colider 1"}
+_SE_SERIAL_RE = re.compile(r"\(([^)]+)\)\s*$")
+_se_pr_cache  = {}      # "YYYY-MM-DD" → {ts, summary, detail}
+_se_pr_lock   = threading.Lock()
+
+
+def _se_render_month(sid, serials):
+    """render-chart MONTH → highcharts.series (energia/inversor em Wh + Global Irradiance)."""
+    body = {"chartPeriodScale": "MONTH", "intervalIndex": 0,
+            "chartUri": "inverter-energy-generation",
+            "chartPopulation": {"siteId": int(sid), "populationType": "deviceList",
+                                "deviceType": "INVERTER", "deviceSerials": serials}}
+    try:
+        r = _http().post(
+            f"{SE_BASE}/services/cni/ui-api/pages/site/analysis/execute/site/{sid}/render-chart",
+            headers=_se_headers(), json=body, timeout=45)
+        if r.status_code != 200:
+            return None
+        return r.json().get("highcharts", {}).get("series", [])
+    except Exception:
+        return None
+
+
+def _ts_local_date(ms, tzname) -> str:
+    try:
+        tz = ZoneInfo(tzname) if (ZoneInfo and tzname) else timezone.utc
+    except Exception:
+        tz = timezone.utc
+    return datetime.fromtimestamp(ms / 1000, tz).date().isoformat()
+
+
+def _se_parse_month(series, tzname, dia):
+    """→ ({serial: geração_kWh_no_dia}, irr_valor_diário|None) para a data 'dia'."""
+    ger, irr = {}, None
+    for s in (series or []):
+        nm   = s.get("name", "")
+        data = s.get("data", []) or []
+        if "Irradiance" in nm:
+            for p in data:
+                if len(p) > 1 and p[1] is not None and _ts_local_date(p[0], tzname) == dia:
+                    irr = float(p[1]); break
+        elif nm.startswith("Energy Produced"):
+            m = _SE_SERIAL_RE.search(nm)
+            serial = m.group(1) if m else nm
+            for p in data:
+                if len(p) > 1 and p[1] is not None and _ts_local_date(p[0], tzname) == dia:
+                    ger[serial] = float(p[1]) / 1000.0; break
+    return ger, irr
+
+
+def _se_pr_build(dia: str):
+    sites = se_sites()
+
+    def _one(site):
+        sid, nome, tz = site["id"], site.get("nome"), site.get("timezone")
+        devs    = se_devices(sid)
+        invs    = [d for d in devs if d.get("deviceType") == "INVERTER"]
+        serials = [d["deviceSerial"] for d in invs]
+        ser2dev = {d["deviceSerial"]: d.get("deviceName", d["deviceSerial"]) for d in invs}
+        ger, irr = _se_parse_month(_se_render_month(sid, serials), tz, dia)
+        return nome, {"sid": sid, "sup": nome, "ser2dev": ser2dev, "ger": ger, "irr": irr}
+
+    raw = {}
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        for nome, info in ex.map(_one, sites):
+            raw[nome] = info
+
+    # irradiância espelhada para os sites sem sensor próprio
+    for nome, info in raw.items():
+        if info["irr"] is None and nome in SE_IRR_MIRROR:
+            src = raw.get(SE_IRR_MIRROR[nome])
+            if src:
+                info["irr"] = src["irr"]
+
+    summary, detail = [], {}
+    for nome, info in raw.items():
+        sup  = info["sup"]
+        ipoa = round(info["irr"] * 0.25 / 1000.0, 3) if info["irr"] else None
+        invs = []
+        for serial, kwh in info["ger"].items():
+            dev  = info["ser2dev"].get(serial, serial)
+            disp = (EQUIP_NAMES.get(sup, {}) or {}).get(dev, dev)
+            pot  = _pot_inv(sup, dev, disp)
+            pr   = round(kwh / (ipoa * pot), 3) if (kwh is not None and ipoa and pot) else None
+            invs.append({"id": serial, "nome": disp, "nome_api": dev,
+                         "geracao_kwh": round(kwh, 1) if kwh is not None else None,
+                         "pot_kwp": pot, "pr": pr})
+        invs.sort(key=lambda x: _pv_trk_num(x["nome_api"]))
+        prs = sorted(x["pr"] for x in invs if x["pr"] is not None)
+        med = prs[len(prs) // 2] if prs else None
+        lim = med * (1 - PR_REL_SEVERO) if med is not None else None
+        abaixo = 0
+        for x in invs:
+            x["abaixo"] = bool(x["pr"] is not None and lim is not None and x["pr"] < lim)
+            abaixo += 1 if x["abaixo"] else 0
+        # confiável p/ PR ABSOLUTO: tem irradiância (própria/espelhada) plausível e
+        # mediana fisicamente coerente (≤1,05); senão vale só a comparação relativa.
+        confiavel = bool(ipoa and ipoa >= 2.0 and med is not None and med <= 1.05)
+        detail[info["sid"]] = invs
+        summary.append({
+            "usina": USINA_DISPLAY.get(sup, sup), "plant_id": info["sid"],
+            "ipoa": ipoa, "pr_mediana": med,
+            "geracao_kwh": round(sum(x["geracao_kwh"] or 0 for x in invs), 1),
+            "total": len(invs), "abaixo": abaixo,
+            "sem_pot": sum(1 for x in invs if x["pot_kwp"] is None),
+            "cobertura": None, "confiavel": confiavel,
+        })
+    summary.sort(key=lambda x: (0 if x["confiavel"] else 1,
+                                0 if x["abaixo"] else 1, -(x["abaixo"] or 0), x["usina"]))
+    return summary, detail
+
+
+def _se_pr_get(dia: str, force=False):
+    agora = time.time()
+    with _se_pr_lock:
+        ent = _se_pr_cache.get(dia)
+        if not force and ent and (agora - ent["ts"]) < CACHE_TTL:
+            return ent["summary"], ent["detail"]
+        summary, detail = _se_pr_build(dia)
+        _se_pr_cache[dia] = {"ts": agora, "summary": summary, "detail": detail}
+        return summary, detail
+
+
+@app.route("/api/solaredge/pr")
+def api_solaredge_pr():
+    """Overview de PR por usina (SolarEdge/RenoGrid). Cada usina abre em PR por inversor."""
+    dia = _pr_dia_arg()
+    force = flask_request.args.get("force", "0") == "1"
+    try:
+        summary, _ = _se_pr_get(dia, force)
+    except Exception as e:
+        return jsonify({"error": str(e), "rows": [], "data": dia, "summary": {}}), 500
+    return jsonify({"rows": summary, "data": dia,
+                    "summary": {"usinas": len(summary),
+                                "inversores": sum(r["total"] for r in summary),
+                                "abaixo": sum(r["abaixo"] for r in summary),
+                                "sem_pot": sum(r["sem_pot"] for r in summary)},
+                    "cache_ts": datetime.now().strftime("%H:%M:%S")})
+
+
+@app.route("/api/solaredge/pr/<int:site_id>")
+def api_solaredge_pr_plant(site_id):
+    dia = _pr_dia_arg()
+    try:
+        _, detail = _se_pr_get(dia)
+    except Exception as e:
+        return jsonify({"error": str(e), "inversores": []}), 500
+    return jsonify({"plant_id": site_id, "data": dia, "inversores": detail.get(site_id, [])})
+
+
 # ── PostgreSQL (powerplants) ───────────────────────────────────────────────────
 PG_HOST = os.environ.get("PG_HOST", "")
 PG_PORT = int(os.environ.get("PG_PORT", "5432"))

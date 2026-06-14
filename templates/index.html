@@ -1462,7 +1462,7 @@ const pgExp=new Set(), pgInvExp=new Set(), pgCache={};
 
 /* ══ TABS ═══════════════════════════════════════════════════════════════════ */
 function _secsDisponiveis(t){
-  if(t==='solaredge') return ['strings'];        // SolarEdge só tem Strings
+  if(t==='solaredge') return ['pr'];             // RenoGrid: só PR por inversor (geração SolarEdge ÷ IPOA × kWp)
   if(t==='pg')        return ['strings','etm','pr','curvastr','geracao','trackers'];  // PG (Thopen): + PR + curva strings + geração + trackers
   if(t==='sunop')     return ['strings','etm','pr','curvastr','trackers']; // SunOp (Athon): + PR + curva strings + trackers
   if(t==='owen')      return ['strings','etm','trackers']; // E-mail: strings+etm+trackers
@@ -1485,7 +1485,7 @@ function _aplicaBarras(){
 function switchPrimary(t){
   primary=t;
   ['pv','sunop','solaredge','pg','owen'].forEach(x=>{const b=document.getElementById(`ptab-${x}`);if(b)b.classList.toggle('active',x===t);});
-  if(!_secsDisponiveis(t).includes(secondary)) secondary='strings';   // reseta se a sub-aba não existe na fonte
+  if(!_secsDisponiveis(t).includes(secondary)) secondary=_secsDisponiveis(t)[0]||'strings';   // reseta p/ a 1ª sub-aba da fonte
   _aplicaBarras();
   show();
 }
@@ -3011,13 +3011,13 @@ function pvPrSetVisao(v){
   b.style.background=v==='geracao'?'#16a34a':'#fff'; b.style.color=v==='geracao'?'#fff':'#374151';
   renderPvPr();
 }
-function _prBase(){ return primary==='sunop' ? '/api/sunop/pr' : '/api/pg/pr'; }
+function _prBase(){ return primary==='sunop' ? '/api/sunop/pr' : primary==='solaredge' ? '/api/solaredge/pr' : '/api/pg/pr'; }
 async function loadPvPr(force){
   const dia=_pvPrData();
   const _base=_prBase(); if(_base!==window._pvPrSrc){ force=true; window._pvPrSrc=_base; }  // trocou de fonte → recarrega
   if(loaded.pvpr&&!force){renderPvPr();return;}
   loaded.pvpr=true;
-  const _f=document.getElementById('pvpr-fonte'); if(_f)_f.textContent = primary==='sunop' ? '— fonte: SunOp (Athon): EPD + POA do ETM' : '— fonte: banco (BD_Thopen)';
+  const _f=document.getElementById('pvpr-fonte'); if(_f)_f.textContent = primary==='sunop' ? '— fonte: SunOp (Athon): EPD + POA do ETM' : primary==='solaredge' ? '— fonte: SolarEdge (RenoGrid): geração/inv + irradiância (render-chart)' : '— fonte: banco (BD_Thopen)';
   document.getElementById('pvpr-cont').style.display='none';
   document.getElementById('pvpr-load').style.display='';
   document.getElementById('pvpr-load').innerHTML='<div class="gc-spinner"></div><p>Calculando PR por inversor...</p>';
