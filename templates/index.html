@@ -319,6 +319,11 @@
     }
     @keyframes spin { to { transform: rotate(360deg) } }
     .gc-loading p { color: var(--muted); font-size: 13px }
+    /* barra de carregamento (indeterminada) — feedback visual durante a coleta */
+    .gc-loadbar { width: min(440px, 72%); height: 7px; background: #e5e7eb; border-radius: 4px; overflow: hidden; position: relative }
+    .gc-loadbar::before { content: ""; position: absolute; top: 0; left: -40%; height: 100%; width: 40%;
+                          border-radius: 4px; background: var(--green); animation: gcload 1.05s ease-in-out infinite }
+    @keyframes gcload { 0% { left: -40% } 100% { left: 100% } }
 
     /* ── STATS ───────────────────────────────────────────────────────────── */
     .gc-stats { display: grid; gap: 10px; margin-bottom: 16px }
@@ -833,6 +838,7 @@
     <div id="pvs-load" class="gc-loading">
       <div class="gc-spinner"></div>
       <p>Coletando dados das usinas...</p>
+      <div class="gc-loadbar"></div>
     </div>
     <div id="pvs-cont" style="display:none">
       <div class="gc-stats gc-stats-5">
@@ -1007,6 +1013,7 @@
     <div id="sos-load" class="gc-loading">
       <div class="gc-spinner"></div>
       <p>Coletando dados SunOp...</p>
+      <div class="gc-loadbar"></div>
     </div>
     <div id="sos-cont" style="display:none">
       <div class="gc-stats gc-stats-5">
@@ -1095,6 +1102,7 @@
     <div id="pgs-load" class="gc-loading">
       <div class="gc-spinner"></div>
       <p>Consultando banco PostgreSQL...</p>
+      <div class="gc-loadbar"></div>
     </div>
     <div id="pgs-cont" style="display:none">
       <div class="gc-stats gc-stats-5">
