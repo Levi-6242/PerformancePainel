@@ -5680,11 +5680,15 @@ def api_spv_pdf():
                     break
     except Exception:
         pass
-    # Logo da Grid no rodapé (horizontal, sobre branco)
+    # Logo da Grid no rodapé (horizontal, sobre branco) e no cabeçalho (branco, sobre azul)
     try:
         _logo = _mpimg.imread(os.path.join(_STATIC, "logos", "grid-h-verde-azul.png"))
     except Exception:
         _logo = None
+    try:
+        _logo_hdr = _mpimg.imread(os.path.join(_STATIC, "logos", "grid-h-branco.png"))
+    except Exception:
+        _logo_hdr = None
     plt.rcParams.update({
         "font.family": _pdf_font, "axes.edgecolor": "#cbd5e1", "axes.linewidth": 0.7,
         "axes.labelcolor": "#64748b", "xtick.color": "#94a3b8", "ytick.color": "#94a3b8",
@@ -5722,8 +5726,11 @@ def api_spv_pdf():
                 fig.text(0.028, 0.928, "Relatório de Strings  ·  corrente de cada string ao longo do dia",
                          color=HDR_LT, fontsize=8.5, va="center")
                 fig.text(0.975, 0.957, data, color="white", fontsize=11.5, fontweight="bold", ha="right", va="center")
-                fig.text(0.975, 0.930, f"{tot_abaixo} string(s) abaixo do esperado" if tot_abaixo else "Todas as strings dentro do esperado",
+                fig.text(0.975, 0.930, f"{tot_abaixo} string(s) abaixo das demais" if tot_abaixo else "Todas as strings OK",
                          color=HDR_LT, fontsize=9, ha="right", va="center")
+                # Logo Grid Co. centralizado no cabeçalho (branco sobre o azul)
+                if _logo_hdr is not None:
+                    _hax = fig.add_axes([0.44, 0.937, 0.12, 0.040]); _hax.axis("off"); _hax.imshow(_logo_hdr)
                 if len(invs) > CHUNK:
                     fig.text(0.5, 0.892, f"Inversores {ini+1}–{ini+len(grupo)} de {len(invs)}",
                              color="#94a3b8", fontsize=8, ha="center", style="italic")
@@ -5765,17 +5772,19 @@ def api_spv_pdf():
                         step = max(1, len(xs) // 4)
                         axc.set_xticks(range(0, len(xs), step)); axc.set_xticklabels(xs[::step], fontsize=6.5)
                     # ── Observações do inversor ──────────────────────────────
-                    status = f"Referência (mediana): {iv['mediana']}   ·   " + (f"{iv['abaixo']} abaixo" if iv["abaixo"] else "todas OK")
+                    _na = iv["abaixo"]
+                    status = (f"{_na} string{'s' if _na > 1 else ''} abaixo das demais" if _na else "Todas as strings OK")
                     axt.text(0, 1.0, status, transform=axt.transAxes, va="top", ha="left",
-                             fontsize=8, fontweight="bold", color=RED if iv["abaixo"] else OK)
-                    outs = ", ".join(f"{s['nome']}: {s['pct']}%" for s in iv["strings"] if s["sub"]) or "nenhuma"
+                             fontsize=8, fontweight="bold", color=RED if _na else OK)
+                    outs = ", ".join(f"{s['nome']}: {100 - s['pct']}% abaixo"
+                                     for s in iv["strings"] if s["sub"] and s.get("pct") is not None) or "nenhuma"
                     y = 0.80
-                    axt.text(0, y, "Strings abaixo (% da referência):", transform=axt.transAxes, va="top", fontsize=7,
+                    axt.text(0, y, "Strings abaixo das demais:", transform=axt.transAxes, va="top", fontsize=7,
                              fontweight="bold", color="#64748b"); y -= 0.115
                     for ln in textwrap.wrap(outs, Wtxt)[:3]:
                         axt.text(0, y, ln, transform=axt.transAxes, va="top", fontsize=6.8, color="#475569"); y -= 0.115
                     y -= 0.05
-                    axt.text(0, y, "Motivo (preenchido pela análise):", transform=axt.transAxes, va="top", fontsize=7,
+                    axt.text(0, y, "Motivo:", transform=axt.transAxes, va="top", fontsize=7,
                              fontweight="bold", color="#64748b"); y -= 0.115
                     for ln in textwrap.wrap(iv["nota"] or "sem observação registrada", Wtxt)[:3]:
                         axt.text(0, y, ln, transform=axt.transAxes, va="top", fontsize=6.8,
@@ -5787,7 +5796,7 @@ def api_spv_pdf():
                     _lax = fig.add_axes([0.028, 0.016, 0.12, 0.038]); _lax.axis("off"); _lax.imshow(_logo)
                 else:
                     fig.text(0.028, 0.036, "Grid Co.  ·  Monitoramento O&M", color="#94a3b8", fontsize=7.5, va="center")
-                fig.text(0.5, 0.036, "linha cinza = strings normais   ·   linha vermelha = string abaixo do esperado   ·   referência = mediana da corrente acumulada no dia",
+                fig.text(0.5, 0.036, "Cinza = strings normais   ·   Vermelha = string abaixo das demais do inversor   ·   critério: >10% abaixo da mediana (corrente acumulada no dia)",
                          color="#94a3b8", fontsize=7.5, ha="center", va="center")
                 fig.text(0.975, 0.036, f"Gerado em {agora}", color="#94a3b8", fontsize=7.5, ha="right", va="center")
                 pdf.savefig(fig, facecolor="white"); plt.close(fig)
