@@ -3103,10 +3103,15 @@ function _curvagenSrc(){ return primary==='sunop'?'sunop':'pg'; }
 function _curvagenData(){ const el=document.getElementById('curvagen-data'); if(el&&!el.value){el.value=new Date().toISOString().slice(0,10);} return el?el.value:''; }
 function curvagenSetData(){
   // A data só afeta as CURVAS, não a lista de usinas/inversores (que é "ao vivo").
-  // Limpa só os caches de curva (mantém os drill-downs 'det|') e re-renderiza — SEM
-  // force-rebuild da visão geral, que martelava o SunOp e travava a expansão.
+  // Limpa os caches de curva (mantém os drill-downs 'det|') e RECARREGA as curvas que
+  // já estão abertas para a data escolhida — cada uma com sua barra de carregamento —
+  // sem force-rebuild da visão geral (que martelava o SunOp e fazia esperar o dia atual).
   Object.keys(curvagenCache).forEach(k=>{ if(!k.startsWith('det|')) delete curvagenCache[k]; });
-  renderCurvaGen();
+  document.querySelectorAll('[id^="cg-"][id$="-box"]').forEach(box=>{
+    if(box.style.display!=='none' && box.dataset.pid){
+      curvagenInvCurva(box.dataset.pid, box.dataset.inv, box.dataset.nome, box.id.replace(/-box$/,''), true);
+    }
+  });
 }
 async function loadCurvaGen(force){
   const src=_curvagenSrc(); _curvagenData();
@@ -3188,6 +3193,8 @@ async function curvagenInvCurva(pid,invId,invNome,cid,reload){
   const src=_curvagenSrc(), box=document.getElementById(cid+'-box'); if(!box)return;
   if(!reload && box.style.display!=='none'){ box.style.display='none'; return; }
   box.style.display='';
+  // guarda os parâmetros p/ recarregar esta curva ao trocar a data (curvagenSetData)
+  box.dataset.pid=pid; box.dataset.inv=invId; box.dataset.nome=invNome;
   box.innerHTML='<div class="gc-loading" style="min-height:110px"><div class="gc-spinner"></div><p>Carregando curva...</p><div class="gc-loadbar"></div></div>';
   const dia=_curvagenData(), ckey=src+'|'+pid+'|'+invId+'|'+dia;
   let d=curvagenCache[ckey];
