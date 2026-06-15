@@ -1360,13 +1360,13 @@
         <p style="margin:2px 0 0;font-size:.8em;color:#888">Clique numa usina para ver a curva de corrente por string de cada inversor. Strings abaixo da mediana em vermelho. <span id="curvagen-upd"></span></p>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <label style="font-size:12px;color:var(--muted)">Data <input class="gc-bar-search" type="date" id="curvagen-data" style="width:auto" onchange="curvagenCache={};loadCurvaGen(true)"></label>
+        <label style="font-size:12px;color:var(--muted)">Data <input class="gc-bar-search" type="date" id="curvagen-data" style="width:auto" onchange="curvagenSetData()"></label>
         <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer" title="Mostra só inversores com string(s) abaixo da mediana"><input type="checkbox" id="curvagen-soabaixo" style="accent-color:#dc2626;cursor:pointer" onchange="renderCurvaGen()"> só com strings abaixo</label>
         <input class="gc-bar-search" type="text" id="curvagen-filtro" placeholder="🔍  Filtrar usina..." oninput="renderCurvaGen()">
         <button class="gc-btn-sm" style="background:#7c3aed;color:#fff;font-weight:600" onclick="loadCurvaGen(true)">↻ Atualizar</button>
       </div>
     </div>
-    <div id="curvagen-load" class="gc-loading"><div class="gc-spinner"></div><p>Carregando usinas...</p></div>
+    <div id="curvagen-load" class="gc-loading"><div class="gc-spinner"></div><p>Carregando usinas...</p><div class="gc-loadbar"></div></div>
     <div id="curvagen-cont" style="display:none"></div>
   </div>
 
@@ -3101,6 +3101,13 @@ async function renderPvPrDetail(pid, row){
 let curvagenRows=[], curvagenCache={}, curvagenExp=new Set();
 function _curvagenSrc(){ return primary==='sunop'?'sunop':'pg'; }
 function _curvagenData(){ const el=document.getElementById('curvagen-data'); if(el&&!el.value){el.value=new Date().toISOString().slice(0,10);} return el?el.value:''; }
+function curvagenSetData(){
+  // A data só afeta as CURVAS, não a lista de usinas/inversores (que é "ao vivo").
+  // Limpa só os caches de curva (mantém os drill-downs 'det|') e re-renderiza — SEM
+  // force-rebuild da visão geral, que martelava o SunOp e travava a expansão.
+  Object.keys(curvagenCache).forEach(k=>{ if(!k.startsWith('det|')) delete curvagenCache[k]; });
+  renderCurvaGen();
+}
 async function loadCurvaGen(force){
   const src=_curvagenSrc(); _curvagenData();
   const fEl=document.getElementById('curvagen-fonte'); if(fEl)fEl.textContent = src==='sunop'?'— SunOp (Athon)':'— Banco (BD_Thopen)';
@@ -3135,7 +3142,7 @@ function renderCurvaGen(){
     row.appendChild(head);
     if(exp){
       const body=document.createElement('div'); body.style.cssText='padding:0 14px 12px'; body.id='curvagen-body-'+r.plant_id;
-      body.innerHTML='<div class="gc-loading" style="min-height:110px"><div class="gc-spinner"></div><p>Carregando curvas...</p></div>';
+      body.innerHTML='<div class="gc-loading" style="min-height:110px"><div class="gc-spinner"></div><p>Carregando curvas...</p><div class="gc-loadbar"></div></div>';
       row.appendChild(body);
       renderCurvaGenUsina(r.plant_id);
     }
@@ -3143,7 +3150,10 @@ function renderCurvaGen(){
   });
 }
 async function renderCurvaGenUsina(pid){
-  const src=_curvagenSrc(), el=document.getElementById('curvagen-body-'+pid); if(!el)return;
+  const src=_curvagenSrc(); if(!document.getElementById('curvagen-body-'+pid))return;
+  const _body=()=>document.getElementById('curvagen-body-'+pid);   // re-busca sempre: o body pode
+  // ter sido recriado por um re-render enquanto o fetch estava em voo (evita escrever num nó
+  // solto e deixar o "Carregando curvas..." preso pra sempre).
   // lista LEVE de inversores (drill-down) — sem carregar nenhuma curva ainda
   let det=curvagenCache['det|'+src+'|'+pid];
   if(!det){
@@ -3153,8 +3163,9 @@ async function renderCurvaGenUsina(pid){
       const r=await fetch(ep+encodeURIComponent(pid),{signal:ctrl.signal}); clearTimeout(tmo);
       if(!r.ok) throw new Error('HTTP '+r.status);
       det=await r.json(); curvagenCache['det|'+src+'|'+pid]=det;
-    }catch(e){ el.innerHTML=`<p style="color:#dc2626;padding:10px;font-size:12px">Não consegui listar os inversores (${e.name==='AbortError'?'demorou demais':e.message}).</p>`; return; }
+    }catch(e){ const eb=_body(); if(eb)eb.innerHTML=`<p style="color:#dc2626;padding:10px;font-size:12px">Não consegui listar os inversores (${e.name==='AbortError'?'demorou demais':e.message}).</p>`; return; }
   }
+  const el=_body(); if(!el)return;
   const soAb=document.getElementById('curvagen-soabaixo').checked;
   let invs=(det.inversores||[]);
   if(soAb) invs=invs.filter(iv=>(iv.diferenca!=null && iv.diferenca<0));
@@ -3177,7 +3188,7 @@ async function curvagenInvCurva(pid,invId,invNome,cid,reload){
   const src=_curvagenSrc(), box=document.getElementById(cid+'-box'); if(!box)return;
   if(!reload && box.style.display!=='none'){ box.style.display='none'; return; }
   box.style.display='';
-  box.innerHTML='<div class="gc-loading" style="min-height:110px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
+  box.innerHTML='<div class="gc-loading" style="min-height:110px"><div class="gc-spinner"></div><p>Carregando curva...</p><div class="gc-loadbar"></div></div>';
   const dia=_curvagenData(), ckey=src+'|'+pid+'|'+invId+'|'+dia;
   let d=curvagenCache[ckey];
   if(!d){
