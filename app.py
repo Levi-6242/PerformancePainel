@@ -803,9 +803,27 @@ def get_token(force=False) -> str:
         return tok
 
 
-def get_plants(token: str) -> list:
-    r = _http().get(f"{BASE_URL}/plants", headers={"x-access-token": token}, timeout=30)
-    return r.json()
+_plants_cache = {"ts": 0.0, "data": None}   # lista de usinas (id/nome) — muda raramente
+_plants_lock  = threading.Lock()
+
+
+def get_plants(token: str, force=False) -> list:
+    """Lista de usinas da API PV, cacheada por CACHE_TTL. A relação de usinas muda
+    raramente, mas vários endpoints a consultam UMA VEZ POR USINA (a aba Curva das
+    strings rebaixava /plants ~108×, uma por usina, a cada abertura). O dado DENTRO de
+    cada usina segue buscado fresco nos outros endpoints — aqui só evitamos repetir o
+    download da lista inteira."""
+    now = time.time()
+    if not force and _plants_cache["data"] is not None and (now - _plants_cache["ts"]) < CACHE_TTL:
+        return _plants_cache["data"]
+    with _plants_lock:
+        if not force and _plants_cache["data"] is not None and (time.time() - _plants_cache["ts"]) < CACHE_TTL:
+            return _plants_cache["data"]
+        r = _http().get(f"{BASE_URL}/plants", headers={"x-access-token": token}, timeout=30)
+        data = r.json()
+        if isinstance(data, list) and data:        # só cacheia resposta válida e não vazia
+            _plants_cache["data"], _plants_cache["ts"] = data, time.time()
+        return data
 
 
 def parse_cj(raw) -> dict:
@@ -2634,14 +2652,24 @@ def _sunop_strings_curva(plant_name: str, dia: str, inv=None) -> dict:
     return {"plant_id": plant_name, "data": dia, "inversores": out}
 
 
+_sunop_curva_cache = {}   # (plant_name, dia, inv) -> {"ts", "payload"} — curva por inversor/dia
+
+
 @app.route("/api/sunop/curva/<plant_name>")
 def api_sunop_curva(plant_name):
     dia = (flask_request.args.get("data") or datetime.now().strftime("%Y-%m-%d")).strip()
     if re.match(r"^\d{2}/\d{2}/\d{4}$", dia):
         dia = datetime.strptime(dia, "%d/%m/%Y").strftime("%Y-%m-%d")
     inv = (flask_request.args.get("inv") or "").strip() or None   # opcional: só um inversor (inv_name)
+    force = flask_request.args.get("force", "0") == "1"
+    key = (plant_name, dia, inv)
+    ent = _sunop_curva_cache.get(key)
+    if ent and not force and (time.time() - ent["ts"]) < CACHE_TTL:
+        return jsonify(ent["payload"])
     try:
-        return jsonify(_sunop_strings_curva(plant_name, dia, inv))
+        payload = _sunop_strings_curva(plant_name, dia, inv)
+        _sunop_curva_cache[key] = {"ts": time.time(), "payload": payload}
+        return jsonify(payload)
     except Exception as e:
         return jsonify({"error": str(e), "inversores": []}), 500
 
