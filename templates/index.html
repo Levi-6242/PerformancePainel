@@ -3211,19 +3211,21 @@ function curvagenToggleCabine(pid, cab){
 function curvagenRenderCabine(pid, cab, lista){
   const box=document.getElementById('cgcab-'+(''+pid).replace(/[^a-zA-Z0-9]/g,'')+'-'+cab); if(!box)return;
   // 1) cards dos inversores (checkbox + container da curva) JÁ no DOM
-  box.innerHTML=lista.map(iv=>{
+  box.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px;padding:10px 0">'
+    + lista.map(iv=>{
     const cid='cg-'+(''+pid).replace(/[^a-zA-Z0-9]/g,'')+'-'+(''+iv.id).replace(/[^a-zA-Z0-9]/g,'');
     const nm=(iv.nome||'').replace(/['"\\]/g,'');
     const dif=(iv.diferenca!=null&&iv.diferenca<0)?` <span style="color:#dc2626;font-weight:700">${iv.diferenca}</span>`:'';
-    return `<div class="cg-inv" style="border-top:1px solid #f0f2ed;padding:7px 0">
-      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#16192a;cursor:pointer">
+    return `<div class="cg-inv" style="border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;background:#fff;min-width:0;overflow:hidden">
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:#16192a;cursor:pointer;margin-bottom:2px">
         <input type="checkbox" ${curvagenSel[cid]?'checked':''} onchange="curvagenToggleSel('${cid}','${nm}',this.checked)" style="cursor:pointer">
-        <b>${iv.nome}</b>
+        <strong>${iv.nome}</strong>
         <span style="font-size:11px;color:var(--muted);font-weight:400">${iv.strings_ativas!=null?iv.strings_ativas:'—'}/${iv.total_strings!=null?iv.total_strings:'—'} ativas${dif}</span>
       </label>
       <div id="${cid}-box" style="margin-top:6px"></div>
     </div>`;
-  }).join('');
+  }).join('')
+    + '</div>';
   // 2) com os boxes no DOM, carrega cada curva (aberta) — no máx. 3 por vez p/ não martelar a API
   let i=0;
   const next=async()=>{ while(i<lista.length){ const iv=lista[i++];
@@ -3272,8 +3274,10 @@ async function curvagenInvCurva(pid,invId,invNome,cid,reload){
   }
   const iv=(d.inversores||[]).find(x=>String(x.id)===String(invId)) || (d.inversores||[])[0];
   if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:8px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; return; }
-  const sub=iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK';
-  box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:0 0 2px">${invNome} — corrente por string · med ${iv.mediana} (índice)${sub}</div><div id="${cid}-plot" style="width:100%;max-width:560px;height:210px"></div>`;
+  const chips=(iv.strings||[]).map(s=>`<span title="índice de corrente: ${s.energia} (${s.pct}% da mediana)" style="font-size:10.5px;padding:2px 6px;border-radius:6px;white-space:nowrap;border:1px solid ${s.sub?'#dc2626':'#d1d5db'};color:${s.sub?'#dc2626':'#6b7280'};font-weight:${s.sub?700:400}">${s.nome}: ${s.pct}%</span>`).join(' ');
+  box.innerHTML=`<div style="font-size:11px;font-weight:600;color:${iv.abaixo?'#dc2626':'#16a34a'};margin:0 0 2px">${iv.abaixo?(iv.abaixo+' abaixo'):'OK'} · med ${iv.mediana} (índice)</div>`
+    +`<div id="${cid}-plot" style="width:100%;max-width:100%;height:200px;overflow:hidden"></div>`
+    +`<div style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0 0">${chips}</div>`;
   _spvPlotInto(document.getElementById(cid+'-plot'),iv,cid,true);
 }
 
