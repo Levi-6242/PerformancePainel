@@ -324,6 +324,13 @@
     .gc-loadbar::before { content: ""; position: absolute; top: 0; left: -40%; height: 100%; width: 40%;
                           border-radius: 4px; background: var(--green); animation: gcload 1.05s ease-in-out infinite }
     @keyframes gcload { 0% { left: -40% } 100% { left: 100% } }
+    /* impressão das curvas selecionadas (Curva das strings) */
+    #cg-print-area { display: none }
+    @media print {
+      body.cg-printing > * { display: none !important }
+      body.cg-printing #cg-print-area { display: block !important }
+      #cg-print-area .cg-print-card { page-break-inside: avoid; margin: 0 0 18px }
+    }
 
     /* ── STATS ───────────────────────────────────────────────────────────── */
     .gc-stats { display: grid; gap: 10px; margin-bottom: 16px }
@@ -1363,6 +1370,7 @@
         <label style="font-size:12px;color:var(--muted)">Data <input class="gc-bar-search" type="date" id="curvagen-data" style="width:auto" onchange="curvagenSetData()"></label>
         <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer" title="Mostra só inversores com string(s) abaixo da mediana"><input type="checkbox" id="curvagen-soabaixo" style="accent-color:#dc2626;cursor:pointer" onchange="renderCurvaGen()"> só com strings abaixo</label>
         <input class="gc-bar-search" type="text" id="curvagen-filtro" placeholder="🔍  Filtrar usina..." oninput="renderCurvaGen()">
+        <button id="curvagen-print-btn" class="gc-btn-sm" style="background:#16a34a;color:#fff;font-weight:600" onclick="curvagenImprimir()">🖨️ Imprimir selecionadas (0)</button>
         <button class="gc-btn-sm" style="background:#7c3aed;color:#fff;font-weight:600" onclick="loadCurvaGen(true)">↻ Atualizar</button>
       </div>
     </div>
@@ -3099,6 +3107,8 @@ async function renderPvPrDetail(pid, row){
 
 /* ══ Curva das strings (genérica: SunOp/Athon e PG/Thopen) ═══════════════════ */
 let curvagenRows=[], curvagenCache={}, curvagenExp=new Set();
+let curvagenCabExp=new Set();   // cabines abertas: chave "pid|cabine"
+let curvagenSel={};             // inversores marcados p/ imprimir: cid -> nome
 function _curvagenSrc(){ return primary==='sunop'?'sunop':'pg'; }
 function _curvagenData(){ const el=document.getElementById('curvagen-data'); if(el&&!el.value){el.value=new Date().toISOString().slice(0,10);} return el?el.value:''; }
 function curvagenSetData(){
@@ -3175,19 +3185,72 @@ async function renderCurvaGenUsina(pid){
   let invs=(det.inversores||[]);
   if(soAb) invs=invs.filter(iv=>(iv.diferenca!=null && iv.diferenca<0));
   if(!invs.length){ el.innerHTML='<p style="color:var(--muted);padding:10px;font-size:12px">'+(soAb?'Nenhum inversor com strings faltando.':'Sem inversores.')+'</p>'; return; }
-  el.innerHTML=invs.map(iv=>{
-    const cid='cg-'+(''+pid).replace(/[^a-zA-Z0-9]/g,'')+'-'+(''+iv.id).replace(/[^a-zA-Z0-9]/g,'');
-    const dif=(iv.diferenca!=null&&iv.diferenca<0)?` <span style="color:#dc2626;font-weight:700" title="strings faltando vs esperado">${iv.diferenca}</span>`:'';
-    const nm=(iv.nome||'').replace(/['"\\]/g,'');
-    return `<div style="border-top:1px solid #f0f2ed;padding:7px 0">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="curvagenInvCurva('${pid}','${iv.id}','${nm}','${cid}')">📈 Curva</button>
-        <b style="font-size:12px;color:#16192a">${iv.nome}</b>
-        <span style="font-size:11px;color:var(--muted)">${iv.strings_ativas!=null?iv.strings_ativas:'—'}/${iv.total_strings!=null?iv.total_strings:'—'} ativas${dif}</span>
+  // Agrupa por CABINE = número antes do ponto no nome ("Inversor 2.3" -> Cabine 2)
+  const cabs={};
+  invs.forEach(iv=>{ const m=(''+(iv.nome||'')).match(/(\d+)\s*\./); const c=m?m[1]:'—'; (cabs[c]=cabs[c]||[]).push(iv); });
+  const ordem=Object.keys(cabs).sort((a,b)=>(parseInt(a)||9999)-(parseInt(b)||9999));
+  el.innerHTML=ordem.map(cab=>{
+    const lista=cabs[cab], nAb=lista.filter(iv=>iv.diferenca!=null&&iv.diferenca<0).length;
+    const exp=curvagenCabExp.has(pid+'|'+cab);
+    const sub=nAb?` · <span style="color:#dc2626;font-weight:700">${nAb} abaixo</span>`:'';
+    return `<div style="border:1px solid #e6e9f0;border-radius:8px;margin:8px 0;overflow:hidden">
+      <div onclick="curvagenToggleCabine('${pid}','${cab}')" style="padding:9px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#f7f8fb;font-weight:600;color:#16192a">
+        <span>${exp?'▾':'▸'}</span> 🗄️ Cabine ${cab}
+        <span style="font-size:11px;color:var(--muted);font-weight:400">${lista.length} inversor(es)${sub}</span>
       </div>
-      <div id="${cid}-box" style="display:none;margin-top:6px"></div>
+      <div id="cgcab-${(''+pid).replace(/[^a-zA-Z0-9]/g,'')}-${cab}" style="padding:0 12px"></div>
     </div>`;
   }).join('');
+  ordem.forEach(cab=>{ if(curvagenCabExp.has(pid+'|'+cab)) curvagenRenderCabine(pid, cab, cabs[cab]); });
+}
+function curvagenToggleCabine(pid, cab){
+  const k=pid+'|'+cab;
+  curvagenCabExp.has(k) ? curvagenCabExp.delete(k) : curvagenCabExp.add(k);
+  renderCurvaGenUsina(pid);
+}
+function curvagenRenderCabine(pid, cab, lista){
+  const box=document.getElementById('cgcab-'+(''+pid).replace(/[^a-zA-Z0-9]/g,'')+'-'+cab); if(!box)return;
+  // 1) cards dos inversores (checkbox + container da curva) JÁ no DOM
+  box.innerHTML=lista.map(iv=>{
+    const cid='cg-'+(''+pid).replace(/[^a-zA-Z0-9]/g,'')+'-'+(''+iv.id).replace(/[^a-zA-Z0-9]/g,'');
+    const nm=(iv.nome||'').replace(/['"\\]/g,'');
+    const dif=(iv.diferenca!=null&&iv.diferenca<0)?` <span style="color:#dc2626;font-weight:700">${iv.diferenca}</span>`:'';
+    return `<div class="cg-inv" style="border-top:1px solid #f0f2ed;padding:7px 0">
+      <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:#16192a;cursor:pointer">
+        <input type="checkbox" ${curvagenSel[cid]?'checked':''} onchange="curvagenToggleSel('${cid}','${nm}',this.checked)" style="cursor:pointer">
+        <b>${iv.nome}</b>
+        <span style="font-size:11px;color:var(--muted);font-weight:400">${iv.strings_ativas!=null?iv.strings_ativas:'—'}/${iv.total_strings!=null?iv.total_strings:'—'} ativas${dif}</span>
+      </label>
+      <div id="${cid}-box" style="margin-top:6px"></div>
+    </div>`;
+  }).join('');
+  // 2) com os boxes no DOM, carrega cada curva (aberta) — no máx. 3 por vez p/ não martelar a API
+  let i=0;
+  const next=async()=>{ while(i<lista.length){ const iv=lista[i++];
+    const cid='cg-'+(''+pid).replace(/[^a-zA-Z0-9]/g,'')+'-'+(''+iv.id).replace(/[^a-zA-Z0-9]/g,'');
+    try{ await curvagenInvCurva(pid, iv.id, (iv.nome||'').replace(/['"\\]/g,''), cid, true); }catch(e){} } };
+  Promise.all([next(),next(),next()]);
+}
+function curvagenToggleSel(cid, nome, checked){
+  if(checked) curvagenSel[cid]=nome; else delete curvagenSel[cid];
+  const b=document.getElementById('curvagen-print-btn'); if(b) b.textContent='🖨️ Imprimir selecionadas ('+Object.keys(curvagenSel).length+')';
+}
+function curvagenImprimir(){
+  const sel=Object.keys(curvagenSel);
+  if(!sel.length){ alert('Selecione ao menos um inversor (caixa de seleção) para imprimir.'); return; }
+  const area=document.getElementById('cg-print-area'); if(!area)return; area.innerHTML='';
+  let faltam=0;
+  sel.forEach(cid=>{ const box=document.getElementById(cid+'-box');
+    if(box && box.querySelector('[id$="-plot"]')){
+      const card=document.createElement('div'); card.className='cg-print-card';
+      const ttl=document.createElement('div'); ttl.style.cssText='font-weight:700;font-size:13px;margin:0 0 4px'; ttl.textContent=curvagenSel[cid];
+      card.appendChild(ttl); card.insertAdjacentHTML('beforeend', box.innerHTML); area.appendChild(card);
+    } else faltam++;
+  });
+  if(faltam) { /* curva ainda carregando p/ alguns — imprime o que já tem */ }
+  document.body.classList.add('cg-printing');
+  window.print();
+  setTimeout(()=>{ document.body.classList.remove('cg-printing'); area.innerHTML=''; }, 800);
 }
 async function curvagenInvCurva(pid,invId,invNome,cid,reload){
   const src=_curvagenSrc(), box=document.getElementById(cid+'-box'); if(!box)return;
@@ -3419,5 +3482,7 @@ async function exportSpvPdf(){
 (async()=>{ await loadState(); show(); })();
 </script>
 
+<!-- área usada só na impressão das curvas selecionadas (Curva das strings) -->
+<div id="cg-print-area"></div>
 </body>
 </html>
