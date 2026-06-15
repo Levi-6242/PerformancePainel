@@ -3149,9 +3149,9 @@ function renderCurvaGen(){
       const body=document.createElement('div'); body.style.cssText='padding:0 14px 12px'; body.id='curvagen-body-'+r.plant_id;
       body.innerHTML='<div class="gc-loading" style="min-height:110px"><div class="gc-spinner"></div><p>Carregando curvas...</p><div class="gc-loadbar"></div></div>';
       row.appendChild(body);
-      renderCurvaGenUsina(r.plant_id);
     }
-    cont.appendChild(row);
+    cont.appendChild(row);                     // anexa ANTES de renderizar: renderCurvaGenUsina busca
+    if(exp) renderCurvaGenUsina(r.plant_id);   // o body por getElementById — ele precisa estar no DOM
   });
 }
 async function renderCurvaGenUsina(pid){
