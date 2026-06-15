@@ -1976,13 +1976,16 @@ def api_sunop_data():
     return jsonify(_swr(_sunop_cache, _build_sunop_payload, force))
 
 
-# ── SunOp: drill-down inversores ──────────────────────────────────────────────
-@app.route("/api/sunop/plant/<plant_name>")
-def api_sunop_plant(plant_name):
+# ── SunOp: drill-down inversores (SWR por usina: serve cache na hora, atualiza em fundo) ─
+_so_plant_cache = {}      # plant_name -> {"ts": float, "inversores": [...]}
+_so_plant_lock  = threading.Lock()
+
+
+def _sunop_plant_build(plant_name):
     ensure_sunop_meta()
     meta = _sunop_meta.get(plant_name)
     if not meta:
-        return jsonify({"inversores": []})
+        return []
 
     pathnames = []
     for inv, paths in meta["inv_strings"].items():
@@ -2066,6 +2069,42 @@ def api_sunop_plant(plant_name):
             "strings": strings,
         })
 
+    return inversores
+
+
+def _sunop_plant_get(plant_name, force=False):
+    """SWR por usina: serve o último drill-down na hora e atualiza em segundo plano.
+    Evita que expandir uma usina (Strings / Curva das strings) trave numa chamada ao
+    vivo do SunOp quando a API está sob carga (ex.: durante um 'Atualizar')."""
+    agora = time.time()
+    ent = _so_plant_cache.get(plant_name)
+    if ent and not force and (agora - ent["ts"]) < CACHE_TTL:
+        return ent["inversores"]
+    if ent and not force:                       # tem stale → serve já e atualiza em fundo
+        def _bg():
+            if not _so_plant_lock.acquire(blocking=False):
+                return
+            try:
+                _so_plant_cache[plant_name] = {"ts": time.time(),
+                                               "inversores": _sunop_plant_build(plant_name)}
+            except Exception as e:
+                print(f"[sunop/plant] refresh {plant_name} falhou: {e}")
+            finally:
+                _so_plant_lock.release()
+        threading.Thread(target=_bg, daemon=True).start()
+        return ent["inversores"]
+    inv = _sunop_plant_build(plant_name)        # 1ª vez (ou forçado) → constrói na hora
+    _so_plant_cache[plant_name] = {"ts": time.time(), "inversores": inv}
+    return inv
+
+
+@app.route("/api/sunop/plant/<plant_name>")
+def api_sunop_plant(plant_name):
+    force = flask_request.args.get("force", "0") == "1"
+    try:
+        inversores = _sunop_plant_get(plant_name, force)
+    except Exception as e:
+        return jsonify({"error": str(e), "inversores": []}), 500
     return jsonify({"plant_id": plant_name, "inversores": inversores})
 
 

@@ -1859,7 +1859,7 @@ async function trancaStr(src,pid,invId,sid,trancada,cb){
   const ep=src==='so'?'/api/sunop/plant/':src==='pg'?'/api/pg/plant/':'/api/plant/';
   const cache=src==='so'?soCache:src==='pg'?pgCache:pvCache;
   const rend=src==='so'?renderSoStr:src==='pg'?renderPgStr:renderPvStr;
-  try{ const d=await fetch(ep+encodeURIComponent(pid)).then(r=>r.json()); cache[pid]=d.inversores||[]; }catch(e){}
+  try{ const d=await fetch(ep+encodeURIComponent(pid)+'?force=1').then(r=>r.json()); cache[pid]=d.inversores||[]; }catch(e){}
   rend();
 }
 const _pvCurvaCache={}, _pvCurvaState={};
