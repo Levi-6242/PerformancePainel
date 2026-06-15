@@ -2728,17 +2728,21 @@ function renderTrkChart(pid){
   // p/ o fuso do navegador, senão o dia escolhido começaria às 21h do dia anterior).
   const _toDt=arr=>(arr||[]).map(s=>{const dt=new Date(s);return isNaN(dt)?s:
     new Date(dt.getUTCFullYear(),dt.getUTCMonth(),dt.getUTCDate(),dt.getUTCHours(),dt.getUTCMinutes(),dt.getUTCSeconds());});
-  const traces=vis.map(t=>({x:_toDt(t.x),y:t.y,name:t.id,type:'scatter',mode:'lines',
-    line:corLinha(stMap[t.id]),hovertemplate:t.id+' ('+(stMap[t.id]||'normal')+'): %{y:.1f}°<extra></extra>',showlegend:false}));
-  if(d.alvo&&d.alvo.y&&d.alvo.y.length){traces.push({x:_toDt(d.alvo.x),y:d.alvo.y,name:'Alvo',type:'scatter',mode:'lines',
+  // mostra só a janela diurna 06:00–18:00 (descarta madrugada/noite)
+  const _win=(xs,ys)=>{const X=[],Y=[];(xs||[]).forEach((dt,i)=>{ if(dt instanceof Date){const mn=dt.getHours()*60+dt.getMinutes(); if(mn<360||mn>1080)return;} X.push(dt);Y.push((ys||[])[i]);}); return [X,Y];};
+  const traces=vis.map(t=>{const [X,Y]=_win(_toDt(t.x),t.y); return {x:X,y:Y,name:t.id,type:'scatter',mode:'lines',
+    line:corLinha(stMap[t.id]),hovertemplate:t.id+' ('+(stMap[t.id]||'normal')+'): %{y:.1f}°<extra></extra>',showlegend:false};});
+  if(d.alvo&&d.alvo.y&&d.alvo.y.length){const [AX,AY]=_win(_toDt(d.alvo.x),d.alvo.y); traces.push({x:AX,y:AY,name:'Alvo',type:'scatter',mode:'lines',
     line:{color:'#111827',width:2.2,dash:'dash'},hovertemplate:'Alvo: %{y:.1f}°<extra></extra>'});}
+  // eixo X fixo na janela 06:00–18:00 do dia plotado
+  let _xr=null; for(const t of traces){for(const dt of (t.x||[])){if(dt instanceof Date){_xr=[new Date(dt.getFullYear(),dt.getMonth(),dt.getDate(),6,0,0),new Date(dt.getFullYear(),dt.getMonth(),dt.getDate(),18,0,0)];break;}}if(_xr)break;}
   const hint=document.getElementById('trk-hint-'+cid);
   if(hint)hint.textContent=`mostrando ${vis.length} de ${(d.trackers||[]).length}`;
   if(!traces.length){Plotly.purge(box);box.innerHTML='<p style="text-align:center;color:var(--muted);padding:40px 0">Nenhum tracker selecionado.</p>';return;}
   Plotly.purge(box); box.innerHTML='';   // remove o spinner / plot anterior antes de redesenhar
   Plotly.newPlot(box, traces, {
     margin:{t:10,r:14,b:36,l:46},
-    xaxis:{title:'Hora', type:'date', tickformat:'%H:%M', hoverformat:'%H:%M', tickfont:{size:10}, nticks:12},
+    xaxis:{title:'Hora', type:'date', tickformat:'%H:%M', hoverformat:'%H:%M', tickfont:{size:10}, nticks:12, range:_xr||undefined},
     yaxis:{title:'Ângulo (°)'},
     legend:{orientation:'h', y:1.15},
     font:{family:'Inter', size:11},
