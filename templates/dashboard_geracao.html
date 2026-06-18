@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grid Co. — Performance / Geração</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<style>
+  :root{ --bg:#0f0f10; --panel:#1a1a1c; --panel2:#161618; --line:#2a2a2e;
+         --red:#c0392b; --red2:#e04a3a; --txt:#e8e8ea; --muted:#9a9aa0; --green:#27c08a; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--txt);
+        font-family:Segoe UI,Roboto,Arial,sans-serif; font-size:13px; }
+  .topbar{ display:flex; align-items:center; gap:18px; padding:10px 16px;
+           background:linear-gradient(180deg,#161618,#0f0f10); border-bottom:1px solid var(--line); }
+  .brand{ font-size:20px; font-weight:700; letter-spacing:.5px; }
+  .brand small{ display:block; font-size:10px; color:var(--muted); font-weight:400; letter-spacing:2px; }
+  .kpis{ display:flex; gap:10px; }
+  .kpi{ background:#0c0c0d; border:1px solid var(--line); border-radius:8px; padding:6px 14px; min-width:96px; text-align:center;}
+  .kpi b{ display:block; font-size:9px; color:var(--muted); letter-spacing:1px; }
+  .kpi span{ font-size:20px; font-weight:700; color:var(--red2); }
+  .filters{ margin-left:auto; display:flex; gap:14px; }
+  .fld{ background:#0c0c0d; border:1px solid var(--line); border-radius:8px; padding:6px 10px; }
+  .fld label{ display:block; font-size:9px; color:var(--muted); letter-spacing:1px; margin-bottom:3px; }
+  select,input[type=date]{ background:#1c1c1f; color:var(--txt); border:1px solid var(--line);
+        border-radius:5px; padding:4px 6px; font-size:12px; }
+  .grid{ display:grid; grid-template-columns:1.15fr 1fr; gap:12px; padding:12px 16px; }
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+  .panel h3{ margin:0 0 6px; font-size:12px; font-weight:600; text-align:center;
+             color:#d8d8dc; letter-spacing:.5px; text-transform:uppercase; }
+  .full{ grid-column:1/-1; }
+  table{ width:100%; border-collapse:collapse; font-size:12px; }
+  th{ background:#3a2540; color:#cfc2d6; font-weight:600; padding:5px 8px; text-align:left; position:sticky; top:0;}
+  td{ padding:4px 8px; border-bottom:1px solid #232326; }
+  tr:nth-child(even) td{ background:#19191c; }
+  .neg{ color:var(--red2); } .pos{ color:var(--green); }
+  .tablewrap{ max-height:340px; overflow:auto; }
+  .muted{ color:var(--muted); font-size:11px; text-align:center; padding:18px; }
+  .btn{ align-self:stretch; display:flex; align-items:center; background:#1c1c1f; color:var(--txt);
+        border:1px solid var(--line); border-radius:8px; padding:0 14px; font-size:12px; cursor:pointer; }
+  .btn:hover{ background:#26262a; border-color:#3a3a3f; }
+  .btn:disabled{ opacity:.6; cursor:default; }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="brand">Grid Co. <small>PERFORMANCE — GERAÇÃO</small></div>
+    <div class="kpis">
+      <div class="kpi"><b>PR UFV</b><span id="kpiUfv">—</span></div>
+    </div>
+    <div class="filters">
+      <div class="fld"><label>CLIENTE</label><select id="selCliente"></select></div>
+      <div class="fld"><label>USINA</label><select id="selUsina"></select></div>
+      <div class="fld"><label>INÍCIO</label><input type="date" id="dtIni"></div>
+      <div class="fld"><label>FIM</label><input type="date" id="dtFim"></div>
+      <button id="btnRefresh" class="btn" title="Recarrega a planilha e atualiza tudo">↻ Atualizar</button>
+    </div>
+  </div>
+
+  <div class="grid">
+    <div class="panel full"><h3>PR Realizado × PR Previsto (Mensal)</h3><div id="chMensal" style="height:300px"></div></div>
+    <div class="panel"><h3>Top 10 Piores Inversores</h3><div id="chTop" style="height:360px"></div></div>
+    <div class="panel"><h3>Performance Inversores</h3>
+      <div class="tablewrap"><table id="tblInv"><thead><tr><th>UFV</th><th>Inversor</th><th>PR (%)</th><th>PR 🎯</th><th>Dif PR (%)</th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="panel full"><h3>PR Realizado × PR Previsto (Diário)</h3><div id="chDiario" style="height:280px"></div></div>
+  </div>
+
+<script>
+const MES=['','jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+const RED='#c0392b', GRAY='#6b6b70', WHITE='#f0f0f2';
+const LAYOUT={paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
+  font:{color:'#cfcfd4',size:11},margin:{l:40,r:16,t:10,b:34},showlegend:true,
+  legend:{orientation:'h',y:1.12,x:0,font:{size:10}},
+  xaxis:{gridcolor:'#242428',zeroline:false},yaxis:{gridcolor:'#242428',tickformat:'.0%',zeroline:false}};
+const CFG={displayModeBar:false,responsive:true};
+const pct=v=>v==null?'—':(v*100).toFixed(1)+'%';
+const qs=o=>Object.entries(o).filter(([,v])=>v!=null&&v!=='').map(([k,v])=>k+'='+encodeURIComponent(v)).join('&');
+const get=u=>fetch(u).then(r=>r.json());
+const $=id=>document.getElementById(id);
+
+function ctx(){ return {cliente:$('selCliente').value, usina:$('selUsina').value, ini:$('dtIni').value, fim:$('dtFim').value}; }
+
+function defDates(){
+  const t=new Date(), ini=new Date(t.getFullYear(),t.getMonth(),1);
+  const f=d=>d.toISOString().slice(0,10);
+  $('dtIni').value=f(ini); $('dtFim').value=f(t);
+}
+async function init(){
+  defDates();
+  await carregaClientes();
+  $('selCliente').onchange=()=>loadUsinas();
+  $('selUsina').onchange=renderAll;
+  $('dtIni').onchange=renderAll; $('dtFim').onchange=renderAll;
+  $('btnRefresh').onclick=refreshAll;
+  await loadUsinas();
+}
+async function carregaClientes(prefer){
+  const cur=prefer||$('selCliente').value;
+  const cls=await get('/api/g/clientes');
+  $('selCliente').innerHTML=cls.map(c=>`<option>${c}</option>`).join('');
+  if(cur && cls.includes(cur)) $('selCliente').value=cur;
+}
+async function loadUsinas(prefer){
+  const us=await get('/api/g/usinas?'+qs({cliente:$('selCliente').value}));
+  $('selUsina').innerHTML=us.map(u=>`<option>${u}</option>`).join('');
+  const want=(prefer && us.includes(prefer)) ? prefer : (us.includes('JCD100')?'JCD100':null);
+  if(want) $('selUsina').value=want;
+  await renderAll();
+}
+async function refreshAll(){
+  const b=$('btnRefresh'), old=b.textContent; b.disabled=true; b.textContent='↻ Atualizando…';
+  try{
+    await fetch('/api/g/refresh',{method:'POST'});   // recarrega planilha (metas+cadastro) e limpa caches
+    const curU=$('selUsina').value;
+    await carregaClientes($('selCliente').value);     // pode ter cliente novo; preserva seleção
+    await loadUsinas(curU);                            // repopula usinas + renderAll, preservando usina
+  } finally { b.disabled=false; b.textContent=old; }
+}
+
+// mensagem centralizada no gráfico Top 10 (carregando / sem dados)
+function chTopMsg(txt){
+  const lay=JSON.parse(JSON.stringify(LAYOUT));
+  lay.showlegend=false;
+  lay.xaxis={...lay.xaxis, visible:false}; lay.yaxis={...lay.yaxis, visible:false};
+  lay.annotations=[{xref:'paper',yref:'paper',x:0.5,y:0.5,xanchor:'center',yanchor:'middle',
+    showarrow:false,text:txt,font:{size:13,color:'#9a9aa0'}}];
+  Plotly.newPlot($('chTop'),[],lay,CFG);
+}
+
+let GEN=0;   // token de geração: respostas antigas (corrida) não sobrescrevem a seleção atual
+async function renderAll(){
+  const c=ctx(); const g=++GEN;
+  // feedback imediato (a 1ª leitura de um cliente lê todas as abas e leva alguns segundos)
+  $('kpiUfv').textContent='…';
+  $('tblInv').querySelector('tbody').innerHTML='<tr><td colspan=5 class=muted>Calculando…</td></tr>';
+  chTopMsg('Calculando…');
+  renderMensal(c,g); renderTop(c,g); renderTabela(c,g); renderKpi(c,g);
+  // diário segue o mês da data FIM (muda com data e com usina); filtra dias pelo período
+  const f=(c.fim||c.ini||'').split('-');
+  if(f.length>=2) renderDiario(c,+f[0],+f[1],g);
+}
+
+async function renderMensal(c,g){
+  const d=await get('/api/g/mensal?'+qs({cliente:c.cliente,usina:c.usina}));
+  if(g!==GEN) return;
+  const x=d.pontos.map(p=>MES[p.mes]+'/'+String(p.ano).slice(2));
+  const bars={x,y:d.pontos.map(p=>p.realizado),type:'bar',name:'PR Realizado',
+    marker:{color:d.pontos.map(p=>(p.realizado!=null&&p.meta!=null&&p.realizado>=p.meta)?GRAY:RED)},
+    text:d.pontos.map(p=>pct(p.realizado)),textposition:'outside',textfont:{size:9},cliponaxis:false};
+  const line={x,y:d.pontos.map(p=>p.meta),type:'scatter',mode:'lines+markers',name:'PR Meta',
+    line:{color:WHITE,width:2},marker:{size:4}};
+  // ao clicar numa barra, abre o diário daquele mês
+  const div=$('chMensal');
+  Plotly.react(div,[bars,line],LAYOUT,CFG);
+  div.removeAllListeners&&div.removeAllListeners('plotly_click');
+  div.on('plotly_click',e=>{const p=d.pontos[e.points[0].pointNumber]; renderDiario(c,p.ano,p.mes);});
+}
+
+async function renderDiario(c,ano,mes,g){
+  if(g===undefined) g=GEN;
+  const d=await get('/api/g/diario?'+qs({cliente:c.cliente,usina:c.usina,ano,mes}));
+  if(g!==GEN) return;
+  // se o mês exibido é o do período (data FIM), limita os dias ao intervalo ini..fim
+  let pontos=d.pontos;
+  const di=c.ini?new Date(c.ini+'T00:00'):null, df=c.fim?new Date(c.fim+'T00:00'):null;
+  if(df && df.getFullYear()===ano && df.getMonth()+1===mes){
+    pontos=pontos.filter(p=>{const dt=new Date(ano,mes-1,p.dia); return (!di||dt>=di)&&(!df||dt<=df);});
+  }
+  const x=pontos.map(p=>p.dia);
+  const bars={x,y:pontos.map(p=>p.realizado),type:'bar',name:'PR Diário',
+    marker:{color:pontos.map(p=>(p.realizado!=null&&d.meta!=null&&p.realizado>=d.meta)?GRAY:RED)},
+    text:pontos.map(p=>p.realizado!=null?(p.realizado*100).toFixed(0)+'%':''),
+    textposition:'outside',textangle:0,textfont:{size:8},cliponaxis:false};
+  const meta={x,y:x.map(()=>d.meta),type:'scatter',mode:'lines',name:'PR Alvo',line:{color:WHITE,width:2,dash:'dot'}};
+  const lay=JSON.parse(JSON.stringify(LAYOUT)); lay.xaxis.tickformat='d';
+  lay.xaxis.tickmode='linear'; lay.xaxis.tick0=1; lay.xaxis.dtick=1;   // rótulo em TODOS os dias
+  if(x.length) lay.xaxis.range=[Math.min(...x)-0.5, Math.max(...x)+0.5]; // sem dias negativos/0
+  lay.margin.t=26; lay.yaxis.range=[0,1.15];
+  lay.title={text:MES[mes]+'/'+ano,font:{size:11,color:'#9a9aa0'},x:0.01,y:0.98};
+  Plotly.react($('chDiario'),[bars,meta],lay,CFG);
+}
+
+async function renderTop(c,g){
+  const d=await get('/api/g/inversores?'+qs(c));
+  if(g!==undefined && g!==GEN) return;
+  const top=d.inversores.slice(0,10).reverse();
+  if(!top.length){ chTopMsg('Sem dados no período'); return; }
+  const y=top.map(r=>r.inversor);
+  const bars={y,x:top.map(r=>r.pr),type:'bar',orientation:'h',name:'PR',
+    marker:{color:GRAY},text:top.map(r=>pct(r.pr)),textposition:'outside',textfont:{size:9},cliponaxis:false};
+  const lay=JSON.parse(JSON.stringify(LAYOUT));
+  lay.barmode='group'; lay.margin.l=110; lay.showlegend=false;
+  // Tipos FORÇADOS: senão o Plotly.react às vezes auto-detecta X como categoria e some a barra.
+  lay.xaxis={...lay.xaxis, type:'linear', tickformat:'.0%', autorange:true};
+  lay.yaxis={...lay.yaxis, type:'category', tickformat:'', automargin:true};
+  // Alvo é fixo por usina: linha de referência + selo no canto (em vez de barra redundante).
+  const alvo=d.alvo;
+  if(alvo!=null){
+    lay.shapes=[{type:'line',xref:'x',yref:'paper',x0:alvo,x1:alvo,y0:0,y1:1,
+      line:{color:WHITE,width:1.5,dash:'dot'}}];
+    lay.annotations=[{xref:'paper',yref:'paper',x:1,y:1.04,xanchor:'right',yanchor:'bottom',
+      showarrow:false,text:'PR Alvo: <b>'+pct(alvo)+'</b>',font:{size:12,color:WHITE},
+      bgcolor:'rgba(40,40,46,0.92)',bordercolor:'#3a3a3f',borderwidth:1,borderpad:4}];
+  }
+  Plotly.newPlot($('chTop'),[bars],lay,CFG);   // newPlot = redesenho limpo (não herda eixo anterior)
+}
+
+async function renderTabela(c,g){
+  const d=await get('/api/g/inversores?'+qs(c));
+  if(g!==undefined && g!==GEN) return;
+  const tb=$('tblInv').querySelector('tbody');
+  if(!d.inversores.length){tb.innerHTML='<tr><td colspan=5 class=muted>Sem dados no período</td></tr>';return;}
+  tb.innerHTML=d.inversores.map(r=>{
+    const cls=r.dif==null?'':(r.dif<0?'neg':'pos');
+    const dif=r.dif==null?'—':((r.dif>=0?'+':'')+(r.dif*100).toFixed(2)+'%');
+    return `<tr><td>${d.usina}</td><td>${r.inversor}</td><td>${pct(r.pr)}</td><td>${pct(r.alvo)}</td><td class="${cls}">${dif}</td></tr>`;
+  }).join('');
+}
+
+async function renderKpi(c,g){
+  const d=await get('/api/g/kpi?'+qs({cliente:c.cliente,usina:c.usina}));
+  if(g!==undefined && g!==GEN) return;
+  $('kpiUfv').textContent=pct(d.pr_ufv);
+}
+
+init();
+</script>
+</body>
+</html>

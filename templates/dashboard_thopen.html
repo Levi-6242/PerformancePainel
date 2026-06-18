@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grid Co. / Thopen — Performance da Usina</title>
+<script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+  :root{ --ora:#F0531F; --navy:#1F2E6E; --bg:#eef0f3; --card:#fff; --line:#e2e4e9;
+         --txt:#22242a; --muted:#6b6f76; --neg:#c0392b; --pos:#1f9d57; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:var(--bg); color:var(--txt);
+        font-family:Segoe UI,Roboto,Arial,sans-serif; font-size:13px; }
+  .header{ display:flex; align-items:center; gap:16px; padding:12px 20px; color:#fff;
+           background:linear-gradient(90deg,#FDB813 0%,#F7941E 32%,#EC1C5E 100%); }
+  .header h1{ margin:0; font-size:20px; font-weight:700; }
+  .brand{ margin-left:auto; text-align:right; line-height:1.1; }
+  .brand .g{ font-size:22px; font-weight:800; }
+  .brand .t{ font-size:13px; font-weight:600; letter-spacing:3px; opacity:.95; }
+  .toolbar{ display:flex; align-items:center; gap:10px; padding:10px 20px;
+            background:#fff; border-bottom:1px solid var(--line); }
+  .tab{ border:1px solid var(--line); background:#f4f5f7; color:var(--muted);
+        padding:7px 16px; border-radius:8px; cursor:pointer; font-weight:600; }
+  .tab.active{ background:var(--navy); color:#fff; border-color:var(--navy); }
+  .fld{ margin-left:6px; }
+  .fld label{ font-size:10px; color:var(--muted); letter-spacing:1px; margin-right:6px; }
+  select{ background:#fff; color:var(--txt); border:1px solid var(--line);
+          border-radius:6px; padding:6px 8px; font-size:13px; }
+  .right{ margin-left:auto; }
+  .wrap{ padding:16px 20px; }
+  .sec{ font-size:15px; font-weight:700; color:var(--navy); margin:0 0 10px; text-align:center; }
+  .sec u{ text-decoration:none; text-transform:uppercase; }
+  .card{ background:var(--card); border:1px solid var(--line); border-radius:12px;
+         padding:12px 14px; box-shadow:0 1px 3px rgba(0,0,0,.04); min-width:0; }
+  .card h3{ margin:0 0 8px; font-size:12px; font-weight:700; color:#555;
+            text-transform:uppercase; letter-spacing:.5px; text-align:center; }
+  table{ width:100%; border-collapse:collapse; font-size:12.5px; }
+  th,td{ padding:6px 9px; text-align:right; border-bottom:1px solid #eef0f3; white-space:nowrap; }
+  th:first-child,td:first-child{ text-align:left; font-weight:600; }
+  thead th{ background:#f4f3f8; color:#3a2540; font-weight:700; }
+  .neg{ color:var(--neg); } .pos{ color:var(--pos); }
+  .grid{ display:grid; grid-template-columns:2.6fr 1fr; gap:14px; }
+  .col{ display:flex; flex-direction:column; gap:14px; min-width:0; }
+  .kpi-row{ display:grid; grid-template-columns:1fr 1fr; gap:8px; text-align:center; }
+  .kpi-big{ font-size:30px; font-weight:800; color:var(--navy); }
+  .kpi-lbl{ font-size:10px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; }
+  .grid2{ display:grid; grid-template-columns:1.55fr 1fr; gap:14px; margin-top:14px; align-items:start; }
+  .cmt-wrap{ overflow:visible; min-height:300px; }
+  .cmt-wrap thead th{ text-align:center; }
+  .cmt-wrap td{ text-align:left; white-space:normal; font-size:11.5px; }
+  .muted{ color:var(--muted); text-align:center; padding:18px; }
+  .hidden{ display:none; }
+  .pgh{ display:none; }   /* cópia do cabeçalho por página — só aparece na impressão */
+  #btnPdf{ background:var(--navy); color:#fff; border:none; border-radius:8px; padding:8px 14px;
+           font-weight:600; cursor:pointer; font-size:12.5px; white-space:nowrap; }
+  #btnPdf:hover{ background:#15214f; }
+  #btnPdf:disabled{ opacity:.6; cursor:default; }
+  #btnRefresh{ background:#fff; color:var(--navy); border:1px solid var(--navy); border-radius:8px;
+               padding:8px 14px; font-weight:600; cursor:pointer; font-size:12.5px; white-space:nowrap; }
+  #btnRefresh:hover{ background:#eef0fb; }
+  #btnRefresh:disabled{ opacity:.6; cursor:default; }
+  /* Impressão nativa (Ctrl+P) em A4 paisagem: 1 Mensal, 2 Diário, sem a barra de controles */
+  /* Impressão (Ctrl+P): mostra as 2 páginas, limita a largura p/ os gráficos não estourarem
+     e encolhe tudo com zoom pra caber na folha A4 paisagem (a página é feita p/ tela larga). */
+  body.printing #pageMensal, body.printing #pageDiario{ display:block !important; }
+  body.printing .wrap{ width:1400px; margin:0 auto; }
+  @media print{
+    @page{ size:A4 landscape; margin:6mm; }
+    body{ background:#fff; zoom:0.72; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    .toolbar{ display:none !important; }
+    #topHeader{ display:none !important; }   /* cabeçalho da tela some; cada página tem o seu */
+    .pgh{ display:flex !important; }          /* cabeçalho Grid Co./Thopen em TODA página */
+    .wrap{ padding:4px 0 !important; }
+    #pageMensal,#pageDiario{ display:block !important; }
+    #pageDiario{ break-before:page; }
+  }
+  body.exporting #pageMensal, body.exporting #pageDiario{ display:block !important; }
+</style>
+</head>
+<body>
+  <div class="header" id="topHeader">
+    <h1 id="titulo">Performance da Usina</h1>
+    <div class="brand"><div class="g">Grid Co.</div><div class="t">THOPEN</div></div>
+  </div>
+
+  <div class="toolbar">
+    <div class="tab active" data-page="mensal">Mensal</div>
+    <div class="tab" data-page="diario">Diário</div>
+    <div class="fld"><label>USINA</label><select id="selUsina"></select></div>
+    <div class="fld hidden" id="fldMes"><label>ANO/MÊS</label><select id="selMes"></select></div>
+    <div id="subinfo" style="margin-left:auto;color:var(--muted);font-size:12px;"></div>
+    <button id="btnRefresh" title="Recarregar os dados da planilha (BD_Thopen.xlsx)">🔄 Atualizar</button>
+    <button id="btnPdf" title="Baixar PDF — página 1 Mensal, página 2 Diário">⤓ Baixar PDF</button>
+    <button id="btnPdfAll" title="Gera 1 PDF com TODAS as usinas (Mensal + Diário de cada)">⤓ PDF Todas</button>
+  </div>
+
+  <!-- ───────────── PÁGINA MENSAL ───────────── -->
+  <div class="wrap" id="pageMensal">
+    <div class="header pgh"><h1>Performance da Usina — <span class="u-nome"></span></h1><div class="brand"><div class="g">Grid Co.</div><div class="t">THOPEN</div></div></div>
+    <div class="sec">COMPARATIVO DE PRODUÇÃO DE ENERGIA MENSAL - <u id="secMensalU"></u></div>
+    <div class="card"><div id="chMensal" style="height:330px"></div></div>
+    <div class="card" style="margin-top:14px"><div style="overflow:auto"><table id="tblMensal"></table></div></div>
+  </div>
+
+  <!-- ───────────── PÁGINA DIÁRIA ───────────── -->
+  <div class="wrap hidden" id="pageDiario">
+    <div class="header pgh"><h1>Performance da Usina — <span class="u-nome"></span></h1><div class="brand"><div class="g">Grid Co.</div><div class="t">THOPEN</div></div></div>
+    <div class="sec">COMPARATIVO DE PRODUÇÃO DE ENERGIA E IRRADIAÇÃO - <u>DIÁRIO</u></div>
+    <div class="grid">
+      <div class="card" style="display:flex;flex-direction:column"><h3>Energia (kWh) × Irradiação (kWh/m²)</h3><div id="chDiario" style="flex:1;min-height:280px"></div></div>
+      <div class="col">
+        <div class="card"><h3>Energia Acumulada no Mês (kWh)</h3><div id="chAcum" style="height:150px"></div></div>
+        <div class="card"><h3>Irradiação no Mês (kWh/m²)</h3>
+          <div class="kpi-row">
+            <div><div class="kpi-big" id="irrReal">—</div><div class="kpi-lbl">Real</div></div>
+            <div><div class="kpi-big" id="irrMeta">—</div><div class="kpi-lbl">Meta</div></div>
+          </div>
+        </div>
+        <div class="card"><h3>Disponibilidade Usina (%)</h3>
+          <div class="kpi-big" id="disp" style="text-align:center">—</div>
+        </div>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card"><h3>Comentários</h3>
+        <div class="cmt-wrap"><table id="tblCmt"><thead><tr><th>Usina</th><th>Data</th><th>Comentário</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="card"><h3>Produção de Energia Anual (kWh)</h3><div id="chAnual" style="height:250px"></div></div>
+    </div>
+  </div>
+
+<script>
+const MES=['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+const ORA='#FF3B0F', NAVY='#12239E';
+const nf2=new Intl.NumberFormat('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+const nf0=new Intl.NumberFormat('pt-BR',{maximumFractionDigits:0});
+const pct=v=>v==null?'—':(v*100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
+const $=id=>document.getElementById(id);
+const get=u=>fetch(u).then(r=>r.json());
+const CFG={displayModeBar:false,responsive:true};
+const BASE={paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{color:'#33363d',size:11},
+  margin:{l:54,r:16,t:14,b:36}};
+
+function mix(c1,c2,t){
+  const p=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
+  const a=p(c1),b=p(c2),L=(x,y)=>Math.round(x+(y-x)*t);
+  return `rgb(${L(a[0],b[0])},${L(a[1],b[1])},${L(a[2],b[2])})`;
+}
+
+let OV=null;   // overview corrente
+
+// ---------- navegação ----------
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  t.classList.add('active');
+  const p=t.dataset.page;
+  $('pageMensal').classList.toggle('hidden',p!=='mensal');
+  $('pageDiario').classList.toggle('hidden',p!=='diario');
+  $('fldMes').classList.toggle('hidden',p!=='diario');
+  window.dispatchEvent(new Event('resize'));
+});
+
+async function init(){
+  const u=await get('/api/t/usinas');
+  $('selUsina').innerHTML=u.usinas.map(x=>`<option ${x===u.default?'selected':''}>${x}</option>`).join('');
+  $('selUsina').onchange=loadUsina;
+  $('selMes').onchange=()=>{const[a,m]=$('selMes').value.split('-');renderDiario(+a,+m);};
+  await loadUsina();
+}
+
+async function loadUsina(){
+  const usina=$('selUsina').value;
+  OV=await get('/api/t/overview?usina='+encodeURIComponent(usina));
+  const loc=[OV.cidade,OV.estado].filter(Boolean).join(' / ');
+  $('titulo').textContent='Performance da Usina — '+(OV.nome||usina);
+  document.querySelectorAll('.u-nome').forEach(e=>e.textContent=OV.nome||usina);  // cabeçalho por página (impressão)
+  $('secMensalU').textContent=OV.nome||usina;
+  $('subinfo').textContent=(OV.cliente?('Cliente: '+OV.cliente+'  ·  '):'')
+      +(OV.potencia_mwp?(nf2.format(OV.potencia_mwp)+' MWp'):'')+(loc?('  ·  '+loc):'')
+      +(OV.planilha_em?('  ·  Planilha: '+OV.planilha_em):'');
+  renderMensal(); renderAnual();
+  // popula AnoMês (mais recente primeiro) e abre o último
+  const per=OV.periodos.slice().reverse();
+  $('selMes').innerHTML=per.map(p=>`<option value="${p.ano}-${p.mes}">${String(p.mes).padStart(2,'0')}/${p.ano}</option>`).join('');
+  if(per.length){ $('selMes').value=`${per[0].ano}-${per[0].mes}`; renderDiario(per[0].ano,per[0].mes); }
+}
+
+// ---------- página mensal ----------
+function renderMensal(){
+  const m=OV.meses, x=m.map(r=>MES[r.mes]);
+  const prod23={x,y:m.map(r=>r.produzida_2023),type:'bar',name:'Produzida (2023)',marker:{color:'#CDB89A'}};
+  const prod24={x,y:m.map(r=>r.produzida_2024),type:'bar',name:'Produzida (2024)',marker:{color:'#A9A0D0'}};
+  const prod25={x,y:m.map(r=>r.produzida_2025),type:'bar',name:'Produzida (2025)',marker:{color:'#8A6D52'}};
+  const prod={x,y:m.map(r=>r.produzida),type:'bar',name:'Produzida (2026)',marker:{color:ORA}};
+  const meta={x,y:m.map(r=>r.meta),type:'bar',name:'Meta (2026)',marker:{color:NAVY}};
+  const lay=Object.assign({},BASE,{barmode:'group',
+    legend:{orientation:'h',x:0.5,xanchor:'center',y:-0.12},
+    yaxis:{title:'Energia (MWh)',gridcolor:'#eceef2',zeroline:false},
+    xaxis:{gridcolor:'#fff'}});
+  Plotly.react('chMensal',[prod23,prod24,prod25,prod,meta],lay,CFG);
+
+  const linhas=[
+    ['Meta (2026)',      r=>r.meta==null?'—':nf2.format(r.meta), null],
+    ['Produzida (2026)', r=>r.produzida==null?'—':nf2.format(r.produzida), null],
+    ['Produzida (2025)', r=>r.produzida_2025==null?'—':nf2.format(r.produzida_2025), null],
+    ['Produzida (2024)', r=>r.produzida_2024==null?'—':nf2.format(r.produzida_2024), null],
+    ['Produzida (2023)', r=>r.produzida_2023==null?'—':nf2.format(r.produzida_2023), null],
+    ['Diferença (%)',    r=>pct(r.dif), r=>r.dif==null?'':(r.dif<0?'neg':'pos')],
+    ['FC Meta (2026)',   r=>pct(r.fc_meta), null],
+    ['FC Real (2026)',   r=>pct(r.fc_real), null],
+  ];
+  let html='<thead><tr><th>Tipo</th>'+m.map(r=>`<th>${MES[r.mes]}</th>`).join('')+'</tr></thead><tbody>';
+  for(const [nome,fn,cls] of linhas){
+    html+='<tr><td>'+nome+'</td>'+m.map(r=>{
+      const c=cls?cls(r):''; return `<td class="${c}">${fn(r)}</td>`;
+    }).join('')+'</tr>';
+  }
+  $('tblMensal').innerHTML=html+'</tbody>';
+}
+
+function renderAnual(){
+  // cor POR RÓTULO (continua certa mesmo escondendo barras)
+  const COR={'Produzida 2023':'#CDB89A','Produzida 2024':'#A9A0D0','Produzida 2025':'#8A6D52',
+             'Meta 2026':'#12239E','Produzida 2026':'#FF3B0F'};
+  // esconde barras com valor nulo/zero — EXCETO Meta 2026 e Produzida 2026 (sempre aparecem)
+  const fixos=['Meta 2026','Produzida 2026'];
+  const a=OV.anual.filter(d=>fixos.includes(d.label)||(d.valor!=null&&d.valor>0)).slice().reverse();
+  const y=a.map(d=>d.label), xv=a.map(d=>d.valor||0);
+  const cores=a.map(d=>COR[d.label]||'#9aa0a6');
+  const tr={y,x:xv,type:'bar',orientation:'h',marker:{color:cores},
+    text:a.map(d=>d.valor==null?'':nf0.format(d.valor)),textposition:'outside',
+    textfont:{size:9},cliponaxis:false};
+  const lay=Object.assign({},BASE,{margin:{l:130,r:60,t:8,b:24},bargap:0.32,
+    xaxis:{gridcolor:'#eceef2',zeroline:false},
+    yaxis:{automargin:true,tickfont:{size:10},ticks:'outside',ticklen:8,tickcolor:'rgba(0,0,0,0)'}});
+  // grossura FIXA: altura do gráfico ∝ nº de barras (~44px/barra, como na versão de 5 barras)
+  document.getElementById('chAnual').style.height=(a.length*44+32)+'px';
+  Plotly.react('chAnual',[tr],lay,CFG);
+}
+
+// ---------- página diária ----------
+async function renderDiario(ano,mes){
+  const usina=$('selUsina').value;
+  const d=await get(`/api/t/diario?usina=${encodeURIComponent(usina)}&ano=${ano}&mes=${mes}`);
+  const x=d.pontos.map(p=>p.dia);
+  const DOT='#8a8a8a';   // bolinha cinza = dia com ocorrência (comentário)
+  const ticktext=d.pontos.map(p=>p.dia+'<br><span style="font-size:9px;color:'+(p.com?DOT:'rgba(0,0,0,0)')+'">●</span>');
+  const gers=d.pontos.map(p=>p.ger||0);
+  const mn=Math.min(...gers), mx=Math.max(...gers), rng=(mx-mn)||1;
+  const cores=gers.map(g=>mix('#F4C20D','#9E1B32',(g-mn)/rng));  // baixo=amarelo, alto=vermelho
+  const bars={x,y:d.pontos.map(p=>p.ger),type:'bar',name:'Energia Produzida (kWh)',
+    marker:{color:cores}};
+  const irr={x,y:d.pontos.map(p=>p.ipoa),type:'scatter',mode:'lines',name:'Irradiação (kWh/m²)',
+    line:{color:'#222',width:1.5},yaxis:'y2'};
+  const meta={x,y:x.map(()=>d.meta_dia),type:'scatter',mode:'lines',name:'Meta (kWh)',
+    line:{color:'#2456c7',width:2}};
+  const lay=Object.assign({},BASE,{margin:{l:56,r:54,t:10,b:54},
+    legend:{orientation:'h',x:0.5,xanchor:'center',y:-0.22},
+    xaxis:{tickmode:'array',tickvals:x,ticktext:ticktext,tickangle:0,tickfont:{size:8},gridcolor:'#fff'},
+    yaxis:{title:'Energia (kWh)',gridcolor:'#eceef2',zeroline:false},
+    yaxis2:{title:'kWh/m²',overlaying:'y',side:'right',showgrid:false,zeroline:false}});
+  Plotly.react('chDiario',[bars,irr,meta],lay,CFG);
+
+  // KPIs
+  const k=d.kpis;
+  const acum={x:['Produzida','Meta'],y:[k.acum_prod,k.acum_meta],type:'bar',
+    marker:{color:[ORA,NAVY]},text:[nf0.format(k.acum_prod||0),nf0.format(k.acum_meta||0)],
+    textposition:'outside',textfont:{size:11},cliponaxis:false};
+  Plotly.react('chAcum',[acum],Object.assign({},BASE,{showlegend:false,bargap:0.44,
+    margin:{l:8,r:8,t:8,b:22},xaxis:{gridcolor:'#fff'},
+    yaxis:{visible:false}}),CFG);
+  $('irrReal').textContent=k.irr_real==null?'—':nf0.format(k.irr_real);
+  $('irrMeta').textContent=k.irr_meta==null?'—':nf0.format(k.irr_meta);
+  $('disp').textContent=k.disp==null?'—':(k.disp*100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
+
+  // comentários
+  const tb=$('tblCmt').querySelector('tbody');
+  if(!d.comentarios.length){ tb.innerHTML='<tr><td colspan=3 class=muted>Sem comentários no mês</td></tr>'; }
+  else tb.innerHTML=d.comentarios.map(c=>`<tr><td>${OV.nome||usina}</td><td>${c.data}</td><td>${c.com||''}</td></tr>`).join('');
+}
+
+// "Baixar PDF" usa a impressão NATIVA do navegador — mesma qualidade vetorial e o mesmo
+// espaçamento do Ctrl+P (escolha "Salvar como PDF" no diálogo).
+$('btnPdf').onclick=()=>window.print();
+
+// ───────── Imprimir TODAS as usinas num PDF único (Mensal+Diário de cada) ─────────
+const sleep=ms=>new Promise(r=>setTimeout(r,ms));
+async function _imgReady(img){ try{await img.decode();}catch(e){await new Promise(r=>{img.onload=img.onerror=r;});} }
+async function _capUsinaPDF(pdf, first){
+  const charts=['chMensal','chDiario','chAcum','chAnual'], ov=[];
+  charts.forEach(id=>{const d=$(id); if(d&&d.data&&d.data.length) Plotly.Plots.resize(d);});
+  await sleep(250);
+  for(const id of charts){               // troca cada gráfico por PNG (captura confiável)
+    const d=$(id); if(!d||!d.data||!d.data.length) continue;
+    const r=d.getBoundingClientRect(); if(r.width<2||r.height<2) continue;
+    const url=await Plotly.toImage(d,{format:'png',width:Math.round(r.width),height:Math.round(r.height),scale:2});
+    const img=new Image(); img.src=url;
+    img.style.cssText='position:absolute;top:0;left:0;width:100%;height:100%;z-index:50;background:#fff';
+    await _imgReady(img); const pp=d.style.position; d.style.position='relative'; d.appendChild(img); ov.push({img,d,pp});
+  }
+  await sleep(40);
+  const opts={scale:2,backgroundColor:'#ffffff',logging:false};
+  const cH=await html2canvas(document.getElementById('topHeader'),opts);
+  const cM=await html2canvas($('pageMensal'),opts);
+  const cD=await html2canvas($('pageDiario'),opts);
+  ov.forEach(o=>{o.img.remove(); o.d.style.position=o.pp;});
+  charts.forEach(id=>{const d=$(id); if(d&&d.data&&d.data.length) Plotly.Plots.resize(d);});
+  const put=(cBody,fst)=>{
+    if(!fst) pdf.addPage();
+    const pw=pdf.internal.pageSize.getWidth(), ph=pdf.internal.pageSize.getHeight(), M=6, uW=pw-2*M;
+    const hH=uW/(cH.width/cH.height);
+    pdf.addImage(cH.toDataURL('image/jpeg',0.9),'JPEG',M,M,uW,hH);                 // cabeçalho no topo
+    const top=M+hH+3, remH=ph-top-M, bAR=cBody.width/cBody.height;
+    let bW=uW, bH=bW/bAR; if(bH>remH){ bH=remH; bW=bH*bAR; }
+    pdf.addImage(cBody.toDataURL('image/jpeg',0.9),'JPEG',M+(uW-bW)/2,top,bW,bH);  // logo abaixo do cabeçalho
+  };
+  put(cM, first); put(cD, false);
+}
+async function printAllUsinas(){
+  const btn=$('btnPdfAll'), old=btn.textContent;
+  const sel=$('selUsina'), orig=sel.value, origMes=$('selMes').value;
+  const usinas=[...sel.options].map(o=>o.value); if(!usinas.length) return;
+  if(!confirm('Gerar 1 PDF com TODAS as usinas ('+usinas.length+')? São ~'+(usinas.length*2)+' páginas e leva 1–3 min.')) return;
+  btn.disabled=true; $('btnPdf').disabled=true;
+  document.body.classList.add('exporting'); document.body.classList.add('printing');  // printing = limita .wrap a 1400px → gráficos cabem
+  const {jsPDF}=window.jspdf; const pdf=new jsPDF('l','mm','a4');
+  try{
+    for(let i=0;i<usinas.length;i++){
+      btn.textContent='Gerando '+(i+1)+'/'+usinas.length+'…';
+      sel.value=usinas[i]; await loadUsina(); await sleep(400);
+      await _capUsinaPDF(pdf, i===0);
+    }
+    pdf.save('Performance_TODAS_'+((OV&&OV.ano)||'')+'.pdf');
+  }catch(e){ console.error('Falha PDF todas',e); alert('Falha ao gerar PDF de todas: '+(e&&e.message||e)); }
+  finally{
+    document.body.classList.remove('exporting'); document.body.classList.remove('printing');
+    sel.value=orig; try{ await loadUsina(); if(origMes){const p=origMes.split('-'); renderDiario(+p[0],+p[1]);} }catch(e){}
+    btn.disabled=false; $('btnPdf').disabled=false; btn.textContent=old;
+  }
+}
+$('btnPdfAll').onclick=printAllUsinas;
+
+// Impressão (botão e Ctrl+P) em A4 paisagem: mostra as 2 páginas, redimensiona os gráficos
+// e define um nome de arquivo bom no "Salvar como PDF".
+window.addEventListener('beforeprint',()=>{
+  document.body.classList.add('printing');
+  window.__titulo=document.title;
+  document.title='Performance_'+(((OV&&OV.nome)||$('selUsina').value||'Usina')+'').replace(/\s+/g,'_')+(OV&&OV.ano?('_'+OV.ano):'');
+  ['chMensal','chDiario','chAcum','chAnual'].forEach(id=>{const d=$(id); if(d&&d.data&&d.data.length) Plotly.Plots.resize(d);});
+});
+window.addEventListener('afterprint',()=>{
+  document.body.classList.remove('printing');
+  if(window.__titulo) document.title=window.__titulo;
+  ['chMensal','chDiario','chAcum','chAnual'].forEach(id=>{const d=$(id); if(d&&d.data&&d.data.length) Plotly.Plots.resize(d);});
+});
+
+// ───────── atualizar dados (força o backend a reler o BD_Thopen.xlsx) ─────────
+async function refreshBD(){
+  const btn=$('btnRefresh'), old=btn.textContent; btn.disabled=true; btn.textContent='Atualizando…';
+  const usinaAtual=$('selUsina').value, mesAtual=$('selMes').value;
+  try{
+    await get('/api/t/reload');                  // backend relê o xlsx (limpa cache)
+    const u=await get('/api/t/usinas');          // lista de usinas (caso tenha entrado nova)
+    $('selUsina').innerHTML=u.usinas.map(x=>`<option ${x===usinaAtual?'selected':''}>${x}</option>`).join('');
+    if(![...$('selUsina').options].some(o=>o.value===usinaAtual) && u.default) $('selUsina').value=u.default;
+    await loadUsina();                           // re-busca overview + diário e re-renderiza
+    if(mesAtual && [...$('selMes').options].some(o=>o.value===mesAtual)){
+      $('selMes').value=mesAtual; const p=mesAtual.split('-'); renderDiario(+p[0],+p[1]);
+    }
+  }catch(e){ alert('Falha ao atualizar: '+(e&&e.message||e)); }
+  finally{ btn.disabled=false; btn.textContent=old; }
+}
+$('btnRefresh').onclick=refreshBD;
+
+init();
+</script>
+</body>
+</html>
