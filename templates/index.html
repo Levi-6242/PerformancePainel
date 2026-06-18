@@ -1325,6 +1325,10 @@
           <button id="pvpr-vis-pr"  onclick="pvPrSetVisao('pr')"      style="border:0;padding:5px 11px;font-size:12px;cursor:pointer;background:#16a34a;color:#fff">PR</button>
           <button id="pvpr-vis-ger" onclick="pvPrSetVisao('geracao')" style="border:0;padding:5px 11px;font-size:12px;cursor:pointer;background:#fff;color:#374151">Geração</button>
         </div>
+        <div style="display:inline-flex;border:1px solid #d1d5db;border-radius:8px;overflow:hidden" title="Como mostrar os inversores ao abrir a usina">
+          <button id="pvpr-view-cards" onclick="pvPrSetView('cards')"  style="border:0;padding:5px 11px;font-size:12px;cursor:pointer;background:#374151;color:#fff">▦ Cards</button>
+          <button id="pvpr-view-bar"   onclick="pvPrSetView('barras')" style="border:0;padding:5px 11px;font-size:12px;cursor:pointer;background:#fff;color:#374151">📊 Gráfico</button>
+        </div>
         <label style="font-size:12px;color:var(--muted)">Ordenar
           <select id="pvpr-ordem" onchange="renderPvPr()" style="font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:6px">
             <option value="valor">por valor</option>
@@ -3278,7 +3282,7 @@ async function atualizarWatch(){
 }
 
 /* ══ PR por inversor (banco / BD_Thopen) ═════════════════════════════════════ */
-let pvPrRows=[], pvPrDetail={}, pvPrExp=new Set(), pvPrVisao='pr';
+let pvPrRows=[], pvPrDetail={}, pvPrExp=new Set(), pvPrVisao='pr', pvPrView='cards';
 function _prFmt(v){return v==null?'—':(v*100).toFixed(1)+'%';}
 function _gerFmt(v){return v==null?'—':Math.round(v).toLocaleString('pt-BR');}
 function _pvPrData(){
@@ -3291,6 +3295,13 @@ function pvPrSetVisao(v){
   const a=document.getElementById('pvpr-vis-pr'), b=document.getElementById('pvpr-vis-ger');
   a.style.background=v==='pr'?'#16a34a':'#fff'; a.style.color=v==='pr'?'#fff':'#374151';
   b.style.background=v==='geracao'?'#16a34a':'#fff'; b.style.color=v==='geracao'?'#fff':'#374151';
+  renderPvPr();
+}
+function pvPrSetView(v){
+  pvPrView=v;
+  const a=document.getElementById('pvpr-view-cards'), b=document.getElementById('pvpr-view-bar');
+  a.style.background=v==='cards'?'#374151':'#fff'; a.style.color=v==='cards'?'#fff':'#374151';
+  b.style.background=v==='barras'?'#374151':'#fff'; b.style.color=v==='barras'?'#fff':'#374151';
   renderPvPr();
 }
 function _prBase(){ return primary==='sunop' ? '/api/sunop/pr' : primary==='solaredge' ? '/api/solaredge/pr' : '/api/pg/pr'; }
@@ -3358,17 +3369,45 @@ async function renderPvPrDetail(pid, row){
   const num=i=>parseInt((i.nome_api||'').replace(/\D+/g,''))||999;
   if(ordem==='valor') invs.sort((a,b)=>((val(b)??-1)-(val(a)??-1)));
   else                invs.sort((a,b)=>num(a)-num(b));
-  const chips=invs.map(i=>{
-    const cor=i.abaixo?'#b91c1c':(val(i)==null?'#9ca3af':'#16a34a');
-    const txt=pvPrVisao==='pr'?(i.pr!=null?(i.pr*100).toFixed(1)+'%':'—'):(i.geracao_kwh!=null?Math.round(i.geracao_kwh)+' kWh':'—');
-    const pot=i.pot_kwp!=null?i.pot_kwp.toFixed(1)+' kWp':'sem pot.';
-    return `<span style="border:1px solid ${cor};color:${cor};border-radius:8px;padding:3px 8px;font-size:11px;white-space:nowrap"
-      title="${i.nome} · ${pot} · Geração ${i.geracao_kwh!=null?Math.round(i.geracao_kwh)+' kWh':'—'} · PR ${i.pr!=null?(i.pr*100).toFixed(1)+'%':'—'}${i.abaixo?' · ABAIXO DA MEDIANA':''}">${i.nome}: <b>${txt}</b></span>`;
-  }).join('');
   const med=pvPrVisao==='pr'?(row&&row.pr_mediana!=null?(row.pr_mediana*100).toFixed(1)+'%':'—'):'—';
   const aviso=row&&!row.confiavel?' <span style="color:#d97706">— irradiância pouco confiável: confie na comparação entre inversores, não no PR absoluto</span>':'';
-  cell.innerHTML=`<div style="margin-bottom:6px;font-size:11px">IPOA <b>${(row&&row.ipoa!=null)?row.ipoa+' kWh/m²':'—'}</b> · PR mediana <b>${med}</b> · visão <b>${pvPrVisao==='pr'?'PR':'Geração'}</b> <span style="color:#9ca3af">(borda vermelha = abaixo da mediana da usina)</span>${aviso}</div>`
-    +`<div style="display:flex;flex-wrap:wrap;gap:6px">${chips}</div>`;
+  const legenda=pvPrView==='barras'?(pvPrVisao==='pr'?'barras vermelhas = abaixo da mediana · linha tracejada = mediana da usina':'barras vermelhas = abaixo da mediana da usina'):'borda vermelha = abaixo da mediana da usina';
+  const header=`<div style="margin-bottom:6px;font-size:11px">IPOA <b>${(row&&row.ipoa!=null)?row.ipoa+' kWh/m²':'—'}</b> · PR mediana <b>${med}</b> · visão <b>${pvPrVisao==='pr'?'PR':'Geração'}</b> <span style="color:#9ca3af">(${legenda})</span>${aviso}</div>`;
+  if(pvPrView==='barras'){
+    const cid='pvpr-bar-'+pid;
+    cell.innerHTML=header+`<div id="${cid}" style="width:100%;height:${Math.max(170, invs.length*24+46)}px"></div>`;
+    _pvPrBarChart(cid, invs, row);
+  } else {
+    const chips=invs.map(i=>{
+      const cor=i.abaixo?'#b91c1c':(val(i)==null?'#9ca3af':'#16a34a');
+      const txt=pvPrVisao==='pr'?(i.pr!=null?(i.pr*100).toFixed(1)+'%':'—'):(i.geracao_kwh!=null?Math.round(i.geracao_kwh)+' kWh':'—');
+      const pot=i.pot_kwp!=null?i.pot_kwp.toFixed(1)+' kWp':'sem pot.';
+      return `<span style="border:1px solid ${cor};color:${cor};border-radius:8px;padding:3px 8px;font-size:11px;white-space:nowrap"
+        title="${i.nome} · ${pot} · Geração ${i.geracao_kwh!=null?Math.round(i.geracao_kwh)+' kWh':'—'} · PR ${i.pr!=null?(i.pr*100).toFixed(1)+'%':'—'}${i.abaixo?' · ABAIXO DA MEDIANA':''}">${i.nome}: <b>${txt}</b></span>`;
+    }).join('');
+    cell.innerHTML=header+`<div style="display:flex;flex-wrap:wrap;gap:6px">${chips}</div>`;
+  }
+}
+function _pvPrBarChart(cid, invs, row){
+  const box=document.getElementById(cid); if(!box||!window.Plotly)return;
+  const isPr=pvPrVisao==='pr';
+  // invs já vem ordenado; Plotly h-bar põe o 1º y embaixo → inverte p/ o 1º ficar no topo
+  const arr=invs.slice().reverse();
+  const x=arr.map(i=> isPr ? (i.pr!=null? +(i.pr*100).toFixed(1):null) : (i.geracao_kwh!=null? Math.round(i.geracao_kwh):null));
+  const y=arr.map(i=> i.nome);
+  const cor=arr.map(i=> i.abaixo?'#b91c1c':(((isPr?i.pr:i.geracao_kwh))==null?'#cbd5e1':'#16a34a'));
+  const txt=arr.map((v,k)=> x[k]==null?'':(isPr? x[k].toFixed(1)+'%' : x[k].toLocaleString('pt-BR')));
+  const shapes=[];
+  if(isPr && row && row.pr_mediana!=null){ const m=+(row.pr_mediana*100).toFixed(1);
+    shapes.push({type:'line', x0:m, x1:m, yref:'paper', y0:0, y1:1, line:{color:'#111827', width:1.5, dash:'dash'}}); }
+  Plotly.purge(box);
+  Plotly.newPlot(box, [{type:'bar', orientation:'h', x:x, y:y, marker:{color:cor}, text:txt, textposition:'auto', cliponaxis:false,
+      hovertemplate:'%{y}: %{x}'+(isPr?'%':' kWh')+'<extra></extra>'}],
+    {margin:{t:6,r:18,b:30,l:90}, shapes:shapes, bargap:0.25,
+     xaxis:{title:isPr?'PR (%)':'Geração (kWh)', zeroline:false, tickfont:{size:10}},
+     yaxis:{automargin:true, tickfont:{size:10}},
+     font:{family:'Inter', size:11}, plot_bgcolor:'#fff', paper_bgcolor:'#fff'},
+    {displayModeBar:false, responsive:true});
 }
 
 /* ══ Curva das strings (genérica: SunOp/Athon e PG/Thopen) ═══════════════════ */

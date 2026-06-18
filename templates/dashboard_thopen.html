@@ -33,7 +33,7 @@
   .sec{ font-size:15px; font-weight:700; color:var(--navy); margin:0 0 10px; text-align:center; }
   .sec u{ text-decoration:none; text-transform:uppercase; }
   .card{ background:var(--card); border:1px solid var(--line); border-radius:12px;
-         padding:12px 14px; box-shadow:0 1px 3px rgba(0,0,0,.04); min-width:0; }
+         padding:12px 14px; box-shadow:0 1px 3px rgba(0,0,0,.04); min-width:0; overflow:hidden; }
   .card h3{ margin:0 0 8px; font-size:12px; font-weight:700; color:#555;
             text-transform:uppercase; letter-spacing:.5px; text-align:center; }
   table{ width:100%; border-collapse:collapse; font-size:12.5px; }
@@ -42,7 +42,7 @@
   thead th{ background:#f4f3f8; color:#3a2540; font-weight:700; }
   .neg{ color:var(--neg); } .pos{ color:var(--pos); }
   .grid{ display:grid; grid-template-columns:2.6fr 1fr; gap:14px; }
-  .col{ display:flex; flex-direction:column; gap:14px; min-width:0; }
+  .col{ display:flex; flex-direction:column; justify-content:space-between; gap:14px; min-width:0; }
   .kpi-row{ display:grid; grid-template-columns:1fr 1fr; gap:8px; text-align:center; }
   .kpi-big{ font-size:30px; font-weight:800; color:var(--navy); }
   .kpi-lbl{ font-size:10px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; }
@@ -159,7 +159,12 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   $('pageMensal').classList.toggle('hidden',p!=='mensal');
   $('pageDiario').classList.toggle('hidden',p!=='diario');
   $('fldMes').classList.toggle('hidden',p!=='diario');
-  window.dispatchEvent(new Event('resize'));
+  // Redimensiona os gráficos da página recém-exibida. `void offsetWidth` força o reflow do
+  // display:block ANTES do resize — senão o Plotly mede a largura-fallback (~700px) e, em telas
+  // < ~1840px, o gráfico estoura o card. Rede de segurança: o .card tem overflow:hidden.
+  const ids = p==='diario' ? ['chDiario','chAcum','chAnual'] : ['chMensal'];
+  void document.body.offsetWidth;
+  ids.forEach(id=>{const d=$(id); if(d&&d.data&&d.data.length) Plotly.Plots.resize(d);});
 });
 
 async function init(){
@@ -190,9 +195,9 @@ async function loadUsina(){
 // ---------- página mensal ----------
 function renderMensal(){
   const m=OV.meses, x=m.map(r=>MES[r.mes]);
-  const prod23={x,y:m.map(r=>r.produzida_2023),type:'bar',name:'Produzida (2023)',marker:{color:'#CDB89A'}};
-  const prod24={x,y:m.map(r=>r.produzida_2024),type:'bar',name:'Produzida (2024)',marker:{color:'#A9A0D0'}};
-  const prod25={x,y:m.map(r=>r.produzida_2025),type:'bar',name:'Produzida (2025)',marker:{color:'#8A6D52'}};
+  const prod23={x,y:m.map(r=>r.produzida_2023),type:'bar',name:'Produzida (2023)',marker:{color:'#f6ae2d'}};
+  const prod24={x,y:m.map(r=>r.produzida_2024),type:'bar',name:'Produzida (2024)',marker:{color:'#287baa'}};
+  const prod25={x,y:m.map(r=>r.produzida_2025),type:'bar',name:'Produzida (2025)',marker:{color:'#24a768'}};
   const prod={x,y:m.map(r=>r.produzida),type:'bar',name:'Produzida (2026)',marker:{color:ORA}};
   const meta={x,y:m.map(r=>r.meta),type:'bar',name:'Meta (2026)',marker:{color:NAVY}};
   const lay=Object.assign({},BASE,{barmode:'group',
@@ -222,7 +227,7 @@ function renderMensal(){
 
 function renderAnual(){
   // cor POR RÓTULO (continua certa mesmo escondendo barras)
-  const COR={'Produzida 2023':'#CDB89A','Produzida 2024':'#A9A0D0','Produzida 2025':'#8A6D52',
+  const COR={'Produzida 2023':'#f6ae2d','Produzida 2024':'#287baa','Produzida 2025':'#24a768',
              'Meta 2026':'#12239E','Produzida 2026':'#FF3B0F'};
   // esconde barras com valor nulo/zero — EXCETO Meta 2026 e Produzida 2026 (sempre aparecem)
   const fixos=['Meta 2026','Produzida 2026'];

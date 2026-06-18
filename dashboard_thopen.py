@@ -388,6 +388,10 @@ def overview():
 
     pa = _produzida_anual(usina)
     prod2026 = sum(prod.values())
+    # Meta 2026 = meta acumulada (YTD) dos meses em que a usina gerou — espelha a medida DAX
+    # do Power BI (SUM(meta) WHERE Date <= mês) p/ usinas contínuas (casa exato c/ Altair).
+    # Acumula SÓ nos meses com produção de propósito: não cobra meta de meses em que a usina
+    # ainda não existia (usinas que entraram no meio do ano). Ver nota p/ alternar p/ calendário.
     meta2026_ytd = sum((meta.get(m, {}).get("meta") or 0) for m in prod)
     anual = [
         {"label": "Produzida 2023", "valor": pa.get("2023")},

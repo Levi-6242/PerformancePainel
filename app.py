@@ -3320,12 +3320,23 @@ def api_pv_trackers_plant(idusina):
     return jsonify(r)
 
 
+_pv_trk_chart_cache = {}   # (idusina, data) -> {ts, payload}: evita rebater o trackerschart (90s) a cada abertura
+
+
 @app.route("/api/pv/trackers/<int:idusina>/chart")
 def api_pv_trackers_chart(idusina):
     """Curva diária de posição por tracker (PV Plataforma /v2/usinas/trackerschart)."""
     data = (flask_request.args.get("date") or datetime.now().strftime("%d/%m/%Y")).strip()
     if re.match(r"^\d{4}-\d{2}-\d{2}$", data):     # aceita YYYY-MM-DD do <input type=date>
         data = datetime.strptime(data, "%Y-%m-%d").strftime("%d/%m/%Y")
+    # Curva de HOJE vale por CACHE_TTL (intradiário muda devagar — mesmo contrato SWR do app);
+    # dia passado é imutável -> permanente. Corta o trackerschart (90s) repetido dos mini-gráficos
+    # do grupo, sem mudar o dado mostrado.
+    hoje = datetime.now().strftime("%d/%m/%Y")
+    key = (idusina, data); agora = time.time()
+    ent = _pv_trk_chart_cache.get(key)
+    if ent and ((data != hoje and ent["payload"].get("trackers")) or (agora - ent["ts"]) < CACHE_TTL):
+        return jsonify(ent["payload"])
     try:
         r = _http().get(f"{PLAT_BASE}/v2/usinas/trackerschart", headers=_plat_headers(),
                          params={"idusina": idusina, "dataleitura": data}, timeout=90)
@@ -3343,7 +3354,9 @@ def api_pv_trackers_chart(idusina):
         trackers.append({"id": nome, "x": [p.get("x") for p in s],
                          "y": [round(p.get("y"), 2) if isinstance(p.get("y"), (int, float)) else None
                                for p in s]})
-    return jsonify({"plant": idusina, "date": data, "trackers": trackers, "alvo": None})
+    payload = {"plant": idusina, "date": data, "trackers": trackers, "alvo": None}
+    _pv_trk_chart_cache[key] = {"ts": agora, "payload": payload}
+    return jsonify(payload)
 
 
 @app.route("/api/pv/trackers/token", methods=["POST", "OPTIONS"])
