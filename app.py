@@ -6,6 +6,8 @@ import io
 import csv
 import time
 import json
+import shutil
+import tempfile
 import threading
 import requests
 import pandas as pd
@@ -126,6 +128,9 @@ STRING_INV_MIN_MED_A   = 0.5    # mediana do inversor abaixo disto = inversor pa
 _trancadas = set()              # chaves "plant_id|inv_id|Ipv" das strings trancadas (preenchido do estado)
 TEMP_ALERT         = 65.0
 COMM_ALERT_MINUTES = 30
+ETM_LATE_WARN_MIN  = 15    # ETM: última leitura atrasando (entre isto e COMM_ALERT_MINUTES, de dia) = possível falta (atenção)
+ETM_GAP_WARN_MIN   = 30    # ETM: buraco na série durante o dia (min) = possível falta (atenção)
+ETM_DIA_INI, ETM_DIA_FIM = 6, 18   # janela diurna em que a estação deveria estar reportando
 CACHE_TTL          = 300   # segundos — cache de 5 min
 
 _cache        = {"payload": None, "ts": 0.0}
@@ -195,7 +200,42 @@ def _swr(cache: dict, build, force: bool = False) -> dict:
 # ── SunOp ─────────────────────────────────────────────────────────────────────
 SUNOP_CONFIG  = "https://gridco-api.sunop.net/api"
 SUNOP_DATA    = "https://gridco-api.sunop.net/data"
-_sunop_token  = {"token": os.environ.get("SUNOP_TOKEN", "")}
+SUNOP_TOKEN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sunop_token.txt")
+
+
+def _jwt_exp(tok: str) -> float:
+    """exp (epoch) de um JWT, sem validar assinatura. 0 se não der p/ ler."""
+    try:
+        import base64
+        pl = tok.split(".")[1]; pl += "=" * (-len(pl) % 4)
+        return float(json.loads(base64.urlsafe_b64decode(pl)).get("exp", 0) or 0)
+    except Exception:
+        return 0.0
+
+
+def _sunop_persist(tok: str):
+    try:
+        with open(SUNOP_TOKEN_PATH, "w", encoding="utf-8") as f:
+            f.write(tok)
+    except Exception:
+        pass
+
+
+def _sunop_token_inicial() -> str:
+    """Usa o token de MAIOR validade entre o persistido (sunop_token.txt, renovado sozinho pelo
+    /refresh_token) e o do .env (semente manual). Assim a renovação automática sobrevive a
+    reinícios E um token novo colado no .env também é respeitado (vence o de maior exp)."""
+    env_tok = os.environ.get("SUNOP_TOKEN", "")
+    file_tok = ""
+    try:
+        with open(SUNOP_TOKEN_PATH, encoding="utf-8") as f:
+            file_tok = f.read().strip()
+    except Exception:
+        pass
+    return file_tok if _jwt_exp(file_tok) > _jwt_exp(env_tok) else env_tok
+
+
+_sunop_token  = {"token": _sunop_token_inicial()}
 _sunop_meta      = {}        # plant_name → metadata dict
 _sunop_cache     = {"payload": None, "ts": 0.0}
 _sunop_etm_cache = {"payload": None, "ts": 0.0}
@@ -422,10 +462,26 @@ def _bd_perf_path() -> str:
             return p
     return _BD_PERF_LOCAL
 
+
+_BD_TMP = os.path.join(tempfile.gettempdir(), "bd_perf_dashboard.xlsx")
+
+
+def _bd_readable_path():
+    """Caminho LEGÍVEL do BD_Performance: copia para uma cópia temporária (contorna o lock
+    do Excel/OneDrive quando o arquivo está aberto) e devolve a cópia. Se a cópia falhar,
+    devolve o original (o chamador trata o erro). O mtime do cache continua vindo do original."""
+    src = _bd_perf_path()
+    try:
+        shutil.copy2(src, _BD_TMP)
+        return _BD_TMP
+    except Exception:
+        return src
+
 # Globais preenchidas por load_equipamentos() (recarregáveis em runtime)
 ESPERADO_INV  = {}   # {usina_sup: {equip_sup: strings_esperadas}}
 EQUIP_NAMES   = {}   # {usina_sup: {equip_sup: equipamento_display}}
 USINA_DISPLAY = {}   # {usina_sup: usina_display}
+USINA_GRUPO   = {}   # {usina_sup: usina_fisica} — SEM dedup; agrupa sub-usinas (Indaiatuba 1-4 → "Indaiatuba")
 ESPERADO      = {}   # {usina_sup: {"inv_esp": n, "str_esp": soma}}
 FULL_OM       = set()
 STRING_BOX    = set()   # {usina_sup}  usinas com coluna "String Box"=Sim (sem visão por string)
@@ -442,10 +498,10 @@ def load_equipamentos():
     """(Re)carrega TODO o cadastro a partir da aba 'Equipamentos' do BD_Performance:
     esperadas (Strings Ativas), nomes de exibição, Full O&M e potência por inversor.
     Chamada na init e sempre que o arquivo muda (mtime). Uma só leitura alimenta tudo."""
-    global ESPERADO_INV, EQUIP_NAMES, USINA_DISPLAY, ESPERADO, FULL_OM, STRING_BOX, POWER_INV, _bd_mtime
+    global ESPERADO_INV, EQUIP_NAMES, USINA_DISPLAY, USINA_GRUPO, ESPERADO, FULL_OM, STRING_BOX, POWER_INV, _bd_mtime
     try:
         path = _bd_perf_path()
-        df = pd.read_excel(path, sheet_name="Equipamentos", header=2)
+        df = pd.read_excel(_bd_readable_path(), sheet_name="Equipamentos", header=2)
         df.columns = [str(c).strip() for c in df.columns]
         c_us   = next(c for c in df.columns if "supervis" in c.lower() and "usina" in c.lower())
         c_usd  = next(c for c in df.columns if c.lower() == "usina")
@@ -497,6 +553,9 @@ def load_equipamentos():
                     except (TypeError, ValueError):
                         pass
 
+        # Mapa p/ AGRUPAR sub-usinas (Indaiatuba 1-4, Ceilândia II - *, Céu Azul I/II/III…) pela
+        # usina física — guardado ANTES da dedup abaixo (que descarta justamente os agrupados).
+        usina_grupo = dict(usina_display)
         # Remove nomes de exibição AMBÍGUOS (mesmo display p/ vários supervisórios, ex.: "Altair" x5).
         _disp_count = {}
         for _d in usina_display.values():
@@ -513,6 +572,7 @@ def load_equipamentos():
 
         # Publica de uma vez (substitui as globais)
         ESPERADO_INV, EQUIP_NAMES, USINA_DISPLAY = esperado_inv, equip_names, usina_display
+        USINA_GRUPO = usina_grupo
         ESPERADO, FULL_OM, STRING_BOX, POWER_INV = esperado, full_om, string_box, power_inv
         try:
             _bd_mtime = os.path.getmtime(path)
@@ -599,9 +659,10 @@ def load_metas():
     global INFO_GERAL, PR_PREVISTO, _metas_mtime
     try:
         path = _bd_perf_path()
+        rd = _bd_readable_path()
 
         # --- Info Geral (cabeçalho na 1ª linha) ---
-        dg = pd.read_excel(path, sheet_name="Info Geral", header=0)
+        dg = pd.read_excel(rd, sheet_name="Info Geral", header=0)
         dg.columns = [str(c).strip() for c in dg.columns]
         gc_us  = _col(dg.columns, "usina")
         gc_kwp = _col(dg.columns, "potencia", "kwp")
@@ -628,7 +689,7 @@ def load_metas():
             }
 
         # --- Info Mensal (cabeçalho na 2ª linha; 1ª coluna é índice em branco) ---
-        dm = pd.read_excel(path, sheet_name="Info Mensal", header=1)
+        dm = pd.read_excel(rd, sheet_name="Info Mensal", header=1)
         dm.columns = [str(c).strip() for c in dm.columns]
         mc_us   = _col(dm.columns, "usina")
         mc_mes  = _col(dm.columns, "mes", exclude=("comenta",))
@@ -803,9 +864,27 @@ def get_token(force=False) -> str:
         return tok
 
 
-def get_plants(token: str) -> list:
-    r = _http().get(f"{BASE_URL}/plants", headers={"x-access-token": token}, timeout=30)
-    return r.json()
+_plants_cache = {"ts": 0.0, "data": None}   # lista de usinas (id/nome) — muda raramente
+_plants_lock  = threading.Lock()
+
+
+def get_plants(token: str, force=False) -> list:
+    """Lista de usinas da API PV, cacheada por CACHE_TTL. A relação de usinas muda
+    raramente, mas vários endpoints a consultam UMA VEZ POR USINA (a aba Curva das
+    strings rebaixava /plants ~108×, uma por usina, a cada abertura). O dado DENTRO de
+    cada usina segue buscado fresco nos outros endpoints — aqui só evitamos repetir o
+    download da lista inteira."""
+    now = time.time()
+    if not force and _plants_cache["data"] is not None and (now - _plants_cache["ts"]) < CACHE_TTL:
+        return _plants_cache["data"]
+    with _plants_lock:
+        if not force and _plants_cache["data"] is not None and (time.time() - _plants_cache["ts"]) < CACHE_TTL:
+            return _plants_cache["data"]
+        r = _http().get(f"{BASE_URL}/plants", headers={"x-access-token": token}, timeout=30)
+        data = r.json()
+        if isinstance(data, list) and data:        # só cacheia resposta válida e não vazia
+            _plants_cache["data"], _plants_cache["ts"] = data, time.time()
+        return data
 
 
 def parse_cj(raw) -> dict:
@@ -1057,11 +1136,12 @@ def api_plant_detail(plant_id):
     except Exception:
         pass
 
-    # Registro mais recente por inversor
-    latest = {}
+    # Registro mais recente por inversor (+ todos os registros do dia p/ fallback de strings)
+    latest, by_inv = {}, {}
     for rec in records:
         inv_id = rec.get("idefinversor")
         ts     = rec.get("tsleitura_new", "")
+        by_inv.setdefault(inv_id, []).append(rec)
         if inv_id not in latest or ts > latest[inv_id]["tsleitura_new"]:
             latest[inv_id] = rec
 
@@ -1071,12 +1151,18 @@ def api_plant_detail(plant_id):
     def eh_inversor(dev_id):
         api_nome_orig = dev_names.get(dev_id, str(dev_id))
         api_nome      = api_nome_orig.lower()
-        display_nome  = EQUIP_NAMES.get(plant_nome_api, {}).get(api_nome_orig, api_nome_orig).lower()
+        mapa          = EQUIP_NAMES.get(plant_nome_api, {})
+        display_nome  = mapa.get(api_nome_orig, api_nome_orig).lower()
         if "inv" not in api_nome and "inv" not in display_nome:
             return False
         for nome in (api_nome, display_nome):
             if any(exc in nome for exc in _EXCLUIR_CONTEM):
                 return False
+        # O cadastro (BD Equipamentos) é a fonte da verdade dos inversores. Se a usina TEM
+        # cadastro e este device não está nele E não tem leitura, é um device avulso/duplicado
+        # do supervisório (ex.: "INVERSOR08" fantasma ao lado do "Inversor 2.8" real) → fora.
+        if mapa and api_nome_orig not in mapa and dev_id not in latest:
+            return False
         return True
 
     all_ids = sorted(
@@ -1094,7 +1180,19 @@ def api_plant_detail(plant_id):
         if rec:
             cj = parse_cj(rec.get("conteudojson"))
             ipv_keys  = [k for k in sorted(cj.keys()) if k.startswith("Ipv") and isinstance(cj[k], (int, float))]
-            correntes = [cj[k] for k in ipv_keys]
+            scj = cj
+            # O ping mais recente às vezes vem só com Eday/Temp (sem Ipv). Pra um inversor que
+            # está gerando não aparecer "0/0" ao expandir, usa o registro mais recente do DIA
+            # que tenha corrente por string (dado real) — mantém Eday/Temp/leitura do último.
+            if not ipv_keys:
+                for prev in sorted(by_inv.get(inv_id, []),
+                                   key=lambda r: r.get("tsleitura_new", ""), reverse=True):
+                    pcj = parse_cj(prev.get("conteudojson"))
+                    pk  = [k for k in sorted(pcj.keys()) if k.startswith("Ipv") and isinstance(pcj[k], (int, float))]
+                    if pk:
+                        scj, ipv_keys = pcj, pk
+                        break
+            correntes = [scj[k] for k in ipv_keys]
             stt       = _classifica_strings(plant_id, inv_id, ipv_keys, correntes)
             strings   = [{"id": k, "corrente": c, "status": s,
                           "ativa": s in ("ativa", "baixa_perf"), "trancada": s == "trancada"}
@@ -1497,6 +1595,10 @@ def _diagnostico_etm(series: list) -> dict:
     if diff_min > COMM_ALERT_MINUTES:
         flags.append({"t": "Sem comunicação", "tipo": "crit",
                       "info": f"última há {int(diff_min)} min"}); sev = min(sev, 0)
+    elif ETM_DIA_INI <= agora.hour < ETM_DIA_FIM and diff_min > ETM_LATE_WARN_MIN:
+        # de dia, a estação parou de enviar há um tempo (mas < limite crítico) → possível falta
+        flags.append({"t": "Possível falta de dados", "tipo": "warn",
+                      "info": f"sem leitura nova há {int(diff_min)} min"}); sev = min(sev, 1)
 
     # 2) POA zerado — em horário de sol o pico de POA é ~0
     janela = [(t, p) for (t, p, g) in series if 9 <= t.hour < 15]
@@ -1536,6 +1638,15 @@ def _diagnostico_etm(series: list) -> dict:
     if drops >= 1:
         flags.append({"t": f"Quedas de POA ({drops})", "tipo": "warn",
                       "info": "caiu a zero e voltou"}); sev = min(sev, 1)
+
+    # 5) Possível falta de dados — buraco grande na série DURANTE O DIA (ignora madrugada,
+    #    quando a estação naturalmente reporta esparso). Distinto de dropout de POA (que é valor).
+    diurnas = [t for (t, _, _) in series if ETM_DIA_INI <= t.hour < ETM_DIA_FIM]
+    maxgap = max(((diurnas[i] - diurnas[i - 1]).total_seconds() / 60
+                  for i in range(1, len(diurnas))), default=0)
+    if maxgap > ETM_GAP_WARN_MIN:
+        flags.append({"t": "Possível falta de dados", "tipo": "warn",
+                      "info": f"buraco de {int(maxgap)} min na série"}); sev = min(sev, 1)
 
     # Sparkline (~48 pontos)
     k = max(1, n // 48)
@@ -1652,26 +1763,41 @@ def api_etm_analise():
 
 
 # ── SunOp: autenticação ───────────────────────────────────────────────────────
+def _sunop_try_refresh(headers) -> str:
+    """Chama /refresh_token (exige o token ATUAL ainda válido) → novo token; atualiza memória
+    e persiste em sunop_token.txt (p/ sobreviver a reinícios)."""
+    try:
+        r = _http().get(f"{SUNOP_CONFIG}/refresh_token", headers=headers, timeout=10)
+        if r.status_code == 200:
+            nt = r.json()
+            if isinstance(nt, str):
+                nt = nt.strip('"')
+            if nt and nt.startswith("eyJ"):
+                _sunop_token["token"] = nt
+                _sunop_persist(nt)
+                return nt
+    except Exception:
+        pass
+    return ""
+
+
 def get_sunop_token() -> str:
     tok = _sunop_token["token"]
     H   = {"Authorization": f"JWT {tok}", "Content-Type": "application/json"}
+    # Renova PROATIVAMENTE enquanto o token ainda é válido (vence em < 2 dias). O /refresh_token
+    # só aceita token válido — não dá p/ esperar expirar. O keepalive (6h) garante essa janela.
+    exp = _jwt_exp(tok)
+    if exp and 0 < (exp - time.time()) < 2 * 86400:
+        nt = _sunop_try_refresh(H)
+        if nt:
+            return nt
+    # Caminho normal: valida; se inválido, tenta refresh (best-effort — pode falhar se já expirou).
     try:
         if _http().get(f"{SUNOP_CONFIG}/check_token", headers=H, timeout=8).status_code == 200:
             return tok
     except Exception:
         pass
-    # Tenta renovar automaticamente
-    try:
-        r = _http().get(f"{SUNOP_CONFIG}/refresh_token", headers=H, timeout=10)
-        if r.status_code == 200:
-            new_tok = r.json()
-            if isinstance(new_tok, str):
-                new_tok = new_tok.strip('"')
-            _sunop_token["token"] = new_tok
-            return new_tok
-    except Exception:
-        pass
-    return tok
+    return _sunop_try_refresh(H) or tok
 
 
 def _sunop_headers() -> dict:
@@ -1945,13 +2071,16 @@ def api_sunop_data():
     return jsonify(_swr(_sunop_cache, _build_sunop_payload, force))
 
 
-# ── SunOp: drill-down inversores ──────────────────────────────────────────────
-@app.route("/api/sunop/plant/<plant_name>")
-def api_sunop_plant(plant_name):
+# ── SunOp: drill-down inversores (SWR por usina: serve cache na hora, atualiza em fundo) ─
+_so_plant_cache = {}      # plant_name -> {"ts": float, "inversores": [...]}
+_so_plant_lock  = threading.Lock()
+
+
+def _sunop_plant_build(plant_name):
     ensure_sunop_meta()
     meta = _sunop_meta.get(plant_name)
     if not meta:
-        return jsonify({"inversores": []})
+        return []
 
     pathnames = []
     for inv, paths in meta["inv_strings"].items():
@@ -1978,16 +2107,22 @@ def api_sunop_plant(plant_name):
         str_paths = meta["inv_strings"][inv_name]
         ids, correntes = [], []
         ts_inv = ""
+        n_real = 0      # quantas strings vieram com leitura numérica real (não o fallback 0 A)
         for p in sorted(str_paths,
                         key=lambda x: int(x.rsplit("I_PV", 1)[-1]) if x.rsplit("I_PV", 1)[-1].isdigit() else 999):
-            if p not in by_path:
-                continue
-            v  = by_path[p].get("value")
-            ts = by_path[p].get("timestamp", "")
+            d  = by_path.get(p) or {}
+            v  = d.get("value")
+            ts = d.get("timestamp", "")
             if ts > ts_inv:
                 ts_inv = ts
+            # Lista TODAS as strings conhecidas do inversor (metadata), mesmo sem leitura:
+            # valor real quando a API devolve, senão 0 A — assim um inversor sem geração
+            # ainda mostra suas strings (em 0 A) ao expandir, em vez de vir vazio.
+            ids.append(p.split(".")[-1])
             if isinstance(v, (int, float)):
-                ids.append(p.split(".")[-1]); correntes.append(v)
+                correntes.append(v); n_real += 1
+            else:
+                correntes.append(0.0)
         _st     = _classifica_strings(plant_name, inv_name, ids, correntes)
         strings = [{"id": i, "corrente": c, "status": s,
                     "ativa": s in ("ativa", "baixa_perf"), "trancada": s == "trancada"}
@@ -2001,7 +2136,7 @@ def api_sunop_plant(plant_name):
         temp       = _ov("TEMP_INT")
         eday       = _ov("EPD")
         str_ativas  = _str_ativas(_st)
-        desligado   = len(strings) == 0
+        desligado   = n_real == 0      # nenhuma leitura real → inversor desligado/sem comunicação
         # Strings esperadas vêm do BD_Performance/Equipamentos (ESPERADO_INV), igual à API PV
         str_esp_inv = ESPERADO_INV.get(plant_name, {}).get(inv_name)
         inv_diferenca = (str_ativas - str_esp_inv) if (str_esp_inv is not None and not desligado) else None
@@ -2029,6 +2164,42 @@ def api_sunop_plant(plant_name):
             "strings": strings,
         })
 
+    return inversores
+
+
+def _sunop_plant_get(plant_name, force=False):
+    """SWR por usina: serve o último drill-down na hora e atualiza em segundo plano.
+    Evita que expandir uma usina (Strings / Curva das strings) trave numa chamada ao
+    vivo do SunOp quando a API está sob carga (ex.: durante um 'Atualizar')."""
+    agora = time.time()
+    ent = _so_plant_cache.get(plant_name)
+    if ent and not force and (agora - ent["ts"]) < CACHE_TTL:
+        return ent["inversores"]
+    if ent and not force:                       # tem stale → serve já e atualiza em fundo
+        def _bg():
+            if not _so_plant_lock.acquire(blocking=False):
+                return
+            try:
+                _so_plant_cache[plant_name] = {"ts": time.time(),
+                                               "inversores": _sunop_plant_build(plant_name)}
+            except Exception as e:
+                print(f"[sunop/plant] refresh {plant_name} falhou: {e}")
+            finally:
+                _so_plant_lock.release()
+        threading.Thread(target=_bg, daemon=True).start()
+        return ent["inversores"]
+    inv = _sunop_plant_build(plant_name)        # 1ª vez (ou forçado) → constrói na hora
+    _so_plant_cache[plant_name] = {"ts": time.time(), "inversores": inv}
+    return inv
+
+
+@app.route("/api/sunop/plant/<plant_name>")
+def api_sunop_plant(plant_name):
+    force = flask_request.args.get("force", "0") == "1"
+    try:
+        inversores = _sunop_plant_get(plant_name, force)
+    except Exception as e:
+        return jsonify({"error": str(e), "inversores": []}), 500
     return jsonify({"plant_id": plant_name, "inversores": inversores})
 
 
@@ -2230,7 +2401,12 @@ TRK_DISP_SEVERO = 10.0   # ° — disparidade alvo×atual: alerta severo (overvi
 TRK_FORA_MEDIA  = 3.0    # ° — desvio do ângulo atual vs média da usina
 # Análise por CURVA do dia (drill-down):
 TRK_PARADO_AMP   = 15.0  # ° — amplitude do ângulo no dia abaixo disto = "parado" (linha reta)
-TRK_ALVO_MOVE_MIN = 30.0 # ° — só conta "parado" se os VIZINHOS variaram mais que isto (houve movimento)
+TRK_ALVO_MOVE_MIN = 30.0 # ° — (régua relativa) referência de movimento dos vizinhos
+TRK_COBERTURA_MIN_H = 4.0   # h — span da curva p/ julgar "parado" de forma ABSOLUTA (independe
+                            #     dos vizinhos → pega a PLANTA INTEIRA parada, que a régua
+                            #     relativa deixava passar como "Normal")
+TRK_PARADA_GLOBAL_HORA = 12 # h — passada esta hora, planta que mal girou (mediana baixa) = TODOS
+                            #     parados, não "ainda não girou" (corrige o falso "Normal")
 TRK_DESVIO_MIN   = 5.0   # ° — disparidade ATUAL acima da MEDIANA da planta (e não parado) = "desvio"
 TRK_ATRASO_DELTA = 10.0  # ° — disparidade MÁX do dia acima da MEDIANA da planta = "atraso" (amarelo)
 #   (relativo à mediana p/ descontar o "ruído estrutural": o alvo costuma ir a ângulos mais
@@ -2307,8 +2483,11 @@ def _trk_accum_parados(pid):
     if not amps:
         return set()
     med = sorted(amps.values())[len(amps) // 2]
-    if med < TRK_ALVO_MOVE_MIN:
-        return set()                    # a usina como um todo não girou — não dá p/ julgar
+    # A régua relativa deixava passar a PLANTA INTEIRA parada: mediana baixa → concluía "não
+    # girou, não dá p/ julgar". Mas se já passou o meio da janela de operação e a planta mal
+    # girou, ela está PARADA (todos travados) — não "ainda não girou".
+    if med < TRK_ALVO_MOVE_MIN and datetime.now().hour < TRK_PARADA_GLOBAL_HORA:
+        return set()                    # cedo no dia e ninguém girou — ainda não dá p/ julgar
     return {tid for tid, a in amps.items() if a < TRK_PARADO_AMP}
 
 
@@ -2388,10 +2567,29 @@ def _sunop_trackers_plant(plant_name: str) -> dict:
     sev  = sum(1 for t in lst if t["status"] in ("severo", "parado"))
     leve = sum(1 for t in lst if t["status"] == "leve")
     fora = sum(1 for t in lst if t["status"] == "fora_media")
+    # Cruzamento com a planilha de Tickets (nome da usina + nº do tracker) — espelha a API PV
+    tick, ambiguo = _tickets_lookup(_tk_norm(base["usina"]))
+    nums = (tick or {}).get("nums", {})
+    novos = acomp = normalizados = 0
+    for t in lst:
+        tstat = nums.get(_pv_trk_num(t["id"]))
+        t["na_planilha"]   = tstat is not None
+        t["ticket_status"] = tstat
+        t["normalizado"]   = bool(t["na_planilha"] and t["status"] == "normal")
+        if t["normalizado"]:
+            normalizados += 1
+        if t["status"] != "normal":                 # anômalo (severo/leve/fora_media/parado)
+            if t["na_planilha"]:
+                acomp += 1
+            else:
+                novos += 1
     base.update({"total": len(lst), "severos": sev, "leves": leve, "fora_media": fora,
+                 "sem_comunicacao": not atuais,
                  "media_angulo": round(media, 1) if media is not None else None,
                  "pior_disparidade": round(pior, 2) if pior is not None else None,
                  "desvio_medio": _trk_accum_desvio(plant_name),
+                 "tem_ticket": tick is not None, "ambiguo": ambiguo,
+                 "novos": novos, "acompanhados": acomp, "normalizados": normalizados,
                  "ultima_leitura": ts_max or None, "trackers": lst})
     return base
 
@@ -2432,6 +2630,22 @@ def _sunop_trackers_plant_curva(plant_name: str) -> dict:
     cur = _sunop_trk_curvas(plant_name, datetime.now().strftime("%Y-%m-%d"))
     posat, posal = cur["posat"], cur["posal"]
 
+    # Span de tempo coberto pela curva hoje → julga "parado" de forma ABSOLUTA (amplitude baixa
+    # por horas = travado), sem depender de os VIZINHOS terem girado (senão a planta INTEIRA
+    # parada nunca seria pega). E curva vazia / sem ponto = SEM COMUNICAÇÃO (não "normal").
+    def _hh(ts):
+        try:    return int(ts[11:13]) + int(ts[14:16]) / 60.0
+        except Exception: return None
+    _horas = []
+    for s in posat.values():
+        for ts, _ in s:
+            h = _hh(ts)
+            if h is not None:
+                _horas.append(h)
+    span_h = (max(_horas) - min(_horas)) if _horas else 0.0
+    dia_coberto = span_h >= TRK_COBERTURA_MIN_H
+    sem_dados = not _horas
+
     def _num(n):
         try: return int(n.split("_")[1])
         except Exception: return 999
@@ -2470,7 +2684,7 @@ def _sunop_trackers_plant_curva(plant_name: str) -> dict:
     lst, parados, desvios, atrasos = [], 0, 0, 0
     for r in raw:
         amp, cur_disp, max_disp = r["amp"], r["cur_disp"], r["max_disp"]
-        if amp is not None and amp < TRK_PARADO_AMP and amp_ref > TRK_ALVO_MOVE_MIN:
+        if amp is not None and amp < TRK_PARADO_AMP and dia_coberto:
             status = "parado"; parados += 1
         elif cur_disp is not None and (cur_disp - med_cur) > TRK_DESVIO_MIN:
             status = "desvio"; desvios += 1
@@ -2486,14 +2700,33 @@ def _sunop_trackers_plant_curva(plant_name: str) -> dict:
                     "amplitude":   round(amp, 1)  if amp  is not None else None,
                     "status": status})
     pior = max((t["max_disp"] for t in lst if t["max_disp"] is not None), default=None)
+    # Cruzamento com a planilha de Tickets (nome da usina + nº do tracker) — espelha a API PV
+    tick, ambiguo = _tickets_lookup(_tk_norm(base["usina"]))
+    nums = (tick or {}).get("nums", {})
+    novos = acomp = normalizados = 0
+    for t in lst:
+        tstat = nums.get(_pv_trk_num(t["id"]))
+        t["na_planilha"]   = tstat is not None
+        t["ticket_status"] = tstat
+        t["normalizado"]   = bool(t["na_planilha"] and t["status"] == "normal")
+        if t["normalizado"]:
+            normalizados += 1
+        if t["status"] != "normal":                 # anômalo (parado/desvio/atraso)
+            if t["na_planilha"]:
+                acomp += 1
+            else:
+                novos += 1
     base.update({"total": len(lst), "parados": parados, "desvios": desvios, "atrasos": atrasos,
-                 "sem_alvo": sem_alvo, "amp_ref": round(amp_ref, 1),
+                 "sem_alvo": sem_alvo, "amp_ref": round(amp_ref, 1), "sem_comunicacao": sem_dados,
                  "pior_disparidade": round(pior, 2) if pior is not None else None,
+                 "tem_ticket": tick is not None, "ambiguo": ambiguo,
+                 "novos": novos, "acompanhados": acomp, "normalizados": normalizados,
                  "ultima_leitura": ts_max or None, "trackers": lst})
     return base
 
 
 def _trk_severidade(r) -> int:
+    if r.get("sem_comunicacao"): return 0   # sem leitura = crítico (não pode passar por "normal")
     if r.get("severos"):    return 0
     if r.get("leves"):      return 1
     if r.get("fora_media"): return 2
@@ -2519,6 +2752,9 @@ def _build_sunop_trk_payload():
             "trackers": sum(r["total"] for r in rows),
             "severos": sum(r["severos"] for r in rows),
             "leves":   sum(r["leves"] for r in rows),
+            "novos":        sum(r.get("novos") or 0 for r in rows),
+            "acompanhados": sum(r.get("acompanhados") or 0 for r in rows),
+            "normalizados": sum(r.get("normalizados") or 0 for r in rows),
         },
         "cache_ts": datetime.now().strftime("%H:%M:%S"),
     }
@@ -2545,19 +2781,25 @@ def _sunop_analog_history(pathnames: list, start: str, end: str) -> dict:
     H = _sunop_headers()
     params = {"fill_missing": "false", "source": "Historical",
               "start_time": start, "end_time": end, "use_plant_timezone": "true"}
-    out = {}
-    for i in range(0, len(pathnames), 40):
-        batch = pathnames[i:i + 40]
+    batches = [pathnames[i:i + 40] for i in range(0, len(pathnames), 40)]
+
+    def _fetch(batch):
         try:
             r = _http().post(f"{SUNOP_DATA}/v2/analog_values", headers=H,
                               params=params, json={"pathnames": batch}, timeout=60)
-            if r.status_code == 200:
-                for rec in (r.json() or []):
-                    v = rec.get("value")
-                    if isinstance(v, (int, float)):
-                        out.setdefault(rec["pathname"], []).append((rec["timestamp"], v))
+            return r.json() or [] if r.status_code == 200 else []
         except Exception:
-            pass
+            return []
+
+    out = {}
+    # lotes em paralelo: 1 inversor já é ~28 paths (1 lote); a usina inteira eram ~18 lotes
+    # em série — o serial era o que deixava a curva do dia lenta.
+    with ThreadPoolExecutor(max_workers=min(6, len(batches) or 1)) as ex:
+        for recs in ex.map(_fetch, batches):
+            for rec in recs:
+                v = rec.get("value")
+                if isinstance(v, (int, float)):
+                    out.setdefault(rec["pathname"], []).append((rec["timestamp"], v))
     for p in out:
         out[p].sort()
     return out
@@ -2587,6 +2829,10 @@ def _sunop_strings_curva(plant_name: str, dia: str, inv=None) -> dict:
     for inv_name in sorted(nomes, key=_invnum):
         soma, curva = {}, {}
         for p in sorted(meta["inv_strings"][inv_name], key=_pvnum):
+            # string trancada (🔒, MPPT sem string) sai da curva — chave igual à da tabela
+            # (_strChipSimple/trancaStr): plant_name | inv_name | id (último segmento do path)
+            if _str_key(plant_name, inv_name, p.split(".")[-1]) in _trancadas:
+                continue
             serie = hist.get(p, [])
             if not serie:
                 continue
@@ -2606,7 +2852,11 @@ def _sunop_strings_curva(plant_name: str, dia: str, inv=None) -> dict:
         out.append({"id": inv_name, "nome": EQUIP_NAMES.get(plant_name, {}).get(inv_name, inv_name),
                     "nome_api": inv_name, "curva": curva, "mediana": round(med, 1),
                     "abaixo": abaixo, "strings": strings})
+    _marca_inv_sub(out)
     return {"plant_id": plant_name, "data": dia, "inversores": out}
+
+
+_sunop_curva_cache = {}   # (plant_name, dia, inv) -> {"ts", "payload"} — curva por inversor/dia
 
 
 @app.route("/api/sunop/curva/<plant_name>")
@@ -2615,8 +2865,15 @@ def api_sunop_curva(plant_name):
     if re.match(r"^\d{2}/\d{2}/\d{4}$", dia):
         dia = datetime.strptime(dia, "%d/%m/%Y").strftime("%Y-%m-%d")
     inv = (flask_request.args.get("inv") or "").strip() or None   # opcional: só um inversor (inv_name)
+    force = flask_request.args.get("force", "0") == "1"
+    key = (plant_name, dia, inv)
+    ent = _sunop_curva_cache.get(key)
+    if ent and not force and (time.time() - ent["ts"]) < CACHE_TTL:
+        return jsonify(ent["payload"])
     try:
-        return jsonify(_sunop_strings_curva(plant_name, dia, inv))
+        payload = _sunop_strings_curva(plant_name, dia, inv)
+        _sunop_curva_cache[key] = {"ts": time.time(), "payload": payload}
+        return jsonify(payload)
     except Exception as e:
         return jsonify({"error": str(e), "inversores": []}), 500
 
@@ -2840,7 +3097,8 @@ def load_tickets_trackers():
         c_us = next(c for c in df.columns if c.lower() == "usina")
         c_st = next(c for c in df.columns if c.lower() == "status")
         c_nt = next(c for c in df.columns if "tracker" in c.lower() and "identif" in c.lower())
-        m = {}
+        c_sk = next((c for c in df.columns if "skid" in c.lower()), None)
+        m = {}   # usina_norm → {skid_str: {"nums": {int: status}, "statuses": set}}  (skid "" = sem skid)
         for _, row in df.iterrows():
             st = str(row[c_st]).strip()
             if not st or st.lower() in ("nan", "em conformidade"):
@@ -2848,11 +3106,14 @@ def load_tickets_trackers():
             u = _tk_norm(row[c_us])
             if not u:
                 continue
+            sk = ""
+            if c_sk and pd.notna(row[c_sk]):
+                sk = re.sub(r"\.0$", "", str(row[c_sk]).strip())   # "1.0" → "1"
             try:
                 n = int(float(row[c_nt]))
             except (TypeError, ValueError):
                 n = None
-            e = m.setdefault(u, {"nums": {}, "statuses": set()})
+            e = m.setdefault(u, {}).setdefault(sk, {"nums": {}, "statuses": set()})
             e["statuses"].add(st)
             if n is not None:
                 e["nums"][n] = st
@@ -2866,16 +3127,32 @@ def load_tickets_trackers():
         print(f"[AVISO] Tickets/Trackers não carregado: {e}")
 
 
-def _tickets_lookup(plant_norm):
-    """→ (entrada|None, ambiguo). Casa exato por nome; senão por prefixo (usina agrupada
-    na planilha, ex.: 'altair' ⊂ 'altair 1') marcando ambíguo."""
+def _tickets_lookup(plant_norm, skid=None):
+    """→ ({"nums","statuses"}|None, ambiguo). Casa exato por nome (senão por prefixo, marcando
+    ambíguo). Com `skid`: casa o SKID exato — cruzamento CONFIÁVEL (os nº de tracker se repetem
+    entre skids). Sem `skid`: agrega todos os skids da usina (comportamento das usinas únicas)."""
     e = TICKETS_TRK.get(plant_norm)
-    if e:
-        return e, False
-    for k, v in TICKETS_TRK.items():
-        if plant_norm == k or plant_norm.startswith(k + " "):
-            return v, True
-    return None, False
+    ambiguo = False
+    if not e:
+        for k, v in TICKETS_TRK.items():
+            if plant_norm == k or plant_norm.startswith(k + " "):
+                e, ambiguo = v, True
+                break
+    if not e:
+        return None, False
+    if skid is not None:
+        skid = str(skid)
+        if skid in e:
+            return e[skid], ambiguo                      # SKID exato → confiável
+        if any(k for k in e):                            # usina separa por skid, mas não tem este
+            return {"nums": {}, "statuses": set()}, ambiguo
+        # planilha não separa por skid (só "") → cai no agregado abaixo
+    nums, statuses = {}, set()
+    for v in e.values():
+        nums.update(v.get("nums", {}))
+        statuses |= v.get("statuses", set())
+    multi = sum(1 for k in e if k) > 1
+    return {"nums": nums, "statuses": statuses}, (ambiguo or (skid is None and multi))
 
 
 load_tickets_trackers()   # carga inicial
@@ -2924,8 +3201,13 @@ def _pv_trackers_analise(idusina, nome_disp, date=None) -> dict:
     for t in lst:
         if str(t["id"]) in parados_set:
             t["status"] = "parado"
-    # Cruzamento com a planilha de Tickets (nome da usina + nº do tracker)
-    tick, ambiguo = _tickets_lookup(_tk_norm(nome_disp))
+    # Cruzamento com a planilha de Tickets. Na API PV cada SKID é uma usina ("Indaiatuba 1 (131)"
+    # = Indaiatuba/Skid 1) → casa por SKID quando a planilha agrupa a usina (senão, pelo nome todo).
+    m_sk = re.match(r"^(.*?)\s+(\d+)\s*(?:\(\d+\))?\s*$", str(nome_disp or ""))
+    if m_sk and _tk_norm(m_sk.group(1)) in TICKETS_TRK:
+        tick, ambiguo = _tickets_lookup(_tk_norm(m_sk.group(1)), m_sk.group(2))
+    else:
+        tick, ambiguo = _tickets_lookup(_tk_norm(nome_disp))
     nums = (tick or {}).get("nums", {})
     novos = acomp = normalizados = 0
     for t in lst:
@@ -2945,7 +3227,7 @@ def _pv_trackers_analise(idusina, nome_disp, date=None) -> dict:
     atr  = sum(1 for t in lst if t["status"] == "atraso")
     par  = sum(1 for t in lst if t["status"] == "parado")
     pior = max((t["disparidade"] for t in lst if t["disparidade"] is not None), default=None)
-    base.update({"total": len(lst), "tem_trackers": bool(lst),
+    base.update({"total": len(lst), "tem_trackers": bool(lst), "sem_comunicacao": not atuais,
                  "severos": desv + par, "leves": atr, "desvios": desv, "atrasos": atr, "parados": par,
                  "sem_alvo": all(t["alvo"] is None for t in lst) if lst else False,
                  "pior_disparidade": round(pior, 2) if pior is not None else None,
@@ -2969,15 +3251,17 @@ def _build_pv_trk_payload():
             try:
                 r = f.result()
                 if r.get("tem_trackers"):
+                    r["grupo"] = USINA_GRUPO.get(futs[f]["nome"].strip())   # usina física do cadastro → agrupa sub-usinas
                     _pv_trk_plant[r["plant_id"]] = {"ts": agora, "payload": r}
                     rows.append({k: r[k] for k in ("plant_id", "usina", "total", "severos", "leves",
                                  "fora_media", "pior_disparidade", "desvio_medio", "ultima_leitura",
                                  "media_angulo", "novos", "acompanhados", "normalizados",
-                                 "tem_ticket", "ambiguo")})
+                                 "tem_ticket", "ambiguo", "sem_comunicacao", "grupo")})
             except Exception:
                 pass
     # ordena: mais NOVOS (fora da planilha) no topo, depois severidade
-    rows.sort(key=lambda x: (-(x.get("novos") or 0), -(x["severos"] * 10 + x["leves"]), x["usina"]))
+    rows.sort(key=lambda x: (not x.get("sem_comunicacao"), -(x.get("novos") or 0),
+                             -(x["severos"] * 10 + x["leves"]), x["usina"]))
     return {"rows": rows,
             "summary": {"usinas": len(rows), "trackers": sum(r["total"] for r in rows),
                         "severos": sum(r["severos"] for r in rows),
@@ -3530,6 +3814,168 @@ def api_solaredge_plant(site_id):
     return jsonify({"plant_id": site_id, "inversores": inversores})
 
 
+# ── SolarEdge: PR por inversor (render-chart MONTH) ────────────────────────────
+#   UM render-chart por site já traz, junto, a energia diária de cada inversor (Wh)
+#   E a série "Global Irradiance" (W/m²) — sem precisar do generate-chart (que 500a
+#   no nível INVERTER). Para a data pedida pega-se o ponto diário (MONTH = 1 pt/dia,
+#   janela dos últimos ~31 dias, valor FECHADO de dias passados).
+#     IPOA (kWh/m²) = irr_diário × 0,25 / 1000   (validado: soma das 96 amostras 15min
+#                     do DAY == valor diário do MONTH).
+#     geração_inv (kWh) = ponto_diário (Wh) / 1000.
+#     PR_inv = geração ÷ (IPOA × potência_inv);  potência via Equipamentos (POWER_INV).
+#   Xavantina 2 e Colíder 2 não têm sensor → herdam a irradiância da co-localizada
+#   (Xavantina 1 / Colíder 1) pelo SE_IRR_MIRROR.
+SE_IRR_MIRROR = {"UFV Xavantina 2": "UFV Xavantina 1",
+                 "UFV Colider 2":   "UFV Colider 1"}
+_SE_SERIAL_RE = re.compile(r"\(([^)]+)\)\s*$")
+_se_pr_cache  = {}      # "YYYY-MM-DD" → {ts, summary, detail}
+_se_pr_lock   = threading.Lock()
+
+
+def _se_render_month(sid, serials):
+    """render-chart MONTH → highcharts.series (energia/inversor em Wh + Global Irradiance)."""
+    body = {"chartPeriodScale": "MONTH", "intervalIndex": 0,
+            "chartUri": "inverter-energy-generation",
+            "chartPopulation": {"siteId": int(sid), "populationType": "deviceList",
+                                "deviceType": "INVERTER", "deviceSerials": serials}}
+    try:
+        r = _http().post(
+            f"{SE_BASE}/services/cni/ui-api/pages/site/analysis/execute/site/{sid}/render-chart",
+            headers=_se_headers(), json=body, timeout=45)
+        if r.status_code != 200:
+            return None
+        return r.json().get("highcharts", {}).get("series", [])
+    except Exception:
+        return None
+
+
+def _ts_local_date(ms, tzname) -> str:
+    try:
+        tz = ZoneInfo(tzname) if (ZoneInfo and tzname) else timezone.utc
+    except Exception:
+        tz = timezone.utc
+    return datetime.fromtimestamp(ms / 1000, tz).date().isoformat()
+
+
+def _se_parse_month(series, tzname, dia):
+    """→ ({serial: geração_kWh_no_dia}, irr_valor_diário|None) para a data 'dia'."""
+    ger, irr = {}, None
+    for s in (series or []):
+        nm   = s.get("name", "")
+        data = s.get("data", []) or []
+        if "Irradiance" in nm:
+            for p in data:
+                if len(p) > 1 and p[1] is not None and _ts_local_date(p[0], tzname) == dia:
+                    irr = float(p[1]); break
+        elif nm.startswith("Energy Produced"):
+            m = _SE_SERIAL_RE.search(nm)
+            serial = m.group(1) if m else nm
+            for p in data:
+                if len(p) > 1 and p[1] is not None and _ts_local_date(p[0], tzname) == dia:
+                    ger[serial] = float(p[1]) / 1000.0; break
+    return ger, irr
+
+
+def _se_pr_build(dia: str):
+    sites = se_sites()
+
+    def _one(site):
+        sid, nome, tz = site["id"], site.get("nome"), site.get("timezone")
+        devs    = se_devices(sid)
+        invs    = [d for d in devs if d.get("deviceType") == "INVERTER"]
+        serials = [d["deviceSerial"] for d in invs]
+        ser2dev = {d["deviceSerial"]: d.get("deviceName", d["deviceSerial"]) for d in invs}
+        ger, irr = _se_parse_month(_se_render_month(sid, serials), tz, dia)
+        return nome, {"sid": sid, "sup": nome, "ser2dev": ser2dev, "ger": ger, "irr": irr}
+
+    raw = {}
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        for nome, info in ex.map(_one, sites):
+            raw[nome] = info
+
+    # irradiância espelhada para os sites sem sensor próprio
+    for nome, info in raw.items():
+        if info["irr"] is None and nome in SE_IRR_MIRROR:
+            src = raw.get(SE_IRR_MIRROR[nome])
+            if src:
+                info["irr"] = src["irr"]
+
+    summary, detail = [], {}
+    for nome, info in raw.items():
+        sup  = info["sup"]
+        ipoa = round(info["irr"] * 0.25 / 1000.0, 3) if info["irr"] else None
+        invs = []
+        for serial, kwh in info["ger"].items():
+            dev  = info["ser2dev"].get(serial, serial)
+            disp = (EQUIP_NAMES.get(sup, {}) or {}).get(dev, dev)
+            pot  = _pot_inv(sup, dev, disp)
+            pr   = round(kwh / (ipoa * pot), 3) if (kwh is not None and ipoa and pot) else None
+            invs.append({"id": serial, "nome": disp, "nome_api": dev,
+                         "geracao_kwh": round(kwh, 1) if kwh is not None else None,
+                         "pot_kwp": pot, "pr": pr})
+        invs.sort(key=lambda x: _pv_trk_num(x["nome_api"]))
+        prs = sorted(x["pr"] for x in invs if x["pr"] is not None)
+        med = prs[len(prs) // 2] if prs else None
+        lim = med * (1 - PR_REL_SEVERO) if med is not None else None
+        abaixo = 0
+        for x in invs:
+            x["abaixo"] = bool(x["pr"] is not None and lim is not None and x["pr"] < lim)
+            abaixo += 1 if x["abaixo"] else 0
+        # confiável p/ PR ABSOLUTO: tem irradiância (própria/espelhada) plausível e
+        # mediana fisicamente coerente (≤1,05); senão vale só a comparação relativa.
+        confiavel = bool(ipoa and ipoa >= 2.0 and med is not None and med <= 1.05)
+        detail[info["sid"]] = invs
+        summary.append({
+            "usina": USINA_DISPLAY.get(sup, sup), "plant_id": info["sid"],
+            "ipoa": ipoa, "pr_mediana": med,
+            "geracao_kwh": round(sum(x["geracao_kwh"] or 0 for x in invs), 1),
+            "total": len(invs), "abaixo": abaixo,
+            "sem_pot": sum(1 for x in invs if x["pot_kwp"] is None),
+            "cobertura": None, "confiavel": confiavel,
+        })
+    summary.sort(key=lambda x: (0 if x["confiavel"] else 1,
+                                0 if x["abaixo"] else 1, -(x["abaixo"] or 0), x["usina"]))
+    return summary, detail
+
+
+def _se_pr_get(dia: str, force=False):
+    agora = time.time()
+    with _se_pr_lock:
+        ent = _se_pr_cache.get(dia)
+        if not force and ent and (agora - ent["ts"]) < CACHE_TTL:
+            return ent["summary"], ent["detail"]
+        summary, detail = _se_pr_build(dia)
+        _se_pr_cache[dia] = {"ts": agora, "summary": summary, "detail": detail}
+        return summary, detail
+
+
+@app.route("/api/solaredge/pr")
+def api_solaredge_pr():
+    """Overview de PR por usina (SolarEdge/RenoGrid). Cada usina abre em PR por inversor."""
+    dia = _pr_dia_arg()
+    force = flask_request.args.get("force", "0") == "1"
+    try:
+        summary, _ = _se_pr_get(dia, force)
+    except Exception as e:
+        return jsonify({"error": str(e), "rows": [], "data": dia, "summary": {}}), 500
+    return jsonify({"rows": summary, "data": dia,
+                    "summary": {"usinas": len(summary),
+                                "inversores": sum(r["total"] for r in summary),
+                                "abaixo": sum(r["abaixo"] for r in summary),
+                                "sem_pot": sum(r["sem_pot"] for r in summary)},
+                    "cache_ts": datetime.now().strftime("%H:%M:%S")})
+
+
+@app.route("/api/solaredge/pr/<int:site_id>")
+def api_solaredge_pr_plant(site_id):
+    dia = _pr_dia_arg()
+    try:
+        _, detail = _se_pr_get(dia)
+    except Exception as e:
+        return jsonify({"error": str(e), "inversores": []}), 500
+    return jsonify({"plant_id": site_id, "data": dia, "inversores": detail.get(site_id, [])})
+
+
 # ── PostgreSQL (powerplants) ───────────────────────────────────────────────────
 PG_HOST = os.environ.get("PG_HOST", "")
 PG_PORT = int(os.environ.get("PG_PORT", "5432"))
@@ -3685,7 +4131,22 @@ def api_pg_plant(plant_id):
         _, detail = _pg_get_snapshot(False)
     except Exception as e:
         return jsonify({"error": str(e), "inversores": []}), 500
-    return jsonify({"plant_id": plant_id, "inversores": detail.get(plant_id, [])})
+    invs = detail.get(plant_id, [])
+    # Reaplica a régua de trancadas no ato: o snapshot é cacheado (SWR), então uma string
+    # recém-(des)marcada não estaria refletida aqui. Reclassifica sobre as correntes já no
+    # snapshot p/ o drill-down ficar consistente com _trancadas sem reconstruir tudo.
+    for inv in invs:
+        keys = [s["id"] for s in inv["strings"]]
+        st   = _classifica_strings(plant_id, inv["id"], keys,
+                                   [s["corrente"] for s in inv["strings"]])
+        for s, stt in zip(inv["strings"], st):
+            s["status"]   = stt
+            s["ativa"]    = stt in ("ativa", "baixa_perf")
+            s["trancada"] = stt == "trancada"
+        inv["strings_ativas"] = _str_ativas(st)
+        if inv.get("str_esp") is not None:
+            inv["diferenca"] = inv["strings_ativas"] - inv["str_esp"]
+    return jsonify({"plant_id": plant_id, "inversores": invs})
 
 
 # ── PG: curva diária de corrente por string (botão "Curva do dia" do drill-down) ─
@@ -3718,6 +4179,9 @@ def _pg_strings_curva(plant_id: int, dia: str, inv=None) -> dict:
         inv = invs[dev_id]
         soma, curva = {}, {}
         for snum, serie in inv["strings"].items():
+            # string trancada (🔒) sai da curva — chave igual à da tabela: pid | dev_id | snum
+            if _str_key(plant_id, dev_id, snum) in _trancadas:
+                continue
             serie.sort(key=lambda x: x[0])
             lbl = f"ST {int(snum):02d}" if snum.isdigit() else f"ST {snum}"
             soma[lbl] = sum(max(0.0, v) for _, v in serie)
@@ -3738,6 +4202,7 @@ def _pg_strings_curva(plant_id: int, dia: str, inv=None) -> dict:
                     "nome": (EQUIP_NAMES.get(sup, {}) or {}).get(inv["nome_api"], inv["nome_api"]),
                     "nome_api": inv["nome_api"], "curva": curva,
                     "mediana": round(med, 1), "abaixo": abaixo, "strings": strings})
+    _marca_inv_sub(out)
     return {"plant_id": plant_id, "data": dia, "inversores": out}
 
 
@@ -4207,18 +4672,32 @@ def api_state_string_trancada():
     body     = flask_request.get_json(force=True, silent=True) or {}
     plant_id = str(body.get("plant_id", "")).strip()
     inv_id   = str(body.get("inv_id", "")).strip()
-    string   = str(body.get("string", "")).strip()
     trancada = bool(body.get("trancada"))
-    if not (plant_id and inv_id and string):
-        return jsonify({"error": "plant_id, inv_id e string obrigatórios"}), 400
-    key = f"{plant_id}|{inv_id}|{string}"
+    # Aceita uma string (compat) OU uma lista 'strings' (trancar/destrancar em lote,
+    # ex.: o botão "Trancar strings inativas" do inversor).
+    raw      = body.get("strings")
+    nomes    = ([str(x).strip() for x in raw if str(x).strip()] if isinstance(raw, list)
+                else [str(body.get("string", "")).strip()])
+    nomes    = [n for n in nomes if n]
+    if not (plant_id and inv_id and nomes):
+        return jsonify({"error": "plant_id, inv_id e string(s) obrigatórios"}), 400
     with _state_lock:
         d = _load_state()
         s = set(d.get("strings_trancadas", []))
-        s.add(key) if trancada else s.discard(key)
+        for nm in nomes:
+            key = f"{plant_id}|{inv_id}|{nm}"
+            s.add(key) if trancada else s.discard(key)
         d["strings_trancadas"] = sorted(s)
         _save_state(d)
         _trancadas = s
+    # As curvas de strings excluem as trancadas → invalida os caches da usina afetada
+    # (API PV e SunOp) p/ a próxima abertura do gráfico recomputar já sem a string.
+    # O ck[0] é o id da usina em ambos (idusina / plant_name) = o plant_id do POST.
+    # PG não tem cache de curva (recomputa do banco a cada chamada).
+    for ck in [ck for ck in _spv_cache if str(ck[0]) == plant_id]:
+        _spv_cache.pop(ck, None)
+    for ck in [ck for ck in _sunop_curva_cache if str(ck[0]) == plant_id]:
+        _sunop_curva_cache.pop(ck, None)
     return jsonify({"ok": True, "trancadas": len(s)})
 
 
@@ -4457,8 +4936,8 @@ _owen_load()   # carrega o acervo do dia (persistido) na inicialização
 
 
 # ── Owen: ETM (POA/GHI por UFV) ────────────────────────────────────────────────
-def _owen_etm_build():
-    _owen_refresh()
+def _owen_etm_build(force=False):
+    _owen_refresh(force)
     with _owen_lock:
         return {u: {m: _owen_pts(s) for m, s in d.items()}
                 for u, d in _owen_accum.get("etm", {}).items()}
@@ -4475,7 +4954,7 @@ def _owen_etm_series(ufv_data):
 
 @app.route("/api/owen/etm/analise")
 def api_owen_etm_analise():
-    data = _owen_etm_build()
+    data = _owen_etm_build(flask_request.args.get("force") == "1")
     rows = []
     for u in OWEN_UFVS:
         nome = _owen_nome(u)
@@ -4507,8 +4986,8 @@ def api_owen_etm_chart():
 
 
 # ── Owen: Strings (corrente por string/inversor, último valor do dia) ──────────
-def _owen_strings_build():
-    _owen_refresh()
+def _owen_strings_build(force=False):
+    _owen_refresh(force)
     with _owen_lock:
         out = {}   # ufv → inv → strnum → (datetime, valor)
         for u, invs in _owen_accum.get("strings", {}).items():
@@ -4529,7 +5008,7 @@ def _owen_esp(code, inv):
 
 @app.route("/api/owen/strings/data")
 def api_owen_strings_data():
-    data = _owen_strings_build()
+    data = _owen_strings_build(flask_request.args.get("force") == "1")
     rows = []
     for u in OWEN_UFVS:
         nome = _owen_nome(u)
@@ -4542,7 +5021,8 @@ def api_owen_strings_data():
             continue
         ativas, ts_max = 0, None
         for inv, strs in invs.items():
-            ativas += sum(_ipv_ativas([v for _, v in strs.values()]))
+            ids = list(strs.keys()); correntes = [strs[s][1] for s in ids]
+            ativas += _str_ativas(_classifica_strings(u, inv, ids, correntes))   # desconta trancadas
             tmax = max((t for t, _ in strs.values()), default=None)
             if tmax and (ts_max is None or tmax > ts_max):
                 ts_max = tmax
@@ -4572,9 +5052,12 @@ def api_owen_strings_plant(plant_id):
         strs = invs[inv]
         ids = sorted(strs, key=lambda x: int(x))
         correntes = [strs[s][1] for s in ids]
-        flags = _ipv_ativas(correntes)
-        chips = [{"id": s, "corrente": strs[s][1], "ativa": a} for s, a in zip(ids, flags)]
-        ativas = sum(flags)
+        # mesma régua do SunOp/API PV: status + trancada (string aberta sai da contagem)
+        stt = _classifica_strings(plant_id, inv, ids, correntes)
+        chips = [{"id": s, "corrente": c, "status": st,
+                  "ativa": st in ("ativa", "baixa_perf"), "trancada": st == "trancada"}
+                 for s, c, st in zip(ids, correntes, stt)]
+        ativas = _str_ativas(stt)
         tag = _owen_inv_tag(plant_id, inv)
         esp = ESPERADO_INV.get(plant_id, {}).get(tag)          # SÓ do BD_Performance (None se não cadastrado)
         nome_inv = EQUIP_NAMES.get(plant_id, {}).get(tag, f"Inversor {inv}")
@@ -4589,8 +5072,8 @@ def api_owen_strings_plant(plant_id):
 
 
 # ── Owen: Trackers (alvo/atual por UFV, análise por curva) ─────────────────────
-def _owen_trackers_build():
-    _owen_refresh()
+def _owen_trackers_build(force=False):
+    _owen_refresh(force)
     with _owen_lock:
         return {u: {n: {"alvo": _owen_pts(d["alvo"]), "atual": _owen_pts(d["atual"])}
                     for n, d in trks.items()}
@@ -4691,13 +5174,13 @@ def api_owen_trackers_chart(plant_id):
         s = trks[n]["atual"]
         if s:
             s = _down(s)
-            out.append({"id": f"Tracker {n}", "x": [t.strftime("%H:%M") for t, _ in s],
+            out.append({"id": f"Tracker {n}", "x": [t.strftime("%Y-%m-%dT%H:%M:%SZ") for t, _ in s],
                         "y": [round(v, 2) for _, v in s]})
     for n in sorted(trks, key=_num):
         s = trks[n]["alvo"]
         if s:
             s = _down(s)
-            alvo = {"x": [t.strftime("%H:%M") for t, _ in s], "y": [round(v, 2) for _, v in s]}
+            alvo = {"x": [t.strftime("%Y-%m-%dT%H:%M:%SZ") for t, _ in s], "y": [round(v, 2) for _, v in s]}
             break
     return jsonify({"plant": _owen_nome(plant_id), "trackers": out, "alvo": alvo})
 
@@ -4934,13 +5417,13 @@ def api_pg_trackers_chart(plant_id):
         s = trks[n]["atual"]
         if s:
             s = _down(s)
-            out.append({"id": n, "x": [t.strftime("%H:%M") for t, _ in s],
+            out.append({"id": n, "x": [t.strftime("%Y-%m-%dT%H:%M:%SZ") for t, _ in s],
                         "y": [round(v, 2) for _, v in s]})
     for n in sorted(trks, key=_pg_trk_num):
         s = trks[n]["alvo"]
         if s:
             s = _down(s)
-            alvo = {"x": [t.strftime("%H:%M") for t, _ in s], "y": [round(v, 2) for _, v in s]}
+            alvo = {"x": [t.strftime("%Y-%m-%dT%H:%M:%SZ") for t, _ in s], "y": [round(v, 2) for _, v in s]}
             break
     return jsonify({"plant": _pg_trk_nome(plant_id), "date": date, "trackers": out, "alvo": alvo})
 
@@ -5156,6 +5639,24 @@ def api_pv_pr_plant(plant_id):
 #   integrada do dia. idusina/idinversor são COMPARTILHADOS com a API PV
 #   (id da Plataforma == idefinversor da API PV).
 SPV_SUB_FRAC   = 0.90   # string com corrente < 90% da mediana = subperformance
+SPV_INV_PARES_FRAC = 0.90   # inversor com mediana < 90% da mediana dos inversores da usina = abaixo dos pares
+
+
+def _marca_inv_sub(invs):
+    """Sinaliza inversores ABAIXO DOS PARES: a régua de string compara cada string com a
+    mediana do PRÓPRIO inversor, então um inversor inteiro baixo (ex.: bloco de trackers
+    parados — todas as strings em 'sino', não clippam) passa como 'OK'. Aqui marcamos o
+    inversor quando sua mediana < SPV_INV_PARES_FRAC × mediana das medianas dos inversores
+    PRODUZINDO da usina. Adiciona 'inv_sub' (bool) e 'med_usina' a cada inversor."""
+    meds = sorted(i["mediana"] for i in invs if i.get("mediana", 0) > 0)
+    med_usina = meds[len(meds) // 2] if meds else 0.0
+    for i in invs:
+        m = i.get("mediana", 0) or 0
+        i["med_usina"] = round(med_usina, 1)
+        i["inv_sub"] = bool(med_usina > 0 and m > 0 and m < SPV_INV_PARES_FRAC * med_usina)
+    return invs
+
+
 SPV_NOTAS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "string_notas.json")
 _spv_cache     = {}     # (idusina, data) → {ts, payload}
 _spv_lock      = threading.Lock()
@@ -5208,7 +5709,7 @@ def _spv_day_records(idusina, token, data: str) -> list:
         return []
 
 
-def _spv_analise_inversor(idinv, nome, recs, data, notas, full=False) -> dict:
+def _spv_analise_inversor(idinv, nome, recs, data, notas, full=False, plant_id=None) -> dict:
     """Strings reais (via _ipv_ativas no pico solar) → corrente integrada por string +
     curva (A) + subperformance vs mediana. Retorna None se não há visão de strings.
     O campo 'energia' carrega a corrente integrada do dia (índice relativo, não kWh);
@@ -5229,6 +5730,11 @@ def _spv_analise_inversor(idinv, nome, recs, data, notas, full=False) -> dict:
     cj_peak = parse_cj(peak.get("conteudojson"))
     ipv_keys = sorted([k for k in cj_peak if k.startswith("Ipv")
                        and isinstance(cj_peak[k], (int, float))], key=_spv_stnum)
+    if not ipv_keys:
+        return None
+    # Strings trancadas (MPPT sem string, marcadas à mão no checkbox) saem da curva e da
+    # contagem — mesma régua da tabela (_classifica_strings): "fora da contagem de ativas".
+    ipv_keys = [k for k in ipv_keys if _str_key(plant_id, idinv, k) not in _trancadas]
     if not ipv_keys:
         return None
     ativas = _ipv_ativas([cj_peak[k] for k in ipv_keys], em_janela=True)   # pico = sol forte
@@ -5304,9 +5810,12 @@ def api_spv_usina(idusina):
     full = flask_request.args.get("full", "0") == "1"   # inclui strings inativas na curva
     key = (idusina, data, full)
     agora = time.time()
+    hoje = datetime.now().strftime("%d/%m/%Y")
     if not force:
         ent = _spv_cache.get(key)
-        if ent and (agora - ent["ts"]) < CACHE_TTL:
+        # Dia passado já carregado é IMUTÁVEL → serve do cache p/ sempre (a API PV usa
+        # custom_query p/ histórico, lento ~120s; hoje continua com TTL p/ acompanhar ao vivo).
+        if ent and ((data != hoje and ent["payload"].get("inversores")) or (agora - ent["ts"]) < CACHE_TTL):
             return jsonify(ent["payload"])
     try:
         token = get_token()
@@ -5315,8 +5824,11 @@ def api_spv_usina(idusina):
         return jsonify({"idusina": idusina, "data": data, "inversores": [],
                         "msg": f"API PV indisponível: {e}"})
     if not records:
-        return jsonify({"idusina": idusina, "data": data, "inversores": [],
-                        "msg": "Sem dados de inversores para esta usina/data (API PV)."})
+        payload = {"idusina": idusina, "data": data, "inversores": [],
+                   "msg": "Sem dados de inversores para esta usina/data (API PV)."}
+        if data != hoje:        # histórico vazio/timeout do custom_query → cacheia (TTL) p/ não re-esperar ~120s
+            _spv_cache[key] = {"ts": agora, "payload": payload}
+        return jsonify(payload)
     # Nome da usina (p/ EQUIP_NAMES) + nomes dos dispositivos (idefinversor → nome)
     plant_nome_api = ""
     try:
@@ -5354,7 +5866,7 @@ def api_spv_usina(idusina):
         for idinv, recs in by_inv.items():
             nome_api = dev_names.get(idinv, f"INV-{idinv}")
             nome = EQUIP_NAMES.get(plant_nome_api, {}).get(nome_api, nome_api)
-            futs[ex.submit(_spv_analise_inversor, idinv, nome, recs, data, notas, full)] = idinv
+            futs[ex.submit(_spv_analise_inversor, idinv, nome, recs, data, notas, full, idusina)] = idinv
         for f in as_completed(futs):
             try:
                 rr = f.result()
@@ -5364,6 +5876,7 @@ def api_spv_usina(idusina):
                 pass
     ordem = sorted(results.values(),
                    key=lambda x: [int(p) for p in re.findall(r"\d+", x["nome"])] or [9999])
+    _marca_inv_sub(ordem)   # sinaliza inversores abaixo da mediana dos pares da usina
     payload = {"idusina": idusina, "data": data, "inversores": ordem,
                "total_abaixo": sum(i["abaixo"] for i in ordem),
                "cache_ts": datetime.now().strftime("%H:%M:%S")}
@@ -5450,17 +5963,21 @@ def api_spv_pdf():
                     break
     except Exception:
         pass
-    # Logo da Grid no rodapé (horizontal, sobre branco)
+    # Logo da Grid no rodapé (horizontal, sobre branco) e no cabeçalho (branco, sobre azul)
     try:
         _logo = _mpimg.imread(os.path.join(_STATIC, "logos", "grid-h-verde-azul.png"))
     except Exception:
         _logo = None
+    try:
+        _logo_hdr = _mpimg.imread(os.path.join(_STATIC, "logos", "grid-h-branco.png"))
+    except Exception:
+        _logo_hdr = None
     plt.rcParams.update({
         "font.family": _pdf_font, "axes.edgecolor": "#cbd5e1", "axes.linewidth": 0.7,
         "axes.labelcolor": "#64748b", "xtick.color": "#94a3b8", "ytick.color": "#94a3b8",
         "text.color": "#1f2937",
     })
-    GREEN, GREEN_LT = "#3f6212", "#d9f99d"
+    HDR, HDR_LT = "#1d4ed8", "#bfdbfe"   # cabeçalho azul Grid (antes verde) + texto azul claro
     GRAY_LN, RED, OK = "#c3cedd", "#dc2626", "#16a34a"
     agora = datetime.now().strftime("%d/%m/%Y %H:%M")
     so_abaixo = flask_request.args.get("soabaixo", "0") == "1"   # só inversores com string abaixo
@@ -5487,18 +6004,21 @@ def api_spv_pdf():
                 fig = plt.figure(figsize=(11.69, 8.27))                  # A4 paisagem
                 # ── Faixa de cabeçalho ───────────────────────────────────────
                 fig.patches.append(Rectangle((0, 0.915), 1, 0.085, transform=fig.transFigure,
-                                             facecolor=GREEN, edgecolor="none", zorder=-1))
+                                             facecolor=HDR, edgecolor="none", zorder=-1))
                 fig.text(0.028, 0.953, usina_nome, color="white", fontsize=16, fontweight="bold", va="center")
-                fig.text(0.028, 0.928, "Relatório de Strings  ·  Curva de corrente diária por string",
-                         color=GREEN_LT, fontsize=8.5, va="center")
+                fig.text(0.028, 0.928, "Relatório de Strings  ·  corrente de cada string ao longo do dia",
+                         color=HDR_LT, fontsize=8.5, va="center")
                 fig.text(0.975, 0.957, data, color="white", fontsize=11.5, fontweight="bold", ha="right", va="center")
-                fig.text(0.975, 0.930, f"{tot_abaixo} string(s) abaixo da mediana" if tot_abaixo else "Sem outliers",
-                         color=GREEN_LT, fontsize=9, ha="right", va="center")
+                fig.text(0.975, 0.930, f"{tot_abaixo} string(s) abaixo das demais" if tot_abaixo else "Todas as strings OK",
+                         color=HDR_LT, fontsize=9, ha="right", va="center")
+                # Logo Grid Co. centralizado no cabeçalho (branco sobre o azul)
+                if _logo_hdr is not None:
+                    _hax = fig.add_axes([0.44, 0.937, 0.12, 0.040]); _hax.axis("off"); _hax.imshow(_logo_hdr)
                 if len(invs) > CHUNK:
                     fig.text(0.5, 0.892, f"Inversores {ini+1}–{ini+len(grupo)} de {len(invs)}",
                              color="#94a3b8", fontsize=8, ha="center", style="italic")
-                gs = fig.add_gridspec(2, CHUNK, height_ratios=[2.0, 1.6], hspace=0.40, wspace=0.28,
-                                      left=0.052, right=0.975, top=0.85, bottom=0.09)
+                gs = fig.add_gridspec(2, CHUNK, height_ratios=[2.0, 1.6], hspace=0.40, wspace=0.16,
+                                      left=0.034, right=0.985, top=0.85, bottom=0.09)
                 for j in range(CHUNK):
                     axc = fig.add_subplot(gs[0, j]); axt = fig.add_subplot(gs[1, j]); axt.axis("off")
                     if j >= len(grupo):
@@ -5534,22 +6054,22 @@ def api_spv_pdf():
                     if xs:
                         step = max(1, len(xs) // 4)
                         axc.set_xticks(range(0, len(xs), step)); axc.set_xticklabels(xs[::step], fontsize=6.5)
-                    if j == 0:
-                        axc.set_ylabel("Corrente (A)", fontsize=8)
                     # ── Observações do inversor ──────────────────────────────
-                    status = f"Mediana do dia: {iv['mediana']}   ·   " + (f"{iv['abaixo']} abaixo" if iv["abaixo"] else "todas OK")
+                    _na = iv["abaixo"]
+                    status = (f"{_na} string{'s' if _na > 1 else ''} abaixo das demais" if _na else "Todas as strings OK")
                     axt.text(0, 1.0, status, transform=axt.transAxes, va="top", ha="left",
-                             fontsize=8, fontweight="bold", color=RED if iv["abaixo"] else OK)
-                    outs = ", ".join(f"{s['nome']}: {s['pct']}% da mediana" for s in iv["strings"] if s["sub"]) or "nenhuma"
+                             fontsize=8, fontweight="bold", color=RED if _na else OK)
+                    outs = ", ".join(f"{s['nome']}: {100 - s['pct']}% abaixo"
+                                     for s in iv["strings"] if s["sub"] and s.get("pct") is not None) or "nenhuma"
                     y = 0.80
-                    axt.text(0, y, "Strings abaixo:", transform=axt.transAxes, va="top", fontsize=7,
+                    axt.text(0, y, "Strings abaixo das demais:", transform=axt.transAxes, va="top", fontsize=7,
                              fontweight="bold", color="#64748b"); y -= 0.115
                     for ln in textwrap.wrap(outs, Wtxt)[:3]:
                         axt.text(0, y, ln, transform=axt.transAxes, va="top", fontsize=6.8, color="#475569"); y -= 0.115
                     y -= 0.05
                     axt.text(0, y, "Motivo:", transform=axt.transAxes, va="top", fontsize=7,
                              fontweight="bold", color="#64748b"); y -= 0.115
-                    for ln in textwrap.wrap(iv["nota"] or "—", Wtxt)[:3]:
+                    for ln in textwrap.wrap(iv["nota"] or "sem observação registrada", Wtxt)[:3]:
                         axt.text(0, y, ln, transform=axt.transAxes, va="top", fontsize=6.8,
                                  color="#7c3aed" if iv["nota"] else "#9ca3af"); y -= 0.115
                 # ── Rodapé ───────────────────────────────────────────────────
@@ -5559,7 +6079,7 @@ def api_spv_pdf():
                     _lax = fig.add_axes([0.028, 0.016, 0.12, 0.038]); _lax.axis("off"); _lax.imshow(_logo)
                 else:
                     fig.text(0.028, 0.036, "Grid Co.  ·  Monitoramento O&M", color="#94a3b8", fontsize=7.5, va="center")
-                fig.text(0.5, 0.036, "linha cinza = strings normais   ·   linha vermelha = abaixo da mediana (corrente integrada do dia)",
+                fig.text(0.5, 0.036, "Cinza = strings normais   ·   Vermelha = string abaixo das demais do inversor   ·   critério: >10% abaixo da mediana (corrente acumulada no dia)",
                          color="#94a3b8", fontsize=7.5, ha="center", va="center")
                 fig.text(0.975, 0.036, f"Gerado em {agora}", color="#94a3b8", fontsize=7.5, ha="right", va="center")
                 pdf.savefig(fig, facecolor="white"); plt.close(fig)
@@ -5569,6 +6089,184 @@ def api_spv_pdf():
         return jsonify({"error": "Nada para exportar (selecione ao menos uma usina com inversores)."}), 400
     fname = f"strings_{data.replace('/','-')}.pdf"
     return send_file(buf, as_attachment=True, download_name=fname, mimetype="application/pdf")
+
+
+def _curva_pdf_response(usinas_payloads, data, so_abaixo=False, fname_prefix="strings"):
+    """PDF de curvas de strings (genérico p/ SunOp/PG — MESMO layout do /api/spv/pdf).
+    usinas_payloads = lista de (usina_nome, payload{inversores, total_abaixo?}); 3 inv/página."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.backends.backend_pdf import PdfPages
+    import textwrap
+    from matplotlib.patches import Rectangle, FancyBboxPatch
+    from matplotlib import font_manager as _fm
+    import matplotlib.image as _mpimg
+    _STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+    _pdf_font = "DejaVu Sans"
+    try:
+        _fdir = os.path.join(_STATIC, "fonts")
+        if os.path.isdir(_fdir):
+            for _ff in os.listdir(_fdir):
+                if _ff.lower().endswith((".ttf", ".otf")):
+                    _fm.fontManager.addfont(os.path.join(_fdir, _ff))
+            _avail = {f.name for f in _fm.fontManager.ttflist}
+            for _pref in ("Poppins", "Satoshi"):
+                _hit = next((n for n in _avail if _pref.lower() in n.lower()), None)
+                if _hit:
+                    _pdf_font = _hit
+                    break
+    except Exception:
+        pass
+    try:
+        _logo = _mpimg.imread(os.path.join(_STATIC, "logos", "grid-h-verde-azul.png"))
+    except Exception:
+        _logo = None
+    try:
+        _logo_hdr = _mpimg.imread(os.path.join(_STATIC, "logos", "grid-h-branco.png"))
+    except Exception:
+        _logo_hdr = None
+    plt.rcParams.update({
+        "font.family": _pdf_font, "axes.edgecolor": "#cbd5e1", "axes.linewidth": 0.7,
+        "axes.labelcolor": "#64748b", "xtick.color": "#94a3b8", "ytick.color": "#94a3b8",
+        "text.color": "#1f2937",
+    })
+    HDR, HDR_LT = "#1d4ed8", "#bfdbfe"
+    GRAY_LN, RED, OK = "#c3cedd", "#dc2626", "#16a34a"
+    agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+    CHUNK, Wtxt = 3, 46
+    paginas = 0
+    buf = io.BytesIO()
+    with PdfPages(buf) as pdf:
+        for usina_nome, payload in usinas_payloads:
+            invs = (payload or {}).get("inversores", [])
+            if so_abaixo:
+                invs = [iv for iv in invs if iv.get("abaixo")]
+            if not invs:
+                continue
+            tot_abaixo = (payload or {}).get("total_abaixo") or sum((iv.get("abaixo") or 0) for iv in invs)
+            for ini in range(0, len(invs), CHUNK):
+                grupo = invs[ini:ini + CHUNK]
+                fig = plt.figure(figsize=(11.69, 8.27))
+                fig.patches.append(Rectangle((0, 0.915), 1, 0.085, transform=fig.transFigure,
+                                             facecolor=HDR, edgecolor="none", zorder=-1))
+                fig.text(0.028, 0.953, usina_nome, color="white", fontsize=16, fontweight="bold", va="center")
+                fig.text(0.028, 0.928, "Relatório de Strings  ·  corrente de cada string ao longo do dia",
+                         color=HDR_LT, fontsize=8.5, va="center")
+                fig.text(0.975, 0.957, data, color="white", fontsize=11.5, fontweight="bold", ha="right", va="center")
+                fig.text(0.975, 0.930, f"{tot_abaixo} string(s) abaixo das demais" if tot_abaixo else "Todas as strings OK",
+                         color=HDR_LT, fontsize=9, ha="right", va="center")
+                if _logo_hdr is not None:
+                    _hax = fig.add_axes([0.44, 0.937, 0.12, 0.040]); _hax.axis("off"); _hax.imshow(_logo_hdr)
+                if len(invs) > CHUNK:
+                    fig.text(0.5, 0.892, f"Inversores {ini+1}-{ini+len(grupo)} de {len(invs)}",
+                             color="#94a3b8", fontsize=8, ha="center", style="italic")
+                gs = fig.add_gridspec(2, CHUNK, height_ratios=[2.0, 1.6], hspace=0.40, wspace=0.16,
+                                      left=0.034, right=0.985, top=0.85, bottom=0.09)
+                for j in range(CHUNK):
+                    axc = fig.add_subplot(gs[0, j]); axt = fig.add_subplot(gs[1, j]); axt.axis("off")
+                    if j >= len(grupo):
+                        axc.axis("off"); continue
+                    iv = grupo[j]
+                    pc, ptx = axc.get_position(), axt.get_position()
+                    fig.add_artist(FancyBboxPatch(
+                        (pc.x0 - 0.013, ptx.y0 - 0.016),
+                        (pc.x1 - pc.x0) + 0.026, (pc.y1 - ptx.y0) + 0.052,
+                        boxstyle="round,pad=0,rounding_size=0.012", transform=fig.transFigure,
+                        facecolor="#fbfcfe", edgecolor="#e6e9f0", linewidth=0.9, zorder=-3))
+                    _cx0 = pc.x0 - 0.013; _cw = (pc.x1 - pc.x0) + 0.026
+                    _ctop = (ptx.y0 - 0.016) + (pc.y1 - ptx.y0) + 0.052
+                    fig.add_artist(Rectangle((_cx0 + 0.006, _ctop - 0.007), _cw - 0.012, 0.005,
+                                   transform=fig.transFigure, facecolor=(RED if iv.get("abaixo") else OK),
+                                   edgecolor="none", zorder=-2))
+                    curva = iv.get("curva") or {}
+                    subnames = {s["nome"] for s in (iv.get("strings") or []) if s.get("sub")}
+                    xs = next(iter(curva.values()))["x"] if curva else []
+                    for st, c in curva.items():
+                        if st not in subnames:
+                            axc.plot(c["x"], c["y"], lw=0.5, color=GRAY_LN, alpha=0.85, zorder=1)
+                    for st, c in curva.items():
+                        if st in subnames:
+                            axc.plot(c["x"], c["y"], lw=1.3, color=RED, zorder=3)
+                    axc.set_title(iv.get("nome", ""), fontsize=10, fontweight="bold", pad=7,
+                                  color=RED if iv.get("abaixo") else "#0f172a")
+                    axc.spines[["top", "right"]].set_visible(False)
+                    axc.grid(axis="y", color="#eef2f7", lw=0.8, zorder=0)
+                    axc.set_ylim(bottom=0); axc.margins(x=0.01)
+                    axc.tick_params(labelsize=6.5, length=2, color="#cbd5e1")
+                    if xs:
+                        step = max(1, len(xs) // 4)
+                        axc.set_xticks(range(0, len(xs), step)); axc.set_xticklabels(xs[::step], fontsize=6.5)
+                    _na = iv.get("abaixo") or 0
+                    status = (f"{_na} string{'s' if _na > 1 else ''} abaixo das demais" if _na else "Todas as strings OK")
+                    axt.text(0, 1.0, status, transform=axt.transAxes, va="top", ha="left",
+                             fontsize=8, fontweight="bold", color=RED if _na else OK)
+                    outs = ", ".join(f"{s['nome']}: {100 - s['pct']}% abaixo"
+                                     for s in (iv.get("strings") or []) if s.get("sub") and s.get("pct") is not None) or "nenhuma"
+                    y = 0.80
+                    axt.text(0, y, "Strings abaixo das demais:", transform=axt.transAxes, va="top", fontsize=7,
+                             fontweight="bold", color="#64748b"); y -= 0.115
+                    for ln in textwrap.wrap(outs, Wtxt)[:3]:
+                        axt.text(0, y, ln, transform=axt.transAxes, va="top", fontsize=6.8, color="#475569"); y -= 0.115
+                    y -= 0.05
+                    axt.text(0, y, "Motivo:", transform=axt.transAxes, va="top", fontsize=7,
+                             fontweight="bold", color="#64748b"); y -= 0.115
+                    for ln in textwrap.wrap(iv.get("nota") or "sem observacao registrada", Wtxt)[:3]:
+                        axt.text(0, y, ln, transform=axt.transAxes, va="top", fontsize=6.8,
+                                 color="#7c3aed" if iv.get("nota") else "#9ca3af"); y -= 0.115
+                fig.patches.append(Rectangle((0.052, 0.062), 0.923, 0.0012, transform=fig.transFigure,
+                                             facecolor="#e5e7eb", edgecolor="none"))
+                if _logo is not None:
+                    _lax = fig.add_axes([0.028, 0.016, 0.12, 0.038]); _lax.axis("off"); _lax.imshow(_logo)
+                else:
+                    fig.text(0.028, 0.036, "Grid Co.  ·  Monitoramento O&M", color="#94a3b8", fontsize=7.5, va="center")
+                fig.text(0.5, 0.036, "Cinza = strings normais   ·   Vermelha = string abaixo das demais do inversor",
+                         color="#94a3b8", fontsize=7.5, ha="center", va="center")
+                fig.text(0.975, 0.036, f"Gerado em {agora}", color="#94a3b8", fontsize=7.5, ha="right", va="center")
+                pdf.savefig(fig, facecolor="white"); plt.close(fig)
+                paginas += 1
+    buf.seek(0)
+    if paginas == 0:
+        return jsonify({"error": "Nada para exportar (nenhuma usina com inversores)."}), 400
+    fname = f"{fname_prefix}_{data.replace('/','-')}.pdf"
+    return send_file(buf, as_attachment=True, download_name=fname, mimetype="application/pdf")
+
+
+@app.route("/api/sunop/pdf")
+def api_sunop_pdf():
+    """PDF de curvas de strings do SunOp (mesmo layout do /api/spv/pdf)."""
+    dia = (flask_request.args.get("data") or datetime.now().strftime("%Y-%m-%d")).strip()
+    if re.match(r"^\d{2}/\d{2}/\d{4}$", dia):
+        dia = datetime.strptime(dia, "%d/%m/%Y").strftime("%Y-%m-%d")
+    data_br = datetime.strptime(dia, "%Y-%m-%d").strftime("%d/%m/%Y")
+    so_abaixo = flask_request.args.get("soabaixo", "0") == "1"
+    sel = (flask_request.args.get("usinas") or "").strip()
+    ensure_sunop_meta()
+    plants = [p for p, m in _sunop_meta.items() if m.get("inv_strings")]
+    if sel:
+        want = set(sel.split(","))
+        plants = [p for p in plants if p in want]
+    usinas = sorted(((p, USINA_DISPLAY.get(p, p)) for p in plants), key=lambda x: x[1])
+    payloads = [(nome, _sunop_strings_curva(p, dia)) for p, nome in usinas]
+    return _curva_pdf_response(payloads, data_br, so_abaixo, "strings_sunop")
+
+
+@app.route("/api/pg/pdf")
+def api_pg_pdf():
+    """PDF de curvas de strings do PG/Banco de Dados (mesmo layout do /api/spv/pdf)."""
+    dia = (flask_request.args.get("data") or datetime.now().strftime("%Y-%m-%d")).strip()
+    if re.match(r"^\d{2}/\d{2}/\d{4}$", dia):
+        dia = datetime.strptime(dia, "%d/%m/%Y").strftime("%Y-%m-%d")
+    data_br = datetime.strptime(dia, "%Y-%m-%d").strftime("%d/%m/%Y")
+    so_abaixo = flask_request.args.get("soabaixo", "0") == "1"
+    sel = (flask_request.args.get("usinas") or "").strip()
+    summary, _ = _pg_get_snapshot()
+    usinas = [(r["plant_id"], r["usina"]) for r in summary]
+    if sel:
+        want = set(sel.split(","))
+        usinas = [u for u in usinas if str(u[0]) in want]
+    payloads = [(nome, _pg_strings_curva(int(pid), dia)) for pid, nome in usinas]
+    return _curva_pdf_response(payloads, data_br, so_abaixo, "strings_pg")
 
 
 @app.route("/api/check/reload", methods=["POST", "GET"])
@@ -5747,6 +6445,235 @@ def _persist_loop():
             _cache_save()
         except Exception as e:
             print(f"[persist] save falhou: {e}")
+
+
+# ════ FRACTTAL (CMMS de manutenção) — OS por ativo, no drill do inversor ════════════
+# OAuth2 client_credentials (credenciais no .env, NUNCA hardcoded; base app.fracttal.com).
+# O ativo do inversor resolve por code "{USINA}-INVR{N.M}" (= "Usina Supervisório" + nº do
+# display "Inversor N.M") via items/{code} — 1 chamada, sem paginar a base. As OS vêm de
+# work_orders?id_item=. Token, resolução de code e OS são cacheados (rate limit 200/min).
+FRACTTAL_BASE      = os.environ.get("FRACTTAL_BASE_URL", "https://app.fracttal.com").rstrip("/")
+FRACTTAL_CLIENT_ID = os.environ.get("FRACTTAL_CLIENT_ID", "").strip()
+FRACTTAL_SECRET    = os.environ.get("FRACTTAL_CLIENT_SECRET", "").strip()
+FRACTTAL_ON        = bool(FRACTTAL_CLIENT_ID and FRACTTAL_SECRET)
+FRAC_WO_STATUS = {0: "Pendente", 1: "Em andamento", 2: "Concluída", 3: "Concluída",
+                  4: "Cancelada", 5: "Aguardando", 6: "Pausada"}
+FRAC_OS_TTL    = 600         # OS por ativo: 10 min
+FRAC_CODE_TTL  = 12 * 3600   # resolução code→ativo: ativos mudam raramente
+
+_frac_token      = {"token": "", "exp": 0.0}
+_frac_token_lock = threading.Lock()
+_frac_code_cache = {}        # code -> {"ts": float, "ativo": {id, desc}|None}
+_frac_os_cache   = {}        # id_item -> {"ts": float, "data": [...]}
+
+
+def get_fracttal_token() -> str:
+    if _frac_token["token"] and time.time() < _frac_token["exp"]:
+        return _frac_token["token"]
+    with _frac_token_lock:
+        if _frac_token["token"] and time.time() < _frac_token["exp"]:
+            return _frac_token["token"]
+        r = _http().post(f"{FRACTTAL_BASE}/oauth/token",
+                         data={"grant_type": "client_credentials",
+                               "client_id": FRACTTAL_CLIENT_ID, "client_secret": FRACTTAL_SECRET},
+                         timeout=20)
+        d = r.json()
+        _frac_token["token"] = d["access_token"]
+        _frac_token["exp"]   = time.time() + int(d.get("expires_in", 3600)) - 60
+        return _frac_token["token"]
+
+
+def _frac_get(ep, **params):
+    """GET autenticado na Fracttal; trata 401 (re-auth) e 406 (rate limit). None se falhar."""
+    url = f"{FRACTTAL_BASE}/api/{ep.lstrip('/')}"
+    for _ in range(3):
+        h = {"Authorization": f"Bearer {get_fracttal_token()}", "Accept": "application/json"}
+        try:
+            r = _http().get(url, headers=h, params=params, timeout=30)
+        except Exception:
+            return None
+        if r.status_code == 401:
+            _frac_token["token"] = ""          # token venceu → força re-auth
+            continue
+        if r.status_code == 406:               # rate limit (200/min)
+            time.sleep(int(r.headers.get("ratelimit-reset", 5)) or 5)
+            continue
+        return r.json() if r.status_code == 200 else None
+    return None
+
+
+_frac_bd_map   = {}; _frac_bd_ts = 0.0     # {nome.lower → "Usina Fractall"} do BD
+_frac_cb_index = {}; _frac_cb_ts = 0.0     # {description.lower → code-base} da Fracttal
+
+
+def _frac_fractall_map():
+    """{nome_usina.lower → 'Usina Fractall' (description Fracttal)} do BD_Performance. Cacheado.
+    Mapeia tanto o display ("Caxambu") quanto o supervisório → a description da Fracttal."""
+    global _frac_bd_map, _frac_bd_ts
+    if _frac_bd_map and (time.time() - _frac_bd_ts) < FRAC_CODE_TTL:
+        return _frac_bd_map
+    m = {}
+    try:
+        df = pd.read_excel(_bd_readable_path(), sheet_name="Equipamentos", header=2)
+        sub = df[["Usina", "Usina Supervisório", "Usina Fractall"]].dropna(subset=["Usina Fractall"])
+        for _, r in sub.iterrows():
+            fr = str(r["Usina Fractall"]).strip()
+            for k in (r["Usina"], r["Usina Supervisório"]):
+                if pd.notna(k) and str(k).strip():
+                    m[str(k).strip().lower()] = fr
+    except Exception as e:
+        print(f"[fracttal] mapa BD (Usina Fractall) falhou: {e}")
+    if m:
+        _frac_bd_map, _frac_bd_ts = m, time.time()
+    return _frac_bd_map
+
+
+def _frac_codebase_index():
+    """{groups_1_description.lower → {'cb': code-base, 'site': id_item da raiz}} dos ativos
+    Fracttal (item_type=1). 1x (lazy), cacheado. 'cb' de qualquer ativo (regex XXX###); 'site'
+    do ativo cujo code é "PREFIXO-CODEBASE" (raiz da usina) — usado p/ contar OS no badge."""
+    global _frac_cb_index, _frac_cb_ts
+    if _frac_cb_index and (time.time() - _frac_cb_ts) < FRAC_CODE_TTL:
+        return _frac_cb_index
+    idx, start = {}, 0
+    while True:
+        d = _frac_get("items/", item_type=1, start=start, limit=200)
+        page = (d.get("data") if isinstance(d, dict) else d) or []
+        if not page:
+            break
+        for it in page:
+            code = str(it.get("code") or "")
+            cb = re.search(r"[A-Z]{3}\d{3}", code)
+            g1 = str(it.get("groups_1_description") or "").strip().lower()
+            if not (cb and g1):
+                continue
+            ent = idx.setdefault(g1, {"cb": cb.group(0), "site": None})
+            parts = code.split("-")
+            if ent["site"] is None and len(parts) == 2 and re.fullmatch(r"[A-Z]{3}\d{3}", parts[1]):
+                ent["site"] = it.get("id")
+        total = d.get("total") if isinstance(d, dict) else None
+        start += len(page)
+        if (total and start >= total) or start > 30000:
+            break
+    if idx:
+        _frac_cb_index, _frac_cb_ts = idx, time.time()
+    return _frac_cb_index
+
+
+def _frac_usina_ent(usina):
+    """Entrada do índice ({cb, site}) p/ a usina do dashboard: nome → 'Usina Fractall' → índice."""
+    desc = _frac_fractall_map().get(str(usina or "").strip().lower())
+    return _frac_codebase_index().get(desc.strip().lower()) if desc else None
+
+
+def _frac_codebase(usina):
+    """Code-base Fracttal (ex. CPP100/CXB100) a partir do nome da usina no dashboard. Athon: o
+    nome JÁ é o code-base; demais (Thopen…): nome → 'Usina Fractall' (BD) → code-base (índice)."""
+    s = str(usina or "").strip()
+    if not s:
+        return None
+    if re.fullmatch(r"[A-Za-z]{3}\d{3}", s):       # já é um code-base (CPP100, TIM100, MAB200…)
+        return s.upper()
+    ent = _frac_usina_ent(s)
+    return ent.get("cb") if ent else None
+
+
+def _frac_inv_code(usina, inv_disp):
+    """Code Fracttal do inversor: "{CODE-BASE}-INVR{N.M}" (N.M do display "Inversor N.M")."""
+    m = re.search(r"\d+\.\d+|\d+", str(inv_disp or ""))
+    base = _frac_codebase(usina)
+    return f"{base}-INVR{m.group(0)}" if (m and base) else None
+
+
+def _frac_ativo(code):
+    """Resolve um code Fracttal → {id, desc} via items/{code} (cacheado). None se não existir."""
+    ent = _frac_code_cache.get(code)
+    if ent and (time.time() - ent["ts"]) < FRAC_CODE_TTL:
+        return ent["ativo"]
+    d = _frac_get(f"items/{code}")
+    data = (d.get("data") if isinstance(d, dict) else d) or []
+    it = data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) and data else None)
+    ativo = {"id": it.get("id"), "desc": str(it.get("description") or "").split("  ")[0].strip()} if it else None
+    _frac_code_cache[code] = {"ts": time.time(), "ativo": ativo}
+    return ativo
+
+
+def _frac_os_de(id_item, n=5):
+    """Últimas n OS de um ativo (dedup por folio, mais recentes 1º). Cacheado FRAC_OS_TTL."""
+    ent = _frac_os_cache.get(id_item)
+    if not (ent and (time.time() - ent["ts"]) < FRAC_OS_TTL):
+        d = _frac_get("work_orders/", id_item=id_item, limit=200)
+        rows = (d.get("data") if isinstance(d, dict) else d) or []
+        seen = {}
+        for w in rows:
+            seen.setdefault(w.get("wo_folio"), w)
+        wos = sorted(seen.values(), key=lambda w: str(w.get("creation_date") or ""), reverse=True)
+        data = [{"folio": w.get("wo_folio"),
+                 "descricao": str(w.get("description") or "").strip(),
+                 "status": FRAC_WO_STATUS.get(w.get("id_status_work_order"), "—"),
+                 "aberta": w.get("id_status_work_order") in (0, 1, 5, 6),
+                 "criada": str(w.get("creation_date") or "")[:10]} for w in wos]
+        ent = {"ts": time.time(), "data": data}
+        _frac_os_cache[id_item] = ent
+    return ent["data"][:n]
+
+
+@app.route("/api/fracttal/inversor")
+def api_fracttal_inversor():
+    """Últimas OS da Fracttal de um inversor do dashboard. ?usina=CPP100&inv=Inversor 6.1[&n=5]"""
+    if not FRACTTAL_ON:
+        return jsonify({"ok": False, "sem_credencial": True})
+    code = _frac_inv_code(flask_request.args.get("usina"), flask_request.args.get("inv"))
+    if not code:
+        return jsonify({"ok": False, "motivo": "inversor sem número reconhecível"})
+    try:
+        n = max(1, min(int(flask_request.args.get("n", 5)), 20))
+    except (TypeError, ValueError):
+        n = 5
+    try:
+        ativo = _frac_ativo(code)
+        if not ativo:
+            return jsonify({"ok": False, "motivo": "sem ativo correspondente na Fracttal", "code": code})
+        return jsonify({"ok": True, "code": code, "ativo": ativo.get("desc"),
+                        "os": _frac_os_de(ativo["id"], n)})
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)})
+
+
+_frac_usina_cache = {}     # usina.lower -> {"ts", "abertas", "total"}
+
+
+@app.route("/api/fracttal/usina")
+def api_fracttal_usina():
+    """OS ABERTAS no site da usina (badge no overview). ?usina=CPP100. Conta no nível do site
+    (religamentos/verificações da usina); as OS por inversor aparecem no drill de cada um."""
+    if not FRACTTAL_ON:
+        return jsonify({"ok": False, "sem_credencial": True})
+    usina = (flask_request.args.get("usina") or "").strip()
+    key = usina.lower()
+    ent = _frac_usina_cache.get(key)
+    if ent and (time.time() - ent["ts"]) < FRAC_OS_TTL:
+        return jsonify({"ok": True, "abertas": ent["abertas"], "total": ent["total"], "os": ent.get("os", [])})
+    try:
+        info = _frac_usina_ent(usina)
+        site = info.get("site") if info else None
+        if not site:
+            return jsonify({"ok": False, "motivo": "sem site na Fracttal"})
+        d = _frac_get("work_orders/", id_item=site, limit=200)
+        rows = (d.get("data") if isinstance(d, dict) else d) or []
+        folios = {}
+        for w in rows:
+            folios.setdefault(w.get("wo_folio"), w)
+        ab = sorted((w for w in folios.values() if w.get("id_status_work_order") in (0, 1, 5, 6)),
+                    key=lambda w: str(w.get("creation_date") or ""), reverse=True)
+        os_ab = [{"folio": w.get("wo_folio"), "descricao": str(w.get("description") or "").strip(),
+                  "status": FRAC_WO_STATUS.get(w.get("id_status_work_order"), "—"),
+                  "criada": str(w.get("creation_date") or "")[:10]} for w in ab]
+        res = {"abertas": len(os_ab), "total": len(folios), "os": os_ab}
+        _frac_usina_cache[key] = {"ts": time.time(), **res}
+        return jsonify({"ok": True, **res})
+    except Exception as e:
+        return jsonify({"ok": False, "erro": str(e)})
 
 
 if __name__ == "__main__":

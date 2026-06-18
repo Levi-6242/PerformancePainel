@@ -282,7 +282,7 @@
     .gc-btn-sm:hover { background: #e2e8f0 }
     /* .gc-btn-sm é display:none por padrão (só aparece em barras). Nos painéis próprios
        (Strings/PR) os botões precisam ficar visíveis: */
-    #panel-spv .gc-btn-sm, #panel-pv-pr .gc-btn-sm { display: inline-block }
+    #panel-spv .gc-btn-sm, #panel-pv-pr .gc-btn-sm, #panel-curvagen .gc-btn-sm { display: inline-block }
     .gc-btn-export {
       background: var(--dark);
       color: var(--green);
@@ -319,6 +319,18 @@
     }
     @keyframes spin { to { transform: rotate(360deg) } }
     .gc-loading p { color: var(--muted); font-size: 13px }
+    /* barra de carregamento (indeterminada) — feedback visual durante a coleta */
+    .gc-loadbar { width: min(440px, 72%); height: 7px; background: #e5e7eb; border-radius: 4px; overflow: hidden; position: relative }
+    .gc-loadbar::before { content: ""; position: absolute; top: 0; left: -40%; height: 100%; width: 40%;
+                          border-radius: 4px; background: var(--green); animation: gcload 1.05s ease-in-out infinite }
+    @keyframes gcload { 0% { left: -40% } 100% { left: 100% } }
+    /* impressão das curvas selecionadas (Curva das strings) */
+    #cg-print-area { display: none }
+    @media print {
+      body.cg-printing > * { display: none !important }
+      body.cg-printing #cg-print-area { display: block !important }
+      #cg-print-area .cg-print-card { page-break-inside: avoid; margin: 0 0 18px }
+    }
 
     /* ── STATS ───────────────────────────────────────────────────────────── */
     .gc-stats { display: grid; gap: 10px; margin-bottom: 16px }
@@ -563,7 +575,7 @@
     .string-chip.s-ativa     .s-val { color: #15803d }
     .string-chip.s-sem       { border-color: #fca5a5; background: #fff5f5 }
     .string-chip.s-sem       .s-val { color: #dc2626 }
-    .string-chip.s-baixa     { border-color: #fcd34d; background: #fffbeb }
+    .string-chip.s-baixa     { border-color: #dc2626; border-width: 2px; background: #fffbeb }
     .string-chip.s-baixa     .s-val { color: #b45309 }
     .string-chip.s-trancada  { border-color: #93c5fd; background: #eff6ff }
     .string-chip.s-trancada  .s-val, .string-chip.s-trancada .s-id { color: #2563eb }
@@ -833,6 +845,7 @@
     <div id="pvs-load" class="gc-loading">
       <div class="gc-spinner"></div>
       <p>Coletando dados das usinas...</p>
+      <div class="gc-loadbar"></div>
     </div>
     <div id="pvs-cont" style="display:none">
       <div class="gc-stats gc-stats-5">
@@ -995,7 +1008,7 @@
       <div class="gc-table-card">
         <div class="gc-table-hdr"><span class="gc-table-title">E-mail — Strings por UFV <small>— clique para expandir inversores</small></span></div>
         <div class="gc-table-wrap"><table>
-          <thead><tr><th>UFV</th><th>Inv.</th><th>Strings Ativas</th><th>Strings Esperadas</th><th>Diferença</th><th>Última Leitura</th><th>Status</th></tr></thead>
+          <thead><tr><th>UFV</th><th>Inv.</th><th>Strings Ativas</th><th>Strings Esperadas</th><th>Diferença</th><th>Strings Acompanhamento</th><th>Temp (°C)</th><th>Última Leitura</th><th>Status</th></tr></thead>
           <tbody id="owen-str-tbody"></tbody>
         </table></div>
       </div>
@@ -1007,6 +1020,7 @@
     <div id="sos-load" class="gc-loading">
       <div class="gc-spinner"></div>
       <p>Coletando dados SunOp...</p>
+      <div class="gc-loadbar"></div>
     </div>
     <div id="sos-cont" style="display:none">
       <div class="gc-stats gc-stats-5">
@@ -1095,6 +1109,7 @@
     <div id="pgs-load" class="gc-loading">
       <div class="gc-spinner"></div>
       <p>Consultando banco PostgreSQL...</p>
+      <div class="gc-loadbar"></div>
     </div>
     <div id="pgs-cont" style="display:none">
       <div class="gc-stats gc-stats-5">
@@ -1349,16 +1364,20 @@
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
       <div>
         <h2 style="margin:0;font-size:1.12rem;color:#16192a">🔬 Curva das strings <small id="curvagen-fonte" style="color:#888;font-weight:400"></small></h2>
-        <p style="margin:2px 0 0;font-size:.8em;color:#888">Clique numa usina para ver a curva de corrente por string de cada inversor. Strings abaixo da mediana em vermelho. <span id="curvagen-upd"></span></p>
+        <p style="margin:2px 0 0;font-size:.8em;color:#888">Clique numa usina para carregar os inversores e as curvas. Strings abaixo da mediana em vermelho. <span id="curvagen-upd"></span></p>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-        <label style="font-size:12px;color:var(--muted)">Data <input class="gc-bar-search" type="date" id="curvagen-data" style="width:auto" onchange="curvagenCache={};loadCurvaGen(true)"></label>
-        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer" title="Mostra só inversores com string(s) abaixo da mediana"><input type="checkbox" id="curvagen-soabaixo" style="accent-color:#dc2626;cursor:pointer" onchange="renderCurvaGen()"> só com strings abaixo</label>
+        <label style="font-size:12px;color:var(--muted)">Data <input class="gc-bar-search" type="date" id="curvagen-data" style="width:auto" onchange="curvagenSetData()"></label>
+        <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer" title="Mostra só inversores com string(s) abaixo da mediana"><input type="checkbox" id="curvagen-soabaixo" style="accent-color:#dc2626;cursor:pointer" onchange="renderCurvaGen()"> só inversores abaixo</label>
         <input class="gc-bar-search" type="text" id="curvagen-filtro" placeholder="🔍  Filtrar usina..." oninput="renderCurvaGen()">
-        <button class="gc-btn-sm" style="background:#7c3aed;color:#fff;font-weight:600" onclick="loadCurvaGen(true)">↻ Atualizar</button>
+        <button class="gc-btn-sm" style="background:#f3f4f6" onclick="curvagenSelTodas()" title="Marcar todos os inversores abertos">☑ Todas</button>
+        <button class="gc-btn-sm" style="background:#f3f4f6" onclick="curvagenSelNenhuma()" title="Desmarcar todos">☐ Nenhuma</button>
+        <button id="curvagen-print-btn" class="gc-btn-sm" style="background:#7c3aed;color:#fff;font-weight:600" onclick="curvagenImprimir()">🖨️ Imprimir selecionadas (0)</button>
+        <button class="gc-btn-sm" style="background:#1d4ed8;color:#fff;font-weight:600" onclick="curvagenPdf()" title="Relatório PDF (servidor) das usinas visíveis — use o filtro para limitar">📄 PDF</button>
+        <button class="gc-btn-sm" style="background:#e0f2fe;color:#075985" onclick="loadCurvaGen(true)">🔁 Recarregar</button>
       </div>
     </div>
-    <div id="curvagen-load" class="gc-loading"><div class="gc-spinner"></div><p>Carregando usinas...</p></div>
+    <div id="curvagen-load" class="gc-loading"><div class="gc-spinner"></div><p>Carregando usinas...</p><div class="gc-loadbar"></div></div>
     <div id="curvagen-cont" style="display:none"></div>
   </div>
 
@@ -1462,7 +1481,7 @@ const pgExp=new Set(), pgInvExp=new Set(), pgCache={};
 
 /* ══ TABS ═══════════════════════════════════════════════════════════════════ */
 function _secsDisponiveis(t){
-  if(t==='solaredge') return ['strings'];        // SolarEdge só tem Strings
+  if(t==='solaredge') return ['pr'];             // RenoGrid: só PR por inversor (geração SolarEdge ÷ IPOA × kWp)
   if(t==='pg')        return ['strings','etm','pr','curvastr','geracao','trackers'];  // PG (Thopen): + PR + curva strings + geração + trackers
   if(t==='sunop')     return ['strings','etm','pr','curvastr','trackers']; // SunOp (Athon): + PR + curva strings + trackers
   if(t==='owen')      return ['strings','etm','trackers']; // E-mail: strings+etm+trackers
@@ -1485,7 +1504,7 @@ function _aplicaBarras(){
 function switchPrimary(t){
   primary=t;
   ['pv','sunop','solaredge','pg','owen'].forEach(x=>{const b=document.getElementById(`ptab-${x}`);if(b)b.classList.toggle('active',x===t);});
-  if(!_secsDisponiveis(t).includes(secondary)) secondary='strings';   // reseta se a sub-aba não existe na fonte
+  if(!_secsDisponiveis(t).includes(secondary)) secondary=_secsDisponiveis(t)[0]||'strings';   // reseta p/ a 1ª sub-aba da fonte
   _aplicaBarras();
   show();
 }
@@ -1719,6 +1738,7 @@ function renderPvStr(prev){
   // Oculta usinas string-box (BD_Performance): sem visão real de strings na aba Strings
   pvRows.filter(r=>!r.stringbox && (!f||r.usina.toLowerCase().includes(f))).forEach(r=>{
     tb.appendChild(pvStrRow(r,prev));
+    _fracUsinaBadge(r.plant_id, r.usina);
     if(pvExp.has(r.plant_id)){if(pvCache[r.plant_id])appendPvInvs(tb,r.plant_id,pvCache[r.plant_id]);else appendPvLoad(tb,r.plant_id);}
   });
   const btn=document.getElementById('btn-ocultas');if(btn)btn.style.display='none';
@@ -1756,11 +1776,33 @@ async function togglePvPlant(r){
   const pid=r.plant_id;
   if(pvExp.has(pid)){pvExp.delete(pid);document.querySelectorAll(`[data-pvp="${pid}"]`).forEach(e=>e.remove());const t=document.querySelector(`#pv-tbody tr[data-pid="${pid}"]`);if(t)t.querySelector('.chevron').classList.remove('open');return;}
   pvExp.add(pid);const t=document.querySelector(`#pv-tbody tr[data-pid="${pid}"]`);if(t)t.querySelector('.chevron').classList.add('open');
-  if(pvCache[pid]){appendPvInvs(document.getElementById('pv-tbody'),pid,pvCache[pid]);return;}
+  if(pvCache[pid]){_pvDrawInvs(pid,r);return;}
   appendPvLoad(document.getElementById('pv-tbody'),pid);
-  const d=await fetch(`/api/plant/${pid}`).then(r=>r.json());pvCache[pid]=d.inversores||[];
+  let d; try{ d=await fetch(`/api/plant/${pid}`).then(rp=>rp.json()); }catch(e){ d={}; }
+  pvCache[pid]=d.inversores||[];
   document.querySelectorAll(`[data-pvp="${pid}"]`).forEach(e=>e.remove());
-  if(pvExp.has(pid))appendPvInvs(document.getElementById('pv-tbody'),pid,pvCache[pid]);
+  if(pvExp.has(pid))_pvDrawInvs(pid,r);
+}
+// Desenha os inversores OU, quando o drill-down vem vazio (usina sem leitura hoje),
+// uma mensagem clara em vez de abrir em branco. A API PV só detalha strings do dia
+// atual; o histórico via custom_query é lento (~120s) e volta vazio — não dá p/ recuperar.
+function _pvDrawInvs(pid,r){
+  const tb=document.getElementById('pv-tbody');
+  if((pvCache[pid]||[]).length) appendPvInvs(tb,pid,pvCache[pid]);
+  else appendPvVazio(tb,pid,r);
+}
+function appendPvVazio(tb,pid,r){
+  const tr=document.createElement('tr');tr.dataset.pvp=pid;
+  const dt=(r&&r.ultima_leitura)?String(r.ultima_leitura).replace('T',' ').slice(0,16):null;
+  let msg;
+  if(r&&r.dado_historico){
+    const resumo=(r.strings_ativas!=null&&r.str_esp!=null)?` — último dado: <b>${r.strings_ativas}/${r.str_esp}</b> strings ativas`:'';
+    msg=`Sem leitura de <b>hoje</b> (última em <b>${dt||'—'}</b>)${resumo}. A API PV só fornece o detalhe por string do <b>dia atual</b>, então as strings só voltam a abrir quando a usina reportar de novo.`;
+  } else {
+    msg=`Sem strings para detalhar agora — a usina pode não ter reportado hoje, ou a API PV falhou na busca. Tente o botão <b>↻ Atualizar</b>.`;
+  }
+  tr.innerHTML=`<td colspan="9" style="padding:10px 36px;background:#fffbeb;color:#92400e;font-size:11.5px;border-left:3px solid #f59e0b">⚠ ${msg}</td>`;
+  insAfterPv(tb,pid,tr);
 }
 function appendPvLoad(tb,pid){
   const tr=document.createElement('tr');tr.dataset.pvp=pid;
@@ -1801,11 +1843,12 @@ function appendPvStrs(tb,pid,ik,inv){
       onmouseenter="pvCurvaHi('${cid}',${n},1)" onmouseleave="pvCurvaHi('${cid}',${n},0)" onclick="pvCurvaToggle('${cid}',${n},this)"
       title="${s.id}: ${s.corrente.toFixed(2)} A · ${SLBL[st]||st} · clique p/ ocultar no gráfico">
       <label onclick="event.stopPropagation()" title="Trancar: string aberta/não conectada (MPPT sem string) — sai da contagem de ativas" style="display:flex;align-items:center;gap:2px;cursor:pointer;font-size:9px;color:#2563eb;margin-bottom:1px">
-        <input type="checkbox" ${s.trancada?'checked':''} onchange="event.stopPropagation();pvTrancaStr(${pid},${inv.id},'${s.id}',this.checked)" style="margin:0;width:11px;height:11px;cursor:pointer">🔒</label>
+        <input type="checkbox" ${s.trancada?'checked':''} onchange="event.stopPropagation();pvTrancaStr(${pid},${inv.id},'${s.id}',this.checked,this)" style="margin:0;width:11px;height:11px;cursor:pointer">🔒</label>
       <span class="s-id">${s.id}</span><span class="s-val">${s.corrente.toFixed(2)} A</span></div>`;}).join('');
   tr.innerHTML=`<td colspan="9">
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
         <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="pvCurvaInv(${pid},${inv.id},'${nm}','${cid}')">📈 Curva do dia</button>
+        ${_trancarInativasBtn('pv',pid,inv.id)}
         <label style="font-size:11px;color:var(--muted)">Data <input type="date" id="${cid}-data" value="${_trkHoje()}" onchange="pvCurvaInv(${pid},${inv.id},'${nm}','${cid}',true)" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
         <span id="${cid}-presets" style="display:none;align-items:center;gap:4px;flex-wrap:wrap">
           <span style="font-size:11px;color:var(--muted)">| Mostrar:</span>
@@ -1820,10 +1863,17 @@ function appendPvStrs(tb,pid,ik,inv){
   const it=document.querySelector(`[data-pvik="${ik}"]`);if(it&&it.nextSibling)tb.insertBefore(tr,it.nextSibling);else tb.appendChild(tr);
 }
 /* Marca/desmarca string trancada (MPPT sem string) e recarrega o detalhe da usina */
-async function pvTrancaStr(pid,invId,sid,trancada){
+async function pvTrancaStr(pid,invId,sid,trancada,cb){
+  // feedback imediato: pinta o chip de trancada (azul) na hora, sem esperar o round-trip/re-render
+  const chip=cb&&cb.closest&&cb.closest('.string-chip');
+  if(chip&&trancada) chip.className='string-chip s-trancada';
   try{ await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},
        body:JSON.stringify({plant_id:pid,inv_id:invId,string:sid,trancada})}); }catch(e){}
   try{ const d=await fetch('/api/plant/'+pid).then(r=>r.json()); pvCache[pid]=d.inversores||[]; }catch(e){}
+  // a curva de strings exclui as trancadas → descarta o cache do gráfico desta usina p/ recomputar:
+  // aba Strings (curva por inversor) e aba Curva das strings (painel SPV)
+  Object.keys(_pvCurvaCache).forEach(k=>{ if(k.split('|')[0]===String(pid)) delete _pvCurvaCache[k]; });
+  delete spvData[pid];
   renderPvStr();
 }
 /* Chip de string com checkbox de trancar + cor por estado (SunOp/PG). src='so'|'pg' */
@@ -1836,19 +1886,66 @@ function _strChipSimple(s,src,pid,invId,cid){
   const hov = cid ? ` data-cid="${cid}" data-n="${n}" onmouseenter="pvCurvaHi('${cid}',${n},1)" onmouseleave="pvCurvaHi('${cid}',${n},0)" onclick="pvCurvaToggle('${cid}',${n},this)"` : '';
   return `<div class="string-chip ${cls}"${hov} style="cursor:pointer" title="${s.id}: ${v} · ${_SLBL[st]||st}${cid?' · clique p/ ocultar no gráfico':''}">`
     +`<label onclick="event.stopPropagation()" title="Trancar: string aberta/não conectada (MPPT sem string) — sai da contagem de ativas" style="display:flex;align-items:center;gap:2px;cursor:pointer;font-size:9px;color:#2563eb;margin-bottom:1px">`
-    +`<input type="checkbox" ${s.trancada?'checked':''} onchange="trancaStr('${src}','${pid}','${invId}','${s.id}',this.checked)" style="margin:0;width:11px;height:11px;cursor:pointer">🔒</label>`
+    +`<input type="checkbox" ${s.trancada?'checked':''} onchange="trancaStr('${src}','${pid}','${invId}','${s.id}',this.checked,this)" style="margin:0;width:11px;height:11px;cursor:pointer">🔒</label>`
     +`<span class="s-id">${s.id}</span><span class="s-val">${v}</span></div>`;
 }
-async function trancaStr(src,pid,invId,sid,trancada){
+async function trancaStr(src,pid,invId,sid,trancada,cb){
+  // feedback imediato: pinta o chip de trancada (azul) na hora, sem esperar o round-trip/re-render
+  const chip=cb&&cb.closest&&cb.closest('.string-chip');
+  if(chip&&trancada) chip.className='string-chip s-trancada';
   try{ await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},
        body:JSON.stringify({plant_id:pid,inv_id:invId,string:sid,trancada})}); }catch(e){}
-  const ep=src==='so'?'/api/sunop/plant/':src==='pg'?'/api/pg/plant/':'/api/plant/';
-  const cache=src==='so'?soCache:src==='pg'?pgCache:pvCache;
-  const rend=src==='so'?renderSoStr:src==='pg'?renderPgStr:renderPvStr;
-  try{ const d=await fetch(ep+encodeURIComponent(pid)).then(r=>r.json()); cache[pid]=d.inversores||[]; }catch(e){}
+  const ep=src==='so'?'/api/sunop/plant/':src==='pg'?'/api/pg/plant/':src==='owen'?'/api/owen/strings/plant/':'/api/plant/';
+  const cache=src==='so'?soCache:src==='pg'?pgCache:src==='owen'?owenCache:pvCache;
+  const rend=src==='so'?renderSoStr:src==='pg'?renderPgStr:src==='owen'?renderOwenStr:renderPvStr;
+  try{ const d=await fetch(ep+encodeURIComponent(pid)+'?force=1').then(r=>r.json()); cache[pid]=d.inversores||[]; }catch(e){}
+  // as curvas (SunOp/PG) excluem as trancadas → descarta os caches de gráfico desta usina p/ recomputar:
+  // aba Strings (curva por inversor) e aba Curva das strings (painel genérico). OBS: o painel
+  // genérico usa 'sunop' (não 'so'). 2C/Owen não tem curva de strings → nada a limpar.
+  if(src==='so'||src==='pg'){
+    const _cc=src==='so'?_soCurvaCache:_pgCurvaCache, _cgsrc=src==='so'?'sunop':'pg';
+    Object.keys(_cc).forEach(k=>{ if(k.startsWith(String(pid)+'|')) delete _cc[k]; });
+    Object.keys(curvagenCache).forEach(k=>{ if(k.startsWith(_cgsrc+'|'+pid+'|')) delete curvagenCache[k]; });
+  }
+  rend();
+}
+/* Botão por inversor: tranca em lote todas as strings inativas (0 A com o inversor
+   produzindo = MPPT sem string). src='pv'|'so'|'pg'|'owen'. */
+function _trancarInativasBtn(src,pid,invId){
+  return `<button class="gc-btn-sm" style="display:inline-block;background:#eff6ff;color:#2563eb;border-color:#bfdbfe"
+    onclick="event.stopPropagation();trancaInativas('${src}','${pid}','${invId}',this)"
+    title="Tranca de uma vez todas as strings em 0 A deste inversor (MPPT sem string) — saem da contagem de ativas">🔒 Trancar strings inativas</button>`;
+}
+async function trancaInativas(src,pid,invId,btn){
+  const cache=src==='so'?soCache:src==='pg'?pgCache:src==='owen'?owenCache:pvCache;
+  const inv=(cache[pid]||[]).find(i=>String(i.id)===String(invId));
+  if(!inv)return;
+  // inativa = string em 0 A com o inversor produzindo (status 'sem_corrente'); ignora as já trancadas
+  const alvo=(inv.strings||[]).filter(s=>!s.trancada && s.status==='sem_corrente').map(s=>s.id);
+  const _flash=t=>{ if(btn){const o=btn.innerHTML;btn.innerHTML=t;btn.disabled=false;setTimeout(()=>{btn.innerHTML=o;},1800);} };
+  if(!alvo.length){ _flash('Nenhuma string em 0 A'); return; }
+  if(!confirm(`Trancar ${alvo.length} string(s) em 0 A do ${inv.nome}? Elas saem da contagem de ativas (dá p/ reverter no cadeado de cada uma).`)) return;
+  if(btn){btn.disabled=true;btn.textContent='Trancando…';}
+  try{ await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},
+       body:JSON.stringify({plant_id:pid,inv_id:invId,strings:alvo,trancada:true})}); }catch(e){}
+  const ep=src==='so'?'/api/sunop/plant/':src==='pg'?'/api/pg/plant/':src==='owen'?'/api/owen/strings/plant/':'/api/plant/';
+  const rend=src==='so'?renderSoStr:src==='pg'?renderPgStr:src==='owen'?renderOwenStr:renderPvStr;
+  try{ const d=await fetch(ep+encodeURIComponent(pid)+(src==='pv'?'':'?force=1')).then(r=>r.json()); cache[pid]=d.inversores||[]; }catch(e){}
+  // invalida os caches de curva da usina afetada (mesma régua das funções de trancar individuais)
+  if(src==='pv'){ Object.keys(_pvCurvaCache).forEach(k=>{ if(k.split('|')[0]===String(pid)) delete _pvCurvaCache[k]; }); delete spvData[pid]; }
+  else if(src==='so'){ Object.keys(_soCurvaCache).forEach(k=>{ if(k.startsWith(String(pid)+'|')) delete _soCurvaCache[k]; }); Object.keys(curvagenCache).forEach(k=>{ if(k.startsWith('sunop|'+pid+'|')) delete curvagenCache[k]; }); }
+  else if(src==='pg'){ Object.keys(_pgCurvaCache).forEach(k=>{ if(k.startsWith(String(pid)+'|')) delete _pgCurvaCache[k]; }); Object.keys(curvagenCache).forEach(k=>{ if(k.startsWith('pg|'+pid+'|')) delete curvagenCache[k]; }); }
   rend();
 }
 const _pvCurvaCache={}, _pvCurvaState={};
+// Selo "inversor abaixo dos pares" (mediana do inversor < 90% da mediana da usina) — pega
+// blocos/trackers parados em que TODAS as strings caem juntas (não clippam) e a régua
+// intra-inversor marcaria "OK". Vem do backend em iv.inv_sub / iv.med_usina.
+function _invSubTxt(iv){
+  if(!iv||!iv.inv_sub) return '';
+  const pct=(iv.med_usina>0)?Math.round((1-iv.mediana/iv.med_usina)*100):0;
+  return ` · <b style="color:#b45309" title="mediana ${iv.mediana} vs ${iv.med_usina} da usina — inversor inteiro abaixo (provável bloco/tracker parado: strings em sino, não clippam)">⚠ inversor ~${pct}% abaixo dos pares</b>`;
+}
 function _pvIso2Br(s){ if(!s)return ''; const p=s.split('-'); return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:s; }
 async function pvCurvaInv(pid,invId,invNome,cid,reload){
   const box=document.getElementById(cid); if(!box)return;
@@ -1880,7 +1977,7 @@ async function pvCurvaInv(pid,invId,invNome,cid,reload){
   const _nz=v=>String(v||'').replace(/['"\\]/g,'').trim().toLowerCase();
   const iv=((_pvCurvaCache[ckey].inversores)||[]).find(x=>_nz(x.nome)===_nz(invNome));
   if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:16px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; if(pres)pres.style.display='none'; return; }
-  const sub=iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK';
+  const sub=(iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK')+_invSubTxt(iv);
   box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:0 0 2px">${invNome} — corrente por string · med ${iv.mediana} (índice)${sub}</div><div id="${cid}-plot" style="width:100%;height:222px"></div>`;
   if(pres)pres.style.display='inline-flex';
   _spvPlotInto(document.getElementById(cid+'-plot'),iv,cid,isHoje);
@@ -1989,6 +2086,7 @@ function renderSoStr(){
   const tb=document.getElementById('so-tbody');tb.innerHTML='';
   soRows.filter(r=>!f||r.usina.toLowerCase().includes(f)).forEach(r=>{
     tb.appendChild(soStrRow(r));
+    _fracUsinaBadge(r.plant_id, r.usina);
     if(soExp.has(r.plant_id)){if(soCache[r.plant_id])appendSoInvs(tb,r.plant_id,soCache[r.plant_id]);else appendSoLoad(tb,r.plant_id);}
   });
 }
@@ -2009,7 +2107,7 @@ function soStrRow(r){
   if(trk!=null&&r.diferenca!=null&&r.diferenca===-trk){sty='color:#3b82f6;font-weight:700';}
   const trkCell=`<input type="number" class="trk-input" min="0" value="${trk!=null?trk:''}" placeholder="—" onclick="event.stopPropagation()" onchange="setTracking('${vkey}',this.value)">`;
   const leit=r.ultima_leitura?r.ultima_leitura.replace('T',' ').slice(0,16):'—';
-  tr.innerHTML=`<td>${chk}<b>${ch}${r.usina}</b>${comentBtn(vkey,r.usina)}</td><td>${inv}</td><td>${r.strings_ativas??'—'}</td>
+  tr.innerHTML=`<td>${chk}<b>${ch}${r.usina}</b>${comentBtn(vkey,r.usina)}${_fracToolBtn(r.plant_id,r.usina)}</td><td>${inv}</td><td>${r.strings_ativas??'—'}</td>
     <td>${r.str_esp??'—'}</td><td style="${sty}">${txt}</td><td>${trkCell}</td>
     <td>${r.temp_media!=null?r.temp_media+'°C':'—'}</td>
     <td style="font-size:11px;color:var(--muted)">${leit}</td><td>${badge}</td>`;
@@ -2060,11 +2158,11 @@ async function soCurvaInv(pid,invId,invNome,cid,reload){
   box.style.display='';
   box.innerHTML='<div class="gc-loading" style="min-height:200px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
   const dt=document.getElementById(cid+'-data')?.value||_trkHoje();
-  const isHoje=dt===_trkHoje(); const ckey=pid+'|'+dt;
+  const isHoje=dt===_trkHoje(); const ckey=pid+'|'+invId+'|'+dt;   // por inversor: carrega só as strings dele (bem mais rápido)
   if(reload||!_soCurvaCache[ckey]){
     try{
       const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
-      const r=await fetch(`/api/sunop/curva/${encodeURIComponent(pid)}?data=${dt}`,{signal:ctrl.signal}); clearTimeout(tmo);
+      const r=await fetch(`/api/sunop/curva/${encodeURIComponent(pid)}?inv=${encodeURIComponent(invId)}&data=${dt}`,{signal:ctrl.signal}); clearTimeout(tmo);
       if(!r.ok) throw new Error('HTTP '+r.status);
       const j=await r.json(); if(j&&j.error) throw new Error(j.error);
       _soCurvaCache[ckey]=j;
@@ -2074,9 +2172,9 @@ async function soCurvaInv(pid,invId,invNome,cid,reload){
       if(pres)pres.style.display='none'; return;
     }
   }
-  const iv=((_soCurvaCache[ckey].inversores)||[]).find(x=>String(x.id)===String(invId));
+  const iv=((_soCurvaCache[ckey].inversores)||[]).find(x=>String(x.id)===String(invId))||(_soCurvaCache[ckey].inversores||[])[0];
   if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:16px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; if(pres)pres.style.display='none'; return; }
-  const sub=iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK';
+  const sub=(iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK')+_invSubTxt(iv);
   box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:0 0 2px">${invNome} — corrente por string · med ${iv.mediana} (índice)${sub}</div><div id="${cid}-plot" style="width:100%;height:222px"></div>`;
   if(pres)pres.style.display='inline-flex';
   _spvPlotInto(document.getElementById(cid+'-plot'),iv,cid,isHoje);
@@ -2088,6 +2186,7 @@ function appendSoStrs(tb,pid,ik,inv){
   tr.innerHTML=`<td colspan="9">
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
         <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="soCurvaInv('${pid}','${inv.id}','${nm}','${cid}')">📈 Curva do dia</button>
+        ${_trancarInativasBtn('so',pid,inv.id)}
         <label style="font-size:11px;color:var(--muted)">Data <input type="date" id="${cid}-data" value="${_trkHoje()}" onchange="soCurvaInv('${pid}','${inv.id}','${nm}','${cid}',true)" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
         <span id="${cid}-presets" style="display:none;align-items:center;gap:4px;flex-wrap:wrap">
           <span style="font-size:11px;color:var(--muted)">| Mostrar:</span>
@@ -2163,7 +2262,7 @@ function seStrRow(r){
   if(trk!=null&&r.diferenca!=null&&r.diferenca===-trk){sty='color:#3b82f6;font-weight:700';}
   const trkCell=`<input type="number" class="trk-input" min="0" value="${trk!=null?trk:''}" placeholder="—" onclick="event.stopPropagation()" onchange="setTracking('${vkey}',this.value)">`;
   const leit=r.ultima_leitura?r.ultima_leitura.replace('T',' ').slice(0,16):'—';
-  tr.innerHTML=`<td>${chk}<b>${ch}${r.usina}</b>${comentBtn(vkey,r.usina)}</td><td>${inv}</td><td>${r.strings_ativas??'—'}</td>
+  tr.innerHTML=`<td>${chk}<b>${ch}${r.usina}</b>${comentBtn(vkey,r.usina)}${_fracToolBtn(r.plant_id,r.usina)}</td><td>${inv}</td><td>${r.strings_ativas??'—'}</td>
     <td>${r.str_esp??'—'}</td><td style="${sty}">${txt}</td><td>${trkCell}</td>
     <td>${r.temp_media!=null?r.temp_media+'°C':'—'}</td>
     <td style="font-size:11px;color:var(--muted)">${leit}</td><td>${badge}</td>`;
@@ -2238,6 +2337,7 @@ function renderPgStr(){
   const tb=document.getElementById('pg-tbody');tb.innerHTML='';
   pgRows.filter(r=>!f||r.usina.toLowerCase().includes(f)).forEach(r=>{
     tb.appendChild(pgStrRow(r));
+    _fracUsinaBadge(r.plant_id, r.usina);
     if(pgExp.has(r.plant_id)){if(pgCache[r.plant_id])appendPgInvs(tb,r.plant_id,pgCache[r.plant_id]);else appendPgLoad(tb,r.plant_id);}
   });
 }
@@ -2257,7 +2357,7 @@ function pgStrRow(r){
   if(trk!=null&&r.diferenca!=null&&r.diferenca===-trk){sty='color:#3b82f6;font-weight:700';}
   const trkCell=`<input type="number" class="trk-input" min="0" value="${trk!=null?trk:''}" placeholder="—" onclick="event.stopPropagation()" onchange="setTracking('${vkey}',this.value)">`;
   const leit=r.ultima_leitura?r.ultima_leitura.replace('T',' ').slice(0,16):'—';
-  tr.innerHTML=`<td>${chk}<b>${ch}${r.usina}</b>${comentBtn(vkey,r.usina)}</td><td>${inv}</td><td>${r.strings_ativas??'—'}</td>
+  tr.innerHTML=`<td>${chk}<b>${ch}${r.usina}</b>${comentBtn(vkey,r.usina)}${_fracToolBtn(r.plant_id,r.usina)}</td><td>${inv}</td><td>${r.strings_ativas??'—'}</td>
     <td>${r.str_esp??'—'}</td><td style="${sty}">${txt}</td><td>${trkCell}</td>
     <td>${r.temp_media!=null?r.temp_media+'°C':'—'}</td>
     <td style="font-size:11px;color:var(--muted)">${leit}</td><td>${badge}</td>`;
@@ -2324,7 +2424,7 @@ async function pgCurvaInv(pid,invId,invNome,cid,reload){
   }
   const iv=((_pgCurvaCache[ckey].inversores)||[]).find(x=>String(x.id)===String(invId));
   if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:16px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; if(pres)pres.style.display='none'; return; }
-  const sub=iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK';
+  const sub=(iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK')+_invSubTxt(iv);
   box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:0 0 2px">${invNome} — corrente por string · med ${iv.mediana} (índice)${sub}</div><div id="${cid}-plot" style="width:100%;height:222px"></div>`;
   if(pres)pres.style.display='inline-flex';
   _spvPlotInto(document.getElementById(cid+'-plot'),iv,cid,isHoje);
@@ -2336,6 +2436,7 @@ function appendPgStrs(tb,pid,ik,inv){
   tr.innerHTML=`<td colspan="9">
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
         <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="pgCurvaInv(${pid},${inv.id},'${nm}','${cid}')">📈 Curva do dia</button>
+        ${_trancarInativasBtn('pg',pid,inv.id)}
         <label style="font-size:11px;color:var(--muted)">Data <input type="date" id="${cid}-data" value="${_trkHoje()}" onchange="pgCurvaInv(${pid},${inv.id},'${nm}','${cid}',true)" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
         <span id="${cid}-presets" style="display:none;align-items:center;gap:4px;flex-wrap:wrap">
           <span style="font-size:11px;color:var(--muted)">| Mostrar:</span>
@@ -2382,24 +2483,37 @@ function renderOwenStr(){
   const tb=document.getElementById('owen-str-tbody'); tb.innerHTML='';
   owenStrRows.forEach(r=>{
     const exp=owenExp.has(r.plant_id);
-    const tr=document.createElement('tr'); tr.className='plant-row'; tr.style.cursor='pointer';
-    const dc=_difCell(r.diferenca);
-    const badge=r.sem_dados?'<span class="badge b-none">Sem dados</span>':(r.str_esp==null?'<span class="badge b-none">Sem esperado</span>':(r.diferenca<0?`<span class="badge b-string">⚡ ${-r.diferenca} faltando</span>`:'<span class="badge b-ok">Normal</span>'));
-    tr.innerHTML=`<td>${exp?'▾':'▸'} ${r.usina}</td><td>${r.qtd_inversores||'—'}</td><td>${r.strings_ativas??'—'}</td><td>${r.str_esp??'—'}</td><td style="${dc.sty}">${dc.txt}</td><td>${r.ultima_leitura?r.ultima_leitura.slice(0,16):'—'}</td><td>${badge}</td>`;
+    const vkey=`owen:${r.plant_id}`;
+    const tr=document.createElement('tr'); tr.className='plant-row'; tr.style.cursor='pointer'; tr.dataset.pid=r.plant_id;
+    if(isVer(vkey))tr.classList.add('verified');
+    const chk=`<input type="checkbox" class="chk-ver" ${isVer(vkey)?'checked':''} title="Marcar como verificada" onclick="event.stopPropagation();toggleVer('${vkey}',this.checked,this)">`;
+    const ch=`<span class="chevron${exp?' open':''}">▶</span>`;
+    let {sty,txt}=difCell(r.diferenca);
+    const trk=getTracking(vkey);
+    if(trk!=null&&r.diferenca!=null&&r.diferenca===-trk){sty='color:#3b82f6;font-weight:700';}
+    const trkCell=`<input type="number" class="trk-input" min="0" value="${trk!=null?trk:''}" placeholder="—" onclick="event.stopPropagation()" onchange="setTracking('${vkey}',this.value)">`;
+    if(!r.sem_dados&&r.strings_ativas===0)tr.classList.add('alerta-strings');
+    else if(r.diferenca!=null&&r.diferenca<0)tr.classList.add('alerta-string-diff');
+    else if(r.sem_dados)tr.classList.add('sem-dados');
+    const badge=r.sem_dados?'<span class="badge b-none">Sem dados</span>':(r.strings_ativas===0?'<span class="badge b-err">Sem geração</span>':(r.str_esp==null?'<span class="badge b-none">Sem esperado</span>':(r.diferenca<0?`<span class="badge b-string">⚡ ${-r.diferenca} faltando</span>`:'<span class="badge b-ok">Normal</span>')));
+    const leit=r.ultima_leitura?r.ultima_leitura.replace('T',' ').slice(0,16):'—';
+    tr.innerHTML=`<td>${chk}<b>${ch}${r.usina}</b>${comentBtn(vkey,r.usina)}</td><td>${r.qtd_inversores||'—'}</td><td>${r.strings_ativas??'—'}</td><td>${r.str_esp??'—'}</td><td style="${sty}">${txt}</td><td>${trkCell}</td><td>—</td><td style="font-size:11px;color:var(--muted)">${leit}</td><td>${badge}</td>`;
     tr.addEventListener('click',()=>toggleOwen(r.plant_id));
     tb.appendChild(tr);
     if(exp)(owenCache[r.plant_id]||[]).forEach(inv=>{
-      const ik=r.plant_id+'|'+inv.id, ie=owenInvExp.has(ik), idc=_difCell(inv.diferenca);
+      const ik=r.plant_id+'|'+inv.id, ie=owenInvExp.has(ik), idc=difCell(inv.diferenca);
       const difN=inv.diferenca!=null&&inv.diferenca<0;
       const itr=document.createElement('tr'); itr.className='inv-header-row'; itr.style.cursor='pointer';
       if(difN)itr.classList.add('inv-diff');
       const ist=inv.desligado?'<span class="badge b-none">Sem produção</span>':(inv.str_esp==null?'<span class="badge b-none">Sem esperado</span>':(difN?`<span class="badge b-string">⚡ ${-inv.diferenca} faltando</span>`:'<span class="badge b-ok">Normal</span>'));
-      itr.innerHTML=`<td style="padding-left:30px">${ie?'▾':'▸'} ${inv.nome}</td><td>—</td><td>${inv.strings_ativas}/${inv.total_strings}</td><td>${inv.str_esp??'—'}</td><td style="${idc.sty}">${idc.txt}</td><td>${inv.ultima_leitura?inv.ultima_leitura.slice(0,16):'—'}</td><td>${ist}</td>`;
+      const ileit=inv.ultima_leitura?inv.ultima_leitura.slice(0,16).replace('T',' '):'—';
+      itr.innerHTML=`<td><b><span class="chevron${ie?' open':''}">▶</span>${inv.nome}</b> <span style="color:var(--muted);font-size:10px;margin-left:5px">${inv.eday!=null?inv.eday+' kWh':'—'}</span></td><td>—</td><td>${inv.strings_ativas} / ${inv.total_strings}</td><td>${inv.str_esp??'—'}</td><td style="${idc.sty}">${idc.txt}</td><td>—</td><td>${inv.temp!=null?inv.temp+'°C':'—'}</td><td style="font-size:11px;color:var(--muted)">${ileit}</td><td>${ist}</td>`;
       itr.addEventListener('click',()=>{ie?owenInvExp.delete(ik):owenInvExp.add(ik);renderOwenStr();});
       tb.appendChild(itr);
       if(ie){
-        const chips=(inv.strings||[]).map(s=>`<span style="display:inline-block;border:1px solid ${s.ativa?'#22c55e':'#ef4444'};color:${s.ativa?'#16a34a':'#dc2626'};border-radius:6px;padding:1px 7px;font-size:10px;margin:1px">${s.id}: ${(s.corrente||0).toFixed(1)}A</span>`).join('');
-        const str=document.createElement('tr'); str.innerHTML=`<td colspan="7" style="background:#fafbff;padding:8px 40px"><div style="display:flex;flex-wrap:wrap;gap:3px">${chips}</div></td>`;
+        const chips=(inv.strings||[]).map(s=>_strChipSimple(s,'owen',r.plant_id,inv.id,'')).join('');
+        const str=document.createElement('tr'); str.className='strings-row';
+        str.innerHTML=`<td colspan="9"><div style="margin-bottom:6px">${_trancarInativasBtn('owen',r.plant_id,inv.id)}</div><div class="strings-grid">${chips}</div></td>`;
         tb.appendChild(str);
       }
     });
@@ -2536,7 +2650,9 @@ function exportPgGeracao(){
 }
 
 /* ── SunOp · Trackers ─────────────────────────────────────────────────────── */
-let trkRows=[], trkLoadedSrc=''; const trkExp=new Set(), trkCache={}, trkSel={}, trkChartCache={};
+let trkRows=[], trkLoadedSrc=''; const trkExp=new Set(), trkGrpExp=new Set(), trkCache={}, trkSel={}, trkChartCache={};
+const trkChartState={};   // pid -> {idxById:{tracker_id:traceIdx}, base:[{width,color}]} p/ destaque no hover
+const trkAuto=new Set();  // usinas cujo gráfico de trackers já auto-abriu (não reabre o que o user fechou)
 function _trkBase(){ return primary==='pv' ? '/api/pv/trackers' : primary==='owen' ? '/api/owen/trackers' : primary==='pg' ? '/api/pg/trackers' : '/api/sunop/trackers'; }
 async function loadSoTrackers(force){
   const base=_trkBase();
@@ -2549,17 +2665,17 @@ async function loadSoTrackers(force){
   try{
     const d=await fetch(force?base+'?force=1':base).then(r=>r.json());
     trkRows=d.rows||[]; loaded.sotrk=true;
-    if(force||trkLoadedSrc!==primary){trkExp.clear();[trkCache,trkSel,trkChartCache].forEach(o=>Object.keys(o).forEach(k=>delete o[k]));}
+    if(force||trkLoadedSrc!==primary){trkExp.clear();trkGrpExp.clear();trkAuto.clear();[trkCache,trkSel,trkChartCache].forEach(o=>Object.keys(o).forEach(k=>delete o[k]));}
     trkLoadedSrc=primary;
     setTs(d.cache_ts);
     document.getElementById('trk-usinas').textContent=d.summary.usinas;
     document.getElementById('trk-total').textContent=d.summary.trackers;
     document.getElementById('trk-sev').textContent=d.summary.severos;
     document.getElementById('trk-leve').textContent=d.summary.leves;
-    // Banner de NOVOS (fora da planilha de Tickets) — só na API PV
+    // Banner de NOVOS (fora da planilha de Tickets) — API PV e SunOp (Athon)
     const ban=document.getElementById('trk-novos-banner');
     if(ban){
-      if(primary==='pv' && d.summary.novos!=null){
+      if((primary==='pv'||primary==='sunop') && d.summary.novos!=null){
         ban.style.display='';
         document.getElementById('trk-novos-n').textContent=d.summary.novos;
         document.getElementById('trk-acomp-n').textContent=d.summary.acompanhados||0;
@@ -2578,6 +2694,7 @@ function trkToggleNovos(){
   renderSoTrackers();
 }
 function _trkBadge(r){
+  if(r.sem_comunicacao) return '<span class="badge b-comm">Sem comunicação</span>';
   if(r.severos) return '<span class="badge b-err">Severo</span>';
   if(r.leves) return '<span class="badge b-warn">Leve</span>';
   if(r.fora_media) return '<span class="badge" style="background:#dbeafe;color:#1d4ed8">Fora da linha</span>';
@@ -2589,33 +2706,152 @@ function _trkCss(s){return String(s).replace(/[^a-zA-Z0-9_-]/g,'_');}
 function renderSoTrackers(){
   const f=(document.getElementById('filtro-trk').value||'').toLowerCase();
   const soAlerta=document.getElementById('trk-soalerta').checked;
-  let lista=trkRows.filter(r=>!f||r.usina.toLowerCase().includes(f));
-  if(soAlerta) lista=lista.filter(r=>r.severos||r.leves||r.fora_media);
-  if(trkOnlyNovos) lista=lista.filter(r=>(r.novos||0)>0);
   const tb=document.getElementById('trk-tbody'); tb.innerHTML='';
-  if(!lista.length){tb.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px">Nenhuma usina.</td></tr>';return;}
-  lista.forEach(r=>{
-    const exp=trkExp.has(r.plant_id);
-    const novoTag=(r.novos)?` <span class="badge b-err" title="${r.novos} fora da planilha de Tickets${r.ambiguo?' (usina agrupada na planilha — revisar)':''}">${r.novos} novo${r.novos>1?'s':''}</span>`:(r.tem_ticket?' <span class="badge b-ok" title="acompanhado na planilha">na planilha</span>':'');
-    const tr=document.createElement('tr'); tr.className='plant-row'; tr.style.cursor='pointer';
-    tr.innerHTML=`<td>${exp?'▾':'▸'} ${r.usina}${novoTag}</td>
-      <td>${r.total}</td>
-      <td style="color:${r.severos?'#dc2626':'inherit'};font-weight:${r.severos?700:400}">${r.severos}</td>
-      <td style="color:${r.leves?'#b45309':'inherit'}">${r.leves}</td>
-      <td style="color:${r.fora_media?'#1d4ed8':'inherit'}">${r.fora_media}</td>
-      <td style="color:${r.normalizados?'#2563eb':'var(--muted)'};font-weight:${r.normalizados?700:400}" title="normais no tempo real, mas ainda na planilha como problema">${r.normalizados!=null?r.normalizados:'—'}</td>
-      <td>${r.desvio_medio!=null?r.desvio_medio.toFixed(1)+'°':'—'}</td>
-      <td>${r.ultima_leitura?r.ultima_leitura.slice(11,16):'—'}</td>
-      <td>${_trkBadge(r)}</td>`;
-    tr.addEventListener('click',()=>{exp?trkExp.delete(r.plant_id):trkExp.add(r.plant_id);renderSoTrackers();});
-    tb.appendChild(tr);
-    if(exp){
-      const det=document.createElement('tr');
-      det.innerHTML=`<td colspan="9" style="background:#fafbff;padding:8px 14px"><div id="trk-det-${_trkCss(r.plant_id)}" style="color:var(--muted);font-size:12px">Carregando trackers...</div></td>`;
-      tb.appendChild(det);
-      renderTrkDetail(r.plant_id);
-    }
+  // API PV: cada SKID é uma "usina" (Indaiatuba 1-4) → agrupa numa linha-pai "Indaiatuba"
+  let itens = (primary==='pv') ? _trkAgrupaPv(trkRows) : trkRows.map(r=>({row:r}));
+  itens = itens.filter(it=>{
+    const g=it.grupo?it:it.row;
+    const hay=it.grupo ? (it.base+' '+it.cabines.map(c=>c.r.usina).join(' ')) : it.row.usina;
+    if(f && !hay.toLowerCase().includes(f)) return false;
+    if(soAlerta && !(g.severos||g.leves||g.fora_media)) return false;
+    if(trkOnlyNovos && !((g.novos||0)>0)) return false;
+    return true;
   });
+  if(!itens.length){tb.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px">Nenhuma usina.</td></tr>';return;}
+  itens.forEach(it=> it.grupo ? _trkRenderGrupo(tb,it) : _trkRenderRow(tb,it.row));
+}
+function _trkRenderRow(tb, r){
+  const exp=trkExp.has(r.plant_id);
+  const novoTag=(r.novos)?` <span class="badge b-err" title="${r.novos} fora da planilha de Tickets${r.ambiguo?' (usina agrupada na planilha — revisar)':''}">${r.novos} novo${r.novos>1?'s':''}</span>`:(r.tem_ticket?' <span class="badge b-ok" title="acompanhado na planilha">na planilha</span>':'');
+  // "Já acompanhei" do dia: chave com a data de hoje → zera sozinho na virada do dia.
+  // primary distingue a fonte (pg/sunop/owen). Reusa o sistema 'verified' (isVer/toggleVer).
+  const vkey='trk:'+_trkHoje()+':'+primary+':'+r.plant_id;
+  const chk=`<input type="checkbox" class="chk-ver" ${isVer(vkey)?'checked':''} title="Já acompanhei hoje (zera amanhã)" onclick="event.stopPropagation();toggleVer('${vkey}',this.checked,this)">`;
+  const tr=document.createElement('tr'); tr.className='plant-row'; tr.style.cursor='pointer';
+  if(isVer(vkey))tr.classList.add('verified');
+  tr.innerHTML=`<td>${chk}${exp?'▾':'▸'} ${r.usina}${novoTag}</td>
+    <td>${r.total}</td>
+    <td style="color:${r.severos?'#dc2626':'inherit'};font-weight:${r.severos?700:400}">${r.severos}</td>
+    <td style="color:${r.leves?'#b45309':'inherit'}">${r.leves}</td>
+    <td style="color:${r.fora_media?'#1d4ed8':'inherit'}">${r.fora_media}</td>
+    <td style="color:${r.normalizados?'#2563eb':'var(--muted)'};font-weight:${r.normalizados?700:400}" title="normais no tempo real, mas ainda na planilha como problema">${r.normalizados!=null?r.normalizados:'—'}</td>
+    <td>${r.desvio_medio!=null?r.desvio_medio.toFixed(1)+'°':'—'}</td>
+    <td>${r.ultima_leitura?r.ultima_leitura.slice(11,16):'—'}</td>
+    <td>${_trkBadge(r)}</td>`;
+  tr.addEventListener('click',()=>{exp?trkExp.delete(r.plant_id):trkExp.add(r.plant_id);renderSoTrackers();});
+  tb.appendChild(tr);
+  if(exp){
+    const det=document.createElement('tr');
+    det.innerHTML=`<td colspan="9" style="background:#fafbff;padding:8px 14px"><div id="trk-det-${_trkCss(r.plant_id)}" style="color:var(--muted);font-size:12px">Carregando trackers...</div></td>`;
+    tb.appendChild(det);
+    renderTrkDetail(r.plant_id);
+  }
+}
+// ── Agrupa sub-usinas da API PV numa linha-pai pela USINA FÍSICA do cadastro (r.grupo). ──
+//   Cobre todos os padrões (Indaiatuba 1-4, Ceilândia II - Atena…, Céu Azul I/II/III, Junco 2.1…).
+//   O regex "Base N" fica só como fallback p/ usinas fora do cadastro.
+function _trkAgrupaPv(rows){
+  const reBase=/^(.*?)\s+(\d+)\s*(?:\(\d+\))?\s*$/;
+  const map={}, ordem=[];
+  (rows||[]).forEach(r=>{
+    let base=(r.grupo||'').trim()||null;                                 // usina física do BD = fonte da verdade
+    if(!base){ const m=(r.usina||'').match(reBase); base=m?m[1].trim():null; }
+    const key=base?('g:'+base.toLowerCase()):('p:'+r.plant_id);
+    if(!map[key]){ map[key]={base, cabines:[]}; ordem.push(key); }
+    map[key].cabines.push(r);
+  });
+  const sum=(cabs,f)=>cabs.reduce((a,c)=>a+(c[f]||0),0);
+  return ordem.map(key=>{
+    const e=map[key];
+    if(e.base && e.cabines.length>1){
+      e.cabines.sort((a,b)=>String(a.usina).localeCompare(String(b.usina),'pt',{numeric:true}));
+      return {grupo:true, base:e.base, plant_id:'grp:'+e.base, cabines:e.cabines.map(r=>({r})),
+        total:sum(e.cabines,'total'), severos:sum(e.cabines,'severos'), leves:sum(e.cabines,'leves'),
+        fora_media:sum(e.cabines,'fora_media'), novos:sum(e.cabines,'novos'),
+        normalizados:sum(e.cabines,'normalizados'),
+        tem_ticket:e.cabines.some(c=>c.tem_ticket),
+        sem_comunicacao:e.cabines.every(c=>c.sem_comunicacao)};
+    }
+    return {row:e.cabines[0]};   // usina única → linha normal
+  });
+}
+function _trkRenderGrupo(tb, g){
+  const exp=trkGrpExp.has(g.base);
+  const novoTag = g.novos?` <span class="badge b-err" title="${g.novos} fora da planilha de Tickets">${g.novos} novo${g.novos>1?'s':''}</span>`
+                : (g.tem_ticket?' <span class="badge b-ok" title="acompanhado na planilha">na planilha</span>':'');
+  const tr=document.createElement('tr'); tr.className='plant-row'; tr.style.cursor='pointer'; tr.style.background='#eef2ff';
+  tr.innerHTML=`<td><b>${exp?'▾':'▸'} ${g.base}</b> <span class="badge" style="background:#e0e7ff;color:#3730a3">${g.cabines.length} usinas</span>${novoTag}</td>
+    <td>${g.total}</td>
+    <td style="color:${g.severos?'#dc2626':'inherit'};font-weight:${g.severos?700:400}">${g.severos}</td>
+    <td style="color:${g.leves?'#b45309':'inherit'}">${g.leves}</td>
+    <td style="color:${g.fora_media?'#1d4ed8':'inherit'}">${g.fora_media}</td>
+    <td style="color:${g.normalizados?'#2563eb':'var(--muted)'};font-weight:${g.normalizados?700:400}">${g.normalizados||0}</td>
+    <td>—</td><td>—</td>
+    <td>${_trkBadge(g)}</td>`;
+  tr.addEventListener('click',()=>{exp?trkGrpExp.delete(g.base):trkGrpExp.add(g.base);renderSoTrackers();});
+  tb.appendChild(tr);
+  if(exp){
+    const det=document.createElement('tr');
+    const cards=g.cabines.map(c=>{
+      const cid=_trkCss(c.r.plant_id);
+      const nmEsc=(c.r.usina||'').replace(/['"\\]/g,'');
+      return `<div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px;background:#fff">
+        <div id="trk-cabhd-${cid}" onclick="toggleCabineDet('${c.r.plant_id}')" style="cursor:pointer;font-size:12px;font-weight:600;margin-bottom:6px">
+          ▸ ${c.r.usina}${c.skid?` · Skid ${c.skid}`:''} <span style="font-weight:400;color:var(--muted)">— carregando…</span></div>
+        <div style="text-align:right;margin-bottom:2px"><button class="gc-btn-sm" style="display:inline-block;padding:1px 7px;font-size:10px" onclick="event.stopPropagation();trkExpandChart('${c.r.plant_id}','${nmEsc}')" title="Ver o gráfico em tela cheia">⤢ Expandir</button></div>
+        <div id="trk-mini-${cid}" style="height:150px"></div>
+        <div id="trk-det-${cid}" style="display:none;margin-top:6px"></div>
+      </div>`;
+    }).join('');
+    det.innerHTML=`<td colspan="9" style="background:#fafbff;padding:10px 14px">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Prévia por usina (curva do dia + contagem) — clique numa usina p/ ver os trackers e ângulos.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px">${cards}</div></td>`;
+    tb.appendChild(det);
+    g.cabines.forEach(c=>_trkCabPreview(c.r.plant_id, c.skid, c.r.usina));
+  }
+}
+function _trkCabHd(pid, skid, nome){
+  const cid=_trkCss(pid), d=trkCache[pid]||{}, exp=trkExp.has(pid);
+  const bate = d.novos ? `<span style="color:#b91c1c;font-weight:600">${d.novos} fora da planilha</span>`
+             : (d.tem_ticket?'<span style="color:#16a34a">✓ na planilha</span>':'<span style="color:var(--muted)">sem ticket</span>');
+  const hd=document.getElementById('trk-cabhd-'+cid);
+  if(hd) hd.innerHTML=`${exp?'▾':'▸'} <b>${nome}${skid?` · Skid ${skid}`:''}</b> <span style="font-weight:400">— `
+    +`<b style="color:#ef4444">${d.parados||0}</b> parado · <b style="color:#f97316">${d.desvios||0}</b> desvio · `
+    +`<b style="color:#eab308">${d.atrasos||0}</b> atraso · ${bate}</span>`;
+}
+async function _trkCabPreview(pid, skid, nome){
+  const cid=_trkCss(pid);
+  if(!trkCache[pid]){ try{ trkCache[pid]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)).then(r=>r.json()); }catch(e){ trkCache[pid]={trackers:[]}; } }
+  _trkCabHd(pid, skid, nome);
+  if(!trkSel[pid]) trkSel[pid]=new Set((trkCache[pid].trackers||[]).map(t=>t.id));
+  const mbox=document.getElementById('trk-mini-'+cid), det=document.getElementById('trk-det-'+cid);
+  if(trkExp.has(pid)){          // cabine aberta → remonta o detalhe (trackers + ângulos)
+    if(mbox){ try{Plotly.purge(mbox);}catch(e){} mbox.style.display='none'; }
+    if(det){ det.style.display=''; renderTrkDetail(pid); }
+    return;
+  }
+  if(!mbox) return;
+  mbox.style.display=''; mbox.innerHTML='<div class="gc-loading" style="min-height:140px"><div class="gc-spinner"></div></div>';
+  const ckey=pid+'|'+_trkHoje();
+  if(!trkChartCache[ckey]){ try{ trkChartCache[ckey]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart').then(r=>r.json()); }catch(e){ trkChartCache[ckey]={trackers:[]}; } }
+  trkChartCache[pid]=trkChartCache[ckey];
+  renderTrkChart(pid, 'trk-mini-'+cid);
+}
+function toggleCabineDet(pid){
+  const cid=_trkCss(pid);
+  const det=document.getElementById('trk-det-'+cid), mini=document.getElementById('trk-mini-'+cid);
+  if(!det) return;
+  if(trkExp.has(pid)){          // fechar detalhe → volta o mini
+    trkExp.delete(pid); det.style.display='none'; det.innerHTML='';
+    if(mini){ mini.style.display=''; trkChartCache[pid]=trkChartCache[pid+'|'+_trkHoje()]||trkChartCache[pid]; renderTrkChart(pid,'trk-mini-'+cid); }
+  } else {                      // abrir detalhe (trackers + ângulos) → esconde o mini
+    trkExp.add(pid);
+    if(mini){ try{Plotly.purge(mini);}catch(e){} mini.style.display='none'; }
+    det.style.display=''; det.innerHTML='<div style="color:var(--muted);font-size:12px">Carregando trackers...</div>';
+    renderTrkDetail(pid);
+  }
+  const hd=document.getElementById('trk-cabhd-'+cid);
+  if(hd){ const arrow=trkExp.has(pid)?'▾':'▸'; hd.innerHTML=hd.innerHTML.replace(/^[▾▸]/, arrow); }
 }
 async function renderTrkDetail(pid){
   let data=trkCache[pid];
@@ -2629,12 +2865,16 @@ async function renderTrkDetail(pid){
   if(!ts.length){cell.innerHTML='<span style="color:var(--muted)">Sem trackers.</span>';return;}
   if(!trkSel[pid]) trkSel[pid]=new Set(ts.map(t=>t.id));   // todos selecionados por padrão
   const cid=_trkCss(pid);
-  const resumo=`<span style="font-size:11px"><b style="color:#ef4444">${data.parados||0}</b> parado · `
-    +`<b style="color:#f97316">${data.desvios||0}</b> desvio · <b style="color:#eab308">${data.atrasos||0}</b> atraso`
+  const _fcnt=(tipo,cor,n,lbl)=>`<span onclick="trkPreset('${pid}','${tipo}')" title="clique p/ ver só os ${lbl}" style="cursor:pointer"><b style="color:${cor};text-decoration:underline dotted">${n||0}</b> ${lbl}</span>`;
+  const resumo=`<span style="font-size:11px">${_fcnt('parado','#ef4444',data.parados,'parado')} · ${_fcnt('desvio','#f97316',data.desvios,'desvio')} · ${_fcnt('atraso','#eab308',data.atrasos,'atraso')}`
     +`${data.sem_alvo?' · <i style="color:var(--muted)">planta sem ângulo alvo</i>':''}</span>`;
+  const aviso = data.sem_comunicacao
+    ? `<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:12px;color:#92400e">⚠ <b>Sem curva do dia</b> — a SunOp não retornou o histórico de hoje desta usina (pode ser atraso de ingestão; o valor atual no resumo ainda vale). Troque a <b>Data</b> acima para ver outro dia.</div>`
+    : '';
   cell.innerHTML=`
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
       <button class="gc-btn-sm" style="display:inline-block" onclick="toggleGraficoTrackers('${pid}')">📈 Curva do dia</button>
+      <button class="gc-btn-sm" style="display:inline-block" onclick="trkExpandChart('${pid}','${(data.usina||'').replace(/['"\\]/g,'')}')" title="Ver o gráfico em tela cheia">⤢ Expandir</button>
       <label style="font-size:11px;color:var(--muted)">Data <input type="date" id="trk-data-${cid}" value="${_trkHoje()}" onchange="trkChartReload('${pid}')" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
       <span style="font-size:11px;color:var(--muted)">Filtrar:</span>
       <button class="gc-btn-sm" style="display:inline-block" onclick="trkPreset('${pid}','ruins')">Ruins</button>
@@ -2643,9 +2883,11 @@ async function renderTrkDetail(pid){
       ${resumo}
       <span id="trk-hint-${cid}" style="font-size:11px;color:var(--muted)"></span>
     </div>
+    ${aviso}
     <div id="trk-chart-${cid}" style="display:none;width:100%;height:340px;margin-bottom:10px"></div>
     <div style="display:flex;flex-wrap:wrap;gap:6px">`
     + ts.map(t=>_trkChip(pid,t)).join('') + '</div>';
+  if(!trkAuto.has(pid)){ trkAuto.add(pid); toggleGraficoTrackers(pid); }   // auto-abre a curva do dia na 1ª expansão
 }
 function _trkChip(pid,t){
   const sel=trkSel[pid]?trkSel[pid].has(t.id):true;
@@ -2654,8 +2896,9 @@ function _trkChip(pid,t){
   let mark='', tip='';
   if(t.normalizado){ mark=' <span style="color:#2563eb;font-weight:700">✓</span>'; tip=' · NORMALIZADO (normal agora, mas ainda como '+(t.ticket_status||'problema')+' na planilha)'; }
   else if(t.na_planilha){ mark=' <span style="color:#16a34a">✓</span>'; tip=' · NA PLANILHA'+(t.ticket_status?(' ('+t.ticket_status+')'):''); }
-  else if(t.status==='desvio'||t.status==='atraso'){ mark=' <span style="color:#b91c1c;font-weight:700">novo</span>'; tip=' · FORA DA PLANILHA (novo)'; }
+  else if(['desvio','atraso','parado','severo','leve','fora_media'].includes(t.status)){ mark=' <span style="color:#b91c1c;font-weight:700">novo</span>'; tip=' · FORA DA PLANILHA (novo)'; }
   return `<span data-tid="${t.id}" onclick="toggleTrkFiltro('${pid}','${t.id}',this)"
+    onmouseenter="trkChartHi('${pid}','${t.id}',1)" onmouseleave="trkChartHi('${pid}','${t.id}',0)"
     style="border:1px solid ${cor};color:${cor};border-radius:8px;padding:3px 7px;font-size:11px;cursor:pointer;white-space:nowrap;opacity:${sel?1:0.3}"
     title="${t.status.toUpperCase()} · alvo ${t.alvo}° · atual ${t.atual}° · amplitude no dia ${amp} · disparidade atual ${disp} · máx do dia ${md}${tip} — clique p/ filtrar">${t.id}: ${disp}${mark}</span>`;
 }
@@ -2686,9 +2929,11 @@ async function toggleGraficoTrackers(pid){
   trkChartCache[pid]=trkChartCache[ckey];   // renderTrkChart lê por pid
   renderTrkChart(pid);
 }
-function renderTrkChart(pid){
-  const cid=_trkCss(pid);
-  const box=document.getElementById('trk-chart-'+cid);
+function renderTrkChart(pid, boxId, forceMini){
+  // boxId → desenha em container custom. mini (sem legenda/títulos) por padrão p/ boxId;
+  // forceMini=false força o modo CHEIO num container custom (usado no modal "Expandir").
+  const cid=_trkCss(pid), mini=(forceMini!==undefined)?forceMini:!!boxId;
+  const box=document.getElementById(boxId||('trk-chart-'+cid));
   if(!box||box.style.display==='none')return;
   const d=trkChartCache[pid]||{trackers:[]}, sel=trkSel[pid];
   const stMap={}; ((trkCache[pid]||{}).trackers||[]).forEach(t=>stMap[t.id]=t.status);
@@ -2704,22 +2949,64 @@ function renderTrkChart(pid){
   // p/ o fuso do navegador, senão o dia escolhido começaria às 21h do dia anterior).
   const _toDt=arr=>(arr||[]).map(s=>{const dt=new Date(s);return isNaN(dt)?s:
     new Date(dt.getUTCFullYear(),dt.getUTCMonth(),dt.getUTCDate(),dt.getUTCHours(),dt.getUTCMinutes(),dt.getUTCSeconds());});
-  const traces=vis.map(t=>({x:_toDt(t.x),y:t.y,name:t.id,type:'scatter',mode:'lines',
-    line:corLinha(stMap[t.id]),hovertemplate:t.id+' ('+(stMap[t.id]||'normal')+'): %{y:.1f}°<extra></extra>',showlegend:false}));
-  if(d.alvo&&d.alvo.y&&d.alvo.y.length){traces.push({x:_toDt(d.alvo.x),y:d.alvo.y,name:'Alvo',type:'scatter',mode:'lines',
+  // mostra só a janela diurna 06:00–18:00 (descarta madrugada/noite)
+  const _win=(xs,ys)=>{const X=[],Y=[];(xs||[]).forEach((dt,i)=>{ if(dt instanceof Date){const mn=dt.getHours()*60+dt.getMinutes(); if(mn<360||mn>1080)return;} X.push(dt);Y.push((ys||[])[i]);}); return [X,Y];};
+  const idxById={}, baseLine=[];   // mapa tracker_id -> índice do trace + estilo base (p/ destaque no hover do chip)
+  const traces=vis.map((t,i)=>{const [X,Y]=_win(_toDt(t.x),t.y); const ln=corLinha(stMap[t.id]); idxById[t.id]=i; baseLine.push({width:ln.width,color:ln.color}); return {x:X,y:Y,name:t.id,type:'scatter',mode:'lines',
+    line:ln,hovertemplate:t.id+' ('+(stMap[t.id]||'normal')+'): %{y:.1f}°<extra></extra>',showlegend:false};});
+  if(!mini) trkChartState[pid]={idxById,base:baseLine};
+  if(d.alvo&&d.alvo.y&&d.alvo.y.length){const [AX,AY]=_win(_toDt(d.alvo.x),d.alvo.y); traces.push({x:AX,y:AY,name:'Alvo',type:'scatter',mode:'lines',
     line:{color:'#111827',width:2.2,dash:'dash'},hovertemplate:'Alvo: %{y:.1f}°<extra></extra>'});}
-  const hint=document.getElementById('trk-hint-'+cid);
-  if(hint)hint.textContent=`mostrando ${vis.length} de ${(d.trackers||[]).length}`;
-  if(!traces.length){Plotly.purge(box);box.innerHTML='<p style="text-align:center;color:var(--muted);padding:40px 0">Nenhum tracker selecionado.</p>';return;}
+  // eixo X fixo na janela 06:00–18:00 do dia plotado
+  let _xr=null; for(const t of traces){for(const dt of (t.x||[])){if(dt instanceof Date){_xr=[new Date(dt.getFullYear(),dt.getMonth(),dt.getDate(),6,0,0),new Date(dt.getFullYear(),dt.getMonth(),dt.getDate(),18,0,0)];break;}}if(_xr)break;}
+  if(!mini){ const hint=document.getElementById('trk-hint-'+cid);
+    if(hint)hint.textContent=`mostrando ${vis.length} de ${(d.trackers||[]).length}`; }
+  if(!traces.length){Plotly.purge(box);box.innerHTML=`<p style="text-align:center;color:var(--muted);padding:${mini?'18px':'40px'} 0;font-size:11px">Sem curva.</p>`;return;}
   Plotly.purge(box); box.innerHTML='';   // remove o spinner / plot anterior antes de redesenhar
   Plotly.newPlot(box, traces, {
-    margin:{t:10,r:14,b:36,l:46},
-    xaxis:{title:'Hora', type:'date', tickformat:'%H:%M', hoverformat:'%H:%M', tickfont:{size:10}, nticks:12},
-    yaxis:{title:'Ângulo (°)'},
+    margin: mini?{t:6,r:8,b:22,l:32}:{t:10,r:14,b:36,l:46},
+    xaxis:{title:mini?'':'Hora', type:'date', tickformat:'%H:%M', hoverformat:'%H:%M', tickfont:{size:mini?8:10}, nticks:mini?6:12, range:_xr||undefined},
+    yaxis:{title:mini?'':'Ângulo (°)', tickfont:{size:mini?8:11}},
+    showlegend:!mini,
     legend:{orientation:'h', y:1.15},
     font:{family:'Inter', size:11},
     plot_bgcolor:'#f8fafc', paper_bgcolor:'#fff',
   }, {displayModeBar:false, responsive:true});
+}
+// Modal de tela cheia p/ a curva de uma usina (botão "⤢ Expandir") — reusa renderTrkChart no modo cheio.
+function trkExpandChart(pid, nome){
+  let modal=document.getElementById('trk-modal');
+  if(!modal){
+    modal=document.createElement('div'); modal.id='trk-modal';
+    modal.style.cssText='display:none;position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.55);align-items:center;justify-content:center';
+    modal.innerHTML=`<div style="background:#fff;width:92vw;height:88vh;border-radius:12px;padding:12px 16px;box-shadow:0 12px 48px rgba(0,0,0,.35);display:flex;flex-direction:column">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+          <b id="trk-modal-title" style="font-size:14px"></b>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="trkCloseModal()">✕ Fechar</button>
+        </div>
+        <div id="trk-modal-chart" style="flex:1;min-height:0;width:100%"></div></div>`;
+    modal.addEventListener('click',e=>{ if(e.target===modal) trkCloseModal(); });
+    document.body.appendChild(modal);
+  }
+  document.getElementById('trk-modal-title').textContent='Curva do dia — '+(nome||pid);
+  modal.style.display='flex';
+  const draw=()=>{ const b=document.getElementById('trk-modal-chart'); if(b){ b.style.display=''; renderTrkChart(pid,'trk-modal-chart',false);
+                   if(window.Plotly){ try{ Plotly.Plots.resize(b); }catch(e){} } } };
+  const ckey=pid+'|'+_trkHoje();
+  if(trkChartCache[pid]||trkChartCache[ckey]){ trkChartCache[pid]=trkChartCache[pid]||trkChartCache[ckey]; draw(); }
+  else {
+    const b=document.getElementById('trk-modal-chart'); if(b) b.innerHTML='<div class="gc-loading" style="min-height:200px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
+    fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart').then(r=>r.json()).then(d=>{ trkChartCache[pid]=d; draw(); }).catch(()=>{});
+  }
+}
+function trkCloseModal(){ const m=document.getElementById('trk-modal'); if(!m)return; const b=document.getElementById('trk-modal-chart'); if(b&&window.Plotly){ try{Plotly.purge(b);}catch(e){} } m.style.display='none'; }
+function trkChartHi(pid,id,on){   // hover no chip do tracker → destaca a linha dele no gráfico
+  const st=trkChartState[pid]; if(!st)return;
+  const idx=st.idxById[id]; if(idx==null)return;   // tracker filtrado/fora do gráfico → nada a destacar
+  const box=document.getElementById('trk-chart-'+_trkCss(pid));
+  if(!box||box.style.display==='none'||!window.Plotly)return;
+  const b=st.base[idx]||{};
+  try{ Plotly.restyle(box,{'line.width':[on?4:(b.width||1)],'line.color':[on?'#2563eb':(b.color||'rgba(100,116,139,0.4)')]},[idx]); }catch(e){}
 }
 function toggleTrkFiltro(pid,id,el){
   if(!trkSel[pid]) trkSel[pid]=new Set();
@@ -2727,11 +3014,12 @@ function toggleTrkFiltro(pid,id,el){
   else { trkSel[pid].add(id); el.style.opacity=1; }
   renderTrkChart(pid);   // re-renderiza só se o gráfico estiver aberto
 }
-function trkPreset(pid,tipo){   // filtro rápido: bons / ruins / todos
+function trkPreset(pid,tipo){   // filtro rápido: bons / ruins / todos / parado / atraso / desvio
   const ts=((trkCache[pid]||{}).trackers)||[];
   const ruim=t=>t.status!=='normal';
-  const ids = tipo==='bons' ? ts.filter(t=>!ruim(t)).map(t=>t.id)
-            : tipo==='ruins'? ts.filter(ruim).map(t=>t.id)
+  const ids = tipo==='bons'  ? ts.filter(t=>!ruim(t)).map(t=>t.id)
+            : tipo==='ruins' ? ts.filter(ruim).map(t=>t.id)
+            : (tipo==='parado'||tipo==='atraso'||tipo==='desvio') ? ts.filter(t=>t.status===tipo).map(t=>t.id)
             : ts.map(t=>t.id);
   trkSel[pid]=new Set(ids);
   const cell=document.getElementById('trk-det-'+_trkCss(pid));
@@ -3005,13 +3293,13 @@ function pvPrSetVisao(v){
   b.style.background=v==='geracao'?'#16a34a':'#fff'; b.style.color=v==='geracao'?'#fff':'#374151';
   renderPvPr();
 }
-function _prBase(){ return primary==='sunop' ? '/api/sunop/pr' : '/api/pg/pr'; }
+function _prBase(){ return primary==='sunop' ? '/api/sunop/pr' : primary==='solaredge' ? '/api/solaredge/pr' : '/api/pg/pr'; }
 async function loadPvPr(force){
   const dia=_pvPrData();
   const _base=_prBase(); if(_base!==window._pvPrSrc){ force=true; window._pvPrSrc=_base; }  // trocou de fonte → recarrega
   if(loaded.pvpr&&!force){renderPvPr();return;}
   loaded.pvpr=true;
-  const _f=document.getElementById('pvpr-fonte'); if(_f)_f.textContent = primary==='sunop' ? '— fonte: SunOp (Athon): EPD + POA do ETM' : '— fonte: banco (BD_Thopen)';
+  const _f=document.getElementById('pvpr-fonte'); if(_f)_f.textContent = primary==='sunop' ? '— fonte: SunOp (Athon): EPD + POA do ETM' : primary==='solaredge' ? '— fonte: SolarEdge (RenoGrid): geração/inv + irradiância (render-chart)' : '— fonte: banco (BD_Thopen)';
   document.getElementById('pvpr-cont').style.display='none';
   document.getElementById('pvpr-load').style.display='';
   document.getElementById('pvpr-load').innerHTML='<div class="gc-spinner"></div><p>Calculando PR por inversor...</p>';
@@ -3085,8 +3373,23 @@ async function renderPvPrDetail(pid, row){
 
 /* ══ Curva das strings (genérica: SunOp/Athon e PG/Thopen) ═══════════════════ */
 let curvagenRows=[], curvagenCache={}, curvagenExp=new Set();
+let curvagenCabExp=new Set();   // cabines abertas: chave "pid|cabine"
+let curvagenAuto=new Set();     // usinas cuja 1ª cabine já auto-abriu (não reabre o que o user fechou)
+let curvagenSel={};             // inversores marcados p/ imprimir: cid -> nome
 function _curvagenSrc(){ return primary==='sunop'?'sunop':'pg'; }
 function _curvagenData(){ const el=document.getElementById('curvagen-data'); if(el&&!el.value){el.value=new Date().toISOString().slice(0,10);} return el?el.value:''; }
+function curvagenSetData(){
+  // A data só afeta as CURVAS, não a lista de usinas/inversores (que é "ao vivo").
+  // Limpa os caches de curva (mantém os drill-downs 'det|') e RECARREGA as curvas que
+  // já estão abertas para a data escolhida — cada uma com sua barra de carregamento —
+  // sem force-rebuild da visão geral (que martelava o SunOp e fazia esperar o dia atual).
+  Object.keys(curvagenCache).forEach(k=>{ if(!k.startsWith('det|')) delete curvagenCache[k]; });
+  document.querySelectorAll('[id^="cg-"][id$="-box"]').forEach(box=>{
+    if(box.style.display!=='none' && box.dataset.pid){
+      curvagenInvCurva(box.dataset.pid, box.dataset.inv, box.dataset.nome, box.id.replace(/-box$/,''), true);
+    }
+  });
+}
 async function loadCurvaGen(force){
   const src=_curvagenSrc(); _curvagenData();
   const fEl=document.getElementById('curvagen-fonte'); if(fEl)fEl.textContent = src==='sunop'?'— SunOp (Athon)':'— Banco (BD_Thopen)';
@@ -3116,20 +3419,24 @@ function renderCurvaGen(){
     row.style.cssText='border:1px solid #e6e9f0;border-radius:8px;margin-bottom:8px;background:#fff;overflow:hidden';
     const head=document.createElement('div');
     head.style.cssText='padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;font-weight:600;color:#16192a';
-    head.innerHTML=`<span>${exp?'▾':'▸'}</span> ${r.usina}`;
+    head.innerHTML=`<span>${exp?'▾':'▸'}</span> ${r.usina} <span id="cg-os-badge-${r.plant_id}"></span>`;
     head.addEventListener('click',()=>{exp?curvagenExp.delete(r.plant_id):curvagenExp.add(r.plant_id);renderCurvaGen();});
     row.appendChild(head);
+    _fracBadgeInto('cg-os-badge-'+r.plant_id, r.usina);
     if(exp){
       const body=document.createElement('div'); body.style.cssText='padding:0 14px 12px'; body.id='curvagen-body-'+r.plant_id;
-      body.innerHTML='<div class="gc-loading" style="min-height:110px"><div class="gc-spinner"></div><p>Carregando curvas...</p></div>';
+      body.innerHTML='<div class="gc-loading" style="min-height:110px"><div class="gc-spinner"></div><p>Carregando curvas...</p><div class="gc-loadbar"></div></div>';
       row.appendChild(body);
-      renderCurvaGenUsina(r.plant_id);
     }
-    cont.appendChild(row);
+    cont.appendChild(row);                     // anexa ANTES de renderizar: renderCurvaGenUsina busca
+    if(exp) renderCurvaGenUsina(r.plant_id);   // o body por getElementById — ele precisa estar no DOM
   });
 }
 async function renderCurvaGenUsina(pid){
-  const src=_curvagenSrc(), el=document.getElementById('curvagen-body-'+pid); if(!el)return;
+  const src=_curvagenSrc(); if(!document.getElementById('curvagen-body-'+pid))return;
+  const _body=()=>document.getElementById('curvagen-body-'+pid);   // re-busca sempre: o body pode
+  // ter sido recriado por um re-render enquanto o fetch estava em voo (evita escrever num nó
+  // solto e deixar o "Carregando curvas..." preso pra sempre).
   // lista LEVE de inversores (drill-down) — sem carregar nenhuma curva ainda
   let det=curvagenCache['det|'+src+'|'+pid];
   if(!det){
@@ -3139,31 +3446,106 @@ async function renderCurvaGenUsina(pid){
       const r=await fetch(ep+encodeURIComponent(pid),{signal:ctrl.signal}); clearTimeout(tmo);
       if(!r.ok) throw new Error('HTTP '+r.status);
       det=await r.json(); curvagenCache['det|'+src+'|'+pid]=det;
-    }catch(e){ el.innerHTML=`<p style="color:#dc2626;padding:10px;font-size:12px">Não consegui listar os inversores (${e.name==='AbortError'?'demorou demais':e.message}).</p>`; return; }
+    }catch(e){ const eb=_body(); if(eb)eb.innerHTML=`<p style="color:#dc2626;padding:10px;font-size:12px">Não consegui listar os inversores (${e.name==='AbortError'?'demorou demais':e.message}).</p>`; return; }
   }
+  const el=_body(); if(!el)return;
   const soAb=document.getElementById('curvagen-soabaixo').checked;
   let invs=(det.inversores||[]);
   if(soAb) invs=invs.filter(iv=>(iv.diferenca!=null && iv.diferenca<0));
   if(!invs.length){ el.innerHTML='<p style="color:var(--muted);padding:10px;font-size:12px">'+(soAb?'Nenhum inversor com strings faltando.':'Sem inversores.')+'</p>'; return; }
-  el.innerHTML=invs.map(iv=>{
-    const cid='cg-'+(''+pid).replace(/[^a-zA-Z0-9]/g,'')+'-'+(''+iv.id).replace(/[^a-zA-Z0-9]/g,'');
-    const dif=(iv.diferenca!=null&&iv.diferenca<0)?` <span style="color:#dc2626;font-weight:700" title="strings faltando vs esperado">${iv.diferenca}</span>`:'';
-    const nm=(iv.nome||'').replace(/['"\\]/g,'');
-    return `<div style="border-top:1px solid #f0f2ed;padding:7px 0">
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-        <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="curvagenInvCurva('${pid}','${iv.id}','${nm}','${cid}')">📈 Curva</button>
-        <b style="font-size:12px;color:#16192a">${iv.nome}</b>
-        <span style="font-size:11px;color:var(--muted)">${iv.strings_ativas!=null?iv.strings_ativas:'—'}/${iv.total_strings!=null?iv.total_strings:'—'} ativas${dif}</span>
+  // Agrupa por CABINE = número antes do ponto no nome ("Inversor 2.3" -> Cabine 2)
+  const cabs={};
+  invs.forEach(iv=>{ const m=(''+(iv.nome||'')).match(/(\d+)\s*\./); const c=m?m[1]:'—'; (cabs[c]=cabs[c]||[]).push(iv); });
+  const ordem=Object.keys(cabs).sort((a,b)=>(parseInt(a)||9999)-(parseInt(b)||9999));
+  el.innerHTML=ordem.map(cab=>{
+    const lista=cabs[cab], nAb=lista.filter(iv=>iv.diferenca!=null&&iv.diferenca<0).length;
+    const exp=curvagenCabExp.has(pid+'|'+cab);
+    const sub=nAb?` · <span style="color:#dc2626;font-weight:700">${nAb} abaixo</span>`:'';
+    return `<div style="border:1px solid #e6e9f0;border-radius:8px;margin:8px 0;overflow:hidden">
+      <div onclick="curvagenToggleCabine('${pid}','${cab}')" style="padding:9px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#f7f8fb;font-weight:600;color:#16192a">
+        <span>${exp?'▾':'▸'}</span> 🗄️ Cabine ${cab}
+        <span style="font-size:11px;color:var(--muted);font-weight:400">${lista.length} inversor(es)${sub}</span>
       </div>
-      <div id="${cid}-box" style="display:none;margin-top:6px"></div>
+      <div id="cgcab-${(''+pid).replace(/[^a-zA-Z0-9]/g,'')}-${cab}" style="padding:0 12px"></div>
     </div>`;
   }).join('');
+  if(!curvagenAuto.has(pid) && ordem.length){ curvagenCabExp.add(pid+'|'+ordem[0]); curvagenAuto.add(pid); }   // auto-abre a 1ª cabine na 1ª vez que a usina é aberta
+  ordem.forEach(cab=>{ if(curvagenCabExp.has(pid+'|'+cab)) curvagenRenderCabine(pid, cab, cabs[cab]); });
+}
+function curvagenToggleCabine(pid, cab){
+  const k=pid+'|'+cab;
+  curvagenCabExp.has(k) ? curvagenCabExp.delete(k) : curvagenCabExp.add(k);
+  renderCurvaGenUsina(pid);
+}
+function curvagenRenderCabine(pid, cab, lista){
+  const box=document.getElementById('cgcab-'+(''+pid).replace(/[^a-zA-Z0-9]/g,'')+'-'+cab); if(!box)return;
+  // 1) cards dos inversores (checkbox + container da curva) JÁ no DOM
+  box.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px;padding:10px 0">'
+    + lista.map(iv=>{
+    const cid='cg-'+(''+pid).replace(/[^a-zA-Z0-9]/g,'')+'-'+(''+iv.id).replace(/[^a-zA-Z0-9]/g,'');
+    const nm=(iv.nome||'').replace(/['"\\]/g,'');
+    const dif=(iv.diferenca!=null&&iv.diferenca<0)?` <span style="color:#dc2626;font-weight:700">${iv.diferenca}</span>`:'';
+    return `<div class="cg-inv" style="border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;background:#fff;min-width:0;overflow:hidden">
+      <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:#16192a;cursor:pointer;margin-bottom:2px">
+        <input type="checkbox" ${curvagenSel[cid]?'checked':''} onchange="curvagenToggleSel('${cid}','${nm}',this.checked)" style="cursor:pointer">
+        <strong>${iv.nome}</strong>
+        <span style="font-size:11px;color:var(--muted);font-weight:400">${iv.strings_ativas!=null?iv.strings_ativas:'—'}/${iv.total_strings!=null?iv.total_strings:'—'} ativas${dif}</span>
+      </label>
+      <div id="${cid}-box" style="margin-top:6px"></div>
+    </div>`;
+  }).join('')
+    + '</div>';
+  // 2) com os boxes no DOM, carrega cada curva (aberta) — no máx. 3 por vez p/ não martelar a API
+  let i=0;
+  const next=async()=>{ while(i<lista.length){ const iv=lista[i++];
+    const cid='cg-'+(''+pid).replace(/[^a-zA-Z0-9]/g,'')+'-'+(''+iv.id).replace(/[^a-zA-Z0-9]/g,'');
+    try{ await curvagenInvCurva(pid, iv.id, (iv.nome||'').replace(/['"\\]/g,''), cid, true); }catch(e){} } };
+  Promise.all([next(),next(),next()]);
+}
+function curvagenToggleSel(cid, nome, checked){
+  if(checked) curvagenSel[cid]=nome; else delete curvagenSel[cid];
+  const b=document.getElementById('curvagen-print-btn'); if(b) b.textContent='🖨️ Imprimir selecionadas ('+Object.keys(curvagenSel).length+')';
+}
+function curvagenSelTodas(){   // marca todos os inversores abertos (cabines expandidas)
+  document.querySelectorAll('#curvagen-cont .cg-inv input[type=checkbox]').forEach(cb=>{ if(!cb.checked){ cb.checked=true; cb.dispatchEvent(new Event('change')); } });
+}
+function curvagenSelNenhuma(){
+  curvagenSel={};
+  document.querySelectorAll('#curvagen-cont .cg-inv input[type=checkbox]').forEach(cb=>cb.checked=false);
+  const b=document.getElementById('curvagen-print-btn'); if(b) b.textContent='🖨️ Imprimir selecionadas (0)';
+}
+function curvagenPdf(){   // relatório PDF de servidor (mesmo do API PV) das usinas visíveis
+  const src=_curvagenSrc(), dia=_curvagenData();
+  const f=(document.getElementById('curvagen-filtro').value||'').toLowerCase();
+  const ids=curvagenRows.filter(r=>!f||(r.usina||'').toLowerCase().includes(f)).map(r=>r.plant_id);
+  if(!ids.length){ alert('Nenhuma usina visível para exportar.'); return; }
+  const soAb=document.getElementById('curvagen-soabaixo').checked?'&soabaixo=1':'';
+  window.open(`/api/${src}/pdf?data=${encodeURIComponent(dia)}&usinas=${encodeURIComponent(ids.join(','))}${soAb}`,'_blank');
+}
+function curvagenImprimir(){
+  const sel=Object.keys(curvagenSel);
+  if(!sel.length){ alert('Selecione ao menos um inversor (caixa de seleção) para imprimir.'); return; }
+  const area=document.getElementById('cg-print-area'); if(!area)return; area.innerHTML='';
+  let faltam=0;
+  sel.forEach(cid=>{ const box=document.getElementById(cid+'-box');
+    if(box && box.querySelector('[id$="-plot"]')){
+      const card=document.createElement('div'); card.className='cg-print-card';
+      const ttl=document.createElement('div'); ttl.style.cssText='font-weight:700;font-size:13px;margin:0 0 4px'; ttl.textContent=curvagenSel[cid];
+      card.appendChild(ttl); card.insertAdjacentHTML('beforeend', box.innerHTML); area.appendChild(card);
+    } else faltam++;
+  });
+  if(faltam) { /* curva ainda carregando p/ alguns — imprime o que já tem */ }
+  document.body.classList.add('cg-printing');
+  window.print();
+  setTimeout(()=>{ document.body.classList.remove('cg-printing'); area.innerHTML=''; }, 800);
 }
 async function curvagenInvCurva(pid,invId,invNome,cid,reload){
   const src=_curvagenSrc(), box=document.getElementById(cid+'-box'); if(!box)return;
   if(!reload && box.style.display!=='none'){ box.style.display='none'; return; }
   box.style.display='';
-  box.innerHTML='<div class="gc-loading" style="min-height:110px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
+  // guarda os parâmetros p/ recarregar esta curva ao trocar a data (curvagenSetData)
+  box.dataset.pid=pid; box.dataset.inv=invId; box.dataset.nome=invNome;
+  box.innerHTML='<div class="gc-loading" style="min-height:110px"><div class="gc-spinner"></div><p>Carregando curva...</p><div class="gc-loadbar"></div></div>';
   const dia=_curvagenData(), ckey=src+'|'+pid+'|'+invId+'|'+dia;
   let d=curvagenCache[ckey];
   if(!d){
@@ -3177,9 +3559,93 @@ async function curvagenInvCurva(pid,invId,invNome,cid,reload){
   }
   const iv=(d.inversores||[]).find(x=>String(x.id)===String(invId)) || (d.inversores||[])[0];
   if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:8px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; return; }
-  const sub=iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK';
-  box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:0 0 2px">${invNome} — corrente por string · med ${iv.mediana} (índice)${sub}</div><div id="${cid}-plot" style="width:100%;max-width:560px;height:210px"></div>`;
+  const chips=(iv.strings||[]).map(s=>`<span title="índice de corrente: ${s.energia} (${s.pct}% da mediana)" style="font-size:10.5px;padding:2px 6px;border-radius:6px;white-space:nowrap;border:1px solid ${s.sub?'#dc2626':'#d1d5db'};color:${s.sub?'#dc2626':'#6b7280'};font-weight:${s.sub?700:400}">${s.nome}: ${s.pct}%</span>`).join(' ');
+  box.innerHTML=`<div style="font-size:11px;font-weight:600;color:${iv.abaixo?'#dc2626':(iv.inv_sub?'#b45309':'#16a34a')};margin:0 0 2px">${iv.abaixo?(iv.abaixo+' abaixo'):'OK'} · med ${iv.mediana} (índice)${_invSubTxt(iv)}</div>`
+    +`<div id="${cid}-plot" style="width:100%;max-width:100%;height:200px;overflow:hidden"></div>`
+    +`<div style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0 0">${chips}</div>`
+    +`<div id="${cid}-os"></div>`;
   _spvPlotInto(document.getElementById(cid+'-plot'),iv,cid,true);
+  // OS da Fracttal: SunOp (pid já é o code-base, ex. CPP100) e PG/Thopen (backend resolve pelo nome)
+  if(src==='sunop' || src==='pg'){
+    const uNome = (src==='sunop') ? pid : ((curvagenRows.find(r=>String(r.plant_id)===String(pid))||{}).usina || pid);
+    _fracOsInto(cid+'-os', uNome, invNome);
+  }
+}
+// ── Fracttal: últimas OS do inversor, no próprio drill da curva ─────────────────
+async function _fracOsInto(elId, usina, inv){
+  const el=document.getElementById(elId); if(!el)return;
+  try{
+    const d=await fetch(`/api/fracttal/inversor?usina=${encodeURIComponent(usina)}&inv=${encodeURIComponent(inv)}`).then(r=>r.json());
+    if(!d || !d.ok || !d.os || !d.os.length){ el.innerHTML=''; return; }   // sem OS / sem ativo / sem credencial → não polui
+    const linhas=d.os.map(o=>{
+      const cor=o.status==='Concluída'?'#15803d':(o.status==='Cancelada'?'#6b7280':'#b45309');
+      const bg =o.status==='Concluída'?'#dcfce7':(o.status==='Cancelada'?'#f3f4f6':'#fef3c7');
+      return `<div style="display:flex;gap:8px;align-items:baseline;padding:3px 0;border-top:1px solid #f1f3f5">
+        <span style="font-family:monospace;color:#6b7280">#${o.folio}</span>
+        <span style="flex:1;color:#16192a;min-width:0">${(o.descricao||'').replace(/[<>]/g,'')}</span>
+        <span style="color:#9ca3af;white-space:nowrap">${_pvIso2Br(o.criada)}</span>
+        <span style="padding:1px 7px;border-radius:5px;background:${bg};color:${cor};white-space:nowrap;font-weight:600">${o.status}</span>
+      </div>`;
+    }).join('');
+    el.innerHTML=`<div style="margin-top:8px;border-top:1px dashed #d1d5db;padding-top:6px;font-size:11px">
+      <div style="font-weight:600;color:#6b7280;margin-bottom:2px">🔧 Ordens de serviço (Fracttal) <span style="font-weight:400;color:#9ca3af">· últimas ${d.os.length}</span></div>
+      ${linhas}</div>`;
+  }catch(e){ el.innerHTML=''; }
+}
+// Fracttal: badge de "OS abertas" na linha da usina (overview). usina = nome do dashboard.
+async function _fracBadgeInto(elId, usina){
+  const el=document.getElementById(elId); if(!el)return;
+  try{
+    const d=await fetch(`/api/fracttal/usina?usina=${encodeURIComponent(usina)}`).then(r=>r.json());
+    if(d && d.ok && d.abertas>0){
+      el.innerHTML=`<span title="${d.abertas} OS aberta(s) na Fracttal (nível usina) de ${d.total} no total" style="font-size:11px;padding:2px 8px;border-radius:6px;background:#fef3c7;color:#b45309;font-weight:600;white-space:nowrap">🔧 ${d.abertas} OS aberta${d.abertas>1?'s':''}</span>`;
+    } else { el.innerHTML=''; }
+  }catch(e){ el.innerHTML=''; }
+}
+// Fracttal: botão "ferramenta" por UFV na tabela de strings + mini-tabela das OS abertas.
+const _fracUsinaCache={};   // pid -> {ok, abertas, total, os}
+function _fracCss(pid){ return (''+pid).replace(/[^a-zA-Z0-9]/g,''); }
+function _fracToolBtn(pid, usina){   // botão começa oculto; _fracUsinaBadge o revela se houver Fracttal
+  const u=(''+(usina||'')).replace(/['"\\]/g,'');
+  return `<button onclick="toggleFracOs(event,'${pid}','${u}')" title="OS na Fracttal" id="fractool-${_fracCss(pid)}"
+    style="display:none;margin-left:6px;font-size:10px;padding:1px 7px;border:1px solid #e5e7eb;border-radius:5px;background:#f3f4f6;color:#9ca3af;cursor:pointer;vertical-align:middle">🔧 <span id="fracn-${_fracCss(pid)}">·</span></button>`;
+}
+async function _fracUsinaBadge(pid, usina){
+  const btn=document.getElementById('fractool-'+_fracCss(pid)); if(!btn)return;
+  const span=document.getElementById('fracn-'+_fracCss(pid));
+  const apply=(d)=>{
+    if(!d||!d.ok){ btn.style.display='none'; return; }
+    const n=d.abertas||0; if(span)span.textContent=n; btn.style.display='inline-block';
+    btn.style.background=n>0?'#fef3c7':'#f3f4f6'; btn.style.color=n>0?'#b45309':'#9ca3af';
+    btn.style.borderColor=n>0?'#fde68a':'#e5e7eb';
+    btn.title=n>0?`${n} OS aberta(s) na Fracttal — clique p/ ver`:`Sem OS abertas (${d.total||0} no histórico) — clique p/ ver`;
+  };
+  if(_fracUsinaCache[pid]){ apply(_fracUsinaCache[pid]); return; }
+  try{ const d=await fetch(`/api/fracttal/usina?usina=${encodeURIComponent(usina)}`).then(r=>r.json()); _fracUsinaCache[pid]=d; apply(d); }
+  catch(e){ btn.style.display='none'; }
+}
+function toggleFracOs(ev, pid, usina){
+  ev.stopPropagation();
+  const css=_fracCss(pid);
+  const ja=document.querySelector(`tr[data-fracos="${css}"]`);
+  if(ja){ ja.remove(); return; }
+  const ufv=document.querySelector(`tr[data-pid="${pid}"]`); if(!ufv)return;
+  const d=_fracUsinaCache[pid], os=(d&&d.os)||[];
+  let inner;
+  if(!os.length){ inner=`<span style="color:var(--muted)">Nenhuma OS aberta nesta usina na Fracttal${d&&d.total?` (${d.total} no histórico)`:''}.</span>`; }
+  else{
+    inner=`<div style="font-weight:600;color:#b45309;margin-bottom:5px">🔧 ${os.length} ordem(ns) de serviço aberta(s) — ${usina}</div>`
+      +`<table style="width:100%;font-size:11.5px;border-collapse:collapse">`
+      + os.map(o=>`<tr style="border-top:1px solid #f1f3f5">
+          <td style="padding:3px 6px;font-family:monospace;color:#6b7280;white-space:nowrap">#${o.folio}</td>
+          <td style="padding:3px 6px;color:#16192a">${(o.descricao||'').replace(/[<>]/g,'')}</td>
+          <td style="padding:3px 6px;color:#9ca3af;white-space:nowrap">${_pvIso2Br(o.criada)}</td>
+          <td style="padding:3px 6px;white-space:nowrap"><span style="padding:1px 7px;border-radius:5px;background:#fef3c7;color:#b45309;font-weight:600">${o.status}</span></td></tr>`).join('')
+      +`</table>`;
+  }
+  const tr=document.createElement('tr'); tr.dataset.fracos=css;
+  tr.innerHTML=`<td colspan="${ufv.children.length||9}" style="padding:9px 36px;background:#fffdf5;border-left:3px solid #f59e0b">${inner}</td>`;
+  ufv.after(tr);   // logo após a linha da usina, ANTES dos inversores
 }
 
 /* ══ Strings (API PV Plataforma) — curva diária por inversor ═════════════════ */
@@ -3264,19 +3730,24 @@ function renderSpvList(){
       <div onclick="toggleSpv(${u.id})" style="cursor:pointer;padding:11px 14px;background:#f8fafc;display:flex;align-items:center;gap:10px">
         <input type="checkbox" ${spvSel.has(u.id)?'checked':''} onclick="event.stopPropagation();toggleSpvSel(${u.id})" title="Incluir no PDF" style="width:16px;height:16px;cursor:pointer;accent-color:#7c3aed">
         <span style="font-size:1.05em">${exp?'▾':'▸'}</span>
-        <strong style="font-size:1.02rem;color:#16192a">${u.usina}</strong> <span id="spv-badge-${u.id}">${_spvBadge(u.id)}</span>
+        <strong style="font-size:1.02rem;color:#16192a">${u.usina}</strong> <span id="spv-badge-${u.id}">${_spvBadge(u.id)}</span> <span id="spv-os-badge-${u.id}"></span>
       </div>
       <div id="spv-body-${u.id}" style="display:${exp?'block':'none'};padding:${exp?'12px 14px':'0'}"></div>
     </div>`;
   }).join('');
-  lista.forEach(u=>{ if(spvExp.has(u.id)) renderSpvUsina(u.id); });
+  lista.forEach(u=>{ if(spvExp.has(u.id)) renderSpvUsina(u.id); _fracBadgeInto('spv-os-badge-'+u.id, u.usina); });
 }
 async function toggleSpv(id){
   if(spvExp.has(id)){spvExp.delete(id);renderSpvList();return;}
   spvExp.add(id); renderSpvList();
   if(!spvData[id]){
     const body=document.getElementById('spv-body-'+id);
-    if(body)body.innerHTML='<div class="gc-loading" style="padding:20px"><div class="gc-spinner"></div><p>Carregando inversores e curvas...</p></div>';
+    if(body){
+      const _hoje=(d=>('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2)+'/'+d.getFullYear())(new Date());
+      const _passado=_spvDataBR()!==_hoje;
+      body.innerHTML='<div class="gc-loading" style="padding:20px"><div class="gc-spinner"></div><p>Carregando inversores e curvas...'
+        +(_passado?'<br><span style="font-size:11px;color:var(--muted)">Histórico: a API PV é lenta p/ dias passados (pode levar até ~2 min). Depois de carregado, fica instantâneo.</span>':'')+'</p></div>';
+    }
     try{
       spvData[id]=await fetch(`/api/spv/usina/${id}?data=${encodeURIComponent(_spvDataBR())}`).then(r=>r.json());
     }catch(e){spvData[id]={inversores:[],msg:'Erro: '+e};}
@@ -3309,8 +3780,9 @@ function renderSpvUsina(id){
       + invs.map(iv=>_spvCard(id,iv)).join('') + `</div>`
     : `<p style="color:var(--muted);font-size:13px">Nenhum inversor com strings abaixo da mediana nesta usina.</p>`;
   body.innerHTML=obs+grid;
-  // plota cada inversor visível
-  invs.forEach(iv=>_spvPlot(id,iv));
+  // plota cada inversor visível + OS da Fracttal (resolve o code-base pelo nome da usina)
+  const uNome=(spvUsinas.find(u=>String(u.id)===String(id))||{}).usina||id;
+  invs.forEach(iv=>{ _spvPlot(id,iv); _fracOsInto('spv-os-'+id+'_'+iv.id, uNome, iv.nome); });
 }
 let spvSoAbaixo=false;
 function spvToggleSoAbaixo(){
@@ -3324,10 +3796,11 @@ function _spvCard(id,iv){
   return `<div style="border:1px solid ${iv.abaixo?'#fecaca':'#e5e7eb'};border-radius:10px;padding:10px 12px;background:#fff;min-width:0;overflow:hidden">
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
       <strong style="color:#16192a">${iv.nome}</strong>
-      <span style="font-size:11px;color:${iv.abaixo?'#dc2626':'#16a34a'};font-weight:600">${iv.abaixo?(iv.abaixo+' abaixo'):'OK'} · med ${iv.mediana} (índice)</span>
+      <span style="font-size:11px;color:${iv.abaixo?'#dc2626':(iv.inv_sub?'#b45309':'#16a34a')};font-weight:600">${iv.abaixo?(iv.abaixo+' abaixo'):'OK'} · med ${iv.mediana} (índice)${_invSubTxt(iv)}</span>
     </div>
     <div id="spv-chart-${cid}" style="width:100%;max-width:100%;height:200px;overflow:hidden"></div>
     <div style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0">${chips}</div>
+    <div id="spv-os-${cid}"></div>
     <div style="display:flex;gap:6px;align-items:flex-start">
       <textarea id="spv-nota-${cid}" placeholder="Motivo da subperformance deste inversor..." rows="2"
         style="flex:1;font-size:12px;padding:6px;border:1px solid #d1d5db;border-radius:6px;resize:vertical">${(iv.nota||'').replace(/</g,'&lt;')}</textarea>
@@ -3387,5 +3860,7 @@ async function exportSpvPdf(){
 (async()=>{ await loadState(); show(); })();
 </script>
 
+<!-- área usada só na impressão das curvas selecionadas (Curva das strings) -->
+<div id="cg-print-area"></div>
 </body>
 </html>

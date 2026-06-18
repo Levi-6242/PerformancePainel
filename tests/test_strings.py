@@ -82,6 +82,141 @@ def test_ipv_ativas_ignora_nao_numerico():
     assert out == [True, False, False, False]
 
 
+def test_spv_analise_inversor_exclui_trancada_da_curva(set_trancadas):
+    # Curva de strings (API PV): a string trancada à mão (checkbox 🔒) NÃO entra no
+    # gráfico — some de 'curva' e de 'strings'. (Régua igual à da tabela.)
+    set_trancadas({app._str_key(100, 50, "Ipv2")})
+    recs = [{"tsleitura_new": "2026-06-15 12:00:00",
+             "conteudojson": {"Ipv1": 8.0, "Ipv2": 8.0, "Ipv3": 7.5}}]
+    out = app._spv_analise_inversor(50, "Inversor 1.1", recs, "15/06/2026", {},
+                                    full=True, plant_id=100)
+    assert out is not None
+    assert set(out["curva"].keys()) == {"ST 01", "ST 03"}          # ST 02 (trancada) fora
+    assert {s["nome"] for s in out["strings"]} == {"ST 01", "ST 03"}
+
+
+def test_spv_analise_inversor_sem_trancada_inclui_todas(set_trancadas):
+    # Controle: sem trancadas, todas as strings entram na curva.
+    set_trancadas(set())
+    recs = [{"tsleitura_new": "2026-06-15 12:00:00",
+             "conteudojson": {"Ipv1": 8.0, "Ipv2": 8.0, "Ipv3": 7.5}}]
+    out = app._spv_analise_inversor(50, "Inversor 1.1", recs, "15/06/2026", {},
+                                    full=True, plant_id=100)
+    assert set(out["curva"].keys()) == {"ST 01", "ST 02", "ST 03"}
+
+
+def test_spv_analise_inversor_trancada_alta_sai_da_curva(set_trancadas):
+    # Mesmo com corrente alta no pico, a string trancada sai do gráfico (não é "string real").
+    set_trancadas({app._str_key(100, 50, "Ipv1")})
+    recs = [{"tsleitura_new": "2026-06-15 12:00:00",
+             "conteudojson": {"Ipv1": 99.0, "Ipv2": 5.0, "Ipv3": 5.0}}]
+    out = app._spv_analise_inversor(50, "Inv", recs, "15/06/2026", {},
+                                    full=True, plant_id=100)
+    assert "ST 01" not in out["curva"]
+    assert set(out["curva"].keys()) == {"ST 02", "ST 03"}
+
+
+def test_pg_strings_curva_exclui_trancada(set_trancadas, monkeypatch):
+    # PG (Thopen): a string trancada (🔒) some da curva. Chave = pid | dev_id | snum.
+    set_trancadas({app._str_key(100, 7, "2")})
+    ts = datetime(2026, 6, 15, 12, 0)
+    rows = [(7, "INV 7", "Usina X", 1, ts, 8.0),
+            (7, "INV 7", "Usina X", 2, ts, 8.0)]
+
+    class _Cur:
+        def execute(self, *a, **k): pass
+        def fetchall(self): return rows
+
+    class _Conn:
+        def cursor(self): return _Cur()
+        def close(self): pass
+
+    monkeypatch.setattr(app, "_pg_conn", lambda: _Conn())
+    iv = app._pg_strings_curva(100, "2026-06-15")["inversores"][0]
+    assert set(iv["curva"].keys()) == {"ST 01"}                  # ST 02 (trancada) fora
+    assert {s["nome"] for s in iv["strings"]} == {"ST 01"}
+
+
+def test_pg_strings_curva_sem_trancada_inclui_todas(set_trancadas, monkeypatch):
+    set_trancadas(set())
+    ts = datetime(2026, 6, 15, 12, 0)
+    rows = [(7, "INV 7", "Usina X", 1, ts, 8.0),
+            (7, "INV 7", "Usina X", 2, ts, 8.0)]
+
+    class _Cur:
+        def execute(self, *a, **k): pass
+        def fetchall(self): return rows
+
+    class _Conn:
+        def cursor(self): return _Cur()
+        def close(self): pass
+
+    monkeypatch.setattr(app, "_pg_conn", lambda: _Conn())
+    iv = app._pg_strings_curva(100, "2026-06-15")["inversores"][0]
+    assert set(iv["curva"].keys()) == {"ST 01", "ST 02"}
+
+
+def test_sunop_strings_curva_exclui_trancada(set_trancadas, monkeypatch):
+    # SunOp (Athon): a string trancada some da curva. Chave = plant_name | inv_name | id,
+    # onde id = último segmento do pathname (ex.: "INV_01.I_PV2" -> "I_PV2").
+    plant, inv_name = "Athon X", "INV_01"
+    paths = [f"{inv_name}.I_PV1", f"{inv_name}.I_PV2"]
+    serie = [(datetime(2026, 6, 15, 12, 0), 8.0)]
+    monkeypatch.setattr(app, "ensure_sunop_meta", lambda: None)
+    monkeypatch.setattr(app, "_sunop_meta", {plant: {"inv_strings": {inv_name: paths}}})
+    monkeypatch.setattr(app, "_sunop_analog_history", lambda *a, **k: {p: serie for p in paths})
+    set_trancadas({app._str_key(plant, inv_name, "I_PV2")})
+    iv = app._sunop_strings_curva(plant, "2026-06-15")["inversores"][0]
+    assert set(iv["curva"].keys()) == {"ST 01"}                  # ST 02 (trancada) fora
+    assert {s["nome"] for s in iv["strings"]} == {"ST 01"}
+
+
+def test_sunop_strings_curva_sem_trancada_inclui_todas(set_trancadas, monkeypatch):
+    plant, inv_name = "Athon X", "INV_01"
+    paths = [f"{inv_name}.I_PV1", f"{inv_name}.I_PV2"]
+    serie = [(datetime(2026, 6, 15, 12, 0), 8.0)]
+    monkeypatch.setattr(app, "ensure_sunop_meta", lambda: None)
+    monkeypatch.setattr(app, "_sunop_meta", {plant: {"inv_strings": {inv_name: paths}}})
+    monkeypatch.setattr(app, "_sunop_analog_history", lambda *a, **k: {p: serie for p in paths})
+    set_trancadas(set())
+    iv = app._sunop_strings_curva(plant, "2026-06-15")["inversores"][0]
+    assert set(iv["curva"].keys()) == {"ST 01", "ST 02"}
+
+
+def test_marca_inv_sub_pega_inversor_abaixo_dos_pares():
+    # Caso TIM100: blocos com tracker parado (med ~2825) entre inversores saudáveis (~3850).
+    # A régua intra-inversor marcaria "OK"; _marca_inv_sub pega o inversor inteiro abaixo dos pares.
+    invs = [{"nome": "1.1", "mediana": 3850}, {"nome": "1.2", "mediana": 3800},
+            {"nome": "5.2", "mediana": 2825}, {"nome": "2.9", "mediana": 2877},
+            {"nome": "noite", "mediana": 0}]
+    app._marca_inv_sub(invs)
+    by = {i["nome"]: i for i in invs}
+    assert by["1.1"]["med_usina"] == 3800.0          # mediana das medianas dos inversores produzindo
+    assert by["5.2"]["inv_sub"] is True              # 2825 < 90% de 3800
+    assert by["2.9"]["inv_sub"] is True
+    assert by["1.1"]["inv_sub"] is False
+    assert by["1.2"]["inv_sub"] is False
+    assert by["noite"]["inv_sub"] is False           # sem geração (mediana 0) não é marcado
+
+
+def test_marca_inv_sub_usina_homogenea_nao_marca():
+    invs = [{"mediana": 3850}, {"mediana": 3800}, {"mediana": 3820}]
+    app._marca_inv_sub(invs)
+    assert all(i["inv_sub"] is False for i in invs)   # todos perto da mediana → nada abaixo dos pares
+
+
+def test_jwt_exp_le_exp_do_payload():
+    # _jwt_exp decide qual token SunOp usar (maior validade entre sunop_token.txt e .env).
+    import base64
+    import json as _json
+    def mk(e):
+        p = base64.urlsafe_b64encode(_json.dumps({"exp": e}).encode()).decode().rstrip("=")
+        return "h." + p + ".s"
+    assert app._jwt_exp(mk(1781885159)) == 1781885159.0
+    assert app._jwt_exp("") == 0.0
+    assert app._jwt_exp("nao-e-um-jwt") == 0.0
+
+
 def test_na_janela_sol_limites():
     # Janela [9, 15): inclusiva no 9, exclusiva no 15.
     assert app._na_janela_sol(datetime(2026, 6, 14, 9, 0)) is True

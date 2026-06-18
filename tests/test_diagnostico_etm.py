@@ -78,6 +78,35 @@ def test_queda_de_poa(freeze_now):
     assert res["severidade"] == 1
 
 
+def test_possivel_falta_atraso_de_dia(freeze_now):
+    # De dia, última leitura há 20 min (entre 15 e o crítico de 30) -> possível falta (atenção).
+    freeze_now(AGORA)
+    res = app._diagnostico_etm(_curva(800, 700, fim="13:40"))
+    assert "Possível falta de dados" in _tipos(res)
+    assert res["severidade"] == 1
+    assert "Sem comunicação" not in _tipos(res)
+
+
+def test_possivel_falta_buraco_no_dia(freeze_now):
+    # Última leitura recente, mas há um buraco > 30 min no meio do dia -> possível falta.
+    freeze_now(AGORA)
+    serie = _curva(800, 700)
+    ci = datetime.strptime(f"{DIA} 11:00:00", "%Y-%m-%d %H:%M:%S")
+    cf = datetime.strptime(f"{DIA} 12:00:00", "%Y-%m-%d %H:%M:%S")
+    serie = [(t, p, g) for (t, p, g) in serie if not (ci <= t < cf)]   # buraco ~70 min
+    res = app._diagnostico_etm(serie)
+    assert "Possível falta de dados" in _tipos(res)
+    assert res["severidade"] == 1
+
+
+def test_atraso_a_noite_nao_sinaliza(freeze_now):
+    # À noite (fora de 6h-18h), atraso de 20 min NÃO vira "possível falta" (gap noturno é normal).
+    freeze_now(f"{DIA} 22:00:00")
+    res = app._diagnostico_etm(_curva(0, 0, ini="20:00", fim="21:40"))
+    assert "Possível falta de dados" not in _tipos(res)
+    assert res["severidade"] == 3
+
+
 def test_serie_vazia(freeze_now):
     freeze_now(AGORA)
     res = app._diagnostico_etm([])

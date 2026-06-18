@@ -30,7 +30,7 @@ resultado em abas por cliente — com drill-down até a string individual.
 | Fonte | Cliente | UFVs | Strings | ETM | Geração | Trackers | Integração |
 |---|---|---:|:-:|:-:|:-:|:-:|---|
 | API PV Operation | Thopen | ~142 | ✅ | ✅ | PR/inversor | — | REST + token |
-| API PV Plataforma | Thopen | — | ✅ curva/dia | — | — | — | REST + JWT de sessão |
+| API PV Plataforma | Thopen | — | — | — | — | ✅ curva/dia | token manual (CAPTCHA+MFA) |
 | PostgreSQL `powerplants` | Thopen | ~34 | ✅ | ✅ | ✅ período | ✅ 788 un. | psycopg2 (warehouse dbt) |
 | API SunOp | Athon | 10 | ✅ | ✅ +POA-RI | — | ✅ + curva | REST + JWT |
 | API SolarEdge (interna) | RenoGrid | 7 | ✅ | — | — | — | Cognito SRP + cookie |
@@ -40,22 +40,24 @@ resultado em abas por cliente — com drill-down até a string individual.
 
 ```mermaid
 flowchart LR
-    subgraph fontes["Fontes externas"]
+    subgraph fontes["Fontes externas · 1 por cliente/integrador"]
+        direction TB
         PV["API PV Operation<br/>(Thopen)"]
-        PLAT["API PV Plataforma<br/>(curva de strings)"]
+        PLAT["API PV Plataforma<br/>(trackers · curva do dia)"]
         PG[("PostgreSQL<br/>powerplants")]
         SUNOP["API SunOp<br/>(Athon)"]
         SE["API SolarEdge<br/>(RenoGrid)"]
         MAIL["CSVs via Gmail<br/>(SCADA 2C)"]
     end
 
-    subgraph cadastro["Cadastro mestre (SharePoint/OneDrive)"]
-        XLSX[["Check Diário +<br/>BD_Performance (.xlsx)"]]
+    subgraph cadastro["Cadastro mestre · SharePoint/OneDrive"]
+        XLSX[["BD_Performance.xlsx<br/>nomes · esperadas · metas · tickets"]]
     end
 
-    APP["app.py — Flask<br/>normalização de nomes,<br/>regras de análise, cache 5 min"]
+    APP["app.py — Flask<br/>normaliza nomes · regras de análise<br/>cache SWR 5 min · auth DASH_PASSWORD"]
     UI["templates/index.html<br/>abas por cliente + Plotly"]
-    STATE[("Estado local<br/>JSONs: notas, manutenção,<br/>acervo do dia 2C")]
+    STATE[("Estado local · JSONs<br/>notas · manutenção · acumuladores")]
+    PUB(["Cloudflare Tunnel<br/>(acesso externo)"])
 
     PV --> APP
     PLAT --> APP
@@ -66,9 +68,11 @@ flowchart LR
     XLSX --> APP
     APP <--> STATE
     APP --> UI
+    UI --> PUB
 ```
 
-- **Backend:** Flask monolítico ([app.py](app.py)), cache em memória de 5 min por endpoint.
+- **Backend:** Flask monolítico ([app.py](app.py)), cache SWR (stale-while-revalidate) de
+  5 min por endpoint — serve o cache na hora e revalida em background, nunca bloqueia na busca lenta.
 - **Frontend:** página única ([templates/index.html](templates/index.html)), HTML+CSS+JS
   sem build, gráficos com Plotly via CDN.
 - **Persistência:** arquivos JSON locais (estado de UI e acumuladores) + planilhas Excel

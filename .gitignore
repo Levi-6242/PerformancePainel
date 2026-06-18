@@ -11,6 +11,7 @@ venv/
 !.env.example
 pg_password.txt
 plat_token.txt
+sunop_token.txt
 se_cookie.txt
 se_credentials.txt
 _ck.txt
