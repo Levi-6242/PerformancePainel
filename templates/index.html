@@ -740,6 +740,14 @@
   </div>
 </nav>
 
+<!-- ▸ AVISO DE TOKEN VENCENDO -->
+<div id="tokBanner" onclick="tokBannerToggle()" title="Clique para ver todos os tokens"
+     style="display:none;cursor:pointer;background:#4a1414;color:#fca5a5;padding:3px 12px;font-size:11px;font-weight:500;text-align:center;border-bottom:1px solid #7f1d1d">
+  <span id="tokBannerMsg"></span>
+  <span style="opacity:.6;margin-left:6px">▾</span>
+</div>
+<div id="tokPanel" style="display:none;background:#161616;color:#ddd;padding:10px 18px;font-size:12px;line-height:1.9;border-bottom:1px solid #333"></div>
+
 <!-- ▸ HERO + PRIMARY TABS -->
 <div class="gc-hero">
   <div class="gc-hero-top">
@@ -773,6 +781,15 @@
       <span class="pt-info">
         <span class="pt-label">Athon</span>
         <span class="pt-sub">API SunOp</span>
+      </span>
+    </button>
+    <button class="gc-primary-tab" id="ptab-axis" onclick="switchPrimary('axis')">
+      <img class="pt-logo" src="/static/logos/sunop.png" alt="Axis SunOp"
+           onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">
+      <span class="pt-icon" style="display:none">🔆</span>
+      <span class="pt-info">
+        <span class="pt-label">Axis</span>
+        <span class="pt-sub">SunOp · PE III/Ponto Belo</span>
       </span>
     </button>
     <button class="gc-primary-tab" id="ptab-solaredge" onclick="switchPrimary('solaredge')">
@@ -1389,7 +1406,7 @@
   <div id="panel-spv" style="display:none">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
       <div>
-        <h2 style="margin:0;font-size:1.12rem;color:#16192a">🔬 Comportamento diário das Strings <small style="color:#888;font-weight:400">— strings abaixo da mediana do inversor = subperformance</small></h2>
+        <h2 style="margin:0;font-size:1.12rem;color:#16192a">🔬 Comportamento diário das Strings <small style="color:#888;font-weight:400">— strings abaixo da mediana da usina = subperformance (pega inversor inteiro em baixa)</small></h2>
         <p style="margin:2px 0 0;font-size:.8em;color:#888">Clique numa usina para carregar os inversores e as curvas. <span id="spv-upd"></span></p>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -1488,6 +1505,7 @@ function _secsDisponiveis(t){
   if(t==='solaredge') return ['pr'];             // RenoGrid: só PR por inversor (geração SolarEdge ÷ IPOA × kWp)
   if(t==='pg')        return ['strings','etm','pr','curvastr','geracao','trackers'];  // PG (Thopen): + PR + curva strings + geração + trackers
   if(t==='sunop')     return ['strings','etm','pr','curvastr','trackers']; // SunOp (Athon): + PR + curva strings + trackers
+  if(t==='axis')      return ['strings','etm','pr','curvastr','trackers']; // Axis SunOp: espelha o Athon
   if(t==='owen')      return ['strings','etm','trackers']; // E-mail: strings+etm+trackers
   if(t==='pv')        return ['strings','etm','pr','curvastr','trackers']; // PV: + PR + curva strings + trackers
   return ['strings','etm'];                       // ETM agora é a pré-análise (cards)
@@ -1507,7 +1525,10 @@ function _aplicaBarras(){
 }
 function switchPrimary(t){
   primary=t;
-  ['pv','sunop','solaredge','pg','owen'].forEach(x=>{const b=document.getElementById(`ptab-${x}`);if(b)b.classList.toggle('active',x===t);});
+  // Athon e Axis reusam a MESMA UI/estado (loadSoStr, soRows, soCache…) → ao trocar de fonte,
+  // zera os flags de "já carregado" p/ recarregar com o endpoint certo (o backend serve do SWR, é rápido).
+  try{ Object.keys(loaded).forEach(k=>loaded[k]=false); }catch(e){}
+  ['pv','sunop','axis','solaredge','pg','owen'].forEach(x=>{const b=document.getElementById(`ptab-${x}`);if(b)b.classList.toggle('active',x===t);});
   if(!_secsDisponiveis(t).includes(secondary)) secondary=_secsDisponiveis(t)[0]||'strings';   // reseta p/ a 1ª sub-aba da fonte
   _aplicaBarras();
   show();
@@ -1534,15 +1555,16 @@ function show(force){
     return;
   }
   // ETM = painel de pré-análise (cards); Trackers = painel compartilhado (SunOp/Owen/PG)
-  const panelKey = secondary==='etm' ? `${primary}-analise`
+  const pp = (primary==='axis') ? 'sunop' : primary;   // Axis reusa os painéis do Athon (sunop)
+  const panelKey = secondary==='etm' ? `${pp}-analise`
                  : secondary==='trackers' ? 'sunop-trackers'
-                 : `${primary}-${secondary}`;
+                 : `${pp}-${secondary}`;
   const panel=document.getElementById(`panel-${panelKey}`);if(panel)panel.style.display='';
   let fn;
   if(secondary==='geracao')      fn = loadPgGeracao;
   else if(secondary==='trackers') fn = loadSoTrackers;
-  else if(secondary==='strings') fn = primary==='pv'?loadPvStr:primary==='sunop'?loadSoStr:primary==='solaredge'?loadSeStr:primary==='owen'?loadOwenStr:loadPgStr;
-  else                           fn = primary==='pv'?loadPvAnalise:primary==='sunop'?loadSoAnalise:primary==='owen'?loadOwenAnalise:loadPgAnalise;
+  else if(secondary==='strings') fn = primary==='pv'?loadPvStr:(primary==='sunop'||primary==='axis')?loadSoStr:primary==='solaredge'?loadSeStr:primary==='owen'?loadOwenStr:loadPgStr;
+  else                           fn = primary==='pv'?loadPvAnalise:(primary==='sunop'||primary==='axis')?loadSoAnalise:primary==='owen'?loadOwenAnalise:loadPgAnalise;
   fn(force);
 }
 function loadCurrentView(force){show(force);}
@@ -1673,7 +1695,7 @@ function excluirComentario(){
   delete serverState.comments[_comentKey];_postComment(_comentKey,'');
   document.getElementById('coment-text').value='';fecharComentario();rerenderStrings();
 }
-function rerenderStrings(){if(primary==='pv')renderPvStr();else if(primary==='sunop')renderSoStr();else if(primary==='solaredge')renderSeStr();else renderPgStr();}
+function rerenderStrings(){if(primary==='pv')renderPvStr();else if(primary==='sunop'||primary==='axis')renderSoStr();else if(primary==='solaredge')renderSeStr();else renderPgStr();}
 
 /* ══ STATUS HISTÓRICO ══════════════════════════════════════════════════════ */
 const SK='pv_last_status';
@@ -1899,7 +1921,7 @@ async function trancaStr(src,pid,invId,sid,trancada,cb){
   if(chip&&trancada) chip.className='string-chip s-trancada';
   try{ await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},
        body:JSON.stringify({plant_id:pid,inv_id:invId,string:sid,trancada})}); }catch(e){}
-  const ep=src==='so'?'/api/sunop/plant/':src==='pg'?'/api/pg/plant/':src==='owen'?'/api/owen/strings/plant/':'/api/plant/';
+  const ep=src==='so'?_soBase()+'/plant/':src==='pg'?'/api/pg/plant/':src==='owen'?'/api/owen/strings/plant/':'/api/plant/';
   const cache=src==='so'?soCache:src==='pg'?pgCache:src==='owen'?owenCache:pvCache;
   const rend=src==='so'?renderSoStr:src==='pg'?renderPgStr:src==='owen'?renderOwenStr:renderPvStr;
   try{ const d=await fetch(ep+encodeURIComponent(pid)+'?force=1').then(r=>r.json()); cache[pid]=d.inversores||[]; }catch(e){}
@@ -1932,7 +1954,7 @@ async function trancaInativas(src,pid,invId,btn){
   if(btn){btn.disabled=true;btn.textContent='Trancando…';}
   try{ await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},
        body:JSON.stringify({plant_id:pid,inv_id:invId,strings:alvo,trancada:true})}); }catch(e){}
-  const ep=src==='so'?'/api/sunop/plant/':src==='pg'?'/api/pg/plant/':src==='owen'?'/api/owen/strings/plant/':'/api/plant/';
+  const ep=src==='so'?_soBase()+'/plant/':src==='pg'?'/api/pg/plant/':src==='owen'?'/api/owen/strings/plant/':'/api/plant/';
   const rend=src==='so'?renderSoStr:src==='pg'?renderPgStr:src==='owen'?renderOwenStr:renderPvStr;
   try{ const d=await fetch(ep+encodeURIComponent(pid)+(src==='pv'?'':'?force=1')).then(r=>r.json()); cache[pid]=d.inversores||[]; }catch(e){}
   // invalida os caches de curva da usina afetada (mesma régua das funções de trancar individuais)
@@ -1946,7 +1968,16 @@ const _pvCurvaCache={}, _pvCurvaState={};
 // blocos/trackers parados em que TODAS as strings caem juntas (não clippam) e a régua
 // intra-inversor marcaria "OK". Vem do backend em iv.inv_sub / iv.med_usina.
 function _invSubTxt(iv){
-  if(!iv||!iv.inv_sub) return '';
+  if(!iv) return '';
+  // 1) mediana das STRINGS da usina inteira (mediana_usina) — compara o inversor inteiro com a
+  //    usina; pega inversor todo em baixa (que vs o próprio inversor pareceria ~100% "OK").
+  if(iv.mediana_usina>0 && iv.mediana>0){
+    const pct=Math.round((1-iv.mediana/iv.mediana_usina)*100);
+    if(pct>=10) return ` · <b style="color:#b45309" title="mediana do inversor ${iv.mediana} vs ${Math.round(iv.mediana_usina)} da usina — inversor inteiro em baixa (strings em sino, não clippam)">⚠ inversor ~${pct}% abaixo da usina</b>`;
+    return '';
+  }
+  // 2) fallback: selo do _marca_inv_sub (mediana dos inversores), quando não há mediana_usina
+  if(!iv.inv_sub) return '';
   const pct=(iv.med_usina>0)?Math.round((1-iv.mediana/iv.med_usina)*100):0;
   return ` · <b style="color:#b45309" title="mediana ${iv.mediana} vs ${iv.med_usina} da usina — inversor inteiro abaixo (provável bloco/tracker parado: strings em sino, não clippam)">⚠ inversor ~${pct}% abaixo dos pares</b>`;
 }
@@ -2031,7 +2062,7 @@ function insAfterPv(tb,pid,nr){
   const last=rows.length?rows[rows.length-1]:tb.querySelector(`#pv-tbody tr[data-pid="${pid}"]`);
   if(last&&last.nextSibling)tb.insertBefore(nr,last.nextSibling);else tb.appendChild(nr);
 }
-function filtrarStr(){if(primary==='pv')renderPvStr();else if(primary==='sunop')renderSoStr();else if(primary==='solaredge')renderSeStr();else renderPgStr();}
+function filtrarStr(){if(primary==='pv')renderPvStr();else if(primary==='sunop'||primary==='axis')renderSoStr();else if(primary==='solaredge')renderSeStr();else renderPgStr();}
 
 /* ══ PV ETM ════════════════════════════════════════════════════════════════ */
 async function loadPvEtm(force){
@@ -2068,14 +2099,16 @@ function renderEtmTb(tbId,rows){
     tb.appendChild(tr);
   });
 }
-function filtrarEtm(){if(primary==='pv')renderEtmTb('pve-tbody',pveRows);else if(primary==='sunop')renderEtmTb('soe-tbody',soeRows);else renderEtmTb('pge-tbody',pgeRows);}
+function filtrarEtm(){if(primary==='pv')renderEtmTb('pve-tbody',pveRows);else if(primary==='sunop'||primary==='axis')renderEtmTb('soe-tbody',soeRows);else renderEtmTb('pge-tbody',pgeRows);}
 
 /* ══ SUNOP STRINGS ═════════════════════════════════════════════════════════ */
+// base de endpoint do SunOp: Athon (/api/sunop) ou Axis (/api/axis) — mesma UI, mesma lógica.
+function _soBase(){ return primary==='axis' ? '/api/axis' : '/api/sunop'; }
 async function loadSoStr(force){
   if(!force&&loaded.sos)return;
   const L=document.getElementById('sos-load'),C=document.getElementById('sos-cont');
   L.style.display='flex';C.style.display='none';
-  const data=await fetch(force?'/api/sunop/data?force=1':'/api/sunop/data').then(r=>r.json());
+  const data=await fetch(force?_soBase()+'/data?force=1':_soBase()+'/data').then(r=>r.json());
   soRows=data.rows||[];loaded.sos=true;
   document.getElementById('so-total').textContent=data.summary.total_usinas;
   document.getElementById('so-str').textContent=(data.summary.total_strings||0).toLocaleString('pt-BR');
@@ -2123,7 +2156,7 @@ async function toggleSoPlant(r){
   soExp.add(pid);const t=document.querySelector(`#so-tbody tr[data-pid="${pid}"]`);if(t)t.querySelector('.chevron').classList.add('open');
   if(soCache[pid]){appendSoInvs(document.getElementById('so-tbody'),pid,soCache[pid]);return;}
   appendSoLoad(document.getElementById('so-tbody'),pid);
-  const d=await fetch(`/api/sunop/plant/${pid}`).then(r=>r.json());soCache[pid]=d.inversores||[];
+  const d=await fetch(`${_soBase()}/plant/${pid}`).then(r=>r.json());soCache[pid]=d.inversores||[];
   document.querySelectorAll(`[data-sop="${pid}"]`).forEach(e=>e.remove());
   if(soExp.has(pid))appendSoInvs(document.getElementById('so-tbody'),pid,soCache[pid]);
 }
@@ -2166,7 +2199,7 @@ async function soCurvaInv(pid,invId,invNome,cid,reload){
   if(reload||!_soCurvaCache[ckey]){
     try{
       const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
-      const r=await fetch(`/api/sunop/curva/${encodeURIComponent(pid)}?inv=${encodeURIComponent(invId)}&data=${dt}`,{signal:ctrl.signal}); clearTimeout(tmo);
+      const r=await fetch(`${_soBase()}/curva/${encodeURIComponent(pid)}?inv=${encodeURIComponent(invId)}&data=${dt}`,{signal:ctrl.signal}); clearTimeout(tmo);
       if(!r.ok) throw new Error('HTTP '+r.status);
       const j=await r.json(); if(j&&j.error) throw new Error(j.error);
       _soCurvaCache[ckey]=j;
@@ -2215,7 +2248,7 @@ async function loadSoEtm(force){
   if(!force&&loaded.soe)return;
   const L=document.getElementById('soe-load'),C=document.getElementById('soe-cont');
   L.style.display='flex';C.style.display='none';
-  const data=await fetch(force?'/api/sunop/etm?force=1':'/api/sunop/etm').then(r=>r.json());
+  const data=await fetch(force?_soBase()+'/etm?force=1':_soBase()+'/etm').then(r=>r.json());
   soeRows=data.rows||[];loaded.soe=true;
   const norm=soeRows.filter(r=>etmSev(r)===2).length,parc=soeRows.filter(r=>etmSev(r)===1).length,sem=soeRows.filter(r=>etmSev(r)===0).length;
   document.getElementById('soe-total').textContent=soeRows.length;
@@ -2549,10 +2582,11 @@ async function loadPgEtm(force){
 const ETM_CFG = {
   pv:    {url:'/api/etm/analise',       flag:'ana', load:'ana-load', cont:'ana-cont', grid:'ana-grid', tot:'ana-total', crit:'ana-crit', aten:'ana-aten', sem:'ana-sem'},
   sunop: {url:'/api/sunop/etm/analise', flag:'soa', load:'soa-load', cont:'soa-cont', grid:'soa-grid', tot:'soa-total', crit:'soa-crit', aten:'soa-aten', sem:'soa-sem'},
+  axis:  {url:'/api/axis/etm/analise',  flag:'soa', load:'soa-load', cont:'soa-cont', grid:'soa-grid', tot:'soa-total', crit:'soa-crit', aten:'soa-aten', sem:'soa-sem'},
   pg:    {url:'/api/pg/etm/analise',    flag:'pga', load:'pga-load', cont:'pga-cont', grid:'pga-grid', tot:'pga-total', crit:'pga-crit', aten:'pga-aten', sem:'pga-sem'},
   owen:  {url:'/api/owen/etm/analise',  flag:'owa', load:'owa-load', cont:'owa-cont', grid:'owa-grid', tot:'owa-total', crit:'owa-crit', aten:'owa-aten', sem:'owa-sem'},
 };
-function _etmSrc(){ return (primary==='sunop'||primary==='pg'||primary==='owen')?primary:'pv'; }
+function _etmSrc(){ return (primary==='sunop'||primary==='pg'||primary==='owen'||primary==='axis')?primary:'pv'; }
 async function loadEtmAnalise(src, force){
   const c=ETM_CFG[src];
   if(!force&&loaded[c.flag]){
@@ -2657,7 +2691,7 @@ function exportPgGeracao(){
 let trkRows=[], trkLoadedSrc=''; const trkExp=new Set(), trkGrpExp=new Set(), trkCache={}, trkSel={}, trkChartCache={};
 const trkChartState={};   // pid -> {idxById:{tracker_id:traceIdx}, base:[{width,color}]} p/ destaque no hover
 const trkAuto=new Set();  // usinas cujo gráfico de trackers já auto-abriu (não reabre o que o user fechou)
-function _trkBase(){ return primary==='pv' ? '/api/pv/trackers' : primary==='owen' ? '/api/owen/trackers' : primary==='pg' ? '/api/pg/trackers' : '/api/sunop/trackers'; }
+function _trkBase(){ return primary==='pv' ? '/api/pv/trackers' : primary==='owen' ? '/api/owen/trackers' : primary==='pg' ? '/api/pg/trackers' : primary==='axis' ? '/api/axis/trackers' : '/api/sunop/trackers'; }
 async function loadSoTrackers(force){
   const base=_trkBase();
   const _src=document.getElementById('trk-title-src');
@@ -3088,6 +3122,7 @@ function renderEtmCards(){
 /* ══ GRÁFICO ETM DO DIA (PV: day_meteo | PG: banco) ════════════════════════ */
 async function abrirGraficoEtm(pid, usina, src, est){
   const url = src==='pg' ? `/api/pg/etm/chart?plant_id=${pid}`
+            : src==='axis' ? `/api/axis/etm/chart?plant=${encodeURIComponent(pid)}&estacao=${encodeURIComponent(est||'ESTM')}`
             : src==='sunop' ? `/api/sunop/etm/chart?plant=${encodeURIComponent(pid)}&estacao=${encodeURIComponent(est||'ESTM')}`
             : src==='owen' ? `/api/owen/etm/chart?plant=${encodeURIComponent(pid)}`
             : `/api/etm/chart?plant_id=${pid}`;
@@ -3282,7 +3317,7 @@ async function atualizarWatch(){
 }
 
 /* ══ PR por inversor (banco / BD_Thopen) ═════════════════════════════════════ */
-let pvPrRows=[], pvPrDetail={}, pvPrExp=new Set(), pvPrVisao='pr', pvPrView='cards';
+let pvPrRows=[], pvPrDetail={}, pvPrExp=new Set(), pvPrVisao='pr', pvPrView='cards', pvPrStr={};
 function _prFmt(v){return v==null?'—':(v*100).toFixed(1)+'%';}
 function _gerFmt(v){return v==null?'—':Math.round(v).toLocaleString('pt-BR');}
 function _pvPrData(){
@@ -3304,13 +3339,23 @@ function pvPrSetView(v){
   b.style.background=v==='barras'?'#374151':'#fff'; b.style.color=v==='barras'?'#fff':'#374151';
   renderPvPr();
 }
-function _prBase(){ return primary==='sunop' ? '/api/sunop/pr' : primary==='solaredge' ? '/api/solaredge/pr' : '/api/pg/pr'; }
+function _prBase(){ return primary==='axis' ? '/api/axis/pr' : primary==='sunop' ? '/api/sunop/pr' : primary==='solaredge' ? '/api/solaredge/pr' : primary==='pv' ? '/api/pv/pr' : '/api/pg/pr'; }
+// Status do inversor da aba Strings (cruzado no PR). Só SunOp/PG têm visão de string por inversor.
+function _prStrBase(){ return primary==='axis' ? '/api/axis/plant/' : primary==='sunop' ? '/api/sunop/plant/' : primary==='pg' ? '/api/pg/plant/' : null; }
+function _prStrBadge(si){
+  if(!si) return null;
+  if(si.desligado) return {t:'⚫ Desligado', c:'#6b7280'};
+  if(si.falha_comunicacao) return {t:'📡 Falha comunicação', c:'#7c3aed'};
+  if(si.strings_ativas===0) return {t:'Sem geração', c:'#b91c1c'};
+  if(si.diferenca!=null && si.diferenca<0) return {t:'⚡'+(-si.diferenca)+' faltando', c:'#b45309'};
+  return {t:'Normal', c:'#16a34a'};
+}
 async function loadPvPr(force){
   const dia=_pvPrData();
   const _base=_prBase(); if(_base!==window._pvPrSrc){ force=true; window._pvPrSrc=_base; }  // trocou de fonte → recarrega
   if(loaded.pvpr&&!force){renderPvPr();return;}
   loaded.pvpr=true;
-  const _f=document.getElementById('pvpr-fonte'); if(_f)_f.textContent = primary==='sunop' ? '— fonte: SunOp (Athon): EPD + POA do ETM' : primary==='solaredge' ? '— fonte: SolarEdge (RenoGrid): geração/inv + irradiância (render-chart)' : '— fonte: banco (BD_Thopen)';
+  const _f=document.getElementById('pvpr-fonte'); if(_f)_f.textContent = primary==='sunop' ? '— fonte: SunOp (Athon): EPD + POA do ETM' : primary==='solaredge' ? '— fonte: SolarEdge (RenoGrid): geração/inv + irradiância (render-chart)' : primary==='pv' ? '— fonte: API PV Operation (usinas string-box)' : '— fonte: banco (BD_Thopen)';
   document.getElementById('pvpr-cont').style.display='none';
   document.getElementById('pvpr-load').style.display='';
   document.getElementById('pvpr-load').innerHTML='<div class="gc-spinner"></div><p>Calculando PR por inversor...</p>';
@@ -3369,6 +3414,10 @@ async function renderPvPrDetail(pid, row){
   const num=i=>parseInt((i.nome_api||'').replace(/\D+/g,''))||999;
   if(ordem==='valor') invs.sort((a,b)=>((val(b)??-1)-(val(a)??-1)));
   else                invs.sort((a,b)=>num(a)-num(b));
+  // cruza o status das strings (aba Strings) por nome do inversor — só SunOp/PG têm visão de string
+  let smap=pvPrStr[pid]; const sbase=_prStrBase();
+  if(sbase && !smap){ try{ const sd=await fetch(sbase+encodeURIComponent(pid)).then(r=>r.json()); smap={}; (sd.inversores||[]).forEach(iv=>{ smap[iv.nome]=iv; }); pvPrStr[pid]=smap; }catch(e){ smap={}; } }
+  smap=smap||{};
   const med=pvPrVisao==='pr'?(row&&row.pr_mediana!=null?(row.pr_mediana*100).toFixed(1)+'%':'—'):'—';
   const aviso=row&&!row.confiavel?' <span style="color:#d97706">— irradiância pouco confiável: confie na comparação entre inversores, não no PR absoluto</span>':'';
   const legenda=pvPrView==='barras'?(pvPrVisao==='pr'?'barras vermelhas = abaixo da mediana · linha tracejada = mediana da usina':'barras vermelhas = abaixo da mediana da usina'):'borda vermelha = abaixo da mediana da usina';
@@ -3376,19 +3425,21 @@ async function renderPvPrDetail(pid, row){
   if(pvPrView==='barras'){
     const cid='pvpr-bar-'+pid;
     cell.innerHTML=header+`<div id="${cid}" style="width:100%;height:${Math.max(170, invs.length*24+46)}px"></div>`;
-    _pvPrBarChart(cid, invs, row);
+    _pvPrBarChart(cid, invs, row, smap);
   } else {
     const chips=invs.map(i=>{
       const cor=i.abaixo?'#b91c1c':(val(i)==null?'#9ca3af':'#16a34a');
       const txt=pvPrVisao==='pr'?(i.pr!=null?(i.pr*100).toFixed(1)+'%':'—'):(i.geracao_kwh!=null?Math.round(i.geracao_kwh)+' kWh':'—');
       const pot=i.pot_kwp!=null?i.pot_kwp.toFixed(1)+' kWp':'sem pot.';
+      const b=_prStrBadge(smap[i.nome]);
+      const stat=b?` <span style="font-size:9px;font-weight:600;color:${b.c};border:1px solid ${b.c};border-radius:6px;padding:0 4px;margin-left:2px">${b.t}</span>`:'';
       return `<span style="border:1px solid ${cor};color:${cor};border-radius:8px;padding:3px 8px;font-size:11px;white-space:nowrap"
-        title="${i.nome} · ${pot} · Geração ${i.geracao_kwh!=null?Math.round(i.geracao_kwh)+' kWh':'—'} · PR ${i.pr!=null?(i.pr*100).toFixed(1)+'%':'—'}${i.abaixo?' · ABAIXO DA MEDIANA':''}">${i.nome}: <b>${txt}</b></span>`;
+        title="${i.nome} · ${pot} · Geração ${i.geracao_kwh!=null?Math.round(i.geracao_kwh)+' kWh':'—'} · PR ${i.pr!=null?(i.pr*100).toFixed(1)+'%':'—'}${i.abaixo?' · ABAIXO DA MEDIANA':''}${b?(' · strings: '+b.t):''}">${i.nome}: <b>${txt}</b>${stat}</span>`;
     }).join('');
     cell.innerHTML=header+`<div style="display:flex;flex-wrap:wrap;gap:6px">${chips}</div>`;
   }
 }
-function _pvPrBarChart(cid, invs, row){
+function _pvPrBarChart(cid, invs, row, smap){
   const box=document.getElementById(cid); if(!box||!window.Plotly)return;
   const isPr=pvPrVisao==='pr';
   // invs já vem ordenado; Plotly h-bar põe o 1º y embaixo → inverte p/ o 1º ficar no topo
@@ -3397,12 +3448,15 @@ function _pvPrBarChart(cid, invs, row){
   const y=arr.map(i=> i.nome);
   const cor=arr.map(i=> i.abaixo?'#b91c1c':(((isPr?i.pr:i.geracao_kwh))==null?'#cbd5e1':'#16a34a'));
   const txt=arr.map((v,k)=> x[k]==null?'':(isPr? x[k].toFixed(1)+'%' : x[k].toLocaleString('pt-BR')));
+  const status=arr.map(i=>{ const b=_prStrBadge((smap||{})[i.nome]); return b?b.t:'—'; });
+  const hasStat=!!(smap && Object.keys(smap).length);
   const shapes=[];
   if(isPr && row && row.pr_mediana!=null){ const m=+(row.pr_mediana*100).toFixed(1);
     shapes.push({type:'line', x0:m, x1:m, yref:'paper', y0:0, y1:1, line:{color:'#111827', width:1.5, dash:'dash'}}); }
   Plotly.purge(box);
   Plotly.newPlot(box, [{type:'bar', orientation:'h', x:x, y:y, marker:{color:cor}, text:txt, textposition:'auto', cliponaxis:false,
-      hovertemplate:'%{y}: %{x}'+(isPr?'%':' kWh')+'<extra></extra>'}],
+      customdata:status,
+      hovertemplate:'%{y}: %{x}'+(isPr?'%':' kWh')+(hasStat?'<br>strings: %{customdata}':'')+'<extra></extra>'}],
     {margin:{t:6,r:18,b:30,l:90}, shapes:shapes, bargap:0.25,
      xaxis:{title:isPr?'PR (%)':'Geração (kWh)', zeroline:false, tickfont:{size:10}},
      yaxis:{automargin:true, tickfont:{size:10}},
@@ -3415,7 +3469,7 @@ let curvagenRows=[], curvagenCache={}, curvagenExp=new Set();
 let curvagenCabExp=new Set();   // cabines abertas: chave "pid|cabine"
 let curvagenAuto=new Set();     // usinas cuja 1ª cabine já auto-abriu (não reabre o que o user fechou)
 let curvagenSel={};             // inversores marcados p/ imprimir: cid -> nome
-function _curvagenSrc(){ return primary==='sunop'?'sunop':'pg'; }
+function _curvagenSrc(){ return primary==='axis'?'axis':primary==='sunop'?'sunop':'pg'; }
 function _curvagenData(){ const el=document.getElementById('curvagen-data'); if(el&&!el.value){el.value=new Date().toISOString().slice(0,10);} return el?el.value:''; }
 function curvagenSetData(){
   // A data só afeta as CURVAS, não a lista de usinas/inversores (que é "ao vivo").
@@ -3431,14 +3485,14 @@ function curvagenSetData(){
 }
 async function loadCurvaGen(force){
   const src=_curvagenSrc(); _curvagenData();
-  const fEl=document.getElementById('curvagen-fonte'); if(fEl)fEl.textContent = src==='sunop'?'— SunOp (Athon)':'— Banco (BD_Thopen)';
+  const fEl=document.getElementById('curvagen-fonte'); if(fEl)fEl.textContent = src==='axis'?'— Axis SunOp':src==='sunop'?'— SunOp (Athon)':'— Banco (BD_Thopen)';
   if(window._curvagenLastSrc!==src){ force=true; window._curvagenLastSrc=src; curvagenExp.clear(); curvagenCache={}; }  // trocou de fonte → recarrega
   if(loaded.curvagen&&!force){renderCurvaGen();return;}
   loaded.curvagen=true;
   document.getElementById('curvagen-cont').style.display='none';
   document.getElementById('curvagen-load').style.display='';
   try{
-    const ep = src==='sunop'?'/api/sunop/data':'/api/pg/data';
+    const ep = src==='axis'?'/api/axis/data':src==='sunop'?'/api/sunop/data':'/api/pg/data';
     const d=await fetch(force?ep+'?force=1':ep).then(r=>r.json());
     curvagenRows=(d.rows||[]).filter(r=>!r.sem_dados);
     document.getElementById('curvagen-upd').textContent='• '+curvagenRows.length+' usinas';
@@ -3481,7 +3535,7 @@ async function renderCurvaGenUsina(pid){
   if(!det){
     try{
       const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
-      const ep=src==='sunop'?'/api/sunop/plant/':'/api/pg/plant/';
+      const ep=src==='axis'?'/api/axis/plant/':src==='sunop'?'/api/sunop/plant/':'/api/pg/plant/';
       const r=await fetch(ep+encodeURIComponent(pid),{signal:ctrl.signal}); clearTimeout(tmo);
       if(!r.ok) throw new Error('HTTP '+r.status);
       det=await r.json(); curvagenCache['det|'+src+'|'+pid]=det;
@@ -3598,7 +3652,7 @@ async function curvagenInvCurva(pid,invId,invNome,cid,reload){
   }
   const iv=(d.inversores||[]).find(x=>String(x.id)===String(invId)) || (d.inversores||[])[0];
   if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:8px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; return; }
-  const chips=(iv.strings||[]).map(s=>`<span title="índice de corrente: ${s.energia} (${s.pct}% da mediana)" style="font-size:10.5px;padding:2px 6px;border-radius:6px;white-space:nowrap;border:1px solid ${s.sub?'#dc2626':'#d1d5db'};color:${s.sub?'#dc2626':'#6b7280'};font-weight:${s.sub?700:400}">${s.nome}: ${s.pct}%</span>`).join(' ');
+  const chips=(iv.strings||[]).map(s=>`<span title="índice de corrente: ${s.energia} (${s.pct}% da mediana da usina)" style="font-size:10.5px;padding:2px 6px;border-radius:6px;white-space:nowrap;border:1px solid ${s.sub?'#dc2626':'#d1d5db'};color:${s.sub?'#dc2626':'#6b7280'};font-weight:${s.sub?700:400}">${s.nome}: ${s.pct}%</span>`).join(' ');
   box.innerHTML=`<div style="font-size:11px;font-weight:600;color:${iv.abaixo?'#dc2626':(iv.inv_sub?'#b45309':'#16a34a')};margin:0 0 2px">${iv.abaixo?(iv.abaixo+' abaixo'):'OK'} · med ${iv.mediana} (índice)${_invSubTxt(iv)}</div>`
     +`<div id="${cid}-plot" style="width:100%;max-width:100%;height:200px;overflow:hidden"></div>`
     +`<div style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0 0">${chips}</div>`
@@ -3809,7 +3863,7 @@ function renderSpvUsina(id){
   }).join('');
   const obs = pd.total_abaixo
     ? `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12.5px">
-         <b style="color:#b45309">⚠️ Outliers — strings abaixo de 90% da mediana do inversor (${pd.total_abaixo} no total)</b>
+         <b style="color:#b45309">⚠️ Outliers — strings abaixo da mediana da usina (${pd.total_abaixo} no total)</b>
          <div style="margin-top:6px;color:#374151">${linhas}</div></div>`
     : `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12.5px;color:#166534">✅ Sem outliers — todas as strings dentro da faixa da mediana</div>`;
   // Filtro: só inversores com strings abaixo da mediana (se ligado na barra)
@@ -3830,7 +3884,7 @@ function spvToggleSoAbaixo(){
 }
 function _spvCard(id,iv){
   const cid=`${id}_${iv.id}`;
-  const chips=iv.strings.map(s=>`<span title="índice de corrente: ${s.energia} (${s.pct}% da mediana)"
+  const chips=iv.strings.map(s=>`<span title="índice de corrente: ${s.energia} (${s.pct}% da mediana da usina)"
      style="font-size:10.5px;padding:2px 6px;border-radius:6px;white-space:nowrap;border:1px solid ${s.sub?'#dc2626':'#d1d5db'};color:${s.sub?'#dc2626':'#6b7280'};font-weight:${s.sub?700:400}">${s.nome}: ${s.pct}%</span>`).join(' ');
   return `<div style="border:1px solid ${iv.abaixo?'#fecaca':'#e5e7eb'};border-radius:10px;padding:10px 12px;background:#fff;min-width:0;overflow:hidden">
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
@@ -3895,8 +3949,33 @@ async function exportSpvPdf(){
   finally{if(btn){btn.disabled=false;btn.innerHTML=prev;}}
 }
 
+/* ══ AVISO DE TOKENS (validade) ══════════════════════════════════════════════ */
+let _tokData=null;
+async function checkTokens(){
+  try{
+    const d=await fetch('/api/tokens').then(r=>r.json());
+    _tokData=d;
+    const b=document.getElementById('tokBanner'), m=document.getElementById('tokBannerMsg');
+    if(!b)return;
+    if(d.alerta){ m.textContent='🔑 '+d.msg+' — renove o token'; b.style.display='block'; }
+    else{ b.style.display='none'; const p=document.getElementById('tokPanel'); if(p)p.style.display='none'; }
+  }catch(e){}
+}
+function tokBannerToggle(){
+  const p=document.getElementById('tokPanel'); if(!p)return;
+  if(p.style.display==='block'){ p.style.display='none'; return; }
+  const d=_tokData||{tokens:[]};
+  p.innerHTML='<b>Validade dos tokens externos</b><br>'+(d.tokens||[]).map(t=>{
+    const ic=t.status==='vencido'?'🔴':t.status==='atencao'?'🟠':t.status==='auto'?'🔄':'🟢';
+    const ex=t.exp?(' · '+t.exp+(t.dias!=null?` (${t.dias}d)`:'')):' · —';
+    const di=t.dica?`<span style="opacity:.55"> — ${t.dica}</span>`:'';
+    return `${ic} <b>${t.nome}</b> <span style="opacity:.5">[${t.tipo}]</span>${ex}${di}`;
+  }).join('<br>');
+  p.style.display='block';
+}
+
 /* ══ INIT ══════════════════════════════════════════════════════════════════ */
-(async()=>{ await loadState(); show(); })();
+(async()=>{ await loadState(); show(); checkTokens(); setInterval(checkTokens, 600000); })();
 </script>
 
 <!-- área usada só na impressão das curvas selecionadas (Curva das strings) -->

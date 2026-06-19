@@ -12,6 +12,7 @@ venv/
 pg_password.txt
 plat_token.txt
 sunop_token.txt
+axis_token.txt
 se_cookie.txt
 se_credentials.txt
 _ck.txt
@@ -30,6 +31,8 @@ cache_snapshot.json
 cache_snapshot.json.tmp
 server.log
 *.log
+cf_*.log*
+server.out.log
 
 # ── Planilhas (dados internos da empresa — ficam no SharePoint/OneDrive) ──────
 *.xlsx

@@ -108,6 +108,51 @@ def healthz():
     return "ok", 200
 
 
+def _tokens_status():
+    """Validade dos tokens externos — alimenta o aviso de vencimento no dashboard.
+    Só tokens MANUAIS (Plataforma) e auto-renováveis (SunOp/Athon, Axis) disparam alerta;
+    os de login automático (API PV, SolarEdge) renovam sozinhos e só aparecem como info."""
+    agora = time.time()
+
+    def _row(nome, fonte, exp, tipo, dica=""):
+        dias = (exp - agora) / 86400.0 if exp else None
+        if not exp:
+            st = "desconhecido"
+        elif exp <= agora:
+            st = "vencido"
+        elif tipo == "manual" and dias < 3:
+            st = "atencao"
+        else:
+            st = "ok"   # auto-renova (SunOp/Axis): renova sozinho pelo keepalive → só alerta se VENCIDO
+        if tipo == "auto-login":          # login com usuário/senha: se cura sozinho → nunca alerta
+            st = "auto"
+        return {"nome": nome, "fonte": fonte, "tipo": tipo,
+                "exp": datetime.fromtimestamp(exp).strftime("%d/%m/%Y %H:%M") if exp else None,
+                "dias": round(dias, 1) if dias is not None else None, "status": st, "dica": dica}
+
+    rows = [
+        _row("Plataforma (trackers)", "plat", _jwt_exp(_plat_token()), "manual",
+             "Renove pelo bookmarklet de 1 clique (logado em plataforma.pvoperation.com)."),
+        _row("SunOp / Athon", "sunop", _jwt_exp(_sunop_token.get("token", "")), "auto-renova",
+             "Renova sozinho; só recolar SUNOP_TOKEN no .env se o servidor ficou dias desligado."),
+        _row("Axis SunOp", "axis", _jwt_exp(_axis_token.get("token", "")), "auto-renova",
+             "Renova sozinho; recolar AXIS_TOKEN no .env ou axis_token.txt se ficar dias desligado."),
+        _row("SolarEdge", "solaredge", _se_cookie.get("exp", 0.0), "auto-login", ""),
+        _row("API PV", "apipv", _pv_token.get("exp", 0.0), "auto-login", ""),
+    ]
+    alerta = [r for r in rows if r["status"] in ("vencido", "atencao")]
+    partes = []
+    for r in alerta:
+        quando = "VENCIDO" if r["status"] == "vencido" else f"vence em {r['dias']}d"
+        partes.append(f"{r['nome']}: {quando}")
+    return {"tokens": rows, "alerta": bool(alerta), "msg": "; ".join(partes)}
+
+
+@app.route("/api/tokens")
+def api_tokens():
+    return jsonify(_tokens_status())
+
+
 BASE_URL = "https://apipv.pvoperation.com.br/api/v1"
 USERNAME = os.environ.get("PV_USERNAME", "")
 PASSWORD = os.environ.get("PV_PASSWORD", "")
@@ -213,32 +258,67 @@ def _jwt_exp(tok: str) -> float:
         return 0.0
 
 
-def _sunop_persist(tok: str):
-    try:
-        with open(SUNOP_TOKEN_PATH, "w", encoding="utf-8") as f:
-            f.write(tok)
-    except Exception:
-        pass
-
-
-def _sunop_token_inicial() -> str:
-    """Usa o token de MAIOR validade entre o persistido (sunop_token.txt, renovado sozinho pelo
-    /refresh_token) e o do .env (semente manual). Assim a renovação automática sobrevive a
-    reinícios E um token novo colado no .env também é respeitado (vence o de maior exp)."""
-    env_tok = os.environ.get("SUNOP_TOKEN", "")
+def _sunop_token_inicial(env_var: str = "SUNOP_TOKEN", path: str = None) -> str:
+    """Token de MAIOR validade entre o persistido (arquivo, renovado sozinho pelo /refresh_token)
+    e o do .env (semente manual). env_var/path parametrizados p/ múltiplas instâncias (gridco/axis)."""
+    path = path or SUNOP_TOKEN_PATH
+    env_tok = os.environ.get(env_var, "")
     file_tok = ""
     try:
-        with open(SUNOP_TOKEN_PATH, encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             file_tok = f.read().strip()
     except Exception:
         pass
     return file_tok if _jwt_exp(file_tok) > _jwt_exp(env_tok) else env_tok
 
 
-_sunop_token  = {"token": _sunop_token_inicial()}
+# ── Instâncias SunOp: gridco (Athon, default) e axis ──────────────────────────
+# A MESMA API (analog_values/plants/metadata) serve as duas; só mudam URL/token/meta/caches.
+# Todas as funções SunOp recebem inst="gridco" por padrão → o Athon ao vivo fica IDÊNTICO.
+AXIS_CONFIG     = "https://axis-api.sunop.net/api"
+AXIS_DATA       = "https://axis-api.sunop.net/data"
+AXIS_TOKEN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "axis_token.txt")
+
+_sunop_token     = {"token": _sunop_token_inicial("SUNOP_TOKEN", SUNOP_TOKEN_PATH)}
 _sunop_meta      = {}        # plant_name → metadata dict
 _sunop_cache     = {"payload": None, "ts": 0.0}
 _sunop_etm_cache = {"payload": None, "ts": 0.0}
+
+_axis_token       = {"token": _sunop_token_inicial("AXIS_TOKEN", AXIS_TOKEN_PATH)}
+_axis_meta        = {}
+_axis_cache       = {"payload": None, "ts": 0.0}
+_axis_etm_cache   = {"payload": None, "ts": 0.0}
+_axis_curva_cache = {}
+_axis_str_med_cache = {}
+_axis_trk_cache   = {"payload": None, "ts": 0.0}
+_axis_trk_hist    = {}
+_axis_pr_cache    = {}
+_axis_analise_cache = {"payload": None, "ts": 0.0}
+
+
+def _si(inst: str = "gridco") -> dict:
+    """Estado da instância SunOp (URLs + token + meta + caches). gridco = Athon (default)."""
+    if inst == "axis":
+        return {"config": AXIS_CONFIG, "data": AXIS_DATA, "token_path": AXIS_TOKEN_PATH,
+                "env": "AXIS_TOKEN", "token": _axis_token, "meta": _axis_meta,
+                "cache": _axis_cache, "etm_cache": _axis_etm_cache,
+                "curva_cache": _axis_curva_cache, "str_med_cache": _axis_str_med_cache,
+                "trk_cache": _axis_trk_cache, "trk_hist": _axis_trk_hist, "pr_cache": _axis_pr_cache,
+                "analise_cache": _axis_analise_cache}
+    return {"config": SUNOP_CONFIG, "data": SUNOP_DATA, "token_path": SUNOP_TOKEN_PATH,
+            "env": "SUNOP_TOKEN", "token": _sunop_token, "meta": _sunop_meta,
+            "cache": _sunop_cache, "etm_cache": _sunop_etm_cache,
+            "curva_cache": _sunop_curva_cache, "str_med_cache": _sunop_str_med_cache,
+            "trk_cache": _sunop_trk_cache, "trk_hist": _sunop_trk_hist, "pr_cache": _sunop_pr_cache,
+            "analise_cache": _sunop_analise_cache}
+
+
+def _sunop_persist(tok: str, inst: str = "gridco"):
+    try:
+        with open(_si(inst)["token_path"], "w", encoding="utf-8") as f:
+            f.write(tok)
+    except Exception:
+        pass
 
 # Limite de inversores por planta (após esse nº não há dados reais).
 # Ex.: MTS100 só tem dados até o INV_40 — inversores acima são descartados.
@@ -1763,53 +1843,75 @@ def api_etm_analise():
 
 
 # ── SunOp: autenticação ───────────────────────────────────────────────────────
-def _sunop_try_refresh(headers) -> str:
+def _sunop_try_refresh(headers, inst: str = "gridco") -> str:
     """Chama /refresh_token (exige o token ATUAL ainda válido) → novo token; atualiza memória
-    e persiste em sunop_token.txt (p/ sobreviver a reinícios)."""
+    e persiste no arquivo da instância (p/ sobreviver a reinícios)."""
+    S = _si(inst)
     try:
-        r = _http().get(f"{SUNOP_CONFIG}/refresh_token", headers=headers, timeout=10)
+        r = _http().get(f"{S['config']}/refresh_token", headers=headers, timeout=10)
         if r.status_code == 200:
             nt = r.json()
             if isinstance(nt, str):
                 nt = nt.strip('"')
             if nt and nt.startswith("eyJ"):
-                _sunop_token["token"] = nt
-                _sunop_persist(nt)
+                S["token"]["token"] = nt
+                _sunop_persist(nt, inst)
                 return nt
     except Exception:
         pass
     return ""
 
 
-def get_sunop_token() -> str:
-    tok = _sunop_token["token"]
+def get_sunop_token(inst: str = "gridco") -> str:
+    S   = _si(inst)
+    tok = S["token"]["token"]
     H   = {"Authorization": f"JWT {tok}", "Content-Type": "application/json"}
     # Renova PROATIVAMENTE enquanto o token ainda é válido (vence em < 2 dias). O /refresh_token
     # só aceita token válido — não dá p/ esperar expirar. O keepalive (6h) garante essa janela.
     exp = _jwt_exp(tok)
     if exp and 0 < (exp - time.time()) < 2 * 86400:
-        nt = _sunop_try_refresh(H)
+        nt = _sunop_try_refresh(H, inst)
         if nt:
             return nt
     # Caminho normal: valida; se inválido, tenta refresh (best-effort — pode falhar se já expirou).
     try:
-        if _http().get(f"{SUNOP_CONFIG}/check_token", headers=H, timeout=8).status_code == 200:
+        if _http().get(f"{S['config']}/check_token", headers=H, timeout=8).status_code == 200:
             return tok
     except Exception:
         pass
-    return _sunop_try_refresh(H) or tok
+    return _sunop_try_refresh(H, inst) or tok
 
 
-def _sunop_headers() -> dict:
-    return {"Authorization": f"JWT {get_sunop_token()}",
+def _sunop_headers(inst: str = "gridco") -> dict:
+    return {"Authorization": f"JWT {get_sunop_token(inst)}",
             "Content-Type": "application/json"}
 
 
 # ── SunOp: carrega metadados de uma planta ────────────────────────────────────
-def _load_sunop_plant_meta(plant_name: str) -> dict:
-    H = _sunop_headers()
+def _sunop_invnum(x):
+    """Chave de ordenação p/ inversor — tupla de números no id. Funciona p/ gridco ('INV_1' → (1,))
+    e axis ('SKID_1.LVDB_1.INV_3' → (1,1,3))."""
+    nums = re.findall(r"\d+", x)
+    return tuple(int(n) for n in nums) if nums else (999,)
+
+
+def _sunop_inv_display(plant_name, inv_key):
+    """Nome de exibição do inversor: EQUIP_NAMES (gridco) ou derivado do id (axis SKID/INV)."""
+    eq = EQUIP_NAMES.get(plant_name, {}).get(inv_key)
+    if eq:
+        return eq
+    sk = re.search(r"SKID_(\d+)", inv_key); iv = re.search(r"INV_(\d+)", inv_key)
+    if sk and iv:
+        return f"Skid {sk.group(1)} · Inv {iv.group(1)}"
+    if iv:
+        return f"Inversor {iv.group(1)}"
+    return inv_key
+
+
+def _load_sunop_plant_meta(plant_name: str, inst: str = "gridco") -> dict:
+    H = _sunop_headers(inst)
     try:
-        r = _http().get(f"{SUNOP_DATA}/v2/metadata", headers=H,
+        r = _http().get(f"{_si(inst)['data']}/v2/metadata", headers=H,
                          params={"plant": plant_name, "size": 6000}, timeout=30)
         items = r.json().get("data", [])
     except Exception:
@@ -1824,6 +1926,9 @@ def _load_sunop_plant_meta(plant_name: str) -> dict:
     _ETM_MEDIDA = {"POA.IRAD": "poa", "GHI.IRAD": "ghi", "POA_R.IRAD": "poari"}
     _TRK_MEDIDA = {"MEDIDAS.POSAL": "alvo", "MEDIDAS.POSAT": "atual",
                    "MEDIDAS.STRD_DEV": "desvio", "STATUS.WORKSTATE": "estado"}
+    # Axis: trackers em PLANT.NCU_x.TRK_y.{ANALOG.TARGET_POS|CURRENT_POS|DEVIATION | STATUS.WORKSTATE}
+    _TRK_MEDIDA_AXIS = {"ANALOG.TARGET_POS": "alvo", "ANALOG.CURRENT_POS": "atual",
+                        "ANALOG.DEVIATION": "desvio", "STATUS.WORKSTATE": "estado"}
 
     inv_max = SUNOP_INV_MAX.get(plant_name)   # nº máx de inversor com dados (None = sem limite)
 
@@ -1847,10 +1952,11 @@ def _load_sunop_plant_meta(plant_name: str) -> dict:
         if sub.startswith("INV_") and _inv_acima_limite(sub):
             continue
 
-        # Correntes de string: PLANT.INV_N.MEDIDAS.STR.I_PVx
-        if (len(parts) == 5 and sub.startswith("INV_") and
-                parts[2] == "MEDIDAS" and parts[3] == "STR" and parts[4].startswith("I_PV")):
-            inv_strings.setdefault(sub, []).append(path)
+        # Correntes de string (genérico p/ gridco e axis):
+        #   gridco: PLANT.INV_N.MEDIDAS.STR.I_PVx              → inv = INV_N
+        #   axis:   PLANT.SKID_s.LVDB_l.INV_i.ANALOG.STR.I_PVx → inv = SKID_s.LVDB_l.INV_i
+        if len(parts) >= 5 and parts[-2] == "STR" and parts[-1].startswith("I_PV"):
+            inv_strings.setdefault(".".join(parts[1:-3]), []).append(path)
 
         # Medidas por inversor: PLANT.INV_N.MEDIDAS.{P|TEMP_INT|EPD|Workstate}
         elif (len(parts) == 4 and sub.startswith("INV_") and
@@ -1874,6 +1980,27 @@ def _load_sunop_plant_meta(plant_name: str) -> dict:
             if medida:
                 trackers.setdefault(sub, {})[medida] = path
 
+        # ── AXIS ──────────────────────────────────────────────────────────────
+        # EPD por inversor (p/ PR): PLANT.SKID.LVDB.INV.ANALOG.EPD → inv = SKID.LVDB.INV
+        elif parts[-2] == "ANALOG" and parts[-1] == "EPD" and "INV_" in path:
+            inv_other.setdefault(".".join(parts[1:-2]), {})["EPD"] = path
+
+        # Trackers axis: PLANT.NCU_x.TRK_y.{ANALOG.TARGET_POS|CURRENT_POS|DEVIATION | STATUS.WORKSTATE}
+        elif sub.startswith("NCU_") and len(parts) >= 4 and parts[2].startswith("TRK_"):
+            medida = _TRK_MEDIDA_AXIS.get(".".join(parts[3:]))
+            if medida:
+                trackers.setdefault(parts[2], {})[medida] = path
+
+        # POA modelada axis (PE III): PLANT.AIML.POA — usada só se não houver estação real
+        elif sub == "AIML" and len(parts) >= 3 and parts[2] == "POA":
+            etm_stations.setdefault("AIML", {})["poa"] = path
+            plant_paths.setdefault("POA", path)
+
+        # Estação meteo REAL axis (Ponto Belo): PLANT.METEOST_x.ANALOG.POA_IRRAD → prioriza sobre AIML
+        elif sub.startswith("METEOST") and parts[-1] in ("POA_IRRAD", "POA"):
+            etm_stations.setdefault(sub, {})["poa"] = path
+            plant_paths["POA"] = path
+
     # Se há estações numeradas (ESTM_1, ESTM_2…), descarta a "ESTM" solta (redundante/agregada)
     numeradas = [s for s in etm_stations if s != "ESTM"]
     if numeradas:
@@ -1888,33 +2015,34 @@ def _load_sunop_plant_meta(plant_name: str) -> dict:
     }
 
 
-def ensure_sunop_meta():
-    """Carrega metadata de todas as plantas SunOp (lazy, uma vez por processo)."""
-    if _sunop_meta:
+def ensure_sunop_meta(inst: str = "gridco"):
+    """Carrega metadata de todas as plantas SunOp (lazy, uma vez por processo/instância)."""
+    S = _si(inst)
+    if S["meta"]:
         return
-    H = _sunop_headers()
+    H = _sunop_headers(inst)
     try:
-        plants = _http().get(f"{SUNOP_CONFIG}/plants", headers=H, timeout=15).json()
+        plants = _http().get(f"{S['config']}/plants", headers=H, timeout=15).json()
     except Exception as e:
-        print(f"[SUNOP] Erro plants: {e}")
+        print(f"[SUNOP:{inst}] Erro plants: {e}")
         return
     # Blindagem: se o token expirou, /api/plants devolve um dict de erro (ex.:
     # {"detail":"Token has expired."}) em vez da lista → não crashar.
     if not isinstance(plants, list) or not all(isinstance(p, dict) and "name" in p for p in plants):
-        print(f"[SUNOP] /plants não retornou lista de plantas (token expirado?): {str(plants)[:120]}")
+        print(f"[SUNOP:{inst}] /plants não retornou lista de plantas (token expirado?): {str(plants)[:120]}")
         return
     with ThreadPoolExecutor(max_workers=5) as ex:
-        futures = {ex.submit(_load_sunop_plant_meta, p["name"]): p["name"] for p in plants}
+        futures = {ex.submit(_load_sunop_plant_meta, p["name"], inst): p["name"] for p in plants}
         for f in as_completed(futures):
             pname = futures[f]
             meta  = f.result()
             if meta:
-                _sunop_meta[pname] = meta
-    print(f"[SUNOP] Metadata: {len(_sunop_meta)} plantas carregadas")
+                S["meta"][pname] = meta
+    print(f"[SUNOP:{inst}] Metadata: {len(S['meta'])} plantas carregadas")
 
 
 # ── SunOp: processa uma planta ────────────────────────────────────────────────
-def process_plant_sunop(plant_name: str) -> dict:
+def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
     base = {
         "usina": USINA_DISPLAY.get(plant_name, plant_name), "plant_id": plant_name,
         "qtd_inversores": None, "strings_ativas": None,
@@ -1923,7 +2051,7 @@ def process_plant_sunop(plant_name: str) -> dict:
         "sem_dados": True, "falha_comunicacao": False,
         "energia_dia": None, "potencia_atual": None,
     }
-    meta = _sunop_meta.get(plant_name)
+    meta = _si(inst)["meta"].get(plant_name)
     if not meta:
         return base
 
@@ -1943,12 +2071,13 @@ def process_plant_sunop(plant_name: str) -> dict:
         return base
 
     # Busca em lotes de 500 (limite seguro da API)
-    H = _sunop_headers()
+    H = _sunop_headers(inst)
+    data_url = _si(inst)["data"]
     all_vals = []
     for i in range(0, len(pathnames), 500):
         batch = pathnames[i:i+500]
         try:
-            r = _http().post(f"{SUNOP_DATA}/v2/last_values", headers=H,
+            r = _http().post(f"{data_url}/v2/last_values", headers=H,
                               json={"pathnames": batch}, timeout=30)
             if r.status_code == 200:
                 all_vals.extend(r.json())
@@ -2037,20 +2166,20 @@ def process_plant_sunop(plant_name: str) -> dict:
     }
 
 
-def fetch_all_sunop() -> list:
-    ensure_sunop_meta()
+def fetch_all_sunop(inst: str = "gridco") -> list:
+    ensure_sunop_meta(inst)
     rows = []
     with ThreadPoolExecutor(max_workers=5) as ex:
-        futures = {ex.submit(process_plant_sunop, pname): pname
-                   for pname in _sunop_meta}
+        futures = {ex.submit(process_plant_sunop, pname, inst): pname
+                   for pname in _si(inst)["meta"]}
         for f in as_completed(futures):
             rows.append(f.result())
     return sorted(rows, key=lambda x: (severidade(x), x["usina"]))
 
 
 # ── SunOp: visão geral ────────────────────────────────────────────────────────
-def _build_sunop_payload():
-    rows = fetch_all_sunop()
+def _build_sunop_payload(inst: str = "gridco"):
+    rows = fetch_all_sunop(inst)
     rows_com = [r for r in rows if not r.get("sem_dados")]
     return {
         "rows":     rows,
@@ -2066,9 +2195,11 @@ def _build_sunop_payload():
 
 
 @app.route("/api/sunop/data")
+@app.route("/api/axis/data")
 def api_sunop_data():
+    inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_swr(_sunop_cache, _build_sunop_payload, force))
+    return jsonify(_swr(_si(inst)["cache"], lambda: _build_sunop_payload(inst), force))
 
 
 # ── SunOp: drill-down inversores (SWR por usina: serve cache na hora, atualiza em fundo) ─
@@ -2076,9 +2207,9 @@ _so_plant_cache = {}      # plant_name -> {"ts": float, "inversores": [...]}
 _so_plant_lock  = threading.Lock()
 
 
-def _sunop_plant_build(plant_name):
-    ensure_sunop_meta()
-    meta = _sunop_meta.get(plant_name)
+def _sunop_plant_build(plant_name, inst: str = "gridco"):
+    ensure_sunop_meta(inst)
+    meta = _si(inst)["meta"].get(plant_name)
     if not meta:
         return []
 
@@ -2088,11 +2219,12 @@ def _sunop_plant_build(plant_name):
     for inv, others in meta["inv_other"].items():
         pathnames.extend(others.values())
 
-    H = _sunop_headers()
+    H = _sunop_headers(inst)
+    data_url = _si(inst)["data"]
     all_vals = []
     for i in range(0, len(pathnames), 500):
         try:
-            r = _http().post(f"{SUNOP_DATA}/v2/last_values", headers=H,
+            r = _http().post(f"{data_url}/v2/last_values", headers=H,
                               json={"pathnames": pathnames[i:i+500]}, timeout=30)
             if r.status_code == 200:
                 all_vals.extend(r.json())
@@ -2102,8 +2234,7 @@ def _sunop_plant_build(plant_name):
     by_path = {v["pathname"]: v for v in all_vals}
 
     inversores = []
-    for inv_name in sorted(meta["inv_strings"].keys(),
-                           key=lambda x: int(x.split("_")[1])):
+    for inv_name in sorted(meta["inv_strings"].keys(), key=_sunop_invnum):
         str_paths = meta["inv_strings"][inv_name]
         ids, correntes = [], []
         ts_inv = ""
@@ -2149,8 +2280,8 @@ def _sunop_plant_build(plant_name):
             except Exception:
                 pass
 
-        # Traduz nome do inversor pela nomenclatura da planilha (Equipamento), ex.: INV_1 → Inversor 1.1
-        inv_display = EQUIP_NAMES.get(plant_name, {}).get(inv_name, inv_name)
+        # Traduz nome do inversor: EQUIP_NAMES (gridco, ex. INV_1 → Inversor 1.1) ou id axis (SKID/INV)
+        inv_display = _sunop_inv_display(plant_name, inv_name)
         inversores.append({
             "id": inv_name, "nome": inv_display, "nome_api": inv_name,
             "ultima_leitura": ts_inv or None,
@@ -2167,12 +2298,13 @@ def _sunop_plant_build(plant_name):
     return inversores
 
 
-def _sunop_plant_get(plant_name, force=False):
+def _sunop_plant_get(plant_name, force=False, inst: str = "gridco"):
     """SWR por usina: serve o último drill-down na hora e atualiza em segundo plano.
     Evita que expandir uma usina (Strings / Curva das strings) trave numa chamada ao
     vivo do SunOp quando a API está sob carga (ex.: durante um 'Atualizar')."""
     agora = time.time()
-    ent = _so_plant_cache.get(plant_name)
+    ckey = (inst, plant_name)
+    ent = _so_plant_cache.get(ckey)
     if ent and not force and (agora - ent["ts"]) < CACHE_TTL:
         return ent["inversores"]
     if ent and not force:                       # tem stale → serve já e atualiza em fundo
@@ -2180,24 +2312,26 @@ def _sunop_plant_get(plant_name, force=False):
             if not _so_plant_lock.acquire(blocking=False):
                 return
             try:
-                _so_plant_cache[plant_name] = {"ts": time.time(),
-                                               "inversores": _sunop_plant_build(plant_name)}
+                _so_plant_cache[ckey] = {"ts": time.time(),
+                                         "inversores": _sunop_plant_build(plant_name, inst)}
             except Exception as e:
                 print(f"[sunop/plant] refresh {plant_name} falhou: {e}")
             finally:
                 _so_plant_lock.release()
         threading.Thread(target=_bg, daemon=True).start()
         return ent["inversores"]
-    inv = _sunop_plant_build(plant_name)        # 1ª vez (ou forçado) → constrói na hora
-    _so_plant_cache[plant_name] = {"ts": time.time(), "inversores": inv}
+    inv = _sunop_plant_build(plant_name, inst)  # 1ª vez (ou forçado) → constrói na hora
+    _so_plant_cache[ckey] = {"ts": time.time(), "inversores": inv}
     return inv
 
 
 @app.route("/api/sunop/plant/<plant_name>")
+@app.route("/api/axis/plant/<plant_name>")
 def api_sunop_plant(plant_name):
+    inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     force = flask_request.args.get("force", "0") == "1"
     try:
-        inversores = _sunop_plant_get(plant_name, force)
+        inversores = _sunop_plant_get(plant_name, force, inst)
     except Exception as e:
         return jsonify({"error": str(e), "inversores": []}), 500
     return jsonify({"plant_id": plant_name, "inversores": inversores})
@@ -2209,9 +2343,9 @@ def _etm_label(station: str) -> str:
     return "" if station == "ESTM" else station.replace("_", " ")
 
 
-def fetch_sunop_etm_plant(plant_name: str) -> list:
+def fetch_sunop_etm_plant(plant_name: str, inst: str = "gridco") -> list:
     """Retorna UMA linha por estação meteorológica da planta (ESTM, ESTM_1, ESTM_2…)."""
-    meta     = _sunop_meta.get(plant_name, {})
+    meta     = _si(inst)["meta"].get(plant_name, {})
     stations = meta.get("etm_stations") or {"ESTM": {
         "poa":   f"{plant_name}.ESTM.POA.IRAD",
         "ghi":   f"{plant_name}.ESTM.GHI.IRAD",
@@ -2232,11 +2366,11 @@ def fetch_sunop_etm_plant(plant_name: str) -> list:
     for paths in stations.values():
         all_paths.extend(paths.values())
 
-    H = _sunop_headers()
+    H = _sunop_headers(inst)
     by_path = {}
     if all_paths:
         try:
-            r = _http().post(f"{SUNOP_DATA}/v2/last_values", headers=H,
+            r = _http().post(f"{_si(inst)['data']}/v2/last_values", headers=H,
                               json={"pathnames": all_paths}, timeout=15)
             if r.status_code == 200:
                 by_path = {v["pathname"]: v for v in (r.json() or [])}
@@ -2278,11 +2412,11 @@ def fetch_sunop_etm_plant(plant_name: str) -> list:
     return rows
 
 
-def _build_sunop_etm_payload():
-    ensure_sunop_meta()
+def _build_sunop_etm_payload(inst: str = "gridco"):
+    ensure_sunop_meta(inst)
     rows = []
     with ThreadPoolExecutor(max_workers=5) as ex:
-        futures = {ex.submit(fetch_sunop_etm_plant, pname): pname for pname in _sunop_meta}
+        futures = {ex.submit(fetch_sunop_etm_plant, pname, inst): pname for pname in _si(inst)["meta"]}
         for f in as_completed(futures):
             rows.extend(f.result())   # uma ou mais linhas por planta (uma por estação)
     rows.sort(key=lambda x: (etm_severidade(x), x["usina"], x.get("etm", "")))
@@ -2290,19 +2424,21 @@ def _build_sunop_etm_payload():
 
 
 @app.route("/api/sunop/etm")
+@app.route("/api/axis/etm")
 def api_sunop_etm():
+    inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_swr(_sunop_etm_cache, _build_sunop_etm_payload, force))
+    return jsonify(_swr(_si(inst)["etm_cache"], lambda: _build_sunop_etm_payload(inst), force))
 
 
 # ── SunOp: pré-análise ETM (CURVA REAL via /data/v2/analog_values) ─────────────
 _sunop_analise_cache = {"payload": None, "ts": 0.0}
 
 
-def _sunop_etm_estacoes():
+def _sunop_etm_estacoes(inst: str = "gridco"):
     """→ lista de (plant, station_raw, {poa,ghi,poari: path}) p/ todas as estações."""
     out = []
-    for plant, meta in _sunop_meta.items():
+    for plant, meta in _si(inst)["meta"].items():
         stations = meta.get("etm_stations") or {"ESTM": {
             "poa": f"{plant}.ESTM.POA.IRAD", "ghi": f"{plant}.ESTM.GHI.IRAD",
             "poari": f"{plant}.ESTM.POA_R.IRAD"}}
@@ -2323,12 +2459,12 @@ def _merge_etm(hist: dict, paths: dict):
     return [(ts, d.get("poa"), d.get("ghi"), d.get("poari")) for ts, d in sorted(byts.items())]
 
 
-def _build_sunop_analise_payload():
-    ensure_sunop_meta()
-    estacoes = _sunop_etm_estacoes()
+def _build_sunop_analise_payload(inst: str = "gridco"):
+    ensure_sunop_meta(inst)
+    estacoes = _sunop_etm_estacoes(inst)
     dia = datetime.now().strftime("%Y-%m-%d")
     all_paths = [paths[k] for _, _, paths in estacoes for k in ("poa", "ghi", "poari") if paths.get(k)]
-    hist = _sunop_analog_history(all_paths, f"{dia}T00:00:00", f"{dia}T23:59:59")
+    hist = _sunop_analog_history(all_paths, f"{dia}T00:00:00", f"{dia}T23:59:59", inst)
 
     rows = []
     for plant, st, paths in estacoes:
@@ -2368,24 +2504,28 @@ def _build_sunop_analise_payload():
 
 
 @app.route("/api/sunop/etm/analise")
+@app.route("/api/axis/etm/analise")
 def api_sunop_etm_analise():
+    inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_swr(_sunop_analise_cache, _build_sunop_analise_payload, force))
+    return jsonify(_swr(_si(inst)["analise_cache"], lambda: _build_sunop_analise_payload(inst), force))
 
 
 @app.route("/api/sunop/etm/chart")
+@app.route("/api/axis/etm/chart")
 def api_sunop_etm_chart():
+    inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     plant = (flask_request.args.get("plant") or "").strip()
     est   = (flask_request.args.get("estacao") or "ESTM").strip() or "ESTM"
     dia   = (flask_request.args.get("date") or datetime.now().strftime("%Y-%m-%d")).strip()
-    ensure_sunop_meta()
-    meta = _sunop_meta.get(plant, {})
+    ensure_sunop_meta(inst)
+    meta = _si(inst)["meta"].get(plant, {})
     stations = meta.get("etm_stations") or {"ESTM": {
         "poa": f"{plant}.ESTM.POA.IRAD", "ghi": f"{plant}.ESTM.GHI.IRAD",
         "poari": f"{plant}.ESTM.POA_R.IRAD"}}
     paths = stations.get(est) or {}
     used = [paths[k] for k in ("poa", "ghi", "poari") if paths.get(k)]
-    hist = _sunop_analog_history(used, f"{dia}T00:00:00", f"{dia}T23:59:59")
+    hist = _sunop_analog_history(used, f"{dia}T00:00:00", f"{dia}T23:59:59", inst)
     merged = _merge_etm(hist, paths)
     return jsonify({
         "labels": [ts[11:16] for ts, _, _, _ in merged],
@@ -2491,9 +2631,9 @@ def _trk_accum_parados(pid):
     return {tid for tid, a in amps.items() if a < TRK_PARADO_AMP}
 
 
-def _sunop_trackers_plant(plant_name: str) -> dict:
+def _sunop_trackers_plant(plant_name: str, inst: str = "gridco") -> dict:
     """Lê e analisa os trackers de uma planta SunOp → resumo + lista por tracker."""
-    meta = _sunop_meta.get(plant_name, {})
+    meta = _si(inst)["meta"].get(plant_name, {})
     trk  = meta.get("trackers") or {}
     base = {"usina": USINA_DISPLAY.get(plant_name, plant_name), "plant_id": plant_name,
             "total": 0, "severos": 0, "leves": 0, "fora_media": 0,
@@ -2503,10 +2643,11 @@ def _sunop_trackers_plant(plant_name: str) -> dict:
         return base
 
     paths = [p for d in trk.values() for p in d.values()]
-    by_path, H = {}, _sunop_headers()
+    by_path, H = {}, _sunop_headers(inst)
+    data_url = _si(inst)["data"]
     for i in range(0, len(paths), 500):
         try:
-            r = _http().post(f"{SUNOP_DATA}/v2/last_values", headers=H,
+            r = _http().post(f"{data_url}/v2/last_values", headers=H,
                               json={"pathnames": paths[i:i + 500]}, timeout=30)
             if r.status_code == 200:
                 for v in (r.json() or []):
@@ -2594,32 +2735,33 @@ def _sunop_trackers_plant(plant_name: str) -> dict:
     return base
 
 
-def _sunop_trk_curvas(plant_name: str, date: str) -> dict:
+def _sunop_trk_curvas(plant_name: str, date: str, inst: str = "gridco") -> dict:
     """Busca (e cacheia) as curvas do dia POSAT/POSAL de todos os trackers da planta."""
+    cache = _si(inst)["trk_hist"]
     key = (plant_name, date)
-    ent = _sunop_trk_hist.get(key)
+    ent = cache.get(key)
     if ent and time.time() - ent["ts"] < CACHE_TTL:
         return ent
-    trk = (_sunop_meta.get(plant_name, {}) or {}).get("trackers") or {}
+    trk = (_si(inst)["meta"].get(plant_name, {}) or {}).get("trackers") or {}
     posat = {n: d["atual"] for n, d in trk.items() if d.get("atual")}
     posal = {n: d["alvo"]  for n, d in trk.items() if d.get("alvo")}
     hist = _sunop_analog_history(list(posat.values()) + list(posal.values()),
-                                 f"{date}T00:00:00", f"{date}T23:59:59")
+                                 f"{date}T00:00:00", f"{date}T23:59:59", inst)
     ent = {"ts": time.time(),
            "posat": {n: hist.get(p, []) for n, p in posat.items()},
            "posal": {n: hist.get(p, []) for n, p in posal.items()}}
-    _sunop_trk_hist[key] = ent
+    cache[key] = ent
     return ent
 
 
-def _sunop_trackers_plant_curva(plant_name: str) -> dict:
+def _sunop_trackers_plant_curva(plant_name: str, inst: str = "gridco") -> dict:
     """Análise por CURVA do dia:
     - 'parado' (vermelho): amplitude do ângulo baixa enquanto os VIZINHOS se moveram (não
       precisa de alvo → funciona em plantas sem POSAL, ex.: MAB100).
     - 'desvio' (laranja): disparidade alvo×atual ATUAL > limiar (está fora do ângulo agora).
     - 'atraso' (amarelo): disparidade MÁX do dia > limiar mas já voltou (saiu por pouco tempo).
     Trackers/plantas SEM alvo (POSAL) → só 'parado'/'normal' (sem desvio/atraso)."""
-    meta = _sunop_meta.get(plant_name, {})
+    meta = _si(inst)["meta"].get(plant_name, {})
     trk  = meta.get("trackers") or {}
     base = {"usina": USINA_DISPLAY.get(plant_name, plant_name), "plant_id": plant_name,
             "total": 0, "parados": 0, "desvios": 0, "atrasos": 0, "sem_alvo": False,
@@ -2627,7 +2769,7 @@ def _sunop_trackers_plant_curva(plant_name: str) -> dict:
             "trackers": [], "tem_trackers": bool(trk)}
     if not trk:
         return base
-    cur = _sunop_trk_curvas(plant_name, datetime.now().strftime("%Y-%m-%d"))
+    cur = _sunop_trk_curvas(plant_name, datetime.now().strftime("%Y-%m-%d"), inst)
     posat, posal = cur["posat"], cur["posal"]
 
     # Span de tempo coberto pela curva hoje → julga "parado" de forma ABSOLUTA (amplitude baixa
@@ -2734,12 +2876,12 @@ def _trk_severidade(r) -> int:
     return 3
 
 
-def _build_sunop_trk_payload():
-    ensure_sunop_meta()
-    plantas = [p for p, m in _sunop_meta.items() if m.get("trackers")]
+def _build_sunop_trk_payload(inst: str = "gridco"):
+    ensure_sunop_meta(inst)
+    plantas = [p for p, m in _si(inst)["meta"].items() if m.get("trackers")]
     rows = []
     with ThreadPoolExecutor(max_workers=5) as ex:
-        futures = {ex.submit(_sunop_trackers_plant, p): p for p in plantas}
+        futures = {ex.submit(_sunop_trackers_plant, p, inst): p for p in plantas}
         for f in as_completed(futures):
             r = f.result()
             r.pop("trackers", None)   # overview não carrega a lista completa
@@ -2761,31 +2903,36 @@ def _build_sunop_trk_payload():
 
 
 @app.route("/api/sunop/trackers")
+@app.route("/api/axis/trackers")
 def api_sunop_trackers():
+    inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_swr(_sunop_trk_cache, _build_sunop_trk_payload, force))
+    return jsonify(_swr(_si(inst)["trk_cache"], lambda: _build_sunop_trk_payload(inst), force))
 
 
 @app.route("/api/sunop/trackers/<plant_name>")
+@app.route("/api/axis/trackers/<plant_name>")
 def api_sunop_trackers_plant(plant_name):
-    ensure_sunop_meta()
-    return jsonify(_sunop_trackers_plant_curva(plant_name))   # análise por curva do dia
+    inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
+    ensure_sunop_meta(inst)
+    return jsonify(_sunop_trackers_plant_curva(plant_name, inst))   # análise por curva do dia
 
 
 # ── SunOp: HISTÓRICO intradiário (endpoint /data/v2/analog_values) ─────────────
 #   Descoberto via DevTools: POST com pathnames no corpo + start/end na query.
 #   Serve curva do dia de QUALQUER medida analógica (tracker POSAT/POSAL, POA, GHI…),
 #   inclusive datas passadas (source=Historical).
-def _sunop_analog_history(pathnames: list, start: str, end: str) -> dict:
+def _sunop_analog_history(pathnames: list, start: str, end: str, inst: str = "gridco") -> dict:
     """→ {pathname: [(timestamp, value), ...]} ordenado por tempo."""
-    H = _sunop_headers()
+    H = _sunop_headers(inst)
+    data_url = _si(inst)["data"]
     params = {"fill_missing": "false", "source": "Historical",
               "start_time": start, "end_time": end, "use_plant_timezone": "true"}
     batches = [pathnames[i:i + 40] for i in range(0, len(pathnames), 40)]
 
     def _fetch(batch):
         try:
-            r = _http().post(f"{SUNOP_DATA}/v2/analog_values", headers=H,
+            r = _http().post(f"{data_url}/v2/analog_values", headers=H,
                               params=params, json={"pathnames": batch}, timeout=60)
             return r.json() or [] if r.status_code == 200 else []
         except Exception:
@@ -2807,19 +2954,53 @@ def _sunop_analog_history(pathnames: list, start: str, end: str) -> dict:
 
 # ── SunOp: curva diária de corrente por string (botão "Curva do dia") ──────────
 #   Mesma FORMA do SPV (reusa _spvPlotInto). Fonte = histórico analógico das strings.
-def _sunop_strings_curva(plant_name: str, dia: str, inv=None) -> dict:
-    ensure_sunop_meta()
-    meta = _sunop_meta.get(plant_name)
+_sunop_str_med_cache = {}   # (plant_name, dia) -> {"ts","med"} — mediana das strings da USINA inteira
+
+
+def _sunop_str_med_usina(plant_name: str, dia: str, inst: str = "gridco") -> float:
+    """Mediana da energia (∫corrente no dia) de TODAS as strings da usina (todos os inversores).
+    É a referência p/ comparar strings ENTRE inversores: pega o inversor inteiro em baixa, não só
+    a string ruim dentro do inversor. Como a curva é buscada por inversor, sem esta base cada
+    inversor só se compararia consigo mesmo (inversor todo em baixa passaria como ~100% "OK").
+    Cacheada por (usina, dia)."""
+    cache = _si(inst)["str_med_cache"]
+    key = (plant_name, dia)
+    ent = cache.get(key)
+    if ent and (time.time() - ent["ts"]) < CACHE_TTL:
+        return ent["med"]
+    meta = _si(inst)["meta"].get(plant_name)
+    med = 0.0
+    if meta:
+        inv_strings = meta["inv_strings"]
+        allp = [p for ps in inv_strings.values() for p in ps]
+        hist = _sunop_analog_history(allp, f"{dia}T00:00:00", f"{dia}T23:59:59", inst)
+        somas = []
+        for inv_name, ps in inv_strings.items():
+            for p in ps:
+                if _str_key(plant_name, inv_name, p.split(".")[-1]) in _trancadas:
+                    continue
+                serie = hist.get(p, [])
+                if serie:
+                    somas.append(sum(max(0.0, v) for _, v in serie))
+        somas.sort()
+        med = somas[len(somas) // 2] if somas else 0.0
+    cache[key] = {"ts": time.time(), "med": med}
+    return med
+
+
+def _sunop_strings_curva(plant_name: str, dia: str, inv=None, inst: str = "gridco") -> dict:
+    ensure_sunop_meta(inst)
+    meta = _si(inst)["meta"].get(plant_name)
     if not meta:
         return {"plant_id": plant_name, "data": dia, "inversores": []}
+    med_usina = _sunop_str_med_usina(plant_name, dia, inst)   # referência da USINA (não do inversor)
     inv_strings = meta["inv_strings"]
     nomes = [inv] if (inv and inv in inv_strings) else list(inv_strings.keys())
     allp  = [p for n in nomes for p in inv_strings.get(n, [])]
-    hist  = _sunop_analog_history(allp, f"{dia}T00:00:00", f"{dia}T23:59:59")
+    hist  = _sunop_analog_history(allp, f"{dia}T00:00:00", f"{dia}T23:59:59", inst)
 
-    def _invnum(x):
-        try: return int(x.split("_")[1])
-        except Exception: return 999
+    def _invnum(x):                       # ordena gridco (INV_1) e axis (SKID_1.LVDB_1.INV_3)
+        return _sunop_invnum(x)
 
     def _pvnum(x):
         t = x.rsplit("I_PV", 1)[-1]
@@ -2844,38 +3025,63 @@ def _sunop_strings_curva(plant_name: str, dia: str, inv=None) -> dict:
         if not curva:
             continue
         vals = sorted(soma.values()); med = vals[len(vals) // 2] if vals else 0.0
+        ref = med_usina if med_usina > 0 else med   # compara com a USINA inteira (cai p/ inversor se sem base)
         strings, abaixo = [], 0
         for lbl in sorted(soma, key=_spv_stnum):
-            e = soma[lbl]; sub = (med > 0 and e < med * SPV_SUB_FRAC); abaixo += 1 if sub else 0
+            e = soma[lbl]; sub = (ref > 0 and e < ref * SPV_SUB_FRAC); abaixo += 1 if sub else 0
             strings.append({"nome": lbl, "ativa": e > 0, "sub": sub,
-                            "energia": round(e, 1), "pct": round(100.0 * e / med) if med else None})
-        out.append({"id": inv_name, "nome": EQUIP_NAMES.get(plant_name, {}).get(inv_name, inv_name),
+                            "energia": round(e, 1), "pct": round(100.0 * e / ref) if ref else None})
+        out.append({"id": inv_name, "nome": _sunop_inv_display(plant_name, inv_name),
                     "nome_api": inv_name, "curva": curva, "mediana": round(med, 1),
-                    "abaixo": abaixo, "strings": strings})
+                    "mediana_usina": round(med_usina, 1), "abaixo": abaixo, "strings": strings})
     _marca_inv_sub(out)
-    return {"plant_id": plant_name, "data": dia, "inversores": out}
+    return {"plant_id": plant_name, "data": dia, "inversores": out,
+            "mediana_usina": round(med_usina, 1)}
 
 
 _sunop_curva_cache = {}   # (plant_name, dia, inv) -> {"ts", "payload"} — curva por inversor/dia
 
 
 @app.route("/api/sunop/curva/<plant_name>")
+@app.route("/api/axis/curva/<plant_name>")
 def api_sunop_curva(plant_name):
+    inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     dia = (flask_request.args.get("data") or datetime.now().strftime("%Y-%m-%d")).strip()
     if re.match(r"^\d{2}/\d{2}/\d{4}$", dia):
         dia = datetime.strptime(dia, "%d/%m/%Y").strftime("%Y-%m-%d")
     inv = (flask_request.args.get("inv") or "").strip() or None   # opcional: só um inversor (inv_name)
     force = flask_request.args.get("force", "0") == "1"
+    cache = _si(inst)["curva_cache"]
     key = (plant_name, dia, inv)
-    ent = _sunop_curva_cache.get(key)
+    ent = cache.get(key)
     if ent and not force and (time.time() - ent["ts"]) < CACHE_TTL:
         return jsonify(ent["payload"])
     try:
-        payload = _sunop_strings_curva(plant_name, dia, inv)
-        _sunop_curva_cache[key] = {"ts": time.time(), "payload": payload}
+        payload = _sunop_strings_curva(plant_name, dia, inv, inst)
+        cache[key] = {"ts": time.time(), "payload": payload}
         return jsonify(payload)
     except Exception as e:
         return jsonify({"error": str(e), "inversores": []}), 500
+
+
+@app.route("/api/axis/usinas")
+def api_axis_usinas():
+    """Usinas da instância Axis (PE III, Ponto Belo 1) + inversores — alimenta a aba Axis SunOp.
+    Lê só a metadata (lazy, cacheada); a curva de strings por inversor vem de /api/axis/curva."""
+    ensure_sunop_meta("axis")
+    meta = _si("axis")["meta"]
+
+    def _n(x):
+        try: return int(x.split("_")[1])
+        except Exception: return 999
+
+    rows = []
+    for pname in sorted(meta):
+        invs = sorted(meta[pname]["inv_strings"].keys(), key=_n)
+        rows.append({"id": pname, "usina": pname,
+                     "inversores": [{"id": iv, "nome": EQUIP_NAMES.get(pname, {}).get(iv, iv)}
+                                    for iv in invs]})
+    return jsonify({"rows": rows, "total": len(rows)})
 
 
 # ── SunOp (Athon): PR por inversor ─────────────────────────────────────────────
@@ -2887,13 +3093,15 @@ _sunop_pr_cache = {}
 _sunop_pr_lock  = threading.Lock()
 
 
-def _sunop_pr_one(plant_name: str, dia: str):
+def _sunop_pr_one(plant_name: str, dia: str, inst: str = "gridco"):
     """→ (ipoa, n_leituras_poa, [inversores]) de uma planta SunOp no dia."""
-    meta = _sunop_meta.get(plant_name) or {}
+    meta = _si(inst)["meta"].get(plant_name) or {}
     epd  = {inv: o.get("EPD") for inv, o in (meta.get("inv_other") or {}).items() if o.get("EPD")}
     stations = meta.get("etm_stations") or {}
-    poa_path = next((p["poa"] for p in stations.values() if p.get("poa")), f"{plant_name}.ESTM.POA.IRAD")
-    hist  = _sunop_analog_history(list(epd.values()) + [poa_path], f"{dia}T00:00:00", f"{dia}T23:59:59")
+    # prioriza a POA REAL (plant_paths["POA"], já priorizada p/ METEOST sobre AIML); cai p/ 1ª estação
+    poa_path = ((meta.get("plant_paths") or {}).get("POA")
+                or next((p["poa"] for p in stations.values() if p.get("poa")), f"{plant_name}.ESTM.POA.IRAD"))
+    hist  = _sunop_analog_history(list(epd.values()) + [poa_path], f"{dia}T00:00:00", f"{dia}T23:59:59", inst)
     serie = hist.get(poa_path, [])
     ipoa  = 0.0
     for i in range(1, len(serie)):
@@ -2916,12 +3124,12 @@ def _sunop_pr_one(plant_name: str, dia: str):
     return ipoa, len(serie), invs
 
 
-def _sunop_pr_build(dia: str):
-    ensure_sunop_meta()
-    plantas = [p for p, m in _sunop_meta.items() if m.get("inv_strings")]
+def _sunop_pr_build(dia: str, inst: str = "gridco"):
+    ensure_sunop_meta(inst)
+    plantas = [p for p, m in _si(inst)["meta"].items() if m.get("inv_strings")]
 
     def _one(pn):
-        try:    return pn, _sunop_pr_one(pn, dia)
+        try:    return pn, _sunop_pr_one(pn, dia, inst)
         except Exception: return pn, (None, 0, [])
 
     summary, detail = [], {}
@@ -2949,23 +3157,26 @@ def _sunop_pr_build(dia: str):
     return summary, detail
 
 
-def _sunop_pr_get(dia: str, force=False):
+def _sunop_pr_get(dia: str, force=False, inst: str = "gridco"):
     agora = time.time()
+    cache = _si(inst)["pr_cache"]
     with _sunop_pr_lock:
-        ent = _sunop_pr_cache.get(dia)
+        ent = cache.get(dia)
         if not force and ent and (agora - ent["ts"]) < CACHE_TTL:
             return ent["summary"], ent["detail"]
-        summary, detail = _sunop_pr_build(dia)
-        _sunop_pr_cache[dia] = {"ts": agora, "summary": summary, "detail": detail}
+        summary, detail = _sunop_pr_build(dia, inst)
+        cache[dia] = {"ts": agora, "summary": summary, "detail": detail}
         return summary, detail
 
 
 @app.route("/api/sunop/pr")
+@app.route("/api/axis/pr")
 def api_sunop_pr():
+    inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     dia = _pr_dia_arg()
     force = flask_request.args.get("force", "0") == "1"
     try:
-        summary, _ = _sunop_pr_get(dia, force)
+        summary, _ = _sunop_pr_get(dia, force, inst)
     except Exception as e:
         return jsonify({"error": str(e), "rows": [], "data": dia, "summary": {}}), 500
     return jsonify({"rows": summary, "data": dia,
@@ -2976,23 +3187,27 @@ def api_sunop_pr():
 
 
 @app.route("/api/sunop/pr/<plant_name>")
+@app.route("/api/axis/pr/<plant_name>")
 def api_sunop_pr_plant(plant_name):
+    inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     dia = _pr_dia_arg()
     try:
-        _, detail = _sunop_pr_get(dia)
+        _, detail = _sunop_pr_get(dia, inst=inst)
     except Exception as e:
         return jsonify({"error": str(e), "inversores": []}), 500
     return jsonify({"plant_id": plant_name, "data": dia, "inversores": detail.get(plant_name, [])})
 
 
 @app.route("/api/sunop/trackers/<plant_name>/chart")
+@app.route("/api/axis/trackers/<plant_name>/chart")
 def api_sunop_trackers_chart(plant_name):
-    ensure_sunop_meta()
-    trk = (_sunop_meta.get(plant_name, {}) or {}).get("trackers") or {}
+    inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
+    ensure_sunop_meta(inst)
+    trk = (_si(inst)["meta"].get(plant_name, {}) or {}).get("trackers") or {}
     if not trk:
         return jsonify({"plant": plant_name, "trackers": [], "alvo": None})
     date = (flask_request.args.get("date") or datetime.now().strftime("%Y-%m-%d")).strip()
-    cur = _sunop_trk_curvas(plant_name, date)   # mesmo cache do drill-down
+    cur = _sunop_trk_curvas(plant_name, date, inst)   # mesmo cache do drill-down
     posat, posal = cur["posat"], cur["posal"]
 
     def _down(serie, alvo_max=180):
@@ -4166,6 +4381,39 @@ def api_pg_plant(plant_id):
 #   Mesma FORMA do SPV (API PV) p/ reusar o plot do frontend (_spvPlotInto):
 #   por inversor → curva {ST_xx: {x,y}}, mediana da corrente integrada do dia e
 #   strings em subperformance (< SPV_SUB_FRAC da mediana). Fonte = stg_inverter_string_data.
+_pg_str_med_cache = {}   # (plant_id, dia) -> {"ts","med"} — mediana das strings da USINA inteira (PG)
+
+
+def _pg_str_med_usina(plant_id: int, dia: str) -> float:
+    """Mediana da energia (∫corrente no dia) de TODAS as strings da usina (todos os inversores) no PG.
+    Referência cross-inversor p/ pegar inversor inteiro em baixa — ver _sunop_str_med_usina."""
+    key = (plant_id, dia)
+    ent = _pg_str_med_cache.get(key)
+    if ent and (time.time() - ent["ts"]) < CACHE_TTL:
+        return ent["med"]
+    med = 0.0
+    try:
+        conn = _pg_conn(); cur = conn.cursor()
+        cur.execute("""
+            SELECT s.device_id, s.string_number, SUM(GREATEST(s.string_current, 0)) AS soma
+            FROM dbt.stg_inverter_string_data s
+            WHERE s.power_plant_id = %(pid)s AND s.timestamp::date = %(dia)s
+            GROUP BY s.device_id, s.string_number
+        """, {"pid": plant_id, "dia": dia})
+        somas = []
+        for dev_id, snum, soma in cur.fetchall():
+            if _str_key(plant_id, dev_id, str(snum)) in _trancadas:
+                continue
+            somas.append(float(soma) if soma is not None else 0.0)
+        conn.close()
+        somas.sort()
+        med = somas[len(somas) // 2] if somas else 0.0
+    except Exception:
+        med = 0.0
+    _pg_str_med_cache[key] = {"ts": time.time(), "med": med}
+    return med
+
+
 def _pg_strings_curva(plant_id: int, dia: str, inv=None) -> dict:
     sql = """
       SELECT s.device_id, d.device_name, p.name AS pname,
@@ -4187,6 +4435,7 @@ def _pg_strings_curva(plant_id: int, dia: str, inv=None) -> dict:
         inv = invs.setdefault(dev_id, {"nome_api": (dev_name or f"INV {dev_id}").strip(), "strings": {}})
         inv["strings"].setdefault(str(snum), []).append((ts, float(curr) if curr is not None else 0.0))
 
+    med_usina = _pg_str_med_usina(plant_id, dia)   # referência da USINA (não do inversor)
     out = []
     for dev_id in sorted(invs):
         inv = invs[dev_id]
@@ -4204,19 +4453,22 @@ def _pg_strings_curva(plant_id: int, dia: str, inv=None) -> dict:
                           "y": [round(v, 2) for _, v in sp]}
         vals = sorted(soma.values())
         med  = vals[len(vals) // 2] if vals else 0.0
+        ref  = med_usina if med_usina > 0 else med   # compara com a USINA inteira
         strings, abaixo = [], 0
         for lbl in sorted(soma, key=_spv_stnum):
             e   = soma[lbl]
-            sub = (med > 0 and e < med * SPV_SUB_FRAC)
+            sub = (ref > 0 and e < ref * SPV_SUB_FRAC)
             abaixo += 1 if sub else 0
             strings.append({"nome": lbl, "ativa": e > 0, "sub": sub,
-                            "energia": round(e, 1), "pct": round(100.0 * e / med) if med else None})
+                            "energia": round(e, 1), "pct": round(100.0 * e / ref) if ref else None})
         out.append({"id": dev_id,
                     "nome": (EQUIP_NAMES.get(sup, {}) or {}).get(inv["nome_api"], inv["nome_api"]),
                     "nome_api": inv["nome_api"], "curva": curva,
-                    "mediana": round(med, 1), "abaixo": abaixo, "strings": strings})
+                    "mediana": round(med, 1), "mediana_usina": round(med_usina, 1),
+                    "abaixo": abaixo, "strings": strings})
     _marca_inv_sub(out)
-    return {"plant_id": plant_id, "data": dia, "inversores": out}
+    return {"plant_id": plant_id, "data": dia, "inversores": out,
+            "mediana_usina": round(med_usina, 1)}
 
 
 @app.route("/api/pg/curva/<int:plant_id>")
@@ -5793,6 +6045,28 @@ def _spv_analise_inversor(idinv, nome, recs, data, notas, full=False, plant_id=N
             "strings": strings, "curva": curva_fmt, "nota": nota}
 
 
+def _spv_med_usina(ordem) -> float:
+    """Mediana da corrente integrada de TODAS as strings ATIVAS da usina (cross-inversor) e
+    reescreve pct/sub de cada string vs essa referência — pega o inversor inteiro em baixa
+    (todas as strings caem juntas, que vs o PRÓPRIO inversor pareceria ~100% "OK").
+    Ver _sunop_str_med_usina. Roda DEPOIS do _marca_inv_sub (que usa a mediana do inversor)."""
+    energias = sorted(s["energia"] for inv in ordem for s in inv.get("strings", [])
+                      if s.get("ativa") and s.get("energia", 0) > 0)
+    med_u = energias[len(energias) // 2] if energias else 0.0
+    for inv in ordem:
+        ref = med_u if med_u > 0 else inv.get("mediana", 0.0)
+        abaixo = 0
+        for s in inv.get("strings", []):
+            if s.get("ativa") and ref > 0:
+                s["sub"] = s["energia"] < ref * SPV_SUB_FRAC
+                s["pct"] = round(100.0 * s["energia"] / ref)
+                if s["sub"]:
+                    abaixo += 1
+        inv["abaixo"] = abaixo
+        inv["mediana_usina"] = round(med_u, 1)
+    return round(med_u, 1)
+
+
 @app.route("/api/spv/usinas")
 def api_spv_usinas():
     """Catálogo de usinas (ids compartilhados com a API PV), EXCLUINDO string-box
@@ -5890,8 +6164,10 @@ def api_spv_usina(idusina):
     ordem = sorted(results.values(),
                    key=lambda x: [int(p) for p in re.findall(r"\d+", x["nome"])] or [9999])
     _marca_inv_sub(ordem)   # sinaliza inversores abaixo da mediana dos pares da usina
+    med_usina = _spv_med_usina(ordem)   # pct/sub de cada string vs a USINA inteira (cross-inversor)
     payload = {"idusina": idusina, "data": data, "inversores": ordem,
                "total_abaixo": sum(i["abaixo"] for i in ordem),
+               "mediana_usina": med_usina,
                "cache_ts": datetime.now().strftime("%H:%M:%S")}
     _spv_cache[key] = {"ts": agora, "payload": payload}
     return jsonify(payload)
@@ -6308,16 +6584,19 @@ def _owen_loop():
 
 
 def _sunop_keepalive_loop():
-    """Mantém o token do SunOp sempre vivo: chama get_sunop_token() (que valida e, se
-    preciso, renova via /refresh_token) a cada 6 h — bem dentro da janela de ~7 dias.
+    """Mantém os tokens SunOp (gridco/axis) sempre vivos: chama get_sunop_token(inst) (valida e,
+    se preciso, renova via /refresh_token) a cada 6 h — bem dentro da janela de ~7 dias.
     Enquanto o servidor estiver de pé, nunca precisa colar token novo manualmente."""
-    print("[SunOp] keep-alive iniciado (renova token a cada 6 h)")
+    print("[SunOp] keep-alive iniciado (renova tokens gridco/axis a cada 6 h)")
     while True:
         time.sleep(21600)   # 6 horas
-        try:
-            get_sunop_token()
-        except Exception as e:
-            print(f"[SunOp] keep-alive erro: {e}")
+        for inst in ("gridco", "axis"):
+            if not _si(inst)["token"]["token"]:
+                continue
+            try:
+                get_sunop_token(inst)
+            except Exception as e:
+                print(f"[SunOp:{inst}] keep-alive erro: {e}")
 
 
 def _prewarm_loop():
