@@ -1,0 +1,20 @@
+# Credenciais — NUNCA commitar
+.env
+*.env
+!.env.example
+
+# Cache local de ativos (recarregável)
+assets_cache.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# SO / editor
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
