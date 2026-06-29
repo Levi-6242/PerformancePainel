@@ -1,15 +1,25 @@
-"""Step 1 — drill-down do Ativo: Cliente → Usina → Tipo → Ativo(s).
-Seleção MÚLTIPLA por checkbox (1 OS por ativo marcado). Sem data/hora — a OS usa
-hoje 00:00 (incidente) + agora (manutenção) automaticamente."""
-from PyQt6.QtCore import Qt, pyqtSignal
+"""Step 1 — drill-down do Ativo: Cliente → Usina → Tipo → Ativo(s) + Data programada.
+Seleção MÚLTIPLA por checkbox (1 OS por ativo marcado). A Data programada (default = agora,
+horário de Brasília) vira o event_date da OS — ajustável, igual ao incidente do Várias OSs."""
+import unicodedata
+from PyQt6.QtCore import Qt, pyqtSignal, QDateTime
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QLineEdit,
-                             QListWidget, QListWidgetItem, QPushButton)
+                             QListWidget, QListWidgetItem, QPushButton, QDateTimeEdit)
 
 TODOS_USINA = "— Selecione a usina —"
 TODOS_TIPO  = "Todos os tipos"
 
+
+def _norm(s):
+    s = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode().lower()
+    return " ".join(s.split())
+
 # Só estes tipos de equipamento podem ser escolhidos (pedido do Levi).
-ALLOWED_TIPOS = ["Cabine", "Estação Meteorológica", "Estrutura Trackers", "Inversor", "NCU", "RSU"]
+ALLOWED_TIPOS = ["Cabine", "Estação Meteorológica", "Estrutura Trackers", "Inversor", "NCU", "RSU",
+                 "Transformador", "Usina"]
+
+# Clientes que NÃO aparecem no drill-down (almoxarifado e ambiente de teste).
+CLIENTES_OCULTOS = {"almoxarifado", "teste - pa"}
 
 
 class Step1(QWidget):
@@ -53,6 +63,16 @@ class Step1(QWidget):
         self.hint.setObjectName("hint")
         lay.addWidget(self.hint)
 
+        # Data programada (event_date) — default agora; vale p/ todas as OS desta leva
+        drow = QHBoxLayout()
+        drow.addWidget(QLabel("<b>Data programada</b> <span style='color:#8a90a2'>(Brasília)</span>"))
+        self.dt_prog = QDateTimeEdit(QDateTime.currentDateTime())
+        self.dt_prog.setDisplayFormat("dd/MM/yyyy HH:mm"); self.dt_prog.setCalendarPopup(True)
+        b_agora = QPushButton("Agora"); b_agora.setObjectName("secondary"); b_agora.setFixedWidth(64)
+        b_agora.clicked.connect(lambda: self.dt_prog.setDateTime(QDateTime.currentDateTime()))
+        drow.addWidget(self.dt_prog, 1); drow.addWidget(b_agora)
+        lay.addLayout(drow)
+
         row = QHBoxLayout()
         self.b_reload = QPushButton("↻")
         self.b_reload.setObjectName("secondary")
@@ -69,7 +89,8 @@ class Step1(QWidget):
     # ── carga de dados ──
     def set_assets(self, assets):
         self._assets = assets or []
-        clientes = sorted({a["cliente"] for a in self._assets if a["cliente"]})
+        clientes = sorted({a["cliente"] for a in self._assets
+                           if a["cliente"] and a["cliente"].strip().lower() not in CLIENTES_OCULTOS})
         self.cb_cliente.blockSignals(True)
         self.cb_cliente.clear()
         self.cb_cliente.addItem("— Selecione o cliente —")
@@ -162,12 +183,44 @@ class Step1(QWidget):
         self.btn.setText(f"Próximo ({n}) ›››" if n else "Próximo ›››")
         self.btn.setEnabled(n > 0)
 
+    # ── pré-seleção vinda da fila de sugestões (trackers parados) ──
+    def prefill_tracker(self, usina):
+        """Marca a(s) 'Estrutura Trackers' da usina (nome vindo do dashboard) e posiciona os filtros.
+        Casa por nome NORMALIZADO (o nome do Fracttal pode diferir do BD). Devolve nº de ativos marcados.
+        Usa cliente/usina do PRÓPRIO ativo encontrado → cascata exata, sem depender do nome do dashboard."""
+        alvo = _norm(usina)
+        cands = [a for a in self._assets
+                 if a.get("tipo") == "Estrutura Trackers" and alvo
+                 and (alvo == _norm(a.get("usina")) or alvo in _norm(a.get("usina"))
+                      or _norm(a.get("usina")) in alvo)]
+        if not cands:
+            return 0
+        a0 = cands[0]
+        self._checked = {a["id"] for a in cands}
+        ic = self.cb_cliente.findText(a0.get("cliente") or "")
+        if ic > 0:
+            self.cb_cliente.setCurrentIndex(ic)        # cascata → usinas
+        iu = self.cb_usina.findText(a0.get("usina") or "")
+        if iu > 0:
+            self.cb_usina.setCurrentIndex(iu)          # cascata → tipos + ativos
+        it = self.cb_tipo.findText("Estrutura Trackers")
+        if it > 0:
+            self.cb_tipo.setCurrentIndex(it)
+        self._refresh_ativos()
+        self._atualiza_hint(f"{len(cands)} Estrutura(s) Trackers de {a0.get('usina')}")
+        return len(cands)
+
     # ── getter / reset p/ o app ──
     def selected_assets(self):
         return [a for a in self._assets if a["id"] in self._checked]
 
+    def data_programada(self):
+        """Data/hora programada escolhida (naive = Brasília; o app anexa o fuso → event_date)."""
+        return self.dt_prog.dateTime().toPyDateTime()
+
     def reset(self):
         self._checked.clear()
+        self.dt_prog.setDateTime(QDateTime.currentDateTime())
         self.busca.blockSignals(True)
         self.busca.clear()
         self.busca.blockSignals(False)

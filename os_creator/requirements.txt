@@ -3,3 +3,5 @@
 PyQt6>=6.7
 requests>=2.31
 python-dotenv>=1.0
+keyring>=24            # opcional: guarda o token no cofre do SO (Windows Credential Manager).
+                      # Sem ele, o token cai num arquivo local (gitignored). A senha nunca é salva.

@@ -2,6 +2,7 @@
 .env
 *.env
 !.env.example
+fracttal_login.txt
 
 # Cache local de ativos (recarregável)
 assets_cache.json
@@ -12,6 +13,11 @@ __pycache__/
 *.pyo
 .venv/
 venv/
+
+# Build do .exe (PyInstaller) — artefatos pesados, regeráveis
+build/
+dist/
+*.spec
 
 # SO / editor
 .vscode/
