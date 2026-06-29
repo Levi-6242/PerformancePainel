@@ -3365,6 +3365,84 @@ def api_sunop_trackers_chart(plant_name):
                     "trackers": trackers, "alvo": alvo})
 
 
+# ── SunOp/Axis: Trackers parados (agora) + Ocorrências (travou→voltou) — espelho das sub-abas API PV ──
+#   Curva via _sunop_trk_curvas (cacheada, API analógica) → Ocorrências on-demand por dia (paralelizado).
+def _sunop_curve_for(plant_name, data_br, inst):
+    """Curva ATUAL por tracker no formato do motor de eventos: {tracker: [{x,y}]}."""
+    try:
+        date_iso = datetime.strptime(data_br, "%d/%m/%Y").strftime("%Y-%m-%d")
+    except Exception:
+        date_iso = data_br
+    cur = _sunop_trk_curvas(plant_name, date_iso, inst)
+    return {n.replace("TRK_", "Tracker "): [{"x": ts, "y": v} for ts, v in s]
+            for n, s in cur.get("posat", {}).items() if s}
+
+
+@app.route("/api/sunop/trackers/parados")
+@app.route("/api/axis/trackers/parados")
+def api_sunop_trackers_parados():
+    inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
+    ensure_sunop_meta(inst)
+    plantas = [p for p, m in _si(inst)["meta"].items() if m.get("trackers")]
+    rows = []
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        futs = {ex.submit(_sunop_trackers_plant_curva, p, inst): p for p in plantas}
+        for f in as_completed(futs):
+            try:
+                a = f.result()
+            except Exception:
+                continue
+            for t in a.get("trackers", []):
+                if t.get("status") == "parado":
+                    rows.append({"plant_id": a["plant_id"], "usina": a["usina"], "tracker": t["id"],
+                                 "inversor": "", "atual": t.get("atual"), "alvo": t.get("alvo"),
+                                 "disparidade": t.get("disparidade"), "amplitude": t.get("amplitude"),
+                                 "na_planilha": bool(t.get("na_planilha")), "ticket_status": t.get("ticket_status"),
+                                 "parado_desde": None, "horas_parado": None, "dias_parado": None,
+                                 "ultima_leitura": a.get("ultima_leitura")})
+    rows.sort(key=lambda r: (r["usina"], _pv_trk_num(r["tracker"])))
+    return jsonify({"rows": rows, "total": len(rows), "cache_ts": datetime.now().strftime("%H:%M:%S")})
+
+
+_sunop_ev_cache = {"gridco": {}, "axis": {}}
+
+
+@app.route("/api/sunop/trackers/eventos")
+@app.route("/api/axis/trackers/eventos")
+def api_sunop_trackers_eventos():
+    inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
+    ensure_sunop_meta(inst)
+    ini = (flask_request.args.get("ini") or datetime.now().strftime("%Y-%m-%d")).strip()
+    date_iso = ini if re.match(r"^\d{4}-\d{2}-\d{2}$", ini) else datetime.now().strftime("%Y-%m-%d")
+    hoje_iso = datetime.now().strftime("%Y-%m-%d")
+    cache = _sunop_ev_cache[inst]
+    ent = cache.get(date_iso)
+    if ent and (date_iso != hoje_iso or (time.time() - ent["ts"]) < CACHE_TTL):
+        return jsonify({"rows": ent["rows"], "ini": date_iso, "fim": date_iso, "total": len(ent["rows"]),
+                        "data_ini_hist": "2026-06-01", "progresso": {}})
+    data_br = datetime.strptime(date_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+    dd = date_iso.split("-")
+    plantas = [p for p, m in _si(inst)["meta"].items() if m.get("trackers")]
+
+    def _um(p):
+        try:
+            res = _trk_eventos_do_dia(p, p, data_br, curve=_sunop_curve_for(p, data_br, inst))
+        except Exception:
+            return []
+        un = USINA_DISPLAY.get(p, p)
+        return [{"data_iso": date_iso, "data": f"{dd[2]}/{dd[1]}", "usina": un, "tracker": ev["tracker"],
+                 "inversor": "", "parada": ev["parada"], "retorno": ev.get("retorno"), "dur_min": ev.get("dur_min")}
+                for ev in res["eventos"]]
+    rows = []
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        for part in ex.map(_um, plantas):
+            rows.extend(part)
+    rows.sort(key=lambda r: (r["usina"], r["parada"]))
+    cache[date_iso] = {"ts": time.time(), "rows": rows}
+    return jsonify({"rows": rows, "ini": date_iso, "fim": date_iso, "total": len(rows),
+                    "data_ini_hist": "2026-06-01", "progresso": {}})
+
+
 # ── API PV · Trackers (fonte: PV Plataforma) ──────────────────────────────────
 #   A API PV (apipv) NÃO expõe posição de tracker; o dado só existe na PV Plataforma
 #   (mesma idusina). Endpoints: /v2/usinas/trackers (estado atual: posAg=atual,
@@ -6791,6 +6869,72 @@ def api_owen_trackers_chart(plant_id):
             alvo = {"x": [t.strftime("%Y-%m-%dT%H:%M:%SZ") for t, _ in s], "y": [round(v, 2) for _, v in s]}
             break
     return jsonify({"plant": _owen_nome(plant_id), "trackers": out, "alvo": alvo})
+
+
+# ── Owen (2C): Trackers parados (agora) + Ocorrências (travou→voltou) — espelho das sub-abas API PV ──
+#   Curva: acumulador (hoje) / 2C_historico (passado). Só 4 UFVs → on-demand direto (sem pool/job).
+def _owen_curve_for(code, data_br):
+    """Curva ATUAL por tracker no formato do motor de eventos: {tracker: [{x,y}]}."""
+    try:
+        date_iso = datetime.strptime(data_br, "%d/%m/%Y").strftime("%Y-%m-%d")
+    except Exception:
+        date_iso = data_br
+    trks = _owen_trackers_build(date=date_iso).get(code, {})
+    return {f"Tracker {n}": [{"x": t.strftime("%Y-%m-%dT%H:%M:%SZ"), "y": v} for t, v in d["atual"]]
+            for n, d in trks.items() if d.get("atual")}
+
+
+@app.route("/api/owen/trackers/parados")
+def api_owen_trackers_parados():
+    """Lista flat de todos os trackers 2C 'parado' agora (analise por usina)."""
+    rows = []
+    for code in OWEN_UFVS:
+        try:
+            a = _owen_trackers_analise(code)
+        except Exception:
+            continue
+        for t in a.get("trackers", []):
+            if t.get("status") == "parado":
+                rows.append({"plant_id": code, "usina": a["usina"], "tracker": t["id"],
+                             "inversor": "", "atual": t.get("atual"), "alvo": t.get("alvo"),
+                             "disparidade": t.get("disparidade"), "amplitude": t.get("amplitude"),
+                             "na_planilha": False, "parado_desde": None,
+                             "horas_parado": None, "dias_parado": None,
+                             "ultima_leitura": a.get("ultima_leitura")})
+    rows.sort(key=lambda r: (r["usina"], _pv_trk_num(r["tracker"])))
+    return jsonify({"rows": rows, "total": len(rows), "cache_ts": datetime.now().strftime("%H:%M:%S")})
+
+
+_owen_ev_cache = {}   # date_iso -> {ts, rows}
+
+
+@app.route("/api/owen/trackers/eventos")
+def api_owen_trackers_eventos():
+    """Ocorrências travou→voltou do 2C, ON-DEMAND por dia (acumulador hoje / 2C_historico passado)."""
+    ini = (flask_request.args.get("ini") or datetime.now().strftime("%Y-%m-%d")).strip()
+    date_iso = ini if re.match(r"^\d{4}-\d{2}-\d{2}$", ini) else datetime.now().strftime("%Y-%m-%d")
+    hoje_iso = datetime.now().strftime("%Y-%m-%d")
+    ent = _owen_ev_cache.get(date_iso)
+    if ent and (date_iso != hoje_iso or (time.time() - ent["ts"]) < CACHE_TTL):
+        return jsonify({"rows": ent["rows"], "ini": date_iso, "fim": date_iso, "total": len(ent["rows"]),
+                        "data_ini_hist": "2026-05-13", "progresso": {}})
+    data_br = datetime.strptime(date_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+    dd = date_iso.split("-")
+    rows = []
+    for code in OWEN_UFVS:
+        try:
+            res = _trk_eventos_do_dia(code, _owen_nome(code), data_br, curve=_owen_curve_for(code, data_br))
+        except Exception:
+            continue
+        un = _owen_nome(code)
+        for ev in res["eventos"]:
+            rows.append({"data_iso": date_iso, "data": f"{dd[2]}/{dd[1]}", "usina": un,
+                         "tracker": ev["tracker"], "inversor": "",
+                         "parada": ev["parada"], "retorno": ev.get("retorno"), "dur_min": ev.get("dur_min")})
+    rows.sort(key=lambda r: (r["usina"], r["parada"]))
+    _owen_ev_cache[date_iso] = {"ts": time.time(), "rows": rows}
+    return jsonify({"rows": rows, "ini": date_iso, "fim": date_iso, "total": len(rows),
+                    "data_ini_hist": "2026-05-13", "progresso": {}})
 
 
 def _trk_severidade2(r) -> int:

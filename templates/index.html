@@ -3130,8 +3130,8 @@ function _rondaCopiar(btn){
 
 async function loadSoTrackers(force){
   const base=_trkBase();
-  // Sub-abas Ocorrências/Parados: ligadas nas fontes que já têm os endpoints (API PV + PG; SunOp/Owen a caminho).
-  const _temSub=['pv','pg'].includes(primary);
+  // Sub-abas Ocorrências/Parados: ligadas nas fontes que têm os endpoints (todas, menos SolarEdge).
+  const _temSub=['pv','pg','sunop','axis','owen'].includes(primary);
   const sub=document.getElementById('trk-subtabs');
   if(sub) sub.style.display=_temSub?'flex':'none';
   if(!_temSub) trkSubtab('live');
