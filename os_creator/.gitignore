@@ -1,0 +1,26 @@
+# Credenciais — NUNCA commitar
+.env
+*.env
+!.env.example
+fracttal_login.txt
+
+# Cache local de ativos (recarregável)
+assets_cache.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Build do .exe (PyInstaller) — artefatos pesados, regeráveis
+build/
+dist/
+*.spec
+
+# SO / editor
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store

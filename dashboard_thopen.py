@@ -59,11 +59,12 @@ def _planilha_em():
         return None
 
 
-def _open_wb(path):
+def _open_wb(path, tmpname="bd_thopen_dash.xlsx"):
     """Lê o workbook de uma CÓPIA temporária — assim funciona mesmo com o arquivo
     ABERTO no Excel ou sincronizando no OneDrive (a leitura direta dá PermissionError,
-    mas o Windows permite copiar com leitura compartilhada)."""
-    tmp = os.path.join(tempfile.gettempdir(), "bd_thopen_dash.xlsx")
+    mas o Windows permite copiar com leitura compartilhada). `tmpname` separa as cópias
+    (BD_Thopen vs Budget Polaris) pra não se sobrescreverem."""
+    tmp = os.path.join(tempfile.gettempdir(), tmpname)
     try:
         shutil.copy2(path, tmp)
         return openpyxl.load_workbook(tmp, data_only=True)
@@ -187,9 +188,172 @@ def _table(name):
     return out
 
 
+# ── Polaris: os ACTUALS (geração/irradiação/disponibilidade DIÁRIAS) vêm de um Excel de
+#    Budget separado (alimentado semanalmente), NÃO do BD_Thopen. Meta, histórico (2023-2025)
+#    e cadastro continuam vindo do BD_Thopen — igual às outras carteiras. ────────────────────
+_POLARIS_DIR = (r"C:\Users\Levi Maia\OneDrive - GRID CO\Grid Co_ - 17. Acesso Externo Thopen"
+                r"\3. Polaris")
+# nome no Budget (coluna "UFV 1")  →  nome de coleta canônico (igual T_Usinas/CARTEIRAS).
+# De-para EXPLÍCITO (em vez da cadeia frágil de substituições do Power Query).
+_POLARIS_NOME = {
+    "UFV Aparecida do Taboado 2 1": "Aparecida do Taboado 1",
+    "UFV Aparecida do Taboado 2 2": "Aparecida do Taboado 2",
+    "UFV Aparecida III 1": "Aparecida 3",
+    "UFV Araçoiaba da Serra I 1": "Araçoiaba da Serra 1",
+    "UFV Araçoiaba da Serra I 2": "Araçoiaba da Serra 2",
+    "UFV Boa Esperança do Sul I 1": "Boa Esperança do Sul 1",
+    "UFV Boa Esperança do Sul I 2": "Boa Esperança do Sul 2",
+    "UFV Caxambu I 1": "Caxambu",
+    "UFV Goytacazes 1 1": "Goytacazes 1",
+    "UFV Guaratinguetá 5 1": "Guaratinguetá V",
+    "UFV Ibaté 1 1": "Ibaté 1",
+    "UFV Ibaté 2 1": "Ibaté 2",
+    "UFV Ipixuna 1 1": "Ipixuna 1",
+    "UFV Ipixuna 2 1": "Ipixuna 2",
+    "UFV Marajoara 1 1": "Marajoara 1",
+    "UFV Piracicaba 1 1": "Piracicaba 1",
+    "UFV Salto Pirapora 3 1": "Salto Pirapora 3",
+    "UFV Santa Bárbara 1 1": "Santa Bárbara I",
+    "UFV Santarem 1 1": "Santarém 1",
+    "UFV Santarem 1 2": "Santarém 2",
+    "UFV Santo Inácio 12 1": "Santo Inácio XII",
+    "UFV São Bento 5 1": "São Bento V",
+    "UFV Vargem Grande 1 1": "Vargem Grande 1",
+    "UFV Araci 1 1": "Araci 1",
+    "UFV Betânia 1 1": "Betânia 1",
+    "UFV Boa Viagem 2 1": "Boa Viagem 2 1",
+    "UFV Boa Viagem I 1": "Boa Viagem I 1",
+    "UFV Ceará Mirim I 1": "Ceará Mirim I 1",
+    "UFV Ceará Mirim I 2": "Ceará Mirim I 2",
+    "UFV Delmiro Gouvea 1 1": "Delmiro Gouvea 1",
+    "UFV Delmiro Gouvea 1 2": "Delmiro Gouvea 2",
+    "UFV Delmiro Gouvea 1 3": "Delmiro Gouvea 3",
+    "UFV Delmiro Gouvea 1 4": "Delmiro Gouvea 4",
+    "UFV Goytacazes 4 2": "Goytacazes 4 2",
+    "UFV Marajoara 2 1": "Marajoara 2 1",
+    "UFV Piancó 1 1": "Piancó 1",
+    "UFV Porteiras 1 1": "Porteiras 1",
+    "UFV Porto Real 2 1": "Porto Real 2 1",
+    "UFV Porto Real 3 1": "Porto Real 3",
+    "UFV Urupês 1 1": "Urupês 1",
+}
+# lookup robusto (caixa-insensível) aceitando tanto o nome do Budget ("UFV …") quanto o já
+# canônico — os Comentários Polaris usam o nome canônico ("Aparecida 3"), às vezes em CAIXA ALTA.
+_POLARIS_LOOKUP = {}
+for _k, _v in _POLARIS_NOME.items():
+    _POLARIS_LOOKUP[_k.lower()] = _v
+    _POLARIS_LOOKUP[_v.lower()] = _v
+
+
+def _polaris_budget_path():
+    """Budget Polaris mais recente (Budget_2025_UFVs_Raizen*.xlsx)."""
+    import glob
+    cands = glob.glob(os.path.join(_POLARIS_DIR, "Budget_2025_UFVs_Raizen*.xlsx"))
+    return max(cands, key=os.path.getmtime) if cands else None
+
+
+def _polaris_coments():
+    """{(usina, date): texto} a partir de 'Comentários Polaris.xlsx' (Tabela6)."""
+    out = {}
+    cpath = os.path.join(_POLARIS_DIR, "Comentários Polaris.xlsx")
+    if not os.path.exists(cpath):
+        return out
+    try:
+        wb = _open_wb(cpath, "polaris_coment_dash.xlsx")
+        ws = wb["Comentários"]
+        hdr, rows = _cols(_range_rows(ws, _ref_of(ws.tables["Tabela6"])))
+    except Exception:
+        return out
+    iU = _ci(hdr, "ufv"); iD = _ci(hdr, "data"); iC = _ci(hdr, "coment")
+    if None in (iU, iD, iC):
+        return out
+    for r in rows:
+        u = _POLARIS_LOOKUP.get(str(r[iU]).strip().lower()) if r[iU] else None
+        d = r[iD]
+        if isinstance(d, dt.datetime):
+            d = d.date()
+        elif not isinstance(d, dt.date):                  # a data às vezes vem como texto "dd/mm/aaaa"
+            try:
+                d = dt.datetime.strptime(str(d).strip(), "%d/%m/%Y").date()
+            except (ValueError, TypeError):
+                d = None
+        if u and d and r[iC]:
+            txt = str(r[iC]).strip()
+            out[(u, d)] = (out[(u, d)] + " | " + txt) if (u, d) in out else txt
+    return out
+
+
+def _polaris_records():
+    """{usina_canônica: [{data, ger, ipoa, disp, com}]} a partir do Budget Polaris, no MESMO
+    formato de `_daily_records`. Só o ano corrente (ANO), igual às abas diárias da Thopen.
+    Cache invalidado pelo mtime do Budget."""
+    path = _polaris_budget_path()
+    if not path:
+        return {}
+    m = os.path.getmtime(path)
+    cache = _state.get("polaris")
+    if cache and cache.get("mtime") == m:
+        return cache["recs"]
+    wb = _open_wb(path, "polaris_budget_dash.xlsx")
+
+    def wide(aba, tabela):
+        """Tabela larga (UFV 1 | UFV 2 | <datas…>) → {usina: {date: valor}}."""
+        ws = wb[aba]
+        rows = _range_rows(ws, _ref_of(ws.tables[tabela]))
+        if not rows:
+            return {}
+        header = rows[0]
+        coldate = []
+        for i in range(2, len(header)):
+            h = header[i]
+            d = h.date() if isinstance(h, dt.datetime) else (h if isinstance(h, dt.date) else None)
+            if d is None and h is not None:
+                try:
+                    d = dt.datetime.strptime(str(h).strip(), "%d/%m/%Y").date()
+                except ValueError:
+                    d = None
+            coldate.append((i, d))
+        out = {}
+        for r in rows[1:]:
+            usina = _POLARIS_LOOKUP.get(str(r[0]).strip().lower()) if r[0] else None
+            if not usina:
+                continue
+            s = out.setdefault(usina, {})
+            for i, d in coldate:
+                if d is None or d.year != ANO:
+                    continue
+                v = r[i]
+                if isinstance(v, (int, float)):
+                    s[d] = s.get(d, 0.0) + v
+        return out
+
+    ger = wide("Ger. Diaria", "GerDiaria")
+    irr = wide("Irradiancia Diaria", "IrradDiaria")
+    disp = wide("Disp. Diaria", "DispDiaria")
+    com = _polaris_coments()
+    recs = {}
+    for u in (set(ger) | set(irr) | set(disp)):
+        datas = sorted(set(ger.get(u, {})) | set(irr.get(u, {})) | set(disp.get(u, {})))
+        lst = [{
+            "data": d,
+            "ger": ger.get(u, {}).get(d),
+            "ipoa": irr.get(u, {}).get(d),
+            "disp": disp.get(u, {}).get(d),
+            "com": com.get((u, d)),
+        } for d in datas]
+        if lst:
+            recs[u] = lst
+    _state["polaris"] = {"mtime": m, "recs": recs}
+    return recs
+
+
 # ── Leitura por domínio ─────────────────────────────────────────────────────────
 def _daily_records(usina):
-    """Lista de {data(date), ger, ipoa, disp, com} da tabela diária da usina."""
+    """Lista de {data(date), ger, ipoa, disp, com}. Polaris vem do Budget; o resto, do
+    BD_Thopen (tabela diária da usina)."""
+    pol = _polaris_records()
+    if usina in pol:
+        return pol[usina]
     key = ("recs", usina)
     if key in _state["df"]:
         return _state["df"][key]
@@ -274,6 +438,11 @@ def _registro():
                 "cliente": r[iCli] if iCli is not None else None,
                 "pot_mwp": _num(r[iPot]) if iPot is not None else None,
             }
+    # Dado inconsistente no BD_Thopen: T_Usinas chama "Vargem Grande IB", mas meta/histórico/
+    # relatório usam "Vargem Grande 1" (o de-para do Power BI normaliza p/ "Vargem Grande 1").
+    # Alias p/ a potência/cadastro casar com o nome canônico que usamos.
+    if "Vargem Grande IB" in out:
+        out.setdefault("Vargem Grande 1", out["Vargem Grande IB"])
     _state["df"][("reg",)] = out
     return out
 
@@ -338,12 +507,54 @@ def _produzida_anual(usina):
 app = Flask(__name__)
 
 
+# ── Carteiras (cliente dono do portfólio) → usinas pelo NOME DE COLETA (coluna "Usina") ──────
+# De-para fixo aqui porque a coluna "Cliente" da aba "Dados Gerais Usinas" está vazia. Os nomes
+# usados pelo cliente ("UFV …", "Ouro Branco X - Y", "Aparecida III"…) foram casados com a coluna
+# de coleta via "Usina"/"Nome" do T_Usinas. Inclui usinas ainda NÃO coletadas (sem aba de dados):
+# elas só aparecem no botão quando passarem a ter dados — o frontend filtra pela lista disponível.
+CARTEIRAS = {
+    "Thopen": [
+        "Altair", "Alto Paraná 1", "Alto Paraná 2", "AP. do Taboado", "Areia Branca", "Aruanã",
+        "Barretos", "Bernardino de Campos", "Brodowski", "Canarana 1", "Canarana 2", "Ceilândia 1",
+        "Ceilândia 2", "Céu Azul", "Cidade Gaucha", "Colorado 1", "Colorado 2", "Coração 1",
+        "Coração 2", "Embu Guaçu", "Fazenda Limão", "Fernandópolis", "Indaiatuba", "Junco",
+        "Linhares", "Lyon", "Mandaguaçu", "Matão 1", "Matão 2", "Monte Aprazível", "Nova Iguaçu",
+        "Nova Londrina", "Paranavaí", "Parelhas", "Poconé 1", "Primavera", "Ribeirão Cascalheiras",
+        "Rodrigues", "Rondonópolis", "Sapopema", "Saturnino 1", "Senador", "Sitio Bonfim",
+        "Sitio dos Nogueiras", "Sorocaba", "Tanabi",
+    ],
+    "Copel": [
+        "Pharma II", "Pharma III", "Pharma IV", "Santo Antonio do Platina",
+        "Santo Antonio da Platina", "Sarandi", "Segredo",
+    ],
+    "Matrix": [
+        "Belo Jardim", "Caroá", "Inhapi", "Ouro Branco I", "Ouro Branco II", "Ouro Branco III",
+        "Ouro Branco IV", "Ouro Branco V", "Santana do Ipanema", "São Bento do Una", "Vertentes",
+    ],
+    "Polaris": [
+        "Aparecida do Taboado 1", "Aparecida do Taboado 2", "Aparecida 3", "Araci 1",
+        "Araçoiaba da Serra 1", "Araçoiaba da Serra 2", "Betânia 1", "Boa Esperança do Sul 1",
+        "Boa Esperança do Sul 2", "Boa Viagem 2 1", "Boa Viagem I 1", "Caxambu", "Ceará Mirim I 1",
+        "Ceará Mirim I 2", "Delmiro Gouvea 1", "Delmiro Gouvea 2", "Delmiro Gouvea 3",
+        "Delmiro Gouvea 4", "Goytacazes 1", "Goytacazes 4 2", "Guaratinguetá V", "Ibaté 1",
+        "Ibaté 2", "Ipixuna 1", "Ipixuna 2", "Marajoara 1", "Marajoara 2 1", "Piancó 1",
+        "Piracicaba 1", "Porteiras 1", "Porto Real 2 1", "Porto Real 3", "Salto Pirapora 3",
+        "Santa Bárbara I", "Santarém 1", "Santarém 2", "Santo Inácio XII", "São Bento V",
+        "Urupês 1", "Vargem Grande 1",
+    ],
+}
+CARTEIRA_ORDEM = ["Thopen", "Copel", "Matrix", "Polaris"]
+_CARTEIRA_DE = {u: c for c in CARTEIRA_ORDEM for u in CARTEIRAS[c]}  # usina -> carteira
+
+
 @app.route("/api/t/usinas")
 def usinas():
     _wb()
-    us = sorted(_state["daily"].keys())
+    us = sorted(set(_state["daily"].keys()) | set(_polaris_records().keys()))
     default = "Altair" if "Altair" in us else (us[0] if us else None)
-    return jsonify({"usinas": us, "default": default})
+    carteira_de = {u: _CARTEIRA_DE.get(u) for u in us}  # carteira de cada usina disponível
+    return jsonify({"usinas": us, "default": default,
+                    "carteiras": CARTEIRA_ORDEM, "carteira_de": carteira_de})
 
 
 @app.route("/api/t/overview")
@@ -388,6 +599,10 @@ def overview():
 
     pa = _produzida_anual(usina)
     prod2026 = sum(prod.values())
+    # Meta 2026 = meta acumulada (YTD) dos meses em que a usina gerou — espelha a medida DAX
+    # do Power BI (SUM(meta) WHERE Date <= mês) p/ usinas contínuas (casa exato c/ Altair).
+    # Acumula SÓ nos meses com produção de propósito: não cobra meta de meses em que a usina
+    # ainda não existia (usinas que entraram no meio do ano). Ver nota p/ alternar p/ calendário.
     meta2026_ytd = sum((meta.get(m, {}).get("meta") or 0) for m in prod)
     anual = [
         {"label": "Produzida 2023", "valor": pa.get("2023")},
@@ -457,6 +672,48 @@ def diario():
                     "meta_dia": meta_dia, "kpis": kpis, "comentarios": coment})
 
 
+def _resumo_usina(usina, ano, mes):
+    """Linha do resumo (Visão Geral) de uma usina num mês — espelha as medidas DAX:
+    Produzida/Meta/Irradiação/Disp do mês + FC = Produzida / (Pot_kWp × 24 × dias)."""
+    recs = [r for r in _daily_records(usina) if r["data"].year == ano and r["data"].month == mes]
+    gers = [r["ger"] for r in recs if r["ger"] is not None]
+    ipoas = [r["ipoa"] for r in recs if r["ipoa"] is not None]
+    disps = [r["disp"] for r in recs if r["disp"] is not None]
+    produzida = sum(gers) if gers else None
+    irr_med = sum(ipoas) if ipoas else None
+    disp = (sum(disps) / len(disps)) if disps else None
+    mt = _meta2026(usina).get(mes, {}) if ano == ANO else {}
+    meta, irr_esp = mt.get("meta"), mt.get("metairr")
+    pot_kwp = (_registro().get(usina, {}).get("pot_mwp") or 0) * 1000 or None
+    today = dt.date.today()
+    dias = today.day if (ano == today.year and mes == today.month) else monthrange(ano, mes)[1]
+    fc = (produzida / (pot_kwp * 24 * dias)) if (produzida is not None and pot_kwp) else None
+    dif_prod = ((produzida - meta) / meta) if (produzida is not None and meta) else None
+    dif_irr = ((irr_med - irr_esp) / irr_esp) if (irr_med and irr_esp) else None
+    return {"usina": usina, "pot_kwp": pot_kwp, "meta": meta, "produzida": produzida,
+            "dif_prod": dif_prod, "irr_esp": irr_esp, "irr_med": irr_med, "dif_irr": dif_irr,
+            "disp": disp, "fc": fc}
+
+
+@app.route("/api/t/geral")
+def geral():
+    """Resumo (Visão Geral) de uma CARTEIRA num mês de referência: 1 linha por usina em operação,
+    + a data de corte (p/ a capa). Espelha o relatório 'Performance UFVs - Geração'."""
+    carteira = request.args.get("carteira", "Thopen")
+    ano = int(request.args.get("ano", ANO))
+    mes = int(request.args.get("mes", dt.date.today().month))
+    _wb()
+    disponiveis = set(_state["daily"].keys()) | set(_polaris_records().keys())
+    nomes = sorted({u for u in CARTEIRAS.get(carteira, []) if u in disponiveis})
+    linhas = [r for r in (_resumo_usina(u, ano, mes) for u in nomes) if r["produzida"] is not None]
+    today = dt.date.today()
+    corte = (today if (ano == today.year and mes == today.month)
+             else dt.date(ano, mes, monthrange(ano, mes)[1]))
+    nome_carteira = next((c for c in CARTEIRA_ORDEM if c == carteira), carteira)
+    return jsonify({"carteira": nome_carteira, "ano": ano, "mes": mes,
+                    "corte": corte.strftime("%d/%m/%Y"), "linhas": linhas})
+
+
 @app.route("/api/t/reload")
 def reload_bd():
     """Força reler o BD_Thopen.xlsx (limpa o cache) — usado pelo botão Atualizar."""
@@ -464,6 +721,7 @@ def reload_bd():
         _state["wb"] = None
         _state["mtime"] = None
         _state["df"] = {}
+        _state["polaris"] = None   # força reler o Budget Polaris também
     _wb()  # recarrega agora (chamado FORA do lock — _wb() readquire o lock)
     return jsonify({"ok": True, "planilha_em": _planilha_em(),
                     "atualizado_em": dt.datetime.now().strftime("%H:%M:%S")})

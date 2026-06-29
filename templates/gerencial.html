@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grid Co. · Visão Gerencial de Performance</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --grafite:#191528;--ardosia:#504C63;--ardosia-tint:#BDBACA;
+  --verde:#A9DB21;--verde-dark:#5E7E12;--verde-soft:#F1F7DC;
+  --ink:#191528;--muted:#6E6A80;--faint:#9C99A8;
+  --line:#E6E4EC;--line-2:#CFCCD7;--bg:#FFFFFF;--bg-soft:#F7F6FA;--bg-app:#EEEDF2;
+  --ok:#5E7E12;--ok-soft:#F1F7DC;--warn:#B0791A;--warn-soft:#FBF1DA;--danger:#B23A2B;--danger-soft:#FAE8E5;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg-app);color:var(--ink);font-family:"Poppins",system-ui,sans-serif;font-size:13px;line-height:1.55}
+.num{font-variant-numeric:tabular-nums lining-nums}
+h1,h2,h3{font-weight:600;margin:0;letter-spacing:-.01em;color:var(--grafite)}
+a{color:var(--verde-dark);text-decoration:none}
+.topbar{display:flex;align-items:center;gap:16px;padding:13px 24px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30}
+.logo{font-weight:700;font-size:17px}.logo .g{color:var(--verde-dark)}.logo .c{color:var(--grafite)}
+.title{font-size:14px;color:var(--muted)}.title b{color:var(--grafite);font-weight:600}
+.spacer{flex:1}
+.back{font-size:12px;font-weight:600;padding:6px 13px;border:1px solid var(--line);border-radius:8px;color:var(--grafite)}
+.upd{font-size:11px;color:var(--faint)}
+.wrap{padding:18px 24px 48px;max-width:1320px;margin:0 auto}
+.note{font-size:11.5px;color:var(--muted);background:var(--verde-soft);border:1px solid #DDE9B8;border-radius:9px;padding:9px 13px;margin-bottom:14px}
+.note b{color:var(--grafite)}
+.scorecard{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:14px}
+.sc{background:#fff;border:1px solid var(--line);border-radius:13px;padding:14px 15px}
+.sc .l{font-size:11px;color:var(--muted)}
+.sc .v{font-size:25px;font-weight:600;margin-top:4px;letter-spacing:-.02em}
+.sc .v .u{font-size:12px;color:var(--faint);font-weight:500}
+.sc .tgt{font-size:10px;color:var(--faint);margin-top:3px}
+.sc.pend .v{color:var(--faint);font-size:15px;font-weight:500;margin-top:8px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 17px;margin-bottom:14px}
+.card h3{font-size:14px;margin-bottom:2px}.csub{font-size:11px;color:var(--faint);margin-bottom:13px}
+.row2{display:grid;grid-template-columns:1.4fr 1fr;gap:14px;align-items:start}
+.cols2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.mh{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px}
+.mlist{display:flex;flex-direction:column;gap:6px}
+.mrow{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:6px 9px;border-radius:8px;background:var(--bg-soft)}
+.mrow .nm{font-weight:500;color:var(--grafite)}.mrow .vv{font-weight:600}
+.barset{display:flex;flex-direction:column;gap:11px}
+.brow{display:grid;grid-template-columns:96px 1fr;align-items:center;gap:12px}
+.blab{font-size:11.5px}.blab .bt{font-weight:600;color:var(--grafite)}.blab .bs{font-size:9.5px;color:var(--faint)}
+.btrack{position:relative;height:30px;background:var(--bg-soft);border-radius:8px;overflow:hidden}
+.bfill{position:absolute;left:0;top:0;bottom:0;border-radius:8px;display:flex;align-items:center;justify-content:flex-end;padding-right:10px;font-weight:600;font-size:12px}
+.bfill.p50{background:var(--ardosia);color:#fff}.bfill.ger{background:var(--verde);color:#16140e}
+.reread{font-size:11.5px;background:var(--bg-soft);border-left:4px solid var(--verde);border-radius:8px;padding:10px 13px;margin-top:12px}
+.reread b{font-weight:600}.reread .clima{color:var(--ardosia);font-weight:600}.reread .perf{color:var(--verde-dark);font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;color:var(--muted);font-size:10px;letter-spacing:.04em;text-transform:uppercase;font-weight:600;padding:9px 10px;border-bottom:1.5px solid var(--line-2)}
+th.r,td.r{text-align:right}
+td{padding:9px 10px;border-bottom:1px solid var(--line)}td b{color:var(--grafite);font-weight:500}
+.bar{height:7px;border-radius:5px;background:var(--bg-soft);overflow:hidden;margin-top:3px}.bar i{display:block;height:100%}
+.cpos{color:var(--ok)}.cneg{color:var(--warn)}.cbad{color:var(--danger)}
+.tag{font-size:10px;padding:2px 9px;border-radius:6px;font-weight:500}
+.tag.ok{background:var(--ok-soft);color:var(--ok)}.tag.warn{background:var(--warn-soft);color:var(--warn)}.tag.danger{background:var(--danger-soft);color:var(--danger)}
+.foot{margin-top:20px;text-align:center;font-size:10.5px;color:var(--faint)}.foot b{color:var(--verde-dark)}
+@media(max-width:1080px){.scorecard{grid-template-columns:repeat(2,1fr)}.row2,.cols2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo"><span class="g">Grid</span><span class="c"> Co.</span></div>
+  <div class="title"><b>Visão Gerencial</b> · Performance do Portfólio</div>
+  <div class="spacer"></div>
+  <span class="upd" id="upd"></span>
+  <a class="back" href="/">← Dashboard</a>
+</div>
+<div class="wrap">
+  <div class="note" id="cov">Carregando…</div>
+  <div class="scorecard" id="scorecard"></div>
+
+  <div class="row2">
+    <div class="card">
+      <h3>Energia · Gerada × Meta (P50)</h3><div class="csub">Mês corrente até hoje · usinas do banco</div>
+      <div class="barset" id="eBars"></div>
+      <div class="reread" id="eRead"></div>
+    </div>
+    <div class="card">
+      <h3>Por cliente</h3><div class="csub">Atingimento e geração no mês</div>
+      <table id="segTable"><thead><tr><th>Cliente</th><th class="r">Usinas</th><th>Atingimento</th><th class="r">Gerada</th><th class="r">Na meta</th></tr></thead><tbody></tbody></table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="cols2">
+      <div><div class="mh" style="color:var(--ok)">★ Melhores (atingimento)</div><div class="mlist" id="best"></div></div>
+      <div><div class="mh" style="color:var(--danger)">⚠ Piores · exigem ação</div><div class="mlist" id="worst"></div></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Todas as usinas</h3><div class="csub">Geração × meta no mês · ordenado por atingimento</div>
+    <table id="allTable"><thead><tr><th>Usina</th><th>Cliente</th><th class="r">Gerada (MWh)</th><th class="r">Meta P50 (MWh)</th><th>Atingimento</th></tr></thead><tbody></tbody></table>
+  </div>
+
+  <div class="foot"><b>Grid Co.</b> · Visão Gerencial — Fatia 1 (atingimento). Decomposição clima×desempenho, PR, perdas, receita e risco contratual: próximas fatias.</div>
+</div>
+<script>
+const nf=(v,d=0)=>(v==null?'—':Number(v).toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d}));
+const fmtE=v=>v==null?'—':(v>=10000?nf(v/1000,1)+' GWh':nf(v,0)+' MWh');
+const atgCls=a=>a==null?'':a>=97?'cpos':a>=90?'cneg':'cbad';
+const atgTag=a=>a==null?'<span class="tag">—</span>':a>=97?'<span class="tag ok">Na meta</span>':a>=90?'<span class="tag warn">Atenção</span>':'<span class="tag danger">Abaixo</span>';
+
+function render(j){
+  const p=j.portfolio||{}, cov=j.cobertura||{};
+  document.getElementById('upd').textContent='atualizado '+(j.cache_ts||'');
+  document.getElementById('cov').innerHTML=`Mês <b>${j.mes||''}</b> (até hoje · ${Math.round((j.prorata||0)*100)}% do mês) · `+
+    `<b>${cov.com_match||0}</b> usinas do banco com geração · <b>${p.n_meta||0}</b> com meta. `+
+    `Recurso (clima×desempenho), PR e perdas/receita: <b>em calibração / próximas fatias</b>.`;
+  // scorecard
+  const sc=[
+    {l:'Atingimento (ger. ÷ P50)',v:p.atingimento!=null?nf(p.atingimento,1)+'%':'—',t:`sobre ${p.n_meta||0} usinas · meta 100%`},
+    {l:'Energia gerada (mês)',v:fmtE(p.prod),t:`${cov.com_match||0} usinas`},
+    {l:'Usinas dentro da meta',v:`${p.na_meta||0} / ${p.n_meta||0}`,t:'atingimento ≥ 95%'},
+    {l:'Meta P50 (mês, prorat.)',v:fmtE(p.p50),t:'PVsyst P50 até hoje'},
+  ];
+  let html=sc.map(s=>`<div class="sc"><div class="l">${s.l}</div><div class="v num">${s.v}</div><div class="tgt">${s.t}</div></div>`).join('');
+  html+=`<div class="sc pend"><div class="l">PR · Recurso (clima)</div><div class="v">em calibração<br><span style="font-size:10px">IPOA do banco sub-integrado</span></div></div>`;
+  document.getElementById('scorecard').innerHTML=html;
+  // energia
+  const P=p.p50||0,G=p.prod||0,mx=Math.max(P,G,1);
+  document.getElementById('eBars').innerHTML=
+    `<div class="brow"><div class="blab"><div class="bt">Meta P50</div><div class="bs">referência do projeto</div></div>`+
+    `<div class="btrack"><div class="bfill p50" style="width:${Math.max(12,P/mx*100)}%">${fmtE(P)}</div></div></div>`+
+    `<div class="brow"><div class="blab"><div class="bt">Gerada</div><div class="bs">energia entregue</div></div>`+
+    `<div class="btrack"><div class="bfill ger" style="width:${Math.max(12,G/mx*100)}%">${fmtE(G)}</div></div></div>`;
+  const falta=P>G?(P-G):0;
+  document.getElementById('eRead').innerHTML=p.atingimento!=null
+    ? `<b>Leitura:</b> o portfólio do banco gerou <b>${nf(p.atingimento,1)}%</b> do P50 no mês`+
+      (falta>0?`, faltando <b>${fmtE(falta)}</b> para a meta.`:` — acima da meta.`)+
+      ` <span style="color:var(--muted)">A separação entre <span class="clima">clima</span> e <span class="perf">desempenho</span> entra quando o IPOA estiver calibrado.</span>`
+    : 'Sem meta suficiente para leitura.';
+  // por cliente
+  document.querySelector('#segTable tbody').innerHTML=(j.clientes||[]).map(c=>
+    `<tr><td><b>${c.cliente||'—'}</b></td><td class="r num">${c.n}</td>`+
+    `<td><span class="num ${atgCls(c.atingimento)}">${nf(c.atingimento,1)}%</span>`+
+    `<div class="bar"><i style="width:${Math.min(100,c.atingimento||0)}%;background:#5E7E12"></i></div></td>`+
+    `<td class="r num">${fmtE(c.prod)}</td><td class="r num">${c.na_meta}/${c.n_meta}</td></tr>`).join('')
+    || '<tr><td colspan="5" style="color:var(--muted)">Sem dados.</td></tr>';
+  // melhores/piores
+  const ml=(arr)=>arr.map(u=>`<div class="mrow"><span class="nm">${u.usina}</span><span class="vv ${atgCls(u.atingimento)}">${nf(u.atingimento,1)}%</span></div>`).join('')||'<div class="mrow"><span class="nm">—</span></div>';
+  document.getElementById('best').innerHTML=ml(j.best||[]);
+  document.getElementById('worst').innerHTML=ml(j.worst||[]);
+  // todas
+  const us=(j.usinas||[]).filter(u=>u.atingimento!=null).sort((a,b)=>b.atingimento-a.atingimento);
+  document.querySelector('#allTable tbody').innerHTML=us.map(u=>
+    `<tr><td><b>${u.usina}</b></td><td>${u.cliente||'—'}</td><td class="r num">${nf(u.prod,1)}</td>`+
+    `<td class="r num">${nf(u.p50,1)}</td><td><span class="num ${atgCls(u.atingimento)}">${nf(u.atingimento,1)}%</span> ${atgTag(u.atingimento)}</td></tr>`).join('')
+    || '<tr><td colspan="5" style="color:var(--muted)">Sem dados.</td></tr>';
+}
+async function load(){
+  try{ const r=await fetch('/api/gerencial',{cache:'no-store'}); render(await r.json()); }
+  catch(e){ document.getElementById('cov').textContent='Falha ao carregar (/api/gerencial).'; }
+}
+load();
+</script>
+</body>
+</html>
