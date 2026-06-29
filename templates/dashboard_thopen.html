@@ -24,7 +24,32 @@
   .tab{ border:1px solid var(--line); background:#f4f5f7; color:var(--muted);
         padding:7px 16px; border-radius:8px; cursor:pointer; font-weight:600; }
   .tab.active{ background:var(--navy); color:#fff; border-color:var(--navy); }
+  .cgrp{ display:inline-flex; gap:6px; }
+  .cbtn{ border:1px solid var(--line); background:#f4f5f7; color:var(--muted); padding:6px 11px;
+         border-radius:8px; cursor:pointer; font-weight:600; font-size:12px; }
+  .cbtn.active{ background:var(--ora); color:#fff; border-color:var(--ora); }
+  .cbtn:disabled{ opacity:.4; cursor:not-allowed; }
   .fld{ margin-left:6px; }
+  /* Visão Geral — tabela de resumo por carteira */
+  table.geral{ font-size:12px; }
+  table.geral th{ background:#f4f3f8; color:#3a2540; font-weight:700; text-align:right; vertical-align:bottom; font-size:11px; }
+  table.geral th:first-child, table.geral td:first-child{ text-align:left; font-weight:600; }
+  table.geral td{ text-align:right; white-space:nowrap; }
+  table.geral tr.tot{ background:#eceef2; font-weight:800; }
+  table.geral tr.tot td{ border-top:2px solid #c9ccd3; }
+  /* Capa (réplica do slide de abertura) */
+  .capa{ position:relative; min-height:560px; background:#fff; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
+  .capa-bar{ position:absolute; left:0; top:0; bottom:0; width:170px; background:#8d8d8d; }
+  .capa-circle{ position:absolute; left:78px; top:50%; transform:translateY(-50%); width:210px; height:210px;
+    border-radius:50%; background:#FF3B5C; border:5px solid #9a9a9a; box-shadow:0 6px 16px rgba(0,0,0,.25);
+    display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:21px; text-align:center; line-height:1.35; }
+  .capa-main{ position:absolute; left:350px; right:48px; top:50%; transform:translateY(-50%); }
+  .capa-logo{ font-size:130px; font-weight:800; line-height:.95; letter-spacing:-2px;
+    background:linear-gradient(95deg,#FDB813 0%,#F7941E 38%,#EC1C5E 100%);
+    -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .capa-sub{ margin-top:22px; font-size:21px; font-weight:700; color:#2b2b2b; line-height:1.7; }
+  .capa-brand{ position:absolute; top:18px; right:26px; font-size:20px; font-weight:800; color:#444; }
+  .capa-brand b{ background:linear-gradient(90deg,#FDB813,#EC1C5E); -webkit-background-clip:text; background-clip:text; color:transparent; }
   .fld label{ font-size:10px; color:var(--muted); letter-spacing:1px; margin-right:6px; }
   select{ background:#fff; color:var(--txt); border:1px solid var(--line);
           border-radius:6px; padding:6px 8px; font-size:13px; }
@@ -73,9 +98,20 @@
     #topHeader{ display:none !important; }   /* cabeçalho da tela some; cada página tem o seu */
     .pgh{ display:flex !important; }          /* cabeçalho Grid Co./Thopen em TODA página */
     .wrap{ padding:4px 0 !important; }
-    #pageMensal,#pageDiario{ display:block !important; }
-    #pageDiario{ break-before:page; }
+    body.printing #pageMensal, body.printing #pageDiario{ display:block !important; }
+    body.printing #pageDiario{ break-before:page; }
+    /* Relatório da carteira (botão "PDF Carteira") via window.print(): imprime SÓ o #printArea */
+    body.reportprint #pageCapa, body.reportprint #pageGeral,
+    body.reportprint #pageMensal, body.reportprint #pageDiario{ display:none !important; }
+    body.reportprint #printArea{ display:block !important; }
+    #printArea > *{ break-after:page; }
+    #printArea > *:last-child{ break-after:auto; }
+    #printArea .wrap{ width:1400px; margin:0 auto; padding:4px 0; }
+    #printArea .pgh{ display:flex !important; }
   }
+  #printArea{ display:none; }
+  /* durante a montagem do relatório: #printArea fica medível (off-screen) pra calcular o fit-to-page */
+  body.building #printArea{ display:block; position:fixed; left:-10000px; top:0; width:1400px; background:#fff; }
   body.exporting #pageMensal, body.exporting #pageDiario{ display:block !important; }
 </style>
 </head>
@@ -86,14 +122,17 @@
   </div>
 
   <div class="toolbar">
+    <div class="tab" data-page="capa">Capa</div>
+    <div class="tab" data-page="geral">Visão Geral</div>
     <div class="tab active" data-page="mensal">Mensal</div>
     <div class="tab" data-page="diario">Diário</div>
-    <div class="fld"><label>USINA</label><select id="selUsina"></select></div>
+    <div class="fld" id="fldCarteira"><label>CARTEIRA</label><span id="carteiraBtns" class="cgrp"></span></div>
+    <div class="fld" id="fldUsina"><label>USINA</label><select id="selUsina"></select></div>
     <div class="fld hidden" id="fldMes"><label>ANO/MÊS</label><select id="selMes"></select></div>
     <div id="subinfo" style="margin-left:auto;color:var(--muted);font-size:12px;"></div>
     <button id="btnRefresh" title="Recarregar os dados da planilha (BD_Thopen.xlsx)">🔄 Atualizar</button>
     <button id="btnPdf" title="Baixar PDF — página 1 Mensal, página 2 Diário">⤓ Baixar PDF</button>
-    <button id="btnPdfAll" title="Gera 1 PDF com TODAS as usinas (Mensal + Diário de cada)">⤓ PDF Todas</button>
+    <button id="btnPdfAll" title="Monta o RELATÓRIO da carteira (Capa → Visão Geral → Mensal/Diário de cada usina) e abre a impressão — Salvar como PDF">⤓ PDF Carteira</button>
   </div>
 
   <!-- ───────────── PÁGINA MENSAL ───────────── -->
@@ -131,6 +170,40 @@
     </div>
   </div>
 
+  <!-- ───────────── PÁGINA VISÃO GERAL ───────────── -->
+  <div class="wrap hidden" id="pageGeral">
+    <div class="header pgh"><h1>Performance UFVs — Geração</h1><div class="brand"><div class="g">Grid Co.</div><div class="t">THOPEN</div></div></div>
+    <div class="sec">PERFORMANCE UFVs - <u>GERAÇÃO</u></div>
+    <div class="card">
+      <h3 id="geralTitulo" style="text-align:left">Resumo UFVs</h3>
+      <div style="overflow:auto"><table id="tblGeral" class="geral">
+        <thead><tr>
+          <th>Usina</th><th>Potência (kWp)</th><th>Meta (kWh)</th><th>Energia Produzida (kWh)</th>
+          <th>Diferença Produção (%)</th><th>Irradiação Esperada (kWh/m²)</th><th>Irradiação Medida (kWh/m²)</th>
+          <th>Diferença Irradiação (%)</th><th>Disponibilidade (%)</th><th>FC Medido (%)</th>
+        </tr></thead>
+        <tbody id="geralBody"></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- ───────────── CAPA ───────────── -->
+  <div class="wrap hidden" id="pageCapa">
+    <div class="capa">
+      <div class="capa-bar"></div>
+      <div class="capa-circle"><span>Geração<br>Distribuída<br>O&amp;M</span></div>
+      <div class="capa-main">
+        <div class="capa-logo">Thopen</div>
+        <div class="capa-sub">
+          <div id="capaL1">Relatório de geração – Usinas Polaris em operação</div>
+          <div id="capaL2">Data de corte: —</div>
+          <div id="capaL3">Mês de referência: —</div>
+        </div>
+      </div>
+      <div class="capa-brand">Grid Co. <b>Thopen</b></div>
+    </div>
+  </div>
+
 <script>
 const MES=['','Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
 const ORA='#FF3B0F', NAVY='#12239E';
@@ -150,29 +223,101 @@ function mix(c1,c2,t){
 }
 
 let OV=null;   // overview corrente
+let USINAS=[], CARTDE={}, CART=null, PAGE='mensal';   // usinas, usina->carteira, carteira ativa, página
+const MESNOME=['','Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
 // ---------- navegação ----------
 document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
   t.classList.add('active');
-  const p=t.dataset.page;
+  const p=t.dataset.page; PAGE=p;
   $('pageMensal').classList.toggle('hidden',p!=='mensal');
   $('pageDiario').classList.toggle('hidden',p!=='diario');
-  $('fldMes').classList.toggle('hidden',p!=='diario');
+  $('pageGeral').classList.toggle('hidden',p!=='geral');
+  $('pageCapa').classList.toggle('hidden',p!=='capa');
+  $('fldMes').classList.toggle('hidden', !(p==='diario'||p==='geral'||p==='capa'));
+  $('fldUsina').classList.toggle('hidden', p==='geral'||p==='capa');  // Geral/Capa são por CARTEIRA
+  if(p==='geral') renderGeral();
+  else if(p==='capa') renderCapa();
   // Redimensiona os gráficos da página recém-exibida. `void offsetWidth` força o reflow do
   // display:block ANTES do resize — senão o Plotly mede a largura-fallback (~700px) e, em telas
   // < ~1840px, o gráfico estoura o card. Rede de segurança: o .card tem overflow:hidden.
-  const ids = p==='diario' ? ['chDiario','chAcum','chAnual'] : ['chMensal'];
+  const ids = p==='diario' ? ['chDiario','chAcum','chAnual'] : (p==='mensal'?['chMensal']:[]);
   void document.body.offsetWidth;
   ids.forEach(id=>{const d=$(id); if(d&&d.data&&d.data.length) Plotly.Plots.resize(d);});
 });
 
 async function init(){
   const u=await get('/api/t/usinas');
-  $('selUsina').innerHTML=u.usinas.map(x=>`<option ${x===u.default?'selected':''}>${x}</option>`).join('');
+  USINAS=u.usinas||[]; CARTDE=u.carteira_de||{};
+  // botões de carteira — desabilita os que ainda não têm usina coletada
+  $('carteiraBtns').innerHTML=(u.carteiras||[]).map(c=>{
+    const n=USINAS.filter(x=>CARTDE[x]===c).length;
+    return `<button class="cbtn" data-cart="${c}" ${n?'':'disabled'} title="${n} usina(s) com dados">${c}</button>`;
+  }).join('');
+  document.querySelectorAll('.cbtn').forEach(b=>b.onclick=()=>setCarteira(b.dataset.cart));
   $('selUsina').onchange=loadUsina;
-  $('selMes').onchange=()=>{const[a,m]=$('selMes').value.split('-');renderDiario(+a,+m);};
+  $('selMes').onchange=()=>{const[a,m]=$('selMes').value.split('-');
+    if(PAGE==='geral') renderGeral();
+    else if(PAGE==='capa') renderCapa();
+    else { renderAnual(+m); renderDiario(+a,+m); }};
+  // carteira inicial = a da usina default (Altair → Thopen); fallback p/ 1ª carteira com dados
+  CART = CARTDE[u.default] || (u.carteiras||[]).find(c=>USINAS.some(x=>CARTDE[x]===c)) || null;
+  document.querySelectorAll('.cbtn').forEach(b=>b.classList.toggle('active', b.dataset.cart===CART));
+  preencheSelUsina(u.default);
   await loadUsina();
+}
+
+// preenche o seletor com as usinas da carteira ativa (ou todas se CART=null); mantém `sel` se der
+function preencheSelUsina(sel){
+  const lista = CART ? USINAS.filter(x=>CARTDE[x]===CART) : USINAS;
+  $('selUsina').innerHTML=lista.map(x=>`<option ${x===sel?'selected':''}>${x}</option>`).join('');
+  if(!lista.includes(sel) && lista.length) $('selUsina').value=lista[0];
+}
+
+// clique num botão de carteira: filtra o seletor de usinas e carrega a 1ª da carteira
+async function setCarteira(nome){
+  CART=nome;
+  document.querySelectorAll('.cbtn').forEach(b=>b.classList.toggle('active', b.dataset.cart===CART));
+  preencheSelUsina($('selUsina').value);
+  await loadUsina();
+  if(PAGE==='geral') renderGeral();
+  else if(PAGE==='capa') renderCapa();
+}
+
+// ---------- Visão Geral (resumo da carteira no mês de referência) ----------
+async function renderGeral(){
+  const mv=$('selMes').value; if(!mv) return;
+  const [a,m]=mv.split('-');
+  const d=await get(`/api/t/geral?carteira=${encodeURIComponent(CART||'Thopen')}&ano=${a}&mes=${m}`);
+  $('geralTitulo').textContent=`Resumo UFVs — ${d.carteira} — até ${d.corte}`;
+  const L=d.linhas;
+  const f=v=>v==null?'':nf2.format(v);
+  const pc=v=>v==null?'':(v*100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
+  const cls=v=>v==null?'':(v<0?'neg':'pos');
+  const row=r=>`<tr><td>${r.usina}</td><td>${f(r.pot_kwp)}</td><td>${f(r.meta)}</td><td>${f(r.produzida)}</td>`
+    +`<td class="${cls(r.dif_prod)}">${pc(r.dif_prod)}</td><td>${f(r.irr_esp)}</td><td>${f(r.irr_med)}</td>`
+    +`<td class="${cls(r.dif_irr)}">${pc(r.dif_irr)}</td><td>${pc(r.disp)}</td><td>${pc(r.fc)}</td></tr>`;
+  let html=L.map(row).join('');
+  const sMeta=L.reduce((s,r)=>s+(r.meta||0),0), sProd=L.reduce((s,r)=>s+(r.produzida||0),0);
+  const dv=L.filter(r=>r.disp!=null).map(r=>r.disp);
+  const dispA=dv.length?dv.reduce((x,y)=>x+y,0)/dv.length:null;
+  const difT=sMeta?(sProd-sMeta)/sMeta:null;
+  html+=`<tr class="tot"><td>Total</td><td></td><td>${f(sMeta)}</td><td>${f(sProd)}</td>`
+    +`<td class="${cls(difT)}">${pc(difT)}</td><td></td><td></td><td></td><td>${pc(dispA)}</td><td></td></tr>`;
+  $('geralBody').innerHTML=html;
+}
+
+// ---------- Capa ----------
+function renderCapa(){
+  const carteira=CART||'Thopen', hoje=new Date();
+  const mv=$('selMes').value || (hoje.getFullYear()+'-'+(hoje.getMonth()+1));
+  const [a,m]=mv.split('-').map(Number);
+  const ult=new Date(a, m, 0).getDate();   // último dia do mês de referência
+  const corte=(a===hoje.getFullYear() && m===hoje.getMonth()+1) ? hoje.getDate() : ult;
+  $('capaL1').textContent=`Relatório de geração – Usinas ${carteira} em operação`;
+  $('capaL2').textContent=`Data de corte: ${String(corte).padStart(2,'0')}/${String(m).padStart(2,'0')}/${a}`;
+  $('capaL3').textContent=`Mês de referência: ${MESNOME[m]}/${a}`;
 }
 
 async function loadUsina(){
@@ -185,37 +330,47 @@ async function loadUsina(){
   $('subinfo').textContent=(OV.cliente?('Cliente: '+OV.cliente+'  ·  '):'')
       +(OV.potencia_mwp?(nf2.format(OV.potencia_mwp)+' MWp'):'')+(loc?('  ·  '+loc):'')
       +(OV.planilha_em?('  ·  Planilha: '+OV.planilha_em):'');
-  renderMensal(); renderAnual();
+  renderMensal();
   // popula AnoMês (mais recente primeiro) e abre o último
   const per=OV.periodos.slice().reverse();
   $('selMes').innerHTML=per.map(p=>`<option value="${p.ano}-${p.mes}">${String(p.mes).padStart(2,'0')}/${p.ano}</option>`).join('');
-  if(per.length){ $('selMes').value=`${per[0].ano}-${per[0].mes}`; renderDiario(per[0].ano,per[0].mes); }
+  if(per.length){ $('selMes').value=`${per[0].ano}-${per[0].mes}`; renderAnual(per[0].mes); renderDiario(per[0].ano,per[0].mes); }
+  else { renderAnual(); }
 }
 
 // ---------- página mensal ----------
 function renderMensal(){
   const m=OV.meses, x=m.map(r=>MES[r.mes]);
+  // só mostra um ano histórico (gráfico+legenda+tabela) se tiver ao menos 1 mês com dado
+  const has23=m.some(r=>r.produzida_2023!=null);
+  const has24=m.some(r=>r.produzida_2024!=null);
+  const has25=m.some(r=>r.produzida_2025!=null);
   const prod23={x,y:m.map(r=>r.produzida_2023),type:'bar',name:'Produzida (2023)',marker:{color:'#f6ae2d'}};
   const prod24={x,y:m.map(r=>r.produzida_2024),type:'bar',name:'Produzida (2024)',marker:{color:'#287baa'}};
   const prod25={x,y:m.map(r=>r.produzida_2025),type:'bar',name:'Produzida (2025)',marker:{color:'#24a768'}};
   const prod={x,y:m.map(r=>r.produzida),type:'bar',name:'Produzida (2026)',marker:{color:ORA}};
   const meta={x,y:m.map(r=>r.meta),type:'bar',name:'Meta (2026)',marker:{color:NAVY}};
+  const traces=[];
+  if(has23) traces.push(prod23);
+  if(has24) traces.push(prod24);
+  if(has25) traces.push(prod25);
+  traces.push(prod, meta);
   const lay=Object.assign({},BASE,{barmode:'group',
     legend:{orientation:'h',x:0.5,xanchor:'center',y:-0.12},
     yaxis:{title:'Energia (MWh)',gridcolor:'#eceef2',zeroline:false},
     xaxis:{gridcolor:'#fff'}});
-  Plotly.react('chMensal',[prod23,prod24,prod25,prod,meta],lay,CFG);
+  Plotly.react('chMensal',traces,lay,CFG);
 
   const linhas=[
-    ['Meta (2026)',      r=>r.meta==null?'—':nf2.format(r.meta), null],
+    has23 && ['Produzida (2023)', r=>r.produzida_2023==null?'—':nf2.format(r.produzida_2023), null],
+    has24 && ['Produzida (2024)', r=>r.produzida_2024==null?'—':nf2.format(r.produzida_2024), null],
+    has25 && ['Produzida (2025)', r=>r.produzida_2025==null?'—':nf2.format(r.produzida_2025), null],
     ['Produzida (2026)', r=>r.produzida==null?'—':nf2.format(r.produzida), null],
-    ['Produzida (2025)', r=>r.produzida_2025==null?'—':nf2.format(r.produzida_2025), null],
-    ['Produzida (2024)', r=>r.produzida_2024==null?'—':nf2.format(r.produzida_2024), null],
-    ['Produzida (2023)', r=>r.produzida_2023==null?'—':nf2.format(r.produzida_2023), null],
+    ['Meta (2026)',      r=>r.meta==null?'—':nf2.format(r.meta), null],
     ['Diferença (%)',    r=>pct(r.dif), r=>r.dif==null?'':(r.dif<0?'neg':'pos')],
     ['FC Meta (2026)',   r=>pct(r.fc_meta), null],
     ['FC Real (2026)',   r=>pct(r.fc_real), null],
-  ];
+  ].filter(Boolean);
   let html='<thead><tr><th>Tipo</th>'+m.map(r=>`<th>${MES[r.mes]}</th>`).join('')+'</tr></thead><tbody>';
   for(const [nome,fn,cls] of linhas){
     html+='<tr><td>'+nome+'</td>'+m.map(r=>{
@@ -225,23 +380,42 @@ function renderMensal(){
   $('tblMensal').innerHTML=html+'</tbody>';
 }
 
-function renderAnual(){
+function renderAnual(selMes){
   // cor POR RÓTULO (continua certa mesmo escondendo barras)
   const COR={'Produzida 2023':'#f6ae2d','Produzida 2024':'#287baa','Produzida 2025':'#24a768',
              'Meta 2026':'#12239E','Produzida 2026':'#FF3B0F'};
+  // Igual ao Power BI: o ano corrente (2026) ACUMULA só até o MÊS SELECIONADO (anos passados ficam
+  // cheios). Meta/Produzida 2026 = soma Jan→selMes dos meses COM produção (mesma régua do backend,
+  // p/ não cobrar meta de mês sem usina). OV.meses está em MWh; OV.anual em kWh → ×1000.
+  let m26=null, p26=null;
+  if(selMes!=null && OV.meses){
+    let sm=0, sp=0;
+    for(const r of OV.meses){
+      if(r.mes<=selMes && r.produzida!=null){ sp+=r.produzida; if(r.meta!=null) sm+=r.meta; }
+    }
+    m26=sm*1000; p26=sp*1000;   // pode ser 0 (mês anterior à entrada em operação)
+  }
+  const anual=OV.anual.map(d=>{
+    if(d.label==='Meta 2026' && m26!=null) return {label:d.label, valor:m26};
+    if(d.label==='Produzida 2026' && p26!=null) return {label:d.label, valor:p26};
+    return d;
+  });
   // esconde barras com valor nulo/zero — EXCETO Meta 2026 e Produzida 2026 (sempre aparecem)
   const fixos=['Meta 2026','Produzida 2026'];
-  const a=OV.anual.filter(d=>fixos.includes(d.label)||(d.valor!=null&&d.valor>0)).slice().reverse();
+  const a=anual.filter(d=>fixos.includes(d.label)||(d.valor!=null&&d.valor>0)).slice().reverse();
   const y=a.map(d=>d.label), xv=a.map(d=>d.valor||0);
   const cores=a.map(d=>COR[d.label]||'#9aa0a6');
   const tr={y,x:xv,type:'bar',orientation:'h',marker:{color:cores},
     text:a.map(d=>d.valor==null?'':nf0.format(d.valor)),textposition:'outside',
     textfont:{size:9},cliponaxis:false};
-  const lay=Object.assign({},BASE,{margin:{l:130,r:60,t:8,b:24},bargap:0.32,
+  const H=a.length*44+32;
+  const lay=Object.assign({},BASE,{height:H,margin:{l:130,r:60,t:8,b:24},bargap:0.32,
     xaxis:{gridcolor:'#eceef2',zeroline:false},
     yaxis:{automargin:true,tickfont:{size:10},ticks:'outside',ticklen:8,tickcolor:'rgba(0,0,0,0)'}});
-  // grossura FIXA: altura do gráfico ∝ nº de barras (~44px/barra, como na versão de 5 barras)
-  document.getElementById('chAnual').style.height=(a.length*44+32)+'px';
+  // altura FIXA no LAYOUT (∝ nº de barras) — sem isso, ao trocar de usina (muda o nº de barras) o
+  // Plotly mantinha a altura VELHA (clientHeight defasado antes do reflow) e o gráfico saía cortado
+  // pelo card (que tem overflow:hidden). Com height no layout, o Plotly não precisa medir o div.
+  document.getElementById('chAnual').style.height=H+'px';
   Plotly.react('chAnual',[tr],lay,CFG);
 }
 
@@ -254,7 +428,7 @@ async function renderDiario(ano,mes){
   const ticktext=d.pontos.map(p=>p.dia+'<br><span style="font-size:9px;color:'+(p.com?DOT:'rgba(0,0,0,0)')+'">●</span>');
   const gers=d.pontos.map(p=>p.ger||0);
   const mn=Math.min(...gers), mx=Math.max(...gers), rng=(mx-mn)||1;
-  const cores=gers.map(g=>mix('#F4C20D','#9E1B32',(g-mn)/rng));  // baixo=amarelo, alto=vermelho
+  const cores=gers.map(g=>mix('#FFDD1F','#FF484C',(g-mn)/rng));  // baixo=#FFDD1F (amarelo), alto=#FF484C (vermelho)
   const bars={x,y:d.pontos.map(p=>p.ger),type:'bar',name:'Energia Produzida (kWh)',
     marker:{color:cores}};
   const irr={x,y:d.pontos.map(p=>p.ipoa),type:'scatter',mode:'lines',name:'Irradiação (kWh/m²)',
@@ -327,7 +501,7 @@ async function printAllUsinas(){
   const btn=$('btnPdfAll'), old=btn.textContent;
   const sel=$('selUsina'), orig=sel.value, origMes=$('selMes').value;
   const usinas=[...sel.options].map(o=>o.value); if(!usinas.length) return;
-  if(!confirm('Gerar 1 PDF com TODAS as usinas ('+usinas.length+')? São ~'+(usinas.length*2)+' páginas e leva 1–3 min.')) return;
+  if(!confirm('Gerar 1 PDF com as '+usinas.length+' usinas da carteira "'+(CART||'todas')+'"? São ~'+(usinas.length*2)+' páginas e leva 1–3 min.')) return;
   btn.disabled=true; $('btnPdf').disabled=true;
   document.body.classList.add('exporting'); document.body.classList.add('printing');  // printing = limita .wrap a 1400px → gráficos cabem
   const {jsPDF}=window.jspdf; const pdf=new jsPDF('l','mm','a4');
@@ -337,7 +511,7 @@ async function printAllUsinas(){
       sel.value=usinas[i]; await loadUsina(); await sleep(400);
       await _capUsinaPDF(pdf, i===0);
     }
-    pdf.save('Performance_TODAS_'+((OV&&OV.ano)||'')+'.pdf');
+    pdf.save('Performance_'+(CART||'TODAS')+'_'+((OV&&OV.ano)||'')+'.pdf');
   }catch(e){ console.error('Falha PDF todas',e); alert('Falha ao gerar PDF de todas: '+(e&&e.message||e)); }
   finally{
     document.body.classList.remove('exporting'); document.body.classList.remove('printing');
@@ -345,7 +519,79 @@ async function printAllUsinas(){
     btn.disabled=false; $('btnPdf').disabled=false; btn.textContent=old;
   }
 }
-$('btnPdfAll').onclick=printAllUsinas;
+
+// ───── Relatório COMPLETO da carteira: Capa → Visão Geral → Mensal/Diário de CADA usina ─────
+// via window.print() (Ctrl+P): texto/tabelas VETORIAIS + gráficos como PNG nítido (não mantém
+// dezenas de gráficos Plotly vivos ao mesmo tempo, o que travaria o browser).
+// escala uma página do relatório pra caber em 1 folha A4 paisagem (mede off-screen via body.building)
+function _fitPage(wrap, budget){
+  const inner=document.createElement('div');
+  while(wrap.firstChild) inner.appendChild(wrap.firstChild);
+  wrap.appendChild(inner);
+  const h=inner.scrollHeight;
+  if(h>budget){
+    const s=budget/h;
+    inner.style.transformOrigin='top left'; inner.style.transform='scale('+s+')';
+    inner.style.width=(100/s)+'%';
+    wrap.style.height=Math.ceil(h*s)+'px'; wrap.style.overflow='hidden';
+  }
+}
+async function _snapPage(wrapEl){
+  const clone=wrapEl.cloneNode(true);
+  clone.classList.remove('hidden'); clone.removeAttribute('id');
+  // congela o nome da usina no clone — senão o loadUsina das próximas usinas reescreve TODOS os
+  // .u-nome do documento (incl. os já clonados) e todas as páginas ficam com a última usina.
+  clone.querySelectorAll('.u-nome').forEach(e=>e.classList.remove('u-nome'));
+  const orig=[...wrapEl.querySelectorAll('.js-plotly-plot')];
+  const clones=[...clone.querySelectorAll('.js-plotly-plot')];
+  for(let i=0;i<orig.length;i++){
+    const d=orig[i], r=d.getBoundingClientRect();
+    if(!d.data||!d.data.length||r.width<2||r.height<2) continue;
+    const url=await Plotly.toImage(d,{format:'png',width:Math.round(r.width),height:Math.round(r.height),scale:2});
+    const img=document.createElement('img');
+    img.src=url; img.style.cssText='display:block;width:100%;height:100%;object-fit:fill';
+    clones[i].innerHTML=''; clones[i].style.flex='none'; clones[i].style.height=Math.round(r.height)+'px';
+    clones[i].appendChild(img);
+  }
+  return clone;
+}
+async function printRelatorioCarteira(){
+  const sel=$('selUsina'), orig=sel.value, origMes=$('selMes').value;
+  const usinas=[...sel.options].map(o=>o.value); if(!usinas.length){ alert('Carteira sem usinas com dados.'); return; }
+  if(!confirm('Montar o relatório da carteira "'+(CART||'')+'" — Capa + Visão Geral + Mensal/Diário de '+usinas.length+' usinas ('+(usinas.length*2+2)+' págs) e abrir a impressão? Leva ~1–3 min.')) return;
+  const btn=$('btnPdfAll'), old=btn.textContent; btn.disabled=true; $('btnPdf').disabled=true;
+  document.body.classList.add('printing','exporting','building');   // captura a 1400px + #printArea medível (fit-to-page)
+  let prt=$('printArea'); if(!prt){ prt=document.createElement('div'); prt.id='printArea'; document.body.appendChild(prt); }
+  prt.innerHTML='';
+  const ra=origMes?origMes.split('-')[0]:null, rm=origMes?origMes.split('-')[1]:null;
+  try{
+    renderCapa(); await sleep(80); prt.appendChild(await _snapPage($('pageCapa')));
+    await renderGeral(); await sleep(80); const _geralPg=await _snapPage($('pageGeral')); prt.appendChild(_geralPg);
+    for(let i=0;i<usinas.length;i++){
+      btn.textContent='Montando '+(i+1)+'/'+usinas.length+'…';
+      sel.value=usinas[i]; await loadUsina();
+      if(ra && [...$('selMes').options].some(o=>o.value===origMes)){ $('selMes').value=origMes; renderAnual(+rm); renderDiario(+ra,+rm); }
+      await sleep(380);
+      prt.appendChild(await _snapPage($('pageMensal')));
+      prt.appendChild(await _snapPage($('pageDiario')));
+    }
+    _fitPage(_geralPg,1015);   // garante a Visão Geral em 1 página A4 (escala só se a carteira tiver MUITAS usinas)
+    document.body.classList.remove('printing','exporting','building');
+    document.body.classList.add('reportprint');
+    window.__titulo=document.title;
+    document.title='Relatorio_'+((CART||'Carteira')+'').replace(/\s+/g,'_')+(rm?('_'+(MESNOME[+rm]||rm)):'')+(ra?('_'+ra):'');
+    await sleep(120);
+    window.print();
+  }catch(e){ console.error('Falha relatório',e); alert('Falha ao montar o relatório: '+(e&&e.message||e)); }
+  finally{
+    document.body.classList.remove('reportprint','printing','exporting','building');
+    if(window.__titulo) document.title=window.__titulo;
+    if(prt) prt.innerHTML='';
+    sel.value=orig; try{ await loadUsina(); if(origMes){const p=origMes.split('-'); renderAnual(+p[1]); renderDiario(+p[0],+p[1]);} }catch(e){}
+    btn.disabled=false; $('btnPdf').disabled=false; btn.textContent=old;
+  }
+}
+$('btnPdfAll').onclick=printRelatorioCarteira;
 
 // Impressão (botão e Ctrl+P) em A4 paisagem: mostra as 2 páginas, redimensiona os gráficos
 // e define um nome de arquivo bom no "Salvar como PDF".
@@ -368,11 +614,11 @@ async function refreshBD(){
   try{
     await get('/api/t/reload');                  // backend relê o xlsx (limpa cache)
     const u=await get('/api/t/usinas');          // lista de usinas (caso tenha entrado nova)
-    $('selUsina').innerHTML=u.usinas.map(x=>`<option ${x===usinaAtual?'selected':''}>${x}</option>`).join('');
-    if(![...$('selUsina').options].some(o=>o.value===usinaAtual) && u.default) $('selUsina').value=u.default;
+    USINAS=u.usinas||[]; CARTDE=u.carteira_de||{};
+    preencheSelUsina(usinaAtual);                // respeita a carteira ativa
     await loadUsina();                           // re-busca overview + diário e re-renderiza
     if(mesAtual && [...$('selMes').options].some(o=>o.value===mesAtual)){
-      $('selMes').value=mesAtual; const p=mesAtual.split('-'); renderDiario(+p[0],+p[1]);
+      $('selMes').value=mesAtual; const p=mesAtual.split('-'); renderAnual(+p[1]); renderDiario(+p[0],+p[1]);
     }
   }catch(e){ alert('Falha ao atualizar: '+(e&&e.message||e)); }
   finally{ btn.disabled=false; btn.textContent=old; }

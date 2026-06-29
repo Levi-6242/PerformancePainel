@@ -128,6 +128,15 @@
     }
     .gc-btn-refresh:hover { background: var(--green-h) }
     .gc-btn-refresh:active { transform: scale(.97) }
+    .gc-btn-macro {
+      background: rgba(255,255,255,.10); color: #fff; border: 1px solid rgba(255,255,255,.28);
+      border-radius: var(--radius2); padding: 6px 14px; font-weight: 700; font-size: 12px;
+      cursor: pointer; font-family: 'Inter', sans-serif; text-decoration: none;
+      letter-spacing: .02em; display: flex; align-items: center; gap: 5px;
+      transition: background .15s, transform .1s;
+    }
+    .gc-btn-macro:hover { background: rgba(255,255,255,.22) }
+    .gc-btn-macro:active { transform: scale(.97) }
 
     /* ── HERO ────────────────────────────────────────────────────────────── */
     .gc-hero {
@@ -735,6 +744,10 @@
     <span class="gc-live"><span class="gc-live-dot"></span>Live</span>
   </div>
   <div class="gc-nav-right">
+    <a class="gc-btn-macro" href="/gerencial" target="gridco-gerencial" rel="noopener"
+       title="Visão Gerencial — atingimento (gerada ÷ P50) por usina e cliente">Gerencial</a>
+    <a class="gc-btn-macro" href="/macro" target="gridco-macro" rel="noopener"
+       title="Visão Macro do portfólio — o que está ruim em todas as usinas + causa provável">Macro</a>
     <span class="gc-ts" id="last-update">Atualizado às <strong id="update-time"></strong></span>
     <button class="gc-btn-refresh" onclick="atualizarTudo()">↻ Atualizar</button>
   </div>
@@ -747,6 +760,12 @@
   <span style="opacity:.6;margin-left:6px">▾</span>
 </div>
 <div id="tokPanel" style="display:none;background:#161616;color:#ddd;padding:10px 18px;font-size:12px;line-height:1.9;border-bottom:1px solid #333"></div>
+
+<!-- ▸ ALERTA: usina com TODOS os trackers parados há mais de 2h (a partir das 9h) -->
+<div id="trkParadaBanner" style="display:none;background:#b91c1c;color:#fff;padding:8px 14px;font-size:13px;font-weight:600;text-align:center;border-bottom:1px solid #7f1d1d;letter-spacing:.2px">
+  <span id="trkParadaMsg" style="cursor:pointer" onclick="trkParadaGo()"></span>
+  <span onclick="trkParadaDismiss()" title="Dispensar" style="cursor:pointer;margin-left:14px;opacity:.85;font-weight:700">✕</span>
+</div>
 
 <!-- ▸ HERO + PRIMARY TABS -->
 <div class="gc-hero">
@@ -1245,6 +1264,12 @@
 
   <!-- SUNOP · TRACKERS -->
   <div id="panel-sunop-trackers" style="display:none">
+    <div id="trk-subtabs" style="display:none;gap:6px;margin-bottom:12px">
+      <button class="gc-btn-sm" id="trk-sub-live" onclick="trkSubtab('live')" style="display:inline-block;background:#1a1b2e;color:#fff">Tempo real</button>
+      <button class="gc-btn-sm" id="trk-sub-ev" onclick="trkSubtab('eventos')" style="display:inline-block">Ocorrências (travou → voltou)</button>
+      <button class="gc-btn-sm" id="trk-sub-par" onclick="trkSubtab('parados')" style="display:inline-block">Trackers parados (agora)</button>
+    </div>
+   <div id="trk-live-view">
     <div id="trk-load" class="gc-loading">
       <div class="gc-spinner"></div>
       <p>Consultando trackers (SunOp)...</p>
@@ -1253,8 +1278,8 @@
       <div class="gc-stats gc-stats-4">
         <div class="gc-stat blue">  <div class="gc-stat-icon">🛰️</div><div class="gc-stat-body"><div class="n" id="trk-usinas">—</div><div class="l">Usinas c/ tracker</div></div></div>
         <div class="gc-stat green"> <div class="gc-stat-icon">📐</div><div class="gc-stat-body"><div class="n" id="trk-total">—</div><div class="l">Trackers</div></div></div>
-        <div class="gc-stat red">   <div class="gc-stat-icon">⚠️</div><div class="gc-stat-body"><div class="n" id="trk-sev">—</div><div class="l">Disparidade severa</div></div></div>
-        <div class="gc-stat yellow"><div class="gc-stat-icon">↪️</div><div class="gc-stat-body"><div class="n" id="trk-leve">—</div><div class="l">Disparidade leve</div></div></div>
+        <div class="gc-stat red">   <div class="gc-stat-icon">⚠️</div><div class="gc-stat-body"><div class="n" id="trk-sev">—</div><div class="l">Parado</div></div></div>
+        <div class="gc-stat yellow"><div class="gc-stat-icon">↪️</div><div class="gc-stat-body"><div class="n" id="trk-leve">—</div><div class="l">Desvio</div></div></div>
       </div>
       <div id="trk-novos-banner" style="display:none;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:13px">
         <b style="color:#b91c1c">⚠️ <span id="trk-novos-n">0</span> tracker(s) em alerta FORA da planilha de Tickets</b>
@@ -1265,21 +1290,66 @@
         <div class="gc-table-hdr">
           <span class="gc-table-title"><span id="trk-title-src">SunOp</span> — Trackers por Usina <small>— clique para expandir; disparidade = |alvo − atual|</small></span>
           <span class="etm-legend">
-            <span><span style="color:#ef4444;font-size:13px">●</span> severo &gt;10°</span>
-            <span><span style="color:#f59e0b;font-size:13px">●</span> leve &gt;5°</span>
-            <span><span style="color:#3b82f6;font-size:13px">●</span> fora da linha</span>
+            <span><span style="color:#ef4444;font-size:13px">●</span> parado &gt;10°</span>
+            <span><span style="color:#f59e0b;font-size:13px">●</span> desvio &gt;5°</span>
+            <span><span style="color:#3b82f6;font-size:13px">●</span> atrasado</span>
           </span>
         </div>
         <div class="gc-table-wrap">
           <table>
             <thead><tr>
-              <th>Usina</th><th>Trackers</th><th>Severos</th><th>Leves</th><th>Fora da linha</th><th title="Normais no tempo real, mas ainda como Parado/Com problema na planilha de Tickets">Normalizados</th><th title="média de |alvo − atual| de todos os trackers ao longo do dia (janela 9h–15h)">Desvio médio</th><th>Última Leitura</th><th>Status</th>
+              <th>Usina</th><th>Trackers</th><th>Parado</th><th>Desvio</th><th>Atrasado</th><th title="% de trackers em estado normal (sem alerta). Quanto mais alto, melhor.">Disponibilidade</th><th title="Normais no tempo real, mas ainda como Parado/Com problema na planilha de Tickets">Normalizados</th><th title="média de |alvo − atual| de todos os trackers ao longo do dia (janela 9h–15h)">Desvio médio</th><th>Última Leitura</th><th>Status</th>
             </tr></thead>
             <tbody id="trk-tbody"></tbody>
           </table>
         </div>
       </div>
     </div>
+   </div><!-- /trk-live-view -->
+
+   <!-- TRACKERS · OCORRÊNCIAS (travou → voltou) — só API PV -->
+   <div id="trk-ev-view" style="display:none">
+     <div class="gc-table-card">
+       <div class="gc-table-hdr" style="flex-wrap:wrap;gap:8px">
+         <span class="gc-table-title">Ocorrências de trackers — travou &rarr; voltou <small>— por dia, desde 01/06; tracker individual travado enquanto a usina gira; falha de comunicação na maior parte do período é ignorada</small></span>
+         <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+           <input type="search" id="trk-ev-usina" placeholder="filtrar usina…" oninput="_trkEvAplicaFiltro()" style="font-size:11px;padding:3px 8px;border:1px solid #d1d5db;border-radius:5px;width:160px">
+           <label style="font-size:11px;color:var(--muted)">Dia <input type="date" id="trk-ev-dia" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
+           <button class="gc-btn-sm" style="display:inline-block" onclick="loadTrkEventos()">Filtrar</button>
+           <button class="gc-btn-sm" style="display:inline-block;background:#16a34a;color:#fff" onclick="trkEvExport()">Exportar CSV</button>
+           <button class="gc-btn-sm" id="trk-ev-gerar" style="display:inline-block;background:#7c3aed;color:#fff" onclick="trkEvGerar()">Gerar/Atualizar histórico</button>
+         </span>
+       </div>
+       <div id="trk-ev-prog" style="display:none;padding:8px 14px;font-size:12px;color:#6b21a8;background:#faf5ff;border-bottom:1px solid #eee"></div>
+       <div class="gc-table-wrap">
+         <table>
+           <thead><tr><th>Data</th><th>Usina</th><th>Tracker</th><th>Inversor</th><th>Parada</th><th>Retorno</th><th>Duração</th></tr></thead>
+           <tbody id="trk-ev-tbody"></tbody>
+         </table>
+       </div>
+     </div>
+   </div>
+
+   <!-- TRACKERS · PARADOS AGORA — só API PV -->
+   <div id="trk-par-view" style="display:none">
+     <div class="gc-table-card">
+       <div class="gc-table-hdr" style="flex-wrap:wrap;gap:8px">
+         <span class="gc-table-title">Trackers parados agora <small>— lista flat de todos os trackers classificados como "parado" no momento; inversor pelo BD_Trackers</small></span>
+         <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+           <input type="search" id="trk-par-usina" placeholder="filtrar usina…" oninput="_trkParAplicaFiltro()" style="font-size:11px;padding:3px 8px;border:1px solid #d1d5db;border-radius:5px;width:160px">
+           <span id="trk-par-resumo" style="font-size:11px;color:var(--muted)"></span>
+           <button class="gc-btn-sm" style="display:inline-block;background:#16a34a;color:#fff" onclick="trkParadaRonda()" title="Gera o texto da ronda (resetar trackers) pronto p/ colar no grupo — respeita o filtro de usina">Gerar ronda</button>
+           <button class="gc-btn-sm" style="display:inline-block" onclick="loadTrkParados()">Atualizar</button>
+         </span>
+       </div>
+       <div class="gc-table-wrap">
+         <table>
+           <thead><tr><th>Usina</th><th>Tracker</th><th>Inversor</th><th>Ângulo atual</th><th>Alvo</th><th>Disparidade</th><th>Amplitude do dia</th><th>Parado desde</th><th>Tickets</th><th>Última leitura</th></tr></thead>
+           <tbody id="trk-par-tbody"></tbody>
+         </table>
+       </div>
+     </div>
+   </div>
   </div>
 
   <!-- SUNOP · ETM -->
@@ -1587,6 +1657,8 @@ async function atualizarTudo(){
       loadSeStr(true),
       loadPgStr(true), loadPgAnalise(true),
     ]);
+    // sub-aba Ocorrências (trackers): recarrega a tabela se já foi aberta
+    if(_trkEvLoaded){ try{ await loadTrkEventos(true); }catch(e){} }
   } finally {
     if(btn){btn.disabled=false;btn.style.opacity=1;btn.innerHTML=orig;}
   }
@@ -1798,14 +1870,122 @@ function pvStrRow(r,prev){
     <td style="font-size:11px;color:var(--muted)">${leit}</td><td>${badge}${prevH}${histH}</td>`;
   tr.addEventListener('click',()=>togglePvPlant(r));return tr;
 }
+let pvDiag={};
+function pvDiagFor(pid,nome){
+  const dg=pvDiag[pid]; if(!dg||!dg.diagnosticos) return null;
+  const k=(nome||'').replace(/\s+/g,'').toLowerCase();
+  return dg.diagnosticos.find(x=>(x.escopo||'').replace(/\s+/g,'').toLowerCase()===k)||null;
+}
+const _PVDC={alta:['#fef4f4','#e24b4a','#a32d2d'],media:['#fffaf0','#ef9f27','#854f0b'],baixa:['#f6f6f4','#888780','#5f5e5a']};
+function pvDiagCard(dx){
+  const c=_PVDC[dx.confianca]||_PVDC.media;
+  return `<div style="border-left:3px solid ${c[1]};background:${c[0]};padding:9px 11px;margin:0 0 8px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+      <span style="font-size:11.5px;font-weight:700;color:${c[2]}">${dx.regra} · ${dx.causa}</span>
+      <span style="font-size:10px;font-weight:600;background:#fff;border:1px solid ${c[1]};color:${c[2]};padding:1px 7px;border-radius:5px">confiança ${dx.confianca}</span></div>
+    <div style="font-size:12px;color:#1a1b2e;margin:5px 0 3px">${(dx.evidencia||[''])[0]||''}</div>
+    <div style="font-size:11.5px;color:#6b7280"><b style="color:#1a1b2e">Ação:</b> ${dx.acao||''}</div></div>`;
+}
+function pvDiagResumo(pid){
+  const dg=pvDiag[pid]; if(!dg) return '';
+  const r=dg.resumo||{}, cs=dg.correlacoes||[];
+  if(!(r.strings_abaixo||r.inversores_abaixo||r.trackers_parados||cs.length)) return '';
+  const chain=cs.map(c=>`⚡ <b>Tracker ${c.trackers.join(', ')}</b> → <b>${c.inversor}</b>`+(c.strings_perdidas!=null?` <span style="color:#6b7280">(~${c.strings_perdidas} strings)</span>`:'')).join('&nbsp;&nbsp;·&nbsp;&nbsp;');
+  return `<div style="background:#f8fafc;border:1px solid #e4e6ea;border-radius:8px;padding:9px 12px">
+    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:#374151">
+      <span><b>${r.strings_abaixo}</b> strings abaixo</span>
+      <span><b>${r.inversores_abaixo}</b> inversores abaixo dos pares</span>
+      <span><b>${r.trackers_parados}</b> trackers parados</span>
+      <span style="color:${cs.length?'#a32d2d':'#6b7280'}"><b>${cs.length}</b> correlação tracker→inversor</span></div>
+    ${cs.length?`<div style="font-size:12px;color:#1a1b2e;margin-top:7px;line-height:1.7">${chain}</div>`:''}</div>`;
+}
+/* ══ OSs do Fracttal por equipamento (corretiva/emergencial/inspeção/religamento[/remoto]) ══ */
+let pvFrac={};                 // pid -> resposta /api/fracttal/os
+function _pvMesAtual(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');}
+let pvFracMes=_pvMesAtual();   // YYYY-MM selecionado (compartilhado na aba)
+const _FROS_STA={true:['#fff7ed','#c2410c'],false:['#f0fdf4','#15803d']}; // aberta / fechada
+function _frosLinha(o){
+  const c=_FROS_STA[!!o.aberta]||_FROS_STA[false];
+  // grid: folio (fixo) | tipo (fixo) | ativo (fixo) | descrição (flex) | data (fixo) | status (fixo)
+  return `<div style="display:grid;grid-template-columns:60px 130px 130px minmax(0,1fr) 80px 90px;gap:10px;align-items:baseline;padding:3px 4px;border-bottom:1px solid #f1f2f4;font-size:11.5px">
+    <span style="font-weight:700;color:#1a1b2e">${o.folio||'—'}</span>
+    <span style="background:#eef2ff;color:#3730a3;border-radius:4px;padding:0 6px;font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${(o.tipo||'').replace(/"/g,'&quot;')}">${o.tipo||''}</span>
+    <span style="color:#1a1b2e;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${(o.ativo||'').replace(/"/g,'&quot;')}">${o.ativo||'—'}</span>
+    <span style="color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(o.descricao||'').replace(/"/g,'&quot;')}">${o.descricao||'—'}</span>
+    <span style="color:#9ca3af;white-space:nowrap">${o.criada||''}</span>
+    <span style="background:${c[0]};color:${c[1]};border-radius:4px;padding:0 6px;font-size:10px;font-weight:600;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${(o.status||'').replace(/"/g,'&quot;')}">${o.status||''}</span></div>`;
+}
+function _pvFracRow(pid){
+  const tr=document.createElement('tr');tr.dataset.pvp=pid;
+  tr.innerHTML=`<td colspan="9" style="padding:6px 36px 4px">
+    <div style="background:#fff;border:1px solid #e4e6ea;border-radius:8px;padding:9px 12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
+        <span style="font-size:12px;font-weight:700;color:#1a1b2e">OSs Fracttal <span style="font-weight:400;color:#9ca3af">· corretiva · emergencial · inspeção · religamento · abertas de qualquer data</span></span>
+        <label style="font-size:11px;color:var(--muted)">Mês <input type="month" value="${pvFracMes}" onchange="pvFracMesChg(${pid},this.value)" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
+      </div>
+      <div id="pvfrac-${pid}"></div>
+    </div></td>`;
+  return tr;
+}
+async function loadPvFrac(pid,r,force){
+  const wrap=document.getElementById('pvfrac-'+pid); if(!wrap) return;
+  const ck=pid+'|'+pvFracMes;
+  if(!force && pvFrac[pid] && pvFrac[pid]._ck===ck){ pvFracRender(pid); return; }
+  wrap.innerHTML='<span style="color:var(--muted);font-size:11px"><span style="display:inline-block;width:11px;height:11px;border:2px solid #a3d900;border-top-color:transparent;border-radius:50%;animation:spin .6s linear infinite;vertical-align:middle;margin-right:6px"></span>Buscando OSs no Fracttal…</span>';
+  const usina=(r&&r.usina)||(pvFrac[pid]&&pvFrac[pid].usina)||'';
+  let j; try{
+    j=await fetch('/api/fracttal/os',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({usina,mes:pvFracMes,inversores:(pvCache[pid]||[]).map(i=>i.nome)})}).then(x=>x.json());
+  }catch(e){ j={ok:false,erro:String(e)}; }
+  j._ck=ck; if(!j.usina)j.usina=usina; pvFrac[pid]=j; pvFracRender(pid);
+  // se algum inversor já estiver expandido, redesenha as strings p/ injetar as OSs do inversor
+  (pvCache[pid]||[]).forEach(inv=>{const ik=pid+'-'+inv.id; if(pvInvExp.has(ik)){document.querySelectorAll(`[data-pvis="${ik}"]`).forEach(e=>e.remove());appendPvStrs(document.getElementById('pv-tbody'),pid,ik,inv);}});
+}
+function pvFracRender(pid){
+  const wrap=document.getElementById('pvfrac-'+pid); if(!wrap) return;
+  const j=pvFrac[pid]; if(!j){ wrap.innerHTML=''; return; }
+  if(j.sem_credencial){ wrap.innerHTML='<span style="color:var(--muted);font-size:11px">Fracttal não configurado neste servidor.</span>'; return; }
+  if(!j.ok){ wrap.innerHTML=`<span style="color:#b45309;font-size:11px">Não consegui buscar as OSs (${j.erro||'erro'}).</span>`; return; }
+  const usinaOs=j.usina_os||[], porInv=j.por_inversor||{};
+  const cab={}; Object.entries(porInv).forEach(([nome,v])=>{ if(!(v.os||[]).length) return; const c=(v.cabine!=null?v.cabine:'—'); (cab[c]=cab[c]||[]).push([nome,v]); });
+  let html='';
+  if(usinaOs.length) html+=`<div style="margin-bottom:8px"><div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:3px">Geral da usina (${usinaOs.length})</div>${usinaOs.map(_frosLinha).join('')}</div>`;
+  Object.keys(cab).sort((a,b)=>(''+a).localeCompare(''+b,undefined,{numeric:true})).forEach(c=>{
+    html+=`<div style="margin-bottom:6px"><div style="font-size:11px;font-weight:700;color:#374151;margin:6px 0 3px">Cabine ${c}</div>`;
+    cab[c].sort((x,y)=>(''+x[0]).localeCompare(''+y[0],undefined,{numeric:true})).forEach(([nome,v])=>{
+      html+=`<div style="margin:2px 0 5px 8px"><div style="font-size:11px;color:#6b7280;font-weight:600">${nome} <span style="color:#9ca3af;font-weight:400">· Inversor ${v.inv!=null?v.inv:'?'} da cabine ${v.cabine!=null?v.cabine:'?'} (${(v.os||[]).length})</span></div>${(v.os||[]).map(_frosLinha).join('')}</div>`;
+    });
+    html+='</div>';
+  });
+  if(!html) html=`<span style="color:var(--muted);font-size:11px">Nenhuma OS (corretiva / emergencial / inspeção / religamento) em ${pvFracMes.split('-').reverse().join('/')}.</span>`;
+  wrap.innerHTML=html;
+}
+function pvFracMesChg(pid,v){ pvFracMes=v||_pvMesAtual(); loadPvFrac(pid,null,true); }
+/* Cards dos trackers do inversor (status atual) — vem de pvDiag[pid].trackers_por_inversor */
+const _TRKST={normal:['#f0fdf4','#15803d','#bbf7d0','normal'],atraso:['#fffaf0','#b45309','#fde68a','atraso'],
+  desvio:['#fff4ef','#c2410c','#fed7aa','desvio'],parado:['#fef2f2','#b91c1c','#fecaca','parado'],
+  sem_comunicacao:['#f6f6f4','#6b7280','#e5e7eb','sem comunicação'],sem_dado:['#f6f6f4','#9ca3af','#e5e7eb','sem dado']};
+function pvTrkCards(pid,invNome){
+  const dg=pvDiag[pid], mp=dg&&dg.trackers_por_inversor, arr=mp?mp[invNome]:null;
+  if(!arr||!arr.length) return '';
+  const cards=arr.map(t=>{ const c=_TRKST[t.status]||_TRKST.sem_dado;
+    const disp=(t.disparidade!=null)?`<span style="color:var(--muted)"> · Δ ${t.disparidade}°</span>`:'';
+    const tk=t.na_planilha?` <span title="consta na planilha de tickets" style="color:#2563eb;font-weight:700">•</span>`:'';
+    return `<div style="border:1px solid ${c[2]};background:${c[0]};border-radius:6px;padding:5px 9px;min-width:78px">
+      <div style="font-size:11px;font-weight:700;color:#1a1b2e">${t.tracker}${tk}</div>
+      <div style="font-size:10px;font-weight:600;color:${c[1]}">${c[3]}${disp}</div></div>`;}).join('');
+  return `<div style="background:#fff;border:1px solid #e4e6ea;border-radius:8px;padding:8px 11px;margin:0 0 8px">
+    <div style="font-size:11px;font-weight:700;color:#1a1b2e;margin-bottom:6px">Trackers do inversor (${arr.length})</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">${cards}</div></div>`;
+}
 async function togglePvPlant(r){
   const pid=r.plant_id;
   if(pvExp.has(pid)){pvExp.delete(pid);document.querySelectorAll(`[data-pvp="${pid}"]`).forEach(e=>e.remove());const t=document.querySelector(`#pv-tbody tr[data-pid="${pid}"]`);if(t)t.querySelector('.chevron').classList.remove('open');return;}
   pvExp.add(pid);const t=document.querySelector(`#pv-tbody tr[data-pid="${pid}"]`);if(t)t.querySelector('.chevron').classList.add('open');
   if(pvCache[pid]){_pvDrawInvs(pid,r);return;}
   appendPvLoad(document.getElementById('pv-tbody'),pid);
-  let d; try{ d=await fetch(`/api/plant/${pid}`).then(rp=>rp.json()); }catch(e){ d={}; }
-  pvCache[pid]=d.inversores||[];
+  let d,dg; try{ [d,dg]=await Promise.all([fetch(`/api/plant/${pid}`).then(rp=>rp.json()),fetch(`/api/diagnostico/pv/${pid}`).then(rp=>rp.json()).catch(()=>null)]); }catch(e){ d={}; dg=null; }
+  pvCache[pid]=d.inversores||[]; pvDiag[pid]=dg;
   document.querySelectorAll(`[data-pvp="${pid}"]`).forEach(e=>e.remove());
   if(pvExp.has(pid))_pvDrawInvs(pid,r);
 }
@@ -1814,8 +1994,12 @@ async function togglePvPlant(r){
 // atual; o histórico via custom_query é lento (~120s) e volta vazio — não dá p/ recuperar.
 function _pvDrawInvs(pid,r){
   const tb=document.getElementById('pv-tbody');
+  const rh=pvDiagResumo(pid);
+  if(rh){const tr=document.createElement('tr');tr.dataset.pvp=pid;tr.innerHTML=`<td colspan="9" style="padding:6px 36px 2px">${rh}</td>`;insAfterPv(tb,pid,tr);}
+  insAfterPv(tb,pid,_pvFracRow(pid));     // bloco "OSs Fracttal" (geral da usina + por cabine/inversor)
   if((pvCache[pid]||[]).length) appendPvInvs(tb,pid,pvCache[pid]);
   else appendPvVazio(tb,pid,r);
+  loadPvFrac(pid,r);                       // busca as OSs em 2º plano e preenche o bloco acima
 }
 function appendPvVazio(tb,pid,r){
   const tr=document.createElement('tr');tr.dataset.pvp=pid;
@@ -1844,7 +2028,9 @@ function appendPvInvs(tb,pid,invs){
     const st=inv.desligado?'⚫ Desligado':inv.falha_comunicacao?'📡 Falha':inv.strings_ativas===0?'Sem geração':inv.diferenca<0?`⚡ ${-inv.diferenca} faltando`:'Normal';
     const {sty,txt}=difCell(inv.diferenca);
     const leit=inv.ultima_leitura?inv.ultima_leitura.slice(0,16).replace('T',' '):'—';
-    tr.innerHTML=`<td><b><span class="chevron${isE?' open':''}">▶</span>${inv.nome}</b> <span style="color:var(--muted);font-size:10px;margin-left:5px">${inv.eday!=null?inv.eday+' kWh':'—'}</span></td>
+    const _cm=String(inv.nome||'').match(/(\d+)\.(\d+)/);
+    const cabLbl=_cm?` <span style="font-size:10px;color:#475569;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:4px;padding:0 5px;margin-left:4px" title="Inversor ${_cm[2]} da cabine ${_cm[1]}">cabine ${_cm[1]}</span>`:'';
+    tr.innerHTML=`<td><b><span class="chevron${isE?' open':''}">▶</span>${inv.nome}</b>${cabLbl}${pvDiagFor(pid,inv.nome)?' <span title="diagnóstico disponível" style="color:#e24b4a;font-size:11px">◆</span>':''} <span style="color:var(--muted);font-size:10px;margin-left:5px">${inv.eday!=null?inv.eday+' kWh':'—'}</span></td>
       <td>—</td><td>${inv.strings_ativas} / ${inv.total_strings}</td><td>${inv.str_esp??'—'}</td>
       <td style="${sty}">${txt}</td><td>—</td><td>${inv.temp!=null?inv.temp+'°C':'—'}</td>
       <td style="font-size:11px;color:var(--muted)">${leit}</td><td><span class="badge ${sc}">${st}</span></td>`;
@@ -1871,7 +2057,13 @@ function appendPvStrs(tb,pid,ik,inv){
       <label onclick="event.stopPropagation()" title="Trancar: string aberta/não conectada (MPPT sem string) — sai da contagem de ativas" style="display:flex;align-items:center;gap:2px;cursor:pointer;font-size:9px;color:#2563eb;margin-bottom:1px">
         <input type="checkbox" ${s.trancada?'checked':''} onchange="event.stopPropagation();pvTrancaStr(${pid},${inv.id},'${s.id}',this.checked,this)" style="margin:0;width:11px;height:11px;cursor:pointer">🔒</label>
       <span class="s-id">${s.id}</span><span class="s-val">${s.corrente.toFixed(2)} A</span></div>`;}).join('');
+  const _dx=(inv&&inv.nome)?pvDiagFor(pid,inv.nome):null;
+  const _fr=(pvFrac[pid]&&pvFrac[pid].por_inversor)?pvFrac[pid].por_inversor[inv.nome]:null;
+  const _frB=(_fr&&(_fr.os||[]).length)?`<div style="background:#fff;border:1px solid #e4e6ea;border-radius:8px;padding:8px 11px;margin:0 0 8px">
+      <div style="font-size:11px;font-weight:700;color:#1a1b2e;margin-bottom:4px">OSs Fracttal — ${inv.nome} <span style="font-weight:400;color:#9ca3af">· Inversor ${_fr.inv!=null?_fr.inv:'?'} da cabine ${_fr.cabine!=null?_fr.cabine:'?'} · ${pvFracMes.split('-').reverse().join('/')}</span></div>
+      ${_fr.os.map(_frosLinha).join('')}</div>`:'';
   tr.innerHTML=`<td colspan="9">
+      ${pvTrkCards(pid,inv.nome)}${_frB}${_dx?pvDiagCard(_dx):''}
       <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap">
         <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="pvCurvaInv(${pid},${inv.id},'${nm}','${cid}')">📈 Curva do dia</button>
         ${_trancarInativasBtn('pv',pid,inv.id)}
@@ -2174,7 +2366,7 @@ function appendSoInvs(tb,pid,invs){
     const st=inv.desligado?'⚫ Desligado':inv.falha_comunicacao?'📡 Falha':inv.strings_ativas===0?'Sem geração':inv.diferenca<0?`⚡ ${-inv.diferenca} faltando`:'Normal';
     const {sty,txt}=difCell(inv.diferenca);
     const leit=inv.ultima_leitura?inv.ultima_leitura.slice(0,16).replace('T',' '):'—';
-    tr.innerHTML=`<td><b><span class="chevron${isE?' open':''}">▶</span>${inv.nome}</b> <span style="color:var(--muted);font-size:10px;margin-left:5px">${inv.eday!=null?inv.eday+' kWh':'—'}</span></td>
+    tr.innerHTML=`<td><b><span class="chevron${isE?' open':''}">▶</span>${inv.nome}</b>${pvDiagFor(pid,inv.nome)?' <span title="diagnóstico disponível" style="color:#e24b4a;font-size:11px">◆</span>':''} <span style="color:var(--muted);font-size:10px;margin-left:5px">${inv.eday!=null?inv.eday+' kWh':'—'}</span></td>
       <td>—</td><td>${inv.strings_ativas} / ${inv.total_strings}</td><td>${inv.str_esp??'—'}</td>
       <td style="${sty}">${txt}</td><td>—</td><td>${inv.temp!=null?inv.temp+'°C':'—'}</td>
       <td style="font-size:11px;color:var(--muted)">${leit}</td><td><span class="badge ${sc}">${st}</span></td>`;
@@ -2692,8 +2884,208 @@ let trkRows=[], trkLoadedSrc=''; const trkExp=new Set(), trkGrpExp=new Set(), tr
 const trkChartState={};   // pid -> {idxById:{tracker_id:traceIdx}, base:[{width,color}]} p/ destaque no hover
 const trkAuto=new Set();  // usinas cujo gráfico de trackers já auto-abriu (não reabre o que o user fechou)
 function _trkBase(){ return primary==='pv' ? '/api/pv/trackers' : primary==='owen' ? '/api/owen/trackers' : primary==='pg' ? '/api/pg/trackers' : primary==='axis' ? '/api/axis/trackers' : '/api/sunop/trackers'; }
+
+/* ── Trackers · sub-aba "Ocorrências" (travou → voltou), só API PV ── */
+let _trkEvLoaded=false, _trkEvAuto=null, _trkEvRows=[];   // _trkEvRows = última payload (p/ filtro instantâneo)
+function trkSubtab(w){
+  const lv=document.getElementById('trk-live-view'),
+        ev=document.getElementById('trk-ev-view'),
+        pr=document.getElementById('trk-par-view');
+  const show={live:lv,eventos:ev,parados:pr};
+  Object.entries(show).forEach(([k,el])=>{ if(el) el.style.display=(k===w)?'':'none'; });
+  const btn={live:'trk-sub-live',eventos:'trk-sub-ev',parados:'trk-sub-par'};
+  Object.entries(btn).forEach(([k,id])=>{ const b=document.getElementById(id); if(b){ const on=(k===w); b.style.background=on?'#1a1b2e':''; b.style.color=on?'#fff':''; } });
+  if(w==='eventos'){
+    _trkEvInitDatas();
+    loadTrkEventos();                                   // carrega 1x ao abrir (sem ficar em poll)
+    if(!_trkEvAuto) _trkEvAuto=setInterval(()=>{        // auto-atualiza a cada 30 min, só se a view estiver aberta
+      const e=document.getElementById('trk-ev-view'); if(e&&e.style.display!=='none') loadTrkEventos(true);
+    }, 30*60*1000);
+  } else if(w==='parados'){
+    loadTrkParados();                                   // carrega 1x ao abrir
+    if(!_trkParAuto) _trkParAuto=setInterval(()=>{      // auto-atualiza a cada 5 min (dado é "agora")
+      const e=document.getElementById('trk-par-view'); if(e&&e.style.display!=='none') loadTrkParados(true);
+    }, 5*60*1000);
+  }
+}
+function _trkEvInitDatas(){
+  const dia=document.getElementById('trk-ev-dia');
+  if(dia && !dia.value) dia.value=_trkHoje();
+  // dispara o reload ao trocar o dia (sem precisar clicar Filtrar)
+  if(dia && !dia._wired){ dia._wired=true; dia.addEventListener('change', ()=>loadTrkEventos()); }
+}
+// retorna [ini,fim] = mesmo dia (a UI agora mostra só "Dia"; endpoint mantém ini/fim por compat)
+function _trkDatas(){
+  const dia=document.getElementById('trk-ev-dia')?.value || _trkHoje();
+  return [dia, dia];
+}
+function _durTxt(m){ m=Math.round(m||0); return Math.floor(m/60)+'h'+String(m%60).padStart(2,'0'); }
+// Carrega UMA vez e renderiza. NÃO fica em poll — só recarrega no botão Atualizar/Filtrar ou a cada 30 min.
+async function loadTrkEventos(silent){
+  const tb=document.getElementById('trk-ev-tbody'); if(!tb)return null;
+  const [ini,fim]=_trkDatas();
+  if(!silent) tb.innerHTML='<tr><td colspan="7" style="padding:14px;color:var(--muted)">Carregando…</td></tr>';
+  let d; try{ d=await fetch(`/api/pv/trackers/eventos?ini=${ini}&fim=${fim}`).then(r=>r.json()); }catch(e){ d={rows:[]}; }
+  _trkEvLoaded=true; _trkEvRenderProg(d.progresso);
+  _trkEvRows=d.rows||[];
+  _trkEvRenderTabela(d.progresso, d.total);
+  return d.progresso;
+}
+// Render da tabela a partir do cache (_trkEvRows) + filtro de usina. Sem rede.
+function _trkEvRenderTabela(prog, totalServidor){
+  const tb=document.getElementById('trk-ev-tbody'); if(!tb)return;
+  const q=(document.getElementById('trk-ev-usina')?.value||'').trim().toLowerCase();
+  const rows = q ? _trkEvRows.filter(r=>(r.usina||'').toLowerCase().includes(q)) : _trkEvRows;
+  if(!rows.length){
+    const p=prog||{};
+    let msg;
+    if(q){
+      msg=`Nenhuma ocorrência para "<b>${q.replace(/</g,'&lt;')}</b>" no período. <span style="color:var(--muted)">(filtro local — sem rede)</span>`;
+    } else if(p.running){
+      msg=`Nenhuma ocorrência salva neste período <b>ainda</b> — o histórico está sendo gerado em 2º plano (<b>${p.feito||0}/${p.total||0}</b>). Clique em <b>Atualizar</b> daqui a pouco, ou escolha um período já processado (ex.: a partir de 01/06).`;
+    } else {
+      msg=`Nenhuma ocorrência no período.${(totalServidor===0)?' Clique em <b>Gerar/Atualizar histórico</b> p/ montar o histórico (01/06→hoje).':''}`;
+    }
+    tb.innerHTML=`<tr><td colspan="7" style="padding:16px;color:var(--muted)">${msg}</td></tr>`;
+    return;
+  }
+  tb.innerHTML=rows.map(r=>`<tr>
+    <td>${r.data}</td><td><b>${r.usina}</b></td><td>${r.tracker}</td>
+    <td>${r.inversor?r.inversor:'<span style="color:var(--muted)">—</span>'}</td>
+    <td>${r.data} ${r.parada}</td>
+    <td>${r.retorno?(r.data+' '+r.retorno):'<span style="color:#b91c1c">não retornou no dia</span>'}</td>
+    <td>${_durTxt(r.dur_min)}</td></tr>`).join('');
+}
+// Filtro de usina: aplica instantâneo sobre _trkEvRows (sem ir ao backend).
+function _trkEvAplicaFiltro(){ _trkEvRenderTabela(); }
+function _trkEvRenderProg(p){
+  const el=document.getElementById('trk-ev-prog'); if(!el)return;
+  if(p&&p.running){ el.style.display='block'; el.innerHTML=`Gerando histórico em 2º plano… <b>${p.feito||0}/${p.total||0}</b>${p.atual?(' — '+p.atual):''} <span style="color:var(--muted)">· a tabela atualiza no botão Atualizar/Filtrar ou a cada 30 min</span>`; }
+  else if(p&&p.erro){ el.style.display='block'; el.innerHTML=`<span style="color:#b91c1c">Erro ao gerar: ${p.erro}</span>`; }
+  else { el.style.display='none'; }
+}
+async function trkEvGerar(){
+  const [ini,fim]=_trkDatas();
+  const btn=document.getElementById('trk-ev-gerar'); const o=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.textContent='Disparando…';}
+  try{ await fetch('/api/pv/trackers/eventos/gerar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ini,fim})}); }catch(e){}
+  if(btn){btn.disabled=false;btn.textContent=o||'Gerar/Atualizar histórico';}
+  loadTrkEventos();                                     // 1 reload p/ mostrar o estado; SEM poll
+}
+function trkEvExport(){
+  const [ini,fim]=_trkDatas();
+  const q=(document.getElementById('trk-ev-usina')?.value||'').trim();
+  const qq = q ? ('&usina='+encodeURIComponent(q)) : '';
+  window.location='/api/pv/trackers/eventos/export?ini='+encodeURIComponent(ini)+'&fim='+encodeURIComponent(fim)+qq;
+}
+
+/* ── Trackers · sub-aba "Parados agora" — flat de todos os trackers c/ status='parado' ── */
+let _trkParRows=[], _trkParAuto=null;
+async function loadTrkParados(silent){
+  const tb=document.getElementById('trk-par-tbody'); if(!tb) return;
+  if(!silent) tb.innerHTML='<tr><td colspan="10" style="padding:14px;color:var(--muted)">Carregando…</td></tr>';
+  let d; try{ d=await fetch('/api/pv/trackers/parados').then(r=>r.json()); }catch(e){ d={rows:[]}; }
+  _trkParRows=d.rows||[];
+  _trkParRenderTabela();
+}
+function _trkParAplicaFiltro(){ _trkParRenderTabela(); }
+function _trkParRenderTabela(){
+  const tb=document.getElementById('trk-par-tbody'); if(!tb)return;
+  const q=(document.getElementById('trk-par-usina')?.value||'').trim().toLowerCase();
+  const rows = q ? _trkParRows.filter(r=>(r.usina||'').toLowerCase().includes(q)) : _trkParRows;
+  const resumo=document.getElementById('trk-par-resumo');
+  if(resumo){
+    const usinas=new Set(_trkParRows.map(r=>r.usina)).size;
+    resumo.textContent = q
+      ? `${rows.length} de ${_trkParRows.length} trackers · ${usinas} usinas`
+      : `${_trkParRows.length} trackers parados em ${usinas} usinas`;
+  }
+  if(!rows.length){
+    tb.innerHTML=`<tr><td colspan="10" style="padding:16px;color:var(--muted)">${q?'Nenhum tracker parado para esse filtro.':'Nenhum tracker parado no momento.'}</td></tr>`;
+    return;
+  }
+  const fmtAng=v=>(v==null?'—':(Math.round(v*10)/10).toFixed(1)+'°');
+  // "Parado desde" = data_deteccao do livro (persiste entre dias/restart) + há quanto tempo.
+  const fmtDesde=r=>{
+    if(!r.parado_desde) return '<span style="color:var(--muted)" title="ainda sem registro no livro — recém-detectado">recente</span>';
+    const iso=r.parado_desde.replace('T',' ');
+    const dia=iso.slice(8,10)+'/'+iso.slice(5,7), hm=iso.slice(11,16);
+    const h=r.horas_parado;
+    let dur='';
+    if(h!=null){
+      if(h>=24){ const d=Math.floor(h/24), hh=Math.round(h%24); dur='há '+d+'d'+(hh?(' '+hh+'h'):''); }
+      else if(h>=1){ dur='há '+Math.round(h)+'h'; }
+      else { dur='há '+Math.max(1,Math.round(h*60))+'min'; }
+    }
+    const cor=(h!=null&&h>=36)?'#b91c1c':(h!=null&&h>=24?'#b45309':'inherit');
+    const fw =(h!=null&&h>=36)?700:400;
+    return `<span style="color:${cor};font-weight:${fw}" title="parado desde ${dia} ${hm}">${dia} ${hm}</span>`
+      + (dur?` <span style="color:var(--muted);font-size:10px">(${dur})</span>`:'');
+  };
+  tb.innerHTML=rows.map(r=>{
+    const tk = r.na_planilha
+      ? `<span title="${r.ticket_status||'na planilha'}" style="color:#16a34a;font-size:11px">na planilha${r.ticket_status?(' ('+r.ticket_status+')'):''}</span>`
+      : `<span style="color:#b91c1c;font-weight:700;font-size:11px">novo (fora da planilha)</span>`;
+    const ult = r.ultima_leitura ? r.ultima_leitura.replace('T',' ').slice(0,16) : '—';
+    return `<tr>
+      <td><b>${r.usina}</b></td>
+      <td>${r.tracker}</td>
+      <td>${r.inversor?r.inversor:'<span style="color:var(--muted)">—</span>'}</td>
+      <td>${fmtAng(r.atual)}</td>
+      <td>${fmtAng(r.alvo)}</td>
+      <td style="color:#b91c1c;font-weight:600">${r.disparidade!=null?(r.disparidade.toFixed(1)+'°'):'—'}</td>
+      <td>${r.amplitude!=null?(r.amplitude.toFixed(1)+'°'):'<span style="color:var(--muted)">—</span>'}</td>
+      <td style="font-size:11px">${fmtDesde(r)}</td>
+      <td>${tk}</td>
+      <td style="font-size:11px;color:var(--muted)">${ult}</td></tr>`;
+  }).join('');
+}
+/* Ronda do dia: monta o texto dos trackers a resetar (respeita o filtro de usina) p/ colar no grupo. */
+function trkParadaRonda(){
+  const q=(document.getElementById('trk-par-usina')?.value||'').trim().toLowerCase();
+  const rows = q ? _trkParRows.filter(r=>(r.usina||'').toLowerCase().includes(q)) : _trkParRows;
+  if(!rows.length){ alert('Nenhum tracker parado'+(q?' para esse filtro':'')+' para gerar a ronda.'); return; }
+  const grupos={};
+  rows.forEach(r=>{ (grupos[r.usina]=grupos[r.usina]||[]).push(r); });
+  let txt='RONDA DE TRACKERS — '+new Date().toLocaleDateString('pt-BR')+'\n';
+  Object.keys(grupos).sort((a,b)=>a.localeCompare(b,'pt-BR')).forEach(u=>{
+    const g=grupos[u];
+    txt+='\n['+u+']  ('+g.length+' parado'+(g.length>1?'s':'')+')\n';
+    g.forEach(r=>{ txt+='- '+r.tracker+(r.inversor?(' — '+r.inversor):'')+'\n'; });
+  });
+  txt+='\nTotal: '+rows.length+' tracker'+(rows.length>1?'s':'')+' para reset.';
+  _rondaModal(txt);
+}
+function _rondaModal(txt){
+  let m=document.getElementById('ronda-modal');
+  if(!m){
+    m=document.createElement('div'); m.id='ronda-modal';
+    m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center';
+    m.innerHTML=`<div style="background:#fff;border-radius:10px;padding:16px;width:min(560px,92vw);max-height:84vh;display:flex;flex-direction:column;gap:10px;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <b style="font-size:14px;color:#1a1b2e">Ronda do dia — copie e cole no grupo</b>
+        <button class="gc-btn-sm" style="display:inline-block" onclick="document.getElementById('ronda-modal').style.display='none'">Fechar</button>
+      </div>
+      <textarea id="ronda-txt" readonly style="flex:1;min-height:300px;width:100%;font-family:monospace;font-size:12px;border:1px solid #d1d5db;border-radius:6px;padding:8px;resize:vertical;color:#1a1b2e"></textarea>
+      <div style="text-align:right"><button class="gc-btn-sm" style="display:inline-block;background:#16a34a;color:#fff" onclick="_rondaCopiar(this)">Copiar</button></div>
+    </div>`;
+    document.body.appendChild(m);
+  }
+  m.style.display='flex';
+  document.getElementById('ronda-txt').value=txt;
+}
+function _rondaCopiar(btn){
+  const ta=document.getElementById('ronda-txt'); ta.select();
+  try{ navigator.clipboard.writeText(ta.value); }catch(e){ try{ document.execCommand('copy'); }catch(_){} }
+  if(btn){ const o=btn.textContent; btn.textContent='Copiado!'; setTimeout(()=>{ btn.textContent=o; },1500); }
+}
+
 async function loadSoTrackers(force){
   const base=_trkBase();
+  // sub-aba "Ocorrências" (travou→voltou) só existe na API PV; nas outras fontes some e volta p/ Tempo real
+  const sub=document.getElementById('trk-subtabs');
+  if(sub) sub.style.display=(primary==='pv')?'flex':'none';
+  if(primary!=='pv') trkSubtab('live');
   const _src=document.getElementById('trk-title-src');
   if(_src)_src.textContent = primary==='pv'?'PV Plataforma' : primary==='pg'?'Banco de Dados (Thopen)' : primary==='owen'?'2C' : 'SunOp (Athon)';
   if(loaded.sotrk && trkLoadedSrc===primary && !force){ renderSoTrackers(); return; }
@@ -2732,10 +3124,12 @@ function trkToggleNovos(){
   renderSoTrackers();
 }
 function _trkBadge(r){
+  // contagem granular (API PV) com fallback p/ SunOp/PG (severos/leves/fora_media)
+  const _par=(r.parados!=null?r.parados:r.severos)||0, _des=(r.desvios!=null?r.desvios:r.leves)||0, _atr=(r.atrasos!=null?r.atrasos:r.fora_media)||0;
   if(r.sem_comunicacao) return '<span class="badge b-comm">Sem comunicação</span>';
-  if(r.severos) return '<span class="badge b-err">Severo</span>';
-  if(r.leves) return '<span class="badge b-warn">Leve</span>';
-  if(r.fora_media) return '<span class="badge" style="background:#dbeafe;color:#1d4ed8">Fora da linha</span>';
+  if(_par) return '<span class="badge b-err">Parado</span>';
+  if(_des) return '<span class="badge b-warn">Desvio</span>';
+  if(_atr) return '<span class="badge" style="background:#dbeafe;color:#1d4ed8">Atrasado</span>';
   if(!r.total) return '<span class="badge b-none">Sem dados</span>';
   return '<span class="badge b-ok">Normal</span>';
 }
@@ -2758,6 +3152,34 @@ function renderSoTrackers(){
   if(!itens.length){tb.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px">Nenhuma usina.</td></tr>';return;}
   itens.forEach(it=> it.grupo ? _trkRenderGrupo(tb,it) : _trkRenderRow(tb,it.row));
 }
+// Célula "Disponibilidade" = % trackers normais (total - severos - leves)/total. Barra colorida +
+// número. Sem comunicação ou total=0 → "—". Verde ≥95, âmbar ≥80, vermelho <80.
+function _trkDispCell(r){
+  if(!r||!r.total||r.sem_comunicacao) return '<span style="color:var(--muted)">—</span>';
+  const ruim=(r.severos||0)+(r.leves||0);
+  const ok=Math.max(0, r.total-ruim);
+  const pct=Math.round(ok/r.total*1000)/10;   // 1 casa decimal
+  const cor = pct>=95?'#16a34a' : pct>=80?'#b45309' : '#dc2626';
+  const fundo = pct>=95?'#dcfce7' : pct>=80?'#fef3c7' : '#fee2e2';
+  return `<div style="display:flex;align-items:center;gap:6px;min-width:120px" title="${ok}/${r.total} trackers em estado normal">
+    <div style="flex:1;height:8px;background:#f1f2f4;border-radius:4px;overflow:hidden">
+      <div style="height:100%;width:${pct}%;background:${cor}"></div></div>
+    <span style="font-size:11px;font-weight:700;color:${cor};background:${fundo};padding:0 5px;border-radius:4px;min-width:46px;text-align:center">${pct.toFixed(1)}%</span></div>`;
+}
+// Disponibilidade da LINHA-PAI (grupo) = MÉDIA da disponibilidade das sub-usinas que têm dado
+// (ignora as sem comunicação / total=0 — "as que dão certo"). Mesmo visual de barra do _trkDispCell.
+function _trkDispCellGrupo(g){
+  const cabs=(g.cabines||[]).map(c=>c.r).filter(r=>r && r.total && !r.sem_comunicacao);
+  if(!cabs.length) return '<span style="color:var(--muted)">—</span>';
+  const pcts=cabs.map(r=>{ const ruim=(r.severos||0)+(r.leves||0); return Math.max(0,r.total-ruim)/r.total*100; });
+  const pct=Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length*10)/10;
+  const cor = pct>=95?'#16a34a' : pct>=80?'#b45309' : '#dc2626';
+  const fundo = pct>=95?'#dcfce7' : pct>=80?'#fef3c7' : '#fee2e2';
+  return `<div style="display:flex;align-items:center;gap:6px;min-width:120px" title="média da disponibilidade de ${cabs.length} usina(s) do grupo com dado">
+    <div style="flex:1;height:8px;background:#f1f2f4;border-radius:4px;overflow:hidden">
+      <div style="height:100%;width:${pct}%;background:${cor}"></div></div>
+    <span style="font-size:11px;font-weight:700;color:${cor};background:${fundo};padding:0 5px;border-radius:4px;min-width:46px;text-align:center">${pct.toFixed(1)}%</span></div>`;
+}
 function _trkRenderRow(tb, r){
   const exp=trkExp.has(r.plant_id);
   const novoTag=(r.novos)?` <span class="badge b-err" title="${r.novos} fora da planilha de Tickets${r.ambiguo?' (usina agrupada na planilha — revisar)':''}">${r.novos} novo${r.novos>1?'s':''}</span>`:(r.tem_ticket?' <span class="badge b-ok" title="acompanhado na planilha">na planilha</span>':'');
@@ -2765,13 +3187,16 @@ function _trkRenderRow(tb, r){
   // primary distingue a fonte (pg/sunop/owen). Reusa o sistema 'verified' (isVer/toggleVer).
   const vkey='trk:'+_trkHoje()+':'+primary+':'+r.plant_id;
   const chk=`<input type="checkbox" class="chk-ver" ${isVer(vkey)?'checked':''} title="Já acompanhei hoje (zera amanhã)" onclick="event.stopPropagation();toggleVer('${vkey}',this.checked,this)">`;
-  const tr=document.createElement('tr'); tr.className='plant-row'; tr.style.cursor='pointer';
+  const tr=document.createElement('tr'); tr.className='plant-row'; tr.style.cursor='pointer'; tr.dataset.trkpid=_trkCss(r.plant_id);
   if(isVer(vkey))tr.classList.add('verified');
+  // PARADO/DESVIO/ATRASADO = contagem GRANULAR do dia (API PV). Fallback p/ SunOp/PG (severos/leves/fora_media).
+  const _par=(r.parados!=null?r.parados:r.severos)||0, _des=(r.desvios!=null?r.desvios:r.leves)||0, _atr=(r.atrasos!=null?r.atrasos:r.fora_media)||0;
   tr.innerHTML=`<td>${chk}${exp?'▾':'▸'} ${r.usina}${novoTag}</td>
     <td>${r.total}</td>
-    <td style="color:${r.severos?'#dc2626':'inherit'};font-weight:${r.severos?700:400}">${r.severos}</td>
-    <td style="color:${r.leves?'#b45309':'inherit'}">${r.leves}</td>
-    <td style="color:${r.fora_media?'#1d4ed8':'inherit'}">${r.fora_media}</td>
+    <td style="color:${_par?'#dc2626':'inherit'};font-weight:${_par?700:400}">${_par}</td>
+    <td style="color:${_des?'#f97316':'inherit'};font-weight:${_des?600:400}">${_des}</td>
+    <td style="color:${_atr?'#b45309':'inherit'}">${_atr}</td>
+    <td>${_trkDispCell(r)}</td>
     <td style="color:${r.normalizados?'#2563eb':'var(--muted)'};font-weight:${r.normalizados?700:400}" title="normais no tempo real, mas ainda na planilha como problema">${r.normalizados!=null?r.normalizados:'—'}</td>
     <td>${r.desvio_medio!=null?r.desvio_medio.toFixed(1)+'°':'—'}</td>
     <td>${r.ultima_leitura?r.ultima_leitura.slice(11,16):'—'}</td>
@@ -2780,7 +3205,7 @@ function _trkRenderRow(tb, r){
   tb.appendChild(tr);
   if(exp){
     const det=document.createElement('tr');
-    det.innerHTML=`<td colspan="9" style="background:#fafbff;padding:8px 14px"><div id="trk-det-${_trkCss(r.plant_id)}" style="color:var(--muted);font-size:12px">Carregando trackers...</div></td>`;
+    det.innerHTML=`<td colspan="10" style="background:#fafbff;padding:8px 14px"><div id="trk-det-${_trkCss(r.plant_id)}" style="color:var(--muted);font-size:12px">Carregando trackers...</div></td>`;
     tb.appendChild(det);
     renderTrkDetail(r.plant_id);
   }
@@ -2805,6 +3230,7 @@ function _trkAgrupaPv(rows){
       e.cabines.sort((a,b)=>String(a.usina).localeCompare(String(b.usina),'pt',{numeric:true}));
       return {grupo:true, base:e.base, plant_id:'grp:'+e.base, cabines:e.cabines.map(r=>({r})),
         total:sum(e.cabines,'total'), severos:sum(e.cabines,'severos'), leves:sum(e.cabines,'leves'),
+        parados:sum(e.cabines,'parados'), desvios:sum(e.cabines,'desvios'), atrasos:sum(e.cabines,'atrasos'),
         fora_media:sum(e.cabines,'fora_media'), novos:sum(e.cabines,'novos'),
         normalizados:sum(e.cabines,'normalizados'),
         tem_ticket:e.cabines.some(c=>c.tem_ticket),
@@ -2817,12 +3243,16 @@ function _trkRenderGrupo(tb, g){
   const exp=trkGrpExp.has(g.base);
   const novoTag = g.novos?` <span class="badge b-err" title="${g.novos} fora da planilha de Tickets">${g.novos} novo${g.novos>1?'s':''}</span>`
                 : (g.tem_ticket?' <span class="badge b-ok" title="acompanhado na planilha">na planilha</span>':'');
+  const vkey='trk:'+_trkHoje()+':'+primary+':'+g.plant_id;
+  const chk=`<input type="checkbox" class="chk-ver" ${isVer(vkey)?'checked':''} title="Já acompanhei este grupo hoje (zera amanhã)" onclick="event.stopPropagation();toggleVer('${vkey}',this.checked,this)">`;
   const tr=document.createElement('tr'); tr.className='plant-row'; tr.style.cursor='pointer'; tr.style.background='#eef2ff';
-  tr.innerHTML=`<td><b>${exp?'▾':'▸'} ${g.base}</b> <span class="badge" style="background:#e0e7ff;color:#3730a3">${g.cabines.length} usinas</span>${novoTag}</td>
+  if(isVer(vkey))tr.classList.add('verified');
+  tr.innerHTML=`<td>${chk}<b>${exp?'▾':'▸'} ${g.base}</b> <span class="badge" style="background:#e0e7ff;color:#3730a3">${g.cabines.length} usinas</span>${novoTag}</td>
     <td>${g.total}</td>
-    <td style="color:${g.severos?'#dc2626':'inherit'};font-weight:${g.severos?700:400}">${g.severos}</td>
-    <td style="color:${g.leves?'#b45309':'inherit'}">${g.leves}</td>
-    <td style="color:${g.fora_media?'#1d4ed8':'inherit'}">${g.fora_media}</td>
+    <td style="color:${g.parados?'#dc2626':'inherit'};font-weight:${g.parados?700:400}">${g.parados||0}</td>
+    <td style="color:${g.desvios?'#f97316':'inherit'};font-weight:${g.desvios?600:400}">${g.desvios||0}</td>
+    <td style="color:${g.atrasos?'#b45309':'inherit'}">${g.atrasos||0}</td>
+    <td>${_trkDispCellGrupo(g)}</td>
     <td style="color:${g.normalizados?'#2563eb':'var(--muted)'};font-weight:${g.normalizados?700:400}">${g.normalizados||0}</td>
     <td>—</td><td>—</td>
     <td>${_trkBadge(g)}</td>`;
@@ -2841,11 +3271,15 @@ function _trkRenderGrupo(tb, g){
         <div id="trk-det-${cid}" style="display:none;margin-top:6px"></div>
       </div>`;
     }).join('');
-    det.innerHTML=`<td colspan="9" style="background:#fafbff;padding:10px 14px">
+    det.innerHTML=`<td colspan="10" style="background:#fafbff;padding:10px 14px">
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Prévia por usina (curva do dia + contagem) — clique numa usina p/ ver os trackers e ângulos.</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px">${cards}</div></td>`;
     tb.appendChild(det);
-    g.cabines.forEach(c=>_trkCabPreview(c.r.plant_id, c.skid, c.r.usina));
+    // carrega as mini-curvas das cabines EM SÉRIE (não em rajada) — 1 trackerschart por vez evita
+    // o pico de N buscas pesadas ao expandir o grupo (alivia o gargalo e protege o Plataforma).
+    // Para a fila se o grupo for fechado no meio do carregamento.
+    (async()=>{ for(const c of g.cabines){ if(!trkGrpExp.has(g.base)) break;
+                  await _trkCabPreview(c.r.plant_id, c.skid, c.r.usina); } })();
   }
 }
 function _trkCabHd(pid, skid, nome){
@@ -2903,9 +3337,7 @@ async function renderTrkDetail(pid){
   if(!ts.length){cell.innerHTML='<span style="color:var(--muted)">Sem trackers.</span>';return;}
   if(!trkSel[pid]) trkSel[pid]=new Set(ts.map(t=>t.id));   // todos selecionados por padrão
   const cid=_trkCss(pid);
-  const _fcnt=(tipo,cor,n,lbl)=>`<span onclick="trkPreset('${pid}','${tipo}')" title="clique p/ ver só os ${lbl}" style="cursor:pointer"><b style="color:${cor};text-decoration:underline dotted">${n||0}</b> ${lbl}</span>`;
-  const resumo=`<span style="font-size:11px">${_fcnt('parado','#ef4444',data.parados,'parado')} · ${_fcnt('desvio','#f97316',data.desvios,'desvio')} · ${_fcnt('atraso','#eab308',data.atrasos,'atraso')}`
-    +`${data.sem_alvo?' · <i style="color:var(--muted)">planta sem ângulo alvo</i>':''}</span>`;
+  const resumo=`<span id="trk-resumo-${cid}" style="font-size:11px">${_trkResumoHtml(pid)}</span>`;
   const aviso = data.sem_comunicacao
     ? `<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:12px;color:#92400e">⚠ <b>Sem curva do dia</b> — a SunOp não retornou o histórico de hoje desta usina (pode ser atraso de ingestão; o valor atual no resumo ainda vale). Troque a <b>Data</b> acima para ver outro dia.</div>`
     : '';
@@ -2923,8 +3355,8 @@ async function renderTrkDetail(pid){
     </div>
     ${aviso}
     <div id="trk-chart-${cid}" style="display:none;width:100%;height:340px;margin-bottom:10px"></div>
-    <div style="display:flex;flex-wrap:wrap;gap:6px">`
-    + ts.map(t=>_trkChip(pid,t)).join('') + '</div>';
+    <div id="trk-chips-${cid}" style="display:flex;flex-wrap:wrap;gap:6px">`
+    + _trkChipsHtml(pid) + '</div>';
   if(!trkAuto.has(pid)){ trkAuto.add(pid); toggleGraficoTrackers(pid); }   // auto-abre a curva do dia na 1ª expansão
 }
 function _trkChip(pid,t){
@@ -2940,6 +3372,89 @@ function _trkChip(pid,t){
     style="border:1px solid ${cor};color:${cor};border-radius:8px;padding:3px 7px;font-size:11px;cursor:pointer;white-space:nowrap;opacity:${sel?1:0.3}"
     title="${t.status.toUpperCase()} · alvo ${t.alvo}° · atual ${t.atual}° · amplitude no dia ${amp} · disparidade atual ${disp} · máx do dia ${md}${tip} — clique p/ filtrar">${t.id}: ${disp}${mark}</span>`;
 }
+// Conta desvios/parados pela JANELA 07:00–18:00 a partir da CURVA do dia (crv) — pega quem saiu
+// da frota em QUALQUER momento da janela (não só agora). Atualiza det.trackers[].status + contagens.
+const TRK_JANELA_INI=7*60, TRK_JANELA_FIM=18*60;   // 07:00–18:00 (minutos)
+function _trkWindowDetect(crv, det){
+  try{
+    if(!crv||!(crv.trackers||[]).length||!det||!(det.trackers||[]).length) return;
+    const _min=s=>{ const m=String(s).match(/(\d{1,2}):(\d{2})/); return m?(+m[1]*60+ +m[2]):null; };
+    const ser={};
+    (crv.trackers||[]).forEach(t=>{ const xs=t.x||[], ys=t.y||[], s=[];
+      for(let i=0;i<xs.length;i++){ const mn=_min(xs[i]), y=ys[i]; if(mn!=null&&mn>=TRK_JANELA_INI&&mn<=TRK_JANELA_FIM&&typeof y==='number') s.push([xs[i],y]); }
+      if(s.length) ser[t.id]=s; });
+    const ids=Object.keys(ser); if(ids.length<5) return;
+    const byTs={}; ids.forEach(id=>ser[id].forEach(p=>{(byTs[p[0]]||(byTs[p[0]]=[])).push(p[1]);}));
+    const med={}; for(const x in byTs){ const v=byTs[x].slice().sort((a,b)=>a-b); med[x]=v[v.length>>1]; }
+    const A={},TA={},MX={},CUR={},amps=[];
+    ids.forEach(id=>{ const ys=ser[id].map(p=>p[1]); A[id]=Math.max(...ys)-Math.min(...ys); amps.push(A[id]);
+      const k=Math.max(3,Math.floor(ys.length*0.4)), tail=ys.slice(-k);   // cauda do dia (~últimos 40% das amostras)
+      TA[id]=tail.length?(Math.max(...tail)-Math.min(...tail)):null;
+      let mx=0,cur=0; ser[id].forEach(p=>{ if(med[p[0]]!=null){const dv=Math.abs(p[1]-med[p[0]]); if(dv>mx)mx=dv; cur=dv;} }); MX[id]=mx; CUR[id]=cur; });
+    // Quando MUITOS trackers estão parados, a MEDIANA das amplitudes vira ~0 → a planta "parece"
+    // que não girou e o algoritmo perde a referência (e classifica como "desvio" quem está parado em
+    // ângulo ≠ 0). Solução: usar o P75 (o que os 25% trackers MAIS móveis fizeram) como referência
+    // real do que a planta era CAPAZ de fazer no dia. Se P75 > 30°, existem trackers funcionais e
+    // os de baixa amplitude são parados de verdade.
+    const ampsSorted=amps.slice().sort((a,b)=>a-b);
+    const medAmp=ampsSorted[amps.length>>1]||0;
+    const p75=ampsSorted[Math.floor(amps.length*0.75)]||0;
+    const moved   = medAmp>30;
+    const movedP75= p75>30;
+    let par=0,des=0,atr=0;
+    (det.trackers||[]).forEach(t=>{
+      if(A[t.id]==null) return;                 // sem curva na janela p/ este tracker → mantém o status do servidor
+      const sv=t.status;                         // status do servidor (acumulador 9–15h): autoridade p/ "parado"
+      let st='normal';
+      if(moved && A[t.id]<15) st='parado';                              // nunca girou (frota girou) = travado
+      else if(movedP75 && A[t.id] < Math.min(20, p75*0.3)) st='parado'; // planta inteira meio parada — usa P75 dos trackers FUNCIONAIS
+      else if(A[t.id]>=20 && TA[t.id]!=null && TA[t.id]<5) st='parado'; // girou de manhã e TRAVOU (cauda plana)
+      else if(MX[t.id]>10) st='desvio';                                 // saiu da frota >10° em ALGUM momento da janela
+      // A curva é a VERDADE: preserva o 'parado' do acumulador SÓ se a curva não o contradiz. Se o
+      // tracker ACOMPANHOU a frota (amplitude cheia + colado: A>=30 e MX<=10) é NORMAL — mata falso
+      // positivo de acumulador velho/sujo (ex.: TRK51/52 com amp 60° e 1,8° da frota). NÃO preserva
+      // desvio/atraso instantâneo (alvo furado).
+      if(sv==='parado' && !(A[t.id]>=30 && MX[t.id]<=10)) st='parado';
+      t.status=st; t.amplitude=Math.round(A[t.id]*10)/10; t.max_disp=Math.round(MX[t.id]*10)/10;
+      if(t.disparidade==null||CUR[t.id]>t.disparidade) t.disparidade=Math.round(CUR[t.id]*10)/10;
+      if(st==='parado')par++; else if(st==='desvio')des++; else if(st==='atraso')atr++;
+    });
+    det.parados=par; det.desvios=des; det.atrasos=atr; det.janela='07:00–18:00';
+  }catch(e){}
+}
+function _trkResumoHtml(pid){
+  const data=trkCache[pid]||{};
+  const _fcnt=(tipo,cor,n,lbl)=>`<span onclick="trkPreset('${pid}','${tipo}')" title="clique p/ ver só os ${lbl} (janela 07:00–18:00)" style="cursor:pointer"><b style="color:${cor};text-decoration:underline dotted">${n||0}</b> ${lbl}</span>`;
+  return `${_fcnt('parado','#ef4444',data.parados,'parado')} · ${_fcnt('desvio','#f97316',data.desvios,'desvio')} · ${_fcnt('atraso','#eab308',data.atrasos,'atraso')}`
+    + (data.janela?` <span style="color:var(--muted)">(07:00–18:00)</span>`:'')
+    + (data.sem_alvo?' · <i style="color:var(--muted)">planta sem ângulo alvo</i>':'');
+}
+function _trkChipsHtml(pid){ return ((trkCache[pid]||{}).trackers||[]).map(t=>_trkChip(pid,t)).join(''); }
+// Sincroniza a LINHA-PAI (usina única) com o resultado do EXPANDIR (window-detect na curva fresca),
+// pra ela bater com o gráfico mesmo quando o overview está "frio" (curva ainda não cacheada no
+// servidor → linha mostrava instantâneo). Atualiza PARADO/DESVIO/ATRASADO/disponibilidade/status.
+function _trkSyncRowFromCache(pid){
+  try{
+    const det=trkCache[pid]; if(!det||!det.trackers||!det.trackers.length) return;
+    let par=0,des=0,atr=0;
+    det.trackers.forEach(t=>{ if(t.status==='parado')par++; else if(t.status==='desvio')des++; else if(t.status==='atraso')atr++; });
+    const r=(trkRows||[]).find(x=>String(x.plant_id)===String(pid)); if(!r) return;
+    r.parados=par; r.desvios=des; r.atrasos=atr; r.severos=par+des; r.leves=atr;
+    const tr=document.querySelector('tr[data-trkpid="'+_trkCss(pid)+'"]'); if(!tr) return;
+    const td=tr.querySelectorAll('td');
+    if(td[2]){ td[2].textContent=par; td[2].style.color=par?'#dc2626':'inherit'; td[2].style.fontWeight=par?700:400; }
+    if(td[3]){ td[3].textContent=des; td[3].style.color=des?'#f97316':'inherit'; td[3].style.fontWeight=des?600:400; }
+    if(td[4]){ td[4].textContent=atr; td[4].style.color=atr?'#b45309':'inherit'; }
+    if(td[5]) td[5].innerHTML=_trkDispCell(r);
+    if(td[9]) td[9].innerHTML=_trkBadge(r);
+  }catch(e){}
+}
+function _trkUpdateResumoChips(pid){
+  const cid=_trkCss(pid);
+  const r=document.getElementById('trk-resumo-'+cid); if(r) r.innerHTML=_trkResumoHtml(pid);
+  const c=document.getElementById('trk-chips-'+cid); if(c) c.innerHTML=_trkChipsHtml(pid);
+  _trkSyncRowFromCache(pid);   // linha-pai bate com o expandir
+}
 function _trkHoje(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function _trkDataDe(pid){ const el=document.getElementById('trk-data-'+_trkCss(pid)); return (el&&el.value)?el.value:''; }
 async function trkChartReload(pid){
@@ -2951,6 +3466,8 @@ async function trkChartReload(pid){
   try{ trkChartCache[ckey]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart'+(ds?('?date='+ds):'')).then(r=>r.json()); }
   catch(e){ trkChartCache[ckey]={trackers:[]}; }
   trkChartCache[pid]=trkChartCache[ckey];
+  _trkWindowDetect(trkChartCache[pid], trkCache[pid]);   // recontagem por janela 07:00–18:00 (curva)
+  _trkUpdateResumoChips(pid);
   renderTrkChart(pid);
 }
 async function toggleGraficoTrackers(pid){
@@ -2965,6 +3482,8 @@ async function toggleGraficoTrackers(pid){
     catch(e){ trkChartCache[ckey]={trackers:[]}; }
   }
   trkChartCache[pid]=trkChartCache[ckey];   // renderTrkChart lê por pid
+  _trkWindowDetect(trkChartCache[pid], trkCache[pid]);   // recontagem por janela 07:00–18:00 (curva)
+  _trkUpdateResumoChips(pid);
   renderTrkChart(pid);
 }
 function renderTrkChart(pid, boxId, forceMini){
@@ -2991,10 +3510,10 @@ function renderTrkChart(pid, boxId, forceMini){
   const _win=(xs,ys)=>{const X=[],Y=[];(xs||[]).forEach((dt,i)=>{ if(dt instanceof Date){const mn=dt.getHours()*60+dt.getMinutes(); if(mn<360||mn>1080)return;} X.push(dt);Y.push((ys||[])[i]);}); return [X,Y];};
   const idxById={}, baseLine=[];   // mapa tracker_id -> índice do trace + estilo base (p/ destaque no hover do chip)
   const traces=vis.map((t,i)=>{const [X,Y]=_win(_toDt(t.x),t.y); const ln=corLinha(stMap[t.id]); idxById[t.id]=i; baseLine.push({width:ln.width,color:ln.color}); return {x:X,y:Y,name:t.id,type:'scatter',mode:'lines',
-    line:ln,hovertemplate:t.id+' ('+(stMap[t.id]||'normal')+'): %{y:.1f}°<extra></extra>',showlegend:false};});
+    line:ln,hovertemplate:t.id+' ('+(stMap[t.id]||'normal')+')<br>%{x|%H:%M} · %{y:.1f}°<extra></extra>',showlegend:false};});
   if(!mini) trkChartState[pid]={idxById,base:baseLine};
   if(d.alvo&&d.alvo.y&&d.alvo.y.length){const [AX,AY]=_win(_toDt(d.alvo.x),d.alvo.y); traces.push({x:AX,y:AY,name:'Alvo',type:'scatter',mode:'lines',
-    line:{color:'#111827',width:2.2,dash:'dash'},hovertemplate:'Alvo: %{y:.1f}°<extra></extra>'});}
+    line:{color:'#111827',width:2.2,dash:'dash'},hovertemplate:'Alvo<br>%{x|%H:%M} · %{y:.1f}°<extra></extra>'});}
   // eixo X fixo na janela 06:00–18:00 do dia plotado
   let _xr=null; for(const t of traces){for(const dt of (t.x||[])){if(dt instanceof Date){_xr=[new Date(dt.getFullYear(),dt.getMonth(),dt.getDate(),6,0,0),new Date(dt.getFullYear(),dt.getMonth(),dt.getDate(),18,0,0)];break;}}if(_xr)break;}
   if(!mini){ const hint=document.getElementById('trk-hint-'+cid);
@@ -3012,39 +3531,86 @@ function renderTrkChart(pid, boxId, forceMini){
   }, {displayModeBar:false, responsive:true});
 }
 // Modal de tela cheia p/ a curva de uma usina (botão "⤢ Expandir") — reusa renderTrkChart no modo cheio.
+let trkModalPid=null;
 function trkExpandChart(pid, nome){
+  trkModalPid=pid;
   let modal=document.getElementById('trk-modal');
   if(!modal){
     modal=document.createElement('div'); modal.id='trk-modal';
     modal.style.cssText='display:none;position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.55);align-items:center;justify-content:center';
-    modal.innerHTML=`<div style="background:#fff;width:92vw;height:88vh;border-radius:12px;padding:12px 16px;box-shadow:0 12px 48px rgba(0,0,0,.35);display:flex;flex-direction:column">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+    modal.innerHTML=`<div style="background:#fff;width:92vw;height:90vh;border-radius:12px;padding:12px 16px;box-shadow:0 12px 48px rgba(0,0,0,.35);display:flex;flex-direction:column">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap">
           <b id="trk-modal-title" style="font-size:14px"></b>
-          <button class="gc-btn-sm" style="display:inline-block" onclick="trkCloseModal()">✕ Fechar</button>
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <label style="font-size:12px;color:var(--muted)">Data <input type="date" id="trk-modal-date" onchange="trkModalReload()" style="font-size:12px;padding:2px 5px;border:1px solid #d1d5db;border-radius:5px"></label>
+            <span id="trk-modal-resumo" style="font-size:12px"></span>
+            <button class="gc-btn-sm" style="display:inline-block" onclick="trkCloseModal()">✕ Fechar</button>
+          </div>
         </div>
-        <div id="trk-modal-chart" style="flex:1;min-height:0;width:100%"></div></div>`;
+        <div id="trk-modal-chart" style="flex:1;min-height:0;width:100%"></div>
+        <div id="trk-modal-chips" style="margin-top:8px;max-height:26vh;overflow:auto;display:flex;flex-wrap:wrap;gap:5px;align-content:flex-start"></div></div>`;
     modal.addEventListener('click',e=>{ if(e.target===modal) trkCloseModal(); });
     document.body.appendChild(modal);
   }
   document.getElementById('trk-modal-title').textContent='Curva do dia — '+(nome||pid);
+  document.getElementById('trk-modal-date').value=_trkDataDe(pid)||_trkHoje();
   modal.style.display='flex';
-  const draw=()=>{ const b=document.getElementById('trk-modal-chart'); if(b){ b.style.display=''; renderTrkChart(pid,'trk-modal-chart',false);
-                   if(window.Plotly){ try{ Plotly.Plots.resize(b); }catch(e){} } } };
-  const ckey=pid+'|'+_trkHoje();
-  if(trkChartCache[pid]||trkChartCache[ckey]){ trkChartCache[pid]=trkChartCache[pid]||trkChartCache[ckey]; draw(); }
-  else {
-    const b=document.getElementById('trk-modal-chart'); if(b) b.innerHTML='<div class="gc-loading" style="min-height:200px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
-    fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart').then(r=>r.json()).then(d=>{ trkChartCache[pid]=d; draw(); }).catch(()=>{});
+  trkModalReload();
+}
+async function trkModalReload(){
+  const pid=trkModalPid; if(pid==null)return;
+  const ds=(document.getElementById('trk-modal-date').value)||_trkHoje();
+  const chart=document.getElementById('trk-modal-chart'), chips=document.getElementById('trk-modal-chips'), res=document.getElementById('trk-modal-resumo');
+  if(chart){ try{Plotly.purge(chart);}catch(e){} chart.innerHTML='<div class="gc-loading" style="min-height:200px"><div class="gc-spinner"></div><p>Carregando…</p></div>'; }
+  if(chips) chips.innerHTML=''; if(res) res.innerHTML='';
+  const q=(ds===_trkHoje())?'':('?date='+ds);
+  try{
+    // curva PRIMEIRO (popula o cache do servidor) → depois o detalhe usa a curva p/ o rótulo "parado"
+    const crv=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart'+q).then(r=>r.json());
+    const det=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+q).then(r=>r.json());
+    _trkWindowDetect(crv, det);                         // contagem por janela 07:00–18:00 (curva)
+    trkCache[pid]=det; trkChartCache[pid]=crv;          // alimenta renderTrkChart (status + curva da data)
+    _trkSyncRowFromCache(pid);                          // linha-pai bate com o expandir (modal)
+    if(chart){ chart.style.display=''; renderTrkChart(pid,'trk-modal-chart',false); if(window.Plotly){try{Plotly.Plots.resize(chart);}catch(e){}} }
+    const cnt={parado:0,desvio:0,atraso:0}; (det.trackers||[]).forEach(t=>{ if(cnt[t.status]!=null)cnt[t.status]++; });
+    if(res){
+      // contadores clicáveis: aplica filtro (trkPreset) que destaca os do tipo e re-renderiza o modal
+      const _c=(tipo,cor,n,lbl)=>`<span onclick="trkPreset('${pid}','${tipo}')" title="clique p/ destacar só os ${lbl}" style="cursor:pointer"><b style="color:${cor};text-decoration:underline dotted">${n||0}</b> ${lbl}</span>`;
+      const _todos=`<span onclick="trkPreset('${pid}','todos')" title="mostrar todos" style="cursor:pointer;color:var(--muted)"><u>${(det.trackers||[]).length}</u> trackers</span>`;
+      res.innerHTML=`${_c('parado','#ef4444',cnt.parado,'parado')} · ${_c('desvio','#f97316',cnt.desvio,'desvio')} · ${_c('atraso','#eab308',cnt.atraso,'atraso')} · ${_todos}`;
+    }
+    const ord={parado:3,desvio:2,atraso:1};
+    const ts=(det.trackers||[]).slice().sort((a,b)=>(ord[b.status]||0)-(ord[a.status]||0));
+    if(chips) chips.innerHTML=ts.map(_trkChipStatic).join('');
+  }catch(e){ if(chart) chart.innerHTML='<p style="color:#dc2626;padding:16px;font-size:12px">Não consegui carregar ('+(e.message||e)+').</p>'; }
+}
+function _trkChipStatic(t){
+  const cor=_trkCor(t.status);
+  const v=(t.status==='normal')?(t.disparidade!=null?t.disparidade.toFixed(1)+'°':'ok'):t.status;
+  return `<span data-tid="${t.id}" onmouseenter="trkModalHi('${t.id}',1)" onmouseleave="trkModalHi('${t.id}',0)"
+    title="${(t.status||'').toUpperCase()} · amplitude no dia ${t.amplitude??'—'}° · desvio atual ${t.disparidade??'—'}° · máx do dia ${t.max_disp??'—'}° — passe o mouse p/ destacar no gráfico"
+    style="border:1px solid ${cor};color:${cor};border-radius:8px;padding:3px 7px;font-size:11px;white-space:nowrap;cursor:pointer;font-weight:${t.status==='normal'?400:600}">${t.id}: ${v}</span>`;
+}
+function _trkHiBox(box, st, id, on){
+  // hover no chip → linha do tracker AZUL grossa e ESMAECE as outras (some no feixe → salta aos olhos)
+  if(!box || box.style.display==='none' || !st || !window.Plotly) return;
+  const idx=st.idxById[id]; if(idx==null) return;   // tracker filtrado/fora do gráfico → nada a destacar
+  const base=st.base||[], n=base.length, cols=[], wids=[], idxs=[];
+  for(let i=0;i<n;i++){
+    idxs.push(i);
+    if(on && i===idx){ cols.push('#2563eb'); wids.push(4); }                       // o tracker apontado
+    else if(on){ cols.push('rgba(148,163,184,0.10)'); wids.push((base[i]||{}).width||1); }  // demais: esmaecidos
+    else { cols.push((base[i]||{}).color||'rgba(100,116,139,0.4)'); wids.push((base[i]||{}).width||1); }  // restaura
   }
+  try{ Plotly.restyle(box,{'line.color':cols,'line.width':wids},idxs); }catch(e){}
+}
+function trkModalHi(id,on){   // hover no chip do MODAL (Expandir)
+  if(trkModalPid==null) return;
+  _trkHiBox(document.getElementById('trk-modal-chart'), trkChartState[trkModalPid], id, on);
 }
 function trkCloseModal(){ const m=document.getElementById('trk-modal'); if(!m)return; const b=document.getElementById('trk-modal-chart'); if(b&&window.Plotly){ try{Plotly.purge(b);}catch(e){} } m.style.display='none'; }
-function trkChartHi(pid,id,on){   // hover no chip do tracker → destaca a linha dele no gráfico
-  const st=trkChartState[pid]; if(!st)return;
-  const idx=st.idxById[id]; if(idx==null)return;   // tracker filtrado/fora do gráfico → nada a destacar
-  const box=document.getElementById('trk-chart-'+_trkCss(pid));
-  if(!box||box.style.display==='none'||!window.Plotly)return;
-  const b=st.base[idx]||{};
-  try{ Plotly.restyle(box,{'line.width':[on?4:(b.width||1)],'line.color':[on?'#2563eb':(b.color||'rgba(100,116,139,0.4)')]},[idx]); }catch(e){}
+function trkChartHi(pid,id,on){   // hover no chip do tracker (visão colapsada)
+  _trkHiBox(document.getElementById('trk-chart-'+_trkCss(pid)), trkChartState[pid], id, on);
 }
 function toggleTrkFiltro(pid,id,el){
   if(!trkSel[pid]) trkSel[pid]=new Set();
@@ -3063,6 +3629,15 @@ function trkPreset(pid,tipo){   // filtro rápido: bons / ruins / todos / parado
   const cell=document.getElementById('trk-det-'+_trkCss(pid));
   if(cell) cell.querySelectorAll('[data-tid]').forEach(el=>el.style.opacity=trkSel[pid].has(el.dataset.tid)?1:0.3);
   renderTrkChart(pid);
+  // Aplica o MESMO filtro no MODAL "⤢ Expandir" se ele estiver aberto p/ esta usina:
+  // pinta a opacidade dos chips e re-desenha o gráfico cheio com só os ids selecionados.
+  const m=document.getElementById('trk-modal'),
+        chips=document.getElementById('trk-modal-chips'),
+        chartM=document.getElementById('trk-modal-chart');
+  if(m && m.style.display!=='none' && String(trkModalPid)===String(pid)){
+    if(chips) chips.querySelectorAll('[data-tid]').forEach(el=>el.style.opacity=trkSel[pid].has(el.dataset.tid)?1:0.35);
+    if(chartM) renderTrkChart(pid,'trk-modal-chart',false);
+  }
 }
 
 function _sparkSVG(spark){
@@ -3222,12 +3797,15 @@ function renderWatch(data){
       const bg =TIPO_BG[v.tipo]||'#fff';
       const dias=v.dias_aberto||0;
       const disp=v.leitura?.disparidade!=null?`${v.leitura.disparidade}°`:'—';
+      const sug=v.sugerir_os;
       const tr=document.createElement('tr');
-      tr.style.borderLeft=`4px solid ${cor}`;
+      tr.style.borderLeft=`4px solid ${sug?'#f59e0b':cor}`;
+      if(sug) tr.style.background='#fffdf5';
+      const selo=sug?`<br><span style="background:#fef3c7;color:#92400e;border:1px solid #f59e0b;padding:1px 7px;border-radius:4px;font-size:.78em;font-weight:700;display:inline-block;margin-top:3px">SUGERIR OS</span> <span style="color:#92400e;font-size:.8em">${v.motivo_os||''}</span>`:'';
       tr.innerHTML=`
         <td><strong>${v.usina||v.plant_id}</strong></td>
         <td>${v.tracker_label||v.tracker}</td>
-        <td><span style="color:${cor};font-weight:600;background:${bg};padding:2px 8px;border-radius:4px;font-size:.85em">${v.tipo_label||v.tipo}</span></td>
+        <td><span style="color:${cor};font-weight:600;background:${bg};padding:2px 8px;border-radius:4px;font-size:.85em">${v.tipo_label||v.tipo}</span>${selo}</td>
         <td>${disp}</td>
         <td>${v.data_deteccao||'—'}</td>
         <td style="font-weight:${dias>=3?'700':'400'};color:${dias>=7?'#b91c1c':dias>=3?'#d97706':'inherit'}">${dias}d</td>
@@ -3839,7 +4417,7 @@ async function toggleSpv(id){
       const _hoje=(d=>('0'+d.getDate()).slice(-2)+'/'+('0'+(d.getMonth()+1)).slice(-2)+'/'+d.getFullYear())(new Date());
       const _passado=_spvDataBR()!==_hoje;
       body.innerHTML='<div class="gc-loading" style="padding:20px"><div class="gc-spinner"></div><p>Carregando inversores e curvas...'
-        +(_passado?'<br><span style="font-size:11px;color:var(--muted)">Histórico: a API PV é lenta p/ dias passados (pode levar até ~2 min). Depois de carregado, fica instantâneo.</span>':'')+'</p></div>';
+        +(_passado?'<br><span style="font-size:11px;color:var(--muted)">Dias anteriores: curva de <b>potência</b> por string (PV Plataforma, um inversor por vez). Pode levar alguns segundos; depois fica instantâneo.</span>':'')+'</p></div>';
     }
     try{
       spvData[id]=await fetch(`/api/spv/usina/${id}?data=${encodeURIComponent(_spvDataBR())}`).then(r=>r.json());
@@ -3868,28 +4446,34 @@ function renderSpvUsina(id){
     : `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12.5px;color:#166534">✅ Sem outliers — todas as strings dentro da faixa da mediana</div>`;
   // Filtro: só inversores com strings abaixo da mediana (se ligado na barra)
   const invs = spvSoAbaixo ? pd.inversores.filter(iv=>iv.abaixo) : pd.inversores;
+  const uniNote = pd.unidade==='potencia'
+    ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;padding:7px 12px;margin-bottom:10px;font-size:12px;color:#1e40af">📈 Dia anterior: curva de <b>potência (W)</b> por string + energia/dia (kWh) — fonte PV Plataforma. (Hoje a aba mostra <b>corrente</b>.)</div>`
+    : '';
   const grid = invs.length
     ? `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:14px">`
-      + invs.map(iv=>_spvCard(id,iv)).join('') + `</div>`
+      + invs.map(iv=>_spvCard(id,iv,pd.unidade)).join('') + `</div>`
     : `<p style="color:var(--muted);font-size:13px">Nenhum inversor com strings abaixo da mediana nesta usina.</p>`;
-  body.innerHTML=obs+grid;
+  body.innerHTML=uniNote+obs+grid;
   // plota cada inversor visível + OS da Fracttal (resolve o code-base pelo nome da usina)
   const uNome=(spvUsinas.find(u=>String(u.id)===String(id))||{}).usina||id;
-  invs.forEach(iv=>{ _spvPlot(id,iv); _fracOsInto('spv-os-'+id+'_'+iv.id, uNome, iv.nome); });
+  invs.forEach(iv=>{ _spvPlot(id,iv,pd.unidade); _fracOsInto('spv-os-'+id+'_'+iv.id, uNome, iv.nome); });
 }
 let spvSoAbaixo=false;
 function spvToggleSoAbaixo(){
   spvSoAbaixo=document.getElementById('spv-soabaixo').checked;
   [...spvExp].forEach(id=>renderSpvUsina(id));   // re-renderiza as usinas abertas
 }
-function _spvCard(id,iv){
+function _spvCard(id,iv,unidade){
   const cid=`${id}_${iv.id}`;
-  const chips=iv.strings.map(s=>`<span title="índice de corrente: ${s.energia} (${s.pct}% da mediana da usina)"
+  const _pot=unidade==='potencia';
+  const _medLbl=_pot?`med ${iv.mediana} kWh`:`med ${iv.mediana} (índice)`;
+  const _tip=s=>_pot?`energia/dia: ${s.energia} kWh (${s.pct}% da mediana da usina)`:`índice de corrente: ${s.energia} (${s.pct}% da mediana da usina)`;
+  const chips=iv.strings.map(s=>`<span title="${_tip(s)}"
      style="font-size:10.5px;padding:2px 6px;border-radius:6px;white-space:nowrap;border:1px solid ${s.sub?'#dc2626':'#d1d5db'};color:${s.sub?'#dc2626':'#6b7280'};font-weight:${s.sub?700:400}">${s.nome}: ${s.pct}%</span>`).join(' ');
   return `<div style="border:1px solid ${iv.abaixo?'#fecaca':'#e5e7eb'};border-radius:10px;padding:10px 12px;background:#fff;min-width:0;overflow:hidden">
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
       <strong style="color:#16192a">${iv.nome}</strong>
-      <span style="font-size:11px;color:${iv.abaixo?'#dc2626':(iv.inv_sub?'#b45309':'#16a34a')};font-weight:600">${iv.abaixo?(iv.abaixo+' abaixo'):'OK'} · med ${iv.mediana} (índice)${_invSubTxt(iv)}</span>
+      <span style="font-size:11px;color:${iv.abaixo?'#dc2626':(iv.inv_sub?'#b45309':'#16a34a')};font-weight:600">${iv.abaixo?(iv.abaixo+' abaixo'):'OK'} · ${_medLbl}${_invSubTxt(iv)}</span>
     </div>
     <div id="spv-chart-${cid}" style="width:100%;max-width:100%;height:200px;overflow:hidden"></div>
     <div style="display:flex;flex-wrap:wrap;gap:4px;margin:6px 0">${chips}</div>
@@ -3901,9 +4485,10 @@ function _spvCard(id,iv){
     </div>
   </div>`;
 }
-function _spvPlot(id,iv){
+function _spvPlot(id,iv,unidade){
   const el=document.getElementById(`spv-chart-${id}_${iv.id}`);
   if(!el||!window.Plotly)return;
+  const _yt=unidade==='potencia'?'Potência (W)':'Corrente (A)';
   const subSet=new Set(iv.strings.filter(s=>s.sub).map(s=>s.nome));
   const traces=Object.entries(iv.curva).map(([st,c])=>{
     const sub=subSet.has(st);
@@ -3913,7 +4498,7 @@ function _spvPlot(id,iv){
   });
   Plotly.newPlot(el,traces,{autosize:true,margin:{l:38,r:10,t:6,b:28},showlegend:true,
     legend:{font:{size:9},orientation:'h',y:1.12},
-    xaxis:{tickfont:{size:8},nticks:6},yaxis:{title:{text:'Corrente (A)',font:{size:9}},tickfont:{size:8}}},
+    xaxis:{tickfont:{size:8},nticks:6},yaxis:{title:{text:_yt,font:{size:9}},tickfont:{size:8}}},
     {displayModeBar:false,responsive:true})
     .then(()=>{ try{Plotly.Plots.resize(el);}catch(e){} });
 }
@@ -3974,8 +4559,38 @@ function tokBannerToggle(){
   p.style.display='block';
 }
 
+/* ══ ALERTA: usina com TODOS os trackers parados há > 2h (a partir das 9h) ══ */
+let _trkParadaSig='';
+function _hhmm(h){ const t=Math.round((h||0)*60); return Math.floor(t/60)+'h'+String(t%60).padStart(2,'0'); }
+async function checkTrkParada(){
+  try{
+    const d=await fetch('/api/pv/trackers/parada').then(r=>r.json());
+    const b=document.getElementById('trkParadaBanner'), m=document.getElementById('trkParadaMsg');
+    if(!b||!m) return;
+    const al=(d&&d.alertas)||[];
+    if(!al.length){ b.style.display='none'; _trkParadaSig=''; return; }
+    const lim=d.limite_horas||2;
+    let msg;
+    if(al.length===1){ const a=al[0];
+      msg=`ALERTA: <b>${a.usina}</b> está com <b>todos os ${a.total!=null?a.total+' ':''}trackers parados</b> há <b>${_hhmm(a.horas)}</b> (desde ${a.desde}).`;
+    } else {
+      msg=`ALERTA: <b>${al.length} usinas</b> com todos os trackers parados há mais de ${lim}h — `
+        + al.map(a=>`${a.usina} (${_hhmm(a.horas)})`).join(' · ')+'.';
+    }
+    m.innerHTML=msg+' <span style="text-decoration:underline;opacity:.9">ver trackers</span>';
+    const sig=al.map(a=>a.plant_id+':'+a.horas).join('|');
+    if(sig!==_trkParadaSig){ b.dataset.dismissed=''; _trkParadaSig=sig; }   // mudou o alerta → reexibe
+    if(b.dataset.dismissed!=='1') b.style.display='block';
+  }catch(e){}
+}
+function trkParadaDismiss(){ const b=document.getElementById('trkParadaBanner'); if(b){ b.dataset.dismissed='1'; b.style.display='none'; } }
+function trkParadaGo(){ try{ if(primary!=='pv') switchPrimary('pv'); switchSecondary('trackers'); }catch(e){} }
+
 /* ══ INIT ══════════════════════════════════════════════════════════════════ */
-(async()=>{ await loadState(); show(); checkTokens(); setInterval(checkTokens, 600000); })();
+(async()=>{ await loadState(); show();
+  setTimeout(checkTrkParada, 4000);                 // 1ª checagem logo após carregar
+  setInterval(checkTrkParada, 180000);              // re-checa a cada 3 min (em qualquer aba)
+})();   /* banner de vencimento de token desativado (a pedido) */
 </script>
 
 <!-- área usada só na impressão das curvas selecionadas (Curva das strings) -->

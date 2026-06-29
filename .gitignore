@@ -29,10 +29,19 @@ spv_stringbox.json
 sunop_etm_accum.json
 cache_snapshot.json
 cache_snapshot.json.tmp
+trk_eventos.json
+trk_eventos.json.tmp
+trk_eventos.json.bak*
+trk_eventos.json.FALHO
+tunnel_url.txt
 server.log
 *.log
 cf_*.log*
 server.out.log
+
+# ── Artefatos de build / empacotamento (não versionar) ───────────────────────
+oem-app.zip
+*.oem.zip
 
 # ── Planilhas (dados internos da empresa — ficam no SharePoint/OneDrive) ──────
 *.xlsx
