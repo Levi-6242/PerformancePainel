@@ -908,8 +908,9 @@
       </div>
       <div class="gc-alerts" id="pv-alerts"></div>
       <div class="gc-table-card">
-        <div class="gc-table-hdr">
+        <div class="gc-table-hdr" style="display:flex;align-items:center;gap:10px">
           <span class="gc-table-title">API PV — Detalhamento por Usina <small>— clique para expandir</small></span>
+          <a href="/historico-plataforma" target="gridco-hist-pv" rel="noopener" class="gc-btn-sm" style="margin-left:auto;display:inline-block;background:#0369a1;color:#fff;text-decoration:none;font-weight:600" title="Histórico da Plataforma por dia — Trackers (curva); Strings/ETM só dia atual">Histórico</a>
         </div>
         <div class="gc-table-wrap">
           <table>
@@ -1042,7 +1043,7 @@
         <div class="gc-stat purple"><div class="gc-stat-icon">📡</div><div class="gc-stat-body"><div class="n" id="owen-str-sem">—</div><div class="l">Sem dados</div></div></div>
       </div>
       <div class="gc-table-card">
-        <div class="gc-table-hdr"><span class="gc-table-title">E-mail — Strings por UFV <small>— clique para expandir inversores</small></span></div>
+        <div class="gc-table-hdr" style="display:flex;align-items:center;gap:10px"><span class="gc-table-title">E-mail — Strings por UFV <small>— clique para expandir inversores</small></span><a href="/historico2c" target="gridco-hist2c" rel="noopener" class="gc-btn-sm" style="margin-left:auto;display:inline-block;background:#0369a1;color:#fff;text-decoration:none;font-weight:600" title="Histórico 2C — banco-por-dia (curvas de strings/ETM/trackers de 5 em 5 min)">Histórico 2C</a></div>
         <div class="gc-table-wrap"><table>
           <thead><tr><th>UFV</th><th>Inv.</th><th>Strings Ativas</th><th>Strings Esperadas</th><th>Diferença</th><th>Strings Acompanhamento</th><th>Temp (°C)</th><th>Última Leitura</th><th>Status</th></tr></thead>
           <tbody id="owen-str-tbody"></tbody>
@@ -1316,7 +1317,7 @@
            <input type="search" id="trk-ev-usina" placeholder="filtrar usina…" oninput="_trkEvAplicaFiltro()" style="font-size:11px;padding:3px 8px;border:1px solid #d1d5db;border-radius:5px;width:160px">
            <label style="font-size:11px;color:var(--muted)">Dia <input type="date" id="trk-ev-dia" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
            <button class="gc-btn-sm" style="display:inline-block" onclick="loadTrkEventos()">Filtrar</button>
-           <button class="gc-btn-sm" style="display:inline-block;background:#16a34a;color:#fff" onclick="trkEvExport()">Exportar CSV</button>
+           <button class="gc-btn-sm" id="trk-ev-export" style="display:inline-block;background:#16a34a;color:#fff" onclick="trkEvExport()">Exportar CSV</button>
            <button class="gc-btn-sm" id="trk-ev-gerar" style="display:inline-block;background:#7c3aed;color:#fff" onclick="trkEvGerar()">Gerar/Atualizar histórico</button>
          </span>
        </div>
@@ -1519,7 +1520,8 @@
 <!-- Modal: gráfico ETM do dia -->
 <div class="modal-overlay" id="modal-grafico" onclick="fecharGrafico(event)">
   <div class="modal-box" style="width:780px;max-width:96vw">
-    <h3>📈 ETM de hoje — <span id="grafico-usina" style="color:var(--muted)"></span></h3>
+    <h3 style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">📈 ETM — <span id="grafico-usina" style="color:var(--muted)"></span>
+      <label style="font-size:11px;color:var(--muted);font-weight:400;margin-left:auto">Data <input type="date" id="grafico-data" onchange="etmDataChange()" style="font-size:12px;padding:3px 7px;border:1px solid #d1d5db;border-radius:6px"></label></h3>
     <div id="grafico-area" style="width:100%;height:380px"></div>
     <div class="modal-footer">
       <span style="font-size:11px;color:var(--muted)">Irradiância (W/m²) ao longo do dia</span>
@@ -2740,9 +2742,17 @@ function renderOwenStr(){
       itr.addEventListener('click',()=>{ie?owenInvExp.delete(ik):owenInvExp.add(ik);renderOwenStr();});
       tb.appendChild(itr);
       if(ie){
-        const chips=(inv.strings||[]).map(s=>_strChipSimple(s,'owen',r.plant_id,inv.id,'')).join('');
+        const cid='owcrv-'+r.plant_id+'-'+String(inv.id).replace(/[^0-9]/g,'_');
+        const chips=(inv.strings||[]).map(s=>_strChipSimple(s,'owen',r.plant_id,inv.id,cid)).join('');
         const str=document.createElement('tr'); str.className='strings-row';
-        str.innerHTML=`<td colspan="9"><div style="margin-bottom:6px">${_trancarInativasBtn('owen',r.plant_id,inv.id)}</div><div class="strings-grid">${chips}</div></td>`;
+        str.innerHTML=`<td colspan="9">
+          <div style="margin-bottom:6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+            ${_trancarInativasBtn('owen',r.plant_id,inv.id)}
+            <button class="gc-btn-sm" style="display:inline-block;background:#7c3aed;color:#fff" onclick="owenCurvaInv('${r.plant_id}','${inv.id}','${cid}')">📈 Curva do dia</button>
+            <label style="font-size:11px;color:var(--muted)">Data <input type="date" id="${cid}-data" value="${_trkHoje()}" max="${_trkHoje()}" onchange="owenCurvaInv('${r.plant_id}','${inv.id}','${cid}',true)" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
+          </div>
+          <div id="${cid}" style="display:none;margin-bottom:8px"></div>
+          <div class="strings-grid">${chips}</div></td>`;
         tb.appendChild(str);
       }
     });
@@ -2752,6 +2762,40 @@ async function toggleOwen(pid){
   if(owenExp.has(pid)) owenExp.delete(pid);
   else { owenExp.add(pid); if(!owenCache[pid]){ try{owenCache[pid]=(await fetch('/api/owen/strings/plant/'+encodeURIComponent(pid)).then(r=>r.json())).inversores||[];}catch(e){owenCache[pid]=[];} } }
   renderOwenStr();
+}
+const _owCurvaCache={};   // (pid|date) -> payload de /api/2c/<date>/strings/<pid>
+// Curva de corrente das strings do inversor 2C — REUSA a engine da API PV (_spvPlotInto + pvCurvaHi/
+// pvCurvaToggle), então tem o MESMO visual e o hover no card destaca a linha. Toggle no próprio botão.
+async function owenCurvaInv(pid, invId, cid, force){
+  const box=document.getElementById(cid); if(!box) return;
+  if(!force && box.style.display!=='none'){ box.style.display='none'; return; }
+  const ds=((document.getElementById(cid+'-data')||{}).value)||_trkHoje();
+  const isHoje = ds===_trkHoje();
+  box.style.display='';
+  box.innerHTML='<div class="gc-loading" style="min-height:200px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
+  try{
+    const ck=pid+'|'+ds;
+    if(!_owCurvaCache[ck]) _owCurvaCache[ck]=await fetch('/api/2c/'+ds+'/strings/'+encodeURIComponent(pid)).then(r=>r.json());
+    const inv=(_owCurvaCache[ck].inversores||[]).find(x=>String(x.inv)===String(invId));
+    if(!inv||!(inv.strings||[]).length){ box.innerHTML='<p style="color:var(--muted);padding:14px;font-size:12px">Sem curva de strings para esse inversor em '+ds.split("-").reverse().join("/")+'.</p>'; return; }
+    // status/ativa de cada string vem do cache do inversor (mesma cor/critério dos cards)
+    const invc=(owenCache[pid]||[]).find(i=>String(i.id)===String(invId));
+    const statusBy={}; ((invc&&invc.strings)||[]).forEach(s=>{ statusBy[String(s.id)]=s; });
+    const iv={curva:{}, strings:[]};
+    inv.strings.forEach(s=>{
+      iv.curva[String(s.id)]={x:inv.labels, y:s.y};
+      const cs=statusBy[String(s.id)];
+      iv.strings.push({nome:String(s.id), sub:false, ativa: cs?(cs.ativa!==false):((s.y||[]).some(v=>v>0.5))});
+    });
+    box.innerHTML=`<div style="display:flex;gap:6px;align-items:center;margin:0 0 3px;flex-wrap:wrap">
+        <span style="font-size:11px;color:var(--muted)">Inversor ${invId} — corrente por string (5 min) · passe o mouse no card p/ destacar</span>
+        <span style="margin-left:auto;display:inline-flex;gap:4px">
+          <button class="gc-btn-sm" style="display:inline-block;padding:1px 7px;font-size:10px" onclick="pvCurvaPreset('${cid}','todas')">Todas</button>
+          <button class="gc-btn-sm" style="display:inline-block;padding:1px 7px;font-size:10px" onclick="pvCurvaPreset('${cid}','nenhuma')">Nenhuma</button>
+        </span></div>
+      <div id="${cid}-plot" style="width:100%;height:222px"></div>`;
+    _spvPlotInto(document.getElementById(cid+'-plot'), iv, cid, isHoje);
+  }catch(e){ box.innerHTML='<p style="color:#dc2626;padding:14px;font-size:12px">Erro ao carregar a curva ('+e+'). Clique de novo.</p>'; }
 }
 
 /* ══ BANCO PG · ETM ════════════════════════════════════════════════════════ */
@@ -2896,6 +2940,10 @@ function trkSubtab(w){
   const btn={live:'trk-sub-live',eventos:'trk-sub-ev',parados:'trk-sub-par'};
   Object.entries(btn).forEach(([k,id])=>{ const b=document.getElementById(id); if(b){ const on=(k===w); b.style.background=on?'#1a1b2e':''; b.style.color=on?'#fff':''; } });
   if(w==='eventos'){
+    // "Gerar histórico"/"Exportar" são do job de backfill da API PV; fontes on-demand (PG/etc.) não usam
+    const _pv=(primary==='pv');
+    const _g=document.getElementById('trk-ev-gerar');   if(_g) _g.style.display=_pv?'inline-block':'none';
+    const _x=document.getElementById('trk-ev-export');  if(_x) _x.style.display=_pv?'inline-block':'none';
     _trkEvInitDatas();
     loadTrkEventos();                                   // carrega 1x ao abrir (sem ficar em poll)
     if(!_trkEvAuto) _trkEvAuto=setInterval(()=>{        // auto-atualiza a cada 30 min, só se a view estiver aberta
@@ -2925,7 +2973,7 @@ async function loadTrkEventos(silent){
   const tb=document.getElementById('trk-ev-tbody'); if(!tb)return null;
   const [ini,fim]=_trkDatas();
   if(!silent) tb.innerHTML='<tr><td colspan="7" style="padding:14px;color:var(--muted)">Carregando…</td></tr>';
-  let d; try{ d=await fetch(`/api/pv/trackers/eventos?ini=${ini}&fim=${fim}`).then(r=>r.json()); }catch(e){ d={rows:[]}; }
+  let d; try{ d=await fetch(`${_trkBase()}/eventos?ini=${ini}&fim=${fim}`).then(r=>r.json()); }catch(e){ d={rows:[]}; }
   _trkEvLoaded=true; _trkEvRenderProg(d.progresso);
   _trkEvRows=d.rows||[];
   _trkEvRenderTabela(d.progresso, d.total);
@@ -2984,7 +3032,7 @@ let _trkParRows=[], _trkParAuto=null;
 async function loadTrkParados(silent){
   const tb=document.getElementById('trk-par-tbody'); if(!tb) return;
   if(!silent) tb.innerHTML='<tr><td colspan="10" style="padding:14px;color:var(--muted)">Carregando…</td></tr>';
-  let d; try{ d=await fetch('/api/pv/trackers/parados').then(r=>r.json()); }catch(e){ d={rows:[]}; }
+  let d; try{ d=await fetch(_trkBase()+'/parados').then(r=>r.json()); }catch(e){ d={rows:[]}; }
   _trkParRows=d.rows||[];
   _trkParRenderTabela();
 }
@@ -3082,10 +3130,11 @@ function _rondaCopiar(btn){
 
 async function loadSoTrackers(force){
   const base=_trkBase();
-  // sub-aba "Ocorrências" (travou→voltou) só existe na API PV; nas outras fontes some e volta p/ Tempo real
+  // Sub-abas Ocorrências/Parados: ligadas nas fontes que têm os endpoints (todas, menos SolarEdge).
+  const _temSub=['pv','pg','sunop','axis','owen'].includes(primary);
   const sub=document.getElementById('trk-subtabs');
-  if(sub) sub.style.display=(primary==='pv')?'flex':'none';
-  if(primary!=='pv') trkSubtab('live');
+  if(sub) sub.style.display=_temSub?'flex':'none';
+  if(!_temSub) trkSubtab('live');
   const _src=document.getElementById('trk-title-src');
   if(_src)_src.textContent = primary==='pv'?'PV Plataforma' : primary==='pg'?'Banco de Dados (Thopen)' : primary==='owen'?'2C' : 'SunOp (Athon)';
   if(loaded.sotrk && trkLoadedSrc===primary && !force){ renderSoTrackers(); return; }
@@ -3379,41 +3428,67 @@ function _trkWindowDetect(crv, det){
   try{
     if(!crv||!(crv.trackers||[]).length||!det||!(det.trackers||[]).length) return;
     const _min=s=>{ const m=String(s).match(/(\d{1,2}):(\d{2})/); return m?(+m[1]*60+ +m[2]):null; };
+    // série de cada tracker na janela 07:00–18:00 (guardamos o MINUTO como chave de tempo)
     const ser={};
     (crv.trackers||[]).forEach(t=>{ const xs=t.x||[], ys=t.y||[], s=[];
-      for(let i=0;i<xs.length;i++){ const mn=_min(xs[i]), y=ys[i]; if(mn!=null&&mn>=TRK_JANELA_INI&&mn<=TRK_JANELA_FIM&&typeof y==='number') s.push([xs[i],y]); }
+      for(let i=0;i<xs.length;i++){ const mn=_min(xs[i]), y=ys[i]; if(mn!=null&&mn>=TRK_JANELA_INI&&mn<=TRK_JANELA_FIM&&typeof y==='number') s.push([mn,y]); }
       if(s.length) ser[t.id]=s; });
     const ids=Object.keys(ser); if(ids.length<5) return;
+
+    // ── ALVO (ângulo comandado) na janela, por minuto ──────────────────────────────
+    // O alvo é a VERDADE: tracker bom ACOMPANHA o alvo. Classificar pelo desvio em relação ao alvo
+    // (e não pelo movimento do próprio tracker) evita o falso positivo de marcar "parado" quem está
+    // colado num alvo que, naquele momento, está plano (meio-dia/tarde) — caso do MRO100.
+    const alvo={}; const A0=crv.alvo||{};
+    { const ax=A0.x||[], ay=A0.y||[];
+      for(let i=0;i<ax.length;i++){ const mn=_min(ax[i]), y=ay[i]; if(mn!=null&&mn>=TRK_JANELA_INI&&mn<=TRK_JANELA_FIM&&typeof y==='number') alvo[mn]=y; } }
+    const av=Object.values(alvo);
+    const alvoAmp = av.length?(Math.max(...av)-Math.min(...av)):0;
+    const temAlvo = av.length>=5 && alvoAmp>=8;   // alvo presente E que girou de verdade no dia
+
+    let par=0,des=0,atr=0;
+
+    if(temAlvo){
+      (det.trackers||[]).forEach(t=>{
+        const s=ser[t.id];
+        if(!s){ if(t.status==='parado')par++; else if(t.status==='desvio')des++; else if(t.status==='atraso')atr++; return; }
+        const ys=s.map(p=>p[1]); const A=Math.max(...ys)-Math.min(...ys);
+        const devs=[]; let maxDev=0, curDev=0;
+        s.forEach(p=>{ const a=alvo[p[0]]; if(a!=null){ const d=Math.abs(p[1]-a); devs.push(d); if(d>maxDev)maxDev=d; curDev=d; } });
+        let st='normal';
+        if(devs.length){
+          devs.sort((a,b)=>a-b); const medDev=devs[devs.length>>1];
+          if(A < Math.max(5, alvoAmp*0.25) && maxDev>15) st='parado';   // travado: o alvo girou e ele não acompanhou
+          else if(medDev>8 || maxDev>20) st='desvio';                    // segue, mas se afasta do comandado
+          t.disparidade=Math.round(curDev*10)/10;
+          t.max_disp=Math.round(maxDev*10)/10;
+        }
+        t.status=st; t.amplitude=Math.round(A*10)/10;
+        if(st==='parado')par++; else if(st==='desvio')des++; else if(st==='atraso')atr++;
+      });
+      det.parados=par; det.desvios=des; det.atrasos=atr; det.janela='07:00–18:00'; det.base_alvo=true;
+      return;
+    }
+
+    // ── Fallback (planta SEM ângulo alvo): régua peer-relativa por amplitude/mediana ───────
     const byTs={}; ids.forEach(id=>ser[id].forEach(p=>{(byTs[p[0]]||(byTs[p[0]]=[])).push(p[1]);}));
     const med={}; for(const x in byTs){ const v=byTs[x].slice().sort((a,b)=>a-b); med[x]=v[v.length>>1]; }
     const A={},TA={},MX={},CUR={},amps=[];
     ids.forEach(id=>{ const ys=ser[id].map(p=>p[1]); A[id]=Math.max(...ys)-Math.min(...ys); amps.push(A[id]);
-      const k=Math.max(3,Math.floor(ys.length*0.4)), tail=ys.slice(-k);   // cauda do dia (~últimos 40% das amostras)
+      const k=Math.max(3,Math.floor(ys.length*0.4)), tail=ys.slice(-k);
       TA[id]=tail.length?(Math.max(...tail)-Math.min(...tail)):null;
       let mx=0,cur=0; ser[id].forEach(p=>{ if(med[p[0]]!=null){const dv=Math.abs(p[1]-med[p[0]]); if(dv>mx)mx=dv; cur=dv;} }); MX[id]=mx; CUR[id]=cur; });
-    // Quando MUITOS trackers estão parados, a MEDIANA das amplitudes vira ~0 → a planta "parece"
-    // que não girou e o algoritmo perde a referência (e classifica como "desvio" quem está parado em
-    // ângulo ≠ 0). Solução: usar o P75 (o que os 25% trackers MAIS móveis fizeram) como referência
-    // real do que a planta era CAPAZ de fazer no dia. Se P75 > 30°, existem trackers funcionais e
-    // os de baixa amplitude são parados de verdade.
     const ampsSorted=amps.slice().sort((a,b)=>a-b);
     const medAmp=ampsSorted[amps.length>>1]||0;
     const p75=ampsSorted[Math.floor(amps.length*0.75)]||0;
-    const moved   = medAmp>30;
-    const movedP75= p75>30;
-    let par=0,des=0,atr=0;
+    const moved=medAmp>30, movedP75=p75>30;
     (det.trackers||[]).forEach(t=>{
-      if(A[t.id]==null) return;                 // sem curva na janela p/ este tracker → mantém o status do servidor
-      const sv=t.status;                         // status do servidor (acumulador 9–15h): autoridade p/ "parado"
-      let st='normal';
-      if(moved && A[t.id]<15) st='parado';                              // nunca girou (frota girou) = travado
-      else if(movedP75 && A[t.id] < Math.min(20, p75*0.3)) st='parado'; // planta inteira meio parada — usa P75 dos trackers FUNCIONAIS
-      else if(A[t.id]>=20 && TA[t.id]!=null && TA[t.id]<5) st='parado'; // girou de manhã e TRAVOU (cauda plana)
-      else if(MX[t.id]>10) st='desvio';                                 // saiu da frota >10° em ALGUM momento da janela
-      // A curva é a VERDADE: preserva o 'parado' do acumulador SÓ se a curva não o contradiz. Se o
-      // tracker ACOMPANHOU a frota (amplitude cheia + colado: A>=30 e MX<=10) é NORMAL — mata falso
-      // positivo de acumulador velho/sujo (ex.: TRK51/52 com amp 60° e 1,8° da frota). NÃO preserva
-      // desvio/atraso instantâneo (alvo furado).
+      if(A[t.id]==null){ if(t.status==='parado')par++; else if(t.status==='desvio')des++; else if(t.status==='atraso')atr++; return; }
+      const sv=t.status; let st='normal';
+      if(moved && A[t.id]<15) st='parado';
+      else if(movedP75 && A[t.id] < Math.min(20, p75*0.3)) st='parado';
+      else if(A[t.id]>=20 && TA[t.id]!=null && TA[t.id]<5) st='parado';
+      else if(MX[t.id]>10) st='desvio';
       if(sv==='parado' && !(A[t.id]>=30 && MX[t.id]<=10)) st='parado';
       t.status=st; t.amplitude=Math.round(A[t.id]*10)/10; t.max_disp=Math.round(MX[t.id]*10)/10;
       if(t.disparidade==null||CUR[t.id]>t.disparidade) t.disparidade=Math.round(CUR[t.id]*10)/10;
@@ -3695,18 +3770,25 @@ function renderEtmCards(){
 }
 
 /* ══ GRÁFICO ETM DO DIA (PV: day_meteo | PG: banco) ════════════════════════ */
-async function abrirGraficoEtm(pid, usina, src, est){
-  const url = src==='pg' ? `/api/pg/etm/chart?plant_id=${pid}`
+let _etmCur=null;
+function etmDataChange(){ if(_etmCur) abrirGraficoEtm(_etmCur.pid,_etmCur.usina,_etmCur.src,_etmCur.est,document.getElementById('grafico-data').value); }
+async function abrirGraficoEtm(pid, usina, src, est, date){
+  _etmCur={pid,usina,src,est};
+  const ds=date||_trkHoje();
+  const di=document.getElementById('grafico-data'); if(di){ di.max=_trkHoje(); di.value=ds; }
+  const dq='&date='+encodeURIComponent(ds);
+  const url = (src==='pg' ? `/api/pg/etm/chart?plant_id=${pid}`
             : src==='axis' ? `/api/axis/etm/chart?plant=${encodeURIComponent(pid)}&estacao=${encodeURIComponent(est||'ESTM')}`
             : src==='sunop' ? `/api/sunop/etm/chart?plant=${encodeURIComponent(pid)}&estacao=${encodeURIComponent(est||'ESTM')}`
             : src==='owen' ? `/api/owen/etm/chart?plant=${encodeURIComponent(pid)}`
-            : `/api/etm/chart?plant_id=${pid}`;
+            : `/api/etm/chart?plant_id=${pid}`) + dq;
   document.getElementById('grafico-usina').textContent=usina;
   document.getElementById('modal-grafico').classList.add('open');
   const area=document.getElementById('grafico-area');
-  area.innerHTML='<div class="gc-loading" style="min-height:380px"><div class="gc-spinner"></div><p>Carregando curva do dia...</p></div>';
+  area.innerHTML='<div class="gc-loading" style="min-height:380px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
   try{
     const d=await fetch(url).then(r=>r.json());
+    if(d.sem_historico){ area.innerHTML='<p style="text-align:center;color:var(--muted);padding:60px 20px">A API PV só fornece ETM do <b>dia atual</b> — histórico de irradiância indisponível para essa fonte.<br>Para ETM histórico, use usinas do <b>2C</b>, <b>SunOp</b> ou <b>PG</b>.</p>'; return; }
     // Eixo X fixo de 06:00 às 18:00: mapeia "HH:MM" p/ datetime de um dia fictício
     // e fixa o range, pra todos os gráficos de ETM começarem e terminarem no mesmo horário.
     const xdt=(d.labels||[]).map(t=>'2000-01-01 '+t);
@@ -3716,7 +3798,7 @@ async function abrirGraficoEtm(pid, usina, src, est){
     if(d.ghi  && d.ghi.some(v=>v!=null))   traces.push(mk('GHI',   d.ghi,  '#3b82f6'));
     if(d.poari&& d.poari.some(v=>v!=null)) traces.push(mk('POA-RI',d.poari,'#f59e0b'));
     area.innerHTML='';
-    if(!traces.length){area.innerHTML='<p style="text-align:center;color:var(--muted);padding:60px 0">Sem dados de irradiância para hoje.</p>';return;}
+    if(!traces.length){area.innerHTML='<p style="text-align:center;color:var(--muted);padding:60px 0">Sem dados de irradiância para essa data.</p>';return;}
     Plotly.newPlot(area, traces, {
       margin:{t:10,r:14,b:42,l:54},
       xaxis:{title:'Hora', type:'date', range:['2000-01-01 06:00','2000-01-01 18:00'],

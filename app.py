@@ -1429,6 +1429,18 @@ def gerencial():
     return render_template("gerencial.html")
 
 
+@app.route("/historico2c")
+def historico2c():
+    # Navega o banco-por-dia do 2C (2C_historico) com curvas. Consome /api/2c/*.
+    return render_template("historico2c.html")
+
+
+@app.route("/historico-plataforma")
+def historico_plataforma():
+    # Histórico por dia das usinas da API PV (Trackers tem curva; Strings/ETM só dia atual).
+    return render_template("historico_pv.html")
+
+
 _data_refreshing   = {"on": False}
 _data_refresh_lock = threading.Lock()
 
@@ -1686,6 +1698,10 @@ def api_etm_chart():
     plant_id = flask_request.args.get("plant_id", type=int)
     if not plant_id:
         return jsonify({"error": "plant_id required"}), 400
+    date = (flask_request.args.get("date") or "").strip()
+    if date and date != datetime.now().strftime("%Y-%m-%d"):
+        # day_meteo só entrega o DIA ATUAL; histórico de ETM da API PV não é confiável (custom_query lento)
+        return jsonify({"labels": [], "poa": [], "ghi": [], "poari": [], "sem_historico": True})
     token = get_token()
     try:
         recs = _http().post(f"{BASE_URL}/day_meteo",
@@ -3349,6 +3365,84 @@ def api_sunop_trackers_chart(plant_name):
                     "trackers": trackers, "alvo": alvo})
 
 
+# ── SunOp/Axis: Trackers parados (agora) + Ocorrências (travou→voltou) — espelho das sub-abas API PV ──
+#   Curva via _sunop_trk_curvas (cacheada, API analógica) → Ocorrências on-demand por dia (paralelizado).
+def _sunop_curve_for(plant_name, data_br, inst):
+    """Curva ATUAL por tracker no formato do motor de eventos: {tracker: [{x,y}]}."""
+    try:
+        date_iso = datetime.strptime(data_br, "%d/%m/%Y").strftime("%Y-%m-%d")
+    except Exception:
+        date_iso = data_br
+    cur = _sunop_trk_curvas(plant_name, date_iso, inst)
+    return {n.replace("TRK_", "Tracker "): [{"x": ts, "y": v} for ts, v in s]
+            for n, s in cur.get("posat", {}).items() if s}
+
+
+@app.route("/api/sunop/trackers/parados")
+@app.route("/api/axis/trackers/parados")
+def api_sunop_trackers_parados():
+    inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
+    ensure_sunop_meta(inst)
+    plantas = [p for p, m in _si(inst)["meta"].items() if m.get("trackers")]
+    rows = []
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        futs = {ex.submit(_sunop_trackers_plant_curva, p, inst): p for p in plantas}
+        for f in as_completed(futs):
+            try:
+                a = f.result()
+            except Exception:
+                continue
+            for t in a.get("trackers", []):
+                if t.get("status") == "parado":
+                    rows.append({"plant_id": a["plant_id"], "usina": a["usina"], "tracker": t["id"],
+                                 "inversor": "", "atual": t.get("atual"), "alvo": t.get("alvo"),
+                                 "disparidade": t.get("disparidade"), "amplitude": t.get("amplitude"),
+                                 "na_planilha": bool(t.get("na_planilha")), "ticket_status": t.get("ticket_status"),
+                                 "parado_desde": None, "horas_parado": None, "dias_parado": None,
+                                 "ultima_leitura": a.get("ultima_leitura")})
+    rows.sort(key=lambda r: (r["usina"], _pv_trk_num(r["tracker"])))
+    return jsonify({"rows": rows, "total": len(rows), "cache_ts": datetime.now().strftime("%H:%M:%S")})
+
+
+_sunop_ev_cache = {"gridco": {}, "axis": {}}
+
+
+@app.route("/api/sunop/trackers/eventos")
+@app.route("/api/axis/trackers/eventos")
+def api_sunop_trackers_eventos():
+    inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
+    ensure_sunop_meta(inst)
+    ini = (flask_request.args.get("ini") or datetime.now().strftime("%Y-%m-%d")).strip()
+    date_iso = ini if re.match(r"^\d{4}-\d{2}-\d{2}$", ini) else datetime.now().strftime("%Y-%m-%d")
+    hoje_iso = datetime.now().strftime("%Y-%m-%d")
+    cache = _sunop_ev_cache[inst]
+    ent = cache.get(date_iso)
+    if ent and (date_iso != hoje_iso or (time.time() - ent["ts"]) < CACHE_TTL):
+        return jsonify({"rows": ent["rows"], "ini": date_iso, "fim": date_iso, "total": len(ent["rows"]),
+                        "data_ini_hist": "2026-06-01", "progresso": {}})
+    data_br = datetime.strptime(date_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+    dd = date_iso.split("-")
+    plantas = [p for p, m in _si(inst)["meta"].items() if m.get("trackers")]
+
+    def _um(p):
+        try:
+            res = _trk_eventos_do_dia(p, p, data_br, curve=_sunop_curve_for(p, data_br, inst))
+        except Exception:
+            return []
+        un = USINA_DISPLAY.get(p, p)
+        return [{"data_iso": date_iso, "data": f"{dd[2]}/{dd[1]}", "usina": un, "tracker": ev["tracker"],
+                 "inversor": "", "parada": ev["parada"], "retorno": ev.get("retorno"), "dur_min": ev.get("dur_min")}
+                for ev in res["eventos"]]
+    rows = []
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        for part in ex.map(_um, plantas):
+            rows.extend(part)
+    rows.sort(key=lambda r: (r["usina"], r["parada"]))
+    cache[date_iso] = {"ts": time.time(), "rows": rows}
+    return jsonify({"rows": rows, "ini": date_iso, "fim": date_iso, "total": len(rows),
+                    "data_ini_hist": "2026-06-01", "progresso": {}})
+
+
 # ── API PV · Trackers (fonte: PV Plataforma) ──────────────────────────────────
 #   A API PV (apipv) NÃO expõe posição de tracker; o dado só existe na PV Plataforma
 #   (mesma idusina). Endpoints: /v2/usinas/trackers (estado atual: posAg=atual,
@@ -3964,10 +4058,11 @@ def _trk_parado_desde_hist(pid, tracker):
     return desde
 
 
-def _trk_eventos_do_dia(idusina, nome, data_br):
+def _trk_eventos_do_dia(idusina, nome, data_br, curve=None):
     """Eventos travou→voltou dos trackers de UMA usina num dia (data_br = DD/MM/YYYY).
-    Retorna {cobertura, eventos:[{tracker, parada 'HH:MM', retorno 'HH:MM'|None, dur_min}]}."""
-    g = _pv_trk_grafico(idusina, data_br, fetch=True)
+    Retorna {cobertura, eventos:[{tracker, parada 'HH:MM', retorno 'HH:MM'|None, dur_min}]}.
+    curve = {tracker: [{x,y}]} pronto (outras fontes); se None, busca a curva da API PV (trackerschart)."""
+    g = curve if curve is not None else _pv_trk_grafico(idusina, data_br, fetch=True)
     if not g:
         return {"cobertura": 0.0, "eventos": []}
     ncells = (TRK_EV_WIN_FIM - TRK_EV_WIN_INI) // TRK_EV_STEP + 1
@@ -5886,14 +5981,25 @@ def api_pg_etm_chart():
     plant_id = flask_request.args.get("plant_id", type=int)
     if not plant_id:
         return jsonify({"error": "plant_id required"}), 400
-    sql = """
-      SELECT timestamp, irradiance_poa, irradiance_ghi
-      FROM dbt.stg_weather_station_analogic_data
-      WHERE power_plant_id = %s AND timestamp::date = CURRENT_DATE
-      ORDER BY timestamp;
-    """
+    date = (flask_request.args.get("date") or "").strip()
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", date):
+        sql = """
+          SELECT timestamp, irradiance_poa, irradiance_ghi
+          FROM dbt.stg_weather_station_analogic_data
+          WHERE power_plant_id = %s AND timestamp::date = %s
+          ORDER BY timestamp;
+        """
+        params = (plant_id, date)
+    else:
+        sql = """
+          SELECT timestamp, irradiance_poa, irradiance_ghi
+          FROM dbt.stg_weather_station_analogic_data
+          WHERE power_plant_id = %s AND timestamp::date = CURRENT_DATE
+          ORDER BY timestamp;
+        """
+        params = (plant_id,)
     try:
-        conn = _pg_conn(); cur = conn.cursor(); cur.execute(sql, (plant_id,))
+        conn = _pg_conn(); cur = conn.cursor(); cur.execute(sql, params)
         recs = cur.fetchall(); conn.close()
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -6550,8 +6656,11 @@ def api_owen_etm_analise():
 @app.route("/api/owen/etm/chart")
 def api_owen_etm_chart():
     u = (flask_request.args.get("plant") or "").strip()
-    data = _owen_etm_build()
-    merged = _owen_etm_series(data.get(u, {}))
+    date = (flask_request.args.get("date") or "").strip()
+    if date and date != datetime.now().strftime("%Y-%m-%d"):
+        merged = _owen_etm_series(_hist_build(date).get("etm", {}).get(u, {}))   # dia passado: 2C_historico
+    else:
+        merged = _owen_etm_series(_owen_etm_build().get(u, {}))                   # hoje: acumulador
     return jsonify({"labels": [t.strftime("%H:%M") for t, _, _ in merged],
                     "poa": [p for _, p, _ in merged],
                     "ghi": [g for _, _, g in merged], "poari": []})
@@ -6644,7 +6753,10 @@ def api_owen_strings_plant(plant_id):
 
 
 # ── Owen: Trackers (alvo/atual por UFV, análise por curva) ─────────────────────
-def _owen_trackers_build(force=False):
+def _owen_trackers_build(force=False, date=None):
+    # date=YYYY-MM-DD passado → lê o banco-por-dia (2C_historico); hoje/None → acumulador ao vivo.
+    if date and date != datetime.now().strftime("%Y-%m-%d"):
+        return _hist_build(date).get("trackers", {})
     _owen_refresh(force)
     with _owen_lock:
         return {u: {n: {"alvo": _owen_pts(d["alvo"]), "atual": _owen_pts(d["atual"])}
@@ -6652,9 +6764,9 @@ def _owen_trackers_build(force=False):
                 for u, trks in _owen_accum.get("trackers", {}).items()}
 
 
-def _owen_trackers_analise(plant_id):
+def _owen_trackers_analise(plant_id, date=None):
     nome = _owen_nome(plant_id)
-    trks = _owen_trackers_build().get(plant_id, {})
+    trks = _owen_trackers_build(date=date).get(plant_id, {})
     base = {"usina": nome, "plant_id": plant_id, "total": 0, "parados": 0,
             "desvios": 0, "atrasos": 0, "sem_alvo": False, "pior_disparidade": None,
             "ultima_leitura": None, "trackers": [], "tem_trackers": bool(trks)}
@@ -6733,12 +6845,14 @@ def api_owen_trackers():
 
 @app.route("/api/owen/trackers/<plant_id>")
 def api_owen_trackers_plant(plant_id):
-    return jsonify(_owen_trackers_analise(plant_id))
+    date = (flask_request.args.get("date") or "").strip()
+    return jsonify(_owen_trackers_analise(plant_id, date=date or None))
 
 
 @app.route("/api/owen/trackers/<plant_id>/chart")
 def api_owen_trackers_chart(plant_id):
-    trks = _owen_trackers_build().get(plant_id, {})
+    date = (flask_request.args.get("date") or "").strip()
+    trks = _owen_trackers_build(date=date or None).get(plant_id, {})
     def _down(s, m=180): return s[::max(1, len(s) // m)]
     def _num(n): return [int(p) for p in n.split(".")]
     out, alvo = [], None
@@ -6757,12 +6871,264 @@ def api_owen_trackers_chart(plant_id):
     return jsonify({"plant": _owen_nome(plant_id), "trackers": out, "alvo": alvo})
 
 
+# ── Owen (2C): Trackers parados (agora) + Ocorrências (travou→voltou) — espelho das sub-abas API PV ──
+#   Curva: acumulador (hoje) / 2C_historico (passado). Só 4 UFVs → on-demand direto (sem pool/job).
+def _owen_curve_for(code, data_br):
+    """Curva ATUAL por tracker no formato do motor de eventos: {tracker: [{x,y}]}."""
+    try:
+        date_iso = datetime.strptime(data_br, "%d/%m/%Y").strftime("%Y-%m-%d")
+    except Exception:
+        date_iso = data_br
+    trks = _owen_trackers_build(date=date_iso).get(code, {})
+    return {f"Tracker {n}": [{"x": t.strftime("%Y-%m-%dT%H:%M:%SZ"), "y": v} for t, v in d["atual"]]
+            for n, d in trks.items() if d.get("atual")}
+
+
+@app.route("/api/owen/trackers/parados")
+def api_owen_trackers_parados():
+    """Lista flat de todos os trackers 2C 'parado' agora (analise por usina)."""
+    rows = []
+    for code in OWEN_UFVS:
+        try:
+            a = _owen_trackers_analise(code)
+        except Exception:
+            continue
+        for t in a.get("trackers", []):
+            if t.get("status") == "parado":
+                rows.append({"plant_id": code, "usina": a["usina"], "tracker": t["id"],
+                             "inversor": "", "atual": t.get("atual"), "alvo": t.get("alvo"),
+                             "disparidade": t.get("disparidade"), "amplitude": t.get("amplitude"),
+                             "na_planilha": False, "parado_desde": None,
+                             "horas_parado": None, "dias_parado": None,
+                             "ultima_leitura": a.get("ultima_leitura")})
+    rows.sort(key=lambda r: (r["usina"], _pv_trk_num(r["tracker"])))
+    return jsonify({"rows": rows, "total": len(rows), "cache_ts": datetime.now().strftime("%H:%M:%S")})
+
+
+_owen_ev_cache = {}   # date_iso -> {ts, rows}
+
+
+@app.route("/api/owen/trackers/eventos")
+def api_owen_trackers_eventos():
+    """Ocorrências travou→voltou do 2C, ON-DEMAND por dia (acumulador hoje / 2C_historico passado)."""
+    ini = (flask_request.args.get("ini") or datetime.now().strftime("%Y-%m-%d")).strip()
+    date_iso = ini if re.match(r"^\d{4}-\d{2}-\d{2}$", ini) else datetime.now().strftime("%Y-%m-%d")
+    hoje_iso = datetime.now().strftime("%Y-%m-%d")
+    ent = _owen_ev_cache.get(date_iso)
+    if ent and (date_iso != hoje_iso or (time.time() - ent["ts"]) < CACHE_TTL):
+        return jsonify({"rows": ent["rows"], "ini": date_iso, "fim": date_iso, "total": len(ent["rows"]),
+                        "data_ini_hist": "2026-05-13", "progresso": {}})
+    data_br = datetime.strptime(date_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+    dd = date_iso.split("-")
+    rows = []
+    for code in OWEN_UFVS:
+        try:
+            res = _trk_eventos_do_dia(code, _owen_nome(code), data_br, curve=_owen_curve_for(code, data_br))
+        except Exception:
+            continue
+        un = _owen_nome(code)
+        for ev in res["eventos"]:
+            rows.append({"data_iso": date_iso, "data": f"{dd[2]}/{dd[1]}", "usina": un,
+                         "tracker": ev["tracker"], "inversor": "",
+                         "parada": ev["parada"], "retorno": ev.get("retorno"), "dur_min": ev.get("dur_min")})
+    rows.sort(key=lambda r: (r["usina"], r["parada"]))
+    _owen_ev_cache[date_iso] = {"ts": time.time(), "rows": rows}
+    return jsonify({"rows": rows, "ini": date_iso, "fim": date_iso, "total": len(rows),
+                    "data_ini_hist": "2026-05-13", "progresso": {}})
+
+
 def _trk_severidade2(r) -> int:
     if r.get("parados"): return 0
     if r.get("desvios"): return 1
     if r.get("atrasos"): return 2
     if not r.get("total"): return 4
     return 3
+
+
+# ══ HISTÓRICO 2C — navega o banco-por-dia (2C_historico/<data>) com curvas ══════
+#   O coletor arquiva cada dia em OWEN_ROOT/2C_historico/AAAA-MM-DD/{ETM,Strings,Trackers}.
+#   Aqui lemos uma DATA específica e montamos as séries COMPLETAS (5 min) p/ gráfico —
+#   diferente do _owen_refresh (só dia atual + colapsa string no último valor).
+_HIST_ROOT        = os.path.join(OWEN_ROOT, "2C_historico")
+_hist_cache       = {}            # data → {etm, strings, trackers} (séries completas)
+_hist_cache_order = []            # LRU
+_HIST_CACHE_MAX   = 2
+_hist_lock        = threading.Lock()
+
+
+def _hist_rows(dirpath):
+    """Itera (point_name, datetime, value) dos CSVs de um diretório (latin-1)."""
+    if not os.path.isdir(dirpath):
+        return
+    for fn in sorted(os.listdir(dirpath)):
+        if not fn.lower().endswith(".csv"):
+            continue
+        try:
+            with open(os.path.join(dirpath, fn), encoding="latin-1", newline="") as fh:
+                for row in csv.reader(fh):
+                    if len(row) < 3 or row[0] == "Point name":
+                        continue
+                    v = _owen_num(row[2])
+                    if v is None:
+                        continue
+                    try:
+                        t = datetime.strptime(row[1].strip(), "%Y/%m/%d %H:%M:%S")
+                    except Exception:
+                        continue
+                    yield row[0], t, v
+        except Exception:
+            continue
+
+
+def _hist_days():
+    """Datas disponíveis no arquivo (AAAA-MM-DD), mais recente primeiro."""
+    if not os.path.isdir(_HIST_ROOT):
+        return []
+    ds = [d for d in os.listdir(_HIST_ROOT)
+          if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d) and os.path.isdir(os.path.join(_HIST_ROOT, d))]
+    return sorted(ds, reverse=True)
+
+
+def _hist_build(date):
+    """Séries completas (5 min) de um dia. Dia PASSADO: lê 2C_historico (cache permanente).
+    HOJE: lê as pastas flat (OWEN_ROOT), sempre atuais, com cache curto (o arquivo do dia ainda enche)."""
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    is_today = (date == hoje)
+    with _hist_lock:
+        ent = _hist_cache.get(date)
+        if ent and (not is_today or (time.time() - ent["ts"]) < 120):
+            try: _hist_cache_order.remove(date)
+            except ValueError: pass
+            _hist_cache_order.append(date)
+            return ent["data"]
+    base = OWEN_ROOT if is_today else os.path.join(_HIST_ROOT, date)
+    rxs = re.compile(r"_Inv_([\d.]+)_STR_Corrente PV(\d+)")
+    rxt = re.compile(r"_TRK_([\d.]+)_MED_(.+?) \(graus\)")
+    etm, strings, trackers = {}, {}, {}
+    for pn, t, v in _hist_rows(os.path.join(base, "ETM")):
+        if is_today and t.strftime("%Y-%m-%d") != hoje: continue   # flat pode ter sobra de outro dia
+        u = pn.split("_", 1)[0]
+        if u not in OWEN_UFVS:
+            continue
+        med = "ghi" if "GHI" in pn else ("poa" if "POA" in pn else None)
+        if med:
+            etm.setdefault(u, {}).setdefault(med, []).append((t, _etm_clamp(v)))
+    for pn, t, v in _hist_rows(os.path.join(base, "Strings")):
+        if is_today and t.strftime("%Y-%m-%d") != hoje: continue
+        u = pn.split("_", 1)[0]
+        if u not in OWEN_UFVS:
+            continue
+        m = rxs.search(pn)
+        if not m:
+            continue
+        strings.setdefault(u, {}).setdefault(m.group(1), {}).setdefault(str(int(m.group(2))), []).append((t, v))
+    for pn, t, v in _hist_rows(os.path.join(base, "Trackers")):
+        if is_today and t.strftime("%Y-%m-%d") != hoje: continue
+        u = pn.split("_", 1)[0]
+        if u not in OWEN_UFVS:
+            continue
+        m = rxt.search(pn)
+        if not m:
+            continue
+        key = "alvo" if "Alvo" in m.group(2) else ("atual" if "Atual" in m.group(2) else None)
+        if key:
+            trackers.setdefault(u, {}).setdefault(m.group(1), {"alvo": [], "atual": []})[key].append((t, v))
+    for d in etm.values():
+        for s in d.values(): s.sort()
+    for invs in strings.values():
+        for strs in invs.values():
+            for s in strs.values(): s.sort()
+    for trks in trackers.values():
+        for node in trks.values():
+            node["alvo"].sort(); node["atual"].sort()
+    built = {"etm": etm, "strings": strings, "trackers": trackers}
+    with _hist_lock:
+        _hist_cache[date] = {"ts": time.time(), "data": built}
+        _hist_cache_order.append(date)
+        while len(_hist_cache_order) > _HIST_CACHE_MAX:
+            old = _hist_cache_order.pop(0)
+            if old != date: _hist_cache.pop(old, None)
+    return built
+
+
+def _inv_key(x):
+    try:    return [int(p) for p in x.split(".")]
+    except Exception: return [9999]
+
+
+@app.route("/api/2c/dias")
+def api_2c_dias():
+    return jsonify({"dias": _hist_days(),
+                    "usinas": [{"id": u, "nome": _owen_nome(u)} for u in OWEN_UFVS]})
+
+
+@app.route("/api/2c/<date>")
+def api_2c_overview(date):
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date or ""):
+        return jsonify({"erro": "data inválida"}), 400
+    b = _hist_build(date)
+    out = []
+    for u in OWEN_UFVS:
+        invs = b["strings"].get(u, {})
+        etm  = b["etm"].get(u, {})
+        out.append({"id": u, "nome": _owen_nome(u),
+                    "inversores": len(invs),
+                    "strings": sum(len(s) for s in invs.values()),
+                    "trackers": len(b["trackers"].get(u, {})),
+                    "etm": bool(etm.get("ghi") or etm.get("poa")),
+                    "tem_dados": bool(invs or b["trackers"].get(u) or etm)})
+    return jsonify({"date": date, "usinas": out})
+
+
+@app.route("/api/2c/<date>/etm/<usina>")
+def api_2c_etm(date, usina):
+    d = _hist_build(date)["etm"].get(usina, {})
+    byts = {}
+    for med in ("poa", "ghi"):
+        for t, v in d.get(med, []):
+            byts.setdefault(t, {})[med] = v
+    ts = sorted(byts)
+    return jsonify({"usina": _owen_nome(usina), "date": date,
+                    "labels": [t.strftime("%H:%M") for t in ts],
+                    "poa": [byts[t].get("poa") for t in ts],
+                    "ghi": [byts[t].get("ghi") for t in ts]})
+
+
+@app.route("/api/2c/<date>/strings/<usina>")
+def api_2c_strings(date, usina):
+    invs = _hist_build(date)["strings"].get(usina, {})
+    out = []
+    for inv in sorted(invs, key=_inv_key):
+        strs = invs[inv]
+        allts = sorted({t for sn in strs for t, _ in strs[sn]})
+        idx = {t: i for i, t in enumerate(allts)}
+        series = []
+        for sn in sorted(strs, key=lambda x: int(x)):
+            y = [None] * len(allts)
+            for t, v in strs[sn]:
+                y[idx[t]] = round(v, 2)
+            series.append({"id": sn, "y": y})
+        out.append({"inv": inv, "labels": [t.strftime("%H:%M") for t in allts], "strings": series})
+    return jsonify({"usina": _owen_nome(usina), "date": date, "inversores": out})
+
+
+@app.route("/api/2c/<date>/trackers/<usina>")
+def api_2c_trackers(date, usina):
+    trks = _hist_build(date)["trackers"].get(usina, {})
+    def _down(s, m=220): return s[::max(1, len(s) // m)] if len(s) > m else s
+    out, alvo = [], None
+    for n in sorted(trks, key=_inv_key):
+        s = _down(trks[n]["atual"])
+        if s:
+            out.append({"id": f"Tracker {n}",
+                        "x": [t.strftime("%H:%M") for t, _ in s],
+                        "y": [round(v, 2) for _, v in s]})
+    for n in sorted(trks, key=_inv_key):
+        if trks[n]["alvo"]:
+            s = _down(trks[n]["alvo"])
+            alvo = {"x": [t.strftime("%H:%M") for t, _ in s], "y": [round(v, 2) for _, v in s]}
+            break
+    return jsonify({"usina": _owen_nome(usina), "date": date, "trackers": out, "alvo": alvo})
 
 
 # ── PG: Trackers (espelho do Athon/SunOp, dados do PostgreSQL) ─────────────────
@@ -6998,6 +7364,84 @@ def api_pg_trackers_chart(plant_id):
             alvo = {"x": [t.strftime("%Y-%m-%dT%H:%M:%SZ") for t, _ in s], "y": [round(v, 2) for _, v in s]}
             break
     return jsonify({"plant": _pg_trk_nome(plant_id), "date": date, "trackers": out, "alvo": alvo})
+
+
+# ── PG: Trackers parados (agora) + Ocorrências (travou→voltou) — espelho das sub-abas da API PV ──
+#   A curva vem do banco (rápido), então as Ocorrências são calculadas ON-DEMAND por dia (sem o job de
+#   backfill/persistência que a API PV precisa por causa do trackerschart de 90s).
+def _pg_curve_for(plant_id, data_br):
+    """Curva ATUAL por tracker no formato do motor de eventos: {tracker: [{x,y}]}."""
+    try:
+        date_iso = datetime.strptime(data_br, "%d/%m/%Y").strftime("%Y-%m-%d")
+    except Exception:
+        date_iso = data_br
+    cv = _pg_trk_plant_curvas(plant_id, date_iso)
+    return {n: [{"x": ts.strftime("%Y-%m-%dT%H:%M:%SZ"), "y": v} for ts, v in d["atual"]]
+            for n, d in cv.items() if d.get("atual")}
+
+
+@app.route("/api/pg/trackers/parados")
+def api_pg_trackers_parados():
+    """Lista flat de todos os trackers PG classificados como 'parado' agora (curva do dia, por usina)."""
+    date = _pg_trk_default_date()
+    ov = _swr(_pg_trk_cache, _pg_trackers_overview, False)
+    rows = []
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        futs = {ex.submit(_pg_trackers_analise, r["plant_id"], date): r for r in (ov.get("rows") or [])}
+        for f in as_completed(futs):
+            try:
+                a = f.result()
+            except Exception:
+                continue
+            for t in a.get("trackers", []):
+                if t.get("status") == "parado":
+                    rows.append({"plant_id": a["plant_id"],
+                                 "usina": _macro_usina_nome(a["usina"]) or a["usina"], "tracker": t["id"],
+                                 "inversor": "", "atual": t.get("atual"), "alvo": t.get("alvo"),
+                                 "disparidade": t.get("disparidade"), "amplitude": t.get("amplitude"),
+                                 "na_planilha": False, "parado_desde": None,
+                                 "horas_parado": None, "dias_parado": None,
+                                 "ultima_leitura": a.get("ultima_leitura")})
+    rows.sort(key=lambda r: (r["usina"], _pg_trk_num(r["tracker"])))
+    return jsonify({"rows": rows, "total": len(rows), "cache_ts": datetime.now().strftime("%H:%M:%S")})
+
+
+_pg_ev_cache = {}   # date_iso -> {ts, rows}
+
+
+@app.route("/api/pg/trackers/eventos")
+def api_pg_trackers_eventos():
+    """Ocorrências travou→voltou do PG, calculadas ON-DEMAND por dia (banco é rápido). ?ini=&fim= (usa o dia)."""
+    ini = (flask_request.args.get("ini") or _pg_trk_default_date()).strip()
+    date_iso = ini if re.match(r"^\d{4}-\d{2}-\d{2}$", ini) else _pg_trk_default_date()
+    hoje_iso = datetime.now().strftime("%Y-%m-%d")
+    ent = _pg_ev_cache.get(date_iso)
+    if ent and (date_iso != hoje_iso or (time.time() - ent["ts"]) < CACHE_TTL):
+        return jsonify({"rows": ent["rows"], "ini": date_iso, "fim": date_iso,
+                        "total": len(ent["rows"]), "data_ini_hist": "2026-06-01", "progresso": {}})
+    data_br = datetime.strptime(date_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+    dd = date_iso.split("-")
+    ov = _swr(_pg_trk_cache, _pg_trackers_overview, False)
+
+    def _um(r):
+        pid, nome = r["plant_id"], r["usina"]
+        try:
+            res = _trk_eventos_do_dia(pid, nome, data_br, curve=_pg_curve_for(pid, data_br))
+        except Exception:
+            return []
+        un = _macro_usina_nome(nome) or nome
+        return [{"data_iso": date_iso, "data": f"{dd[2]}/{dd[1]}", "usina": un,
+                 "tracker": ev["tracker"], "inversor": "",
+                 "parada": ev["parada"], "retorno": ev.get("retorno"), "dur_min": ev.get("dur_min")}
+                for ev in res["eventos"]]
+    rows = []
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        for part in ex.map(_um, (ov.get("rows") or [])):
+            rows.extend(part)
+    rows.sort(key=lambda r: (r["usina"], r["parada"]))
+    _pg_ev_cache[date_iso] = {"ts": time.time(), "rows": rows}
+    return jsonify({"rows": rows, "ini": date_iso, "fim": date_iso, "total": len(rows),
+                    "data_ini_hist": "2026-06-01", "progresso": {}})
 
 
 # ── API PV: PR por inversor (usinas string-box, dia atual) ─────────────────────
