@@ -11,6 +11,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLa
                              QAbstractItemView, QCheckBox)
 import api
 from workers import ApiWorker
+from steps.searchcombo import tornar_pesquisavel
 
 _SEL = "— selecione —"
 _FAM_ORDER = ["Handover", "MPM", "MPA", "MPS", "MPQ", "MPW", "MPT"]
@@ -157,9 +158,10 @@ class PcmTab(QWidget):
 
         # ── responsável ──
         lay.addWidget(QLabel("<b>Requerido por (responsável)</b> "
-                             "<span style='color:#8a90a2'>(obrigatório)</span>"))
+                             "<span style='color:#8a90a2'>(obrigatório · digite p/ pesquisar)</span>"))
         rrow = QHBoxLayout()
         self.cb_resp = QComboBox(); self.cb_resp.addItem("carregando…", None)
+        tornar_pesquisavel(self.cb_resp)
         self.b_resp_reload = QPushButton("↻"); self.b_resp_reload.setObjectName("secondary")
         self.b_resp_reload.setFixedWidth(40); self.b_resp_reload.setToolTip("Recarregar responsáveis")
         self.b_resp_reload.clicked.connect(self._carregar_resp)

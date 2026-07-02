@@ -12,6 +12,7 @@ from PyQt6.QtGui import QColor
 from PyQt6.QtCore import QDate, QTime, QDateTime, Qt
 import api
 from workers import ApiWorker
+from steps.searchcombo import tornar_pesquisavel
 
 _SEL = "— selecione —"
 
@@ -131,8 +132,10 @@ class ClonarOSDialog(QDialog):
         self.chk_etiq = QCheckBox("Clonar etiquetas"); self.chk_etiq.setEnabled(False)
         lay.addWidget(self.chk_etiq)
 
-        lay.addWidget(QLabel("<b>Responsável</b> <span style='color:#8a90a2'>(obrigatório)</span>"))
+        lay.addWidget(QLabel("<b>Responsável</b> <span style='color:#8a90a2'>(obrigatório · digite p/ "
+                             "pesquisar)</span>"))
         self.cb_resp = QComboBox(); self.cb_resp.addItem("carregando…", None)
+        tornar_pesquisavel(self.cb_resp)
         lay.addWidget(self.cb_resp)
 
         row = QHBoxLayout()

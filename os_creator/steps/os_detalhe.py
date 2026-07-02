@@ -3,8 +3,9 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, QListWidget,
                              QListWidgetItem, QPushButton)
 import api
-from workers import ApiWorker
+from workers import ApiWorker, slot_seguro
 from steps.clonar import abrir_clonar_os
+from steps.galeria import abrir_galeria
 
 
 def _data_br(iso):
@@ -30,6 +31,8 @@ class OsDetalheDialog(QDialog):
         self._folio = folio
         self._code = None
         self._w = None
+        self._wi = None
+        self._imagens = []
         self.setWindowTitle(f"OS {folio or id_work_order}")
         self.setMinimumSize(540, 500)
         lay = QVBoxLayout(self)
@@ -44,6 +47,10 @@ class OsDetalheDialog(QDialog):
         lay.addWidget(self.data_ev)
         self.atrib = QLabel("")
         lay.addWidget(self.atrib)
+        self.criado = QLabel("")
+        lay.addWidget(self.criado)
+        self.solic_lbl = QLabel("")
+        lay.addWidget(self.solic_lbl)
 
         lay.addWidget(QLabel("<b>Notas</b>"))
         self.notas = QTextEdit(); self.notas.setReadOnly(True); self.notas.setFixedHeight(120)
@@ -58,6 +65,14 @@ class OsDetalheDialog(QDialog):
         self.resp.setStyleSheet("background:#1d2130; border:1px solid #2c3142; border-radius:4px; "
                                 "padding:6px; color:#e6e8ef;")
         lay.addWidget(self.resp)
+
+        frow = QHBoxLayout()
+        self.b_fotos = QPushButton("Fotos da OS"); self.b_fotos.setObjectName("secondary")
+        self.b_fotos.setEnabled(False)
+        self.b_fotos.setToolTip("Fotos anexadas pelos técnicos nas subtarefas")
+        self.b_fotos.clicked.connect(lambda: abrir_galeria(self, self._imagens))
+        frow.addWidget(self.b_fotos); frow.addStretch(1)
+        lay.addLayout(frow)
 
         self.hint = QLabel("carregando detalhes…"); self.hint.setObjectName("hint")
         lay.addWidget(self.hint)
@@ -98,7 +113,20 @@ class OsDetalheDialog(QDialog):
         self._w.ok.connect(self._set)
         self._w.erro.connect(lambda m: self.hint.setText("⚠ " + m))
         self._w.start()
+        self._wi = ApiWorker(api.get_os_imagens, self._wo)   # fotos em paralelo
+        self._wi.ok.connect(self._set_fotos)
+        self._wi.erro.connect(lambda *_: None)
+        self._wi.start()
 
+    @slot_seguro
+    def _set_fotos(self, imgs):
+        self._wi = None
+        self._imagens = imgs or []
+        n = len(self._imagens)
+        self.b_fotos.setText(f"Fotos da OS ({n})")
+        self.b_fotos.setEnabled(n > 0)
+
+    @slot_seguro
     def _set(self, d):
         self._w = None
         d = d or {}
@@ -111,6 +139,12 @@ class OsDetalheDialog(QDialog):
         atrib = (d.get("responsavel") or "").strip()
         self.atrib.setText(f"<b>Atribuído a:</b> {atrib}" if atrib
                            else "<b>Atribuído a:</b> <span style='color:#8a90a2'>—</span>")
+        criado = (d.get("criado_por") or "").strip()
+        self.criado.setText(f"<b>Criado por:</b> {criado}" if criado
+                            else "<b>Criado por:</b> <span style='color:#8a90a2'>—</span>")
+        sol = (d.get("solicitacao") or "").strip()
+        self.solic_lbl.setText(f"<b>Solicitação ligada:</b> Nº {sol}" if sol
+                               else "<b>Solicitação ligada:</b> <span style='color:#8a90a2'>nenhuma</span>")
         self._code = d.get("code") or None
         self.b_solic.setEnabled(bool(self._code))
         self.b_solic.setToolTip(f"Ativo: {d.get('ativo') or self._code}" if self._code

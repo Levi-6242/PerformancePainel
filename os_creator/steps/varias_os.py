@@ -12,6 +12,7 @@ from workers import ApiWorker
 from steps.step1 import ALLOWED_TIPOS
 from steps.tipo_tarefa import TipoTarefaBox
 from steps.finalizar import FinalizarPanel
+from steps.searchcombo import tornar_pesquisavel
 
 _SEL = "— selecione —"
 
@@ -115,9 +116,10 @@ class VariasOSsDialog(QDialog):
 
         # ── responsável ──
         lay.addWidget(QLabel("<b>Requerido por (responsável)</b> "
-                             "<span style='color:#8a90a2'>(obrigatório)</span>"))
+                             "<span style='color:#8a90a2'>(obrigatório · digite p/ pesquisar)</span>"))
         rrow = QHBoxLayout()
         self.cb_resp = QComboBox(); self.cb_resp.addItem("carregando…", None)
+        tornar_pesquisavel(self.cb_resp)
         self.b_resp_reload = QPushButton("↻"); self.b_resp_reload.setObjectName("secondary")
         self.b_resp_reload.setFixedWidth(40)
         self.b_resp_reload.setToolTip("Recarregar responsáveis (use após relogar)")

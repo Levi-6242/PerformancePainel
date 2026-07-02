@@ -1291,6 +1291,31 @@ def _ids_atribuido(fontes) -> list:
     return ids
 
 
+def _solicitacao_da_os(id_work_order, det, t0) -> str:
+    """Nº (id_code) da solicitação de serviço ligada a esta OS. Tenta um código direto no cabeçalho/
+    tarefa; senão consulta requests_list filtrando por id_work_order (confere o vínculo). '' se nenhuma."""
+    for src in (det, t0):
+        if not isinstance(src, dict):
+            continue
+        for k in ("request_code", "requests_id_code", "id_code_request", "code_request"):
+            v = src.get(k)
+            if v not in (None, "", 0):
+                return str(v)
+    if not id_work_order:
+        return ""
+    try:
+        res = _rpc_call(RPC_REQ_LIST, {"filter": [{"operator": "=", "property": "id_work_order",
+            "value": id_work_order}], "page": 1, "limit": 5, "start": 0})
+    except FracttalError:
+        return ""
+    data = res.get("data") if isinstance(res, dict) else res
+    for r in (data if isinstance(data, list) else []):
+        if (isinstance(r, dict) and str(r.get("id_work_order")) == str(id_work_order)
+                and r.get("id_code") not in (None, "", 0)):
+            return str(r.get("id_code"))
+    return ""
+
+
 def get_os_detalhes(id_work_order) -> dict:
     """Detalhe de UMA OS p/ o histórico. → {'folio','descricao','tipo','event_date','responsavel',
     'notas','subtarefas':[{'descricao','feito','tipo','resposta'}]}. event_date/notas da tarefa;
@@ -1320,30 +1345,104 @@ def get_os_detalhes(id_work_order) -> dict:
                            "tipo": tipo, "resposta": _form_item_resposta(it)})
     code0 = (t0.get("code_item") or "").strip() or _extrai_code(str(t0.get("items_description") or ""))
     ativo0 = (str(t0.get("items_description") or "").split("{")[0]).strip()[:60] or code0
-    # responsável/atribuído: nome direto nas tarefas → cabeçalho da WO → resolve por id no pessoal
-    resp = _nome_atribuido(tasks)
+    # cabeçalho da WO (sempre) → responsável + quem criou + solicitação ligada
     det = {}
-    if not resp:
-        try:
-            rd = _rpc_call(RPC_WO_DETAILS, {"id": id_work_order, "get_iso_codes": False})
-            det = rd.get("data") if isinstance(rd, dict) else rd
-            det = det[0] if isinstance(det, list) and det else (det if isinstance(det, dict) else {})
-        except FracttalError:
-            det = {}
-        resp = _nome_atribuido([det])
+    try:
+        rd = _rpc_call(RPC_WO_DETAILS, {"id": id_work_order, "get_iso_codes": False})
+        det = rd.get("data") if isinstance(rd, dict) else rd
+        det = det[0] if isinstance(det, list) and det else (det if isinstance(det, dict) else {})
+    except FracttalError:
+        det = {}
+    resp = _nome_atribuido(tasks) or _nome_atribuido([det])
     if not resp:
         ids = _ids_atribuido(list(tasks) + [det])
         nm = _personnel_nome_por_id() if ids else {}
         nomes = [nm.get(i) for i in ids if nm.get(i)]
         resp = " / ".join(dict.fromkeys(nomes)) if nomes else ""
+    criado_por = str(det.get("created_by") or det.get("creation_user")
+                     or det.get("accounts_name") or t0.get("created_by") or "").strip()
+    solic = _solicitacao_da_os(id_work_order, det, t0)
     return {"folio": t0.get("wo_folio"),
             "descricao": str(t0.get("tasks_description") or "").strip(),
             "tipo": str(t0.get("tasks_types_main_description") or "").strip(),
             "event_date": t0.get("event_date"),
             "responsavel": resp,
+            "criado_por": criado_por,
+            "solicitacao": solic,
             "notas": "\n".join(notas),
             "subtarefas": subtarefas,
             "code": code0, "ativo": ativo0}
+
+
+# ── Fotos anexadas às subtarefas da OS ────────────────────────────────────────
+RPC_WO_IMAGES = "tasks.work_orders_tasks_images_all_list"
+
+
+def _img_url(d: dict):
+    """URL (pré-assinada S3) da imagem cheia na resposta — prefere amazonaws/extensão de imagem."""
+    cands = [v for v in d.values() if isinstance(v, str) and v.lower().startswith("http")]
+    if not cands:
+        return None
+    for v in cands:
+        low = v.lower()
+        if "amazonaws" in low or any(e in low for e in (".jpg", ".jpeg", ".png", ".webp", ".gif")):
+            return v
+    return cands[0]
+
+
+def _is_img_b64(s) -> bool:
+    """True se a string parece base64 de imagem (PNG/JPEG/GIF) — por ASSINATURA, não por tamanho."""
+    return isinstance(s, str) and (s.startswith("data:image") or s[:4] == "/9j/"
+                                   or s[:5] in ("iVBOR", "R0lGO"))
+
+
+def _img_thumb(d: dict):
+    """Thumbnail em base64, se a resposta trouxer (campos variáveis / assinatura de imagem)."""
+    for k in ("thumbnail", "thumb", "base64", "image_base64", "img_base64", "preview"):
+        v = d.get(k)
+        if _is_img_b64(v) or (isinstance(v, str) and len(v) > 200 and not v.lower().startswith("http")):
+            return v
+    for v in d.values():
+        if _is_img_b64(v):
+            return v
+    return None
+
+
+def get_os_imagens(id_work_order) -> list:
+    """Fotos anexadas às subtarefas de UMA OS (1 chamada → todas). Cada foto: URL pré-assinada da S3
+    (imagem cheia) + thumbnail base64 (se vier) + descrição da subtarefa de origem. Parse DEFENSIVO —
+    os nomes exatos dos campos ainda serão confirmados ao vivo. → [{'url','thumb','descricao','raw'}]."""
+    try:
+        res = _rpc_call(RPC_WO_IMAGES, {"id_work_order": id_work_order,
+            "sort": [{"property": "order_number", "direction": "asc"}]})
+    except FracttalError:
+        return []
+    data = res.get("data") if isinstance(res, dict) else res
+    out = []
+    for d in (data if isinstance(data, list) else []):
+        if not isinstance(d, dict):
+            continue
+        url, thumb = _img_url(d), _img_thumb(d)
+        if not (url or thumb):
+            continue
+        out.append({"url": url, "thumb": thumb,
+                    "descricao": str(d.get("description") or d.get("task_description")
+                                     or d.get("items_log_description") or "").strip(),
+                    "raw": d})
+    return out
+
+
+def baixar_imagem(url) -> bytes:
+    """Bytes de uma imagem por URL pré-assinada (S3 — sem cabeçalhos de auth)."""
+    if not url:
+        raise FracttalError("Imagem sem URL para download.")
+    try:
+        r = requests.get(url, timeout=30)
+    except requests.RequestException as e:
+        raise FracttalError(f"Erro ao baixar a imagem: {e}")
+    if r.status_code >= 400:
+        raise FracttalError(f"Falha ao baixar a imagem (HTTP {r.status_code}).")
+    return r.content
 
 
 # ── Cancelar OS ───────────────────────────────────────────────────────────────

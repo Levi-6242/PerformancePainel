@@ -14,9 +14,15 @@ def _norm(s):
     s = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode().lower()
     return " ".join(s.split())
 
-# Só estes tipos de equipamento podem ser escolhidos (pedido do Levi).
-ALLOWED_TIPOS = ["Cabine", "Estação Meteorológica", "Estrutura Trackers", "Inversor", "NCU", "RSU",
-                 "Transformador", "Usina"]
+class _TodosOsTipos:
+    """Sentinela 'todos os tipos de equipamento' — filtro por tipo REMOVIDO (pedido do Levi 01/07).
+    `tipo in ALLOWED_TIPOS` é True p/ qualquer tipo não-vazio (mantém só a exclusão de tipo vazio),
+    então todas as telas que faziam `in`/`not in ALLOWED_TIPOS` passam a mostrar TODOS os tipos."""
+    def __contains__(self, tipo):
+        return bool(tipo)
+
+
+ALLOWED_TIPOS = _TodosOsTipos()
 
 # Clientes que NÃO aparecem no drill-down (almoxarifado e ambiente de teste).
 CLIENTES_OCULTOS = {"almoxarifado", "teste - pa"}
