@@ -26,7 +26,8 @@ app.py                      → Flask principal (monolito, ~7.140 linhas, 84 rot
 tracker_watch.py            → módulo importado pelo app.py (issues de trackers; rotas /api/tracker-watch*)
 templates/
   index.html                → frontend do dashboard (HTML+CSS+JS inline, Plotly via CDN)
-  macro.html                → painel "Visão Macro do Portfólio" (rota /macro)
+  painel_portfolio.html     → Painel NOC — Monitoramento de Portfólio (rota /painel, consome /api/macro+/api/gerencial)
+  painel_usina.html         → Painel NOC — Diagnóstico de Usina (rota /painel/usina/<id>)
 static/                     → fonts/ e logos/ (logos cosméticos; 404 com fallback de emoji)
 docs/                       → documentação técnica (arquitetura, regras de negócio, APIs)
 requirements.txt            → deps de runtime (pins verificados no 3.14.6)

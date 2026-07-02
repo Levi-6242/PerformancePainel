@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grid Co. · Diagnóstico de Usina</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+:root{
+  --bg:#f3f5f0; --panel:#ffffff; --panel-2:#f8fafc; --raise:#eef2f7;
+  --line:#e5e7eb; --line-2:#d8dee6; --txt:#1a1b2e; --muted:#6b7280; --faint:#9aa1ad;
+  --brand:#7aa300; --brand-d:#5f7f00; --ok:#16a34a; --amber:#d97706; --red:#dc2626; --off:#94a3b8; --blue:#0369a1;
+  --nav:#0f1117; --shadow:0 1px 12px rgba(0,0,0,.06),0 4px 24px rgba(0,0,0,.04); --font:'Inter',system-ui,sans-serif;
+}
+body.dark{
+  --bg:#14111F; --panel:#1E1A2B; --panel-2:#241F33; --raise:#2A2440;
+  --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.12); --txt:#ECEAF2; --muted:#A9A4BC; --faint:#736E88;
+  --brand:#A9DB21; --brand-d:#8BC10F; --ok:#6FA01E; --amber:#F0B53D; --red:#FF5C4D; --off:#4A4560; --blue:#5BC8E8;
+  --nav:linear-gradient(180deg,#1B1729,#171320); --shadow:0 2px 20px rgba(0,0,0,.35); --font:'Poppins',system-ui,sans-serif;
+}
+*{box-sizing:border-box;}
+html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font);font-size:13px;line-height:1.5;}
+.num{font-variant-numeric:tabular-nums lining-nums;}
+::-webkit-scrollbar{width:9px;height:9px;}::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px;}
+.topbar{display:flex;align-items:center;gap:16px;padding:11px 20px;background:var(--nav);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30;}
+.logo{font-weight:700;font-size:17px;}.logo .g{color:var(--brand);}.logo .c{color:#fff;}
+.back{color:#cbd5e1;font-size:12px;text-decoration:none;}.back:hover{color:#fff;}
+.scope{color:#cbd5e1;font-size:12.5px;}.scope b{color:#fff;font-weight:600;}
+.spacer{flex:1;}
+.live-pill{display:flex;align-items:center;gap:7px;background:rgba(169,219,33,.12);border:1px solid rgba(169,219,33,.32);color:var(--brand);padding:5px 11px;border-radius:20px;font-size:12px;font-weight:600;}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--brand);animation:pulse 1.8s infinite;}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(169,219,33,.5);}70%{box-shadow:0 0 0 7px rgba(169,219,33,0);}100%{box-shadow:0 0 0 0 rgba(169,219,33,0);}}
+.darkbtn{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#fff;font-family:inherit;font-size:12px;padding:6px 12px;border-radius:8px;cursor:pointer;}
+.upd{color:#94a3b8;font-size:11px;}
+.wrap{padding:16px 20px 40px;max-width:1480px;margin:0 auto;}
+.below{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:16px;}
+.bc{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:14px 16px;position:relative;overflow:hidden;box-shadow:var(--shadow);}
+.bc::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--ok);}
+.bc.warn::before{background:var(--amber);}.bc.crit::before{background:var(--red);}.bc.info::before{background:var(--blue);}
+.bc .l{font-size:11px;color:var(--muted);}.bc .v{font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.1;margin-top:3px;}
+.bc .v small{font-size:14px;color:var(--faint);font-weight:500;}.bc .s{font-size:11px;color:var(--faint);margin-top:2px;}
+.bc.crit .v{color:var(--red);}.bc.warn .v{color:var(--amber);}
+.cols{display:grid;grid-template-columns:1.35fr 1fr;gap:14px;align-items:start;}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px 16px;box-shadow:var(--shadow);}
+.card h3{margin:0 0 2px;font-size:14px;font-weight:600;display:flex;align-items:center;gap:7px;}
+.card .csub{font-size:11px;color:var(--faint);margin-bottom:12px;}
+.tagai{font-size:9px;font-weight:700;letter-spacing:.05em;background:rgba(3,105,161,.12);color:var(--blue);padding:2px 7px;border-radius:5px;text-transform:uppercase;}
+.diags{display:flex;flex-direction:column;gap:10px;}
+.diag{border:1px solid var(--line);border-left-width:4px;border-radius:11px;padding:12px 14px;cursor:pointer;background:var(--panel-2);}
+.diag:hover{background:var(--raise);}.diag.sel{background:var(--raise);border-color:var(--line-2);}
+.diag.critico{border-left-color:var(--red);}.diag.atencao{border-left-color:var(--amber);}.diag.informativo{border-left-color:var(--off);}
+.diag .dtop{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:3px;}
+.diag .cause{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:6px;}
+.diag .cause .pre{font-size:9px;font-weight:700;letter-spacing:.06em;color:var(--faint);text-transform:uppercase;}
+.diag .where{font-size:11px;color:var(--muted);}
+.conf{font-size:8.5px;font-weight:700;text-transform:uppercase;padding:1px 6px;border-radius:5px;background:rgba(22,163,74,.16);color:var(--ok);}
+.conf.media{background:rgba(217,119,6,.16);color:var(--amber);}.conf.baixa{background:rgba(148,163,184,.2);color:var(--muted);}
+.diag .evid{font-size:11.5px;color:var(--muted);line-height:1.5;margin:6px 0;}
+.diag .act{font-size:11.5px;color:var(--txt);display:flex;align-items:center;gap:6px;border-top:1px solid var(--line);padding-top:7px;margin-top:4px;}
+.diag .act .k{color:var(--faint);}.diag .seec{font-size:10.5px;color:var(--blue);margin-left:auto;}
+.cwrap{position:relative;width:100%;}
+.read{margin-top:10px;background:rgba(3,105,161,.06);border:1px solid rgba(3,105,161,.2);border-radius:9px;padding:9px 12px;font-size:11.5px;color:var(--blue);line-height:1.5;}
+.read b{color:var(--txt);}
+.legend{display:flex;flex-wrap:wrap;gap:11px;font-size:10px;color:var(--muted);margin:2px 0 10px;}
+.legend span{display:flex;align-items:center;gap:5px;}.sw{width:11px;height:11px;border-radius:3px;display:inline-block;}
+.hm-row{display:grid;grid-template-columns:80px 1fr;align-items:center;gap:9px;margin-bottom:5px;}
+.hm-label{font-size:11px;color:var(--muted);white-space:nowrap;}
+.hm-cells{display:grid;gap:3px;}.cell{height:12px;border-radius:2px;border:1px solid rgba(0,0,0,.12);}
+#trackers{max-height:440px;overflow:auto;padding-right:4px;}
+.trk{margin-bottom:9px;}.trk .th{display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px;}
+.trk .dev{font-weight:600;}.trk .dev.ok{color:var(--ok);}.trk .dev.bad{color:var(--red);}
+.angbar{position:relative;height:8px;background:var(--panel-2);border-radius:6px;}
+.angbar .ideal{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--brand);}
+.angbar .real{position:absolute;top:0;bottom:0;width:8px;border-radius:50%;background:var(--amber);transform:translateX(-4px);}
+.angbar .real.bad{background:var(--red);}
+.trkscale{display:flex;justify-content:space-between;font-size:8.5px;color:var(--faint);margin-top:2px;}
+.empty{color:var(--faint);font-size:12px;padding:18px;text-align:center;}
+.foot{margin-top:22px;text-align:center;font-size:10.5px;color:var(--faint);}.foot b{color:var(--brand-d);}
+@media(max-width:1080px){.below{grid-template-columns:repeat(2,1fr);}.cols{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="logo"><span class="g">Grid</span><span class="c"> Co.</span></div>
+  <a class="back" href="/painel">← Portfólio</a>
+  <div class="scope">▸ <b id="uName">Usina</b> <span id="uMeta"></span></div>
+  <div class="spacer"></div>
+  <div class="live-pill"><span class="pulse"></span> AO VIVO</div>
+  <button class="darkbtn" id="darkBtn" onclick="toggleDark()">🌙 Dark</button>
+  <div class="upd" id="upd">—</div>
+</div>
+
+<div class="wrap">
+  <div class="below" id="below"></div>
+  <div class="card" style="margin-bottom:14px">
+    <div><h3>Comentários 💬</h3><div class="csub">Nick + comentário — thread visível para todos os analistas</div></div>
+    <div id="cmLista" style="max-height:200px;overflow:auto;margin-bottom:10px"></div>
+    <div style="display:flex;gap:8px;align-items:flex-start">
+      <input id="cmNick" placeholder="Seu nick" maxlength="40" style="width:110px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt)">
+      <textarea id="cmTexto" rows="2" placeholder="Escreva um comentário..." maxlength="2000" style="flex:1;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt);resize:vertical"></textarea>
+      <button style="background:var(--brand);color:#16140e;font-weight:600;border:0;border-radius:8px;padding:0 18px;cursor:pointer;font-family:inherit;font-size:12px" onclick="publicarComentario()">Publicar</button>
+    </div>
+  </div>
+  <div class="cols">
+    <div>
+      <div class="card">
+        <div><h3>Diagnósticos <span class="tagai">correlação automática</span></h3>
+        <div class="csub">O motor cruza string × inversor × ângulo de tracker (e telemetria do inversor, quando há) e entrega a causa provável.</div></div>
+        <div class="diags" id="diags"><div class="empty">Carregando…</div></div>
+      </div>
+      <div class="card" style="margin-top:14px;">
+        <h3 id="curveTitle">Correlação — curva do tracker</h3>
+        <div class="csub" id="curveSub">Clique num tracker ao lado (ou num diagnóstico de tracker) para ver a curva de ângulo do dia.</div>
+        <div class="cwrap" style="height:240px"><canvas id="chCorr"></canvas></div>
+        <div class="read" id="curveRead">A curva mostra o ângulo real do tracker ao longo do dia — um platô = travado.</div>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <div><h3>Inversores × strings 🔥</h3><div class="csub" id="hmSub">Status por string (corrente vs esperado) · trancadas ocultas</div></div>
+        <div class="legend">
+          <span><span class="sw" style="background:var(--ok)"></span>OK</span>
+          <span><span class="sw" style="background:var(--amber)"></span>Baixa</span>
+          <span><span class="sw" style="background:var(--red)"></span>Sem corrente</span>
+          <span><span class="sw" style="background:#7f1d1d"></span>Inversor desligado</span>
+        </div>
+        <div id="heatmap"><div class="empty">—</div></div>
+      </div>
+      <div class="card" style="margin-top:14px;">
+        <div><h3>Trackers — ângulo real × alvo 🧭</h3><div class="csub" id="trkSub">Posição instantânea vs alvo de seguimento</div></div>
+        <div id="trackers"><div class="empty">—</div></div>
+      </div>
+    </div>
+  </div>
+  <div class="foot">Diagnóstico de Usina · <b>Grid Co.</b> · dados reais · <span id="footsrc">—</span></div>
+</div>
+
+<script>
+const PLANT_ID={{ plant_id|tojson }};
+const Q=new URLSearchParams(location.search);
+const FONTE=(Q.get('fonte')||'pv').toLowerCase();
+const NOME=Q.get('nome')||('Usina '+PLANT_ID);
+const TS=Q.get('ts')||'';
+const ID=encodeURIComponent(PLANT_ID);
+// config por fonte: TODAS têm inversores(strings)+trackers+curva; só pv/pg têm motor de causa (diag)
+const SRC={
+  pv:   {plant:'/api/plant/'+ID,              trk:'/api/pv/trackers/'+ID,    chart:'/api/pv/trackers/'+ID+'/chart',    diag:'/api/diagnostico/pv/'+ID, label:'API PV'},
+  pg:   {plant:'/api/pg/plant/'+ID,           trk:'/api/pg/trackers/'+ID,    chart:'/api/pg/trackers/'+ID+'/chart',    diag:'/api/diagnostico/'+ID,    label:'Thopen/PG'},
+  athon:{plant:'/api/sunop/plant/'+ID,        trk:'/api/sunop/trackers/'+ID, chart:'/api/sunop/trackers/'+ID+'/chart', diag:null, label:'Athon'},
+  axis: {plant:'/api/axis/plant/'+ID,         trk:'/api/axis/trackers/'+ID,  chart:'/api/axis/trackers/'+ID+'/chart',  diag:null, label:'Axis'},
+  '2c': {plant:'/api/owen/strings/plant/'+ID, trk:'/api/owen/trackers/'+ID,  chart:'/api/owen/trackers/'+ID+'/chart',  diag:null, label:'2C'}
+};
+const CFG=SRC[FONTE]||SRC.pv;
+const nf=(v,d=0)=>(v===null||v===undefined||isNaN(v))?'—':Number(v).toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d});
+const cssv=n=>getComputedStyle(document.body).getPropertyValue(n).trim();
+// extrai só HH:MM do rótulo do trackerschart ("Tue, 30 Jun 2026 09:07:00 GMT" → "09:07")
+// os valores já estão em Brasília (o "GMT" é só um sufixo falso) → NÃO converter fuso
+const fmtHora=x=>{const m=String(x).match(/(\d{1,2}:\d{2})(?::\d{2})?/);return m?m[1]:String(x);};
+const fmtTs=t=>{if(!t)return'';const m=String(t).match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}`:String(t).replace('T',' ');};
+function applyDark(on){document.body.classList.toggle('dark',on);document.getElementById('darkBtn').innerHTML=on?'☀️ Claro':'🌙 Dark';}
+function toggleDark(){const on=!document.body.classList.contains('dark');localStorage.setItem('painelDark',on?'1':'0');applyDark(on);if(corr&&lastCurveTrk)drawCurve(lastCurveTrk);}
+applyDark(localStorage.getItem('painelDark')==='1');
+
+function causaIco(c){c=(c||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+  if(c.includes('comunica')||c.includes('telemetria'))return '📡';
+  if(c.includes('derate')||c.includes('termic')||c.includes('temperatura'))return '🌡️';
+  if(c.includes('tracker'))return '🧭'; if(c.includes('trip')||c.includes('parado'))return '⚡';
+  if(c.includes('isola'))return '🔌'; if(c.includes('subperf')||c.includes('string')||c.includes('fus'))return '🔌';
+  return '⚠️';}
+const SEVCLS={critico:'critico',atencao:'atencao',informativo:'informativo'};
+
+document.getElementById('uName').textContent=NOME;
+let DIAG=null, TRK=null, PLANT=null, lastCurveTrk=null, corr=null;
+
+// diagnóstico BÁSICO no cliente p/ fontes sem motor analógico (Athon/Axis/2C):
+// inversor abaixo dos pares (strings ativas < 50% da mediana da usina).
+function clientDiag(plant){
+  const invs=((plant&&plant.inversores)||[]).filter(i=>typeof i.strings_ativas==='number');
+  const vals=invs.filter(i=>!i.desligado).map(i=>i.strings_ativas).filter(v=>v>0).sort((a,b)=>a-b);
+  if(vals.length<3) return [];
+  const med=vals[Math.floor(vals.length/2)];
+  if(med<3) return [];
+  const out=[];
+  invs.forEach(i=>{
+    const sa=i.desligado?0:i.strings_ativas;
+    if(sa<med*0.5) out.push({causa:'Subperformance de inversor', escopo:i.nome,
+      severidade:'atencao', confianca:'media',
+      acao:'Abrir inspeção: strings / MPPT / fusíveis / conectores.',
+      evidencia:[`Inversor com ${sa} strings ativas vs mediana ${med} dos pares.`]});
+  });
+  return out;
+}
+
+/* ---- Comentários multi-analista (thread) — MESMA chave/API do dashboard operacional (index.html) e
+   do Painel 1 (painel_portfolio.html), então um comentário publicado em qualquer um aparece em todos. ---- */
+const KEYPFX={pv:'pv',pg:'pg',athon:'so',axis:'so','2c':'owen'};
+const STATE_KEY=(KEYPFX[FONTE]||FONTE)+':'+PLANT_ID;
+function _cmEsc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function _cmTs(ts){const m=String(ts||'').match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);return m?`${m[3]}/${m[2]} ${m[4]}:${m[5]}`:'';}
+function _renderComent(thread){
+  const lst=(thread||[]).slice().reverse();
+  document.getElementById('cmLista').innerHTML = lst.length ? lst.map(c=>
+    `<div style="border:1px solid var(--line);border-radius:8px;padding:7px 10px;margin-bottom:6px;background:var(--panel-2)">
+       <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--faint);margin-bottom:3px">
+         <b style="color:var(--txt)">${_cmEsc(c.nick)}</b>
+         <span>${_cmTs(c.ts)}${c.ts?` <span onclick="excluirComentario('${c.ts}')" title="Excluir" style="cursor:pointer;color:var(--red);margin-left:8px;font-weight:700">✕</span>`:''}</span>
+       </div>
+       <div style="font-size:12px;color:var(--txt);white-space:pre-wrap">${_cmEsc(c.texto)}</div>
+     </div>`).join('') : '<div class="empty" style="padding:8px 0">Sem comentários ainda — seja o primeiro.</div>';
+}
+async function loadComentarios(){
+  document.getElementById('cmNick').value=localStorage.getItem('gcAnalistaNick')||'';
+  try{
+    const d=await fetch('/api/state').then(r=>r.json());
+    const thread=(d.comments_thread&&d.comments_thread[STATE_KEY])||[];
+    const legado=d.comments&&d.comments[STATE_KEY];
+    _renderComent(thread.length?thread:(legado&&legado.trim()?[{nick:'(antigo)',texto:legado,ts:''}]:[]));
+  }catch(e){ document.getElementById('cmLista').innerHTML='<div class="empty">Falha ao carregar.</div>'; }
+}
+async function publicarComentario(){
+  const nick=document.getElementById('cmNick').value.trim();
+  const texto=document.getElementById('cmTexto').value.trim();
+  if(!nick||!texto){alert('Preencha seu nick e o comentário.');return;}
+  localStorage.setItem('gcAnalistaNick',nick);
+  try{
+    const r=await fetch('/api/state/comment/add',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({key:STATE_KEY,nick,texto})}).then(r=>r.json());
+    document.getElementById('cmTexto').value='';
+    _renderComent(r.thread||[]);
+  }catch(e){alert('Falha ao publicar o comentário.');}
+}
+async function excluirComentario(ts){
+  try{
+    const r=await fetch('/api/state/comment/del',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({key:STATE_KEY,ts})}).then(r=>r.json());
+    _renderComent(r.thread||[]);
+  }catch(e){}
+}
+
+async function boot(){
+  loadComentarios();
+  const [dg,plant,trk]=await Promise.all([
+    CFG.diag?fetch(CFG.diag).then(r=>r.json()).catch(()=>null):Promise.resolve(null),
+    fetch(CFG.plant).then(r=>r.json()).catch(()=>null),
+    fetch(CFG.trk).then(r=>r.json()).catch(()=>null)
+  ]);
+  DIAG=dg; TRK=trk; PLANT=plant;
+  const ts=(dg&&dg.cache_ts)||(plant&&plant.cache_ts)||'—';
+  document.getElementById('uMeta').innerHTML=` · ${CFG.label}${TS?' · última leitura '+fmtTs(TS):''}`;
+  document.getElementById('upd').textContent='atualizado '+ts;
+  document.getElementById('footsrc').textContent=CFG.label+' · '+ts;
+  renderBelow(); renderDiags(); renderHeat(plant); renderTrackers(trk);
+}
+
+function renderBelow(){
+  const b=document.getElementById('below');
+  const invs=((PLANT&&PLANT.inversores)||[]);
+  // Falhas de string/inversor separadas: inversor desligado (100% sem corrente de dia) × string
+  // morta individual (sem corrente) × string abaixo (produz, mas baixa perf).
+  let invDesl=0, strSemC=0, strAbaixo=0;
+  invs.forEach(i=>{
+    if(i.desligado) invDesl++;
+    (i.strings||[]).forEach(s=>{
+      if(s.status==='sem_corrente') strSemC++;
+      else if(s.status==='baixa_perf') strAbaixo++;
+    });
+  });
+  const totalFalhas=invDesl+strSemC+strAbaixo;
+  const subFalhas=`${invDesl} inversor${invDesl!=1?'es':''} deslig. · ${strSemC} string${strSemC!=1?'s':''} sem corrente · ${strAbaixo} abaixo`;
+  const engine=(DIAG&&DIAG.diagnosticos)||null;
+  const cd=clientDiag(PLANT);
+  const ndiag=engine?engine.length:cd.length;
+  const invAbaixo=(DIAG&&DIAG.resumo&&DIAG.resumo.inversores_abaixo!=null)?DIAG.resumo.inversores_abaixo:cd.length;
+  const trkFora=TRK?((TRK.desvios||0)+(TRK.parados||0)+(TRK.atrasos||0)):null;
+  const dm=TRK?TRK.desvio_medio:null, pior=TRK?TRK.pior_disparidade:null;
+  const cards=[
+    ['Falhas de string / inversor', totalFalhas, totalFalhas?subFalhas:'no esperado', totalFalhas?'crit':'ok'],
+    ['Inversores abaixo', invAbaixo, invAbaixo?'abaixo da mediana dos pares':'no esperado', invAbaixo?'warn':'ok'],
+    ['Trackers fora do alvo', trkFora==null?'—':trkFora, TRK?`${TRK.parados||0} parado · ${TRK.desvios||0} desvio · ${TRK.atrasos||0} atraso`:'', trkFora?'warn':'ok'],
+    ['Desvio médio de ângulo', dm!=null?nf(dm,1)+'°':'—', pior!=null?`pior ${nf(pior,0)}°`:'', dm>10?'warn':'ok'],
+    ['Diagnósticos', ndiag, CFG.diag?'motor da fonte':'básico (strings)', ndiag?'warn':'ok']
+  ];
+  b.innerHTML=cards.map(c=>`<div class="bc ${c[3]==='ok'?'':c[3]}"><div class="l">${c[0]}</div><div class="v num">${c[1]}</div><div class="s">${c[2]||''}</div></div>`).join('');
+}
+
+function renderDiags(){
+  const engine=(DIAG&&DIAG.diagnosticos)||null;
+  const ds=engine||clientDiag(PLANT);
+  const nota=engine?'':`<div class="csub" style="margin:0 0 8px">Fonte ${CFG.label}: sem motor analógico — diagnóstico básico por strings (inversor abaixo dos pares).</div>`;
+  const el=document.getElementById('diags');
+  if(!ds.length){el.innerHTML=nota+'<div class="empty">Sem anomalias — usina dentro do esperado. 🎉</div>';return;}
+  el.innerHTML=nota+ds.map((d,i)=>{
+    const trkMatch=(d.causa||'').toLowerCase().includes('tracker');
+    return `<div class="diag ${SEVCLS[d.severidade]||'atencao'}" data-i="${i}" ${trkMatch?`data-trk="1"`:''}>`+
+      `<div class="dtop"><div class="cause"><span>${causaIco(d.causa)}</span><span><span class="pre">Causa provável</span>${d.causa}</span></div>`+
+      (d.confianca?`<span class="conf ${d.confianca}">conf. ${d.confianca}</span>`:'')+`</div>`+
+      `<div class="where">${d.escopo||''}</div>`+
+      (d.evidencia&&d.evidencia.length?`<div class="evid">${d.evidencia.join(' ')}</div>`:'')+
+      `<div class="act"><span class="k">Ação:</span> ${d.acao||'—'}${trkMatch?'<span class="seec">ver curva →</span>':''}</div></div>`;
+  }).join('');
+  el.querySelectorAll('.diag').forEach(e=>e.onclick=()=>{
+    el.querySelectorAll('.diag').forEach(x=>x.classList.remove('sel'));e.classList.add('sel');
+    const d=ds[+e.dataset.i];
+    // extrai o nº do tracker da ação/escopo p/ desenhar a curva
+    const m=(d.acao+' '+(d.evidencia||[]).join(' ')).match(/tracker\(?s?\)?\s*([\d, ]+)/i);
+    if(m){const n=m[1].split(/[, ]+/).filter(Boolean)[0];if(n)drawCurveByNum(n);}
+  });
+}
+
+function renderHeat(plant){
+  const invsAll=((plant&&plant.inversores)||[]).filter(i=>(i.strings||[]).length);
+  const el=document.getElementById('heatmap');
+  if(!invsAll.length){el.innerHTML='<div class="empty">Sem strings hoje (String Box ou sem leitura).</div>';return;}
+  // oculta strings trancadas — mostra só as "vivas" (OK / baixa / sem corrente)
+  const nTranc=invsAll.reduce((a,i)=>a+(i.strings||[]).filter(s=>s.status==='trancada').length,0);
+  const invs=invsAll.map(i=>({nome:i.nome,desligado:i.desligado,strings:(i.strings||[]).filter(s=>s.status!=='trancada')})).filter(i=>i.strings.length);
+  const sub=document.getElementById('hmSub');
+  if(sub) sub.textContent=`Status por string (corrente vs esperado) · ${nTranc} trancada(s) oculta(s)`;
+  if(!invs.length){el.innerHTML=`<div class="empty">Todas as strings com leitura estão trancadas (${nTranc}).</div>`;return;}
+  const maxS=Math.max(...invs.map(i=>i.strings.length));
+  if(maxS<=1){  // String Box / central: 1 canal de corrente (Ipv) por inversor → sem visão por string
+    el.innerHTML=`<div class="empty">String Box / monitoramento agregado — ${invs.length} inversor(es) com <b>1 canal de corrente</b> (Ipv) cada, sem visão por string individual.</div>`;
+    return;
+  }
+  el.innerHTML=invs.map(i=>{
+    const cells=i.strings.map(s=>{
+      const st=s.status,col=st==='sem_corrente'?cssv('--red'):st==='baixa_perf'?cssv('--amber'):st==='desligado'?'#7f1d1d':cssv('--ok');
+      return `<div class="cell" title="${s.id}: ${nf(s.corrente,1)} A (${st})" style="background:${col}"></div>`;
+    }).join('');
+    const off=i.desligado?' <span style="color:#7f1d1d;font-weight:700;font-size:10px">desligado</span>':'';
+    return `<div class="hm-row"><div class="hm-label" title="${i.nome}">${i.nome}${off}</div><div class="hm-cells" style="grid-template-columns:repeat(${maxS},minmax(0,26px))">${cells}</div></div>`;
+  }).join('');
+}
+
+function renderTrackers(trk){
+  const ts=((trk&&trk.trackers)||[]).slice();
+  const el=document.getElementById('trackers');
+  if(trk&&trk.sem_comunicacao){el.innerHTML='<div class="empty">Usina sem comunicação de trackers agora.</div>';return;}
+  if(!ts.length){el.innerHTML='<div class="empty">Sem trackers.</div>';return;}
+  const alvo=ts.find(t=>t.alvo!=null);
+  document.getElementById('trkSub').textContent=alvo?`Alvo de seguimento agora: ${nf(alvo.alvo,0)}° · ${trk.total} trackers (parados/desvios primeiro)`:`Sem alvo na fonte · desvio vs a frota · ${trk.total} trackers (parados/desvios primeiro)`;
+  // mostra os piores primeiro, no máx 12
+  // prioriza por STATUS (parado/desvio no topo → atraso → normais) e, dentro de cada grupo, maior desvio
+  const RANK={parado:0,severo:0,desvio:1,fora_media:1,atraso:2};
+  ts.sort((a,b)=>((RANK[a.status]??3)-(RANK[b.status]??3))||((b.disparidade||0)-(a.disparidade||0)));
+  const angToPct=a=>((Math.max(-60,Math.min(60,a))+60)/120)*100;
+  el.innerHTML=ts.map(t=>{
+    const bad=t.status&&t.status!=='normal';
+    const dev=t.disparidade!=null?nf(t.disparidade,0)+'°':'—';
+    const alvoP=t.alvo!=null?`<div class="ideal" style="left:${angToPct(t.alvo)}%"></div>`:'';
+    const realP=t.atual!=null?`<div class="real${bad?' bad':''}" style="left:${angToPct(t.atual)}%"></div>`:'';
+    return `<div class="trk" style="cursor:pointer" title="Clique para ver a curva de ângulo do dia" onclick="drawCurveById('${String(t.id).replace(/'/g,'')}')"><div class="th"><b>${t.id}</b><span class="dev ${bad?'bad':'ok'}">${t.atual!=null?nf(t.atual,0)+'°':'—'} · ${bad?t.status:'ok'} ${dev}</span></div>`+
+      `<div class="angbar">${alvoP}${realP}</div>`+
+      `<div class="trkscale"><span>−60°</span><span>0°</span>${t.alvo!=null?`<span>alvo ${nf(t.alvo,0)}°</span>`:'<span></span>'}<span>+60°</span></div></div>`;
+  }).join('');
+  // auto-carrega a curva do PIOR tracker quando há anomalia (senão fica clicável, sob demanda)
+  if(ts[0] && ts[0].status && ts[0].status!=='normal') drawCurveById(ts[0].id);
+}
+
+/* curva de ângulo do dia de um tracker (prova de "travado") */
+async function drawCurveByNum(num){
+  if(!CFG.chart)return;
+  try{
+    const c=await fetch(CFG.chart).then(r=>r.json());
+    const ts=(c.trackers||[]);
+    const t=ts.find(x=>String(x.id).match(new RegExp('\\b'+num+'\\b')))||ts.find(x=>String(x.id).includes(num));
+    if(t){lastCurveTrk=t;drawCurve(t);}
+  }catch(e){}
+}
+async function drawCurveById(id){
+  if(!CFG.chart)return;
+  document.getElementById('curveSub').textContent='Carregando curva do '+id+'…';
+  try{
+    const c=await fetch(CFG.chart).then(r=>r.json());
+    const ts=(c.trackers||[]);
+    const t=ts.find(x=>String(x.id)===String(id))||ts.find(x=>String(x.id).includes(String(id)));
+    if(t){lastCurveTrk=t;drawCurve(t);}
+    else document.getElementById('curveSub').textContent='Sem curva para '+id+' hoje (a Plataforma não retornou o trackerschart deste tracker).';
+  }catch(e){ document.getElementById('curveSub').textContent='Falha ao carregar a curva.'; }
+}
+function drawCurve(t){
+  const C=document.getElementById('chCorr'); if(corr)corr.destroy();
+  document.getElementById('curveTitle').textContent='Correlação — ângulo do '+t.id;
+  document.getElementById('curveSub').textContent='Ângulo real do tracker ao longo do dia';
+  const tk=cssv('--muted'),grid=document.body.classList.contains('dark')?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';
+  corr=new Chart(C,{data:{labels:t.x.map(fmtHora),datasets:[{type:'line',label:'ângulo',data:t.y,borderColor:cssv('--amber'),backgroundColor:'rgba(240,181,61,.10)',borderWidth:2.2,pointRadius:0,tension:.25,fill:true}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false}},
+      scales:{x:{grid:{display:false},ticks:{color:tk,font:{size:9},maxTicksLimit:8}},y:{min:-60,max:60,grid:{color:grid},ticks:{color:tk,font:{size:9},stepSize:20},title:{display:true,text:'ângulo (°)',color:tk,font:{size:9}}}}}});
+  const flat=(()=>{const ys=t.y.filter(v=>v!=null);if(ys.length<6)return false;const tail=ys.slice(-6);return (Math.max(...tail)-Math.min(...tail))<3;})();
+  document.getElementById('curveRead').innerHTML=flat?'<b>Leitura:</b> a curva <b>estaciona</b> no fim do dia (platô) — assinatura de tracker travado. Cruze com a corrente das strings do inversor associado.':'<b>Leitura:</b> o tracker segue o sol ao longo do dia (sem platô prolongado).';
+}
+
+boot();
+</script>
+</body>
+</html>
