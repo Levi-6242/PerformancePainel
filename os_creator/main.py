@@ -9,14 +9,19 @@ Uso:
     python main.py
 """
 import sys
-from PyQt6.QtCore import Qt, QTranslator, QLibraryInfo, QLocale
+from PyQt6.QtCore import Qt, QTranslator, QLibraryInfo, QLocale, QTimer
 from PyQt6.QtWidgets import QApplication, QDialog
 from PyQt6.QtGui import QIcon
 import api
 from app import MainWindow, DARK_QSS, LoginDialog, _asset
+from steps.updater import checar_atualizacao
+from workers import registrar_erro
 
 
 def main():
+    # Rede de segurança: no PyQt6 uma exceção não tratada num slot ENCERRA o app. Aqui qualquer
+    # exceção não capturada é gravada no log (%TEMP%\criaros_erros.log) em vez de fechar em silêncio.
+    sys.excepthook = lambda *ei: registrar_erro(ei)
     # Necessário p/ o navegador embutido (login Microsoft/SSO) ser carregado sob demanda depois.
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
     app = QApplication(sys.argv)
@@ -33,6 +38,8 @@ def main():
             sys.exit(0)
     win = MainWindow()
     win.show()
+    # checa atualização (GitHub Releases) logo após abrir, sem travar o boot
+    QTimer.singleShot(1500, lambda: checar_atualizacao(win, silencioso=True))
     sys.exit(app.exec())
 
 

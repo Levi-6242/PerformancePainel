@@ -347,18 +347,122 @@ def _polaris_records():
     return recs
 
 
+# ── Fontes de planilha externa (Matrix, Copel, …): contexto DIFERENCIADO ─────────────────────────
+#    Os actuals diários (geração/irradiação/disp) de algumas carteiras NÃO vêm do BD_Thopen e sim de
+#    um Excel separado. Regra de corte (_SHEET_CORTE = 01/06/2026):
+#      • usina QUE EXISTE no BD_Thopen        → planilha p/ datas < corte + BD_Thopen p/ datas >= corte
+#      • usina FORA do BD_Thopen (Caroá, Pharma II/III/IV) → planilha INTEIRA (todas as datas do ano)
+#    Meta/histórico/cadastro sempre do BD_Thopen. Cada fonte tem 1 tabela por usina (Data/Usina/
+#    geração/irradiação/disp) + 1 tabela larga de comentários. A coluna "Usina" já traz o canônico.
+_THOPEN_EXT = r"C:\Users\Levi Maia\OneDrive - GRID CO\Grid Co_ - 17. Acesso Externo Thopen"
+_MATRIX_DIR = _THOPEN_EXT + r"\6. Matrix"
+_COPEL_DIR = _THOPEN_EXT + r"\5. Copel"
+_SHEET_CORTE = dt.date(2026, 6, 1)   # < corte: planilha | >= corte: BD_Thopen (se a usina existir lá)
+_SHEET_SOURCES = [
+    {"dir": _MATRIX_DIR, "glob": "Gera*Matrix*.xlsx", "tmp": "matrix_dash.xlsx"},
+    {"dir": _COPEL_DIR, "glob": "Gera*Copel*.xlsx", "tmp": "copel_dash.xlsx"},
+]
+# nomes que o BD_Thopen grava diferente do cliente/planilha/meta → canoniza p/ tudo casar
+_NOME_CANON = {"Santo Antonio do Platina": "Santo Antonio da Platina"}
+_BD_ALIAS = {v: k for k, v in _NOME_CANON.items()}   # canônico -> nome da aba no BD_Thopen
+
+
+def _sheet_path(src):
+    import glob
+    cands = [c for c in glob.glob(os.path.join(src["dir"], src["glob"]))
+             if not os.path.basename(c).startswith("~")]
+    return cands[0] if cands else None
+
+
+def _sheet_coments(wb):
+    """{(usina, date): texto} da tabela larga de comentários/ocorrências (Data + 1 coluna por usina).
+    Remove o prefixo 'UFV ' (Copel) e o \\xa0 (Matrix) do nome da coluna."""
+    out = {}
+    alvo = None
+    for w in wb.worksheets:
+        for tn in (list(w.tables.keys()) if hasattr(w, "tables") else []):
+            if "coment" in tn.lower() or "ocorr" in tn.lower():
+                alvo = (w, tn)
+                break
+        if alvo:
+            break
+    if not alvo:
+        return out
+    ws, tn = alvo
+    hdr, rows = _cols(_range_rows(ws, _ref_of(ws.tables[tn])))
+    iD = _ci(hdr, "data")
+    if iD is None:
+        return out
+
+    def _clean(h):
+        h = h.replace("\xa0", " ").strip()
+        return h[4:].strip() if h.upper().startswith("UFV ") else h
+
+    cols = [(i, _clean(h)) for i, h in enumerate(hdr) if i != iD and h]
+    for r in rows:
+        dd = r[iD]
+        if not isinstance(dd, (dt.datetime, dt.date)):
+            continue
+        day = dd.date() if isinstance(dd, dt.datetime) else dd
+        for i, uname in cols:
+            if r[i]:
+                out[(uname, day)] = str(r[i]).strip()
+    return out
+
+
+def _sheet_records():
+    """{usina_canônica: {date: {ger,ipoa,disp,com}}} unindo TODAS as fontes de planilha externa
+    (Matrix, Copel, …). 1 tabela/usina em formato longo. Cache por mtimes das fontes."""
+    paths = [(s, _sheet_path(s)) for s in _SHEET_SOURCES]
+    paths = [(s, p) for s, p in paths if p]
+    sig = tuple((p, os.path.getmtime(p)) for _, p in paths)
+    cache = _state.get("sheets")
+    if cache and cache.get("sig") == sig:
+        return cache["recs"]
+    out = {}
+    for src, path in paths:
+        wb = _open_wb(path, src["tmp"])
+        for ws in wb.worksheets:
+            for tn in (list(ws.tables.keys()) if hasattr(ws, "tables") else []):
+                hdr, rows = _cols(_range_rows(ws, _ref_of(ws.tables[tn])))
+                iD = _ci(hdr, "data"); iU = _ci(hdr, "usina")
+                iG = _ci(hdr, "gera")
+                if iG is None:
+                    iG = _ci(hdr, "energia")   # Matrix usa "Geração"; Copel usa "Energia (kWh)"
+                iI = _ci(hdr, "irradia"); iDp = _ci(hdr, "disp")
+                if iD is None or iU is None:
+                    continue   # pula a tabela de comentários (sem coluna "Usina")
+                for r in rows:
+                    u = str(r[iU]).strip() if r[iU] else None
+                    dd = r[iD]
+                    if not u or not isinstance(dd, (dt.datetime, dt.date)):
+                        continue
+                    u = _NOME_CANON.get(u, u)
+                    day = dd.date() if isinstance(dd, dt.datetime) else dd
+                    out.setdefault(u, {})[day] = {
+                        "ger": _num(r[iG]) if iG is not None else None,
+                        "ipoa": _num(r[iI]) if iI is not None else None,
+                        "disp": _num(r[iDp]) if iDp is not None else None,
+                        "com": None,
+                    }
+        for (u, day), txt in _sheet_coments(wb).items():
+            u = _NOME_CANON.get(u, u)
+            cel = out.setdefault(u, {}).setdefault(day, {"ger": None, "ipoa": None, "disp": None, "com": None})
+            cel["com"] = txt
+    _state["sheets"] = {"sig": sig, "recs": out}
+    return out
+
+
 # ── Leitura por domínio ─────────────────────────────────────────────────────────
-def _daily_records(usina):
-    """Lista de {data(date), ger, ipoa, disp, com}. Polaris vem do Budget; o resto, do
-    BD_Thopen (tabela diária da usina)."""
-    pol = _polaris_records()
-    if usina in pol:
-        return pol[usina]
+def _daily_bd(usina):
+    """Registros diários {data, ger, ipoa, disp, com} da tabela do BD_Thopen da usina."""
     key = ("recs", usina)
     if key in _state["df"]:
         return _state["df"][key]
     wb = _wb()
     entry = _state["daily"].get(usina)
+    if entry is None and usina in _BD_ALIAS:
+        entry = _state["daily"].get(_BD_ALIAS[usina])   # "Santo Antonio da Platina" -> aba "do Platina"
     recs = []
     if entry:
         sheet_title, ref = entry
@@ -384,6 +488,30 @@ def _daily_records(usina):
             })
     _state["df"][key] = recs
     return recs
+
+
+def _daily_records(usina):
+    """{data, ger, ipoa, disp, com} por usina. Polaris = Budget; Matrix/Copel = planilha externa com
+    corte (planilha < 01/06 + BD_Thopen >= 01/06 se a usina existir no BD; senão planilha inteira);
+    o resto = BD_Thopen."""
+    pol = _polaris_records()
+    if usina in pol:
+        return pol[usina]
+    sheet = _sheet_records().get(usina)
+    if sheet:
+        bd = {r["data"]: r for r in _daily_bd(usina)}
+        if bd:   # usina existe no BD_Thopen → planilha antes do corte + BD a partir do corte
+            recs = [{"data": d, "ger": e.get("ger"), "ipoa": e.get("ipoa"),
+                     "disp": e.get("disp"), "com": e.get("com")}
+                    for d, e in sheet.items() if d.year == ANO and d < _SHEET_CORTE]
+            recs += [r for r in bd.values() if r["data"] >= _SHEET_CORTE]
+        else:    # usina fora do BD_Thopen → planilha inteira (todas as datas do ano)
+            recs = [{"data": d, "ger": e.get("ger"), "ipoa": e.get("ipoa"),
+                     "disp": e.get("disp"), "com": e.get("com")}
+                    for d, e in sheet.items() if d.year == ANO]
+        recs.sort(key=lambda r: r["data"])
+        return recs
+    return _daily_bd(usina)
 
 
 def _meta2026(usina):
@@ -503,6 +631,34 @@ def _produzida_anual(usina):
     return {a: (total[a] if a in total else mensal.get(a)) for a in (set(total) | set(mensal))}
 
 
+def _prod_mensal_ano(usina, ano):
+    """{mes: kWh} de um ANO. Usinas de planilha externa (Matrix/Copel) puxam o histórico da
+    PRÓPRIA planilha — não do BD Historico. É por isso que 'Produzida 2025' = o que a planilha
+    registra em 2025 (só dez/2025, quando essas séries começam), igual ao Power BI; o BD Historico
+    dessas usinas pode ter o ano inteiro real (ex.: Sarandi 2025 no BD = 11,6M) e NÃO deve ser usado."""
+    e = _sheet_records().get(usina)
+    if e is not None:
+        out = {}
+        for day, cel in e.items():
+            if day.year == ano and cel.get("ger") is not None:
+                out[day.month] = out.get(day.month, 0.0) + cel["ger"]
+        return out
+    return _produzida_mensal(usina, ano)
+
+
+def _prod_anual_por_usina(usina):
+    """{ano(str): kWh} p/ o gráfico anual. Usinas de planilha → soma da planilha (anos < ANO);
+    demais → BD Historico."""
+    if usina in _sheet_records():
+        out = {}
+        for y in (ANO - 3, ANO - 2, ANO - 1):
+            mm = _prod_mensal_ano(usina, y)
+            if mm:
+                out[str(y)] = sum(mm.values())
+        return out
+    return _produzida_anual(usina)
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 app = Flask(__name__)
 
@@ -550,7 +706,8 @@ _CARTEIRA_DE = {u: c for c in CARTEIRA_ORDEM for u in CARTEIRAS[c]}  # usina -> 
 @app.route("/api/t/usinas")
 def usinas():
     _wb()
-    us = sorted(set(_state["daily"].keys()) | set(_polaris_records().keys()))
+    us = sorted({_NOME_CANON.get(u, u) for u in
+                 (set(_state["daily"].keys()) | set(_polaris_records().keys()) | set(_sheet_records().keys()))})
     default = "Altair" if "Altair" in us else (us[0] if us else None)
     carteira_de = {u: _CARTEIRA_DE.get(u) for u in us}  # carteira de cada usina disponível
     return jsonify({"usinas": us, "default": default,
@@ -570,9 +727,9 @@ def overview():
     for r in recs:
         if r["data"].year == ANO and r["ger"] is not None:
             prod[r["data"].month] = prod.get(r["data"].month, 0.0) + r["ger"]
-    p2023 = _produzida_mensal(usina, 2023)  # anos anteriores, mês a mês (Historico)
-    p2024 = _produzida_mensal(usina, 2024)
-    p2025 = _produzida_mensal(usina, 2025)
+    p2023 = _prod_mensal_ano(usina, 2023)  # anos anteriores, mês a mês (planilha p/ Matrix/Copel)
+    p2024 = _prod_mensal_ano(usina, 2024)
+    p2025 = _prod_mensal_ano(usina, 2025)
 
     meses = []
     for m in range(1, 13):
@@ -597,7 +754,7 @@ def overview():
             "fc_real": fc_real,
         })
 
-    pa = _produzida_anual(usina)
+    pa = _prod_anual_por_usina(usina)
     prod2026 = sum(prod.values())
     # Meta 2026 = meta acumulada (YTD) dos meses em que a usina gerou — espelha a medida DAX
     # do Power BI (SUM(meta) WHERE Date <= mês) p/ usinas contínuas (casa exato c/ Altair).
@@ -643,7 +800,7 @@ def diario():
     kpis = {
         "acum_prod": sum((r["ger"] or 0) for r in recs),
         "acum_meta": meta_kwh,
-        "irr_real": round(sum((r["ipoa"] or 0) for r in recs), 1),
+        "irr_real": round(sum((r["ipoa"] or 0) for r in recs), 2),
         "irr_meta": meta.get("metairr"),
         "disp": (sum(disp_vals) / len(disp_vals)) if disp_vals else None,
     }
@@ -703,7 +860,9 @@ def geral():
     ano = int(request.args.get("ano", ANO))
     mes = int(request.args.get("mes", dt.date.today().month))
     _wb()
-    disponiveis = set(_state["daily"].keys()) | set(_polaris_records().keys())
+    disponiveis = {_NOME_CANON.get(u, u) for u in
+                   (set(_state["daily"].keys()) | set(_polaris_records().keys())
+                    | set(_sheet_records().keys()))}
     nomes = sorted({u for u in CARTEIRAS.get(carteira, []) if u in disponiveis})
     linhas = [r for r in (_resumo_usina(u, ano, mes) for u in nomes) if r["produzida"] is not None]
     today = dt.date.today()
@@ -722,6 +881,7 @@ def reload_bd():
         _state["mtime"] = None
         _state["df"] = {}
         _state["polaris"] = None   # força reler o Budget Polaris também
+        _state["sheets"] = None    # e as planilhas externas (Matrix, Copel)
     _wb()  # recarrega agora (chamado FORA do lock — _wb() readquire o lock)
     return jsonify({"ok": True, "planilha_em": _planilha_em(),
                     "atualizado_em": dt.datetime.now().strftime("%H:%M:%S")})

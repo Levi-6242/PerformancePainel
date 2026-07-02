@@ -744,10 +744,12 @@
     <span class="gc-live"><span class="gc-live-dot"></span>Live</span>
   </div>
   <div class="gc-nav-right">
+    <button class="gc-btn-macro" onclick="rondaAbrir()"
+       title="Ronda de Trackers — quantos trackers parados por região (todas as fontes) + atualizar o status de todos e gerar a ronda p/ colar no grupo">Ronda de Trackers</button>
+    <a class="gc-btn-macro" href="/painel" target="gridco-painel" rel="noopener"
+       title="Painel NOC — Monitoramento de Portfólio (frota + anomalias com causa + histórico), tema claro/Dark">Painel</a>
     <a class="gc-btn-macro" href="/gerencial" target="gridco-gerencial" rel="noopener"
        title="Visão Gerencial — atingimento (gerada ÷ P50) por usina e cliente">Gerencial</a>
-    <a class="gc-btn-macro" href="/macro" target="gridco-macro" rel="noopener"
-       title="Visão Macro do portfólio — o que está ruim em todas as usinas + causa provável">Macro</a>
     <span class="gc-ts" id="last-update">Atualizado às <strong id="update-time"></strong></span>
     <button class="gc-btn-refresh" onclick="atualizarTudo()">↻ Atualizar</button>
   </div>
@@ -1288,18 +1290,21 @@
         <button class="gc-btn-sm" id="trk-novos-btn" style="background:#b91c1c;color:#fff;margin-left:8px;display:inline-block" onclick="trkToggleNovos()">Ver só os novos</button>
       </div>
       <div class="gc-table-card">
-        <div class="gc-table-hdr">
+        <div class="gc-table-hdr" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
           <span class="gc-table-title"><span id="trk-title-src">SunOp</span> — Trackers por Usina <small>— clique para expandir; disparidade = |alvo − atual|</small></span>
-          <span class="etm-legend">
-            <span><span style="color:#ef4444;font-size:13px">●</span> parado &gt;10°</span>
-            <span><span style="color:#f59e0b;font-size:13px">●</span> desvio &gt;5°</span>
-            <span><span style="color:#3b82f6;font-size:13px">●</span> atrasado</span>
+          <span style="margin-left:auto;display:inline-flex;align-items:center;gap:10px">
+            <button class="gc-btn-sm" id="trk-atualizar-status" style="display:inline-block;background:#0369a1;color:#fff" onclick="trkAtualizarStatus(this)" title="Recalcula o status de TODAS as usinas pela curva do dia (régua do alvo), sem precisar abrir uma por uma">↻ Atualizar status</button>
+            <span class="etm-legend">
+              <span><span style="color:#ef4444;font-size:13px">●</span> parado &gt;10°</span>
+              <span><span style="color:#f59e0b;font-size:13px">●</span> desvio &gt;5°</span>
+              <span><span style="color:#3b82f6;font-size:13px">●</span> atrasado</span>
+            </span>
           </span>
         </div>
         <div class="gc-table-wrap">
           <table>
             <thead><tr>
-              <th>Usina</th><th>Trackers</th><th>Parado</th><th>Desvio</th><th>Atrasado</th><th title="% de trackers em estado normal (sem alerta). Quanto mais alto, melhor.">Disponibilidade</th><th title="Normais no tempo real, mas ainda como Parado/Com problema na planilha de Tickets">Normalizados</th><th title="média de |alvo − atual| de todos os trackers ao longo do dia (janela 9h–15h)">Desvio médio</th><th>Última Leitura</th><th>Status</th>
+              <th>Usina</th><th>Trackers</th><th>Parado</th><th>Desvio</th><th>Atrasado</th><th title="Disponibilidade POR TEMPO: fração do período 06:00–18:00 (a partir da partida da frota) em que o tracker NÃO ficou parado/desvio/atraso. Parado o dia todo conta desde 06:00. Enquanto a fonte não processou hoje, cai no cálculo antigo por contagem instantânea.">Disponibilidade</th><th title="Normais no tempo real, mas ainda como Parado/Com problema na planilha de Tickets">Normalizados</th><th title="média de |alvo − atual| de todos os trackers ao longo do dia (janela 9h–15h)">Desvio médio</th><th>Última Leitura</th><th>Status</th>
             </tr></thead>
             <tbody id="trk-tbody"></tbody>
           </table>
@@ -1317,11 +1322,12 @@
            <input type="search" id="trk-ev-usina" placeholder="filtrar usina…" oninput="_trkEvAplicaFiltro()" style="font-size:11px;padding:3px 8px;border:1px solid #d1d5db;border-radius:5px;width:160px">
            <label style="font-size:11px;color:var(--muted)">Dia <input type="date" id="trk-ev-dia" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
            <button class="gc-btn-sm" style="display:inline-block" onclick="loadTrkEventos()">Filtrar</button>
-           <button class="gc-btn-sm" id="trk-ev-export" style="display:inline-block;background:#16a34a;color:#fff" onclick="trkEvExport()">Exportar CSV</button>
+           <button class="gc-btn-sm" id="trk-ev-export" style="display:inline-block;background:#16a34a;color:#fff" onclick="trkEvExport()">Exportar Excel</button>
            <button class="gc-btn-sm" id="trk-ev-gerar" style="display:inline-block;background:#7c3aed;color:#fff" onclick="trkEvGerar()">Gerar/Atualizar histórico</button>
          </span>
        </div>
        <div id="trk-ev-prog" style="display:none;padding:8px 14px;font-size:12px;color:#6b21a8;background:#faf5ff;border-bottom:1px solid #eee"></div>
+       <div id="trk-ev-disp" style="display:none;padding:8px 14px;font-size:11px;line-height:1.9;border-bottom:1px solid #eee;background:#f8fafc"></div>
        <div class="gc-table-wrap">
          <table>
            <thead><tr><th>Data</th><th>Usina</th><th>Tracker</th><th>Inversor</th><th>Parada</th><th>Retorno</th><th>Duração</th></tr></thead>
@@ -1339,7 +1345,7 @@
          <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
            <input type="search" id="trk-par-usina" placeholder="filtrar usina…" oninput="_trkParAplicaFiltro()" style="font-size:11px;padding:3px 8px;border:1px solid #d1d5db;border-radius:5px;width:160px">
            <span id="trk-par-resumo" style="font-size:11px;color:var(--muted)"></span>
-           <button class="gc-btn-sm" style="display:inline-block;background:#16a34a;color:#fff" onclick="trkParadaRonda()" title="Gera o texto da ronda (resetar trackers) pronto p/ colar no grupo — respeita o filtro de usina">Gerar ronda</button>
+           <button class="gc-btn-sm" style="display:inline-block;background:#16a34a;color:#fff" onclick="trkParExport()">Exportar Excel</button>
            <button class="gc-btn-sm" style="display:inline-block" onclick="loadTrkParados()">Atualizar</button>
          </span>
        </div>
@@ -1530,16 +1536,20 @@
   </div>
 </div>
 
-<!-- Modal: comentário por usina -->
+<!-- Modal: comentários por usina (thread multi-analista) -->
 <div class="modal-overlay" id="modal-coment" onclick="fecharComentario(event)">
   <div class="modal-box">
-    <h3>💬 Comentário — <span id="coment-usina" style="color:var(--muted)"></span></h3>
-    <textarea id="coment-text" rows="5" placeholder="Anote observações desta usina..."></textarea>
+    <h3>💬 Comentários — <span id="coment-usina" style="color:var(--muted)"></span></h3>
+    <div id="coment-lista" style="max-height:300px;overflow:auto;margin-bottom:10px"></div>
+    <div style="display:flex;gap:8px;align-items:flex-start">
+      <input id="coment-nick" placeholder="Seu nick" maxlength="40" style="width:120px;border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;font-size:12px;font-family:'Inter',sans-serif">
+      <textarea id="coment-text" rows="2" placeholder="Escreva um comentário..." maxlength="2000" style="flex:1"></textarea>
+    </div>
     <div class="modal-footer">
-      <button class="btn-danger" onclick="excluirComentario()">Excluir</button>
+      <span style="font-size:11px;color:var(--muted)">Visível para todos os analistas</span>
       <div style="display:flex;gap:8px">
-        <button onclick="fecharComentario()" style="background:none;border:1.5px solid var(--border);border-radius:8px;padding:7px 16px;font-size:12px;font-family:'Inter',sans-serif;cursor:pointer;color:#374151">Cancelar</button>
-        <button class="btn-restore-all" onclick="salvarComentario()">Salvar</button>
+        <button onclick="fecharComentario()" style="background:none;border:1.5px solid var(--border);border-radius:8px;padding:7px 16px;font-size:12px;font-family:'Inter',sans-serif;cursor:pointer;color:#374151">Fechar</button>
+        <button class="btn-restore-all" onclick="publicarComentario()">Publicar</button>
       </div>
     </div>
   </div>
@@ -1698,15 +1708,16 @@ function updModalOc(){
 }
 
 /* ══ ESTADO COMPARTILHADO (servidor): verificação + comentários ════════════ */
-let serverState={verified:new Set(),comments:{},tracking:{},manutencao:new Set()};
+let serverState={verified:new Set(),comments:{},comments_thread:{},tracking:{},manutencao:new Set()};
 async function loadState(){
   try{
     const d=await fetch('/api/state').then(r=>r.json());
     serverState.verified=new Set(d.verified||[]);
     serverState.comments=d.comments||{};
+    serverState.comments_thread=d.comments_thread||{};
     serverState.tracking=d.tracking||{};
     serverState.manutencao=new Set(d.manutencao||[]);
-  }catch(e){serverState={verified:new Set(),comments:{},tracking:{},manutencao:new Set()};}
+  }catch(e){serverState={verified:new Set(),comments:{},comments_thread:{},tracking:{},manutencao:new Set()};}
 }
 
 /* ── ETM em manutenção (servidor) ──────────────────────────────────────── */
@@ -1739,35 +1750,68 @@ function toggleVer(key,checked,el){
 }
 
 /* ══ COMENTÁRIOS POR USINA (servidor) ══════════════════════════════════════ */
-function getComment(key){return serverState.comments[key]||'';}
 const COMENT_SVG='<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" style="vertical-align:middle;display:inline-block"><path d="M4 4h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H8l-4 4V5a1 1 0 0 1 1-1z"/></svg>';
+function _cmEsc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function _cmTs(ts){const m=String(ts||'').match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);return m?`${m[3]}/${m[2]} ${m[4]}:${m[5]}`:'';}
+function _threadOf(key){
+  const t=(serverState.comments_thread&&serverState.comments_thread[key])||[];
+  const leg=serverState.comments[key];                         // comentário único ANTIGO (legado)
+  if(leg&&leg.trim()&&!t.length) return [{nick:'(antigo)',texto:leg,ts:''}];
+  return t;
+}
 function comentBtn(key,usina){
-  const c=getComment(key),has=c&&c.trim();
+  const n=_threadOf(key).length, has=n>0;
   const safe=String(usina).replace(/'/g,"\\'");
-  const tip=has?` title="${c.replace(/"/g,'&quot;')}"`:' title="Adicionar comentário"';
-  return `<button class="btn-coment${has?' has':''}"${tip} onclick="event.stopPropagation();abrirComentario('${key}','${safe}')">${COMENT_SVG}</button>`;
+  const tip=has?` title="${n} comentário(s) — clique para ver/adicionar"`:' title="Adicionar comentário"';
+  return `<button class="btn-coment${has?' has':''}"${tip} onclick="event.stopPropagation();abrirComentario('${key}','${safe}')">${COMENT_SVG}${has?`<span style="font-size:10px;font-weight:700;margin-left:1px">${n}</span>`:''}</button>`;
 }
 let _comentKey=null;
-function abrirComentario(key,usina){
+function _renderThread(){
+  const lst=_threadOf(_comentKey).slice().reverse();           // mais recentes primeiro
+  document.getElementById('coment-lista').innerHTML = lst.length ? lst.map(c=>
+    `<div style="border:1px solid var(--border);border-radius:8px;padding:7px 10px;margin-bottom:6px;background:#f8fafc">
+       <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted);margin-bottom:3px">
+         <b style="color:#1a1b2e">${_cmEsc(c.nick)}</b>
+         <span>${_cmTs(c.ts)}${c.ts?` <span onclick="excluirComentarioItem('${c.ts}')" title="Excluir este comentário" style="cursor:pointer;color:#dc2626;margin-left:8px;font-weight:700">✕</span>`:''}</span>
+       </div>
+       <div style="font-size:12.5px;color:#1a1b2e;white-space:pre-wrap">${_cmEsc(c.texto)}</div>
+     </div>`
+  ).join('') : '<div style="color:var(--muted);font-size:12px;padding:10px;text-align:center">Sem comentários ainda — seja o primeiro.</div>';
+}
+async function abrirComentario(key,usina){
   _comentKey=key;
   document.getElementById('coment-usina').textContent=usina;
-  document.getElementById('coment-text').value=getComment(key);
+  document.getElementById('coment-nick').value=localStorage.getItem('gcAnalistaNick')||'';
+  document.getElementById('coment-text').value='';
+  _renderThread();                                   // mostra o que já está em memória (instantâneo)
   document.getElementById('modal-coment').classList.add('open');
   setTimeout(()=>document.getElementById('coment-text').focus(),50);
+  try{                                               // e sincroniza com o servidor (pega o que outros publicaram)
+    const d=await fetch('/api/state').then(r=>r.json());
+    serverState.comments_thread=d.comments_thread||serverState.comments_thread;
+    serverState.comments=d.comments||serverState.comments;
+    if(_comentKey===key) _renderThread();            // só re-renderiza se o modal ainda é desta usina
+  }catch(e){}
 }
 function fecharComentario(e){if(!e||e.target===document.getElementById('modal-coment'))document.getElementById('modal-coment').classList.remove('open');}
-function _postComment(key,text){
-  fetch('/api/state/comment',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({key,text})}).catch(()=>{});
+function publicarComentario(){
+  const nick=document.getElementById('coment-nick').value.trim();
+  const texto=document.getElementById('coment-text').value.trim();
+  if(!nick||!texto){alert('Preencha seu nick e o comentário.');return;}
+  localStorage.setItem('gcAnalistaNick',nick);
+  fetch('/api/state/comment/add',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({key:_comentKey,nick,texto})}).then(r=>r.json()).then(d=>{
+      if(d&&d.thread)serverState.comments_thread[_comentKey]=d.thread;
+      document.getElementById('coment-text').value='';
+      _renderThread();rerenderStrings();
+    }).catch(()=>alert('Falha ao publicar o comentário.'));
 }
-function salvarComentario(){
-  const t=document.getElementById('coment-text').value.trim();
-  if(t)serverState.comments[_comentKey]=t;else delete serverState.comments[_comentKey];
-  _postComment(_comentKey,t);fecharComentario();rerenderStrings();
-}
-function excluirComentario(){
-  delete serverState.comments[_comentKey];_postComment(_comentKey,'');
-  document.getElementById('coment-text').value='';fecharComentario();rerenderStrings();
+function excluirComentarioItem(ts){
+  fetch('/api/state/comment/del',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({key:_comentKey,ts})}).then(r=>r.json()).then(d=>{
+      if(d&&d.thread)serverState.comments_thread[_comentKey]=d.thread;
+      _renderThread();rerenderStrings();
+    }).catch(()=>{});
 }
 function rerenderStrings(){if(primary==='pv')renderPvStr();else if(primary==='sunop'||primary==='axis')renderSoStr();else if(primary==='solaredge')renderSeStr();else renderPgStr();}
 
@@ -2931,6 +2975,8 @@ function _trkBase(){ return primary==='pv' ? '/api/pv/trackers' : primary==='owe
 
 /* ── Trackers · sub-aba "Ocorrências" (travou → voltou), só API PV ── */
 let _trkEvLoaded=false, _trkEvAuto=null, _trkEvRows=[];   // _trkEvRows = última payload (p/ filtro instantâneo)
+let _trkEvDisp={};   // {usina: disponibilidade% por tempo} — parado + desvio/atraso, janela 06:00–18:00
+let _trkParSet=new Set();   // chaves "usina|tracker" dos trackers PARADOS AGORA (p/ sinalizar nas Ocorrências)
 function trkSubtab(w){
   const lv=document.getElementById('trk-live-view'),
         ev=document.getElementById('trk-ev-view'),
@@ -2973,16 +3019,35 @@ async function loadTrkEventos(silent){
   const tb=document.getElementById('trk-ev-tbody'); if(!tb)return null;
   const [ini,fim]=_trkDatas();
   if(!silent) tb.innerHTML='<tr><td colspan="7" style="padding:14px;color:var(--muted)">Carregando…</td></tr>';
-  let d; try{ d=await fetch(`${_trkBase()}/eventos?ini=${ini}&fim=${fim}`).then(r=>r.json()); }catch(e){ d={rows:[]}; }
+  let d, par;
+  try{
+    [d, par] = await Promise.all([
+      fetch(`${_trkBase()}/eventos?ini=${ini}&fim=${fim}`).then(r=>r.json()),
+      fetch(`${_trkBase()}/parados`).then(r=>r.json()).catch(()=>({rows:[]}))   // p/ sinalizar "parado agora"
+    ]);
+  }catch(e){ d={rows:[]}; par={rows:[]}; }
+  _trkParSet = new Set((par.rows||[]).map(r=>String(r.usina)+'|'+String(r.tracker)));
   _trkEvLoaded=true; _trkEvRenderProg(d.progresso);
-  _trkEvRows=d.rows||[];
+  _trkEvRows=d.rows||[]; _trkEvDisp=d.disp||{};
   _trkEvRenderTabela(d.progresso, d.total);
   return d.progresso;
 }
 // Render da tabela a partir do cache (_trkEvRows) + filtro de usina. Sem rede.
+function _trkEvRenderDisp(q){
+  const el=document.getElementById('trk-ev-disp'); if(!el)return;
+  let arr=Object.entries(_trkEvDisp||{});
+  if(q) arr=arr.filter(([u])=>u.toLowerCase().includes(q));
+  if(!arr.length){ el.style.display='none'; return; }
+  arr.sort((a,b)=>a[1]-b[1]);   // pior disponibilidade primeiro
+  const cor=v=>v>=98?'#16a34a':v>=90?'#d97706':'#dc2626';
+  el.style.display='block';
+  el.innerHTML='<b style="color:#374151">Disponibilidade por tempo</b> <span style="color:var(--muted)">(06:00–18:00 · parado + desvio + atraso):</span> '+
+    arr.map(([u,v])=>`<span style="display:inline-block;margin:0 10px 0 0;white-space:nowrap"><span style="color:var(--muted)">${u.replace(/</g,'&lt;')}</span> <b style="color:${cor(v)}">${v}%</b></span>`).join('');
+}
 function _trkEvRenderTabela(prog, totalServidor){
   const tb=document.getElementById('trk-ev-tbody'); if(!tb)return;
   const q=(document.getElementById('trk-ev-usina')?.value||'').trim().toLowerCase();
+  _trkEvRenderDisp(q);
   const rows = q ? _trkEvRows.filter(r=>(r.usina||'').toLowerCase().includes(q)) : _trkEvRows;
   if(!rows.length){
     const p=prog||{};
@@ -2997,12 +3062,16 @@ function _trkEvRenderTabela(prog, totalServidor){
     tb.innerHTML=`<tr><td colspan="7" style="padding:16px;color:var(--muted)">${msg}</td></tr>`;
     return;
   }
-  tb.innerHTML=rows.map(r=>`<tr>
-    <td>${r.data}</td><td><b>${r.usina}</b></td><td>${r.tracker}</td>
+  tb.innerHTML=rows.map(r=>{
+    const paradoAgora=_trkParSet.has(String(r.usina)+'|'+String(r.tracker));
+    const tag=paradoAgora?' <span title="Este tracker está na sub-aba Trackers parados (agora) — segue parado neste momento" style="background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:600;white-space:nowrap">● parado agora</span>':'';
+    return `<tr${paradoAgora?' style="background:#fff6f6"':''}>
+    <td>${r.data}</td><td><b>${r.usina}</b></td><td>${r.tracker}${tag}</td>
     <td>${r.inversor?r.inversor:'<span style="color:var(--muted)">—</span>'}</td>
     <td>${r.data} ${r.parada}</td>
     <td>${r.retorno?(r.data+' '+r.retorno):'<span style="color:#b91c1c">não retornou no dia</span>'}</td>
-    <td>${_durTxt(r.dur_min)}</td></tr>`).join('');
+    <td>${_durTxt(r.dur_min)}</td></tr>`;
+  }).join('');
 }
 // Filtro de usina: aplica instantâneo sobre _trkEvRows (sem ir ao backend).
 function _trkEvAplicaFiltro(){ _trkEvRenderTabela(); }
@@ -3021,10 +3090,15 @@ async function trkEvGerar(){
   loadTrkEventos();                                     // 1 reload p/ mostrar o estado; SEM poll
 }
 function trkEvExport(){
-  const [ini,fim]=_trkDatas();
+  const [ini]=_trkDatas();                               // sub-aba usa 1 dia; xlsx da FONTE ativa
   const q=(document.getElementById('trk-ev-usina')?.value||'').trim();
   const qq = q ? ('&usina='+encodeURIComponent(q)) : '';
-  window.location='/api/pv/trackers/eventos/export?ini='+encodeURIComponent(ini)+'&fim='+encodeURIComponent(fim)+qq;
+  window.location=_trkBase()+'/eventos/export.xlsx?ini='+encodeURIComponent(ini)+qq;
+}
+function trkParExport(){
+  const q=(document.getElementById('trk-par-usina')?.value||'').trim();
+  const qq = q ? ('?usina='+encodeURIComponent(q)) : '';
+  window.location=_trkBase()+'/parados/export.xlsx'+qq;
 }
 
 /* ── Trackers · sub-aba "Parados agora" — flat de todos os trackers c/ status='parado' ── */
@@ -3088,41 +3162,144 @@ function _trkParRenderTabela(){
       <td style="font-size:11px;color:var(--muted)">${ult}</td></tr>`;
   }).join('');
 }
-/* Ronda do dia: monta o texto dos trackers a resetar (respeita o filtro de usina) p/ colar no grupo. */
-function trkParadaRonda(){
-  const q=(document.getElementById('trk-par-usina')?.value||'').trim().toLowerCase();
-  const rows = q ? _trkParRows.filter(r=>(r.usina||'').toLowerCase().includes(q)) : _trkParRows;
-  if(!rows.length){ alert('Nenhum tracker parado'+(q?' para esse filtro':'')+' para gerar a ronda.'); return; }
-  const grupos={};
-  rows.forEach(r=>{ (grupos[r.usina]=grupos[r.usina]||[]).push(r); });
-  let txt='RONDA DE TRACKERS — '+new Date().toLocaleDateString('pt-BR')+'\n';
-  Object.keys(grupos).sort((a,b)=>a.localeCompare(b,'pt-BR')).forEach(u=>{
-    const g=grupos[u];
-    txt+='\n['+u+']  ('+g.length+' parado'+(g.length>1?'s':'')+')\n';
-    g.forEach(r=>{ txt+='- '+r.tracker+(r.inversor?(' — '+r.inversor):'')+'\n'; });
+/* Ronda automática por REGIÃO: junta os parados de TODAS as fontes e agrupa por região geográfica
+   (Sudeste sub-dividido por cliente/carteira). Cross-fonte → uma ronda só p/ o time todo. */
+function _rondaUsinas(rows, ind){
+  const porUsina={};
+  rows.forEach(r=>{ (porUsina[r.usina]=porUsina[r.usina]||[]).push(r); });
+  let t='';
+  Object.keys(porUsina).sort((a,b)=>a.localeCompare(b,'pt-BR')).forEach(u=>{
+    const g=porUsina[u];
+    t+=ind+'['+u+']  ('+g.length+')\n';
+    g.forEach(r=>{ t+=ind+'- '+r.tracker+(r.inversor?(' — '+r.inversor):'')+'\n'; });
   });
-  txt+='\nTotal: '+rows.length+' tracker'+(rows.length>1?'s':'')+' para reset.';
-  _rondaModal(txt);
+  return t;
 }
-function _rondaModal(txt){
-  let m=document.getElementById('ronda-modal');
-  if(!m){
-    m=document.createElement('div'); m.id='ronda-modal';
-    m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center';
-    m.innerHTML=`<div style="background:#fff;border-radius:10px;padding:16px;width:min(560px,92vw);max-height:84vh;display:flex;flex-direction:column;gap:10px;box-shadow:0 10px 40px rgba(0,0,0,.3)">
-      <div style="display:flex;justify-content:space-between;align-items:center">
-        <b style="font-size:14px;color:#1a1b2e">Ronda do dia — copie e cole no grupo</b>
-        <button class="gc-btn-sm" style="display:inline-block" onclick="document.getElementById('ronda-modal').style.display='none'">Fechar</button>
+/* ── Ronda de Trackers (botão do navbar) — modal com contagem por região + atualização de todos ── */
+let _rondaAll=[];
+const _RONDA_ORDEM=['Norte','Nordeste','Centro-Oeste','Sudeste','Sul','Sem região'];
+function _rondaModalEl(){
+  let m=document.getElementById('rondaTrkModal');
+  if(m) return m;
+  m=document.createElement('div'); m.id='rondaTrkModal';
+  m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:none;align-items:center;justify-content:center';
+  m.innerHTML=`<div style="background:#fff;border-radius:12px;padding:18px;width:min(600px,94vw);max-height:88vh;display:flex;flex-direction:column;gap:12px;box-shadow:0 12px 44px rgba(0,0,0,.32)">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <b style="font-size:16px;color:#1a1b2e">Ronda de Trackers</b>
+      <button class="gc-btn-sm" style="display:inline-block" onclick="rondaFechar()">Fechar</button>
+    </div>
+    <div id="ronda-progress" style="display:none">
+      <div id="ronda-prog-label" style="font-size:12px;color:var(--muted);margin-bottom:6px">Atualizando…</div>
+      <div style="height:10px;background:#eef0f4;border-radius:6px;overflow:hidden">
+        <div id="ronda-prog-bar" style="height:100%;width:0%;background:#16a34a;transition:width .35s"></div>
       </div>
-      <textarea id="ronda-txt" readonly style="flex:1;min-height:300px;width:100%;font-family:monospace;font-size:12px;border:1px solid #d1d5db;border-radius:6px;padding:8px;resize:vertical;color:#1a1b2e"></textarea>
-      <div style="text-align:right"><button class="gc-btn-sm" style="display:inline-block;background:#16a34a;color:#fff" onclick="_rondaCopiar(this)">Copiar</button></div>
-    </div>`;
-    document.body.appendChild(m);
-  }
-  m.style.display='flex';
-  document.getElementById('ronda-txt').value=txt;
+    </div>
+    <div id="ronda-resumo" style="overflow:auto"></div>
+    <div id="ronda-detalhe" style="display:none;flex-direction:column;gap:10px;flex:1;min-height:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <button class="gc-btn-sm" style="display:inline-block" onclick="rondaVoltar()">‹ Voltar</button>
+        <b id="ronda-det-titulo" style="font-size:13px;color:#1a1b2e"></b>
+        <button class="gc-btn-sm" style="display:inline-block;background:#16a34a;color:#fff" onclick="rondaCopiar(this)">Copiar</button>
+      </div>
+      <textarea id="ronda-txt" readonly style="flex:1;min-height:280px;width:100%;font-family:monospace;font-size:12px;border:1px solid #d1d5db;border-radius:6px;padding:8px;resize:vertical;color:#1a1b2e"></textarea>
+    </div>
+  </div>`;
+  document.body.appendChild(m);
+  return m;
 }
-function _rondaCopiar(btn){
+function rondaAbrir(){ _rondaModalEl().style.display='flex'; rondaVoltar(); rondaLoad(false); }
+function rondaFechar(){ const m=document.getElementById('rondaTrkModal'); if(m) m.style.display='none'; }
+function rondaVoltar(){
+  const d=document.getElementById('ronda-detalhe'); if(d) d.style.display='none';
+  const r=document.getElementById('ronda-resumo'); if(r) r.style.display='block';
+}
+async function rondaLoad(force){
+  const fontes=[['pv','API PV'],['pg','Thopen'],['sunop','Athon'],['axis','Axis'],['owen','2C']];
+  const prog=document.getElementById('ronda-progress'), resumo=document.getElementById('ronda-resumo');
+  rondaVoltar();
+  let all=[];
+  if(force){                                              // atualização profunda: força + barra por fonte
+    prog.style.display='block'; resumo.innerHTML='';
+    for(let i=0;i<fontes.length;i++){
+      _rondaProg(i,fontes.length,'Atualizando '+fontes[i][1]+'… ('+(i+1)+'/'+fontes.length+')');
+      try{
+        const d=await fetch(`/api/${fontes[i][0]}/trackers/parados?force=1`).then(r=>r.json());
+        (d.rows||[]).forEach(r=>{ r._fonte=fontes[i][1]; all.push(r); });
+      }catch(e){}
+    }
+    _rondaProg(fontes.length,fontes.length,'Concluído');
+    setTimeout(()=>{ prog.style.display='none'; },600);
+  } else {                                                // abertura rápida: cache, em paralelo
+    resumo.innerHTML='<div style="color:var(--muted);font-size:13px;padding:24px 0;text-align:center">Carregando trackers parados…</div>';
+    try{
+      const res=await Promise.all(fontes.map(([f])=>fetch(`/api/${f}/trackers/parados`).then(r=>r.json()).catch(()=>({rows:[]}))));
+      res.forEach((d,i)=>{ (d.rows||[]).forEach(r=>{ r._fonte=fontes[i][1]; all.push(r); }); });
+    }catch(e){}
+  }
+  _rondaAll=all; rondaResumo();
+}
+function _rondaProg(done,total,label){
+  const b=document.getElementById('ronda-prog-bar'), l=document.getElementById('ronda-prog-label');
+  if(b) b.style.width=Math.round(done/total*100)+'%';
+  if(l) l.textContent=label;
+}
+function _rondaRegioes(){
+  const porReg={};
+  _rondaAll.forEach(r=>{ const reg=r.regiao||'Sem região'; (porReg[reg]=porReg[reg]||[]).push(r); });
+  return Object.keys(porReg).sort((a,b)=>{const ia=_RONDA_ORDEM.indexOf(a),ib=_RONDA_ORDEM.indexOf(b);return (ia<0?99:ia)-(ib<0?99:ib)||a.localeCompare(b,'pt-BR');}).map(reg=>({reg,rows:porReg[reg]}));
+}
+function rondaResumo(){
+  const resumo=document.getElementById('ronda-resumo'); resumo.style.display='block';
+  const total=_rondaAll.length, usinas=new Set(_rondaAll.map(r=>r.usina)).size, regs=_rondaRegioes();
+  let h=`<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
+     <span style="font-size:32px;font-weight:800;color:${total?'#b91c1c':'#16a34a'}">${total}</span>
+     <span style="font-size:13px;color:var(--muted)">tracker${total!=1?'s':''} parado${total!=1?'s':''} em ${usinas} usina${usinas!=1?'s':''} · todas as fontes</span>
+   </div>
+   <div style="margin:8px 0 14px">
+     <button class="gc-btn-sm" style="display:inline-block;background:#2563eb;color:#fff" onclick="rondaLoad(true)">↻ Atualizar todos os trackers</button>
+     <span style="font-size:11px;color:var(--muted);margin-left:8px">recomputa o status em todas as fontes (pode demorar)</span>
+   </div>`;
+  if(!total){ resumo.innerHTML=h+'<div style="color:var(--muted);font-size:13px">Nenhum tracker parado agora.</div>'; return; }
+  h+='<div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px">Escolha a região</div><div style="display:flex;flex-direction:column;gap:6px">';
+  regs.forEach(g=>{
+    const u=new Set(g.rows.map(r=>r.usina)).size, reg=g.reg.replace(/'/g,"\\'");
+    h+=`<button onclick="rondaVerRegiao('${reg}')" style="display:flex;justify-content:space-between;align-items:center;width:100%;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;cursor:pointer;font-size:13px;color:#1a1b2e">
+       <span style="font-weight:600">${g.reg}</span>
+       <span style="font-size:12px;color:var(--muted)"><b style="color:#b91c1c">${g.rows.length}</b> parado${g.rows.length!=1?'s':''} · ${u} usina${u!=1?'s':''} ›</span>
+     </button>`;
+  });
+  h+='</div><div style="margin-top:12px"><button onclick="rondaVerRegiao(\'__ALL__\')" class="gc-btn-sm" style="display:inline-block">Ver todas as regiões (ronda completa)</button></div>';
+  resumo.innerHTML=h;
+}
+function rondaVerRegiao(reg){
+  document.getElementById('ronda-det-titulo').textContent = reg==='__ALL__' ? 'Todas as regiões' : reg;
+  document.getElementById('ronda-txt').value=rondaTexto(reg);
+  document.getElementById('ronda-resumo').style.display='none';
+  document.getElementById('ronda-detalhe').style.display='flex';
+}
+function _rondaTextoRegiao(reg,rows){
+  let txt='═══ '+reg.toUpperCase()+' · '+rows.length+' parado'+(rows.length>1?'s':'')+' ═══\n';
+  if(reg==='Sudeste'){                                    // Sudeste é grande → separa por cliente
+    const porCli={};
+    rows.forEach(r=>{ const c=r.cliente||r._fonte||'—'; (porCli[c]=porCli[c]||[]).push(r); });
+    Object.keys(porCli).sort((a,b)=>a.localeCompare(b,'pt-BR')).forEach(c=>{
+      txt+='\n  ▸ '+c+'  ('+porCli[c].length+')\n'+_rondaUsinas(porCli[c],'    ');
+    });
+  } else { txt+=_rondaUsinas(rows,''); }
+  return txt;
+}
+function rondaTexto(reg){
+  const hoje=new Date().toLocaleDateString('pt-BR'), regs=_rondaRegioes();
+  if(reg==='__ALL__'){
+    let txt='RONDA DE TRACKERS POR REGIÃO — '+hoje+'\n';
+    regs.forEach(g=>{ txt+='\n'+_rondaTextoRegiao(g.reg,g.rows); });
+    return txt+'\nTotal: '+_rondaAll.length+' tracker'+(_rondaAll.length!=1?'s':'')+' para reset.';
+  }
+  const g=regs.find(x=>x.reg===reg); if(!g) return '';
+  let txt='RONDA DE TRACKERS — '+reg.toUpperCase()+' — '+hoje+'\n\n'+_rondaTextoRegiao(reg,g.rows);
+  return txt+'\nTotal: '+g.rows.length+' tracker'+(g.rows.length!=1?'s':'')+' para reset.';
+}
+function rondaCopiar(btn){
   const ta=document.getElementById('ronda-txt'); ta.select();
   try{ navigator.clipboard.writeText(ta.value); }catch(e){ try{ document.execCommand('copy'); }catch(_){} }
   if(btn){ const o=btn.textContent; btn.textContent='Copiado!'; setTimeout(()=>{ btn.textContent=o; },1500); }
@@ -3163,6 +3340,9 @@ async function loadSoTrackers(force){
     renderSoTrackers();
     document.getElementById('trk-load').style.display='none';
     document.getElementById('trk-cont').style.display='';
+    // Auto-recalcular pela curva só quando é LEVE: fonte ≠ API PV (curva pesada/502) E poucas usinas
+    // (≤12). Fontes com muitas usinas (ex.: PG ~16) floodam o banco ao abrir → ficam SÓ no botão.
+    if(primary!=='pv' && (trkRows||[]).length<=12) trkAtualizarStatus(document.getElementById('trk-atualizar-status'));
   }catch(e){ document.getElementById('trk-load').innerHTML='<p style="color:#dc2626">Erro: '+e.message+'</p>'; }
 }
 let trkOnlyNovos=false;
@@ -3171,6 +3351,33 @@ function trkToggleNovos(){
   const b=document.getElementById('trk-novos-btn');
   if(b){b.textContent=trkOnlyNovos?'Mostrar todas':'Ver só os novos';b.style.opacity=trkOnlyNovos?1:.85;}
   renderSoTrackers();
+}
+// "Atualizar status": reconta TODAS as usinas pela curva do dia (mesma régua do expandir → _trkWindowDetect),
+// sem precisar abrir uma por uma. Concorrência limitada (API PV=2, pq o trackerschart é pesado e já causou
+// 502 em massa; demais=4). Curvas já abertas vêm do cache (instantâneo).
+let _trkAtualizando=false;
+async function trkAtualizarStatus(btn){
+  if(_trkAtualizando || !(trkRows||[]).length) return;
+  _trkAtualizando=true; const o=btn?btn.textContent:''; if(btn) btn.disabled=true;
+  const pids=trkRows.map(r=>r.plant_id); let done=0;
+  const _one=async pid=>{
+    try{
+      if(!trkCache[pid]) trkCache[pid]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)).then(r=>r.json());
+      if(!trkChartCache[pid]) trkChartCache[pid]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart').then(r=>r.json());
+      _trkWindowDetect(trkChartCache[pid], trkCache[pid]);
+      _trkSyncRowFromCache(pid);
+    }catch(e){}
+    done++; if(btn) btn.textContent='Atualizando '+done+'/'+pids.length+'…';
+  };
+  const conc=(primary==='pv')?2:4, q=[...pids];
+  await Promise.all(Array.from({length:Math.min(conc,q.length)}, async()=>{ while(q.length) await _one(q.shift()); }));
+  // recomputa os cards do topo (Parado/Desvio) com os números recontados
+  let sP=0,sD=0;
+  pids.forEach(p=>{ const d=trkCache[p]; if(d){ sP+=(d.parados!=null?d.parados:d.severos)||0; sD+=(d.desvios||0); } });
+  const eP=document.getElementById('trk-sev'), eD=document.getElementById('trk-leve');
+  if(eP)eP.textContent=sP; if(eD)eD.textContent=sD;
+  if(btn){ btn.disabled=false; btn.textContent=o||'↻ Atualizar status'; }
+  _trkAtualizando=false;
 }
 function _trkBadge(r){
   // contagem granular (API PV) com fallback p/ SunOp/PG (severos/leves/fora_media)
@@ -3201,33 +3408,42 @@ function renderSoTrackers(){
   if(!itens.length){tb.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px">Nenhuma usina.</td></tr>';return;}
   itens.forEach(it=> it.grupo ? _trkRenderGrupo(tb,it) : _trkRenderRow(tb,it.row));
 }
-// Célula "Disponibilidade" = % trackers normais (total - severos - leves)/total. Barra colorida +
-// número. Sem comunicação ou total=0 → "—". Verde ≥95, âmbar ≥80, vermelho <80.
-function _trkDispCell(r){
-  if(!r||!r.total||r.sem_comunicacao) return '<span style="color:var(--muted)">—</span>';
+// Célula "Disponibilidade": PREFERE o cálculo POR TEMPO (06:00–18:00, via Ocorrências); cai no
+// cálculo antigo por CONTAGEM instantânea (total-severos-leves)/total enquanto a fonte não
+// processou hoje ainda (ex.: servidor recém-reiniciado). Barra + número; "(tempo)" no título
+// avisa qual dos dois está sendo mostrado.
+function _trkDispPct(r){
+  if(!r||r.sem_comunicacao) return null;
+  if(r.disponibilidade_tempo!=null) return {pct:r.disponibilidade_tempo, tempo:true};
+  if(!r.total) return null;
   const ruim=(r.severos||0)+(r.leves||0);
-  const ok=Math.max(0, r.total-ruim);
-  const pct=Math.round(ok/r.total*1000)/10;   // 1 casa decimal
+  const pct=Math.round(Math.max(0,r.total-ruim)/r.total*1000)/10;
+  return {pct, tempo:false};
+}
+function _trkDispBar(d, tip){
+  if(!d) return '<span style="color:var(--muted)">—</span>';
+  const pct=d.pct;
   const cor = pct>=95?'#16a34a' : pct>=80?'#b45309' : '#dc2626';
   const fundo = pct>=95?'#dcfce7' : pct>=80?'#fef3c7' : '#fee2e2';
-  return `<div style="display:flex;align-items:center;gap:6px;min-width:120px" title="${ok}/${r.total} trackers em estado normal">
+  const nota = d.tempo?' (por tempo, 06:00–18:00)':' (por contagem — aguardando processar hoje)';
+  return `<div style="display:flex;align-items:center;gap:6px;min-width:120px" title="${tip}${nota}">
     <div style="flex:1;height:8px;background:#f1f2f4;border-radius:4px;overflow:hidden">
       <div style="height:100%;width:${pct}%;background:${cor}"></div></div>
-    <span style="font-size:11px;font-weight:700;color:${cor};background:${fundo};padding:0 5px;border-radius:4px;min-width:46px;text-align:center">${pct.toFixed(1)}%</span></div>`;
+    <span style="font-size:11px;font-weight:700;color:${cor};background:${fundo};padding:0 5px;border-radius:4px;min-width:46px;text-align:center">${pct.toFixed(1)}%${d.tempo?'':'*'}</span></div>`;
+}
+function _trkDispCell(r){
+  const d=_trkDispPct(r);
+  return _trkDispBar(d, r&&r.total?`${r.total} tracker(s)`:'');
 }
 // Disponibilidade da LINHA-PAI (grupo) = MÉDIA da disponibilidade das sub-usinas que têm dado
 // (ignora as sem comunicação / total=0 — "as que dão certo"). Mesmo visual de barra do _trkDispCell.
 function _trkDispCellGrupo(g){
-  const cabs=(g.cabines||[]).map(c=>c.r).filter(r=>r && r.total && !r.sem_comunicacao);
+  const cabs=(g.cabines||[]).map(c=>c.r).filter(r=>r && !r.sem_comunicacao && _trkDispPct(r));
   if(!cabs.length) return '<span style="color:var(--muted)">—</span>';
-  const pcts=cabs.map(r=>{ const ruim=(r.severos||0)+(r.leves||0); return Math.max(0,r.total-ruim)/r.total*100; });
-  const pct=Math.round(pcts.reduce((a,b)=>a+b,0)/pcts.length*10)/10;
-  const cor = pct>=95?'#16a34a' : pct>=80?'#b45309' : '#dc2626';
-  const fundo = pct>=95?'#dcfce7' : pct>=80?'#fef3c7' : '#fee2e2';
-  return `<div style="display:flex;align-items:center;gap:6px;min-width:120px" title="média da disponibilidade de ${cabs.length} usina(s) do grupo com dado">
-    <div style="flex:1;height:8px;background:#f1f2f4;border-radius:4px;overflow:hidden">
-      <div style="height:100%;width:${pct}%;background:${cor}"></div></div>
-    <span style="font-size:11px;font-weight:700;color:${cor};background:${fundo};padding:0 5px;border-radius:4px;min-width:46px;text-align:center">${pct.toFixed(1)}%</span></div>`;
+  const ds=cabs.map(r=>_trkDispPct(r));
+  const pct=Math.round(ds.reduce((a,d)=>a+d.pct,0)/ds.length*10)/10;
+  const tempo=ds.every(d=>d.tempo);
+  return _trkDispBar({pct,tempo}, `média de ${cabs.length} usina(s) do grupo com dado`);
 }
 function _trkRenderRow(tb, r){
   const exp=trkExp.has(r.plant_id);
@@ -3482,13 +3698,18 @@ function _trkWindowDetect(crv, det){
     const medAmp=ampsSorted[amps.length>>1]||0;
     const p75=ampsSorted[Math.floor(amps.length*0.75)]||0;
     const moved=medAmp>30, movedP75=p75>30;
+    // "desvio" no fallback (planta SEM alvo) = RELATIVO ao espalhamento da própria frota (não 10° fixo):
+    // sem POSAL (ex.: MAB100/TIM100) o spread é estrutural e o 10° fixo marcava metade da frota como desvio.
+    const _mxSorted=Object.values(MX).sort((a,b)=>a-b);
+    const _mxP75=_mxSorted.length?_mxSorted[Math.floor(_mxSorted.length*0.75)]:0;
+    const _desvioThr=Math.max(12, _mxP75+10);
     (det.trackers||[]).forEach(t=>{
       if(A[t.id]==null){ if(t.status==='parado')par++; else if(t.status==='desvio')des++; else if(t.status==='atraso')atr++; return; }
       const sv=t.status; let st='normal';
       if(moved && A[t.id]<15) st='parado';
       else if(movedP75 && A[t.id] < Math.min(20, p75*0.3)) st='parado';
       else if(A[t.id]>=20 && TA[t.id]!=null && TA[t.id]<5) st='parado';
-      else if(MX[t.id]>10) st='desvio';
+      else if(MX[t.id]>_desvioThr) st='desvio';
       if(sv==='parado' && !(A[t.id]>=30 && MX[t.id]<=10)) st='parado';
       t.status=st; t.amplitude=Math.round(A[t.id]*10)/10; t.max_disp=Math.round(MX[t.id]*10)/10;
       if(t.disparidade==null||CUR[t.id]>t.disparidade) t.disparidade=Math.round(CUR[t.id]*10)/10;
