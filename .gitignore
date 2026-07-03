@@ -46,6 +46,8 @@ oem-app.zip
 # ── Planilhas (dados internos da empresa — ficam no SharePoint/OneDrive) ──────
 *.xlsx
 *.xlsm
+# EXCEÇÃO: o snapshot empacotado p/ o deploy do dashboard Thopen na nuvem (repo é PRIVADO)
+!data/**/*.xlsx
 
 # ── Logos: versiona só as cópias de nome limpo (grid-*.png); ignora os originais
 #    com acentos/espaços que o time dropar na pasta.

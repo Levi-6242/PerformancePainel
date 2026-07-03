@@ -128,7 +128,7 @@
     <div class="tab" data-page="diario">Diário</div>
     <div class="fld" id="fldCarteira"><label>CARTEIRA</label><span id="carteiraBtns" class="cgrp"></span></div>
     <div class="fld" id="fldUsina"><label>USINA</label><select id="selUsina"></select></div>
-    <div class="fld hidden" id="fldMes"><label>ANO/MÊS</label><select id="selMes"></select></div>
+    <div class="fld" id="fldMes"><label>MÊS</label><select id="selMes"></select></div>
     <div id="subinfo" style="margin-left:auto;color:var(--muted);font-size:12px;"></div>
     <button id="btnRefresh" title="Recarregar os dados da planilha (BD_Thopen.xlsx)">🔄 Atualizar</button>
     <button id="btnPdf" title="Baixar PDF — página 1 Mensal, página 2 Diário">⤓ Baixar PDF</button>
@@ -235,8 +235,7 @@ document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{
   $('pageDiario').classList.toggle('hidden',p!=='diario');
   $('pageGeral').classList.toggle('hidden',p!=='geral');
   $('pageCapa').classList.toggle('hidden',p!=='capa');
-  $('fldMes').classList.toggle('hidden', !(p==='diario'||p==='geral'||p==='capa'));
-  $('fldUsina').classList.toggle('hidden', p==='geral'||p==='capa');  // Geral/Capa são por CARTEIRA
+  $('fldUsina').classList.toggle('hidden', p==='geral'||p==='capa');  // Geral/Capa são por CARTEIRA (o filtro de MÊS é global — aparece em todas as abas)
   if(p==='geral') renderGeral();
   else if(p==='capa') renderCapa();
   // Redimensiona os gráficos da página recém-exibida. `void offsetWidth` força o reflow do
@@ -258,9 +257,14 @@ async function init(){
   document.querySelectorAll('.cbtn').forEach(b=>b.onclick=()=>setCarteira(b.dataset.cart));
   $('selUsina').onchange=loadUsina;
   $('selMes').onchange=()=>{const[a,m]=$('selMes').value.split('-');
-    if(PAGE==='geral') renderGeral();
-    else if(PAGE==='capa') renderCapa();
-    else { renderAnual(+m); renderDiario(+a,+m); }};
+    renderMensal(+m); renderAnual(+m); renderDiario(+a,+m);   // usina (OV já em memória, barato)
+    if(PAGE==='geral') renderGeral(); else if(PAGE==='capa') renderCapa();
+  };
+  // filtro de MÊS GLOBAL (populado 1x): Jan → mês corrente do ano vigente. NÃO reseta ao trocar de
+  // usina — vale igual p/ todas as abas e p/ o relatório da carteira (some o bug de mês 6 vs 7 no PDF)
+  const anoRef=u.ano||new Date().getFullYear(), mesMax=u.mes_max||12;
+  let mopts=''; for(let mm=mesMax; mm>=1; mm--) mopts+=`<option value="${anoRef}-${mm}">${String(mm).padStart(2,'0')}/${anoRef}</option>`;
+  $('selMes').innerHTML=mopts; $('selMes').value=`${anoRef}-${mesMax}`;
   // carteira inicial = a da usina default (Altair → Thopen); fallback p/ 1ª carteira com dados
   CART = CARTDE[u.default] || (u.carteiras||[]).find(c=>USINAS.some(x=>CARTDE[x]===c)) || null;
   document.querySelectorAll('.cbtn').forEach(b=>b.classList.toggle('active', b.dataset.cart===CART));
@@ -330,17 +334,19 @@ async function loadUsina(){
   $('subinfo').textContent=(OV.cliente?('Cliente: '+OV.cliente+'  ·  '):'')
       +(OV.potencia_mwp?(nf2.format(OV.potencia_mwp)+' MWp'):'')+(loc?('  ·  '+loc):'')
       +(OV.planilha_em?('  ·  Planilha: '+OV.planilha_em):'');
-  renderMensal();
-  // popula AnoMês (mais recente primeiro) e abre o último
-  const per=OV.periodos.slice().reverse();
-  $('selMes').innerHTML=per.map(p=>`<option value="${p.ano}-${p.mes}">${String(p.mes).padStart(2,'0')}/${p.ano}</option>`).join('');
-  if(per.length){ $('selMes').value=`${per[0].ano}-${per[0].mes}`; renderAnual(per[0].mes); renderDiario(per[0].ano,per[0].mes); }
-  else { renderAnual(); }
+  // usa o filtro de MÊS GLOBAL (não repopula/reseta por usina) — mantém o mês escolhido ao trocar
+  const mv=$('selMes').value || `${OV.ano}-${new Date().getMonth()+1}`;
+  const [a,m]=mv.split('-');
+  renderMensal(+m); renderAnual(+m); renderDiario(+a,+m);
 }
 
 // ---------- página mensal ----------
-function renderMensal(){
+function renderMensal(selMes){
   const m=OV.meses, x=m.map(r=>MES[r.mes]);
+  // corta a Produzida 2026 (e os derivados Diferença/FC Real) DEPOIS do mês selecionado — os meses
+  // futuros ficam só com histórico + meta (espelha o "até <mês>" do Power BI; evita mostrar o mês
+  // corrente parcial/zerado). Sem selMes (undefined) = mostra o ano inteiro.
+  const corta = r => (selMes!=null && r.mes>selMes);
   // só mostra um ano histórico (gráfico+legenda+tabela) se tiver ao menos 1 mês com dado
   const has23=m.some(r=>r.produzida_2023!=null);
   const has24=m.some(r=>r.produzida_2024!=null);
@@ -348,13 +354,17 @@ function renderMensal(){
   const prod23={x,y:m.map(r=>r.produzida_2023),type:'bar',name:'Produzida (2023)',marker:{color:'#f6ae2d'}};
   const prod24={x,y:m.map(r=>r.produzida_2024),type:'bar',name:'Produzida (2024)',marker:{color:'#287baa'}};
   const prod25={x,y:m.map(r=>r.produzida_2025),type:'bar',name:'Produzida (2025)',marker:{color:'#24a768'}};
-  const prod={x,y:m.map(r=>r.produzida),type:'bar',name:'Produzida (2026)',marker:{color:ORA}};
+  const prod={x,y:m.map(r=>corta(r)?null:r.produzida),type:'bar',name:'Produzida (2026)',marker:{color:ORA}};
   const meta={x,y:m.map(r=>r.meta),type:'bar',name:'Meta (2026)',marker:{color:NAVY}};
   const traces=[];
   if(has23) traces.push(prod23);
   if(has24) traces.push(prod24);
   if(has25) traces.push(prod25);
   traces.push(prod, meta);
+  // slot FIXO por série (alignmentgroup comum + offsetgroup único): sem isso, nos meses em que uma
+  // série é nula (ex.: Produzida 2026 em ago–dez) o Plotly redistribui o espaço e ALARGA as barras
+  // restantes. Com o slot reservado, toda barra fica com a MESMA largura o ano inteiro.
+  traces.forEach((t,i)=>{ t.alignmentgroup='m'; t.offsetgroup=String(i); });
   const lay=Object.assign({},BASE,{barmode:'group',
     legend:{orientation:'h',x:0.5,xanchor:'center',y:-0.12},
     yaxis:{title:'Energia (MWh)',gridcolor:'#eceef2',zeroline:false},
@@ -365,11 +375,11 @@ function renderMensal(){
     has23 && ['Produzida (2023)', r=>r.produzida_2023==null?'—':nf2.format(r.produzida_2023), null],
     has24 && ['Produzida (2024)', r=>r.produzida_2024==null?'—':nf2.format(r.produzida_2024), null],
     has25 && ['Produzida (2025)', r=>r.produzida_2025==null?'—':nf2.format(r.produzida_2025), null],
-    ['Produzida (2026)', r=>r.produzida==null?'—':nf2.format(r.produzida), null],
+    ['Produzida (2026)', r=>corta(r)||r.produzida==null?'—':nf2.format(r.produzida), null],
     ['Meta (2026)',      r=>r.meta==null?'—':nf2.format(r.meta), null],
-    ['Diferença (%)',    r=>pct(r.dif), r=>r.dif==null?'':(r.dif<0?'neg':'pos')],
+    ['Diferença (%)',    r=>corta(r)?'—':pct(r.dif), r=>corta(r)?'':(r.dif==null?'':(r.dif<0?'neg':'pos'))],
     ['FC Meta (2026)',   r=>pct(r.fc_meta), null],
-    ['FC Real (2026)',   r=>pct(r.fc_real), null],
+    ['FC Real (2026)',   r=>corta(r)?'—':pct(r.fc_real), null],
   ].filter(Boolean);
   let html='<thead><tr><th>Tipo</th>'+m.map(r=>`<th>${MES[r.mes]}</th>`).join('')+'</tr></thead><tbody>';
   for(const [nome,fn,cls] of linhas){
@@ -569,8 +579,7 @@ async function printRelatorioCarteira(){
     await renderGeral(); await sleep(80); const _geralPg=await _snapPage($('pageGeral')); prt.appendChild(_geralPg);
     for(let i=0;i<usinas.length;i++){
       btn.textContent='Montando '+(i+1)+'/'+usinas.length+'…';
-      sel.value=usinas[i]; await loadUsina();
-      if(ra && [...$('selMes').options].some(o=>o.value===origMes)){ $('selMes').value=origMes; renderAnual(+rm); renderDiario(+ra,+rm); }
+      sel.value=usinas[i]; $('selMes').value=origMes; await loadUsina();  // MESMO mês (global) p/ todas as usinas
       await sleep(380);
       prt.appendChild(await _snapPage($('pageMensal')));
       prt.appendChild(await _snapPage($('pageDiario')));
@@ -587,7 +596,7 @@ async function printRelatorioCarteira(){
     document.body.classList.remove('reportprint','printing','exporting','building');
     if(window.__titulo) document.title=window.__titulo;
     if(prt) prt.innerHTML='';
-    sel.value=orig; try{ await loadUsina(); if(origMes){const p=origMes.split('-'); renderAnual(+p[1]); renderDiario(+p[0],+p[1]);} }catch(e){}
+    sel.value=orig; $('selMes').value=origMes; try{ await loadUsina(); }catch(e){}   // volta usina + mês
     btn.disabled=false; $('btnPdf').disabled=false; btn.textContent=old;
   }
 }
@@ -610,16 +619,13 @@ window.addEventListener('afterprint',()=>{
 // ───────── atualizar dados (força o backend a reler o BD_Thopen.xlsx) ─────────
 async function refreshBD(){
   const btn=$('btnRefresh'), old=btn.textContent; btn.disabled=true; btn.textContent='Atualizando…';
-  const usinaAtual=$('selUsina').value, mesAtual=$('selMes').value;
+  const usinaAtual=$('selUsina').value;
   try{
     await get('/api/t/reload');                  // backend relê o xlsx (limpa cache)
     const u=await get('/api/t/usinas');          // lista de usinas (caso tenha entrado nova)
     USINAS=u.usinas||[]; CARTDE=u.carteira_de||{};
     preencheSelUsina(usinaAtual);                // respeita a carteira ativa
-    await loadUsina();                           // re-busca overview + diário e re-renderiza
-    if(mesAtual && [...$('selMes').options].some(o=>o.value===mesAtual)){
-      $('selMes').value=mesAtual; const p=mesAtual.split('-'); renderAnual(+p[1]); renderDiario(+p[0],+p[1]);
-    }
+    await loadUsina();                           // re-renderiza no MÊS global atual (preservado)
   }catch(e){ alert('Falha ao atualizar: '+(e&&e.message||e)); }
   finally{ btn.disabled=false; btn.textContent=old; }
 }
