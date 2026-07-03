@@ -33,6 +33,7 @@ class OsDetalheDialog(QDialog):
         self._w = None
         self._wi = None
         self._imagens = []
+        self._ativo = ""
         self.setWindowTitle(f"OS {folio or id_work_order}")
         self.setMinimumSize(540, 500)
         lay = QVBoxLayout(self)
@@ -70,7 +71,7 @@ class OsDetalheDialog(QDialog):
         self.b_fotos = QPushButton("Fotos da OS"); self.b_fotos.setObjectName("secondary")
         self.b_fotos.setEnabled(False)
         self.b_fotos.setToolTip("Fotos anexadas pelos técnicos nas subtarefas")
-        self.b_fotos.clicked.connect(lambda: abrir_galeria(self, self._imagens))
+        self.b_fotos.clicked.connect(lambda: abrir_galeria(self, self._imagens, self._ativo))
         frow.addWidget(self.b_fotos); frow.addStretch(1)
         lay.addLayout(frow)
 
@@ -146,6 +147,7 @@ class OsDetalheDialog(QDialog):
         self.solic_lbl.setText(f"<b>Solicitação ligada:</b> Nº {sol}" if sol
                                else "<b>Solicitação ligada:</b> <span style='color:#8a90a2'>nenhuma</span>")
         self._code = d.get("code") or None
+        self._ativo = str(d.get("ativo") or "").strip()
         self.b_solic.setEnabled(bool(self._code))
         self.b_solic.setToolTip(f"Ativo: {d.get('ativo') or self._code}" if self._code
                                 else "OS sem ativo resolvido")
