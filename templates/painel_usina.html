@@ -93,15 +93,6 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
 
 <div class="wrap">
   <div class="below" id="below"></div>
-  <div class="card" style="margin-bottom:14px">
-    <div><h3>Comentários 💬</h3><div class="csub">Nick + comentário — thread visível para todos os analistas</div></div>
-    <div id="cmLista" style="max-height:200px;overflow:auto;margin-bottom:10px"></div>
-    <div style="display:flex;gap:8px;align-items:flex-start">
-      <input id="cmNick" placeholder="Seu nick" maxlength="40" style="width:110px;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt)">
-      <textarea id="cmTexto" rows="2" placeholder="Escreva um comentário..." maxlength="2000" style="flex:1;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt);resize:vertical"></textarea>
-      <button style="background:var(--brand);color:#16140e;font-weight:600;border:0;border-radius:8px;padding:0 18px;cursor:pointer;font-family:inherit;font-size:12px" onclick="publicarComentario()">Publicar</button>
-    </div>
-  </div>
   <div class="cols">
     <div>
       <div class="card">
@@ -117,6 +108,15 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
       </div>
     </div>
     <div>
+      <div class="card" style="margin-bottom:14px">
+        <div><h3>Comentários 💬</h3><div class="csub">Nick + comentário — visível p/ todos os analistas</div></div>
+        <div id="cmLista" style="max-height:120px;overflow:auto;margin:8px 0"></div>
+        <div style="display:flex;gap:6px;align-items:flex-start">
+          <input id="cmNick" placeholder="Nick" maxlength="40" style="width:78px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt)">
+          <textarea id="cmTexto" rows="1" placeholder="Comentário..." maxlength="2000" style="flex:1;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt);resize:vertical"></textarea>
+          <button style="background:var(--brand);color:#16140e;font-weight:600;border:0;border-radius:8px;padding:0 14px;cursor:pointer;font-family:inherit;font-size:12px" onclick="publicarComentario()">Publicar</button>
+        </div>
+      </div>
       <div class="card">
         <div><h3>Inversores × strings 🔥</h3><div class="csub" id="hmSub">Status por string (corrente vs esperado) · trancadas ocultas</div></div>
         <div class="legend">
@@ -328,7 +328,7 @@ function renderHeat(plant){
       const st=s.status,col=st==='sem_corrente'?cssv('--red'):st==='baixa_perf'?cssv('--amber'):st==='desligado'?'#7f1d1d':cssv('--ok');
       return `<div class="cell" title="${s.id}: ${nf(s.corrente,1)} A (${st})" style="background:${col}"></div>`;
     }).join('');
-    const off=i.desligado?' <span style="color:#7f1d1d;font-weight:700;font-size:10px">desligado</span>':'';
+    const off=i.desligado?' <span title="inversor desligado" style="color:#7f1d1d;font-weight:700;font-size:13px">⏻</span>':'';
     return `<div class="hm-row"><div class="hm-label" title="${i.nome}">${i.nome}${off}</div><div class="hm-cells" style="grid-template-columns:repeat(${maxS},minmax(0,26px))">${cells}</div></div>`;
   }).join('');
 }
@@ -379,16 +379,51 @@ async function drawCurveById(id){
     else document.getElementById('curveSub').textContent='Sem curva para '+id+' hoje (a Plataforma não retornou o trackerschart deste tracker).';
   }catch(e){ document.getElementById('curveSub').textContent='Falha ao carregar a curva.'; }
 }
+function _flatTail(t){const ys=t.y.filter(v=>v!=null);if(ys.length<6)return false;const tail=ys.slice(-6);return (Math.max(...tail)-Math.min(...tail))<3;}
 function drawCurve(t){
   const C=document.getElementById('chCorr'); if(corr)corr.destroy();
   document.getElementById('curveTitle').textContent='Correlação — ângulo do '+t.id;
   document.getElementById('curveSub').textContent='Ângulo real do tracker ao longo do dia';
   const tk=cssv('--muted'),grid=document.body.classList.contains('dark')?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';
-  corr=new Chart(C,{data:{labels:t.x.map(fmtHora),datasets:[{type:'line',label:'ângulo',data:t.y,borderColor:cssv('--amber'),backgroundColor:'rgba(240,181,61,.10)',borderWidth:2.2,pointRadius:0,tension:.25,fill:true}]},
+  corr=new Chart(C,{data:{labels:t.x.map(fmtHora),datasets:[{type:'line',label:'ângulo (°)',data:t.y,borderColor:cssv('--amber'),backgroundColor:'rgba(240,181,61,.10)',borderWidth:2.2,pointRadius:0,tension:.25,fill:true}]},
     options:{responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false}},
-      scales:{x:{grid:{display:false},ticks:{color:tk,font:{size:9},maxTicksLimit:8}},y:{min:-60,max:60,grid:{color:grid},ticks:{color:tk,font:{size:9},stepSize:20},title:{display:true,text:'ângulo (°)',color:tk,font:{size:9}}}}}});
-  const flat=(()=>{const ys=t.y.filter(v=>v!=null);if(ys.length<6)return false;const tail=ys.slice(-6);return (Math.max(...tail)-Math.min(...tail))<3;})();
+      scales:{x:{grid:{display:false},ticks:{color:tk,font:{size:9},maxTicksLimit:8}},y:{min:-60,max:60,grid:{color:grid},ticks:{color:tk,font:{size:9},stepSize:20},title:{display:true,text:'ângulo (°)',color:tk,font:{size:9}}},
+        y2:{position:'right',display:false,grid:{drawOnChartArea:false},ticks:{color:tk,font:{size:9}},title:{display:true,text:'A/string',color:tk,font:{size:9}}}}}});
+  const flat=_flatTail(t);
   document.getElementById('curveRead').innerHTML=flat?'<b>Leitura:</b> a curva <b>estaciona</b> no fim do dia (platô) — assinatura de tracker travado. Cruze com a corrente das strings do inversor associado.':'<b>Leitura:</b> o tracker segue o sol ao longo do dia (sem platô prolongado).';
+  if(CORR_FONTE) overlayCorrelacao(t);
+}
+/* sobrepõe a PRODUÇÃO do inversor associado ao tracker (de-para BD_Trackers; sem de-para → pior
+   inversor do dia) + mediana dos pares, no eixo direito. Todas as fontes do drill; falhou → só o ângulo. */
+const CORR_FONTE={pv:'pv',pg:'pg',athon:'sunop',axis:'axis','2c':'owen'}[FONTE]||null;
+async function overlayCorrelacao(t){
+  let d; try{ const r=await fetch('/api/painel/correlacao/'+CORR_FONTE+'/'+ID+'?tracker='+encodeURIComponent(t.id)); if(!r.ok)return; d=await r.json(); }catch(e){ return; }
+  if(!d||!d.curva||!corr||lastCurveTrk!==t) return;   // trocou de tracker enquanto carregava
+  const toMin=s=>{const m=String(s).match(/(\d{1,2}):(\d{2})/);return m?(+m[1]*60+ +m[2]):null;};
+  const base=toMin(d.curva.x[0]), passo=d.curva.x.length>1?(toMin(d.curva.x[1])-base):10;
+  const alinhar=ys=>t.x.map(lbl=>{const m=toMin(fmtHora(lbl));if(m==null)return null;
+    const c=Math.round((m-base)/passo);return (c>=0&&c<ys.length)?ys[c]:null;});
+  const yInv=alinhar(d.curva.y), yPar=alinhar(d.pares.y||[]);
+  const un=d.unidade||'A/string';
+  corr.data.datasets.push({type:'line',label:d.inversor+' ('+un+')',data:yInv,borderColor:cssv('--red'),borderWidth:2,pointRadius:0,tension:.25,spanGaps:true,yAxisID:'y2'});
+  if(yPar.some(v=>v!=null)) corr.data.datasets.push({type:'line',label:'mediana dos pares ('+un+')',data:yPar,borderColor:cssv('--muted'),borderDash:[5,4],borderWidth:1.4,pointRadius:0,tension:.25,spanGaps:true,yAxisID:'y2'});
+  corr.options.scales.y2.display=true;
+  corr.options.scales.y2.title.text=un;
+  corr.options.plugins.legend={display:true,labels:{color:cssv('--muted'),font:{size:9},boxWidth:14}};
+  corr.update();
+  document.getElementById('curveTitle').textContent='Correlação — '+t.id+' × '+d.inversor;
+  const met=d.metodo==='bd_trackers'?'de-para da aba BD_Trackers':'sem de-para na BD_Trackers — mostrando o inversor de pior performance do dia';
+  document.getElementById('curveSub').textContent='Ângulo do tracker + produção do '+d.inversor+' em '+un+' ('+met+')';
+  // leitura combinada: déficit médio do inversor vs pares (só onde ambos têm dado e os pares produzem)
+  const flat=_flatTail(t); const razoes=[];
+  for(let i=0;i<yInv.length;i++){ if(yInv[i]!=null&&yPar[i]!=null&&yPar[i]>0.5) razoes.push(yInv[i]/yPar[i]); }
+  const ratio=razoes.length>=6?(razoes.reduce((a,b)=>a+b,0)/razoes.length):null;
+  let msg;
+  if(ratio!=null&&ratio<0.85) msg='<b>Leitura:</b> o '+d.inversor+' rendeu <b>'+Math.round((1-ratio)*100)+'% abaixo</b> da mediana dos pares no dia'+(flat?', e a curva do tracker estaciona (platô) — <b>tracker travado com impacto na produção</b>.':', mas o tracker segue o sol — a causa provável <b>não</b> é este tracker (string/MPPT/fusível?).');
+  else if(flat) msg='<b>Leitura:</b> platô no tracker, mas o '+d.inversor+' acompanha os pares — sem impacto visível na produção (por ora).';
+  else if(ratio!=null) msg='<b>Leitura:</b> tracker segue o sol e o '+d.inversor+' acompanha os pares ('+Math.round(ratio*100)+'% da mediana) — sem correlação de problema.';
+  else msg='<b>Leitura:</b> tracker segue o sol; sem dado suficiente dos pares para comparar a produção.';
+  document.getElementById('curveRead').innerHTML=msg;
 }
 
 boot();

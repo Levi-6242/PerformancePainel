@@ -33,6 +33,8 @@ trk_eventos.json
 trk_eventos.json.tmp
 trk_eventos.json.bak*
 trk_eventos.json.FALHO
+fracttal_index.json
+whats_ronda.json
 tunnel_url.txt
 server.log
 *.log
