@@ -72,7 +72,7 @@ a{color:inherit;}
 .wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:9px;max-height:640px;overflow:auto;padding-right:4px;}
 .tile{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:9px 10px;cursor:pointer;position:relative;border-top:3px solid var(--ok);transition:transform .1s;}
 .tile:hover{background:var(--raise);transform:translateY(-1px);}
-.tile.atencao{border-top-color:var(--amber);}.tile.critico{border-top-color:var(--red);}.tile.sem_comm{border-top-color:var(--off);opacity:.82;}
+.tile.atencao{border-top-color:var(--amber);}.tile.critico{border-top-color:var(--red);}.tile.sem_comm{border-top-color:var(--off);opacity:.82;}.tile.sem_producao{border-top-color:#c2410c;}
 .tile .tid{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .tile .tcli{font-size:9px;color:var(--faint);margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .tile .tmw{font-size:15px;font-weight:700;}.tile .tmw .u{font-size:9px;color:var(--faint);font-weight:500;}
@@ -90,12 +90,12 @@ a{color:inherit;}
 .feed{display:flex;flex-direction:column;gap:10px;max-height:660px;overflow:auto;padding-right:4px;}
 .anom{border:1px solid var(--line);border-left-width:4px;border-radius:11px;padding:11px 13px;background:var(--panel-2);cursor:pointer;}
 .anom:hover{background:var(--raise);}
-.anom.critico{border-left-color:var(--red);}.anom.atencao{border-left-color:var(--amber);}.anom.sem_comm{border-left-color:var(--off);}.anom.clima{border-left-color:var(--blue);}
+.anom.critico{border-left-color:var(--red);}.anom.atencao{border-left-color:var(--amber);}.anom.sem_comm{border-left-color:var(--off);}.anom.sem_producao{border-left-color:#c2410c;}.anom.clima{border-left-color:var(--blue);}
 .anom .top{display:flex;justify-content:space-between;align-items:center;gap:8px;}
 .anom .dev{font-weight:600;font-size:12.5px;}
 .anom .where{font-size:10px;color:var(--faint);margin-bottom:7px;}
 .sevtag{font-size:9px;font-weight:700;padding:2px 7px;border-radius:5px;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;}
-.sevtag.critico{background:rgba(220,38,38,.16);color:var(--red);}.sevtag.atencao{background:rgba(217,119,6,.16);color:var(--amber);}.sevtag.sem_comm{background:rgba(148,163,184,.22);color:var(--muted);}.sevtag.clima{background:rgba(3,105,161,.16);color:var(--blue);}
+.sevtag.critico{background:rgba(220,38,38,.16);color:var(--red);}.sevtag.atencao{background:rgba(217,119,6,.16);color:var(--amber);}.sevtag.sem_comm{background:rgba(148,163,184,.22);color:var(--muted);}.sevtag.sem_producao{background:rgba(194,65,12,.16);color:#c2410c;}.sevtag.clima{background:rgba(3,105,161,.16);color:var(--blue);}
 .dline{display:flex;align-items:center;gap:6px;font-size:11.5px;margin-bottom:5px;}
 .dline .ic{font-size:14px;}.dline .cz{font-weight:600;color:var(--txt);}
 .conf{font-size:8.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:1px 6px;border-radius:5px;background:rgba(22,163,74,.16);color:var(--ok);margin-left:auto;}
@@ -174,6 +174,8 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
           <button class="crit" data-f="crit">Críticas</button>
         </div>
       </div>
+      <input id="wallSearch" type="search" placeholder="🔍  Filtrar usina..." oninput="wallFilterInput(this.value)"
+             style="width:240px;max-width:100%;box-sizing:border-box;margin:2px 0 8px auto;display:block;padding:6px 10px;font-size:12px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--txt)">
       <div class="legend">
         <span><span class="sw" style="background:var(--ok)"></span>Normal</span>
         <span><span class="sw" style="background:var(--amber)"></span>Atenção</span>
@@ -190,6 +192,7 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
           <span class="split" id="feedSplit"></span><span class="spacer"></span>
           <span class="chip on" data-ff="all">Todas</span>
           <span class="chip" data-ff="falha">Falhas</span>
+          <span class="chip" data-ff="parada">Sem produção</span>
           <span class="chip" data-ff="clima">Clima</span>
         </div>
         <div class="feed" id="feed"><div class="empty">Carregando…</div></div>
@@ -269,6 +272,7 @@ const cssv=n=>getComputedStyle(document.body).getPropertyValue(n).trim();
 function causaIco(p){
   const r=(p.diag&&p.diag.regra)||'', c=norm((p.diag&&p.diag.causa)||p.causa||'');
   if(p.status==='sem_comm'||c.includes('comunica')||c.includes('telemetria')) return '📡';
+  if(p.status==='sem_producao'||c.includes('sem producao')) return '🔌';
   if(r==='R-06'||c.includes('derate')||c.includes('termic')||c.includes('temperatura')) return '🌡️';
   if(r==='R-10'||c.includes('tracker')) return '🧭';
   if(r==='R-07'||c.includes('trip')||c.includes('parado')) return '⚡';
@@ -278,8 +282,8 @@ function causaIco(p){
   return '⚠️';
 }
 
-const COR={ok:()=>cssv('--ok'),atencao:()=>cssv('--amber'),critico:()=>cssv('--red'),sem_comm:()=>cssv('--off')};
-const NOME={ok:'Normal',atencao:'Atenção',critico:'Crítico',sem_comm:'Sem comunicação'};
+const COR={ok:()=>cssv('--ok'),atencao:()=>cssv('--amber'),critico:()=>cssv('--red'),sem_comm:()=>cssv('--off'),sem_producao:()=>'#c2410c'};
+const NOME={ok:'Normal',atencao:'Atenção',critico:'Crítico',sem_comm:'Sem comunicação',sem_producao:'Sem produção'};
 
 let MACRO=null, GER=null, MAP={}, curWF='all', curFF='all', builtHist=false;
 
@@ -334,10 +338,13 @@ function renderKpis(){
 }
 
 /* ====== WALL ====== */
+let curWQ='';
+function wallFilterInput(v){ curWQ=norm(v); renderWall(); }   // norm = minúsculo + sem acento (igual ao nome)
 function renderWall(){
   const items=Object.values(MAP).filter(p=>{
     if(curWF==='exc'&&p.status==='ok')return false;
     if(curWF==='crit'&&p.status!=='critico')return false;
+    if(curWQ && !norm(p.usina).includes(curWQ)) return false;
     return true;
   });
   if(!items.length){document.getElementById('wall').innerHTML='<div class="empty">Sem usinas neste filtro.</div>';return;}
@@ -367,26 +374,31 @@ function climaList(){
     .sort((a,b)=>(a.atingimento||0)-(b.atingimento||0)).slice(0,12);
 }
 function renderFeed(){
-  const falhas=Object.values(MAP).filter(p=>p.status!=='ok')
+  const anoms=Object.values(MAP).filter(p=>p.status!=='ok')
     .sort((a,b)=>(a.sev-b.sev)||((b.strings_faltando||0)-(a.strings_faltando||0)));
+  const paradas=anoms.filter(p=>p.status==='sem_producao');   // usinas PARADAS (potência ~0) — alerta próprio
+  const falhas =anoms.filter(p=>p.status!=='sem_producao');   // strings abaixo / comm — foco em operante
   const clima=climaList();
-  document.getElementById('feedSplit').innerHTML=`<b>${falhas.length}</b> falhas · <b>${clima.length}</b> recurso (clima)`;
-  let html='';
-  if(curFF!=='clima') html+=falhas.map(p=>{
+  document.getElementById('feedSplit').innerHTML=`<b>${falhas.length}</b> falhas · <b>${paradas.length}</b> sem produção · <b>${clima.length}</b> recurso (clima)`;
+  // quais cards de anomalia entram conforme o chip (falha/parada usam o MESMO template)
+  const itens = curFF==='falha'?falhas : curFF==='parada'?paradas : curFF==='clima'?[] : falhas.concat(paradas);
+  let html=itens.map(p=>{
     const dir=trendDir(p.trend), dm={up:['up','▲','piorando'],down:['down','▼','melhorando'],flat:['flat','▬','estável']}[dir];
     const col=dir==='up'?cssv('--red'):dir==='down'?cssv('--ok'):cssv('--off');
     const conf=(p.diag&&p.diag.confianca)||'';
+    const _off=p.inv_off?`<span style="color:#c2410c;font-weight:600">${p.inv_off} inv. parado(s)</span>`:'';
+    const _str=(p.status!=='sem_producao'&&p.strings_faltando)?`<span style="color:${cssv('--amber')};font-weight:600">−${p.strings_faltando} strings</span>`:'';
+    const alm=(_off||_str)?`<span style="margin-left:auto;display:inline-flex;gap:10px">${_off}${_str}</span>`:'';
     return `<div class="anom ${p.status}" onclick="openDrawer('${norm(p.usina)}')">`+
       `<div class="top"><span class="dev">${p.usina}</span><span class="sevtag ${p.status}">${NOME[p.status]||p.status}</span></div>`+
       `<div class="where">${p.cliente||'—'} · ${p.fonte}${p.qtd_inversores?' · '+p.qtd_inversores+' inv':''}</div>`+
       `<div class="dline"><span class="ic">${causaIco(p)}</span><span class="cz">${(p.diag&&p.diag.causa)||p.causa||''}</span>`+
         (conf?`<span class="conf ${conf}">conf. ${conf}</span>`:'')+`</div>`+
-      `<div class="trendrow">${spark(p.trend,col,70,20)}<span class="dir ${dm[0]}">${dm[1]} ${dm[2]}</span>`+
-        (p.strings_faltando?`<span style="margin-left:auto;color:${cssv('--amber')};font-weight:600">−${p.strings_faltando} strings</span>`:'')+`</div>`+
+      `<div class="trendrow">${spark(p.trend,col,70,20)}<span class="dir ${dm[0]}">${dm[1]} ${dm[2]}</span>${alm}</div>`+
       (p.diag&&p.diag.acao?`<div class="action"><b>Ação:</b> ${p.diag.acao}</div>`:'')+
       (hasDrill(p)?`<a class="invlink" href="${drillUrl(p)}" onclick="event.stopPropagation()">investigar →</a>`:'')+`</div>`;
   }).join('');
-  if(curFF!=='falha') html+=clima.map(u=>
+  if(curFF==='all'||curFF==='clima') html+=clima.map(u=>
     `<div class="anom clima">`+
     `<div class="top"><span class="dev">${u.usina}</span><span class="sevtag clima">Recurso/Clima</span></div>`+
     `<div class="where">${u.cliente||'—'}</div>`+
@@ -420,7 +432,7 @@ function renderRegion(){
   const arr=Object.values(groups).sort((a,b)=>b.n-a.n);
   document.getElementById('region').innerHTML=arr.map(g=>{
     const seg=st=>g[st]?`<i style="width:${g[st]/g.n*100}%;background:${COR[st]()}"></i>`:'';
-    const bar=seg('ok')+seg('atencao')+seg('critico')+seg('sem_comm');
+    const bar=seg('ok')+seg('atencao')+seg('critico')+seg('sem_producao')+seg('sem_comm');
     const atg=g.p50?g.prod/g.p50*100:null, pr=(curGrp==='carteira')?cliPR[g.key]:null;
     const info=`${g.n} us`+(atg!=null?` · atg ${nf(atg,0)}%`:'')+(pr!=null?` · PR ${nf(pr,0)}%`:'');
     return `<div class="rrow"><div><div class="rc">${g.key}</div><div class="rbar">${bar}</div></div><div class="rk">${info}</div></div>`;

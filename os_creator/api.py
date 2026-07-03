@@ -1428,6 +1428,8 @@ def get_os_imagens(id_work_order) -> list:
         out.append({"url": url, "thumb": thumb,
                     "descricao": str(d.get("description") or d.get("task_description")
                                      or d.get("items_log_description") or "").strip(),
+                    "ativo": str(d.get("items_description") or d.get("item_description")
+                                 or d.get("assets_description") or d.get("description_item") or "").strip(),
                     "raw": d})
     return out
 

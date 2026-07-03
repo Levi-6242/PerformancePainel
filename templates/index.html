@@ -763,11 +763,6 @@
 </div>
 <div id="tokPanel" style="display:none;background:#161616;color:#ddd;padding:10px 18px;font-size:12px;line-height:1.9;border-bottom:1px solid #333"></div>
 
-<!-- ▸ ALERTA: usina com TODOS os trackers parados há mais de 2h (a partir das 9h) -->
-<div id="trkParadaBanner" style="display:none;background:#b91c1c;color:#fff;padding:8px 14px;font-size:13px;font-weight:600;text-align:center;border-bottom:1px solid #7f1d1d;letter-spacing:.2px">
-  <span id="trkParadaMsg" style="cursor:pointer" onclick="trkParadaGo()"></span>
-  <span onclick="trkParadaDismiss()" title="Dispensar" style="cursor:pointer;margin-left:14px;opacity:.85;font-weight:700">✕</span>
-</div>
 
 <!-- ▸ HERO + PRIMARY TABS -->
 <div class="gc-hero">
@@ -878,6 +873,55 @@
 <!-- ▸ MAIN CONTENT -->
 <div class="gc-main">
 
+  <!-- STRINGS · sub-abas (Visão geral | Com problema agora | Ocorrências) — espelho dos trackers -->
+  <div id="str-subtabs" style="display:none;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+    <button class="gc-btn-sm" id="str-sub-geral" onclick="strSubtab('geral')" style="display:inline-block;background:#1a1b2e;color:#fff">Visão geral</button>
+    <button class="gc-btn-sm" id="str-sub-prob" onclick="strSubtab('problema')" style="display:inline-block">Strings sem corrente (atual)</button>
+    <button class="gc-btn-sm" id="str-sub-ev" onclick="strSubtab('ocorrencias')" style="display:inline-block">Ocorrências (caiu → voltou)</button>
+  </div>
+
+  <!-- STRINGS · Com problema (agora) — painel compartilhado, source-aware -->
+  <div id="panel-str-prob" style="display:none">
+    <div class="gc-table-card">
+      <div class="gc-table-hdr" style="flex-wrap:wrap;gap:8px">
+        <span class="gc-table-title">Strings sem corrente (atual) <small>— zerada enquanto o inversor opera; API PV: zerada a janela toda (da 1ª string que inicia até a última zerar)</small></span>
+        <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="search" id="str-prob-usina" placeholder="filtrar usina…" oninput="_strProbFiltra()" style="font-size:11px;padding:3px 8px;border:1px solid #d1d5db;border-radius:5px;width:160px">
+          <span id="str-prob-resumo" style="font-size:11px;color:var(--muted)"></span>
+          <button class="gc-btn-sm" style="display:inline-block;background:#16a34a;color:#fff" onclick="strProbExport()">Exportar Excel</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="loadStrProblema(true)">Atualizar</button>
+        </span>
+      </div>
+      <div class="gc-table-wrap">
+        <table>
+          <thead><tr><th>Usina</th><th>Inversor</th><th>String</th><th>Corrente</th><th>Desde</th><th>Cliente</th></tr></thead>
+          <tbody id="str-prob-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- STRINGS · Ocorrências (caiu → voltou) — painel compartilhado (API PV) -->
+  <div id="panel-str-ev" style="display:none">
+    <div class="gc-table-card">
+      <div class="gc-table-hdr" style="flex-wrap:wrap;gap:8px">
+        <span class="gc-table-title">Ocorrências de strings — caiu &rarr; voltou <small>— string que zerou (sem corrente) enquanto o inversor produzia, durante o dia</small></span>
+        <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="search" id="str-ev-usina" placeholder="filtrar usina…" oninput="_strEvFiltra()" style="font-size:11px;padding:3px 8px;border:1px solid #d1d5db;border-radius:5px;width:160px">
+          <span id="str-ev-resumo" style="font-size:11px;color:var(--muted)"></span>
+          <button class="gc-btn-sm" style="display:inline-block;background:#16a34a;color:#fff" onclick="strEvExport()">Exportar Excel</button>
+          <button class="gc-btn-sm" style="display:inline-block" onclick="loadStrEventos(true)">Atualizar</button>
+        </span>
+      </div>
+      <div class="gc-table-wrap">
+        <table>
+          <thead><tr><th>Usina</th><th>Inversor</th><th>String</th><th>Caiu</th><th>Voltou</th><th>Duração</th><th>Região</th></tr></thead>
+          <tbody id="str-ev-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
   <!-- PV · STRINGS -->
   <div id="panel-pv-strings">
     <div id="pvs-load" class="gc-loading">
@@ -917,7 +961,7 @@
         <div class="gc-table-wrap">
           <table>
             <thead><tr>
-              <th>Usina</th><th>Inv.</th><th>Strings Ativas</th><th>Strings Esperadas</th><th>Diferença</th><th>Strings Acompanhamento</th><th>Temp (°C)</th><th>Última Leitura</th><th>Status</th>
+              <th>Usina</th><th>Inv.</th><th>Strings Ativas</th><th>Strings Esperadas</th><th>Diferença</th><th>Disponib.</th><th>Strings Acompanhamento</th><th>Última Leitura</th><th>Status</th>
             </tr></thead>
             <tbody id="pv-tbody"></tbody>
           </table>
@@ -1599,6 +1643,10 @@ function _aplicaBarras(){
     if(el){el.style.display=avail.includes(x)?'':'none';el.classList.toggle('active',x===secondary);}
   });
   document.getElementById('bar-strings').style.display=secondary==='strings'?'flex':'none';
+  // sub-abas de strings só nas fontes com detalhe por-string (API PV / Thopen / 2C)
+  const _strSup = secondary==='strings' && ['pv','pg','owen','sunop','axis'].includes(primary);
+  const _sst=document.getElementById('str-subtabs'); if(_sst) _sst.style.display=_strSup?'flex':'none';
+  if(!_strSup && strSub!=='geral') strSub='geral';
   // a barra de cards (busca + só alerta) é usada na aba ETM
   document.getElementById('bar-analise').style.display=secondary==='etm'?'flex':'none';
   document.getElementById('bar-geracao').style.display=secondary==='geracao'?'flex':'none';
@@ -1622,8 +1670,14 @@ function switchSecondary(t){
 }
 function show(force){
   _aplicaBarras();   // garante que as sub-abas certas apareçam já no 1º carregamento
-  const panels=['pv-strings','pv-analise','pv-pr','sunop-strings','sunop-analise','sunop-trackers','solaredge-strings','pg-strings','pg-analise','pg-geracao','owen-strings','owen-analise','owen-trackers','spv','curvagen'];
+  const panels=['pv-strings','pv-analise','pv-pr','sunop-strings','sunop-analise','sunop-trackers','solaredge-strings','pg-strings','pg-analise','pg-geracao','owen-strings','owen-analise','owen-trackers','spv','curvagen','str-prob','str-ev'];
   panels.forEach(p=>{const el=document.getElementById(`panel-${p}`);if(el)el.style.display='none';});
+  // Strings · sub-abas "Com problema (agora)" / "Ocorrências (caiu→voltou)" (painéis compartilhados)
+  if(secondary==='strings' && strSub!=='geral'){
+    if(strSub==='problema'){ document.getElementById('panel-str-prob').style.display=''; loadStrProblema(force); }
+    else if(strSub==='ocorrencias'){ document.getElementById('panel-str-ev').style.display=''; loadStrEventos(force); }
+    return;
+  }
   // Curva das strings: API PV usa o painel SPV (plataforma); SunOp/PG usam o painel genérico
   if(secondary==='curvastr'){
     if(primary==='pv'){ const el=document.getElementById('panel-spv');if(el)el.style.display=''; loadSpv(force); }
@@ -1649,8 +1703,6 @@ function show(force){
   else                           fn = primary==='pv'?loadPvAnalise:(primary==='sunop'||primary==='axis')?loadSoAnalise:primary==='owen'?loadOwenAnalise:loadPgAnalise;
   fn(force);
 }
-function loadCurrentView(force){show(force);}
-
 /* Atualiza TODAS as abas de uma vez (força refresh em todas as fontes) */
 async function atualizarTudo(){
   const btn=document.querySelector('.gc-btn-refresh');
@@ -1668,6 +1720,7 @@ async function atualizarTudo(){
       loadSoStr(true), loadSoAnalise(true),
       loadSeStr(true),
       loadPgStr(true), loadPgAnalise(true),
+      loadSoTrackers(true),                       // overview de trackers (disponibilidade/parados) da fonte atual
     ]);
     // sub-aba Ocorrências (trackers): recarrega a tabela se já foi aberta
     if(_trkEvLoaded){ try{ await loadTrkEventos(true); }catch(e){} }
@@ -1682,6 +1735,12 @@ function farol(st,v){const cls=st||'sem',val=(v!=null)?`<span class="val">${v}</
 function etmSev(r){if(r.sem_dados)return 0;const ok=[r.poa_status,r.ghi_status,r.poari_status].filter(s=>s==='ok').length;return ok===3?2:ok>=1?1:0;}
 function etmBadge(r){const s=etmSev(r);return s===2?`<span class="badge b-ok">Normal</span>`:s===1?`<span class="badge b-warn">Parcial</span>`:`<span class="badge b-err">Sem dados</span>`;}
 function difCell(v){if(v==null)return{sty:'',txt:'—'};return{sty:v<0?'color:#dc2626;font-weight:700':v>0?'color:#d97706;font-weight:700':'color:#16a34a;font-weight:700',txt:v>0?`+${v}`:String(v)};}
+// Disponibilidade de strings = ativas / esperadas (%). Verde ≥98 · âmbar ≥90 · vermelho <90.
+function _dispStrCell(ativas,esp){
+  if(ativas==null||esp==null||esp<=0) return '<td style="color:var(--muted)">—</td>';
+  const p=Math.min(100,ativas/esp*100), cor=p>=98?'#16a34a':p>=90?'#d97706':'#dc2626';
+  return `<td style="font-weight:700;color:${cor}">${p.toFixed(1)}%</td>`;
+}
 function statusLabel(r){
   if(!r.sem_dados&&r.strings_ativas===0)return'Sem geração';
   if(!r.sem_dados&&r.diferenca!=null&&r.diferenca<0)return'Falha de string';
@@ -1695,7 +1754,6 @@ function statusLabel(r){
 const HK='pv_hidden_plants';
 function getOc(){try{return new Set(JSON.parse(localStorage.getItem(HK)||'[]'))}catch{return new Set()}}
 function saveOc(s){localStorage.setItem(HK,JSON.stringify([...s]))}
-function ocultarUsina(pid,nome){const s=getOc();s.add(pid);saveOc(s);updBtnOc();renderPvStr();}
 function restaurarUsina(pid){const s=getOc();s.delete(pid);saveOc(s);updBtnOc();renderPvStr();updModalOc();}
 function restaurarTodas(){saveOc(new Set());updBtnOc();renderPvStr();fecharOcultas();}
 function updBtnOc(){const n=getOc().size;document.getElementById('count-ocultas').textContent=n;document.getElementById('btn-ocultas').style.display=n>0?'inline-block':'none';}
@@ -1880,7 +1938,7 @@ function renderPvStr(prev){
   const tb=document.getElementById('pv-tbody'),f=document.getElementById('filtro-str').value.toLowerCase();
   tb.innerHTML='';
   // Oculta usinas string-box (BD_Performance): sem visão real de strings na aba Strings
-  pvRows.filter(r=>!r.stringbox && (!f||r.usina.toLowerCase().includes(f))).forEach(r=>{
+  pvRows.filter(r=>(!f||r.usina.toLowerCase().includes(f))).forEach(r=>{   // String Box entra (combiner via Plataforma)
     tb.appendChild(pvStrRow(r,prev));
     _fracUsinaBadge(r.plant_id, r.usina);
     if(pvExp.has(r.plant_id)){if(pvCache[r.plant_id])appendPvInvs(tb,r.plant_id,pvCache[r.plant_id]);else appendPvLoad(tb,r.plant_id);}
@@ -1912,7 +1970,7 @@ function pvStrRow(r,prev){
   const leit=r.ultima_leitura?r.ultima_leitura.replace('T',' ').slice(0,16):'—';
   tr.innerHTML=`<td>${chk}<b>${ch}${r.usina}</b>${comentBtn(vkey,r.usina)}</td>
     <td>${inv}</td><td>${r.strings_ativas??'—'}</td><td>${r.str_esp??'—'}</td>
-    <td style="${sty}">${txt}</td><td>${trkCell}</td><td>${r.temp_media!=null?r.temp_media+'°C':'—'}</td>
+    <td style="${sty}">${txt}</td>${_dispStrCell(r.strings_ativas,r.str_esp)}<td>${trkCell}</td>
     <td style="font-size:11px;color:var(--muted)">${leit}</td><td>${badge}${prevH}${histH}</td>`;
   tr.addEventListener('click',()=>togglePvPlant(r));return tr;
 }
@@ -2070,15 +2128,15 @@ function appendPvInvs(tb,pid,invs){
     const ik=`${pid}-${inv.id}`,isE=pvInvExp.has(ik);
     const tr=document.createElement('tr');tr.className='inv-header-row';tr.dataset.pvp=pid;tr.dataset.pvik=ik;
     if(inv.diferenca!=null&&inv.diferenca<0)tr.classList.add('inv-diff');
-    const sc=inv.desligado?'b-none':inv.falha_comunicacao?'b-comm':inv.strings_ativas===0?'b-err':inv.diferenca<0?'b-string':'b-ok';
-    const st=inv.desligado?'⚫ Desligado':inv.falha_comunicacao?'📡 Falha':inv.strings_ativas===0?'Sem geração':inv.diferenca<0?`⚡ ${-inv.diferenca} faltando`:'Normal';
+    const sc=inv.sem_visao?'b-none':inv.desligado?'b-none':inv.falha_comunicacao?'b-comm':inv.strings_ativas===0?'b-err':inv.diferenca<0?'b-string':'b-ok';
+    const st=inv.sem_visao?'Sem visão (combiner)':inv.desligado?'⚫ Desligado':inv.falha_comunicacao?'📡 Falha':inv.strings_ativas===0?'Sem geração':inv.diferenca<0?`⚡ ${-inv.diferenca} faltando`:'Normal';
     const {sty,txt}=difCell(inv.diferenca);
     const leit=inv.ultima_leitura?inv.ultima_leitura.slice(0,16).replace('T',' '):'—';
     const _cm=String(inv.nome||'').match(/(\d+)\.(\d+)/);
     const cabLbl=_cm?` <span style="font-size:10px;color:#475569;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:4px;padding:0 5px;margin-left:4px" title="Inversor ${_cm[2]} da cabine ${_cm[1]}">cabine ${_cm[1]}</span>`:'';
     tr.innerHTML=`<td><b><span class="chevron${isE?' open':''}">▶</span>${inv.nome}</b>${cabLbl}${pvDiagFor(pid,inv.nome)?' <span title="diagnóstico disponível" style="color:#e24b4a;font-size:11px">◆</span>':''} <span style="color:var(--muted);font-size:10px;margin-left:5px">${inv.eday!=null?inv.eday+' kWh':'—'}</span></td>
-      <td>—</td><td>${inv.strings_ativas} / ${inv.total_strings}</td><td>${inv.str_esp??'—'}</td>
-      <td style="${sty}">${txt}</td><td>—</td><td>${inv.temp!=null?inv.temp+'°C':'—'}</td>
+      <td>—</td><td>${inv.sem_visao?'—':inv.strings_ativas+' / '+inv.total_strings}</td><td>${inv.str_esp??'—'}</td>
+      <td style="${sty}">${txt}</td>${_dispStrCell(inv.strings_ativas,inv.str_esp)}<td>—</td>
       <td style="font-size:11px;color:var(--muted)">${leit}</td><td><span class="badge ${sc}">${st}</span></td>`;
     tr.addEventListener('click',e=>{e.stopPropagation();togglePvInv(pid,inv,ik);});
     insAfterPv(tb,pid,tr);if(isE)appendPvStrs(tb,pid,ik,inv.strings);
@@ -2250,20 +2308,44 @@ async function pvCurvaInv(pid,invId,invNome,cid,reload){
   const _nz=v=>String(v||'').replace(/['"\\]/g,'').trim().toLowerCase();
   const iv=((_pvCurvaCache[ckey].inversores)||[]).find(x=>_nz(x.nome)===_nz(invNome));
   if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:16px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; if(pres)pres.style.display='none'; return; }
-  const sub=(iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK')+_invSubTxt(iv);
+  const _abSet=_spvAbaixoSet(iv); const sub=(_abSet.size?` · <b style="color:#f59e0b">${_abSet.size} abaixo</b>`:' · OK')+_invSubTxt(iv);
   box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:0 0 2px">${invNome} — corrente por string · med ${iv.mediana} (índice)${sub}</div><div id="${cid}-plot" style="width:100%;height:222px"></div>`;
   if(pres)pres.style.display='inline-flex';
   _spvPlotInto(document.getElementById(cid+'-plot'),iv,cid,isHoje);
+  _spvMarcaCardsAbaixo(cid,_abSet);
+}
+// Pinta de laranja a borda dos cards de string ABAIXO — o MESMO conjunto que a curva destaca
+// (inclui as que estão OK no instante mas abaixo por energia do dia). Não mexe em sem-corrente
+// (vermelho) nem trancadas (azul), que já têm cor própria.
+function _spvMarcaCardsAbaixo(cid,abSet){
+  const nums=new Set([...(abSet||[])].map(nm=>parseInt(String(nm).replace(/\D/g,''))||0));
+  document.querySelectorAll(`[data-cid="${cid}"]`).forEach(ch=>{
+    if(ch.classList.contains('s-sem')||ch.classList.contains('s-trancada')) return; // já têm cor própria
+    if(nums.has(parseInt(ch.dataset.n))){ ch.style.borderColor='#f59e0b'; ch.style.borderWidth='2px'; }
+    else { ch.style.borderColor=''; ch.style.borderWidth=''; }  // volta à cor da classe (ex.: trocou de data)
+  });
+}
+// Strings ABAIXO destacadas na curva: sub do dia (energia, backend) + abaixo AGORA (último valor da
+// curva < 60% da mediana das ativas) → pega o que os chips mostram laranja, não só a de energia.
+function _spvAbaixoSet(iv){
+  const set=new Set((iv.strings||[]).filter(s=>s.sub).map(s=>String(s.nome)));
+  const ativaBy={}; (iv.strings||[]).forEach(s=>{ativaBy[String(s.nome)]=s.ativa!==false;});
+  const last={};
+  Object.entries(iv.curva||{}).forEach(([st,c])=>{ const ys=(c.y||[]).filter(v=>v!=null); last[st]=ys.length?ys[ys.length-1]:null; });
+  const av=Object.entries(last).filter(([st,v])=>v!=null&&ativaBy[st]!==false).map(([,v])=>v).sort((a,b)=>a-b);
+  const med=av.length?av[Math.floor(av.length/2)]:0;
+  if(med>0.5) Object.entries(last).forEach(([st,v])=>{ if(v!=null&&v>0.1&&v<med*0.6&&ativaBy[st]!==false) set.add(String(st)); });
+  return set;
 }
 function _spvPlotInto(el,iv,cid,isHoje){
   if(!el||!window.Plotly)return;
-  const subSet=new Set(iv.strings.filter(s=>s.sub).map(s=>s.nome));
+  const subSet=_spvAbaixoSet(iv);
   const ativaBy={}; (iv.strings||[]).forEach(s=>{ativaBy[s.nome]=s.ativa!==false;});
   const idxByNum={}, ativaByNum={}, baseW=[], baseC=[];
   const traces=Object.entries(iv.curva).map(([st,c],idx)=>{
     const n=parseInt(st.replace(/\D/g,''))||0, sub=subSet.has(st), ativa=ativaBy[st]!==false;
     idxByNum[n]=idx; ativaByNum[n]=ativa;
-    const col=sub?'#dc2626':(ativa?'rgba(100,116,139,0.6)':'rgba(190,190,190,0.5)'), w=sub?2.4:(ativa?0.9:0.7);
+    const col=sub?'#f59e0b':(ativa?'rgba(100,116,139,0.6)':'rgba(190,190,190,0.5)'), w=sub?2.6:(ativa?0.9:0.7);
     baseW.push(w); baseC.push(col);
     return {x:c.x.map(t=>'2000-01-01 '+t),y:c.y,type:'scatter',mode:'lines',name:st,
       line:{width:w,color:col,dash:ativa?'solid':'dot'},
@@ -2278,7 +2360,7 @@ function _spvPlotInto(el,iv,cid,isHoje){
 function pvCurvaHi(cid,n,on){
   const s=_pvCurvaState[cid]; if(!s)return; const idx=s.idxByNum[n]; if(idx==null||s.hidden.has(n))return;
   const el=document.getElementById(cid+'-plot'); if(!el||!window.Plotly)return;
-  try{ Plotly.restyle(el,{'line.width':[on?3.4:s.baseW[idx]],'line.color':[on?'#f59e0b':s.baseC[idx]]},[idx]); }catch(e){}
+  try{ Plotly.restyle(el,{'line.width':[on?3.6:s.baseW[idx]],'line.color':[on?'#2563eb':s.baseC[idx]]},[idx]); }catch(e){}
 }
 function pvCurvaToggle(cid,n,chip){
   const s=_pvCurvaState[cid]; if(!s)return; const idx=s.idxByNum[n]; if(idx==null)return;
@@ -2303,22 +2385,6 @@ function insAfterPv(tb,pid,nr){
 function filtrarStr(){if(primary==='pv')renderPvStr();else if(primary==='sunop'||primary==='axis')renderSoStr();else if(primary==='solaredge')renderSeStr();else renderPgStr();}
 
 /* ══ PV ETM ════════════════════════════════════════════════════════════════ */
-async function loadPvEtm(force){
-  if(!force&&loaded.pve)return;
-  const L=document.getElementById('pve-load'),C=document.getElementById('pve-cont');
-  L.style.display='flex';C.style.display='none';
-  const data=await fetch(force?'/api/etm?force=1':'/api/etm').then(r=>r.json());
-  pveRows=data.rows||[];loaded.pve=true;
-  const norm=pveRows.filter(r=>etmSev(r)===2).length,parc=pveRows.filter(r=>etmSev(r)===1).length,sem=pveRows.filter(r=>etmSev(r)===0).length;
-  document.getElementById('pve-total').textContent=pveRows.length;
-  document.getElementById('pve-norm').textContent=norm;
-  document.getElementById('pve-parc').textContent=parc;
-  document.getElementById('pve-sem').textContent=sem;
-  renderEtmTb('pve-tbody',pveRows);setTs(data.cache_ts);
-  L.style.display='none';C.style.display='block';
-  document.getElementById('btn-export').style.display='';
-}
-
 /* ══ ETM TABLE ═════════════════════════════════════════════════════════════ */
 function renderEtmTb(tbId,rows){
   const f=document.getElementById('filtro-etm').value.toLowerCase();
@@ -2449,10 +2515,11 @@ async function soCurvaInv(pid,invId,invNome,cid,reload){
   }
   const iv=((_soCurvaCache[ckey].inversores)||[]).find(x=>String(x.id)===String(invId))||(_soCurvaCache[ckey].inversores||[])[0];
   if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:16px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; if(pres)pres.style.display='none'; return; }
-  const sub=(iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK')+_invSubTxt(iv);
+  const _abSet=_spvAbaixoSet(iv); const sub=(_abSet.size?` · <b style="color:#f59e0b">${_abSet.size} abaixo</b>`:' · OK')+_invSubTxt(iv);
   box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:0 0 2px">${invNome} — corrente por string · med ${iv.mediana} (índice)${sub}</div><div id="${cid}-plot" style="width:100%;height:222px"></div>`;
   if(pres)pres.style.display='inline-flex';
   _spvPlotInto(document.getElementById(cid+'-plot'),iv,cid,isHoje);
+  _spvMarcaCardsAbaixo(cid,_abSet);
 }
 function appendSoStrs(tb,pid,ik,inv){
   const tr=document.createElement('tr');tr.className='strings-row';tr.dataset.sop=pid;tr.dataset.sois=ik;
@@ -2482,21 +2549,6 @@ function insAfterSo(tb,pid,nr){
 }
 
 /* ══ SUNOP ETM ═════════════════════════════════════════════════════════════ */
-async function loadSoEtm(force){
-  if(!force&&loaded.soe)return;
-  const L=document.getElementById('soe-load'),C=document.getElementById('soe-cont');
-  L.style.display='flex';C.style.display='none';
-  const data=await fetch(force?_soBase()+'/etm?force=1':_soBase()+'/etm').then(r=>r.json());
-  soeRows=data.rows||[];loaded.soe=true;
-  const norm=soeRows.filter(r=>etmSev(r)===2).length,parc=soeRows.filter(r=>etmSev(r)===1).length,sem=soeRows.filter(r=>etmSev(r)===0).length;
-  document.getElementById('soe-total').textContent=soeRows.length;
-  document.getElementById('soe-norm').textContent=norm;
-  document.getElementById('soe-parc').textContent=parc;
-  document.getElementById('soe-sem').textContent=sem;
-  renderEtmTb('soe-tbody',soeRows);setTs(data.cache_ts);
-  L.style.display='none';C.style.display='block';
-}
-
 /* ══ SOLAREDGE STRINGS ═════════════════════════════════════════════════════ */
 async function loadSeStr(force){
   if(!force&&loaded.ses)return;
@@ -2699,10 +2751,11 @@ async function pgCurvaInv(pid,invId,invNome,cid,reload){
   }
   const iv=((_pgCurvaCache[ckey].inversores)||[]).find(x=>String(x.id)===String(invId));
   if(!iv||!iv.curva||!Object.keys(iv.curva).length){ box.innerHTML='<p style="color:var(--muted);padding:16px;font-size:12px">Sem curva para este inversor nesta data (sem geração/dados).</p>'; if(pres)pres.style.display='none'; return; }
-  const sub=(iv.abaixo?` · <b style="color:#dc2626">${iv.abaixo} abaixo</b>`:' · OK')+_invSubTxt(iv);
+  const _abSet=_spvAbaixoSet(iv); const sub=(_abSet.size?` · <b style="color:#f59e0b">${_abSet.size} abaixo</b>`:' · OK')+_invSubTxt(iv);
   box.innerHTML=`<div style="font-size:11px;color:var(--muted);margin:0 0 2px">${invNome} — corrente por string · med ${iv.mediana} (índice)${sub}</div><div id="${cid}-plot" style="width:100%;height:222px"></div>`;
   if(pres)pres.style.display='inline-flex';
   _spvPlotInto(document.getElementById(cid+'-plot'),iv,cid,isHoje);
+  _spvMarcaCardsAbaixo(cid,_abSet);
 }
 function appendPgStrs(tb,pid,ik,inv){
   const tr=document.createElement('tr');tr.className='strings-row';tr.dataset.pgp=pid;tr.dataset.pgis=ik;
@@ -2753,7 +2806,6 @@ async function loadOwenStr(force){
     document.getElementById('owen-str-cont').style.display='';
   }catch(e){ document.getElementById('owen-str-load').innerHTML='<p style="color:#dc2626">Erro: '+e.message+'</p>'; }
 }
-function _difCell(d){ if(d==null)return {sty:'',txt:'—'}; const c=d<0?'#dc2626':d>0?'#d97706':'#16a34a'; return {sty:`color:${c};font-weight:${d?700:400}`,txt:(d>0?'+':'')+d}; }
 function renderOwenStr(){
   const tb=document.getElementById('owen-str-tbody'); tb.innerHTML='';
   owenStrRows.forEach(r=>{
@@ -2843,21 +2895,6 @@ async function owenCurvaInv(pid, invId, cid, force){
 }
 
 /* ══ BANCO PG · ETM ════════════════════════════════════════════════════════ */
-async function loadPgEtm(force){
-  if(!force&&loaded.pge)return;
-  const L=document.getElementById('pge-load'),C=document.getElementById('pge-cont');
-  L.style.display='flex';C.style.display='none';
-  const data=await fetch(force?'/api/pg/etm?force=1':'/api/pg/etm').then(r=>r.json());
-  pgeRows=data.rows||[];loaded.pge=true;
-  const norm=pgeRows.filter(r=>etmSev(r)===2).length,parc=pgeRows.filter(r=>etmSev(r)===1).length,sem=pgeRows.filter(r=>etmSev(r)===0).length;
-  document.getElementById('pge-total').textContent=pgeRows.length;
-  document.getElementById('pge-norm').textContent=norm;
-  document.getElementById('pge-parc').textContent=parc;
-  document.getElementById('pge-sem').textContent=sem;
-  renderEtmTb('pge-tbody',pgeRows);setTs(data.cache_ts);
-  L.style.display='none';C.style.display='block';
-}
-
 /* ══ PRÉ-ANÁLISE ETM = aba ETM (cards + sparkline, 3 fontes) ════════════════ */
 const ETM_CFG = {
   pv:    {url:'/api/etm/analise',       flag:'ana', load:'ana-load', cont:'ana-cont', grid:'ana-grid', tot:'ana-total', crit:'ana-crit', aten:'ana-aten', sem:'ana-sem'},
@@ -3101,6 +3138,92 @@ function trkParExport(){
   window.location=_trkBase()+'/parados/export.xlsx'+qq;
 }
 
+/* ══ STRINGS · sub-aba "Com problema (agora)" — espelho de Trackers parados ══════════════════ */
+let strSub='geral', _strProbRows=[], _strProbSrc='';
+function _strFonte(){ return ['pg','owen','sunop','axis'].includes(primary)?primary:'pv'; }
+function _strProbBase(){ return '/api/'+_strFonte()+'/strings'; }
+function strSubtab(w){
+  strSub=w;
+  [['geral','str-sub-geral'],['problema','str-sub-prob'],['ocorrencias','str-sub-ev']].forEach(([k,id])=>{
+    const b=document.getElementById(id); if(b){ b.style.background=(k===w)?'#1a1b2e':''; b.style.color=(k===w)?'#fff':''; }
+  });
+  show();
+}
+async function loadStrProblema(force){
+  const tb=document.getElementById('str-prob-tbody'); if(!tb) return;
+  if(!force && _strProbRows.length && _strProbSrc===primary){ _strProbRender(); return; }
+  tb.innerHTML='<tr><td colspan="6" style="padding:14px;color:var(--muted)">Consultando strings…</td></tr>';
+  let d; try{ d=await fetch(_strProbBase()+'/problema'+(force?'?force=1':'')).then(r=>r.json()); }catch(e){ d={rows:[]}; }
+  if(d.indisponivel){ _strProbRows=[]; _strProbSrc=primary;
+    tb.innerHTML='<tr><td colspan="6" style="padding:16px;color:var(--muted)">Lista de strings sem corrente ainda não disponível nesta fonte — use as <b>Ocorrências (caiu → voltou)</b> ao lado.</td></tr>';
+    const res=document.getElementById('str-prob-resumo'); if(res) res.textContent=''; return; }
+  _strProbRows=d.rows||[]; _strProbSrc=primary;
+  _strProbRender();
+}
+function _strProbFiltra(){ _strProbRender(); }
+function _strProbRender(){
+  const tb=document.getElementById('str-prob-tbody'); if(!tb) return;
+  const q=(document.getElementById('str-prob-usina')?.value||'').trim().toLowerCase();
+  const rows=q?_strProbRows.filter(r=>(r.usina||'').toLowerCase().includes(q)):_strProbRows;
+  const res=document.getElementById('str-prob-resumo');
+  if(res){ const u=new Set(_strProbRows.map(r=>r.usina)).size; res.textContent=q?`${rows.length} de ${_strProbRows.length} strings`:`${_strProbRows.length} strings em ${u} usinas`; }
+  if(!rows.length){ tb.innerHTML=`<tr><td colspan="6" style="padding:16px;color:var(--muted)">${q?'Nenhuma string para esse filtro.':'Nenhuma string sem corrente no momento.'}</td></tr>`; return; }
+  tb.innerHTML=rows.map(r=>{
+    const c=r.corrente, cur=(c==null||isNaN(c))?'—':(Number(c).toFixed(1)+' A');
+    return `<tr>
+      <td><b>${r.usina||''}</b></td>
+      <td>${r.inversor||'—'}</td>
+      <td>${r.string||''}</td>
+      <td>${cur}</td>
+      <td title="início da janela do inversor (1ª string produzindo) — a string está zerada desde então">${r.desde||'—'}</td>
+      <td style="font-size:11px;color:var(--muted)">${r.cliente||'—'}</td></tr>`;
+  }).join('');
+}
+function strProbExport(){
+  const q=(document.getElementById('str-prob-usina')?.value||'').trim();
+  const qq=q?('?usina='+encodeURIComponent(q)):'';
+  window.location=_strProbBase()+'/problema/export.xlsx'+qq;
+}
+
+/* ── STRINGS · sub-aba "Ocorrências (caiu → voltou)" — API PV/2C/Athon/Axis (curva); PG não (snapshot) ── */
+let _strEvRows=[], _strEvSrc='';
+function _strEvFiltra(){ _strEvRender(); }
+async function loadStrEventos(force){
+  const tb=document.getElementById('str-ev-tbody'); if(!tb) return;
+  if(primary==='pg'){
+    _strEvRows=[]; tb.innerHTML='<tr><td colspan="7" style="padding:16px;color:var(--muted)">O dado de string do <b>Thopen</b> é um snapshot (1 leitura/dia, sem curva) — ocorrências caiu→voltou não dá para detectar nesta fonte.</td></tr>';
+    const res=document.getElementById('str-ev-resumo'); if(res) res.textContent=''; return;
+  }
+  if(!force && _strEvRows.length && _strEvSrc===primary){ _strEvRender(); return; }
+  tb.innerHTML='<tr><td colspan="7" style="padding:14px;color:var(--muted)">Processando as curvas de string do dia… (pode levar ~1 min)</td></tr>';
+  let d; try{ d=await fetch(_strProbBase()+'/eventos'+(force?'?force=1':'')).then(r=>r.json()); }catch(e){ d={rows:[]}; }
+  _strEvRows=d.rows||[]; _strEvSrc=primary;
+  _strEvRender();
+}
+function _strEvRender(){
+  const tb=document.getElementById('str-ev-tbody'); if(!tb) return;
+  const q=(document.getElementById('str-ev-usina')?.value||'').trim().toLowerCase();
+  const rows=q?_strEvRows.filter(r=>(r.usina||'').toLowerCase().includes(q)):_strEvRows;
+  const res=document.getElementById('str-ev-resumo');
+  if(res){ const u=new Set(_strEvRows.map(r=>r.usina)).size; const vlt=_strEvRows.filter(r=>r.voltou).length; res.textContent=q?`${rows.length} de ${_strEvRows.length}`:`${_strEvRows.length} ocorrências em ${u} usinas · ${vlt} voltaram`; }
+  if(!rows.length){ tb.innerHTML=`<tr><td colspan="7" style="padding:16px;color:var(--muted)">${q?'Nenhuma para esse filtro.':'Nenhuma ocorrência de string no dia.'}</td></tr>`; return; }
+  const dur=m=>{ m=m||0; return (m>=60?(Math.floor(m/60)+'h'+String(m%60).padStart(2,'0')):m+'min'); };
+  tb.innerHTML=rows.map(r=>`<tr>
+    <td><b>${r.usina||''}</b></td>
+    <td>${r.inversor||'—'}</td>
+    <td>${r.string||''}</td>
+    <td>${r.caiu||'—'}</td>
+    <td>${r.voltou?r.voltou:'<span style="color:#b91c1c">não voltou</span>'}</td>
+    <td>${dur(r.dur_min)}</td>
+    <td style="font-size:11px;color:var(--muted)">${r.regiao||'—'}</td></tr>`).join('');
+}
+function strEvExport(){
+  if(primary==='pg'){ alert('Thopen não tem curva de string (snapshot) — sem ocorrências para exportar.'); return; }
+  const q=(document.getElementById('str-ev-usina')?.value||'').trim();
+  const qq=q?('&usina='+encodeURIComponent(q)):'';
+  window.location=_strProbBase()+'/eventos/export.xlsx?ini='+_trkHoje()+qq;
+}
+
 /* ── Trackers · sub-aba "Parados agora" — flat de todos os trackers c/ status='parado' ── */
 let _trkParRows=[], _trkParAuto=null;
 async function loadTrkParados(silent){
@@ -3164,6 +3287,7 @@ function _trkParRenderTabela(){
 }
 /* Ronda automática por REGIÃO: junta os parados de TODAS as fontes e agrupa por região geográfica
    (Sudeste sub-dividido por cliente/carteira). Cross-fonte → uma ronda só p/ o time todo. */
+function _rAng(v){ return (v==null||isNaN(v))?'—':(Math.round(v)+'°'); }   // ângulo p/ a ronda
 function _rondaUsinas(rows, ind){
   const porUsina={};
   rows.forEach(r=>{ (porUsina[r.usina]=porUsina[r.usina]||[]).push(r); });
@@ -3171,7 +3295,11 @@ function _rondaUsinas(rows, ind){
   Object.keys(porUsina).sort((a,b)=>a.localeCompare(b,'pt-BR')).forEach(u=>{
     const g=porUsina[u];
     t+=ind+'['+u+']  ('+g.length+')\n';
-    g.forEach(r=>{ t+=ind+'- '+r.tracker+(r.inversor?(' — '+r.inversor):'')+'\n'; });
+    g.forEach(r=>{
+      const inv=r.inversor?(' — '+r.inversor):'';
+      const ang='  (atual '+_rAng(r.atual)+' · alvo '+_rAng(r.alvo)+')';
+      t+=ind+'- '+r.tracker+inv+ang+'\n';
+    });
   });
   return t;
 }
@@ -3207,37 +3335,41 @@ function _rondaModalEl(){
   document.body.appendChild(m);
   return m;
 }
-function rondaAbrir(){ _rondaModalEl().style.display='flex'; rondaVoltar(); rondaLoad(false); }
+function rondaAbrir(){ _rondaModalEl().style.display='flex'; rondaVoltar(); rondaLoad(true); }
 function rondaFechar(){ const m=document.getElementById('rondaTrkModal'); if(m) m.style.display='none'; }
 function rondaVoltar(){
   const d=document.getElementById('ronda-detalhe'); if(d) d.style.display='none';
   const r=document.getElementById('ronda-resumo'); if(r) r.style.display='block';
 }
+/* A ronda SEMPRE recomputa as 5 fontes NA HORA DO CLIQUE (em paralelo — espera a mais lenta,
+   não a soma) e guarda o status por fonte: falha aparece como FALHOU, nunca como "0 parados". */
+let _rondaFontes=[], _rondaTs=null;
 async function rondaLoad(force){
   const fontes=[['pv','API PV'],['pg','Thopen'],['sunop','Athon'],['axis','Axis'],['owen','2C']];
   const prog=document.getElementById('ronda-progress'), resumo=document.getElementById('ronda-resumo');
   rondaVoltar();
-  let all=[];
-  if(force){                                              // atualização profunda: força + barra por fonte
-    prog.style.display='block'; resumo.innerHTML='';
-    for(let i=0;i<fontes.length;i++){
-      _rondaProg(i,fontes.length,'Atualizando '+fontes[i][1]+'… ('+(i+1)+'/'+fontes.length+')');
-      try{
-        const d=await fetch(`/api/${fontes[i][0]}/trackers/parados?force=1`).then(r=>r.json());
-        (d.rows||[]).forEach(r=>{ r._fonte=fontes[i][1]; all.push(r); });
-      }catch(e){}
-    }
-    _rondaProg(fontes.length,fontes.length,'Concluído');
-    setTimeout(()=>{ prog.style.display='none'; },600);
-  } else {                                                // abertura rápida: cache, em paralelo
-    resumo.innerHTML='<div style="color:var(--muted);font-size:13px;padding:24px 0;text-align:center">Carregando trackers parados…</div>';
+  _rondaTs=new Date(); _rondaFontes=[];
+  prog.style.display='block';
+  resumo.innerHTML='<div style="color:var(--muted);font-size:13px;padding:24px 0;text-align:center">Recomputando o status dos trackers nas 5 fontes… (pode levar 1–3 min)</div>';
+  let done=0; const all=[];
+  _rondaProg(0,fontes.length,'Atualizando as 5 fontes em paralelo…');
+  await Promise.all(fontes.map(async ([f,label])=>{
+    const st={fonte:label,n:0,ok:false,erro:null,computado:null};
     try{
-      const res=await Promise.all(fontes.map(([f])=>fetch(`/api/${f}/trackers/parados`).then(r=>r.json()).catch(()=>({rows:[]}))));
-      res.forEach((d,i)=>{ (d.rows||[]).forEach(r=>{ r._fonte=fontes[i][1]; all.push(r); }); });
-    }catch(e){}
-  }
+      const r=await fetch(`/api/${f}/trackers/parados?force=1`);
+      const d=r.ok?await r.json():{rows:[],erro:'HTTP '+r.status};
+      st.erro=d.erro||(d.sem_token?'sem token':null);
+      st.ok=!st.erro; st.computado=d.computado||d.cache_ts||null;
+      (d.rows||[]).forEach(x=>{ x._fonte=label; all.push(x); });
+      st.n=(d.rows||[]).length;
+    }catch(e){ st.erro='sem resposta ('+e+')'; }
+    _rondaFontes.push(st);
+    done++; _rondaProg(done,fontes.length,label+' concluída ('+done+'/'+fontes.length+')');
+  }));
+  setTimeout(()=>{ prog.style.display='none'; },500);
   _rondaAll=all; rondaResumo();
 }
+function _rondaHora(){ return _rondaTs?_rondaTs.toLocaleDateString('pt-BR')+' '+_rondaTs.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):new Date().toLocaleDateString('pt-BR'); }
 function _rondaProg(done,total,label){
   const b=document.getElementById('ronda-prog-bar'), l=document.getElementById('ronda-prog-label');
   if(b) b.style.width=Math.round(done/total*100)+'%';
@@ -3251,15 +3383,20 @@ function _rondaRegioes(){
 function rondaResumo(){
   const resumo=document.getElementById('ronda-resumo'); resumo.style.display='block';
   const total=_rondaAll.length, usinas=new Set(_rondaAll.map(r=>r.usina)).size, regs=_rondaRegioes();
+  const falhas=_rondaFontes.filter(s=>!s.ok);
+  const fontesH=_rondaFontes.map(s=>
+    `<span style="font-size:11px;padding:2px 8px;border-radius:5px;white-space:nowrap;${s.ok?'background:#f0fdf4;color:#166534;border:1px solid #bbf7d0':'background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;font-weight:700'}" title="${s.ok?('recomputada '+(s.computado||'')):(s.erro||'falhou')}">${s.fonte}: ${s.ok?s.n:'FALHOU'}</span>`).join(' ');
   let h=`<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap">
-     <span style="font-size:32px;font-weight:800;color:${total?'#b91c1c':'#16a34a'}">${total}</span>
-     <span style="font-size:13px;color:var(--muted)">tracker${total!=1?'s':''} parado${total!=1?'s':''} em ${usinas} usina${usinas!=1?'s':''} · todas as fontes</span>
+     <span style="font-size:32px;font-weight:800;color:${total?'#b91c1c':(falhas.length?'#d97706':'#16a34a')}">${total}</span>
+     <span style="font-size:13px;color:var(--muted)">tracker${total!=1?'s':''} parado${total!=1?'s':''} em ${usinas} usina${usinas!=1?'s':''} · recomputado às <b>${_rondaHora().split(' ')[1]||''}</b></span>
    </div>
+   <div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 4px">${fontesH}</div>
+   ${falhas.length?`<div style="font-size:12px;color:#b91c1c;font-weight:600;margin-bottom:4px">Atenção: ${falhas.length} fonte${falhas.length>1?'s':''} sem resposta — a ronda está INCOMPLETA (${falhas.map(s=>s.fonte).join(', ')}).</div>`:''}
    <div style="margin:8px 0 14px">
      <button class="gc-btn-sm" style="display:inline-block;background:#2563eb;color:#fff" onclick="rondaLoad(true)">↻ Atualizar todos os trackers</button>
      <span style="font-size:11px;color:var(--muted);margin-left:8px">recomputa o status em todas as fontes (pode demorar)</span>
    </div>`;
-  if(!total){ resumo.innerHTML=h+'<div style="color:var(--muted);font-size:13px">Nenhum tracker parado agora.</div>'; return; }
+  if(!total){ resumo.innerHTML=h+`<div style="color:var(--muted);font-size:13px">${falhas.length?'Nenhum parado nas fontes que responderam — repita a atualização antes de confiar.':'Nenhum tracker parado agora.'}</div>`; return; }
   h+='<div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px">Escolha a região</div><div style="display:flex;flex-direction:column;gap:6px">';
   regs.forEach(g=>{
     const u=new Set(g.rows.map(r=>r.usina)).size, reg=g.reg.replace(/'/g,"\\'");
@@ -3289,15 +3426,16 @@ function _rondaTextoRegiao(reg,rows){
   return txt;
 }
 function rondaTexto(reg){
-  const hoje=new Date().toLocaleDateString('pt-BR'), regs=_rondaRegioes();
+  const quando=_rondaHora(), regs=_rondaRegioes();
+  const falhas=_rondaFontes.filter(s=>!s.ok);
+  const alerta=falhas.length?('ATENÇÃO: ronda incompleta — sem resposta de '+falhas.map(s=>s.fonte).join(', ')+'\n'):'';
   if(reg==='__ALL__'){
-    let txt='RONDA DE TRACKERS POR REGIÃO — '+hoje+'\n';
+    let txt='RONDA DE TRACKERS POR REGIÃO — '+quando+'\n'+alerta;
     regs.forEach(g=>{ txt+='\n'+_rondaTextoRegiao(g.reg,g.rows); });
-    return txt+'\nTotal: '+_rondaAll.length+' tracker'+(_rondaAll.length!=1?'s':'')+' para reset.';
+    return txt;
   }
   const g=regs.find(x=>x.reg===reg); if(!g) return '';
-  let txt='RONDA DE TRACKERS — '+reg.toUpperCase()+' — '+hoje+'\n\n'+_rondaTextoRegiao(reg,g.rows);
-  return txt+'\nTotal: '+g.rows.length+' tracker'+(g.rows.length!=1?'s':'')+' para reset.';
+  return 'RONDA DE TRACKERS — '+reg.toUpperCase()+' — '+quando+'\n'+alerta+'\n'+_rondaTextoRegiao(reg,g.rows);
 }
 function rondaCopiar(btn){
   const ta=document.getElementById('ronda-txt'); ta.select();
@@ -3326,8 +3464,12 @@ async function loadSoTrackers(force){
     setTs(d.cache_ts);
     document.getElementById('trk-usinas').textContent=d.summary.usinas;
     document.getElementById('trk-total').textContent=d.summary.trackers;
-    document.getElementById('trk-sev').textContent=d.summary.severos;
-    document.getElementById('trk-leve').textContent=d.summary.leves;
+    // Parado/Desvio = MESMA contagem granular das linhas (parados/desvios reais; fallback severos/leves
+    // p/ SunOp/PG). Antes o card "Parado" mostrava severos=parado+desvio e pulava ao Atualizar.
+    let _sP=0,_sD=0;
+    (trkRows||[]).forEach(r=>{ _sP+=(r.parados!=null?r.parados:r.severos)||0; _sD+=(r.desvios!=null?r.desvios:r.leves)||0; });
+    document.getElementById('trk-sev').textContent=_sP;
+    document.getElementById('trk-leve').textContent=_sD;
     // Banner de NOVOS (fora da planilha de Tickets) — API PV e SunOp (Athon)
     const ban=document.getElementById('trk-novos-banner');
     if(ban){
@@ -3352,30 +3494,23 @@ function trkToggleNovos(){
   if(b){b.textContent=trkOnlyNovos?'Mostrar todas':'Ver só os novos';b.style.opacity=trkOnlyNovos?1:.85;}
   renderSoTrackers();
 }
-// "Atualizar status": reconta TODAS as usinas pela curva do dia (mesma régua do expandir → _trkWindowDetect),
-// sem precisar abrir uma por uma. Concorrência limitada (API PV=2, pq o trackerschart é pesado e já causou
-// 502 em massa; demais=4). Curvas já abertas vêm do cache (instantâneo).
+// "Atualizar status": recomputo SERVER-SIDE numa ÚNICA requisição (força o overview: re-puxa o
+// snapshot de todas as usinas + refina pela curva já cacheada + acumulador do dia). Antes o cliente
+// baixava o trackerschart de CADA usina (62× curva pesada) — pela rede do túnel o Cloudflare corta
+// em ~100s e o botão ficava pendurado. Para o recomputo PROFUNDO (baixar curvas que faltam) use a
+// "Ronda de Trackers > Atualizar todos".
 let _trkAtualizando=false;
 async function trkAtualizarStatus(btn){
-  if(_trkAtualizando || !(trkRows||[]).length) return;
-  _trkAtualizando=true; const o=btn?btn.textContent:''; if(btn) btn.disabled=true;
-  const pids=trkRows.map(r=>r.plant_id); let done=0;
-  const _one=async pid=>{
-    try{
-      if(!trkCache[pid]) trkCache[pid]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)).then(r=>r.json());
-      if(!trkChartCache[pid]) trkChartCache[pid]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart').then(r=>r.json());
-      _trkWindowDetect(trkChartCache[pid], trkCache[pid]);
-      _trkSyncRowFromCache(pid);
-    }catch(e){}
-    done++; if(btn) btn.textContent='Atualizando '+done+'/'+pids.length+'…';
-  };
-  const conc=(primary==='pv')?2:4, q=[...pids];
-  await Promise.all(Array.from({length:Math.min(conc,q.length)}, async()=>{ while(q.length) await _one(q.shift()); }));
-  // recomputa os cards do topo (Parado/Desvio) com os números recontados
-  let sP=0,sD=0;
-  pids.forEach(p=>{ const d=trkCache[p]; if(d){ sP+=(d.parados!=null?d.parados:d.severos)||0; sD+=(d.desvios||0); } });
-  const eP=document.getElementById('trk-sev'), eD=document.getElementById('trk-leve');
-  if(eP)eP.textContent=sP; if(eD)eD.textContent=sD;
+  if(_trkAtualizando) return;
+  _trkAtualizando=true; const o=btn?btn.textContent:'';
+  if(btn){ btn.disabled=true; btn.textContent='Atualizando…'; }
+  try{
+    await loadSoTrackers(true);                       // 1 request → recomputa e re-renderiza a tabela
+    let sP=0,sD=0;                                     // cards do topo pela contagem granular por usina
+    (trkRows||[]).forEach(r=>{ sP+=(r.parados!=null?r.parados:r.severos)||0; sD+=(r.desvios||0); });
+    const eP=document.getElementById('trk-sev'), eD=document.getElementById('trk-leve');
+    if(eP)eP.textContent=sP; if(eD)eD.textContent=sD;
+  }catch(e){}
   if(btn){ btn.disabled=false; btn.textContent=o||'↻ Atualizar status'; }
   _trkAtualizando=false;
 }
@@ -3938,11 +4073,23 @@ function trkPreset(pid,tipo){   // filtro rápido: bons / ruins / todos / parado
 
 function _sparkSVG(spark){
   const W=250,H=46,pad=3;
-  const poa=spark.poa||[],ghi=spark.ghi||[],poari=spark.poari||[],n=Math.max(poa.length,ghi.length,poari.length);
+  const poa=spark.poa||[],ghi=spark.ghi||[],poari=spark.poari||[],labels=spark.labels||[];
+  const n=Math.max(poa.length,ghi.length,poari.length);
   if(!n)return '<div style="height:46px;color:var(--muted);font-size:10px;display:flex;align-items:center">sem curva</div>';
   const vals=[...poa,...ghi,...poari].filter(v=>v!=null);
   const ymax=Math.max(60,...vals);
-  const xs=i=>pad+(W-2*pad)*(n<2?0:i/(n-1));
+  // Eixo X FIXO 06:00–18:00 (igual ao modal): posiciona cada ponto pelo HH:MM do rótulo.
+  // Sem rótulo de horário → distribui por índice (fallback, comportamento antigo).
+  const WIN_INI=6*60, WIN_FIM=18*60;
+  const _min=t=>{const m=/^(\d{1,2}):(\d{2})/.exec(t||'');return m?(+m[1]*60+ +m[2]):null;};
+  const temTempo = labels.length===n && labels.some(t=>_min(t)!=null);
+  const xs=i=>{
+    if(temTempo){
+      const mm=_min(labels[i]);
+      if(mm!=null){ const f=Math.max(0,Math.min(1,(mm-WIN_INI)/(WIN_FIM-WIN_INI))); return pad+(W-2*pad)*f; }
+    }
+    return pad+(W-2*pad)*(n<2?0:i/(n-1));
+  };
   const ys=v=>H-pad-(H-2*pad)*(v/ymax);
   const linha=(arr,cor)=>{
     let d='',pen=false;
@@ -4167,35 +4314,6 @@ async function abrirNotaWatch(key){
 }
 
 function editarOS(key){abrirNotaWatch(key);}
-
-async function atualizarWatch(){
-  const btn=document.getElementById('w-btn-atualizar');
-  const upd=document.getElementById('w-upd');
-  const prevTxt=btn?btn.innerHTML:'';
-  if(btn){btn.disabled=true;btn.innerHTML='⏳ Coletando SunOp + PostgreSQL…';}
-  upd.textContent='Atualizando ao vivo…';
-  try{
-    const ctrl=new AbortController();
-    const tmo=setTimeout(()=>ctrl.abort(),120000); // teto de 2 min
-    const r=await fetch('/api/tracker-watch/update',{method:'POST',signal:ctrl.signal});
-    clearTimeout(tmo);
-    const j=await r.json();
-    if(j.ok&&j.data){
-      watchData=j.data;
-      renderWatch(watchData);
-      const n=Object.keys(watchData.active||{}).length;
-      const b=document.getElementById('watch-badge-sub');if(b)b.textContent=n?`(${n})`:'';
-      const s=j.stats||{};
-      upd.textContent=`${watchData.ultima_atualizacao||''}  •  ${s.novos||0} novos · ${s.confirmados||0} confirmados · ${s.resolvidos||0} resolvidos`;
-    }else{
-      upd.textContent='Erro: '+(j.error||'falha na atualização');
-    }
-  }catch(e){
-    upd.textContent=(e.name==='AbortError')?'Tempo esgotado (2 min) — tente novamente':('Erro: '+e);
-  }finally{
-    if(btn){btn.disabled=false;btn.innerHTML=prevTxt;}
-  }
-}
 
 /* ══ PR por inversor (banco / BD_Thopen) ═════════════════════════════════════ */
 let pvPrRows=[], pvPrDetail={}, pvPrExp=new Set(), pvPrVisao='pr', pvPrView='cards', pvPrStr={};
@@ -4839,16 +4957,6 @@ async function exportSpvPdf(){
 
 /* ══ AVISO DE TOKENS (validade) ══════════════════════════════════════════════ */
 let _tokData=null;
-async function checkTokens(){
-  try{
-    const d=await fetch('/api/tokens').then(r=>r.json());
-    _tokData=d;
-    const b=document.getElementById('tokBanner'), m=document.getElementById('tokBannerMsg');
-    if(!b)return;
-    if(d.alerta){ m.textContent='🔑 '+d.msg+' — renove o token'; b.style.display='block'; }
-    else{ b.style.display='none'; const p=document.getElementById('tokPanel'); if(p)p.style.display='none'; }
-  }catch(e){}
-}
 function tokBannerToggle(){
   const p=document.getElementById('tokPanel'); if(!p)return;
   if(p.style.display==='block'){ p.style.display='none'; return; }
@@ -4862,38 +4970,9 @@ function tokBannerToggle(){
   p.style.display='block';
 }
 
-/* ══ ALERTA: usina com TODOS os trackers parados há > 2h (a partir das 9h) ══ */
-let _trkParadaSig='';
-function _hhmm(h){ const t=Math.round((h||0)*60); return Math.floor(t/60)+'h'+String(t%60).padStart(2,'0'); }
-async function checkTrkParada(){
-  try{
-    const d=await fetch('/api/pv/trackers/parada').then(r=>r.json());
-    const b=document.getElementById('trkParadaBanner'), m=document.getElementById('trkParadaMsg');
-    if(!b||!m) return;
-    const al=(d&&d.alertas)||[];
-    if(!al.length){ b.style.display='none'; _trkParadaSig=''; return; }
-    const lim=d.limite_horas||2;
-    let msg;
-    if(al.length===1){ const a=al[0];
-      msg=`ALERTA: <b>${a.usina}</b> está com <b>todos os ${a.total!=null?a.total+' ':''}trackers parados</b> há <b>${_hhmm(a.horas)}</b> (desde ${a.desde}).`;
-    } else {
-      msg=`ALERTA: <b>${al.length} usinas</b> com todos os trackers parados há mais de ${lim}h — `
-        + al.map(a=>`${a.usina} (${_hhmm(a.horas)})`).join(' · ')+'.';
-    }
-    m.innerHTML=msg+' <span style="text-decoration:underline;opacity:.9">ver trackers</span>';
-    const sig=al.map(a=>a.plant_id+':'+a.horas).join('|');
-    if(sig!==_trkParadaSig){ b.dataset.dismissed=''; _trkParadaSig=sig; }   // mudou o alerta → reexibe
-    if(b.dataset.dismissed!=='1') b.style.display='block';
-  }catch(e){}
-}
-function trkParadaDismiss(){ const b=document.getElementById('trkParadaBanner'); if(b){ b.dataset.dismissed='1'; b.style.display='none'; } }
-function trkParadaGo(){ try{ if(primary!=='pv') switchPrimary('pv'); switchSecondary('trackers'); }catch(e){} }
-
 /* ══ INIT ══════════════════════════════════════════════════════════════════ */
 (async()=>{ await loadState(); show();
-  setTimeout(checkTrkParada, 4000);                 // 1ª checagem logo após carregar
-  setInterval(checkTrkParada, 180000);              // re-checa a cada 3 min (em qualquer aba)
-})();   /* banner de vencimento de token desativado (a pedido) */
+})();   /* banners de token e de trackers-parados desativados (a pedido) */
 </script>
 
 <!-- área usada só na impressão das curvas selecionadas (Curva das strings) -->
