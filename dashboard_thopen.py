@@ -32,9 +32,17 @@ import openpyxl
 from openpyxl.utils import range_boundaries
 from flask import Flask, jsonify, render_template, request
 
-# ── Localização do BD_Thopen.xlsx (1ª que existir; env BD_THOPEN_PATH manda) ───
+# ── Localização dos dados ──────────────────────────────────────────────────────
+# Na nuvem (Railway) definimos THOPEN_DATA_DIR=data → lê o SNAPSHOT das planilhas empacotado no repo
+# (data/BD_Thopen.xlsx, data/Polaris, data/Matrix, data/Copel). Local, sem a env, segue lendo AO VIVO
+# do OneDrive (dados sempre atuais). Atualizar a nuvem = novo push da pasta data/.
+_DATA_DIR = os.environ.get("THOPEN_DATA_DIR")
+if not _DATA_DIR and any(k.startswith("RAILWAY_") for k in os.environ):
+    _DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")  # auto na nuvem Railway
+
 _CANDIDATOS = [
     os.environ.get("BD_THOPEN_PATH"),
+    os.path.join(_DATA_DIR, "BD_Thopen.xlsx") if _DATA_DIR else None,
     r"C:\Users\Levi Maia\OneDrive - GRID CO\Grid Co_ - 17. Acesso Externo Thopen"
     r"\1. Registro usinas Thopen\BD_Thopen.xlsx",
     r"C:\Users\Levi Maia\OneDrive - GRID CO\BD_Thopen.xlsx",
@@ -191,7 +199,8 @@ def _table(name):
 # ── Polaris: os ACTUALS (geração/irradiação/disponibilidade DIÁRIAS) vêm de um Excel de
 #    Budget separado (alimentado semanalmente), NÃO do BD_Thopen. Meta, histórico (2023-2025)
 #    e cadastro continuam vindo do BD_Thopen — igual às outras carteiras. ────────────────────
-_POLARIS_DIR = (r"C:\Users\Levi Maia\OneDrive - GRID CO\Grid Co_ - 17. Acesso Externo Thopen"
+_POLARIS_DIR = (os.path.join(_DATA_DIR, "Polaris") if _DATA_DIR else
+                r"C:\Users\Levi Maia\OneDrive - GRID CO\Grid Co_ - 17. Acesso Externo Thopen"
                 r"\3. Polaris")
 # nome no Budget (coluna "UFV 1")  →  nome de coleta canônico (igual T_Usinas/CARTEIRAS).
 # De-para EXPLÍCITO (em vez da cadeia frágil de substituições do Power Query).
@@ -355,8 +364,8 @@ def _polaris_records():
 #    Meta/histórico/cadastro sempre do BD_Thopen. Cada fonte tem 1 tabela por usina (Data/Usina/
 #    geração/irradiação/disp) + 1 tabela larga de comentários. A coluna "Usina" já traz o canônico.
 _THOPEN_EXT = r"C:\Users\Levi Maia\OneDrive - GRID CO\Grid Co_ - 17. Acesso Externo Thopen"
-_MATRIX_DIR = _THOPEN_EXT + r"\6. Matrix"
-_COPEL_DIR = _THOPEN_EXT + r"\5. Copel"
+_MATRIX_DIR = os.path.join(_DATA_DIR, "Matrix") if _DATA_DIR else _THOPEN_EXT + r"\6. Matrix"
+_COPEL_DIR = os.path.join(_DATA_DIR, "Copel") if _DATA_DIR else _THOPEN_EXT + r"\5. Copel"
 _SHEET_CORTE = dt.date(2026, 6, 1)   # < corte: planilha | >= corte: BD_Thopen (se a usina existir lá)
 _SHEET_SOURCES = [
     {"dir": _MATRIX_DIR, "glob": "Gera*Matrix*.xlsx", "tmp": "matrix_dash.xlsx"},
@@ -710,8 +719,11 @@ def usinas():
                  (set(_state["daily"].keys()) | set(_polaris_records().keys()) | set(_sheet_records().keys()))})
     default = "Altair" if "Altair" in us else (us[0] if us else None)
     carteira_de = {u: _CARTEIRA_DE.get(u) for u in us}  # carteira de cada usina disponível
+    today = dt.date.today()
+    mes_max = today.month if today.year == ANO else 12  # p/ o filtro de mês GLOBAL do frontend
     return jsonify({"usinas": us, "default": default,
-                    "carteiras": CARTEIRA_ORDEM, "carteira_de": carteira_de})
+                    "carteiras": CARTEIRA_ORDEM, "carteira_de": carteira_de,
+                    "ano": ANO, "mes_max": mes_max})
 
 
 @app.route("/api/t/overview")
