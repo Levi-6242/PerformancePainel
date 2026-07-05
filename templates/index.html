@@ -138,23 +138,15 @@
     .gc-btn-macro:hover { background: rgba(255,255,255,.22) }
     .gc-btn-macro:active { transform: scale(.97) }
 
-    /* ── HERO ────────────────────────────────────────────────────────────── */
+    /* ── HERO (banda clara — cabeçalho novo aprovado 03/07) ─────────────── */
     .gc-hero {
-      background: var(--dark);
-      padding: 20px 28px 0;
+      background: var(--white);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 28px 0;
       position: relative;
       overflow: hidden;
     }
-    .gc-hero::before {
-      content: '';
-      position: absolute;
-      top: -60px;
-      right: -60px;
-      width: 320px;
-      height: 320px;
-      background: radial-gradient(circle, rgba(163,217,0,.06) 0%, transparent 70%);
-      pointer-events: none;
-    }
+    .gc-hero::before { content: none }
     .gc-hero-top {
       display: flex;
       align-items: flex-start;
@@ -165,9 +157,9 @@
       display: inline-flex;
       align-items: center;
       gap: 5px;
-      background: var(--green-d);
-      border: 1px solid var(--green-b);
-      color: var(--green);
+      background: #f3f8e3;
+      border: 1px solid #dcebb0;
+      color: #5f7f00;
       font-size: 9.5px;
       font-weight: 700;
       letter-spacing: .1em;
@@ -177,56 +169,95 @@
       margin-bottom: 8px;
     }
     .gc-hero h1 {
-      color: #fff;
+      color: var(--dark);
       font-size: 18px;
       font-weight: 800;
       letter-spacing: -.3px;
     }
-    .gc-hero h1 span { color: var(--green) }
+    .gc-hero h1 span { color: #7aa300 }
     .gc-hero-date {
-      color: rgba(255,255,255,.2);
+      color: #9aa1ad;
       font-size: 11px;
       padding-top: 2px;
       font-variant-numeric: tabular-nums;
     }
 
     /* ── PRIMARY TABS ────────────────────────────────────────────────────── */
-    .gc-primary-tabs { display: flex; gap: 4px; align-items: flex-end }
+    .gc-primary-tabs { display: flex; gap: 4px; align-items: flex-end; overflow-x: auto }
     .gc-primary-tab {
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 10px 20px 12px;
-      border-radius: 10px 10px 0 0;
-      border: 1px solid transparent;
-      border-bottom: none;
-      background: rgba(255,255,255,.04);
+      gap: 9px;
+      padding: 9px 16px 11px;
+      border-radius: 8px 8px 0 0;
+      border: 0;
+      border-bottom: 3px solid transparent;
+      background: transparent;
       cursor: pointer;
       transition: background .15s, border-color .15s;
       font-family: 'Inter', sans-serif;
       position: relative;
     }
-    .gc-primary-tab:hover { background: rgba(255,255,255,.08) }
+    .gc-primary-tab:hover { background: #f6f8f3 }
     .gc-primary-tab.active {
-      background: var(--light);
-      border-color: rgba(255,255,255,.1);
+      background: #f6f8f3;
+      border-bottom-color: var(--green);
     }
-    .gc-primary-tab.active::after {
-      content: '';
-      position: absolute;
-      bottom: -1px;
-      left: 0;
-      right: 0;
-      height: 2px;
-      background: var(--light);
-    }
+    .gc-primary-tab.active::after { content: none }
     .pt-icon { font-size: 17px; line-height: 1; flex-shrink: 0 }
-    .pt-logo { width: 26px; height: 26px; object-fit: contain; flex-shrink: 0; display: block }
-    .pt-info { display: flex; flex-direction: column; gap: 1px }
-    .pt-label { font-size: 13px; font-weight: 700; color: rgba(255,255,255,.4); line-height: 1.2; transition: color .15s }
-    .pt-sub   { font-size: 10px; color: rgba(255,255,255,.22); letter-spacing: .03em }
+    .pt-logo { width: 22px; height: 22px; object-fit: contain; flex-shrink: 0; display: block }
+    .pt-info { display: flex; flex-direction: column; gap: 1px; text-align: left }
+    .pt-label { font-size: 12.5px; font-weight: 700; color: #6b7280; line-height: 1.2; transition: color .15s }
+    .pt-sub   { font-size: 10px; color: #9aa1ad; letter-spacing: .03em }
     .gc-primary-tab.active .pt-label { color: var(--dark) }
     .gc-primary-tab.active .pt-sub   { color: var(--muted) }
+
+    /* ── ABA GERAL (consolidada) — KPIs, filtros e drill ─────────────────── */
+    .gk-kpis { display: grid; grid-template-columns: repeat(5,1fr); gap: 12px; margin-bottom: 14px }
+    .gk-kpi { background: var(--white); border: 1px solid var(--border); border-radius: 12px; padding: 13px 16px;
+              box-shadow: 0 1px 2px rgba(16,24,40,.04); display: flex; flex-direction: column; gap: 3px }
+    .gk-kpi .l { font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: #9aa1ad }
+    .gk-kpi .v { font-size: 26px; font-weight: 800; letter-spacing: -.03em; line-height: 1.1; font-variant-numeric: tabular-nums }
+    .gk-kpi .d { font-size: 11px; color: #9aa1ad }
+    .gk-kpi.k-ok .v{color:#16a34a}.gk-kpi.k-red .v{color:#dc2626}.gk-kpi.k-purple .v{color:#7c3aed}
+    .gf-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px }
+    .gf-seg { display: inline-flex; background: var(--white); border: 1px solid var(--border); border-radius: 9px; padding: 3px; gap: 2px }
+    .gf-seg button { background: transparent; border: 0; color: var(--muted); font-size: 11.5px; font-weight: 500;
+                     padding: 5px 12px; border-radius: 7px; cursor: pointer; font-family: inherit }
+    .gf-seg button.on { background: #171a14; color: #fff; font-weight: 600 }
+    .gf-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--white); border: 1px solid var(--border);
+               color: var(--muted); font-size: 11.5px; font-weight: 500; padding: 5px 12px; border-radius: 999px; cursor: pointer; font-family: inherit }
+    .gf-chip i { width: 7px; height: 7px; border-radius: 50%; display: inline-block }
+    .gf-chip.on { border-color: #7aa300; color: var(--dark); background: #f6f8f3; font-weight: 600 }
+    .gf-search { margin-left: auto; background: var(--white); border: 1px solid var(--border); color: var(--dark);
+                 font-family: inherit; font-size: 12px; padding: 7px 12px; border-radius: 9px; width: 220px; outline: none }
+    .gf-search:focus { border-color: #7aa300; box-shadow: 0 0 0 3px rgba(122,163,0,.12) }
+    .gf-fonte { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 600; color: var(--muted);
+                background: #f8faf7; border: 1px solid var(--border); padding: 3px 10px; border-radius: 999px; white-space: nowrap }
+    .gf-fonte i { width: 7px; height: 7px; border-radius: 50%; display: inline-block }
+    td.gd-drill { background: #f8faf7; padding: 0 12px 16px 40px; border-bottom: 1px solid var(--border) }
+    .gd-head { display: flex; align-items: center; gap: 10px; padding: 12px 0 10px; flex-wrap: wrap }
+    .gd-head .dt { font-size: 12.5px; font-weight: 700 }
+    .gd-btn { background: var(--white); border: 1px solid var(--border); color: var(--muted); font-size: 11.5px; font-weight: 600;
+              padding: 5px 12px; border-radius: 8px; cursor: pointer; font-family: inherit; text-decoration: none }
+    .gd-btn:hover { color: var(--dark) }
+    .gd-btn.primary { background: var(--green); border-color: var(--green); color: #15170e }
+    .gd-invcard { background: var(--white); border: 1px solid var(--border); border-radius: 10px; margin-bottom: 8px; overflow: hidden }
+    .gd-invhd { display: flex; align-items: center; gap: 12px; padding: 8px 13px; border-bottom: 1px solid var(--border); font-size: 12px }
+    .gd-invhd .inm { font-weight: 700 }
+    .gd-invhd .im { color: #9aa1ad; font-size: 11px }
+    .gd-invhd .ibtn { margin-left: auto; background: #f8faf7; border: 1px solid var(--border); color: var(--muted);
+                      font-size: 10.5px; font-weight: 600; padding: 3px 10px; border-radius: 7px; cursor: pointer; font-family: inherit }
+    .gd-invhd .ibtn.on { background: #171a14; border-color: #171a14; color: #fff }
+    .gd-chips { display: flex; flex-wrap: wrap; gap: 5px; padding: 10px 13px }
+    .gd-sc { font-size: 10.5px; font-weight: 600; padding: 3px 8px; border-radius: 6px; background: rgba(22,163,74,.08); color: #16a34a; white-space: nowrap }
+    .gd-sc.zero { background: rgba(220,38,38,.1); color: #dc2626 }
+    .gd-sc.low { background: rgba(217,119,6,.13); color: #d97706 }
+    .gd-sc.lock { background: rgba(3,105,161,.09); color: #0369a1 }
+    .gd-curve { display: none; padding: 4px 13px 12px }
+    .gd-curve svg { display: block; width: 100%; height: 170px; background: #f8faf7; border: 1px solid var(--border); border-radius: 8px }
+    .gd-note { font-size: 11.5px; color: var(--muted); background: var(--white); border: 1px dashed var(--border); border-radius: 10px; padding: 14px 16px }
+    @media(max-width:1080px){ .gk-kpis { grid-template-columns: repeat(3,1fr) } }
 
     /* ── SECONDARY BAR ───────────────────────────────────────────────────── */
     .gc-secondary-bar {
@@ -750,6 +781,8 @@
        title="Painel NOC — Monitoramento de Portfólio (frota + anomalias com causa + histórico), tema claro/Dark">Painel</a>
     <a class="gc-btn-macro" href="/gerencial" target="gridco-gerencial" rel="noopener"
        title="Visão Gerencial — atingimento (gerada ÷ P50) por usina e cliente">Gerencial</a>
+    <a class="gc-btn-macro" href="/painel-teste" target="gridco-painel-teste" rel="noopener"
+       title="Painel teste (V2 em construção) — PR ponderado, energia perdida e strings em risco por usina, com drill de causas">Painel teste</a>
     <span class="gc-ts" id="last-update">Atualizado às <strong id="update-time"></strong></span>
     <button class="gc-btn-refresh" onclick="atualizarTudo()">↻ Atualizar</button>
   </div>
@@ -769,12 +802,18 @@
   <div class="gc-hero-top">
     <div>
       <div class="gc-pill">Monitoramento O&amp;M</div>
-      <h1>Visão Geral de <span>Strings &amp; ETM</span></h1>
+      <h1>Visão Geral de <span>Strings, ETM &amp; Trackers</span></h1>
     </div>
     <div class="gc-hero-date">{{ today }}</div>
   </div>
   <div class="gc-primary-tabs">
-    <button class="gc-primary-tab active" id="ptab-pv" onclick="switchPrimary('pv')">
+    <button class="gc-primary-tab active" id="ptab-geral" onclick="switchPrimary('geral')">
+      <span class="pt-info">
+        <span class="pt-label" style="color:#7aa300">Geral</span>
+        <span class="pt-sub">todas as fontes · só problemas</span>
+      </span>
+    </button>
+    <button class="gc-primary-tab" id="ptab-pv" onclick="switchPrimary('pv')">
       <img class="pt-logo" src="/static/logos/pv.png" alt="PV"
            onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">
       <span class="pt-icon" style="display:none">📡</span>
@@ -872,6 +911,35 @@
 
 <!-- ▸ MAIN CONTENT -->
 <div class="gc-main">
+
+  <!-- GERAL · consolidado de todas as fontes (só problemas por padrão) -->
+  <div id="panel-geral" style="display:none">
+    <div class="gk-kpis" id="g-kpis"></div>
+    <div class="gf-bar">
+      <div class="gf-seg" id="g-seg">
+        <button class="on" data-f="deficit" onclick="gSetStatus(this)">Com déficit</button>
+        <button data-f="comm" onclick="gSetStatus(this)">Sem comunicação</button>
+        <button data-f="all" onclick="gSetStatus(this)">Todas</button>
+      </div>
+      <span id="g-fontes" style="display:flex;gap:6px;flex-wrap:wrap"></span>
+      <input class="gf-search" id="g-q" type="search" placeholder="Filtrar usina..." oninput="renderGeral()">
+    </div>
+    <div class="gc-alerts" id="g-alerts"></div>
+    <div class="gc-table-card">
+      <div class="gc-table-hdr">
+        <span class="gc-table-title">Detalhamento por Usina — todas as fontes <small>— clique para expandir</small></span>
+      </div>
+      <div class="gc-table-wrap">
+        <table>
+          <thead><tr>
+            <th>Usina</th><th>Cliente</th><th>Inv.</th><th>Strings Ativas</th><th>Strings Esperadas</th>
+            <th>Diferença</th><th>Disponib.</th><th>Última Leitura</th><th>Status</th>
+          </tr></thead>
+          <tbody id="g-tb"><tr><td colspan="9" style="padding:26px;text-align:center;color:var(--muted)">Consolidando as fontes… (primeira carga pode levar ~1 min)</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
 
   <!-- STRINGS · sub-abas (Visão geral | Com problema agora | Ocorrências) — espelho dos trackers -->
   <div id="str-subtabs" style="display:none;gap:8px;margin-bottom:12px;flex-wrap:wrap">
@@ -1617,7 +1685,7 @@
 
 <script>
 /* ══ STATE ══════════════════════════════════════════════════════════════════ */
-let primary = 'pv', secondary = 'strings';
+let primary = 'geral', secondary = 'strings';
 const loaded = {pvs:false, pve:false, sos:false, soe:false, ses:false, pgs:false, pge:false, ana:false, soa:false, pga:false, sotrk:false, owa:false, owstr:false};
 let pvRows=[], pveRows=[], soRows=[], soeRows=[], seRows=[], pgRows=[], pgeRows=[], anaRows=[];
 const ANA_ROWS = {pv:[], sunop:[], pg:[], owen:[]};   // pré-análise ETM por fonte (ETM = cards agora)
@@ -1628,6 +1696,7 @@ const pgExp=new Set(), pgInvExp=new Set(), pgCache={};
 
 /* ══ TABS ═══════════════════════════════════════════════════════════════════ */
 function _secsDisponiveis(t){
+  if(t==='geral')     return [];                 // Geral: consolidado, sem sub-abas
   if(t==='solaredge') return ['pr'];             // RenoGrid: só PR por inversor (geração SolarEdge ÷ IPOA × kWp)
   if(t==='pg')        return ['strings','etm','pr','curvastr','geracao','trackers'];  // PG (Thopen): + PR + curva strings + geração + trackers
   if(t==='sunop')     return ['strings','etm','pr','curvastr','trackers']; // SunOp (Athon): + PR + curva strings + trackers
@@ -1637,6 +1706,13 @@ function _secsDisponiveis(t){
   return ['strings','etm'];                       // ETM agora é a pré-análise (cards)
 }
 function _aplicaBarras(){
+  // Geral: some a barra secundária inteira (o painel tem os próprios filtros)
+  const _sbar=document.querySelector('.gc-secondary-bar');
+  if(_sbar) _sbar.style.display=(primary==='geral')?'none':'';
+  if(primary==='geral'){
+    const _s=document.getElementById('str-subtabs'); if(_s) _s.style.display='none';
+    return;
+  }
   const avail=_secsDisponiveis(primary);
   ['strings','etm','geracao','trackers','pr','curvastr'].forEach(x=>{
     const el=document.getElementById(`stab-${x}`);
@@ -1658,8 +1734,8 @@ function switchPrimary(t){
   // Athon e Axis reusam a MESMA UI/estado (loadSoStr, soRows, soCache…) → ao trocar de fonte,
   // zera os flags de "já carregado" p/ recarregar com o endpoint certo (o backend serve do SWR, é rápido).
   try{ Object.keys(loaded).forEach(k=>loaded[k]=false); }catch(e){}
-  ['pv','sunop','axis','solaredge','pg','owen'].forEach(x=>{const b=document.getElementById(`ptab-${x}`);if(b)b.classList.toggle('active',x===t);});
-  if(!_secsDisponiveis(t).includes(secondary)) secondary=_secsDisponiveis(t)[0]||'strings';   // reseta p/ a 1ª sub-aba da fonte
+  ['geral','pv','sunop','axis','solaredge','pg','owen'].forEach(x=>{const b=document.getElementById(`ptab-${x}`);if(b)b.classList.toggle('active',x===t);});
+  if(t!=='geral'&&!_secsDisponiveis(t).includes(secondary)) secondary=_secsDisponiveis(t)[0]||'strings';   // reseta p/ a 1ª sub-aba da fonte
   _aplicaBarras();
   show();
 }
@@ -1670,8 +1746,14 @@ function switchSecondary(t){
 }
 function show(force){
   _aplicaBarras();   // garante que as sub-abas certas apareçam já no 1º carregamento
-  const panels=['pv-strings','pv-analise','pv-pr','sunop-strings','sunop-analise','sunop-trackers','solaredge-strings','pg-strings','pg-analise','pg-geracao','owen-strings','owen-analise','owen-trackers','spv','curvagen','str-prob','str-ev'];
+  const panels=['geral','pv-strings','pv-analise','pv-pr','sunop-strings','sunop-analise','sunop-trackers','solaredge-strings','pg-strings','pg-analise','pg-geracao','owen-strings','owen-analise','owen-trackers','spv','curvagen','str-prob','str-ev'];
   panels.forEach(p=>{const el=document.getElementById(`panel-${p}`);if(el)el.style.display='none';});
+  // Geral: painel consolidado próprio, sem sub-abas
+  if(primary==='geral'){
+    const el=document.getElementById('panel-geral'); if(el)el.style.display='';
+    loadGeral(force);
+    return;
+  }
   // Strings · sub-abas "Com problema (agora)" / "Ocorrências (caiu→voltou)" (painéis compartilhados)
   if(secondary==='strings' && strSub!=='geral'){
     if(strSub==='problema'){ document.getElementById('panel-str-prob').style.display=''; loadStrProblema(force); }
@@ -1716,6 +1798,7 @@ async function atualizarTudo(){
     // recarrega a planilha Check (esperadas/nomes) se ela mudou — ANTES de re-buscar as abas
     try{ await fetch('/api/check/reload',{method:'POST'}); }catch(e){}
     await Promise.allSettled([
+      loadGeral(true),                            // aba Geral (consolidado /api/macro)
       loadPvStr(true), loadPvAnalise(true),
       loadSoStr(true), loadSoAnalise(true),
       loadSeStr(true),
@@ -2096,8 +2179,8 @@ async function togglePvPlant(r){
 // Desenha os inversores OU, quando o drill-down vem vazio (usina sem leitura hoje),
 // uma mensagem clara em vez de abrir em branco. A API PV só detalha strings do dia
 // atual; o histórico via custom_query é lento (~120s) e volta vazio — não dá p/ recuperar.
-function _pvDrawInvs(pid,r){
-  const tb=document.getElementById('pv-tbody');
+function _pvDrawInvs(pid,r,tbAlvo){
+  const tb=tbAlvo||document.getElementById('pv-tbody');
   const rh=pvDiagResumo(pid);
   if(rh){const tr=document.createElement('tr');tr.dataset.pvp=pid;tr.innerHTML=`<td colspan="9" style="padding:6px 36px 2px">${rh}</td>`;insAfterPv(tb,pid,tr);}
   insAfterPv(tb,pid,_pvFracRow(pid));     // bloco "OSs Fracttal" (geral da usina + por cabine/inversor)
@@ -2145,7 +2228,8 @@ function appendPvInvs(tb,pid,invs){
 function togglePvInv(pid,inv,ik){
   if(pvInvExp.has(ik)){pvInvExp.delete(ik);document.querySelectorAll(`[data-pvis="${ik}"]`).forEach(e=>e.remove());const t=document.querySelector(`[data-pvik="${ik}"]`);if(t)t.querySelector('.chevron').classList.remove('open');return;}
   pvInvExp.add(ik);const t=document.querySelector(`[data-pvik="${ik}"]`);if(t)t.querySelector('.chevron').classList.add('open');
-  appendPvStrs(document.getElementById('pv-tbody'),pid,ik,inv);
+  // tbody da PRÓPRIA linha (o drill de inversor também vive na aba Geral, não só no #pv-tbody)
+  appendPvStrs((t&&t.closest('tbody'))||document.getElementById('pv-tbody'),pid,ik,inv);
 }
 function appendPvStrs(tb,pid,ik,inv){
   const strings=inv.strings||[];
@@ -2217,7 +2301,7 @@ async function trancaStr(src,pid,invId,sid,trancada,cb){
   if(chip&&trancada) chip.className='string-chip s-trancada';
   try{ await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},
        body:JSON.stringify({plant_id:pid,inv_id:invId,string:sid,trancada})}); }catch(e){}
-  const ep=src==='so'?_soBase()+'/plant/':src==='pg'?'/api/pg/plant/':src==='owen'?'/api/owen/strings/plant/':'/api/plant/';
+  const ep=src==='so'?_soBase(pid)+'/plant/':src==='pg'?'/api/pg/plant/':src==='owen'?'/api/owen/strings/plant/':'/api/plant/';
   const cache=src==='so'?soCache:src==='pg'?pgCache:src==='owen'?owenCache:pvCache;
   const rend=src==='so'?renderSoStr:src==='pg'?renderPgStr:src==='owen'?renderOwenStr:renderPvStr;
   try{ const d=await fetch(ep+encodeURIComponent(pid)+'?force=1').then(r=>r.json()); cache[pid]=d.inversores||[]; }catch(e){}
@@ -2250,7 +2334,7 @@ async function trancaInativas(src,pid,invId,btn){
   if(btn){btn.disabled=true;btn.textContent='Trancando…';}
   try{ await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},
        body:JSON.stringify({plant_id:pid,inv_id:invId,strings:alvo,trancada:true})}); }catch(e){}
-  const ep=src==='so'?_soBase()+'/plant/':src==='pg'?'/api/pg/plant/':src==='owen'?'/api/owen/strings/plant/':'/api/plant/';
+  const ep=src==='so'?_soBase(pid)+'/plant/':src==='pg'?'/api/pg/plant/':src==='owen'?'/api/owen/strings/plant/':'/api/plant/';
   const rend=src==='so'?renderSoStr:src==='pg'?renderPgStr:src==='owen'?renderOwenStr:renderPvStr;
   try{ const d=await fetch(ep+encodeURIComponent(pid)+(src==='pv'?'':'?force=1')).then(r=>r.json()); cache[pid]=d.inversores||[]; }catch(e){}
   // invalida os caches de curva da usina afetada (mesma régua das funções de trancar individuais)
@@ -2379,7 +2463,7 @@ function pvCurvaPreset(cid,which){
 }
 function insAfterPv(tb,pid,nr){
   const rows=tb.querySelectorAll(`[data-pvp="${pid}"]`);
-  const last=rows.length?rows[rows.length-1]:tb.querySelector(`#pv-tbody tr[data-pid="${pid}"]`);
+  const last=rows.length?rows[rows.length-1]:tb.querySelector(`tr[data-pid="${pid}"]`);
   if(last&&last.nextSibling)tb.insertBefore(nr,last.nextSibling);else tb.appendChild(nr);
 }
 function filtrarStr(){if(primary==='pv')renderPvStr();else if(primary==='sunop'||primary==='axis')renderSoStr();else if(primary==='solaredge')renderSeStr();else renderPgStr();}
@@ -2407,7 +2491,8 @@ function filtrarEtm(){if(primary==='pv')renderEtmTb('pve-tbody',pveRows);else if
 
 /* ══ SUNOP STRINGS ═════════════════════════════════════════════════════════ */
 // base de endpoint do SunOp: Athon (/api/sunop) ou Axis (/api/axis) — mesma UI, mesma lógica.
-function _soBase(){ return primary==='axis' ? '/api/axis' : '/api/sunop'; }
+let _soInstByPid={};   // pid→base fixado pela aba Geral (Axis reusa a UI do Athon; primary='geral' não diz a instância)
+function _soBase(pid){ if(pid!=null&&_soInstByPid[pid]) return _soInstByPid[pid]; return primary==='axis' ? '/api/axis' : '/api/sunop'; }
 async function loadSoStr(force){
   if(!force&&loaded.sos)return;
   const L=document.getElementById('sos-load'),C=document.getElementById('sos-cont');
@@ -2460,7 +2545,7 @@ async function toggleSoPlant(r){
   soExp.add(pid);const t=document.querySelector(`#so-tbody tr[data-pid="${pid}"]`);if(t)t.querySelector('.chevron').classList.add('open');
   if(soCache[pid]){appendSoInvs(document.getElementById('so-tbody'),pid,soCache[pid]);return;}
   appendSoLoad(document.getElementById('so-tbody'),pid);
-  const d=await fetch(`${_soBase()}/plant/${pid}`).then(r=>r.json());soCache[pid]=d.inversores||[];
+  const d=await fetch(`${_soBase(pid)}/plant/${pid}`).then(r=>r.json());soCache[pid]=d.inversores||[];
   document.querySelectorAll(`[data-sop="${pid}"]`).forEach(e=>e.remove());
   if(soExp.has(pid))appendSoInvs(document.getElementById('so-tbody'),pid,soCache[pid]);
 }
@@ -2489,7 +2574,8 @@ function appendSoInvs(tb,pid,invs){
 function toggleSoInv(pid,inv,ik){
   if(soInvExp.has(ik)){soInvExp.delete(ik);document.querySelectorAll(`[data-sois="${ik}"]`).forEach(e=>e.remove());const t=document.querySelector(`[data-soik="${ik}"]`);if(t)t.querySelector('.chevron').classList.remove('open');return;}
   soInvExp.add(ik);const t=document.querySelector(`[data-soik="${ik}"]`);if(t)t.querySelector('.chevron').classList.add('open');
-  appendSoStrs(document.getElementById('so-tbody'),pid,ik,inv);
+  // tbody da PRÓPRIA linha (o drill também vive na aba Geral, não só no #so-tbody)
+  appendSoStrs((t&&t.closest('tbody'))||document.getElementById('so-tbody'),pid,ik,inv);
 }
 const _soCurvaCache={};
 async function soCurvaInv(pid,invId,invNome,cid,reload){
@@ -2503,7 +2589,7 @@ async function soCurvaInv(pid,invId,invNome,cid,reload){
   if(reload||!_soCurvaCache[ckey]){
     try{
       const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
-      const r=await fetch(`${_soBase()}/curva/${encodeURIComponent(pid)}?inv=${encodeURIComponent(invId)}&data=${dt}`,{signal:ctrl.signal}); clearTimeout(tmo);
+      const r=await fetch(`${_soBase(pid)}/curva/${encodeURIComponent(pid)}?inv=${encodeURIComponent(invId)}&data=${dt}`,{signal:ctrl.signal}); clearTimeout(tmo);
       if(!r.ok) throw new Error('HTTP '+r.status);
       const j=await r.json(); if(j&&j.error) throw new Error(j.error);
       _soCurvaCache[ckey]=j;
@@ -2544,7 +2630,7 @@ function appendSoStrs(tb,pid,ik,inv){
 }
 function insAfterSo(tb,pid,nr){
   const rows=tb.querySelectorAll(`[data-sop="${pid}"]`);
-  const last=rows.length?rows[rows.length-1]:tb.querySelector(`#so-tbody tr[data-pid="${pid}"]`);
+  const last=rows.length?rows[rows.length-1]:tb.querySelector(`tr[data-pid="${pid}"]`);
   if(last&&last.nextSibling)tb.insertBefore(nr,last.nextSibling);else tb.appendChild(nr);
 }
 
@@ -2725,7 +2811,8 @@ function appendPgInvs(tb,pid,invs){
 function togglePgInv(pid,inv,ik){
   if(pgInvExp.has(ik)){pgInvExp.delete(ik);document.querySelectorAll(`[data-pgis="${ik}"]`).forEach(e=>e.remove());const t=document.querySelector(`[data-pgik="${ik}"]`);if(t)t.querySelector('.chevron').classList.remove('open');return;}
   pgInvExp.add(ik);const t=document.querySelector(`[data-pgik="${ik}"]`);if(t)t.querySelector('.chevron').classList.add('open');
-  appendPgStrs(document.getElementById('pg-tbody'),pid,ik,inv);
+  // tbody da PRÓPRIA linha (o drill também vive na aba Geral, não só no #pg-tbody)
+  appendPgStrs((t&&t.closest('tbody'))||document.getElementById('pg-tbody'),pid,ik,inv);
 }
 const _pgCurvaCache={};
 async function pgCurvaInv(pid,invId,invNome,cid,reload){
@@ -2780,7 +2867,7 @@ function appendPgStrs(tb,pid,ik,inv){
 }
 function insAfterPg(tb,pid,nr){
   const rows=tb.querySelectorAll(`[data-pgp="${pid}"]`);
-  const last=rows.length?rows[rows.length-1]:tb.querySelector(`#pg-tbody tr[data-pid="${pid}"]`);
+  const last=rows.length?rows[rows.length-1]:tb.querySelector(`tr[data-pid="${pid}"]`);
   if(last&&last.nextSibling)tb.insertBefore(nr,last.nextSibling);else tb.appendChild(nr);
 }
 
@@ -4968,6 +5055,168 @@ function tokBannerToggle(){
     return `${ic} <b>${t.nome}</b> <span style="opacity:.5">[${t.tipo}]</span>${ex}${di}`;
   }).join('<br>');
   p.style.display='block';
+}
+
+/* ══ ABA GERAL (consolidado de todas as fontes — /api/macro) ═══════════════ */
+let G=[], gStatus='deficit', gFonte='all';
+const gOpen=new Set(); let _gDrill={}, _gRowLike={};
+const FCOR={'API PV':'#7aa300','Thopen':'#0369a1','Athon':'#d97706','Axis':'#7c3aed','2C':'#64748b'};
+const FKEY={'API PV':'pv','Thopen':'pg','Athon':'so','Axis':'so','2C':'owen'};
+const GST={critico:{lbl:'Crítico',b:'b-err',row:'alerta-strings'},
+  sem_producao:{lbl:'Sem produção',b:'b-err',row:'alerta-strings'},
+  atencao:{lbl:'Atenção',b:'b-warn',row:'alerta-string-diff'},
+  sem_comm:{lbl:'Falha comunicação',b:'b-comm',row:'alerta-comm'},
+  ok:{lbl:'Normal',b:'b-ok',row:''}};
+const gCssId=k=>k.replace(/[^a-zA-Z0-9]/g,'_');
+/* Cliente = DONO DA FONTE (sem hierarquia Thopen/Polaris/Copel/Matrix — pedido do Levi 04/07) */
+const FCLI={'API PV':'Thopen','Thopen':'Thopen','Athon':'Athon','Axis':'Axis','2C':'2C'};
+function gCliente(u){return FCLI[u.fonte]||u.fonte||'—';}
+/* Régua do VERMELHO (igual à aba Strings): diferença coberta pelo acompanhamento
+   (diferenca === -acompanhamento) fica AZUL e NÃO conta como déficit em aberto. */
+function gTrkOf(u){try{return getTracking(`${FKEY[u.fonte]||'pv'}:${u.plant_id}`);}catch(e){return null;}}
+function gIsAcomp(u){const d=u.diferenca||0,t=gTrkOf(u);return d<0&&t!=null&&d===-t;}
+function gIsRed(u){const d=u.diferenca||0;return d<0&&u.status!=='sem_comm'&&!gIsAcomp(u);}
+
+function gSetStatus(b){document.querySelectorAll('#g-seg button').forEach(x=>x.classList.remove('on'));b.classList.add('on');gStatus=b.dataset.f;renderGeral();}
+function gSetFonte(f){gFonte=f;renderGeralFontes();renderGeral();}
+function renderGeralFontes(){
+  const fontes=[...new Set(G.map(u=>u.fonte))].sort();
+  document.getElementById('g-fontes').innerHTML=[`<button class="gf-chip ${gFonte==='all'?'on':''}" onclick="gSetFonte('all')">Todas as fontes</button>`]
+    .concat(fontes.map(f=>`<button class="gf-chip ${gFonte===f?'on':''}" onclick="gSetFonte('${f}')"><i style="background:${FCOR[f]||'#94a3b8'}"></i>${f}</button>`)).join('');
+}
+function gRows(){
+  let rows=G;
+  if(gStatus==='deficit') rows=rows.filter(gIsRed);
+  else if(gStatus==='comm') rows=rows.filter(u=>u.status==='sem_comm');
+  if(gFonte!=='all') rows=rows.filter(u=>u.fonte===gFonte);
+  const q=(document.getElementById('g-q').value||'').trim().toLowerCase();
+  if(q) rows=rows.filter(u=>(u.usina||'').toLowerCase().includes(q));
+  return rows.slice().sort((a,b)=>(a.diferenca||0)-(b.diferenca||0)||(a.usina||'').localeCompare(b.usina||''));
+}
+function renderGeralKpis(d){
+  const r=d.resumo||{};
+  const ndef=G.filter(gIsRed).length;
+  const faltando=G.filter(gIsRed).reduce((s,u)=>s+Math.max(0,-(u.diferenca||0)),0);
+  const fontes=new Set(G.map(u=>u.fonte)).size;
+  const nfmt=v=>(v==null||isNaN(v))?'—':Number(v).toLocaleString('pt-BR');
+  document.getElementById('g-kpis').innerHTML=
+   `<div class="gk-kpi"><span class="l">Usinas monitoradas</span><span class="v">${nfmt(r.total)}</span><span class="d">${fontes} fontes consolidadas</span></div>`+
+   `<div class="gk-kpi ${ndef?'k-red':''}"><span class="l">Usinas com déficit</span><span class="v">${nfmt(ndef)}</span><span class="d">diferença em vermelho</span></div>`+
+   `<div class="gk-kpi ${faltando?'k-red':''}"><span class="l">Strings faltando</span><span class="v">${nfmt(faltando)}</span><span class="d">soma das diferenças</span></div>`+
+   `<div class="gk-kpi ${r.sem_comm?'k-purple':''}"><span class="l">Sem comunicação</span><span class="v">${nfmt(r.sem_comm)}</span><span class="d">sem leitura recente</span></div>`+
+   `<div class="gk-kpi k-ok"><span class="l">Normais</span><span class="v">${nfmt(r.ok)}</span><span class="d">sem pendência agora</span></div>`;
+}
+function _gLeit(ts){return ts?String(ts).replace('T',' ').slice(0,16):'—';}
+function renderGAlerts(){
+  const el=document.getElementById('g-alerts'); el.innerHTML='';
+  const comm=G.filter(u=>u.status==='sem_comm')
+              .sort((a,b)=>String(a.ultima_leitura||'').localeCompare(String(b.ultima_leitura||'')));
+  if(comm.length){
+    const l=comm.map(u=>`${u.usina} [${u.fonte}]${u.ultima_leitura?' ('+_gLeit(u.ultima_leitura)+')':''}`).join(' · ');
+    el.innerHTML+=`<div class="gc-alert" style="border-left-color:#7c3aed"><div class="t" style="color:#7c3aed">Falha de comunicação — ${comm.length} usinas</div><div class="b">${l}</div></div>`;
+  }
+  const def=G.filter(gIsRed).sort((a,b)=>(a.diferenca||0)-(b.diferenca||0));
+  if(def.length){
+    const l=def.map(u=>`${u.usina} [${u.fonte}] (${u.diferenca})`).join(' · ');
+    el.innerHTML+=`<div class="gc-alert" style="border-left-color:#ef4444"><div class="t" style="color:#ef4444">Com déficit de strings — ${def.length} usinas</div><div class="b">${l}</div></div>`;
+  }
+}
+function renderGeral(){
+  const tb=document.getElementById('g-tb'); if(!tb) return;
+  const rows=gRows();
+  if(!rows.length){tb.innerHTML='<tr><td colspan="9" style="padding:26px;text-align:center;color:var(--muted)">Nenhuma usina neste filtro.</td></tr>';return;}
+  tb.innerHTML=rows.map(u=>{
+    let st=GST[u.status]||GST.ok;
+    const invT=u.qtd_inversores||0, invOn=Math.max(0,invT-(u.inv_off||0));
+    let {sty,txt}=difCell(u.str_esp?u.diferenca:null);
+    if(gIsAcomp(u)){                                       // déficit coberto pelo acompanhamento → azul
+      sty='color:#3b82f6;font-weight:700';
+      if(u.status==='critico'||u.status==='atencao') st={lbl:'Acompanhamento',b:'',row:''};
+    }
+    const stBadge=st.b?`<span class="badge ${st.b}">${st.lbl}</span>`
+      :`<span class="badge" style="background:#e3edfb;color:#1d4ed8">${st.lbl}</span>`;
+    const key=u.fonte+'|'+u.plant_id, open=gOpen.has(key);
+    const vkey=`${FKEY[u.fonte]||'pv'}:${u.plant_id}`;
+    const chk=`<input type="checkbox" class="chk-ver" ${isVer(vkey)?'checked':''} title="Marcar como verificada" onclick="event.stopPropagation();toggleVer('${vkey}',this.checked,this)">`;
+    let html=`<tr class="plant-row ${st.row}${isVer(vkey)?' verified':''}" onclick="gToggle('${key.replace(/'/g,"\\'")}')">
+      <td>${chk}<b><span class="chevron${open?' open':''}">▶</span>${u.usina}</b>${comentBtn(vkey,u.usina)}</td>
+      <td><span class="gf-fonte" title="fonte: ${u.fonte}"><i style="background:${FCOR[u.fonte]||'#94a3b8'}"></i>${gCliente(u)}</span></td>
+      <td>${invT?`${invOn}/${invT}`:'—'}</td>
+      <td>${u.strings_ativas??'—'}</td><td>${u.str_esp||'—'}</td>
+      <td style="${sty}">${txt}</td>${_dispStrCell(u.strings_ativas,u.str_esp)}
+      <td style="font-size:11px;color:var(--muted)">${_gLeit(u.ultima_leitura)}</td>
+      <td>${stBadge}</td></tr>`;
+    if(open) html+=`<tr><td class="gd-drill" colspan="9" id="gdrill-${gCssId(key)}">${_gDrill[key]||'<div class="gd-head"><span style="color:var(--muted)">Carregando cards de strings…</span></div>'}</td></tr>`;
+    return html;
+  }).join('');
+  gOpen.forEach(k=>_gHydrate(k));   // re-render apaga as linhas dinâmicas do drill → re-desenha
+}
+function gToggle(key){
+  if(gOpen.has(key)){ gOpen.delete(key); renderGeral(); return; }
+  gOpen.add(key); renderGeral();
+  if(!_gDrill[key]) gBuildDrill(key);
+}
+async function gBuildDrill(key){
+  const [fonte,pid]=key.split('|');
+  const u=G.find(x=>x.fonte===fonte&&String(x.plant_id)===pid)||{};
+  const isPV=fonte==='API PV', isPG=fonte==='Thopen', isSO=(fonte==='Athon'||fonte==='Axis');
+  if((!isPV&&!isPG&&!isSO)||!pid||pid==='null'||pid==='undefined'){
+    /* 2C: a tabela da fonte é re-renderizada inteira (renderOwenStr), sem blocos reutilizáveis */
+    _gDrill[key]=`<div class="gd-head"><span class="dt">${u.usina||''} · ${fonte}</span>
+      <button class="gd-btn" onclick="event.stopPropagation();switchPrimary('owen')">Abrir na aba da fonte</button></div>
+      <div class="gd-note">O drill do 2C ainda abre na aba própria.</div>`;
+    _gPaint(key); return;
+  }
+  try{
+    /* DRILL COMPLETO — mesmas peças da aba da fonte: inversores com stats, strings com
+       nome/corrente/trancar e curva Plotly do dia; API PV soma diagnóstico e OSs Fracttal.
+       Reusa os caches/builders de cada fonte apontando p/ um tbody local. */
+    if(isPV){
+      const [d,dg]=await Promise.all([
+        fetch(`/api/plant/${pid}`).then(r=>r.json()),
+        fetch(`/api/diagnostico/pv/${pid}`).then(r=>r.json()).catch(()=>null)
+      ]);
+      pvCache[pid]=d.inversores||[]; pvDiag[pid]=dg;
+    } else if(isPG){
+      const d=await fetch(`/api/pg/plant/${encodeURIComponent(pid)}`).then(r=>r.json());
+      pgCache[pid]=d.inversores||[];
+    } else {
+      const base=fonte==='Axis'?'/api/axis':'/api/sunop';
+      _soInstByPid[pid]=base;   // curva/trancar acham a instância certa fora da aba da fonte
+      const d=await fetch(`${base}/plant/${encodeURIComponent(pid)}`).then(r=>r.json());
+      soCache[pid]=d.inversores||[];
+    }
+    const cols=isPV?['Inversor','','Strings Ativas','Esperadas','Diferença','Disponib.','','Última Leitura','Status']
+             :isSO?['Inversor','','Strings Ativas','Esperadas','Diferença','','Temp','Última Leitura','Status']
+                  :['Inversor','','Strings Ativas','Esperadas','Diferença','','','Última Leitura','Status'];
+    const TH='text-align:left;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#9aa1ad;padding:7px 10px;border-bottom:1px solid #e5e8e1;background:#fff';
+    _gDrill[key]=`<table style="width:100%;margin-top:12px;background:#fff;border:1px solid #e5e8e1;border-radius:10px;border-collapse:separate;border-spacing:0;overflow:hidden">
+        <thead><tr>${cols.map(c=>`<th style="${TH}">${c}</th>`).join('')}</tr></thead>
+        <tbody id="gdt-${gCssId(key)}"><tr data-pid="${pid}" style="display:none"><td colspan="9"></td></tr></tbody></table>`;
+    _gRowLike[key]={plant_id:isSO?pid:Number(pid),usina:u.usina,ultima_leitura:u.ultima_leitura,
+                    strings_ativas:u.strings_ativas,str_esp:u.str_esp};
+  }catch(e){ _gDrill[key]=`<div class="gd-note">Falha ao carregar o detalhe: ${e}</div>`; }
+  _gPaint(key); _gHydrate(key);
+}
+function _gPaint(key){ const el=document.getElementById('gdrill-'+gCssId(key)); if(el) el.innerHTML=_gDrill[key]; }
+/* re-render da tabela Geral recria o HTML estático do drill → re-desenha os inversores */
+function _gHydrate(key){
+  const [fonte,pid]=key.split('|');
+  if(!_gRowLike[key]) return;
+  const tb=document.getElementById('gdt-'+gCssId(key));
+  if(!tb||tb.querySelectorAll('[data-pvp],[data-pgp],[data-sop]').length) return;   // já hidratado
+  if(fonte==='API PV'&&pvCache[pid]) _pvDrawInvs(Number(pid),_gRowLike[key],tb);
+  else if(fonte==='Thopen'&&pgCache[pid]) appendPgInvs(tb,pid,pgCache[pid]);
+  else if((fonte==='Athon'||fonte==='Axis')&&soCache[pid]) appendSoInvs(tb,pid,soCache[pid]);
+}
+async function loadGeral(force){
+  try{
+    const d=await fetch('/api/macro'+(force?'?force=1':'')).then(r=>r.json());
+    G=d.usinas||[];
+    if(force){_gDrill={};_gRowLike={};gOpen.clear();}
+    renderGeralKpis(d); renderGeralFontes(); renderGAlerts(); renderGeral();
+    setTs(d.cache_ts);
+  }catch(e){ const tb=document.getElementById('g-tb'); if(tb) tb.innerHTML='<tr><td colspan="9" style="padding:26px;text-align:center;color:var(--muted)">Falha ao carregar: '+e+'</td></tr>'; }
 }
 
 /* ══ INIT ══════════════════════════════════════════════════════════════════ */

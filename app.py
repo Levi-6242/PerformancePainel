@@ -1525,6 +1525,21 @@ def index():
     return render_template("index.html", today=datetime.now().strftime("%d/%m/%Y"))
 
 
+@app.route("/teste-layout")
+def teste_layout():
+    # Protótipo do NOVO estilo da página principal (aba API PV · Strings · Visão geral).
+    # Consome o /api/data ao vivo. Aprovado → portar p/ index.html; reprovado → apagar rota+template.
+    return render_template("teste_layout.html", today=datetime.now().strftime("%d/%m/%Y"))
+
+
+@app.route("/painel-teste")
+def painel_teste():
+    # Painel teste (V2 do Painel, em construção) — visão crua por usina p/ mapear baixa performance:
+    # PR ponderado + energia perdida (/api/gerencial), strings em risco (/api/macro), drill com
+    # diagnóstico, trackers e mini-ETM. Consome só endpoints já existentes.
+    return render_template("painel_teste.html", today=datetime.now().strftime("%d/%m/%Y"))
+
+
 @app.route("/gerencial")
 def gerencial():
     # Painel 3 — Visão Gerencial (atingimento × P50 por usina/cliente). Consome /api/gerencial.
@@ -5509,10 +5524,16 @@ def _macro_eh_dia(r) -> bool:
 
 
 def _macro_dif(r):
-    """Deficit de strings usado no ranking: só inversores PRODUZINDO quando a fonte sabe (diferenca_operante);
-    senão, a diferença total."""
-    do = r.get("diferenca_operante")
-    return do if isinstance(do, (int, float)) else r.get("diferenca")
+    """Déficit de strings AGORA = ativas − esperadas, IGUAL em todas as fontes (o mesmo número
+    que aparece na coluna Diferença do detalhamento de cada fonte). Antes preferia
+    'diferenca_operante' (só inversores PRODUZINDO), campo que só API PV/PG calculam e que zera
+    quando os inversores param → deixava a régua inconsistente (Athon/Axis mostravam o total cru,
+    API PV/PG mostravam 0). String Box não tem visão por string → sem str_esp → sem déficit."""
+    a, e = r.get("strings_ativas"), r.get("str_esp")
+    if isinstance(a, (int, float)) and isinstance(e, (int, float)):
+        return a - e
+    d = r.get("diferenca")
+    return d if isinstance(d, (int, float)) else None
 
 
 def _macro_status(r) -> str:
@@ -5816,6 +5837,70 @@ def _thopen_prod_mtd():
     return c["data"] or {}
 
 
+# ── Geração MTD Athon/Axis/2C: abas por-usina do BD_Performance (meta P50 = Info Geral) ──
+#   Cada usina Athon/Axis/2C tem uma aba própria no BD_Performance com geração diária por
+#   inversor (colunas "Inversor *"). Somamos o mês corrente; a meta P50 (anual) vem da Info Geral.
+#   Isso libera atingimento/energia perdida dessas fontes (antes só PG + Thopen tinham meta).
+_bdperf_prod_cache = {"ts": 0.0, "ym": None, "data": {}, "warming": False}
+_BDPERF_PROD_TTL = 1800
+_BDPERF_FONTES = {"athon", "axis", "2c"}
+
+
+def _bdperf_prod_build():
+    out = {}
+    try:
+        import openpyxl
+        hoje = datetime.now()
+        wb = openpyxl.load_workbook(_bd_readable_path(), read_only=True, data_only=True)
+        sheets = set(wb.sheetnames)
+        for k, ig in INFO_GERAL.items():
+            if (ig.get("cliente") or "").strip().lower() not in _BDPERF_FONTES:
+                continue
+            nome = ig.get("usina")
+            if nome not in sheets:
+                continue
+            try:
+                it = wb[nome].iter_rows(values_only=True)
+                hdr = next(it, None) or ()
+                invcols = [i for i, h in enumerate(hdr) if h and str(h).startswith("Inversor")]
+                if not invcols:
+                    continue
+                tot = 0.0
+                for r in it:
+                    d = r[1] if len(r) > 1 else None
+                    if not isinstance(d, datetime) or d.year != hoje.year or d.month != hoje.month:
+                        continue
+                    for i in invcols:
+                        v = r[i] if i < len(r) else None
+                        if isinstance(v, (int, float)):
+                            tot += v
+                if tot > 0:
+                    out[k] = {"usina": nome, "prod_mwh": tot / 1000.0,
+                              "cliente": ig.get("cliente"), "pot_mwp": ig.get("potencia_mwp")}
+            except Exception:
+                continue
+        try:
+            wb.close()
+        except Exception:
+            pass
+        print(f"[gerencial] BD_Performance prod MTD (Athon/Axis/2C): {len(out)} usinas")
+    except Exception as e:
+        print(f"[gerencial] BD_Performance prod build falhou: {e}")
+    _bdperf_prod_cache.update({"data": out, "ts": time.time(),
+                               "ym": (datetime.now().year, datetime.now().month), "warming": False})
+
+
+def _bdperf_prod_mtd():
+    """Map cacheado {nrm: {usina,prod_mwh,cliente,pot_mwp}} das usinas Athon/Axis/2C; aquece em
+    background (a 1ª leitura de ~13 abas do xlsx demora) → não bloqueia o /api/gerencial."""
+    ym = (datetime.now().year, datetime.now().month)
+    c = _bdperf_prod_cache
+    if (c["ym"] != ym or (time.time() - c["ts"]) >= _BDPERF_PROD_TTL) and not c["warming"]:
+        c["warming"] = True
+        threading.Thread(target=_bdperf_prod_build, daemon=True).start()
+    return c["data"] or {}
+
+
 def _gerencial_payload(force=False):
     if not force and _ger_cache["data"] and (time.time() - _ger_cache["ts"]) < GER_TTL:
         return _ger_cache["data"]
@@ -5908,6 +5993,23 @@ def _gerencial_payload(force=False):
                        "recurso": None, "pot_mwp": tp.get("pot_mwp"),
                        "atingimento": round(atg, 1) if atg is not None else None,
                        "pr": None, "ipoa": 0, "p50_src": (p50_src or "sem")})
+
+    # 2c) Athon/Axis/2C: geração do mês via abas por-usina do BD_Performance; meta P50 da Info Geral
+    have_k = {_nrm(u["usina"]) for u in usinas}
+    for k, bp in _bdperf_prod_mtd().items():
+        if k in have_k:
+            continue
+        ig = INFO_GERAL.get(k) or {}
+        p50_mes = (ig.get("p50_mwh") / 12.0) if ig.get("p50_mwh") else None
+        p50 = (p50_mes * prorata) if p50_mes else None
+        prod = bp["prod_mwh"]
+        atg = (prod / p50 * 100) if p50 else None
+        usinas.append({"usina": bp["usina"], "cliente": bp.get("cliente") or "—",
+                       "carteira": bp.get("cliente") or "—",
+                       "prod": round(prod, 1), "p50": round(p50, 1) if p50 else None,
+                       "recurso": None, "pot_mwp": bp.get("pot_mwp"),
+                       "atingimento": round(atg, 1) if atg is not None else None,
+                       "pr": None, "ipoa": 0, "p50_src": "infogeral_anual12"})
 
     def _roll(lst):
         # cada razão sobre o SEU subconjunto válido (não mistura denominadores)
