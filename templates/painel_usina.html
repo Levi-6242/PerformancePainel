@@ -95,10 +95,27 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
   <div class="below" id="below"></div>
   <div class="cols">
     <div>
+      <div class="card" id="osCard" style="margin-bottom:14px;display:none">
+        <div><h3>Ordens de serviço <span class="tagai">Fracttal</span></h3>
+        <div class="csub" id="osSub">Corretiva, Corretiva Emergencial, Religamento e Religamento Remoto desta usina — abertas de qualquer data + concluídas do mês.</div></div>
+        <div id="osList"><div class="empty">Buscando OSs no Fracttal…</div></div>
+      </div>
       <div class="card">
         <div><h3>Diagnósticos <span class="tagai">correlação automática</span></h3>
         <div class="csub">O motor cruza string × inversor × ângulo de tracker (e telemetria do inversor, quando há) e entrega a causa provável.</div></div>
         <div class="diags" id="diags"><div class="empty">Carregando…</div></div>
+      </div>
+      <div class="card" style="margin-top:14px;" id="invCurvaCard">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <h3 id="invCurvaTitle" style="margin:0">Curva do inversor</h3>
+          <span style="margin-left:auto;display:inline-flex;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px">
+            <button id="icModoInv" onclick="setInvCurvaModo('inv')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:var(--brand);color:#16140e">Inversor</button>
+            <button id="icModoStr" onclick="setInvCurvaModo('str')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">Strings</button>
+          </span>
+        </div>
+        <div class="csub" id="invCurvaSub" style="margin-top:6px">Clique num inversor no heatmap ao lado para ver a curva de corrente das suas strings.</div>
+        <div class="cwrap" style="height:240px"><canvas id="chInv"></canvas></div>
+        <div class="read" id="invCurvaRead" style="display:none"></div>
       </div>
       <div class="card" style="margin-top:14px;">
         <h3 id="curveTitle">Correlação — curva do tracker</h3>
@@ -251,6 +268,48 @@ async function boot(){
   document.getElementById('upd').textContent='atualizado '+ts;
   document.getElementById('footsrc').textContent=CFG.label+' · '+ts;
   renderBelow(); renderDiags(); renderHeat(plant); renderTrackers(trk);
+  loadFracttalOS();
+}
+
+/* ── Ordens de serviço Fracttal (acima do diagnóstico) — Corretiva/Emergencial/Religamento ── */
+const OS_TIPOS=new Set(['corretiva','corretiva emergencial','religamento','religamento remoto']);
+function osTipoCor(t){ t=(t||'').toLowerCase();
+  if(t==='corretiva emergencial') return ['rgba(220,38,38,.14)','var(--red)'];
+  if(t==='corretiva') return ['rgba(217,119,6,.14)','var(--amber)'];
+  return ['rgba(3,105,161,.12)','var(--blue)'];   // religamento / religamento remoto
+}
+function osLinha(o){
+  const [bg,fg]=osTipoCor(o.tipo);
+  return `<div style="display:flex;align-items:center;gap:9px;padding:7px 0;border-top:1px solid var(--line);font-size:12px">
+    <span class="num" style="font-weight:700;min-width:42px">${o.folio||'—'}</span>
+    <span style="font-size:9.5px;font-weight:700;padding:2px 8px;border-radius:5px;white-space:nowrap;background:${bg};color:${fg}">${o.tipo||''}</span>
+    <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)" title="${(o.descricao||'').replace(/"/g,'&quot;')}"><b style="color:var(--txt)">${o.ativo||'—'}</b>${o.descricao?' — '+o.descricao:''}</span>
+    <span style="font-size:11px;color:var(--faint);white-space:nowrap">${o.criada||''}</span>
+    <span style="font-size:10.5px;font-weight:600;white-space:nowrap;color:${o.aberta?'var(--amber)':'var(--ok)'}">${o.aberta?'aberta':(o.status||'')}</span>
+  </div>`;
+}
+async function loadFracttalOS(){
+  const card=document.getElementById('osCard'), list=document.getElementById('osList');
+  if(!card||!list) return;
+  const invs=((PLANT&&PLANT.inversores)||[]).map(i=>i.nome).filter(Boolean);
+  let d; try{
+    d=await fetch('/api/fracttal/os',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({usina:NOME, mes:new Date().toISOString().slice(0,7), inversores:invs})}).then(r=>r.json());
+  }catch(e){ card.style.display=''; list.innerHTML='<div class="empty">Falha ao buscar OSs no Fracttal.</div>'; return; }
+  if(d&&d.sem_credencial){ card.style.display='none'; return; }
+  const todas=[]; (d.usina_os||[]).forEach(o=>todas.push(o));
+  Object.values(d.por_inversor||{}).forEach(v=>(v.os||[]).forEach(o=>todas.push(o)));
+  const seen=new Set(), rows=[];
+  todas.filter(o=>OS_TIPOS.has(String(o.tipo||'').toLowerCase()))
+       .sort((a,b)=>((b.aberta?1:0)-(a.aberta?1:0))||String(b.criada).localeCompare(String(a.criada)))
+       .forEach(o=>{ if(!seen.has(o.folio)){ seen.add(o.folio); rows.push(o); } });
+  card.style.display='';
+  const nAb=rows.filter(o=>o.aberta).length;
+  const sub=document.getElementById('osSub');
+  if(sub) sub.innerHTML=`Corretiva, Corretiva Emergencial, Religamento e Religamento Remoto — ${rows.length} OS${rows.length!=1?'s':''}`
+    +(nAb?` · <b style="color:var(--amber)">${nAb} aberta${nAb!=1?'s':''}</b>`:'')+'.';
+  list.innerHTML=rows.length?rows.map(osLinha).join('')
+    :'<div class="empty">Nenhuma OS de corretiva ou religamento aberta ou concluída no mês.</div>';
 }
 
 function renderBelow(){
@@ -329,8 +388,88 @@ function renderHeat(plant){
       return `<div class="cell" title="${s.id}: ${nf(s.corrente,1)} A (${st})" style="background:${col}"></div>`;
     }).join('');
     const off=i.desligado?' <span title="inversor desligado" style="color:#7f1d1d;font-weight:700;font-size:13px">⏻</span>':'';
-    return `<div class="hm-row"><div class="hm-label" title="${i.nome}">${i.nome}${off}</div><div class="hm-cells" style="grid-template-columns:repeat(${maxS},minmax(0,26px))">${cells}</div></div>`;
+    const nmJs=String(i.nome).replace(/'/g,"\\'");
+    return `<div class="hm-row" data-inv="${i.nome}" style="cursor:pointer" onclick="selInvCurva('${nmJs}')" title="Clique para ver a curva das strings deste inversor"><div class="hm-label" title="${i.nome}">${i.nome}${off}</div><div class="hm-cells" style="grid-template-columns:repeat(${maxS},minmax(0,26px))">${cells}</div></div>`;
   }).join('');
+}
+
+/* ── Curva do inversor (2 modos: Inversor = mediana das strings do inv vs mediana da usina;
+   Strings = todas as strings do inv, outliers destacados). Fonte piloto: API PV (SPV). ── */
+let INVCURVA=null, icSelInv=null, icModo='inv', chInv=null;
+function setInvCurvaModo(m){
+  icModo=m;
+  const on=document.getElementById('icModo'+(m==='inv'?'Inv':'Str')), off=document.getElementById('icModo'+(m==='inv'?'Str':'Inv'));
+  on.style.background='var(--brand)'; on.style.color='#16140e';
+  off.style.background='transparent'; off.style.color='var(--muted)';
+  if(icSelInv) renderInvCurva();
+}
+async function ensureInvCurva(){
+  if(INVCURVA) return INVCURVA;
+  if(FONTE!=='pv'){ INVCURVA={_naosuportado:true}; return INVCURVA; }
+  const d=new Date(), dataBR=String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
+  try{ INVCURVA=await fetch(`/api/spv/usina/${ID}?full=1&data=${encodeURIComponent(dataBR)}`).then(r=>r.json()); }
+  catch(e){ INVCURVA={_erro:String(e)}; }
+  return INVCURVA;
+}
+async function selInvCurva(nome){
+  icSelInv=nome;
+  document.querySelectorAll('.hm-row').forEach(r=>{ r.style.background=(r.dataset.inv===nome)?'var(--raise)':''; });
+  document.getElementById('invCurvaSub').textContent='Carregando a curva de '+nome+'…';
+  await ensureInvCurva();
+  renderInvCurva();
+}
+function _median(arr){ const v=arr.filter(x=>x!=null&&!isNaN(x)).sort((a,b)=>a-b); if(!v.length)return null; const m=Math.floor(v.length/2); return v.length%2?v[m]:(v[m-1]+v[m])/2; }
+function _seriesOf(inv){ return Object.entries(inv.curva||{}).filter(([k])=>k!=='ts'); }
+function _icOpt(tk,grid,legend){
+  return {responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},
+    plugins:{legend:legend?{display:true,labels:{color:tk,font:{size:9},boxWidth:14}}:{display:false}},
+    scales:{x:{grid:{display:false},ticks:{color:tk,font:{size:9},maxTicksLimit:8}},
+            y:{grid:{color:grid},ticks:{color:tk,font:{size:9}},title:{display:true,text:'A/string',color:tk,font:{size:9}},beginAtZero:true}}};
+}
+function renderInvCurva(){
+  const sub=document.getElementById('invCurvaSub'), read=document.getElementById('invCurvaRead'), title=document.getElementById('invCurvaTitle');
+  read.style.display='none';
+  if(!INVCURVA || INVCURVA._naosuportado){ sub.textContent='Curva por string disponível na fonte API PV (piloto) — estendo p/ '+CFG.label+' em seguida.'; return; }
+  if(INVCURVA._erro || !INVCURVA.inversores){ sub.textContent='Sem curva de strings hoje para esta usina.'; return; }
+  const inv=(INVCURVA.inversores||[]).find(i=>i.nome===icSelInv||String(i.nome).endsWith(icSelInv));
+  const series=inv?_seriesOf(inv):[];
+  if(!inv||!series.length){ sub.textContent='Sem curva para '+icSelInv+' hoje (a Plataforma não retornou as strings deste inversor).'; if(chInv)chInv.destroy(); return; }
+  const n=Math.max(...series.map(([,s])=>(s.x||[]).length));
+  const labels=(series[0][1].x||[]);
+  const tk=cssv('--muted'), grid=document.body.classList.contains('dark')?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';
+  if(chInv) chInv.destroy();
+  title.textContent='Curva do inversor — '+inv.nome;
+  if(icModo==='inv'){
+    const medInv=[], medUsi=[];
+    for(let t=0;t<n;t++){
+      medInv.push(_median(series.map(([,s])=>(s.y||[])[t])));
+      const allT=[]; (INVCURVA.inversores||[]).forEach(iv=>_seriesOf(iv).forEach(([,s])=>{ const v=(s.y||[])[t]; if(v!=null)allT.push(v); }));
+      medUsi.push(_median(allT));
+    }
+    chInv=new Chart(document.getElementById('chInv'),{data:{labels,datasets:[
+      {type:'line',label:'mediana das strings da usina',data:medUsi,borderColor:cssv('--faint'),borderDash:[5,4],borderWidth:1.5,pointRadius:0,tension:.2,spanGaps:true},
+      {type:'line',label:'mediana das strings deste inversor',data:medInv,borderColor:cssv('--muted'),borderWidth:2.4,pointRadius:0,tension:.2,spanGaps:true}
+    ]},options:_icOpt(tk,grid,true)});
+    const raz=[]; for(let t=0;t<n;t++){ if(medInv[t]!=null&&medUsi[t]!=null&&medUsi[t]>0.3) raz.push(medInv[t]/medUsi[t]); }
+    const r=raz.length>=6?raz.reduce((a,b)=>a+b,0)/raz.length:null;
+    read.style.display='';
+    read.innerHTML=(r!=null&&r<0.95)?`<b>Leitura:</b> este inversor rendeu <b>${Math.round((1-r)*100)}% abaixo</b> da mediana da usina no dia — a distância entre a linha sólida e a tracejada é o que ele deixou de entregar vs os pares.`:'<b>Leitura:</b> o inversor acompanha a mediana da usina (dentro do fluxo dos pares).';
+    sub.textContent='Mediana das strings do inversor (sólida) vs mediana de todas as strings da usina (tracejada) — como foi × como poderia ter sido.';
+  } else {
+    // outlier = string NOTAVELMENTE abaixo das pares do inversor (>15% abaixo da mediana das
+    // strings), não só "abaixo da mediana" (que pega metade trivialmente).
+    const medE=inv.mediana||_median((inv.strings||[]).map(s=>s.energia));
+    const subSet=new Set((inv.strings||[]).filter(s=>s.energia!=null&&medE&&s.energia<medE*0.85).map(s=>s.nome));
+    const medInv=[]; for(let t=0;t<n;t++) medInv.push(_median(series.map(([,s])=>(s.y||[])[t])));
+    const ds=series.map(([nome,s])=>{ const bad=subSet.has(nome);
+      return {type:'line',label:nome,data:s.y,borderColor:bad?cssv('--amber'):'rgba(122,163,0,.35)',borderWidth:bad?2.2:1,pointRadius:0,tension:.2,spanGaps:true}; });
+    ds.push({type:'line',label:'mediana do inversor',data:medInv,borderColor:cssv('--muted'),borderDash:[6,4],borderWidth:1.6,pointRadius:0,tension:.2,spanGaps:true});
+    chInv=new Chart(document.getElementById('chInv'),{data:{labels,datasets:ds},options:_icOpt(tk,grid,false)});
+    const nBad=subSet.size;
+    read.style.display='';
+    read.innerHTML=nBad?`<b>Leitura:</b> ${nBad} string(s) mais de 15% abaixo da mediana das strings deste inversor (destacadas em laranja) — sombreamento, sujeira, fusível ou queda.`:'<b>Leitura:</b> as strings deste inversor seguem juntas — nenhuma se destaca como outlier. Se o inversor está abaixo da usina, a causa é do inversor/tracker, não de string.';
+    sub.textContent='Corrente de cada string do inversor · destacadas as que ficaram abaixo da mediana (outliers).';
+  }
 }
 
 function renderTrackers(trk){
