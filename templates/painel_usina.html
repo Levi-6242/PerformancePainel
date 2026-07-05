@@ -64,9 +64,10 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
 .read b{color:var(--txt);}
 .legend{display:flex;flex-wrap:wrap;gap:11px;font-size:10px;color:var(--muted);margin:2px 0 10px;}
 .legend span{display:flex;align-items:center;gap:5px;}.sw{width:11px;height:11px;border-radius:3px;display:inline-block;}
-.hm-row{display:grid;grid-template-columns:80px 1fr;align-items:center;gap:9px;margin-bottom:5px;}
+.hm-row{display:grid;grid-template-columns:80px 1fr auto;align-items:center;gap:9px;margin-bottom:5px;}
 .hm-label{font-size:11px;color:var(--muted);white-space:nowrap;}
 .hm-cells{display:grid;gap:3px;}.cell{height:12px;border-radius:2px;border:1px solid rgba(0,0,0,.12);}
+.hm-pr{font-size:11px;font-weight:700;white-space:nowrap;text-align:right;min-width:58px;color:var(--faint);}
 #trackers{max-height:440px;overflow:auto;padding-right:4px;}
 .trk{margin-bottom:9px;}.trk .th{display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px;}
 .trk .dev{font-weight:600;}.trk .dev.ok{color:var(--ok);}.trk .dev.bad{color:var(--red);}
@@ -389,8 +390,27 @@ function renderHeat(plant){
     }).join('');
     const off=i.desligado?' <span title="inversor desligado" style="color:#7f1d1d;font-weight:700;font-size:13px">⏻</span>':'';
     const nmJs=String(i.nome).replace(/'/g,"\\'");
-    return `<div class="hm-row" data-inv="${i.nome}" style="cursor:pointer" onclick="selInvCurva('${nmJs}')" title="Clique para ver a curva das strings deste inversor"><div class="hm-label" title="${i.nome}">${i.nome}${off}</div><div class="hm-cells" style="grid-template-columns:repeat(${maxS},minmax(0,26px))">${cells}</div></div>`;
+    return `<div class="hm-row" data-inv="${i.nome}" style="cursor:pointer" onclick="selInvCurva('${nmJs}')" title="Clique para ver a curva das strings deste inversor"><div class="hm-label" title="${i.nome}">${i.nome}${off}</div><div class="hm-cells" style="grid-template-columns:repeat(${maxS},minmax(0,26px))">${cells}</div><div class="hm-pr" data-invpr="${i.nome}"></div></div>`;
   }).join('');
+  loadInvPR();
+}
+
+/* PR mensal por inversor (absoluto: geração÷IPOA×potência, das abas do BD_Performance) no heatmap.
+   Preenche as células .hm-pr de cada inversor; some p/ usinas sem aba (API PV/PG por enquanto). */
+let INVPR=null;
+async function loadInvPR(){
+  let d; try{ d=await fetch('/api/inv/pr-mes?usina='+encodeURIComponent(NOME)).then(r=>r.json()); }catch(e){ return; }
+  INVPR=(d&&d.inversores)||{};
+  const has=Object.values(INVPR).some(e=>e&&e.pr!=null);
+  document.querySelectorAll('.hm-pr').forEach(tag=>{
+    const e=INVPR[tag.dataset.invpr];
+    if(!e||e.pr==null){ tag.textContent=''; return; }
+    if(d.sensor&&e.pr>130){ tag.innerHTML=`<span title="PR impossível — IPOA subestimada no ETM">${nf(e.pr,0)}% <b style="font-size:8.5px;color:var(--amber)">SENSOR</b></span>`; return; }
+    const col=e.pr>=75?'var(--ok)':e.pr>=65?'var(--amber)':'var(--red)';
+    tag.innerHTML=`<span style="color:${col}" title="${e.gen_mwh} MWh no mês">PR ${nf(e.pr,1)}%</span>`;
+  });
+  const sub=document.getElementById('hmSub');
+  if(has&&sub&&d.ipoa_mes!=null) sub.textContent=sub.textContent.split(' · PR ')[0]+` · PR do mês por inversor (${d.ndias}d · IPOA ${nf(d.ipoa_mes,0)} kWh/m²)`;
 }
 
 /* ── Curva do inversor (2 modos: Inversor = mediana das strings do inv vs mediana da usina;

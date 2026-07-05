@@ -5901,6 +5901,75 @@ def _bdperf_prod_mtd():
     return c["data"] or {}
 
 
+# ── PR MENSAL por inversor (heatmap do drill) — abas por-usina do BD_Performance ──────────────
+#   PR_inv = Σ geração_inv ÷ (potência_inv × Σ IPOA_DEF válida) no mês. ABSOLUTO (geração÷IPOA×kWp,
+#   mesma régua do projeto "Geração Diária"); flag 'sensor' quando o PR sai fisicamente impossível
+#   (>130% → IPOA subestimada). Potência/inversor ~= MWp da Info Geral ÷ nº de inversores da aba.
+_bdperf_pr_cache = {}          # usina_nrm -> {ts, ym, data}
+_BDPERF_PR_TTL = 1800
+
+
+def _bdperf_pr_inv(usina):
+    k = _nrm(usina)
+    ym = (datetime.now().year, datetime.now().month)
+    ent = _bdperf_pr_cache.get(k)
+    if ent and ent["ym"] == ym and (time.time() - ent["ts"]) < _BDPERF_PR_TTL:
+        return ent["data"]
+    out = {"inversores": {}, "ipoa_mes": None, "ndias": 0, "sensor": False,
+           "mes": datetime.now().strftime("%m/%Y")}
+    try:
+        import openpyxl
+        hoje = datetime.now()
+        wb = openpyxl.load_workbook(_bd_readable_path(), read_only=True, data_only=True)
+        nome = next((s for s in wb.sheetnames if _nrm(s) == k), None)
+        if not nome:
+            wb.close(); return out
+        mwp = (INFO_GERAL.get(k) or {}).get("potencia_mwp")
+        it = wb[nome].iter_rows(values_only=True)
+        hdr = next(it, None) or ()
+        invc = [(i, str(h)) for i, h in enumerate(hdr) if h and str(h).startswith("Inversor")]
+        ii = next((i for i, h in enumerate(hdr) if h and "IPOA" in str(h) and "DEF" in str(h)), None)
+        iv = next((i for i, h in enumerate(hdr) if h and str(h).strip().lower() == "validação"), None)
+        gen = {nm: 0.0 for _, nm in invc}
+        ipoa, ndias = 0.0, 0
+        for r in it:
+            d = r[1] if len(r) > 1 else None
+            if not (isinstance(d, datetime) and d.year == hoje.year and d.month == hoje.month):
+                continue
+            ip = r[ii] if (ii is not None and ii < len(r)) else None
+            val = r[iv] if (iv is not None and iv < len(r)) else 1
+            if not isinstance(ip, (int, float)) or ip <= 0.5 or val not in (1, 1.0, None, "1"):
+                continue
+            ipoa += ip; ndias += 1
+            for i, nm in invc:
+                v = r[i] if i < len(r) else None
+                if isinstance(v, (int, float)):
+                    gen[nm] += v
+        wb.close()
+        pinv = (mwp * 1000.0 / len(invc)) if (mwp and invc) else None
+        for nm, g in gen.items():
+            pr = (g / (pinv * ipoa)) if (pinv and ipoa and g) else None
+            if pr is not None and pr > 1.3:
+                out["sensor"] = True
+            out["inversores"][nm] = {"pr": round(pr * 100, 1) if pr is not None else None,
+                                     "gen_mwh": round(g / 1000.0, 1)}
+        out.update({"ipoa_mes": round(ipoa, 1), "ndias": ndias,
+                    "pot_inv_kwp": round(pinv, 1) if pinv else None})
+    except Exception as e:
+        out["erro"] = str(e)
+    _bdperf_pr_cache[k] = {"ts": time.time(), "ym": ym, "data": out}
+    return out
+
+
+@app.route("/api/inv/pr-mes")
+def api_inv_pr_mes():
+    """PR mensal (MTD) por inversor de uma usina (abas do BD_Performance). ?usina=<nome display>."""
+    usina = (flask_request.args.get("usina") or "").strip()
+    if not usina:
+        return jsonify({"error": "usina required", "inversores": {}}), 400
+    return jsonify(_bdperf_pr_inv(usina))
+
+
 def _gerencial_payload(force=False):
     if not force and _ger_cache["data"] and (time.time() - _ger_cache["ts"]) < GER_TTL:
         return _ger_cache["data"]
