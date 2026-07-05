@@ -2349,8 +2349,10 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
         path = meta["plant_paths"].get(key)
         return by_path[path]["value"] if (path and path in by_path) else None
 
-    falha_n = _pval("InvsFalhaComunicacao")
-
+    # "Sem comunicação" da USINA = o logger da planta não reporta (leitura velha), MESMA régua da
+    # API PV. NÃO usar InvsFalhaComunicacao do supervisório aqui: falha PARCIAL de inversor com a
+    # usina reportando (leitura fresca + strings ativas) é déficit de inversor, não sem-comm da
+    # usina — senão a usina some da contagem de déficit do portfólio (caso CPP100, 05/07).
     falha_comm = False
     if ts_max:
         try:
@@ -2358,8 +2360,6 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
             falha_comm = diff > COMM_ALERT_MINUTES
         except Exception:
             pass
-    if falha_n and isinstance(falha_n, (int, float)) and falha_n > 0:
-        falha_comm = True
 
     # Produção da usina (p/ separar PARADA de baixa-perf de strings): potência total da planta
     # (LOGGER.TOT.P) ou, na falta, o contador de inversores produzindo/parados do supervisório.
