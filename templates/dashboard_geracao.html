@@ -7,38 +7,44 @@
 <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
 <style>
   :root{ --bg:#0f0f10; --panel:#1a1a1c; --panel2:#161618; --line:#2a2a2e;
-         --red:#c0392b; --red2:#e04a3a; --txt:#e8e8ea; --muted:#9a9aa0; --green:#27c08a; }
+         --red:#c0392b; --red2:#e04a3a; --txt:#e8e8ea; --muted:#9a9aa0; --green:#27c08a;
+         --inset:#0c0c0d; --input:#1c1c1f; --inputhover:#26262a; --inputbd:#3a3a3f;
+         --th:#3a2540; --thtxt:#cfc2d6; --rowalt:#19191c; --tdline:#232326; --h3:#d8d8dc; }
+  body.light{ --bg:#eceef1; --panel:#ffffff; --panel2:#f6f7f9; --line:#d9dbe1;
+         --red:#c0392b; --red2:#c0392b; --txt:#23252b; --muted:#6b6d76; --green:#1e9e73;
+         --inset:#f3f4f7; --input:#ffffff; --inputhover:#eef0f3; --inputbd:#c6c8d0;
+         --th:#432f4d; --thtxt:#efe7f4; --rowalt:#f5f6f9; --tdline:#e7e8ee; --h3:#3a3b42; }
   *{ box-sizing:border-box; }
   body{ margin:0; background:var(--bg); color:var(--txt);
         font-family:Segoe UI,Roboto,Arial,sans-serif; font-size:13px; }
   .topbar{ display:flex; align-items:center; gap:18px; padding:10px 16px;
-           background:linear-gradient(180deg,#161618,#0f0f10); border-bottom:1px solid var(--line); }
+           background:var(--panel2); border-bottom:1px solid var(--line); }
   .brand{ font-size:20px; font-weight:700; letter-spacing:.5px; }
   .brand small{ display:block; font-size:10px; color:var(--muted); font-weight:400; letter-spacing:2px; }
   .kpis{ display:flex; gap:10px; }
-  .kpi{ background:#0c0c0d; border:1px solid var(--line); border-radius:8px; padding:6px 14px; min-width:96px; text-align:center;}
+  .kpi{ background:var(--inset); border:1px solid var(--line); border-radius:8px; padding:6px 14px; min-width:96px; text-align:center;}
   .kpi b{ display:block; font-size:9px; color:var(--muted); letter-spacing:1px; }
   .kpi span{ font-size:20px; font-weight:700; color:var(--red2); }
   .filters{ margin-left:auto; display:flex; gap:14px; }
-  .fld{ background:#0c0c0d; border:1px solid var(--line); border-radius:8px; padding:6px 10px; }
+  .fld{ background:var(--inset); border:1px solid var(--line); border-radius:8px; padding:6px 10px; }
   .fld label{ display:block; font-size:9px; color:var(--muted); letter-spacing:1px; margin-bottom:3px; }
-  select,input[type=date]{ background:#1c1c1f; color:var(--txt); border:1px solid var(--line);
+  select,input[type=date]{ background:var(--input); color:var(--txt); border:1px solid var(--line);
         border-radius:5px; padding:4px 6px; font-size:12px; }
   .grid{ display:grid; grid-template-columns:1.15fr 1fr; gap:12px; padding:12px 16px; }
   .panel{ background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
   .panel h3{ margin:0 0 6px; font-size:12px; font-weight:600; text-align:center;
-             color:#d8d8dc; letter-spacing:.5px; text-transform:uppercase; }
+             color:var(--h3); letter-spacing:.5px; text-transform:uppercase; }
   .full{ grid-column:1/-1; }
   table{ width:100%; border-collapse:collapse; font-size:12px; }
-  th{ background:#3a2540; color:#cfc2d6; font-weight:600; padding:5px 8px; text-align:left; position:sticky; top:0;}
-  td{ padding:4px 8px; border-bottom:1px solid #232326; }
-  tr:nth-child(even) td{ background:#19191c; }
+  th{ background:var(--th); color:var(--thtxt); font-weight:600; padding:5px 8px; text-align:left; position:sticky; top:0;}
+  td{ padding:4px 8px; border-bottom:1px solid var(--tdline); }
+  tr:nth-child(even) td{ background:var(--rowalt); }
   .neg{ color:var(--red2); } .pos{ color:var(--green); }
   .tablewrap{ max-height:340px; overflow:auto; }
   .muted{ color:var(--muted); font-size:11px; text-align:center; padding:18px; }
-  .btn{ align-self:stretch; display:flex; align-items:center; background:#1c1c1f; color:var(--txt);
+  .btn{ align-self:stretch; display:flex; align-items:center; background:var(--input); color:var(--txt);
         border:1px solid var(--line); border-radius:8px; padding:0 14px; font-size:12px; cursor:pointer; }
-  .btn:hover{ background:#26262a; border-color:#3a3a3f; }
+  .btn:hover{ background:var(--inputhover); border-color:var(--inputbd); }
   .btn:disabled{ opacity:.6; cursor:default; }
 </style>
 </head>
@@ -53,6 +59,7 @@
       <div class="fld"><label>USINA</label><select id="selUsina"></select></div>
       <div class="fld"><label>INÍCIO</label><input type="date" id="dtIni"></div>
       <div class="fld"><label>FIM</label><input type="date" id="dtFim"></div>
+      <button id="btnTheme" class="btn" title="Alternar tema claro/escuro">Modo claro</button>
       <button id="btnRefresh" class="btn" title="Recarrega a planilha e atualiza tudo">↻ Atualizar</button>
     </div>
   </div>
@@ -68,11 +75,20 @@
 
 <script>
 const MES=['','jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
-const RED='#c0392b', GRAY='#6b6b70', WHITE='#f0f0f2';
-const LAYOUT={paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
-  font:{color:'#cfcfd4',size:11},margin:{l:40,r:16,t:10,b:34},showlegend:true,
+const RED='#c0392b';
+// paletas de tema para os gráficos Plotly (o CSS cuida do resto da página)
+const THEMES={
+  dark:{ name:'dark',  font:'#cfcfd4', grid:'#242428', line:'#f0f0f2', gray:'#6b6b70',
+         muted:'#9a9aa0', badgeBg:'rgba(40,40,46,0.92)', badgeBd:'#3a3a3f', badgeTx:'#f0f0f2' },
+  light:{ name:'light', font:'#3a3b42', grid:'#e4e5ea', line:'#40414a', gray:'#aeb0ba',
+         muted:'#70727a', badgeBg:'rgba(255,255,255,0.95)', badgeBd:'#c6c8d0', badgeTx:'#23252b' }
+};
+let TH=THEMES.dark;
+// layout base do tema atual (recriado a cada render p/ refletir troca de tema)
+function L(){ return {paper_bgcolor:'rgba(0,0,0,0)',plot_bgcolor:'rgba(0,0,0,0)',
+  font:{color:TH.font,size:11},margin:{l:40,r:16,t:10,b:34},showlegend:true,
   legend:{orientation:'h',y:1.12,x:0,font:{size:10}},
-  xaxis:{gridcolor:'#242428',zeroline:false},yaxis:{gridcolor:'#242428',tickformat:'.0%',zeroline:false}};
+  xaxis:{gridcolor:TH.grid,zeroline:false},yaxis:{gridcolor:TH.grid,tickformat:'.0%',zeroline:false}}; }
 const CFG={displayModeBar:false,responsive:true};
 const pct=v=>v==null?'—':(v*100).toFixed(1)+'%';
 const qs=o=>Object.entries(o).filter(([,v])=>v!=null&&v!=='').map(([k,v])=>k+'='+encodeURIComponent(v)).join('&');
@@ -81,6 +97,19 @@ const $=id=>document.getElementById(id);
 
 function ctx(){ return {cliente:$('selCliente').value, usina:$('selUsina').value, ini:$('dtIni').value, fim:$('dtFim').value}; }
 
+function applyTheme(name){   // aplica cores/estado (sem redesenhar)
+  TH=THEMES[name]||THEMES.dark;
+  document.body.classList.toggle('light', TH.name==='light');
+  $('btnTheme').textContent = TH.name==='dark' ? 'Modo claro' : 'Modo escuro';
+  try{ localStorage.setItem('geraTheme', TH.name); }catch(e){}
+}
+function toggleTheme(){       // troca e redesenha (backend cacheado = rápido)
+  applyTheme(TH.name==='dark'?'light':'dark');
+  const c=ctx(); const g=++GEN;
+  renderMensal(c,g); renderTop(c,g); renderTabela(c,g); renderKpi(c,g);
+  const f=(c.fim||c.ini||'').split('-'); if(f.length>=2) renderDiario(c,+f[0],+f[1],g);
+}
+
 function defDates(){
   const t=new Date(), ini=new Date(t.getFullYear(),t.getMonth(),1);
   const f=d=>d.toISOString().slice(0,10);
@@ -88,11 +117,13 @@ function defDates(){
 }
 async function init(){
   defDates();
+  applyTheme(localStorage.getItem('geraTheme')||'dark');   // tema salvo (antes de renderizar)
   await carregaClientes();
   $('selCliente').onchange=()=>loadUsinas();
   $('selUsina').onchange=renderAll;
   $('dtIni').onchange=renderAll; $('dtFim').onchange=renderAll;
   $('btnRefresh').onclick=refreshAll;
+  $('btnTheme').onclick=toggleTheme;
   await loadUsinas();
 }
 async function carregaClientes(prefer){
@@ -120,11 +151,11 @@ async function refreshAll(){
 
 // mensagem centralizada no gráfico Top 10 (carregando / sem dados)
 function chTopMsg(txt){
-  const lay=JSON.parse(JSON.stringify(LAYOUT));
+  const lay=L();
   lay.showlegend=false;
   lay.xaxis={...lay.xaxis, visible:false}; lay.yaxis={...lay.yaxis, visible:false};
   lay.annotations=[{xref:'paper',yref:'paper',x:0.5,y:0.5,xanchor:'center',yanchor:'middle',
-    showarrow:false,text:txt,font:{size:13,color:'#9a9aa0'}}];
+    showarrow:false,text:txt,font:{size:13,color:TH.muted}}];
   Plotly.newPlot($('chTop'),[],lay,CFG);
 }
 
@@ -146,13 +177,13 @@ async function renderMensal(c,g){
   if(g!==GEN) return;
   const x=d.pontos.map(p=>MES[p.mes]+'/'+String(p.ano).slice(2));
   const bars={x,y:d.pontos.map(p=>p.realizado),type:'bar',name:'PR Realizado',
-    marker:{color:d.pontos.map(p=>(p.realizado!=null&&p.meta!=null&&p.realizado>=p.meta)?GRAY:RED)},
+    marker:{color:d.pontos.map(p=>(p.realizado!=null&&p.meta!=null&&p.realizado>=p.meta)?TH.gray:RED)},
     text:d.pontos.map(p=>pct(p.realizado)),textposition:'outside',textfont:{size:9},cliponaxis:false};
   const line={x,y:d.pontos.map(p=>p.meta),type:'scatter',mode:'lines+markers',name:'PR Meta',
-    line:{color:WHITE,width:2},marker:{size:4}};
+    line:{color:TH.line,width:2},marker:{size:4}};
   // ao clicar numa barra, abre o diário daquele mês
   const div=$('chMensal');
-  Plotly.react(div,[bars,line],LAYOUT,CFG);
+  Plotly.react(div,[bars,line],L(),CFG);
   div.removeAllListeners&&div.removeAllListeners('plotly_click');
   div.on('plotly_click',e=>{const p=d.pontos[e.points[0].pointNumber]; renderDiario(c,p.ano,p.mes);});
 }
@@ -169,15 +200,15 @@ async function renderDiario(c,ano,mes,g){
   }
   const x=pontos.map(p=>p.dia);
   const bars={x,y:pontos.map(p=>p.realizado),type:'bar',name:'PR Diário',
-    marker:{color:pontos.map(p=>(p.realizado!=null&&d.meta!=null&&p.realizado>=d.meta)?GRAY:RED)},
+    marker:{color:pontos.map(p=>(p.realizado!=null&&d.meta!=null&&p.realizado>=d.meta)?TH.gray:RED)},
     text:pontos.map(p=>p.realizado!=null?(p.realizado*100).toFixed(0)+'%':''),
     textposition:'outside',textangle:0,textfont:{size:8},cliponaxis:false};
-  const meta={x,y:x.map(()=>d.meta),type:'scatter',mode:'lines',name:'PR Alvo',line:{color:WHITE,width:2,dash:'dot'}};
-  const lay=JSON.parse(JSON.stringify(LAYOUT)); lay.xaxis.tickformat='d';
+  const meta={x,y:x.map(()=>d.meta),type:'scatter',mode:'lines',name:'PR Alvo',line:{color:TH.line,width:2,dash:'dot'}};
+  const lay=L(); lay.xaxis.tickformat='d';
   lay.xaxis.tickmode='linear'; lay.xaxis.tick0=1; lay.xaxis.dtick=1;   // rótulo em TODOS os dias
   if(x.length) lay.xaxis.range=[Math.min(...x)-0.5, Math.max(...x)+0.5]; // sem dias negativos/0
   lay.margin.t=26; lay.yaxis.range=[0,1.15];
-  lay.title={text:MES[mes]+'/'+ano,font:{size:11,color:'#9a9aa0'},x:0.01,y:0.98};
+  lay.title={text:MES[mes]+'/'+ano,font:{size:11,color:TH.muted},x:0.01,y:0.98};
   Plotly.react($('chDiario'),[bars,meta],lay,CFG);
 }
 
@@ -188,8 +219,8 @@ async function renderTop(c,g){
   if(!top.length){ chTopMsg('Sem dados no período'); return; }
   const y=top.map(r=>r.inversor);
   const bars={y,x:top.map(r=>r.pr),type:'bar',orientation:'h',name:'PR',
-    marker:{color:GRAY},text:top.map(r=>pct(r.pr)),textposition:'outside',textfont:{size:9},cliponaxis:false};
-  const lay=JSON.parse(JSON.stringify(LAYOUT));
+    marker:{color:TH.gray},text:top.map(r=>pct(r.pr)),textposition:'outside',textfont:{size:9},cliponaxis:false};
+  const lay=L();
   lay.barmode='group'; lay.margin.l=110; lay.showlegend=false;
   // Tipos FORÇADOS: senão o Plotly.react às vezes auto-detecta X como categoria e some a barra.
   lay.xaxis={...lay.xaxis, type:'linear', tickformat:'.0%', autorange:true};
@@ -198,10 +229,10 @@ async function renderTop(c,g){
   const alvo=d.alvo;
   if(alvo!=null){
     lay.shapes=[{type:'line',xref:'x',yref:'paper',x0:alvo,x1:alvo,y0:0,y1:1,
-      line:{color:WHITE,width:1.5,dash:'dot'}}];
+      line:{color:TH.line,width:1.5,dash:'dot'}}];
     lay.annotations=[{xref:'paper',yref:'paper',x:1,y:1.04,xanchor:'right',yanchor:'bottom',
-      showarrow:false,text:'PR Alvo: <b>'+pct(alvo)+'</b>',font:{size:12,color:WHITE},
-      bgcolor:'rgba(40,40,46,0.92)',bordercolor:'#3a3a3f',borderwidth:1,borderpad:4}];
+      showarrow:false,text:'PR Alvo: <b>'+pct(alvo)+'</b>',font:{size:12,color:TH.badgeTx},
+      bgcolor:TH.badgeBg,bordercolor:TH.badgeBd,borderwidth:1,borderpad:4}];
   }
   Plotly.newPlot($('chTop'),[bars],lay,CFG);   // newPlot = redesenho limpo (não herda eixo anterior)
 }

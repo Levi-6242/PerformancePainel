@@ -62,8 +62,12 @@ class _MultiPopup(QFrame):
     def abrir(self):
         c = self._combo
         self.setFixedWidth(max(c.width(), 220))
-        vis = min(self.lst.count(), 12) or 1            # mostra até 12 itens; o resto rola
-        self.lst.setFixedHeight(vis * 24 + 6)
+        n = self.lst.count() or 1
+        # usa a ALTURA REAL da linha (checkbox+fonte ~40px), não um 24 fixo — senão poucos itens já
+        # geram scroll à toa. Mostra até 14 itens sem rolar; o resto rola.
+        row_h = max(self.lst.sizeHintForRow(0), 26) if self.lst.count() else 28
+        vis = min(n, 14)
+        self.lst.setFixedHeight(vis * row_h + 2 * self.lst.frameWidth() + 4)
         self.adjustSize()
         self.move(c.mapToGlobal(c.rect().bottomLeft()))
         self.show()

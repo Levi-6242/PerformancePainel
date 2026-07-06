@@ -174,9 +174,16 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
           <button class="crit" data-f="crit">Críticas</button>
         </div>
       </div>
-      <input id="wallSearch" type="search" placeholder="🔍  Filtrar usina..." oninput="wallFilterInput(this.value)"
-             style="width:240px;max-width:100%;box-sizing:border-box;margin:2px 0 8px auto;display:block;padding:6px 10px;font-size:12px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--txt)">
-      <div class="legend">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:2px 0 8px">
+        <span id="wallViewTog" style="display:inline-flex;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px">
+          <button data-wv="str" onclick="setWallView('str')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:var(--brand);color:#16140e">String em risco</button>
+          <button data-wv="pr" onclick="setWallView('pr')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">PR &amp; Δ meta</button>
+          <button data-wv="etm" onclick="setWallView('etm')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">ETM</button>
+        </span>
+        <input id="wallSearch" type="search" placeholder="🔍  Filtrar usina..." oninput="wallFilterInput(this.value)"
+               style="width:220px;max-width:100%;box-sizing:border-box;margin-left:auto;padding:6px 10px;font-size:12px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--txt)">
+      </div>
+      <div class="legend" id="wallLegend">
         <span><span class="sw" style="background:var(--ok)"></span>Normal</span>
         <span><span class="sw" style="background:var(--amber)"></span>Atenção</span>
         <span><span class="sw" style="background:var(--red)"></span>Crítico</span>
@@ -198,6 +205,10 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
         <div class="feed" id="feed"><div class="empty">Carregando…</div></div>
       </div>
       <div class="card" style="margin-top:14px;">
+        <div class="chead"><div><h3>Usinas que exigem ação</h3><div class="csub">Mês ATUAL (gerada ÷ P50 prorrateado) · todas as usinas, piores atingimentos primeiro</div></div></div>
+        <div style="max-height:380px;overflow:auto;"><table id="tbWorstLive"><thead><tr><th>Usina</th><th>Cliente</th><th class="r">Atg.</th><th class="r">Perda MWh</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="card" style="margin-top:14px;">
         <div class="chead"><div><h3>Agrupamento 🗺️</h3><div class="csub">Faixa = status das usinas · atingimento/PR no mês onde há meta</div></div>
           <div class="filters" id="grpFilters">
             <button class="on" data-g="carteira">Carteira</button>
@@ -211,18 +222,53 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
   </div>
 </div>
 
-<!-- ===== HISTÓRICO ===== -->
+<!-- ===== HISTÓRICO (D-1) ===== -->
 <div id="viewHist" class="hidden">
-  <div class="kpis" id="kpisHist"></div>
-  <div class="grid-main">
-    <div>
-      <div class="card"><div class="chead"><div><h3>Top usinas por energia perdida (mês) 📉</h3><div class="csub">Déficit vs P50 prorrateado · MWh · onde concentrar a manutenção</div></div></div>
-        <div class="cwrap" style="height:300px"><canvas id="chLost"></canvas></div></div>
-      <div class="card" style="margin-top:14px;"><div class="chead"><div><h3>Distribuição da frota por atingimento</h3><div class="csub">Quantas usinas em cada faixa (gerada ÷ P50)</div></div></div>
-        <div class="cwrap" style="height:210px"><canvas id="chDist"></canvas></div></div>
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+    <span id="histViewTog" style="display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px">
+      <button data-hv="perda" onclick="setHistView('perda')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:var(--brand);color:#16140e">Energia perdida (MWh)</button>
+      <button data-hv="pr" onclick="setHistView('pr')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">PR</button>
+    </span>
+  </div>
+  <div id="histPerda">
+    <div class="kpis" id="kpisHist"></div>
+    <div class="grid-main">
+      <div>
+        <div class="card"><div class="chead"><div><h3>Top usinas por energia perdida (mês) 📉</h3><div class="csub">Déficit vs P50 prorrateado · MWh · onde concentrar a manutenção</div></div></div>
+          <div class="cwrap" style="height:300px"><canvas id="chLost"></canvas></div></div>
+        <div class="card" style="margin-top:14px;"><div class="chead"><div><h3>Distribuição da frota por atingimento</h3><div class="csub">Quantas usinas em cada faixa (gerada ÷ P50)</div></div></div>
+          <div class="cwrap" style="height:210px"><canvas id="chDist"></canvas></div></div>
+      </div>
+      <div><div class="card"><div class="chead"><div><h3>Usinas que exigem ação</h3><div class="csub">TODAS as usinas do mês, piores atingimentos primeiro</div></div></div>
+        <div style="max-height:560px;overflow:auto;"><table id="tbWorst"><thead><tr><th>Usina</th><th>Cliente</th><th class="r">Atg.</th><th class="r">Perda MWh</th></tr></thead><tbody></tbody></table></div></div></div>
     </div>
-    <div><div class="card"><div class="chead"><div><h3>Usinas que exigem ação</h3><div class="csub">Piores atingimentos do mês</div></div></div>
-      <div style="max-height:560px;overflow:auto;"><table id="tbWorst"><thead><tr><th>Usina</th><th>Cliente</th><th class="r">Atg.</th><th class="r">Perda MWh</th></tr></thead><tbody></tbody></table></div></div></div>
+  </div>
+  <div id="histPr" class="hidden">
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+        <div><div style="font-size:9.5px;color:var(--faint);letter-spacing:.06em;margin-bottom:3px">CLIENTE</div>
+          <select id="gCli" onchange="gLoadUsinas()" style="border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt)"></select></div>
+        <div><div style="font-size:9.5px;color:var(--faint);letter-spacing:.06em;margin-bottom:3px">USINA</div>
+          <select id="gUsi" onchange="gRenderAll()" style="border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt)"></select></div>
+        <div><div style="font-size:9.5px;color:var(--faint);letter-spacing:.06em;margin-bottom:3px">INÍCIO</div>
+          <input type="date" id="gIni" onchange="gRenderAll()" style="border:1px solid var(--line);border-radius:7px;padding:5px 8px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt)"></div>
+        <div><div style="font-size:9.5px;color:var(--faint);letter-spacing:.06em;margin-bottom:3px">FIM</div>
+          <input type="date" id="gFim" onchange="gRenderAll()" style="border:1px solid var(--line);border-radius:7px;padding:5px 8px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt)"></div>
+        <div style="margin-left:auto;text-align:right"><div style="font-size:9.5px;color:var(--faint);letter-spacing:.06em">PR UFV (último mês com dado)</div>
+          <div class="num" id="gKpi" style="font-size:26px;font-weight:700">—</div></div>
+      </div>
+      <div style="font-size:10px;color:var(--faint);margin-top:6px">D-1 — dados fechados do banco (BD_Performance / BD_Thopen), não tempo real.</div>
+    </div>
+    <div class="card"><div class="chead"><div><h3>PR Realizado × PR Previsto (mensal)</h3><div class="csub" id="gMensalSub">Barras = PR ponderado do mês (D-1) · linha = meta · clique numa barra para abrir o diário</div></div></div>
+      <div class="cwrap" style="height:280px"><canvas id="gChMensal"></canvas></div></div>
+    <div class="grid-main" style="margin-top:14px">
+      <div class="card"><div class="chead"><div><h3>Top 10 piores inversores</h3><div class="csub" id="gTopSub">PR do período · linha = alvo da usina</div></div></div>
+        <div class="cwrap" style="height:340px"><canvas id="gChTop"></canvas></div></div>
+      <div class="card"><div class="chead"><div><h3>Performance por inversor</h3><div class="csub">PR realizado × alvo no período</div></div></div>
+        <div style="max-height:340px;overflow:auto"><table id="gTblInv"><thead><tr><th style="text-align:center">Inversor</th><th style="text-align:center">PR</th><th style="text-align:center">Alvo</th><th style="text-align:center">Dif</th></tr></thead><tbody></tbody></table></div></div>
+    </div>
+    <div class="card" style="margin-top:14px"><div class="chead"><div><h3>PR diário</h3><div class="csub" id="gDiarioSub">Mês da data FIM · barras vermelhas = abaixo da meta</div></div></div>
+      <div class="cwrap" style="height:240px"><canvas id="gChDiario"></canvas></div></div>
   </div>
 </div>
 
@@ -248,6 +294,7 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
 
 <script>
 const nf=(v,d=0)=>(v===null||v===undefined||isNaN(v))?'—':Number(v).toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d});
+const _pp=(x)=>(x==null||isNaN(x))?'—':((x>=0?'+':'−')+nf(Math.abs(x),1)+' pp');   // Δ em pontos percentuais
 function norm(s){return (s||'').toString().normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim();}
 function fmtTs(t){  // timestamp (já em Brasília) → DD/MM/AAAA HH:MM
   if(!t) return '—';
@@ -294,7 +341,7 @@ async function boot(){
       fetch('/api/gerencial').then(r=>r.json()).catch(()=>null)
     ]);
     MACRO=m; GER=g; merge();
-    renderKpis(); renderWall(); renderFeed(); renderRegion(); stamp();
+    renderKpis(); renderWall(); renderFeed(); renderWorstTable('#tbWorstLive'); renderRegion(); stamp();
   }catch(e){ document.getElementById('wall').innerHTML='<div class="empty">Falha ao carregar: '+e+'</div>'; }
 }
 
@@ -302,11 +349,17 @@ function merge(){
   MAP={};
   const gmap={};
   (GER&&GER.usinas||[]).forEach(u=>{gmap[norm(u.usina)]=u;});
+  const gkeys=Object.keys(gmap);
   (MACRO&&MACRO.usinas||[]).forEach(u=>{
-    const k=norm(u.usina); const gg=gmap[k]||{};
+    const k=norm(u.usina); let gg=gmap[k];
+    if(!gg){ // nomes ligeiramente diferentes entre fonte live e gerencial ("Usina" vs "Usina 1"):
+      const cand=gkeys.filter(x=>x.startsWith(k)||k.startsWith(x));
+      if(cand.length===1) gg=gmap[cand[0]];   // só quando o casamento é INEQUÍVOCO
+    }
+    gg=gg||{};
     MAP[k]=Object.assign({}, u, {
       cliente: gg.cliente||u.cliente||'—', prod:gg.prod, p50:gg.p50,
-      recurso:gg.recurso, atingimento:gg.atingimento, pr:gg.pr, pot_mwp:gg.pot_mwp
+      recurso:gg.recurso, atingimento:gg.atingimento, pr:gg.pr, pr_meta:gg.pr_meta, pot_mwp:gg.pot_mwp
     });
   });
   // usinas que só existem no gerencial (com meta, sem item de macro) entram no histórico
@@ -340,32 +393,128 @@ function renderKpis(){
 /* ====== WALL ====== */
 let curWQ='';
 function wallFilterInput(v){ curWQ=norm(v); renderWall(); }   // norm = minúsculo + sem acento (igual ao nome)
+let wallView='str';   // 'str' = string em risco (pior estado) · 'pr' = PR do mês vs meta da UFV
+function setWallView(v){
+  wallView=v;
+  document.querySelectorAll('#wallViewTog button').forEach(b=>{ const on=b.dataset.wv===v;
+    b.style.background=on?'var(--brand)':'transparent'; b.style.color=on?'#16140e':'var(--muted)'; });
+  const lg=document.getElementById('wallLegend');
+  if(lg) lg.innerHTML = v==='pr'
+    ? `<span><span class="sw" style="background:var(--ok)"></span>Na meta (≥ −2 pp)</span><span><span class="sw" style="background:var(--amber)"></span>até −8 pp</span><span><span class="sw" style="background:var(--red)"></span>&lt; −8 pp</span><span><span class="sw" style="background:var(--off)"></span>Sem PR no mês</span>`
+    : v==='etm'
+    ? `<span style="color:var(--muted)">Régua: IPOA/GHI nula ou zerada · valor constante ≥3 dias (sensor travado) · PR anômalo (&gt;130% = IPOA furada)</span>`
+    : `<span><span class="sw" style="background:var(--ok)"></span>Normal</span><span><span class="sw" style="background:var(--amber)"></span>Atenção</span><span><span class="sw" style="background:var(--red)"></span>Crítico</span><span><span class="sw" style="background:var(--off)"></span>Sem comunicação</span>`;
+  renderWall();
+}
+// classe de status (cor do tile) a partir do Δ (pr − meta) em pontos percentuais
+function _prCls(d){ return d==null?'sem_comm':d>=-2?'ok':d>=-8?'atencao':'critico'; }
+// PR confiável = número físico plausível (IPOA furado do PG estoura o valor → descarta, como o SENSOR)
+function _prReliable(pr){ return pr!=null && !isNaN(pr) && pr>=0 && pr<=130; }
+function tileStr(p){
+  const alm=p.status==='critico'?`<span class="talm c">${p.strings_faltando||(p.diag?p.diag.n:'!')}</span>`
+           :p.status==='atencao'?`<span class="talm a">${p.strings_faltando||1}</span>`:'';
+  let foot='';
+  if(p.status!=='ok'){
+    const dir=trendDir(p.trend), col=dir==='up'?cssv('--red'):dir==='down'?cssv('--ok'):cssv('--off');
+    foot=`<div class="trow"><span class="tcause">${causaIco(p)} ${(p.diag&&p.diag.causa)||p.causa||''}</span>${spark(p.trend,col,42,12)}</div>`;
+  }
+  const atg=p.atingimento!=null?`<div class="tatg" style="color:${p.atingimento>=95?cssv('--ok'):p.atingimento>=85?cssv('--amber'):cssv('--red')}">atg ${nf(p.atingimento,0)}%</div>`:'';
+  const valor=p.stringbox?'String Box':`${nf(p.strings_ativas)}<span class="u"> str</span>`;
+  return `<div class="tile ${p.status}" onclick="openDrawer('${norm(p.usina)}')">${alm}`+
+    `<div class="tid">${p.usina}</div><div class="tcli">${p.cliente||''}</div>`+
+    `<div class="tmw num">${valor}</div>${atg}${foot}</div>`;
+}
+function tilePr(p){
+  const pr=_prReliable(p.pr)?p.pr:null, meta=p.pr_meta, d=(pr!=null&&meta!=null)?pr-meta:null;
+  const cls=pr==null?'sem_comm':_prCls(d);
+  const col=cls==='ok'?cssv('--ok'):cls==='atencao'?cssv('--amber'):cls==='critico'?cssv('--red'):cssv('--faint');
+  const val=pr!=null?`${nf(pr,0)}%<span class="u"> PR</span>`:`—<span class="u"> sem PR</span>`;
+  const sub=(pr!=null&&meta!=null)
+    ? `<div class="tatg" style="color:${col}">meta ${nf(meta,0)}% · ${_pp(d)}</div>`
+    : (meta!=null?`<div class="tatg" style="color:var(--faint)">meta ${nf(meta,0)}%</div>`:'');
+  return `<div class="tile ${cls}" onclick="openDrawer('${norm(p.usina)}')">`+
+    `<div class="tid">${p.usina}</div><div class="tcli">${p.cliente||''}</div>`+
+    `<div class="tmw num" style="color:${col}">${val}</div>${sub}</div>`;
+}
 function renderWall(){
-  const items=Object.values(MAP).filter(p=>{
+  const wallEl=document.getElementById('wall');
+  if(wallView==='etm'){ wallEl.style.display='block'; renderEtm(); return; }
+  wallEl.style.display='';
+  let items=Object.values(MAP).filter(p=>{
     if(curWF==='exc'&&p.status==='ok')return false;
     if(curWF==='crit'&&p.status!=='critico')return false;
     if(curWQ && !norm(p.usina).includes(curWQ)) return false;
     return true;
   });
-  if(!items.length){document.getElementById('wall').innerHTML='<div class="empty">Sem usinas neste filtro.</div>';return;}
-  document.getElementById('wall').innerHTML=items.map(p=>{
-    const alm=p.status==='critico'?`<span class="talm c">${p.strings_faltando||(p.diag?p.diag.n:'!')}</span>`
-             :p.status==='atencao'?`<span class="talm a">${p.strings_faltando||1}</span>`:'';
-    let foot='';
-    if(p.status!=='ok'){
-      const dir=trendDir(p.trend), col=dir==='up'?cssv('--red'):dir==='down'?cssv('--ok'):cssv('--off');
-      foot=`<div class="trow"><span class="tcause">${causaIco(p)} ${(p.diag&&p.diag.causa)||p.causa||''}</span>${spark(p.trend,col,42,12)}</div>`;
-    }
-    const atg=p.atingimento!=null?`<div class="tatg" style="color:${p.atingimento>=95?cssv('--ok'):p.atingimento>=85?cssv('--amber'):cssv('--red')}">atg ${nf(p.atingimento,0)}%</div>`:'';
-    const valor=p.stringbox?'String Box':`${nf(p.strings_ativas)}<span class="u"> str</span>`;
-    return `<div class="tile ${p.status}" onclick="openDrawer('${norm(p.usina)}')">${alm}`+
-      `<div class="tid">${p.usina}</div><div class="tcli">${p.cliente||''}</div>`+
-      `<div class="tmw num">${valor}</div>${atg}${foot}</div>`;
-  }).join('');
+  if(!items.length){wallEl.innerHTML='<div class="empty">Sem usinas neste filtro.</div>';return;}
+  if(wallView==='pr'){   // piores Δ (vs meta) primeiro; sem PR (ou PR furado) vão pro fim
+    items=items.slice().sort((a,b)=>{
+      const da=(_prReliable(a.pr)&&a.pr_meta!=null)?a.pr-a.pr_meta:99, db=(_prReliable(b.pr)&&b.pr_meta!=null)?b.pr-b.pr_meta:99;
+      return da-db;
+    });
+  }
+  const tile=wallView==='pr'?tilePr:tileStr;
+  document.getElementById('wall').innerHTML=items.map(tile).join('');
 }
 document.querySelectorAll('#wallFilters button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#wallFilters button').forEach(x=>x.classList.remove('on'));
   b.classList.add('on');curWF=b.dataset.f;renderWall();});
+
+/* ====== VISÃO ETM — usinas com IPOA/GHI quebrando o PR (tabela + ticket) ====== */
+let ETMP=null, etmCli=null;
+function etmFiltraCli(c){ etmCli=(etmCli===c)?null:c; renderEtm(); }
+const _esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function renderEtm(){
+  const el=document.getElementById('wall');
+  if(!ETMP){
+    el.innerHTML='<div class="empty">Varrendo as ETMs do mês (IPOA/GHI por dia)…</div>';
+    try{ ETMP=await fetch('/api/etm/problemas').then(r=>r.json()); }
+    catch(e){ el.innerHTML='<div class="empty">Falha ao varrer as ETMs.</div>'; ETMP=null; return; }
+    if(wallView!=='etm') return;   // usuário trocou de visão enquanto carregava
+  }
+  let its=(ETMP.itens||[]);
+  if(curWQ) its=its.filter(i=>norm(i.usina).includes(curWQ));
+  if(etmCli) its=its.filter(i=>(i.cliente||'—')===etmCli);   // filtro por cliente (clique no resumo)
+  const nAb=its.filter(i=>!(i.ticket&&i.ticket.feito)).length;
+  // contagem por CLIENTE (lista completa) — clicável p/ filtrar; clicar de novo limpa
+  const porCli={}; (ETMP.itens||[]).forEach(i=>{const c=i.cliente||'—'; porCli[c]=(porCli[c]||0)+1;});
+  const cliTxt=Object.entries(porCli).sort((a,b)=>b[1]-a[1])
+    .map(([c,q])=>{const on=etmCli===c;
+      return `<span class="etmcli" data-cli="${_esc(c)}" title="Clique para ${on?'limpar o filtro':'filtrar as usinas de '+_esc(c)}" style="cursor:pointer;padding:2px 8px;border-radius:12px;white-space:nowrap;${on?'background:var(--brand);color:#16140e;font-weight:700':''}">${_esc(c)} <b style="${on?'':'color:var(--txt)'}">${q}</b></span>`;})
+    .join(' ');
+  const hdr=`<div style="font-size:11px;color:var(--muted);margin-bottom:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center">${its.length} usina(s)${etmCli?` de <b style="color:var(--txt)">${_esc(etmCli)}</b>`:''} com problema de ETM em ${ETMP.mes||''} · <b style="color:var(--amber)">${nAb} sem ticket</b> · varrido ${ETMP.cache_ts||''} · por cliente: ${cliTxt}</div>`;
+  if(!its.length){ el.innerHTML=hdr+'<div class="empty">Nenhum problema de ETM neste filtro.</div>'; el.querySelectorAll('.etmcli').forEach(s=>s.onclick=()=>etmFiltraCli(s.dataset.cli)); return; }
+  el.innerHTML=hdr+
+  `<table style="width:100%;border-collapse:separate;border-spacing:0;font-size:12px">
+    <thead><tr style="background:var(--brand);color:#fff;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em">
+      <th style="padding:8px;text-align:center;border-radius:8px 0 0 8px">Usina</th><th style="padding:8px;text-align:center">Problema</th>
+      <th style="padding:8px;width:32%;text-align:center">Comentário</th><th style="padding:8px;white-space:nowrap;text-align:center;border-radius:0 8px 8px 0">Ticket criado?</th>
+    </tr></thead><tbody>`+
+  its.map((i,ri)=>{
+    const t=i.ticket||{}, done=!!t.feito;
+    const bd=ri?'border-top:1px solid var(--line);':'';   // divisória entre linhas (não sob o cabeçalho)
+    return `<tr data-etmu="${_esc(i.usina)}" style="${done?'opacity:.55':''}">
+      <td style="${bd}padding:8px;vertical-align:top"><b>${_esc(i.usina)}</b><div style="font-size:10px;color:var(--faint)">${_esc(i.cliente||'')}</div></td>
+      <td style="${bd}padding:8px;vertical-align:top">${(i.problemas||[]).map(p=>`<div style="display:flex;gap:6px;align-items:baseline;margin-bottom:2px"><span style="color:var(--red);font-weight:700">•</span><span>${_esc(p)}</span></div>`).join('')}</td>
+      <td style="${bd}padding:8px;vertical-align:top"><input type="text" value="${_esc(t.comentario||'')}" placeholder="Comentário (causa, ticket, follow-up)..." maxlength="2000" onchange="etmSave(this)"
+        style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt)"></td>
+      <td style="${bd}padding:8px;vertical-align:top;text-align:center"><input type="checkbox" ${done?'checked':''} onchange="etmSave(this)" title="Ticket criado?"
+        style="width:16px;height:16px;accent-color:var(--brand);cursor:pointer">${t.ts?`<div style="font-size:9px;color:var(--faint);margin-top:3px">${_esc(t.ts)}</div>`:''}</td>
+    </tr>`;}).join('')+`</tbody></table>`;
+  el.querySelectorAll('.etmcli').forEach(s=>s.onclick=()=>etmFiltraCli(s.dataset.cli));
+}
+async function etmSave(elm){
+  const tr=elm.closest('tr'); if(!tr) return;
+  const usina=tr.dataset.etmu;
+  const com=(tr.querySelector('input[type="text"]')||{}).value||'';
+  const chk=!!(tr.querySelector('input[type="checkbox"]')||{}).checked;
+  try{
+    await fetch('/api/etm/ticket',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({usina, comentario:com.trim(), feito:chk})});
+    (ETMP&&ETMP.itens||[]).forEach(i=>{ if(i.usina===usina) i.ticket={comentario:com.trim(),feito:chk,ts:i.ticket&&i.ticket.ts||''}; });
+    tr.style.opacity=chk?'.55':'';
+  }catch(e){ alert('Falha ao salvar o ticket de '+usina+'.'); }
+}
 
 /* ====== FEED ====== */
 function climaList(){
@@ -389,12 +538,18 @@ function renderFeed(){
     const _off=p.inv_off?`<span style="color:#c2410c;font-weight:600">${p.inv_off} inv. parado(s)</span>`:'';
     const _str=(p.status!=='sem_producao'&&p.strings_faltando)?`<span style="color:${cssv('--amber')};font-weight:600">−${p.strings_faltando} strings</span>`:'';
     const alm=(_off||_str)?`<span style="margin-left:auto;display:inline-flex;gap:10px">${_off}${_str}</span>`:'';
+    // PR atual + Δ vs meta da UFV (abaixo do status/strings)
+    const _prOk=_prReliable(p.pr);
+    const _prd=(_prOk&&p.pr_meta!=null)?(p.pr-p.pr_meta):null;
+    const _prcol=_prd==null?cssv('--faint'):_prd>=-2?cssv('--ok'):_prd>=-8?cssv('--amber'):cssv('--red');
+    const prline=_prOk?`<div style="font-size:11px;color:var(--muted);margin-top:5px;padding-top:5px;border-top:1px solid var(--line)">PR do mês <b style="color:${_prcol}">${nf(p.pr,0)}%</b>${p.pr_meta!=null?` · <span style="color:${_prcol};font-weight:600">${_pp(p.pr-p.pr_meta)}</span> vs meta ${nf(p.pr_meta,0)}%`:''}</div>`:'';
     return `<div class="anom ${p.status}" onclick="openDrawer('${norm(p.usina)}')">`+
       `<div class="top"><span class="dev">${p.usina}</span><span class="sevtag ${p.status}">${NOME[p.status]||p.status}</span></div>`+
       `<div class="where">${p.cliente||'—'} · ${p.fonte}${p.qtd_inversores?' · '+p.qtd_inversores+' inv':''}</div>`+
       `<div class="dline"><span class="ic">${causaIco(p)}</span><span class="cz">${(p.diag&&p.diag.causa)||p.causa||''}</span>`+
         (conf?`<span class="conf ${conf}">conf. ${conf}</span>`:'')+`</div>`+
       `<div class="trendrow">${spark(p.trend,col,70,20)}<span class="dir ${dm[0]}">${dm[1]} ${dm[2]}</span>${alm}</div>`+
+      prline+
       (p.diag&&p.diag.acao?`<div class="action"><b>Ação:</b> ${p.diag.acao}</div>`:'')+
       (hasDrill(p)?`<a class="invlink" href="${drillUrl(p)}" onclick="event.stopPropagation()">investigar →</a>`:'')+`</div>`;
   }).join('');
@@ -603,8 +758,150 @@ function buildHist(rebuild){
   if(chDist)chDist.destroy();
   chDist=new Chart(document.getElementById('chDist'),{type:'bar',data:{labels:lab,datasets:[{data:bins,backgroundColor:[cssv('--red'),cssv('--amber'),'#D9C24E',cssv('--ok'),cssv('--ok'),cssv('--brand')],borderRadius:4}]},
     options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:tk,font:{size:10}}},y:{grid:{color:grid},ticks:{color:tk,font:{size:10}}}}}});
-  const wt=us.filter(u=>u.atingimento!=null).sort((a,b)=>a.atingimento-b.atingimento).slice(0,15);
-  document.querySelector('#tbWorst tbody').innerHTML=wt.map(u=>`<tr><td><b>${u.usina}</b></td><td>${u.cliente||'—'}</td><td class="r" style="color:${u.atingimento<85?cssv('--red'):cssv('--amber')}">${nf(u.atingimento,0)}%</td><td class="r">${u.p50&&u.prod!=null?nf(Math.max(0,u.p50-u.prod),1):'—'}</td></tr>`).join('');
+  renderWorstTable('#tbWorst');
+}
+
+// tabela "Usinas que exigem ação" — MÊS ATUAL (gerada ÷ P50 prorrateado do /api/gerencial);
+// compartilhada entre o Tempo real (ao lado das Anomalias) e o Histórico. TODAS as usinas,
+// piores atingimentos primeiro; sem atingimento vão pro fim.
+function renderWorstTable(sel){
+  const tb=document.querySelector(sel+' tbody'); if(!tb) return;
+  const us=(GER&&GER.usinas||[]);
+  if(!us.length){ tb.innerHTML='<tr><td colspan="4" style="color:var(--faint);text-align:center;padding:12px">Aquecendo os dados do mês…</td></tr>'; return; }
+  const wt=us.slice().sort((a,b)=>((a.atingimento??1e9)-(b.atingimento??1e9)));
+  tb.innerHTML=wt.map(u=>{
+    const a=u.atingimento;
+    const col=a==null?'var(--faint)':a<85?cssv('--red'):a<95?cssv('--amber'):cssv('--ok');
+    return `<tr><td><b>${u.usina}</b></td><td>${u.cliente||'—'}</td><td class="r" style="color:${col}">${a!=null?nf(a,0)+'%':'—'}</td><td class="r">${u.p50&&u.prod!=null?nf(Math.max(0,u.p50-u.prod),1):'—'}</td></tr>`;
+  }).join('');
+}
+
+/* ===== HISTÓRICO · VISÃO PR (D-1) — esqueleto do Dashboard de Geração (5070) com Chart.js ===== */
+let histView='perda', gInited=false, gGen=0, gChM=null, gChT=null, gChD=null;
+function setHistView(v){
+  histView=v;
+  document.querySelectorAll('#histViewTog button').forEach(b=>{ const on=b.dataset.hv===v;
+    b.style.background=on?'var(--brand)':'transparent'; b.style.color=on?'#16140e':'var(--muted)'; });
+  document.getElementById('histPerda').classList.toggle('hidden',v!=='perda');
+  document.getElementById('histPr').classList.toggle('hidden',v!=='pr');
+  if(v==='pr'&&!gInited){ gInited=true; gInit(); }
+}
+const gPct=v=>v==null?'—':nf(v*100,1)+'%';
+const gGET=u=>fetch(u).then(r=>r.json());
+function gCtx(){ return {cliente:document.getElementById('gCli').value, usina:document.getElementById('gUsi').value,
+                         ini:document.getElementById('gIni').value, fim:document.getElementById('gFim').value}; }
+async function gInit(){
+  const t=new Date();
+  document.getElementById('gIni').value=new Date(t.getFullYear(),t.getMonth(),1).toISOString().slice(0,10);
+  document.getElementById('gFim').value=t.toISOString().slice(0,10);
+  const cls=await gGET('/api/g/clientes');
+  document.getElementById('gCli').innerHTML=cls.map(c=>`<option>${c}</option>`).join('');
+  await gLoadUsinas();
+}
+async function gLoadUsinas(){
+  const us=await gGET('/api/g/usinas?cliente='+encodeURIComponent(document.getElementById('gCli').value));
+  document.getElementById('gUsi').innerHTML=us.map(u=>`<option>${u}</option>`).join('');
+  gRenderAll();
+}
+async function gRenderAll(){
+  const c=gCtx(); const g=++gGen;
+  document.getElementById('gKpi').textContent='…';
+  gMensal(c,g); gInversores(c,g);
+  const f=(c.fim||c.ini||'').split('-');
+  if(f.length>=2) gDiario(c,+f[0],+f[1],g);
+}
+/* visual sóbrio (pedido do Levi): barra na meta = CINZA tradicional (não verde), abaixo = vermelho;
+   linha de meta com alto contraste nos 2 temas; valor % escrito em cada coluna (como no 5070). */
+const gGray=()=>document.body.classList.contains('dark')?'#6f7379':'#b4b8c0';
+const gLine=()=>document.body.classList.contains('dark')?'#e8e8ea':'#3a3b42';
+const gLbl={id:'gLbl',afterDatasetsDraw(c){
+  const ds=c.data.datasets[0]; if(!ds||(ds.type&&ds.type!=='bar'&&c.config.type!=='bar'))return;
+  const m=c.getDatasetMeta(0), ctx=c.ctx;
+  ctx.save(); ctx.fillStyle=cssv('--muted'); ctx.font='700 9px '+getComputedStyle(document.body).fontFamily;
+  m.data.forEach((el,i)=>{const v=ds.data[i]; if(v==null)return; const t=nf(v*100,1)+'%';
+    if(c.config.options.indexAxis==='y'){ctx.textAlign='left';ctx.textBaseline='middle';ctx.fillText(t,el.x+4,el.y);}
+    else{ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(t,el.x,el.y-3);}});
+  ctx.restore();}};
+function _gOpt(pct,tk,grid){
+  return {responsive:true,maintainAspectRatio:false,animation:false,
+    plugins:{legend:{display:true,labels:{color:tk,font:{size:10},boxWidth:14}}},
+    scales:{x:{grid:{display:false},ticks:{color:tk,font:{size:10}}},
+            y:{grid:{color:grid},ticks:{color:tk,font:{size:10},callback:v=>pct?Math.round(v*100)+'%':v},beginAtZero:true,grace:'12%'}}};
+}
+async function gMensal(c,g){
+  const d=await gGET(`/api/g/mensal?cliente=${encodeURIComponent(c.cliente)}&usina=${encodeURIComponent(c.usina)}`);
+  if(g!==gGen) return;
+  const MES=['','jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  const tk=cssv('--muted'), grid=document.body.classList.contains('dark')?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';
+  const pts=d.pontos||[];
+  const labels=pts.map(p=>MES[p.mes]+'/'+String(p.ano).slice(2));
+  if(gChM)gChM.destroy();
+  gChM=new Chart(document.getElementById('gChMensal'),{data:{labels,datasets:[
+    {type:'bar',label:'PR realizado',data:pts.map(p=>p.realizado),borderRadius:4,
+     backgroundColor:pts.map(p=>(p.realizado!=null&&p.meta!=null&&p.realizado>=p.meta)?gGray():cssv('--red'))},
+    {type:'line',label:'PR meta',data:pts.map(p=>p.meta),borderColor:gLine(),borderWidth:2,pointRadius:3,pointBackgroundColor:gLine(),tension:0}
+  ]},options:Object.assign(_gOpt(true,tk,grid),{onClick:(e,els)=>{ if(els&&els.length){ const p=pts[els[0].index]; if(p) gDiario(gCtx(),p.ano,p.mes,gGen); } }}),plugins:[gLbl]});
+  // KPI = último mês com valor
+  const last=[...pts].reverse().find(p=>p.realizado!=null);
+  document.getElementById('gKpi').textContent=last?gPct(last.realizado):'—';
+}
+async function gDiario(c,ano,mes,g){
+  const d=await gGET(`/api/g/diario?cliente=${encodeURIComponent(c.cliente)}&usina=${encodeURIComponent(c.usina)}&ano=${ano}&mes=${mes}`);
+  if(g!==undefined&&g!==gGen) return;
+  const tk=cssv('--muted'), grid=document.body.classList.contains('dark')?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';
+  let pts=d.pontos||[];
+  const di=c.ini?new Date(c.ini+'T00:00'):null, df=c.fim?new Date(c.fim+'T00:00'):null;
+  if(df&&df.getFullYear()===ano&&df.getMonth()+1===mes)
+    pts=pts.filter(p=>{const dt=new Date(ano,mes-1,p.dia);return (!di||dt>=di)&&(!df||dt<=df);});
+  document.getElementById('gDiarioSub').textContent=`${String(mes).padStart(2,'0')}/${ano} · barras vermelhas = abaixo da meta (${d.meta!=null?nf(d.meta*100,1)+'%':'sem meta'}) · D-1`;
+  if(gChD)gChD.destroy();
+  gChD=new Chart(document.getElementById('gChDiario'),{data:{labels:pts.map(p=>p.dia),datasets:[
+    {type:'bar',label:'PR diário',data:pts.map(p=>p.realizado),borderRadius:3,
+     backgroundColor:pts.map(p=>(p.realizado!=null&&d.meta!=null&&p.realizado>=d.meta)?gGray():cssv('--red'))},
+    {type:'line',label:'meta',data:pts.map(()=>d.meta),borderColor:gLine(),borderWidth:1.8,borderDash:[6,4],pointRadius:0}
+  ]},options:_gOpt(true,tk,grid),plugins:[gLbl]});
+}
+async function gInversores(c,g){
+  const q=`cliente=${encodeURIComponent(c.cliente)}&usina=${encodeURIComponent(c.usina)}${c.ini?'&ini='+c.ini:''}${c.fim?'&fim='+c.fim:''}`;
+  const d=await gGET('/api/g/inversores?'+q);
+  if(g!==gGen) return;
+  const tk=cssv('--muted'), grid=document.body.classList.contains('dark')?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';
+  const tb=document.querySelector('#gTblInv tbody');
+  if(d.por_usina){
+    document.getElementById('gTopSub').textContent='BD_Thopen é por usina — sem visão de inversor nesta fonte.';
+    if(gChT)gChT.destroy(); gChT=null;
+    tb.innerHTML='<tr><td colspan="4" style="color:var(--faint);text-align:center;padding:14px">O banco (BD_Thopen) registra a usina inteira — a visão por inversor existe nas usinas com aba no BD_Performance.</td></tr>';
+    return;
+  }
+  const rows=d.inversores||[];
+  if(!rows.length){ document.getElementById('gTopSub').textContent='Sem dados no período.';
+    if(gChT)gChT.destroy(); gChT=null;
+    tb.innerHTML='<tr><td colspan="4" style="color:var(--faint);text-align:center;padding:14px">Sem dados no período.</td></tr>'; return; }
+  document.getElementById('gTopSub').textContent=`PR do período · alvo da usina ${gPct(d.alvo)}`;
+  const top=rows.slice(0,10).reverse();
+  if(gChT)gChT.destroy();
+  gChT=new Chart(document.getElementById('gChTop'),{type:'bar',data:{labels:top.map(r=>r.inversor),datasets:[
+    {label:'PR',data:top.map(r=>r.pr),borderRadius:4,
+     backgroundColor:top.map(r=>(r.pr!=null&&d.alvo!=null&&r.pr>=d.alvo)?gGray():cssv('--red'))}
+  ]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},
+    scales:{x:{grid:{color:grid},ticks:{color:tk,font:{size:10},callback:v=>Math.round(v*100)+'%'},beginAtZero:true,grace:'15%'},
+            y:{grid:{display:false},ticks:{color:tk,font:{size:10}}}}},plugins:[gLbl]});
+  tb.innerHTML=rows.map(r=>{
+    const col=r.dif==null?'var(--faint)':r.dif<0?cssv('--red'):cssv('--ok');
+    const dif=r.dif==null?'—':((r.dif>=0?'+':'−')+nf(Math.abs(r.dif)*100,2)+'%');
+    return `<tr data-ginv="${_esc(r.inversor)}" style="cursor:pointer" title="Abrir o diagnóstico da usina com a curva deste inversor"><td>${r.inversor}</td><td class="r">${gPct(r.pr)}</td><td class="r">${gPct(r.alvo)}</td><td class="r" style="color:${col};font-weight:600">${dif}</td></tr>`;
+  }).join('');
+  tb.querySelectorAll('tr[data-ginv]').forEach(t=>t.onclick=()=>gOpenDrill(t.dataset.ginv));
+}
+
+// clique num inversor do Histórico PR → drill de diagnóstico da UFV com a curva DELE já carregando
+function gOpenDrill(inv){
+  const u=document.getElementById('gUsi').value, k=norm(u);
+  let p=MAP[k];
+  if(!p){ const ks=Object.keys(MAP), c=ks.filter(x=>x.startsWith(k)||k.startsWith(x));
+          if(c.length===1) p=MAP[c[0]]; }
+  if(!p||!hasDrill(p)){ alert('Esta usina não tem página de diagnóstico (fonte sem drill ao vivo).'); return; }
+  window.open(drillUrl(p)+'&inv='+encodeURIComponent(inv),'_blank');
 }
 
 /* ---- mode toggle ---- */

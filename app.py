@@ -1525,6 +1525,13 @@ def index():
     return render_template("index.html", today=datetime.now().strftime("%d/%m/%Y"))
 
 
+@app.route("/teste-layout")
+def teste_layout():
+    # Protótipo do NOVO estilo da página principal (aba API PV · Strings · Visão geral).
+    # Consome o /api/data ao vivo. Aprovado → portar p/ index.html; reprovado → apagar rota+template.
+    return render_template("teste_layout.html", today=datetime.now().strftime("%d/%m/%Y"))
+
+
 @app.route("/gerencial")
 def gerencial():
     # Painel 3 — Visão Gerencial (atingimento × P50 por usina/cliente). Consome /api/gerencial.
@@ -2334,8 +2341,10 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
         path = meta["plant_paths"].get(key)
         return by_path[path]["value"] if (path and path in by_path) else None
 
-    falha_n = _pval("InvsFalhaComunicacao")
-
+    # "Sem comunicação" da USINA = o logger da planta não reporta (leitura velha), MESMA régua da
+    # API PV. NÃO usar InvsFalhaComunicacao do supervisório aqui: falha PARCIAL de inversor com a
+    # usina reportando (leitura fresca + strings ativas) é déficit de inversor, não sem-comm da
+    # usina — senão a usina some da contagem de déficit do portfólio (caso CPP100, 05/07).
     falha_comm = False
     if ts_max:
         try:
@@ -2343,8 +2352,6 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
             falha_comm = diff > COMM_ALERT_MINUTES
         except Exception:
             pass
-    if falha_n and isinstance(falha_n, (int, float)) and falha_n > 0:
-        falha_comm = True
 
     # Produção da usina (p/ separar PARADA de baixa-perf de strings): potência total da planta
     # (LOGGER.TOT.P) ou, na falta, o contador de inversores produzindo/parados do supervisório.
@@ -3119,24 +3126,28 @@ def _sunop_analog_history(pathnames: list, start: str, end: str, inst: str = "gr
 _sunop_str_med_cache = {}   # (plant_name, dia) -> {"ts","med"} — mediana das strings da USINA inteira
 
 
-def _sunop_str_med_usina(plant_name: str, dia: str, inst: str = "gridco") -> float:
-    """Mediana da energia (∫corrente no dia) de TODAS as strings da usina (todos os inversores).
-    É a referência p/ comparar strings ENTRE inversores: pega o inversor inteiro em baixa, não só
-    a string ruim dentro do inversor. Como a curva é buscada por inversor, sem esta base cada
-    inversor só se compararia consigo mesmo (inversor todo em baixa passaria como ~100% "OK").
+def _sunop_str_med_ent(plant_name: str, dia: str, inst: str = "gridco") -> dict:
+    """Entrada cacheada {med, curva} da mediana das strings da USINA (todos os inversores):
+      • med   = mediana da energia (∫corrente no dia) de todas as strings — referência p/ comparar
+                inversores ENTRE si (pega o inversor inteiro em baixa).
+      • curva = mediana REAL por instante (HH:MM) da corrente de todas as strings — MESMA referência
+                do gráfico de correlação (mediana dos pares), p/ a Curva do inversor não usar proxy.
+    A busca do histórico de todas as strings já era feita p/ 'med', então a curva sai quase de graça.
     Cacheada por (usina, dia)."""
     cache = _si(inst)["str_med_cache"]
     key = (plant_name, dia)
     ent = cache.get(key)
-    if ent and (time.time() - ent["ts"]) < CACHE_TTL:
-        return ent["med"]
+    if ent and (time.time() - ent["ts"]) < CACHE_TTL and "curva" in ent:
+        return ent
     meta = _si(inst)["meta"].get(plant_name)
     med = 0.0
+    curva = {"x": [], "y": []}
     if meta:
         inv_strings = meta["inv_strings"]
         allp = [p for ps in inv_strings.values() for p in ps]
         hist = _sunop_analog_history(allp, f"{dia}T00:00:00", f"{dia}T23:59:59", inst)
         somas = []
+        vivas = {}   # {path: serie}  — strings vivas (não trancadas)
         for inv_name, ps in inv_strings.items():
             for p in ps:
                 if _str_key(plant_name, inv_name, p.split(".")[-1]) in _trancadas:
@@ -3144,10 +3155,29 @@ def _sunop_str_med_usina(plant_name: str, dia: str, inst: str = "gridco") -> flo
                 serie = hist.get(p, [])
                 if serie:
                     somas.append(sum(max(0.0, v) for _, v in serie))
+                    # timestamp -> "HH:MM" (o _str_grades usa _str_min_of, que só casa HH:MM ancorado —
+                    # datetime/ISO cru quebra), mesma conversão do builder da curva por string.
+                    vivas[p] = [(str(t)[11:16], max(0.0, v)) for t, v in serie]
         somas.sort()
         med = somas[len(somas) // 2] if somas else 0.0
-    cache[key] = {"ts": time.time(), "med": med}
-    return med
+        # mediana REAL por instante na grade STR_EV (06–18h/10min) — reamostra p/ alinhar a fase
+        # de loggers diferentes (bucket por HH:MM cru enviesa: cada minuto pega poucas strings). É a
+        # MESMA grade/lógica da "mediana dos pares" do gráfico de correlação.
+        ncells = (STR_EV_WIN_FIM - STR_EV_WIN_INI) // STR_EV_STEP + 1
+        grids = _str_grades(vivas, ncells)
+        gx, gy = _corr_xs(), []
+        for i in range(ncells):
+            vv = sorted(g[i] for g in grids.values() if g[i] is not None)
+            gy.append(round(vv[len(vv) // 2], 2) if vv else None)
+        curva = {"x": gx, "y": gy}
+    ent = {"ts": time.time(), "med": med, "curva": curva}
+    cache[key] = ent
+    return ent
+
+
+def _sunop_str_med_usina(plant_name: str, dia: str, inst: str = "gridco") -> float:
+    """Mediana da energia diária das strings da usina (escalar). Ver _sunop_str_med_ent."""
+    return _sunop_str_med_ent(plant_name, dia, inst)["med"]
 
 
 def _sunop_strings_curva(plant_name: str, dia: str, inv=None, inst: str = "gridco") -> dict:
@@ -3155,7 +3185,8 @@ def _sunop_strings_curva(plant_name: str, dia: str, inv=None, inst: str = "gridc
     meta = _si(inst)["meta"].get(plant_name)
     if not meta:
         return {"plant_id": plant_name, "data": dia, "inversores": []}
-    med_usina = _sunop_str_med_usina(plant_name, dia, inst)   # referência da USINA (não do inversor)
+    med_ent = _sunop_str_med_ent(plant_name, dia, inst)       # referência da USINA (escalar + curva real)
+    med_usina = med_ent["med"]
     inv_strings = meta["inv_strings"]
     nomes = [inv] if (inv and inv in inv_strings) else list(inv_strings.keys())
     allp  = [p for n in nomes for p in inv_strings.get(n, [])]
@@ -3198,7 +3229,8 @@ def _sunop_strings_curva(plant_name: str, dia: str, inv=None, inst: str = "gridc
                     "mediana_usina": round(med_usina, 1), "abaixo": abaixo, "strings": strings})
     _marca_inv_sub(out)
     return {"plant_id": plant_name, "data": dia, "inversores": out,
-            "mediana_usina": round(med_usina, 1)}
+            "mediana_usina": round(med_usina, 1),
+            "mediana_usina_curva": med_ent.get("curva")}   # mediana REAL da usina por instante
 
 
 _sunop_curva_cache = {}   # (plant_name, dia, inv) -> {"ts", "payload"} — curva por inversor/dia
@@ -5509,10 +5541,16 @@ def _macro_eh_dia(r) -> bool:
 
 
 def _macro_dif(r):
-    """Deficit de strings usado no ranking: só inversores PRODUZINDO quando a fonte sabe (diferenca_operante);
-    senão, a diferença total."""
-    do = r.get("diferenca_operante")
-    return do if isinstance(do, (int, float)) else r.get("diferenca")
+    """Déficit de strings AGORA = ativas − esperadas, IGUAL em todas as fontes (o mesmo número
+    que aparece na coluna Diferença do detalhamento de cada fonte). Antes preferia
+    'diferenca_operante' (só inversores PRODUZINDO), campo que só API PV/PG calculam e que zera
+    quando os inversores param → deixava a régua inconsistente (Athon/Axis mostravam o total cru,
+    API PV/PG mostravam 0). String Box não tem visão por string → sem str_esp → sem déficit."""
+    a, e = r.get("strings_ativas"), r.get("str_esp")
+    if isinstance(a, (int, float)) and isinstance(e, (int, float)):
+        return a - e
+    d = r.get("diferenca")
+    return d if isinstance(d, (int, float)) else None
 
 
 def _macro_status(r) -> str:
@@ -5816,6 +5854,602 @@ def _thopen_prod_mtd():
     return c["data"] or {}
 
 
+# ── Geração MTD Athon/Axis/2C: abas por-usina do BD_Performance (meta P50 = Info Geral) ──
+#   Cada usina Athon/Axis/2C tem uma aba própria no BD_Performance com geração diária por
+#   inversor (colunas "Inversor *"). Somamos o mês corrente; a meta P50 (anual) vem da Info Geral.
+#   Isso libera atingimento/energia perdida dessas fontes (antes só PG + Thopen tinham meta).
+_bdperf_prod_cache = {"ts": 0.0, "ym": None, "data": {}, "warming": False}
+_BDPERF_PROD_TTL = 1800
+_BDPERF_FONTES = {"athon", "axis", "2c"}
+
+
+def _bdperf_prod_build():
+    out = {}
+    try:
+        import openpyxl
+        hoje = datetime.now()
+        hoje_d = hoje.date()
+        wb = openpyxl.load_workbook(_bd_readable_path(), read_only=True, data_only=True)
+        sheets = set(wb.sheetnames)
+        for k, ig in INFO_GERAL.items():
+            if (ig.get("cliente") or "").strip().lower() not in _BDPERF_FONTES:
+                continue
+            nome = ig.get("usina")
+            if nome not in sheets:
+                continue
+            try:
+                it = wb[nome].iter_rows(values_only=True)
+                hdr = next(it, None) or ()
+                invcols = [i for i, h in enumerate(hdr) if h and str(h).startswith("Inversor")]
+                if not invcols:
+                    continue
+                ii = next((i for i, h in enumerate(hdr) if h and "IPOA" in str(h) and "DEF" in str(h)), None)
+                etmc = [i for i, h in enumerate(hdr) if h and "IPOA" in str(h).upper() and "ETM" in str(h).upper()]
+                tot = 0.0        # geração do mês inteiro (prod_mwh MTD)
+                gen_pr = 0.0     # geração só dos dias com IPOA utilizável (numerador do PR)
+                ipoa = 0.0
+                for r in it:
+                    d = r[1] if len(r) > 1 else None
+                    if not isinstance(d, datetime) or d.year != hoje.year or d.month != hoje.month:
+                        continue
+                    rowgen = sum(r[i] for i in invcols if i < len(r) and isinstance(r[i], (int, float)))
+                    tot += rowgen
+                    if d.date() < hoje_d:               # PR só de dias COMPLETOS
+                        ipd = r[ii] if (ii is not None and ii < len(r)) else None
+                        ip = None
+                        if isinstance(ipd, (int, float)):
+                            if ipd > 0.5:               # DEF fechada usa; ==0 = rejeição → pula
+                                ip = ipd
+                        else:                           # DEF vazia → melhor IPOA ETM medida
+                            cand = [r[i] for i in etmc
+                                    if i < len(r) and isinstance(r[i], (int, float)) and r[i] > 0.5]
+                            if cand:
+                                ip = max(cand)
+                        if ip is not None:
+                            ipoa += ip; gen_pr += rowgen
+                if tot > 0:
+                    mwp = ig.get("potencia_mwp")
+                    pr = (gen_pr / (mwp * 1000.0 * ipoa) * 100) if (mwp and ipoa and gen_pr) else None
+                    rec = pr_previsto(nome)
+                    prm = rec.get("pr_previsto") if rec else None
+                    out[k] = {"usina": nome, "prod_mwh": tot / 1000.0,
+                              "cliente": ig.get("cliente"), "pot_mwp": mwp,
+                              "pr": round(pr, 1) if pr is not None else None,
+                              "pr_meta": round(prm * 100, 1) if isinstance(prm, (int, float)) else None}
+            except Exception:
+                continue
+        try:
+            wb.close()
+        except Exception:
+            pass
+        print(f"[gerencial] BD_Performance prod MTD (Athon/Axis/2C): {len(out)} usinas")
+    except Exception as e:
+        print(f"[gerencial] BD_Performance prod build falhou: {e}")
+    _bdperf_prod_cache.update({"data": out, "ts": time.time(),
+                               "ym": (datetime.now().year, datetime.now().month), "warming": False})
+
+
+def _bdperf_prod_mtd():
+    """Map cacheado {nrm: {usina,prod_mwh,cliente,pot_mwp}} das usinas Athon/Axis/2C; aquece em
+    background (a 1ª leitura de ~13 abas do xlsx demora) → não bloqueia o /api/gerencial."""
+    ym = (datetime.now().year, datetime.now().month)
+    c = _bdperf_prod_cache
+    if (c["ym"] != ym or (time.time() - c["ts"]) >= _BDPERF_PROD_TTL) and not c["warming"]:
+        c["warming"] = True
+        threading.Thread(target=_bdperf_prod_build, daemon=True).start()
+    return c["data"] or {}
+
+
+# ── PR MENSAL por inversor (heatmap do drill) — abas por-usina do BD_Performance ──────────────
+#   PR_inv = Σ geração_inv ÷ (potência_inv × Σ IPOA válida) no mês. ABSOLUTO (geração÷IPOA×kWp,
+#   mesma régua do projeto "Geração Diária"); flag 'sensor' quando o PR sai fisicamente impossível
+#   (>130% → IPOA subestimada). Potência/inversor ~= MWp da Info Geral ÷ nº de inversores da aba.
+#   IPOA por dia: usa a DEF quando fechada (>0.5); DEF==0 = rejeição do analista → pula o dia;
+#   DEF em branco = dia ainda não fechado → cai p/ a melhor IPOA medida (ETM). Conta só dias
+#   COMPLETOS (exclui o dia em curso). Sem gate de "Validação" — o gate é ter IPOA utilizável.
+_bdperf_pr_cache = {}          # usina_nrm -> {ts, ym, data}
+_BDPERF_PR_TTL = 1800
+
+
+def _bdperf_pr_inv(usina):
+    k = _nrm(usina)
+    ym = (datetime.now().year, datetime.now().month)
+    ent = _bdperf_pr_cache.get(k)
+    if ent and ent["ym"] == ym and (time.time() - ent["ts"]) < _BDPERF_PR_TTL:
+        return ent["data"]
+    out = {"inversores": {}, "ipoa_mes": None, "ndias": 0, "sensor": False,
+           "mes": datetime.now().strftime("%m/%Y")}
+    try:
+        import openpyxl
+        hoje = datetime.now()
+        wb = openpyxl.load_workbook(_bd_readable_path(), read_only=True, data_only=True)
+        nome = next((s for s in wb.sheetnames if _nrm(s) == k), None)
+        if not nome:
+            wb.close(); return out
+        mwp = (INFO_GERAL.get(k) or {}).get("potencia_mwp")
+        it = wb[nome].iter_rows(values_only=True)
+        hdr = next(it, None) or ()
+        invc = [(i, str(h)) for i, h in enumerate(hdr) if h and str(h).startswith("Inversor")]
+        ii = next((i for i, h in enumerate(hdr) if h and "IPOA" in str(h) and "DEF" in str(h)), None)
+        # IPOA medida (ETM) — fallback quando a DEF ainda não foi fechada. Pode haver mais de uma
+        # estação (ETM 1/ETM 2); usa a MAIOR leitura válida do dia (a menor costuma ser sensor furado).
+        etmc = [i for i, h in enumerate(hdr) if h and "IPOA" in str(h).upper() and "ETM" in str(h).upper()]
+        gen = {nm: 0.0 for _, nm in invc}
+        ipoa, ndias = 0.0, 0
+        hoje_d = hoje.date()
+        for r in it:
+            d = r[1] if len(r) > 1 else None
+            # só dias COMPLETOS do mês corrente (exclui o dia em curso p/ não distorcer o MTD)
+            if not (isinstance(d, datetime) and d.year == hoje.year and d.month == hoje.month
+                    and d.date() < hoje_d):
+                continue
+            ipd = r[ii] if (ii is not None and ii < len(r)) else None
+            if isinstance(ipd, (int, float)):
+                if ipd <= 0.5:          # DEF==0 = analista rejeitou/sem dado no dia → pula
+                    continue
+                ip = ipd                # DEF fechada → usa
+            else:                       # DEF em branco → melhor IPOA medida (ETM) do dia
+                cand = [r[i] for i in etmc
+                        if i < len(r) and isinstance(r[i], (int, float)) and r[i] > 0.5]
+                ip = max(cand) if cand else None
+                if ip is None:
+                    continue
+            ipoa += ip; ndias += 1
+            for i, nm in invc:
+                v = r[i] if i < len(r) else None
+                if isinstance(v, (int, float)):
+                    gen[nm] += v
+        wb.close()
+        pinv = (mwp * 1000.0 / len(invc)) if (mwp and invc) else None
+        for nm, g in gen.items():
+            pr = (g / (pinv * ipoa)) if (pinv and ipoa and g) else None
+            if pr is not None and pr > 1.3:
+                out["sensor"] = True
+            out["inversores"][nm] = {"pr": round(pr * 100, 1) if pr is not None else None,
+                                     "gen_mwh": round(g / 1000.0, 1)}
+        # PR Meta da UFV (Info Mensal — régua Power BI, já com degradação) p/ o comparativo por
+        # inversor; e PR MTD da usina inteira (Σgeração ÷ (MWp × Σipoa)) como contexto.
+        rec = pr_previsto(usina)
+        prm = rec.get("pr_previsto") if rec else None
+        tot_g = sum(gen.values())
+        out.update({"ipoa_mes": round(ipoa, 1), "ndias": ndias,
+                    "pot_inv_kwp": round(pinv, 1) if pinv else None,
+                    "pr_meta": round(prm * 100, 1) if isinstance(prm, (int, float)) else None,
+                    "pr_usina": (round(tot_g / (mwp * 1000.0 * ipoa) * 100, 1)
+                                 if (mwp and ipoa and tot_g) else None)})
+    except Exception as e:
+        out["erro"] = str(e)
+    _bdperf_pr_cache[k] = {"ts": time.time(), "ym": ym, "data": out}
+    return out
+
+
+@app.route("/api/inv/pr-mes")
+def api_inv_pr_mes():
+    """PR mensal (MTD) por inversor de uma usina (abas do BD_Performance). ?usina=<nome display>."""
+    usina = (flask_request.args.get("usina") or "").strip()
+    if not usina:
+        return jsonify({"error": "usina required", "inversores": {}}), 400
+    return jsonify(_bdperf_pr_inv(usina))
+
+
+# ── ETM: varredura de PROBLEMAS que impedem/estragam o PR (visão "ETM" da Frota) ──────────────
+#   Régua (pedido do Levi 05/07): IPOA nula/zerada · GHI nula/zerada · IPOA/GHI CONSTANTE por
+#   vários dias (sensor travado, ex. -1) · PR anômalo (>130% ou <0 = IPOA subestimada, régua do
+#   SENSOR). Fontes: série diária das abas por-usina do BD_Performance (IPOA ETM/GHI do mês) +
+#   /api/gerencial (IPOA do PG zerada com produção; PR anômalo em qualquer fonte).
+_etm_prob_cache = {"ts": 0.0, "data": None}
+_ETM_PROB_TTL = 900
+
+
+def _etm_problemas_build():
+    hoje = datetime.now()
+    hoje_d = hoje.date()
+    probs = {}   # nrm -> {"usina","cliente","problemas":[...]}
+
+    def add(nome, cliente, txt):
+        p = probs.setdefault(_nrm(nome), {"usina": nome, "cliente": cliente or "—", "problemas": []})
+        if txt not in p["problemas"]:
+            p["problemas"].append(txt)
+
+    # 1) Abas por-usina do BD_Performance — série DIÁRIA de IPOA (ETM) e GHI do mês corrente
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(_bd_readable_path(), read_only=True, data_only=True)
+        sheets = set(wb.sheetnames)
+        for k, ig in INFO_GERAL.items():
+            nome = ig.get("usina")
+            if nome not in sheets:
+                continue
+            try:
+                it = wb[nome].iter_rows(values_only=True)
+                hdr = next(it, None) or ()
+                etmc = [i for i, h in enumerate(hdr) if h and "IPOA" in str(h).upper() and "ETM" in str(h).upper()]
+                ghic = [i for i, h in enumerate(hdr) if h and str(h).strip().upper().startswith("GHI")]
+                if not etmc and not ghic:
+                    continue
+                si, sg = [], []      # série diária (dias completos do mês): melhor leitura do dia
+                for r in it:
+                    d = r[1] if len(r) > 1 else None
+                    if not (isinstance(d, datetime) and d.year == hoje.year
+                            and d.month == hoje.month and d.date() < hoje_d):
+                        continue
+                    iv = [r[i] for i in etmc if i < len(r) and isinstance(r[i], (int, float))]
+                    gv = [r[i] for i in ghic if i < len(r) and isinstance(r[i], (int, float))]
+                    si.append(max(iv) if iv else None)
+                    sg.append(max(gv) if gv else None)
+
+                def _diag(serie, rot, trava_pr=False):
+                    if not serie:
+                        return
+                    suf = " — PR não calculável" if trava_pr else ""
+                    vals = [v for v in serie if v is not None]
+                    if not vals or all(v <= 0.5 for v in vals):
+                        add(nome, ig.get("cliente"), f"{rot} sem leitura/zerada no mês inteiro ({len(serie)}d){suf}")
+                        return
+                    # valor CONSTANTE ≥3 dias seguidos (sensor travado; pega -1, 0.0 repetido etc.)
+                    run_v = None; run_n = 0; best_v = None; best_n = 0
+                    for v in serie:
+                        if v is not None and v == run_v:
+                            run_n += 1
+                        else:
+                            run_v, run_n = v, (1 if v is not None else 0)
+                        if run_v is not None and run_n > best_n:
+                            best_v, best_n = run_v, run_n
+                    if best_n >= 3:
+                        add(nome, ig.get("cliente"), f"{rot} constante em {round(best_v, 3)} por {best_n} dias seguidos (sensor travado?)")
+                    nz = sum(1 for v in vals if v <= 0.5)
+                    if 3 <= nz < len(vals):
+                        add(nome, ig.get("cliente"), f"{rot} zerada/nula em {nz} de {len(serie)} dias")
+                _diag(si, "IPOA (ETM)", trava_pr=True)   # sem IPOA não há PR
+                _diag(sg, "GHI")                          # GHI não trava o PR, mas é sensor doente
+            except Exception:
+                continue
+        wb.close()
+    except Exception as e:
+        print(f"[etm/problemas] BD_Performance falhou: {e}")
+
+    # 2) Gerencial — IPOA do PG zerada com produção (PR não sai) + PR anômalo em qualquer fonte
+    try:
+        g = _gerencial_payload()
+        for u in g.get("usinas", []):
+            pr = u.get("pr")
+            if u.get("src") == "pg" and not u.get("ipoa") and (u.get("prod") or 0) > 0:
+                add(u["usina"], u.get("cliente"), "IPOA do PG zerada/ausente no mês com usina gerando — PR não calculável")
+            if pr is not None and (pr > 130 or pr < 0):
+                add(u["usina"], u.get("cliente"), f"PR anômalo ({nfmt(pr)}%) — IPOA subestimada/furada (régua SENSOR >130%)")
+    except Exception as e:
+        print(f"[etm/problemas] gerencial falhou: {e}")
+
+    itens = sorted(probs.values(), key=lambda p: p["usina"])
+    return {"itens": itens, "mes": hoje.strftime("%m/%Y"),
+            "cache_ts": datetime.now().strftime("%H:%M:%S")}
+
+
+def nfmt(v):
+    try:
+        return f"{v:,.0f}".replace(",", ".")
+    except Exception:
+        return str(v)
+
+
+@app.route("/api/etm/problemas")
+def api_etm_problemas():
+    force = flask_request.args.get("force", "0") == "1"
+    c = _etm_prob_cache
+    if force or not c["data"] or (time.time() - c["ts"]) >= _ETM_PROB_TTL:
+        c["data"] = _etm_problemas_build()
+        c["ts"] = time.time()
+    out = dict(c["data"])
+    # anexa o estado do ticket (comentário + feito) por usina — compartilhado entre analistas
+    with _state_lock:
+        tk = _load_state().get("etm_tickets", {})
+    out["itens"] = [dict(i, ticket=tk.get(_nrm(i["usina"])) or {}) for i in out["itens"]]
+    return jsonify(out)
+
+
+@app.route("/api/etm/ticket", methods=["POST"])
+def api_etm_ticket():
+    """Salva comentário + checkbox 'Ticket criado?' de uma usina da visão ETM (ufv_state.json)."""
+    body = flask_request.get_json(force=True) or {}
+    usina = (body.get("usina") or "").strip()
+    if not usina:
+        return jsonify({"error": "usina required"}), 400
+    with _state_lock:
+        d = _load_state()
+        d.setdefault("etm_tickets", {})[_nrm(usina)] = {
+            "usina": usina,
+            "comentario": (body.get("comentario") or "").strip()[:2000],
+            "feito": bool(body.get("feito")),
+            "ts": datetime.now().strftime("%Y-%m-%d %H:%M"),
+        }
+        _save_state(d)
+    return jsonify({"ok": True})
+
+
+# ══ HISTÓRICO D-1 · VISÃO PR — motor do Dashboard de Geração (5070) portado p/ o Painel NOC ═════
+#   Mesmas regras do Power BI: PR dia = (ger kWh/1000) ÷ (IPOA_DEF × Pot_MWp) × Validação;
+#   agregação SEMPRE ponderada por energia (Σger ÷ ΣIPOA×pot), nunca média de PRs.
+#   Fontes: abas por-usina do BD_Performance (com inversor) + BD_Thopen via dashboard_thopen
+#   (carteiras Thopen/Copel/Matrix/Polaris — só por USINA, o banco não tem inversor).
+_G_META_SHEETS = {"info geral", "info mensal", "equipamentos"}
+_G_SKIP_SHEETS = {"falhas", "trackers", "pvsyst", "acumulado anual", "aux"}
+_g_reg_cache = {}
+_g_cache = {}
+
+
+def _g_n2(s):
+    return _nrm(_unaccent(s))
+
+
+def _g_match_ig(sheet):
+    k = _g_n2(sheet)
+    for g in INFO_GERAL.values():
+        if _g_n2(g.get("usina", "")) == k:
+            return g
+    for g in INFO_GERAL.values():
+        gk = _g_n2(g.get("usina", ""))
+        if gk and (gk.startswith(k) or k.startswith(gk)):
+            return g
+    return None
+
+
+def _g_registry():
+    """(USINAS, CLIENTES) das abas do BD_Performance × Info Geral, cacheado por mtime."""
+    from openpyxl import load_workbook
+    try:
+        m = os.path.getmtime(_bd_perf_path())
+    except OSError:
+        m = 0.0
+    if m in _g_reg_cache:
+        return _g_reg_cache[m]
+    wb = load_workbook(_bd_readable_path(), read_only=True)
+    sheets = wb.sheetnames
+    wb.close()
+    d2s = {_g_n2(dsp): sup for sup, dsp in USINA_DISPLAY.items()}
+    usinas, clientes = {}, {}
+    for s in sheets:
+        sl = s.strip().lower()
+        if sl in _G_META_SHEETS or sl in _G_SKIP_SHEETS or "backup" in sl or sl.startswith("plan"):
+            continue
+        g = _g_match_ig(s)
+        if not g or not g.get("cliente"):
+            continue
+        canon, cli = g["usina"], g["cliente"]
+        usinas[canon] = {"sheet": s, "sup": d2s.get(_g_n2(canon)) or canon, "cliente": cli}
+        clientes.setdefault(cli, []).append(canon)
+    for c in clientes:
+        clientes[c].sort()
+    _g_reg_cache.clear()
+    _g_reg_cache[m] = (usinas, clientes)
+    return usinas, clientes
+
+
+def _g_find(cols, *needles, exclude=()):
+    nd = [n.lower() for n in needles]
+    ex = [e.lower() for e in exclude]
+    for c in cols:
+        cl = str(c).lower()
+        if all(n in cl for n in nd) and not any(e in cl for e in ex):
+            return c
+    return None
+
+
+def _g_build(entries):
+    """entries=[(canon, sheet, sup)] → (inv_df, dia_df) por inversor/dia e usina/dia.
+    Lê TODAS as abas numa única passada do xlsx (sheet_name=lista) — ler 1 aba por vez
+    reabre/parseia o arquivo inteiro N vezes e era o gargalo da visão PR."""
+    path = _bd_readable_path()
+    inv_rows, dia_rows = [], []
+    try:
+        dfs = pd.read_excel(path, sheet_name=[s for _, s, _ in entries], header=0)
+    except Exception:
+        dfs = {}
+    for canon, sheet, sup in entries:
+        df = dfs.get(sheet)
+        if df is None:
+            continue
+        df.columns = [str(c).strip() for c in df.columns]
+        c_data = _g_find(df.columns, "data")
+        c_ipoa = _g_find(df.columns, "ipoa", "def") or _g_find(df.columns, "ipoa", "etm") \
+            or _g_find(df.columns, "ipoa")
+        c_val = next((c for c in df.columns if str(c).lower().startswith("valida")), None)
+        inv_cols = [c for c in df.columns if str(c).lower().startswith("inversor")]
+        if not c_data or not inv_cols:
+            continue
+        for _, r in df.iterrows():
+            if pd.isna(r[c_data]):
+                continue
+            dt = pd.to_datetime(r[c_data], errors="coerce")
+            if pd.isna(dt):
+                continue
+            ipoa = _num(r[c_ipoa]) if c_ipoa else None
+            val = _num(r[c_val]) if c_val else None
+            for ic in inv_cols:
+                gen = _num(r[ic])
+                if gen is None:
+                    continue
+                pot = _pot_inv(sup, ic)
+                pr = (gen / (ipoa * pot) * val) if (pot and ipoa and ipoa > 0 and val is not None) else None
+                inv_rows.append({"usina": canon, "data": dt, "ano": dt.year, "mes": dt.month,
+                                 "inversor": ic, "geracao": gen, "ipoa": ipoa, "validacao": val,
+                                 "pot_kwp": pot, "pr": pr})
+            gen_dia = sum(_num(r[ic]) or 0.0 for ic in inv_cols)
+            dia_rows.append({"usina": canon, "data": dt, "ano": dt.year, "mes": dt.month,
+                             "geracao": gen_dia, "ipoa": ipoa, "validacao": val})
+    return pd.DataFrame(inv_rows), pd.DataFrame(dia_rows)
+
+
+_g_lock = threading.Lock()
+
+
+def _g_get(cliente):
+    usinas, clientes = _g_registry()
+    try:
+        m = os.path.getmtime(_bd_perf_path())
+    except OSError:
+        m = 0.0
+    key = (cliente, m)
+    # lock: os 3 gráficos da visão PR chegam JUNTOS — sem isto, 3 builds paralelos do mesmo cliente
+    with _g_lock:
+        if key not in _g_cache:
+            entries = [(c, usinas[c]["sheet"], usinas[c]["sup"]) for c in clientes.get(cliente, [])]
+            _g_cache[key] = _g_build(entries)
+    return _g_cache[key]
+
+
+def _g_pr_pond(df_dia, usina_disp):
+    g = info_geral(usina_disp)
+    pot_mwp = (g or {}).get("potencia_mwp")
+    val = df_dia[(df_dia["validacao"] > 0) & (df_dia["ipoa"] > 0)]
+    if not pot_mwp or val.empty:
+        return None
+    den = val["ipoa"].sum() * pot_mwp
+    return (val["geracao"].sum() / 1000.0 / den) if den else None
+
+
+# --- engine BD_Thopen (carteiras do banco; POR USINA — o banco não tem inversor) ---
+def _g_th_carteiras():
+    try:
+        import dashboard_thopen as _dth
+        return sorted(set(c for c in _dth._CARTEIRA_DE.values() if c))
+    except Exception:
+        return []
+
+
+def _g_th_usinas(carteira):
+    import dashboard_thopen as _dth
+    return sorted(u for u, c in _dth._CARTEIRA_DE.items() if c == carteira)
+
+
+def _g_th_pot(usina):
+    import dashboard_thopen as _dth
+    reg = _dth._registro()
+    return (reg.get(usina) or {}).get("pot_mwp") or (INFO_GERAL.get(_nrm(usina)) or {}).get("potencia_mwp")
+
+
+def _g_th_meta(usina, ano, mes):
+    """Meta de PR (fração): Info Mensal (pr_previsto); fallback Historico_2026 do BD_Thopen."""
+    rec = pr_previsto(usina, ano, mes)
+    prm = (rec or {}).get("pr_previsto")
+    if prm is None:
+        prm = ((THOPEN_META.get(_nrm(usina)) or {}).get(mes) or {}).get("pr_meta")
+    if isinstance(prm, (int, float)) and prm > 2:   # planilha em %, não fração
+        prm /= 100.0
+    return prm
+
+
+def _g_th_daily(usina):
+    import dashboard_thopen as _dth
+    return [r for r in _dth._daily_records(usina)
+            if r.get("ger") and r.get("ipoa") and r["ipoa"] > 0.3]
+
+
+@app.route("/api/g/clientes")
+def api_g_clientes():
+    _, cls = _g_registry()
+    return jsonify(sorted(set(cls.keys()) | set(_g_th_carteiras())))
+
+
+@app.route("/api/g/usinas")
+def api_g_usinas():
+    cli = flask_request.args.get("cliente", "")
+    if cli in _g_th_carteiras():                     # carteira do banco (prioridade — pedido do Levi)
+        return jsonify(_g_th_usinas(cli))
+    _, cls = _g_registry()
+    return jsonify(cls.get(cli, []))
+
+
+@app.route("/api/g/mensal")
+def api_g_mensal():
+    cli = flask_request.args.get("cliente", "")
+    u = flask_request.args.get("usina", "")
+    if cli in _g_th_carteiras():
+        pot = _g_th_pot(u)
+        por = {}
+        for r in _g_th_daily(u):
+            k = (r["data"].year, r["data"].month)
+            a = por.setdefault(k, [0.0, 0.0])
+            a[0] += r["ger"]; a[1] += r["ipoa"]
+        pts = [{"ano": a, "mes": m,
+                "realizado": (g / 1000.0 / (ip * pot)) if (pot and ip) else None,
+                "meta": _g_th_meta(u, a, m)} for (a, m), (g, ip) in sorted(por.items())]
+        return jsonify({"usina": u, "fonte": "bd_thopen", "pontos": pts})
+    _, dia = _g_get(cli)
+    disp = (INFO_GERAL.get(_nrm(u), {}) or {}).get("usina", u)
+    out = []
+    if not dia.empty:
+        for (ano, mes), grp in dia[dia["usina"] == disp].groupby(["ano", "mes"]):
+            rec = pr_previsto(disp, int(ano), int(mes))
+            out.append({"ano": int(ano), "mes": int(mes), "realizado": _g_pr_pond(grp, disp),
+                        "meta": (rec or {}).get("pr_previsto")})
+        out.sort(key=lambda x: (x["ano"], x["mes"]))
+    return jsonify({"usina": disp, "fonte": "bd_perf", "pontos": out})
+
+
+@app.route("/api/g/diario")
+def api_g_diario():
+    cli = flask_request.args.get("cliente", "")
+    u = flask_request.args.get("usina", "")
+    ano = int(flask_request.args.get("ano")); mes = int(flask_request.args.get("mes"))
+    if cli in _g_th_carteiras():
+        pot = _g_th_pot(u)
+        pts = [{"dia": r["data"].day,
+                "realizado": (r["ger"] / 1000.0 / (r["ipoa"] * pot)) if pot else None}
+               for r in _g_th_daily(u) if r["data"].year == ano and r["data"].month == mes]
+        pts.sort(key=lambda p: p["dia"])
+        return jsonify({"usina": u, "meta": _g_th_meta(u, ano, mes), "pontos": pts})
+    _, dia = _g_get(cli)
+    disp = (INFO_GERAL.get(_nrm(u), {}) or {}).get("usina", u)
+    g = info_geral(disp)
+    pot_mwp = (g or {}).get("potencia_mwp")
+    rec = pr_previsto(disp, ano, mes)
+    pts = []
+    if not dia.empty:
+        sub = dia[(dia["usina"] == disp) & (dia["ano"] == ano) & (dia["mes"] == mes)]
+        for _, r in sub.sort_values("data").iterrows():
+            pr = None
+            if pot_mwp and r["ipoa"] and r["ipoa"] > 0 and r["validacao"]:
+                pr = (r["geracao"] / 1000.0) / (r["ipoa"] * pot_mwp) * r["validacao"]
+            pts.append({"dia": int(r["data"].day), "realizado": pr})
+    return jsonify({"usina": disp, "meta": (rec or {}).get("pr_previsto"), "pontos": pts})
+
+
+@app.route("/api/g/inversores")
+def api_g_inversores():
+    cli = flask_request.args.get("cliente", "")
+    u = flask_request.args.get("usina", "")
+    if cli in _g_th_carteiras():                     # banco é por usina — sem visão de inversor
+        return jsonify({"usina": u, "alvo": None, "por_usina": True, "inversores": []})
+    ini = pd.to_datetime(flask_request.args.get("ini")) if flask_request.args.get("ini") else None
+    fim = pd.to_datetime(flask_request.args.get("fim")) if flask_request.args.get("fim") else None
+    inv, _ = _g_get(cli)
+    disp = (INFO_GERAL.get(_nrm(u), {}) or {}).get("usina", u)
+    if inv.empty:
+        return jsonify({"usina": disp, "alvo": None, "inversores": []})
+    sub = inv[inv["usina"] == disp].copy()
+    if ini is not None:
+        sub = sub[sub["data"] >= ini]
+    if fim is not None:
+        sub = sub[sub["data"] <= fim]
+    sub = sub[(sub["validacao"] > 0) & (sub["ipoa"] > 0)]
+    rows = []
+    for nome, grp in sub.groupby("inversor"):
+        pot = grp["pot_kwp"].dropna()
+        if grp.empty or pot.empty:
+            continue
+        den = grp["ipoa"].sum() * (pot.iloc[0] / 1000.0)
+        rows.append({"inversor": nome, "pr": (grp["geracao"].sum() / 1000.0 / den) if den else None})
+    alvo = None
+    if not sub.empty:
+        d0 = sub["data"].min()
+        alvo = (pr_previsto(disp, d0.year, d0.month) or {}).get("pr_previsto")
+    for r in rows:
+        r["alvo"] = alvo
+        r["dif"] = (r["pr"] - alvo) if (r["pr"] is not None and alvo is not None) else None
+    rows.sort(key=lambda x: (x["pr"] is None, x["pr"]))
+    return jsonify({"usina": disp, "alvo": alvo, "inversores": rows})
+
+
 def _gerencial_payload(force=False):
     if not force and _ger_cache["data"] and (time.time() - _ger_cache["ts"]) < GER_TTL:
         return _ger_cache["data"]
@@ -5873,13 +6507,15 @@ def _gerencial_payload(force=False):
         recurso = (p50 * (d["ipoa"] / ipoa_prev)) if (p50 and ipoa_prev and d["ipoa"]) else None
         atg = (prod / p50 * 100) if p50 else None
         pr  = (prod / (d["ipoa"] * pot) * 100) if (d["ipoa"] and pot) else None
+        _rec = pr_previsto(d["usina"]); _prm = _rec.get("pr_previsto") if _rec else None
         usinas.append({"usina": d["usina"], "cliente": ig.get("cliente") or "—",
                        "carteira": _carteira_de(d["usina"]) or ig.get("cliente") or "—",
                        "prod": round(prod, 1), "p50": round(p50, 1) if p50 else None,
                        "recurso": round(recurso, 1) if recurso else None,
                        "pot_mwp": pot, "atingimento": round(atg, 1) if atg is not None else None,
                        "pr": round(pr, 1) if pr is not None else None,
-                       "ipoa": round(d["ipoa"], 1), "p50_src": p50_src})
+                       "pr_meta": round(_prm * 100, 1) if isinstance(_prm, (int, float)) else None,
+                       "ipoa": round(d["ipoa"], 1), "p50_src": p50_src, "src": "pg"})
 
     # 2b) carteiras NÃO-PG (Thopen/Copel/Matrix): geração do mês via BD_Thopen (motor dashboard_thopen)
     pg_keys = set(agg.keys())
@@ -5902,12 +6538,32 @@ def _gerencial_payload(force=False):
         p50 = (p50_mes * prorata) if p50_mes else None
         prod = tp["prod_mwh"]
         atg = (prod / p50 * 100) if p50 else None
+        _rec = pr_previsto(tp["usina"]); _prm = _rec.get("pr_previsto") if _rec else None
         usinas.append({"usina": tp["usina"], "cliente": tp.get("cliente") or "—",
                        "carteira": tp.get("carteira") or "—",
                        "prod": round(prod, 1), "p50": round(p50, 1) if p50 else None,
                        "recurso": None, "pot_mwp": tp.get("pot_mwp"),
                        "atingimento": round(atg, 1) if atg is not None else None,
-                       "pr": None, "ipoa": 0, "p50_src": (p50_src or "sem")})
+                       "pr": None, "pr_meta": round(_prm * 100, 1) if isinstance(_prm, (int, float)) else None,
+                       "ipoa": 0, "p50_src": (p50_src or "sem"), "src": "bdthopen"})
+
+    # 2c) Athon/Axis/2C: geração do mês via abas por-usina do BD_Performance; meta P50 da Info Geral
+    have_k = {_nrm(u["usina"]) for u in usinas}
+    for k, bp in _bdperf_prod_mtd().items():
+        if k in have_k:
+            continue
+        ig = INFO_GERAL.get(k) or {}
+        p50_mes = (ig.get("p50_mwh") / 12.0) if ig.get("p50_mwh") else None
+        p50 = (p50_mes * prorata) if p50_mes else None
+        prod = bp["prod_mwh"]
+        atg = (prod / p50 * 100) if p50 else None
+        usinas.append({"usina": bp["usina"], "cliente": bp.get("cliente") or "—",
+                       "carteira": bp.get("cliente") or "—",
+                       "prod": round(prod, 1), "p50": round(p50, 1) if p50 else None,
+                       "recurso": None, "pot_mwp": bp.get("pot_mwp"),
+                       "atingimento": round(atg, 1) if atg is not None else None,
+                       "pr": bp.get("pr"), "pr_meta": bp.get("pr_meta"),
+                       "ipoa": 0, "p50_src": "infogeral_anual12", "src": "bdperf"})
 
     def _roll(lst):
         # cada razão sobre o SEU subconjunto válido (não mistura denominadores)
@@ -6963,6 +7619,7 @@ def _load_state() -> dict:
     d.setdefault("tracking", {})   # {chave: int}  → strings em acompanhamento
     d.setdefault("manutencao", [])  # lista de chaves de ETM em manutenção (ex.: "etm:pv:22854")
     d.setdefault("strings_trancadas", [])  # chaves "plant_id|inv_id|Ipv" de strings trancadas (MPPT sem string)
+    d.setdefault("etm_tickets", {})   # {usina_nrm: {usina, comentario, feito, ts}} — visão ETM da Frota
     return d
 
 
@@ -10489,6 +11146,18 @@ if __name__ == "__main__":
     threading.Thread(target=_trk_parada_loop, daemon=True).start()
     threading.Thread(target=_trk_ev_hoje_loop, daemon=True).start()
     threading.Thread(target=_tunnel_url_loop, daemon=True).start()
+    # aquece o gerencial no boot (PR/meta por usina) — sem isso, logo após restart o Painel NOC
+    # abre com anomalias SEM a linha de PR (gerencial frio) até o 1º ciclo de warm. A 1ª chamada
+    # dispara os warms de BD_Performance/BD_Thopen em background; a 2ª (forçada) consolida.
+    def _ger_prewarm():
+        try:
+            _gerencial_payload()
+            time.sleep(90)
+            _gerencial_payload(force=True)
+            print("[prewarm] gerencial aquecido")
+        except Exception as e:
+            print(f"[prewarm] gerencial falhou: {e}")
+    threading.Thread(target=_ger_prewarm, daemon=True).start()
     try:
         from waitress import serve
         print("[server] waitress em http://0.0.0.0:5050 (threads=16)")

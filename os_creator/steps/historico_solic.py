@@ -6,7 +6,8 @@ from PyQt6.QtCore import Qt, QDate
 from PyQt6.QtGui import QColor, QBrush, QShortcut, QKeySequence
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
                              QDateEdit, QComboBox, QLineEdit, QSizePolicy, QMessageBox, QTableWidget,
-                             QTableWidgetItem, QHeaderView, QAbstractItemView)
+                             QTableWidgetItem, QHeaderView, QAbstractItemView, QDialog, QFrame,
+                             QScrollArea)
 import api
 from workers import ApiWorker
 from steps.os_detalhe import abrir_os_detalhe
@@ -33,6 +34,119 @@ _STATUS_COR = {
 
 def _data_br(iso):
     return api.fmt_data_br(iso)        # UTC do Fracttal → horário de Brasília
+
+
+class SolicitacaoDialog(QDialog):
+    """Card de detalhe de uma solicitação (layout estruturado): cabeçalho com Nº + selo de status,
+    ativo em destaque, metadados em grade, blocos Título e Comentários separados, OS ligada clicável
+    e botões Cancelar solicitação / Fechar."""
+    _MUTED = "#8a90a2"
+    _LINE = "#2c3142"
+    _BLOCO = "background:#1d2130; border:1px solid #2c3142; border-radius:8px; padding:10px 12px;"
+
+    def __init__(self, parent, d):
+        super().__init__(parent)
+        self._d = d
+        self.cancelou = False                       # True se o usuário cancelar a solicitação
+        idc = d.get("id_code")
+        status = (d.get("status") or "").strip()
+        self.setWindowTitle(f"Solicitação Nº {idc}")
+        self.setMinimumWidth(480)
+        lay = QVBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
+
+        # cabeçalho: Nº + selo de status
+        head = QHBoxLayout(); head.setContentsMargins(16, 14, 16, 12); head.setSpacing(10)
+        head.addWidget(QLabel(f"<b style='font-size:14px'>Solicitação Nº {idc}</b>"))
+        if status:
+            head.addWidget(self._badge(status))
+        head.addStretch(1)
+        lay.addLayout(head)
+        lay.addWidget(self._hline())
+
+        # corpo (com scroll p/ não estourar a tela em comentários longos)
+        body = QWidget(); bl = QVBoxLayout(body)
+        bl.setContentsMargins(16, 14, 16, 8); bl.setSpacing(14)
+        ativo = QLabel(d.get("ativo") or "—"); ativo.setWordWrap(True)
+        ativo.setStyleSheet("font-size:15px; font-weight:600;")
+        bl.addWidget(ativo)
+
+        grid = QGridLayout(); grid.setHorizontalSpacing(10); grid.setVerticalSpacing(6)
+        grid.setColumnStretch(1, 1)
+        campos = [("Cliente", d.get("cliente") or "—"), ("Usina", d.get("usina") or "—"),
+                  ("Criada em", _data_br(d.get("data"))), ("Criado por", d.get("criado_por") or "—")]
+        r = 0
+        for rot, val in campos:
+            grid.addWidget(self._rot(rot), r, 0, Qt.AlignmentFlag.AlignTop)
+            v = QLabel(str(val)); v.setWordWrap(True)
+            grid.addWidget(v, r, 1); r += 1
+        if d.get("id_work_order"):                  # OS ligada — clicável
+            grid.addWidget(self._rot("OS ligada"), r, 0, Qt.AlignmentFlag.AlignTop)
+            folio = d.get("os_folio") or d.get("id_work_order")
+            link = QLabel(f"<a href='os' style='color:#6db3f2; text-decoration:none;'>Nº {folio}</a>")
+            link.setTextFormat(Qt.TextFormat.RichText)
+            link.linkActivated.connect(self._abrir_os)
+            grid.addWidget(link, r, 1); r += 1
+        bl.addLayout(grid)
+
+        bl.addWidget(self._secao("TÍTULO", d.get("descricao_full") or d.get("descricao") or "(sem título)"))
+        if (d.get("observacao") or "").strip():
+            bl.addWidget(self._secao("OBSERVAÇÃO", d["observacao"]))
+        bl.addStretch(1)
+
+        scroll = QScrollArea(); scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame); scroll.setWidget(body)
+        lay.addWidget(scroll, 1)
+
+        # rodapé: botões
+        lay.addWidget(self._hline())
+        foot = QHBoxLayout(); foot.setContentsMargins(16, 10, 16, 12); foot.setSpacing(10)
+        foot.addStretch(1)
+        if status not in _NAO_CANCELAVEL and idc is not None:
+            b_cancel = QPushButton("Cancelar solicitação")
+            b_cancel.setStyleSheet("QPushButton{color:#e0736e; background:#241a1a; border:1px solid "
+                                   "#6e3a37; border-radius:6px; padding:6px 14px;}"
+                                   "QPushButton:hover{background:#2e2020;}")
+            b_cancel.clicked.connect(self._cancelar)
+            foot.addWidget(b_cancel)
+        b_close = QPushButton("Fechar"); b_close.setObjectName("secondary")
+        b_close.clicked.connect(self.reject)
+        foot.addWidget(b_close)
+        lay.addLayout(foot)
+        self.resize(500, 540)
+
+    def _badge(self, status):
+        bg, fg = _STATUS_COR.get(status, ("#e5e7eb", "#374151"))
+        lb = QLabel(status)
+        lb.setStyleSheet(f"background:{bg}; color:{fg}; border-radius:10px; padding:2px 12px; "
+                         "font-size:11px; font-weight:600;")
+        return lb
+
+    def _rot(self, txt):
+        l = QLabel(txt); l.setStyleSheet(f"color:{self._MUTED};"); l.setMinimumWidth(88)
+        return l
+
+    def _hline(self):
+        f = QFrame(); f.setFixedHeight(1); f.setStyleSheet(f"background:{self._LINE};")
+        return f
+
+    def _secao(self, rotulo, texto):
+        w = QWidget(); v = QVBoxLayout(w); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(5)
+        cab = QLabel(rotulo)
+        cab.setStyleSheet(f"color:{self._MUTED}; font-size:11px; font-weight:600; letter-spacing:0.4px;")
+        v.addWidget(cab)
+        blk = QLabel(str(texto)); blk.setWordWrap(True)
+        blk.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        blk.setStyleSheet(self._BLOCO)
+        v.addWidget(blk)
+        return w
+
+    def _abrir_os(self):
+        abrir_os_detalhe(self, self._d.get("id_work_order"), self._d.get("os_folio"))
+
+    def _cancelar(self):
+        if abrir_cancelar_solic(self, self._d.get("id_code"), self._d.get("id_code")):
+            self.cancelou = True
+            self.accept()
 
 
 class HistoricoSolic(QWidget):
@@ -315,24 +429,7 @@ class HistoricoSolic(QWidget):
             abrir_os_detalhe(self, d["id_work_order"], d.get("os_folio"))
 
     def _mostrar_descricao(self, d):
-        box = QMessageBox(self)
-        box.setWindowTitle(f"Solicitação Nº {d.get('id_code')}")
-        box.setTextFormat(Qt.TextFormat.RichText)
-        cab = (f"<b>{d.get('ativo') or '—'}</b><br>"
-               f"<span style='color:#8a90a2'>{d.get('cliente') or '—'} · {d.get('usina') or '—'} · "
-               f"{d.get('status') or '—'} · {_data_br(d.get('data'))}</span>")
-        if d.get("criado_por"):
-            cab += f"<br><span style='color:#8a90a2'>criado por {d['criado_por']}</span>"
-        box.setText(cab)
-        corpo = d.get("descricao_full") or d.get("descricao") or "(sem descrição)"
-        if d.get("observacao"):
-            corpo += "\n\n— Comentários —\n" + d["observacao"]
-        box.setInformativeText(corpo)
-        box.addButton("Fechar", QMessageBox.ButtonRole.RejectRole)
-        b_cancel = None
-        if (d.get("status") or "") not in _NAO_CANCELAVEL and d.get("id_code") is not None:
-            b_cancel = box.addButton("Cancelar solicitação", QMessageBox.ButtonRole.DestructiveRole)
-        box.exec()
-        if b_cancel is not None and box.clickedButton() is b_cancel:
-            if abrir_cancelar_solic(self, d.get("id_code"), d.get("id_code")):
-                self._carregar()      # recarrega p/ refletir o status Cancelada
+        dlg = SolicitacaoDialog(self, d)
+        dlg.exec()
+        if dlg.cancelou:
+            self._carregar()          # recarrega p/ refletir o status Cancelada
