@@ -15,6 +15,7 @@ from PyQt6.QtGui import QIcon
 import api
 from app import MainWindow, DARK_QSS, LoginDialog, _asset
 from steps.updater import checar_atualizacao
+from steps.splash import mostrar_splash
 from workers import registrar_erro
 
 
@@ -32,6 +33,10 @@ def main():
     app.setApplicationName("Criar OS — Fracttal")
     app.setWindowIcon(QIcon(_asset("grid-icon.png")))   # ícone Grid Co (barra de tarefas)
     app.setStyleSheet(DARK_QSS)            # tema escuro app-wide (inclui dialogs)
+    from steps.nowheel import instalar as _instalar_nowheel
+    _instalar_nowheel(app)                 # roda do mouse não muda combos/datas sem querer
+    # Splash: símbolo da Grid (grande) surge e some antes do app aparecer.
+    mostrar_splash(app, _asset("grid-icon.png"))
     # Gate de login: sem JWT de sessão válido, pede e-mail + senha.
     if not api.is_logged_in():
         if LoginDialog().exec() != QDialog.DialogCode.Accepted:

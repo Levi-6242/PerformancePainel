@@ -57,10 +57,10 @@ class SolicitacaoTab(QWidget):
         top.addStretch(1); top.addWidget(b_varias)
         lay.addLayout(top)
 
-        # ── Descrição ──
-        lay.addWidget(_req("Descrição"))
+        # ── Título ──
+        lay.addWidget(_req("Título"))
         self.desc = QTextEdit()
-        self.desc.setPlaceholderText("Descreva o problema / solicitação")
+        self.desc.setPlaceholderText("Título do problema / solicitação")
         self.desc.setFixedHeight(60)
         lay.addWidget(self.desc)
 
@@ -109,7 +109,7 @@ class SolicitacaoTab(QWidget):
         row.addLayout(cu); row.addStretch(1)
         lay.addLayout(row)
 
-        lay.addWidget(QLabel("Comentários"))
+        lay.addWidget(QLabel("Observação"))
         self.coment = QTextEdit(); self.coment.setFixedHeight(48)
         lay.addWidget(self.coment)
 
@@ -264,7 +264,7 @@ class SolicitacaoTab(QWidget):
         desc = self.desc.toPlainText().strip()
         c1 = self.cb_c1.currentData()
         if not desc:
-            QMessageBox.warning(self, "Descrição", "A descrição não pode ficar em branco."); return
+            QMessageBox.warning(self, "Título", "O título não pode ficar em branco."); return
         if not asset:
             QMessageBox.warning(self, "Ativo", "Selecione o ativo (cliente → usina → ativo)."); return
         if not c1:
