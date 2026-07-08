@@ -113,6 +113,22 @@
   /* durante a montagem do relatório: #printArea fica medível (off-screen) pra calcular o fit-to-page */
   body.building #printArea{ display:block; position:fixed; left:-10000px; top:0; width:1400px; background:#fff; }
   body.exporting #pageMensal, body.exporting #pageDiario{ display:block !important; }
+  /* Comentários adicionais: editável na tela (textarea + botão); no PDF vira só o texto (.cx-view) */
+  .cx-title{ color:#111 !important; }
+  .cx-input{ width:100%; box-sizing:border-box; border:1px solid #d7dce6; border-radius:6px;
+             padding:9px 11px; font-size:12.5px; line-height:1.5; color:#111; resize:vertical;
+             min-height:80px; font-family:inherit; }
+  .cx-input:focus{ outline:none; border-color:#F5820D; }
+  .cx-view{ display:none; font-size:12.5px; line-height:1.55; color:#111; white-space:pre-wrap; padding:2px 1px; min-height:22px; }
+  .cx-actions{ display:flex; align-items:center; gap:10px; margin-top:8px; }
+  .cx-save{ background:#F5820D; color:#fff; border:none; border-radius:6px; padding:8px 20px;
+            font-size:12px; font-weight:600; cursor:pointer; }
+  .cx-save:hover{ background:#e0740a; }
+  .cx-save:disabled{ opacity:.6; cursor:default; }
+  .cx-ok{ font-size:12px; color:var(--pos); font-weight:600; opacity:0; transition:opacity .2s; }
+  @media print{ .cx-input, .cx-actions{ display:none !important; } .cx-view{ display:block !important; }
+    .cx-card{ break-inside:avoid; page-break-inside:avoid; margin-top:10px !important; }
+    .cmt-wrap{ min-height:150px !important; } }
 </style>
 </head>
 <body>
@@ -167,6 +183,15 @@
         <div class="cmt-wrap"><table id="tblCmt"><thead><tr><th>Usina</th><th>Data</th><th>Comentário</th></tr></thead><tbody></tbody></table></div>
       </div>
       <div class="card"><h3>Produção de Energia Anual (kWh)</h3><div id="chAnual" style="height:250px"></div></div>
+    </div>
+    <div class="card cx-card" style="margin-top:14px">
+      <h3 class="cx-title">Comentários adicionais</h3>
+      <textarea id="comExtra" class="cx-input" placeholder="Escreva aqui observações adicionais sobre a usina..."></textarea>
+      <div class="cx-view" id="comExtraView"></div>
+      <div class="cx-actions">
+        <button id="btnComExtra" class="cx-save">Salvar</button>
+        <span id="comExtraOk" class="cx-ok">Salvo</span>
+      </div>
     </div>
   </div>
 
@@ -256,6 +281,8 @@ async function init(){
   }).join('');
   document.querySelectorAll('.cbtn').forEach(b=>b.onclick=()=>setCarteira(b.dataset.cart));
   $('selUsina').onchange=loadUsina;
+  $('btnComExtra').onclick=salvarComExtra;
+  $('comExtra').oninput=()=>{ $('comExtraView').textContent=$('comExtra').value; };  // espelha p/ o PDF
   $('selMes').onchange=()=>{const[a,m]=$('selMes').value.split('-');
     renderMensal(+m); renderAnual(+m); renderDiario(+a,+m);   // usina (OV já em memória, barato)
     if(PAGE==='geral') renderGeral(); else if(PAGE==='capa') renderCapa();
@@ -334,10 +361,31 @@ async function loadUsina(){
   $('subinfo').textContent=(OV.cliente?('Cliente: '+OV.cliente+'  ·  '):'')
       +(OV.potencia_mwp?(nf2.format(OV.potencia_mwp)+' MWp'):'')+(loc?('  ·  '+loc):'')
       +(OV.planilha_em?('  ·  Planilha: '+OV.planilha_em):'');
+  setComExtra(OV.comentario_extra||'');   // texto adicional da usina (por usina, independe do mês)
   // usa o filtro de MÊS GLOBAL (não repopula/reseta por usina) — mantém o mês escolhido ao trocar
   const mv=$('selMes').value || `${OV.ano}-${new Date().getMonth()+1}`;
   const [a,m]=mv.split('-');
   renderMensal(+m); renderAnual(+m); renderDiario(+a,+m);
+}
+
+// ---------- Comentários adicionais (único campo GRAVÁVEL — por usina) ----------
+function setComExtra(txt){
+  const t=$('comExtra'), v=$('comExtraView');
+  if(t) t.value=txt||'';
+  if(v) v.textContent=txt||'';   // .cx-view é o espelho que aparece no PDF (só texto)
+}
+async function salvarComExtra(){
+  const usina=$('selUsina').value, txt=$('comExtra').value;
+  const btn=$('btnComExtra'), ok=$('comExtraOk');
+  btn.disabled=true;
+  try{
+    const r=await fetch('/api/t/comentario_extra',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({usina,texto:txt})});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    if(OV) OV.comentario_extra=txt;
+    ok.style.opacity='1'; setTimeout(()=>{ok.style.opacity='0';},1600);
+  }catch(e){ alert('Não consegui salvar o comentário: '+(e&&e.message||e)); }
+  finally{ btn.disabled=false; }
 }
 
 // ---------- página mensal ----------
