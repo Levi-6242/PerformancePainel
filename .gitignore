@@ -45,6 +45,9 @@ server.out.log
 oem-app.zip
 *.oem.zip
 
+# ── Runtime do dashboard Thopen (comentários adicionais gravados pelo app) ─────
+comentarios_adicionais.json
+
 # ── Planilhas (dados internos da empresa — ficam no SharePoint/OneDrive) ──────
 *.xlsx
 *.xlsm

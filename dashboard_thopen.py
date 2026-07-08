@@ -22,6 +22,7 @@ Foco V1: Altair (mas o seletor lista todas as usinas que têm tabela diária).
 Recarrega sozinho quando o xlsx muda (mtime). Porta 5080.
 """
 import os
+import json
 import shutil
 import tempfile
 import threading
@@ -50,6 +51,31 @@ _CANDIDATOS = [
 ]
 
 ANO = 2026   # relatório do ano corrente (tabela Historico_2026 é 2026-específica)
+
+# ── Comentários adicionais (campo digitável por usina, aba Diário) ───────────────
+# ÚNICO dado que o app GRAVA (o resto é só leitura). Guardado num JSON {usina: texto}.
+# Em servidor efêmero (Railway) o disco some a cada re-deploy → apontar COMENTARIOS_DIR para um
+# VOLUME PERSISTENTE (ex.: /data). Sem a env, grava ao lado do script (ok local / máquina própria).
+_COMENTARIOS_DIR = os.environ.get("COMENTARIOS_DIR") or os.path.dirname(os.path.abspath(__file__))
+_COMENTARIOS_PATH = os.path.join(_COMENTARIOS_DIR, "comentarios_adicionais.json")
+_com_lock = threading.Lock()
+
+
+def _load_comentarios():
+    try:
+        with open(_COMENTARIOS_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (FileNotFoundError, ValueError, OSError):
+        return {}
+
+
+def _save_comentarios(data):
+    with _com_lock:
+        tmp = _COMENTARIOS_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, _COMENTARIOS_PATH)   # troca atômica
 
 
 def _bd_path():
@@ -789,7 +815,25 @@ def overview():
         "estado": reg.get("estado"), "cliente": reg.get("cliente"),
         "potencia_mwp": pot_mwp, "ano": ANO, "meses": meses,
         "anual": anual, "periodos": periodos, "planilha_em": _planilha_em(),
+        "comentario_extra": _load_comentarios().get(usina, ""),
     })
+
+
+@app.route("/api/t/comentario_extra", methods=["POST"])
+def comentario_extra():
+    """Salva/atualiza o texto livre 'Comentários adicionais' de uma usina (aba Diário)."""
+    data = request.get_json(force=True, silent=True) or {}
+    usina = (data.get("usina") or "").strip()
+    texto = (data.get("texto") or "").strip()[:5000]   # teto p/ evitar abuso (campo é aberto)
+    if not usina:
+        return jsonify({"ok": False, "erro": "usina não informada"}), 400
+    com = _load_comentarios()
+    if texto:
+        com[usina] = texto
+    else:
+        com.pop(usina, None)   # texto vazio = apaga a entrada
+    _save_comentarios(com)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/t/diario")
