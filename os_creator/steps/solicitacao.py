@@ -1,31 +1,22 @@
 """Aba 'Criar Solicitação' — cria uma Solicitação de Serviço (work request) no Fracttal via
 requests.requests_insert. Cascata cliente→usina→tipo→ativo (cliente e usina PESQUISÁVEIS; tipo
-com os MESMOS filtros do Criar OS — ALLOWED_TIPOS), + comentários, data, urgência e classificações."""
-from PyQt6.QtCore import Qt, QDateTime
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QFrame, QLabel,
-                             QComboBox, QCompleter, QTextEdit, QLineEdit, QDateTimeEdit,
-                             QCheckBox, QPushButton, QMessageBox, QScrollArea)
+com os MESMOS filtros do Criar OS — ALLOWED_TIPOS), + comentários, data, urgência e classificações.
+Layout redesenhado (08/07): 4 cards compactos (Descrição · Ativo · Detalhes · Classificação) no estilo
+dark premium (steps/ui.py), cards 3 e 4 lado a lado. NENHUMA regra/validação/ID/API mudou."""
+from PyQt6.QtCore import Qt, QDateTime, QSize
+from PyQt6.QtGui import QIcon
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox,
+                             QTextEdit, QLineEdit, QDateTimeEdit, QCheckBox, QPushButton,
+                             QMessageBox, QScrollArea)
 import api
 from workers import ApiWorker
 from steps.step1 import ALLOWED_TIPOS          # mesmos tipos de equipamento do Criar OS
+from steps.searchcombo import tornar_pesquisavel
+from steps.ui import QSS_FORM, Card, Dica, campo, Linha, icone_pix, GREEN, GREEN_INK, MUTED
 
 CLIENTES_OCULTOS = {"almoxarifado", "teste - pa"}
 _SEL = "— selecione —"
 _TODOS_TIPOS = "Todos os tipos"
-
-
-def _hr():
-    f = QFrame(); f.setFixedHeight(1)
-    f.setStyleSheet("background:#2c3142; border:none;")
-    return f
-
-
-def _cabecalho(txt):
-    return QLabel(f"<b style='color:#98c838;font-size:12px;letter-spacing:.3px'>{txt.upper()}</b>")
-
-
-def _req(txt):
-    return QLabel(f"<b>{txt}</b> <span style='color:#8a90a2'>(obrigatório)</span>")
 
 
 class SolicitacaoTab(QWidget):
@@ -35,116 +26,108 @@ class SolicitacaoTab(QWidget):
         self._types = None
         self._wt = None
         self._wc = None
+        self.setStyleSheet(QSS_FORM)              # visual novo só nesta tela (sobrepõe o DARK_QSS global)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)   # nunca rola de lado
         body = QWidget()
         lay = QVBoxLayout(body)
-        lay.setContentsMargins(20, 16, 20, 16)
-        lay.setSpacing(9)
+        lay.setContentsMargins(20, 14, 20, 18)
+        lay.setSpacing(14)
         scroll.setWidget(body)
         outer.addWidget(scroll)
 
-        # ── atalho: várias solicitações de uma vez (vários ativos) ──
+        # ── topo: ação secundária (várias) + nota de obrigatórios ──
         top = QHBoxLayout()
-        b_varias = QPushButton("Várias solicitações (vários ativos)")
-        b_varias.setObjectName("secondary")
+        b_varias = QPushButton("Várias solicitações")
+        b_varias.setObjectName("btnGhost")
+        b_varias.setIcon(QIcon(icone_pix("layers", "#d4dae6", 15))); b_varias.setIconSize(QSize(15, 15))
         b_varias.setToolTip("Criar uma solicitação para CADA ativo marcado, de uma só vez")
+        b_varias.setCursor(Qt.CursorShape.PointingHandCursor)
         b_varias.clicked.connect(self._abrir_varias)
-        top.addStretch(1); top.addWidget(b_varias)
+        top.addWidget(b_varias)
+        top.addStretch(1)
+        req = QLabel(f"<span style='color:{GREEN};font-weight:700'>*</span> Campos obrigatórios")
+        req.setObjectName("uiReqnote")
+        top.addWidget(req)
         lay.addLayout(top)
 
-        # ── Título ──
-        lay.addWidget(_req("Título"))
+        # ── Card 1 — Descrição ──
         self.desc = QTextEdit()
         self.desc.setPlaceholderText("Título do problema / solicitação")
-        self.desc.setFixedHeight(60)
-        lay.addWidget(self.desc)
+        self.desc.setFixedHeight(44)
+        c1 = Card(1, "Descrição da Solicitação")
+        c1.add(Linha(
+            campo("Título", self.desc, obrig=True),
+            Dica("Seja claro e objetivo no título para facilitar a identificação da solicitação."),
+            pesos=(3, 2),
+        ))
+        lay.addWidget(c1)
 
-        # ── Ativo (cascata) ──
-        lay.addSpacing(4)
-        lay.addWidget(_cabecalho("Ativo"))
-        lay.addWidget(_hr())
-        linha = QHBoxLayout(); linha.setSpacing(10)
-        col_cli = QVBoxLayout(); col_cli.setSpacing(3)
-        col_cli.addWidget(QLabel("Cliente"))
-        self.cb_cliente = self._combo_busca("Cliente — digite p/ filtrar")
+        # ── Card 2 — Ativo (cascata) ──
+        self.cb_cliente = QComboBox(); tornar_pesquisavel(self.cb_cliente)   # busca + placeholder cinza
         self.cb_cliente.currentIndexChanged.connect(self._on_cli)
-        col_cli.addWidget(self.cb_cliente)
-        col_usi = QVBoxLayout(); col_usi.setSpacing(3)
-        col_usi.addWidget(QLabel("Usina"))
-        self.cb_usina = self._combo_busca("Usina — digite p/ filtrar")
+        self.cb_usina = QComboBox(); tornar_pesquisavel(self.cb_usina)
         self.cb_usina.currentIndexChanged.connect(self._on_usi)
-        col_usi.addWidget(self.cb_usina)
-        linha.addLayout(col_cli, 1); linha.addLayout(col_usi, 1)
-        lay.addLayout(linha)
-
-        lay.addWidget(QLabel("Tipo de equipamento"))
         self.cb_tipo = QComboBox(); self.cb_tipo.currentIndexChanged.connect(self._refresh_ativos)
-        lay.addWidget(self.cb_tipo)
-
         self.busca = QLineEdit(); self.busca.setPlaceholderText("Pesquisar ativo por código ou nome…")
+        self.busca.addAction(QIcon(icone_pix("search", MUTED, 15)), QLineEdit.ActionPosition.LeadingPosition)
         self.busca.textChanged.connect(self._refresh_ativos)
-        lay.addWidget(self.busca)
-        lay.addWidget(_req("Ativo"))
         self.cb_ativo = QComboBox()
-        lay.addWidget(self.cb_ativo)
+        c2 = Card(2, "Ativo relacionado")
+        c2.add(Linha(campo("Cliente", self.cb_cliente, obrig=True),
+                     campo("Usina", self.cb_usina, obrig=True)))
+        c2.add(Linha(campo("Tipo de equipamento", self.cb_tipo, obrig=True),
+                     campo(" ", self.busca)))                       # rótulo em branco alinha a busca
+        c2.add(campo("Ativo", self.cb_ativo, obrig=True))
+        lay.addWidget(c2)
 
-        # ── Quando / urgência ──
-        lay.addSpacing(4)
-        row = QHBoxLayout(); row.setSpacing(14)
-        cd = QVBoxLayout(); cd.setSpacing(3)
-        cd.addWidget(QLabel("Data do Incidente"))
+        # ── Card 3 — Detalhes do incidente ──
         self.data = QDateTimeEdit(QDateTime.currentDateTime())
         self.data.setDisplayFormat("dd/MM/yyyy HH:mm"); self.data.setCalendarPopup(True)
-        cd.addWidget(self.data)
-        row.addLayout(cd)
-        cu = QVBoxLayout(); cu.setSpacing(3)
-        cu.addWidget(QLabel(" "))
         self.urgente = QCheckBox("É urgente?")
-        cu.addWidget(self.urgente)
-        row.addLayout(cu); row.addStretch(1)
-        lay.addLayout(row)
+        self.urgente.setCursor(Qt.CursorShape.PointingHandCursor)
+        urg = QWidget(); urg.setObjectName("uiGroup"); urg.setMinimumHeight(40)
+        uh = QHBoxLayout(urg); uh.setContentsMargins(0, 0, 0, 0); uh.addWidget(self.urgente); uh.addStretch(1)
+        self.coment = QTextEdit(); self.coment.setFixedHeight(92)
+        self.coment.setPlaceholderText("Informações adicionais sobre o incidente…")
+        c3 = Card(3, "Detalhes do incidente")
+        c3.add(Linha(campo("Data do incidente", self.data, obrig=True),
+                     campo(" ", urg), quebra=300, pesos=(3, 2)))
+        c3.add(campo("Observação", self.coment))
 
-        lay.addWidget(QLabel("Observação"))
-        self.coment = QTextEdit(); self.coment.setFixedHeight(48)
-        lay.addWidget(self.coment)
-
-        # ── Classificação ──
-        lay.addSpacing(4)
-        lay.addWidget(_cabecalho("Classificação"))
-        lay.addWidget(_hr())
-        form = QFormLayout(); form.setSpacing(7)
-        form.setLabelAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        # ── Card 4 — Classificação ──
         self.cb_grupo = QComboBox()
         self.cb_c1 = QComboBox()
         self.cb_c2 = QComboBox()
-        form.addRow("Grupo", self.cb_grupo)
-        form.addRow(QLabel("Classificação 1 <span style='color:#8a90a2'>*</span>"), self.cb_c1)
-        form.addRow("Classificação 2", self.cb_c2)
-        lay.addLayout(form)
+        c4 = Card(4, "Classificação")
+        c4.add(campo("Grupo", self.cb_grupo, obrig=True))
+        c4.add(campo("Classificação 1", self.cb_c1, obrig=True))
+        c4.add(campo("Classificação 2", self.cb_c2))
 
-        lay.addSpacing(6)
-        self.btn = QPushButton("Criar Solicitação"); self.btn.clicked.connect(self._criar)
-        lay.addWidget(self.btn)
+        # cards 3 e 4 lado a lado (empilham quando estreito)
+        lay.addWidget(Linha(c3, c4, quebra=720))
+
+        # ── ações ──
+        acts = QHBoxLayout(); acts.setContentsMargins(0, 2, 0, 0); acts.setSpacing(10); acts.addStretch(1)
+        b_limpar = QPushButton("Limpar"); b_limpar.setObjectName("btnGhost")
+        b_limpar.setIcon(QIcon(icone_pix("x", "#d4dae6", 15))); b_limpar.setIconSize(QSize(15, 15))
+        b_limpar.setCursor(Qt.CursorShape.PointingHandCursor)
+        b_limpar.setToolTip("Limpar os campos do formulário")
+        b_limpar.clicked.connect(self.reset)
+        self.btn = QPushButton("Criar Solicitação"); self.btn.setObjectName("btnPrimary")
+        self.btn.setIcon(QIcon(icone_pix("send", GREEN_INK, 16))); self.btn.setIconSize(QSize(16, 16))
+        self.btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn.clicked.connect(self._criar)
+        acts.addWidget(b_limpar); acts.addWidget(self.btn)
+        lay.addLayout(acts)
         self.hint = QLabel(""); self.hint.setObjectName("hint")
-        lay.addWidget(self.hint)
+        lay.addWidget(self.hint, 0, Qt.AlignmentFlag.AlignRight)
         lay.addStretch(1)
-
-    # combo editável com filtro "contém" (cliente/usina pesquisáveis)
-    def _combo_busca(self, placeholder):
-        cb = QComboBox()
-        cb.setEditable(True)
-        cb.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        cb.lineEdit().setPlaceholderText(placeholder)
-        comp = cb.completer()
-        comp.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
-        comp.setFilterMode(Qt.MatchFlag.MatchContains)
-        comp.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        return cb
 
     # ── dados ──
     def set_assets(self, assets):

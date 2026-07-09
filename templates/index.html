@@ -26,10 +26,31 @@
       --shadow2: 0 2px 20px rgba(0,0,0,.12);
       --radius:  12px;
       --radius2: 8px;
+      --bg:       var(--light);   /* tokens de tema — flipam no escuro via body.dark */
+      --surface:  #ffffff;
+      --surface-2:#f8fafc;
+      --surface-3:#fafbff;
+      --text:     #1a1b2e;
+      --text-2:   #6b7280;
+      --thead:    #f7f8fb;
+      --row-hi:   #eef2ff;   /* linha destacada (grupo) */
+      --tint-red: #fef2f2; --tint-amber:#fffdf5;   /* linhas por status (inline) */
+    }
+    /* ── TEMA ESCURO — azul-marinho #090d18 / cards #161d30 · verde Grid + branco · SEM lilás (Levi 07/07) ── */
+    body.dark {
+      --light:#090d18; --bg:#090d18;
+      --white:#161d30; --surface:#161d30; --surface-2:#1c2640; --surface-3:#131b2e;
+      --dark:#070b14; --dark2:#161d30; --dark3:#1c2640;
+      --muted:#94a3b8; --text:#e9eef6; --text-2:#94a3b8;
+      --border:rgba(255,255,255,.09); --border2:rgba(255,255,255,.09);
+      --thead:#0e1626; --green-d:rgba(163,217,0,.16); --green-b:rgba(163,217,0,.32);
+      --row-hi:#1c2640; --tint-red:rgba(239,68,68,.14); --tint-amber:rgba(234,179,8,.13);
+      --shadow:0 2px 18px rgba(0,0,0,.45); --shadow2:0 2px 22px rgba(0,0,0,.5);
+      color-scheme:dark;
     }
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0 }
     html { scroll-behavior: smooth }
-    body { background: var(--light); font-family: 'Inter', sans-serif; color: #1a1b2e; -webkit-font-smoothing: antialiased }
+    body { background: var(--light); font-family: 'Inter', sans-serif; color: var(--text); -webkit-font-smoothing: antialiased; transition: background .18s, color .18s }
 
     /* ── SCROLLBAR ──────────────────────────────────────────────────────── */
     ::-webkit-scrollbar { width: 6px; height: 6px }
@@ -169,7 +190,7 @@
       margin-bottom: 8px;
     }
     .gc-hero h1 {
-      color: var(--dark);
+      color: var(--text);
       font-size: 18px;
       font-weight: 800;
       letter-spacing: -.3px;
@@ -207,9 +228,9 @@
     .pt-icon { font-size: 17px; line-height: 1; flex-shrink: 0 }
     .pt-logo { width: 22px; height: 22px; object-fit: contain; flex-shrink: 0; display: block }
     .pt-info { display: flex; flex-direction: column; gap: 1px; text-align: left }
-    .pt-label { font-size: 12.5px; font-weight: 700; color: #6b7280; line-height: 1.2; transition: color .15s }
+    .pt-label { font-size: 12.5px; font-weight: 700; color: var(--muted); line-height: 1.2; transition: color .15s }
     .pt-sub   { font-size: 10px; color: #9aa1ad; letter-spacing: .03em }
-    .gc-primary-tab.active .pt-label { color: var(--dark) }
+    .gc-primary-tab.active .pt-label { color: var(--text) }
     .gc-primary-tab.active .pt-sub   { color: var(--muted) }
 
     /* ── ABA GERAL (consolidada) — KPIs, filtros e drill ─────────────────── */
@@ -284,7 +305,7 @@
       transition: all .15s;
       letter-spacing: .01em;
     }
-    .gc-secondary-tab:hover:not(.active) { background: var(--light); color: #374151 }
+    .gc-secondary-tab:hover:not(.active) { background: var(--light); color:var(--text-2) }
     .gc-secondary-tab.active {
       background: var(--dark);
       border-color: var(--dark);
@@ -300,7 +321,7 @@
       outline: none;
       width: 200px;
       transition: border-color .15s, box-shadow .15s;
-      color: #374151;
+      color:var(--text-2);
     }
     .gc-bar-search:focus {
       border-color: var(--green);
@@ -308,7 +329,7 @@
     }
     .gc-btn-sm {
       background: var(--light);
-      color: #475569;
+      color:var(--text-2);
       border: 1.5px solid var(--border);
       border-radius: var(--radius2);
       padding: 6px 12px;
@@ -319,7 +340,7 @@
       display: none;
       transition: background .15s;
     }
-    .gc-btn-sm:hover { background: #e2e8f0 }
+    .gc-btn-sm:hover { background:var(--surface-2) }
     /* .gc-btn-sm é display:none por padrão (só aparece em barras). Nos painéis próprios
        (Strings/PR) os botões precisam ficar visíveis: */
     #panel-spv .gc-btn-sm, #panel-pv-pr .gc-btn-sm, #panel-curvagen .gc-btn-sm { display: inline-block }
@@ -360,7 +381,7 @@
     @keyframes spin { to { transform: rotate(360deg) } }
     .gc-loading p { color: var(--muted); font-size: 13px }
     /* barra de carregamento (indeterminada) — feedback visual durante a coleta */
-    .gc-loadbar { width: min(440px, 72%); height: 7px; background: #e5e7eb; border-radius: 4px; overflow: hidden; position: relative }
+    .gc-loadbar { width: min(440px, 72%); height: 7px; background:var(--surface-2); border-radius: 4px; overflow: hidden; position: relative }
     .gc-loadbar::before { content: ""; position: absolute; top: 0; left: -40%; height: 100%; width: 40%;
                           border-radius: 4px; background: var(--green); animation: gcload 1.05s ease-in-out infinite }
     @keyframes gcload { 0% { left: -40% } 100% { left: 100% } }
@@ -407,6 +428,15 @@
     .gc-stat.red   .gc-stat-icon { background: #fff1f2; } .gc-stat.red   .n { color: #dc2626 }
     .gc-stat.yellow .gc-stat-icon { background: #fffbeb; } .gc-stat.yellow .n { color: #d97706 }
     .gc-stat.purple .gc-stat-icon { background: #f5f3ff; } .gc-stat.purple .n { color: #7c3aed }
+    /* TEMA ESCURO: aba ativa/hover e fundo dos ícones = navy/translúcido (claro sumia no navy) */
+    body.dark .gc-primary-tab:hover,
+    body.dark .gc-primary-tab.active   { background: rgba(163,217,0,.10) }
+    body.dark .gc-stat-icon            { background: rgba(255,255,255,.06) }
+    body.dark .gc-stat.blue   .gc-stat-icon { background: rgba(59,130,246,.18) }
+    body.dark .gc-stat.green  .gc-stat-icon { background: rgba(34,197,94,.16) }
+    body.dark .gc-stat.red    .gc-stat-icon { background: rgba(239,68,68,.16) }
+    body.dark .gc-stat.yellow .gc-stat-icon { background: rgba(234,179,8,.16) }
+    body.dark .gc-stat.purple .gc-stat-icon { background: rgba(139,92,246,.18) }
 
     /* ── ALERTS ──────────────────────────────────────────────────────────── */
     .gc-alerts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px }
@@ -439,7 +469,7 @@
       flex-wrap: wrap;
       background: var(--white);
     }
-    .gc-table-title { font-size: 13px; font-weight: 700; color: #1a1b2e }
+    .gc-table-title { font-size: 13px; font-weight: 700; color:var(--text) }
     .gc-table-title small { color: var(--muted); font-weight: 400; font-size: 11px; margin-left: 5px }
     .gc-table-wrap { overflow-x: auto }
 
@@ -474,6 +504,13 @@
     tr.sem-dados td         { color: #94a3b8; font-style: italic }
     tr.etm-parcial td       { background: #fff7ed !important }
     tr.etm-semdados td      { color: #94a3b8; font-style: italic }
+    /* TEMA ESCURO: fundos de linha por status = tint TRANSLÚCIDO escuro (texto claro ganha contraste) */
+    body.dark tbody tr.plant-row:hover { background: rgba(255,255,255,.05) }
+    body.dark tr.alerta-strings td     { background: rgba(239,68,68,.14) !important }
+    body.dark tr.alerta-string-diff td { background: rgba(249,115,22,.13) !important }
+    body.dark tr.alerta-temp td        { background: rgba(234,179,8,.13) !important }
+    body.dark tr.alerta-comm td        { background: rgba(139,92,246,.16) !important }
+    body.dark tr.etm-parcial td        { background: rgba(249,115,22,.13) !important }
 
     /* ── BADGES ──────────────────────────────────────────────────────────── */
     .badge {
@@ -491,7 +528,7 @@
     .b-string { background: #ffedd5; color: #9a3412 }
     .b-warn   { background: #fef3c7; color: #92400e }
     .b-comm   { background: #ede9fe; color: #5b21b6 }
-    .b-none   { background: #f1f5f9; color: #64748b }
+    .b-none   { background:var(--surface-2); color: #64748b }
 
     /* ── FAROL ───────────────────────────────────────────────────────────── */
     .farol { display: inline-flex; align-items: center; gap: 4px; font-weight: 600 }
@@ -539,6 +576,12 @@
     /* Inversor com diferença de string → linha levemente avermelhada */
     tr.inv-header-row.inv-diff { background: #fff1f2 !important }
     tr.inv-header-row.inv-diff:hover { background: #ffe4e6 !important }
+    /* TEMA ESCURO: linha do inversor = navy/translúcido (o claro sumia com o texto branco) */
+    body.dark tr.inv-header-row { background: rgba(255,255,255,.035) !important }
+    body.dark tr.inv-header-row:hover { background: rgba(255,255,255,.06) !important }
+    body.dark tr.inv-header-row td { border-bottom-color: var(--border) }
+    body.dark tr.inv-header-row.inv-diff { background: rgba(239,68,68,.13) !important }
+    body.dark tr.inv-header-row.inv-diff:hover { background: rgba(239,68,68,.18) !important }
 
     /* Check de verificação por usina */
     .chk-ver {
@@ -556,8 +599,8 @@
       width: 54px; text-align: center;
       border: 1.5px solid var(--border); border-radius: 7px;
       padding: 4px 6px; font-size: 12.5px; font-weight: 600;
-      font-family: 'Inter', sans-serif; color: #334155;
-      background: #fff; outline: none; transition: border-color .15s, box-shadow .15s;
+      font-family: 'Inter', sans-serif; color: var(--text);
+      background:var(--surface-2); outline: none; transition: border-color .15s, box-shadow .15s;
     }
     .trk-input:hover { border-color: #cbd5e1 }
     .trk-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.12) }
@@ -577,7 +620,7 @@
     #coment-text {
       width: 100%; border: 1.5px solid var(--border); border-radius: var(--radius2);
       padding: 10px 12px; font-size: 13px; font-family: 'Inter', sans-serif;
-      resize: vertical; outline: none; color: #374151; line-height: 1.5;
+      resize: vertical; outline: none; color:var(--text-2); line-height: 1.5;
     }
     #coment-text:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(163,217,0,.12) }
     .btn-danger {
@@ -596,7 +639,7 @@
       display: inline-flex;
       flex-direction: column;
       align-items: center;
-      background: #fff;
+      background:var(--surface);
       border: 1.5px solid #e5e7eb;
       border-radius: 8px;
       padding: 5px 10px;
@@ -619,13 +662,25 @@
     .string-chip.s-baixa     .s-val { color: #b45309 }
     .string-chip.s-trancada  { border-color: #93c5fd; background: #eff6ff }
     .string-chip.s-trancada  .s-val, .string-chip.s-trancada .s-id { color: #2563eb }
-    .string-chip.s-inativa   { border-color: #e5e7eb; background: #fff }
+    .string-chip.s-inativa   { border-color: #e5e7eb; background:var(--surface) }
     .string-chip.s-inativa   .s-val { color: #9ca3af }
+    /* TEMA ESCURO: linha expandida + chips de string = navy/translúcido + texto claro */
+    body.dark tr.strings-row td { background: rgba(255,255,255,.025) !important; border-bottom-color: var(--border) }
+    body.dark .string-chip { border-color: var(--border) }
+    body.dark .string-chip.ativa, body.dark .string-chip.s-ativa { background: rgba(34,197,94,.14); border-color: rgba(34,197,94,.42) }
+    body.dark .string-chip.ativa .s-val, body.dark .string-chip.s-ativa .s-val { color: #86efac }
+    body.dark .string-chip.inativa, body.dark .string-chip.s-sem { background: rgba(239,68,68,.15); border-color: rgba(239,68,68,.5) }
+    body.dark .string-chip.inativa .s-val, body.dark .string-chip.s-sem .s-val { color: #f87171 }
+    body.dark .string-chip.s-baixa { background: rgba(234,179,8,.15); border-color: rgba(234,179,8,.6) }
+    body.dark .string-chip.s-baixa .s-val { color: #fbbf24 }
+    body.dark .string-chip.s-trancada { background: rgba(59,130,246,.17); border-color: rgba(59,130,246,.55) }
+    body.dark .string-chip.s-trancada .s-val, body.dark .string-chip.s-trancada .s-id { color: #93c5fd }
+    body.dark .string-chip.s-inativa .s-val { color: #64748b }
 
     /* ── ETM STATION TAG ─────────────────────────────────────────────────── */
     .etm-tag {
       display: inline-block;
-      background: #eef2ff;
+      background:var(--surface-3);
       color: #4338ca;
       border: 1px solid #c7d2fe;
       border-radius: 99px;
@@ -655,7 +710,7 @@
       cursor: pointer; user-select: none }
     .ana-manut input { accent-color: #3b82f6; cursor: pointer; margin: 0 }
     .ana-card.manut .ana-manut { color: #1d4ed8; font-weight: 600 }
-    .ana-card .ana-nome { font-size: 13px; font-weight: 700; color: #1a1b2e; margin-bottom: 2px }
+    .ana-card .ana-nome { font-size: 13px; font-weight: 700; color:var(--text); margin-bottom: 2px }
     .ana-card .ana-leit { font-size: 10px; color: var(--muted) }
     .ana-spark { margin: 8px 0 6px }
     .ana-flags { display: flex; flex-wrap: wrap; gap: 5px }
@@ -664,6 +719,12 @@
     .ana-flag.warn { background: #fef3c7; color: #92400e }
     .ana-flag.ok   { background: #dcfce7; color: #166534 }
     .ana-flag .info { font-weight: 400; opacity: .8 }
+    /* TEMA ESCURO: card "em manutenção" (era azul claro) + pills de flag → navy/translúcido */
+    body.dark .ana-card.manut { background: rgba(59,130,246,.10) }
+    body.dark .ana-card.manut .ana-manut { color: #93c5fd }
+    body.dark .ana-flag.crit { background: rgba(239,68,68,.15); color: #f87171 }
+    body.dark .ana-flag.warn { background: rgba(234,179,8,.15); color: #fbbf24 }
+    body.dark .ana-flag.ok   { background: rgba(34,197,94,.15); color: #86efac }
     .ana-legend { font-size: 10px; color: var(--muted); display: flex; gap: 12px; margin-top: 4px }
 
     /* ── ETM LEGEND ──────────────────────────────────────────────────────── */
@@ -683,7 +744,7 @@
     }
     .modal-overlay.open { display: flex }
     .modal-box {
-      background: #fff;
+      background:var(--surface);
       border-radius: 14px;
       padding: 22px;
       width: 420px;
@@ -694,7 +755,7 @@
       gap: 14px;
       box-shadow: 0 20px 60px rgba(0,0,0,.18);
     }
-    .modal-box h3 { font-size: 14px; font-weight: 700; color: #1a1b2e }
+    .modal-box h3 { font-size: 14px; font-weight: 700; color:var(--text) }
     .modal-list { overflow-y: auto; display: flex; flex-direction: column; gap: 6px; flex: 1 }
     .modal-item {
       display: flex;
@@ -738,7 +799,7 @@
       font-size: 12px;
       font-family: 'Inter', sans-serif;
       outline: none;
-      color: #374151;
+      color:var(--text-2);
     }
     .export-field select:focus { border-color: var(--green) }
     .export-note {
@@ -782,6 +843,7 @@
     <a class="gc-btn-macro" href="/gerencial" target="gridco-gerencial" rel="noopener"
        title="Visão Gerencial — atingimento (gerada ÷ P50) por usina e cliente">Gerencial</a>
     <span class="gc-ts" id="last-update">Atualizado às <strong id="update-time"></strong></span>
+    <button class="gc-btn-macro" id="themeBtn" onclick="toggleTheme()" title="Alternar entre tema claro e escuro (a escolha fica salva neste navegador)">Tema: Claro</button>
     <button class="gc-btn-refresh" onclick="atualizarTudo()">↻ Atualizar</button>
   </div>
 </nav>
@@ -805,13 +867,7 @@
     <div class="gc-hero-date">{{ today }}</div>
   </div>
   <div class="gc-primary-tabs">
-    <button class="gc-primary-tab active" id="ptab-geral" onclick="switchPrimary('geral')">
-      <span class="pt-info">
-        <span class="pt-label" style="color:#7aa300">Geral</span>
-        <span class="pt-sub">todas as fontes · só problemas</span>
-      </span>
-    </button>
-    <button class="gc-primary-tab" id="ptab-pv" onclick="switchPrimary('pv')">
+    <button class="gc-primary-tab active" id="ptab-pv" onclick="switchPrimary('pv')">
       <img class="pt-logo" src="/static/logos/pv.png" alt="PV"
            onerror="this.style.display='none';this.nextElementSibling.style.display='inline'">
       <span class="pt-icon" style="display:none">📡</span>
@@ -971,9 +1027,10 @@
   <div id="panel-str-ev" style="display:none">
     <div class="gc-table-card">
       <div class="gc-table-hdr" style="flex-wrap:wrap;gap:8px">
-        <span class="gc-table-title">Ocorrências de strings — caiu &rarr; voltou <small>— string que zerou (sem corrente) enquanto o inversor produzia, durante o dia</small></span>
+        <span class="gc-table-title">Ocorrências de strings — caiu &rarr; voltou <small>— string zerada (sem corrente) desde a PARTIDA do inversor (quando ele começa a produzir), durante o dia</small></span>
         <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <input type="search" id="str-ev-usina" placeholder="filtrar usina…" oninput="_strEvFiltra()" style="font-size:11px;padding:3px 8px;border:1px solid #d1d5db;border-radius:5px;width:160px">
+          <label style="font-size:11px;color:var(--muted)">Dia <input type="date" id="str-ev-dia" onchange="loadStrEventos(true)" style="font-size:11px;padding:3px 6px;border:1px solid var(--border);border-radius:5px;background:var(--surface-2);color:var(--text)"></label>
+          <input type="search" id="str-ev-usina" placeholder="filtrar usina…" oninput="_strEvFiltra()" style="font-size:11px;padding:3px 8px;border:1px solid var(--border);border-radius:5px;width:160px;background:var(--surface-2);color:var(--text)">
           <span id="str-ev-resumo" style="font-size:11px;color:var(--muted)"></span>
           <button class="gc-btn-sm" style="display:inline-block;background:#16a34a;color:#fff" onclick="strEvExport()">Exportar Excel</button>
           <button class="gc-btn-sm" style="display:inline-block" onclick="loadStrEventos(true)">Atualizar</button>
@@ -1437,7 +1494,7 @@
          </span>
        </div>
        <div id="trk-ev-prog" style="display:none;padding:8px 14px;font-size:12px;color:#6b21a8;background:#faf5ff;border-bottom:1px solid #eee"></div>
-       <div id="trk-ev-disp" style="display:none;padding:8px 14px;font-size:11px;line-height:1.9;border-bottom:1px solid #eee;background:#f8fafc"></div>
+       <div id="trk-ev-disp" style="display:none;padding:8px 14px;font-size:11px;line-height:1.9;border-bottom:1px solid #eee;background:var(--surface-2)"></div>
        <div class="gc-table-wrap">
          <table>
            <thead><tr><th>Data</th><th>Usina</th><th>Tracker</th><th>Inversor</th><th>Parada</th><th>Retorno</th><th>Duração</th></tr></thead>
@@ -1527,11 +1584,11 @@
         <label style="font-size:12px;color:var(--muted)">Data <input class="gc-bar-search" type="date" id="pvpr-data" style="width:auto" onchange="loaded.pvpr=false;loadPvPr(true)"></label>
         <div style="display:inline-flex;border:1px solid #d1d5db;border-radius:8px;overflow:hidden">
           <button id="pvpr-vis-pr"  onclick="pvPrSetVisao('pr')"      style="border:0;padding:5px 11px;font-size:12px;cursor:pointer;background:#16a34a;color:#fff">PR</button>
-          <button id="pvpr-vis-ger" onclick="pvPrSetVisao('geracao')" style="border:0;padding:5px 11px;font-size:12px;cursor:pointer;background:#fff;color:#374151">Geração</button>
+          <button id="pvpr-vis-ger" onclick="pvPrSetVisao('geracao')" style="border:0;padding:5px 11px;font-size:12px;cursor:pointer;background:var(--surface);color:var(--text-2)">Geração</button>
         </div>
         <div style="display:inline-flex;border:1px solid #d1d5db;border-radius:8px;overflow:hidden" title="Como mostrar os inversores ao abrir a usina">
           <button id="pvpr-view-cards" onclick="pvPrSetView('cards')"  style="border:0;padding:5px 11px;font-size:12px;cursor:pointer;background:#374151;color:#fff">▦ Cards</button>
-          <button id="pvpr-view-bar"   onclick="pvPrSetView('barras')" style="border:0;padding:5px 11px;font-size:12px;cursor:pointer;background:#fff;color:#374151">📊 Gráfico</button>
+          <button id="pvpr-view-bar"   onclick="pvPrSetView('barras')" style="border:0;padding:5px 11px;font-size:12px;cursor:pointer;background:var(--surface);color:var(--text-2)">📊 Gráfico</button>
         </div>
         <label style="font-size:12px;color:var(--muted)">Ordenar
           <select id="pvpr-ordem" onchange="renderPvPr()" style="font-size:12px;padding:3px 6px;border:1px solid #d1d5db;border-radius:6px">
@@ -1578,8 +1635,8 @@
         <label style="font-size:12px;color:var(--muted)">Data <input class="gc-bar-search" type="date" id="curvagen-data" style="width:auto" onchange="curvagenSetData()"></label>
         <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer" title="Mostra só inversores com string(s) abaixo da mediana"><input type="checkbox" id="curvagen-soabaixo" style="accent-color:#dc2626;cursor:pointer" onchange="renderCurvaGen()"> só inversores abaixo</label>
         <input class="gc-bar-search" type="text" id="curvagen-filtro" placeholder="🔍  Filtrar usina..." oninput="renderCurvaGen()">
-        <button class="gc-btn-sm" style="background:#f3f4f6" onclick="curvagenSelTodas()" title="Marcar todos os inversores abertos">☑ Todas</button>
-        <button class="gc-btn-sm" style="background:#f3f4f6" onclick="curvagenSelNenhuma()" title="Desmarcar todos">☐ Nenhuma</button>
+        <button class="gc-btn-sm" style="background:var(--surface-2)" onclick="curvagenSelTodas()" title="Marcar todos os inversores abertos">☑ Todas</button>
+        <button class="gc-btn-sm" style="background:var(--surface-2)" onclick="curvagenSelNenhuma()" title="Desmarcar todos">☐ Nenhuma</button>
         <button id="curvagen-print-btn" class="gc-btn-sm" style="background:#7c3aed;color:#fff;font-weight:600" onclick="curvagenImprimir()">🖨️ Imprimir selecionadas (0)</button>
         <button class="gc-btn-sm" style="background:#1d4ed8;color:#fff;font-weight:600" onclick="curvagenPdf()" title="Relatório PDF (servidor) das usinas visíveis — use o filtro para limitar">📄 PDF</button>
         <button class="gc-btn-sm" style="background:#e0f2fe;color:#075985" onclick="loadCurvaGen(true)">🔁 Recarregar</button>
@@ -1600,8 +1657,8 @@
         <label style="font-size:12px;color:var(--muted)">Data <input class="gc-bar-search" type="date" id="spv-data" style="width:auto" onchange="spvData={};spvExp.clear();renderSpvList()"></label>
         <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer" title="Mostra apenas os inversores que têm string(s) abaixo da mediana"><input type="checkbox" id="spv-soabaixo" style="accent-color:#dc2626;cursor:pointer" onchange="spvToggleSoAbaixo()"> só inversores abaixo</label>
         <input class="gc-bar-search" type="text" id="spv-filtro" placeholder="🔍  Filtrar usina..." oninput="renderSpvList()">
-        <button class="gc-btn-sm" style="background:#f3f4f6" onclick="spvSelTodas()" title="Marcar todas as usinas visíveis">☑ Todas</button>
-        <button class="gc-btn-sm" style="background:#f3f4f6" onclick="spvSelNenhuma()" title="Desmarcar todas">☐ Nenhuma</button>
+        <button class="gc-btn-sm" style="background:var(--surface-2)" onclick="spvSelTodas()" title="Marcar todas as usinas visíveis">☑ Todas</button>
+        <button class="gc-btn-sm" style="background:var(--surface-2)" onclick="spvSelNenhuma()" title="Desmarcar todas">☐ Nenhuma</button>
         <button id="spv-pdf-btn" class="gc-btn-sm" style="background:#7c3aed;color:#fff;font-weight:600" onclick="exportSpvPdf()">📄 PDF selecionadas (0)</button>
         <button class="gc-btn-sm" style="background:#e0f2fe;color:#075985" onclick="loaded.spv=false;loadSpv(true)">🔄 Recarregar</button>
       </div>
@@ -1611,7 +1668,7 @@
         <span id="spv-progress-lbl">Atualizando status das usinas...</span>
         <span id="spv-progress-pct">0%</span>
       </div>
-      <div style="height:7px;background:#e5e7eb;border-radius:4px;overflow:hidden">
+      <div style="height:7px;background:var(--surface-2);border-radius:4px;overflow:hidden">
         <div id="spv-progress-bar" style="height:100%;width:0%;background:#7c3aed;transition:width .25s ease"></div>
       </div>
     </div>
@@ -1641,7 +1698,7 @@
     <div id="grafico-area" style="width:100%;height:380px"></div>
     <div class="modal-footer">
       <span style="font-size:11px;color:var(--muted)">Irradiância (W/m²) ao longo do dia</span>
-      <button onclick="fecharGrafico()" style="background:none;border:1.5px solid var(--border);border-radius:8px;padding:7px 16px;font-size:12px;font-family:'Inter',sans-serif;cursor:pointer;color:#374151">Fechar</button>
+      <button onclick="fecharGrafico()" style="background:none;border:1.5px solid var(--border);border-radius:8px;padding:7px 16px;font-size:12px;font-family:'Inter',sans-serif;cursor:pointer;color:var(--text-2)">Fechar</button>
     </div>
   </div>
 </div>
@@ -1658,7 +1715,7 @@
     <div class="modal-footer">
       <span style="font-size:11px;color:var(--muted)">Visível para todos os analistas</span>
       <div style="display:flex;gap:8px">
-        <button onclick="fecharComentario()" style="background:none;border:1.5px solid var(--border);border-radius:8px;padding:7px 16px;font-size:12px;font-family:'Inter',sans-serif;cursor:pointer;color:#374151">Fechar</button>
+        <button onclick="fecharComentario()" style="background:none;border:1.5px solid var(--border);border-radius:8px;padding:7px 16px;font-size:12px;font-family:'Inter',sans-serif;cursor:pointer;color:var(--text-2)">Fechar</button>
         <button class="btn-restore-all" onclick="publicarComentario()">Publicar</button>
       </div>
     </div>
@@ -1675,7 +1732,7 @@
     </div>
     <div class="export-note">A API retorna dados do dia corrente. Exporte ao final de cada dia para acumular histórico.</div>
     <div class="modal-footer" style="margin-top:4px">
-      <button onclick="fecharExport()" style="background:none;border:1.5px solid var(--border);border-radius:8px;padding:7px 16px;font-size:12px;font-family:'Inter',sans-serif;cursor:pointer;color:#374151">Cancelar</button>
+      <button onclick="fecharExport()" style="background:none;border:1.5px solid var(--border);border-radius:8px;padding:7px 16px;font-size:12px;font-family:'Inter',sans-serif;cursor:pointer;color:var(--text-2)">Cancelar</button>
       <button class="gc-btn-export" onclick="exportarCSV()">📥 Baixar CSV</button>
     </div>
   </div>
@@ -1683,7 +1740,15 @@
 
 <script>
 /* ══ STATE ══════════════════════════════════════════════════════════════════ */
-let primary = 'geral', secondary = 'strings';
+let primary = 'pv', secondary = 'strings';   // aba "Geral" removida (pedido Levi 07/07) — default = Thopen API PV
+/* ══ TEMA (claro/escuro) — navy #090d18/#161d30, escolha salva no navegador ══ */
+function _thDark(){ return document.body.classList.contains('dark'); }
+function applyTheme(dark){ document.body.classList.toggle('dark', !!dark); const b=document.getElementById('themeBtn'); if(b) b.textContent = dark?'Tema: Escuro':'Tema: Claro'; }
+function toggleTheme(){ const dark=!_thDark(); localStorage.setItem('gcTheme', dark?'dark':'light'); applyTheme(dark); try{ show(); }catch(e){} }
+// Plotly não lê variável CSS → paleta por tema, passada nos layouts dos gráficos
+function _thPlot(){ return _thDark()
+  ? {plot_bgcolor:'#131b2e', paper_bgcolor:'#161d30', font:'#c7d0de', grid:'rgba(255,255,255,.09)'}
+  : {plot_bgcolor:'#f8fafc', paper_bgcolor:'#ffffff', font:'#374151', grid:'#e5e7eb'}; }
 const loaded = {pvs:false, pve:false, sos:false, soe:false, ses:false, pgs:false, pge:false, ana:false, soa:false, pga:false, sotrk:false, owa:false, owstr:false};
 let pvRows=[], pveRows=[], soRows=[], soeRows=[], seRows=[], pgRows=[], pgeRows=[], anaRows=[];
 const ANA_ROWS = {pv:[], sunop:[], pg:[], owen:[]};   // pré-análise ETM por fonte (ETM = cards agora)
@@ -1796,7 +1861,6 @@ async function atualizarTudo(){
     // recarrega a planilha Check (esperadas/nomes) se ela mudou — ANTES de re-buscar as abas
     try{ await fetch('/api/check/reload',{method:'POST'}); }catch(e){}
     await Promise.allSettled([
-      loadGeral(true),                            // aba Geral (consolidado /api/macro)
       loadPvStr(true), loadPvAnalise(true),
       loadSoStr(true), loadSoAnalise(true),
       loadSeStr(true),
@@ -1908,12 +1972,12 @@ let _comentKey=null;
 function _renderThread(){
   const lst=_threadOf(_comentKey).slice().reverse();           // mais recentes primeiro
   document.getElementById('coment-lista').innerHTML = lst.length ? lst.map(c=>
-    `<div style="border:1px solid var(--border);border-radius:8px;padding:7px 10px;margin-bottom:6px;background:#f8fafc">
+    `<div style="border:1px solid var(--border);border-radius:8px;padding:7px 10px;margin-bottom:6px;background:var(--surface-2)">
        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted);margin-bottom:3px">
-         <b style="color:#1a1b2e">${_cmEsc(c.nick)}</b>
+         <b style="color:var(--text)">${_cmEsc(c.nick)}</b>
          <span>${_cmTs(c.ts)}${c.ts?` <span onclick="excluirComentarioItem('${c.ts}')" title="Excluir este comentário" style="cursor:pointer;color:#dc2626;margin-left:8px;font-weight:700">✕</span>`:''}</span>
        </div>
-       <div style="font-size:12.5px;color:#1a1b2e;white-space:pre-wrap">${_cmEsc(c.texto)}</div>
+       <div style="font-size:12.5px;color:var(--text);white-space:pre-wrap">${_cmEsc(c.texto)}</div>
      </div>`
   ).join('') : '<div style="color:var(--muted);font-size:12px;padding:10px;text-align:center">Sem comentários ainda — seja o primeiro.</div>';
 }
@@ -1991,8 +2055,8 @@ async function loadPvStr(force){
    agora são montados aqui a partir de rows — payload do /api/data muito menor). */
 function _pvChartLayout(title,ytitle){
   return {title:{text:title},height:400,margin:{t:50,b:150,l:50,r:20},showlegend:false,
-    plot_bgcolor:'#f4f6f2',paper_bgcolor:'#ffffff',font:{family:'Inter'},
-    xaxis:{tickangle:-45,tickfont:{size:9,family:'Inter'}},yaxis:{title:{text:ytitle}}};
+    plot_bgcolor:_thPlot().plot_bgcolor,paper_bgcolor:_thPlot().paper_bgcolor,font:{family:'Inter',color:_thPlot().font},
+    xaxis:{tickangle:-45,tickfont:{size:9,family:'Inter'},gridcolor:_thPlot().grid},yaxis:{title:{text:ytitle},gridcolor:_thPlot().grid}};
 }
 function renderPvCharts(){
   const cfg={displayModeBar:false,responsive:true};
@@ -2067,22 +2131,22 @@ function pvDiagCard(dx){
   return `<div style="border-left:3px solid ${c[1]};background:${c[0]};padding:9px 11px;margin:0 0 8px">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
       <span style="font-size:11.5px;font-weight:700;color:${c[2]}">${dx.regra} · ${dx.causa}</span>
-      <span style="font-size:10px;font-weight:600;background:#fff;border:1px solid ${c[1]};color:${c[2]};padding:1px 7px;border-radius:5px">confiança ${dx.confianca}</span></div>
-    <div style="font-size:12px;color:#1a1b2e;margin:5px 0 3px">${(dx.evidencia||[''])[0]||''}</div>
-    <div style="font-size:11.5px;color:#6b7280"><b style="color:#1a1b2e">Ação:</b> ${dx.acao||''}</div></div>`;
+      <span style="font-size:10px;font-weight:600;background:var(--surface);border:1px solid ${c[1]};color:${c[2]};padding:1px 7px;border-radius:5px">confiança ${dx.confianca}</span></div>
+    <div style="font-size:12px;color:var(--text);margin:5px 0 3px">${(dx.evidencia||[''])[0]||''}</div>
+    <div style="font-size:11.5px;color:#6b7280"><b style="color:var(--text)">Ação:</b> ${dx.acao||''}</div></div>`;
 }
 function pvDiagResumo(pid){
   const dg=pvDiag[pid]; if(!dg) return '';
   const r=dg.resumo||{}, cs=dg.correlacoes||[];
   if(!(r.strings_abaixo||r.inversores_abaixo||r.trackers_parados||cs.length)) return '';
   const chain=cs.map(c=>`⚡ <b>Tracker ${c.trackers.join(', ')}</b> → <b>${c.inversor}</b>`+(c.strings_perdidas!=null?` <span style="color:#6b7280">(~${c.strings_perdidas} strings)</span>`:'')).join('&nbsp;&nbsp;·&nbsp;&nbsp;');
-  return `<div style="background:#f8fafc;border:1px solid #e4e6ea;border-radius:8px;padding:9px 12px">
-    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:#374151">
+  return `<div style="background:var(--surface-2);border:1px solid #e4e6ea;border-radius:8px;padding:9px 12px">
+    <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--text-2)">
       <span><b>${r.strings_abaixo}</b> strings abaixo</span>
       <span><b>${r.inversores_abaixo}</b> inversores abaixo dos pares</span>
       <span><b>${r.trackers_parados}</b> trackers parados</span>
       <span style="color:${cs.length?'#a32d2d':'#6b7280'}"><b>${cs.length}</b> correlação tracker→inversor</span></div>
-    ${cs.length?`<div style="font-size:12px;color:#1a1b2e;margin-top:7px;line-height:1.7">${chain}</div>`:''}</div>`;
+    ${cs.length?`<div style="font-size:12px;color:var(--text);margin-top:7px;line-height:1.7">${chain}</div>`:''}</div>`;
 }
 /* ══ OSs do Fracttal por equipamento (corretiva/emergencial/inspeção/religamento[/remoto]) ══ */
 let pvFrac={};                 // pid -> resposta /api/fracttal/os
@@ -2093,19 +2157,19 @@ function _frosLinha(o){
   const c=_FROS_STA[!!o.aberta]||_FROS_STA[false];
   // grid: folio (fixo) | tipo (fixo) | ativo (fixo) | descrição (flex) | data (fixo) | status (fixo)
   return `<div style="display:grid;grid-template-columns:60px 130px 130px minmax(0,1fr) 80px 90px;gap:10px;align-items:baseline;padding:3px 4px;border-bottom:1px solid #f1f2f4;font-size:11.5px">
-    <span style="font-weight:700;color:#1a1b2e">${o.folio||'—'}</span>
-    <span style="background:#eef2ff;color:#3730a3;border-radius:4px;padding:0 6px;font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${(o.tipo||'').replace(/"/g,'&quot;')}">${o.tipo||''}</span>
-    <span style="color:#1a1b2e;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${(o.ativo||'').replace(/"/g,'&quot;')}">${o.ativo||'—'}</span>
-    <span style="color:#374151;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(o.descricao||'').replace(/"/g,'&quot;')}">${o.descricao||'—'}</span>
+    <span style="font-weight:700;color:var(--text)">${o.folio||'—'}</span>
+    <span style="background:var(--surface-3);color:#3730a3;border-radius:4px;padding:0 6px;font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${(o.tipo||'').replace(/"/g,'&quot;')}">${o.tipo||''}</span>
+    <span style="color:var(--text);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${(o.ativo||'').replace(/"/g,'&quot;')}">${o.ativo||'—'}</span>
+    <span style="color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${(o.descricao||'').replace(/"/g,'&quot;')}">${o.descricao||'—'}</span>
     <span style="color:#9ca3af;white-space:nowrap">${o.criada||''}</span>
     <span style="background:${c[0]};color:${c[1]};border-radius:4px;padding:0 6px;font-size:10px;font-weight:600;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${(o.status||'').replace(/"/g,'&quot;')}">${o.status||''}</span></div>`;
 }
 function _pvFracRow(pid){
   const tr=document.createElement('tr');tr.dataset.pvp=pid;
   tr.innerHTML=`<td colspan="9" style="padding:6px 36px 4px">
-    <div style="background:#fff;border:1px solid #e4e6ea;border-radius:8px;padding:9px 12px">
+    <div style="background:var(--surface);border:1px solid #e4e6ea;border-radius:8px;padding:9px 12px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px;flex-wrap:wrap">
-        <span style="font-size:12px;font-weight:700;color:#1a1b2e">OSs Fracttal <span style="font-weight:400;color:#9ca3af">· corretiva · emergencial · inspeção · religamento · abertas de qualquer data</span></span>
+        <span style="font-size:12px;font-weight:700;color:var(--text)">OSs Fracttal <span style="font-weight:400;color:#9ca3af">· corretiva · emergencial · inspeção · religamento · abertas de qualquer data</span></span>
         <label style="font-size:11px;color:var(--muted)">Mês <input type="month" value="${pvFracMes}" onchange="pvFracMesChg(${pid},this.value)" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
       </div>
       <div id="pvfrac-${pid}"></div>
@@ -2134,9 +2198,9 @@ function pvFracRender(pid){
   const usinaOs=j.usina_os||[], porInv=j.por_inversor||{};
   const cab={}; Object.entries(porInv).forEach(([nome,v])=>{ if(!(v.os||[]).length) return; const c=(v.cabine!=null?v.cabine:'—'); (cab[c]=cab[c]||[]).push([nome,v]); });
   let html='';
-  if(usinaOs.length) html+=`<div style="margin-bottom:8px"><div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:3px">Geral da usina (${usinaOs.length})</div>${usinaOs.map(_frosLinha).join('')}</div>`;
+  if(usinaOs.length) html+=`<div style="margin-bottom:8px"><div style="font-size:11px;font-weight:700;color:var(--text-2);margin-bottom:3px">Geral da usina (${usinaOs.length})</div>${usinaOs.map(_frosLinha).join('')}</div>`;
   Object.keys(cab).sort((a,b)=>(''+a).localeCompare(''+b,undefined,{numeric:true})).forEach(c=>{
-    html+=`<div style="margin-bottom:6px"><div style="font-size:11px;font-weight:700;color:#374151;margin:6px 0 3px">Cabine ${c}</div>`;
+    html+=`<div style="margin-bottom:6px"><div style="font-size:11px;font-weight:700;color:var(--text-2);margin:6px 0 3px">Cabine ${c}</div>`;
     cab[c].sort((x,y)=>(''+x[0]).localeCompare(''+y[0],undefined,{numeric:true})).forEach(([nome,v])=>{
       html+=`<div style="margin:2px 0 5px 8px"><div style="font-size:11px;color:#6b7280;font-weight:600">${nome} <span style="color:#9ca3af;font-weight:400">· Inversor ${v.inv!=null?v.inv:'?'} da cabine ${v.cabine!=null?v.cabine:'?'} (${(v.os||[]).length})</span></div>${(v.os||[]).map(_frosLinha).join('')}</div>`;
     });
@@ -2150,17 +2214,22 @@ function pvFracMesChg(pid,v){ pvFracMes=v||_pvMesAtual(); loadPvFrac(pid,null,tr
 const _TRKST={normal:['#f0fdf4','#15803d','#bbf7d0','normal'],atraso:['#fffaf0','#b45309','#fde68a','atraso'],
   desvio:['#fff4ef','#c2410c','#fed7aa','desvio'],parado:['#fef2f2','#b91c1c','#fecaca','parado'],
   sem_comunicacao:['#f6f6f4','#6b7280','#e5e7eb','sem comunicação'],sem_dado:['#f6f6f4','#9ca3af','#e5e7eb','sem dado']};
+// versão TEMA ESCURO (fundo translúcido + texto/borda claros) — mesma estrutura [bg, txt, borda, label]
+const _TRKST_DK={normal:['rgba(34,197,94,.14)','#86efac','rgba(34,197,94,.4)','normal'],atraso:['rgba(234,179,8,.14)','#fbbf24','rgba(234,179,8,.5)','atraso'],
+  desvio:['rgba(249,115,22,.14)','#fdba74','rgba(249,115,22,.5)','desvio'],parado:['rgba(239,68,68,.15)','#f87171','rgba(239,68,68,.5)','parado'],
+  sem_comunicacao:['rgba(255,255,255,.06)','#94a3b8','rgba(255,255,255,.14)','sem comunicação'],sem_dado:['rgba(255,255,255,.06)','#94a3b8','rgba(255,255,255,.14)','sem dado']};
 function pvTrkCards(pid,invNome){
   const dg=pvDiag[pid], mp=dg&&dg.trackers_por_inversor, arr=mp?mp[invNome]:null;
   if(!arr||!arr.length) return '';
-  const cards=arr.map(t=>{ const c=_TRKST[t.status]||_TRKST.sem_dado;
+  const _M=_thDark()?_TRKST_DK:_TRKST;
+  const cards=arr.map(t=>{ const c=_M[t.status]||_M.sem_dado;
     const disp=(t.disparidade!=null)?`<span style="color:var(--muted)"> · Δ ${t.disparidade}°</span>`:'';
     const tk=t.na_planilha?` <span title="consta na planilha de tickets" style="color:#2563eb;font-weight:700">•</span>`:'';
     return `<div style="border:1px solid ${c[2]};background:${c[0]};border-radius:6px;padding:5px 9px;min-width:78px">
-      <div style="font-size:11px;font-weight:700;color:#1a1b2e">${t.tracker}${tk}</div>
+      <div style="font-size:11px;font-weight:700;color:var(--text)">${t.tracker}${tk}</div>
       <div style="font-size:10px;font-weight:600;color:${c[1]}">${c[3]}${disp}</div></div>`;}).join('');
-  return `<div style="background:#fff;border:1px solid #e4e6ea;border-radius:8px;padding:8px 11px;margin:0 0 8px">
-    <div style="font-size:11px;font-weight:700;color:#1a1b2e;margin-bottom:6px">Trackers do inversor (${arr.length})</div>
+  return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:8px 11px;margin:0 0 8px">
+    <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:6px">Trackers do inversor (${arr.length})</div>
     <div style="display:flex;gap:6px;flex-wrap:wrap">${cards}</div></div>`;
 }
 async function togglePvPlant(r){
@@ -2214,7 +2283,7 @@ function appendPvInvs(tb,pid,invs){
     const {sty,txt}=difCell(inv.diferenca);
     const leit=inv.ultima_leitura?inv.ultima_leitura.slice(0,16).replace('T',' '):'—';
     const _cm=String(inv.nome||'').match(/(\d+)\.(\d+)/);
-    const cabLbl=_cm?` <span style="font-size:10px;color:#475569;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:4px;padding:0 5px;margin-left:4px" title="Inversor ${_cm[2]} da cabine ${_cm[1]}">cabine ${_cm[1]}</span>`:'';
+    const cabLbl=_cm?` <span style="font-size:10px;color:var(--text-2);background:var(--surface-2);border:1px solid #e2e8f0;border-radius:4px;padding:0 5px;margin-left:4px" title="Inversor ${_cm[2]} da cabine ${_cm[1]}">cabine ${_cm[1]}</span>`:'';
     tr.innerHTML=`<td><b><span class="chevron${isE?' open':''}">▶</span>${inv.nome}</b>${cabLbl}${pvDiagFor(pid,inv.nome)?' <span title="diagnóstico disponível" style="color:#e24b4a;font-size:11px">◆</span>':''} <span style="color:var(--muted);font-size:10px;margin-left:5px">${inv.eday!=null?inv.eday+' kWh':'—'}</span></td>
       <td>—</td><td>${inv.sem_visao?'—':inv.strings_ativas+' / '+inv.total_strings}</td><td>${inv.str_esp??'—'}</td>
       <td style="${sty}">${txt}</td>${_dispStrCell(inv.strings_ativas,inv.str_esp)}<td>—</td>
@@ -2245,8 +2314,8 @@ function appendPvStrs(tb,pid,ik,inv){
       <span class="s-id">${s.id}</span><span class="s-val">${s.corrente.toFixed(2)} A</span></div>`;}).join('');
   const _dx=(inv&&inv.nome)?pvDiagFor(pid,inv.nome):null;
   const _fr=(pvFrac[pid]&&pvFrac[pid].por_inversor)?pvFrac[pid].por_inversor[inv.nome]:null;
-  const _frB=(_fr&&(_fr.os||[]).length)?`<div style="background:#fff;border:1px solid #e4e6ea;border-radius:8px;padding:8px 11px;margin:0 0 8px">
-      <div style="font-size:11px;font-weight:700;color:#1a1b2e;margin-bottom:4px">OSs Fracttal — ${inv.nome} <span style="font-weight:400;color:#9ca3af">· Inversor ${_fr.inv!=null?_fr.inv:'?'} da cabine ${_fr.cabine!=null?_fr.cabine:'?'} · ${pvFracMes.split('-').reverse().join('/')}</span></div>
+  const _frB=(_fr&&(_fr.os||[]).length)?`<div style="background:var(--surface);border:1px solid #e4e6ea;border-radius:8px;padding:8px 11px;margin:0 0 8px">
+      <div style="font-size:11px;font-weight:700;color:var(--text);margin-bottom:4px">OSs Fracttal — ${inv.nome} <span style="font-weight:400;color:#9ca3af">· Inversor ${_fr.inv!=null?_fr.inv:'?'} da cabine ${_fr.cabine!=null?_fr.cabine:'?'} · ${pvFracMes.split('-').reverse().join('/')}</span></div>
       ${_fr.os.map(_frosLinha).join('')}</div>`:'';
   tr.innerHTML=`<td colspan="9">
       ${pvTrkCards(pid,inv.nome)}${_frB}${_dx?pvDiagCard(_dx):''}
@@ -2436,7 +2505,8 @@ function _spvPlotInto(el,iv,cid,isHoje){
   const xaxis={type:'date',tickformat:'%H:%M',hoverformat:'%H:%M',tickfont:{size:8},nticks:8};
   if(isHoje) xaxis.range=['2000-01-01 05:00','2000-01-01 19:00'];   // dia atual: janela fixa 05-19
   Plotly.newPlot(el,traces,{autosize:true,margin:{l:42,r:10,t:6,b:28},showlegend:false,hovermode:'closest',
-    xaxis:xaxis,yaxis:{title:{text:'Corrente (A)',font:{size:9}},tickfont:{size:8}}},
+    plot_bgcolor:_thPlot().plot_bgcolor,paper_bgcolor:_thPlot().paper_bgcolor,font:{color:_thPlot().font},
+    xaxis:Object.assign({gridcolor:_thPlot().grid},xaxis),yaxis:{title:{text:'Corrente (A)',font:{size:9}},tickfont:{size:8},gridcolor:_thPlot().grid}},
     {displayModeBar:false,responsive:true}).then(()=>{try{Plotly.Plots.resize(el);}catch(e){}});
 }
 function pvCurvaHi(cid,n,on){
@@ -3073,7 +3143,7 @@ function renderPgGeracao(){
         const gapTxt = r.gap_diurno_min!=null?` · maior gap diurno ${r.gap_diurno_min} min`:'';
         const warn = baixa?`<span title="Baixa cobertura de dados${gapTxt} — IPOA/GHI subestimado/incerto" style="cursor:help">⚠️</span> `:'';
         const irrStyle = baixa?'color:#b91c1c':'';
-        return `<tr${baixa?' style="background:#fef2f2"':''}>
+        return `<tr${baixa?' style="background:var(--tint-red)"':''}>
         <td>${r.usina}</td>
         <td>${r.data?r.data.split('-').reverse().join('/'):'—'}</td>
         <td style="text-align:right">${fmt(r.geracao_kwh,1)}</td>
@@ -3163,7 +3233,7 @@ function _trkEvRenderDisp(q){
   arr.sort((a,b)=>a[1]-b[1]);   // pior disponibilidade primeiro
   const cor=v=>v>=98?'#16a34a':v>=90?'#d97706':'#dc2626';
   el.style.display='block';
-  el.innerHTML='<b style="color:#374151">Disponibilidade por tempo</b> <span style="color:var(--muted)">(06:00–18:00 · parado + desvio + atraso):</span> '+
+  el.innerHTML='<b style="color:var(--text-2)">Disponibilidade por tempo</b> <span style="color:var(--muted)">(06:00–18:00 · parado + desvio + atraso):</span> '+
     arr.map(([u,v])=>`<span style="display:inline-block;margin:0 10px 0 0;white-space:nowrap"><span style="color:var(--muted)">${u.replace(/</g,'&lt;')}</span> <b style="color:${cor(v)}">${v}%</b></span>`).join('');
 }
 function _trkEvRenderTabela(prog, totalServidor){
@@ -3187,7 +3257,7 @@ function _trkEvRenderTabela(prog, totalServidor){
   tb.innerHTML=rows.map(r=>{
     const paradoAgora=_trkParSet.has(String(r.usina)+'|'+String(r.tracker));
     const tag=paradoAgora?' <span title="Este tracker está na sub-aba Trackers parados (agora) — segue parado neste momento" style="background:#fee2e2;color:#b91c1c;border:1px solid #fecaca;border-radius:10px;padding:1px 7px;font-size:10px;font-weight:600;white-space:nowrap">● parado agora</span>':'';
-    return `<tr${paradoAgora?' style="background:#fff6f6"':''}>
+    return `<tr${paradoAgora?' style="background:var(--tint-red)"':''}>
     <td>${r.data}</td><td><b>${r.usina}</b></td><td>${r.tracker}${tag}</td>
     <td>${r.inversor?r.inversor:'<span style="color:var(--muted)">—</span>'}</td>
     <td>${r.data} ${r.parada}</td>
@@ -3271,18 +3341,22 @@ function strProbExport(){
 }
 
 /* ── STRINGS · sub-aba "Ocorrências (caiu → voltou)" — API PV/2C/Athon/Axis (curva); PG não (snapshot) ── */
-let _strEvRows=[], _strEvSrc='';
+let _strEvRows=[], _strEvSrc='', _strEvDate='';
 function _strEvFiltra(){ _strEvRender(); }
+// Dia selecionado nas Ocorrências de strings (default = hoje); preenche o input na 1ª vez.
+function _strEvDia(){ const el=document.getElementById('str-ev-dia'); if(el && !el.value) el.value=_trkHoje(); return (el&&el.value)||_trkHoje(); }
 async function loadStrEventos(force){
   const tb=document.getElementById('str-ev-tbody'); if(!tb) return;
   if(primary==='pg'){
     _strEvRows=[]; tb.innerHTML='<tr><td colspan="7" style="padding:16px;color:var(--muted)">O dado de string do <b>Thopen</b> é um snapshot (1 leitura/dia, sem curva) — ocorrências caiu→voltou não dá para detectar nesta fonte.</td></tr>';
     const res=document.getElementById('str-ev-resumo'); if(res) res.textContent=''; return;
   }
-  if(!force && _strEvRows.length && _strEvSrc===primary){ _strEvRender(); return; }
-  tb.innerHTML='<tr><td colspan="7" style="padding:14px;color:var(--muted)">Processando as curvas de string do dia… (pode levar ~1 min)</td></tr>';
-  let d; try{ d=await fetch(_strProbBase()+'/eventos'+(force?'?force=1':'')).then(r=>r.json()); }catch(e){ d={rows:[]}; }
-  _strEvRows=d.rows||[]; _strEvSrc=primary;
+  const dia=_strEvDia();
+  if(!force && _strEvRows.length && _strEvSrc===primary && _strEvDate===dia){ _strEvRender(); return; }
+  const hoje=dia===_trkHoje(), pvPassado=(primary==='pv'&&!hoje);
+  tb.innerHTML=`<tr><td colspan="7" style="padding:14px;color:var(--muted)">Processando as curvas de string ${hoje?'do dia':'de '+dia.slice(8,10)+'/'+dia.slice(5,7)}… ${pvPassado?'(histórico por <b>potência</b> da Plataforma — pode levar alguns minutos)':'(pode levar ~1 min)'}</td></tr>`;
+  let d; try{ d=await fetch(_strProbBase()+'/eventos?ini='+dia+(force?'&force=1':'')).then(r=>r.json()); }catch(e){ d={rows:[]}; }
+  _strEvRows=d.rows||[]; _strEvSrc=primary; _strEvDate=dia;
   _strEvRender();
 }
 function _strEvRender(){
@@ -3306,7 +3380,7 @@ function strEvExport(){
   if(primary==='pg'){ alert('Thopen não tem curva de string (snapshot) — sem ocorrências para exportar.'); return; }
   const q=(document.getElementById('str-ev-usina')?.value||'').trim();
   const qq=q?('&usina='+encodeURIComponent(q)):'';
-  window.location=_strProbBase()+'/eventos/export.xlsx?ini='+_trkHoje()+qq;
+  window.location=_strProbBase()+'/eventos/export.xlsx?ini='+_strEvDia()+qq;
 }
 
 /* ── Trackers · sub-aba "Parados agora" — flat de todos os trackers c/ status='parado' ── */
@@ -3396,14 +3470,14 @@ function _rondaModalEl(){
   if(m) return m;
   m=document.createElement('div'); m.id='rondaTrkModal';
   m.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9999;display:none;align-items:center;justify-content:center';
-  m.innerHTML=`<div style="background:#fff;border-radius:12px;padding:18px;width:min(600px,94vw);max-height:88vh;display:flex;flex-direction:column;gap:12px;box-shadow:0 12px 44px rgba(0,0,0,.32)">
+  m.innerHTML=`<div style="background:var(--surface);border-radius:12px;padding:18px;width:min(600px,94vw);max-height:88vh;display:flex;flex-direction:column;gap:12px;box-shadow:0 12px 44px rgba(0,0,0,.32)">
     <div style="display:flex;justify-content:space-between;align-items:center">
-      <b style="font-size:16px;color:#1a1b2e">Ronda de Trackers</b>
+      <b style="font-size:16px;color:var(--text)">Ronda de Trackers</b>
       <button class="gc-btn-sm" style="display:inline-block" onclick="rondaFechar()">Fechar</button>
     </div>
     <div id="ronda-progress" style="display:none">
       <div id="ronda-prog-label" style="font-size:12px;color:var(--muted);margin-bottom:6px">Atualizando…</div>
-      <div style="height:10px;background:#eef0f4;border-radius:6px;overflow:hidden">
+      <div style="height:10px;background:var(--surface-2);border-radius:6px;overflow:hidden">
         <div id="ronda-prog-bar" style="height:100%;width:0%;background:#16a34a;transition:width .35s"></div>
       </div>
     </div>
@@ -3411,10 +3485,10 @@ function _rondaModalEl(){
     <div id="ronda-detalhe" style="display:none;flex-direction:column;gap:10px;flex:1;min-height:0">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
         <button class="gc-btn-sm" style="display:inline-block" onclick="rondaVoltar()">‹ Voltar</button>
-        <b id="ronda-det-titulo" style="font-size:13px;color:#1a1b2e"></b>
+        <b id="ronda-det-titulo" style="font-size:13px;color:var(--text)"></b>
         <button class="gc-btn-sm" style="display:inline-block;background:#16a34a;color:#fff" onclick="rondaCopiar(this)">Copiar</button>
       </div>
-      <textarea id="ronda-txt" readonly style="flex:1;min-height:280px;width:100%;font-family:monospace;font-size:12px;border:1px solid #d1d5db;border-radius:6px;padding:8px;resize:vertical;color:#1a1b2e"></textarea>
+      <textarea id="ronda-txt" readonly style="flex:1;min-height:280px;width:100%;font-family:monospace;font-size:12px;border:1px solid #d1d5db;border-radius:6px;padding:8px;resize:vertical;color:var(--text)"></textarea>
     </div>
   </div>`;
   document.body.appendChild(m);
@@ -3485,7 +3559,7 @@ function rondaResumo(){
   h+='<div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:6px">Escolha a região</div><div style="display:flex;flex-direction:column;gap:6px">';
   regs.forEach(g=>{
     const u=new Set(g.rows.map(r=>r.usina)).size, reg=g.reg.replace(/'/g,"\\'");
-    h+=`<button onclick="rondaVerRegiao('${reg}')" style="display:flex;justify-content:space-between;align-items:center;width:100%;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;background:#fafafa;cursor:pointer;font-size:13px;color:#1a1b2e">
+    h+=`<button onclick="rondaVerRegiao('${reg}')" style="display:flex;justify-content:space-between;align-items:center;width:100%;padding:10px 12px;border:1px solid #e5e7eb;border-radius:8px;background:var(--surface);cursor:pointer;font-size:13px;color:var(--text)">
        <span style="font-weight:600">${g.reg}</span>
        <span style="font-size:12px;color:var(--muted)"><b style="color:#b91c1c">${g.rows.length}</b> parado${g.rows.length!=1?'s':''} · ${u} usina${u!=1?'s':''} ›</span>
      </button>`;
@@ -3528,25 +3602,50 @@ function rondaCopiar(btn){
   if(btn){ const o=btn.textContent; btn.textContent='Copiado!'; setTimeout(()=>{ btn.textContent=o; },1500); }
 }
 
-async function loadSoTrackers(force){
+async function loadSoTrackers(force, silent){
+  // silent=true: re-busca em fundo SEM esconder a tabela nem colapsar nada (auto-atualização).
   const base=_trkBase();
   // Sub-abas Ocorrências/Parados: ligadas nas fontes que têm os endpoints (todas, menos SolarEdge).
   const _temSub=['pv','pg','sunop','axis','owen'].includes(primary);
   const sub=document.getElementById('trk-subtabs');
   if(sub) sub.style.display=_temSub?'flex':'none';
   if(!_temSub) trkSubtab('live');
+  // Fonte TROCOU (ex.: API PV → Athon) com a sub-aba Parados/Ocorrências aberta: o conteúdo dela
+  // é da fonte ANTIGA → re-entra na sub-aba (recarrega da fonte nova + reajusta botões por-fonte).
+  if(_temSub && trkLoadedSrc && trkLoadedSrc!==primary){
+    const _pr=document.getElementById('trk-par-view'), _ev=document.getElementById('trk-ev-view');
+    if(_pr && _pr.style.display!=='none') trkSubtab('parados');
+    else if(_ev && _ev.style.display!=='none') trkSubtab('eventos');
+  }
   const _src=document.getElementById('trk-title-src');
   if(_src)_src.textContent = primary==='pv'?'PV Plataforma' : primary==='pg'?'Banco de Dados (Thopen)' : primary==='owen'?'2C' : 'SunOp (Athon)';
-  if(loaded.sotrk && trkLoadedSrc===primary && !force){ renderSoTrackers(); return; }
-  document.getElementById('trk-cont').style.display='none';
-  document.getElementById('trk-load').style.display='';
-  document.getElementById('trk-load').innerHTML='<div class="gc-spinner"></div><p>Consultando trackers...</p>';
+  if(loaded.sotrk && trkLoadedSrc===primary && !force && !silent){ renderSoTrackers(); return; }
+  if(!silent){
+    document.getElementById('trk-cont').style.display='none';
+    document.getElementById('trk-load').style.display='';
+    document.getElementById('trk-load').innerHTML='<div class="gc-spinner"></div><p>Consultando trackers...</p>';
+  }
   try{
     const d=await fetch(force?base+'?force=1':base).then(r=>r.json());
     trkRows=d.rows||[]; loaded.sotrk=true;
-    if(force||trkLoadedSrc!==primary){trkExp.clear();trkGrpExp.clear();trkAuto.clear();[trkCache,trkSel,trkChartCache].forEach(o=>Object.keys(o).forEach(k=>delete o[k]));}
+    if(force||trkLoadedSrc!==primary){
+      // Troca de FONTE: colapsa tudo (os ids expandidos são da fonte antiga). FORCE na MESMA fonte
+      // ("Atualizar status"): MANTÉM as expansões e só limpa os caches → o detalhe re-busca e os
+      // status (Parado/Desvio/Atrasado, badges, chips) atualizam NA TELA. Antes colapsava tudo e
+      // parecia que o botão "não fazia nada".
+      if(trkLoadedSrc!==primary){ trkExp.clear(); trkGrpExp.clear(); }
+      trkAuto.clear();
+      [trkCache,trkSel,trkChartCache].forEach(o=>Object.keys(o).forEach(k=>delete o[k]));
+    }
     trkLoadedSrc=primary;
     setTs(d.cache_ts);
+    // AUTO-ATUALIZAÇÃO (pedido Levi 07/07 — "Athon só atualiza quando clico"):
+    // 1) o SWR devolveu payload STALE (servidor recalculando em fundo) → re-busca SILENCIOSA em 30s
+    //    até vir fresco (pega ex.: snapshot antigo servido logo após restart);
+    // 2) refresh periódico de 5 min enquanto a aba Trackers estiver aberta (sem colapsar nada).
+    clearTimeout(window._trkStaleT);
+    if(d.stale) window._trkStaleT=setTimeout(()=>{ if(secondary==='trackers'&&!_trkAtualizando) loadSoTrackers(false,true); },30000);
+    if(!window._trkAutoRef) window._trkAutoRef=setInterval(()=>{ if(secondary==='trackers'&&!_trkAtualizando) loadSoTrackers(false,true); },5*60*1000);
     document.getElementById('trk-usinas').textContent=d.summary.usinas;
     document.getElementById('trk-total').textContent=d.summary.trackers;
     // Parado/Desvio = MESMA contagem granular das linhas (parados/desvios reais; fallback severos/leves
@@ -3564,13 +3663,18 @@ async function loadSoTrackers(force){
         document.getElementById('trk-acomp-n').textContent=d.summary.acompanhados||0;
       } else { ban.style.display='none'; trkOnlyNovos=false; }
     }
-    renderSoTrackers();
+    // Refresh SILENCIOSO com algo expandido: atualiza só os contadores do topo e NÃO redesenha a
+    // tabela (redesenhar fecharia o gráfico/detalhe que o usuário está olhando). O dado da linha
+    // entra no próximo ciclo ou quando recolher. FORCE (botão) sempre redesenha — os detalhes
+    // expandidos re-buscam o status fresco.
+    if(!silent || force || (!trkExp.size && !trkGrpExp.size)) renderSoTrackers();
     document.getElementById('trk-load').style.display='none';
     document.getElementById('trk-cont').style.display='';
     // Auto-recalcular pela curva só quando é LEVE: fonte ≠ API PV (curva pesada/502) E poucas usinas
     // (≤12). Fontes com muitas usinas (ex.: PG ~16) floodam o banco ao abrir → ficam SÓ no botão.
-    if(primary!=='pv' && (trkRows||[]).length<=12) trkAtualizarStatus(document.getElementById('trk-atualizar-status'));
-  }catch(e){ document.getElementById('trk-load').innerHTML='<p style="color:#dc2626">Erro: '+e.message+'</p>'; }
+    // NUNCA no refresh silencioso (senão o auto-refresh de 5 min viraria um force pesado a cada ciclo).
+    if(!silent && !force && primary!=='pv' && (trkRows||[]).length<=12) trkAtualizarStatus(document.getElementById('trk-atualizar-status'));
+  }catch(e){ if(!silent) document.getElementById('trk-load').innerHTML='<p style="color:#dc2626">Erro: '+e.message+'</p>'; }
 }
 let trkOnlyNovos=false;
 function trkToggleNovos(){
@@ -3590,7 +3694,9 @@ async function trkAtualizarStatus(btn){
   _trkAtualizando=true; const o=btn?btn.textContent:'';
   if(btn){ btn.disabled=true; btn.textContent='Atualizando…'; }
   try{
-    await loadSoTrackers(true);                       // 1 request → recomputa e re-renderiza a tabela
+    // silent=true: recomputa e re-renderiza SEM esconder a tabela ("apagão" com spinner dava a
+    // impressão de reload sem efeito). O feedback é o próprio botão "Atualizando…" + hora no topo.
+    await loadSoTrackers(true, true);                 // 1 request → recomputa e re-renderiza a tabela
     let sP=0,sD=0;                                     // cards do topo pela contagem granular por usina
     (trkRows||[]).forEach(r=>{ sP+=(r.parados!=null?r.parados:r.severos)||0; sD+=(r.desvios||0); });
     const eP=document.getElementById('trk-sev'), eD=document.getElementById('trk-leve');
@@ -3647,7 +3753,7 @@ function _trkDispBar(d, tip){
   const fundo = pct>=95?'#dcfce7' : pct>=80?'#fef3c7' : '#fee2e2';
   const nota = d.tempo?' (por tempo, 06:00–18:00)':' (por contagem — aguardando processar hoje)';
   return `<div style="display:flex;align-items:center;gap:6px;min-width:120px" title="${tip}${nota}">
-    <div style="flex:1;height:8px;background:#f1f2f4;border-radius:4px;overflow:hidden">
+    <div style="flex:1;height:8px;background:var(--surface-2);border-radius:4px;overflow:hidden">
       <div style="height:100%;width:${pct}%;background:${cor}"></div></div>
     <span style="font-size:11px;font-weight:700;color:${cor};background:${fundo};padding:0 5px;border-radius:4px;min-width:46px;text-align:center">${pct.toFixed(1)}%${d.tempo?'':'*'}</span></div>`;
 }
@@ -3690,7 +3796,7 @@ function _trkRenderRow(tb, r){
   tb.appendChild(tr);
   if(exp){
     const det=document.createElement('tr');
-    det.innerHTML=`<td colspan="10" style="background:#fafbff;padding:8px 14px"><div id="trk-det-${_trkCss(r.plant_id)}" style="color:var(--muted);font-size:12px">Carregando trackers...</div></td>`;
+    det.innerHTML=`<td colspan="10" style="background:var(--surface-3);padding:8px 14px"><div id="trk-det-${_trkCss(r.plant_id)}" style="color:var(--muted);font-size:12px">Carregando trackers...</div></td>`;
     tb.appendChild(det);
     renderTrkDetail(r.plant_id);
   }
@@ -3730,7 +3836,7 @@ function _trkRenderGrupo(tb, g){
                 : (g.tem_ticket?' <span class="badge b-ok" title="acompanhado na planilha">na planilha</span>':'');
   const vkey='trk:'+_trkHoje()+':'+primary+':'+g.plant_id;
   const chk=`<input type="checkbox" class="chk-ver" ${isVer(vkey)?'checked':''} title="Já acompanhei este grupo hoje (zera amanhã)" onclick="event.stopPropagation();toggleVer('${vkey}',this.checked,this)">`;
-  const tr=document.createElement('tr'); tr.className='plant-row'; tr.style.cursor='pointer'; tr.style.background='#eef2ff';
+  const tr=document.createElement('tr'); tr.className='plant-row'; tr.style.cursor='pointer'; tr.style.background='var(--row-hi)';
   if(isVer(vkey))tr.classList.add('verified');
   tr.innerHTML=`<td>${chk}<b>${exp?'▾':'▸'} ${g.base}</b> <span class="badge" style="background:#e0e7ff;color:#3730a3">${g.cabines.length} usinas</span>${novoTag}</td>
     <td>${g.total}</td>
@@ -3748,7 +3854,7 @@ function _trkRenderGrupo(tb, g){
     const cards=g.cabines.map(c=>{
       const cid=_trkCss(c.r.plant_id);
       const nmEsc=(c.r.usina||'').replace(/['"\\]/g,'');
-      return `<div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px;background:#fff">
+      return `<div style="border:1px solid #e5e7eb;border-radius:8px;padding:8px;background:var(--surface)">
         <div id="trk-cabhd-${cid}" onclick="toggleCabineDet('${c.r.plant_id}')" style="cursor:pointer;font-size:12px;font-weight:600;margin-bottom:6px">
           ▸ ${c.r.usina}${c.skid?` · Skid ${c.skid}`:''} <span style="font-weight:400;color:var(--muted)">— carregando…</span></div>
         <div style="text-align:right;margin-bottom:2px"><button class="gc-btn-sm" style="display:inline-block;padding:1px 7px;font-size:10px" onclick="event.stopPropagation();trkExpandChart('${c.r.plant_id}','${nmEsc}')" title="Ver o gráfico em tela cheia">⤢ Expandir</button></div>
@@ -3756,7 +3862,7 @@ function _trkRenderGrupo(tb, g){
         <div id="trk-det-${cid}" style="display:none;margin-top:6px"></div>
       </div>`;
     }).join('');
-    det.innerHTML=`<td colspan="10" style="background:#fafbff;padding:10px 14px">
+    det.innerHTML=`<td colspan="10" style="background:var(--surface-3);padding:10px 14px">
       <div style="font-size:11px;color:var(--muted);margin-bottom:8px">Prévia por usina (curva do dia + contagem) — clique numa usina p/ ver os trackers e ângulos.</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px">${cards}</div></td>`;
     tb.appendChild(det);
@@ -3830,7 +3936,10 @@ async function renderTrkDetail(pid){
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px">
       <button class="gc-btn-sm" style="display:inline-block" onclick="toggleGraficoTrackers('${pid}')">📈 Curva do dia</button>
       <button class="gc-btn-sm" style="display:inline-block" onclick="trkExpandChart('${pid}','${(data.usina||'').replace(/['"\\]/g,'')}')" title="Ver o gráfico em tela cheia">⤢ Expandir</button>
-      <label style="font-size:11px;color:var(--muted)">Data <input type="date" id="trk-data-${cid}" value="${_trkHoje()}" onchange="trkChartReload('${pid}')" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
+      <label style="font-size:11px;color:var(--muted)">De <input type="date" id="trk-ini-${cid}" value="${_trkHoje()}" max="${_trkHoje()}" onchange="trkChartReload('${pid}')" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
+      <label style="font-size:11px;color:var(--muted)">Até <input type="date" id="trk-fim-${cid}" value="${_trkHoje()}" max="${_trkHoje()}" onchange="trkChartReload('${pid}')" style="font-size:11px;padding:2px 4px;border:1px solid #d1d5db;border-radius:5px"></label>
+      <span style="font-size:10px;color:var(--muted)" title="janela máxima do gráfico">até 5 dias</span>
+      <button class="gc-btn-sm trk-vista-btn" style="display:inline-block" onclick="trkToggleVista()" title="Alterna a janela do gráfico entre o dia inteiro (00:00–23:59) e a janela diurna (06:00–18:00)">${_trkVistaLabel()}</button>
       <span style="font-size:11px;color:var(--muted)">Filtrar:</span>
       <button class="gc-btn-sm" style="display:inline-block" onclick="trkPreset('${pid}','ruins')">Ruins</button>
       <button class="gc-btn-sm" style="display:inline-block" onclick="trkPreset('${pid}','bons')">Bons</button>
@@ -3969,20 +4078,48 @@ function _trkUpdateResumoChips(pid){
   const cid=_trkCss(pid);
   const r=document.getElementById('trk-resumo-'+cid); if(r) r.innerHTML=_trkResumoHtml(pid);
   const c=document.getElementById('trk-chips-'+cid); if(c) c.innerHTML=_trkChipsHtml(pid);
-  _trkSyncRowFromCache(pid);   // linha-pai bate com o expandir
+  const ds=_trkDataDe(pid);
+  if(!ds || ds===_trkHoje()) _trkSyncRowFromCache(pid);   // linha-pai bate com o expandir — só no MESMO dia
 }
 function _trkHoje(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
-function _trkDataDe(pid){ const el=document.getElementById('trk-data-'+_trkCss(pid)); return (el&&el.value)?el.value:''; }
+function _isoDia(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+// Seletor De/Até do gráfico de trackers (até 5 dias). _trkDataDe = FIM (compat com checagens "é hoje").
+function _trkDataDe(pid){ const el=document.getElementById('trk-fim-'+_trkCss(pid)); return (el&&el.value)?el.value:''; }
+// Trava de 5 dias: ini<=fim e janela<=5 dias (mantém o FIM, recua o início) — espelha o backend.
+function _trkClampPair(ini,fim){
+  if(!ini) ini=fim; if(!fim) fim=ini;
+  if(ini>fim){ const t=ini; ini=fim; fim=t; }
+  const di=new Date(ini+'T00:00'), df=new Date(fim+'T00:00');
+  if(Math.round((df-di)/86400000)>4){ const n=new Date(df); n.setDate(n.getDate()-4); ini=_isoDia(n); }
+  return {ini,fim};
+}
+function _trkRange(pid){
+  const cid=_trkCss(pid);
+  const ei=document.getElementById('trk-ini-'+cid), ef=document.getElementById('trk-fim-'+cid);
+  const {ini,fim}=_trkClampPair((ei&&ei.value)||_trkHoje(), (ef&&ef.value)||_trkHoje());
+  if(ei) ei.value=ini; if(ef) ef.value=fim;      // reflete a trava nos inputs
+  return {ini,fim};
+}
+function _trkChartURL(pid,ini,fim){ return _trkBase()+'/'+encodeURIComponent(pid)+'/chart?ini='+ini+'&fim='+fim; }
+// _trkWindowDetect só faz sentido em UM dia PASSADO (régua de janela de 1 dia). Hoje = status do
+// servidor; intervalo (>1 dia) = curva colorida pelo status atual, sem recalcular por janela.
+function _trkRecolorePassado(pid,ini,fim){ if(ini===fim && ini!==_trkHoje()) _trkWindowDetect(trkChartCache[pid], trkCache[pid]); }
+// ANTI-RACE: cada recarga por usina recebe um token; só a MAIS RECENTE renderiza. Sem isto, trocar
+// De/Até rápido (ex.: montar 5 dias e voltar p/ 1) deixava a busca lenta anterior chegar por último e
+// sobrescrever o gráfico — inputs em 1 dia mas curva de 5 dias (bug relatado 07/07).
+let _trkReloadTok={};
 async function trkChartReload(pid){
-  // data daquela usina mudou → re-busca a curva se ela estiver aberta
   const box=document.getElementById('trk-chart-'+_trkCss(pid));
   if(!box || box.style.display==='none')return;
   box.innerHTML='<div class="gc-loading" style="min-height:320px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
-  const ds=_trkDataDe(pid), ckey=pid+'|'+ds;
-  try{ trkChartCache[ckey]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart'+(ds?('?date='+ds):'')).then(r=>r.json()); }
-  catch(e){ trkChartCache[ckey]={trackers:[]}; }
-  trkChartCache[pid]=trkChartCache[ckey];
-  _trkWindowDetect(trkChartCache[pid], trkCache[pid]);   // recontagem por janela 07:00–18:00 (curva)
+  const {ini,fim}=_trkRange(pid), ckey=pid+'|'+ini+'|'+fim;
+  const tok=(_trkReloadTok[pid]=(_trkReloadTok[pid]||0)+1);
+  let payload;
+  try{ payload=await fetch(_trkChartURL(pid,ini,fim)).then(r=>r.json()); }
+  catch(e){ payload={trackers:[]}; }
+  if(tok!==_trkReloadTok[pid]) return;          // recarga mais nova começou → descarta esta
+  trkChartCache[ckey]=payload; trkChartCache[pid]=payload;
+  _trkRecolorePassado(pid,ini,fim);
   _trkUpdateResumoChips(pid);
   renderTrkChart(pid);
 }
@@ -3992,15 +4129,37 @@ async function toggleGraficoTrackers(pid){
   if(box.style.display!=='none'){ box.style.display='none'; return; }   // fechar
   box.style.display='';
   box.innerHTML='<div class="gc-loading" style="min-height:320px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
-  const ds=_trkDataDe(pid), ckey=pid+'|'+ds;
+  const {ini,fim}=_trkRange(pid), ckey=pid+'|'+ini+'|'+fim;
+  const tok=(_trkReloadTok[pid]=(_trkReloadTok[pid]||0)+1);
   if(!trkChartCache[ckey]){
-    try{ trkChartCache[ckey]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart'+(ds?('?date='+ds):'')).then(r=>r.json()); }
-    catch(e){ trkChartCache[ckey]={trackers:[]}; }
+    let payload;
+    try{ payload=await fetch(_trkChartURL(pid,ini,fim)).then(r=>r.json()); }
+    catch(e){ payload={trackers:[]}; }
+    if(tok!==_trkReloadTok[pid]) return;        // recarga mais nova começou → descarta esta
+    trkChartCache[ckey]=payload;
   }
+  if(tok!==_trkReloadTok[pid]) return;
   trkChartCache[pid]=trkChartCache[ckey];   // renderTrkChart lê por pid
-  _trkWindowDetect(trkChartCache[pid], trkCache[pid]);   // recontagem por janela 07:00–18:00 (curva)
+  _trkRecolorePassado(pid,ini,fim);
   _trkUpdateResumoChips(pid);
   renderTrkChart(pid);
+}
+// Vista dos gráficos de trackers: padrão DIA INTEIRO (00–24h); botão alterna p/ 06–18h.
+let trkVistaReduzida=false;
+function _trkVistaLabel(){ return trkVistaReduzida?'Dia inteiro (00–24h)':'Visão reduzida (06–18h)'; }
+function trkToggleVista(){
+  trkVistaReduzida=!trkVistaReduzida;
+  document.querySelectorAll('.trk-vista-btn').forEach(b=>b.textContent=_trkVistaLabel());
+  // redesenha todas as curvas visíveis (detalhe expandido, minis do grupo e modal)
+  new Set(Object.keys(trkChartCache).map(k=>String(k).split('|')[0])).forEach(pid=>{
+    const cid=_trkCss(pid);
+    const det=document.getElementById('trk-chart-'+cid);
+    if(det && det.style.display!=='none') renderTrkChart(pid);
+    const mini=document.getElementById('trk-mini-'+cid);
+    if(mini && mini.style.display!=='none') renderTrkChart(pid,'trk-mini-'+cid);
+  });
+  const m=document.getElementById('trk-modal');
+  if(trkModalPid!=null && m && m.style.display!=='none') renderTrkChart(trkModalPid,'trk-modal-chart',false);
 }
 function renderTrkChart(pid, boxId, forceMini){
   // boxId → desenha em container custom. mini (sem legenda/títulos) por padrão p/ boxId;
@@ -4015,6 +4174,7 @@ function renderTrkChart(pid, boxId, forceMini){
                    : s==='atraso'?{color:'#eab308',width:1.7}
                    : {color:'rgba(100,116,139,0.4)',width:1};
   const vis=(d.trackers||[]).filter(t=>!sel||sel.has(t.id));
+  const multiDay=(d.ndias||1)>1, _hx=multiDay?'%d/%m %H:%M':'%H:%M';   // intervalo → hover/eixo com DATA
   // ruins por cima (z-order) p/ não sumirem no feixe
   const ordem={parado:3,desvio:2,atraso:1};
   vis.sort((a,b)=>(ordem[stMap[a.id]]||0)-(ordem[stMap[b.id]]||0));
@@ -4022,44 +4182,56 @@ function renderTrkChart(pid, boxId, forceMini){
   // p/ o fuso do navegador, senão o dia escolhido começaria às 21h do dia anterior).
   const _toDt=arr=>(arr||[]).map(s=>{const dt=new Date(s);return isNaN(dt)?s:
     new Date(dt.getUTCFullYear(),dt.getUTCMonth(),dt.getUTCDate(),dt.getUTCHours(),dt.getUTCMinutes(),dt.getUTCSeconds());});
-  // mostra só a janela diurna 06:00–18:00 (descarta madrugada/noite)
-  const _win=(xs,ys)=>{const X=[],Y=[];(xs||[]).forEach((dt,i)=>{ if(dt instanceof Date){const mn=dt.getHours()*60+dt.getMinutes(); if(mn<360||mn>1080)return;} X.push(dt);Y.push((ys||[])[i]);}); return [X,Y];};
+  // Vista dos gráficos (pedido Levi 07/07): padrão = DIA INTEIRO 00:00–23:59; o botão
+  // "Visão reduzida" liga a janela 06:00–18:00 (descarta madrugada/noite). Só afeta a EXIBIÇÃO —
+  // as réguas de detecção seguem nas janelas próprias.
+  const _win=(xs,ys)=>{const X=[],Y=[];(xs||[]).forEach((dt,i)=>{ if(trkVistaReduzida && dt instanceof Date){const mn=dt.getHours()*60+dt.getMinutes(); if(mn<360||mn>1080)return;} X.push(dt);Y.push((ys||[])[i]);}); return [X,Y];};
   const idxById={}, baseLine=[];   // mapa tracker_id -> índice do trace + estilo base (p/ destaque no hover do chip)
   const traces=vis.map((t,i)=>{const [X,Y]=_win(_toDt(t.x),t.y); const ln=corLinha(stMap[t.id]); idxById[t.id]=i; baseLine.push({width:ln.width,color:ln.color}); return {x:X,y:Y,name:t.id,type:'scatter',mode:'lines',
-    line:ln,hovertemplate:t.id+' ('+(stMap[t.id]||'normal')+')<br>%{x|%H:%M} · %{y:.1f}°<extra></extra>',showlegend:false};});
+    line:ln,hovertemplate:t.id+' ('+(stMap[t.id]||'normal')+')<br>%{x|'+_hx+'} · %{y:.1f}°<extra></extra>',showlegend:false};});
   if(!mini) trkChartState[pid]={idxById,base:baseLine};
   if(d.alvo&&d.alvo.y&&d.alvo.y.length){const [AX,AY]=_win(_toDt(d.alvo.x),d.alvo.y); traces.push({x:AX,y:AY,name:'Alvo',type:'scatter',mode:'lines',
-    line:{color:'#111827',width:2.2,dash:'dash'},hovertemplate:'Alvo<br>%{x|%H:%M} · %{y:.1f}°<extra></extra>'});}
-  // eixo X fixo na janela 06:00–18:00 do dia plotado
-  let _xr=null; for(const t of traces){for(const dt of (t.x||[])){if(dt instanceof Date){_xr=[new Date(dt.getFullYear(),dt.getMonth(),dt.getDate(),6,0,0),new Date(dt.getFullYear(),dt.getMonth(),dt.getDate(),18,0,0)];break;}}if(_xr)break;}
+    line:{color:'#111827',width:2.2,dash:'dash'},hovertemplate:'Alvo<br>%{x|'+_hx+'} · %{y:.1f}°<extra></extra>'});}
+  // eixo X: abrange TODO o intervalo (do 1º ao último dia). Vista reduzida corta 06–18h de CADA dia
+  // (o _win já filtra por hora-do-dia); aqui só ajustamos as BORDAS do range.
+  let _minD=null,_maxD=null;
+  for(const t of traces){for(const dt of (t.x||[])){if(dt instanceof Date){ if(!_minD||dt<_minD)_minD=dt; if(!_maxD||dt>_maxD)_maxD=dt; }}}
+  let _xr=null;
+  if(_minD&&_maxD){
+    _xr=[new Date(_minD.getFullYear(),_minD.getMonth(),_minD.getDate(), trkVistaReduzida?6:0, 0,0),
+         new Date(_maxD.getFullYear(),_maxD.getMonth(),_maxD.getDate(), trkVistaReduzida?18:23, trkVistaReduzida?0:59, trkVistaReduzida?0:59)];
+  }
   if(!mini){ const hint=document.getElementById('trk-hint-'+cid);
     if(hint)hint.textContent=`mostrando ${vis.length} de ${(d.trackers||[]).length}`; }
   if(!traces.length){Plotly.purge(box);box.innerHTML=`<p style="text-align:center;color:var(--muted);padding:${mini?'18px':'40px'} 0;font-size:11px">Sem curva.</p>`;return;}
   Plotly.purge(box); box.innerHTML='';   // remove o spinner / plot anterior antes de redesenhar
   Plotly.newPlot(box, traces, {
     margin: mini?{t:6,r:8,b:22,l:32}:{t:10,r:14,b:36,l:46},
-    xaxis:{title:mini?'':'Hora', type:'date', tickformat:'%H:%M', hoverformat:'%H:%M', tickfont:{size:mini?8:10}, nticks:mini?6:12, range:_xr||undefined},
-    yaxis:{title:mini?'':'Ângulo (°)', tickfont:{size:mini?8:11}},
+    xaxis:{title:mini?'':(multiDay?'Dia · hora':'Hora'), type:'date', tickformat:multiDay?'%d/%m %Hh':'%H:%M', hoverformat:_hx, tickfont:{size:mini?8:10}, nticks:mini?(multiDay?5:6):(multiDay?10:12), range:_xr||undefined, gridcolor:_thPlot().grid, zerolinecolor:_thPlot().grid},
+    yaxis:{title:mini?'':'Ângulo (°)', tickfont:{size:mini?8:11}, gridcolor:_thPlot().grid, zerolinecolor:_thPlot().grid},
     showlegend:!mini,
     legend:{orientation:'h', y:1.15},
-    font:{family:'Inter', size:11},
-    plot_bgcolor:'#f8fafc', paper_bgcolor:'#fff',
+    font:{family:'Inter', size:11, color:_thPlot().font},
+    plot_bgcolor:_thPlot().plot_bgcolor, paper_bgcolor:_thPlot().paper_bgcolor,
   }, {displayModeBar:false, responsive:true});
 }
 // Modal de tela cheia p/ a curva de uma usina (botão "⤢ Expandir") — reusa renderTrkChart no modo cheio.
-let trkModalPid=null;
+let trkModalPid=null, _trkModalTok=0;
 function trkExpandChart(pid, nome){
   trkModalPid=pid;
   let modal=document.getElementById('trk-modal');
   if(!modal){
     modal=document.createElement('div'); modal.id='trk-modal';
     modal.style.cssText='display:none;position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,.55);align-items:center;justify-content:center';
-    modal.innerHTML=`<div style="background:#fff;width:92vw;height:90vh;border-radius:12px;padding:12px 16px;box-shadow:0 12px 48px rgba(0,0,0,.35);display:flex;flex-direction:column">
+    modal.innerHTML=`<div style="background:var(--surface);width:92vw;height:90vh;border-radius:12px;padding:12px 16px;box-shadow:0 12px 48px rgba(0,0,0,.35);display:flex;flex-direction:column">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap">
           <b id="trk-modal-title" style="font-size:14px"></b>
           <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-            <label style="font-size:12px;color:var(--muted)">Data <input type="date" id="trk-modal-date" onchange="trkModalReload()" style="font-size:12px;padding:2px 5px;border:1px solid #d1d5db;border-radius:5px"></label>
+            <label style="font-size:12px;color:var(--muted)">De <input type="date" id="trk-modal-ini" max="${_trkHoje()}" onchange="trkModalReload()" style="font-size:12px;padding:2px 5px;border:1px solid #d1d5db;border-radius:5px"></label>
+            <label style="font-size:12px;color:var(--muted)">Até <input type="date" id="trk-modal-fim" max="${_trkHoje()}" onchange="trkModalReload()" style="font-size:12px;padding:2px 5px;border:1px solid #d1d5db;border-radius:5px"></label>
+            <span style="font-size:10px;color:var(--muted)">até 5 dias</span>
             <span id="trk-modal-resumo" style="font-size:12px"></span>
+            <button class="gc-btn-sm trk-vista-btn" style="display:inline-block" onclick="trkToggleVista()">${_trkVistaLabel()}</button>
             <button class="gc-btn-sm" style="display:inline-block" onclick="trkCloseModal()">✕ Fechar</button>
           </div>
         </div>
@@ -4068,25 +4240,31 @@ function trkExpandChart(pid, nome){
     modal.addEventListener('click',e=>{ if(e.target===modal) trkCloseModal(); });
     document.body.appendChild(modal);
   }
-  document.getElementById('trk-modal-title').textContent='Curva do dia — '+(nome||pid);
-  document.getElementById('trk-modal-date').value=_trkDataDe(pid)||_trkHoje();
+  document.getElementById('trk-modal-title').textContent='Curva — '+(nome||pid);
+  const _c=_trkCss(pid);   // herda o intervalo do detalhe (se aberto); senão hoje
+  document.getElementById('trk-modal-ini').value=(document.getElementById('trk-ini-'+_c)||{}).value||_trkHoje();
+  document.getElementById('trk-modal-fim').value=(document.getElementById('trk-fim-'+_c)||{}).value||_trkHoje();
   modal.style.display='flex';
   trkModalReload();
 }
 async function trkModalReload(){
   const pid=trkModalPid; if(pid==null)return;
-  const ds=(document.getElementById('trk-modal-date').value)||_trkHoje();
+  const ei=document.getElementById('trk-modal-ini'), ef=document.getElementById('trk-modal-fim');
+  const {ini,fim}=_trkClampPair((ei&&ei.value)||_trkHoje(), (ef&&ef.value)||_trkHoje());
+  if(ei)ei.value=ini; if(ef)ef.value=fim;
   const chart=document.getElementById('trk-modal-chart'), chips=document.getElementById('trk-modal-chips'), res=document.getElementById('trk-modal-resumo');
   if(chart){ try{Plotly.purge(chart);}catch(e){} chart.innerHTML='<div class="gc-loading" style="min-height:200px"><div class="gc-spinner"></div><p>Carregando…</p></div>'; }
   if(chips) chips.innerHTML=''; if(res) res.innerHTML='';
-  const q=(ds===_trkHoje())?'':('?date='+ds);
+  const hoje=_trkHoje(), singlePast=(ini===fim && ini!==hoje);
+  const tok=(_trkModalTok=(_trkModalTok||0)+1);        // anti-race: só a recarga mais recente do modal renderiza
   try{
-    // curva PRIMEIRO (popula o cache do servidor) → depois o detalhe usa a curva p/ o rótulo "parado"
-    const crv=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart'+q).then(r=>r.json());
-    const det=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+q).then(r=>r.json());
-    _trkWindowDetect(crv, det);                         // contagem por janela 07:00–18:00 (curva)
-    trkCache[pid]=det; trkChartCache[pid]=crv;          // alimenta renderTrkChart (status + curva da data)
-    _trkSyncRowFromCache(pid);                          // linha-pai bate com o expandir (modal)
+    // curva do INTERVALO; status (det) = dia único passado usa ?date, senão o estado ATUAL (hoje)
+    const crv=await fetch(_trkChartURL(pid,ini,fim)).then(r=>r.json());
+    const det=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+(singlePast?('?date='+ini):'')).then(r=>r.json());
+    if(tok!==_trkModalTok || trkModalPid!==pid) return; // recarga/usina mais nova → descarta esta
+    if(singlePast) _trkWindowDetect(crv, det);          // 1 dia passado: recolore por janela
+    trkCache[pid]=det; trkChartCache[pid]=crv;          // alimenta renderTrkChart (status + curva)
+    if(ini===hoje && fim===hoje) _trkSyncRowFromCache(pid);   // linha-pai bate com o modal (só hoje)
     if(chart){ chart.style.display=''; renderTrkChart(pid,'trk-modal-chart',false); if(window.Plotly){try{Plotly.Plots.resize(chart);}catch(e){}} }
     const cnt={parado:0,desvio:0,atraso:0}; (det.trackers||[]).forEach(t=>{ if(cnt[t.status]!=null)cnt[t.status]++; });
     if(res){
@@ -4181,9 +4359,10 @@ function _sparkSVG(spark){
     arr.forEach((v,i)=>{ if(v==null){pen=false;return;} d+=(pen?'L':'M')+xs(i).toFixed(1)+' '+ys(v).toFixed(1)+' ';pen=true; });
     return d?`<path d="${d}" fill="none" stroke="${cor}" stroke-width="1.6"/>`:'';
   };
+  const _dk=_thDark(), cPoa=_dk?'#a3d900':'#5a8a00';   // POA verde: mais claro no escuro p/ contraste
   return `<svg class="ana-spark" width="100%" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="display:block">
-    <line x1="0" y1="${H-pad}" x2="${W}" y2="${H-pad}" stroke="#eef0eb" stroke-width="1"/>
-    ${linha(ghi,'#3b82f6')}${linha(poari,'#f59e0b')}${linha(poa,'#5a8a00')}</svg>`;
+    <line x1="0" y1="${H-pad}" x2="${W}" y2="${H-pad}" stroke="${_dk?'rgba(255,255,255,.09)':'#eef0eb'}" stroke-width="1"/>
+    ${linha(ghi,'#3b82f6')}${linha(poari,'#f59e0b')}${linha(poa,cPoa)}</svg>`;
 }
 function _temPoari(r){const a=(r.spark||{}).poari||[];return a.some(v=>v!=null);}
 function renderEtmCards(){
@@ -4208,7 +4387,7 @@ function renderEtmCards(){
     card.innerHTML=`<div class="ana-nome">${r.usina}${r.skids?` <span style="font-weight:500;color:#3b82f6;font-size:10px">• ${r.skids} skids</span>`:''}</div>
       <div class="ana-leit">última: ${r.ultima_leitura?r.ultima_leitura.slice(11,16):'—'}</div>
       ${spk}
-      <div class="ana-legend"><span style="color:#5a8a00">● POA</span><span style="color:#3b82f6">● GHI</span>${_temPoari(r)?'<span style="color:#f59e0b">● POA-RI</span>':''}</div>
+      <div class="ana-legend"><span style="color:${_thDark()?'#a3d900':'#5a8a00'}">● POA</span><span style="color:#3b82f6">● GHI</span>${_temPoari(r)?'<span style="color:#f59e0b">● POA-RI</span>':''}</div>
       <div class="ana-flags" style="margin-top:6px">${flags}</div>
       <label class="ana-manut" title="Marcar esta estação como em manutenção">
         <input type="checkbox" ${manut?'checked':''}> 🔧 Em manutenção</label>`;
@@ -4255,11 +4434,11 @@ async function abrirGraficoEtm(pid, usina, src, est, date){
     Plotly.newPlot(area, traces, {
       margin:{t:10,r:14,b:42,l:54},
       xaxis:{title:'Hora', type:'date', range:['2000-01-01 06:00','2000-01-01 18:00'],
-             tickformat:'%H:%M', dtick:3600000, tickfont:{size:10}},
-      yaxis:{title:'W/m²', rangemode:'tozero'},
+             tickformat:'%H:%M', dtick:3600000, tickfont:{size:10}, gridcolor:_thPlot().grid},
+      yaxis:{title:'W/m²', rangemode:'tozero', gridcolor:_thPlot().grid},
       legend:{orientation:'h', y:1.12},
-      font:{family:'Inter', size:11},
-      plot_bgcolor:'#f8faf4', paper_bgcolor:'#fff',
+      font:{family:'Inter', size:11, color:_thPlot().font},
+      plot_bgcolor:_thPlot().plot_bgcolor, paper_bgcolor:_thPlot().paper_bgcolor,
     }, {displayModeBar:false, responsive:true});
   }catch(e){
     area.innerHTML='<p style="text-align:center;color:#ef4444;padding:60px 0">Erro ao carregar o gráfico.</p>';
@@ -4335,7 +4514,7 @@ function renderWatch(data){
       const sug=v.sugerir_os;
       const tr=document.createElement('tr');
       tr.style.borderLeft=`4px solid ${sug?'#f59e0b':cor}`;
-      if(sug) tr.style.background='#fffdf5';
+      if(sug) tr.style.background='var(--tint-amber)';
       const selo=sug?`<br><span style="background:#fef3c7;color:#92400e;border:1px solid #f59e0b;padding:1px 7px;border-radius:4px;font-size:.78em;font-weight:700;display:inline-block;margin-top:3px">SUGERIR OS</span> <span style="color:#92400e;font-size:.8em">${v.motivo_os||''}</span>`:'';
       tr.innerHTML=`
         <td><strong>${v.usina||v.plant_id}</strong></td>
@@ -4481,7 +4660,7 @@ function renderPvPr(){
     tb.appendChild(tr);
     if(exp){
       const det=document.createElement('tr');
-      det.innerHTML=`<td colspan="7" style="background:#fafbff;padding:8px 14px"><div id="pvpr-det-${r.plant_id}" style="color:var(--muted);font-size:12px">Carregando inversores...</div></td>`;
+      det.innerHTML=`<td colspan="7" style="background:var(--surface-3);padding:8px 14px"><div id="pvpr-det-${r.plant_id}" style="color:var(--muted);font-size:12px">Carregando inversores...</div></td>`;
       tb.appendChild(det);
       renderPvPrDetail(r.plant_id, r);
     }
@@ -4542,9 +4721,9 @@ function _pvPrBarChart(cid, invs, row, smap){
       customdata:status,
       hovertemplate:'%{y}: %{x}'+(isPr?'%':' kWh')+(hasStat?'<br>strings: %{customdata}':'')+'<extra></extra>'}],
     {margin:{t:6,r:18,b:30,l:90}, shapes:shapes, bargap:0.25,
-     xaxis:{title:isPr?'PR (%)':'Geração (kWh)', zeroline:false, tickfont:{size:10}},
-     yaxis:{automargin:true, tickfont:{size:10}},
-     font:{family:'Inter', size:11}, plot_bgcolor:'#fff', paper_bgcolor:'#fff'},
+     xaxis:{title:isPr?'PR (%)':'Geração (kWh)', zeroline:false, tickfont:{size:10}, gridcolor:_thPlot().grid},
+     yaxis:{automargin:true, tickfont:{size:10}, gridcolor:_thPlot().grid},
+     font:{family:'Inter', size:11, color:_thPlot().font}, plot_bgcolor:_thPlot().plot_bgcolor, paper_bgcolor:_thPlot().paper_bgcolor},
     {displayModeBar:false, responsive:true});
 }
 
@@ -4593,7 +4772,7 @@ function renderCurvaGen(){
   lista.forEach(r=>{
     const exp=curvagenExp.has(r.plant_id);
     const row=document.createElement('div');
-    row.style.cssText='border:1px solid #e6e9f0;border-radius:8px;margin-bottom:8px;background:#fff;overflow:hidden';
+    row.style.cssText='border:1px solid #e6e9f0;border-radius:8px;margin-bottom:8px;background:var(--surface);overflow:hidden';
     const head=document.createElement('div');
     head.style.cssText='padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;font-weight:600;color:#16192a';
     head.innerHTML=`<span>${exp?'▾':'▸'}</span> ${r.usina} <span id="cg-os-badge-${r.plant_id}"></span>`;
@@ -4639,7 +4818,7 @@ async function renderCurvaGenUsina(pid){
     const exp=curvagenCabExp.has(pid+'|'+cab);
     const sub=nAb?` · <span style="color:#dc2626;font-weight:700">${nAb} abaixo</span>`:'';
     return `<div style="border:1px solid #e6e9f0;border-radius:8px;margin:8px 0;overflow:hidden">
-      <div onclick="curvagenToggleCabine('${pid}','${cab}')" style="padding:9px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;background:#f7f8fb;font-weight:600;color:#16192a">
+      <div onclick="curvagenToggleCabine('${pid}','${cab}')" style="padding:9px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;background:var(--surface-2);font-weight:600;color:#16192a">
         <span>${exp?'▾':'▸'}</span> 🗄️ Cabine ${cab}
         <span style="font-size:11px;color:var(--muted);font-weight:400">${lista.length} inversor(es)${sub}</span>
       </div>
@@ -4662,7 +4841,7 @@ function curvagenRenderCabine(pid, cab, lista){
     const cid='cg-'+(''+pid).replace(/[^a-zA-Z0-9]/g,'')+'-'+(''+iv.id).replace(/[^a-zA-Z0-9]/g,'');
     const nm=(iv.nome||'').replace(/['"\\]/g,'');
     const dif=(iv.diferenca!=null&&iv.diferenca<0)?` <span style="color:#dc2626;font-weight:700">${iv.diferenca}</span>`:'';
-    return `<div class="cg-inv" style="border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;background:#fff;min-width:0;overflow:hidden">
+    return `<div class="cg-inv" style="border:1px solid #e5e7eb;border-radius:10px;padding:10px 12px;background:var(--surface);min-width:0;overflow:hidden">
       <label style="display:flex;align-items:center;gap:8px;font-size:12.5px;color:#16192a;cursor:pointer;margin-bottom:2px">
         <input type="checkbox" ${curvagenSel[cid]?'checked':''} onchange="curvagenToggleSel('${cid}','${nm}',this.checked)" style="cursor:pointer">
         <strong>${iv.nome}</strong>
@@ -4785,7 +4964,7 @@ function _fracCss(pid){ return (''+pid).replace(/[^a-zA-Z0-9]/g,''); }
 function _fracToolBtn(pid, usina){   // botão começa oculto; _fracUsinaBadge o revela se houver Fracttal
   const u=(''+(usina||'')).replace(/['"\\]/g,'');
   return `<button onclick="toggleFracOs(event,'${pid}','${u}')" title="OS na Fracttal" id="fractool-${_fracCss(pid)}"
-    style="display:none;margin-left:6px;font-size:10px;padding:1px 7px;border:1px solid #e5e7eb;border-radius:5px;background:#f3f4f6;color:#9ca3af;cursor:pointer;vertical-align:middle">🔧 <span id="fracn-${_fracCss(pid)}">·</span></button>`;
+    style="display:none;margin-left:6px;font-size:10px;padding:1px 7px;border:1px solid #e5e7eb;border-radius:5px;background:var(--surface-2);color:#9ca3af;cursor:pointer;vertical-align:middle">🔧 <span id="fracn-${_fracCss(pid)}">·</span></button>`;
 }
 async function _fracUsinaBadge(pid, usina){
   const btn=document.getElementById('fractool-'+_fracCss(pid)); if(!btn)return;
@@ -4904,7 +5083,7 @@ function renderSpvList(){
   cont.innerHTML=lista.map(u=>{
     const exp=spvExp.has(u.id);
     return `<div style="margin-bottom:10px;border:1px solid var(--border,#e5e7eb);border-radius:10px;overflow:hidden">
-      <div onclick="toggleSpv(${u.id})" style="cursor:pointer;padding:11px 14px;background:#f8fafc;display:flex;align-items:center;gap:10px">
+      <div onclick="toggleSpv(${u.id})" style="cursor:pointer;padding:11px 14px;background:var(--surface-2);display:flex;align-items:center;gap:10px">
         <input type="checkbox" ${spvSel.has(u.id)?'checked':''} onclick="event.stopPropagation();toggleSpvSel(${u.id})" title="Incluir no PDF" style="width:16px;height:16px;cursor:pointer;accent-color:#7c3aed">
         <span style="font-size:1.05em">${exp?'▾':'▸'}</span>
         <strong style="font-size:1.02rem;color:#16192a">${u.usina}</strong> <span id="spv-badge-${u.id}">${_spvBadge(u.id)}</span> <span id="spv-os-badge-${u.id}"></span>
@@ -4948,7 +5127,7 @@ function renderSpvUsina(id){
   const obs = pd.total_abaixo
     ? `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 12px;margin-bottom:12px;font-size:12.5px">
          <b style="color:#b45309">⚠️ Outliers — strings abaixo da mediana da usina (${pd.total_abaixo} no total)</b>
-         <div style="margin-top:6px;color:#374151">${linhas}</div></div>`
+         <div style="margin-top:6px;color:var(--text-2)">${linhas}</div></div>`
     : `<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12.5px;color:#166534">✅ Sem outliers — todas as strings dentro da faixa da mediana</div>`;
   // Filtro: só inversores com strings abaixo da mediana (se ligado na barra)
   const invs = spvSoAbaixo ? pd.inversores.filter(iv=>iv.abaixo) : pd.inversores;
@@ -4976,7 +5155,7 @@ function _spvCard(id,iv,unidade){
   const _tip=s=>_pot?`energia/dia: ${s.energia} kWh (${s.pct}% da mediana da usina)`:`índice de corrente: ${s.energia} (${s.pct}% da mediana da usina)`;
   const chips=iv.strings.map(s=>`<span title="${_tip(s)}"
      style="font-size:10.5px;padding:2px 6px;border-radius:6px;white-space:nowrap;border:1px solid ${s.sub?'#dc2626':'#d1d5db'};color:${s.sub?'#dc2626':'#6b7280'};font-weight:${s.sub?700:400}">${s.nome}: ${s.pct}%</span>`).join(' ');
-  return `<div style="border:1px solid ${iv.abaixo?'#fecaca':'#e5e7eb'};border-radius:10px;padding:10px 12px;background:#fff;min-width:0;overflow:hidden">
+  return `<div style="border:1px solid ${iv.abaixo?'#fecaca':'#e5e7eb'};border-radius:10px;padding:10px 12px;background:var(--surface);min-width:0;overflow:hidden">
     <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
       <strong style="color:#16192a">${iv.nome}</strong>
       <span style="font-size:11px;color:${iv.abaixo?'#dc2626':(iv.inv_sub?'#b45309':'#16a34a')};font-weight:600">${iv.abaixo?(iv.abaixo+' abaixo'):'OK'} · ${_medLbl}${_invSubTxt(iv)}</span>
@@ -5004,7 +5183,8 @@ function _spvPlot(id,iv,unidade){
   });
   Plotly.newPlot(el,traces,{autosize:true,margin:{l:38,r:10,t:6,b:28},showlegend:true,
     legend:{font:{size:9},orientation:'h',y:1.12},
-    xaxis:{tickfont:{size:8},nticks:6},yaxis:{title:{text:_yt,font:{size:9}},tickfont:{size:8}}},
+    plot_bgcolor:_thPlot().plot_bgcolor,paper_bgcolor:_thPlot().paper_bgcolor,font:{color:_thPlot().font},
+    xaxis:{tickfont:{size:8},nticks:6,gridcolor:_thPlot().grid},yaxis:{title:{text:_yt,font:{size:9}},tickfont:{size:8},gridcolor:_thPlot().grid}},
     {displayModeBar:false,responsive:true})
     .then(()=>{ try{Plotly.Plots.resize(el);}catch(e){} });
 }
@@ -5187,8 +5367,8 @@ async function gBuildDrill(key){
     const cols=isPV?['Inversor','','Strings Ativas','Esperadas','Diferença','Disponib.','','Última Leitura','Status']
              :isSO?['Inversor','','Strings Ativas','Esperadas','Diferença','','Temp','Última Leitura','Status']
                   :['Inversor','','Strings Ativas','Esperadas','Diferença','','','Última Leitura','Status'];
-    const TH='text-align:left;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#9aa1ad;padding:7px 10px;border-bottom:1px solid #e5e8e1;background:#fff';
-    _gDrill[key]=`<table style="width:100%;margin-top:12px;background:#fff;border:1px solid #e5e8e1;border-radius:10px;border-collapse:separate;border-spacing:0;overflow:hidden">
+    const TH='text-align:left;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#9aa1ad;padding:7px 10px;border-bottom:1px solid #e5e8e1;background:var(--surface)';
+    _gDrill[key]=`<table style="width:100%;margin-top:12px;background:var(--surface);border:1px solid #e5e8e1;border-radius:10px;border-collapse:separate;border-spacing:0;overflow:hidden">
         <thead><tr>${cols.map(c=>`<th style="${TH}">${c}</th>`).join('')}</tr></thead>
         <tbody id="gdt-${gCssId(key)}"><tr data-pid="${pid}" style="display:none"><td colspan="9"></td></tr></tbody></table>`;
     _gRowLike[key]={plant_id:isSO?pid:Number(pid),usina:u.usina,ultima_leitura:u.ultima_leitura,
@@ -5218,6 +5398,7 @@ async function loadGeral(force){
 }
 
 /* ══ INIT ══════════════════════════════════════════════════════════════════ */
+applyTheme(localStorage.getItem('gcTheme')==='dark');   /* tema salvo (padrão = claro) antes do 1º render */
 (async()=>{ await loadState(); show();
 })();   /* banners de token e de trackers-parados desativados (a pedido) */
 </script>

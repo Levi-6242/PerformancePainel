@@ -13,11 +13,11 @@
   --brand:#7aa300; --brand-d:#5f7f00; --ok:#16a34a; --amber:#d97706; --red:#dc2626; --off:#94a3b8; --blue:#0369a1;
   --nav:#0f1117; --shadow:0 1px 12px rgba(0,0,0,.06),0 4px 24px rgba(0,0,0,.04); --font:'Inter',system-ui,sans-serif;
 }
-body.dark{
-  --bg:#14111F; --panel:#1E1A2B; --panel-2:#241F33; --raise:#2A2440;
-  --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.12); --txt:#ECEAF2; --muted:#A9A4BC; --faint:#736E88;
-  --brand:#A9DB21; --brand-d:#8BC10F; --ok:#6FA01E; --amber:#F0B53D; --red:#FF5C4D; --off:#4A4560; --blue:#5BC8E8;
-  --nav:linear-gradient(180deg,#1B1729,#171320); --shadow:0 2px 20px rgba(0,0,0,.35); --font:'Poppins',system-ui,sans-serif;
+body.dark{  /* azul-marinho (bg #090d18, cards #161d30) — verde Grid + branco, SEM lilás (pedido Levi) */
+  --bg:#090d18; --panel:#161d30; --panel-2:#1c2640; --raise:#243154;
+  --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.13); --txt:#e9eef6; --muted:#94a3b8; --faint:#64748b;
+  --brand:#a3d900; --brand-d:#8bbf00; --ok:#6FA01E; --amber:#F0B53D; --red:#FF5C4D; --off:#475569; --blue:#5BC8E8;
+  --nav:linear-gradient(180deg,#0d1526,#080d18); --shadow:0 2px 20px rgba(0,0,0,.45); --font:'Poppins',system-ui,sans-serif;
 }
 *{box-sizing:border-box;}
 html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font);font-size:13px;line-height:1.5;}
@@ -103,7 +103,7 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
   <div class="scope">▸ <b id="uName">Usina</b> <span id="uMeta"></span></div>
   <div class="spacer"></div>
   <div class="live-pill"><span class="pulse"></span> AO VIVO</div>
-  <button class="darkbtn" id="darkBtn" onclick="toggleDark()">🌙 Dark</button>
+  <button class="darkbtn" id="darkBtn" onclick="toggleDark()">Tema: Claro</button>
   <div class="upd" id="upd">—</div>
 </div>
 
@@ -201,7 +201,7 @@ const cssv=n=>getComputedStyle(document.body).getPropertyValue(n).trim();
 // os valores já estão em Brasília (o "GMT" é só um sufixo falso) → NÃO converter fuso
 const fmtHora=x=>{const m=String(x).match(/(\d{1,2}:\d{2})(?::\d{2})?/);return m?m[1]:String(x);};
 const fmtTs=t=>{if(!t)return'';const m=String(t).match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}`:String(t).replace('T',' ');};
-function applyDark(on){document.body.classList.toggle('dark',on);document.getElementById('darkBtn').innerHTML=on?'☀️ Claro':'🌙 Dark';}
+function applyDark(on){document.body.classList.toggle('dark',on);document.getElementById('darkBtn').innerHTML=on?'Tema: Escuro':'Tema: Claro';}
 function toggleDark(){const on=!document.body.classList.contains('dark');localStorage.setItem('painelDark',on?'1':'0');applyDark(on);if(corr&&lastCurveTrk)drawCurve(lastCurveTrk);}
 applyDark(localStorage.getItem('painelDark')==='1');
 
@@ -687,7 +687,11 @@ function renderTrackers(trk){
   if(trk&&trk.sem_comunicacao){el.innerHTML='<div class="empty">Usina sem comunicação de trackers agora.</div>';return;}
   if(!ts.length){el.innerHTML='<div class="empty">Sem trackers.</div>';return;}
   const alvo=ts.find(t=>t.alvo!=null);
-  document.getElementById('trkSub').textContent=alvo?`Alvo de seguimento agora: ${nf(alvo.alvo,0)}° · ${trk.total} trackers (parados/desvios primeiro)`:`Sem alvo na fonte · desvio vs a frota · ${trk.total} trackers (parados/desvios primeiro)`;
+  document.getElementById('trkSub').textContent=alvo
+    ?(trk.alvo_inferido
+      ?`Alvo INFERIDO (mediana dos trackers girando — fonte sem alvo): ${nf(alvo.alvo,0)}° · ${trk.total} trackers (parados/desvios primeiro)`
+      :`Alvo de seguimento agora: ${nf(alvo.alvo,0)}° · ${trk.total} trackers (parados/desvios primeiro)`)
+    :`Sem alvo na fonte · desvio vs a frota · ${trk.total} trackers (parados/desvios primeiro)`;
   // mostra os piores primeiro, no máx 12
   // prioriza por STATUS (parado/desvio no topo → atraso → normais) e, dentro de cada grupo, maior desvio
   const RANK={parado:0,severo:0,desvio:1,fora_media:1,atraso:2};

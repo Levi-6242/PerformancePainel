@@ -3,8 +3,10 @@ Seleção MÚLTIPLA por checkbox (1 OS por ativo marcado). A Data programada (de
 horário de Brasília) vira o event_date da OS — ajustável, igual ao incidente do Várias OSs."""
 import unicodedata
 from PyQt6.QtCore import Qt, pyqtSignal, QDateTime
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QLineEdit,
                              QListWidget, QListWidgetItem, QPushButton, QDateTimeEdit)
+from steps.ui import Card, campo, rotulo, Linha, icone_pix, MUTED
 
 TODOS_USINA = "— Selecione a usina —"
 TODOS_TIPO  = "Todos os tipos"
@@ -37,47 +39,41 @@ class Step1(QWidget):
         self._assets = []
         self._checked = set()       # ids dos ativos marcados (persistem entre filtros)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(20, 12, 20, 12)
-        lay.setSpacing(6)
+        lay.setContentsMargins(18, 12, 18, 12)
+        lay.setSpacing(12)
 
-        lay.addWidget(QLabel("<b>Cliente</b>"))
+        # widgets (mesmos de sempre; só a organização muda p/ cards)
         self.cb_cliente = QComboBox()
         self.cb_cliente.currentIndexChanged.connect(self._on_cliente)
-        lay.addWidget(self.cb_cliente)
-
-        lay.addWidget(QLabel("<b>Usina</b>"))
         self.cb_usina = QComboBox()
         self.cb_usina.currentIndexChanged.connect(self._on_usina)
-        lay.addWidget(self.cb_usina)
-
-        lay.addWidget(QLabel("<b>Tipo de equipamento</b>"))
         self.cb_tipo = QComboBox()
         self.cb_tipo.currentIndexChanged.connect(self._refresh_ativos)
-        lay.addWidget(self.cb_tipo)
-
-        lay.addWidget(QLabel("<b>Ativos</b> <span style='color:#8a90a2'>(marque um ou vários)</span>"))
         self.busca = QLineEdit()
         self.busca.setPlaceholderText("Refinar por código ou nome…")
+        self.busca.addAction(QIcon(icone_pix("search", MUTED, 15)), QLineEdit.ActionPosition.LeadingPosition)
         self.busca.textChanged.connect(self._refresh_ativos)
-        lay.addWidget(self.busca)
-        self.lista = QListWidget()
+        self.lista = QListWidget(); self.lista.setMinimumHeight(190)
         self.lista.itemChanged.connect(self._on_check)
         self.lista.itemClicked.connect(self._toggle)
-        lay.addWidget(self.lista, 1)
-
-        self.hint = QLabel("carregando ativos…")
-        self.hint.setObjectName("hint")
-        lay.addWidget(self.hint)
-
-        # Data programada (event_date) — default agora; vale p/ todas as OS desta leva
-        drow = QHBoxLayout()
-        drow.addWidget(QLabel("<b>Data programada</b> <span style='color:#8a90a2'>(Brasília)</span>"))
+        self.hint = QLabel("carregando ativos…"); self.hint.setObjectName("hint")
         self.dt_prog = QDateTimeEdit(QDateTime.currentDateTime())
         self.dt_prog.setDisplayFormat("dd/MM/yyyy HH:mm"); self.dt_prog.setCalendarPopup(True)
         b_agora = QPushButton("Agora"); b_agora.setObjectName("secondary"); b_agora.setFixedWidth(64)
         b_agora.clicked.connect(lambda: self.dt_prog.setDateTime(QDateTime.currentDateTime()))
-        drow.addWidget(self.dt_prog, 1); drow.addWidget(b_agora)
-        lay.addLayout(drow)
+        dtw = QWidget(); dtw.setObjectName("uiGroup")
+        dth = QHBoxLayout(dtw); dth.setContentsMargins(0, 0, 0, 0); dth.setSpacing(8)
+        dth.addWidget(self.dt_prog, 1); dth.addWidget(b_agora)
+
+        card = Card("box", "Ativo")
+        card.add(Linha(campo("Cliente", self.cb_cliente, obrig=True),
+                       campo("Usina", self.cb_usina, obrig=True)))
+        card.add(Linha(campo("Tipo de equipamento", self.cb_tipo), campo(" ", self.busca)))
+        card.add(rotulo("Ativos", obrig=True, extra="(marque um ou vários)"))
+        card.add(self.lista, stretch=1)
+        card.add(self.hint)
+        card.add(campo("Data programada", dtw, extra="(Brasília)"))
+        lay.addWidget(card, 1)
 
         row = QHBoxLayout()
         self.b_reload = QPushButton("↻")

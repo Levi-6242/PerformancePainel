@@ -28,7 +28,7 @@ class FinalizarPanel(QWidget):
 
         self.panel = QFrame()
         self.panel.setObjectName("finpanel")
-        self.panel.setStyleSheet("QFrame#finpanel{background:#1d2130;border:1px solid #2c3142;"
+        self.panel.setStyleSheet("QFrame#finpanel{background:#161d30;border:1px solid #2c3142;"
                                  "border-radius:6px;}")
         pl = QVBoxLayout(self.panel)
         pl.setContentsMargins(10, 8, 10, 8)

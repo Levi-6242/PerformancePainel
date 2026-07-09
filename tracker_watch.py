@@ -40,6 +40,12 @@ if hasattr(_sys.stdout, "reconfigure"):
 _HERE       = os.path.dirname(os.path.abspath(__file__))
 ISSUES_PATH = os.path.join(_HERE, "tracker_issues.json")
 
+# HISTERESE anti-pisca (06/07): a detecção de "parado" oscila leitura-a-leitura, e resolver na
+# 1ª ausência destruía/recriava a ocorrência dezenas de vezes/dia (data_deteccao reiniciava e o
+# history virava 91% lixo). Só resolvemos quando faz GRACE_RESOLVER_H sem ver o tracker parado —
+# i.e. ~3h "funcionando". Enquanto isso a issue fica aberta e a data ORIGINAL é preservada.
+GRACE_RESOLVER_H = 3.0
+
 # Credenciais ficam fora do código: .env na raiz do projeto (ver .env.example)
 try:
     from dotenv import load_dotenv
@@ -599,6 +605,10 @@ def atualizar(verbose: bool = True, fonte: str = "ambas") -> dict:
         # Só auto-resolve issues da mesma fonte(s) que estamos verificando
         if fonte == "ambas" or issue.get("fonte") == fonte:
             if key not in anomalas_agora:
+                # HISTERESE: só resolve após GRACE_RESOLVER_H sem ver parado (senão é piscada da
+                # régua) — enquanto isso mantém aberto e a data_deteccao original.
+                if _horas_aberto(issue.get("ultima_confirmacao") or issue.get("data_deteccao", "")) < GRACE_RESOLVER_H:
+                    continue
                 issue = active.pop(key)
                 issue["data_resolucao"] = agora
                 try:
@@ -741,6 +751,10 @@ def sync_api_pv(parados: list, plants_cobertas=None, verbose: bool = False) -> d
         if str(active[key].get("plant_id")) not in cobertas:   # usina sem comm/não avaliada → mantém aberto
             continue
         if key not in atuais:
+            # HISTERESE: só resolve após GRACE_RESOLVER_H sem ver parado (senão é piscada da régua) —
+            # enquanto isso mantém aberto e a data_deteccao ORIGINAL (o bug do "reinicia todo dia").
+            if _horas_aberto(active[key].get("ultima_confirmacao") or active[key].get("data_deteccao", "")) < GRACE_RESOLVER_H:
+                continue
             issue = active.pop(key)
             issue["data_resolucao"] = agora
             try:

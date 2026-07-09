@@ -8,23 +8,33 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBo
                              QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
                              QCheckBox, QPushButton, QMessageBox, QDateTimeEdit, QDateEdit,
                              QLineEdit, QScrollArea, QWidget, QCompleter)
-from PyQt6.QtGui import QColor
-from PyQt6.QtCore import QDate, QTime, QDateTime, Qt
+from PyQt6.QtGui import QColor, QIcon
+from PyQt6.QtCore import QDate, QTime, QDateTime, Qt, QSize
 import api
 from workers import ApiWorker
 from steps.searchcombo import tornar_pesquisavel
+from steps.ui import QSS_FORM, Card, campo, rotulo, Linha, icone_pix, GREEN_INK
 
 _SEL = "— selecione —"
 
 
 def abrir_clonar_os(parent, id_work_order, folio=None):
-    """Abre o diálogo modal de clonagem da OS de id `id_work_order`."""
-    ClonarOSDialog(parent, id_work_order, folio).exec()
+    """Abre o clone como janela avulsa (embrulha o painel num QDialog)."""
+    dlg = QDialog(parent)
+    dlg.setWindowTitle(f"Clonar OS {folio or id_work_order}")
+    dlg.setWindowFlags(dlg.windowFlags() | Qt.WindowType.WindowMinMaxButtonsHint)
+    dlg.setMinimumSize(720, 800); dlg.setSizeGripEnabled(True)
+    lay = QVBoxLayout(dlg); lay.setContentsMargins(0, 0, 0, 0)
+    lay.addWidget(ClonarOSDialog(dlg, id_work_order, folio, on_voltar=dlg.accept))
+    dlg.exec()
 
 
-class ClonarOSDialog(QDialog):
-    def __init__(self, parent, id_work_order, folio=None):
+class ClonarOSDialog(QWidget):
+    """Painel de clonagem — embutível (aba Criar OS) ou dentro de um QDialog (janela avulsa).
+    `on_voltar` é chamado ao Cancelar ou após criar o clone."""
+    def __init__(self, parent, id_work_order, folio=None, on_voltar=None):
         super().__init__(parent)
+        self._on_voltar = on_voltar
         self._wo = id_work_order
         self._dados = None
         self._editors = {}                 # índice da tarefa -> QDateTimeEdit (só p/ tarefas com ativo)
@@ -32,23 +42,18 @@ class ClonarOSDialog(QDialog):
         self._catalogo = api.load_assets_cached() or []   # p/ trocar o ativo (mesmo cliente+usina)
         self._loading_edit = False         # guard ao popular os editores de ativo/descrição
         self._wread = self._wresp = self._wc = self._wupd = self._wall = None
-        self.setWindowTitle(f"Clonar OS {folio or id_work_order}")
-        # permite maximizar/minimizar a janela (QDialog não traz esses botões por padrão)
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowMinMaxButtonsHint)
         self.setMinimumSize(720, 800)
-        self.setSizeGripEnabled(True)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 14, 16, 14)
-        lay.setSpacing(8)
+        self.setStyleSheet(QSS_FORM)
+        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
+        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        body = QWidget(); scroll.setWidget(body); outer.addWidget(scroll)
+        lay = QVBoxLayout(body); lay.setContentsMargins(18, 14, 18, 6); lay.setSpacing(14)
 
-        self.titulo = QLabel(f"<b style='font-size:15px'>Clonar OS {folio or ''}</b>")
-        lay.addWidget(self.titulo)
-        self.resumo = QLabel("Lendo a OS de referência…"); self.resumo.setWordWrap(True)
-        lay.addWidget(self.resumo)
-
-        lay.addWidget(QLabel("<b>Tarefas / ativos que serão clonados</b> "
-                             "<span style='color:#8a90a2'>(desmarque um ativo p/ não clonar; "
-                             "clique na linha p/ editar as subtarefas)</span>"))
+        # ── Card 1: OS de referência (resumo + tabela de tarefas + data em massa) ──
+        self.resumo = QLabel("Lendo a OS de referência…"); self.resumo.setObjectName("uiAjuda")
+        self.resumo.setWordWrap(True)
         self.tbl = QTableWidget(0, 4)
         self.tbl.setHorizontalHeaderLabels(["Clonar ativo", "Tarefa", "Subt.", "Data/hora programada"])
         self.tbl.verticalHeader().setVisible(False)
@@ -58,14 +63,13 @@ class ClonarOSDialog(QDialog):
         self.tbl.itemSelectionChanged.connect(self._sel_changed)
         self.tbl.itemChanged.connect(self._task_check_changed)
         hh = self.tbl.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)   # ativo com largura fixa (elide) — não empurra a data
         hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        lay.addWidget(self.tbl, 2)
-
-        drow = QHBoxLayout()
-        drow.addWidget(QLabel("<span style='color:#8a90a2'>Data/hora em massa:</span>"))
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)      # data em célula não mede em ResizeToContents
+        self.tbl.setColumnWidth(0, 340); self.tbl.setColumnWidth(3, 185)
+        self.tbl.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.tbl.setMinimumHeight(180)
         self.bulk_date = QDateEdit(); self.bulk_date.setCalendarPopup(True)
         self.bulk_date.setDisplayFormat("dd/MM/yyyy"); self.bulk_date.setDate(QDate.currentDate())
         b_data = QPushButton("Aplicar data"); b_data.setObjectName("secondary")
@@ -80,32 +84,30 @@ class ClonarOSDialog(QDialog):
         b_mes = QPushButton("Avançar 1 mês"); b_mes.setObjectName("secondary")
         b_mes.setToolTip("Adia a data de cada tarefa em 1 mês")
         b_mes.clicked.connect(self._avancar_mes)
+        c_ref = Card("copy", f"OS de referência {folio}".rstrip() if folio else "OS de referência")
+        c_ref.add(self.resumo)
+        c_ref.add(rotulo("Tarefas / ativos que serão clonados",
+                         extra="(desmarque um ativo p/ não clonar; clique na linha p/ editar as subtarefas)"))
+        c_ref.add(self.tbl, stretch=1)
+        drow = QHBoxLayout(); drow.setSpacing(8)
         for w in (self.bulk_date, b_data, b_manha, b_tarde, b_mes):
             drow.addWidget(w)
         drow.addStretch(1)
-        lay.addLayout(drow)
+        c_ref.add(drow)
+        lay.addWidget(c_ref)
 
-        # ── editar a tarefa selecionada: trocar o ativo (mesmo cliente/usina) + a descrição ──
-        eg = QHBoxLayout()
-        eg.addWidget(QLabel("<b>Tarefa selecionada:</b>"))
-        eg.addWidget(QLabel("Ativo"))
+        # ── Card 2: Tarefa selecionada (trocar ativo/descrição + subtarefas) ──
         self.ed_ativo = QComboBox(); self.ed_ativo.setEditable(True)
-        self.ed_ativo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert); self.ed_ativo.setMinimumWidth(220)
+        self.ed_ativo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
         self.ed_ativo.setToolTip("Trocar o ativo desta tarefa — mesmo cliente e usina (digite p/ filtrar)")
         comp = self.ed_ativo.completer()
         if comp is not None:
             comp.setFilterMode(Qt.MatchFlag.MatchContains)
             comp.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
         self.ed_ativo.currentIndexChanged.connect(self._on_edit_ativo)
-        eg.addWidget(self.ed_ativo, 2)
-        eg.addWidget(QLabel("Descrição"))
         self.ed_desc = QLineEdit(); self.ed_desc.setToolTip("Editar a descrição desta tarefa")
         self.ed_desc.textEdited.connect(self._on_edit_desc)
-        eg.addWidget(self.ed_desc, 3)
-        lay.addLayout(eg)
-
-        subhdr = QHBoxLayout()
-        self.sub_titulo = QLabel("<b>Subtarefas</b>")
+        self.sub_titulo = QLabel("Subtarefas"); self.sub_titulo.setObjectName("uiCampoLabel")
         self.b_upd = QPushButton("Atualizar do modelo"); self.b_upd.setObjectName("secondary")
         self.b_upd.setToolTip("Re-seleciona no Fracttal o modelo de tarefa do mesmo nome p/ este "
                               "ativo e substitui as subtarefas pela versão atual do modelo")
@@ -114,40 +116,62 @@ class ClonarOSDialog(QDialog):
         self.b_upd_all.setToolTip("Re-seleciona no Fracttal o modelo de cada ativo e substitui as "
                                   "subtarefas de TODAS as tarefas pela versão atual (sobrescreve edições)")
         self.b_upd_all.setEnabled(False); self.b_upd_all.clicked.connect(self._atualizar_todas)
-        subhdr.addWidget(self.sub_titulo, 1); subhdr.addWidget(self.b_upd); subhdr.addWidget(self.b_upd_all)
-        lay.addLayout(subhdr)
-        self.sub_box = QWidget()
+        self.sub_box = QWidget(); self.sub_box.setObjectName("uiGroup")
         self.sub_layout = QVBoxLayout(self.sub_box)
-        self.sub_layout.setContentsMargins(4, 4, 4, 4); self.sub_layout.setSpacing(3)
+        self.sub_layout.setContentsMargins(0, 0, 0, 0); self.sub_layout.setSpacing(6)
         self.sub_layout.addStretch(1)
-        self.sub_scroll = QScrollArea(); self.sub_scroll.setWidgetResizable(True)
-        self.sub_scroll.setWidget(self.sub_box); self.sub_scroll.setMinimumHeight(150)
-        lay.addWidget(self.sub_scroll, 1)
+        self.sub_scroll = QScrollArea(); self.sub_scroll.setObjectName("uiFlat")
+        self.sub_scroll.setWidgetResizable(True)
+        self.sub_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.sub_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.sub_scroll.setWidget(self.sub_box)
+        self.sub_scroll.setMinimumHeight(90); self.sub_scroll.setMaximumHeight(220)   # não engole os cards de baixo
+        c_sel = Card("box", "Tarefa selecionada")
+        c_sel.add(Linha(campo("Ativo", self.ed_ativo), campo("Descrição", self.ed_desc)))
+        subhdr = QHBoxLayout(); subhdr.setSpacing(6)
+        subhdr.addWidget(self.sub_titulo, 1); subhdr.addWidget(self.b_upd); subhdr.addWidget(self.b_upd_all)
+        c_sel.add(subhdr)
+        c_sel.add(self.sub_scroll)
+        lay.addWidget(c_sel)
 
-        lay.addWidget(QLabel("<b>Observação</b> "
-                             "<span style='color:#8a90a2'>(opcional — vale para todas as tarefas)</span>"))
-        self.obs = QTextEdit(); self.obs.setFixedHeight(50)
-        lay.addWidget(self.obs)
-
+        # ── Card 3: Detalhes ──
+        self.obs = QTextEdit(); self.obs.setFixedHeight(52)
         self.chk_etiq = QCheckBox("Clonar etiquetas"); self.chk_etiq.setEnabled(False)
-        lay.addWidget(self.chk_etiq)
+        c_det = Card("file", "Detalhes")
+        c_det.add(campo("Observação", self.obs, extra="(opcional — vale para todas as tarefas)"))
+        c_det.add(self.chk_etiq)
 
-        lay.addWidget(QLabel("<b>Responsável</b> <span style='color:#8a90a2'>(obrigatório · digite p/ "
-                             "pesquisar)</span>"))
+        # ── Card 4: Responsável ──
         self.cb_resp = QComboBox(); self.cb_resp.addItem("carregando…", None)
         tornar_pesquisavel(self.cb_resp)
-        lay.addWidget(self.cb_resp)
+        c_resp = Card("users", "Responsável")
+        c_resp.add(campo("Responsável", self.cb_resp, obrig=True, extra="(digite p/ pesquisar)"))
+        lay.addWidget(Linha(c_det, c_resp, quebra=820))     # Detalhes | Responsável lado a lado
 
-        row = QHBoxLayout()
+        # ── ações no FIM do conteúdo (rolando) — sem footer fixo escondendo os cards de baixo ──
+        row = QHBoxLayout(); row.setContentsMargins(0, 6, 0, 2); row.setSpacing(10)
         b_cancel = QPushButton("Cancelar"); b_cancel.setObjectName("secondary"); b_cancel.clicked.connect(self.reject)
-        self.btn = QPushButton("Criar clone"); self.btn.setEnabled(False); self.btn.clicked.connect(self._criar)
-        row.addWidget(b_cancel); row.addWidget(self.btn, 1)
+        self.btn = QPushButton("Criar clone"); self.btn.setObjectName("btnPrimary")
+        self.btn.setIcon(QIcon(icone_pix("copy", GREEN_INK, 16))); self.btn.setIconSize(QSize(16, 16))
+        self.btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn.setEnabled(False); self.btn.clicked.connect(self._criar)
+        row.addStretch(1); row.addWidget(b_cancel); row.addWidget(self.btn)
         lay.addLayout(row)
-        self.hint = QLabel("carregando OS de referência…"); self.hint.setObjectName("hint")
-        lay.addWidget(self.hint)
+        self.hint = QLabel("carregando OS de referência…"); self.hint.setObjectName("uiAjuda")
+        lay.addWidget(self.hint, 0, Qt.AlignmentFlag.AlignRight)
 
         self._carregar()
         self._carregar_resp()
+
+    def _voltar(self):
+        if self._on_voltar:
+            self._on_voltar()
+
+    def accept(self):        # compat: sucesso → volta / fecha
+        self._voltar()
+
+    def reject(self):        # compat: Cancelar → volta / fecha
+        self._voltar()
 
     # ── carga ──
     def _carregar(self):
@@ -236,8 +260,12 @@ class ClonarOSDialog(QDialog):
                 self._editors[i] = de
             else:
                 self.tbl.setItem(i, 3, self._mk_item("ignorada", vermelho=True, center=True))
-        self.tbl.resizeColumnsToContents()
-        self.tbl.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hh2 = self.tbl.horizontalHeader()           # reaplica os modos (senão a coluna do ativo estica)
+        hh2.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        hh2.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        hh2.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        hh2.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
+        self.tbl.setColumnWidth(0, 340); self.tbl.setColumnWidth(3, 185)
         self._building = False
 
         self.obs.setPlainText(self._dados.get("notas") or "")

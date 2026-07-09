@@ -72,7 +72,7 @@ class OsDetalheDialog(QDialog):
         sub_cab.setStyleSheet("color:#8a90a2; font-size:11px; font-weight:600; letter-spacing:0.4px;")
         bl.addWidget(sub_cab)
         self.subs = QListWidget(); self.subs.setWordWrap(True); self.subs.setMaximumHeight(150)
-        self.subs.setStyleSheet("background:#1d2130; border:1px solid #2c3142; border-radius:8px;")
+        self.subs.setStyleSheet("background:#161d30; border:1px solid #2c3142; border-radius:8px;")
         self.subs.itemClicked.connect(self._mostrar_resposta)
         bl.addWidget(self.subs)
         self.resp = QLabel("—"); self.resp.setWordWrap(True); self.resp.setTextFormat(Qt.TextFormat.RichText)
@@ -176,6 +176,7 @@ class OsDetalheDialog(QDialog):
 
         self._limpar_layout(self.grid)
         campos = [("Data do evento", _data_br(d.get("event_date"))),
+                  ("Data fim", _data_br(d.get("data_fim")) if d.get("data_fim") else "—"),
                   ("Atribuído a", (d.get("responsavel") or "—")),
                   ("Criado por", (d.get("criado_por") or "—"))]
         r = 0

@@ -96,7 +96,7 @@ def _perguntar(parent, info, nova):
 
 
 # Preenchimento verde; o número é um rótulo sobreposto (não o texto nativo, que o tema empurra p/ a esquerda).
-_BAR_QSS = ("QProgressBar{border:1px solid #2c3142; border-radius:6px; background:#1d2130;}"
+_BAR_QSS = ("QProgressBar{border:1px solid #2c3142; border-radius:6px; background:#161d30;}"
             "QProgressBar::chunk{background:#5fa030; border-radius:5px; margin:0.5px;}")
 
 

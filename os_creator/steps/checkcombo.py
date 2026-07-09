@@ -33,7 +33,7 @@ class _MultiPopup(QFrame):
         self._combo = combo
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)   # não acumula popups
         self.setObjectName("multiPopup")
-        self.setStyleSheet("QFrame#multiPopup{background:#1d2130;border:1px solid #3a4150;"
+        self.setStyleSheet("QFrame#multiPopup{background:#161d30;border:1px solid #3a4150;"
                            "border-radius:6px;}")
         v = QVBoxLayout(self); v.setContentsMargins(6, 6, 6, 6); v.setSpacing(4)
         self.busca = QLineEdit(); self.busca.setPlaceholderText("filtrar…")

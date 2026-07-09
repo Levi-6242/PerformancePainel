@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import QLabel, QWidget, QVBoxLayout, QFrame
 
 MUTED = "#8a90a2"
 LINE = "#2c3142"
-BLOCO = "background:#1d2130; border:1px solid #2c3142; border-radius:8px; padding:10px 12px;"
+BLOCO = "background:#161d30; border:1px solid #2c3142; border-radius:8px; padding:10px 12px;"
 
 # cores de selo por status (mesmas da tabela de histórico de solicitações)
 STATUS_COR = {

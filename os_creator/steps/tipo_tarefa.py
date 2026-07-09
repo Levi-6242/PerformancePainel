@@ -16,8 +16,8 @@ class TipoTarefaBox:
         self._w = None
         self._pending_tipo = None     # tipo a selecionar quando as listas terminarem de carregar
         self.grid = QGridLayout()
-        self.grid.setHorizontalSpacing(10)
-        self.grid.setVerticalSpacing(3)
+        self.grid.setHorizontalSpacing(14)
+        self.grid.setVerticalSpacing(6)
 
         self.cb_tipo = QComboBox()
         self.cb_tipo.addItem("carregando…", None)
