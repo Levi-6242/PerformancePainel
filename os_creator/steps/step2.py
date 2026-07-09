@@ -1,9 +1,11 @@
 """Step 2 — Detalhes da tarefa: descrição + tipo (Corretiva/Inspeção) + etiquetas (catálogo
 do Fracttal, multi-seleção). Campos fixos invisíveis: criticidade Alta."""
 from PyQt6.QtCore import pyqtSignal, Qt
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
-                             QComboBox, QLineEdit, QPushButton, QListWidget, QListWidgetItem)
+from PyQt6.QtGui import QIcon
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit, QComboBox,
+                             QLineEdit, QPushButton, QListWidget, QListWidgetItem, QScrollArea)
 from steps.tipo_tarefa import TipoTarefaBox
+from steps.ui import Card, campo, icone_pix, MUTED
 
 
 class Step2(QWidget):
@@ -14,36 +16,37 @@ class Step2(QWidget):
         super().__init__()
         self._labels = []           # catálogo [{'id','description','color'}]
         self._checked = set()       # ids marcados (persistem ao filtrar)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(20, 16, 20, 16)
-        lay.setSpacing(8)
+        outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0); outer.setSpacing(0)
+        scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        body = QWidget(); lay = QVBoxLayout(body)
+        lay.setContentsMargins(18, 12, 18, 6); lay.setSpacing(12)
+        scroll.setWidget(body); outer.addWidget(scroll, 1)
 
-        lay.addWidget(QLabel("<b>Descrição da tarefa</b>"))
-        self.desc = QTextEdit()
-        self.desc.setPlaceholderText("Somente uma ação")
-        self.desc.textChanged.connect(self._upd)
-        lay.addWidget(self.desc, 1)
+        self.desc = QTextEdit(); self.desc.setPlaceholderText("Somente uma ação")
+        self.desc.setFixedHeight(60); self.desc.textChanged.connect(self._upd)
+        self.obs = QTextEdit(); self.obs.setPlaceholderText("Observações da OS (opcional)")
+        self.obs.setFixedHeight(60)
+        self.etiq_busca = QLineEdit(); self.etiq_busca.setPlaceholderText("carregando etiquetas…")
+        self.etiq_busca.addAction(QIcon(icone_pix("search", MUTED, 15)), QLineEdit.ActionPosition.LeadingPosition)
+        self.etiq_busca.textChanged.connect(self._filtrar_etiq)
+        self.etiq = QListWidget(); self.etiq.setMinimumHeight(120)
+        self.etiq.itemChanged.connect(self._on_check)
 
-        lay.addWidget(QLabel("<b>Observação</b> <span style='color:#8a90a2'>(opcional)</span>"))
-        self.obs = QTextEdit()
-        self.obs.setPlaceholderText("Observações da OS (opcional)")
-        self.obs.setFixedHeight(72)
-        lay.addWidget(self.obs)
+        c1 = Card("file", "Detalhes da OS")
+        c1.add(campo("Descrição da tarefa", self.desc, obrig=True))
+        c1.add(campo("Observação", self.obs, extra="(opcional)"))
+        c1.add(campo("Etiquetas", self.etiq_busca, extra="(opcional — marque as que quiser)"))
+        c1.add(self.etiq)
+        lay.addWidget(c1)
 
         self._tt = TipoTarefaBox()                 # tipo de tarefa + classif 1/2 + criticidade (ao vivo)
-        lay.addLayout(self._tt.grid)
+        c2 = Card("tag", "Classificação")
+        c2.add(self._tt.grid)
+        lay.addWidget(c2)
+        lay.addStretch(1)
 
-        lay.addWidget(QLabel("<b>Etiquetas</b> <span style='color:#8a90a2'>(opcional — marque as que quiser)</span>"))
-        self.etiq_busca = QLineEdit()
-        self.etiq_busca.setPlaceholderText("carregando etiquetas…")
-        self.etiq_busca.textChanged.connect(self._filtrar_etiq)
-        lay.addWidget(self.etiq_busca)
-        self.etiq = QListWidget()
-        self.etiq.setFixedHeight(130)
-        self.etiq.itemChanged.connect(self._on_check)
-        lay.addWidget(self.etiq)
-
-        row = QHBoxLayout()
+        row = QHBoxLayout(); row.setContentsMargins(18, 6, 18, 10)
         b_back = QPushButton("‹‹‹ Voltar")
         b_back.setObjectName("secondary")
         b_back.clicked.connect(self.voltar.emit)
@@ -51,7 +54,7 @@ class Step2(QWidget):
         self.btn.clicked.connect(self._next)
         row.addWidget(b_back)
         row.addWidget(self.btn, 1)
-        lay.addLayout(row)
+        outer.addLayout(row)
         self._upd()
 
     # ── etiquetas ──

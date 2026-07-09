@@ -67,3 +67,9 @@ Thumbs.db
 .DS_Store
 .vscode/
 .idea/
+
+# estado de envio da ronda (runtime, por dia)
+whats_enviados.json
+
+# backups datados do livro de trackers (runtime)
+tracker_issues.backup-*.json

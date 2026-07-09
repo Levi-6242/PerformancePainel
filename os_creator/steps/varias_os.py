@@ -4,6 +4,7 @@
 Em ambos, 'Esta tarefa já foi realizada?' cria as OS concluídas (data final + respostas)."""
 import datetime as _dt
 from PyQt6.QtCore import Qt, QDate, QTime, QDateTime
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QComboBox,
                              QLineEdit, QTextEdit, QPushButton, QMessageBox, QDateTimeEdit, QWidget,
                              QScrollArea, QRadioButton, QButtonGroup, QListWidget, QListWidgetItem)
@@ -13,65 +14,68 @@ from steps.step1 import ALLOWED_TIPOS
 from steps.tipo_tarefa import TipoTarefaBox
 from steps.finalizar import FinalizarPanel
 from steps.searchcombo import tornar_pesquisavel
+from steps.ospai import OsPaiPicker
+from steps.ui import QSS_FORM, Card, campo, rotulo, Linha, icone_pix, MUTED
 
 _SEL = "— selecione —"
 
 
 def abrir_varias_os(parent):
-    VariasOSsDialog(parent).exec()
+    """Abre o COS como janela avulsa (embrulha o painel num QDialog). Inline (aba Criar OS) usa
+    VariasOSsDialog direto com on_voltar."""
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("COS")
+    dlg.setWindowFlags(dlg.windowFlags() | Qt.WindowType.WindowMinMaxButtonsHint)
+    dlg.setMinimumSize(640, 620); dlg.setSizeGripEnabled(True)
+    lay = QVBoxLayout(dlg); lay.setContentsMargins(0, 0, 0, 0)
+    lay.addWidget(VariasOSsDialog(on_voltar=dlg.accept))
+    dlg.exec()
 
 
-class VariasOSsDialog(QDialog):
-    def __init__(self, parent=None):
+class VariasOSsDialog(QWidget):
+    """Painel COS — embutível na aba Criar OS ou dentro de um QDialog (janela avulsa). `on_voltar` é
+    chamado ao Cancelar ou após criar (inline volta ao launcher; na janela fecha o diálogo)."""
+    def __init__(self, parent=None, on_voltar=None):
         super().__init__(parent)
+        self._on_voltar = on_voltar
         self._assets = api.load_assets_cached() or []
         self._wc = self._wr = None
         self._date_rows = []                 # [(row, de, de_fim, arrow, b_del)]
         self._checked = set()                # ids marcados (modo 'ativos diferentes')
-        self.setWindowTitle("COS")
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowMinMaxButtonsHint)
         self.setMinimumSize(620, 600)
-        self.setSizeGripEnabled(True)
+        self.setStyleSheet(QSS_FORM)                 # visual novo (inline no criar_stack não tem o global)
         outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
         scroll = QScrollArea(); scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         _body = QWidget(); scroll.setWidget(_body)
         outer.addWidget(scroll)
-        lay = QVBoxLayout(_body); lay.setContentsMargins(16, 14, 16, 14); lay.setSpacing(8)
+        lay = QVBoxLayout(_body); lay.setContentsMargins(18, 14, 18, 14); lay.setSpacing(14)
 
-        lay.addWidget(QLabel("<b style='font-size:15px'>COS — várias OSs</b>"))
-
-        # ── modo: mesmo ativo × ativos diferentes ──
-        mrow = QHBoxLayout()
+        # ── topo: modo (compacto, sem card — suspenso no topo) ──
         self.rb_mesmo = QRadioButton("No mesmo ativo")
         self.rb_difer = QRadioButton("Em ativos diferentes")
         self.rb_mesmo.setChecked(True)
         self._grp_modo = QButtonGroup(self)
         self._grp_modo.addButton(self.rb_mesmo); self._grp_modo.addButton(self.rb_difer)
         self.rb_mesmo.toggled.connect(self._on_mode)
-        mrow.addWidget(self.rb_mesmo); mrow.addWidget(self.rb_difer); mrow.addStretch(1)
-        lay.addLayout(mrow)
-        self.sub_lbl = QLabel(""); self.sub_lbl.setObjectName("hint"); self.sub_lbl.setWordWrap(True)
-        lay.addWidget(self.sub_lbl)
+        self.sub_lbl = QLabel(""); self.sub_lbl.setObjectName("uiAjuda"); self.sub_lbl.setWordWrap(True)
+        modo_row = QHBoxLayout(); modo_row.setSpacing(14)
+        _ml = QLabel("Modo:"); _ml.setObjectName("uiCampoLabel")
+        modo_row.addWidget(_ml); modo_row.addWidget(self.rb_mesmo); modo_row.addWidget(self.rb_difer)
+        modo_row.addSpacing(10); modo_row.addWidget(self.sub_lbl, 1)
+        lay.addLayout(modo_row)
 
-        # ── ativo: cliente → usina → tipo ──
-        grid = QGridLayout(); grid.setHorizontalSpacing(10); grid.setVerticalSpacing(3)
+        # ── Card 1: Ativo (cliente → usina → tipo → ativo/lista) ──
         self.cb_cli = QComboBox(); self.cb_cli.currentIndexChanged.connect(self._on_cli)
         self.cb_usi = QComboBox(); self.cb_usi.currentIndexChanged.connect(self._on_usi)
         self.cb_tipo = QComboBox(); self.cb_tipo.currentIndexChanged.connect(self._refresh_ativos)
-        grid.addWidget(QLabel("Cliente"), 0, 0); grid.addWidget(self.cb_cli, 1, 0)
-        grid.addWidget(QLabel("Usina"), 0, 1); grid.addWidget(self.cb_usi, 1, 1)
-        grid.addWidget(QLabel("Tipo de equipamento"), 0, 2); grid.addWidget(self.cb_tipo, 1, 2)
-        for c in (0, 1, 2):
-            grid.setColumnStretch(c, 1)
-        lay.addLayout(grid)
-        self.busca = QLineEdit(); self.busca.setPlaceholderText("filtrar ativo por código/nome…")
+        self.busca = QLineEdit(); self.busca.setPlaceholderText("Filtrar ativo por código ou nome…")
+        self.busca.addAction(QIcon(icone_pix("search", MUTED, 15)), QLineEdit.ActionPosition.LeadingPosition)
         self.busca.textChanged.connect(self._refresh_ativos)
-        lay.addWidget(self.busca)
-        # seletor de ativo: dropdown (mesmo ativo) OU lista com checkbox (ativos diferentes)
         self.cb_ativo = QComboBox(); self.cb_ativo.currentIndexChanged.connect(self._upd)
-        lay.addWidget(self.cb_ativo)
-        self._sel_bar = QWidget()                    # botões só do modo 'ativos diferentes'
+        self._sel_bar = QWidget(); self._sel_bar.setObjectName("uiGroup")     # botões do modo 'ativos diferentes'
         sbl = QHBoxLayout(self._sel_bar); sbl.setContentsMargins(0, 0, 0, 0)
         b_all = QPushButton("Selecionar todos"); b_all.setObjectName("secondary")
         b_all.clicked.connect(lambda: self._marcar_todos(True))
@@ -79,66 +83,75 @@ class VariasOSsDialog(QDialog):
         b_none.clicked.connect(lambda: self._marcar_todos(False))
         sbl.addStretch(1); sbl.addWidget(b_all); sbl.addWidget(b_none)
         self._sel_bar.setVisible(False)
-        lay.addWidget(self._sel_bar)
         self.lista_multi = QListWidget(); self.lista_multi.setMinimumHeight(150)
         self.lista_multi.itemChanged.connect(self._on_check_multi)
         self.lista_multi.itemClicked.connect(self._toggle_multi)
         self.lista_multi.setVisible(False)
-        lay.addWidget(self.lista_multi)
-        self.sel_lbl = QLabel("0 marcado(s)"); self.sel_lbl.setObjectName("hint"); self.sel_lbl.setVisible(False)
-        lay.addWidget(self.sel_lbl)
+        self.sel_lbl = QLabel("0 marcado(s)"); self.sel_lbl.setObjectName("uiAjuda"); self.sel_lbl.setVisible(False)
+        c_ativo = Card(1, "Ativo")
+        c_ativo.add(Linha(campo("Cliente", self.cb_cli, obrig=True), campo("Usina", self.cb_usi, obrig=True)))
+        c_ativo.add(Linha(campo("Tipo de equipamento", self.cb_tipo), campo(" ", self.busca)))
+        c_ativo.add(rotulo("Ativo", obrig=True))
+        c_ativo.add(self.cb_ativo)
+        c_ativo.add(self._sel_bar)
+        c_ativo.add(self.lista_multi)
+        c_ativo.add(self.sel_lbl)
+        lay.addWidget(c_ativo)
 
-        # ── descrição + tipo de tarefa + classif 1/2 + criticidade ──
-        lay.addWidget(QLabel("<b>Descrição da tarefa</b>"))
+        # ── Card 3: Detalhes da OS ──
         self.desc = QLineEdit(); self.desc.setPlaceholderText("ex.: Religamento da usina")
         self.desc.textChanged.connect(self._upd)
-        lay.addWidget(self.desc)
+        self.obs = QTextEdit(); self.obs.setFixedHeight(56)
+        c_det = Card(2, "Detalhes da OS")
+        c_det.add(campo("Descrição da tarefa", self.desc, obrig=True))
+        c_det.add(campo("Observação", self.obs, extra="(opcional — vale p/ todas)"))
+
+        # ── Card 4: Classificação ──
         self._tt = TipoTarefaBox()
-        lay.addLayout(self._tt.grid)
+        c_cls = Card(3, "Classificação")
+        c_cls.add(self._tt.grid)
+        lay.addWidget(Linha(c_det, c_cls, quebra=820))       # Detalhes | Classificação lado a lado
 
-        # ── observação ──
-        lay.addWidget(QLabel("<b>Observação</b> <span style='color:#8a90a2'>(opcional — vale p/ todas)</span>"))
-        self.obs = QTextEdit(); self.obs.setFixedHeight(44)
-        lay.addWidget(self.obs)
-
-        # ── datas/horas do incidente ──
-        dhdr = QHBoxLayout()
-        self._dhdr_lbl = QLabel("")
-        dhdr.addWidget(self._dhdr_lbl, 1)
+        # ── Card 5: Datas do incidente ──
+        self._dhdr_lbl = QLabel(""); self._dhdr_lbl.setObjectName("uiCampoLabel")
         self.b_add = QPushButton("+ Adicionar data"); self.b_add.setObjectName("secondary")
         self.b_add.clicked.connect(self._add_data)
-        dhdr.addWidget(self.b_add)
-        lay.addLayout(dhdr)
-        self._datas_box = QWidget(); self._datas_lay = QVBoxLayout(self._datas_box)
-        self._datas_lay.setContentsMargins(0, 0, 0, 0); self._datas_lay.setSpacing(3)
+        self._datas_box = QWidget(); self._datas_box.setObjectName("uiGroup")
+        self._datas_lay = QVBoxLayout(self._datas_box)
+        self._datas_lay.setContentsMargins(0, 0, 0, 0); self._datas_lay.setSpacing(6)
         self._datas_lay.addStretch(1)
-        lay.addWidget(self._datas_box)
+        c_datas = Card(4, "Datas do incidente")
+        c_datas.extra_head(self.b_add)
+        c_datas.add(self._dhdr_lbl)
+        c_datas.add(self._datas_box)
 
-        # ── responsável ──
-        lay.addWidget(QLabel("<b>Requerido por (responsável)</b> "
-                             "<span style='color:#8a90a2'>(obrigatório · digite p/ pesquisar)</span>"))
-        rrow = QHBoxLayout()
+        # ── Card 6: Responsável ──
         self.cb_resp = QComboBox(); self.cb_resp.addItem("carregando…", None)
         tornar_pesquisavel(self.cb_resp)
         self.b_resp_reload = QPushButton("↻"); self.b_resp_reload.setObjectName("secondary")
         self.b_resp_reload.setFixedWidth(40)
         self.b_resp_reload.setToolTip("Recarregar responsáveis (use após relogar)")
         self.b_resp_reload.clicked.connect(self._carregar_resp)
-        rrow.addWidget(self.cb_resp, 1); rrow.addWidget(self.b_resp_reload)
-        lay.addLayout(rrow)
-
-        # ── "Esta tarefa já foi realizada?" ──
+        rrow = QWidget(); rrow.setObjectName("uiGroup")
+        rrl = QHBoxLayout(rrow); rrl.setContentsMargins(0, 0, 0, 0); rrl.setSpacing(8)
+        rrl.addWidget(self.cb_resp, 1); rrl.addWidget(self.b_resp_reload)
+        self.os_pai = OsPaiPicker()
         self._fin = FinalizarPanel(["Procedimento"], com_datas=False)
         self._fin.toggled.connect(self._sync_fin)
-        lay.addWidget(self._fin)
+        c_resp = Card(5, "Responsável")
+        c_resp.add(campo("Requerido por", rrow, obrig=True, extra="(digite p/ pesquisar)"))
+        c_resp.add(campo("Ela depende de outra OS?", self.os_pai, extra="(opcional — OS pai)"))
+        c_resp.add(self._fin)
+        lay.addWidget(Linha(c_datas, c_resp, quebra=820))    # Datas do incidente | Responsável lado a lado
+        lay.addStretch(1)
 
         # rodapé FIXO (fora do scroll)
-        row = QHBoxLayout(); row.setContentsMargins(16, 6, 16, 2)
+        row = QHBoxLayout(); row.setContentsMargins(18, 6, 18, 2)
         b_cancel = QPushButton("Cancelar"); b_cancel.setObjectName("secondary"); b_cancel.clicked.connect(self.reject)
         self.btn = QPushButton("Criar OSs"); self.btn.setEnabled(False); self.btn.clicked.connect(self._criar)
         row.addWidget(b_cancel); row.addWidget(self.btn, 1)
         outer.addLayout(row)
-        self.hint = QLabel(""); self.hint.setObjectName("hint"); self.hint.setContentsMargins(16, 0, 16, 8)
+        self.hint = QLabel(""); self.hint.setObjectName("uiAjuda"); self.hint.setContentsMargins(18, 0, 18, 8)
         outer.addWidget(self.hint)
 
         self._add_data(); self._add_data()          # 2 linhas (modo mesmo ativo)
@@ -276,11 +289,13 @@ class VariasOSsDialog(QDialog):
 
     # ── datas ──
     def _add_data(self, *_):
-        row = QWidget(); h = QHBoxLayout(row); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(6)
+        row = QWidget(); row.setObjectName("uiGroup")
+        h = QHBoxLayout(row); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(8)
         de = QDateTimeEdit(); de.setCalendarPopup(True); de.setDisplayFormat("dd/MM/yyyy HH:mm")
         de.setDateTime(QDateTime(QDate.currentDate(), QTime(8, 0)))
-        h.addWidget(de, 1)
-        b_now = QPushButton("Agora"); b_now.setObjectName("secondary"); b_now.setFixedWidth(64)
+        de.setMinimumWidth(170)                          # tamanho da data, sem esticar p/ a linha toda
+        h.addWidget(de)
+        b_now = QPushButton("Agora"); b_now.setObjectName("secondary")
         b_now.setToolTip("Preenche com a data/hora atual")
         b_now.clicked.connect(lambda: de.setDateTime(QDateTime.currentDateTime()))
         h.addWidget(b_now)
@@ -288,11 +303,12 @@ class VariasOSsDialog(QDialog):
         h.addWidget(arrow)
         de_fim = QDateTimeEdit(); de_fim.setCalendarPopup(True); de_fim.setDisplayFormat("dd/MM/yyyy HH:mm")
         de_fim.setDateTime(QDateTime(QDate.currentDate(), QTime(8, 10)))
-        de_fim.setToolTip("Data final (OS já realizada)")
-        h.addWidget(de_fim, 1)
-        b_del = QPushButton("Remover"); b_del.setObjectName("secondary"); b_del.setFixedWidth(74)
+        de_fim.setToolTip("Data final (OS já realizada)"); de_fim.setMinimumWidth(170)
+        h.addWidget(de_fim)
+        b_del = QPushButton("Remover"); b_del.setObjectName("secondary")   # sem largura fixa → cresce com o texto
         b_del.clicked.connect(lambda: self._del_data(row))
         h.addWidget(b_del)
+        h.addStretch(1)                                  # o espaço que sobra vai p/ o fim da linha
         fin = bool(getattr(self, "_fin", None) and self._fin.is_finalizar())
         arrow.setVisible(fin); de_fim.setVisible(fin)
         b_del.setVisible(self.rb_mesmo.isChecked() if hasattr(self, "rb_mesmo") else True)
@@ -386,7 +402,7 @@ class VariasOSsDialog(QDialog):
             self._wc = ApiWorker(api.create_work_orders_datas, ativo, desc, self._tt.descricao_tipo(),
                                  [], datas, p.get("code"), p.get("name"), p.get("id_personnel"),
                                  None, self.obs.toPlainText().strip(), tipo=self._tt.tipo_dict(),
-                                 finalizar=finalizar)
+                                 finalizar=finalizar, id_parent=self.os_pai.id_parent())
         else:
             # ── vários ativos, 1 data ──
             assets = [a for a in self._assets if a["id"] in self._checked]
@@ -406,10 +422,21 @@ class VariasOSsDialog(QDialog):
             self._wc = ApiWorker(api.create_work_orders_bulk, assets, desc, self._tt.descricao_tipo(),
                                  [], "", p.get("code"), p.get("name"), p.get("id_personnel"),
                                  None, self.obs.toPlainText().strip(), tipo=self._tt.tipo_dict(),
-                                 finalizar=finalizar, event_date=event_date)
+                                 finalizar=finalizar, event_date=event_date,
+                                 id_parent=self.os_pai.id_parent())
         self._wc.ok.connect(self._ok)
         self._wc.erro.connect(self._err)
         self._wc.start()
+
+    def _voltar(self):
+        if self._on_voltar:
+            self._on_voltar()
+
+    def accept(self):        # compat: sucesso → volta (inline) / fecha (janela)
+        self._voltar()
+
+    def reject(self):        # compat: Cancelar → volta / fecha
+        self._voltar()
 
     def _ok(self, res):
         self._wc = None

@@ -3,8 +3,8 @@ Handover). Fluxo: marca os ativos → escolhe a FAMÍLIA → 'Carregar planos' �
 ativos passa a mostrar, por linha, o PLANO daquela família (combo) + o Nº DE SUBTAREFAS; os ativos
 que não têm plano na família ficam destacados. 1 OS = cada ativo marcado vira uma tarefa."""
 import datetime as _dt
-from PyQt6.QtGui import QColor, QBrush
-from PyQt6.QtCore import Qt, QDateTime, QDate, QTime
+from PyQt6.QtGui import QColor, QBrush, QIcon
+from PyQt6.QtCore import Qt, QDateTime, QDate, QTime, QSize
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QComboBox,
                              QLineEdit, QTextEdit, QPushButton, QMessageBox, QDateTimeEdit, QDateEdit,
                              QScrollArea, QDialog, QTableWidget, QTableWidgetItem, QHeaderView,
@@ -12,6 +12,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLa
 import api
 from workers import ApiWorker
 from steps.searchcombo import tornar_pesquisavel
+from steps.ospai import OsPaiPicker
+from steps.ui import QSS_FORM, Card, campo, rotulo, Linha, icone_pix, GREEN_INK, MUTED
 
 _SEL = "— selecione —"
 _FAM_ORDER = ["Handover", "MPM", "MPA", "MPS", "MPQ", "MPW", "MPT"]
@@ -21,22 +23,23 @@ _DIM = QColor("#8a90a2")
 _FG = QColor("#e7e9ef")
 
 
-def abrir_pcm(parent):
-    """Abre o PCM como diálogo (botão ao lado do COS)."""
+def abrir_pcm(parent, performance=False):
+    """Abre o PCM (ou Performance, se performance=True) como diálogo."""
     dlg = QDialog(parent)
-    dlg.setWindowTitle("PCM — OS por plano de tarefas")
+    dlg.setWindowTitle("Performance — OS por plano" if performance else "PCM — OS por plano de tarefas")
     dlg.setWindowFlags(dlg.windowFlags() | Qt.WindowType.WindowMinMaxButtonsHint)
     dlg.setMinimumSize(820, 720)
     dlg.setSizeGripEnabled(True)
     lay = QVBoxLayout(dlg); lay.setContentsMargins(0, 0, 0, 0)
-    tab = PcmTab(); lay.addWidget(tab)
+    tab = PcmTab(performance=performance); lay.addWidget(tab)
     tab.carregar_inicial()
     dlg.exec()
 
 
 class PcmTab(QWidget):
-    def __init__(self):
+    def __init__(self, performance=False):
         super().__init__()
+        self._performance = performance      # True = aba Performance (só planos PERFORMANCE)
         self._assets = api.load_assets_cached() or []
         self._checked = set()                # ids dos ativos marcados
         self._planos_by_asset = {}           # asset_id -> [planos] (do Carregar)
@@ -50,59 +53,38 @@ class PcmTab(QWidget):
         self._sem_plano = False              # modo "Sem plano de tarefas" (subtarefa padrão Procedimento)
 
         outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
+        self.setStyleSheet(QSS_FORM)                 # visual novo (inline no criar_stack não tem o global)
         scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         body = QWidget(); scroll.setWidget(body); outer.addWidget(scroll)
-        lay = QVBoxLayout(body); lay.setContentsMargins(20, 14, 20, 14); lay.setSpacing(8)
+        lay = QVBoxLayout(body); lay.setContentsMargins(18, 14, 18, 14); lay.setSpacing(14)
 
-        lay.addWidget(QLabel("<b style='font-size:15px'>PCM — OS por plano de tarefas</b>"))
-        lay.addWidget(QLabel("<span style='color:#8a90a2'>Marque os ativos, escolha a família e carregue "
-                             "os planos. Cada ativo mostra seu plano e o nº de subtarefas — só conferir e "
-                             "criar. 1 OS com cada ativo como tarefa.</span>"))
-
-        # ── ativo: cliente → usina → tipo ──
-        grid = QGridLayout(); grid.setHorizontalSpacing(10); grid.setVerticalSpacing(3)
+        # ── Card 1: Ativo ──
         self.cb_cli = QComboBox(); self.cb_cli.currentIndexChanged.connect(self._on_cli)
         self.cb_usi = QComboBox(); self.cb_usi.currentIndexChanged.connect(self._on_usi)
         self.cb_tipo = QComboBox(); self.cb_tipo.currentIndexChanged.connect(self._refresh)
-        grid.addWidget(QLabel("Cliente"), 0, 0); grid.addWidget(self.cb_cli, 1, 0)
-        grid.addWidget(QLabel("Usina"), 0, 1); grid.addWidget(self.cb_usi, 1, 1)
-        grid.addWidget(QLabel("Tipo de equipamento"), 0, 2); grid.addWidget(self.cb_tipo, 1, 2)
-        for c in (0, 1, 2):
-            grid.setColumnStretch(c, 1)
-        lay.addLayout(grid)
-        self.busca = QLineEdit(); self.busca.setPlaceholderText("filtrar ativo por código/nome…")
+        self.busca = QLineEdit(); self.busca.setPlaceholderText("Filtrar ativo por código ou nome…")
+        self.busca.addAction(QIcon(icone_pix("search", MUTED, 15)), QLineEdit.ActionPosition.LeadingPosition)
         self.busca.textChanged.connect(self._refresh)
-        lay.addWidget(self.busca)
+        c_ativo = Card(1, "Ativo")
+        c_ativo.add(Linha(campo("Cliente", self.cb_cli, obrig=True), campo("Usina", self.cb_usi, obrig=True)))
+        c_ativo.add(Linha(campo("Tipo de equipamento", self.cb_tipo), campo(" ", self.busca)))
+        lay.addWidget(c_ativo)
 
-        # ── sem plano de tarefas (subtarefa padrão "Procedimento") ──
-        sprow = QHBoxLayout()
+        # ── Card 2: Plano de tarefas (sem-plano + família + tabela) ──
         self.cb_sem_plano = QCheckBox("Sem plano de tarefas")
         self.cb_sem_plano.setToolTip("Cria 1 OS com cada ativo marcado como tarefa, SEM plano — "
                                      "a subtarefa fica como 'Procedimento'.")
         self.cb_sem_plano.toggled.connect(self._on_sem_plano)
-        sprow.addWidget(self.cb_sem_plano)
-        self.desc_lbl = QLabel("Descrição da tarefa")
+        self.desc_lbl = QLabel("Descrição da tarefa"); self.desc_lbl.setObjectName("uiCampoLabel")
         self.ed_desc = QLineEdit()
         self.ed_desc.setPlaceholderText("opcional (vale p/ todas) — vazio = 'Procedimento'")
         self.desc_lbl.setVisible(False); self.ed_desc.setVisible(False)
-        sprow.addWidget(self.desc_lbl); sprow.addWidget(self.ed_desc, 1)
-        lay.addLayout(sprow)
-
-        # ── família + carregar ──
-        prow = QHBoxLayout()
-        self.fam_lbl = QLabel("<b>Família do plano</b>")
-        prow.addWidget(self.fam_lbl)
+        self.fam_lbl = QLabel("Família do plano"); self.fam_lbl.setObjectName("uiCampoLabel")
         self.cb_familia = QComboBox(); self.cb_familia.addItem("(carregue os planos)", None)
         self.cb_familia.currentIndexChanged.connect(self._refresh)   # re-ordena (com plano no topo) + re-preenche
         self.b_planos = QPushButton("Carregar planos"); self.b_planos.setObjectName("secondary")
         self.b_planos.clicked.connect(self._carregar_planos)
-        prow.addWidget(self.cb_familia, 1); prow.addWidget(self.b_planos)
-        lay.addLayout(prow)
-
-        # ── tabela única: ativo + plano + nº subtarefas ──
-        albl = QHBoxLayout()
-        albl.addWidget(QLabel("<b>Ativos</b> <span style='color:#8a90a2'>(marque um ou vários — o plano "
-                              "aparece após carregar)</span>"), 1)
         self.b_complano = QPushButton("Só com plano"); self.b_complano.setObjectName("secondary")
         self.b_complano.setToolTip("Marca apenas os ativos que têm plano nesta família (desmarca os demais)")
         self.b_complano.clicked.connect(self._marcar_com_plano)
@@ -110,8 +92,6 @@ class PcmTab(QWidget):
         b_all.clicked.connect(lambda: self._marcar_todos(True))
         b_none = QPushButton("Limpar"); b_none.setObjectName("secondary")
         b_none.clicked.connect(lambda: self._marcar_todos(False))
-        albl.addWidget(self.b_complano); albl.addWidget(b_all); albl.addWidget(b_none)
-        lay.addLayout(albl)
         self.tbl = QTableWidget(0, 4)
         self.tbl.setHorizontalHeaderLabels(["Ativo", "Plano de tarefa", "Subt.", "Data/hora programada"])
         self.tbl.verticalHeader().setVisible(False)
@@ -122,16 +102,30 @@ class PcmTab(QWidget):
         hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        self.tbl.setMinimumHeight(250)
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)      # data em célula não mede em ResizeToContents
+        self.tbl.setColumnWidth(3, 185)
+        self.tbl.setMinimumHeight(230)
         self.tbl.itemChanged.connect(self._on_item)
-        lay.addWidget(self.tbl, 1)
-        self.sel_lbl = QLabel("0 marcado(s)"); self.sel_lbl.setObjectName("hint")
-        lay.addWidget(self.sel_lbl)
+        self.sel_lbl = QLabel("0 marcado(s)"); self.sel_lbl.setObjectName("uiAjuda")
 
-        # ── data/hora em massa (mesmos atalhos do Clonar OS) ──
-        drow = QHBoxLayout()
-        drow.addWidget(QLabel("<span style='color:#8a90a2'>Data/hora em massa:</span>"))
+        c_plano = Card(2, "Plano de tarefas")
+        sprow = QHBoxLayout(); sprow.setSpacing(10)
+        sprow.addWidget(self.cb_sem_plano); sprow.addWidget(self.desc_lbl); sprow.addWidget(self.ed_desc, 1)
+        c_plano.add(sprow)
+        famw = QWidget(); famw.setObjectName("uiGroup")
+        famv = QVBoxLayout(famw); famv.setContentsMargins(0, 0, 0, 0); famv.setSpacing(5)
+        famv.addWidget(self.fam_lbl)
+        famrow = QHBoxLayout(); famrow.setSpacing(8)
+        famrow.addWidget(self.cb_familia, 1); famrow.addWidget(self.b_planos)
+        famv.addLayout(famrow)
+        c_plano.add(famw)
+        albl = QHBoxLayout(); albl.setSpacing(6)
+        albl.addWidget(rotulo("Ativos", obrig=True, extra="(marque um ou vários — o plano aparece após carregar)"), 1)
+        albl.addWidget(self.b_complano); albl.addWidget(b_all); albl.addWidget(b_none)
+        c_plano.add(albl)
+        c_plano.add(self.tbl, stretch=1)
+        c_plano.add(self.sel_lbl)
+        # ── programação em massa: DENTRO do card Plano, logo abaixo do "X marcado(s)" ──
         self.bulk_date = QDateEdit(); self.bulk_date.setCalendarPopup(True)
         self.bulk_date.setDisplayFormat("dd/MM/yyyy"); self.bulk_date.setDate(QDate.currentDate())
         b_data = QPushButton("Aplicar data"); b_data.setObjectName("secondary")
@@ -146,32 +140,40 @@ class PcmTab(QWidget):
         b_mes = QPushButton("Avançar 1 mês"); b_mes.setObjectName("secondary")
         b_mes.setToolTip("Adia a data de cada linha em 1 mês")
         b_mes.clicked.connect(self._avancar_mes)
+        c_plano.add(rotulo("Programação em massa", extra="(aplica a todas as linhas marcadas)"))
+        drow = QHBoxLayout(); drow.setSpacing(8)
         for w in (self.bulk_date, b_data, b_manha, b_tarde, b_mes):
             drow.addWidget(w)
         drow.addStretch(1)
-        lay.addLayout(drow)
+        c_plano.add(drow)
+        lay.addWidget(c_plano)
 
-        # ── observação ──
-        lay.addWidget(QLabel("<b>Observação</b> <span style='color:#8a90a2'>(opcional)</span>"))
-        self.obs = QTextEdit(); self.obs.setFixedHeight(44)
-        lay.addWidget(self.obs)
-
-        # ── responsável ──
-        lay.addWidget(QLabel("<b>Requerido por (responsável)</b> "
-                             "<span style='color:#8a90a2'>(obrigatório · digite p/ pesquisar)</span>"))
-        rrow = QHBoxLayout()
+        # ── Card 3: Detalhes e responsável ──
+        self.obs = QTextEdit(); self.obs.setFixedHeight(52)
         self.cb_resp = QComboBox(); self.cb_resp.addItem("carregando…", None)
         tornar_pesquisavel(self.cb_resp)
         self.b_resp_reload = QPushButton("↻"); self.b_resp_reload.setObjectName("secondary")
         self.b_resp_reload.setFixedWidth(40); self.b_resp_reload.setToolTip("Recarregar responsáveis")
         self.b_resp_reload.clicked.connect(self._carregar_resp)
-        rrow.addWidget(self.cb_resp, 1); rrow.addWidget(self.b_resp_reload)
-        lay.addLayout(rrow)
+        rrow = QWidget(); rrow.setObjectName("uiGroup")
+        rrl = QHBoxLayout(rrow); rrl.setContentsMargins(0, 0, 0, 0); rrl.setSpacing(8)
+        rrl.addWidget(self.cb_resp, 1); rrl.addWidget(self.b_resp_reload)
+        self.os_pai = OsPaiPicker()
+        c_resp = Card(3, "Detalhes e responsável")
+        c_resp.add(Linha(campo("Observação", self.obs, extra="(opcional)"),
+                         campo("Requerido por", rrow, obrig=True, extra="(digite p/ pesquisar)")))
+        c_resp.add(campo("Ela depende de outra OS?", self.os_pai, extra="(opcional — OS pai)"))
+        lay.addWidget(c_resp)
 
-        self.btn = QPushButton("Criar OS (PCM)"); self.btn.clicked.connect(self._criar)
-        lay.addWidget(self.btn)
-        self.hint = QLabel(""); self.hint.setObjectName("hint")
-        lay.addWidget(self.hint)
+        # botão no FIM do conteúdo (rolando) — sem footer fixo ocupando a tela
+        self.btn = QPushButton("Criar OS (PCM)"); self.btn.setObjectName("btnPrimary")
+        self.btn.setIcon(QIcon(icone_pix("send", GREEN_INK, 16))); self.btn.setIconSize(QSize(16, 16))
+        self.btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn.clicked.connect(self._criar)
+        brow = QHBoxLayout(); brow.setContentsMargins(0, 4, 0, 0); brow.addStretch(1); brow.addWidget(self.btn)
+        lay.addLayout(brow)
+        self.hint = QLabel(""); self.hint.setObjectName("uiAjuda")
+        lay.addWidget(self.hint, 0, Qt.AlignmentFlag.AlignRight)
 
         self._fill_clientes()
 
@@ -504,6 +506,11 @@ class PcmTab(QWidget):
         self._wp = None
         self.b_planos.setEnabled(True)
         planos = planos or []
+        # Performance mostra SÓ a família PERFORMANCE; PCM esconde essa família
+        if self._performance:
+            planos = [p for p in planos if p.get("family") == "PERFORMANCE"]
+        else:
+            planos = [p for p in planos if p.get("family") != "PERFORMANCE"]
         # indexa por ativo + marca quais ativos foram carregados
         self._loaded_for = set(self._checked)
         by_asset = {}
@@ -585,7 +592,8 @@ class PcmTab(QWidget):
             return
         self.btn.setEnabled(False)
         self.hint.setText(f"criando 1 OS com {len(sel)} tarefa(s)… (pode levar alguns segundos)")
-        self._wc = ApiWorker(api.create_planned_os_multi, sel, p.get("id_personnel"), p.get("name"), None)
+        self._wc = ApiWorker(api.create_planned_os_multi, sel, p.get("id_personnel"), p.get("name"),
+                             None, id_parent=self.os_pai.id_parent())
         self._wc.ok.connect(self._criou)
         self._wc.erro.connect(self._err)
         self._wc.start()
@@ -615,7 +623,7 @@ class PcmTab(QWidget):
         self.btn.setEnabled(False)
         self.hint.setText(f"criando 1 OS com {len(sel)} tarefa(s)… (pode levar alguns segundos)")
         self._wc = ApiWorker(api.create_os_sem_plano, sel, p.get("id_personnel"), p.get("name"),
-                             desc, self.obs.toPlainText().strip())
+                             desc, self.obs.toPlainText().strip(), id_parent=self.os_pai.id_parent())
         self._wc.ok.connect(self._criou)
         self._wc.erro.connect(self._err)
         self._wc.start()

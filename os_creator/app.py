@@ -2,21 +2,26 @@
 overlay de loading e Step 4 (atribuição de responsável)."""
 import os
 import datetime as _dt
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPixmap, QIcon
+from PyQt6.QtCore import Qt, QByteArray, QPoint, QPropertyAnimation, QEasingCurve, QSize
+from PyQt6.QtGui import QPixmap, QIcon, QColor, QPainter
+from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget,
                              QLabel, QProgressBar, QDialog, QLineEdit, QListWidget,
-                             QListWidgetItem, QPushButton, QMessageBox, QTabWidget)
+                             QListWidgetItem, QPushButton, QMessageBox, QTabWidget, QFrame,
+                             QGridLayout, QGraphicsDropShadowEffect)
 import api
 from workers import ApiWorker, auth_bus
 from steps.step1 import Step1
 from steps.step2 import Step2
 from steps.step3 import Step3
+from steps.ui import QSS_FORM
 from steps.finalizar import FinalizarPanel
+from steps.ospai import OsPaiPicker
 from steps.historico import HistoricoOS
 from steps.historico_solic import HistoricoSolic
 from steps.solicitacao import SolicitacaoTab
-from steps.pcm import abrir_pcm
+from steps.pcm import abrir_pcm, PcmTab
+from steps.searchcombo import tornar_todos_pesquisaveis
 from steps.sugestoes import SugestoesTab
 
 _ASSETS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
@@ -31,23 +36,23 @@ def _logo_label(width=150):
 STEP_LABELS = ["Ativo + Data", "Detalhes da Tarefa", "Sub tarefas", "Responsável"]
 
 DARK_QSS = """
-QWidget { background:#14161f; color:#e6e8ef; font-family:'Segoe UI',Arial,sans-serif; font-size:13px; }
+QWidget { background:#090d18; color:#e6e8ef; font-family:'Segoe UI',Arial,sans-serif; font-size:13px; }
 QLabel#steptitle { color:#9aa0b4; font-size:12px; }
 QLabel#hint { color:#8a90a2; font-size:11px; }
 QLineEdit,QTextEdit,QComboBox,QDateEdit,QListWidget {
-  background:#1d2130; border:1px solid #2c3142; border-radius:6px; padding:6px; color:#e6e8ef; }
-QLineEdit:focus,QTextEdit:focus,QComboBox:focus,QDateEdit:focus { border:1px solid #98c838; }
-QComboBox QAbstractItemView { background:#1d2130; color:#e6e8ef; border:1px solid #2c3142;
+  background:#161d30; border:1px solid #2a3346; border-radius:8px; padding:7px 9px; color:#e6e8ef; }
+QLineEdit:focus,QTextEdit:focus,QComboBox:focus,QDateEdit:focus { border:1px solid #8fce3f; }
+QComboBox QAbstractItemView { background:#161d30; color:#e6e8ef; border:1px solid #2c3142;
   selection-background-color:#3a4a20; selection-color:#eaf3d6; outline:0; }
 QComboBox QAbstractItemView::item { min-height:22px; padding:4px 6px; }
 QListWidget::item { padding:5px; border-radius:4px; }
 QListWidget::item:selected { background:#3a4a20; color:#eaf3d6; }
-QPushButton { background:#98c838; color:#14161f; border:none; border-radius:7px; padding:9px 14px; font-weight:700; }
+QPushButton { background:#98c838; color:#14161f; border:none; border-radius:8px; padding:9px 14px; font-weight:700; }
 QPushButton:hover { background:#a8d64a; }
 QPushButton:disabled { background:#2c3142; color:#6b7080; }
 QPushButton#secondary { background:#262b3b; color:#cdd2e0; font-weight:500; }
 QPushButton#secondary:hover { background:#2f3547; }
-QProgressBar { background:#1d2130; border:none; border-radius:3px; }
+QProgressBar { background:#161d30; border:none; border-radius:3px; }
 QProgressBar::chunk { background:#98c838; border-radius:3px; }
 QScrollBar:vertical { background:transparent; width:10px; margin:0; }
 QScrollBar::handle:vertical { background:#2c3142; border-radius:5px; min-height:24px; }
@@ -55,14 +60,14 @@ QScrollBar::add-line,QScrollBar::sub-line { height:0; }
 QTabWidget::pane { border:1px solid #2c3142; border-top:none; }
 QTabBar::tab { background:#161a25; color:#9aa0b4; padding:8px 18px; border:1px solid #2c3142;
   border-bottom:none; border-top-left-radius:7px; border-top-right-radius:7px; margin-right:3px; font-weight:600; }
-QTabBar::tab:selected { background:#1d2130; color:#98c838; }
+QTabBar::tab:selected { background:#161d30; color:#98c838; }
 QTabBar::tab:hover { color:#e6e8ef; }
-QTableWidget { background:#1d2130; border:1px solid #2c3142; gridline-color:#262b3b; color:#e6e8ef; }
+QTableWidget { background:#161d30; border:1px solid #2c3142; gridline-color:#262b3b; color:#e6e8ef; }
 QHeaderView::section { background:#262b3b; color:#9aa0b4; padding:6px 8px; border:none;
   border-bottom:1px solid #2c3142; font-weight:600; }
 QTableWidget::item:selected { background:#2f3a2a; color:#eaf3d6; }
 QCheckBox::indicator, QRadioButton::indicator, QListView::indicator {
-  width:15px; height:15px; border:2px solid #5a6072; background:#1d2130; }
+  width:15px; height:15px; border:2px solid #5a6072; background:#161d30; }
 QRadioButton::indicator { border-radius:8px; }
 QCheckBox::indicator, QListView::indicator { border-radius:4px; }
 QCheckBox::indicator:checked, QRadioButton::indicator:checked, QListView::indicator:checked {
@@ -97,6 +102,105 @@ class LoadingOverlay(QWidget):
         self.show()
 
 
+def _svg_pix(svg: str, size: int) -> QPixmap:
+    """Renderiza um SVG (string) num QPixmap transparente do tamanho pedido."""
+    pix = QPixmap(size, size); pix.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pix); QSvgRenderer(QByteArray(svg.encode("utf-8"))).render(p); p.end()
+    return pix
+
+
+# Ícones de linha (SVG, verde Grid) — desenhados aqui pois o Qt não tem a fonte de ícones da web.
+_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="{c}" ' \
+       'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">{p}</svg>'
+_ICO = {
+    "bolt":     '<path d="M13 3 4 14h7l-1 7 9-11h-7z"/>',
+    "stack":    '<path d="M12 4 3 9l9 5 9-5-9-5z"/><path d="M3 14l9 5 9-5"/>',
+    "calendar": '<rect x="4" y="5" width="16" height="15" rx="2"/><path d="M4 9h16"/><path d="M8 3v4"/><path d="M16 3v4"/>',
+    "file":     '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 12v6"/><path d="M9 15h6"/>',
+    "copy":     '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+    "arrow":    '<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>',
+    "plus":     '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 9v6"/><path d="M9 12h6"/>',
+    "doc":      '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/>',
+    "history":  '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/><path d="M12 8v4l3 2"/>',
+    "clipboard":'<rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 4h6v3H9z"/><path d="M9 12h6"/><path d="M9 16h4"/>',
+}
+
+
+def _icone(nome, cor="#8fce3f", size=24):
+    return _svg_pix(_SVG.format(c=cor, p=_ICO[nome]), size)
+
+
+class _CardOS(QFrame):
+    """Card do launcher: ícone + título + subtítulo + seta; no hover ele SOBE levemente (sem sombra)."""
+    def __init__(self, icone, titulo, sub, on_click):
+        super().__init__()
+        self._on_click = on_click
+        self._lifted = False; self._home = None; self._anim = None
+        self.setObjectName("osCard")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumHeight(158)
+        self.setStyleSheet(
+            "QFrame#osCard{background:#161d30; border:1px solid #232a3d;"
+            " border-bottom:2px solid #8fce3f; border-radius:14px;}"
+            "QFrame#osCard:hover{border:1px solid #8fce3f; border-bottom:2px solid #8fce3f;}")
+        v = QVBoxLayout(self); v.setContentsMargins(18, 16, 18, 14); v.setSpacing(4)
+        sq = QLabel(); sq.setFixedSize(46, 46); sq.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sq.setStyleSheet("background:rgba(143,206,63,0.14); border-radius:12px; border:none;")
+        sq.setPixmap(_icone(icone))
+        v.addWidget(sq); v.addSpacing(8)
+        t = QLabel(titulo)
+        t.setStyleSheet("font-size:17px; font-weight:600; color:#e8ebf2; background:transparent; border:none;")
+        v.addWidget(t)
+        s = QLabel(sub); s.setWordWrap(True)
+        s.setStyleSheet("font-size:13px; color:#8a90a2; background:transparent; border:none;")
+        v.addWidget(s); v.addStretch(1)
+        arow = QHBoxLayout(); arow.setContentsMargins(0, 6, 0, 0); arow.addStretch(1)
+        arr = QLabel(); arr.setPixmap(_icone("arrow", size=20))
+        arr.setStyleSheet("background:transparent; border:none;")
+        arow.addWidget(arr)
+        v.addLayout(arow)
+
+    def enterEvent(self, e):
+        if not self._lifted:
+            self._lifted = True
+            self._home = self.pos()
+            self._mover(self._home - QPoint(0, 6))          # sobe levemente
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        if self._lifted:
+            self._lifted = False
+            if self._home is not None:
+                self._mover(self._home)                     # volta
+        super().leaveEvent(e)
+
+    def _mover(self, alvo):
+        self._anim = QPropertyAnimation(self, b"pos", self)
+        self._anim.setDuration(130); self._anim.setEndValue(alvo)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.start()
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton and self._on_click:
+            self._on_click()
+        super().mousePressEvent(e)
+
+
+def _com_cabecalho(widget, obrig=False):
+    """Sem título/subtítulo (a aba já diz onde a pessoa está). Se `obrig`, só adiciona '* Campos
+    obrigatórios' no topo à direita. Expõe `._inner` (o widget original) p/ recarga."""
+    if not obrig:
+        return widget
+    w = QWidget(); v = QVBoxLayout(w); v.setContentsMargins(20, 10, 20, 0); v.setSpacing(4)
+    top = QHBoxLayout(); top.addStretch(1)
+    lo = QLabel("* Campos obrigatórios")
+    lo.setStyleSheet("font-size:12px; color:#8a90a2; background:transparent;")
+    top.addWidget(lo)
+    v.addLayout(top); v.addWidget(widget, 1)
+    w._inner = widget
+    return w
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -116,59 +220,56 @@ class MainWindow(QMainWindow):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # logo Grid Co — sempre visível, acima das abas
-        logo_wrap = QWidget()
-        ll = QVBoxLayout(logo_wrap)
-        ll.setContentsMargins(18, 10, 18, 4)
-        ll.addWidget(_logo_label(140))
-        root.addWidget(logo_wrap)
+        # header (estilo imagem 2): símbolo + "Grid Co." + subtítulo | perfil do usuário
+        root.addWidget(self._build_header())
+        _sep = QFrame(); _sep.setFixedHeight(1); _sep.setStyleSheet("background:#1a2236; border:none;")
+        root.addWidget(_sep)
 
         # abas: Criar OS (wizard) + Históricos de OS
         self.tabs = QTabWidget()
         root.addWidget(self.tabs, 1)
+        self._carregar_perfil()                         # nome + cargo do usuário (async, do Fracttal)
 
-        # ── aba 1: Criar OS (o wizard) ──
+        # ── aba 1: Criar OS — launcher de cards que troca o conteúdo da própria aba ──
         criar = QWidget()
-        cl = QVBoxLayout(criar)
-        cl.setContentsMargins(0, 6, 0, 0)
-        cl.setSpacing(6)
-        # barra de clonagem: digitar o nº de uma OS existente e clonar (ativo + tarefas)
-        crow = QHBoxLayout(); crow.setContentsMargins(8, 0, 8, 2); crow.setSpacing(6)
+        cl = QVBoxLayout(criar); cl.setContentsMargins(0, 0, 0, 0); cl.setSpacing(0)
+        self.criar_stack = QStackedWidget()
+        cl.addWidget(self.criar_stack, 1)
+        self._modo_idx = {}                                           # key(cos/pcm/perf) -> índice no stack
+        self.criar_stack.addWidget(self._build_launcher())            # página 0: cards
+
+        # página 1: Tradicional (o wizard) — com "← Voltar" e a barra de clonagem
+        trad = QWidget(); tcl = QVBoxLayout(trad); tcl.setContentsMargins(0, 6, 0, 0); tcl.setSpacing(6)
+        crow = QHBoxLayout(); crow.setContentsMargins(8, 4, 8, 2); crow.setSpacing(6)
+        b_voltar = QPushButton("← Voltar"); b_voltar.setObjectName("secondary"); b_voltar.setFixedWidth(96)
+        b_voltar.clicked.connect(lambda: self.criar_stack.setCurrentIndex(0))
+        crow.addWidget(b_voltar)
         crow.addWidget(QLabel("Clonar OS nº"))
         self.clone_in = QLineEdit(); self.clone_in.setPlaceholderText("ex.: 8125"); self.clone_in.setFixedWidth(110)
         self.clone_in.returnPressed.connect(self._clonar_por_numero)
         crow.addWidget(self.clone_in)
         self.b_clone = QPushButton("Clonar"); self.b_clone.setObjectName("secondary")
         self.b_clone.clicked.connect(self._clonar_por_numero)
-        crow.addWidget(self.b_clone)
-        self.b_varias = QPushButton("COS"); self.b_varias.setObjectName("secondary")
-        self.b_varias.setToolTip("COS — várias OSs: 1 ativo × várias datas, OU vários ativos × 1 data")
-        self.b_varias.clicked.connect(self._abrir_varias_os)
-        crow.addWidget(self.b_varias)
-        self.b_pcm = QPushButton("PCM"); self.b_pcm.setObjectName("secondary")
-        self.b_pcm.setToolTip("PCM — OS por plano de tarefas (MPS/MPA/MPM/Handover) p/ vários ativos")
-        self.b_pcm.clicked.connect(self._abrir_pcm)
-        crow.addWidget(self.b_pcm); crow.addStretch(1)
-        cl.addLayout(crow)
-        self.steplbl = QLabel()
-        self.steplbl.setObjectName("steptitle")
+        crow.addWidget(self.b_clone); crow.addStretch(1)
+        tcl.addLayout(crow)
+        self.steplbl = QLabel(); self.steplbl.setObjectName("steptitle")
         self.steplbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.prog = QProgressBar()
-        self.prog.setRange(0, 4)
-        self.prog.setTextVisible(False)
-        self.prog.setFixedHeight(6)
-        cl.addWidget(self.steplbl)
-        cl.addWidget(self.prog)
+        self.prog = QProgressBar(); self.prog.setRange(0, 4)
+        self.prog.setTextVisible(False); self.prog.setFixedHeight(6)
+        tcl.addWidget(self.steplbl); tcl.addWidget(self.prog)
         self.stack = QStackedWidget()
+        self.stack.setStyleSheet(QSS_FORM)                            # campos 40px + foco verde (igual à Solicitação)
         self.s1, self.s2, self.s3 = Step1(), Step2(), Step3()
         for s in (self.s1, self.s2, self.s3):
             self.stack.addWidget(s)
-        cl.addWidget(self.stack, 1)
+        tcl.addWidget(self.stack, 1)
+        self.criar_stack.addWidget(trad)                              # página 1: Tradicional
         self.tabs.addTab(criar, "Criar OS")
 
         # ── aba 2: Criar Solicitação ──
         self.sol = SolicitacaoTab()
-        self.tabs.addTab(self.sol, "Criar Solicitação")
+        self._tab_sol = self.sol                                   # o form novo já traz o "* obrigatórios"
+        self.tabs.addTab(self._tab_sol, "Criar Solicitação")
 
         # ── aba 3: Históricos de OS ──
         self.hist = HistoricoOS()
@@ -177,6 +278,23 @@ class MainWindow(QMainWindow):
         # ── aba 4: Histórico de Solicitação ──
         self.hsol = HistoricoSolic()
         self.tabs.addTab(self.hsol, "Histórico de Solicitação")
+
+        # estilo das abas (imagem 2): planas, com ícone + sublinhado verde na ativa
+        self.tabs.setStyleSheet(
+            "QTabWidget::pane{border:none; border-top:1px solid #1a2236;}"
+            "QTabBar{background:transparent;}"
+            "QTabBar::tab{background:transparent; color:#9aa0b4; padding:10px 16px; border:none;"
+            " border-bottom:2px solid transparent; margin-right:6px;}"
+            "QTabBar::tab:hover{color:#c9cfe0;}"
+            "QTabBar::tab:selected{color:#8fce3f; border-bottom:2px solid #8fce3f;}")
+        self.tabs.setIconSize(QSize(18, 18))
+        _tab_ic = {"Criar OS": "plus", "Criar Solicitação": "doc",
+                   "Históricos de OS": "history", "Histórico de Solicitação": "clipboard"}
+        for i in range(self.tabs.count()):
+            _ic = _tab_ic.get(self.tabs.tabText(i))
+            if _ic:
+                self.tabs.setTabIcon(i, QIcon(_icone(_ic, cor="#c9cfe0", size=18)))
+        tornar_todos_pesquisaveis(self)                  # digitar filtra em TODOS os combos de seleção única
 
         # ── aba 5: Sugestões de OS (trackers parados, vindo do dashboard) ──
         # ESCONDIDA por ora (pedido do Levi). Pra reativar: descomente o addTab abaixo.
@@ -231,6 +349,7 @@ class MainWindow(QMainWindow):
                 self._carregar_ativos(force=True)
                 self._carregar_labels()
                 w = self.tabs.currentWidget()                 # recarrega a aba atual
+                w = getattr(w, "_inner", w)                    # o conteúdo está dentro do cabeçalho
                 for m in ("recarregar", "carregar_inicial"):
                     if hasattr(w, m):
                         getattr(w, m)()
@@ -252,20 +371,165 @@ class MainWindow(QMainWindow):
         self._run(api._wo_id_por_folio, _achou, f"Procurando a OS nº {folio}…", folio)
 
     def _abrir_clone(self, id_wo, folio=None):
-        from steps.clonar import abrir_clonar_os
-        abrir_clonar_os(self, id_wo, folio)
+        """Embute o editor de clonagem INLINE na aba Criar OS (cada clone é de uma OS)."""
+        from steps.clonar import ClonarOSDialog
+        if getattr(self, "_clone_page", None) is not None:
+            self.criar_stack.removeWidget(self._clone_page); self._clone_page.deleteLater()
+        inner = ClonarOSDialog(self, id_wo, folio, on_voltar=lambda: self.criar_stack.setCurrentIndex(0))
+        tornar_todos_pesquisaveis(inner)
+        self._clone_page = self._wrap_modo(inner)
+        self.criar_stack.setCurrentIndex(self.criar_stack.addWidget(self._clone_page))
+
+    def _mostrar_clonar_entrada(self):
+        """Tela limpa com um card centralizado p/ digitar o nº da OS a clonar."""
+        if "clone_ent" not in self._modo_idx:
+            page = QWidget(); ov = QVBoxLayout(page); ov.addStretch(1)
+            hr = QHBoxLayout(); hr.addStretch(1)
+            card = QFrame(); card.setObjectName("osCard"); card.setFixedWidth(430)
+            card.setStyleSheet("QFrame#osCard{background:#161d30; border:1px solid #232a3d;"
+                               " border-bottom:2px solid #8fce3f; border-radius:14px;}")
+            cv = QVBoxLayout(card); cv.setContentsMargins(24, 22, 24, 20); cv.setSpacing(10)
+            t = QLabel("Clonar OS")
+            t.setStyleSheet("font-size:18px; font-weight:600; color:#e8ebf2; background:transparent; border:none;")
+            cv.addWidget(t)
+            s = QLabel("Digite o número da OS que você quer clonar."); s.setWordWrap(True)
+            s.setStyleSheet("color:#8a90a2; background:transparent; border:none;")
+            cv.addWidget(s)
+            self.clone_num = QLineEdit(); self.clone_num.setPlaceholderText("ex.: 8888")
+            self.clone_num.returnPressed.connect(self._clonar_confirmar)
+            cv.addWidget(self.clone_num)
+            brow = QHBoxLayout()
+            bv = QPushButton("Voltar"); bv.setObjectName("secondary")
+            bv.clicked.connect(lambda: self.criar_stack.setCurrentIndex(0))
+            bc = QPushButton("Continuar"); bc.clicked.connect(self._clonar_confirmar)
+            brow.addWidget(bv); brow.addWidget(bc, 1)
+            cv.addLayout(brow)
+            hr.addWidget(card); hr.addStretch(1)
+            ov.addLayout(hr); ov.addStretch(1)
+            self._modo_idx["clone_ent"] = self.criar_stack.addWidget(page)
+        self.clone_num.clear()
+        self.criar_stack.setCurrentIndex(self._modo_idx["clone_ent"])
+        self.clone_num.setFocus()
+
+    def _clonar_confirmar(self):
+        folio = (self.clone_num.text() or "").strip()
+        if not folio:
+            return
+
+        def _achou(wid):
+            if wid:
+                self._abrir_clone(wid, folio)
+            else:
+                QMessageBox.information(self, "OS não encontrada", f"Não achei nenhuma OS com o nº {folio}.")
+        self._run(api._wo_id_por_folio, _achou, f"Procurando a OS nº {folio}…", folio)
 
     def _abrir_varias_os(self):
         from steps.varias_os import abrir_varias_os
         abrir_varias_os(self)
 
-    def _abrir_pcm(self):
-        abrir_pcm(self)
+    def _abrir_pcm(self, performance=False):
+        abrir_pcm(self, performance=bool(performance))
+
+    def _build_launcher(self):
+        """Página inicial da aba Criar OS: cards que trocam o conteúdo da própria aba (sem janela)."""
+        w = QWidget()
+        outer = QVBoxLayout(w); outer.setContentsMargins(26, 22, 26, 22); outer.setSpacing(0)
+        grid = QGridLayout(); grid.setSpacing(16)
+        cards = [
+            ("bolt", "Performance", "Inversores, Strings, Trackers e ETM",
+             lambda: self._mostrar_modo("perf")),
+            ("stack", "COS", "Ocorrência de desligamento, religamento e inspeção",
+             lambda: self._mostrar_modo("cos")),
+            ("calendar", "PCM", "OS planejada por família de plano, vários ativos",
+             lambda: self._mostrar_modo("pcm")),
+            ("file", "Tradicional", "Criar OS do zero, passo a passo",
+             lambda: self.criar_stack.setCurrentIndex(1)),
+            ("copy", "Clonar OS", "Duplicar uma OS existente pelo número", self._mostrar_clonar_entrada),
+        ]
+        for i, (ic, t, s, cb) in enumerate(cards):
+            grid.addWidget(_CardOS(ic, t, s, cb), i // 3, i % 3)
+        outer.addLayout(grid); outer.addStretch(1)
+        return w
+
+    def _build_header(self):
+        """Header (imagem 2): símbolo + Grid Co. + subtítulo | avatar + nome + cargo do usuário."""
+        w = QWidget()
+        h = QHBoxLayout(w); h.setContentsMargins(20, 12, 20, 12); h.setSpacing(12)
+        sym = QLabel(); sym.setStyleSheet("background:transparent; border:none;")
+        sym.setPixmap(QPixmap(_asset("grid-icon.png")).scaledToHeight(
+            38, Qt.TransformationMode.SmoothTransformation))
+        h.addWidget(sym)
+        tw = QWidget(); tv = QVBoxLayout(tw); tv.setContentsMargins(0, 0, 0, 0); tv.setSpacing(0)
+        n1 = QLabel("Grid Co.")
+        n1.setStyleSheet("font-size:18px; font-weight:600; color:#e8ebf2; background:transparent;")
+        n2 = QLabel("Sistema de Ordens de Serviço")
+        n2.setStyleSheet("font-size:12px; color:#8a90a2; background:transparent;")
+        tv.addWidget(n1); tv.addWidget(n2)
+        h.addWidget(tw); h.addStretch(1)
+        self.avatar = QLabel("··"); self.avatar.setFixedSize(38, 38)
+        self.avatar.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.avatar.setStyleSheet("background:#243049; color:#8fce3f; border-radius:19px; "
+                                  "font-weight:600; font-size:14px;")
+        h.addWidget(self.avatar)
+        pw = QWidget(); pv = QVBoxLayout(pw); pv.setContentsMargins(0, 0, 0, 0); pv.setSpacing(0)
+        self.lbl_nome = QLabel("…")
+        self.lbl_nome.setStyleSheet("font-size:14px; font-weight:600; color:#e8ebf2; background:transparent;")
+        self.lbl_cargo = QLabel("")
+        self.lbl_cargo.setStyleSheet("font-size:12px; color:#8a90a2; background:transparent;")
+        pv.addWidget(self.lbl_nome); pv.addWidget(self.lbl_cargo)
+        h.addWidget(pw)
+        return w
+
+    def _carregar_perfil(self):
+        self._wperfil = ApiWorker(api.get_conta_info)
+        self._wperfil.ok.connect(self._set_perfil)
+        self._wperfil.erro.connect(lambda *_: None)
+        self._wperfil.start()
+
+    def _set_perfil(self, info):
+        try:
+            info = info or {}
+            nome = (info.get("nome") or "").strip() or "Usuário"
+            self.lbl_nome.setText(nome)
+            self.lbl_cargo.setText((info.get("perfil") or "").strip() or "Grid Co.")
+            partes = [p for p in nome.split() if p]
+            ini = (partes[0][0] + (partes[-1][0] if len(partes) > 1 else "")).upper() if partes else "?"
+            self.avatar.setText(ini)
+        except Exception:
+            pass
+
+    def _card_clonar(self):
+        self.criar_stack.setCurrentIndex(1)      # vai p/ o modo Tradicional (onde está o campo Clonar)
+        self.clone_in.setFocus()
+
+    def _mostrar_modo(self, key):
+        """Mostra COS/PCM/Performance INLINE na própria aba (cria a página sob demanda, com Voltar)."""
+        if key not in self._modo_idx:
+            if key == "cos":
+                from steps.varias_os import VariasOSsDialog
+                inner = VariasOSsDialog(on_voltar=lambda: self.criar_stack.setCurrentIndex(0))
+            else:                                                     # pcm / perf
+                inner = PcmTab(performance=(key == "perf"))
+            tornar_todos_pesquisaveis(inner)                          # combos pesquisáveis nos modos inline
+            self._modo_idx[key] = self.criar_stack.addWidget(self._wrap_modo(inner))
+            if hasattr(inner, "carregar_inicial"):
+                inner.carregar_inicial()
+        self.criar_stack.setCurrentIndex(self._modo_idx[key])
+
+    def _wrap_modo(self, inner):
+        """Embrulha um painel de modo com uma barra '← Voltar' (volta ao launcher)."""
+        page = QWidget(); v = QVBoxLayout(page); v.setContentsMargins(0, 6, 0, 0); v.setSpacing(6)
+        row = QHBoxLayout(); row.setContentsMargins(8, 4, 8, 0)
+        b = QPushButton("← Voltar"); b.setObjectName("secondary"); b.setFixedWidth(96)
+        b.clicked.connect(lambda: self.criar_stack.setCurrentIndex(0))
+        row.addWidget(b); row.addStretch(1)
+        v.addLayout(row); v.addWidget(inner, 1)
+        return page
 
     def abrir_solicitacao_de(self, code):
         """Vai p/ a aba 'Criar Solicitação' com cliente/usina/ativo pré-preenchidos pelo code do ativo
         (usado pelo detalhe da OS no histórico)."""
-        self.tabs.setCurrentWidget(self.sol)
+        self.tabs.setCurrentWidget(self._tab_sol)
         self.sol.carregar_inicial()
         if not self.sol.prefill_por_code(code):
             QMessageBox.information(self, "Criar Solicitação",
@@ -409,6 +673,11 @@ class ResponsavelDialog(QDialog):
         self.fin.toggled.connect(lambda *_: self.adjustSize())   # cresce p/ caber o painel (sem scroll aqui)
         lay.addWidget(self.fin)
 
+        lay.addWidget(QLabel("<b>Ela depende de outra OS?</b> "
+                             "<span style='color:#8a90a2'>(opcional)</span>"))
+        self.os_pai = OsPaiPicker()
+        lay.addWidget(self.os_pai)
+
         row = QHBoxLayout()
         self.b_cancel = QPushButton("Cancelar")
         self.b_cancel.setObjectName("secondary")
@@ -470,7 +739,8 @@ class ResponsavelDialog(QDialog):
         self._w2 = ApiWorker(api.create_work_orders_bulk, ativos, d["desc"], d["tipo"],
                              d["subs"], d["etiqueta"], p["code"], p["name"], p.get("id_personnel"),
                              d.get("etiqueta_ids"), d.get("obs", ""), tipo=d.get("tipo_dict"),
-                             finalizar=finalizar, event_date=event_date)
+                             finalizar=finalizar, event_date=event_date,
+                             id_parent=self.os_pai.id_parent())
         self._w2.ok.connect(self._pronto)
         self._w2.erro.connect(self._err)
         self._w2.start()

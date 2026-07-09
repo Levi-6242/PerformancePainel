@@ -7,6 +7,7 @@ import csv
 import time
 import json
 import shutil
+import subprocess
 import tempfile
 import threading
 import requests
@@ -2767,10 +2768,57 @@ TRK_COBERTURA_MIN_H = 4.0   # h — span da curva p/ julgar "parado" de forma AB
                             #     relativa deixava passar como "Normal")
 TRK_PARADA_GLOBAL_HORA = 12 # h — passada esta hora, planta que mal girou (mediana baixa) = TODOS
                             #     parados, não "ainda não girou" (corrige o falso "Normal")
+TRK_FROTA_ACORDA_HORA  = 11 # h — hora-limite (escolha do Levi 07/07): frota que NUNCA girou até
+                            #     aqui já DEVIA ter acordado → travada (não "dormindo"). Antes
+                            #     disso, frota imóvel = madrugada/manhã normal (sem alarme).
 TRK_DESVIO_MIN   = 5.0   # ° — disparidade ATUAL acima da MEDIANA da planta (e não parado) = "desvio"
 TRK_ATRASO_DELTA = 10.0  # ° — disparidade MÁX do dia acima da MEDIANA da planta = "atraso" (amarelo)
 #   (relativo à mediana p/ descontar o "ruído estrutural": o alvo costuma ir a ângulos mais
 #    extremos que o tracker alcança nas pontas do dia → ~11° de disparidade máx é NORMAL)
+def _amp_robusta(vals):
+    """Amplitude do dia ROBUSTA a glitch de telemetria: range entre os percentis 2 e 98 — um
+    punhado de leituras podres não infla a amplitude (caso Tracker 82 SMP100 07/07: reto em
+    -15,5° o dia todo, mas amp crua 16,1° > TRK_PARADO_AMP → escapava do 'parado' e caía em
+    'desvio'). Série curta (<20 pts) usa o range cru (não há o que aparar)."""
+    v = sorted(x for x in vals if x is not None)
+    if len(v) < 2:
+        return None
+    if len(v) >= 20:
+        return v[int(len(v) * 0.98)] - v[int(len(v) * 0.02)]
+    return v[-1] - v[0]
+
+
+def _frota_acordou(amps, dia_coberto=False, data_ref=None):
+    """A usina 'acordou' quando a FROTA já girou de verdade (régua do Levi 07/07): é NORMAL a
+    usina inteira parada de madrugada/manhã no ângulo leste; e logo após o despertar alguns
+    trackers ainda estão subindo (o 'primeiro se moveu' pegaria os lentos como falso-parado).
+    Duas portas (régua do Levi 07/07 tarde — caso CPP100 60/63 travados, mediana 0,2°):
+    1) MEDIANA das amplitudes do dia > TRK_ALVO_MOVE_MIN → metade da frota girou de verdade;
+    2) a frota JÁ DEVIA ter acordado e não girou = TRAVADA (não 'dormindo'): dia_coberto (≥4h de
+       dados) E (dia PASSADO, ou hoje após TRK_FROTA_ACORDA_HORA). Sem a porta 2, a usina com a
+       MAIORIA da frota travada nunca 'acordava' pela mediana e mostrava 0 parados (regressão do
+       Furo 1 / SMP100), enquanto a disponibilidade por tempo denunciava 3%.
+    amps = {tracker: amplitude_do_dia} ou lista; data_ref = 'YYYY-MM-DD' ou 'DD/MM/YYYY' do dia
+    analisado (None = hoje)."""
+    vals = sorted(a for a in (amps.values() if hasattr(amps, "values") else amps) if a is not None)
+    if not vals:
+        return False
+    if vals[len(vals) // 2] > TRK_ALVO_MOVE_MIN:
+        return True
+    if not dia_coberto:
+        return False
+    if data_ref:
+        try:
+            d = str(data_ref)
+            if "/" in d:
+                d = datetime.strptime(d, "%d/%m/%Y").strftime("%Y-%m-%d")
+            if d < datetime.now().strftime("%Y-%m-%d"):
+                return True          # dia PASSADO coberto e a frota nunca girou → travada o dia todo
+        except Exception:
+            pass
+    return datetime.now().hour >= TRK_FROTA_ACORDA_HORA
+
+
 _sunop_trk_cache = {"payload": None, "ts": 0.0}
 _sunop_trk_hist  = {}    # cache {(plant,date): {ts, posat:{name:serie}, posal:{name:serie}}}
 
@@ -2902,11 +2950,71 @@ def _sunop_trk_curvas(plant_name: str, date: str, inst: str = "gridco") -> dict:
     posal = {n: d["alvo"]  for n, d in trk.items() if d.get("alvo")}
     hist = _sunop_analog_history(list(posat.values()) + list(posal.values()),
                                  f"{date}T00:00:00", f"{date}T23:59:59", inst)
-    ent = {"ts": time.time(),
-           "posat": {n: hist.get(p, []) for n, p in posat.items()},
-           "posal": {n: hist.get(p, []) for n, p in posal.items()}}
-    cache[key] = ent
-    return ent
+    novo = {"ts": time.time(),
+            "posat": {n: hist.get(p, []) for n, p in posat.items()},
+            "posal": {n: hist.get(p, []) for n, p in posal.items()}}
+    # GUARDA anti-encolhimento: a curva do MESMO dia só CRESCE (pontos acumulam). Resposta com
+    # MENOS pontos que o cache = retorno PARCIAL da SunOp (throttle/atraso de ingestão) → mantém a
+    # curva boa anterior; senão as amplitudes encolhem e a contagem de parados "pula" entre refreshes.
+    if ent:
+        _old = sum(len(s) for s in ent["posat"].values())
+        _new = sum(len(s) for s in novo["posat"].values())
+        if _new < _old:
+            ent["ts"] = time.time()          # renova o TTL (não rebate a SunOp a cada chamada)
+            return ent
+    cache[key] = novo
+    return novo
+
+
+TRK_CHART_MAX_DIAS = 5    # janela máxima do gráfico De/Até (pedido Levi 07/07)
+
+
+def _trk_chart_range():
+    """Lê ?ini/?fim (YYYY-MM-DD ou DD/MM/YYYY; ?date p/ compat) e devolve (ini_iso, fim_iso, ndias)
+    com ini<=fim e a janela TRAVADA em TRK_CHART_MAX_DIAS (mantém o FIM, recua o início). Sem
+    parâmetros → hoje/hoje. É o contrato único do seletor De/Até nas 4 fontes."""
+    args = flask_request.args
+    hoje = datetime.now().strftime("%Y-%m-%d")
+
+    def _iso(v):
+        v = (v or "").strip()
+        if re.match(r"^\d{4}-\d{2}-\d{2}$", v):
+            return v
+        try:
+            return datetime.strptime(v, "%d/%m/%Y").strftime("%Y-%m-%d")
+        except Exception:
+            return None
+
+    ini, fim, d = _iso(args.get("ini")), _iso(args.get("fim")), _iso(args.get("date"))
+    if not ini and not fim:
+        ini = fim = d or hoje
+    else:
+        ini, fim = (ini or fim), (fim or ini)
+    if ini > fim:
+        ini, fim = fim, ini
+    di, df = datetime.strptime(ini, "%Y-%m-%d"), datetime.strptime(fim, "%Y-%m-%d")
+    if (df - di).days > TRK_CHART_MAX_DIAS - 1:          # trava a janela
+        di = df - timedelta(days=TRK_CHART_MAX_DIAS - 1)
+        ini = di.strftime("%Y-%m-%d")
+    return ini, fim, (df - di).days + 1
+
+
+def _trk_chart_down_alvo(ndias):
+    """Alvo de pontos por série no downsample: 1 dia = 180 (resolução cheia); intervalo = mais
+    esparso (~80/dia, teto 400) p/ o Plotly aguentar N trackers × N dias sem travar."""
+    return 180 if ndias <= 1 else min(80 * ndias, 400)
+
+
+def _sunop_trk_curvas_range(plant_name: str, ini: str, fim: str, inst: str = "gridco") -> dict:
+    """Curvas POSAT/POSAL de um INTERVALO [ini, fim] (YYYY-MM-DD) — 1 só chamada ao histórico
+    analógico (que já aceita start/end). Sem cache (on-demand no expand); 1 dia usa o cacheado."""
+    trk = (_si(inst)["meta"].get(plant_name, {}) or {}).get("trackers") or {}
+    posat = {n: d["atual"] for n, d in trk.items() if d.get("atual")}
+    posal = {n: d["alvo"]  for n, d in trk.items() if d.get("alvo")}
+    hist = _sunop_analog_history(list(posat.values()) + list(posal.values()),
+                                 f"{ini}T00:00:00", f"{fim}T23:59:59", inst)
+    return {"posat": {n: hist.get(p, []) for n, p in posat.items()},
+            "posal": {n: hist.get(p, []) for n, p in posal.items()}}
 
 
 def _sunop_trackers_plant_curva(plant_name: str, inst: str = "gridco") -> dict:
@@ -2947,9 +3055,12 @@ def _sunop_trackers_plant_curva(plant_name: str, inst: str = "gridco") -> dict:
         try: return int(n.split("_")[1])
         except Exception: return 999
 
-    # amplitude de cada tracker + referência (mediana) = "quanto os trackers se moveram"
-    amps = {n: (max(v for _, v in s) - min(v for _, v in s)) if s else None
-            for n, s in posat.items()}
+    # amplitude de cada tracker + referência (mediana) = "quanto os trackers se moveram".
+    # SÓ a JANELA DIURNA 06–18h (a curva vem 00:00–23:59: reposicionamento NOTURNO não é
+    # rastreamento — inflava a amplitude do travado) + range ROBUSTO (p02–p98, mata spike).
+    def _vals_dia(s):
+        return [v for ts, v in s if ts[11:13].isdigit() and 6 <= int(ts[11:13]) < 18]
+    amps = {n: (_amp_robusta(_vals_dia(s)) if s else None) for n, s in posat.items()}
     amp_ok = sorted(a for a in amps.values() if a is not None)
     amp_ref = amp_ok[len(amp_ok) // 2] if amp_ok else 0.0          # mediana
     sem_alvo = all(not posal.get(n) for n in trk)                  # planta sem POSAL
@@ -2981,7 +3092,7 @@ def _sunop_trackers_plant_curva(plant_name: str, inst: str = "gridco") -> dict:
     lst, parados, desvios, atrasos = [], 0, 0, 0
     for r in raw:
         amp, cur_disp, max_disp = r["amp"], r["cur_disp"], r["max_disp"]
-        if amp is not None and amp < TRK_PARADO_AMP and (amp_ref > TRK_ALVO_MOVE_MIN or dia_coberto):
+        if amp is not None and amp < TRK_PARADO_AMP and _frota_acordou(amps, dia_coberto):
             status = "parado"; parados += 1
         elif cur_disp is not None and (cur_disp - med_cur) > TRK_DESVIO_MIN:
             status = "desvio"; desvios += 1
@@ -3028,6 +3139,39 @@ def _sunop_trackers_plant_curva(plant_name: str, inst: str = "gridco") -> dict:
                  "media_angulo": round(media_ang, 1) if media_ang is not None else None,
                  "desvio_medio": round(desvio_med, 2) if desvio_med is not None else None,
                  "ultima_leitura": ts_max or None, "trackers": lst})
+    return _trk_alvo_mediana(base)
+
+
+def _trk_alvo_mediana(base):
+    """Fonte SEM ângulo alvo → alvo INFERIDO = mediana do ângulo ATUAL dos trackers que NÃO
+    estão parados (pedido do Levi 06/07). Preenche t.alvo/disparidade só onde faltam e marca
+    alvo_inferido=True (a UI rotula "mediana da frota"). NÃO mexe nos status — a régua
+    consolidada de parado/desvio continua a mesma."""
+    try:
+        ts = base.get("trackers") or []
+        if not ts or all(t.get("alvo") is not None for t in ts):
+            return base
+        # 1) há alvos na frota → tracker SEM alvo herda a MEDIANA dos alvos existentes
+        #    (caso TRK54 do Inhapi: 2 têm alvo 66° e 1 vem sem — mesma ordem de comando)
+        alvos = sorted(t["alvo"] for t in ts if isinstance(t.get("alvo"), (int, float)))
+        if alvos:
+            med = alvos[len(alvos) // 2]
+        else:
+            # 2) NINGUÉM tem alvo → mediana do ângulo ATUAL dos trackers girando (≥3, senão não inventa)
+            vals = sorted(t["atual"] for t in ts
+                          if isinstance(t.get("atual"), (int, float))
+                          and t.get("status") not in ("parado", "severo"))
+            if len(vals) < 3:
+                return base
+            med = vals[len(vals) // 2]
+            base["alvo_inferido"] = True     # usina inteira com alvo inferido → rótulo na UI
+        for t in ts:
+            if t.get("alvo") is None:
+                t["alvo"] = round(med, 2)
+                if t.get("disparidade") is None and isinstance(t.get("atual"), (int, float)):
+                    t["disparidade"] = round(abs(t["atual"] - med), 2)
+    except Exception:
+        pass
     return base
 
 
@@ -3400,12 +3544,14 @@ def api_sunop_trackers_chart(plant_name):
     trk = (_si(inst)["meta"].get(plant_name, {}) or {}).get("trackers") or {}
     if not trk:
         return jsonify({"plant": plant_name, "trackers": [], "alvo": None})
-    date = (flask_request.args.get("date") or datetime.now().strftime("%Y-%m-%d")).strip()
-    cur = _sunop_trk_curvas(plant_name, date, inst)   # mesmo cache do drill-down
+    ini, fim, ndias = _trk_chart_range()
+    cur = _sunop_trk_curvas(plant_name, ini, inst) if ndias == 1 \
+        else _sunop_trk_curvas_range(plant_name, ini, fim, inst)   # intervalo: 1 chamada ao histórico
     posat, posal = cur["posat"], cur["posal"]
+    _alvo_max = _trk_chart_down_alvo(ndias)
 
-    def _down(serie, alvo_max=180):
-        step = max(1, len(serie) // alvo_max)
+    def _down(serie):
+        step = max(1, len(serie) // _alvo_max)
         return serie[::step]
 
     def _num(n):
@@ -3428,8 +3574,8 @@ def api_sunop_trackers_chart(plant_name):
             s = _down(s)
             alvo = {"x": [t for t, _ in s], "y": [round(v, 2) for _, v in s]}
             break
-    return jsonify({"plant": USINA_DISPLAY.get(plant_name, plant_name), "date": date,
-                    "trackers": trackers, "alvo": alvo})
+    return jsonify({"plant": USINA_DISPLAY.get(plant_name, plant_name), "date": ini,
+                    "ini": ini, "fim": fim, "ndias": ndias, "trackers": trackers, "alvo": alvo})
 
 
 # ── SunOp/Axis: Trackers parados (agora) + Ocorrências (travou→voltou) — espelho das sub-abas API PV ──
@@ -3460,11 +3606,19 @@ def _sunop_parados_rows(inst, force=False):
                 continue
             for t in a.get("trackers", []):
                 if t.get("status") == "parado":
+                    desde = _trk_parado_desde_hist(a["plant_id"], t["id"])   # varredura da curva (mesma do PV)
+                    hrs = dias = None
+                    if desde:
+                        try:
+                            _sec = (datetime.now() - datetime.fromisoformat(desde)).total_seconds()
+                            hrs, dias = round(_sec / 3600, 1), int(_sec // 86400)
+                        except Exception:
+                            pass
                     rows.append({"plant_id": a["plant_id"], "usina": a["usina"], "tracker": t["id"],
                                  "inversor": "", "atual": t.get("atual"), "alvo": t.get("alvo"),
                                  "disparidade": t.get("disparidade"), "amplitude": t.get("amplitude"),
                                  "na_planilha": bool(t.get("na_planilha")), "ticket_status": t.get("ticket_status"),
-                                 "parado_desde": None, "horas_parado": None, "dias_parado": None,
+                                 "parado_desde": desde, "horas_parado": hrs, "dias_parado": dias,
                                  "ultima_leitura": a.get("ultima_leitura")})
     rows.sort(key=lambda r: (r["usina"], _pv_trk_num(r["tracker"])))
     return _trk_geo_annotate(rows)
@@ -3499,6 +3653,13 @@ def _sunop_eventos_calc(inst, date_iso):
             res = _trk_eventos_do_dia(p, p, data_br, curve=_sunop_curve_for(p, data_br, inst))
         except Exception:
             return un, p, None, []
+        # PERSISTE os eventos no histórico global (mesmo store do PV, pid=plant_name, tracker="Tracker N")
+        # → habilita a varredura "parado desde" do SunOp (_trk_parado_desde_hist). Formato idêntico ao PV.
+        if res.get("eventos") is not None:
+            with _trk_eventos_lock:
+                _trk_eventos.setdefault(date_iso, {})[str(p)] = {
+                    "nome": un, "ts": time.time(),
+                    "cobertura": res.get("cobertura", 0), "eventos": res["eventos"]}
         rws = [{"data_iso": date_iso, "data": f"{dd[2]}/{dd[1]}", "usina": un, "tracker": ev["tracker"],
                 "inversor": "", "parada": ev["parada"], "retorno": ev.get("retorno"), "dur_min": ev.get("dur_min")}
                for ev in res["eventos"]]
@@ -3513,6 +3674,10 @@ def _sunop_eventos_calc(inst, date_iso):
     rows.sort(key=lambda r: (r["usina"], r["parada"]))
     ent = {"ts": time.time(), "rows": rows, "disp": disp, "disp_pid": disp_pid}
     cache[date_iso] = ent
+    try:
+        _trk_ev_save()          # persiste o histórico (agora com o SunOp) em disco → varredura sobrevive a restart
+    except Exception:
+        pass
     return ent
 
 
@@ -3787,12 +3952,13 @@ def _pv_trk_refina_curva(idusina, lst, date, fetch=False):
         for x, y in s:
             by_ts.setdefault(x, []).append(y)
     fleet = {x: sorted(v)[len(v) // 2] for x, v in by_ts.items() if v}   # mediana da frota por ts
-    amps = {n: (max(y for _, y in s) - min(y for _, y in s)) for n, s in ser.items()}
-    amps_sorted = sorted(amps.values())
-    med_amp = amps_sorted[len(amps_sorted) // 2] if amps_sorted else 0.0
+    # amplitude ROBUSTA (p02–p98, mata spike de telemetria — mesma régua do SunOp, caso Tracker 82);
+    # a janela diurna já está aplicada (ser = só pontos 07–18h)
+    amps = {n: _amp_robusta([y for _, y in s]) for n, s in ser.items()}
+    amps_sorted = sorted(a for a in amps.values() if a is not None)
     p75     = amps_sorted[int(len(amps_sorted) * 0.75)] if amps_sorted else 0.0
-    moved     = med_amp > 30                         # a frota girou de verdade (mediana das amplitudes)
     moved_p75 = p75 > 30                             # há trackers funcionais (25% mais móveis) = o que a planta CONSEGUIU no dia
+    # (a antiga 'moved' (mediana>30) virou a porta 1 do _frota_acordou — o gate já garante a referência)
     # span coberto na janela → régua ABSOLUTA (MESMA das outras fontes): pega a usina INTEIRA parada,
     # que os testes de "frota girou" (moved/moved_p75) perderiam quando ninguém mexeu.
     _allmin = [_mins(x) for x in by_ts if _mins(x) is not None]
@@ -3817,14 +3983,16 @@ def _pv_trk_refina_curva(idusina, lst, date, fetch=False):
             t["disparidade"] = round(cur_dev, 2)     # badge mostra o maior desvio vs frota (mais fiel)
         sv = t["status"]                             # status já detectado (instantâneo/acumulador)
         st = "normal"
-        if moved and amp is not None and amp < TRK_PARADO_AMP:
-            st = "parado"                            # frota girou e ele quase não mexeu = travado
+        if not _frota_acordou(amps, dia_coberto, date):
+            st = "normal"                            # gate do Levi: usina ainda DORMINDO (madrugada/manhã, ninguém girou) → ninguém parado
+        elif amp is not None and amp < TRK_PARADO_AMP:
+            st = "parado"                            # frota acordou (girou OU já devia ter girado) e ele quase não mexeu = travado
         elif moved_p75 and amp is not None and amp < min(20, p75 * 0.3):
             st = "parado"                            # planta meio parada — referência pelos funcionais (P75)
-        elif amp is not None and amp >= 20 and tail_amp is not None and tail_amp < 5:
-            st = "parado"                            # girou de manhã e TRAVOU (cauda plana)
-        elif amp is not None and amp < TRK_PARADO_AMP and dia_coberto:
-            st = "parado"                            # ABSOLUTA: travado a janela toda mesmo c/ a frota parada (usina inteira)
+        elif amp is not None and amp >= 20 and tail_amp is not None and tail_amp < 5 and cur_dev > TRK_DESVIO_MIN:
+            st = "parado"                            # girou de manhã e TRAVOU LONGE do alvo (cauda plana
+                                                     # + desviado da frota agora). O 'cur_dev>5' evita o
+                                                     # falso da MANHÃ, quando a cauda é plana p/ todos (giro lento)
         elif max_dev > 10:
             st = "desvio"                            # saiu da frota >10° em algum momento da janela
         # NÃO preserva o desvio/atraso INSTANTÂNEO (vinha de |atual-ALVO| e o alvo da API PV é furado).
@@ -3933,6 +4101,7 @@ def _pv_trackers_analise(idusina, nome_disp, date=None, curva=False, fetch_curva
                  "ultima_leitura": _ult, "trackers": lst, "refinado": curva,
                  "tem_ticket": tick is not None, "ambiguo": ambiguo,
                  "novos": novos, "acompanhados": acomp, "normalizados": normalizados})
+    _trk_alvo_mediana(base)   # fonte sem alvo → alvo inferido = mediana da frota (in-place)
     return base
 
 
@@ -3998,7 +4167,14 @@ def api_pv_trackers():
         return jsonify({"rows": [], "summary": {"usinas": 0, "trackers": 0, "severos": 0, "leves": 0},
                         "sem_token": True, "cache_ts": datetime.now().strftime("%H:%M:%S")})
     try:
-        return jsonify(_swr(_pv_trk_cache, _build_pv_trk_payload, force))
+        # "Atualizar status" (force) = rebuild PROFUNDO: baixa a curva do dia que faltar no cache e
+        # refina (frota girou e ele travou → 'parado', não 'desvio'). Sem isto o botão rebuildava LIGHT
+        # (só curva já cacheada) e a linha-pai marcava 0 parados enquanto os cards da curva já mostravam
+        # os travados (ex.: Mandaguaçu 31 parados caíam como 'desvio' na tabela). Warm = instantâneo;
+        # cold = baixa em paralelo (8 workers), MESMO caminho que a ronda/parados já usa. O auto-refresh
+        # (force=False) segue LIGHT, curva-ciente pelo job de eventos (30 min) — não martela o Plataforma.
+        build = (lambda: _build_pv_trk_payload(fetch_curvas=True)) if force else _build_pv_trk_payload
+        return jsonify(_swr(_pv_trk_cache, build, force))
     except Exception as e:
         return jsonify({"rows": [], "summary": {"usinas": 0, "trackers": 0, "severos": 0, "leves": 0},
                         "erro": f"API PV indisponível: {e}"})
@@ -4101,8 +4277,8 @@ def _pv_parados_rows(force=False, errout=None):
             if t.get("status") != "parado":
                 continue
             iss = livro.get(f"{pid}|{t.get('id')}") or {}
-            # "Parado desde" = início REAL pelo histórico de ocorrências (curva); fallback ao livro
-            # (1ª detecção) só se o histórico não cobrir o tracker.
+            # "Parado desde" = VARREDURA da curva (fonte de verdade: distingue intermitente de
+            # travado, se auto-atualiza dia a dia). Livro só como fallback quando a curva não cobre.
             desde = _trk_parado_desde_hist(pid, t.get("id")) or iss.get("data_deteccao")
             horas = dias = None
             if desde:
@@ -4197,30 +4373,57 @@ def _trk_min_x(x):
     return int(m.group(1)) * 60 + int(m.group(2)) if m else None
 
 
+_TRK_PARADO_MANHA  = 9 * 60          # parada <= 09:00 = travou de MANHÃ (não voltou do despertar)
+_TRK_PARADO_ANOITE = 16 * 60 + 30    # retorno >= 16:30 (ou None) = não voltou de verdade, só anoiteceu
+
+
 def _trk_parado_desde_hist(pid, tracker):
-    """Desde quando o tracker está CONTINUAMENTE parado, pelo HISTÓRICO de ocorrências (não pelo
-    livro, que marca a 1ª detecção = pode ser 'agora' após restart). Caminha de hoje p/ trás
-    enquanto houver evento ABERTO (retorno=None) do tracker; se o evento começou DURANTE o dia
-    (parada > 08:30) o início é ali (travou no meio do dia), senão (parado o dia todo desde o
-    despertar) volta mais um dia. Para quando um dia não tem evento aberto (o tracker girava).
-    Retorna ISO 'YYYY-MM-DDTHH:MM' do início contínuo, ou None se o histórico não cobre."""
+    """Desde quando o tracker está CONTINUAMENTE parado, VARRENDO a curva (trk_eventos) dia a dia
+    de hoje p/ trás — a fonte de verdade (o livro reinicia/erra). Régua de um dia 'parado o dia
+    todo': travou de MANHÃ (<= 09:00) E não voltou a girar no dia produtivo (retorno None ou já
+    no anoitecer >= 16:30). Assim trackers INTERMITENTES (que voltam ao meio-dia) não são contados
+    como parados de dias atrás. Dias SEM DADOS (cobertura 0) são ATRAVESSADOS (não quebram nem
+    iniciam a sequência). Para no 1º dia que o tracker girou de verdade. Como varre a curva a cada
+    chamada e a curva cresce todo dia, o valor se auto-atualiza. ISO 'YYYY-MM-DDTHH:MM' ou None."""
     desde = None
     d = datetime.now().date()
+    hoje_d = d
+    tracker = str(tracker)
     with _trk_eventos_lock:
-        for _ in range(60):
+        for _ in range(70):
             ent = (_trk_eventos.get(d.strftime("%Y-%m-%d")) or {}).get(str(pid))
-            if not ent:
-                break
-            abertos = [e for e in ent.get("eventos", [])
-                       if str(e.get("tracker")) == str(tracker) and not e.get("retorno")]
-            if not abertos:
-                break                                   # nesse dia o tracker voltou a girar → para
-            ev = max(abertos, key=lambda e: _trk_min_x(e.get("parada")) or 0)  # o que corre até o fim do dia
-            desde = f"{d.strftime('%Y-%m-%d')}T{ev.get('parada')}"
-            pmin = _trk_min_x(ev.get("parada"))
-            if pmin is not None and pmin > 8 * 60 + 30:  # travou DURANTE este dia (não o dia todo)
-                break
-            d -= timedelta(days=1)
+            if ent is None or ent.get("cobertura", 0) == 0:   # buraco de dados → atravessa
+                d -= timedelta(days=1)
+                continue
+            parou = None
+            inicio_meio_dia = None    # dia PASSADO em que girou de manhã e TRAVOU no meio/fim do dia
+            for e in ent.get("eventos", []):
+                if str(e.get("tracker")) != tracker:
+                    continue
+                pm = _trk_min_x(e.get("parada"))
+                rm = _trk_min_x(e.get("retorno")) if e.get("retorno") else None
+                if pm is not None and pm <= _TRK_PARADO_MANHA and (rm is None or rm >= _TRK_PARADO_ANOITE):
+                    parou = e.get("parada"); inicio_meio_dia = None
+                    break
+                if pm is not None and (rm is None or rm >= _TRK_PARADO_ANOITE):
+                    # evento ABERTO no fim do dia com parada DEPOIS das 09:00:
+                    if d == hoje_d:
+                        # HOJE (dia parcial) = está parado AGORA (ex.: CPP100, 'parada' 11:20 porque o 1º
+                        # movimento da frota foi o reset) — mantém a cadeia p/ os dias anteriores em vez
+                        # de devolver 'recente'. Sem break: um evento 'dia todo' tem prioridade se vier.
+                        parou = e.get("parada")
+                    else:
+                        # dia PASSADO: girou de manhã e travou no meio/fim do dia e NÃO voltou → é o
+                        # COMEÇO REAL da cadeia (calibração Levi 07/07: MAB100 TRK11 travou 21/06 à
+                        # tarde; antes esse dia quebrava a cadeia e o 'desde' pulava p/ o dia seguinte).
+                        inicio_meio_dia = e.get("parada")
+            if parou is not None:
+                desde = f"{d.strftime('%Y-%m-%d')}T{parou}"   # continua p/ trás
+                d -= timedelta(days=1)
+                continue
+            if inicio_meio_dia is not None:
+                desde = f"{d.strftime('%Y-%m-%d')}T{inicio_meio_dia}"
+            break                                              # começo da cadeia (ou dia que girou) → fim
     return desde
 
 
@@ -4276,6 +4479,11 @@ def _trk_eventos_do_dia(idusina, nome, data_br, curve=None):
     # senão de manhã cedo (todos ainda ~parados) viraria falso positivo. MESMA guarda das abas Overview/Parados.
     _cov = [i for i, f in enumerate(fleet) if f is not None]
     dia_coberto = (len(_cov) >= 2 and (_cov[-1] - _cov[0]) * TRK_EV_STEP / 60.0 >= TRK_COBERTURA_MIN_H)
+    # régua do Levi (07/07): a usina só "acorda" quando METADE da frota girou (mediana>30°) — OU quando
+    # já DEVIA ter acordado (dia coberto + após TRK_FROTA_ACORDA_HORA / dia passado) e ninguém girou =
+    # frota TRAVADA (caso CPP100: 60/63 presos, a mediana nunca sobe). MESMO gate das abas ao vivo.
+    frota_acordou = _frota_acordou([_amp_robusta([v for v in gr if v is not None]) for gr in grids.values()],
+                                   dia_coberto, data_br)
 
     # DESPERTAR DINÂMICO DA FROTA: 1ª célula em que ALGUM tracker saiu do amanhecer (variou >= WAKE
     # da posição inicial). Antes disso (madrugada/stow) tracker parado é NORMAL → não se julga. Substitui
@@ -4305,8 +4513,8 @@ def _trk_eventos_do_dia(idusina, nome, data_br, curve=None):
         valids = [(i, v) for i, v in enumerate(gr) if v is not None]
         if valids:
             ys = [v for _, v in valids]
-            amp_trk_dia = max(ys) - min(ys)
-            if amp_trk_dia <= TRK_PARADO_AMP and (amp_frota_dia > TRK_ALVO_MOVE_MIN or dia_coberto):
+            amp_trk_dia = _amp_robusta(ys)     # p02–p98: célula com leitura podre não infla a amplitude
+            if amp_trk_dia is not None and amp_trk_dia <= TRK_PARADO_AMP and frota_acordou:
                 # INÍCIO = começo do PATAMAR FINAL (quando o ângulo PAROU de variar), não o despertar:
                 # o tracker pode ter girado de manhã e travado às 07:46 (não 07:10). Recua do fim
                 # enquanto está no mesmo patamar (±STUCK_RANGE); clampa no despertar (nunca-acordou).
@@ -4380,8 +4588,8 @@ def _trk_eventos_do_dia(idusina, nome, data_br, curve=None):
         if sum(1 for v in gr if v is not None) / ncells_cob < TRK_EV_COBERTURA:
             continue                                    # sem comunicação no período → fora do cálculo
         ys = [v for v in gr if v is not None]
-        amp = (max(ys) - min(ys)) if len(ys) >= 2 else 0.0
-        if amp <= TRK_PARADO_AMP and (amp_frota_dia > TRK_ALVO_MOVE_MIN or dia_coberto):  # frota girou OU dia coberto
+        amp = _amp_robusta(ys) or 0.0                    # p02–p98 (mesma régua da detecção)
+        if amp <= TRK_PARADO_AMP and frota_acordou:      # travado E a usina já operou (frota acordou)
             disp_den += ncells                          # parado o dia todo (06:00–18:00) → 0% disponível
             continue
         pc = parado_cells.get(name, set())
@@ -4460,6 +4668,14 @@ def _trk_ev_backfill(ini_iso, fim_iso):
                 if feito % 25 == 0:
                     _trk_ev_save()
         _trk_ev_save()
+        # curvas do dia agora QUENTES no cache → rebuild LIGHT do overview (sem baixar nada de novo)
+        # reclassifica os travados que o build frio marcou como 'desvio'/normal para 'parado'. Sem isto
+        # a linha-pai (ex.: Mandaguaçu) ficava com 0 parados até alguém clicar "Atualizar status".
+        if fim_iso >= datetime.now().strftime("%Y-%m-%d"):
+            try:
+                _swr(_pv_trk_cache, _build_pv_trk_payload, force=True)
+            except Exception as e:
+                print(f"[trk_ev] rebuild do overview pós-warm falhou: {e}")
     except Exception as e:
         _trk_ev_prog["erro"] = str(e)
     finally:
@@ -4784,22 +5000,29 @@ _pv_trk_chart_cache = {}   # (idusina, data) -> {ts, payload}: evita rebater o t
 
 @app.route("/api/pv/trackers/<int:idusina>/chart")
 def api_pv_trackers_chart(idusina):
-    """Curva diária de posição por tracker (PV Plataforma /v2/usinas/trackerschart)."""
-    data = (flask_request.args.get("date") or datetime.now().strftime("%d/%m/%Y")).strip()
-    if re.match(r"^\d{4}-\d{2}-\d{2}$", data):     # aceita YYYY-MM-DD do <input type=date>
-        data = datetime.strptime(data, "%Y-%m-%d").strftime("%d/%m/%Y")
-    # Curva de HOJE vale por CACHE_TTL (intradiário muda devagar — mesmo contrato SWR do app);
-    # dia passado é imutável -> permanente. Corta o trackerschart (90s) repetido dos mini-gráficos
-    # do grupo, sem mudar o dado mostrado.
+    """Curva de posição por tracker (PV Plataforma /v2/usinas/trackerschart). 1 dia (cacheado) ou
+    intervalo De/Até (até TRK_CHART_MAX_DIAS): concatena a curva de cada dia — cada dia é uma busca
+    ao trackerschart (pesada), mas cada uma é cacheada por (usina, dia)."""
+    ini_iso, fim_iso, ndias = _trk_chart_range()
     hoje = datetime.now().strftime("%d/%m/%Y")
-    key = (idusina, data); agora = time.time()
-    ent = _pv_trk_chart_cache.get(key)
-    if ent and ((data != hoje and ent["payload"].get("trackers")) or (agora - ent["ts"]) < CACHE_TTL):
-        return jsonify(ent["payload"])
-    g = _pv_trk_grafico(idusina, data)   # cru + cacheado (compartilhado com o detalhe refinado)
+    agora = time.time()
+    if ndias == 1:                                   # caminho de 1 dia: mantém o cache do payload
+        data = datetime.strptime(ini_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+        key = (idusina, data)
+        ent = _pv_trk_chart_cache.get(key)
+        if ent and ((data != hoje and ent["payload"].get("trackers")) or (agora - ent["ts"]) < CACHE_TTL):
+            return jsonify(ent["payload"])
+        g = _pv_trk_grafico(idusina, data)           # cru + cacheado (compartilhado com o detalhe)
+    else:                                            # intervalo: concatena a curva de cada dia
+        g = {}
+        for d in _trk_ev_dias(ini_iso, fim_iso):
+            data_br = d.strftime("%d/%m/%Y")
+            for nome, pts in (_pv_trk_grafico(idusina, data_br) or {}).items():
+                g.setdefault(nome, []).extend(pts or [])
 
-    def _down(serie, mx=180):
-        step = max(1, len(serie) // mx)
+    _alvo_max = _trk_chart_down_alvo(ndias)
+    def _down(serie):
+        step = max(1, len(serie) // _alvo_max)
         return serie[::step]
 
     trackers = []
@@ -4808,8 +5031,10 @@ def api_pv_trackers_chart(idusina):
         trackers.append({"id": nome, "x": [p.get("x") for p in s],
                          "y": [round(p.get("y"), 2) if isinstance(p.get("y"), (int, float)) else None
                                for p in s]})
-    payload = {"plant": idusina, "date": data, "trackers": trackers, "alvo": None}
-    _pv_trk_chart_cache[key] = {"ts": agora, "payload": payload}
+    payload = {"plant": idusina, "date": datetime.strptime(ini_iso, "%Y-%m-%d").strftime("%d/%m/%Y"),
+               "ini": ini_iso, "fim": fim_iso, "ndias": ndias, "trackers": trackers, "alvo": None}
+    if ndias == 1:
+        _pv_trk_chart_cache[(idusina, payload["date"])] = {"ts": agora, "payload": payload}
     return jsonify(payload)
 
 
@@ -7673,6 +7898,16 @@ def api_state_string_trancada():
         _spv_cache.pop(ck, None)
     for ck in [ck for ck in _sunop_curva_cache if str(ck[0]) == plant_id]:
         _sunop_curva_cache.pop(ck, None)
+    # As sub-abas OCORRÊNCIAS e SEM-CORRENTE também excluem as trancadas, mas SERVEM DE CACHE (rows já
+    # calculadas). Sem invalidar, a string recém-trancada segue aparecendo até o TTL (5min hoje;
+    # PERMANENTE em dia passado da API PV). Levi 08/07: "trancada não pode aparecer nas 2 abas". (PG e
+    # 2C reaplicam a régua na LEITURA → não precisam.)
+    _str_prob_pv_cache["rows"] = None                    # sem-corrente API PV
+    _pv_str_ev_cache.clear()                             # ocorrências API PV (todas as datas)
+    _sunop_str_ev_cache.clear()                          # ocorrências SunOp/Axis
+    for _c in (_sunop_str_med_cache, _pg_str_med_cache, _axis_str_med_cache):
+        for _ck in [c for c in _c if str(c[0]) == plant_id]:
+            _c.pop(_ck, None)
     return jsonify({"ok": True, "trancadas": len(s)})
 
 
@@ -8138,6 +8373,19 @@ def _strings_problema_rows(fonte, force=False):
                 stt = _classifica_strings(u, inv, ids, correntes)
                 for k, c, s in zip(ids, correntes, stt):
                     _add(usina, u, inv, k, c, s)
+    elif fonte in ("sunop", "axis"):
+        # Athon/Axis não têm snapshot instantâneo por string → derivamos das OCORRÊNCIAS de HOJE:
+        # ocorrência ABERTA (caiu e "não voltou" até o fim de geração) = string zerada AGORA com o
+        # inversor produzindo = sem corrente atual. Compartilha o cache do eventos (não recalcula 2×).
+        inst = "axis" if fonte == "axis" else "gridco"
+        hoje = datetime.now().strftime("%Y-%m-%d")
+        for e in _sunop_strings_eventos(hoje, inst, force):
+            if e.get("voltou") or not e.get("gerando_agora"):
+                continue        # já voltou, ou o inversor está SEM geração agora (parado) → ignora
+            rows.append({"plant_id": e.get("plant_id"), "usina": e.get("usina"),
+                         "inversor": e.get("inversor") or "", "string": str(e.get("string")),
+                         "corrente": 0.0, "status": "sem_corrente",
+                         "status_label": _STR_LABEL["sem_corrente"], "desde": e.get("caiu")})
     rows.sort(key=lambda r: (r.get("usina") or "", str(r.get("inversor") or ""),
                              _pv_trk_num(r.get("string") or "0")))
     return _trk_geo_annotate(rows)
@@ -8145,7 +8393,7 @@ def _strings_problema_rows(fonte, force=False):
 
 @app.route("/api/<fonte>/strings/problema")
 def api_strings_problema(fonte):
-    if fonte not in ("pv", "pg", "owen"):
+    if fonte not in ("pv", "pg", "owen", "sunop", "axis"):
         return jsonify({"rows": [], "total": 0, "indisponivel": True,
                         "cache_ts": datetime.now().strftime("%H:%M:%S")})
     rows = _strings_problema_rows(fonte, force=flask_request.args.get("force") == "1")
@@ -8158,7 +8406,7 @@ def api_strings_problema_xlsx(fonte):
     import openpyxl
     from openpyxl.styles import Font, PatternFill
     from openpyxl.utils import get_column_letter
-    if fonte not in ("pv", "pg", "owen"):
+    if fonte not in ("pv", "pg", "owen", "sunop", "axis"):
         return jsonify({"error": "fonte sem strings por-string"}), 404
     qf = (flask_request.args.get("usina") or "").strip().lower()
     rows = _strings_problema_rows(fonte)
@@ -8201,6 +8449,12 @@ STR_EV_WIN_FIM     = 18 * 60    # 18:00
 STR_EV_STEP        = 10         # min
 STR_EV_MIN_MIN     = 30         # duração mínima da queda p/ virar ocorrência
 STR_EV_INV_MIN_MED = 0.5        # mediana de corrente do inversor acima disto = inversor PRODUZINDO
+# DIA PASSADO da API PV: a Plataforma só recupera POTÊNCIA (W) por string (day_inverter/corrente é
+# só hoje). Mesma detecção, limiares em W (string desconectada = ~0 W; produzindo = centenas de W).
+STR_EV_POT_ZERO_W  = 15.0       # potência (W) <= isto = string ZERADA
+STR_EV_POT_INV_MED = 40.0       # piso ABSOLUTO de potência (W) do inversor p/ "produzindo"
+STR_EV_POT_INV_FRAC = 0.12      # E >= 12% do PICO do inversor — corta a rampa de pôr-do-sol (mediana
+                                # baixa no entardecer = string que zera ali é o fim do dia, não falha)
 
 
 def _str_min_of(ts):
@@ -8260,50 +8514,81 @@ def _str_mortas_calc(usina, curvas_inv):
     return out
 
 
-def _str_eventos_calc(usina, curvas_inv):
-    """curvas_inv = {inv_nome: {string_id: [(ts|hhmm, corrente)]}} do dia →
-    ocorrências 'caiu→voltou' (queda a ~0 com o inversor produzindo; ignora string morta o dia todo e
-    o pôr-do-sol)."""
+def _str_eventos_calc(usina, curvas_inv, zero_thr=None, inv_min=None, inv_min_frac=0.0):
+    """curvas_inv = {inv_nome: {string_id: [(ts|hhmm, valor)]}} do dia → ocorrências 'caiu→voltou'.
+    UNIDADE-AGNÓSTICO: HOJE = corrente (A); DIA PASSADO da API PV = potência (W, via PV Plataforma).
+    zero_thr = valor <= é 'zerada'; inv_min = piso ABSOLUTO da mediana p/ 'produzindo'; inv_min_frac =
+    fração do PICO do inversor exigida também (0 = só o piso; usado na POTÊNCIA p/ cortar o pôr-do-sol)."""
+    zero = STRING_SEM_CORRENTE_A if zero_thr is None else zero_thr
+    imin = STR_EV_INV_MIN_MED  if inv_min  is None else inv_min
     ncells = (STR_EV_WIN_FIM - STR_EV_WIN_INI) // STR_EV_STEP + 1
     eventos = []
     for inv_nome, strings in curvas_inv.items():
         grids = _str_grades(strings, ncells)
         if not grids:
             continue
-        inv_prod = []                                   # inversor produzindo por célula (mediana das strings)
+        meds = []                                       # mediana das strings por célula
         for i in range(ncells):
             vals = [g[i] for g in grids.values() if g[i] is not None]
-            med = sorted(vals)[len(vals) // 2] if vals else None
-            inv_prod.append(med is not None and med >= STR_EV_INV_MIN_MED)
+            meds.append(sorted(vals)[len(vals) // 2] if vals else None)
+        # "produzindo" = mediana >= piso ABSOLUTO (imin) E >= fração do PICO (inv_min_frac). A fração,
+        # usada na POTÊNCIA, exclui a rampa de pôr-do-sol (mediana já baixa vs. o pico do dia).
+        peak = max((m for m in meds if m is not None), default=0.0)
+        floor = max(imin, peak * inv_min_frac)
+        inv_prod = [m is not None and m >= floor for m in meds]
+        # WAKE do inversor = 1ª célula em que ele PRODUZ (mediana das strings >= limiar). Régua do Levi
+        # (08/07): a partir da PARTIDA do inversor conta-se o tempo de string zerada — inclusive a string
+        # que já estava zerada quando ele acordou (antes exigia que ELA tivesse produzido antes, então
+        # string caída desde a partida escapava). Espelha o "frota acordou" dos trackers.
+        wake = next((i for i in range(ncells) if inv_prod[i]), None)
+        if wake is None:
+            continue                                    # inversor não produziu no dia → problema do inversor, não das strings
+        # FIM DE GERAÇÃO do inversor = última célula em que ALGUMA string dele ainda teve corrente
+        # (régua do Levi 08/07: a string que não voltou encerra quando a ÚLTIMA string do inversor
+        # para de gerar — não num limiar de mediana, que fechava cedo).
+        inv_fim = max((k for k in range(ncells)
+                       if any(g[k] is not None and g[k] > zero for g in grids.values())),
+                      default=None)
+        # INVERSOR GERANDO AGORA (Levi 08/07: "inversor sem geração ignora as strings"). Serve p/ o
+        # 'sem corrente ATUAL' descartar strings de inversor parado AGORA — sem tocar nas ocorrências
+        # (histórico legítimo). Sinal = SOMA das strings (imune aos canais fantasmas, que somam 0) nas 2
+        # últimas leituras vs 10% do próprio pico. O piso alto (10%) rejeita a inflação por RUÍDO de
+        # inversor morto (17 strings oscilando ~1A somam ~18A, mas < 10% de um pico de ~250A) e ainda
+        # MANTÉM inversor gerando pouco de verdade — na dúvida, mostra (não esconde dado real).
+        tot = [sum(g[i] for g in grids.values() if g[i] is not None and g[i] > zero)
+               for i in range(ncells)]
+        peak_tot = max(tot) if tot else 0.0
+        data_cells = [i for i in range(ncells) if any(g[i] is not None for g in grids.values())]
+        recent = data_cells[-2:]                          # últimos ~20 min (grade "última leitura vence")
+        alive_floor = max(imin, peak_tot * 0.10)
+        gerando_agora = bool(recent) and max((tot[i] for i in recent), default=0.0) >= alive_floor
         for sid, g in grids.items():
-            if not any(v is not None and v > STRING_SEM_CORRENTE_A for v in g):
-                continue                                # morta o dia todo → é "com problema agora", não ocorrência
-            i = 0
+            if all(v is None for v in g):
+                continue                                # sem leitura na janela → não dá p/ afirmar queda
+            i = wake
             while i < ncells:
-                caiu = (g[i] is not None and g[i] <= STRING_SEM_CORRENTE_A and inv_prod[i]
-                        and any(g[k] is not None and g[k] > STRING_SEM_CORRENTE_A for k in range(i)))
-                if not caiu:
+                # início de um trecho ZERADO com o inversor produzindo (conta desde a wake)
+                if not (inv_prod[i] and (g[i] is None or g[i] <= zero)):
                     i += 1
                     continue
                 start = i
-                while i < ncells and (g[i] is None or g[i] <= STRING_SEM_CORRENTE_A):
+                while i < ncells and (g[i] is None or g[i] <= zero):
                     i += 1
-                ret = i if (i < ncells and g[i] is not None and g[i] > STRING_SEM_CORRENTE_A) else None
+                ret = i if (i < ncells and g[i] is not None and g[i] > zero) else None
                 if ret is not None:
                     fim = ret                           # voltou: fecha na volta da corrente
                 else:
-                    # não voltou: fecha no ÚLTIMO instante em que o inversor AINDA produzia (senão é
-                    # rampa de pôr-do-sol — a string zerou junto com a usina, não é falha).
-                    prod_after = [k for k in range(start, ncells) if inv_prod[k]]
-                    if not prod_after:
+                    # não voltou: encerra no FIM DE GERAÇÃO do inversor (última string a parar). Se a
+                    # string só zerou DEPOIS que o inversor já parou de gerar, é o pôr-do-sol, não falha.
+                    if inv_fim is None or inv_fim <= start:
                         continue
-                    fim = prod_after[-1]
+                    fim = inv_fim
                 dur = (fim - start) * STR_EV_STEP
                 if dur >= STR_EV_MIN_MIN:
                     eventos.append({"usina": usina, "inversor": inv_nome, "string": sid,
                                     "caiu": _str_hhmm(STR_EV_WIN_INI + start * STR_EV_STEP),
                                     "voltou": _str_hhmm(STR_EV_WIN_INI + ret * STR_EV_STEP) if ret is not None else None,
-                                    "dur_min": dur})
+                                    "dur_min": dur, "gerando_agora": bool(gerando_agora)})
     return eventos
 
 
@@ -8359,11 +8644,35 @@ def _pv_curvas_strings(pid, nome_api, token):
     return curvas
 
 
+def _pv_curvas_strings_hist(pid, nome_api, data_br, token):
+    """Curva de POTÊNCIA (W) por string de um DIA PASSADO (PV Plataforma · trygenerate) — a API PV não
+    recupera CORRENTE histórica de string, mas recupera POTÊNCIA (mesma fonte da 'Curva das strings').
+    Formato p/ _str_eventos_calc: {inv_display: {IpvN: [(hhmm, W)]}}. Trancadas ficam de fora."""
+    curvas = {}
+    for dev_id, nome in _spv_inversores_hist(pid, token, nome_api):
+        pot = (_spv_trygenerate(dev_id, data_br) or {}).get("dados_potencia_string") or {}
+        for st_key, serie in pot.items():
+            n = _spv_stnum(st_key)
+            if _str_key(pid, dev_id, f"Ipv{n}") in _trancadas:
+                continue
+            pts = []
+            for p in (serie or []):
+                parts = str(p.get("tsleitura") or "").split()
+                hhmm = parts[4][:5] if len(parts) >= 5 and ":" in parts[4] else ""
+                if hhmm:
+                    pts.append((hhmm, float(p.get("potencia") or 0.0)))
+            if pts:
+                curvas.setdefault(nome, {})[f"Ipv{n}"] = pts
+    return curvas
+
+
 _pv_str_ev_cache = {}   # date_iso -> {ts, rows}
 
 
 def _pv_strings_eventos(date_iso, force=False):
-    """Ocorrências de strings da API PV (caiu→voltou) — curva de corrente por string via day_inverter/Ipv."""
+    """Ocorrências de strings da API PV (caiu→voltou). HOJE = CORRENTE (A) via day_inverter/Ipv;
+    DIA PASSADO = POTÊNCIA (W) por string via PV Plataforma (trygenerate) — a corrente histórica não
+    é recuperável, mas a potência sim (mesma fonte da 'Curva das strings')."""
     hoje = datetime.now().strftime("%Y-%m-%d")
     ent = _pv_str_ev_cache.get(date_iso)
     if ent and not force and (date_iso != hoje or (time.time() - ent["ts"]) < CACHE_TTL):
@@ -8373,14 +8682,20 @@ def _pv_strings_eventos(date_iso, force=False):
         plants = [p for p in get_plants(token) if (not FULL_OM or p["nome"].strip() in FULL_OM)]
     except Exception:
         return []
+    data_br = datetime.strptime(date_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+    passado = date_iso != hoje
 
     def _um(p):
         pid = p["id"]
-        curvas = _pv_curvas_strings(pid, p["nome"].strip(), token)
-        if not curvas:
-            return []
-        usina = _macro_usina_nome(nome_usina(pid, p["nome"])) or nome_usina(pid, p["nome"])
-        evs = _str_eventos_calc(usina, curvas)
+        if passado:      # dia passado → potência (W) via Plataforma, limiares em W
+            curvas = _pv_curvas_strings_hist(pid, p["nome"].strip(), data_br, token)
+            evs = _str_eventos_calc(_macro_usina_nome(nome_usina(pid, p["nome"])) or nome_usina(pid, p["nome"]),
+                                    curvas, zero_thr=STR_EV_POT_ZERO_W, inv_min=STR_EV_POT_INV_MED,
+                                    inv_min_frac=STR_EV_POT_INV_FRAC) if curvas else []
+        else:            # hoje → corrente (A) via day_inverter
+            curvas = _pv_curvas_strings(pid, p["nome"].strip(), token)
+            evs = _str_eventos_calc(_macro_usina_nome(nome_usina(pid, p["nome"])) or nome_usina(pid, p["nome"]),
+                                    curvas) if curvas else []
         for e in evs:
             e["plant_id"] = pid
         return evs
@@ -8587,7 +8902,9 @@ def _owen_trackers_analise(plant_id, date=None):
             "ultima_leitura": None, "trackers": [], "tem_trackers": bool(trks)}
     if not trks:
         return base
-    amps = {n: (max(v for _, v in d["atual"]) - min(v for _, v in d["atual"])) if d["atual"] else None
+    # amplitude = JANELA DIURNA 06–18h (reposicionamento noturno não é rastreamento) + range
+    # ROBUSTO p02–p98 (glitch de telemetria não infla) — mesma régua do SunOp/PV (caso Tracker 82)
+    amps = {n: (_amp_robusta([v for t, v in d["atual"] if 6 <= t.hour < 18]) if d["atual"] else None)
             for n, d in trks.items()}
     amp_ok = sorted(a for a in amps.values() if a is not None)
     amp_ref = amp_ok[len(amp_ok) // 2] if amp_ok else 0.0
@@ -8622,7 +8939,7 @@ def _owen_trackers_analise(plant_id, date=None):
     lst = []; par = des = atr = 0
     for r in raw:
         amp, cur, mx = r["amp"], r["cur"], r["max"]
-        if amp is not None and amp < TRK_PARADO_AMP and (amp_ref > TRK_ALVO_MOVE_MIN or dia_coberto):
+        if amp is not None and amp < TRK_PARADO_AMP and _frota_acordou(amps, dia_coberto, date):
             st = "parado"; par += 1
         elif cur is not None and (cur - med_cur) > TRK_DESVIO_MIN:
             st = "desvio"; des += 1
@@ -8651,7 +8968,7 @@ def _owen_trackers_analise(plant_id, date=None):
                  "sem_comunicacao": not _atuais,
                  "ultima_leitura": ts_max.strftime("%Y-%m-%d %H:%M") if ts_max else None,
                  "trackers": lst})
-    return base
+    return _trk_alvo_mediana(base)
 
 
 @app.route("/api/owen/trackers")
@@ -8681,24 +8998,35 @@ def api_owen_trackers_plant(plant_id):
 
 @app.route("/api/owen/trackers/<plant_id>/chart")
 def api_owen_trackers_chart(plant_id):
-    date = (flask_request.args.get("date") or "").strip()
-    trks = _owen_trackers_build(date=date or None).get(plant_id, {})
-    def _down(s, m=180): return s[::max(1, len(s) // m)]
+    ini, fim, ndias = _trk_chart_range()
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    # concatena dia a dia (o acervo do 2C é por dia): {tracker: {'atual':[(dt,v)], 'alvo':[...]}}
+    merged = {}
+    for d in _trk_ev_dias(ini, fim):
+        d_iso = d.strftime("%Y-%m-%d")
+        day = _owen_trackers_build(date=(None if d_iso == hoje else d_iso)).get(plant_id, {})
+        for n, dd in day.items():
+            m = merged.setdefault(n, {"atual": [], "alvo": []})
+            m["atual"].extend(dd.get("atual") or [])
+            m["alvo"].extend(dd.get("alvo") or [])
+    _alvo_max = _trk_chart_down_alvo(ndias)
+    def _down(s): return s[::max(1, len(s) // _alvo_max)]
     def _num(n): return [int(p) for p in n.split(".")]
     out, alvo = [], None
-    for n in sorted(trks, key=_num):
-        s = trks[n]["atual"]
+    for n in sorted(merged, key=_num):
+        s = merged[n]["atual"]
         if s:
             s = _down(s)
             out.append({"id": f"Tracker {n}", "x": [t.strftime("%Y-%m-%dT%H:%M:%SZ") for t, _ in s],
                         "y": [round(v, 2) for _, v in s]})
-    for n in sorted(trks, key=_num):
-        s = trks[n]["alvo"]
+    for n in sorted(merged, key=_num):
+        s = merged[n]["alvo"]
         if s:
             s = _down(s)
             alvo = {"x": [t.strftime("%Y-%m-%dT%H:%M:%SZ") for t, _ in s], "y": [round(v, 2) for _, v in s]}
             break
-    return jsonify({"plant": _owen_nome(plant_id), "trackers": out, "alvo": alvo})
+    return jsonify({"plant": _owen_nome(plant_id), "date": ini, "ini": ini, "fim": fim,
+                    "ndias": ndias, "trackers": out, "alvo": alvo})
 
 
 # ── Owen (2C): Trackers parados (agora) + Ocorrências (travou→voltou) — espelho das sub-abas API PV ──
@@ -9056,9 +9384,11 @@ def _pg_trk_default_date() -> str:
         return datetime.now().strftime("%Y-%m-%d")
 
 
-def _pg_trk_plant_curvas(plant_id: str, date: str) -> dict:
-    """Série do dia de uma usina → {tracker: {'alvo':[(ts,v)], 'atual':[(ts,v)]}}"""
-    key = (str(plant_id), date)
+def _pg_trk_plant_curvas(plant_id: str, date: str, date_fim: str = None) -> dict:
+    """Série de uma usina → {tracker: {'alvo':[(ts,v)], 'atual':[(ts,v)]}}. date_fim=None → só o
+    'date'; senão o INTERVALO [date, date_fim] inclusive (gráfico De/Até multi-dia)."""
+    fim = date_fim or date
+    key = (str(plant_id), date, fim)
     ent = _pg_trk_curva_cache.get(key)
     if ent and time.time() - ent["ts"] < CACHE_TTL:
         return ent["dados"]
@@ -9073,7 +9403,7 @@ def _pg_trk_plant_curvas(plant_id: str, date: str) -> dict:
               AND s.timestamp >= %s::date
               AND s.timestamp <  (%s::date + interval '1 day')
             ORDER BY d.device_name, s.timestamp
-        """, (int(plant_id), date, date))
+        """, (int(plant_id), date, fim))
         for dname, ts, posat, posal in cur.fetchall():
             d = dados.setdefault(dname, {"alvo": [], "atual": []})
             if posat is not None:
@@ -9082,7 +9412,7 @@ def _pg_trk_plant_curvas(plant_id: str, date: str) -> dict:
                 d["alvo"].append((ts, float(posal)))
         conn.close()
     except Exception as e:
-        print(f"[PG TRK] erro curvas {plant_id}/{date}: {e}")
+        print(f"[PG TRK] erro curvas {plant_id}/{date}..{fim}: {e}")
     _pg_trk_curva_cache[key] = {"ts": time.time(), "dados": dados}
     return dados
 
@@ -9104,7 +9434,9 @@ def _pg_trackers_analise(plant_id: str, date: str = None) -> dict:
             "trackers": [], "tem_trackers": bool(trks)}
     if not trks:
         return base
-    amps = {n: (max(v for _, v in d["atual"]) - min(v for _, v in d["atual"])) if d["atual"] else None
+    # amplitude = JANELA DIURNA 06–18h (reposicionamento noturno não é rastreamento) + range
+    # ROBUSTO p02–p98 (glitch de telemetria não infla) — mesma régua do SunOp/PV (caso Tracker 82)
+    amps = {n: (_amp_robusta([v for t, v in d["atual"] if 6 <= t.hour < 18]) if d["atual"] else None)
             for n, d in trks.items()}
     amp_ok = sorted(a for a in amps.values() if a is not None)
     amp_ref = amp_ok[len(amp_ok) // 2] if amp_ok else 0.0
@@ -9139,7 +9471,7 @@ def _pg_trackers_analise(plant_id: str, date: str = None) -> dict:
     lst = []; par = des = atr = 0
     for r in raw:
         amp, cur_, mx = r["amp"], r["cur"], r["max"]
-        if amp is not None and amp < TRK_PARADO_AMP and (amp_ref > TRK_ALVO_MOVE_MIN or dia_coberto):
+        if amp is not None and amp < TRK_PARADO_AMP and _frota_acordou(amps, dia_coberto, date):
             st = "parado"; par += 1
         elif cur_ is not None and (cur_ - med_cur) > TRK_DESVIO_MIN:
             st = "desvio"; des += 1
@@ -9167,7 +9499,7 @@ def _pg_trackers_analise(plant_id: str, date: str = None) -> dict:
                  "sem_comunicacao": not _atuais,
                  "ultima_leitura": ts_max.strftime("%Y-%m-%d %H:%M") if ts_max else None,
                  "trackers": lst})
-    return base
+    return _trk_alvo_mediana(base)
 
 
 @app.route("/api/pg/trackers")
@@ -9187,9 +9519,12 @@ def api_pg_trackers_plant(plant_id):
 
 @app.route("/api/pg/trackers/<plant_id>/chart")
 def api_pg_trackers_chart(plant_id):
-    date = (flask_request.args.get("date") or _pg_trk_default_date()).strip()
-    trks = _pg_trk_plant_curvas(plant_id, date)
-    def _down(s, m=180): return s[::max(1, len(s) // m)]
+    ini, fim, ndias = _trk_chart_range()
+    if ndias == 1 and not flask_request.args.get("ini") and not flask_request.args.get("fim"):
+        ini = fim = (flask_request.args.get("date") or _pg_trk_default_date()).strip()   # compat: default do PG
+    trks = _pg_trk_plant_curvas(plant_id, ini, fim if ndias > 1 else None)
+    _alvo_max = _trk_chart_down_alvo(ndias)
+    def _down(s): return s[::max(1, len(s) // _alvo_max)]
     out, alvo = [], None
     for n in sorted(trks, key=_pg_trk_num):
         s = trks[n]["atual"]
@@ -9203,7 +9538,8 @@ def api_pg_trackers_chart(plant_id):
             s = _down(s)
             alvo = {"x": [t.strftime("%Y-%m-%dT%H:%M:%SZ") for t, _ in s], "y": [round(v, 2) for _, v in s]}
             break
-    return jsonify({"plant": _pg_trk_nome(plant_id), "date": date, "trackers": out, "alvo": alvo})
+    return jsonify({"plant": _pg_trk_nome(plant_id), "date": ini, "ini": ini, "fim": fim,
+                    "ndias": ndias, "trackers": out, "alvo": alvo})
 
 
 # ── PG: Trackers parados (agora) + Ocorrências (travou→voltou) — espelho das sub-abas da API PV ──
@@ -10974,7 +11310,34 @@ def api_fracttal_os():
 # "token", "horarios": ["07:30","15:30"], "grupos": {"Norte": "1203...@g.us", ...}}.
 # Texto = MESMO formato do modal da ronda (rondaTexto/_rondaUsinas do index.html), gerado aqui.
 _WHATS_CFG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "whats_ronda.json")
-_whats_state = {"enviados": {}}     # "YYYY-MM-DD|HH:MM" → ts (não duplica envio no mesmo slot)
+_WHATS_SENT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "whats_enviados.json")
+
+
+def _whats_sent_load():
+    """Estado de envio da ronda PERSISTIDO em disco: {"YYYY-MM-DD|HH:MM": ["Norte","Sul",...]} =
+    regiões já enviadas COM SUCESSO naquele slot. Em disco → sobrevive a restart do servidor (antes
+    era só na memória, então um reinício no meio da janela reenviava TUDO). Mantém só o dia de hoje."""
+    try:
+        with open(_WHATS_SENT_PATH, encoding="utf-8") as f:
+            d = json.load(f) or {}
+    except Exception:
+        d = {}
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    return {k: list(v) for k, v in d.items() if str(k).startswith(hoje) and isinstance(v, list)}
+
+
+def _whats_sent_save(d):
+    try:
+        hoje = datetime.now().strftime("%Y-%m-%d")
+        d = {k: sorted(set(v)) for k, v in d.items() if str(k).startswith(hoje)}
+        with open(_WHATS_SENT_PATH, "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"[ronda-whats] não gravei whats_enviados.json: {e}")
+
+
+# {key: [regiões enviadas com sucesso]} — carregado do disco no boot (retoma o dia sem reenviar)
+_whats_state = {"enviados": _whats_sent_load()}
 
 
 def _whats_cfg():
@@ -10990,7 +11353,8 @@ def _ronda_ang(v):
 
 
 def _ronda_parados_all(force=True):
-    """Parados de TODAS as fontes em paralelo (mesma junção do modal) + lista de fontes que falharam."""
+    """Parados de TODAS as fontes em paralelo — MESMOS critérios da subaba 'Trackers parados
+    (agora)' (as próprias funções _*_parados_rows) + lista de fontes que falharam."""
     partes, falhas = [], []
     with ThreadPoolExecutor(max_workers=5) as ex:
         futs = {ex.submit(_pv_parados_rows, force): "API PV",
@@ -11010,6 +11374,13 @@ def _ronda_parados_all(force=True):
         if k not in vistos:
             vistos.add(k)
             rows.append(r)
+    # Usinas EXCLUÍDAS da ronda (whats_ronda.json > "excluir_usinas"): casa por SUBSTRING no nome
+    # normalizado — "Salto Pirapora" tira "Salto Pirapora 3" e qualquer unidade futura. Só afeta a
+    # RONDA (o dashboard segue mostrando tudo). Reversível editando o JSON: o _whats_cfg relê a cada
+    # disparo, sem precisar reiniciar o servidor.
+    excl = [_nrm(x) for x in (_whats_cfg().get("excluir_usinas") or []) if str(x).strip()]
+    if excl:
+        rows = [r for r in rows if not any(e in _nrm(r.get("usina") or "") for e in excl)]
     return rows, falhas
 
 
@@ -11026,7 +11397,9 @@ def _ronda_bloco_usinas(rs, ind=""):
 
 def _ronda_texto_regiao(reg, rows, quando, alerta=""):
     n = len(rows)
-    linhas = [f"RONDA DE TRACKERS — {reg.upper()} — {quando}"]
+    linhas = [f"RONDA DE TRACKERS PARADOS — {reg.upper()} — {quando}",
+              "Se após o reset o tracker NÃO voltar a operar, avise neste grupo para o time de "
+              "Performance abrir uma Ordem de Serviço de inspeção."]
     if alerta:
         linhas.append(alerta)
     linhas.append("")
@@ -11057,11 +11430,15 @@ def _whats_send(cfg, grupo_id, texto):
     return ok, (r.text or "")[:200]
 
 
-def _ronda_whats_disparo(slot_label, so_regiao=None):
+def _ronda_whats_disparo(slot_label, so_regiao=None, destino=None, pular_regioes=None, confirmar=True):
+    """destino: override do id de envio (ex.: número do Levi p/ testar o FORMATO sem incomodar o grupo
+    real; None = grupos do config). pular_regioes: regiões JÁ enviadas com sucesso neste slot — NÃO
+    reenvia (evita duplicar quem já recebeu na retentativa). confirmar: envia o resumo p/ o admin."""
     cfg = _whats_cfg()
     grupos = cfg.get("grupos") or {}
     if not grupos:
         return {"ok": False, "erro": "sem grupos no whats_ronda.json"}
+    pular = set(pular_regioes or ())
     rows, falhas = _ronda_parados_all(force=True)
     quando = datetime.now().strftime("%d/%m/%Y %H:%M")
     alerta = ("ATENÇÃO: ronda incompleta — sem resposta de " + ", ".join(falhas)) if falhas else ""
@@ -11072,35 +11449,165 @@ def _ronda_whats_disparo(slot_label, so_regiao=None):
     for reg, gid in grupos.items():
         if so_regiao and reg != so_regiao:
             continue
+        if reg in pular:                              # já enviado com sucesso neste slot → NÃO reenvia
+            continue
         texto = _ronda_texto_regiao(reg, por_reg.get(reg, []), quando, alerta)
         try:
-            ok, det = _whats_send(cfg, gid, texto)
+            ok, det = _whats_send(cfg, destino or gid, texto)
         except Exception as e:
             ok, det = False, str(e)
         resultados[reg] = {"ok": ok, "trackers": len(por_reg.get(reg, [])),
                            "detalhe": None if ok else det}
         print(f"[ronda-whats] {slot_label} → {reg}: {'OK' if ok else 'FALHOU ' + str(det)}")
+    # confirmação p/ o admin (pedido do Levi 06/07): resumo do que foi enviado, no número dele.
+    # Em teste com destino override, só confirma se o destino É o próprio admin (senão duplica).
+    conf = (cfg.get("confirmar_para") or "").strip()
+    if confirmar and conf and resultados and (not destino or str(destino).replace("+", "").replace(" ", "") == conf):
+        ok_n = sum(1 for v in resultados.values() if v["ok"])
+        lin = [f"✅ Ronda {slot_label} · {quando} — {ok_n}/{len(resultados)} grupo(s) OK"]
+        for reg, v in sorted(resultados.items()):
+            lin.append((" • ✅ " if v["ok"] else " • ❌ ") + f"{reg}: {v['trackers']} tracker(s)"
+                       + ("" if v["ok"] else f" — FALHOU: {str(v['detalhe'])[:80]}"))
+        if falhas:
+            lin.append("⚠️ Fontes sem resposta: " + ", ".join(falhas))
+        try:
+            _whats_send(cfg, conf, "\n".join(lin))
+        except Exception as e:
+            print(f"[ronda-whats] confirmação p/ admin falhou: {e}")
     return {"ok": bool(resultados) and all(v["ok"] for v in resultados.values()),
             "resultados": resultados, "fontes_falharam": falhas}
 
 
+RONDA_GRACE_MIN = 15   # min após o horário do slot em que a ronda ainda RETENTA se o envio falhou
+
+
 def _ronda_whats_loop():
-    """Dispara nos horários do config (checa a cada 30s; 1x por slot/dia). enabled=false = dormindo."""
+    """Dispara nos horários do config. CORREÇÃO 08/07 (Levi: a ronda das 08:25 falhou — navegador do
+    whatsapp-web.js travou — mas o estado marcou 'enviado' e não retentou): marca 'ok' SÓ depois do
+    envio CONFIRMAR (o loop é síncrono → o disparo bloqueia, não há overlap); se falhar, RETENTA a
+    cada 30s até RONDA_GRACE_MIN após o horário. Assim o status reflete a verdade e um serviço que
+    piscou é reenviado. enabled=false = dormindo."""
     time.sleep(120)                                   # deixa o boot aquecer caches
     while True:
         try:
             cfg = _whats_cfg()
             if cfg.get("enabled"):
                 agora = datetime.now()
-                slot = agora.strftime("%H:%M")
-                if slot in (cfg.get("horarios") or []):
-                    key = agora.strftime("%Y-%m-%d") + "|" + slot
-                    if key not in _whats_state["enviados"]:
-                        _whats_state["enviados"][key] = time.time()
-                        _ronda_whats_disparo(slot)
+                hoje = agora.strftime("%Y-%m-%d")
+                now_min = agora.hour * 60 + agora.minute
+                todas_regs = set((cfg.get("grupos") or {}).keys())
+                for slot in (cfg.get("horarios") or []):
+                    key = hoje + "|" + slot
+                    ja = set(_whats_state["enviados"].get(key, []))
+                    if todas_regs and ja >= todas_regs:
+                        continue                       # slot COMPLETO (todos os grupos) → nada a fazer
+                    try:
+                        _sh, _sm = map(int, slot.split(":")); slot_min = _sh * 60 + _sm
+                    except Exception:
+                        continue
+                    if slot_min <= now_min <= slot_min + RONDA_GRACE_MIN:
+                        # envia SÓ os grupos que ainda NÃO receberam (nunca reenvia quem já recebeu na
+                        # retentativa) e persiste em disco (restart no meio da janela não reenvia).
+                        res = _ronda_whats_disparo(slot, pular_regioes=ja, confirmar=False)
+                        novos = [r for r, v in (res.get("resultados") or {}).items() if v.get("ok")]
+                        if novos:
+                            ja |= set(novos)
+                            _whats_state["enviados"][key] = sorted(ja)
+                            _whats_sent_save(_whats_state["enviados"])
+                        if todas_regs and ja >= todas_regs:
+                            print(f"[ronda-whats] {slot} enviada OK (todos os {len(todas_regs)} grupos)")
+                            conf = (cfg.get("confirmar_para") or "").strip()
+                            if conf:                   # resumo p/ o admin 1x só (slot já fica marcado)
+                                ffalh = res.get("fontes_falharam") or []
+                                msg = (f"✅ Ronda {slot} enviada · {agora:%d/%m/%Y %H:%M} — "
+                                       f"{len(todas_regs)} grupos OK"
+                                       + (f"\n⚠️ Fontes sem resposta: {', '.join(ffalh)}" if ffalh else ""))
+                                try: _whats_send(cfg, conf, msg)
+                                except Exception: pass
+                        else:
+                            print(f"[ronda-whats] {slot} parcial — faltam {sorted(todas_regs - ja)}, "
+                                  f"retenta até +{RONDA_GRACE_MIN}min")
+                        break                          # 1 disparo por ciclo (é síncrono, evita 2 slots juntos)
         except Exception as e:
             print(f"[ronda-whats] loop: {e}")
         time.sleep(30)
+
+
+def _whats_service_restart():
+    """Reergue o serviço WhatsApp (C:\\GridcoWhats): mata os chromes ZUMBIS do GridcoWhats + o node,
+    remove o lock do perfil e reinicia o node. MESMA receita do fix manual (detached Frame deixa o
+    node vivo mas quebrado + ~7 chromes zumbis segurando o lock do perfil). True se o comando rodou."""
+    ps = (
+        "Get-CimInstance Win32_Process -Filter \"name='chrome.exe'\" | "
+        "Where-Object { $_.CommandLine -match 'GridcoWhats' } | "
+        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; "
+        "Get-CimInstance Win32_Process -Filter \"name='node.exe'\" | "
+        "Where-Object { $_.CommandLine -match 'wa_service' } | "
+        "ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; "
+        "Start-Sleep -Seconds 2; "
+        "Remove-Item 'C:\\GridcoWhats\\session\\session\\lockfile' -Force -ErrorAction SilentlyContinue; "
+        "Start-Process -FilePath 'C:\\Program Files\\nodejs\\node.exe' -ArgumentList 'wa_service.js' "
+        "-WorkingDirectory 'C:\\GridcoWhats' -WindowStyle Hidden "
+        "-RedirectStandardOutput 'C:\\GridcoWhats\\wa_service.out.log' "
+        "-RedirectStandardError 'C:\\GridcoWhats\\wa_service.err.log'"
+    )
+    try:
+        # CREATE_NO_WINDOW: não pisca janela de console ao chamar o powershell (rodamos sob pythonw).
+        subprocess.run(["powershell", "-NoProfile", "-Command", ps], timeout=45, capture_output=True,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+        return True
+    except Exception as e:
+        print(f"[whats-watchdog] restart falhou: {e}")
+        return False
+
+
+_whats_wd_state = {"ultimo_restart": 0.0, "restarts_hoje": 0, "dia": "", "notif_pend": None}
+
+
+def _whats_watchdog_loop():
+    """Vigia o serviço WhatsApp: a cada 3 min sonda /health (getState ATIVO — pega o 'detached Frame'
+    que o /status esconde). QUEBRADO + enabled → reergue o serviço sozinho NA HORA. A notificação ao
+    admin sai no PRÓXIMO ciclo já saudável (a sessão precisa re-sincronizar o LID do nº avulso após o
+    restart; enviar na hora cai em erro silencioso). Cooldown de 5 min entre restarts. Criado 08/07
+    após 2 quedas no dia (08:25 e 13:15 — navegador do whatsapp-web.js travou e a ronda falhou calada)."""
+    time.sleep(200)                                   # não concorre com o boot
+    while True:
+        try:
+            cfg = _whats_cfg()
+            if cfg.get("enabled"):
+                url = cfg.get("service_url", "http://127.0.0.1:5099").rstrip("/")
+                tok = cfg.get("token", "")
+                try:
+                    h = _http().get(url + "/health", headers={"x-token": tok}, timeout=15)
+                    broken = (h.status_code != 200) or (not (h.json() or {}).get("ok"))
+                except Exception:
+                    broken = True                     # timeout/sem resposta = travado ou caído
+                agora = time.time()
+                if broken and (agora - _whats_wd_state["ultimo_restart"]) > 300:
+                    print("[whats-watchdog] serviço QUEBRADO (health falhou) — reiniciando...")
+                    _whats_wd_state["ultimo_restart"] = agora
+                    hoje = datetime.now().strftime("%Y-%m-%d")
+                    if _whats_wd_state["dia"] != hoje:
+                        _whats_wd_state.update({"dia": hoje, "restarts_hoje": 0})
+                    _whats_wd_state["restarts_hoje"] += 1
+                    _whats_service_restart()
+                    _whats_wd_state["notif_pend"] = (datetime.now().strftime("%H:%M"),
+                                                     _whats_wd_state["restarts_hoje"])
+                elif _whats_wd_state["notif_pend"] and not broken:
+                    # serviço saudável de novo (sessão já aquecida) → agora sim avisa o admin
+                    quando, n = _whats_wd_state["notif_pend"]
+                    conf = (cfg.get("confirmar_para") or "").strip()
+                    if conf:
+                        try:
+                            _whats_send(cfg, conf, f"[watchdog] O serviço da ronda TRAVOU (navegador) "
+                                        f"por volta das {quando} e foi reiniciado automaticamente. "
+                                        f"Envios já normalizados (restart nº {n} hoje).")
+                        except Exception:
+                            pass
+                    _whats_wd_state["notif_pend"] = None
+        except Exception as e:
+            print(f"[whats-watchdog] loop: {e}")
+        time.sleep(180)
 
 
 @app.route("/api/ronda/whats/status")
@@ -11111,10 +11618,14 @@ def api_ronda_whats_status():
                           headers={"x-token": cfg.get("token", "")}, timeout=8).json()
     except Exception as e:
         svc = {"ok": False, "erro": f"serviço WhatsApp fora do ar ({e})"}
+    gset = set((cfg.get("grupos") or {}).keys())
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    env = {k: set(v) for k, v in _whats_state["enviados"].items() if k.startswith(hoje)}
     return jsonify({"enabled": bool(cfg.get("enabled")), "horarios": cfg.get("horarios"),
-                    "grupos": sorted((cfg.get("grupos") or {}).keys()), "servico": svc,
-                    "enviados_hoje": sorted(k for k in _whats_state["enviados"]
-                                            if k.startswith(datetime.now().strftime("%Y-%m-%d")))})
+                    "grupos": sorted(gset), "servico": svc,
+                    "enviados_hoje": sorted(k for k, v in env.items() if gset and v >= gset),
+                    "parciais_hoje": {k: sorted(gset - v) for k, v in env.items()
+                                      if gset and not (v >= gset)}})
 
 
 @app.route("/api/ronda/whats/grupos")
@@ -11130,15 +11641,35 @@ def api_ronda_whats_grupos():
 
 @app.route("/api/ronda/whats/testar", methods=["POST"])
 def api_ronda_whats_testar():
-    """Envia a ronda AGORA (todas as regiões, ou {'regiao': 'Norte'} p/ uma só)."""
+    """Envia a ronda AGORA (todas as regiões, ou {'regiao': 'Norte'} p/ uma só).
+    {'para': '55...'} = destino de TESTE (número/id) em vez do grupo real."""
     body = flask_request.get_json(silent=True) or {}
-    return jsonify(_ronda_whats_disparo("teste-manual", so_regiao=(body.get("regiao") or None)))
+    return jsonify(_ronda_whats_disparo("teste-manual", so_regiao=(body.get("regiao") or None),
+                                        destino=(body.get("para") or None)))
+
+
+@app.route("/api/ronda/whats/preview")
+def api_ronda_whats_preview():
+    """Texto EXATO da ronda por região SEM enviar nada (p/ conferir o que os grupos receberam).
+    ?regiao=Sul p/ uma; sem regiao = todas. force=1 recoleta (senão usa o cache quente)."""
+    so = (flask_request.args.get("regiao") or "").strip() or None
+    rows, falhas = _ronda_parados_all(force=flask_request.args.get("force") == "1")
+    quando = datetime.now().strftime("%d/%m/%Y %H:%M")
+    alerta = ("ATENÇÃO: ronda incompleta — sem resposta de " + ", ".join(falhas)) if falhas else ""
+    por_reg = {}
+    for r in rows:
+        por_reg.setdefault(r.get("regiao") or "Sem região", []).append(r)
+    regs = [so] if so else list((_whats_cfg().get("grupos") or {}).keys())
+    return jsonify({"quando": quando, "fontes_falharam": falhas,
+                    "textos": {reg: _ronda_texto_regiao(reg, por_reg.get(reg, []), quando, alerta)
+                               for reg in regs}})
 
 
 if __name__ == "__main__":
     _cache_load()
     _trk_ev_load()
     threading.Thread(target=_ronda_whats_loop, daemon=True).start()
+    threading.Thread(target=_whats_watchdog_loop, daemon=True).start()   # reergue o wa_service se travar
     threading.Thread(target=_owen_loop, daemon=True).start()
     threading.Thread(target=_sunop_keepalive_loop, daemon=True).start()
     threading.Thread(target=_prewarm_loop, daemon=True).start()

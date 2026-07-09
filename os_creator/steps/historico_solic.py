@@ -42,7 +42,7 @@ class SolicitacaoDialog(QDialog):
     e botões Cancelar solicitação / Fechar."""
     _MUTED = "#8a90a2"
     _LINE = "#2c3142"
-    _BLOCO = "background:#1d2130; border:1px solid #2c3142; border-radius:8px; padding:10px 12px;"
+    _BLOCO = "background:#161d30; border:1px solid #2c3142; border-radius:8px; padding:10px 12px;"
 
     def __init__(self, parent, d):
         super().__init__(parent)

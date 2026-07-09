@@ -42,7 +42,7 @@ def main():
         if LoginDialog().exec() != QDialog.DialogCode.Accepted:
             sys.exit(0)
     win = MainWindow()
-    win.show()
+    win.showMaximized()          # abre em tela cheia p/ aproveitar o espaço (padrão pedido pelo Levi)
     # checa atualização (GitHub Releases) logo após abrir, sem travar o boot
     QTimer.singleShot(1500, lambda: checar_atualizacao(win, silencioso=True))
     sys.exit(app.exec())

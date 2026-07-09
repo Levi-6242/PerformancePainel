@@ -4,6 +4,7 @@ Grupo=Diagnóstico Inicial, Obrigatório=Sim."""
 from PyQt6.QtCore import pyqtSignal, Qt
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit,
                              QPushButton, QScrollArea, QFrame)
+from steps.ui import Card, rotulo
 
 
 class Step3(QWidget):
@@ -14,26 +15,29 @@ class Step3(QWidget):
         super().__init__()
         self._rows = []
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(20, 16, 20, 16)
-        lay.setSpacing(8)
+        lay.setContentsMargins(18, 12, 18, 12)
+        lay.setSpacing(12)
 
-        lay.addWidget(QLabel("<b>Sub tarefas</b>  <span style='color:#8a90a2'>(mínimo 1)</span>"))
-
-        self.cont = QWidget()
+        self.cont = QWidget(); self.cont.setObjectName("uiGroup")
         self.cont_lay = QVBoxLayout(self.cont)
         self.cont_lay.setContentsMargins(0, 0, 0, 0)
         self.cont_lay.setSpacing(6)
         self.cont_lay.setAlignment(Qt.AlignmentFlag.AlignTop)
-        scroll = QScrollArea()
+        scroll = QScrollArea(); scroll.setObjectName("uiFlat")
         scroll.setWidgetResizable(True)
         scroll.setWidget(self.cont)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        lay.addWidget(scroll, 1)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
-        b_add = QPushButton("+ Adicionar sub tarefa")
+        b_add = QPushButton("+ Adicionar subtarefa")
         b_add.setObjectName("secondary")
         b_add.clicked.connect(lambda: self._add_row())
-        lay.addWidget(b_add)
+
+        card = Card("list", "Subtarefas")
+        card.add(rotulo("Passos", obrig=True, extra="(mínimo 1)"))
+        card.add(scroll, stretch=1)
+        card.add(b_add)
+        lay.addWidget(card, 1)
 
         row = QHBoxLayout()
         b_back = QPushButton("‹‹‹ Voltar")

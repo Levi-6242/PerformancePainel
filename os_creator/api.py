@@ -506,6 +506,37 @@ def current_user() -> str:
         return ""
 
 
+def get_conta_info() -> dict:
+    """Nome + cargo (perfil) do usuário logado, do Fracttal. → {'nome','email','perfil'}. Defensivo:
+    tenta companies.load_account_info; se faltar o perfil, procura na lista de contas pelo e-mail."""
+    email = current_user()
+    nome, perfil = "", ""
+    try:
+        r = _rpc_call("companies.load_account_info", {"page": 1, "limit": 200, "start": 0, "append": True})
+        data = r.get("data") if isinstance(r, dict) else r
+        rec = data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) else {})
+        rec = rec if isinstance(rec, dict) else {}
+        nome = str(rec.get("name") or (str(rec.get("first_name") or "") + " "
+                   + str(rec.get("last_name") or "")).strip()).strip()
+        perfil = str(rec.get("profiles_description") or rec.get("profile_description")
+                     or rec.get("profile") or "").strip()
+    except FracttalError:
+        pass
+    if (not perfil or not nome) and email:
+        try:
+            r2 = _rpc_call("companies.accounts_react_list", {"filter": [], "sort": [], "page": 1,
+                           "limit": 500, "start": 0, "is_tree": False, "node": None})
+            d2 = r2.get("data") if isinstance(r2, dict) else r2
+            for a in (d2 if isinstance(d2, list) else []):
+                if isinstance(a, dict) and str(a.get("email") or "").lower() == email.lower():
+                    perfil = perfil or str(a.get("profiles_description") or "").strip()
+                    nome = nome or str(a.get("name") or "").strip()
+                    break
+        except FracttalError:
+            pass
+    return {"nome": nome or (email or "Usuário"), "email": email, "perfil": perfil}
+
+
 def is_logged_in() -> bool:
     """Há um JWT válido (não vencido) E com sessão viva? A sessão pode ter sido morta server-side
     (USER_NOT_LOGIN) mesmo com o exp futuro — por isso faz 1 checagem ao vivo (barata)."""
@@ -681,7 +712,8 @@ def _asset_by_code(code: str):
 
 def create_os_rpc(asset: dict, description: str, task_type: str, subtasks: list,
                   requested_by: str = "", etiqueta: str = "", note: str = "",
-                  event_date: datetime = None, tipo: dict = None, finalizar: dict = None) -> dict:
+                  event_date: datetime = None, tipo: dict = None, finalizar: dict = None,
+                  id_parent=None) -> dict:
     """Cria uma OS (tarefa não-planejada) via RPC interno do Fracttal. asset = registro do
     get_assets() (precisa de id/id_parent/id_type_item/id_group_task). `event_date` = data
     programada (datetime; default = agora). `tipo` = dict opcional com id_main (id_task_type_main),
@@ -747,6 +779,7 @@ def create_os_rpc(asset: dict, description: str, task_type: str, subtasks: list,
         "id_task_type_main": main_id,
     }
     params["task_note"] = params["note"]                  # o web manda task_note = note
+    params["id_parent"] = id_parent                       # OS pai (opcional) — vincula esta OS a outra
     if tipo.get("id_c1") is not None:                     # Classificação 1
         params["id_task_type"] = tipo["id_c1"]
         params["tasks_types_description"] = tipo.get("desc_c1") or ""
@@ -1316,6 +1349,34 @@ def _solicitacao_da_os(id_work_order, det, t0) -> str:
     return ""
 
 
+RPC_WO_PARENTS = "tasks.work_orders_parents_list"
+
+
+def buscar_os_pai(termo="", limit=50) -> list:
+    """Busca OSs candidatas a PAI por número (wo_folio, filtro 'like'). Vazio = primeiras da lista.
+    → [{'id','folio','descricao'}] — 'id' é o id_parent a mandar na criação (NÃO é o nº)."""
+    t = str(termo or "").strip()
+    filtro = [{"operator": "like", "property": "wo_folio", "value": t, "condition": "or"}] if t else []
+    try:
+        r = _rpc_call(RPC_WO_PARENTS, {"filter": filtro, "sort": [], "page": 1, "limit": limit,
+                                       "start": 0, "is_tree": False, "node": None})
+    except FracttalError:
+        return []
+    data = r.get("data") if isinstance(r, dict) else r
+    out = []
+    for w in (data if isinstance(data, list) else []):
+        if not isinstance(w, dict):
+            continue
+        idp = w.get("id")
+        if idp is None:
+            continue
+        folio = w.get("wo_folio") or w.get("folio") or ""
+        desc = str(w.get("description") or w.get("tasks_description")
+                   or w.get("items_description") or "").split("{")[0].strip()[:80]
+        out.append({"id": idp, "folio": str(folio), "descricao": desc})
+    return out
+
+
 def get_os_detalhes(id_work_order) -> dict:
     """Detalhe de UMA OS p/ o histórico. → {'folio','descricao','tipo','event_date','responsavel',
     'notas','subtarefas':[{'descricao','feito','tipo','resposta'}]}. event_date/notas da tarefa;
@@ -1362,10 +1423,22 @@ def get_os_detalhes(id_work_order) -> dict:
     criado_por = str(det.get("created_by") or det.get("creation_user")
                      or det.get("accounts_name") or t0.get("created_by") or "").strip()
     solic = _solicitacao_da_os(id_work_order, det, t0)
+    # data de conclusão (OS finalizada) — nomes variam; tenta os prováveis na tarefa e no cabeçalho
+    data_fim = None
+    for src in (t0, det):
+        for k in ("final_date", "date_end", "end_date", "real_final_date", "finished_date",
+                  "date_finished", "closing_date"):
+            v = src.get(k)
+            if v not in (None, "") and str(v).lower() != "none":
+                data_fim = v
+                break
+        if data_fim:
+            break
     return {"folio": t0.get("wo_folio"),
             "descricao": str(t0.get("tasks_description") or "").strip(),
             "tipo": str(t0.get("tasks_types_main_description") or "").strip(),
             "event_date": t0.get("event_date"),
+            "data_fim": data_fim,
             "responsavel": resp,
             "criado_por": criado_por,
             "solicitacao": solic,
@@ -1602,7 +1675,7 @@ def _react_insert_post(body: list) -> dict:
 
 
 def create_planned_os(asset: dict, plan: dict, id_responsible=None, responsible_name: str = "",
-                      event_date: datetime = None, to_work_order: bool = True) -> dict:
+                      event_date: datetime = None, to_work_order: bool = True, id_parent=None) -> dict:
     """Cria 1 tarefa planejada (tasks_noscheduled_react_insert com o plano: id_task + subtarefas +
     tipo do plano). `to_work_order=True` → vira WO direto (1 ativo). `to_work_order=False` → tarefa
     PENDENTE no kanban (p/ depois juntar várias numa OS só, via create_planned_os_one_wo).
@@ -1644,7 +1717,7 @@ def create_planned_os(asset: dict, plan: dict, id_responsible=None, responsible_
         "id_task_type": plan.get("id_task_type"), "id_task_type_2": plan.get("id_task_type_2"),
         "tasks_types_description": plan.get("tasks_types_description") or "",
         "tasks_types_2_description": plan.get("tasks_types_2_description") or "",
-        "task_note": "",
+        "task_note": "", "id_parent": id_parent,          # OS pai (opcional)
     }
     if to_work_order and id_responsible is not None:      # WO direto (1 ativo) → atribui o responsável
         params["id_assigned_user"] = id_responsible
@@ -1657,6 +1730,8 @@ def _plan_family(desc) -> str:
     → 'MPM'/'MPA'/'MPS'/'MPQ'/'MPW'/'MPT'/'Handover' ou None."""
     import re
     d = str(desc or "")
+    if "performance" in d.lower():                # planos de PERFORMANCE (aba Performance; escondidos no PCM)
+        return "PERFORMANCE"
     if "handover" in d.lower():
         return "Handover"
     m = re.search(r"\bMP[A-Z]\b", d.upper())
@@ -1723,7 +1798,7 @@ def get_subtask_counts(pares: list) -> dict:
 
 
 def create_planned_os_multi(selecoes: list, id_responsible, responsible_name: str = "",
-                            event_date: datetime = None) -> dict:
+                            event_date: datetime = None, id_parent=None) -> dict:
     """1 OS com as tarefas dos planos SELECIONADOS — `selecoes` = [{asset, id_task[, event_date]}]. Para
     cada um: busca as subtarefas (tasks_details) e cria a tarefa PENDENTE (com a data da própria linha,
     se houver, senão a `event_date` geral); Fase 2 junta tudo numa OS só.
@@ -1739,7 +1814,7 @@ def create_planned_os_multi(selecoes: list, id_responsible, responsible_name: st
             if not plan.get("subtasks"):
                 erros.append(f"{asset.get('code')}: plano sem subtarefas"); continue
             r = create_planned_os(asset, plan, event_date=s.get("event_date") or event_date,
-                                  to_work_order=False)
+                                  to_work_order=False, id_parent=id_parent)
             if r.get("id_task"):
                 id_tasks.append(r["id_task"])
             else:
@@ -1993,7 +2068,8 @@ def atualizar_modelos_subtarefas(tarefas: list) -> list:
 
 
 def clonar_os(tarefas: list, id_responsible, responsible_name: str = "",
-              etiqueta_ids: list = None, note: str = "", scheduled_date: datetime = None) -> dict:
+              etiqueta_ids: list = None, note: str = "", scheduled_date: datetime = None,
+              id_parent=None) -> dict:
     """Cria UMA OS nova com TODAS as 'tarefas' dadas (cada uma: asset, tipo, descricao,
     subtarefas — formato de get_os_para_clonar). Fase 1: cria N tarefas pendentes. Fase 2:
     1 work_order_insert com as N → 1 OS multi-tarefa + responsável. Fase 3: etiquetas.
@@ -2014,7 +2090,8 @@ def clonar_os(tarefas: list, id_responsible, responsible_name: str = "",
             os_ = create_os_rpc(t["asset"], t.get("descricao") or "", t.get("tipo") or "Corretiva",
                                 t.get("subtarefas") or [], requested_by=responsible_name,
                                 note=(note or t.get("notas") or ""),
-                                event_date=(t.get("event_date") or scheduled_date))
+                                event_date=(t.get("event_date") or scheduled_date),
+                                id_parent=id_parent)
             if os_.get("id_task"):
                 id_tasks.append(os_["id_task"])
             else:
@@ -2058,7 +2135,8 @@ def clonar_os(tarefas: list, id_responsible, responsible_name: str = "",
 
 
 def create_os_sem_plano(selecoes: list, id_responsible, responsible_name: str = "",
-                        descricao: str = "", note: str = "", tipo_task: str = "Corretiva") -> dict:
+                        descricao: str = "", note: str = "", tipo_task: str = "Corretiva",
+                        id_parent=None) -> dict:
     """1 OS com VÁRIAS tarefas SEM plano de tarefas — cada ativo vira 1 tarefa com a subtarefa PADRÃO
     'Procedimento' (subtasks=[] → _rpc_subtasks injeta 'Procedimento'). `selecoes` = [{asset[,event_date]}];
     `descricao` (vazia = 'Procedimento') vale p/ todas; `note` = observação. Reusa o motor do clone
@@ -2070,7 +2148,8 @@ def create_os_sem_plano(selecoes: list, id_responsible, responsible_name: str = 
                for s in (selecoes or []) if isinstance(s.get("asset"), dict) and s["asset"].get("id")]
     if not tarefas:
         return {"ok": False, "erro": "Nenhum ativo selecionado.", "n_tarefas": 0, "n_criadas": 0}
-    return clonar_os(tarefas, id_responsible, responsible_name, etiqueta_ids=None, note=note)
+    return clonar_os(tarefas, id_responsible, responsible_name, etiqueta_ids=None, note=note,
+                     id_parent=id_parent)
 
 
 # ── Histórico de Solicitações (work requests) ─────────────────────────────────
@@ -2198,7 +2277,7 @@ def create_work_orders_bulk(assets: list, description: str, task_type: str, subt
                             etiqueta: str = "", responsible_code: str = "",
                             responsible_name: str = "", id_responsible=None,
                             etiqueta_ids: list = None, note: str = "", tipo: dict = None,
-                            finalizar: dict = None, event_date=None) -> list:
+                            finalizar: dict = None, event_date=None, id_parent=None) -> list:
     """Cria N OS (uma por ativo). Fase 1: cria a tarefa pendente (create_os_rpc). Fase 2 (se
     id_responsible): converte em WO numerada + atribui o responsável. Fase 3 (se etiqueta_ids):
     aplica as etiquetas na WO. NÃO interrompe no 1º erro:
@@ -2214,7 +2293,8 @@ def create_work_orders_bulk(assets: list, description: str, task_type: str, subt
         try:
             os_ = create_os_rpc(asset, description, task_type, subtasks,
                                 requested_by=responsible_name, etiqueta=etiqueta, note=note,
-                                tipo=tipo, event_date=event_date, finalizar=finalizar)
+                                tipo=tipo, event_date=event_date, finalizar=finalizar,
+                                id_parent=id_parent)
             fase1.append({"code": code, "ok": True, "os": os_})
         except FracttalError as e:
             fase1.append({"code": code, "ok": False, "erro": str(e)})
@@ -2265,7 +2345,7 @@ def create_work_orders_bulk(assets: list, description: str, task_type: str, subt
 def create_work_orders_datas(asset: dict, description: str, task_type: str, subtasks: list,
                              datas: list, responsible_code: str = "", responsible_name: str = "",
                              id_responsible=None, etiqueta_ids: list = None, note: str = "",
-                             tipo: dict = None, finalizar: dict = None) -> list:
+                             tipo: dict = None, finalizar: dict = None, id_parent=None) -> list:
     """Cria N OS p/ o MESMO ativo — uma por DATA de incidente. `datas` = lista de datetimes (já no
     horário escolhido; tz-aware = Brasília); se `finalizar`, cada item é uma tupla (inicial, final).
     Mesmas 3 fases do create_work_orders_bulk (tarefa → WO+responsável → etiquetas), sem parar no 1º erro.
@@ -2283,7 +2363,7 @@ def create_work_orders_datas(asset: dict, description: str, task_type: str, subt
         try:
             os_ = create_os_rpc(asset, description, task_type, subtasks,
                                 requested_by=responsible_name, etiqueta="", note=note,
-                                event_date=ev_dt, tipo=tipo, finalizar=fin)
+                                event_date=ev_dt, tipo=tipo, finalizar=fin, id_parent=id_parent)
             fase1.append({"data": rot, "ok": True, "os": os_})
         except FracttalError as e:
             fase1.append({"data": rot, "ok": False, "erro": str(e)})

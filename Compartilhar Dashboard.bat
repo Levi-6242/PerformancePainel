@@ -1,18 +1,16 @@
 @echo off
+chcp 65001 >nul
 cd /d "%~dp0"
 title Dashboard O^&M - Compartilhar (Grid Co.)
 echo ===============================================
 echo    Dashboard O^&M  -  COMPARTILHAR (link publico)
 echo ===============================================
 echo.
-echo [1/2] Subindo o servidor local (porta 5050)...
-start "Dashboard Server" cmd /c "python app.py"
-timeout /t 7 >nul
+echo   Garantindo o servidor (porta 5050) e subindo o tunel...
+echo   O link aparece abaixo, vai pra area de transferencia e pro seu WhatsApp.
+echo   A senha e a DASH_PASSWORD do .env.
 echo.
-echo [2/2] Abrindo o tunel Cloudflare e salvando o link em tunnel_url.txt...
-echo.
-echo   *** O link aparece abaixo. A senha e a DASH_PASSWORD do .env. ***
-echo   *** Para PARAR: feche esta janela E a janela "Dashboard Server". ***
+echo   Para PARAR o link: feche esta janela (o servidor continua no ar).
 echo.
 powershell -ExecutionPolicy Bypass -NoProfile -File "%~dp0subir_tunel.ps1"
 echo.
