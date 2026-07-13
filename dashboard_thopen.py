@@ -281,10 +281,11 @@ for _k, _v in _POLARIS_NOME.items():
 
 
 def _polaris_budget_path():
-    """Budget Polaris mais recente (Budget_2025_UFVs_Raizen*.xlsx)."""
+    """Budget Polaris mais recente (Budget_2025_UFVs_Raizen*.xlsx). Escolhe pela DATA no nome
+    (…GridCo - AAAAMMDD.xlsx) e não por mtime — na nuvem o mtime é a hora do checkout, não a real."""
     import glob
     cands = glob.glob(os.path.join(_POLARIS_DIR, "Budget_2025_UFVs_Raizen*.xlsx"))
-    return max(cands, key=os.path.getmtime) if cands else None
+    return max(cands) if cands else None
 
 
 def _polaris_coments():
