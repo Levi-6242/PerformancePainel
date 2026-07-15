@@ -926,12 +926,16 @@ def geral():
     nomes = sorted({u for u in CARTEIRAS.get(carteira, [])
                     if u in disponiveis and u not in EXCLUIR_GERAL})
     linhas = [r for r in (_resumo_usina(u, ano, mes) for u in nomes) if r["produzida"] is not None]
+    # Usinas da carteira que aparecem ABAIXO do Total (não entram no cálculo). Ex.: Piancó.
+    fora_nomes = sorted({u for u in CARTEIRAS.get(carteira, [])
+                         if u in disponiveis and u in EXCLUIR_GERAL})
+    fora = [r for r in (_resumo_usina(u, ano, mes) for u in fora_nomes) if r["produzida"] is not None]
     today = dt.date.today()
     corte = (today if (ano == today.year and mes == today.month)
              else dt.date(ano, mes, monthrange(ano, mes)[1]))
     nome_carteira = next((c for c in CARTEIRA_ORDEM if c == carteira), carteira)
     return jsonify({"carteira": nome_carteira, "ano": ano, "mes": mes,
-                    "corte": corte.strftime("%d/%m/%Y"), "linhas": linhas})
+                    "corte": corte.strftime("%d/%m/%Y"), "linhas": linhas, "fora": fora})
 
 
 @app.route("/api/t/reload")

@@ -37,6 +37,8 @@
   table.geral td{ text-align:right; white-space:nowrap; }
   table.geral tr.tot{ background:#eceef2; font-weight:800; }
   table.geral tr.tot td{ border-top:2px solid #c9ccd3; }
+  table.geral tr.fora td{ border-top:1px dashed #c9ccd3; color:#555; font-style:italic; }
+  table.geral tr.fora td:first-child{ font-style:normal; }
   /* Capa (réplica do slide de abertura) */
   .capa{ position:relative; min-height:560px; background:#fff; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
   .capa-bar{ position:absolute; left:0; top:0; bottom:0; width:170px; background:#8d8d8d; }
@@ -336,6 +338,13 @@ async function renderGeral(){
   const difT=sMeta?(sProd-sMeta)/sMeta:null;
   html+=`<tr class="tot"><td>Total</td><td></td><td>${f(sMeta)}</td><td>${f(sProd)}</td>`
     +`<td class="${cls(difT)}">${pc(difT)}</td><td></td><td></td><td></td><td>${pc(dispA)}</td><td></td></tr>`;
+  // Usinas fora do total (ex.: Piancó) — aparecem ABAIXO do Total, sem entrar na soma
+  const F=d.fora||[];
+  if(F.length){
+    html+=F.map(r=>`<tr class="fora"><td>${r.usina}</td><td>${f(r.pot_kwp)}</td><td>${f(r.meta)}</td><td>${f(r.produzida)}</td>`
+      +`<td class="${cls(r.dif_prod)}">${pc(r.dif_prod)}</td><td>${f(r.irr_esp)}</td><td>${f(r.irr_med)}</td>`
+      +`<td class="${cls(r.dif_irr)}">${pc(r.dif_irr)}</td><td>${pc(r.disp)}</td><td>${pc(r.fc)}</td></tr>`).join('');
+  }
   $('geralBody').innerHTML=html;
 }
 
