@@ -738,6 +738,9 @@ CARTEIRAS = {
 CARTEIRA_ORDEM = ["Thopen", "Copel", "Matrix", "Polaris"]
 _CARTEIRA_DE = {u: c for c in CARTEIRA_ORDEM for u in CARTEIRAS[c]}  # usina -> carteira
 
+# Usinas que aparecem no dashboard (seletor/drill) mas NÃO entram no cálculo da Visão Geral (aba Geral).
+EXCLUIR_GERAL = {"Piancó 1"}
+
 
 @app.route("/api/t/usinas")
 def usinas():
@@ -920,7 +923,8 @@ def geral():
     disponiveis = {_NOME_CANON.get(u, u) for u in
                    (set(_state["daily"].keys()) | set(_polaris_records().keys())
                     | set(_sheet_records().keys()))}
-    nomes = sorted({u for u in CARTEIRAS.get(carteira, []) if u in disponiveis})
+    nomes = sorted({u for u in CARTEIRAS.get(carteira, [])
+                    if u in disponiveis and u not in EXCLUIR_GERAL})
     linhas = [r for r in (_resumo_usina(u, ano, mes) for u in nomes) if r["produzida"] is not None]
     today = dt.date.today()
     corte = (today if (ano == today.year and mes == today.month)
