@@ -1,0 +1,72 @@
+Relatorio de Analise de Correntes de String
+UFV SMP100 | 18/07/2026 | 20 inversores | 350 strings | Janela solar 06:00-18:00
+Este relatorio consolida a classificacao de status, o registro de ocorrencias e a metodologia utilizada para as correntes
+de string desta usina, seguindo a mesma estrutura ja estabelecida para TIM100.
+USINA SAUDAVEL COM UM PONTO DE ATENCAO LOCALIZADO: das 350 strings analisadas,
+apenas 2 apresentaram falha real, e ambas pertencem ao mesmo inversor (6.2), com padrao de falha
+praticamente identico minuto a minuto — forte indicio de causa fisica compartilhada. Nenhuma
+ocorrencia temporaria foi identificada nas demais 348 strings.
+1. Status das Strings
+1.1 Resumo executivo
+Categoria Qtd Descricao
+Parado (corrente zero, sem geracao util) 2 Inversor 6.2 / ST_21 e ST_24, mesmo inversor
+Ocorrencia temporaria 0 Nenhuma identificada
+Normal 348 Corrente dentro do padrao esperado
+1.2 Parado (2 strings, mesmo inversor)
+Inversor 6.2 / ST_21 — corrente exatamente 0,00 A durante as 24 horas do dia, sem nenhuma leitura acima do
+ruido do sensor. Desconexao total ou permanente.
+Inversor 6.2 / ST_24 — padrao diferente e mais informativo: registra corrente pequena porem real (0,33 a 0,46 A)
+entre 06:30 e 08:05, no inicio da manha, mas cai para 0,00 A assim que o restante do inversor atinge corrente de
+operacao normal (a partir de aproximadamente 08:35, permanecendo em zero ate 16:05). Esse padrao — corrente
+presente sob baixa irradiancia mas ausente sob carga normal — e caracteristico de conector com mau contato
+(resistencia de contato elevada) em vez de rompimento total do circuito, distinto do padrao do ST_21.
+As duas strings pertencem ao mesmo inversor e apresentam janelas de falha praticamente identicas (07:55-08:25
+e 08:35-16:05), sugerindo causa fisica compartilhada: possivel mesmo combinador de strings, mesmo disjuntor de
+protecao, ou dano fisico numa mesma regiao do campo (ex.: cabeamento danificado por roedor, incendio
+localizado, ou intervencao de manutencao recente que afetou ambas simultaneamente).
+1.3 Normal (348 strings)
+As demais 348 strings, distribuidas pelos outros 19 inversores e pelas 16 strings restantes do proprio inversor 6.2,
+produziram corrente dentro do padrao esperado durante toda a janela solar.
+2. Ocorrencias (janela solar 06:00-18:00)
+Nenhuma ocorrencia temporaria foi identificada. Os dois casos da secao 1.2 sao classificados como Parado, dado que
+a corrente permanece nula durante praticamente toda a janela de geracao (450 minutos consecutivos de zero
+absoluto entre 08:35 e 16:05, alem de mais 30 minutos entre 07:55 e 08:25), sem qualquer recuperacao dentro do dia
+analisado.
+2.1 Detalhamento das janelas de falha
+String Janela de corrente zero Duracao total Corrente das strings-irmas no periodo
+ST_21 07:55-08:25 e 08:35-16:05 480 min (8,0 h) 3,1 a 9,3 A
+ST_24 07:55-08:25 e 08:35-16:05 480 min (8,0 h) 3,1 a 9,3 A
+Total combinado de geracao perdida: 960 minutos (16,0 h) somando as duas strings. Recomenda-se inspecao
+fisica prioritaria do inversor 6.2, com atencao especial ao combinador ou disjuntor compartilhado entre as strings 21 e
+24, dado o padrao de falha praticamente simultaneo.
+3. Metodologia
+3.1 Continuidade da metodologia de strings
+Mantida a metodologia estabelecida no relatorio anterior (TIM100, 17/07/2026): comparacao de cada string contra a
+mediana das strings-irmas do mesmo inversor no mesmo instante, com deteccao de janelas de queda (corrente
+abaixo de 0,5 A enquanto a mediana das irmas supera 2,0 A) agrupadas com limiar minimo de 30 minutos.
+3.2 Refinamento: distincao entre desconexao total e mau contato
+Esta usina introduziu um refinamento aplicavel a analises futuras de string: ao inspecionar os detalhes de uma string
+sinalizada como falha, verificar nao apenas SE ela gerou corrente, mas TAMBEM O PADRAO de quando gerou. Uma
+string completamente desconectada (cabo rompido, fusivel aberto) mostra corrente zero em qualquer condicao de
+irradiancia, incluindo os extremos de baixa luz do amanhecer e entardecer. Uma string com conector de mau contato
+(resistencia de contato elevada) pode ainda conduzir uma corrente pequena sob baixa irradiancia (baixa corrente,
+baixa queda de tensao no ponto de mau contato), mas falha completamente assim que a corrente de operacao normal
+exigiria maior fluxo pelo ponto de contato defeituoso.
+para uma string classificada como Parado:
+verificar leituras de corrente no amanhecer/entardecer (baixa irradiancia)
+se corrente = 0 em todos os horarios, incluindo baixa irradiancia:
+-> provavel desconexao total (cabo rompido, fusivel aberto,
+string fisicamente desconectada)
+se corrente pequena mas real aparece apenas em baixa irradiancia,
+e cai a zero sob irradiancia/carga normal:
+-> provavel mau contato (conector solto, corrosao, resistencia
+de contato elevada) — menor urgencia de seguranca, mas
+ainda requer reparo
+Essa distincao tem valor pratico direto para a equipe de campo: uma desconexao total geralmente exige verificacao
+de continuidade e possível substituicao de cabo ou fusivel, enquanto um mau contato costuma ser resolvido com
+reaperto ou substituicao do conector, sendo um reparo mais simples e rapido.
+3.3 Identificacao de causa compartilhada entre strings do mesmo inversor
+Quando duas ou mais strings do mesmo inversor apresentam janelas de falha coincidentes no tempo (mesmo minuto
+de inicio e fim), a hipotese de causa compartilhada (mesmo combinador, disjuntor, ou dano fisico regional) deve ser
+priorizada sobre duas falhas independentes. Essa verificacao sera aplicada sistematicamente em relatorios futuros
+sempre que mais de uma string do mesmo inversor for sinalizada.

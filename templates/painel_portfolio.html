@@ -259,8 +259,20 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
       </div>
       <div style="font-size:10px;color:var(--faint);margin-top:6px">D-1 — dados fechados do banco (BD_Performance / BD_Thopen), não tempo real.</div>
     </div>
-    <div class="card"><div class="chead"><div><h3>PR Realizado × PR Previsto (mensal)</h3><div class="csub" id="gMensalSub">Barras = PR ponderado do mês (D-1) · linha = meta · clique numa barra para abrir o diário</div></div></div>
-      <div class="cwrap" style="height:280px"><canvas id="gChMensal"></canvas></div></div>
+    <div style="display:grid;grid-template-columns:minmax(0,1.9fr) minmax(238px,1fr);gap:14px;align-items:stretch">
+      <div class="card"><div class="chead"><div><h3>PR Realizado × PR Previsto (mensal)</h3><div class="csub" id="gMensalSub">Barras = PR ponderado do mês (D-1) · linha = meta · clique numa barra para abrir o diário</div></div></div>
+        <div class="cwrap" style="height:280px"><canvas id="gChMensal"></canvas></div></div>
+      <div class="card" style="display:flex;flex-direction:column;min-height:0">
+        <div class="chead"><div><h3>Comentários da UFV</h3><div class="csub">OSs de Performance em aberto + anotações dos analistas</div></div></div>
+        <div id="gOsLista"></div>
+        <div id="gComentLista" style="flex:1;min-height:60px;max-height:200px;overflow:auto;margin:2px 0 8px"></div>
+        <div style="display:flex;gap:6px;align-items:flex-start">
+          <input id="gComentNick" placeholder="Nick" maxlength="40" style="width:76px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:11px;font-family:inherit;background:var(--panel-2);color:var(--txt)">
+          <textarea id="gComentTexto" rows="2" placeholder="Escreva um comentário..." maxlength="2000" style="flex:1;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:11px;font-family:inherit;background:var(--panel-2);color:var(--txt);resize:vertical"></textarea>
+        </div>
+        <button onclick="gComentPub()" style="border:1px solid var(--line);background:var(--panel-2);color:var(--txt);cursor:pointer;margin-top:6px;align-self:flex-end;padding:6px 14px;border-radius:8px;font-size:12px;font-family:inherit">Publicar</button>
+      </div>
+    </div>
     <div class="grid-main" style="margin-top:14px">
       <div class="card"><div class="chead"><div><h3>Top 10 piores inversores</h3><div class="csub" id="gTopSub">PR do período · linha = alvo da usina</div></div></div>
         <div class="cwrap" style="height:340px"><canvas id="gChTop"></canvas></div></div>
@@ -282,6 +294,7 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
   <div class="dkpis" id="dKpis"></div>
   <div class="dsec">Diagnóstico 🔎</div><div id="dDiag"><div class="empty">—</div></div>
   <div id="dHeatWrap"></div>
+  <div id="dComentOs" style="margin-bottom:6px"></div>
   <div class="dsec">Comentários 💬</div>
   <div id="dComentLista" style="max-height:220px;overflow:auto;margin-bottom:8px"></div>
   <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:14px">
@@ -647,8 +660,25 @@ async function excluirComentarioDrawer(ts){
     _renderComentDrawer(r.thread||[]);
   }catch(e){}
 }
+function _carregarOsDrawer(usina){   // OSs de Performance (Fracttal) da usina — só-leitura, acima dos comentários
+  const box=document.getElementById('dComentOs'); if(!box) return;
+  box.innerHTML='';
+  gGET('/api/os-performance?usina='+encodeURIComponent(usina||'')).then(d=>{
+    const os=(d&&d.os)||[]; if(!os.length){ box.innerHTML=''; return; }
+    const cards=os.map(o=>
+      `<div style="border:1px solid var(--line);border-left:3px solid #f59e0b;border-radius:8px;padding:6px 9px;margin-bottom:5px;background:var(--panel-2)">
+         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+           <b style="font-family:monospace;font-size:11px">OS #${_cmEsc(o.os)}</b>
+           <span style="font-size:9px;color:var(--faint);background:var(--panel);padding:1px 6px;border-radius:4px">${_cmEsc(o.categoria)}</span>
+           <span style="margin-left:auto;font-size:9px;font-weight:700;padding:1px 7px;border-radius:20px;background:rgba(245,158,11,.16);color:#f59e0b;white-space:nowrap">${_cmEsc(o.status)}</span></div>
+         ${o.nota?`<div style="font-size:10.5px;color:var(--muted);margin-top:4px;line-height:1.4">${_cmEsc(String(o.nota).slice(0,170))}</div>`:''}
+       </div>`).join('');
+    box.innerHTML=`<div class="dsec" style="margin-top:0">OSs de Performance 🛠️ <span style="font-weight:400;color:var(--faint);font-size:11px">· ${os.length} em aberto</span></div>${cards}`;
+  }).catch(()=>{ box.innerHTML=''; });
+}
 function _carregarComentariosDrawer(p){
   _comentKeyAtual=stateKey(p);
+  _carregarOsDrawer(p&&p.usina);
   document.getElementById('dComentNick').value=localStorage.getItem('gcAnalistaNick')||'';
   document.getElementById('dComentTexto').value='';
   if(!_comentKeyAtual){document.getElementById('dComentLista').innerHTML='<div class="empty">Fonte sem chave de estado conhecida.</div>';return;}
@@ -809,6 +839,7 @@ async function gRenderAll(){
   gMensal(c,g); gInversores(c,g);
   const f=(c.fim||c.ini||'').split('-');
   if(f.length>=2) gDiario(c,+f[0],+f[1],g);
+  gComentLoad(c);                       // OSs de Performance + comentários da UFV (região do Histórico PR)
 }
 /* visual sóbrio (pedido do Levi): barra na meta = CINZA tradicional (não verde), abaixo = vermelho;
    linha de meta com alto contraste nos 2 temas; valor % escrito em cada coluna (como no 5070). */
@@ -828,6 +859,18 @@ function _gOpt(pct,tk,grid){
     scales:{x:{grid:{display:false},ticks:{color:tk,font:{size:10}}},
             y:{grid:{color:grid},ticks:{color:tk,font:{size:10},callback:v=>pct?Math.round(v*100)+'%':v},beginAtZero:true,grace:'12%'}}};
 }
+// OSs de Performance por DIA no PR diário (pedido Levi 13/07): {dia:{os,status,nota,...}} — casa pela
+// DATA DO EVENTO. gOsDot pinta um ponto âmbar sob o nº do dia que teve OS; o tooltip mostra OS+nota.
+let gOsDia={};
+function _gWrapArr(s,n){ s=String(s==null?'':s).replace(/\s+/g,' ').trim(); const out=[];
+  while(s.length>n){ let cut=s.lastIndexOf(' ',n); if(cut<=0)cut=n; out.push(s.slice(0,cut)); s=s.slice(cut).trim(); }
+  if(s)out.push(s); return out.slice(0,4); }
+const gOsDot={id:'gOsDot',afterDraw(c){
+  const x=c.scales.x, ctx=c.ctx, yb=c.chartArea.bottom;
+  ctx.save(); ctx.fillStyle='#f59e0b';
+  (c.data.labels||[]).forEach((dia,i)=>{ if(!gOsDia[dia])return; const px=x.getPixelForValue(i);
+    ctx.beginPath(); ctx.arc(px, yb+22, 2.6, 0, Math.PI*2); ctx.fill(); });
+  ctx.restore(); }};
 async function gMensal(c,g){
   const d=await gGET(`/api/g/mensal?cliente=${encodeURIComponent(c.cliente)}&usina=${encodeURIComponent(c.usina)}`);
   if(g!==gGen) return;
@@ -846,20 +889,32 @@ async function gMensal(c,g){
   document.getElementById('gKpi').textContent=last?gPct(last.realizado):'—';
 }
 async function gDiario(c,ano,mes,g){
-  const d=await gGET(`/api/g/diario?cliente=${encodeURIComponent(c.cliente)}&usina=${encodeURIComponent(c.usina)}&ano=${ano}&mes=${mes}`);
+  const [d,osj]=await Promise.all([
+    gGET(`/api/g/diario?cliente=${encodeURIComponent(c.cliente)}&usina=${encodeURIComponent(c.usina)}&ano=${ano}&mes=${mes}`),
+    gGET('/api/os-performance?usina='+encodeURIComponent(c.usina)).catch(()=>({os:[]}))]);
   if(g!==undefined&&g!==gGen) return;
   const tk=cssv('--muted'), grid=document.body.classList.contains('dark')?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';
   let pts=d.pontos||[];
   const di=c.ini?new Date(c.ini+'T00:00'):null, df=c.fim?new Date(c.fim+'T00:00'):null;
   if(df&&df.getFullYear()===ano&&df.getMonth()+1===mes)
     pts=pts.filter(p=>{const dt=new Date(ano,mes-1,p.dia);return (!di||dt>=di)&&(!df||dt<=df);});
-  document.getElementById('gDiarioSub').textContent=`${String(mes).padStart(2,'0')}/${ano} · barras vermelhas = abaixo da meta (${d.meta!=null?nf(d.meta*100,1)+'%':'sem meta'}) · D-1`;
+  // OS de Performance por DIA — casa pela DATA DO EVENTO no mês/ano exibido ("qualquer uma por hora" = 1/dia)
+  gOsDia={};
+  (osj.os||[]).forEach(o=>{ const m=String(o.data||'').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if(m && +m[2]===mes && +m[3]===ano && !gOsDia[+m[1]]) gOsDia[+m[1]]=o; });
+  document.getElementById('gDiarioSub').textContent=`${String(mes).padStart(2,'0')}/${ano} · barras vermelhas = abaixo da meta (${d.meta!=null?nf(d.meta*100,1)+'%':'sem meta'}) · D-1 · ● = OS de Performance`;
   if(gChD)gChD.destroy();
+  const opt=_gOpt(true,tk,grid);
+  opt.layout={padding:{bottom:18}};                       // espaço p/ o ponto de OS sob o nº do dia
+  opt.plugins=Object.assign({},opt.plugins,{tooltip:{callbacks:{afterBody:(items)=>{
+    if(!items||!items.length)return[]; const p=pts[items[0].dataIndex], o=p&&gOsDia[p.dia];
+    if(!o)return[]; const out=['','OS #'+o.os+(o.status?(' · '+o.status):'')];
+    if(o.nota)_gWrapArr(o.nota,46).forEach(l=>out.push(l)); return out; }}}});
   gChD=new Chart(document.getElementById('gChDiario'),{data:{labels:pts.map(p=>p.dia),datasets:[
     {type:'bar',label:'PR diário',data:pts.map(p=>p.realizado),borderRadius:3,
      backgroundColor:pts.map(p=>(p.realizado!=null&&d.meta!=null&&p.realizado>=d.meta)?gGray():cssv('--red'))},
     {type:'line',label:'meta',data:pts.map(()=>d.meta),borderColor:gLine(),borderWidth:1.8,borderDash:[6,4],pointRadius:0}
-  ]},options:_gOpt(true,tk,grid),plugins:[gLbl]});
+  ]},options:opt,plugins:[gLbl,gOsDot]});
 }
 async function gInversores(c,g){
   const q=`cliente=${encodeURIComponent(c.cliente)}&usina=${encodeURIComponent(c.usina)}${c.ini?'&ini='+c.ini:''}${c.fim?'&fim='+c.fim:''}`;
@@ -902,6 +957,65 @@ function gOpenDrill(inv){
           if(c.length===1) p=MAP[c[0]]; }
   if(!p||!hasDrill(p)){ alert('Esta usina não tem página de diagnóstico (fonte sem drill ao vivo).'); return; }
   window.open(drillUrl(p)+'&inv='+encodeURIComponent(inv),'_blank');
+}
+
+// Comentários da UFV no Histórico PR (pedido Levi 13/07): OSs de Performance EM ABERTO (só-leitura) +
+// thread manual do analista. MESMA chave/API do dashboard operacional → aparece nos dois lugares.
+function gComentP(){ const u=document.getElementById('gUsi').value, k=norm(u); let p=MAP[k];
+  if(!p){ const ks=Object.keys(MAP), c=ks.filter(x=>x.startsWith(k)||k.startsWith(x)); if(c.length===1) p=MAP[c[0]]; }
+  return p||null; }
+let _gComentKey=null;
+function _gRenderComent(thread){
+  const lst=(thread||[]).slice().reverse();
+  document.getElementById('gComentLista').innerHTML = lst.length ? lst.map(c=>
+    `<div style="border:1px solid var(--line);border-radius:8px;padding:6px 9px;margin-bottom:5px;background:var(--panel-2)">
+       <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--faint);margin-bottom:2px">
+         <b style="color:var(--txt)">${_cmEsc(c.nick)}</b>
+         <span>${_cmTs(c.ts)}${c.ts?` <span onclick="gComentDel('${c.ts}')" title="Excluir" style="cursor:pointer;color:var(--red);margin-left:6px;font-weight:700">✕</span>`:''}</span></div>
+       <div style="font-size:11.5px;color:var(--txt);white-space:pre-wrap">${_cmEsc(c.texto)}</div>
+     </div>`).join('') : '<div class="empty" style="padding:6px 0;font-size:11px">Sem comentários ainda — seja o primeiro.</div>';
+}
+function gComentLoad(c){
+  const u=(c&&c.usina)||document.getElementById('gUsi').value;
+  const osb=document.getElementById('gOsLista'), box=document.getElementById('gComentLista');
+  if(!osb||!box) return;
+  gGET('/api/os-performance?usina='+encodeURIComponent(u)).then(d=>{        // OSs em aberto (só-leitura)
+    const os=(d&&d.os)||[];
+    osb.innerHTML = os.length ? os.map(o=>
+      `<div style="border:1px solid var(--line);border-left:3px solid #f59e0b;border-radius:8px;padding:6px 9px;margin-bottom:5px;background:var(--panel-2)">
+         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+           <b style="font-family:monospace;font-size:11px">OS #${_cmEsc(o.os)}</b>
+           <span style="font-size:9px;color:var(--faint);background:var(--panel);padding:1px 6px;border-radius:4px">${_cmEsc(o.categoria)}</span>
+           <span style="margin-left:auto;font-size:9px;font-weight:700;padding:1px 7px;border-radius:20px;background:rgba(245,158,11,.16);color:#f59e0b;white-space:nowrap">${_cmEsc(o.status)}</span></div>
+         ${o.nota?`<div style="font-size:10.5px;color:var(--muted);margin-top:4px;line-height:1.4">${_cmEsc(String(o.nota).slice(0,170))}</div>`:''}
+       </div>`).join('') : '';
+  }).catch(()=>{osb.innerHTML='';});
+  const p=gComentP(); _gComentKey = p?stateKey(p):null;
+  document.getElementById('gComentNick').value=localStorage.getItem('gcAnalistaNick')||'';
+  document.getElementById('gComentTexto').value='';
+  if(!_gComentKey){ box.innerHTML='<div class="empty" style="padding:6px 0;font-size:11px">Fonte sem chave de comentário reconhecida.</div>'; return; }
+  box.innerHTML='<div class="empty" style="padding:6px 0">Carregando…</div>';
+  gGET('/api/state').then(d=>{
+    const th=(d.comments_thread&&d.comments_thread[_gComentKey])||[];
+    const leg=d.comments&&d.comments[_gComentKey];
+    _gRenderComent(th.length?th:(leg&&leg.trim()?[{nick:'(antigo)',texto:leg,ts:''}]:[]));
+  }).catch(()=>{box.innerHTML='<div class="empty" style="padding:6px 0;font-size:11px">Falha ao carregar.</div>';});
+}
+async function gComentPub(){
+  const nick=document.getElementById('gComentNick').value.trim(), texto=document.getElementById('gComentTexto').value.trim();
+  if(!nick||!texto){alert('Preencha seu nick e o comentário.');return;}
+  if(!_gComentKey)return;
+  localStorage.setItem('gcAnalistaNick',nick);
+  try{ const r=await fetch('/api/state/comment/add',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({key:_gComentKey,nick,texto})}).then(r=>r.json());
+    document.getElementById('gComentTexto').value=''; _gRenderComent(r.thread||[]);
+  }catch(e){alert('Falha ao publicar o comentário.');}
+}
+async function gComentDel(ts){
+  if(!_gComentKey)return;
+  try{ const r=await fetch('/api/state/comment/del',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({key:_gComentKey,ts})}).then(r=>r.json()); _gRenderComent(r.thread||[]);
+  }catch(e){}
 }
 
 /* ---- mode toggle ---- */

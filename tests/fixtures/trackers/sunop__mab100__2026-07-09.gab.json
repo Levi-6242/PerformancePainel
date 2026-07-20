@@ -1,0 +1,64 @@
+{
+  "refere_a": "MAB100 · trackers · 2026-07-09 · sunop (Athon)",
+  "dia_tipo": "problematico",
+  "regua_pendente": true,
+  "narrativa": "SunOp/Athon, 150 trackers. Rico em SEVERO por congelamento (16) + 3 sub-tipos de PARADO. PARADO (10): comunicacao morta (TRK_25/87 = 0.00deg exato 24h, offline); travado em angulo REAL (TRK_11/29/41/69/97/120/123 — amp<0.7, nunca moveu; nota TRK_69 fica em -0.19..0.07 = perto de 0 mas com micro-oscilacao, NAO e 0.00 cravado, por isso NAO e comunicacao morta); e FORA-DE-FAIXA TRK_28 travado em 60.4-60.9deg (alem do +-55 fisico, fora_pct 100 = erro de calibracao/offset alem de parado). SEVERO (16) todos por CONGELAMENTO, 3 familias: (A) DESCIDA MATINAL rapida ~08:00-09:45, 12 trackers de numeracao BAIXA (1-22) travaram enquanto a frota seguia ate -55 e depois deram salto p/ recuperar = evento de zona (gargalo de comunicacao/motor compartilhado); (B) PICO DA TARDE 15:20-16:20, TRK_31/148/142 travaram no topo; (C) ISOLADO GRAVE TRK_65: ficou ~5h perto do stow (05:00-10:20) sem acompanhar o ciclo matinal ate -55, recuperou abrupto as 10:20 + 1 leitura impossivel -91.74deg as 06:40 (glitch de comunicacao). GAP PROVADO de novo: classificador de curso da PARADO 10/10 mas SEVERO 0/16 (viram leve/normal) — cobriram o curso, so travaram um trecho -> precisa da camada de OCORRENCIA (freeze). REFINO CRITICO da regua parado/severo: TRK_65 congelou ~5h (>>120min) mas RECUPEROU e ficou SEVERO, nao parado -> NAO e a duracao do freeze que define parado, e a PERSISTENCIA ate o fim do dia (congelou+ficou=parado; congelou+voltou=severo, qualquer que seja a duracao).",
+  "esperado": {
+    "TRK_25":  {"status": "parado", "subtipo": "comunicacao_morta", "evidencia": "0.00deg 24h"},
+    "TRK_87":  {"status": "parado", "subtipo": "comunicacao_morta", "evidencia": "0.00deg 24h"},
+    "TRK_11":  {"status": "parado", "subtipo": "travado_mecanico", "evidencia": "amp 0.4, travado em 44.0"},
+    "TRK_29":  {"status": "parado", "subtipo": "travado_mecanico", "evidencia": "amp 0.5, travado em 5.4"},
+    "TRK_41":  {"status": "parado", "subtipo": "travado_mecanico", "evidencia": "amp 0.3, travado em 4.0"},
+    "TRK_69":  {"status": "parado", "subtipo": "travado_mecanico", "evidencia": "amp 0.4, travado ~0 (nao 0.00 cravado)"},
+    "TRK_97":  {"status": "parado", "subtipo": "travado_mecanico", "evidencia": "amp 0.2, travado em -0.3"},
+    "TRK_120": {"status": "parado", "subtipo": "travado_mecanico", "evidencia": "amp 0.3, travado em 22.0"},
+    "TRK_123": {"status": "parado", "subtipo": "travado_mecanico", "evidencia": "amp 0.6, travado em 1.7"},
+    "TRK_28":  {"status": "parado", "subtipo": "fora_de_faixa", "evidencia": "travado 60.4-60.9 (>+55, fora_pct 100, calibracao)"},
+    "TRK_4":   {"status": "desvio_severo", "subtipo": "freeze_descida_matinal", "evidencia": "94min travado -41.2 (08:19-09:53), maior da usina"},
+    "TRK_7":   {"status": "desvio_severo", "subtipo": "freeze_descida_matinal", "evidencia": "85min -43.7 (08:20-09:45)"},
+    "TRK_13":  {"status": "desvio_severo", "subtipo": "freeze_descida_matinal", "evidencia": "61min -45.9 (08:23-09:23)"},
+    "TRK_5":   {"status": "desvio_severo", "subtipo": "freeze_descida_matinal", "evidencia": "54min -54.9 (08:31-09:25)"},
+    "TRK_10":  {"status": "desvio_severo", "subtipo": "freeze_descida_matinal", "evidencia": "52min -51.9 (08:26-09:18)"},
+    "TRK_1":   {"status": "desvio_severo", "subtipo": "freeze_descida_matinal", "evidencia": "dois episodios 38+41min (-43.7/-52.9) 08:21-09:40"},
+    "TRK_9":   {"status": "desvio_severo", "subtipo": "freeze_descida_matinal", "evidencia": "dois episodios 39+30min (-41.0/-48.3) 08:18-09:45"},
+    "TRK_22":  {"status": "desvio_severo", "subtipo": "freeze_descida_matinal", "evidencia": "39min -52.4 (08:26-09:05)"},
+    "TRK_14":  {"status": "desvio_severo", "subtipo": "freeze_descida_matinal", "evidencia": "33min -55.0 (08:28-09:00)"},
+    "TRK_6":   {"status": "desvio_severo", "subtipo": "freeze_descida_matinal", "evidencia": "dois episodios 31+28min (-55.0/-50.3) 08:31-09:33"},
+    "TRK_3":   {"status": "desvio_severo", "subtipo": "freeze_descida_matinal", "evidencia": "30min -50.3 (08:24-08:54)"},
+    "TRK_16":  {"status": "desvio_severo", "subtipo": "freeze_descida_matinal", "evidencia": "28min -55.3 (08:30-08:57)"},
+    "TRK_31":  {"status": "desvio_severo", "subtipo": "freeze_pico_tarde", "evidencia": "56min 47.8 (15:24-16:20)"},
+    "TRK_148": {"status": "desvio_severo", "subtipo": "freeze_pico_tarde", "evidencia": "26min 47.3 (15:28-15:54)"},
+    "TRK_142": {"status": "desvio_severo", "subtipo": "freeze_pico_tarde", "evidencia": "25min 53.7 (15:55-16:20)"},
+    "TRK_65":  {"status": "desvio_severo", "subtipo": "freeze_longo_recuperou", "evidencia": "~5h perto do stow (05:00-10:20), recuperou; +glitch -91.7 06:40"}
+  },
+  "agregado_esperado": {
+    "parado": 10,
+    "desvio_severo": 16,
+    "normal": 124
+  },
+  "flags_comunicacao": {
+    "trackers": ["TRK_25", "TRK_87", "TRK_65"],
+    "regra": "TRK_25/87 = 0.00deg 24h (offline). TRK_65 = leitura isolada impossivel -91.74deg (fora do range fisico) = glitch de comunicacao, ja ignorada pela amplitude robusta p02-p98"
+  },
+  "flag_fora_de_faixa": {
+    "trackers": ["TRK_28"],
+    "regra": "travado alem do +-55 fisico (60deg) = erro de calibracao/offset, alem de parado"
+  },
+  "correlacao_evento": {
+    "grupo_descida_matinal": {
+      "trackers": ["TRK_1", "TRK_3", "TRK_4", "TRK_5", "TRK_6", "TRK_7", "TRK_9", "TRK_10", "TRK_13", "TRK_14", "TRK_16", "TRK_22"],
+      "janela": "08:00-09:45",
+      "regra": "12 trackers de numeracao baixa (1-22) congelaram na descida matinal rapida = evento de zona (gargalo comunicacao/motor compartilhado)"
+    },
+    "grupo_pico_tarde": {
+      "trackers": ["TRK_31", "TRK_142", "TRK_148"],
+      "janela": "15:20-16:20"
+    }
+  },
+  "resultado_classificador_atual": {
+    "parado": "10/10 correto (comunicacao morta + travado real + fora-de-faixa, todos via amp<15)",
+    "desvio_severo": "0/16 — descida matinal 3 leve/9 normal, pico tarde 1 leve/2 normal, TRK_65 leve",
+    "gap": "classificador de curso NAO enxerga congelamento; camada de ocorrencia (freeze) e obrigatoria",
+    "refino_parado_vs_severo": "TRK_65 congelou 5h e recuperou = SEVERO, nao parado -> parado exige PERSISTENCIA ate o fim do dia, nao apenas duracao do freeze"
+  }
+}

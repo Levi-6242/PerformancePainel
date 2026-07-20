@@ -1,0 +1,28 @@
+{
+  "refere_a": "TIM100 (Timon 100) · trackers · 2026-07-10 · sunop (Athon)",
+  "dia_tipo": "problematico",
+  "regua_pendente": true,
+  "narrativa": "CASO DEFINITIVO — Levi deu a régua EXPLÍCITA e mandou consolidar+calibrar+implementar em todas as fontes. 150 trackers, usina #1 em ocorrencias (a mais degradada). REGRA DO LEVI: PARADO = variacao <2deg o dia todo (nunca rastreou) OU comunicacao-morta (0.00 constante). SEVERO = congelamento (mesmo valor) >=30min consecutivos na janela 06-18h, FORA do batente mecanico simultaneo com a frota, seguido de RECUPERACAO (ou fechado as 18h). LEVE = congelamento 15-29min OU desvio 3-10deg persistente >=15min. Gabarito: 39 parado / 23 severo / 0 leve.",
+  "criterio_do_especialista": {
+    "parado": "variacao <2deg o dia todo, ou comunicacao morta (0.00 constante)",
+    "severo": "congelamento >=30min consecutivos, fora do batente-com-frota, seguido de recuperacao (ou fechado as 18h)",
+    "leve": "congelamento 15-29min, ou desvio 3-10deg persistente >=15min"
+  },
+  "esperado_grupos": {
+    "parado_comunicacao_morta": ["TRK_3","TRK_8","TRK_13","TRK_24","TRK_30","TRK_34","TRK_46","TRK_52","TRK_57","TRK_58","TRK_60","TRK_68","TRK_76","TRK_83","TRK_84","TRK_87","TRK_93","TRK_94","TRK_96","TRK_97","TRK_114","TRK_115","TRK_121","TRK_122","TRK_123","TRK_124","TRK_125","TRK_127","TRK_128","TRK_129","TRK_132","TRK_133","TRK_138","TRK_139","TRK_146","TRK_147"],
+    "parado_estatico": ["TRK_99","TRK_25","TRK_32"],
+    "severo": ["TRK_43","TRK_69","TRK_108","TRK_111","TRK_116","TRK_107","TRK_110","TRK_109","TRK_117","TRK_112","TRK_113","TRK_120","TRK_118","TRK_78","TRK_100","TRK_81","TRK_9","TRK_56","TRK_77","TRK_5","TRK_80","TRK_6","TRK_95"],
+    "leve": []
+  },
+  "agregado_esperado": {
+    "parado": 39,
+    "desvio_severo": 23,
+    "normal": 88
+  },
+  "calibracao": {
+    "PARADO": "CONVERGIU LIMPO: amp_robusta<3 OU comunicacao-morta -> 38/39 (falta so TRK_32, range 1.48 mas amp robusta um tico >3).",
+    "SEVERO_sinais_identificados": "1) freeze=corrida de MESMO VALOR (range<1.5) >=30min; 2) FORA do batente (|V|<53) — o dwell de +-55 e legitimo (trackers chegam escalonados, mediana da frota engana); 3) seguido de SALTO de recuperacao (>=8deg) — TRK_43 saltou 38, TRK_108 saltou 12; falso (stow/lento) sai suave (salto 0-5).",
+    "SEVERO_dificuldade": "Nao converge pra 23 com threshold fixo: o SunOp anda em DEGRAUS GROSSOS ESCALONADOS + stow + volta-de-batente, entao mid-arc holds e saltos aparecem em trackers saudaveis. Melhor tentativa ~40 severo (vs 23). Os extras sao borderline (TIM100 e a usina mais quebrada) + artefato de degrau. Grindar ate 23 = overfit ao TIM100.",
+    "recomendacao": "PARADO: lockar (limpo, todas as fontes). SEVERO/LEVE: calibrar primeiro numa fonte LIMPA (PG, dado sincronizado, sem degrau escalonado) usando o gabarito da Aracoiaba, depois adaptar o ruido do SunOp. Nao overfitar TIM100."
+  }
+}

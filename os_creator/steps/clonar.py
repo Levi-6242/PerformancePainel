@@ -43,7 +43,7 @@ class ClonarOSDialog(QWidget):
         self._loading_edit = False         # guard ao popular os editores de ativo/descrição
         self._wread = self._wresp = self._wc = self._wupd = self._wall = None
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowMinMaxButtonsHint)
-        self.setMinimumSize(720, 800)
+        self.setMinimumWidth(560)          # SÓ largura — min de altura empurrava o rodapé p/ fora quando embutido
         self.setStyleSheet(QSS_FORM)
         outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
         scroll = QScrollArea(); scroll.setWidgetResizable(True); scroll.setFrameShape(QScrollArea.Shape.NoFrame)
@@ -57,6 +57,7 @@ class ClonarOSDialog(QWidget):
         self.tbl = QTableWidget(0, 4)
         self.tbl.setHorizontalHeaderLabels(["Clonar ativo", "Tarefa", "Subt.", "Data/hora programada"])
         self.tbl.verticalHeader().setVisible(False)
+        self.tbl.verticalHeader().setDefaultSectionSize(46)   # cabe o editor de data de 40px sem estourar
         self.tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.tbl.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -67,7 +68,7 @@ class ClonarOSDialog(QWidget):
         hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         hh.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)      # data em célula não mede em ResizeToContents
-        self.tbl.setColumnWidth(0, 340); self.tbl.setColumnWidth(3, 185)
+        self.tbl.setColumnWidth(0, 340); self.tbl.setColumnWidth(3, 200)
         self.tbl.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.tbl.setMinimumHeight(180)
         self.bulk_date = QDateEdit(); self.bulk_date.setCalendarPopup(True)
@@ -125,7 +126,7 @@ class ClonarOSDialog(QWidget):
         self.sub_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         self.sub_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.sub_scroll.setWidget(self.sub_box)
-        self.sub_scroll.setMinimumHeight(90); self.sub_scroll.setMaximumHeight(220)   # não engole os cards de baixo
+        self.sub_scroll.setMinimumHeight(64); self.sub_scroll.setMaximumHeight(130)   # card mais baixo
         c_sel = Card("box", "Tarefa selecionada")
         c_sel.add(Linha(campo("Ativo", self.ed_ativo), campo("Descrição", self.ed_desc)))
         subhdr = QHBoxLayout(); subhdr.setSpacing(6)
@@ -135,7 +136,7 @@ class ClonarOSDialog(QWidget):
         lay.addWidget(c_sel)
 
         # ── Card 3: Detalhes ──
-        self.obs = QTextEdit(); self.obs.setFixedHeight(52)
+        self.obs = QTextEdit(); self.obs.setFixedHeight(104)   # mais alto p/ ler a observação
         self.chk_etiq = QCheckBox("Clonar etiquetas"); self.chk_etiq.setEnabled(False)
         c_det = Card("file", "Detalhes")
         c_det.add(campo("Observação", self.obs, extra="(opcional — vale para todas as tarefas)"))
@@ -265,7 +266,7 @@ class ClonarOSDialog(QWidget):
         hh2.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         hh2.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         hh2.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
-        self.tbl.setColumnWidth(0, 340); self.tbl.setColumnWidth(3, 185)
+        self.tbl.setColumnWidth(0, 340); self.tbl.setColumnWidth(3, 200)
         self._building = False
 
         self.obs.setPlainText(self._dados.get("notas") or "")

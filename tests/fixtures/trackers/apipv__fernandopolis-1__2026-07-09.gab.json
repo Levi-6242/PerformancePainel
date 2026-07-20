@@ -1,0 +1,63 @@
+{
+  "refere_a": "Fernandópolis 1 · trackers · 2026-07-09 · apipv",
+  "dia_tipo": "problematico",
+  "regua_pendente": true,
+  "narrativa": "PARADO = CONGELOU E NAO RECUPEROU (congelamento longo >=~120min no meio do dia), MESMO tendo rastreado antes. Grupo A (10): travaram ~12:34-12:40 em ~3-5 (rastrearam a manha). Grupo B (5): travaram ~12:48-12:49 em ~6-7 (TRK9 chegou a -55.6 de manha). TRK24: parado o dia todo (660min, nunca iniciou). Amplitude/curso PERDE os que rastrearam+travaram (classificador atual da leve/severo neles); o sinal certo e o MAIOR CONGELAMENTO (parados 293-660min vs normais <=85min = stow da manha). Confirma recuperacao: congelou e voltou=leve; congelou e ficou=parado. Sem severo/leve nesta usina (binario: parou ou funcionou).",
+  "esperado": {
+    "TRK1": {
+      "status": "parado"
+    },
+    "TRK2": {
+      "status": "parado"
+    },
+    "TRK3": {
+      "status": "parado"
+    },
+    "TRK4": {
+      "status": "parado"
+    },
+    "TRK5": {
+      "status": "parado"
+    },
+    "TRK6": {
+      "status": "parado"
+    },
+    "TRK7": {
+      "status": "parado"
+    },
+    "TRK8": {
+      "status": "parado"
+    },
+    "TRK15": {
+      "status": "parado"
+    },
+    "TRK17": {
+      "status": "parado"
+    },
+    "TRK9": {
+      "status": "parado"
+    },
+    "TRK10": {
+      "status": "parado"
+    },
+    "TRK11": {
+      "status": "parado"
+    },
+    "TRK13": {
+      "status": "parado"
+    },
+    "TRK14": {
+      "status": "parado"
+    },
+    "TRK24": {
+      "status": "parado"
+    }
+  },
+  "agregado_esperado": {
+    "parado": 16,
+    "desvio_severo": 0,
+    "desvio_leve": 0,
+    "normal": 14
+  },
+  "evento_usina": "FALHA CORRELACIONADA: 15 trackers congelaram juntos em 12:30-12:55 (janela 15min) = causa comum (NCU/RTU/energia de zona), nao 15 falhas independentes. Alerta de NIVEL DE USINA (camada separada). Verificar se estao na mesma central/circuito."
+}

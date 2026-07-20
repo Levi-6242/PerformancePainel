@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ETM — Estacoes Meteorologicas (painel real)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="plataforma.css">
+<style>body{padding:0}.gc-main{padding:22px}</style>
+</head>
+<!-- body.dark = tema escuro navy (#090d18). Remova a classe "dark" p/ ver o tema claro. -->
+<body class="dark">
+  <div class="gc-main">
+<!-- ===== INICIO: painel REAL #panel-pv-etm (templates/index.html linhas 1117-1160) =====
+     Estrutura e classes 100% do produto. So a VISIBILIDADE foi destravada p/ abrir a tela.
+     O <tbody id="pve-tbody"> e as estatisticas sao preenchidos em runtime por renderEtmTb()
+     (templates/index.html ~2607). Aqui aparecem vazios/"—" de proposito: ZERO dado inventado. -->
+  <div id="panel-pv-etm">
+    <div id="pve-load" class="gc-loading" style="display:none">
+      <div class="gc-spinner"></div>
+      <p>Coletando dados das estações...</p>
+    </div>
+    <div id="pve-cont">
+      <div class="gc-stats gc-stats-4">
+        <div class="gc-stat blue">
+          <div class="gc-stat-icon">🌤️</div>
+          <div class="gc-stat-body"><div class="n" id="pve-total">—</div><div class="l">Usinas c/ ETM</div></div>
+        </div>
+        <div class="gc-stat green">
+          <div class="gc-stat-icon">✅</div>
+          <div class="gc-stat-body"><div class="n" id="pve-norm">—</div><div class="l">Normal</div></div>
+        </div>
+        <div class="gc-stat yellow">
+          <div class="gc-stat-icon">⚡</div>
+          <div class="gc-stat-body"><div class="n" id="pve-parc">—</div><div class="l">Parcial</div></div>
+        </div>
+        <div class="gc-stat red">
+          <div class="gc-stat-icon">🚫</div>
+          <div class="gc-stat-body"><div class="n" id="pve-sem">—</div><div class="l">Sem dados</div></div>
+        </div>
+      </div>
+      <div class="gc-table-card">
+        <div class="gc-table-hdr">
+          <span class="gc-table-title">API PV — Estações Meteorológicas</span>
+          <span class="etm-legend">
+            <span><span style="color:#22c55e;font-size:13px">●</span> OK</span>
+            <span><span style="color:#f59e0b;font-size:13px">●</span> Erro sensor</span>
+            <span><span style="color:#ef4444;font-size:13px">●</span> Sem dados</span>
+          </span>
+        </div>
+        <div class="gc-table-wrap">
+          <table>
+            <thead><tr>
+              <th>Usina</th><th>POA (W/m²)</th><th>GHI (W/m²)</th><th>POA-RI (W/m²)</th><th>Última Leitura</th><th>Status</th>
+            </tr></thead>
+            <tbody id="pve-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+<!-- ===== FIM do painel real ===== -->
+  </div>
+</body>
+</html>

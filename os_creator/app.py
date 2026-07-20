@@ -2,13 +2,13 @@
 overlay de loading e Step 4 (atribuição de responsável)."""
 import os
 import datetime as _dt
-from PyQt6.QtCore import Qt, QByteArray, QPoint, QPropertyAnimation, QEasingCurve, QSize
+from PyQt6.QtCore import Qt, QByteArray, QPoint, QPropertyAnimation, QEasingCurve, QSize, QTimer
 from PyQt6.QtGui import QPixmap, QIcon, QColor, QPainter
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QStackedWidget,
                              QLabel, QProgressBar, QDialog, QLineEdit, QListWidget,
                              QListWidgetItem, QPushButton, QMessageBox, QTabWidget, QFrame,
-                             QGridLayout, QGraphicsDropShadowEffect)
+                             QGridLayout, QGraphicsDropShadowEffect, QGraphicsOpacityEffect)
 import api
 from workers import ApiWorker, auth_bus
 from steps.step1 import Step1
@@ -316,6 +316,7 @@ class MainWindow(QMainWindow):
         self._go(0)
         self._carregar_ativos()
         self._carregar_labels()
+        QTimer.singleShot(240, self._animar_entrada)      # entrada suave dos cards ao abrir o app
 
     # ── navegação / overlay ──
     def _go(self, idx):
@@ -446,10 +447,30 @@ class MainWindow(QMainWindow):
              lambda: self.criar_stack.setCurrentIndex(1)),
             ("copy", "Clonar OS", "Duplicar uma OS existente pelo número", self._mostrar_clonar_entrada),
         ]
+        self._launcher_cards = []
         for i, (ic, t, s, cb) in enumerate(cards):
-            grid.addWidget(_CardOS(ic, t, s, cb), i // 3, i % 3)
+            card = _CardOS(ic, t, s, cb)
+            self._launcher_cards.append(card)
+            grid.addWidget(card, i // 3, i % 3)
         outer.addLayout(grid); outer.addStretch(1)
         return w
+
+    def _animar_entrada(self):
+        """Entrada suave dos cards do launcher: fade-in em cascata (só ao abrir o app, com o launcher
+        visível). NÃO anima a POSIÇÃO — os cards são geridos por QGridLayout, e mover a posição brigava
+        com o layout quando a janela maximizava ao abrir, deixando os cards sobrepostos."""
+        cards = getattr(self, "_launcher_cards", [])
+        if not cards or self.criar_stack.currentIndex() != 0 or self.tabs.currentIndex() != 0:
+            return
+        self._entrada_anims = []
+        for i, c in enumerate(cards):
+            eff = QGraphicsOpacityEffect(c); eff.setOpacity(0.0); c.setGraphicsEffect(eff)
+            a_op = QPropertyAnimation(eff, b"opacity", self)
+            a_op.setDuration(520); a_op.setStartValue(0.0); a_op.setEndValue(1.0)
+            a_op.setEasingCurve(QEasingCurve.Type.OutCubic)
+            a_op.finished.connect(lambda _c=c: _c.setGraphicsEffect(None))   # tira o efeito ao fim (hover normal)
+            QTimer.singleShot(60 + i * 75, a_op.start)
+            self._entrada_anims.append(a_op)
 
     def _build_header(self):
         """Header (imagem 2): símbolo + Grid Co. + subtítulo | avatar + nome + cargo do usuário."""
@@ -508,21 +529,50 @@ class MainWindow(QMainWindow):
             if key == "cos":
                 from steps.varias_os import VariasOSsDialog
                 inner = VariasOSsDialog(on_voltar=lambda: self.criar_stack.setCurrentIndex(0))
-            else:                                                     # pcm / perf
-                inner = PcmTab(performance=(key == "perf"))
+            elif key == "perf":                                       # Performance = fluxo próprio (N OS)
+                from steps.performance import PerformanceTab
+                inner = PerformanceTab(on_sair=lambda: self.criar_stack.setCurrentIndex(0))
+            else:                                                     # pcm
+                inner = PcmTab(performance=False)
             tornar_todos_pesquisaveis(inner)                          # combos pesquisáveis nos modos inline
             self._modo_idx[key] = self.criar_stack.addWidget(self._wrap_modo(inner))
+            self._modo_inner = getattr(self, "_modo_inner", {})       # ref p/ o deep link falar com o painel
+            self._modo_inner[key] = inner
             if hasattr(inner, "carregar_inicial"):
                 inner.carregar_inicial()
         self.criar_stack.setCurrentIndex(self._modo_idx[key])
 
+    def abrir_sugestao_performance(self, dados):
+        """Recebe a sugestão da Plataforma (deep link gridos://performance) → abre a aba Criar OS, o plano
+        de Performance e pré-preenche ativo/observação. Best-effort: encapsulado, NUNCA quebra o app."""
+        try:
+            self.tabs.setCurrentIndex(0)                              # aba "Criar OS"
+            self._mostrar_modo("perf")
+            perf = getattr(self, "_modo_inner", {}).get("perf")
+            if perf is not None and hasattr(perf, "aplicar_sugestao"):
+                perf.aplicar_sugestao(dados)
+        except Exception as e:
+            try:
+                from workers import registrar_erro
+                registrar_erro((type(e), e, e.__traceback__))
+            except Exception:
+                pass
+
     def _wrap_modo(self, inner):
-        """Embrulha um painel de modo com uma barra '← Voltar' (volta ao launcher)."""
-        page = QWidget(); v = QVBoxLayout(page); v.setContentsMargins(0, 6, 0, 0); v.setSpacing(6)
+        """Embrulha um painel de modo com uma barra '← Voltar' (volta ao launcher). Se o painel expõe
+        `modo_bar` (COS), ela vai NA MESMA LINHA do Voltar (economiza espaço vertical)."""
+        page = QWidget(); page.setStyleSheet(QSS_FORM)     # estila o Voltar (ghost) + a modo_bar do COS
+        v = QVBoxLayout(page); v.setContentsMargins(0, 6, 0, 0); v.setSpacing(6)
+        if getattr(inner, "_selfnav", False):              # Performance faz a própria navegação (Voltar/Planos)
+            v.setContentsMargins(0, 0, 0, 0); v.addWidget(inner, 1)
+            return page
         row = QHBoxLayout(); row.setContentsMargins(8, 4, 8, 0)
         b = QPushButton("← Voltar"); b.setObjectName("secondary"); b.setFixedWidth(96)
         b.clicked.connect(lambda: self.criar_stack.setCurrentIndex(0))
-        row.addWidget(b); row.addStretch(1)
+        row.addWidget(b)
+        if hasattr(inner, "modo_bar"):
+            row.addSpacing(12); row.addWidget(inner.modo_bar)
+        row.addStretch(1)
         v.addLayout(row); v.addWidget(inner, 1)
         return page
 
@@ -607,6 +657,7 @@ class MainWindow(QMainWindow):
                      "tipo": self.s2.tipo_tarefa(), "tipo_dict": self.s2.tipo_dict(),
                      "etiqueta": self.s2.etiqueta(), "etiqueta_ids": self.s2.etiqueta_ids(),
                      "subs": self.s3.subtarefas(),
+                     "imagens": self.s1.selected_images(),       # anexo por ativo (Passo 1) → 1 OS/ativo
                      "event_dt": self.s1.data_programada(),      # data programada (Passo 1) → event_date
                      "event_qdt": self.s1.dt_prog.dateTime()}    # idem, p/ default do painel 'já realizada'
         # A API exige o responsável JÁ na criação → escolhe primeiro, depois gera.
@@ -740,7 +791,8 @@ class ResponsavelDialog(QDialog):
                              d["subs"], d["etiqueta"], p["code"], p["name"], p.get("id_personnel"),
                              d.get("etiqueta_ids"), d.get("obs", ""), tipo=d.get("tipo_dict"),
                              finalizar=finalizar, event_date=event_date,
-                             id_parent=self.os_pai.id_parent())
+                             id_parent=self.os_pai.id_parent(),
+                             imagens_por_ativo=d.get("imagens"))
         self._w2.ok.connect(self._pronto)
         self._w2.erro.connect(self._err)
         self._w2.start()

@@ -1,0 +1,22 @@
+{
+  "refere_a": "Céu Azul 1 · trackers · 2026-07-09 · apipv",
+  "dia_tipo": "problematico",
+  "narrativa": "PARADO limpo o dia todo: TRK3 travado em ~0.42 (81% do dia), so picos de RUIDO de 1 leitura (que a amplitude CRUA max-min interpretava como curso cheio 110 -> conserto: amplitude ROBUSTA p02-p98). Motor inoperante. Resto normal (cobrem o curso). NOTA nova (camada SEPARADA, nao muda a classe): 'possivel falha de comunicacao' = 1-3 leituras isoladas >15 da frota que recuperam no proximo registro (TRK9 pico 54.6 as 08:37 com frota em -38; TRK5 pico 5.13 as 08:27 em meio a -26). Alerta tecnico p/ telemetria (RSSI/ruido), tracker fisico saudavel.",
+  "esperado": {
+    "TRK3": {
+      "status": "parado"
+    }
+  },
+  "agregado_esperado": {
+    "parado": 1,
+    "desvio_severo": 0,
+    "desvio_leve": 0,
+    "normal": 19
+  },
+  "flags_comunicacao": {
+    "TRK3": "PARADO, com picos de ruido de 1 leitura que saltam a +-55 e retornam ao valor travado (~0.42). Alerta tecnico separado; nao altera a classe 'parado'.",
+    "TRK9": "NORMAL, com leitura isolada de 54.60 as 08:37:10 (frota em -38.59) que recuperou no registro seguinte. Possivel falha de comunicacao/ruido; tracker fisico saudavel."
+  },
+  "regua_pendente": true,
+  "_nota_evolucao": "10/07: régua migrou de CURSO p/ FREEZE-BASED (regra explícita do Levi, caso TIM100). Gabarito course-based precisa re-validação contra a régua nova (severo/leve podem mudar; PARADO segue)."
+}

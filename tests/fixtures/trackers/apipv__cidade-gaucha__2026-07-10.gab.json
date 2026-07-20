@@ -1,0 +1,23 @@
+{
+  "refere_a": "Cidade Gaúcha (idusina 18744655) · trackers · 2026-07-10 · apipv",
+  "dia_tipo": "problematico",
+  "regua_pendente": true,
+  "intraday": true,
+  "narrativa": "Caso INTRADAY (dia 10/07, o mesmo do piloto do esquema de status ao vivo). 4 trackers problemáticos, o resto normal. PARADO: TRK45 (crônico — travado em 50.34 desde antes da meia-noite até 09:04h, ~9h; depois errático -2.5..12.5 por ~1h40, ~0-2 até 10:47, e SÓ ENTÃO rastreou normal, recuperando a tarde). SEVERO: TRK49 (travou -50.85 30min 08:49-09:19 + comunicação-morta 0.00 20min 09:20-09:40, recuperou 09:41), TRK42 (travou -44.87 25min 07:00-07:25, possível continuação de freeze anterior), TRK17 (travou -41.69 22min 07:00-07:22). VALIDAÇÃO DO PILOTO (régua INTRADAY = desvio-da-frota, >20 severo/>10 leve + parado robusto): pegou os 4, ZERO falso, contagens BATEM (1 parado / 3 severo / 0 leve). Membro-a-membro: TRK17 e TRK49 = severo (bate); TRK45 e TRK42 TROCADOS parado<->severo. Os dois trocados são o caso FUZZY 'freeze-que-recupera': TRK45 amp 77.6 (mexeu muito no dia -> piloto=severo; Levi pesa os 9h -> parado); TRK42 amp 2.2 (travado o dia todo em -45, o pico de 83 era glitch -> piloto=parado; Levi viu o freeze das 07:00 -> severo). Fronteira parado/severo do freeze-que-recupera é JULGAMENTO (decisão 4). Tensão irmã: MAB100 TRK_65 congelou 5h e recuperou = SEVERO; aqui TRK45 congela 9h e recupera = PARADO.",
+  "esperado": {
+    "TRK45": {"status": "parado", "subtipo": "freeze_cronico_recuperou", "evidencia": "travado 50.34 ~9h (madrugada-09:04), recuperou a tarde"},
+    "TRK49": {"status": "desvio_severo", "subtipo": "freeze_+_comunicacao", "evidencia": "30min -50.85 + 20min 0.00 (queda de sinal), recuperou 09:41"},
+    "TRK42": {"status": "desvio_severo", "subtipo": "freeze_matinal", "evidencia": "25min -44.87 (07:00-07:25); piloto vê amp 2.2 (travado o dia) e chama parado"},
+    "TRK17": {"status": "desvio_severo", "subtipo": "freeze_matinal", "evidencia": "22min -41.69 (07:00-07:22)"}
+  },
+  "agregado_esperado": {
+    "parado": 1,
+    "desvio_severo": 3,
+    "normal": 48
+  },
+  "validacao_piloto": {
+    "regua": "INTRADAY: severo/leve por desvio-da-frota (>20 severo, >10 leve), parado robusto (a régua ao vivo do piloto API PV)",
+    "resultado": "1 parado / 3 severo / 0 leve — contagens BATEM; pegou os 4, zero falso",
+    "membros": "TRK17,TRK49 severo = OK; TRK45<->TRK42 trocados parado/severo (freeze-que-recupera, fronteira de julgamento)"
+  }
+}

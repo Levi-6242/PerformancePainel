@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grid Co. — Sistema de Design · Plataforma de Performance</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+/* =========================================================================
+   REFERÊNCIA DE DESIGN — Plataforma de Performance (Grid Co.)
+   Tokens extraídos 1:1 do produto real (templates/index.html). Dados ilustrativos.
+   ========================================================================= */
+:root{
+  /* MARCA */
+  --green:#a3d900; --green-h:#8bbf00;
+  --green-d:rgba(163,217,0,.16); --green-b:rgba(163,217,0,.32);
+  /* STATUS (semânticos) */
+  --ok:#22c55e; --ok-tx:#16a34a; --warn:#f59e0b; --warn-tx:#d97706;
+  --crit:#ef4444; --crit-tx:#dc2626; --info:#3b82f6; --info-tx:#0369a1;
+  /* CHROME DA PÁGINA-REFERÊNCIA (dark navy por padrão) */
+  --pg:#05080f; --pg-2:#0c1322; --pg-3:#111a2e; --pg-line:rgba(255,255,255,.08);
+  --pg-tx:#e9eef6; --pg-mut:#8b97ab; --pg-faint:#5c6880;
+  /* TOKENS DO APP — tema escuro (body.dark do produto) */
+  --dark:#070b14; --dark2:#161d30; --dark3:#1c2640;
+  --bg:#090d18; --surface:#161d30; --surface-2:#1c2640; --surface-3:#131b2e;
+  --text:#e9eef6; --muted:#94a3b8; --text-2:#94a3b8;
+  --border:rgba(255,255,255,.09);
+  --thead:#0e1626; --row-hi:#1c2640;
+  --tint-red:rgba(239,68,68,.14); --tint-amber:rgba(234,179,8,.13);
+  --shadow:0 2px 18px rgba(0,0,0,.45);
+  --radius:12px; --radius2:8px;
+}
+html[data-theme="light"]{
+  --pg:#e9ece6; --pg-2:#ffffff; --pg-3:#f5f7f2; --pg-line:#e2e6dd;
+  --pg-tx:#1a1b2e; --pg-mut:#5b6472; --pg-faint:#9aa1ad;
+  --dark:#0f1117; --dark2:#181a27; --dark3:#1f2133;
+  --bg:#f3f5f0; --surface:#ffffff; --surface-2:#f8fafc; --surface-3:#fafbff;
+  --text:#1a1b2e; --muted:#6b7280; --text-2:#6b7280;
+  --border:#e5e7eb;
+  --thead:#f7f8fb; --row-hi:#eef2ff;
+  --tint-red:#fef2f2; --tint-amber:#fffdf5;
+  --green-d:rgba(163,217,0,.12); --green-b:rgba(163,217,0,.25);
+  --shadow:0 1px 12px rgba(0,0,0,.06),0 4px 24px rgba(0,0,0,.04);
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:var(--pg);color:var(--pg-tx);
+  font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+  -webkit-font-smoothing:antialiased;line-height:1.5;
+  transition:background .2s,color .2s;
+}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+a{color:inherit}
+::selection{background:var(--green-b);color:var(--pg-tx)}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:rgba(140,150,170,.35);border-radius:99px}
+:focus-visible{outline:2px solid var(--green);outline-offset:2px;border-radius:4px}
+
+/* ── TOP BAR da referência ─────────────────────────────────────────────── */
+.ref-top{position:sticky;top:0;z-index:50;background:color-mix(in srgb,var(--pg) 82%,transparent);
+  backdrop-filter:blur(10px);border-bottom:1px solid var(--pg-line)}
+.ref-top .wrap{display:flex;align-items:center;justify-content:space-between;height:58px}
+.ref-brand{display:flex;align-items:center;gap:10px;font-weight:800;letter-spacing:-.2px}
+.mark{width:28px;height:28px;border-radius:8px;background:var(--green);color:#0c1000;
+  display:grid;place-items:center;font-weight:900;font-size:15px;letter-spacing:-1px}
+.ref-brand span{color:var(--green)}
+.ref-top-r{display:flex;align-items:center;gap:10px}
+.tgl{display:inline-flex;align-items:center;gap:7px;background:var(--pg-2);border:1px solid var(--pg-line);
+  color:var(--pg-tx);border-radius:99px;padding:7px 14px;font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;
+  transition:border-color .15s,background .15s}
+.tgl:hover{border-color:var(--green-b)}
+.tgl .dotu{width:9px;height:9px;border-radius:50%;background:var(--green)}
+
+/* ── COVER ─────────────────────────────────────────────────────────────── */
+.cover{padding:64px 0 40px;position:relative;overflow:hidden}
+.cover::before{content:"";position:absolute;inset:-40% 40% auto -10%;height:460px;
+  background:radial-gradient(closest-side,var(--green-d),transparent 70%);filter:blur(10px);pointer-events:none}
+.eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:11px;font-weight:700;letter-spacing:.16em;
+  text-transform:uppercase;color:var(--green);margin-bottom:18px}
+.eyebrow::before{content:"";width:22px;height:2px;background:var(--green)}
+.cover h1{font-size:clamp(30px,5vw,50px);font-weight:900;letter-spacing:-.03em;line-height:1.04;max-width:16ch;
+  text-wrap:balance}
+.cover h1 em{font-style:normal;color:var(--green)}
+.cover p.lead{margin-top:20px;max-width:60ch;font-size:16.5px;color:var(--pg-mut);line-height:1.6}
+.meta{margin-top:30px;display:flex;flex-wrap:wrap;gap:10px}
+.chipm{display:inline-flex;align-items:center;gap:7px;background:var(--pg-2);border:1px solid var(--pg-line);
+  border-radius:99px;padding:7px 13px;font-size:12px;font-weight:600;color:var(--pg-mut)}
+.chipm b{color:var(--pg-tx);font-weight:700}
+.chipm i{width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block}
+
+/* ── SECTION scaffolding ───────────────────────────────────────────────── */
+section{padding:44px 0}
+.sec-h{display:flex;align-items:baseline;gap:14px;margin-bottom:22px}
+.sec-n{font-size:12px;font-weight:800;color:var(--green);letter-spacing:.1em;font-variant-numeric:tabular-nums}
+.sec-h h2{font-size:23px;font-weight:800;letter-spacing:-.02em}
+.sec-h p{margin-left:auto;color:var(--pg-mut);font-size:13px;max-width:44ch;text-align:right}
+.hr{height:1px;background:var(--pg-line);border:0}
+
+/* ── BROWSER FRAME (a réplica) ─────────────────────────────────────────── */
+.browser{border:1px solid var(--pg-line);border-radius:16px;overflow:hidden;box-shadow:0 30px 80px -30px rgba(0,0,0,.6);
+  background:var(--bg)}
+.br-bar{display:flex;align-items:center;gap:8px;padding:11px 14px;background:var(--dark);border-bottom:1px solid rgba(255,255,255,.06)}
+.br-dots{display:flex;gap:6px}
+.br-dots i{width:11px;height:11px;border-radius:50%;display:block;background:#3a4258}
+.br-url{margin:0 auto;background:rgba(255,255,255,.06);color:rgba(255,255,255,.6);font-size:11.5px;font-weight:500;
+  padding:5px 16px;border-radius:99px;letter-spacing:.01em}
+.br-url b{color:var(--green);font-weight:600}
+
+/* ===== APP — tokens/estilos fiéis ao produto ===== */
+.app{background:var(--bg);color:var(--text)}
+/* navbar */
+.gc-nav{background:var(--dark);padding:0 22px;height:52px;display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid rgba(255,255,255,.07)}
+.gc-logo{display:flex;align-items:center;gap:9px}
+.gc-logo .ic{width:27px;height:27px;background:var(--green);border-radius:7px;display:grid;place-items:center;
+  font-weight:900;font-size:13px;color:#0c1000;letter-spacing:-1px}
+.gc-logo .tx{color:#fff;font-weight:700;font-size:15px;letter-spacing:-.2px}
+.gc-logo .tx span{color:var(--green)}
+.gc-live{display:inline-flex;align-items:center;gap:6px;background:rgba(163,217,0,.1);border:1px solid rgba(163,217,0,.22);
+  border-radius:99px;padding:3px 11px 3px 8px;font-size:10px;font-weight:700;color:var(--green);letter-spacing:.05em;text-transform:uppercase}
+.gc-live i{width:6px;height:6px;background:var(--green);border-radius:50%;animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.7)}}
+.gc-nav-r{display:flex;align-items:center;gap:10px}
+.gc-refresh{background:var(--green);color:#0c1000;border:0;border-radius:8px;padding:7px 15px;font:inherit;font-weight:700;
+  font-size:12px;letter-spacing:.02em;cursor:pointer;transition:background .15s,transform .1s}
+.gc-refresh:hover{background:var(--green-h)}.gc-refresh:active{transform:scale(.97)}
+/* hero */
+.gc-hero{background:var(--surface);border-bottom:1px solid var(--border);padding:15px 22px 0}
+.gc-hero-top{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px}
+.gc-pill{display:inline-flex;align-items:center;gap:5px;background:var(--green-d);border:1px solid var(--green-b);
+  color:var(--green);font-size:9.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 10px;
+  border-radius:99px;margin-bottom:9px}
+html[data-theme="light"] .gc-pill{color:#5f7f00}
+.gc-hero h1{color:var(--text);font-size:17px;font-weight:800;letter-spacing:-.3px}
+.gc-hero h1 span{color:var(--green)}
+html[data-theme="light"] .gc-hero h1 span{color:#7aa300}
+.gc-hero-date{color:var(--muted);font-size:11px;padding-top:2px;font-variant-numeric:tabular-nums;text-align:right}
+/* primary tabs */
+.gc-ptabs{display:flex;gap:3px;align-items:flex-end;overflow-x:auto;padding-bottom:0}
+.gc-ptab{display:flex;align-items:center;gap:9px;padding:9px 15px 11px;border-radius:8px 8px 0 0;border:0;
+  border-bottom:3px solid transparent;background:transparent;cursor:pointer;font:inherit;white-space:nowrap;
+  transition:background .15s,border-color .15s}
+.gc-ptab:hover{background:var(--surface-2)}
+.gc-ptab.active{background:var(--surface-2);border-bottom-color:var(--green)}
+.gc-ptab .mono{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;font-size:10px;font-weight:800;
+  color:#fff;flex-shrink:0;letter-spacing:-.3px}
+.gc-ptab .info{display:flex;flex-direction:column;gap:1px;text-align:left}
+.gc-ptab .lb{font-size:12.5px;font-weight:700;color:var(--muted);line-height:1.2;transition:color .15s}
+.gc-ptab .sb{font-size:10px;color:var(--muted);opacity:.7;letter-spacing:.03em}
+.gc-ptab.active .lb{color:var(--text)}
+/* secondary bar */
+.gc-sec{background:var(--surface);border-bottom:1px solid var(--border);padding:8px 22px;display:flex;align-items:center;
+  justify-content:space-between;gap:12px}
+.gc-stabs{display:flex;gap:4px;flex-wrap:wrap}
+.gc-stab{padding:6px 15px;border-radius:99px;border:1.5px solid var(--border);background:none;font:inherit;font-size:12px;
+  font-weight:600;color:var(--muted);cursor:pointer;transition:all .15s}
+.gc-stab:hover:not(.active){background:var(--bg)}
+.gc-stab.active{background:var(--dark);border-color:var(--dark);color:var(--green)}
+.gc-sec-search{border:1.5px solid var(--border);border-radius:8px;padding:6px 12px;font:inherit;font-size:12px;width:190px;
+  outline:none;background:var(--surface);color:var(--text-2)}
+.gc-sec-search:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(163,217,0,.12)}
+/* main */
+.gc-main{padding:18px 22px 24px}
+/* kpis */
+.gk-kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:11px;margin-bottom:14px}
+.gk-kpi{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:12px 15px;display:flex;
+  flex-direction:column;gap:3px}
+.gk-kpi .l{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.gk-kpi .v{font-size:25px;font-weight:800;letter-spacing:-.03em;line-height:1.1;font-variant-numeric:tabular-nums}
+.gk-kpi .d{font-size:11px;color:var(--muted)}
+.gk-kpi.k-ok .v{color:var(--ok-tx)}.gk-kpi.k-red .v{color:var(--crit-tx)}.gk-kpi.k-amber .v{color:var(--warn-tx)}
+/* filter bar */
+.gf-bar{display:flex;align-items:center;gap:11px;flex-wrap:wrap;margin-bottom:13px}
+.gf-seg{display:inline-flex;background:var(--surface);border:1px solid var(--border);border-radius:9px;padding:3px;gap:2px}
+.gf-seg button{background:transparent;border:0;color:var(--muted);font:inherit;font-size:11.5px;font-weight:500;
+  padding:5px 12px;border-radius:7px;cursor:pointer}
+.gf-seg button.on{background:var(--dark);color:#fff;font-weight:600}
+html[data-theme="light"] .gf-seg button.on{background:#171a14}
+.gf-fonte{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:600;color:var(--muted);
+  background:var(--surface-3);border:1px solid var(--border);padding:3px 10px;border-radius:99px;white-space:nowrap}
+.gf-fonte i{width:7px;height:7px;border-radius:50%;display:inline-block}
+.gf-search{margin-left:auto;background:var(--surface);border:1px solid var(--border);color:var(--text);font:inherit;
+  font-size:12px;padding:7px 12px;border-radius:9px;width:200px;outline:none}
+.gf-search:focus{border-color:var(--green);box-shadow:0 0 0 3px rgba(163,217,0,.12)}
+/* table */
+.gc-tcard{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:var(--shadow)}
+.gc-thdr{padding:12px 16px;border-bottom:1px solid var(--border)}
+.gc-thdr .t{font-size:13px;font-weight:700}
+.gc-thdr .t small{color:var(--muted);font-weight:500;font-size:11.5px}
+.gc-twrap{overflow-x:auto}
+table.gt{width:100%;border-collapse:collapse;font-size:12.5px;min-width:760px}
+table.gt thead th{background:var(--thead);color:var(--muted);text-align:left;font-weight:700;font-size:10.5px;
+  letter-spacing:.04em;text-transform:uppercase;padding:9px 14px;border-bottom:1px solid var(--border);white-space:nowrap}
+table.gt tbody td{padding:11px 14px;border-bottom:1px solid var(--border);color:var(--text);white-space:nowrap;
+  font-variant-numeric:tabular-nums}
+table.gt tbody tr.row{cursor:pointer;transition:background .12s}
+table.gt tbody tr.row:hover{background:var(--row-hi)}
+table.gt tbody tr.row.tred{background:var(--tint-red)}
+table.gt tbody tr.row.tamber{background:var(--tint-amber)}
+.uname{display:flex;align-items:center;gap:9px;font-weight:700}
+.uname .exp{width:16px;height:16px;color:var(--muted);transition:transform .18s;flex-shrink:0}
+tr.row.open .uname .exp{transform:rotate(90deg);color:var(--green)}
+.cli{color:var(--muted);font-weight:600}
+.diff-neg{color:var(--crit-tx);font-weight:700}
+.diff-zero{color:var(--muted)}
+/* status badge */
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:99px;
+  letter-spacing:.01em}
+.badge i{width:6px;height:6px;border-radius:50%}
+.b-ok{background:rgba(34,197,94,.14);color:var(--ok-tx)} .b-ok i{background:var(--ok)}
+.b-crit{background:rgba(239,68,68,.15);color:var(--crit-tx)} .b-crit i{background:var(--crit)}
+.b-warn{background:rgba(245,158,11,.16);color:var(--warn-tx)} .b-warn i{background:var(--warn)}
+.b-mute{background:rgba(148,163,184,.16);color:var(--muted)} .b-mute i{background:var(--muted)}
+html[data-theme="light"] .b-ok{background:#dcfce7;color:#166534}
+html[data-theme="light"] .b-crit{background:#fee2e2;color:#991b1b}
+html[data-theme="light"] .b-warn{background:#fef3c7;color:#92400e}
+/* drill */
+tr.drill>td{padding:0;background:var(--surface-3);border-bottom:1px solid var(--border)}
+.drill-in{padding:2px 16px 18px 40px}
+.gd-head{display:flex;align-items:center;gap:10px;padding:14px 0 12px;flex-wrap:wrap}
+.gd-head .dt{font-size:12.5px;font-weight:700}
+.gd-head .sep{color:var(--muted);font-size:11.5px}
+.gd-btn{background:var(--surface);border:1px solid var(--border);color:var(--muted);font:inherit;font-size:11.5px;
+  font-weight:600;padding:5px 12px;border-radius:8px;cursor:pointer}
+.gd-btn.primary{background:var(--green);border-color:var(--green);color:#15170e;margin-left:auto}
+.gd-inv{background:var(--surface);border:1px solid var(--border);border-radius:10px;margin-bottom:8px;overflow:hidden}
+.gd-invhd{display:flex;align-items:center;gap:12px;padding:9px 13px;border-bottom:1px solid var(--border);font-size:12px}
+.gd-invhd .nm{font-weight:700}
+.gd-invhd .m{color:var(--muted);font-size:11px}
+.gd-invhd .tag{margin-left:auto;font-size:10px;font-weight:700;color:var(--muted);background:var(--surface-3);
+  border:1px solid var(--border);padding:3px 9px;border-radius:7px}
+.gd-chips{display:flex;flex-wrap:wrap;gap:5px;padding:11px 13px}
+.sc{font-size:10.5px;font-weight:600;padding:3px 8px;border-radius:6px;white-space:nowrap;
+  background:rgba(22,163,74,.1);color:var(--ok-tx)}
+.sc.zero{background:rgba(239,68,68,.12);color:var(--crit-tx)}
+.sc.low{background:rgba(217,119,6,.14);color:var(--warn-tx)}
+.sc.lock{background:rgba(3,105,161,.1);color:var(--info-tx)}
+.gd-curve{padding:2px 13px 14px}
+.gd-curve svg{display:block;width:100%;height:172px;background:var(--surface-3);border:1px solid var(--border);border-radius:8px}
+.leg{display:flex;gap:16px;flex-wrap:wrap;padding:8px 2px 0;font-size:10.5px;color:var(--muted);font-weight:600}
+.leg span{display:inline-flex;align-items:center;gap:6px}
+.leg span::before{content:"";width:14px;height:3px;border-radius:2px;background:currentColor}
+.leg .g::before{background:var(--green)}.leg .r::before{background:var(--crit)}.leg .a::before{background:var(--muted);opacity:.5}
+
+/* ── PALETTE ───────────────────────────────────────────────────────────── */
+.pal-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:14px}
+.pal-group{margin-bottom:26px}
+.pal-group h3{font-size:12px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:var(--pg-mut);margin-bottom:12px;
+  display:flex;align-items:center;gap:9px}
+.pal-group h3::after{content:"";flex:1;height:1px;background:var(--pg-line)}
+.sw{border:1px solid var(--pg-line);border-radius:12px;overflow:hidden;background:var(--pg-2)}
+.sw .chip{height:74px;position:relative}
+.sw .meta{padding:9px 11px}
+.sw .nm{font-size:12px;font-weight:700}
+.sw .hx{font-size:11px;color:var(--pg-mut);font-variant-numeric:tabular-nums;text-transform:uppercase;letter-spacing:.03em;margin-top:1px}
+.sw.big .chip{height:96px}
+
+/* ── TYPE ──────────────────────────────────────────────────────────────── */
+.type-card{background:var(--pg-2);border:1px solid var(--pg-line);border-radius:14px;padding:26px 28px}
+.wt-row{display:flex;flex-wrap:wrap;gap:8px 26px;align-items:baseline;padding:14px 0;border-bottom:1px solid var(--pg-line)}
+.wt-row:last-child{border:0}
+.wt-row .n{font-size:12px;color:var(--pg-mut);width:120px;font-weight:600}
+.wt-row .s{font-size:26px;letter-spacing:-.02em;white-space:nowrap}
+.scale{display:grid;gap:14px;margin-top:24px}
+.scale .r{display:flex;align-items:baseline;gap:20px;border-bottom:1px dashed var(--pg-line);padding-bottom:12px}
+.scale .r .tag{font-size:11px;color:var(--pg-mut);font-weight:700;width:150px;flex-shrink:0;font-variant-numeric:tabular-nums}
+.scale .r .ex{color:var(--pg-tx)}
+
+/* ── COMPONENTS gallery ────────────────────────────────────────────────── */
+.cg{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:16px}
+.cg .card{background:var(--pg-2);border:1px solid var(--pg-line);border-radius:14px;padding:18px}
+.cg .card h4{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--pg-mut);margin-bottom:14px}
+.cg .demo{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+/* mini specimens reuse app tokens on a surface */
+.spec-surface{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;color:var(--text)}
+
+/* ── FOOTER ────────────────────────────────────────────────────────────── */
+.foot{padding:40px 0 60px;color:var(--pg-faint);font-size:12.5px;border-top:1px solid var(--pg-line);margin-top:20px}
+.foot b{color:var(--pg-mut)}
+
+@media (max-width:820px){
+  .gk-kpis{grid-template-columns:repeat(2,1fr)}
+  .sec-h p{display:none}
+  .cover h1{font-size:32px}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<!-- ══ TOP BAR ══ -->
+<div class="ref-top"><div class="wrap">
+  <div class="ref-brand"><span class="mark">G</span>Grid&nbsp;Co. <span>· Design</span></div>
+  <div class="ref-top-r">
+    <button class="tgl" onclick="flipTheme()"><span class="dotu"></span><span id="tgltx">Tema: Escuro</span></button>
+  </div>
+</div></div>
+
+<!-- ══ COVER ══ -->
+<header class="cover"><div class="wrap">
+  <div class="eyebrow">Grid Co. · O&amp;M Solar · Referência de Design</div>
+  <h1>Sistema de design da <em>Plataforma de Performance</em></h1>
+  <p class="lead">Retrato do estado atual da interface — identidade, componentes e uma tela real de monitoramento — para orientar o <b style="color:var(--pg-tx)">rebranding</b>. Tokens extraídos direto do produto; dados de usina puramente ilustrativos.</p>
+  <div class="meta">
+    <span class="chipm"><i></i>Captura&nbsp;<b>15/07/2026</b></span>
+    <span class="chipm"><i></i>Tipografia&nbsp;<b>Inter</b></span>
+    <span class="chipm"><i></i>Marca&nbsp;<b>#A3D900</b></span>
+    <span class="chipm"><i></i><b>Claro + Escuro</b>&nbsp;(navy)</span>
+    <span class="chipm"><i></i><b>Dados de exemplo</b></span>
+  </div>
+</div></header>
+
+<!-- ══ 01 · A INTERFACE (réplica funcional) ══ -->
+<section><div class="wrap">
+  <div class="sec-h"><span class="sec-n">01</span><h2>A interface</h2>
+    <p>Réplica funcional: troque as abas, clique numa linha para abrir o retrato da usina, alterne o tema.</p></div>
+
+  <div class="browser">
+    <div class="br-bar">
+      <div class="br-dots"><i></i><i></i><i></i></div>
+      <div class="br-url"><b>grid</b>co · plataforma de performance — /geral</div>
+    </div>
+
+    <div class="app">
+      <!-- navbar -->
+      <div class="gc-nav">
+        <div class="gc-logo"><span class="ic">G</span><span class="tx">Grid&nbsp;Co.<span>&nbsp;Performance</span></span></div>
+        <div class="gc-nav-r">
+          <span class="gc-live"><i></i>Ao vivo</span>
+          <button class="gc-refresh" onclick="pulse(this)">Atualizar</button>
+        </div>
+      </div>
+
+      <!-- hero + primary tabs -->
+      <div class="gc-hero">
+        <div class="gc-hero-top">
+          <div>
+            <span class="gc-pill">Visão consolidada</span>
+            <h1>Detalhamento por Usina — <span>todas as fontes</span></h1>
+          </div>
+          <div class="gc-hero-date">Atualizado 09:34<br>15 jul 2026</div>
+        </div>
+        <div class="gc-ptabs" id="ptabs">
+          <button class="gc-ptab active" onclick="pTab(this)"><span class="mono" style="background:#171a14">GE</span><span class="info"><span class="lb">Geral</span><span class="sb">Todas as fontes</span></span></button>
+          <button class="gc-ptab" onclick="pTab(this)"><span class="mono" style="background:#1e88e5">PV</span><span class="info"><span class="lb">Thopen</span><span class="sb">API PV Operation</span></span></button>
+          <button class="gc-ptab" onclick="pTab(this)"><span class="mono" style="background:#5c6bc0">BD</span><span class="info"><span class="lb">Thopen</span><span class="sb">Banco de Dados</span></span></button>
+          <button class="gc-ptab" onclick="pTab(this)"><span class="mono" style="background:#26a69a">AT</span><span class="info"><span class="lb">Athon</span><span class="sb">API SunOp</span></span></button>
+          <button class="gc-ptab" onclick="pTab(this)"><span class="mono" style="background:#7e57c2">AX</span><span class="info"><span class="lb">Axis</span><span class="sb">SunOp · PE III</span></span></button>
+          <button class="gc-ptab" onclick="pTab(this)"><span class="mono" style="background:#ef6c00">RG</span><span class="info"><span class="lb">RenoGrid</span><span class="sb">API SolarEdge</span></span></button>
+          <button class="gc-ptab" onclick="pTab(this)"><span class="mono" style="background:#43a047">2C</span><span class="info"><span class="lb">2C</span><span class="sb">E-mail</span></span></button>
+        </div>
+      </div>
+
+      <!-- secondary bar -->
+      <div class="gc-sec">
+        <div class="gc-stabs">
+          <button class="gc-stab active" onclick="sTab(this)">Strings</button>
+          <button class="gc-stab" onclick="sTab(this)">ETM</button>
+          <button class="gc-stab" onclick="sTab(this)">Trackers</button>
+          <button class="gc-stab" onclick="sTab(this)">PR Inversores</button>
+          <button class="gc-stab" onclick="sTab(this)">Curva das strings</button>
+        </div>
+        <input class="gc-sec-search" placeholder="Filtrar usina..." aria-label="Filtrar usina">
+      </div>
+
+      <!-- main -->
+      <div class="gc-main">
+        <!-- KPIs -->
+        <div class="gk-kpis">
+          <div class="gk-kpi"><span class="l">Usinas</span><span class="v">42</span><span class="d">6 fontes ativas</span></div>
+          <div class="gk-kpi k-red"><span class="l">Com déficit</span><span class="v">6</span><span class="d">strings sem corrente</span></div>
+          <div class="gk-kpi k-amber"><span class="l">Sem comunicação</span><span class="v">2</span><span class="d">última &gt; 30 min</span></div>
+          <div class="gk-kpi k-ok"><span class="l">Strings ativas</span><span class="v">12.480</span><span class="d">de 12.606 esperadas</span></div>
+          <div class="gk-kpi"><span class="l">Disponib. média</span><span class="v">98,7%</span><span class="d">frota agora</span></div>
+        </div>
+
+        <!-- filter bar -->
+        <div class="gf-bar">
+          <div class="gf-seg">
+            <button class="on" onclick="seg(this)">Com déficit</button>
+            <button onclick="seg(this)">Sem comunicação</button>
+            <button onclick="seg(this)">Todas</button>
+          </div>
+          <span class="gf-fonte"><i style="background:#1e88e5"></i>API PV</span>
+          <span class="gf-fonte"><i style="background:#26a69a"></i>SunOp</span>
+          <span class="gf-fonte"><i style="background:#ef6c00"></i>SolarEdge</span>
+          <input class="gf-search" placeholder="Filtrar usina..." aria-label="Filtrar">
+        </div>
+
+        <!-- table -->
+        <div class="gc-tcard">
+          <div class="gc-thdr"><span class="t">Detalhamento por Usina — todas as fontes <small>— clique para expandir</small></span></div>
+          <div class="gc-twrap">
+            <table class="gt">
+              <thead><tr>
+                <th>Usina</th><th>Cliente</th><th>Inv.</th><th>Strings Ativas</th><th>Strings Esperadas</th>
+                <th>Diferença</th><th>Disponib.</th><th>Última Leitura</th><th>Status</th>
+              </tr></thead>
+              <tbody id="gtb">
+                <!-- linha expansível (retrato de usina) -->
+                <tr class="row tred" onclick="drill(this)">
+                  <td><span class="uname"><svg class="exp" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>UFV Serra Verde</span></td>
+                  <td class="cli">Thopen</td><td>12</td><td>1.284</td><td>1.296</td>
+                  <td class="diff-neg">−12</td><td>97,1%</td><td>09:32</td>
+                  <td><span class="badge b-crit"><i></i>Déficit</span></td>
+                </tr>
+                <tr class="drill" hidden><td colspan="9"><div class="drill-in">
+                  <div class="gd-head">
+                    <span class="dt">UFV Serra Verde</span><span class="sep">· Thopen · API PV Operation · 12 inversores</span>
+                    <button class="gd-btn primary" onclick="event.stopPropagation()">Criar OS</button>
+                  </div>
+
+                  <div class="gd-inv">
+                    <div class="gd-invhd"><span class="nm">Inversor 1.1</span><span class="m">18 strings · 1 sem corrente</span><span class="tag">SMB 1.1</span></div>
+                    <div class="gd-chips">
+                      <span class="sc">S1</span><span class="sc">S2</span><span class="sc">S3</span><span class="sc">S4</span><span class="sc">S5</span>
+                      <span class="sc">S6</span><span class="sc zero">S7 · 0,0 A</span><span class="sc">S8</span><span class="sc">S9</span><span class="sc low">S10 · baixa</span>
+                      <span class="sc">S11</span><span class="sc">S12</span><span class="sc">S13</span><span class="sc">S14</span><span class="sc">S15</span>
+                      <span class="sc">S16</span><span class="sc">S17</span><span class="sc">S18</span>
+                    </div>
+                    <div class="gd-curve">
+                      <!-- curva de strings do dia (SVG) -->
+                      <svg viewBox="0 0 600 172" preserveAspectRatio="none" role="img" aria-label="Curva de corrente das strings ao longo do dia">
+                        <g stroke="currentColor" opacity=".1" stroke-width="1">
+                          <line x1="0" y1="43" x2="600" y2="43"/><line x1="0" y1="86" x2="600" y2="86"/><line x1="0" y1="129" x2="600" y2="129"/>
+                        </g>
+                        <!-- envelope saudável (área) -->
+                        <path d="M20,158 C110,150 150,60 210,42 C280,22 330,24 400,44 C470,64 520,120 580,156 L580,168 L20,168 Z" fill="var(--green)" opacity=".12"/>
+                        <!-- strings saudáveis -->
+                        <path d="M20,158 C110,150 150,62 210,44 C280,24 330,26 400,46 C470,66 520,122 580,156" fill="none" stroke="var(--green)" stroke-width="2.4" stroke-linecap="round"/>
+                        <path d="M20,160 C110,152 150,72 210,54 C280,36 330,38 400,56 C470,74 520,128 580,159" fill="none" stroke="var(--green)" stroke-width="1.3" opacity=".45" stroke-linecap="round"/>
+                        <path d="M20,159 C110,151 150,66 210,49 C280,30 330,31 400,50 C470,70 520,125 580,157" fill="none" stroke="var(--green)" stroke-width="1.3" opacity=".45" stroke-linecap="round"/>
+                        <!-- string morta (S7): plana perto de zero -->
+                        <path d="M20,165 L210,165 L400,165 L580,165" fill="none" stroke="var(--crit)" stroke-width="2.4" stroke-linecap="round"/>
+                        <circle cx="20" cy="165" r="3" fill="var(--crit)"/>
+                      </svg>
+                      <div class="leg"><span class="g">Strings ativas</span><span class="a">demais strings</span><span class="r">S7 — sem corrente desde 06:12</span></div>
+                    </div>
+                  </div>
+
+                  <div class="gd-inv">
+                    <div class="gd-invhd"><span class="nm">Inversor 1.2</span><span class="m">18 strings · tudo ok</span><span class="tag">SMB 1.2</span></div>
+                    <div class="gd-chips">
+                      <span class="sc">S1</span><span class="sc">S2</span><span class="sc">S3</span><span class="sc">S4</span><span class="sc">S5</span>
+                      <span class="sc">S6</span><span class="sc">S7</span><span class="sc">S8</span><span class="sc">S9</span><span class="sc lock">S10 · travado</span>
+                      <span class="sc">S11</span><span class="sc">S12</span><span class="sc">S13</span><span class="sc">S14</span><span class="sc">S15</span>
+                      <span class="sc">S16</span><span class="sc">S17</span><span class="sc">S18</span>
+                    </div>
+                  </div>
+                </div></td></tr>
+
+                <!-- demais linhas -->
+                <tr class="row" onclick="drill(this)">
+                  <td><span class="uname"><svg class="exp" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>UFV Boa Vista</span></td>
+                  <td class="cli">Athon</td><td>8</td><td>864</td><td>864</td>
+                  <td class="diff-zero">0</td><td>99,4%</td><td>09:33</td>
+                  <td><span class="badge b-ok"><i></i>Operando</span></td>
+                </tr>
+                <tr class="drill" hidden><td colspan="9"><div class="drill-in">
+                  <div class="gd-head"><span class="dt">UFV Boa Vista</span><span class="sep">· Athon · SunOp · 8 inversores · sem ocorrências</span></div>
+                  <div class="gd-note" style="font-size:11.5px;color:var(--muted);background:var(--surface);border:1px dashed var(--border);border-radius:10px;padding:14px 16px">Todas as strings com corrente dentro da faixa esperada. Nenhuma ação necessária.</div>
+                </div></td></tr>
+
+                <tr class="row tamber" onclick="drill(this)">
+                  <td><span class="uname"><svg class="exp" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>UFV Alto do Cedro</span></td>
+                  <td class="cli">Thopen</td><td>10</td><td>1.068</td><td>1.080</td>
+                  <td class="diff-neg">−12</td><td>96,8%</td><td>09:31</td>
+                  <td><span class="badge b-warn"><i></i>Atenção</span></td>
+                </tr>
+                <tr class="drill" hidden><td colspan="9"><div class="drill-in">
+                  <div class="gd-head"><span class="dt">UFV Alto do Cedro</span><span class="sep">· Thopen · 10 inversores · 12 strings abaixo dos pares</span>
+                    <button class="gd-btn primary" onclick="event.stopPropagation()">Criar OS</button></div>
+                  <div class="gd-inv"><div class="gd-invhd"><span class="nm">Inversor 3.2</span><span class="m">12 strings · 2 baixas</span><span class="tag">SMB 3.2</span></div>
+                    <div class="gd-chips"><span class="sc">S1</span><span class="sc">S2</span><span class="sc low">S3 · baixa</span><span class="sc">S4</span><span class="sc">S5</span><span class="sc">S6</span><span class="sc low">S7 · baixa</span><span class="sc">S8</span><span class="sc">S9</span><span class="sc">S10</span><span class="sc">S11</span><span class="sc">S12</span></div>
+                  </div>
+                </div></td></tr>
+
+                <tr class="row" onclick="drill(this)">
+                  <td><span class="uname"><svg class="exp" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>UFV Campo Largo</span></td>
+                  <td class="cli">RenoGrid</td><td>6</td><td>—</td><td>648</td>
+                  <td class="diff-zero">—</td><td>—</td><td>08:58</td>
+                  <td><span class="badge b-mute"><i></i>Sem comunicação</span></td>
+                </tr>
+                <tr class="drill" hidden><td colspan="9"><div class="drill-in">
+                  <div class="gd-head"><span class="dt">UFV Campo Largo</span><span class="sep">· RenoGrid · SolarEdge · última leitura 08:58 (há 36 min)</span></div>
+                  <div class="gd-note" style="font-size:11.5px;color:var(--muted);background:var(--surface);border:1px dashed var(--border);border-radius:10px;padding:14px 16px">Fonte sem telemetria recente — ângulo e strings não exibidos até a comunicação retornar.</div>
+                </div></td></tr>
+
+                <tr class="row" onclick="drill(this)">
+                  <td><span class="uname"><svg class="exp" viewBox="0 0 16 16" fill="none"><path d="M6 4l4 4-4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>UFV Rio Claro</span></td>
+                  <td class="cli">2C</td><td>9</td><td>972</td><td>972</td>
+                  <td class="diff-zero">0</td><td>99,9%</td><td>09:30</td>
+                  <td><span class="badge b-ok"><i></i>Operando</span></td>
+                </tr>
+                <tr class="drill" hidden><td colspan="9"><div class="drill-in">
+                  <div class="gd-head"><span class="dt">UFV Rio Claro</span><span class="sep">· 2C · e-mail · 9 inversores · sem ocorrências</span></div>
+                  <div class="gd-note" style="font-size:11.5px;color:var(--muted);background:var(--surface);border:1px dashed var(--border);border-radius:10px;padding:14px 16px">Todas as strings com corrente dentro da faixa esperada. Nenhuma ação necessária.</div>
+                </div></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div><!-- /gc-main -->
+    </div><!-- /app -->
+  </div><!-- /browser -->
+</div></section>
+
+<!-- ══ 02 · PALETA ══ -->
+<section style="background:var(--pg-2);border-block:1px solid var(--pg-line)"><div class="wrap">
+  <div class="sec-h"><span class="sec-n">02</span><h2>Paleta</h2>
+    <p>Verde-limão da marca sobre dois fundos: claro neutro e navy escuro. Tons de status separados do accent.</p></div>
+
+  <div class="pal-group"><h3>Marca</h3>
+    <div class="pal-grid">
+      <div class="sw big"><div class="chip" style="background:#a3d900"></div><div class="meta"><div class="nm">Verde Grid</div><div class="hx">#A3D900</div></div></div>
+      <div class="sw big"><div class="chip" style="background:#8bbf00"></div><div class="meta"><div class="nm">Verde · hover</div><div class="hx">#8BBF00</div></div></div>
+      <div class="sw big"><div class="chip" style="background:#070b14"></div><div class="meta"><div class="nm">Navbar / Tinta</div><div class="hx">#070B14</div></div></div>
+    </div>
+  </div>
+
+  <div class="pal-group"><h3>Tema claro</h3>
+    <div class="pal-grid">
+      <div class="sw"><div class="chip" style="background:#f3f5f0"></div><div class="meta"><div class="nm">Fundo</div><div class="hx">#F3F5F0</div></div></div>
+      <div class="sw"><div class="chip" style="background:#ffffff;box-shadow:inset 0 0 0 1px #e5e7eb"></div><div class="meta"><div class="nm">Superfície</div><div class="hx">#FFFFFF</div></div></div>
+      <div class="sw"><div class="chip" style="background:#1a1b2e"></div><div class="meta"><div class="nm">Texto</div><div class="hx">#1A1B2E</div></div></div>
+      <div class="sw"><div class="chip" style="background:#6b7280"></div><div class="meta"><div class="nm">Texto suave</div><div class="hx">#6B7280</div></div></div>
+      <div class="sw"><div class="chip" style="background:#e5e7eb"></div><div class="meta"><div class="nm">Borda</div><div class="hx">#E5E7EB</div></div></div>
+    </div>
+  </div>
+
+  <div class="pal-group"><h3>Tema escuro · navy</h3>
+    <div class="pal-grid">
+      <div class="sw"><div class="chip" style="background:#090d18"></div><div class="meta"><div class="nm">Fundo</div><div class="hx">#090D18</div></div></div>
+      <div class="sw"><div class="chip" style="background:#161d30"></div><div class="meta"><div class="nm">Superfície</div><div class="hx">#161D30</div></div></div>
+      <div class="sw"><div class="chip" style="background:#1c2640"></div><div class="meta"><div class="nm">Superfície 2</div><div class="hx">#1C2640</div></div></div>
+      <div class="sw"><div class="chip" style="background:#e9eef6"></div><div class="meta"><div class="nm">Texto</div><div class="hx">#E9EEF6</div></div></div>
+      <div class="sw"><div class="chip" style="background:#94a3b8"></div><div class="meta"><div class="nm">Texto suave</div><div class="hx">#94A3B8</div></div></div>
+    </div>
+  </div>
+
+  <div class="pal-group"><h3>Status</h3>
+    <div class="pal-grid">
+      <div class="sw"><div class="chip" style="background:#22c55e"></div><div class="meta"><div class="nm">Operando</div><div class="hx">#22C55E</div></div></div>
+      <div class="sw"><div class="chip" style="background:#f59e0b"></div><div class="meta"><div class="nm">Atenção</div><div class="hx">#F59E0B</div></div></div>
+      <div class="sw"><div class="chip" style="background:#ef4444"></div><div class="meta"><div class="nm">Crítico</div><div class="hx">#EF4444</div></div></div>
+      <div class="sw"><div class="chip" style="background:#3b82f6"></div><div class="meta"><div class="nm">Info</div><div class="hx">#3B82F6</div></div></div>
+    </div>
+  </div>
+</div></section>
+
+<!-- ══ 03 · TIPOGRAFIA ══ -->
+<section><div class="wrap">
+  <div class="sec-h"><span class="sec-n">03</span><h2>Tipografia</h2>
+    <p>Inter em toda a interface. Números sempre com <code style="font-variant-numeric:tabular-nums">tabular-nums</code> para alinhar colunas.</p></div>
+  <div class="type-card">
+    <div style="font-size:58px;font-weight:900;letter-spacing:-.04em;line-height:1">Inter</div>
+    <div style="color:var(--pg-mut);margin-top:6px;font-size:14px">A fonte da plataforma — do KPI de 26&nbsp;px à etiqueta de 10&nbsp;px.</div>
+    <div style="margin-top:22px">
+      <div class="wt-row"><span class="n">400 · Regular</span><span class="s" style="font-weight:400">Detalhamento por usina</span></div>
+      <div class="wt-row"><span class="n">500 · Medium</span><span class="s" style="font-weight:500">Detalhamento por usina</span></div>
+      <div class="wt-row"><span class="n">600 · Semibold</span><span class="s" style="font-weight:600">Detalhamento por usina</span></div>
+      <div class="wt-row"><span class="n">700 · Bold</span><span class="s" style="font-weight:700">Detalhamento por usina</span></div>
+      <div class="wt-row"><span class="n">800 · Extrabold</span><span class="s" style="font-weight:800">Detalhamento por usina</span></div>
+      <div class="wt-row"><span class="n">900 · Black</span><span class="s" style="font-weight:900">Detalhamento por usina</span></div>
+    </div>
+    <div class="scale">
+      <div class="r"><span class="tag">KPI · 25/800 · -.03em</span><span class="ex" style="font-size:25px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums">98,7%</span></div>
+      <div class="r"><span class="tag">Título · 17/800</span><span class="ex" style="font-size:17px;font-weight:800;letter-spacing:-.3px">Detalhamento por Usina</span></div>
+      <div class="r"><span class="tag">Corpo · 12,5/400</span><span class="ex" style="font-size:12.5px">UFV Serra Verde — 12 inversores, 1.284 strings ativas</span></div>
+      <div class="r" style="border:0;padding:0"><span class="tag">Etiqueta · 10,5/700 · caixa alta</span><span class="ex" style="font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--pg-mut)">Strings esperadas</span></div>
+    </div>
+  </div>
+</div></section>
+
+<!-- ══ 04 · COMPONENTES ══ -->
+<section style="background:var(--pg-2);border-block:1px solid var(--pg-line)"><div class="wrap">
+  <div class="sec-h"><span class="sec-n">04</span><h2>Componentes</h2>
+    <p>Peças do sistema, cada uma sobre a superfície do app para leitura fiel de cor e contraste.</p></div>
+  <div class="cg">
+
+    <div class="card"><h4>Aba primária (fonte)</h4>
+      <div class="demo spec-surface" style="gap:0;flex-direction:column;align-items:stretch">
+        <div style="display:flex;gap:3px">
+          <button class="gc-ptab active" style="pointer-events:none"><span class="mono" style="background:#1e88e5">PV</span><span class="info"><span class="lb">Thopen</span><span class="sb">API PV Operation</span></span></button>
+          <button class="gc-ptab" style="pointer-events:none"><span class="mono" style="background:#26a69a">AT</span><span class="info"><span class="lb">Athon</span><span class="sb">API SunOp</span></span></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card"><h4>Aba secundária (pílula)</h4>
+      <div class="demo spec-surface">
+        <button class="gc-stab active" style="pointer-events:none">Strings</button>
+        <button class="gc-stab" style="pointer-events:none">ETM</button>
+        <button class="gc-stab" style="pointer-events:none">Trackers</button>
+      </div>
+    </div>
+
+    <div class="card"><h4>Cartão de KPI</h4>
+      <div class="demo spec-surface" style="background:transparent;border:0;padding:0">
+        <div class="gk-kpi k-red" style="min-width:150px"><span class="l">Com déficit</span><span class="v">6</span><span class="d">strings sem corrente</span></div>
+      </div>
+    </div>
+
+    <div class="card"><h4>Selo de status</h4>
+      <div class="demo spec-surface">
+        <span class="badge b-ok"><i></i>Operando</span>
+        <span class="badge b-warn"><i></i>Atenção</span>
+        <span class="badge b-crit"><i></i>Déficit</span>
+        <span class="badge b-mute"><i></i>Sem comunicação</span>
+      </div>
+    </div>
+
+    <div class="card"><h4>Chips de string</h4>
+      <div class="demo spec-surface">
+        <span class="sc">S3</span><span class="sc zero">S7 · 0,0 A</span><span class="sc low">S10 · baixa</span><span class="sc lock">S12 · travado</span>
+      </div>
+    </div>
+
+    <div class="card"><h4>Botões</h4>
+      <div class="demo spec-surface">
+        <button class="gc-refresh" style="pointer-events:none">Atualizar</button>
+        <button class="gd-btn primary" style="margin:0;pointer-events:none">Criar OS</button>
+        <button class="gd-btn" style="pointer-events:none">Exportar</button>
+      </div>
+    </div>
+
+    <div class="card"><h4>Controle segmentado</h4>
+      <div class="demo spec-surface">
+        <div class="gf-seg"><button class="on" style="pointer-events:none">Com déficit</button><button style="pointer-events:none">Todas</button></div>
+      </div>
+    </div>
+
+    <div class="card"><h4>Selo de fonte</h4>
+      <div class="demo spec-surface">
+        <span class="gf-fonte"><i style="background:#1e88e5"></i>API PV</span>
+        <span class="gf-fonte"><i style="background:#26a69a"></i>SunOp</span>
+      </div>
+    </div>
+
+  </div>
+</div></section>
+
+<footer class="foot"><div class="wrap">
+  <b>Grid Co. — Plataforma de Performance · Referência de design para rebranding.</b><br>
+  Identidade e componentes reproduzidos do produto em produção; nomes de usina e números são ilustrativos.
+  Tema, abas, expansão de linha e curva são funcionais nesta página. Fonte: Inter · Marca: #A3D900.
+</div></footer>
+
+<script>
+function flipTheme(){
+  var h=document.documentElement, dark=h.getAttribute('data-theme')==='dark';
+  h.setAttribute('data-theme', dark?'light':'dark');
+  document.getElementById('tgltx').textContent='Tema: '+(dark?'Claro':'Escuro');
+}
+function pTab(b){b.parentNode.querySelectorAll('.gc-ptab').forEach(x=>x.classList.remove('active'));b.classList.add('active');}
+function sTab(b){b.parentNode.querySelectorAll('.gc-stab').forEach(x=>x.classList.remove('active'));b.classList.add('active');}
+function seg(b){b.parentNode.querySelectorAll('button').forEach(x=>x.classList.remove('on'));b.classList.add('on');}
+function pulse(b){b.animate([{transform:'scale(1)'},{transform:'scale(.95)'},{transform:'scale(1)'}],{duration:180});}
+function drill(row){
+  var d=row.nextElementSibling;
+  if(!d||!d.classList.contains('drill'))return;
+  var open=!d.hasAttribute('hidden');
+  if(open){d.setAttribute('hidden','');row.classList.remove('open');}
+  else{d.removeAttribute('hidden');row.classList.add('open');}
+}
+</script>
+</body>
+</html>

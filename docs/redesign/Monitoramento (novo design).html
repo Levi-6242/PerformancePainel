@@ -1,0 +1,1218 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grid Co. — Monitoramento O&amp;M (novo design)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
+<style>
+/* ═══ BASE "Nocturne" reconstruída (o _ds_bundle/styles.css do designer não veio nos anexos) ═══
+   tokens + componentes mapeados p/ a identidade Grid Co. (navy + verde), conforme o README do handoff. */
+:root{
+  --color-bg:#090d18; --color-surface:#161d30;
+  --color-neutral-900:#0e1626; --color-neutral-500:#767d92; --color-neutral-400:#96a0b4;
+  --color-neutral-300:#c3cad7; --color-neutral-200:#e2e7f0; --color-text:#e9eef6;
+  --color-divider:rgba(255,255,255,.09);
+  --font-heading:'Inter',system-ui,-apple-system,sans-serif; --font-body:'Inter',system-ui,-apple-system,sans-serif;
+  --radius-sm:6px; --radius-md:10px;
+  /* marca (o inline abaixo recalibra a rampa 100–900 do accent) */
+  --color-accent:#a3d900;
+  --color-accent-100:#eef8c9; --color-accent-200:#ddf094; --color-accent-300:#c4e755;
+  --color-accent-400:#b0e024; --color-accent-500:#a3d900; --color-accent-600:#8bbf00;
+  --color-accent-700:#6c9400; --color-accent-800:#495f06; --color-accent-900:#2b3707;
+  --gc-blue:#5b9dff; --gc-red:#f2555a; --gc-amber:#f5a623; --gc-violet:#a78bfa;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--color-bg);color:var(--color-text);font-family:var(--font-body);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+::selection{background:color-mix(in srgb,var(--color-accent) 30%,transparent)}
+/* hover da linha de usina (Strings) = mesmo teal do clique (selecionada), só mais suave; a linha
+   expandida tem background inline (mais forte) e continua vencendo o hover */
+tr.gc-urow{transition:background .12s ease}
+tr.gc-urow:hover{background:linear-gradient(90deg, color-mix(in srgb, #0a4f52 45%, transparent), color-mix(in srgb, #0a4f52 18%, transparent) 34%, transparent 58%)}
+::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:rgba(140,150,170,.3);border-radius:99px}
+.text-muted{color:var(--color-neutral-400)}
+h2{font-family:var(--font-heading);font-weight:800;letter-spacing:-.01em}
+.card{background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-md)}
+.elev-sm{box-shadow:0 1px 3px rgba(0,0,0,.35)}
+.card-kicker{font-size:10px;text-transform:uppercase;letter-spacing:.14em;font-weight:700;color:var(--color-neutral-500)}
+.nav{display:flex;align-items:center;gap:2px}
+.nav-brand{font-family:var(--font-heading);font-weight:800;color:var(--color-text)}
+.nav a{color:var(--color-neutral-400);text-decoration:none;padding:7px 12px;border-radius:8px;font-size:14px;font-weight:500;transition:color .15s,background .15s}
+.nav a:hover{color:var(--color-text)}
+.nav a[aria-current="page"]{color:var(--color-text);background:color-mix(in srgb,var(--color-accent) 13%,transparent)}
+.btn{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:var(--radius-md);font-family:var(--font-heading);font-size:13px;font-weight:600;cursor:pointer;border:1px solid transparent;background:transparent;color:var(--color-text);transition:background .15s,border-color .15s;white-space:nowrap}
+.btn i{font-size:15px}
+.btn-primary{border-color:var(--color-accent);color:var(--color-accent)}
+.btn-primary:hover{background:color-mix(in srgb,var(--color-accent) 14%,transparent)}
+.btn-secondary{border-color:var(--color-divider);color:var(--color-neutral-300)}
+.btn-secondary:hover{border-color:color-mix(in srgb,var(--color-text) 30%,transparent)}
+.tag{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:600}
+.tag-neutral{background:var(--color-neutral-900);color:var(--color-neutral-300)}
+.tag-outline{border:1px solid var(--color-divider);background:transparent}
+.input{width:100%;background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-md);padding:9px 12px;color:var(--color-text);font:inherit;font-size:13px;outline:none}
+.input:focus{border-color:var(--color-accent)}
+.table{width:100%;border-collapse:collapse;font-size:14px}
+.table thead th{text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--color-neutral-500);padding:12px 14px;border-bottom:1px solid var(--color-divider);white-space:nowrap}
+.table tbody td{padding:13px 14px;border-bottom:1px solid var(--color-divider)}
+.table tbody tr:last-child td{border-bottom:0}
+/* prototype inline (hovers + pulse) */
+@keyframes gc-pulse{0%,100%{opacity:1}50%{opacity:.3}}
+@keyframes gc-spin{to{transform:rotate(360deg)}}
+.gc-spin{display:inline-block;color:var(--color-accent);animation:gc-spin .8s linear infinite}
+.gc-numin::-webkit-outer-spin-button,.gc-numin::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.gc-numin{-moz-appearance:textfield;appearance:textfield}
+.gc-src:hover{border-color:color-mix(in srgb,var(--color-text) 45%,transparent)!important}
+.gc-chip:hover{background:color-mix(in srgb,var(--color-text) 6%,transparent)!important}
+.gc-lock{transition:color .12s,transform .12s}.gc-lock:hover{color:var(--color-accent)!important;transform:scale(1.3)}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script>
+/* ═══ Componente portado do protótipo DC (nocturne) p/ JS puro — mesma lógica/dados/SVG ═══ */
+const state = { source:'thopen-pv', view:'strings', subfilter:'geral', trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, perdaSub:'trk-par', perdaDia:null, expandedUsina:null, expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, etmMode:'cards' };
+function setState(patch){ Object.assign(state, patch); render(); }
+/* ═══ DADO REAL — por VISTA e por FONTE. Cada uma devolve {rows,summary}; muda só o endpoint. ═══ */
+const SKEY={'thopen-pv':'pv','thopen-db':'pg','athon':'sunop','axis':'axis','renogrid':'solaredge','2c':'owen'};
+const VKEY={'thopen-pv':'pv','thopen-db':'pg','athon':'so','axis':'ax','renogrid':'se','2c':'owen'};  // prefixo da chave de comentário (igual ao dashboard original)
+const EP={
+  strings:{pv:'/api/data',pg:'/api/pg/data',sunop:'/api/sunop/data',axis:'/api/axis/data',solaredge:'/api/solaredge/data',owen:'/api/owen/strings/data'},
+  etm:{pv:'/api/etm/analise',pg:'/api/pg/etm/analise',sunop:'/api/sunop/etm/analise',axis:'/api/axis/etm/analise',owen:'/api/owen/etm/analise'},
+  trackers:{pv:'/api/pv/trackers',pg:'/api/pg/trackers',sunop:'/api/sunop/trackers',axis:'/api/axis/trackers',owen:'/api/owen/trackers'},
+  pr:{pv:'/api/pv/pr',pg:'/api/pg/pr',sunop:'/api/sunop/pr',axis:'/api/axis/pr',solaredge:'/api/solaredge/pr'},
+};
+const PLANT={pv:'/api/plant/',pg:'/api/pg/plant/',sunop:'/api/sunop/plant/',axis:'/api/axis/plant/',solaredge:'/api/solaredge/plant/',owen:'/api/owen/strings/plant/'};
+function _urlFor(view,srcChip){ const base=(EP[view]||{})[SKEY[srcChip]]; if(!base) return null; return view==='pr'?base+'?date='+new Date().toISOString().slice(0,10):base; }
+const RD={pv:null,loading:false,na:false,cache:{},plants:{},curva:{},curvaMeta:{},trk:{},trkChart:{},os:{},comments:{},tracking:{},strProb:{},strEv:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},perdas:{},_osList:null};
+function _snum(s){ const d=String(s==null?'':s).replace(/\D/g,''); return d?parseInt(d,10):null; }   // nº da string ("ST 01"→1, "Ipv1"→1, "I_PV9"→9) — casa chips(/plant) × curva(/spv), nomenclaturas diferentes
+function _abaixoMeta(iv){   // conjunto (por NÚMERO) de strings "abaixo": .sub (subperformance por ENERGIA do dia, backend SPV) + último valor da curva < 60% da mediana das ativas (igual _spvAbaixoSet do original)
+  const abaixo=new Set();
+  if(!iv) return {abaixo:abaixo, mediana:null};
+  (iv.strings||[]).forEach(function(st){ if(st.sub){ const n=_snum(st.nome); if(n!=null)abaixo.add(n); } });
+  const aBy={}; (iv.strings||[]).forEach(function(st){ aBy[String(st.nome)]=st.ativa!==false; });
+  const last={}; Object.entries(iv.curva||{}).forEach(function(e){ const ys=(e[1].y||[]).filter(function(v){return v!=null;}); last[e[0]]=ys.length?ys[ys.length-1]:null; });
+  const av=Object.entries(last).filter(function(e){return e[1]!=null&&aBy[e[0]]!==false;}).map(function(e){return e[1];}).sort(function(a,b){return a-b;});
+  const med=av.length?av[Math.floor(av.length/2)]:0;
+  if(med>0.5) Object.entries(last).forEach(function(e){ if(e[1]!=null&&e[1]>0.1&&e[1]<med*0.6&&aBy[e[0]]!==false){ const n=_snum(e[0]); if(n!=null)abaixo.add(n); } });
+  return {abaixo:abaixo, mediana:iv.mediana};
+}
+function _invIso(){ return state.invData||_todayISO(); }                 // data do drill de corrente por string (default = hoje)
+function _ckey(pid,invId){ return state.source+'|'+pid+'|'+invId+'|'+_invIso(); }   // chave da curva do drill (inclui a data)
+async function loadCurva(pid,invId,nome){   // curva corrente-por-string do inversor (endpoint+data variam por fonte)
+  const src=state.source, sk=SKEY[src], iso=_invIso(), key=_ckey(pid,invId);
+  if(RD.curva[key]!==undefined) return;
+  RD.curva[key]=null; render();
+  const br=iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4);
+  let url=null;
+  if(sk==='pv') url='/api/spv/usina/'+encodeURIComponent(pid)+'?full=1&data='+br;                 // PV: data BR + /api/spv
+  else if(sk==='pg') url='/api/pg/curva/'+encodeURIComponent(pid)+'?data='+iso;
+  else if(sk==='sunop'||sk==='axis') url='/api/'+sk+'/curva/'+encodeURIComponent(pid)+'?inv='+encodeURIComponent(invId)+'&data='+iso;
+  else if(sk==='owen') url='/api/2c/'+iso+'/strings/'+encodeURIComponent(pid);                       // 2C: curva de corrente por string (5 min) do banco-por-dia (hoje = pastas ao vivo)
+  if(!url){ RD.curva[key]={}; render(); return; }                                                   // solaredge: sem curva
+  try{
+    const d=await fetch(url).then(r=>r.json()); const list=d.inversores||[];
+    let iv;
+    if(sk==='owen'){                                                                                 // 2C vem como {inv,labels,strings:[{id,y}]} → normaliza p/ {curva,strings} igual às outras fontes
+      const raw=list.find(x=>String(x.inv)===String(invId))||list[0]||{};
+      const curva={}; (raw.strings||[]).forEach(s=>{ curva[String(s.id)]={x:raw.labels||[],y:s.y||[]}; });
+      iv={curva, mediana:null, strings:(raw.strings||[]).map(s=>({nome:String(s.id),sub:false,ativa:(s.y||[]).some(v=>v!=null&&v>0.5)}))};
+    }else{
+      iv=(sk==='pv')?(list.find(x=>(x.nome||'')===nome)||list[0]):(list.find(x=>String(x.id)===String(invId))||list[0]);
+    }
+    RD.curva[key]=(iv&&iv.curva)||{};
+    RD.curvaMeta[key]=_abaixoMeta(iv);   // conjunto "abaixo" (sub por energia + último<60% mediana) + mediana
+  }catch(e){ RD.curva[key]={}; RD.curvaMeta[key]={abaixo:new Set()}; }
+  render();
+}
+function curvaSVG(curva, smap){
+  const names=Object.keys(curva||{}); if(!names.length) return '';
+  let mx=0; names.forEach(n=>(curva[n].y||[]).forEach(v=>{ if(v!=null&&v>mx)mx=v; }));
+  const maxY=Math.max(4,Math.ceil(mx/4)*4);   // teto "redondo" (múltiplo de 4) → rótulos inteiros, sem repetir
+  const x0=46,x1=890,yT=12,yB=118;
+  const tX=hhmm=>{ const p=String(hhmm).split(':'); const f=((+p[0]*60+ +(p[1]||0))-360)/720; return x0+(x1-x0)*Math.max(0,Math.min(1,f)); };
+  const vY=v=>yB-(yB-yT)*Math.max(0,Math.min(1,(v||0)/maxY));
+  const polys=names.map(n=>{ const s=curva[n]; const pts=(s.x||[]).map((t,j)=>tX(t).toFixed(1)+','+vY((s.y||[])[j]).toFixed(1)).join(' ');
+    const deadY=(s.y||[]).length&&(s.y||[]).every(v=>!v||v<0.15); const kind=(smap&&smap[n])||(deadY?'dead':'');
+    const col=kind==='dead'?'var(--gc-red)':kind==='abaixo'?'#f59e0b':kind==='low'?'#f6ca64':'#9397ab', w=kind==='dead'?2.2:kind==='abaixo'?2.4:kind==='low'?1.9:1, op=(kind==='dead'||kind==='abaixo'||kind==='low')?1:.4;
+    return `<polyline data-s="${_snum(n)}" data-name="${esc(n)}" data-base="${col}" data-basew="${w}" data-baseo="${op}" points="${pts}" fill="none" stroke="${col}" stroke-width="${w}" stroke-opacity="${op}" stroke-linejoin="round"></polyline>`; }).join('');
+  const grid=[0,.25,.5,.75,1].map(f=>{ const y=yB-(yB-yT)*f; return `<line x1="46" y1="${y}" x2="890" y2="${y}" stroke="#292b31"></line><text x="40" y="${y+3}" text-anchor="end" fill="#75798c" font-size="8.5">${(maxY*f).toFixed(0)}</text>`; }).join('');
+  const xt=['06:00','09:00','12:00','15:00','18:00'].map(t=>`<text x="${tX(t)}" y="134" text-anchor="middle" fill="#75798c" font-size="8.5">${t}</text>`).join('');
+  return `<svg viewBox="0 0 900 150" preserveAspectRatio="xMidYMid meet" style="width:100%;height:230px;display:block" data-x0="46" data-x1="890" data-yt="12" data-yb="118" data-xmin="360" data-xmax="1080" data-ymin="0" data-ymax="${maxY}" data-unit="A" onmousemove="_chartTip(event,this)" onmouseleave="_chartTipHide(this)"><line x1="46" y1="12" x2="46" y2="118" stroke="#595d6c"></line><line x1="46" y1="118" x2="890" y2="118" stroke="#595d6c"></line>${grid}${xt}${polys}</svg>`;
+}
+function _curvaBlock(inv){
+  const key=_ckey(inv.pid,inv.invId), c=RD.curva[key];
+  const box=body=>`<div style="padding:18px;border-radius:var(--radius-md);background:color-mix(in srgb, var(--color-neutral-900) 60%, transparent);margin-bottom:18px">${body}</div>`;
+  if(c===undefined||c===null) return box(`<span class="text-muted"><i class="ph ph-circle-notch gc-spin"></i> Carregando curva…</span>`);
+  if(!Object.keys(c).length) return box(`<span class="text-muted">Sem curva por string nesta fonte.</span>`);
+  const meta=RD.curvaMeta[key]||{}, abaixo=meta.abaixo||new Set();
+  const smap={}; (inv.strings||[]).forEach(s=>{ if(s.dead)smap[s.name]='dead'; else if(s.low)smap[s.name]='low'; });
+  Object.keys(c).forEach(nm=>{ if(abaixo.has(_snum(nm))&&smap[nm]!=='dead') smap[nm]='abaixo'; });
+  const medTit=meta.mediana!=null?` · med ${meta.mediana} (índice)`:'', subTit=abaixo.size?` · <span style="color:#f59e0b;font-weight:600">${abaixo.size} abaixo</span>`:'';
+  return box(`<div class="text-muted" style="font-size:12.5px;margin-bottom:12px">${inv.name} — corrente por string (A)${medTit}${subTit}</div>${curvaSVG(c, smap)}`);
+}
+async function loadCurrent(force){
+  const view=state.view, src=state.source, url=_urlFor(view,src), key=view+'|'+src;
+  if(view==='curva'){                                                                   // Curva das strings: reusa a lista de usinas da aba Strings (mesma fonte)
+    const su=_urlFor('strings',src);
+    if(!su){ RD.pv=null; RD.loading=false; RD.na=true; render(); return; }
+    RD.na=false; const ck='strings|'+src;
+    if(!force&&RD.cache[ck]){ RD.pv=RD.cache[ck]; RD.loading=false; render(); return; }
+    RD.loading=true; RD.pv=null; render();
+    try{ const d=await fetch(su).then(r=>r.json()); if(state.view!=='curva'||state.source!==src)return; RD.cache[ck]=d; RD.pv=d; RD.loading=false; render(); }
+    catch(e){ RD.loading=false; render(); }
+    return;
+  }
+  if(view==='geracao'){ RD.na=false; RD.loading=false; loadGeracao(force); return; }     // Geração: pivô por inversor (o backend calcula o período dos últimos 7 dias)
+  if(view==='perdas'){ RD.na=false; RD.loading=false; loadPerda(state.perdaSub, force); return; }   // Perdas: ocorrências/paradas em horas solares
+  if(!url){ RD.pv=null; RD.loading=false; RD.na=true; render(); return; }               // vista indisponível nessa fonte (ex.: ETM/Trackers no SolarEdge)
+  RD.na=false;
+  if(!force&&RD.cache[key]){ RD.pv=RD.cache[key]; RD.loading=false; render(); return; }
+  RD.loading=true; RD.pv=null; render();
+  try{
+    const d=await fetch(url+(force?(url.includes('?')?'&':'?')+'force=1':'')).then(r=>r.json());
+    if(state.view!==view||state.source!==src) return;                                    // trocou de vista/fonte -> ignora resposta velha
+    if(d&&d.carregando){ setTimeout(()=>loadCurrent(force),6000); return; }
+    RD.cache[key]=d; RD.pv=d; RD.loading=false; render();
+    if(view==='strings'&&d&&d.rows) loadMeta(d);
+  }catch(e){ RD.loading=false; render(); /* sem sessão (preview estático) -> exemplo */ }
+}
+async function loadMeta(d){   // badges por usina: OS (Fracttal, por nome) + comentários (thread por vkey)
+  const names=[...new Set((d.rows||[]).map(r=>r.usina).filter(Boolean))];
+  if(names.length){ try{ const os=await fetch('/api/os-performance/counts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usinas:names})}).then(r=>r.json()); if(os&&typeof os==='object')RD.os=os; }catch(e){} }
+  try{ const st=await fetch('/api/state').then(r=>r.json()); if(st){ if(st.comments_thread)RD.comments=st.comments_thread; if(st.tracking)RD.tracking=st.tracking; } }catch(e){}
+  render();
+}
+async function loadPlant(pid){
+  const cfg=PLANT[SKEY[state.source]]||'/api/plant/', key=state.source+'|'+pid;
+  if(RD.plants[key]!==undefined) return;
+  RD.plants[key]=null; render();
+  try{ const d=await fetch(cfg+encodeURIComponent(pid)).then(r=>r.json()); RD.plants[key]=d.inversores||[]; }
+  catch(e){ RD.plants[key]=[]; }
+  render();
+}
+window.trancarInativas=async(pid,invId)=>{   // POST /api/state/string-trancada (bulk das sem_corrente) + recarrega o drill
+  const invs=RD.plants[state.source+'|'+pid]||[]; const inv=invs.find(x=>String(x.id)===String(invId)); if(!inv) return;
+  const ids=(inv.strings||[]).filter(s=>!s.trancada&&(s.status||'')==='sem_corrente').map(s=>s.id);
+  if(!ids.length) return;
+  try{ await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plant_id:pid,inv_id:invId,strings:ids,trancada:true})}); }catch(e){}
+  delete RD.plants[state.source+'|'+pid]; loadPlant(pid);
+};
+window.trancarString=async(pid,invId,sid,trancar)=>{   // cadeado por string: tranca/destranca UMA + recarrega o drill
+  try{ await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plant_id:pid,inv_id:invId,strings:[sid],trancada:!!trancar})}); }catch(e){}
+  delete RD.plants[state.source+'|'+pid]; loadPlant(pid);
+};
+/* ── Comentários + OS por usina (modal) ── */
+const _he=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+window.abrirComent=async(vkey,usina)=>{
+  state._ckey=vkey; state._cusina=usina; RD._osList=null; _renderComent();
+  try{ const d=await fetch('/api/os-performance?usina='+encodeURIComponent(usina)).then(r=>r.json()); RD._osList=(d&&d.os)||[]; }catch(e){ RD._osList=[]; }
+  if(state._ckey===vkey) _renderComent();
+};
+window.fecharComent=()=>{ state._ckey=null; const m=document.getElementById('gc-cmodal'); if(m)m.remove(); };
+window.publicarComent=async()=>{
+  const ta=document.getElementById('gc-ctxt'), ni=document.getElementById('gc-cnick');
+  const texto=((ta&&ta.value)||'').trim(); if(!texto) return;
+  const nick=((ni&&ni.value)||'').trim()||'Anônimo';
+  try{ const d=await fetch('/api/state/comment/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:state._ckey,nick,texto})}).then(r=>r.json());
+    if(d&&d.thread) RD.comments[state._ckey]=d.thread; }catch(e){}
+  if(ta)ta.value=''; _renderComent(); render();
+};
+window.excluirComent=async(ts)=>{
+  try{ const d=await fetch('/api/state/comment/del',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:state._ckey,ts})}).then(r=>r.json());
+    if(d&&d.thread) RD.comments[state._ckey]=d.thread; }catch(e){}
+  _renderComent(); render();
+};
+function _renderComent(){
+  let m=document.getElementById('gc-cmodal');
+  if(!m){ m=document.createElement('div'); m.id='gc-cmodal'; document.body.appendChild(m); }
+  const thread=((RD.comments||{})[state._ckey]||[]).slice().reverse(), os=RD._osList;
+  const osHtml = os===null
+    ? `<div class="text-muted" style="font-size:12.5px;padding:8px 0"><i class="ph ph-circle-notch gc-spin"></i> Carregando OS…</div>`
+    : (!os.length ? `<div class="text-muted" style="font-size:12.5px;padding:6px 0">Nenhuma OS de performance.</div>`
+      : os.map(o=>`<div style="display:flex;gap:10px;align-items:flex-start;padding:9px 12px;border-radius:8px;background:color-mix(in srgb, var(--gc-amber) 9%, transparent);border:1px solid color-mix(in srgb, var(--gc-amber) 25%, transparent);margin-bottom:6px"><i class="ph ph-wrench" style="color:var(--gc-amber);margin-top:2px"></i><div style="flex:1;min-width:0"><div style="font-size:12.5px;font-weight:600">OS ${_he(o.os)} · <span style="font-weight:500;color:var(--color-neutral-300)">${_he(o.status)}</span>${o.sub?` · <span class="text-muted">${_he(o.sub)}</span>`:''}</div><div class="text-muted" style="font-size:11.5px;margin-top:2px">${_he(o.nota)}</div><div class="text-muted" style="font-size:11px;margin-top:2px">${_he(o.data)}</div></div></div>`).join(''));
+  const thHtml = thread.length
+    ? thread.map(c=>`<div style="padding:9px 12px;border-radius:8px;background:var(--color-neutral-900);border:1px solid var(--color-divider);margin-bottom:6px"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px"><span style="font-size:12px;font-weight:700;color:var(--color-accent-200)">${_he(c.nick)}</span><span style="display:flex;align-items:center;gap:8px"><span class="text-muted" style="font-size:11px">${_he((c.ts||'').slice(0,16))}</span><i class="ph ph-x" onclick="excluirComent('${esc(c.ts).replace(/['"\\]/g,'')}')" title="Excluir" style="cursor:pointer;font-size:12px;color:var(--color-neutral-500)"></i></span></div><div style="font-size:13px;white-space:pre-wrap">${_he(c.texto)}</div></div>`).join('')
+    : `<div class="text-muted" style="font-size:12.5px;padding:6px 0">Nenhum comentário ainda.</div>`;
+  m.innerHTML=`<div onclick="fecharComent()" style="position:fixed;inset:0;z-index:200;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:60px 16px;overflow-y:auto"><div onclick="event.stopPropagation()" class="card" style="width:560px;max-width:100%;padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--color-divider)"><span style="font-family:var(--font-heading);font-size:16px"><i class="ph-fill ph-chat-circle" style="color:var(--gc-blue);margin-right:7px"></i>${_he(state._cusina)}</span><i class="ph ph-x" onclick="fecharComent()" style="cursor:pointer;font-size:18px;color:var(--color-neutral-400)"></i></div><div style="padding:16px 20px;max-height:62vh;overflow-y:auto"><div class="card-kicker" style="color:var(--color-neutral-400);margin-bottom:8px">Ordens de serviço</div>${osHtml}<div class="card-kicker" style="color:var(--color-neutral-400);margin:16px 0 8px">Comentários</div>${thHtml}<div style="margin-top:14px;display:flex;flex-direction:column;gap:8px"><input id="gc-cnick" class="input" placeholder="Seu nome" style="font-size:13px"><textarea id="gc-ctxt" class="input" rows="3" placeholder="Escrever comentário…" style="font-size:13px;resize:vertical"></textarea><button class="btn btn-primary" onclick="publicarComent()" style="align-self:flex-end"><i class="ph ph-paper-plane-tilt"></i> Publicar</button></div></div></div></div>`;
+}
+const N2='var(--color-neutral-200)',N3='var(--color-neutral-300)',N4='var(--color-neutral-400)',N5='var(--color-neutral-500)';
+const esc = s => String(s==null?'':s);
+
+function segStyle(on){ return `padding:6px 13px;border-radius:var(--radius-md);cursor:pointer;font-family:var(--font-heading);font-size:12.5px;font-weight:500;background:${on?'var(--color-accent)':'transparent'};color:${on?'#161826':'var(--color-neutral-300)'};border:1px solid ${on?'var(--color-accent)':'var(--color-divider)'};`; }
+const pill=(bg,fg)=>`display:inline-flex;padding:3px 11px;border-radius:6px;background:${bg};color:${fg};font-size:11.5px;font-weight:500;`;
+const pillOk=pill('color-mix(in srgb, var(--color-accent) 16%, transparent)','var(--color-accent-200)');
+const pillRed=pill('color-mix(in srgb, var(--gc-red) 18%, transparent)','#ff9a9d');
+const pillAmber=pill('color-mix(in srgb, var(--gc-amber) 18%, transparent)','#f5c877');
+const semGer=`display:inline-flex;padding:3px 11px;border-radius:6px;background:color-mix(in srgb, var(--gc-red) 18%, transparent);color:#ff9a9d;font-size:11.5px;font-weight:500;`;
+
+function _invExemplo(){
+  const defs=[
+    {id:'inv11',name:'Inversor 1.1',kwh:'1664.76',diff:-21,lr:'23:25'},{id:'inv12',name:'Inversor 1.2',kwh:'1682.01',diff:-21,lr:'23:20'},
+    {id:'inv13',name:'Inversor 1.3',kwh:'1776.14',diff:-22,lr:'23:23'},{id:'inv14',name:'Inversor 1.4',kwh:'1793.86',diff:-22,lr:'23:20'},
+  ];
+  const activeSet=new Set([13,14,18,22,23,28,9]);
+  return defs.map(iv=>{
+    const expanded=state.expandedInversor===iv.id;
+    return { name:iv.name, cabine:'cabine 1', kwh:iv.kwh, active:'0/28', diff:iv.diff, lastRead:iv.lr, caretDeg:expanded?90:0, expanded, id:iv.id, isReal:false,
+      trackers:[0.89,0.91,0.74,0.69,0.72,0.81].map((d,i)=>({name:'TRK'+(i+1),delta:d})),
+      strings:Array.from({length:28},(_,i)=>{ const n=i+1,on=activeSet.has(n);
+        return { name:'Ipv'+n, amp:'0.00', nameColor:on?'var(--gc-blue)':'var(--color-neutral-300)',
+          style:`padding:6px 8px;border-radius:var(--radius-sm);background:${on?'color-mix(in srgb, var(--gc-blue) 12%, transparent)':'var(--color-neutral-900)'};border:1px solid ${on?'color-mix(in srgb, var(--gc-blue) 45%, transparent)':'var(--color-divider)'};` }; }) };
+  });
+}
+// DADO REAL: inversores de /api/plant/<pid>. pid==null → exemplo do protótipo. 'loading' enquanto busca.
+const _SCHIP={sem_corrente:['#ff9a9d','color-mix(in srgb, var(--gc-red) 14%, transparent)','color-mix(in srgb, var(--gc-red) 45%, transparent)'],baixa_perf:['#f5c877','color-mix(in srgb, var(--gc-amber) 14%, transparent)','color-mix(in srgb, var(--gc-amber) 45%, transparent)'],trancada:['var(--gc-blue)','color-mix(in srgb, var(--gc-blue) 12%, transparent)','color-mix(in srgb, var(--gc-blue) 45%, transparent)'],ativa:['var(--color-accent-200)','color-mix(in srgb, var(--color-accent) 10%, transparent)','color-mix(in srgb, var(--color-accent) 40%, transparent)'],inativa:['var(--color-neutral-400)','var(--color-neutral-900)','var(--color-divider)']};
+function buildInversores(pid){
+  if(pid==null) return _invExemplo();
+  const invs=RD.plants[state.source+'|'+pid];
+  if(invs==null) return 'loading';
+  const _urow=(RD.pv&&RD.pv.rows||[]).find(r=>String(r.plant_id)===String(pid)); const _un=_urow?_urow.usina:'';   // nome da usina p/ o deep link do Criar OS
+  return invs.map(inv=>{
+    const iid=pid+'-'+inv.id, expanded=state.expandedInversor===iid, cab=String(inv.nome||'').match(/(\d+)\.\d+/);
+    const strings=(inv.strings||[]).map(sx=>{ const trc=!!sx.trancada, st=trc?'trancada':(sx.status||(sx.ativa?'ativa':'inativa')), c=_SCHIP[st]||_SCHIP.inativa;
+      return { name:sx.id, id:sx.id, trancada:trc, low:(st==='baixa_perf'), dead:(st==='sem_corrente'), amp:(sx.corrente!=null?Number(sx.corrente).toFixed(2):'—'), nameColor:c[0],
+        style:`padding:6px 8px;border-radius:var(--radius-sm);background:${c[1]};border:1px solid ${c[2]};` }; });
+    const semList=(inv.strings||[]).filter(sx=>!sx.trancada&&(sx.status||'')==='sem_corrente').map(sx=>sx.id), nSem=semList.length;
+    const temBaixa=(inv.strings||[]).some(sx=>!sx.trancada&&(sx.status||'')==='baixa_perf');
+    return { id:iid, pid, usina:_un, invId:inv.id, nSem, semList, temBaixa, semGer:(!inv.sem_visao&&Number(inv.strings_ativas)===0), name:inv.nome, cabine:cab?('cabine '+cab[1]):'', kwh:(inv.eday!=null?inv.eday:'—'),
+      active:(inv.sem_visao?'—':(inv.strings_ativas+'/'+inv.total_strings)), diff:(inv.diferenca!=null?inv.diferenca:'—'),
+      lastRead:(inv.ultima_leitura?String(inv.ultima_leitura).slice(0,16).replace('T',' '):'—'), caretDeg:expanded?90:0, expanded, isReal:true, trackers:[], strings };
+  });
+}
+let _chart=null;
+function getChart(){
+  if(_chart) return _chart;
+  const x0=46,x1=890,yTop=12,yBot=118,ampMax=10,nPts=40;
+  const xAt=i=>x0+(x1-x0)*(i/(nPts-1)), yAt=a=>yBot-(yBot-yTop)*(a/ampMax);
+  const base=i=>{const h=i/(nPts-1); if(h<0.12)return 0; if(h<0.4)return ampMax*((h-0.12)/0.28)*0.92; if(h<0.72)return ampMax*(0.9+0.05*Math.sin(h*20)); if(h<0.78)return ampMax*0.95; return Math.max(0,ampMax*0.95*(0.92-h)/0.14);};
+  const series=[];
+  for(let k=0;k<10;k++){ let pts=''; for(let i=0;i<nPts;i++){ const noise=((Math.sin(i*12.9898+k*3.7)*43758.5453)%1)*0.5; pts+=`${xAt(i).toFixed(1)},${yAt(Math.min(ampMax,base(i)+noise)).toFixed(1)} `; } series.push({points:pts.trim(),color:'#9397ab',width:1,opacity:0.32}); }
+  let hi=''; for(let i=0;i<nPts;i++){ const h=i/(nPts-1); let a=base(i); if(h>=0.62&&h<0.66)a=0; else if(h>=0.66&&h<0.7)a=ampMax*0.42; else if(h>=0.7)a=0; hi+=`${xAt(i).toFixed(1)},${yAt(a).toFixed(1)} `; }
+  series.push({points:hi.trim(),color:'#f5a623',width:2.2,opacity:1});
+  const grid=[0,2,4,6,8,10].map(v=>({y:yAt(v),ty:yAt(v)+4,label:v}));
+  const xl=['06:00','08:00','10:00','12:00','14:00','16:00','18:00'];
+  const xticks=xl.map((label,i)=>({x:x0+(x1-x0)*(i/(xl.length-1)),label}));
+  _chart={series,grid,xticks}; return _chart;
+}
+function spark(seed,drop){
+  const w=240,h=46,n=24,x0=2,x1=w-2, xAt=i=>x0+(x1-x0)*(i/(n-1)), yAt=v=>h-3-(h-6)*v, cur=ph=>Math.max(0,Math.sin(Math.PI*ph));
+  let poa='',ghi='';
+  for(let i=0;i<n;i++){ const ph=i/(n-1); const nz=((Math.sin(i*7.1+seed)*1000)%1)*0.05; let vp=cur(ph)*0.94+nz, vg=cur(ph)*0.86+nz*0.8;
+    if(drop==='poa'&&ph>0.45&&ph<0.62)vp=0.05; if(drop==='ghi-high'&&ph>0.4&&ph<0.7)vg=cur(ph)*1.08; if(drop==='sem'){vp=0;vg=0;}
+    poa+=`${xAt(i).toFixed(1)},${yAt(Math.max(0,Math.min(1,vp))).toFixed(1)} `; ghi+=`${xAt(i).toFixed(1)},${yAt(Math.max(0,Math.min(1,vg))).toFixed(1)} `; }
+  return {poa:poa.trim(),ghi:ghi.trim()};
+}
+function flagStyle(kind){ const m={crit:['color-mix(in srgb, var(--gc-red) 18%, transparent)','#ff9a9d'],warn:['color-mix(in srgb, var(--gc-amber) 18%, transparent)','#f5c877'],ok:['color-mix(in srgb, var(--color-accent) 16%, transparent)','var(--color-accent-300)']}[kind]; return `display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;border-radius:99px;padding:2px 9px;background:${m[0]};color:${m[1]};`; }
+
+function _sparkPts(arr,mx){ if(!arr||!arr.length) return ''; const w=240,h=46,x0=2,x1=w-2,n=arr.length,m=mx||Math.max(1,...arr.filter(v=>v!=null)); return arr.map((v,i)=>{ const x=x0+(x1-x0)*(i/Math.max(1,n-1)), y=h-3-(h-6)*Math.max(0,Math.min(1,(v||0)/m)); return x.toFixed(1)+','+y.toFixed(1); }).join(' '); }
+/* ══ Gráfico do dia (modal): ETM (POA/GHI/POA-RI) e Trackers (ângulo×hora) ══ */
+function _hm(s){ const m=String(s||'').match(/(\d{1,2}):(\d{2})/); return m?(+m[1]*60+ +m[2]):0; }  // aceita "HH:MM", "HH:MM:SS" e ISO "YYYY-MM-DDTHH:MM:SSZ"
+function _todayISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }   // data LOCAL (não UTC): senão após 21h BR a curva pediria o dia seguinte
+function _hojeBR(){ const d=_todayISO(); return d.slice(8,10)+' / '+d.slice(5,7)+' / '+d.slice(0,4); }
+function _horaAgora(){ const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+function _dataHojeExt(){ const M=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro']; const d=new Date(); return d.getDate()+' de '+M[d.getMonth()]+' de '+d.getFullYear(); }
+/* ── Botão "Histórico": abre a página do dia (só fontes que têm — API PV e 2C; some nas outras) ── */
+function _histLink(){ const sk=SKEY[state.source]; if(sk==='pv')return{href:'/historico-plataforma',tab:'gridco-hist-pv'}; if(sk==='owen')return{href:'/historico2c',tab:'gridco-hist2c'}; return null; }
+function _histBtn(){ const h=_histLink(); return h?`<a href="${h.href}" target="${h.tab}" rel="noopener" class="btn btn-secondary" style="text-decoration:none"><i class="ph ph-clock-counter-clockwise"></i> Histórico</a>`:''; }
+function _srcNome(){ return ({'thopen-pv':'API PV Operation','thopen-db':'Banco de Dados','athon':'Athon (SunOp)','axis':'Axis','renogrid':'RenoGrid (SolarEdge)','2c':'2C (Email)'})[state.source]||'Fonte'; }
+/* ── Modo "Criar OS" (portado do dashboard): seleciona strings SEM CORRENTE → deep link gridos:// p/ o OS Creator (1 OS por inversor). Barra fixa no rodapé; some fora do modo. ── */
+const _osSel=new Map();   // "pid|invId|sid" → {pid,invId,sid,usina,inv}
+function _osKey(p,i,s){ return p+'|'+i+'|'+s; }
+function _osBtn(){ if(!['pv','pg','sunop','owen'].includes(SKEY[state.source])) return ''; const on=state.osMode; return `<button onclick="toggleOsMode()" class="btn ${on?'btn-primary':'btn-secondary'}"><i class="ph ph-wrench"></i> ${on?'Sair do modo OS':'Criar OS'}</button>`; }
+window.toggleOsMode=()=>{ const on=!state.osMode; if(!on)_osSel.clear(); setState({osMode:on}); _osBar(); };
+window.osToggle=(pid,invId,sid,usina,inv)=>{ const k=_osKey(pid,invId,sid); if(_osSel.has(k))_osSel.delete(k); else _osSel.set(k,{pid:String(pid),invId:String(invId),sid:String(sid),usina:usina||'',inv:inv||''}); render(); _osBar(); };
+window.osClear=()=>{ _osSel.clear(); render(); _osBar(); };
+function _osGrupos(){ const g=new Map(); _osSel.forEach(v=>{ const k=v.pid+'|'+v.invId; if(!g.has(k))g.set(k,{pid:v.pid,usina:v.usina,inv:v.inv,sids:[]}); g.get(k).sids.push(v.sid); }); return [...g.values()]; }
+function _osObs(sids){ const l=sids.slice().sort((a,b)=>(_snum(a)||0)-(_snum(b)||0)); if(l.length===1)return `String ${l[0]} com corrente nula, verificar e normalizar`; return `Strings ${l.slice(0,-1).join(', ')} e ${l[l.length-1]} com corrente nula, verificar e normalizar`; }
+function _osLink(g){ const q=new URLSearchParams({usina:g.usina,ativo:g.inv,obs:_osObs(g.sids),template:'recomposicao',origem:'plataforma-strings'}); return 'gridos://performance?'+q.toString(); }
+function _osBar(){ let bar=document.getElementById('gc-osbar'); if(!bar){ bar=document.createElement('div'); bar.id='gc-osbar'; document.body.appendChild(bar); }
+  const n=_osSel.size, grps=_osGrupos().length;
+  bar.style.cssText=`position:fixed;left:0;right:0;bottom:0;z-index:400;align-items:center;gap:14px;background:var(--color-surface);color:var(--color-text);border-top:2px solid var(--color-accent);padding:12px 28px;font-size:13px;box-shadow:0 -6px 24px rgba(0,0,0,.4);display:${(state.osMode&&n>0)?'flex':'none'}`;
+  bar.innerHTML=`<span style="flex:1;color:var(--color-neutral-300)">${n} string(s) selecionada(s) — ${grps} OS (uma por inversor).</span><button onclick="osClear()" style="background:transparent;color:var(--color-neutral-400);text-decoration:underline;border:0;cursor:pointer;font-size:12px">limpar</button><button onclick="osGerar()" style="background:var(--color-accent);color:#161826;font-weight:700;border:0;border-radius:8px;padding:8px 16px;font-size:12.5px;cursor:pointer"><i class="ph ph-wrench" style="margin-right:5px"></i>Criar OS(s)</button>`;
+}
+window.osGerar=async()=>{
+  const grupos=_osGrupos(); if(!grupos.length) return;
+  let fmap={};
+  try{ const usinas=[...new Set(grupos.map(g=>g.usina).filter(Boolean))];
+    const rr=await fetch('/api/os-creator/fractall-usinas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usinas})});
+    if(rr.ok) fmap=(((await rr.json())||{}).map)||{};
+  }catch(e){}
+  const links=grupos.map(g=>_osLink(Object.assign({},g,{usina:fmap[g.usina]||g.usina})));
+  if(links.length===1){ window.location.href=links[0]; osClear(); return; }
+  let m=document.getElementById('gc-osmodal'); if(!m){ m=document.createElement('div'); m.id='gc-osmodal'; document.body.appendChild(m); }
+  const inner=grupos.map((g,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0"><a href="${links[i]}" style="background:var(--color-accent);color:#161826;font-weight:700;text-decoration:none;padding:7px 14px;border-radius:8px;font-size:12px;white-space:nowrap"><i class="ph ph-wrench" style="margin-right:5px"></i>Criar OS</a><span style="font-size:12.5px;color:var(--color-neutral-300)">${_he(g.usina)} · ${_he(g.inv)} · ${_he(_osObs(g.sids))}</span></div>`).join('');
+  m.innerHTML=`<div onclick="if(event.target===this)document.getElementById('gc-osmodal').remove()" style="position:fixed;inset:0;z-index:500;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:40px 16px"><div class="card" style="width:560px;max-width:100%;padding:20px 22px"><div style="font-family:var(--font-heading);font-size:16px;margin-bottom:12px">Criar ${grupos.length} OS (uma por inversor)</div>${inner}<div style="text-align:right;margin-top:14px"><button class="btn btn-secondary" onclick="document.getElementById('gc-osmodal').remove()">Fechar</button></div></div></div>`;
+};
+function _brdate(iso){ const p=String(iso).split('-'); return p.length===3?(p[2]+' / '+p[1]+' / '+p[0]):iso; }
+// ── Tooltip de gráfico: ponto mais próximo do cursor → nome + valor + horário (trackers e strings) ──
+let _gtip=null;
+function _chartTip(evt,svg){
+  if(!_gtip){ _gtip=document.createElement('div'); _gtip.style.cssText='position:fixed;z-index:300;pointer-events:none;background:var(--color-surface);border:1px solid var(--color-divider);border-radius:8px;padding:6px 10px;font-size:12px;line-height:1.55;box-shadow:0 6px 22px rgba(0,0,0,.45);white-space:nowrap;opacity:0;transition:opacity .08s'; document.body.appendChild(_gtip); }
+  let loc; try{ const pt=svg.createSVGPoint(); pt.x=evt.clientX; pt.y=evt.clientY; loc=pt.matrixTransform(svg.getScreenCTM().inverse()); }catch(e){ return; }
+  const mx=loc.x, my=loc.y, D=svg.dataset;
+  const x0=+D.x0,x1=+D.x1,yt=+D.yt,yb=+D.yb,xmin=+D.xmin,xmax=+D.xmax,ymin=+D.ymin,ymax=+D.ymax,unit=D.unit||'';
+  let best=null,bd=1e9;
+  svg.querySelectorAll('polyline[data-name]').forEach(p=>{ const nm=p.getAttribute('data-name'); if(!nm)return;
+    const pts=(p.getAttribute('points')||'').split(' ');
+    for(let i=0;i<pts.length;i++){ const c=pts[i].split(','); const px=+c[0],py=+c[1]; if(isNaN(px)||isNaN(py))continue;
+      const d=(px-mx)*(px-mx)+(py-my)*(py-my)*0.25; if(d<bd){ bd=d; best={px,py,nm,col:p.getAttribute('stroke')}; } } });
+  if(!best||Math.abs(best.px-mx)>36){ _gtip.style.opacity='0'; _hideCross(svg); return; }
+  const t=xmin+(best.px-x0)/(x1-x0)*(xmax-xmin), v=ymin+(yb-best.py)/(yb-yt)*(ymax-ymin);
+  const hh=Math.max(0,Math.floor(t/60)), mm=Math.max(0,Math.round(t%60));
+  _gtip.innerHTML=`<b style="color:${best.col||'var(--color-text)'}">${best.nm}</b><br><span style="font-weight:600">${Math.round(v*10)/10}${unit}</span> <span class="text-muted">· ${(hh<10?'0':'')+hh}:${(mm<10?'0':'')+mm}</span>`;
+  _gtip.style.opacity='1'; _gtip.style.left=Math.min(window.innerWidth-170,evt.clientX+15)+'px'; _gtip.style.top=Math.max(8,evt.clientY-8)+'px';
+  _showCross(svg,best.px,best.py,best.col);
+}
+function _chartTipHide(svg){ if(_gtip)_gtip.style.opacity='0'; _hideCross(svg); }
+function _showCross(svg,px,py,col){ let c=svg.querySelector('.gc-cross'); if(!c){ c=document.createElementNS('http://www.w3.org/2000/svg','circle'); c.setAttribute('class','gc-cross'); c.setAttribute('r','4'); c.setAttribute('stroke','#fff'); c.setAttribute('stroke-width','1.5'); c.style.pointerEvents='none'; svg.appendChild(c); } c.setAttribute('cx',px); c.setAttribute('cy',py); c.setAttribute('fill',col||'#fff'); c.style.opacity='1'; }
+function _hideCross(svg){ const c=svg&&svg.querySelector('.gc-cross'); if(c)c.style.opacity='0'; }
+function _gchart(series,o){
+  o=o||{}; const W=1280,H=300,x0=54,x1=1252,yT=12,yB=248;
+  const ax=[]; series.forEach(s=>(s.xm||[]).forEach(m=>ax.push(m)));
+  let xmin=o.xmin!=null?o.xmin:(ax.length?Math.min(...ax):360), xmax=o.xmax!=null?o.xmax:(ax.length?Math.max(...ax):1080);
+  if(xmax-xmin<30){xmin=360;xmax=1080;}
+  const ay=[]; series.forEach(s=>(s.y||[]).forEach(v=>{ if(v!=null&&!isNaN(v))ay.push(v); })); if(typeof o.target==='number')ay.push(o.target);
+  let ymin=o.ymin!=null?o.ymin:(ay.length?Math.min(...ay):0), ymax=o.ymax!=null?o.ymax:(ay.length?Math.max(...ay):1);
+  if(ymax-ymin<1e-6)ymax=ymin+1; const pd=(ymax-ymin)*0.08; ymin-=pd; ymax+=pd;
+  const X=m=>x0+(x1-x0)*Math.max(0,Math.min(1,(m-xmin)/(xmax-xmin))), Y=v=>yB-(yB-yT)*Math.max(0,Math.min(1,(v-ymin)/(ymax-ymin)));
+  let grid=''; for(let i=0;i<=5;i++){ const v=ymin+(ymax-ymin)*i/5,y=Y(v); grid+=`<line x1="${x0}" y1="${y.toFixed(1)}" x2="${x1}" y2="${y.toFixed(1)}" stroke="var(--color-neutral-900)"></line><text x="${x0-7}" y="${(y+3).toFixed(1)}" text-anchor="end" fill="#75798c" font-size="10">${Math.abs(ymax-ymin)>=20?Math.round(v):(Math.round(v*10)/10)}</text>`; }
+  const xt=(o.xticks||[0,2,4,6,8,10,12,14,16,18,20,22].map(h=>({m:h*60,l:(h<10?'0'+h:h)+':00'}))).filter(t=>t.m>=xmin-1&&t.m<=xmax+1).map(t=>`<text x="${X(t.m).toFixed(1)}" y="${yB+18}" text-anchor="middle" fill="#75798c" font-size="10">${t.l}</text>`).join('');
+  let tgt=''; if(typeof o.target==='number'){ const y=Y(o.target); tgt=`<line x1="${x0}" y1="${y.toFixed(1)}" x2="${x1}" y2="${y.toFixed(1)}" stroke="var(--color-neutral-300)" stroke-dasharray="7 5" stroke-width="1.4" stroke-opacity=".8"></line>`; }
+  const polys=series.map(s=>{ const pts=(s.y||[]).map((v,i)=>(v==null||isNaN(v))?null:X((s.xm||[])[i]).toFixed(1)+','+Y(v).toFixed(1)).filter(Boolean).join(' ');
+    return pts?`<polyline data-trk="${s.id!=null?s.id:''}" data-name="${s.name!=null?esc(String(s.name)):''}" points="${pts}" fill="none" stroke="${s.color}" stroke-width="${s.width||1.8}" stroke-opacity="${s.opacity!=null?s.opacity:1}"${s.dash?` stroke-dasharray="${s.dash}"`:''} stroke-linejoin="round" stroke-linecap="round" style="transition:stroke-opacity .12s,stroke-width .12s"></polyline>`:''; }).join('');
+  const yl=o.yLabel?`<text x="15" y="${((yT+yB)/2).toFixed(0)}" transform="rotate(-90 15 ${((yT+yB)/2).toFixed(0)})" text-anchor="middle" fill="#75798c" font-size="11">${o.yLabel}</text>`:'';
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:${o.tall?520:320}px;display:block" data-x0="${x0}" data-x1="${x1}" data-yt="${yT}" data-yb="${yB}" data-xmin="${xmin}" data-xmax="${xmax}" data-ymin="${ymin}" data-ymax="${ymax}" data-unit="${o.unit||''}" onmousemove="_chartTip(event,this)" onmouseleave="_chartTipHide(this)"><line x1="${x0}" y1="${yT}" x2="${x0}" y2="${yB}" stroke="var(--color-divider)"></line><line x1="${x0}" y1="${yB}" x2="${x1}" y2="${yB}" stroke="var(--color-divider)"></line>${grid}${xt}${tgt}${polys}${yl}<text x="${((x0+x1)/2).toFixed(0)}" y="${H-4}" text-anchor="middle" fill="#75798c" font-size="11">Hora</text></svg>`;
+}
+// MULTI-DIA num gráfico SÓ (contínuo): eixo Y compartilhado, cada dia é uma SEÇÃO lado a lado (divisor +
+// data no topo), horas legíveis. days=[{date, series:[{xm,y,color,width,opacity,dash}]}] (xm em min do dia).
+function _gchartDias(days,o){
+  o=o||{}; const H=o.tall?520:340, W=1280, x0=52, x1=1268, yT=26, yB=H-70;
+  const DI=o.xmin!=null?o.xmin:360, DF=o.xmax!=null?o.xmax:1080, DW=Math.max(1,DF-DI);
+  const N=Math.max(1,(days||[]).length), VW=N*DW;
+  const ay=[]; (days||[]).forEach(d=>(d.series||[]).forEach(s=>(s.y||[]).forEach(v=>{ if(v!=null&&!isNaN(v))ay.push(v); })));
+  let ymin=o.ymin!=null?o.ymin:(ay.length?Math.min(...ay):0), ymax=o.ymax!=null?o.ymax:(ay.length?Math.max(...ay):1);
+  if(ymax-ymin<1e-6)ymax=ymin+1; const pd=(ymax-ymin)*0.08; ymin-=pd; ymax+=pd;
+  const X=(i,m)=>x0+(x1-x0)*(i*DW+(m-DI))/VW, Y=v=>yB-(yB-yT)*Math.max(0,Math.min(1,(v-ymin)/(ymax-ymin)));
+  let grid=''; for(let k=0;k<=5;k++){ const v=ymin+(ymax-ymin)*k/5, y=Y(v); grid+=`<line x1="${x0}" y1="${y.toFixed(1)}" x2="${x1}" y2="${y.toFixed(1)}" stroke="var(--color-neutral-900)"></line><text x="${x0-7}" y="${(y+3).toFixed(1)}" text-anchor="end" fill="#75798c" font-size="10">${Math.abs(ymax-ymin)>=20?Math.round(v):Math.round(v*10)/10}</text>`; }
+  const hrs=[]; for(let h=Math.ceil(DI/60/3)*3; h*60<=DF; h+=3) hrs.push(h);   // 06,09,12,15,18h dentro da faixa
+  let sec='';
+  (days||[]).forEach((d,i)=>{ const xL=X(i,DI), xR=X(i,DF);
+    if(i>0) sec+=`<line x1="${xL.toFixed(1)}" y1="${yT}" x2="${xL.toFixed(1)}" y2="${(yB+4).toFixed(1)}" stroke="var(--color-divider)"></line>`;
+    sec+=`<text x="${((xL+xR)/2).toFixed(1)}" y="15" text-anchor="middle" fill="#9aa4b8" font-size="11" font-weight="600">${_he(d.date||('Dia '+(i+1)))}</text>`;
+    hrs.forEach(h=>{ sec+=`<text x="${X(i,h*60).toFixed(1)}" y="${(yB+16).toFixed(1)}" text-anchor="middle" fill="#75798c" font-size="10">${(h<10?'0'+h:h)}h</text>`; });
+    (d.series||[]).forEach(s=>{ const pts=(s.y||[]).map((v,k)=>(v==null||isNaN(v))?null:X(i,(s.xm||[])[k]).toFixed(1)+','+Y(v).toFixed(1)).filter(Boolean).join(' ');
+      if(pts) sec+=`<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="${s.width||1.4}" stroke-opacity="${s.opacity!=null?s.opacity:1}"${s.dash?` stroke-dasharray="${s.dash}"`:''} stroke-linejoin="round" stroke-linecap="round"></polyline>`; });
+  });
+  const yl=o.yLabel?`<text x="13" y="${((yT+yB)/2).toFixed(0)}" transform="rotate(-90 13 ${((yT+yB)/2).toFixed(0)})" text-anchor="middle" fill="#75798c" font-size="11">${o.yLabel}</text>`:'';
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:${H}px;display:block"><line x1="${x0}" y1="${yT}" x2="${x0}" y2="${yB}" stroke="var(--color-divider)"></line><line x1="${x0}" y1="${yB}" x2="${x1}" y2="${yB}" stroke="var(--color-divider)"></line>${grid}${sec}${yl}<text x="${((x0+x1)/2).toFixed(0)}" y="${H-4}" text-anchor="middle" fill="#75798c" font-size="11">Hora</text></svg>`;
+}
+function _leg(items){ return `<div style="display:flex;gap:16px;margin-bottom:6px;font-size:12px" class="text-muted">${items.map(i=>`<span style="display:inline-flex;align-items:center;gap:6px"><span style="width:15px;height:3px;border-radius:2px;background:${i.dash?'repeating-linear-gradient(90deg,'+i.c+' 0 4px,transparent 4px 7px)':i.c}"></span>${i.t}</span>`).join('')}</div>`; }
+function _closeGraf(){ state._graf=null; const m=document.getElementById('gc-gmodal'); if(m)m.remove(); }
+function _grafModal(o){ let m=document.getElementById('gc-gmodal'); if(!m){ m=document.createElement('div'); m.id='gc-gmodal'; document.body.appendChild(m); }
+  m.innerHTML=`<div onclick="_closeGraf()" style="position:fixed;inset:0;z-index:200;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:44px 16px;overflow-y:auto"><div onclick="event.stopPropagation()" class="card" style="width:900px;max-width:100%;padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 22px;border-bottom:1px solid var(--color-divider)"><span style="font-family:var(--font-heading);font-size:16px">${o.title}</span><div style="display:flex;align-items:center;gap:14px">${o.controls||''}<i class="ph ph-x" onclick="_closeGraf()" style="cursor:pointer;font-size:18px;color:var(--color-neutral-400)"></i></div></div><div style="padding:14px 22px 4px">${o.legend||''}${o.chart}</div><div style="display:flex;align-items:center;justify-content:space-between;padding:4px 22px 18px"><span class="text-muted" style="font-size:12px">${o.sub||''}</span><button class="btn btn-secondary" onclick="_closeGraf()">Fechar</button></div></div></div>`;
+}
+function _bell(peak,seed,drop){ const xm=[],y=[]; for(let m=360;m<=1080;m+=15){ const ph=(m-360)/720; let v=Math.max(0,Math.sin(Math.PI*ph))*peak*(0.9+0.1*Math.sin(m*0.6+seed)); if(drop&&ph>0.46&&ph<0.6)v*=0.08; xm.push(m); y.push(Math.max(0,Math.round(v))); } return {xm,y}; }
+function _exTrk(){ const xm=[],aY=[]; for(let m=0;m<=1440;m+=20){ const ph=Math.max(0,Math.min(1,(m-360)/720)); let a=(m<380||m>1070)?-10:-55*Math.cos(Math.PI*ph); xm.push(m); aY.push(Math.round(a)); }
+  const trks=[]; for(let k=0;k<9;k++)trks.push({xm,y:aY.map(v=>v+Math.sin(k*3+1)*2),color:'#f5a623',width:1,opacity:.5}); trks.push({xm,y:xm.map(()=>-34),color:'#ff9a9d',width:1.6,opacity:.95}); return {trks,alvo:{xm,y:aY}}; }
+function _etmChartUrl(pid,usina,date){ const s=state.source;
+  if(s==='thopen-pv') return pid!=null?('/api/etm/chart?plant_id='+encodeURIComponent(pid)+'&date='+date):null;
+  if(s==='athon') return '/api/sunop/etm/chart?plant='+encodeURIComponent(usina)+'&date='+date;
+  if(s==='axis') return '/api/axis/etm/chart?plant='+encodeURIComponent(usina)+'&date='+date;
+  return null; }
+window.abrirEtmChart=async(usina,pid)=>{ const date=_todayISO(); state._graf={t:'etm',usina:usina,pid:pid,date:date}; _renderEtmChart('load');
+  let d=null; const url=_etmChartUrl(pid,usina,date); if(url){ try{ d=await fetch(url).then(r=>r.json()); }catch(e){} }
+  if(!state._graf||state._graf.t!=='etm'||String(state._graf.usina)!==String(usina)) return; _renderEtmChart(d); };
+function _renderEtmChart(d){ const g=state._graf; if(!g)return;
+  let chart, sub='Irradiância (W/m²) ao longo do dia';
+  if(d==='load'){ chart=`<div class="text-muted" style="height:330px;display:flex;align-items:center;justify-content:center;font-size:13px"><i class="ph ph-circle-notch gc-spin" style="margin-right:8px"></i> Carregando curva…</div>`; }
+  else{ let poa,ghi,poari,ex=false;
+    if(d&&d.labels&&d.labels.length&&(d.poa||[]).some(v=>v!=null)){ const xm=d.labels.map(_hm); poa={xm,y:d.poa}; ghi={xm,y:d.ghi}; poari={xm,y:d.poari}; }
+    else{ ex=true; poa=_bell(940,1,''); ghi=_bell(820,2,''); poari=_bell(900,3,''); }
+    chart=_gchart([{...poa,color:'var(--color-accent)',width:2},{...ghi,color:'var(--gc-blue)',width:2},{...poari,color:'var(--gc-amber)',width:1.6,opacity:.85}],{ymin:0,yLabel:'W/m²',xmin:360,xmax:1080});
+    if(ex)sub+=' · exemplo (fonte sem curva agora)'; }
+  _grafModal({title:`<i class="ph-fill ph-chart-line" style="color:var(--gc-blue);margin-right:7px"></i>ETM — ${_he(g.usina)}`,sub:sub,
+    legend:_leg([{c:'var(--color-accent)',t:'POA'},{c:'var(--gc-blue)',t:'GHI'},{c:'var(--gc-amber)',t:'POA-RI'}]),
+    controls:`<span class="text-muted" style="font-size:12.5px">Data</span><span class="tag tag-outline" style="border-color:var(--color-divider);color:var(--color-neutral-300)">${_brdate(g.date)}</span>`,chart:chart}); }
+window.abrirTrkChart=(pid)=>{   // EXPANDE inline no drill (não modal): toggle
+  const abrir=String(state.trkGraf)!==String(pid);
+  state.trkGraf=abrir?String(pid):null;
+  if(abrir){ state.trkHide={}; if(!state.trkGrafIni){ const t=_todayISO(); state.trkGrafIni=t; state.trkGrafFim=t; } }   // zera ocultos ao abrir outra usina
+  render();
+  if(abrir) _loadTrkChart(pid); };
+window.toggleTrkHide=(n)=>{ n=String(n); if(state.trkHide[n])delete state.trkHide[n]; else state.trkHide[n]=1; render(); };   // clique no card do tracker oculta/mostra a linha
+function _isoUTC(iso){ const p=String(iso).split('-'); return Date.UTC(+p[0],(+p[1]||1)-1,+p[2]||1); }
+function _trkDias(a,b){ return Math.round((_isoUTC(b)-_isoUTC(a))/86400000)+1; }
+function _addDias(iso,n){ const d=new Date(_isoUTC(iso)+n*86400000); return d.getUTCFullYear()+'-'+String(d.getUTCMonth()+1).padStart(2,'0')+'-'+String(d.getUTCDate()).padStart(2,'0'); }
+async function _loadTrkChart(pid){
+  const ini=state.trkGrafIni||_todayISO(), fim=state.trkGrafFim||ini, key=state.source+'|'+pid+'|'+ini+'|'+fim;
+  if(RD.trkChart[key]!==undefined) return;
+  RD.trkChart[key]=null; render();
+  const base=(EP.trackers||{})[SKEY[state.source]]; let d=null;
+  if(base){ try{ d=await fetch(base+'/'+encodeURIComponent(pid)+'/chart?ini='+ini+'&fim='+fim).then(r=>r.json()); }catch(e){} }
+  RD.trkChart[key]=d||{}; render(); }
+window.setTrkGrafIni=(pid,val)=>{ if(!val)return; state.trkGrafIni=val; if(state.trkGrafFim<val)state.trkGrafFim=val; if(_trkDias(state.trkGrafIni,state.trkGrafFim)>5)state.trkGrafFim=_addDias(state.trkGrafIni,4); render(); _loadTrkChart(pid); };
+window.setTrkGrafFim=(pid,val)=>{ if(!val)return; state.trkGrafFim=val; if(val<state.trkGrafIni)state.trkGrafIni=val; if(_trkDias(state.trkGrafIni,state.trkGrafFim)>5)state.trkGrafIni=_addDias(state.trkGrafFim,-4); render(); _loadTrkChart(pid); };
+window.setTrkGrafRed=(pid)=>{ state.trkGrafRed=!state.trkGrafRed; render(); };
+window.setTrkGrafFiltro=(pid,f)=>{ state.trkGrafFiltro=f; render(); };
+window.setTrkGrafExp=(pid)=>{ state.trkGrafExp=!state.trkGrafExp; render(); };
+function _trkChartInline(pid){
+  const ini=state.trkGrafIni||_todayISO(), fim=state.trkGrafFim||ini;
+  const d=RD.trkChart[state.source+'|'+pid+'|'+ini+'|'+fim];
+  const base=(EP.trackers||{})[SKEY[state.source]], pe=esc(pid).replace(/['"\\]/g,'');
+  const dIn=(v,fn)=>`<input type="date" value="${v}" onclick="event.stopPropagation()" onchange="event.stopPropagation();${fn}('${pe}',this.value)" style="background:var(--color-neutral-900);border:1px solid var(--color-divider);border-radius:6px;color:var(--color-text);font-family:inherit;font-size:12px;padding:4px 7px">`;
+  const sb=(lbl,on,fn,arg)=>`<button onclick="event.stopPropagation();${fn}('${pe}'${arg!=null?",'"+arg+"'":''})" style="border:1px solid ${on?'var(--color-accent)':'var(--color-divider)'};background:${on?'color-mix(in srgb,var(--color-accent) 16%,transparent)':'var(--color-neutral-900)'};color:${on?'var(--color-accent)':'var(--color-neutral-300)'};font-family:inherit;font-size:11.5px;font-weight:600;padding:5px 11px;border-radius:7px;cursor:pointer">${lbl}</button>`;
+  const csv=base?(base+'/'+encodeURIComponent(pid)+'/chart.csv?ini='+ini+'&fim='+fim):'#';
+  const bar=`<div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px"><span class="text-muted" style="font-size:12.5px">De</span>${dIn(ini,'setTrkGrafIni')}<span class="text-muted" style="font-size:12.5px">Até</span>${dIn(fim,'setTrkGrafFim')}<span class="text-muted" style="font-size:11.5px">até 5 dias</span>${sb(state.trkGrafRed?'Visão reduzida (06–18h)':'Dia inteiro',state.trkGrafRed,'setTrkGrafRed')}<span class="text-muted" style="font-size:12px;margin-left:2px">Filtrar:</span>${sb('Ruins',state.trkGrafFiltro==='ruins','setTrkGrafFiltro','ruins')}${sb('Bons',state.trkGrafFiltro==='bons','setTrkGrafFiltro','bons')}${sb('Todos',state.trkGrafFiltro==='todos','setTrkGrafFiltro','todos')}<a href="${csv}" download onclick="event.stopPropagation()" style="text-decoration:none;border:1px solid var(--color-divider);background:var(--color-neutral-900);color:var(--color-neutral-300);font-size:11.5px;font-weight:600;padding:5px 11px;border-radius:7px"><i class="ph ph-download-simple"></i> CSV bruto</a>${sb(state.trkGrafExp?'Recolher':'Expandir',state.trkGrafExp,'setTrkGrafExp')}</div>`;
+  const box=body=>`<div style="padding:16px 18px;border-radius:var(--radius-md);background:color-mix(in srgb, var(--color-neutral-900) 60%, transparent);margin:0 0 16px">${body}</div>`;
+  if(d===undefined||d===null) return box(`${bar}<div class="text-muted" style="font-size:13px"><i class="ph ph-circle-notch gc-spin" style="margin-right:8px"></i> Carregando curva… (pode levar alguns segundos)</div>`);
+  const all=(d&&d.trackers)||[], ex=!all.length;
+  const bad=st=>['parado','severo','medio','leve','desvio','atraso','sem_comunicacao'].includes(st||'');
+  const F=state.trkGrafFiltro;
+  let shown=all;
+  if(F==='ruins') shown=all.filter(t=>bad(t.status));
+  else if(F==='bons'||F==='normal') shown=all.filter(t=>!bad(t.status));
+  else if(F==='parado') shown=all.filter(t=>t.status==='parado');
+  else if(F==='severo') shown=all.filter(t=>t.status==='severo'||t.status==='desvio');
+  else if(F==='medio') shown=all.filter(t=>t.status==='medio');
+  else if(F==='leve') shown=all.filter(t=>t.status==='leve'||t.status==='atraso');
+  else if(F==='alvo') shown=[];
+  shown=shown.filter(t=>!(state.trkHide&&state.trkHide[String(_snum(t.id))]));   // remove os ocultados por clique no card
+  let trks, alvo;
+  if(all.length){ trks=shown.map(t=>{ const st=t.status||'normal', c=_trkCor(st), b=bad(st); return {id:_snum(t.id),name:t.id,xm:(t.x||[]).map(_hm),y:t.y,color:c[0],width:b?1.7:0.9,opacity:b?0.95:0.5}; }); alvo=d.alvo; }
+  else { const e=_exTrk(); trks=e.trks; alvo=e.alvo; }
+  const opts={yLabel:'Ângulo (°)',unit:'°'};
+  if(state.trkGrafRed){ opts.xmin=360; opts.xmax=1080; }
+  if(state.trkGrafExp) opts.tall=true;
+  let series=trks.slice(), alvoS=null;
+  if(alvo&&alvo.xm)alvoS={xm:alvo.xm,y:alvo.y}; else if(alvo&&alvo.x)alvoS={xm:(alvo.x||[]).map(_hm),y:alvo.y};
+  if(alvoS)series.push({...alvoS,name:'Alvo',color:'var(--color-neutral-200)',width:1.8,dash:'7 5',opacity:.9}); else if(typeof alvo==='number')opts.target=alvo;
+  const resumo=ex?'<span class="text-muted">exemplo (fonte sem curva agora)</span>':`<span style="color:#ff5b6e;font-weight:600">${d.parados||0} parado</span> · <span style="color:#ff8f3c;font-weight:600">${d.severos||0} severo</span> · <span style="color:#ffb43d;font-weight:600">${d.medios||0} médio</span> · <span style="color:#ffd83d;font-weight:600">${d.leves||0} leve</span> · <span class="text-muted">mostrando ${shown.length} de ${all.length}</span>`;
+  const legI=(color,label,f,dash)=>{const on=F===f;return `<button onclick="event.stopPropagation();setTrkGrafFiltro('${pe}','${on?'todos':f}')" title="${on?'Mostrar todos':'Mostrar só '+label}" style="display:inline-flex;align-items:center;gap:6px;background:${on?'color-mix(in srgb,var(--color-accent) 15%,transparent)':'transparent'};border:1px solid ${on?'var(--color-accent)':'transparent'};border-radius:7px;padding:3px 9px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:${on?600:400};color:${on?'var(--color-text)':'var(--color-neutral-300)'}"><span style="width:15px;height:3px;border-radius:2px;background:${dash?'repeating-linear-gradient(90deg,'+color+' 0 4px,transparent 4px 7px)':color}"></span>${label}</button>`;};
+  const leg=`<div style="display:flex;gap:3px;flex-wrap:wrap">${legI(_trkCor('parado')[0],'Parado','parado')}${legI(_trkCor('severo')[0],'Severo','severo')}${legI(_trkCor('medio')[0],'Médio','medio')}${legI(_trkCor('leve')[0],'Leve','leve')}${legI(_trkCor('normal')[0],'Normal','normal')}${legI('var(--color-neutral-200)','Alvo','alvo',true)}</div>`;
+  // ── MULTI-DIA: a curva vem concatenada (dia1 depois dia2…); corta onde a HORA volta (x cai = novo dia)
+  //    e desenha UM gráfico por dia. Serve todas as fontes (opera sobre a série concatenada, não no backend).
+  const _nd=d.ndias||((ini&&fim)?_trkDias(ini,fim):1);
+  let chartHtml;
+  if(_nd>1 && !ex){
+    const _split=s=>{ const o=[]; let c={xm:[],y:[]}; const X=s.xm||[],Y=s.y||[]; for(let i=0;i<X.length;i++){ if(i>0&&X[i]<X[i-1]-1){o.push(c);c={xm:[],y:[]};} c.xm.push(X[i]);c.y.push(Y[i]); } if(c.xm.length)o.push(c); return o; };
+    const pt=trks.map(t=>({t,seg:_split(t)})), aseg=alvoS?_split(alvoS):null;
+    const nseg=Math.max(1,...pt.map(p=>p.seg.length),aseg?aseg.length:0);
+    const dts=[]; for(let k=0;k<_nd;k++)dts.push(_addDias(ini,k));
+    const _dias=[];
+    for(let di=0;di<nseg;di++){ const sd=pt.map(p=>{const gg=p.seg[di];return gg?{...p.t,xm:gg.xm,y:gg.y}:null;}).filter(Boolean);
+      if(aseg&&aseg[di])sd.push({xm:aseg[di].xm,y:aseg[di].y,color:'var(--color-neutral-200)',width:1.8,dash:'7 5',opacity:.9});
+      const lbl=(nseg===_nd&&dts[di])?_brdate(dts[di]):('Dia '+(di+1));
+      _dias.push({date:lbl,series:sd}); }
+    chartHtml=_gchartDias(_dias,opts);   // UM gráfico contínuo: eixo Y compartilhado, dias como seções lado a lado
+  } else chartHtml=_gchart(series,opts);
+  return box(`${bar}<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:6px"><span style="font-size:12px">${resumo}</span>${leg}</div>${chartHtml}`); }
+
+// API PV separa a mesma usina em skids numerados (Altair 1..5, Indaiatuba 1..4). P/ ETM (mesma estação
+// meteo) isso duplica: colapsa grupos com 2+ no PRIMEIRO, exibindo o nome-base ("Altair"). Singleton fica
+// como está (não renomeia "Colorado 2" se não houver "Colorado 1"). Tira o " (id)" e o " N" final.
+function _dedupSkid(rows){
+  const base=u=>String(u||'').replace(/\s*\(\d+\)\s*$/,'').replace(/\s+\d+$/,'').trim();
+  const cnt={}; (rows||[]).forEach(r=>{const b=base(r.usina);cnt[b]=(cnt[b]||0)+1;});
+  const seen={}, out=[];
+  (rows||[]).forEach(r=>{ const b=base(r.usina);
+    if(cnt[b]>=2){ if(seen[b])return; seen[b]=1; out.push({...r,usina:b}); }   // colapsa no 1º, nome = base
+    else out.push(r); });
+  return out;
+}
+function computeVals(){
+  const s=state;
+  const srcDefs=[{id:'thopen-pv',icon:'ph ph-broadcast',name:'Thopen',sub:'API PV Operation'},{id:'thopen-db',icon:'ph ph-database',name:'Thopen',sub:'Banco de Dados'},{id:'athon',icon:'ph ph-lightning',name:'Athon',sub:'API SunOp'},{id:'axis',icon:'ph ph-sun',name:'Axis',sub:'PE III / Ponto Belo'},{id:'renogrid',icon:'ph ph-diamond',name:'RenoGrid',sub:'API SolarEdge'},{id:'2c',icon:'ph ph-envelope-simple',name:'2C',sub:'Email'}];
+  const sources=srcDefs.map(d=>{const on=s.source===d.id; return {icon:d.icon,name:d.name,sub:d.sub,id:d.id,iconBg:on?'color-mix(in srgb, var(--color-accent) 22%, transparent)':'var(--color-neutral-900)',iconColor:on?'var(--color-accent)':'var(--color-neutral-300)',nameColor:on?'var(--color-text)':'var(--color-neutral-300)',style:`display:flex;align-items:center;gap:11px;padding:10px 14px;border-radius:var(--radius-md);cursor:pointer;font-family:inherit;flex-shrink:0;background:var(--color-surface);border:1px solid ${on?'var(--color-accent)':'var(--color-divider)'};`};});
+  const viewDefs=[{id:'strings',label:'Strings'},{id:'etm',label:'ETM'},{id:'geracao',label:'Geração'},{id:'trackers',label:'Trackers'},{id:'pr',label:'PR Inversores'},{id:'curva',label:'Curva das strings'},{id:'perdas',label:'Perdas'}];
+  const views=viewDefs.map(v=>{const on=s.view===v.id; return {label:v.label,id:v.id,style:`padding:8px 15px;border-radius:var(--radius-md);cursor:pointer;font-family:var(--font-heading);font-size:13.5px;font-weight:500;background:${on?'var(--color-accent)':'transparent'};color:${on?'#161826':'var(--color-neutral-300)'};border:1px solid ${on?'var(--color-accent)':'var(--color-divider)'};`};});
+  const subDefs=[{id:'geral',label:'Visão geral'},{id:'sem',label:'Strings sem corrente'},{id:'ocor',label:'Ocorrências (caiu → voltou)'}];
+  const subfilters=subDefs.map(f=>{const on=s.subfilter===f.id; return {label:f.label,id:f.id,style:`padding:7px 14px;border-radius:var(--radius-md);cursor:pointer;font-family:var(--font-body);font-size:13px;font-weight:500;background:${on?'var(--color-accent-900)':'transparent'};color:${on?'var(--color-accent-200)':'var(--color-neutral-400)'};border:1px solid ${on?'var(--color-accent-700)':'var(--color-divider)'};`};});
+  const cardsByView={
+    strings:[{icon:'ph ph-factory',value:76,label:'Usinas',accent:'var(--gc-blue)',numColor:'var(--gc-blue)'},{icon:'ph ph-lightning',value:505,label:'Strings ativas',accent:'var(--color-accent)',numColor:'var(--color-accent)'},{icon:'ph ph-warning',value:67,label:'Sem geração',accent:'var(--gc-red)',numColor:'var(--gc-red)'},{icon:'ph ph-thermometer-hot',value:0,label:'Temp ≥ 65 °C',accent:'var(--gc-amber)',numColor:'var(--color-neutral-200)'},{icon:'ph ph-wifi-slash',value:6,label:'Falha comunicação',accent:'var(--gc-violet)',numColor:'var(--gc-violet)'}],
+    etm:[{icon:'ph ph-cloud-sun',value:42,label:'Usinas c/ ETM',accent:'var(--gc-blue)',numColor:'var(--gc-blue)'},{icon:'ph ph-check-circle',value:34,label:'Normal',accent:'var(--color-accent)',numColor:'var(--color-accent)'},{icon:'ph ph-warning',value:5,label:'Parcial',accent:'var(--gc-amber)',numColor:'var(--gc-amber)'},{icon:'ph ph-prohibit',value:3,label:'Sem dados',accent:'var(--gc-red)',numColor:'var(--gc-red)'}],
+    trackers:[{icon:'ph ph-factory',value:38,label:'Usinas c/ tracker',accent:'var(--gc-blue)',numColor:'var(--gc-blue)'},{icon:'ph ph-arrows-in-line-horizontal',value:975,label:'Trackers operando',accent:'var(--color-accent)',numColor:'var(--color-accent)'},{icon:'ph ph-pause-circle',value:5,label:'Parados',accent:'var(--gc-amber)',numColor:'var(--gc-amber)'},{icon:'ph ph-wrench',value:2,label:'Em manual',accent:'var(--gc-violet)',numColor:'var(--gc-violet)'}],
+    pr:[{icon:'ph ph-factory',value:76,label:'Usinas',accent:'var(--gc-blue)',numColor:'var(--gc-blue)'},{icon:'ph ph-gauge',value:'82.4%',label:'PR médio',accent:'var(--color-accent)',numColor:'var(--color-accent)'},{icon:'ph ph-trend-down',value:8,label:'PR baixo',accent:'var(--gc-red)',numColor:'var(--gc-red)'},{icon:'ph ph-lightning',value:'148 MWh',label:'Energia dia',accent:'var(--gc-blue)',numColor:'var(--color-neutral-200)'}],
+    curva:[{icon:'ph ph-chart-line',value:28,label:'Strings no inversor',accent:'var(--gc-blue)',numColor:'var(--gc-blue)'},{icon:'ph ph-check-circle',value:24,label:'Ativas',accent:'var(--color-accent)',numColor:'var(--color-accent)'},{icon:'ph ph-trend-down',value:1,label:'Abaixo',accent:'var(--gc-amber)',numColor:'var(--gc-amber)'},{icon:'ph ph-prohibit',value:3,label:'Sem corrente',accent:'var(--gc-red)',numColor:'var(--gc-red)'}],
+  };
+  let cards=cardsByView[s.view]||cardsByView.strings;
+  const pv=RD.pv; let usinas, pvReal=false;
+  if(pv&&pv.rows&&s.view==='strings'){
+    pvReal=true; const sm=pv.summary||{};
+    cards=[
+      {icon:'ph ph-factory',value:sm.total_usinas??'—',label:'Usinas',accent:'var(--gc-blue)',numColor:'var(--gc-blue)'},
+      {icon:'ph ph-lightning',value:(sm.total_strings||0).toLocaleString('pt-BR'),label:'Strings ativas',accent:'var(--color-accent)',numColor:'var(--color-accent)'},
+      {icon:'ph ph-warning',value:sm.alertas_strings??'—',label:'Sem geração',accent:'var(--gc-red)',numColor:'var(--gc-red)'},
+      {icon:'ph ph-thermometer-hot',value:sm.alertas_temp??0,label:'Temp ≥ 65 °C',accent:'var(--gc-amber)',numColor:'var(--color-neutral-200)'},
+      {icon:'ph ph-wifi-slash',value:sm.alertas_comm??'—',label:'Falha comunicação',accent:'var(--gc-violet)',numColor:'var(--gc-violet)'},
+    ];
+    usinas=pv.rows.filter(r=>!_q||String(r.usina||'').toLowerCase().includes(_q.toLowerCase())).map(r=>{
+      const pid=String(r.plant_id), expanded=s.expandedUsina===pid, temD=!r.sem_dados, dif=r.diferenca, difN=dif!=null&&dif<0;
+      const vkey=(VKEY[s.source]||'pv')+':'+r.plant_id, cCount=((RD.comments||{})[vkey]||[]).length, oCount=(RD.os||{})[r.usina]||0, tCount=(RD.tracking||{})[vkey];
+      let stt,ps;
+      if(temD&&r.strings_ativas===0){stt='Sem geração';ps=semGer;}
+      else if(difN){stt='Falha de string';ps=pillRed;}
+      else if(temD&&r.temp_media!=null&&r.temp_media>=65){stt='Temp elevada';ps=pillAmber;}
+      else if(r.falha_comunicacao){stt='Falha comunicação';ps=pill('color-mix(in srgb, var(--gc-violet) 20%, transparent)','#c9b6ff');}
+      else if(r.sem_dados){stt='Sem dados';ps=pill('var(--color-neutral-900)','var(--color-neutral-400)');}
+      else {stt='Normal';ps=pillOk;}
+      const leit=r.ultima_leitura?String(r.ultima_leitura).replace('T',' ').slice(0,16):'—';
+      return {name:r.usina,inv:(r.qtd_inversores!=null?(r.inv_esp!=null?r.qtd_inversores+'/'+r.inv_esp:''+r.qtd_inversores):'—'),active:r.strings_ativas??'—',expected:r.str_esp??'—',
+        diff:(dif==null?'—':(dif>0?'+'+dif:''+dif)),diffColor:((dif!=null&&tCount!=null&&dif===-tCount)?'var(--gc-blue)':(difN?'var(--gc-red)':'var(--color-neutral-400)')),
+        avail:(r.str_esp&&r.strings_ativas!=null)?(r.strings_ativas/r.str_esp*100).toFixed(1)+'%':'—',availColor:(temD&&r.strings_ativas===0)?'#ff9a9d':'var(--color-neutral-300)',
+        acomp:(tCount!=null?tCount:''),_dif:(dif==null?null:dif),lastRead:leit,status:stt,statusStyle:ps,hasFlag:cCount>0,flagCount:cCount,hasOS:oCount>0,osCount:oCount,vkey,caretDeg:expanded?90:0,diffColor2:0,expanded,id:pid,inversores:expanded?buildInversores(pid):[]};
+    }).sort((a,b)=>((a._dif==null?1:0)-(b._dif==null?1:0))||((a._dif||0)-(b._dif||0)));   // maior déficit (mais negativo) primeiro; sem dado por último
+  } else if(RD.loading&&s.view==='strings'){
+    usinas=[]; cards=cardsByView.strings.map(c=>Object.assign({},c,{value:'…'}));
+  } else {
+    const uDefs=[
+      {id:'ap1',name:'Alto Paraná 1',inv:'10/10',expected:216,flag:0,os:0},{id:'ap2',name:'Alto Paraná 2',inv:'8/8',expected:174,flag:1,os:1},
+      {id:'bj',name:'Belo Jardim',inv:'8/8',expected:168,flag:0,os:0},{id:'br2',name:'Brodowski - Skid 2 (86)',inv:'16/16',expected:208,flag:1,os:2},
+      {id:'ce11',name:'Ceilândia 1.1 (89)',inv:'14/14',expected:0,flag:1,os:0},{id:'cec',name:'Ceilândia II - Cedro Rosa (10)',inv:'8/8',expected:110,flag:1,os:0},
+      {id:'cg',name:'Cidade Gaúcha',inv:'20/20',expected:208,flag:1,os:0},
+    ];
+    usinas=uDefs.map(u=>{const expanded=s.expandedUsina===u.id, noExp=u.expected===0;
+      return {name:u.name,inv:u.inv,active:0,expected:u.expected,diff:noExp?'0':'-'+u.expected,avail:noExp?'—':'0.0%',acomp:'',lastRead:'14/07 21:3'+(3+(u.name.length%5)),status:'Sem geração',hasFlag:u.flag>0,flagCount:u.flag,hasOS:u.os>0,osCount:u.os,vkey:'ex:'+u.id,caretDeg:expanded?90:0,diffColor:noExp?'var(--color-neutral-400)':'var(--gc-red)',availColor:noExp?'var(--color-neutral-500)':'#ff9a9d',expanded,statusStyle:semGer,id:u.id,inversores:expanded?buildInversores():[]};});
+  }
+  const etmRows=[
+    {name:'Alto Paraná 1',poa:'5.82',ghi:'5.21',poari:'5.64',chuva:'0.0',lastRead:'21:36',st:'ok'},{name:'Alto Paraná 2',poa:'5.76',ghi:'5.18',poari:'5.59',chuva:'0.0',lastRead:'21:36',st:'ok'},
+    {name:'Belo Jardim',poa:'—',ghi:'4.80',poari:'—',chuva:'2.4',lastRead:'21:34',st:'sensor',tag:'POA off'},{name:'Brodowski - Skid 2 (86)',poa:'6.10',ghi:'6.35',poari:'5.98',chuva:'0.0',lastRead:'21:36',st:'ghi'},
+    {name:'Ceilândia 1.1 (89)',poa:'—',ghi:'—',poari:'—',chuva:'—',lastRead:'20:58',st:'sem'},{name:'Cidade Gaúcha',poa:'—',ghi:'5.05',poari:'—',chuva:'—',lastRead:'21:35',st:'sensor',tag:'RI off'},
+    {name:'Ponto Belo (PE III)',poa:'5.61',ghi:'5.30',poari:'5.55',chuva:'1.2',lastRead:'21:36',st:'ok'},
+  ].map(r=>{const map={ok:{status:'OK',color:'var(--color-accent-300)',dot:'var(--color-accent)',row:''},ghi:{status:'GHI > POA',color:'#f5c877',dot:'var(--gc-amber)',row:'background:color-mix(in srgb, var(--gc-amber) 8%, transparent);'},sensor:{status:'Erro sensor',color:'#f5c877',dot:'var(--gc-amber)',row:'background:color-mix(in srgb, var(--gc-amber) 8%, transparent);'},sem:{status:'Sem dados',color:'var(--color-neutral-500)',dot:'var(--gc-red)',row:''}}[r.st]; const dim=r.st==='sem';
+    return {name:r.name,poa:r.poa,ghi:r.ghi,poari:r.poari,chuva:r.chuva,lastRead:r.lastRead,hasTag:!!r.tag,tag:r.tag||'',status:map.status,statusColor:map.color,dotColor:map.dot,rowStyle:map.row,valColor:dim?'var(--color-neutral-500)':N3,poaColor:r.poa==='—'?'#f5c877':(dim?'var(--color-neutral-500)':N3),chuvaColor:r.chuva==='—'?'var(--color-neutral-500)':(parseFloat(r.chuva)>0?'var(--gc-blue)':N4)};});
+  const sevColor={0:'var(--gc-red)',1:'var(--gc-amber)',3:'var(--color-accent)',9:'var(--color-neutral-500)'};
+  const etmCards=[
+    {name:'Alto Paraná 1',leit:'há 2 min',sev:3,seed:1,drop:'',manut:false,flags:[{k:'ok',t:'POA/GHI coerentes'}]},{name:'Brodowski - Skid 2 (86)',leit:'há 2 min',sev:1,seed:2,drop:'ghi-high',manut:false,flags:[{k:'warn',t:'GHI > POA',info:'Δ +9%'}]},
+    {name:'Belo Jardim',leit:'há 4 min',sev:1,seed:3,drop:'poa',manut:false,flags:[{k:'warn',t:'Sensor POA',info:'sem sinal'}]},{name:'Ceilândia 1.1 (89)',leit:'há 40 min',sev:0,seed:4,drop:'sem',manut:false,flags:[{k:'crit',t:'Sem dados',info:'> 30 min'}]},
+    {name:'Cidade Gaúcha',leit:'há 3 min',sev:1,seed:5,drop:'',manut:true,flags:[{k:'warn',t:'RI intermitente'}]},{name:'Ponto Belo (PE III)',leit:'há 2 min',sev:3,seed:6,drop:'',manut:false,flags:[{k:'ok',t:'Normal'}]},
+  ].map(c=>{const sp=spark(c.seed,c.drop); return {name:c.name,pid:null,usina:c.name,leit:'Última leitura · '+c.leit,poaPts:sp.poa,ghiPts:sp.ghi,cardStyle:`padding:14px 16px;border-left:3px solid ${sevColor[c.sev]};${c.manut?'box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--gc-blue) 45%, transparent);':''}`,manut:c.manut,manutStyle:`display:flex;align-items:center;gap:7px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--color-divider);font-size:11px;cursor:pointer;color:${c.manut?'var(--gc-blue)':'var(--color-neutral-400)'};font-weight:${c.manut?600:500};`,flags:c.flags.map(f=>({style:flagStyle(f.k),t:f.t,info:f.info||'',hasInfo:!!f.info}))};});
+  const trackerRows=[
+    {name:'Alto Paraná 1',trk:'120/120',ang:'0.0°',exp:'0.0°',delta:'0.0°',mode:'Stow noturno',stopped:'0',lastRead:'21:36',warn:false},{name:'Alto Paraná 2',trk:'119/120',ang:'0.2°',exp:'0.0°',delta:'0.2°',mode:'Stow noturno',stopped:'1',lastRead:'21:36',warn:true},
+    {name:'Belo Jardim',trk:'96/96',ang:'0.0°',exp:'0.0°',delta:'0.0°',mode:'Stow noturno',stopped:'0',lastRead:'21:34',warn:false},{name:'Brodowski - Skid 2 (86)',trk:'156/160',ang:'-3.4°',exp:'0.0°',delta:'3.4°',mode:'Manual',stopped:'4',lastRead:'21:36',warn:true},
+    {name:'Cidade Gaúcha',trk:'200/200',ang:'0.0°',exp:'0.0°',delta:'0.0°',mode:'Stow noturno',stopped:'0',lastRead:'21:36',warn:false},
+  ].map(r=>({...r,deltaColor:parseFloat(r.delta)>1?'var(--gc-amber)':N4,stoppedColor:parseInt(r.stopped)>0?'var(--gc-amber)':N4,modeColor:r.mode==='Manual'?'var(--gc-amber)':N4,status:r.warn?'Atenção':'OK',statusStyle:r.warn?pillAmber:pillOk}));
+  const prRows=[
+    {usina:'Alto Paraná 1',inv:'Inversor 1.1',pr:'83.1%',exp:'84.0%',delta:'-0.9',kwh:'1664.8',low:false},{usina:'Alto Paraná 2',inv:'Inversor 1.1',pr:'76.2%',exp:'84.0%',delta:'-7.8',kwh:'1490.2',low:true},
+    {usina:'Belo Jardim',inv:'Inversor 2.3',pr:'81.9%',exp:'83.5%',delta:'-1.6',kwh:'1520.5',low:false},{usina:'Brodowski - Skid 2 (86)',inv:'Inversor 4.1',pr:'71.4%',exp:'83.0%',delta:'-11.6',kwh:'1201.7',low:true},
+  ].map(r=>({...r,prColor:r.low?'#ff9a9d':'var(--color-neutral-200)',deltaColor:r.low?'#ff9a9d':(r.delta[0]==='+'?'var(--color-accent)':N4),status:r.low?'Baixo':'OK',statusStyle:r.low?pillRed:pillOk}));
+  const curvaStrings=Array.from({length:28},(_,i)=>{const n=i+1; let amp,kind; if(n===27||n===28){amp='0.00';kind='off';} else if(n===14){amp='3.42';kind='low';} else {amp=(8.1+Math.sin(n)*0.3).toFixed(2);kind='on';}
+    const m={on:{bg:'var(--color-neutral-900)',bd:'var(--color-divider)',c:N3},low:{bg:'color-mix(in srgb, var(--gc-amber) 14%, transparent)',bd:'color-mix(in srgb, var(--gc-amber) 45%, transparent)',c:'#f5c877'},off:{bg:'var(--color-neutral-900)',bd:'var(--color-divider)',c:N5}}[kind];
+    return {name:'Ipv'+n,amp,nameColor:m.c,style:`padding:6px 8px;border-radius:var(--radius-sm);background:${m.bg};border:1px solid ${m.bd};`};});
+  // ── DADO REAL das vistas ETM / Trackers / PR (override dos exemplos) ──
+  let etmCardsUse=etmCards, etmRowsUse=etmRows, trackerRowsUse=trackerRows, prRowsUse=prRows;
+  if(pv&&pv.rows){
+    const sm=pv.summary||{};
+    if(s.view==='etm'){
+      const rowsE=_dedupSkid(pv.rows);   // API PV: colapsa skids numerados da MESMA usina (Altair 1..5 → "Altair") — ETM é a mesma estação
+      cards=[
+        {icon:'ph ph-cloud-sun',value:rowsE.length,label:'Usinas c/ ETM',accent:'var(--gc-blue)',numColor:'var(--gc-blue)'},
+        {icon:'ph ph-prohibit',value:sm.criticos??0,label:'Críticos',accent:'var(--gc-red)',numColor:'var(--gc-red)'},
+        {icon:'ph ph-warning',value:sm.atencao??0,label:'Atenção',accent:'var(--gc-amber)',numColor:'var(--gc-amber)'},
+        {icon:'ph ph-wifi-slash',value:sm.sem_dados??0,label:'Sem dados',accent:'var(--gc-violet)',numColor:'var(--color-neutral-200)'},
+      ];
+      const sevC={0:'var(--gc-red)',1:'var(--gc-amber)',3:'var(--color-accent)',9:'var(--color-neutral-500)'};
+      etmCardsUse=rowsE.map(r=>{
+        const sp=r.spark||{}, lb=sp.labels||[], keep=i=>{ if(lb.length!==(sp.poa||[]).length) return true; const m=_hm(lb[i]); return m>=360&&m<=1080; };   // trava o spark em 06–18h
+        const poaF=(sp.poa||[]).filter((_,i)=>keep(i)), ghiF=(sp.ghi||[]).filter((_,i)=>keep(i));
+        const vals=poaF.concat(ghiF).filter(v=>v!=null), mx=Math.max(1,...(vals.length?vals:[1]));
+        const sev=r.sem_dados?9:(r.severidade>=2?0:r.severidade===1?1:3);
+        return {name:r.usina,pid:r.plant_id,usina:r.usina,leit:'Última leitura · '+(r.ultima_leitura?String(r.ultima_leitura).slice(11,16):'—'),
+          poaPts:_sparkPts(poaF,mx),ghiPts:_sparkPts(ghiF,mx),
+          cardStyle:`padding:14px 16px;border-left:3px solid ${sevC[sev]};`,manut:false,
+          manutStyle:`display:flex;align-items:center;gap:7px;margin-top:10px;padding-top:9px;border-top:1px dashed var(--color-divider);font-size:11px;color:var(--color-neutral-400)`,
+          flags:(r.flags||[]).map(f=>{ const k=/crit|erro|sem/i.test(f.tipo||'')?'crit':/aten|warn|baix|alt/i.test(f.tipo||'')?'warn':'ok'; return {style:flagStyle(k),t:f.t||f.tipo||'',info:f.info||'',hasInfo:!!f.info}; })};
+      });
+      etmRowsUse=rowsE.map(r=>{ const dim=r.sem_dados;
+        const m=r.sem_dados?{s:'Sem dados',c:'var(--color-neutral-500)',d:'var(--gc-red)',row:''}
+          :(r.severidade>=2?{s:'OK',c:'var(--color-accent-300)',d:'var(--color-accent)',row:''}
+          :(r.severidade===1?{s:'Atenção',c:'#f5c877',d:'var(--gc-amber)',row:'background:color-mix(in srgb, var(--gc-amber) 8%, transparent);'}
+          :{s:'Sem dados',c:'var(--color-neutral-500)',d:'var(--gc-red)',row:''}));
+        const f=v=>(v==null?'—':Number(v).toFixed(2));
+        return {name:r.usina,poa:f(r.poa_kwh),ghi:f(r.ghi_kwh),poari:f(r.poari_kwh),chuva:(r.chuva!=null?Number(r.chuva).toFixed(1):'—'),
+          lastRead:(r.ultima_leitura?String(r.ultima_leitura).slice(11,16):'—'),hasTag:false,tag:'',status:m.s,statusColor:m.c,dotColor:m.d,rowStyle:m.row,
+          valColor:dim?'var(--color-neutral-500)':N3,poaColor:(r.poa_kwh==null?'var(--color-neutral-500)':N3),chuvaColor:(r.chuva==null?'var(--color-neutral-500)':(Number(r.chuva)>0?'var(--gc-blue)':N4))};
+      });
+    } else if(s.view==='trackers'){
+      cards=[
+        {icon:'ph ph-factory',value:sm.usinas??'—',label:'Usinas c/ tracker',accent:'var(--gc-blue)',numColor:'var(--gc-blue)'},
+        {icon:'ph ph-arrows-in-line-horizontal',value:(sm.trackers||0).toLocaleString('pt-BR'),label:'Trackers',accent:'var(--color-accent)',numColor:'var(--color-accent)'},
+        {icon:'ph ph-plus-circle',value:sm.novos??0,label:'Novos',accent:'var(--gc-red)',numColor:'var(--gc-red)'},
+        {icon:'ph ph-wrench',value:sm.acompanhados??0,label:'Acompanhados',accent:'var(--gc-amber)',numColor:'var(--gc-amber)'},
+      ];
+      trackerRowsUse=pv.rows.map(r=>{
+        const parados=(r.parados!=null?r.parados:r.severos)||0, severo=(r.desvios!=null?r.desvios:r.leves)||0, medio=(r.medios!=null?r.medios:0)||0, leve=(r.atrasos!=null?r.atrasos:r.fora_media)||0;
+        // Disponibilidade: prefere POR TEMPO; senão (total − severos − leves)/total (mesma régua do dashboard atual)
+        let dispPct=null, dispTempo=false;
+        if(!r.sem_comunicacao){ if(r.disponibilidade_tempo!=null){ dispPct=r.disponibilidade_tempo; dispTempo=true; } else if(r.total){ dispPct=Math.round(Math.max(0,r.total-((r.severos||0)+(r.leves||0)))/r.total*1000)/10; } }
+        const warn=parados>0||r.sem_comunicacao, todosParados=(Number(r.total)>0&&parados>=Number(r.total));
+        const _pid=(r.plant_id!=null?r.plant_id:(r.idusina!=null?r.idusina:r.id)), _exp=state.expandedTrk!=null&&String(state.expandedTrk)===String(_pid);
+        return {name:r.usina,pid:_pid,expanded:_exp,caretDeg:_exp?90:0,total:r.total??'—',parados,severo,medio,leve,dispPct,dispTempo,
+          normalizados:r.normalizados??0,desvioMed:(r.desvio_medio!=null?Number(r.desvio_medio).toFixed(1)+'°':'—'),lastRead:(r.ultima_leitura?_dtBR(r.ultima_leitura):'—'),
+          paradosColor:parados>0?'var(--gc-amber)':'var(--color-neutral-400)',status:(r.sem_comunicacao?'Sem comunicação':todosParados?'Todos parados':warn?'Atenção':'OK'),
+          statusStyle:(r.sem_comunicacao?pill('color-mix(in srgb, var(--gc-violet) 18%, transparent)','#c9b6ff'):todosParados?pillRed:warn?pillAmber:pillOk)};
+      });
+    } else if(s.view==='pr'){
+      cards=[
+        {icon:'ph ph-factory',value:sm.usinas??'—',label:'Usinas',accent:'var(--gc-blue)',numColor:'var(--gc-blue)'},
+        {icon:'ph ph-cpu',value:sm.inversores??0,label:'Inversores',accent:'var(--color-accent)',numColor:'var(--color-accent)'},
+        {icon:'ph ph-trend-down',value:sm.abaixo??0,label:'Abaixo da mediana',accent:'var(--gc-red)',numColor:'var(--gc-red)'},
+        {icon:'ph ph-gauge',value:sm.sem_pot??0,label:'Sem potência',accent:'var(--gc-amber)',numColor:'var(--color-neutral-200)'},
+      ];
+      prRowsUse=pv.rows.map(r=>{ const low=r.abaixo>0;
+        return {usina:r.usina,inversores:r.total??'—',abaixo:r.abaixo??0,pr:(r.pr_mediana!=null?Number(r.pr_mediana).toFixed(1)+'%':'—'),prColor:low?'#ff9a9d':'var(--color-neutral-200)',
+          geracao:(r.geracao_kwh!=null?Number(r.geracao_kwh).toLocaleString('pt-BR'):'—'),ipoa:(r.ipoa!=null?Number(r.ipoa).toFixed(0):'—'),
+          cobertura:(r.cobertura!=null?(r.cobertura<=1?Math.round(r.cobertura*100):Math.round(r.cobertura))+'%':'—'),
+          status:low?'Abaixo':'OK',statusStyle:low?pillRed:pillOk};
+      });
+    }
+  }
+  const _cts=RD.pv&&(RD.pv.cache_ts||(RD.pv.summary||{}).cache_ts);
+  return {lastUpdate:(_cts?String(_cts).slice(0,5):_horaAgora()),today:_dataHojeExt(),sources,views,subfilters,cards,usinas,loading:RD.loading,na:RD.na,chart:getChart(),showStrings:s.view==='strings',showEtm:s.view==='etm',showTrackers:s.view==='trackers',showPr:s.view==='pr',showCurva:s.view==='curva',showGeracao:s.view==='geracao',showPerdas:s.view==='perdas',etmRows:etmRowsUse,trackerRows:trackerRowsUse,prRows:prRowsUse,curvaStrings,etmCards:etmCardsUse,etmModeCards:s.etmMode==='cards',etmModeTable:s.etmMode==='tabela',etmTabCards:segStyle(s.etmMode==='cards'),etmTabTable:segStyle(s.etmMode==='tabela'),curvaLabel:'Alto Paraná 2 · Inversor 1.1 — corrente por string · 14/07/2026'};
+}
+
+/* ── handlers globais ── */
+window.setSource=id=>{ state.source=id; state.expandedUsina=null; state.expandedInversor=null; state.expandedTrk=null; state.trkGraf=null; state.curvaPid=null; state.osMode=false; _osSel.clear(); _osBar(); loadCurrent(); _loadSub(); };
+window.setView=id=>{ state.view=id; state.expandedUsina=null; state.expandedInversor=null; state.expandedTrk=null; state.trkGraf=null; state.osMode=false; _osSel.clear(); _osBar(); loadCurrent(); _loadSub(); };
+window.setTracking=(key,value)=>{   // strings em acompanhamento por usina → /api/state/tracking (mesmo estado da plataforma original)
+  const n=parseInt(value,10);
+  if(!value||isNaN(n)||n<=0){ if(RD.tracking)delete RD.tracking[key]; } else { RD.tracking=RD.tracking||{}; RD.tracking[key]=n; }
+  fetch('/api/state/tracking',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key,value:(isNaN(n)?null:n)})}).catch(()=>{});
+};
+window._hlCurva=(name,on)=>{   // hover no chip da string → destaca a linha correspondente na curva (azul)
+  let p; try{ p=document.querySelector('#app svg polyline[data-s="'+_snum(name)+'"]'); }catch(e){}
+  if(!p) return;
+  if(on){ p.setAttribute('stroke','var(--gc-blue)'); p.setAttribute('stroke-width','2.8'); p.setAttribute('stroke-opacity','1'); }
+  else{ p.setAttribute('stroke',p.dataset.base||'#9397ab'); p.setAttribute('stroke-width',p.dataset.basew||'1'); p.setAttribute('stroke-opacity',p.dataset.baseo||'.4'); }
+};
+window._hlTrk=(n,on)=>{   // hover no card do tracker → destaca a linha dele no gráfico e esmaece as outras
+  if(n==null)return; let ps; try{ ps=document.querySelectorAll('#app svg polyline[data-trk]'); }catch(e){ return; }
+  const alvo=String(n); let tem=false; ps.forEach(p=>{ if(p.getAttribute('data-trk')===alvo)tem=true; });
+  if(on&&!tem)return;                                   // tracker não está no gráfico (filtrado/fechado) → não mexe
+  ps.forEach(p=>{ const d=p.getAttribute('data-trk'); if(!d)return;   // alvo (data-trk vazio) fica intacto
+    if(on){ if(d===alvo){ p.style.strokeWidth='3'; p.style.strokeOpacity='1'; } else p.style.strokeOpacity='0.1'; }
+    else { p.style.strokeWidth=''; p.style.strokeOpacity=''; } });
+};
+window.setSub=id=>{ state.subfilter=id; render(); if(id==='sem')loadStrProblema(); else if(id==='ocor')loadStrEventos(); };
+window.toggleUsina=id=>{ const abrir=state.expandedUsina!==id; setState({expandedUsina:abrir?id:null,expandedInversor:null}); if(abrir&&RD.pv) loadPlant(id); };
+window.toggleInversor=(id,ev,pid,invId,nome)=>{ if(ev&&ev.stopPropagation)ev.stopPropagation(); const abrir=state.expandedInversor!==id; setState({expandedInversor:abrir?id:null}); if(abrir&&pid&&SKEY[state.source]) loadCurva(pid,invId,nome); };
+window.setInvData=(v,pid,invId,nome)=>{ state.invData=v||null; render(); if(pid&&SKEY[state.source]) loadCurva(pid,invId,nome); };   // data do drill de corrente por string
+async function loadTrk(pid){   // trackers individuais de UMA usina (drill): /api/{src}/trackers/{pid}
+  const base=(EP.trackers||{})[SKEY[state.source]]; if(!base) return;
+  const key=state.source+'|'+pid;
+  if(RD.trk[key]!==undefined) return;
+  RD.trk[key]=null; render();
+  try{ const d=await fetch(base+'/'+encodeURIComponent(pid)).then(r=>r.json()); RD.trk[key]=(d&&d.trackers)||[]; }
+  catch(e){ RD.trk[key]=[]; }
+  render();
+}
+window.toggleTrk=pid=>{ const abrir=String(state.expandedTrk)!==String(pid); state.expandedTrk=abrir?String(pid):null; state.trkGraf=null; render(); if(abrir) loadTrk(pid); };
+window.setEtm=m=>setState({etmMode:m});
+window.refreshApp=()=>{ if(RD.pv||RD.loading||RD.na) loadCurrent(true); else render(); };
+let _q='';   // busca de usina (filtra a tabela Strings; re-render + re-foco pra não perder o cursor)
+window.onSearch=(val)=>{ _q=val; render(); const el=document.getElementById('flt-usina'); if(el){ el.focus(); try{ el.setSelectionRange(el.value.length,el.value.length); }catch(e){} } };
+function _matchQ(u){ return !_q || String(u||'').toLowerCase().includes(_q.toLowerCase()); }   // filtro de usina (#flt-usina) reusável nas sub-abas/perdas
+
+/* ── charts SVG ── */
+function chartSVG(chart,heightPx){
+  return `<svg viewBox="0 0 900 150" preserveAspectRatio="xMidYMid meet" style="width:100%;height:${heightPx}px;display:block">
+    <line x1="46" y1="12" x2="46" y2="118" stroke="#595d6c" stroke-width="1"></line>
+    <line x1="46" y1="118" x2="890" y2="118" stroke="#595d6c" stroke-width="1"></line>
+    ${chart.grid.map(g=>`<line x1="46" y1="${g.y}" x2="890" y2="${g.y}" stroke="#292b31" stroke-width="1"></line><text x="40" y="${g.ty}" text-anchor="end" fill="#75798c" font-size="8.5">${g.label}</text>`).join('')}
+    ${chart.xticks.map(x=>`<text x="${x.x}" y="134" text-anchor="middle" fill="#75798c" font-size="8.5">${x.label}</text>`).join('')}
+    ${chart.series.map(se=>`<polyline points="${se.points}" fill="none" stroke="${se.color}" stroke-width="${se.width}" stroke-opacity="${se.opacity}" stroke-linejoin="round"></polyline>`).join('')}
+  </svg>`;
+}
+
+/* ── render por seção ── */
+function _trkBar(pct,tempo){   // barra de disponibilidade colorida (≥95 verde · ≥80 âmbar · <80 vermelho); * = por contagem
+  if(pct==null) return '<span class="text-muted">—</span>';
+  const cor = pct>=95?'var(--color-accent)':pct>=80?'var(--gc-amber)':'var(--gc-red)';
+  return `<div style="display:flex;align-items:center;gap:7px;min-width:120px;justify-content:flex-end" title="disponibilidade${tempo?' por tempo (06:00–18:00)':' por contagem'}"><div style="flex:1;max-width:80px;height:7px;background:var(--color-neutral-900);border-radius:4px;overflow:hidden"><div style="height:100%;width:${Math.max(0,Math.min(100,pct))}%;background:${cor}"></div></div><span style="font-size:11px;font-weight:700;color:${cor};min-width:46px;text-align:right">${pct.toFixed(1)}%${tempo?'':'*'}</span></div>`;
+}
+function _naPanel(nome){ return `<div class="card text-muted" style="padding:48px;text-align:center;font-size:14px"><i class="ph ph-cloud-slash"></i> Esta fonte não tem ${nome}.</div>`; }
+function _loadingPanel(){ return `<div class="card text-muted" style="padding:48px;text-align:center;font-size:14px"><i class="ph ph-circle-notch gc-spin"></i> Coletando dados…</div>`; }
+function renderSources(v){ return `<div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;margin-bottom:26px">${v.sources.map(src=>`
+  <button class="gc-src" onclick="setSource('${src.id}')" style="${src.style}">
+    <span style="width:30px;height:30px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:${src.iconBg}"><i class="${src.icon}" style="font-size:16px;color:${src.iconColor}"></i></span>
+    <span style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.25;text-align:left"><span style="font-size:14px;font-weight:600;color:${src.nameColor}">${src.name}</span><span class="text-muted" style="font-size:11.5px">${src.sub}</span></span>
+  </button>`).join('')}</div>`; }
+function renderViewTabs(v){ return `<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px">
+  <div style="display:flex;gap:8px;flex-wrap:wrap">${v.views.map(x=>`<button onclick="setView('${x.id}')" style="${x.style}">${x.label}</button>`).join('')}</div>
+  <div style="position:relative;width:300px;max-width:40vw"><i class="ph ph-magnifying-glass" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--color-neutral-500);font-size:15px"></i><input class="input" id="flt-usina" value="${_q.replace(/"/g,'&quot;')}" oninput="onSearch(this.value)" placeholder="Filtrar usina..." style="padding-left:34px"></div>
+</div>`; }
+function renderKPIs(v){ return `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:30px">${v.cards.map(c=>`
+  <div class="card elev-sm" style="position:relative;padding:11px 20px;overflow:hidden;display:flex;flex-direction:column;gap:4px">
+    <span style="position:absolute;top:11px;bottom:11px;left:0;width:3px;border-radius:0 3px 3px 0;background:${c.accent}"></span>
+    <span style="font-size:15px;color:${c.accent}"><i class="${c.icon}"></i></span>
+    <div style="font-size:27px;font-weight:600;line-height:1;letter-spacing:-.02em;color:${c.numColor};font-variant-numeric:tabular-nums">${c.value}</div>
+    <div class="text-muted" style="font-size:12px;font-weight:500">${c.label}</div>
+  </div>`).join('')}</div>`; }
+
+const _ABSTY='padding:6px 8px;border-radius:var(--radius-sm);background:color-mix(in srgb, #f59e0b 15%, transparent);border:1px solid color-mix(in srgb, #f59e0b 55%, transparent);';
+function _strChipHtml(st, inv, _ab){   // chip de string; no modo OS, as sem_corrente ficam selecionáveis (contorno verde)
+  const abaixo=(_ab.has(_snum(st.name))&&!st.dead);
+  const osSelable=state.osMode&&st.dead&&st.id;                    // só string SEM CORRENTE entra na OS
+  const selected=osSelable&&_osSel.has(_osKey(inv.pid,inv.invId,st.id));
+  const baseSty=abaixo?_ABSTY:st.style;
+  const sty=selected?baseSty+'outline:2px solid var(--color-accent);outline-offset:-1px;cursor:pointer;'
+    :osSelable?baseSty+'outline:1.5px dashed var(--color-accent);outline-offset:-1px;cursor:pointer;'
+    :'cursor:default;'+baseSty;
+  const nm=esc(st.name).replace(/['"\\]/g,''), sid=esc(st.id).replace(/['"\\]/g,'');
+  const usina=esc(inv.usina||'').replace(/['"\\]/g,''), invn=esc(inv.name||'').replace(/['"\\]/g,'');
+  const onclick=osSelable?`onclick="osToggle('${inv.pid}','${inv.invId}','${sid}','${usina}','${invn}')"`:'';
+  const nameColor=abaixo?'#f59e0b':st.nameColor;
+  const lock=st.id
+    ?`<i class="ph ${st.trancada?'ph-lock-simple':'ph-lock-simple-open'} gc-lock" onclick="event.stopPropagation();trancarString('${inv.pid}','${inv.invId}','${sid}',${st.trancada?'false':'true'})" title="${st.trancada?'Destrancar string (voltar a contar)':'Trancar string (ignorar na contagem)'}" style="font-size:12px;cursor:pointer;color:${st.trancada?'var(--gc-blue)':'var(--color-neutral-500)'}"></i>`
+    :`<i class="ph ph-lock-simple" style="font-size:9px;color:var(--color-neutral-500)"></i>`;
+  return `<div onmouseenter="_hlCurva('${nm}',1)" onmouseleave="_hlCurva('${nm}',0)" ${onclick} style="${sty}"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px"><span style="font-size:10.5px;font-weight:600;color:${nameColor}">${st.name}</span>${lock}</div><div class="text-muted" style="font-size:10px">${st.amp} A</div></div>`;
+}
+function renderInversor(inv,chart){
+  const difRed=(typeof inv.diff==='number'&&inv.diff<0);
+  const outBg=inv.semGer
+    ?`background:linear-gradient(90deg, color-mix(in srgb, var(--gc-red) 20%, transparent), color-mix(in srgb, var(--gc-red) 7%, transparent) 34%, transparent 58%), color-mix(in srgb, var(--color-surface) 60%, transparent);box-shadow:inset 3px 0 0 var(--gc-red)`
+    :inv.temBaixa
+    ?`background:linear-gradient(90deg, color-mix(in srgb, #f6ca64 26%, transparent), color-mix(in srgb, #f6ca64 9%, transparent) 34%, transparent 58%), color-mix(in srgb, var(--color-surface) 60%, transparent);box-shadow:inset 3px 0 0 #f6ca64`
+    :`background:color-mix(in srgb, var(--color-surface) 60%, transparent)`;
+  const sl=inv.semList||[];
+  const semTxt=sl.length?(sl.length===1?`String ${_he(sl[0])} com corrente nula`:`Strings ${sl.slice(0,-1).map(x=>_he(x)).join(', ')} e ${_he(sl[sl.length-1])} com corrente nula`):'';
+  const _ab=(RD.curvaMeta[_ckey(inv.pid,inv.invId)]||{}).abaixo||new Set();
+  const _abSty='padding:6px 8px;border-radius:var(--radius-sm);background:color-mix(in srgb, #f59e0b 15%, transparent);border:1px solid color-mix(in srgb, #f59e0b 55%, transparent);';
+  return `<div style="border-radius:var(--radius-md);margin-bottom:8px;${outBg}">
+    <div class="gc-chip" onclick="toggleInversor('${inv.id}',event,'${inv.pid||''}','${inv.invId||''}','${(inv.name||'').replace(/['"\\]/g,'')}')" style="display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;border-radius:var(--radius-md)">
+      <i class="ph ph-caret-right" style="font-size:11px;color:var(--color-neutral-500);transform:rotate(${inv.caretDeg}deg)"></i>
+      <span style="font-weight:600;font-size:14px">${inv.name}</span>${inv.cabine?`<span class="tag tag-neutral">${inv.cabine}</span>`:''}<span class="text-muted" style="font-size:12px">${inv.kwh} kWh</span>${semTxt?`<span style="flex:1;text-align:center;font-size:14.4px;color:#a1a39d">${semTxt}</span>`:''}
+      <span style="margin-left:auto;display:flex;align-items:center;gap:22px;font-size:13px">
+        <span class="text-muted">ativas <b style="color:var(--color-neutral-200)">${inv.active}</b></span><span class="text-muted">dif <b style="color:${difRed?'var(--gc-red)':'var(--color-neutral-300)'}">${inv.diff}</b></span>
+        <span class="text-muted" style="font-size:12px">${inv.lastRead}</span>
+      </span>
+    </div>
+    ${inv.expanded?`<div style="padding:4px 18px 20px">
+      ${inv.trackers&&inv.trackers.length?`<div class="card-kicker" style="color:var(--color-neutral-400);margin:6px 0 10px">Trackers do inversor</div>
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px">${inv.trackers.map(t=>`<span style="display:inline-flex;align-items:center;gap:8px;padding:8px 13px;border-radius:var(--radius-md);background:var(--color-accent-900);border:1px solid var(--color-accent-700)"><span style="font-weight:600;font-size:13px;color:var(--color-accent-100)">${t.name}</span><span style="font-size:11.5px;color:var(--color-accent-300)">Δ ${t.delta}°</span><span style="width:7px;height:7px;border-radius:50%;background:var(--color-accent)"></span></span>`).join('')}</div>`:''}
+      <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:16px"><button class="btn btn-primary"><i class="ph ph-chart-line"></i> Curva do dia</button><button class="btn btn-secondary" ${inv.isReal?`onclick="event.stopPropagation();trancarInativas('${inv.pid}','${inv.invId}')"`:''}><i class="ph ph-lock-simple"></i> Trancar strings inativas${inv.isReal&&inv.nSem?` (${inv.nSem})`:''}</button><span class="text-muted" style="font-size:13px;margin-left:4px">Data</span><input type="date" value="${_invIso()}" max="${_todayISO()}" onchange="setInvData(this.value,'${inv.pid}','${inv.invId}','${(inv.name||'').replace(/['"\\]/g,'')}')" title="Escolha o dia da curva de corrente por string" style="background:var(--color-neutral-900);border:1px solid var(--color-divider);border-radius:8px;color:var(--color-text);font-family:inherit;font-size:12.5px;padding:6px 9px">${inv.isReal&&_CURVA_FONTES.includes(_fonte())?`<a href="/api/${_fonte()}/strings/curva.csv?usina=${encodeURIComponent(inv.pid)}&data=${_invIso()}" class="btn btn-secondary" style="text-decoration:none;margin-left:6px" title="Baixa a corrente por string da USINA inteira no dia escolhido (todas as strings, formato longo p/ análise/régua)"><i class="ph ph-file-csv"></i> CSV da usina</a>`:''}</div>
+      ${inv.isReal?_curvaBlock(inv):`<div style="padding:18px;border-radius:var(--radius-md);background:color-mix(in srgb, var(--color-neutral-900) 60%, transparent);margin-bottom:18px"><div class="text-muted" style="font-size:12.5px;margin-bottom:12px">${inv.name} — corrente por string · <span style="color:var(--gc-amber)">1 abaixo</span></div>${chartSVG(chart,230)}</div>`}
+      <div class="card-kicker" style="color:var(--color-neutral-400);margin-bottom:10px">Strings (${inv.strings.length})</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(60px,1fr));gap:6px">${inv.strings.map(st=>_strChipHtml(st,inv,_ab)).join('')}</div>
+    </div>`:''}
+  </div>`;
+}
+function renderStrings(v){
+  const f=_fonte(), subOk=_STR_SUB_FONTES.includes(f);
+  const bar=subOk?`<div style="display:flex;gap:8px;margin-bottom:24px">${v.subfilters.map(x=>`<button onclick="setSub('${x.id}')" style="${x.style}">${x.label}</button>`).join('')}</div>`:'';
+  if(subOk&&state.subfilter==='sem') return bar+renderStrProblema();
+  if(subOk&&state.subfilter==='ocor') return bar+renderStrEventos();
+  return bar+`
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 22px;border-bottom:1px solid var(--color-divider)">
+      <div style="display:flex;align-items:baseline;gap:12px"><span style="font-family:var(--font-heading);font-size:17px">${_srcNome()} — Detalhamento por Usina</span><span class="text-muted" style="font-size:12.5px">${state.osMode?'modo OS: clique nas strings sem corrente':'clique na linha para expandir'}</span></div>
+      <div style="display:flex;align-items:center;gap:10px">${_osBtn()}${_histBtn()}</div>
+    </div>
+    <div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th style="text-align:center">Inv.</th><th style="text-align:right">Ativas</th><th style="text-align:right">Esperadas</th><th style="text-align:right">Diferença</th><th style="text-align:right">Disponib.</th><th style="text-align:center">Acomp.</th><th style="text-align:right">Última leitura</th><th style="text-align:center;padding-right:22px">Status</th></tr></thead>
+    <tbody>${v.loading?`<tr><td colspan="9" style="padding:44px;text-align:center" class="text-muted"><i class="ph ph-circle-notch gc-spin"></i> Coletando dados da fonte…</td></tr>`:v.usinas.map(u=>`
+      <tr class="gc-urow" onclick="toggleUsina('${u.id}')" style="cursor:pointer;${u.expanded?'background:linear-gradient(90deg, color-mix(in srgb, #0a4f52 70%, transparent), color-mix(in srgb, #0a4f52 28%, transparent) 34%, transparent 58%);':''}">
+        <td style="padding-left:22px"><span style="display:inline-flex;align-items:center;gap:9px"><i class="ph ph-caret-right" style="font-size:12px;color:var(--color-neutral-500);transition:transform .15s;transform:rotate(${u.caretDeg}deg)"></i><span style="font-weight:600">${u.name}</span>${u.hasOS?`<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="OS de performance — abrir" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:6px;background:color-mix(in srgb, var(--gc-amber) 16%, transparent);color:var(--gc-amber);font-size:11px;font-weight:600"><i class="ph ph-wrench"></i>${u.osCount}</span>`:''}<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="Comentários dos analistas" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:6px;${u.hasFlag?'background:#1D5FB5;color:#0e2a4d;font-weight:700;':'color:var(--color-neutral-600);'}font-size:11px"><i class="${u.hasFlag?'ph-fill ph-chat-circle':'ph ph-chat-circle'}" style="font-size:13px"></i>${u.hasFlag?u.flagCount:''}</span></span></td>
+        <td style="text-align:center;color:var(--color-neutral-400)">${u.inv}</td><td style="text-align:right;color:var(--color-neutral-300)">${u.active}</td><td style="text-align:right;color:var(--color-neutral-300)">${u.expected}</td>
+        <td style="text-align:right;font-weight:600;color:${u.diffColor}">${u.diff}</td><td style="text-align:right;color:${u.availColor}">${u.avail}</td><td style="text-align:center" onclick="event.stopPropagation()"><input type="number" min="0" value="${u.acomp}" placeholder="—" title="Strings que você está acompanhando" class="gc-numin" onclick="event.stopPropagation()" onchange="setTracking('${u.vkey||''}',this.value)" style="width:58px;text-align:center;padding:5px 6px;font-size:12.5px;font-family:inherit;border:1px solid var(--color-divider);border-radius:6px;background:var(--color-neutral-900);color:var(--color-text)"></td>
+        <td style="text-align:right;color:var(--color-neutral-500);font-size:12.5px">${u.lastRead}</td><td style="text-align:center;padding-right:22px"><span style="${u.statusStyle}">${u.status}</span></td>
+      </tr>
+      ${u.expanded?`<tr><td colspan="9" style="padding:0;border:0"><div style="background:color-mix(in srgb, var(--color-neutral-900) 55%, transparent);padding:18px 22px 22px">
+        ${RD.pv?'':`<div style="display:flex;flex-wrap:wrap;gap:22px;padding:12px 16px;margin-bottom:16px;border-radius:var(--radius-md);background:color-mix(in srgb, var(--gc-blue) 10%, transparent);font-size:13px">
+          <span><b>0</b> <span class="text-muted">strings abaixo</span></span><span><b>0</b> <span class="text-muted">inversores abaixo dos pares</span></span><span><b style="color:var(--gc-amber)">1</b> <span class="text-muted">trackers parados</span></span><span><b>0</b> <span class="text-muted">correlação tracker→inversor</span></span>
+        </div>`}${u.inversores==='loading'?`<div class="text-muted" style="padding:14px 4px;font-size:13px">carregando inversores…</div>`:(u.inversores||[]).map(inv=>renderInversor(inv,v.chart)).join('')}</div></td></tr>`:''}
+    `).join('')}</tbody></table></div>
+  </div>
+  <div class="text-muted" style="text-align:center;margin-top:18px;font-size:12.5px">${v.usinas.length} usinas</div>`;
+}
+function renderETM(v){
+  if(v.na) return _naPanel('ETM');
+  if(v.loading) return _loadingPanel();
+  return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><button onclick="setEtm('cards')" style="${v.etmTabCards}"><i class="ph ph-squares-four" style="margin-right:5px"></i>Cards</button><button onclick="setEtm('tabela')" style="${v.etmTabTable}"><i class="ph ph-table" style="margin-right:5px"></i>Tabela</button></div>
+  ${v.etmModeCards?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">${v.etmCards.filter(c=>_matchQ(c.usina)).map(c=>`
+    <div class="card elev-sm gc-chip" onclick="abrirEtmChart('${esc(c.usina).replace(/['"\\]/g,'')}',${c.pid==null?'null':`'${esc(c.pid).replace(/['"\\]/g,'')}'`})" style="cursor:pointer;${c.cardStyle}"><div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px"><span style="font-size:13.5px;font-weight:600">${c.name}</span><i class="ph ph-chart-line" title="Ver curva do dia" style="font-size:14px;color:var(--color-neutral-500)"></i></div><div class="text-muted" style="font-size:10.5px;margin-top:2px">${c.leit}</div>
+      <svg viewBox="0 0 240 46" preserveAspectRatio="none" style="width:100%;height:46px;display:block;margin:10px 0 9px"><polyline points="${c.ghiPts}" fill="none" stroke="var(--color-neutral-500)" stroke-width="1.4" stroke-opacity="0.7" stroke-linejoin="round"></polyline><polyline points="${c.poaPts}" fill="none" stroke="var(--color-accent)" stroke-width="1.8" stroke-linejoin="round"></polyline></svg>
+      <div style="display:flex;flex-wrap:wrap;gap:5px">${c.flags.map(f=>`<span style="${f.style}">${f.t}${f.hasInfo?`<span style="font-weight:400;opacity:.8"> · ${f.info}</span>`:''}</span>`).join('')}</div>
+      <label onclick="event.stopPropagation()" style="${c.manutStyle}"><i class="ph ph-wrench" style="font-size:12px"></i> Em manutenção</label></div>`).join('')}</div>
+    <div class="text-muted" style="font-size:10.5px;display:flex;gap:14px;margin-top:10px"><span><span style="display:inline-block;width:14px;height:2px;background:var(--color-accent);vertical-align:middle;margin-right:4px"></span>POA</span><span><span style="display:inline-block;width:14px;height:2px;background:var(--color-neutral-500);vertical-align:middle;margin-right:4px"></span>GHI</span></div>`
+  :`<div class="card" style="padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 22px;border-bottom:1px solid var(--color-divider)"><div style="display:flex;align-items:baseline;gap:12px"><span style="font-family:var(--font-heading);font-size:17px">Estações Meteorológicas</span><span class="text-muted" style="font-size:12.5px">POA · GHI · POA-RI (acumulado do dia, kWh/m²) · Pluviômetro (mm)</span></div></div>
+    <div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th style="text-align:right">POA (kWh/m²)</th><th style="text-align:right">GHI (kWh/m²)</th><th style="text-align:right">POA-RI (kWh/m²)</th><th style="text-align:right">Pluviômetro (mm)</th><th style="text-align:right">Última leitura</th><th style="text-align:center;padding-right:22px">Status</th></tr></thead>
+    <tbody>${v.etmRows.filter(r=>_matchQ(r.name)).map(r=>`<tr style="${r.rowStyle}"><td style="padding-left:22px;font-weight:600">${r.name} ${r.hasTag?`<span class="tag tag-neutral" style="margin-left:4px;font-size:10px">${r.tag}</span>`:''}</td><td style="text-align:right;color:${r.poaColor}">${r.poa}</td><td style="text-align:right;color:${r.valColor}">${r.ghi}</td><td style="text-align:right;color:${r.valColor}">${r.poari}</td><td style="text-align:right;color:${r.chuvaColor}">${r.chuva}</td><td style="text-align:right;color:var(--color-neutral-500);font-size:12.5px">${r.lastRead}</td><td style="text-align:center;padding-right:22px"><span style="display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:12.5px;color:${r.statusColor}"><span style="width:8px;height:8px;border-radius:50%;background:${r.dotColor}"></span>${r.status}</span></td></tr>`).join('')}</tbody></table></div></div>`}`;
+}
+function renderTrackers(v){
+  if(v.na) return _naPanel('Trackers');
+  const bar='';   // "Parados & ocorrências" REMOVIDA dos Trackers (foco em Perdas) — só Tempo real
+  if(v.loading) return bar+_loadingPanel();
+  const trows=(v.trackerRows||[]).filter(r=>_matchQ(r.name));
+  return bar+`<div class="card" style="padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 22px;border-bottom:1px solid var(--color-divider)"><div style="display:flex;align-items:baseline;gap:12px"><span style="font-family:var(--font-heading);font-size:17px">Trackers — Seguidores solares</span><span class="text-muted" style="font-size:12.5px">clique na usina para ver os trackers</span></div>${_histBtn()}</div>
+  <div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th style="text-align:center">Trackers</th><th style="text-align:center">Parado</th><th style="text-align:center">Severo</th><th style="text-align:center">Médio</th><th style="text-align:center">Leve</th><th style="text-align:right">Disponibilidade</th><th style="text-align:center">Normaliz.</th><th style="text-align:right">Desvio médio</th><th style="text-align:right">Última leitura</th><th style="text-align:center;padding-right:22px">Status</th></tr></thead>
+  <tbody>${(!trows.length&&_q)?`<tr><td colspan="11" style="text-align:center;padding:28px;color:var(--color-neutral-500)">Nenhuma usina casa "${_he(_q)}".</td></tr>`:''}${trows.map(r=>`<tr ${r.pid!=null?`onclick="toggleTrk('${esc(r.pid).replace(/['"\\]/g,'')}')" style="cursor:pointer;${r.expanded?'background:color-mix(in srgb, var(--gc-amber) 7%, transparent);':''}"`:''}><td style="padding-left:22px;font-weight:600">${r.pid!=null?`<i class="ph ph-caret-right" style="font-size:11px;color:var(--color-neutral-500);margin-right:8px;transition:transform .15s;transform:rotate(${r.caretDeg}deg)"></i>`:''}${r.name}</td><td style="text-align:center;color:var(--color-neutral-400)">${r.total}</td><td style="text-align:center;font-weight:600;color:${r.paradosColor}">${r.parados}</td><td style="text-align:center;color:${r.severo>0?'var(--gc-amber)':'var(--color-neutral-300)'}">${r.severo}</td><td style="text-align:center;font-weight:${r.medio>0?600:400};color:${r.medio>0?'#ffb43d':'var(--color-neutral-300)'}">${r.medio}</td><td style="text-align:center;color:var(--color-neutral-300)">${r.leve}</td><td>${_trkBar(r.dispPct,r.dispTempo)}</td><td style="text-align:center;color:var(--color-neutral-400)">${r.normalizados}</td><td style="text-align:right;color:var(--color-neutral-400)">${r.desvioMed}</td><td style="text-align:right;color:var(--color-neutral-500);font-size:12.5px">${r.lastRead}</td><td style="text-align:center;padding-right:22px"><span style="${r.statusStyle}">${r.status}</span></td></tr>${r.expanded?`<tr><td colspan="11" style="padding:0;border:0"><div style="background:color-mix(in srgb, var(--color-neutral-900) 55%, transparent);padding:16px 22px 20px">${_trkDrill(r.pid)}</div></td></tr>`:''}`).join('')}</tbody></table></div></div>`;
+}
+function _trkDrill(pid){
+  const arr=RD.trk[state.source+'|'+pid];
+  if(arr===undefined||arr===null) return `<div class="text-muted" style="font-size:13px;padding:6px 2px"><i class="ph ph-circle-notch gc-spin"></i> Carregando trackers…</div>`;
+  if(!arr.length) return `<div class="text-muted" style="font-size:13px;padding:6px 2px">Sem trackers para detalhar nesta usina.</div>`;
+  const ruins=arr.filter(t=>['parado','severo','medio','leve','desvio','atraso'].includes(t.status||'')).length;
+  const grafOn=String(state.trkGraf)===String(pid);
+  return `<div style="margin-bottom:13px"><button class="btn ${grafOn?'btn-primary':'btn-secondary'}" onclick="event.stopPropagation();abrirTrkChart('${esc(pid).replace(/['"\\]/g,'')}')"><i class="ph ${grafOn?'ph-caret-up':'ph-chart-line'}"></i> Gráfico</button></div>
+    ${grafOn?_trkChartInline(pid):''}
+    <div class="card-kicker" style="color:var(--color-neutral-400);margin-bottom:10px">Trackers (${arr.length})${ruins?` · <span style="color:var(--gc-amber)">${ruins} fora do alvo</span>`:''}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:7px">${arr.map(_trkChip).join('')}</div>`;
+}
+function _trkChip(t){
+  const st=t.status||'normal', c=_trkCor(st);
+  const disp=(t.disparidade!=null?(t.disparidade>0?'+':'')+Number(t.disparidade).toFixed(0)+'°':'—');
+  const n=_snum(t.id), hid=!!(state.trkHide&&state.trkHide[String(n)]);   // clicado = oculto no gráfico
+  const tip=`${st} · alvo ${t.alvo!=null?Number(t.alvo).toFixed(0)+'°':'—'} · atual ${t.atual!=null?Number(t.atual).toFixed(0)+'°':'—'} · desvio ${disp} · clique p/ ${hid?'mostrar':'ocultar'} no gráfico`;
+  return `<span title="${esc(tip)}" onclick="event.stopPropagation();toggleTrkHide(${n})" onmouseenter="_hlTrk(${n},1)" onmouseleave="_hlTrk(${n},0)" style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:var(--radius-sm);background:${c[1]};border:1px solid ${c[2]};font-size:11.5px;cursor:pointer;transition:opacity .12s,border-color .12s;opacity:${hid?'.38':'1'}"><span style="font-weight:600;color:${c[0]}">${esc(t.id)}</span><span class="text-muted" style="font-size:11px">${disp}</span>${t.na_planilha?'<i class="ph ph-clipboard-text" style="font-size:10px;color:var(--color-neutral-500)"></i>':''}</span>`;
+}
+function _trkCor(st){   // semáforo por HUE distinto → contraste máximo entre os níveis (vermelho→laranja→amarelo→verde)
+  if(st==='parado') return ['#ff5b6e','color-mix(in srgb, #ff5b6e 16%, transparent)','color-mix(in srgb, #ff5b6e 48%, transparent)'];
+  if(st==='severo'||st==='desvio') return ['#ff8f3c','color-mix(in srgb, #ff8f3c 16%, transparent)','color-mix(in srgb, #ff8f3c 48%, transparent)'];   // laranja
+  if(st==='medio') return ['#ffb43d','color-mix(in srgb, #ffb43d 16%, transparent)','color-mix(in srgb, #ffb43d 50%, transparent)'];                    // âmbar (entre severo e leve — desvio <10° nas transições)
+  if(st==='leve'||st==='atraso') return ['#ffd83d','color-mix(in srgb, #ffd83d 14%, transparent)','color-mix(in srgb, #ffd83d 44%, transparent)'];      // amarelo (bem separado do laranja)
+  if(st==='sem_comunicacao') return ['#c9b6ff','color-mix(in srgb, var(--gc-violet) 14%, transparent)','color-mix(in srgb, var(--gc-violet) 40%, transparent)'];
+  return ['#4ade80','color-mix(in srgb, #4ade80 13%, transparent)','color-mix(in srgb, #4ade80 36%, transparent)'];   // verde frio/emerald (normal) — sai do limão pra não colar no amarelo
+}
+function renderPR(v){
+  if(v.na) return _naPanel('PR');
+  if(v.loading) return _loadingPanel();
+  return `<div class="card" style="padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 22px;border-bottom:1px solid var(--color-divider)"><div style="display:flex;align-items:baseline;gap:12px"><span style="font-family:var(--font-heading);font-size:17px">PR — Performance Ratio por usina</span><span class="text-muted" style="font-size:12.5px">mediana dos inversores · dia</span></div>${_histBtn()}</div>
+  <div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th style="text-align:center">Inversores</th><th style="text-align:center">Abaixo da mediana</th><th style="text-align:right">PR mediana</th><th style="text-align:right">Geração (kWh)</th><th style="text-align:right">IPOA</th><th style="text-align:right">Cobertura</th><th style="text-align:center;padding-right:22px">Status</th></tr></thead>
+  <tbody>${v.prRows.map(r=>`<tr><td style="padding-left:22px;font-weight:600">${r.usina}</td><td style="text-align:center;color:var(--color-neutral-400)">${r.inversores}</td><td style="text-align:center;font-weight:600;color:${r.abaixo>0?'var(--gc-red)':'var(--color-neutral-400)'}">${r.abaixo}</td><td style="text-align:right;font-weight:600;color:${r.prColor}">${r.pr}</td><td style="text-align:right;color:var(--color-neutral-300)">${r.geracao}</td><td style="text-align:right;color:var(--color-neutral-400)">${r.ipoa}</td><td style="text-align:right;color:var(--color-neutral-400)">${r.cobertura}</td><td style="text-align:center;padding-right:22px"><span style="${r.statusStyle}">${r.status}</span></td></tr>`).join('')}</tbody></table></div></div>`;
+}
+function renderCurva(v){
+  const f=_fonte();
+  if(!_CURVA_FONTES.includes(f)) return _naPanel('Curva das strings');
+  const dia=state.curvaData||_todayISO();
+  const rows=((RD.pv&&RD.pv.rows)||[]).filter(r=>!r.sem_dados);
+  const opts=['<option value="">Selecione uma usina…</option>'].concat(rows.map(r=>`<option value="${String(r.plant_id)}"${state.curvaPid===String(r.plant_id)?' selected':''}>${_he(r.usina)}</option>`)).join('');
+  const sel=`<select onchange="setCurvaUsina(this.value)" style="background:var(--color-neutral-900);border:1px solid var(--color-divider);border-radius:8px;color:var(--color-text);font-family:inherit;font-size:13px;padding:8px 12px;min-width:230px;max-width:100%">${opts}</select>`;
+  const dInput=`<input type="date" value="${dia}" max="${_todayISO()}" onchange="setCurvaData(this.value)" style="background:var(--color-neutral-900);border:1px solid var(--color-divider);border-radius:8px;color:var(--color-text);font-family:inherit;font-size:12.5px;padding:7px 10px">`;
+  const pdf=(state.curvaPid&&['pv','pg','sunop'].includes(f))?`<a href="${f==='pv'?'/api/spv/pdf?data='+_brData(dia)+'&usinas='+encodeURIComponent(state.curvaPid):'/api/'+f+'/pdf?data='+dia+'&usinas='+encodeURIComponent(state.curvaPid)}" target="_blank" class="btn btn-secondary" style="text-decoration:none"><i class="ph ph-file-pdf"></i> PDF</a>`:'';
+  const csv=state.curvaPid?`<a href="/api/${f}/strings/curva.csv?usina=${encodeURIComponent(state.curvaPid)}&data=${dia}" class="btn btn-secondary" style="text-decoration:none" title="Baixa a curva crua (corrente por string, formato longo) p/ análise"><i class="ph ph-file-csv"></i> CSV</a>`:'';
+  const header=`<div class="card" style="padding:16px 20px;margin-bottom:16px"><div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px"><span style="font-family:var(--font-heading);font-size:17px;margin-right:4px">Curva das strings</span>${sel}<span class="text-muted" style="font-size:12.5px">Dia</span>${dInput}${pdf}${csv}<span class="text-muted" style="font-size:11.5px;margin-left:auto;display:inline-flex;align-items:center;gap:14px"><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:16px;height:2.5px;background:#ff9a9d;border-radius:2px"></span>sem corrente</span><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:16px;height:2.5px;background:#f59e0b;border-radius:2px"></span>abaixo da mediana</span></span></div></div>`;
+  if(RD.loading) return header+_loadingPanel();
+  if(!state.curvaPid) return header+_subMsg('Selecione uma usina para ver a curva de corrente por string de cada inversor.');
+  const list=RD.curvaView[f+'|'+state.curvaPid+'|'+dia];
+  if(list===undefined||list===null) return header+_subLoad('Carregando curvas…'+((f==='sunop'||f==='axis')?' (Athon pode levar ~1 min)':''));
+  if(!list.length) return header+_subMsg('Sem curva de strings para esta usina em '+_brData(dia)+'.');
+  const body=list.map(iv=>{ const smap={}; Object.keys(iv.curva).forEach(nm=>{ if(iv.meta&&iv.meta.abaixo&&iv.meta.abaixo.has(_snum(nm))) smap[nm]='abaixo'; });
+    const ab=(iv.meta&&iv.meta.abaixo)?iv.meta.abaixo.size:(iv.abaixo||0);
+    const abTxt=ab?`<span style="color:#f59e0b;font-weight:600">${ab} abaixo</span>`:'<span style="color:var(--color-accent-200)">todas OK</span>';
+    return `<div class="card" style="padding:16px 20px;margin-bottom:14px"><div style="display:flex;align-items:baseline;gap:10px;margin-bottom:2px"><span style="font-weight:600;font-size:14px">${_he(iv.nome)}</span><span class="text-muted" style="font-size:12px">${Object.keys(iv.curva).length} strings · ${abTxt}${iv.mediana!=null?` · med ${iv.mediana} (índice)`:''}</span></div>${curvaSVG(iv.curva,smap)}</div>`;
+  }).join('');
+  return header+`<div class="text-muted" style="font-size:12.5px;margin-bottom:10px">${list.length} inversores · ${_he((rows.find(r=>String(r.plant_id)===state.curvaPid)||{}).usina||'')}</div>`+body;
+}
+
+/* ══ Bloco B — subabas de Strings (sem corrente / ocorrências) e Trackers (parados / ocorrências) ══ */
+function _fonte(){ return SKEY[state.source]; }                                    // pv|pg|sunop|axis|solaredge|owen
+const _STR_SUB_FONTES=['pv','pg','owen','sunop','axis'];                           // fontes com detalhe por-string
+const _TRK_SUB_FONTES=['pv','pg','sunop','axis','owen'];                           // fontes com endpoints de trackers parados/eventos
+// ── loaders (cacheados por fonte / fonte|dia; force ignora o cache) ──
+async function loadStrProblema(force){ const f=_fonte(); if(!force&&RD.strProb[f]!==undefined)return; RD.strProb[f]=null; render();
+  try{ RD.strProb[f]=await fetch('/api/'+f+'/strings/problema'+(force?'?force=1':'')).then(r=>r.json()); }catch(e){ RD.strProb[f]={rows:[],erro:1}; } render(); }
+async function loadStrEventos(force){ const f=_fonte(), rg=_evR(), k=f+'|'+rg.ini+'|'+rg.fim;
+  if(f==='pg'){ RD.strEv[k]={rows:[],snapshot:true}; render(); return; }
+  if(!force&&RD.strEv[k]!==undefined)return; RD.strEv[k]=null; render();
+  try{ RD.strEv[k]=await fetch('/api/'+f+'/strings/eventos?ini='+rg.ini+'&fim='+rg.fim+(force?'&force=1':'')).then(r=>r.json()); }catch(e){ RD.strEv[k]={rows:[],erro:1}; } render(); }
+async function loadTrkParados(force){ const f=_fonte(); if(!force&&RD.trkPar[f]!==undefined)return; RD.trkPar[f]=null; render();
+  try{ RD.trkPar[f]=await fetch('/api/'+f+'/trackers/parados'+(force?'?force=1':'')).then(r=>r.json()); }catch(e){ RD.trkPar[f]={rows:[],erro:1}; } render(); }
+async function loadTrkEventos(force){ const f=_fonte(), rg=_evR(), k=f+'|'+rg.ini+'|'+rg.fim; if(!force&&RD.trkEv[k]!==undefined)return; RD.trkEv[k]=null; render();
+  try{ const [d,par]=await Promise.all([ fetch('/api/'+f+'/trackers/eventos?ini='+rg.ini+'&fim='+rg.fim).then(r=>r.json()),
+      fetch('/api/'+f+'/trackers/parados').then(r=>r.json()).catch(()=>({rows:[]})) ]);
+    RD.trkEv[k]={rows:d.rows||[],disp:d.disp||{},parSet:new Set((par.rows||[]).map(r=>String(r.usina)+'|'+String(r.tracker)))};
+  }catch(e){ RD.trkEv[k]={rows:[],disp:{},parSet:new Set(),erro:1}; } render(); }
+function _loadSub(){ if(state.view==='strings'){ if(state.subfilter==='sem')loadStrProblema(); else if(state.subfilter==='ocor')loadStrEventos(); }
+  else if(state.view==='trackers'){ if(state.trkSub!=='live')loadTrkProblemas(); } }
+window.setTrkSub=id=>{ state.trkSub=id; render(); if(id!=='live')loadTrkProblemas(); };
+const EV_MAX_DIAS=7;   // teto do intervalo De/Até das ocorrências
+function _isoAdd(iso,n){ const d=new Date(iso+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
+function _ontemISO(){ return _isoAdd(_todayISO(), -1); }   // base de perdas = D-1 (dia FECHADO; gráficos seguem ao vivo)
+function _evR(){ const t=_ontemISO(), ini=state.evIni||t, fim=state.evFim||ini; return {ini, fim:(fim<ini?ini:fim)}; }
+function _isoDiff(a,b){ return Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/86400000); }
+function _evReload(){ if(state.view==='strings'&&state.subfilter==='ocor')loadStrEventos(); if(state.view==='trackers'&&state.trkSub!=='live')loadTrkEventos(); }
+window.setEvIni=v=>{ state.evIni=v; if(!state.evFim||state.evFim<v)state.evFim=v; else if(_isoDiff(v,state.evFim)>EV_MAX_DIAS-1)state.evFim=_isoAdd(v,EV_MAX_DIAS-1); render(); _evReload(); };
+window.setEvFim=v=>{ state.evFim=v; if(!state.evIni||v<state.evIni)state.evIni=v; else if(_isoDiff(state.evIni,v)>EV_MAX_DIAS-1)state.evIni=_isoAdd(v,-(EV_MAX_DIAS-1)); render(); _evReload(); };
+window.setEvMonth=(ym)=>{ if(!ym)return; const t=_todayISO(), ini=ym+'-01'; if(ini>t)return;   // mês inteiro (só trackers; ignora a trava EV_MAX_DIAS)
+  const p=ym.split('-'), last=new Date(+p[0],+p[1],0).getDate(); let fim=ym+'-'+String(last).padStart(2,'0'); if(fim>t)fim=t;
+  state.evIni=ini; state.evFim=fim; render(); _evReload(); };
+window.setEvMode=(m)=>{ state.evMode=m; if(m==='mes'){ setEvMonth((state.evIni||_ontemISO()).slice(0,7)); } else render(); };   // toggle Intervalo/Mês — 1 controle por vez
+// ── Bloco C — vista "Curva das strings": escolhe usina → curva de corrente por string de cada inversor (reusa curvaSVG/_abaixoMeta; pv/pg/sunop/axis/owen num fetch só) ──
+const _CURVA_FONTES=['pv','pg','sunop','axis','owen'];
+function _brData(iso){ return iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4); }
+async function loadCurvaView(pid,force){ const f=_fonte(), dia=state.curvaData||_todayISO(), key=f+'|'+pid+'|'+dia;
+  if(!force&&RD.curvaView[key]!==undefined) return;
+  RD.curvaView[key]=null; render();
+  let url=null;
+  if(f==='pv') url='/api/spv/usina/'+encodeURIComponent(pid)+'?full=1&data='+_brData(dia);
+  else if(f==='pg') url='/api/pg/curva/'+encodeURIComponent(pid)+'?data='+dia;
+  else if(f==='sunop'||f==='axis') url='/api/'+f+'/curva/'+encodeURIComponent(pid)+'?data='+dia;
+  else if(f==='owen') url='/api/2c/'+dia+'/strings/'+encodeURIComponent(pid);
+  if(!url){ RD.curvaView[key]=[]; render(); return; }
+  try{ const d=await fetch(url).then(r=>r.json()); let list=d.inversores||[];
+    if(f==='owen') list=list.map(raw=>{ const curva={}; (raw.strings||[]).forEach(s=>{curva[String(s.id)]={x:raw.labels||[],y:s.y||[]};});
+      const strings=(raw.strings||[]).map(s=>({nome:String(s.id),sub:false,ativa:(s.y||[]).some(v=>v!=null&&v>0.5)}));
+      return {nome:'Inversor '+raw.inv, curva, meta:_abaixoMeta({curva,strings}), abaixo:null, strings}; });
+    else list=list.map(iv=>({nome:iv.nome||('Inversor '+iv.id), curva:iv.curva||{}, meta:_abaixoMeta(iv), abaixo:iv.abaixo, mediana:iv.mediana, strings:iv.strings||[]}));
+    RD.curvaView[key]=list.filter(iv=>iv.curva&&Object.keys(iv.curva).length);
+  }catch(e){ RD.curvaView[key]=[]; }
+  render();
+}
+window.setCurvaUsina=pid=>{ state.curvaPid=pid||null; render(); if(pid)loadCurvaView(pid); };
+window.setCurvaData=v=>{ state.curvaData=v; render(); if(state.curvaPid)loadCurvaView(state.curvaPid); };
+// ── Bloco D — vista "Geração": tabela pivô (usina/dia × inversor) dos últimos 7 dias + POA/GHI/pluviômetro + XLSX ──
+async function loadGeracao(force){ const f=_fonte(); if(!force&&RD.gerPivo[f]!==undefined)return; RD.gerPivo[f]=null; render();
+  try{ RD.gerPivo[f]=await fetch('/api/'+f+'/geracao-pivo'+(force?'?force=1':'')).then(r=>r.json()); }catch(e){ RD.gerPivo[f]={usinas:[],erro:1}; } render(); }
+function renderGeracao(){ const f=_fonte(), d=RD.gerPivo[f];
+  const bar=_subBar('Geração — últimos 7 dias', (d&&d.usinas&&!d.indisponivel)?`${d.usinas.length} usinas`:'', (f==='pg'?_expBtn('/api/pg/geracao-pivo/export-usinas','Geração · aba por usina')+_expBtn('/api/pg/etm-pivo/export','ETM · POA/GHI (10d)')+_expBtn('/api/pg/geracao-pivo/export','Plana'):'')+_atualBtn('loadGeracao'));
+  if(d===undefined||d===null) return bar+_subLoad('Calculando geração por inversor + POA/GHI (últimos 7 dias)…');
+  if(d.indisponivel) return bar+_subMsg(d.msg||'Geração por inversor em construção nesta fonte.');
+  if(d.error) return bar+_subMsg('Erro ao calcular a geração: '+_he(d.error));
+  const blocks=d.usinas||[];
+  if(!blocks.length) return bar+_subMsg('Sem geração no período.');
+  const fmt=x=>x==null?'—':Number(x).toLocaleString('pt-BR',{maximumFractionDigits:1});
+  const cb='<span style="font-weight:400;font-size:10px" class="text-muted">';
+  const body=blocks.map(b=>{ const cols=b.inversores||[];
+    const th=cols.map(c=>`<th style="text-align:right;white-space:nowrap">${_he(c.nome)}</th>`).join('');
+    const rows=(b.dias||[]).map(dd=>{ const tds=cols.map(c=>`<td style="text-align:right;color:var(--color-neutral-300)">${fmt((dd.ger||{})[c.dev])}</td>`).join('');
+      return `<tr><td style="padding-left:22px;white-space:nowrap;font-weight:600">${_he(dd.data)}</td><td style="text-align:right;color:var(--color-accent-200)">${fmt(dd.poa)}</td><td style="text-align:right;color:var(--color-neutral-400)">${fmt(dd.ghi)}</td><td style="text-align:right;color:var(--gc-blue)">${dd.pluviometro==null?'—':fmt(dd.pluviometro)}</td>${tds}<td style="text-align:right;font-weight:700">${fmt(dd.ger_total)}</td></tr>`; }).join('');
+    return `<div class="card" style="padding:0;overflow:hidden;margin-bottom:16px"><div style="padding:14px 20px;border-bottom:1px solid var(--color-divider)"><span style="font-family:var(--font-heading);font-size:15px">${_he(b.usina)}</span><span class="text-muted" style="font-size:12px;margin-left:8px">${cols.length} inversores</span></div><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Data</th><th style="text-align:right">POA<br>${cb}kWh/m²</span></th><th style="text-align:right">GHI<br>${cb}kWh/m²</span></th><th style="text-align:right">Pluv.<br>${cb}mm</span></th>${th}<th style="text-align:right">Total<br>${cb}kWh</span></th></tr></thead><tbody>${rows}</tbody></table></div></div>`;
+  }).join('');
+  return bar+`<div class="text-muted" style="font-size:12px;margin-bottom:12px">Geração diária por inversor (kWh) · POA/GHI acumulados do dia (kWh/m²) · pluviômetro ainda não disponível no Banco de Dados</div>`+body;
+}
+// ── helpers de UI dos sub-painéis ──
+function _subBar(title,count,extra){ return `<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:14px"><div style="display:flex;align-items:baseline;gap:12px"><span style="font-family:var(--font-heading);font-size:16px">${title}</span>${count?`<span class="text-muted" style="font-size:12.5px">${count}</span>`:''}</div><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">${extra||''}</div></div>`; }
+function _subMsg(t){ return `<div class="card" style="padding:30px;text-align:center"><span class="text-muted" style="font-size:13px">${t}</span></div>`; }
+function _subLoad(msg){ return `<div class="card" style="padding:30px;text-align:center"><span class="text-muted" style="font-size:13px"><i class="ph ph-circle-notch gc-spin" style="margin-right:7px"></i>${msg||'Carregando…'}</span></div>`; }
+function _expBtn(url,label){ return `<a href="${url}" class="btn btn-secondary" style="text-decoration:none"><i class="ph ph-download-simple"></i> ${label||'Excel'}</a>`; }
+function _atualBtn(fn){ return `<button onclick="${fn}(1)" class="btn btn-secondary"><i class="ph ph-arrows-clockwise"></i> Atualizar</button>`; }
+function _evRangeInput(){ const r=_evR(), t=_todayISO(), css='background:var(--color-neutral-900);border:1px solid var(--color-divider);border-radius:6px;color:var(--color-text);font-family:inherit;font-size:12.5px;padding:5px 8px';
+  const trk=state.view==='trackers', mode=trk?(state.evMode||'range'):'range';
+  const _tgl=(id,lb)=>`<button onclick="setEvMode('${id}')" style="padding:5px 11px;border:1px solid ${mode===id?'var(--color-accent)':'var(--color-divider)'};background:${mode===id?'color-mix(in srgb,var(--color-accent) 16%,transparent)':'transparent'};color:${mode===id?'var(--color-accent)':'var(--color-neutral-300)'};font-family:inherit;font-size:11.5px;font-weight:600;cursor:pointer;border-radius:7px">${lb}</button>`;
+  const toggle=trk?`<span style="display:inline-flex;gap:5px;margin-right:10px">${_tgl('range','Intervalo')}${_tgl('mes','Mês')}</span>`:'';
+  if(mode==='mes') return toggle+`<span class="text-muted" style="font-size:12.5px">Mês</span><input type="month" value="${(r.ini||t).slice(0,7)}" max="${t.slice(0,7)}" onchange="setEvMonth(this.value)" title="Traz o mês inteiro (dia 1 → fim do mês ou hoje)" style="${css}">`;
+  return toggle+`<span class="text-muted" style="font-size:12.5px">De</span><input type="date" value="${r.ini}" max="${t}" onchange="setEvIni(this.value)" style="${css}"><span class="text-muted" style="font-size:12.5px">até</span><input type="date" value="${r.fim}" max="${t}" onchange="setEvFim(this.value)" style="${css}">`; }
+function _durTxt(m){ m=m||0; return m>=60?(Math.floor(m/60)+'h'+String(m%60).padStart(2,'0')):m+'min'; }
+function _subBtns(defs,cur,fn){ return `<div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">${defs.map(d=>{const on=cur===d.id;return `<button onclick="${fn}('${d.id}')" style="padding:7px 14px;border-radius:var(--radius-md);cursor:pointer;font-family:var(--font-body);font-size:13px;font-weight:500;background:${on?'var(--color-accent-900)':'transparent'};color:${on?'var(--color-accent-200)':'var(--color-neutral-400)'};border:1px solid ${on?'var(--color-accent-700)':'var(--color-divider)'}">${d.lb}</button>`;}).join('')}</div>`; }
+// ── Strings · "sem corrente (agora)" ──
+function renderStrProblema(){ const f=_fonte(), d=RD.strProb[f];
+  const rows=((d&&d.rows)||[]).filter(r=>_matchQ(r.usina));
+  const cnt=(d&&d.rows)?`${rows.length} strings${rows.length?` em ${new Set(rows.map(r=>r.usina)).size} usinas`:''}`:'';
+  const bar=_subBar('Strings sem corrente (agora)',cnt,_expBtn('/api/'+f+'/strings/problema/export.xlsx')+_atualBtn('loadStrProblema'));
+  if(d===undefined||d===null) return bar+_subLoad('Consultando strings…');
+  if(d.indisponivel) return bar+_subMsg('Lista de strings sem corrente não disponível nesta fonte.');
+  if(!rows.length) return bar+_subMsg(_q?`Nenhuma usina casa "${_he(_q)}".`:'Nenhuma string sem corrente no momento.');
+  const body=rows.map(r=>`<tr><td style="${_stTd('severo','font-weight:600')}">${_he(r.usina||'')}</td><td style="color:var(--color-neutral-300)">${_he(r.inversor||'—')}</td><td style="color:var(--color-neutral-300)">${_he(r.string||'')}</td><td style="text-align:right;color:#ff9a9d;${_tnum()}">${r.corrente==null?'—':Number(r.corrente).toFixed(1)+' A'}</td><td style="color:var(--color-neutral-400);padding-right:22px;${_tnum()}">${_desdeFlex(r.desde)}</td></tr>`).join('');
+  return bar+`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th>Inversor</th><th>String</th><th style="text-align:right">Corrente</th><th style="padding-right:22px">Desde</th></tr></thead><tbody>${body}</tbody></table></div></div>`; }
+// ── Strings · "ocorrências (caiu → voltou)" ──
+function renderStrEventos(){ const f=_fonte(), rg=_evR(), d=RD.strEv[f+'|'+rg.ini+'|'+rg.fim];
+  const rows=((d&&d.rows)||[]).filter(r=>_matchQ(r.usina));
+  const cnt=(d&&d.rows&&!d.snapshot)?`${rows.length} ocorrências · ${rows.filter(r=>r.voltou).length} voltaram`:'';
+  const bar=_subBar('Ocorrências de strings (caiu → voltou)',cnt,_evRangeInput()+_expBtn('/api/'+f+'/strings/eventos/export.xlsx?ini='+rg.ini+'&fim='+rg.fim)+_atualBtn('loadStrEventos'));
+  if(f==='pg'||(d&&d.snapshot)) return bar+_subMsg('O dado de string do Banco de Dados é snapshot (1 leitura/dia, sem curva) — caiu→voltou não dá para detectar nesta fonte.');
+  if(d===undefined||d===null) return bar+_subLoad('Processando as curvas de string do período… (~1 min por dia)');
+  if(d.indisponivel) return bar+_subMsg('Ocorrências de strings não disponíveis nesta fonte.');
+  if(!rows.length) return bar+_subMsg(_q?`Nenhuma usina casa "${_he(_q)}".`:'Nenhuma ocorrência de string no período.');
+  const mx=Math.max(1,...rows.map(r=>r.dur_min||0));
+  const body=rows.map(r=>{ const lv=(r.dur_min||0)<60;
+    return `<tr><td class="mono" style="${_stTd(r.voltou&&lv?'leve':'severo')};${_tnum()}">${_he(r.data||'—')}</td><td style="font-weight:600">${_he(r.usina||'')}</td><td style="color:var(--color-neutral-300)">${_he(r.inversor||'—')}</td><td style="color:var(--color-neutral-300)">${_he(r.string||'')}</td><td style="${_tnum()}">${_he(r.caiu||'—')}</td><td style="${_tnum()}">${r.voltou?_he(r.voltou):'<span style="color:#ff9a9d">não voltou</span>'}</td><td style="text-align:right;padding-right:22px">${r.dur_min!=null?_durCell(_durTxt(r.dur_min),r.dur_min,mx,lv):'<span style="color:var(--color-neutral-400)">—</span>'}</td></tr>`; }).join('');
+  return bar+`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Dia</th><th>Usina</th><th>Inversor</th><th>String</th><th>Caiu</th><th>Voltou</th><th style="text-align:right;padding-right:22px">Duração</th></tr></thead><tbody>${body}</tbody></table></div></div>`; }
+// ── Trackers · "parados (agora)" ──
+function renderTrkParados(){ const f=_fonte(), d=RD.trkPar[f];
+  const rows=((d&&d.rows)||[]).filter(r=>_matchQ(r.usina));
+  const cnt=(d&&d.rows)?`${rows.length} trackers em ${new Set(rows.map(r=>r.usina)).size} usinas`:'';
+  const bar=_subBar('Trackers parados (agora)',cnt,_expBtn('/api/'+f+'/trackers/parados/export.xlsx')+_atualBtn('loadTrkParados'));
+  if(d===undefined||d===null) return bar+_subLoad();
+  if(d.sem_token) return bar+_subMsg('Token da Plataforma ausente/vencido — não dá para listar os parados agora.');
+  if(!rows.length) return bar+_subMsg(_q?`Nenhuma usina casa "${_he(_q)}".`:'Nenhum tracker parado no momento.');
+  const ang=x=>x==null?'—':(Math.round(x*10)/10).toFixed(1)+'°';
+  const desde=r=>{ if(!r.parado_desde)return '—'; const t=_dtBR(r.parado_desde), h=r.horas_parado;
+    const txt=t+(h!=null?` (há ${h>=24?Math.floor(h/24)+'d':Math.round(h)+'h'})`:''); return (h!=null&&h>=36)?`<span style="color:#ff9a9d;font-weight:600">${txt}</span>`:txt; };
+  const body=rows.map(r=>{ const tk=r.na_planilha?`<span style="${pillOk}">na planilha${r.ticket_status?' ('+_he(r.ticket_status)+')':''}</span>`:`<span style="${pillAmber}">novo</span>`;
+    return `<tr><td style="${_stTd(_isHoje(r.parado_desde)?'leve':'severo','font-weight:600')}">${_he(r.usina||'')}</td><td>${_he(r.tracker||'')}</td><td style="color:var(--color-neutral-400)">${r.inversor?_he(r.inversor):'—'}</td><td style="text-align:right">${ang(r.atual)}</td><td style="text-align:right;color:var(--color-neutral-400)">${ang(r.alvo)}</td><td style="text-align:right;color:var(--gc-amber)">${r.disparidade!=null?Number(r.disparidade).toFixed(1)+'°':'—'}</td><td style="color:var(--color-neutral-400);font-size:12.5px">${desde(r)}</td><td>${tk}</td><td style="text-align:right;color:var(--color-neutral-500);font-size:12.5px;padding-right:22px">${r.ultima_leitura?String(r.ultima_leitura).replace('T',' ').slice(0,16):'—'}</td></tr>`; }).join('');
+  return bar+`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th>Tracker</th><th>Inversor</th><th style="text-align:right">Atual</th><th style="text-align:right">Alvo</th><th style="text-align:right">Disparidade</th><th>Parado desde</th><th>Ticket</th><th style="text-align:right;padding-right:22px">Última leitura</th></tr></thead><tbody>${body}</tbody></table></div></div>`; }
+// ── Trackers · "ocorrências (travou → voltou)" ──
+function renderTrkEventos(){ const f=_fonte(), rg=_evR(), d=RD.trkEv[f+'|'+rg.ini+'|'+rg.fim];
+  const rows=(d&&d.rows||[]).filter(r=>r.retorno&&_matchQ(r.usina));
+  const bar=_subBar('Ocorrências de trackers (travou → voltou)',d?`${rows.length} ocorrências`:'',_evRangeInput()+_expBtn('/api/'+f+'/trackers/eventos/export.xlsx?ini='+rg.ini+'&fim='+rg.fim)+_atualBtn('loadTrkEventos'));
+  if(d===undefined||d===null) return bar+_subLoad();
+  const disp=d.disp||{}, parSet=d.parSet||new Set();
+  const dispHtml=Object.keys(disp).length?`<div style="display:flex;flex-wrap:wrap;gap:7px;margin-bottom:14px">${Object.entries(disp).sort((a,b)=>a[1]-b[1]).map(([u,p])=>`<span style="display:inline-flex;gap:6px;padding:4px 10px;border-radius:6px;background:var(--color-neutral-900);border:1px solid var(--color-divider);font-size:11.5px"><span class="text-muted">${_he(u)}</span><b style="color:${p<90?'var(--gc-amber)':'var(--color-accent-200)'}">${Number(p).toFixed(1)}%</b></span>`).join('')}</div>`:'';
+  if(!rows.length) return bar+dispHtml+_subMsg('Nenhuma ocorrência de tracker (travou→voltou) no dia.');
+  const mx=Math.max(1,...rows.map(r=>r.dur_min||0));
+  const body=rows.map(r=>{ const pa=parSet.has(String(r.usina)+'|'+String(r.tracker)); const lv=(r.dur_min||0)<60;
+    return `<tr${pa?' style="background:color-mix(in srgb, var(--gc-red) 7%, transparent)"':''}><td style="${_stTd((pa||!lv)?'severo':'leve')};${_tnum()}">${_he(r.data||'')}</td><td style="font-weight:600">${_he(r.usina||'')}</td><td>${_he(r.tracker||'')}${pa?` <span style="${pillRed}">● parado agora</span>`:''}</td><td style="color:var(--color-neutral-400)">${r.inversor?_he(r.inversor):'—'}</td><td style="${_tnum()}">${_he(r.parada||'—')}</td><td style="${_tnum()}">${r.retorno?_he(r.retorno):'<span style="color:#ff9a9d">não retornou</span>'}</td><td style="padding-right:22px">${r.dur_min!=null?_durCell(_durTxt(r.dur_min),r.dur_min,mx,lv):'<span style="color:var(--color-neutral-400)">—</span>'}</td></tr>`; }).join('');
+  return bar+dispHtml+`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Data</th><th>Usina</th><th>Tracker</th><th>Inversor</th><th>Parada</th><th>Retorno</th><th style="padding-right:22px">Duração</th></tr></thead><tbody>${body}</tbody></table></div></div>`; }
+// ── Trackers · "Parados & ocorrências" — FUSÃO das duas sub-abas numa só, com coluna Status ──
+//   Parado = retrato do último dia solar FECHADO (não voltou até 18:00) + Severo/Leve (travou→voltou).
+async function loadTrkProblemas(force){ loadTrkParados(force); loadTrkEventos(force); }
+function renderTrkProblemas(){ const f=_fonte(), rg=_evR();
+  const dp=RD.trkPar[f], de=RD.trkEv[f+'|'+rg.ini+'|'+rg.fim];
+  if(dp===undefined||dp===null||de===undefined||de===null) return _subBar('Parados & ocorrências de trackers','',_evRangeInput()+_atualBtn('loadTrkProblemas'))+_subLoad();
+  const parados=((dp&&dp.rows)||[]).filter(r=>_matchQ(r.usina));
+  const eventos=((de&&de.rows)||[]).filter(r=>_matchQ(r.usina));
+  // PARADOS = retrato de UM dia solar FECHADO (não a união do mês): "parado" é quem NÃO voltou até 18:00
+  // (fim do tempo solar) do dia de referência — status parado MAS com FIM (18:00), não um "parado agora"
+  // sem data-fim. Dia de ref = último dia fechado do período (D-1 se o período alcança hoje). Assim o
+  // número bate com o gráfico do dia e não soma dias diferentes. (Quem voltou vira ocorrência severo/leve.)
+  const cap=(rg.fim>=_todayISO()?_ontemISO():rg.fim);
+  const diasNR=eventos.filter(r=>!r.retorno&&r.data_iso&&r.data_iso<=cap).map(r=>r.data_iso).sort();
+  const refDia=diasNR.length?diasNR[diasNR.length-1]:cap;
+  const liveByK={}; parados.forEach(r=>liveByK[String(r.usina)+'|'+String(r.tracker)]=r);   // enriquece desde/ticket
+  const L=[]; const pSeen=new Set();
+  eventos.forEach(r=>{ if(r.retorno||r.data_iso!==refDia)return;                 // parado = não voltou no dia de ref
+    const k=String(r.usina)+'|'+String(r.tracker); if(pSeen.has(k))return; pSeen.add(k);
+    const lv=liveByK[k];
+    L.push({st:'parado',usina:r.usina,tracker:r.tracker,inv:r.inversor||(lv&&lv.inversor)||'',disp:r.desvio,
+      ini:(lv&&lv.parado_desde)?_dtBR(lv.parado_desde):(_he(r.data||'')+' '+_he(r.parada||'')),
+      sit:'<span class="text-muted" style="font-size:11px">não voltou · fim</span> <span style="color:#ff9a9d">18:00</span>'+(lv&&lv.na_planilha?' · <span style="'+pillOk+'">ticket</span>':''),
+      dur:(lv&&lv.horas_parado!=null)?(lv.horas_parado>=24?Math.floor(lv.horas_parado/24)+'d':Math.round(lv.horas_parado)+'h'):(r.dur_min!=null?_durTxt(r.dur_min):'—')});
+  });
+  eventos.forEach(r=>{ if(!r.retorno)return; const lv=(r.dur_min||0)<60;         // voltou = ocorrência (severo/leve)
+    L.push({st:lv?'leve':'severo',usina:r.usina,tracker:r.tracker,inv:r.inversor,disp:r.desvio,
+      ini:_he(r.data||'')+' '+_he(r.parada||''),sit:_he(r.retorno),
+      dur:r.dur_min!=null?_durTxt(r.dur_min):'—'}); });
+  const nPar=L.filter(l=>l.st==='parado').length, nSev=L.filter(l=>l.st==='severo').length, nLev=L.filter(l=>l.st==='leve').length;
+  const bar=_subBar('Parados & ocorrências de trackers',`<span style="color:#ff5b6e;font-weight:600">${nPar} parados</span> · <span style="color:#ff8f3c;font-weight:600">${nSev} severo</span> · <span style="color:#ffd83d;font-weight:600">${nLev} leve</span>`,_evRangeInput()+_expBtn('/api/'+f+'/trackers/eventos/export.xlsx?ini='+rg.ini+'&fim='+rg.fim)+_atualBtn('loadTrkProblemas'));
+  const flt=state.trkProbSt||'todos';
+  const chip=(id,lb,n,col)=>`<button onclick="setTrkProbSt('${id}')" style="padding:5px 13px;border-radius:20px;font-size:12px;font-weight:600;font-family:inherit;border:1px solid ${flt===id?col:'var(--color-divider)'};background:${flt===id?'color-mix(in srgb, '+col+' 16%, transparent)':'transparent'};color:${flt===id?col:'var(--color-neutral-300)'};cursor:pointer">${lb} <b>${n}</b></button>`;
+  const chips=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">${chip('todos','Todos',L.length,'var(--color-accent)')}${chip('parado','Parados',nPar,'#ff5b6e')}${chip('severo','Severo',nSev,'#ff8f3c')}${chip('leve','Leve',nLev,'#ffd83d')}</div>`;
+  const Lf=flt==='todos'?L:L.filter(l=>l.st===flt);
+  if(!Lf.length) return bar+chips+_subMsg(_q?`Nenhuma usina casa "${_he(_q)}".`:'Nada neste filtro.');
+  const ord={parado:0,severo:1,leve:2};
+  Lf.sort((a,b)=>(ord[a.st]-ord[b.st])||String(a.usina||'').localeCompare(String(b.usina||'')));
+  const _bdg=(c,l)=>`<span style="display:inline-block;padding:2px 10px;border-radius:20px;background:color-mix(in srgb, ${c} 16%, transparent);border:1px solid color-mix(in srgb, ${c} 40%, transparent);color:${c};font-size:11.5px;font-weight:600">${l}</span>`;
+  const BADGE={parado:_bdg('#ff5b6e','Parado'),severo:_bdg('#ff8f3c','Severo'),leve:_bdg('#ffd83d','Leve')};
+  const body=Lf.map(l=>`<tr><td style="padding-left:22px">${BADGE[l.st]}</td><td style="font-weight:600">${_he(l.usina||'')}</td><td>${_he(l.tracker||'')}</td><td style="color:var(--color-neutral-400)">${l.inv?_he(l.inv):'—'}</td><td style="text-align:right;color:var(--gc-amber)">${l.disp!=null?Number(l.disp).toFixed(1)+'°':'—'}</td><td style="${_tnum()}">${l.ini}</td><td>${l.sit}</td><td style="text-align:right;padding-right:22px">${l.dur}</td></tr>`).join('');
+  return bar+chips+`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Status</th><th>Usina</th><th>Tracker</th><th>Inversor</th><th style="text-align:right">Disparidade</th><th>Desde / Parada</th><th>Retorno / Situação</th><th style="text-align:right;padding-right:22px">Duração</th></tr></thead><tbody>${body}</tbody></table></div></div>`; }
+window.setTrkProbSt=id=>{ state.trkProbSt=id; render(); };
+/* ══ Vista "Perdas" — base de ocorrências/paradas em HORAS SOLARES (backend /api/perdas/*) ══ */
+const _PERDA_DEFS=[{id:'trk-ocor',lb:'Trackers · Ocorrências'},{id:'trk-par',lb:'Trackers · Parados'},{id:'str-zer',lb:'Strings · Zeradas'}];   // Strings · Ocorrências removida (foco em zeradas)
+const _PERDA_EP={'trk-ocor':'trackers/ocorrencias','trk-par':'trackers/parados','str-ocor':'strings/ocorrencias','str-zer':'strings/zeradas'};
+function _perdaTemDia(sub){ return sub==='str-ocor'; }   /* trk-ocor virou MÊS (agregado base→ontem), sem seletor de dia */
+function _perdaKey(sub){ return sub+'|'+_fonte()+'|'+(_perdaTemDia(sub)?(state.perdaDia||_ontemISO()):''); }
+async function loadPerda(sub,force){ const f=_fonte(), key=_perdaKey(sub); if(!force&&RD.perdas[key]!==undefined){ render(); return; }   // cacheado → RENDERIZA na hora (senão a view só atualiza no próximo refresh = "trava e carrega depois")
+  RD.perdas[key]=null; render();
+  let url='/api/perdas/'+f+'/'+_PERDA_EP[sub], dia=state.perdaDia||_ontemISO();
+  if(sub==='trk-ocor') url+='?mes=1'+(force?'&force=1':'');        /* ocorrências de tracker = MÊS inteiro (base → ontem) */
+  else url+=(_perdaTemDia(sub)?'?dia='+dia+(force?'&force=1':''):(force?'?force=1':''));
+  try{ RD.perdas[key]=await fetch(url).then(r=>r.json()); }catch(e){ RD.perdas[key]={rows:[],erro:1}; } render(); }
+window.setPerdaSub=id=>{ state.perdaSub=id; render(); loadPerda(id); };
+window.setPerdaDia=v=>{ state.perdaDia=v; render(); loadPerda(state.perdaSub); };
+function _perdaBdg(s){ const M={parado:['#ff5b6e','#ff5b6e'],severo:['#ff8f3c','#ff8f3c'],medio:['#ffb43d','#ffb43d'],leve:['#ffd83d','#ffd83d']}[s]||['var(--color-neutral-500)','var(--color-neutral-300)'], l={parado:'Parado',severo:'Severo',medio:'Médio',leve:'Leve'}[s]||s;
+  return `<span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:20px;font-size:11.5px;font-weight:650;white-space:nowrap;background:color-mix(in srgb, ${M[0]} 15%, transparent);color:${M[1]}"><span style="width:6px;height:6px;border-radius:50%;background:${M[0]}"></span>${l}</span>`; }
+/* ══ Helpers do padrão do mockup (barra de duração + faixa lateral + desde data-e-hora + badge aberto) ══ */
+function _sevColor(s){ return {parado:'#ff5b6e',severo:'#ff8f3c',medio:'#ffb43d',leve:'#ffd83d'}[s]||'#ff5b6e'; }   // faixa lateral: semáforo por status
+function _stTd(sev,extra){ return `padding-left:22px;box-shadow:inset 3px 0 0 ${_sevColor(sev)}${extra?';'+extra:''}`; }
+function _dtBR(s){ if(!s) return '—'; const t=String(s).replace('T',' '); const m=t.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}:\d{2})/); return m?`${m[3]}/${m[2]} ${m[4]}`:_he(t.slice(0,16)); }
+function _isHoje(iso){ return !!iso && String(iso).slice(0,10)===_todayISO(); }
+function _hojeBR(){ const t=_todayISO(); return t.slice(8,10)+'/'+t.slice(5,7); }
+function _desdeFlex(s){ if(!s) return '—'; s=String(s); if(/^\d{1,2}:\d{2}$/.test(s)) return _hojeBR()+' '+s; if(s.includes('-')) return _dtBR(s); return _he(s); }
+function _hv(r){ return r.horas_solares!=null?r.horas_solares:((r.dur_min||0)/60); }
+function _durBar(val,mx,leve){ const w=Math.max(4,Math.round(78*(val||0)/(mx||1))); const bg=leve?'#ffd83d':'linear-gradient(90deg,#ff8f3c,#ff5b6e)'; return `<span style="display:inline-block;height:5px;border-radius:3px;flex:none;width:${w}px;background:${bg};opacity:.9"></span>`; }
+function _durCell(fmt,val,mx,leve){ return `<div style="display:flex;align-items:center;gap:9px;justify-content:flex-end">${_durBar(val,mx,leve)}<span style="min-width:52px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600">${_he(fmt||'—')}</span></div>`; }
+function _openBdg(txt){ return `<span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;background:color-mix(in srgb, #e5484d 15%, transparent);color:#ff8a93"><span style="width:6px;height:6px;border-radius:50%;background:#e5484d;box-shadow:0 0 6px #e5484d"></span>${_he(txt)}</span>`; }
+function _tnum(){ return 'font-variant-numeric:tabular-nums'; }
+function _perdaExp(sub){ return _expBtn('/api/perdas/'+_fonte()+'/'+_PERDA_EP[sub]+'/export'+(sub==='trk-ocor'?'?mes=1':(_perdaTemDia(sub)?'?dia='+(state.perdaDia||_ontemISO()):''))); }
+function _atualBtnP(sub){ return `<button onclick="loadPerda('${sub}',1)" class="btn btn-secondary"><i class="ph ph-arrows-clockwise"></i> Atualizar</button>`; }
+function _perdaDiaInput(){ const dia=state.perdaDia||_ontemISO(); return `<span class="text-muted" style="font-size:12.5px">Dia</span><input type="date" value="${dia}" max="${_todayISO()}" onchange="setPerdaDia(this.value)" style="background:var(--color-neutral-900);border:1px solid var(--color-divider);border-radius:6px;color:var(--color-text);font-family:inherit;font-size:12.5px;padding:5px 8px">`; }
+function _kpiRow(kpis){ return `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">${kpis.map(k=>`<div class="card" style="padding:12px 16px;min-width:130px"><div style="font-size:22px;font-weight:700;letter-spacing:-.02em;line-height:1;color:${k.c||'var(--color-text)'};font-variant-numeric:tabular-nums">${k.v}</div><div class="text-muted" style="font-size:11.5px;margin-top:5px">${k.l}</div></div>`).join('')}</div>`; }
+function renderPerdas(){
+  const nota=`<div class="text-muted" style="font-size:12px;margin-bottom:14px"><i class="ph ph-info" style="margin-right:5px"></i>Tempo em <b style="color:var(--color-neutral-200)">horas solares</b> (06–18h · 1 dia = 12h) · base retroativa desde <b style="color:var(--color-neutral-200)">01/07</b> · ocorrência = caiu e voltou · parada = caiu e não voltou.</div>`;
+  const bar=_subBtns(_PERDA_DEFS, state.perdaSub, 'setPerdaSub');
+  const sub=state.perdaSub, d=RD.perdas[_perdaKey(sub)];
+  let panel;
+  if(sub==='trk-par') panel=_renderPerdaTrkPar(d);
+  else if(sub==='trk-ocor') panel=_renderPerdaTrkOcor(d);
+  else if(sub==='str-ocor') panel=_renderPerdaStrOcor(d);
+  else panel=_renderPerdaStrZer(d);
+  return nota+bar+panel;
+}
+function _renderPerdaTrkPar(d){ const f=_fonte();
+  const rows=((d&&d.rows)||[]).filter(r=>_matchQ(r.usina));
+  const ht=_q?Math.round(rows.reduce((s,r)=>s+(r.horas_solares||0),0)*10)/10:((d&&d.horas_total)||0), tot=_q?rows.length:(d&&d.total);
+  const bar=_subBar('Trackers parados — book de paradas', (d&&d.rows)?`${tot} parados · ${ht.toLocaleString('pt-BR')}h solares`:'', _perdaExp('trk-par')+_atualBtnP('trk-par'));
+  if(d===undefined||d===null) return bar+_subLoad('Calculando parados + horas solares… (API PV frio pode levar alguns min)');
+  if(d.indisponivel) return bar+_subMsg('Sem trackers nesta fonte.');
+  if(d.error) return bar+_subMsg('Erro: '+_he(d.error));
+  if(!rows.length) return bar+_subMsg(_q?`Nenhuma usina casa "${_he(_q)}".`:'Nenhum tracker parado agora.');
+  const kpis=[{v:tot,l:'Paradas abertas'},{v:ht.toLocaleString('pt-BR'),l:'Horas solares',c:'#ff8a93'},{v:new Set(rows.map(r=>r.usina)).size,l:'Usinas'}];
+  const body=rows.map(r=>{ const hoje=_isHoje(r.parado_desde), sev=hoje?'leve':'parado';
+    return `<tr><td style="${_stTd(sev,'font-weight:600')}">${_he(r.usina||'')}</td><td>${_he(r.tracker||'')}</td><td style="color:var(--color-neutral-400)">${r.inversor?_he(r.inversor):'—'}</td><td>${_perdaBdg('parado')}</td><td class="text-muted" style="font-size:12.5px;${_tnum()}">${_dtBR(r.parado_desde)}</td><td>${_openBdg('em aberto')}</td><td style="text-align:right;font-weight:650;color:${hoje?'#ffd83d':'#ff5b6e'};padding-right:22px;${_tnum()}">${r.horas_solares_fmt||'—'}</td></tr>`; }).join('');
+  return bar+_kpiRow(kpis)+`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th>Tracker</th><th>Inversor</th><th>Status</th><th>Parou desde</th><th>Estado</th><th style="text-align:right;padding-right:22px">Tempo parada (solar)</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
+}
+function _renderPerdaTrkOcor(d){ const f=_fonte();
+  const rows=((d&&d.rows)||[]).filter(r=>_matchQ(r.usina));
+  const sev=_q?rows.filter(r=>r.status==='severo').length:((d&&d.severo)||0), med=_q?rows.filter(r=>r.status==='medio').length:((d&&d.medio)||0), lev=_q?rows.filter(r=>r.status==='leve').length:((d&&d.leve)||0), ht=_q?Math.round(rows.reduce((s,r)=>s+(r.horas_solares||0),0)*10)/10:((d&&d.horas_total)||0), tot=_q?rows.length:(d&&d.total);
+  const _br=s=>s?s.slice(8,10)+'/'+s.slice(5,7):'—', per=(d&&d.ini&&d.fim)?`<span class="text-muted" style="font-size:12.5px;align-self:center">mês · ${_br(d.ini)} → ${_br(d.fim)}</span>`:'';
+  const bar=_subBar('Trackers — ocorrências do mês (severo/médio/leve)', (d&&d.rows)?`${tot} · ${sev} severo · ${med} médio · ${lev} leve · ${ht.toLocaleString('pt-BR')}h`:'', per+_perdaExp('trk-ocor')+_atualBtnP('trk-ocor'));
+  if(d===undefined||d===null) return bar+_subLoad('Agregando ocorrências do mês inteiro (base → ontem)…'+(f==='pv'?' (API PV pode levar ~1–2 min)':(f==='sunop'||f==='axis'?' (Athon pode levar ~1 min)':'')));
+  if(d.indisponivel) return bar+_subMsg(d.msg||'Ocorrências de tracker não disponíveis nesta fonte.');
+  if(d.error) return bar+_subMsg('Erro: '+_he(d.error));
+  if(!rows.length) return bar+_subMsg(_q?`Nenhuma usina casa "${_he(_q)}".`:'Nenhuma ocorrência de tracker no mês.');
+  const kpis=[{v:tot,l:'Ocorrências'},{v:sev,l:'Severo',c:'#ff8f3c'},{v:med,l:'Médio',c:'#ffb43d'},{v:lev,l:'Leve',c:'#ffd83d'},{v:ht.toLocaleString('pt-BR'),l:'Horas solares',c:'#ff8a93'}];
+  const mx=Math.max(0.01,...rows.map(_hv));
+  const body=rows.map(r=>{ const lv=r.status==='leve';
+    return `<tr><td style="${_stTd(r.status)};${_tnum()}">${_he(r.data||r.data_iso||'')}</td><td style="font-weight:600">${_he(r.usina||'')}</td><td>${_he(r.tracker||'')}</td><td>${_perdaBdg(r.status)}</td><td style="${_tnum()}">${_he(r.parou||'—')}</td><td style="${_tnum()}">${_he(r.voltou||'—')}</td><td style="padding-right:22px">${_durCell(r.horas_solares_fmt,_hv(r),mx,lv)}</td></tr>`; }).join('');
+  return bar+_kpiRow(kpis)+`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Data</th><th>Usina</th><th>Tracker</th><th>Status</th><th>Parou</th><th>Voltou</th><th style="text-align:right;padding-right:22px">Duração (solar)</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
+}
+function _renderPerdaStrOcor(d){
+  const rows=((d&&d.rows)||[]).filter(r=>_matchQ(r.usina));
+  const ht=_q?Math.round(rows.reduce((s,r)=>s+(r.horas_solares||0),0)*10)/10:((d&&d.horas_total)||0), tot=_q?rows.length:(d&&d.total);
+  const bar=_subBar('Strings — ocorrências (zerou → voltou)', (d&&d.rows)?`${tot} · ${ht.toLocaleString('pt-BR')}h solares`:'', _perdaDiaInput()+_perdaExp('str-ocor')+_atualBtnP('str-ocor'));
+  if(d===undefined||d===null) return bar+_subLoad('Processando curvas de string do dia… (~1 min)');
+  if(d.indisponivel) return bar+_subMsg('Ocorrências de string não disponíveis nesta fonte.');
+  if(!rows.length) return bar+_subMsg(_q?`Nenhuma usina casa "${_he(_q)}".`:'Nenhuma ocorrência de string no dia.');
+  const kpis=[{v:tot,l:'Ocorrências'},{v:ht.toLocaleString('pt-BR'),l:'Horas solares',c:'#ff8a93'}];
+  const mx=Math.max(0.01,...rows.map(_hv));
+  const body=rows.map(r=>{ const lv=_hv(r)<1;
+    return `<tr><td style="${_stTd(lv?'leve':'severo')};${_tnum()}">${_he(r.data||d.dia||'')}</td><td style="font-weight:600">${_he(r.usina||'')}</td><td style="color:var(--color-neutral-400)">${_he(r.inversor||'—')}</td><td>${_he(r.string||'')}</td><td style="${_tnum()}">${_he(r.caiu||'—')}</td><td style="${_tnum()}">${_he(r.voltou||'—')}</td><td style="padding-right:22px">${_durCell(r.horas_solares_fmt,_hv(r),mx,lv)}</td></tr>`; }).join('');
+  return bar+_kpiRow(kpis)+`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Data</th><th>Usina</th><th>Inversor</th><th>String</th><th>Zerou</th><th>Voltou</th><th style="text-align:right;padding-right:22px">Duração (solar)</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
+}
+function _renderPerdaStrZer(d){
+  const rows=((d&&d.rows)||[]).filter(r=>_matchQ(r.usina));
+  const ht=_q?Math.round(rows.reduce((s,r)=>s+(r.horas_solares||0),0)*10)/10:((d&&d.horas_total)||0), tot=_q?rows.length:(d&&d.total), us=_q?new Set(rows.map(r=>r.usina)).size:((d&&d.usinas)||0);
+  const bar=_subBar('Strings zeradas (não trancadas)', (d&&d.rows)?`${tot} zeradas · ${us} usinas · ${ht.toLocaleString('pt-BR')}h solares`:'', _perdaExp('str-zer')+_atualBtnP('str-zer'));
+  if(d===undefined||d===null) return bar+_subLoad('Consultando strings sem corrente + costurando o "desde"… (~1 min)');
+  if(d.indisponivel) return bar+_subMsg('Strings zeradas não disponíveis nesta fonte.');
+  if(!rows.length) return bar+_subMsg(_q?`Nenhuma usina casa "${_he(_q)}".`:'Nenhuma string zerada agora.');
+  const kpis=[{v:tot,l:'Zeradas agora'},{v:us,l:'Usinas'},{v:(ht).toLocaleString('pt-BR'),l:'Horas solares',c:'#ff8a93'}];
+  const body=rows.map(r=>{ const hoje=(r.dias===0)||_isHoje(r.zerada_desde), sev=hoje?'leve':'severo';
+    const suf=(r.dias!=null&&r.dias>0)?` <span class="text-muted" style="font-weight:500">· ${r.dias}d</span>`:(hoje?` <span class="text-muted" style="font-weight:500">· hoje</span>`:'');
+    return `<tr><td style="${_stTd(sev,'font-weight:600')}">${_he(r.usina||'')}</td><td style="color:var(--color-neutral-400)">${_he(r.inversor||'—')}</td><td>${_he(r.string||'')}</td><td class="text-muted" style="font-size:12.5px;${_tnum()}">${_dtBR(r.zerada_desde)}</td><td style="text-align:right;font-weight:650;color:${hoje?'#ffd83d':'#ff5b6e'};${_tnum()}">${r.horas_solares_fmt||'—'}${suf}</td><td style="text-align:center;padding-right:22px">${_openBdg('aberta')}</td></tr>`; }).join('');
+  return bar+_kpiRow(kpis)+`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th>Inversor</th><th>String</th><th>Zerada desde</th><th style="text-align:right">Tempo perdido (solar)</th><th style="text-align:center;padding-right:22px">Estado</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
+}
+function render(){
+  const v=computeVals();
+  let panel='';
+  if(v.showStrings)panel=renderStrings(v); else if(v.showEtm)panel=renderETM(v); else if(v.showGeracao)panel=renderGeracao(); else if(v.showTrackers)panel=renderTrackers(v); else if(v.showPr)panel=renderPR(v); else if(v.showCurva)panel=renderCurva(v); else if(v.showPerdas)panel=renderPerdas();
+  document.getElementById('app').innerHTML=`
+  <div style="min-height:100vh;background:var(--color-bg);padding-bottom:80px">
+    <div style="position:sticky;top:0;z-index:40;background:color-mix(in srgb, var(--color-bg) 88%, transparent);backdrop-filter:blur(12px);border-bottom:1px solid var(--color-divider)">
+      <nav class="nav" style="max-width:1640px;margin:0 auto;padding:14px 32px">
+        <img src="/static/logos/grid-h-branco.png" alt="Grid Co." style="height:26px;margin-right:30px;display:block;object-fit:contain" onerror="this.outerHTML='&lt;span class=&quot;nav-brand&quot; style=&quot;margin-right:30px;font-size:21px&quot;&gt;Grid&lt;span style=&quot;color:var(--color-accent)&quot;&gt;Co&lt;/span&gt;&lt;/span&gt;'">
+        <a href="#" aria-current="page">Monitoramento</a><a href="#">Ronda de Trackers</a><a href="/painel" target="gridco-painel" rel="noopener">Painel</a><a href="#">Gerencial</a>
+        <span style="margin-left:auto;display:flex;align-items:center;gap:20px">
+          <span style="display:flex;align-items:center;gap:7px;font-size:12.5px" class="text-muted"><span style="width:7px;height:7px;border-radius:50%;background:var(--color-accent);animation:gc-pulse 2.2s ease-in-out infinite"></span><span style="color:var(--color-text);font-weight:500">ao vivo</span><span>· ${v.lastUpdate}</span></span>
+          <button class="btn btn-primary" onclick="refreshApp()"><i class="ph ph-arrows-clockwise"></i> Atualizar</button>
+        </span>
+      </nav>
+    </div>
+    <div style="max-width:1640px;margin:0 auto;padding:32px 32px 0">
+      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:28px"><div><div class="card-kicker" style="margin-bottom:8px">Monitoramento O&amp;M</div><h2 style="margin:0;font-size:30px">Strings, ETM &amp; Trackers</h2></div><div class="text-muted" style="font-size:13px">${v.today}</div></div>
+      ${renderSources(v)}
+      ${renderViewTabs(v)}
+      ${(v.showCurva||v.showGeracao||v.showPerdas)?'':renderKPIs(v)}
+      ${panel}
+    </div>
+  </div>`;
+}
+render();
+loadCurrent();
+</script>
+</body>
+</html>

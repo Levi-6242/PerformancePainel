@@ -58,7 +58,8 @@ TASK_TYPES = list(TASK_TYPE_MAIN.keys())   # opções do dropdown "Tipo de Taref
 # Confirmado pela cURL de criação. O usuário escolhe no dropdown; default = Médio (3).
 ID_PRIORITIES = 2                              # fallback p/ chamadas antigas (clone) sem criticidade
 CRITICIDADES = [("Muito alto", 1), ("Alto", 2), ("Médio", 3), ("Baixo", 4), ("Muito baixo", 5)]
-CRITICIDADE_DEFAULT = 3                         # Médio
+CRITICIDADE_DEFAULT = 3                         # Médio (wizard / OS única)
+CRITICIDADE_MUITO_ALTO = 1                      # F1: default do COS (religamento é ~sempre crítico)
 
 # Listas AO VIVO de Tipo de tarefa + Classificação 1/2 (o dropdown estático não traz Religamento etc.)
 RPC_TIPOS_MAIN = "tasks.tasks_types_main_list"   # Tipo de tarefa  → id_task_type_main
@@ -646,13 +647,37 @@ def fmt_data_br(iso, com_hora: bool = True) -> str:
     return dt.strftime("%d/%m/%Y %H:%M" if com_hora else "%d/%m/%Y")
 
 
+def duracao_os(ini, fim) -> str:
+    """'1d 16h 20m' entre dois ISO (UTC). '' se faltar/for inválido/negativo."""
+    def _p(x):
+        s = str(x or "").strip().replace(" ", "T")[:19]
+        try:
+            return datetime.strptime(s, "%Y-%m-%dT%H:%M:%S")
+        except ValueError:
+            return None
+    a, b = _p(ini), _p(fim)
+    if not a or not b:
+        return ""
+    secs = int((b - a).total_seconds())
+    if secs < 0:
+        return ""
+    d, r = divmod(secs, 86400); h, r = divmod(r, 3600); m = r // 60
+    out = []
+    if d:
+        out.append(f"{d}d")
+    if h or d:
+        out.append(f"{h}h")
+    out.append(f"{m}m")
+    return " ".join(out)
+
+
 def _path_node(asset: dict) -> str:
     pid, iid = asset.get("id_parent"), asset.get("id")
     return f"{pid}.{iid}" if pid else str(iid)
 
 
 # id_task_form_item_type → rótulo (confirmado ao vivo: 1=Texto, 4=Verificação na conta 4987).
-_FORM_ITEM_TYPE_DESC = {1: "Texto", 4: "Verificação"}
+_FORM_ITEM_TYPE_DESC = {1: "Texto", 4: "Verificação", 7: "DROPDOWN"}   # 7 = Lista (menu de opções)
 
 
 def _rpc_subtasks(subtasks: list, respostas: list = None) -> list:
@@ -713,7 +738,7 @@ def _asset_by_code(code: str):
 def create_os_rpc(asset: dict, description: str, task_type: str, subtasks: list,
                   requested_by: str = "", etiqueta: str = "", note: str = "",
                   event_date: datetime = None, tipo: dict = None, finalizar: dict = None,
-                  id_parent=None) -> dict:
+                  id_parent=None, falha: dict = None) -> dict:
     """Cria uma OS (tarefa não-planejada) via RPC interno do Fracttal. asset = registro do
     get_assets() (precisa de id/id_parent/id_type_item/id_group_task). `event_date` = data
     programada (datetime; default = agora). `tipo` = dict opcional com id_main (id_task_type_main),
@@ -786,6 +811,26 @@ def create_os_rpc(asset: dict, description: str, task_type: str, subtasks: list,
     if tipo.get("id_c2") is not None:                     # Classificação 2
         params["id_task_type_2"] = tipo["id_c2"]
         params["tasks_types_2_description"] = tipo.get("desc_c2") or ""
+    if falha:                                             # "O ativo falhou?" (F4) — preenche o bloco de falha
+        params["failure_asset"] = True
+        params["related_failure"] = True
+        if falha.get("id_type") is not None:
+            params["id_failure_type"] = falha["id_type"]
+            params["types_description"] = falha.get("type_desc") or ""
+        if falha.get("id_cause") is not None:
+            params["id_failure_cause"] = falha["id_cause"]
+            params["causes_description"] = falha.get("cause_desc") or ""
+        if falha.get("id_detection") is not None:
+            params["id_failure_detection_method"] = falha["id_detection"]
+            params["detection_method_description"] = falha.get("detection_desc") or ""
+        params["id_failure_severity"] = str(falha.get("id_severity") or 0)   # Fracttal grava como string
+        params["severiry_description"] = falha.get("severity_desc") or ""     # (sic — grafia do Fracttal)
+        if falha.get("id_damage") is not None:
+            params["id_damage_type"] = falha["id_damage"]
+            params["damages_types_description"] = falha.get("damage_desc") or ""
+        if falha.get("out_of_service"):                   # fora de serviço → "desde" = data do evento DA OS
+            params["asset_out_of_service"] = True
+            params["date_asset_out_of_service"] = _iso_z(ev)
     if finalizada and fin.get("id_assigned_user") is not None:
         params["id_assigned_user"] = fin["id_assigned_user"]   # responsável da WO concluída
     body = [{"id": str(uuid.uuid4()), "jsonrpc": "2.0", "method": RPC_METHOD, "params": params}]
@@ -1137,7 +1182,7 @@ HISTORICO_CAP = 2000   # teto de OS por carga do histórico (limita o enriquecim
 
 
 def list_minhas_os(modo: str = "criadas", id_account=None, id_label=None,
-                   de: str = None, ate: str = None, cap: int = HISTORICO_CAP) -> list:
+                   de: str = None, ate: str = None, status_ids=None, cap: int = HISTORICO_CAP) -> list:
     """OS do Fracttal no PERÍODO [de, ate] (datas 'YYYY-MM-DD' — filtradas NO SERVIDOR por
     creation_date, então o período governa a busca de verdade). modo='criadas' (Histórico Geral, por
     'id_created_by') ou 'atribuidas' (id_assigned_user = id_personnel do logado). Em 'criadas',
@@ -1161,6 +1206,8 @@ def list_minhas_os(modo: str = "criadas", id_account=None, id_label=None,
     cond = [] if todos else [{"operator": "=", "property": prop, "value": val}]
     if id_label:                            # OS que contêm a etiqueta (server-side)
         cond.append({"operator": "=", "property": "id_label", "value": id_label})
+    if status_ids:                          # status no servidor (id_status_work_order) — re-busca por status
+        cond.append({"operator": "in", "property": "id_status_work_order", "value": list(status_ids)})
     if de:                                  # período no servidor (creation_date é ISO UTC)
         cond.append({"operator": ">=", "property": "creation_date", "value": de})
     if ate:
@@ -1205,12 +1252,19 @@ def list_minhas_os(modo: str = "criadas", id_account=None, id_label=None,
                            "usina": usina or "—", "ativo": ativo, "tipo": tipo or "—", "descricao": desc,
                            "criado_por": str(w.get("created_by") or "").strip(), "etiquetas": etiquetas,
                            "data": (w.get("creation_date") or "")[:19],
+                           "event_date": (w.get("event_date") or w.get("date_maintenance")
+                                          or w.get("cal_date_maintenance") or "")[:19],   # fallback da lista
+                           "data_fim": (w.get("final_date") or w.get("date_end")
+                                        or w.get("real_final_date") or "")[:19],           # fallback da lista
                            "status_id": stid, "status": WO_STATUS.get(stid, f"Status {stid}")}
     out = list(vistos.values())
     out.sort(key=lambda x: x["data"], reverse=True)
-    tt = _tipo_tarefa_por_os([d["id"] for d in out])      # enriquece c/ o tipo de tarefa (RPC tarefas)
+    meta = _meta_tarefa_por_os([d["id"] for d in out])    # enriquece: tipo de tarefa + evento + fim
     for d in out:
-        d["tipo_tarefa"] = tt.get(d["id"], "")
+        m = meta.get(d["id"], {})
+        d["tipo_tarefa"] = m.get("tipo_tarefa", "")
+        d["event_date"] = m.get("event_date") or d.get("event_date", "")   # tarefa manda; senão a da lista
+        d["data_fim"] = m.get("data_fim") or d.get("data_fim", "")
     return out
 
 
@@ -1219,19 +1273,21 @@ RPC_WO_TASKS  = "tasks.work_orders_tasks_new_list"       # tarefa(s) da OS (even
 RPC_WO_FORMIT = "tasks.work_orders_task_form_items_list"  # subtarefas (checklist)
 
 
-def _tipo_tarefa_por_os(wo_ids):
-    """{id_work_order: 'Tipo' (ou 'Tipo1 / Tipo2' se a OS tiver tarefas de tipos diferentes)} p/ as OS
-    dadas. A listagem (work_orders_list_react) NÃO traz o tipo de tarefa — ele vem do RPC de tarefas,
-    que aceita busca ampla com filtro 'in' por id_work_order (1 chamada por lote de ~80 OS, em paralelo).
-    Best-effort: erro em um lote → ignora aquele lote (filtro fica vazio p/ ele, sem quebrar a lista)."""
+def _meta_tarefa_por_os(wo_ids):
+    """{id_work_order: {'tipo_tarefa': 'Tipo' (ou 'A / B'), 'event_date': ISO}} p/ as OS dadas. A
+    listagem NÃO traz tipo de tarefa nem a data do evento — vêm do RPC de tarefas (1 chamada por lote,
+    em paralelo). Best-effort: erro num lote → ignora (sem quebrar a lista)."""
     ids = [w for w in dict.fromkeys(wo_ids) if w]            # únicos, preserva ordem
     if not ids:
         return {}
-    CH = 130                                                 # OS por chamada (lotes grandes = menos rodadas)
+    CH = 130
     chunks = [ids[i:i + CH] for i in range(0, len(ids), CH)]
 
+    fim_keys = ("final_date", "date_end", "end_date", "real_final_date", "finished_date",
+                "date_finished", "closing_date")
+
     def _fetch(chunk):
-        acc, start, limit = {}, 0, 2000
+        tipos, evt, fim, start, limit = {}, {}, {}, 0, 2000
         while True:
             try:
                 r = _rpc_call(RPC_WO_TASKS, {"page": 1, "limit": limit, "start": start,
@@ -1242,20 +1298,40 @@ def _tipo_tarefa_por_os(wo_ids):
             data = (r.get("data") or []) if isinstance(r, dict) else []
             for t in data:
                 wid = t.get("id_work_order")
+                if not wid:
+                    continue
                 tp = str(t.get("tasks_types_main_description") or "").strip()
-                if wid and tp:
-                    acc.setdefault(wid, set()).add(tp)
+                if tp:
+                    tipos.setdefault(wid, set()).add(tp)
+                ev = str(t.get("event_date") or "")[:19]     # data do evento
+                if ev and (wid not in evt or ev < evt[wid]):  # a mais antiga (início da OS)
+                    evt[wid] = ev
+                fv = ""                                       # data fim (conclusão)
+                for k in fim_keys:
+                    v = t.get(k)
+                    if v not in (None, "") and str(v).lower() != "none":
+                        fv = str(v)[:19]; break
+                if fv and (wid not in fim or fv > fim[wid]):  # a mais recente
+                    fim[wid] = fv
             start += len(data)
-            if not data or len(data) < limit:                # lote completo
+            if not data or len(data) < limit:
                 break
-        return acc
+        return tipos, evt, fim
 
-    out = {}
+    tipos_out, evt_out, fim_out = {}, {}, {}
     with ThreadPoolExecutor(max_workers=min(8, len(chunks))) as ex:
-        for acc in ex.map(_fetch, chunks):
-            for wid, s in acc.items():
-                out.setdefault(wid, set()).update(s)
-    return {k: " / ".join(sorted(v)) for k, v in out.items()}
+        for tipos, evt, fim in ex.map(_fetch, chunks):
+            for wid, s in tipos.items():
+                tipos_out.setdefault(wid, set()).update(s)
+            for wid, e in evt.items():
+                if wid not in evt_out or e < evt_out[wid]:
+                    evt_out[wid] = e
+            for wid, f2 in fim.items():
+                if wid not in fim_out or f2 > fim_out[wid]:
+                    fim_out[wid] = f2
+    return {wid: {"tipo_tarefa": " / ".join(sorted(tipos_out.get(wid, set()))),
+                  "event_date": evt_out.get(wid, ""), "data_fim": fim_out.get(wid, "")}
+            for wid in set(tipos_out) | set(evt_out) | set(fim_out)}
 
 
 # Campos onde o Fracttal pode guardar a RESPOSTA de uma subtarefa (o nome varia por tipo/versão).
@@ -1263,16 +1339,24 @@ _FORM_RESP_KEYS = ("value", "response", "result", "answer", "text_value",
                    "task_form_item_value", "value_description", "observation")
 
 
+# Verificação (id_task_form_item_type=4) guarda a resposta como 1/2/3 no 'value'.
+_VERIF_MAP = {"1": "Aprovado", "2": "Alerta", "3": "Falhou"}
+
+
 def _form_item_resposta(it: dict) -> str:
     """Melhor esforço p/ extrair a resposta dada numa subtarefa (o nome do campo varia no Fracttal)."""
+    verif = it.get("id_task_form_item_type") == 4
     for k in _FORM_RESP_KEYS:
         v = it.get(k)
         if v not in (None, "", "None", "null", "NaN"):
-            return str(v).strip()
-    if it.get("id_task_form_item_type") == 4:        # só Verificação usa o 'done' como resposta
+            v = str(v).strip()
+            if verif and v in _VERIF_MAP:            # Verificação: 1/2/3 → Aprovado/Alerta/Falhou
+                return _VERIF_MAP[v]
+            return v
+    if verif:                                         # sem value → tenta o 'done'
         dn = str(it.get("done")).lower()
         if dn == "true":
-            return "Sim / OK"
+            return "Aprovado"
         if dn == "false":
             return "Não / pendente"
     return ""                                         # Texto/outros sem valor → frontend mostra "(sem resposta)"
@@ -1423,6 +1507,17 @@ def get_os_detalhes(id_work_order) -> dict:
     criado_por = str(det.get("created_by") or det.get("creation_user")
                      or det.get("accounts_name") or t0.get("created_by") or "").strip()
     solic = _solicitacao_da_os(id_work_order, det, t0)
+    # OS pai (id_parent_wo → folio da OS mãe). Só ~15% das OS têm; resolve o número só quando existe.
+    os_pai = ""
+    pai_id = det.get("id_parent_wo") or t0.get("id_parent_wo")
+    if pai_id:
+        try:
+            rp = _rpc_call(RPC_WO_DETAILS, {"id": pai_id, "get_iso_codes": False})
+            dp = rp.get("data") if isinstance(rp, dict) else rp
+            dp = dp[0] if isinstance(dp, list) and dp else (dp if isinstance(dp, dict) else {})
+            os_pai = str(dp.get("wo_folio") or "").strip()
+        except FracttalError:
+            os_pai = ""
     # data de conclusão (OS finalizada) — nomes variam; tenta os prováveis na tarefa e no cabeçalho
     data_fim = None
     for src in (t0, det):
@@ -1442,8 +1537,12 @@ def get_os_detalhes(id_work_order) -> dict:
             "responsavel": resp,
             "criado_por": criado_por,
             "solicitacao": solic,
+            "os_pai": os_pai,
+            "os_pai_id": pai_id or None,
             "notas": "\n".join(notas),
             "subtarefas": subtarefas,
+            "etiquetas": [{"id": l.get("id"), "nome": l.get("description"), "cor": l.get("color")}
+                          for l in (det.get("labels") or []) if isinstance(l, dict) and l.get("id") is not None],
             "code": code0, "ativo": ativo0}
 
 
@@ -1507,6 +1606,220 @@ def get_os_imagens(id_work_order) -> list:
     return out
 
 
+RPC_WO_FILES = "tasks.work_orders_tasks_files_list"
+
+
+def _ids_tarefas_da_os(id_work_order) -> list:
+    """id_work_order_task de todas as tarefas da OS. Colhe da lista de tarefas E do endpoint de imagens
+    (esse traz o id_work_order_task certo dos anexos), pra não errar o id."""
+    tids = []
+
+    def _add(v):
+        if v and v not in tids:
+            tids.append(v)
+    try:
+        rt = _rpc_call(RPC_WO_TASKS, {"id_work_order": id_work_order, "sort": []})
+        for t in (rt.get("data") if isinstance(rt, dict) else rt) or []:
+            if isinstance(t, dict):
+                _add(t.get("id_work_order_task") or t.get("id_task") or t.get("id"))
+    except Exception:
+        pass
+    try:
+        ri = _rpc_call(RPC_WO_IMAGES, {"id_work_order": id_work_order,
+            "sort": [{"property": "order_number", "direction": "asc"}]})
+        for d in (ri.get("data") if isinstance(ri, dict) else ri) or []:
+            if isinstance(d, dict):
+                _add(d.get("id_work_order_task") or d.get("id_task"))
+    except Exception:
+        pass
+    return tids
+
+
+def s3_get_url(name):
+    """URL pré-assinada de DOWNLOAD de um objeto do S3 do Fracttal (companies.s3_object_get). O
+    files_list só devolve o CAMINHO (value=.ot/...), então preciso disso p/ exibir a imagem. Resposta de
+    shape variável → procuro qualquer URL http na resposta. None se falhar."""
+    if not name:
+        return None
+    body = [{"id": str(uuid.uuid4()), "jsonrpc": "2.0", "method": "companies.s3_object_get",
+             "params": {"name": name}}]
+    try:
+        r = requests.post(RPC_PROXY_URL, headers=_rpc_headers(), json=body, timeout=30)
+        j = r.json()
+    except Exception:
+        return None
+
+    def _find(o):
+        if isinstance(o, str):
+            return o if o.startswith("http") else None
+        if isinstance(o, dict):
+            for v in o.values():
+                u = _find(v)
+                if u:
+                    return u
+        if isinstance(o, list):
+            for v in o:
+                u = _find(v)
+                if u:
+                    return u
+        return None
+    return _find(j)
+
+
+def get_os_anexos(id_work_order) -> list:
+    """Anexos ligados às TAREFAS da OS (a aba 'Anexos' da tarefa no Fracttal — prints da criação via
+    Performance/PCM, notas etc.). São por `id_work_order_task`. Inclui ARQUIVOS (imagem/PDF) E notas de
+    TEXTO (sem arquivo). Resolve a URL pré-assinada das imagens p/ a galeria. Separados por usuário.
+    → [{'value','nome','user','url','is_image','is_text','desc','raw'}]."""
+    out, vistos = [], set()
+    for tid in _ids_tarefas_da_os(id_work_order):
+        try:
+            res = _rpc_call(RPC_WO_FILES, {"page": 1, "limit": 200, "start": 0, "is_tree": False,
+                                           "node": None, "id_work_order_task": tid})
+        except Exception:
+            continue
+        for d in (res.get("data") if isinstance(res, dict) else res) or []:
+            if not isinstance(d, dict):
+                continue
+            val = str(d.get("value") or "").strip()
+            url = _img_url(d)
+            desc = str(d.get("description") or "").strip()
+            if not val and not url and not desc:          # nada útil
+                continue
+            nome = (val.rsplit("/", 1)[-1] if val else (desc or "anexo"))
+            chave = (val or url or nome).lower()
+            if chave in vistos:                            # dedup (tarefas podem repetir)
+                continue
+            vistos.add(chave)
+            user = str(d.get("accounts_name") or d.get("id_personnel_description")
+                       or d.get("personnel_description") or d.get("third_party_description")
+                       or d.get("created_by") or "").strip()
+            low = (val or nome).lower()
+            is_image = bool(url) or any(low.endswith(e) for e in
+                                        (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"))
+            is_text = not val and not url                  # nota de texto (sem arquivo)
+            out.append({"value": val, "nome": nome, "user": user, "url": url,
+                        "is_image": is_image, "is_text": is_text, "desc": desc, "raw": d})
+    # imagens que só têm o CAMINHO → busca a URL pré-assinada (em paralelo) p/ a galeria abrir
+    faltam = [a for a in out if a.get("is_image") and not a.get("url") and a.get("value")]
+    if faltam:
+        try:
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                for a, u in zip(faltam, ex.map(lambda x: s3_get_url(x["value"]), faltam)):
+                    if u:
+                        a["url"] = u
+        except Exception:
+            pass
+    return out
+
+
+RPC_WO_FORMIT_ATTACH = "tasks.wo_tasks_form_items_attachments_list"   # anexos POR subtarefa (form item)
+
+
+def get_os_subtarefa_anexos(id_work_order) -> list:
+    """Anexos ligados às SUBTAREFAS (form items) de UMA OS. Busca por (id_work_order_task, id_form_item)
+    em cada subtarefa com num_attachments>0. type=1 = arquivo (value=caminho S3 → resolve URL pré-assinada);
+    type=3 = nota de texto. Cada anexo carrega a subtarefa de origem.
+    → [{'url','thumb','descricao','nome','value','subtarefa','is_image','is_text','raw'}]."""
+    try:
+        rf = _rpc_call(RPC_WO_FORMIT, {"id_work_order": id_work_order})
+    except FracttalError:
+        return []
+    items = rf.get("data") if isinstance(rf, dict) else rf
+    alvos = []
+    for it in (items if isinstance(items, list) else []):
+        if not isinstance(it, dict):
+            continue
+        try:
+            n = int(it.get("num_attachments") or 0)
+        except (TypeError, ValueError):
+            n = 0
+        wid = it.get("id_work_order_task")
+        fid = it.get("id_work_orders_tasks_form_items")
+        if n > 0 and wid is not None and fid is not None:
+            alvos.append((wid, fid, str(it.get("description") or "").strip()))
+    if not alvos:
+        return []
+
+    def _fetch(alvo):
+        wid, fid, _ = alvo
+        try:
+            res = _rpc_call(RPC_WO_FORMIT_ATTACH, {"page": 1, "limit": 200, "start": 0, "is_tree": False,
+                "node": None, "id_work_order_task": wid, "id_work_orders_tasks_form_items": fid,
+                "link_attachment": True})
+        except Exception:
+            return []
+        return (res.get("data") if isinstance(res, dict) else res) or []
+
+    try:
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            resultados = list(ex.map(_fetch, alvos))
+    except Exception:
+        resultados = [_fetch(a) for a in alvos]
+
+    out = []
+    for (wid, fid, sub_desc), data in zip(alvos, resultados):
+        for d in (data if isinstance(data, list) else []):
+            if not isinstance(d, dict):
+                continue
+            val = str(d.get("value") or "").strip()
+            att_desc = str(d.get("description") or "").strip()
+            legenda = sub_desc + (f"  ·  {att_desc}" if att_desc and att_desc != val else "")
+            if d.get("type") == 1 and val and "/" in val:      # arquivo (imagem/doc) no S3
+                nome = val.rsplit("/", 1)[-1]
+                low = nome.lower()
+                is_image = any(low.endswith(e) for e in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"))
+                out.append({"url": None, "thumb": None, "descricao": legenda or nome, "nome": nome,
+                            "value": val, "subtarefa": sub_desc, "is_image": is_image,
+                            "is_text": False, "raw": d})
+            else:                                               # nota de texto (type 3)
+                out.append({"url": None, "thumb": None, "descricao": legenda or att_desc or val,
+                            "nome": att_desc or val or "nota", "value": "", "subtarefa": sub_desc,
+                            "is_image": False, "is_text": True, "raw": d})
+    arquivos = [a for a in out if not a["is_text"] and a["value"]]   # resolve URL pré-assinada (S3)
+    if arquivos:
+        try:
+            with ThreadPoolExecutor(max_workers=8) as ex:
+                for a, u in zip(arquivos, ex.map(lambda x: s3_get_url(x["value"]), arquivos)):
+                    if u:
+                        a["url"] = u
+        except Exception:
+            pass
+    return out
+
+
+RPC_REQ_FILES = "requests.attachments_list"
+
+
+def get_solic_anexos(id_request) -> list:
+    """Anexos de uma SOLICITAÇÃO (work request). `id_request` = id_code (o Nº). Best-effort — se
+    falhar/vier vazio, []. → [{'value','nome','user','url','is_image','raw'}]."""
+    if id_request in (None, ""):
+        return []
+    try:
+        res = _rpc_call(RPC_REQ_FILES, {"filter": [], "sort": [], "page": 1, "limit": 200, "start": 0,
+                                        "is_tree": False, "node": None, "id_request": id_request})
+    except Exception:
+        return []
+    data = res.get("data") if isinstance(res, dict) else res
+    out = []
+    for d in (data if isinstance(data, list) else []):
+        if not isinstance(d, dict):
+            continue
+        val = str(d.get("value") or "").strip()
+        url = _img_url(d)
+        if not val and not url:
+            continue
+        nome = val.rsplit("/", 1)[-1] if val else "arquivo"
+        user = str(d.get("accounts_name") or d.get("id_personnel_description")
+                   or d.get("personnel_description") or d.get("created_by") or "").strip()
+        low = (val or nome).lower()
+        is_image = any(low.endswith(e) for e in (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp"))
+        out.append({"value": val, "nome": nome, "user": user, "url": url,
+                    "is_image": is_image, "raw": d})
+    return out
+
+
 def baixar_imagem(url) -> bytes:
     """Bytes de uma imagem por URL pré-assinada (S3 — sem cabeçalhos de auth)."""
     if not url:
@@ -1536,6 +1849,40 @@ def get_cancel_motivos() -> list:
         if idc is not None:
             out.append({"id": idc, "description": str(d.get("description") or "?")})
     return out
+
+
+# ── Bloco "O ativo falhou?" (F4) — vocabulário (RPC) + enums fixos (confirmados no payload real) ──
+RPC_FALHA_TIPOS  = "tasks.failures_types_list"
+RPC_FALHA_CAUSAS = "tasks.failures_causes_list"
+RPC_FALHA_DETEC  = "tasks.failures_detection_methods_list"
+FALHA_SEVERIDADES = [("Muito baixo", "1"), ("Baixo", "2"), ("Médio", "3"), ("Alto", "4"), ("Muito alto", "5")]
+FALHA_DANOS = [("Nenhum", 1), ("Dano ao meio ambiente", 2), ("Danos nas Instalações", 3),
+               ("Lesões ao pessoal interno", 4), ("Lesões a Terceiros", 5), ("Outros", 6)]
+_falha_listas_cache = {}
+
+
+def get_falha_listas() -> dict:
+    """{tipos, causas, metodos} p/ o bloco 'O ativo falhou?' — cada um [{'id','description'}]. Cacheado."""
+    if _falha_listas_cache:
+        return _falha_listas_cache
+
+    def _lst(metodo, extra=None):
+        p = {"sort": [{"property": "description", "direction": "asc"}], "page": 1, "limit": 200,
+             "start": 0, "is_tree": False, "node": None}
+        if extra:
+            p.update(extra)
+        try:
+            r = _rpc_call(metodo, p)
+            return [{"id": d.get("id"), "description": d.get("description")}
+                    for d in (r.get("data") or []) if d.get("id") is not None]
+        except FracttalError:
+            return []
+    d = {"tipos": _lst(RPC_FALHA_TIPOS),
+         "causas": _lst(RPC_FALHA_CAUSAS, {"id_failure_type": None}),
+         "metodos": _lst(RPC_FALHA_DETEC, {"id_failure_cause": None})}
+    if d["tipos"]:
+        _falha_listas_cache.update(d)
+    return d
 
 
 # ── Tipo de tarefa + Classificação 1/2 (listas ao vivo p/ os dropdowns de criação) ──
@@ -1642,6 +1989,7 @@ def get_plan_details(id_task, id_item) -> dict:
             "tasks_types_description": plan.get("tasks_types_description") or "",
             "tasks_types_2_description": plan.get("tasks_types_2_description") or "",
             "duration": int(plan.get("duration") or 900),
+            "id_priorities": plan.get("id_priorities"),          # criticidade do plano (se vier)
             "subtasks": _find_subtasks(plan), "raw": plan}
 
 
@@ -1671,19 +2019,25 @@ def _react_insert_post(body: list) -> dict:
     data = result.get("data") if isinstance(result, dict) else {}
     data = data if isinstance(data, dict) else {}
     return {"id_task": data.get("id_task"), "id_work_order": data.get("id_work_order"),
-            "wo_folio": data.get("wo_folio"), "raw": result}
+            "wo_folio": data.get("wo_folio"),
+            "id_work_order_task": data.get("id_work_order_task") or data.get("id_task"),  # p/ anexar imagem
+            "raw": result}
 
 
 def create_planned_os(asset: dict, plan: dict, id_responsible=None, responsible_name: str = "",
-                      event_date: datetime = None, to_work_order: bool = True, id_parent=None) -> dict:
+                      event_date: datetime = None, to_work_order: bool = True, id_parent=None,
+                      descricao: str = None, note: str = "", linkar_plano: bool = True) -> dict:
     """Cria 1 tarefa planejada (tasks_noscheduled_react_insert com o plano: id_task + subtarefas +
     tipo do plano). `to_work_order=True` → vira WO direto (1 ativo). `to_work_order=False` → tarefa
     PENDENTE no kanban (p/ depois juntar várias numa OS só, via create_planned_os_one_wo).
-    `plan` = get_plan_details. Devolve {'id_task','id_work_order','wo_folio','raw'}."""
+    `descricao` = nome custom da tarefa (senão usa o do plano); `note` = observação da OS.
+    `linkar_plano=False` → cria como OS avulsa com as subtarefas COPIADAS do plano (id_task=None) — usado
+    p/ trackers individuais, cujo plano mora no ativo generalizado. `plan` = get_plan_details.
+    Devolve {'id_task','id_work_order','wo_folio','id_work_order_task','raw'}."""
     id_item = asset.get("id")
     if not id_item:
         raise FracttalError(f"Ativo '{asset.get('code')}' sem id_item — recarregue os ativos.")
-    if not plan.get("id_task"):
+    if linkar_plano and not plan.get("id_task"):
         raise FracttalError("Plano sem id_task.")
     if not plan.get("subtasks"):
         raise FracttalError("Não carreguei as subtarefas do plano (estrutura do tasks_details a confirmar) "
@@ -1692,13 +2046,14 @@ def create_planned_os(asset: dict, plan: dict, id_responsible=None, responsible_
     if ev.tzinfo is None:
         ev = ev.replace(tzinfo=timezone.utc)
     dur = int(plan.get("duration") or 900)
+    id_ref = plan.get("id_task") if linkar_plano else None       # tracker individual = OS não-linkada
     params = {
         "event_date": _iso_z(ev),
         "cal_date_maintenance": _iso_z(ev + timedelta(minutes=10)),
         "date_maintenance": _iso_z(ev + timedelta(minutes=10)),
         "initial_date": _iso_z(ev - timedelta(minutes=10)),
         "final_date": _iso_z(ev + timedelta(minutes=20)),
-        "type_user": "HUMAN_RESOURCES", "id_priorities": ID_PRIORITIES,
+        "type_user": "HUMAN_RESOURCES", "id_priorities": plan.get("id_priorities") or ID_PRIORITIES,
         "id_failure_severity": 0, "id_damage_type": 1, "failure_asset": False,
         "to_in_review": False, "work_done": False, "to_work_order": to_work_order, "stop_assets": False,
         "duration": dur, "real_duration": 0,
@@ -1706,13 +2061,14 @@ def create_planned_os(asset: dict, plan: dict, id_responsible=None, responsible_
         "tasks_types_main_description": plan.get("tasks_types_main_description") or "",
         "subtasks": plan.get("subtasks") or [], "array_resources": [],
         "id_item": id_item, "items_description": asset.get("description") or "",
-        "id_request": None, "note": "", "name": (responsible_name or "").strip() or None,
+        "id_request": None, "note": note or "", "name": (responsible_name or "").strip() or None,
         "available": None, "initial_date_out_of_service": None,
         "id_group_task": asset.get("id_group_task"), "assigment_date": _iso_z(ev),
         "id_work_order_task_related": None, "date_asset_out_of_service": None,
-        "description": plan.get("description") or "", "id_type_item": asset.get("id_type_item") or 1,
+        "description": (descricao if descricao is not None else (plan.get("description") or "")),
+        "id_type_item": asset.get("id_type_item") or 1,
         "path_node": _path_node(asset), "msg_availability": "ASSET_OUT_OF_SERVICE",
-        "id_task_reference": plan.get("id_task"), "id_task": plan.get("id_task"),
+        "id_task_reference": id_ref, "id_task": id_ref,
         "id_task_type_main": plan.get("id_task_type_main"),
         "id_task_type": plan.get("id_task_type"), "id_task_type_2": plan.get("id_task_type_2"),
         "tasks_types_description": plan.get("tasks_types_description") or "",
@@ -1725,14 +2081,32 @@ def create_planned_os(asset: dict, plan: dict, id_responsible=None, responsible_
     return _react_insert_post(body)
 
 
+# Planos de PERFORMANCE (aparecem SÓ na aba Performance; escondidos no PCM). Casados por trecho
+# distintivo do nome (os planos do Levi não têm a palavra "performance" no nome). Para novos planos:
+# ou inclua "performance" no nome (auto), ou acrescente o trecho aqui.
+_PERF_PLANOS = (
+    "coleta de dados de geracao",
+    "inspecao geral do inversor",
+    "recomposicao de string",
+    "verificacao de tracker parado",
+)
+
+
+def _norm_txt(s) -> str:
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode().lower()
+    return " ".join(s.split())
+
+
 def _plan_family(desc) -> str:
     """Família do plano a partir da descrição ('[Cliente] - MPM - ...' / 'Handover – ...').
-    → 'MPM'/'MPA'/'MPS'/'MPQ'/'MPW'/'MPT'/'Handover' ou None."""
+    → 'PERFORMANCE'/'MPM'/'MPA'/'MPS'/'MPQ'/'MPW'/'MPT'/'Handover' ou None."""
     import re
     d = str(desc or "")
-    if "performance" in d.lower():                # planos de PERFORMANCE (aba Performance; escondidos no PCM)
+    dn = _norm_txt(d)
+    if "performance" in dn or any(p in dn for p in _PERF_PLANOS):   # PERFORMANCE (aba Performance; ocultos no PCM)
         return "PERFORMANCE"
-    if "handover" in d.lower():
+    if "handover" in dn:
         return "Handover"
     m = re.search(r"\bMP[A-Z]\b", d.upper())
     return m.group(0) if m else None
@@ -1768,6 +2142,266 @@ def get_plans_for_assets(assets: list) -> list:
     return out
 
 
+# ═══════════════════ PERFORMANCE — OS por ativo a partir de plano ═══════════════════
+PERF_TIPOS = ("Inversor", "Estrutura Trackers", "Estação Meteorológica")   # tipos da aba Performance
+
+
+def _usina_short(usina: str) -> str:
+    """'Cliente - Usina - UF' → 'Usina' (miolo). Fallback: a string toda."""
+    parts = [p.strip() for p in str(usina or "").split(" - ")]
+    return (" - ".join(parts[1:-1]).strip() if len(parts) >= 3 else str(usina or "").strip()) or str(usina or "")
+
+
+def _asset_short_name(a: dict) -> str:
+    """Nome curto do ativo (do description): 'Inversor 1.1' / 'Tracker 5.100' / 'Estação Meteorológica'."""
+    import re
+    desc = str(a.get("description") or "").split("{")[0].strip()
+    m = re.match(r"([A-Za-zÀ-ÿ]+(?:\s+[A-Za-zÀ-ÿ]+)?)\s+([\d.]+)", desc)
+    if m:
+        return f"{m.group(1)} {m.group(2)}".strip()
+    toks = desc.split()
+    return " ".join(toks[:2]) if toks else (a.get("code") or "?")
+
+
+def plano_base_nome(desc: str) -> str:
+    """Nome do plano sem o prefixo '[...] - ' → 'Recomposição de String'."""
+    import re
+    d = str(desc or "").split("{")[0].strip()
+    return re.sub(r"^\s*\[[^\]]*\]\s*[-–]\s*", "", d).strip()
+
+
+def perf_os_nome(asset: dict, base: str) -> str:
+    """Monta '[UsinaCurta][NomeAtivo] - base'."""
+    return f"[{_usina_short(asset.get('usina'))}][{_asset_short_name(asset)}] - {base}".strip()
+
+
+def _eh_tracker_generalizado(a: dict) -> bool:
+    return a.get("tipo") == "Estrutura Trackers" and \
+        "estrutura trackers" in _norm_txt(a.get("label") or a.get("description"))
+
+
+def get_performance_alvos(assets_usina: list, card_frase: str) -> dict:
+    """Ativos selecionáveis de UMA usina p/ o card (ex.: 'recomposicao de string'). Inversor/Estação: cada
+    ativo com o SEU plano. Tracker: plano do GENERALIZADO aplicado aos individuais (não-linkado).
+    → {'is_tracker', 'ativos':[{asset, plano_id_task, plano_id_item, linkar}], 'base', 'erro'?}."""
+    frase = _norm_txt(card_frase)
+    uativos = [a for a in (assets_usina or []) if isinstance(a, dict) and a.get("tipo") in PERF_TIPOS]
+    if "tracker" in frase:
+        gen = next((a for a in uativos if _eh_tracker_generalizado(a)), None)
+        if not gen:
+            return {"is_tracker": True, "ativos": [], "erro": "Não achei a Estrutura Trackers desta usina."}
+        planos = [p for p in get_plans_for_assets([gen]) if frase in _norm_txt(p.get("description"))]
+        if not planos:
+            return {"is_tracker": True, "ativos": [], "erro": "A Estrutura Trackers não tem esse plano."}
+        pt, pi = planos[0]["id_task"], gen.get("id")
+        indiv = [a for a in uativos if a.get("tipo") == "Estrutura Trackers" and not _eh_tracker_generalizado(a)]
+        return {"is_tracker": True, "base": plano_base_nome(planos[0].get("description")),
+                "ativos": [{"asset": a, "plano_id_task": pt, "plano_id_item": pi, "linkar": False} for a in indiv]}
+    # inversor / estação: cada ativo com o SEU plano
+    cands = [a for a in uativos if a.get("tipo") in ("Inversor", "Estação Meteorológica")]
+    planos = [p for p in get_plans_for_assets(cands) if frase in _norm_txt(p.get("description"))]
+    base = plano_base_nome(planos[0].get("description")) if planos else card_frase
+    return {"is_tracker": False, "base": base,
+            "ativos": [{"asset": p["asset"], "plano_id_task": p["id_task"],
+                        "plano_id_item": p["asset"].get("id"), "linkar": True} for p in planos]}
+
+
+def _find_http_url(o):
+    """Primeira URL http encontrada (recursivo) numa resposta de shape variável."""
+    if isinstance(o, str):
+        return o if o.startswith("http") else None
+    if isinstance(o, dict):
+        for v in o.values():
+            u = _find_http_url(v)
+            if u:
+                return u
+    if isinstance(o, list):
+        for v in o:
+            u = _find_http_url(v)
+            if u:
+                return u
+    return None
+
+
+def _find_dict_by_keys(o, nomes):
+    """Primeiro dict aninhado sob uma chave em `nomes` (ex.: 'fields'/'form' de um presigned POST)."""
+    if isinstance(o, dict):
+        for k, v in o.items():
+            if str(k).lower() in nomes and isinstance(v, dict):
+                return v
+        for v in o.values():
+            d = _find_dict_by_keys(v, nomes)
+            if d:
+                return d
+    if isinstance(o, list):
+        for v in o:
+            d = _find_dict_by_keys(v, nomes)
+            if d:
+                return d
+    return None
+
+
+def _s3_object_post(nome_s3: str, size: int, checksum_hex: str):
+    """Pede o upload pré-assinado (companies.s3_object_post). Devolve a resposta JSON CRUA (dict/list)
+    pra procurar a URL/fields de forma robusta (o shape varia)."""
+    body = [{"id": str(uuid.uuid4()), "jsonrpc": "2.0", "method": "companies.s3_object_post",
+             "params": {"name": nome_s3, "size": size, "action": "edit",
+                        "checksum": {"hash_algorithm": "SHA256", "hex": checksum_hex}}}]
+    r = requests.post(RPC_PROXY_URL, headers=_rpc_headers(), json=body, timeout=45)
+    if r.status_code in (401, 403):
+        raise SessionExpired("Sessão do Fracttal venceu. Relogue.")
+    if r.status_code >= 400:
+        raise FracttalError(f"s3_object_post HTTP {r.status_code}: {(r.text or '')[:300]}")
+    try:
+        return r.json()
+    except ValueError:
+        raise FracttalError(f"s3_object_post resposta não-JSON: {(r.text or '')[:300]}")
+
+
+def _s3_post_data(resp) -> dict:
+    """Extrai o result.data do s3_object_post (onde vêm bucket/host/key/credential/signature/policy…)."""
+    rec = resp[0] if isinstance(resp, list) and resp else resp
+    result = rec.get("result") if isinstance(rec, dict) else rec
+    data = result.get("data") if isinstance(result, dict) else result
+    return data if isinstance(data, dict) else {}
+
+
+def _s3_upload(data: dict, data_bytes: bytes, filename: str, ct: str):
+    """Faz o upload no S3 conforme a forma que a Fracttal devolveu. Confirmado ao vivo: PRESIGNED POST da
+    AWS (bucket/host/key/credential/signature/policy/date…) → monta o form AWS4 POST (file por último).
+    Fallback: URL direta (PUT) ou url+fields."""
+    keys = list(data.keys())
+    if data.get("bucket") and data.get("host"):           # presigned POST da AWS (caso da Fracttal)
+        bucket, host = data["bucket"], data["host"]
+        url = f"https://{bucket}.{host}/" if "." not in bucket else f"https://{host}/{bucket}/"
+
+        def g(*ks):
+            return next((data[k] for k in ks if data.get(k)), None)
+        form = {
+            "key": data.get("key"),
+            "X-Amz-Algorithm": g("algorithm", "x_amz_algorithm", "x-amz-algorithm") or "AWS4-HMAC-SHA256",
+            "X-Amz-Credential": g("credential", "x_amz_credential", "x-amz-credential"),
+            "X-Amz-Date": g("date", "x_amz_date", "x-amz-date", "amz_date"),
+            "Policy": g("policy", "Policy"),
+            "X-Amz-Signature": g("signature", "x_amz_signature", "x-amz-signature"),
+        }
+        for src, dst in (("acl", "acl"), ("content_type", "Content-Type"),
+                         ("security_token", "X-Amz-Security-Token"),
+                         ("x_amz_security_token", "X-Amz-Security-Token"),
+                         ("encryption", "x-amz-server-side-encryption")):
+            if data.get(src):
+                form[dst] = data[src]
+        form["success_action_status"] = str(data.get("success_action_status") or "200")   # condição da policy
+        import hashlib as _hl
+        import base64 as _b64
+        # a policy exige x-amz-checksum-sha256 (base64 do SHA256 dos bytes — o S3 confere o conteúdo)
+        form["x-amz-checksum-sha256"] = _b64.b64encode(_hl.sha256(data_bytes).digest()).decode()
+        falta = [k for k in ("key", "X-Amz-Credential", "X-Amz-Date", "Policy", "X-Amz-Signature")
+                 if not form.get(k)]
+        if falta:
+            raise FracttalError(f"presigned POST incompleto (falta {falta}). CHAVES do data: {keys}")
+        form = {k: v for k, v in form.items() if v is not None}
+        return requests.post(url, data=form, files={"file": (filename, data_bytes, ct)}, timeout=180)
+    # fallback: url direta (PUT) ou url + fields
+    url = _find_http_url(data)
+    fields = _find_dict_by_keys(data, ("fields", "form", "formdata", "inputs"))
+    if not url:
+        raise FracttalError(f"s3_object_post sem forma de upload conhecida. CHAVES do data: {keys}")
+    if isinstance(fields, dict):
+        return requests.post(url, data=fields, files={"file": (filename, data_bytes, ct)}, timeout=180)
+    return requests.put(url, data=data_bytes, headers={"Content-Type": ct}, timeout=180)
+
+
+def attach_imagem_os(id_work_order, id_work_order_task, data_bytes: bytes, filename: str) -> dict:
+    """Sobe 1 imagem no S3 do Fracttal e registra na tarefa da OS. Fluxo: s3_object_post (devolve um
+    presigned POST da AWS) → POST no S3 → work_orders_tasks_files_insert."""
+    import hashlib
+    import mimetypes
+    if not (id_work_order and id_work_order_task):
+        raise FracttalError("OS criada sem id_work_order/_task — não dá p/ anexar.")
+    nome_s3 = f".ot/{id_work_order}/{filename}"
+    resp = _s3_object_post(nome_s3, len(data_bytes), hashlib.sha256(data_bytes).hexdigest())
+    data = _s3_post_data(resp)
+    ct = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+    try:
+        up = _s3_upload(data, data_bytes, filename, ct)
+    except requests.RequestException as e:
+        raise FracttalError(f"upload S3 falhou ({e}).")
+    if up.status_code >= 400:
+        raise FracttalError(f"upload S3 HTTP {up.status_code}: {(up.text or '')[:300]}")
+    reg = [{"id": str(uuid.uuid4()), "jsonrpc": "2.0", "method": "tasks.work_orders_tasks_files_insert",
+            "params": [{"id": str(uuid.uuid4()), "id_personnel": None, "id_third_party": None, "id_task": None,
+                        "id_attached": id_work_order_task, "id_item": None, "id_work_order_task": id_work_order_task,
+                        "id_work_orders_tasks_files": None, "id_work_orders_tasks_form_items": None, "id_request": None,
+                        "link_attachment": False, "value": nome_s3, "description": "", "type": 1, "typeRender": "",
+                        "link": "", "can_edit": True}]}]
+    r2 = requests.post(RPC_PROXY_URL, headers=_rpc_headers(), json=reg, timeout=45)
+    if r2.status_code >= 400:
+        raise FracttalError(f"files_insert HTTP {r2.status_code}: {(r2.text or '')[:200]}")
+    return {"ok": True, "value": nome_s3}
+
+
+_PERF_LABEL_ID = None      # cache do id da etiqueta "Performance"
+
+
+def _label_performance_id():
+    """id da etiqueta 'Performance' (p/ marcar toda OS de Performance). Casa por nome; cacheia. None se
+    não existir no catálogo (aí a OS é criada sem a etiqueta)."""
+    global _PERF_LABEL_ID
+    if _PERF_LABEL_ID is None:
+        try:
+            labels = get_labels()
+            exata = next((l for l in labels if _norm_txt(l.get("description")) == "performance"), None)
+            parcial = next((l for l in labels if "performance" in _norm_txt(l.get("description"))), None)
+            _PERF_LABEL_ID = (exata or parcial or {}).get("id") or 0    # 0 = procurou e não achou
+        except Exception:
+            return None
+    return _PERF_LABEL_ID or None
+
+
+def create_performance_os(itens: list, id_responsible=None, responsible_name: str = "",
+                          event_date: datetime = None, id_parent=None, progresso=None) -> list:
+    """Cria N OS (1 por ativo). `itens` = [{asset, plano_id_task, plano_id_item, linkar, base, note, imagens}]
+    onde imagens = [{'bytes','nome'}]. Lê o plano (cache por id_task), cria a OS '[Usina][Ativo] - base' + note,
+    marca com a etiqueta 'Performance' e anexa as imagens. → [{ok, asset, folio/erro, n_img_ok, img_erro}]."""
+    cache, out = {}, []
+    lbl_perf = _label_performance_id()               # etiqueta "Performance" em toda OS criada aqui
+    itens = [it for it in (itens or []) if isinstance(it.get("asset"), dict)]
+    for i, it in enumerate(itens):
+        a = it["asset"]
+        try:
+            k = it.get("plano_id_task")
+            if k not in cache:
+                cache[k] = get_plan_details(k, it.get("plano_id_item"))
+            plan = cache[k]
+            nome = perf_os_nome(a, it.get("base") or plano_base_nome(plan.get("description")))
+            res = create_planned_os(a, plan, id_responsible=id_responsible, responsible_name=responsible_name,
+                                    event_date=event_date, id_parent=id_parent, descricao=nome,
+                                    note=it.get("note") or "", linkar_plano=it.get("linkar", True))
+            if lbl_perf and res.get("id_work_order"):
+                try:
+                    apply_labels(res["id_work_order"], [lbl_perf])
+                except Exception:
+                    pass
+            nok, nerr = 0, []
+            for img in (it.get("imagens") or []):
+                try:
+                    attach_imagem_os(res.get("id_work_order"), res.get("id_work_order_task"),
+                                     img.get("bytes"), img.get("nome") or "imagem.png")
+                    nok += 1
+                except Exception as e:
+                    nerr.append(str(e)[:600])
+            out.append({"ok": True, "asset": a.get("label") or a.get("code"), "folio": res.get("wo_folio"),
+                        "n_img_ok": nok, "img_erro": nerr})
+        except SessionExpired:
+            raise
+        except Exception as e:
+            out.append({"ok": False, "asset": a.get("label") or a.get("code"), "erro": str(e)[:200]})
+        if progresso:
+            progresso(i + 1, len(itens))
+    return out
+
+
 def get_subtask_counts(pares: list) -> dict:
     """Nº de subtarefas de cada plano. `pares` = [(id_task, id_item)]. → {id_task: n} (em paralelo,
     via tasks_details). Defensivo: plano que falhar/sem subtarefa não entra no dict (a UI mostra '?')."""
@@ -1794,6 +2428,36 @@ def get_subtask_counts(pares: list) -> dict:
         for idt, n in ex.map(_one, list(uniq.items())):
             if n is not None:
                 out[idt] = n
+    return out
+
+
+def get_subtask_names(pares: list) -> dict:
+    """Descrições das subtarefas de cada plano. `pares` = [(id_task, id_item)]. → {id_task: [desc,...]}
+    (em paralelo, via get_plan_details). Defensivo: plano que falhar/sem subtarefa não entra no dict."""
+    uniq = {}
+    for p in (pares or []):
+        try:
+            idt, idi = p
+        except (TypeError, ValueError):
+            continue
+        if idt is not None and idt not in uniq:
+            uniq[idt] = idi
+
+    def _one(item):
+        idt, idi = item
+        try:
+            det = get_plan_details(idt, idi)
+            nomes = [str(s.get("description") or "").strip() for s in (det.get("subtasks") or [])]
+            return (idt, [n for n in nomes if n])
+        except Exception:
+            return (idt, None)
+    out = {}
+    if not uniq:
+        return out
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for idt, nomes in ex.map(_one, list(uniq.items())):
+            if nomes is not None:
+                out[idt] = nomes
     return out
 
 
@@ -1900,6 +2564,28 @@ def cancel_os(id_work_order, id_status_custom, note: str = "", cancellation_type
         raise FracttalError(str(res.get("message") or "Cancelamento recusado pelo Fracttal "
                                                       "(sua conta tem permissão p/ cancelar OS?)."))
     return {"ok": True, "raw": res}
+
+
+RPC_WO_CHANGE_STATUS = "tasks.work_orders_change_status"        # muda o status da WO (1..4)
+RPC_WO_RECALCULATE   = "tasks.work_orders_recalculate_new"     # confirma o fechamento (irreversível)
+
+
+def concluir_os(id_work_order) -> dict:
+    """CONCLUI (fecha) uma OS — IRREVERSÍVEL. 2 passos (fluxo capturado ao vivo, OS 9226):
+    1) muda o status p/ Concluída (3); 2) recalcula/fecha (marca subtarefas não executadas como
+    pendentes e fecha a OS). A AUTORIZAÇÃO é do Fracttal — sem permissão, a API recusa (FracttalError).
+    → {'ok':True}."""
+    if not id_work_order:
+        raise FracttalError("OS sem id — recarregue o histórico.")
+    r1 = _rpc_call(RPC_WO_CHANGE_STATUS, {"id_work_order": id_work_order, "id_status_work_order": 3,
+                                          "verify_triggers": True, "update_readings_after": False})
+    if isinstance(r1, dict) and r1.get("success") is False:
+        raise FracttalError(str(r1.get("message") or "Não foi possível mudar o status da OS "
+                                                     "(sua conta tem permissão p/ fechar OS?)."))
+    r2 = _rpc_call(RPC_WO_RECALCULATE, {"id_work_order": id_work_order, "verify_work_in_progress": True})
+    if isinstance(r2, dict) and r2.get("success") is False:
+        raise FracttalError(str(r2.get("message") or "Não foi possível fechar a OS."))
+    return {"ok": True, "raw": r2}
 
 
 # ── Clonar OS: lê a OS de referência (ativo + tipo + descrição + subtarefas + etiquetas) ──
@@ -2181,6 +2867,30 @@ def _req_status_label(st_raw, id_status=None):
     return f"Status {id_status}" if id_status is not None else "—"
 
 
+def _req_row_to_d(r, loc):
+    """Linha crua do requests_list → dict do card de solicitação (cliente/usina/ativo/descrição/etc.)."""
+    item = str(r.get("items_description") or "")
+    code = (r.get("code_item") or "").strip() or _extrai_code(item)
+    ativo = (item.split("{")[0]).strip()[:60] or code
+    cliente, usina, tipo = loc.get(code, ("", "", ""))
+    st_raw = r.get("requests_x_status_description") or ""
+    desc_full = str(r.get("description") or "").strip()
+    return {
+        "id_code": r.get("id_code"),
+        "cliente": cliente or "—", "usina": usina or "—", "ativo": ativo,
+        "tipo": tipo or "—",
+        "descricao": (desc_full[:90] or "—"),
+        "descricao_full": desc_full,
+        "observacao": str(r.get("observation") or "").strip(),
+        "criado_por": str(r.get("requested_by") or r.get("accounts_name") or "").strip(),
+        "data": (str(r.get("date") or r.get("date_incident") or ""))[:19],
+        "status_id": r.get("id_status"),
+        "status": _req_status_label(st_raw, r.get("id_status")),
+        "os_folio": r.get("wo_folio"),
+        "id_work_order": r.get("id_work_order"),
+    }
+
+
 def list_minhas_solicitacoes(id_account=None, limite: int = 120) -> list:
     """Solicitações de serviço (work requests). id_account: None = usuário LOGADO (default);
     "TODOS" = todas; ou um id_account específico = filtra por criador. Cada uma traz a OS ligada
@@ -2201,29 +2911,25 @@ def list_minhas_solicitacoes(id_account=None, limite: int = 120) -> list:
                                    "page": 1, "limit": limite, "start": 0})
     data = res.get("data") if isinstance(res, dict) else res
     loc = _code_to_loc()
-    out = []
+    return [_req_row_to_d(r, loc) for r in (data if isinstance(data, list) else [])]
+
+
+def get_solicitacao_por_os(id_work_order):
+    """Detalhe (dict no formato do SolicitacaoDialog) da solicitação ligada a esta OS. None se não
+    houver. Usado p/ abrir o card da solicitação a partir do card da OS."""
+    if not id_work_order:
+        return None
+    try:
+        res = _rpc_call(RPC_REQ_LIST, {"filter": [{"operator": "=", "property": "id_work_order",
+            "value": id_work_order}], "page": 1, "limit": 5, "start": 0})
+    except FracttalError:
+        return None
+    data = res.get("data") if isinstance(res, dict) else res
+    loc = _code_to_loc()
     for r in (data if isinstance(data, list) else []):
-        item = str(r.get("items_description") or "")
-        code = (r.get("code_item") or "").strip() or _extrai_code(item)
-        ativo = (item.split("{")[0]).strip()[:60] or code
-        cliente, usina, tipo = loc.get(code, ("", "", ""))
-        st_raw = r.get("requests_x_status_description") or ""
-        desc_full = str(r.get("description") or "").strip()
-        out.append({
-            "id_code": r.get("id_code"),
-            "cliente": cliente or "—", "usina": usina or "—", "ativo": ativo,
-            "tipo": tipo or "—",
-            "descricao": (desc_full[:90] or "—"),
-            "descricao_full": desc_full,
-            "observacao": str(r.get("observation") or "").strip(),
-            "criado_por": str(r.get("requested_by") or r.get("accounts_name") or "").strip(),
-            "data": (str(r.get("date") or r.get("date_incident") or ""))[:19],
-            "status_id": r.get("id_status"),
-            "status": _req_status_label(st_raw, r.get("id_status")),
-            "os_folio": r.get("wo_folio"),
-            "id_work_order": r.get("id_work_order"),
-        })
-    return out
+        if str(r.get("id_work_order")) == str(id_work_order):
+            return _req_row_to_d(r, loc)
+    return None
 
 
 RPC_REQ_STATUS_INSERT = "requests.requests_x_status_insert"
@@ -2273,14 +2979,48 @@ def get_pessoas_contas() -> dict:
     return {"pessoas": pessoas, "eu": eu}
 
 
+def _anexa_imagens_bulk(fase1, imagens_por_ativo):
+    """Anexa as imagens de cada ativo na OS criada (best-effort). `imagens_por_ativo` = {code: [{bytes,nome}]}.
+    Pega o id_work_order_task da OS via _ids_tarefas_da_os. Falha de anexo vira 'aviso' na OS, não derruba."""
+    if not imagens_por_ativo:
+        return
+    for r in fase1:
+        os_ = r.get("os") or {}
+        if not (r.get("ok") and os_.get("id_work_order")):
+            continue
+        imgs = imagens_por_ativo.get(r.get("code")) or []
+        if not imgs:
+            continue
+        idwo = os_["id_work_order"]
+        try:
+            tids = _ids_tarefas_da_os(idwo)
+        except Exception:
+            tids = []
+        tid = tids[0] if tids else None
+        nok = 0
+        for im in imgs:
+            try:
+                attach_imagem_os(idwo, tid, im.get("bytes"), im.get("nome") or "imagem.png")
+                nok += 1
+            except Exception:
+                pass
+        if nok < len(imgs):
+            os_["aviso"] = ((os_.get("aviso") or "") + f" {len(imgs) - nok} imagem(ns) não anexaram.").strip()
+
+
 def create_work_orders_bulk(assets: list, description: str, task_type: str, subtasks: list,
                             etiqueta: str = "", responsible_code: str = "",
                             responsible_name: str = "", id_responsible=None,
                             etiqueta_ids: list = None, note: str = "", tipo: dict = None,
-                            finalizar: dict = None, event_date=None, id_parent=None) -> list:
+                            finalizar: dict = None, event_date=None, id_parent=None,
+                            imagens_por_ativo: dict = None, por_ativo: dict = None,
+                            falha: dict = None) -> list:
     """Cria N OS (uma por ativo). Fase 1: cria a tarefa pendente (create_os_rpc). Fase 2 (se
     id_responsible): converte em WO numerada + atribui o responsável. Fase 3 (se etiqueta_ids):
-    aplica as etiquetas na WO. NÃO interrompe no 1º erro:
+    aplica as etiquetas na WO. Fase 4 (se imagens_por_ativo): anexa as imagens em cada OS.
+    `por_ativo` (opcional, {code: {'description','note'}}): título/observação POR ativo (COS F2 —
+    cada OS ganha '[Usina][Equip] - Motivo' e a observação-pipe do seu próprio ativo). NÃO interrompe
+    no 1º erro:
     → [{'code','ok':True,'os':{id_task,id_work_order,wo_folio[,etiquetas][,aviso]}} | {'code','ok':False,'erro'}].
     `finalizar` (OS já realizada) → cada create já devolve a WO concluída c/ responsável → pula Fase 2."""
     fase1 = []
@@ -2290,11 +3030,14 @@ def create_work_orders_bulk(assets: list, description: str, task_type: str, subt
         if not isinstance(asset, dict):
             fase1.append({"code": code, "ok": False, "erro": "ativo não encontrado no cache."})
             continue
+        ov = (por_ativo or {}).get(code) or {}          # override por ativo (COS F2)
+        desc_i = ov.get("description", description)
+        note_i = ov.get("note", note)
         try:
-            os_ = create_os_rpc(asset, description, task_type, subtasks,
-                                requested_by=responsible_name, etiqueta=etiqueta, note=note,
+            os_ = create_os_rpc(asset, desc_i, task_type, subtasks,
+                                requested_by=responsible_name, etiqueta=etiqueta, note=note_i,
                                 tipo=tipo, event_date=event_date, finalizar=finalizar,
-                                id_parent=id_parent)
+                                id_parent=id_parent, falha=falha)
             fase1.append({"code": code, "ok": True, "os": os_})
         except FracttalError as e:
             fase1.append({"code": code, "ok": False, "erro": str(e)})
@@ -2308,6 +3051,7 @@ def create_work_orders_bulk(assets: list, description: str, task_type: str, subt
                     r["os"]["etiquetas"] = list(etiqueta_ids)
                 except FracttalError as e:
                     r["os"]["aviso"] = f"WO {r['os'].get('wo_folio')} criada, mas etiqueta falhou: {e}"
+        _anexa_imagens_bulk(fase1, imagens_por_ativo)
         return fase1
 
     # Fase 2 — converter em WO + responsável (só se um responsável foi escolhido)
@@ -2339,13 +3083,15 @@ def create_work_orders_bulk(assets: list, description: str, task_type: str, subt
                         r["os"]["aviso"] = f"WO {r['os'].get('wo_folio')} criada, mas etiqueta falhou: {e}"
             except FracttalError as e:
                 r["os"]["aviso"] = f"tarefa criada, mas falhou virar WO: {e}"
+    _anexa_imagens_bulk(fase1, imagens_por_ativo)
     return fase1
 
 
 def create_work_orders_datas(asset: dict, description: str, task_type: str, subtasks: list,
                              datas: list, responsible_code: str = "", responsible_name: str = "",
                              id_responsible=None, etiqueta_ids: list = None, note: str = "",
-                             tipo: dict = None, finalizar: dict = None, id_parent=None) -> list:
+                             tipo: dict = None, finalizar: dict = None, id_parent=None,
+                             falha: dict = None) -> list:
     """Cria N OS p/ o MESMO ativo — uma por DATA de incidente. `datas` = lista de datetimes (já no
     horário escolhido; tz-aware = Brasília); se `finalizar`, cada item é uma tupla (inicial, final).
     Mesmas 3 fases do create_work_orders_bulk (tarefa → WO+responsável → etiquetas), sem parar no 1º erro.
@@ -2363,7 +3109,7 @@ def create_work_orders_datas(asset: dict, description: str, task_type: str, subt
         try:
             os_ = create_os_rpc(asset, description, task_type, subtasks,
                                 requested_by=responsible_name, etiqueta="", note=note,
-                                event_date=ev_dt, tipo=tipo, finalizar=fin, id_parent=id_parent)
+                                event_date=ev_dt, tipo=tipo, finalizar=fin, id_parent=id_parent, falha=falha)
             fase1.append({"data": rot, "ok": True, "os": os_})
         except FracttalError as e:
             fase1.append({"data": rot, "ok": False, "erro": str(e)})

@@ -1,0 +1,47 @@
+{
+  "refere_a": "Araçoiaba da Serra 1 (PG plant_id 16) · trackers · 2026-07-09 · pg (Thopen/PG Admin)",
+  "dia_tipo": "problematico",
+  "regua_pendente": true,
+  "nota_nomes": "device_name do PG e 'Tracker NN' (2 digitos). Os rotulos do Levi vieram como TRK_NN -> aqui mapeados p/ 'Tracker NN' (o que o classificador devolve).",
+  "narrativa": "PRIMEIRO caso PG/Thopen E primeiro COM angulo-alvo (posal) real disponivel — a regua absoluta que faltava. 51 trackers. Rotulo do Levi por PERSISTENCIA de desvio do ALVO (>10deg por >=15min = severo; 3-10deg = leve; <3deg = normal), filtrando os picos-artefato de 55-67deg (dessincronia de amostragem alvo x posicao durante movimento rapido). PARADO (2): Tracker 33 comunicacao morta (0.00deg 24h); Tracker 32 travado numa posicao fixa (variacao <2deg) o dia todo. SEVERO (7): Tracker 50 (2 freezes: 55min manha -50.4 + 125min tarde 32.5, maior da usina), 36 (3 episodios), 51 (3 episodios), 46 (2 episodios), 47 (20min -55.2), 49 (20min -51.2), 21 (desvio persistente 15min >10deg). LEVE (5): Tracker 44/34/17/20/39 (desvios ~15min entre 3-10deg). NORMAL (37): dev medio 1.1-1.3deg. CLASSIFICADOR DE CURSO: parado 2/2 correto, mas severo/leve 0/12 (todos viram normal/leve) — os trackers cobriram o curso, so travaram trechos curtos -> mesmo GAP de freeze do MAB100/200, agora no PG. INVESTIGAR (sintese): o posal do PG NAO e plug-and-play como referencia de desvio: (a) timestamps do alvo != posicao (precisa interpolar); (b) semantica ambigua — p/ Tracker 32 (parado) o alvo diverge certo (desvio ate 63deg), mas p/ Tracker 50 (severo por freeze) o desvio interpolado leu ~0, como se o alvo acompanhasse a posicao travada. Entender o que o posal representa (setpoint astronomico independente? ultima ordem? espelha o atual quando trava?) e PRE-REQUISITO p/ usar desvio-do-alvo como criterio.",
+  "esperado": {
+    "Tracker 33": {"status": "parado", "subtipo": "comunicacao_morta", "evidencia": "0.00deg 24h"},
+    "Tracker 32": {"status": "parado", "subtipo": "travado_mecanico", "evidencia": "variacao <2deg o dia todo"},
+    "Tracker 50": {"status": "desvio_severo", "subtipo": "freeze_multiplo", "evidencia": "55min -50.4 (08:50-09:45) + 125min 32.5 (14:00-16:05)"},
+    "Tracker 36": {"status": "desvio_severo", "subtipo": "freeze_multiplo", "evidencia": "50+65min manha (08:35-10:40) + 25min tarde (15:20-15:45)"},
+    "Tracker 51": {"status": "desvio_severo", "subtipo": "freeze_multiplo", "evidencia": "20+35min manha + 35min tarde"},
+    "Tracker 46": {"status": "desvio_severo", "subtipo": "freeze_multiplo", "evidencia": "30min manha + 25min tarde"},
+    "Tracker 47": {"status": "desvio_severo", "subtipo": "freeze", "evidencia": "20min -55.2 (09:05-09:25)"},
+    "Tracker 49": {"status": "desvio_severo", "subtipo": "freeze", "evidencia": "20min -51.2 (08:50-09:10)"},
+    "Tracker 21": {"status": "desvio_severo", "subtipo": "desvio_persistente", "evidencia": "15min >10deg (dev medio 2.88)"},
+    "Tracker 44": {"status": "desvio_leve", "evidencia": "dev medio 2.84, ~15min entre 3-10deg"},
+    "Tracker 34": {"status": "desvio_leve", "evidencia": "dev medio 1.70, ~15min entre 3-10deg"},
+    "Tracker 17": {"status": "desvio_leve", "evidencia": "~15min entre 3-10deg"},
+    "Tracker 20": {"status": "desvio_leve", "evidencia": "~15min entre 3-10deg"},
+    "Tracker 39": {"status": "desvio_leve", "evidencia": "~15min entre 3-10deg"}
+  },
+  "agregado_esperado": {
+    "parado": 2,
+    "desvio_severo": 7,
+    "desvio_leve": 5,
+    "normal": 37
+  },
+  "criterio_do_especialista": {
+    "referencia": "desvio do ANGULO-ALVO (posal) real, disponivel no PG",
+    "persistencia": "so conta desvio que dura >=15min (filtra os picos-artefato de 55-67deg da dessincronia de amostragem)",
+    "severo": ">10deg persistente",
+    "leve": "3-10deg persistente",
+    "normal": "<3deg (dev medio 1.1-1.3)"
+  },
+  "resultado_classificador_atual": {
+    "parado": "2/2 correto",
+    "desvio_severo_leve": "0/12 — curso ve os trackers cobrindo o percurso e chama de normal/leve; nao enxerga os freezes curtos",
+    "gap": "mesmo do MAB100/200: falta camada de ocorrencia (freeze) + desvio-do-alvo persistente"
+  },
+  "semantica_posal_RESOLVIDA": {
+    "achado": "o posal do PG NAO e um setpoint astronomico independente — ele CONGELA JUNTO com o posat num freeze de comunicacao/dados (pacote de telemetria para e repete o ultimo valor).",
+    "evidencia": "Tracker 50 (freeze tarde): posat E posal ambos travam em ~32 (desvio ~0). Tracker 32 (parado mecanico): posat trava em -1.3 mas posal MOVE (-18->-35), desvio ate 63.",
+    "consequencia_diagnostica": "posal MOVE + posat travado = falha MECANICA (motor/atuador; desvio grande). posal E posat travados juntos = freeze de COMUNICACAO/dados (desvio ~0). O FREEZE do posat e o sinal robusto; o desvio-do-alvo distingue o TIPO da falha, nao a existencia.",
+    "para_a_regua": "detectar severo/leve pelo FREEZE do posat (trecho flat >=15min na janela de rastreio, excluindo batente/stow), e usar posal-vs-posat so p/ classificar o tipo (mecanico vs comunicacao). Desvio-do-alvo sozinho MISSA os freezes de comunicacao."
+  }
+}

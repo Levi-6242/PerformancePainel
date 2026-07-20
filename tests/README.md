@@ -37,6 +37,20 @@ run_tests.bat -v         REM verboso, lista cada teste
   **CI no GitHub Actions** será preciso esconder essas cargas atrás de função (lazy)
   ou commitar um xlsx-fixture pequeno. Decidir na Fase 2.
 
+## Regressão contra casos REAIS rotulados (Confiabilidade da Plataforma)
+
+Além dos testes de função pura acima, há uma **rede de regressão** que roda a detecção sobre
+**dados reais capturados** e compara com a **verdade de campo** narrada pelo especialista. É o que
+impede o "conserta um, quebra outro". Ver `docs/deteccao-trackers.md`.
+
+- **Fixtures:** `tests/fixtures/<equip>/` — pares `<caso>.raw.json` (a foto do dado cru da fonte,
+  reamostrada a 5 min) + `<caso>.gab.json` (o gabarito: `agregado_esperado` + `esperado` por peça).
+- **Captura:** `python tests/capturar_caso.py trackers apipv <idusina> <dd/mm/aaaa> <slug>`.
+- **Runner:** `tests/test_regressao_trackers.py` — parametrizado, descobre todo par sozinho.
+  **Adicionar um caso = soltar 2 JSON**, sem código novo. Roda a lógica de PRODUÇÃO
+  (`_pv_trk_refina_curva`) via priming do cache da curva (sem rede).
+- **1º caso ancorado:** Primavera 1 · 06–09/07/2026 · *dia perfeito* (o "dia bom" que pega falso positivo).
+
 ## Próximas fases (ver memória `testes-automatizados-plano`)
 
 - **Fase 2** — contrato dos endpoints com `app.app.test_client()` + `monkeypatch` em

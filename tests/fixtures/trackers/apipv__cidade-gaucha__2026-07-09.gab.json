@@ -1,0 +1,29 @@
+{
+  "refere_a": "Cidade Gaúcha · trackers · 2026-07-09 · apipv",
+  "dia_tipo": "problematico",
+  "regua_pendente": true,
+  "narrativa": "Régua por DESVIO INSTANTANEO da frota: parado (amplitude<10, ex TRK17 6.6/TRK42 2.3/TRK45 estatico em 50). severo=desvio max>10 (TRK18 30). leve=2-10 (TRK49 7.1). normal=<2 (os outros 47, max 1.9). CONFLITA com a regua por CURSO da Altair — a decidir a regua unica.",
+  "esperado": {
+    "TRK17": {
+      "status": "parado"
+    },
+    "TRK42": {
+      "status": "parado"
+    },
+    "TRK45": {
+      "status": "parado"
+    },
+    "TRK18": {
+      "status": "desvio_severo"
+    },
+    "TRK49": {
+      "status": "desvio_leve"
+    }
+  },
+  "agregado_esperado": {
+    "parado": 3,
+    "desvio_severo": 1,
+    "desvio_leve": 1,
+    "normal": 47
+  }
+}

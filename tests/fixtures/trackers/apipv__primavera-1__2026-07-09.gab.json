@@ -1,0 +1,12 @@
+{
+  "refere_a": "Primavera 1 · trackers · 2026-07-09 · apipv",
+  "dia_tipo": "perfeito",
+  "narrativa": "Dia perfeito. Todos os trackers cumpriram o curso completo (-55 a +55) = todos NORMAIS. Nenhum parado, severo ou leve.",
+  "esperado": {},
+  "agregado_esperado": {
+    "parado": 0,
+    "desvio_severo": 0,
+    "desvio_leve": 0,
+    "normal": 22
+  }
+}

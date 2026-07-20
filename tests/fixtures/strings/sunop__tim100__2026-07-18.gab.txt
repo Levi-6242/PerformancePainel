@@ -1,0 +1,63 @@
+Relatorio de Analise de Correntes de String
+UFV TIM100 | 18/07/2026 | 50 inversores | 599 strings | Janela solar 06:00-18:00
+Este e o segundo relatorio de corrente de string desta usina (o primeiro foi realizado com dados de 17/07/2026),
+permitindo comparacao direta de persistencia de falhas entre dias consecutivos.
+COMPARATIVO COM 17/07/2026: as duas strings com falha identificadas no relatorio anterior
+(Inversor 4.5/ST_02 e Inversor 4.3/ST_10) permanecem exatamente com o mesmo padrao de corrente
+zero durante toda a janela solar, confirmando falha persistente de hardware. Nenhuma nova string
+apresentou queda hoje, e nenhuma das duas se recuperou.
+1. Status das Strings
+1.1 Resumo executivo
+Categoria Qtd Descricao
+Parado (corrente zero, recorrente) 2 Identico ao relatorio de 17/07/2026
+Ocorrencia temporaria (nova hoje) 0 Nenhuma identificada
+Normal 597 Corrente dentro do padrao esperado
+1.2 Parado (2 strings, recorrentes)
+Inversor 4.5 / ST_02 e Inversor 4.3 / ST_10 — ambas com corrente dentro da faixa de ruido do sensor (sem
+geracao real) durante toda a janela solar, pelo segundo dia consecutivo de analise. A persistencia identica em dois
+dias distintos eleva a confianca de que se trata de falha fisica real (fusivel, conector, ou string desconectada), nao
+de condicao climatica ou intermitencia.
+1.3 Normal (597 strings)
+Nenhuma nova string apresentou queda de corrente hoje. Todas as demais 597 strings produziram corrente dentro
+do padrao esperado durante toda a janela solar.
+1.4 Observacao adicional: corrente media do dia
+A corrente media da frota durante a janela solar foi de 3,00 A hoje, contra 5,18 A no relatorio de 17/07/2026 — uma
+reducao de aproximadamente 42%, provavelmente associada a maior nebulosidade no dia de hoje. Essa diferenca
+nao afeta a metodologia de deteccao (baseada em comparacao relativa entre strings-irmas do mesmo inversor, e nao
+em valores absolutos), mas explica por que os limiares fixos de corrente absoluta usados na deteccao (0,5 A para
+queda, 2,0 A para confirmar geracao das strings-irmas) continuam validos mesmo em dias de irradiancia mais baixa.
+2. Ocorrencias (janela solar 06:00-18:00)
+Nenhuma ocorrencia temporaria nova foi identificada. As duas falhas permanentes recorrentes (secao 1.2) sao
+tratadas como Parado, nao como Ocorrencia, seguindo o mesmo criterio estabelecido nos relatorios anteriores.
+2.1 Falhas permanentes recorrentes
+String Dia 1 (17/07) Dia 2 (18/07) Status
+Inversor 4.5 / ST_02 Corrente zero, dia inteiro Corrente zero, dia inteiro Persistente
+Inversor 4.3 / ST_10 Corrente zero, dia inteiro Corrente zero, dia inteiro Persistente
+Estimativa de perda acumulada em dois dias: aproximadamente 24 horas de geracao perdida por string (12h por dia),
+totalizando 48 horas-string. Recomenda-se elevar a prioridade de inspecao fisica, dado que a falha ja persiste por pelo
+menos dois dias consecutivos sem sinal de recuperacao autonoma.
+3. Metodologia
+3.1 Comparacao entre relatorios da mesma usina
+Seguindo a pratica ja estabelecida para relatorios de tracker, a lista de strings com falha identificada no relatorio
+anterior desta usina foi usada como ponto de partida de comparacao. Isso permite classificar cada achado do dia em
+uma de tres categorias: falha persistente (presente em ambos os relatorios), falha nova (presente apenas hoje) ou
+recuperacao (presente apenas no relatorio anterior, ausente hoje).
+dead_hoje = strings com corrente zero durante toda a janela solar hoje
+dead_anterior = strings com corrente zero identificadas no relatorio anterior
+persistentes = dead_hoje ˙ dead_anterior
+novas = dead_hoje - dead_anterior
+recuperadas = dead_anterior - dead_hoje
+3.2 Robustez da comparacao relativa entre strings-irmas em dias de irradiancia
+variavel
+A corrente media da frota variou significativamente entre os dois relatorios (5,18 A em 17/07 contra 3,00 A em 18/07).
+Como a metodologia de deteccao de queda compara cada string contra a mediana das strings-irmas do mesmo
+inversor no mesmo instante (e nao contra um valor absoluto fixo do dia todo), a variacao de irradiancia entre dias
+diferentes nao compromete a deteccao: em um dia mais nublado, tanto a string com falha quanto suas strings-irmas
+teriam corrente mais baixa nos momentos saudaveis, mas a string com falha real continuaria proxima de zero
+enquanto as demais acompanhariam a reducao geral de forma proporcional, preservando a divergencia relativa que
+caracteriza uma falha genuina.
+3.3 Continuidade das verificacoes ja estabelecidas
+Mantidas as tres verificacoes complementares introduzidas nos relatorios anteriores de corrente de string: deteccao
+de falha permanente por corrente zero sustentada, distincao entre desconexao total e mau contato pelo padrao de
+rampa de amanhecer, e identificacao de leituras isoladas anomalas como possivel glitch de dado. Nenhuma leitura
+anomala isolada foi identificada neste arquivo.
