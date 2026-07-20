@@ -2,19 +2,84 @@
 logado, pode trocar p/ outros ou Todos), filtros multi-seleção (Cliente/Usina/Tipo de ativo/Status),
 filtro de data (BR) e status colorido. Clique no Nº mostra a descrição; clique na OS ligada abre o
 detalhe da OS. Lê via api.list_minhas_solicitacoes."""
-from PyQt6.QtCore import Qt, QDate
-from PyQt6.QtGui import QColor, QBrush, QShortcut, QKeySequence
+from PyQt6.QtCore import Qt, QDate, QSize, QTimer
+from PyQt6.QtGui import QColor, QBrush, QShortcut, QKeySequence, QIcon
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
                              QDateEdit, QComboBox, QLineEdit, QSizePolicy, QMessageBox, QTableWidget,
                              QTableWidgetItem, QHeaderView, QAbstractItemView, QDialog, QFrame,
                              QScrollArea)
 import api
-from workers import ApiWorker
-from steps.os_detalhe import abrir_os_detalhe
+from workers import ApiWorker, slot_seguro
+from steps.os_detalhe import (abrir_os_detalhe, aplicar_geometria_card, _svg, _tile, _person,
+                              _AnexoCard, _EXTRA_QSS, DESK)
 from steps.checkcombo import CheckableComboBox
 from steps.cancelar_solic import abrir_cancelar_solic
 from steps.exportar import exportar_csv
+from steps.galeria import abrir_galeria
 from steps.spinner import Spinner
+from steps.ui import QSS_FORM, icone_pix, GREEN, GREEN_INK, MUTED, TEXT, CARD, INPUT, BORDER
+
+
+def _rgba(hexc, a):
+    h = hexc.lstrip("#")
+    return f"rgba({int(h[0:2],16)},{int(h[2:4],16)},{int(h[4:6],16)},{a})"
+
+
+# selo de status (tons escuros p/ o card premium) — sem lilás
+_ST_DARK = {"Aberta": "#F0B341", "Aprovada": DESK, "OS em processo": DESK, "OS em verificação": DESK,
+            "Concluída": GREEN, "OS concluída": GREEN, "Resolvida com OS": GREEN, "Resolvida sem OS": GREEN,
+            "Cancelada": "#F5766B", "Rejeitada": "#F5766B"}
+
+# cores vivas do card de status na TABELA (mesma paleta do histórico de OS)
+_ST_VIVO = {"Aberta": "#F5A623", "Aprovada": "#4A9EF5", "OS em processo": "#4A9EF5",
+            "OS em verificação": "#35C1B8", "Concluída": "#48D07A", "OS concluída": "#48D07A",
+            "Resolvida com OS": "#48D07A", "Resolvida sem OS": "#48D07A",
+            "Cancelada": "#F5766B", "Rejeitada": "#F5766B"}
+
+
+def _status_solic_widget(status):
+    """Card arredondado (8px) de status, cor viva, centralizado — cellWidget da tabela."""
+    w = QWidget(); w.setStyleSheet("background:transparent;")
+    h = QHBoxLayout(w); h.setContentsMargins(0, 0, 0, 0); h.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    if not status:
+        return w
+    c = _ST_VIVO.get(status)
+    pill = QLabel(status)
+    if c:
+        pill.setStyleSheet(f"color:{c};background:{_rgba(c, 0.16)};border:1px solid {_rgba(c, 0.42)};"
+                           "border-radius:8px;padding:4px 12px;font-size:12px;font-weight:700;")
+    else:
+        pill.setStyleSheet("color:#c4cbdb;background:#1A2337;border:1px solid #2A3550;"
+                           "border-radius:8px;padding:4px 12px;font-size:12px;font-weight:600;")
+    h.addWidget(pill)
+    return w
+
+
+class _OsLigadaCard(QFrame):
+    """Stat clicável 'OS ligada' (abre o detalhe da OS). Sem OS → cinza, não-clicável."""
+    def __init__(self, folio, on_click):
+        super().__init__()
+        self._cb = on_click if folio else None
+        self.setObjectName("card")
+        if folio:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.setStyleSheet(f"QFrame#card:hover{{border-color:{DESK};}}")
+        v = QVBoxLayout(self); v.setContentsMargins(16, 14, 16, 14); v.setSpacing(5)
+        top = QHBoxLayout(); top.setSpacing(9)
+        top.addWidget(_tile("file", DESK, _rgba(DESK, 0.14), 26, 15))
+        lab = QLabel("OS LIGADA"); lab.setStyleSheet(f"color:{MUTED};font-size:11px;font-weight:700;"
+                                                     "letter-spacing:0.8px;background:transparent;")
+        top.addWidget(lab); top.addStretch(1); v.addLayout(top)
+        big = QLabel(f"OS {folio}" if folio else "—")
+        big.setStyleSheet(f"color:{DESK if folio else MUTED};font-size:22px;font-weight:750;background:transparent;")
+        note = QLabel("clique para abrir" if folio else "ainda sem OS gerada")
+        note.setStyleSheet("color:#6a7488;font-size:11px;background:transparent;")
+        v.addWidget(big); v.addWidget(note)
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton and self._cb:
+            self._cb()
+        super().mousePressEvent(e)
 
 # status em que a solicitação ainda pode ser cancelada (os demais já estão fechados)
 _NAO_CANCELAVEL = {"Cancelada", "Rejeitada", "Concluída", "OS concluída", "Resolvida com OS",
@@ -37,111 +102,167 @@ def _data_br(iso):
 
 
 class SolicitacaoDialog(QDialog):
-    """Card de detalhe de uma solicitação (layout estruturado): cabeçalho com Nº + selo de status,
-    ativo em destaque, metadados em grade, blocos Título e Comentários separados, OS ligada clicável
-    e botões Cancelar solicitação / Fechar."""
-    _MUTED = "#8a90a2"
-    _LINE = "#2c3142"
-    _BLOCO = "background:#161d30; border:1px solid #2c3142; border-radius:8px; padding:10px 12px;"
-
+    """Card de detalhe de uma solicitação (redesign premium, igual ao card da OS): cabeçalho com Nº +
+    selo de status, banner do ativo, metadados + card 'OS ligada' clicável, Título/Observação e anexos
+    (Imagens × Documentos). Ações: Abrir OS ligada / Cancelar solicitação / Fechar."""
     def __init__(self, parent, d):
         super().__init__(parent)
         self._d = d
-        self.cancelou = False                       # True se o usuário cancelar a solicitação
+        self.cancelou = False
+        self._wa = None
+        self._anexos = []
         idc = d.get("id_code")
         status = (d.get("status") or "").strip()
         self.setWindowTitle(f"Solicitação Nº {idc}")
-        self.setMinimumWidth(480)
+        self.setMinimumSize(560, 520)
+        self.setStyleSheet(QSS_FORM + _EXTRA_QSS)
         lay = QVBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(0)
 
-        # cabeçalho: Nº + selo de status
-        head = QHBoxLayout(); head.setContentsMargins(16, 14, 16, 12); head.setSpacing(10)
-        head.addWidget(QLabel(f"<b style='font-size:14px'>Solicitação Nº {idc}</b>"))
+        # ── cabeçalho ──
+        head = QHBoxLayout(); head.setContentsMargins(18, 15, 14, 13); head.setSpacing(11)
+        head.addWidget(_tile("file", GREEN, _rgba(GREEN, 0.14), 34, 17))
+        tw = QVBoxLayout(); tw.setSpacing(0)
+        n1 = QLabel(f"Solicitação {idc}")
+        n1.setStyleSheet(f"color:{TEXT};font-size:19px;font-weight:700;background:transparent;")
+        n2 = QLabel("Requisição de serviço"); n2.setStyleSheet(f"color:{MUTED};font-size:12px;background:transparent;")
+        tw.addWidget(n1); tw.addWidget(n2); head.addLayout(tw)
         if status:
-            head.addWidget(self._badge(status))
+            c = _ST_DARK.get(status, MUTED)
+            bd = QLabel(status)
+            bd.setStyleSheet(f"color:{c};background:{_rgba(c,0.14)};border:1px solid {_rgba(c,0.32)};"
+                             "border-radius:999px;padding:3px 12px;font-size:12px;font-weight:600;")
+            head.addSpacing(4); head.addWidget(bd)
         head.addStretch(1)
+        bx = QPushButton(); bx.setObjectName("iconClose"); bx.setFixedSize(34, 34)
+        bx.setIcon(QIcon(icone_pix("close", MUTED, 18))); bx.setIconSize(QSize(18, 18))
+        bx.setCursor(Qt.CursorShape.PointingHandCursor); bx.clicked.connect(self.reject)
+        head.addWidget(bx)
         lay.addLayout(head)
-        lay.addWidget(self._hline())
+        sep = QFrame(); sep.setFixedHeight(1); sep.setStyleSheet("background:rgba(255,255,255,0.06);")
+        lay.addWidget(sep)
 
-        # corpo (com scroll p/ não estourar a tela em comentários longos)
-        body = QWidget(); bl = QVBoxLayout(body)
-        bl.setContentsMargins(16, 14, 16, 8); bl.setSpacing(14)
-        ativo = QLabel(d.get("ativo") or "—"); ativo.setWordWrap(True)
-        ativo.setStyleSheet("font-size:15px; font-weight:600;")
-        bl.addWidget(ativo)
+        # ── corpo ──
+        scroll = QScrollArea(); scroll.setObjectName("uiFlat"); scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        body = QWidget(); scroll.setWidget(body)
+        bl = QVBoxLayout(body); bl.setContentsMargins(18, 16, 18, 14); bl.setSpacing(15)
 
-        grid = QGridLayout(); grid.setHorizontalSpacing(10); grid.setVerticalSpacing(6)
-        grid.setColumnStretch(1, 1)
-        campos = [("Cliente", d.get("cliente") or "—"), ("Usina", d.get("usina") or "—"),
-                  ("Criada em", _data_br(d.get("data"))), ("Criado por", d.get("criado_por") or "—")]
-        r = 0
-        for rot, val in campos:
-            grid.addWidget(self._rot(rot), r, 0, Qt.AlignmentFlag.AlignTop)
-            v = QLabel(str(val)); v.setWordWrap(True)
-            grid.addWidget(v, r, 1); r += 1
-        if d.get("id_work_order"):                  # OS ligada — clicável
-            grid.addWidget(self._rot("OS ligada"), r, 0, Qt.AlignmentFlag.AlignTop)
-            folio = d.get("os_folio") or d.get("id_work_order")
-            link = QLabel(f"<a href='os' style='color:#6db3f2; text-decoration:none;'>Nº {folio}</a>")
-            link.setTextFormat(Qt.TextFormat.RichText)
-            link.linkActivated.connect(self._abrir_os)
-            grid.addWidget(link, r, 1); r += 1
-        bl.addLayout(grid)
+        # ativo (banner)
+        ac = QFrame(); ac.setObjectName("card")
+        ah = QHBoxLayout(ac); ah.setContentsMargins(15, 13, 15, 13); ah.setSpacing(13)
+        ah.addWidget(_tile("rack", GREEN, _rgba(GREEN, 0.10)))
+        al = QLabel(d.get("ativo") or "—"); al.setWordWrap(True)
+        al.setStyleSheet(f"color:{TEXT};font-size:16px;font-weight:650;background:transparent;")
+        ah.addWidget(al, 1); bl.addWidget(ac)
 
-        bl.addWidget(self._secao("TÍTULO", d.get("descricao_full") or d.get("descricao") or "(sem título)"))
+        # meta + OS ligada
+        row = QHBoxLayout(); row.setSpacing(14)
+        mc = QFrame(); mc.setObjectName("card")
+        mv = QVBoxLayout(mc); mv.setContentsMargins(16, 4, 16, 4); mv.setSpacing(0)
+        self._meta(mv, "users", "Cliente", d.get("cliente") or "—")
+        self._meta(mv, "grid", "Usina", d.get("usina") or "—")
+        self._meta(mv, "cal", "Criada em", _data_br(d.get("data")))
+        self._meta(mv, "user", "Criado por", _person(d.get("criado_por")))
+        row.addWidget(mc, 3)
+        folio = d.get("os_folio") or (d.get("id_work_order") if d.get("id_work_order") else None)
+        row.addWidget(_OsLigadaCard(folio, self._abrir_os), 2)
+        bl.addLayout(row)
+
+        # título / observação
+        bl.addWidget(self._lbl("TÍTULO"))
+        tit = QLabel(d.get("descricao_full") or d.get("descricao") or "(sem título)")
+        tit.setObjectName("readboxTitle"); tit.setWordWrap(True)
+        tit.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        bl.addWidget(tit)
         if (d.get("observacao") or "").strip():
-            bl.addWidget(self._secao("OBSERVAÇÃO", d["observacao"]))
-        bl.addStretch(1)
+            bl.addWidget(self._lbl("OBSERVAÇÃO"))
+            obs = QLabel(d["observacao"]); obs.setObjectName("readbox"); obs.setWordWrap(True)
+            obs.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            bl.addWidget(obs)
 
-        scroll = QScrollArea(); scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.Shape.NoFrame); scroll.setWidget(body)
+        # anexos (Imagens × Documentos)
+        bl.addWidget(self._lbl("ANEXOS DA SOLICITAÇÃO"))
+        arow = QHBoxLayout(); arow.setSpacing(12)
+        self.card_img = _AnexoCard("image", "Imagens", "prints e fotos",
+                                   GREEN, _rgba(GREEN, 0.14), self._abrir_imagens)
+        self.card_doc = _AnexoCard("file", "Documentos", "PDF, planilhas",
+                                   DESK, _rgba(DESK, 0.14), self._abrir_docs)
+        arow.addWidget(self.card_img); arow.addWidget(self.card_doc)
+        bl.addLayout(arow)
+        bl.addStretch(1)
         lay.addWidget(scroll, 1)
 
-        # rodapé: botões
-        lay.addWidget(self._hline())
-        foot = QHBoxLayout(); foot.setContentsMargins(16, 10, 16, 12); foot.setSpacing(10)
+        # ── rodapé ──
+        sep2 = QFrame(); sep2.setFixedHeight(1); sep2.setStyleSheet("background:rgba(255,255,255,0.06);")
+        lay.addWidget(sep2)
+        foot = QHBoxLayout(); foot.setContentsMargins(18, 10, 18, 13); foot.setSpacing(9)
+        if folio:
+            b_os = QPushButton("Abrir OS ligada"); b_os.setObjectName("pClone")
+            b_os.setIcon(QIcon(icone_pix("file", GREEN_INK, 15))); b_os.setIconSize(QSize(15, 15))
+            b_os.setCursor(Qt.CursorShape.PointingHandCursor); b_os.clicked.connect(self._abrir_os)
+            foot.addWidget(b_os)
         foot.addStretch(1)
         if status not in _NAO_CANCELAVEL and idc is not None:
-            b_cancel = QPushButton("Cancelar solicitação")
-            b_cancel.setStyleSheet("QPushButton{color:#e0736e; background:#241a1a; border:1px solid "
-                                   "#6e3a37; border-radius:6px; padding:6px 14px;}"
-                                   "QPushButton:hover{background:#2e2020;}")
+            b_cancel = QPushButton("Cancelar solicitação"); b_cancel.setObjectName("pDanger")
             b_cancel.clicked.connect(self._cancelar)
             foot.addWidget(b_cancel)
-        b_close = QPushButton("Fechar"); b_close.setObjectName("secondary")
-        b_close.clicked.connect(self.reject)
+        b_close = QPushButton("Fechar"); b_close.setObjectName("pGhost"); b_close.clicked.connect(self.reject)
         foot.addWidget(b_close)
         lay.addLayout(foot)
-        self.resize(500, 540)
+        aplicar_geometria_card(self, 726)          # +10% de largura, altura = tela cheia
+        self._carregar_anexos(idc)
 
-    def _badge(self, status):
-        bg, fg = _STATUS_COR.get(status, ("#e5e7eb", "#374151"))
-        lb = QLabel(status)
-        lb.setStyleSheet(f"background:{bg}; color:{fg}; border-radius:10px; padding:2px 12px; "
-                         "font-size:11px; font-weight:600;")
-        return lb
+    # ── helpers de layout ──
+    def _lbl(self, txt):
+        l = QLabel(txt); l.setObjectName("secLab"); return l
 
-    def _rot(self, txt):
-        l = QLabel(txt); l.setStyleSheet(f"color:{self._MUTED};"); l.setMinimumWidth(88)
-        return l
+    def _meta(self, mv, icone, rot, val):
+        if mv.count():
+            ln = QFrame(); ln.setFixedHeight(1); ln.setStyleSheet("background:rgba(255,255,255,0.055);")
+            mv.addWidget(ln)
+        r = QWidget(); r.setStyleSheet("background:transparent;")
+        h = QHBoxLayout(r); h.setContentsMargins(0, 11, 0, 11); h.setSpacing(12)
+        h.addWidget(_svg(icone, MUTED, 16))
+        k = QLabel(rot); k.setStyleSheet(f"color:{MUTED};font-size:13px;background:transparent;")
+        h.addWidget(k)
+        if isinstance(val, str):
+            v = QLabel(val or "—"); v.setWordWrap(True)
+            v.setStyleSheet(f"color:{TEXT};font-weight:600;font-size:13px;background:transparent;")
+            h.addStretch(1); h.addWidget(v)
+        else:
+            h.addWidget(val, 1)
+        mv.addWidget(r)
 
-    def _hline(self):
-        f = QFrame(); f.setFixedHeight(1); f.setStyleSheet(f"background:{self._LINE};")
-        return f
+    # ── anexos ──
+    def _carregar_anexos(self, idc):
+        self._wa = ApiWorker(api.get_solic_anexos, idc)
+        self._wa.ok.connect(self._set_anexos); self._wa.erro.connect(lambda *_: None)
+        self._wa.start()
 
-    def _secao(self, rotulo, texto):
-        w = QWidget(); v = QVBoxLayout(w); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(5)
-        cab = QLabel(rotulo)
-        cab.setStyleSheet(f"color:{self._MUTED}; font-size:11px; font-weight:600; letter-spacing:0.4px;")
-        v.addWidget(cab)
-        blk = QLabel(str(texto)); blk.setWordWrap(True)
-        blk.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        blk.setStyleSheet(self._BLOCO)
-        v.addWidget(blk)
-        return w
+    @slot_seguro
+    def _set_anexos(self, anexos):
+        self._wa = None
+        self._anexos = anexos or []
+        self.card_img.set_count(sum(1 for a in self._anexos if a.get("is_image")))
+        self.card_doc.set_count(sum(1 for a in self._anexos if not a.get("is_image")))
+
+    def _abrir_imagens(self):
+        itens = [{"url": a.get("url"), "thumb": None,
+                  "descricao": a.get("nome") or ""} for a in self._anexos
+                 if a.get("is_image") and a.get("url")]
+        if itens:
+            abrir_galeria(self, itens, self._d.get("ativo") or "")
+
+    def _abrir_docs(self):
+        docs = [a.get("nome") or a.get("value") or "documento" for a in self._anexos if not a.get("is_image")]
+        if docs:
+            QMessageBox.information(self, "Documentos anexados",
+                                    "Documentos desta solicitação:\n\n• " + "\n• ".join(docs))
 
     def _abrir_os(self):
-        abrir_os_detalhe(self, self._d.get("id_work_order"), self._d.get("os_folio"))
+        if self._d.get("id_work_order"):
+            abrir_os_detalhe(self, self._d.get("id_work_order"), self._d.get("os_folio"))
 
     def _cancelar(self):
         if abrir_cancelar_solic(self, self._d.get("id_code"), self._d.get("id_code")):
@@ -164,16 +285,31 @@ class HistoricoSolic(QWidget):
         # criador (default = logado) + limpar filtros + atualizar
         row = QHBoxLayout(); row.setSpacing(6)
         row.addWidget(QLabel("Criado por"))
-        self.cb_pessoa = QComboBox(); self.cb_pessoa.setMinimumWidth(220)
+        self.cb_pessoa = QComboBox(); self.cb_pessoa.setMinimumWidth(200)
         self.cb_pessoa.currentIndexChanged.connect(self._on_pessoa)
         row.addWidget(self.cb_pessoa)
+        # box 1: buscar solicitação direto pelo nº (ignora filtros)
+        self.busca_sol = QLineEdit()
+        self.busca_sol.setPlaceholderText("Buscar solicitação pelo nº — ignora filtros")
+        self.busca_sol.setMinimumWidth(250); self.busca_sol.setClearButtonEnabled(True)
+        self.busca_sol.setToolTip("Digite o número da solicitação e tecle Enter — abre direto.")
+        self.busca_sol.addAction(QIcon(icone_pix("search", GREEN, 15)), QLineEdit.ActionPosition.LeadingPosition)
+        self.busca_sol.setStyleSheet("QLineEdit{border:1px solid #5c7a2a;}")
+        self.busca_sol.returnPressed.connect(self._buscar_sol)
+        row.addSpacing(10); row.addWidget(self.busca_sol)
         row.addStretch(1)
+        # box 2: aviso de atualização automática
+        self.lbl_auto = QLabel("↻ Atualiza a cada 15 min"); self.lbl_auto.setObjectName("hint")
+        self.lbl_auto.setToolTip("Com a aba aberta, atualiza sozinho a cada 15 minutos.")
+        row.addWidget(self.lbl_auto)
         row.addWidget(QLabel("Buscar"))
         self.busca = QLineEdit(); self.busca.setPlaceholderText("nº, ativo, descrição, status…")
-        self.busca.setMaximumWidth(220); self.busca.setClearButtonEnabled(True)
-        self.busca.setToolTip("Filtra por qualquer campo (nº, cliente, usina, ativo, descrição, "
-                              "status).  [Ctrl+F]")
-        self.busca.textChanged.connect(self._aplica)
+        self.busca.setMaximumWidth(200); self.busca.setClearButtonEnabled(True)
+        self.busca.setToolTip("Filtra as solicitações já carregadas por qualquer campo.  [Ctrl+F]")
+        # debounce: filtra ~260ms depois de parar de digitar (senão reconstrói a tabela a cada tecla = trava)
+        self._busca_timer = QTimer(self); self._busca_timer.setSingleShot(True); self._busca_timer.setInterval(260)
+        self._busca_timer.timeout.connect(self._aplica)
+        self.busca.textChanged.connect(lambda *_: self._busca_timer.start())
         row.addWidget(self.busca)
         self.b_export = QPushButton("Exportar"); self.b_export.setObjectName("secondary")
         self.b_export.setToolTip("Exporta as solicitações exibidas p/ CSV (abre no Excel).  [Ctrl+E]")
@@ -248,12 +384,13 @@ class HistoricoSolic(QWidget):
         h.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
         h.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
         h.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
-        h.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
-        h.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
-        h.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)
+        h.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)   # Criada em
+        h.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)             # Status (cellWidget)
+        h.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)   # OS ligada
         self.tab.setColumnWidth(1, 90)
         self.tab.setColumnWidth(2, 130)
         self.tab.setColumnWidth(3, 150)
+        self.tab.setColumnWidth(6, 150)
         self.tab.cellClicked.connect(self._on_cell)
         lay.addWidget(self.tab, 1)
 
@@ -263,9 +400,13 @@ class HistoricoSolic(QWidget):
         self.hint = QLabel(""); self.hint.setObjectName("hint")
         hrow.addWidget(self.hint); hrow.addStretch(1)
         lay.addLayout(hrow)
+        # auto-atualização a cada 15 min (com a aba visível e sem carga em andamento)
+        self._auto = QTimer(self); self._auto.setInterval(15 * 60 * 1000)
+        self._auto.timeout.connect(self._auto_refresh)
+        self._auto.start()
 
     def carregar_inicial(self):
-        """1ª abertura → carrega a lista de pessoas (e, ao selecionar o logado, a lista de solicitações)."""
+        """Toda vez que a aba abre → recarrega (a menos que já haja carga em andamento)."""
         if not self._pessoas_loaded and self._wp is None:
             self.spinner.start()
             self.hint.setText("carregando usuários…")
@@ -273,8 +414,26 @@ class HistoricoSolic(QWidget):
             self._wp.ok.connect(self._set_pessoas)
             self._wp.erro.connect(lambda m: (self._set_pessoas(None), self._carregar()))
             self._wp.start()
-        elif not self._dados and self._w is None:
+        elif self._w is None and self._wp is None:
             self._carregar()
+
+    def _auto_refresh(self):
+        if self.isVisible() and self._w is None and self._wp is None:
+            self._carregar()
+
+    def _buscar_sol(self):
+        """Busca DIRETA pelo nº da solicitação (ignora filtros) → abre o card. Procura nas carregadas."""
+        no = (self.busca_sol.text() or "").strip()
+        if not no:
+            return
+        d = next((x for x in self._dados if str(x.get("id_code") or "").strip() == no), None)
+        if d:
+            self.busca_sol.clear()
+            self._mostrar_descricao(d)
+        else:
+            QMessageBox.information(self, "Solicitação não encontrada",
+                f"Não achei a solicitação nº {no} entre as carregadas. Se for de outro criador, "
+                "troque em 'Criado por' (ou 'Todos os usuários') e tente de novo.")
 
     def _set_pessoas(self, r):
         self._wp = None
@@ -402,11 +561,7 @@ class HistoricoSolic(QWidget):
             self.tab.setItem(r, 3, QTableWidgetItem(d.get("ativo") or ""))
             self.tab.setItem(r, 4, QTableWidgetItem(d.get("descricao") or "—"))
             self.tab.setItem(r, 5, QTableWidgetItem(_data_br(d.get("data"))))
-            it = QTableWidgetItem(d.get("status") or "")
-            bg, fg = _STATUS_COR.get(d.get("status"), ("#e5e7eb", "#374151"))
-            it.setBackground(QBrush(QColor(bg))); it.setForeground(QBrush(QColor(fg)))
-            it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.tab.setItem(r, 6, it)
+            self.tab.setCellWidget(r, 6, _status_solic_widget(d.get("status")))   # card de status vivo
             folio = d.get("os_folio")
             osi = QTableWidgetItem(str(folio) if folio else "—")
             osi.setTextAlignment(Qt.AlignmentFlag.AlignCenter)

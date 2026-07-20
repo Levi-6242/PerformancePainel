@@ -34,9 +34,11 @@ def _pix(data):
 
 
 def abrir_galeria(parent, imagens, ativo_os=""):
-    """Abre a galeria de fotos da OS (lista de {url, thumb, descricao, ativo}). `ativo_os` = nome do
-    ativo da OS, usado como fallback quando a foto não traz o ativo próprio."""
-    GaleriaDialog(parent, imagens, ativo_os).exec()
+    """Abre a galeria de fotos (OS / subtarefas / solicitações) em TELA CHEIA (maximizada). Lista de
+    {url, thumb, descricao, ativo}. `ativo_os` = nome do ativo, fallback quando a foto não traz o próprio."""
+    dlg = GaleriaDialog(parent, imagens, ativo_os)
+    dlg.showMaximized()               # abre maximizada; exec() só a torna modal (mantém o estado)
+    dlg.exec()
 
 
 class GaleriaDialog(QDialog):
@@ -83,7 +85,8 @@ class GaleriaDialog(QDialog):
         w = QWidget(); v = QVBoxLayout(w); v.setContentsMargins(0, 0, 0, 0); v.setSpacing(4)
         nome = self._rotulo(idx)                                 # 'Ativo — Tarefa' ACIMA do card
         cap = QLabel(nome); cap.setObjectName("hint")
-        cap.setWordWrap(True); cap.setFixedWidth(_THUMB.width() + 6); cap.setFixedHeight(36)
+        cap.setWordWrap(True); cap.setFixedWidth(_THUMB.width() + 6); cap.setFixedHeight(66)
+        cap.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         cap.setToolTip(nome)
         btn = QPushButton(f"foto {idx + 1}\n(carregando…)"); btn.setObjectName("secondary")
         btn.setFixedSize(_THUMB.width() + 6, _THUMB.height() + 6)
@@ -164,7 +167,9 @@ class GaleriaDialog(QDialog):
 
     @slot_seguro
     def _abrir(self, idx):
-        ImagemViewer(self, idx).exec()
+        v = ImagemViewer(self, idx)
+        v.showMaximized()             # visualizador da foto também em tela cheia
+        v.exec()
 
 
 class _ImagemLabel(QLabel):

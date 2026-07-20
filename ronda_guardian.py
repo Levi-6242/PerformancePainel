@@ -31,7 +31,8 @@ if not os.path.exists(pyw):
 try:
     subprocess.Popen([pyw, "app.py"], cwd=DIR,
                      creationflags=subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS)
-    with open(os.path.join(DIR, "ronda_guardian.log"), "a", encoding="utf-8") as f:
+    os.makedirs(os.path.join(DIR, "logs"), exist_ok=True)
+    with open(os.path.join(DIR, "logs", "ronda_guardian.log"), "a", encoding="utf-8") as f:
         f.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S") +
                 "  servidor 5050 estava fora - reiniciado pelo guardiao\n")
 except Exception:

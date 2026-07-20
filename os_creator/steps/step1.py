@@ -5,8 +5,9 @@ import unicodedata
 from PyQt6.QtCore import Qt, pyqtSignal, QDateTime
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QLineEdit,
-                             QListWidget, QListWidgetItem, QPushButton, QDateTimeEdit)
-from steps.ui import Card, campo, rotulo, Linha, icone_pix, MUTED
+                             QPushButton, QDateTimeEdit, QTableWidget, QTableWidgetItem,
+                             QHeaderView, QAbstractItemView)
+from steps.ui import Card, campo, rotulo, Linha, icone_pix, MUTED, GREEN
 
 TODOS_USINA = "— Selecione a usina —"
 TODOS_TIPO  = "Todos os tipos"
@@ -38,6 +39,7 @@ class Step1(QWidget):
         super().__init__()
         self._assets = []
         self._checked = set()       # ids dos ativos marcados (persistem entre filtros)
+        self._imgs = {}             # id do ativo -> [{'bytes','nome','thumb'}] (anexo por ativo, 1 OS/ativo)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(18, 12, 18, 12)
         lay.setSpacing(12)
@@ -53,9 +55,20 @@ class Step1(QWidget):
         self.busca.setPlaceholderText("Refinar por código ou nome…")
         self.busca.addAction(QIcon(icone_pix("search", MUTED, 15)), QLineEdit.ActionPosition.LeadingPosition)
         self.busca.textChanged.connect(self._refresh_ativos)
-        self.lista = QListWidget(); self.lista.setMinimumHeight(190)
-        self.lista.itemChanged.connect(self._on_check)
-        self.lista.itemClicked.connect(self._toggle)
+        self.tbl = QTableWidget(0, 2)
+        self.tbl.setHorizontalHeaderLabels(["Ativo", "Anexos"])
+        self.tbl.verticalHeader().setVisible(False)
+        self.tbl.verticalHeader().setDefaultSectionSize(44)
+        self.tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.tbl.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        self.tbl.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.tbl.setMinimumHeight(190)
+        self.tbl.setStyleSheet("QTableWidget::item{padding-left:0px;}")   # check colado (fix da Performance)
+        _hh = self.tbl.horizontalHeader()
+        _hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        _hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.tbl.setColumnWidth(1, 140)
+        self.tbl.itemChanged.connect(self._on_check)
         self.hint = QLabel("carregando ativos…"); self.hint.setObjectName("hint")
         self.dt_prog = QDateTimeEdit(QDateTime.currentDateTime())
         self.dt_prog.setDisplayFormat("dd/MM/yyyy HH:mm"); self.dt_prog.setCalendarPopup(True)
@@ -69,8 +82,8 @@ class Step1(QWidget):
         card.add(Linha(campo("Cliente", self.cb_cliente, obrig=True),
                        campo("Usina", self.cb_usina, obrig=True)))
         card.add(Linha(campo("Tipo de equipamento", self.cb_tipo), campo(" ", self.busca)))
-        card.add(rotulo("Ativos", obrig=True, extra="(marque um ou vários)"))
-        card.add(self.lista, stretch=1)
+        card.add(rotulo("Ativos", obrig=True, extra="(marque um ou vários — cada um vira uma OS; anexe imagens por ativo)"))
+        card.add(self.tbl, stretch=1)
         card.add(self.hint)
         card.add(campo("Data programada", dtw, extra="(Brasília)"))
         lay.addWidget(card, 1)
@@ -138,10 +151,10 @@ class Step1(QWidget):
         cli, usi = self._cliente_sel(), self._usina_sel()
         tipo = self.cb_tipo.currentText() if self.cb_tipo.currentIndex() > 0 else None
         txt = (self.busca.text() or "").strip().lower()
-        self.lista.blockSignals(True)        # evita disparar _on_check ao popular
-        self.lista.clear()
+        self.tbl.blockSignals(True)          # evita disparar _on_check ao popular
+        self.tbl.setRowCount(0)
         if not usi:
-            self.lista.blockSignals(False)
+            self.tbl.blockSignals(False)
             self._atualiza_hint("Selecione cliente e usina para ver os ativos.")
             return
         n = 0
@@ -154,29 +167,44 @@ class Step1(QWidget):
                 continue
             if txt and txt not in a["label"].lower():
                 continue
-            it = QListWidgetItem(a["label"])
+            r = self.tbl.rowCount(); self.tbl.insertRow(r)
+            it = QTableWidgetItem(a["label"])
             it.setData(Qt.ItemDataRole.UserRole, a)
-            it.setFlags(it.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            it.setFlags((it.flags() | Qt.ItemFlag.ItemIsUserCheckable) & ~Qt.ItemFlag.ItemIsEditable)
             it.setCheckState(Qt.CheckState.Checked if a["id"] in self._checked
                              else Qt.CheckState.Unchecked)
-            self.lista.addItem(it)
+            self.tbl.setItem(r, 0, it)
+            self.tbl.setCellWidget(r, 1, self._anexo_btn(a["id"]))
             n += 1
-        self.lista.blockSignals(False)
+        self.tbl.blockSignals(False)
         self._atualiza_hint(f"{n} ativo(s) nesta seleção")
 
-    # ── seleção múltipla ──
-    def _toggle(self, it):
-        it.setCheckState(Qt.CheckState.Unchecked if it.checkState() == Qt.CheckState.Checked
-                         else Qt.CheckState.Checked)
+    def _anexo_btn(self, aid):
+        """Botão de anexo da linha do ativo (abre o mesmo diálogo da Performance)."""
+        n = len(self._imgs.get(aid, []))
+        b = QPushButton(f"{n} imagem(ns)" if n else "Anexar")
+        b.setObjectName("secondary")
+        b.setIcon(QIcon(icone_pix("image", GREEN if n else MUTED, 15)))
+        b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.clicked.connect(lambda _c, k=aid: self._anexar(k))
+        return b
 
+    def _anexar(self, aid):
+        from steps.performance import PerfAnexoDialog     # import tardio (evita ciclo)
+        a = next((x for x in self._assets if x["id"] == aid), {})
+        PerfAnexoDialog(self, a.get("label") or a.get("code") or "ativo",
+                        self._imgs.setdefault(aid, [])).exec()
+        self._refresh_ativos()               # atualiza o rótulo do botão (N imagens)
+
+    # ── seleção múltipla ──
     def _on_check(self, it):
+        if it is None or it.column() != 0:
+            return
         a = it.data(Qt.ItemDataRole.UserRole)
         if not a:
             return
-        if it.checkState() == Qt.CheckState.Checked:
-            self._checked.add(a["id"])
-        else:
-            self._checked.discard(a["id"])
+        (self._checked.add if it.checkState() == Qt.CheckState.Checked
+         else self._checked.discard)(a["id"])
         self._atualiza_hint(self.hint.text().split("  ·")[0])
 
     def _atualiza_hint(self, base):
@@ -216,12 +244,22 @@ class Step1(QWidget):
     def selected_assets(self):
         return [a for a in self._assets if a["id"] in self._checked]
 
+    def selected_images(self):
+        """{code do ativo -> [{'bytes','nome'}]} só dos ativos MARCADOS que têm imagem anexada."""
+        out = {}
+        for a in self._assets:
+            if a["id"] in self._checked and self._imgs.get(a["id"]):
+                out[a.get("code")] = [{"bytes": im.get("bytes"), "nome": im.get("nome")}
+                                      for im in self._imgs[a["id"]]]
+        return out
+
     def data_programada(self):
         """Data/hora programada escolhida (naive = Brasília; o app anexa o fuso → event_date)."""
         return self.dt_prog.dateTime().toPyDateTime()
 
     def reset(self):
         self._checked.clear()
+        self._imgs.clear()
         self.dt_prog.setDateTime(QDateTime.currentDateTime())
         self.busca.blockSignals(True)
         self.busca.clear()

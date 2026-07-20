@@ -1,0 +1,108 @@
+Relatorio de Analise de Correntes de String
+UFV Sete Lagoas (STL) | 18/07/2026 | 10 inversores | 236 strings | Janela solar 06:00-18:00
+Este relatorio consolida a classificacao de status, o registro de ocorrencias e a metodologia utilizada. Introduz uma
+nova categoria de achado: sombreamento estrutural recorrente, distinta de falha de equipamento.
+ACHADO PRINCIPAL (hipotese revisada): nenhuma string apresentou falha eletrica real (fusivel,
+conector, cabo). As 7 ocorrencias identificadas em 6 strings de 3 inversores diferentes seguem um
+padrao de declinio gradual e conjunto, inicialmente interpretado como sombreamento estrutural fixo.
+Apos revisao, a hipotese mais provavel passou a ser falha ou desalinhamento do tracker que
+alimenta essas strings: um tracker parado num angulo fixo produz exatamente esse padrao de
+declinio suave (perda gradual de incidencia por efeito cosseno a medida que o sol se afasta do angulo
+travado), diferente da borda mais abrupta tipica de sombra de obstaculo fisico. Confirmacao requer
+cruzamento com o arquivo de angulo de tracker desta usina e data, ainda nao disponivel no momento
+desta analise.
+1. Status das Strings
+1.1 Resumo executivo
+Categoria Qtd Descricao
+Parado (falha eletrica) 0 Nenhuma
+Ocorrencia (falha eletrica temporaria) 0 Nenhuma
+Possivel falha de tracker (hipotese) 3 inve6rs sotrreinsg, s2 padroes distintos (manha e tarde) &mdash; requer confirmacao com dado de angulo
+Normal 230 Corrente dentro do padrao esperado
+1.2 Possivel falha de tracker — padrao matinal
+Inversor 1.1 / ST_11 e ST_20 — ambas permanecem em 0,00 A ate aproximadamente 07:31-07:46, cerca de 45 a
+60 minutos depois das strings-irmas do mesmo inversor (ST_01 e ST_02, que ja geram 2 a 8 A no mesmo horario).
+A partir de aproximadamente 07:46-08:01, as quatro strings convergem e passam a gerar de forma praticamente
+identica pelo resto do dia. Hipotese principal: o tracker que atende esta zona do campo pode ter permanecido fora
+de posicao (por exemplo, travado no angulo de stow desde antes da meia-noite, padrao ja observado em outras
+usinas desta serie) ate aproximadamente 07:31-07:46, quando teria retomado o rastreamento normal. Hipotese
+alternativa (obstaculo fisico a leste) permanece possivel, mas menos provavel dado o padrao de convergencia
+rapida e completa.
+1.3 Possivel falha de tracker — padrao vespertino
+Inversor 1.9 / ST_12, ST_13 e ST_16 — declinio gradual e conjunto a partir de aproximadamente 13:00 (quando
+ainda geram 9 a 13 A), chegando a zero por volta de 15:23-16:43, enquanto as strings-irmas ST_01 e ST_02 do
+mesmo inversor mantêm mais de 11 A ate 16:03. O declinio suave e gradual (nao abrupto) e mais consistente com
+um tracker que parou de acompanhar o sol em algum angulo fixo por volta do inicio da tarde: a perda de corrente
+resultante do afastamento progressivo entre o angulo travado e a posicao real do sol segue uma curva suave
+(proporcional ao cosseno do angulo de incidencia), e nao uma transicao abrupta como a borda de uma sombra
+fisica cruzando o modulo.
+Inversor 1.10 / ST_26 e ST_27 — mesmo padrao: declinio conjunto a partir de aproximadamente 15:03-15:23,
+chegando a zero por volta de 15:43-16:03, cerca de 1 a 1,5 hora antes das strings-irmas ST_01 e ST_02, que so
+declinam de forma semelhante apos 16:23. Mesma hipotese de tracker travado aplicavel.
+Confirmacao pendente: esta hipotese precisa ser validada cruzando estes horarios com o arquivo de angulo de
+tracker desta usina (Sete Lagoas) na mesma data, ainda nao disponivel. Se confirmada, a acao recomendada
+muda de inspecao de vegetacao/estrutura para abertura de chamado de manutencao no(s) tracker(s) que atendem
+os inversores 1.1, 1.9 e 1.10.
+1.4 Normal (230 strings)
+As demais strings, incluindo a maioria das strings dos inversores 1.9, 1.10 e 1.1 nao mencionadas acima,
+produziram corrente dentro do padrao esperado, sem sombreamento atipico ou falha eletrica.
+2. Ocorrencias (janela solar 06:00-18:00)
+Nenhuma ocorrencia de falha eletrica foi identificada. Os seis casos abaixo sao registrados como sombreamento
+estrutural recorrente, categoria distinta de falha, conforme detalhado na secao 1 e na metodologia (secao 3).
+2.1 Padrao matinal
+String Inicio da geracao Atraso em relacao as irmas Corrente das irmas no horario
+Inversor 1.1 / ST_11 ~07:46 ~60 min 10,6 A
+Inversor 1.1 / ST_20 ~07:31 ~45 min 8,1 A
+2.2 Padrao vespertino
+String Corrente chega a zero Antecipacao em relacao as irmas Corrente das irmas no horario
+Inversor 1.9 / ST_12 ~15:43 ~40 min 11,95 A
+Inversor 1.9 / ST_13 ~15:23 ~1h 12,24 A
+Inversor 1.9 / ST_16 ~16:43 ~15 min 3,57 A
+Inversor 1.10 / ST_26 ~15:43 ~1h20min 12,21 A
+Inversor 1.10 / ST_27 ~16:03 ~1h 11,67 A
+Estimativa de perda de geracao diaria: entre 30 e 90 minutos de exposicao solar util por string afetada, todos os dias
+em que as condicoes de sombreamento se repetirem (padrao estrutural, portanto recorrente). Recomenda-se
+inspecao visual do campo nos horarios identificados para confirmar a origem do sombreamento (vegetacao, estrutura
+fisica, ou fileira adjacente) e avaliar viabilidade de poda ou outra mitigacao.
+3. Metodologia
+3.1 Deteccao inicial (metodologia ja estabelecida)
+Mantida a comparacao de cada string contra a mediana das strings-irmas do mesmo inversor, com deteccao de
+janelas de queda (corrente abaixo de 0,5 A enquanto a mediana das irmas supera 2,0 A) agrupadas com limiar
+minimo de 30 minutos.
+3.2 Nova categoria: possivel falha de tracker refletida em corrente de string
+A inspecao detalhada dos casos sinalizados nesta usina revelou um padrao distinto dos relatorios anteriores: em vez
+de uma queda abrupta seguida de patamar plano (assinatura tipica de falha eletrica, como visto em SMP100 e
+TIM100) ou uma queda isolada com recuperacao total e rampas saudaveis nas bordas (assinatura de causa ambiental
+transitoria, como visto em TUP), as strings aqui apresentaram um declinio gradual e conjunto compartilhado com
+um subconjunto especifico de strings-irmas.
+A interpretacao inicial deste padrao foi sombreamento estrutural fixo (vegetacao ou edificacao). Apos revisao,
+identificou-se uma explicacao fisica alternativa e mais provavel: quando um tracker para de acompanhar o sol e
+permanece travado em um angulo fixo, a corrente das strings que ele alimenta nao cai abruptamente, pois o modulo
+continua recebendo luz solar direta — apenas com incidencia cada vez mais oblíqua conforme o sol se afasta do
+angulo travado. Essa perda de corrente segue aproximadamente a lei do cosseno do angulo de incidencia, produzindo
+exatamente o tipo de curva suave e gradual observada nesta usina. Ja um obstaculo fisico fixo (arvore, estrutura)
+tende a produzir uma transicao de sombra mais definida no momento em que o sol cruza aquele ponto especifico do
+horizonte, o que normalmente gera uma queda um pouco mais abrupta do que a observada aqui.
+Como as duas hipoteses (tracker travado e obstaculo fisico) podem produzir sinais semelhantes em corrente de string,
+a confirmacao definitiva depende de cruzar os horarios do evento com o arquivo de angulo do tracker correspondente
+aquela zona do campo, quando disponivel.
+para uma string com queda gradual detectada (nao abrupta):
+examinar a trajetoria completa (nao so a janela de queda) contra as strings-irmas
+se a curva de declinio for suave e nao abrupta, compartilhada por um subgrupo
+especifico de strings do mesmo inversor:
+-> hipotese preferencial: tracker da zona parou de acompanhar o sol
+-> hipotese alternativa: obstaculo fisico fixo
+-> se dado de angulo de tracker estiver disponivel: cruzar horarios para
+confirmar qual hipotese se aplica
+-> se dado de angulo nao estiver disponivel: registrar como possivel falha
+de tracker (hipotese principal) e recomendar confirmacao futura
+3.3 Diferenciacao entre as assinaturas de queda de corrente ja identificadas
+Assinatura Padrao observado Interpretacao Exemplo
+Falha eletrica permaQnueendtae abrupta, patamar zero absoluto, sem recuperDaceasoconexao total ou mau contato TIM100, SMP100
+Causa ambQieunetdaal t rbarnesvieto eri aisolada, rampas saudaveis antes/depois, recupeSroamcabora t odtea lnuvem passageira TUP
+PossivDeel fcalilnhiao dseu atrvaec kee grradual de um subgrupo, coincTidraec ckoemr t raanvgaudloo fsoer aa fdaas tpaonsdicoa doo i dseoall (confirmar com dadoS deet ea nLgauglooa)s (este relatorio)
+SombreaTmraennstioc aeos tdruet usroaml fbixrao mais definida noO hbosratarciou leom fi sqiucoe (ov esogle ctaruczaao ,u ems tpruotnutroa )f i&xomdash; hipotese alternAat icvoan afiorm itaerm e man rteerlaiotorrios futuros
+Esta tabela de referencia sera mantida e expandida em relatorios futuros conforme novas assinaturas de
+comportamento sejam identificadas, servindo como guia rapido de classificacao para a equipe de O&M. Sempre que
+corrente de string e angulo de tracker da mesma usina e data estiverem disponiveis, a analise cruzada entre os dois
+arquivos passa a ser o metodo preferencial para confirmar declinios graduais como falha de tracker versus
+sombreamento fisico.

@@ -12,9 +12,10 @@ _NENHUMA = "— nenhuma —"
 
 
 class TipoTarefaBox:
-    def __init__(self):
+    def __init__(self, crit_default=None):
         self._w = None
         self._pending_tipo = None     # tipo a selecionar quando as listas terminarem de carregar
+        self._crit_default = api.CRITICIDADE_DEFAULT if crit_default is None else crit_default
         self.grid = QGridLayout()
         self.grid.setHorizontalSpacing(14)
         self.grid.setVerticalSpacing(6)
@@ -28,7 +29,7 @@ class TipoTarefaBox:
         self.cb_crit = QComboBox()
         for nome, idp in api.CRITICIDADES:
             self.cb_crit.addItem(nome, idp)
-        i = self.cb_crit.findData(api.CRITICIDADE_DEFAULT)
+        i = self.cb_crit.findData(self._crit_default)
         if i >= 0:
             self.cb_crit.setCurrentIndex(i)                # default Médio
 
@@ -108,7 +109,7 @@ class TipoTarefaBox:
 
     def reset(self):
         """Volta criticidade p/ Médio e classif p/ nenhuma (não recarrega as listas)."""
-        i = self.cb_crit.findData(api.CRITICIDADE_DEFAULT)
+        i = self.cb_crit.findData(self._crit_default)
         if i >= 0:
             self.cb_crit.setCurrentIndex(i)
         if self.cb_c1.count():

@@ -1,0 +1,47 @@
+{
+  "refere_a": "MAB200 · trackers · 2026-07-09 · sunop (Athon)",
+  "dia_tipo": "problematico",
+  "regua_pendente": true,
+  "narrativa": "PRIMEIRO caso SunOp/Athon. Frota de 150 trackers, arco saudavel ~111deg (-56 a +55). Dois achados que a regua precisa absorver: (A) sub-tipo de PARADO 'comunicacao morta' = reporta EXATAMENTE 0.00deg nas 24h (madrugada inclusa), flat 100% -> offline/desconexao, distinto de travado num ANGULO REAL (ex.: -37.5) que e falha mecanica. (B) 7 trackers SEVEROS por CONGELAMENTO (freeze), nenhum detectado pelo classificador de curso: eles ainda varreram quase todo o curso (bateram o batente leste de manha), so congelaram um trecho -> a regra de alcance-dos-extremos os ve como leve/normal. TRK_3/4/5 congelaram JUNTOS na tarde (~14:50->16:35, platos 37.7/38.6/44.1) = causa compartilhada (mesma string/zona/controlador). TRK_1/2 congelaram isolados no fim da tarde e recuperaram com overshoot. TRK_35/149 anomalia na rampa matinal. GAP PROVADO: falta camada de OCORRENCIA (duracao de freeze) sobre o classificador de curso. Alvo (posal) do SunOp veio VAZIO nesta planta -> 'ideal da fonte' nao e universal. Obs: ~13 normais tem picos de 9-20deg nas transicoes de batente (dessincronia de timing, benigno) e foram mantidos normais corretamente.",
+  "esperado": {
+    "TRK_81":  {"status": "parado", "subtipo": "comunicacao_morta", "evidencia": "0.00deg em 647/647 pontos, flat 100%"},
+    "TRK_87":  {"status": "parado", "subtipo": "comunicacao_morta", "evidencia": "0.00deg 24h"},
+    "TRK_106": {"status": "parado", "subtipo": "comunicacao_morta", "evidencia": "0.00deg 24h"},
+    "TRK_122": {"status": "parado", "subtipo": "comunicacao_morta", "evidencia": "0.00deg 24h"},
+    "TRK_9":   {"status": "parado", "subtipo": "travado_mecanico", "evidencia": "amp 0.2, travado em -16.4"},
+    "TRK_12":  {"status": "parado", "subtipo": "travado_mecanico", "evidencia": "amp 0.4, travado em -37.5"},
+    "TRK_42":  {"status": "parado", "subtipo": "travado_mecanico", "evidencia": "amp 0.4, travado em +18.9"},
+    "TRK_91":  {"status": "parado", "subtipo": "travado_mecanico", "evidencia": "amp 0.3, travado em -20.4"},
+    "TRK_93":  {"status": "parado", "subtipo": "travado_mecanico", "evidencia": "amp 0.6, travado em -21.9"},
+    "TRK_95":  {"status": "parado", "subtipo": "travado_mecanico", "evidencia": "amp 0.7, travado em -34.3"},
+    "TRK_3":   {"status": "desvio_severo", "subtipo": "freeze_tarde_correlacionado", "evidencia": "congelou 37.7 ~14:50-16:35"},
+    "TRK_4":   {"status": "desvio_severo", "subtipo": "freeze_tarde_correlacionado", "evidencia": "congelou 38.6 ~14:50-16:35"},
+    "TRK_5":   {"status": "desvio_severo", "subtipo": "freeze_tarde_correlacionado", "evidencia": "congelou 44.1 ~15:10-16:30"},
+    "TRK_1":   {"status": "desvio_severo", "subtipo": "freeze_isolado_recuperou", "evidencia": "congelou 36.9 ~16:00-16:35, overshoot 49.3"},
+    "TRK_2":   {"status": "desvio_severo", "subtipo": "freeze_isolado_recuperou", "evidencia": "dois episodios 16:20-16:45, overshoot 49.9"},
+    "TRK_35":  {"status": "desvio_severo", "subtipo": "freeze_rampa_matinal", "evidencia": "travou -34.6 ~07:55-08:05 antes de bater batente"},
+    "TRK_149": {"status": "desvio_severo", "subtipo": "freeze_rampa_matinal", "evidencia": "travou -32.2 ~07:45-08:35"}
+  },
+  "agregado_esperado": {
+    "parado": 10,
+    "desvio_severo": 7,
+    "normal": 133
+  },
+  "flags_comunicacao": {
+    "trackers": ["TRK_81", "TRK_87", "TRK_106", "TRK_122"],
+    "regra": "0.00deg exato nas 24h (madrugada inclusa) = provavel offline/desconexao, nao travamento mecanico; prioridade maxima"
+  },
+  "correlacao_evento": {
+    "trackers": ["TRK_3", "TRK_4", "TRK_5"],
+    "regra": "freeze simultaneo (~14:50-16:35) em trackers de numeracao vizinha = causa compartilhada (string/zona/controlador)"
+  },
+  "flags_qualidade": {
+    "descricao": "~13 normais com picos de 9-20deg nas janelas de transicao de batente = dessincronia de timing, benigno (nao falha). Classificador de curso ja os manteve normais."
+  },
+  "resultado_classificador_atual": {
+    "parado": "10/10 correto (comunicacao morta E travado real, ambos via amp<15)",
+    "desvio_severo": "0/7 — TRK_3/4/5/1/2 viraram desvio_leve; TRK_35/149 viraram normal",
+    "normais_benignos": "13 picos de batente mantidos normais (OK)",
+    "gap": "classificador de curso NAO enxerga congelamento; precisa de camada de OCORRENCIA (freeze continuo >= ~20-35min na janela de rastreio) para marcar severo"
+  }
+}

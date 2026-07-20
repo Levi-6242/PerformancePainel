@@ -1,0 +1,310 @@
+<title>Plano — Confiabilidade da Plataforma</title>
+<style>
+  :root {
+    --bg: #f5f8f0; --surface: #ffffff; --surface-2: #edf1e6; --text: #171d11;
+    --muted: #5b6551; --faint: #7d876f; --border: #e1e6d6;
+    --accent: #4d7a00; --accent-2: #7fb000; --lime: #9bcf12;
+    --red: #bf2626; --amber: #a55a09; --blue: #1f66d0;
+    --shadow: 0 1px 2px rgba(20,30,10,.05), 0 8px 24px -12px rgba(20,30,10,.12);
+    --font-sans: system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: "Cascadia Code", "Cascadia Mono", "SF Mono", "JetBrains Mono", ui-monospace, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #090d18; --surface: #121a2b; --surface-2: #19223a; --text: #e9eff6;
+      --muted: #98a5ba; --faint: #6f7d94; --border: #26314a;
+      --accent: #a6d92c; --accent-2: #8dc700; --lime: #b7e64c;
+      --red: #f0716e; --amber: #e0a63a; --blue: #6ea6ff;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f8f0; --surface: #ffffff; --surface-2: #edf1e6; --text: #171d11;
+    --muted: #5b6551; --faint: #7d876f; --border: #e1e6d6; --accent: #4d7a00;
+    --accent-2: #7fb000; --lime: #9bcf12; --red: #bf2626; --amber: #a55a09; --blue: #1f66d0;
+    --shadow: 0 1px 2px rgba(20,30,10,.05), 0 8px 24px -12px rgba(20,30,10,.12);
+  }
+  :root[data-theme="dark"] {
+    --bg: #090d18; --surface: #121a2b; --surface-2: #19223a; --text: #e9eff6;
+    --muted: #98a5ba; --faint: #6f7d94; --border: #26314a; --accent: #a6d92c;
+    --accent-2: #8dc700; --lime: #b7e64c; --red: #f0716e; --amber: #e0a63a; --blue: #6ea6ff;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .doc { background: var(--bg); color: var(--text); font-family: var(--font-sans);
+    line-height: 1.65; font-size: 16px; -webkit-font-smoothing: antialiased;
+    padding: clamp(1.1rem, 4vw, 3rem) 1.1rem 5rem; }
+  .wrap { max-width: 920px; margin: 0 auto; }
+
+  .eyebrow { font-size: .72rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--accent); margin: 0 0 .6rem; }
+  h1 { font-size: clamp(2rem, 5.4vw, 3.05rem); line-height: 1.04; font-weight: 800; letter-spacing: -.02em; margin: 0 0 .7rem; text-wrap: balance; }
+  .lede { font-size: clamp(1.02rem, 2.2vw, 1.18rem); color: var(--muted); margin: 0; max-width: 64ch; }
+
+  section { margin-top: clamp(2.4rem, 6vw, 3.6rem); }
+  h2 { font-size: 1.34rem; font-weight: 750; letter-spacing: -.01em; margin: 0 0 .35rem; display: flex; align-items: baseline; gap: .6rem; }
+  h2 .n { font-family: var(--font-mono); font-size: .82rem; font-weight: 700; color: var(--accent); border: 1px solid var(--border); border-radius: 6px; padding: .05rem .4rem; background: var(--surface-2); }
+  .sub { color: var(--muted); margin: 0 0 1.3rem; max-width: 66ch; }
+  p { margin: 0 0 1rem; }
+  strong { font-weight: 650; }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .hl { color: var(--accent); font-weight: 600; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 1.15rem 1.2rem; box-shadow: var(--shadow); }
+
+  /* problem: whack-a-mole vs ratchet */
+  .vs { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-top: 1.2rem; }
+  @media (max-width: 720px) { .vs { grid-template-columns: 1fr; } }
+  .vs .panel { border: 1px solid var(--border); border-radius: 14px; padding: 1.1rem 1.2rem; background: var(--surface); }
+  .vs .lab { font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .12em; margin: 0 0 .7rem; }
+  .vs .bad .lab { color: var(--red); }
+  .vs .good .lab { color: var(--accent); }
+  .cyc { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; font-family: var(--font-mono); font-size: .8rem; }
+  .cyc .c { background: var(--surface-2); border: 1px solid var(--border); border-radius: 7px; padding: .28rem .5rem; }
+  .cyc .a { font-weight: 800; }
+  .bad .a, .bad .loop { color: var(--red); }
+  .good .a { color: var(--accent); }
+  .vs .cap { color: var(--muted); font-size: .9rem; margin: .85rem 0 0; }
+  .vs .cap b { color: var(--text); font-weight: 650; }
+
+  .bignote { margin-top: 1.2rem; border-left: 3px solid var(--accent); background: var(--surface-2); border-radius: 4px 12px 12px 4px; padding: 1.1rem 1.3rem; }
+  .bignote .k { font-size: .72rem; text-transform: uppercase; letter-spacing: .12em; color: var(--faint); font-weight: 700; margin: 0 0 .3rem; }
+  .bignote .big { font-size: clamp(1.15rem, 2.6vw, 1.5rem); font-weight: 700; letter-spacing: -.01em; margin: 0; text-wrap: balance; }
+  .bignote .big em { color: var(--accent); font-style: normal; }
+
+  /* loop stages */
+  .loop { display: flex; flex-direction: column; gap: .55rem; }
+  .stage { display: grid; grid-template-columns: 2.4rem 1fr; gap: 1rem; align-items: start; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: .9rem 1.1rem; position: relative; }
+  .stage .num { font-family: var(--font-mono); font-weight: 700; font-size: 1rem; color: var(--surface); background: var(--accent); width: 2rem; height: 2rem; border-radius: 8px; display: grid; place-items: center; }
+  .stage .who { font-family: var(--font-mono); font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; padding: .08rem .4rem; border-radius: 999px; border: 1px solid var(--border); }
+  .stage .who.eu { color: var(--accent); }
+  .stage .who.voce { color: var(--blue); }
+  .stage h4 { margin: 0 0 .15rem; font-size: 1rem; font-weight: 700; display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+  .stage p { margin: 0; color: var(--muted); font-size: .93rem; }
+  .loopback { text-align: center; font-family: var(--font-mono); font-size: .82rem; color: var(--accent); font-weight: 700; padding: .3rem; }
+
+  /* anatomy of a case */
+  .anat { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; margin-top: 1rem; }
+  @media (max-width: 720px) { .anat { grid-template-columns: 1fr; } }
+  .anat .b { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: .9rem 1rem; overflow-x: auto; }
+  .anat .bt { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; color: var(--faint); margin: 0 0 .5rem; }
+  .anat pre { margin: 0; font-family: var(--font-mono); font-size: .78rem; line-height: 1.55; white-space: pre; color: var(--text); }
+  .anat .kk { color: var(--blue); }
+  .anat .vv { color: var(--accent); }
+  .anat .cc { color: var(--faint); }
+  .anat .pedido { grid-column: 1 / -1; background: var(--surface-2); }
+  .anat .pedido code { font-family: var(--font-mono); font-size: .82rem; color: var(--text); }
+
+  /* who brings what */
+  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 680px) { .cols2 { grid-template-columns: 1fr; } }
+  .cols2 h3 { margin: 0 0 .7rem; font-size: 1rem; font-weight: 750; display: flex; align-items: center; gap: .5rem; }
+  .cols2 h3 .tag { font-family: var(--font-mono); font-size: .72rem; padding: .1rem .45rem; border-radius: 999px; border: 1px solid var(--border); }
+  .cols2 .voce .tag { color: var(--blue); }
+  .cols2 .eu .tag { color: var(--accent); }
+  .cols2 ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+  .cols2 li { display: grid; grid-template-columns: 1rem 1fr; gap: .6rem; font-size: .93rem; }
+  .cols2 li::before { content: ""; width: .55rem; height: .55rem; margin-top: .42rem; border-radius: 2px; }
+  .cols2 .voce li::before { background: var(--blue); }
+  .cols2 .eu li::before { background: var(--accent); }
+
+  /* rules */
+  .rules { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; }
+  @media (max-width: 680px) { .rules { grid-template-columns: 1fr; } }
+  .rule { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: .9rem 1rem; }
+  .rule .rt { font-weight: 700; font-size: .96rem; margin: 0 0 .2rem; }
+  .rule .rd { color: var(--muted); font-size: .89rem; margin: 0; }
+
+  /* rollout timeline */
+  .phase { display: grid; grid-template-columns: auto 1fr; gap: 1rem; }
+  .phase .rail { display: flex; flex-direction: column; align-items: center; }
+  .phase .pdot { width: 1.1rem; height: 1.1rem; border-radius: 50%; background: var(--accent); border: 3px solid var(--surface); box-shadow: 0 0 0 1px var(--border); }
+  .phase .pline { width: 2px; flex: 1; background: var(--border); margin: .1rem 0; }
+  .phase .pc { padding-bottom: 1.1rem; }
+  .phase .pk { font-family: var(--font-mono); font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+  .phase h4 { margin: .1rem 0 .2rem; font-size: 1.02rem; font-weight: 700; }
+  .phase p { margin: 0; color: var(--muted); font-size: .93rem; }
+
+  footer { margin-top: 3.4rem; padding-top: 1.2rem; border-top: 1px solid var(--border); color: var(--faint); font-size: .82rem; }
+  footer .mono { color: var(--muted); }
+</style>
+
+<div class="doc">
+<div class="wrap">
+
+  <p class="eyebrow">Grid Co · Confiabilidade da Plataforma</p>
+  <h1>Uma rede que impede a detecção de regredir</h1>
+  <p class="lede">Transformar a verdade de campo em teste automático — para que trackers e strings parem de "consertar um, quebrar outro" e a detecção só ande para frente.</p>
+
+  <section>
+    <h2><span class="n">01</span> O problema que queremos matar</h2>
+    <p class="sub">Hoje a detecção é ajustada no olho, contra o dado que aparece na tela. Cada esquisitice de fonte quebra um limiar calibrado para outra — e a gente não percebe até estar em produção.</p>
+    <div class="vs">
+      <div class="panel bad">
+        <p class="lab">Hoje · o ciclo que gira em falso</p>
+        <div class="cyc">
+          <span class="c">constrói</span><span class="a">→</span>
+          <span class="c">vê defeito</span><span class="a">→</span>
+          <span class="c">reconstrói</span><span class="a">→</span>
+          <span class="c">vê defeito</span><span class="loop">↻</span>
+        </div>
+        <p class="cap">Sem uma "verdade" para validar, todo ajuste é uma aposta. <b>Exemplo real:</b> ao mexer no motor de strings, o número de ocorrências do dia saltou de <b class="mono">2.795</b> para <b class="mono">4.489</b> — em silêncio, sem nada apitar.</p>
+      </div>
+      <div class="panel good">
+        <p class="lab">Com a rede · uma catraca</p>
+        <div class="cyc">
+          <span class="c">mexe</span><span class="a">→</span>
+          <span class="c">testa</span><span class="a">→</span>
+          <span class="c">verde</span><span class="a">→</span>
+          <span class="c">segue</span>
+        </div>
+        <p class="cap">Toda mudança roda contra casos reais rotulados e acende <b>verde ou vermelho na hora</b>. Cada susto novo vira um caso preso — nunca mais volta. Só anda pra frente.</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">02</span> A ideia, em uma frase</h2>
+    <div class="bignote">
+      <p class="k">O princípio</p>
+      <p class="big">A <em>sua verdade</em> sobre uma usina num dia vira um <em>teste automático</em>. Se um ajuste futuro contrariar essa verdade, o teste falha antes de chegar em produção.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">03</span> Como funciona — o loop</h2>
+    <p class="sub">Um ciclo curto, com divisão clara de trabalho. Você é o especialista de campo; eu cuido do encanamento.</p>
+    <div class="loop">
+      <div class="stage">
+        <div class="num">1</div>
+        <div><h4>Você escolhe o caso <span class="who voce">você</span></h4><p>Uma linha: equipamento · problemática · usina · dia · fonte.</p></div>
+      </div>
+      <div class="stage">
+        <div class="num">2</div>
+        <div><h4>Eu tiro a "foto" do dado cru <span class="who eu">eu</span></h4><p>O JSON direto da fonte (a curva real), nunca a saída já processada do dashboard — senão o teste conferiria o detector contra ele mesmo.</p></div>
+      </div>
+      <div class="stage">
+        <div class="num">3</div>
+        <div><h4>Você narra a verdade <span class="who voce">você</span></h4><p>Em prosa, do seu jeito: "o TRK07 travou às 11h40, os outros giraram; o TRK12 é desvio". A verdade de campo, que o código não sabe.</p></div>
+      </div>
+      <div class="stage">
+        <div class="num">4</div>
+        <div><h4>Eu viro gabarito + teste <span class="who eu">eu</span></h4><p>Sua narração vira um gabarito estruturado e um teste automático, guardado no repositório junto da foto.</p></div>
+      </div>
+      <div class="stage">
+        <div class="num">5</div>
+        <div><h4>Mexo no motor com a rede ligada <span class="who eu">eu</span></h4><p>Calibro ou reescrevo a detecção — a foto e o gabarito me protegem.</p></div>
+      </div>
+      <div class="stage">
+        <div class="num">6</div>
+        <div><h4>O teste acende verde ou vermelho <span class="who eu">eu</span></h4><p>Reproduziu sua verdade? Verde, segue. Contrariou? Vermelho, conserto antes de subir.</p></div>
+      </div>
+      <div class="loopback">↑ e cada caso novo entra no conjunto — a rede só cresce</div>
+    </div>
+
+    <p class="sub" style="margin:1.4rem 0 0;"><strong>Anatomia de um caso</strong> — o par que vira teste (exemplo ilustrativo, trackers):</p>
+    <div class="anat">
+      <div class="b pedido"><p class="bt">Você manda</p><code>API PV · trackers · parado/desvio/atrasado · Usina X · 05/07/2026</code></div>
+      <div class="b">
+        <p class="bt">Eu tiro — a foto (dado cru)</p>
+<pre><span class="cc">// ângulo por tracker, do dia</span>
+<span class="kk">"TRK07"</span>: [["06:00",-54], ["11:40",-12],
+          ["15:00",-12], ["18:00",-12]]
+<span class="kk">"TRK12"</span>: [["06:00",-54], ["12:00",-13],
+          ["15:00",18],  ["18:00",39]]</pre>
+      </div>
+      <div class="b">
+        <p class="bt">Vira — o gabarito (sua verdade)</p>
+<pre><span class="kk">"TRK07"</span>: { status:<span class="vv">"parado"</span>,
+          desde:"11:40" }
+<span class="kk">"TRK12"</span>: { status:<span class="vv">"desvio"</span> }
+<span class="cc">agregado</span>: { parado:1, desvio:1 }</pre>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">04</span> Quem faz o quê</h2>
+    <div class="cols2">
+      <div class="card voce">
+        <h3>Você traz <span class="tag">campo</span></h3>
+        <ul>
+          <li>A escolha dos casos (a linha de pedido).</li>
+          <li>A verdade de cada tracker/string, olhando a curva.</li>
+          <li>Onde possível, o ticket/OS que confirma a falha real.</li>
+          <li>O critério: o que é "parado", "desvio", "sem corrente" de fato.</li>
+        </ul>
+      </div>
+      <div class="card eu">
+        <h3>Eu trago <span class="tag">encanamento</span></h3>
+        <ul>
+          <li>A foto do dado cru de cada fonte (com autenticação).</li>
+          <li>A estrutura: pasta de fixtures, formato do gabarito, o runner.</li>
+          <li>A conversão da sua prosa em gabarito estruturado.</li>
+          <li>A reescrita do motor de detecção, protegida pela rede.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">05</span> As regras que fazem valer</h2>
+    <div class="rules">
+      <div class="rule"><p class="rt">Diversidade &gt; volume</p><p class="rd">8 casos que sejam 8 feras diferentes (parada limpa, desvio, sem-comunicação, dia nublado, limítrofe) valem mais que 8 iguais.</p></div>
+      <div class="rule"><p class="rt">O "dia bom" é ouro</p><p class="rd">Um dia em que está tudo certo: o detector tem que devolver ZERO problema. É o que pega o falso positivo.</p></div>
+      <div class="rule"><p class="rt">Verdade de campo pesa mais</p><p class="rd">Onde há ticket/OS confirmando, o rótulo é ouro. Onde não há, vale o seu julgamento de especialista.</p></div>
+      <div class="rule"><p class="rt">Duas checagens</p><p class="rd">Exata (tracker por tracker) e agregada (as contagens). A agregada, barata, teria pego o 2.795 → 4.489.</p></div>
+      <div class="rule"><p class="rt">Fantasma pede histórico</p><p class="rd">Canal vazio (0 todo dia) vs. string morta de verdade (produziu antes) só se separa com 2-3 dias — não um só.</p></div>
+      <div class="rule"><p class="rt">Começar pequeno</p><p class="rd">1-2 problemáticas completas primeiro, para você sentir a engrenagem girar antes de escalar.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">06</span> A sequência</h2>
+    <p class="sub">Vitória rápida primeiro, para provar o loop; o pagamento maior vem depois.</p>
+    <div class="phase">
+      <div class="rail"><span class="pdot"></span><span class="pline"></span></div>
+      <div class="pc">
+        <div class="pk">Fase 0 · antes de tudo</div>
+        <h4>O esqueleto</h4>
+        <p>Eu monto a estrutura (fixtures, formato do gabarito, o runner, rascunho do spec). Você chega só para preencher a verdade.</p>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="rail"><span class="pdot"></span><span class="pline"></span></div>
+      <div class="pc">
+        <div class="pk">Fase 1 · a estreia</div>
+        <h4>Trackers — parado / desvio / atrasado</h4>
+        <p>O loop mais simples de fechar (o estado é claro na curva de ângulo). Vitória rápida que valida o método.</p>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="rail"><span class="pdot"></span><span class="pline"></span></div>
+      <div class="pc">
+        <div class="pk">Fase 2 · o espinhoso</div>
+        <h4>Strings — sem corrente / inversor sem geração</h4>
+        <p>Mais casos de borda (fantasma, ruído, leitura escalonada) — e maior payoff, porque é onde mais dói.</p>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="rail"><span class="pdot" style="background:var(--lime)"></span></div>
+      <div class="pc">
+        <div class="pk" style="color:var(--lime)">O pagamento</div>
+        <h4>Reescrever o motor limpo</h4>
+        <p>Com a rede protegendo, dá para refazer a detecção do jeito certo — uma camada que normaliza cada fonte antes de decidir — sem medo de regredir. É aqui que o whack-a-mole morre de vez.</p>
+      </div>
+    </div>
+    <div class="bignote" style="margin-top:1.4rem;">
+      <p class="k">Próximo passo</p>
+      <p class="big">Kickoff no <em>sábado</em>: eu chego com o esqueleto pronto, você escolhe a primeira usina e narra — e a gente fecha o primeiro caso de ponta a ponta.</p>
+    </div>
+  </section>
+
+  <footer>
+    <p class="mono">Confiabilidade da Plataforma — plano de trabalho · Grid Co. Performance · 09/07/2026</p>
+    <p>Documento de alinhamento. O objetivo é converter detecção "por tentativa" em detecção com rede de regressão.</p>
+  </footer>
+
+</div>
+</div>

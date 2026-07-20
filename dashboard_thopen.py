@@ -281,10 +281,11 @@ for _k, _v in _POLARIS_NOME.items():
 
 
 def _polaris_budget_path():
-    """Budget Polaris mais recente (Budget_2025_UFVs_Raizen*.xlsx)."""
+    """Budget Polaris mais recente (Budget_2025_UFVs_Raizen*.xlsx). Escolhe pela DATA no nome
+    (…GridCo - AAAAMMDD.xlsx) e não por mtime — na nuvem o mtime é a hora do checkout, não a real."""
     import glob
     cands = glob.glob(os.path.join(_POLARIS_DIR, "Budget_2025_UFVs_Raizen*.xlsx"))
-    return max(cands, key=os.path.getmtime) if cands else None
+    return max(cands) if cands else None
 
 
 def _polaris_coments():
@@ -737,6 +738,9 @@ CARTEIRAS = {
 CARTEIRA_ORDEM = ["Thopen", "Copel", "Matrix", "Polaris"]
 _CARTEIRA_DE = {u: c for c in CARTEIRA_ORDEM for u in CARTEIRAS[c]}  # usina -> carteira
 
+# Usinas que aparecem no dashboard (seletor/drill) mas NÃO entram no cálculo da Visão Geral (aba Geral).
+EXCLUIR_GERAL = {"Piancó 1"}
+
 
 @app.route("/api/t/usinas")
 def usinas():
@@ -919,14 +923,19 @@ def geral():
     disponiveis = {_NOME_CANON.get(u, u) for u in
                    (set(_state["daily"].keys()) | set(_polaris_records().keys())
                     | set(_sheet_records().keys()))}
-    nomes = sorted({u for u in CARTEIRAS.get(carteira, []) if u in disponiveis})
+    nomes = sorted({u for u in CARTEIRAS.get(carteira, [])
+                    if u in disponiveis and u not in EXCLUIR_GERAL})
     linhas = [r for r in (_resumo_usina(u, ano, mes) for u in nomes) if r["produzida"] is not None]
+    # Usinas da carteira que aparecem ABAIXO do Total (não entram no cálculo). Ex.: Piancó.
+    fora_nomes = sorted({u for u in CARTEIRAS.get(carteira, [])
+                         if u in disponiveis and u in EXCLUIR_GERAL})
+    fora = [r for r in (_resumo_usina(u, ano, mes) for u in fora_nomes) if r["produzida"] is not None]
     today = dt.date.today()
     corte = (today if (ano == today.year and mes == today.month)
              else dt.date(ano, mes, monthrange(ano, mes)[1]))
     nome_carteira = next((c for c in CARTEIRA_ORDEM if c == carteira), carteira)
     return jsonify({"carteira": nome_carteira, "ano": ano, "mes": mes,
-                    "corte": corte.strftime("%d/%m/%Y"), "linhas": linhas})
+                    "corte": corte.strftime("%d/%m/%Y"), "linhas": linhas, "fora": fora})
 
 
 @app.route("/api/t/reload")

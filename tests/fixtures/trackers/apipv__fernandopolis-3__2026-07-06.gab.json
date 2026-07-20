@@ -1,0 +1,18 @@
+{
+  "refere_a": "Fernandópolis 3 · trackers · 2026-07-06 · apipv",
+  "dia_tipo": "problematico",
+  "regua_pendente": true,
+  "narrativa": "DESEMPATE severo/leve: TRK2 SEVERO por PICO de desvio da frota 34.6 as 08:51 (congelou ~37min 08:28-09:05 em -21, RECUPEROU e completou o arco -55.4 a +55.5). Com Alto Paraná1 TRK1 (27.8=leve), Cidade Gaucha TRK18 (30=severo), Fern TRK2 (34.6=severo) => FRONTEIRA severo/leve ~30 de PICO (nao os 10 da IA auxiliar). Classificador por curso ERRA (da normal, TRK2 cobre o arco todo). Precisa do sinal DESVIO (pico vs frota/ideal). GOTCHA: meu detector de freeze pegou 62min as 15:31 = BATENTE +55 (normal), nao a falha das 08:28 -> excluir freeze no +-55.",
+  "esperado": {
+    "TRK2": {
+      "status": "desvio_severo"
+    }
+  },
+  "agregado_esperado": {
+    "parado": 0,
+    "desvio_severo": 1,
+    "desvio_leve": 0,
+    "normal": 29
+  },
+  "flags_qualidade": "DESSINCRONIZACAO BENIGNA (nao e falha): TRK1,3,4,16,17,18,20,22 tiveram picos 25-55 MAS todos na MESMA janela 08:24-08:26 (frota descendo rapido ao batente -55). Muitos trackers piscando JUNTOS em movimento rapido = timing normal, NAO falha de comunicacao (que e ISOLADA por tracker). A tarde (15-16h) todos alinhados 0.0-0.13. Refina o flag de comunicacao: simultaneo+movimento rapido=benigno; isolado=possivel falha."
+}

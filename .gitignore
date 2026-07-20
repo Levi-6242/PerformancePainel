@@ -9,6 +9,7 @@ venv/
 .env
 *.env
 !.env.example
+tokens.txt
 pg_password.txt
 plat_token.txt
 sunop_token.txt
@@ -34,12 +35,15 @@ trk_eventos.json.tmp
 trk_eventos.json.bak*
 trk_eventos.json.FALHO
 fracttal_index.json
+frac_osperf_index.json
+perdas_strings.json
 whats_ronda.json
 tunnel_url.txt
 server.log
 *.log
 cf_*.log*
 server.out.log
+logs/
 
 # ── Artefatos de build / empacotamento (não versionar) ───────────────────────
 oem-app.zip
@@ -73,3 +77,9 @@ whats_enviados.json
 
 # backups datados do livro de trackers (runtime)
 tracker_issues.backup-*.json
+
+# log de envios da ronda (runtime, alimenta o Monitor)
+whats_log.json
+
+# executavel do Monitor da Ronda (buildado em C:/GridcoBuild, nao versionar binario)
+MonitorRonda.exe

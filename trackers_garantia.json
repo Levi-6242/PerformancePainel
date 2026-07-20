@@ -1,0 +1,41 @@
+{
+  "_fonte": "Gestão de Chamados - Grid Co - V02.xlsx (SharePoint GRIDCO) — aba de trackers, status != Concluído.",
+  "_gerado": "2026-07-10, extraído do export do SharePoint (achatado). VERIFICAR contra o xlsx cru: os IDs por UFV além do Mandaguaçu foram alinhados por posição e podem ter erro de 1-2. Regerar quando a planilha estiver acessível local.",
+  "_uso": "A ronda casa por (UFV substring + número do tracker) e MARCA como 'já em garantia' numa seção à parte (não remove). Ligado por whats_ronda.json > garantia_marcar (default true).",
+  "usinas": {
+    "Mandaguaçu": {
+      "status": "Testes em campo",
+      "fabricante": "STI",
+      "trackers": ["T01", "T02", "T02-MDG1", "T04", "T06", "T07-MDG1", "T07-MDG3", "T12", "T13", "T13-MDG1", "T16", "T16-MDG1", "T21", "T23", "T24", "T24-MDG1", "T25", "T27", "T30", "T35", "T41", "T42", "T43", "T44", "MDG2 T27", "MDG3 T7", "MDG4 T18", "MDG4 T28", "MDG4 T33", "MDG4 T39", "MDG4 T49", "MDG4 T50", "MDG4 T55"]
+    },
+    "Fazenda Limão": {
+      "status": "Aguardando retorno do Fabricante",
+      "trackers": ["TR 1.16", "TR 1.17", "TR 1.19", "TR 1.20", "TR 1.21", "TR 1.22", "TR 1.26", "TR 1.47", "TR 2.02", "TR 2.12", "TR 2.31"]
+    },
+    "Fernandópolis": {
+      "status": "Aguardando retorno do Fabricante",
+      "trackers": ["TR 1.14", "TR 1.23", "TR 1.46", "TR Sem ID 01", "TR Sem ID 02"],
+      "_obs": "TR Sem ID sem número confiável — não entram no casamento numérico."
+    },
+    "Boa Esperança do Sul": {
+      "status": "Aguardando retorno do Fabricante",
+      "trackers": ["Tracker 06", "Tracker 22", "Tracker 26", "Tracker 37"],
+      "_obs": "A UFV tem ~11 chamados; vários são de Motor/Bateria/TCU/Anemômetro/GCU (não têm nº de tracker limpo) — VERIFICAR no cru."
+    },
+    "Aparecida 3": {
+      "status": "Aguardando retorno do Fabricante / Cliente / Pré-Operação",
+      "trackers": ["Tracker 20", "Tracker 25"]
+    },
+    "Tanabi": {
+      "status": "Aguardando retorno do Supervisor",
+      "trackers": ["Tracker 60"]
+    },
+    "Santo Inácio": {
+      "status": "Testes em campo",
+      "trackers": ["Tracker 17", "Tracker 21", "Tracker 23", "Tracker 40"]
+    }
+  },
+  "_usinas_pendentes_de_id": {
+    "_obs": "UFVs com tracker em garantia (status != Concluído) mas cujo ID do tracker eu não consegui alinhar com confiança no export achatado — precisam do xlsx cru: Araçoiaba da Serra 1 e 2, Ibaté 1, Barretos 1, Brodowski, Céu Azul, Cidade Gaúcha, Santa Bárbara 1, Santarém 1 e 2, Goytacazes 1, Ipixuna 1 e 2."
+  }
+}

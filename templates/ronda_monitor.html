@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grid Co. · Monitor da Ronda</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#090d18; --panel:#161d30; --panel-2:#1b2338; --raise:#222b44;
+  --line:rgba(255,255,255,.08); --line-2:rgba(255,255,255,.14);
+  --txt:#f2f5fa; --muted:#9aa4bb; --faint:#5d6780;
+  --brand:#a3d900; --ok:#4ade80; --amber:#fbbf24; --red:#f87171; --off:#64748b;
+  --shadow:0 2px 18px rgba(0,0,0,.35);
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--txt);font-family:'Inter',system-ui,sans-serif;font-size:14px;line-height:1.5;transition:background .2s,color .2s}
+.num{font-variant-numeric:tabular-nums}
+::-webkit-scrollbar{width:9px;height:9px}::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px}
+
+.top{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:10;flex-wrap:wrap}
+.logo{font-weight:800;font-size:16px}.logo b{color:var(--brand)}
+.tit{font-size:13px;color:var(--muted)}
+.spacer{flex:1}
+.btn{background:var(--panel-2);border:1px solid var(--line);color:var(--muted);font:inherit;font-size:12px;padding:6px 12px;border-radius:8px;cursor:pointer}
+.btn:hover{color:var(--txt)}
+.upd{font-size:11px;color:var(--faint)}
+
+.wrap{padding:18px;max-width:980px;margin:0 auto}
+
+/* status do serviço */
+.svc{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow);margin-bottom:14px;flex-wrap:wrap}
+.pulse{width:13px;height:13px;border-radius:50%;flex:none}
+.pulse.ok{background:var(--ok);animation:pl 1.8s infinite}
+.pulse.bad{background:var(--red)}
+.pulse.warn{background:var(--amber)}
+@keyframes pl{0%{box-shadow:0 0 0 0 rgba(74,222,128,.5)}70%{box-shadow:0 0 0 9px rgba(74,222,128,0)}100%{box-shadow:0 0 0 0 rgba(74,222,128,0)}}
+.svc .t{font-size:16px;font-weight:700}
+.svc .s{font-size:12px;color:var(--muted)}
+.svc .wd{margin-left:auto;text-align:right;font-size:11.5px;color:var(--faint)}
+.svc .wd b{color:var(--muted)}
+
+/* cards dos slots */
+.slots{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-bottom:14px}
+.slot{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow);border-top:4px solid var(--off)}
+.slot.ok{border-top-color:var(--ok)}
+.slot.andamento{border-top-color:var(--amber)}
+.slot.falhou{border-top-color:var(--red)}
+.slot .hd{display:flex;align-items:baseline;gap:10px}
+.slot .hora{font-size:26px;font-weight:800;letter-spacing:-.02em}
+.slot .est{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.slot.ok .est{color:var(--ok)}
+.slot.andamento .est{color:var(--amber)}
+.slot.falhou .est{color:var(--red)}
+.slot.agendada .est{color:var(--faint)}
+.slot .det{font-size:12px;color:var(--muted);margin:3px 0 10px}
+.regs{display:flex;flex-wrap:wrap;gap:6px}
+.reg{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--panel-2);border:1px solid var(--line);color:var(--muted)}
+.reg.ok{color:var(--ok);border-color:rgba(74,222,128,.35)}
+.reg.falhou{color:var(--red);border-color:rgba(248,113,113,.4)}
+.reg .mk{font-weight:800}
+
+/* histórico */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;box-shadow:var(--shadow)}
+.card h3{margin:0 0 2px;font-size:14.5px;font-weight:700}
+.csub{font-size:11.5px;color:var(--faint);margin-bottom:10px}
+table{border-collapse:collapse;width:100%}
+th{text-align:left;font-size:10px;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);padding:7px 9px;border-bottom:1px solid var(--line-2);white-space:nowrap}
+td{padding:7px 9px;border-bottom:1px solid var(--line);font-size:12.5px;vertical-align:top}
+.okt{color:var(--ok);font-weight:700}.badt{color:var(--red);font-weight:700}.wdt{color:var(--amber);font-weight:600}
+.mut{color:var(--faint)}
+.dia-sep td{background:var(--panel-2);font-weight:700;font-size:11px;color:var(--muted);letter-spacing:.04em}
+.empty{padding:26px;text-align:center;color:var(--muted)}
+.off-banner{background:rgba(248,113,113,.12);border:1px solid rgba(248,113,113,.35);color:var(--red);border-radius:10px;padding:9px 14px;font-size:12.5px;font-weight:600;margin-bottom:14px;display:none}
+@media(max-width:640px){.svc .wd{margin-left:0;text-align:left;width:100%}}
+</style>
+</head>
+<body>
+<div class="top">
+  <div class="logo"><b>Grid</b> Co.</div>
+  <div class="tit">Monitor da Ronda de Trackers</div>
+  <div class="spacer"></div>
+  <button class="btn" onclick="abrirWhats()" title="Abre o WhatsApp Web do chip da ronda em outra janela (pareia uma vez como aparelho vinculado)">WhatsApp</button>
+  <button class="btn" onclick="load()">Atualizar</button>
+  <span class="upd" id="upd">carregando…</span>
+</div>
+
+<div class="wrap">
+  <div class="off-banner" id="offBanner">A ronda automática está DESLIGADA (enabled=false no whats_ronda.json).</div>
+
+  <div class="svc" id="svc">
+    <span class="pulse warn" id="svcDot"></span>
+    <div>
+      <div class="t" id="svcTit">Verificando o WhatsApp…</div>
+      <div class="s" id="svcSub">—</div>
+      <button class="btn" id="btnReiniciar" onclick="reiniciarServico(this)"
+              style="display:none;margin-top:9px;border-color:rgba(248,113,113,.4);color:var(--red)">Reiniciar serviço e gerar código</button>
+      <div id="svcQrBox" style="display:none;margin-top:12px">
+        <img id="svcQr" alt="QR para parear o chip" style="width:210px;height:210px;background:#fff;border-radius:12px;padding:10px;image-rendering:pixelated;box-shadow:0 4px 18px rgba(0,0,0,.25)">
+        <div class="s" style="margin-top:6px;max-width:230px">Escaneie com o WhatsApp do <b>chip da ronda</b> (Aparelhos conectados → Conectar um aparelho). Atualiza sozinho.</div>
+      </div>
+    </div>
+    <div class="wd" id="svcWd"></div>
+  </div>
+
+  <div class="slots" id="slots"></div>
+
+  <div class="card">
+    <h3>Histórico de envios</h3>
+    <div class="csub">Cada linha é um envio por região (ou uma intervenção do watchdog) — mais recente primeiro</div>
+    <div style="max-height:430px;overflow:auto">
+      <table>
+        <thead><tr><th>Hora</th><th>Ronda</th><th>Região</th><th>Trackers</th><th>Resultado</th></tr></thead>
+        <tbody id="hist"><tr><td colspan="5" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div><h3>Análise das rondas · grupos COS</h3>
+        <div class="csub">O que os grupos COS↔Técnicos falam de tracker — tema, usinas (casadas pelo BD), OS. Só-leitura e agregado (não mostra mensagem crua).</div></div>
+      <div style="flex:1"></div>
+      <button class="btn" id="btnAnl" onclick="carregarAnalise(true)">Carregar análise</button>
+    </div>
+    <div id="anlBox" style="margin-top:12px"><div class="empty">Clique em “Carregar análise” (lê os 5 grupos do COS — leva alguns segundos).</div></div>
+    <details id="anlPrompts" style="margin-top:12px">
+      <summary style="cursor:pointer;font-size:13px;font-weight:600">Prompts prontos para IA (copiar)</summary>
+      <div class="csub" style="margin:6px 0 8px">Já vêm com guarda-corpo. Não cole mensagem crua numa IA grátis que treina — use o texto já filtrado ou um tier sem-treino.</div>
+      <div id="promptList"></div>
+    </details>
+  </div>
+
+  <style>
+  .bk-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:8px;margin-bottom:12px}
+  .bk-tile{background:var(--panel-2);border:1px solid var(--line);border-left:4px solid var(--c);border-radius:10px;padding:9px 12px;cursor:pointer;transition:.15s;user-select:none}
+  .bk-tile:hover{border-color:var(--line-2)}
+  .bk-tile.active{background:var(--raise);box-shadow:0 0 0 1px var(--c) inset}
+  .bk-tile .bn{font-size:22px;font-weight:800;color:var(--c);line-height:1}
+  .bk-tile .bl{font-size:11px;color:var(--muted);font-weight:600;margin-top:2px}
+  .bk-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+  .bk-bar select,.bk-bar input{background:var(--panel-2);border:1px solid var(--line);color:var(--txt);font:inherit;font-size:12px;padding:6px 10px;border-radius:8px}
+  .bk-bar input{flex:1;min-width:160px}
+  .bk-tbl-wrap{max-height:470px;overflow:auto;border:1px solid var(--line);border-radius:10px}
+  .bk-tbl-wrap table{min-width:720px}
+  .bk-tbl-wrap th{position:sticky;top:0;background:var(--panel-2);z-index:1}
+  .bk-cat{font-size:10px;font-weight:800;padding:2px 7px;border-radius:6px;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+  .bk-pill{font-size:10.5px;font-weight:700;padding:1px 8px;border-radius:20px;border:1px solid var(--line);white-space:nowrap}
+  </style>
+  <div class="card" id="bookCard">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div><h3>Book de causas citadas · rondas COS</h3>
+        <div class="csub">Cada relato de campo dos grupos vira um registro — <b>de quem · quando · usina · tracker · causa</b>. As transmissões da própria ronda ficam de fora. Cruza a planilha de Gestão de Chamados p/ separar “em garantia”. Só-leitura.</div></div>
+      <div style="flex:1"></div>
+      <button class="btn" id="btnBook" onclick="carregarBook(true)">Carregar book</button>
+      <button class="btn" id="btnBookCsv" onclick="exportBook()" disabled>Exportar CSV</button>
+    </div>
+    <div id="bookBox" style="margin-top:12px"><div class="empty">Clique em “Carregar book” (lê os 5 grupos do COS — leva alguns segundos).</div></div>
+  </div>
+</div>
+
+<script>
+async function reiniciarServico(bt){
+  bt.dataset.busy='1'; bt.disabled=true; bt.textContent='Reiniciando… (~1 min)';
+  try{ await fetch('/api/ronda/whats/reiniciar',{method:'POST'}); }catch(e){}
+  // o node volta em ~30-60s; vai atualizando até o status mudar (código aparece no card)
+  let n=0; const iv=setInterval(async()=>{ n++; await load();
+    const t=document.getElementById('svcTit').textContent||'';
+    if(n>=8 || t.includes('conectado') || t.includes('pareamento')){
+      clearInterval(iv); bt.disabled=false; bt.dataset.busy=''; bt.textContent='Reiniciar serviço e gerar código';
+      bt.style.display=t.includes('conectado')?'none':'inline-block';
+    }
+  }, 10000);
+}
+function abrirWhats(){
+  // Dentro do MonitorRonda.exe → segunda janela nativa (via ponte pywebview);
+  // no navegador/celular → aba nova do WhatsApp Web.
+  if(window.pywebview&&window.pywebview.api&&window.pywebview.api.abrir_whatsapp){ window.pywebview.api.abrir_whatsapp(); }
+  else { window.open('https://web.whatsapp.com','_blank','noopener'); }
+}
+// ── Análise das rondas (grupos COS) + prompts prontos (Levi 14/07) ──────────────────────────
+const PROMPTS=[
+  {t:'Resumo diário por região', p:'Você é analista de O&M solar. Abaixo estão as mensagens do grupo COS↔Técnicos <REGIÃO> do dia <DATA> que citam trackers. Resuma UMA LINHA POR TRACKER: usina · nº · sintoma · o que a equipe fez (reset / foi a campo / OS nº) · desfecho (voltou / não voltou / pendente). Não invente; faltando dado, escreva "não informado".'},
+  {t:'Causa-raiz recorrente', p:'Abaixo, <N> dias de mensagens sobre trackers dos 5 grupos COS. Agrupe por CAUSA (comunicação/RSU · motor/atuador · vegetação · batente · outros) e por USINA. Liste as 5 usinas com mais recorrência e a causa dominante de cada. Marque quais parecem "falso parado" (falha de comunicação, não mecânico). Só com base no texto; não invente.'},
+  {t:'Qualidade da ronda', p:'Contexto: a ronda automática posta "RONDA DE TRACKERS PARADOS" por região e pede reset; se o tracker não voltar, abrir OS de inspeção. Abaixo, as rondas e as respostas. Avalie: (a) quais rondas tiveram resposta e em quanto tempo; (b) quantos voltaram após reset vs viraram OS; (c) 3 melhorias concretas pra ronda. Objetivo: melhorar a qualidade da ronda de trackers.'}
+];
+function renderPrompts(){
+  const el=document.getElementById('promptList'); if(!el||el.dataset.done)return; el.dataset.done='1';
+  el.innerHTML=PROMPTS.map((x,i)=>`<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:6px;background:var(--panel-2)">
+    <div style="display:flex;align-items:center;gap:8px"><b style="font-size:12px">${i+1}. ${x.t}</b><span style="flex:1"></span>
+      <button class="btn" style="padding:2px 10px;font-size:11px" onclick="copiarPrompt(${i},this)">Copiar</button></div>
+    <div style="font-size:11px;color:var(--muted);margin-top:5px;white-space:pre-wrap">${x.p.replace(/[<>]/g,m=>m==='<'?'&lt;':'&gt;')}</div></div>`).join('');
+}
+function copiarPrompt(i,bt){ try{ navigator.clipboard.writeText(PROMPTS[i].p).then(()=>{ const o=bt.textContent; bt.textContent='Copiado!'; setTimeout(()=>bt.textContent=o,1200); }); }catch(e){} }
+async function carregarAnalise(force){
+  const box=document.getElementById('anlBox'), bt=document.getElementById('btnAnl');
+  box.innerHTML='<div class="empty">Lendo os 5 grupos do COS e analisando…</div>'; if(bt){bt.disabled=true;bt.textContent='Analisando…';}
+  const cor={'comunicação':'#60a5fa','vegetação/roçagem':'#84cc16','não voltou':'#f87171','voltou/normalizou':'#34d399','reset':'#fbbf24'};
+  try{
+    const d=await fetch('/api/ronda/analise'+(force?'?force=1':'')).then(r=>r.json());
+    if(d.erro){ box.innerHTML='<div class="empty">Não consegui ler os grupos: '+d.erro+'</div>'; return; }
+    const cards=(d.regioes||[]).map(r=>{
+      if(r.erro) return `<div class="card" style="margin:0"><b>${r.regiao}</b><div class="empty">${r.erro}</div></div>`;
+      const temas=(r.temas||[]).map(a=>`<span style="font-size:10.5px;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:1px 8px;color:${cor[a[0]]||'var(--muted)'}">${a[0]} ${a[1]}</span>`).join(' ');
+      const us=(r.usinas||[]).map(a=>a[0]+'·'+a[1]).join(', ');
+      return `<div class="card" style="margin:0;padding:11px 13px">
+        <div style="display:flex;align-items:baseline;gap:6px"><b>${r.regiao}</b><span class="csub">${r.de||'?'}–${r.ate||'?'}</span><span style="flex:1"></span><b style="color:var(--amber);font-size:16px">${r.n_tracker}</b><span class="csub">tracker · ${r.rondas} ronda</span></div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin:7px 0">${temas}</div>
+        ${us?`<div style="font-size:11px;color:var(--muted)"><b>Usinas:</b> ${us}</div>`:''}
+        ${(r.os||[]).length?`<div style="font-size:11px;color:var(--muted);margin-top:3px"><b>OS citadas:</b> ${r.os.join(', ')}</div>`:''}
+      </div>`;}).join('');
+    box.innerHTML=`<div class="csub" style="margin-bottom:8px">${d.total_tracker} msgs sobre tracker · ${d.total_rondas} posts de ronda no histórico lido · gerado ${d.gerado}</div>`
+      + `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px">${cards}</div>`;
+    renderPrompts();
+  }catch(e){ box.innerHTML='<div class="empty">Falha ao carregar.</div>'; }
+  finally{ if(bt){bt.disabled=false;bt.textContent='Atualizar análise';} }
+}
+
+const mins=s=>{const m=String(s).match(/(\d{1,2}):(\d{2})/);return m?(+m[1]*60+ +m[2]):null;};
+
+function svcBadge(d){
+  const dot=document.getElementById('svcDot'), tit=document.getElementById('svcTit'), sub=document.getElementById('svcSub');
+  const st=(d.servico&&d.servico.status)||'';
+  if(st==='conectado'){ dot.className='pulse ok'; tit.textContent='WhatsApp conectado'; sub.textContent='Chip da ronda ativo e pronto para enviar.'; }
+  else if(st.startsWith('aguardando')){ dot.className='pulse warn'; tit.textContent='WhatsApp aguardando pareamento';
+    sub.textContent='O chip precisa parear de novo — abra o WhatsApp do chip em Aparelhos conectados'+(d.servico.codigo?' e digite o código '+d.servico.codigo:' e escaneie o QR (C:\\GridcoWhats\\qr.png)')+'.'; }
+  else if(!d.servico||d.servico.ok===false){ dot.className='pulse bad'; tit.textContent='Serviço do WhatsApp FORA DO AR';
+    sub.textContent=(d.servico&&d.servico.erro)||'Sem resposta em 127.0.0.1:5099 — o watchdog deve reerguer em até 3 min.'; }
+  else { dot.className='pulse warn'; tit.textContent='WhatsApp: '+st; sub.textContent='Estado intermediário — acompanhando.'; }
+  // botão de reinício: aparece sempre que NÃO está conectado (serviço caído, travado ou aguardando)
+  const bt=document.getElementById('btnReiniciar');
+  if(bt && !bt.dataset.busy) bt.style.display=(st==='conectado')?'none':'inline-block';
+  // QR de pareamento DENTRO do Monitor (Levi 14/07): mostra a imagem quando o chip aguarda QR.
+  const qrBox=document.getElementById('svcQrBox'), qrImg=document.getElementById('svcQr');
+  const mostraQr=st.startsWith('aguardando') && d.servico && d.servico.tem_qr;
+  if(qrBox){ if(mostraQr){ qrImg.src='/api/ronda/whats/qr?t='+Date.now(); qrBox.style.display=''; }
+             else { qrBox.style.display='none'; qrImg.removeAttribute('src'); } }
+  const wd=d.watchdog||{};
+  document.getElementById('svcWd').innerHTML=(wd.restarts_hoje
+    ?`watchdog reiniciou o serviço <b>${wd.restarts_hoje}x hoje</b><br>último às <b>${wd.ultimo_restart||'—'}</b>`
+    :'watchdog ativo · nenhum restart hoje');
+}
+
+function slotCards(d){
+  const el=document.getElementById('slots');
+  const grupos=d.grupos||[], slots=d.horarios||[], hoje=(d.agora||'').slice(0,10);
+  const agoraMin=mins((d.agora||'').slice(11,16));
+  const logHoje=(d.log||[]).filter(l=>(l.ts||'').startsWith(hoje));
+  el.innerHTML=slots.map(slot=>{
+    const okRegs=new Set((d.slots_hoje||{})[slot]||[]);
+    const sMin=mins(slot), fimJanela=sMin+(d.grace_min||15);
+    const completos=grupos.length&&grupos.every(g=>okRegs.has(g));
+    let cls,est,det;
+    const horaEnvio=(()=>{const ls=logHoje.filter(l=>l.slot===slot&&l.ok);return ls.length?ls[ls.length-1].ts.slice(11,16):null;})();
+    if(completos){ cls='ok'; est='Enviada'; det='Todos os '+grupos.length+' grupos receberam'+(horaEnvio?' · último envio '+horaEnvio:'')+'.'; }
+    else if(agoraMin!=null&&agoraMin<sMin){ cls='agendada'; est='Agendada'; det='Dispara automaticamente às '+slot+'.'; }
+    else if(agoraMin!=null&&agoraMin<=fimJanela){ cls='andamento'; est='Em andamento'; det='Dentro da janela de envio/retentativa (até '+String(Math.floor(fimJanela/60)).padStart(2,'0')+':'+String(fimJanela%60).padStart(2,'0')+').'; }
+    else { cls='falhou'; est=okRegs.size?'Incompleta':'Não enviada';
+      det=okRegs.size?('Faltaram: '+grupos.filter(g=>!okRegs.has(g)).join(', ')+'.'):'Nenhum grupo recebeu neste horário.'; }
+    const regs=grupos.map(g=>{
+      const falhouLog=logHoje.some(l=>l.slot===slot&&l.regiao===g&&!l.ok);
+      const k=okRegs.has(g)?'ok':(cls==='agendada'?'':(falhouLog||cls==='falhou'?'falhou':''));
+      const mk=okRegs.has(g)?'✓':(k==='falhou'?'✕':'·');
+      const nt=(()=>{const ls=logHoje.filter(l=>l.slot===slot&&l.regiao===g);return ls.length?ls[ls.length-1].trackers:null;})();
+      return `<span class="reg ${k}"><span class="mk">${mk}</span>${g}${nt!=null?' ('+nt+')':''}</span>`;
+    }).join('');
+    return `<div class="slot ${cls}"><div class="hd"><span class="hora num">${slot}</span><span class="est">${est}</span></div>
+      <div class="det">${det}</div><div class="regs">${regs}</div></div>`;
+  }).join('')||'<div class="empty">Sem horários configurados.</div>';
+}
+
+function hist(d){
+  const tb=document.getElementById('hist');
+  const log=[...(d.log||[])].reverse();
+  if(!log.length){ tb.innerHTML='<tr><td colspan="5" class="empty">Nenhum envio registrado ainda (o log começa a contar a partir de agora).</td></tr>'; return; }
+  let dia='', h='';
+  log.forEach(l=>{
+    const dl=(l.ts||'').slice(0,10);
+    if(dl!==dia){ dia=dl; const [y,m,dd]=dl.split('-'); h+=`<tr class="dia-sep"><td colspan="5">${dd}/${m}/${y}</td></tr>`; }
+    const hora=(l.ts||'').slice(11,16);
+    if(l.slot==='watchdog'){
+      h+=`<tr><td class="num">${hora}</td><td class="wdt">watchdog</td><td class="mut">—</td><td class="mut">—</td><td class="wdt">${l.erro||'restart automático'}</td></tr>`;
+    } else {
+      h+=`<tr><td class="num">${hora}</td><td>${l.slot||'—'}${l.teste?' <span class="mut">(teste)</span>':''}</td><td>${l.regiao||'—'}</td>
+        <td class="num">${l.trackers!=null?l.trackers:'—'}</td>
+        <td>${l.ok?'<span class="okt">enviada</span>':'<span class="badt">falhou</span>'+(l.erro?' <span class="mut">— '+l.erro+'</span>':'')}</td></tr>`;
+    }
+  });
+  tb.innerHTML=h;
+}
+
+async function load(){
+  document.getElementById('upd').textContent='atualizando…';
+  try{
+    const d=await fetch('/api/ronda/whats/status').then(r=>r.json());
+    document.getElementById('offBanner').style.display=d.enabled?'none':'block';
+    svcBadge(d); slotCards(d); hist(d);
+    document.getElementById('upd').textContent='atualizado '+(d.agora||'').slice(11,19);
+  }catch(e){
+    document.getElementById('svcTit').textContent='Dashboard inacessível';
+    document.getElementById('svcSub').textContent=String(e);
+    document.getElementById('svcDot').className='pulse bad';
+    document.getElementById('upd').textContent='erro';
+  }
+}
+load();
+setInterval(load, 30*1000);
+
+// ── Book de causas citadas (relatos de campo dos grupos COS) — filtro + export CSV (Levi 14/07) ──
+const CATS={com_causa:{n:'Com causa',c:'#4ade80'},sem_causa:{n:'Sem causa',c:'#fbbf24'},
+            em_garantia:{n:'Em garantia',c:'#38bdf8'},nao_encaixa:{n:'Não se encaixam',c:'#94a3b8'}};
+const causaCor={'comunicação/RSU':'#38bdf8','vegetação':'#4ade80','TCU/bateria':'#2dd4bf','motor/atuador':'#fb923c','batente/travado':'#f87171'};
+let BOOK=null, bookFilter={cat:'',reg:'',q:''};
+
+async function carregarBook(force){
+  const bt=document.getElementById('btnBook'), box=document.getElementById('bookBox');
+  bt.disabled=true; bt.textContent='Lendo os grupos…';
+  box.innerHTML='<div class="empty">Lendo os 5 grupos do COS… (leva alguns segundos)</div>';
+  try{
+    BOOK=await fetch('/api/ronda/book'+(force?'?force=1':'')).then(r=>r.json());
+    if(BOOK.erro){ box.innerHTML='<div class="empty">Falha: '+BOOK.erro+'</div>'; return; }
+    bookFilter={cat:'',reg:'',q:''};
+    renderBookShell(); renderBookRows();
+    document.getElementById('btnBookCsv').disabled=false;
+  }catch(e){ box.innerHTML='<div class="empty">Falha ao carregar o book.</div>'; }
+  finally{ bt.disabled=false; bt.textContent='Atualizar book'; }
+}
+
+function renderBookShell(){
+  const d=BOOK, R=d.resumo||{};
+  const tiles=Object.entries(CATS).map(([k,v])=>
+    `<div class="bk-tile" data-cat="${k}" style="--c:${v.c}" onclick="toggleCat('${k}')">
+       <div class="bn num">${R[k]||0}</div><div class="bl">${v.n}</div></div>`).join('');
+  const gr=(d.garantia_roster||[]).slice(0,7).map(x=>x.usina+' '+x.n).join(' · ');
+  const regs=['Norte','Nordeste','Centro-Oeste','Sudeste','Sul'];
+  document.getElementById('bookBox').innerHTML=`
+    <div class="csub" style="margin-bottom:8px">${d.total} registros de campo · autor identificado <b>${d.autor_nomeado}/${d.total}</b> · gerado ${d.gerado}${d.erros&&d.erros.length?' · <span style="color:var(--amber)">falhou: '+d.erros.join(', ')+'</span>':''}</div>
+    <div class="bk-tiles">${tiles}</div>
+    <details style="margin:-4px 0 10px"><summary style="cursor:pointer;font-size:11.5px;color:var(--faint)">Referência — ${d.garantia_total} trackers em garantia na planilha de Chamados · o book separa por USINA (relato de usina com chamado aberto → Em garantia, fora de “com causa”)</summary><div class="csub" style="margin-top:5px">${gr||'—'}</div></details>
+    <div class="bk-bar">
+      <select id="bkReg" onchange="bookFilter.reg=this.value;renderBookRows()"><option value="">Todas as regiões</option>${regs.map(r=>`<option>${r}</option>`).join('')}</select>
+      <input id="bkQ" placeholder="Buscar usina, técnico, causa, tracker, texto…" oninput="bookFilter.q=this.value;renderBookRows()">
+      <button class="btn" onclick="limparBook()">Limpar filtros</button>
+    </div>
+    <div class="bk-bar" style="margin:-4px 0 8px"><span id="bkCount" class="csub"></span></div>
+    <div class="bk-tbl-wrap"><table>
+      <thead><tr><th>Quando</th><th>De quem</th><th>Região</th><th>Usina</th><th>Tracker</th><th>Causa</th><th>Categoria</th><th>Trecho</th></tr></thead>
+      <tbody id="bkBody"></tbody>
+    </table></div>`;
+}
+
+function bookFiltered(){
+  const f=bookFilter, q=(f.q||'').toLowerCase().trim();
+  return (BOOK.registros||[]).filter(r=>{
+    if(f.cat && r.categoria!==f.cat) return false;
+    if(f.reg && r.regiao!==f.reg) return false;
+    if(q){ const hay=(r.autor+' '+r.usina+' '+r.causa+' '+r.tracker+' '+r.texto).toLowerCase(); if(!hay.includes(q)) return false; }
+    return true;
+  });
+}
+function trkShort(s){ if(!s) return '<span class="mut">—</span>'; const a=s.split(','); if(a.length<=4) return s;
+  return `<span title="${s}">${a.slice(0,3).join(',')} <span class="mut">+${a.length-3}</span></span>`; }
+function escAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+
+function renderBookRows(){
+  document.querySelectorAll('.bk-tile').forEach(t=>t.classList.toggle('active',t.dataset.cat===bookFilter.cat));
+  const rows=bookFiltered(), tb=document.getElementById('bkBody');
+  const cnt=document.getElementById('bkCount'); if(cnt) cnt.textContent=rows.length+' de '+(BOOK.registros||[]).length+' registros';
+  if(!rows.length){ tb.innerHTML='<tr><td colspan="8" class="empty">Nenhum registro com esse filtro.</td></tr>'; return; }
+  tb.innerHTML=rows.map(r=>{
+    const cv=CATS[r.categoria]||{c:'var(--muted)',n:r.categoria}, cc=causaCor[r.causa]||'var(--muted)';
+    return `<tr>
+      <td class="num" style="white-space:nowrap">${(r.data||'').slice(0,5)}<br><span class="mut">${r.hora||''}</span></td>
+      <td>${escAttr(r.autor)}${r.autor_via==='id'?' <span class="mut" title="autor não identificado por nome — só o ID do WhatsApp">(id)</span>':''}</td>
+      <td>${r.regiao||''}</td>
+      <td style="font-weight:600">${r.usina||'<span class="mut">—</span>'}</td>
+      <td class="num">${trkShort(r.tracker)}</td>
+      <td>${r.causa?`<span class="bk-pill" style="color:${cc}">${r.causa}</span>`:'<span class="mut">—</span>'}</td>
+      <td><span class="bk-cat" style="color:${cv.c};background:${cv.c}22">${cv.n}</span></td>
+      <td class="mut" title="${escAttr(r.texto)}" style="max-width:230px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escAttr((r.texto||'').slice(0,64))}</td>
+    </tr>`;
+  }).join('');
+}
+function toggleCat(k){ bookFilter.cat=(bookFilter.cat===k?'':k); renderBookRows(); }
+function limparBook(){ bookFilter={cat:'',reg:'',q:''};
+  const q=document.getElementById('bkQ'); if(q)q.value=''; const rs=document.getElementById('bkReg'); if(rs)rs.value=''; renderBookRows(); }
+
+function exportBook(){
+  if(!BOOK) return;
+  const rows=bookFiltered();
+  const head=['Data','Hora','De quem','Origem do nome','Região','Usina','Tracker(s)','Causa','Categoria','Fonte','Texto'];
+  const catN={com_causa:'Com causa citada',sem_causa:'Sem causa citada',em_garantia:'Em garantia',nao_encaixa:'Não se encaixa'};
+  const via={texto:'relatório',whatsapp:'perfil WhatsApp',id:'só ID'};
+  const esc=v=>'"'+String(v==null?'':v).replace(/"/g,'""')+'"';
+  const lines=[head.map(esc).join(';')];
+  rows.forEach(r=>lines.push([r.data,r.hora,r.autor,via[r.autor_via]||r.autor_via,r.regiao,r.usina,r.tracker,r.causa,catN[r.categoria]||r.categoria,r.fonte,r.texto].map(esc).join(';')));
+  const blob=new Blob(['﻿'+lines.join('\r\n')],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='book_causas_cos_'+(BOOK.gerado||'').replace(/[^\d]/g,'').slice(0,8)+'.csv';
+  document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},100);
+}
+</script>
+</body>
+</html>

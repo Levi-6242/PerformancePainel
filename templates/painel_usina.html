@@ -169,7 +169,7 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
 </button>
 <div class="cm-panel" id="cmPanel" style="display:none">
   <div class="cm-head"><span>Comentários · <span id="cmScope" style="font-weight:500;opacity:.85"></span></span><span class="x" onclick="toggleCmPanel()" aria-label="fechar">✕</span></div>
-  <div class="cm-body"><div id="cmLista"></div></div>
+  <div class="cm-body"><div id="cmOs"></div><div id="cmLista"></div></div>
   <div class="cm-foot">
     <input id="cmNick" placeholder="Nick" maxlength="40" style="width:64px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt)">
     <textarea id="cmTexto" rows="1" placeholder="Comentário..." maxlength="2000" style="flex:1;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt);resize:none"></textarea>
@@ -269,8 +269,25 @@ function _renderComent(thread){
        <div style="font-size:12px;color:var(--txt);white-space:pre-wrap">${_cmEsc(c.texto)}</div>
      </div>`).join('') : '<div class="empty" style="padding:8px 0">Sem comentários ainda — seja o primeiro.</div>';
 }
+function _cmLoadOs(){   // OSs de Performance (Fracttal) da usina — só-leitura, acima dos comentários
+  const box=document.getElementById('cmOs'); if(!box) return;
+  box.innerHTML='';
+  fetch('/api/os-performance?usina='+encodeURIComponent(NOME||'')).then(r=>r.json()).then(d=>{
+    const os=(d&&d.os)||[]; if(!os.length){ box.innerHTML=''; return; }
+    const cards=os.map(o=>
+      `<div style="border:1px solid var(--line);border-left:3px solid #f59e0b;border-radius:8px;padding:6px 9px;margin-bottom:5px;background:var(--panel-2)">
+         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+           <b style="font-family:monospace;font-size:11px">OS #${_cmEsc(o.os)}</b>
+           <span style="font-size:9px;color:var(--faint);background:var(--panel);padding:1px 6px;border-radius:4px">${_cmEsc(o.categoria)}</span>
+           <span style="margin-left:auto;font-size:9px;font-weight:700;padding:1px 7px;border-radius:20px;background:rgba(245,158,11,.16);color:#f59e0b;white-space:nowrap">${_cmEsc(o.status)}</span></div>
+         ${o.nota?`<div style="font-size:10.5px;color:var(--muted);margin-top:4px;line-height:1.4">${_cmEsc(String(o.nota).slice(0,170))}</div>`:''}
+       </div>`).join('');
+    box.innerHTML=`<div style="font-size:10px;color:var(--faint);font-weight:700;letter-spacing:.04em;margin:0 0 6px">OSs DE PERFORMANCE 🛠️ · ${os.length} em aberto</div>${cards}`;
+  }).catch(()=>{ box.innerHTML=''; });
+}
 async function loadComentarios(){
   const sc=document.getElementById('cmScope'); if(sc)sc.textContent=NOME;
+  _cmLoadOs();
   document.getElementById('cmNick').value=localStorage.getItem('gcAnalistaNick')||'';
   try{
     const d=await fetch('/api/state').then(r=>r.json());

@@ -1,0 +1,87 @@
+{
+  "refere_a": "Altair 5 · trackers · 2026-07-09 · apipv",
+  "dia_tipo": "problematico",
+  "narrativa": "Novo esquema (curso vs +/-55): 11 parados (10 em 0.00 + TRK90 travado em -30), 9 desvios severos (nao chegaram a nenhum extremo), 4 desvios leves (chegaram a um extremo +/-55). Nenhum normal.",
+  "esperado": {
+    "TRK91": {
+      "status": "parado"
+    },
+    "TRK93": {
+      "status": "parado"
+    },
+    "TRK95": {
+      "status": "parado"
+    },
+    "TRK97": {
+      "status": "parado"
+    },
+    "TRK99": {
+      "status": "parado"
+    },
+    "TRK101": {
+      "status": "parado"
+    },
+    "TRK103": {
+      "status": "parado"
+    },
+    "TRK105": {
+      "status": "parado"
+    },
+    "TRK107": {
+      "status": "parado"
+    },
+    "TRK109": {
+      "status": "parado"
+    },
+    "TRK90": {
+      "status": "parado"
+    },
+    "TRK113": {
+      "status": "desvio_severo"
+    },
+    "TRK112": {
+      "status": "desvio_severo"
+    },
+    "TRK104": {
+      "status": "desvio_severo"
+    },
+    "TRK102": {
+      "status": "desvio_severo"
+    },
+    "TRK111": {
+      "status": "desvio_severo"
+    },
+    "TRK106": {
+      "status": "desvio_severo"
+    },
+    "TRK108": {
+      "status": "desvio_severo"
+    },
+    "TRK110": {
+      "status": "desvio_severo"
+    },
+    "TRK100": {
+      "status": "desvio_severo"
+    },
+    "TRK92": {
+      "status": "desvio_leve"
+    },
+    "TRK94": {
+      "status": "desvio_leve"
+    },
+    "TRK96": {
+      "status": "desvio_leve"
+    },
+    "TRK98": {
+      "status": "desvio_leve"
+    }
+  },
+  "agregado_esperado": {
+    "parado": 11,
+    "desvio_severo": 9,
+    "desvio_leve": 4,
+    "normal": 0
+  },
+  "regua_pendente": true,
+  "_nota_evolucao": "10/07: régua migrou de CURSO p/ FREEZE-BASED (regra explícita do Levi, caso TIM100). Gabarito course-based precisa re-validação contra a régua nova (severo/leve podem mudar; PARADO segue)."
+}

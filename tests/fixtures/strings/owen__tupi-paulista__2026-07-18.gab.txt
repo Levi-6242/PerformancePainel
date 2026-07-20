@@ -1,0 +1,56 @@
+Relatorio de Analise de Correntes de String
+UFV TUP | 18/07/2026 | 20 inversores | 400 strings | Janela solar 06:00-18:00
+Este relatorio consolida a classificacao de status, o registro de ocorrencias e a metodologia utilizada para as correntes
+de string desta usina.
+USINA MUITO SAUDAVEL: das 400 strings analisadas, 399 nao apresentaram nenhuma anomalia.
+Apenas 1 string registrou uma unica ocorrencia breve e com recuperacao total, cujo padrao de rampa
+normal de amanhecer antes e depois do evento sugere causa ambiental transitoria (ex.: sombra de
+nuvem) em vez de falha eletrica.
+1. Status das Strings
+1.1 Resumo executivo
+Categoria Qtd Descricao
+Parado (corrente zero permanente) 0 Nenhuma string com falha permanente
+Ocorrencia (com recuperacao) 1 Inversor 2.2 / ST_27, provavel causa ambiental
+Normal 399 Corrente dentro do padrao esperado
+1.2 Ocorrencia (1 string)
+Inversor 2.2 / ST_27 — apresentou rampa de amanhecer normal e gradual (0,00 A as 06:00, subindo suavemente
+ate 0,35 A as 07:57, acompanhando a curva esperada de baixa irradiancia inicial), seguida de uma queda breve
+para proximo de zero entre 08:02 e 08:22 (20 minutos), e recuperacao completa e imediata em seguida, atingindo
+9,7 A por volta das 09:30 e mantendo geracao normal pelo resto do dia.
+O padrao de rampa saudavel antes e depois do evento, combinado com a curta duracao e recuperacao total,
+sugere causa ambiental transitoria (por exemplo, sombra de nuvem passageira) em vez de falha eletrica na string
+ou no conector. Nao requer acao de manutencao, mas fica registrado para acompanhamento caso o padrao se
+repita em dias futuros.
+1.3 Normal (399 strings)
+As demais 399 strings produziram corrente dentro do padrao esperado durante toda a janela solar, sem quedas
+significativas em relacao as strings-irmas do mesmo inversor.
+2. Ocorrencias (janela solar 06:00-18:00)
+String Inicio Fim Duracao Corrente das strings-irmas no periodo
+Inversor 2.2 / ST_27 07:52 08:22 30 min 4,6 A
+Total de geracao perdida: 30 minutos. Evento pontual, unico no dia, sem recorrencia em outras strings do mesmo
+inversor nem em outros inversores.
+3. Metodologia
+3.1 Continuidade da metodologia de strings
+Mantida a metodologia estabelecida: comparacao de cada string contra a mediana das strings-irmas do mesmo
+inversor, deteccao de janelas de queda com limiar minimo de 30 minutos, e verificacao do padrao de rampa de
+amanhecer/entardecer para casos sinalizados.
+3.2 Aplicacao do criterio de rampa saudavel na exclusao de falsos positivos
+O criterio de verificacao de rampa introduzido no relatorio anterior (SMP100, 18/07/2026) foi aplicado aqui de forma
+complementar: em vez de apenas confirmar uma falha, o exame da rampa de amanhecer da ST_27 mostrou um
+padrao de subida gradual e saudavel tanto antes quanto depois do breve evento de queda, o que reforca a
+interpretacao de causa ambiental transitoria em vez de falha eletrica persistente. Esta e a mesma verificacao usada
+para diferenciar desconexao total de mau contato, aplicada aqui para diferenciar falha eletrica de sombreamento
+pontual.
+para uma string com ocorrencia breve (unica, curta duracao, recuperacao total):
+examinar a rampa de amanhecer antes do evento
+examinar a curva de geracao depois do evento
+se ambas mostrarem comportamento saudavel e proximo das strings-irmas:
+-> provavel causa ambiental transitoria (sombra de nuvem, ave, sujeira
+temporaria), nao falha eletrica
+-> registrar para monitoramento, sem prioridade de manutencao imediata
+3.3 Diferenca em relacao aos relatorios anteriores
+Diferente de TIM100 e SMP100 (onde as strings sinalizadas mostraram falha por praticamente toda a janela solar,
+com padroes de zero absoluto ou queda sob carga), esta usina nao apresentou nenhum caso de falha persistente. O
+unico evento registrado tem caracteristicas claramente distintas de falha eletrica, demonstrando a importancia de nao
+classificar automaticamente toda janela de queda como falha de equipamento antes de examinar o contexto ao redor
+do evento.

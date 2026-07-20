@@ -2,24 +2,56 @@
 ou Todos) e 'Atribuídas a mim' (id_personnel do logado, INALTERADO). Filtro de data (BR), status
 colorido, e clique no nº → Data do Evento/Notas/Subtarefas. Lê via api.list_minhas_os."""
 from PyQt6.QtCore import Qt, QDate, QTimer
-from PyQt6.QtGui import QColor, QBrush, QShortcut, QKeySequence
+from PyQt6.QtGui import QColor, QBrush, QShortcut, QKeySequence, QIcon
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
                              QDateEdit, QComboBox, QLineEdit, QSizePolicy, QTableWidget,
-                             QTableWidgetItem, QHeaderView, QAbstractItemView)
+                             QTableWidgetItem, QHeaderView, QAbstractItemView, QMessageBox)
 import api
-from workers import ApiWorker
+from workers import ApiWorker, slot_seguro
 from steps.os_detalhe import abrir_os_detalhe
 from steps.checkcombo import CheckableComboBox
 from steps.spinner import Spinner
 from steps.exportar import exportar_csv
+from steps.ui import icone_pix, GREEN
 
-# status → (fundo, texto)
+# Teto de LINHAS renderizadas na tabela. Cada linha cria um cellWidget de status (QWidget); montar
+# ~2000 de uma vez com o QSS global trava a UI ~15s (e pode derrubar o app) — só acontecia no filtro
+# "Todos os usuários", que traz até HISTORICO_CAP OS. A EXPORTAÇÃO continua incluindo todas as casadas.
+MAX_LINHAS = 500
+
+# status → cor viva (cards arredondados)
 _STATUS_COR = {
-    "Em Processo":    ("#fef3c7", "#92400e"),
-    "Em Verificação": ("#dbeafe", "#1d4ed8"),
-    "Concluída":      ("#dcfce7", "#166534"),
-    "Cancelada":      ("#fee2e2", "#b91c1c"),
+    "Em Processo":    "#F5A623",
+    "Em Verificação": "#4A9EF5",
+    "Concluída":      "#48D07A",
+    "Cancelada":      "#F5766B",
 }
+
+
+def _rgb(hexc):
+    h = hexc.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _status_widget(status):
+    """Card arredondado de status (cor viva), centralizado — vira cellWidget da tabela."""
+    w = QWidget(); w.setStyleSheet("background:transparent;")
+    h = QHBoxLayout(w); h.setContentsMargins(0, 0, 0, 0)
+    h.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    if not status:
+        return w
+    pill = QLabel(status)
+    c = _STATUS_COR.get(status)
+    if c:
+        r, g, b = _rgb(c)
+        pill.setStyleSheet(f"color:{c};background:rgba({r},{g},{b},0.16);"
+                           f"border:1px solid rgba({r},{g},{b},0.42);border-radius:8px;"
+                           "padding:4px 13px;font-size:12px;font-weight:700;")
+    else:
+        pill.setStyleSheet("color:#c4cbdb;background:#1A2337;border:1px solid #2A3550;"
+                           "border-radius:8px;padding:4px 13px;font-size:12px;font-weight:600;")
+    h.addWidget(pill)
+    return w
 
 
 def _data_br(iso):
@@ -47,13 +79,31 @@ class HistoricoOS(QWidget):
         self.b_atrib = QPushButton("Atribuídas a mim")
         self.b_criadas.clicked.connect(lambda: self._set_modo("criadas"))
         self.b_atrib.clicked.connect(lambda: self._set_modo("atribuidas"))
-        row.addWidget(self.b_criadas); row.addWidget(self.b_atrib); row.addStretch(1)
+        row.addWidget(self.b_criadas); row.addWidget(self.b_atrib)
+        # box 1: buscar OS direto pelo nº (ignora filtros)
+        self.busca_os = QLineEdit()
+        self.busca_os.setPlaceholderText("Buscar OS pelo nº — direto, ignora filtros")
+        self.busca_os.setMinimumWidth(260); self.busca_os.setClearButtonEnabled(True)
+        self.busca_os.setToolTip("Digite o número da OS e tecle Enter — abre a OS direto, "
+                                 "em qualquer período/criador.")
+        self.busca_os.addAction(QIcon(icone_pix("search", GREEN, 15)), QLineEdit.ActionPosition.LeadingPosition)
+        self.busca_os.setStyleSheet("QLineEdit{border:1px solid #5c7a2a;}")
+        self.busca_os.returnPressed.connect(self._buscar_os)
+        row.addSpacing(10); row.addWidget(self.busca_os)
+        row.addStretch(1)
+        # box 2: aviso de atualização automática
+        self.lbl_auto = QLabel("↻ Atualiza a cada 15 min"); self.lbl_auto.setObjectName("hint")
+        self.lbl_auto.setToolTip("Com a aba aberta, o histórico se atualiza sozinho a cada 15 minutos.")
+        row.addWidget(self.lbl_auto)
         row.addWidget(QLabel("Buscar"))
         self.busca_no = QLineEdit(); self.busca_no.setPlaceholderText("nº, ativo, descrição, status…")
-        self.busca_no.setMaximumWidth(220); self.busca_no.setClearButtonEnabled(True)
-        self.busca_no.setToolTip("Filtra a lista por qualquer campo (nº, cliente, usina, ativo, "
-                                 "descrição, status, etiqueta) — no período carregado.  [Ctrl+F]")
-        self.busca_no.textChanged.connect(self._aplica)
+        self.busca_no.setMaximumWidth(200); self.busca_no.setClearButtonEnabled(True)
+        self.busca_no.setToolTip("Filtra as linhas já carregadas por qualquer campo (nº, cliente, usina, "
+                                 "ativo, descrição, status, etiqueta).  [Ctrl+F]")
+        # debounce: filtra ~260ms DEPOIS de parar de digitar (senão reconstrói a tabela a cada tecla = trava)
+        self._busca_timer = QTimer(self); self._busca_timer.setSingleShot(True); self._busca_timer.setInterval(260)
+        self._busca_timer.timeout.connect(self._aplica)
+        self.busca_no.textChanged.connect(lambda *_: self._busca_timer.start())
         row.addWidget(self.busca_no)
         self.b_export = QPushButton("Exportar"); self.b_export.setObjectName("secondary")
         self.b_export.setToolTip("Exporta as OS exibidas p/ CSV (abre no Excel).  [Ctrl+E]")
@@ -81,9 +131,9 @@ class HistoricoOS(QWidget):
         self.cb_pessoa.currentIndexChanged.connect(self._on_pessoa)
         self.cb_etiqueta = QComboBox()                       # Etiqueta (populado depois)
         self.cb_etiqueta.currentIndexChanged.connect(self._on_etiqueta)
-        self.cb_status = CheckableComboBox("Todos os status", on_change=self._aplica)
+        self.cb_status = CheckableComboBox("Todos os status", on_change=self._on_status_change)
         self.cb_cliente = CheckableComboBox("Todos os clientes", on_change=self._on_cliente)
-        self.cb_usina = CheckableComboBox("Todas as usinas", on_change=self._aplica)
+        self.cb_usina = CheckableComboBox("Todas as usinas", on_change=self._on_usina)
         self.cb_tipo = CheckableComboBox("Todos os tipos", on_change=self._aplica)
         self.cb_tarefa = CheckableComboBox("Todos os tipos de tarefa", on_change=self._aplica)
         for _cb in (self.cb_pessoa, self.cb_etiqueta, self.cb_status, self.cb_cliente,
@@ -132,9 +182,10 @@ class HistoricoOS(QWidget):
         lay.addLayout(grid)
 
         # tabela
-        self.tab = QTableWidget(0, 8)
+        self.tab = QTableWidget(0, 10)
         self.tab.setHorizontalHeaderLabels(
-            ["Nº", "Cliente", "Usina", "Ativo", "Descrição", "Criada em", "Status", "Etiqueta"])
+            ["Nº", "Cliente", "Usina", "Ativo", "Descrição", "Data de Criação", "Data do Evento",
+             "Data Fim", "Status", "Etiqueta"])
         self.tab.verticalHeader().setVisible(False)
         self.tab.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tab.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -146,13 +197,16 @@ class HistoricoOS(QWidget):
         h.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)       # Usina
         h.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)       # Ativo
         h.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)           # Descrição
-        h.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Criada em
-        h.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Status
-        h.setSectionResizeMode(7, QHeaderView.ResizeMode.Interactive)       # Etiqueta
+        h.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Data de Criação
+        h.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Data do Evento
+        h.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)  # Data Fim
+        h.setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)             # Status (cellWidget → largura fixa)
+        h.setSectionResizeMode(9, QHeaderView.ResizeMode.Interactive)       # Etiqueta
         self.tab.setColumnWidth(1, 90)
         self.tab.setColumnWidth(2, 130)
         self.tab.setColumnWidth(3, 150)
-        self.tab.setColumnWidth(7, 150)
+        self.tab.setColumnWidth(8, 150)
+        self.tab.setColumnWidth(9, 150)
         self.tab.cellClicked.connect(self._abrir_detalhe)   # clique no nº → detalhe da OS
         lay.addWidget(self.tab, 1)
 
@@ -162,12 +216,20 @@ class HistoricoOS(QWidget):
         self.hint = QLabel(""); self.hint.setObjectName("hint")
         hrow.addWidget(self.hint); hrow.addStretch(1)
         lay.addLayout(hrow)
+        # auto-atualização a cada 15 min (só recarrega com a aba visível e sem carga em andamento)
+        self._auto = QTimer(self); self._auto.setInterval(15 * 60 * 1000)
+        self._auto.timeout.connect(self._auto_refresh)
+        self._auto.start()
         self._refresh_botoes()
 
     def carregar_inicial(self):
-        """1ª abertura da aba → carrega (não busca no boot do app)."""
-        if not self._dados and self._w is None and self._wp is None and self._wl is None:
+        """Toda vez que a aba abre → recarrega (a menos que já haja uma carga em andamento)."""
+        if self._w is None and self._wp is None and self._wl is None:
             self._iniciar()
+
+    def _auto_refresh(self):
+        if self.isVisible() and self._w is None and self._wp is None and self._wl is None:
+            self._carregar()
 
     def recarregar(self):
         """Recarga FORÇADA (ex.: após relogar) — reseta o estado e refaz etiquetas→pessoas→OS."""
@@ -263,15 +325,18 @@ class HistoricoOS(QWidget):
         id_label = self.cb_etiqueta.currentData() if self.cb_etiqueta.count() else None
         de = self.d_de.date().toString("yyyy-MM-dd")
         ate = self.d_ate.date().toString("yyyy-MM-dd")
+        _n2i = {v: k for k, v in api.WO_STATUS.items()}      # status é server-side (re-busca por status)
+        status_ids = [_n2i[n] for n in self.cb_status.checked_values() if n in _n2i] or None
         if self._modo == "criadas":
             idacc = self.cb_pessoa.currentData() if self.cb_pessoa.count() else None
-            self._w = ApiWorker(api.list_minhas_os, "criadas", idacc, id_label, de, ate)
+            self._w = ApiWorker(api.list_minhas_os, "criadas", idacc, id_label, de, ate, status_ids)
         else:
-            self._w = ApiWorker(api.list_minhas_os, "atribuidas", None, id_label, de, ate)
+            self._w = ApiWorker(api.list_minhas_os, "atribuidas", None, id_label, de, ate, status_ids)
         self._w.ok.connect(self._set_dados)
         self._w.erro.connect(self._erro)
         self._w.start()
 
+    @slot_seguro
     def _set_dados(self, dados):
         self._w = None
         self.spinner.stop()
@@ -286,8 +351,8 @@ class HistoricoOS(QWidget):
         self.hint.setText("⚠ " + m)
 
     def _rebuild_status(self):
-        """Repovoa o filtro de Status com os status presentes nos dados (multi; preserva marcados)."""
-        self.cb_status.set_items(sorted({d.get("status") for d in self._dados if d.get("status")}))
+        """Status é SERVER-SIDE → lista fixa com todos os status possíveis (preserva marcados)."""
+        self.cb_status.set_items(list(api.WO_STATUS.values()))
 
     def _rebuild_filtros_ativo(self):
         """Repovoa Cliente/Tipo de ativo/Tipo de tarefa (multi; preserva marcados). Usina cascateia."""
@@ -314,23 +379,54 @@ class HistoricoOS(QWidget):
         self._rebuild_usinas()
         self._aplica()
 
-    def _on_data_change(self, *_):
-        self._dt_timer.start()              # debounce → re-busca o período no servidor (_carregar)
-
-    def _limpar_filtros(self):
-        """Limpa os filtros: multi-seleção + busca por nº + Etiqueta. Se a etiqueta estava filtrando
-        (server-side), volta p/ 'Todas' e re-busca; senão só reaplica o client-side."""
-        for cb in (self.cb_status, self.cb_cliente, self.cb_usina, self.cb_tipo, self.cb_tarefa):
-            cb.clear_checks()
-        self.busca_no.blockSignals(True); self.busca_no.clear(); self.busca_no.blockSignals(False)
-        if self.cb_etiqueta.currentIndex() > 0:        # etiqueta filtrava no servidor → re-busca sem ela
-            self.cb_etiqueta.setCurrentIndex(0)        # dispara _on_etiqueta → _carregar
+    def _on_usina(self, *_):
+        # ao filtrar por usina, mostra OS de TODOS os criadores (não só o logado) — troca "Criado por"
+        # p/ "Todos os usuários", o que dispara a re-busca (que por sua vez chama _aplica).
+        if (self._modo == "criadas" and self.cb_usina.checked_values()
+                and self.cb_pessoa.count() and self.cb_pessoa.currentData() != "TODOS"):
+            self.cb_pessoa.setCurrentIndex(0)     # "Todos os usuários" (item 0) → _on_pessoa → _carregar
         else:
             self._aplica()
 
+    def _on_data_change(self, *_):
+        self._dt_timer.start()              # debounce → re-busca o período no servidor (_carregar)
+
+    def _on_status_change(self, *_):
+        self._aplica()                      # feedback IMEDIATO (filtra o que já está carregado)
+        self._dt_timer.start()              # + re-busca server-side p/ completar sob o teto (debounced)
+
+    def _buscar_os(self):
+        """Busca DIRETA pelo nº da OS (ignora filtros/período) → abre o detalhe."""
+        folio = (self.busca_os.text() or "").strip()
+        if not folio:
+            return
+        self.spinner.start(); self.hint.setText(f"procurando OS nº {folio}…")
+        self._wb = ApiWorker(api._wo_id_por_folio, folio)
+        self._wb.ok.connect(lambda wid, f=folio: self._achou_os(wid, f))
+        self._wb.erro.connect(lambda m: (self.spinner.stop(), self.hint.setText("⚠ " + str(m))))
+        self._wb.start()
+
+    def _achou_os(self, wid, folio):
+        self.spinner.stop(); self.hint.setText("")
+        if wid:
+            self.busca_os.clear()                # limpa o buscador assim que abre o card
+            abrir_os_detalhe(self, wid, folio)
+        else:
+            QMessageBox.information(self, "OS não encontrada", f"Não achei nenhuma OS com o nº {folio}.")
+
+    def _limpar_filtros(self):
+        """Limpa tudo (multi-seleção + busca + etiqueta) e re-busca do servidor (status/etiqueta são
+        server-side)."""
+        for cb in (self.cb_status, self.cb_cliente, self.cb_usina, self.cb_tipo, self.cb_tarefa):
+            cb.clear_checks()
+        self.busca_no.blockSignals(True); self.busca_no.clear(); self.busca_no.blockSignals(False)
+        self.cb_etiqueta.blockSignals(True); self.cb_etiqueta.setCurrentIndex(0); self.cb_etiqueta.blockSignals(False)
+        self._carregar()
+
+    @slot_seguro
     def _aplica(self):
-        sts = self.cb_status.checked_values()       # conjuntos vazios = sem filtro (= "todos")
-        clis = self.cb_cliente.checked_values()
+        stats = self.cb_status.checked_values()      # status TAMBÉM client-side → nunca mostra status desmarcado
+        clis = self.cb_cliente.checked_values()      # (a re-busca server-side é só p/ completar sob o teto)
         usis = self.cb_usina.checked_values()
         tips = self.cb_tipo.checked_values()
         tars = self.cb_tarefa.checked_values()
@@ -345,15 +441,16 @@ class HistoricoOS(QWidget):
                       ", ".join(e.get("nome") or "" for e in (d.get("etiquetas") or []))]
             return any(no in c.lower() for c in campos)
         linhas = [d for d in self._dados
-                  if (not sts or d.get("status") in sts)
+                  if (not stats or d.get("status") in stats)
                   and (not clis or d.get("cliente") in clis)
                   and (not usis or d.get("usina") in usis)
                   and (not tips or d.get("tipo") in tips)
                   and (not tars or any(t in tars for t in (d.get("tipo_tarefa") or "").split(" / ")))
                   and _busca(d)]
-        self._linhas = linhas                # guarda p/ exportar exatamente o que está na tela
+        self._linhas = linhas                # guarda TODAS as casadas p/ exportar (não só as exibidas)
         self.tab.setRowCount(0)
-        for d in linhas:
+        self.tab.setUpdatesEnabled(False)    # 1 repaint só no fim (não a cada linha) → menos travamento
+        for d in linhas[:MAX_LINHAS]:        # teto de render — 2000 cellWidgets travam a UI (~15s)
             r = self.tab.rowCount(); self.tab.insertRow(r)
             it_no = QTableWidgetItem(str(d.get("folio") or "—"))
             it_no.setData(Qt.ItemDataRole.UserRole, d.get("id"))   # id_work_order p/ o detalhe
@@ -365,25 +462,28 @@ class HistoricoOS(QWidget):
             self.tab.setItem(r, 2, QTableWidgetItem(d.get("usina") or "—"))
             self.tab.setItem(r, 3, QTableWidgetItem(d.get("ativo") or ""))
             self.tab.setItem(r, 4, QTableWidgetItem(d.get("descricao") or "—"))
-            self.tab.setItem(r, 5, QTableWidgetItem(_data_br(d.get("data"))))
-            it = QTableWidgetItem(d.get("status") or "")
-            bg, fg = _STATUS_COR.get(d.get("status"), ("#e5e7eb", "#374151"))
-            it.setBackground(QBrush(QColor(bg))); it.setForeground(QBrush(QColor(fg)))
-            it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.tab.setItem(r, 6, it)
+            self.tab.setItem(r, 5, QTableWidgetItem(_data_br(d.get("data"))))          # Data de Criação
+            self.tab.setItem(r, 6, QTableWidgetItem(_data_br(d.get("event_date"))))    # Data do Evento
+            self.tab.setItem(r, 7, QTableWidgetItem(_data_br(d.get("data_fim"))))      # Data Fim
+            self.tab.setCellWidget(r, 8, _status_widget(d.get("status")))             # Status (card centralizado)
             etq = ", ".join(e.get("nome") or "" for e in (d.get("etiquetas") or []) if e.get("nome"))
             it_etq = QTableWidgetItem(etq)
             it_etq.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             if etq:
                 it_etq.setToolTip(etq)
-            self.tab.setItem(r, 7, it_etq)
-        if len(self._dados) >= api.HISTORICO_CAP:
+            self.tab.setItem(r, 9, it_etq)
+        self.tab.setUpdatesEnabled(True)
+        n = len(linhas)
+        if n > MAX_LINHAS:
+            extra = (f"  ·  ⚠ exibindo {MAX_LINHAS} de {n} — estreite o filtro/criador "
+                     "(a exportação inclui todas)")
+        elif len(self._dados) >= api.HISTORICO_CAP:
             extra = f"  ·  ⚠ teto de {api.HISTORICO_CAP} atingido — estreite o período/criador"
-        elif len(linhas) != len(self._dados):
+        elif n != len(self._dados):
             extra = f"  ·  {len(self._dados)} no período"
         else:
             extra = ""
-        self.hint.setText(f"{len(linhas)} OS exibidas{extra}")
+        self.hint.setText(f"{min(n, MAX_LINHAS)} OS exibidas{extra}")
 
     def _abrir_detalhe(self, row, col):
         """Clique no nº da OS (col 0) → dialog com Data do Evento, Notas e Subtarefas."""
@@ -396,11 +496,12 @@ class HistoricoOS(QWidget):
 
     def _exportar(self):
         """Exporta as OS exibidas (já filtradas) p/ CSV."""
-        headers = ["Nº", "Cliente", "Usina", "Ativo", "Descrição", "Criada em", "Status",
-                   "Tipo de tarefa", "Etiquetas"]
+        headers = ["Nº", "Cliente", "Usina", "Ativo", "Descrição", "Data de Criação", "Data do Evento",
+                   "Data Fim", "Status", "Tipo de tarefa", "Etiquetas"]
         rows = [[d.get("folio") or "", d.get("cliente") or "", d.get("usina") or "",
                  d.get("ativo") or "", d.get("descricao") or "", _data_br(d.get("data")),
-                 d.get("status") or "", d.get("tipo_tarefa") or "",
+                 _data_br(d.get("event_date")), _data_br(d.get("data_fim")), d.get("status") or "",
+                 d.get("tipo_tarefa") or "",
                  ", ".join(e.get("nome") or "" for e in (d.get("etiquetas") or []) if e.get("nome"))]
                 for d in self._linhas]
         de = self.d_de.date().toString("yyyy-MM-dd"); ate = self.d_ate.date().toString("yyyy-MM-dd")

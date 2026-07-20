@@ -95,6 +95,7 @@ class PcmTab(QWidget):
         self.tbl = QTableWidget(0, 4)
         self.tbl.setHorizontalHeaderLabels(["Ativo", "Plano de tarefa", "Subt.", "Data/hora programada"])
         self.tbl.verticalHeader().setVisible(False)
+        self.tbl.verticalHeader().setDefaultSectionSize(46)   # cabe o combo/data de 40px sem estourar a linha
         self.tbl.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tbl.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.tbl.setFocusPolicy(Qt.FocusPolicy.NoFocus)

@@ -1,0 +1,457 @@
+<title>Ronda de Trackers Parados — contexto</title>
+<style>
+  :root {
+    --bg: #f5f8f0;
+    --surface: #ffffff;
+    --surface-2: #edf1e6;
+    --text: #171d11;
+    --muted: #5b6551;
+    --faint: #7d876f;
+    --border: #e1e6d6;
+    --accent: #4d7a00;      /* verde Grid, profundo (legível no claro) */
+    --accent-2: #7fb000;
+    --lime: #9bcf12;
+    --red: #bf2626;
+    --amber: #a55a09;
+    --blue: #1f66d0;
+    --shadow: 0 1px 2px rgba(20,30,10,.05), 0 8px 24px -12px rgba(20,30,10,.12);
+    --font-sans: system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --font-mono: "Cascadia Code", "Cascadia Mono", "SF Mono", "JetBrains Mono", ui-monospace, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #090d18;
+      --surface: #121a2b;
+      --surface-2: #19223a;
+      --text: #e9eff6;
+      --muted: #98a5ba;
+      --faint: #6f7d94;
+      --border: #26314a;
+      --accent: #a6d92c;
+      --accent-2: #8dc700;
+      --lime: #b7e64c;
+      --red: #f0716e;
+      --amber: #e0a63a;
+      --blue: #6ea6ff;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.6);
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #f5f8f0; --surface: #ffffff; --surface-2: #edf1e6; --text: #171d11;
+    --muted: #5b6551; --faint: #7d876f; --border: #e1e6d6; --accent: #4d7a00;
+    --accent-2: #7fb000; --lime: #9bcf12; --red: #bf2626; --amber: #a55a09; --blue: #1f66d0;
+    --shadow: 0 1px 2px rgba(20,30,10,.05), 0 8px 24px -12px rgba(20,30,10,.12);
+  }
+  :root[data-theme="dark"] {
+    --bg: #090d18; --surface: #121a2b; --surface-2: #19223a; --text: #e9eff6;
+    --muted: #98a5ba; --faint: #6f7d94; --border: #26314a; --accent: #a6d92c;
+    --accent-2: #8dc700; --lime: #b7e64c; --red: #f0716e; --amber: #e0a63a; --blue: #6ea6ff;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 10px 30px -14px rgba(0,0,0,.6);
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .doc {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    line-height: 1.65;
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    padding: clamp(1.1rem, 4vw, 3rem) 1.1rem 5rem;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+
+  .eyebrow {
+    font-size: .72rem; font-weight: 700; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 .6rem;
+  }
+  h1 {
+    font-size: clamp(2rem, 5.5vw, 3.1rem); line-height: 1.03; font-weight: 800;
+    letter-spacing: -.02em; margin: 0 0 .7rem; text-wrap: balance;
+  }
+  .lede { font-size: clamp(1.02rem, 2.2vw, 1.18rem); color: var(--muted); margin: 0; max-width: 62ch; }
+
+  section { margin-top: clamp(2.4rem, 6vw, 3.6rem); }
+  h2 {
+    font-size: 1.34rem; font-weight: 750; letter-spacing: -.01em; margin: 0 0 .35rem;
+    display: flex; align-items: baseline; gap: .6rem;
+  }
+  h2 .n {
+    font-family: var(--font-mono); font-size: .82rem; font-weight: 700; color: var(--accent);
+    letter-spacing: 0; border: 1px solid var(--border); border-radius: 6px; padding: .05rem .4rem;
+    background: var(--surface-2);
+  }
+  .sub { color: var(--muted); margin: 0 0 1.3rem; max-width: 64ch; }
+  p { margin: 0 0 1rem; }
+  strong { font-weight: 650; }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .hl { color: var(--accent); font-weight: 600; }
+
+  /* header clock */
+  .clock { display: flex; flex-wrap: wrap; gap: .8rem; margin-top: 1.6rem; }
+  .slot {
+    flex: 1 1 220px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 14px; padding: 1rem 1.1rem; box-shadow: var(--shadow);
+  }
+  .slot .t { font-family: var(--font-mono); font-size: 1.9rem; font-weight: 700; letter-spacing: -.02em; }
+  .slot .lbl { font-size: .74rem; text-transform: uppercase; letter-spacing: .12em; color: var(--faint); font-weight: 700; }
+  .slot .why { font-size: .9rem; color: var(--muted); margin-top: .4rem; }
+  .slot .t .colon { color: var(--accent); }
+
+  /* stat strip */
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: .7rem; margin-top: 1rem; }
+  .stat { background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: .8rem .9rem; }
+  .stat .v { font-family: var(--font-mono); font-size: 1.35rem; font-weight: 700; color: var(--text); }
+  .stat .k { font-size: .78rem; color: var(--muted); margin-top: .1rem; }
+  @media (max-width: 620px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+
+  /* two windows */
+  .cols2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 680px) { .cols2 { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    padding: 1.15rem 1.2rem; box-shadow: var(--shadow);
+  }
+  .card h3 { margin: 0 0 .5rem; font-size: 1.05rem; font-weight: 700; display:flex; align-items:center; gap:.5rem; }
+  .card h3 .tag { font-family: var(--font-mono); font-size: .82rem; color: var(--accent); font-weight: 700; }
+  .card p { margin: 0; color: var(--muted); font-size: .95rem; }
+
+  /* pipeline */
+  .steps { display: flex; flex-direction: column; gap: .55rem; }
+  .step {
+    display: grid; grid-template-columns: 2.4rem 1fr; gap: 1rem; align-items: start;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: .95rem 1.1rem;
+  }
+  .step .num {
+    font-family: var(--font-mono); font-weight: 700; font-size: 1rem; color: var(--surface);
+    background: var(--accent); width: 2rem; height: 2rem; border-radius: 8px;
+    display: grid; place-items: center;
+  }
+  .step .st { margin: 0; }
+  .step .st b { font-weight: 700; }
+  .step .st .d { color: var(--muted); font-size: .93rem; display:block; margin-top: .15rem; }
+
+  /* whatsapp message mock */
+  .phone { max-width: 460px; margin: 0 auto; }
+  .bubble {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 4px 14px 14px 14px;
+    box-shadow: var(--shadow); padding: .9rem 1rem; font-size: .9rem;
+    border-left: 3px solid var(--accent-2);
+  }
+  .bubble .title { font-weight: 700; letter-spacing: -.01em; }
+  .bubble .orient { color: var(--muted); font-size: .82rem; margin: .5rem 0 .7rem; line-height: 1.5; }
+  .bubble .hr { font-family: var(--font-mono); color: var(--accent); font-size: .82rem; margin: .3rem 0; letter-spacing: -.04em; }
+  .bubble .plant { font-weight: 700; margin-top: .55rem; }
+  .bubble .trk { font-family: var(--font-mono); font-size: .84rem; color: var(--text); }
+  .bubble .trk .ang { color: var(--muted); }
+  .bubble .time { text-align: right; font-size: .68rem; color: var(--faint); margin-top: .6rem; font-family: var(--font-mono); }
+  .mockcap { text-align:center; font-size:.8rem; color: var(--faint); margin-top: .7rem; }
+
+  /* pills */
+  .pills { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .3rem; }
+  .pill {
+    font-size: .8rem; font-weight: 600; padding: .2rem .6rem; border-radius: 999px;
+    border: 1px solid transparent; font-family: var(--font-mono);
+  }
+  .pill.parado { color: var(--red); background: color-mix(in srgb, var(--red) 12%, transparent); border-color: color-mix(in srgb, var(--red) 30%, transparent); }
+  .pill.desvio { color: var(--amber); background: color-mix(in srgb, var(--amber) 14%, transparent); border-color: color-mix(in srgb, var(--amber) 32%, transparent); }
+  .pill.ok { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: color-mix(in srgb, var(--accent) 32%, transparent); }
+
+  /* infra grid */
+  .infra { display: grid; grid-template-columns: repeat(2, 1fr); gap: .7rem; }
+  @media (max-width: 680px) { .infra { grid-template-columns: 1fr; } }
+  .piece { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: .9rem 1rem; }
+  .piece .pt { font-weight: 700; font-size: .98rem; display:flex; align-items:center; gap:.5rem; }
+  .piece .pt .dot { width:.55rem; height:.55rem; border-radius:50%; background: var(--accent); flex:none; }
+  .piece .pd { color: var(--muted); font-size: .9rem; margin-top: .3rem; }
+  .piece .meta { font-family: var(--font-mono); font-size: .76rem; color: var(--faint); margin-top: .45rem; }
+
+  /* reliability list */
+  .rel { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .55rem; }
+  .rel li { display: grid; grid-template-columns: 1.1rem 1fr; gap: .7rem; align-items: start; }
+  .rel li::before {
+    content: ""; width: .7rem; height: .7rem; margin-top: .5rem; border-radius: 3px;
+    background: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  }
+  .rel li b { font-weight: 700; }
+  .rel li span { color: var(--muted); }
+
+  /* compare: limits vs opportunities */
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+  @media (max-width: 720px) { .compare { grid-template-columns: 1fr; } }
+  .panel { border: 1px solid var(--border); border-radius: 14px; padding: 1.1rem 1.2rem; background: var(--surface); }
+  .panel.gap { background: var(--surface-2); }
+  .panel h3 { margin: 0 0 .8rem; font-size: 1rem; font-weight: 750; letter-spacing: .01em; }
+  .panel h3 .k { font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; font-weight: 700; }
+  .gap h3 .k { color: var(--red); }
+  .opp h3 .k { color: var(--accent); }
+  .panel ol, .panel ul { margin: 0; padding-left: 1.15rem; display:flex; flex-direction:column; gap:.5rem; }
+  .panel li { font-size: .93rem; }
+  .panel li b { font-weight: 650; }
+  .panel li span { color: var(--muted); }
+
+  .callout {
+    margin-top: 1.1rem; border: 1px dashed var(--border); border-radius: 12px;
+    padding: .85rem 1rem; background: var(--surface-2); font-size: .92rem; color: var(--muted);
+  }
+  .callout b { color: var(--text); font-weight: 650; }
+
+  /* file map (appendix) */
+  .fgroup { margin-top: .8rem; }
+  .fgroup .gh { display: flex; align-items: baseline; gap: .6rem; flex-wrap: wrap; margin: 0 0 .5rem; }
+  .fgroup .gh h3 { margin: 0; font-size: 1rem; font-weight: 700; }
+  .fgroup .gh .path { font-family: var(--font-mono); font-size: .76rem; color: var(--faint); }
+  .frow {
+    display: grid; grid-template-columns: minmax(0, 14.5rem) 1fr; gap: .2rem 1.1rem;
+    padding: .55rem 0; border-top: 1px solid var(--border);
+  }
+  .frow:first-of-type { border-top: none; padding-top: .1rem; }
+  .frow .nm { display: flex; flex-direction: column; gap: .12rem; min-width: 0; }
+  .frow code { font-family: var(--font-mono); font-size: .82rem; color: var(--accent); word-break: break-word; }
+  .frow .ln { font-family: var(--font-mono); font-size: .72rem; color: var(--faint); }
+  .frow .fd { color: var(--muted); font-size: .91rem; align-self: center; }
+  .frow .fd .off { font-family: var(--font-mono); font-size: .78rem; color: var(--amber); }
+  @media (max-width: 640px) { .frow { grid-template-columns: 1fr; } .frow .fd { align-self: start; } }
+
+  .flow { display: flex; flex-wrap: wrap; align-items: center; gap: .45rem; margin-top: 1.6rem; }
+  .flow .chip {
+    font-family: var(--font-mono); font-size: .78rem; background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 8px; padding: .32rem .6rem; color: var(--text);
+  }
+  .flow .arr { color: var(--accent); font-weight: 800; }
+
+  footer { margin-top: 3.4rem; padding-top: 1.2rem; border-top: 1px solid var(--border); color: var(--faint); font-size: .82rem; }
+  footer .mono { color: var(--muted); }
+  a { color: var(--accent); }
+</style>
+
+<div class="doc">
+<div class="wrap">
+
+  <p class="eyebrow">Grid Co · Operação O&amp;M · Documento interno</p>
+  <h1>Ronda de Trackers Parados</h1>
+  <p class="lede">Um aviso automático, duas vezes ao dia, no WhatsApp dos times de campo: quais rastreadores estão parados e precisam de reset — antes que a usina perca a geração do dia.</p>
+
+  <div class="clock">
+    <div class="slot">
+      <div class="lbl">Disparo da manhã</div>
+      <div class="t mono">08<span class="colon">:</span>25</div>
+      <div class="why">Detecção já confiável e <strong>antes do pico</strong> (10–14h concentram ~60% da energia). Reset entre 08:30 e 09:30 se paga.</div>
+    </div>
+    <div class="slot">
+      <div class="lbl">Disparo da tarde</div>
+      <div class="t mono">13<span class="colon">:</span>15</div>
+      <div class="why">Pega quem tripou no pico, ainda com 3–4h de sol. Depois das 15:30, o reset não se paga mais.</div>
+    </div>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="v mono">2×/dia</div><div class="k">disparos automáticos</div></div>
+    <div class="stat"><div class="v mono">5</div><div class="k">regiões / grupos</div></div>
+    <div class="stat"><div class="v mono">5</div><div class="k">fontes de dados</div></div>
+    <div class="stat"><div class="v mono">15 min</div><div class="k">janela de retentativa</div></div>
+  </div>
+
+  <section>
+    <h2><span class="n">01</span> O que é e por que existe</h2>
+    <p class="sub">O objetivo é simples: transformar a detecção de trackers parados em <strong>ação de campo no momento certo</strong>. Um tracker parado gera menos porque não segue o sol — quanto antes o técnico faz o reset, menos energia se perde.</p>
+    <div class="cols2">
+      <div class="card">
+        <h3><span class="tag">08:25</span> Janela da manhã</h3>
+        <p>A frota já acordou e a detecção está estável. Avisar agora dá tempo do técnico resetar antes do bloco de maior geração do dia.</p>
+      </div>
+      <div class="card">
+        <h3><span class="tag">13:15</span> Janela da tarde</h3>
+        <p>Recupera os que caíram durante o pico. Ainda há sol suficiente para o reset valer a pena; mais tarde, não.</p>
+      </div>
+    </div>
+    <div class="callout">Cada mensagem vai para o grupo <b>COS ↔ Técnicos O&amp;M</b> da respectiva região. A régua e os horários foram calibrados para o retorno de energia, não por conveniência técnica.</div>
+  </section>
+
+  <section>
+    <h2><span class="n">02</span> Como funciona, do dado ao WhatsApp</h2>
+    <p class="sub">No horário, o sistema executa esta sequência inteira — de ponta a ponta, sozinho.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="num">1</div>
+        <p class="st"><b>Coleta ao vivo das 5 fontes</b><span class="d">Busca forçada e em paralelo em API PV, Athon, Axis, Thopen (banco) e 2C. É o estado <strong>do momento</strong> — não usa cache.</span></p>
+      </div>
+      <div class="step">
+        <div class="num">2</div>
+        <p class="st"><b>Detecta os parados</b><span class="d">Régua consolidada: amplitude do ângulo abaixo de ~15° enquanto a frota girou (e o dia não estava encoberto). Sem alvo cadastrado, herda a mediana da usina.</span></p>
+      </div>
+      <div class="step">
+        <div class="num">3</div>
+        <p class="st"><b>Agrupa por região</b><span class="d">Remove duplicatas entre fontes e organiza por região; o Sudeste, maior, é subdividido por cliente.</span></p>
+      </div>
+      <div class="step">
+        <div class="num">4</div>
+        <p class="st"><b>Monta a mensagem</b><span class="d">Título com região e horário, a orientação fixa de reset, e a lista por usina com tracker, ângulo atual e ângulo-alvo.</span></p>
+      </div>
+      <div class="step">
+        <div class="num">5</div>
+        <p class="st"><b>Envia aos grupos</b><span class="d">Pelo serviço de WhatsApp (um chip dedicado). Cada região recebe só a sua lista.</span></p>
+      </div>
+      <div class="step">
+        <div class="num">6</div>
+        <p class="st"><b>Confirma e retenta</b><span class="d">Manda um resumo para o administrador e, se algum grupo falhar, retenta por 15 min — reenviando só para quem faltou.</span></p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">03</span> A mensagem que o time recebe</h2>
+    <p class="sub">Formato real (dados abaixo são ilustrativos). Direto ao ponto: o que resetar e o que fazer se não voltar.</p>
+    <div class="phone">
+      <div class="bubble">
+        <div class="title">RONDA DE TRACKERS PARADOS — SUL — 09/07/2026 08:25</div>
+        <div class="orient">Se após o reset o tracker NÃO voltar a operar, avise neste grupo para o time de Performance abrir uma Ordem de Serviço de inspeção.</div>
+        <div class="hr">═══ SUL · 4 parados ═══</div>
+        <div class="plant">[Usina A]  (2)</div>
+        <div class="trk">- TRK07 — Inversor 3.2  <span class="ang">(atual -12° · alvo 3°)</span></div>
+        <div class="trk">- TRK11 — Inversor 3.2  <span class="ang">(atual -12° · alvo 3°)</span></div>
+        <div class="plant">[Usina B]  (2)</div>
+        <div class="trk">- TRK44  <span class="ang">(atual 5° · alvo 34°)</span></div>
+        <div class="trk">- TRK60  <span class="ang">(atual 5° · alvo 34°)</span></div>
+        <div class="time">08:25 ✓✓</div>
+      </div>
+      <p class="mockcap">O ângulo-alvo é onde o tracker deveria estar seguindo o sol; o atual mostra o quanto ele travou.</p>
+    </div>
+    <div class="pills" style="justify-content:center; margin-top:1rem;">
+      <span class="pill parado">parado</span>
+      <span class="pill desvio">desvio</span>
+      <span class="pill ok">operando</span>
+    </div>
+    <p class="sub" style="text-align:center; margin-top:.6rem;">Estados que a detecção distingue. A ronda envia apenas os <span class="hl">parados</span>.</p>
+  </section>
+
+  <section>
+    <h2><span class="n">04</span> As peças que sustentam tudo</h2>
+    <p class="sub">Hoje, todo o mecanismo roda <strong>localmente, no PC da Performance</strong>. São quatro processos que precisam estar de pé.</p>
+    <div class="infra">
+      <div class="piece">
+        <div class="pt"><span class="dot"></span> Servidor da plataforma</div>
+        <div class="pd">A ronda é uma rotina que vive <strong>dentro</strong> do servidor do dashboard. Se ele cair, a ronda não sai.</div>
+        <div class="meta">Flask · porta 5050</div>
+      </div>
+      <div class="piece">
+        <div class="pt"><span class="dot"></span> Serviço de WhatsApp</div>
+        <div class="pd">Um chip dedicado (não o número de ninguém) que efetua os envios aos grupos.</div>
+        <div class="meta">Node · chip pareado · porta 5099</div>
+      </div>
+      <div class="piece">
+        <div class="pt"><span class="dot"></span> Guardião do servidor</div>
+        <div class="pd">Tarefa agendada que, a cada 5 min, garante o servidor no ar — para a ronda disparar mesmo após uma queda.</div>
+        <div class="meta">Agendador do Windows · silencioso</div>
+      </div>
+      <div class="piece">
+        <div class="pt"><span class="dot"></span> Watchdog do WhatsApp</div>
+        <div class="pd">Vigia o serviço do WhatsApp e o reinicia sozinho quando o navegador dele trava.</div>
+        <div class="meta">auto-cura · sonda a cada 3 min</div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="n">05</span> O que já foi blindado</h2>
+    <p class="sub">A confiabilidade evoluiu de "torcer para dar certo" para se recuperar sozinha na maioria das falhas.</p>
+    <ul class="rel">
+      <li><b>Auto-cura do serviço de WhatsApp.</b> <span>Quando o navegador do serviço trava (falha silenciosa), o watchdog reinicia sozinho e avisa.</span></li>
+      <li><b>Servidor se reergue sozinho.</b> <span>O guardião mantém o servidor vivo — a ronda não depende mais de alguém reabrir o programa.</span></li>
+      <li><b>Fim do envio duplicado.</b> <span>O controle de "já enviei" é por grupo e salvo em disco: a retentativa reenvia só quem faltou, e reiniciar o servidor não reenvia para quem já recebeu.</span></li>
+      <li><b>Botão de emergência.</b> <span>Um atalho ("Rodar Ronda Agora") dispara a ronda na mão, com confirmação, caso a automática não vá.</span></li>
+      <li><b>Exclusão de usina.</b> <span>Dá para tirar uma usina da ronda sem mexer em código (ex.: Salto Pirapora está fora no momento).</span></li>
+    </ul>
+  </section>
+
+  <section>
+    <h2><span class="n">06</span> Limites de hoje &amp; oportunidades</h2>
+    <p class="sub">O material da reunião: onde o sistema ainda é frágil ou cego, e as ideias para o próximo salto.</p>
+    <div class="compare">
+      <div class="panel gap">
+        <h3><span class="k">Onde ainda depende / cega</span></h3>
+        <ul>
+          <li><b>Ponto único de falha.</b> <span>Roda no PC da Performance — precisa dele ligado e logado. PC desligado no horário = sem ronda.</span></li>
+          <li><b>Sem loop de retorno.</b> <span>O sistema não sabe se o técnico resetou, nem se o tracker voltou depois do aviso.</span></li>
+          <li><b>Não sugere OS.</b> <span>Para os trackers que não voltam, ainda não há um passo automático de abrir Ordem de Serviço.</span></li>
+          <li><b>Detecção com ruído.</b> <span>Casos de borda (slots vazios, leitura escalonada, inversor sem geração) ainda geram falsos que precisam de calibração.</span></li>
+          <li><b>Sem métrica de impacto.</b> <span>Não medimos quantos foram resetados nem quanta energia foi recuperada.</span></li>
+          <li><b>Link do dashboard manual.</b> <span>O endereço público muda a cada queda; ainda não há link fixo.</span></li>
+        </ul>
+      </div>
+      <div class="panel opp">
+        <h3><span class="k">Ideias para melhorar</span></h3>
+        <ul>
+          <li><b>Nível 2 — fechar o ciclo.</b> <span>Após a ronda, cruzar quem voltou × quem não voltou e sugerir/abrir OS no Fracttal para os que ficaram parados.</span></li>
+          <li><b>Retorno do time.</b> <span>Um "resetei / não voltou" simples no próprio grupo, alimentando o histórico.</span></li>
+          <li><b>Sair do PC local.</b> <span>Mover para um servidor/nuvem elimina o ponto único e o link instável de uma vez.</span></li>
+          <li><b>Confiabilidade da detecção.</b> <span>Projeto de casos-gabarito para acabar com o "conserta um, quebra outro" (em pauta para sábado).</span></li>
+          <li><b>Painel de impacto.</b> <span>Trackers resetados, tempo até voltar (MTTR) e energia recuperada — por região e por cliente.</span></li>
+          <li><b>Validar os horários com dado.</b> <span>08:25/13:15 são hipóteses boas; medir se são mesmo o ótimo por carteira.</span></li>
+        </ul>
+      </div>
+    </div>
+    <div class="callout">Sugestão de foco para a reunião: <b>fechar o ciclo</b> (Nível 2 + retorno do time) é o que transforma a ronda de "aviso" em "processo com resultado medível" — e é onde está o maior ganho de O&amp;M.</div>
+  </section>
+
+  <section>
+    <h2><span class="n">07</span> Onde mora o código <span style="font-size:.72rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);align-self:center;">Apêndice técnico</span></h2>
+    <p class="sub">Para quem for mexer: os arquivos reais e a função de cada um. A base é a pasta do projeto (<span class="mono" style="font-size:.85rem;">…\temp\Projeto API PV\</span>).</p>
+
+    <div class="card fgroup">
+      <div class="gh"><h3>O cérebro</h3><span class="path">app.py</span></div>
+      <div class="frow"><div class="nm"><code>_ronda_whats_loop</code><span class="ln">L11484</span></div><div class="fd">Agendador (roda em segundo plano): dispara nos horários e retenta por 15 min.</div></div>
+      <div class="frow"><div class="nm"><code>_ronda_whats_disparo</code><span class="ln">L11433</span></div><div class="fd">O disparo: coleta, monta e envia por região — pulando quem já recebeu.</div></div>
+      <div class="frow"><div class="nm"><code>_ronda_parados_all</code><span class="ln">L11355</span></div><div class="fd">Junta os parados das 5 fontes (ao vivo) e aplica a exclusão de usina.</div></div>
+      <div class="frow"><div class="nm"><code>_ronda_texto_regiao</code><span class="ln">L11398</span></div><div class="fd">Formata a mensagem que vai para o grupo.</div></div>
+      <div class="frow"><div class="nm"><code>_whats_send</code><span class="ln">L11422</span></div><div class="fd">Entrega a mensagem ao serviço do WhatsApp.</div></div>
+      <div class="frow"><div class="nm"><code>_whats_cfg</code> · <code>_whats_sent_load</code><span class="ln">L11343 · L11316</span></div><div class="fd">Lê a configuração e o estado de "já enviei hoje".</div></div>
+      <div class="frow"><div class="nm"><code>_pv/_sunop/_pg/_owen_parados_rows</code><span class="ln">L4237 · 3594 · 9559 · 9045</span></div><div class="fd">As 5 fontes de trackers parados (API PV, Athon/Axis, Thopen, 2C).</div></div>
+      <div class="frow"><div class="nm"><code>_whats_watchdog_loop</code> · <code>_whats_service_restart</code><span class="ln">L11567 · L11536</span></div><div class="fd">Vigia o serviço do WhatsApp e o reergue sozinho quando trava.</div></div>
+      <div class="frow"><div class="nm"><code>/api/ronda/whats/…</code><span class="ln">status · testar · preview · grupos</span></div><div class="fd">Endpoints para ver o status, disparar na hora, pré-visualizar sem enviar e listar grupos.</div></div>
+    </div>
+
+    <div class="card fgroup">
+      <div class="gh"><h3>Configuração e estado</h3><span class="path">na pasta do projeto</span></div>
+      <div class="frow"><div class="nm"><code>whats_ronda.json</code><span class="ln">fora do Git — tem token</span></div><div class="fd">O painel de controle: horários, grupos, token, seu número, usinas excluídas, ligado/desligado.</div></div>
+      <div class="frow"><div class="nm"><code>whats_enviados.json</code><span class="ln">runtime</span></div><div class="fd">Quem já recebeu hoje — o controle anti-duplicado.</div></div>
+      <div class="frow"><div class="nm"><code>.env</code></div><div class="fd">Credenciais das 5 fontes de dados.</div></div>
+    </div>
+
+    <div class="card fgroup">
+      <div class="gh"><h3>Serviço do WhatsApp</h3><span class="path">C:\GridcoWhats\</span></div>
+      <div class="frow"><div class="nm"><code>wa_service.js</code></div><div class="fd">O serviço em si (whatsapp-web.js); roda o chip dedicado e faz os envios.</div></div>
+      <div class="frow"><div class="nm"><code>token.txt</code></div><div class="fd">O token — precisa bater com o do whats_ronda.json.</div></div>
+      <div class="frow"><div class="nm"><code>session\</code></div><div class="fd">O login do chip (por isso não precisa reparear a cada boot).</div></div>
+      <div class="frow"><div class="nm"><code>Iniciar WhatsApp Ronda.bat</code></div><div class="fd">Sobe o serviço na mão.</div></div>
+      <div class="frow"><div class="nm"><code>wa_service.log</code></div><div class="fd">Onde você vê os "/send enviado" e os acks (confirmação de entrega).</div></div>
+      <div class="frow"><div class="nm"><code>qr.png</code></div><div class="fd">QR de pareamento — só na primeira vez.</div></div>
+    </div>
+
+    <div class="card fgroup">
+      <div class="gh"><h3>Automação e disparo manual</h3><span class="path">projeto + Agendador do Windows</span></div>
+      <div class="frow"><div class="nm"><code>ronda_guardian.py</code></div><div class="fd">Mantém o servidor (5050) no ar — é o que garante a ronda mesmo após uma queda.</div></div>
+      <div class="frow"><div class="nm"><code>Tarefa "GridCo Ronda Guardian"</code><span class="ln">taskschd.msc</span></div><div class="fd">Roda o guardião a cada 5 min (Agendador de Tarefas do Windows).</div></div>
+      <div class="frow"><div class="nm"><code>ronda_guardian.log</code></div><div class="fd">Registra quando o servidor precisou ser reerguido.</div></div>
+      <div class="frow"><div class="nm"><code>Rodar Ronda Agora.bat</code> → <code>rodar_ronda.ps1</code></div><div class="fd">O botão de emergência: dispara a ronda na mão, com confirmação.</div></div>
+    </div>
+
+    <p class="sub" style="margin:1.6rem 0 0;"><strong>Quem chama quem, em uma linha:</strong></p>
+    <div class="flow">
+      <span class="chip">Tarefa Agendada (5 min)</span><span class="arr">→</span>
+      <span class="chip">app.py · _ronda_whats_loop</span><span class="arr">→</span>
+      <span class="chip">5 fontes ao vivo</span><span class="arr">→</span>
+      <span class="chip">texto por região</span><span class="arr">→</span>
+      <span class="chip">wa_service.js</span><span class="arr">→</span>
+      <span class="chip">grupos no WhatsApp</span>
+    </div>
+  </section>
+
+  <footer>
+    <p class="mono">Ronda de Trackers Parados — panorama para discussão · Grid Co. Performance · 09/07/2026</p>
+    <p>Documento de contexto para reunião de melhoria. Dados da mensagem de exemplo são ilustrativos; horários e regras refletem a configuração atual.</p>
+  </footer>
+
+</div>
+</div>

@@ -1,0 +1,15 @@
+{
+  "refere_a": "Alto Paraná 2 · trackers · 2026-07-09 · apipv",
+  "dia_tipo": "problematico",
+  "regua_pendente": true,
+  "narrativa": "NOVO sub-tipo de PARADO: TRK39 travado/glitch (motor travado ou falha de comunicacao) - 55% do dia com valor identico ao anterior, teleporta entre platos (-90 a +81, 24% fora do +-55 fisico), nao converge com a frota. Amplitude ENORME (171) mas parado. Quebra a regua 'parado=amplitude~0'; pega por FLATNESS + valores fora de faixa. Resto normal.",
+  "esperado": {
+    "TRK39": {
+      "status": "parado"
+    }
+  },
+  "agregado_esperado": {
+    "parado": 1,
+    "normal": 43
+  }
+}
