@@ -14,19 +14,23 @@ Documentação de arquitetura e regras de negócio: `README.md` e `docs/`.
 
 ## O que fica na raiz, e por quê
 
-`.env`, tokens, arquivos de estado (`*.json`), `docs/`, `tests/` e as planilhas ficam **na raiz**,
-não dentro das pastas. São ~26 arquivos — incluindo 8 MB de histórico de trackers, caches e notas
-dos analistas. O código desceu para as pastas; o estado ficou parado, o que tornou a separação
-segura (nada de estado foi movido, então nada podia se perder no caminho).
+Só o que **não pertence a um projeto sozinho**: `CLAUDE.md`, `README.md`, `requirements*.txt`,
+`pytest.ini`, `conftest.py`, `run_tests.bat`, `docs/`, `tests/`, `.env` (a coleta também lê) e
+`tokens.txt` (arquivo único que a T.I. edita). Mais o `Iniciar Dashboards.bat`, que sobe a
+plataforma e o Thopen juntos.
+
+Todo o resto mora na pasta do dono — inclusive **estado de runtime e credenciais**: caches,
+histórico de trackers, notas dos analistas, tokens auto-renovados e logs estão em `plataforma/`.
 
 Consequência prática: dentro de `plataforma/app.py` existem duas constantes, e a escolha entre elas
 importa —
 
-- **`_AQUI`** = pasta do próprio arquivo → `templates/` e `static/`, que viajaram com o código
-- **`_RAIZ`** = raiz do repositório → `.env`, tokens, estado, `docs/`, planilhas
+- **`_AQUI`** = pasta do próprio arquivo → o normal: templates, static, estado, tokens, logs
+- **`_RAIZ`** = raiz do repositório → a exceção: `.env`, `tokens.txt`, `docs/` e o `sys.path`
+  do `thopen/` — só o que é de fato compartilhado
 
-Ao criar um caminho novo, pergunte: isso é recurso colado no código (`_AQUI`) ou estado
-compartilhado (`_RAIZ`)?
+Ao criar um caminho novo, o padrão é `_AQUI`. Use `_RAIZ` apenas se outro projeto também consome
+aquele arquivo.
 
 ## Acoplamento conhecido: plataforma → thopen
 
