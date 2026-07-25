@@ -1,81 +1,68 @@
-# CLAUDE.md — como trabalhar neste projeto
+# CLAUDE.md — mapa do repositório
 
-Dashboard de O&M solar da Grid Co. `app.py` (Flask, ~17 mil linhas, porta **5050**) é a
-plataforma de performance interna; `dashboard_thopen.py` (porta 5080) é o produto do cliente.
-Arquitetura e regras de negócio: `README.md`, `docs/arquitetura.md`, `docs/regras-de-negocio.md`.
+Quatro projetos independentes da Grid Co, um repositório. **Cada pasta tem seu próprio CLAUDE.md**
+com o que é específico dela — leia o da pasta em que estiver trabalhando.
 
-## Rodar e reiniciar
+| Pasta | Projeto | O que é |
+|---|---|---|
+| `plataforma/` | Plataforma de Performance + ronda de trackers | Flask na porta **5050**, uso interno. É o maior (`app.py`, ~17 mil linhas) |
+| `coletor/` | Coletor automatizado de dados | Scripts de coleta que alimentam as planilhas |
+| `os_creator/` | OS Creator | App de desktop (PyQt6) que cria OS no Fracttal |
+| `thopen/` | Dashboard BD_Thopen | Flask na porta **5080**, produto para o **cliente**, publicado no Railway |
 
-Python real desta máquina (NÃO use `python` puro — o alias do WindowsApps sobe um segundo
-processo e você fica com dois app.py disputando a 5050):
+Documentação de arquitetura e regras de negócio: `README.md` e `docs/`.
 
-```
-C:\Users\Levi Maia\AppData\Local\Python\pythoncore-3.14-64\python.exe   # com console/log
-C:\Users\Levi Maia\AppData\Local\Python\pythoncore-3.14-64\pythonw.exe  # sem janela (normal)
-```
+## O que fica na raiz, e por quê
 
-Ritual de restart — sempre nesta ordem:
+`.env`, tokens, arquivos de estado (`*.json`), `docs/`, `tests/` e as planilhas ficam **na raiz**,
+não dentro das pastas. São ~26 arquivos — incluindo 8 MB de histórico de trackers, caches e notas
+dos analistas. O código desceu para as pastas; o estado ficou parado, o que tornou a separação
+segura (nada de estado foi movido, então nada podia se perder no caminho).
 
-1. `py -m py_compile app.py` (ou o python real) — **nunca** reinicie sem compilar antes.
-2. Matar **por CommandLine**, não por nome: `Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like "*app.py*" }`.
-   Confira quantos PIDs voltaram — **é comum aparecerem dois**; mate todos.
-3. Esperar ~4 s, subir com `Start-Process pythonw app.py -WindowStyle Hidden`.
-4. Confirmar com `GET http://127.0.0.1:5050/healthz` em laço (sobe em 4–10 s).
+Consequência prática: dentro de `plataforma/app.py` existem duas constantes, e a escolha entre elas
+importa —
 
-Para diagnosticar, suba com `python.exe -u` e `-RedirectStandardOutput` num `.log` — o prewarm
-imprime o tempo de cada etapa, o que é a forma mais rápida de achar lentidão.
+- **`_AQUI`** = pasta do próprio arquivo → `templates/` e `static/`, que viajaram com o código
+- **`_RAIZ`** = raiz do repositório → `.env`, tokens, estado, `docs/`, planilhas
 
-**O que NÃO precisa de restart:** `docs/redesign/Monitoramento (novo design).html` (a página `/`),
-`templates/relatorio.html`, `whats_ronda.json` e `plat_token.txt` — todos relidos a cada uso.
-Qualquer mudança em `.py` ou nos outros templates precisa.
+Ao criar um caminho novo, pergunte: isso é recurso colado no código (`_AQUI`) ou estado
+compartilhado (`_RAIZ`)?
 
-## Armadilhas que já custaram caro
+## Acoplamento conhecido: plataforma → thopen
 
-- **Hooks do Flask parecem código morto.** `@app.before_request`, `@app.after_request` e rotas não
-  têm chamador visível num scan estático. **Nunca remova** por "não é usado".
-- **Ler `.xlsx` sempre de uma cópia.** O Excel/OneDrive tranca o arquivo (`Errno 13`). Use
-  `_bd_readable_path()`, que já copia uma vez por versão do arquivo. Não volte a copiar por chamada.
-- **Banco: o schema `dbt` congela.** É um pipeline da Thopen, não nosso. Quando congela, puxe das
-  tabelas cruas `public.raw_*` (`raw_inverter`, `raw_tracker`, `raw_weather_station`), que têm o
-  mesmo dado em `json_data` e são hypertables indexadas — costuma ser ordens de grandeza mais rápido.
-- **Fuso do banco:** `public.raw_*` usa `timestamptz` (UTC); as views `dbt.*` usam timestamp
-  ingênuo em hora local. Converta sempre com `AT TIME ZONE 'America/Sao_Paulo'`. Filtro de tempo
-  escrito sem isso pode **zerar o resultado silenciosamente**.
-- **Janela de tempo muda comportamento.** Ao filtrar "últimas N horas", lembre que usina muda há
-  dias precisa continuar aparecendo para acender o alerta de falha de comunicação — senão ela
-  some da tela em vez de alertar.
-- **Trabalho pesado no processo web trava todo mundo** (GIL). Um rebuild degrada os outros
-  usuários em até 1000×. Não coloque `pandas`/`openpyxl`/SQL longo no caminho de uma requisição.
+`plataforma/app.py` importa `dashboard_thopen` para usar **três** leitores do `BD_Thopen.xlsx`:
+`_CARTEIRA_DE`, `_registro()` e `_daily_records()`. É resolvido por um `sys.path.insert` no topo
+do `app.py` apontando para `thopen/`.
 
-## Convenções
+Não é acidente: a planilha é genuinamente compartilhada. Extrair um módulo comum arrastaria junto
+`_bd_path`, `_open_wb`, `_daily_bd` e `CARTEIRAS` — metade do `dashboard_thopen.py` — por um ganho
+que, num repositório único, não se paga. **Se um dia os projetos virarem repositórios separados,
+essa extração passa a ser obrigatória.**
+
+## Convenções (valem para os quatro)
 
 - **Sempre pt-BR**, inclusive comentários de código.
 - **Sem emoji na interface** — severidade se comunica por cor. (Exceção herdada: `/painel`.)
-- Tema escuro é **navy** (`#090d18` / `#161d30`) + verde Grid. Nunca lilás. O relatório
-  (`templates/relatorio.html`) é claro de propósito, imita documento impresso.
-- Comentário de código explica **por que**, não o que — de preferência citando o caso real que
-  motivou a regra. É o padrão do arquivo; mantenha.
+- Tema escuro é **navy** (`#090d18` / `#161d30`) + verde Grid. Nunca lilás.
+- Comentário de código explica **por que**, de preferência citando o caso real que motivou a regra.
+  É o padrão dos arquivos; mantenha.
 - Ao citar um arquivo numa resposta, dê o caminho clicável.
+- Commit só quando pedido explicitamente.
 
-## Segredos e dados
+## Segredos
 
 `.env`, `tokens.txt`, `plat_token.txt`, `pg_password.txt`, `se_credentials.txt` e afins são
-segredos — já estão no `.gitignore`. **Nunca imprima `DASH_PASSWORD` nem desligue a autenticação.**
-Para validar a interface atrás da senha, faça login por sessão lendo a variável, sem exibi-la.
-
-As 3 planilhas-base moram no OneDrive mas aceitam override por variável de ambiente:
-`BD_PERF_PATH`, `BD_THOPEN_PATH`, `TICKETS_PATH`. O servidor dedicado usa um espelho local.
-
-O token da Plataforma (trackers + combiner) é **manual** — tem CAPTCHA e MFA, não auto-renova.
-Vence em ~8 h. Status de todos os tokens em `/api/tokens`.
+segredos, já cobertos pelo `.gitignore`. **Nunca imprima `DASH_PASSWORD` nem desligue a
+autenticação.** Para validar interface atrás da senha, faça login por sessão lendo a variável,
+sem exibi-la.
 
 ## Verificação
 
 Este projeto trata **confiabilidade de dado como prioridade 1**. Antes de dar algo por pronto:
 
 - Mudou consulta ao banco? Rode a nova **e a antiga** e compare valor a valor.
-- Mudou endpoint? Bata nele de verdade (logando por sessão) e confira número e frescor do dado.
+- Mudou endpoint? Bata nele de verdade e confira número e frescor do dado.
 - Mudou desempenho? Meça antes e depois, e diga o número.
 - Se o teste falhou ou você não conseguiu validar, **diga isso** em vez de afirmar que funcionou.
 
-Commit só quando pedido explicitamente.
+Testes: `python -m pytest -q` a partir da raiz (o `conftest.py` põe `plataforma/` no path).

@@ -162,7 +162,7 @@ def test_sunop_strings_curva_exclui_trancada(set_trancadas, monkeypatch):
     plant, inv_name = "Athon X", "INV_01"
     paths = [f"{inv_name}.I_PV1", f"{inv_name}.I_PV2"]
     serie = [(datetime(2026, 6, 15, 12, 0), 8.0)]
-    monkeypatch.setattr(app, "ensure_sunop_meta", lambda: None)
+    monkeypatch.setattr(app, "ensure_sunop_meta", lambda *a, **k: None)
     monkeypatch.setattr(app, "_sunop_meta", {plant: {"inv_strings": {inv_name: paths}}})
     monkeypatch.setattr(app, "_sunop_analog_history", lambda *a, **k: {p: serie for p in paths})
     set_trancadas({app._str_key(plant, inv_name, "I_PV2")})
@@ -175,7 +175,7 @@ def test_sunop_strings_curva_sem_trancada_inclui_todas(set_trancadas, monkeypatc
     plant, inv_name = "Athon X", "INV_01"
     paths = [f"{inv_name}.I_PV1", f"{inv_name}.I_PV2"]
     serie = [(datetime(2026, 6, 15, 12, 0), 8.0)]
-    monkeypatch.setattr(app, "ensure_sunop_meta", lambda: None)
+    monkeypatch.setattr(app, "ensure_sunop_meta", lambda *a, **k: None)
     monkeypatch.setattr(app, "_sunop_meta", {plant: {"inv_strings": {inv_name: paths}}})
     monkeypatch.setattr(app, "_sunop_analog_history", lambda *a, **k: {p: serie for p in paths})
     set_trancadas(set())

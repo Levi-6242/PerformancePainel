@@ -28,10 +28,23 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from flask import Flask, render_template, jsonify, request as flask_request, send_file, session, redirect
 from flask_compress import Compress
 
+# ── Onde as coisas moram (o app.py vive em plataforma/, um nivel abaixo da raiz) ──────────────
+#   _AQUI = pasta deste arquivo  → templates/ e static/ (viajam com o codigo)
+#   _RAIZ = raiz do repositorio  → .env, tokens, estado (*.json), docs/ e as planilhas.
+#   O estado NAO foi movido de proposito: sao ~26 arquivos (8 MB de historico de trackers,
+#   caches, notas dos analistas) e mover cada um seria a parte arriscada da separacao.
+import sys as _sys
+_AQUI = os.path.dirname(os.path.abspath(__file__))
+_RAIZ = os.path.dirname(_AQUI)
+# o dashboard Thopen (thopen/) expoe 3 leitores do BD_Thopen.xlsx que a plataforma consome
+# (_CARTEIRA_DE, _registro, _daily_records) — planilha genuinamente compartilhada.
+if os.path.join(_RAIZ, "thopen") not in _sys.path:
+    _sys.path.insert(0, os.path.join(_RAIZ, "thopen"))
+
 # Credenciais ficam fora do código: .env na raiz do projeto (ver .env.example)
 try:
     from dotenv import load_dotenv
-    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+    load_dotenv(os.path.join(_RAIZ, ".env"))
 except ImportError:
     pass
 
@@ -44,7 +57,7 @@ def _load_tokens_txt():
     arquivo é no-op (servidores antigos com .env seguem funcionando sem tokens.txt).
     Obs.: SUNOP_TOKEN/AXIS_TOKEN entram só como SEMENTE — se o token auto-renovado no
     *_token.txt for mais novo, o próprio app o escolhe (compara a validade do JWT)."""
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tokens.txt")
+    path = os.path.join(_RAIZ, "tokens.txt")
     try:
         with open(path, encoding="utf-8") as f:
             for ln in f:
@@ -387,7 +400,7 @@ def _swr(cache: dict, build, force: bool = False) -> dict:
 # ── SunOp ─────────────────────────────────────────────────────────────────────
 SUNOP_CONFIG  = "https://gridco-api.sunop.net/api"
 SUNOP_DATA    = "https://gridco-api.sunop.net/data"
-SUNOP_TOKEN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sunop_token.txt")
+SUNOP_TOKEN_PATH = os.path.join(_RAIZ, "sunop_token.txt")
 
 
 def _jwt_exp(tok: str) -> float:
@@ -419,7 +432,7 @@ def _sunop_token_inicial(env_var: str = "SUNOP_TOKEN", path: str = None) -> str:
 # Todas as funções SunOp recebem inst="gridco" por padrão → o Athon ao vivo fica IDÊNTICO.
 AXIS_CONFIG     = "https://axis-api.sunop.net/api"
 AXIS_DATA       = "https://axis-api.sunop.net/data"
-AXIS_TOKEN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "axis_token.txt")
+AXIS_TOKEN_PATH = os.path.join(_RAIZ, "axis_token.txt")
 
 _sunop_token     = {"token": _sunop_token_inicial("SUNOP_TOKEN", SUNOP_TOKEN_PATH)}
 _sunop_meta      = {}        # plant_name → metadata dict
@@ -470,8 +483,8 @@ SUNOP_INV_MAX = {
 
 # ── SolarEdge / RenoGrid ───────────────────────────────────────────────────────
 SE_BASE          = "https://monitoring.solaredge.com"
-SE_COOKIE_PATH   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "se_cookie.txt")
-SE_CREDS_PATH    = os.path.join(os.path.dirname(os.path.abspath(__file__)), "se_credentials.txt")
+SE_COOKIE_PATH   = os.path.join(_RAIZ, "se_cookie.txt")
+SE_CREDS_PATH    = os.path.join(_RAIZ, "se_credentials.txt")
 SE_COGNITO_POOL  = os.environ.get("SE_COGNITO_POOL",   "eu-central-1_fVUTz39em")
 SE_COGNITO_CLIENT= os.environ.get("SE_COGNITO_CLIENT", "ugfnsujd3384sshcjehaphlh3")
 SE_STRING_MIN_W  = 0.0      # potência (W) mínima p/ considerar a string "ativa" (> que isso)
@@ -572,7 +585,7 @@ _BD_PERF_ONLINE_CANDS = [p for p in [
     os.path.join(_OD_ROOT, _BD_REL),
     os.path.join(_OD_ROOT, "Área de Trabalho", _BD_REL),
 ] if p]
-_BD_PERF_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "BD_Performance.xlsx")
+_BD_PERF_LOCAL = os.path.join(_RAIZ, "BD_Performance.xlsx")
 
 def _bd_perf_path() -> str:
     """Caminho do BD_Performance — prioridade: (1) versão ONLINE do OneDrive;
@@ -1789,7 +1802,7 @@ def api_debug_match():
 def _serve_redesign():
     """HTML cru do novo design do Monitoramento (sem Jinja; relê o arquivo a cada request → editar o HTML
     reflete sem restart). Serve / (principal, promovido 20/07) e /v2 (alias histórico)."""
-    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "docs", "redesign", "Monitoramento (novo design).html")
+    p = os.path.join(_RAIZ, "docs", "redesign", "Monitoramento (novo design).html")
     try:
         with open(p, encoding="utf-8") as f:
             return f.read()
@@ -4132,7 +4145,7 @@ def api_sunop_trackers_eventos():
 #   posAl=alvo, parametros.{alertaPosicao,criticoPosicao}) e /v2/usinas/trackerschart
 #   (curva do dia por tracker). Token manual (CAPTCHA+MFA) em plat_token.txt.
 PLAT_BASE        = "https://apiplataforma.pvoperation.com"
-_PLAT_TOKEN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "plat_token.txt")
+_PLAT_TOKEN_PATH = os.path.join(_RAIZ, "plat_token.txt")
 _pv_trk_cache    = {"payload": None, "ts": 0.0}
 _pv_trk_plant    = {}   # idusina → {ts, payload}  (análise por usina, reusada no drill-down)
 
@@ -5601,7 +5614,7 @@ TRK_EV_STOW_ANG     = -55.0          # ° — ângulo aproximado do stow leste
 TRK_EV_STOW_TOL     = 10.0           # ° — tolerância (-65° a -45° conta como stow)
 TRK_EV_STOW_INI     = 7 * 60 + 30    # 07:30 — janela onde o stow é esperado
 TRK_EV_STOW_FIM_MAX = 10 * 60 + 30   # 10:30 — limite p/ o tracker sair do stow sem virar ocorrência
-_TRK_EV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trk_eventos.json")
+_TRK_EV_PATH = os.path.join(_RAIZ, "trk_eventos.json")
 _trk_eventos = {}      # {data_iso: {str(pid): {"nome","ts","cobertura","eventos":[...]}}}
 _trk_eventos_lock = threading.Lock()
 _trk_ev_prog = {"running": False, "feito": 0, "total": 0, "atual": "", "fim_ts": 0.0, "erro": ""}
@@ -6999,7 +7012,7 @@ PG_HOST = os.environ.get("PG_HOST", "")
 PG_PORT = int(os.environ.get("PG_PORT", "5432"))
 PG_DB   = os.environ.get("PG_DB", "powerplants")
 PG_USER = os.environ.get("PG_USER", "")
-PG_PASS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pg_password.txt")
+PG_PASS_PATH = os.path.join(_RAIZ, "pg_password.txt")
 PG_STRING_THRESHOLD = 0.5
 _pg_cache     = {"summary": None, "detail": {}, "ts": 0.0}  # snapshot único: resumo + drill-down
 _pg_lock      = threading.Lock()
@@ -9886,7 +9899,7 @@ def api_etm_pivo_export(fonte):
 
 
 # ── Estado compartilhado: verificação + comentários por usina ──────────────────
-STATE_PATH  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ufv_state.json")
+STATE_PATH  = os.path.join(_RAIZ, "ufv_state.json")
 _state_lock = threading.Lock()
 
 
@@ -10140,7 +10153,7 @@ def api_state_comment_del():
 # então a pasta real é a "irmã" do projeto em ...\temp\Projetos e-mail).
 _OWEN_CANDS = [p for p in [
     os.environ.get("OWEN_ROOT"),
-    os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Projetos e-mail"),
+    os.path.join(os.path.dirname(_RAIZ), "Projetos e-mail"),
     os.path.join(os.path.expanduser("~"), "Desktop", "Projetos e-mail"),
     os.path.join(os.path.expanduser("~"), "OneDrive - GRID CO", "Área de Trabalho", "temp", "Projetos e-mail"),
 ] if p]
@@ -10155,7 +10168,7 @@ def _owen_nome(code):
     return USINA_DISPLAY.get(code) or OWEN_UFVS.get(code) or code
 # Acumulador persistente: como os e-mails são INCREMENTAIS (cada janela traz só o pedaço
 # novo) e o baixador sobrescreve o arquivo, mesclamos cada leitura no acervo do DIA em disco.
-OWEN_ACCUM_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "owen_accum.json")
+OWEN_ACCUM_PATH = os.path.join(_RAIZ, "owen_accum.json")
 OWEN_TS_FMT = "%Y-%m-%d %H:%M:%S"
 _owen_accum = {"date": None, "etm": {}, "strings": {}, "trackers": {}}
 _owen_lock = threading.Lock()
@@ -12282,7 +12295,7 @@ def _marca_inv_sub(invs):
     return invs
 
 
-SPV_NOTAS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "string_notas.json")
+SPV_NOTAS_PATH = os.path.join(_RAIZ, "string_notas.json")
 _spv_cache     = {}     # (idusina, data) → {ts, payload}
 _spv_lock      = threading.Lock()
 
@@ -12753,7 +12766,7 @@ def api_spv_pdf():
     from matplotlib.patches import Rectangle, FancyBboxPatch
     from matplotlib import font_manager as _fm
     import matplotlib.image as _mpimg
-    _STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+    _STATIC = os.path.join(_AQUI, "static")
     # Registra qualquer .ttf/.otf de static/fonts/ e prefere Poppins (depois Satoshi);
     # senão, fallback limpo (DejaVu Sans).
     _pdf_font = "DejaVu Sans"
@@ -12910,7 +12923,7 @@ def _curva_pdf_response(usinas_payloads, data, so_abaixo=False, fname_prefix="st
     from matplotlib.patches import Rectangle, FancyBboxPatch
     from matplotlib import font_manager as _fm
     import matplotlib.image as _mpimg
-    _STATIC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+    _STATIC = os.path.join(_AQUI, "static")
     _pdf_font = "DejaVu Sans"
     try:
         _fdir = os.path.join(_STATIC, "fonts")
@@ -13221,7 +13234,7 @@ def _prewarm_loop():
 # mundo pega carga fria. O loop salva um snapshot por minuto (quando algo mudou) e
 # o boot recarrega: o dashboard volta servindo o último dado conhecido na hora,
 # enquanto o prewarm/SWR busca dado fresco em fundo.
-_PERSIST_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache_snapshot.json")
+_PERSIST_PATH = os.path.join(_RAIZ, "cache_snapshot.json")
 
 
 def _persist_registry():
@@ -13380,8 +13393,8 @@ def _trk_ev_hoje_loop():
 # Lê o log do cloudflared (qualquer forma de subir o túnel — .bat, PowerShell, auto-restart — grava
 # nele) e extrai a ÚLTIMA URL trycloudflare. O os_creator (e a UI) leem esse arquivo. Some o problema
 # de "qual o link?" — desde que o túnel grave o log em cloudflared_tunnel.log na pasta do projeto.
-_TUNNEL_URL_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tunnel_url.txt")
-_CF_LOGS = [os.path.join(os.path.dirname(os.path.abspath(__file__)), n)
+_TUNNEL_URL_FILE = os.path.join(_RAIZ, "tunnel_url.txt")
+_CF_LOGS = [os.path.join(_RAIZ, n)
             for n in ("cloudflared_tunnel.log", "cloudflared_tunnel.out.log")]
 
 
@@ -13529,7 +13542,7 @@ def redesign_v2():
     return _serve_redesign()
 
 
-_FRAC_INDEX_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fracttal_index.json")
+_FRAC_INDEX_FILE = os.path.join(_RAIZ, "fracttal_index.json")
 
 
 def _frac_codebase_index():
@@ -13657,7 +13670,7 @@ FRAC_OS_PERF_LABEL = 4660
 _frac_osperf_idx = {}
 _frac_osperf_ts = 0.0
 _frac_openwo_idx = {}          # {Usina Fractall (norm) → [TODAS as OS abertas]} — pick-list do "Atribuir OS"
-_FRAC_OSPERF_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frac_osperf_index.json")
+_FRAC_OSPERF_FILE = os.path.join(_RAIZ, "frac_osperf_index.json")
 FRAC_OSPERF_TTL = 30 * 60
 
 
@@ -13995,8 +14008,8 @@ def api_fracttal_os():
 # DEDICADO e expõe /send em 127.0.0.1:5099. Config: whats_ronda.json {"enabled", "service_url",
 # "token", "horarios": ["07:30","15:30"], "grupos": {"Norte": "1203...@g.us", ...}}.
 # Texto = MESMO formato do modal da ronda (rondaTexto/_rondaUsinas do index.html), gerado aqui.
-_WHATS_CFG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "whats_ronda.json")
-_WHATS_SENT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "whats_enviados.json")
+_WHATS_CFG_PATH = os.path.join(_RAIZ, "whats_ronda.json")
+_WHATS_SENT_PATH = os.path.join(_RAIZ, "whats_enviados.json")
 
 
 def _whats_sent_load():
@@ -14040,11 +14053,11 @@ def _ronda_ang(v):
     return f"{round(v)}°" if isinstance(v, (int, float)) else "—"
 
 
-_TRK_GARANTIA_PATH  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trackers_garantia.json")
+_TRK_GARANTIA_PATH  = os.path.join(_RAIZ, "trackers_garantia.json")
 # Override LOCAL (fora do git): export do SharePoint regerado NESTA máquina. Existindo, SUBSTITUI o
 # versionado — assim dá p/ atualizar a garantia sem que o `git pull` brigue com o arquivo vivo, e o
 # clone novo continua nascendo com a referência curada do repositório.
-_TRK_GARANTIA_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trackers_garantia.local.json")
+_TRK_GARANTIA_LOCAL = os.path.join(_RAIZ, "trackers_garantia.local.json")
 
 
 def _trk_id_num(s):
@@ -14091,7 +14104,7 @@ _trk_garantia_map._c = None
 # ── Histórico de parados p/ RECORRÊNCIA (Levi 23/07) — grava um snapshot dos trackers parados a cada
 #    coleta FORÇADA da ronda; "recorrente" = tracker parado em vários DIAS. Fonte = a própria detecção
 #    da plataforma (5 fontes solares), NÃO os grupos (leitura quebrada) nem a planilha (que atrasa ~2sem).
-_TRK_HIST_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trackers_parados_hist.jsonl")
+_TRK_HIST_PATH = os.path.join(_RAIZ, "trackers_parados_hist.jsonl")
 
 
 def _trk_parados_snapshot(rows, falhas, dedup_min=45, keep_dias=45):
@@ -14301,10 +14314,10 @@ def _ronda_anota_causa(rows):
             r["causa_reportada"] = causa
 
 
-_NOTAS_TRK_PATH  = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trackers_notas.json")
+_NOTAS_TRK_PATH  = os.path.join(_RAIZ, "trackers_notas.json")
 # Override LOCAL (fora do git): notas escritas NESTA máquina. Aqui o override SOMA ao versionado
 # (tracker a tracker, local ganha no empate) — nota é edição incremental, não export inteiro.
-_NOTAS_TRK_LOCAL = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trackers_notas.local.json")
+_NOTAS_TRK_LOCAL = os.path.join(_RAIZ, "trackers_notas.local.json")
 _notas_trk_cache = {"mtime": -1, "data": {}}
 
 
@@ -14583,7 +14596,7 @@ RONDA_GRACE_MIN = 120  # min após o horário do slot em que a ronda ainda DISPA
 # ── Log de envios da ronda (alimenta o Monitor da Ronda) ─────────────────────────────────────────
 # Cada tentativa de envio por região vira uma linha {ts, slot, regiao, ok, trackers, erro};
 # o watchdog também registra os restarts. Persistido (sobrevive a restart), capado em 400 linhas.
-_WHATS_LOG_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "whats_log.json")
+_WHATS_LOG_PATH = os.path.join(_RAIZ, "whats_log.json")
 _whats_log = []
 try:
     with open(_WHATS_LOG_PATH, encoding="utf-8") as _f:
@@ -15231,7 +15244,7 @@ def api_ronda_whats_preview():
 # Trackers já têm histórico multi-dia (trk_eventos.json + _trk_parado_desde_hist). Strings NÃO tinham
 # nada persistido → guardo aqui os eventos de string por dia (desde 01/07) p/ reconstruir "zerada desde
 # quando" e somar horas solares multi-dia. Backfill em background; o dia de HOJE é sempre reprocessado.
-_PERDAS_STR_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "perdas_strings.json")
+_PERDAS_STR_PATH = os.path.join(_RAIZ, "perdas_strings.json")
 _perdas_str = {}          # {date_iso: {fonte: {str(pid): {"usina","ts","eventos":[{inversor,string,caiu,voltou,dur_min,gerando_agora}]}}}}
 _perdas_str_lock = threading.Lock()
 
@@ -15623,7 +15636,7 @@ def _trk_paradas_hist(fonte, ini=None, fim=None):
 # O book nasce derivado do store; guardado em disco ele vira REGISTRO (sobrevive a truncar/perder o
 # trk_eventos) e a aba para de reconstruir 22 dias a cada abertura. Dia fechado é imutável, então
 # recomputar 1×/h basta. Estrutura: {fonte: {ts, ini, fim, rows, dias_classificados}}.
-_PARADAS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "paradas_book.json")
+_PARADAS_PATH = os.path.join(_RAIZ, "paradas_book.json")
 _paradas_book = {}
 _paradas_book_lock = threading.Lock()
 PARADAS_BOOK_TTL = 3600
