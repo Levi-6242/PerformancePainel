@@ -534,6 +534,12 @@ class OsDetalheDialog(QDialog):
         arow.addWidget(self.card_sub); arow.addWidget(self.card_os)
         self.card_sub.set_count("…"); self.card_os.set_count("…")   # até carregar (evita "piscar")
         bl.addLayout(arow)
+        # como a OS está registrada no Fracttal (tipo/classificação/criticidade — estilo COS)
+        bl.addWidget(self._sec_label("REGISTRO NO FRACTTAL"))
+        self.meta_reg = QLabel(""); self.meta_reg.setWordWrap(True)
+        self.meta_reg.setTextFormat(Qt.TextFormat.RichText)
+        self.meta_reg.setStyleSheet("color:#c4cbdb;font-size:12.5px;background:transparent;")
+        bl.addWidget(self.meta_reg)
         bl.addStretch(1)
         lay.addWidget(scroll, 1)
 
@@ -831,6 +837,14 @@ class OsDetalheDialog(QDialog):
         self.dur_big.setText(dur or "—")
         self.dur_note.setText("aproximada · entre evento e fim" if dur else "OS ainda sem data de fim")
         self._set_etiquetas(d.get("etiquetas"))
+
+        # registro no Fracttal (tipo / classificação / criticidade) — estilo COS
+        _g = "color:#A6E22E;font-weight:700"
+        _sep = " &nbsp;&nbsp;·&nbsp;&nbsp; "
+        self.meta_reg.setText(
+            f"Tipo de tarefa <span style='{_g}'>{d.get('tipo') or '—'}</span>{_sep}"
+            f"Classificação <span style='{_g}'>{d.get('classif') or '—'}</span>{_sep}"
+            f"Criticidade <span style='{_g}'>{d.get('criticidade') or '—'}</span>")
 
         self.titulo_blk.setText(d.get("descricao") or "—")
         self.notas_blk.setText((d.get("notas") or "").strip() or "—")

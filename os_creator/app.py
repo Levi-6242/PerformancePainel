@@ -123,6 +123,7 @@ _ICO = {
     "doc":      '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/>',
     "history":  '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/><path d="M12 8v4l3 2"/>',
     "clipboard":'<rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 4h6v3H9z"/><path d="M9 12h6"/><path d="M9 16h4"/>',
+    "headset":  '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="13" width="4" height="7" rx="1.5"/><rect x="17" y="13" width="4" height="7" rx="1.5"/><path d="M20 18v1a3 3 0 0 1-3 3h-3"/>',
 }
 
 
@@ -443,6 +444,8 @@ class MainWindow(QMainWindow):
              lambda: self._mostrar_modo("cos")),
             ("calendar", "PCM", "OS planejada por família de plano, vários ativos",
              lambda: self._mostrar_modo("pcm")),
+            ("headset", "Chamados", "Nova OS ligada a uma OS pai, com a etiqueta CHAMADOS",
+             lambda: self._mostrar_modo("chamados")),
             ("file", "Tradicional", "Criar OS do zero, passo a passo",
              lambda: self.criar_stack.setCurrentIndex(1)),
             ("copy", "Clonar OS", "Duplicar uma OS existente pelo número", self._mostrar_clonar_entrada),
@@ -532,6 +535,9 @@ class MainWindow(QMainWindow):
             elif key == "perf":                                       # Performance = fluxo próprio (N OS)
                 from steps.performance import PerformanceTab
                 inner = PerformanceTab(on_sair=lambda: self.criar_stack.setCurrentIndex(0))
+            elif key == "chamados":                                   # CHAMADOS = OS nova ligada a uma OS pai
+                from steps.chamados import ChamadosTab
+                inner = ChamadosTab(on_voltar=lambda: self.criar_stack.setCurrentIndex(0))
             else:                                                     # pcm
                 inner = PcmTab(performance=False)
             tornar_todos_pesquisaveis(inner)                          # combos pesquisáveis nos modos inline

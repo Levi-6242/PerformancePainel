@@ -19,6 +19,8 @@ class OsPaiPicker(QComboBox):
         self.setToolTip("Opcional: vincula esta OS a uma OS pai. Digite o número e escolha.")
         self._sel = None                        # id_parent selecionado
         self._w = None
+        self._wf = None                         # worker do set_by_folio (deep link)
+        self._pending_folio = ""
         self._timer = QTimer(self); self._timer.setSingleShot(True); self._timer.setInterval(300)
         self._timer.timeout.connect(self._buscar)
         self.lineEdit().textEdited.connect(self._on_edit)
@@ -27,6 +29,30 @@ class OsPaiPicker(QComboBox):
     def id_parent(self):
         """id da OS pai escolhida, ou None se o campo estiver vazio/sem seleção."""
         return self._sel if self.currentText().strip() else None
+
+    def set_by_folio(self, folio):
+        """Pré-seleciona a OS pai pelo NÚMERO (folio) — usado pelo deep link (OS atribuída vira OS pai).
+        Busca no Fracttal e escolhe o match EXATO do folio (o id certo p/ id_parent)."""
+        self._pending_folio = str(folio or "").strip()
+        if not self._pending_folio:
+            return
+        self._wf = ApiWorker(api.buscar_os_pai, self._pending_folio)
+        self._wf.ok.connect(self._auto_sel)
+        self._wf.erro.connect(lambda *_: None)
+        self._wf.start()
+
+    @slot_seguro
+    def _auto_sel(self, res):
+        self._wf = None
+        m = next((r for r in (res or []) if str(r.get("folio") or "").strip() == self._pending_folio), None)
+        if not m:
+            return
+        self.blockSignals(True)
+        self.clear()
+        self.addItem(str(m.get("folio")) + (f" — {m.get('descricao')}" if m.get("descricao") else ""), m.get("id"))
+        self.setCurrentIndex(0)
+        self._sel = m.get("id")
+        self.blockSignals(False)
 
     def _on_edit(self, *_):
         self._sel = None                        # digitou → cancela a seleção até escolher de novo

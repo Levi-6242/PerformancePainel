@@ -17,11 +17,27 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSt
 import api
 from workers import ApiWorker, slot_seguro
 from steps.searchcombo import tornar_pesquisavel, tornar_todos_pesquisaveis
-from steps.ospai import OsPaiPicker
 from steps.ui import (QSS_FORM, Card, campo, rotulo, Linha, icone_pix,
-                      GREEN, GREEN_INK, MUTED, TEXT, CARD, INPUT, BORDER)
+                      GREEN, GREEN_INK, MUTED, TEXT, CARD, INPUT, BORDER, BG)
 
 _SEL = "— selecione —"
+
+
+def _centrar(w):
+    """Embrulha um widget num holder que o centraliza — p/ centralizar um cell widget na coluna."""
+    holder = QWidget(); holder.setStyleSheet("background:transparent;")
+    h = QHBoxLayout(holder); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(0)
+    h.addStretch(1); h.addWidget(w); h.addStretch(1)
+    return holder
+
+
+def _cell_campo(w):
+    """Embrulha um campo de edição (QLineEdit) p/ ele CENTRALIZAR na altura da linha (o QSS limita a
+    altura do campo, então setar direto como cell widget o encosta no topo = desalinhado) + respiro lateral."""
+    holder = QWidget(); holder.setStyleSheet("background:transparent;")
+    h = QHBoxLayout(holder); h.setContentsMargins(6, 0, 6, 0); h.setSpacing(0)
+    h.addWidget(w)                       # HBox centra na vertical um widget de altura fixa
+    return holder
 _CRIT = {i: n for (n, i) in getattr(api, "CRITICIDADES", [])}
 # Tipos de EQUIPAMENTO de planta — p/ decidir quais clientes/usinas são "reais" (o catálogo do Fracttal
 # tem itens de inventário/material com cliente e usina próprios que não são plantas).
@@ -283,12 +299,14 @@ class PerfCriar(QWidget):
         self._checked = set()            # asset ids marcados
         self._clientes_reais = set()     # carteiras com equipamento (preenchido em _fill_clientes)
         self._obs = {}                   # asset id -> observação
+        self._ospai = {}                 # asset id -> nº da OS pai (por ativo, na linha da tabela)
         self._imgs = {}                  # asset id -> [{'bytes','nome','thumb'}]
         self._is_tracker = "tracker" in frase
         self._base = titulo
         self._wa = self._wd = self._wr = self._wc = None
         self._loaded = False
         self._sug = None                 # sugestão pendente do deep link (aplicada após carregar os ativos)
+        self._resp_pendente = None       # responsável a pré-selecionar (deep link: mesmo da OS pai)
 
         self.setStyleSheet(QSS_FORM)
         outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
@@ -326,8 +344,8 @@ class PerfCriar(QWidget):
         b_all.clicked.connect(lambda: self._marcar_todos(True))
         b_none = QPushButton("Limpar"); b_none.setObjectName("secondary")
         b_none.clicked.connect(lambda: self._marcar_todos(False))
-        self.tbl = QTableWidget(0, 3)
-        self.tbl.setHorizontalHeaderLabels(["Ativo", "Observação", "Imagens"])
+        self.tbl = QTableWidget(0, 4)
+        self.tbl.setHorizontalHeaderLabels(["Ativo", "OS Pai", "Observação", "Imagens"])
         self.tbl.setWordWrap(False)                             # nome do ativo em 1 linha (sem quebrar)
         # padding-left:0 no item → o check cola na borda e some a faixa escura à esquerda dele (a margem
         # do indicador de um item de tabela não recebe o fundo do item; qualquer padding>0 reintroduz).
@@ -338,10 +356,11 @@ class PerfCriar(QWidget):
         self.tbl.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.tbl.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         hh = self.tbl.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self.tbl.setColumnWidth(2, 104)
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)     # Ativo
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)       # OS Pai
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)     # Observação
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)       # Imagens
+        self.tbl.setColumnWidth(1, 130); self.tbl.setColumnWidth(3, 104)
         self.tbl.setMinimumHeight(240)
         self.tbl.itemChanged.connect(self._on_item)
         self.sel_lbl = QLabel("0 marcado(s)"); self.sel_lbl.setObjectName("uiAjuda")
@@ -385,12 +404,10 @@ class PerfCriar(QWidget):
         rrow = QWidget(); rrow.setObjectName("uiGroup")
         rrl = QHBoxLayout(rrow); rrl.setContentsMargins(0, 0, 0, 0); rrl.setSpacing(8)
         rrl.addWidget(self.cb_resp, 1); rrl.addWidget(self.b_resp_reload)
-        self.os_pai = OsPaiPicker()
-        c_resp = Card(4, "Responsável e vínculo")
+        c_resp = Card(4, "Responsável")
         c_resp.add(Linha(campo("Data do incidente", self.dt_prog, extra="(aplica a todas)"),
                          campo("Responsável", rrow, obrig=True, extra="(digite p/ pesquisar)")))
-        c_resp.add(campo("Depende de outra OS?", self.os_pai, extra="(opcional — OS pai)"))
-        lay.addWidget(c_resp)
+        lay.addWidget(c_resp)     # OS pai agora é por ativo, na coluna "OS Pai" da tabela de Ativos
 
         # ── botão (no fim, rolando) ──
         self.btn = QPushButton("Criar OS"); self.btn.setObjectName("btnPrimary")
@@ -470,7 +487,7 @@ class PerfCriar(QWidget):
                 self.cb_cli.blockSignals(False)
                 self._fill_usinas()    # re-filtra a usina p/ a carteira (mantém a seleção)
         self._alvos = []; self._alvo_by_id = {}
-        self._checked = set(); self._obs = {}; self._imgs = {}
+        self._checked = set(); self._obs = {}; self._ospai = {}; self._imgs = {}
         self.tbl.setRowCount(0); self._upd_count()
         self.resumo.setText("Selecione a usina para carregar o plano.")
         self.preview.setText("")
@@ -518,7 +535,12 @@ class PerfCriar(QWidget):
             d = dados or {}
             self._sug = {"ativo": (d.get("ativo") or "").strip(),
                          "obs": (d.get("obs") or "").strip(),
-                         "usina": (d.get("usina") or "").strip()}
+                         "usina": (d.get("usina") or "").strip(),
+                         # OS atribuída ao inversor na plataforma → vira a OS PAI do ativo casado
+                         "os_pai": (d.get("os_pai") or "").strip()}
+            if (d.get("resp") or "").strip():
+                self._resp_pendente = str(d["resp"]).strip()
+                self._aplicar_resp_pendente()          # tenta já; se o combo não carregou, o _set_resp reaplica
             usi = self._sug["usina"]
             if not usi:
                 return
@@ -553,16 +575,28 @@ class PerfCriar(QWidget):
         try:
             alvo = api._norm_txt(sug["ativo"]); alvo_n = _num(sug["ativo"])
             achou = None
+            # 1) match EXATO: nome normalizado igual OU número igual. O número é a chave confiável —
+            #    "2.18" != "2.1", então NÃO confunde Inversor 2.1 com Inversor 2.18 (bug do 'in').
             for al in self._alvos:
-                snome = api._asset_short_name(al["asset"])
-                nm = api._norm_txt(snome)
-                if nm == alvo or (alvo and (alvo in nm or nm in alvo)) or (alvo_n and alvo_n == _num(snome)):
+                snome = api._asset_short_name(al["asset"]); nm = api._norm_txt(snome)
+                if nm == alvo or (alvo_n and alvo_n == _num(snome)):
                     achou = al; break
+            # 2) fallback tolerante a nome divergente (plataforma×Fracttal) — mas se AMBOS têm número e
+            #    eles divergem, NÃO casa (impede "2.1" ⊂ "2.18").
+            if not achou:
+                for al in self._alvos:
+                    snome = api._asset_short_name(al["asset"]); nm = api._norm_txt(snome); sn = _num(snome)
+                    if alvo and (alvo in nm or nm in alvo):
+                        if alvo_n and sn and alvo_n != sn:
+                            continue
+                        achou = al; break
             if achou:
                 aid = achou["asset"].get("id")
                 self._checked.add(aid)
                 if sug.get("obs"):
                     self._obs[aid] = sug["obs"]
+                if sug.get("os_pai"):                 # deep link → OS pai vai no campo do ativo casado
+                    self._ospai[aid] = sug["os_pai"]
                 self.hint.setText(f"✓ Deep link: ativo “{api._asset_short_name(achou['asset'])}” selecionado.")
             elif self._alvos:
                 disp = ", ".join(api._asset_short_name(a["asset"]) for a in self._alvos[:8])
@@ -603,30 +637,41 @@ class PerfCriar(QWidget):
         if it is not None:
             it.setForeground(QBrush(QColor(TEXT if checked else MUTED)))
             it.setBackground(QBrush(QColor(166, 226, 46, 22)) if checked else QBrush(Qt.GlobalColor.transparent))
-        self.tbl.removeCellWidget(r, 1)
+        self.tbl.removeCellWidget(r, 1); self.tbl.removeCellWidget(r, 2)
         if checked:
-            self.tbl.takeItem(r, 1)
+            self.tbl.takeItem(r, 1); self.tbl.takeItem(r, 2)
+            pai = QLineEdit(self._ospai.get(aid, ""))
+            pai.setPlaceholderText("nº")               # cabeçalho já diz "OS Pai" — placeholder curto
+            pai.textChanged.connect(lambda tx, k=aid: self._ospai.__setitem__(k, tx))
+            self.tbl.setCellWidget(r, 1, _cell_campo(pai))
             obs = QLineEdit(self._obs.get(aid, ""))
             obs.setPlaceholderText("motivo / observação (opcional)")
             obs.textChanged.connect(lambda tx, k=aid: self._obs.__setitem__(k, tx))
-            self.tbl.setCellWidget(r, 1, obs)
+            self.tbl.setCellWidget(r, 2, _cell_campo(obs))
         else:
-            dash = QTableWidgetItem("—"); dash.setForeground(QBrush(QColor(MUTED)))
-            dash.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            self.tbl.setItem(r, 1, dash)
-        self.tbl.setCellWidget(r, 2, self._attach_btn_for(aid, checked))
+            for col in (1, 2):
+                dash = QTableWidgetItem("—"); dash.setForeground(QBrush(QColor(MUTED)))
+                dash.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                self.tbl.setItem(r, col, dash)
+        self.tbl.setCellWidget(r, 3, _centrar(self._attach_btn_for(aid, checked)))
 
     def _attach_btn_for(self, aid, checked=True):
         n = len(self._imgs.get(aid, []))
+        tem = bool(n and checked)
         btn = QPushButton(str(n) if n else "")
         btn.setObjectName("secondary")
-        btn.setIcon(QIcon(icone_pix("image", GREEN if (n and checked) else MUTED, 15)))
-        btn.setFixedHeight(30); btn.setFixedWidth(84)
+        btn.setIcon(QIcon(icone_pix("image", GREEN if tem else MUTED, 14)))
+        btn.setFixedWidth(72)
         btn.setEnabled(bool(checked))
         btn.setToolTip("Anexar imagens (arquivo ou colar com Ctrl+V)")
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        if n and checked:
-            btn.setStyleSheet("QPushButton#secondary{border:1px solid %s; color:%s; font-weight:700;}" % (GREEN, GREEN))
+        # min/max-height inline sobrepõem o min-height:38 do QSS → botão baixo que cabe na linha (46px)
+        _brd = GREEN if tem else BORDER
+        _col = GREEN if tem else "#cdd2e0"
+        _wt = "700" if tem else "500"
+        btn.setStyleSheet("QPushButton#secondary{background:transparent;border:1px solid %s;border-radius:7px;"
+                          "min-height:24px;max-height:24px;padding:0 8px;color:%s;font-weight:%s;font-size:12px;}"
+                          % (_brd, _col, _wt))
         btn.clicked.connect(lambda _c, k=aid: self._anexar(k))
         return btn
 
@@ -716,6 +761,22 @@ class PerfCriar(QWidget):
         self.cb_resp.clear(); self.cb_resp.addItem(_SEL, None)
         for p in sorted(pessoas or [], key=lambda x: (x.get("name") or "").lower()):
             self.cb_resp.addItem(p.get("name") or p.get("code") or "?", p)
+        self._aplicar_resp_pendente()                  # deep link: pré-seleciona o responsável da OS pai
+
+    def _aplicar_resp_pendente(self):
+        """Pré-seleciona no combo o responsável pendente do deep link (mesmo da OS pai), casando pelo
+        nome (tolerante a espaços duplos/caixa). Se o combo ainda não carregou, fica pendente e o
+        _set_resp reaplica quando carregar."""
+        import re
+        alvo = re.sub(r"\s+", " ", (getattr(self, "_resp_pendente", None) or "")).strip().lower()
+        if not alvo:
+            return
+        for i in range(self.cb_resp.count()):
+            p = self.cb_resp.itemData(i)
+            if isinstance(p, dict) and re.sub(r"\s+", " ", (p.get("name") or "")).strip().lower() == alvo:
+                self.cb_resp.setCurrentIndex(i)
+                self._resp_pendente = None
+                return
 
     def _resp_err(self, m):
         self._wr = None
@@ -740,6 +801,7 @@ class PerfCriar(QWidget):
             itens.append({"asset": al["asset"], "plano_id_task": al["plano_id_task"],
                           "plano_id_item": al["plano_id_item"], "linkar": al.get("linkar", True),
                           "base": base, "note": self._obs.get(aid, ""),
+                          "os_pai": (self._ospai.get(aid, "") or "").strip(),   # OS pai por ativo
                           "imagens": self._imgs.get(aid, [])})
         n_img = sum(len(it["imagens"]) for it in itens)
         extra = f"\n{n_img} imagem(ns) serão anexadas." if n_img else ""
@@ -751,8 +813,7 @@ class PerfCriar(QWidget):
             return
         self.btn.setEnabled(False)
         self.hint.setText(f"criando {len(itens)} OS… (pode levar alguns segundos)")
-        self._wc = ApiWorker(api.create_performance_os, itens, p.get("id_personnel"), p.get("name"),
-                             evt, self.os_pai.id_parent())
+        self._wc = ApiWorker(api.create_performance_os, itens, p.get("id_personnel"), p.get("name"), evt)
         self._wc.ok.connect(self._criou)
         self._wc.erro.connect(self._err)
         self._wc.start()
@@ -817,7 +878,10 @@ class PerfAnexoDialog(QDialog):
         lay.addLayout(brow)
         self.grid_scroll = QScrollArea(); self.grid_scroll.setObjectName("uiFlat")
         self.grid_scroll.setWidgetResizable(True); self.grid_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        self._grid_host = QWidget(); self.grid_scroll.setWidget(self._grid_host)
+        self.grid_scroll.setStyleSheet("QScrollArea{background:transparent;border:none;}")
+        self.grid_scroll.viewport().setStyleSheet("background:transparent;")   # sem bloco escuro atrás dos cards
+        self._grid_host = QWidget(); self._grid_host.setStyleSheet("background:transparent;")
+        self.grid_scroll.setWidget(self._grid_host)
         self._grid = QGridLayout(self._grid_host); self._grid.setContentsMargins(0, 0, 0, 0)
         self._grid.setSpacing(10); self._grid.setAlignment(Qt.AlignmentFlag.AlignTop)
         lay.addWidget(self.grid_scroll, 1)
@@ -868,24 +932,38 @@ class PerfAnexoDialog(QDialog):
             if it.widget():
                 it.widget().deleteLater()
         self.vazio.setVisible(not self._imgs)
+        COLS = 3
         for i, im in enumerate(self._imgs):
-            cell = QFrame(); cell.setObjectName("uiFlat")
-            cell.setStyleSheet("QFrame#uiFlat{background:%s;border:1px solid %s;border-radius:10px;}" % (INPUT, BORDER))
-            cv = QVBoxLayout(cell); cv.setContentsMargins(8, 8, 8, 8); cv.setSpacing(6)
-            th = QLabel(); th.setFixedSize(120, 96); th.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            th.setStyleSheet("background:transparent;border:none;")
+            cell = QFrame(); cell.setObjectName("anxCell"); cell.setFixedWidth(150)
+            cell.setStyleSheet("QFrame#anxCell{background:%s;border:1px solid %s;border-radius:10px;}" % (INPUT, BORDER))
+            cv = QVBoxLayout(cell); cv.setContentsMargins(8, 8, 8, 8); cv.setSpacing(7)
+            th = QLabel(); th.setFixedSize(134, 100); th.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            th.setStyleSheet("background:%s;border:1px solid %s;border-radius:7px;" % (BG, BORDER))
             if not im["thumb"].isNull():
                 th.setPixmap(im["thumb"])
             else:
-                th.setText("sem prévia"); th.setStyleSheet("color:%s;background:transparent;border:none;" % MUTED)
+                th.setText("sem prévia"); th.setStyleSheet("color:%s;background:%s;border:1px solid %s;"
+                                                           "border-radius:7px;" % (MUTED, BG, BORDER))
             cv.addWidget(th, 0, Qt.AlignmentFlag.AlignCenter)
-            nm = QLabel(im["nome"]); nm.setObjectName("uiAjuda"); nm.setMaximumWidth(128)
-            nm.setWordWrap(True); cv.addWidget(nm)
-            b_rm = QPushButton("Remover"); b_rm.setObjectName("secondary")
+            nm = QLineEdit(im["nome"]); nm.setObjectName("anxName"); nm.setFixedWidth(134)
+            nm.setToolTip("Clique para editar o nome do arquivo")
+            nm.setStyleSheet("QLineEdit#anxName{background:%s;border:1px solid %s;border-radius:6px;"
+                             "padding:4px 7px;color:%s;font-size:11.5px;}"
+                             "QLineEdit#anxName:focus{border-color:%s;}" % (BG, BORDER, TEXT, GREEN))
+            nm.editingFinished.connect(lambda k=i, w=nm: self._renomear(k, w.text()))
+            cv.addWidget(nm, 0, Qt.AlignmentFlag.AlignCenter)
+            b_rm = QPushButton("Remover"); b_rm.setObjectName("secondary"); b_rm.setFixedWidth(134)
             b_rm.setIcon(QIcon(icone_pix("trash", MUTED, 14)))
             b_rm.clicked.connect(lambda _c, k=i: self._remover(k))
-            cv.addWidget(b_rm)
-            self._grid.addWidget(cell, i // 3, i % 3)
+            cv.addWidget(b_rm, 0, Qt.AlignmentFlag.AlignCenter)
+            self._grid.addWidget(cell, i // COLS, i % COLS,
+                                 Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self._grid.setColumnStretch(COLS, 1)          # coluna-fantasma absorve o espaço (cards não esticam)
+
+    def _renomear(self, k, novo):
+        novo = (novo or "").strip()
+        if 0 <= k < len(self._imgs) and novo:
+            self._imgs[k]["nome"] = novo
 
     def _remover(self, k):
         if 0 <= k < len(self._imgs):

@@ -671,6 +671,49 @@ def duracao_os(ini, fim) -> str:
     return " ".join(out)
 
 
+def _parse_iso(x):
+    """ISO 'YYYY-MM-DD[ T]HH:MM[:SS]' → datetime (naive). None se inválido/vazio."""
+    s = str(x or "").strip().replace(" ", "T")[:19]
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%Y-%m-%dT%H:%M:%S")
+    except ValueError:
+        try:
+            return datetime.strptime(s[:16], "%Y-%m-%dT%H:%M")
+        except ValueError:
+            return None
+
+
+def horas_solares(ini, fim, h0=6, h1=18) -> float:
+    """Horas dentro da janela solar [h0,h1] de cada dia, entre dois datetime. 0 se fim<=ini."""
+    from datetime import time as _time
+    if not ini or not fim or fim <= ini:
+        return 0.0
+    total = 0.0
+    d = ini.date()
+    while d <= fim.date():
+        a = max(ini, datetime.combine(d, _time(h0)))
+        b = min(fim, datetime.combine(d, _time(h1)))
+        if b > a:
+            total += (b - a).total_seconds() / 3600.0
+        d += timedelta(days=1)
+    return total
+
+
+def duracao_solar(event_iso, fim_iso=None, h0=6, h1=18):
+    """Tempo do problema em HORAS SOLARES (janela h0–h1) do evento até o fim; sem fim → até AGORA.
+    → (horas: float|None, em_aberto: bool). None se a data do evento for inválida."""
+    ini = _parse_iso(event_iso)
+    if not ini:
+        return (None, False)
+    fim = _parse_iso(fim_iso)
+    aberto = fim is None
+    if fim is None:
+        fim = datetime.now()
+    return (round(horas_solares(ini, fim, h0, h1), 2), aberto)
+
+
 def _path_node(asset: dict) -> str:
     pid, iid = asset.get("id_parent"), asset.get("id")
     return f"{pid}.{iid}" if pid else str(iid)
@@ -1265,6 +1308,7 @@ def list_minhas_os(modo: str = "criadas", id_account=None, id_label=None,
         d["tipo_tarefa"] = m.get("tipo_tarefa", "")
         d["event_date"] = m.get("event_date") or d.get("event_date", "")   # tarefa manda; senão a da lista
         d["data_fim"] = m.get("data_fim") or d.get("data_fim", "")
+        d["note"] = m.get("note", "")                                       # p/ o board ler o bloco CHAMADO
     return out
 
 
@@ -1287,7 +1331,7 @@ def _meta_tarefa_por_os(wo_ids):
                 "date_finished", "closing_date")
 
     def _fetch(chunk):
-        tipos, evt, fim, start, limit = {}, {}, {}, 0, 2000
+        tipos, evt, fim, notas, start, limit = {}, {}, {}, {}, 0, 2000
         while True:
             try:
                 r = _rpc_call(RPC_WO_TASKS, {"page": 1, "limit": limit, "start": start,
@@ -1313,14 +1357,20 @@ def _meta_tarefa_por_os(wo_ids):
                         fv = str(v)[:19]; break
                 if fv and (wid not in fim or fv > fim[wid]):  # a mais recente
                     fim[wid] = fv
+                nt = str(t.get("note") or t.get("task_note") or "").strip()   # nota da tarefa
+                if nt:
+                    cur = notas.get(wid, "")
+                    if (_CHAMADO_MK in nt and _CHAMADO_MK not in cur) or \
+                       (_CHAMADO_MK not in cur and len(nt) > len(cur)):       # prefere a que tem o bloco
+                        notas[wid] = nt
             start += len(data)
             if not data or len(data) < limit:
                 break
-        return tipos, evt, fim
+        return tipos, evt, fim, notas
 
-    tipos_out, evt_out, fim_out = {}, {}, {}
+    tipos_out, evt_out, fim_out, notas_out = {}, {}, {}, {}
     with ThreadPoolExecutor(max_workers=min(8, len(chunks))) as ex:
-        for tipos, evt, fim in ex.map(_fetch, chunks):
+        for tipos, evt, fim, notas in ex.map(_fetch, chunks):
             for wid, s in tipos.items():
                 tipos_out.setdefault(wid, set()).update(s)
             for wid, e in evt.items():
@@ -1329,9 +1379,14 @@ def _meta_tarefa_por_os(wo_ids):
             for wid, f2 in fim.items():
                 if wid not in fim_out or f2 > fim_out[wid]:
                     fim_out[wid] = f2
+            for wid, nt in notas.items():
+                cur = notas_out.get(wid, "")
+                if (_CHAMADO_MK in nt and _CHAMADO_MK not in cur) or (_CHAMADO_MK not in cur and len(nt) > len(cur)):
+                    notas_out[wid] = nt
     return {wid: {"tipo_tarefa": " / ".join(sorted(tipos_out.get(wid, set()))),
-                  "event_date": evt_out.get(wid, ""), "data_fim": fim_out.get(wid, "")}
-            for wid in set(tipos_out) | set(evt_out) | set(fim_out)}
+                  "event_date": evt_out.get(wid, ""), "data_fim": fim_out.get(wid, ""),
+                  "note": notas_out.get(wid, "")}
+            for wid in set(tipos_out) | set(evt_out) | set(fim_out) | set(notas_out)}
 
 
 # Campos onde o Fracttal pode guardar a RESPOSTA de uma subtarefa (o nome varia por tipo/versão).
@@ -1529,9 +1584,17 @@ def get_os_detalhes(id_work_order) -> dict:
                 break
         if data_fim:
             break
+    # tipo/classificação/criticidade (rodapé read-only do card, estilo COS)
+    _crit_pt = {v: k for k, v in CRITICIDADES}          # {1:'Muito alto',…,3:'Médio',…}
+    _c1 = str(t0.get("tasks_types_description") or "").strip()
+    _c2 = str(t0.get("tasks_types_2_description") or "").strip()
+    classif = " / ".join([x for x in (_c1, _c2) if x])
+    criticidade = _crit_pt.get(t0.get("id_priorities"), "")
     return {"folio": t0.get("wo_folio"),
             "descricao": str(t0.get("tasks_description") or "").strip(),
             "tipo": str(t0.get("tasks_types_main_description") or "").strip(),
+            "classif": classif,
+            "criticidade": criticidade,
             "event_date": t0.get("event_date"),
             "data_fim": data_fim,
             "responsavel": resp,
@@ -1544,6 +1607,156 @@ def get_os_detalhes(id_work_order) -> dict:
             "etiquetas": [{"id": l.get("id"), "nome": l.get("description"), "cor": l.get("color")}
                           for l in (det.get("labels") or []) if isinstance(l, dict) and l.get("id") is not None],
             "code": code0, "ativo": ativo0}
+
+
+def get_os_detalhes_por_folio(folio) -> dict:
+    """Detalhe da OS pelo NÚMERO (wo_folio) em vez do id — usado pelo clonador do COS.
+    None se o número não existir."""
+    idwo = _wo_id_por_folio(folio)
+    if not idwo:
+        return None
+    d = get_os_detalhes(idwo)
+    d["id_work_order"] = idwo
+    return d
+
+
+def _label_id(nome: str):
+    """id da etiqueta pelo nome (case-insensitive). None se não existir no Fracttal."""
+    alvo = str(nome or "").strip().lower()
+    for l in (get_labels() or []):
+        if str(l.get("description") or "").strip().lower() == alvo:
+            return l.get("id")
+    return None
+
+
+_CHAMADO_MK  = "━━━ CHAMADO ━━━"
+_CHAMADO_FIM = "━━━━━━━━━━━━━━━━"
+# (rótulo no texto, chave no dict) — ordem = ordem no bloco
+_CHAMADO_CAMPOS = [("OS de abertura", "os_pai"), ("Ticket/RMA", "ticket"),
+                   ("Serial Number", "serial"), ("Status", "status"),
+                   ("Fabricante", "fabricante"), ("Motivo", "motivo"), ("Resolução", "resolucao")]
+
+
+def bloco_chamado(dados: dict) -> str:
+    """Monta o BLOCO padrão do chamado (legível + parseável) p/ gravar na observação da OS.
+    O mesmo texto serve pros formatos ANTIGOS (colado na OS) e pra o board LER."""
+    linhas = [_CHAMADO_MK]
+    for rot, k in _CHAMADO_CAMPOS:
+        v = str((dados or {}).get(k) or "").strip() or "—"
+        linhas.append(f"{rot}: {v}")
+    linhas.append(_CHAMADO_FIM)
+    return "\n".join(linhas)
+
+
+def parse_bloco_chamado(texto) -> dict:
+    """INVERSO: lê o bloco CHAMADO de uma observação → {os_pai,ticket,serial,status,fabricante,
+    motivo,resolucao}. {} se não tiver o bloco. Tolera acento/caixa no rótulo. '—'/vazio → ''."""
+    t = str(texto or "")
+    if _CHAMADO_MK not in t and "chamado" not in t.lower():
+        return {}
+    def _norm(s):
+        import unicodedata
+        return "".join(c for c in unicodedata.normalize("NFKD", s.lower()) if not unicodedata.combining(c)).strip()
+    rot2k = {_norm(r): k for r, k in _CHAMADO_CAMPOS}
+    out = {}
+    for linha in t.splitlines():
+        if ":" not in linha:
+            continue
+        rot, val = linha.split(":", 1)
+        k = rot2k.get(_norm(rot))
+        if k:
+            v = val.strip()
+            out[k] = "" if v in ("", "—") else v
+    return out
+
+
+def list_chamados(de=None, ate=None, status_ids=None) -> list:
+    """OSs com a etiqueta CHAMADOS no período [de, ate] (de TODOS os criadores), mais recentes
+    primeiro. [] se a etiqueta 'CHAMADOS' não existir no Fracttal."""
+    lid = _label_id("CHAMADOS")
+    if not lid:
+        return []
+    return list_minhas_os(modo="criadas", id_account="TODOS", id_label=lid,
+                          de=de, ate=ate, status_ids=status_ids)
+
+
+def create_os_chamado(parent_folio, id_responsible, resp_code="", resp_name="",
+                      concluir=False, note="", ticket="", motivo="", subtarefas=None,
+                      dados_chamado=None) -> dict:
+    """CHAMADOS: cria uma OS NOVA no MESMO ativo de uma OS existente (nº = parent_folio), vinculando-a
+    como OS PAI e aplicando a etiqueta 'CHAMADOS'. `concluir` = fecha a OS logo após criar. Herda tipo/
+    classificação/criticidade da OS pai. `ticket`/`motivo` entram no título; `subtarefas` (Lista já
+    montadas pela tela) viram as subtarefas rastreáveis. → {'ok','folio','os_pai','etiqueta_ok',
+    'concluida','aviso'} ou {'ok':False,'erro'}. NADA é criado se a OS/ativo/etiqueta não forem resolvidos."""
+    parent_folio = str(parent_folio or "").strip()
+    if not parent_folio:
+        return {"ok": False, "erro": "Digite o número da OS do chamado."}
+    if not id_responsible:
+        return {"ok": False, "erro": "Escolha o responsável (a OS pai e a etiqueta só gravam com ele)."}
+    d = get_os_detalhes_por_folio(parent_folio)
+    if not isinstance(d, dict):
+        return {"ok": False, "erro": f"Não achei a OS nº {parent_folio}."}
+    parent_wo = d.get("id_work_order")
+    code = (d.get("code") or "").strip()
+    asset = _asset_by_code(code) if code else None
+    if not isinstance(asset, dict):
+        return {"ok": False, "erro": f"A OS {parent_folio} não tem um ativo do catálogo "
+                "(recarregue os ativos e tente de novo)."}
+    lid = _label_id("CHAMADOS")
+    if not lid:
+        return {"ok": False, "erro": "Não achei a etiqueta 'CHAMADOS' no Fracttal — crie a etiqueta lá "
+                "(Configurações → Etiquetas) e tente de novo."}
+    # id_parent = mesma fonte do seletor de OS pai (o 'id' do work_orders_parents_list, não o nº)
+    id_parent = parent_wo
+    try:
+        for c in buscar_os_pai(parent_folio, limit=20):
+            if str(c.get("folio")).strip() == parent_folio:
+                id_parent = c.get("id"); break
+    except FracttalError:
+        pass
+    # tipo/classificação/criticidade herdados da OS pai (ids diretos da tarefa)
+    rt = _rpc_call(RPC_WO_TASKS, {"id_work_order": parent_wo, "sort": []})
+    t0 = (rt.get("data") or [{}])[0] if isinstance(rt, dict) else {}
+    tipo = {"id_main": t0.get("id_task_type_main"),
+            "id_priorities": t0.get("id_priorities") or ID_PRIORITIES}
+    if t0.get("id_task_type") is not None:
+        tipo["id_c1"] = t0.get("id_task_type"); tipo["desc_c1"] = str(t0.get("tasks_types_description") or "")
+    if t0.get("id_task_type_2") is not None:
+        tipo["id_c2"] = t0.get("id_task_type_2"); tipo["desc_c2"] = str(t0.get("tasks_types_2_description") or "")
+    main = str(t0.get("tasks_types_main_description") or "Corretiva")
+    # título: [Ticket X][Usina][Ativo] - Motivo  (cai no padrão do COS; sem ticket/motivo → fallback)
+    tk = str(ticket or "").strip()
+    base = str(motivo or "").strip() or "Chamado"
+    titulo = (f"[Ticket {tk}] " if tk else "") + perf_os_nome(asset, base)
+    # observação = BLOCO CHAMADO (que o board lê) + a observação livre do operador
+    obs_livre = (note or "").strip()
+    if dados_chamado:
+        dc = dict(dados_chamado); dc.setdefault("os_pai", parent_folio)   # OS de abertura = a OS pai
+        note_final = bloco_chamado(dc) + (("\n\n" + obs_livre) if obs_livre else "")
+    else:
+        note_final = obs_livre
+    res = create_work_orders_bulk([asset], titulo, main, (subtarefas or []),
+                                  etiqueta_ids=[lid], id_parent=id_parent,
+                                  id_responsible=id_responsible, responsible_code=resp_code,
+                                  responsible_name=resp_name, note=note_final, tipo=tipo)
+    r0 = res[0] if res else {}
+    if not r0.get("ok"):
+        return {"ok": False, "erro": r0.get("erro") or "não consegui criar a OS."}
+    o = r0.get("os") or {}
+    novo_wo = o.get("id_work_order")
+    aviso = o.get("aviso")
+    concluida = False
+    if concluir and novo_wo:
+        try:
+            cr = concluir_os(novo_wo)
+            concluida = not (isinstance(cr, dict) and cr.get("ok") is False)
+            if not concluida:
+                aviso = ((aviso or "") + " OS criada, mas não consegui concluir.").strip()
+        except FracttalError as e:
+            aviso = ((aviso or "") + f" OS criada, mas não concluiu: {e}").strip()
+    return {"ok": True, "folio": o.get("wo_folio"), "id_work_order": novo_wo,
+            "os_pai": parent_folio, "etiqueta_ok": bool(o.get("etiquetas")),
+            "concluida": concluida, "aviso": aviso}
 
 
 # ── Fotos anexadas às subtarefas da OS ────────────────────────────────────────
@@ -2152,15 +2365,29 @@ def _usina_short(usina: str) -> str:
     return (" - ".join(parts[1:-1]).strip() if len(parts) >= 3 else str(usina or "").strip()) or str(usina or "")
 
 
+_CONECTIVOS = {"de", "da", "do", "das", "dos", "e", "em", "no", "na", "nos", "nas", "com", "para"}
+
+
 def _asset_short_name(a: dict) -> str:
-    """Nome curto do ativo (do description): 'Inversor 1.1' / 'Tracker 5.100' / 'Estação Meteorológica'."""
+    """Nome curto do ativo (do description): 'Inversor 1.1' / 'Tracker 5.100' / 'Estação Meteorológica'.
+    O ativo da PRÓPRIA usina não tem nome de equipamento — o description dele é o nome da usina
+    ('Thopen - Céu Azul 1 - PR') → devolve o TIPO ('Usina'). Sem isso o título saía com um pedaço
+    do nome da usina no lugar do equipamento: '[Céu Azul 1][Thopen -]'."""
     import re
     desc = str(a.get("description") or "").split("{")[0].strip()
+    if str(a.get("tipo_code") or "").upper() == "USINA":       # item-usina (_build_records)
+        return str(a.get("tipo") or "").strip() or "Usina"
+    if len([p for p in desc.split(" - ") if p.strip()]) >= 3:  # 'Cliente - Usina - UF' sem tipo_code
+        return str(a.get("tipo") or "").strip() or "Usina"
     m = re.match(r"([A-Za-zÀ-ÿ]+(?:\s+[A-Za-zÀ-ÿ]+)?)\s+([\d.]+)", desc)
     if m:
         return f"{m.group(1)} {m.group(2)}".strip()
-    toks = desc.split()
-    return " ".join(toks[:2]) if toks else (a.get("code") or "?")
+    toks = [t for t in desc.split() if t.strip("-–—·|/")]      # descarta separador solto ('Thopen -')
+    if not toks:
+        return a.get("code") or "?"
+    if len(toks) > 2 and toks[1].lower().strip(".") in _CONECTIVOS:
+        return " ".join(toks[:4])                              # 'Cabine de Medição' (não 'Cabine de')
+    return " ".join(toks[:2])
 
 
 def plano_base_nome(desc: str) -> str:
@@ -2367,6 +2594,21 @@ def create_performance_os(itens: list, id_responsible=None, responsible_name: st
     cache, out = {}, []
     lbl_perf = _label_performance_id()               # etiqueta "Performance" em toda OS criada aqui
     itens = [it for it in (itens or []) if isinstance(it.get("asset"), dict)]
+    pai_cache = {}
+    def _resolve_pai(folio):                         # nº da OS pai (por ativo) → id_parent (via parents_list)
+        folio = str(folio or "").strip()
+        if not folio:
+            return None
+        if folio not in pai_cache:
+            pid = None
+            try:
+                for c in buscar_os_pai(folio, limit=20):
+                    if str(c.get("folio")).strip() == folio:
+                        pid = c.get("id"); break
+            except Exception:
+                pid = None
+            pai_cache[folio] = pid
+        return pai_cache[folio]
     for i, it in enumerate(itens):
         a = it["asset"]
         try:
@@ -2375,8 +2617,9 @@ def create_performance_os(itens: list, id_responsible=None, responsible_name: st
                 cache[k] = get_plan_details(k, it.get("plano_id_item"))
             plan = cache[k]
             nome = perf_os_nome(a, it.get("base") or plano_base_nome(plan.get("description")))
+            ip = _resolve_pai(it.get("os_pai")) or id_parent   # OS pai do ativo (senão o global, se houver)
             res = create_planned_os(a, plan, id_responsible=id_responsible, responsible_name=responsible_name,
-                                    event_date=event_date, id_parent=id_parent, descricao=nome,
+                                    event_date=event_date, id_parent=ip, descricao=nome,
                                     note=it.get("note") or "", linkar_plano=it.get("linkar", True))
             if lbl_perf and res.get("id_work_order"):
                 try:
