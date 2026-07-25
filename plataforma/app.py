@@ -4151,14 +4151,24 @@ _pv_trk_plant    = {}   # idusina → {ts, payload}  (análise por usina, reusad
 
 
 def _plat_token() -> str:
-    t = os.environ.get("PLAT_TOKEN", "")
-    if t:
-        return t.strip()
+    """Token da Plataforma — vence o de validade MAIOR, não o do ambiente.
+
+    O PLAT_TOKEN do .env/tokens.txt é SEMENTE (vale no boot); o plat_token.txt é o que o
+    bookmarklet e o POST /api/pv/trackers/token escrevem em runtime. A ordem antiga era
+    "ambiente primeiro, arquivo só se vazio", e isso SEQUESTRAVA a renovação: com uma semente
+    velha no tokens.txt, colar um token novo gravava o arquivo e não mudava nada — a plataforma
+    seguia usando o vencido até alguém editar o tokens.txt e reiniciar. Caiu no caso real de
+    25/07 (token novo aceito, /api/tokens continuava VENCIDO). Mesma regra já usada em
+    SUNOP_TOKEN/AXIS_TOKEN: a semente não pode ganhar do que foi renovado depois."""
+    env = (os.environ.get("PLAT_TOKEN", "") or "").strip()
     try:
         with open(_PLAT_TOKEN_PATH, encoding="utf-8") as f:
-            return f.read().strip()
+            arq = f.read().strip()
     except Exception:
-        return ""
+        arq = ""
+    if not arq or not env:
+        return arq or env
+    return arq if (_jwt_exp(arq) or 0) >= (_jwt_exp(env) or 0) else env
 
 
 def _plat_headers() -> dict:

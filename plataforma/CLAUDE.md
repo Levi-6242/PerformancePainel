@@ -67,7 +67,15 @@ o mecanismo de snapshot já existe para isso.
 
 ## Tokens
 
-O token da Plataforma (trackers + combiner box) é **manual**: tem CAPTCHA e MFA, não auto-renova,
-e vence em ~8 h. Quando vence, o combiner recebe `HTTP 401` — existe um disjuntor que abre no
-primeiro 401 e para de tentar, em vez de repetir ~280 chamadas condenadas por ciclo. Status de
-todos os tokens em `/api/tokens`. Os demais (SunOp, Axis, SolarEdge, API PV) se renovam sozinhos.
+O token da Plataforma (trackers + combiner box) é **manual**: tem CAPTCHA e MFA, não auto-renova.
+Vale **7 dias** (medido no `exp` do próprio JWT — o mesmo token serve trackers e combiner).
+Quando vence, o combiner recebe `HTTP 401`; existe um disjuntor que abre no primeiro 401 e para
+de tentar, em vez de repetir ~280 chamadas condenadas por ciclo. Status em `/api/tokens`.
+
+**Como renovar:** bookmarklet de 1 clique, ou `POST /api/pv/trackers/token` com `{"token": "..."}`.
+O `plat_token.txt` é relido a cada uso, então vale na hora, sem reiniciar. `_plat_token()` escolhe
+entre o `PLAT_TOKEN` do ambiente e o arquivo **pela validade maior** — o ambiente é só semente de
+boot. Não inverta essa ordem: com "ambiente primeiro", uma semente velha no `tokens.txt` sequestra
+a renovação e colar token novo não muda nada (aconteceu em 25/07).
+
+Os demais (SunOp, Axis, SolarEdge, API PV) se renovam sozinhos.
