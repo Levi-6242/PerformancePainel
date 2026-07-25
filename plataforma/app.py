@@ -13240,29 +13240,77 @@ def _sunop_keepalive_loop():
                 print(f"[SunOp:{inst}] keep-alive erro: {e}")
 
 
+def _prewarm_um_cache(cache, build) -> bool:
+    """Reconstrói UM cache se ele venceu. True se reconstruiu, False se pulou."""
+    if (time.time() - cache.get("ts", 0.0)) < CACHE_TTL - 30:
+        return False                      # ainda fresco (usuário acabou de buscar)
+    lock = cache.setdefault("_lock", threading.Lock())
+    if not lock.acquire(blocking=False):
+        return False                      # já tem refresh em andamento
+    try:
+        cache["payload"] = build()
+        cache["ts"] = time.time()
+        _persist_mark()
+        return True
+    finally:
+        lock.release()
+
+
+def _prewarm_paralelo(tarefas, workers=4):
+    """tarefas = [(nome, callable)]. A callable devolve False quando pulou (já fresco).
+    São fontes INDEPENDENTES (APIs diferentes, banco, planilha) e o trabalho é dominado por
+    espera de rede/IO, então rodar junto encurta muito o ciclo. Mantido em 4 de propósito:
+    com mais, a API PV já nos bloqueou por excesso de chamadas simultâneas."""
+    def _um(t):
+        nome, fn = t
+        t1 = time.time()
+        try:
+            if fn() is False:
+                return None
+            return (nome, time.time() - t1)
+        except Exception as e:
+            print(f"[prewarm] {nome} falhou: {e}")
+            return None
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        feitos = [r for r in ex.map(_um, list(tarefas)) if r]
+    for nome, seg in sorted(feitos, key=lambda x: -x[1]):
+        if seg >= 1:
+            print(f"[prewarm] {nome} aquecido em {seg:.0f}s")
+
+
+PREWARM_CICLOS_PESADO = 3     # de quantos em quantos ciclos as fontes caras são reaquecidas
+
+
 def _prewarm_loop():
-    """Mantém TODAS as abas quentes: o /api/data (aba padrão e a mais lenta) é
-    reaquecido a cada ciclo; as demais fontes são reconstruídas EM SÉRIE quando o
-    cache delas está perto de expirar (os acessos dos usuários via SWR já ajudam a
-    manter quente — aqui é a rede de segurança pra ninguém pegar busca fria)."""
+    """Mantém as abas quentes. Roda no WORKER.
+
+    A régua aqui é PRIORIDADE, não paralelismo. Medido em 25/07: rodar as fontes em paralelo
+    NÃO encurtou o ciclo (501 s contra ~500 s em série) e ainda piorou cada item — /api/data
+    passou de 129 s para 484 s, PV PR de 199 s para 412 s. O trabalho é dominado por CPU sob o
+    GIL (pandas, openpyxl, JSON), não por espera de rede, então threads apenas repartem o mesmo
+    tempo e a aba mais usada é a que sofre.
+
+    Então: o /api/data (aba padrão) vem PRIMEIRO e sozinho; as fontes leves vão em seguida; e as
+    caras — PV PR, eventos de string, parados, SolarEdge — só a cada PREWARM_CICLOS_PESADO
+    ciclos, porque são telas de consulta ocasional e não justificam segurar o ciclo inteiro.
+    O sono no fim é o que SOBRA da validade, não um valor fixo."""
     import time as _t
     _t.sleep(5)
+    ciclo = 0
     while True:
+        ciclo += 1
+        pesado = (ciclo % PREWARM_CICLOS_PESADO) == 1     # 1º, 4º, 7º...
         t0 = _t.time()
-        try:
-            _refresh_data_cache()
-            print(f"[prewarm] /api/data aquecido em {_t.time()-t0:.0f}s")
-        except Exception as e:
-            print(f"[prewarm] erro: {e}")
-        # Disponibilidade por TEMPO (Ocorrências) de HOJE — aquece ANTES dos overviews de trackers
-        # (abaixo), senão o overview reconstrói com "disponibilidade_tempo" vazio (cache de eventos
-        # ainda frio) e fica preso nesse payload até o próximo ciclo (SWR não invalida sozinho).
-        for nome, fn in (("PG disponibilidade", _pg_disp_hoje), ("SunOp disponibilidade", lambda: _sunop_disp_hoje("gridco")),
-                         ("Axis disponibilidade", lambda: _sunop_disp_hoje("axis")), ("2C disponibilidade", _owen_disp_hoje)):
-            try:
-                fn()
-            except Exception as e:
-                print(f"[prewarm] {nome} falhou: {e}")
+        # ETAPA 1 — disponibilidade por TEMPO (Ocorrências) de HOJE. Tem de vir ANTES dos
+        # overviews de trackers: senão o overview reconstrói com "disponibilidade_tempo" vazio
+        # (cache de eventos ainda frio) e fica preso nesse payload até o próximo ciclo, porque
+        # o SWR não invalida sozinho.
+        _prewarm_paralelo([
+            ("PG disponibilidade",    _pg_disp_hoje),
+            ("SunOp disponibilidade", lambda: _sunop_disp_hoje("gridco")),
+            ("Axis disponibilidade",  lambda: _sunop_disp_hoje("axis")),
+            ("2C disponibilidade",    _owen_disp_hoje),
+        ])
         outros = [
             ("ETM",            _etm_cache,           _build_etm_payload),
             ("ETM análise",    _etm_analise_cache,   _build_etm_analise_payload),
@@ -13279,63 +13327,65 @@ def _prewarm_loop():
         ]
         if _plat_token():
             outros.append(("PV trackers", _pv_trk_cache, _build_pv_trk_payload))
-        for nome, cache, build in outros:
-            if (_t.time() - cache.get("ts", 0.0)) < CACHE_TTL - 30:
-                continue                      # ainda fresco (usuário acabou de buscar)
-            lock = cache.setdefault("_lock", threading.Lock())
-            if not lock.acquire(blocking=False):
-                continue                      # já tem refresh em andamento
-            try:
-                t1 = _t.time()
-                cache["payload"] = build()
-                cache["ts"] = _t.time()
-                _persist_mark()
-                print(f"[prewarm] {nome} aquecido em {_t.time()-t1:.0f}s")
-            except Exception as e:
-                print(f"[prewarm] {nome} falhou: {e}")
-            finally:
-                lock.release()
-        try:
-            _pg_get_snapshot()                # PG strings (snapshot) também sempre quente
-        except Exception as e:
-            print(f"[prewarm] PG snapshot falhou: {e}")
-        try:                                  # Geração (pivô, últimos 10 dias) — ~10s a frio, cacheia por janela.
-            _gd = datetime.now().date()       # MESMA janela da rota _gerpivo_periodo(10): [hoje-10, hoje-1].
-            _pg_gerpivo_get((_gd - timedelta(days=10)).isoformat(), (_gd - timedelta(days=1)).isoformat())
-        except Exception as e:
-            print(f"[prewarm] Geração pivô falhou: {e}")
-        try:
-            _thopen_prod_build()              # geração mensal das carteiras não-PG (BD_Thopen) p/ o gerencial
-        except Exception as e:
-            print(f"[prewarm] Thopen prod falhou: {e}")
-        try:                                  # Gerencial (Excel + PG) — antes só montava sob demanda
-            t1 = _t.time(); _gerencial_payload()
-            print(f"[prewarm] Gerencial aquecido em {_t.time()-t1:.0f}s")
-        except Exception as e:
-            print(f"[prewarm] Gerencial falhou: {e}")
+
         # Eventos de string do SunOp/Axis — alimentam "Perdas → Strings zeradas" (~1 min a frio).
-        # Guardado pelo TTL do próprio cache: só refaz quando realmente venceu.
         _hoje_ev = datetime.now().strftime("%Y-%m-%d")
-        for _inst in ("gridco", "axis"):
-            _ent = _sunop_str_ev_cache.get((_inst, _hoje_ev))
-            if _ent and (_t.time() - _ent.get("ts", 0.0)) < CACHE_TTL - 30:
-                continue
-            try:
-                t1 = _t.time(); _sunop_strings_eventos(_hoje_ev, _inst)
-                print(f"[prewarm] strings SunOp/{_inst} aquecido em {_t.time()-t1:.0f}s")
-            except Exception as e:
-                print(f"[prewarm] strings SunOp/{_inst} falhou: {e}")
-        # "Trackers · Parados" (Perdas): recomputa a CURVA de cada usina — 300s a frio, 0,8s quente.
-        # Não dá p/ persistir (as curvas incham o snapshot), então aquecemos aqui: o custo fica em
-        # background e quem clica pega quente. Popula _pv_trk_plant/_pg_trk_curva_cache de quebra.
-        for _nome, _fn in (("PV", _pv_parados_rows), ("PG", _pg_parados_rows)):
-            try:
-                t1 = _t.time(); _fn()
-                print(f"[prewarm] parados {_nome} aquecido em {_t.time()-t1:.0f}s")
-            except Exception as e:
-                print(f"[prewarm] parados {_nome} falhou: {e}")
+
+        def _str_ev(inst):
+            ent = _sunop_str_ev_cache.get((inst, _hoje_ev))
+            if ent and (time.time() - ent.get("ts", 0.0)) < CACHE_TTL - 30:
+                return False
+            _sunop_strings_eventos(_hoje_ev, inst)
+            return True
+
+        def _gerpivo():                       # Geração (pivô, últimos 10 dias), cacheia por janela.
+            gd = datetime.now().date()        # MESMA janela da rota _gerpivo_periodo(10).
+            _pg_gerpivo_get((gd - timedelta(days=10)).isoformat(), (gd - timedelta(days=1)).isoformat())
+            return True
+
+        # ETAPA 2 — a aba padrão PRIMEIRO e SOZINHA. É a mais aberta e a mais cara; deixá-la
+        # disputar CPU com o resto foi exatamente o que a medição reprovou.
+        t1 = _t.time()
+        try:
+            _refresh_data_cache()
+            print(f"[prewarm] /api/data aquecido em {_t.time()-t1:.0f}s")
+        except Exception as e:
+            print(f"[prewarm] /api/data falhou: {e}")
+
+        # ETAPA 3 — fontes LEVES (segundos cada) e as telas de uso diário.
+        PESADAS = {"PV PR", "SolarEdge"}
+        leves = [(nome, (lambda c=cache, b=build: _prewarm_um_cache(c, b)))
+                 for nome, cache, build in outros if nome not in PESADAS]
+        leves += [
+            ("PG snapshot",  _pg_get_snapshot),
+            ("Geração pivô", _gerpivo),
+            # os dois JUNTOS, nesta ordem: o gerencial consome a produção mensal do BD_Thopen.
+            # Separados e concorrentes, construiriam a mesma coisa duas vezes.
+            ("Gerencial",    lambda: (_thopen_prod_build(), _gerencial_payload())),
+        ]
+        _prewarm_paralelo(leves, workers=3)
+
+        # ETAPA 4 — as CARAS, só de tempos em tempos. São telas de consulta ocasional
+        # (PR por inversor, strings zeradas, trackers parados) e juntas custam mais que todo
+        # o resto do ciclo; reaquecê-las sempre era o que empurrava o ciclo para além do TTL.
+        if pesado:
+            caras = [(nome, (lambda c=cache, b=build: _prewarm_um_cache(c, b)))
+                     for nome, cache, build in outros if nome in PESADAS]
+            caras += [
+                ("strings SunOp", lambda: _str_ev("gridco")),
+                ("strings Axis",  lambda: _str_ev("axis")),
+                ("parados PV",    _pv_parados_rows),
+                ("parados PG",    _pg_parados_rows),
+            ]
+            _prewarm_paralelo(caras, workers=2)
+
         _persist_mark()                       # o ciclo aqueceu coisa nova → salva o snapshot
-        _t.sleep(max(60, CACHE_TTL - 30))   # reaquece antes de expirar (~4,5 min)
+        gasto = _t.time() - t0
+        print(f"[prewarm] ciclo completo em {gasto:.0f}s")
+        # Dorme só o que SOBRA da validade: assim o período do ciclo cabe no TTL e o dado não
+        # vence antes de ser reaquecido. Piso de 30 s para não virar laço apertado se o ciclo
+        # já estourou o TTL sozinho.
+        _t.sleep(max(30, CACHE_TTL - 30 - gasto))
 
 
 # ── Persistência dos caches em disco ───────────────────────────────────────────
@@ -13472,6 +13522,110 @@ def _persist_loop():
             print(f"[persist] save falhou: {e}")
 
 
+# ── Faxineiro de memória ──────────────────────────────────────────────────────
+# Cerca de 40 dicionários módulo-globais são usados como cache chaveado por (usina, dia) e
+# NUNCA descartavam nada. Enquanto o processo reiniciava toda hora isso não aparecia; agora que
+# o worker fica dias no ar, cresce sem teto. O pior é o _pv_trk_graf_cache: o gráfico cru de
+# trackers tem 46k–104k pontos por entrada (10–25 MB em objetos Python) e o backfill percorre
+# dias × usinas, então uma varredura de mês enche a memória sozinha.
+#
+# Régua: entrada com "ts" é descartada por idade. As poucas sem "ts" têm tratamento próprio.
+# Os TTLs são generosos de propósito — o objetivo é impedir crescimento infinito, não economizar
+# alguns MB às custas de rebater a API.
+#
+# O TETO é por cache, e é ele que faz o trabalho pesado — não a idade. Durante um backfill
+# TUDO é recente, então uma régua só por TTL não recupera nada (medido: primeira passada
+# liberou 7 entradas com o processo em 2,7 GB). Onde a entrada é gorda, o teto é baixo:
+# o gráfico cru de trackers tem 46k–104k pontos por entrada, então 150 já são centenas de MB.
+_JANITOR_REG = [
+    # (rótulo, nome, horas, teto)  — curvas/gráficos pesados, por (usina, dia)
+    ("PV gráfico trackers", "_pv_trk_graf_cache", 12, 150),
+    ("PV detalhe trackers", "_pv_trk_plant_det", 12, 300),
+    ("PV análise usina",    "_pv_trk_plant", 12, 300),
+    ("PV chart trackers",   "_pv_trk_chart_cache", 12, 300),
+    ("PG curva trackers",   "_pg_trk_curva_cache", 12, 300),
+    ("SunOp curva string",  "_sunop_curva_cache", 12, 300),
+    ("SunOp hist trackers", "_sunop_trk_hist", 12, 300),
+    ("SPV (strings PV)",    "_spv_cache", 12, 300),
+    ("Combiner (plataforma)", "_plat_view_cache", 6, 1000),
+    # leves, por dia
+    ("PG mediana strings",  "_pg_str_med_cache", 48, 2000),
+    ("PG PR",               "_pg_pr_cache", 48, 400),
+    ("SolarEdge PR",        "_se_pr_cache", 48, 400),
+    ("SunOp PR",            "_sunop_pr_cache", 48, 400),
+    ("PG eventos",          "_pg_ev_cache", 48, 400),
+    ("2C eventos",          "_owen_ev_cache", 48, 400),
+    ("Geração pivô",        "_pg_gerpivo_cache", 48, 200),
+    ("BD_Performance PR",   "_bdperf_pr_cache", 48, 600),
+    ("Gerencial (histórico)", "_g_cache", 48, 200),
+    ("Gerencial mês fechado", "_GER_HIST_CACHE", 24 * 7, 60),   # mês fechado é imutável
+]
+
+
+def _janitor_passada():
+    """Uma varredura. Devolve texto do que foi descartado (ou vazio)."""
+    agora, notas = time.time(), []
+    for rotulo, nome, horas, teto in _JANITOR_REG:
+        d = globals().get(nome)
+        if not isinstance(d, dict) or not d:
+            continue
+        limite = agora - horas * 3600
+        mortos = set()
+        for k, v in list(d.items()):          # snapshot: não itera o dict enquanto muda
+            ts = v.get("ts") if isinstance(v, dict) else None
+            if ts is not None and ts < limite:
+                mortos.add(k)
+        excedente = len(d) - len(mortos) - teto
+        if excedente > 0:                     # teto: sai o mais VELHO primeiro
+            vivos = [(k, (v.get("ts", 0.0) if isinstance(v, dict) else 0.0))
+                     for k, v in list(d.items()) if k not in mortos]
+            vivos.sort(key=lambda t: t[1])
+            mortos.update(k for k, _ in vivos[:excedente])
+        for k in mortos:
+            d.pop(k, None)
+        if mortos:
+            notas.append(f"{rotulo}:{len(mortos)}")
+
+    # os locks do gráfico de trackers acompanham o cache (mesma chave); sem isto sobra
+    # um objeto Lock por (usina, dia) para sempre
+    try:
+        vivos = set(_pv_trk_graf_cache.keys())
+        for k in [k for k in list(_pv_trk_graf_locks.keys()) if k not in vivos]:
+            _pv_trk_graf_locks.pop(k, None)
+    except Exception:
+        pass
+
+    # os de Perdas são chaveados por (fonte, dia) e não têm ts → poda pela DATA.
+    # O _PERDAS_OCOR_CACHE guarda as LINHAS de ocorrência do dia e é alimentado pelo warm do
+    # mês inteiro — é dos que mais pesam quando o backfill roda.
+    corte = (datetime.now() - timedelta(days=45)).strftime("%Y-%m-%d")
+    for nome in ("_PERDAS_OCOR_CACHE", "_PERDAS_OCOR_COB", "_PERDAS_QUAL_CACHE"):
+        d = globals().get(nome)
+        if not isinstance(d, dict):
+            continue
+        n = 0
+        for k in list(d.keys()):
+            dia = k[1] if isinstance(k, tuple) and len(k) > 1 else None
+            if isinstance(dia, str) and len(dia) == 10 and dia < corte:
+                d.pop(k, None); n += 1
+        if n:
+            notas.append(f"{nome}:{n}")
+    return ", ".join(notas)
+
+
+def _janitor_loop(intervalo=600):
+    """Roda no worker, a cada 10 min. Medido em 25/07: o worker chega a 3,3 GB de residente
+    depois de ~15 min de backfills — daí varrer com frequência, não de meia em meia hora."""
+    while True:
+        time.sleep(intervalo)
+        try:
+            nota = _janitor_passada()
+            if nota:
+                print(f"[janitor] descartado — {nota}")
+        except Exception as e:
+            print(f"[janitor] falhou: {e}")
+
+
 def _snapshot_watch_loop(intervalo=20):
     """O outro lado da separação: o WEB não reconstrói nada, ele observa o snapshot que o
     worker publica e recarrega quando o arquivo muda (compara mtime+tamanho).
@@ -13515,7 +13669,8 @@ def _iniciar_loops_de_fundo():
                  _perdas_ocor_warm_loop,
                  _macro_prewarm_loop,
                  _tunnel_url_loop,
-                 _frac_osperf_loop):
+                 _frac_osperf_loop,
+                 _janitor_loop):            # impede o processo de dias inchar sem teto
         threading.Thread(target=alvo, daemon=True).start()
 
     # aquece o gerencial no boot (PR/meta por usina) — sem isso, logo após restart o Painel NOC
