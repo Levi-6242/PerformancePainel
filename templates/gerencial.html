@@ -72,6 +72,16 @@ td{padding:9px 10px;border-bottom:1px solid var(--line)}td b{color:var(--grafite
 </div>
 <div class="wrap">
   <div class="note" id="cov">Carregando…</div>
+  <!-- Filtros pedidos pela Ana (reunião 16/07): cliente ("quero ver só o 2C, estilo planilha" — a visão
+       da reunião de segunda) e mês ("se eu quiser ver o mês 6 direto daqui"). -->
+  <div style="display:flex;gap:14px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
+    <label style="font-size:11px;color:var(--muted);font-weight:600">Mês
+      <input type="month" id="fMes" onchange="mudaMes()" style="margin-left:7px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:12px;background:#fff"></label>
+    <label style="font-size:11px;color:var(--muted);font-weight:600">Cliente
+      <select id="fCli" onchange="mudaCli()" style="margin-left:7px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:12px;background:#fff;min-width:130px">
+        <option value="">Todos</option></select></label>
+    <span id="fInfo" style="font-size:10.5px;color:var(--faint)"></span>
+  </div>
   <div class="scorecard" id="scorecard"></div>
 
   <div class="row2">
@@ -94,7 +104,7 @@ td{padding:9px 10px;border-bottom:1px solid var(--line)}td b{color:var(--grafite
   </div>
 
   <div class="card">
-    <h3>Todas as usinas</h3><div class="csub">Geração × meta no mês · ordenado por atingimento</div>
+    <h3>Todas as usinas</h3><div class="csub">Geração × meta no mês · ordenado por atingimento · <b>clique na usina para abrir a cascata de perdas</b></div>
     <table id="allTable"><thead><tr><th>Usina</th><th>Cliente</th><th class="r">Gerada (MWh)</th><th class="r">Meta P50 (MWh)</th><th>Atingimento</th></tr></thead><tbody></tbody></table>
   </div>
 
@@ -149,13 +159,94 @@ function render(j){
   // todas
   const us=(j.usinas||[]).filter(u=>u.atingimento!=null).sort((a,b)=>b.atingimento-a.atingimento);
   document.querySelector('#allTable tbody').innerHTML=us.map(u=>
-    `<tr><td><b>${u.usina}</b></td><td>${u.cliente||'—'}</td><td class="r num">${nf(u.prod,1)}</td>`+
+    `<tr style="cursor:pointer" data-u="${encodeURIComponent(u.usina)}" onclick="tgCasc(this)"><td><b>${u.usina}</b></td><td>${u.cliente||'—'}</td><td class="r num">${nf(u.prod,1)}</td>`+
     `<td class="r num">${nf(u.p50,1)}</td><td><span class="num ${atgCls(u.atingimento)}">${nf(u.atingimento,1)}%</span> ${atgTag(u.atingimento)}</td></tr>`).join('')
     || '<tr><td colspan="5" style="color:var(--muted)">Sem dados.</td></tr>';
 }
-async function load(){
-  try{ const r=await fetch('/api/gerencial',{cache:'no-store'}); render(await r.json()); }
-  catch(e){ document.getElementById('cov').textContent='Falha ao carregar (/api/gerencial).'; }
+// ── Cascata de perdas por usina (clique na linha) — mesma conta do painel da usina (/api/cascata):
+// P50 → −baixo IPOA → −tracker → −desligamento → −não explicado → real. Cores adaptadas ao tema claro.
+// O "não explicado" fica visível de propósito: distribuí-lo nas peças conhecidas esconderia o que falta modelar.
+const _cascCache={};
+function renderCasc(d){
+  const mx=Math.max(d.p50,d.possivel,d.geracao)||1, w=v=>Math.max(.4,100*Math.abs(v)/mx);
+  const L=(rot,val,cor,sub,forte)=>`
+    <div style="display:grid;grid-template-columns:170px 1fr 110px;align-items:center;gap:10px;margin-bottom:6px">
+      <div style="font-size:11.5px;${forte?'font-weight:600;color:var(--grafite)':'color:var(--muted)'}">${rot}</div>
+      <div style="height:${forte?16:11}px;border-radius:4px;background:${cor};width:${w(val)}%"></div>
+      <div class="num" style="text-align:right;font-size:12px;${forte?'font-weight:600':'color:var(--muted)'}">${val<0?'−':''}${nf(Math.abs(val),1)} MWh</div>
+    </div>${sub?`<div style="margin:-2px 0 8px 180px;font-size:10px;color:var(--faint)">${sub}</div>`:''}`;
+  const t=d.trk||{},os=d.os||{};
+  return L('Geração sem perdas',d.p50,'#504C63',`P50 · ${d.dias} dias · ${nf(d.pot,2)} MWp`,true)
+   +L('− Baixo IPOA (externo)',-d.perda_ipoa,'#BDBACA',`POA ${nf(d.poa,1)} vs ${nf(d.poa_prev,1)} kWh/m² previsto`)
+   +L('= Possível com o sol',d.possivel,'#6E6A80','o que o recurso solar do mês permitia',true)
+   +L('− Tracker parado',-d.perda_trk,'#A9DB21',t.horas_solares?`${nf(t.horas_solares,0)}h solares · ${t.paradas} paradas · ganho do rastreio ${Math.round(100*(t.ganho||0))}%`:'sem parada de tracker no período')
+   +L('− Queda de energia (rede)',-(d.perda_rede||0),'#8CB817',(os.rede&&os.rede.horas_solares)?`${nf(os.rede.horas_solares,1)}h solares · ${os.rede.qtd} OS de religamento (Fracttal)`:'sem religamento no mês')
+   +L('− Equipamento / manutenção',-(d.perda_equip||0),'#7BA80E',(os.equip&&os.equip.horas_solares)?`${nf(os.equip.horas_solares,1)}h solares · ${os.equip.qtd} OS corretiva (Fracttal) · disponibilidade UFV ${nf(100*(d.disponibilidade_ufv||0),1)}%`:`sem corretiva no mês · disponibilidade UFV ${nf(100*(d.disponibilidade_ufv||0),1)}%`)
+   +L('− Não explicado',-d.nao_explicado,'#9C99A8','falta modelar (inversor abaixo dos pares, sujeira, degradação…)')
+   +L('= Geração real',d.geracao,'#A9DB21',`PR ${d.pr_real!=null?nf(d.pr_real*100,1)+'%':'—'} · meta ${d.pr_meta!=null?nf(d.pr_meta*100,1)+'%':'—'}`,true);
+}
+async function tgCasc(tr){
+  const nxt=tr.nextElementSibling;
+  if(nxt&&nxt.classList.contains('cascrow')){ nxt.remove(); return; }         // 2º clique fecha
+  document.querySelectorAll('#allTable .cascrow').forEach(x=>x.remove());     // uma aberta por vez
+  const u=decodeURIComponent(tr.dataset.u||'');
+  const row=document.createElement('tr'); row.className='cascrow';
+  row.innerHTML=`<td colspan="5" style="background:var(--bg-soft);padding:13px 14px"><span style="font-size:11px;color:var(--muted)">Calculando a cascata de ${u}…</span></td>`;
+  tr.after(row);
+  // a cascata segue o MÊS selecionado no filtro (RAW.ano/mes_num) — cache por usina+mês
+  const qm=(RAW&&RAW.ano)?`&ano=${RAW.ano}&mes=${RAW.mes_num}`:'', ck=u+'|'+qm;
+  let d=_cascCache[ck];
+  if(d===undefined){ try{ d=await fetch('/api/cascata?usina='+encodeURIComponent(u)+qm).then(r=>r.json()); }catch(e){ d=null; } _cascCache[ck]=d; }
+  if(!row.isConnected) return;                                                // fechou antes de chegar
+  const td=row.firstElementChild;
+  if(!d||!d.ok){ td.innerHTML=`<span style="font-size:11px;color:var(--muted)">Cascata indisponível — ${(d&&d.motivo)||'sem dado'}.</span>`; return; }
+  td.innerHTML=`<div style="font-size:12px;font-weight:600;color:var(--grafite);margin-bottom:9px">Para onde foi o desvio — ${u} · <span style="color:var(--ardosia)">externo ${nf(d.externo,1)}</span> · <span style="color:var(--verde-dark)">O&amp;M ${nf(d.om,1)}</span> · não explicado ${nf(d.nao_explicado,1)} MWh <span style="color:var(--faint);font-weight:400">· strings ainda fora</span></div>`+renderCasc(d);
+}
+// ── Filtros (pedidos da Ana, 16/07): mês re-busca no servidor; cliente filtra NO NAVEGADOR e
+// recalcula scorecard/energia/melhores/piores só com as usinas daquela carteira. A tabela "Por
+// cliente" fica sempre completa (ela JÁ é a visão por cliente).
+let RAW=null, fCli='';
+// Filtra por CLIENTE (nunca por carteira: Copel/Matrix/Polaris são recortes do 5080 e são todos Thopen).
+function deriva(j){
+  if(!fCli||!j) return j;
+  const us=(j.usinas||[]).filter(u=>(u.cliente||'—')===fCli);
+  const com50=us.filter(u=>u.p50);
+  const sp=com50.reduce((s,u)=>s+(u.prod||0),0), s50=com50.reduce((s,u)=>s+(u.p50||0),0);
+  const port={...(j.portfolio||{}),n:us.length,n_meta:com50.length,
+    prod:Math.round(us.reduce((s,u)=>s+(u.prod||0),0)*10)/10,
+    p50:s50?Math.round(s50*10)/10:null,
+    atingimento:s50?Math.round(sp/s50*1000)/10:null,
+    na_meta:com50.filter(u=>(u.atingimento||0)>=95).length};
+  const comatg=us.filter(u=>u.atingimento!=null&&u.prod>0);
+  return {...j, usinas:us, portfolio:port,
+    best:[...comatg].sort((a,b)=>b.atingimento-a.atingimento).slice(0,6),
+    worst:[...comatg].sort((a,b)=>a.atingimento-b.atingimento).slice(0,6)};
+}
+function _fillCli(j){
+  const sel=document.getElementById('fCli'); if(!sel) return;
+  const atual=sel.value;
+  const cls=[...new Set((j.usinas||[]).map(u=>u.cliente||'—'))].filter(c=>c!=='—').sort();
+  sel.innerHTML='<option value="">Todos</option>'+cls.map(c=>`<option value="${c}"${c===atual?' selected':''}>${c}</option>`).join('');
+}
+function _aplica(){
+  render(deriva(RAW));
+  const inf=document.getElementById('fInfo');
+  if(inf) inf.textContent=fCli?`filtro: ${fCli} · ${(deriva(RAW).usinas||[]).length} usinas`:'';
+}
+window.mudaCli=()=>{ fCli=document.getElementById('fCli').value; _aplica(); };
+window.mudaMes=()=>{ const v=document.getElementById('fMes').value; if(!v) return;
+  const [a,m]=v.split('-'); load(+a,+m); };
+async function load(ano,mes){
+  const cov=document.getElementById('cov');
+  try{
+    const q=(ano&&mes)?`?ano=${ano}&mes=${mes}`:'';
+    if(q) cov.textContent=`Calculando ${String(mes).padStart(2,'0')}/${ano}… (mês passado lê as planilhas inteiras — pode levar ~1 min na 1ª vez)`;
+    const r=await fetch('/api/gerencial'+q,{cache:'no-store'});
+    RAW=await r.json();
+    const fm=document.getElementById('fMes');
+    if(fm&&RAW&&RAW.ano) fm.value=`${RAW.ano}-${String(RAW.mes_num).padStart(2,'0')}`;
+    _fillCli(RAW); _aplica();
+  }catch(e){ cov.textContent='Falha ao carregar (/api/gerencial).'; }
 }
 load();
 </script>

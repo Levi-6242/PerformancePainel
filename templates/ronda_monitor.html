@@ -105,6 +105,63 @@ td{padding:7px 9px;border-bottom:1px solid var(--line);font-size:12.5px;vertical
 
   <div class="slots" id="slots"></div>
 
+  <style>
+  .obs-bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:12px 0 14px}
+  .obs-bar select,.obs-bar input{background:var(--panel-2);border:1px solid var(--line);color:var(--txt);font:inherit;font-size:12.5px;padding:8px 11px;border-radius:8px;outline:none}
+  .obs-bar select:focus,.obs-bar input:focus{border-color:var(--line-2)}
+  .obs-bar select{min-width:210px}.obs-bar input{flex:1;min-width:220px}
+  .obs-save{background:var(--brand);border:1px solid var(--brand);color:#111a00;font-weight:700;cursor:pointer;padding:8px 16px;border-radius:8px;font-size:12.5px}
+  .obs-save:hover{filter:brightness(1.06)}.obs-save:disabled{opacity:.5;cursor:default}
+  .obs-pill{font-size:9.5px;font-weight:800;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+  .obs-pill.manual{color:#111a00;background:var(--brand)}
+  .obs-pill.auto{color:#38bdf8;background:rgba(56,189,248,.14);border:1px solid rgba(56,189,248,.4)}
+  .obs-rm{background:none;border:1px solid var(--line);color:var(--muted);border-radius:7px;padding:4px 9px;font-size:11px;cursor:pointer}
+  .obs-rm:hover{color:var(--red);border-color:rgba(248,113,113,.45)}
+  .obs-lock{color:var(--faint);font-size:11px;font-style:italic}.obs-over{color:var(--faint);font-size:11px}
+  </style>
+  <div class="card" id="obsCard" style="margin-bottom:14px">
+    <h3>Observações por usina</h3>
+    <div class="csub">Uma linha que entra logo abaixo do cabeçalho da usina na ronda — funciona até quando o texto colapsa em “Todos os trackers parados”. Salva no <span class="num">trackers_notas.local.json</span> e vale no próximo disparo, sem reiniciar. As de RSU vêm da planilha de tickets (só-leitura); a manual vence a automática na mesma usina.</div>
+    <div class="obs-bar">
+      <select id="obsUf"><option value="">Escolha a usina…</option></select>
+      <input id="obsTx" maxlength="160" placeholder="Ex.: Roçagem programada 24/07 — trackers voltam à tarde">
+      <button class="obs-save" id="obsSave" onclick="obsAdd()">Salvar</button>
+    </div>
+    <div style="overflow:auto">
+      <table>
+        <thead><tr><th>Usina</th><th>Observação (aparece na ronda)</th><th>Origem</th><th></th></tr></thead>
+        <tbody id="obsBody"><tr><td colspan="4" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+    <div id="obsMsg" class="csub" style="margin-top:8px"></div>
+  </div>
+
+  <style>
+  .rec-bar select{background:var(--panel-2);border:1px solid var(--line);color:var(--txt);font:inherit;font-size:12.5px;padding:7px 10px;border-radius:8px}
+  .rec-pill{font-size:9.5px;font-weight:800;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+  .rec-pill.on{color:var(--red);background:rgba(248,113,113,.14);border:1px solid rgba(248,113,113,.4)}
+  .rec-pill.gar{color:#38bdf8;background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.35)}
+  </style>
+  <div class="card" id="recCard" style="margin-bottom:14px">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap" class="rec-bar">
+      <div><h3>Trackers recorrentes</h3>
+        <div class="csub">Da própria detecção da ronda (2×/dia, 5 fontes) — reincidente = tracker parado em vários <b>dias distintos</b>. Não depende dos grupos nem da planilha. <b id="recInfo">—</b></div></div>
+      <div style="flex:1"></div>
+      <select id="recDias" onchange="recLoad()">
+        <option value="7">últimos 7 dias</option>
+        <option value="14" selected>últimos 14 dias</option>
+        <option value="30">últimos 30 dias</option>
+      </select>
+      <button class="btn" onclick="recLoad()">Atualizar</button>
+    </div>
+    <div style="overflow:auto;max-height:420px;margin-top:8px">
+      <table>
+        <thead><tr><th>Usina</th><th>Tracker</th><th>Região</th><th>Dias parado</th><th>Aparições</th><th>Estado</th></tr></thead>
+        <tbody id="recBody"><tr><td colspan="6" class="empty">Carregando…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="card">
     <h3>Histórico de envios</h3>
     <div class="csub">Cada linha é um envio por região (ou uma intervenção do watchdog) — mais recente primeiro</div>
@@ -399,6 +456,91 @@ function exportBook(){
   a.download='book_causas_cos_'+(BOOK.gerado||'').replace(/[^\d]/g,'').slice(0,8)+'.csv';
   document.body.appendChild(a); a.click(); setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},100);
 }
+</script>
+
+<script>
+// ── Observações por usina (ponto 1, Levi 22/07) ──────────────────────────────────────────────
+let OBS=null;
+function obsEsc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+async function obsLoad(){
+  try{
+    OBS=await fetch('/api/ronda/obs').then(r=>r.json());
+    obsFillUf(); obsRender();
+  }catch(e){ document.getElementById('obsBody').innerHTML='<tr><td colspan="4" class="empty">Falha ao carregar.</td></tr>'; }
+}
+function obsFillUf(){
+  const s=document.getElementById('obsUf'); if(!s||s.dataset.done)return;
+  s.innerHTML='<option value="">Escolha a usina…</option>'+(OBS.usinas||[]).map(u=>`<option>${obsEsc(u.nome)}</option>`).join('');
+  s.dataset.done='1';
+}
+function obsRender(){
+  const tb=document.getElementById('obsBody'), man=(OBS.manuais||[]), rsu=(OBS.rsu||[]);
+  if(!man.length && !rsu.length){ tb.innerHTML='<tr><td colspan="4" class="empty">Nenhuma observação ativa. Adicione acima — ou surge sozinha quando houver RSU em aberto na planilha.</td></tr>'; return; }
+  let h='';
+  man.forEach((m,i)=>{ h+=`<tr>
+    <td style="font-weight:600">${obsEsc(m.usina)}</td><td>${obsEsc(m.texto)}</td>
+    <td><span class="obs-pill manual">Manual</span></td>
+    <td style="text-align:right"><button class="obs-rm" onclick="obsDel(${i})">Remover</button></td></tr>`; });
+  rsu.forEach(r=>{ h+=`<tr>
+    <td style="font-weight:600">${obsEsc(r.usina)}</td>
+    <td>${obsEsc(r.texto)}${r.override_manual?' <span class="obs-over">(substituída pela manual acima)</span>':''}</td>
+    <td><span class="obs-pill auto"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#38bdf8"></span>Auto · RSU</span></td>
+    <td style="text-align:right"><span class="obs-lock">da planilha</span></td></tr>`; });
+  tb.innerHTML=h;
+}
+async function obsAdd(){
+  const uf=document.getElementById('obsUf'), tx=document.getElementById('obsTx'), bt=document.getElementById('obsSave');
+  const u=uf.value.trim(), t=tx.value.trim(); const msg=document.getElementById('obsMsg');
+  if(!u){ uf.focus(); return; } if(!t){ tx.focus(); return; }
+  bt.disabled=true;
+  try{
+    const r=await fetch('/api/ronda/obs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usina:u,texto:t})}).then(r=>r.json());
+    if(r&&r.ok){ tx.value=''; msg.textContent='Salvo — vale no próximo disparo.'; await obsLoad(); }
+    else { msg.textContent='Erro: '+((r&&r.erro)||'não salvou'); }
+  }catch(e){ msg.textContent='Falha ao salvar.'; }
+  finally{ bt.disabled=false; }
+}
+async function obsDel(i){
+  const m=(OBS&&OBS.manuais||[])[i]; if(!m)return;
+  const msg=document.getElementById('obsMsg');
+  try{
+    await fetch('/api/ronda/obs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usina:m.usina,remover:true})});
+    msg.textContent='Removida.'; await obsLoad();
+  }catch(e){ msg.textContent='Falha ao remover.'; }
+}
+obsLoad();
+</script>
+
+<script>
+// ── Trackers recorrentes (Levi 23/07) ────────────────────────────────────────────────────────
+let REC=null;
+function recEsc(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+async function recLoad(){
+  const dias=(document.getElementById('recDias')||{}).value||14;
+  const tb=document.getElementById('recBody');
+  try{ REC=await fetch('/api/ronda/recorrentes?dias='+dias).then(r=>r.json()); recRender(); }
+  catch(e){ if(tb) tb.innerHTML='<tr><td colspan="6" class="empty">Falha ao carregar.</td></tr>'; }
+}
+function recRender(){
+  const d=REC||{}, tb=document.getElementById('recBody'), info=document.getElementById('recInfo');
+  if(info) info.textContent=(d.snapshots||0)+' rondas no histórico'+(d.primeiro?(' ('+d.primeiro+'→'+d.ultimo+')'):'')+' · '+(d.dias_cobertos||0)+' dia(s)';
+  const rec=(d.recorrentes||[]).filter(x=>x.dias>=2);
+  if(!rec.length){
+    tb.innerHTML='<tr><td colspan="6" class="empty">'+(((d.snapshots||0)<2)
+      ? 'Ainda acumulando — o histórico começou agora. Cada ronda (2×/dia) grava um retrato; os reincidentes aparecem aqui em alguns dias.'
+      : 'Nenhum tracker parado em 2+ dias distintos nesta janela.')+'</td></tr>';
+    return;
+  }
+  tb.innerHTML=rec.map(x=>`<tr>
+    <td style="font-weight:600">${recEsc(x.usina)}</td>
+    <td class="num">${recEsc(x.tracker)}</td>
+    <td>${recEsc(x.regiao)}</td>
+    <td class="num" style="font-weight:700">${x.dias}</td>
+    <td class="num">${x.aparicoes}</td>
+    <td>${x.parado_agora?'<span class="rec-pill on">parado agora</span>':'<span class="mut">—</span>'}${x.em_garantia?' <span class="rec-pill gar">garantia</span>':''}${x.sem_com?' <span class="mut">sem com.</span>':''}</td>
+  </tr>`).join('');
+}
+recLoad();
 </script>
 </body>
 </html>

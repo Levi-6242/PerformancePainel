@@ -38,6 +38,11 @@ fracttal_index.json
 frac_osperf_index.json
 perdas_strings.json
 whats_ronda.json
+
+# ── Overrides LOCAIS de referência curada (o .json base FICA no git e viaja pro PC novo; o .local
+#    é o que esta máquina editou/regerou, e é ele que evita conflito no `git pull`) ───────────────
+trackers_notas.local.json
+trackers_garantia.local.json
 tunnel_url.txt
 server.log
 *.log
@@ -81,5 +86,14 @@ tracker_issues.backup-*.json
 # log de envios da ronda (runtime, alimenta o Monitor)
 whats_log.json
 
+# histórico dos parados da ronda (runtime, alimenta o card "Trackers recorrentes") + export CSV
+trackers_parados_hist.jsonl
+trackers_parados_hist.jsonl.tmp
+trackers_recorrentes_*.csv
+
 # executavel do Monitor da Ronda (buildado em C:/GridcoBuild, nao versionar binario)
 MonitorRonda.exe
+
+# book de paradas de tracker (abertas + encerradas) — estado de runtime, derivado do store
+paradas_book.json
+paradas_book.json.tmp
