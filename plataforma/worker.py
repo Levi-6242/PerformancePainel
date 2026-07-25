@@ -22,8 +22,18 @@
 import os
 import sys
 import time
+from datetime import datetime
 
 import app
+
+
+# Válvula de segurança: o residente do worker cresce ao longo do dia (medido 281 MB -> 4,1 GB
+# em 15 min de backfill) e o faxineiro dos caches NÃO estanca isso — o consumidor real ainda não
+# foi atribuído, falta perfilar. Enquanto isso, o processo se encerra numa janela silenciosa e o
+# guardião o traz de volta em até 5 min. Reiniciar é barato: o estado está todo em disco e o
+# snapshot é recarregado no boot. A janela é de madrugada de propósito, longe da ronda (08:25/13:00).
+RECICLA_APOS_H = 12
+RECICLA_HORA = 3          # só recicla entre 03:00 e 03:59
 
 
 def main():
@@ -34,8 +44,14 @@ def main():
     app._iniciar_loops_de_fundo()
 
     print("[worker] no ar. Publica em:", app._PERSIST_PATH)
+    inicio = time.time()
     while True:
-        time.sleep(3600)
+        time.sleep(300)
+        horas = (time.time() - inicio) / 3600
+        if horas >= RECICLA_APOS_H and datetime.now().hour == RECICLA_HORA:
+            print(f"[worker] no ar há {horas:.0f}h — encerrando para reciclar memória. "
+                  f"O guardião sobe de volta em até 5 min.")
+            return
 
 
 if __name__ == "__main__":
