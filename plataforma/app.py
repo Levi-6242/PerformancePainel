@@ -76,6 +76,91 @@ def _load_tokens_txt():
 
 _load_tokens_txt()
 
+
+# ── Tokens de RUNTIME: um arquivo só ──────────────────────────────────────────
+#   Antes eram 4 .txt soltos (sunop_token / axis_token / plat_token / se_cookie). Todos são
+#   ESTADO que o PRÓPRIO APP reescreve ao renovar — o oposto do tokens.txt da raiz, que é
+#   SEMENTE editada por gente. Juntar os 4 num JSON deixa essa fronteira explícita: pessoa
+#   edita tokens.txt, o app escreve tokens_runtime.json, e ninguém pisa no arquivo do outro.
+#   NÃO junte os dois: o app reescrevendo o tokens.txt apagaria comentários e arriscaria as
+#   outras ~20 chaves numa corrida com quem estivesse editando à mão.
+_TOKENS_RT_PATH = os.path.join(_AQUI, "tokens_runtime.json")
+_tokens_rt_lock = threading.Lock()
+
+# Arquivo legado → chave nova. A migração é automática na 1ª leitura e RENOMEIA o .txt para
+# .migrado: deixar o .txt vivo faria alguém colar um token novo nele e nada acontecer — a
+# mesma armadilha de 25/07 (semente velha sequestrando a renovação), só que ao contrário.
+_TOKENS_RT_LEGADO = {
+    "sunop":     "sunop_token.txt",
+    "axis":      "axis_token.txt",
+    "plat":      "plat_token.txt",
+    "se_cookie": "se_cookie.txt",
+}
+
+
+def _tokens_rt_write(dados: dict):
+    """Grava ATÔMICO (tmp + os.replace). Várias threads renovam tokens diferentes ao mesmo
+    tempo (keepalive SunOp/Axis + login SolarEdge); escrever direto no destino deixaria uma
+    janela de arquivo truncado, e agora um leitor nessa janela perderia TODOS os tokens de
+    uma vez — não só o que estava sendo escrito. Por isso também o lock em volta."""
+    tmp = _TOKENS_RT_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(dados, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, _TOKENS_RT_PATH)
+
+
+def _tokens_rt_load() -> dict:
+    """Lê o JSON e importa o que ainda estiver num .txt legado. Chamar SEMPRE sob o lock."""
+    try:
+        with open(_TOKENS_RT_PATH, encoding="utf-8") as f:
+            dados = json.load(f) or {}
+    except Exception:
+        dados = {}
+    migrou = False
+    for chave, nome in _TOKENS_RT_LEGADO.items():
+        if dados.get(chave):
+            continue
+        velho = os.path.join(_AQUI, nome)
+        try:
+            with open(velho, encoding="utf-8") as f:
+                valor = f.read().strip()
+        except Exception:
+            continue
+        if valor:
+            dados[chave] = valor
+            migrou = True
+        try:
+            os.replace(velho, velho + ".migrado")
+        except Exception:
+            pass
+    if migrou:
+        try:
+            _tokens_rt_write(dados)
+            print(f"[tokens_runtime] migrado dos .txt legados: {sorted(dados)}")
+        except Exception as e:
+            print(f"[tokens_runtime] falha ao migrar ({e})")
+    return dados
+
+
+def _tokens_rt_get(chave: str) -> str:
+    """Token persistido (string vazia se não houver). Relido A CADA USO, como os .txt eram —
+    é o que faz um token novo valer na hora, sem reiniciar o servidor."""
+    with _tokens_rt_lock:
+        try:
+            return (_tokens_rt_load().get(chave) or "").strip()
+        except Exception:
+            return ""
+
+
+def _tokens_rt_set(chave: str, valor: str):
+    """Persiste um token renovado preservando os demais (read-modify-write sob lock)."""
+    with _tokens_rt_lock:
+        dados = _tokens_rt_load()
+        dados[chave] = valor
+        dados["_atualizado"] = datetime.now().isoformat(timespec="seconds")
+        _tokens_rt_write(dados)
+
+
 app = Flask(__name__)
 app.config["TEMPLATES_AUTO_RELOAD"] = True   # relê o index.html sem precisar reiniciar o servidor
 app.jinja_env.auto_reload = True
@@ -293,7 +378,7 @@ def _tokens_status():
         _row("SunOp / Athon", "sunop", _jwt_exp(_sunop_token.get("token", "")), "auto-renova",
              "Renova sozinho; só recolar SUNOP_TOKEN no .env se o servidor ficou dias desligado."),
         _row("Axis SunOp", "axis", _jwt_exp(_axis_token.get("token", "")), "auto-renova",
-             "Renova sozinho; recolar AXIS_TOKEN no .env ou axis_token.txt se ficar dias desligado."),
+             "Renova sozinho; recolar AXIS_TOKEN no tokens.txt se ficar dias desligado."),
         _row("SolarEdge", "solaredge", _se_cookie.get("exp", 0.0), "auto-login", ""),
         _row("API PV", "apipv", _pv_token.get("exp", 0.0), "auto-login", ""),
     ]
@@ -364,6 +449,12 @@ def _persist_mark():
 
 
 # ── Stale-while-revalidate genérico ─────────────────────────────────────────────
+# Ligado no __main__ do servidor. Com ele, este processo NÃO reconstrói por conta própria:
+# quem reconstrói é o worker.py, e aqui só se serve o que ele publicou. O worker roda com
+# isto desligado, então lá o comportamento é o de sempre.
+_MODO_WEB = False
+
+
 def _swr(cache: dict, build, force: bool = False) -> dict:
     """Serve o cache na hora e atualiza em thread de fundo quando expirou — nenhuma
     aba bloqueia o usuário na busca lenta. Exceções: force=1 (botão Atualizar) e a
@@ -383,6 +474,12 @@ def _swr(cache: dict, build, force: bool = False) -> dict:
             _persist_mark()
             return dict(novo, stale=False)
     if not fresh:
+        if _MODO_WEB:
+            # No servidor, cache vencido NÃO dispara reconstrução: reconstruir aqui é
+            # justamente o que fazia um usuário travar os outros. Serve o último publicado
+            # marcado como stale; o worker já está atualizando em outro processo.
+            return dict(payload, stale=True)
+
         def _bg():
             if not lock.acquire(blocking=False):
                 return                       # já tem refresh em andamento
@@ -400,7 +497,7 @@ def _swr(cache: dict, build, force: bool = False) -> dict:
 # ── SunOp ─────────────────────────────────────────────────────────────────────
 SUNOP_CONFIG  = "https://gridco-api.sunop.net/api"
 SUNOP_DATA    = "https://gridco-api.sunop.net/data"
-SUNOP_TOKEN_PATH = os.path.join(_AQUI, "sunop_token.txt")
+SUNOP_RT_KEY  = "sunop"       # chave no tokens_runtime.json (era sunop_token.txt)
 
 
 def _jwt_exp(tok: str) -> float:
@@ -413,17 +510,12 @@ def _jwt_exp(tok: str) -> float:
         return 0.0
 
 
-def _sunop_token_inicial(env_var: str = "SUNOP_TOKEN", path: str = None) -> str:
-    """Token de MAIOR validade entre o persistido (arquivo, renovado sozinho pelo /refresh_token)
-    e o do .env (semente manual). env_var/path parametrizados p/ múltiplas instâncias (gridco/axis)."""
-    path = path or SUNOP_TOKEN_PATH
-    env_tok = os.environ.get(env_var, "")
-    file_tok = ""
-    try:
-        with open(path, encoding="utf-8") as f:
-            file_tok = f.read().strip()
-    except Exception:
-        pass
+def _sunop_token_inicial(env_var: str = "SUNOP_TOKEN", rt_key: str = None) -> str:
+    """Token de MAIOR validade entre o persistido (tokens_runtime.json, renovado sozinho pelo
+    /refresh_token) e o do .env/tokens.txt (semente manual). env_var/rt_key parametrizados p/
+    múltiplas instâncias (gridco/axis)."""
+    env_tok  = os.environ.get(env_var, "")
+    file_tok = _tokens_rt_get(rt_key or SUNOP_RT_KEY)
     return file_tok if _jwt_exp(file_tok) > _jwt_exp(env_tok) else env_tok
 
 
@@ -432,14 +524,14 @@ def _sunop_token_inicial(env_var: str = "SUNOP_TOKEN", path: str = None) -> str:
 # Todas as funções SunOp recebem inst="gridco" por padrão → o Athon ao vivo fica IDÊNTICO.
 AXIS_CONFIG     = "https://axis-api.sunop.net/api"
 AXIS_DATA       = "https://axis-api.sunop.net/data"
-AXIS_TOKEN_PATH = os.path.join(_AQUI, "axis_token.txt")
+AXIS_RT_KEY     = "axis"      # chave no tokens_runtime.json (era axis_token.txt)
 
-_sunop_token     = {"token": _sunop_token_inicial("SUNOP_TOKEN", SUNOP_TOKEN_PATH)}
+_sunop_token     = {"token": _sunop_token_inicial("SUNOP_TOKEN", SUNOP_RT_KEY)}
 _sunop_meta      = {}        # plant_name → metadata dict
 _sunop_cache     = {"payload": None, "ts": 0.0}
 _sunop_etm_cache = {"payload": None, "ts": 0.0}
 
-_axis_token       = {"token": _sunop_token_inicial("AXIS_TOKEN", AXIS_TOKEN_PATH)}
+_axis_token       = {"token": _sunop_token_inicial("AXIS_TOKEN", AXIS_RT_KEY)}
 _axis_meta        = {}
 _axis_cache       = {"payload": None, "ts": 0.0}
 _axis_etm_cache   = {"payload": None, "ts": 0.0}
@@ -454,13 +546,13 @@ _axis_analise_cache = {"payload": None, "ts": 0.0}
 def _si(inst: str = "gridco") -> dict:
     """Estado da instância SunOp (URLs + token + meta + caches). gridco = Athon (default)."""
     if inst == "axis":
-        return {"config": AXIS_CONFIG, "data": AXIS_DATA, "token_path": AXIS_TOKEN_PATH,
+        return {"config": AXIS_CONFIG, "data": AXIS_DATA, "rt_key": AXIS_RT_KEY,
                 "env": "AXIS_TOKEN", "token": _axis_token, "meta": _axis_meta,
                 "cache": _axis_cache, "etm_cache": _axis_etm_cache,
                 "curva_cache": _axis_curva_cache, "str_med_cache": _axis_str_med_cache,
                 "trk_cache": _axis_trk_cache, "trk_hist": _axis_trk_hist, "pr_cache": _axis_pr_cache,
                 "analise_cache": _axis_analise_cache}
-    return {"config": SUNOP_CONFIG, "data": SUNOP_DATA, "token_path": SUNOP_TOKEN_PATH,
+    return {"config": SUNOP_CONFIG, "data": SUNOP_DATA, "rt_key": SUNOP_RT_KEY,
             "env": "SUNOP_TOKEN", "token": _sunop_token, "meta": _sunop_meta,
             "cache": _sunop_cache, "etm_cache": _sunop_etm_cache,
             "curva_cache": _sunop_curva_cache, "str_med_cache": _sunop_str_med_cache,
@@ -470,8 +562,7 @@ def _si(inst: str = "gridco") -> dict:
 
 def _sunop_persist(tok: str, inst: str = "gridco"):
     try:
-        with open(_si(inst)["token_path"], "w", encoding="utf-8") as f:
-            f.write(tok)
+        _tokens_rt_set(_si(inst)["rt_key"], tok)
     except Exception:
         pass
 
@@ -483,7 +574,7 @@ SUNOP_INV_MAX = {
 
 # ── SolarEdge / RenoGrid ───────────────────────────────────────────────────────
 SE_BASE          = "https://monitoring.solaredge.com"
-SE_COOKIE_PATH   = os.path.join(_AQUI, "se_cookie.txt")
+SE_COOKIE_RT_KEY = "se_cookie"   # chave no tokens_runtime.json (era se_cookie.txt)
 SE_CREDS_PATH    = os.path.join(_AQUI, "se_credentials.txt")
 SE_COGNITO_POOL  = os.environ.get("SE_COGNITO_POOL",   "eu-central-1_fVUTz39em")
 SE_COGNITO_CLIENT= os.environ.get("SE_COGNITO_CLIENT", "ugfnsujd3384sshcjehaphlh3")
@@ -525,8 +616,7 @@ def _se_login() -> str:
     _se_cookie["token"] = c.access_token
     _se_cookie["exp"]   = _jwt_exp(c.access_token)
     try:   # persiste p/ fallback
-        with open(SE_COOKIE_PATH, "w", encoding="utf-8") as f:
-            f.write(f"se_monitoring_auth={c.access_token}")
+        _tokens_rt_set(SE_COOKIE_RT_KEY, f"se_monitoring_auth={c.access_token}")
     except Exception:
         pass
     mins = int((_se_cookie["exp"] - time.time()) / 60)
@@ -547,12 +637,8 @@ def _get_se_cookie() -> str:
             return f"se_monitoring_auth={_se_login()}"
         except Exception as e:
             print(f"[SolarEdge] login automático falhou: {e}")
-    # Fallback: cookie manual do arquivo (se houver)
-    try:
-        with open(SE_COOKIE_PATH, encoding="utf-8") as f:
-            return f.read().strip()
-    except Exception:
-        return ""
+    # Fallback: último cookie persistido (se houver)
+    return _tokens_rt_get(SE_COOKIE_RT_KEY)
 
 
 def _se_headers() -> dict:
@@ -1799,13 +1885,27 @@ def api_debug_match():
 
 
 # ── Visão geral ────────────────────────────────────────────────────────────────
+_REDESIGN_CACHE = {"key": None, "html": None}
+
+
 def _serve_redesign():
-    """HTML cru do novo design do Monitoramento (sem Jinja; relê o arquivo a cada request → editar o HTML
-    reflete sem restart). Serve / (principal, promovido 20/07) e /v2 (alias histórico)."""
+    """HTML cru do novo design do Monitoramento (sem Jinja). Serve / (principal, promovido 20/07)
+    e /v2 (alias histórico).
+
+    Editar o HTML continua refletindo SEM restart — mas agora relendo só quando o arquivo muda
+    (mtime+tamanho), não a cada request. São 197 KB numa pasta sincronizada do OneDrive: relê-los
+    a cada GET custava ~900 ms na mediana e era, de longe, o item mais lento da página."""
     p = os.path.join(_RAIZ, "docs", "redesign", "Monitoramento (novo design).html")
     try:
+        st = os.stat(p)
+        key = (st.st_mtime, st.st_size)
+        ent = _REDESIGN_CACHE
+        if ent["key"] == key and ent["html"] is not None:
+            return ent["html"]
         with open(p, encoding="utf-8") as f:
-            return f.read()
+            html = f.read()
+        _REDESIGN_CACHE.update({"key": key, "html": html})
+        return html
     except Exception as e:
         return ("Monitoramento (novo design) não encontrado: %s" % e), 404
 
@@ -1934,7 +2034,10 @@ def api_data():
     force = flask_request.args.get("force", "0") == "1"
     agora = time.time()
     fresh = bool(_cache["payload"]) and (agora - _cache["ts"]) < CACHE_TTL
-    if force or not fresh:
+    # No servidor só o "Atualizar" explícito reconstrói; cache vencido é assunto do worker.
+    # Esta é a rota mais cara do app (~70-130 s a frio, 81 usinas) — deixá-la reconstruir
+    # sozinha aqui era o gargalo em pessoa.
+    if force or (not fresh and not _MODO_WEB):
         threading.Thread(target=_refresh_data_cache, daemon=True).start()
     if _cache["payload"]:
         out = dict(_cache["payload"]); out["stale"] = not fresh
@@ -4143,9 +4246,9 @@ def api_sunop_trackers_eventos():
 #   A API PV (apipv) NÃO expõe posição de tracker; o dado só existe na PV Plataforma
 #   (mesma idusina). Endpoints: /v2/usinas/trackers (estado atual: posAg=atual,
 #   posAl=alvo, parametros.{alertaPosicao,criticoPosicao}) e /v2/usinas/trackerschart
-#   (curva do dia por tracker). Token manual (CAPTCHA+MFA) em plat_token.txt.
+#   (curva do dia por tracker). Token manual (CAPTCHA+MFA) na chave "plat" do tokens_runtime.json.
 PLAT_BASE        = "https://apiplataforma.pvoperation.com"
-_PLAT_TOKEN_PATH = os.path.join(_AQUI, "plat_token.txt")
+PLAT_RT_KEY      = "plat"      # chave no tokens_runtime.json (era plat_token.txt)
 _pv_trk_cache    = {"payload": None, "ts": 0.0}
 _pv_trk_plant    = {}   # idusina → {ts, payload}  (análise por usina, reusada no drill-down)
 
@@ -4153,19 +4256,16 @@ _pv_trk_plant    = {}   # idusina → {ts, payload}  (análise por usina, reusad
 def _plat_token() -> str:
     """Token da Plataforma — vence o de validade MAIOR, não o do ambiente.
 
-    O PLAT_TOKEN do .env/tokens.txt é SEMENTE (vale no boot); o plat_token.txt é o que o
-    bookmarklet e o POST /api/pv/trackers/token escrevem em runtime. A ordem antiga era
-    "ambiente primeiro, arquivo só se vazio", e isso SEQUESTRAVA a renovação: com uma semente
-    velha no tokens.txt, colar um token novo gravava o arquivo e não mudava nada — a plataforma
-    seguia usando o vencido até alguém editar o tokens.txt e reiniciar. Caiu no caso real de
-    25/07 (token novo aceito, /api/tokens continuava VENCIDO). Mesma regra já usada em
-    SUNOP_TOKEN/AXIS_TOKEN: a semente não pode ganhar do que foi renovado depois."""
+    O PLAT_TOKEN do .env/tokens.txt é SEMENTE (vale no boot); a chave "plat" do
+    tokens_runtime.json é o que o bookmarklet e o POST /api/pv/trackers/token escrevem em
+    runtime. A ordem antiga era "ambiente primeiro, arquivo só se vazio", e isso SEQUESTRAVA a
+    renovação: com uma semente velha no tokens.txt, colar um token novo gravava o arquivo e não
+    mudava nada — a plataforma seguia usando o vencido até alguém editar o tokens.txt e
+    reiniciar. Caiu no caso real de 25/07 (token novo aceito, /api/tokens continuava VENCIDO).
+    Mesma regra já usada em SUNOP_TOKEN/AXIS_TOKEN: a semente não pode ganhar do que foi
+    renovado depois."""
     env = (os.environ.get("PLAT_TOKEN", "") or "").strip()
-    try:
-        with open(_PLAT_TOKEN_PATH, encoding="utf-8") as f:
-            arq = f.read().strip()
-    except Exception:
-        arq = ""
+    arq = _tokens_rt_get(PLAT_RT_KEY)
     if not arq or not env:
         return arq or env
     return arq if (_jwt_exp(arq) or 0) >= (_jwt_exp(env) or 0) else env
@@ -6448,8 +6548,7 @@ def api_pv_trackers_token():
         r.headers["Access-Control-Allow-Origin"] = "*"
         return r, 400
     try:
-        with open(_PLAT_TOKEN_PATH, "w", encoding="utf-8") as f:
-            f.write(tok)
+        _tokens_rt_set(PLAT_RT_KEY, tok)
         _pv_trk_cache["payload"] = None   # invalida overview p/ recarregar com token novo
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -13359,6 +13458,9 @@ def _cache_load():
 
 
 def _persist_loop():
+    """Salva o snapshot quando algo mudou. Roda SÓ no worker — é o único escritor do
+    cache_snapshot.json. Se o web também salvasse, sobrescreveria o trabalho do worker
+    com os caches que ele apenas leu."""
     while True:
         time.sleep(60)
         if not _persist_flag["dirty"]:
@@ -13368,6 +13470,74 @@ def _persist_loop():
             _cache_save()
         except Exception as e:
             print(f"[persist] save falhou: {e}")
+
+
+def _snapshot_watch_loop(intervalo=20):
+    """O outro lado da separação: o WEB não reconstrói nada, ele observa o snapshot que o
+    worker publica e recarrega quando o arquivo muda (compara mtime+tamanho).
+
+    É isto que tira o trabalho pesado do processo que atende HTTP. Antes, o prewarm rodava
+    aqui dentro e um ciclo inteiro (>4 min, mais longo que o TTL) segurava o GIL — qualquer
+    usuário que chegasse nessa janela esperava segundos por uma resposta de 3 ms."""
+    ult = None
+    while True:
+        try:
+            st = os.stat(_PERSIST_PATH)
+            marca = (st.st_mtime, st.st_size)
+            if marca != ult:
+                if ult is not None:                 # no boot o __main__ já carregou
+                    _cache_load()
+                ult = marca
+        except FileNotFoundError:
+            pass                                    # worker ainda não publicou o 1º snapshot
+        except Exception as e:
+            print(f"[web] recarga do snapshot falhou: {e}")
+        time.sleep(intervalo)
+
+
+# ── Laços de fundo: quem faz o trabalho pesado ────────────────────────────────
+# Ficam no WORKER (worker.py). O web só serve. Rodar isto no processo do servidor é
+# exatamente o que causava o gargalo com vários usuários. Para desenvolvimento ou
+# emergência, GRIDCO_SOLO=1 devolve o comportamento antigo (tudo num processo só).
+def _iniciar_loops_de_fundo():
+    for alvo in (_paradas_book_loop,        # book de paradas: prewarm + 1×/h
+                 _fecha_dia_loop,           # fecha o D-1 todo dia às 01:30
+                 _perdas_str_backfill_loop,
+                 _ronda_whats_loop,         # RONDA — só pode existir em UM processo
+                 _whats_watchdog_loop,      # reergue o wa_service se travar
+                 _owen_loop,
+                 _sunop_keepalive_loop,     # renova tokens (escreve *_token.txt)
+                 _prewarm_loop,
+                 _persist_loop,             # ÚNICO escritor do cache_snapshot.json
+                 _trk_parada_loop,
+                 _trk_ev_hoje_loop,
+                 _perdas_pv_warm_dm1_loop,
+                 _perdas_ocor_warm_loop,
+                 _macro_prewarm_loop,
+                 _tunnel_url_loop,
+                 _frac_osperf_loop):
+        threading.Thread(target=alvo, daemon=True).start()
+
+    # aquece o gerencial no boot (PR/meta por usina) — sem isso, logo após restart o Painel NOC
+    # abre com anomalias SEM a linha de PR (gerencial frio) até o 1º ciclo de warm. A 1ª chamada
+    # dispara os warms de BD_Performance/BD_Thopen em background; a 2ª (forçada) consolida.
+    def _ger_prewarm():
+        try:
+            _gerencial_payload()
+            time.sleep(90)
+            _gerencial_payload(force=True)
+            print("[prewarm] gerencial aquecido")
+        except Exception as e:
+            print(f"[prewarm] gerencial falhou: {e}")
+    threading.Thread(target=_ger_prewarm, daemon=True).start()
+
+
+def _carregar_estado_do_disco():
+    """Estado persistido que os dois processos leem no boot."""
+    _cache_load()
+    _trk_ev_load()
+    _perdas_str_load()
+    _paradas_book_load()      # book de paradas persistido (abertas + ENCERRADAS do mês)
 
 
 def _trk_parada_loop():
@@ -17010,38 +17180,18 @@ def _perdas_ocor_warm_loop():
 
 
 if __name__ == "__main__":
-    _cache_load()
-    _trk_ev_load()
-    _perdas_str_load()
-    _paradas_book_load()                 # book de paradas persistido (abertas + ENCERRADAS do mês)
-    threading.Thread(target=_paradas_book_loop, daemon=True).start()   # prewarm + 1×/h
-    threading.Thread(target=_fecha_dia_loop, daemon=True).start()      # fecha o D-1 todo dia às 01:30
-    threading.Thread(target=_perdas_str_backfill_loop, daemon=True).start()
-    threading.Thread(target=_ronda_whats_loop, daemon=True).start()
-    threading.Thread(target=_whats_watchdog_loop, daemon=True).start()   # reergue o wa_service se travar
-    threading.Thread(target=_owen_loop, daemon=True).start()
-    threading.Thread(target=_sunop_keepalive_loop, daemon=True).start()
-    threading.Thread(target=_prewarm_loop, daemon=True).start()
-    threading.Thread(target=_persist_loop, daemon=True).start()
-    threading.Thread(target=_trk_parada_loop, daemon=True).start()
-    threading.Thread(target=_trk_ev_hoje_loop, daemon=True).start()
-    threading.Thread(target=_perdas_pv_warm_dm1_loop, daemon=True).start()   # aquece curva PV de ontem (base D-1)
-    threading.Thread(target=_perdas_ocor_warm_loop, daemon=True).start()     # pré-aquece ocorrências do MÊS (Perdas)
-    threading.Thread(target=_macro_prewarm_loop, daemon=True).start()        # /api/macro quente → Painel abre instantâneo
-    threading.Thread(target=_tunnel_url_loop, daemon=True).start()
-    threading.Thread(target=_frac_osperf_loop, daemon=True).start()   # OSs de Performance (Fracttal) quentes p/ o selo
-    # aquece o gerencial no boot (PR/meta por usina) — sem isso, logo após restart o Painel NOC
-    # abre com anomalias SEM a linha de PR (gerencial frio) até o 1º ciclo de warm. A 1ª chamada
-    # dispara os warms de BD_Performance/BD_Thopen em background; a 2ª (forçada) consolida.
-    def _ger_prewarm():
-        try:
-            _gerencial_payload()
-            time.sleep(90)
-            _gerencial_payload(force=True)
-            print("[prewarm] gerencial aquecido")
-        except Exception as e:
-            print(f"[prewarm] gerencial falhou: {e}")
-    threading.Thread(target=_ger_prewarm, daemon=True).start()
+    _carregar_estado_do_disco()
+    _solo = os.environ.get("GRIDCO_SOLO", "") == "1"
+    if _solo:
+        # Modo antigo: tudo num processo só. Serve para desenvolvimento e como saída de
+        # emergência se o worker estiver fora — ao custo do gargalo que a separação resolve.
+        print("[server] MODO SOLO — trabalho pesado no mesmo processo do servidor")
+        _iniciar_loops_de_fundo()
+    else:
+        # Modo normal: o worker (worker.py) reconstrói e publica; aqui só lemos e servimos.
+        _MODO_WEB = True
+        print("[server] modo WEB — quem reconstrói é o worker.py; este processo só serve")
+        threading.Thread(target=_snapshot_watch_loop, daemon=True).start()
     try:
         from waitress import serve
         print("[server] waitress em http://0.0.0.0:5050 (threads=16)")
