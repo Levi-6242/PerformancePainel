@@ -98,6 +98,25 @@ _TOKENS_RT_LEGADO = {
 }
 
 
+def _replace_atomico(origem, destino, tentativas=6):
+    """`os.replace` com repetição — a troca atômica que o Windows às vezes recusa.
+
+    A pasta do projeto fica dentro do OneDrive e o "Arquivos Sob Demanda" marca os arquivos
+    com ReparsePoint: enquanto o OneDrive sincroniza o destino, o `os.replace` falha com
+    WinError 5 (acesso negado), de forma INTERMITENTE. Sem repetir, a gravação simplesmente
+    se perde — foi assim que uma renovação de token virou HTTP 500 e, pior, a renovação
+    automática de SunOp/Axis podia falhar sem ninguém notar. Espera crescente; se todas as
+    tentativas falharem, o erro sobe (silenciar seria voltar ao problema)."""
+    for i in range(tentativas):
+        try:
+            os.replace(origem, destino)
+            return
+        except PermissionError:
+            if i == tentativas - 1:
+                raise
+            time.sleep(0.15 * (i + 1))
+
+
 def _tokens_rt_write(dados: dict):
     """Grava ATÔMICO (tmp + os.replace). Várias threads renovam tokens diferentes ao mesmo
     tempo (keepalive SunOp/Axis + login SolarEdge); escrever direto no destino deixaria uma
@@ -106,7 +125,7 @@ def _tokens_rt_write(dados: dict):
     tmp = _TOKENS_RT_PATH + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(dados, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, _TOKENS_RT_PATH)
+    _replace_atomico(tmp, _TOKENS_RT_PATH)
 
 
 def _tokens_rt_load() -> dict:
@@ -395,6 +414,59 @@ def api_tokens():
     return jsonify(_tokens_status())
 
 
+@app.route("/tokens")
+def pagina_tokens():
+    return render_template("tokens.html")
+
+
+# Tokens que dá para colar pela tela. Os demais (SolarEdge, API PV) fazem login com
+# usuário e senha e se curam sozinhos — não há o que colar.
+_TOKENS_COLAVEIS = {
+    "plat":  ("Plataforma (trackers e combiner)", "plataforma.pvoperation.com"),
+    "sunop": ("SunOp / Athon",                    "gridco.sunop.net"),
+    "axis":  ("Axis SunOp",                       "axis.sunop.net"),
+}
+
+
+@app.route("/api/tokens/<fonte>", methods=["POST"])
+def api_tokens_colar(fonte):
+    """Recebe um token colado na tela e o publica no tokens_runtime.json.
+
+    Fica atrás do gate de senha (é /api/), ao contrário do /api/pv/trackers/token, que é
+    aberto de propósito porque o bookmarklet roda na origem da PV Plataforma.
+
+    Recusa token VENCIDO: colar um expirado deixaria a plataforma pior do que estava, e o
+    erro é fácil de cometer copiando do F12 uma aba antiga."""
+    fonte = (fonte or "").lower()
+    if fonte not in _TOKENS_COLAVEIS:
+        return jsonify({"ok": False, "error": "fonte desconhecida",
+                        "aceitas": sorted(_TOKENS_COLAVEIS)}), 400
+    body = flask_request.get_json(force=True, silent=True) or {}
+    tok = (body.get("token") or "").strip()
+    if tok.lower().startswith("bearer "):
+        tok = tok[7:].strip()
+    tok = tok.strip('"').strip("'")
+    exp = _jwt_exp(tok)
+    if tok.count(".") != 2 or not exp:
+        return jsonify({"ok": False, "error": "não parece um token (JWT) válido"}), 400
+    agora = time.time()
+    if exp <= agora:
+        venceu = datetime.fromtimestamp(exp).strftime("%d/%m/%Y %H:%M")
+        return jsonify({"ok": False, "error": f"esse token já venceu em {venceu}"}), 400
+
+    chave = {"plat": PLAT_RT_KEY, "sunop": SUNOP_RT_KEY, "axis": AXIS_RT_KEY}[fonte]
+    try:
+        _tokens_rt_set(chave, tok)
+        if fonte == "plat":
+            _pv_trk_cache["payload"] = None      # overview recarrega já com o token novo
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+    dias = (exp - agora) / 86400
+    print(f"[tokens] {fonte} atualizado pela tela — vence em {dias:.1f} dias")
+    return jsonify({"ok": True, "fonte": fonte, "dias": round(dias, 1),
+                    "exp": datetime.fromtimestamp(exp).strftime("%d/%m/%Y %H:%M")})
+
+
 # ── Recebe as planilhas por push (servidor sem OneDrive) ──────────────────────
 # Fecha o buraco da migração: o PC dedicado não monta OneDrive, então quem tem o OneDrive
 # empurra as bases para cá (ver push_bases.py). Fica atrás do mesmo gate de senha que o
@@ -434,7 +506,7 @@ def api_admin_base(nome):
         wb.close()
         if abas < 1:
             raise ValueError("xlsx sem abas")
-        os.replace(tmp, destino)
+        _replace_atomico(tmp, destino)
     except Exception as e:
         try:
             os.remove(tmp)
@@ -5833,7 +5905,7 @@ def _trk_ev_save():
         tmp = _TRK_EV_PATH + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(snap)
-        os.replace(tmp, _TRK_EV_PATH)
+        _replace_atomico(tmp, _TRK_EV_PATH)
     except Exception as e:
         print(f"[trk_ev] falha ao salvar: {e}")
 
@@ -10180,7 +10252,7 @@ def _save_state(d: dict) -> None:
     tmp = STATE_PATH + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(d, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, STATE_PATH)   # gravação atômica
+    _replace_atomico(tmp, STATE_PATH)   # gravação atômica
 
 
 _trancadas = set(_load_state().get("strings_trancadas", []))   # carga inicial em memória
@@ -10478,7 +10550,7 @@ def _owen_save():
         tmp = OWEN_ACCUM_PATH + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(_owen_accum, f)
-        os.replace(tmp, OWEN_ACCUM_PATH)
+        _replace_atomico(tmp, OWEN_ACCUM_PATH)
     except Exception as e:
         print(f"[OWEN] erro salvando acumulador: {e}")
 
@@ -12582,7 +12654,7 @@ def _spv_save_notas(d: dict):
         tmp = SPV_NOTAS_PATH + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(d, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, SPV_NOTAS_PATH)
+        _replace_atomico(tmp, SPV_NOTAS_PATH)
     except Exception as e:
         print(f"[SPV] erro salvando notas: {e}")
 
@@ -13589,7 +13661,7 @@ def _cache_save():
     tmp = _PERSIST_PATH + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, default=str)
-    os.replace(tmp, _PERSIST_PATH)
+    _replace_atomico(tmp, _PERSIST_PATH)
 
 
 def _int_keys(d):
@@ -14514,7 +14586,7 @@ def _whats_sent_save(d):
         tmp = _WHATS_SENT_PATH + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(d, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, _WHATS_SENT_PATH)   # atômico: um 2º processo relendo nunca vê JSON pela metade
+        _replace_atomico(tmp, _WHATS_SENT_PATH)   # atômico: um 2º processo relendo nunca vê JSON pela metade
     except Exception as e:
         print(f"[ronda-whats] não gravei whats_enviados.json: {e}")
 
@@ -14624,7 +14696,7 @@ def _trk_parados_snapshot(rows, falhas, dedup_min=45, keep_dias=45):
     try:
         with open(_TRK_HIST_PATH + ".tmp", "w", encoding="utf-8") as f:
             f.writelines(linhas)
-        os.replace(_TRK_HIST_PATH + ".tmp", _TRK_HIST_PATH)
+        _replace_atomico(_TRK_HIST_PATH + ".tmp", _TRK_HIST_PATH)
     except Exception as e:
         print(f"[recorrentes] gravação do hist falhou: {e}")
 
@@ -15595,7 +15667,7 @@ def _obs_local_save(d):
     tmp = _NOTAS_TRK_LOCAL + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(d, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, _NOTAS_TRK_LOCAL)
+    _replace_atomico(tmp, _NOTAS_TRK_LOCAL)
 
 
 def _obs_manuais():
@@ -15745,7 +15817,7 @@ def _perdas_str_save():
         tmp = _PERDAS_STR_PATH + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(_perdas_str, f, ensure_ascii=False)
-        os.replace(tmp, _PERDAS_STR_PATH)
+        _replace_atomico(tmp, _PERDAS_STR_PATH)
     except Exception as e:
         print(f"[perdas] save strings falhou: {e}")
 
@@ -16142,7 +16214,7 @@ def _paradas_book_save():
         tmp = _PARADAS_PATH + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(snap)
-        os.replace(tmp, _PARADAS_PATH)
+        _replace_atomico(tmp, _PARADAS_PATH)
     except Exception as e:
         print(f"[paradas] falha ao salvar: {e}")
 
