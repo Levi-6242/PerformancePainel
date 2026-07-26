@@ -8002,8 +8002,15 @@ def _bdperf_prod_build(ano=None, mes=None):
                     continue
                 ii = next((i for i, h in enumerate(hdr) if h and "IPOA" in str(h) and "DEF" in str(h)), None)
                 etmc = [i for i, h in enumerate(hdr) if h and "IPOA" in str(h).upper() and "ETM" in str(h).upper()]
+                # Coluna "Validação" (o mesmo gate do DAX do BI: validação > 0) e "Multimedidor"
+                # (energia no MEDIDOR = o PR Grid do BI). Conferido em jun/2026 contra o BI do
+                # Levi: com este gate o PR bate no CENTÉSIMO (Tupi 79,26 · Araputanga 83,50 ·
+                # Sete Lagoas 82,05). Antes o gate era só "ter IPOA utilizável" e divergia.
+                ival = next((i for i, h in enumerate(hdr) if h and "valida" in str(h).lower()), None)
+                imm  = next((i for i, h in enumerate(hdr) if h and "multimedidor" in str(h).lower()), None)
                 tot = 0.0        # geração do mês inteiro (prod_mwh MTD)
-                gen_pr = 0.0     # geração só dos dias com IPOA utilizável (numerador do PR)
+                gen_pr = 0.0     # geração só dos dias que entram no PR (numerador)
+                gen_mm = 0.0     # idem, mas pelo MEDIDOR (numerador do PR Grid)
                 ipoa = 0.0
                 for r in it:
                     d = r[1] if len(r) > 1 else None
@@ -8012,6 +8019,10 @@ def _bdperf_prod_build(ano=None, mes=None):
                     rowgen = sum(r[i] for i in invcols if i < len(r) and isinstance(r[i], (int, float)))
                     tot += rowgen
                     if d.date() < hoje_d:               # PR só de dias COMPLETOS
+                        # Gate do BI: só entra dia com Validação > 0. Quando a coluna não
+                        # existe na aba, mantém o comportamento antigo (ter IPOA já basta).
+                        val = r[ival] if (ival is not None and ival < len(r)) else None
+                        validado = (val > 0) if isinstance(val, (int, float)) else (ival is None)
                         ipd = r[ii] if (ii is not None and ii < len(r)) else None
                         ip = None
                         if isinstance(ipd, (int, float)):
@@ -8022,20 +8033,27 @@ def _bdperf_prod_build(ano=None, mes=None):
                                     if i < len(r) and isinstance(r[i], (int, float)) and r[i] > 0.5]
                             if cand:
                                 ip = max(cand)
-                        if ip is not None:
+                        if ip is not None and validado:
                             ipoa += ip; gen_pr += rowgen
+                            mm = r[imm] if (imm is not None and imm < len(r)) else None
+                            if isinstance(mm, (int, float)):
+                                gen_mm += mm
                 if tot > 0:
                     mwp = ig.get("potencia_mwp")
                     pr = (gen_pr / (mwp * 1000.0 * ipoa) * 100) if (mwp and ipoa and gen_pr) else None
+                    # PR Grid = mesma conta pelo MEDIDOR. Costuma coincidir com o dos inversores,
+                    # mas quando separa é sinal de perda entre inversor e medidor (trafo/cabo).
+                    pr_grid = (gen_mm / (mwp * 1000.0 * ipoa) * 100) if (mwp and ipoa and gen_mm) else None
                     # meta do mês que está sendo construído (alvo_a/alvo_m), não do mês corrente:
                     # o PR previsto é cadastrado mês a mês na Info Mensal.
                     rec = pr_previsto(nome, alvo_a, alvo_m)
                     prm = rec.get("pr_previsto") if rec else None
                     out[k] = {"usina": nome, "prod_mwh": tot / 1000.0,
                               "cliente": ig.get("cliente"), "pot_mwp": mwp,
-                              "ipoa": round(ipoa, 1),     # Σ IPOA (DEF/ETM) dos dias que entraram no PR
-                              "pr": round(pr, 1) if pr is not None else None,
-                              "pr_meta": round(prm * 100, 1) if isinstance(prm, (int, float)) else None}
+                              "ipoa": round(ipoa, 2),     # Σ IPOA (DEF/ETM) dos dias que entraram no PR
+                              "pr": round(pr, 2) if pr is not None else None,
+                              "pr_grid": round(pr_grid, 2) if pr_grid is not None else None,
+                              "pr_meta": round(prm * 100, 2) if isinstance(prm, (int, float)) else None}
             except Exception:
                 continue
         try:
@@ -8893,7 +8911,7 @@ def _gerencial_payload(force=False, ano=None, mes=None):
                        "prod": round(prod, 1), "p50": round(p50, 1) if p50 else None,
                        "recurso": None, "pot_mwp": bp.get("pot_mwp"),
                        "atingimento": round(atg, 1) if atg is not None else None,
-                       "pr": bp.get("pr"), "pr_meta": bp.get("pr_meta"),
+                       "pr": bp.get("pr"), "pr_grid": bp.get("pr_grid"), "pr_meta": bp.get("pr_meta"),
                        "ipoa": _ip_bp,
                        "ipoa_prev": round(_ipp_bp, 1) if _ipp_bp else None,
                        "p50_src": "infogeral_anual12", "src": "bdperf",

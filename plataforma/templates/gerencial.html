@@ -119,7 +119,8 @@ td{padding:9px 10px;border-bottom:1px solid var(--line)}td b{color:var(--grafite
     <div class="tblwrap"><table id="qTable">
       <thead><tr>
         <th>Usina</th><th>Cliente</th>
-        <th class="r">PR</th><th class="r">PR Meta</th><th class="r">Diff PR</th>
+        <th class="r">PR</th><th class="r" title="Mesma conta pelo MEDIDOR (coluna Multimedidor). Separar do PR do inversor indica perda entre inversor e medidor.">PR Grid</th>
+        <th class="r">PR Meta</th><th class="r">Diff PR</th>
         <th class="r">IPOA</th><th class="r">IPOA Previsto</th><th class="r">Diff IPOA</th>
       </tr></thead><tbody></tbody>
     </table></div>
@@ -265,12 +266,13 @@ function renderQualidade(){
     const dip = (u.ipoa && u.ipoa_prev) ? (u.ipoa-u.ipoa_prev) : null;
     return `<tr><td><b>${u.usina}</b></td><td>${u.cliente||'—'}</td>`+
       `<td class="r num">${u.pr!=null?nf(u.pr,2)+'%':'—'}</td>`+
+      `<td class="r num">${u.pr_grid!=null?nf(u.pr_grid,2)+'%':'—'}</td>`+
       `<td class="r num">${u.pr_meta!=null?nf(u.pr_meta,2)+'%':'—'}</td>`+
       `<td class="r num" style="color:${cor(dpr)};font-weight:600">${dpr==null?'—':sig(dpr,2)+' pp'}</td>`+
       `<td class="r num">${u.ipoa?nf(u.ipoa,2):'—'}</td>`+
       `<td class="r num">${u.ipoa_prev?nf(u.ipoa_prev,2):'—'}</td>`+
       `<td class="r num" style="color:${cor(dip)};font-weight:600">${dip==null?'—':sig(dip,2)}</td></tr>`;
-  }).join('') || '<tr><td colspan="8" style="color:var(--muted)">Nenhuma usina com PR ou irradiância medida.</td></tr>';
+  }).join('') || '<tr><td colspan="9" style="color:var(--muted)">Nenhuma usina com PR ou irradiância medida.</td></tr>';
   const comPR = us.filter(u=>u.pr!=null).length, comIP = us.filter(u=>u.ipoa&&u.ipoa_prev).length;
   document.getElementById('qNota').innerHTML =
     `${us.length} usinas · <b>${comPR}</b> com PR calculado · <b>${comIP}</b> com irradiância medida e prevista. `+
