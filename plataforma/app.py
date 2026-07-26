@@ -395,6 +395,75 @@ def api_tokens():
     return jsonify(_tokens_status())
 
 
+# ── Recebe as planilhas por push (servidor sem OneDrive) ──────────────────────
+# Fecha o buraco da migração: o PC dedicado não monta OneDrive, então quem tem o OneDrive
+# empurra as bases para cá (ver push_bases.py). Fica atrás do mesmo gate de senha que o
+# resto do /api/ — não há porta nova aberta.
+_BASES_PUSH = {
+    "bd_performance": "BD_Performance.xlsx",
+    "bd_thopen":      "BD_Thopen.xlsx",
+    "tickets":        "Tickets de Performance (atualizada).xlsx",
+}
+
+
+@app.route("/api/admin/base/<nome>", methods=["POST"])
+def api_admin_base(nome):
+    """Recebe uma planilha e a publica no espelho local.
+
+    A gravação é em duas etapas de propósito: escreve num temporário, ABRE com o openpyxl
+    para provar que é um xlsx íntegro, e só então troca o arquivo (os.replace, atômico).
+    Sem isso, um envio truncado substituiria uma base boa e derrubaria o carregamento
+    inteiro da plataforma — o oposto do que este endpoint existe para fazer."""
+    alvo = _BASES_PUSH.get((nome or "").lower())
+    if not alvo:
+        return jsonify({"error": "base desconhecida",
+                        "aceitas": sorted(_BASES_PUSH)}), 400
+    dados = flask_request.get_data() or b""
+    if len(dados) < 1024:
+        return jsonify({"error": "corpo vazio ou pequeno demais para ser um xlsx"}), 400
+    os.makedirs(_BASES_DIR, exist_ok=True)
+    destino = os.path.join(_BASES_DIR, alvo)
+    tmp = destino + ".recebendo.xlsx"     # a extensão TEM de ser .xlsx: o openpyxl recusa
+    #                                       abrir por extensão, e a validação é o ponto aqui
+    try:
+        with open(tmp, "wb") as f:
+            f.write(dados)
+        import openpyxl
+        wb = openpyxl.load_workbook(tmp, read_only=True)
+        abas = len(wb.sheetnames)
+        wb.close()
+        if abas < 1:
+            raise ValueError("xlsx sem abas")
+        os.replace(tmp, destino)
+    except Exception as e:
+        try:
+            os.remove(tmp)
+        except Exception:
+            pass
+        return jsonify({"error": f"arquivo rejeitado: {e}"}), 400
+    print(f"[bases] {alvo} atualizada por push ({len(dados)/1024/1024:.1f} MB, {abas} abas)")
+    return jsonify({"ok": True, "arquivo": alvo, "bytes": len(dados), "abas": abas,
+                    "em_uso": _bd_perf_path() if nome == "bd_performance" else destino})
+
+
+@app.route("/api/admin/bases")
+def api_admin_bases():
+    """De onde cada base está sendo lida AGORA — o jeito rápido de saber se o servidor
+    está no OneDrive ou já no espelho."""
+    def _info(p):
+        if not p or not os.path.exists(p):
+            return {"caminho": p, "existe": False}
+        st = os.stat(p)
+        return {"caminho": p, "existe": True,
+                "espelho": os.path.dirname(p) == _BASES_DIR,
+                "mb": round(st.st_size / 1024 / 1024, 1),
+                "modificada": datetime.fromtimestamp(st.st_mtime).strftime("%d/%m/%Y %H:%M")}
+    return jsonify({"espelho_dir": _BASES_DIR,
+                    "bd_performance": _info(_bd_perf_path()),
+                    "bd_thopen": _info(_bd_thopen_path()),
+                    "tickets": _info(_tickets_path())})
+
+
 BASE_URL = "https://apipv.pvoperation.com.br/api/v1"
 USERNAME = os.environ.get("PV_USERNAME", "")
 PASSWORD = os.environ.get("PV_PASSWORD", "")
@@ -673,13 +742,29 @@ _BD_PERF_ONLINE_CANDS = [p for p in [
 ] if p]
 _BD_PERF_LOCAL = os.path.join(_AQUI, "BD_Performance.xlsx")
 
+# ── Espelho local das planilhas (servidor SEM OneDrive) ───────────────────────
+# No PC dedicado o OneDrive não fica montado: sincronizar arquivo numa máquina exposta é
+# justamente o que queremos evitar. Quem tem o OneDrive empurra as planilhas para cá por
+# HTTPS (ver push_bases.py e POST /api/admin/base/<nome>).
+# A ORDEM importa: o OneDrive continua ganhando ONDE EXISTE, e o espelho assume só onde não
+# existe. Assim o mesmo código serve a máquina do analista e o servidor, sem variável de
+# ambiente e sem risco de servir espelho velho enquanto a fonte viva está disponível.
+_BASES_DIR = os.path.join(_AQUI, "bases")
+
+
+def _base_espelho(nome_arquivo: str):
+    """Caminho no espelho, se o arquivo já tiver sido empurrado para lá."""
+    p = os.path.join(_BASES_DIR, nome_arquivo)
+    return p if os.path.exists(p) else None
+
+
 def _bd_perf_path() -> str:
     """Caminho do BD_Performance — prioridade: (1) versão ONLINE do OneDrive;
-    (2) cópia local como último recurso. Reavaliado a cada carga."""
+    (2) espelho recebido por push; (3) cópia local. Reavaliado a cada carga."""
     for p in _BD_PERF_ONLINE_CANDS:
         if os.path.exists(p):
             return p
-    return _BD_PERF_LOCAL
+    return _base_espelho("BD_Performance.xlsx") or _BD_PERF_LOCAL
 
 
 _BD_TMP = os.path.join(tempfile.gettempdir(), "bd_perf_dashboard.xlsx")
@@ -1160,7 +1245,7 @@ def _bd_thopen_path():
     for p in _BD_THOPEN_CANDS:
         if p and os.path.exists(p):
             return p
-    return None
+    return _base_espelho("BD_Thopen.xlsx")      # servidor sem OneDrive: espelho por push
 
 
 def load_thopen_meta():
@@ -4378,7 +4463,7 @@ def _tickets_path():
     for p in _TICKETS_CANDS:
         if os.path.exists(p):
             return p
-    return None
+    return _base_espelho("Tickets de Performance (atualizada).xlsx")   # espelho por push
 
 
 def load_tickets_trackers():

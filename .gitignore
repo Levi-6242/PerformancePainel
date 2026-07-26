@@ -11,10 +11,15 @@ venv/
 !.env.example
 tokens.txt
 pg_password.txt
+# tokens renovados pelo próprio app (sunop/axis/plat/se_cookie)
+tokens_runtime.json
+tokens_runtime.json.tmp
+# legados: migrados p/ tokens_runtime.json e renomeados para *.migrado
 plat_token.txt
 sunop_token.txt
 axis_token.txt
 se_cookie.txt
+*.txt.migrado
 se_credentials.txt
 _ck.txt
 credentials.json
@@ -99,3 +104,7 @@ MonitorRonda.exe
 # book de paradas de tracker (abertas + encerradas) — estado de runtime, derivado do store
 paradas_book.json
 paradas_book.json.tmp
+
+# espelho local das planilhas + estado do push (servidor sem OneDrive)
+plataforma/bases/
+push_bases_estado.json
