@@ -7,13 +7,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
+/* TEMA ÚNICO: azul-marinho (bg #090d18, cards #161d30) — verde Grid + branco, SEM lilás.
+   O tema claro foi removido a pedido do Levi (25/07): esta tela é de diagnóstico e vivia
+   aberta ao lado do Monitoramento, que é escuro — alternar só criava inconsistência. */
 :root{
-  --bg:#f3f5f0; --panel:#ffffff; --panel-2:#f8fafc; --raise:#eef2f7;
-  --line:#e5e7eb; --line-2:#d8dee6; --txt:#1a1b2e; --muted:#6b7280; --faint:#9aa1ad;
-  --brand:#7aa300; --brand-d:#5f7f00; --ok:#16a34a; --amber:#d97706; --red:#dc2626; --off:#94a3b8; --blue:#0369a1;
-  --nav:#0f1117; --shadow:0 1px 12px rgba(0,0,0,.06),0 4px 24px rgba(0,0,0,.04); --font:'Inter',system-ui,sans-serif;
-}
-body.dark{  /* azul-marinho (bg #090d18, cards #161d30) — verde Grid + branco, SEM lilás (pedido Levi) */
   --bg:#090d18; --panel:#161d30; --panel-2:#1c2640; --raise:#243154;
   --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.13); --txt:#e9eef6; --muted:#94a3b8; --faint:#64748b;
   --brand:#a3d900; --brand-d:#8bbf00; --ok:#6FA01E; --amber:#F0B53D; --red:#FF5C4D; --off:#475569; --blue:#5BC8E8;
@@ -109,6 +106,14 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
 .tcard .tang{font-size:15px;font-weight:700;color:var(--tc);font-variant-numeric:tabular-nums;line-height:1;margin-bottom:4px;}
 .tcard .tsub{font-size:9px;color:var(--faint);}
 .empty{color:var(--faint);font-size:12px;padding:18px;text-align:center;}
+/* Carregando ≠ vazio. Antes os blocos nasciam com "—" ou "Sem trackers." e só depois
+   enchiam: quem abria a tela lia "não tem nada" e um segundo depois via a lista aparecer.
+   O spinner deixa claro que o dado está a caminho. */
+.loading{display:flex;align-items:center;justify-content:center;gap:9px;padding:18px 10px;color:var(--muted);font-size:12.5px;}
+.loading::before{content:'';width:15px;height:15px;flex:none;border-radius:50%;
+  border:2px solid var(--line-2);border-top-color:var(--brand);animation:gcspin .7s linear infinite;}
+@keyframes gcspin{to{transform:rotate(360deg);}}
+@media (prefers-reduced-motion:reduce){.loading::before{animation-duration:2.4s;}}
 .foot{margin-top:22px;text-align:center;font-size:10.5px;color:var(--faint);}.foot b{color:var(--brand-d);}
 @media(max-width:1080px){.below{grid-template-columns:repeat(2,1fr);}.cols{grid-template-columns:1fr;}}
 </style>
@@ -120,7 +125,6 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
   <div class="scope">▸ <b id="uName">Usina</b> <span id="uMeta"></span></div>
   <div class="spacer"></div>
   <div class="live-pill"><span class="pulse"></span> AO VIVO</div>
-  <button class="darkbtn" id="darkBtn" onclick="toggleDark()">Tema: Claro</button>
   <div class="upd" id="upd">—</div>
 </div>
 
@@ -136,13 +140,23 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
         <!-- CASCATA DE PERDAS dentro do diagnóstico: "para onde foi o desvio" é a primeira pergunta. -->
         <div id="cascCard" style="display:none;margin:4px 0 16px;padding:12px 13px;border:1px solid var(--line);border-radius:10px">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:2px">
-            <div style="font-size:12.5px;font-weight:600">Para onde foi o desvio — em energia</div>
-            <select id="cascMes" onchange="loadCascata(this.value)" title="Mês da cascata, PR e gráficos de barra (trackers seguem ao vivo)" style="background:var(--panel-2);color:inherit;border:1px solid var(--line-2);border-radius:7px;padding:4px 8px;font-size:12px;font-family:inherit;cursor:pointer"></select>
+            <div style="font-size:12.5px;font-weight:600">Para onde foi o desvio</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <!-- Qual visão mostrar. PR é o padrão: normaliza pela irradiância, então separa
+                   o que é clima do que é O&M — a pergunta que o analista faz primeiro. -->
+              <select id="cascVista" onchange="_cascSetVista(this.value)" title="Qual visão da cascata mostrar" style="background:var(--panel-2);color:inherit;border:1px solid var(--line-2);border-radius:7px;padding:4px 8px;font-size:12px;font-family:inherit;cursor:pointer">
+                <option value="pr">Em qualidade (PR)</option>
+                <option value="energia">Em energia (MWh)</option>
+                <option value="metas">Geração × metas</option>
+                <option value="todas">Todas</option>
+              </select>
+              <select id="cascMes" onchange="loadCascata(this.value)" title="Mês da cascata, PR e gráficos de barra (trackers seguem ao vivo)" style="background:var(--panel-2);color:inherit;border:1px solid var(--line-2);border-radius:7px;padding:4px 8px;font-size:12px;font-family:inherit;cursor:pointer"></select>
+            </div>
           </div>
           <div class="csub" id="cascSub" style="margin-bottom:10px">Da geração sem perdas (P50) à geração real.</div>
-          <div id="cascBody"><div class="empty">Calculando a cascata…</div></div>
+          <div id="cascBody"><div class="loading">Calculando a cascata…</div></div>
         </div>
-        <div class="diags" id="diags"><div class="empty">Carregando…</div></div>
+        <div class="diags" id="diags"><div class="loading">Cruzando string, inversor e tracker…</div></div>
       </div>
       <div class="card" id="osCard" style="margin-bottom:14px;display:none">
         <div><h3>Ordens de serviço <span class="tagai">Fracttal</span></h3>
@@ -189,14 +203,14 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
           <span><span class="sw" style="background:var(--panel-2)"></span>Sem produção (rampa/noite)</span>
           <span><span class="sw" style="background:#7f1d1d"></span>Inversor desligado</span>
         </div>
-        <div id="heatmap"><div class="empty">—</div></div>
+        <div id="heatmap"><div class="loading">Montando o mapa de calor…</div></div>
       </div>
       <div class="card" style="margin-top:14px;">
         <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap">
           <h3 style="margin:0">Trackers — ângulo real × alvo</h3>
           <div id="trkSub" style="font-size:11px;color:var(--muted);text-align:right"></div>
         </div>
-        <div id="trackers"><div class="empty">—</div></div>
+        <div id="trackers"><div class="loading">Carregando trackers…</div></div>
       </div>
     </div>
   </div>
@@ -242,9 +256,8 @@ const cssv=n=>getComputedStyle(document.body).getPropertyValue(n).trim();
 // os valores já estão em Brasília (o "GMT" é só um sufixo falso) → NÃO converter fuso
 const fmtHora=x=>{const m=String(x).match(/(\d{1,2}:\d{2})(?::\d{2})?/);return m?m[1]:String(x);};
 const fmtTs=t=>{if(!t)return'';const m=String(t).match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}`:String(t).replace('T',' ');};
-function applyDark(on){document.body.classList.toggle('dark',on);document.getElementById('darkBtn').innerHTML=on?'Tema: Escuro':'Tema: Claro';}
-function toggleDark(){const on=!document.body.classList.contains('dark');localStorage.setItem('painelDark',on?'1':'0');applyDark(on);if(corr&&lastCurveTrk)drawCurve(lastCurveTrk);}
-applyDark(localStorage.getItem('painelDark')==='1');
+// Tema: só existe o escuro (as cores vivem no :root). As funções de alternância e a
+// preferência em localStorage foram removidas junto com o botão.
 
 function causaIco(c){c=(c||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
   if(c.includes('comunica')||c.includes('telemetria'))return '📡';
@@ -538,6 +551,29 @@ function _cascLeitura(d){
       <b style="color:var(--amber)">!</b> Ofensor ainda em aberto: ${abBlock}. Sem recomposição no período — acompanhar e priorizar a normalização.</div>`:''}
   </div>`;
 }
+// ── Vista da cascata ──────────────────────────────────────────────────────────
+// A mesma resposta do /api/cascata alimenta as três visões, então trocar de vista é só
+// repintar — nada de nova ida ao servidor. A escolha fica no localStorage porque o analista
+// costuma abrir várias usinas seguidas olhando sempre a mesma coisa.
+let CASC_DADO=null;
+const CASC_VISTA_PADRAO='pr';       // PR primeiro: separa clima de O&M
+function _cascVista(){ return localStorage.getItem('cascVista')||CASC_VISTA_PADRAO; }
+function _cascSetVista(v){ localStorage.setItem('cascVista',v); _cascPinta(); }
+
+function _cascPinta(){
+  const body=document.getElementById('cascBody'); const d=CASC_DADO;
+  if(!body||!d) return;
+  const sel=document.getElementById('cascVista'); const v=_cascVista();
+  if(sel&&sel.value!==v) sel.value=v;
+  const H=(t)=>`<div style="font-size:11px;font-weight:700;letter-spacing:.03em;color:var(--muted);text-transform:uppercase;margin:16px 0 6px">${t}</div>`;
+  const partes=[];
+  if(v==='pr'||v==='todas')      partes.push(H('Para onde foi o desvio — em qualidade (PR)')+_cascPR(d));
+  if(v==='energia'||v==='todas') partes.push(H('Para onde foi o desvio — em energia (MWh)')+_cascWaterfall(d));
+  if(v==='metas'||v==='todas')   partes.push(H('Geração · realizada × metas')+_casc3Bar(d));
+  // a leitura e os pontos de atenção valem para qualquer vista — é a conclusão, não um gráfico
+  body.innerHTML=partes.join('')+_cascLeitura(d);
+}
+
 async function loadCascata(mes){
   const card=document.getElementById('cascCard'), body=document.getElementById('cascBody');
   if(!card||!body) return;
@@ -546,17 +582,13 @@ async function loadCascata(mes){
   const selM=document.getElementById('cascMes');
   if(selM){ _prMesInit(selM); if(mes) selM.value=mes; }
   const q=mes?('&ano='+mes.slice(0,4)+'&mes='+(+mes.slice(5,7))):'';
-  body.innerHTML='<div class="empty">Calculando a cascata…</div>';
+  body.innerHTML='<div class="loading">Calculando a cascata…</div>';
   let d; try{ d=await fetch('/api/cascata?usina='+encodeURIComponent(NOME)+q).then(r=>r.json()); }
   catch(e){ card.style.display='none'; return; }
   if(!d||!d.ok){ card.style.display=''; body.innerHTML=`<div class="empty">Cascata indisponível — ${(d&&d.motivo)||'sem dado'}.</div>`; return; }
   card.style.display='';
-  const H=(t)=>`<div style="font-size:11px;font-weight:700;letter-spacing:.03em;color:var(--muted);text-transform:uppercase;margin:16px 0 6px">${t}</div>`;
-  body.innerHTML=
-    H('Para onde foi o desvio — em qualidade (PR)')+_cascPR(d)
-   +H('Para onde foi o desvio — em energia (MWh)')+_cascWaterfall(d)
-   +H('Geração · realizada × metas')+_casc3Bar(d)
-   +_cascLeitura(d);
+  CASC_DADO=d;                      // guardado p/ trocar de vista sem rebuscar no servidor
+  _cascPinta();
   const sub=document.getElementById('cascSub');
   if(sub) sub.innerHTML=`Da geração sem perdas (P50) à geração real. <b style="color:var(--muted)">Externo ${nf(d.externo,1)} MWh</b> · <b style="color:var(--ok)">evitável (O&amp;M) ${nf(d.om,1)} MWh</b> · não explicado ${nf(d.nao_explicado,1)} MWh. Strings ainda fora.`;
 }
@@ -997,8 +1029,12 @@ function renderInvCurva(){
 function renderTrackers(trk){
   const ts=((trk&&trk.trackers)||[]).slice();
   const el=document.getElementById('trackers');
-  if(trk&&trk.sem_comunicacao){el.innerHTML='<div class="empty">Usina sem comunicação de trackers agora.</div>';return;}
-  if(!ts.length){el.innerHTML='<div class="empty">Sem trackers.</div>';return;}
+  // Sem resposta ainda não é "sem tracker": só afirma o vazio quando a resposta CHEGOU.
+  // Antes, qualquer falha ou payload ausente virava "Sem trackers." e o analista lia isso
+  // como diagnóstico da usina.
+  if(!trk){el.innerHTML='<div class="empty">Não consegui carregar os trackers desta usina.</div>';return;}
+  if(trk.sem_comunicacao){el.innerHTML='<div class="empty">Usina sem comunicação de trackers agora.</div>';return;}
+  if(!ts.length){el.innerHTML='<div class="empty">Esta usina não tem trackers cadastrados.</div>';return;}
   // CARDS ordenados parado→severo→médio→leve→normal, cor do card = status (Levi 22/07).
   const _S={parado:{r:0,l:'parado',c:'var(--red)'},
             severo:{r:1,l:'severo',c:'var(--red)'},
