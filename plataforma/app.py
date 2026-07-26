@@ -7990,12 +7990,33 @@ def _bdperf_prod_build(ano=None, mes=None):
         hoje_d = hoje.date()
         wb = openpyxl.load_workbook(_bd_readable_path(), read_only=True, data_only=True)
         sheets = set(wb.sheetnames)
+
+        # Índice das abas SEM acento, para casar cadastro × aba quando a grafia difere.
+        # Casos reais: "Demerval Lobao" (cadastro) × "Demerval Lobão" (aba) e "Castelo do
+        # Piauí 1" × "Castelo do Piauí". Só aceita quando há UM candidato — ambiguidade não
+        # vira chute, senão "Cedro 1" poderia casar com "Cedro".
+        def _fd(s):
+            return unicodedata.normalize("NFKD", str(s)).encode("ascii", "ignore").decode().replace(" ", "").lower()
+        abas_fold = {}
+        for _a in sheets:
+            abas_fold.setdefault(_fd(_a), []).append(_a)
+
+        def _acha_aba(nome):
+            if nome in sheets:
+                return nome
+            for cand in (abas_fold.get(_fd(nome)) or [],
+                         abas_fold.get(_fd(re.sub(r"\s+\d+$", "", nome))) or []):
+                if len(cand) == 1:
+                    return cand[0]
+            return None
+
         for k, ig in INFO_GERAL.items():
             nome = ig.get("usina")
-            if nome not in sheets:      # a aba é o critério: existe aba, existe geração para ler
+            aba = _acha_aba(nome) if nome else None
+            if not aba:                 # a aba é o critério: existe aba, existe geração para ler
                 continue
             try:
-                it = wb[nome].iter_rows(values_only=True)
+                it = wb[aba].iter_rows(values_only=True)
                 hdr = next(it, None) or ()
                 invcols = [i for i, h in enumerate(hdr) if h and str(h).startswith("Inversor")]
                 if not invcols:
@@ -8937,10 +8958,21 @@ def _gerencial_payload(force=False, ano=None, mes=None):
     # Entram com geração NULA (não zero: zero afirmaria que não gerou, e o que sabemos é que
     # não medimos) e ficam de fora das razões de atingimento — ver _roll.
     have_k = {_nrm(u["usina"]) for u in usinas}
+    _nomes_ja = {u["usina"] for u in usinas}
     for k, ig in INFO_GERAL.items():
         if k in have_k:
             continue
         nome = ig.get("usina") or k
+        # Linha AGREGADA do cadastro ("Aparecida do Taboado 1 e 2") cujas partes já estão na
+        # lista: é a mesma usina cadastrada duas vezes, uma junta e outra separada. Entrar de
+        # novo inflaria a contagem e ainda apareceria como "sem dado" — quando na verdade o
+        # dado está lá, nas partes. Só descarta se AMBAS as partes já vieram com geração.
+        _mag = re.match(r"^(.*?)\s+(\d+)\s+e\s+(\d+)$", nome)
+        if _mag:
+            _base, _a, _b = _mag.group(1), _mag.group(2), _mag.group(3)
+            _partes = [f"{_base} {_a}", f"{_base} {_b}"]
+            if all(p in _nomes_ja for p in _partes):
+                continue
         p50_mes = None
         prm_all = PR_PREVISTO.get(k) or {}
         if (prm_all.get(ym) or {}).get("p50_mwh"):
