@@ -8894,7 +8894,19 @@ def _gerencial_payload(force=False, ano=None, mes=None):
         if k in have_k:
             continue
         ig = INFO_GERAL.get(k) or {}
-        p50_mes = (ig.get("p50_mwh") / 12.0) if ig.get("p50_mwh") else None
+        # MESMA cadeia dos outros blocos: Info MENSAL do mês exato → mesmo mês de outro ano →
+        # só então o anual da Info Geral ÷ 12. Antes este bloco olhava SÓ o anual, e usina que
+        # tem P50 mês a mês mas não tem o anual ficava sem meta — foi o caso de Greenyellow e
+        # SEMP (Castelo do Piauí, Cedro 1/2, Tucano 1/2), que a tela mostrava "sem meta P50"
+        # enquanto a Info Mensal tinha o número. A fonte mais específica manda.
+        prm_all = PR_PREVISTO.get(k) or {}
+        p50_mes = (prm_all.get(ym) or {}).get("p50_mwh")
+        if p50_mes is None:
+            for (yy, mm), v in prm_all.items():
+                if mm == alvo_m and v.get("p50_mwh"):
+                    p50_mes = v["p50_mwh"]; break
+        if p50_mes is None and ig.get("p50_mwh"):
+            p50_mes = ig["p50_mwh"] / 12.0
         p50 = (p50_mes * prorata) if p50_mes else None
         prod = bp["prod_mwh"]
         atg = (prod / p50 * 100) if p50 else None
