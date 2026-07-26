@@ -7298,6 +7298,8 @@ def _pg_password() -> str:
 
 _pg_pool = {"p": None}
 _pg_pool_lock = threading.Lock()
+_pg_ocioso = {}          # id(conn) -> quando voltou ao pool (para saber se vale checar se está viva)
+PG_PING_APOS = 60        # segundos ocioso antes de valer a pena um SELECT 1 de verificação
 
 
 class _PGConnEmprestada:
@@ -7320,6 +7322,7 @@ class _PGConnEmprestada:
         try:
             if not conn.closed:
                 conn.rollback()           # nunca devolve transação pendurada ao pool
+            _pg_ocioso[id(conn)] = time.time()   # marca QUANDO voltou (ver _pg_conn)
             self._pool.putconn(conn)
         except Exception:
             try:
@@ -7353,14 +7356,32 @@ def _pg_conn():
                     _pg_pool["p"] = False        # marca "não usar pool"
     p = _pg_pool["p"]
     if p:
-        try:
-            c = p.getconn()
-            if getattr(c, "closed", 0):          # conexão morta guardada no pool
-                p.putconn(c, close=True)
+        # Pega uma conexão VIVA. O `closed` do psycopg2 só reflete o estado LOCAL: se o RDS
+        # derrubou a conexão por ociosidade, ela continua "aberta" aqui e só estoura no uso —
+        # foi o que aconteceu ("server closed the connection unexpectedly") depois que o pool
+        # entrou. Por isso a verificação com SELECT 1, feita só quando a conexão ficou ociosa
+        # mais que PG_PING_APOS: o RDS está longe (~0,4 s por ida e volta) e pingar sempre
+        # comeria o ganho do pool.
+        for tentativa in range(3):
+            try:
                 c = p.getconn()
+            except Exception:
+                break                            # pool esgotado → conexão direta
+            morta = bool(getattr(c, "closed", 0))
+            if not morta and (time.time() - _pg_ocioso.get(id(c), 0)) > PG_PING_APOS:
+                try:
+                    cur = c.cursor(); cur.execute("SELECT 1"); cur.fetchone(); cur.close()
+                except Exception:
+                    morta = True
+            if morta:
+                try:
+                    p.putconn(c, close=True)
+                except Exception:
+                    pass
+                _pg_ocioso.pop(id(c), None)
+                continue                         # tenta a próxima do pool
+            _pg_ocioso.pop(id(c), None)
             return _PGConnEmprestada(p, c)
-        except Exception:
-            pass                                 # pool cheio/quebrado → conexão direta
     return psycopg2.connect(host=PG_HOST, port=PG_PORT, dbname=PG_DB,
                             user=PG_USER, password=_pg_password(), connect_timeout=10)
 
@@ -8006,7 +8027,9 @@ def _bdperf_prod_build(ano=None, mes=None):
                 if tot > 0:
                     mwp = ig.get("potencia_mwp")
                     pr = (gen_pr / (mwp * 1000.0 * ipoa) * 100) if (mwp and ipoa and gen_pr) else None
-                    rec = pr_previsto(nome)
+                    # meta do mês que está sendo construído (alvo_a/alvo_m), não do mês corrente:
+                    # o PR previsto é cadastrado mês a mês na Info Mensal.
+                    rec = pr_previsto(nome, alvo_a, alvo_m)
                     prm = rec.get("pr_previsto") if rec else None
                     out[k] = {"usina": nome, "prod_mwh": tot / 1000.0,
                               "cliente": ig.get("cliente"), "pot_mwp": mwp,
@@ -8779,7 +8802,10 @@ def _gerencial_payload(force=False, ano=None, mes=None):
         recurso = (p50 * (d["ipoa"] / ipoa_prev)) if (p50 and ipoa_prev and d["ipoa"]) else None
         atg = (prod / p50 * 100) if p50 else None
         pr  = (prod / (d["ipoa"] * pot) * 100) if (d["ipoa"] and pot) else None
-        _rec = pr_previsto(d["usina"]); _prm = _rec.get("pr_previsto") if _rec else None
+        # meta do MÊS ALVO, não do mês corrente: o PR previsto é cadastrado mês a mês, então
+        # ver junho com a meta de julho comparava o realizado com a régua errada (conferido
+        # contra o BI: divergia nos dois sentidos, de −3,2 a +8,1 pp).
+        _rec = pr_previsto(d["usina"], alvo_a, alvo_m); _prm = _rec.get("pr_previsto") if _rec else None
         usinas.append({"usina": d["usina"], "cliente": ig.get("cliente") or "—",
                        "carteira": _carteira_de(d["usina"]) or ig.get("cliente") or "—",
                        "prod": round(prod, 1), "p50": round(p50, 1) if p50 else None,
@@ -8818,7 +8844,7 @@ def _gerencial_payload(force=False, ano=None, mes=None):
         # senão o pr_previsto (Info Mensal do BD_Performance, que não cadastra as usinas Thopen). Ambos FRAÇÃO.
         _prm = tm.get("pr_meta")
         if _prm is None:
-            _rec = pr_previsto(tp["usina"]); _prm = _rec.get("pr_previsto") if _rec else None
+            _rec = pr_previsto(tp["usina"], alvo_a, alvo_m); _prm = _rec.get("pr_previsto") if _rec else None
         _pr_th = tp.get("pr")               # PR pelo motor do Dashboard de PR (calculado em _thopen_prod_build)
         _ipoa_th = tp.get("ipoa") or 0
         # IPOA previsto: BD_Thopen primeiro (Historico_2026), senão a Info Mensal. Prorateado
@@ -8895,7 +8921,7 @@ def _gerencial_payload(force=False, ano=None, mes=None):
                     p50_mes = v["p50_mwh"]; break
         if p50_mes is None and ig.get("p50_mwh"):
             p50_mes = ig["p50_mwh"] / 12.0
-        _rec = pr_previsto(nome); _prm = _rec.get("pr_previsto") if _rec else None
+        _rec = pr_previsto(nome, alvo_a, alvo_m); _prm = _rec.get("pr_previsto") if _rec else None
         usinas.append({"usina": nome, "cliente": ig.get("cliente") or "—",
                        "carteira": _carteira_de(nome) or ig.get("cliente") or "—",
                        "prod": None, "p50": round(p50_mes * prorata, 1) if p50_mes else None,
