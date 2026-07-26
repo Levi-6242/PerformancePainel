@@ -8785,7 +8785,9 @@ def _gerencial_payload(force=False, ano=None, mes=None):
                        "pot_mwp": pot, "atingimento": round(atg, 1) if atg is not None else None,
                        "pr": round(pr, 1) if pr is not None else None,
                        "pr_meta": round(_prm * 100, 1) if isinstance(_prm, (int, float)) else None,
-                       "ipoa": round(d["ipoa"], 1), "p50_src": p50_src, "src": "pg",
+                       "ipoa": round(d["ipoa"], 1),
+                       "ipoa_prev": round(ipoa_prev, 1) if ipoa_prev else None,
+                       "p50_src": p50_src, "src": "pg",
                        "full_oem": _nrm(d["usina"]) in full_om_nrm,
                        "pr_motivo": _motivo("pg", pr, d["ipoa"], pot, prod)})
 
@@ -8848,6 +8850,39 @@ def _gerencial_payload(force=False, ano=None, mes=None):
                        "full_oem": _nrm(bp["usina"]) in full_om_nrm,
                        "pr_motivo": _motivo("bdperf", bp.get("pr"), _ip_bp, bp.get("pot_mwp"), prod)})
 
+    # 2d) COMPLETA O UNIVERSO com o CADASTRO. Os blocos acima partem de quem tem GERAÇÃO
+    # coletada (banco, BD_Thopen, abas do BD_Performance); quem está cadastrado mas sem coleta
+    # sumia da tela — e com ele o cliente inteiro. Faltavam 6 clientes completos (Greenyellow,
+    # Renogrid, GD Energy, SEMP, Ultragaz, Alves Lima) e 61 usinas das 155 do cadastro.
+    # Entram com geração NULA (não zero: zero afirmaria que não gerou, e o que sabemos é que
+    # não medimos) e ficam de fora das razões de atingimento — ver _roll.
+    have_k = {_nrm(u["usina"]) for u in usinas}
+    for k, ig in INFO_GERAL.items():
+        if k in have_k:
+            continue
+        nome = ig.get("usina") or k
+        p50_mes = None
+        prm_all = PR_PREVISTO.get(k) or {}
+        if (prm_all.get(ym) or {}).get("p50_mwh"):
+            p50_mes = prm_all[ym]["p50_mwh"]
+        else:
+            for (yy, mm), v in prm_all.items():
+                if mm == alvo_m and v.get("p50_mwh"):
+                    p50_mes = v["p50_mwh"]; break
+        if p50_mes is None and ig.get("p50_mwh"):
+            p50_mes = ig["p50_mwh"] / 12.0
+        _rec = pr_previsto(nome); _prm = _rec.get("pr_previsto") if _rec else None
+        usinas.append({"usina": nome, "cliente": ig.get("cliente") or "—",
+                       "carteira": _carteira_de(nome) or ig.get("cliente") or "—",
+                       "prod": None, "p50": round(p50_mes * prorata, 1) if p50_mes else None,
+                       "recurso": None, "pot_mwp": ig.get("potencia_mwp"),
+                       "atingimento": None, "pr": None,
+                       "pr_meta": round(_prm * 100, 1) if isinstance(_prm, (int, float)) else None,
+                       "ipoa": 0, "ipoa_prev": None, "p50_src": "cadastro", "src": "cadastro",
+                       "sem_dado": True,          # aparece na lista, mas não entra nas razões
+                       "full_oem": k in full_om_nrm,
+                       "pr_motivo": "sem coleta de geração para esta usina"})
+
     # CLIENTE sempre do CADASTRO do BD_Performance (Info Geral) — antes vinha do registro do
     # dashboard_thopen e metade das usinas saía "—" (Levi 22/07: "sincronize corretamente de acordo
     # com o BD_Performance"). Três causas de furo, três tratamentos:
@@ -8898,22 +8933,37 @@ def _gerencial_payload(force=False, ano=None, mes=None):
             u["carteira"] = _carteira_de(u["usina"]) or u.get("cliente") or "—"
 
     def _roll(lst):
-        # cada razão sobre o SEU subconjunto válido (não mistura denominadores)
-        prod_all = sum(u["prod"] for u in lst if u["prod"] is not None)
-        com50 = [u for u in lst if u["p50"]]                     # tem meta → atingimento
+        # cada razão sobre o SEU subconjunto válido (não mistura denominadores).
+        # Usina sem coleta de geração (prod None) fica FORA de toda razão: entrar como zero
+        # afundaria o atingimento do cliente por um dado que não temos, o que é pior que
+        # mostrar a lacuna. Ela é contada em n e em n_sem_dado.
+        comG = [u for u in lst if u.get("prod") is not None]
+        prod_all = sum(u["prod"] for u in comG)
+        com50 = [u for u in comG if u["p50"]]                    # tem meta E geração → atingimento
         sp50 = sum(u["prod"] for u in com50); s50 = sum(u["p50"] for u in com50)
         comR = [u for u in com50 if u["recurso"]]                # tem recurso → decomposição clima/desemp
         spR = sum(u["prod"] for u in comR); sr = sum(u["recurso"] for u in comR)
         s50R = sum(u["p50"] for u in comR)
-        comPR = [u for u in lst if u["ipoa"] and u["pot_mwp"]]   # tem IPOA medido → PR
+        comPR = [u for u in comG if u["ipoa"] and u["pot_mwp"]]  # tem IPOA medido → PR
         spPR = sum(u["prod"] for u in comPR); sipot = sum(u["ipoa"] * u["pot_mwp"] for u in comPR)
+        # POA do portfólio: média PONDERADA PELA POTÊNCIA (somar kWh/m² de usinas diferentes não
+        # significa nada). Medido e esperado saem do MESMO subconjunto — as usinas que têm os dois —
+        # senão a comparação misturaria universos e o desvio seria fictício.
+        comPOA = [u for u in lst if u.get("ipoa") and u.get("ipoa_prev") and u.get("pot_mwp")]
+        wp = sum(u["pot_mwp"] for u in comPOA)
+        poa_med = (sum(u["ipoa"] * u["pot_mwp"] for u in comPOA) / wp) if wp else None
+        poa_prev = (sum(u["ipoa_prev"] * u["pot_mwp"] for u in comPOA) / wp) if wp else None
         return {"n": len(lst), "n_meta": len(com50), "prod": round(prod_all, 1),
+                "n_sem_dado": len(lst) - len(comG),
                 "p50": round(s50, 1) if s50 else None,
                 "recurso": round(sr, 1) if sr else None,
                 "atingimento": round(sp50 / s50 * 100, 1) if s50 else None,
                 "indice_recurso": round(sr / s50R * 100, 1) if s50R else None,
                 "indice_desempenho": round(spR / sr * 100, 1) if sr else None,
                 "pr": round(spPR / sipot * 100, 1) if sipot else None,
+                "poa": round(poa_med, 1) if poa_med else None,
+                "poa_prev": round(poa_prev, 1) if poa_prev else None,
+                "n_poa": len(comPOA),
                 "na_meta": sum(1 for u in com50 if (u["atingimento"] or 0) >= GER_META_MIN)}
 
     portfolio = _roll(usinas)

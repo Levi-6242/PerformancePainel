@@ -132,13 +132,39 @@ function render(j){
   let html=sc.map(s=>`<div class="sc"><div class="l">${s.l}</div><div class="v num">${s.v}</div><div class="tgt">${s.t}</div></div>`).join('');
   html+=`<div class="sc pend"><div class="l">PR · Recurso (clima)</div><div class="v">em calibração<br><span style="font-size:10px">IPOA do banco sub-integrado</span></div></div>`;
   document.getElementById('scorecard').innerHTML=html;
+
+  // Irradiância no plano dos módulos (kWh/m²), esperado × medido. Média ponderada pela
+  // potência das usinas que têm os DOIS valores — somar kWh/m² de usinas diferentes não
+  // significaria nada, e comparar universos diferentes inventaria desvio.
+  function _poaBars(p){
+    const M=p.poa, E=p.poa_prev;
+    if(M==null||E==null) return '';
+    const mx=Math.max(M,E,1);
+    const dif=E?((M-E)/E*100):null;
+    const cor=(dif==null)?'var(--muted)':(dif<-3?'var(--red)':(dif>3?'var(--ok)':'var(--muted)'));
+    const sel=(dif==null)?'':`<span style="color:${cor};font-weight:600">${dif>=0?'+':'−'}${nf(Math.abs(dif),1)}%</span>`;
+    return `<div style="margin:14px 0 2px;padding-top:12px;border-top:1px solid var(--line)">`+
+      `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">`+
+      `<div style="font-size:11px;font-weight:700;letter-spacing:.03em;color:var(--muted);text-transform:uppercase">`+
+      `Recurso solar · POA (kWh/m²)</div><div style="font-size:12px">${sel}`+
+      `<span style="color:var(--muted);font-size:11.5px"> · ${p.n_poa||0} usinas com os dois dados</span></div></div>`+
+      `<div class="brow"><div class="blab"><div class="bt">POA esperado</div><div class="bs">previsto no projeto</div></div>`+
+      `<div class="btrack"><div class="bfill p50" style="width:${Math.max(12,E/mx*100)}%">${nf(E,1)}</div></div></div>`+
+      `<div class="brow"><div class="blab"><div class="bt">POA medido</div><div class="bs">irradiância real</div></div>`+
+      `<div class="btrack"><div class="bfill ger" style="width:${Math.max(12,M/mx*100)}%">${nf(M,1)}</div></div></div></div>`;
+  }
+
   // energia
   const P=p.p50||0,G=p.prod||0,mx=Math.max(P,G,1);
   document.getElementById('eBars').innerHTML=
     `<div class="brow"><div class="blab"><div class="bt">Meta P50</div><div class="bs">referência do projeto</div></div>`+
     `<div class="btrack"><div class="bfill p50" style="width:${Math.max(12,P/mx*100)}%">${fmtE(P)}</div></div></div>`+
     `<div class="brow"><div class="blab"><div class="bt">Gerada</div><div class="bs">energia entregue</div></div>`+
-    `<div class="btrack"><div class="bfill ger" style="width:${Math.max(12,G/mx*100)}%">${fmtE(G)}</div></div></div>`;
+    `<div class="btrack"><div class="bfill ger" style="width:${Math.max(12,G/mx*100)}%">${fmtE(G)}</div></div></div>`+
+    // POA esperado × medido, na MESMA escala das barras de energia. É o que separa "gerou menos
+    // porque teve menos sol" de "gerou menos com o mesmo sol" — sem ele, o desvio de energia
+    // sozinho não diz de quem é a culpa.
+    _poaBars(p);
   const falta=P>G?(P-G):0;
   document.getElementById('eRead').innerHTML=p.atingimento!=null
     ? `<b>Leitura:</b> o portfólio do banco gerou <b>${nf(p.atingimento,1)}%</b> do P50 no mês`+
@@ -146,12 +172,22 @@ function render(j){
       ` <span style="color:var(--muted)">A separação entre <span class="clima">clima</span> e <span class="perf">desempenho</span> entra quando o IPOA estiver calibrado.</span>`
     : 'Sem meta suficiente para leitura.';
   // por cliente
-  document.querySelector('#segTable tbody').innerHTML=(j.clientes||[]).map(c=>
-    `<tr><td><b>${c.cliente||'—'}</b></td><td class="r num">${c.n}</td>`+
-    `<td><span class="num ${atgCls(c.atingimento)}">${nf(c.atingimento,1)}%</span>`+
-    `<div class="bar"><i style="width:${Math.min(100,c.atingimento||0)}%;background:#5E7E12"></i></div></td>`+
-    `<td class="r num">${fmtE(c.prod)}</td><td class="r num">${c.na_meta}/${c.n_meta}</td></tr>`).join('')
-    || '<tr><td colspan="5" style="color:var(--muted)">Sem dados.</td></tr>';
+  // A lista traz TODOS os clientes do cadastro (BD_Performance ∪ BD_Thopen), inclusive os que
+  // ainda não têm coleta de geração. Nesses, atingimento fica "—" em vez de 0%: a usina não
+  // gerou zero, nós é que não medimos — e mostrar 0% acusaria a usina por uma lacuna nossa.
+  document.querySelector('#segTable tbody').innerHTML=(j.clientes||[]).map(c=>{
+    const sd=c.n_sem_dado||0, semTudo=(sd>=c.n);
+    const usinas=`${c.n}`+(sd?`<span style="color:var(--muted);font-weight:400"> (${sd} s/ coleta)</span>`:'');
+    const atg=(c.atingimento==null)
+      ? `<span style="color:var(--muted)">—</span>`+
+        (semTudo?`<div class="csub" style="margin:2px 0 0">sem coleta de geração</div>`:'')
+      : `<span class="num ${atgCls(c.atingimento)}">${nf(c.atingimento,1)}%</span>`+
+        `<div class="bar"><i style="width:${Math.min(100,c.atingimento||0)}%;background:#5E7E12"></i></div>`;
+    return `<tr${semTudo?' style="opacity:.62"':''}><td><b>${c.cliente||'—'}</b></td>`+
+      `<td class="r num">${usinas}</td><td>${atg}</td>`+
+      `<td class="r num">${c.atingimento==null?'—':fmtE(c.prod)}</td>`+
+      `<td class="r num">${c.n_meta?`${c.na_meta}/${c.n_meta}`:'—'}</td></tr>`;
+  }).join('') || '<tr><td colspan="5" style="color:var(--muted)">Sem dados.</td></tr>';
   // melhores/piores
   const ml=(arr)=>arr.map(u=>`<div class="mrow"><span class="nm">${u.usina}</span><span class="vv ${atgCls(u.atingimento)}">${nf(u.atingimento,1)}%</span></div>`).join('')||'<div class="mrow"><span class="nm">—</span></div>';
   document.getElementById('best').innerHTML=ml(j.best||[]);
