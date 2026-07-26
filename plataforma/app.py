@@ -7139,9 +7139,71 @@ def _pg_password() -> str:
         return ""
 
 
+_pg_pool = {"p": None}
+_pg_pool_lock = threading.Lock()
+
+
+class _PGConnEmprestada:
+    """Fachada sobre a conexão do pool: `.close()` DEVOLVE em vez de fechar.
+
+    É o que permite trocar o motor sem tocar nos 17 pontos de uso — todos seguem o mesmo
+    padrão `conn = _pg_conn() ... conn.close()`, e nenhum usa `with`, então a semântica de
+    commit/rollback do psycopg2 não muda."""
+
+    def __init__(self, pool, conn):
+        self._pool, self._conn = pool, conn
+
+    def __getattr__(self, nome):          # cursor(), commit(), rollback(), closed...
+        return getattr(self._conn, nome)
+
+    def close(self):
+        conn, self._conn = self._conn, None
+        if conn is None:
+            return
+        try:
+            if not conn.closed:
+                conn.rollback()           # nunca devolve transação pendurada ao pool
+            self._pool.putconn(conn)
+        except Exception:
+            try:
+                self._pool.putconn(conn, close=True)
+            except Exception:
+                pass
+
+
 def _pg_conn():
+    """Conexão ao PostgreSQL, vinda de um POOL.
+
+    Antes abria uma conexão nova por consulta — TCP + TLS + autenticação contra o RDS a cada
+    uma, e ainda lendo a senha do disco toda vez. Como nenhum dos pontos de uso tem try/finally,
+    uma exceção também vazava a conexão.
+
+    O pool tem tamanho generoso e, se esgotar, cai para conexão direta em vez de travar: assim
+    um vazamento pontual degrada para o comportamento antigo em vez de derrubar o banco inteiro
+    para todo mundo."""
     if psycopg2 is None:
         raise RuntimeError("psycopg2 não instalado")
+    if _pg_pool["p"] is None:
+        with _pg_pool_lock:
+            if _pg_pool["p"] is None:
+                try:
+                    from psycopg2 import pool as _pgpool
+                    _pg_pool["p"] = _pgpool.ThreadedConnectionPool(
+                        1, 16, host=PG_HOST, port=PG_PORT, dbname=PG_DB,
+                        user=PG_USER, password=_pg_password(), connect_timeout=10)
+                except Exception as e:
+                    print(f"[pg] pool indisponível ({e}) — usando conexão direta")
+                    _pg_pool["p"] = False        # marca "não usar pool"
+    p = _pg_pool["p"]
+    if p:
+        try:
+            c = p.getconn()
+            if getattr(c, "closed", 0):          # conexão morta guardada no pool
+                p.putconn(c, close=True)
+                c = p.getconn()
+            return _PGConnEmprestada(p, c)
+        except Exception:
+            pass                                 # pool cheio/quebrado → conexão direta
     return psycopg2.connect(host=PG_HOST, port=PG_PORT, dbname=PG_DB,
                             user=PG_USER, password=_pg_password(), connect_timeout=10)
 
