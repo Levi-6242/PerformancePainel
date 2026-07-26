@@ -176,16 +176,24 @@ function render(j){
   // ainda não têm coleta de geração. Nesses, atingimento fica "—" em vez de 0%: a usina não
   // gerou zero, nós é que não medimos — e mostrar 0% acusaria a usina por uma lacuna nossa.
   document.querySelector('#segTable tbody').innerHTML=(j.clientes||[]).map(c=>{
-    const sd=c.n_sem_dado||0, semTudo=(sd>=c.n);
-    const usinas=`${c.n}`+(sd?`<span style="color:var(--muted);font-weight:400"> (${sd} s/ coleta)</span>`:'');
+    // "s/ dado" e não "sem coleta": sabemos que não achamos geração da usina no mês, não
+    // por quê. Afirmar a causa (aba ausente? nome que não casou? usina parada?) seria
+    // inventar diagnóstico — e o título explica isso ao passar o mouse.
+    const sd=c.n_sem_dado||0, semTudo=(sd>=c.n), temGer=(c.prod||0)>0;
+    const usinas=`${c.n}`+(sd?`<span style="color:var(--muted);font-weight:400" title="Geração não encontrada nas fontes do mês para ${sd} usina(s). Ficam fora do atingimento — contar como zero acusaria a usina por uma lacuna nossa."> (${sd} s/ dado)</span>`:'');
+    // Atingimento vazio tem DUAS causas diferentes, e trocá-las é mentir: pode faltar a
+    // geração ou faltar a meta P50 no cadastro. Quem tem geração mas não tem meta mostra
+    // os MWh normalmente — esconder o que foi medido seria perder informação boa.
+    const porque = temGer ? 'sem meta P50 no cadastro — geração medida, mas nada com que comparar'
+                          : 'geração não encontrada nas fontes do mês';
     const atg=(c.atingimento==null)
-      ? `<span style="color:var(--muted)">—</span>`+
-        (semTudo?`<div class="csub" style="margin:2px 0 0">sem coleta de geração</div>`:'')
+      ? `<span style="color:var(--muted)" title="${porque}">—</span>`+
+        `<div class="csub" style="margin:2px 0 0">${temGer?'sem meta P50':'sem geração no mês'}</div>`
       : `<span class="num ${atgCls(c.atingimento)}">${nf(c.atingimento,1)}%</span>`+
         `<div class="bar"><i style="width:${Math.min(100,c.atingimento||0)}%;background:#5E7E12"></i></div>`;
-    return `<tr${semTudo?' style="opacity:.62"':''}><td><b>${c.cliente||'—'}</b></td>`+
+    return `<tr${semTudo?' style="opacity:.55"':''}><td><b>${c.cliente||'—'}</b></td>`+
       `<td class="r num">${usinas}</td><td>${atg}</td>`+
-      `<td class="r num">${c.atingimento==null?'—':fmtE(c.prod)}</td>`+
+      `<td class="r num">${temGer?fmtE(c.prod):'—'}</td>`+
       `<td class="r num">${c.n_meta?`${c.na_meta}/${c.n_meta}`:'—'}</td></tr>`;
   }).join('') || '<tr><td colspan="5" style="color:var(--muted)">Sem dados.</td></tr>';
   // melhores/piores

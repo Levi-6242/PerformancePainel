@@ -7946,13 +7946,17 @@ def _thopen_prod_mtd():
     return c["data"] or {}
 
 
-# ── Geração MTD Athon/Axis/2C: abas por-usina do BD_Performance (meta P50 = Info Geral) ──
-#   Cada usina Athon/Axis/2C tem uma aba própria no BD_Performance com geração diária por
-#   inversor (colunas "Inversor *"). Somamos o mês corrente; a meta P50 (anual) vem da Info Geral.
-#   Isso libera atingimento/energia perdida dessas fontes (antes só PG + Thopen tinham meta).
+# ── Geração MTD pelas abas por-usina do BD_Performance (meta P50 = Info Geral) ────────────
+#   Cada usina com aba própria no BD_Performance tem geração diária por inversor (colunas
+#   "Inversor *"). Somamos o mês corrente; a meta P50 (anual) vem da Info Geral.
+#   Havia aqui um filtro fixo por cliente (athon/axis/2c), de quando só essas três fontes
+#   existiam. Ele escondia 21 usinas de Greenyellow, Renogrid, SEMP, Ultragaz, Alves Lima e
+#   GD Energy que TÊM aba e geração na planilha — o Gerencial as mostrava como "sem coleta",
+#   o que era falso: o dado estava lá e nós é que não líamos. Quem manda agora é a presença
+#   da aba, que é o critério de verdade. Não há risco de dupla contagem: o único consumidor
+#   (o Gerencial) já ignora usina que veio do banco ou do BD_Thopen.
 _bdperf_prod_cache = {"ts": 0.0, "ym": None, "data": {}, "warming": False}
 _BDPERF_PROD_TTL = 1800
-_BDPERF_FONTES = {"athon", "axis", "2c"}
 
 
 def _bdperf_prod_build(ano=None, mes=None):
@@ -7966,10 +7970,8 @@ def _bdperf_prod_build(ano=None, mes=None):
         wb = openpyxl.load_workbook(_bd_readable_path(), read_only=True, data_only=True)
         sheets = set(wb.sheetnames)
         for k, ig in INFO_GERAL.items():
-            if (ig.get("cliente") or "").strip().lower() not in _BDPERF_FONTES:
-                continue
             nome = ig.get("usina")
-            if nome not in sheets:
+            if nome not in sheets:      # a aba é o critério: existe aba, existe geração para ler
                 continue
             try:
                 it = wb[nome].iter_rows(values_only=True)
@@ -8831,7 +8833,12 @@ def _gerencial_payload(force=False, ano=None, mes=None):
 
     # 2c) Athon/Axis/2C: geração do mês via abas por-usina do BD_Performance; meta P50 da Info Geral
     have_k = {_nrm(u["usina"]) for u in usinas}
-    for k, bp in (_bdperf_prod_mtd() if atual else _bdperf_prod_build(alvo_a, alvo_m)).items():
+    # force=1 tem de RECONSTRUIR de verdade. O _bdperf_prod_mtd devolve o cache na hora e só
+    # aquece em background — com o cache vindo do snapshot no boot, o "Atualizar" podia repetir
+    # o resultado velho por até 30 min e parecer que a correção não pegou.
+    _bp_map = (_bdperf_prod_build(alvo_a, alvo_m) if (force or not atual)
+               else _bdperf_prod_mtd())
+    for k, bp in _bp_map.items():
         if k in have_k:
             continue
         ig = INFO_GERAL.get(k) or {}
@@ -8881,7 +8888,11 @@ def _gerencial_payload(force=False, ano=None, mes=None):
                        "ipoa": 0, "ipoa_prev": None, "p50_src": "cadastro", "src": "cadastro",
                        "sem_dado": True,          # aparece na lista, mas não entra nas razões
                        "full_oem": k in full_om_nrm,
-                       "pr_motivo": "sem coleta de geração para esta usina"})
+                       # NÃO afirmar causa: sabemos que não achamos geração desta usina em
+                       # nenhuma das fontes, não POR QUE. Pode ser aba ausente na planilha,
+                       # nome que não casou ou usina fora de operação — dizer "sem coleta"
+                       # seria inventar um diagnóstico.
+                       "pr_motivo": "geração não encontrada nas fontes do mês"})
 
     # CLIENTE sempre do CADASTRO do BD_Performance (Info Geral) — antes vinha do registro do
     # dashboard_thopen e metade das usinas saía "—" (Levi 22/07: "sincronize corretamente de acordo
