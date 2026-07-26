@@ -103,6 +103,29 @@ td{padding:9px 10px;border-bottom:1px solid var(--line)}td b{color:var(--grafite
     </div>
   </div>
 
+  <!-- Qualidade por usina (PR × meta e IPOA × previsto), no formato do BI. Fica logo abaixo de
+       melhores/piores porque responde a pergunta seguinte: "o atingimento caiu — foi PR ou foi sol?" -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+      <div>
+        <h3>Qualidade por usina</h3>
+        <div class="csub">PR × meta e irradiância medida × prevista · mês corrente</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label style="font-size:12px;color:var(--muted)">Cliente</label>
+        <select id="qCli" onchange="renderQualidade()" style="background:var(--panel);color:inherit;border:1px solid var(--line);border-radius:7px;padding:5px 9px;font-size:12.5px;font-family:inherit;cursor:pointer"></select>
+      </div>
+    </div>
+    <div class="tblwrap"><table id="qTable">
+      <thead><tr>
+        <th>Usina</th><th>Cliente</th>
+        <th class="r">PR</th><th class="r">PR Meta</th><th class="r">Diff PR</th>
+        <th class="r">IPOA</th><th class="r">IPOA Previsto</th><th class="r">Diff IPOA</th>
+      </tr></thead><tbody></tbody>
+    </table></div>
+    <div class="csub" id="qNota" style="margin-top:8px"></div>
+  </div>
+
   <div class="card">
     <h3>Todas as usinas</h3><div class="csub">Geração × meta no mês · ordenado por atingimento · <b>clique na usina para abrir a cascata de perdas</b></div>
     <table id="allTable"><thead><tr><th>Usina</th><th>Cliente</th><th class="r">Gerada (MWh)</th><th class="r">Meta P50 (MWh)</th><th>Atingimento</th></tr></thead><tbody></tbody></table>
@@ -206,6 +229,52 @@ function render(j){
     `<tr style="cursor:pointer" data-u="${encodeURIComponent(u.usina)}" onclick="tgCasc(this)"><td><b>${u.usina}</b></td><td>${u.cliente||'—'}</td><td class="r num">${nf(u.prod,1)}</td>`+
     `<td class="r num">${nf(u.p50,1)}</td><td><span class="num ${atgCls(u.atingimento)}">${nf(u.atingimento,1)}%</span> ${atgTag(u.atingimento)}</td></tr>`).join('')
     || '<tr><td colspan="5" style="color:var(--muted)">Sem dados.</td></tr>';
+
+  QUSINAS = j.usinas || [];
+  _qCliOpts();
+  renderQualidade();
+}
+
+// ── Qualidade por usina: PR × meta e IPOA × previsto, filtrável por cliente ────────────
+// Só entram usinas que TÊM PR ou IPOA medido — listar linha vazia não informa nada. O "Diff"
+// é a mesma conta do BI: medido − meta (negativo = abaixo).
+let QUSINAS = [];
+function _qCliOpts(){
+  const sel = document.getElementById('qCli');
+  if(!sel) return;
+  const atual = sel.value || 'todos';
+  const cs = [...new Set(QUSINAS.filter(u=>u.pr!=null||u.ipoa).map(u=>u.cliente||'—'))].sort();
+  sel.innerHTML = `<option value="todos">Todos</option>` +
+    cs.map(c=>`<option value="${c}">${c}</option>`).join('');
+  sel.value = cs.includes(atual) ? atual : 'todos';
+}
+function renderQualidade(){
+  const sel = document.getElementById('qCli'); const tb = document.querySelector('#qTable tbody');
+  if(!tb) return;
+  const cli = sel ? sel.value : 'todos';
+  let us = QUSINAS.filter(u => (u.pr!=null || u.ipoa) && (cli==='todos' || (u.cliente||'—')===cli));
+  // pior primeiro: quem está mais abaixo da meta de PR é o que exige ação
+  const dPR = u => (u.pr!=null && u.pr_meta!=null) ? (u.pr-u.pr_meta) : null;
+  us.sort((a,b)=>{ const x=dPR(a), y=dPR(b);
+    if(x==null && y==null) return (a.usina||'').localeCompare(b.usina||'');
+    if(x==null) return 1; if(y==null) return -1; return x-y; });
+  const cor = v => v==null ? 'var(--muted)' : (v < -3 ? 'var(--danger)' : (v > 3 ? 'var(--ok)' : 'var(--muted)'));
+  const sig = (v,d)=> v==null ? '—' : `${v>=0?'+':'−'}${nf(Math.abs(v),d)}`;
+  tb.innerHTML = us.map(u=>{
+    const dpr = dPR(u);
+    const dip = (u.ipoa && u.ipoa_prev) ? (u.ipoa-u.ipoa_prev) : null;
+    return `<tr><td><b>${u.usina}</b></td><td>${u.cliente||'—'}</td>`+
+      `<td class="r num">${u.pr!=null?nf(u.pr,2)+'%':'—'}</td>`+
+      `<td class="r num">${u.pr_meta!=null?nf(u.pr_meta,2)+'%':'—'}</td>`+
+      `<td class="r num" style="color:${cor(dpr)};font-weight:600">${dpr==null?'—':sig(dpr,2)+' pp'}</td>`+
+      `<td class="r num">${u.ipoa?nf(u.ipoa,2):'—'}</td>`+
+      `<td class="r num">${u.ipoa_prev?nf(u.ipoa_prev,2):'—'}</td>`+
+      `<td class="r num" style="color:${cor(dip)};font-weight:600">${dip==null?'—':sig(dip,2)}</td></tr>`;
+  }).join('') || '<tr><td colspan="8" style="color:var(--muted)">Nenhuma usina com PR ou irradiância medida.</td></tr>';
+  const comPR = us.filter(u=>u.pr!=null).length, comIP = us.filter(u=>u.ipoa&&u.ipoa_prev).length;
+  document.getElementById('qNota').innerHTML =
+    `${us.length} usinas · <b>${comPR}</b> com PR calculado · <b>${comIP}</b> com irradiância medida e prevista. `+
+    `Diff em <b>pp</b> (pontos percentuais) para PR e em <b>kWh/m²</b> para IPOA; negativo = abaixo do previsto.`;
 }
 // ── Cascata de perdas por usina (clique na linha) — mesma conta do painel da usina (/api/cascata):
 // P50 → −baixo IPOA → −tracker → −desligamento → −não explicado → real. Cores adaptadas ao tema claro.

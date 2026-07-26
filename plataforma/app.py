@@ -8821,13 +8821,21 @@ def _gerencial_payload(force=False, ano=None, mes=None):
             _rec = pr_previsto(tp["usina"]); _prm = _rec.get("pr_previsto") if _rec else None
         _pr_th = tp.get("pr")               # PR pelo motor do Dashboard de PR (calculado em _thopen_prod_build)
         _ipoa_th = tp.get("ipoa") or 0
+        # IPOA previsto: BD_Thopen primeiro (Historico_2026), senão a Info Mensal. Prorateado
+        # igual ao P50 — comparar mês inteiro com o que já correu inflaria o desvio.
+        _ipoa_prev_th = tm.get("ipoa_meta")
+        if _ipoa_prev_th is None:
+            _ipoa_prev_th = ((PR_PREVISTO.get(k) or {}).get(ym) or {}).get("ipoa_previsto")
+        _ipoa_prev_th = (_ipoa_prev_th * prorata) if _ipoa_prev_th else None
         usinas.append({"usina": tp["usina"], "cliente": tp.get("cliente") or "Thopen",
                        "carteira": tp.get("carteira") or "—",
                        "prod": round(prod, 1), "p50": round(p50, 1) if p50 else None,
                        "recurso": None, "pot_mwp": tp.get("pot_mwp"),
                        "atingimento": round(atg, 1) if atg is not None else None,
                        "pr": _pr_th, "pr_meta": round(_prm * 100, 1) if isinstance(_prm, (int, float)) else None,
-                       "ipoa": _ipoa_th, "p50_src": (p50_src or "sem"), "src": "bdthopen",
+                       "ipoa": _ipoa_th,
+                       "ipoa_prev": round(_ipoa_prev_th, 1) if _ipoa_prev_th else None,
+                       "p50_src": (p50_src or "sem"), "src": "bdthopen",
                        "full_oem": _nrm(tp["usina"]) in full_om_nrm,
                        "pr_motivo": _motivo("bdthopen", _pr_th, _ipoa_th, tp.get("pot_mwp"), prod)})
 
@@ -8847,13 +8855,22 @@ def _gerencial_payload(force=False, ano=None, mes=None):
         prod = bp["prod_mwh"]
         atg = (prod / p50 * 100) if p50 else None
         _ip_bp = bp.get("ipoa") or 0           # IPOA real (DEF/ETM do BD_Performance) — entra no rollup de PR
+        # previsto da Info Mensal (mesmo mês), prorateado como o P50
+        _ipp_bp = ((PR_PREVISTO.get(k) or {}).get(ym) or {}).get("ipoa_previsto")
+        if _ipp_bp is None:
+            for (yy, mm), v in (PR_PREVISTO.get(k) or {}).items():
+                if mm == alvo_m and v.get("ipoa_previsto"):
+                    _ipp_bp = v["ipoa_previsto"]; break
+        _ipp_bp = (_ipp_bp * prorata) if _ipp_bp else None
         usinas.append({"usina": bp["usina"], "cliente": bp.get("cliente") or "—",
                        "carteira": bp.get("cliente") or "—",
                        "prod": round(prod, 1), "p50": round(p50, 1) if p50 else None,
                        "recurso": None, "pot_mwp": bp.get("pot_mwp"),
                        "atingimento": round(atg, 1) if atg is not None else None,
                        "pr": bp.get("pr"), "pr_meta": bp.get("pr_meta"),
-                       "ipoa": _ip_bp, "p50_src": "infogeral_anual12", "src": "bdperf",
+                       "ipoa": _ip_bp,
+                       "ipoa_prev": round(_ipp_bp, 1) if _ipp_bp else None,
+                       "p50_src": "infogeral_anual12", "src": "bdperf",
                        "full_oem": _nrm(bp["usina"]) in full_om_nrm,
                        "pr_motivo": _motivo("bdperf", bp.get("pr"), _ip_bp, bp.get("pot_mwp"), prod)})
 
