@@ -954,6 +954,69 @@ def reload_bd():
                     "atualizado_em": dt.datetime.now().strftime("%H:%M:%S")})
 
 
+# ── Publicar sob demanda (o botão Atualizar dispara a atualização da nuvem) ──────
+# A nuvem não enxerga o OneDrive: quem copia as planilhas e dá o push é o PC da Grid.
+# Por isso, na nuvem o botão só REGISTRA o pedido; um agente no PC consulta e executa.
+# Rodando no próprio PC (sem _DATA_DIR), publica na hora.
+_PUB = {"pedido_em": None, "estado": "ocioso"}
+_PUB_ESPERA = 300   # s entre pedidos — o site é público, evita republicar à toa
+_PUB_LIMITE = 600   # s: passou disso sem republicar, destrava (PC desligado, sem mudança…)
+
+
+def _pub_destrava(agora):
+    """Solta um pedido que ficou pendurado. Sem isso, um dia em que o script não acha
+    mudança (nada a publicar → nuvem não reinicia) travaria o botão para sempre."""
+    if _PUB["estado"] != "ocioso" and (agora - (_PUB["pedido_em"] or 0)) > _PUB_LIMITE:
+        _PUB["estado"] = "ocioso"
+
+
+@app.route("/api/t/publicar", methods=["POST"])
+def publicar():
+    """Botão Atualizar: pede que o snapshot do site seja republicado com o BD de hoje.
+    O app NUNCA executa o script — ele só anota o pedido. Quem publica é o agente do PC."""
+    if not _DATA_DIR:                       # rodando no PC, os dados já são os do OneDrive
+        return jsonify({"ok": True, "modo": "local",
+                        "msg": "Rodando local: os dados já vêm do OneDrive ao vivo."})
+    agora = dt.datetime.now().timestamp()
+    with _lock:
+        _pub_destrava(agora)
+        if _PUB["estado"] in ("pedido", "publicando"):
+            return jsonify({"ok": True, "modo": "nuvem", "estado": _PUB["estado"],
+                            "msg": "Atualização já solicitada — aguardando o PC da Grid."})
+        falta = _PUB_ESPERA - (agora - (_PUB["pedido_em"] or 0))
+        if falta > 0:
+            return jsonify({"ok": True, "modo": "nuvem", "estado": "espera",
+                            "msg": f"Atualizado há pouco. Tente de novo em {int(falta)}s."})
+        _PUB.update({"pedido_em": agora, "estado": "pedido"})
+    return jsonify({"ok": True, "modo": "nuvem", "estado": "pedido",
+                    "msg": "Atualização solicitada — o site republica em alguns minutos."})
+
+
+@app.route("/api/t/publicar/pendente")
+def publicar_pendente():
+    """Consultado pelo agente que roda no PC da Grid. `assumir=1` marca que ele pegou."""
+    with _lock:
+        pend = _PUB["estado"] == "pedido"
+        if pend and request.args.get("assumir") == "1":
+            _PUB["estado"] = "publicando"
+        return jsonify({"pendente": pend, "estado": _PUB["estado"]})
+
+
+@app.route("/api/t/publicar/concluido", methods=["POST"])
+def publicar_concluido():
+    """O agente avisa que terminou. Importante no caso 'nada mudou': aí a nuvem não
+    reinicia sozinha, e sem este aviso o botão ficaria preso em 'publicando'."""
+    with _lock:
+        _PUB["estado"] = "ocioso"
+    return jsonify({"ok": True})
+
+
+@app.route("/api/t/versao")
+def versao():
+    """Carimbo do dado publicado — o navegador usa p/ saber que o site já republicou."""
+    return jsonify({"planilha_em": _planilha_em(), "estado_pub": _PUB["estado"]})
+
+
 @app.route("/")
 def index():
     return render_template("dashboard_thopen.html")
