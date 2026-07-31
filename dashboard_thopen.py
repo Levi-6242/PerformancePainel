@@ -714,6 +714,8 @@ CARTEIRAS = {
         "Nova Londrina", "Paranavaí", "Parelhas", "Poconé 1", "Primavera", "Ribeirão Cascalheiras",
         "Rodrigues", "Rondonópolis", "Sapopema", "Saturnino 1", "Senador", "Sitio Bonfim",
         "Sitio dos Nogueiras", "Sorocaba", "Tanabi",
+        # Coleta iniciada em 07/2026 (dado no BD_Thopen a partir de 31/07); estavam sem carteira.
+        "Cipó Guaçu", "Córrego do Sapucaia", "Guatambu", "Jucurutu",
     ],
     "Copel": [
         "Pharma II", "Pharma III", "Pharma IV", "Santo Antonio do Platina",
