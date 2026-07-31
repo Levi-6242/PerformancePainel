@@ -958,16 +958,40 @@ def reload_bd():
 # A nuvem não enxerga o OneDrive: quem copia as planilhas e dá o push é o PC da Grid.
 # Por isso, na nuvem o botão só REGISTRA o pedido; um agente no PC consulta e executa.
 # Rodando no próprio PC (sem _DATA_DIR), publica na hora.
-_PUB = {"pedido_em": None, "estado": "ocioso"}
 _PUB_ESPERA = 300   # s entre pedidos — o site é público, evita republicar à toa
 _PUB_LIMITE = 600   # s: passou disso sem republicar, destrava (PC desligado, sem mudança…)
+# O gunicorn roda com 2 workers (processos separados): guardar o pedido em memória faria
+# o clique cair num worker e a consulta do agente no outro. Por isso o estado vai para um
+# arquivo, que os workers do mesmo contêiner enxergam. Some no re-deploy — e tudo bem,
+# porque re-deploy é justamente o fim da publicação.
+_PUB_PATH = os.path.join(tempfile.gettempdir(), "thopen_publicacao.json")
 
 
-def _pub_destrava(agora):
-    """Solta um pedido que ficou pendurado. Sem isso, um dia em que o script não acha
-    mudança (nada a publicar → nuvem não reinicia) travaria o botão para sempre."""
-    if _PUB["estado"] != "ocioso" and (agora - (_PUB["pedido_em"] or 0)) > _PUB_LIMITE:
-        _PUB["estado"] = "ocioso"
+def _pub_ler():
+    try:
+        with open(_PUB_PATH, encoding="utf-8") as f:
+            d = json.load(f)
+        return {"pedido_em": float(d.get("pedido_em") or 0),
+                "estado": str(d.get("estado") or "ocioso")}
+    except (FileNotFoundError, ValueError, OSError, TypeError):
+        return {"pedido_em": 0.0, "estado": "ocioso"}
+
+
+def _pub_gravar(d):
+    tmp = _PUB_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(d, f)
+    os.replace(tmp, _PUB_PATH)       # troca atômica
+
+
+def _pub_estado(agora):
+    """Estado atual, já soltando pedido pendurado. Sem isso, um dia em que o script não
+    acha mudança (nada a publicar → nuvem não reinicia) travaria o botão para sempre."""
+    d = _pub_ler()
+    if d["estado"] != "ocioso" and (agora - d["pedido_em"]) > _PUB_LIMITE:
+        d["estado"] = "ocioso"
+        _pub_gravar(d)
+    return d
 
 
 @app.route("/api/t/publicar", methods=["POST"])
@@ -979,15 +1003,15 @@ def publicar():
                         "msg": "Rodando local: os dados já vêm do OneDrive ao vivo."})
     agora = dt.datetime.now().timestamp()
     with _lock:
-        _pub_destrava(agora)
-        if _PUB["estado"] in ("pedido", "publicando"):
-            return jsonify({"ok": True, "modo": "nuvem", "estado": _PUB["estado"],
+        d = _pub_estado(agora)
+        if d["estado"] in ("pedido", "publicando"):
+            return jsonify({"ok": True, "modo": "nuvem", "estado": d["estado"],
                             "msg": "Atualização já solicitada — aguardando o PC da Grid."})
-        falta = _PUB_ESPERA - (agora - (_PUB["pedido_em"] or 0))
+        falta = _PUB_ESPERA - (agora - d["pedido_em"])
         if falta > 0:
             return jsonify({"ok": True, "modo": "nuvem", "estado": "espera",
                             "msg": f"Atualizado há pouco. Tente de novo em {int(falta)}s."})
-        _PUB.update({"pedido_em": agora, "estado": "pedido"})
+        _pub_gravar({"pedido_em": agora, "estado": "pedido"})
     return jsonify({"ok": True, "modo": "nuvem", "estado": "pedido",
                     "msg": "Atualização solicitada — o site republica em alguns minutos."})
 
@@ -996,10 +1020,12 @@ def publicar():
 def publicar_pendente():
     """Consultado pelo agente que roda no PC da Grid. `assumir=1` marca que ele pegou."""
     with _lock:
-        pend = _PUB["estado"] == "pedido"
+        d = _pub_estado(dt.datetime.now().timestamp())
+        pend = d["estado"] == "pedido"
         if pend and request.args.get("assumir") == "1":
-            _PUB["estado"] = "publicando"
-        return jsonify({"pendente": pend, "estado": _PUB["estado"]})
+            d["estado"] = "publicando"
+            _pub_gravar(d)
+        return jsonify({"pendente": pend, "estado": d["estado"]})
 
 
 @app.route("/api/t/publicar/concluido", methods=["POST"])
@@ -1007,14 +1033,17 @@ def publicar_concluido():
     """O agente avisa que terminou. Importante no caso 'nada mudou': aí a nuvem não
     reinicia sozinha, e sem este aviso o botão ficaria preso em 'publicando'."""
     with _lock:
-        _PUB["estado"] = "ocioso"
+        d = _pub_ler()
+        d["estado"] = "ocioso"
+        _pub_gravar(d)
     return jsonify({"ok": True})
 
 
 @app.route("/api/t/versao")
 def versao():
     """Carimbo do dado publicado — o navegador usa p/ saber que o site já republicou."""
-    return jsonify({"planilha_em": _planilha_em(), "estado_pub": _PUB["estado"]})
+    return jsonify({"planilha_em": _planilha_em(),
+                    "estado_pub": _pub_estado(dt.datetime.now().timestamp())["estado"]})
 
 
 @app.route("/")
