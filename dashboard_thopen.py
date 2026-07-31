@@ -726,7 +726,7 @@ CARTEIRAS = {
         "Ouro Branco IV", "Ouro Branco V", "Santana do Ipanema", "São Bento do Una", "Vertentes",
     ],
     "Polaris": [
-        "Aparecida do Taboado 1", "Aparecida do Taboado 2", "Aparecida 3", "Araci 1",
+        "Aparecida do Taboado 1", "Aparecida do Taboado 2", "Aparecida 3",
         "Araçoiaba da Serra 1", "Araçoiaba da Serra 2", "Betânia 1", "Boa Esperança do Sul 1",
         "Boa Esperança do Sul 2", "Boa Viagem 2 1", "Boa Viagem I 1", "Caxambu", "Ceará Mirim I 1",
         "Ceará Mirim I 2", "Delmiro Gouvea 1", "Delmiro Gouvea 2", "Delmiro Gouvea 3",
@@ -743,12 +743,17 @@ _CARTEIRA_DE = {u: c for c in CARTEIRA_ORDEM for u in CARTEIRAS[c]}  # usina -> 
 # Usinas que aparecem no dashboard (seletor/drill) mas NÃO entram no cálculo da Visão Geral (aba Geral).
 EXCLUIR_GERAL = {"Piancó 1"}
 
+# Usinas que existem na fonte mas NÃO são carteira nossa — ficam fora do relatório inteiro.
+# Araci: vem no Budget da Polaris, mas o cliente confirmou que não é dele (31/07/2026).
+FORA_DO_RELATORIO = {"Araci 1"}
+
 
 @app.route("/api/t/usinas")
 def usinas():
     _wb()
     us = sorted({_NOME_CANON.get(u, u) for u in
-                 (set(_state["daily"].keys()) | set(_polaris_records().keys()) | set(_sheet_records().keys()))})
+                 (set(_state["daily"].keys()) | set(_polaris_records().keys()) | set(_sheet_records().keys()))}
+                - FORA_DO_RELATORIO)
     default = "Altair" if "Altair" in us else (us[0] if us else None)
     carteira_de = {u: _CARTEIRA_DE.get(u) for u in us}  # carteira de cada usina disponível
     today = dt.date.today()
@@ -924,7 +929,7 @@ def geral():
     _wb()
     disponiveis = {_NOME_CANON.get(u, u) for u in
                    (set(_state["daily"].keys()) | set(_polaris_records().keys())
-                    | set(_sheet_records().keys()))}
+                    | set(_sheet_records().keys()))} - FORA_DO_RELATORIO
     nomes = sorted({u for u in CARTEIRAS.get(carteira, [])
                     if u in disponiveis and u not in EXCLUIR_GERAL})
     linhas = [r for r in (_resumo_usina(u, ano, mes) for u in nomes) if r["produzida"] is not None]
