@@ -1,0 +1,20 @@
+# Deploy do dashboard Thopen no Render (plano free).
+#
+# --workers 1 é obrigatório aqui: cada worker carrega o BD_Thopen inteiro em memória
+# (medido: 334 MB de pico) e o plano free corta em 512 MB. Com 2 workers, estoura.
+#
+# THOPEN_DATA_DIR=data faz o app ler o snapshot versionado em data/ (o Render não
+# enxerga o OneDrive). Sem ele, o app tentaria os caminhos locais do Windows.
+services:
+  - type: web
+    name: thopen-dashboard
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements-thopen.txt
+    startCommand: gunicorn dashboard_thopen:app --bind 0.0.0.0:$PORT --workers 1 --timeout 180
+    healthCheckPath: /
+    envVars:
+      - key: THOPEN_DATA_DIR
+        value: data
+      - key: PYTHON_VERSION
+        value: "3.12.7"
