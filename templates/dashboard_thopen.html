@@ -241,7 +241,14 @@ const $=id=>document.getElementById(id);
 const get=u=>fetch(u).then(r=>r.json());
 const CFG={displayModeBar:false,responsive:true};
 const BASE={paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{color:'#33363d',size:11},
+  separators:',.',   // pt-BR no hover do Plotly: vírgula decimal, ponto de milhar
   margin:{l:54,r:16,t:14,b:36}};
+
+// Balão do gráfico: 2 casas decimais + unidade (o padrão do Plotly mostra "59.74777").
+// <extra> troca o box lateral pelo nome da série, em vez do rótulo cru.
+const hov  = u => '%{x}<br><b>%{y:,.2f} '+u+'</b><extra>%{fullData.name}</extra>';
+const hovH = u => '%{y}<br><b>%{x:,.2f} '+u+'</b><extra></extra>';   // barra horizontal (Anual): valor no X
+const hovS = u => '%{x}<br><b>%{y:,.2f} '+u+'</b><extra></extra>';   // sem legenda (Acumulado)
 
 function mix(c1,c2,t){
   const p=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
@@ -421,7 +428,7 @@ function renderMensal(selMes){
   // slot FIXO por série (alignmentgroup comum + offsetgroup único): sem isso, nos meses em que uma
   // série é nula (ex.: Produzida 2026 em ago–dez) o Plotly redistribui o espaço e ALARGA as barras
   // restantes. Com o slot reservado, toda barra fica com a MESMA largura o ano inteiro.
-  traces.forEach((t,i)=>{ t.alignmentgroup='m'; t.offsetgroup=String(i); });
+  traces.forEach((t,i)=>{ t.alignmentgroup='m'; t.offsetgroup=String(i); t.hovertemplate=hov('MWh'); });
   const lay=Object.assign({},BASE,{barmode:'group',
     legend:{orientation:'h',x:0.5,xanchor:'center',y:-0.12},
     yaxis:{title:'Energia (MWh)',gridcolor:'#eceef2',zeroline:false},
@@ -474,7 +481,7 @@ function renderAnual(selMes){
   const cores=a.map(d=>COR[d.label]||'#9aa0a6');
   const tr={y,x:xv,type:'bar',orientation:'h',marker:{color:cores},
     text:a.map(d=>d.valor==null?'':nf0.format(d.valor)),textposition:'outside',
-    textfont:{size:9},cliponaxis:false};
+    textfont:{size:9},cliponaxis:false,hovertemplate:hovH('kWh')};
   const H=a.length*44+32;
   const lay=Object.assign({},BASE,{height:H,margin:{l:130,r:60,t:8,b:24},bargap:0.32,
     xaxis:{gridcolor:'#eceef2',zeroline:false},
@@ -497,11 +504,11 @@ async function renderDiario(ano,mes){
   const mn=Math.min(...gers), mx=Math.max(...gers), rng=(mx-mn)||1;
   const cores=gers.map(g=>mix('#FFDD1F','#FF484C',(g-mn)/rng));  // baixo=#FFDD1F (amarelo), alto=#FF484C (vermelho)
   const bars={x,y:d.pontos.map(p=>p.ger),type:'bar',name:'Energia Produzida (kWh)',
-    marker:{color:cores}};
+    marker:{color:cores},hovertemplate:hov('kWh')};
   const irr={x,y:d.pontos.map(p=>p.ipoa),type:'scatter',mode:'lines',name:'Irradiação (kWh/m²)',
-    line:{color:'#222',width:1.5},yaxis:'y2'};
+    line:{color:'#222',width:1.5},yaxis:'y2',hovertemplate:hov('kWh/m²')};
   const meta={x,y:x.map(()=>d.meta_dia),type:'scatter',mode:'lines',name:'Meta (kWh)',
-    line:{color:'#2456c7',width:2}};
+    line:{color:'#2456c7',width:2},hovertemplate:hov('kWh')};
   const lay=Object.assign({},BASE,{margin:{l:56,r:54,t:10,b:54},
     legend:{orientation:'h',x:0.5,xanchor:'center',y:-0.22},
     xaxis:{tickmode:'array',tickvals:x,ticktext:ticktext,tickangle:0,tickfont:{size:8},gridcolor:'#fff'},
@@ -513,7 +520,7 @@ async function renderDiario(ano,mes){
   const k=d.kpis;
   const acum={x:['Produzida','Meta'],y:[k.acum_prod,k.acum_meta],type:'bar',
     marker:{color:[ORA,NAVY]},text:[nf0.format(k.acum_prod||0),nf0.format(k.acum_meta||0)],
-    textposition:'outside',textfont:{size:11},cliponaxis:false};
+    textposition:'outside',textfont:{size:11},cliponaxis:false,hovertemplate:hovS('kWh')};
   Plotly.react('chAcum',[acum],Object.assign({},BASE,{showlegend:false,bargap:0.44,
     margin:{l:8,r:8,t:8,b:22},xaxis:{gridcolor:'#fff'},
     yaxis:{visible:false}}),CFG);
