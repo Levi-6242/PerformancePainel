@@ -31,6 +31,13 @@ except Exception:
 
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
+# O pacote `chamado_garantia` mora na RAIZ do repositório (é compartilhado com o app de campo),
+# então a raiz precisa entrar no sys.path ANTES do primeiro import dele. No .exe isto é inócuo:
+# o PyInstaller já empacota o pacote via pathex/hiddenimports do .spec.
+_RAIZ_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _RAIZ_REPO not in sys.path:
+    sys.path.insert(0, _RAIZ_REPO)
+
 BASE          = os.environ.get("FRACTTAL_BASE_URL", "https://app.fracttal.com").rstrip("/")
 CLIENT_ID     = os.environ.get("FRACTTAL_CLIENT_ID", "").strip()
 CLIENT_SECRET = os.environ.get("FRACTTAL_CLIENT_SECRET", "").strip()
@@ -199,26 +206,19 @@ def ping():
     return True
 
 
-# Tipo de equipamento a partir do prefixo do code ({USINA}-{TIPO}{N}).
-TYPE_MAP = {
-    "INVR": "Inversor", "TRK": "Tracker", "ETKR": "Estrutura Trackers", "SKID": "Skid",
-    "CABN": "Cabine", "QGBT": "QGBT", "ESTM": "Estação Meteorológica",
-    "TRFR": "Transformador", "TRTP": "Transformador", "TRTC": "Transformador",
-    "INFC": "Infraestrutura Civil", "INFE": "Infraestrutura Elétrica", "SOEM": "Sala de O&M",
-    "SSEG": "Sistema de Segurança", "SPDA": "SPDA", "SSPV": "Sistema FV", "STRG": "String Box",
-}
+# Tipo de equipamento a partir do code ({USINA}-{TIPO}{N}). A REGRA mora no `chamado_garantia`
+# (03/08): o app de campo precisa classificar o ativo do mesmo jeito para escolher as subtarefas,
+# e duas derivações significa dois apps pedindo coisas diferentes ao mesmo fabricante — num ponto
+# invisível, porque ninguém percebe até o chamado voltar. Aqui ficou só o repasse.
+from chamado_garantia.ativos import TIPO_POR_SUFIXO as TYPE_MAP     # noqa: E402  (nome antigo)
+from chamado_garantia.ativos import tipo_e_sufixo
 
 
 def _tipo_from_code(code: str, eh_usina: bool):
     """→ (tipo_code, tipo_label). Para o item da usina (sem hierarquia abaixo) → ('','Usina')."""
     if eh_usina:
         return "", "Usina"
-    parts = code.split("-")
-    if len(parts) >= 2:                       # tipo = ÚLTIMO segmento (robusto p/ code de 2 ou 3 partes:
-        alpha = "".join(c for c in parts[-1] if c.isalpha())   # TIM200-CABN4 ou THPN-CGH100-CABN1 → CABN
-        if alpha:
-            return alpha, TYPE_MAP.get(alpha, alpha)
-    return "", "Outro"
+    return tipo_e_sufixo(code)
 
 
 def _clean_usina_desc(desc: str) -> str:

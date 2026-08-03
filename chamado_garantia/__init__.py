@@ -23,6 +23,7 @@ Uso no app de campo, dentro da OS que o técnico está preenchendo:
 Quem for criar a OS de fato precisa de um cliente Fracttal. O `payload.py` monta os parâmetros do
 RPC sem falar com a rede, então serve tanto ao desktop quanto a um backend do app de campo.
 """
+from .ativos import TIPO_POR_SUFIXO, tipo_do_ativo, tipo_e_sufixo
 from .regras import (CLASSIF_1, CLASSIF_2, ETIQUETA, ETIQUETA_ACOMPANHAMENTO, TIPO_TAREFA,
                      TIPO_TAREFA_ACOMPANHAMENTO, TIPOS_ORIGEM, derivados, descobrir_marca,
                      marca_do_ativo, marca_pelos_irmaos, montar, pode_abrir, titulo)
@@ -30,6 +31,9 @@ from .spec import (ALIAS_TIPO, BASE, MARCAS_CONHECIDAS, POR_FABRICANTE, POR_TIPO
                    TIPOS_DA_MARCA, aceita, grupo_de, marcas_para, resumo, subtarefas)
 
 __all__ = [
+    # o tipo do ativo NÃO vem do Fracttal: é derivado do código. Use `tipo_do_ativo` — não
+    # reimplemente, senão os dois apps classificam o mesmo ativo de formas diferentes.
+    "tipo_do_ativo", "tipo_e_sufixo", "TIPO_POR_SUFIXO",
     "montar", "pode_abrir", "descobrir_marca", "marca_do_ativo", "marca_pelos_irmaos",
     "derivados", "titulo", "subtarefas", "marcas_para", "resumo", "aceita", "grupo_de",
     "TIPO_TAREFA", "CLASSIF_1", "CLASSIF_2", "ETIQUETA", "TIPOS_ORIGEM",
@@ -37,4 +41,4 @@ __all__ = [
     "BASE", "POR_TIPO", "POR_FABRICANTE", "ALIAS_TIPO", "TIPOS_DA_MARCA", "MARCAS_CONHECIDAS",
     "TIPO_ID",
 ]
-__version__ = "1.0.0"
+__version__ = "1.1.0"     # 1.1.0: ativos.py (tipo do ativo pelo código)

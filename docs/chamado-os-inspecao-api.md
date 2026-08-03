@@ -54,6 +54,39 @@ responsável e OS pai; no app de campo os quatro saem da OS que o técnico já e
 (corretiva, corretiva emergencial, religamento ou religamento remoto). Passar `tipo_tarefa_os=None`
 pula a segunda checagem.
 
+### O `tipo` do ativo não vem do Fracttal — use `tipo_do_ativo`
+
+O campo `asset["tipo"]` ("Inversor", "Estrutura Trackers", "NCU"…) **não existe** no registro do
+Fracttal: `groups_description` e `items_types_description` vêm ambos como `EQUIPMENTS`, e
+`id_type_item` é 2 para tudo. O tipo é **derivado do código**, e a derivação está no pacote desde a
+v1.1.0 — justamente para os dois apps não classificarem o mesmo ativo de formas diferentes:
+
+```python
+cg.tipo_do_ativo("APG100-INVR1.1")        # → "Inversor"
+cg.tipo_do_ativo("THPN-CGH100-CABN1")     # → "Cabine"    (3 segmentos: vale o ÚLTIMO)
+cg.tipo_do_ativo("APG100-ESTM1-PRN1")     # → "PRN"
+cg.tipo_do_ativo("2C-APG100", eh_usina=True)   # → "Usina"
+```
+
+Três coisas que quem deduz de fora erra, e que já estão tratadas ali:
+
+1. **Vale o último segmento**, não uma posição fixa — o código tem 2 ou 3 partes.
+2. **Sufixo desconhecido vira ele mesmo, não "Outro".** É de propósito, e é o que faz NCU, RSU,
+   PRN, SDT e FDL funcionarem sem estarem no mapa — 563 ativos que o chamado aceita. Um mapa
+   copiado à mão perderia exatamente esses.
+3. **O item-USINA não sai do código.** Quem decide é a HIERARQUIA: `parent_description` com só o
+   cliente = usina; com cliente/usina = equipamento. Daí o `eh_usina` ser parâmetro.
+
+Sobre o item 3, medido no catálogo (11.735 ativos, 402 itens-usina): a hierarquia pode estar
+**malformada**. Na usina TESTE, 4 ativos (`TESTE100-CABN1`, `-CABN2`, `-ETKR1`, `-ESTM1`) têm o
+parent gravado como `// TESTE - PA/` e o OS Creator os classifica como "Usina", quando pelo código
+seriam Cabine, Estrutura Trackers e Estação Meteorológica. É a única usina com esse problema, e é
+uma usina de testes. Se o app de campo não tiver a hierarquia à mão, chamar `tipo_do_ativo` só com
+o código é aceitável — e nesses 4 casos até acerta mais. O que não vale é reimplementar a regra.
+
+Distribuição real dos tipos que o chamado aceita: Estrutura Trackers 6.411 · Inversor 1.901 ·
+Skid 234 · Cabine 186 · PRN 138 · SDT 122 · Estação Meteorológica 109 · RSU 108 · NCU 98 · FDL 97.
+
 Tudo em `chamado_garantia` roda **sem rede**: a decisão de mostrar o botão, a descoberta da marca e
 a montagem das subtarefas são locais. Só o POST da §3 precisa de internet — ver a §7.
 
