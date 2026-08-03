@@ -421,6 +421,14 @@ class BotaoConcluir(QPushButton):
         except Exception:
             autor = ""
         pn.adicionar(self._d.get("folio"), self._obs, autor)
+        # double check da data de fim (Levi, 03/08) — mesma regra do card do histórico
+        n = len(((res or {}).get("data_fim") or {}).get("sem_fim") or []) if isinstance(res, dict) else 0
+        if n:
+            QMessageBox.warning(self, "OS concluída sem data de fim",
+                                "A OS %s foi concluída, mas %s ficou SEM data de fim.\n\n"
+                                "O campo não é preenchido depois — só o cronômetro de execução "
+                                "grava essa data, e ele precisa rodar antes de fechar."
+                                % (self._d.get("folio") or "", "a tarefa" if n == 1 else "%d tarefas" % n))
         if self._on_mudou:
             self._on_mudou()
 

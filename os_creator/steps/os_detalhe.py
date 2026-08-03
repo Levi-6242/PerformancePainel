@@ -437,8 +437,13 @@ class _EtiquetasDialog(QDialog):
 
 class _ConcluirDialog(QDialog):
     """Confirmação estilizada (tema navy do app) para concluir/fechar uma OS — no lugar do QMessageBox.
-    Mostra o % de conclusão pelas subtarefas (feitas/total)."""
-    def __init__(self, parent, folio, feitas=0, total=0):
+    Mostra o % de conclusão pelas subtarefas (feitas/total).
+
+    `sem_fim` = títulos das tarefas SEM data de fim. Vem do que a tela já carregou (`_tarefas`),
+    sem chamada extra. Quando tem, o diálogo ganha um segundo aviso — é o lado "antes" do double
+    check pedido pelo Levi em 03/08: conclusão é irreversível, então a pessoa precisa saber ANTES
+    que a OS vai fechar sem data de fim, não descobrir depois como na 10509."""
+    def __init__(self, parent, folio, feitas=0, total=0, sem_fim=None):
         super().__init__(parent)
         self.setWindowTitle("Concluir OS")
         self.setModal(True); self.setMinimumWidth(480)
@@ -491,7 +496,33 @@ class _ConcluirDialog(QDialog):
         wt.setWordWrap(True)
         wt.setStyleSheet("color:#e9b89e;font-size:13.5px;background:transparent;border:none;")
         wl.addWidget(wi, 0, Qt.AlignmentFlag.AlignTop); wl.addWidget(wt, 1)
-        lay.addWidget(warn); lay.addSpacing(20)
+        lay.addWidget(warn); lay.addSpacing(12)
+
+        # ── data de fim da tarefa (só aparece quando FALTA) ──
+        # Vermelho, e não o âmbar do aviso de cima: aquele é "ficou pendente" (recuperável, a OS
+        # segue existindo); este é "vai fechar sem data e não tem volta". Severidades diferentes
+        # com a mesma cor viram ruído e a pessoa para de ler as duas.
+        faltando = [str(x) for x in (sem_fim or []) if str(x).strip()]
+        if faltando:
+            dbox = QWidget(); dbox.setObjectName("dtBox")
+            dbox.setStyleSheet("QWidget#dtBox{background:rgba(224,84,84,0.11);"
+                               "border:1px solid rgba(224,84,84,0.42);border-radius:11px;}")
+            dl = QHBoxLayout(dbox); dl.setContentsMargins(13, 12, 14, 12); dl.setSpacing(11)
+            di = QLabel(); di.setFixedSize(20, 20); di.setStyleSheet("background:transparent;border:none;")
+            di.setPixmap(icone_pix("alert", "#e05454", 19))
+            if len(faltando) == 1:
+                msg = ("Esta OS vai fechar <b>sem data de fim da tarefa</b>. O campo fica vazio "
+                       "para sempre — a conclusão não preenche depois.")
+            else:
+                msg = ("<b>%d tarefas</b> desta OS vão fechar <b>sem data de fim</b>. O campo fica "
+                       "vazio para sempre — a conclusão não preenche depois.<br>%s"
+                       % (len(faltando), "; ".join(faltando[:3])
+                          + (" e mais %d" % (len(faltando) - 3) if len(faltando) > 3 else "")))
+            dt = QLabel(msg); dt.setWordWrap(True)
+            dt.setStyleSheet("color:#f0b4b4;font-size:13.5px;background:transparent;border:none;")
+            dl.addWidget(di, 0, Qt.AlignmentFlag.AlignTop); dl.addWidget(dt, 1)
+            lay.addWidget(dbox); lay.addSpacing(12)
+        lay.addSpacing(8)
 
         # ── botões ──
         row = QHBoxLayout(); row.addStretch(1); row.setSpacing(10)
@@ -814,11 +845,15 @@ class OsDetalheDialog(QDialog):
 
     @slot_seguro
     def _concluir_os(self, *_):
+        # tarefas sem data de fim — sai do que o card JÁ carregou (`_tarefas` traz 'fim'), sem
+        # ida extra ao servidor. A reconferência contra o servidor vem depois, no `_concluiu`.
+        sem_fim = [t.get("titulo") or t.get("ativo") or "(tarefa sem título)"
+                   for t in (self._tarefas or []) if not str(t.get("fim") or "").strip()]
         if _ConcluirDialog(self, self._folio or self._wo, self._sub_feitas,
-                           self._sub_total).exec() != QDialog.DialogCode.Accepted:
+                           self._sub_total, sem_fim).exec() != QDialog.DialogCode.Accepted:
             return
         self.b_concluir.setEnabled(False); self.b_concluir.setText("concluindo…")
-        self._wcc = ApiWorker(api.concluir_os, self._wo)
+        self._wcc = ApiWorker(api.concluir_os_checado, self._wo)
         self._wcc.ok.connect(self._concluiu); self._wcc.erro.connect(self._concluir_erro)
         self._wcc.start()
 
@@ -829,7 +864,22 @@ class OsDetalheDialog(QDialog):
             self.b_concluir.setEnabled(True); self.b_concluir.setText("Concluir OS")
             QMessageBox.critical(self, "Concluir OS", res.get("msg") or "Não foi possível concluir."); return
         self.b_concluir.setText("Concluir OS")
-        QMessageBox.information(self, "OS concluída", f"A OS {self._folio or self._wo} foi concluída.")
+        # 2º lado do double check: o servidor confirma se a tarefa ficou mesmo com data de fim.
+        # Sem isto o app anunciava "concluída" sem diferença nenhuma entre a OS que fechou
+        # completa e a que fechou com o campo vazio — que é como a 10509 passou batida.
+        chk = (res or {}).get("data_fim") if isinstance(res, dict) else None
+        n = len((chk or {}).get("sem_fim") or [])
+        if n:
+            QMessageBox.warning(
+                self, "OS concluída sem data de fim",
+                "A OS %s foi concluída, mas %s ficou SEM data de fim.\n\n"
+                "O campo não é preenchido depois: para registrar a data seria preciso ter usado "
+                "o cronômetro de execução antes de fechar." %
+                (self._folio or self._wo,
+                 "a tarefa" if n == 1 else "%d das %d tarefas" % (n, (chk or {}).get("total") or n)))
+        else:
+            QMessageBox.information(self, "OS concluída",
+                                    f"A OS {self._folio or self._wo} foi concluída.")
         self.accept()                                 # concluída → fecha o card
 
     @slot_seguro

@@ -3398,6 +3398,47 @@ def concluir_os(id_work_order) -> dict:
     return {"ok": True, "raw": r2}
 
 
+def checar_data_fim(id_work_order) -> dict:
+    """Quais tarefas da OS estão SEM data de fim (`final_date`).
+    → {'ok': bool, 'total': n, 'sem_fim': [título, …]}  (`ok` = todas têm data).
+
+    POR QUE ISTO EXISTE (Levi, 03/08 — caso da OS 10509, religamento em Marialva): a OS fechou
+    e a tarefa ficou sem data de fim, e ninguém soube até alguém ir procurar. Medido: das OS
+    criadas pelo caminho Fase 1 + Fase 2 (Criar OS, COS, Chamados, PCM, Clonar), a tarefa nasce
+    com `initial_date` e `final_date` NULOS — o registro do kanban que vira a OS simplesmente não
+    tem esses dois campos, e o `concluir_os` NÃO os preenche (testado na OS 10567: nula antes,
+    nula depois). Quem preenche é o cronômetro de execução; sem ele a OS fecha sem data para
+    sempre, e conclusão é irreversível.
+
+    Defensivo de propósito: erro de rede aqui devolve `ok=True`. Este é um aviso, não um portão —
+    derrubar a conclusão de uma OS porque a conferência falhou seria pior que o problema."""
+    if not id_work_order:
+        return {"ok": True, "total": 0, "sem_fim": []}
+    try:
+        rt = _rpc_call(RPC_WO_TASKS, {"id_work_order": id_work_order, "sort": []})
+    except FracttalError:
+        return {"ok": True, "total": 0, "sem_fim": []}
+    tasks = rt.get("data") if isinstance(rt, dict) else rt
+    tasks = tasks if isinstance(tasks, list) else []
+    sem = []
+    for t in tasks:
+        v = t.get("final_date")
+        if v in (None, "") or str(v).lower() == "none":
+            sem.append(str(t.get("tasks_description") or "").strip() or "(tarefa sem título)")
+    return {"ok": not sem, "total": len(tasks), "sem_fim": sem}
+
+
+def concluir_os_checado(id_work_order) -> dict:
+    """`concluir_os` + a RECONFERÊNCIA da data de fim, na mesma thread de trabalho.
+
+    O segundo lado do double check: o primeiro avisa ANTES (a tela lê o que já carregou), este
+    confere DEPOIS, contra o servidor. Sem ele o app anunciaria "OS concluída" para uma OS que
+    fechou sem data de fim — que é exatamente o que ninguém percebeu na 10509.
+    → {'ok': True, 'data_fim': {…}} — ver `checar_data_fim`."""
+    r = concluir_os(id_work_order)
+    return {**r, "data_fim": checar_data_fim(id_work_order)}
+
+
 # ── Clonar OS: lê a OS de referência (ativo + tipo + descrição + subtarefas + etiquetas) ──
 RPC_WO_DETAILS = "tasks.work_order_details_new"   # cabeçalho da WO (labels, etc.)
 
@@ -4540,7 +4581,10 @@ def concluir_os_analise(id_work_order, id_work_order_task=None, observacao: str 
                                          "permissão para fechar." % WO_STATUS.get(st, st)}
     except Exception:
         pass                               # falha na conferência não invalida a conclusão
-    return {"ok": True}
+    # 3) e a tarefa ficou com data de fim? Aqui o cronômetro costuma ter preenchido — mas OS de
+    #    análise atribuída a outra pessoa, ou fechada sem nunca ter sido iniciada, cai no mesmo
+    #    buraco da 10509. Vai como AVISO no resultado: a OS está fechada, não dá para desfazer.
+    return {"ok": True, "data_fim": checar_data_fim(id_work_order)}
 
 
 def historico_execucao(id_work_order_task) -> list:
