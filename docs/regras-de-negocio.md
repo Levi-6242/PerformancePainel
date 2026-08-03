@@ -42,7 +42,7 @@ app.py                          backend Flask (todas as 5 fontes + endpoints)
 templates/index.html            frontend completo
 Check Diário ... .xlsx          cópia local (fallback) — a MASTER é a online (ver §4)
 pg_password.txt                 senha PostgreSQL [gitignored]
-se_credentials.txt / tokens_runtime.json  SolarEdge (Cognito) [gitignored]
+se_credentials.txt / se_cookie.txt  SolarEdge (Cognito) [gitignored]
 ufv_state.json                  check/comentário/acompanhamento/MANUTENÇÃO (estado da equipe)
 owen_accum.json                 acervo do dia da fonte 2C/Email (acumulador, reseta diário)
 docs/regras-de-negocio.md       este doc

@@ -8,7 +8,7 @@ do token pro dashboard, sem copiar e colar.
 
 Como funciona: um **userscript** roda dentro da Plataforma e, sempre que a página está aberta,
 pega o header `x-auth-token-update` que o próprio site já usa e o envia para o dashboard
-(`http://localhost:5050/api/pv/trackers/token`). O dashboard grava na chave `plat` do `plataforma/tokens_runtime.json` e recarrega.
+(`http://localhost:5050/api/pv/trackers/token`). O dashboard grava em `plat_token.txt` e recarrega.
 
 ## Instalação (uma vez só, na máquina do dashboard)
 
@@ -38,6 +38,4 @@ pega o header `x-auth-token-update` que o próprio site já usa e o envia para o
 ## Plano B (manual, se a extensão não estiver disponível)
 
 - Bookmarklet de 1 clique (versão antiga) ou: F12 na Plataforma → aba Network → qualquer chamada →
-  header `x-auth-token-update` → copiar o valor → colar na chave `"plat"` do
-  `plataforma/tokens_runtime.json` (vale na hora, sem reiniciar) ou em `PLAT_TOKEN` no `tokens.txt`
-  (aí sim precisa reiniciar).
+  header `x-auth-token-update` → copiar o valor → colar em `plat_token.txt` → reiniciar o dashboard.

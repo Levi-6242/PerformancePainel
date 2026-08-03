@@ -85,10 +85,8 @@ LEIA-ME.txt
 ```
 .env                   # PRINCIPAL: PV_USERNAME/PV_PASSWORD, SUNOP_TOKEN, PG_*, SE_* (ver .env.example)
 pg_password.txt        # senha do PostgreSQL (fallback se PG_PASSWORD não estiver no .env)
-tokens_runtime.json    # tokens que o PRÓPRIO APP renova e reescreve (o tokens.txt é semente humana):
-                       #   plat      = JWT da API PV Plataforma (x-auth-token-update) — ~7 dias, manual
-                       #   sunop/axis= JWT das duas instâncias SunOp (auto-renovadas)
-                       #   se_cookie = cookie de sessão SolarEdge (login Cognito)
+plat_token.txt         # JWT de sessão da API PV Plataforma (x-auth-token-update) — expira ~7 dias
+se_cookie.txt          # cookie de sessão SolarEdge (renovado pelo login Cognito)
 se_credentials.txt     # credenciais SolarEdge (fallback se SE_USERNAME/SE_PASSWORD não estiverem no .env)
 ```
 > Nenhuma credencial fica no código: `app.py`, `tracker_watch.py` e os scripts auxiliares
@@ -148,7 +146,7 @@ C:\Users\Levi Maia\.claude\projects\C--Users-Levi-Maia\memory\
 
 ### 4.2 API PV PLATAFORMA — `pv` subaba "📈 Curva das strings" (Thopen) — FONTE SEPARADA
 - **Base:** `https://apiplataforma.pvoperation.com` (≠ apipv!).
-- **Auth:** header `x-auth-token-update` = JWT de sessão (~7 dias), na chave `plat` do `tokens_runtime.json`.
+- **Auth:** header `x-auth-token-update` = JWT de sessão (~7 dias), em `plat_token.txt`.
   Reautenticar: no portal `plataforma.pvoperation.com`, F12 → copiar header `x-auth-token-update`.
 - **🔑 `idusina` é COMPARTILHADO com a apipv** (ex.: Indaiatuba 1 = 21480 nas duas) → catálogo de
   usinas vem do `get_plants()` da apipv.
@@ -188,7 +186,7 @@ C:\Users\Levi Maia\.claude\projects\C--Users-Levi-Maia\memory\
 - 10 plantas: SMP100, CPP100, TIM100/200, MRO100, MTS100/200, MAB100/200, JCD100.
 
 ### 4.5 SolarEdge — `solaredge` (cliente: RenoGrid, 7 UFVs, SÓ strings)
-- **Base:** `https://monitoring.solaredge.com`. Auth via **cookie** (chave `se_cookie` do `tokens_runtime.json`) renovado por
+- **Base:** `https://monitoring.solaredge.com`. Auth via **cookie** (`se_cookie.txt`) renovado por
   login **Cognito** com `se_credentials.txt`. API interna (não a oficial).
 - Só tem visão de **strings** (sem ETM/trackers). Corrente "ativa" = potência > 0.
 
@@ -276,7 +274,7 @@ O grande desafio do projeto: cada API nomeia usinas/inversores diferente. A "col
 ## 10. PONTOS FRACOS / RISCOS (o que vigiar)
 
 1. **Tokens que expiram (~7 dias) e exigem ação manual:**
-   - SunOp (`SUNOP_TOKEN` no `.env`), PV Plataforma (`tokens_runtime.json` → `plat`), Gmail OAuth (`token_gmail.json`).
+   - SunOp (`SUNOP_TOKEN` no `.env`), PV Plataforma (`plat_token.txt`), Gmail OAuth (`token_gmail.json`).
    - **Gmail:** se o app OAuth está em "Testing", o refresh token expira a cada 7 dias →
      coleta 2C para. **Solução definitiva: publicar o app p/ "Production" no Google Cloud.**
 2. **Credenciais em texto plano no disco:** já saíram do código e do repositório (`.env` + `.txt`,
@@ -303,9 +301,8 @@ O grande desafio do projeto: cada API nomeia usinas/inversores diferente. A "col
 
 - **Subir:** `Iniciar Dashboard.bat` (ou `python app.py` na pasta) → http://localhost:5050.
 - **Atualizar dados:** botão "↻ Atualizar" (zera cache, refaz todas as fontes).
-- **Trocar token expirado:** o da Plataforma vai pelo bookmarklet (`POST /api/pv/trackers/token`,
-  grava no `tokens_runtime.json` e vale na hora); os demais, editar o `tokens.txt`/`.env`
-  (`SUNOP_TOKEN`/`AXIS_TOKEN`) e reiniciar.
+- **Trocar token expirado:** editar o `.env` (`SUNOP_TOKEN`) ou o `.txt` correspondente
+  (`plat_token.txt`); reiniciar.
 - **Reautenticar Gmail (2C):** `python "...\app_gridco.py" --auto` num console → abrir a URL
   impressa no navegador → login Google → token salvo.
 - **Recarregar planilhas (Check/Equipamentos):** automático no mtime; ou botão Atualizar (force=1).
