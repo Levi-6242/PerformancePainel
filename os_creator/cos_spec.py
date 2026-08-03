@@ -56,7 +56,10 @@ def ansi_tooltip() -> str:
     return f"<b>Proteção (ANSI) → motivo</b><table style='margin-top:4px'>{linhas}</table>"
 
 # Falhas do inversor (B) e causas de comunicação (C)
-FALHAS_B = ["Baixa impedância de isolamento", "Baixa irradiância", "Outro erro"]
+# "Outro erro" fica SEMPRE no fim: é o escape da lista, e item novo entra antes dele.
+FALHAS_B = ["Baixa impedância de isolamento", "Baixa irradiância",
+            "Perda da rede elétrica",              # Levi, 03/08
+            "Outro erro"]
 CAUSAS_C = ["Falha de comunicação com o supervisório", "Fibra rompida na região",
             "Falta de internet", "Oscilação de internet"]
 
