@@ -27,9 +27,15 @@ def _amanha_8h() -> QDateTime:
 
 
 def _prog_apos(dt: QDateTime) -> QDateTime:
-    """Ida a campo a partir de um incidente: dia seguinte às 8h. Não herda a hora do incidente —
-    falha às 3h da manhã não agenda visita às 3h da manhã."""
-    return QDateTime(dt.date().addDays(1), QTime(8, 0))
+    """Ida a campo: AMANHÃ às 8h — amanhã em relação a HOJE, nunca ao incidente (Levi, 03/08).
+
+    O `dt` do incidente só serve de piso: se ele for futuro (OS aberta com antecedência), a visita
+    vai para o dia seguinte a ELE. Para trás nunca: incidente de 28/07 herdado de uma OS pai
+    agendava a inspeção para 29/07, uma data que já passou — o Fracttal aceita e a OS nasce
+    atrasada. A hora fixa em 8h porque falha às 3h da manhã não gera visita às 3h da manhã."""
+    amanha = QDateTime(QDate.currentDate().addDays(1), QTime(8, 0))
+    do_inc = QDateTime(dt.date().addDays(1), QTime(8, 0))
+    return do_inc if do_inc > amanha else amanha
 
 
 def _iso_para_brt(iso) -> QDateTime:

@@ -504,17 +504,20 @@ class PerfCriar(QWidget):
             self._carregar_resp()
 
     def _sincronizar_prog(self, dt):
-        """Data programada acompanha a do incidente ENQUANTO ninguém a editar à mão. Sem isso, quem
-        recua o incidente para o dia da falha agendaria a OS para o passado sem perceber. O
-        blockSignals é o que separa 'eu movi' de 'o usuário mexeu' (senão o próprio sync marcaria).
+        """Mantém a data programada em AMANHÃ enquanto ninguém a editar à mão.
 
-        Vai para o DIA SEGUINTE, não para o mesmo instante (pedido do Levi, 30/07): clonar a data
-        do incidente agendava a ida a campo para a hora em que a falha foi vista, que nunca é
-        quando o técnico consegue ir."""
+        AMANHÃ EM RELAÇÃO A AGORA, não ao incidente (Levi, 03/08). Antes era incidente + 1 dia, e
+        isso agendava no PASSADO sempre que a falha era antiga: incidente de 28/07 lançado hoje
+        marcava a ida a campo para 29/07, que já passou. A data do incidente diz quando quebrou; a
+        programada diz quando alguém vai lá — são independentes, e só a segunda tem de olhar o
+        relógio. O `dt` continua na assinatura porque quem chama é o sinal do campo do incidente.
+
+        O `_prog_tocada` é o que separa "eu movi" de "o usuário mexeu" — uma vez que a pessoa
+        escolhe a data, esta função não encosta mais. O blockSignals evita o auto-disparo."""
         if self._prog_tocada:
             return
         self.dt_exec.blockSignals(True)
-        self.dt_exec.setDateTime(dt.addDays(1))
+        self.dt_exec.setDateTime(QDateTime.currentDateTime().addDays(1))
         self.dt_exec.blockSignals(False)
 
     # ── modos do card "Geração e ETM" ──

@@ -1877,7 +1877,13 @@ def get_os_detalhes(id_work_order) -> dict:
                 "gatilho": decodifica_gatilho(t.get("trigger_description")),
                 "nota": str(t.get("task_note") or t.get("note") or "").strip()}
                for t in tasks]
+    # CANCELAMENTO: só busca quando a OS está cancelada (status 4). É uma chamada REST a mais, e
+    # cobrá-la em toda abertura de card seria pagar por 96% de OS que não precisam.
+    canc = {"motivo": "", "nota": ""}
+    if (det.get("id_status_work_order") or t0.get("id_status_work_order")) == 4:
+        canc = cancelamento_da_os(t0.get("wo_folio"))
     return {"folio": t0.get("wo_folio"),
+            "cancel_motivo": canc["motivo"], "cancel_nota": canc["nota"],
             "descricao": str(t0.get("tasks_description") or "").strip(),
             "tipo": str(t0.get("tasks_types_main_description") or "").strip(),
             "classif": classif,
@@ -3396,6 +3402,35 @@ def concluir_os(id_work_order) -> dict:
     if isinstance(r2, dict) and r2.get("success") is False:
         raise FracttalError(str(r2.get("message") or "Não foi possível fechar a OS."))
     return {"ok": True, "raw": r2}
+
+
+def cancelamento_da_os(folio) -> dict:
+    """Motivo e observação do cancelamento de uma OS. → {'motivo','nota'} (vazios se não achar).
+
+    VEM DO REST, não do RPC (Levi, 03/08). Procurei o motivo nos três lugares que o app já usa —
+    a linha do `work_orders_list_react`, o cabeçalho do `work_order_details_new` e o registro da
+    tarefa — e não está em nenhum: são 45 e 95 campos, nenhum com o motivo nem com o id dele.
+    O REST expõe em `work_orders_status_custom_description`, e responde por NÚMERO da OS
+    (`work_orders/10559/`) em ~0,2 s, sem paginar.
+
+    QUEM CANCELOU NÃO EXISTE em lugar nenhum. Todos os campos de pessoa do registro são outra
+    coisa: `created_by` é quem abriu (conferido na 10533 — Juliana abriu, o cancelamento é
+    anônimo), `user_assigned`/`personnel_description` é o responsável, `requested_by` é o
+    solicitante. Não há "cancelado por". Se um dia precisar, sai da bitácora do Fracttal web.
+
+    A `nota` é a observação digitada no cancelamento: ela SOBRESCREVE a observação da OS
+    (`note`); a original continua em `task_note`."""
+    folio = str(folio or "").strip()
+    if not folio:
+        return {"motivo": "", "nota": ""}
+    try:
+        r = _req("GET", "work_orders/%s/" % folio, timeout=15)
+    except FracttalError:
+        return {"motivo": "", "nota": ""}
+    d = (r.get("data") if isinstance(r, dict) else r) or []
+    w = d[0] if isinstance(d, list) and d else (d if isinstance(d, dict) else {})
+    return {"motivo": str((w or {}).get("work_orders_status_custom_description") or "").strip(),
+            "nota": str((w or {}).get("note") or "").strip()}
 
 
 def checar_data_fim(id_work_order) -> dict:

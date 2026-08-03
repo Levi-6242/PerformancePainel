@@ -1127,6 +1127,16 @@ class OsDetalheDialog(QDialog):
         self._add_meta("calcheck", "Data fim", api.fmt_data_br(d.get("data_fim")) if d.get("data_fim") else "—")
         self._add_meta("user", "Atribuído a", self._linha_responsavel(d))
         self._add_meta("userplus", "Criado por", _person(d.get("criado_por")))
+        # OS cancelada: o motivo é a informação que a pessoa vem procurar aqui. Não existe "quem
+        # cancelou" no Fracttal — nenhum dos campos de pessoa do registro é isso (ver
+        # `api.cancelamento_da_os`), então nem prometo a coluna.
+        mot = (d.get("cancel_motivo") or "").strip()
+        nota = (d.get("cancel_nota") or "").strip()
+        if mot or nota:
+            txt = mot or "—"
+            if nota and nota.lower() != mot.lower():
+                txt += " · %s" % (nota[:70] + ("…" if len(nota) > 70 else ""))
+            self._add_meta("alert", "Cancelamento", txt)
         # vínculos no cabeçalho (OS pai só quando existe; Solicitação sempre) — Nº clicável abre o card
         _link = (f"color:{DESK};font-size:11.5px;font-weight:600;background:transparent;"
                  "text-decoration:underline;")
