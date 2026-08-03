@@ -3428,15 +3428,85 @@ def checar_data_fim(id_work_order) -> dict:
     return {"ok": not sem, "total": len(tasks), "sem_fim": sem}
 
 
-def concluir_os_checado(id_work_order) -> dict:
+def registrar_execucao(id_work_order, inicio: datetime) -> dict:
+    """Grava início e fim nas tarefas da OS que estão sem, abrindo e fechando uma execução.
+    → {'ok', 'tarefas': n, 'fim': iso|None, 'erro'}.
+
+    O INÍCIO É ESCOLHÍVEL, O FIM NÃO. Sondado ao vivo na OS 10571 (03/08):
+      · `execution_insert` aceita o `initial_date` que a gente manda e ele PROPAGA para a tarefa
+        (a tarefa saiu de nulo para 02/08 14:00, a data que escolhi);
+      · o mesmo insert IGNORA o `final_date` — devolveu `None` no campo que mandei preenchido;
+      · `execution_finish` também ignora, e carimba a hora da chamada (pedi 02/08 16:30, gravou
+        03/08 17:02).
+    Ou seja: não existe caminho nesta API para uma data de fim retroativa. O REST não ajuda —
+    `work_orders_tasks/` responde INVALID_ENDPOINT. Quem chama tem de deixar isso claro na tela,
+    senão a pessoa acha que escolheu a hora do fim e o Fracttal grava outra.
+
+    Roda ANTES do `concluir_os`: OS fechada não aceita mais execução."""
+    if not id_work_order or inicio is None:
+        return {"ok": False, "tarefas": 0, "fim": None, "erro": "sem OS ou sem data de início."}
+    if inicio.tzinfo is None:
+        inicio = inicio.replace(tzinfo=timezone.utc)
+    try:
+        r = _rpc_call(RPC_WO_TASKS_NEW, {"filter": [], "sort": [], "page": 1, "limit": 200,
+                                         "start": 0, "is_tree": False, "node": None,
+                                         "id_work_order": id_work_order})
+    except FracttalError as e:
+        return {"ok": False, "tarefas": 0, "fim": None, "erro": str(e)[:200]}
+    # o id da EXECUÇÃO é o `id` deste endpoint, não o id_task (que é o modelo da tarefa) — a troca
+    # derrubou o primeiro teste ao vivo com FOREIGN_KEY_VIOLATION. Ver `id_tarefa_da_os`.
+    tids = [t.get("id") for t in ((r.get("data") if isinstance(r, dict) else r) or [])
+            if isinstance(t, dict) and t.get("id") and not t.get("final_date")]
+    if not tids:
+        return {"ok": True, "tarefas": 0, "fim": None, "erro": ""}
+    # CONVERTE PARA UTC ANTES de formatar. O sufixo é "Z", então formatar a hora de Brasília aqui
+    # declara 12:39 BRT como 12:39 UTC — a tarefa nasce 3 horas mais cedo e a duração vira 4h30
+    # onde foram 1h30 (medido na OS 10573 antes do conserto). Mesma pegadinha da data do incidente.
+    inicio = inicio.astimezone(timezone.utc)
+    iso = inicio.strftime("%Y-%m-%dT%H:%M:%S.") + "%03dZ" % (inicio.microsecond // 1000)
+    feitas, erro = 0, ""
+    for tid in tids:
+        try:
+            ins = _rpc_call(RPC_EXEC_INSERT, {"page": 1, "limit": 200, "start": 0, "append": True,
+                                              "id_wo_tasks_execution_categorizations": None,
+                                              "id_work_order_task": tid,
+                                              "initial_date": iso, "done": False})
+            if isinstance(ins, dict) and ins.get("success") is False:
+                erro = erro or str(ins.get("message") or "não consegui abrir a execução")
+                continue
+            fim = _rpc_call(RPC_EXEC_FINISH, {"page": 1, "limit": 200, "start": 0, "append": True,
+                                              "id": tid, "view_stop_drawer": False})
+            if isinstance(fim, dict) and fim.get("success") is False:
+                erro = erro or str(fim.get("message") or "abri a execução mas não consegui fechar")
+                continue
+            feitas += 1
+        except FracttalError as e:
+            erro = erro or str(e)[:200]
+    chk = checar_data_fim(id_work_order)
+    return {"ok": feitas > 0 and chk.get("ok", False), "tarefas": feitas,
+            "fim": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "erro": erro if not feitas else ("" if chk.get("ok") else
+                                             "gravei em %d tarefa(s), mas %d seguem sem data de fim."
+                                             % (feitas, len(chk.get("sem_fim") or [])))}
+
+
+def concluir_os_checado(id_work_order, inicio_execucao: datetime = None) -> dict:
     """`concluir_os` + a RECONFERÊNCIA da data de fim, na mesma thread de trabalho.
 
     O segundo lado do double check: o primeiro avisa ANTES (a tela lê o que já carregou), este
     confere DEPOIS, contra o servidor. Sem ele o app anunciaria "OS concluída" para uma OS que
     fechou sem data de fim — que é exatamente o que ninguém percebeu na 10509.
-    → {'ok': True, 'data_fim': {…}} — ver `checar_data_fim`."""
+
+    `inicio_execucao` (opcional) = a pessoa optou por registrar a execução: grava as datas ANTES
+    de fechar (ver `registrar_execucao` — o fim é sempre o instante do fechamento).
+    → {'ok': True, 'data_fim': {…}, 'execucao': {…}|None}."""
+    exe = None
+    if inicio_execucao is not None:
+        exe = registrar_execucao(id_work_order, inicio_execucao)
+        # falha aqui NÃO impede a conclusão: a pessoa clicou em concluir, e a data é o extra.
+        # O resultado volta na resposta para a tela contar o que conseguiu e o que não.
     r = concluir_os(id_work_order)
-    return {**r, "data_fim": checar_data_fim(id_work_order)}
+    return {**r, "data_fim": checar_data_fim(id_work_order), "execucao": exe}
 
 
 # ── Clonar OS: lê a OS de referência (ativo + tipo + descrição + subtarefas + etiquetas) ──

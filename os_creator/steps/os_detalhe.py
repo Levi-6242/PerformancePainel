@@ -1,11 +1,12 @@
 """Card de detalhe de uma OS (ao clicar no nº no histórico) — redesign premium (tema navy GridCo):
 cabeçalho com Nº + selo, banner do ativo, metadados em grade + duração total, blocos Título/Notas,
 subtarefas em acordeão (clique abre a resposta), anexos SEPARADOS (das subtarefas × da OS) e ações."""
-from PyQt6.QtCore import Qt, QSize, QTimer
+from PyQt6.QtCore import Qt, QSize, QTimer, QDateTime
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
                              QScrollArea, QWidget, QFrame, QProgressBar, QApplication, QMessageBox,
-                             QLineEdit, QListWidget, QListWidgetItem, QComboBox)
+                             QLineEdit, QListWidget, QListWidgetItem, QComboBox,
+                             QCheckBox, QDateTimeEdit)
 import api
 from workers import ApiWorker, slot_seguro
 from steps.searchcombo import tornar_pesquisavel
@@ -442,9 +443,14 @@ class _ConcluirDialog(QDialog):
     `sem_fim` = títulos das tarefas SEM data de fim. Vem do que a tela já carregou (`_tarefas`),
     sem chamada extra. Quando tem, o diálogo ganha um segundo aviso — é o lado "antes" do double
     check pedido pelo Levi em 03/08: conclusão é irreversível, então a pessoa precisa saber ANTES
-    que a OS vai fechar sem data de fim, não descobrir depois como na 10509."""
-    def __init__(self, parent, folio, feitas=0, total=0, sem_fim=None):
+    que a OS vai fechar sem data de fim, não descobrir depois como na 10509.
+
+    `inicio_sugerido` (QDateTime) = default do campo de início quando a pessoa opta por gravar as
+    datas. Depois do exec(), `inicio_execucao` traz o datetime escolhido — ou None se ela não quis."""
+    def __init__(self, parent, folio, feitas=0, total=0, sem_fim=None, inicio_sugerido=None):
         super().__init__(parent)
+        self.ck_grava = None                 # só existem quando falta data de fim
+        self.ed_ini = None
         self.setWindowTitle("Concluir OS")
         self.setModal(True); self.setMinimumWidth(480)
         self.setStyleSheet(QSS_FORM + _EXTRA_QSS)
@@ -522,6 +528,48 @@ class _ConcluirDialog(QDialog):
             dt.setStyleSheet("color:#f0b4b4;font-size:13.5px;background:transparent;border:none;")
             dl.addWidget(di, 0, Qt.AlignmentFlag.AlignTop); dl.addWidget(dt, 1)
             lay.addWidget(dbox); lay.addSpacing(12)
+
+            # ── gravar as datas (opcional) ──
+            # O QUE DÁ E O QUE NÃO DÁ (sondado ao vivo na OS 10571): o Fracttal aceita o INÍCIO
+            # que a gente mandar, mas o FIM ele carimba sozinho na hora do fechamento — mandei
+            # 02/08 16:30 e ele gravou 03/08 17:02. Por isso o campo do fim não existe: um campo
+            # editável que o servidor ignora é pior que campo nenhum, a pessoa confia e sai errado.
+            gbox = QWidget(); gbox.setObjectName("gvBox")
+            gbox.setStyleSheet("QWidget#gvBox{background:%s;border:1px solid %s;border-radius:11px;}"
+                               % (INPUT, BORDER))
+            gv = QVBoxLayout(gbox); gv.setContentsMargins(14, 12, 14, 13); gv.setSpacing(9)
+            self.ck_grava = QCheckBox("Gravar as datas antes de fechar")
+            self.ck_grava.setCursor(Qt.CursorShape.PointingHandCursor)
+            self.ck_grava.setStyleSheet("QCheckBox{color:%s;font-size:13.5px;background:transparent;"
+                                        "border:none;}" % TEXT)
+            gv.addWidget(self.ck_grava)
+
+            # objectName + regra escopada: QWidget cru herda o fundo preto do diálogo e recorta um
+            # retângulo dentro do card. Escopar no #id é o mesmo cuidado do warnBox — sem isso a
+            # regra vaza para o QDateTimeEdit filho e come a borda dele.
+            self._campos = QWidget(); self._campos.setVisible(False)
+            self._campos.setObjectName("gvCampos")
+            self._campos.setStyleSheet("QWidget#gvCampos{background:transparent;border:none;}")
+            cv = QVBoxLayout(self._campos); cv.setContentsMargins(0, 2, 0, 0); cv.setSpacing(7)
+            lin = QHBoxLayout(); lin.setSpacing(10)
+            li = QLabel("Início da tarefa")
+            li.setStyleSheet(f"color:{MUTED};font-size:12.5px;background:transparent;border:none;")
+            self.ed_ini = QDateTimeEdit(); self.ed_ini.setCalendarPopup(True)
+            self.ed_ini.setDisplayFormat("dd/MM/yyyy HH:mm")
+            self.ed_ini.setDateTime(inicio_sugerido or QDateTime.currentDateTime().addSecs(-3600))
+            self.ed_ini.setMaximumDateTime(QDateTime.currentDateTime())   # início no futuro não existe
+            self.ed_ini.setFixedWidth(178)
+            lin.addWidget(li); lin.addStretch(1); lin.addWidget(self.ed_ini)
+            cv.addLayout(lin)
+            lf = QLabel("O <b>fim</b> fica com a hora em que você fechar a OS — quem carimba é o "
+                        "Fracttal, não dá para escolher.")
+            lf.setWordWrap(True)
+            lf.setStyleSheet(f"color:{MUTED};font-size:12px;background:transparent;border:none;")
+            cv.addWidget(lf)
+            gv.addWidget(self._campos)
+            self.ck_grava.toggled.connect(self._campos.setVisible)
+            self.ck_grava.toggled.connect(lambda _: self.adjustSize())
+            lay.addWidget(gbox); lay.addSpacing(12)
         lay.addSpacing(8)
 
         # ── botões ──
@@ -531,6 +579,15 @@ class _ConcluirDialog(QDialog):
         b_yes.setCursor(Qt.CursorShape.PointingHandCursor); b_yes.clicked.connect(self.accept)
         row.addWidget(b_no); row.addWidget(b_yes)
         lay.addLayout(row)
+
+    @property
+    def inicio_execucao(self):
+        """datetime do início escolhido, ou None se a pessoa não marcou. Com fuso de Brasília:
+        datetime ingênuo daqui vira UTC lá dentro e a hora sai 3 horas errada — foi o que
+        aconteceu com a data do incidente antes de carimbar o fuso."""
+        if not (self.ck_grava and self.ck_grava.isChecked() and self.ed_ini):
+            return None
+        return self.ed_ini.dateTime().toPyDateTime().astimezone()
 
 
 class _LinkLabel(QLabel):
@@ -847,13 +904,22 @@ class OsDetalheDialog(QDialog):
     def _concluir_os(self, *_):
         # tarefas sem data de fim — sai do que o card JÁ carregou (`_tarefas` traz 'fim'), sem
         # ida extra ao servidor. A reconferência contra o servidor vem depois, no `_concluiu`.
-        sem_fim = [t.get("titulo") or t.get("ativo") or "(tarefa sem título)"
-                   for t in (self._tarefas or []) if not str(t.get("fim") or "").strip()]
-        if _ConcluirDialog(self, self._folio or self._wo, self._sub_feitas,
-                           self._sub_total, sem_fim).exec() != QDialog.DialogCode.Accepted:
+        faltantes = [t for t in (self._tarefas or []) if not str(t.get("fim") or "").strip()]
+        sem_fim = [t.get("titulo") or t.get("ativo") or "(tarefa sem título)" for t in faltantes]
+        # sugestão do início = data PROGRAMADA da 1ª tarefa sem data — é o palpite mais próximo do
+        # que a pessoa faria à mão. Data inválida/ausente cai no default do diálogo (1h atrás).
+        sug = None
+        if faltantes:
+            sug = QDateTime.fromString(str(faltantes[0].get("programada") or "")[:19],
+                                       "yyyy-MM-ddTHH:mm:ss")
+            if not sug.isValid() or sug > QDateTime.currentDateTime():
+                sug = None
+        dlg = _ConcluirDialog(self, self._folio or self._wo, self._sub_feitas,
+                              self._sub_total, sem_fim, sug)
+        if dlg.exec() != QDialog.DialogCode.Accepted:
             return
         self.b_concluir.setEnabled(False); self.b_concluir.setText("concluindo…")
-        self._wcc = ApiWorker(api.concluir_os_checado, self._wo)
+        self._wcc = ApiWorker(api.concluir_os_checado, self._wo, dlg.inicio_execucao)
         self._wcc.ok.connect(self._concluiu); self._wcc.erro.connect(self._concluir_erro)
         self._wcc.start()
 
@@ -868,8 +934,19 @@ class OsDetalheDialog(QDialog):
         # Sem isto o app anunciava "concluída" sem diferença nenhuma entre a OS que fechou
         # completa e a que fechou com o campo vazio — que é como a 10509 passou batida.
         chk = (res or {}).get("data_fim") if isinstance(res, dict) else None
+        exe = (res or {}).get("execucao") if isinstance(res, dict) else None
         n = len((chk or {}).get("sem_fim") or [])
-        if n:
+        if exe and not n:                             # pediu para gravar e deu certo
+            QMessageBox.information(
+                self, "OS concluída",
+                "A OS %s foi concluída e as datas ficaram gravadas na tarefa."
+                % (self._folio or self._wo))
+        elif exe and exe.get("erro"):                 # pediu para gravar e falhou (a OS fechou)
+            QMessageBox.warning(
+                self, "OS concluída sem data de fim",
+                "A OS %s foi concluída, mas não consegui gravar as datas:\n%s"
+                % (self._folio or self._wo, exe.get("erro")))
+        elif n:
             QMessageBox.warning(
                 self, "OS concluída sem data de fim",
                 "A OS %s foi concluída, mas %s ficou SEM data de fim.\n\n"
