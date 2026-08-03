@@ -1,0 +1,9 @@
+{
+  "_comentario": "Notas manuais de tracker por UFV (causa conhecida de campo). Aparecem na linha do tracker na ronda quando ele estiver parado. Chave = nome da UFV COMO APARECE NA RONDA (ex.: 'Santo Inácio XII'); dentro, numero-do-tracker -> nota. Relido automaticamente a cada ronda (nao precisa reiniciar o servidor para adicionar/editar).",
+  "Santo Inácio XII": {
+    "19": "problema no acoplamento",
+    "22": "problema no acoplamento",
+    "23": "TCU com problema",
+    "40": "TCU com problema"
+  }
+}

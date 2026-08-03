@@ -1,0 +1,1261 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grid Co. · Monitoramento de Portfólio (NOC)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+/* ===== NOSSO ESTILO (claro) — padrão ===== */
+:root{
+  --bg:#f3f5f0; --panel:#ffffff; --panel-2:#f8fafc; --raise:#eef2f7;
+  --line:#e5e7eb; --line-2:#d8dee6;
+  --txt:#1a1b2e; --muted:#6b7280; --faint:#9aa1ad;
+  --brand:#7aa300; --brand-d:#5f7f00;
+  --ok:#16a34a; --amber:#d97706; --red:#dc2626; --off:#94a3b8; --blue:#0369a1;
+  --nav:#0f1117; --shadow:0 1px 12px rgba(0,0,0,.06),0 4px 24px rgba(0,0,0,.04);
+  --font:'Inter',system-ui,sans-serif;
+}
+/* ===== DARK (azul-marinho: bg #090d18, cards #161d30 — verde Grid + branco; SEM lilás — pedido Levi) ===== */
+body.dark{
+  --bg:#090d18; --panel:#161d30; --panel-2:#1c2640; --raise:#243154;
+  --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.13);
+  --txt:#e9eef6; --muted:#94a3b8; --faint:#64748b;
+  --brand:#a3d900; --brand-d:#8bbf00;
+  --ok:#6FA01E; --amber:#F0B53D; --red:#FF5C4D; --off:#475569; --blue:#5BC8E8;
+  --nav:linear-gradient(180deg,#0d1526,#080d18); --shadow:0 2px 20px rgba(0,0,0,.45);
+  --font:'Poppins',system-ui,sans-serif;
+}
+*{box-sizing:border-box;}
+html{background:#090d18;}   /* canvas escuro atrás do body (default do painel é escuro) — nunca mostra branco embaixo/enquanto carrega; no tema claro o body (min-height:100vh) cobre */
+html,body{margin:0;min-height:100vh;color:var(--txt);font-family:var(--font);font-size:13px;line-height:1.5;}
+body{background:var(--bg);transition:background .2s,color .2s;}
+.num{font-variant-numeric:tabular-nums lining-nums;}
+::-webkit-scrollbar{width:9px;height:9px;}::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px;}
+a{color:inherit;}
+
+.topbar{display:flex;align-items:center;gap:16px;padding:11px 20px;background:var(--nav);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30;}
+.logo{font-weight:700;font-size:17px;white-space:nowrap;}.logo .g{color:var(--brand);}.logo .c{color:#fff;}
+.back{color:#cbd5e1;font-size:12px;text-decoration:none;}.back:hover{color:#fff;}
+.scope{color:#cbd5e1;font-size:12.5px;}.scope select{background:rgba(255,255,255,.08);color:#fff;border:1px solid rgba(255,255,255,.18);border-radius:8px;padding:5px 9px;font-family:inherit;font-size:12px;}
+.spacer{flex:1;}
+.toggle{display:flex;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:9px;padding:3px;}
+.toggle button{background:transparent;border:0;color:#cbd5e1;font-family:inherit;font-size:12px;font-weight:500;padding:5px 13px;border-radius:7px;cursor:pointer;display:flex;align-items:center;gap:6px;}
+.toggle button.on{background:var(--brand);color:#16140e;}
+.live-pill{display:flex;align-items:center;gap:7px;background:rgba(169,219,33,.12);border:1px solid rgba(169,219,33,.32);color:var(--brand);padding:5px 11px;border-radius:20px;font-size:12px;font-weight:600;}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--brand);animation:pulse 1.8s infinite;}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(169,219,33,.5);}70%{box-shadow:0 0 0 7px rgba(169,219,33,0);}100%{box-shadow:0 0 0 0 rgba(169,219,33,0);}}
+.darkbtn{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);color:#fff;font-family:inherit;font-size:12px;font-weight:500;padding:6px 12px;border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:6px;}
+.upd{color:#94a3b8;font-size:11px;min-width:120px;text-align:right;line-height:1.3;}
+.upd b{color:#cbd5e1;}
+
+.wrap{padding:16px 20px 40px;max-width:1580px;margin:0 auto;}
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:14px;}
+.kpi{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:13px 15px;box-shadow:var(--shadow);}
+.kpi .l{font-size:11px;color:var(--muted);}.kpi .v{font-size:22px;font-weight:700;margin-top:4px;letter-spacing:-.02em;}
+.kpi .v .u{font-size:11px;color:var(--faint);font-weight:500;}.kpi .d{font-size:11px;margin-top:2px;color:var(--faint);}
+.kpi .d.bad{color:var(--red);}.kpi .d.warn{color:var(--amber);}
+.statline{display:flex;gap:10px;margin-top:6px;font-size:13px;font-weight:700;}
+.statline span{display:flex;align-items:center;gap:4px;}.statline i{width:9px;height:9px;border-radius:50%;display:inline-block;}
+
+.grid-main{display:grid;grid-template-columns:1.7fr 1.05fr;gap:14px;align-items:start;}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px 16px;box-shadow:var(--shadow);}
+.card h3{margin:0 0 2px;font-size:14px;font-weight:600;display:flex;align-items:center;gap:7px;}
+.card .csub{font-size:11px;color:var(--faint);margin-bottom:12px;}
+.chead{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;}
+.tagai{font-size:9px;font-weight:700;letter-spacing:.05em;background:rgba(3,105,161,.12);color:var(--blue);padding:2px 7px;border-radius:5px;text-transform:uppercase;}
+.filters{display:flex;gap:7px;align-items:center;flex-wrap:wrap;}
+.filters button,.filters select{background:var(--panel-2);border:1px solid var(--line);color:var(--muted);font-family:inherit;font-size:11.5px;padding:5px 11px;border-radius:7px;cursor:pointer;}
+.filters button.on{background:var(--brand);color:#16140e;border-color:var(--brand);}
+.filters .crit.on{background:var(--red);border-color:var(--red);color:#fff;}
+
+/* WALL */
+.wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:9px;max-height:640px;overflow:auto;padding-right:4px;}
+.tile{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:9px 10px;cursor:pointer;position:relative;border-top:3px solid var(--ok);transition:transform .1s;}
+.tile:hover{background:var(--raise);transform:translateY(-1px);}
+.tile.atencao{border-top-color:var(--amber);}.tile.critico{border-top-color:var(--red);}.tile.sem_comm{border-top-color:var(--off);opacity:.82;}.tile.sem_producao{border-top-color:#c2410c;}
+.tile .tid{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tile .tcli{font-size:9px;color:var(--faint);margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.tile .tmw{font-size:15px;font-weight:700;}.tile .tmw .u{font-size:9px;color:var(--faint);font-weight:500;}
+.tile .talm{position:absolute;top:8px;right:9px;font-size:9px;font-weight:700;border-radius:5px;padding:1px 5px;}
+.tile .talm.c{background:rgba(220,38,38,.16);color:var(--red);}.tile .talm.a{background:rgba(217,119,6,.16);color:var(--amber);}
+.tile .trow{display:flex;align-items:center;justify-content:space-between;margin-top:6px;gap:6px;}
+.tile .tcause{font-size:8.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:3px;}
+.tile .tatg{font-size:9px;margin-top:3px;font-weight:600;}
+
+/* FEED */
+.fhead{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center;}
+.split{font-size:11px;color:var(--muted);}.split b{color:var(--txt);font-weight:600;}
+.chip{background:var(--panel-2);border:1px solid var(--line);color:var(--muted);font-size:10.5px;padding:4px 9px;border-radius:6px;cursor:pointer;}
+.chip.on{background:var(--brand);color:#16140e;border-color:var(--brand);}
+.feed{display:flex;flex-direction:column;gap:10px;max-height:660px;overflow:auto;padding-right:4px;}
+.anom{border:1px solid var(--line);border-left-width:4px;border-radius:11px;padding:11px 13px;background:var(--panel-2);cursor:pointer;}
+.anom:hover{background:var(--raise);}
+.anom.critico{border-left-color:var(--red);}.anom.atencao{border-left-color:var(--amber);}.anom.sem_comm{border-left-color:var(--off);}.anom.sem_producao{border-left-color:#c2410c;}.anom.clima{border-left-color:var(--blue);}
+.anom .top{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+.anom .dev{font-weight:600;font-size:12.5px;}
+.anom .where{font-size:10px;color:var(--faint);margin-bottom:7px;}
+.sevtag{font-size:9px;font-weight:700;padding:2px 7px;border-radius:5px;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;}
+.sevtag.critico{background:rgba(220,38,38,.16);color:var(--red);}.sevtag.atencao{background:rgba(217,119,6,.16);color:var(--amber);}.sevtag.sem_comm{background:rgba(148,163,184,.22);color:var(--muted);}.sevtag.sem_producao{background:rgba(194,65,12,.16);color:#c2410c;}.sevtag.clima{background:rgba(3,105,161,.16);color:var(--blue);}
+.dline{display:flex;align-items:center;gap:6px;font-size:11.5px;margin-bottom:5px;}
+.dline .ic{font-size:14px;}.dline .cz{font-weight:600;color:var(--txt);}
+.conf{font-size:8.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:1px 6px;border-radius:5px;background:rgba(22,163,74,.16);color:var(--ok);margin-left:auto;}
+.conf.media{background:rgba(217,119,6,.16);color:var(--amber);}.conf.baixa{background:rgba(148,163,184,.2);color:var(--muted);}
+.trendrow{display:flex;align-items:center;gap:9px;margin-bottom:7px;}
+.dir{font-size:10.5px;font-weight:600;display:flex;align-items:center;gap:4px;}
+.dir.up{color:var(--red);}.dir.flat{color:var(--muted);}.dir.down{color:var(--ok);}
+.action{font-size:10.5px;color:var(--muted);margin-top:4px;}.action b{color:var(--txt);font-weight:500;}
+.invlink{font-size:10.5px;color:var(--blue);text-decoration:none;white-space:nowrap;float:right;}
+
+/* região / clientes */
+.region{display:flex;flex-direction:column;gap:9px;}
+.rrow{display:grid;grid-template-columns:1fr auto;align-items:center;gap:10px;}
+.rrow .rc{font-size:12px;font-weight:600;}
+.rbar{height:8px;border-radius:6px;background:var(--panel-2);overflow:hidden;display:flex;margin-top:4px;}.rbar i{height:100%;}
+.rrow .rk{font-size:11px;color:var(--muted);text-align:right;min-width:96px;}
+.insight{margin-top:12px;background:rgba(3,105,161,.07);border:1px solid rgba(3,105,161,.2);border-radius:10px;padding:10px 12px;font-size:11.5px;color:var(--blue);line-height:1.5;}
+.insight b{color:var(--txt);}
+
+/* HISTÓRICO */
+.rangebar{display:flex;gap:8px;align-items:center;margin-bottom:14px;}
+.cwrap{position:relative;width:100%;}.hidden{display:none!important;}
+table{width:100%;border-collapse:collapse;font-size:11.5px;}
+th{text-align:left;color:var(--faint);font-size:10px;letter-spacing:.04em;text-transform:uppercase;font-weight:600;padding:8px 9px;border-bottom:1px solid var(--line-2);}
+td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{color:var(--txt);font-weight:500;}
+.r{text-align:right;}
+
+/* DRAWER */
+.backdrop{position:fixed;inset:0;background:rgba(5,9,18,.55);opacity:0;pointer-events:none;transition:opacity .25s;z-index:40;}
+.backdrop.open{opacity:1;pointer-events:auto;}
+.drawer{position:fixed;top:0;right:0;width:440px;max-width:92vw;height:100vh;background:var(--panel);border-left:1px solid var(--line-2);box-shadow:-8px 0 30px rgba(0,0,0,.25);transform:translateX(100%);transition:transform .25s;z-index:50;overflow:auto;padding:18px 18px 40px;}
+.drawer.open{transform:translateX(0);}
+.dx{position:absolute;top:14px;right:16px;cursor:pointer;color:var(--muted);font-size:20px;background:none;border:0;}
+.dhdr .dt{font-size:17px;font-weight:600;}.dhdr .dm{font-size:11.5px;color:var(--faint);margin-bottom:14px;}
+.dkpis{display:grid;grid-template-columns:repeat(2,1fr);gap:9px;margin-bottom:14px;}
+.dk{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;}
+.dk .l{font-size:10px;color:var(--muted);}.dk .v{font-size:17px;font-weight:600;margin-top:2px;}
+.dsec{font-size:12px;font-weight:600;margin:14px 0 8px;}
+.dbtn{display:block;width:100%;text-align:center;margin-top:16px;background:var(--brand);color:#16140e;font-weight:600;font-family:inherit;font-size:13px;border:0;border-radius:9px;padding:11px;cursor:pointer;text-decoration:none;}
+.minihm-row{display:grid;grid-template-columns:62px 1fr;align-items:center;gap:8px;margin-bottom:5px;}.minihm-row .ml{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.minihm-cells{display:grid;gap:4px;}.mcell{height:13px;border-radius:3px;border:1px solid rgba(0,0,0,.12);}
+.empty{color:var(--faint);font-size:12px;padding:18px;text-align:center;}
+.legend{display:flex;flex-wrap:wrap;gap:13px;font-size:10.5px;color:var(--muted);margin:2px 0 10px;}
+.legend span{display:flex;align-items:center;gap:5px;}.sw{width:11px;height:11px;border-radius:3px;display:inline-block;}
+.foot{margin-top:22px;text-align:center;font-size:10.5px;color:var(--faint);}.foot b{color:var(--brand-d);}
+@media(max-width:1080px){.kpis{grid-template-columns:repeat(3,1fr);}.grid-main{grid-template-columns:1fr;}}
+</style>
+</head>
+<body class="dark">
+
+<div class="topbar">
+  <div class="logo"><span class="g">Grid</span><span class="c"> Co.</span></div>
+  <a class="back" href="/">← Dashboard</a>
+  <div class="scope">▸ Monitoramento de Portfólio</div>
+  <div class="spacer"></div>
+  <div class="toggle" id="modeToggle">
+    <button class="on" data-mode="live"><span class="pulse" style="width:7px;height:7px"></span> Tempo real</button>
+    <button data-mode="hist">⟲ Histórico</button>
+  </div>
+  <div class="live-pill" id="livePill"><span class="pulse"></span> AO VIVO</div>
+  <button class="darkbtn" id="darkBtn" onclick="toggleDark()">Tema: Claro</button>
+  <div class="upd" id="upd">—</div>
+</div>
+
+<div class="wrap">
+<!-- ===== TEMPO REAL ===== -->
+<div id="viewLive">
+  <div class="kpis" id="kpis"></div>
+  <div class="grid-main">
+    <div class="card">
+      <div class="chead">
+        <div><h3>Frota — saúde por usina 🛰️</h3><div class="csub">Bloco = usina · cor = pior estado · ordenado pelas piores · clique para investigar</div></div>
+        <div class="filters" id="wallFilters">
+          <button class="on" data-f="all">Todas</button>
+          <button data-f="exc">Só exceções</button>
+          <button class="crit" data-f="crit">Críticas</button>
+        </div>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:2px 0 8px">
+        <span id="wallViewTog" style="display:inline-flex;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px">
+          <button data-wv="str" onclick="setWallView('str')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:var(--brand);color:#16140e">String em risco</button>
+          <button data-wv="pr" onclick="setWallView('pr')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">PR &amp; meta</button>
+          <button data-wv="etm" onclick="setWallView('etm')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">ETM</button>
+        </span>
+        <input id="wallSearch" type="search" placeholder="🔍  Filtrar usina..." oninput="wallFilterInput(this.value)"
+               style="width:220px;max-width:100%;box-sizing:border-box;margin-left:auto;padding:6px 10px;font-size:12px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--txt)">
+      </div>
+      <div class="legend" id="wallLegend">
+        <span><span class="sw" style="background:var(--ok)"></span>Normal</span>
+        <span><span class="sw" style="background:var(--amber)"></span>Atenção</span>
+        <span><span class="sw" style="background:var(--red)"></span>Crítico</span>
+        <span><span class="sw" style="background:var(--off)"></span>Sem comunicação</span>
+      </div>
+      <div class="wall" id="wall"><div class="empty">Carregando frota…</div></div>
+    </div>
+    <div>
+      <div class="card">
+        <div class="chead"><div><h3>Anomalias do portfólio <span class="tagai">diagnóstico automático</span></h3>
+        <div class="csub">Causa provável (motor) · tendência · pronto para investigar</div></div></div>
+        <div class="fhead">
+          <span class="split" id="feedSplit"></span><span class="spacer"></span>
+          <span class="chip on" data-ff="all">Todas</span>
+          <span class="chip" data-ff="falha">Falhas</span>
+          <span class="chip" data-ff="parada">Sem produção</span>
+          <span class="chip" data-ff="clima">Clima</span>
+        </div>
+        <div class="feed" id="feed"><div class="empty">Carregando…</div></div>
+      </div>
+      <div class="card" style="margin-top:14px;">
+        <div class="chead"><div><h3>Usinas que exigem ação</h3><div class="csub">Mês ATUAL (gerada ÷ P50 prorrateado) · todas as usinas, piores atingimentos primeiro</div></div></div>
+        <div style="max-height:380px;overflow:auto;"><table id="tbWorstLive"><thead><tr><th>Usina</th><th>Cliente</th><th class="r">Atg.</th><th class="r">Perda MWh</th></tr></thead><tbody></tbody></table></div>
+      </div>
+      <div class="card" style="margin-top:14px;">
+        <div class="chead"><div><h3>Agrupamento 🗺️</h3><div class="csub">Faixa = status das usinas · atingimento/PR no mês onde há meta</div></div>
+          <div class="filters" id="grpFilters">
+            <button class="on" data-g="carteira">Carteira</button>
+            <button data-g="regiao">Região</button>
+            <button data-g="estado">Estado</button>
+          </div></div>
+        <div class="region" id="region"></div>
+        <div class="insight" id="insight"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== HISTÓRICO (D-1) ===== -->
+<div id="viewHist" class="hidden">
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
+    <span id="histViewTog" style="display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px">
+      <button data-hv="perda" onclick="setHistView('perda')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:var(--brand);color:#16140e">Energia perdida (MWh)</button>
+      <button data-hv="pr" onclick="setHistView('pr')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">PR</button>
+    </span>
+  </div>
+  <div id="histPerda">
+    <div class="kpis" id="kpisHist"></div>
+    <div class="grid-main">
+      <div>
+        <div class="card"><div class="chead"><div><h3>Top usinas por energia perdida (mês) 📉</h3><div class="csub">Déficit vs P50 prorrateado · MWh · onde concentrar a manutenção</div></div></div>
+          <div class="cwrap" style="height:300px"><canvas id="chLost"></canvas></div></div>
+        <div class="card" style="margin-top:14px;"><div class="chead"><div><h3>Distribuição da frota por atingimento</h3><div class="csub">Quantas usinas em cada faixa (gerada ÷ P50)</div></div></div>
+          <div class="cwrap" style="height:210px"><canvas id="chDist"></canvas></div></div>
+      </div>
+      <div><div class="card"><div class="chead"><div><h3>Usinas que exigem ação</h3><div class="csub">TODAS as usinas do mês, piores atingimentos primeiro</div></div></div>
+        <div style="max-height:560px;overflow:auto;"><table id="tbWorst"><thead><tr><th>Usina</th><th>Cliente</th><th class="r">Atg.</th><th class="r">Perda MWh</th></tr></thead><tbody></tbody></table></div></div></div>
+    </div>
+  </div>
+  <div id="histPr" class="hidden">
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap">
+        <div><div style="font-size:9.5px;color:var(--faint);letter-spacing:.06em;margin-bottom:3px">CLIENTE</div>
+          <select id="gCli" onchange="gLoadUsinas()" style="border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt)"></select></div>
+        <div><div style="font-size:9.5px;color:var(--faint);letter-spacing:.06em;margin-bottom:3px">USINA</div>
+          <select id="gUsi" onchange="gRenderAll()" style="border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt)"></select></div>
+        <div><div style="font-size:9.5px;color:var(--faint);letter-spacing:.06em;margin-bottom:3px">INÍCIO</div>
+          <input type="date" id="gIni" onchange="gRenderAll()" style="border:1px solid var(--line);border-radius:7px;padding:5px 8px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt)"></div>
+        <div><div style="font-size:9.5px;color:var(--faint);letter-spacing:.06em;margin-bottom:3px">FIM</div>
+          <input type="date" id="gFim" onchange="gRenderAll()" style="border:1px solid var(--line);border-radius:7px;padding:5px 8px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt)"></div>
+        <div style="margin-left:auto;text-align:right"><div style="font-size:9.5px;color:var(--faint);letter-spacing:.06em">PR UFV (último mês com dado)</div>
+          <div class="num" id="gKpi" style="font-size:26px;font-weight:700">—</div></div>
+      </div>
+      <div style="font-size:10px;color:var(--faint);margin-top:6px">D-1 — dados fechados do banco (BD_Performance / BD_Thopen), não tempo real.</div>
+    </div>
+    <div style="display:grid;grid-template-columns:minmax(0,1.9fr) minmax(238px,1fr);gap:14px;align-items:stretch">
+      <div class="card"><div class="chead"><div><h3>PR Realizado × PR Previsto (mensal)</h3><div class="csub" id="gMensalSub">Barras = PR ponderado do mês (D-1) · linha = meta · clique numa barra para abrir o diário</div></div></div>
+        <div class="cwrap" style="height:280px"><canvas id="gChMensal"></canvas></div></div>
+      <div class="card" style="display:flex;flex-direction:column;min-height:0">
+        <div class="chead"><div><h3>Comentários da UFV</h3><div class="csub">OSs de Performance + atribuídas a inversores · anotações dos analistas</div></div></div>
+        <div id="gOsLista"></div>
+        <div id="gComentLista" style="flex:1;min-height:60px;max-height:200px;overflow:auto;margin:2px 0 8px"></div>
+        <div style="display:flex;gap:6px;align-items:flex-start">
+          <input id="gComentNick" placeholder="Nick" maxlength="40" style="width:76px;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:11px;font-family:inherit;background:var(--panel-2);color:var(--txt)">
+          <textarea id="gComentTexto" rows="2" placeholder="Escreva um comentário..." maxlength="2000" style="flex:1;border:1px solid var(--line);border-radius:8px;padding:6px 8px;font-size:11px;font-family:inherit;background:var(--panel-2);color:var(--txt);resize:vertical"></textarea>
+        </div>
+        <button onclick="gComentPub()" style="border:1px solid var(--line);background:var(--panel-2);color:var(--txt);cursor:pointer;margin-top:6px;align-self:flex-end;padding:6px 14px;border-radius:8px;font-size:12px;font-family:inherit">Publicar</button>
+      </div>
+    </div>
+    <div class="grid-main" style="margin-top:14px">
+      <div class="card"><div class="chead"><div><h3>Top 10 piores inversores</h3><div class="csub" id="gTopSub">PR do período · linha = alvo da usina</div></div></div>
+        <div class="cwrap" style="height:340px"><canvas id="gChTop"></canvas></div></div>
+      <div class="card"><div class="chead"><div><h3>Performance por inversor</h3><div class="csub">PR realizado × alvo no período</div></div></div>
+        <div style="max-height:340px;overflow:auto"><table id="gTblInv"><thead><tr><th style="text-align:center">Inversor</th><th style="text-align:center">PR</th><th style="text-align:center">Alvo</th><th style="text-align:center">Dif</th></tr></thead><tbody></tbody></table></div></div>
+    </div>
+    <div class="card" style="margin-top:14px"><div class="chead"><div><h3>PR diário</h3><div class="csub" id="gDiarioSub">Mês da data FIM · barras vermelhas = abaixo da meta</div></div><button onclick="gExpandirDiario()" title="Ver Geração, POA e PR juntos em tela cheia" style="border:1px solid var(--line);background:var(--panel-2);color:var(--txt);cursor:pointer;padding:6px 12px;border-radius:8px;font-size:12px;font-family:inherit;white-space:nowrap"><i class="ph ph-arrows-out" style="margin-right:5px"></i>Expandir</button></div>
+      <div class="cwrap" style="height:240px"><canvas id="gChDiario"></canvas></div>
+      <div id="gOsEvBox" style="display:none;margin-top:10px"></div></div>
+  </div>
+</div>
+
+<div class="foot">Painel NOC · <b>Grid Co.</b> · dados reais (Thopen/PG + API PV) · <span id="footsrc">—</span></div>
+</div>
+
+<div class="backdrop" id="backdrop" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer">
+  <button class="dx" onclick="closeDrawer()">✕</button>
+  <div class="dhdr"><div class="dt" id="dTitle"></div><div class="dm" id="dMeta"></div></div>
+  <div class="dkpis" id="dKpis"></div>
+  <div class="dsec">Diagnóstico 🔎</div><div id="dDiag"><div class="empty">—</div></div>
+  <div id="dHeatWrap"></div>
+  <div id="dComentOs" style="margin-bottom:6px"></div>
+  <div class="dsec">Comentários 💬</div>
+  <div id="dComentLista" style="max-height:220px;overflow:auto;margin-bottom:8px"></div>
+  <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:14px">
+    <input id="dComentNick" placeholder="Seu nick" maxlength="40" style="width:96px;border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt)">
+    <textarea id="dComentTexto" rows="2" placeholder="Escreva um comentário..." maxlength="2000" style="flex:1;border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt);resize:vertical"></textarea>
+  </div>
+  <button class="dbtn" style="border:0;cursor:pointer;margin-bottom:16px" onclick="publicarComentarioDrawer()">Publicar comentário</button>
+  <a class="dbtn" id="dFull" href="#">Abrir diagnóstico completo →</a>
+</div>
+
+<script>
+const nf=(v,d=0)=>(v===null||v===undefined||isNaN(v))?'—':Number(v).toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d});
+const _pp=(x)=>(x==null||isNaN(x))?'—':((x>=0?'+':'−')+nf(Math.abs(x),1)+' pp');   // Δ em pontos percentuais
+function norm(s){return (s||'').toString().normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase().trim();}
+function fmtTs(t){  // timestamp (já em Brasília) → DD/MM/AAAA HH:MM
+  if(!t) return '—';
+  const m=String(t).match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  return m?`${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}`:String(t).replace('T',' ');
+}
+
+/* ---- Dark toggle (persistente) ---- */
+function applyDark(on){document.body.classList.toggle('dark',on);document.getElementById('darkBtn').innerHTML=on?'Tema: Escuro':'Tema: Claro';}
+function toggleDark(){const on=!document.body.classList.contains('dark');localStorage.setItem('painelDark',on?'1':'0');applyDark(on);if(builtHist)buildHist(true);}
+applyDark(localStorage.getItem('painelDark')!=='0');   // ESCURO é o padrão (só fica claro se o usuário escolher claro = '0')
+
+/* ---- sparkline svg ---- */
+function spark(arr,color,w,h){w=w||64;h=h||18;if(!arr||arr.length<2)return '<svg width="'+w+'" height="'+h+'"></svg>';
+  const mn=Math.min(...arr),mx=Math.max(...arr),rg=(mx-mn)||1;
+  const pts=arr.map((v,i)=>(i/(arr.length-1)*w).toFixed(1)+','+(h-((v-mn)/rg)*(h-3)-1.5).toFixed(1)).join(' ');
+  return '<svg width="'+w+'" height="'+h+'" viewBox="0 0 '+w+' '+h+'"><polyline points="'+pts+'" fill="none" stroke="'+color+'" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>';}
+function trendDir(arr){if(!arr||arr.length<3)return 'flat';const a=arr.slice(-4);const d=a[a.length-1]-a[0];if(d>0.5)return 'up';if(d<-0.5)return 'down';return 'flat';}
+const cssv=n=>getComputedStyle(document.body).getPropertyValue(n).trim();
+
+/* ---- emoji por causa ---- */
+function causaIco(p){
+  const r=(p.diag&&p.diag.regra)||'', c=norm((p.diag&&p.diag.causa)||p.causa||'');
+  if(p.status==='sem_comm'||c.includes('comunica')||c.includes('telemetria')) return '📡';
+  if(p.status==='sem_producao'||c.includes('sem producao')) return '🔌';
+  if(r==='R-06'||c.includes('derate')||c.includes('termic')||c.includes('temperatura')) return '🌡️';
+  if(r==='R-10'||c.includes('tracker')) return '🧭';
+  if(r==='R-07'||c.includes('trip')||c.includes('parado')) return '⚡';
+  if(r==='R-08'||c.includes('isola')) return '🔌';
+  if(r==='R-09'||c.includes('subperf')||c.includes('string')) return '🔌';
+  if(c.includes('sem geracao')) return '🌑';
+  return '⚠️';
+}
+
+const COR={ok:()=>cssv('--ok'),atencao:()=>cssv('--amber'),critico:()=>cssv('--red'),sem_comm:()=>cssv('--off'),sem_producao:()=>'#c2410c'};
+const NOME={ok:'Normal',atencao:'Atenção',critico:'Crítico',sem_comm:'Sem comunicação',sem_producao:'Sem produção'};
+
+let MACRO=null, GER=null, MAP={}, curWF='all', curFF='all', builtHist=false;
+
+async function boot(){
+  try{
+    const [m,g]=await Promise.all([
+      fetch('/api/macro').then(r=>r.json()).catch(()=>null),
+      fetch('/api/gerencial').then(r=>r.json()).catch(()=>null)
+    ]);
+    MACRO=m; GER=g; merge();
+    renderKpis(); renderWall(); renderFeed(); renderWorstTable('#tbWorstLive'); renderRegion(); stamp();
+  }catch(e){ document.getElementById('wall').innerHTML='<div class="empty">Falha ao carregar: '+e+'</div>'; }
+}
+
+function merge(){
+  MAP={};
+  const gmap={};
+  (GER&&GER.usinas||[]).forEach(u=>{gmap[norm(u.usina)]=u;});
+  const gkeys=Object.keys(gmap);
+  (MACRO&&MACRO.usinas||[]).forEach(u=>{
+    const k=norm(u.usina); let gg=gmap[k];
+    if(!gg){ // nomes ligeiramente diferentes entre fonte live e gerencial ("Usina" vs "Usina 1"):
+      const cand=gkeys.filter(x=>x.startsWith(k)||k.startsWith(x));
+      if(cand.length===1) gg=gmap[cand[0]];   // só quando o casamento é INEQUÍVOCO
+    }
+    gg=gg||{};
+    MAP[k]=Object.assign({}, u, {
+      cliente: gg.cliente||u.cliente||'—', prod:gg.prod, p50:gg.p50,
+      recurso:gg.recurso, atingimento:gg.atingimento, pr:gg.pr, pr_meta:gg.pr_meta, pot_mwp:gg.pot_mwp
+    });
+  });
+  // usinas que só existem no gerencial (com meta, sem item de macro) entram no histórico
+}
+
+function stamp(){
+  const mt=(MACRO&&MACRO.cache_ts)||'—', gt=(GER&&GER.cache_ts)||'—';
+  document.getElementById('upd').innerHTML='Ao vivo (API PV) <b>'+mt+'</b><br>Mês/PG <b>'+gt+'</b>';
+  document.getElementById('footsrc').textContent='atualizado '+mt+' (live) · '+gt+' (mês)';
+}
+
+/* ====== KPIs ====== */
+function renderKpis(){
+  const r=(MACRO&&MACRO.resumo)||{}, pf=(GER&&GER.portfolio)||{};
+  const potMWp=(GER&&GER.usinas||[]).reduce((s,u)=>s+(u.pot_mwp||0),0);
+  const perda=(GER&&GER.usinas||[]).reduce((s,u)=>s+(u.p50&&u.prod!=null?Math.max(0,u.p50-u.prod):0),0);
+  const k=document.getElementById('kpis');
+  k.innerHTML=
+   `<div class="kpi"><div class="l">Usinas monitoradas</div><div class="v num">${nf(r.total)}</div><div class="d">${nf(potMWp,0)} MWp</div></div>`+
+   `<div class="kpi"><div class="l">PR ponderado (mês)</div><div class="v num">${pf.pr!=null?nf(pf.pr,1)+'%':'—'}</div><div class="d">atingimento ${pf.atingimento!=null?nf(pf.atingimento,1)+'%':'—'}</div></div>`+
+   `<div class="kpi"><div class="l">Energia perdida (mês)</div><div class="v num">${nf(perda,1)} <span class="u">MWh</span></div><div class="d bad">vs P50 prorrateado</div></div>`+
+   `<div class="kpi"><div class="l">Strings em risco agora</div><div class="v num">${nf(r.strings_faltando)}</div><div class="d warn">abaixo do esperado</div></div>`+
+   `<div class="kpi"><div class="l">Plantas por status</div><div class="statline">`+
+     `<span><i style="background:${COR.ok()}"></i>${nf(r.ok)}</span>`+
+     `<span><i style="background:${COR.atencao()}"></i>${nf(r.atencao)}</span>`+
+     `<span><i style="background:${COR.critico()}"></i>${nf(r.critico)}</span>`+
+     `<span><i style="background:${COR.sem_comm()}"></i>${nf(r.sem_comm)}</span></div></div>`+
+   `<div class="kpi"><div class="l">Anomalias com causa</div><div class="v num">${nf(r.com_diagnostico)}</div><div class="d">motor de diagnóstico</div></div>`;
+}
+
+/* ====== WALL ====== */
+let curWQ='';
+function wallFilterInput(v){ curWQ=norm(v); renderWall(); }   // norm = minúsculo + sem acento (igual ao nome)
+let wallView='str';   // 'str' = string em risco (pior estado) · 'pr' = PR do mês vs meta da UFV
+function setWallView(v){
+  wallView=v;
+  document.querySelectorAll('#wallViewTog button').forEach(b=>{ const on=b.dataset.wv===v;
+    b.style.background=on?'var(--brand)':'transparent'; b.style.color=on?'#16140e':'var(--muted)'; });
+  const lg=document.getElementById('wallLegend');
+  if(lg) lg.innerHTML = v==='pr'
+    ? `<span><span class="sw" style="background:var(--ok)"></span>Na meta (≥ −2 pp)</span><span><span class="sw" style="background:var(--amber)"></span>até −8 pp</span><span><span class="sw" style="background:var(--red)"></span>&lt; −8 pp</span><span><span class="sw" style="background:var(--off)"></span>Sem PR no mês</span>`
+    : v==='etm'
+    ? `<span style="color:var(--muted)">Régua: IPOA/GHI nula ou zerada · valor constante ≥3 dias (sensor travado) · PR anômalo (&gt;130% = IPOA furada)</span>`
+    : `<span><span class="sw" style="background:var(--ok)"></span>Normal</span><span><span class="sw" style="background:var(--amber)"></span>Atenção</span><span><span class="sw" style="background:var(--red)"></span>Crítico</span><span><span class="sw" style="background:var(--off)"></span>Sem comunicação</span>`;
+  renderWall();
+}
+// classe de status (cor do tile) a partir do Δ (pr − meta) em pontos percentuais
+function _prCls(d){ return d==null?'sem_comm':d>=-2?'ok':d>=-8?'atencao':'critico'; }
+// PR confiável = número físico plausível (IPOA furado do PG estoura o valor → descarta, como o SENSOR)
+function _prReliable(pr){ return pr!=null && !isNaN(pr) && pr>=0 && pr<=130; }
+function tileStr(p){
+  const alm=p.status==='critico'?`<span class="talm c">${p.strings_faltando||(p.diag?p.diag.n:'!')}</span>`
+           :p.status==='atencao'?`<span class="talm a">${p.strings_faltando||1}</span>`:'';
+  let foot='';
+  if(p.status!=='ok'){
+    const dir=trendDir(p.trend), col=dir==='up'?cssv('--red'):dir==='down'?cssv('--ok'):cssv('--off');
+    foot=`<div class="trow"><span class="tcause">${causaIco(p)} ${(p.diag&&p.diag.causa)||p.causa||''}</span>${spark(p.trend,col,42,12)}</div>`;
+  }
+  const atg=p.atingimento!=null?`<div class="tatg" style="color:${p.atingimento>=95?cssv('--ok'):p.atingimento>=85?cssv('--amber'):cssv('--red')}">atg ${nf(p.atingimento,0)}%</div>`:'';
+  const valor=p.stringbox?'String Box':`${nf(p.strings_ativas)}<span class="u"> str</span>`;
+  return `<div class="tile ${p.status}" onclick="openDrawer('${norm(p.usina)}')">${alm}`+
+    `<div class="tid">${p.usina}</div><div class="tcli">${p.cliente||''}</div>`+
+    `<div class="tmw num">${valor}</div>${atg}${foot}</div>`;
+}
+function tilePr(p){
+  const pr=_prReliable(p.pr)?p.pr:null, meta=p.pr_meta, d=(pr!=null&&meta!=null)?pr-meta:null;
+  const cls=pr==null?'sem_comm':_prCls(d);
+  const col=cls==='ok'?cssv('--ok'):cls==='atencao'?cssv('--amber'):cls==='critico'?cssv('--red'):cssv('--faint');
+  const val=pr!=null?`${nf(pr,0)}%<span class="u"> PR</span>`:`—<span class="u"> sem PR</span>`;
+  const metaLn=meta!=null?`<div class="tatg" style="color:var(--faint)">meta ${nf(meta,0)}%</div>`:'';
+  // ACUSA o motivo do "sem PR" no card quando: é Full O&M (deveria ter PR) OU é um BURACO DE DADO
+  // (sem POA/potência/geração — motivo sem "carteira"), mesmo fora do Full O&M. Assim Ipixuna 1/2 e
+  // Linhares (sem POA) sempre sinalizam, e as carteiras BD_Thopen só acusam quando são Full O&M.
+  const _mot=(pr==null&&p.pr_motivo&&(p.full_oem||p.pr_motivo.indexOf('carteira')<0))?p.pr_motivo:null;
+  const sub=(pr!=null&&meta!=null)
+    ? `<div class="tatg" style="color:${col}">meta ${nf(meta,0)}% · ${_pp(d)}</div>`
+    : _mot
+      ? `<div class="tatg" style="color:var(--amber);font-weight:600" title="motivo de não ter PR${p.full_oem?' · Full O&amp;M (deveria ter)':''}">${_mot}</div>${metaLn}`
+      : metaLn;
+  return `<div class="tile ${cls}" onclick="openDrawer('${norm(p.usina)}')">`+
+    `<div class="tid">${p.usina}</div><div class="tcli">${p.cliente||''}</div>`+
+    `<div class="tmw num" style="color:${col}">${val}</div>${sub}</div>`;
+}
+function renderWall(){
+  const wallEl=document.getElementById('wall');
+  if(wallView==='etm'){ wallEl.style.display='block'; renderEtm(); return; }
+  wallEl.style.display='';
+  let items=Object.values(MAP).filter(p=>{
+    if(curWF==='exc'&&p.status==='ok')return false;
+    if(curWF==='crit'&&p.status!=='critico')return false;
+    if(curWQ && !norm(p.usina).includes(curWQ)) return false;
+    return true;
+  });
+  if(!items.length){wallEl.innerHTML='<div class="empty">Sem usinas neste filtro.</div>';return;}
+  if(wallView==='pr'){   // piores Δ (vs meta) primeiro; sem PR (ou PR furado) vão pro fim
+    items=items.slice().sort((a,b)=>{
+      const da=(_prReliable(a.pr)&&a.pr_meta!=null)?a.pr-a.pr_meta:99, db=(_prReliable(b.pr)&&b.pr_meta!=null)?b.pr-b.pr_meta:99;
+      return da-db;
+    });
+  }
+  const tile=wallView==='pr'?tilePr:tileStr;
+  document.getElementById('wall').innerHTML=items.map(tile).join('');
+}
+document.querySelectorAll('#wallFilters button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#wallFilters button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');curWF=b.dataset.f;renderWall();});
+
+/* ====== VISÃO ETM — usinas com IPOA/GHI quebrando o PR (tabela + ticket) ====== */
+let ETMP=null, etmCli=null;
+function etmFiltraCli(c){ etmCli=(etmCli===c)?null:c; renderEtm(); }
+const _esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+async function renderEtm(){
+  const el=document.getElementById('wall');
+  if(!ETMP){
+    el.innerHTML='<div class="empty">Varrendo as ETMs do mês (IPOA/GHI por dia)…</div>';
+    try{ ETMP=await fetch('/api/etm/problemas').then(r=>r.json()); }
+    catch(e){ el.innerHTML='<div class="empty">Falha ao varrer as ETMs.</div>'; ETMP=null; return; }
+    if(wallView!=='etm') return;   // usuário trocou de visão enquanto carregava
+  }
+  let its=(ETMP.itens||[]);
+  if(curWQ) its=its.filter(i=>norm(i.usina).includes(curWQ));
+  if(etmCli) its=its.filter(i=>(i.cliente||'—')===etmCli);   // filtro por cliente (clique no resumo)
+  const nAb=its.filter(i=>!(i.ticket&&i.ticket.feito)).length;
+  // contagem por CLIENTE (lista completa) — clicável p/ filtrar; clicar de novo limpa
+  const porCli={}; (ETMP.itens||[]).forEach(i=>{const c=i.cliente||'—'; porCli[c]=(porCli[c]||0)+1;});
+  const cliTxt=Object.entries(porCli).sort((a,b)=>b[1]-a[1])
+    .map(([c,q])=>{const on=etmCli===c;
+      return `<span class="etmcli" data-cli="${_esc(c)}" title="Clique para ${on?'limpar o filtro':'filtrar as usinas de '+_esc(c)}" style="cursor:pointer;padding:2px 8px;border-radius:12px;white-space:nowrap;${on?'background:var(--brand);color:#16140e;font-weight:700':''}">${_esc(c)} <b style="${on?'':'color:var(--txt)'}">${q}</b></span>`;})
+    .join(' ');
+  const hdr=`<div style="font-size:11px;color:var(--muted);margin-bottom:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center">${its.length} usina(s)${etmCli?` de <b style="color:var(--txt)">${_esc(etmCli)}</b>`:''} com problema de ETM em ${ETMP.mes||''} · <b style="color:var(--amber)">${nAb} sem ticket</b> · varrido ${ETMP.cache_ts||''} · por cliente: ${cliTxt}</div>`;
+  if(!its.length){ el.innerHTML=hdr+'<div class="empty">Nenhum problema de ETM neste filtro.</div>'; el.querySelectorAll('.etmcli').forEach(s=>s.onclick=()=>etmFiltraCli(s.dataset.cli)); return; }
+  el.innerHTML=hdr+
+  `<table style="width:100%;border-collapse:separate;border-spacing:0;font-size:12px">
+    <thead><tr style="background:var(--brand);color:#fff;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em">
+      <th style="padding:8px;text-align:center;border-radius:8px 0 0 8px">Usina</th><th style="padding:8px;text-align:center">Problema</th>
+      <th style="padding:8px;width:32%;text-align:center">Comentário</th><th style="padding:8px;white-space:nowrap;text-align:center;border-radius:0 8px 8px 0">Ticket criado?</th>
+    </tr></thead><tbody>`+
+  its.map((i,ri)=>{
+    const t=i.ticket||{}, done=!!t.feito;
+    const bd=ri?'border-top:1px solid var(--line);':'';   // divisória entre linhas (não sob o cabeçalho)
+    return `<tr data-etmu="${_esc(i.usina)}" style="${done?'opacity:.55':''}">
+      <td style="${bd}padding:8px;vertical-align:top"><b>${_esc(i.usina)}</b><div style="font-size:10px;color:var(--faint)">${_esc(i.cliente||'')}</div></td>
+      <td style="${bd}padding:8px;vertical-align:top">${(i.problemas||[]).map(p=>`<div style="display:flex;gap:6px;align-items:baseline;margin-bottom:2px"><span style="color:var(--red);font-weight:700">•</span><span>${_esc(p)}</span></div>`).join('')}</td>
+      <td style="${bd}padding:8px;vertical-align:top"><input type="text" value="${_esc(t.comentario||'')}" placeholder="Comentário (causa, ticket, follow-up)..." maxlength="2000" onchange="etmSave(this)"
+        style="width:100%;box-sizing:border-box;border:1px solid var(--line);border-radius:7px;padding:6px 8px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt)"></td>
+      <td style="${bd}padding:8px;vertical-align:top;text-align:center"><input type="checkbox" ${done?'checked':''} onchange="etmSave(this)" title="Ticket criado?"
+        style="width:16px;height:16px;accent-color:var(--brand);cursor:pointer">${t.ts?`<div style="font-size:9px;color:var(--faint);margin-top:3px">${_esc(t.ts)}</div>`:''}</td>
+    </tr>`;}).join('')+`</tbody></table>`;
+  el.querySelectorAll('.etmcli').forEach(s=>s.onclick=()=>etmFiltraCli(s.dataset.cli));
+}
+async function etmSave(elm){
+  const tr=elm.closest('tr'); if(!tr) return;
+  const usina=tr.dataset.etmu;
+  const com=(tr.querySelector('input[type="text"]')||{}).value||'';
+  const chk=!!(tr.querySelector('input[type="checkbox"]')||{}).checked;
+  try{
+    await fetch('/api/etm/ticket',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({usina, comentario:com.trim(), feito:chk})});
+    (ETMP&&ETMP.itens||[]).forEach(i=>{ if(i.usina===usina) i.ticket={comentario:com.trim(),feito:chk,ts:i.ticket&&i.ticket.ts||''}; });
+    tr.style.opacity=chk?'.55':'';
+  }catch(e){ alert('Falha ao salvar o ticket de '+usina+'.'); }
+}
+
+/* ====== FEED ====== */
+function climaList(){
+  // "clima" = recurso (IPOA) abaixo do P50 — déficit explicado por recurso, não falha
+  return (GER&&GER.usinas||[]).filter(u=>u.recurso!=null&&u.p50&&u.recurso<u.p50*0.92&&(u.atingimento==null||u.atingimento<98))
+    .sort((a,b)=>(a.atingimento||0)-(b.atingimento||0)).slice(0,12);
+}
+function renderFeed(){
+  const anoms=Object.values(MAP).filter(p=>p.status!=='ok')
+    .sort((a,b)=>(a.sev-b.sev)||((b.strings_faltando||0)-(a.strings_faltando||0)));
+  const paradas=anoms.filter(p=>p.status==='sem_producao');   // usinas PARADAS (potência ~0) — alerta próprio
+  const falhas =anoms.filter(p=>p.status!=='sem_producao');   // strings abaixo / comm — foco em operante
+  const clima=climaList();
+  document.getElementById('feedSplit').innerHTML=`<b>${falhas.length}</b> falhas · <b>${paradas.length}</b> sem produção · <b>${clima.length}</b> recurso (clima)`;
+  // quais cards de anomalia entram conforme o chip (falha/parada usam o MESMO template)
+  const itens = curFF==='falha'?falhas : curFF==='parada'?paradas : curFF==='clima'?[] : falhas.concat(paradas);
+  let html=itens.map(p=>{
+    const dir=trendDir(p.trend), dm={up:['up','▲','piorando'],down:['down','▼','melhorando'],flat:['flat','▬','estável']}[dir];
+    const col=dir==='up'?cssv('--red'):dir==='down'?cssv('--ok'):cssv('--off');
+    const conf=(p.diag&&p.diag.confianca)||'';
+    const _off=p.inv_off?`<span style="color:#c2410c;font-weight:600">${p.inv_off} inv. parado(s)</span>`:'';
+    const _str=(p.status!=='sem_producao'&&p.strings_faltando)?`<span style="color:${cssv('--amber')};font-weight:600">−${p.strings_faltando} strings</span>`:'';
+    const alm=(_off||_str)?`<span style="margin-left:auto;display:inline-flex;gap:10px">${_off}${_str}</span>`:'';
+    // PR atual + Δ vs meta da UFV (abaixo do status/strings)
+    const _prOk=_prReliable(p.pr);
+    const _prd=(_prOk&&p.pr_meta!=null)?(p.pr-p.pr_meta):null;
+    const _prcol=_prd==null?cssv('--faint'):_prd>=-2?cssv('--ok'):_prd>=-8?cssv('--amber'):cssv('--red');
+    const prline=_prOk?`<div style="font-size:11px;color:var(--muted);margin-top:5px;padding-top:5px;border-top:1px solid var(--line)">PR do mês <b style="color:${_prcol}">${nf(p.pr,0)}%</b>${p.pr_meta!=null?` · <span style="color:${_prcol};font-weight:600">${_pp(p.pr-p.pr_meta)}</span> vs meta ${nf(p.pr_meta,0)}%`:''}</div>`:'';
+    return `<div class="anom ${p.status}" onclick="openDrawer('${norm(p.usina)}')">`+
+      `<div class="top"><span class="dev">${p.usina}</span><span class="sevtag ${p.status}">${NOME[p.status]||p.status}</span></div>`+
+      `<div class="where">${p.cliente||'—'} · ${p.fonte}${p.qtd_inversores?' · '+p.qtd_inversores+' inv':''}</div>`+
+      `<div class="dline"><span class="ic">${causaIco(p)}</span><span class="cz">${(p.diag&&p.diag.causa)||p.causa||''}</span>`+
+        (conf?`<span class="conf ${conf}">conf. ${conf}</span>`:'')+`</div>`+
+      `<div class="trendrow">${spark(p.trend,col,70,20)}<span class="dir ${dm[0]}">${dm[1]} ${dm[2]}</span>${alm}</div>`+
+      prline+
+      (p.diag&&p.diag.acao?`<div class="action"><b>Ação:</b> ${p.diag.acao}</div>`:'')+
+      (hasDrill(p)?`<a class="invlink" href="${drillUrl(p)}" onclick="event.stopPropagation()">investigar →</a>`:'')+`</div>`;
+  }).join('');
+  if(curFF==='all'||curFF==='clima') html+=clima.map(u=>
+    `<div class="anom clima">`+
+    `<div class="top"><span class="dev">${u.usina}</span><span class="sevtag clima">Recurso/Clima</span></div>`+
+    `<div class="where">${u.cliente||'—'}</div>`+
+    `<div class="dline"><span class="ic">⛅</span><span class="cz">IPOA abaixo do previsto — déficit de recurso</span></div>`+
+    `<div class="action">Gerada ${nf(u.prod,1)} MWh · P50 ${nf(u.p50,1)} MWh · atingimento ${u.atingimento!=null?nf(u.atingimento,0)+'%':'—'} — <b>não despachar</b> (clima).</div></div>`
+  ).join('');
+  document.getElementById('feed').innerHTML=html||'<div class="empty">Sem anomalias 🎉</div>';
+}
+document.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{
+  document.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));
+  c.classList.add('on');curFF=c.dataset.ff;renderFeed();});
+
+/* ====== AGRUPAMENTO (carteira / região / estado) ====== */
+let curGrp='carteira';
+function _grpKey(p){
+  if(curGrp==='regiao') return p.regiao||'Sem região';
+  if(curGrp==='estado') return p.estado||'Sem estado';
+  return (p.cliente && p.cliente!=='—')?p.cliente:p.fonte;   // carteira
+}
+function renderRegion(){
+  // agrupa TODAS as fontes do painel (MAP) pelo modo escolhido. Barra = mix de status;
+  // atg/PR do gerencial (PR só casa no modo carteira). Athon/Axis/2C aparecem em todos os modos.
+  const cliPR={}; (GER&&GER.clientes||[]).forEach(c=>{cliPR[c.cliente]=c.pr;});
+  const groups={};
+  Object.values(MAP).forEach(p=>{
+    const key=_grpKey(p);
+    const g=groups[key]||(groups[key]={key,n:0,ok:0,atencao:0,critico:0,sem_comm:0,prod:0,p50:0});
+    g.n++; g[p.status]=(g[p.status]||0)+1;
+    if(p.p50){g.prod+=(p.prod||0); g.p50+=p.p50;}
+  });
+  const arr=Object.values(groups).sort((a,b)=>b.n-a.n);
+  document.getElementById('region').innerHTML=arr.map(g=>{
+    const seg=st=>g[st]?`<i style="width:${g[st]/g.n*100}%;background:${COR[st]()}"></i>`:'';
+    const bar=seg('ok')+seg('atencao')+seg('critico')+seg('sem_producao')+seg('sem_comm');
+    const atg=g.p50?g.prod/g.p50*100:null, pr=(curGrp==='carteira')?cliPR[g.key]:null;
+    const info=`${g.n} us`+(atg!=null?` · atg ${nf(atg,0)}%`:'')+(pr!=null?` · PR ${nf(pr,0)}%`:'');
+    return `<div class="rrow"><div><div class="rc">${g.key}</div><div class="rbar">${bar}</div></div><div class="rk">${info}</div></div>`;
+  }).join('')||'<div class="empty">Sem usinas.</div>';
+  const pf=(GER&&GER.portfolio)||{};
+  if(pf.indice_recurso!=null||pf.indice_desempenho!=null){
+    document.getElementById('insight').innerHTML=`⛅ Decomposição do mês: <b>recurso (clima) ${pf.indice_recurso!=null?nf(pf.indice_recurso,0)+'%':'—'}</b> vs <b>desempenho ${pf.indice_desempenho!=null?nf(pf.indice_desempenho,0)+'%':'—'}</b>. `+
+      `O índice de recurso separa o que é clima do que é falha real — priorize as quedas com bom recurso (problema na usina).`;
+  } else document.getElementById('insight').innerHTML='Barra colorida = mix de status das usinas do grupo. Alterne entre carteira, região e estado no topo.';
+}
+document.querySelectorAll('#grpFilters button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#grpFilters button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');curGrp=b.dataset.g;renderRegion();});
+
+/* ====== DRAWER ====== */
+const FMAP={'API PV':'pv','Thopen':'pg','Athon':'athon','Axis':'axis','2C':'2c'};
+function hasDrill(p){return !!FMAP[p.fonte];}              // TODAS as fontes têm drill (inversores+trackers)
+function hasEngine(p){return p.fonte==='API PV'||p.fonte==='Thopen';}  // motor de causa provável só pv/pg
+function drillUrl(p){const f=FMAP[p.fonte];if(!f)return '';return `/painel/usina/${encodeURIComponent(p.plant_id)}?fonte=${f}&nome=${encodeURIComponent(p.usina)}&ts=${encodeURIComponent(p.ultima_leitura||'')}`;}
+
+/* ---- Comentários multi-analista (thread) — MESMA chave/API do dashboard operacional (index.html),
+   então um comentário publicado lá ou aqui aparece nos dois lugares. ---- */
+const KEYPFX={'API PV':'pv','Thopen':'pg','Athon':'so','Axis':'so','2C':'owen'};
+function stateKey(p){const pfx=KEYPFX[p.fonte];return pfx?(pfx+':'+p.plant_id):null;}
+let _comentKeyAtual=null;
+function _cmEsc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function _cmTs(ts){const m=String(ts||'').match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);return m?`${m[3]}/${m[2]} ${m[4]}:${m[5]}`:'';}
+function _renderComentDrawer(thread){
+  const lst=(thread||[]).slice().reverse();
+  document.getElementById('dComentLista').innerHTML = lst.length ? lst.map(c=>
+    `<div style="border:1px solid var(--line);border-radius:8px;padding:7px 10px;margin-bottom:6px;background:var(--panel-2)">
+       <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--faint);margin-bottom:3px">
+         <b style="color:var(--txt)">${_cmEsc(c.nick)}</b>
+         <span>${_cmTs(c.ts)}${c.ts?` <span onclick="excluirComentarioDrawer('${c.ts}')" title="Excluir" style="cursor:pointer;color:var(--red);margin-left:8px;font-weight:700">✕</span>`:''}</span>
+       </div>
+       <div style="font-size:12px;color:var(--txt);white-space:pre-wrap">${_cmEsc(c.texto)}</div>
+     </div>`).join('') : '<div class="empty" style="padding:8px 0">Sem comentários ainda — seja o primeiro.</div>';
+}
+async function publicarComentarioDrawer(){
+  const nick=document.getElementById('dComentNick').value.trim();
+  const texto=document.getElementById('dComentTexto').value.trim();
+  if(!nick||!texto){alert('Preencha seu nick e o comentário.');return;}
+  if(!_comentKeyAtual)return;
+  localStorage.setItem('gcAnalistaNick',nick);
+  try{
+    const r=await fetch('/api/state/comment/add',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({key:_comentKeyAtual,nick,texto})}).then(r=>r.json());
+    document.getElementById('dComentTexto').value='';
+    _renderComentDrawer(r.thread||[]);
+  }catch(e){alert('Falha ao publicar o comentário.');}
+}
+async function excluirComentarioDrawer(ts){
+  if(!_comentKeyAtual)return;
+  try{
+    const r=await fetch('/api/state/comment/del',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({key:_comentKeyAtual,ts})}).then(r=>r.json());
+    _renderComentDrawer(r.thread||[]);
+  }catch(e){}
+}
+function _carregarOsDrawer(usina){   // OSs de Performance (Fracttal) da usina — só-leitura, acima dos comentários
+  const box=document.getElementById('dComentOs'); if(!box) return;
+  box.innerHTML='';
+  gGET('/api/os-performance?usina='+encodeURIComponent(usina||'')).then(d=>{
+    const os=(d&&d.os)||[]; if(!os.length){ box.innerHTML=''; return; }
+    const cards=os.map(o=>
+      `<div style="border:1px solid var(--line);border-left:3px solid #f59e0b;border-radius:8px;padding:6px 9px;margin-bottom:5px;background:var(--panel-2)">
+         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+           <b style="font-family:monospace;font-size:11px">OS #${_cmEsc(o.os)}</b>
+           <span style="font-size:9px;color:var(--faint);background:var(--panel);padding:1px 6px;border-radius:4px">${_cmEsc(o.categoria)}</span>
+           <span style="margin-left:auto;font-size:9px;font-weight:700;padding:1px 7px;border-radius:20px;background:rgba(245,158,11,.16);color:#f59e0b;white-space:nowrap">${_cmEsc(o.status)}</span></div>
+         ${o.nota?`<div style="font-size:10.5px;color:var(--muted);margin-top:4px;line-height:1.4">${_cmEsc(String(o.nota).slice(0,170))}</div>`:''}
+       </div>`).join('');
+    box.innerHTML=`<div class="dsec" style="margin-top:0">OSs de Performance 🛠️ <span style="font-weight:400;color:var(--faint);font-size:11px">· ${os.length} em aberto</span></div>${cards}`;
+  }).catch(()=>{ box.innerHTML=''; });
+}
+function _carregarComentariosDrawer(p){
+  _comentKeyAtual=stateKey(p);
+  _carregarOsDrawer(p&&p.usina);
+  document.getElementById('dComentNick').value=localStorage.getItem('gcAnalistaNick')||'';
+  document.getElementById('dComentTexto').value='';
+  if(!_comentKeyAtual){document.getElementById('dComentLista').innerHTML='<div class="empty">Fonte sem chave de estado conhecida.</div>';return;}
+  document.getElementById('dComentLista').innerHTML='<div class="empty">Carregando…</div>';
+  fetch('/api/state').then(r=>r.json()).then(d=>{
+    const thread=(d.comments_thread&&d.comments_thread[_comentKeyAtual])||[];
+    const legado=d.comments&&d.comments[_comentKeyAtual];
+    _renderComentDrawer(thread.length?thread:(legado&&legado.trim()?[{nick:'(antigo)',texto:legado,ts:''}]:[]));
+  }).catch(()=>{document.getElementById('dComentLista').innerHTML='<div class="empty">Falha ao carregar.</div>';});
+}
+
+async function openDrawer(key){
+  const p=MAP[key]; if(!p)return;
+  document.getElementById('dTitle').textContent=p.usina;
+  document.getElementById('dMeta').textContent=`${p.cliente||'—'} · ${p.fonte}${p.pot_mwp?' · '+nf(p.pot_mwp,1)+' MWp':''}`;
+  document.getElementById('dKpis').innerHTML=
+    dk('Status',NOME[p.status]||p.status)+dk('Última leitura',fmtTs(p.ultima_leitura))+
+    dk('Atingimento',p.atingimento!=null?nf(p.atingimento,1)+'%':'—')+
+    '<div class="dk"><div class="l">PR</div><div class="v num" id="dkPR">'+(p.pr!=null?nf(p.pr,1)+'%':'—')+'</div></div>'+
+    dk('Strings ativas',p.stringbox?'String Box':nf(p.strings_ativas))+dk('Strings faltando',nf(p.strings_faltando));
+  // PR ao vivo para API PV (gerencial é só PG → para usinas da API PV o PR vem do /api/pv/pr/<id>)
+  if(p.fonte==='API PV' && p.pr==null && p.plant_id){
+    fetch(`/api/pv/pr/${p.plant_id}`).then(r=>r.json()).then(d=>{const e=document.getElementById('dkPR');if(e&&d&&d.pr!=null)e.textContent=nf(d.pr*100,1)+'%';}).catch(()=>{});
+  }
+  document.getElementById('backdrop').classList.add('open');
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('dHeatWrap').innerHTML='';
+  _carregarComentariosDrawer(p);
+  const dFull=document.getElementById('dFull');
+  dFull.style.display='block'; dFull.href=drillUrl(p);   // todas as fontes têm diagnóstico completo (inversores+trackers)
+  if(!hasEngine(p)){  // Athon/Axis/2C: sem motor de causa → o drill completo mostra inversores × strings e trackers
+    document.getElementById('dDiag').innerHTML=`<div class="empty">Fonte <b>${p.fonte}</b> — sem motor de causa provável. Abra o <b>diagnóstico completo</b> para ver inversores × strings e trackers.<br>Status: ${p.causa||NOME[p.status]} · última leitura ${fmtTs(p.ultima_leitura)}.</div>`;
+    return;
+  }
+  const semBanner=p.status==='sem_comm'?`<div class="anom sem_comm" style="cursor:default;margin-bottom:10px"><div class="dline"><span class="ic">📡</span><span class="cz">Sem comunicação agora</span></div><div class="action">Última leitura: <b>${fmtTs(p.ultima_leitura)}</b> · o diagnóstico abaixo usa os <b>últimos dados</b> recebidos.</div></div>`:'';
+  document.getElementById('dDiag').innerHTML='<div class="empty">Carregando diagnóstico…</div>';
+  const isPv=(p.fonte==='API PV');
+  try{
+    const url=isPv?`/api/diagnostico/pv/${p.plant_id}`:`/api/diagnostico/${p.plant_id}`;
+    const d=await fetch(url).then(r=>r.json());
+    const diags=d.diagnosticos||[];
+    document.getElementById('dDiag').innerHTML=semBanner+(diags.length?diags.map(x=>
+      `<div class="anom atencao" style="cursor:default;margin-bottom:8px"><div class="dline"><span class="ic">${causaIco({diag:x,causa:x.causa})}</span><span class="cz">${x.causa}</span>`+
+      (x.confianca?`<span class="conf ${x.confianca}">conf. ${x.confianca}</span>`:'')+`</div>`+
+      `<div class="where" style="margin:0 0 5px">${x.escopo||''}</div>`+
+      (x.evidencia&&x.evidencia.length?`<div class="action">${x.evidencia.join(' ')}</div>`:'')+
+      (x.acao?`<div class="action"><b>Ação:</b> ${x.acao}</div>`:'')+`</div>`
+    ).join(''):`<div class="empty">${p.status==='sem_comm'?'Sem anomalia detectada nos últimos dados recebidos.':'Sem anomalias por inversor — usina dentro do esperado.'}</div>`);
+    if(isPv) loadHeat(p.plant_id);
+  }catch(e){ document.getElementById('dDiag').innerHTML='<div class="empty">Diagnóstico indisponível.</div>'; }
+}
+function dk(l,v){return `<div class="dk"><div class="l">${l}</div><div class="v num">${v}</div></div>`;}
+function closeDrawer(){document.getElementById('backdrop').classList.remove('open');document.getElementById('drawer').classList.remove('open');}
+
+const heatColor=d=>d<3?cssv('--ok'):d<10?'#D9C24E':d<30?cssv('--amber'):cssv('--red');
+async function loadHeat(pid){
+  try{
+    const d=await fetch(`/api/plant/${pid}`).then(r=>r.json());
+    // oculta strings trancadas — só as "vivas" (OK / baixa / sem corrente)
+    const invs=(d.inversores||[]).map(i=>({nome:i.nome,strings:(i.strings||[]).filter(s=>s.status!=='trancada')})).filter(i=>i.strings.length);
+    if(!invs.length)return;
+    const maxS=Math.max(...invs.map(i=>i.strings.length));
+    if(maxS<=1){  // String Box: 1 canal agregado por inversor → sem visão por string
+      document.getElementById('dHeatWrap').innerHTML='<div class="dsec">Inversores × strings</div><div class="empty">String Box — corrente agregada (1 canal por inversor), sem visão por string individual.</div>';
+      return;
+    }
+    let hh='<div class="dsec">Inversores × strings 🔥 <span style="font-weight:400;color:var(--faint);font-size:10px">(trancadas ocultas)</span></div>';
+    hh+='<div class="legend"><span><span class="sw" style="background:'+cssv('--ok')+'"></span>OK</span><span><span class="sw" style="background:'+cssv('--amber')+'"></span>Baixa</span><span><span class="sw" style="background:'+cssv('--red')+'"></span>Sem corrente</span></div>';
+    invs.slice(0,12).forEach(i=>{
+      let cells='';
+      i.strings.forEach(s=>{
+        const st=s.status, col=st==='sem_corrente'?cssv('--red'):st==='baixa_perf'?cssv('--amber'):cssv('--ok');
+        cells+=`<div class="mcell" title="${s.id}: ${nf(s.corrente,1)} A (${st})" style="background:${col}"></div>`;
+      });
+      hh+=`<div class="minihm-row"><div class="ml" title="${i.nome}">${i.nome}</div><div class="minihm-cells" style="grid-template-columns:repeat(${maxS},1fr)">${cells}</div></div>`;
+    });
+    document.getElementById('dHeatWrap').innerHTML=hh;
+  }catch(e){}
+}
+
+/* ====== HISTÓRICO ====== */
+let chLost=null, chDist=null;
+function renderKpisHist(){
+  const pf=(GER&&GER.portfolio)||{}, us=(GER&&GER.usinas||[]);
+  const perda=us.reduce((s,u)=>s+(u.p50&&u.prod!=null?Math.max(0,u.p50-u.prod):0),0);
+  const abaixo=us.filter(u=>u.atingimento!=null&&u.atingimento<95).length;
+  document.getElementById('kpisHist').innerHTML=
+   `<div class="kpi"><div class="l">Atingimento da frota</div><div class="v num">${pf.atingimento!=null?nf(pf.atingimento,1)+'%':'—'}</div><div class="d">mês ${(GER&&GER.mes)||''}</div></div>`+
+   `<div class="kpi"><div class="l">PR ponderado</div><div class="v num">${pf.pr!=null?nf(pf.pr,1)+'%':'—'}</div></div>`+
+   `<div class="kpi"><div class="l">Energia gerada</div><div class="v num">${nf(pf.prod,0)} <span class="u">MWh</span></div><div class="d">P50 ${nf(pf.p50,0)}</div></div>`+
+   `<div class="kpi"><div class="l">Energia perdida</div><div class="v num">${nf(perda,1)} <span class="u">MWh</span></div></div>`+
+   `<div class="kpi"><div class="l">Usinas < 95%</div><div class="v num">${nf(abaixo)}</div><div class="d">de ${us.length}</div></div>`+
+   `<div class="kpi"><div class="l">Recurso (clima)</div><div class="v num">${pf.indice_recurso!=null?nf(pf.indice_recurso,0)+'%':'—'}</div><div class="d">desemp ${pf.indice_desempenho!=null?nf(pf.indice_desempenho,0)+'%':'—'}</div></div>`;
+}
+function buildHist(rebuild){
+  if(builtHist&&!rebuild)return; builtHist=true;
+  renderKpisHist();
+  const us=(GER&&GER.usinas||[]);
+  const tk=cssv('--muted'), grid=document.body.classList.contains('dark')?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';
+  const worst=us.filter(u=>u.p50&&u.prod!=null&&(u.p50-u.prod)>0).map(u=>({n:u.usina,perda:u.p50-u.prod,atg:u.atingimento}))
+    .sort((a,b)=>b.perda-a.perda).slice(0,12);
+  if(chLost)chLost.destroy();
+  chLost=new Chart(document.getElementById('chLost'),{type:'bar',data:{labels:worst.map(w=>w.n),datasets:[{data:worst.map(w=>+w.perda.toFixed(1)),backgroundColor:worst.map(w=>w.atg<85?cssv('--red'):cssv('--amber')),borderRadius:4}]},
+    options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:grid},ticks:{color:tk,font:{size:10},callback:v=>v+' MWh'}},y:{grid:{display:false},ticks:{color:tk,font:{size:10}}}}}});
+  const bins=[0,0,0,0,0,0],lab=['<70','70–80','80–90','90–95','95–100','≥100'];
+  us.forEach(u=>{if(u.atingimento==null)return;const a=u.atingimento;const k=a<70?0:a<80?1:a<90?2:a<95?3:a<100?4:5;bins[k]++;});
+  if(chDist)chDist.destroy();
+  chDist=new Chart(document.getElementById('chDist'),{type:'bar',data:{labels:lab,datasets:[{data:bins,backgroundColor:[cssv('--red'),cssv('--amber'),'#D9C24E',cssv('--ok'),cssv('--ok'),cssv('--brand')],borderRadius:4}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:tk,font:{size:10}}},y:{grid:{color:grid},ticks:{color:tk,font:{size:10}}}}}});
+  renderWorstTable('#tbWorst');
+}
+
+// tabela "Usinas que exigem ação" — MÊS ATUAL (gerada ÷ P50 prorrateado do /api/gerencial);
+// compartilhada entre o Tempo real (ao lado das Anomalias) e o Histórico. TODAS as usinas,
+// piores atingimentos primeiro; sem atingimento vão pro fim.
+function renderWorstTable(sel){
+  const tb=document.querySelector(sel+' tbody'); if(!tb) return;
+  const us=(GER&&GER.usinas||[]);
+  if(!us.length){ tb.innerHTML='<tr><td colspan="4" style="color:var(--faint);text-align:center;padding:12px">Aquecendo os dados do mês…</td></tr>'; return; }
+  const wt=us.slice().sort((a,b)=>((a.atingimento??1e9)-(b.atingimento??1e9)));
+  tb.innerHTML=wt.map(u=>{
+    const a=u.atingimento;
+    const col=a==null?'var(--faint)':a<85?cssv('--red'):a<95?cssv('--amber'):cssv('--ok');
+    return `<tr><td><b>${u.usina}</b></td><td>${u.cliente||'—'}</td><td class="r" style="color:${col}">${a!=null?nf(a,0)+'%':'—'}</td><td class="r">${u.p50&&u.prod!=null?nf(Math.max(0,u.p50-u.prod),1):'—'}</td></tr>`;
+  }).join('');
+}
+
+/* ===== HISTÓRICO · VISÃO PR (D-1) — esqueleto do Dashboard de Geração (5070) com Chart.js ===== */
+let histView='perda', gInited=false, gGen=0, gChM=null, gChT=null, gChD=null;
+let gDailyData=null, gChX={};   // dados do diário (p/ a visão expandida tela-cheia) + charts dela
+function setHistView(v){
+  histView=v;
+  document.querySelectorAll('#histViewTog button').forEach(b=>{ const on=b.dataset.hv===v;
+    b.style.background=on?'var(--brand)':'transparent'; b.style.color=on?'#16140e':'var(--muted)'; });
+  document.getElementById('histPerda').classList.toggle('hidden',v!=='perda');
+  document.getElementById('histPr').classList.toggle('hidden',v!=='pr');
+  if(v==='pr'&&!gInited){ gInited=true; gInit(); }
+}
+const gPct=v=>v==null?'—':nf(v*100,1)+'%';
+const gGET=u=>fetch(u).then(r=>r.json());
+function gCtx(){ return {cliente:document.getElementById('gCli').value, usina:document.getElementById('gUsi').value,
+                         ini:document.getElementById('gIni').value, fim:document.getElementById('gFim').value}; }
+async function gInit(){
+  const t=new Date();
+  document.getElementById('gIni').value=new Date(t.getFullYear(),t.getMonth(),1).toISOString().slice(0,10);
+  document.getElementById('gFim').value=t.toISOString().slice(0,10);
+  const cls=await gGET('/api/g/clientes');
+  document.getElementById('gCli').innerHTML=cls.map(c=>`<option>${c}</option>`).join('');
+  await gLoadUsinas();
+}
+async function gLoadUsinas(){
+  const us=await gGET('/api/g/usinas?cliente='+encodeURIComponent(document.getElementById('gCli').value));
+  document.getElementById('gUsi').innerHTML=us.map(u=>`<option>${u}</option>`).join('');
+  gRenderAll();
+}
+async function gRenderAll(){
+  const c=gCtx(); const g=++gGen;
+  document.getElementById('gKpi').textContent='…';
+  gMensal(c,g); gInversores(c,g);
+  const f=(c.fim||c.ini||'').split('-');
+  if(f.length>=2) gDiario(c,+f[0],+f[1],g);
+  gComentLoad(c);                       // OSs de Performance + comentários da UFV (região do Histórico PR)
+}
+/* visual sóbrio (pedido do Levi): barra na meta = CINZA tradicional (não verde), abaixo = vermelho;
+   linha de meta com alto contraste nos 2 temas; valor % escrito em cada coluna (como no 5070). */
+const gGray=()=>document.body.classList.contains('dark')?'#6f7379':'#b4b8c0';
+const gLine=()=>document.body.classList.contains('dark')?'#e8e8ea':'#3a3b42';
+const gLbl={id:'gLbl',afterDatasetsDraw(c){
+  const ds=c.data.datasets[0]; if(!ds||(ds.type&&ds.type!=='bar'&&c.config.type!=='bar'))return;
+  const m=c.getDatasetMeta(0), ctx=c.ctx;
+  ctx.save(); ctx.fillStyle=cssv('--muted'); ctx.font='700 9px '+getComputedStyle(document.body).fontFamily;
+  m.data.forEach((el,i)=>{const v=ds.data[i]; if(v==null)return; const t=nf(v*100,1)+'%';
+    if(c.config.options.indexAxis==='y'){ctx.textAlign='left';ctx.textBaseline='middle';ctx.fillText(t,el.x+4,el.y);}
+    else{ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(t,el.x,el.y-3);}});
+  ctx.restore();}};
+// igual ao gLbl mas rótulo em VALOR (MWh, kWh/m²) — não em % (Geração/POA)
+const gLblV={id:'gLblV',afterDatasetsDraw(c){
+  const ds=c.data.datasets[0]; if(!ds)return;
+  const m=c.getDatasetMeta(0), ctx=c.ctx;
+  ctx.save(); ctx.fillStyle=cssv('--muted'); ctx.font='700 9px '+getComputedStyle(document.body).fontFamily;
+  m.data.forEach((el,i)=>{const v=ds.data[i]; if(v==null)return;
+    ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(nf(v,1),el.x,el.y-3);});
+  ctx.restore();}};
+function _gOpt(pct,tk,grid){
+  return {responsive:true,maintainAspectRatio:false,animation:false,
+    plugins:{legend:{display:true,labels:{color:tk,font:{size:10},boxWidth:14}}},
+    scales:{x:{grid:{display:false},ticks:{color:tk,font:{size:10}}},
+            y:{grid:{color:grid},ticks:{color:tk,font:{size:10},callback:v=>pct?Math.round(v*100)+'%':v},beginAtZero:true,grace:'12%'}}};
+}
+// OSs de Performance por DIA no PR diário (pedido Levi 13/07): {dia:{os,status,nota,...}} — casa pela
+// DATA DO EVENTO. gOsDot pinta um ponto âmbar sob o nº do dia que teve OS; o tooltip mostra OS+nota.
+let gOsDia={};
+function _gWrapArr(s,n){ s=String(s==null?'':s).replace(/\s+/g,' ').trim(); const out=[];
+  while(s.length>n){ let cut=s.lastIndexOf(' ',n); if(cut<=0)cut=n; out.push(s.slice(0,cut)); s=s.slice(cut).trim(); }
+  if(s)out.push(s); return out.slice(0,4); }
+const gOsDot={id:'gOsDot',afterDraw(c){
+  const x=c.scales.x, ctx=c.ctx, yb=c.chartArea.bottom;
+  ctx.save(); ctx.fillStyle='#f59e0b';
+  (c.data.labels||[]).forEach((dia,i)=>{ if(!gOsDia[dia])return; const px=x.getPixelForValue(i);
+    ctx.beginPath(); ctx.arc(px, yb+22, 2.6, 0, Math.PI*2); ctx.fill(); });
+  ctx.restore(); }};
+
+// ── OS DE CAMPO por DATA DO EVENTO (corretiva · corretiva emergencial · religamento · religamento
+//    remoto) — marca o dia no PR diário com um ▲ clicável que abre os detalhes da OS. ─────────────
+let gOsEv={};                       // {dia: [OS]}
+const _G_TIPOS_EV=['corretiva','corretiva emergencial','religamento','religamento remoto'];
+const gOsEvDot={id:'gOsEvDot',afterDraw(c){
+  const x=c.scales.x, ctx=c.ctx, yb=c.chartArea.bottom;
+  ctx.save(); ctx.fillStyle='#f97316';
+  (c.data.labels||[]).forEach((dia,i)=>{ if(!(gOsEv[dia]||[]).length)return; const px=x.getPixelForValue(i);
+    ctx.beginPath(); ctx.moveTo(px,yb+27); ctx.lineTo(px-5,yb+35); ctx.lineTo(px+5,yb+35); ctx.closePath(); ctx.fill(); });
+  ctx.restore(); }};
+let gOsEvLista=[];                  // TODAS as OS de campo do mês, ordenadas por DURAÇÃO (dias) desc
+async function _gCarregarOsEv(usina,ano,mes){
+  gOsEv={}; gOsEvLista=[];
+  try{
+    const r=await fetch('/api/fracttal/os',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({usina,mes:`${ano}-${String(mes).padStart(2,'0')}`})}).then(x=>x.json());
+    (r.usina_os||[]).forEach(o=>{
+      if(!_G_TIPOS_EV.includes(String(o.tipo||'').trim().toLowerCase())) return;
+      const m=String(o.evento||o.criada||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if(!m||+m[1]!==ano||+m[2]!==mes) return;
+      o._dia=+m[3];
+      (gOsEv[o._dia]=gOsEv[o._dia]||[]).push(o);
+      gOsEvLista.push(o);
+    });
+    gOsEvLista.sort((a,b)=>String(a.evento_ts||a.evento).localeCompare(String(b.evento_ts||b.evento)));
+  }catch(e){}
+  if(gChD){ try{ gChD.update(); }catch(e){} }     // redesenha com os ▲ (chegou depois do gráfico)
+  _gRenderOsEv(null);                             // lista do mês inteira, ordenada por duração
+}
+// PR de REFERÊNCIA da usina no mês = mediana do PR dos dias SEM OS de campo. É o "dia normal DELA".
+// Não usamos a meta: usina que roda o mês inteiro abaixo da meta (PR 0,60 contra meta 0,79) acusaria
+// perda todo santo dia e a conta da corretiva viraria ficção. Fallbacks: todos os dias → meta.
+function _gPrRef(){
+  const dd=gDailyData; if(!dd||!dd.pts) return null;
+  if(dd._prRef!==undefined) return dd._prRef;
+  const comOS={};
+  gOsEvLista.forEach(o=>{ const mf=String(o.fim||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const d1=(mf&&+mf[1]===dd.ano&&+mf[2]===dd.mes)?+mf[3]:99;
+    for(let k=o._dia;k<=Math.min(d1,31);k++) comOS[k]=1; });
+  const med=a=>{const v=a.slice().sort((x,y)=>x-y);return v.length?v[Math.floor(v.length/2)]:null;};
+  const semOS=dd.pts.filter(p=>p.realizado!=null&&!comOS[p.dia]).map(p=>p.realizado);
+  dd._prRef = (semOS.length>=5?med(semOS):med(dd.pts.filter(p=>p.realizado!=null).map(p=>p.realizado))) || dd.meta || null;
+  return dd._prRef;
+}
+// Horas SOLARES (06–18h) que a OS cobre DENTRO de um dia do mês exibido. Fora da janela a usina não
+// geraria mesmo — parada das 19h às 6h da manhã seguinte não é "1 dia parado", é ~0 de perda.
+const _GSOL_INI=6*60, _GSOL_FIM=18*60, _GSOL_H=(18-6);   // janela solar: 06–18h = 12h/dia
+function _gTs(s){ const m=String(s||'').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  return m?{k:+m[1]*10000+ +m[2]*100+ +m[3], min:+m[4]*60+ +m[5]}:null; }
+function _gHsDia(o,dia){
+  const dd=gDailyData; if(!dd||dd.ano==null) return 0;
+  const a=_gTs(o.evento_ts); if(!a) return 0;
+  const b=_gTs(o.fim_ts), alvo=dd.ano*10000+dd.mes*100+dia;
+  if(a.k>alvo) return 0;                                  // começou depois desse dia
+  if(b&&b.k<alvo) return 0;                               // já tinha acabado
+  const ini=(a.k===alvo)?a.min:_GSOL_INI;                 // começou antes → conta desde 06:00
+  const fim=(b&&b.k===alvo)?b.min:_GSOL_FIM;              // termina depois (ou aberta) → até 18:00
+  return Math.max(0, Math.min(fim,_GSOL_FIM)-Math.max(ini,_GSOL_INI))/60;
+}
+// Perda ESTIMADA (MWh): a energia que a usina teria feito nas HORAS SOLARES em que ficou parada.
+//   perda = Σ_dias  POA(dia) × potência(MWp) × PR de referência × (horas solares paradas no dia / 12)
+// Rateia o POA REAL do dia pelas horas paradas — não culpa o dia nublado inteiro pela OS, e casa com
+// a duração mostrada. Potência: Info Geral e, na falta, cadastro Equipamentos (linha "UFV").
+function _gPerdaOS(o){
+  const dd=gDailyData, prRef=_gPrRef();
+  if(!dd||!dd.pts||!dd.pot||!prRef) return null;
+  let perda=0, viu=false;
+  dd.pts.forEach(p=>{ if(p.poa==null) return;
+    const h=_gHsDia(o,p.dia); if(h<=0) return;
+    viu=true; perda += p.poa*dd.pot*prRef*(h/_GSOL_H); });
+  return viu?Math.round(perda*100)/100:null;
+}
+function _gCorHs(h){ return h>=12?'#ef4444':h>=4?'#f97316':h>=1?'#f59e0b':'#34d399'; }
+function _gLinhaOsEv(o){
+  const hs=(o.horas_solares!=null)?o.horas_solares:null, perda=_gPerdaOS(o);
+  const cor=hs!=null?_gCorHs(hs):'var(--faint)';
+  const fim=o.fim_ts?_gBRh(o.fim_ts):(o.aberta?'em aberto':'—');
+  return `<div style="border-left:3px solid ${cor};border-radius:6px;padding:7px 10px;margin-bottom:5px;background:var(--panel)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+      <div style="font-size:12px;min-width:0"><b style="font-family:monospace">OS ${_esc(o.folio)}</b> · ${_esc(o.tipo)}
+        <span style="color:var(--faint)"> · ${_esc(o.status)}</span></div>
+      <div style="display:flex;gap:6px;flex:0 0 auto">
+        ${hs!=null?`<span style="font-size:11px;font-weight:700;color:${cor};border:1px solid ${cor};border-radius:20px;padding:1px 8px;white-space:nowrap">${_esc(o.horas_fmt||'')} sol${o.aberta?'+':''}</span>`:''}
+        ${perda!=null?`<span style="font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:20px;padding:1px 8px;white-space:nowrap">~${nf(perda,2)} MWh</span>`:''}
+      </div></div>
+    ${o.descricao?`<div style="font-size:11px;color:var(--muted);margin-top:3px">${_esc(o.descricao)}</div>`:''}
+    <div style="font-size:10.5px;color:var(--faint);margin-top:3px">${_esc(o.ativo||'')} · evento ${_gBRh(o.evento_ts)||_gBR(o.evento||o.criada)} → fim ${_esc(fim)}</div></div>`;
+}
+function _gBR(iso){ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m?`${m[3]}/${m[2]}`:'—'; }
+function _gBRh(iso){ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/); return m?`${m[3]}/${m[2]} ${m[4]}:${m[5]}`:''; }
+// diaFiltro = null → mês inteiro ordenado por duração; número → só aquele dia (clique no ▲)
+function _gRenderOsEv(diaFiltro){
+  const box=document.getElementById('gOsEvBox'); if(!box) return;
+  const lst=(diaFiltro==null)?gOsEvLista:(gOsEv[diaFiltro]||[]);
+  if(!lst.length){ box.style.display='none'; return; }
+  box.style.display='block';
+  const somaH=lst.reduce((s,o)=>s+(o.horas_solares||0),0);
+  const perdas=lst.map(_gPerdaOS).filter(v=>v!=null);
+  const somaP=perdas.reduce((s,v)=>s+v,0);
+  const hfmt=h=>`${Math.floor(Math.round(h*60)/60)}h${String(Math.round(h*60)%60).padStart(2,'0')}`;
+  const tit=(diaFiltro==null)?`${lst.length} OS de campo no mês · ${hfmt(somaH)} solares somadas`
+                            :`Dia ${diaFiltro} · ${lst.length} OS de campo`;
+  box.innerHTML=`<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel-2)">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:3px">
+      <b style="font-size:12.5px">${tit}${perdas.length?` · ~${nf(somaP,1)} MWh estimados`:''}</b>
+      ${diaFiltro==null?'':`<span onclick="_gRenderOsEv(null)" style="cursor:pointer;color:var(--brand);font-size:11px">ver o mês todo</span>`}</div>
+    <div style="font-size:10.5px;color:var(--faint);margin-bottom:8px">ordenado por data do evento · duração em HORAS SOLARES (só conta 06:00–18:00; noite não gera, então não conta) do evento até o fim da OS — aberta conta até agora · perda estimada = Σ POA do dia × ${gDailyData&&gDailyData.pot?nf(gDailyData.pot,2)+' MWp':'potência'} × PR de referência ${_gPrRef()?nf(_gPrRef()*100,1)+'%':''} × (horas paradas no dia ÷ 12) · PR de referência = mediana dos dias do mês sem OS</div>
+    ${lst.map(_gLinhaOsEv).join('')}</div>`;
+}
+window._gRenderOsEv=_gRenderOsEv;
+window.gAbrirOsDia=(dia)=>{ if((gOsEv[dia]||[]).length) _gRenderOsEv(dia); };
+async function gMensal(c,g){
+  const d=await gGET(`/api/g/mensal?cliente=${encodeURIComponent(c.cliente)}&usina=${encodeURIComponent(c.usina)}`);
+  if(g!==gGen) return;
+  const MES=['','jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  const tk=cssv('--muted'), grid=document.body.classList.contains('dark')?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';
+  const pts=d.pontos||[];
+  const labels=pts.map(p=>MES[p.mes]+'/'+String(p.ano).slice(2));
+  if(gChM)gChM.destroy();
+  gChM=new Chart(document.getElementById('gChMensal'),{data:{labels,datasets:[
+    {type:'bar',label:'PR realizado',data:pts.map(p=>p.realizado),borderRadius:4,
+     backgroundColor:pts.map(p=>(p.realizado!=null&&p.meta!=null&&p.realizado>=p.meta)?gGray():cssv('--red'))},
+    {type:'line',label:'PR meta',data:pts.map(p=>p.meta),borderColor:gLine(),borderWidth:2,pointRadius:3,pointBackgroundColor:gLine(),tension:0}
+  ]},options:Object.assign(_gOpt(true,tk,grid),{onClick:(e,els)=>{ if(els&&els.length){ const p=pts[els[0].index]; if(p) gDiario(gCtx(),p.ano,p.mes,gGen); } }}),plugins:[gLbl]});
+  // KPI = último mês com valor
+  const last=[...pts].reverse().find(p=>p.realizado!=null);
+  document.getElementById('gKpi').textContent=last?gPct(last.realizado):'—';
+}
+async function gDiario(c,ano,mes,g){
+  const [d,osj]=await Promise.all([
+    gGET(`/api/g/diario?cliente=${encodeURIComponent(c.cliente)}&usina=${encodeURIComponent(c.usina)}&ano=${ano}&mes=${mes}`),
+    gGET('/api/os-performance?usina='+encodeURIComponent(c.usina)).catch(()=>({os:[]}))]);
+  if(g!==undefined&&g!==gGen) return;
+  const tk=cssv('--muted'), grid=document.body.classList.contains('dark')?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';
+  let pts=d.pontos||[];
+  const di=c.ini?new Date(c.ini+'T00:00'):null, df=c.fim?new Date(c.fim+'T00:00'):null;
+  if(df&&df.getFullYear()===ano&&df.getMonth()+1===mes)
+    pts=pts.filter(p=>{const dt=new Date(ano,mes-1,p.dia);return (!di||dt>=di)&&(!df||dt<=df);});
+  // OS de Performance por DIA — casa pela DATA DO EVENTO no mês/ano exibido ("qualquer uma por hora" = 1/dia)
+  gOsDia={};
+  (osj.os||[]).forEach(o=>{ const m=String(o.data||'').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if(m && +m[2]===mes && +m[3]===ano && !gOsDia[+m[1]]) gOsDia[+m[1]]=o; });
+  document.getElementById('gDiarioSub').textContent=`${String(mes).padStart(2,'0')}/${ano} · barras vermelhas = abaixo da meta (${d.meta!=null?nf(d.meta*100,1)+'%':'sem meta'}) · D-1 · ● OS de Performance · ▲ OS de campo (clique no dia)`;
+  const box0=document.getElementById('gOsEvBox'); if(box0) box0.style.display='none';
+  if(gChD)gChD.destroy();
+  const opt=_gOpt(true,tk,grid);
+  opt.layout={padding:{bottom:34}};                       // espaço p/ os 2 marcadores sob o nº do dia
+  opt.scales.x.ticks.color=(cx)=>{ const dia=((cx.chart&&cx.chart.data.labels)||[])[cx.index];
+    return (gOsEv[dia]||[]).length?'#f97316':tk; };       // dia com evento de OS fica laranja
+  opt.onClick=(e,els,ch)=>{ const i=Math.round(ch.scales.x.getValueForPixel(e.x));
+    const dia=((ch.data.labels)||[])[i]; if(dia!=null) gAbrirOsDia(dia); };
+  opt.plugins=Object.assign({},opt.plugins,{tooltip:{callbacks:{afterBody:(items)=>{
+    if(!items||!items.length)return[]; const p=pts[items[0].dataIndex], out=[];
+    const o=p&&gOsDia[p.dia];
+    if(o){ out.push('','OS #'+o.os+(o.status?(' · '+o.status):''));
+           if(o.nota)_gWrapArr(o.nota,46).forEach(l=>out.push(l)); }
+    const ev=(p&&gOsEv[p.dia])||[];
+    if(ev.length){ out.push('', ev.length+' OS de campo neste dia:');
+      ev.slice(0,3).forEach(x=>out.push('• '+x.tipo+' — OS '+x.folio));
+      out.push('(clique no dia p/ abrir)'); }
+    return out; }}}});
+  gChD=new Chart(document.getElementById('gChDiario'),{data:{labels:pts.map(p=>p.dia),datasets:[
+    {type:'bar',label:'PR diário',data:pts.map(p=>p.realizado),borderRadius:3,
+     backgroundColor:pts.map(p=>(p.realizado!=null&&d.meta!=null&&p.realizado>=d.meta)?gGray():cssv('--red'))},
+    {type:'line',label:'meta',data:pts.map(()=>d.meta),borderColor:gLine(),borderWidth:1.8,borderDash:[6,4],pointRadius:0}
+  ]},options:opt,plugins:[gLbl,gOsDot,gOsEvDot]});
+  // Geração e POA NÃO ficam inline (poluía a visão do PR) — vivem só na visão EXPANDIDA (botão Expandir).
+  gDailyData={usina:c.usina,mes,ano,pts,meta:d.meta,meta_ger:d.meta_ger,meta_poa:d.meta_poa,pot:d.pot};
+  _gCarregarOsEv(c.usina,ano,mes);   // OS de campo por data do EVENTO — async, não trava o gráfico
+}
+// ── Visão expandida (tela cheia): Geração / POA / PR juntos, dividindo a altura (nada de rolar) ──
+function _gExpEsc(e){ if(e.key==='Escape') gFecharExp(); }
+window.gFecharExp=()=>{ Object.values(gChX).forEach(c=>{try{c.destroy();}catch(e){}}); gChX={};
+  document.removeEventListener('keydown',_gExpEsc); const m=document.getElementById('gExpModal'); if(m)m.remove(); };
+// LINHA-GUIA sincronizada: ao passar o mouse em QUALQUER um dos três gráficos, desenha a mesma vertical
+// nos três, no mesmo dia. É o que deixa a sincronia visível — dá p/ ler geração, POA e PR do mesmo dia
+// sem contar coluna. Cinza a 50%, redesenho só quando o índice MUDA (senão pisca a cada mousemove).
+// Rótulo em % nos pontos do PR. O gLbl (usado no PR mensal) tem guard de gráfico de BARRA e não
+// desenha em linha; o gLblV desenha, mas formata número cru (0,81 em vez de 81,0%).
+const gxLblPct={id:'gxLblPct',afterDatasetsDraw(c){
+  const ds=c.data.datasets[0]; if(!ds) return;
+  const m=c.getDatasetMeta(0), g=c.ctx;
+  g.save(); g.fillStyle='#e8eef7'; g.font='700 9.5px '+getComputedStyle(document.body).fontFamily;
+  g.textAlign='center'; g.textBaseline='bottom';
+  m.data.forEach((el,i)=>{ const v=ds.data[i]; if(v==null) return; g.fillText(nf(v*100,1)+'%',el.x,el.y-7); });
+  g.restore();}};
+let _gxCross=null;
+function _gxSetCross(i){
+  if(_gxCross===i) return;
+  _gxCross=i;
+  Object.values(gChX).forEach(c=>{ try{ c.draw(); }catch(e){} });
+}
+const gxCrossPlug={id:'gxCross',afterDatasetsDraw(c){
+  if(_gxCross==null||!c.scales||!c.scales.x) return;
+  const x=c.scales.x.getPixelForValue(_gxCross), a=c.chartArea;
+  if(!a||x<a.left-1||x>a.right+1) return;
+  const g=c.ctx; g.save();
+  g.strokeStyle='rgba(174,182,198,.5)'; g.lineWidth=1;
+  g.beginPath(); g.moveTo(x,a.top); g.lineTo(x,a.bottom); g.stroke();
+  g.restore();
+}};
+window.gExpandirDiario=()=>{
+  if(!gDailyData||!gDailyData.pts||!gDailyData.pts.length){ alert('Abra o diário de uma usina primeiro (clique numa barra do PR mensal).'); return; }
+  _gxCross=null;
+  const dd=gDailyData, tk='#aeb6c6', grid='rgba(255,255,255,.07)', labels=dd.pts.map(p=>p.dia);
+  const GRN='#a3d900', POA='#6f7bb0', METc='#cfd6e0';   // verde (geração/PR) · slate (POA) · meta tracejada — cores da referência adaptadas ao fundo escuro claro
+  let m=document.getElementById('gExpModal'); if(!m){ m=document.createElement('div'); m.id='gExpModal'; document.body.appendChild(m); }
+  // A meta é UMA por mês (não varia por dia): vai no canto superior direito de cada gráfico, com o
+  // tracinho da mesma cor da linha tracejada, em vez de o operador ter que adivinhar o valor dela.
+  const blk=(t,cv,mt)=>`<div style="flex:1;min-height:0;background:#1e2637;border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:8px 16px 4px;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:2px">
+      <span style="font-size:12.5px;font-weight:600;color:#eef1f6">${t}</span>
+      ${mt?`<span style="font-size:11.5px;color:${METc};white-space:nowrap;font-variant-numeric:tabular-nums"><span style="display:inline-block;width:16px;border-top:1.6px dashed ${METc};vertical-align:middle;margin-right:7px"></span>meta ${mt}</span>`:''}
+    </div><div style="flex:1;min-height:0;position:relative"><canvas id="${cv}"></canvas></div></div>`;
+  m.innerHTML=`<div style="position:fixed;inset:0;z-index:600;background:#151b28;color:#e5e7eb;display:flex;flex-direction:column;padding:14px 20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div><span style="font-size:16px;font-weight:600">${_esc(dd.usina)}</span> <span style="font-size:12px;color:#8b93a8">· ${String(dd.mes).padStart(2,'0')}/${dd.ano} · diário (D-1)</span></div>
+      <button onclick="gFecharExp()" style="border:1px solid rgba(255,255,255,.14);background:#232c40;color:#e5e7eb;cursor:pointer;padding:6px 14px;border-radius:8px;font-size:12.5px;font-family:inherit"><i class="ph ph-x" style="margin-right:5px"></i>Fechar</button></div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:10px;min-height:0">${blk('Geração diária (MWh)','gxGer',dd.meta_ger!=null?nf(dd.meta_ger,1)+' MWh/dia':'')}${blk('Recurso solar diário — POA (kWh/m²)','gxPoa',dd.meta_poa!=null?nf(dd.meta_poa,1)+' kWh/m²/dia':'')}${blk('Qualidade diária — PR (%)','gxPr',dd.meta!=null?nf(dd.meta*100,1)+'%':'')}</div></div>`;
+  // ALINHAMENTO DOS DIAS: sem isto cada gráfico começa num X diferente, porque a largura do eixo Y muda
+  // com o texto ("350%" é bem mais largo que "18") e empurra a área de plotagem. Travando a MESMA largura
+  // nos três, o dia 1 cai na mesma vertical em todos. Idem o padding direito.
+  const YW=62;
+  const opt=(pct)=>{ const o=_gOpt(pct,tk,grid); o.maintainAspectRatio=false;
+    o.scales=o.scales||{}; o.scales.y=Object.assign({},o.scales.y,{afterFit:(s)=>{ s.width=YW; }});
+    // BARRA centraliza o dia na faixa (offset ligado); LINHA senta o ponto no tick e cola o dia 1 na
+    // borda. Sem forçar o mesmo offset nos três, o PR fica meia-faixa fora e o desvio cresce no mês.
+    o.scales.x=Object.assign({},o.scales.x,{offset:true});
+    o.layout=Object.assign({},o.layout||{},{padding:Object.assign({},(o.layout||{}).padding,{right:14})});
+    o.onHover=(ev,els,ch)=>{ const i=Math.round(ch.scales.x.getValueForPixel(ev.x));
+      _gxSetCross(i>=0&&i<labels.length?i:null); };
+    return o; };
+  const bars=(cv,lbl,val,meta,color)=>{ gChX[cv]=new Chart(document.getElementById(cv),{data:{labels,datasets:[
+      {type:'bar',label:lbl,data:dd.pts.map(val),backgroundColor:color,borderRadius:3},
+      {type:'line',label:'meta',data:dd.pts.map(()=>meta),borderColor:METc,borderWidth:1.6,borderDash:[6,4],pointRadius:0}
+    ]},options:opt(false),plugins:[gLblV,gxCrossPlug]}); };
+  setTimeout(()=>{ try{
+    bars('gxGer','Geração (MWh)',p=>p.geracao,dd.meta_ger,GRN);
+    bars('gxPoa','POA (kWh/m²)',p=>p.poa,dd.meta_poa,POA);
+    gChX.gxPr=new Chart(document.getElementById('gxPr'),{data:{labels,datasets:[
+      {type:'line',label:'PR realizado',data:dd.pts.map(p=>p.realizado),borderColor:GRN,backgroundColor:'rgba(163,217,0,.15)',fill:true,borderWidth:2,pointRadius:2,pointBackgroundColor:GRN,tension:.25},
+      {type:'line',label:'Meta de PR',data:dd.pts.map(()=>dd.meta),borderColor:METc,borderWidth:1.6,borderDash:[6,4],pointRadius:0}
+    ]},options:opt(true),plugins:[gxLblPct,gxCrossPlug]});
+    // sair do modal com o mouse apaga a linha nos três
+    const _mo=document.getElementById('gExpModal');
+    if(_mo) _mo.addEventListener('mouseleave',()=>_gxSetCross(null));
+  }catch(e){} },50);
+  document.addEventListener('keydown',_gExpEsc);
+};
+async function gInversores(c,g){
+  const q=`cliente=${encodeURIComponent(c.cliente)}&usina=${encodeURIComponent(c.usina)}${c.ini?'&ini='+c.ini:''}${c.fim?'&fim='+c.fim:''}`;
+  const d=await gGET('/api/g/inversores?'+q);
+  if(g!==gGen) return;
+  const tk=cssv('--muted'), grid=document.body.classList.contains('dark')?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';
+  const tb=document.querySelector('#gTblInv tbody');
+  if(d.por_usina){
+    document.getElementById('gTopSub').textContent='BD_Thopen é por usina — sem visão de inversor nesta fonte.';
+    if(gChT)gChT.destroy(); gChT=null;
+    tb.innerHTML='<tr><td colspan="4" style="color:var(--faint);text-align:center;padding:14px">O banco (BD_Thopen) registra a usina inteira — a visão por inversor existe nas usinas com aba no BD_Performance.</td></tr>';
+    return;
+  }
+  const rows=d.inversores||[];
+  if(!rows.length){ document.getElementById('gTopSub').textContent='Sem dados no período.';
+    if(gChT)gChT.destroy(); gChT=null;
+    tb.innerHTML='<tr><td colspan="4" style="color:var(--faint);text-align:center;padding:14px">Sem dados no período.</td></tr>'; return; }
+  document.getElementById('gTopSub').textContent=`PR do período · alvo da usina ${gPct(d.alvo)}`;
+  const top=rows.slice(0,10).reverse();
+  if(gChT)gChT.destroy();
+  gChT=new Chart(document.getElementById('gChTop'),{type:'bar',data:{labels:top.map(r=>r.inversor),datasets:[
+    {label:'PR',data:top.map(r=>r.pr),borderRadius:4,
+     backgroundColor:top.map(r=>(r.pr!=null&&d.alvo!=null&&r.pr>=d.alvo)?gGray():cssv('--red'))}
+  ]},options:{indexAxis:'y',responsive:true,maintainAspectRatio:false,animation:false,plugins:{legend:{display:false}},
+    scales:{x:{grid:{color:grid},ticks:{color:tk,font:{size:10},callback:v=>Math.round(v*100)+'%'},beginAtZero:true,grace:'15%'},
+            y:{grid:{display:false},ticks:{color:tk,font:{size:10}}}}},plugins:[gLbl]});
+  tb.innerHTML=rows.map(r=>{
+    const col=r.dif==null?'var(--faint)':r.dif<0?cssv('--red'):cssv('--ok');
+    const dif=r.dif==null?'—':((r.dif>=0?'+':'−')+nf(Math.abs(r.dif)*100,2)+'%');
+    return `<tr data-ginv="${_esc(r.inversor)}" style="cursor:pointer" title="Abrir o diagnóstico da usina com a curva deste inversor"><td>${r.inversor}</td><td class="r">${gPct(r.pr)}</td><td class="r">${gPct(r.alvo)}</td><td class="r" style="color:${col};font-weight:600">${dif}</td></tr>`;
+  }).join('');
+  tb.querySelectorAll('tr[data-ginv]').forEach(t=>t.onclick=()=>gOpenDrill(t.dataset.ginv));
+}
+
+// clique num inversor do Histórico PR → drill de diagnóstico da UFV com a curva DELE já carregando
+function gOpenDrill(inv){
+  const u=document.getElementById('gUsi').value, k=norm(u);
+  let p=MAP[k];
+  if(!p){ const ks=Object.keys(MAP), c=ks.filter(x=>x.startsWith(k)||k.startsWith(x));
+          if(c.length===1) p=MAP[c[0]]; }
+  if(!p||!hasDrill(p)){ alert('Esta usina não tem página de diagnóstico (fonte sem drill ao vivo).'); return; }
+  window.open(drillUrl(p)+'&inv='+encodeURIComponent(inv),'_blank');
+}
+
+// Comentários da UFV no Histórico PR (pedido Levi 13/07): OSs de Performance EM ABERTO (só-leitura) +
+// thread manual do analista. MESMA chave/API do dashboard operacional → aparece nos dois lugares.
+function gComentP(){ const u=document.getElementById('gUsi').value, k=norm(u); let p=MAP[k];
+  if(!p){ const ks=Object.keys(MAP), c=ks.filter(x=>x.startsWith(k)||k.startsWith(x)); if(c.length===1) p=MAP[c[0]]; }
+  return p||null; }
+let _gComentKey=null;
+function _gRenderComent(thread){
+  const lst=(thread||[]).slice().reverse();
+  document.getElementById('gComentLista').innerHTML = lst.length ? lst.map(c=>
+    `<div style="border:1px solid var(--line);border-radius:8px;padding:6px 9px;margin-bottom:5px;background:var(--panel-2)">
+       <div style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--faint);margin-bottom:2px">
+         <b style="color:var(--txt)">${_cmEsc(c.nick)}</b>
+         <span>${_cmTs(c.ts)}${c.ts?` <span onclick="gComentDel('${c.ts}')" title="Excluir" style="cursor:pointer;color:var(--red);margin-left:6px;font-weight:700">✕</span>`:''}</span></div>
+       <div style="font-size:11.5px;color:var(--txt);white-space:pre-wrap">${_cmEsc(c.texto)}</div>
+     </div>`).join('') : '<div class="empty" style="padding:6px 0;font-size:11px">Sem comentários ainda — seja o primeiro.</div>';
+}
+function gComentLoad(c){
+  const u=(c&&c.usina)||document.getElementById('gUsi').value;
+  const osb=document.getElementById('gOsLista'), box=document.getElementById('gComentLista');
+  if(!osb||!box) return;
+  gGET('/api/os-performance?usina='+encodeURIComponent(u)).then(d=>{        // OSs em aberto (só-leitura)
+    const os=(d&&d.os)||[];
+    osb.innerHTML = os.length ? os.map(o=>{
+      const atr=!!o.atribuida, bc=atr?'#a3d900':'#f59e0b';   // verde = atribuída a inversor · âmbar = Performance
+      return `<div style="border:1px solid var(--line);border-left:3px solid ${bc};border-radius:8px;padding:6px 9px;margin-bottom:5px;background:var(--panel-2)">
+         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+           <b style="font-family:monospace;font-size:11px">OS #${_cmEsc(o.os)}</b>
+           <span style="font-size:9px;color:var(--faint);background:var(--panel);padding:1px 6px;border-radius:4px">${_cmEsc(o.categoria)}</span>
+           ${atr&&o.inv?`<span style="font-size:9px;font-weight:700;padding:1px 7px;border-radius:4px;background:rgba(163,217,0,.16);color:#a3d900">${_cmEsc(o.inv)}</span>`:''}
+           <span style="margin-left:auto;font-size:9px;font-weight:700;padding:1px 7px;border-radius:20px;background:${atr?'rgba(163,217,0,.16)':'rgba(245,158,11,.16)'};color:${bc};white-space:nowrap">${_cmEsc(o.status)}</span></div>
+         ${o.nota?`<div style="font-size:10.5px;color:var(--muted);margin-top:4px;line-height:1.4">${_cmEsc(String(o.nota).slice(0,170))}</div>`:''}
+       </div>`;}).join('') : '';
+  }).catch(()=>{osb.innerHTML='';});
+  const p=gComentP(); _gComentKey = p?stateKey(p):null;
+  document.getElementById('gComentNick').value=localStorage.getItem('gcAnalistaNick')||'';
+  document.getElementById('gComentTexto').value='';
+  if(!_gComentKey){ box.innerHTML='<div class="empty" style="padding:6px 0;font-size:11px">Fonte sem chave de comentário reconhecida.</div>'; return; }
+  box.innerHTML='<div class="empty" style="padding:6px 0">Carregando…</div>';
+  gGET('/api/state').then(d=>{
+    const th=(d.comments_thread&&d.comments_thread[_gComentKey])||[];
+    const leg=d.comments&&d.comments[_gComentKey];
+    _gRenderComent(th.length?th:(leg&&leg.trim()?[{nick:'(antigo)',texto:leg,ts:''}]:[]));
+  }).catch(()=>{box.innerHTML='<div class="empty" style="padding:6px 0;font-size:11px">Falha ao carregar.</div>';});
+}
+async function gComentPub(){
+  const nick=document.getElementById('gComentNick').value.trim(), texto=document.getElementById('gComentTexto').value.trim();
+  if(!nick||!texto){alert('Preencha seu nick e o comentário.');return;}
+  if(!_gComentKey)return;
+  localStorage.setItem('gcAnalistaNick',nick);
+  try{ const r=await fetch('/api/state/comment/add',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({key:_gComentKey,nick,texto})}).then(r=>r.json());
+    document.getElementById('gComentTexto').value=''; _gRenderComent(r.thread||[]);
+  }catch(e){alert('Falha ao publicar o comentário.');}
+}
+async function gComentDel(ts){
+  if(!_gComentKey)return;
+  try{ const r=await fetch('/api/state/comment/del',{method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({key:_gComentKey,ts})}).then(r=>r.json()); _gRenderComent(r.thread||[]);
+  }catch(e){}
+}
+
+/* ---- mode toggle ---- */
+document.querySelectorAll('#modeToggle button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#modeToggle button').forEach(x=>x.classList.remove('on'));
+  b.classList.add('on');const live=b.dataset.mode==='live';
+  document.getElementById('viewLive').classList.toggle('hidden',!live);
+  document.getElementById('viewHist').classList.toggle('hidden',live);
+  document.getElementById('livePill').style.visibility=live?'visible':'hidden';
+  if(!live)buildHist();
+});
+
+boot();
+setInterval(()=>{if(!document.getElementById('viewLive').classList.contains('hidden'))boot();},60000);
+</script>
+</body>
+</html>

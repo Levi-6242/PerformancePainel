@@ -1,0 +1,114 @@
+/* Chamados 1B — folha corrigida.
+   Derivada de tokens.py. O que depende da cor do GRUPO (gradiente e borda do card)
+   é aplicado por código com tokens.card_gradient(cor).
+
+   MUDANÇA IMPORTANTE NA PRIMEIRA REGRA:
+   a versão anterior abria com  QWidget { background: #07090F; }  — e como QLabel é
+   um QWidget, TODO rótulo carimbava um retângulo opaco por cima de qualquer
+   superfície tingida (header do detalhe, gradiente do card). O porte tinha que
+   escrever background:transparent rótulo a rótulo. Agora a cor de fundo é
+   aplicada só na raiz da página e QLabel é transparente por regra. */
+
+QWidget { color: #E7EAF2; font-family: "Inter", "Segoe UI", sans-serif; }
+QWidget#chPage, QDialog { background: #07090F; }
+QLabel, QCheckBox, QRadioButton { background: transparent; }
+
+QFrame#panel {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #111624, stop:1 #0C111C);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 16px;
+}
+
+/* ---------- cards ---------- */
+/* group = cor da COLUNA (não do status). O status vive só no texto. */
+QFrame#card { background: #131928; border: 1px solid rgba(255,255,255,0.08); border-radius: 14px; }
+QFrame#card:hover { border-color: rgba(255,255,255,0.28); }
+QFrame#card[group="red"]        { border-color: rgba(245,118,107,0.22); }
+QFrame#card[group="red"]:hover  { border-color: rgba(245,118,107,0.55); }
+QFrame#card[group="amber"]      { border-color: rgba(245,166,35,0.22); }
+QFrame#card[group="amber"]:hover{ border-color: rgba(245,166,35,0.55); }
+QFrame#card[group="blue"]       { border-color: rgba(74,158,245,0.22); }
+QFrame#card[group="blue"]:hover { border-color: rgba(74,158,245,0.55); }
+QFrame#card[done="true"]        { background: #111726; border-color: rgba(255,255,255,0.07); }
+QFrame#card[done="true"]:hover  { border-color: rgba(72,208,122,0.40); }
+
+/* ---------- tipografia por papel ----------
+   letter-spacing NÃO existe em QSS — o tracking sai por chamado_fontes.aplicar(). */
+QLabel#osNumber      { font-family: "JetBrains Mono", Consolas, monospace;
+                       font-size: 19px; font-weight: 700; color: #FFFFFF; }
+QLabel#osNumberLarge { font-family: "JetBrains Mono", Consolas, monospace;
+                       font-size: 24px; font-weight: 700; color: #FFFFFF; }
+QLabel#panelTitle    { font-size: 20px; font-weight: 500; color: #F2F4FA; }
+QLabel#cardTitle     { font-size: 13px; font-weight: 600; color: #E7EAF2; }
+QLabel#secondary     { font-size: 11px; color: #7A85A0; }
+QLabel#meta          { font-size: 10px; color: #5B6479; }
+QLabel#sectionLabel  { font-size: 10px; font-weight: 600; color: #4E576D; }
+QLabel#colHeader     { font-size: 11px; font-weight: 700; }
+QLabel#counter       { font-family: "JetBrains Mono", Consolas, monospace;
+                       font-size: 11px; font-weight: 700; color: #7A85A0; }
+QLabel#date          { font-family: "JetBrains Mono", Consolas, monospace;
+                       font-size: 12px; font-weight: 700; }
+QLabel#body          { font-size: 12px; color: #D5DBE8; }
+QLabel#empty         { font-size: 11px; color: #4E576D; }
+
+QLabel#status[tone="red"]   { font-size: 11px; font-weight: 600; color: #F79B92; }
+QLabel#status[tone="amber"] { font-size: 11px; font-weight: 600; color: #F5C46A; }
+QLabel#status[tone="blue"]  { font-size: 11px; font-weight: 600; color: #8AC0FA; }
+QLabel#status[tone="green"] { font-size: 11px; font-weight: 600; color: #7FDCA2; }
+
+/* chip de fabricante — pill de CONTORNO, nunca preenchido (README §3.2).
+   raio = altura/2; a pill tem ~22px, daí 11. Raio FRACIONÁRIO é descartado pelo
+   parser do Qt — nunca escreva 11.5px. */
+QLabel#chip { font-size: 10px; font-weight: 600; color: #96A0B8;
+              border: 1px solid rgba(255,255,255,0.12); border-radius: 11px; padding: 3px 9px; }
+
+/* ---------- botões ---------- */
+QPushButton {
+    background: transparent; border: 1px solid rgba(255,255,255,0.14);
+    color: #C6CDDC; border-radius: 9px; padding: 8px 14px; font-size: 12px;
+}
+QPushButton:hover   { border-color: rgba(166,226,46,0.50); color: #FFFFFF; }
+QPushButton:pressed { background: rgba(255,255,255,0.04); }
+QPushButton:focus   { border-color: #A6E22E; }   /* Qt ignora outline */
+QPushButton:disabled{ color: #4E576D; border-color: rgba(255,255,255,0.07); }
+
+QPushButton#primary         { border: 1px solid rgba(166,226,46,0.50); color: #A6E22E; font-weight: 600; }
+QPushButton#primary:hover   { background: rgba(166,226,46,0.12); border-color: #A6E22E; }
+QPushButton#primary:pressed { background: rgba(166,226,46,0.18); }
+
+/* ---------- entradas ---------- */
+QComboBox, QLineEdit, QTextEdit {
+    background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 9px; padding: 9px 12px; color: #E7EAF2; font-size: 12px;
+}
+QComboBox:hover, QLineEdit:hover, QTextEdit:hover { border-color: rgba(166,226,46,0.45); }
+QComboBox:focus, QLineEdit:focus, QTextEdit:focus { border-color: #A6E22E; }
+QComboBox::drop-down { border: none; width: 20px; }
+/* o tema escuro não tem imagem de seta: desenha o chevron com o truque de bordas,
+   senão o combo sai sem indicador nenhum (foi o que aconteceu no render) */
+QComboBox::down-arrow {
+    width: 0; height: 0; margin-right: 7px;
+    border-left: 4px solid transparent; border-right: 4px solid transparent;
+    border-top: 5px solid #7A85A0;
+}
+QComboBox::down-arrow:on { border-top-color: #A6E22E; }
+QComboBox QAbstractItemView {
+    background: #131928; border: 1px solid rgba(255,255,255,0.12);
+    selection-background-color: rgba(166,226,46,0.15); color: #E7EAF2; outline: none;
+}
+
+/* filtro do board: é CROMO, não conteúdo — discreto parado, aceso filtrando */
+QComboBox#filtro { padding: 5px 10px; font-size: 11px; border-radius: 8px;
+                   background: rgba(255,255,255,0.03); color: #A9B2C6; }
+QComboBox#filtro:hover          { border-color: rgba(166,226,46,0.40); color: #E7EAF2; }
+QComboBox#filtro[ativo="true"]  { border-color: rgba(166,226,46,0.30);
+                                  background: rgba(166,226,46,0.10); color: #C4F154; }
+
+/* ---------- barra de rolagem ---------- */
+QScrollBar:vertical { background: transparent; width: 10px; margin: 0; }
+QScrollBar::handle:vertical { background: rgba(255,255,255,0.12); border-radius: 5px; min-height: 40px; }
+QScrollBar::handle:vertical:hover { background: rgba(255,255,255,0.20); }
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
+
+/* NÃO declare aqui: QFrame#divider / #railLine / #timeBar / QLabel#dot.
+   São MARCAS — vivem em chamado_pecas.py, pintadas. Ver LEIA_PRIMEIRO.md §1. */
