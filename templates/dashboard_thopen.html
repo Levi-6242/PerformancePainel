@@ -63,6 +63,9 @@
          padding:12px 14px; box-shadow:0 1px 3px rgba(0,0,0,.04); min-width:0; overflow:hidden; }
   .card h3{ margin:0 0 8px; font-size:12px; font-weight:700; color:#555;
             text-transform:uppercase; letter-spacing:.5px; text-align:center; }
+  /* Unidade NUNCA entra no uppercase do título: kWh viraria "KWH", e W/m² viraria "W/M²".
+     Em SI a caixa muda o significado (k=quilo, M=mega, m=mili), então isto não é estética. */
+  .card h3 .un{ text-transform:none; }
   table{ width:100%; border-collapse:collapse; font-size:12.5px; }
   th,td{ padding:6px 9px; text-align:right; border-bottom:1px solid #eef0f3; white-space:nowrap; }
   th:first-child,td:first-child{ text-align:left; font-weight:600; }
@@ -166,10 +169,10 @@
     <div class="header pgh"><h1>Performance da Usina — <span class="u-nome"></span></h1><div class="brand"><div class="g">Grid Co.</div><div class="t">THOPEN</div></div></div>
     <div class="sec">COMPARATIVO DE PRODUÇÃO DE ENERGIA E IRRADIAÇÃO - <u>DIÁRIO</u></div>
     <div class="grid">
-      <div class="card" style="display:flex;flex-direction:column"><h3>Energia (kWh) × Irradiação (kWh/m²)</h3><div id="chDiario" style="flex:1;min-height:280px"></div></div>
+      <div class="card" style="display:flex;flex-direction:column"><h3>Energia (<span class="un">kWh</span>) × Irradiação (<span class="un">kWh/m²</span>)</h3><div id="chDiario" style="flex:1;min-height:280px"></div></div>
       <div class="col">
-        <div class="card"><h3>Energia Acumulada no Mês (kWh)</h3><div id="chAcum" style="height:150px"></div></div>
-        <div class="card"><h3>Irradiação no Mês (kWh/m²)</h3>
+        <div class="card"><h3>Energia Acumulada no Mês (<span class="un">kWh</span>)</h3><div id="chAcum" style="height:150px"></div></div>
+        <div class="card"><h3>Irradiação no Mês (<span class="un">kWh/m²</span>)</h3>
           <div class="kpi-row">
             <div><div class="kpi-big" id="irrReal">—</div><div class="kpi-lbl">Real</div></div>
             <div><div class="kpi-big" id="irrMeta">—</div><div class="kpi-lbl">Meta</div></div>
@@ -184,7 +187,7 @@
       <div class="card"><h3>Comentários</h3>
         <div class="cmt-wrap"><table id="tblCmt"><thead><tr><th>Usina</th><th>Data</th><th>Comentário</th></tr></thead><tbody></tbody></table></div>
       </div>
-      <div class="card"><h3>Produção de Energia Anual (kWh)</h3><div id="chAnual" style="height:250px"></div></div>
+      <div class="card"><h3>Produção de Energia Anual (<span class="un">kWh</span>)</h3><div id="chAnual" style="height:250px"></div></div>
     </div>
     <div class="card cx-card" style="margin-top:14px">
       <h3 class="cx-title">Comentários adicionais</h3>
