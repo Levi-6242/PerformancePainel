@@ -134,6 +134,19 @@ class CheckableComboBox(QComboBox):
         m.blockSignals(False)
         self._refresh()
 
+    def set_checked(self, valores):
+        """Marca exatamente `valores` (o resto desmarca). Usado pela visão COS, que já nasce com
+        os tipos dela marcados."""
+        alvo = {str(v) for v in (valores or [])}
+        m = self.model()
+        m.blockSignals(True)
+        for i in range(m.rowCount()):
+            it = m.item(i)
+            it.setData(Qt.CheckState.Checked if it.text() in alvo else Qt.CheckState.Unchecked,
+                       Qt.ItemDataRole.CheckStateRole)
+        m.blockSignals(False)
+        self._refresh()
+
     def checked_values(self):
         m = self.model()
         return {m.item(i).text() for i in range(m.rowCount())

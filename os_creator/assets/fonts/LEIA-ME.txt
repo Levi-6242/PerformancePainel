@@ -1,0 +1,13 @@
+Fontes do design "Chamados 1B" (docs/redesign/design_handoff_chamados_1b/).
+
+Coloque aqui os arquivos .ttf:
+
+  Inter            -> https://rsms.me/inter          (Inter-Regular / Medium / SemiBold / Bold)
+  JetBrains Mono   -> https://jetbrains.com/lp/mono   (JetBrainsMono-Bold no minimo)
+
+As duas sao licenca OFL: podem ser embarcadas no instalador sem custo.
+
+O app registra sozinho tudo que encontrar nesta pasta (chamado_fontes.registrar()).
+Sem os arquivos ele cai em Segoe UI / Consolas — serve para desenvolver, mas o README
+do handoff diz que NAO serve para release: a Segoe UI nao reproduz o peso 500 nem o
+tracking negativo do numero da OS.

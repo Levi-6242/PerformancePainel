@@ -123,6 +123,9 @@ _ICO = {
     "doc":      '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/>',
     "history":  '<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/><path d="M12 8v4l3 2"/>',
     "clipboard":'<rect x="6" y="4" width="12" height="16" rx="2"/><path d="M9 4h6v3H9z"/><path d="M9 12h6"/><path d="M9 16h4"/>',
+    "headset":  '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="13" width="4" height="7" rx="1.5"/><rect x="17" y="13" width="4" height="7" rx="1.5"/><path d="M20 18v1a3 3 0 0 1-3 3h-3"/>',
+    # lupa com "check": a inspeção é a VERIFICAÇÃO em campo que fundamenta o chamado
+    "searchcheck": '<path d="m8 11 2 2 4-4"/><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>',
 }
 
 
@@ -144,10 +147,25 @@ class _CardOS(QFrame):
             " border-bottom:2px solid #8fce3f; border-radius:14px;}"
             "QFrame#osCard:hover{border:1px solid #8fce3f; border-bottom:2px solid #8fce3f;}")
         v = QVBoxLayout(self); v.setContentsMargins(18, 16, 18, 14); v.setSpacing(4)
+        topo = QHBoxLayout(); topo.setSpacing(8)
         sq = QLabel(); sq.setFixedSize(46, 46); sq.setAlignment(Qt.AlignmentFlag.AlignCenter)
         sq.setStyleSheet("background:rgba(143,206,63,0.14); border-radius:12px; border:none;")
         sq.setPixmap(_icone(icone))
-        v.addWidget(sq); v.addSpacing(8)
+        topo.addWidget(sq); topo.addStretch(1)
+        # SELO opcional no canto superior direito (opção B aprovada pelo Levi, 28/07): o card
+        # Performance mostra "N atribuídas a você" e o CLIQUE NO SELO vai direto à Alocação de
+        # análises. É QPushButton, não QLabel, de propósito: botão CONSOME o clique — num QLabel
+        # o clique vazava para o card e abria os planos em vez da Alocação.
+        self._selo = QPushButton("")
+        self._selo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._selo.setStyleSheet(
+            "QPushButton{background:rgba(143,206,63,0.12); border:1px solid rgba(143,206,63,0.45);"
+            "border-radius:11px; padding:4px 12px; color:#8fce3f; font-size:12px; font-weight:600;"
+            "min-height:0px;}"
+            "QPushButton:hover{background:rgba(143,206,63,0.22); border-color:#8fce3f;}")
+        self._selo.setVisible(False)                      # só aparece quando há o que dizer
+        topo.addWidget(self._selo, 0, Qt.AlignmentFlag.AlignTop)
+        v.addLayout(topo); v.addSpacing(8)
         t = QLabel(titulo)
         t.setStyleSheet("font-size:17px; font-weight:600; color:#e8ebf2; background:transparent; border:none;")
         v.addWidget(t)
@@ -159,6 +177,17 @@ class _CardOS(QFrame):
         arr.setStyleSheet("background:transparent; border:none;")
         arow.addWidget(arr)
         v.addLayout(arow)
+
+    def set_selo(self, texto, on_click=None):
+        """Mostra (texto truthy) ou esconde (texto vazio) o selo do canto superior direito."""
+        self._selo.setText(str(texto or ""))
+        self._selo.setVisible(bool(texto))
+        try:
+            self._selo.clicked.disconnect()
+        except TypeError:
+            pass                                          # nada conectado ainda
+        if on_click:
+            self._selo.clicked.connect(lambda *_: on_click())
 
     def enterEvent(self, e):
         if not self._lifted:
@@ -229,6 +258,7 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         root.addWidget(self.tabs, 1)
         self._carregar_perfil()                         # nome + cargo do usuário (async, do Fracttal)
+        self._carregar_selo_perf()                      # "N atribuídas a você" no card Performance
 
         # ── aba 1: Criar OS — launcher de cards que troca o conteúdo da própria aba ──
         criar = QWidget()
@@ -443,6 +473,11 @@ class MainWindow(QMainWindow):
              lambda: self._mostrar_modo("cos")),
             ("calendar", "PCM", "OS planejada por família de plano, vários ativos",
              lambda: self._mostrar_modo("pcm")),
+            ("headset", "Chamados", "Nova OS ligada a uma OS pai, com a etiqueta CHAMADOS",
+             lambda: self._mostrar_modo("chamados")),
+            ("searchcheck", "Inspeção de chamados",
+             "OS de teste que fundamenta o chamado — subtarefas por ativo e marca",
+             lambda: self._mostrar_modo("insp")),
             ("file", "Tradicional", "Criar OS do zero, passo a passo",
              lambda: self.criar_stack.setCurrentIndex(1)),
             ("copy", "Clonar OS", "Duplicar uma OS existente pelo número", self._mostrar_clonar_entrada),
@@ -452,8 +487,37 @@ class MainWindow(QMainWindow):
             card = _CardOS(ic, t, s, cb)
             self._launcher_cards.append(card)
             grid.addWidget(card, i // 3, i % 3)
+        self._card_perf = self._launcher_cards[0]        # o selo "N atribuídas a você" mora nele
         outer.addLayout(grid); outer.addStretch(1)
         return w
+
+    # ── selo do card Performance: quantas OS de análise estão comigo ──
+    def _carregar_selo_perf(self):
+        """Busca a contagem em segundo plano. Se falhar ou demorar, o selo só não aparece —
+        o launcher nunca espera por ele."""
+        self._wselo = ApiWorker(api.contar_minhas_analises)
+        self._wselo.ok.connect(self._set_selo_perf)
+        self._wselo.erro.connect(lambda *_: None)
+        self._wselo.start()
+
+    def _set_selo_perf(self, n):
+        try:
+            n = int(n or 0)
+            if n > 0:
+                txt = "1 atribuída a você" if n == 1 else f"{n} atribuídas a você"
+                self._card_perf.set_selo(txt, self._abrir_alocacao_direto)
+            else:
+                self._card_perf.set_selo("")             # zero = some (sem ruído)
+        except Exception:
+            pass                                         # selo é enfeite informativo, nunca derruba
+
+    def _abrir_alocacao_direto(self):
+        """Clique no selo → direto ao quadro de Alocação de análises (pula os 4 planos)."""
+        self.tabs.setCurrentIndex(0)
+        self._mostrar_modo("perf")
+        perf = getattr(self, "_modo_inner", {}).get("perf")
+        if perf is not None and hasattr(perf, "_abrir_carga"):
+            perf._abrir_carga()
 
     def _animar_entrada(self):
         """Entrada suave dos cards do launcher: fade-in em cascata (só ao abrir o app, com o launcher
@@ -532,6 +596,12 @@ class MainWindow(QMainWindow):
             elif key == "perf":                                       # Performance = fluxo próprio (N OS)
                 from steps.performance import PerformanceTab
                 inner = PerformanceTab(on_sair=lambda: self.criar_stack.setCurrentIndex(0))
+            elif key == "chamados":                                   # CHAMADOS = OS nova ligada a uma OS pai
+                from steps.chamados import ChamadosTab
+                inner = ChamadosTab(on_voltar=lambda: self.criar_stack.setCurrentIndex(0))
+            elif key == "insp":                                       # OS de teste que gera o chamado
+                from steps.insp_chamado import InspChamadoTab
+                inner = InspChamadoTab(on_voltar=lambda: self.criar_stack.setCurrentIndex(0))
             else:                                                     # pcm
                 inner = PcmTab(performance=False)
             tornar_todos_pesquisaveis(inner)                          # combos pesquisáveis nos modos inline
@@ -540,6 +610,13 @@ class MainWindow(QMainWindow):
             self._modo_inner[key] = inner
             if hasattr(inner, "carregar_inicial"):
                 inner.carregar_inicial()
+        else:
+            # ENTRAR de novo = tela limpa. O painel é criado uma vez e o stack só troca de página,
+            # então sem isto o cliente/usina/ativos do uso anterior continuavam preenchidos (pedido
+            # do Levi, 28/07 — vale p/ COS e Performance, que são os que criam OS em lote).
+            alvo = getattr(self, "_modo_inner", {}).get(key)
+            if alvo is not None and hasattr(alvo, "reiniciar"):
+                alvo.reiniciar()
         self.criar_stack.setCurrentIndex(self._modo_idx[key])
 
     def abrir_sugestao_performance(self, dados):

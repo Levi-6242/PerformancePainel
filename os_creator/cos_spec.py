@@ -7,7 +7,7 @@ Compartilhado pela UI (steps/varias_os) e pela criação (api). Espelha o padrã
     A · Proteção atuou      → chips ANSI  → Ação Religamento Remoto/Local
     B · Inversor desligado  → falha do inversor → Ação Religamento Local
     C · Falha de comunicação→ causa da comunicação → Ação Inspeção Local
-  Título:      [Usina][Equipamento] - {motivo}          (via api.perf_os_nome)
+  Título:      [Equipamento] - {motivo}                 (via api.perf_os_nome)
   Observação:  UFV: {usina} | Proteção: {códigos} | Ação: {ação} | Falha: {falha}
 """
 
@@ -24,21 +24,29 @@ CATEGORIAS = {
 }
 
 # Proteções ANSI (A) — 86 é o impedimento de segurança (lockout) que exige equipe em campo.
-PROTECOES = ["27", "59", "59N", "47", "67", "81", "32", "50", "51", "86"]
+PROTECOES = ["27", "32", "46", "47", "50", "51", "59", "67", "78", "81", "86",
+             "50N", "51N", "59N", "67N"]                    # lista oficial do COS (23/07)
 PROTECAO_MOTIVO = {
-    "27": "Subtensão", "59": "Sobretensão", "59N": "Sobretensão de neutro",
-    "47": "Sequência de fase", "67": "Sobrecorrente direcional", "81": "Frequência",
-    "32": "Potência direcional", "50": "Sobrecorrente instantânea",
-    "51": "Sobrecorrente temporizada", "86": "Bloqueio (lockout)",
+    "27": "Relé de Subtensão",
+    "32": "Relé Direcional de Potência",
+    "46": "Relé de Desbalanceamento de Corrente",
+    "47": "Relé de Desbalanceamento de Tensão",
+    "50": "Relé de Sobrecorrente Instantâneo",
+    "51": "Relé de Sobrecorrente Temporizado",
+    "59": "Relé de Sobretensão",
+    "67": "Relé Direcional de Sobrecorrente",
+    "78": "Salto Vetorial",
+    "81": "Relé de Frequência",
+    "86": "Relé Auxiliar de Bloqueio",
+    "50N": "Sobrecorrente Instantâneo de Neutro",
+    "51N": "Relé de Sobrecorrente Temporizado de Neutro",
+    "59N": "Relé de Sobretensão Residual ou Sobretensão de Neutro",
+    "67N": "Relé de Sobrecorrente Direcional de Neutro",
 }
 PROTECAO_IMPEDIMENTO = "86"          # presença → permissivo bloqueia religamento remoto
 
-# Referência ANSI agrupada (tooltip da "!" na categoria A) — espelha o fluxograma.
-ANSI_REF = [
-    ("27", "Subtensão"), ("59 · 59N", "Sobretensão / de neutro"), ("47", "Sequência de fase (tensão)"),
-    ("67", "Sobrecorrente direcional"), ("81", "Frequência (sobre/sub)"), ("32", "Potência direcional"),
-    ("50 · 51", "Sobrecorrente inst. / temp."), ("86", "Bloqueio (lockout) — impedimento"),
-]
+# Referência ANSI (tooltip da "!" na categoria A) — mesma lista/descrição do COS.
+ANSI_REF = [(c, PROTECAO_MOTIVO[c]) for c in PROTECOES]
 
 
 def ansi_tooltip() -> str:
@@ -69,7 +77,10 @@ _FEM = ("cabine", "usina", "estac", "string", "subestac")
 
 
 def _fem(equip: str) -> bool:
+    import unicodedata
     w = (equip or "").strip().split(" ")[0].lower()
+    # sem acento: 'estação' precisa casar com 'estac' (senão sai "Religamento DO Estação")
+    w = "".join(c for c in unicodedata.normalize("NFD", w) if unicodedata.category(c) != "Mn")
     return any(w.startswith(f) for f in _FEM)
 
 
@@ -83,11 +94,24 @@ def artigo(equip: str) -> str:
 
 
 # ── montagem ─────────────────────────────────────────────────────────────────
+SEM_TRIP = "Sem proteção/trip ativo"   # cat A: desligou SEM atuação de proteção (exclusivo com os códigos)
+
+
+def _eh_sem_trip(codigos) -> bool:
+    """Aceita o rótulo novo e o antigo ('Sem trip') — OSs já criadas continuam sendo lidas."""
+    for c in (codigos or []):
+        s = str(c).strip().lower()
+        if s.startswith("sem trip") or s.startswith("sem prote"):
+            return True
+    return False
+
+
 def juntar_codigos(codigos) -> str:
-    """['27','59'] → '27 e 59' · ['81'] → '81' · [] → '--/--' (uppercase, sem duplicar)."""
+    """['27','59'] → '27 e 59' · ['81'] → '81' · ['Sem trip'] → 'Sem trip' · [] → '--/--'."""
     cs = []
     for c in (codigos or []):
-        c = str(c).strip().upper()
+        c = str(c).strip()
+        c = c if _eh_sem_trip([c]) else c.upper()   # preserva o rótulo 'Sem …'; códigos em maiúscula
         if c and c not in cs:
             cs.append(c)
     if not cs:
@@ -101,6 +125,8 @@ def falha_texto(categoria, equipamento="", codigos=None, motivo_b="", causa_c=""
     """Campo 'Falha:' conforme a categoria (espelha os exemplos reais do time)."""
     eq = (equipamento or "Equipamento").strip()
     if categoria == CAT_A:
+        if _eh_sem_trip(codigos):
+            return f"{eq} {_desligado(eq)}, sem atuação de proteção (sem trip)."
         return f"{eq} {_desligado(eq)}, relé com proteções {juntar_codigos(codigos)} ativas."
     if categoria == CAT_B:
         m = (motivo_b or "").strip() or "falha não especificada"
@@ -120,10 +146,12 @@ def falha_texto(categoria, equipamento="", codigos=None, motivo_b="", causa_c=""
 
 
 def acao_texto(categoria, remoto=True) -> str:
-    """A = Remoto/Local (escolha); B = Religamento Local; C = Inspeção Local."""
-    if categoria == CAT_A:
-        return ACAO_REMOTO if remoto else ACAO_LOCAL
-    return ACAO_DEFAULT_CAT.get(categoria, ACAO_LOCAL)
+    """Ação ESCOLHIDA pelo operador em qualquer categoria (o default por categoria está em
+    ACAO_DEFAULT_CAT). Remoto = Religamento Remoto; Local = Religamento Local (A/B) ou
+    Inspeção Local (C — falha de comunicação não tem religamento, o técnico inspeciona)."""
+    if remoto:
+        return ACAO_REMOTO
+    return ACAO_INSPECAO if categoria == CAT_C else ACAO_LOCAL
 
 
 def motivo_titulo(tipo, equipamento="", acao="") -> str:
@@ -141,6 +169,48 @@ def observacao(usina, codigos, acao, falha) -> str:
     """Padrão pipe do time: UFV: {usina} | Proteção: {códigos} | Ação: {ação} | Falha: {falha}."""
     return (f"UFV: {(usina or '').strip()} | Proteção: {juntar_codigos(codigos)} "
             f"| Ação: {acao} | Falha: {falha}")
+
+
+def parse_observacao(texto) -> dict:
+    """INVERSO de observacao(): lê o pipe do COS de volta → {'usina','codigos','acao','falha'}.
+    Usa a 1ª linha que tem 'UFV:' e '|' (a observação livre do operador vem depois). Campos que
+    faltam voltam vazios. É o que permite o CLONADOR do COS remontar o formulário de uma OS."""
+    out = {"usina": "", "codigos": [], "acao": "", "falha": ""}
+    linha = ""
+    for l in str(texto or "").splitlines():
+        if "|" in l and "ufv:" in l.lower():
+            linha = l.strip()
+            break
+    if not linha:
+        return out
+    for parte in linha.split("|"):
+        p = parte.strip()
+        low = p.lower()
+        if ":" not in p:
+            continue
+        val = p.split(":", 1)[1].strip()
+        if low.startswith("ufv"):
+            out["usina"] = val
+        elif low.startswith(("proteção", "protecao")):
+            if val and val != "--/--":
+                out["codigos"] = [(c.strip() if _eh_sem_trip([c]) else c.strip().upper())
+                                  for c in val.replace(" e ", ",").split(",") if c.strip()]
+        elif low.startswith(("ação", "acao")):
+            out["acao"] = val
+        elif low.startswith("falha"):
+            out["falha"] = val
+    return out
+
+
+def categoria_de(codigos, falha) -> str:
+    """Deduz a categoria de uma OS do COS já criada (p/ o clonador): tem proteção → A;
+    falha citando comunicação/supervisório/fibra/internet → C; senão → B (inversor)."""
+    if codigos:
+        return CAT_A
+    f = str(falha or "").lower()
+    if any(t in f for t in ("comunica", "supervis", "fibra", "internet")):
+        return CAT_C
+    return CAT_B
 
 
 def exige_equipe_campo(codigos) -> bool:

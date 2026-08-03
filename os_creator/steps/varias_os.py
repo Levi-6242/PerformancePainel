@@ -7,7 +7,7 @@ subtarefas OBRIGATÓRIAS. 'Já realizada' (religamento remoto resolvido) vem lig
 impedimento de segurança (86) o permissivo sugere abrir para equipe em campo."""
 import datetime as _dt
 from PyQt6.QtCore import Qt, QDateTime
-from PyQt6.QtGui import QIcon, QBrush, QColor, QPainter
+from PyQt6.QtGui import QIcon, QBrush, QColor, QPainter, QPalette, QCursor
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QComboBox,
                              QLineEdit, QPushButton, QMessageBox, QDateTimeEdit, QWidget, QScrollArea,
                              QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QAbstractItemView,
@@ -63,6 +63,25 @@ class _Chip(QPushButton):
 # terceiros (planta que não é ativo cadastrado no Fracttal). id extraído de OSs reais (ex.: 9184).
 GENERICO_ID = 49349933
 GENERICO_DESC = "Grid Co. - Emergências e outros pontos      { GRID }"
+# Classificação 1 que o PCM deixou "depende do contexto" (cat C) → sentinela: o operador PRECISA
+# escolher (mostrada em vermelho na linha 'Registrada no Fracttal como'; bloqueia criar se ficar assim).
+_PREENCHER = "Preencher"
+
+
+class _LinhaClicavel(QFrame):
+    """Linha que repassa o clique para um alvo (o interruptor) — clicar em QUALQUER ponto dela
+    (rótulo, explicação, espaço vazio) liga/desliga. O próprio interruptor, sendo filho, recebe
+    o clique antes e não repassa — então não dá duplo toggle."""
+    def __init__(self, alvo):
+        super().__init__()
+        self._alvo = alvo
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._alvo.toggle()
+        else:
+            super().mousePressEvent(e)
 
 
 class ToggleSwitch(QCheckBox):
@@ -71,6 +90,11 @@ class ToggleSwitch(QCheckBox):
         super().__init__(parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFixedSize(44, 24)
+
+    def hitButton(self, pos):
+        """A pílula INTEIRA é clicável. Sem isto o QCheckBox só aceita o clique no indicador
+        padrão (um quadradinho à esquerda) e o clique 'não pega' — era o toggle exigindo 2 cliques."""
+        return self.rect().contains(pos)
 
     def paintEvent(self, _):
         p = QPainter(self); p.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -83,12 +107,23 @@ class ToggleSwitch(QCheckBox):
         p.end()
 
 
+def _idx_severidade_alta(cb) -> int:
+    """Índice de 'Muito alto' no combo de Severidade (0 se a lista mudar de nome no Fracttal)."""
+    for i in range(cb.count()):
+        if cb.itemText(i).strip().lower().startswith("muito alto"):
+            return i
+    return 0
+
+
 class VariasOSsDialog(QWidget):
     def __init__(self, parent=None, on_voltar=None):
         super().__init__(parent)
         self._on_voltar = on_voltar
         self._assets = api.load_assets_cached() or []
         self._wc = self._wr = self._wt = self._wf = None
+        self._wcl = None               # worker do clonador (busca a OS pelo número)
+        # overrides manuais do "Registrada no Fracttal como" (None = automático pela categoria)
+        self._ovr = {"tipo": None, "c1": None, "c2": None, "crit": None}
         self._checked = set()
         self._terceiros = False        # modo "usina de terceiros" (Cliente/Usina livres + ativo genérico)
         self._terc_wired = False       # os textEdited do Cliente/Usina já foram ligados ao preview?
@@ -111,6 +146,17 @@ class VariasOSsDialog(QWidget):
         bl = QHBoxLayout(barra); bl.setContentsMargins(14, 5, 14, 5); bl.setSpacing(9)
         _tl = QLabel("Tipo:"); _tl.setObjectName("uiCampoLabel")
         bl.addWidget(_tl); bl.addSpacing(3); bl.addWidget(self._seg_tipo)
+        # ── clonador do COS: puxa uma OS já criada pelo número e remonta o formulário ──
+        bl.addStretch(1)
+        _cl = QLabel("Clonar OS nº"); _cl.setObjectName("uiCampoLabel")
+        self.ed_clone = QLineEdit(); self.ed_clone.setFixedWidth(84)
+        self.ed_clone.setPlaceholderText("ex.: 9184")
+        self.ed_clone.setToolTip("Número de uma OS criada pelo COS — preenche este formulário igual a ela")
+        self.ed_clone.returnPressed.connect(self._clonar_num)
+        self.b_clone = QPushButton("Clonar"); self.b_clone.setObjectName("secondary")
+        self.b_clone.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.b_clone.clicked.connect(self._clonar_num)
+        bl.addWidget(_cl); bl.addWidget(self.ed_clone); bl.addWidget(self.b_clone)
         self.modo_bar = barra
 
         # ── Card 1: Ativo ──
@@ -167,11 +213,30 @@ class VariasOSsDialog(QWidget):
         self._chips = {}                       # code -> _Chip
         chips_wrap = QWidget(); chips_wrap.setStyleSheet("background:transparent;")
         cw = QGridLayout(chips_wrap); cw.setContentsMargins(0, 0, 0, 0)
-        cw.setHorizontalSpacing(6); cw.setVerticalSpacing(6)
-        for idx, cod in enumerate(cs.PROTECOES):        # grade 5×2, chips compactos à esquerda
-            ch = _Chip(cod, on_toggle=self._preview); self._chips[cod] = ch
-            cw.addWidget(ch, idx // 5, idx % 5, Qt.AlignmentFlag.AlignLeft)
-        cw.setColumnStretch(5, 1)                        # coluna extra absorve o espaço (chips não esticam)
+        COLS, GAP = 5, 6
+        cw.setHorizontalSpacing(GAP); cw.setVerticalSpacing(GAP)
+        _cods = []
+        for idx, cod in enumerate(cs.PROTECOES):        # grade 5 por linha, chips compactos à esquerda
+            ch = _Chip(cod, on_toggle=lambda c=cod: self._on_prot(c)); self._chips[cod] = ch
+            _cods.append(ch)
+            cw.addWidget(ch, idx // COLS, idx % COLS, Qt.AlignmentFlag.AlignLeft)
+        # LARGURA ÚNICA p/ todos os códigos: sem isso '50N' fica mais largo que '27' e a grade sai
+        # torta (cada coluna herda a largura do maior chip dela). Medida, não chutada.
+        W = max(c.sizeHint().width() for c in _cods)
+        for c in _cods:
+            c.setFixedWidth(W)
+        # "Sem proteção/trip ativo" — desligou sem atuação de proteção (exclusivo com os códigos)
+        _lin = (len(cs.PROTECOES) + COLS - 1) // COLS   # linha logo abaixo dos códigos
+        ch = _Chip(cs.SEM_TRIP, on_toggle=lambda: self._on_prot(cs.SEM_TRIP)); self._chips[cs.SEM_TRIP] = ch
+        span = 1                                        # ocupa colunas inteiras → borda direita alinhada
+        while span < COLS and span * W + (span - 1) * GAP < ch.sizeHint().width():
+            span += 1
+        ch.setFixedWidth(span * W + (span - 1) * GAP)
+        cw.addWidget(ch, _lin, 0, 1, span, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom)
+        cw.setRowMinimumHeight(_lin, ch.height() + 8)    # respiro: é a NEGAÇÃO, não mais um código
+        for _c in range(COLS):
+            cw.setColumnMinimumWidth(_c, W)              # colunas iguais mesmo com a linha incompleta
+        cw.setColumnStretch(COLS, 1)                     # coluna extra absorve o espaço (chips não esticam)
         self.cb_onde = QComboBox(); self.cb_onde.addItems(cs.ONDE); self.cb_onde.currentIndexChanged.connect(self._preview)
         self._page_a = QWidget(); self._page_a.setStyleSheet("background:transparent;")
         pa = QVBoxLayout(self._page_a); pa.setContentsMargins(0, 0, 0, 0)
@@ -221,7 +286,7 @@ class VariasOSsDialog(QWidget):
             lambda: self.de_fim.setDateTime(self.de.dateTime().addSecs(600)))
         self._fin = FinalizarPanel(["Procedimento"], com_datas=False)
         self._fin.toggled.connect(self._sync_fin)
-        c_evt = Card(5, "Evento")
+        c_evt = Card(7, "Evento")
         self._campo_ev = campo("Data/hora do evento", erow, obrig=True)
         self._campo_fim = campo("Data/hora da conclusão", self.de_fim, extra="(quando resolvido)")
         # modo "mesmo ativo": N linhas de data (evento → conclusão), cada uma vira uma OS
@@ -265,9 +330,9 @@ class VariasOSsDialog(QWidget):
         c_resp = Card(4, "Responsável")
         c_resp.add(campo("Requerido por", rrow, obrig=True, extra="(digite p/ pesquisar)"))
         lay.addWidget(Linha(c_acao, c_resp, quebra=860))
-        lay.addWidget(c_evt)
+        # (o card Evento é o ÚLTIMO — adicionado lá embaixo)
 
-        # ── Card 6: O ativo falhou? (F4 — bloco de falha p/ a verificação) ──
+        # ── Card 5: O ativo falhou? (F4 — bloco de falha p/ a verificação) ──
         self.chk_falha = QCheckBox("O ativo falhou?"); self.chk_falha.toggled.connect(self._on_falha)
         self.cb_ftipo = QComboBox(); self.cb_fcausa = QComboBox(); self.cb_fdetec = QComboBox()
         for cb in (self.cb_ftipo, self.cb_fcausa, self.cb_fdetec):
@@ -275,6 +340,11 @@ class VariasOSsDialog(QWidget):
         self.cb_fsev = QComboBox()
         for nome, idp in api.FALHA_SEVERIDADES:
             self.cb_fsev.addItem(nome, idp)
+        # SEMPRE "Muito alto" no COS (Levi, 30/07). A lista do Fracttal começa em "Muito baixo",
+        # e como o combo nasce no item 0 toda OS de religamento saía com a severidade MÍNIMA —
+        # o inverso do que o COS significa. A criticidade (id_priorities) já era Muito alto; quem
+        # estava errado era este campo, que é outro (id_failure_severity).
+        self.cb_fsev.setCurrentIndex(_idx_severidade_alta(self.cb_fsev))
         self.cb_fdano = QComboBox()
         for nome, idp in api.FALHA_DANOS:
             self.cb_fdano.addItem(nome, idp)
@@ -297,34 +367,53 @@ class VariasOSsDialog(QWidget):
         _r2l.addWidget(campo("Fora de serviço", oos_row), 1)
         fb.addWidget(_r1); fb.addWidget(_r2)
         self._falha_box.setVisible(False)
-        c_falha = Card(6, "O ativo falhou?")
+        # linha "Registrada no Fracttal como" — VALORES CLICÁVEIS (o operador pode trocar)
+        self.prev_meta = QLabel("—"); self.prev_meta.setWordWrap(True)
+        self.prev_meta.setStyleSheet("font-size:12px;color:#c4cbdb;background:#141b2e;"
+                                     "border:1px solid #24304d;border-radius:8px;padding:8px 10px;")
+        self.prev_meta.setTextFormat(Qt.TextFormat.RichText)
+        self.prev_meta.setOpenExternalLinks(False)
+        self.prev_meta.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse
+                                               | Qt.TextInteractionFlag.TextSelectableByMouse)
+        _pal = self.prev_meta.palette()                    # link verde (a paleta manda no <a>)
+        _pal.setColor(QPalette.ColorRole.Link, QColor(GREEN))
+        self.prev_meta.setPalette(_pal)
+        self.prev_meta.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.prev_meta.setToolTip("Clique num valor em verde para trocar")
+        self.prev_meta.linkActivated.connect(self._editar_meta)
+        c_falha = Card(5, "O ativo falhou?")
         c_falha.add(self.chk_falha); c_falha.add(self._falha_box)
+        c_falha.add(rotulo("Registrada no Fracttal como", extra="(clique no verde para trocar)"))
+        c_falha.add(self.prev_meta)
         lay.addWidget(c_falha)
 
-        # ── Preview (título + observação) ──
+        # ── Card 6: Preview (título + observação) ──
         self.prev_tit = QLabel("—"); self.prev_tit.setObjectName("uiMono"); self.prev_tit.setWordWrap(True)
         self.prev_obs = QLabel("—"); self.prev_obs.setObjectName("uiMono"); self.prev_obs.setWordWrap(True)
         self.prev_tit.setStyleSheet("font-family:Consolas,monospace;font-size:12px;color:#e6eaf2;")
         self.prev_obs.setStyleSheet("font-family:Consolas,monospace;font-size:12px;color:#c4cbdb;")
-        self.prev_meta = QLabel("—"); self.prev_meta.setWordWrap(True)
-        self.prev_meta.setStyleSheet("font-size:12px;color:#c4cbdb;background:#141b2e;"
-                                     "border:1px solid #24304d;border-radius:8px;padding:8px 10px;")
         self.ed_obs = QLineEdit()
         self.ed_obs.setPlaceholderText("comentário do operador — entra numa nova linha no fim da observação")
         self.ed_obs.textChanged.connect(self._preview)
-        c_prev = Card(7, "Como vai ficar (montado sozinho)")
+        c_prev = Card(6, "Como vai ficar (montado sozinho)")
         c_prev.add(campo("Incluir alguma observação", self.ed_obs, extra="(opcional)"))
         c_prev.add(rotulo("Título")); c_prev.add(self.prev_tit)
         c_prev.add(rotulo("Observação")); c_prev.add(self.prev_obs)
-        c_prev.add(rotulo("Registrada no Fracttal como")); c_prev.add(self.prev_meta)
         lay.addWidget(c_prev)
+        lay.addWidget(c_evt)                               # Card 7: Evento — por ÚLTIMO
         lay.addStretch(1)
 
         # rodapé fixo
         row = QHBoxLayout(); row.setContentsMargins(18, 6, 18, 2)
         b_cancel = QPushButton("Cancelar"); b_cancel.setObjectName("secondary"); b_cancel.clicked.connect(self.reject)
+        # Recomeçar: o reset já roda sozinho depois de criar e ao entrar, mas quem começou a
+        # preencher e desistiu no meio não tinha como voltar à tela limpa sem sair e voltar.
+        self.b_limpar = QPushButton("Recomeçar"); self.b_limpar.setObjectName("secondary")
+        self.b_limpar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.b_limpar.setToolTip("Limpa todos os campos e volta ao estado de tela recém-aberta")
+        self.b_limpar.clicked.connect(self._limpar_clicado)
         self.btn = QPushButton("Criar OSs"); self.btn.setEnabled(False); self.btn.clicked.connect(self._criar)
-        row.addWidget(b_cancel); row.addWidget(self.btn, 1)
+        row.addWidget(b_cancel); row.addWidget(self.b_limpar); row.addWidget(self.btn, 1)
         outer.addLayout(row)
         self.hint = QLabel(""); self.hint.setObjectName("uiAjuda"); self.hint.setContentsMargins(18, 0, 18, 8)
         outer.addWidget(self.hint)
@@ -382,11 +471,13 @@ class VariasOSsDialog(QWidget):
             for j in range(cb.count()):
                 if (cb.itemText(j) or "").strip().lower() == alvo:
                     i = j; break
-        if i < 0 and alvo:                          # 2) prefixo (tolera sufixos tipo " (MCO)")
+        if i < 0 and alvo:                          # 2) prefixo (tolera sufixos tipo " (MCO)") — pega o
+            melhor, mlen = -1, -1                   #    MAIS LONGO p/ não truncar "Desligamento Inversor"→"Desligamento"
             for j in range(cb.count()):
                 t = (cb.itemText(j) or "").strip().lower()
-                if t and (t.startswith(alvo) or alvo.startswith(t)):
-                    i = j; break
+                if t and (t.startswith(alvo) or alvo.startswith(t)) and len(t) > mlen:
+                    melhor, mlen = j, len(t)
+            i = melhor
         if i >= 0:
             cb.setCurrentIndex(i)
 
@@ -401,8 +492,8 @@ class VariasOSsDialog(QWidget):
             self._sel_desc(self.cb_fcausa, "Perda de sinal em redes de comunicação")
         elif self._cat == cs.CAT_B:
             self._sel_desc(self.cb_ftipo, "Desligamento Inversor")
-        else:
-            self._sel_desc(self.cb_ftipo, "Oscilações de Tensão")
+        else:                                          # cat A (cabine/usina/transf) — PCM: Desligamento
+            self._sel_desc(self.cb_ftipo, "Desligamento")
             self._sel_desc(self.cb_fcausa, "Queda de energia")
         self._sel_desc(self.cb_fdetec, "Monitoramento de Condição Online (MCO)")
 
@@ -441,6 +532,10 @@ class VariasOSsDialog(QWidget):
         self._page_c.setVisible(i == 2)
         if hasattr(self, "info_ansi"):
             self.info_ansi.setVisible(i == 0)     # "!" da tabela ANSI só faz sentido na categoria A
+        # default de ação por categoria (A=Remoto · B/C=Local) — o operador PODE trocar
+        self._seg_acao.set_index(0 if i == 0 else 1, emit=False)
+        if hasattr(self, "chk_falha") and self.chk_falha.isChecked():
+            self._sugerir_falha()                 # re-sugere a falha p/ a nova categoria (era o bug: ficava a antiga)
         self._preview()
 
     @slot_seguro
@@ -449,6 +544,18 @@ class VariasOSsDialog(QWidget):
 
     def _remoto(self):
         return self._seg_acao.index() == 0
+
+    def _on_prot(self, cod):
+        """Chip de proteção/Sem trip ligado → exclusividade: 'Sem trip' e códigos não coexistem."""
+        ch = self._chips.get(cod)
+        if ch is not None and ch.isChecked():
+            sem = (cod == cs.SEM_TRIP)
+            for k, c in self._chips.items():
+                if c is ch:
+                    continue
+                if (k == cs.SEM_TRIP) != sem and c.isChecked():   # liguei código → desmarca Sem trip (e vice-versa)
+                    c.blockSignals(True); c.setChecked(False); c.blockSignals(False)
+        self._preview()
 
     def _codigos(self):
         if self._cat != cs.CAT_A:          # proteção só existe na categoria A; B/C = --/--
@@ -459,9 +566,7 @@ class VariasOSsDialog(QWidget):
         return api._asset_short_name(asset) if asset else (self.cb_onde.currentText() if self._cat == cs.CAT_A else "Equipamento")
 
     def _acao_txt(self):
-        if self._cat == cs.CAT_A:
-            return cs.ACAO_REMOTO if self._remoto() else cs.ACAO_LOCAL
-        return cs.ACAO_DEFAULT_CAT[self._cat]
+        return cs.acao_texto(self._cat, self._remoto())     # escolha do operador em QUALQUER categoria
 
     def _tipo_os(self):
         return cs.TIPO_INSPECAO if self._seg_tipo.index() == 1 else cs.TIPO_RELIGAMENTO
@@ -481,13 +586,43 @@ class VariasOSsDialog(QWidget):
 
     def _meta_html(self):
         """Linha read-only p/ o operador saber com que Tipo/Classificação/Criticidade a OS será criada."""
-        g = "color:#A6E22E;font-weight:700"
-        tipo = self._tarefa_nome()
-        classif = "Emergencial / Elétrica" if self._tipo_os() == cs.TIPO_INSPECAO else "Religamento / Elétrica"
+        g = "color:#A6E22E;font-weight:700;text-decoration:none"
+        r = "color:#F5766B;font-weight:700;text-decoration:underline"   # vermelho = precisa preencher
+        c1, c2 = self._classif_nomes()
+        c1sty = r if c1 == _PREENCHER else g
         sep = " &nbsp;&nbsp;·&nbsp;&nbsp; "
-        return (f"Tipo de tarefa <span style='{g}'>{tipo}</span>{sep}"
-                f"Classificação <span style='{g}'>{classif}</span>{sep}"
-                f"Criticidade <span style='{g}'>Muito alto</span>")
+        return (f"Tipo de tarefa <a href='tipo' style='{g}'>{self._tarefa_nome()}</a>{sep}"
+                f"Classificação <a href='c1' style='{c1sty}'>{c1}</a> / <a href='c2' style='{g}'>{c2}</a>{sep}"
+                f"Criticidade <a href='crit' style='{g}'>{self._crit_nome()}</a>")
+
+    @slot_seguro
+    def _editar_meta(self, campo):
+        """Clique num valor verde da linha 'Registrada no Fracttal como' → menu p/ trocar a opção.
+        Dá flexibilidade ao operador sem tirar o automático (tem 'voltar ao automático')."""
+        from PyQt6.QtWidgets import QMenu
+        if campo == "crit":
+            opcoes = [(n, i) for n, i in api.CRITICIDADES]
+        else:
+            lst = (self._classif or {}).get({"tipo": "tipos", "c1": "c1", "c2": "c2"}[campo]) or []
+            opcoes = [(str(x.get("description") or "").strip(), str(x.get("description") or "").strip())
+                      for x in lst if str(x.get("description") or "").strip()]
+        if not opcoes:
+            QMessageBox.information(self, "Alterar",
+                                    "As listas do Fracttal ainda não carregaram (ou a sessão expirou). "
+                                    "Aguarde um instante ou relogue e tente de novo.")
+            return
+        m = QMenu(self)
+        if self._ovr.get(campo) is not None:
+            a0 = m.addAction("↩  voltar ao automático"); a0.setData("__auto__")
+            m.addSeparator()
+        for nome, val in opcoes:
+            act = m.addAction(nome); act.setData(val)
+        esc = m.exec(QCursor.pos())
+        if esc is None:
+            return
+        val = esc.data()
+        self._ovr[campo] = None if val == "__auto__" else val
+        self._preview()
 
     # ── preview + permissivo ──
     @slot_seguro
@@ -501,7 +636,9 @@ class VariasOSsDialog(QWidget):
         acao = self._acao_txt()
         falha = self._falha(equip)
         motivo = cs.motivo_titulo(self._tipo_os(), equip, acao)
-        tit = api.perf_os_nome(asset, motivo) if asset else f"[{usina}][{equip}] - {motivo}"
+        # sem ativo do catálogo o título é montado à mão — tem que seguir o MESMO padrão
+        # novo do perf_os_nome, senão a prévia mente sobre o que vai ser criado
+        tit = api.perf_os_nome(asset, motivo) if asset else f"[{equip}] - {motivo}"
         self.prev_tit.setText(tit + ("   (cada OS usa o seu ativo)" if len(self._checked) > 1 else ""))
         self.prev_obs.setText(self._obs_final(cs.observacao(usina, self._codigos(), acao, falha)))
         self.prev_meta.setText(self._meta_html())
@@ -509,12 +646,12 @@ class VariasOSsDialog(QWidget):
         if self._cat == cs.CAT_A and cs.exige_equipe_campo(self._codigos()):
             self.lbl_perm.setText("⚠ Impedimento ativo (86) — religamento remoto não autorizado. "
                                   "Abra para equipe em campo (Ação: Local).")
-        elif self._cat == cs.CAT_C:
-            self.lbl_perm.setText("Falha de comunicação — técnico faz inspeção local; sem religamento remoto.")
+        elif self._remoto():
+            self.lbl_perm.setText("Falha de comunicação — verificação remota." if self._cat == cs.CAT_C
+                                  else "Sem impedimento — pode ser resolvido remoto.")
         else:
-            self.lbl_perm.setText("Sem impedimento — religamento pode ser remoto." if self._remoto()
-                                  else "Local — a OS abre para a equipe em campo resolver.")
-        self._seg_acao.setEnabled(self._cat == cs.CAT_A)     # B/C têm ação fixa
+            self.lbl_perm.setText("Local — a OS abre para a equipe em campo resolver.")
+        # ação é escolha do operador em TODAS as categorias (o default muda com a categoria)
         self._upd_oos()
         self._upd()
 
@@ -593,7 +730,7 @@ class VariasOSsDialog(QWidget):
         """Linha com o interruptor 'Usina de terceiros' + rótulo/explicação."""
         self.sw_terc = ToggleSwitch()
         self.sw_terc.toggled.connect(self._tog_terceiros)
-        row = QFrame(); row.setObjectName("tercRow")
+        row = _LinhaClicavel(self.sw_terc); row.setObjectName("tercRow")
         row.setStyleSheet("QFrame#tercRow{background:#0F1526;border:1px solid rgba(255,255,255,0.07);"
                           "border-radius:10px;}")
         h = QHBoxLayout(row); h.setContentsMargins(13, 9, 14, 9); h.setSpacing(12)
@@ -672,6 +809,51 @@ class VariasOSsDialog(QWidget):
         u = a.get("usina") or ""
         return self._carteira(u) if " - " in u else (a.get("cliente") or "").strip()
 
+    def _carteiras_de(self, a):
+        """TODAS as carteiras a que o ativo pode pertencer: o campo 'cliente' E o prefixo da usina
+        nomeada. O Fracttal às vezes diverge entre os dois — ex.: cliente 'Ultragaz' com usina
+        'Utragaz - Ibirapuã 1 - BA' (typo, faltou o 'l'). O dropdown de Cliente é montado pelo campo
+        'cliente', então o filtro de usinas TEM de aceitar esse campo também, senão a usina some."""
+        out = set()
+        c = (a.get("cliente") or "").strip()
+        if c:
+            out.add(c)
+        u = a.get("usina") or ""
+        if " - " in u and self._carteira(u):
+            out.add(self._carteira(u))
+        return out
+
+    def _cliente_da_usina(self, usi):
+        """Cliente de uma usina pelo campo 'cliente' de um ativo dela (fonte do dropdown); cai no
+        prefixo se nenhum ativo tiver cliente. Usado no auto-preenchimento ao escolher a usina —
+        assim 'Utragaz - …' seleciona o cliente correto 'Ultragaz' mesmo com o typo."""
+        for a in self._assets:
+            if a.get("usina") == usi and (a.get("cliente") or "").strip():
+                return a["cliente"].strip()
+        return self._carteira(usi)
+
+    @slot_seguro
+    @slot_seguro
+    def _limpar_clicado(self, *_):
+        """Botão Recomeçar. Confirma só se já houver algo preenchido — apertar por engano numa tela
+        cheia custa o trabalho todo."""
+        # ed_obs é QLineEdit aqui (no card de Performance é QTextEdit) — lê pelos dois nomes
+        txt = (self.ed_obs.text() if hasattr(self.ed_obs, "text") else self.ed_obs.toPlainText())
+        sujo = bool(self._checked or (txt or "").strip() or self.cb_cli.currentIndex() > 0)
+        if sujo and QMessageBox.question(
+                self, "Recomeçar",
+                "Limpar todos os campos e voltar à tela inicial?") != QMessageBox.StandardButton.Yes:
+            return
+        self._reset()
+        self.hint.setText("tela limpa")
+
+    def reiniciar(self):
+        """Entrar no COS = tela como se fosse a primeira vez. Delega ao `_reset`.
+
+        Este método existia com uma limpeza PRÓPRIA, mais rasa, e a divergência entre os dois era
+        o bug: sair e voltar mantinha responsável, severidade e sobrescritas da OS anterior."""
+        self._reset()
+
     def _fill_clientes(self):
         # clientes REAIS = os que têm ativo de equipamento (o catálogo tem material/inventário à parte,
         # às vezes com tipo de equipamento mas usina/carteira própria — por isso usa-se o campo cliente).
@@ -697,11 +879,13 @@ class VariasOSsDialog(QWidget):
         """Popula a usina: filtrada pela carteira do cliente selecionado, ou TODAS se nenhum. Preserva
         a usina escolhida se ainda válida."""
         cli, cur = self._cli(), self._usi()
-        # base = usinas de equipamento cuja CARTEIRA é um cliente real (exclui inventário/material)
+        # base = usinas de equipamento cuja CARTEIRA (cliente OU prefixo) é um cliente real (exclui
+        # inventário/material, que não tem tipo de equipamento). Aceitar as duas grafias evita que a
+        # usina suma quando cliente e prefixo divergem (ex.: Ultragaz/Utragaz).
         base = [a for a in self._assets if a.get("usina") and a.get("tipo") in _CARTEIRA_EQUIP
-                and self._carteira_de(a) in self._clientes_reais]
+                and (self._carteiras_de(a) & self._clientes_reais)]
         if cli:
-            usinas = sorted({a["usina"] for a in base if self._carteira_de(a) == cli})
+            usinas = sorted({a["usina"] for a in base if cli in self._carteiras_de(a)})
         else:                          # LIVRE: todas as usinas de planta (sem materiais)
             usinas = sorted({a["usina"] for a in base})
         self.cb_usi.blockSignals(True); self.cb_usi.clear()
@@ -722,8 +906,8 @@ class VariasOSsDialog(QWidget):
         if self._terceiros:
             return
         usi = self._usi()
-        if usi and " - " in usi:       # usina nomeada → auto-preenche o Cliente pela carteira (prefixo)
-            cart = self._carteira(usi)
+        if usi and " - " in usi:       # usina nomeada → auto-preenche o Cliente (campo cliente da usina,
+            cart = self._cliente_da_usina(usi)         # não o prefixo → acerta 'Ultragaz' apesar do typo)
             if cart and self.cb_cli.currentText() != cart and self.cb_cli.findText(cart) >= 0:
                 self.cb_cli.blockSignals(True)
                 self.cb_cli.setCurrentIndex(self.cb_cli.findText(cart))
@@ -753,7 +937,8 @@ class VariasOSsDialog(QWidget):
             if txt and txt not in (a.get("label") or "").lower():
                 continue
             out.append(a)
-        return sorted(out, key=lambda x: x.get("label") or "")
+        # marcados PRIMEIRO (o ativo do clone já aparece no topo), depois alfabético
+        return sorted(out, key=lambda x: (x["id"] not in self._checked, x.get("label") or ""))
 
     def _paint_row(self, it, chk):
         it.setForeground(QBrush(QColor("#E6EAF2") if chk else QColor(MUTED)))
@@ -849,22 +1034,48 @@ class VariasOSsDialog(QWidget):
 
     # ── mapeia a ação → nome do tipo de tarefa do Fracttal ──
     def _tarefa_nome(self):
+        # Mapa PCM (23/07): A (cabine/usina/transf)=Religamento · B (inversor)=Corretiva Emergencial ·
+        # C (comunicação)=Corretiva · Inspeção=Corretiva Emergencial. A escolha manual (ovr) vence.
+        if self._ovr.get("tipo"):
+            return self._ovr["tipo"]
         if self._tipo_os() == cs.TIPO_INSPECAO:
             return "Corretiva Emergencial"
-        if self._acao_txt() == cs.ACAO_REMOTO:
-            return "Religamento Remoto"
-        return "Religamento"
+        if self._cat == cs.CAT_A:
+            return "Religamento Remoto" if self._acao_txt() == cs.ACAO_REMOTO else "Religamento"
+        if self._cat == cs.CAT_B:                 # inversor desligado
+            return "Corretiva Emergencial"
+        return "Corretiva"                        # cat C (comunicação)
+
+    def _classif_nomes(self):
+        """(Classificação 1, Classificação 2). Cat C = 'Preencher' (o PCM diz 'depende do contexto' →
+        o operador escolhe, clicando no vermelho)."""
+        if self._tipo_os() == cs.TIPO_INSPECAO:
+            auto1 = "Emergencial"
+        elif self._cat == cs.CAT_A:
+            auto1 = "Religamento"
+        elif self._cat == cs.CAT_B:
+            auto1 = "Emergencial"
+        else:                                     # cat C
+            auto1 = _PREENCHER
+        return (self._ovr.get("c1") or auto1, self._ovr.get("c2") or "Elétrica")
+
+    def _crit_id(self):
+        return self._ovr.get("crit") or api.CRITICIDADE_MUITO_ALTO
+
+    def _crit_nome(self):
+        cid = self._crit_id()
+        return next((n for n, i in api.CRITICIDADES if i == cid), "Muito alto")
 
     def _tipo_dict(self):
-        nome = self._tarefa_nome()
-        d = {"id_main": self._by_desc("tipos", nome), "id_priorities": api.CRITICIDADE_MUITO_ALTO}
-        c1nome = "Emergencial" if self._tipo_os() == cs.TIPO_INSPECAO else "Religamento"
+        d = {"id_main": self._by_desc("tipos", self._tarefa_nome()),
+             "id_priorities": self._crit_id()}
+        c1nome, c2nome = self._classif_nomes()
         c1 = self._by_desc("c1", c1nome)
         if c1:
             d["id_c1"] = c1; d["desc_c1"] = c1nome
-            c2 = self._by_desc("c2", "Elétrica")
+            c2 = self._by_desc("c2", c2nome)
             if c2:
-                d["id_c2"] = c2; d["desc_c2"] = "Elétrica"
+                d["id_c2"] = c2; d["desc_c2"] = c2nome
         return d
 
     @staticmethod
@@ -920,6 +1131,9 @@ class VariasOSsDialog(QWidget):
         if not tipo.get("id_main"):
             QMessageBox.warning(self, "Tipo de tarefa", "Os tipos ainda não carregaram (ou a sessão "
                                 "expirou). Aguarde um instante ou relogue e tente de novo."); return
+        if self._classif_nomes()[0] == _PREENCHER:   # cat C: PCM diz "depende do contexto"
+            QMessageBox.warning(self, "Classificação 1", "Escolha a Classificação 1 — clique no "
+                                "'Preencher' em vermelho na linha 'Registrada no Fracttal como'."); return
         if self._cat == cs.CAT_A and not self._codigos():
             QMessageBox.warning(self, "Proteção", "Marque ao menos uma proteção que atuou "
                                 "(categoria A · Proteções)."); return
@@ -1030,25 +1244,134 @@ class VariasOSsDialog(QWidget):
         self._wc = None; self.btn.setEnabled(True); self.hint.setText("")
         QMessageBox.critical(self, "Erro ao criar OSs", m)
 
+    # ── clonador do COS: puxa uma OS pelo número e remonta este formulário ──
+    @slot_seguro
+    def _clonar_num(self, *_):
+        num = (self.ed_clone.text() or "").strip()
+        if not num:
+            QMessageBox.information(self, "Clonar OS", "Digite o número da OS que quer clonar."); return
+        if self._wcl is not None:
+            return
+        self.b_clone.setEnabled(False); self.b_clone.setText("buscando…")
+        self._wcl = ApiWorker(api.get_os_detalhes_por_folio, num)
+        self._wcl.ok.connect(self._clone_ok); self._wcl.erro.connect(self._clone_err)
+        self._wcl.start()
+
+    @slot_seguro
+    def _clone_err(self, m):
+        self._wcl = None
+        self.b_clone.setEnabled(True); self.b_clone.setText("Clonar")
+        QMessageBox.critical(self, "Clonar OS", f"Erro ao buscar a OS: {m}")
+
+    @slot_seguro
+    def _clone_ok(self, d):
+        self._wcl = None
+        self.b_clone.setEnabled(True); self.b_clone.setText("Clonar")
+        if not isinstance(d, dict):
+            QMessageBox.warning(self, "Clonar OS", "Não achei nenhuma OS com esse número."); return
+        info = cs.parse_observacao(d.get("notas"))
+        if not (info["codigos"] or info["falha"] or info["acao"]):
+            QMessageBox.warning(self, "Clonar OS",
+                                f"A OS {d.get('folio') or ''} não segue o padrão do COS na observação "
+                                "(UFV | Proteção | Ação | Falha), então não dá para remontar este "
+                                "formulário.\n\nUse o 'Clonar OS' da tela inicial para OSs fora do padrão.")
+            return
+        self._aplicar_clone(d, info)
+        QMessageBox.information(self, "Clonar OS",
+                                f"Formulário preenchido a partir da OS {d.get('folio') or ''}.\n"
+                                "Confira o ativo, a data do evento e o responsável antes de criar.")
+
+    def _aplicar_clone(self, d, info):
+        """Remonta tipo, categoria, proteções/falha, ação e ativo a partir de uma OS do COS."""
+        if self._terceiros:                       # clone sempre volta ao modo normal (ativo real)
+            self.sw_terc.setChecked(False)
+        titulo = (d.get("descricao") or "").lower()
+        ti = 1 if ("inspeção" in titulo or "inspecao" in titulo) else 0
+        self._seg_tipo.set_index(ti, emit=False); self._on_tipo(ti)
+        cat = cs.categoria_de(info["codigos"], info["falha"])
+        ci = {cs.CAT_A: 0, cs.CAT_B: 1, cs.CAT_C: 2}[cat]
+        self._seg_cat.set_index(ci, emit=False); self._on_cat(ci)
+        for cod, ch in self._chips.items():       # proteções (categoria A)
+            ch.blockSignals(True); ch.setChecked(cod in info["codigos"]); ch.blockSignals(False)
+        fal = (info["falha"] or "").lower()       # falha do inversor (B) / causa da comunicação (C)
+        cb = self.cb_falha_b if cat == cs.CAT_B else (self.cb_causa_c if cat == cs.CAT_C else None)
+        if cb is not None:                        # casa pelo texto INTEIRO da opção, o mais longo vence
+            melhor, mlen = -1, 0                  # (as opções da C se contêm: "falha de comunicação…")
+            for i in range(cb.count()):
+                t = cb.itemText(i).strip().lower()
+                if t and t in fal and len(t) > mlen:
+                    melhor, mlen = i, len(t)
+            if melhor >= 0:
+                cb.setCurrentIndex(melhor)
+        ai = 0 if (info["acao"] or "").strip().lower() == cs.ACAO_REMOTO.lower() else 1
+        self._seg_acao.set_index(ai, emit=False); self._on_acao(ai)
+        code = (d.get("code") or "").strip()      # ativo: cliente → usina → marcado
+        a = next((x for x in self._assets if (x.get("code") or "").strip() == code), None)
+        if a:
+            cart = self._carteira_de(a)
+            if cart and self.cb_cli.findText(cart) >= 0:
+                self.cb_cli.setCurrentIndex(self.cb_cli.findText(cart))
+            usi = a.get("usina") or ""
+            if usi and self.cb_usi.findText(usi) >= 0:
+                self.cb_usi.setCurrentIndex(self.cb_usi.findText(usi))
+            tipo = (a.get("tipo") or "").strip()   # já filtra pelo GRUPO do ativo clonado
+            if tipo and self.cb_tipo.findText(tipo) >= 0:
+                self.cb_tipo.blockSignals(True)    # o refresh vem logo abaixo, com o _checked certo
+                self.cb_tipo.setCurrentIndex(self.cb_tipo.findText(tipo))
+                self.cb_tipo.blockSignals(False)
+            self._checked = {a["id"]}             # DEPOIS do _on_usi, que zera a seleção
+            self._refresh_ativos()                # marcados primeiro → o ativo do clone fica no topo
+        self._preview()
+
     def _reset(self):
-        """Limpa TODOS os campos e volta ao estado inicial (após criar as OSs) — espelha o __init__.
-        Mantém só o Responsável selecionado (mesmo analista costuma criar em sequência)."""
+        """Limpa TODOS os campos e volta ao estado inicial — espelha o __init__.
+
+        Roda em três momentos: depois de criar as OS, ao ENTRAR na tela e no botão "Recomeçar".
+        Antes o reset de entrada era outro método, mais raso, que cobria 5 dos 15 campos: o que
+        sobrava (responsável, severidade, tipo/causa/detecção da falha, sobrescritas de
+        criticidade) ia junto para a OS seguinte. O Levi reportou em 30/07 OS saindo errada por
+        isso. Agora é UM caminho só — se um campo novo entrar na tela, ele entra aqui também."""
         while self._date_rows:                              # datas do modo "várias datas"
             self._del_data(self._date_rows[0][0])
         self._checked = set()                               # ativos marcados
+        self._ovr = {"tipo": None, "c1": None, "c2": None, "crit": None}   # volta ao automático
         if self._terceiros:                                 # sai do modo terceiros → restaura dropdowns
             self.sw_terc.setChecked(False)                  # dispara _tog_terceiros(False) + _fill_clientes
         self.busca.blockSignals(True); self.busca.clear(); self.busca.blockSignals(False)
+        # Zerar o cliente NÃO basta: o `_on_cli` chama `_fill_usinas`, que PRESERVA a usina
+        # escolhida (sem cliente ela continua na lista), e o `_on_usi` então re-seleciona o cliente
+        # a partir dela — o campo voltava sozinho ao valor anterior. Por isso a usina é zerada
+        # explicitamente depois, com o `_on_usi` no fim para limpar tabela, tipos e seleção.
         if self.cb_cli.count():
-            self.cb_cli.setCurrentIndex(0)                  # → _on_cli limpa usina/tipo/ativos
+            self.cb_cli.blockSignals(True); self.cb_cli.setCurrentIndex(0)
+            self.cb_cli.blockSignals(False)
+            self._fill_usinas()
+        if self.cb_usi.count():
+            self.cb_usi.blockSignals(True); self.cb_usi.setCurrentIndex(0)
+            self.cb_usi.blockSignals(False)
+        self._on_usi()                                      # limpa tabela, tipos e seleção
         self.de.setDateTime(QDateTime.currentDateTime().addSecs(-600))
         self.de_fim.setDateTime(QDateTime.currentDateTime())
         self.ed_obs.blockSignals(True); self.ed_obs.clear(); self.ed_obs.blockSignals(False)
         for ch in self._chips.values():                     # proteções
             ch.blockSignals(True); ch.setChecked(False); ch.blockSignals(False)
-        for cb in (self.cb_onde, self.cb_falha_b, self.cb_causa_c):
+        for cb in (self.cb_onde, self.cb_falha_b, self.cb_causa_c,
+                   self.cb_ftipo, self.cb_fcausa, self.cb_fdetec, self.cb_fdano):
             if cb.count():
-                cb.setCurrentIndex(0)
+                cb.blockSignals(True); cb.setCurrentIndex(0); cb.blockSignals(False)
+        # severidade volta ao PADRÃO DO COS (Muito alto), não ao item 0 da lista
+        self.cb_fsev.blockSignals(True)
+        self.cb_fsev.setCurrentIndex(_idx_severidade_alta(self.cb_fsev))
+        self.cb_fsev.blockSignals(False)
+        # RESPONSÁVEL também zera. Ficava propositalmente preso ("o mesmo analista cria em
+        # sequência"), mas era justamente o campo que o Levi viu carregando da OS anterior —
+        # e responsável errado numa OS de campo manda o técnico errado para a usina.
+        if self.cb_resp.count():
+            self.cb_resp.blockSignals(True); self.cb_resp.setCurrentIndex(0)
+            self.cb_resp.blockSignals(False)
+        # o "O ativo falhou?" NÃO entra aqui: o `_on_tipo` no fim deste método o remarca de
+        # propósito (é o default do COS). Tentar desmarcar aqui era código morto.
+        self.ed_clone.blockSignals(True); self.ed_clone.clear(); self.ed_clone.blockSignals(False)
         # segmentados de volta ao início: Tipo=Religamento · Categoria=A · Modo=Vários ativos · Ação=Remoto
         self._seg_tipo.set_index(0, emit=False)
         self._seg_cat.set_index(0, emit=False)
