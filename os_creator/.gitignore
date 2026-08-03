@@ -18,6 +18,11 @@ venv/
 build/
 dist/
 *.spec
+# ...menos o NOSSO, que não é gerado: é editado à mão e guarda conhecimento de build que só
+# aparece no .exe (hiddenimports de import tardio, o pathex do chamado_garantia, o UPX desligado
+# por causa das DLLs do WebEngine). Ficou fora do git até 03/08 — quem clonasse e buildasse
+# produzia um app com a "Inspeção de chamados" quebrada e sem pista do porquê.
+!Criar OS - Fracttal.spec
 
 # SO / editor
 .vscode/
