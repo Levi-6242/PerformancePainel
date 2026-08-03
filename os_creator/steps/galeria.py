@@ -6,7 +6,8 @@ import os
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QPixmap, QIcon
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
-                             QScrollArea, QWidget, QFileDialog, QMessageBox, QSizePolicy)
+                             QScrollArea, QWidget, QFileDialog, QMessageBox, QSizePolicy,
+                             QTextEdit)
 import api
 from workers import ApiWorker, slot_seguro
 
@@ -33,6 +34,38 @@ def _pix(data):
     return pix if pix.loadFromData(bytes(data)) else None
 
 
+def _resumo(txt, colunas=28, linhas=7):
+    """Nota quebrada em linhas para caber no quadradinho.
+
+    QPushButton NÃO quebra texto sozinho (ao contrário do QLabel) — sem quebrar na mão o texto
+    saía cortado no meio da frase. Volta com '\\n' já embutido."""
+    import textwrap
+    t = " ".join(str(txt or "").split())
+    if not t:
+        return "(nota vazia)"
+    ls = textwrap.wrap(t, colunas)
+    if len(ls) > linhas:
+        ls = ls[:linhas]
+        ls[-1] = ls[-1][:colunas - 1] + "…"
+    return "\n".join(ls)
+
+
+class _NotaDialog(QDialog):
+    """A nota inteira, selecionável para copiar."""
+    def __init__(self, parent, titulo, texto):
+        super().__init__(parent)
+        self.setWindowTitle("Nota de texto")
+        self.setMinimumSize(560, 320)
+        v = QVBoxLayout(self); v.setContentsMargins(16, 14, 16, 14); v.setSpacing(10)
+        t = QLabel(titulo); t.setWordWrap(True); t.setObjectName("hint")
+        v.addWidget(t)
+        cx = QTextEdit(); cx.setReadOnly(True); cx.setPlainText(str(texto or ""))
+        v.addWidget(cx, 1)
+        rod = QHBoxLayout(); rod.addStretch(1)
+        b = QPushButton("Fechar"); b.setObjectName("secondary"); b.clicked.connect(self.accept)
+        rod.addWidget(b); v.addLayout(rod)
+
+
 def abrir_galeria(parent, imagens, ativo_os=""):
     """Abre a galeria de fotos (OS / subtarefas / solicitações) em TELA CHEIA (maximizada). Lista de
     {url, thumb, descricao, ativo}. `ativo_os` = nome do ativo, fallback quando a foto não traz o próprio."""
@@ -48,7 +81,8 @@ class GaleriaDialog(QDialog):
         self._ativo_os = (ativo_os or "").strip()
         self._cache = {}                # url -> bytes (full)
         self._workers = {}              # idx -> ApiWorker
-        self._queue = list(range(len(self._imgs)))
+        # notas de TEXTO entram na grade mas não na fila de download — não há arquivo
+        self._queue = [i for i, x in enumerate(self._imgs) if not (x or {}).get('nota')]
         self._cells = []                # idx -> {'w','btn','done'}
         self._cols = 0
         self.setWindowTitle(f"Fotos da OS ({len(self._imgs)})")
@@ -88,12 +122,26 @@ class GaleriaDialog(QDialog):
         cap.setWordWrap(True); cap.setFixedWidth(_THUMB.width() + 6); cap.setFixedHeight(66)
         cap.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         cap.setToolTip(nome)
-        btn = QPushButton(f"foto {idx + 1}\n(carregando…)"); btn.setObjectName("secondary")
+        nota = (img or {}).get("nota")
+        if nota:
+            # NOTA DE TEXTO na MESMA grade das fotos (pedido do Levi: "poderia ficar junto das
+            # imagens, eu clico e abre o texto"). Antes ia para outra janela — e foto e nota
+            # saem da mesma subtarefa, então separá-las quebrava o registro do técnico ao meio.
+            btn = QPushButton(_resumo(nota)); btn.setObjectName("secondary")
+            # borda verde discreta + fundo próprio: sem isso a nota fica idêntica ao
+            # quadradinho de foto ainda carregando, e a pessoa não sabe que ali tem texto
+            btn.setStyleSheet("QPushButton{text-align:left;padding:11px 12px;font-size:11.5px;"
+                              "color:#c4cbdb;background:rgba(166,226,46,0.05);"
+                              "border:1px solid rgba(166,226,46,0.28);border-radius:10px;}"
+                              "QPushButton:hover{border-color:rgba(166,226,46,0.6);color:#e6eaf2;}")
+        else:
+            btn = QPushButton(f"foto {idx + 1}\n(carregando…)"); btn.setObjectName("secondary")
         btn.setFixedSize(_THUMB.width() + 6, _THUMB.height() + 6)
-        btn.setToolTip(nome)
+        btn.setToolTip(nota or nome)
         btn.clicked.connect(lambda _=False, i=idx: self._abrir(i))
         v.addWidget(cap); v.addWidget(btn)
-        return {"w": w, "btn": btn, "done": False}
+        # a nota já nasce pronta: não há miniatura para baixar
+        return {"w": w, "btn": btn, "done": bool(nota)}
 
     def _relayout(self, force=False):
         cols = max(1, (self.width() - 36) // _STEP)
@@ -162,11 +210,15 @@ class GaleriaDialog(QDialog):
         tot = len(self._cells)
         if not tot:
             return
-        self.hint.setText("Clique numa foto para ver em tamanho cheio e salvar." if feito >= tot
+        self.hint.setText("Clique numa foto para ver em tamanho cheio e salvar · clique numa nota para ler o texto." if feito >= tot
                           else f"carregando miniaturas… ({feito}/{tot})")
 
     @slot_seguro
     def _abrir(self, idx):
+        nota = (self._imgs[idx] if 0 <= idx < len(self._imgs) else {}).get("nota")
+        if nota:
+            _NotaDialog(self, self._rotulo(idx), nota).exec()
+            return
         v = ImagemViewer(self, idx)
         v.showMaximized()             # visualizador da foto também em tela cheia
         v.exec()

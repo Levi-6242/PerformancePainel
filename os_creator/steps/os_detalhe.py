@@ -5,11 +5,13 @@ from PyQt6.QtCore import Qt, QSize, QTimer
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QColor
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
                              QScrollArea, QWidget, QFrame, QProgressBar, QApplication, QMessageBox,
-                             QLineEdit, QListWidget, QListWidgetItem)
+                             QLineEdit, QListWidget, QListWidgetItem, QComboBox)
 import api
 from workers import ApiWorker, slot_seguro
+from steps.searchcombo import tornar_pesquisavel
 from steps.clonar import abrir_clonar_os
 from steps.galeria import abrir_galeria
+from steps.documentos import abrir_documentos
 from steps.ui import QSS_FORM, icone_pix, GREEN, GREEN_INK, MUTED, TEXT, CARD, INPUT, BORDER, BG
 
 DESK = "#57B6F5"                      # azul dos anexos da OS (separa do verde das subtarefas)
@@ -65,6 +67,12 @@ QPushButton#pDone {{ background:transparent; color:{GREEN}; border:1px solid rgb
   border-radius:10px; min-height:40px; padding:0 14px; font-weight:700; }}
 QPushButton#pDone:hover {{ background:{GREEN}; color:{GREEN_INK}; border-color:{GREEN}; }}
 QPushButton#pDone:disabled {{ color:#6a7488; border-color:{BORDER}; }}
+/* Abrir/Ver chamado: âmbar — destaca sem competir com o verde do Concluir OS */
+QPushButton#pChamado {{ background:rgba(224,166,58,0.14); color:#e0a63a;
+  border:1px solid rgba(224,166,58,0.5); border-radius:10px; min-height:40px;
+  padding:0 14px; font-weight:600; }}
+QPushButton#pChamado:hover {{ background:#e0a63a; color:{GREEN_INK}; border-color:#e0a63a; }}
+QPushButton#pChamado:disabled {{ color:#6a7488; background:transparent; border-color:{BORDER}; }}
 QPushButton#iconClose {{ background:transparent; border:1px solid transparent; border-radius:9px; }}
 QPushButton#iconClose:hover {{ background:{INPUT}; border-color:{BORDER}; }}
 QProgressBar {{ background:{INPUT}; border:1px solid #222c46; border-radius:4px; max-height:6px; }}
@@ -81,7 +89,12 @@ def abrir_os_detalhe(parent, id_work_order, folio=None):
     dlg.show(); dlg.raise_(); dlg.activateWindow()
 
 
-def aplicar_geometria_card(dlg, largura=726):
+# Largura do card de OS. Exportada porque outras telas se dimensionam EM RELAÇÃO a ela — o
+# "Nova análise" da Performance pede o dobro, e cravar 1452 lá quebraria o vínculo.
+LARGURA_CARD = 726
+
+
+def aplicar_geometria_card(dlg, largura=LARGURA_CARD):
     """Abre o card com largura fixa e altura ~cheia SEM cobrir a barra de tarefas: usa availableGeometry
     (já exclui a barra) e ainda desconta a moldura da janela (título/bordas). Centralizado + colado no
     topo. Usado pelo card da OS e da Solicitação."""
@@ -126,7 +139,45 @@ def _person(nome):
                      "font-size:10px;font-weight:700;")
     lb = QLabel(nome); lb.setStyleSheet(f"color:{TEXT};font-weight:600;font-size:13px;background:transparent;")
     h.addStretch(1); h.addWidget(av); h.addWidget(lb)
+    w.lb = lb            # exposto p/ quem precisa reescrever o nome sem remontar a linha
     return w
+
+
+_SETA_PNG = None
+
+
+def _seta_baixo_png():
+    """Caminho de um PNG com a seta ↓ (o chevron do projeto, girado) para o QSS.
+
+    O `QSS_FORM` zera o `::drop-down`, e sem imagem o Qt não desenha seta nenhuma: o combo fica
+    idêntico às caixas de leitura de Título/Notas e ninguém descobre que dá para clicar. O QSS só
+    aceita `url(arquivo)` — daí gravar o ícone uma vez no TEMP em vez de usar o QPixmap direto."""
+    global _SETA_PNG
+    if _SETA_PNG is None:
+        import os
+        import tempfile
+        from PyQt6.QtGui import QTransform
+        alvo = os.path.join(tempfile.gettempdir(), "gridco_seta_combo.png")
+        try:
+            icone_pix("chevron", MUTED, 13).transformed(QTransform().rotate(90),
+                                                        Qt.TransformationMode.SmoothTransformation).save(alvo)
+            _SETA_PNG = alvo.replace("\\", "/")          # QSS não aceita barra invertida
+        except Exception:
+            _SETA_PNG = ""                               # sem seta é feio, mas não quebra a tela
+    return _SETA_PNG
+
+
+def _dur_seg(v):
+    """Duração estimada da tarefa. O Fracttal manda em SEGUNDOS (3600 = 1h) — mostrar o número cru
+    faria alguém ler "3600" como minutos."""
+    try:
+        s = int(float(str(v).strip()))
+    except (TypeError, ValueError):
+        return "—"
+    if s <= 0:
+        return "—"
+    h, m = divmod(s // 60, 60)
+    return f"{h}h{m:02d}" if h and m else (f"{h}h" if h else f"{m}min")
 
 
 class _SubRow(QFrame):
@@ -223,6 +274,79 @@ class _AnexoCard(QFrame):
         if e.button() == Qt.MouseButton.LeftButton and self._cb:
             self._cb()
         super().mousePressEvent(e)
+
+
+class TrocarResponsavelDialog(QDialog):
+    """Escolhe a nova pessoa e grava. Público (sem `_`) porque o quadro da Performance usa o
+    mesmo diálogo quando o arrastar-e-soltar precisa confirmar."""
+    def __init__(self, parent, folio, atual="", id_work_order=None):
+        super().__init__(parent)
+        self._wo = id_work_order if id_work_order is not None else getattr(parent, "_wo", None)
+        self.escolhido = None          # {'id_personnel','name'} da pessoa escolhida
+        self.resultado = None          # resposta do api.mudar_responsavel
+        self._w = self._ws = None
+        self.setWindowTitle("Trocar responsável — OS %s" % (folio or ""))
+        self.setMinimumWidth(400)
+        self.setStyleSheet(QSS_FORM)
+        lay = QVBoxLayout(self); lay.setContentsMargins(16, 14, 16, 14); lay.setSpacing(10)
+        t = QLabel("Trocar o responsável da OS %s" % (folio or ""))
+        t.setStyleSheet(f"color:{TEXT};font-size:15px;font-weight:600;background:transparent;")
+        lay.addWidget(t)
+        if atual and atual != "—":
+            a = QLabel("Hoje está com <b>%s</b>." % atual)
+            a.setStyleSheet(f"color:{MUTED};font-size:12px;background:transparent;")
+            lay.addWidget(a)
+        self.cb = QComboBox(); self.cb.addItem("carregando o pessoal…", None)
+        tornar_pesquisavel(self.cb)
+        lay.addWidget(self.cb)
+        self.hint = QLabel(""); self.hint.setObjectName("hint"); lay.addWidget(self.hint)
+        row = QHBoxLayout()
+        b_c = QPushButton("Cancelar"); b_c.setObjectName("secondary"); b_c.clicked.connect(self.reject)
+        self.b_ok = QPushButton("Atribuir"); self.b_ok.clicked.connect(self._salvar)
+        self.b_ok.setEnabled(False)
+        row.addWidget(b_c); row.addWidget(self.b_ok, 1)
+        lay.addLayout(row)
+        self._w = ApiWorker(api.get_responsaveis)
+        self._w.ok.connect(self._set_pessoas)
+        self._w.erro.connect(lambda m: self.hint.setText("não consegui buscar o pessoal: %s" % m))
+        self._w.start()
+
+    @slot_seguro
+    def _set_pessoas(self, pessoas):
+        self._w = None
+        self.cb.clear(); self.cb.addItem("— escolha a pessoa —", None)
+        for p in sorted(pessoas or [], key=lambda x: (x.get("name") or "").lower()):
+            if p.get("id_personnel"):
+                self.cb.addItem(p.get("name") or "?", p)
+        tornar_pesquisavel(self.cb)
+        self.b_ok.setEnabled(True)
+
+    @slot_seguro
+    def _salvar(self, *_):
+        p = self.cb.currentData()
+        if not isinstance(p, dict) or not p.get("id_personnel"):
+            self.hint.setText("escolha a pessoa."); return
+        self.b_ok.setEnabled(False); self.hint.setText("gravando no Fracttal…")
+        self.escolhido = p
+        self._ws = ApiWorker(api.mudar_responsavel, self._wo, p["id_personnel"])
+        self._ws.ok.connect(self._gravou)
+        self._ws.erro.connect(self._falhou)
+        self._ws.start()
+
+    @slot_seguro
+    def _gravou(self, res):
+        self._ws = None
+        self.resultado = res if isinstance(res, dict) else {"ok": False, "erro": "resposta vazia"}
+        if not self.resultado.get("ok"):
+            self.b_ok.setEnabled(True)
+            self.hint.setText(str(self.resultado.get("erro") or "não deu")); return
+        self.accept()
+
+    @slot_seguro
+    def _falhou(self, m):
+        self._ws = None
+        self.b_ok.setEnabled(True); self.hint.setText(str(m))
+        self.resultado = {"ok": False, "erro": str(m)}
 
 
 class _EtiquetasDialog(QDialog):
@@ -411,10 +535,15 @@ class OsDetalheDialog(QDialog):
         self._os_uniq = []          # anexos da OS TIRANDO os que já são de subtarefa (sem duplicar)
         self._etiquetas = []        # etiquetas da OS [{'id','nome','cor'}]
         self._sub_feitas = self._sub_total = 0   # subtarefas concluídas / total (p/ o % no Concluir)
+        self._subs = []             # subtarefas da OS inteira (a lista exibida é um recorte destas)
+        self._tarefas = []          # tarefas da OS — >1 liga o seletor entre Notas e Subtarefas
         self._anexos_loaded = False # os anexos da OS já voltaram? (p/ deduplicar antes de contar)
         self._ativo = ""
         self._os_pai_id = None; self._os_pai_folio = ""   # OS pai clicável
         self._wsol = None                                 # worker do fetch da solicitação (clique)
+        self._chamado = None; self._wchm = None           # OS de chamado filha (se já existir)
+        self._ativo_txt = ""; self._usina_txt = ""        # alimentam o diálogo de abrir chamado
+        self._event_date = None                           # data do incidente → clonada no chamado
         self.setWindowTitle(f"OS {folio or id_work_order}")
         self.setMinimumSize(560, 560)
         self.setStyleSheet(QSS_FORM + _EXTRA_QSS)
@@ -439,7 +568,11 @@ class OsDetalheDialog(QDialog):
         vv = QVBoxLayout(self.vinc_card); vv.setContentsMargins(12, 6, 13, 6); vv.setSpacing(3)
         self.pai_row, self.pai_val = self._vinc_row("layers", "OS pai")
         self.sol_row, self.sol_val = self._vinc_row("file", "Solicitação")
-        vv.addWidget(self.pai_row); vv.addWidget(self.sol_row)
+        # chamado = OS FILHA desta (etiqueta CHAMADOS). Aparece junto dos outros vínculos p/ o
+        # supervisor ver de cara que já foi acionado — e não abrir um segundo.
+        self.chm_row, self.chm_val = self._vinc_row("headset", "Chamado")
+        vv.addWidget(self.pai_row); vv.addWidget(self.sol_row); vv.addWidget(self.chm_row)
+        self.chm_row.setVisible(False)
         hh.addWidget(self.vinc_card)              # X do cabeçalho removido — usa o X da janela
         lay.addWidget(head)
         sep = QFrame(); sep.setFixedHeight(1); sep.setStyleSheet("background:rgba(255,255,255,0.06);")
@@ -508,6 +641,33 @@ class OsDetalheDialog(QDialog):
         self.notas_blk.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         bl.addWidget(self.notas_blk)
 
+        # ── seletor de TAREFA (só aparece em OS com mais de uma) ──
+        # A preventiva mensal abre uma tarefa por sistema — a 8709 tem 13 tarefas e 45 subtarefas.
+        # Numa lista corrida ninguém sabe qual subtarefa é de qual sistema; aqui escolhe-se a tarefa
+        # e a lista abaixo passa a ser só dela.
+        self.tarefa_wrap = QWidget(); self.tarefa_wrap.setStyleSheet("background:transparent;")
+        tw2 = QVBoxLayout(self.tarefa_wrap); tw2.setContentsMargins(0, 0, 0, 0); tw2.setSpacing(8)
+        th = QHBoxLayout(); th.setSpacing(10)
+        th.addWidget(self._sec_label("TAREFA"))
+        self.tarefa_cont = QLabel("")
+        self.tarefa_cont.setStyleSheet(f"color:{MUTED};font-size:12px;background:transparent;")
+        th.addWidget(self.tarefa_cont); th.addStretch(1)
+        tw2.addLayout(th)
+        self.cb_tarefa = QComboBox(); self.cb_tarefa.setObjectName("cbTarefa")
+        _seta = _seta_baixo_png()
+        if _seta:
+            self.cb_tarefa.setStyleSheet(
+                "QComboBox#cbTarefa::drop-down{subcontrol-origin:padding;subcontrol-position:center right;"
+                "width:30px;border:none;}"
+                f"QComboBox#cbTarefa::down-arrow{{image:url({_seta});width:13px;height:13px;}}")
+        self.cb_tarefa.currentIndexChanged.connect(self._trocar_tarefa)
+        tw2.addWidget(self.cb_tarefa)
+        self.tarefa_info = QLabel(""); self.tarefa_info.setObjectName("readbox")
+        self.tarefa_info.setWordWrap(True); self.tarefa_info.setTextFormat(Qt.TextFormat.RichText)
+        tw2.addWidget(self.tarefa_info)
+        self.tarefa_wrap.setVisible(False)
+        bl.addWidget(self.tarefa_wrap)
+
         # subtarefas
         sh = QHBoxLayout(); sh.setSpacing(10)
         sh.addWidget(self._sec_label("SUBTAREFAS"))
@@ -534,6 +694,12 @@ class OsDetalheDialog(QDialog):
         arow.addWidget(self.card_sub); arow.addWidget(self.card_os)
         self.card_sub.set_count("…"); self.card_os.set_count("…")   # até carregar (evita "piscar")
         bl.addLayout(arow)
+        # como a OS está registrada no Fracttal (tipo/classificação/criticidade — estilo COS)
+        bl.addWidget(self._sec_label("REGISTRO NO FRACTTAL"))
+        self.meta_reg = QLabel(""); self.meta_reg.setWordWrap(True)
+        self.meta_reg.setTextFormat(Qt.TextFormat.RichText)
+        self.meta_reg.setStyleSheet("color:#c4cbdb;font-size:12.5px;background:transparent;")
+        bl.addWidget(self.meta_reg)
         bl.addStretch(1)
         lay.addWidget(scroll, 1)
 
@@ -547,8 +713,12 @@ class OsDetalheDialog(QDialog):
         b_clone = QPushButton("Clonar esta OS"); b_clone.setObjectName("pClone")
         b_clone.setIcon(QIcon(icone_pix("copy", GREEN_INK, 15))); b_clone.setIconSize(QSize(15, 15))
         b_clone.setCursor(Qt.CursorShape.PointingHandCursor); b_clone.clicked.connect(self._clonar)
-        self.b_solic = QPushButton("Criar solicitação"); self.b_solic.setObjectName("pGhost")
-        self.b_solic.setEnabled(False); self.b_solic.clicked.connect(self._criar_solic)
+        # "Abrir chamado" ocupa o lugar do antigo "Criar solicitação" (decisão do Levi, 25/07):
+        # no card da OS quem interessa é o chamado; solicitação segue na tela própria.
+        self.b_chamado = QPushButton("Abrir chamado"); self.b_chamado.setObjectName("pChamado")
+        self.b_chamado.setEnabled(False)
+        self.b_chamado.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.b_chamado.clicked.connect(self._abrir_chamado)
         self.b_concluir = QPushButton("Concluir OS"); self.b_concluir.setObjectName("pDone")
         self.b_concluir.setToolTip("Fecha a OS no Fracttal (irreversível — precisa de permissão na sua conta)")
         self.b_concluir.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -558,7 +728,7 @@ class OsDetalheDialog(QDialog):
         self.b_cancel.clicked.connect(self._cancelar_os)
         b = QPushButton("Fechar"); b.setObjectName("pGhost"); b.clicked.connect(self.accept)
         foot.addWidget(b_clone); foot.addStretch(1)
-        foot.addWidget(self.b_solic); foot.addWidget(self.b_concluir)
+        foot.addWidget(self.b_chamado); foot.addWidget(self.b_concluir)
         foot.addWidget(self.b_cancel); foot.addWidget(b)
         lay.addLayout(foot)
         aplicar_geometria_card(self, 726)          # +10% de largura, altura = tela cheia
@@ -596,6 +766,43 @@ class OsDetalheDialog(QDialog):
             self.meta_v.addWidget(ln)
         self.meta_v.addWidget(r)
 
+    # ── responsável (trocável) ──
+    def _linha_responsavel(self, d):
+        """Nome + link 'trocar'. A troca é a única edição de OS já criada que a API aceita além de
+        status, etiqueta e anexo (`tasks.work_orders_update`, capturado do web em 28/07) — antes,
+        repassar uma OS obrigava a sair do app e ir ao Fracttal."""
+        w = QWidget(); w.setStyleSheet("background:transparent;")
+        h = QHBoxLayout(w); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(10)
+        h.addStretch(1)
+        # `_person` devolve um WIDGET (avatar + nome), não texto. Escrever `QLabel(_person(...))`
+        # cai na sobrecarga `QLabel(parent)` do PyQt: nasce um rótulo VAZIO filho de um widget
+        # descartável, que o GC coleta em seguida — e o `setStyleSheet` seguinte estourava
+        # "QLabel has been deleted". Como o `_set` é @slot_seguro, a exceção era engolida e TUDO
+        # que vinha depois (título, notas, subtarefas, duração, OS pai) deixava de ser montado.
+        self.resp_box = _person(d.get("responsavel"))
+        h.addWidget(self.resp_box)
+        b = QPushButton("trocar"); b.setCursor(Qt.CursorShape.PointingHandCursor)
+        b.setToolTip("Atribuir esta OS a outra pessoa")
+        b.setStyleSheet("QPushButton{background:transparent;border:1px solid rgba(255,255,255,0.14);"
+                        "border-radius:7px;padding:2px 10px;color:%s;font-size:11.5px;min-height:0px;}"
+                        "QPushButton:hover{border-color:%s;color:%s;}" % (MUTED, GREEN, GREEN))
+        b.clicked.connect(self._trocar_responsavel)
+        h.addWidget(b)
+        return w
+
+    @slot_seguro
+    def _trocar_responsavel(self, *_):
+        atual = self.resp_box.lb.text() if getattr(self, "resp_box", None) else ""
+        dlg = TrocarResponsavelDialog(self, self._folio, atual)
+        if dlg.exec() != QDialog.DialogCode.Accepted or not dlg.escolhido:
+            return
+        r = dlg.resultado or {}
+        if not r.get("ok"):
+            QMessageBox.critical(self, "Responsável", str(r.get("erro") or "não deu")); return
+        self.resp_box.lb.setText(dlg.escolhido.get("name") or "—")
+        QMessageBox.information(self, "Responsável",
+                                "OS %s agora está com %s." % (self._folio, dlg.escolhido.get("name")))
+
     # ── ações ──
     def _clonar(self):
         self.accept(); abrir_clonar_os(self.parent(), self._wo, self._folio)
@@ -631,12 +838,59 @@ class OsDetalheDialog(QDialog):
         self.b_concluir.setEnabled(True); self.b_concluir.setText("Concluir OS")
         QMessageBox.critical(self, "Erro ao concluir OS", str(m))
 
-    def _criar_solic(self):
-        code = self._code
-        par = self.parent(); mw = par.window() if par is not None else None
+    # ── chamado (OS filha, etiqueta CHAMADOS) ─────────────────────────────────
+    def _buscar_chamado(self):
+        """Procura a OS de chamado desta OS — define se o botão abre ou apenas leva ao existente."""
+        self._wchm = ApiWorker(api.get_chamado_de_os, self._wo)
+        self._wchm.ok.connect(self._achou_chamado)
+        self._wchm.erro.connect(lambda *_: None)
+        self._wchm.start()
+
+    @slot_seguro
+    def _achou_chamado(self, ch):
+        self._wchm = None
+        self._chamado = ch if isinstance(ch, dict) else None
+        if self._chamado:
+            folio = self._chamado.get("folio") or "?"
+            self.chm_row.setVisible(True)
+            self.chm_val.setText(str(folio))
+            self.chm_val.set_click(self._ver_chamado)
+            self.b_chamado.setText(f"Ver chamado {folio}")
+            self.b_chamado.setToolTip(f"Chamado {folio} — {self._chamado.get('status') or ''}")
+        else:
+            self.chm_row.setVisible(False)
+            self.b_chamado.setText("Abrir chamado")
+            self.b_chamado.setToolTip("Cria a OS de chamado como filha desta, com a etiqueta CHAMADOS")
+        self.b_chamado.setEnabled(bool(self._chamado) or bool(self._code))
+
+    def _ver_chamado(self):
+        """Abre o card do chamado, fechando o desta OS (mesmo padrão de OS pai/Solicitação)."""
+        if not self._chamado:
+            return
+        par = self.parent(); cid = self._chamado.get("id"); folio = self._chamado.get("folio")
         self.accept()
-        if code and mw is not None and hasattr(mw, "abrir_solicitacao_de"):
-            mw.abrir_solicitacao_de(code)
+        abrir_os_detalhe(par, cid, folio)
+
+    @slot_seguro
+    def _abrir_chamado(self, *_):
+        if self._chamado:                     # já existe → só leva pra ele
+            self._ver_chamado(); return
+        if not self._code:
+            QMessageBox.information(self, "Chamado",
+                                    "Esta OS não tem um ativo resolvido — não dá pra abrir o chamado.")
+            return
+        from steps.abrir_chamado import abrir_chamado
+        # respostas do técnico quando esta OS é uma INSPEÇÃO de chamado — o diálogo nasce
+        # preenchido com elas. Best-effort: se a leitura falhar, o chamado abre em branco como antes.
+        try:
+            respostas = api.respostas_inspecao(self._wo)
+        except Exception:
+            respostas = {}
+        novo = abrir_chamado(self, {"folio": self._folio, "ativo": self._ativo_txt,
+                                    "usina": self._usina_txt, "id_work_order": self._wo,
+                                    "event_date": self._event_date, "respostas": respostas})
+        if novo:                              # criou → o vínculo aparece sem precisar reabrir o card
+            self._buscar_chamado()
 
     # ── vínculos clicáveis (abre o card do respectivo valor, fechando o desta OS) ──
     def _abrir_os_pai(self):
@@ -671,13 +925,22 @@ class OsDetalheDialog(QDialog):
         QMessageBox.critical(self, "Solicitação", f"Erro ao abrir a solicitação: {m}")
 
     def _abrir_anexos_sub(self):
+        # UMA janela só: foto e nota de texto saem da MESMA subtarefa, então ver as duas juntas
+        # é o que reconstitui o que o técnico registrou. A nota vira uma célula clicável da grade.
         imgs = [a for a in self._sub_imgs if a.get("url")]
-        outros = [a for a in self._sub_imgs if not a.get("url")]      # notas de texto (type 3)
-        if imgs:
-            abrir_galeria(self, imgs, "")   # legenda = só a descrição da subtarefa (não repete o ativo)
+        notas = [{"nota": (a.get("descricao") or a.get("nome") or "").strip(),
+                  "descricao": a.get("descricao") or a.get("nome") or "nota"}
+                 for a in self._sub_imgs if not a.get("url")]
+        if imgs or notas:
+            abrir_galeria(self, imgs + notas, "")   # legenda = a descrição da subtarefa
+        outros = []
         if outros:
-            linhas = [f"• {(a.get('descricao') or a.get('nome') or 'nota').strip()}" for a in outros]
-            QMessageBox.information(self, "Anexos das subtarefas · notas", "\n".join(linhas))
+            # mesma tela dos anexos da OS: aqui costumam ser notas de texto, mas se um dia vier
+            # documento pela subtarefa ele já abre e baixa, sem precisar de outro caminho
+            abrir_documentos(self, [{"nome": (a.get("descricao") or a.get("nome") or "nota"),
+                                     "url": a.get("url"), "user": a.get("user") or "",
+                                     "desc": a.get("descricao") or ""} for a in outros],
+                             "Anexos das subtarefas")
         if not imgs and not outros:
             QMessageBox.information(self, "Anexos das subtarefas", "Sem anexos nas subtarefas.")
 
@@ -685,9 +948,15 @@ class OsDetalheDialog(QDialog):
         imgs = [{"url": a.get("url"), "thumb": None,
                  "descricao": f"{a.get('nome') or 'anexo'}  ·  {a.get('user') or '—'}"}
                 for a in self._os_uniq if a.get("is_image") and a.get("url")]
-        outros = [a for a in self._os_uniq if not (a.get("is_image") and a.get("url"))]
-        if imgs:
-            abrir_galeria(self, imgs, self._ativo)
+        # com URL = arquivo p/ baixar (tela de documentos); sem URL = nota de texto, que vai
+        # junto das fotos na galeria
+        outros = [a for a in self._os_uniq if not (a.get("is_image") and a.get("url"))
+                  and a.get("url")]
+        notas = [{"nota": (a.get("desc") or a.get("nome") or "").strip(),
+                  "descricao": a.get("nome") or "nota"}
+                 for a in self._os_uniq if not a.get("url")]
+        if imgs or notas:
+            abrir_galeria(self, imgs + notas, self._ativo)
         if outros:
             linhas = []
             for a in outros:
@@ -806,7 +1075,7 @@ class OsDetalheDialog(QDialog):
                 w.deleteLater()
         self._add_meta("cal", "Data do evento", api.fmt_data_br(d.get("event_date")))
         self._add_meta("calcheck", "Data fim", api.fmt_data_br(d.get("data_fim")) if d.get("data_fim") else "—")
-        self._add_meta("user", "Atribuído a", _person(d.get("responsavel")))
+        self._add_meta("user", "Atribuído a", self._linha_responsavel(d))
         self._add_meta("userplus", "Criado por", _person(d.get("criado_por")))
         # vínculos no cabeçalho (OS pai só quando existe; Solicitação sempre) — Nº clicável abre o card
         _link = (f"color:{DESK};font-size:11.5px;font-weight:600;background:transparent;"
@@ -825,6 +1094,7 @@ class OsDetalheDialog(QDialog):
             self.sol_val.setText("criada sem solicitação")
             self.sol_val.setStyleSheet("color:#6a7488;font-size:11.5px;font-style:italic;background:transparent;")
             self.sol_val.set_click(None)
+        self.chm_val.setStyleSheet(_link)          # o Nº do chamado usa o mesmo estilo clicável
 
         # duração
         dur = api.duracao_os(d.get("event_date"), d.get("data_fim"))
@@ -832,22 +1102,104 @@ class OsDetalheDialog(QDialog):
         self.dur_note.setText("aproximada · entre evento e fim" if dur else "OS ainda sem data de fim")
         self._set_etiquetas(d.get("etiquetas"))
 
+        # registro no Fracttal (tipo / classificação / criticidade) — estilo COS
+        _g = "color:#A6E22E;font-weight:700"
+        _sep = " &nbsp;&nbsp;·&nbsp;&nbsp; "
+        self.meta_reg.setText(
+            f"Tipo de tarefa <span style='{_g}'>{d.get('tipo') or '—'}</span>{_sep}"
+            f"Classificação <span style='{_g}'>{d.get('classif') or '—'}</span>{_sep}"
+            f"Criticidade <span style='{_g}'>{d.get('criticidade') or '—'}</span>")
+
         self.titulo_blk.setText(d.get("descricao") or "—")
         self.notas_blk.setText((d.get("notas") or "").strip() or "—")
 
         self._code = d.get("code") or None
         self._ativo = str(d.get("ativo") or "").strip()
-        self.b_solic.setEnabled(bool(self._code))
-        self.b_solic.setToolTip(f"Ativo: {d.get('ativo') or self._code}" if self._code else "OS sem ativo resolvido")
+        self._ativo_txt = self._ativo or (self._code or "")
+        self._usina_txt = str(d.get("usina") or "").strip()
+        self._event_date = d.get("event_date")
+        self.b_chamado.setEnabled(bool(self._code))
+        self._buscar_chamado()     # define se o botão é "Abrir chamado" ou "Ver chamado N"
 
-        # subtarefas (acordeão)
+        # subtarefas (acordeão) — filtradas pela tarefa escolhida quando a OS tem mais de uma
+        subs = d.get("subtarefas") or []
+        self._subs = subs
+        self._tarefas = d.get("tarefas") or []
+        # o % que o diálogo de Concluir mostra é o da OS INTEIRA: concluir fecha tudo, não a
+        # tarefa que estiver na tela
+        self._sub_feitas = sum(1 for s in subs if s.get("feito"))
+        self._sub_total = len(subs)
+        self._montar_seletor_tarefa()
+        self._render_subs()
+        self.hint.setText(f"{len(subs)} subtarefa(s)"
+                          + (f" em {len(self._tarefas)} tarefas" if len(self._tarefas) > 1 else ""))
+
+    # ── tarefas da OS ──
+    def _montar_seletor_tarefa(self):
+        """Povoa o combo de tarefa. Some quando a OS tem 0 ou 1 tarefa — que é a esmagadora maioria
+        (corretiva de tracker, religamento): ali um seletor de um item só seria ruído."""
+        tarefas = self._tarefas
+        self.cb_tarefa.blockSignals(True)
+        self.cb_tarefa.clear()
+        if len(tarefas) > 1:
+            feitas_por = {}
+            for s in self._subs:
+                k = s.get("id_tarefa")
+                feitas_por.setdefault(k, [0, 0])
+                feitas_por[k][1] += 1
+                if s.get("feito"):
+                    feitas_por[k][0] += 1
+            self.cb_tarefa.addItem(f"Todas as tarefas  ·  {len(self._subs)} subtarefas", None)
+            for i, t in enumerate(tarefas, start=1):
+                f, tot = feitas_por.get(t.get("id"), [0, 0])
+                rot = t.get("titulo") or t.get("ativo") or f"Tarefa {i}"
+                self.cb_tarefa.addItem(f"{i}. {rot}  ·  {f}/{tot} subtarefas", t.get("id"))
+            # nasce na 1ª tarefa, não em "Todas": a lista corrida de 45 subtarefas é justamente o
+            # que não dá para ler — quem quiser o apanhado geral escolhe "Todas"
+            self.cb_tarefa.setCurrentIndex(1)
+            self.tarefa_cont.setText(f"{len(tarefas)} nesta OS")
+        self.cb_tarefa.blockSignals(False)
+        self.tarefa_wrap.setVisible(len(tarefas) > 1)
+        self._pintar_info_tarefa()
+
+    def _tarefa_sel(self):
+        """Tarefa escolhida no combo, ou None quando é 'Todas' / a OS tem uma só."""
+        tid = self.cb_tarefa.currentData() if self.cb_tarefa.count() else None
+        return next((t for t in self._tarefas if t.get("id") == tid), None) if tid else None
+
+    def _pintar_info_tarefa(self):
+        t = self._tarefa_sel()
+        if t is None:
+            self.tarefa_info.setVisible(False)
+            return
+        _g = "color:#A6E22E;font-weight:700"
+        _sep = " &nbsp;&nbsp;·&nbsp;&nbsp; "
+        partes = [f"Ativo <span style='{_g}'>{t.get('ativo') or '—'}</span>",
+                  f"Tipo <span style='{_g}'>{t.get('tipo') or '—'}</span>",
+                  f"Programada <span style='{_g}'>{api.fmt_data_br(t.get('programada')) or '—'}</span>",
+                  f"Estimada <span style='{_g}'>{_dur_seg(t.get('duracao'))}</span>"]
+        if t.get("inicio") or t.get("fim"):
+            partes.append("Execução <span style='%s'>%s → %s</span>"
+                          % (_g, api.fmt_data_br(t.get("inicio")) or "—",
+                             api.fmt_data_br(t.get("fim")) or "em aberto"))
+        self.tarefa_info.setText(_sep.join(partes))
+        self.tarefa_info.setVisible(True)
+
+    @slot_seguro
+    def _trocar_tarefa(self, _idx):
+        self._pintar_info_tarefa()
+        self._render_subs()
+
+    def _render_subs(self):
+        """Redesenha a lista do acordeão com as subtarefas da tarefa escolhida (ou todas)."""
         while self.subs_box.count():
             it = self.subs_box.takeAt(0); w = it.widget()
             if w:
-                w.deleteLater()
-        subs = d.get("subtarefas") or []
+                w.setParent(None); w.deleteLater()     # takeAt sozinho NÃO destrói o widget
+        t = self._tarefa_sel()
+        subs = ([s for s in self._subs if s.get("id_tarefa") == t.get("id")] if t is not None
+                else self._subs)
         feitas = sum(1 for s in subs if s.get("feito"))
-        self._sub_feitas = feitas; self._sub_total = len(subs)   # p/ o % no diálogo de Concluir
         for s in subs:
             self.subs_box.addWidget(_SubRow(s))
         if not subs:
@@ -856,4 +1208,3 @@ class OsDetalheDialog(QDialog):
         self.prog.setRange(0, max(1, len(subs))); self.prog.setValue(feitas)
         self.sub_done.setText(f"{feitas} de {len(subs)} concluídas" if subs else "sem subtarefas")
         self.sub_done.setVisible(bool(subs)); self.prog.setVisible(bool(subs))
-        self.hint.setText(f"{len(subs)} subtarefa(s)")

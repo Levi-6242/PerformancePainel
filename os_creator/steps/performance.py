@@ -2,7 +2,8 @@
 
 Abre em 4 cards (um por plano de tarefa de Performance). Ao clicar num card, vai p/ a tela de criação:
 cascata Cliente→Usina, tabela de ATIVOS (marcar + observação por ativo + anexar imagens), nome
-automático '[Usina][Ativo] - <plano>' (base editável), resumo do plano (só leitura) e responsável.
+automático '[Ativo] - <plano>' (base editável), resumo do plano (só leitura) e responsável.
+O card 'Geração e ETM' abre em dois modos (segmentado no topo) — ver as constantes MODO_* abaixo.
 Diferente do PCM: aqui cria-se N OS (UMA por ativo). Trackers: seleciona-se os trackers INDIVIDUAIS,
 mas o conteúdo vem do plano do ativo generalizado 'Estrutura Trackers' (OS avulsas com subtarefas
 copiadas). Anexo de imagem por ativo: arquivo OU colar captura (Ctrl+V)."""
@@ -17,11 +18,52 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QSt
 import api
 from workers import ApiWorker, slot_seguro
 from steps.searchcombo import tornar_pesquisavel, tornar_todos_pesquisaveis
-from steps.ospai import OsPaiPicker
-from steps.ui import (QSS_FORM, Card, campo, rotulo, Linha, icone_pix,
-                      GREEN, GREEN_INK, MUTED, TEXT, CARD, INPUT, BORDER)
+from steps.ui import (QSS_FORM, Card, campo, rotulo, Linha, Segmentado, icone_pix,
+                      GREEN, GREEN_INK, MUTED, TEXT, CARD, INPUT, BORDER, BG)
 
 _SEL = "— selecione —"
+
+# ── O card "Geração e ETM" abre em DOIS modos ────────────────────────────────────────────────────
+# É o MESMO plano do Fracttal ("Coleta de dados de geração"), mas dois públicos diferentes: geração
+# se pede por INVERSOR (vários por usina, nome e observação de cada um), e a ETM é a estação da
+# usina — sempre o mesmo ativo, sempre o mesmo título, e leva ENGENHARIA junto com PERFORMANCE
+# porque quem mexe na estação é a engenharia. Separar em dois cards duplicaria a tela inteira;
+# o que muda entre eles cabe num segmentado.
+FRASE_COLETA = "coleta de dados de geracao"
+MODO_GERACAO, MODO_USINA, MODO_ETM = 0, 1, 2
+ETM_TIPO = "Estação Meteorológica"
+USINA_TIPO = "Usina"                                      # o item-usina, a planta como ativo
+USINA_TITULO = "[Usina] - Coleta e análise de dados de geração"   # título LITERAL, como o ETM
+ETM_TITULO = "[ETM] - Coleta e análise de dados"          # título LITERAL, sem o prefixo [Ativo]
+ETM_ETIQUETAS = ("ENGENHARIA",)                           # somadas à PERFORMANCE, que já é padrão
+
+
+def _centrar(w):
+    """Embrulha um widget num holder que o centraliza — p/ centralizar um cell widget na coluna."""
+    holder = QWidget(); holder.setStyleSheet("background:transparent;")
+    h = QHBoxLayout(holder); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(0)
+    h.addStretch(1); h.addWidget(w); h.addStretch(1)
+    return holder
+
+
+def _matar_celula(tbl, r, c):
+    """Tira E DESTRÓI o widget de uma célula. `removeCellWidget` sozinho só desfaz o vínculo — o
+    widget continua pendurado no viewport e VISÍVEL, e um deles ia parar em (0,0), por cima do nome
+    do primeiro ativo. Medido: 5 marcar/desmarcar deixavam 9 órfãos pintando na tela."""
+    w = tbl.cellWidget(r, c)
+    if w is not None:
+        tbl.removeCellWidget(r, c)
+        w.setParent(None)
+        w.deleteLater()
+
+
+def _cell_campo(w):
+    """Embrulha um campo de edição (QLineEdit) p/ ele CENTRALIZAR na altura da linha (o QSS limita a
+    altura do campo, então setar direto como cell widget o encosta no topo = desalinhado) + respiro lateral."""
+    holder = QWidget(); holder.setStyleSheet("background:transparent;")
+    h = QHBoxLayout(holder); h.setContentsMargins(6, 0, 6, 0); h.setSpacing(0)
+    h.addWidget(w)                       # HBox centra na vertical um widget de altura fixa
+    return holder
 _CRIT = {i: n for (n, i) in getattr(api, "CRITICIDADES", [])}
 # Tipos de EQUIPAMENTO de planta — p/ decidir quais clientes/usinas são "reais" (o catálogo do Fracttal
 # tem itens de inventário/material com cliente e usina próprios que não são plantas).
@@ -31,8 +73,8 @@ _CARTEIRA_EQUIP = frozenset({"Inversor", "Cabine", "Tracker", "Estrutura Tracker
 
 # (título, frase p/ casar o plano, ícone, badge de categoria, subtítulo)
 _PLANOS = [
-    ("Coleta de dados de geração", "coleta de dados de geracao", "activity", "Inversor · ETM",
-     "Leitura de geração • medidor de fronteira • meteorologia"),
+    ("Geração e ETM", FRASE_COLETA, "activity", "Inversor · ETM",
+     "Geração por inversor • ou coleta e análise da estação meteorológica"),
     ("Inspeção Geral do Inversor", "inspecao geral do inversor", "searchcheck", "Inversor",
      "Checklist completo • conexões • alarmes • temperatura • strings"),
     ("Recomposição de String", "recomposicao de string", "zap", "Inversor",
@@ -199,6 +241,19 @@ class PerformanceTab(QWidget):
     def carregar_inicial(self):
         pass                                              # nada pesado aqui; a tela de criação carrega sob demanda
 
+    @slot_seguro
+    def reiniciar(self):
+        """Toda ENTRADA na aba volta aos 4 cards de plano e joga fora a tela de criação anterior.
+
+        O painel é criado uma vez só e o app apenas troca a página do stack — sem isto, quem saía
+        no meio de uma criação voltava com cliente, usina e ativos marcados do uso anterior, e a
+        OS seguinte saía na usina errada."""
+        self._stack.setCurrentIndex(0)
+        if self._cria is not None:
+            self._stack.removeWidget(self._cria)
+            self._cria.deleteLater()
+            self._cria = None
+
     def _build_cards(self):
         w = QWidget()
         scroll = QScrollArea(); scroll.setObjectName("uiFlat"); scroll.setWidgetResizable(True)
@@ -210,6 +265,14 @@ class PerformanceTab(QWidget):
         b_sair = QPushButton("← Voltar"); b_sair.setObjectName("secondary"); b_sair.setFixedWidth(104)
         b_sair.clicked.connect(lambda: self._on_sair() if self._on_sair else None)
         top.addWidget(b_sair); top.addStretch(1)
+        # Entrada do kanban de carga da equipe. Fica aqui, e não como um 5º card, porque os cards
+        # são "tipo de atendimento" (criam OS por ativo) e isto é acompanhamento — misturar as
+        # duas naturezas na mesma grade confundiria o que cada clique faz.
+        b_carga = QPushButton("Alocação de análises"); b_carga.setObjectName("btnPrimary")
+        b_carga.setCursor(Qt.CursorShape.PointingHandCursor)
+        b_carga.setToolTip("Quadro de alocação: o que cada analista tem em mãos")
+        b_carga.clicked.connect(self._abrir_carga)
+        top.addWidget(b_carga)
         v.addLayout(top)
         intro = QLabel("Escolha o tipo de atendimento. Cada opção cria <b>uma OS por ativo</b> selecionado, "
                        "com tipo, classificação e criticidade já do plano.")
@@ -227,6 +290,16 @@ class PerformanceTab(QWidget):
         wrap = QWidget(); wl = QVBoxLayout(wrap); wl.setContentsMargins(0, 0, 0, 0); wl.addWidget(scroll)
         self._carregar_contagens()                       # busca "N subtarefas" de cada plano (async)
         return wrap
+
+    def _abrir_carga(self):
+        """Abre o kanban de carga como página do stack (import tardio: a tela puxa o board
+        inteiro e não deve pesar a abertura da aba)."""
+        if getattr(self, "_carga", None) is None:
+            from steps.perf_kanban import PerfKanbanTab
+            self._carga = PerfKanbanTab(on_voltar=lambda: self._stack.setCurrentIndex(0))
+            self._stack.addWidget(self._carga)
+        self._stack.setCurrentWidget(self._carga)
+        self._carga.carregar_inicial()
 
     def _carregar_contagens(self):
         self._wcont = ApiWorker(_contar_subtarefas, self._assets)
@@ -283,12 +356,17 @@ class PerfCriar(QWidget):
         self._checked = set()            # asset ids marcados
         self._clientes_reais = set()     # carteiras com equipamento (preenchido em _fill_clientes)
         self._obs = {}                   # asset id -> observação
+        self._ospai = {}                 # asset id -> nº da OS pai (por ativo, na linha da tabela)
         self._imgs = {}                  # asset id -> [{'bytes','nome','thumb'}]
         self._is_tracker = "tracker" in frase
+        self._tem_modos = api._norm_txt(frase) == FRASE_COLETA     # só o card "Geração e ETM"
+        self._modo = MODO_GERACAO
         self._base = titulo
         self._wa = self._wd = self._wr = self._wc = None
         self._loaded = False
         self._sug = None                 # sugestão pendente do deep link (aplicada após carregar os ativos)
+        self._resp_pendente = None       # responsável a pré-selecionar (deep link: mesmo da OS pai)
+        self._prog_tocada = False        # a data programada já foi editada à mão?
 
         self.setStyleSheet(QSS_FORM)
         outer = QVBoxLayout(self); outer.setContentsMargins(0, 0, 0, 0)
@@ -308,6 +386,10 @@ class PerfCriar(QWidget):
         t = QLabel(titulo)
         t.setStyleSheet("font-size:16px;font-weight:600;color:%s;background:transparent;border:none;" % TEXT)
         head.addWidget(t); head.addStretch(1)
+        self.seg = None
+        if self._tem_modos:
+            self.seg = Segmentado(["Geração", "Usina", "ETM"], on_change=self._set_modo)
+            head.addWidget(self.seg)
         lay.addLayout(head)
 
         # ── Card 1: Ativo (cascata) ──
@@ -318,16 +400,17 @@ class PerfCriar(QWidget):
         self.busca.textChanged.connect(self._repop)
         c_ativo = Card(1, "Ativo")
         c_ativo.add(Linha(campo("Cliente", self.cb_cli, obrig=True), campo("Usina", self.cb_usi, obrig=True)))
-        c_ativo.add(campo("Filtrar", self.busca, extra="(opcional)"))
+        self.w_filtro = campo("Filtrar", self.busca, extra="(opcional)")
+        c_ativo.add(self.w_filtro)
         lay.addWidget(c_ativo)
 
         # ── Card 2: Ativos (tabela: marcar + observação + anexos) ──
-        b_all = QPushButton("Selecionar todos"); b_all.setObjectName("secondary")
+        b_all = self.b_all = QPushButton("Selecionar todos"); b_all.setObjectName("secondary")
         b_all.clicked.connect(lambda: self._marcar_todos(True))
-        b_none = QPushButton("Limpar"); b_none.setObjectName("secondary")
+        b_none = self.b_none = QPushButton("Limpar"); b_none.setObjectName("secondary")
         b_none.clicked.connect(lambda: self._marcar_todos(False))
-        self.tbl = QTableWidget(0, 3)
-        self.tbl.setHorizontalHeaderLabels(["Ativo", "Observação", "Imagens"])
+        self.tbl = QTableWidget(0, 4)
+        self.tbl.setHorizontalHeaderLabels(["Ativo", "OS Pai", "Observação", "Imagens"])
         self.tbl.setWordWrap(False)                             # nome do ativo em 1 linha (sem quebrar)
         # padding-left:0 no item → o check cola na borda e some a faixa escura à esquerda dele (a margem
         # do indicador de um item de tabela não recebe o fundo do item; qualquer padding>0 reintroduz).
@@ -338,36 +421,39 @@ class PerfCriar(QWidget):
         self.tbl.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.tbl.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         hh = self.tbl.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
-        self.tbl.setColumnWidth(2, 104)
+        hh.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)     # Ativo
+        hh.setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)       # OS Pai
+        hh.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)     # Observação
+        hh.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)       # Imagens
+        self.tbl.setColumnWidth(1, 130); self.tbl.setColumnWidth(3, 104)
         self.tbl.setMinimumHeight(240)
         self.tbl.itemChanged.connect(self._on_item)
         self.sel_lbl = QLabel("0 marcado(s)"); self.sel_lbl.setObjectName("uiAjuda")
         c_at = Card(2, "Ativos")
         albl = QHBoxLayout(); albl.setSpacing(6)
-        albl.addWidget(rotulo("Ativos", obrig=True,
-                              extra="(marque um ou vários — cada um vira uma OS)"), 1)
+        self.lb_ativos = rotulo("Ativos", obrig=True,
+                                extra="(marque um ou vários — cada um vira uma OS)")
+        albl.addWidget(self.lb_ativos, 1)
         albl.addWidget(b_all); albl.addWidget(b_none)
         c_at.add(albl)
         c_at.add(self.tbl, stretch=1)
         c_at.add(self.sel_lbl)
         lay.addWidget(c_at)
 
-        # ── Card 3: Nome da OS (prefixo [Usina][Ativo] embutido no campo) + resumo do plano ──
+        # ── Card 3: Nome da OS (prefixo [Ativo] embutido no campo) + resumo do plano ──
         self.ed_nome = QLineEdit(self._base); self.ed_nome.setObjectName("uiFlatInput")
         self.ed_nome.textChanged.connect(self._upd_preview)
         box = QFrame(); box.setObjectName("uiPrefixBox")
         bl = QHBoxLayout(box); bl.setContentsMargins(8, 3, 8, 3); bl.setSpacing(8)
-        chip = QLabel("[Usina][Ativo]  -"); chip.setObjectName("uiPrefixChip")
-        bl.addWidget(chip); bl.addWidget(self.ed_nome, 1)
+        self.chip_prefixo = QLabel("[Ativo]  -"); self.chip_prefixo.setObjectName("uiPrefixChip")
+        bl.addWidget(self.chip_prefixo); bl.addWidget(self.ed_nome, 1)
         self.preview = QLabel(""); self.preview.setObjectName("uiAjuda"); self.preview.setWordWrap(True)
         self.resumo = QLabel("Selecione a usina para carregar o plano."); self.resumo.setObjectName("uiAjuda")
         self.resumo.setWordWrap(True)
         c_nome = Card("tag", "Nome da OS")
-        c_nome.add(campo("Nome da tarefa", box, obrig=True,
-                         extra="(editável; o prefixo [Usina][Ativo] entra automático por OS)"))
+        self.lb_nome = rotulo("Nome da tarefa", obrig=True,
+                              extra="(editável; o prefixo [Ativo] entra automático por OS)")
+        c_nome.add(self.lb_nome); c_nome.add(box)
         c_nome.add(self.preview)
         c_nome.add(rotulo("Resumo do plano (só leitura)"))
         c_nome.add(self.resumo)
@@ -377,6 +463,14 @@ class PerfCriar(QWidget):
         self.dt_prog = QDateTimeEdit(); self.dt_prog.setCalendarPopup(True)
         self.dt_prog.setDisplayFormat("dd/MM/yyyy HH:mm")
         self.dt_prog.setDateTime(QDateTime.currentDateTime())
+        # DATA PROGRAMADA à parte da do incidente: até aqui o Fracttal recebia "incidente + 10 min"
+        # como programação, o que impedia abrir hoje uma OS para a semana que vem. Começa igual à
+        # do incidente (comportamento antigo) e o usuário empurra se quiser.
+        self.dt_exec = QDateTimeEdit(); self.dt_exec.setCalendarPopup(True)
+        self.dt_exec.setDisplayFormat("dd/MM/yyyy HH:mm")
+        self.dt_exec.setDateTime(QDateTime.currentDateTime().addDays(1))   # ida a campo = amanhã
+        self.dt_prog.dateTimeChanged.connect(self._sincronizar_prog)
+        self.dt_exec.dateTimeChanged.connect(lambda *_: setattr(self, "_prog_tocada", True))
         self.cb_resp = QComboBox(); self.cb_resp.addItem("carregando…", None)
         tornar_pesquisavel(self.cb_resp)
         self.b_resp_reload = QPushButton("↻"); self.b_resp_reload.setObjectName("secondary")
@@ -385,12 +479,11 @@ class PerfCriar(QWidget):
         rrow = QWidget(); rrow.setObjectName("uiGroup")
         rrl = QHBoxLayout(rrow); rrl.setContentsMargins(0, 0, 0, 0); rrl.setSpacing(8)
         rrl.addWidget(self.cb_resp, 1); rrl.addWidget(self.b_resp_reload)
-        self.os_pai = OsPaiPicker()
-        c_resp = Card(4, "Responsável e vínculo")
+        c_resp = Card(4, "Responsável")
         c_resp.add(Linha(campo("Data do incidente", self.dt_prog, extra="(aplica a todas)"),
-                         campo("Responsável", rrow, obrig=True, extra="(digite p/ pesquisar)")))
-        c_resp.add(campo("Depende de outra OS?", self.os_pai, extra="(opcional — OS pai)"))
-        lay.addWidget(c_resp)
+                         campo("Data programada", self.dt_exec, extra="(quando executar)")))
+        c_resp.add(campo("Responsável", rrow, obrig=True, extra="(digite p/ pesquisar)"))
+        lay.addWidget(c_resp)     # OS pai agora é por ativo, na coluna "OS Pai" da tabela de Ativos
 
         # ── botão (no fim, rolando) ──
         self.btn = QPushButton("Criar OS"); self.btn.setObjectName("btnPrimary")
@@ -409,6 +502,79 @@ class PerfCriar(QWidget):
         if not self._loaded:
             self._loaded = True
             self._carregar_resp()
+
+    def _sincronizar_prog(self, dt):
+        """Data programada acompanha a do incidente ENQUANTO ninguém a editar à mão. Sem isso, quem
+        recua o incidente para o dia da falha agendaria a OS para o passado sem perceber. O
+        blockSignals é o que separa 'eu movi' de 'o usuário mexeu' (senão o próprio sync marcaria).
+
+        Vai para o DIA SEGUINTE, não para o mesmo instante (pedido do Levi, 30/07): clonar a data
+        do incidente agendava a ida a campo para a hora em que a falha foi vista, que nunca é
+        quando o técnico consegue ir."""
+        if self._prog_tocada:
+            return
+        self.dt_exec.blockSignals(True)
+        self.dt_exec.setDateTime(dt.addDays(1))
+        self.dt_exec.blockSignals(False)
+
+    # ── modos do card "Geração e ETM" ──
+    def _etm(self):
+        return self._tem_modos and self._modo == MODO_ETM
+
+    def _usina_inteira(self):
+        """Modo Usina: UMA OS no ativo da planta, em vez de uma por inversor."""
+        return self._tem_modos and self._modo == MODO_USINA
+
+    def _set_modo(self, i):
+        """Troca Geração ↔ ETM. Só muda o que É diferente entre os dois: quais ativos aparecem, o
+        título e o tamanho do bloco de ativos. Plano, cascata e responsável seguem os mesmos."""
+        self._modo = i if i in (MODO_GERACAO, MODO_USINA, MODO_ETM) else MODO_GERACAO
+        etm, usi = self._etm(), self._usina_inteira()
+        unico = etm or usi        # os dois modos escolhem UM ativo: mesma simplificação de tela
+        # ETM = 1 estação por usina: não precisa de filtro, nem de 'selecionar todos', nem de tabela alta
+        self.w_filtro.setVisible(not unico)
+        self.b_all.setVisible(not unico); self.b_none.setVisible(not unico)
+        self.lb_ativos.setText(
+            rotulo("Estação meteorológica", obrig=True, extra="(a estação da usina)").text() if etm
+            else rotulo("Usina", obrig=True, extra="(a planta inteira — UMA OS só)").text() if usi
+            else rotulo("Ativos", obrig=True, extra="(marque um ou vários — cada um vira uma OS)").text())
+        # título: em ETM é fixo, e o campo vira só leitura para deixar isso explícito
+        self.chip_prefixo.setText("[ETM]  -" if etm else "[Usina]  -" if usi else "[Ativo]  -")
+        self.ed_nome.setReadOnly(unico)
+        self.lb_nome.setText(
+            rotulo("Nome da tarefa", obrig=True,
+                   extra="(fixo para ETM)" if etm else "(fixo para Usina)" if usi
+                   else "(editável; o prefixo [Ativo] entra automático por OS)").text())
+        _fixos = {ETM_TITULO.split(" - ", 1)[1], USINA_TITULO.split(" - ", 1)[1]}
+        if etm:
+            self.ed_nome.setText(ETM_TITULO.split(" - ", 1)[1])
+        elif usi:
+            self.ed_nome.setText(USINA_TITULO.split(" - ", 1)[1])
+        elif self.ed_nome.text().strip() in _fixos:
+            self.ed_nome.setText(self._base)
+        self._checked = set()
+        self._repop()
+        self._marcar_etm()
+
+    def _marcar_etm(self):
+        """Em ETM e em Usina o ativo já vem marcado — é sempre ele; obrigar o clique seria só
+        cerimônia, e nos dois modos a lista tem uma linha."""
+        if not (self._etm() or self._usina_inteira()):
+            return
+        self.tbl.blockSignals(True)
+        for r in range(self.tbl.rowCount()):
+            it = self.tbl.item(r, 0)
+            aid = it.data(Qt.ItemDataRole.UserRole)
+            it.setCheckState(Qt.CheckState.Checked)
+            self._checked.add(aid)
+            self._render_cells(r, aid, True)
+        self.tbl.blockSignals(False)
+        self._upd_count()
+
+    def _titulo_os(self, asset, base):
+        """Título final de UMA OS. ETM tem título literal (pedido do Levi): sempre o mesmo texto,
+        sem o nome do ativo — a estação é uma só e '[Estação Meteorológica]' só ocuparia espaço."""
+        return ETM_TITULO if self._etm() else api.perf_os_nome(asset, base)
 
     # ── cascata ──
     @staticmethod
@@ -470,15 +636,19 @@ class PerfCriar(QWidget):
                 self.cb_cli.blockSignals(False)
                 self._fill_usinas()    # re-filtra a usina p/ a carteira (mantém a seleção)
         self._alvos = []; self._alvo_by_id = {}
-        self._checked = set(); self._obs = {}; self._imgs = {}
+        self._checked = set(); self._obs = {}; self._ospai = {}; self._imgs = {}
         self.tbl.setRowCount(0); self._upd_count()
         self.resumo.setText("Selecione a usina para carregar o plano.")
         self.preview.setText("")
         usi = self._usi()
         if not usi:
             return
+        # o item-usina (tipo 'Usina') NÃO está em PERF_TIPOS, mas o card de coleta precisa dele
+        # para o modo Usina — sem isto ele nunca chegava ao `get_performance_alvos` e o modo abria
+        # com a lista vazia, mesmo a função sabendo montá-lo.
+        _tipos = tuple(api.PERF_TIPOS) + ((USINA_TIPO,) if self._tem_modos else ())
         ativos_usi = [a for a in self._assets
-                      if a.get("usina") == usi and a.get("tipo") in api.PERF_TIPOS]
+                      if a.get("usina") == usi and a.get("tipo") in _tipos]
         if not ativos_usi:
             self.hint.setText("Sem inversores/trackers/estação nesta usina."); return
         self.hint.setText("buscando ativos com o plano…")
@@ -499,8 +669,10 @@ class PerfCriar(QWidget):
         self._alvos = res.get("ativos") or []
         self._alvo_by_id = {al["asset"].get("id"): al for al in self._alvos}
         self._repop()
+        self._marcar_etm()                    # ETM: a estação já entra marcada
         if self._alvos:
-            self.hint.setText(f"{len(self._alvos)} ativo(s) com o plano.")
+            # conta as LINHAS, não os alvos: em ETM a lista mostra só a estação
+            self.hint.setText("%d ativo(s) com o plano." % self.tbl.rowCount())
             self._carregar_resumo(self._alvos[0])
         elif not res.get("erro"):
             self.hint.setText("Nenhum ativo desta usina tem esse plano.")
@@ -518,7 +690,12 @@ class PerfCriar(QWidget):
             d = dados or {}
             self._sug = {"ativo": (d.get("ativo") or "").strip(),
                          "obs": (d.get("obs") or "").strip(),
-                         "usina": (d.get("usina") or "").strip()}
+                         "usina": (d.get("usina") or "").strip(),
+                         # OS atribuída ao inversor na plataforma → vira a OS PAI do ativo casado
+                         "os_pai": (d.get("os_pai") or "").strip()}
+            if (d.get("resp") or "").strip():
+                self._resp_pendente = str(d["resp"]).strip()
+                self._aplicar_resp_pendente()          # tenta já; se o combo não carregou, o _set_resp reaplica
             usi = self._sug["usina"]
             if not usi:
                 return
@@ -553,16 +730,28 @@ class PerfCriar(QWidget):
         try:
             alvo = api._norm_txt(sug["ativo"]); alvo_n = _num(sug["ativo"])
             achou = None
+            # 1) match EXATO: nome normalizado igual OU número igual. O número é a chave confiável —
+            #    "2.18" != "2.1", então NÃO confunde Inversor 2.1 com Inversor 2.18 (bug do 'in').
             for al in self._alvos:
-                snome = api._asset_short_name(al["asset"])
-                nm = api._norm_txt(snome)
-                if nm == alvo or (alvo and (alvo in nm or nm in alvo)) or (alvo_n and alvo_n == _num(snome)):
+                snome = api._asset_short_name(al["asset"]); nm = api._norm_txt(snome)
+                if nm == alvo or (alvo_n and alvo_n == _num(snome)):
                     achou = al; break
+            # 2) fallback tolerante a nome divergente (plataforma×Fracttal) — mas se AMBOS têm número e
+            #    eles divergem, NÃO casa (impede "2.1" ⊂ "2.18").
+            if not achou:
+                for al in self._alvos:
+                    snome = api._asset_short_name(al["asset"]); nm = api._norm_txt(snome); sn = _num(snome)
+                    if alvo and (alvo in nm or nm in alvo):
+                        if alvo_n and sn and alvo_n != sn:
+                            continue
+                        achou = al; break
             if achou:
                 aid = achou["asset"].get("id")
                 self._checked.add(aid)
                 if sug.get("obs"):
                     self._obs[aid] = sug["obs"]
+                if sug.get("os_pai"):                 # deep link → OS pai vai no campo do ativo casado
+                    self._ospai[aid] = sug["os_pai"]
                 self.hint.setText(f"✓ Deep link: ativo “{api._asset_short_name(achou['asset'])}” selecionado.")
             elif self._alvos:
                 disp = ", ".join(api._asset_short_name(a["asset"]) for a in self._alvos[:8])
@@ -579,9 +768,19 @@ class PerfCriar(QWidget):
     def _repop(self, *_):
         txt = (self.busca.text() or "").strip().lower()
         self.tbl.blockSignals(True)
+        self._limpar_celulas()
         self.tbl.setRowCount(0)
+        etm, usi = self._etm(), self._usina_inteira()
         for al in self._alvos:
             a = al["asset"]; aid = a.get("id")
+            # o plano é o mesmo para inversor, estação e planta; o MODO é que decide quem aparece
+            if self._tem_modos:
+                tp = a.get("tipo")
+                alvo = ETM_TIPO if etm else USINA_TIPO if usi else None
+                if alvo and tp != alvo:
+                    continue
+                if alvo is None and tp in (ETM_TIPO, USINA_TIPO):
+                    continue                    # modo Geração = só os inversores
             full = a.get("label") or a.get("code") or "?"
             nome = api._asset_short_name(a)                     # compacto (ex.: "Inversor 1.1")
             if txt and txt not in full.lower() and txt not in nome.lower():
@@ -594,7 +793,31 @@ class PerfCriar(QWidget):
             self.tbl.setItem(r, 0, it)
             self._render_cells(r, aid, aid in self._checked)
         self.tbl.blockSignals(False)
+        # ETM = a estação da usina, quase sempre UMA linha: a tabela encolhe para o conteúdo em vez
+        # de deixar meia tela de vazio. Continua certo se a usina tiver duas estações.
+        if etm or usi:
+            alt = self.tbl.horizontalHeader().height() + 46 * max(1, self.tbl.rowCount()) + 6
+            self.tbl.setMinimumHeight(alt); self.tbl.setMaximumHeight(alt)
+            # nem toda usina tem estação CADASTRADA no Fracttal (Linhares 1 e Tanabi 1, por ex.).
+            # Sem este aviso a tela abria vazia e parecia quebrada — foi o que aconteceu.
+            if self._alvos and not self.tbl.rowCount():
+                self.hint.setText("⚠ esta usina não tem %s cadastrada no Fracttal."
+                                  % ("Estação Meteorológica" if etm else "o item de usina"))
+        else:
+            self.tbl.setMinimumHeight(240); self.tbl.setMaximumHeight(16777215)
         self._upd_count()
+
+    def _limpar_celulas(self):
+        """Mata os widgets de célula ANTES de zerar as linhas — `setRowCount(0)` só desfaz o vínculo.
+        A varredura do viewport pega também os órfãos de um `setRowCount(0)` que já rodou sem
+        limpeza (é o que o `_on_usi` faz ao trocar de usina)."""
+        for r in range(self.tbl.rowCount()):
+            for c in range(self.tbl.columnCount()):
+                _matar_celula(self.tbl, r, c)
+        for w in list(self.tbl.viewport().children()):
+            if isinstance(w, QWidget) and w.isVisible():
+                w.setParent(None)
+                w.deleteLater()
 
     def _render_cells(self, r, aid, checked):
         """Marcada: nome branco (fundo levemente verde) + campo de observação + anexo ativo. Desmarcada:
@@ -603,30 +826,43 @@ class PerfCriar(QWidget):
         if it is not None:
             it.setForeground(QBrush(QColor(TEXT if checked else MUTED)))
             it.setBackground(QBrush(QColor(166, 226, 46, 22)) if checked else QBrush(Qt.GlobalColor.transparent))
-        self.tbl.removeCellWidget(r, 1)
+        # a coluna 3 (Imagens) entra na limpeza: sobrescrever com setCellWidget não destrói o antigo
+        for c in (1, 2, 3):
+            _matar_celula(self.tbl, r, c)
         if checked:
-            self.tbl.takeItem(r, 1)
+            self.tbl.takeItem(r, 1); self.tbl.takeItem(r, 2)
+            pai = QLineEdit(self._ospai.get(aid, ""))
+            pai.setPlaceholderText("nº")               # cabeçalho já diz "OS Pai" — placeholder curto
+            pai.textChanged.connect(lambda tx, k=aid: self._ospai.__setitem__(k, tx))
+            self.tbl.setCellWidget(r, 1, _cell_campo(pai))
             obs = QLineEdit(self._obs.get(aid, ""))
             obs.setPlaceholderText("motivo / observação (opcional)")
             obs.textChanged.connect(lambda tx, k=aid: self._obs.__setitem__(k, tx))
-            self.tbl.setCellWidget(r, 1, obs)
+            self.tbl.setCellWidget(r, 2, _cell_campo(obs))
         else:
-            dash = QTableWidgetItem("—"); dash.setForeground(QBrush(QColor(MUTED)))
-            dash.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            self.tbl.setItem(r, 1, dash)
-        self.tbl.setCellWidget(r, 2, self._attach_btn_for(aid, checked))
+            for col in (1, 2):
+                dash = QTableWidgetItem("—"); dash.setForeground(QBrush(QColor(MUTED)))
+                dash.setFlags(Qt.ItemFlag.ItemIsEnabled)
+                self.tbl.setItem(r, col, dash)
+        self.tbl.setCellWidget(r, 3, _centrar(self._attach_btn_for(aid, checked)))
 
     def _attach_btn_for(self, aid, checked=True):
         n = len(self._imgs.get(aid, []))
+        tem = bool(n and checked)
         btn = QPushButton(str(n) if n else "")
         btn.setObjectName("secondary")
-        btn.setIcon(QIcon(icone_pix("image", GREEN if (n and checked) else MUTED, 15)))
-        btn.setFixedHeight(30); btn.setFixedWidth(84)
+        btn.setIcon(QIcon(icone_pix("image", GREEN if tem else MUTED, 14)))
+        btn.setFixedWidth(72)
         btn.setEnabled(bool(checked))
         btn.setToolTip("Anexar imagens (arquivo ou colar com Ctrl+V)")
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        if n and checked:
-            btn.setStyleSheet("QPushButton#secondary{border:1px solid %s; color:%s; font-weight:700;}" % (GREEN, GREEN))
+        # min/max-height inline sobrepõem o min-height:38 do QSS → botão baixo que cabe na linha (46px)
+        _brd = GREEN if tem else BORDER
+        _col = GREEN if tem else "#cdd2e0"
+        _wt = "700" if tem else "500"
+        btn.setStyleSheet("QPushButton#secondary{background:transparent;border:1px solid %s;border-radius:7px;"
+                          "min-height:24px;max-height:24px;padding:0 8px;color:%s;font-weight:%s;font-size:12px;}"
+                          % (_brd, _col, _wt))
         btn.clicked.connect(lambda _c, k=aid: self._anexar(k))
         return btn
 
@@ -666,7 +902,7 @@ class PerfCriar(QWidget):
             alvo = self._alvos[0]
         if alvo is not None:
             self.preview.setText("Fica, por ex.: <b>%s</b>  ·  a observação de cada OS vem da tabela de ativos acima."
-                                 % api.perf_os_nome(alvo["asset"], base))
+                                 % self._titulo_os(alvo["asset"], base))
         else:
             self.preview.setText("A observação de cada OS vem da tabela de ativos acima.")
 
@@ -716,6 +952,22 @@ class PerfCriar(QWidget):
         self.cb_resp.clear(); self.cb_resp.addItem(_SEL, None)
         for p in sorted(pessoas or [], key=lambda x: (x.get("name") or "").lower()):
             self.cb_resp.addItem(p.get("name") or p.get("code") or "?", p)
+        self._aplicar_resp_pendente()                  # deep link: pré-seleciona o responsável da OS pai
+
+    def _aplicar_resp_pendente(self):
+        """Pré-seleciona no combo o responsável pendente do deep link (mesmo da OS pai), casando pelo
+        nome (tolerante a espaços duplos/caixa). Se o combo ainda não carregou, fica pendente e o
+        _set_resp reaplica quando carregar."""
+        import re
+        alvo = re.sub(r"\s+", " ", (getattr(self, "_resp_pendente", None) or "")).strip().lower()
+        if not alvo:
+            return
+        for i in range(self.cb_resp.count()):
+            p = self.cb_resp.itemData(i)
+            if isinstance(p, dict) and re.sub(r"\s+", " ", (p.get("name") or "")).strip().lower() == alvo:
+                self.cb_resp.setCurrentIndex(i)
+                self._resp_pendente = None
+                return
 
     def _resp_err(self, m):
         self._wr = None
@@ -732,6 +984,9 @@ class PerfCriar(QWidget):
         base = self.ed_nome.text().strip() or self._base
         brt = _dt.timezone(_dt.timedelta(hours=-3))
         evt = self.dt_prog.dateTime().toPyDateTime().replace(tzinfo=brt)
+        prog = self.dt_exec.dateTime().toPyDateTime().replace(tzinfo=brt)
+        etm = self._etm()
+        usina_toda = self._usina_inteira()
         itens = []
         for al in self._alvos:
             aid = al["asset"].get("id")
@@ -740,19 +995,28 @@ class PerfCriar(QWidget):
             itens.append({"asset": al["asset"], "plano_id_task": al["plano_id_task"],
                           "plano_id_item": al["plano_id_item"], "linkar": al.get("linkar", True),
                           "base": base, "note": self._obs.get(aid, ""),
+                          # ETM e Usina usam título LITERAL, sem o prefixo [Ativo]
+                          "titulo": ETM_TITULO if etm else (USINA_TITULO if usina_toda else ""),
+                          "os_pai": (self._ospai.get(aid, "") or "").strip(),   # OS pai por ativo
                           "imagens": self._imgs.get(aid, [])})
         n_img = sum(len(it["imagens"]) for it in itens)
         extra = f"\n{n_img} imagem(ns) serão anexadas." if n_img else ""
         aviso = ("\nTrackers individuais: as OS usam o plano da 'Estrutura Trackers' (subtarefas copiadas)."
                  if self._is_tracker else "")
+        if etm:
+            aviso += f"\nTítulo: {ETM_TITULO} · etiquetas: PERFORMANCE + ENGENHARIA."
+        if usina_toda:
+            aviso += (f"\nUMA OS na planta inteira, no lugar de uma por inversor."
+                      f"\nTítulo: {USINA_TITULO}")
+        aviso += "\nProgramada para %s." % self.dt_exec.dateTime().toString("dd/MM/yyyy HH:mm")
         if QMessageBox.question(self, "Criar OS de Performance",
                 f"Vou criar {len(itens)} OS — uma por ativo — com o plano '{self._titulo}'.{aviso}{extra}"
                 f"\n\nContinuar?") != QMessageBox.StandardButton.Yes:
             return
         self.btn.setEnabled(False)
         self.hint.setText(f"criando {len(itens)} OS… (pode levar alguns segundos)")
-        self._wc = ApiWorker(api.create_performance_os, itens, p.get("id_personnel"), p.get("name"),
-                             evt, self.os_pai.id_parent())
+        self._wc = ApiWorker(api.create_performance_os, itens, p.get("id_personnel"), p.get("name"), evt,
+                             prog_date=prog, etiquetas_extra=list(ETM_ETIQUETAS) if etm else None)
         self._wc.ok.connect(self._criou)
         self._wc.erro.connect(self._err)
         self._wc.start()
@@ -817,7 +1081,10 @@ class PerfAnexoDialog(QDialog):
         lay.addLayout(brow)
         self.grid_scroll = QScrollArea(); self.grid_scroll.setObjectName("uiFlat")
         self.grid_scroll.setWidgetResizable(True); self.grid_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
-        self._grid_host = QWidget(); self.grid_scroll.setWidget(self._grid_host)
+        self.grid_scroll.setStyleSheet("QScrollArea{background:transparent;border:none;}")
+        self.grid_scroll.viewport().setStyleSheet("background:transparent;")   # sem bloco escuro atrás dos cards
+        self._grid_host = QWidget(); self._grid_host.setStyleSheet("background:transparent;")
+        self.grid_scroll.setWidget(self._grid_host)
         self._grid = QGridLayout(self._grid_host); self._grid.setContentsMargins(0, 0, 0, 0)
         self._grid.setSpacing(10); self._grid.setAlignment(Qt.AlignmentFlag.AlignTop)
         lay.addWidget(self.grid_scroll, 1)
@@ -868,24 +1135,38 @@ class PerfAnexoDialog(QDialog):
             if it.widget():
                 it.widget().deleteLater()
         self.vazio.setVisible(not self._imgs)
+        COLS = 3
         for i, im in enumerate(self._imgs):
-            cell = QFrame(); cell.setObjectName("uiFlat")
-            cell.setStyleSheet("QFrame#uiFlat{background:%s;border:1px solid %s;border-radius:10px;}" % (INPUT, BORDER))
-            cv = QVBoxLayout(cell); cv.setContentsMargins(8, 8, 8, 8); cv.setSpacing(6)
-            th = QLabel(); th.setFixedSize(120, 96); th.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            th.setStyleSheet("background:transparent;border:none;")
+            cell = QFrame(); cell.setObjectName("anxCell"); cell.setFixedWidth(150)
+            cell.setStyleSheet("QFrame#anxCell{background:%s;border:1px solid %s;border-radius:10px;}" % (INPUT, BORDER))
+            cv = QVBoxLayout(cell); cv.setContentsMargins(8, 8, 8, 8); cv.setSpacing(7)
+            th = QLabel(); th.setFixedSize(134, 100); th.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            th.setStyleSheet("background:%s;border:1px solid %s;border-radius:7px;" % (BG, BORDER))
             if not im["thumb"].isNull():
                 th.setPixmap(im["thumb"])
             else:
-                th.setText("sem prévia"); th.setStyleSheet("color:%s;background:transparent;border:none;" % MUTED)
+                th.setText("sem prévia"); th.setStyleSheet("color:%s;background:%s;border:1px solid %s;"
+                                                           "border-radius:7px;" % (MUTED, BG, BORDER))
             cv.addWidget(th, 0, Qt.AlignmentFlag.AlignCenter)
-            nm = QLabel(im["nome"]); nm.setObjectName("uiAjuda"); nm.setMaximumWidth(128)
-            nm.setWordWrap(True); cv.addWidget(nm)
-            b_rm = QPushButton("Remover"); b_rm.setObjectName("secondary")
+            nm = QLineEdit(im["nome"]); nm.setObjectName("anxName"); nm.setFixedWidth(134)
+            nm.setToolTip("Clique para editar o nome do arquivo")
+            nm.setStyleSheet("QLineEdit#anxName{background:%s;border:1px solid %s;border-radius:6px;"
+                             "padding:4px 7px;color:%s;font-size:11.5px;}"
+                             "QLineEdit#anxName:focus{border-color:%s;}" % (BG, BORDER, TEXT, GREEN))
+            nm.editingFinished.connect(lambda k=i, w=nm: self._renomear(k, w.text()))
+            cv.addWidget(nm, 0, Qt.AlignmentFlag.AlignCenter)
+            b_rm = QPushButton("Remover"); b_rm.setObjectName("secondary"); b_rm.setFixedWidth(134)
             b_rm.setIcon(QIcon(icone_pix("trash", MUTED, 14)))
             b_rm.clicked.connect(lambda _c, k=i: self._remover(k))
-            cv.addWidget(b_rm)
-            self._grid.addWidget(cell, i // 3, i % 3)
+            cv.addWidget(b_rm, 0, Qt.AlignmentFlag.AlignCenter)
+            self._grid.addWidget(cell, i // COLS, i % COLS,
+                                 Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self._grid.setColumnStretch(COLS, 1)          # coluna-fantasma absorve o espaço (cards não esticam)
+
+    def _renomear(self, k, novo):
+        novo = (novo or "").strip()
+        if 0 <= k < len(self._imgs) and novo:
+            self._imgs[k]["nome"] = novo
 
     def _remover(self, k):
         if 0 <= k < len(self._imgs):
