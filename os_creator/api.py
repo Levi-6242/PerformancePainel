@@ -1988,16 +1988,22 @@ def perf_spec_nome_etiqueta():
     return "PERFORMANCE"
 
 
+TIPO_ANALISE = "Administrativa"        # tipo de tarefa da OS de análise (Levi, 03/08)
+ANALISE_CLASSIF_1 = "Programada"       # Classificação 1  ┐ mesmas das OS de ETM
+ANALISE_CLASSIF_2 = "Elétrica"         # Classificação 2  ┘ (conferido nas OS 10445/10444/10383)
+
+
 def create_os_analise(asset: dict, id_responsible, resp_code="", resp_name="",
                       prioridade="", motivo="", descricao="", pedido_por="",
-                      os_pai_folio="", tipo_tarefa="Inspeção", bloco_texto="") -> dict:
+                      os_pai_folio="", tipo_tarefa=TIPO_ANALISE, bloco_texto="") -> dict:
     """Cria a OS de ANÁLISE de performance, atribuída a um analista.
 
-    POR QUE 'Inspeção' E NÃO 'Corretiva': análise é investigação, não conserto. A corretiva é a OS
-    FILHA que a análise gera e que vai para o campo — foi o exemplo da Ana na reunião ("a Gabi
-    fechou o card dela e abriu cinco verificações em campo"). Separar os dois tipos é o que deixa
-    o trabalho do analista distinguível do trabalho de campo nos relatórios do Fracttal.
-    (Distribuição real hoje nas OS de Performance: Corretiva 264 · Inspeção 62 · Administrativa 52.)
+    TIPO 'Administrativa' + classificação 'Programada / Elétrica' (Levi, 03/08): é trabalho de
+    escritório, igual às OS de ETM, e agora sai idêntico a elas no Fracttal. Antes nascia como
+    'Inspeção' e sem classificação nenhuma. O que vai a CAMPO é a OS FILHA que a análise gera —
+    o exemplo da Ana na reunião ("a Gabi fechou o card dela e abriu cinco verificações em campo").
+    A classificação é resolvida pelo NOME no catálogo (`_classif_ids`), porque a lista é editável
+    dentro do Fracttal e id fixo quebraria na primeira edição.
 
     `bloco_texto` = o bloco [PERFORMANCE] já montado pelo `perf_spec.bloco()` — vem pronto da tela
     para o api não depender do módulo de regra. Entra ANTES da descrição livre porque a API do
@@ -2036,10 +2042,20 @@ def create_os_analise(asset: dict, id_responsible, resp_code="", resp_name="",
     note = (bloco_texto or "").strip()
     note = (note + ("\n\n" + livre if livre else "")) if note else livre
 
+    # `tipo` = classificação 1/2 pelo nome. O `create_os_rpc` só grava o par quando id_c1/id_c2 vêm
+    # preenchidos, então nome que não existir no catálogo apenas não entra (OS sem classificação é
+    # menos ruim que OS com a classificação errada).
+    _c = _classif_ids(ANALISE_CLASSIF_1, ANALISE_CLASSIF_2)
+    tipo = {}
+    if _c.get("id_task_type") is not None:
+        tipo["id_c1"] = _c["id_task_type"]; tipo["desc_c1"] = _c.get("tasks_types_description") or ""
+    if _c.get("id_task_type_2") is not None:
+        tipo["id_c2"] = _c["id_task_type_2"]; tipo["desc_c2"] = _c.get("tasks_types_2_description") or ""
+
     res = create_work_orders_bulk([asset], titulo, tipo_tarefa, [], etiqueta_ids=etiquetas,
                                   id_parent=id_parent, id_responsible=id_responsible,
                                   responsible_code=resp_code, responsible_name=resp_name,
-                                  note=note)
+                                  note=note, tipo=tipo or None)
     r0 = res[0] if res else {}
     if not r0.get("ok"):
         return {"ok": False, "erro": r0.get("erro") or "não consegui criar a OS."}

@@ -124,7 +124,8 @@ class NovaAnaliseDialog(QDialog):
         cx_tit = QVBoxLayout(); cx_tit.setSpacing(6)
         tit = QLabel("Nova análise de performance"); tit.setObjectName("panelTitle")
         sub = _texto_flex(QLabel("Cria uma OS no Fracttal, atribuída ao analista, com a etiqueta "
-                                 "PERFORMANCE e o tipo Inspeção."))
+                                 "PERFORMANCE, tipo %s e classificação %s / %s."
+                                 % (api.TIPO_ANALISE, api.ANALISE_CLASSIF_1, api.ANALISE_CLASSIF_2)))
         sub.setObjectName("secondary")
         cx_tit.addWidget(tit); cx_tit.addWidget(sub)
         lin1.addLayout(cx_tit, 1)
@@ -404,7 +405,7 @@ class NovaAnaliseDialog(QDialog):
         self._w = ApiWorker(api.create_os_analise, asset, analista["id_personnel"], "",
                             analista.get("nome") or "", self._prio, motivo,
                             self.ed_desc.toPlainText().strip(), "",
-                            self.ed_pai.text().strip(), "Inspeção", bloco)
+                            self.ed_pai.text().strip(), api.TIPO_ANALISE, bloco)
         self._w.ok.connect(self._ok); self._w.erro.connect(self._err)
         self._w.start()
 

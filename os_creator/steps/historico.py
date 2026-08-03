@@ -122,8 +122,9 @@ class HistoricoOS(QWidget):
         row.addWidget(QLabel("Buscar"))
         self.busca_no = QLineEdit(); self.busca_no.setPlaceholderText("nº, ativo, descrição, status…")
         self.busca_no.setMaximumWidth(200); self.busca_no.setClearButtonEnabled(True)
-        self.busca_no.setToolTip("Busca no SERVIDOR por nº e descrição (pega OS ainda não "
-                                 "carregadas) e filtra o carregado por qualquer campo.  [Ctrl+F]")
+        self.busca_no.setToolTip("Filtra as OS do período por nº, cliente, usina, ativo, descrição, "
+                                 "status, tipo de tarefa e etiqueta. Para achar uma OS FORA do "
+                                 "período, use a barra 'Buscar OS pelo nº'.  [Ctrl+F]")
         # debounce: filtra ~260ms DEPOIS de parar de digitar (senão reconstrói a tabela a cada tecla = trava)
         self._busca_timer = QTimer(self); self._busca_timer.setSingleShot(True); self._busca_timer.setInterval(260)
         self._busca_timer.timeout.connect(self._aplica)
@@ -413,8 +414,17 @@ class HistoricoOS(QWidget):
         # a visão COS busca como "criadas" (é visão de equipe); o que a distingue é o conjunto
         # de colunas e o filtro de tipo, não a consulta.
         modo_srv = "atribuidas" if self._modo == "atribuidas" else "criadas"
-        return (modo_srv, idacc, id_label, de, ate, status_ids,
-                self.busca_no.text().strip())
+        # A BUSCA NÃO VAI MAIS AO SERVIDOR (Levi, 03/08). O RPC compõe os filtros com OU, não E:
+        # mandar a busca junto do "Criado por" devolvia "minhas OS do período" ∪ "qualquer OS com o
+        # termo". Medido: filtrando por mim num mês, 138 OS viravam 243 — 62 de outros criadores e
+        # 131 sem o termo em lugar nenhum. E não dá para agrupar: as duas formas de aninhar
+        # condições que testei foram ignoradas pelo RPC (devolveram o catálogo).
+        # Agora ela é 100% local (`_busca` no `_aplica`), o que ainda melhora duas coisas: casa com
+        # as COLUNAS QUE APARECEM na tela — o `description` do RPC é outro campo, dava 17 contra as
+        # 7 certas — e procura também em cliente, usina, ativo, status e etiqueta.
+        # Buscar OS fora do período continua existindo: é a barra "Buscar OS pelo nº", que faz
+        # consulta direta e ignora os filtros de propósito.
+        return (modo_srv, idacc, id_label, de, ate, status_ids, "")
 
     def _carregar(self):
         """Recomeça da página 1 (filtro server-side mudou, F5, auto-refresh…)."""
@@ -532,6 +542,8 @@ class HistoricoOS(QWidget):
         do Fracttal ignora `like` em campo de item (medido 28/07) e não tem propriedade de usina
         (o `id_group_task` é família de PLANO, não planta: filtrar por ele devolveu OS de 20 usinas
         diferentes, medido 30/07)."""
+        if self.busca_no.text().strip():
+            return True                    # a busca também é local desde 03/08
         return any(getattr(self, n).checked_values() for n in self._FILTROS_LOCAIS)
 
     def _talvez_completar(self):
@@ -602,8 +614,8 @@ class HistoricoOS(QWidget):
         self._patch_meta([d.get("id") for d in self._linhas[:400]])   # só o que casou o filtro
 
     def _on_busca_change(self, *_):
-        self._busca_timer.start()           # filtra o carregado JÁ (feedback imediato)
-        self._dt_timer.start()              # e re-busca no servidor (nº + descrição), com debounce
+        self._busca_timer.start()           # filtra o carregado; se faltar período, o `_aplica`
+                                            # dispara a varredura (a busca é filtro local)
 
     def _erro(self, m):
         self._w = None
