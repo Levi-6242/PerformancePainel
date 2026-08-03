@@ -10,10 +10,16 @@ from PyQt6.QtWidgets import QComboBox, QCompleter
 
 
 def _eh_placeholder(txt) -> bool:
-    """True se o texto é um item 'sem seleção' (dica), não um valor real."""
+    """True se o texto é um item 'sem seleção' (dica), não um valor real.
+
+    `preencher…`/`selecionar…`/`analista` entraram por causa da Nova análise de performance, cujos
+    pedidos o Levi escreveu assim ("Preencher Cliente", "Selecionar ativo"). Sem isto eles seriam
+    tratados como VALOR: apareciam em cor de texto normal, como se o campo estivesse respondido —
+    que é exatamente a confusão que aqueles rótulos vieram desfazer."""
     t = (txt or "").strip().lower()
     return (not t) or t.startswith("—") or t.startswith("(") or "selecione" in t \
-        or t.startswith("todos") or t.startswith("carregando")
+        or t.startswith("todos") or t.startswith("carregando") \
+        or t.startswith("preencher") or t.startswith("selecionar") or t == "analista"
 
 
 def _sync_placeholder(cb: QComboBox) -> None:

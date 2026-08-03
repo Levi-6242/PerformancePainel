@@ -44,12 +44,13 @@ def _resample(pts):
 
 
 def _plat_token():
-    """Mesma fonte do app: env PLAT_TOKEN, senao plat_token.txt na raiz."""
+    """Mesma fonte do app: env PLAT_TOKEN, senao a chave 'plat' do plataforma/tokens_runtime.json."""
     t = os.environ.get("PLAT_TOKEN", "").strip()
     if t:
         return t
-    with open(os.path.join(ROOT, "plat_token.txt"), encoding="utf-8") as f:
-        return f.read().strip()
+    import json as _json
+    with open(os.path.join(ROOT, "plataforma", "tokens_runtime.json"), encoding="utf-8") as f:
+        return (_json.load(f).get("plat") or "").strip()
 
 
 def _stats_full(graf_cru, jini=7 * 60, jfim=18 * 60):

@@ -107,6 +107,14 @@ class ToggleSwitch(QCheckBox):
         p.end()
 
 
+def _idx_severidade_alta(cb) -> int:
+    """Índice de 'Muito alto' no combo de Severidade (0 se a lista mudar de nome no Fracttal)."""
+    for i in range(cb.count()):
+        if cb.itemText(i).strip().lower().startswith("muito alto"):
+            return i
+    return 0
+
+
 class VariasOSsDialog(QWidget):
     def __init__(self, parent=None, on_voltar=None):
         super().__init__(parent)
@@ -332,6 +340,11 @@ class VariasOSsDialog(QWidget):
         self.cb_fsev = QComboBox()
         for nome, idp in api.FALHA_SEVERIDADES:
             self.cb_fsev.addItem(nome, idp)
+        # SEMPRE "Muito alto" no COS (Levi, 30/07). A lista do Fracttal começa em "Muito baixo",
+        # e como o combo nasce no item 0 toda OS de religamento saía com a severidade MÍNIMA —
+        # o inverso do que o COS significa. A criticidade (id_priorities) já era Muito alto; quem
+        # estava errado era este campo, que é outro (id_failure_severity).
+        self.cb_fsev.setCurrentIndex(_idx_severidade_alta(self.cb_fsev))
         self.cb_fdano = QComboBox()
         for nome, idp in api.FALHA_DANOS:
             self.cb_fdano.addItem(nome, idp)
@@ -393,8 +406,14 @@ class VariasOSsDialog(QWidget):
         # rodapé fixo
         row = QHBoxLayout(); row.setContentsMargins(18, 6, 18, 2)
         b_cancel = QPushButton("Cancelar"); b_cancel.setObjectName("secondary"); b_cancel.clicked.connect(self.reject)
+        # Recomeçar: o reset já roda sozinho depois de criar e ao entrar, mas quem começou a
+        # preencher e desistiu no meio não tinha como voltar à tela limpa sem sair e voltar.
+        self.b_limpar = QPushButton("Recomeçar"); self.b_limpar.setObjectName("secondary")
+        self.b_limpar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.b_limpar.setToolTip("Limpa todos os campos e volta ao estado de tela recém-aberta")
+        self.b_limpar.clicked.connect(self._limpar_clicado)
         self.btn = QPushButton("Criar OSs"); self.btn.setEnabled(False); self.btn.clicked.connect(self._criar)
-        row.addWidget(b_cancel); row.addWidget(self.btn, 1)
+        row.addWidget(b_cancel); row.addWidget(self.b_limpar); row.addWidget(self.btn, 1)
         outer.addLayout(row)
         self.hint = QLabel(""); self.hint.setObjectName("uiAjuda"); self.hint.setContentsMargins(18, 0, 18, 8)
         outer.addWidget(self.hint)
@@ -617,7 +636,9 @@ class VariasOSsDialog(QWidget):
         acao = self._acao_txt()
         falha = self._falha(equip)
         motivo = cs.motivo_titulo(self._tipo_os(), equip, acao)
-        tit = api.perf_os_nome(asset, motivo) if asset else f"[{usina}][{equip}] - {motivo}"
+        # sem ativo do catálogo o título é montado à mão — tem que seguir o MESMO padrão
+        # novo do perf_os_nome, senão a prévia mente sobre o que vai ser criado
+        tit = api.perf_os_nome(asset, motivo) if asset else f"[{equip}] - {motivo}"
         self.prev_tit.setText(tit + ("   (cada OS usa o seu ativo)" if len(self._checked) > 1 else ""))
         self.prev_obs.setText(self._obs_final(cs.observacao(usina, self._codigos(), acao, falha)))
         self.prev_meta.setText(self._meta_html())
@@ -810,6 +831,28 @@ class VariasOSsDialog(QWidget):
             if a.get("usina") == usi and (a.get("cliente") or "").strip():
                 return a["cliente"].strip()
         return self._carteira(usi)
+
+    @slot_seguro
+    @slot_seguro
+    def _limpar_clicado(self, *_):
+        """Botão Recomeçar. Confirma só se já houver algo preenchido — apertar por engano numa tela
+        cheia custa o trabalho todo."""
+        # ed_obs é QLineEdit aqui (no card de Performance é QTextEdit) — lê pelos dois nomes
+        txt = (self.ed_obs.text() if hasattr(self.ed_obs, "text") else self.ed_obs.toPlainText())
+        sujo = bool(self._checked or (txt or "").strip() or self.cb_cli.currentIndex() > 0)
+        if sujo and QMessageBox.question(
+                self, "Recomeçar",
+                "Limpar todos os campos e voltar à tela inicial?") != QMessageBox.StandardButton.Yes:
+            return
+        self._reset()
+        self.hint.setText("tela limpa")
+
+    def reiniciar(self):
+        """Entrar no COS = tela como se fosse a primeira vez. Delega ao `_reset`.
+
+        Este método existia com uma limpeza PRÓPRIA, mais rasa, e a divergência entre os dois era
+        o bug: sair e voltar mantinha responsável, severidade e sobrescritas da OS anterior."""
+        self._reset()
 
     def _fill_clientes(self):
         # clientes REAIS = os que têm ativo de equipamento (o catálogo tem material/inventário à parte,
@@ -1281,8 +1324,13 @@ class VariasOSsDialog(QWidget):
         self._preview()
 
     def _reset(self):
-        """Limpa TODOS os campos e volta ao estado inicial (após criar as OSs) — espelha o __init__.
-        Mantém só o Responsável selecionado (mesmo analista costuma criar em sequência)."""
+        """Limpa TODOS os campos e volta ao estado inicial — espelha o __init__.
+
+        Roda em três momentos: depois de criar as OS, ao ENTRAR na tela e no botão "Recomeçar".
+        Antes o reset de entrada era outro método, mais raso, que cobria 5 dos 15 campos: o que
+        sobrava (responsável, severidade, tipo/causa/detecção da falha, sobrescritas de
+        criticidade) ia junto para a OS seguinte. O Levi reportou em 30/07 OS saindo errada por
+        isso. Agora é UM caminho só — se um campo novo entrar na tela, ele entra aqui também."""
         while self._date_rows:                              # datas do modo "várias datas"
             self._del_data(self._date_rows[0][0])
         self._checked = set()                               # ativos marcados
@@ -1290,16 +1338,40 @@ class VariasOSsDialog(QWidget):
         if self._terceiros:                                 # sai do modo terceiros → restaura dropdowns
             self.sw_terc.setChecked(False)                  # dispara _tog_terceiros(False) + _fill_clientes
         self.busca.blockSignals(True); self.busca.clear(); self.busca.blockSignals(False)
+        # Zerar o cliente NÃO basta: o `_on_cli` chama `_fill_usinas`, que PRESERVA a usina
+        # escolhida (sem cliente ela continua na lista), e o `_on_usi` então re-seleciona o cliente
+        # a partir dela — o campo voltava sozinho ao valor anterior. Por isso a usina é zerada
+        # explicitamente depois, com o `_on_usi` no fim para limpar tabela, tipos e seleção.
         if self.cb_cli.count():
-            self.cb_cli.setCurrentIndex(0)                  # → _on_cli limpa usina/tipo/ativos
+            self.cb_cli.blockSignals(True); self.cb_cli.setCurrentIndex(0)
+            self.cb_cli.blockSignals(False)
+            self._fill_usinas()
+        if self.cb_usi.count():
+            self.cb_usi.blockSignals(True); self.cb_usi.setCurrentIndex(0)
+            self.cb_usi.blockSignals(False)
+        self._on_usi()                                      # limpa tabela, tipos e seleção
         self.de.setDateTime(QDateTime.currentDateTime().addSecs(-600))
         self.de_fim.setDateTime(QDateTime.currentDateTime())
         self.ed_obs.blockSignals(True); self.ed_obs.clear(); self.ed_obs.blockSignals(False)
         for ch in self._chips.values():                     # proteções
             ch.blockSignals(True); ch.setChecked(False); ch.blockSignals(False)
-        for cb in (self.cb_onde, self.cb_falha_b, self.cb_causa_c):
+        for cb in (self.cb_onde, self.cb_falha_b, self.cb_causa_c,
+                   self.cb_ftipo, self.cb_fcausa, self.cb_fdetec, self.cb_fdano):
             if cb.count():
-                cb.setCurrentIndex(0)
+                cb.blockSignals(True); cb.setCurrentIndex(0); cb.blockSignals(False)
+        # severidade volta ao PADRÃO DO COS (Muito alto), não ao item 0 da lista
+        self.cb_fsev.blockSignals(True)
+        self.cb_fsev.setCurrentIndex(_idx_severidade_alta(self.cb_fsev))
+        self.cb_fsev.blockSignals(False)
+        # RESPONSÁVEL também zera. Ficava propositalmente preso ("o mesmo analista cria em
+        # sequência"), mas era justamente o campo que o Levi viu carregando da OS anterior —
+        # e responsável errado numa OS de campo manda o técnico errado para a usina.
+        if self.cb_resp.count():
+            self.cb_resp.blockSignals(True); self.cb_resp.setCurrentIndex(0)
+            self.cb_resp.blockSignals(False)
+        # o "O ativo falhou?" NÃO entra aqui: o `_on_tipo` no fim deste método o remarca de
+        # propósito (é o default do COS). Tentar desmarcar aqui era código morto.
+        self.ed_clone.blockSignals(True); self.ed_clone.clear(); self.ed_clone.blockSignals(False)
         # segmentados de volta ao início: Tipo=Religamento · Categoria=A · Modo=Vários ativos · Ação=Remoto
         self._seg_tipo.set_index(0, emit=False)
         self._seg_cat.set_index(0, emit=False)

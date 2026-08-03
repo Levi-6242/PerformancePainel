@@ -7,7 +7,7 @@ Compartilhado pela UI (steps/varias_os) e pela criação (api). Espelha o padrã
     A · Proteção atuou      → chips ANSI  → Ação Religamento Remoto/Local
     B · Inversor desligado  → falha do inversor → Ação Religamento Local
     C · Falha de comunicação→ causa da comunicação → Ação Inspeção Local
-  Título:      [Usina][Equipamento] - {motivo}          (via api.perf_os_nome)
+  Título:      [Equipamento] - {motivo}                 (via api.perf_os_nome)
   Observação:  UFV: {usina} | Proteção: {códigos} | Ação: {ação} | Falha: {falha}
 """
 

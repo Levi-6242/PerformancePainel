@@ -59,6 +59,16 @@ td{padding:9px 10px;border-bottom:1px solid var(--line)}td b{color:var(--grafite
 .tag{font-size:10px;padding:2px 9px;border-radius:6px;font-weight:500}
 .tag.ok{background:var(--ok-soft);color:var(--ok)}.tag.warn{background:var(--warn-soft);color:var(--warn)}.tag.danger{background:var(--danger-soft);color:var(--danger)}
 .foot{margin-top:20px;text-align:center;font-size:10.5px;color:var(--faint)}.foot b{color:var(--verde-dark)}
+/* Alternador de visão (Geração × Meta P50 · Qualidade da UFV) — segmentado, uma opção acesa */
+.vswitch{display:inline-flex;background:var(--bg-soft);border:1px solid var(--line);border-radius:10px;padding:3px;gap:3px}
+.vswitch button{font-family:inherit;font-size:12.5px;font-weight:500;color:var(--muted);background:transparent;
+  border:0;border-radius:7px;padding:7px 15px;cursor:pointer;transition:background .12s,color .12s,box-shadow .12s}
+.vswitch button:hover{color:var(--grafite)}
+.vswitch button[aria-selected="true"]{background:#fff;color:var(--grafite);font-weight:600;box-shadow:0 1px 2px rgba(25,21,40,.09)}
+.vswitch button:focus-visible{outline:2px solid var(--verde-dark);outline-offset:1px}
+.selcli{background:var(--bg-soft);color:inherit;border:1px solid var(--line);border-radius:8px;
+  padding:6px 10px;font-size:12.5px;font-family:inherit;cursor:pointer}
+.tblwrap{overflow-x:auto}
 @media(max-width:1080px){.scorecard{grid-template-columns:repeat(2,1fr)}.row2,.cols2{grid-template-columns:1fr}}
 </style>
 </head>
@@ -103,33 +113,46 @@ td{padding:9px 10px;border-bottom:1px solid var(--line)}td b{color:var(--grafite
     </div>
   </div>
 
-  <!-- Qualidade por usina (PR × meta e IPOA × previsto), no formato do BI. Fica logo abaixo de
-       melhores/piores porque responde a pergunta seguinte: "o atingimento caiu — foi PR ou foi sol?" -->
+  <!-- DUAS VISÕES da mesma lista de usinas, alternadas por botão. Antes eram duas tabelas
+       empilhadas: a de baixo quase não era vista, e só ela tinha filtro de cliente. As perguntas
+       são diferentes e sequenciais — "quanto saiu vs. quanto era pra sair" (Geração × Meta P50) e,
+       quando o atingimento cai, "foi PR ou foi sol?" (Qualidade da UFV) — mas a lista é a mesma,
+       então o filtro de cliente é UM só e vale para as duas. -->
   <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:13px">
       <div>
-        <h3>Qualidade por usina</h3>
-        <div class="csub">PR × meta e irradiância medida × prevista · mês corrente</div>
+        <div class="vswitch" role="tablist" aria-label="Visão da tabela">
+          <button role="tab" id="tabGeracao" aria-selected="true" onclick="setVista('geracao')">Geração × Meta P50</button>
+          <button role="tab" id="tabQualidade" aria-selected="false" onclick="setVista('qualidade')">Qualidade da UFV</button>
+        </div>
+        <div class="csub" id="vSub" style="margin:9px 0 0"></div>
       </div>
-      <div style="display:flex;gap:8px;align-items:center">
-        <label style="font-size:12px;color:var(--muted)">Cliente</label>
-        <select id="qCli" onchange="renderQualidade()" style="background:var(--panel);color:inherit;border:1px solid var(--line);border-radius:7px;padding:5px 9px;font-size:12.5px;font-family:inherit;cursor:pointer"></select>
+      <!-- Sem seletor de cliente aqui de propósito: o filtro do topo já recorta a página inteira
+           (deriva() → render()), então as DUAS visões saem dele. A tabela de qualidade tinha um
+           seletor próprio, e dois controles com o mesmo nome fazendo coisas de alcance diferente
+           é convite a erro de leitura. O chip abaixo diz qual cliente está valendo. -->
+      <div style="display:flex;gap:10px;align-items:center">
+        <input id="vBusca" placeholder="Buscar usina..." oninput="setVBusca(this.value)"
+          style="background:var(--bg-soft);border:1px solid var(--line);border-radius:8px;padding:6px 11px;font-size:12.5px;font-family:inherit;min-width:170px">
+        <div id="vCliChip" class="tag" style="align-self:center"></div>
       </div>
     </div>
-    <div class="tblwrap"><table id="qTable">
-      <thead><tr>
-        <th>Usina</th><th>Cliente</th>
-        <th class="r">PR</th><th class="r" title="Mesma conta pelo MEDIDOR (coluna Multimedidor). Separar do PR do inversor indica perda entre inversor e medidor.">PR Grid</th>
-        <th class="r">PR Meta</th><th class="r">Diff PR</th>
-        <th class="r">IPOA</th><th class="r">IPOA Previsto</th><th class="r">Diff IPOA</th>
-      </tr></thead><tbody></tbody>
-    </table></div>
-    <div class="csub" id="qNota" style="margin-top:8px"></div>
-  </div>
 
-  <div class="card">
-    <h3>Todas as usinas</h3><div class="csub">Geração × meta no mês · ordenado por atingimento · <b>clique na usina para abrir a cascata de perdas</b></div>
-    <table id="allTable"><thead><tr><th>Usina</th><th>Cliente</th><th class="r">Gerada (MWh)</th><th class="r">Meta P50 (MWh)</th><th>Atingimento</th></tr></thead><tbody></tbody></table>
+    <div class="tblwrap" id="vistaGeracao">
+      <table id="allTable"><thead><tr><th>Usina</th><th>Cliente</th><th class="r">Gerada (MWh)</th><th class="r">Meta P50 (MWh)</th><th>Atingimento</th></tr></thead><tbody></tbody></table>
+    </div>
+
+    <div class="tblwrap" id="vistaQualidade" hidden>
+      <table id="qTable">
+        <thead><tr>
+          <th>Usina</th><th>Cliente</th>
+          <th class="r">PR</th><th class="r" title="Mesma conta pelo MEDIDOR (coluna Multimedidor). Separar do PR do inversor indica perda entre inversor e medidor.">PR Grid</th>
+          <th class="r">PR Meta</th><th class="r">Diff PR</th>
+          <th class="r">IPOA</th><th class="r">IPOA Previsto</th><th class="r">Diff IPOA</th>
+        </tr></thead><tbody></tbody>
+      </table>
+    </div>
+    <div class="csub" id="vNota" style="margin-top:9px"></div>
   </div>
 
   <div class="foot"><b>Grid Co.</b> · Visão Gerencial — Fatia 1 (atingimento). Decomposição clima×desempenho, PR, perdas, receita e risco contratual: próximas fatias.</div>
@@ -161,21 +184,28 @@ function render(j){
   // potência das usinas que têm os DOIS valores — somar kWh/m² de usinas diferentes não
   // significaria nada, e comparar universos diferentes inventaria desvio.
   function _poaBars(p){
-    const M=p.poa, E=p.poa_prev;
-    if(M==null||E==null) return '';
-    const mx=Math.max(M,E,1);
-    const dif=E?((M-E)/E*100):null;
-    const cor=(dif==null)?'var(--muted)':(dif<-3?'var(--red)':(dif>3?'var(--ok)':'var(--muted)'));
-    const sel=(dif==null)?'':`<span style="color:${cor};font-weight:600">${dif>=0?'+':'−'}${nf(Math.abs(dif),1)}%</span>`;
-    return `<div style="margin:14px 0 2px;padding-top:12px;border-top:1px solid var(--line)">`+
-      `<div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px">`+
-      `<div style="font-size:11px;font-weight:700;letter-spacing:.03em;color:var(--muted);text-transform:uppercase">`+
-      `Recurso solar · POA (kWh/m²)</div><div style="font-size:12px">${sel}`+
-      `<span style="color:var(--muted);font-size:11.5px"> · ${p.n_poa||0} usinas com os dois dados</span></div></div>`+
-      `<div class="brow"><div class="blab"><div class="bt">POA esperado</div><div class="bs">previsto no projeto</div></div>`+
-      `<div class="btrack"><div class="bfill p50" style="width:${Math.max(12,E/mx*100)}%">${nf(E,1)}</div></div></div>`+
-      `<div class="brow"><div class="blab"><div class="bt">POA medido</div><div class="bs">irradiância real</div></div>`+
-      `<div class="btrack"><div class="bfill ger" style="width:${Math.max(12,M/mx*100)}%">${nf(M,1)}</div></div></div></div>`;
+    // Um PAR de barras por métrica (esperado × medido), cada par com o SEU desvio e a SUA
+    // cobertura: POA e GHI têm universos diferentes (o BD_Thopen não registra GHI), então um
+    // "n usinas" único mentiria para um dos dois.
+    const par=(rot,subMed,M,E,n)=>{
+      if(M==null||E==null) return '';
+      const mx=Math.max(M,E,1);
+      const dif=E?((M-E)/E*100):null;
+      const cor=(dif==null)?'var(--muted)':(dif<-3?'var(--red)':(dif>3?'var(--ok)':'var(--muted)'));
+      const sel=(dif==null)?'':`<span style="color:${cor};font-weight:600">${dif>=0?'+':'−'}${nf(Math.abs(dif),1)}%</span>`;
+      return `<div style="display:flex;justify-content:space-between;align-items:baseline;margin:12px 0 8px">`+
+        `<div style="font-size:11px;font-weight:700;letter-spacing:.03em;color:var(--muted);text-transform:uppercase">`+
+        `Recurso solar · ${rot} (kWh/m²)</div><div style="font-size:12px">${sel}`+
+        `<span style="color:var(--muted);font-size:11.5px"> · ${n||0} usinas com os dois dados</span></div></div>`+
+        `<div class="brow"><div class="blab"><div class="bt">${rot} esperado</div><div class="bs">previsto no projeto</div></div>`+
+        `<div class="btrack"><div class="bfill p50" style="width:${Math.max(12,E/mx*100)}%">${nf(E,1)}</div></div></div>`+
+        `<div class="brow"><div class="blab"><div class="bt">${rot} medido</div><div class="bs">${subMed}</div></div>`+
+        `<div class="btrack"><div class="bfill ger" style="width:${Math.max(12,M/mx*100)}%">${nf(M,1)}</div></div></div>`;
+    };
+    const poa=par('POA','irradiância no plano dos módulos',p.poa,p.poa_prev,p.n_poa);
+    const ghi=par('GHI','irradiância horizontal',p.ghi,p.ghi_prev,p.n_ghi);
+    if(!poa&&!ghi) return '';
+    return `<div style="margin:14px 0 2px;padding-top:4px;border-top:1px solid var(--line)">${poa}${ghi}</div>`;
   }
 
   // energia
@@ -204,7 +234,18 @@ function render(j){
     // por quê. Afirmar a causa (aba ausente? nome que não casou? usina parada?) seria
     // inventar diagnóstico — e o título explica isso ao passar o mouse.
     const sd=c.n_sem_dado||0, semTudo=(sd>=c.n), temGer=(c.prod||0)>0;
-    const usinas=`${c.n}`+(sd?`<span style="color:var(--muted);font-weight:400" title="Geração não encontrada nas fontes do mês para ${sd} usina(s). Ficam fora do atingimento — contar como zero acusaria a usina por uma lacuna nossa."> (${sd} s/ dado)</span>`:'');
+    // O hover NOMEIA as usinas sem dado e diz O QUE falta em cada uma: só a contagem obrigava
+    // a abrir a lista completa e caçar traço por traço (pedido do Levi, 28/07). O que falta é
+    // GERAÇÃO (é a definição de "s/ dado"); quem também está sem meta P50 ganha a nota.
+    const _sem=(j.usinas||[]).filter(u=>(u.cliente||'—')===(c.cliente||'—')&&u.prod==null);
+    const _tip=('Geração não encontrada nas fontes do mês (ficam fora do atingimento):&#10;'+
+      _sem.map(u=>'• '+u.usina+(u.p50==null?' — e sem meta P50 no cadastro':'')).join('&#10;'))
+      .replace(/"/g,'&quot;');
+    // O número principal é quem TEM dado (é sobre ele que atingimento/gerada falam); o total
+    // do cadastro fica implícito na soma. "9 (4 s/ dado)" fazia parecer 9 usinas medidas
+    // (Levi, 28/07: Axis mostrava 9, mas a tabela lista 5 — e 5 é o que está medido).
+    const usinas=`<span title="${c.n-sd} usina(s) com geração encontrada no mês, de ${c.n} no cadastro.">${c.n-sd}</span>`+
+      (sd?`<span style="color:var(--muted);font-weight:400;cursor:help;border-bottom:1px dotted var(--line-2)" title="${_tip}"> (${sd} s/ dado)</span>`:'');
     // Atingimento vazio tem DUAS causas diferentes, e trocá-las é mentir: pode faltar a
     // geração ou faltar a meta P50 no cadastro. Quem tem geração mas não tem meta mostra
     // os MWh normalmente — esconder o que foi medido seria perder informação boa.
@@ -213,8 +254,11 @@ function render(j){
     const atg=(c.atingimento==null)
       ? `<span style="color:var(--muted)" title="${porque}">—</span>`+
         `<div class="csub" style="margin:2px 0 0">${temGer?'sem meta P50':'sem geração no mês'}</div>`
-      : `<span class="num ${atgCls(c.atingimento)}">${nf(c.atingimento,1)}%</span>`+
-        `<div class="bar"><i style="width:${Math.min(100,c.atingimento||0)}%;background:#5E7E12"></i></div>`;
+      // número e barra NA MESMA LINHA, barra com teto de largura: empilhados, a barra ocupava
+      // a célula inteira e o layout da coluna ficava desengonçado (pedido do Levi, 28/07)
+      : `<div style="display:flex;align-items:center;gap:8px">`+
+        `<span class="num ${atgCls(c.atingimento)}" style="min-width:50px;text-align:right">${nf(c.atingimento,1)}%</span>`+
+        `<div class="bar" style="flex:0 1 96px;margin-top:0"><i style="width:${Math.min(100,c.atingimento||0)}%;background:#5E7E12"></i></div></div>`;
     return `<tr${semTudo?' style="opacity:.55"':''}><td><b>${c.cliente||'—'}</b></td>`+
       `<td class="r num">${usinas}</td><td>${atg}</td>`+
       `<td class="r num">${temGer?fmtE(c.prod):'—'}</td>`+
@@ -224,42 +268,94 @@ function render(j){
   const ml=(arr)=>arr.map(u=>`<div class="mrow"><span class="nm">${u.usina}</span><span class="vv ${atgCls(u.atingimento)}">${nf(u.atingimento,1)}%</span></div>`).join('')||'<div class="mrow"><span class="nm">—</span></div>';
   document.getElementById('best').innerHTML=ml(j.best||[]);
   document.getElementById('worst').innerHTML=ml(j.worst||[]);
-  // todas
-  const us=(j.usinas||[]).filter(u=>u.atingimento!=null).sort((a,b)=>b.atingimento-a.atingimento);
-  document.querySelector('#allTable tbody').innerHTML=us.map(u=>
-    `<tr style="cursor:pointer" data-u="${encodeURIComponent(u.usina)}" onclick="tgCasc(this)"><td><b>${u.usina}</b></td><td>${u.cliente||'—'}</td><td class="r num">${nf(u.prod,1)}</td>`+
-    `<td class="r num">${nf(u.p50,1)}</td><td><span class="num ${atgCls(u.atingimento)}">${nf(u.atingimento,1)}%</span> ${atgTag(u.atingimento)}</td></tr>`).join('')
-    || '<tr><td colspan="5" style="color:var(--muted)">Sem dados.</td></tr>';
-
-  QUSINAS = j.usinas || [];
-  _qCliOpts();
-  renderQualidade();
+  // as duas visões (Geração × Meta P50 · Qualidade da UFV) saem da MESMA lista de usinas
+  USINAS = j.usinas || [];
+  renderVista();
 }
 
-// ── Qualidade por usina: PR × meta e IPOA × previsto, filtrável por cliente ────────────
+// ── DUAS VISÕES da mesma lista de usinas ───────────────────────────────────────────────
+// Cada visão tem seu critério de "vale listar": Geração exige atingimento (gerada E meta),
+// Qualidade exige PR ou IPOA medido — uma usina pode estar numa e não na outra, e por isso os
+// dois rodapés contam totais diferentes. O recorte por CLIENTE vem do filtro do topo: USINAS já
+// chega filtrado por deriva(), então as duas visões seguem o mesmo cliente sem controle extra.
+let USINAS = [], VISTA = 'geracao', VBUSCA = '';
+const _temGer = u => u.atingimento != null;
+const _temQal = u => (u.pr != null || u.ipoa);
+// busca por nome sem acento/caixa — "araca" acha "Araçoiaba da Serra 1"
+const _nrmB = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+const _casaBusca = u => !VBUSCA || _nrmB(u.usina).includes(_nrmB(VBUSCA));
+window.setVBusca = v => { VBUSCA = v || ''; renderVista(); };
+
+function setVista(v){
+  VISTA = v;
+  document.getElementById('tabGeracao').setAttribute('aria-selected', v === 'geracao');
+  document.getElementById('tabQualidade').setAttribute('aria-selected', v === 'qualidade');
+  document.getElementById('vistaGeracao').hidden   = (v !== 'geracao');
+  document.getElementById('vistaQualidade').hidden = (v !== 'qualidade');
+  renderVista();
+}
+
+function renderVista(){
+  // O chip repete o cliente ativo: sem ele, uma lista curta parece dado faltando em vez de filtro.
+  const chip = document.getElementById('vCliChip');
+  if(chip){
+    chip.innerHTML = fCli ? `Cliente: <b>${fCli}</b>` : 'Todos os clientes';
+    chip.className = fCli ? 'tag ok' : 'tag';
+    chip.title = 'Recorte vindo do filtro Cliente no topo da página — vale para as duas visões.';
+  }
+  if(VISTA === 'geracao') renderTodas(USINAS.filter(u => _temGer(u) && _casaBusca(u)));
+  else                    renderQualidade(USINAS.filter(u => _temQal(u) && _casaBusca(u)));
+}
+
+// Visão 1 — Geração × Meta P50: quanto saiu contra quanto era para sair.
+function renderTodas(us){
+  const tb = document.querySelector('#allTable tbody');
+  if(!tb) return;
+  document.getElementById('vSub').innerHTML =
+    'Gerada × meta no mês · ordenado por atingimento · <b>clique na usina para abrir a cascata de perdas</b>';
+  us = us.slice().sort((a,b)=>b.atingimento-a.atingimento);
+  // A meta é prorrateada pelos dias que a FONTE já reportou, não pelo dia de hoje. Sem dizer
+  // isso na célula, dois números iguais de meta viriam de janelas diferentes e ninguém saberia.
+  // meta_dias vem do backend = quantos dias a meta REALMENTE cobre (mês fechado = mês inteiro).
+  // Deixar a tela deduzir isso de dias_cob daria "26 de 31" num mês fechado, onde a meta é cheia.
+  // A nota fica NA MESMA LINHA, à esquerda do número: empilhada dobrava a altura da linha, e o
+  // número precisa continuar na borda direita para os dígitos alinharem coluna abaixo.
+  const _dias = u => (u.meta_dias && u.dias_mes)
+    ? `<span style="font-size:10px;color:var(--faint);font-weight:400;margin-right:9px">${u.meta_dias} de ${u.dias_mes} dias</span>` : '';
+  tb.innerHTML = us.map(u=>
+    `<tr style="cursor:pointer" data-u="${encodeURIComponent(u.usina)}" onclick="tgCasc(this)"><td><b>${u.usina}</b></td><td>${u.cliente||'—'}</td><td class="r num">${nf(u.prod,1)}</td>`+
+    `<td class="r num" style="white-space:nowrap" title="Meta do mês rateada pelos ${u.meta_dias||'—'} dias que a fonte já reportou desta usina.">${_dias(u)}${nf(u.p50,1)}</td>`+
+    `<td><span class="num ${atgCls(u.atingimento)}">${nf(u.atingimento,1)}%</span> ${atgTag(u.atingimento)}</td></tr>`).join('')
+    || '<tr><td colspan="5" style="color:var(--muted)">Nenhuma usina com geração e meta neste filtro.</td></tr>';
+  const naMeta = us.filter(u=>u.atingimento>=97).length;
+  const md = us.map(u=>u.meta_dias).filter(v=>v);
+  const faixa = md.length ? (Math.min(...md)===Math.max(...md)
+    ? `${md[0]} dias` : `de ${Math.min(...md)} a ${Math.max(...md)} dias`) : '';
+  document.getElementById('vNota').innerHTML =
+    `${us.length} usinas com geração e meta no mês · <b>${naMeta}</b> na meta (≥97%). `+
+    `A meta de cada usina cobre <b>só os dias que a fonte já reportou</b>`+
+    (faixa?` (hoje, ${faixa})`:'')+
+    ` — cobrar dias que ainda não coletamos derrubaria o atingimento sem culpa da usina. `+
+    `Dia reportado com geração zero conta normalmente: usina parada é dado, não lacuna.`;
+}
+
+// Visão 2 — Qualidade da UFV: PR × meta e IPOA × previsto, no formato do BI.
 // Só entram usinas que TÊM PR ou IPOA medido — listar linha vazia não informa nada. O "Diff"
 // é a mesma conta do BI: medido − meta (negativo = abaixo).
-let QUSINAS = [];
-function _qCliOpts(){
-  const sel = document.getElementById('qCli');
-  if(!sel) return;
-  const atual = sel.value || 'todos';
-  const cs = [...new Set(QUSINAS.filter(u=>u.pr!=null||u.ipoa).map(u=>u.cliente||'—'))].sort();
-  sel.innerHTML = `<option value="todos">Todos</option>` +
-    cs.map(c=>`<option value="${c}">${c}</option>`).join('');
-  sel.value = cs.includes(atual) ? atual : 'todos';
-}
-function renderQualidade(){
-  const sel = document.getElementById('qCli'); const tb = document.querySelector('#qTable tbody');
+function renderQualidade(us){
+  const tb = document.querySelector('#qTable tbody');
   if(!tb) return;
-  const cli = sel ? sel.value : 'todos';
-  let us = QUSINAS.filter(u => (u.pr!=null || u.ipoa) && (cli==='todos' || (u.cliente||'—')===cli));
+  document.getElementById('vSub').innerHTML =
+    'PR × meta e irradiância medida × prevista · mês corrente · <b>pior primeiro</b>';
   // pior primeiro: quem está mais abaixo da meta de PR é o que exige ação
   const dPR = u => (u.pr!=null && u.pr_meta!=null) ? (u.pr-u.pr_meta) : null;
-  us.sort((a,b)=>{ const x=dPR(a), y=dPR(b);
+  us = us.slice().sort((a,b)=>{ const x=dPR(a), y=dPR(b);
     if(x==null && y==null) return (a.usina||'').localeCompare(b.usina||'');
     if(x==null) return 1; if(y==null) return -1; return x-y; });
-  const cor = v => v==null ? 'var(--muted)' : (v < -3 ? 'var(--danger)' : (v > 3 ? 'var(--ok)' : 'var(--muted)'));
+  // Vermelho a partir do PRIMEIRO negativo (pedido do Levi, 28/07): a faixa "neutra" até −3
+  // escondia usina já abaixo do previsto atrás de cinza. Positivo mantém a régua: verde só
+  // acima de +3, senão qualquer ruído de medição viraria elogio.
+  const cor = v => v==null ? 'var(--muted)' : (v < 0 ? 'var(--danger)' : (v > 3 ? 'var(--ok)' : 'var(--muted)'));
   const sig = (v,d)=> v==null ? '—' : `${v>=0?'+':'−'}${nf(Math.abs(v),d)}`;
   tb.innerHTML = us.map(u=>{
     const dpr = dPR(u);
@@ -272,9 +368,9 @@ function renderQualidade(){
       `<td class="r num">${u.ipoa?nf(u.ipoa,2):'—'}</td>`+
       `<td class="r num">${u.ipoa_prev?nf(u.ipoa_prev,2):'—'}</td>`+
       `<td class="r num" style="color:${cor(dip)};font-weight:600">${dip==null?'—':sig(dip,2)}</td></tr>`;
-  }).join('') || '<tr><td colspan="9" style="color:var(--muted)">Nenhuma usina com PR ou irradiância medida.</td></tr>';
+  }).join('') || '<tr><td colspan="9" style="color:var(--muted)">Nenhuma usina com PR ou irradiância medida neste filtro.</td></tr>';
   const comPR = us.filter(u=>u.pr!=null).length, comIP = us.filter(u=>u.ipoa&&u.ipoa_prev).length;
-  document.getElementById('qNota').innerHTML =
+  document.getElementById('vNota').innerHTML =
     `${us.length} usinas · <b>${comPR}</b> com PR calculado · <b>${comIP}</b> com irradiância medida e prevista. `+
     `Diff em <b>pp</b> (pontos percentuais) para PR e em <b>kWh/m²</b> para IPOA; negativo = abaixo do previsto.`;
 }
@@ -327,10 +423,22 @@ function deriva(j){
   const us=(j.usinas||[]).filter(u=>(u.cliente||'—')===fCli);
   const com50=us.filter(u=>u.p50);
   const sp=com50.reduce((s,u)=>s+(u.prod||0),0), s50=com50.reduce((s,u)=>s+(u.p50||0),0);
+  // Recurso solar TAMBÉM é recalculado no recorte — mesma régua do _roll do backend: média
+  // ponderada pela potência, só usinas com medido E previsto. Antes o spread ...portfolio
+  // mantinha o POA do portfólio INTEIRO, e filtrar 2C ou Axis mostrava os mesmos 163,4/134,3
+  // do global — número certo do conjunto errado (Levi pegou em 28/07).
+  const wagg=(kM,kE)=>{ const cs=us.filter(u=>u[kM]&&u[kE]&&u.pot_mwp);
+    const w=cs.reduce((s,u)=>s+u.pot_mwp,0);
+    const r=x=>Math.round(x*10)/10;
+    return {med:w?r(cs.reduce((s,u)=>s+u[kM]*u.pot_mwp,0)/w):null,
+            prev:w?r(cs.reduce((s,u)=>s+u[kE]*u.pot_mwp,0)/w):null, n:cs.length}; };
+  const A=wagg('ipoa','ipoa_prev'), G=wagg('ghi','ghi_prev');
   const port={...(j.portfolio||{}),n:us.length,n_meta:com50.length,
     prod:Math.round(us.reduce((s,u)=>s+(u.prod||0),0)*10)/10,
     p50:s50?Math.round(s50*10)/10:null,
     atingimento:s50?Math.round(sp/s50*1000)/10:null,
+    poa:A.med,poa_prev:A.prev,n_poa:A.n,
+    ghi:G.med,ghi_prev:G.prev,n_ghi:G.n,
     na_meta:com50.filter(u=>(u.atingimento||0)>=95).length};
   const comatg=us.filter(u=>u.atingimento!=null&&u.prod>0);
   return {...j, usinas:us, portfolio:port,

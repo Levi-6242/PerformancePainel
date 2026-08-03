@@ -55,7 +55,7 @@ essa extração passa a ser obrigatória.**
 
 ## Segredos
 
-`.env`, `tokens.txt`, `plat_token.txt`, `pg_password.txt`, `se_credentials.txt` e afins são
+`.env`, `tokens.txt`, `tokens_runtime.json`, `pg_password.txt`, `se_credentials.txt` e afins são
 segredos, já cobertos pelo `.gitignore`. **Nunca imprima `DASH_PASSWORD` nem desligue a
 autenticação.** Para validar interface atrás da senha, faça login por sessão lendo a variável,
 sem exibi-la.

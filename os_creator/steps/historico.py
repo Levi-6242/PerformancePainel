@@ -1,7 +1,14 @@
 """Histórico de OS — 'Histórico Geral' (por criador: default = usuário logado, pode trocar p/ outros
 ou Todos) e 'Atribuídas a mim' (id_personnel do logado, INALTERADO). Filtro de data (BR), status
 colorido, e clique no nº → Data do Evento/Notas/Subtarefas. Lê via api.list_minhas_os."""
+import time
+
 from PyQt6.QtCore import Qt, QDate, QTimer
+
+# De quanto em quanto a lista se atualiza sozinha, e por quanto tempo ela é
+# considerada FRESCA ao reabrir a aba. Os dois são o mesmo número de propósito:
+# se a lista vale por 10 min, reabrir a aba dentro desses 10 min não precisa buscar.
+INTERVALO_MIN = 10
 from PyQt6.QtGui import QColor, QBrush, QShortcut, QKeySequence, QIcon
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton,
                              QDateEdit, QComboBox, QLineEdit, QSizePolicy, QTableWidget,
@@ -64,6 +71,16 @@ class HistoricoOS(QWidget):
         self._dados = []
         self._linhas = []               # linhas atualmente exibidas (p/ exportar)
         self._modo = "criadas"          # criadas = "Histórico Geral"
+        # ── rolagem infinita (28/07) ── o histórico busca UMA página por vez e o scroll pede a
+        # próxima, como no Fracttal web. Antes puxava até 2000 OS + enriquecimento antes da
+        # primeira linha — era a demora e o travamento que a equipe reclamava.
+        self._pagina = 0                # última página que chegou (0 = nada)
+        self._pag_alvo = 1              # página em trânsito
+        self._tem_mais = False          # o servidor tem mais além do carregado?
+        self._total_srv = 0             # total no servidor para o filtro atual
+        self._cadeia = 0                # auto-buscas seguidas p/ alimentar filtro client-side
+        self._wv = None                 # worker da varredura do período (filtro client-side)
+        self._varrido = None            # args já varridos — evita varrer o mesmo duas vezes
         self._w = None
         self._wp = None
         self._wl = None
@@ -77,9 +94,16 @@ class HistoricoOS(QWidget):
         row = QHBoxLayout(); row.setSpacing(6)
         self.b_criadas = QPushButton("Histórico Geral")
         self.b_atrib = QPushButton("Atribuídas a mim")
+        # 3ª visão (28/07): espelha a que existia no Power BI — colunas de programação/equipe/
+        # gatilho e só os tipos do COS. Por baixo é a MESMA busca paginada; o que muda é o
+        # conjunto de colunas e o filtro de tipo que já vem marcado.
+        self.b_cos = QPushButton("Visão COS")
+        self.b_cos.setToolTip("Corretivas, emergenciais e religamentos — com programação, "
+                              "equipe e gatilho, como no Power BI")
         self.b_criadas.clicked.connect(lambda: self._set_modo("criadas"))
         self.b_atrib.clicked.connect(lambda: self._set_modo("atribuidas"))
-        row.addWidget(self.b_criadas); row.addWidget(self.b_atrib)
+        self.b_cos.clicked.connect(lambda: self._set_modo("cos"))
+        row.addWidget(self.b_criadas); row.addWidget(self.b_atrib); row.addWidget(self.b_cos)
         # box 1: buscar OS direto pelo nº (ignora filtros)
         self.busca_os = QLineEdit()
         self.busca_os.setPlaceholderText("Buscar OS pelo nº — direto, ignora filtros")
@@ -92,18 +116,18 @@ class HistoricoOS(QWidget):
         row.addSpacing(10); row.addWidget(self.busca_os)
         row.addStretch(1)
         # box 2: aviso de atualização automática
-        self.lbl_auto = QLabel("↻ Atualiza a cada 15 min"); self.lbl_auto.setObjectName("hint")
+        self.lbl_auto = QLabel("↻ Atualiza a cada 10 min"); self.lbl_auto.setObjectName("hint")
         self.lbl_auto.setToolTip("Com a aba aberta, o histórico se atualiza sozinho a cada 15 minutos.")
         row.addWidget(self.lbl_auto)
         row.addWidget(QLabel("Buscar"))
         self.busca_no = QLineEdit(); self.busca_no.setPlaceholderText("nº, ativo, descrição, status…")
         self.busca_no.setMaximumWidth(200); self.busca_no.setClearButtonEnabled(True)
-        self.busca_no.setToolTip("Filtra as linhas já carregadas por qualquer campo (nº, cliente, usina, "
-                                 "ativo, descrição, status, etiqueta).  [Ctrl+F]")
+        self.busca_no.setToolTip("Busca no SERVIDOR por nº e descrição (pega OS ainda não "
+                                 "carregadas) e filtra o carregado por qualquer campo.  [Ctrl+F]")
         # debounce: filtra ~260ms DEPOIS de parar de digitar (senão reconstrói a tabela a cada tecla = trava)
         self._busca_timer = QTimer(self); self._busca_timer.setSingleShot(True); self._busca_timer.setInterval(260)
         self._busca_timer.timeout.connect(self._aplica)
-        self.busca_no.textChanged.connect(lambda *_: self._busca_timer.start())
+        self.busca_no.textChanged.connect(self._on_busca_change)
         row.addWidget(self.busca_no)
         self.b_export = QPushButton("Exportar"); self.b_export.setObjectName("secondary")
         self.b_export.setToolTip("Exporta as OS exibidas p/ CSV (abre no Excel).  [Ctrl+E]")
@@ -183,31 +207,15 @@ class HistoricoOS(QWidget):
 
         # tabela
         self.tab = QTableWidget(0, 10)
-        self.tab.setHorizontalHeaderLabels(
-            ["Nº", "Cliente", "Usina", "Ativo", "Descrição", "Data de Criação", "Data do Evento",
-             "Data Fim", "Status", "Etiqueta"])
         self.tab.verticalHeader().setVisible(False)
         self.tab.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.tab.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.tab.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.tab.setWordWrap(False)
-        h = self.tab.horizontalHeader()
-        h.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)  # Nº
-        h.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)       # Cliente
-        h.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)       # Usina
-        h.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)       # Ativo
-        h.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)           # Descrição
-        h.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)  # Data de Criação
-        h.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)  # Data do Evento
-        h.setSectionResizeMode(7, QHeaderView.ResizeMode.ResizeToContents)  # Data Fim
-        h.setSectionResizeMode(8, QHeaderView.ResizeMode.Fixed)             # Status (cellWidget → largura fixa)
-        h.setSectionResizeMode(9, QHeaderView.ResizeMode.Interactive)       # Etiqueta
-        self.tab.setColumnWidth(1, 90)
-        self.tab.setColumnWidth(2, 130)
-        self.tab.setColumnWidth(3, 150)
-        self.tab.setColumnWidth(8, 150)
-        self.tab.setColumnWidth(9, 150)
+        self._montar_colunas()
         self.tab.cellClicked.connect(self._abrir_detalhe)   # clique no nº → detalhe da OS
+        # chegou perto do fim → pede a próxima página (o coração da rolagem infinita)
+        self.tab.verticalScrollBar().valueChanged.connect(self._rolagem)
         lay.addWidget(self.tab, 1)
 
         hrow = QHBoxLayout(); hrow.setSpacing(8)
@@ -217,15 +225,74 @@ class HistoricoOS(QWidget):
         hrow.addWidget(self.hint); hrow.addStretch(1)
         lay.addLayout(hrow)
         # auto-atualização a cada 15 min (só recarrega com a aba visível e sem carga em andamento)
-        self._auto = QTimer(self); self._auto.setInterval(15 * 60 * 1000)
+        self._carregado_em = 0.0        # quando a última lista chegou (epoch)
+        self._auto = QTimer(self); self._auto.setInterval(INTERVALO_MIN * 60 * 1000)
         self._auto.timeout.connect(self._auto_refresh)
         self._auto.start()
         self._refresh_botoes()
 
+    # Colunas que a LISTAGEM não sabe preencher — chegam no `meta_tarefas_por_os` (nível tarefa)
+    # e são repintadas pelo `_meta_ok`. Manter esta lista alinhada com o dict que a api devolve.
+    _PATCH_META = frozenset({"event_date", "data_fim", "tipo_tarefa", "inicio", "gatilho"})
+
+    # ── colunas: cada visão tem o seu conjunto ──
+    # (rótulo, chave do dado, modo de largura). "status" e "etiqueta" são especiais (widget/join).
+    COLS_PADRAO = [
+        ("Nº", "folio", "conteudo"), ("Cliente", "cliente", 90), ("Usina", "usina", 130),
+        ("Ativo", "ativo", 150), ("Descrição", "descricao", "estica"),
+        ("Data de Criação", "data", "conteudo"), ("Data do Evento", "event_date", "conteudo"),
+        ("Data Fim", "data_fim", "conteudo"), ("Status", "status", 150),
+        ("Etiqueta", "etiqueta", 150),
+    ]
+    # Espelha a visão do Power BI, na mesma ordem que o Levi mandou no print.
+    COLS_COS = [
+        ("Data da programação", "programada", "conteudo"),
+        ("Tipo de tarefa", "tipo_tarefa", "conteudo"),
+        ("Usina", "usina", 130), ("Cliente", "cliente", 90),
+        ("Descrição", "descricao", "estica"),
+        ("Equipe", "equipe", 130),
+        ("Data Início da OS", "inicio", "conteudo"),
+        ("Data Fim da OS", "data_fim", "conteudo"),
+        ("Descrição gatilho", "gatilho", 130),
+        ("Descrição EQP", "ativo", 150),
+        ("Nº Da OS", "folio", "conteudo"),
+        ("Criado por", "criado_por", 130),
+    ]
+    _DATAS = {"data", "event_date", "data_fim", "programada", "inicio"}
+
+    def _cols(self):
+        return self.COLS_COS if self._modo == "cos" else self.COLS_PADRAO
+
+    def _montar_colunas(self):
+        cols = self._cols()
+        self.tab.setRowCount(0)
+        self.tab.setColumnCount(len(cols))
+        self.tab.setHorizontalHeaderLabels([c[0] for c in cols])
+        h = self.tab.horizontalHeader()
+        for i, (_rot, _chave, larg) in enumerate(cols):
+            if larg == "estica":
+                h.setSectionResizeMode(i, QHeaderView.ResizeMode.Stretch)
+            elif larg == "conteudo":
+                h.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+            else:
+                h.setSectionResizeMode(i, QHeaderView.ResizeMode.Interactive)
+                self.tab.setColumnWidth(i, int(larg))
+        # o Nº é sempre a coluna clicável que abre o detalhe — onde quer que ele esteja
+        self._col_folio = next((i for i, c in enumerate(cols) if c[1] == "folio"), 0)
+
     def carregar_inicial(self):
-        """Toda vez que a aba abre → recarrega (a menos que já haja uma carga em andamento)."""
-        if self._w is None and self._wp is None and self._wl is None:
-            self._iniciar()
+        """Abriu a aba: só recarrega se os dados estiverem VELHOS (mais de INTERVALO_MIN).
+
+        Antes recarregava toda vez que a aba ganhava foco — e como sair do Histórico para criar
+        uma OS e voltar é o movimento mais comum do app, a pessoa pagava a espera da busca a
+        cada ida e volta, sem que nada tivesse mudado. O relógio de 10 min já cobre o frescor;
+        para forçar antes disso existe o botão de atualizar.
+        """
+        if self._w is not None or self._wp is not None or self._wl is not None:
+            return                                   # já tem carga em andamento
+        if self._dados and (time.time() - self._carregado_em) < INTERVALO_MIN * 60:
+            return                                   # ainda fresco: mantém o que está na tela
+        self._iniciar()
 
     def _auto_refresh(self):
         if self.isVisible() and self._w is None and self._wp is None and self._wl is None:
@@ -243,7 +310,7 @@ class HistoricoOS(QWidget):
         # 1ª vez: etiquetas → pessoas (no Histórico Geral) → lista de OS
         if not self._labels_loaded and self._wl is None:
             self._carregar_labels()
-        elif self._modo == "criadas" and not self._pessoas_loaded and self._wp is None:
+        elif self._modo != "atribuidas" and not self._pessoas_loaded and self._wp is None:
             self._carregar_pessoas()
         else:
             self._carregar()
@@ -252,17 +319,30 @@ class HistoricoOS(QWidget):
     def _set_modo(self, modo):
         if modo == self._modo and self._dados:
             return
+        if self._modo == "cos" and modo != "cos":
+            # a marcação de tipo foi a visão COS que pôs — levá-la para o Histórico Geral esconderia
+            # OS ali sem que ninguém tivesse pedido esse filtro
+            self.cb_tarefa.clear_checks()
         self._modo = modo
         self._refresh_botoes()
-        self.pessoa_w.setVisible(modo == "criadas")
+        self._montar_colunas()
+        if modo == "cos":
+            # a visão nasce com os tipos do COS marcados (Preventiva de fora) e com TODOS os
+            # criadores: é visão de equipe, não pessoal.
+            self.cb_tarefa.set_items(sorted(set(api.TIPOS_COS)))
+            self.cb_tarefa.set_checked(api.TIPOS_COS)
+            if self.cb_pessoa.count():
+                self.cb_pessoa.blockSignals(True)
+                self.cb_pessoa.setCurrentIndex(0)          # "Todos os usuários"
+                self.cb_pessoa.blockSignals(False)
         self._iniciar()
 
     def _refresh_botoes(self):
-        self.b_criadas.setObjectName("" if self._modo == "criadas" else "secondary")
-        self.b_atrib.setObjectName("secondary" if self._modo == "criadas" else "")
-        for b in (self.b_criadas, self.b_atrib):
+        for b, chave in ((self.b_criadas, "criadas"), (self.b_atrib, "atribuidas"),
+                         (self.b_cos, "cos")):
+            b.setObjectName("" if self._modo == chave else "secondary")
             b.style().unpolish(b); b.style().polish(b)
-        self.pessoa_w.setVisible(self._modo == "criadas")
+        self.pessoa_w.setVisible(self._modo != "atribuidas")
 
     # ── etiquetas (filtro; uma OS pode ter várias) ──
     def _carregar_labels(self):
@@ -308,42 +388,222 @@ class HistoricoOS(QWidget):
             self.cb_pessoa.addItem(p["nome"], p["id_account"])
             if p["id_account"] == eu:
                 sel = i
-        self.cb_pessoa.setCurrentIndex(sel)        # default = usuário logado
+        # a visão COS é de EQUIPE: se ela já estiver aberta quando a lista de pessoas chegar
+        # (ela carrega assíncrona), o default "usuário logado" a transformaria numa visão pessoal
+        self.cb_pessoa.setCurrentIndex(0 if self._modo == "cos" else sel)
         self.cb_pessoa.blockSignals(False)
         self._carregar()
 
     def _on_pessoa(self, _idx):
-        if self._modo == "criadas":
+        if self._modo != "atribuidas":
             self._carregar()
 
-    # ── dados ──
-    def _carregar(self):
-        self._dt_timer.stop()                       # cancela re-busca pendente (já vamos buscar)
-        self.spinner.start()
-        self.hint.setText("carregando OS…")
-        self.tab.setRowCount(0)
+    # ── dados (paginados — a rolagem pede o resto) ──
+    PAGINA = 60          # ~0,7 s por página no servidor (medido 28/07)
+
+    def _args_servidor(self):
+        """Filtros que valem NO SERVIDOR — a assinatura do `list_minhas_os_pagina`, na ordem."""
         id_label = self.cb_etiqueta.currentData() if self.cb_etiqueta.count() else None
         de = self.d_de.date().toString("yyyy-MM-dd")
         ate = self.d_ate.date().toString("yyyy-MM-dd")
-        _n2i = {v: k for k, v in api.WO_STATUS.items()}      # status é server-side (re-busca por status)
+        _n2i = {v: k for k, v in api.WO_STATUS.items()}
         status_ids = [_n2i[n] for n in self.cb_status.checked_values() if n in _n2i] or None
-        if self._modo == "criadas":
-            idacc = self.cb_pessoa.currentData() if self.cb_pessoa.count() else None
-            self._w = ApiWorker(api.list_minhas_os, "criadas", idacc, id_label, de, ate, status_ids)
-        else:
-            self._w = ApiWorker(api.list_minhas_os, "atribuidas", None, id_label, de, ate, status_ids)
-        self._w.ok.connect(self._set_dados)
+        idacc = ((self.cb_pessoa.currentData() if self.cb_pessoa.count() else None)
+                 if self._modo != "atribuidas" else None)
+        # a visão COS busca como "criadas" (é visão de equipe); o que a distingue é o conjunto
+        # de colunas e o filtro de tipo, não a consulta.
+        modo_srv = "atribuidas" if self._modo == "atribuidas" else "criadas"
+        return (modo_srv, idacc, id_label, de, ate, status_ids,
+                self.busca_no.text().strip())
+
+    def _carregar(self):
+        """Recomeça da página 1 (filtro server-side mudou, F5, auto-refresh…)."""
+        self._dt_timer.stop()                       # cancela re-busca pendente (já vamos buscar)
+        self._cadeia = 0
+        self._varrido = None                        # período/usuário mudou → pode varrer de novo
+        self._disparar_pagina(1)
+
+    def _buscar_mais(self):
+        if self._tem_mais and self._w is None:
+            self._disparar_pagina(self._pagina + 1)
+
+    def _disparar_pagina(self, p):
+        if self._w is not None:
+            return
+        self.spinner.start()
+        if p == 1:
+            self.hint.setText("carregando OS…")
+            self.tab.setRowCount(0)
+        self._pag_alvo = p
+        self._w = ApiWorker(api.list_minhas_os_pagina, *self._args_servidor(), p, self.PAGINA)
+        self._w.ok.connect(self._chegou_pagina)
         self._w.erro.connect(self._erro)
         self._w.start()
 
     @slot_seguro
-    def _set_dados(self, dados):
+    def _chegou_pagina(self, res):
         self._w = None
         self.spinner.stop()
-        self._dados = dados or []
+        res = res or {}
+        if self._pag_alvo == 1:
+            self._dados = []
+        # dedup por id: OS criada entre uma página e outra desloca a janela e repetiria linha
+        vistos = {d.get("id") for d in self._dados}
+        self._dados.extend(d for d in (res.get("linhas") or []) if d.get("id") not in vistos)
+        self._pagina = self._pag_alvo
+        self._tem_mais = bool(res.get("tem_mais"))
+        self._total_srv = int(res.get("total") or 0)
+        self._carregado_em = time.time()      # marca o frescor (ver carregar_inicial)
         self._rebuild_status()
         self._rebuild_filtros_ativo()
         self._aplica()
+        # enriquecimento DEPOIS de mostrar: tipo de tarefa + datas da tarefa custam 3,5 s por
+        # página (medido) contra 0,7 s da lista — esperar por eles quintuplicava a primeira tela.
+        self._patch_meta([d.get("id") for d in (res.get("linhas") or [])])
+
+    def _patch_meta(self, ids):
+        ids = [i for i in (ids or []) if i]
+        if not ids:
+            return
+        w = ApiWorker(api.meta_tarefas_por_os, ids)
+        w.ok.connect(self._meta_ok)
+        w.erro.connect(lambda *_: None)         # best-effort: sem meta a linha fica com o fallback
+        w.start()                               # o _ALIVE do workers.py segura a referência
+
+    @slot_seguro
+    def _meta_ok(self, meta):
+        meta = meta or {}
+        if not self._dados:
+            return                              # a lista foi trocada enquanto a meta viajava
+        indice = {d.get("id"): d for d in self._dados}
+        tocou = False
+        for wid, m in meta.items():
+            d = indice.get(wid)
+            if d is None:
+                continue                        # página descartada por re-busca — só ignora
+            d["tipo_tarefa"] = m.get("tipo_tarefa", d.get("tipo_tarefa", ""))
+            d["event_date"] = m.get("event_date") or d.get("event_date", "")
+            d["data_fim"] = m.get("data_fim") or d.get("data_fim", "")
+            d["note"] = m.get("note", d.get("note", ""))
+            # Início real e gatilho SÓ existem no nível tarefa (sondado em 28/07) — a listagem
+            # não os traz, então a visão COS depende deste patch para preencher as duas colunas.
+            d["inicio"] = m.get("inicio") or d.get("inicio", "")
+            d["gatilho"] = m.get("gatilho") or d.get("gatilho", "")
+            tocou = True
+        if not tocou:
+            return
+        # repinta as células de data das linhas visíveis (por id, não por posição) e realimenta
+        # o filtro de tipo de tarefa; re-filtra só se alguém já estiver filtrando por tarefa
+        por_id = {}
+        for r in range(self.tab.rowCount()):
+            it = self.tab.item(r, self._col_folio)
+            if it is not None:
+                por_id[it.data(Qt.ItemDataRole.UserRole)] = r
+        cols = self._cols()
+        self.tab.setUpdatesEnabled(False)
+        for wid, m in meta.items():
+            r = por_id.get(wid)
+            if r is None:
+                continue
+            d = indice.get(wid) or {}
+            for c, (_rot, chave, _l) in enumerate(cols):
+                if chave in self._PATCH_META and self.tab.item(r, c):
+                    val = (_data_br(d.get(chave)) if chave in self._DATAS
+                           else str(d.get(chave) or "—"))
+                    self.tab.item(r, c).setText(val)
+        self.tab.setUpdatesEnabled(True)
+        self._rebuild_tarefas()
+        if self.cb_tarefa.checked_values():
+            self._aplica()
+
+    def _rolagem(self, v):
+        """Perto do fim da barra → próxima página. Gesto do usuário zera a cadeia de auto-busca."""
+        sb = self.tab.verticalScrollBar()
+        if sb.maximum() > 0 and v >= sb.maximum() - 3 * max(1, self.tab.rowHeight(0) if self.tab.rowCount() else 24):
+            self._cadeia = 0
+            self._buscar_mais()
+
+    _FILTROS_LOCAIS = ("cb_status", "cb_cliente", "cb_usina", "cb_tipo", "cb_tarefa")
+
+    def _tem_filtro_local(self) -> bool:
+        """Algum filtro que o SERVIDOR não sabe aplicar está ligado?
+
+        Cliente, usina, tipo de ativo e tipo de tarefa são casados aqui, no dado já baixado — o RPC
+        do Fracttal ignora `like` em campo de item (medido 28/07) e não tem propriedade de usina
+        (o `id_group_task` é família de PLANO, não planta: filtrar por ele devolveu OS de 20 usinas
+        diferentes, medido 30/07)."""
+        return any(getattr(self, n).checked_values() for n in self._FILTROS_LOCAIS)
+
+    def _talvez_completar(self):
+        """Completa a busca quando o filtro é client-side.
+
+        BUG QUE ORIGINOU ISTO (Levi, 30/07): filtrando Athon · Matões 2 num mês, a tela mostrava
+        **3 OS de 15**; filtrando Matões 1 em três meses, **2 de 91**. O filtro só enxergava as 420
+        linhas já baixadas — de 1.771 no primeiro caso, de 5.523 no segundo — e o teto de 6 páginas
+        parava a busca antes.
+
+        Com filtro local ligado, varre o período INTEIRO de uma vez, em paralelo
+        (`api.listar_periodo_completo`). Encadear página a página resolveria o número mas não o
+        tempo: 5.523 OS de 60 em 60 são ~93 requisições e mais de um minuto; em paralelo, medido,
+        são **6,4 s**. Sem filtro local nada muda: enche a tela e deixa o resto para a rolagem."""
+        if self._w is not None or self._wv is not None or not self._dados:
+            return
+        if self._tem_filtro_local():
+            if self._tem_mais:
+                self._varrer_periodo()
+            return
+        if self._tem_mais and self._cadeia < 6 and self.tab.rowCount() < 40:
+            self._cadeia += 1
+            self._buscar_mais()
+
+    def _varrer_periodo(self):
+        """Lê o período inteiro em paralelo e substitui a lista carregada."""
+        args = self._args_servidor()
+        if self._varrido == args:          # já varrido com estes mesmos parâmetros
+            return
+        self._varrido = args
+        self.spinner.start()
+        self._wv = ApiWorker(api.listar_periodo_completo, *args)
+        self._wv.ok.connect(self._varredura_ok)
+        self._wv.erro.connect(self._varredura_erro)
+        self._wv.start()
+
+    @slot_seguro
+    def _varredura_erro(self, m):
+        self._wv = None
+        self._varrido = None               # deixa tentar de novo
+        self.spinner.stop()
+        self.hint.setText("⚠ não consegui ler o período inteiro: %s" % m)
+
+    @slot_seguro
+    def _varredura_ok(self, res):
+        self._wv = None
+        self.spinner.stop()
+        res = res or {}
+        linhas = res.get("linhas") or []
+        if not linhas:
+            return
+        # preserva o que a meta já enriqueceu: a varredura devolve a linha CRUA da listagem, e
+        # sobrescrever apagaria tipo de tarefa e datas de tarefa já buscados
+        antes = {d.get("id"): d for d in self._dados}
+        for d in linhas:
+            velho = antes.get(d.get("id"))
+            if velho:
+                for k in ("tipo_tarefa", "event_date", "data_fim", "note", "inicio", "gatilho"):
+                    if velho.get(k):
+                        d[k] = velho[k]
+        self._dados = linhas
+        self._tem_mais = not res.get("completo", True)
+        self._total_srv = int(res.get("total") or 0)
+        self._pagina = max(1, -(-len(linhas) // self.PAGINA))
+        self._rebuild_status()
+        self._rebuild_filtros_ativo()
+        self._aplica()
+        self._patch_meta([d.get("id") for d in self._linhas[:400]])   # só o que casou o filtro
+
+    def _on_busca_change(self, *_):
+        self._busca_timer.start()           # filtra o carregado JÁ (feedback imediato)
+        self._dt_timer.start()              # e re-busca no servidor (nº + descrição), com debounce
 
     def _erro(self, m):
         self._w = None
@@ -354,25 +614,63 @@ class HistoricoOS(QWidget):
         """Status é SERVER-SIDE → lista fixa com todos os status possíveis (preserva marcados)."""
         self.cb_status.set_items(list(api.WO_STATUS.values()))
 
+    def _catalogo_loc(self):
+        """{cliente: {usinas}} do CATÁLOGO de ativos (offline, cacheado). Com a rolagem infinita
+        os combos não podem depender só das páginas carregadas — a usina que a pessoa quer
+        filtrar quase nunca está na primeira página.
+
+        SÓ entra o par cujo tipo é de PLANTA (api.CARTEIRA_EQUIP): o catálogo tem materiais de
+        inventário com "usina" própria ("0,3P75 - G2", "0,6/1 kV"…) e, sem o discriminador, o
+        combo listava o almoxarifado inteiro como se fosse usina (print do Levi, 28/07)."""
+        if getattr(self, "_cat_loc", None) is None:
+            m = {}
+            try:
+                for cli, usi, tipo in api._code_to_loc().values():
+                    if cli and usi and tipo in api.CARTEIRA_EQUIP:
+                        m.setdefault(cli, set()).add(usi)
+            except Exception:
+                m = {}
+            self._cat_loc = m
+        return self._cat_loc
+
     def _rebuild_filtros_ativo(self):
-        """Repovoa Cliente/Tipo de ativo/Tipo de tarefa (multi; preserva marcados). Usina cascateia."""
-        clientes = sorted({d.get("cliente") for d in self._dados
-                           if d.get("cliente") and d.get("cliente") != "—"})
+        """Repovoa Cliente/Tipo de ativo/Tipo de tarefa (multi; preserva marcados). Usina cascateia.
+        Cliente/Usina = catálogo ∪ carregado; Tipos = só do carregado (não há lista universal)."""
+        cat = self._catalogo_loc()
+        clientes = sorted(set(cat)
+                          | {d.get("cliente") for d in self._dados
+                             if d.get("cliente") and d.get("cliente") != "—"})
         tipos = sorted({d.get("tipo") for d in self._dados
                         if d.get("tipo") and d.get("tipo") != "—"})
-        tarefas = sorted({tt for d in self._dados                 # OS pode ter + de 1 tipo (join " / ")
-                          for tt in (d.get("tipo_tarefa") or "").split(" / ") if tt})
         self.cb_cliente.set_items(clientes)
         self.cb_tipo.set_items(tipos)
-        self.cb_tarefa.set_items(tarefas)
+        self._rebuild_tarefas()
         self._rebuild_usinas()                        # usinas dependem dos clientes marcados
+
+    def _rebuild_tarefas(self):
+        """Repovoa o filtro de Tipo de tarefa preservando o que está marcado.
+
+        Dois cuidados que custaram um bug: (1) o tipo de tarefa só chega no `meta_tarefas_por_os`,
+        então na hora em que a PÁGINA chega a lista é vazia — repovoar com vazio zerava a marcação
+        (era o que apagava a pré-seleção da visão COS); (2) na visão COS os tipos de `TIPOS_COS`
+        entram na lista mesmo sem aparecer na página carregada, senão `set_items` os descarta por
+        "não existirem" e o filtro passa a esconder as OS desses tipos nas páginas seguintes."""
+        tarefas = {tt for d in self._dados                        # OS pode ter + de 1 tipo (join " / ")
+                   for tt in (d.get("tipo_tarefa") or "").split(" / ") if tt}
+        if self._modo == "cos":
+            tarefas |= set(api.TIPOS_COS)
+        if tarefas:
+            self.cb_tarefa.set_items(sorted(tarefas))
 
     def _rebuild_usinas(self):
         """Usinas dos clientes marcados (ou todas, se nenhum). Multi; preserva marcadas."""
         clis = self.cb_cliente.checked_values()
-        usinas = sorted({d.get("usina") for d in self._dados
-                         if d.get("usina") and d.get("usina") != "—"
-                         and (not clis or d.get("cliente") in clis)})
+        cat = self._catalogo_loc()
+        do_cat = {u for cli, us in cat.items() if not clis or cli in clis for u in us}
+        usinas = sorted(do_cat
+                        | {d.get("usina") for d in self._dados
+                           if d.get("usina") and d.get("usina") != "—"
+                           and (not clis or d.get("cliente") in clis)})
         self.cb_usina.set_items(usinas)
 
     def _on_cliente(self, _idx=0):
@@ -382,7 +680,7 @@ class HistoricoOS(QWidget):
     def _on_usina(self, *_):
         # ao filtrar por usina, mostra OS de TODOS os criadores (não só o logado) — troca "Criado por"
         # p/ "Todos os usuários", o que dispara a re-busca (que por sua vez chama _aplica).
-        if (self._modo == "criadas" and self.cb_usina.checked_values()
+        if (self._modo != "atribuidas" and self.cb_usina.checked_values()
                 and self.cb_pessoa.count() and self.cb_pessoa.currentData() != "TODOS"):
             self.cb_pessoa.setCurrentIndex(0)     # "Todos os usuários" (item 0) → _on_pessoa → _carregar
         else:
@@ -450,60 +748,88 @@ class HistoricoOS(QWidget):
         self._linhas = linhas                # guarda TODAS as casadas p/ exportar (não só as exibidas)
         self.tab.setRowCount(0)
         self.tab.setUpdatesEnabled(False)    # 1 repaint só no fim (não a cada linha) → menos travamento
+        cols = self._cols()
         for d in linhas[:MAX_LINHAS]:        # teto de render — 2000 cellWidgets travam a UI (~15s)
             r = self.tab.rowCount(); self.tab.insertRow(r)
-            it_no = QTableWidgetItem(str(d.get("folio") or "—"))
-            it_no.setData(Qt.ItemDataRole.UserRole, d.get("id"))   # id_work_order p/ o detalhe
-            it_no.setForeground(QBrush(QColor("#98c838")))   # verde-grid, sem sublinhado
-            f = it_no.font(); f.setBold(True); it_no.setFont(f)
-            it_no.setToolTip("Clique para ver Data do Evento, Notas e Subtarefas")
-            self.tab.setItem(r, 0, it_no)
-            self.tab.setItem(r, 1, QTableWidgetItem(d.get("cliente") or "—"))
-            self.tab.setItem(r, 2, QTableWidgetItem(d.get("usina") or "—"))
-            self.tab.setItem(r, 3, QTableWidgetItem(d.get("ativo") or ""))
-            self.tab.setItem(r, 4, QTableWidgetItem(d.get("descricao") or "—"))
-            self.tab.setItem(r, 5, QTableWidgetItem(_data_br(d.get("data"))))          # Data de Criação
-            self.tab.setItem(r, 6, QTableWidgetItem(_data_br(d.get("event_date"))))    # Data do Evento
-            self.tab.setItem(r, 7, QTableWidgetItem(_data_br(d.get("data_fim"))))      # Data Fim
-            self.tab.setCellWidget(r, 8, _status_widget(d.get("status")))             # Status (card centralizado)
-            etq = ", ".join(e.get("nome") or "" for e in (d.get("etiquetas") or []) if e.get("nome"))
-            it_etq = QTableWidgetItem(etq)
-            it_etq.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            if etq:
-                it_etq.setToolTip(etq)
-            self.tab.setItem(r, 9, it_etq)
+            for c, (_rot, chave, _larg) in enumerate(cols):
+                if chave == "status":        # card colorido (cellWidget), não texto
+                    self.tab.setCellWidget(r, c, _status_widget(d.get("status")))
+                    continue
+                if chave == "etiqueta":
+                    txt = ", ".join(e.get("nome") or "" for e in (d.get("etiquetas") or [])
+                                    if e.get("nome"))
+                    it = QTableWidgetItem(txt)
+                    it.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                    if txt:
+                        it.setToolTip(txt)
+                elif chave in self._DATAS:
+                    it = QTableWidgetItem(_data_br(d.get(chave)))
+                elif chave == "folio":
+                    it = QTableWidgetItem(str(d.get("folio") or "—"))
+                    it.setData(Qt.ItemDataRole.UserRole, d.get("id"))   # id_work_order p/ o detalhe
+                    it.setForeground(QBrush(QColor("#98c838")))         # verde-grid, sem sublinhado
+                    f = it.font(); f.setBold(True); it.setFont(f)
+                    it.setToolTip("Clique para ver Data do Evento, Notas e Subtarefas")
+                else:
+                    txt = str(d.get(chave) or "—")
+                    it = QTableWidgetItem(txt)
+                    if len(txt) > 18:      # a visão COS tem 12 colunas: Descrição e Ativo cortam
+                        it.setToolTip(txt)
+                self.tab.setItem(r, c, it)
         self.tab.setUpdatesEnabled(True)
         n = len(linhas)
+        partes = [f"{min(n, MAX_LINHAS)} OS exibidas"]
+        if len(self._dados) != n:
+            partes.append(f"{len(self._dados)} carregadas")
+        if self._tem_mais:
+            # com filtro local ligado, "3 OS exibidas" sobre lista parcial é uma MENTIRA silenciosa
+            # (o caso Matões 2: 3 de 15). Enquanto a varredura do período não termina, o rodapé
+            # avisa que a conta ainda não fechou.
+            if self._tem_filtro_local():
+                partes.append(f"⚠ filtro sobre lista parcial — lendo o período "
+                              f"({len(self._dados)} de {self._total_srv})…")
+            else:
+                partes.append(f"{self._total_srv} no período — role até o fim para carregar mais")
+        elif self._total_srv:
+            partes.append("tudo carregado" if not self._tem_filtro_local()
+                          else f"período inteiro lido · {self._total_srv} OS")
         if n > MAX_LINHAS:
-            extra = (f"  ·  ⚠ exibindo {MAX_LINHAS} de {n} — estreite o filtro/criador "
-                     "(a exportação inclui todas)")
-        elif len(self._dados) >= api.HISTORICO_CAP:
-            extra = f"  ·  ⚠ teto de {api.HISTORICO_CAP} atingido — estreite o período/criador"
-        elif n != len(self._dados):
-            extra = f"  ·  {len(self._dados)} no período"
-        else:
-            extra = ""
-        self.hint.setText(f"{min(n, MAX_LINHAS)} OS exibidas{extra}")
+            partes.append(f"⚠ exibindo {MAX_LINHAS} (a exportação inclui todas)")
+        self.hint.setText("  ·  ".join(partes))
+        self._talvez_completar()          # filtro magro + servidor com mais → busca sozinho
 
     def _abrir_detalhe(self, row, col):
-        """Clique no nº da OS (col 0) → dialog com Data do Evento, Notas e Subtarefas."""
-        if col != 0:
+        """Clique no nº da OS → dialog com Data do Evento, Notas e Subtarefas. A coluna do Nº
+        muda de posição entre as visões, por isso `_col_folio` em vez de zero fixo."""
+        if col != self._col_folio:
             return
-        it = self.tab.item(row, 0)
+        it = self.tab.item(row, self._col_folio)
         wid = it.data(Qt.ItemDataRole.UserRole) if it else None
         if wid:
             abrir_os_detalhe(self, wid, it.text())
 
     def _exportar(self):
-        """Exporta as OS exibidas (já filtradas) p/ CSV."""
-        headers = ["Nº", "Cliente", "Usina", "Ativo", "Descrição", "Data de Criação", "Data do Evento",
-                   "Data Fim", "Status", "Tipo de tarefa", "Etiquetas"]
-        rows = [[d.get("folio") or "", d.get("cliente") or "", d.get("usina") or "",
-                 d.get("ativo") or "", d.get("descricao") or "", _data_br(d.get("data")),
-                 _data_br(d.get("event_date")), _data_br(d.get("data_fim")), d.get("status") or "",
-                 d.get("tipo_tarefa") or "",
-                 ", ".join(e.get("nome") or "" for e in (d.get("etiquetas") or []) if e.get("nome"))]
-                for d in self._linhas]
+        """Exporta as OS exibidas (já filtradas) p/ CSV, com as COLUNAS DA VISÃO ATUAL.
+
+        Seguir a visão importa na COS: ela existe para substituir uma tela do Power BI, e sair para
+        o Excel é justamente o que se faz com ela — exportar as colunas do Histórico Geral entregaria
+        um arquivo sem programação, início, equipe nem gatilho."""
+        def _val(d, chave):
+            if chave == "etiqueta":
+                return ", ".join(e.get("nome") or "" for e in (d.get("etiquetas") or []) if e.get("nome"))
+            if chave in self._DATAS:
+                v = _data_br(d.get(chave))
+                return "" if v == "—" else v     # célula VAZIA no Excel; "—" viraria texto numa coluna de data
+            return d.get(chave) or ""
+
+        cols = list(self._cols())
+        # o tipo de tarefa e as etiquetas não são colunas do Histórico Geral, mas todo mundo espera
+        # achá-las na planilha — entram no fim quando a visão não as mostra
+        for rot, chave in (("Tipo de tarefa", "tipo_tarefa"), ("Etiquetas", "etiqueta")):
+            if not any(c[1] == chave for c in cols):
+                cols.append((rot, chave, 0))
+        headers = [c[0] for c in cols]
+        rows = [[_val(d, chave) for _rot, chave, _l in cols] for d in self._linhas]
         de = self.d_de.date().toString("yyyy-MM-dd"); ate = self.d_ate.date().toString("yyyy-MM-dd")
         exportar_csv(self, headers, rows, sugestao=f"historico_os_{de}_a_{ate}.csv",
                      titulo="Exportar histórico de OS")

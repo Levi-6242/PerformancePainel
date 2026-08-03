@@ -187,7 +187,11 @@ async function salvar(fonte){
     const j = await r.json();
     if(j.ok){
       msg.className = "msg bom";
-      msg.textContent = "pronto — vence em " + j.dias + " dias (" + j.exp + ")";
+      // O token vale NA HORA, mas o dado da tela vem do cache que o worker publica: o que foi
+      // montado com o token vencido segue no ar até o próximo ciclo. Sem dizer isso, o Levi
+      // colou a chave, viu a tela vazia e concluiu que não tinha entrado (29/07).
+      msg.innerHTML = "pronto — vence em " + j.dias + " dias (" + j.exp + ")" +
+        '<br><span style="color:var(--txt3)">os dados desta fonte voltam no próximo ciclo do worker (~5–8 min)</span>';
       ta.value = "";
       setTimeout(carregar, 700);
     }else{

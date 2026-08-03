@@ -1,4 +1,4 @@
-import os
+﻿import os
 import re
 import unicodedata
 import calendar
@@ -953,9 +953,17 @@ def load_equipamentos():
                     for _al in (row[c_us], row[c_usd]):
                         if pd.notna(_al) and str(_al).strip():
                             power_ufv[_nrm(_al)] = _pu
-            if pd.isna(row[c_us]):
+            # "Usina Supervisório" VAZIA não pode descartar a linha — o nome da usina já identifica.
+            # Tucano 1/2 têm potência (334,63 kWp) e 20 strings por inversor na planilha, mas caíam
+            # fora do cadastro inteiro por causa desta coluna em branco; sem potência, o PR por
+            # inversor sai nulo e a UFV some do gráfico de PR (Levi, 30/07: "só ter o nome da usina
+            # e os dados coletados já é para aparecer"). A chave supervisório continua preferida —
+            # é ela que casa com o nome que cada API devolve —, o display entra só como reserva.
+            _sup = str(row[c_us]).strip() if pd.notna(row[c_us]) else ""
+            _dsp = str(row[c_usd]).strip() if pd.notna(row[c_usd]) else ""
+            if not _sup and not _dsp:
                 continue
-            us = str(row[c_us]).strip()
+            us = _sup or _dsp
             # Nome de exibição da usina (dedup de nomes ambíguos é feito depois)
             if pd.notna(row[c_usd]):
                 ud = str(row[c_usd]).strip()
@@ -995,11 +1003,18 @@ def load_equipamentos():
         # usina física — guardado ANTES da dedup abaixo (que descarta justamente os agrupados).
         usina_grupo = dict(usina_display)
         # Remove nomes de exibição AMBÍGUOS (mesmo display p/ vários supervisórios, ex.: "Altair" x5).
+        # A entrada IDÊNTICA (sup == display) não conta como concorrente: ela não traduz nada, e
+        # nasce da linha sem "Usina Supervisório" (que agora entra pelo nome da usina). Sem esta
+        # ressalva, a linha "UFV" do Tucano — sem supervisório — criava a chave "Tucano 1"→"Tucano 1"
+        # e fazia o de-para REAL ("UFV Tucano"→"Tucano 1") parecer duplicado; o Levi preenchia a
+        # planilha certo e a usina continuava aparecendo com o nome cru da API (31/07).
         _disp_count = {}
-        for _d in usina_display.values():
-            _disp_count[_d] = _disp_count.get(_d, 0) + 1
-        _ambiguos = sum(1 for v in usina_display.values() if _disp_count[v] > 1)
-        usina_display = {sup: disp for sup, disp in usina_display.items() if _disp_count[disp] == 1}
+        for _s, _d in usina_display.items():
+            if _s != _d:                       # só traduções de verdade disputam o nome
+                _disp_count[_d] = _disp_count.get(_d, 0) + 1
+        _ambiguos = sum(1 for s, v in usina_display.items() if s != v and _disp_count.get(v, 0) > 1)
+        usina_display = {sup: disp for sup, disp in usina_display.items()
+                         if sup == disp or _disp_count.get(disp, 0) == 1}
         if _ambiguos:
             print(f"[AVISO] {_ambiguos} usinas com nome de exibição duplicado na planilha — "
                   f"mantido o nome supervisório/API nessas (evita ambiguidade)")
@@ -1228,8 +1243,24 @@ def load_metas():
         path = _bd_perf_path()
         rd = _bd_readable_path()
 
-        # --- Info Geral (cabeçalho na 1ª linha) ---
-        dg = pd.read_excel(rd, sheet_name="Info Geral", header=0)
+        # --- Info Geral: ACHA a linha do cabeçalho, não assume a 1ª ---
+        # Em 30/07 alguém inseriu linha acima do cabeçalho e a aba passou a ser lida com as 22
+        # colunas como "Unnamed: N": o INFO_GERAL zerou (0 usinas) e levou junto o seletor Cliente
+        # do gráfico de PR, a potência/nº de inversores e o P50 de fallback — tudo em silêncio,
+        # porque o log ainda dizia "[OK]". Procurar a linha que TEM "Usina" custa uma leitura de
+        # 8 linhas e torna a planilha à prova de inserção de linha no topo.
+        dg = None
+        for _h in range(8):
+            _try = pd.read_excel(rd, sheet_name="Info Geral", header=_h)
+            _cols = [str(c).strip() for c in _try.columns]
+            if _col(_cols, "usina") and _col(_cols, "cliente"):
+                dg = _try
+                if _h:
+                    print(f"[metas] Info Geral: cabeçalho na linha {_h + 1} (não na 1ª) — ajustado")
+                break
+        if dg is None:
+            raise ValueError("aba 'Info Geral' sem cabeçalho reconhecível (nem 'Usina' nem 'Cliente' "
+                             "nas 8 primeiras linhas) — confira se inseriram/removeram linhas no topo")
         dg.columns = [str(c).strip() for c in dg.columns]
         gc_us  = _col(dg.columns, "usina")
         gc_kwp = _col(dg.columns, "potencia", "kwp")
@@ -1295,6 +1326,10 @@ def load_metas():
             _metas_mtime = os.path.getmtime(path)
         except OSError:
             _metas_mtime = 0.0
+        # "[OK] ... 0 usinas" era a pior parte: lia-se como sucesso. Cadastro vazio é FALHA.
+        if not info:
+            print("[FALHA] BD_Performance/Info Geral: 0 usinas no cadastro — cliente, potência, "
+                  "nº de inversores e P50 de fallback ficam INDISPONÍVEIS. Confira a aba.")
         print(f"[OK] BD_Performance/Info Geral+Mensal: {len(info)} usinas | "
               f"{sum(len(v) for v in prev.values())} linhas mensais de meta")
     except Exception as e:
@@ -1498,6 +1533,67 @@ def get_token(force=False) -> str:
 _plants_cache = {"ts": 0.0, "data": None}   # lista de usinas (id/nome) — muda raramente
 _plants_lock  = threading.Lock()
 
+# ── 2ª conta da API PV: OEM (SEMP) ───────────────────────────────────────────
+# A conta principal NÃO enxerga a UFV Tucano; a conta oem@ enxerga (e mais 145 iguais).
+# Não dá p/ simplesmente trocar a credencial: medido em 31/07, a conta OEM recebe
+# {"message":"Invalid permission"} no /plant_devices — de onde saem os NOMES dos inversores e a
+# lista de quem existe quando a usina não teve leitura no dia. Trocar tudo por ela apagaria o
+# nome de inversor das 145 usinas atuais. Então as duas convivem: cada usina é buscada com o
+# token da conta que a enxerga. Se a Solan liberar plant_devices p/ a OEM, dá p/ unificar.
+PV_OEM_USERNAME = os.environ.get("PV_OEM_USERNAME", "")
+PV_OEM_PASSWORD = os.environ.get("PV_OEM_PASSWORD", "")
+PV_OEM_PLANTS   = {18758732}          # UFV Tucano (SEMP). Tupi Paulista fica FORA: já vem da 2C.
+_pv_oem_token   = {"token": None, "exp": 0.0}
+_pv_oem_lock    = threading.Lock()
+
+
+def get_token_oem(force=False) -> str:
+    """Token da conta OEM — mesmo login programático da principal, outra credencial."""
+    if not (PV_OEM_USERNAME and PV_OEM_PASSWORD):
+        return ""
+    now = time.time()
+    if not force and _pv_oem_token["token"] and now < _pv_oem_token["exp"]:
+        return _pv_oem_token["token"]
+    with _pv_oem_lock:
+        if not force and _pv_oem_token["token"] and time.time() < _pv_oem_token["exp"]:
+            return _pv_oem_token["token"]
+        try:
+            r = _http().post(f"{BASE_URL}/authenticate",
+                              json={"username": PV_OEM_USERNAME, "password": PV_OEM_PASSWORD},
+                              timeout=30)
+            tok = r.json()["token"]
+        except Exception as e:
+            if _pv_oem_token["token"]:
+                return _pv_oem_token["token"]
+            print(f"[API PV/OEM] authenticate falhou: {e}")
+            return ""
+        exp = time.time() + 2700
+        try:
+            import base64
+            pl = tok.split(".")[1]; pl += "=" * (-len(pl) % 4)
+            jexp = json.loads(base64.urlsafe_b64decode(pl)).get("exp")
+            if jexp:
+                exp = float(jexp) - 60
+        except Exception:
+            pass
+        _pv_oem_token.update({"token": tok, "exp": exp})
+        return tok
+
+
+def _pv_is_oem(plant_id) -> bool:
+    try:
+        return int(plant_id) in PV_OEM_PLANTS
+    except (TypeError, ValueError):
+        return False
+
+
+def _pv_token_for(plant_id) -> str:
+    """Token da conta que ENXERGA esta usina. É o que permite as ~25 chamadas de
+    `get_plants(get_token())` espalhadas pelo app continuarem valendo sem alteração."""
+    if _pv_is_oem(plant_id):
+        return get_token_oem() or get_token()
+    return get_token()
+
 
 def get_plants(token: str, force=False) -> list:
     """Lista de usinas da API PV, cacheada por CACHE_TTL. A relação de usinas muda
@@ -1514,6 +1610,24 @@ def get_plants(token: str, force=False) -> list:
         r = _http().get(f"{BASE_URL}/plants", headers={"x-access-token": token}, timeout=30)
         data = r.json()
         if isinstance(data, list) and data:        # só cacheia resposta válida e não vazia
+            # Junta as usinas que SÓ a conta OEM enxerga (UFV Tucano). Entram na mesma lista,
+            # com o mesmo formato, para todo o resto do app (overview, drill, curva, ronda)
+            # continuar funcionando sem saber que existe uma 2ª conta.
+            if PV_OEM_USERNAME:
+                try:
+                    _ids = {p.get("id") for p in data}
+                    _t2 = get_token_oem()
+                    if _t2:
+                        _o = _http().get(f"{BASE_URL}/plants",
+                                          headers={"x-access-token": _t2}, timeout=30).json()
+                        extra = [p for p in (_o if isinstance(_o, list) else [])
+                                 if p.get("id") in PV_OEM_PLANTS and p.get("id") not in _ids]
+                        if extra:
+                            data = data + extra
+                            print(f"[API PV/OEM] +{len(extra)} usina(s) da conta OEM: "
+                                  f"{[p.get('nome') or p.get('name') for p in extra]}")
+                except Exception as e:
+                    print(f"[API PV/OEM] não consegui juntar as usinas da conta OEM: {e}")
             _plants_cache["data"], _plants_cache["ts"] = data, time.time()
         return data
 
@@ -1720,7 +1834,7 @@ def process_plant(token: str, plant: dict, timeout: int = 45) -> dict:
             "stringbox": plant["nome"].strip() in STRING_BOX}
     try:
         records = _http().post(f"{BASE_URL}/day_inverter",
-                                headers={"x-access-token": token},
+                                headers={"x-access-token": _pv_token_for(pid)},
                                 json={"id": pid}, timeout=timeout).json()
     except Exception:
         return base
@@ -1745,11 +1859,14 @@ def severidade(r) -> int:
 
 
 # ── Busca todos ────────────────────────────────────────────────────────────────
-def fetch_all() -> list:
+def fetch_all(somente_oem: bool = False) -> list:
     token     = get_token()
     all_plants = get_plants(token)
     # Filtra apenas usinas Full O&M = Sim (se a lista estiver carregada)
     plants = [p for p in all_plants if p["nome"].strip() in FULL_OM] if FULL_OM else all_plants
+    # As contas são clientes DIFERENTES na tela: a conta OEM é a SEMP, e a Tucano não pode
+    # aparecer misturada com a Thopen. Cada fonte enxerga só as suas.
+    plants = [p for p in plants if _pv_is_oem(p["id"]) == somente_oem]
     plant_map = {p["id"]: p for p in plants}
     rows      = []
 
@@ -1794,10 +1911,12 @@ def fetch_all() -> list:
 def _pv_plant_inversores(plant_id):
     """Inversores da usina (API PV) com strings classificadas. Reusado pelo endpoint /api/plant
     e pelo motor de diagnóstico (R-10). Levanta exceção em erro de rede."""
-    token = get_token()
+    token = _pv_token_for(plant_id)
     records = _http().post(f"{BASE_URL}/day_inverter",
                             headers={"x-access-token": token},
                             json={"id": plant_id}, timeout=60).json() or []
+    if isinstance(records, dict):      # erro da API vem como dict → trata como "sem leitura"
+        records = []
 
     # Busca nome da usina (para lookup no ESPERADO_INV) — SEMPRE (mesmo sem leitura hoje)
     plant_nome_api = ""
@@ -1847,6 +1966,11 @@ def _pv_plant_inversores(plant_id):
         api_nome      = api_nome_orig.lower()
         mapa          = EQUIP_NAMES.get(plant_nome_api, {})
         display_nome  = mapa.get(api_nome_orig, api_nome_orig).lower()
+        # Sem plant_devices (conta OEM = "Invalid permission"), o nome do device é o próprio id
+        # numérico e o teste do "inv" reprovaria TODOS. Aí quem manda é o day_inverter: todo
+        # `idefinversor` com leitura É inversor — a API só reporta inversor nesse endpoint.
+        if not dev_names and dev_id in latest:
+            return True
         if "inv" not in api_nome and "inv" not in display_nome:
             return False
         for nome in (api_nome, display_nome):
@@ -1861,12 +1985,22 @@ def _pv_plant_inversores(plant_id):
 
     all_ids = sorted(
         [d for d in (dev_names.keys() if dev_names else latest.keys()) if eh_inversor(d)],
-        key=lambda x: dev_names.get(x, str(x))
+        key=(lambda x: dev_names.get(x, str(x))) if dev_names else (lambda x: (len(str(x)), str(x)))
     )
+
+    # Sem plant_devices (conta OEM), a API não entrega NOME de inversor — só o idefinversor. A
+    # única chave que sobra é a ORDEM: id crescente ↔ equipamento do cadastro em ordem. Só casa
+    # quando a QUANTIDADE bate exatamente; se divergir, não adivinha e mantém o id cru na tela —
+    # trocar inversor de nome silenciosamente seria pior que mostrar "INV-378310".
+    _pos_map = {}
+    if not dev_names:
+        _cad = sorted((EQUIP_NAMES.get(plant_nome_api) or {}).keys())
+        if _cad and len(_cad) == len(all_ids):
+            _pos_map = dict(zip(all_ids, _cad))
 
     inversores = []
     for inv_id in all_ids:
-        inv_nome_api = dev_names.get(inv_id, f"INV-{inv_id}")
+        inv_nome_api = dev_names.get(inv_id) or _pos_map.get(inv_id) or f"INV-{inv_id}"
         # Traduz para o nome da planilha (Equipamento), mantém API name como fallback
         inv_nome = EQUIP_NAMES.get(plant_nome_api, {}).get(inv_nome_api, inv_nome_api)
         rec      = latest.get(inv_id)          # None se inversor sem dados hoje
@@ -2018,9 +2152,43 @@ def _pv_plant_inversores(plant_id):
 def api_plant_detail(plant_id):
     try:
         invs = _pv_plant_inversores(plant_id)
-    except Exception:
-        return jsonify({"error": "timeout"}), 504
+    except Exception as e:
+        # Antes o rótulo era sempre "timeout", e não era: um id inexistente faz a API PV devolver
+        # 401 {"error": "Invalid id"} — um DICT. O código então iterava as CHAVES do dict e morria
+        # com AttributeError, que virava "timeout" na tela e mandava investigar rede à toa.
+        return jsonify({"error": "falha", "detalhe": f"{type(e).__name__}: {e}"}), 504
     return jsonify({"plant_id": plant_id, "inversores": invs})
+
+
+@app.route("/api/pv/grupo/<int:plant_id>")
+def api_pv_grupo(plant_id):
+    """Plantas IRMÃS da mesma usina física no API PV.
+
+    Nova Londrina é UMA usina para quem opera, mas está cadastrada como duas plantas
+    (`Nova Londrina 1 (152)` = id 22854 e `Nova Londrina 2 (153)` = id 22855). O portfólio já
+    junta as duas pelo USINA_GRUPO; o drill abria só a que foi clicada e os 10 inversores da
+    2 sumiam da tela — quem olhava via 8 inversores e concluía que a usina tinha 8.
+
+    Os nomes de inversor não colidem (`Inversor 1.x` × `Inversor 2.x`), então quem consome pode
+    concatenar sem prefixar. Vale para qualquer usina fatiada assim, não só Nova Londrina.
+    """
+    try:
+        plants = get_plants(get_token())
+    except Exception as e:
+        return jsonify({"error": f"{type(e).__name__}: {e}", "membros": []}), 502
+
+    def _grupo_de(nome):
+        n = (nome or "").strip()
+        return USINA_GRUPO.get(n) or n
+
+    atual = next((p for p in plants if p["id"] == plant_id), None)
+    if not atual:
+        return jsonify({"grupo": None, "membros": []})
+    grupo = _grupo_de(atual["nome"])
+    membros = sorted(({"id": p["id"], "nome": (p["nome"] or "").strip()}
+                      for p in plants if _grupo_de(p["nome"]) == grupo),
+                     key=lambda m: m["nome"])
+    return jsonify({"grupo": grupo, "membros": membros})
 
 
 # ── Debug: mostra chaves ESPERADO vs nomes da API ─────────────────────────────
@@ -2124,9 +2292,10 @@ _data_refreshing   = {"on": False}
 _data_refresh_lock = threading.Lock()
 
 
-def _build_data_payload():
-    """Busca TUDO e monta o payload da aba Strings (parte cara: ~71 usinas da API PV)."""
-    rows = fetch_all()
+def _build_data_payload(somente_oem: bool = False):
+    """Busca TUDO e monta o payload da aba Strings (parte cara: ~71 usinas da API PV).
+    somente_oem=True monta a fonte SEMP (conta oem@), que hoje é só a Tucano 1."""
+    rows = fetch_all(somente_oem)
     # Salva último dado conhecido para cada usina com dados reais
     for r in rows:
         if not r.get("sem_dados"):
@@ -2182,6 +2351,46 @@ def _refresh_data_cache():
         print(f"[api/data] refresh falhou: {e}")
     finally:
         _data_refreshing["on"] = False
+
+
+# ── Fonte SEMP (conta OEM da API PV) — mesmo motor do /api/data, outro recorte de usinas ──
+_semp_cache = {"payload": None, "ts": 0.0}
+
+
+def _build_semp_payload():
+    return _build_data_payload(somente_oem=True)
+
+
+@app.route("/api/semp/data")
+def api_semp_data():
+    force = flask_request.args.get("force", "0") == "1"
+    return jsonify(_swr(_semp_cache, _build_semp_payload, force))
+
+
+# A Tucano TEM estação meteorológica (day_meteo devolve POA, GHI, albedo, temp. de módulo e vento),
+# então a SEMP também tem as abas de ETM — só o recorte de usinas muda.
+_semp_etm_cache         = {"payload": None, "ts": 0.0}
+_semp_etm_analise_cache = {"payload": None, "ts": 0.0}
+
+
+def _build_semp_etm_payload():
+    return _build_etm_payload(somente_oem=True)
+
+
+def _build_semp_etm_analise_payload():
+    return _build_etm_analise_payload(somente_oem=True)
+
+
+@app.route("/api/semp/etm")
+def api_semp_etm():
+    force = flask_request.args.get("force", "0") == "1"
+    return jsonify(_swr(_semp_etm_cache, _build_semp_etm_payload, force))
+
+
+@app.route("/api/semp/etm/analise")
+def api_semp_etm_analise():
+    force = flask_request.args.get("force", "0") == "1"
+    return jsonify(_swr(_semp_etm_analise_cache, _build_semp_etm_analise_payload, force))
 
 
 @app.route("/api/data")
@@ -2293,13 +2502,15 @@ def etm_severidade(r: dict) -> int:
 
 
 # ── Visão geral ETM ────────────────────────────────────────────────────────────
-def _build_etm_payload():
+def _build_etm_payload(somente_oem: bool = False):
     token      = get_token()
     all_plants = get_plants(token)
     plants     = [p for p in all_plants if p["nome"].strip() in FULL_OM] if FULL_OM else all_plants
+    # Cada conta da API PV é uma fonte separada: o Thopen não mostra usina da SEMP e vice-versa.
+    plants     = [p for p in plants if _pv_is_oem(p["id"]) == somente_oem]
     rows       = []
     with ThreadPoolExecutor(max_workers=20) as ex:
-        futures = {ex.submit(fetch_etm_plant, token, p): p for p in plants}
+        futures = {ex.submit(fetch_etm_plant, _pv_token_for(p["id"]), p): p for p in plants}
         for f in as_completed(futures):
             rows.append(f.result())
     rows.sort(key=lambda x: (etm_severidade(x), x["usina"]))
@@ -2372,7 +2583,7 @@ def api_etm_chart():
     if date and date != datetime.now().strftime("%Y-%m-%d"):
         # day_meteo só entrega o DIA ATUAL; histórico de ETM da API PV não é confiável (custom_query lento)
         return jsonify({"labels": [], "poa": [], "ghi": [], "poari": [], "sem_historico": True})
-    token = get_token()
+    token = _pv_token_for(plant_id)   # id é global na API PV; a conta certa é quem enxerga a usina
     try:
         recs = _http().post(f"{BASE_URL}/day_meteo",
                              headers={"x-access-token": token},
@@ -2562,13 +2773,14 @@ def _agrupar_skids_etm(rows: list) -> list:
     return out
 
 
-def _build_etm_analise_payload():
+def _build_etm_analise_payload(somente_oem: bool = False):
     token      = get_token()
     all_plants = get_plants(token)
     plants     = [p for p in all_plants if p["nome"].strip() in FULL_OM] if FULL_OM else all_plants
+    plants     = [p for p in plants if _pv_is_oem(p["id"]) == somente_oem]
     rows = []
     with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(_analisa_etm_plant, token, p): p for p in plants}
+        futures = {ex.submit(_analisa_etm_plant, _pv_token_for(p["id"]), p): p for p in plants}
         for f in as_completed(futures):
             rows.append(f.result())
     rows = _agrupar_skids_etm(rows)   # junta skids da mesma UFV → 1 card por UFV (melhor skid)
@@ -2646,6 +2858,23 @@ def _sunop_headers(inst: str = "gridco") -> dict:
             "Content-Type": "application/json"}
 
 
+def _sunop_data_headers(inst: str = "gridco") -> dict:
+    """Headers do serviço de DADOS (…/data) — preferem o API TOKEN, esquema `Bearer API`.
+
+    São DOIS tipos de token no SunOp: o WEB (login, 7 dias, auto-renova, esquema `JWT …`) e o
+    de API (gerado na interface, ~6-12 meses, esquema `Bearer API …`, payload só sub/iat/exp).
+    Em 30/07/2026 ~16h o /data passou a responder 500 "Error: call support." ao token WEB — por
+    ~17h li isso como queda geral do serviço, mas o Levi provou com o curl da interface que o
+    /data atende NORMALMENTE o token de API (31/07). O /api (configuração) segue aceitando o web.
+
+    Sem API token gravado (chave `<rt_key>_api` no tokens_runtime.json), cai no header web —
+    comportamento antigo, e é o caso da Axis até gerarem o token lá."""
+    tok = _tokens_rt_get(_si(inst)["rt_key"] + "_api")
+    if tok:
+        return {"Authorization": f"Bearer API {tok}", "Content-Type": "application/json"}
+    return _sunop_headers(inst)
+
+
 # ── SunOp: carrega metadados de uma planta ────────────────────────────────────
 def _sunop_invnum(x):
     """Chave de ordenação p/ inversor — tupla de números no id. Funciona p/ gridco ('INV_1' → (1,))
@@ -2668,12 +2897,21 @@ def _sunop_inv_display(plant_name, inv_key):
 
 
 def _load_sunop_plant_meta(plant_name: str, inst: str = "gridco") -> dict:
-    H = _sunop_headers(inst)
-    try:
-        r = _http().get(f"{_si(inst)['data']}/v2/metadata", headers=H,
-                         params={"plant": plant_name, "size": 6000}, timeout=30)
-        items = r.json().get("data", [])
-    except Exception:
+    # /v2/metadata mora no serviço de DADOS. Tenta o API token e, se não vier 200, o web —
+    # em 31/07 o SunOp respondeu 200 ao Bearer API às 09:42 e 403 (HTML de WAF) às 09:53,
+    # com o web em 500: o servidor deles oscila POR ESQUEMA, então insistir num só derruba
+    # o metadata inteiro. Quem responder 200 primeiro, vale.
+    items = None
+    for H in (_sunop_data_headers(inst), _sunop_headers(inst)):
+        try:
+            r = _http().get(f"{_si(inst)['data']}/v2/metadata", headers=H,
+                             params={"plant": plant_name, "size": 6000}, timeout=30)
+            if r.status_code == 200:
+                items = r.json().get("data", [])
+                break
+        except Exception:
+            continue
+    if items is None:
         return {}
 
     inv_strings = {}   # inv_name → [pathnames de corrente I_PVx]
@@ -2833,17 +3071,31 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
     H = _sunop_headers(inst)
     data_url = _si(inst)["data"]
     all_vals = []
+    lotes_falhos = 0
     for i in range(0, len(pathnames), 500):
         batch = pathnames[i:i+500]
         try:
-            r = _http().post(f"{data_url}/v2/last_values?use_plant_timezone=true", headers=H,
+            r = _http().post(f"{data_url}/v2/last_values?use_plant_timezone=true",
+                              headers=_sunop_data_headers(inst),
                               json={"pathnames": batch}, timeout=30)
             if r.status_code == 200:
                 all_vals.extend(r.json())
+            else:
+                lotes_falhos += 1
         except Exception:
-            pass
+            lotes_falhos += 1
 
     if not all_vals:
+        return base
+
+    # LOTE FALHO = FOTO INCOMPLETA, e foto incompleta não vira número. Em 31/07 o /data do SunOp
+    # passou a devolver 403 (API token) e 500 (web); o lote das correntes morria e o das métricas
+    # de planta passava, então a usina aparecia com temperatura e energia normais e "0 de 248
+    # strings ativas" — 248 alarmes falsos, com sem_dados=false jurando que estava tudo certo.
+    # Um pathname que não voltou é DESCONHECIDO, não é zero.
+    if lotes_falhos:
+        print(f"[SUNOP:{inst}] {plant_name}: {lotes_falhos} lote(s) de last_values falharam "
+              f"— usina marcada SEM DADOS (não conta string zerada em cima de leitura que não veio)")
         return base
 
     # Indexa por pathname
@@ -2958,6 +3210,17 @@ def fetch_all_sunop(inst: str = "gridco") -> list:
 # ── SunOp: visão geral ────────────────────────────────────────────────────────
 def _build_sunop_payload(inst: str = "gridco"):
     rows = fetch_all_sunop(inst)
+    # LISTA VAZIA NÃO SUBSTITUI LISTA BOA. O /api/plants do SunOp falha em rajada (WAF/throttle) e
+    # devolve zero usinas; o _swr guardava esse vazio como payload legítimo e a fonte inteira
+    # sumia da tela até o próximo ciclo — foi o que aconteceu às 15:25 de 31/07, com o Athon
+    # zerando logo após um restart. Zero só passa se nunca houve dado; senão mantém o último bom
+    # (o cache_ts na tela denuncia a idade).
+    if not rows:
+        _ant = (_si(inst)["cache"].get("payload") or {}).get("rows")
+        if _ant:
+            print(f"[SUNOP:{inst}] /plants devolveu 0 usinas (throttle?) — mantendo as "
+                  f"{len(_ant)} anteriores")
+            return dict(_si(inst)["cache"]["payload"])
     rows_com = [r for r in rows if not r.get("sem_dados")]
     return {
         "rows":     rows,
@@ -2989,6 +3252,14 @@ def _sunop_plant_build(plant_name, inst: str = "gridco"):
     ensure_sunop_meta(inst)
     meta = _si(inst)["meta"].get(plant_name)
     if not meta:
+        # 2ª CHANCE, por usina: o ensure carrega tudo UMA vez por processo, e se algumas usinas
+        # falharem naquele instante (throttle do SunOp) o dict fica PARCIAL para sempre — foi o
+        # 31/07: o web subiu durante uma rajada, CPP100/MAB100 ficaram sem meta e o drill dos
+        # inversores respondia [] com cara de saudável enquanto a lista de usinas funcionava.
+        meta = _load_sunop_plant_meta(plant_name, inst)
+        if meta:
+            _si(inst)["meta"][plant_name] = meta
+    if not meta:
         return []
 
     pathnames = []
@@ -3000,14 +3271,23 @@ def _sunop_plant_build(plant_name, inst: str = "gridco"):
     H = _sunop_headers(inst)
     data_url = _si(inst)["data"]
     all_vals = []
+    lotes_falhos = 0
     for i in range(0, len(pathnames), 500):
         try:
-            r = _http().post(f"{data_url}/v2/last_values?use_plant_timezone=true", headers=H,
+            r = _http().post(f"{data_url}/v2/last_values?use_plant_timezone=true",
+                              headers=_sunop_data_headers(inst),
                               json={"pathnames": pathnames[i:i+500]}, timeout=30)
             if r.status_code == 200:
                 all_vals.extend(r.json())
+            else:
+                lotes_falhos += 1
         except Exception:
-            pass
+            lotes_falhos += 1
+
+    # Mesmo motivo do overview: leitura que não veio não é corrente zero. Devolvendo vazio, o
+    # _sunop_plant_get segura o último detalhe BOM em vez de pintar todas as strings de inativas.
+    if lotes_falhos:
+        return []
 
     by_path = {v["pathname"]: v for v in all_vals}
 
@@ -3090,8 +3370,10 @@ def _sunop_plant_get(plant_name, force=False, inst: str = "gridco"):
             if not _so_plant_lock.acquire(blocking=False):
                 return
             try:
-                _so_plant_cache[ckey] = {"ts": time.time(),
-                                         "inversores": _sunop_plant_build(plant_name, inst)}
+                novo = _sunop_plant_build(plant_name, inst)
+                # build vazio (throttle) NÃO apaga drill que já teve dado — regra da casa
+                if novo or not (ent.get("inversores") or []):
+                    _so_plant_cache[ckey] = {"ts": time.time(), "inversores": novo}
             except Exception as e:
                 print(f"[sunop/plant] refresh {plant_name} falhou: {e}")
             finally:
@@ -3099,7 +3381,14 @@ def _sunop_plant_get(plant_name, force=False, inst: str = "gridco"):
         threading.Thread(target=_bg, daemon=True).start()
         return ent["inversores"]
     inv = _sunop_plant_build(plant_name, inst)  # 1ª vez (ou forçado) → constrói na hora
-    _so_plant_cache[ckey] = {"ts": time.time(), "inversores": inv}
+    if not inv and ent and (ent.get("inversores") or []):
+        inv = ent["inversores"]                 # vazio não substitui o último drill bom
+        _so_plant_cache[ckey] = {"ts": time.time(), "inversores": inv}
+    else:
+        # vazio SEM histórico entra com validade curta (30 s), não os 5 min cheios: era isso
+        # que deixava o [] grudado na tela depois de uma rajada de throttle
+        _ts = time.time() - (0 if inv else CACHE_TTL - 30)
+        _so_plant_cache[ckey] = {"ts": _ts, "inversores": inv}
     return inv
 
 
@@ -3148,7 +3437,8 @@ def fetch_sunop_etm_plant(plant_name: str, inst: str = "gridco") -> list:
     by_path = {}
     if all_paths:
         try:
-            r = _http().post(f"{_si(inst)['data']}/v2/last_values?use_plant_timezone=true", headers=H,
+            r = _http().post(f"{_si(inst)['data']}/v2/last_values?use_plant_timezone=true",
+                              headers=_sunop_data_headers(inst),
                               json={"pathnames": all_paths}, timeout=15)
             if r.status_code == 200:
                 by_path = {v["pathname"]: v for v in (r.json() or [])}
@@ -3330,6 +3620,15 @@ TRK_FROTA_ACORDA_HORA  = 11 # h — hora-limite (escolha do Levi 07/07): frota q
                             #     disso, frota imóvel = madrugada/manhã normal (sem alarme).
 TRK_DESVIO_MIN   = 5.0   # ° — disparidade ATUAL acima da MEDIANA da planta (e não parado) = "desvio"
 TRK_ATRASO_DELTA = 10.0  # ° — disparidade MÁX do dia acima da MEDIANA da planta = "atraso" (amarelo)
+TRK_ONALVO_MAX   = 12.0  # ° — disparidade ATUAL abaixo disto = EM CIMA DO ALVO (posicionado certo) → NÃO é
+#                          "parado" mesmo com amplitude do dia baixa. Mata o falso-positivo do tracker que
+#                          travou de manhã e VOLTOU ao alvo (TIM100 trk 7/21 a ~1° do alvo saíram como
+#                          parado, Levi 30/07). Acima do ruído estrutural (~11°) e bem abaixo dos parados
+#                          REAIS, que estão fora do alvo por 24°+ (travados no 0 ou no batente).
+TRK_STALE_MIN    = 45.0  # min — tracker que PAROU de reportar há mais que isto enquanto a FROTA segue =
+#                          SEM COMUNICAÇÃO (offline no meio do dia): o 'atual' vira o último valor CONHECIDO
+#                          (velho), não a posição de agora. Ex.: TIM100 trk 109 parou às 08:09 no -55° e a
+#                          análise das 13:44 mostrava "parado atual -55°" — que não é a posição atual (Levi 30/07).
 #   (relativo à mediana p/ descontar o "ruído estrutural": o alvo costuma ir a ângulos mais
 #    extremos que o tracker alcança nas pontas do dia → ~11° de disparidade máx é NORMAL)
 def _amp_robusta(vals):
@@ -3811,7 +4110,7 @@ def api_sunop_trackers_plant(plant_name):
 #   inclusive datas passadas (source=Historical).
 def _sunop_analog_history(pathnames: list, start: str, end: str, inst: str = "gridco") -> dict:
     """→ {pathname: [(timestamp, value), ...]} ordenado por tempo."""
-    H = _sunop_headers(inst)
+    H = _sunop_data_headers(inst)
     data_url = _si(inst)["data"]
     params = {"fill_missing": "false", "source": "Historical",
               "start_time": start, "end_time": end, "use_plant_timezone": "true"}
@@ -5146,16 +5445,26 @@ def _trk_classifica_curso_legacy(g, jini=6 * 60, jfim=18 * 60):
 
 
 def _trk_semcom_set(g, jini=6 * 60, jfim=18 * 60):
-    """Subconjunto dos PARADOS que é COMUNICAÇÃO-MORTA (sem comunicação): >90% das leituras da janela
-    ≈ 0.00° — a MESMA assinatura do 1º ramo do _trk_classifica_curso (caso TIM100). Serve só p/ ROTULAR:
-    a ronda mostra 'sem comunicação' em vez de atual/alvo. NÃO muda status nem a contagem de parados."""
+    """PARADOS que são SEM COMUNICAÇÃO — dois casos: (1) >90% das leituras ≈ 0.00° (dead-sensor, MESMA
+    assinatura do 1º ramo do _trk_classifica_curso, caso TIM100); (2) CURVA DEFASADA — o tracker PAROU de
+    reportar há > TRK_STALE_MIN enquanto a FROTA segue (perdeu comm no meio do dia): o 'atual' vira o último
+    valor CONHECIDO, velho, então a ronda mostra 'sem comunicação' em vez de um ângulo que não é o de agora
+    (TIM100 trk 109 parou às 08:09 no -55°, Levi 30/07). Serve só p/ ROTULAR: NÃO muda status nem a contagem."""
     out = set()
+    ult = {}                                             # último minuto reportado por tracker (todos os pontos)
+    for n, pts in (g or {}).items():
+        mm = [_trk_mins(p.get("x")) for p in (pts or []) if _trk_mins(p.get("x")) is not None]
+        if mm:
+            ult[n] = max(mm)
+    frota_ult = max(ult.values()) if ult else None       # o tracker mais RECENTE da frota (≈ agora)
     for n, pts in (g or {}).items():
         ys = [p.get("y") for p in (pts or [])
               if isinstance(p.get("y"), (int, float))
               and _trk_mins(p.get("x")) is not None and jini <= _trk_mins(p.get("x")) <= jfim]
         if ys and sum(1 for v in ys if abs(v) < 0.05) / len(ys) > 0.9:
-            out.add(n)
+            out.add(n)                                   # (1) dead-sensor: 0.00 constante
+        elif frota_ult is not None and n in ult and (frota_ult - ult[n]) > TRK_STALE_MIN:
+            out.add(n)                                   # (2) curva DEFASADA: parou de reportar (offline no dia)
     return out
 
 
@@ -5304,6 +5613,21 @@ def _lst_usina(lst):
     return None
 
 
+def _trk_exonera_onalvo(lst):
+    """Rebaixa parado→normal os trackers EM CIMA DO ALVO (disparidade ATUAL ≤ TRK_ONALVO_MAX) que NÃO são
+    comm-morta. Falso-positivo da régua de AMPLITUDE p/ tracker que travou de manhã e VOLTOU ao alvo
+    (TIM100 trk 7/21, Levi 30/07): está posicionado certo AGORA, não precisa reset. Os travados de verdade
+    (fora do alvo por 24°+) e os sem comunicação seguem parado. Mutação in-place; devolve quantos rebaixou.
+    Chamado por TODAS as fontes: SunOp/PG/2C via _trk_status_from_curva; PV direto no seu refino de curva."""
+    n = 0
+    for t in lst:
+        if t.get("status") == "parado" and not t.get("sem_comunicacao"):
+            d = t.get("disparidade")
+            if d is not None and d <= TRK_ONALVO_MAX:
+                t["status"] = "normal"; n += 1
+    return n
+
+
 def _trk_status_from_curva(lst, g):
     """Aplica a régua FREEZE-BASED (`_trk_classifica_curso`, Levi 10/07) à lista de trackers de UMA usina,
     dado o grafico g = {tracker:[{x,y}]}. Sobrescreve t['status'] (parado/severo/medio/leve/normal) e devolve
@@ -5311,12 +5635,14 @@ def _trk_status_from_curva(lst, g):
     cls = _trk_classifica_curso(g or {}, usina=_lst_usina(lst))
     sc = _trk_semcom_set(g or {})                    # comm-morta (sem comunicação) — subconjunto dos parados
     _M = {"desvio_severo": "severo", "desvio_leve": "leve", "desvio_medio": "medio"}
-    par = sev = med = lev = 0
     for t in lst:
         c = cls.get(t.get("id"))
         if c:
             t["status"] = _M.get(c, c)
         t["sem_comunicacao"] = t.get("id") in sc
+    _trk_exonera_onalvo(lst)                          # falso-parado EM CIMA DO ALVO → normal (vale p/ todas as fontes)
+    par = sev = med = lev = 0
+    for t in lst:
         st = t.get("status")
         par += (st == "parado"); sev += (st == "severo"); med += (st == "medio"); lev += (st == "leve")
     return par, sev, med, lev
@@ -5463,6 +5789,7 @@ def _pv_trk_refina_curva(idusina, lst, date, fetch=False):
         c = cls.get(t["id"])                          # status pela régua freeze-based (a mesma curva)
         if c:
             t["status"] = _MAP.get(c, c)
+    _trk_exonera_onalvo(lst)   # parado→normal em cima do alvo (mesmo fix; Levi 30/07) — PV usa a régua via direta, não _trk_status_from_curva
 
 
 _pv_warm_sem  = threading.Semaphore(2)   # no MÁX 2 aquecimentos de curva PV simultâneos (protege a API PV)
@@ -5602,6 +5929,9 @@ def _build_pv_trk_payload(fetch_curvas=False):
     plants = get_plants(get_token())
     agora = time.time()
     alvo_plants = [p for p in plants if (not FULL_OM or p["nome"].strip() in FULL_OM)]
+    # Usina da conta OEM fica fora: o PLAT_TOKEN é do usuário gridco e a apiplataforma responde
+    # "Usuário não possui permissão" para ela — 1 chamada condenada por ciclo, sem resultado.
+    alvo_plants = [p for p in alvo_plants if not _pv_is_oem(p["id"])]
     rows = []
     parados_livro, cobertas = [], set()          # alimenta o livro de ocorrências (tracker_watch)
     with ThreadPoolExecutor(max_workers=8) as ex:
@@ -7875,6 +8205,11 @@ def _macro_prewarm_loop():
 def api_macro():
     if flask_request.args.get("force") == "1":          # recálculo explícito (bloqueia de propósito)
         _macro_refresh()
+    elif _MODO_WEB:
+        # No web NADA de reconstruir, nem em thread: o rollup das 5 fontes rouba o GIL de quem
+        # está servindo tela. O worker refaz a cada MACRO_TTL e o snapshot entrega; se o web
+        # bootar antes do 1º snapshot, devolve "carregando" e o front repete a busca.
+        pass
     elif _macro_cache["data"] is None:                  # boot muito recente: ainda não aqueceu
         _macro_refresh()
     elif (time.time() - _macro_cache["ts"]) > MACRO_TTL * 2 and not _macro_cache["warming"]:
@@ -7890,6 +8225,8 @@ def api_macro():
 GER_META_MIN = 95.0   # % de atingimento p/ contar a usina "dentro da meta"
 _ger_cache = {"ts": 0.0, "data": None}
 GER_TTL = 300
+_ger_lock = threading.Lock()          # UMA reconstrução por vez (ver _gerencial_payload)
+_GER_BUILD_TL = threading.local()     # marca "estou construindo" p/ a re-entrada não travar no lock
 
 # ── Geração mensal das carteiras NÃO-PG (Thopen/Copel/Matrix) ────────────────────
 # O PG só tem a frota Polaris/Raízen em tempo real; as demais carteiras têm a geração do mês nas
@@ -7929,6 +8266,17 @@ def _thopen_prod_build(ano=None, mes=None):
                 continue
             prod = sum(r["ger"] for r in recs
                        if r.get("ger") and r["data"].year == alvo_a and r["data"].month == alvo_m)
+            # Dias que a planilha REPORTOU no mês (registro existente, mesmo com geração 0).
+            # É o denominador da meta prorrateada no gerencial — ver _prorata_de().
+            # O `<= hoje.day` NÃO é detalhe: a aba diária do BD_Thopen já vem com as linhas do
+            # mês inteiro criadas e zeradas, então sem o corte uma usina marcava 31 dias cobertos
+            # em 28/07 e a meta cobrava 3 dias que ainda nem aconteceram (Sorocaba caía de 141,7%
+            # para 128,0%). Dia futuro zerado é formulário em branco, não usina parada.
+            _lim = hoje.day if atual else 31
+            dias_cob = len({r["data"].day for r in recs
+                            if r.get("ger") is not None
+                            and r["data"].year == alvo_a and r["data"].month == alvo_m
+                            and r["data"].day <= _lim})
             if prod > 0:
                 pot = (reg.get(u) or {}).get("pot_mwp") or (INFO_GERAL.get(_nrm(u)) or {}).get("potencia_mwp")
                 # PR pelo MESMO motor do Dashboard de PR (/api/g/mensal, carteira do banco): Σger/1000 ÷
@@ -7942,6 +8290,7 @@ def _thopen_prod_build(ano=None, mes=None):
                 pr_frac = (gsum / 1000.0 / (isum * pot)) if (pot and isum) else None
                 out[_nrm(u)] = {"usina": u, "prod_mwh": prod / 1000.0,
                                 "carteira": _dth._CARTEIRA_DE.get(u),
+                                "dias_cob": dias_cob,
                                 "pot_mwp": pot, "ipoa": round(isum, 1),
                                 "pr": round(pr_frac * 100, 1) if pr_frac is not None else None,
                                 # tudo que vem do BD_Thopen é cliente Thopen (regra Levi) — usina nova
@@ -8023,6 +8372,7 @@ def _bdperf_prod_build(ano=None, mes=None):
                     continue
                 ii = next((i for i, h in enumerate(hdr) if h and "IPOA" in str(h) and "DEF" in str(h)), None)
                 etmc = [i for i, h in enumerate(hdr) if h and "IPOA" in str(h).upper() and "ETM" in str(h).upper()]
+                ghic = [i for i, h in enumerate(hdr) if h and str(h).strip().upper().startswith("GHI")]
                 # Coluna "Validação" (o mesmo gate do DAX do BI: validação > 0) e "Multimedidor"
                 # (energia no MEDIDOR = o PR Grid do BI). Conferido em jun/2026 contra o BI do
                 # Levi: com este gate o PR bate no CENTÉSIMO (Tupi 79,26 · Araputanga 83,50 ·
@@ -8033,12 +8383,26 @@ def _bdperf_prod_build(ano=None, mes=None):
                 gen_pr = 0.0     # geração só dos dias que entram no PR (numerador)
                 gen_mm = 0.0     # idem, mas pelo MEDIDOR (numerador do PR Grid)
                 ipoa = 0.0
+                ghi = 0.0        # GHI medido: melhor coluna GHI de cada dia COMPLETO do mês
+                dias_cob = set()  # dias que a ABA reportou (linha com número), p/ prorratear a meta
                 for r in it:
                     d = r[1] if len(r) > 1 else None
                     if not isinstance(d, datetime) or d.year != alvo_a or d.month != alvo_m:
                         continue
-                    rowgen = sum(r[i] for i in invcols if i < len(r) and isinstance(r[i], (int, float)))
+                    _vals = [r[i] for i in invcols if i < len(r) and isinstance(r[i], (int, float))]
+                    # Dia PRESENTE = linha com algum número de inversor, mesmo que some zero.
+                    # Zero é dado (usina parada); linha ausente é lacuna nossa. Ver _prorata_de().
+                    # Dia FUTURO não conta: aba pré-preenchida com zeros faria a meta cobrar dias
+                    # que ainda não aconteceram.
+                    if _vals and (not atual or d.date() <= hoje_d):
+                        dias_cob.add(d.day)
+                    rowgen = sum(_vals)
                     tot += rowgen
+                    if ghic and d.date() < hoje_d:      # mesma régua de "dia completo" do IPOA
+                        _gv = [r[i] for i in ghic
+                               if i < len(r) and isinstance(r[i], (int, float)) and r[i] > 0.5]
+                        if _gv:
+                            ghi += max(_gv)
                     if d.date() < hoje_d:               # PR só de dias COMPLETOS
                         # Gate do BI: só entra dia com Validação > 0. Quando a coluna não
                         # existe na aba, mantém o comportamento antigo (ter IPOA já basta).
@@ -8071,6 +8435,8 @@ def _bdperf_prod_build(ano=None, mes=None):
                     prm = rec.get("pr_previsto") if rec else None
                     out[k] = {"usina": nome, "prod_mwh": tot / 1000.0,
                               "cliente": ig.get("cliente"), "pot_mwp": mwp,
+                              "dias_cob": len(dias_cob),
+                              "ghi": round(ghi, 2) if ghi else None,
                               "ipoa": round(ipoa, 2),     # Σ IPOA (DEF/ETM) dos dias que entraram no PR
                               "pr": round(pr, 2) if pr is not None else None,
                               "pr_grid": round(pr_grid, 2) if pr_grid is not None else None,
@@ -8215,6 +8581,19 @@ _etm_prob_cache = {"ts": 0.0, "data": None}
 _ETM_PROB_TTL = 900
 
 
+def _etm_prob_warm():
+    """Reaquece o cache do /api/etm/problemas — roda no WORKER (prewarm). Sem isto o cache só
+    era construído dentro da requisição, e a varredura do BD_Performance congelava o /painel."""
+    c = _etm_prob_cache
+    with c.setdefault("_lock", threading.Lock()):     # mesmo lock da rota (importa no modo SOLO)
+        if c["data"] and (time.time() - c["ts"]) < _ETM_PROB_TTL - 30:
+            return False
+        c["data"] = _etm_problemas_build()
+        c["ts"] = time.time()
+    _persist_mark()
+    return True
+
+
 def _etm_problemas_build():
     hoje = datetime.now()
     hoje_d = hoje.date()
@@ -8310,9 +8689,17 @@ def nfmt(v):
 def api_etm_problemas():
     force = flask_request.args.get("force", "0") == "1"
     c = _etm_prob_cache
-    if force or not c["data"] or (time.time() - c["ts"]) >= _ETM_PROB_TTL:
-        c["data"] = _etm_problemas_build()
-        c["ts"] = time.time()
+    # O build varre o BD_Performance INTEIRO com openpyxl (dezenas de abas) — era feito AQUI,
+    # inline, no processo web: todo boot do web e a cada 15 min o primeiro a abrir o /painel
+    # pagava a varredura na cara, congelando a tela (e as dos outros, via GIL). Regra da casa:
+    # no web, vencido serve o último publicado; reconstruir é papel do worker (prewarm+snapshot).
+    # O lock segura o estouro no único caso em que o web ainda constrói (frio, sem snapshot).
+    if force or not c["data"] or ((time.time() - c["ts"]) >= _ETM_PROB_TTL and not _MODO_WEB):
+        with c.setdefault("_lock", threading.Lock()):
+            if force or not c["data"] or (time.time() - c["ts"]) >= _ETM_PROB_TTL:
+                c["data"] = _etm_problemas_build()
+                c["ts"] = time.time()
+                _persist_mark()
     out = dict(c["data"])
     # anexa o estado do ticket (comentário + feito) por usina — compartilhado entre analistas
     with _state_lock:
@@ -8368,14 +8755,25 @@ def _g_match_ig(sheet):
 
 
 def _g_registry():
-    """(USINAS, CLIENTES) das abas do BD_Performance × Info Geral, cacheado por mtime."""
+    """(USINAS, CLIENTES) das abas do BD_Performance × Info Geral.
+
+    Cache pelo mtime da planilha MAIS o tamanho do INFO_GERAL, e NUNCA memoiza resultado vazio.
+
+    Por quê: o casamento aba×cadastro depende do INFO_GERAL já estar carregado. Se esta função
+    for chamada antes disso (boot, ou logo após um reload de metas que falhou), ela calcula ZERO
+    e — com a chave só pelo mtime — o vazio ficava preso até alguém EDITAR a planilha. Sintoma:
+    o seletor Cliente do gráfico de PR mostrando só "Thopen" (que é fallback fixo), sem SEMP,
+    Athon, 2C nem os demais — foi o que o Levi viu em 30/07. Incluir o cadastro na chave faz o
+    resultado se corrigir sozinho quando ele carrega; não memoizar vazio evita prender a falha.
+    """
     from openpyxl import load_workbook
     try:
         m = os.path.getmtime(_bd_perf_path())
     except OSError:
         m = 0.0
-    if m in _g_reg_cache:
-        return _g_reg_cache[m]
+    ck = (m, len(INFO_GERAL))
+    if ck in _g_reg_cache:
+        return _g_reg_cache[ck]
     wb = load_workbook(_bd_readable_path(), read_only=True)
     sheets = wb.sheetnames
     wb.close()
@@ -8393,8 +8791,12 @@ def _g_registry():
         clientes.setdefault(cli, []).append(canon)
     for c in clientes:
         clientes[c].sort()
-    _g_reg_cache.clear()
-    _g_reg_cache[m] = (usinas, clientes)
+    if usinas:                      # vazio NÃO entra no cache: seria prender a falha
+        _g_reg_cache.clear()
+        _g_reg_cache[ck] = (usinas, clientes)
+    else:
+        print(f"[g_registry] 0 usinas casadas ({len(sheets)} abas × {len(INFO_GERAL)} no cadastro) "
+              "— não memoizei; recalculo na próxima chamada")
     return usinas, clientes
 
 
@@ -8767,14 +9169,55 @@ def _gerencial_payload(force=False, ano=None, mes=None):
     if atual:
         if not force and _ger_cache["data"] and (time.time() - _ger_cache["ts"]) < GER_TTL:
             return _ger_cache["data"]
+        # WEB nunca reconstrói o mês corrente: o TTL (300s) é MENOR que o ciclo do worker
+        # (~500s), então "vencido" aqui é o estado normal por ~40% do tempo — e reconstruir
+        # na requisição (SQL do mês + planilhas) era o Gerencial/Painel congelando em plena
+        # reunião, um rebuild POR ESPECTADOR (sem lock). Serve o último publicado — o payload
+        # carrega o cache_ts, a tela mostra a idade — e o worker/snapshot traz o fresco.
+        if not force and _MODO_WEB and _ger_cache["data"] is not None:
+            return _ger_cache["data"]
     else:
         _ent = _GER_HIST_CACHE.get((alvo_a, alvo_m))
         if not force and _ent and (time.time() - _ent["ts"]) < 6 * 3600:
             return _ent["data"]
+    # Daqui para baixo é RECONSTRUÇÃO — e só cabe uma por vez. Dois espectadores abrindo a
+    # tela na mesma janela disparavam dois rebuilds idênticos, um roubando CPU do outro.
+    # Quem chegar com obra em andamento espera no lock e RE-ENTRA: os checks acima devolvem
+    # o cache que o primeiro acabou de gravar. A flag thread-local é o que permite à própria
+    # re-entrada passar direto ao build sem tentar pegar o lock de novo (Lock não é reentrante).
+    if not getattr(_GER_BUILD_TL, "dentro", False):
+        with _ger_lock:
+            _GER_BUILD_TL.dentro = True
+            try:
+                return _gerencial_payload(force=force, ano=ano, mes=mes)
+            finally:
+                _GER_BUILD_TL.dentro = False
     ini = datetime(alvo_a, alvo_m, 1).date()
     dias_mes = calendar.monthrange(alvo_a, alvo_m)[1]
     fim = hoje if atual else datetime(alvo_a, alvo_m, dias_mes).date()
     prorata = fim.day / dias_mes                  # mês fechado → 1.0 (meta cheia)
+
+    def _prorata_de(dias_cob):
+        """Prorata da meta pelos dias que a FONTE cobre, não pelo dia do calendário.
+
+        No mês corrente a meta contava `hoje.day` dias, mas NENHUMA fonte fecha o dia de hoje:
+        medido em 28/07/2026, o BD_Performance ia até D-2 na maioria das usinas (Linhares 1 até
+        D-11). Resultado: 26 dias de geração divididos por 28 dias de meta — todo o portfólio
+        Athon aparecia ~7,7% abaixo do que realmente entregou (MRO100 marcava 94,5% valendo
+        101,8%). Cobrar de uma usina os dias que nós ainda não coletamos é o mesmo erro de
+        contar "sem dado" como zero.
+
+        O denominador é o dia PRESENTE na fonte, não o dia com geração > 0 — a diferença é o que
+        separa lacuna de coleta de parada real. Tucano 2 tem 23 dias presentes e 0 com geração:
+        a usina está parada, e a meta TEM de cobrar esses 23 dias (segue em 0%). Se o critério
+        fosse "dias com geração", ela pularia para 100% e a parada sumiria da tela.
+
+        Mês fechado mantém a meta cheia: ali a ausência de dado é lacuna a resolver na coleta,
+        não defasagem esperada, e prorratear mascararia o buraco.
+        """
+        if not atual or not dias_cob:
+            return prorata
+        return min(dias_cob, dias_mes) / dias_mes
     ym = (alvo_a, alvo_m)
     # FULL_OM guarda o nome SUPERVISÓRIO; o gerencial usa o nome de EXIBIÇÃO (_macro_usina_nome). Casa
     # pelos dois: nome de exibição (via USINA_GRUPO supervisório→exibição) E o supervisório cru, normalizados.
@@ -8797,16 +9240,24 @@ def _gerencial_payload(force=False, ano=None, mes=None):
     except Exception as e:
         return {"erro": str(e), "usinas": [], "clientes": [], "portfolio": {}, "scorecard": {},
                 "mes": f"{alvo_m:02d}/{alvo_a}", "cache_ts": datetime.now().strftime("%H:%M:%S")}
-    # 1) agrega produzida (kWh) + IPOA real (kWh/m²) por usina canônica
+    # 1) agrega produzida (kWh) + IPOA/GHI reais (kWh/m²) por usina canônica
     agg = {}
     for row in gen:
         name, ger, ipoa = row.get("usina"), row.get("geracao_kwh"), row.get("ipoa")
         if not name or name == "—":
             continue
         nome = _macro_usina_nome(name)
-        d = agg.setdefault(_nrm(nome), {"usina": nome, "prod_kwh": 0.0, "ipoa": 0.0})
-        if isinstance(ger, (int, float)):  d["prod_kwh"] += ger
+        d = agg.setdefault(_nrm(nome), {"usina": nome, "prod_kwh": 0.0, "ipoa": 0.0,
+                                        "ghi": 0.0, "dias": set()})
+        if isinstance(ger, (int, float)):
+            d["prod_kwh"] += ger
+            # Dia que a FONTE reportou (mesmo com geração 0 — usina parada é dado, não lacuna).
+            # É o denominador honesto da meta: ver _prorata_de().
+            if row.get("data"):
+                d["dias"].add(row["data"])
         if isinstance(ipoa, (int, float)): d["ipoa"]     += ipoa
+        _g = row.get("ghi")
+        if isinstance(_g, (int, float)):   d["ghi"]      += _g
     # 2) decompõe por usina (casa com INFO_GERAL/PR_PREVISTO; P50/IPOA previsto prorrateados MTD)
     usinas, sem_match = [], 0
     for k, d in agg.items():
@@ -8836,8 +9287,19 @@ def _gerencial_payload(force=False, ano=None, mes=None):
             p50_mes, p50_src = ig["p50_mwh"] / 12.0, "anual_12"
         pot = ig.get("potencia_mwp")
         prod = d["prod_kwh"] / 1000.0
-        p50 = (p50_mes * prorata) if p50_mes else None
-        ipoa_prev = (ipoa_prev_mes * prorata) if ipoa_prev_mes else None
+        _dcob = len(d.get("dias") or ())
+        _prt = _prorata_de(_dcob)
+        p50 = (p50_mes * _prt) if p50_mes else None
+        ipoa_prev = (ipoa_prev_mes * _prt) if ipoa_prev_mes else None
+        # GHI previsto: só a Info Mensal cadastra (o BD_Thopen não tem GHI). Mesma cadeia do
+        # IPOA — mês exato → mesmo mês de outro ano — e o mesmo prorrateio da meta.
+        _pall = PR_PREVISTO.get(k) or {}
+        ghi_prev_mes = (_pall.get(ym) or {}).get("ghi_previsto")
+        if ghi_prev_mes is None:
+            for (_yy, _mm), _v in _pall.items():
+                if _mm == alvo_m and _v.get("ghi_previsto"):
+                    ghi_prev_mes = _v["ghi_previsto"]; break
+        ghi_prev = (ghi_prev_mes * _prt) if ghi_prev_mes else None
         recurso = (p50 * (d["ipoa"] / ipoa_prev)) if (p50 and ipoa_prev and d["ipoa"]) else None
         atg = (prod / p50 * 100) if p50 else None
         pr  = (prod / (d["ipoa"] * pot) * 100) if (d["ipoa"] and pot) else None
@@ -8854,13 +9316,22 @@ def _gerencial_payload(force=False, ano=None, mes=None):
                        "pr_meta": round(_prm * 100, 1) if isinstance(_prm, (int, float)) else None,
                        "ipoa": round(d["ipoa"], 1),
                        "ipoa_prev": round(ipoa_prev, 1) if ipoa_prev else None,
+                       "ghi": round(d["ghi"], 1) if d.get("ghi") else None,
+                       "ghi_prev": round(ghi_prev, 1) if ghi_prev else None,
+                       "dias_cob": _dcob or None, "dias_mes": dias_mes,
+                       "meta_dias": round(_prt * dias_mes),
                        "p50_src": p50_src, "src": "pg",
                        "full_oem": _nrm(d["usina"]) in full_om_nrm,
                        "pr_motivo": _motivo("pg", pr, d["ipoa"], pot, prod)})
 
     # 2b) carteiras NÃO-PG (Thopen/Copel/Matrix): geração do mês via BD_Thopen (motor dashboard_thopen)
     pg_keys = set(agg.keys())
-    for k, tp in (_thopen_prod_mtd() if atual else _thopen_prod_build(alvo_a, alvo_m)).items():
+    # force=1 reconstrói de verdade também aqui. Ficava só no _thopen_prod_mtd (que devolve o
+    # cache na hora e aquece em background), então "Atualizar" repetia o dado velho — o mesmo
+    # problema já corrigido no bloco do BD_Performance logo abaixo. Pior no dia de um deploy que
+    # muda a FORMA do cache: o snapshot volta com o formato antigo e o botão não resolvia.
+    for k, tp in (_thopen_prod_build(alvo_a, alvo_m) if (force or not atual)
+                  else _thopen_prod_mtd()).items():
         if k in pg_keys:                                   # já veio do PG (tempo real)
             continue
         tm = (THOPEN_META.get(k) or {}).get(alvo_m) or {}
@@ -8876,7 +9347,8 @@ def _gerencial_payload(force=False, ano=None, mes=None):
         ig = INFO_GERAL.get(k)
         if p50_mes is None and ig and ig.get("p50_mwh"):
             p50_mes, p50_src = ig["p50_mwh"] / 12.0, "anual_12"
-        p50 = (p50_mes * prorata) if p50_mes else None
+        _prt = _prorata_de(tp.get("dias_cob"))
+        p50 = (p50_mes * _prt) if p50_mes else None
         prod = tp["prod_mwh"]
         atg = (prod / p50 * 100) if p50 else None
         # meta de PR: 1º o BD_Thopen (Historico_2026 — onde moram as metas das usinas do banco Thopen),
@@ -8891,7 +9363,7 @@ def _gerencial_payload(force=False, ano=None, mes=None):
         _ipoa_prev_th = tm.get("ipoa_meta")
         if _ipoa_prev_th is None:
             _ipoa_prev_th = ((PR_PREVISTO.get(k) or {}).get(ym) or {}).get("ipoa_previsto")
-        _ipoa_prev_th = (_ipoa_prev_th * prorata) if _ipoa_prev_th else None
+        _ipoa_prev_th = (_ipoa_prev_th * _prt) if _ipoa_prev_th else None
         usinas.append({"usina": tp["usina"], "cliente": tp.get("cliente") or "Thopen",
                        "carteira": tp.get("carteira") or "—",
                        "prod": round(prod, 1), "p50": round(p50, 1) if p50 else None,
@@ -8900,6 +9372,10 @@ def _gerencial_payload(force=False, ano=None, mes=None):
                        "pr": _pr_th, "pr_meta": round(_prm * 100, 1) if isinstance(_prm, (int, float)) else None,
                        "ipoa": _ipoa_th,
                        "ipoa_prev": round(_ipoa_prev_th, 1) if _ipoa_prev_th else None,
+                       # o BD_Thopen não registra GHI (só ger/ipoa/disp) — explícito, não esquecido
+                       "ghi": None, "ghi_prev": None,
+                       "dias_cob": tp.get("dias_cob") or None, "dias_mes": dias_mes,
+                       "meta_dias": round(_prt * dias_mes),
                        "p50_src": (p50_src or "sem"), "src": "bdthopen",
                        "full_oem": _nrm(tp["usina"]) in full_om_nrm,
                        "pr_motivo": _motivo("bdthopen", _pr_th, _ipoa_th, tp.get("pot_mwp"), prod)})
@@ -8928,7 +9404,8 @@ def _gerencial_payload(force=False, ano=None, mes=None):
                     p50_mes = v["p50_mwh"]; break
         if p50_mes is None and ig.get("p50_mwh"):
             p50_mes = ig["p50_mwh"] / 12.0
-        p50 = (p50_mes * prorata) if p50_mes else None
+        _prt = _prorata_de(bp.get("dias_cob"))
+        p50 = (p50_mes * _prt) if p50_mes else None
         prod = bp["prod_mwh"]
         atg = (prod / p50 * 100) if p50 else None
         _ip_bp = bp.get("ipoa") or 0           # IPOA real (DEF/ETM do BD_Performance) — entra no rollup de PR
@@ -8938,7 +9415,14 @@ def _gerencial_payload(force=False, ano=None, mes=None):
             for (yy, mm), v in (PR_PREVISTO.get(k) or {}).items():
                 if mm == alvo_m and v.get("ipoa_previsto"):
                     _ipp_bp = v["ipoa_previsto"]; break
-        _ipp_bp = (_ipp_bp * prorata) if _ipp_bp else None
+        _ipp_bp = (_ipp_bp * _prt) if _ipp_bp else None
+        # GHI previsto: mesma cadeia (Info Mensal, mês exato → mesmo mês de outro ano)
+        _ghp_bp = ((PR_PREVISTO.get(k) or {}).get(ym) or {}).get("ghi_previsto")
+        if _ghp_bp is None:
+            for (yy, mm), v in (PR_PREVISTO.get(k) or {}).items():
+                if mm == alvo_m and v.get("ghi_previsto"):
+                    _ghp_bp = v["ghi_previsto"]; break
+        _ghp_bp = (_ghp_bp * _prt) if _ghp_bp else None
         usinas.append({"usina": bp["usina"], "cliente": bp.get("cliente") or "—",
                        "carteira": bp.get("cliente") or "—",
                        "prod": round(prod, 1), "p50": round(p50, 1) if p50 else None,
@@ -8947,6 +9431,10 @@ def _gerencial_payload(force=False, ano=None, mes=None):
                        "pr": bp.get("pr"), "pr_grid": bp.get("pr_grid"), "pr_meta": bp.get("pr_meta"),
                        "ipoa": _ip_bp,
                        "ipoa_prev": round(_ipp_bp, 1) if _ipp_bp else None,
+                       "ghi": bp.get("ghi"),
+                       "ghi_prev": round(_ghp_bp, 1) if _ghp_bp else None,
+                       "dias_cob": bp.get("dias_cob") or None, "dias_mes": dias_mes,
+                       "meta_dias": round(_prt * dias_mes),
                        "p50_src": "infogeral_anual12", "src": "bdperf",
                        "full_oem": _nrm(bp["usina"]) in full_om_nrm,
                        "pr_motivo": _motivo("bdperf", bp.get("pr"), _ip_bp, bp.get("pot_mwp"), prod)})
@@ -9069,6 +9557,12 @@ def _gerencial_payload(force=False, ano=None, mes=None):
         wp = sum(u["pot_mwp"] for u in comPOA)
         poa_med = (sum(u["ipoa"] * u["pot_mwp"] for u in comPOA) / wp) if wp else None
         poa_prev = (sum(u["ipoa_prev"] * u["pot_mwp"] for u in comPOA) / wp) if wp else None
+        # GHI: mesma régua do POA (ponderado por potência, só quem tem medido E previsto).
+        # Cobertura é MENOR que a do POA — BD_Thopen não tem GHI — e o card mostra o número.
+        comGHI = [u for u in lst if u.get("ghi") and u.get("ghi_prev") and u.get("pot_mwp")]
+        wg = sum(u["pot_mwp"] for u in comGHI)
+        ghi_med = (sum(u["ghi"] * u["pot_mwp"] for u in comGHI) / wg) if wg else None
+        ghi_prev = (sum(u["ghi_prev"] * u["pot_mwp"] for u in comGHI) / wg) if wg else None
         return {"n": len(lst), "n_meta": len(com50), "prod": round(prod_all, 1),
                 "n_sem_dado": len(lst) - len(comG),
                 "p50": round(s50, 1) if s50 else None,
@@ -9080,6 +9574,9 @@ def _gerencial_payload(force=False, ano=None, mes=None):
                 "poa": round(poa_med, 1) if poa_med else None,
                 "poa_prev": round(poa_prev, 1) if poa_prev else None,
                 "n_poa": len(comPOA),
+                "ghi": round(ghi_med, 1) if ghi_med else None,
+                "ghi_prev": round(ghi_prev, 1) if ghi_prev else None,
+                "n_ghi": len(comGHI),
                 "na_meta": sum(1 for u in com50 if (u["atingimento"] or 0) >= GER_META_MIN)}
 
     portfolio = _roll(usinas)
@@ -10230,8 +10727,16 @@ def _pg_geracao_pivo(start: str, end: str):
         devs = sorted(u["_invs"].keys(), key=lambda x: _pv_trk_num(x))
         cols = [{"dev": dv, "nome": u["_invs"][dv]} for dv in devs]
         dias = sorted(u["_dias"].values(), key=lambda x: x["data"], reverse=True)
+        pot_kwp = (INFO_GERAL.get(_nrm(u["usina"])) or {}).get("potencia_kwp")
         for d in dias:
             d["ger_total"] = round(sum(d["ger"].values()), 1) if d["ger"] else None
+            # PR do DIA = geração ÷ (potência × POA), a régua clássica. Só com POA utilizável
+            # (>0,3 kWh/m² — mesma trava do Dashboard de PR): POA quebrada daria PR de 300%.
+            # Sem potência no cadastro (usina fora da Info Geral) o PR fica None, não 0.
+            pr = None
+            if pot_kwp and d.get("poa") and d["poa"] > 0.3 and d.get("ger_total"):
+                pr = d["ger_total"] / (pot_kwp * d["poa"]) * 100
+            d["pr"] = round(pr, 1) if pr is not None else None
         out.append({"plant_id": pid, "usina": u["usina"], "inversores": cols, "dias": dias})
     out.sort(key=lambda x: x["usina"])
     return out
@@ -10246,6 +10751,28 @@ def _gerpivo_periodo(dias_default=10):
     except ValueError:
         n = dias_default
     return (hoje - timedelta(days=n)).isoformat(), (hoje - timedelta(days=1)).isoformat()
+
+
+def _gerpivo_janela():
+    """Janela do pivô de Geração: ?ini/?fim explícitos (De/Até da tela) ou o default acima.
+    Usada TAMBÉM pelos exports — o XLSX baixado tem de mostrar a mesma janela que a tela.
+    Teto de 31 dias: janela escolhida não é pré-aquecida (roda na requisição) e a consulta
+    cresce linear com os dias. Fim é capado em HOJE; incluir o dia corrente é escolha do
+    usuário (a linha sai parcial, e é dado honesto)."""
+    ini_q = (flask_request.args.get("ini") or "").strip()
+    fim_q = (flask_request.args.get("fim") or "").strip()
+    if re.match(r"^\d{4}-\d{2}-\d{2}$", ini_q) and re.match(r"^\d{4}-\d{2}-\d{2}$", fim_q):
+        try:
+            a = datetime.strptime(min(ini_q, fim_q), "%Y-%m-%d").date()
+            b = datetime.strptime(max(ini_q, fim_q), "%Y-%m-%d").date()
+            hoje = datetime.now().date()
+            b = min(b, hoje)
+            if (b - a).days > 30:
+                a = b - timedelta(days=30)
+            return a.isoformat(), b.isoformat()
+        except ValueError:
+            pass
+    return _gerpivo_periodo()
 
 
 def _pg_gerpivo_get(start, end, force=False):
@@ -10269,7 +10796,7 @@ def api_geracao_pivo(fonte):
     if fonte != "pg":
         return jsonify({"usinas": [], "indisponivel": True, "msg": _GERPIVO_MSG,
                         "cache_ts": datetime.now().strftime("%H:%M:%S")})
-    start, end = _gerpivo_periodo()
+    start, end = _gerpivo_janela()
     try:
         usinas = _pg_gerpivo_get(start, end, force=flask_request.args.get("force") == "1")
     except Exception as e:
@@ -10282,7 +10809,7 @@ def api_geracao_pivo(fonte):
 def api_geracao_pivo_export(fonte):
     if fonte != "pg":
         return jsonify({"error": "indisponível nesta fonte"}), 400
-    start, end = _gerpivo_periodo()
+    start, end = _gerpivo_janela()
     try:
         blocks = _pg_gerpivo_get(start, end)
     except Exception as e:
@@ -10332,7 +10859,7 @@ def api_geracao_pivo_export_usinas(fonte):
     """XLSX de Geração com UMA ABA POR USINA (Data, POA, GHI, Pluviômetro, inversores, Total)."""
     if fonte != "pg":
         return jsonify({"error": "indisponível nesta fonte"}), 400
-    start, end = _gerpivo_periodo()
+    start, end = _gerpivo_janela()
     try:
         blocks = _pg_gerpivo_get(start, end)
     except Exception as e:
@@ -10362,10 +10889,10 @@ def api_geracao_pivo_export_usinas(fonte):
 
 @app.route("/api/<fonte>/etm-pivo/export")
 def api_etm_pivo_export(fonte):
-    """XLSX ETM: aba POA e aba GHI, cada uma pivô usina (linhas) × últimos 10 dias (colunas)."""
+    """XLSX ETM: aba POA e aba GHI, cada uma pivô usina (linhas) × dias da janela (colunas)."""
     if fonte != "pg":
         return jsonify({"error": "indisponível nesta fonte"}), 400
-    start, end = _gerpivo_periodo(dias_default=10)
+    start, end = _gerpivo_janela()
     try:
         blocks = _pg_gerpivo_get(start, end)
     except Exception as e:
@@ -10855,6 +11382,13 @@ def api_owen_etm_analise():
 @app.route("/api/owen/etm/chart")
 def api_owen_etm_chart():
     u = (flask_request.args.get("plant") or "").strip()
+    # O acumulador da 2C é chaveado pelo CÓDIGO da UFV (ARA, IPX, STL, TUP), mas a tela manda o
+    # nome de exibição ("Araputanga") — é o que o /analise mostra na coluna usina. Sem resolver,
+    # o data.get(u) errava sempre e a resposta saía com HTTP 200 e série VAZIA: falha silenciosa,
+    # que no front virava o gráfico de exemplo. Aceita os dois.
+    if u and u not in OWEN_UFVS:
+        _alvo = _nrm(u)
+        u = next((c for c in OWEN_UFVS if _nrm(_owen_nome(c)) == _alvo), u)
     date = (flask_request.args.get("date") or "").strip()
     if date and date != datetime.now().strftime("%Y-%m-%d"):
         merged = _owen_etm_series(_hist_build(date).get("etm", {}).get(u, {}))   # dia passado: 2C_historico
@@ -13665,6 +14199,39 @@ def _prewarm_paralelo(tarefas, workers=4):
 
 PREWARM_CICLOS_PESADO = 3     # de quantos em quantos ciclos as fontes caras são reaquecidas
 
+_TOK_RT_MTIME = {"v": 0.0}
+
+
+def _expira_por_token_novo():
+    """Token recém-colado → joga fora o cache das fontes autenticadas.
+
+    O cache montado ENQUANTO o token estava vencido guarda o vazio, e continua sendo servido até
+    vencer sozinho — o processo web não reconstrói por regra. Em 29/07 o Levi colou a chave às
+    08:53, o cache dos trackers era das 08:48, e a tela seguiu vazia: parecia que o token não
+    tinha entrado (tinha — `/api/tokens` já mostrava `ok`, vencendo em 6 dias).
+
+    Aqui o WORKER vê o tokens_runtime.json mudar de mtime e zera o `ts` das fontes com token, para
+    o ciclo seguinte reconstruir com a credencial nova em vez de esperar o TTL de cada uma. Não
+    apaga o payload: se a reconstrução falhar, a tela segue com o último dado bom em vez de vazio.
+    """
+    try:
+        m = os.path.getmtime(_TOKENS_RT_PATH)
+    except Exception:
+        return
+    if m == _TOK_RT_MTIME["v"]:
+        return
+    primeiro = _TOK_RT_MTIME["v"] == 0.0
+    _TOK_RT_MTIME["v"] = m
+    if primeiro:
+        return          # 1ª passada = boot; o snapshot recém-carregado é legítimo
+    for c in (_pv_trk_cache,                                        # plat: trackers da Plataforma
+              _sunop_cache, _sunop_etm_cache, _sunop_analise_cache, _sunop_trk_cache,   # sunop
+              _axis_cache,                                          # axis
+              _se_cache):                                           # se_cookie: SolarEdge
+        c["ts"] = 0.0
+    _plat_view_cache.clear()                                        # plat: combiner por inversor
+    print("[tokens] tokens_runtime.json mudou — caches das fontes com token expirados p/ rebuild")
+
 
 def _prewarm_loop():
     """Mantém as abas quentes. Roda no WORKER.
@@ -13686,6 +14253,7 @@ def _prewarm_loop():
         ciclo += 1
         pesado = (ciclo % PREWARM_CICLOS_PESADO) == 1     # 1º, 4º, 7º...
         t0 = _t.time()
+        _expira_por_token_novo()      # token novo → rebuild na hora, não no fim do TTL
         # ETAPA 1 — disponibilidade por TEMPO (Ocorrências) de HOJE. Tem de vir ANTES dos
         # overviews de trackers: senão o overview reconstrói com "disponibilidade_tempo" vazio
         # (cache de eventos ainda frio) e fica preso nesse payload até o próximo ciclo, porque
@@ -13708,6 +14276,9 @@ def _prewarm_loop():
             ("PG ETM",         _pg_etm_cache,        _build_pg_etm_payload),
             ("PG ETM análise", _pg_analise_cache,    _build_pg_analise_payload),
             ("PG trackers",    _pg_trk_cache,        _pg_trackers_overview),
+            ("SEMP strings",   _semp_cache,          _build_semp_payload),
+            ("SEMP ETM",       _semp_etm_cache,      _build_semp_etm_payload),
+            ("SEMP ETM anál.", _semp_etm_analise_cache, _build_semp_etm_analise_payload),
             ("PV PR",          _pv_pr_cache,         _build_pv_pr_payload),
         ]
         if _plat_token():
@@ -13747,6 +14318,8 @@ def _prewarm_loop():
             # os dois JUNTOS, nesta ordem: o gerencial consome a produção mensal do BD_Thopen.
             # Separados e concorrentes, construiriam a mesma coisa duas vezes.
             ("Gerencial",    lambda: (_thopen_prod_build(), _gerencial_payload())),
+            # /painel depende dele; sem prewarm o web construía inline (varredura do xlsx)
+            ("ETM problemas", _etm_prob_warm),
         ]
         _prewarm_paralelo(leves, workers=3)
 
@@ -13797,6 +14370,9 @@ def _persist_registry():
         "pg_analise":    _pg_analise_cache,
         "pg_trk":        _pg_trk_cache,
         "pv_pr":         _pv_pr_cache,
+        "semp":          _semp_cache,
+        "semp_etm":      _semp_etm_cache,
+        "semp_analise":  _semp_etm_analise_cache,
     }
 
 
@@ -13820,6 +14396,7 @@ def _cache_save():
                          "ym": list(_thopen_prod_cache.get("ym") or []), "data": _thopen_prod_cache.get("data")},
         "bdperf_prod":  {"ts": _bdperf_prod_cache.get("ts", 0.0),
                          "ym": list(_bdperf_prod_cache.get("ym") or []), "data": _bdperf_prod_cache.get("data")},
+        "etm_prob":     {"ts": _etm_prob_cache.get("ts", 0.0), "data": _etm_prob_cache.get("data")},
         "str_prob_pv":  {"ts": _str_prob_pv_cache.get("ts", 0.0), "rows": _str_prob_pv_cache.get("rows")},
         "sunop_str_ev": {f"{k[0]}|{k[1]}": v for k, v in _sunop_str_ev_cache.items() if isinstance(k, tuple)},
         "plat_view":    {str(k): v for k, v in _plat_view_cache.items()},
@@ -13844,11 +14421,17 @@ def _cache_load():
         print(f"[persist] snapshot ilegível ({e}) — começando frio")
         return
     n = 0
+    # SNAPSHOT MAIS VELHO NÃO SOBRESCREVE CACHE MAIS NOVO. A recarga (watch do web) aplicava o
+    # snapshot às cegas: um force=1 no web construía dado fresco e, segundos depois, o snapshot
+    # do worker — construído ANTES, às vezes vazio por throttle da fonte — passava por cima.
+    # Aconteceu em 31/07 com o SunOp: web bom das 09:35 engolido pelo vazio das 09:34, e a tela
+    # voltou a "Sem dados" na frente do Levi. Regra: só aplica se o salvo for >= o atual.
     for nome, c in _persist_registry().items():
         saved = (data.get("caches") or {}).get(nome)
         if saved and saved.get("payload") is not None:
-            c.update(saved)
-            n += 1
+            if saved.get("ts", 0.0) >= c.get("ts", 0.0):
+                c.update(saved)
+                n += 1
     # chaves int viram str no JSON — restaura
     _pv_pr_cache["detail"] = _int_keys(_pv_pr_cache.get("detail"))
     _last_known.update(_int_keys(data.get("last_known")))
@@ -13859,20 +14442,22 @@ def _cache_load():
     if isinstance(saved_par, dict) and saved_par.get("plants") is not None:
         _trk_parada_total.update(saved_par)
     pg = data.get("pg") or {}
-    if pg.get("summary") is not None:
+    if pg.get("summary") is not None and pg.get("ts", 0.0) >= _pg_cache.get("ts", 0.0):
         _pg_cache.update({"summary": pg["summary"], "detail": _int_keys(pg.get("detail")),
                           "ts": pg.get("ts", 0.0)})
         n += 1
-    # EXTRAS (formas próprias) — restaura só o que veio preenchido; o TTL de cada um decide se refaz
+    # EXTRAS (formas próprias) — restaura só o que veio preenchido E não for mais velho que o
+    # atual (mesma regra anti-retrocesso do bloco acima); o TTL de cada um decide se refaz
     ex = data.get("extras") or {}
     for nome, alvo, campo in (("macro", _macro_cache, "data"), ("ger", _ger_cache, "data"),
+                              ("etm_prob", _etm_prob_cache, "data"),
                               ("str_prob_pv", _str_prob_pv_cache, "rows")):
         s = ex.get(nome) or {}
-        if s.get(campo) is not None:
+        if s.get(campo) is not None and s.get("ts", 0.0) >= alvo.get("ts", 0.0):
             alvo[campo] = s[campo]; alvo["ts"] = s.get("ts", 0.0); n += 1
     for nome, alvo in (("thopen_prod", _thopen_prod_cache), ("bdperf_prod", _bdperf_prod_cache)):
         s = ex.get(nome) or {}
-        if s.get("data"):
+        if s.get("data") and s.get("ts", 0.0) >= alvo.get("ts", 0.0):
             _ym = s.get("ym") or []
             alvo.update({"data": s["data"], "ts": s.get("ts", 0.0),
                          "ym": tuple(_ym) if len(_ym) == 2 else None})

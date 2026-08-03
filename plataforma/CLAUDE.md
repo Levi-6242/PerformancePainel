@@ -27,7 +27,7 @@ Para diagnosticar, suba com `python.exe -u` e `-RedirectStandardOutput` num `.lo
 imprime o tempo de cada etapa, que é a forma mais rápida de achar lentidão.
 
 **Não precisa de restart:** `docs/redesign/Monitoramento (novo design).html` (a página `/`),
-`templates/relatorio.html`, `whats_ronda.json` e `plat_token.txt` — todos relidos a cada uso.
+`templates/relatorio.html`, `whats_ronda.json` e `tokens_runtime.json` — todos relidos a cada uso.
 Qualquer `.py` ou os demais templates precisam.
 
 **A ronda depende do guardião.** `ronda_guardian.py` roda pela Tarefa Agendada do Windows
@@ -67,13 +67,22 @@ o mecanismo de snapshot já existe para isso.
 
 ## Tokens
 
+**Dois arquivos, dois donos.** O `tokens.txt` (raiz) é **semente**, formato `CHAVE=VALOR`, editado
+por gente e carregado no ambiente no boot. O `plataforma/tokens_runtime.json` é **estado**: o app
+escreve nele (chaves `plat`, `sunop`, `axis`, `se_cookie`) toda vez que renova um token. Não junte
+os dois — o app reescrevendo o `tokens.txt` apagaria comentários e arriscaria as outras ~20 chaves
+numa corrida com quem estivesse editando à mão. Gravação é atômica (`.tmp` + `os.replace`) sob lock,
+porque várias threads renovam tokens diferentes ao mesmo tempo e agora todos moram no mesmo arquivo.
+Os antigos `*_token.txt`/`se_cookie.txt` foram migrados sozinhos e renomeados para `.migrado` — não
+adianta colar token neles.
+
 O token da Plataforma (trackers + combiner box) é **manual**: tem CAPTCHA e MFA, não auto-renova.
 Vale **7 dias** (medido no `exp` do próprio JWT — o mesmo token serve trackers e combiner).
 Quando vence, o combiner recebe `HTTP 401`; existe um disjuntor que abre no primeiro 401 e para
 de tentar, em vez de repetir ~280 chamadas condenadas por ciclo. Status em `/api/tokens`.
 
 **Como renovar:** bookmarklet de 1 clique, ou `POST /api/pv/trackers/token` com `{"token": "..."}`.
-O `plat_token.txt` é relido a cada uso, então vale na hora, sem reiniciar. `_plat_token()` escolhe
+O `tokens_runtime.json` é relido a cada uso, então vale na hora, sem reiniciar. `_plat_token()` escolhe
 entre o `PLAT_TOKEN` do ambiente e o arquivo **pela validade maior** — o ambiente é só semente de
 boot. Não inverta essa ordem: com "ambiente primeiro", uma semente velha no `tokens.txt` sequestra
 a renovação e colar token novo não muda nada (aconteceu em 25/07).

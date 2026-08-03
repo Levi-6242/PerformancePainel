@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>OS Creator — aba Chamados (réplica p/ redesign)</title>
+<!--
+  RÉPLICA FIEL da aba Chamados do OS Creator (PyQt6), v2026.07.10.87.
+  Serve para mexer no design aqui e depois portar de volta pro Qt.
+
+  Tudo abaixo usa as MEDIDAS E CORES REAIS do app — os valores estão nas variáveis
+  CSS logo abaixo, com o ponto do código de onde saíram. Se mudar aqui, é só
+  transplantar pro arquivo Qt correspondente:
+    · painel e cards ...... os_creator/steps/chamados.py
+    · tela do chamado ..... os_creator/steps/chamado_detalhe.py
+    · cores base .......... os_creator/steps/ui.py  (BG/INPUT/BORDER/GREEN/MUTED/TEXT)
+
+  O QSS do Qt entende um subconjunto de CSS: background, color, border,
+  border-radius, padding, margin, font-*, min/max-width/height. NÃO entende
+  flex, grid, gap, box-shadow, transition, ::before/::after nem calc().
+  O layout no Qt vem de QVBoxLayout/QHBoxLayout/QGridLayout — então mudanças de
+  ESPAÇAMENTO viram setSpacing/setContentsMargins, e não CSS.
+-->
+<style>
+  :root{
+    /* ---- cores do app (steps/ui.py + app.py DARK_QSS) ---- */
+    --bg:        #090d18;   /* fundo da janela            */
+    --card:      #161d30;   /* superfície de card         */
+    --input:     #1A2337;   /* campos e chips             */
+    --linha:     #232a3d;   /* borda de card              */
+    --borda:     #2A3550;   /* borda de campo             */
+    --verde:     #A6E22E;   /* verde Grid — ação/marca    */
+    --verde-ink: #0B1020;   /* texto sobre o verde        */
+    --txt:       #FFFFFF;
+    --txt2:      #dfe4ee;
+    --muted:     #8A93A8;
+    --muted2:    #5b6479;
+    /* ---- semáforo do status (chamados.py::_status_cor) ---- */
+    --vermelho:  #F5766B;   /* a abrir · garantia negada  */
+    --ambar:     #F5A623;   /* aguardando · pendente      */
+    --azul:      #4A9EF5;   /* aprovada · a caminho       */
+    --ok:        #48D07A;   /* concluído · coletado       */
+    /* ---- métricas (valores literais do Qt) ---- */
+    --card-h:    176px;     /* setFixedHeight(176)        */
+    --card-r:    12px;      /* border-radius:12px         */
+    --gap:       12px;      /* _grid.setSpacing(12)       */
+    --pad-x:     18px;      /* setContentsMargins(18,…)   */
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:#e6e8ef;
+       font-family:'Segoe UI',Arial,sans-serif;font-size:13px}
+  .janela{max-width:1280px;margin:0 auto;padding:0 0 40px}
+
+  /* ══════ barra de topo ══════ */
+  .barra{display:flex;align-items:center;gap:10px;padding:8px var(--pad-x)}
+  .hint{color:var(--muted);font-size:12px}
+  .btn{border-radius:9px;padding:7px 14px;font-size:13px;cursor:pointer;
+       background:transparent;color:#cdd2e0;border:1px solid var(--borda)}
+  .btn:hover{border-color:#4a597e;color:var(--txt)}
+  .btn-primario{background:var(--verde);color:var(--verde-ink);border:none;
+                border-radius:10px;padding:9px 16px;font-weight:600}
+  .btn-primario:hover{background:#b4ec42}
+
+  /* ══════ fila (KPIs) — chamados.py::_Kpi ══════ */
+  .fila{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;
+        padding:0 var(--pad-x) 10px}
+  .kpi{background:var(--card);border:1px solid var(--linha);
+       border-top:3px solid var(--linha);border-radius:8px;
+       padding:9px 12px 8px;cursor:pointer}
+  .kpi.sel{background:var(--input);border-top-color:var(--verde)}
+  .kpi b{display:block;font-size:21px;font-weight:750;line-height:1.15}
+  .kpi span{font-size:10px;font-weight:700;letter-spacing:.7px;color:var(--muted);
+            text-transform:uppercase}
+  .kpi.abrir b{color:var(--vermelho)} .kpi.aguard b{color:var(--ambar)}
+  .kpi.garantia b{color:var(--azul)}  .kpi.fim b{color:var(--ok)}
+
+  /* ══════ filtros ══════ */
+  .filtros{display:flex;align-items:center;gap:9px;padding:0 var(--pad-x) 10px}
+  .filtros label{color:var(--muted);font-size:12px}
+  select{width:200px;background:var(--input);border:1px solid var(--borda);
+         border-radius:8px;padding:7px 9px;color:#e6e8ef;font-size:13px;
+         font-family:inherit}
+
+  /* ══════ board ══════ */
+  .board{display:grid;grid-template-columns:repeat(3,1fr);gap:var(--gap);
+         padding:4px var(--pad-x) 16px}
+  .ch{background:var(--card);border:1px solid var(--linha);
+      border-left:3px solid var(--linha);border-radius:var(--card-r);
+      height:var(--card-h);padding:11px 14px;cursor:pointer;
+      display:flex;flex-direction:column;gap:4px}
+  .ch:hover{border-color:var(--verde);border-left-color:var(--verde)}
+  .ch.abrir{border-left-color:var(--vermelho)}
+  .ch.aguard{border-left-color:var(--ambar)}
+  .ch.garantia{border-left-color:var(--azul)}
+  .ch.fim{border-left-color:var(--ok)}
+  .ch-topo{display:flex;align-items:baseline;gap:8px}
+  .ch-os{font-size:15px;font-weight:700;color:var(--txt)}
+  .ch-pai{font-size:11px;color:var(--muted)}
+  .ch-status{display:flex;gap:6px;flex-wrap:wrap}
+  .ch-fab{font-size:11px;color:var(--muted)}
+  .ch-ativo{font-size:13px;font-weight:600;color:var(--txt2)}
+  .ch-usina{font-size:12px;color:var(--muted)}
+  .ch-rodape{margin-top:auto;font-size:11px;font-weight:600}
+  .r-novo{color:var(--ok)} .r-medio{color:var(--ambar)} .r-velho{color:var(--vermelho)}
+  .r-sem{color:var(--muted);font-weight:400}
+
+  /* chip: largura FIXA no Qt (118 e 176) com reticências — ver _chip(largura=) */
+  .chip{display:inline-block;border-radius:999px;padding:2px 9px;font-size:10.5px;
+        font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .chip-os{width:118px;color:var(--muted);background:transparent;border:1px solid var(--borda)}
+  .chip-ch{width:176px;border:1px solid}
+  .c-vermelho{color:var(--vermelho);background:rgba(245,118,107,.15);border-color:rgba(245,118,107,.34)}
+  .c-ambar   {color:var(--ambar);   background:rgba(245,166,35,.15); border-color:rgba(245,166,35,.34)}
+  .c-azul    {color:var(--azul);    background:rgba(74,158,245,.15); border-color:rgba(74,158,245,.34)}
+  .c-ok      {color:var(--ok);      background:rgba(72,208,122,.15); border-color:rgba(72,208,122,.34)}
+
+  /* ══════ tela do chamado (chamado_detalhe.py) ══════ */
+  .titulo-secao{padding:26px var(--pad-x) 10px;color:var(--muted);font-size:11px;
+                font-weight:700;letter-spacing:1px;text-transform:uppercase}
+  .tela{margin:0 var(--pad-x);background:var(--bg);border:1px solid var(--linha);
+        border-radius:12px;overflow:hidden}
+  .uiCard{background:var(--card);border:1px solid var(--linha);border-radius:12px;
+          margin:14px 18px;padding:14px 18px 16px}
+  .uiCard-cab{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  .badge{width:22px;height:22px;border-radius:6px;background:rgba(166,226,46,.14);
+         color:var(--verde);display:flex;align-items:center;justify-content:center;
+         font-size:11px;font-weight:700;flex:none}
+  .uiCard-cab h3{margin:0;font-size:14px;font-weight:650;flex:1}
+  .uiCard-cab .n{color:var(--muted);font-size:11.5px}
+  .div{height:1px;background:rgba(255,255,255,.06);margin:0 0 12px}
+
+  .grade{display:grid;grid-template-columns:repeat(3,1fr);gap:7px 18px;margin-top:6px}
+  .grade .k{color:var(--muted);font-size:10px;font-weight:700;letter-spacing:.6px;
+            text-transform:uppercase}
+  .grade .v{color:var(--txt);font-size:12.5px;font-weight:600}
+
+  .sit{font-size:13px;margin-bottom:4px}
+  .sit b{color:var(--verde)}
+  .sit .dias-vermelho{color:var(--vermelho)} .sit .dias-ambar{color:var(--ambar)}
+  .sit-edit{display:flex;align-items:center;gap:10px;margin-top:10px}
+  .sit-edit label{color:var(--muted);font-size:11.5px}
+  .sit-edit select{width:230px}
+
+  textarea{width:100%;height:62px;background:var(--card);border:1px solid var(--borda);
+           border-radius:8px;padding:7px 9px;color:#e6e8ef;font-family:inherit;
+           font-size:13px;resize:none}
+  textarea::placeholder{color:#59617a}
+  .composer-linha{display:flex;justify-content:flex-end;margin-top:8px}
+
+  /* linha do tempo — _Entrada */
+  .log{margin-top:12px}
+  .log-item{display:flex;gap:14px;padding:5px 0 5px 14px;border-left:2px solid var(--borda)}
+  .log-data{width:46px;flex:none;color:var(--verde);font-size:12px;font-weight:700;line-height:1.25}
+  .log-data i{display:block;color:var(--muted2);font-size:10px;font-style:normal}
+  .log-txt{flex:1;color:var(--txt2);font-size:12.5px;line-height:1.5}
+  .log-quem{color:var(--muted);font-size:10.5px;flex:none}
+  .log-orig{color:var(--muted2);font-size:10px;font-style:italic;flex:none}
+
+  .rodape{display:flex;align-items:center;gap:9px;padding:11px 18px 13px;
+          border-top:1px solid rgba(255,255,255,.06)}
+  .rodape .espaco{flex:1}
+
+  .nota{margin:26px var(--pad-x) 0;padding:12px 16px;border-left:3px solid var(--verde);
+        background:rgba(166,226,46,.07);border-radius:0 6px 6px 0;
+        font-size:12.5px;line-height:1.6;color:#c9d0de}
+  .nota b{color:var(--txt)}
+  @media (max-width:900px){ .board,.fila,.grade{grid-template-columns:1fr 1fr} }
+  @media (max-width:620px){ .board,.fila,.grade{grid-template-columns:1fr} }
+</style>
+</head>
+<body>
+<div class="janela">
+
+  <!-- ═════════════════ 1. PAINEL (aba Chamados) ═════════════════ -->
+  <div class="titulo-secao">Aba Chamados — painel de acompanhamento</div>
+
+  <div class="barra">
+    <span class="hint">6 chamado(s) — clique num card para abrir</span>
+    <span style="flex:1"></span>
+    <button class="btn">Atualizar</button>
+  </div>
+
+  <!-- fila: clicar filtra; clicar de novo mostra tudo -->
+  <div class="fila">
+    <div class="kpi abrir sel"><b>7</b><span>A abrir</span></div>
+    <div class="kpi aguard"><b>23</b><span>Aguardando fabricante</span></div>
+    <div class="kpi garantia"><b>9</b><span>Garantia aprovada</span></div>
+    <div class="kpi fim"><b>41</b><span>Concluídos</span></div>
+  </div>
+
+  <div class="filtros">
+    <label for="f-fab">Fabricante</label>
+    <select id="f-fab">
+      <option>todos</option><option>Axial</option><option>Canadian Solar</option>
+      <option>Convert</option><option>Huawei</option><option>Hukseflux</option>
+      <option>Soltec</option><option selected>STI</option><option>Sungrow</option>
+      <option>Trina</option><option>Brametal</option><option>SolarEdge</option>
+      <option>Romiotto</option>
+    </select>
+    <label for="f-esp">Aguardando</label>
+    <select id="f-esp">
+      <option>todos</option><option>Fabricante</option><option>Cliente</option>
+      <option>Supervisor</option><option>Pré-Operação</option>
+      <option>Equipe de campo</option><option>Ninguém — ação nossa</option>
+    </select>
+  </div>
+
+  <!-- ordem: mais tempo sem atualização primeiro; concluídos por último -->
+  <div class="board">
+
+    <div class="ch aguard">
+      <div class="ch-topo"><span class="ch-os">OS 9587</span><span class="ch-pai">pai 9102</span></div>
+      <div class="ch-status">
+        <span class="chip chip-os">OS · Em Processo</span>
+        <span class="chip chip-ch c-ambar">Testes adicionais solicitados</span>
+      </div>
+      <div class="ch-fab">STI</div>
+      <div class="ch-ativo">TCU — Tracker 5.112 sem comunicação</div>
+      <div class="ch-usina">Ultragaz · Ibirapuã 1 — BA</div>
+      <div class="ch-rodape r-velho">há 41 dias sem atualização</div>
+    </div>
+
+    <div class="ch abrir">
+      <div class="ch-topo"><span class="ch-os">OS 9614</span><span class="ch-pai">pai 9180</span></div>
+      <div class="ch-status">
+        <span class="chip chip-os">OS · Em Processo</span>
+        <span class="chip chip-ch c-vermelho">A abrir</span>
+      </div>
+      <div class="ch-fab">Canadian Solar</div>
+      <div class="ch-ativo">Inversor 1.4 — falha F08</div>
+      <div class="ch-usina">Thopen · Céu Azul 1 — PR</div>
+      <div class="ch-rodape r-sem">sem histórico de atualizações</div>
+    </div>
+
+    <div class="ch aguard">
+      <div class="ch-topo"><span class="ch-os">OS 9402</span><span class="ch-pai">pai 8977</span></div>
+      <div class="ch-status">
+        <span class="chip chip-os">OS · Em Processo</span>
+        <span class="chip chip-ch c-ambar">Documentação / NF pendente</span>
+      </div>
+      <div class="ch-fab">Huawei</div>
+      <div class="ch-ativo">Inversor 03 — placa de potência</div>
+      <div class="ch-usina">Athon · Tanabi — SP</div>
+      <div class="ch-rodape r-medio">há 18 dias sem atualização</div>
+    </div>
+
+    <div class="ch garantia">
+      <div class="ch-topo"><span class="ch-os">OS 9288</span><span class="ch-pai">pai 8901</span></div>
+      <div class="ch-status">
+        <span class="chip chip-os">OS · Em Processo</span>
+        <span class="chip chip-ch c-azul">Garantia aprovada</span>
+      </div>
+      <div class="ch-fab">Trina</div>
+      <div class="ch-ativo">Módulo — trinca em 4 unidades</div>
+      <div class="ch-usina">Semp · Matão 1 — SP</div>
+      <div class="ch-rodape r-novo">há 3 dias sem atualização</div>
+    </div>
+
+    <div class="ch fim">
+      <div class="ch-topo"><span class="ch-os">OS 9310</span><span class="ch-pai">pai 8840</span></div>
+      <div class="ch-status">
+        <span class="chip chip-os">OS · Em Verificação</span>
+        <span class="chip chip-ch c-ok">Defeituoso coletado</span>
+      </div>
+      <div class="ch-fab">Hukseflux</div>
+      <div class="ch-ativo">Piranômetro — estação meteorológica</div>
+      <div class="ch-usina">Alves Lima · Junco — CE</div>
+      <div class="ch-rodape r-novo">atualizado hoje</div>
+    </div>
+
+    <div class="ch fim">
+      <div class="ch-topo"><span class="ch-os">OS 9201</span><span class="ch-pai">pai 8755</span></div>
+      <div class="ch-status">
+        <span class="chip chip-os">OS · Concluída</span>
+        <span class="chip chip-ch c-ok">Concluído</span>
+      </div>
+      <div class="ch-fab">Soltec</div>
+      <div class="ch-ativo">Gateway sem comunicação</div>
+      <div class="ch-usina">Axis · PE III — PE</div>
+      <div class="ch-rodape r-novo">há 6 dias sem atualização</div>
+    </div>
+
+  </div>
+
+  <!-- ═════════════════ 2. TELA DO CHAMADO ═════════════════ -->
+  <div class="titulo-secao">Tela do chamado — abre ao clicar num card</div>
+
+  <div class="tela">
+    <div class="uiCard">
+      <div class="uiCard-cab"><span class="badge">C</span><h3>Chamado — OS 9587</h3></div>
+      <div class="div"></div>
+      <div style="font-size:14px;font-weight:700">TCU — Tracker 5.112 sem comunicação</div>
+      <div style="color:var(--muted);font-size:12.5px">Ultragaz · Ibirapuã 1 — BA</div>
+      <div class="grade">
+        <div><div class="k">Ticket / RMA</div><div class="v">STI-44210</div></div>
+        <div><div class="k">Fabricante</div><div class="v">STI</div></div>
+        <div><div class="k">Serial</div><div class="v">TCU-9912</div></div>
+        <div><div class="k">Nº do RMA</div><div class="v">—</div></div>
+        <div><div class="k">OS pai</div><div class="v">9102</div></div>
+        <div><div class="k">Status da OS</div><div class="v">Em Processo</div></div>
+      </div>
+    </div>
+
+    <div class="uiCard">
+      <div class="uiCard-cab"><span class="badge">S</span><h3>Situação</h3></div>
+      <div class="div"></div>
+      <div class="sit">Chamado: <b>Testes adicionais solicitados</b> &nbsp;·&nbsp;
+        aguardando <b style="color:var(--txt)">Fabricante</b> &nbsp;·&nbsp;
+        última atualização <span class="dias-vermelho">há <b style="color:var(--vermelho)">41</b> dias</span></div>
+      <div class="sit-edit">
+        <label>Status do chamado</label>
+        <select>
+          <option>A abrir</option><option>Aberto — aguardando fabricante</option>
+          <option selected>Testes adicionais solicitados</option>
+          <option>Evidências enviadas — em análise</option><option>Garantia aprovada</option>
+          <option>Garantia negada — orçamento</option><option>Documentação / NF pendente</option>
+          <option>Equipamento novo a caminho</option><option>Novo recebido na usina</option>
+          <option>Defeituoso coletado</option><option>Concluído</option>
+        </select>
+        <label>Aguardando</label>
+        <select>
+          <option selected>Fabricante</option><option>Cliente</option><option>Supervisor</option>
+          <option>Pré-Operação</option><option>Equipe de campo</option>
+          <option>Ninguém — ação nossa</option>
+        </select>
+        <span style="flex:1"></span>
+        <button class="btn">Salvar situação</button>
+      </div>
+    </div>
+
+    <div class="uiCard">
+      <div class="uiCard-cab"><span class="badge">A</span><h3>Atualizações</h3>
+        <span class="n">5 registro(s)</span></div>
+      <div class="div"></div>
+      <textarea placeholder="O que aconteceu? (a data entra sozinha)"></textarea>
+      <div class="composer-linha"><button class="btn-primario">Adicionar atualização</button></div>
+
+      <div class="log">
+        <div class="log-item">
+          <div class="log-data">25/07<i>2026</i></div>
+          <div class="log-txt">Reenviadas as medições de tensão do painel PV solicitadas pelo suporte.</div>
+          <div class="log-quem">Singrid Vieira</div>
+        </div>
+        <div class="log-item">
+          <div class="log-data">14/07<i>2026</i></div>
+          <div class="log-txt">Status: Aberto — aguardando fabricante → Testes adicionais solicitados</div>
+          <div class="log-quem">Singrid Vieira</div>
+        </div>
+        <div class="log-item">
+          <div class="log-data">12/07<i>2026</i></div>
+          <div class="log-txt">Chamado aberto no fabricante — protocolo STI-44210.</div>
+          <div class="log-quem">Singrid Vieira</div>
+        </div>
+        <div class="log-item">
+          <div class="log-data">05/07<i>2026</i></div>
+          <div class="log-txt">Abertura de solicitação Nº 578 para testes em campo</div>
+          <div class="log-orig">planilha</div>
+        </div>
+        <div class="log-item">
+          <div class="log-data">02/07<i>2026</i></div>
+          <div class="log-txt">Fabricante solicitou evidências que serão enviadas após teste em campo</div>
+          <div class="log-orig">planilha</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rodape">
+      <button class="btn">Abrir a OS no app</button>
+      <button class="btn">Marcar chamado como aberto</button>
+      <span class="espaco"></span>
+      <button class="btn">Fechar</button>
+    </div>
+  </div>
+
+  <div class="nota">
+    <b>Ao portar de volta:</b> o Qt aplica só um subconjunto de CSS — background, color,
+    border, border-radius, padding, font-* e min/max-width/height. Espaçamento entre elementos
+    <b>não</b> é <i>gap</i>: vira <code>setSpacing()</code> e <code>setContentsMargins()</code> nos
+    layouts. As larguras dos dois chips de status são fixas no código (118 px e 176 px) porque
+    texto longo empurrava a largura do card e estourava as três colunas — se mudar, ajuste em
+    <code>_chip(largura=)</code>. E toda regra de borda precisa de seletor por id
+    (<code>QFrame#chamCard</code>), senão a borda vaza para os rótulos filhos.
+  </div>
+
+</div>
+</body>
+</html>

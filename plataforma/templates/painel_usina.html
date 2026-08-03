@@ -57,6 +57,36 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
 .diag .evid{font-size:11.5px;color:var(--muted);line-height:1.5;margin:6px 0;}
 .diag .act{font-size:11.5px;color:var(--txt);display:flex;align-items:center;gap:6px;border-top:1px solid var(--line);padding-top:7px;margin-top:4px;}
 .diag .act .k{color:var(--faint);}.diag .seec{font-size:10.5px;color:var(--blue);margin-left:auto;}
+/* Diagnóstico em LINHAS (não cards): a lista costuma ter 6+ itens e, em card, cada um ocupava
+   uma tela inteira — comparar dois inversores exigia rolar. A linha mostra o que decide a
+   triagem (inversor · causa · Δ pp) e o resto abre no clique. */
+.dtab{width:100%;border-collapse:collapse;font-size:12.5px;}
+.dtab th{text-align:left;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);
+  font-weight:700;padding:0 10px 6px;border-bottom:1px solid var(--line);}
+.dtab th.r,.dtab td.r{text-align:right;}
+.dtab tr.drow{cursor:pointer;border-bottom:1px solid var(--line);}
+.dtab tr.drow:hover{background:var(--raise);}
+.dtab tr.drow.open{background:var(--raise);}
+.dtab tr.drow td{padding:8px 10px;vertical-align:middle;}
+.dtab tr.drow td.sev{padding:0;width:4px;}                 /* faixa de severidade, sem texto */
+.dtab tr.drow td.sev i{display:block;width:4px;height:26px;border-radius:3px;background:var(--off);}
+.dtab tr.drow.critico td.sev i{background:var(--red);}
+.dtab tr.drow.atencao td.sev i{background:var(--amber);}
+.dtab .dnome{font-weight:600;white-space:nowrap;}
+.dtab .dcausa{color:var(--muted);}
+.dtab .dpp{font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;}
+.dtab .dpp.neg{color:var(--red);} .dtab .dpp.pos{color:var(--ok);}
+.dtab .dcar{color:var(--faint);font-size:10px;transition:transform .15s;display:inline-block;}
+.dtab tr.drow.open .dcar{transform:rotate(90deg);}
+.dtab tr.ddet>td{padding:0 10px 12px;border-bottom:1px solid var(--line);}
+.dtab tr.ddet .box{background:var(--panel-2);border-radius:9px;padding:10px 12px;}
+/* .evid/.act/.seec existiam só dentro de .diag (o card antigo) — fora dele não pegavam nada */
+.dtab .evid{font-size:11.5px;color:var(--muted);line-height:1.5;margin:0 0 6px;}
+.dtab .act{font-size:11.5px;color:var(--txt);display:flex;align-items:center;gap:6px;
+  border-top:1px solid var(--line);padding-top:7px;}
+.dtab .act .k{color:var(--faint);}
+.dtab .seec{font-size:10.5px;color:var(--blue);margin-left:auto;cursor:pointer;}
+.dtab .seec:hover{text-decoration:underline;}
 .cwrap{position:relative;width:100%;}
 .read{margin-top:10px;background:rgba(3,105,161,.06);border:1px solid rgba(3,105,161,.2);border-radius:9px;padding:9px 12px;font-size:11.5px;color:var(--blue);line-height:1.5;}
 .read b{color:var(--txt);}
@@ -393,9 +423,47 @@ async function boot(){
   loadFracttalOS(); loadCascata();
   // trackers vêm por último, quando resolverem — a fonte lenta não segura o resto
   pTrk.then(trk=>{ TRK=trk; _safe('trk',()=>renderTrackers(trk)); });
+  completarIrmas();          // junta os inversores das plantas irmãs (Nova Londrina 1 + 2)
   // ?inv=Inversor N.M (vindo do Histórico PR do Painel NOC) → já abre a curva desse inversor
   const qinv=Q.get('inv');
   if(qinv){ document.getElementById('invCurvaCard').scrollIntoView({behavior:'smooth'}); selInvCurva(qinv); }
+}
+
+/* ── Usina fatiada em VÁRIAS plantas no API PV ────────────────────────────────────────────
+   Nova Londrina é uma usina só para quem opera, mas está cadastrada como duas plantas
+   (`Nova Londrina 1 (152)` id 22854, 8 inversores · `Nova Londrina 2 (153)` id 22855, 10).
+   O portfólio já as junta pelo USINA_GRUPO; o drill abria só a plantaclicada, e quem olhava
+   via 8 inversores e concluía que a usina tinha 8.
+
+   Só INVERSORES são mesclados. Os nomes deles carregam a planta (`Inversor 1.x` × `2.x`), então
+   concatenar é seguro. TRACKERS ficam de fora de propósito: os ids se repetem entre as plantas
+   (46 "TRK1..TRK46" nas duas), e a curva de correlação é buscada por plant_id — juntar sem
+   carregar a planta junto mostraria a curva da planta ERRADA sob o nome certo, que é pior do
+   que mostrar de menos.
+
+   Roda DEPOIS do primeiro render: a tela abre com a planta clicada e completa quando a irmã
+   responde, em vez de segurar tudo esperando a fonte mais lenta. */
+async function completarIrmas(){
+  if(FONTE!=='pv') return;
+  let g; try{ g=await fetch('/api/pv/grupo/'+ID).then(r=>r.json()); }catch(e){ return; }
+  const membros=(g&&g.membros)||[];
+  const outras=membros.filter(m=>String(m.id)!==String(PLANT_ID));
+  if(!outras.length) return;                       // usina de planta única: nada a fazer
+  const vindos=await Promise.all(outras.map(m=>
+    fetch('/api/plant/'+m.id).then(r=>r.json()).then(p=>({m,p})).catch(()=>null)));
+  let n=0;
+  vindos.filter(Boolean).forEach(({p})=>{
+    const invs=(p&&p.inversores)||[];
+    if(!invs.length) return;
+    PLANT=PLANT||{inversores:[]};
+    PLANT.inversores=(PLANT.inversores||[]).concat(invs);
+    n+=invs.length;
+  });
+  if(!n) return;
+  _safe('heat',()=>renderHeat(PLANT)); _safe('below',renderBelow); _safe('invalerta',renderInvAlerta);
+  // Sem dizer isso, "18 inversores" numa usina que todos conhecem como de 8 parece erro de dado.
+  const sub=document.getElementById('hmSub');
+  if(sub) sub.innerHTML+=` · <b>${membros.length} plantas somadas</b> (${membros.map(m=>m.nome).join(' + ')})`;
 }
 // seletor de dia da Curva do inversor começa em HOJE
 (function(){ const d=new Date(), el=document.getElementById('icData');
@@ -687,8 +755,17 @@ function enrichDiags(base){
       });
     }
   }
+  // Δ pp vs meta como NÚMERO. Antes ele só existia dentro do texto da evidência, então a lista
+  // não tinha como ordenar nem virar coluna — quem triava lia 6 parágrafos para achar o pior.
+  base.forEach(d=>{
+    if(d._dpp!=null) return;
+    const v=d._inv&&INVPR[d._inv];
+    if(v&&v.pr!=null&&meta!=null) d._dpp=v.pr-meta;
+  });
   const rank={critico:0,atencao:1,informativo:2};
-  base.sort((a,b)=>(rank[a.severidade]??1)-(rank[b.severidade]??1));
+  // dentro da mesma severidade, pior Δ primeiro: é a ordem em que se ataca
+  base.sort((a,b)=>((rank[a.severidade]??1)-(rank[b.severidade]??1))
+                 || ((a._dpp??99)-(b._dpp??99)));
   return base;
 }
 function refreshDiag(){ renderBelow(); renderDiags(); }
@@ -763,24 +840,47 @@ function renderDiags(){
     :`<div class="csub" style="margin:0 0 8px">Fonte ${CFG.label}: sem motor analógico — cruzo strings (abaixo dos pares)${extra}.</div>`;
   const el=document.getElementById('diags');
   if(!ds.length){el.innerHTML=nota+'<div class="empty">Sem anomalias — usina dentro do esperado. 🎉</div>';return;}
-  el.innerHTML=nota+ds.map((d,i)=>{
-    const trkMatch=(d.causa||'').toLowerCase().includes('tracker');
-    const invMatch=!trkMatch&&d._inv;   // diagnóstico ligado a um inversor → clique abre a curva dele
-    return `<div class="diag ${SEVCLS[d.severidade]||'atencao'}" data-i="${i}" ${trkMatch?`data-trk="1"`:''}>`+
-      `<div class="dtop"><div class="cause"><span>${causaIco(d.causa)}</span><span><span class="pre">Causa provável</span>${d.causa}</span></div>`+
-      (d.confianca?`<span class="conf ${d.confianca}">conf. ${d.confianca}</span>`:'')+`</div>`+
-      `<div class="where">${d.escopo||''}</div>`+
-      (d.evidencia&&d.evidencia.length?`<div class="evid">${d.evidencia.join(' ')}</div>`:'')+
-      `<div class="act"><span class="k">Ação:</span> ${d.acao||'—'}${(trkMatch||invMatch)?'<span class="seec">ver curva →</span>':''}</div></div>`;
-  }).join('');
-  el.querySelectorAll('.diag').forEach(e=>e.onclick=()=>{
-    el.querySelectorAll('.diag').forEach(x=>x.classList.remove('sel'));e.classList.add('sel');
-    const d=ds[+e.dataset.i];
-    // tracker → curva de ângulo; inversor → curva do inversor (heatmap)
-    const m=(d.acao+' '+(d.evidencia||[]).join(' ')).match(/tracker\(?s?\)?\s*([\d, ]+)/i);
-    if(m){const n=m[1].split(/[, ]+/).filter(Boolean)[0];if(n)drawCurveByNum(n);}
+  // LINHA fina por diagnóstico; evidência e ação abrem no clique. A linha carrega só o que
+  // decide a triagem: onde, o quê e quanto abaixo — o "porquê" é leitura, não varredura.
+  el.innerHTML=nota+`<table class="dtab">
+    <thead><tr><th></th><th>Inversor / escopo</th><th>Causa provável</th>
+      <th class="r" title="PR do mês do inversor menos a meta da UFV, em pontos percentuais.">Δ vs meta</th>
+      <th class="r">Conf.</th><th></th></tr></thead>
+    <tbody>`+ds.map((d,i)=>{
+      const dpp=d._dpp;
+      const ppTxt=(dpp==null)?'—':_pp(dpp);
+      const ppCls=(dpp==null)?'':(dpp<0?'neg':'pos');
+      return `<tr class="drow ${SEVCLS[d.severidade]||'atencao'}" data-i="${i}">`+
+        `<td class="sev"><i></i></td>`+
+        `<td class="dnome">${d.escopo||'—'}</td>`+
+        `<td class="dcausa">${causaIco(d.causa)} ${d.causa||''}</td>`+
+        `<td class="r dpp ${ppCls}">${ppTxt}</td>`+
+        `<td class="r">${d.confianca?`<span class="conf ${d.confianca}">${d.confianca}</span>`:''}</td>`+
+        `<td class="r"><span class="dcar">▶</span></td></tr>`+
+      `<tr class="ddet" data-det="${i}" hidden><td colspan="6"><div class="box">`+
+        (d.evidencia&&d.evidencia.length?`<div class="evid" style="margin-top:0">${d.evidencia.join(' ')}</div>`:'')+
+        `<div class="act"><span class="k">Ação:</span> ${d.acao||'—'}`+
+        `<span class="seec" data-curva="${i}">ver curva →</span></div>`+
+      `</div></td></tr>`;
+    }).join('')+`</tbody></table>`;
+
+  const curva=(d)=>{     // tracker → curva de ângulo; inversor → curva do inversor (heatmap)
+    const m=((d.acao||'')+' '+(d.evidencia||[]).join(' ')).match(/tracker\(?s?\)?\s*([\d, ]+)/i);
+    if(m){ const n=m[1].split(/[, ]+/).filter(Boolean)[0]; if(n) drawCurveByNum(n); }
     else if(d._inv){ selInvCurva(d._inv); }
+  };
+  el.querySelectorAll('tr.drow').forEach(tr=>{
+    tr.onclick=()=>{
+      const i=+tr.dataset.i, det=el.querySelector(`tr.ddet[data-det="${i}"]`);
+      const abrir=det.hidden;
+      // uma aberta por vez: com 6+ linhas abertas some a vantagem de ser lista
+      el.querySelectorAll('tr.ddet').forEach(x=>x.hidden=true);
+      el.querySelectorAll('tr.drow').forEach(x=>x.classList.remove('open'));
+      if(abrir){ det.hidden=false; tr.classList.add('open'); }
+    };
   });
+  // a curva é ação explícita do link, não efeito colateral de abrir a linha
+  el.querySelectorAll('.seec').forEach(s=>s.onclick=(ev)=>{ ev.stopPropagation(); curva(ds[+s.dataset.curva]); });
 }
 
 function renderHeat(plant){

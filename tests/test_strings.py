@@ -206,7 +206,7 @@ def test_marca_inv_sub_usina_homogenea_nao_marca():
 
 
 def test_jwt_exp_le_exp_do_payload():
-    # _jwt_exp decide qual token SunOp usar (maior validade entre sunop_token.txt e .env).
+    # _jwt_exp decide qual token SunOp usar (maior validade entre tokens_runtime.json e .env).
     import base64
     import json as _json
     def mk(e):
