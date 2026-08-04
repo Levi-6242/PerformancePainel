@@ -38,8 +38,8 @@ from flask import Flask, jsonify, render_template, request
 # (data/BD_Thopen.xlsx, data/Polaris, data/Matrix, data/Copel). Local, sem a env, segue lendo AO VIVO
 # do OneDrive (dados sempre atuais). Atualizar a nuvem = novo push da pasta data/.
 _DATA_DIR = os.environ.get("THOPEN_DATA_DIR")
-if not _DATA_DIR and any(k.startswith("RAILWAY_") for k in os.environ):
-    _DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")  # auto na nuvem Railway
+if not _DATA_DIR and any(k.startswith(("RAILWAY_", "RENDER")) for k in os.environ):
+    _DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")  # auto na nuvem
 
 _CANDIDATOS = [
     os.environ.get("BD_THOPEN_PATH"),

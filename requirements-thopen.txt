@@ -1,0 +1,7 @@
+# Dependências do dashboard Thopen (dashboard_thopen.py) — SÓ isto.
+# O requirements.txt da raiz é do app.py da plataforma e arrasta pandas/numpy/
+# matplotlib/psycopg2, que este dashboard não importa. Num tier grátis (512 MB)
+# isso custa build lento e memória à toa, então o deploy usa este arquivo.
+flask==3.1.3
+openpyxl==3.1.5
+gunicorn==23.0.0
