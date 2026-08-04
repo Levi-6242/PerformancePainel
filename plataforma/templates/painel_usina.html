@@ -7,13 +7,10 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
+/* TEMA ÚNICO: azul-marinho (bg #090d18, cards #161d30) — verde Grid + branco, SEM lilás.
+   O tema claro foi removido a pedido do Levi (25/07): esta tela é de diagnóstico e vivia
+   aberta ao lado do Monitoramento, que é escuro — alternar só criava inconsistência. */
 :root{
-  --bg:#f3f5f0; --panel:#ffffff; --panel-2:#f8fafc; --raise:#eef2f7;
-  --line:#e5e7eb; --line-2:#d8dee6; --txt:#1a1b2e; --muted:#6b7280; --faint:#9aa1ad;
-  --brand:#7aa300; --brand-d:#5f7f00; --ok:#16a34a; --amber:#d97706; --red:#dc2626; --off:#94a3b8; --blue:#0369a1;
-  --nav:#0f1117; --shadow:0 1px 12px rgba(0,0,0,.06),0 4px 24px rgba(0,0,0,.04); --font:'Inter',system-ui,sans-serif;
-}
-body.dark{  /* azul-marinho (bg #090d18, cards #161d30) — verde Grid + branco, SEM lilás (pedido Levi) */
   --bg:#090d18; --panel:#161d30; --panel-2:#1c2640; --raise:#243154;
   --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.13); --txt:#e9eef6; --muted:#94a3b8; --faint:#64748b;
   --brand:#a3d900; --brand-d:#8bbf00; --ok:#6FA01E; --amber:#F0B53D; --red:#FF5C4D; --off:#475569; --blue:#5BC8E8;
@@ -41,7 +38,8 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
 .bc .l{font-size:11px;color:var(--muted);}.bc .v{font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.1;margin-top:3px;}
 .bc .v small{font-size:14px;color:var(--faint);font-weight:500;}.bc .s{font-size:11px;color:var(--faint);margin-top:2px;}
 .bc.crit .v{color:var(--red);}.bc.warn .v{color:var(--amber);}
-.cols{display:grid;grid-template-columns:1.35fr 1fr;gap:14px;align-items:start;}
+/* diagnóstico mais largo, coluna dos inversores enxuta (Levi 22/07: aproveitar o espaço vazio do heatmap) */
+.cols{display:grid;grid-template-columns:1.75fr 1fr;gap:14px;align-items:start;}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px 16px;box-shadow:var(--shadow);}
 .card h3{margin:0 0 2px;font-size:14px;font-weight:600;display:flex;align-items:center;gap:7px;}
 .card .csub{font-size:11px;color:var(--faint);margin-bottom:12px;}
@@ -59,21 +57,51 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
 .diag .evid{font-size:11.5px;color:var(--muted);line-height:1.5;margin:6px 0;}
 .diag .act{font-size:11.5px;color:var(--txt);display:flex;align-items:center;gap:6px;border-top:1px solid var(--line);padding-top:7px;margin-top:4px;}
 .diag .act .k{color:var(--faint);}.diag .seec{font-size:10.5px;color:var(--blue);margin-left:auto;}
+/* Diagnóstico em LINHAS (não cards): a lista costuma ter 6+ itens e, em card, cada um ocupava
+   uma tela inteira — comparar dois inversores exigia rolar. A linha mostra o que decide a
+   triagem (inversor · causa · Δ pp) e o resto abre no clique. */
+.dtab{width:100%;border-collapse:collapse;font-size:12.5px;}
+.dtab th{text-align:left;font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);
+  font-weight:700;padding:0 10px 6px;border-bottom:1px solid var(--line);}
+.dtab th.r,.dtab td.r{text-align:right;}
+.dtab tr.drow{cursor:pointer;border-bottom:1px solid var(--line);}
+.dtab tr.drow:hover{background:var(--raise);}
+.dtab tr.drow.open{background:var(--raise);}
+.dtab tr.drow td{padding:8px 10px;vertical-align:middle;}
+.dtab tr.drow td.sev{padding:0;width:4px;}                 /* faixa de severidade, sem texto */
+.dtab tr.drow td.sev i{display:block;width:4px;height:26px;border-radius:3px;background:var(--off);}
+.dtab tr.drow.critico td.sev i{background:var(--red);}
+.dtab tr.drow.atencao td.sev i{background:var(--amber);}
+.dtab .dnome{font-weight:600;white-space:nowrap;}
+.dtab .dcausa{color:var(--muted);}
+.dtab .dpp{font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;}
+.dtab .dpp.neg{color:var(--red);} .dtab .dpp.pos{color:var(--ok);}
+.dtab .dcar{color:var(--faint);font-size:10px;transition:transform .15s;display:inline-block;}
+.dtab tr.drow.open .dcar{transform:rotate(90deg);}
+.dtab tr.ddet>td{padding:0 10px 12px;border-bottom:1px solid var(--line);}
+.dtab tr.ddet .box{background:var(--panel-2);border-radius:9px;padding:10px 12px;}
+/* .evid/.act/.seec existiam só dentro de .diag (o card antigo) — fora dele não pegavam nada */
+.dtab .evid{font-size:11.5px;color:var(--muted);line-height:1.5;margin:0 0 6px;}
+.dtab .act{font-size:11.5px;color:var(--txt);display:flex;align-items:center;gap:6px;
+  border-top:1px solid var(--line);padding-top:7px;}
+.dtab .act .k{color:var(--faint);}
+.dtab .seec{font-size:10.5px;color:var(--blue);margin-left:auto;cursor:pointer;}
+.dtab .seec:hover{text-decoration:underline;}
 .cwrap{position:relative;width:100%;}
 .read{margin-top:10px;background:rgba(3,105,161,.06);border:1px solid rgba(3,105,161,.2);border-radius:9px;padding:9px 12px;font-size:11.5px;color:var(--blue);line-height:1.5;}
 .read b{color:var(--txt);}
 .legend{display:flex;flex-wrap:wrap;gap:11px;font-size:10px;color:var(--muted);margin:2px 0 10px;}
 .legend span{display:flex;align-items:center;gap:5px;}.sw{width:11px;height:11px;border-radius:3px;display:inline-block;}
-.hm-row{display:grid;grid-template-columns:92px 1fr;align-items:center;gap:11px;padding:5px 8px;border-radius:8px;}
-#heatmap.haspr .hm-row{grid-template-columns:96px 92px 1fr;}   /* pílula de PR | inversor | strings */
-.hm-row:nth-child(even){background:var(--panel-2);}
+/* linhas do heatmap: SEM zebra (fundo único — Levi 22/07) e ~20% mais compactas */
+.hm-row{display:grid;grid-template-columns:74px 1fr;align-items:center;gap:9px;padding:3px 6px;border-radius:7px;}
+#heatmap.haspr .hm-row{grid-template-columns:77px 74px 1fr;}   /* pílula de PR | inversor | strings */
 .hm-row:hover{background:var(--raise);}
-.hm-label{font-size:11.5px;color:var(--txt);font-weight:500;white-space:nowrap;}
-.hm-cells{display:grid;gap:3px;}.cell{height:15px;border-radius:3px;}
+.hm-label{font-size:10px;color:var(--txt);font-weight:500;white-space:nowrap;}
+.hm-cells{display:grid;gap:2px;}.cell{height:12px;border-radius:3px;}
 .hm-pr{display:none;}
 #heatmap.haspr .hm-pr{display:block;justify-self:start;text-align:left;}
-.hm-pr .pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:20px;font-weight:700;font-size:11.5px;white-space:nowrap;}
-.hm-pr .pill .dl{font-size:9.5px;font-weight:600;}
+.hm-pr .pill{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:20px;font-weight:700;font-size:9.5px;white-space:nowrap;}
+.hm-pr .pill .dl{font-size:8px;font-weight:600;}
 /* Balão de comentários flutuante */
 .cm-fab{position:fixed;right:22px;bottom:22px;width:54px;height:54px;border-radius:50%;background:var(--brand);color:#16140e;display:flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 6px 22px rgba(0,0,0,.28);z-index:60;border:0;}
 .cm-fab:hover{filter:brightness(1.06);}
@@ -83,7 +111,12 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
 .cm-panel .cm-head .x{cursor:pointer;font-size:16px;line-height:1;opacity:.7;}.cm-panel .cm-head .x:hover{opacity:1;}
 .cm-panel .cm-body{padding:12px 14px;max-height:min(46vh,300px);overflow:auto;}
 .cm-panel .cm-foot{display:flex;gap:6px;padding:10px 12px;border-top:1px solid var(--line);}
-#trackers{max-height:440px;overflow:auto;padding-right:4px;}
+/* scroll na borda do card e 50% mais fino (Levi 22/07): margin negativa cola na borda; thin ~5px.
+   padding-top: dá folga p/ o lift do hover não ser cortado pelo overflow (a borda comia a cabeça). */
+#trackers{max-height:440px;overflow-y:auto;overflow-x:hidden;margin-right:-10px;padding:4px 6px 2px 2px;scrollbar-width:thin;scrollbar-color:var(--line-2) transparent;}
+#trackers::-webkit-scrollbar{width:5px;}
+#trackers::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:4px;}
+#trackers::-webkit-scrollbar-track{background:transparent;}
 .trk{margin-bottom:9px;}.trk .th{display:flex;justify-content:space-between;font-size:11.5px;margin-bottom:4px;}
 .trk .dev{font-weight:600;}.trk .dev.ok{color:var(--ok);}.trk .dev.bad{color:var(--red);}
 .angbar{position:relative;height:8px;background:var(--panel-2);border-radius:6px;}
@@ -91,7 +124,26 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
 .angbar .real{position:absolute;top:0;bottom:0;width:8px;border-radius:50%;background:var(--amber);transform:translateX(-4px);}
 .angbar .real.bad{background:var(--red);}
 .trkscale{display:flex;justify-content:space-between;font-size:8.5px;color:var(--faint);margin-top:2px;}
+/* Cards de tracker (6/linha) — cor do card = status; ordenados parado→severo→médio→leve→normal (Levi 22/07) */
+/* auto-fill: adapta ao número de colunas que couber na coluna (agora mais estreita) */
+.trkgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:8px;}
+/* card de tracker — tudo CENTRALIZADO e harmônico (Levi 22/07): nome+status no mesmo tamanho/cor;
+   ângulo e alvo/desvio centralizados. Sem alinhamentos tortos. */
+.tcard{border-radius:10px;padding:13px 8px 10px;border:1px solid var(--tc);background:color-mix(in srgb,var(--tc) 12%,var(--panel));cursor:pointer;transition:transform .1s;text-align:center;}
+.tcard:hover{transform:translateY(-1px);}
+.tcard .tnm{font-size:11px;font-weight:600;color:var(--muted);line-height:1.2;}     /* nome CINZA (Levi 22/07) */
+.tcard .tst{font-size:10.5px;font-weight:700;color:var(--tc);margin-bottom:4px;line-height:1.2;}
+.tcard .tang{font-size:15px;font-weight:700;color:var(--tc);font-variant-numeric:tabular-nums;line-height:1;margin-bottom:4px;}
+.tcard .tsub{font-size:9px;color:var(--faint);}
 .empty{color:var(--faint);font-size:12px;padding:18px;text-align:center;}
+/* Carregando ≠ vazio. Antes os blocos nasciam com "—" ou "Sem trackers." e só depois
+   enchiam: quem abria a tela lia "não tem nada" e um segundo depois via a lista aparecer.
+   O spinner deixa claro que o dado está a caminho. */
+.loading{display:flex;align-items:center;justify-content:center;gap:9px;padding:18px 10px;color:var(--muted);font-size:12.5px;}
+.loading::before{content:'';width:15px;height:15px;flex:none;border-radius:50%;
+  border:2px solid var(--line-2);border-top-color:var(--brand);animation:gcspin .7s linear infinite;}
+@keyframes gcspin{to{transform:rotate(360deg);}}
+@media (prefers-reduced-motion:reduce){.loading::before{animation-duration:2.4s;}}
 .foot{margin-top:22px;text-align:center;font-size:10.5px;color:var(--faint);}.foot b{color:var(--brand-d);}
 @media(max-width:1080px){.below{grid-template-columns:repeat(2,1fr);}.cols{grid-template-columns:1fr;}}
 </style>
@@ -103,59 +155,92 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
   <div class="scope">▸ <b id="uName">Usina</b> <span id="uMeta"></span></div>
   <div class="spacer"></div>
   <div class="live-pill"><span class="pulse"></span> AO VIVO</div>
-  <button class="darkbtn" id="darkBtn" onclick="toggleDark()">Tema: Claro</button>
   <div class="upd" id="upd">—</div>
 </div>
 
 <div class="wrap">
+  <div id="invAlerta" style="display:none;margin-bottom:14px;padding:11px 14px;border-radius:10px;background:color-mix(in srgb,var(--amber) 12%,var(--panel));border:1px solid color-mix(in srgb,var(--amber) 40%,transparent);font-size:12.5px;line-height:1.5"></div>
   <div class="below" id="below"></div>
   <div class="cols">
     <div>
+      <!-- Diagnóstico ACIMA das Ordens de serviço (Levi 22/07): a causa vem antes do que se faz a respeito. -->
+      <div class="card" style="margin-bottom:14px">
+        <div><h3>Diagnósticos <span class="tagai">correlação automática</span></h3>
+        <div class="csub">O motor cruza string × inversor × ângulo de tracker (e telemetria do inversor, quando há) e entrega a causa provável.</div></div>
+        <!-- CASCATA DE PERDAS dentro do diagnóstico: "para onde foi o desvio" é a primeira pergunta. -->
+        <div id="cascCard" style="display:none;margin:4px 0 16px;padding:12px 13px;border:1px solid var(--line);border-radius:10px">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:2px">
+            <div style="font-size:12.5px;font-weight:600">Para onde foi o desvio</div>
+            <div style="display:flex;gap:6px;flex-wrap:wrap">
+              <!-- Qual visão mostrar. PR é o padrão: normaliza pela irradiância, então separa
+                   o que é clima do que é O&M — a pergunta que o analista faz primeiro. -->
+              <select id="cascVista" onchange="_cascSetVista(this.value)" title="Qual visão da cascata mostrar" style="background:var(--panel-2);color:inherit;border:1px solid var(--line-2);border-radius:7px;padding:4px 8px;font-size:12px;font-family:inherit;cursor:pointer">
+                <option value="pr">Em qualidade (PR)</option>
+                <option value="energia">Em energia (MWh)</option>
+                <option value="metas">Geração × metas</option>
+                <option value="todas">Todas</option>
+              </select>
+              <select id="cascMes" onchange="loadCascata(this.value)" title="Mês da cascata, PR e gráficos de barra (trackers seguem ao vivo)" style="background:var(--panel-2);color:inherit;border:1px solid var(--line-2);border-radius:7px;padding:4px 8px;font-size:12px;font-family:inherit;cursor:pointer"></select>
+            </div>
+          </div>
+          <div class="csub" id="cascSub" style="margin-bottom:10px">Da geração sem perdas (P50) à geração real.</div>
+          <div id="cascBody"><div class="loading">Calculando a cascata…</div></div>
+        </div>
+        <div class="diags" id="diags"><div class="loading">Cruzando string, inversor e tracker…</div></div>
+      </div>
       <div class="card" id="osCard" style="margin-bottom:14px;display:none">
         <div><h3>Ordens de serviço <span class="tagai">Fracttal</span></h3>
         <div class="csub" id="osSub">Corretiva, Corretiva Emergencial, Religamento e Religamento Remoto desta usina — abertas de qualquer data + concluídas do mês.</div></div>
         <div id="osList"><div class="empty">Buscando OSs no Fracttal…</div></div>
       </div>
-      <div class="card">
-        <div><h3>Diagnósticos <span class="tagai">correlação automática</span></h3>
-        <div class="csub">O motor cruza string × inversor × ângulo de tracker (e telemetria do inversor, quando há) e entrega a causa provável.</div></div>
-        <div class="diags" id="diags"><div class="empty">Carregando…</div></div>
-      </div>
+      <!-- CARD ÚNICO de curvas (Levi 22/07): Correlação | Inversor | Strings — Correlação é o padrão.
+           Fundiu os dois cards; os ids (chCorr/chInv/curveSub/etc.) foram preservados p/ o JS existente. -->
       <div class="card" style="margin-top:14px;" id="invCurvaCard">
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-          <h3 id="invCurvaTitle" style="margin:0">Curva do inversor</h3>
+          <h3 style="margin:0">Curva do Inversor e Correlação</h3>
           <input type="date" id="icData" onchange="icSetData()" title="Dia da curva (histórico D-1 pode demorar na 1ª carga)"
-            style="margin-left:auto;border:1px solid var(--line);border-radius:8px;padding:4px 8px;font-size:11.5px;font-family:inherit;background:var(--panel-2);color:var(--txt)">
+            style="margin-left:auto;border:1px solid var(--line);border-radius:8px;padding:4px 8px;font-size:11.5px;font-family:inherit;background:var(--panel-2);color:var(--txt);display:none">
           <span style="display:inline-flex;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px">
-            <button id="icModoInv" onclick="setInvCurvaModo('inv')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:var(--brand);color:#16140e">Inversor</button>
-            <button id="icModoStr" onclick="setInvCurvaModo('str')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">Strings</button>
+            <button id="vsCorr" onclick="setCurvaVista('corr')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:var(--brand);color:#16140e">Correlação</button>
+            <button id="vsInv" onclick="setCurvaVista('inv')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">Inversor</button>
+            <button id="vsStr" onclick="setCurvaVista('str')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">Strings</button>
           </span>
         </div>
-        <div class="csub" id="invCurvaSub" style="margin-top:6px">Clique num inversor no heatmap ao lado para ver a curva de corrente das suas strings.</div>
-        <div class="cwrap" style="height:240px"><canvas id="chInv"></canvas></div>
-        <div class="read" id="invCurvaRead" style="display:none"></div>
-      </div>
-      <div class="card" style="margin-top:14px;">
-        <h3 id="curveTitle">Correlação — curva do tracker</h3>
-        <div class="csub" id="curveSub">Clique num tracker ao lado (ou num diagnóstico de tracker) para ver a curva de ângulo do dia.</div>
-        <div class="cwrap" style="height:240px"><canvas id="chCorr"></canvas></div>
-        <div class="read" id="curveRead">A curva mostra o ângulo real do tracker ao longo do dia — um platô = travado.</div>
+        <div id="corrBlock">
+          <div id="curveTitle" style="font-size:12.5px;font-weight:600;color:var(--txt);margin-top:8px"></div>
+          <div class="csub" id="curveSub">Clique num tracker ao lado (ou num diagnóstico de tracker) para ver a curva de ângulo do dia.</div>
+          <div class="cwrap" style="height:240px"><canvas id="chCorr"></canvas></div>
+          <div class="read" id="curveRead">A curva mostra o ângulo real do tracker ao longo do dia — um platô = travado.</div>
+        </div>
+        <div id="invBlock" style="display:none">
+          <div id="invCurvaTitle" style="font-size:12.5px;font-weight:600;color:var(--txt);margin-top:8px"></div>
+          <div class="csub" id="invCurvaSub">Clique num inversor no heatmap ao lado para ver a curva de corrente das suas strings.</div>
+          <div class="cwrap" style="height:240px"><canvas id="chInv"></canvas></div>
+          <div class="read" id="invCurvaRead" style="display:none"></div>
+        </div>
       </div>
     </div>
     <div>
       <div class="card">
-        <div><h3>Inversores × strings</h3><div class="csub" id="hmSub">Status por string (corrente vs esperado) · trancadas ocultas</div></div>
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+          <div><h3>Inversores × strings</h3><div class="csub" id="hmSub">Status por string (corrente vs esperado) · trancadas ocultas</div></div>
+          <select id="prMes" onchange="loadInvPR(this.value)" title="Mês do PR por inversor" style="display:none;background:var(--panel-2);color:inherit;border:1px solid var(--line-2);border-radius:7px;padding:5px 8px;font-size:12px;font-family:inherit;cursor:pointer"></select>
+        </div>
         <div class="legend">
           <span><span class="sw" style="background:var(--ok)"></span>OK</span>
           <span><span class="sw" style="background:var(--amber)"></span>Baixa</span>
           <span><span class="sw" style="background:var(--red)"></span>Sem corrente</span>
+          <span><span class="sw" style="background:var(--panel-2)"></span>Sem produção (rampa/noite)</span>
           <span><span class="sw" style="background:#7f1d1d"></span>Inversor desligado</span>
         </div>
-        <div id="heatmap"><div class="empty">—</div></div>
+        <div id="heatmap"><div class="loading">Montando o mapa de calor…</div></div>
       </div>
       <div class="card" style="margin-top:14px;">
-        <div><h3>Trackers — ângulo real × alvo 🧭</h3><div class="csub" id="trkSub">Posição instantânea vs alvo de seguimento</div></div>
-        <div id="trackers"><div class="empty">—</div></div>
+        <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <h3 style="margin:0">Trackers — ângulo real × alvo</h3>
+          <div id="trkSub" style="font-size:11px;color:var(--muted);text-align:right"></div>
+        </div>
+        <div id="trackers"><div class="loading">Carregando trackers…</div></div>
       </div>
     </div>
   </div>
@@ -201,9 +286,8 @@ const cssv=n=>getComputedStyle(document.body).getPropertyValue(n).trim();
 // os valores já estão em Brasília (o "GMT" é só um sufixo falso) → NÃO converter fuso
 const fmtHora=x=>{const m=String(x).match(/(\d{1,2}:\d{2})(?::\d{2})?/);return m?m[1]:String(x);};
 const fmtTs=t=>{if(!t)return'';const m=String(t).match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1]} ${m[4]}:${m[5]}`:String(t).replace('T',' ');};
-function applyDark(on){document.body.classList.toggle('dark',on);document.getElementById('darkBtn').innerHTML=on?'Tema: Escuro':'Tema: Claro';}
-function toggleDark(){const on=!document.body.classList.contains('dark');localStorage.setItem('painelDark',on?'1':'0');applyDark(on);if(corr&&lastCurveTrk)drawCurve(lastCurveTrk);}
-applyDark(localStorage.getItem('painelDark')==='1');
+// Tema: só existe o escuro (as cores vivem no :root). As funções de alternância e a
+// preferência em localStorage foram removidas junto com o botão.
 
 function causaIco(c){c=(c||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
   if(c.includes('comunica')||c.includes('telemetria'))return '📡';
@@ -316,23 +400,70 @@ async function excluirComentario(ts){
   }catch(e){}
 }
 
+// Cada render blindado — um erro num card não congela a página; e cada card renderiza quando o SEU
+// dado chega (antes, o Promise.all das 3 cargas prendia diagnóstico/strings reféns da busca de
+// trackers, que fica LENTA quando o reprocessamento satura a fonte — MRO100/SunOp travava por isso).
+function _safe(nome,fn){ try{ fn(); }catch(e){ console.error('[painel] '+nome+' falhou:',e);
+  const map={diags:'diags',heat:'heatmap',trk:'trackers'}[nome];
+  if(map){ const el=document.getElementById(map); if(el&&/Carregando|^—$/.test(el.textContent.trim())) el.innerHTML='<div class="empty">Falha ao montar ('+nome+') — ver console.</div>'; } } }
 async function boot(){
   loadComentarios();
-  const [dg,plant,trk]=await Promise.all([
+  const pTrk=fetch(CFG.trk).then(r=>r.json()).catch(()=>null);   // dispara já, mas NÃO bloqueia
+  const [dg,plant]=await Promise.all([
     CFG.diag?fetch(CFG.diag).then(r=>r.json()).catch(()=>null):Promise.resolve(null),
-    fetch(CFG.plant).then(r=>r.json()).catch(()=>null),
-    fetch(CFG.trk).then(r=>r.json()).catch(()=>null)
+    fetch(CFG.plant).then(r=>r.json()).catch(()=>null)
   ]);
-  DIAG=dg; TRK=trk; PLANT=plant;
+  DIAG=dg; PLANT=plant;
   const ts=(dg&&dg.cache_ts)||(plant&&plant.cache_ts)||'—';
   document.getElementById('uMeta').innerHTML=` · ${CFG.label}${TS?' · última leitura '+fmtTs(TS):''}`;
   document.getElementById('upd').textContent='atualizado '+ts;
   document.getElementById('footsrc').textContent=CFG.label+' · '+ts;
-  renderBelow(); renderDiags(); renderHeat(plant); renderTrackers(trk);
-  loadFracttalOS();
+  _safe('below',renderBelow); _safe('diags',renderDiags); _safe('heat',()=>renderHeat(plant));
+  _safe('invalerta',renderInvAlerta);
+  loadFracttalOS(); loadCascata();
+  // trackers vêm por último, quando resolverem — a fonte lenta não segura o resto
+  pTrk.then(trk=>{ TRK=trk; _safe('trk',()=>renderTrackers(trk)); });
+  completarIrmas();          // junta os inversores das plantas irmãs (Nova Londrina 1 + 2)
   // ?inv=Inversor N.M (vindo do Histórico PR do Painel NOC) → já abre a curva desse inversor
   const qinv=Q.get('inv');
   if(qinv){ document.getElementById('invCurvaCard').scrollIntoView({behavior:'smooth'}); selInvCurva(qinv); }
+}
+
+/* ── Usina fatiada em VÁRIAS plantas no API PV ────────────────────────────────────────────
+   Nova Londrina é uma usina só para quem opera, mas está cadastrada como duas plantas
+   (`Nova Londrina 1 (152)` id 22854, 8 inversores · `Nova Londrina 2 (153)` id 22855, 10).
+   O portfólio já as junta pelo USINA_GRUPO; o drill abria só a plantaclicada, e quem olhava
+   via 8 inversores e concluía que a usina tinha 8.
+
+   Só INVERSORES são mesclados. Os nomes deles carregam a planta (`Inversor 1.x` × `2.x`), então
+   concatenar é seguro. TRACKERS ficam de fora de propósito: os ids se repetem entre as plantas
+   (46 "TRK1..TRK46" nas duas), e a curva de correlação é buscada por plant_id — juntar sem
+   carregar a planta junto mostraria a curva da planta ERRADA sob o nome certo, que é pior do
+   que mostrar de menos.
+
+   Roda DEPOIS do primeiro render: a tela abre com a planta clicada e completa quando a irmã
+   responde, em vez de segurar tudo esperando a fonte mais lenta. */
+async function completarIrmas(){
+  if(FONTE!=='pv') return;
+  let g; try{ g=await fetch('/api/pv/grupo/'+ID).then(r=>r.json()); }catch(e){ return; }
+  const membros=(g&&g.membros)||[];
+  const outras=membros.filter(m=>String(m.id)!==String(PLANT_ID));
+  if(!outras.length) return;                       // usina de planta única: nada a fazer
+  const vindos=await Promise.all(outras.map(m=>
+    fetch('/api/plant/'+m.id).then(r=>r.json()).then(p=>({m,p})).catch(()=>null)));
+  let n=0;
+  vindos.filter(Boolean).forEach(({p})=>{
+    const invs=(p&&p.inversores)||[];
+    if(!invs.length) return;
+    PLANT=PLANT||{inversores:[]};
+    PLANT.inversores=(PLANT.inversores||[]).concat(invs);
+    n+=invs.length;
+  });
+  if(!n) return;
+  _safe('heat',()=>renderHeat(PLANT)); _safe('below',renderBelow); _safe('invalerta',renderInvAlerta);
+  // Sem dizer isso, "18 inversores" numa usina que todos conhecem como de 8 parece erro de dado.
+  const sub=document.getElementById('hmSub');
+  if(sub) sub.innerHTML+=` · <b>${membros.length} plantas somadas</b> (${membros.map(m=>m.nome).join(' + ')})`;
 }
 // seletor de dia da Curva do inversor começa em HOJE
 (function(){ const d=new Date(), el=document.getElementById('icData');
@@ -355,6 +486,179 @@ function osLinha(o){
     <span style="font-size:11px;color:var(--faint);white-space:nowrap">${o.criada||''}</span>
     <span style="font-size:10.5px;font-weight:600;white-space:nowrap;color:${o.aberta?'var(--amber)':'var(--ok)'}">${o.aberta?'aberta':(o.status||'')}</span>
   </div>`;
+}
+// ── CASCATA DE PERDAS ────────────────────────────────────────────────────────────────────────────
+// Barras empilhadas em CSS (sem lib): cada peça é uma faixa proporcional ao MAIOR valor da cascata.
+// O "não explicado" aparece em cinza de propósito — é o que a cascata ainda NÃO sabe atribuir, e
+// escondê-lo (distribuindo nas peças conhecidas) faria o gráfico fechar bonito mentindo.
+// CASCATA como WATERFALL VERTICAL com rótulos no eixo X (Levi 22/07, foto de referência): barras
+// flutuantes ligando P50 → real, categorias embaixo no eixo. Âncoras (P50/Possível/Real) do zero;
+// perdas flutuam do running. SVG (controle fino de flutuante + eixo X, funciona no tema escuro).
+function _cascWaterfall(d){
+  const t=d.trk||{}, os=d.os||{};
+  const steps=[
+    {lab:['Geração','sem perdas'], val:d.p50, kind:'anchor', c:'#5b6b8c',
+     sub:`P50 · ${d.dias}d · ${nf(d.pot,2)}MWp`},
+    {lab:['− Baixo','IPOA'], val:-d.perda_ipoa, kind:'loss', c:'#8b93a8',
+     sub:`externo · POA ${nf(d.poa,0)}/${nf(d.poa_prev,0)}`},
+    {lab:['= Possível','com sol'], val:d.possivel, kind:'anchor', c:'#3d4a68', sub:'recurso do mês'},
+    {lab:['− Tracker','parado'], val:-d.perda_trk, kind:'loss', c:'#a3d900',
+     sub:t.horas_solares?`${nf(t.horas_solares,0)}h · ${t.paradas} par.`:'—'},
+    {lab:['− Queda','energia'], val:-(d.perda_rede||0), kind:'loss', c:'#8fbf00',
+     sub:(os.rede&&os.rede.qtd)?`${os.rede.qtd} relig.`:'—'},
+    {lab:['− Equip./','manut.'], val:-(d.perda_equip||0), kind:'loss', c:'#7ba80e',
+     sub:(os.equip&&os.equip.qtd)?`${os.equip.qtd} corret.`:'—'},
+    {lab:['− Não','explicado'], val:-d.nao_explicado, kind:'loss', c:'#6b7386',
+     sub:'falta modelar'},
+    {lab:['= Geração','real'], val:d.geracao, kind:'anchor', c:'#a3d900',
+     sub:`PR ${d.pr_real!=null?nf(d.pr_real*100,0)+'%':'—'}`}
+  ];
+  const W=760,H=340, padT=26,padB=54,padL=6,padR=6;
+  const maxV=Math.max(d.p50,d.possivel,d.geracao)||1;
+  const plotH=H-padT-padB, y=v=>padT+plotH-(v/maxV)*plotH;
+  const n=steps.length, slot=(W-padL-padR)/n, bw=slot*0.62;
+  let run=0, prevX=null, prevY=null, svg='';
+  // grade horizontal leve
+  for(let g=0; g<=4; g++){ const gy=padT+plotH*g/4, gv=maxV*(1-g/4);
+    svg+=`<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${W-padR}" y2="${gy.toFixed(1)}" stroke="rgba(255,255,255,.06)"/>`+
+         `<text x="${padL}" y="${(gy-3).toFixed(1)}" fill="#5b6472" font-size="8.5">${nf(gv,0)}</text>`; }
+  steps.forEach((s,i)=>{
+    const cx=padL+slot*i+slot/2, x0=cx-bw/2;
+    let top,bot;
+    if(s.kind==='anchor'){ top=s.val; bot=0; run=s.val; }
+    else { top=run; bot=run+s.val; run=bot; }   // val<0 (perda) → bot<top
+    const yTop=y(Math.max(top,bot)), yBot=y(Math.min(top,bot)), hh=Math.max(2,yBot-yTop);
+    // linha conectora tracejada entre barras (topo da anterior → topo desta)
+    const yConn=y(top);
+    if(prevX!=null) svg+=`<line x1="${prevX.toFixed(1)}" y1="${prevY.toFixed(1)}" x2="${x0.toFixed(1)}" y2="${yConn.toFixed(1)}" stroke="rgba(255,255,255,.18)" stroke-dasharray="3 3"/>`;
+    prevX=x0+bw; prevY=y(bot);
+    svg+=`<rect x="${x0.toFixed(1)}" y="${yTop.toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}" rx="3" fill="${s.c}"/>`;
+    // valor acima da barra
+    const forte=s.kind==='anchor';
+    svg+=`<text x="${cx.toFixed(1)}" y="${(yTop-5).toFixed(1)}" text-anchor="middle" fill="${forte?'#e9eef6':'#aeb6c6'}" font-size="${forte?11:10}" font-weight="${forte?700:600}">${s.val<0?'−':''}${nf(Math.abs(s.val),0)}</text>`;
+    // rótulo no eixo X (2 linhas) + sub
+    const ly=H-padB+13;
+    svg+=`<text x="${cx.toFixed(1)}" y="${ly}" text-anchor="middle" fill="${forte?'#cfd6e0':'#9aa1ad'}" font-size="9.5" font-weight="${forte?600:400}">${s.lab[0]}</text>`+
+         `<text x="${cx.toFixed(1)}" y="${ly+11}" text-anchor="middle" fill="${forte?'#cfd6e0':'#9aa1ad'}" font-size="9.5" font-weight="${forte?600:400}">${s.lab[1]}</text>`+
+         `<text x="${cx.toFixed(1)}" y="${ly+22}" text-anchor="middle" fill="#5b6472" font-size="8">${s.sub}</text>`;
+  });
+  return `<div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:640px;display:block" font-family="inherit">${svg}</svg></div>`;
+}
+// Comparativo de 3 barras (relatório da Ana, IMG2): Geração realizada · Meta P50 · Meta ger. IPOA.
+function _casc3Bar(d){
+  const bars=[['Geração\nrealizada',d.geracao,'#a3d900'],['Meta\nP50',d.p50,'#4a5678'],['Meta ger.\nIPOA',d.possivel,'#a9a6c0']];
+  const mx=Math.max(...bars.map(b=>b[1]))||1, W=560,H=190,pad=30,bw=70;
+  let svg=''; bars.forEach((b,i)=>{ const [lab,v,c]=b, cx=pad+((W-2*pad)/bars.length)*(i+0.5);
+    const h=(v/mx)*(H-58), y=H-38-h;
+    svg+=`<rect x="${(cx-bw/2).toFixed(1)}" y="${y.toFixed(1)}" width="${bw}" height="${h.toFixed(1)}" rx="3" fill="${c}"/>`
+      +`<text x="${cx.toFixed(1)}" y="${(y-6).toFixed(1)}" text-anchor="middle" fill="#e9eef6" font-size="13" font-weight="700">${nf(v,1)}</text>`
+      +lab.split('\n').map((l,k)=>`<text x="${cx.toFixed(1)}" y="${H-22+k*11}" text-anchor="middle" fill="#9aa1ad" font-size="9.5">${l}</text>`).join('');
+  });
+  return `<div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:460px;max-width:560px;display:block;margin:0 auto" font-family="inherit">${svg}</svg></div>`;
+}
+// Cascata em PONTOS DE PR (IMG1): PR normaliza pela POA, então NÃO tem baixo IPOA — só perdas O&M.
+function _cascPR(d){
+  if(!(d.poa&&d.pot)) return '';
+  const pp=v=>v/(d.poa*d.pot)*100;                 // MWh → pontos de PR (%)
+  const real=(d.pr_real||0)*100, meta=(d.pr_meta||0)*100;
+  const pot=real+pp(d.perda_trk||0)+pp(d.perda_deslig||0);   // PR sem as perdas recuperáveis
+  const steps=[
+    {lab:['PR','sem perdas'],val:pot,kind:'anchor',c:'#5b6b8c'},
+    {lab:['− Tracker'],val:-pp(d.perda_trk||0),kind:'loss',c:'#a3d900'},
+    {lab:['− Desligamento'],val:-pp(d.perda_deslig||0),kind:'loss',c:'#8fbf00'},
+    {lab:['PR','realizado'],val:real,kind:'anchor',c:'#a3d900'}
+  ];
+  const W=560,H=210,padT=26,padB=42,padL=6;
+  const maxV=Math.max(pot,meta)*1.05||1, plotH=H-padT-padB, y=v=>padT+plotH-(v/maxV)*plotH;
+  const slot=(W-padL*2)/steps.length, bw=slot*0.5; let run=0,svg='';
+  // linha da meta PR (tracejada); rótulo como legenda no topo-direito, FORA das barras — o topo da
+  // coluna "PR sem perdas" coincide com a meta, então o rótulo à esquerda sumia atrás dela
+  const my=y(meta); svg+=`<line x1="${padL}" y1="${my.toFixed(1)}" x2="${W-padL}" y2="${my.toFixed(1)}" stroke="#7ba80e" stroke-dasharray="6 4" stroke-width="1.4"/>`
+    +`<text x="${(W-padL).toFixed(1)}" y="12" text-anchor="end" fill="#8fbf00" font-size="9.5" font-weight="600">— Meta PR ${nf(meta,1)}%</text>`;
+  steps.forEach((s,i)=>{ const cx=padL+slot*i+slot/2,x0=cx-bw/2; let top,bot;
+    if(s.kind==='anchor'){top=s.val;bot=0;run=s.val;}else{top=run;bot=run+s.val;run=bot;}
+    const yT=y(Math.max(top,bot)),hh=Math.max(2,y(Math.min(top,bot))-yT), forte=s.kind==='anchor';
+    svg+=`<rect x="${x0.toFixed(1)}" y="${yT.toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}" rx="3" fill="${s.c}"/>`
+      +`<text x="${cx.toFixed(1)}" y="${(yT-5).toFixed(1)}" text-anchor="middle" fill="${forte?'#e9eef6':'#aeb6c6'}" font-size="${forte?11:10}" font-weight="${forte?700:600}">${s.val<0?'−':''}${nf(Math.abs(s.val),forte?1:2)}${forte?'%':''}</text>`
+      +s.lab.map((l,k)=>`<text x="${cx.toFixed(1)}" y="${H-padB+13+k*11}" text-anchor="middle" fill="${forte?'#cfd6e0':'#9aa1ad'}" font-size="9.5" font-weight="${forte?600:400}">${l}</text>`).join('');
+    // conector tracejado ao nível do total corrente → próxima barra (staircase do waterfall)
+    if(i<steps.length-1){ const nx=padL+slot*(i+1)+slot/2-bw/2, yr=y(run);
+      svg+=`<line x1="${(cx+bw/2).toFixed(1)}" y1="${yr.toFixed(1)}" x2="${nx.toFixed(1)}" y2="${yr.toFixed(1)}" stroke="rgba(255,255,255,.16)" stroke-dasharray="3 3" stroke-width="1"/>`; }
+  });
+  return `<div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:460px;display:block" font-family="inherit">${svg}</svg></div>`;
+}
+// Leitura + Pontos de atenção (ofensor recuperável + ofensores ainda abertos).
+function _cascLeitura(d){
+  const pMeta=d.p50?d.geracao/d.p50*100:null, pIpoa=d.possivel?d.geracao/d.possivel*100:null;
+  const ofens=[['Tracker',d.perda_trk||0],['Queda de energia',(d.os&&d.os.rede)?d.perda_rede:0],['Equipamento/manutenção',d.perda_equip||0]]
+    .filter(o=>o[1]>0).sort((a,b)=>b[1]-a[1]);
+  const maior=ofens[0], omTot=d.om||0;
+  const _br=s=>{const m=String(s||'').match(/(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}`:'?';};
+  // agrupa os abertos por tipo (Tracker/String): contagem, data mais antiga e exemplos
+  const ab=(d.abertos||[]);
+  let abBlock='';
+  if(ab.length){
+    const byT={};
+    ab.forEach(a=>{ const t=a.tipo||'Outro'; (byT[t]=byT[t]||[]).push(a); });
+    abBlock=Object.entries(byT).map(([t,arr])=>{
+      const datas=arr.map(a=>a.desde).filter(Boolean).sort();
+      const ex=arr.map(a=>a.escopo).filter(Boolean).slice(0,3).join(', ');
+      const extra=arr.length>3?` +${arr.length-3}`:'';
+      const desde=datas.length?` (mais antigo ${_br(datas[0])})`:'';
+      return `<b>${arr.length} ${t}${arr.length>1?'s':''}</b> em aberto${desde}${ex?': '+ex+extra:''}`;
+    }).join(' · ');
+  }
+  return `<div style="background:var(--panel-2);border-left:3px solid var(--red);border-radius:8px;padding:11px 13px;margin-top:14px;font-size:12px;line-height:1.5">
+    <div style="font-size:10px;font-weight:700;letter-spacing:.04em;color:var(--red);text-transform:uppercase;margin-bottom:5px">Leitura do período</div>
+    A usina gerou <b>${nf(d.geracao,1)} MWh</b>${pMeta!=null?`, equivalente a <b>${nf(pMeta,1)}%</b> da meta P50`:''}${pIpoa!=null?` e <b>${nf(pIpoa,1)}%</b> da expectativa ajustada pela irradiância`:''}. Perda por baixo IPOA (recurso solar): <b>${nf(d.perda_ipoa,1)} MWh</b>.</div>
+  <div style="margin-top:12px">
+    <div style="font-size:12.5px;font-weight:600;margin-bottom:7px">Pontos de atenção e ações prioritárias</div>
+    ${omTot>0?`<div style="background:color-mix(in srgb,var(--amber) 10%,transparent);border:1px solid color-mix(in srgb,var(--amber) 30%,transparent);border-radius:7px;padding:8px 11px;margin-bottom:6px;font-size:11.5px">
+      <b style="color:var(--amber)">!</b> Perda evitável pelo O&M de <b>${nf(omTot,2)} MWh</b>.${maior?` Maior ofensor recuperável: <b>${maior[0]}</b>, com ${nf(maior[1],1)} MWh (${nf(100*maior[1]/omTot,0)}% das perdas recuperáveis).`:''}</div>`:''}
+    ${ab.length?`<div style="background:color-mix(in srgb,var(--amber) 10%,transparent);border:1px solid color-mix(in srgb,var(--amber) 30%,transparent);border-radius:7px;padding:8px 11px;font-size:11.5px">
+      <b style="color:var(--amber)">!</b> Ofensor ainda em aberto: ${abBlock}. Sem recomposição no período — acompanhar e priorizar a normalização.</div>`:''}
+  </div>`;
+}
+// ── Vista da cascata ──────────────────────────────────────────────────────────
+// A mesma resposta do /api/cascata alimenta as três visões, então trocar de vista é só
+// repintar — nada de nova ida ao servidor. A escolha fica no localStorage porque o analista
+// costuma abrir várias usinas seguidas olhando sempre a mesma coisa.
+let CASC_DADO=null;
+const CASC_VISTA_PADRAO='pr';       // PR primeiro: separa clima de O&M
+function _cascVista(){ return localStorage.getItem('cascVista')||CASC_VISTA_PADRAO; }
+function _cascSetVista(v){ localStorage.setItem('cascVista',v); _cascPinta(); }
+
+function _cascPinta(){
+  const body=document.getElementById('cascBody'); const d=CASC_DADO;
+  if(!body||!d) return;
+  const sel=document.getElementById('cascVista'); const v=_cascVista();
+  if(sel&&sel.value!==v) sel.value=v;
+  const H=(t)=>`<div style="font-size:11px;font-weight:700;letter-spacing:.03em;color:var(--muted);text-transform:uppercase;margin:16px 0 6px">${t}</div>`;
+  const partes=[];
+  if(v==='pr'||v==='todas')      partes.push(H('Para onde foi o desvio — em qualidade (PR)')+_cascPR(d));
+  if(v==='energia'||v==='todas') partes.push(H('Para onde foi o desvio — em energia (MWh)')+_cascWaterfall(d));
+  if(v==='metas'||v==='todas')   partes.push(H('Geração · realizada × metas')+_casc3Bar(d));
+  // a leitura e os pontos de atenção valem para qualquer vista — é a conclusão, não um gráfico
+  body.innerHTML=partes.join('')+_cascLeitura(d);
+}
+
+async function loadCascata(mes){
+  const card=document.getElementById('cascCard'), body=document.getElementById('cascBody');
+  if(!card||!body) return;
+  // mês YYYY-MM (default: corrente). A cascata/PR/barras seguem o mês; os trackers ficam ao vivo
+  // (último status do dia) — histórico intradiário de ângulo não é reconstruível.
+  const selM=document.getElementById('cascMes');
+  if(selM){ _prMesInit(selM); if(mes) selM.value=mes; }
+  const q=mes?('&ano='+mes.slice(0,4)+'&mes='+(+mes.slice(5,7))):'';
+  body.innerHTML='<div class="loading">Calculando a cascata…</div>';
+  let d; try{ d=await fetch('/api/cascata?usina='+encodeURIComponent(NOME)+q).then(r=>r.json()); }
+  catch(e){ card.style.display='none'; return; }
+  if(!d||!d.ok){ card.style.display=''; body.innerHTML=`<div class="empty">Cascata indisponível — ${(d&&d.motivo)||'sem dado'}.</div>`; return; }
+  card.style.display='';
+  CASC_DADO=d;                      // guardado p/ trocar de vista sem rebuscar no servidor
+  _cascPinta();
+  const sub=document.getElementById('cascSub');
+  if(sub) sub.innerHTML=`Da geração sem perdas (P50) à geração real. <b style="color:var(--muted)">Externo ${nf(d.externo,1)} MWh</b> · <b style="color:var(--ok)">evitável (O&amp;M) ${nf(d.om,1)} MWh</b> · não explicado ${nf(d.nao_explicado,1)} MWh. Strings ainda fora.`;
 }
 async function loadFracttalOS(){
   const card=document.getElementById('osCard'), list=document.getElementById('osList');
@@ -423,11 +727,66 @@ function enrichDiags(base){
         +(os?` OS ${os.folio} (${os.tipo}) já aberta.`:'')],
       acao: os?('Acompanhar OS '+os.folio+'.'):'Investigar strings / MPPT / tracker e abrir OS corretiva.'});
   });
+  // Catch-all (pedido Levi): nada abaixo da meta passa mudo. Mas sem floodar: quando a usina INTEIRA
+  // está abaixo (uniforme), colapsa num único aviso de nível usina que LISTA todos; quando são
+  // inversores específicos abaixo, 1 cartão por inversor. "Abaixo" = PR do mês < meta − 2pp.
+  if(meta!=null&&INVPR){
+    const flagged=new Set(base.map(d=>d._inv).filter(Boolean));
+    const semCausa=Object.entries(INVPR)
+      .filter(([nm,v])=>!flagged.has(nm)&&v&&v.pr!=null&&v.pr<=130&&(v.pr-meta)<-2)
+      .sort((a,b)=>a[1].pr-b[1].pr);
+    const refU=(INVPR_USINA!=null?INVPR_USINA:meta);
+    const uniforme=(INVPR_USINA!=null&&INVPR_USINA<meta-2&&semCausa.length>=4);
+    if(uniforme){
+      const lst=semCausa.map(([nm,v])=>nm.replace('Inversor ','')+' '+nf(v.pr,0)+'%').slice(0,12).join(', ');
+      base.push({causa:'Usina abaixo da meta no mês', escopo:`${semCausa.length} inversores abaixo`,
+        severidade:(meta-INVPR_USINA>=8?'atencao':'informativo'), confianca:'media',
+        evidencia:[`PR MTD da usina ${nf(INVPR_USINA,1)}% vs meta ${nf(meta,0)}% (${_pp(INVPR_USINA-meta)}), de forma uniforme. Abaixo: ${lst}. Motivo não identificado individualmente — verificar recurso (IPOA), soiling geral ou disponibilidade da usina.`],
+        acao:'Conferir IPOA/soiling e disponibilidade geral; comparar com usinas vizinhas.'});
+    } else {
+      semCausa.forEach(([nm,v])=>{
+        const os=(OSBYINV[nm]||[])[0], dpp=v.pr-meta;
+        base.push({causa:'Inversor abaixo da meta — motivo não identificado', escopo:nm, _inv:nm,
+          severidade:(dpp<=-8?'atencao':'informativo'), confianca:'baixa',
+          evidencia:[`PR do mês ${nf(v.pr,1)}% vs meta ${nf(meta,0)}% (${_pp(dpp)})`
+            +(v.pr-refU<-2?` · ${_pp(v.pr-refU)} vs a usina (${nf(refU,0)}%)`:'')
+            +(v.gen_mwh!=null?` · ${v.gen_mwh} MWh`:'')+'. Sem tracker parado, string morta ou OS que explique — investigar em campo.'],
+          acao: os?('Acompanhar OS '+os.folio+'.'):'Verificar strings / MPPT / sujeira e abrir OS se confirmar.'});
+      });
+    }
+  }
+  // Δ pp vs meta como NÚMERO. Antes ele só existia dentro do texto da evidência, então a lista
+  // não tinha como ordenar nem virar coluna — quem triava lia 6 parágrafos para achar o pior.
+  base.forEach(d=>{
+    if(d._dpp!=null) return;
+    const v=d._inv&&INVPR[d._inv];
+    if(v&&v.pr!=null&&meta!=null) d._dpp=v.pr-meta;
+  });
   const rank={critico:0,atencao:1,informativo:2};
-  base.sort((a,b)=>(rank[a.severidade]??1)-(rank[b.severidade]??1));
+  // dentro da mesma severidade, pior Δ primeiro: é a ordem em que se ataca
+  base.sort((a,b)=>((rank[a.severidade]??1)-(rank[b.severidade]??1))
+                 || ((a._dpp??99)-(b._dpp??99)));
   return base;
 }
 function refreshDiag(){ renderBelow(); renderDiags(); }
+
+// Notificação de inversor SEM LEITURA de strings — trocado/renomeado (ex.: nome "…NOVO" na API) ou
+// sem telemetria de combiner ainda (recém-trocado). Pedido do Levi (23/07 — Tanabi 1.6, Mandaguaçu
+// 1.2). Só dispara com a usina PRODUZINDO (algum inversor lendo corrente), pra não alertar à noite.
+function renderInvAlerta(){
+  const el=document.getElementById('invAlerta'); if(!el) return;
+  const invs=((PLANT&&PLANT.inversores)||[]);
+  const temCorr=i=>(i.strings||[]).some(s=>typeof s.corrente==='number'&&s.corrente>0.2);
+  const produzindo=invs.some(i=>!i.desligado&&temCorr(i));
+  const falta=produzindo?invs.filter(i=>!i.desligado&&!i.rampa&&(i.sem_visao||!temCorr(i))):[];
+  if(!falta.length){ el.style.display='none'; el.innerHTML=''; return; }
+  const nomes=falta.map(i=>i.nome).join(', ');
+  el.style.display='';
+  el.innerHTML=`<b style="color:var(--amber)">Atenção — ${falta.length===1?'inversor sem leitura':'inversores sem leitura'} de strings:</b> ${nomes}. `
+    +`A usina está produzindo, mas ${falta.length===1?'este inversor não retorna':'estes inversores não retornam'} corrente por string. `
+    +`Provável inversor <b>trocado/renomeado</b> — atualize o nome na aba <b>Equipamentos</b> do BD_Performance. `
+    +`Se foi trocado agora, a combiner pode ainda não estar exposta na Plataforma.`;
+}
 
 function renderBelow(){
   const b=document.getElementById('below');
@@ -447,13 +806,25 @@ function renderBelow(){
   const engine=(DIAG&&DIAG.diagnosticos)||null;
   const cd=clientDiag(PLANT);
   const ndiag=enrichDiags(engine||cd).length;   // conta já com PR mensal + OS
-  const invAbaixo=(DIAG&&DIAG.resumo&&DIAG.resumo.inversores_abaixo!=null)?DIAG.resumo.inversores_abaixo:cd.length;
-  const trkFora=TRK?((TRK.desvios||0)+(TRK.parados||0)+(TRK.atrasos||0)):null;
+  // "Abaixo" = inversor com PR do mês abaixo da meta da UFV (o que o analista vê nas pílulas). Sem
+  // PR/meta (fontes sem aba no BD) cai no motor analógico (mediana dos pares) ou no diag do cliente.
+  const _refAb=(INVPR_META!=null?INVPR_META:INVPR_USINA);
+  let invAbaixo, invAbaixoSub;
+  if(_refAb!=null&&INVPR&&Object.keys(INVPR).length){
+    invAbaixo=Object.values(INVPR).filter(e=>e&&e.pr!=null&&e.pr<=130&&(e.pr-_refAb)<-2).length;
+    invAbaixoSub=`abaixo da meta da UFV (${nf(_refAb,0)}%)`;
+  } else {
+    invAbaixo=(DIAG&&DIAG.resumo&&DIAG.resumo.inversores_abaixo!=null)?DIAG.resumo.inversores_abaixo:cd.length;
+    invAbaixoSub='abaixo da mediana dos pares';
+  }
+  // Trackers fora do alvo: Parado + Severo + Demais(médio+leve), somando as 4 classes da régua nova.
+  const trkPar=TRK?(TRK.parados||0):0, trkSev=TRK?(TRK.severos||0):0, trkDemais=TRK?((TRK.medios||0)+(TRK.leves||0)):0;
+  const trkFora=TRK?(trkPar+trkSev+trkDemais):null;
   const dm=TRK?TRK.desvio_medio:null, pior=TRK?TRK.pior_disparidade:null;
   const cards=[
     ['Falhas de string / inversor', totalFalhas, totalFalhas?subFalhas:'no esperado', totalFalhas?'crit':'ok'],
-    ['Inversores abaixo', invAbaixo, invAbaixo?'abaixo da mediana dos pares':'no esperado', invAbaixo?'warn':'ok'],
-    ['Trackers fora do alvo', trkFora==null?'—':trkFora, TRK?`${TRK.parados||0} parado · ${TRK.desvios||0} desvio · ${TRK.atrasos||0} atraso`:'', trkFora?'warn':'ok'],
+    ['Inversores abaixo', invAbaixo, invAbaixo?invAbaixoSub:'no esperado', invAbaixo?'warn':'ok'],
+    ['Trackers fora do alvo', trkFora==null?'—':trkFora, TRK?`${trkPar} parado · ${trkSev} severo · ${trkDemais} demais`:'', trkFora?'warn':'ok'],
     ['Desvio médio de ângulo', dm!=null?nf(dm,1)+'°':'—', pior!=null?`pior ${nf(pior,0)}°`:'', dm>10?'warn':'ok'],
     ['Diagnósticos', ndiag, (CFG.diag?'motor da fonte':'básico (strings)')+(INVPR_META!=null?' + PR/OS':''), ndiag?'warn':'ok']
   ];
@@ -469,24 +840,47 @@ function renderDiags(){
     :`<div class="csub" style="margin:0 0 8px">Fonte ${CFG.label}: sem motor analógico — cruzo strings (abaixo dos pares)${extra}.</div>`;
   const el=document.getElementById('diags');
   if(!ds.length){el.innerHTML=nota+'<div class="empty">Sem anomalias — usina dentro do esperado. 🎉</div>';return;}
-  el.innerHTML=nota+ds.map((d,i)=>{
-    const trkMatch=(d.causa||'').toLowerCase().includes('tracker');
-    const invMatch=!trkMatch&&d._inv;   // diagnóstico ligado a um inversor → clique abre a curva dele
-    return `<div class="diag ${SEVCLS[d.severidade]||'atencao'}" data-i="${i}" ${trkMatch?`data-trk="1"`:''}>`+
-      `<div class="dtop"><div class="cause"><span>${causaIco(d.causa)}</span><span><span class="pre">Causa provável</span>${d.causa}</span></div>`+
-      (d.confianca?`<span class="conf ${d.confianca}">conf. ${d.confianca}</span>`:'')+`</div>`+
-      `<div class="where">${d.escopo||''}</div>`+
-      (d.evidencia&&d.evidencia.length?`<div class="evid">${d.evidencia.join(' ')}</div>`:'')+
-      `<div class="act"><span class="k">Ação:</span> ${d.acao||'—'}${(trkMatch||invMatch)?'<span class="seec">ver curva →</span>':''}</div></div>`;
-  }).join('');
-  el.querySelectorAll('.diag').forEach(e=>e.onclick=()=>{
-    el.querySelectorAll('.diag').forEach(x=>x.classList.remove('sel'));e.classList.add('sel');
-    const d=ds[+e.dataset.i];
-    // tracker → curva de ângulo; inversor → curva do inversor (heatmap)
-    const m=(d.acao+' '+(d.evidencia||[]).join(' ')).match(/tracker\(?s?\)?\s*([\d, ]+)/i);
-    if(m){const n=m[1].split(/[, ]+/).filter(Boolean)[0];if(n)drawCurveByNum(n);}
+  // LINHA fina por diagnóstico; evidência e ação abrem no clique. A linha carrega só o que
+  // decide a triagem: onde, o quê e quanto abaixo — o "porquê" é leitura, não varredura.
+  el.innerHTML=nota+`<table class="dtab">
+    <thead><tr><th></th><th>Inversor / escopo</th><th>Causa provável</th>
+      <th class="r" title="PR do mês do inversor menos a meta da UFV, em pontos percentuais.">Δ vs meta</th>
+      <th class="r">Conf.</th><th></th></tr></thead>
+    <tbody>`+ds.map((d,i)=>{
+      const dpp=d._dpp;
+      const ppTxt=(dpp==null)?'—':_pp(dpp);
+      const ppCls=(dpp==null)?'':(dpp<0?'neg':'pos');
+      return `<tr class="drow ${SEVCLS[d.severidade]||'atencao'}" data-i="${i}">`+
+        `<td class="sev"><i></i></td>`+
+        `<td class="dnome">${d.escopo||'—'}</td>`+
+        `<td class="dcausa">${causaIco(d.causa)} ${d.causa||''}</td>`+
+        `<td class="r dpp ${ppCls}">${ppTxt}</td>`+
+        `<td class="r">${d.confianca?`<span class="conf ${d.confianca}">${d.confianca}</span>`:''}</td>`+
+        `<td class="r"><span class="dcar">▶</span></td></tr>`+
+      `<tr class="ddet" data-det="${i}" hidden><td colspan="6"><div class="box">`+
+        (d.evidencia&&d.evidencia.length?`<div class="evid" style="margin-top:0">${d.evidencia.join(' ')}</div>`:'')+
+        `<div class="act"><span class="k">Ação:</span> ${d.acao||'—'}`+
+        `<span class="seec" data-curva="${i}">ver curva →</span></div>`+
+      `</div></td></tr>`;
+    }).join('')+`</tbody></table>`;
+
+  const curva=(d)=>{     // tracker → curva de ângulo; inversor → curva do inversor (heatmap)
+    const m=((d.acao||'')+' '+(d.evidencia||[]).join(' ')).match(/tracker\(?s?\)?\s*([\d, ]+)/i);
+    if(m){ const n=m[1].split(/[, ]+/).filter(Boolean)[0]; if(n) drawCurveByNum(n); }
     else if(d._inv){ selInvCurva(d._inv); }
+  };
+  el.querySelectorAll('tr.drow').forEach(tr=>{
+    tr.onclick=()=>{
+      const i=+tr.dataset.i, det=el.querySelector(`tr.ddet[data-det="${i}"]`);
+      const abrir=det.hidden;
+      // uma aberta por vez: com 6+ linhas abertas some a vantagem de ser lista
+      el.querySelectorAll('tr.ddet').forEach(x=>x.hidden=true);
+      el.querySelectorAll('tr.drow').forEach(x=>x.classList.remove('open'));
+      if(abrir){ det.hidden=false; tr.classList.add('open'); }
+    };
   });
+  // a curva é ação explícita do link, não efeito colateral de abrir a linha
+  el.querySelectorAll('.seec').forEach(s=>s.onclick=(ev)=>{ ev.stopPropagation(); curva(ds[+s.dataset.curva]); });
 }
 
 function renderHeat(plant){
@@ -495,7 +889,7 @@ function renderHeat(plant){
   if(!invsAll.length){el.innerHTML='<div class="empty">Sem strings hoje (String Box ou sem leitura).</div>';return;}
   // oculta strings trancadas — mostra só as "vivas" (OK / baixa / sem corrente)
   const nTranc=invsAll.reduce((a,i)=>a+(i.strings||[]).filter(s=>s.status==='trancada').length,0);
-  const invs=invsAll.map(i=>({nome:i.nome,id:i.id,desligado:i.desligado,strings:(i.strings||[]).filter(s=>s.status!=='trancada')})).filter(i=>i.strings.length);
+  const invs=invsAll.map(i=>({nome:i.nome,id:i.id,desligado:i.desligado,rampa:i.rampa,strings:(i.strings||[]).filter(s=>s.status!=='trancada')})).filter(i=>i.strings.length);
   const sub=document.getElementById('hmSub');
   if(sub) sub.textContent=`Status por string (corrente vs esperado) · ${nTranc} trancada(s) oculta(s)`;
   if(!invs.length){el.innerHTML=`<div class="empty">Todas as strings com leitura estão trancadas (${nTranc}).</div>`;return;}
@@ -507,13 +901,21 @@ function renderHeat(plant){
   // de-para nome de exibição → id da API (curva por inversor do SunOp usa o id interno)
   window.IC_INVID={}; invs.forEach(i=>{ if(i.id!=null) IC_INVID[i.nome]=i.id; });
   el.innerHTML=invs.map(i=>{
+    // Inversor SEM produção (rampa/início de dia OU desligado): a string NÃO é "OK" — é neutra. Antes
+    // 'inativa' caía no verde e o inversor sem irradiância aparecia todo OK (Levi 22/07). Cinza = sem
+    // produção; verde SÓ quando o inversor está de fato gerando.
+    const semProd=i.desligado||i.rampa;
     const cells=i.strings.map(s=>{
-      const st=s.status,col=st==='sem_corrente'?cssv('--red'):st==='baixa_perf'?cssv('--amber'):st==='desligado'?'#7f1d1d':cssv('--ok');
-      return `<div class="cell" title="${s.id}: ${nf(s.corrente,1)} A (${st})" style="background:${col}"></div>`;
+      const st=s.status;
+      const col=st==='sem_corrente'?cssv('--red'):st==='baixa_perf'?cssv('--amber')
+               :st==='desligado'?'#7f1d1d':(st==='inativa'||semProd)?'var(--panel-2)':cssv('--ok');
+      const rot=(st==='inativa'||semProd)&&st!=='sem_corrente'&&st!=='baixa_perf'?'sem produção':st;
+      return `<div class="cell" title="${s.id}: ${nf(s.corrente,1)} A (${rot})" style="background:${col}"></div>`;
     }).join('');
-    const off=i.desligado?' <span title="inversor desligado" style="color:#7f1d1d;font-weight:700;font-size:13px">⏻</span>':'';
+    const tag=i.desligado?' <span title="inversor desligado" style="color:#7f1d1d;font-weight:700;font-size:13px">⏻</span>'
+            :i.rampa?' <span title="início/fim de dia — irradiância baixa, inversor ainda não gera" style="color:var(--amber);font-weight:700;font-size:10px">◐ rampa</span>':'';
     const nmJs=String(i.nome).replace(/'/g,"\\'");
-    return `<div class="hm-row" data-inv="${i.nome}" style="cursor:pointer" onclick="selInvCurva('${nmJs}')" title="Clique para ver a curva das strings deste inversor"><div class="hm-pr" data-invpr="${i.nome}"></div><div class="hm-label" title="${i.nome}">${i.nome}${off}</div><div class="hm-cells" style="grid-template-columns:repeat(${maxS},minmax(0,26px))">${cells}</div></div>`;
+    return `<div class="hm-row" data-inv="${i.nome}" style="cursor:pointer" onclick="selInvCurva('${nmJs}')" title="Clique para ver a curva das strings deste inversor"><div class="hm-pr" data-invpr="${i.nome}"></div><div class="hm-label" title="${i.nome}">${i.nome}${tag}</div><div class="hm-cells" style="grid-template-columns:repeat(${maxS},minmax(0,21px))">${cells}</div></div>`;
   }).join('');
   loadInvPR();
 }
@@ -521,8 +923,17 @@ function renderHeat(plant){
 /* PR mensal por inversor (absoluto: geração÷IPOA×potência, das abas do BD_Performance) no heatmap.
    Preenche as células .hm-pr de cada inversor; some p/ usinas sem aba (API PV/PG por enquanto). */
 let INVPR=null, INVPR_META=null, INVPR_USINA=null;
-async function loadInvPR(){
-  let d; try{ d=await fetch('/api/inv/pr-mes?usina='+encodeURIComponent(NOME)).then(r=>r.json()); }catch(e){ return; }
+function _prMesInit(sel){
+  if(!sel||sel.dataset.done) return;
+  const now=new Date(), M=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
+  let html='';
+  for(let i=0;i<12;i++){ const dt=new Date(now.getFullYear(),now.getMonth()-i,1);
+    const ym=dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0');
+    html+=`<option value="${ym}">${M[dt.getMonth()]}/${dt.getFullYear()}${i===0?' (parcial)':''}</option>`; }
+  sel.innerHTML=html; sel.dataset.done='1';
+}
+async function loadInvPR(mes){
+  let d; try{ d=await fetch('/api/inv/pr-mes?usina='+encodeURIComponent(NOME)+(mes?'&mes='+mes:'')).then(r=>r.json()); }catch(e){ return; }
   INVPR=(d&&d.inversores)||{};
   INVPR_META=(d&&d.pr_meta!=null)?d.pr_meta:null;     // PR Meta da UFV (Info Mensal)
   INVPR_USINA=(d&&d.pr_usina!=null)?d.pr_usina:null;   // PR MTD da usina inteira
@@ -544,10 +955,14 @@ async function loadInvPR(){
   });
   const hm=document.getElementById('heatmap');
   if(hm) hm.classList.toggle('haspr', has);   // pílulas na 1ª coluna só quando a usina tem PR
+  // seletor de mês do PR: só aparece quando a usina tem PR por inversor (abas do BD_Performance)
+  const selM=document.getElementById('prMes');
+  if(selM){ if(has){ _prMesInit(selM); if(mes) selM.value=mes; selM.style.display=''; } else selM.style.display='none'; }
   const sub=document.getElementById('hmSub');
-  if(has&&sub&&d.ipoa_mes!=null) sub.textContent=sub.textContent.split(' · PR ')[0]
-    +` · PR do mês por inversor (${d.ndias}d · IPOA ${nf(d.ipoa_mes,0)})`
-    +(meta!=null?` · meta UFV ${nf(meta,0)}%${INVPR_USINA!=null?` · usina ${nf(INVPR_USINA,0)}%`:''}`:'');
+  if(has&&sub&&d.ipoa_mes!=null){ const mtd=(d.corrente===false)?'':' (MTD)';
+    sub.textContent=sub.textContent.split(' — PR ')[0]
+      +` — PR ${d.mes||'do mês'}${mtd} por inversor (${d.ndias}d · IPOA ${nf(d.ipoa_mes,0)})`
+      +(meta!=null?` · meta UFV ${nf(meta,0)}%${INVPR_USINA!=null?` · usina ${nf(INVPR_USINA,0)}%`:''}`:''); }
   refreshDiag();
 }
 
@@ -571,12 +986,24 @@ function _icDataBR(){
 }
 function icSetData(){ INVCURVA=null; _icCache={};                    // dia mudou → invalida e recarrega
   if(icSelInv){ document.getElementById('invCurvaSub').textContent='Carregando a curva de '+icSelInv+' em '+_icDataBR()+'…'; selInvCurva(icSelInv); } }
-function setInvCurvaModo(m){
-  icModo=m;
-  const on=document.getElementById('icModo'+(m==='inv'?'Inv':'Str')), off=document.getElementById('icModo'+(m==='inv'?'Str':'Inv'));
-  on.style.background='var(--brand)'; on.style.color='#16140e';
-  off.style.background='transparent'; off.style.color='var(--muted)';
-  if(icSelInv) renderInvCurva();
+function setInvCurvaModo(m){ icModo=m; if(icSelInv) renderInvCurva(); }
+// Vista do card único: 'corr' (padrão) | 'inv' | 'str'. Alterna os blocos, o seletor de dia (só nas
+// curvas de inversor/strings) e o realce do botão. Chamada pelos 3 botões e pelos cliques (tracker→corr,
+// inversor→inv/str).
+let _curvaVista='corr';
+function setCurvaVista(v){
+  _curvaVista=v;
+  const corr=v==='corr';
+  const cb=document.getElementById('corrBlock'), ib=document.getElementById('invBlock');
+  if(cb) cb.style.display=corr?'':'none';
+  if(ib) ib.style.display=corr?'none':'';
+  const dt=document.getElementById('icData'); if(dt) dt.style.display=corr?'none':'';   // dia só p/ inv/str
+  [['vsCorr','corr'],['vsInv','inv'],['vsStr','str']].forEach(([id,val])=>{
+    const b=document.getElementById(id); if(!b) return;
+    const on=val===v;
+    b.style.background=on?'var(--brand)':'transparent'; b.style.color=on?'#16140e':'var(--muted)';
+  });
+  if(v==='inv'||v==='str') setInvCurvaModo(v);
 }
 async function ensureInvCurva(nome){
   if(!CURVA_SCOPE){ INVCURVA={_naosuportado:true}; return INVCURVA; }
@@ -599,6 +1026,7 @@ async function ensureInvCurva(nome){
 }
 async function selInvCurva(nome){
   icSelInv=nome;
+  if(_curvaVista==='corr') setCurvaVista('inv');    // clicou num inversor → sai da Correlação
   document.querySelectorAll('.hm-row').forEach(r=>{ r.style.background=(r.dataset.inv===nome)?'var(--raise)':''; });
   document.getElementById('invCurvaSub').textContent='Carregando a curva de '+nome+'…';
   await ensureInvCurva(nome);
@@ -701,27 +1129,36 @@ function renderInvCurva(){
 function renderTrackers(trk){
   const ts=((trk&&trk.trackers)||[]).slice();
   const el=document.getElementById('trackers');
-  if(trk&&trk.sem_comunicacao){el.innerHTML='<div class="empty">Usina sem comunicação de trackers agora.</div>';return;}
-  if(!ts.length){el.innerHTML='<div class="empty">Sem trackers.</div>';return;}
-  const alvo=ts.find(t=>t.alvo!=null);
-  document.getElementById('trkSub').textContent=alvo
-    ?(trk.alvo_inferido
-      ?`Alvo INFERIDO (mediana dos trackers girando — fonte sem alvo): ${nf(alvo.alvo,0)}° · ${trk.total} trackers (parados/desvios primeiro)`
-      :`Alvo de seguimento agora: ${nf(alvo.alvo,0)}° · ${trk.total} trackers (parados/desvios primeiro)`)
-    :`Sem alvo na fonte · desvio vs a frota · ${trk.total} trackers (parados/desvios primeiro)`;
-  // mostra os piores primeiro, no máx 12
-  // prioriza por STATUS (parado/desvio no topo → atraso → normais) e, dentro de cada grupo, maior desvio
-  const RANK={parado:0,severo:0,desvio:1,fora_media:1,atraso:2};
-  ts.sort((a,b)=>((RANK[a.status]??3)-(RANK[b.status]??3))||((b.disparidade||0)-(a.disparidade||0)));
-  const angToPct=a=>((Math.max(-60,Math.min(60,a))+60)/120)*100;
+  // Sem resposta ainda não é "sem tracker": só afirma o vazio quando a resposta CHEGOU.
+  // Antes, qualquer falha ou payload ausente virava "Sem trackers." e o analista lia isso
+  // como diagnóstico da usina.
+  if(!trk){el.innerHTML='<div class="empty">Não consegui carregar os trackers desta usina.</div>';return;}
+  if(trk.sem_comunicacao){el.innerHTML='<div class="empty">Usina sem comunicação de trackers agora.</div>';return;}
+  if(!ts.length){el.innerHTML='<div class="empty">Esta usina não tem trackers cadastrados.</div>';return;}
+  // CARDS ordenados parado→severo→médio→leve→normal, cor do card = status (Levi 22/07).
+  const _S={parado:{r:0,l:'parado',c:'var(--red)'},
+            severo:{r:1,l:'severo',c:'var(--red)'},
+            desvio:{r:1,l:'severo',c:'var(--red)'},
+            medio: {r:2,l:'médio', c:'#ff8f3c'},
+            leve:  {r:3,l:'leve',  c:'var(--amber)'},
+            fora_media:{r:3,l:'leve',c:'var(--amber)'},
+            atraso:{r:3,l:'leve',  c:'var(--amber)'},
+            sem_comunicacao:{r:0,l:'sem com.',c:'#9b8cff'},
+            normal:{r:4,l:'ok',    c:'var(--ok)'}};
+  const _st=t=>_S[t.status]||_S.normal;
+  ts.sort((a,b)=>(_st(a).r-_st(b).r)||((b.disparidade||0)-(a.disparidade||0)));
+  // RESUMO por status no canto superior direito (Levi 22/07): substitui a legenda de alvo.
+  const _ORD=[['parado','var(--red)'],['severo','var(--red)'],['médio','#ff8f3c'],['leve','var(--amber)'],['sem com.','#9b8cff'],['ok','var(--ok)']];
+  const cnt={}; ts.forEach(t=>{ const l=_st(t).l; cnt[l]=(cnt[l]||0)+1; });
+  const parts=_ORD.filter(([l])=>cnt[l]).map(([l,c])=>`<b style="color:${c}">${cnt[l]}</b> ${l}`);
+  document.getElementById('trkSub').innerHTML=parts.join(' · ')+` · <b style="color:var(--txt)">${ts.length}</b> total`;
+  el.className='trkgrid';
   el.innerHTML=ts.map(t=>{
-    const bad=t.status&&t.status!=='normal';
-    const dev=t.disparidade!=null?nf(t.disparidade,0)+'°':'—';
-    const alvoP=t.alvo!=null?`<div class="ideal" style="left:${angToPct(t.alvo)}%"></div>`:'';
-    const realP=t.atual!=null?`<div class="real${bad?' bad':''}" style="left:${angToPct(t.atual)}%"></div>`:'';
-    return `<div class="trk" style="cursor:pointer" title="Clique para ver a curva de ângulo do dia" onclick="drawCurveById('${String(t.id).replace(/'/g,'')}')"><div class="th"><b>${t.id}</b><span class="dev ${bad?'bad':'ok'}">${t.atual!=null?nf(t.atual,0)+'°':'—'} · ${bad?t.status:'ok'} ${dev}</span></div>`+
-      `<div class="angbar">${alvoP}${realP}</div>`+
-      `<div class="trkscale"><span>−60°</span><span>0°</span>${t.alvo!=null?`<span>alvo ${nf(t.alvo,0)}°</span>`:'<span></span>'}<span>+60°</span></div></div>`;
+    const s=_st(t), dev=t.disparidade!=null?'desvio '+nf(t.disparidade,0)+'°':'';
+    return `<div class="tcard" style="--tc:${s.c}" title="Clique para ver a curva de ângulo do dia" onclick="drawCurveById('${String(t.id).replace(/'/g,'')}')">`+
+      `<div class="tnm">${t.id}</div><div class="tst">${s.l}</div>`+
+      `<div class="tang">${t.atual!=null?nf(t.atual,0)+'°':'—'}</div>`+
+      `<div class="tsub">alvo ${t.alvo!=null?nf(t.alvo,0)+'°':'—'}${dev?' · '+dev:''}</div></div>`;
   }).join('');
   // auto-carrega a curva do PIOR tracker quando há anomalia (senão fica clicável, sob demanda)
   if(ts[0] && ts[0].status && ts[0].status!=='normal') drawCurveById(ts[0].id);
@@ -739,6 +1176,7 @@ async function drawCurveByNum(num){
 }
 async function drawCurveById(id){
   if(!CFG.chart)return;
+  setCurvaVista('corr');    // clicou num tracker → volta pra Correlação
   document.getElementById('curveSub').textContent='Carregando curva do '+id+'…';
   try{
     const c=await fetch(CFG.chart).then(r=>r.json());

@@ -57,7 +57,37 @@ except ImportError:
 SUNOP_CONFIG = "https://gridco-api.sunop.net/api"
 SUNOP_DATA   = "https://gridco-api.sunop.net/data"
 SUNOP_TOKEN  = os.environ.get("SUNOP_TOKEN", "")
-_token_cache = {"token": SUNOP_TOKEN, "ok": False}
+
+# O token BOM é o que o app.py renova e persiste em tokens_runtime.json; o SUNOP_TOKEN do
+# ambiente é só SEMENTE. Aqui a leitura é PROPOSITALMENTE só-leitura: quem persiste renovação é
+# o keepalive do app.py. Se os dois escrevessem, dois read-modify-write concorrentes no mesmo
+# arquivo poderiam perder a atualização do outro (cada um tem o seu lock, que não protege nada
+# entre processos). Não importamos o app.py por causa disso — importá-lo subiria a plataforma
+# inteira só para ler um token.
+TOKENS_RT_PATH = os.path.join(_HERE, "tokens_runtime.json")
+
+
+def _jwt_exp(tok: str) -> float:
+    """exp (epoch) de um JWT, sem validar assinatura. 0 se não der p/ ler."""
+    try:
+        import base64
+        pl = tok.split(".")[1]; pl += "=" * (-len(pl) % 4)
+        return float(json.loads(base64.urlsafe_b64decode(pl)).get("exp", 0) or 0)
+    except Exception:
+        return 0.0
+
+
+def _token_runtime(chave: str) -> str:
+    try:
+        with open(TOKENS_RT_PATH, encoding="utf-8") as f:
+            return (json.load(f).get(chave) or "").strip()
+    except Exception:
+        return ""
+
+
+_tok_arq = _token_runtime("sunop")
+_token_cache = {"token": _tok_arq if _jwt_exp(_tok_arq) > _jwt_exp(SUNOP_TOKEN) else SUNOP_TOKEN,
+                "ok": False}
 
 # ── Limiares ─────────────────────────────────────────────────────────────────
 TRK_SEVERO      = 10.0   # ° |alvo - atual| → severo

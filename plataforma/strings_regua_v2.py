@@ -193,7 +193,9 @@ def _parse_csv(path):
 if __name__ == "__main__":
     import glob
     import os
-    FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests", "fixtures", "strings")
+    # tests/ ficou na raiz do repo; este arquivo desceu para plataforma/
+    _RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    FIX = os.path.join(_RAIZ, "tests", "fixtures", "strings")
     for raw in sorted(glob.glob(FIX + "/*.raw.csv")):
         base = os.path.basename(raw)[:-8]
         res = _strings_regua(_parse_csv(raw))

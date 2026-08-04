@@ -13,7 +13,8 @@ from datetime import datetime as _real_datetime
 
 import pytest
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# o código da plataforma vive em plataforma/ desde a separação por projeto
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "plataforma"))
 
 import app  # noqa: E402  (carga pesada única; roda as cargas do BD_Performance local)
 

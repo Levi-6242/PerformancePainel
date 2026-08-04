@@ -63,7 +63,8 @@ import pandas as pd
 # Credenciais ficam fora do código: .env na raiz do projeto (ver .env.example)
 try:
     from dotenv import load_dotenv
-    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+    # .env fica na RAIZ do repo (compartilhado com a plataforma); este arquivo vive em coletor/
+    load_dotenv(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env"))
 except ImportError:
     pass
 

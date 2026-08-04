@@ -28,7 +28,9 @@ body.dark{
   --font:'Poppins',system-ui,sans-serif;
 }
 *{box-sizing:border-box;}
-html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font);font-size:13px;line-height:1.5;transition:background .2s,color .2s;}
+html{background:#090d18;}   /* canvas escuro atrás do body (default do painel é escuro) — nunca mostra branco embaixo/enquanto carrega; no tema claro o body (min-height:100vh) cobre */
+html,body{margin:0;min-height:100vh;color:var(--txt);font-family:var(--font);font-size:13px;line-height:1.5;}
+body{background:var(--bg);transition:background .2s,color .2s;}
 .num{font-variant-numeric:tabular-nums lining-nums;}
 ::-webkit-scrollbar{width:9px;height:9px;}::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px;}
 a{color:inherit;}
@@ -144,7 +146,7 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
 @media(max-width:1080px){.kpis{grid-template-columns:repeat(3,1fr);}.grid-main{grid-template-columns:1fr;}}
 </style>
 </head>
-<body>
+<body class="dark">
 
 <div class="topbar">
   <div class="logo"><span class="g">Grid</span><span class="c"> Co.</span></div>
@@ -177,7 +179,7 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:2px 0 8px">
         <span id="wallViewTog" style="display:inline-flex;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px">
           <button data-wv="str" onclick="setWallView('str')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:var(--brand);color:#16140e">String em risco</button>
-          <button data-wv="pr" onclick="setWallView('pr')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">PR &amp; Δ meta</button>
+          <button data-wv="pr" onclick="setWallView('pr')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">PR &amp; meta</button>
           <button data-wv="etm" onclick="setWallView('etm')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">ETM</button>
         </span>
         <input id="wallSearch" type="search" placeholder="🔍  Filtrar usina..." oninput="wallFilterInput(this.value)"
@@ -263,7 +265,7 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
       <div class="card"><div class="chead"><div><h3>PR Realizado × PR Previsto (mensal)</h3><div class="csub" id="gMensalSub">Barras = PR ponderado do mês (D-1) · linha = meta · clique numa barra para abrir o diário</div></div></div>
         <div class="cwrap" style="height:280px"><canvas id="gChMensal"></canvas></div></div>
       <div class="card" style="display:flex;flex-direction:column;min-height:0">
-        <div class="chead"><div><h3>Comentários da UFV</h3><div class="csub">OSs de Performance em aberto + anotações dos analistas</div></div></div>
+        <div class="chead"><div><h3>Comentários da UFV</h3><div class="csub">OSs de Performance + atribuídas a inversores · anotações dos analistas</div></div></div>
         <div id="gOsLista"></div>
         <div id="gComentLista" style="flex:1;min-height:60px;max-height:200px;overflow:auto;margin:2px 0 8px"></div>
         <div style="display:flex;gap:6px;align-items:flex-start">
@@ -279,8 +281,9 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
       <div class="card"><div class="chead"><div><h3>Performance por inversor</h3><div class="csub">PR realizado × alvo no período</div></div></div>
         <div style="max-height:340px;overflow:auto"><table id="gTblInv"><thead><tr><th style="text-align:center">Inversor</th><th style="text-align:center">PR</th><th style="text-align:center">Alvo</th><th style="text-align:center">Dif</th></tr></thead><tbody></tbody></table></div></div>
     </div>
-    <div class="card" style="margin-top:14px"><div class="chead"><div><h3>PR diário</h3><div class="csub" id="gDiarioSub">Mês da data FIM · barras vermelhas = abaixo da meta</div></div></div>
-      <div class="cwrap" style="height:240px"><canvas id="gChDiario"></canvas></div></div>
+    <div class="card" style="margin-top:14px"><div class="chead"><div><h3>PR diário</h3><div class="csub" id="gDiarioSub">Mês da data FIM · barras vermelhas = abaixo da meta</div></div><button onclick="gExpandirDiario()" title="Ver Geração, POA e PR juntos em tela cheia" style="border:1px solid var(--line);background:var(--panel-2);color:var(--txt);cursor:pointer;padding:6px 12px;border-radius:8px;font-size:12px;font-family:inherit;white-space:nowrap"><i class="ph ph-arrows-out" style="margin-right:5px"></i>Expandir</button></div>
+      <div class="cwrap" style="height:240px"><canvas id="gChDiario"></canvas></div>
+      <div id="gOsEvBox" style="display:none;margin-top:10px"></div></div>
   </div>
 </div>
 
@@ -318,7 +321,7 @@ function fmtTs(t){  // timestamp (já em Brasília) → DD/MM/AAAA HH:MM
 /* ---- Dark toggle (persistente) ---- */
 function applyDark(on){document.body.classList.toggle('dark',on);document.getElementById('darkBtn').innerHTML=on?'Tema: Escuro':'Tema: Claro';}
 function toggleDark(){const on=!document.body.classList.contains('dark');localStorage.setItem('painelDark',on?'1':'0');applyDark(on);if(builtHist)buildHist(true);}
-applyDark(localStorage.getItem('painelDark')==='1');
+applyDark(localStorage.getItem('painelDark')!=='0');   // ESCURO é o padrão (só fica claro se o usuário escolher claro = '0')
 
 /* ---- sparkline svg ---- */
 function spark(arr,color,w,h){w=w||64;h=h||18;if(!arr||arr.length<2)return '<svg width="'+w+'" height="'+h+'"></svg>';
@@ -442,9 +445,16 @@ function tilePr(p){
   const cls=pr==null?'sem_comm':_prCls(d);
   const col=cls==='ok'?cssv('--ok'):cls==='atencao'?cssv('--amber'):cls==='critico'?cssv('--red'):cssv('--faint');
   const val=pr!=null?`${nf(pr,0)}%<span class="u"> PR</span>`:`—<span class="u"> sem PR</span>`;
+  const metaLn=meta!=null?`<div class="tatg" style="color:var(--faint)">meta ${nf(meta,0)}%</div>`:'';
+  // ACUSA o motivo do "sem PR" no card quando: é Full O&M (deveria ter PR) OU é um BURACO DE DADO
+  // (sem POA/potência/geração — motivo sem "carteira"), mesmo fora do Full O&M. Assim Ipixuna 1/2 e
+  // Linhares (sem POA) sempre sinalizam, e as carteiras BD_Thopen só acusam quando são Full O&M.
+  const _mot=(pr==null&&p.pr_motivo&&(p.full_oem||p.pr_motivo.indexOf('carteira')<0))?p.pr_motivo:null;
   const sub=(pr!=null&&meta!=null)
     ? `<div class="tatg" style="color:${col}">meta ${nf(meta,0)}% · ${_pp(d)}</div>`
-    : (meta!=null?`<div class="tatg" style="color:var(--faint)">meta ${nf(meta,0)}%</div>`:'');
+    : _mot
+      ? `<div class="tatg" style="color:var(--amber);font-weight:600" title="motivo de não ter PR${p.full_oem?' · Full O&amp;M (deveria ter)':''}">${_mot}</div>${metaLn}`
+      : metaLn;
   return `<div class="tile ${cls}" onclick="openDrawer('${norm(p.usina)}')">`+
     `<div class="tid">${p.usina}</div><div class="tcli">${p.cliente||''}</div>`+
     `<div class="tmw num" style="color:${col}">${val}</div>${sub}</div>`;
@@ -808,6 +818,7 @@ function renderWorstTable(sel){
 
 /* ===== HISTÓRICO · VISÃO PR (D-1) — esqueleto do Dashboard de Geração (5070) com Chart.js ===== */
 let histView='perda', gInited=false, gGen=0, gChM=null, gChT=null, gChD=null;
+let gDailyData=null, gChX={};   // dados do diário (p/ a visão expandida tela-cheia) + charts dela
 function setHistView(v){
   histView=v;
   document.querySelectorAll('#histViewTog button').forEach(b=>{ const on=b.dataset.hv===v;
@@ -853,6 +864,14 @@ const gLbl={id:'gLbl',afterDatasetsDraw(c){
     if(c.config.options.indexAxis==='y'){ctx.textAlign='left';ctx.textBaseline='middle';ctx.fillText(t,el.x+4,el.y);}
     else{ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(t,el.x,el.y-3);}});
   ctx.restore();}};
+// igual ao gLbl mas rótulo em VALOR (MWh, kWh/m²) — não em % (Geração/POA)
+const gLblV={id:'gLblV',afterDatasetsDraw(c){
+  const ds=c.data.datasets[0]; if(!ds)return;
+  const m=c.getDatasetMeta(0), ctx=c.ctx;
+  ctx.save(); ctx.fillStyle=cssv('--muted'); ctx.font='700 9px '+getComputedStyle(document.body).fontFamily;
+  m.data.forEach((el,i)=>{const v=ds.data[i]; if(v==null)return;
+    ctx.textAlign='center';ctx.textBaseline='bottom';ctx.fillText(nf(v,1),el.x,el.y-3);});
+  ctx.restore();}};
 function _gOpt(pct,tk,grid){
   return {responsive:true,maintainAspectRatio:false,animation:false,
     plugins:{legend:{display:true,labels:{color:tk,font:{size:10},boxWidth:14}}},
@@ -871,6 +890,118 @@ const gOsDot={id:'gOsDot',afterDraw(c){
   (c.data.labels||[]).forEach((dia,i)=>{ if(!gOsDia[dia])return; const px=x.getPixelForValue(i);
     ctx.beginPath(); ctx.arc(px, yb+22, 2.6, 0, Math.PI*2); ctx.fill(); });
   ctx.restore(); }};
+
+// ── OS DE CAMPO por DATA DO EVENTO (corretiva · corretiva emergencial · religamento · religamento
+//    remoto) — marca o dia no PR diário com um ▲ clicável que abre os detalhes da OS. ─────────────
+let gOsEv={};                       // {dia: [OS]}
+const _G_TIPOS_EV=['corretiva','corretiva emergencial','religamento','religamento remoto'];
+const gOsEvDot={id:'gOsEvDot',afterDraw(c){
+  const x=c.scales.x, ctx=c.ctx, yb=c.chartArea.bottom;
+  ctx.save(); ctx.fillStyle='#f97316';
+  (c.data.labels||[]).forEach((dia,i)=>{ if(!(gOsEv[dia]||[]).length)return; const px=x.getPixelForValue(i);
+    ctx.beginPath(); ctx.moveTo(px,yb+27); ctx.lineTo(px-5,yb+35); ctx.lineTo(px+5,yb+35); ctx.closePath(); ctx.fill(); });
+  ctx.restore(); }};
+let gOsEvLista=[];                  // TODAS as OS de campo do mês, ordenadas por DURAÇÃO (dias) desc
+async function _gCarregarOsEv(usina,ano,mes){
+  gOsEv={}; gOsEvLista=[];
+  try{
+    const r=await fetch('/api/fracttal/os',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({usina,mes:`${ano}-${String(mes).padStart(2,'0')}`})}).then(x=>x.json());
+    (r.usina_os||[]).forEach(o=>{
+      if(!_G_TIPOS_EV.includes(String(o.tipo||'').trim().toLowerCase())) return;
+      const m=String(o.evento||o.criada||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+      if(!m||+m[1]!==ano||+m[2]!==mes) return;
+      o._dia=+m[3];
+      (gOsEv[o._dia]=gOsEv[o._dia]||[]).push(o);
+      gOsEvLista.push(o);
+    });
+    gOsEvLista.sort((a,b)=>String(a.evento_ts||a.evento).localeCompare(String(b.evento_ts||b.evento)));
+  }catch(e){}
+  if(gChD){ try{ gChD.update(); }catch(e){} }     // redesenha com os ▲ (chegou depois do gráfico)
+  _gRenderOsEv(null);                             // lista do mês inteira, ordenada por duração
+}
+// PR de REFERÊNCIA da usina no mês = mediana do PR dos dias SEM OS de campo. É o "dia normal DELA".
+// Não usamos a meta: usina que roda o mês inteiro abaixo da meta (PR 0,60 contra meta 0,79) acusaria
+// perda todo santo dia e a conta da corretiva viraria ficção. Fallbacks: todos os dias → meta.
+function _gPrRef(){
+  const dd=gDailyData; if(!dd||!dd.pts) return null;
+  if(dd._prRef!==undefined) return dd._prRef;
+  const comOS={};
+  gOsEvLista.forEach(o=>{ const mf=String(o.fim||'').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    const d1=(mf&&+mf[1]===dd.ano&&+mf[2]===dd.mes)?+mf[3]:99;
+    for(let k=o._dia;k<=Math.min(d1,31);k++) comOS[k]=1; });
+  const med=a=>{const v=a.slice().sort((x,y)=>x-y);return v.length?v[Math.floor(v.length/2)]:null;};
+  const semOS=dd.pts.filter(p=>p.realizado!=null&&!comOS[p.dia]).map(p=>p.realizado);
+  dd._prRef = (semOS.length>=5?med(semOS):med(dd.pts.filter(p=>p.realizado!=null).map(p=>p.realizado))) || dd.meta || null;
+  return dd._prRef;
+}
+// Horas SOLARES (06–18h) que a OS cobre DENTRO de um dia do mês exibido. Fora da janela a usina não
+// geraria mesmo — parada das 19h às 6h da manhã seguinte não é "1 dia parado", é ~0 de perda.
+const _GSOL_INI=6*60, _GSOL_FIM=18*60, _GSOL_H=(18-6);   // janela solar: 06–18h = 12h/dia
+function _gTs(s){ const m=String(s||'').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  return m?{k:+m[1]*10000+ +m[2]*100+ +m[3], min:+m[4]*60+ +m[5]}:null; }
+function _gHsDia(o,dia){
+  const dd=gDailyData; if(!dd||dd.ano==null) return 0;
+  const a=_gTs(o.evento_ts); if(!a) return 0;
+  const b=_gTs(o.fim_ts), alvo=dd.ano*10000+dd.mes*100+dia;
+  if(a.k>alvo) return 0;                                  // começou depois desse dia
+  if(b&&b.k<alvo) return 0;                               // já tinha acabado
+  const ini=(a.k===alvo)?a.min:_GSOL_INI;                 // começou antes → conta desde 06:00
+  const fim=(b&&b.k===alvo)?b.min:_GSOL_FIM;              // termina depois (ou aberta) → até 18:00
+  return Math.max(0, Math.min(fim,_GSOL_FIM)-Math.max(ini,_GSOL_INI))/60;
+}
+// Perda ESTIMADA (MWh): a energia que a usina teria feito nas HORAS SOLARES em que ficou parada.
+//   perda = Σ_dias  POA(dia) × potência(MWp) × PR de referência × (horas solares paradas no dia / 12)
+// Rateia o POA REAL do dia pelas horas paradas — não culpa o dia nublado inteiro pela OS, e casa com
+// a duração mostrada. Potência: Info Geral e, na falta, cadastro Equipamentos (linha "UFV").
+function _gPerdaOS(o){
+  const dd=gDailyData, prRef=_gPrRef();
+  if(!dd||!dd.pts||!dd.pot||!prRef) return null;
+  let perda=0, viu=false;
+  dd.pts.forEach(p=>{ if(p.poa==null) return;
+    const h=_gHsDia(o,p.dia); if(h<=0) return;
+    viu=true; perda += p.poa*dd.pot*prRef*(h/_GSOL_H); });
+  return viu?Math.round(perda*100)/100:null;
+}
+function _gCorHs(h){ return h>=12?'#ef4444':h>=4?'#f97316':h>=1?'#f59e0b':'#34d399'; }
+function _gLinhaOsEv(o){
+  const hs=(o.horas_solares!=null)?o.horas_solares:null, perda=_gPerdaOS(o);
+  const cor=hs!=null?_gCorHs(hs):'var(--faint)';
+  const fim=o.fim_ts?_gBRh(o.fim_ts):(o.aberta?'em aberto':'—');
+  return `<div style="border-left:3px solid ${cor};border-radius:6px;padding:7px 10px;margin-bottom:5px;background:var(--panel)">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">
+      <div style="font-size:12px;min-width:0"><b style="font-family:monospace">OS ${_esc(o.folio)}</b> · ${_esc(o.tipo)}
+        <span style="color:var(--faint)"> · ${_esc(o.status)}</span></div>
+      <div style="display:flex;gap:6px;flex:0 0 auto">
+        ${hs!=null?`<span style="font-size:11px;font-weight:700;color:${cor};border:1px solid ${cor};border-radius:20px;padding:1px 8px;white-space:nowrap">${_esc(o.horas_fmt||'')} sol${o.aberta?'+':''}</span>`:''}
+        ${perda!=null?`<span style="font-size:11px;color:var(--muted);border:1px solid var(--line);border-radius:20px;padding:1px 8px;white-space:nowrap">~${nf(perda,2)} MWh</span>`:''}
+      </div></div>
+    ${o.descricao?`<div style="font-size:11px;color:var(--muted);margin-top:3px">${_esc(o.descricao)}</div>`:''}
+    <div style="font-size:10.5px;color:var(--faint);margin-top:3px">${_esc(o.ativo||'')} · evento ${_gBRh(o.evento_ts)||_gBR(o.evento||o.criada)} → fim ${_esc(fim)}</div></div>`;
+}
+function _gBR(iso){ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})$/); return m?`${m[3]}/${m[2]}`:'—'; }
+function _gBRh(iso){ const m=String(iso||'').match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/); return m?`${m[3]}/${m[2]} ${m[4]}:${m[5]}`:''; }
+// diaFiltro = null → mês inteiro ordenado por duração; número → só aquele dia (clique no ▲)
+function _gRenderOsEv(diaFiltro){
+  const box=document.getElementById('gOsEvBox'); if(!box) return;
+  const lst=(diaFiltro==null)?gOsEvLista:(gOsEv[diaFiltro]||[]);
+  if(!lst.length){ box.style.display='none'; return; }
+  box.style.display='block';
+  const somaH=lst.reduce((s,o)=>s+(o.horas_solares||0),0);
+  const perdas=lst.map(_gPerdaOS).filter(v=>v!=null);
+  const somaP=perdas.reduce((s,v)=>s+v,0);
+  const hfmt=h=>`${Math.floor(Math.round(h*60)/60)}h${String(Math.round(h*60)%60).padStart(2,'0')}`;
+  const tit=(diaFiltro==null)?`${lst.length} OS de campo no mês · ${hfmt(somaH)} solares somadas`
+                            :`Dia ${diaFiltro} · ${lst.length} OS de campo`;
+  box.innerHTML=`<div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;background:var(--panel-2)">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:3px">
+      <b style="font-size:12.5px">${tit}${perdas.length?` · ~${nf(somaP,1)} MWh estimados`:''}</b>
+      ${diaFiltro==null?'':`<span onclick="_gRenderOsEv(null)" style="cursor:pointer;color:var(--brand);font-size:11px">ver o mês todo</span>`}</div>
+    <div style="font-size:10.5px;color:var(--faint);margin-bottom:8px">ordenado por data do evento · duração em HORAS SOLARES (só conta 06:00–18:00; noite não gera, então não conta) do evento até o fim da OS — aberta conta até agora · perda estimada = Σ POA do dia × ${gDailyData&&gDailyData.pot?nf(gDailyData.pot,2)+' MWp':'potência'} × PR de referência ${_gPrRef()?nf(_gPrRef()*100,1)+'%':''} × (horas paradas no dia ÷ 12) · PR de referência = mediana dos dias do mês sem OS</div>
+    ${lst.map(_gLinhaOsEv).join('')}</div>`;
+}
+window._gRenderOsEv=_gRenderOsEv;
+window.gAbrirOsDia=(dia)=>{ if((gOsEv[dia]||[]).length) _gRenderOsEv(dia); };
 async function gMensal(c,g){
   const d=await gGET(`/api/g/mensal?cliente=${encodeURIComponent(c.cliente)}&usina=${encodeURIComponent(c.usina)}`);
   if(g!==gGen) return;
@@ -902,20 +1033,113 @@ async function gDiario(c,ano,mes,g){
   gOsDia={};
   (osj.os||[]).forEach(o=>{ const m=String(o.data||'').match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
     if(m && +m[2]===mes && +m[3]===ano && !gOsDia[+m[1]]) gOsDia[+m[1]]=o; });
-  document.getElementById('gDiarioSub').textContent=`${String(mes).padStart(2,'0')}/${ano} · barras vermelhas = abaixo da meta (${d.meta!=null?nf(d.meta*100,1)+'%':'sem meta'}) · D-1 · ● = OS de Performance`;
+  document.getElementById('gDiarioSub').textContent=`${String(mes).padStart(2,'0')}/${ano} · barras vermelhas = abaixo da meta (${d.meta!=null?nf(d.meta*100,1)+'%':'sem meta'}) · D-1 · ● OS de Performance · ▲ OS de campo (clique no dia)`;
+  const box0=document.getElementById('gOsEvBox'); if(box0) box0.style.display='none';
   if(gChD)gChD.destroy();
   const opt=_gOpt(true,tk,grid);
-  opt.layout={padding:{bottom:18}};                       // espaço p/ o ponto de OS sob o nº do dia
+  opt.layout={padding:{bottom:34}};                       // espaço p/ os 2 marcadores sob o nº do dia
+  opt.scales.x.ticks.color=(cx)=>{ const dia=((cx.chart&&cx.chart.data.labels)||[])[cx.index];
+    return (gOsEv[dia]||[]).length?'#f97316':tk; };       // dia com evento de OS fica laranja
+  opt.onClick=(e,els,ch)=>{ const i=Math.round(ch.scales.x.getValueForPixel(e.x));
+    const dia=((ch.data.labels)||[])[i]; if(dia!=null) gAbrirOsDia(dia); };
   opt.plugins=Object.assign({},opt.plugins,{tooltip:{callbacks:{afterBody:(items)=>{
-    if(!items||!items.length)return[]; const p=pts[items[0].dataIndex], o=p&&gOsDia[p.dia];
-    if(!o)return[]; const out=['','OS #'+o.os+(o.status?(' · '+o.status):'')];
-    if(o.nota)_gWrapArr(o.nota,46).forEach(l=>out.push(l)); return out; }}}});
+    if(!items||!items.length)return[]; const p=pts[items[0].dataIndex], out=[];
+    const o=p&&gOsDia[p.dia];
+    if(o){ out.push('','OS #'+o.os+(o.status?(' · '+o.status):''));
+           if(o.nota)_gWrapArr(o.nota,46).forEach(l=>out.push(l)); }
+    const ev=(p&&gOsEv[p.dia])||[];
+    if(ev.length){ out.push('', ev.length+' OS de campo neste dia:');
+      ev.slice(0,3).forEach(x=>out.push('• '+x.tipo+' — OS '+x.folio));
+      out.push('(clique no dia p/ abrir)'); }
+    return out; }}}});
   gChD=new Chart(document.getElementById('gChDiario'),{data:{labels:pts.map(p=>p.dia),datasets:[
     {type:'bar',label:'PR diário',data:pts.map(p=>p.realizado),borderRadius:3,
      backgroundColor:pts.map(p=>(p.realizado!=null&&d.meta!=null&&p.realizado>=d.meta)?gGray():cssv('--red'))},
     {type:'line',label:'meta',data:pts.map(()=>d.meta),borderColor:gLine(),borderWidth:1.8,borderDash:[6,4],pointRadius:0}
-  ]},options:opt,plugins:[gLbl,gOsDot]});
+  ]},options:opt,plugins:[gLbl,gOsDot,gOsEvDot]});
+  // Geração e POA NÃO ficam inline (poluía a visão do PR) — vivem só na visão EXPANDIDA (botão Expandir).
+  gDailyData={usina:c.usina,mes,ano,pts,meta:d.meta,meta_ger:d.meta_ger,meta_poa:d.meta_poa,pot:d.pot};
+  _gCarregarOsEv(c.usina,ano,mes);   // OS de campo por data do EVENTO — async, não trava o gráfico
 }
+// ── Visão expandida (tela cheia): Geração / POA / PR juntos, dividindo a altura (nada de rolar) ──
+function _gExpEsc(e){ if(e.key==='Escape') gFecharExp(); }
+window.gFecharExp=()=>{ Object.values(gChX).forEach(c=>{try{c.destroy();}catch(e){}}); gChX={};
+  document.removeEventListener('keydown',_gExpEsc); const m=document.getElementById('gExpModal'); if(m)m.remove(); };
+// LINHA-GUIA sincronizada: ao passar o mouse em QUALQUER um dos três gráficos, desenha a mesma vertical
+// nos três, no mesmo dia. É o que deixa a sincronia visível — dá p/ ler geração, POA e PR do mesmo dia
+// sem contar coluna. Cinza a 50%, redesenho só quando o índice MUDA (senão pisca a cada mousemove).
+// Rótulo em % nos pontos do PR. O gLbl (usado no PR mensal) tem guard de gráfico de BARRA e não
+// desenha em linha; o gLblV desenha, mas formata número cru (0,81 em vez de 81,0%).
+const gxLblPct={id:'gxLblPct',afterDatasetsDraw(c){
+  const ds=c.data.datasets[0]; if(!ds) return;
+  const m=c.getDatasetMeta(0), g=c.ctx;
+  g.save(); g.fillStyle='#e8eef7'; g.font='700 9.5px '+getComputedStyle(document.body).fontFamily;
+  g.textAlign='center'; g.textBaseline='bottom';
+  m.data.forEach((el,i)=>{ const v=ds.data[i]; if(v==null) return; g.fillText(nf(v*100,1)+'%',el.x,el.y-7); });
+  g.restore();}};
+let _gxCross=null;
+function _gxSetCross(i){
+  if(_gxCross===i) return;
+  _gxCross=i;
+  Object.values(gChX).forEach(c=>{ try{ c.draw(); }catch(e){} });
+}
+const gxCrossPlug={id:'gxCross',afterDatasetsDraw(c){
+  if(_gxCross==null||!c.scales||!c.scales.x) return;
+  const x=c.scales.x.getPixelForValue(_gxCross), a=c.chartArea;
+  if(!a||x<a.left-1||x>a.right+1) return;
+  const g=c.ctx; g.save();
+  g.strokeStyle='rgba(174,182,198,.5)'; g.lineWidth=1;
+  g.beginPath(); g.moveTo(x,a.top); g.lineTo(x,a.bottom); g.stroke();
+  g.restore();
+}};
+window.gExpandirDiario=()=>{
+  if(!gDailyData||!gDailyData.pts||!gDailyData.pts.length){ alert('Abra o diário de uma usina primeiro (clique numa barra do PR mensal).'); return; }
+  _gxCross=null;
+  const dd=gDailyData, tk='#aeb6c6', grid='rgba(255,255,255,.07)', labels=dd.pts.map(p=>p.dia);
+  const GRN='#a3d900', POA='#6f7bb0', METc='#cfd6e0';   // verde (geração/PR) · slate (POA) · meta tracejada — cores da referência adaptadas ao fundo escuro claro
+  let m=document.getElementById('gExpModal'); if(!m){ m=document.createElement('div'); m.id='gExpModal'; document.body.appendChild(m); }
+  // A meta é UMA por mês (não varia por dia): vai no canto superior direito de cada gráfico, com o
+  // tracinho da mesma cor da linha tracejada, em vez de o operador ter que adivinhar o valor dela.
+  const blk=(t,cv,mt)=>`<div style="flex:1;min-height:0;background:#1e2637;border:1px solid rgba(255,255,255,.07);border-radius:12px;padding:8px 16px 4px;display:flex;flex-direction:column">
+    <div style="display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:2px">
+      <span style="font-size:12.5px;font-weight:600;color:#eef1f6">${t}</span>
+      ${mt?`<span style="font-size:11.5px;color:${METc};white-space:nowrap;font-variant-numeric:tabular-nums"><span style="display:inline-block;width:16px;border-top:1.6px dashed ${METc};vertical-align:middle;margin-right:7px"></span>meta ${mt}</span>`:''}
+    </div><div style="flex:1;min-height:0;position:relative"><canvas id="${cv}"></canvas></div></div>`;
+  m.innerHTML=`<div style="position:fixed;inset:0;z-index:600;background:#151b28;color:#e5e7eb;display:flex;flex-direction:column;padding:14px 20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div><span style="font-size:16px;font-weight:600">${_esc(dd.usina)}</span> <span style="font-size:12px;color:#8b93a8">· ${String(dd.mes).padStart(2,'0')}/${dd.ano} · diário (D-1)</span></div>
+      <button onclick="gFecharExp()" style="border:1px solid rgba(255,255,255,.14);background:#232c40;color:#e5e7eb;cursor:pointer;padding:6px 14px;border-radius:8px;font-size:12.5px;font-family:inherit"><i class="ph ph-x" style="margin-right:5px"></i>Fechar</button></div>
+    <div style="flex:1;display:flex;flex-direction:column;gap:10px;min-height:0">${blk('Geração diária (MWh)','gxGer',dd.meta_ger!=null?nf(dd.meta_ger,1)+' MWh/dia':'')}${blk('Recurso solar diário — POA (kWh/m²)','gxPoa',dd.meta_poa!=null?nf(dd.meta_poa,1)+' kWh/m²/dia':'')}${blk('Qualidade diária — PR (%)','gxPr',dd.meta!=null?nf(dd.meta*100,1)+'%':'')}</div></div>`;
+  // ALINHAMENTO DOS DIAS: sem isto cada gráfico começa num X diferente, porque a largura do eixo Y muda
+  // com o texto ("350%" é bem mais largo que "18") e empurra a área de plotagem. Travando a MESMA largura
+  // nos três, o dia 1 cai na mesma vertical em todos. Idem o padding direito.
+  const YW=62;
+  const opt=(pct)=>{ const o=_gOpt(pct,tk,grid); o.maintainAspectRatio=false;
+    o.scales=o.scales||{}; o.scales.y=Object.assign({},o.scales.y,{afterFit:(s)=>{ s.width=YW; }});
+    // BARRA centraliza o dia na faixa (offset ligado); LINHA senta o ponto no tick e cola o dia 1 na
+    // borda. Sem forçar o mesmo offset nos três, o PR fica meia-faixa fora e o desvio cresce no mês.
+    o.scales.x=Object.assign({},o.scales.x,{offset:true});
+    o.layout=Object.assign({},o.layout||{},{padding:Object.assign({},(o.layout||{}).padding,{right:14})});
+    o.onHover=(ev,els,ch)=>{ const i=Math.round(ch.scales.x.getValueForPixel(ev.x));
+      _gxSetCross(i>=0&&i<labels.length?i:null); };
+    return o; };
+  const bars=(cv,lbl,val,meta,color)=>{ gChX[cv]=new Chart(document.getElementById(cv),{data:{labels,datasets:[
+      {type:'bar',label:lbl,data:dd.pts.map(val),backgroundColor:color,borderRadius:3},
+      {type:'line',label:'meta',data:dd.pts.map(()=>meta),borderColor:METc,borderWidth:1.6,borderDash:[6,4],pointRadius:0}
+    ]},options:opt(false),plugins:[gLblV,gxCrossPlug]}); };
+  setTimeout(()=>{ try{
+    bars('gxGer','Geração (MWh)',p=>p.geracao,dd.meta_ger,GRN);
+    bars('gxPoa','POA (kWh/m²)',p=>p.poa,dd.meta_poa,POA);
+    gChX.gxPr=new Chart(document.getElementById('gxPr'),{data:{labels,datasets:[
+      {type:'line',label:'PR realizado',data:dd.pts.map(p=>p.realizado),borderColor:GRN,backgroundColor:'rgba(163,217,0,.15)',fill:true,borderWidth:2,pointRadius:2,pointBackgroundColor:GRN,tension:.25},
+      {type:'line',label:'Meta de PR',data:dd.pts.map(()=>dd.meta),borderColor:METc,borderWidth:1.6,borderDash:[6,4],pointRadius:0}
+    ]},options:opt(true),plugins:[gxLblPct,gxCrossPlug]});
+    // sair do modal com o mouse apaga a linha nos três
+    const _mo=document.getElementById('gExpModal');
+    if(_mo) _mo.addEventListener('mouseleave',()=>_gxSetCross(null));
+  }catch(e){} },50);
+  document.addEventListener('keydown',_gExpEsc);
+};
 async function gInversores(c,g){
   const q=`cliente=${encodeURIComponent(c.cliente)}&usina=${encodeURIComponent(c.usina)}${c.ini?'&ini='+c.ini:''}${c.fim?'&fim='+c.fim:''}`;
   const d=await gGET('/api/g/inversores?'+q);
@@ -981,14 +1205,16 @@ function gComentLoad(c){
   if(!osb||!box) return;
   gGET('/api/os-performance?usina='+encodeURIComponent(u)).then(d=>{        // OSs em aberto (só-leitura)
     const os=(d&&d.os)||[];
-    osb.innerHTML = os.length ? os.map(o=>
-      `<div style="border:1px solid var(--line);border-left:3px solid #f59e0b;border-radius:8px;padding:6px 9px;margin-bottom:5px;background:var(--panel-2)">
+    osb.innerHTML = os.length ? os.map(o=>{
+      const atr=!!o.atribuida, bc=atr?'#a3d900':'#f59e0b';   // verde = atribuída a inversor · âmbar = Performance
+      return `<div style="border:1px solid var(--line);border-left:3px solid ${bc};border-radius:8px;padding:6px 9px;margin-bottom:5px;background:var(--panel-2)">
          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
            <b style="font-family:monospace;font-size:11px">OS #${_cmEsc(o.os)}</b>
            <span style="font-size:9px;color:var(--faint);background:var(--panel);padding:1px 6px;border-radius:4px">${_cmEsc(o.categoria)}</span>
-           <span style="margin-left:auto;font-size:9px;font-weight:700;padding:1px 7px;border-radius:20px;background:rgba(245,158,11,.16);color:#f59e0b;white-space:nowrap">${_cmEsc(o.status)}</span></div>
+           ${atr&&o.inv?`<span style="font-size:9px;font-weight:700;padding:1px 7px;border-radius:4px;background:rgba(163,217,0,.16);color:#a3d900">${_cmEsc(o.inv)}</span>`:''}
+           <span style="margin-left:auto;font-size:9px;font-weight:700;padding:1px 7px;border-radius:20px;background:${atr?'rgba(163,217,0,.16)':'rgba(245,158,11,.16)'};color:${bc};white-space:nowrap">${_cmEsc(o.status)}</span></div>
          ${o.nota?`<div style="font-size:10.5px;color:var(--muted);margin-top:4px;line-height:1.4">${_cmEsc(String(o.nota).slice(0,170))}</div>`:''}
-       </div>`).join('') : '';
+       </div>`;}).join('') : '';
   }).catch(()=>{osb.innerHTML='';});
   const p=gComentP(); _gComentKey = p?stateKey(p):null;
   document.getElementById('gComentNick').value=localStorage.getItem('gcAnalistaNick')||'';
