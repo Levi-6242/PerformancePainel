@@ -187,6 +187,64 @@ O zip novo **não** traz estado de runtime, então extrair por cima não apaga h
 
 ---
 
+## 8b. Deploy por git (substitui o zip)
+
+Combinado com o Igor em 03/08/2026: em vez de mandar zip a cada versão, o servidor
+acompanha o repositório. Atualizar vira `git pull` + reiniciar os dois processos.
+
+**O que o git traz e o que ele NÃO traz.** O repositório tem só código (38 arquivos em
+`plataforma/`). Segredo e estado ficam de fora **por regra do `.gitignore`**, não por
+descuido: `.env`, `tokens.txt`, `tokens_runtime.json`, `*.migrado`, `cache_snapshot.json`,
+os `*.json` de estado e os `.log`. Isso é proposital — um `git pull` **nunca** pode
+sobrescrever o token vivo nem o histórico de comentários das usinas.
+
+Consequência prática: **a primeira instalação continua precisando dos segredos à mão.**
+O `.env` e o `tokens.txt` chegam por canal seguro (seção 2), uma vez. Da segunda
+atualização em diante, é só `git pull`.
+
+```
+cd <pasta do projeto>
+git pull
+pip install -r requirements.txt        # só se o requirements mudou
+# reiniciar os dois processos (seção 7)
+```
+
+**Nunca rode `git add -A` no servidor.** O servidor é destino, não origem: o estado de
+runtime muda o tempo todo e commitá-lo cria conflito no próximo `pull`. Se precisar
+descartar alteração local acidental, `git checkout -- <arquivo>`.
+
+⚠️ **`git checkout` de branch apaga arquivo rastreado que não existe na branch de
+destino.** Aconteceu em 03/08: trocar para uma branch sem a pasta `plataforma/` apagou
+os `.py` do disco e o serviço só continuou de pé porque os processos já tinham o código
+em memória. No servidor, fique **sempre na mesma branch** e use só `git pull`.
+
+---
+
+## 8c. Rodar atrás do proxy reverso (sub-caminho)
+
+A plataforma roda sob **`/plat-performance`** no proxy do T.I., em vez de ocupar a raiz
+da porta. Basta o proxy encaminhar com o cabeçalho:
+
+```
+X-Forwarded-Prefix: /plat-performance
+```
+
+Funciona das duas formas: se o proxy encaminhar o caminho inteiro
+(`/plat-performance/api/data`) a aplicação tira o prefixo sozinha; se o proxy já tirar
+antes de encaminhar, também funciona. Não é preciso saber qual dos dois é.
+
+Alternativa sem cabeçalho: definir a variável de ambiente `APP_PREFIX=/plat-performance`
+antes de subir os processos.
+
+**Vazio = raiz**, que é o comportamento de sempre. Quem roda local em `localhost:5050`
+não precisa configurar nada.
+
+O front-end se adapta em tempo de execução — um shim injetado em cada página reescreve
+os caminhos absolutos (`fetch`, `XMLHttpRequest`, `EventSource`, links e formulários).
+Por isso trocar o nome do caminho é trocar uma string, não mexer no código.
+
+---
+
 ## 9. Problemas comuns
 
 | Sintoma | Causa / ação |

@@ -185,6 +185,89 @@ app.config["TEMPLATES_AUTO_RELOAD"] = True   # relê o index.html sem precisar r
 app.jinja_env.auto_reload = True
 Compress(app)   # gzip nas respostas (JSON do /api/data cai ~10x)
 
+# ── Proxy reverso: rodar sob um sub-caminho (/plat-performance) ─────────
+# O T.I. hospeda vários apps no mesmo domínio, cada um sob um caminho. Hoje a
+# plataforma vive na RAIZ da porta 5050 e todas as rotas são absolutas (/login,
+# /api/...), então atrás do proxy ela quebraria: o navegador pediria /api/data em
+# vez de /monitoramento-om/api/data.
+#
+# A correção é de UM lugar só, não de mil: o WSGI recebe SCRIPT_NAME e o Flask
+# passa a gerar URL com prefixo sozinho (url_for, redirect do login, cookie de
+# sessão). O front-end é resolvido por um shim injetado em toda página HTML —
+# assim nenhuma das centenas de chamadas fetch('/api/...') precisa mudar.
+#
+# Vazio (o padrão) = comportamento de hoje, na raiz. Nada muda para quem roda local.
+APP_PREFIX = (os.environ.get("APP_PREFIX", "") or "").strip().rstrip("/")
+if APP_PREFIX and not APP_PREFIX.startswith("/"):
+    APP_PREFIX = "/" + APP_PREFIX
+
+
+class _PrefixoDeProxy:
+    """Põe o sub-caminho em SCRIPT_NAME. Aceita as duas formas de proxy que existem:
+    o que ENCAMINHA o caminho inteiro (aí tiramos o prefixo do PATH_INFO) e o que já
+    TIRA o prefixo antes de encaminhar (aí só anunciamos o SCRIPT_NAME)."""
+
+    def __init__(self, wsgi_app):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        # O cabeçalho do proxy manda; a variável de ambiente é o padrão local.
+        pref = (environ.get("HTTP_X_FORWARDED_PREFIX") or APP_PREFIX or "").rstrip("/")
+        if pref:
+            environ["SCRIPT_NAME"] = pref
+            caminho = environ.get("PATH_INFO", "")
+            if caminho.startswith(pref):
+                environ["PATH_INFO"] = caminho[len(pref):] or "/"
+        return self.wsgi_app(environ, start_response)
+
+
+app.wsgi_app = _PrefixoDeProxy(app.wsgi_app)
+
+
+def _prefixo() -> str:
+    """Prefixo desta requisição ('' quando na raiz). Usa o que o WSGI resolveu."""
+    try:
+        return (flask_request.environ.get("SCRIPT_NAME") or "").rstrip("/")
+    except Exception:
+        return APP_PREFIX
+
+
+# Shim do front-end: reescreve caminhos absolutos em tempo de execução. Cobre fetch,
+# XMLHttpRequest, EventSource e os <a href="/...">. Injetado em TODA resposta HTML,
+# então vale para a página nova (HTML cru) e para os templates Jinja igualmente.
+_SHIM_PREFIXO = """<script>(function(){var p=%s;window.APP_PREFIX=p;if(!p)return;
+function fix(u){if(typeof u!=='string')return u;if(u.charAt(0)!=='/')return u;
+if(u.charAt(1)==='/')return u;if(u===p||u.indexOf(p+'/')===0)return u;return p+u;}
+window.__pfx=fix;
+var _f=window.fetch;if(_f)window.fetch=function(u,o){return _f.call(this,fix(u),o);};
+var _o=XMLHttpRequest.prototype.open;XMLHttpRequest.prototype.open=function(m,u){
+arguments[1]=fix(u);return _o.apply(this,arguments);};
+if(window.EventSource){var _E=window.EventSource;window.EventSource=function(u,o){return new _E(fix(u),o);};}
+document.addEventListener('DOMContentLoaded',function(){
+document.querySelectorAll('a[href^="/"],form[action^="/"]').forEach(function(el){
+var a=el.tagName==='A'?'href':'action';el.setAttribute(a,fix(el.getAttribute(a)));});});
+})();</script>"""
+
+
+@app.after_request
+def _injeta_prefixo(resp):
+    """Injeta o shim no topo de toda página HTML. Sem prefixo, não mexe em nada."""
+    try:
+        pref = _prefixo()
+        if not pref or resp.direct_passthrough:
+            return resp
+        if not (resp.content_type or "").startswith("text/html"):
+            return resp
+        html = resp.get_data(as_text=True)
+        shim = _SHIM_PREFIXO % json.dumps(pref)
+        # Antes de qualquer script da página: logo após <head>, ou no início do corpo.
+        i = html.lower().find("<head>")
+        html = (html[:i + 6] + shim + html[i + 6:]) if i >= 0 else (shim + html)
+        resp.set_data(html)
+    except Exception as e:
+        print(f"[prefixo] não consegui injetar o shim: {e}")
+    return resp
+
 # ── Autenticação (senha única DASH_PASSWORD) ──────────────────────────────────
 # Protege o dashboard quando exposto (Cloudflare Tunnel). Se DASH_PASSWORD estiver
 # vazia, o app fica ABERTO (uso local). secret_key derivada da senha = estável entre
@@ -252,7 +335,8 @@ def _auth_gate():
         return jsonify({"error": "não autenticado"}), 401
     # preserva o destino: depois do login volta pra página pedida (ex.: o app do Monitor da Ronda
     # abre /ronda/monitor — sem isto o login jogava sempre na raiz e o app "virava" o dashboard).
-    return redirect("/login?next=" + quote(p))
+    # Com prefixo, "/login" cru mandaria o navegador pra RAIZ do domínio (fora da app).
+    return redirect(_prefixo() + "/login?next=" + quote(p))
 
 
 @app.after_request
@@ -307,14 +391,14 @@ def login():
 @app.route("/logout")
 def logout():
     session.clear()
-    return redirect("/login")
+    return redirect(_prefixo() + "/login")
 
 
 @app.route("/auth/login")
 def auth_login():
     """Início do login Microsoft (Entra ID): redireciona pro Microsoft; a volta cai em /auth/callback."""
     if not MS_SSO_ON:
-        return redirect("/login")
+        return redirect(_prefixo() + "/login")
     from urllib.parse import urlencode
     state = secrets.token_urlsafe(24)
     session["oauth_state"] = state
@@ -331,7 +415,7 @@ def auth_login():
 def auth_callback():
     """Volta do Microsoft: troca o code por token, confere o domínio @AZURE_ALLOWED_DOMAIN e loga."""
     if not MS_SSO_ON:
-        return redirect("/login")
+        return redirect(_prefixo() + "/login")
     if flask_request.args.get("error"):
         return _render_login("Login Microsoft cancelado ou negado."), 401
     code = flask_request.args.get("code")
@@ -2901,17 +2985,29 @@ def _load_sunop_plant_meta(plant_name: str, inst: str = "gridco") -> dict:
     # em 31/07 o SunOp respondeu 200 ao Bearer API às 09:42 e 403 (HTML de WAF) às 09:53,
     # com o web em 500: o servidor deles oscila POR ESQUEMA, então insistir num só derruba
     # o metadata inteiro. Quem responder 200 primeiro, vale.
+    # E INSISTE: a oscilação é de MINUTOS, não de horas. Uma tentativa única por esquema fazia
+    # uma rajada momentânea condenar a usina — a meta é carregada uma vez por processo, então a
+    # usina que perdeu a janela ficava SEM DETALHE até o próximo restart (03/08: MTS100 com os
+    # 40 inversores e MTS200 com zero, lado a lado, só porque a MTS200 caiu na rajada).
     items = None
-    for H in (_sunop_data_headers(inst), _sunop_headers(inst)):
-        try:
-            r = _http().get(f"{_si(inst)['data']}/v2/metadata", headers=H,
-                             params={"plant": plant_name, "size": 6000}, timeout=30)
-            if r.status_code == 200:
-                items = r.json().get("data", [])
-                break
-        except Exception:
-            continue
+    for tentativa in range(3):
+        for H in (_sunop_data_headers(inst), _sunop_headers(inst)):
+            try:
+                r = _http().get(f"{_si(inst)['data']}/v2/metadata", headers=H,
+                                 params={"plant": plant_name, "size": 6000}, timeout=30)
+                if r.status_code == 200:
+                    items = r.json().get("data", [])
+                    break
+            except Exception:
+                continue
+        if items is not None:
+            if tentativa:
+                print(f"[SUNOP:{inst}] metadata de {plant_name} veio na tentativa {tentativa + 1}")
+            break
+        if tentativa < 2:
+            time.sleep(2 + 3 * tentativa)   # 2s, depois 5s
     if items is None:
+        print(f"[SUNOP:{inst}] metadata de {plant_name} FALHOU nas 3 tentativas (usina fica sem detalhe)")
         return {}
 
     inv_strings = {}   # inv_name → [pathnames de corrente I_PVx]
@@ -3012,30 +3108,51 @@ def _load_sunop_plant_meta(plant_name: str, inst: str = "gridco") -> dict:
     }
 
 
+_sunop_plants_lista = {}   # inst -> {"nomes": [...], "ts": float} — lista de usinas do /api/plants
+
+
 def ensure_sunop_meta(inst: str = "gridco"):
-    """Carrega metadata de todas as plantas SunOp (lazy, uma vez por processo/instância)."""
+    """Carrega metadata das plantas SunOp. Antes era 'uma vez por processo': bastava o dict
+    não estar vazio para desistir, então uma carga PARCIAL congelava até o próximo restart —
+    e usina sem meta não vira linha 'sem dados', ela SOME da tabela (03/08: o Athon serviu 5
+    de 10 usinas por horas, sem nenhum alarme, porque as outras 5 nem existiam no payload).
+    Agora completa o que falta a cada chamada, e só desiste quando não falta ninguém."""
     S = _si(inst)
-    if S["meta"]:
-        return
     H = _sunop_headers(inst)
-    try:
-        plants = _http().get(f"{S['config']}/plants", headers=H, timeout=15).json()
-    except Exception as e:
-        print(f"[SUNOP:{inst}] Erro plants: {e}")
-        return
+    # Lista de usinas: cacheada por 10 min (é do serviço de CONFIG, que segue de pé mesmo
+    # quando o de DADOS recusa — foi assim o dia todo em 31/07 e 03/08).
+    _pl = _sunop_plants_lista.get(inst) or {}
+    if _pl.get("nomes") and (time.time() - _pl.get("ts", 0)) < 600:
+        nomes = _pl["nomes"]
+        if all(n in S["meta"] for n in nomes):
+            return
+        plants = [{"name": n} for n in nomes]
+    else:
+        try:
+            plants = _http().get(f"{S['config']}/plants", headers=H, timeout=15).json()
+        except Exception as e:
+            print(f"[SUNOP:{inst}] Erro plants: {e}")
+            return
     # Blindagem: se o token expirou, /api/plants devolve um dict de erro (ex.:
     # {"detail":"Token has expired."}) em vez da lista → não crashar.
     if not isinstance(plants, list) or not all(isinstance(p, dict) and "name" in p for p in plants):
         print(f"[SUNOP:{inst}] /plants não retornou lista de plantas (token expirado?): {str(plants)[:120]}")
         return
+    nomes = [p["name"] for p in plants]
+    _sunop_plants_lista[inst] = {"nomes": nomes, "ts": time.time()}
+    faltam = [n for n in nomes if n not in S["meta"]]
+    if not faltam:
+        return
     with ThreadPoolExecutor(max_workers=5) as ex:
-        futures = {ex.submit(_load_sunop_plant_meta, p["name"], inst): p["name"] for p in plants}
+        futures = {ex.submit(_load_sunop_plant_meta, n, inst): n for n in faltam}
         for f in as_completed(futures):
             pname = futures[f]
             meta  = f.result()
             if meta:
                 S["meta"][pname] = meta
-    print(f"[SUNOP:{inst}] Metadata: {len(S['meta'])} plantas carregadas")
+    ainda = [n for n in nomes if n not in S["meta"]]
+    print(f"[SUNOP:{inst}] Metadata: {len(S['meta'])}/{len(nomes)} plantas"
+          + (f" — faltando {ainda} (tenta de novo no próximo ciclo)" if ainda else ""))
 
 
 # ── SunOp: processa uma planta ────────────────────────────────────────────────
@@ -3198,10 +3315,13 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
 
 def fetch_all_sunop(inst: str = "gridco") -> list:
     ensure_sunop_meta(inst)
+    # Percorre a LISTA DE USINAS, não as que têm meta: usina sem metadata tem que virar linha
+    # "sem dados" (que acende alarme de comunicação), e não sumir da tabela em silêncio.
+    _nomes = (_sunop_plants_lista.get(inst) or {}).get("nomes") or list(_si(inst)["meta"])
     rows = []
     with ThreadPoolExecutor(max_workers=5) as ex:
         futures = {ex.submit(process_plant_sunop, pname, inst): pname
-                   for pname in _si(inst)["meta"]}
+                   for pname in _nomes}
         for f in as_completed(futures):
             rows.append(f.result())
     return sorted(rows, key=lambda x: (severidade(x), x["usina"]))
