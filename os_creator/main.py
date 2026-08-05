@@ -12,7 +12,7 @@ import os
 import sys
 import urllib.parse
 from PyQt6.QtCore import Qt, QTranslator, QLibraryInfo, QLocale, QTimer
-from PyQt6.QtWidgets import QApplication, QDialog
+from PyQt6.QtWidgets import QApplication, QDialog, QMessageBox
 from PyQt6.QtGui import QIcon
 import api
 from app import MainWindow, DARK_QSS, LoginDialog, _asset
@@ -140,8 +140,26 @@ def main():
     if not api.is_logged_in():
         if LoginDialog().exec() != QDialog.DialogCode.Accepted:
             sys.exit(0)
-    win = MainWindow(); _holder["win"] = win
-    win.showMaximized()          # abre em tela cheia p/ aproveitar o espaço (padrão pedido pelo Levi)
+    # A JANELA PRINCIPAL PODE FALHAR — e se falhar, a pessoa NÃO PODE FICAR PRESA na versão
+    # quebrada. O `checar_atualizacao` rodava só depois daqui, então um erro no __init__ da
+    # MainWindow trancava tudo: o app morria antes de checar se já existia correção publicada.
+    # Aconteceu na v135 (KeyError de um ícone) e o Levi ficou sem caminho pelo próprio app —
+    # teve de reinstalar à mão. Agora o updater é oferecido JUSTAMENTE quando a janela não nasce.
+    try:
+        win = MainWindow(); _holder["win"] = win
+        win.showMaximized()      # abre em tela cheia p/ aproveitar o espaço (padrão pedido pelo Levi)
+    except Exception as exc:
+        try:
+            from workers import registrar_erro
+            registrar_erro((type(exc), exc, exc.__traceback__))
+        except Exception:
+            pass
+        QMessageBox.critical(None, "Criar OS — Fracttal",
+                             "O app não conseguiu abrir a janela principal:\n\n%s\n\n"
+                             "Vou procurar uma atualização — quase sempre a correção já está "
+                             "publicada." % str(exc)[:300])
+        checar_atualizacao(None, silencioso=False)     # não-silencioso: aqui o aviso É o ponto
+        sys.exit(1)
     # checa atualização (GitHub Releases) logo após abrir, sem travar o boot
     QTimer.singleShot(1500, lambda: checar_atualizacao(win, silencioso=True))
     if uri:
