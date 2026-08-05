@@ -269,7 +269,7 @@ class AtivosTab(QWidget):
             self.p_det.v.addLayout(l)
         s = QFrame(); s.setFixedHeight(1); s.setStyleSheet("background:%s;border:none;" % BORDER)
         self.p_det.v.addWidget(s)
-        self.p_det.v.addWidget(_lbl("ÚLTIMAS 3 OS", MUTED, 10.5, 800, esp=1.1))     # item 1
+        self.p_det.v.addWidget(_lbl("ÚLTIMAS 4 OS", MUTED, 10.5, 800, esp=1.1))     # 3→4 (Levi, 06/08)
         self.os_box = QVBoxLayout(); self.os_box.setSpacing(7)
         self.p_det.v.addLayout(self.os_box)
         self.os_hint = _lbl("selecione um ativo", MUTED, 11.5, 400, True)
@@ -507,7 +507,7 @@ class AtivosTab(QWidget):
             if w:
                 w.setParent(None); w.deleteLater()
         self.os_hint.setText("buscando as OS…"); self.os_hint.setVisible(True)
-        self._wos = ApiWorker(api.ultimas_os_do_ativo, a.get("id"), 3, True)      # 3 (item 1)
+        self._wos = ApiWorker(api.ultimas_os_do_ativo, a.get("id"), 4, True)      # 4 (Levi, 06/08)
         self._wos.ok.connect(self._os_chegaram)
         self._wos.erro.connect(lambda *_: self.os_hint.setText("não consegui buscar as OS"))
         self._wos.start()
@@ -519,7 +519,7 @@ class AtivosTab(QWidget):
             self.os_hint.setText("nenhuma OS neste ativo"); return
         self.os_hint.setVisible(False)
         # da MAIOR para a menor (item 5)
-        for d in sorted(lista, key=api._ordem_os, reverse=True)[:3]:
+        for d in sorted(lista, key=api._ordem_os, reverse=True)[:4]:
             cs = COR_STATUS.get(d.get("status"), MUTED)
             li = QFrame()
             li.setStyleSheet("QFrame{background:%s;border:1px solid %s;border-radius:9px;}"

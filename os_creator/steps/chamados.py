@@ -419,6 +419,19 @@ class _ChamadoCard(QFrame):
             l1.addWidget(lp, 1)
         else:
             l1.addStretch(1)
+        # FLUXO — o "ícone de raiz" (Levi, 05/08). Foi NESTE card que ele foi pedido: clica e abre
+        # a cadeia inteira (OS de origem → chamado → acompanhamento + o histórico do ativo).
+        # É QPushButton e não parte do card: o clique do card abre o DETALHE do chamado, e os dois
+        # gestos não podem se atropelar.
+        bf = QPushButton()
+        bf.setIcon(QIcon(icone_pix("ramo", T.TEXT_MUTED, 14)))
+        bf.setFixedSize(24, 22)
+        bf.setCursor(Qt.CursorShape.PointingHandCursor)
+        bf.setToolTip("Fluxo da OS — a cadeia inteira e o histórico do ativo")
+        bf.setStyleSheet("QPushButton{background:transparent;border:none;border-radius:6px;padding:0;}"
+                         "QPushButton:hover{background:rgba(166,226,46,0.14);}")
+        bf.clicked.connect(self._abrir_fluxo)
+        l1.addWidget(bf)
         ls = QLabel(_curto(st) or (d.get("status") or "—"))
         ls.setObjectName("status")
         ls.setProperty("tone", "green" if feito else _TOM.get(cor, "blue"))
@@ -468,6 +481,11 @@ class _ChamadoCard(QFrame):
             lf = QLabel(fab); lf.setObjectName("meta")      # virou texto: a pílula custava 20px
             rod.addWidget(lf); rod.addStretch(1)
             v.addLayout(rod)
+
+    @slot_seguro
+    def _abrir_fluxo(self, *_):
+        from steps.os_fluxo import abrir_fluxo_os
+        abrir_fluxo_os(self.window(), self._d.get("id"), self._d.get("folio"))
 
     def mousePressEvent(self, e):
         if e.button() == Qt.MouseButton.LeftButton and self._on_click:
