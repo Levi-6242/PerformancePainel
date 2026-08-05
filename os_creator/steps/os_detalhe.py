@@ -757,8 +757,17 @@ class OsDetalheDialog(QDialog):
         self.b_cancel = QPushButton("Cancelar OS"); self.b_cancel.setObjectName("pDanger")
         self.b_cancel.setToolTip("Cancela a OS no Fracttal (precisa de permissão na sua conta)")
         self.b_cancel.clicked.connect(self._cancelar_os)
+        # FLUXO — o "ícone de raiz" (Levi, 05/08). Fica ao lado do Clonar, à esquerda, porque é
+        # leitura e não ação sobre a OS; os botões da direita todos MUDAM alguma coisa no Fracttal.
+        self.b_fluxo = QPushButton("Fluxo"); self.b_fluxo.setObjectName("pClone")
+        self.b_fluxo.setIcon(QIcon(icone_pix("ramo", GREEN_INK, 15)))
+        self.b_fluxo.setIconSize(QSize(15, 15))
+        self.b_fluxo.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.b_fluxo.setToolTip("Mostra esta OS encadeada com as outras — pais, filhas e todo o "
+                                "histórico do ativo")
+        self.b_fluxo.clicked.connect(self._abrir_fluxo)
         b = QPushButton("Fechar"); b.setObjectName("pGhost"); b.clicked.connect(self.accept)
-        foot.addWidget(b_clone); foot.addStretch(1)
+        foot.addWidget(b_clone); foot.addWidget(self.b_fluxo); foot.addStretch(1)
         foot.addWidget(self.b_chamado); foot.addWidget(self.b_concluir)
         foot.addWidget(self.b_cancel); foot.addWidget(b)
         lay.addLayout(foot)
@@ -837,6 +846,11 @@ class OsDetalheDialog(QDialog):
     # ── ações ──
     def _clonar(self):
         self.accept(); abrir_clonar_os(self.parent(), self._wo, self._folio)
+
+    @slot_seguro
+    def _abrir_fluxo(self, *_):
+        from steps.os_fluxo import abrir_fluxo_os
+        abrir_fluxo_os(self, self._wo, self._folio)
 
     def _cancelar_os(self):
         from steps.cancelar_os import abrir_cancelar_os

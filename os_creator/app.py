@@ -478,6 +478,8 @@ class MainWindow(QMainWindow):
             ("searchcheck", "Inspeção de chamados",
              "OS de teste que fundamenta o chamado — subtarefas por ativo e marca",
              lambda: self._mostrar_modo("insp")),
+            ("rack", "Ativos", "Todo o catálogo do Fracttal — busca, histórico e atalhos",
+             lambda: self._mostrar_modo("ativos")),
             ("file", "Tradicional", "Criar OS do zero, passo a passo",
              lambda: self.criar_stack.setCurrentIndex(1)),
             ("copy", "Clonar OS", "Duplicar uma OS existente pelo número", self._mostrar_clonar_entrada),
@@ -602,6 +604,11 @@ class MainWindow(QMainWindow):
             elif key == "insp":                                       # OS de teste que gera o chamado
                 from steps.insp_chamado import InspChamadoTab
                 inner = InspChamadoTab(on_voltar=lambda: self.criar_stack.setCurrentIndex(0))
+            elif key == "ativos":                                     # catálogo (leitura + atalhos)
+                from steps.ativos import AtivosTab
+                inner = AtivosTab(on_voltar=lambda: self.criar_stack.setCurrentIndex(0),
+                                  ao_criar_os=self._ativo_para_performance,
+                                  ao_abrir_chamado=self._ativo_para_inspecao)
             else:                                                     # pcm
                 inner = PcmTab(performance=False)
             tornar_todos_pesquisaveis(inner)                          # combos pesquisáveis nos modos inline
@@ -618,6 +625,28 @@ class MainWindow(QMainWindow):
             if alvo is not None and hasattr(alvo, "reiniciar"):
                 alvo.reiniciar()
         self.criar_stack.setCurrentIndex(self._modo_idx[key])
+
+    def _ativo_para_performance(self, asset):
+        """Atalho da aba Ativos → Performance com o ativo já escolhido. Reaproveita o MESMO caminho
+        do deep link da plataforma (`aplicar_sugestao`): duas rotas para pré-preencher a mesma tela
+        divergiriam no primeiro campo novo."""
+        self.abrir_sugestao_performance({"code": asset.get("code"), "ativo": asset.get("code"),
+                                         "usina": asset.get("usina"), "cliente": asset.get("cliente")})
+
+    def _ativo_para_inspecao(self, asset):
+        """Atalho da aba Ativos → Inspeção de chamados com o ativo escolhido."""
+        try:
+            self.tabs.setCurrentIndex(0)
+            self._mostrar_modo("insp")
+            insp = getattr(self, "_modo_inner", {}).get("insp")
+            if insp is not None and hasattr(insp, "aplicar_ativo"):
+                insp.aplicar_ativo(asset)
+        except Exception as e:
+            try:
+                from workers import registrar_erro
+                registrar_erro((type(e), e, e.__traceback__))
+            except Exception:
+                pass
 
     def abrir_sugestao_performance(self, dados):
         """Recebe a sugestão da Plataforma (deep link gridos://performance) → abre a aba Criar OS, o plano

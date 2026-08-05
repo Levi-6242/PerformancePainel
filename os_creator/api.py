@@ -32,11 +32,17 @@ except Exception:
 load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 # O pacote `chamado_garantia` mora na RAIZ do repositório (é compartilhado com o app de campo),
-# então a raiz precisa entrar no sys.path ANTES do primeiro import dele. No .exe isto é inócuo:
-# o PyInstaller já empacota o pacote via pathex/hiddenimports do .spec.
+# então a raiz precisa estar no sys.path para o import dele funcionar. No .exe isto é inócuo: o
+# PyInstaller já empacota o pacote via pathex/hiddenimports do .spec.
+#
+# APPEND, NUNCA insert(0). A raiz tem um `app.py` — o da PLATAFORMA — e este projeto tem outro,
+# `os_creator/app.py`. Com a raiz na frente do sys.path, um `import app` feito depois do `import
+# api` resolvia para o da plataforma: medido, ele chegou a EXECUTAR o boot dela (carregou tickets
+# e ronda) dentro do processo do OS Creator. No append, os_creator continua vencendo para `app` e
+# a raiz só é consultada para o que não existe aqui — que é justamente o chamado_garantia.
 _RAIZ_REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _RAIZ_REPO not in sys.path:
-    sys.path.insert(0, _RAIZ_REPO)
+    sys.path.append(_RAIZ_REPO)
 
 BASE          = os.environ.get("FRACTTAL_BASE_URL", "https://app.fracttal.com").rstrip("/")
 CLIENT_ID     = os.environ.get("FRACTTAL_CLIENT_ID", "").strip()
@@ -3402,6 +3408,177 @@ def concluir_os(id_work_order) -> dict:
     if isinstance(r2, dict) and r2.get("success") is False:
         raise FracttalError(str(r2.get("message") or "Não foi possível fechar a OS."))
     return {"ok": True, "raw": r2}
+
+
+def _wo_resumo(w: dict) -> dict:
+    """Linha crua do work_orders_list_react → nó do fluxo."""
+    return {"id": w.get("id"), "folio": str(w.get("wo_folio") or "").strip(),
+            "descricao": str(w.get("tasks_description") or w.get("description") or "").strip(),
+            "tipo_tarefa": str(w.get("tasks_types_main_description") or "").strip(),
+            "status": WO_STATUS.get(w.get("id_status_work_order"), "—"),
+            "status_id": w.get("id_status_work_order"),
+            "event_date": w.get("event_date"), "criacao": w.get("creation_date")}
+
+
+def _filhos_da_os(id_work_order) -> list:
+    """OS que apontam esta como pai. O RPC aceita o filtro `id_parent_wo` no `filter` — sondado ao
+    vivo (03/08): como PARÂMETRO solto ele ignora e devolve o catálogo inteiro; dentro do `filter`
+    devolve só os filhos. Não confundir com o `id_parent` da TAREFA, que é o pai do ATIVO."""
+    if not id_work_order:
+        return []
+    try:
+        res = _rpc_call(RPC_WO_LIST, {"page": 1, "limit": 100, "start": 0, "append": True,
+                                      "filter": [{"operator": "=", "property": "id_parent_wo",
+                                                  "value": id_work_order}],
+                                      "sort": [{"property": "id", "direction": "asc"}]})
+    except FracttalError:
+        return []
+    return [_wo_resumo(w) for w in (res.get("data") or []) if isinstance(w, dict)]
+
+
+def _os_por_folio_leve(folio) -> dict:
+    """Nó do fluxo a partir do NÚMERO. Usa o mesmo filtro exato do `_wo_id_por_folio`, mas devolve
+    a linha inteira em vez de só o id — evita uma segunda consulta para saber tipo e status."""
+    folio = str(folio or "").strip()
+    if not folio:
+        return {}
+    for st in (1, 2, 3, 4):
+        try:
+            res = _rpc_call(RPC_WO_LIST, {"page": 1, "limit": 20, "start": 0, "append": True,
+                                          "id_status_work_order": st,
+                                          "filter": [{"operator": "=", "property": "wo_folio",
+                                                      "value": folio}],
+                                          "sort": [{"property": "id", "direction": "desc"}]})
+        except FracttalError:
+            continue
+        for w in (res.get("data") or []):
+            if str(w.get("wo_folio")).strip() == folio:
+                return _wo_resumo(w)
+    return {}
+
+
+def _ordem_os(n: dict):
+    """Chave de ordenação do fluxo: NÚMERO da OS (Levi, 05/08). O folio é sequencial com a criação,
+    então ordena por criação e ainda funciona quando a data vem vazia — que acontece."""
+    try:
+        return (0, int(str(n.get("folio") or "0").strip()))
+    except (TypeError, ValueError):
+        return (1, 0)
+
+
+def fluxo_da_os(id_work_order, limite_ativo: int = 12) -> dict:
+    """Todo o encadeamento de uma OS, para o card de fluxo.
+    → {'atual', 'cadeia': [nós em ordem], 'ativo': {...}, 'historico': [nós], 'aviso'}
+
+    TRÊS FONTES, porque nenhuma sozinha resolve (medido em 300 OS de julho):
+      1. `id_parent_wo` — o pai FORMAL. Confiável, e raro: 7 em 300. Sozinho, 97% das OS abririam
+         um fluxo de um nó só.
+      2. o bloco `[CHAMADO]` da observação ("OS de abertura: 9738"). É daí que o board de chamados
+         tira o "pai" que aparece no card — na OS 10149 o pai formal é nulo e o texto sabe.
+      3. o MESMO ATIVO — `ultimas_os_do_ativo`, filtrado no servidor por `id_item`. É como uma
+         pessoa reconstrói o fluxo na mão, e é o que dá conteúdo quando não há vínculo nenhum.
+
+    A cadeia sobe pelos pais (1 e 2) e desce pelos filhos (`_filhos_da_os`), com teto de 12 nós —
+    ciclo de dados ruins não pode virar laço infinito."""
+    vazio = {"atual": {}, "cadeia": [], "ativo": {}, "historico": [], "aviso": ""}
+    if not id_work_order:
+        return vazio
+    try:
+        rd = _rpc_call(RPC_WO_DETAILS, {"id": id_work_order, "get_iso_codes": False})
+    except FracttalError as e:
+        return {**vazio, "aviso": str(e)[:160]}
+    det = rd.get("data") if isinstance(rd, dict) else rd
+    det = det[0] if isinstance(det, list) and det else (det if isinstance(det, dict) else {})
+    try:
+        rt = _rpc_call(RPC_WO_TASKS, {"id_work_order": id_work_order, "sort": []})
+    except FracttalError:
+        rt = {}
+    t0 = ((rt.get("data") if isinstance(rt, dict) else rt) or [{}])[0]
+
+    atual = {"id": id_work_order, "folio": str(t0.get("wo_folio") or det.get("wo_folio") or "").strip(),
+             "descricao": str(t0.get("tasks_description") or "").strip(),
+             "tipo_tarefa": str(t0.get("tasks_types_main_description") or "").strip(),
+             "status": WO_STATUS.get(det.get("id_status_work_order") or t0.get("id_status_work_order"), "—"),
+             "status_id": det.get("id_status_work_order") or t0.get("id_status_work_order"),
+             "event_date": t0.get("event_date"), "criacao": t0.get("creation_date")}
+    ativo = {"id_item": t0.get("id_item"),
+             "nome": (str(t0.get("items_description") or "").split("{")[0]).strip(),
+             "code": (t0.get("code_item") or "").strip()
+                     or _extrai_code(str(t0.get("items_description") or "")),
+             "usina": "", "cliente": ""}
+    if ativo["code"]:
+        a = _asset_by_code(ativo["code"])
+        if isinstance(a, dict):
+            ativo["usina"] = a.get("usina") or ""
+            ativo["cliente"] = a.get("cliente") or ""
+
+    # ── sobe: pai formal, e o do bloco [CHAMADO] quando o formal não existe ──
+    cadeia, vistos = [atual], {id_work_order}
+    pai_id = det.get("id_parent_wo") or t0.get("id_parent_wo")
+    nota = "\n".join(str(t0.get(k) or "") for k in ("note", "task_note"))
+    if not pai_id:
+        folio_pai = str((parse_bloco_chamado(nota) or {}).get("os_pai") or "").strip()
+        if folio_pai and folio_pai != atual["folio"]:
+            n = _os_por_folio_leve(folio_pai)
+            if n.get("id"):
+                cadeia.insert(0, n); vistos.add(n["id"]); pai_id = None
+    while pai_id and len(cadeia) < 12 and pai_id not in vistos:
+        try:
+            rp = _rpc_call(RPC_WO_DETAILS, {"id": pai_id, "get_iso_codes": False})
+        except FracttalError:
+            break
+        dp = rp.get("data") if isinstance(rp, dict) else rp
+        dp = dp[0] if isinstance(dp, list) and dp else (dp if isinstance(dp, dict) else {})
+        if not dp:
+            break
+        cadeia.insert(0, _wo_resumo(dp)); vistos.add(pai_id)
+        pai_id = dp.get("id_parent_wo")
+
+    # ── desce: filhos, netos (largura primeiro, teto de 12 no total) ──
+    fila = [id_work_order]
+    while fila and len(cadeia) < 12:
+        for f in _filhos_da_os(fila.pop(0)):
+            if f.get("id") and f["id"] not in vistos:
+                cadeia.append(f); vistos.add(f["id"]); fila.append(f["id"])
+                if len(cadeia) >= 12:
+                    break
+    cadeia.sort(key=_ordem_os)
+    # a LINHA da listagem não traz tipo de tarefa (só a `atual` tem, que veio do RPC de tarefas).
+    # Sem isto o card mostraria "Corretiva" na OS aberta e vazio nas outras — o fluxo perde a
+    # informação que mais importa nele, que é qual etapa cada OS é.
+    falta = [n["id"] for n in cadeia if n.get("id") and not n.get("tipo_tarefa")]
+    if falta:
+        meta = _meta_tarefa_por_os(falta)
+        for n in cadeia:
+            m = meta.get(n.get("id")) or {}
+            if m.get("tipo_tarefa"):
+                n["tipo_tarefa"] = m["tipo_tarefa"]
+            if not n.get("event_date") and m.get("event_date"):
+                n["event_date"] = m["event_date"]
+
+    # ── o histórico do ativo (o que dá conteúdo quando não há vínculo) ──
+    hist = []
+    if ativo["id_item"]:
+        try:
+            hist = sorted(ultimas_os_do_ativo(ativo["id_item"], limite=limite_ativo, com_tipo=True),
+                          key=_ordem_os)
+        except FracttalError:
+            hist = []
+        # MESMA data nas duas faixas. O `ultimas_os_do_ativo` tira o event_date da LINHA da
+        # listagem, e a cadeia tira do nível TAREFA — para a mesma OS 10597 isso dava 03/08 22:04
+        # numa faixa e 04/08 08:00 na outra (incidente x programada). Duas datas para a mesma OS
+        # na mesma tela lê como bug mesmo quando os dois números existem.
+        if hist:
+            meta = _meta_tarefa_por_os([d["id"] for d in hist if d.get("id")])
+            por_id = {n.get("id"): n for n in cadeia}
+            for d in hist:
+                ev = (meta.get(d.get("id")) or {}).get("event_date")
+                if ev:
+                    d["event_date"] = ev
+                n = por_id.get(d.get("id"))
+                if n and n.get("event_date"):
+                    d["event_date"] = n["event_date"]
+    return {"atual": atual, "cadeia": cadeia, "ativo": ativo, "historico": hist, "aviso": ""}
 
 
 def cancelamento_da_os(folio) -> dict:

@@ -610,6 +610,25 @@ class InspChamadoTab(QWidget):
             QMessageBox.information(self, "Inspeção de chamados", msg)
         self.reiniciar()
 
+    def aplicar_ativo(self, asset):
+        """Pré-seleciona a cascata a partir de UM ativo — atalho da aba Ativos (Levi, 05/08).
+
+        Desce na ordem cliente → usina → tipo → ativo deixando cada `currentIndexChanged` disparar,
+        porque é ele que repopula o combo seguinte. Mexer nos quatro de uma vez com os sinais
+        bloqueados deixaria os três de baixo com a lista do ativo anterior. Best-effort: nome que
+        não estiver na lista simplesmente não seleciona, e a pessoa escolhe à mão."""
+        if not isinstance(asset, dict):
+            return
+        for cb, valor in ((self.cb_cli, asset.get("cliente")), (self.cb_usi, asset.get("usina")),
+                          (self.cb_tipo, asset.get("tipo"))):
+            i = cb.findText(str(valor or ""))
+            if i >= 0:
+                cb.setCurrentIndex(i)
+        code = str(asset.get("code") or "")
+        for i in range(self.cb_ativo.count()):
+            if code and code in self.cb_ativo.itemText(i):
+                self.cb_ativo.setCurrentIndex(i); break
+
     # ── voltar à tela limpa (o app chama ao reentrar no modo) ──
     def reiniciar(self):
         self.ed_pai.clear(); self.ed_obs.clear()
