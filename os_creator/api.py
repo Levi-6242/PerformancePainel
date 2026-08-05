@@ -4625,6 +4625,37 @@ def ultimas_os_do_ativo(id_item, limite: int = 10, com_tipo: bool = True) -> lis
     return out
 
 
+def codigos_os_recentes(dias: int = 30) -> list:
+    """Codes dos ativos com OS CRIADA nos últimos `dias` — qualquer criador, qualquer status.
+    → lista ordenada de codes (p/ a aba Ativos tingir quem teve OS recente).
+
+    O code vem de `items_log_descriptions` — o ÚNICO campo da linha da listagem que o carrega
+    (medido: `items_description` nem existe nesse nível; ele é da TAREFA). É uma lista
+    stringificada com um `{ CODE }` por ativo da OS, daí o findall e não o `_extrai_code`, que
+    só pega o último. ~17 páginas para um mês (~1.650 OS); roda em worker. Teto de 40 páginas —
+    melhor um mês parcial que travar."""
+    import re
+    de = (datetime.now(timezone.utc) - timedelta(days=max(1, int(dias)))).strftime("%Y-%m-%d")
+    cond = [{"operator": ">=", "property": "creation_date", "value": de}]
+    out, page, start = set(), 1, 0
+    while page <= 40:
+        try:
+            r = _rpc_call(RPC_WO_LIST, {"page": page, "limit": 100, "start": start, "append": True,
+                                        "filter": cond,
+                                        "sort": [{"property": "id", "direction": "desc"}]})
+        except FracttalError:
+            break
+        data = (r.get("data") or []) if isinstance(r, dict) else []
+        for w in data:
+            for c in re.findall(r"\{\s*([^{}]+?)\s*\}", str(w.get("items_log_descriptions") or "")):
+                out.add(c.strip())
+        if len(data) < 100:
+            break
+        page += 1
+        start += 100
+    return sorted(out)
+
+
 def respostas_inspecao(id_work_order) -> dict:
     """Respostas do técnico na OS de inspeção, indexadas pela CHAVE do `chamado_spec`.
 

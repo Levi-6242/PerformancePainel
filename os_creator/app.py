@@ -485,6 +485,9 @@ class MainWindow(QMainWindow):
         outer = QVBoxLayout(w); outer.setContentsMargins(26, 22, 26, 22); outer.setSpacing(0)
         grid = QGridLayout(); grid.setSpacing(16)
         cards = [
+            # Ativos em 1º (Levi, 06/08): consulta é a porta de entrada — do ativo se decide a OS
+            ("rack", "Ativos", "Todo o catálogo do Fracttal — busca, histórico e atalhos",
+             lambda: self._mostrar_modo("ativos")),
             ("bolt", "Performance", "Inversores, Strings, Trackers e ETM",
              lambda: self._mostrar_modo("perf")),
             ("stack", "COS", "Ocorrência de desligamento, religamento e inspeção",
@@ -496,8 +499,6 @@ class MainWindow(QMainWindow):
             ("searchcheck", "Inspeção de chamados",
              "OS de teste que fundamenta o chamado — subtarefas por ativo e marca",
              lambda: self._mostrar_modo("insp")),
-            ("rack", "Ativos", "Todo o catálogo do Fracttal — busca, histórico e atalhos",
-             lambda: self._mostrar_modo("ativos")),
             ("file", "Tradicional", "Criar OS do zero, passo a passo",
              lambda: self.criar_stack.setCurrentIndex(1)),
             ("copy", "Clonar OS", "Duplicar uma OS existente pelo número", self._mostrar_clonar_entrada),
@@ -507,7 +508,9 @@ class MainWindow(QMainWindow):
             card = _CardOS(ic, t, s, cb)
             self._launcher_cards.append(card)
             grid.addWidget(card, i // 3, i % 3)
-        self._card_perf = self._launcher_cards[0]        # o selo "N atribuídas a você" mora nele
+        self._card_perf = self._launcher_cards[1]        # o selo "N atribuídas" mora no card de
+        # PERFORMANCE — que passou a ser o SEGUNDO da lista quando o Ativos foi para a frente
+        # (Levi, 06/08). Índice fixo de propósito: se a ordem mudar de novo, mude aqui junto.
         outer.addLayout(grid); outer.addStretch(1)
         return w
 
@@ -644,12 +647,17 @@ class MainWindow(QMainWindow):
                 alvo.reiniciar()
         self.criar_stack.setCurrentIndex(self._modo_idx[key])
 
-    def _ativo_para_performance(self, asset):
+    def _ativo_para_performance(self, asset, template=None):
         """Atalho da aba Ativos → Performance com o ativo já escolhido. Reaproveita o MESMO caminho
         do deep link da plataforma (`aplicar_sugestao`): duas rotas para pré-preencher a mesma tela
-        divergiriam no primeiro campo novo."""
+        divergiriam no primeiro campo novo.
+
+        `template` diz QUAL plano abrir — a aba mostra um menu e manda a escolha. Sem ele o
+        `aplicar_sugestao` caía fixo em Recomposição de String, e a pessoa criava OS do plano
+        errado sem escolher nada (Levi, 06/08)."""
         self.abrir_sugestao_performance({"code": asset.get("code"), "ativo": asset.get("code"),
-                                         "usina": asset.get("usina"), "cliente": asset.get("cliente")})
+                                         "usina": asset.get("usina"), "cliente": asset.get("cliente"),
+                                         "template": template or ""})
 
     def _ativo_para_inspecao(self, asset):
         """Atalho da aba Ativos → Inspeção de chamados com o ativo escolhido."""
