@@ -126,11 +126,29 @@ _ICO = {
     "headset":  '<path d="M4 14v-2a8 8 0 0 1 16 0v2"/><rect x="3" y="13" width="4" height="7" rx="1.5"/><rect x="17" y="13" width="4" height="7" rx="1.5"/><path d="M20 18v1a3 3 0 0 1-3 3h-3"/>',
     # lupa com "check": a inspeção é a VERIFICAÇÃO em campo que fundamenta o chamado
     "searchcheck": '<path d="m8 11 2 2 4-4"/><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>',
+    # prateleira (lucide server) — o catálogo de ativos
+    "rack":     '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/>'
+                '<path d="M7 7.5h.01"/><path d="M7 16.5h.01"/>',
 }
+
+# ESTE dicionário é do launcher e é OUTRO — o `steps/ui.py` tem o seu, com nomes diferentes.
+# Confundir os dois derrubou o app inteiro na v135: pus "rack" num card lendo a lista do ui.py,
+# e o KeyError estourou dentro do __init__ da MainWindow, ANTES de qualquer tela — o app nem abria.
+_ICONE_PADRAO = "doc"
 
 
 def _icone(nome, cor="#8fce3f", size=24):
-    return _svg_pix(_SVG.format(c=cor, p=_ICO[nome]), size)
+    """Nome desconhecido cai no ícone padrão em vez de derrubar o app. Um card com o ícone errado
+    é um detalhe visual; um KeyError aqui é a janela principal não nascer."""
+    p = _ICO.get(nome)
+    if p is None:
+        try:
+            from workers import registrar_erro
+            registrar_erro((KeyError, KeyError("ícone '%s' não existe em app._ICO" % nome), None))
+        except Exception:
+            pass
+        p = _ICO[_ICONE_PADRAO]
+    return _svg_pix(_SVG.format(c=cor, p=p), size)
 
 
 class _CardOS(QFrame):
