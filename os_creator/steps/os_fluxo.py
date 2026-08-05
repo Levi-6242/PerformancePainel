@@ -1,13 +1,13 @@
-"""Fluxo da OS — o card grande que abre no ícone de ramificação.
+"""Fluxo da OS — o card que abre no ícone de ramificação.
 
-POR QUE ELE TEM DUAS FAIXAS (medido em 300 OS de julho): o vínculo pai/filho formal existe em 7
-delas. Se a tela seguisse só o `id_parent_wo`, 97% das OS abririam um fluxo de um nó só. Então a
-faixa de cima mostra a CADEIA (pais + filhos, incluindo o pai que só existe no bloco [CHAMADO]) e a
-de baixo, o HISTÓRICO DO ATIVO — que é como uma pessoa reconstrói o fluxo na mão e é o que dá
-conteúdo quando não há vínculo nenhum. Ver `api.fluxo_da_os`.
+MOSTRA A CADEIA, e só ela: OS de origem → OS gerada → ..., centralizada. A faixa "todas as OS
+deste ativo" existiu até 06/08 e saiu a pedido do Levi — ela era a rede de segurança para quando
+não há vínculo (o pai/filho formal só existe em 7 de 300 OS de julho), mas roubava a atenção do
+que a tela veio dizer. Sem vínculo, a tela agora diz isso em uma linha.
 
-Ordem: pelo NÚMERO da OS nas duas faixas (Levi, 05/08). O folio é sequencial com a criação, então
-ordena por criação e ainda funciona quando a data vem vazia — o que acontece.
+A cadeia sobe pelo `id_parent_wo` E pelo pai que só existe no bloco [CHAMADO] da observação, e
+desce pelos filhos. Ordem pelo NÚMERO da OS (Levi, 05/08): o folio é sequencial com a criação e
+ainda funciona quando a data vem vazia — o que acontece. Ver `api.fluxo_da_os`.
 """
 from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import QPainter, QPen, QColor, QFont
@@ -15,7 +15,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QFrame, 
                              QScrollArea, QWidget, QSizePolicy)
 
 import api
-from steps.ui import BG, CARD, INPUT, BORDER, GREEN, TEXT, MUTED, QSS_FORM, icone_pix
+from steps.ui import BG, CARD, BORDER, GREEN, TEXT, MUTED, QSS_FORM
 from workers import ApiWorker, slot_seguro
 
 # cor por status — mesma leitura do resto do app (semáforo), não a paleta da marca
@@ -98,32 +98,6 @@ class _Seta(QWidget):
         p.end()
 
 
-class _Mini(QFrame):
-    """Nó compacto da faixa do ativo."""
-    def __init__(self, no, forte, ao_clicar):
-        super().__init__()
-        self._no, self._cb = no, ao_clicar
-        cs = COR_STATUS.get(no.get("status"), MUTED)
-        self.setFixedSize(150, 74)
-        self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet("QFrame{background:%s;border:%dpx solid %s;border-radius:10px;}"
-                           % (CARD, 2 if forte else 1, GREEN if forte else BORDER))
-        v = QVBoxLayout(self); v.setContentsMargins(11, 8, 11, 8); v.setSpacing(2)
-        v.addWidget(_lbl(no.get("folio") or "—", TEXT if forte else MUTED, 15, 800))
-        v.addWidget(_lbl((no.get("tipo_tarefa") or "—")[:17], MUTED, 10.5))
-        rod = QHBoxLayout(); rod.setSpacing(5)
-        pt = QLabel(); pt.setFixedSize(6, 6)
-        pt.setStyleSheet("background:%s;border:none;border-radius:3px;" % cs)   # ver nota em _No
-        rod.addWidget(pt)
-        rod.addWidget(_lbl(_dt(no.get("event_date"))[:5], MUTED, 10))
-        rod.addStretch(1)
-        v.addLayout(rod)
-
-    def mousePressEvent(self, e):
-        if self._cb and self._no.get("id"):
-            self._cb(self._no)
-
-
 class FluxoDialog(QDialog):
     """Card do fluxo. Carrega em worker — são até 3 rodadas de RPC e travaria a interface."""
     def __init__(self, parent, id_work_order, folio=""):
@@ -132,8 +106,8 @@ class FluxoDialog(QDialog):
         self._w = None
         self.setWindowTitle("Fluxo da OS %s" % self._folio)
         self.setModal(True)
-        self.setMinimumSize(1000, 470)
-        self.resize(1380, 600)
+        self.setMinimumSize(880, 360)
+        self.resize(1240, 400)
         self.setStyleSheet(QSS_FORM + "QDialog{background:%s;}" % BG)
         self.v = QVBoxLayout(self); self.v.setContentsMargins(28, 24, 28, 22); self.v.setSpacing(16)
         self._cab()
@@ -159,7 +133,7 @@ class FluxoDialog(QDialog):
         self.v.addWidget(s)
 
     def _carregar(self):
-        self._w = ApiWorker(api.fluxo_da_os, self._wo)
+        self._w = ApiWorker(api.fluxo_da_os, self._wo, 0)   # 0 = sem histórico do ativo
         self._w.ok.connect(self._pronto); self._w.erro.connect(self._falhou)
         self._w.start()
 
@@ -191,26 +165,30 @@ class FluxoDialog(QDialog):
 
         cadeia = fx.get("cadeia") or []
         atual_id = (fx.get("atual") or {}).get("id")
+        # CENTRALIZADA: stretch dos DOIS lados (Levi, 06/08). Só à direita, a cadeia colava na
+        # margem esquerda e o vazio ficava todo de um lado — com 2 ou 3 nós isso é a tela inteira.
         lin = QHBoxLayout(); lin.setSpacing(0)
+        lin.addStretch(1)
         for i, no in enumerate(cadeia):
             lin.addWidget(_No(no, no.get("id") == atual_id, self._abrir))
             if i < len(cadeia) - 1:
                 lin.addWidget(_Seta("gerou"))
         lin.addStretch(1)
         env = QWidget(); env.setLayout(lin)
+        # o QWidget interno do QScrollArea pinta a cor de janela por padrão — era o retângulo mais
+        # escuro atrás dos cards. O seletor filho pega o viewport E o `env`.
+        env.setStyleSheet("background:transparent;")
         sc = QScrollArea(); sc.setWidgetResizable(True); sc.setWidget(env)
         sc.setFixedHeight(150)
-        sc.setStyleSheet("QScrollArea{background:transparent;border:none;}")
+        sc.setStyleSheet("QScrollArea{background:transparent;border:none;}"
+                         "QScrollArea > QWidget > QWidget{background:transparent;}")
         sc.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.corpo.addWidget(sc)
         if len(cadeia) <= 1:
-            self.corpo.addWidget(_lbl("Esta OS não tem outra ligada a ela — nem como pai, nem como "
-                                      "filha. O histórico do ativo, abaixo, é o que existe.",
-                                      MUTED, 12, 400, True))
-
-        hist = fx.get("historico") or []
-        if hist:
-            self.corpo.addWidget(self._faixa(hist, {n.get("id") for n in cadeia}))
+            aviso = _lbl("Esta OS não tem outra ligada a ela — nem como pai, nem como filha.",
+                         MUTED, 12, 400, True)
+            aviso.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.corpo.addWidget(aviso)
 
     def _limpar(self, lay):
         while lay.count():
@@ -220,32 +198,6 @@ class FluxoDialog(QDialog):
                 w.deleteLater()
             elif it.layout():
                 self._limpar(it.layout())
-
-    def _faixa(self, hist, ids_cadeia):
-        box = QFrame()
-        box.setStyleSheet("QFrame{background:%s;border:1px solid %s;border-radius:13px;}"
-                          % (INPUT, BORDER))
-        v = QVBoxLayout(box); v.setContentsMargins(16, 13, 16, 14); v.setSpacing(10)
-        cab = QHBoxLayout()
-        cab.addWidget(_lbl("TODAS AS OS DESTE ATIVO", MUTED, 10.5, 800, esp=1.1))
-        cab.addStretch(1)
-        cab.addWidget(_lbl("%d OS · por número" % len(hist), MUTED, 11))
-        v.addLayout(cab)
-        lin = QHBoxLayout(); lin.setSpacing(0)
-        for i, no in enumerate(hist):
-            lin.addWidget(_Mini(no, no.get("id") in ids_cadeia, self._abrir))
-            if i < len(hist) - 1:
-                tr = QLabel("—"); tr.setFixedWidth(16)
-                tr.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                tr.setStyleSheet("color:%s;background:transparent;border:none;" % BORDER)
-                lin.addWidget(tr)
-        lin.addStretch(1)
-        env = QWidget(); env.setLayout(lin)
-        sc = QScrollArea(); sc.setWidgetResizable(True); sc.setWidget(env)
-        sc.setFixedHeight(104)      # +12: a barra horizontal cobria o rodapé dos cards
-        sc.setStyleSheet("QScrollArea{background:transparent;border:none;}")
-        v.addWidget(sc)
-        return box
 
     def _abrir(self, no):
         """Clique num nó → abre o card daquela OS. Fecha este para não empilhar janela sobre janela."""

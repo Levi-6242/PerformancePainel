@@ -3557,8 +3557,11 @@ def fluxo_da_os(id_work_order, limite_ativo: int = 12) -> dict:
                 n["event_date"] = m["event_date"]
 
     # ── o histórico do ativo (o que dá conteúdo quando não há vínculo) ──
+    # `limite_ativo <= 0` = quem chama não quer o histórico do ativo — é o caso da tela do fluxo
+    # desde 06/08, que passou a mostrar só a cadeia. Sem esta guarda, seria uma ida à rede (e um
+    # enriquecimento de tipo por lote) para um dado que ninguém lê.
     hist = []
-    if ativo["id_item"]:
+    if ativo["id_item"] and int(limite_ativo or 0) > 0:
         try:
             hist = sorted(ultimas_os_do_ativo(ativo["id_item"], limite=limite_ativo, com_tipo=True),
                           key=_ordem_os)
