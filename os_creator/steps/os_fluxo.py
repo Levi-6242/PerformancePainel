@@ -106,10 +106,13 @@ class FluxoDialog(QDialog):
         self._w = None
         self.setWindowTitle("Fluxo da OS %s" % self._folio)
         self.setModal(True)
-        self.setMinimumSize(880, 360)
-        self.resize(1240, 400)
+        # Altura: cabeçalho (~62) + faixa dos nós (150) + margens. Sem folga extra — a janela é
+        # de um conteúdo só e não cresce (Levi, 06/08). Largura acompanha a cadeia de até 3 nós
+        # (226 cada + 96 de seta); mais que isso a faixa rola na horizontal.
+        self.setMinimumSize(760, 312)
+        self.resize(1060, 330)
         self.setStyleSheet(QSS_FORM + "QDialog{background:%s;}" % BG)
-        self.v = QVBoxLayout(self); self.v.setContentsMargins(28, 24, 28, 22); self.v.setSpacing(16)
+        self.v = QVBoxLayout(self); self.v.setContentsMargins(24, 18, 24, 16); self.v.setSpacing(12)
         self._cab()
         self.corpo = QVBoxLayout(); self.corpo.setSpacing(16)
         self.v.addLayout(self.corpo)
