@@ -1,0 +1,88 @@
+{
+  "_meta": {
+    "descricao": "Parametros da regua de deteccao de trackers parados da Plataforma de Performance",
+    "fonte": "plataforma/app.py (secao TRK_*)",
+    "janela_solar_min_do_dia": [360, 1080],
+    "janela_solar_horas": ["06:00", "18:00"],
+    "amplitude": "robusta p02-p98 (_amp_robusta)",
+    "status_possiveis": ["parado", "severo", "medio", "leve", "normal"],
+    "rotulo_adicional": "sem_comunicacao (bool)"
+  },
+  "parado": {
+    "TRK_PARADO_AMP2": {"valor": 3.0, "unidade": "graus", "regra": "amplitude robusta do dia < isto = nunca rastreou (regra definitiva)"},
+    "TRK_PARADO_AMP": {"valor": 15.0, "unidade": "graus", "regra": "amplitude < isto = parado na passada instantanea (peer-based), antes da regua definitiva"},
+    "dead_sensor_frac": {"valor": 0.9, "unidade": "fracao", "regra": "> isto das leituras ~ 0.00 = sensor morto"},
+    "dead_sensor_zero_tol": {"valor": 0.05, "unidade": "graus", "regra": "|v| < isto conta como 0.00"}
+  },
+  "freeze": {
+    "TRK_FREEZE_STEP": {"valor": 1.5, "unidade": "graus", "regra": "passo entre leituras 5min abaixo disto = trecho plano"},
+    "TRK_FREEZE_MIN": {"valor": 15, "unidade": "min", "regra": "trecho plano >= isto com frota movendo = freeze (piso)"},
+    "TRK_FREEZE_SEV": {"valor": 30, "unidade": "min", "regra": "freeze >= isto = severo (15..30 = leve)"},
+    "TRK_FLEET_MOVE": {"valor": 8.0, "unidade": "graus", "regra": "frota tem que ter movido isto no trecho (senao e dwell)"},
+    "TRK_FREEZE_DEV": {"valor": 8.0, "unidade": "graus", "regra": "freeze tem que ter caido isto da frota"},
+    "TRK_JUMP": {"valor": 8.0, "unidade": "graus", "regra": "passo abrupto que encerra trecho plano (salto de recuperacao)"},
+    "TRK_EOD_TAIL_MIN": {"valor": 75, "unidade": "min", "regra": "minutos finais p/ testar congelou-e-ficou"}
+  },
+  "batente_fisico": {
+    "TRK_BATENTE": {"valor": 53.0, "unidade": "graus", "regra": "|ang| > isto = batente mecanico (dwell legitimo)"},
+    "TRK_FORA_FISICO": {"valor": 56.0, "unidade": "graus", "regra": "|ang| > isto = fora do curso fisico (glitch)"},
+    "TRK_FORA_FRAC": {"valor": 0.15, "unidade": "fracao", "regra": "fracao de pontos fora-do-fisico p/ parado por garbage"},
+    "TRK_CURSO_TOL": {"valor": 8.0, "unidade": "graus", "regra": "margem p/ bateu no extremo"},
+    "TRK_CURSO_LIM_FLOOR": {"valor": 45.0, "unidade": "graus", "regra": "piso do limite bidirecional"},
+    "TRK_ALVO_MAX": {"valor": 55.0, "unidade": "graus", "regra": "limite fisico da TCU; alvo exibido e capado aqui"},
+    "TRK_FORA_FISICO_GLITCH": {"valor": 56.0, "unidade": "graus"}
+  },
+  "exoneracao_on_alvo": {
+    "TRK_ONALVO_MAX": {"valor": 12.0, "unidade": "graus", "regra": "disparidade atual <= isto E nao sem_comunicacao = em cima do alvo -> parado vira normal"}
+  },
+  "sem_comunicacao": {
+    "TRK_STALE_MIN": {"valor": 45.0, "unidade": "min", "regra": "parou de reportar ha > isto enquanto a frota segue = curva defasada (sem comunicacao)"},
+    "dead_sensor_frac": {"valor": 0.9, "unidade": "fracao"},
+    "dead_sensor_zero_tol": {"valor": 0.05, "unidade": "graus"}
+  },
+  "desvio_atraso": {
+    "TRK_DESVIO_MIN": {"valor": 5.0, "unidade": "graus", "regra": "disparidade atual - mediana da planta > isto = desvio (laranja)"},
+    "TRK_ATRASO_DELTA": {"valor": 10.0, "unidade": "graus", "regra": "disparidade max do dia - mediana > isto = atraso (amarelo)"},
+    "TRK_DISP_LEVE": {"valor": 5.0, "unidade": "graus", "regra": "disparidade alvo x atual: alerta leve"},
+    "TRK_DISP_SEVERO": {"valor": 10.0, "unidade": "graus", "regra": "disparidade alvo x atual: alerta severo"},
+    "TRK_FORA_MEDIA": {"valor": 3.0, "unidade": "graus", "regra": "desvio do angulo atual vs media da usina"},
+    "TRK_PV_DESVIO_FROTA": {"valor": 10.0, "unidade": "graus", "regra": "API PV: desvio vs mediana da frota = anomalo"},
+    "TRK_PV_SEV_DEV": {"valor": 20.0, "unidade": "graus", "regra": "API PV: desvio > isto = severo (10..20 = leve)"},
+    "TRK_DEV_SEVERO": {"valor": 10.0, "unidade": "graus", "regra": "desvio da frota saudavel acima disto = severo"}
+  },
+  "guardas_horario_frota": {
+    "TRK_COBERTURA_MIN_H": {"valor": 4.0, "unidade": "h", "regra": "span minimo da curva p/ julgar parado absoluto"},
+    "TRK_FROTA_ACORDA_HORA": {"valor": 11, "unidade": "h", "regra": "frota que nunca girou ate esta hora = nao acordou"},
+    "TRK_PARADA_GLOBAL_HORA": {"valor": 12, "unidade": "h", "regra": "apos isto, planta que mal girou = todos parados"},
+    "TRK_ALVO_MOVE_MIN": {"valor": 30.0, "unidade": "graus", "regra": "referencia de movimento dos vizinhos (regra relativa)"},
+    "TRK_ACCUM_MIN_CONF": {"valor": 20, "unidade": "amostras", "regra": "baldes ~5min p/ confiar em todos-parados"},
+    "TRK_DIA_INI": {"valor": 9, "unidade": "h", "regra": "janela do desvio do dia (inicio, inclusivo)"},
+    "TRK_DIA_FIM": {"valor": 15, "unidade": "h", "regra": "janela do desvio do dia (fim, exclusivo)"},
+    "TRK_PARADA_NOTIF_HORAS": {"valor": 2.0, "unidade": "h", "regra": "todos parados por mais que isto -> notifica"},
+    "TRK_PARADA_NOTIF_HORA_INI": {"valor": 9, "unidade": "h", "regra": "so notifica a partir desta hora"}
+  },
+  "eventos_disponibilidade": {
+    "TRK_EV_DATA_INI": {"valor": "2026-06-01", "regra": "inicio do historico"},
+    "TRK_EV_STEP": {"valor": 10, "unidade": "min", "regra": "resolucao da grade de deteccao"},
+    "TRK_EV_WIN_INI_min": {"valor": 360, "unidade": "min", "regra": "janela 06:00 (inicio efetivo dinamico pelo despertar)"},
+    "TRK_EV_WIN_FIM_min": {"valor": 1080, "unidade": "min", "regra": "janela 18:00"},
+    "TRK_EV_WAKE": {"valor": 5.0, "unidade": "graus", "regra": "afastou isto do amanhecer = acordou"},
+    "TRK_EV_LOOKBACK": {"valor": 3, "unidade": "celulas_10min", "regra": "janela deslizante (30 min)"},
+    "TRK_EV_FLEET_RANGE": {"valor": 3.0, "unidade": "graus", "regra": "frota mexeu isto -> da p/ julgar travado"},
+    "TRK_EV_STUCK_RANGE": {"valor": 1.5, "unidade": "graus", "regra": "tracker mexeu <= isto -> travado"},
+    "TRK_EV_RESUME": {"valor": 3.0, "unidade": "graus", "regra": "voltou a mexer isto -> retorno"},
+    "TRK_EV_MIN_MIN": {"valor": 30, "unidade": "min", "regra": "duracao minima do travamento p/ virar ocorrencia"},
+    "TRK_EV_COBERTURA": {"valor": 0.5, "unidade": "fracao", "regra": "fracao minima de dados (senao falha de comunicacao)"},
+    "TRK_EV_DESVIO": {"valor": 12.0, "unidade": "graus", "regra": "|ang - mediana| > isto = fora do alvo (indisponivel no tempo)"},
+    "TRK_EV_STOW_ANG": {"valor": -55.0, "unidade": "graus", "regra": "stow leste aproximado"},
+    "TRK_EV_STOW_TOL": {"valor": 10.0, "unidade": "graus", "regra": "tolerancia do stow (-65 a -45)"},
+    "TRK_EV_STOW_INI_min": {"valor": 450, "unidade": "min", "regra": "07:30 - janela do stow"},
+    "TRK_EV_STOW_FIM_MAX_min": {"valor": 630, "unidade": "min", "regra": "10:30 - limite p/ sair do stow"},
+    "TRK_PARADO_MANHA_min": {"valor": 540, "unidade": "min", "regra": "09:00 - parada ate aqui = travou de manha"},
+    "TRK_PARADO_ANOITE_min": {"valor": 990, "unidade": "min", "regra": "16:30 - retorno >= isto (ou nunca) = nao voltou de verdade"}
+  },
+  "flags": {
+    "TRK_REGUA_V2": {"valor_env": "TRK_REGUA_V2=1", "regra": "liga a regua v2 (_regua_v2) na classificacao de perdas"},
+    "TRK_CHART_MAX_DIAS": {"valor": 5, "unidade": "dias", "regra": "janela maxima do grafico De/Ate"}
+  }
+}

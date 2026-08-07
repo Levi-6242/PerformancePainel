@@ -11,10 +11,15 @@ venv/
 !.env.example
 tokens.txt
 pg_password.txt
+# tokens renovados pelo próprio app (sunop/axis/plat/se_cookie)
+tokens_runtime.json
+tokens_runtime.json.tmp
+# legados: migrados p/ tokens_runtime.json e renomeados para *.migrado
 plat_token.txt
 sunop_token.txt
 axis_token.txt
 se_cookie.txt
+*.txt.migrado
 se_credentials.txt
 _ck.txt
 credentials.json
@@ -38,6 +43,11 @@ fracttal_index.json
 frac_osperf_index.json
 perdas_strings.json
 whats_ronda.json
+
+# ── Overrides LOCAIS de referência curada (o .json base FICA no git e viaja pro PC novo; o .local
+#    é o que esta máquina editou/regerou, e é ele que evita conflito no `git pull`) ───────────────
+trackers_notas.local.json
+trackers_garantia.local.json
 tunnel_url.txt
 server.log
 *.log
@@ -55,13 +65,15 @@ comentarios_adicionais.json
 # ── Planilhas (dados internos da empresa — ficam no SharePoint/OneDrive) ──────
 *.xlsx
 *.xlsm
-# EXCEÇÃO: o snapshot empacotado p/ o deploy do dashboard Thopen na nuvem (repo é PRIVADO)
-!data/**/*.xlsx
+# EXCEÇÃO: o snapshot empacotado p/ o deploy do dashboard Thopen na nuvem (repo é PRIVADO).
+# Caminho atualizado na separação por projeto (data/ virou thopen/data/) — regra com barra é
+# ancorada na raiz, então a antiga deixaria um .xlsx NOVO do snapshot ser ignorado em silêncio.
+!thopen/data/**/*.xlsx
 
 # ── Logos: versiona só as cópias de nome limpo (grid-*.png); ignora os originais
 #    com acentos/espaços que o time dropar na pasta.
-static/logos/*.png
-!static/logos/grid-*.png
+plataforma/static/logos/*.png
+!plataforma/static/logos/grid-*.png
 
 # ── Ferramentas locais ────────────────────────────────────────────────────────
 .claude/
@@ -81,5 +93,24 @@ tracker_issues.backup-*.json
 # log de envios da ronda (runtime, alimenta o Monitor)
 whats_log.json
 
+# histórico dos parados da ronda (runtime, alimenta o card "Trackers recorrentes") + export CSV
+trackers_parados_hist.jsonl
+trackers_parados_hist.jsonl.tmp
+trackers_recorrentes_*.csv
+
 # executavel do Monitor da Ronda (buildado em C:/GridcoBuild, nao versionar binario)
 MonitorRonda.exe
+
+# book de paradas de tracker (abertas + encerradas) — estado de runtime, derivado do store
+paradas_book.json
+paradas_book.json.tmp
+
+# espelho local das planilhas + estado do push (servidor sem OneDrive)
+plataforma/bases/
+push_bases_estado.json
+
+# ── Backups do tokens.txt (feitos a mao ou por script antes de editar) ────────
+# Contem os tokens VIVOS. O tokens.txt ja e ignorado, mas as copias .bak nao
+# eram — e um "git add -A" publicaria todas. Achado na auditoria de 07/08.
+tokens.txt.bak*
+tokens.txt.old*

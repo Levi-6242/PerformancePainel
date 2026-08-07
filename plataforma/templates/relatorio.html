@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Criador de Relatório — Grid Co.</title>
+<style>
+  :root{ --ink:#1a1d24; --muted:#5b6472; --faint:#8a929e; --line:#e4e7ec; --panel:#f7f8fa;
+         --green:#6aa80e; --greenD:#4f7d0a; --red:#d64550; --amber:#c9870d; --blue:#2b6cb0; }
+  *{box-sizing:border-box;} html,body{margin:0;padding:0;}
+  body{font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:var(--ink);background:#eceef1;font-size:13px;line-height:1.5;}
+  /* ── Barra de controle (não sai na impressão) ── */
+  .toolbar{position:sticky;top:0;z-index:10;background:#0f1523;color:#e9eef6;display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:12px 20px;box-shadow:0 1px 0 rgba(0,0,0,.2);}
+  .toolbar .brand{font-weight:700;font-size:15px;letter-spacing:-.01em;}
+  .toolbar .brand b{color:#a3d900;}
+  .toolbar select,.toolbar input{background:#1b2334;color:#e9eef6;border:1px solid #2b3852;border-radius:8px;padding:7px 10px;font-size:13px;font-family:inherit;}
+  .toolbar select{min-width:230px;cursor:pointer;} .toolbar label{font-size:11.5px;color:#9aa6bd;margin-right:-6px;}
+  .toolbar button{border:0;border-radius:8px;padding:8px 15px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;}
+  .btn-go{background:#a3d900;color:#10240a;} .btn-pdf{background:#1b2334;color:#e9eef6;border:1px solid #2b3852;}
+  .toolbar a.back{color:#9aa6bd;text-decoration:none;font-size:12.5px;} .toolbar .sp{flex:1;}
+  /* ── Documento ── */
+  .doc{max-width:820px;margin:22px auto;background:#fff;box-shadow:0 2px 18px rgba(20,30,50,.12);}
+  .page{padding:34px 40px;}
+  .sechead{font-size:10.5px;font-weight:700;letter-spacing:.10em;color:var(--green);text-transform:uppercase;margin:0 0 3px;}
+  .sechead .n{color:var(--faint);margin-right:9px;}
+  .sectitle{font-size:20px;font-weight:700;letter-spacing:-.02em;margin:0 0 3px;}
+  .secsub{font-size:12.5px;color:var(--muted);margin:0 0 18px;}
+  .kicker{font-size:9.5px;font-weight:700;letter-spacing:.06em;color:var(--muted);text-transform:uppercase;margin:20px 0 8px;}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin:0 0 6px;}
+  .tile{border:1px solid var(--line);border-radius:9px;padding:11px 13px;background:var(--panel);}
+  .tile .l{font-size:10.5px;color:var(--muted);font-weight:600;}
+  .tile .v{font-size:21px;font-weight:700;letter-spacing:-.02em;line-height:1.15;margin-top:2px;font-variant-numeric:tabular-nums;}
+  .tile .s{font-size:10.5px;color:var(--faint);margin-top:1px;}
+  table{width:100%;border-collapse:collapse;font-size:11.5px;}
+  th{text-align:right;font-size:9.5px;font-weight:700;letter-spacing:.03em;color:var(--muted);text-transform:uppercase;padding:7px 9px;border-bottom:1.5px solid var(--line);}
+  th:first-child,td:first-child{text-align:left;}
+  td{padding:6px 9px;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums;}
+  .leitura{background:var(--panel);border-left:3px solid var(--green);border-radius:8px;padding:12px 14px;font-size:12px;line-height:1.55;margin:6px 0;}
+  .pt{background:#fff7e6;border:1px solid #f0d9a8;border-radius:8px;padding:9px 12px;font-size:11.5px;margin:6px 0;}
+  .pt b{color:var(--amber);}
+  .badge{display:inline-block;padding:3px 11px;border-radius:20px;font-size:11px;font-weight:700;}
+  .metod{columns:2;column-gap:26px;font-size:11px;color:var(--muted);}
+  .metod b{color:var(--ink);} .metod div{break-inside:avoid;margin-bottom:9px;}
+  .foot{margin-top:26px;padding-top:12px;border-top:1px solid var(--line);font-size:10.5px;color:var(--faint);display:flex;justify-content:space-between;}
+  .empty{color:var(--faint);text-align:center;padding:60px 0;font-size:14px;}
+  .selo{border:1px solid var(--line);border-radius:10px;padding:14px 16px;background:var(--panel);margin-top:8px;}
+  .selo .flag{font-size:11.5px;color:#8a5a00;background:#fff7e6;border:1px solid #f0d9a8;border-radius:7px;padding:6px 10px;margin-top:6px;}
+  @media print{
+    body{background:#fff;} .toolbar{display:none;} .doc{box-shadow:none;margin:0;max-width:none;}
+    .page{padding:0;} .sec{page-break-before:always;} .sec:first-child{page-break-before:avoid;}
+    @page{size:A4;margin:14mm;}
+  }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <span class="brand">Grid<b> Co.</b> · Criador de Relatório</span>
+  <label>Usina</label><select id="selUsina"><option>carregando…</option></select>
+  <label>De</label><input type="date" id="ini">
+  <label>Até</label><input type="date" id="fim">
+  <button class="btn-go" onclick="gerar()">Gerar</button>
+  <button class="btn-pdf" onclick="window.print()">Salvar como PDF</button>
+  <span class="sp"></span>
+  <a class="back" href="/">← Monitoramento</a>
+</div>
+<div class="doc"><div class="page" id="rel"><div class="empty">Escolha a usina e o período e clique <b>Gerar</b>.</div></div></div>
+<script>
+const $=id=>document.getElementById(id);
+const nf=(v,d=1)=>(v==null||isNaN(v))?'—':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const pp=v=>(v==null||isNaN(v))?'—':((v>=0?'+':'')+nf(v,1));
+const _br=s=>{const m=String(s||'').match(/(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}/${m[1]}`:'—';};
+const _brhm=s=>{const m=String(s||'').match(/(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);return m?`${m[3]}/${m[2]} ${m[4]}:${m[5]}`:_br(s);};
+
+// ── seletor de usinas ──
+(async()=>{
+  const d=new Date(), iso=x=>x.toISOString().slice(0,10);
+  $('fim').value=iso(d); $('ini').value=iso(new Date(d.getFullYear(),d.getMonth(),1));   // mês corrente por padrão
+  try{
+    const j=await fetch('/api/relatorio/usinas').then(r=>r.json());
+    $('selUsina').innerHTML=(j.usinas||[]).map(u=>`<option value="${u.usina.replace(/"/g,'&quot;')}">${u.usina}${u.cliente&&u.cliente!=='—'?' · '+u.cliente:''}</option>`).join('');
+  }catch(e){ $('selUsina').innerHTML='<option>falha ao carregar</option>'; }
+})();
+
+async function gerar(){
+  const u=$('selUsina').value, ini=$('ini').value, fim=$('fim').value;
+  if(!u||!ini||!fim) return;
+  $('rel').innerHTML='<div class="empty">Montando o relatório… (pode levar até ~1 min na 1ª vez)</div>';
+  let d; try{ d=await fetch(`/api/relatorio?usina=${encodeURIComponent(u)}&ini=${ini}&fim=${fim}`).then(r=>r.json()); }
+  catch(e){ $('rel').innerHTML='<div class="empty">Falha ao gerar.</div>'; return; }
+  if(!d||!d.ok){ $('rel').innerHTML=`<div class="empty">Não deu para gerar: ${(d&&d.motivo)||'sem dado'}.</div>`; return; }
+  $('rel').innerHTML=render(d);
+}
+
+const H=(n,t,s)=>`<div class="sec"><div class="sechead"><span class="n">${n}</span></div><div class="sectitle">${t}</div>${s?`<div class="secsub">${s}</div>`:''}`;
+
+function render(d){
+  const gPct=d.p50?d.geracao/d.p50*100:null, iPct=d.possivel?d.geracao/d.possivel*100:null;
+  const meta=(d.pr_meta||0)*100, real=(d.pr_real||0)*100;
+  const abaixo=real<meta-0.2;
+  const verd = gPct==null?'—' : gPct>=98?['ÓTIMO','#e6f4d9','var(--greenD)'] : gPct>=90?['BOM','#eaf3fb','var(--blue)'] : ['ABAIXO DO ESPERADO','#fdeaec','var(--red)'];
+  const per=`${_br(d.ini)} a ${_br(d.fim)}`;
+  // ── Capa + Resumo ──
+  let html = `<div class="sec">
+    <div class="sechead" style="color:var(--faint)">Grid Co. · Performance UFV</div>
+    <div style="font-size:30px;font-weight:800;letter-spacing:-.03em;margin:14px 0 2px">${d.usina}</div>
+    <div style="font-size:13px;color:var(--muted)">${nf(d.pot,2)} MWp · ${d.cliente||'—'} · ${per}</div>
+    <div style="margin:16px 0"><span class="badge" style="background:${verd[1]};color:${verd[2]}">${verd[0]}</span></div>
+    <div class="tiles" style="margin-top:14px">
+      ${tile('Geração vs P50', nf(d.geracao,1)+' MWh', (gPct!=null?nf(gPct,1)+'% · meta '+nf(d.p50,0):''))}
+      ${tile('Performance Ratio', nf(real,1)+'%', 'meta '+nf(meta,1)+'%', abaixo?'var(--red)':'var(--greenD)')}
+      ${tile('Disponibilidade UFV', nf(d.disponibilidade_ufv*100,1)+'%', '')}
+      ${tile('Perda evitável O&M', nf(d.om,2)+' MWh', 'externos '+nf(d.externo,1))}
+    </div>
+    <div class="leitura">A usina gerou <b>${nf(d.geracao,1)} MWh</b>${gPct!=null?`, equivalente a <b>${nf(gPct,1)}%</b> da meta P50`:''}${iPct!=null?` e <b>${nf(iPct,1)}%</b> da expectativa ajustada pela irradiância`:''}. Perda por baixo IPOA (recurso solar): <b>${nf(d.perda_ipoa,1)} MWh</b>; perda evitável pela operação (O&amp;M): <b>${nf(d.om,2)} MWh</b>.</div>
+    ${cascLeitura(d)}
+    <div class="foot"><span>Equipe de Performance · Grid Co.</span><span>Emitido em ${_br(new Date().toISOString())}</span></div>
+  </div>`;
+  // ── 02 Recurso Solar ──
+  const razao=d.poa&&d.poa_prev?d.poa/d.poa_prev*100:null;
+  html += H('02','Recurso Solar','Quanto sol houve no período — o efeito da irradiância é descontado ao avaliar a qualidade da planta.')
+    +`<div class="tiles">
+      ${tile('IPOA no período', nf(d.poa,1)+' kWh/m²', (d.poa_prev?pp((d.poa/d.poa_prev-1)*100)+'% vs previsto':''))}
+      ${tile('IPOA previsto', nf(d.poa_prev,1)+' kWh/m²', 'referência')}
+      ${tile('Aproveitamento', razao!=null?nf(razao,0)+'%':'—', 'IPOA real ÷ previsto')}
+    </div></div>`;
+  // ── 03 Qualidade & Equipamentos ──
+  html += H('03','Qualidade da Performance & Equipamentos','O PR normaliza pelo recurso solar; aberto por inversor frente à mediana dos pares. O desligamento entra na disponibilidade.')
+    +`<div class="tiles">
+      ${tile('PR realizado', nf(real,1)+'%', 'meta '+nf(meta,1)+'%', abaixo?'var(--red)':'var(--greenD)')}
+      ${tile('Disponibilidade UFV', nf(d.disponibilidade_ufv*100,1)+'%', 'equipamento')}
+      ${tile('Perda de inversor (medida)', nf(d.perda_inv_medida,1)+' MWh', 'déficit vs pares')}
+    </div>`+invTable(d)+`</div>`;
+  // ── 04 / 05 Contabilidade ──
+  html += H('04','Contabilidade de Energia — Impactos','Da geração sem perdas (potencial) à real, peça por peça. Externo (recurso/rede) separado do evitável (O&amp;M).')+cascWaterfall(d)+`</div>`;
+  html += H('05','Contabilidade de PR — Impactos','A mesma leitura em pontos de PR: do PR sem perdas ao realizado, descontando as recuperáveis.')+cascPR(d)+`</div>`;
+  // ── 06 Comportamento Diário ──
+  html += H('06','Comportamento Diário','Geração e recurso solar dia a dia no período.')+serieTable(d)+`</div>`;
+  // ── 08 Registros ──
+  html += H('08','Registros do Período','Desligamentos (OS do Fracttal) e ofensores ainda em aberto que sustentam a leitura.')+registros(d)+`</div>`;
+  // ── 09 Metodologia + selo ──
+  html += H('09','Metodologia & Confiabilidade','Como os indicadores são calculados e o quão confiável está o dado do período.')
+    +metodologia(d)+selo(d)+`</div>`;
+  return html;
+}
+function tile(l,v,s,vc){ return `<div class="tile"><div class="l">${l}</div><div class="v"${vc?` style="color:${vc}"`:''}>${v}</div><div class="s">${s||''}</div></div>`; }
+
+// ── Leitura + pontos de atenção (do Diagnóstico) ──
+function cascLeitura(d){
+  const om=d.om||0, ofens=[['Tracker',d.perda_trk||0],['Queda de energia',(d.os&&d.os.rede&&d.os.rede.qtd)?d.perda_rede:0],['Equipamento',d.perda_equip||0]].filter(o=>o[1]>0).sort((a,b)=>b[1]-a[1]);
+  const maior=ofens[0];
+  const ab=(d.abertos||[]); const byT={}; ab.forEach(a=>{const t=a.tipo||'Outro';(byT[t]=byT[t]||[]).push(a);});
+  const abTxt=Object.entries(byT).map(([t,arr])=>{const dts=arr.map(a=>a.desde).filter(Boolean).sort();const ex=arr.map(a=>a.escopo).filter(Boolean).slice(0,3).join(', ');return `<b>${arr.length} ${t}${arr.length>1?'s':''}</b>${dts.length?' (mais antigo '+_br(dts[0])+')':''}${ex?': '+ex+(arr.length>3?' +'+(arr.length-3):''):''}`;}).join(' · ');
+  let out=`<div class="kicker">Pontos de atenção e ações prioritárias</div>`;
+  if(om>0) out+=`<div class="pt"><b>!</b> Perda evitável pelo O&amp;M de <b>${nf(om,2)} MWh</b>.${maior?` Maior ofensor recuperável: <b>${maior[0]}</b> (${nf(maior[1],1)} MWh).`:''}</div>`;
+  if(ab.length) out+=`<div class="pt"><b>!</b> Ofensor ainda em aberto: ${abTxt}. Sem recomposição no período — priorizar a normalização.</div>`;
+  if(!om&&!ab.length) out+=`<div class="pt" style="background:#eefae6;border-color:#c7e6ac"><b style="color:var(--greenD)">✓</b> Sem ofensor recuperável em aberto no período.</div>`;
+  return out;
+}
+// ── Tabela por inversor (03) ──
+function invTable(d){
+  const inv=(d.inversores||[]); if(!inv.length) return '<div class="secsub" style="margin-top:12px">Sem PR por inversor para esta usina/fonte.</div>';
+  const disp={}; (d.equip_disp||[]).forEach(e=>disp[e.inversor]=e);
+  const rows=inv.map(r=>{ const e=disp[r.inversor]||{}; const dv=r.desvio_pts;
+    return `<tr><td style="font-weight:600">${r.inversor||'—'}</td><td>${r.pr!=null?nf(r.pr,1)+'%':'—'}</td>
+      <td style="color:${dv<0?'var(--red)':'var(--greenD)'}">${dv!=null?pp(dv)+' pts':'—'}</td>
+      <td>${r.deficit_mwh?nf(r.deficit_mwh,2):'—'}</td><td>${e.n_desl||0}</td><td>${e.h_indisp!=null?nf(e.h_indisp,1):'0,0'}</td>
+      <td>${e.disp!=null?nf(e.disp,1)+'%':'100,0%'}</td></tr>`; }).join('');
+  return `<div class="kicker">PR por inversor · déficit vs mediana dos pares</div>
+    <table><thead><tr><th>Inversor</th><th>PR</th><th>Desvio</th><th>Déficit (MWh)</th><th>Nº Desl.</th><th>Indisp.(h)</th><th>Disp.</th></tr></thead><tbody>${rows}</tbody></table>`;
+}
+// ── Série diária (06) ──
+function serieTable(d){
+  const s=(d.serie||[]); if(!s.length) return '<div class="secsub">Sem série diária.</div>';
+  const rows=s.map(x=>`<tr><td style="font-weight:600">${_br(x.data)}</td><td>${nf(x.geracao,2)} MWh</td><td>${x.poa!=null?nf(x.poa,2)+' kWh/m²':'—'}</td></tr>`).join('');
+  const tg=s.reduce((a,x)=>a+(x.geracao||0),0), tp=s.reduce((a,x)=>a+(x.poa||0),0);
+  return `<table><thead><tr><th>Dia</th><th>Geração</th><th>IPOA</th></tr></thead><tbody>${rows}
+    <tr style="font-weight:700"><td>Total (${s.length}d)</td><td>${nf(tg,1)} MWh</td><td>${nf(tp,1)} kWh/m²</td></tr></tbody></table>`;
+}
+// ── Registros (08) ──
+function registros(d){
+  const os=((d.os&&d.os.lista)||[]);
+  let out=`<div class="kicker">Desligamentos no período (OS do Fracttal)</div>`;
+  if(!os.length) out+=`<div class="secsub">Nenhum desligamento registrado no período.</div>`;
+  else out+=`<table><thead><tr><th>OS</th><th>Equipamento</th><th>Classificação</th><th>Início</th><th>Fim</th><th>Horas solares</th></tr></thead><tbody>`
+    +os.map(o=>`<tr><td style="font-weight:600">${o.os||'—'}</td><td>${o.equip||'—'}</td><td>${o.classe||'—'}</td><td>${_brhm(o.evento_ts)}</td><td>${o.fim_ts?_brhm(o.fim_ts):'em aberto'}</td><td>${nf(o.horas,1)}h</td></tr>`).join('')+`</tbody></table>`;
+  const ab=(d.abertos||[]);
+  out+=`<div class="kicker">Ofensores ainda em aberto</div>`;
+  if(!ab.length) out+=`<div class="secsub">Sem ofensores em aberto.</div>`;
+  else out+=`<table><thead><tr><th>Tipo</th><th>Escopo</th><th>Desde</th></tr></thead><tbody>`
+    +ab.map(a=>`<tr><td style="font-weight:600">${a.tipo}</td><td>${a.escopo||'—'}</td><td>${_br(a.desde)}</td></tr>`).join('')+`</tbody></table>`;
+  return out;
+}
+function metodologia(d){
+  return `<div class="metod">
+    <div><b>Geração (MWh)</b> — energia dos inversores ÷ 1000.</div>
+    <div><b>Meta P50</b> — P50 mensal ÷ dias do mês, nos dias do período.</div>
+    <div><b>Meta ger. IPOA</b> — IPOA × Pot (referência com PR = 100%).</div>
+    <div><b>PR (%)</b> — Geração ÷ (IPOA × Pot) × 100.</div>
+    <div><b>Meta de PR</b> — PR Previsto do 1º ano (planilha Info Mensal).</div>
+    <div><b>Perda recuperável de inversor</b> — déficit MEDIDO: (PR mediano dos pares − PR do inversor) × IPOA × Pot do inversor. A OS só classifica.</div>
+    <div><b>Perda de desligamento</b> — energia esperada na janela solar (06–18h) enquanto a usina esteve parada (OS de site).</div>
+    <div><b>Baixo IPOA (externo)</b> — máx(0, IPOA prev − IPOA real) × Pot × PR meta.</div>
+    <div><b>Disponibilidade UFV</b> — (1 − horas indisp. ÷ horas úteis) × 100 (06–18h).</div>
+    <div>Indicadores conforme a norma IEC 61724. Janela diurna 06h–18h.</div>
+  </div>`;
+}
+function selo(d){
+  const c=d.confiabilidade||{}, cor=c.nivel==='alta'?'var(--greenD)':c.nivel==='media'?'var(--amber)':'var(--red)';
+  return `<div class="kicker">Selo de confiabilidade do dado</div>
+    <div class="selo"><div style="display:flex;gap:22px;flex-wrap:wrap;font-size:12px">
+      <span>Nível: <b style="color:${cor};text-transform:uppercase">${c.nivel||'—'}</b></span>
+      <span>Cobertura de geração: <b>${nf(c.cobertura_geracao,0)}%</b></span>
+      <span>Cobertura de IPOA: <b>${nf(c.cobertura_ipoa,0)}%</b></span>
+      <span>Não explicado: <b>${nf(d.nao_explicado,1)} MWh</b></span></div>
+      ${(c.flags||[]).map(f=>`<div class="flag">! ${f}</div>`).join('')}
+    </div>`;
+}
+
+// ── Waterfalls (adaptados do Diagnóstico p/ fundo claro) ──
+function cascWaterfall(d){
+  const t=d.trk||{}, os=d.os||{};
+  const steps=[
+    {lab:['Geração','sem perdas'],val:d.p50,kind:'anchor',c:'#8b93a8',sub:`P50 · ${d.dias}d`},
+    {lab:['− Baixo','IPOA'],val:-d.perda_ipoa,kind:'loss',c:'#a9adba',sub:'externo'},
+    {lab:['= Possível','com sol'],val:d.possivel,kind:'anchor',c:'#5b6472',sub:'recurso'},
+    {lab:['− Tracker'],val:-(d.perda_trk||0),kind:'loss',c:'#8fbf00',sub:t.paradas?`${t.paradas} par.`:'—'},
+    {lab:['− Queda','energia'],val:-(d.perda_rede||0),kind:'loss',c:'#7ba80e',sub:(os.rede&&os.rede.qtd)?`${os.rede.qtd} OS`:'—'},
+    {lab:['− Equip.'],val:-(d.perda_equip||0),kind:'loss',c:'#6a9a0c',sub:'medido'},
+    {lab:['− Não','explicado'],val:-(d.nao_explicado||0),kind:'loss',c:'#c2c7d0',sub:'a modelar'},
+    {lab:['= Geração','real'],val:d.geracao,kind:'anchor',c:'#4f7d0a',sub:`PR ${d.pr_real!=null?nf(d.pr_real*100,0)+'%':'—'}`}
+  ];
+  return wf(steps,760,300,'MWh',0);
+}
+function cascPR(d){
+  if(!(d.poa&&d.pot)) return '<div class="secsub">Sem base para o PR (falta POA/potência).</div>';
+  const ppf=v=>v/(d.poa*d.pot)*100, real=(d.pr_real||0)*100, meta=(d.pr_meta||0)*100;
+  const pot=real+ppf(d.perda_trk||0)+ppf(d.perda_deslig||0);
+  const steps=[
+    {lab:['PR','sem perdas'],val:pot,kind:'anchor',c:'#5b6472'},
+    {lab:['− Tracker'],val:-ppf(d.perda_trk||0),kind:'loss',c:'#8fbf00'},
+    {lab:['− Desligamento'],val:-ppf(d.perda_deslig||0),kind:'loss',c:'#7ba80e'},
+    {lab:['PR','realizado'],val:real,kind:'anchor',c:'#4f7d0a'}
+  ];
+  return wf(steps,560,220,'%',meta);
+}
+// desenha um waterfall genérico (fundo claro); metaLine>0 desenha linha de meta
+function wf(steps,W,H,unit,metaLine){
+  const padT=28,padB=48,padL=6;
+  const maxV=Math.max(metaLine||0,...steps.filter(s=>s.kind==='anchor').map(s=>s.val))*1.06||1;
+  const plotH=H-padT-padB, y=v=>padT+plotH-(v/maxV)*plotH;
+  const slot=(W-padL*2)/steps.length, bw=slot*(steps.length>5?.6:.5); let run=0,svg='';
+  for(let g=0;g<=4;g++){const gy=padT+plotH*g/4;svg+=`<line x1="${padL}" y1="${gy.toFixed(1)}" x2="${W-padL}" y2="${gy.toFixed(1)}" stroke="#eef0f3"/>`;}
+  if(metaLine>0){const my=y(metaLine);svg+=`<line x1="${padL}" y1="${my.toFixed(1)}" x2="${W-padL}" y2="${my.toFixed(1)}" stroke="#c9870d" stroke-dasharray="6 4" stroke-width="1.3"/><text x="${(W-padL).toFixed(1)}" y="13" text-anchor="end" fill="#c9870d" font-size="9.5" font-weight="600">— Meta PR ${nf(metaLine,1)}%</text>`;}
+  steps.forEach((s,i)=>{const cx=padL+slot*i+slot/2,x0=cx-bw/2;let top,bot;
+    if(s.kind==='anchor'){top=s.val;bot=0;run=s.val;}else{top=run;bot=run+s.val;run=bot;}
+    const yT=y(Math.max(top,bot)),hh=Math.max(2,y(Math.min(top,bot))-yT),forte=s.kind==='anchor';
+    svg+=`<rect x="${x0.toFixed(1)}" y="${yT.toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}" rx="3" fill="${s.c}"/>`
+      +`<text x="${cx.toFixed(1)}" y="${(yT-5).toFixed(1)}" text-anchor="middle" fill="${forte?'#1a1d24':'#5b6472'}" font-size="${forte?11:10}" font-weight="${forte?700:600}">${s.val<0?'−':''}${nf(Math.abs(s.val),forte?(unit==='%'?1:0):(unit==='%'?2:1))}${forte?(unit==='%'?'%':''):''}</text>`
+      +s.lab.map((l,k)=>`<text x="${cx.toFixed(1)}" y="${H-padB+13+k*11}" text-anchor="middle" fill="${forte?'#3a3f49':'#5b6472'}" font-size="9.5" font-weight="${forte?600:400}">${l}</text>`).join('')
+      +(s.sub?`<text x="${cx.toFixed(1)}" y="${H-padB+13+s.lab.length*11}" text-anchor="middle" fill="#9aa1ad" font-size="8">${s.sub}</text>`:'');
+    if(i<steps.length-1){const nx=padL+slot*(i+1)+slot/2-bw/2,yr=y(run);svg+=`<line x1="${(cx+bw/2).toFixed(1)}" y1="${yr.toFixed(1)}" x2="${nx.toFixed(1)}" y2="${yr.toFixed(1)}" stroke="#c9ccd3" stroke-dasharray="3 3" stroke-width="1"/>`;}
+  });
+  return `<div style="overflow-x:auto"><svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px;display:block;margin:4px auto" font-family="inherit">${svg}</svg></div>`;
+}
+</script>
+</body>
+</html>

@@ -13,7 +13,9 @@ import sys
 
 _RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _RAIZ not in sys.path:                       # o pacote mora na RAIZ do repositório, não aqui
-    sys.path.insert(0, _RAIZ)
+    # APPEND, nunca insert(0): a raiz tem um `app.py` (o da plataforma) que sombrearia o
+    # `os_creator/app.py`. Ver a nota longa no api.py.
+    sys.path.append(_RAIZ)
 
 from chamado_garantia.regras import (CLASSIF_1, CLASSIF_2, ETIQUETA,  # noqa: F401
                                      ETIQUETA_ACOMPANHAMENTO, TIPO_TAREFA,
