@@ -40,7 +40,7 @@ ufv_state.json              → estado por UFV ("em manutenção", flags de UI) 
 #   cache_snapshot.json (SWR), owen_accum.json (2C), spv_stringbox.json,
 #   string_notas.json, sunop_etm_accum.json, tracker_issues.json
 # Tokens/segredos — NÃO vêm no pacote (preencher via .env / ver "Variáveis de ambiente"):
-#   .env, sunop_token.txt, axis_token.txt, plat_token.txt, se_cookie.txt,
+#   .env, tokens_runtime.json (tokens que o app renova sozinho),
 #   se_credentials.txt, pg_password.txt
 # Deliberadamente FORA deste pacote (NÃO usados pelo app.py — entregar à parte se precisar):
 #   dashboard_thopen.py / dashboard_geracao.py (apps Flask SEPARADOS, portas próprias 5080/etc),
@@ -57,9 +57,9 @@ Copie `.env.example` → `.env` e preencha. **Tudo é opcional**: cada integraç
 | `DASH_PASSWORD` | Senha única do gate de login. Vazio = app aberto (só dev). | Sim | Definida pela equipe | Estática |
 | `SECRET_KEY` | Assina o cookie de sessão Flask. | Sim | Gerar aleatória (`secrets.token_hex`) | Estática |
 | `PV_USERNAME` / `PV_PASSWORD` | Login da API PV Operation (Thopen). | Sim | Conta apipv | Estática |
-| `SUNOP_TOKEN` | Semente JWT SunOp Athon (gridco). Renova sozinho → `sunop_token.txt`. | Sim | `gridco.sunop.net` → F12 → `localStorage.getItem('token')` | ~7 dias (auto-renova) |
-| `AXIS_TOKEN` | Semente JWT SunOp Axis (2ª instância). Renova → `axis_token.txt`. | Sim | `axis.sunop.net` → F12 → localStorage `token` | ~24 h (auto-renova) |
-| `PLAT_TOKEN` | JWT da API PV Plataforma (curva strings/trackers). Ou em `plat_token.txt`. | Sim | `plataforma.pvoperation.com` → F12 → header `x-auth-token-update` | ~7 dias (**manual**) |
+| `SUNOP_TOKEN` | Semente JWT SunOp Athon (gridco). Renova sozinho → `tokens_runtime.json` (`sunop`). | Sim | `gridco.sunop.net` → F12 → `localStorage.getItem('token')` | ~7 dias (auto-renova) |
+| `AXIS_TOKEN` | Semente JWT SunOp Axis (2ª instância). Renova → `tokens_runtime.json` (`axis`). | Sim | `axis.sunop.net` → F12 → localStorage `token` | ~24 h (auto-renova) |
+| `PLAT_TOKEN` | JWT da API PV Plataforma (curva strings/trackers). Ou em `tokens_runtime.json` (`plat`). | Sim | `plataforma.pvoperation.com` → F12 → header `x-auth-token-update` | ~7 dias (**manual**) |
 | `PG_HOST` / `PG_PORT` / `PG_DB` / `PG_USER` / `PG_PASSWORD` | PostgreSQL AWS RDS (Thopen). Defaults: PORT 5432, DB `powerplants`. Senha tb aceita em `pg_password.txt`. | Sim (host/user/pass) | Infra Grid Co. | Estática |
 | `SE_USERNAME` / `SE_PASSWORD` | Login SolarEdge (Cognito). Ou em `se_credentials.txt`. | Sim | Conta SolarEdge | Estática |
 | `SE_COGNITO_CLIENT` / `SE_COGNITO_POOL` | IDs do pool Cognito do SolarEdge. **Têm default no código** (só sobrescrever se mudarem). | Não | SolarEdge | Raro |
@@ -93,7 +93,7 @@ python app.py
 | **PostgreSQL** (Thopen, AWS RDS) | `PG_HOST:5432`, db `powerplants` | usuário/senha (psycopg2) | schema **`dbt`** (TimescaleDB); cobertura ~50% (gaps de ingestão a montante) |
 | **SunOp Athon** (gridco, 10 GD) | `https://gridco-api.sunop.net/api` + `/data` | `Authorization: JWT <token>` | token funcional tem claim `sub` numérico + `is_admin` (sub="Levi" é rejeitado/401) |
 | **SunOp Axis** (2ª instância: PE III, Ponto Belo) | `https://axis.sunop.net` | `Authorization: JWT <token>` (~24h) | mesma API do Athon, conta separada |
-| **SolarEdge** (RenoGrid, 7 UFVs) | `https://monitoring.solaredge.com` | **AWS Cognito** (pool `eu-central-1_fVUTz39em`) → cookie `se_cookie.txt` | API interna (não a oficial); só strings |
+| **SolarEdge** (RenoGrid, 7 UFVs) | `https://monitoring.solaredge.com` | **AWS Cognito** (pool `eu-central-1_fVUTz39em`) → cookie em `tokens_runtime.json` (`se_cookie`) | API interna (não a oficial); só strings |
 | **2C / Email** (Owen, 4 UFVs) | — (sem API) | — | lê CSVs de `OWEN_ROOT` (baixados por projeto Gmail separado) → `owen_accum.json` |
 | **Fracttal** (CMMS / OS) | `https://app.fracttal.com` | **OAuth2 client_credentials** (`FRACTTAL_CLIENT_ID/SECRET`) | leitura REST de work_orders; rate limit ~200/min (cacheado) |
 
@@ -119,9 +119,9 @@ Obs.: existe `_sunop_accum_loop` (amostrador ETM → `sunop_etm_accum.json`, int
 | `string_notas.json` | Notas de subperformance (curva strings) | **PERDE anotações** — não regenerável |
 | `spv_stringbox.json` | Classificação string-box por usina | OK — recalcula sob demanda |
 | `sunop_etm_accum.json` | IPOA integrado do SunOp (acumulador do dia) | OK — reacumula no dia |
-| `sunop_token.txt` / `axis_token.txt` / `plat_token.txt` / `se_cookie.txt` | Tokens/cookies de sessão cacheados | OK — recriados do `.env` (Plataforma exige colar token manual) |
+| `tokens_runtime.json` | Tokens/cookies de sessão renovados pelo app (`sunop`, `axis`, `plat`, `se_cookie`) | OK — recriados do `.env`/`tokens.txt` (Plataforma exige colar token manual) |
 
-> **Não vêm no ZIP** (segredos): `.env`, `se_credentials.txt`, `pg_password.txt` e os 4 token caches acima. O app os recria a partir do `.env` (exceto PV Plataforma, que é token manual). Ver "Pegadinhas".
+> **Não vêm no ZIP** (segredos): `.env`, `se_credentials.txt`, `pg_password.txt` e o `tokens_runtime.json` acima. O app os recria a partir do `.env` (exceto PV Plataforma, que é token manual). Ver "Pegadinhas".
 
 ## Portas e endpoints
 - **Porta:** `5050` (hardcoded no `app.py`).
@@ -138,14 +138,14 @@ Obs.: existe `_sunop_accum_loop` (amostrador ETM → `sunop_etm_accum.json`, int
 - **Fuso horário:** o app assume horário **local BR (UTC−3)** para "hoje"/janelas do dia. Rodar o servidor com TZ diferente desloca os recortes de dia. Manter o SO em America/Sao_Paulo.
 - **Console cp1252 (Windows):** `print()` com emoji/acento pode dar `UnicodeEncodeError` em console legado. Rodar com `PYTHONUTF8=1` (ou `chcp 65001`) evita.
 - **Template Flask cacheado** (debug=False): mudar `index.html` exige **reiniciar** o servidor.
-- **Tokens que expiram:** PV Plataforma (`plat_token.txt`, ~7d, **manual**) e o token do Gmail do coletor 2C (projeto separado, expira ~7d se o app OAuth estiver em "Testing") param a respectiva fonte — as demais auto-renovam.
+- **Tokens que expiram:** PV Plataforma (chave `plat` do `tokens_runtime.json`, ~7d, **manual**) e o token do Gmail do coletor 2C (projeto separado, expira ~7d se o app OAuth estiver em "Testing") param a respectiva fonte — as demais auto-renovam.
 - **Permissão de escrita:** o processo precisa de **escrita na pasta do app** (grava os `.json`/`.txt` de estado e tokens ali, ao lado do `app.py`).
 - **Logos 404** em `static/logos/*.png` — cosmético (há fallback de emoji).
 
 ## Comandos úteis de operação
 - **Forçar atualização de tudo:** botão "↻ Atualizar" na UI, ou `GET /api/data?force=1` (zera caches e refaz as fontes).
 - **Recarregar planilhas (Check/Equipamentos):** automático no `mtime`; ou o force acima.
-- **Trocar token expirado:** editar `.env` (`SUNOP_TOKEN`/`AXIS_TOKEN`) ou o `.txt` (`plat_token.txt`) e reiniciar.
+- **Trocar token expirado:** o da Plataforma vai pelo bookmarklet (`POST /api/pv/trackers/token`, vale na hora); os demais, editar `tokens.txt`/`.env` (`SUNOP_TOKEN`/`AXIS_TOKEN`) e reiniciar.
 - **Limpar cache em disco:** parar o app, apagar `cache_snapshot.json`, subir (reconstrói; use se o snapshot ficar corrompido). **Não** apague `ufv_state.json`/`string_notas.json` (não regeneráveis).
 - **Healthcheck/monitor:** `curl http://localhost:5050/healthz`.
 - **Testes:** `run_tests.bat` (ou `pytest`).
