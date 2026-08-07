@@ -19,7 +19,8 @@ import api
 from workers import ApiWorker, slot_seguro
 from steps.searchcombo import tornar_pesquisavel, tornar_todos_pesquisaveis
 from steps.ui import (QSS_FORM, Card, campo, rotulo, Linha, Segmentado, icone_pix,
-                      GREEN, GREEN_INK, MUTED, TEXT, CARD, INPUT, BORDER, BG)
+                      GREEN, GREEN_INK, MUTED, TEXT, CARD, INPUT, BORDER, BG,
+                      travar_no_passado)
 
 _SEL = "— selecione —"
 
@@ -466,6 +467,8 @@ class PerfCriar(QWidget):
         # DATA PROGRAMADA à parte da do incidente: até aqui o Fracttal recebia "incidente + 10 min"
         # como programação, o que impedia abrir hoje uma OS para a semana que vem. Começa igual à
         # do incidente (comportamento antigo) e o usuário empurra se quiser.
+        travar_no_passado(self.dt_prog)   # incidente: nunca no futuro (Levi, 07/08). A data
+        # PROGRAMADA (dt_exec, abaixo) segue livre — ela é futura por definição.
         self.dt_exec = QDateTimeEdit(); self.dt_exec.setCalendarPopup(True)
         self.dt_exec.setDisplayFormat("dd/MM/yyyy HH:mm")
         self.dt_exec.setDateTime(QDateTime.currentDateTime().addDays(1))   # ida a campo = amanhã

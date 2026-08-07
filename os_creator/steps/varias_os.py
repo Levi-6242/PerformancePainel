@@ -18,7 +18,8 @@ from workers import ApiWorker, slot_seguro
 from steps.step1 import ALLOWED_TIPOS
 from steps.finalizar import FinalizarPanel
 from steps.searchcombo import tornar_pesquisavel
-from steps.ui import QSS_FORM, Card, campo, rotulo, Linha, Segmentado, icone_pix, GREEN, MUTED
+from steps.ui import (QSS_FORM, Card, campo, rotulo, Linha, Segmentado, icone_pix, GREEN,
+                      MUTED, travar_no_passado)
 
 _SEL = "— selecione —"
 # Tipos de EQUIPAMENTO de planta — usados p/ decidir quais clientes/usinas são "reais" (o catálogo do
@@ -274,6 +275,7 @@ class VariasOSsDialog(QWidget):
         # ── Card 4: Evento + finalização ──
         self.de = QDateTimeEdit(); self.de.setCalendarPopup(True); self.de.setDisplayFormat("dd/MM/yyyy HH:mm")
         self.de.setDateTime(QDateTime.currentDateTime().addSecs(-600)); self.de.dateTimeChanged.connect(self._preview)
+        travar_no_passado(self.de)          # evento no futuro é sempre engano (Levi, 07/08)
         b_now = QPushButton("Agora"); b_now.setObjectName("secondary")
         b_now.clicked.connect(lambda: self.de.setDateTime(QDateTime.currentDateTime().addSecs(-600)))
         erow = QWidget(); erow.setStyleSheet("background:transparent;")   # sem faixa escura atrás do "Fora de Serviço"
@@ -701,6 +703,7 @@ class VariasOSsDialog(QWidget):
         h = QHBoxLayout(row); h.setContentsMargins(0, 0, 0, 0); h.setSpacing(8)
         de = QDateTimeEdit(); de.setCalendarPopup(True); de.setDisplayFormat("dd/MM/yyyy HH:mm")
         de.setDateTime(QDateTime.currentDateTime().addSecs(-600)); de.setMinimumWidth(155)
+        travar_no_passado(de)               # idem, em cada linha do modo "mesmo ativo"
         b_now = QPushButton("Agora"); b_now.setObjectName("secondary")
         b_now.clicked.connect(lambda _=0, d=de: d.setDateTime(QDateTime.currentDateTime().addSecs(-600)))
         arrow = QLabel("→")

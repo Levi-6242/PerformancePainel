@@ -2,7 +2,7 @@
 numerado, FormGroup (rótulo acima + "*" verde), Linha responsiva (2 col → 1), Dica, ícones Lucide (SVG)
 e a folha `QSS_FORM` (escopo por subárvore — sobrepõe o DARK_QSS global só nas telas que a aplicam).
 NÃO mexe em lógica/validações/API — é só apresentação."""
-from PyQt6.QtCore import Qt, QByteArray, QSize, QRectF
+from PyQt6.QtCore import Qt, QByteArray, QSize, QRectF, QDateTime, QTimer
 from PyQt6.QtGui import QPixmap, QPainter, QColor, QFont, QPen
 from PyQt6.QtSvg import QSvgRenderer
 from PyQt6.QtWidgets import (QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout, QGridLayout,
@@ -344,3 +344,26 @@ class Segmentado(QWidget):
             p.drawText(QRectF(cx + dot + gap, r.top(), tw + 6, r.height()),
                        Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, txt)
         p.end()
+
+
+def travar_no_passado(campo_data):
+    """Impede DATA FUTURA num QDateTimeEdit — usado na data do EVENTO (Levi, 07/08).
+
+    O evento é quando a coisa ACONTECEU: data futura ali é sempre engano de digitação, e o
+    estrago é silencioso — a OS 10824 nasceu em 07/08 com evento em 10/08 e ninguém viu.
+    Trava no widget, não na validação do botão: assim não dá nem para digitar.
+
+    O TETO SE RENOVA a cada minuto. Fixar "agora" só na construção quebraria o app aberto o dia
+    todo: às 14h a pessoa não conseguiria mais lançar um evento das 9h da manhã... do próprio
+    horário atual, porque o teto teria congelado no momento em que a tela abriu. O timer é filho
+    do campo, então morre junto com ele.
+    """
+    campo_data.setMaximumDateTime(QDateTime.currentDateTime())
+    t = QTimer(campo_data)
+    t.setInterval(60_000)
+    t.timeout.connect(lambda: campo_data.setMaximumDateTime(QDateTime.currentDateTime()))
+    t.start()
+    aviso = "Data do evento não aceita futuro — é quando aconteceu."
+    atual = campo_data.toolTip()
+    campo_data.setToolTip((atual + "  " + aviso) if atual else aviso)
+    return campo_data
