@@ -861,14 +861,19 @@ def create_os_rpc(asset: dict, description: str, task_type: str, subtasks: list,
     final_iso = _iso_z(fdt) if fdt is not None else _iso_z(ev + timedelta(minutes=20))
     params = {
         "event_date": _iso_z(ev),
-        # SUSPEITA NÃO CONFIRMADA (30/07): no `create_planned_os` foi medido que o Fracttal grava o
-        # `initial_date` como data de programação — se valer aqui também, esta OS nasce programada
-        # 10 min ANTES do próprio evento. Mas este RPC é OUTRO método (cria tarefa PENDENTE, sem
-        # WO), e não consegui reler a tarefa criada para confirmar. Fica como está até dar para
-        # medir: é o caminho do Tradicional/COS/Chamados/PCM, não se mexe no escuro.
-        "cal_date_maintenance": _iso_z(ev + timedelta(minutes=10)),
-        "date_maintenance": _iso_z(ev + timedelta(minutes=10)),
-        "initial_date": _iso_z(ev - timedelta(minutes=10)),
+        # CONFIRMADO em 07/08, e era mesmo o que eu suspeitava em 30/07 sem conseguir medir.
+        # O COS reclamou que a hora do app não batia com a do Fracttal (OS 10794: evento 08:10,
+        # início 08:00). Reproduzi na OS 10870 — escolhi evento 14:00 e o Fracttal gravou:
+        #     initial_date = 13:50   (evento − 10 min, os mesmos milissegundos: é conta nossa)
+        #     date_maintenance = 13:50   ← ELE IGNORA o que mandamos e copia o initial_date
+        # Ou seja, toda OS deste caminho (Tradicional/COS/Chamados/PCM/Clonar) nascia começando e
+        # programada 10 MINUTOS ANTES do evento que a pessoa escolheu. Os ±10 min nunca foram
+        # pedidos por ninguém — eram folga arbitrária de quando eu não sabia que o initial_date
+        # mandava. Agora os três são o PRÓPRIO evento: a pessoa escolhe uma hora e é essa que
+        # aparece no Fracttal. Mesma regra já aplicada no `create_planned_os`.
+        "cal_date_maintenance": _iso_z(ev),
+        "date_maintenance": _iso_z(ev),
+        "initial_date": _iso_z(ev),
         "final_date": final_iso,
         "type_user": "HUMAN_RESOURCES",
         "id_priorities": prio,
