@@ -371,6 +371,21 @@ def _corrigir_itens_usina_estrangeiros(assets: list) -> list:
     return assets
 
 
+def assets_cache_info() -> dict:
+    """Quando o catálogo local foi gravado. → {'ts': epoch|0, 'n': ativos, 'idade_h': float,
+    'expirado': bool}. Serve para a aba Ativos dizer de QUANDO é a lista que está na tela —
+    sem isso, "18.259 ativos" parece um número de agora mesmo quando é de dez dias atrás."""
+    try:
+        with open(ASSETS_CACHE, encoding="utf-8") as f:
+            c = json.load(f)
+    except Exception:
+        return {"ts": 0, "n": 0, "idade_h": 0.0, "expirado": True}
+    ts = float(c.get("ts") or 0)
+    idade = max(0.0, time.time() - ts)
+    return {"ts": ts, "n": len(c.get("assets") or []), "idade_h": idade / 3600.0,
+            "expirado": idade > ASSETS_TTL or c.get("ver") != _CACHE_VER}
+
+
 def load_assets_cached(force: bool = False) -> list:
     """Ativos do cache (se < 24h e mesma versão) ou recarrega via RPC (sessão do usuário — sem
     OAuth) e salva. force=True ignora o cache."""

@@ -15,7 +15,7 @@ from PyQt6.QtGui import QColor, QBrush
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QLineEdit,
                              QTableWidget, QTableWidgetItem, QHeaderView, QPushButton,
                              QAbstractItemView, QScrollArea, QTreeWidget, QTreeWidgetItem,
-                             QMenu, QStackedWidget)
+                             QMenu, QStackedWidget, QSizePolicy)
 
 import api
 from steps.ui import BG, CARD, INPUT, BORDER, GREEN, GREEN_INK, TEXT, MUTED
@@ -148,6 +148,11 @@ class AtivosTab(QWidget):
         cx = QVBoxLayout(); cx.setSpacing(2)
         cx.addWidget(_lbl("Ativos", TEXT, 20, 800))
         self.sub = _lbl("carregando o catálogo…", MUTED, 12.5)
+        # `Minimum` na horizontal: o subtítulo fica do tamanho do texto e NÃO cresce além dele.
+        # Com `Ignored` ele era espremido a nada ("18.456 ativ…"); com o padrão, o texto longo
+        # empurrava o botão "Atualizar" para fora da janela. Encurtar o texto foi metade do
+        # conserto — o título ao lado já diz "Ativos", não precisa repetir "Catálogo do Fracttal".
+        self.sub.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
         cx.addWidget(self.sub)
         cab.addLayout(cx); cab.addStretch(1)
         self.busca = QLineEdit()
@@ -158,6 +163,24 @@ class AtivosTab(QWidget):
         self._t = QTimer(self); self._t.setSingleShot(True); self._t.setInterval(220)
         self._t.timeout.connect(self._aplica)
         self.busca.textChanged.connect(lambda *_: self._t.start())
+        # ATUALIZAR CATÁLOGO (Levi, 07/08). O cache dura 24 h e recarrega sozinho depois disso —
+        # mas quem acabou de cadastrar um ativo no Fracttal precisa dele AGORA, e sem este botão a
+        # única saída era apagar o assets_cache.json à mão. Ativo fora do catálogo nem aparece na
+        # cascata, então "esperar 24 h" significa não conseguir abrir OS nele.
+        self.b_reload = QPushButton("Atualizar")
+        self.b_reload.setFixedHeight(38)
+        self.b_reload.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.b_reload.setToolTip("Busca o catálogo de ativos no Fracttal agora, ignorando o cache "
+                                 "de 24 h. Use quando um ativo novo ainda não aparece.")
+        self.b_reload.setStyleSheet("QPushButton{background:transparent;color:%s;border:1px solid %s;"
+                                    "border-radius:10px;padding:0 15px;font-size:13px;font-weight:600;}"
+                                    "QPushButton:hover{border-color:%s;}"
+                                    "QPushButton:disabled{color:%s;border-color:%s;}"
+                                    % (TEXT, BORDER, GREEN, MUTED, BORDER))
+        self.b_reload.clicked.connect(self._atualizar_catalogo)
+        # ANTES da busca: a busca é a âncora da direita (largura casada com o painel do ativo,
+        # pedido do Levi) e não pode sair do lugar. O botão fica à esquerda dela.
+        cab.addWidget(self.b_reload)
         cab.addWidget(self.busca)
         raiz.addLayout(cab)
 
@@ -305,9 +328,9 @@ class AtivosTab(QWidget):
         self._w = None
         self._todos = [a for a in (ats or []) if isinstance(a, dict) and a.get("code")]
         self._por_id = {a.get("id"): a for a in self._todos if a.get("id")}
-        self.sub.setText("Catálogo do Fracttal — %s ativos em %d usinas"
+        self.sub.setText("%s ativos  ·  %d usinas%s"
                          % (f"{len(self._todos):,}".replace(",", "."),
-                            len({a.get('usina') for a in self._todos})))
+                            len({a.get('usina') for a in self._todos}), self._idade_txt()))
         self._arvore()
         self._aplica()
         # OS dos últimos 30 dias, em 2º plano (item 11) — a tela já está usável sem isso
@@ -315,6 +338,44 @@ class AtivosTab(QWidget):
         self._wrec.ok.connect(self._rec_chegou)
         self._wrec.erro.connect(lambda *_: None)
         self._wrec.start()
+
+    def _idade_txt(self):
+        """'· lista de 07/08 14:30' — e avisa quando está velha. Dizer só o total esconde a idade:
+        18.259 parece número de agora quando é de dez dias atrás (o caso do Levi em 07/08)."""
+        try:
+            info = api.assets_cache_info()
+        except Exception:
+            return ""
+        if not info.get("ts"):
+            return ""
+        import datetime as _dt
+        quando = _dt.datetime.fromtimestamp(info["ts"]).strftime("%d/%m %H:%M")
+        return "  ·  lista de %s%s" % (quando, "  (desatualizada)" if info.get("expirado") else "")
+
+    @slot_seguro
+    def _atualizar_catalogo(self):
+        """Recarrega do Fracttal ignorando o cache. Em worker: são ~100 páginas de 200 ativos e
+        travaria a interface."""
+        self.b_reload.setEnabled(False); self.b_reload.setText("atualizando…")
+        self.sub.setText("buscando o catálogo no Fracttal…")
+        self._w = ApiWorker(api.load_assets_cached, True)
+        self._w.ok.connect(self._recarregou); self._w.erro.connect(self._recarga_falhou)
+        self._w.start()
+
+    @slot_seguro
+    def _recarregou(self, ats):
+        antes = len(self._todos)
+        self.b_reload.setEnabled(True); self.b_reload.setText("Atualizar")
+        self._chegou(ats)                      # repopula tudo (árvore, tabela, contadores)
+        d = len(self._todos) - antes
+        if d:
+            self.rodape.setText("catálogo atualizado — %+d ativo(s) em relação à lista anterior" % d)
+
+    @slot_seguro
+    def _recarga_falhou(self, m):
+        self._w = None
+        self.b_reload.setEnabled(True); self.b_reload.setText("Atualizar")
+        self.sub.setText("não consegui atualizar: %s" % str(m)[:90])
 
     @slot_seguro
     def _rec_chegou(self, codes):
