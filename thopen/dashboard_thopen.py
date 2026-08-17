@@ -527,6 +527,17 @@ def _daily_bd(usina):
 
 
 def _daily_records(usina):
+    """Idem `_daily_records_todos`, mas SEM os dias que ainda não aconteceram.
+
+    O BD nasce com o mês inteiro pré-criado, e os dias futuros chegam com geração 0 e
+    disponibilidade 0. Se entrassem na conta, o mês corrente ficaria irreconhecível: em
+    17/08/2026 a frota aparecia com disponibilidade de ~42% e a produção do mês ~77% abaixo
+    da meta, só porque 14 dias que nem existiam ainda entravam como zero."""
+    hoje = dt.date.today()
+    return [r for r in _daily_records_todos(usina) if r["data"] <= hoje]
+
+
+def _daily_records_todos(usina):
     """{data, ger, ipoa, disp, com} por usina. Polaris = Budget; Matrix/Copel = planilha externa com
     corte (planilha < 01/06 + BD_Thopen >= 01/06 se a usina existir no BD; senão planilha inteira);
     o resto = BD_Thopen."""
