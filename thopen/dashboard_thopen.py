@@ -716,6 +716,8 @@ CARTEIRAS = {
         "Sitio dos Nogueiras", "Sorocaba", "Tanabi",
         # Coleta iniciada em 07/2026 (dado no BD_Thopen a partir de 31/07); estavam sem carteira.
         "Cipó Guaçu", "Córrego do Sapucaia", "Guatambu", "Jucurutu",
+        # Entraram em operação em 08/2026 (meta e geração começam em agosto).
+        "Assis", "Caicó", "Diamantino", "Itajá",
     ],
     "Copel": [
         "Pharma II", "Pharma III", "Pharma IV", "Santo Antonio do Platina",
