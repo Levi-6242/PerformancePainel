@@ -595,6 +595,32 @@ class PerfCriar(QWidget):
         u = a.get("usina") or ""
         return self._carteira(u) if " - " in u else (a.get("cliente") or "").strip()
 
+    def _carteiras_de(self, a):
+        """TODAS as carteiras a que o ativo pode pertencer: o campo `cliente` E o prefixo da usina.
+
+        O Fracttal diverge entre os dois. Caso real (Ana Barros, 19/08): cliente "Ultragaz" com as
+        usinas "Utragaz - Ibirapuã 1 e 2 - BA" — falta o "l" no cadastro. Como o dropdown de Cliente
+        é montado pelo campo `cliente` e o filtro de usinas casava só pelo PREFIXO, escolher
+        "Ultragaz" não trazia usina nenhuma: as duas plantas do cliente, 359 ativos, sumiam.
+        O COS já resolvia assim desde 28/07 (`varias_os._carteiras_de`); o Performance ficou de fora."""
+        out = set()
+        c = (a.get("cliente") or "").strip()
+        if c:
+            out.add(c)
+        u = a.get("usina") or ""
+        if " - " in u and self._carteira(u):
+            out.add(self._carteira(u))
+        return out
+
+    def _cliente_da_usina(self, usi):
+        """Cliente de uma usina pelo campo `cliente` de um ativo dela — que é a fonte do dropdown.
+        Cai no prefixo só se nenhum ativo tiver o campo. É o que faz escolher "Utragaz - …"
+        selecionar o cliente certo, "Ultragaz"."""
+        for a in self._assets:
+            if a.get("usina") == usi and (a.get("cliente") or "").strip():
+                return a["cliente"].strip()
+        return self._carteira(usi)
+
     def _fill_clientes(self):
         # clientes REAIS = os que têm ativo de equipamento (o catálogo tem material/inventário à parte,
         # às vezes com tipo de equipamento mas usina/carteira própria — por isso usa-se o campo cliente).
@@ -617,9 +643,9 @@ class PerfCriar(QWidget):
         cli, cur = self._cli(), self._usi()
         # base = usinas de equipamento cuja CARTEIRA é um cliente real (exclui inventário/material)
         base = [a for a in self._assets if a.get("usina") and a.get("tipo") in _CARTEIRA_EQUIP
-                and self._carteira_de(a) in self._clientes_reais]
+                and (self._carteiras_de(a) & self._clientes_reais)]
         if cli:
-            usinas = sorted({a["usina"] for a in base if self._carteira_de(a) == cli})
+            usinas = sorted({a["usina"] for a in base if cli in self._carteiras_de(a)})
         else:                          # LIVRE: todas as usinas de planta (sem materiais)
             usinas = sorted({a["usina"] for a in base})
         self.cb_usi.blockSignals(True); self.cb_usi.clear()
@@ -635,7 +661,7 @@ class PerfCriar(QWidget):
     def _on_usi(self, *_):
         usi = self._usi()
         if usi and " - " in usi:       # usina nomeada → auto-preenche o Cliente pela carteira (prefixo)
-            cart = self._carteira(usi)
+            cart = self._cliente_da_usina(usi)      # campo `cliente`, não o prefixo (pode ter typo)
             if cart and self.cb_cli.currentText() != cart and self.cb_cli.findText(cart) >= 0:
                 self.cb_cli.blockSignals(True)
                 self.cb_cli.setCurrentIndex(self.cb_cli.findText(cart))
