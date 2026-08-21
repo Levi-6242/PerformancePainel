@@ -840,6 +840,31 @@ def _asset_by_code(code: str):
     return None
 
 
+# Códigos que o RPC do Fracttal devolve em `message` quando recusa. Traduzir aqui é o que separa
+# um "RPC recusou: WITHOUT_PERMITS" — que não diz a NINGUÉM o que fazer — de uma instrução. Só
+# entram códigos VISTOS de verdade; inventar tradução para código que nunca apareceu é adivinhar.
+_RPC_MSG = {
+    # 19/08: um colaborador do COS levou isto ao tentar abrir OS de chamado. Não é bug do app —
+    # a OS nasce com a conta de QUEM ESTÁ LOGADO, e o perfil dele no Fracttal não pode criar OS.
+    "WITHOUT_PERMITS": ("Sua conta do Fracttal não tem permissão para criar OS. "
+                        "A OS é criada no seu nome, com as suas permissões — quem libera é o "
+                        "administrador do Fracttal (perfil do usuário). Para confirmar: tente "
+                        "criar a mesma OS direto no Fracttal web; se lá também recusar, é o perfil."),
+    "USER_HAS_EXECUTION_IN_PROGRESS": ("Existe um cronômetro aberto nesta tarefa — e só quem o "
+                                       "iniciou pode encerrá-lo."),
+    "FOREIGN_KEY_VIOLATION": ("O Fracttal recusou uma referência desta OS (ativo, plano ou "
+                              "responsável). Recarregue o catálogo de ativos e tente de novo."),
+}
+
+
+def _msg_rpc(bruto) -> str:
+    """Mensagem do RPC → texto acionável. Código desconhecido volta como veio, com o original
+    entre parênteses — perder o código atrapalharia o diagnóstico da próxima vez."""
+    cod = str(bruto or "").strip()
+    amigavel = _RPC_MSG.get(cod.upper())
+    return ("%s  (%s)" % (amigavel, cod)) if amigavel else (cod or "sem detalhe")
+
+
 def create_os_rpc(asset: dict, description: str, task_type: str, subtasks: list,
                   requested_by: str = "", etiqueta: str = "", note: str = "",
                   event_date: datetime = None, tipo: dict = None, finalizar: dict = None,
@@ -972,7 +997,7 @@ def create_os_rpc(asset: dict, description: str, task_type: str, subtasks: list,
     if isinstance(result, list) and result:
         result = result[0]
     if isinstance(result, dict) and result.get("success") is False:
-        raise FracttalError(f"RPC recusou: {result.get('message') or 'sem detalhe'}")
+        raise FracttalError(_msg_rpc(result.get("message")))
     data = result.get("data") if isinstance(result, dict) else {}
     data = data if isinstance(data, dict) else {}
     return {"id_task": data.get("id_task"),
@@ -2723,7 +2748,7 @@ def _react_insert_post(body: list) -> dict:
     if isinstance(result, list) and result:
         result = result[0]
     if isinstance(result, dict) and result.get("success") is False:
-        raise FracttalError(f"RPC recusou: {result.get('message') or 'sem detalhe'}")
+        raise FracttalError(_msg_rpc(result.get("message")))
     data = result.get("data") if isinstance(result, dict) else {}
     data = data if isinstance(data, dict) else {}
     return {"id_task": data.get("id_task"), "id_work_order": data.get("id_work_order"),
