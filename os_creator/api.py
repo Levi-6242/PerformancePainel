@@ -1072,7 +1072,7 @@ def _kanban_records(id_tasks: set, tentativas: int = 3) -> dict:
 
 
 def _work_order_insert(kanban_recs: list, id_responsible, responsible_name: str = "",
-                       duration: int = 600) -> dict:
+                       duration: int = 600, id_parent=None) -> dict:
     """Insere UMA WO contendo TODAS as tarefas dos registros de kanban dados (array_tasks_todo).
     1 registro → OS de 1 tarefa; N registros → 1 OS com N tarefas (igual a selecionar várias
     tarefas pendentes no kanban e gerar uma OT só). Atribui o responsável (id_personnel)."""
@@ -1088,6 +1088,11 @@ def _work_order_insert(kanban_recs: list, id_responsible, responsible_name: str 
         "id_responsible": id_responsible, "personnel_description": nome, "name": nome,
         "array_tasks_todo": recs,
     }
+    # OS PAI da OS inteira. Sondado em 26/08: aqui, na CRIAÇÃO, o campo é `id_parent` e funciona
+    # (OS 12190 nasceu com id_parent_wo preenchido). DEPOIS não dá: o `work_orders_update` com
+    # `id_parent_wo` responde ACTION_DONE e grava None — aceita e ignora, como o `date_maintenance`.
+    if id_parent:
+        inner["id_parent"] = id_parent
     params = {"page": 1, "limit": 200, "start": 0, "append": True,
               "id_internal": str(uuid.uuid4()), "id_background_process_type": 1,
               "status": 1, "determinate": False, "params": inner,
@@ -5017,9 +5022,23 @@ def create_performance_os_agrupada(itens: list, id_responsible=None, responsible
                 "erros": erros,
                 "aviso": "as %d tarefas foram criadas mas não as achei no kanban para gerar a OS "
                          "numerada." % len(id_tasks)}
-    wo = _work_order_insert(recs, id_responsible, responsible_name)
+    # OS pai: UMA para a OS inteira (no agrupado não existe pai por ativo). Pega o 1º `os_pai`
+    # preenchido — a tela manda o mesmo valor em todos os itens.
+    id_parent = None
+    folio_pai = next((str(it.get("os_pai") or "").strip() for it in itens
+                      if str(it.get("os_pai") or "").strip()), "")
+    if folio_pai:
+        try:
+            for c in buscar_os_pai(folio_pai, limit=20):
+                if str(c.get("folio")).strip() == folio_pai:
+                    id_parent = c.get("id"); break
+        except FracttalError:
+            id_parent = None
+    wo = _work_order_insert(recs, id_responsible, responsible_name, id_parent=id_parent)
     idwo, folio = wo.get("id_work_order"), wo.get("wo_folio")
     avisos = []
+    if folio_pai and not id_parent:
+        avisos.append("não achei a OS pai %s — a OS foi criada sem vínculo" % folio_pai)
     if len(recs) < len(id_tasks):
         avisos.append("%d tarefa(s) não entraram na OS" % (len(id_tasks) - len(recs)))
 

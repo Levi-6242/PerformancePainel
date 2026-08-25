@@ -493,9 +493,16 @@ class PerfCriar(QWidget):
         self.ck_agrupar.setCursor(Qt.CursorShape.PointingHandCursor)
         self.ck_agrupar.setToolTip("Em vez de uma OS por ativo, cria uma OS só em que cada ativo "
                                    "vira uma tarefa. A OS só fecha quando TODAS forem concluídas.")
-        self.ck_agrupar.toggled.connect(self._upd_count)
+        self.ck_agrupar.toggled.connect(self._on_agrupar)
         c_resp.add(campo("Volume de OS", self.ck_agrupar,
                          extra="(a OS só fecha quando todas as tarefas forem concluídas)"))
+        # OS PAI ÚNICA no modo agrupado (Levi, 26/08): a OS é uma só, então pedir o pai por ativo
+        # na tabela não faz sentido — 14 campos para um valor que só pode ser um.
+        self.ed_pai_os = QLineEdit(); self.ed_pai_os.setPlaceholderText("nº da OS que originou")
+        self.ed_pai_os.setFixedWidth(220)
+        self._campo_pai_os = campo("OS pai", self.ed_pai_os, extra="(uma só, para a OS inteira)")
+        self._campo_pai_os.setVisible(False)
+        c_resp.add(self._campo_pai_os)
         lay.addWidget(c_resp)     # OS pai agora é por ativo, na coluna "OS Pai" da tabela de Ativos
 
         # ── botão (no fim, rolando) ──
@@ -930,6 +937,23 @@ class PerfCriar(QWidget):
         self.tbl.blockSignals(False)
         self._upd_count()
 
+    def _on_agrupar(self, *_):
+        """Liga/desliga o que muda de FORMA no modo agrupado: título único (sem o prefixo [Ativo]),
+        OS pai única e o texto do cabeçalho da tabela."""
+        ag = bool(self.ck_agrupar.isChecked())
+        self._campo_pai_os.setVisible(ag)
+        self.tbl.setColumnHidden(1, ag)          # coluna "OS Pai" por ativo
+        self.chip_prefixo.setVisible(not ag)
+        self.lb_nome.setText(
+            rotulo("Nome da tarefa", obrig=True,
+                   extra="(vale para a OS e para TODAS as tarefas)" if ag
+                   else "(editável; o prefixo [Ativo] entra automático por OS)").text())
+        self.lb_ativos.setText(
+            rotulo("Ativos", obrig=True,
+                   extra="(marque um ou vários — todos numa OS só)" if ag
+                   else "(marque um ou vários — cada um vira uma OS)").text())
+        self._upd_count()
+
     def _agrupar(self):
         """Modo 'uma OS com N tarefas'. Só faz sentido com 2+ ativos — com 1 marcado o resultado
         é idêntico ao normal, e prometer 'agrupada' para uma tarefa só confunde."""
@@ -1037,6 +1061,16 @@ class PerfCriar(QWidget):
         prog = self.dt_exec.dateTime().toPyDateTime().replace(tzinfo=brt)
         etm = self._etm()
         usina_toda = self._usina_inteira()
+        ag_tit = ""      # título literal do modo agrupado (sem o prefixo [Ativo])
+        ag_pai = ""
+        if self._agrupar():
+            # TÍTULO ÚNICO. O Fracttal NÃO aceita título próprio na OS — testei na 12188, ele
+            # ignora o `description` do work_order_insert e copia o da PRIMEIRA tarefa. Então a
+            # única forma de a OS se chamar "Inspeção Geral de Inversores" é as tarefas se
+            # chamarem assim. Quem distingue passa a ser o ativo de cada tarefa, e o card do
+            # histórico mostra o ativo no seletor justamente por isso.
+            ag_tit = base
+            ag_pai = self.ed_pai_os.text().strip()
         itens = []
         for al in self._alvos:
             aid = al["asset"].get("id")
@@ -1046,8 +1080,10 @@ class PerfCriar(QWidget):
                           "plano_id_item": al["plano_id_item"], "linkar": al.get("linkar", True),
                           "base": base, "note": self._obs.get(aid, ""),
                           # ETM e Usina usam título LITERAL, sem o prefixo [Ativo]
-                          "titulo": ETM_TITULO if etm else (USINA_TITULO if usina_toda else ""),
-                          "os_pai": (self._ospai.get(aid, "") or "").strip(),   # OS pai por ativo
+                          "titulo": ETM_TITULO if etm else (USINA_TITULO if usina_toda
+                                                           else (ag_tit or "")),
+                          # agrupado → a OS pai é UMA para a OS inteira; senão, a da linha do ativo
+                          "os_pai": ag_pai or (self._ospai.get(aid, "") or "").strip(),
                           "imagens": self._imgs.get(aid, [])})
         n_img = sum(len(it["imagens"]) for it in itens)
         extra = f"\n{n_img} imagem(ns) serão anexadas." if n_img else ""

@@ -1184,8 +1184,10 @@ class OsDetalheDialog(QDialog):
             f"Classificação <span style='{_g}'>{d.get('classif') or '—'}</span>{_sep}"
             f"Criticidade <span style='{_g}'>{d.get('criticidade') or '—'}</span>")
 
-        self.titulo_blk.setText(d.get("descricao") or "—")
-        self.notas_blk.setText((d.get("notas") or "").strip() or "—")
+        self._notas_todas = (d.get("notas") or "").strip()
+        self._titulo_todas = d.get("descricao") or "—"
+        self.titulo_blk.setText(self._titulo_todas)
+        self.notas_blk.setText(self._notas_todas or "—")
 
         self._code = d.get("code") or None
         self._ativo = str(d.get("ativo") or "").strip()
@@ -1226,7 +1228,9 @@ class OsDetalheDialog(QDialog):
             self.cb_tarefa.addItem(f"Todas as tarefas  ·  {len(self._subs)} subtarefas", None)
             for i, t in enumerate(tarefas, start=1):
                 f, tot = feitas_por.get(t.get("id"), [0, 0])
-                rot = t.get("titulo") or t.get("ativo") or f"Tarefa {i}"
+                # ATIVO primeiro: no modo agrupado as tarefas podem ter o MESMO título, e aí o
+                # título não distingue nada — quem distingue é o ativo.
+                rot = t.get("ativo") or t.get("titulo") or f"Tarefa {i}"
                 self.cb_tarefa.addItem(f"{i}. {rot}  ·  {f}/{tot} subtarefas", t.get("id"))
             # nasce na 1ª tarefa, não em "Todas": a lista corrida de 45 subtarefas é justamente o
             # que não dá para ler — quem quiser o apanhado geral escolhe "Todas"
@@ -1241,7 +1245,26 @@ class OsDetalheDialog(QDialog):
         tid = self.cb_tarefa.currentData() if self.cb_tarefa.count() else None
         return next((t for t in self._tarefas if t.get("id") == tid), None) if tid else None
 
+    def _pintar_titulo_notas(self):
+        """TÍTULO e NOTAS seguem a TAREFA escolhida (Levi, 26/08).
+
+        Numa OS de várias tarefas o card juntava as observações de todas num bloco só — "TESTE 1 /
+        TESTE 2 / TESTE 3" sem dizer de qual ativo era cada uma. No Fracttal a nota está certa,
+        presa à sua tarefa; era a nossa tela que empilhava. Com o seletor de tarefa que já existe
+        ao lado, seguir a seleção resolve sem inventar widget novo. Em "Todas" volta o apanhado."""
+        t = self._tarefa_sel()
+        if t is None:
+            self.titulo_blk.setText(getattr(self, "_titulo_todas", "—"))
+            self.notas_blk.setText(getattr(self, "_notas_todas", "") or "—")
+            return
+        self.titulo_blk.setText((t.get("titulo") or "").strip() or "—")
+        nota = (t.get("nota") or "").strip()
+        ativo = (t.get("ativo") or "").strip()
+        self.notas_blk.setText(nota or ("sem observação nesta tarefa"
+                                        + (" (%s)" % ativo if ativo else "")))
+
     def _pintar_info_tarefa(self):
+        self._pintar_titulo_notas()
         t = self._tarefa_sel()
         if t is None:
             self.tarefa_info.setVisible(False)
