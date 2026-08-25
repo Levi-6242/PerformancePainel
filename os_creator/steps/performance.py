@@ -14,7 +14,7 @@ from PyQt6.QtGui import QIcon, QImage, QPixmap, QGuiApplication, QKeySequence, Q
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QStackedWidget, QLabel,
                              QComboBox, QLineEdit, QTextEdit, QPushButton, QMessageBox, QTableWidget,
                              QTableWidgetItem, QHeaderView, QAbstractItemView, QScrollArea, QFrame,
-                             QDialog, QDateTimeEdit, QFileDialog)
+                             QDialog, QDateTimeEdit, QFileDialog, QCheckBox)
 import api
 from workers import ApiWorker, slot_seguro
 from steps.searchcombo import tornar_pesquisavel, tornar_todos_pesquisaveis
@@ -486,6 +486,16 @@ class PerfCriar(QWidget):
         c_resp.add(Linha(campo("Data do incidente", self.dt_prog, extra="(aplica a todas)"),
                          campo("Data programada", self.dt_exec, extra="(quando executar)")))
         c_resp.add(campo("Responsável", rrow, obrig=True, extra="(digite p/ pesquisar)"))
+        # AGRUPAR (Levi, 21/08). É MODO, não regra fixa: quem precisa fechar inversor a inversor
+        # continua podendo. Fica desmarcado por padrão — mudar o comportamento de quem não pediu
+        # seria trocar o volume de OS por uma surpresa.
+        self.ck_agrupar = QCheckBox("Agrupar em UMA OS com várias tarefas")
+        self.ck_agrupar.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.ck_agrupar.setToolTip("Em vez de uma OS por ativo, cria uma OS só em que cada ativo "
+                                   "vira uma tarefa. A OS só fecha quando TODAS forem concluídas.")
+        self.ck_agrupar.toggled.connect(self._upd_count)
+        c_resp.add(campo("Volume de OS", self.ck_agrupar,
+                         extra="(a OS só fecha quando todas as tarefas forem concluídas)"))
         lay.addWidget(c_resp)     # OS pai agora é por ativo, na coluna "OS Pai" da tabela de Ativos
 
         # ── botão (no fim, rolando) ──
@@ -920,9 +930,17 @@ class PerfCriar(QWidget):
         self.tbl.blockSignals(False)
         self._upd_count()
 
-    def _upd_count(self):
+    def _agrupar(self):
+        """Modo 'uma OS com N tarefas'. Só faz sentido com 2+ ativos — com 1 marcado o resultado
+        é idêntico ao normal, e prometer 'agrupada' para uma tarefa só confunde."""
+        return bool(getattr(self, "ck_agrupar", None)) and self.ck_agrupar.isChecked()             and len(self._checked) > 1
+
+    def _upd_count(self, *_):
         n = len(self._checked)
-        self.sel_lbl.setText(f"{n} marcado(s)  ·  {n} OS a criar")
+        if self._agrupar():
+            self.sel_lbl.setText("%d marcado(s)  ·  1 OS com %d tarefas" % (n, n))
+        else:
+            self.sel_lbl.setText("%d marcado(s)  ·  %d OS a criar" % (n, n))
         self._upd_preview()
 
     def _upd_preview(self, *_):
@@ -1041,11 +1059,33 @@ class PerfCriar(QWidget):
             aviso += (f"\nUMA OS na planta inteira, no lugar de uma por inversor."
                       f"\nTítulo: {USINA_TITULO}")
         aviso += "\nProgramada para %s." % self.dt_exec.dateTime().toString("dd/MM/yyyy HH:mm")
+        agrupar = self._agrupar()
+        if agrupar:
+            # o que MUDA no modo agrupado, dito ANTES de criar — as duas perdas medidas em 21/08.
+            aviso += ("\nUMA OS com %d tarefas, uma por ativo, no lugar de %d OS."
+                      "\nA OS só fecha quando TODAS as tarefas forem concluídas."
+                      "\nA OS pai por ativo não vai (a OS é uma só), e as tarefas"
+                      " nascem sem data de início/fim — quem preenche é o cronômetro."
+                      % (len(itens), len(itens)))
+            cabecalho = ("Vou criar 1 OS com %d tarefas — uma por ativo — com o plano '%s'."
+                         % (len(itens), self._titulo))
+        else:
+            cabecalho = ("Vou criar %d OS — uma por ativo — com o plano '%s'."
+                         % (len(itens), self._titulo))
         if QMessageBox.question(self, "Criar OS de Performance",
-                f"Vou criar {len(itens)} OS — uma por ativo — com o plano '{self._titulo}'.{aviso}{extra}"
+                f"{cabecalho}{aviso}{extra}"
                 f"\n\nContinuar?") != QMessageBox.StandardButton.Yes:
             return
         self.btn.setEnabled(False)
+        if agrupar:
+            self.hint.setText("criando 1 OS com %d tarefas… (pode levar alguns segundos)" % len(itens))
+            self._wc = ApiWorker(api.create_performance_os_agrupada, itens, p.get("id_personnel"),
+                                 p.get("name"), evt, prog_date=prog,
+                                 etiquetas_extra=list(ETM_ETIQUETAS) if etm else None)
+            self._wc.ok.connect(self._criou_agrupada)
+            self._wc.erro.connect(self._err)
+            self._wc.start()
+            return
         self.hint.setText(f"criando {len(itens)} OS… (pode levar alguns segundos)")
         self._wc = ApiWorker(api.create_performance_os, itens, p.get("id_personnel"), p.get("name"), evt,
                              prog_date=prog, etiquetas_extra=list(ETM_ETIQUETAS) if etm else None)
@@ -1079,6 +1119,40 @@ class PerfCriar(QWidget):
         box.setText(msg)
         box.exec()
         for aid in list(self._checked):        # limpa marcações após criar
+            self._checked.discard(aid)
+        self._imgs = {}
+        self._repop()
+
+    @slot_seguro
+    def _criou_agrupada(self, r):
+        """Resultado do modo agrupado. Dict de UMA OS, não a lista de N — por isso não dá para
+        reaproveitar o `_criou`: lá cada linha é uma OS, aqui as linhas são TAREFAS da mesma."""
+        self._wc = None
+        self.btn.setEnabled(True); self.hint.setText("")
+        r = r or {}
+        if not r.get("ok"):
+            QMessageBox.critical(self, "Erro", str(r.get("erro") or "Nenhuma OS criada."))
+            return
+        folio = r.get("folio")
+        if folio:
+            msg = "OS %s criada com %d tarefa(s)." % (folio, r.get("n_criadas") or 0)
+        else:
+            # as tarefas existem mas a OS numerada não saiu — dizer isso é o que evita a pessoa
+            # criar tudo de novo e duplicar o trabalho no Fracttal.
+            msg = "%d tarefa(s) criadas, mas SEM número de OS." % (r.get("n_criadas") or 0)
+        if r.get("n_img_ok"):
+            msg += "  %d imagem(ns) anexada(s)." % r["n_img_ok"]
+        if r.get("aviso"):
+            msg += "\n\n" + r["aviso"]
+        det = list(r.get("erros") or []) + list(r.get("img_erro") or [])
+        box = QMessageBox(self)
+        box.setWindowTitle("OS de Performance")
+        box.setIcon(QMessageBox.Icon.Warning if det or not folio else QMessageBox.Icon.Information)
+        box.setText(msg)
+        if det:
+            box.setDetailedText("\n".join(str(x) for x in det))
+        box.exec()
+        for aid in list(self._checked):
             self._checked.discard(aid)
         self._imgs = {}
         self._repop()

@@ -4943,3 +4943,126 @@ def tempo_trabalhado_em_massa(ids_work_order, max_workers=8) -> dict:
         for wid, seg in ex.map(_um, ids):
             out[wid] = seg
     return out
+
+
+def create_performance_os_agrupada(itens: list, id_responsible=None, responsible_name: str = "",
+                                   event_date: datetime = None, progresso=None,
+                                   prog_date: datetime = None, etiquetas_extra=None) -> dict:
+    """UMA OS com N tarefas — uma por ativo — no lugar de N OS (Levi, 21/08).
+
+    Mesmo `itens` do `create_performance_os`, para as duas rotas comerem o mesmo prato: trocar de
+    modo na tela não pode significar trocar de formato de dado.
+
+    POR QUE NÃO REUSEI o `create_planned_os_one_wo`: ele é cru — um plano só para todos, sem
+    etiqueta, sem observação por ativo, sem título, sem data programada e sem imagem. O que o
+    Performance manda por ativo (`note`, `titulo`, `imagens`) sumiria em silêncio.
+
+    O QUE SOBREVIVE à Fase 2, medido no registro do kanban (21/08): `task_note` (a observação de
+    cada ativo), `description` (o título), tipo, classificação 1 e 2, criticidade e o ativo.
+
+    O QUE NÃO SOBREVIVE, e por isso a tela avisa:
+      · `id_parent` — OS pai POR ATIVO deixa de existir; a OS é uma só;
+      · `initial_date`/`final_date` — a tarefa nasce sem data de início/fim. No modo de 1 OS por
+        ativo isso não acontecia, porque lá o caminho é de chamada única. Quem preenche depois é o
+        cronômetro de execução.
+
+    → {'ok','folio','id_work_order','n_tarefas','n_criadas','erros','n_img_ok','img_erro','aviso'}
+    """
+    itens = [it for it in (itens or []) if isinstance(it.get("asset"), dict) and it["asset"].get("id")]
+    if not itens:
+        return {"ok": False, "erro": "Nenhum ativo selecionado.", "n_tarefas": 0, "n_criadas": 0}
+
+    # ── Fase 1: uma tarefa PENDENTE por ativo, cada uma com o SEU título e a SUA observação ──
+    cache, id_tasks, erros, por_task = {}, [], [], {}
+    for i, it in enumerate(itens):
+        a = it["asset"]
+        try:
+            k = it.get("plano_id_task")
+            if k not in cache:
+                cache[k] = get_plan_details(k, it.get("plano_id_item"))
+            plan = cache[k]
+            nome = (it.get("titulo") or "").strip() or \
+                perf_os_nome(a, it.get("base") or plano_base_nome(plan.get("description")))
+            r = create_planned_os(a, plan, event_date=event_date, prog_date=prog_date,
+                                  to_work_order=False, descricao=nome,
+                                  note=it.get("note") or "", linkar_plano=it.get("linkar", True))
+            idt = r.get("id_task")
+            if idt:
+                id_tasks.append(idt)
+                por_task[idt] = it            # p/ casar as imagens depois, pelo ativo
+            else:
+                erros.append("%s: tarefa não criada" % (a.get("code") or "?"))
+        except SessionExpired:
+            raise
+        except Exception as e:
+            erros.append("%s: %s" % (a.get("code") or "?", str(e)[:120]))
+        if progresso:
+            progresso(i + 1, len(itens))
+
+    if not id_tasks:
+        return {"ok": False, "erro": "Nenhuma tarefa criada: " + "; ".join(erros[:3]),
+                "n_tarefas": len(itens), "n_criadas": 0, "erros": erros}
+
+    # ── Fase 2: junta TODAS numa OS só ──
+    try:
+        recs_map = _kanban_records(set(id_tasks))
+    except FracttalError as e:
+        return {"ok": True, "folio": None, "n_tarefas": len(itens), "n_criadas": len(id_tasks),
+                "erros": erros,
+                "aviso": "as %d tarefas foram criadas, mas não consegui juntá-las numa OS (%s). "
+                         "Elas estão pendentes no kanban do Fracttal." % (len(id_tasks), e)}
+    recs = [recs_map[i] for i in id_tasks if i in recs_map]
+    if not recs:
+        return {"ok": True, "folio": None, "n_tarefas": len(itens), "n_criadas": len(id_tasks),
+                "erros": erros,
+                "aviso": "as %d tarefas foram criadas mas não as achei no kanban para gerar a OS "
+                         "numerada." % len(id_tasks)}
+    wo = _work_order_insert(recs, id_responsible, responsible_name)
+    idwo, folio = wo.get("id_work_order"), wo.get("wo_folio")
+    avisos = []
+    if len(recs) < len(id_tasks):
+        avisos.append("%d tarefa(s) não entraram na OS" % (len(id_tasks) - len(recs)))
+
+    # ── Fase 3: etiquetas (Performance + as extras) ──
+    lbls = [l for l in [_label_performance_id()] +
+            [label_id_por_nome(n) for n in (etiquetas_extra or [])] if l]
+    if idwo and lbls:
+        try:
+            apply_labels(idwo, lbls)
+        except Exception as e:
+            avisos.append("etiqueta falhou: %s" % str(e)[:80])
+
+    # ── Fase 4: imagens. O work_order_insert devolve só o id da OS, não o de cada tarefa — então
+    # releio as tarefas e caso pelo ATIVO (id_item), que é o único elo confiável. ──
+    n_img_ok, img_erro = 0, []
+    quer_img = {id(it): it for it in itens if it.get("imagens")}
+    if idwo and quer_img:
+        try:
+            rt = _rpc_call(RPC_WO_TASKS_NEW, {"filter": [], "sort": [], "page": 1, "limit": 200,
+                                              "start": 0, "is_tree": False, "node": None,
+                                              "id_work_order": idwo})
+            tarefas = (rt.get("data") if isinstance(rt, dict) else rt) or []
+        except FracttalError as e:
+            tarefas = []
+            img_erro.append("não consegui ler as tarefas p/ anexar: %s" % str(e)[:80])
+        por_item = {}
+        for t in tarefas:
+            if isinstance(t, dict) and t.get("id_item") is not None:
+                por_item.setdefault(t["id_item"], t.get("id"))
+        for it in itens:
+            tid = por_item.get(it["asset"].get("id"))
+            for img in (it.get("imagens") or []):
+                if not tid:
+                    img_erro.append("%s: não achei a tarefa da OS p/ anexar" % it["asset"].get("code"))
+                    continue
+                try:
+                    attach_imagem_os(idwo, tid, img.get("bytes"), img.get("nome") or "imagem.png")
+                    n_img_ok += 1
+                except Exception as e:
+                    img_erro.append("%s: %s" % (it["asset"].get("code"), str(e)[:80]))
+    if erros:
+        avisos.append("%d ativo(s) falharam: %s" % (len(erros), "; ".join(erros[:2])))
+    return {"ok": True, "folio": folio, "id_work_order": idwo,
+            "n_tarefas": len(itens), "n_criadas": len(recs), "erros": erros,
+            "n_img_ok": n_img_ok, "img_erro": img_erro,
+            "aviso": " · ".join(avisos) or None}
