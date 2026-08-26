@@ -1072,7 +1072,7 @@ def _kanban_records(id_tasks: set, tentativas: int = 3) -> dict:
 
 
 def _work_order_insert(kanban_recs: list, id_responsible, responsible_name: str = "",
-                       duration: int = 600, id_parent=None) -> dict:
+                       duration: int = 600, id_parent=None, note: str = "") -> dict:
     """Insere UMA WO contendo TODAS as tarefas dos registros de kanban dados (array_tasks_todo).
     1 registro → OS de 1 tarefa; N registros → 1 OS com N tarefas (igual a selecionar várias
     tarefas pendentes no kanban e gerar uma OT só). Atribui o responsável (id_personnel)."""
@@ -1093,6 +1093,12 @@ def _work_order_insert(kanban_recs: list, id_responsible, responsible_name: str 
     # `id_parent_wo` responde ACTION_DONE e grava None — aceita e ignora, como o `date_maintenance`.
     if id_parent:
         inner["id_parent"] = id_parent
+    # OBSERVAÇÃO DA OS — separada das notas das TAREFAS (Levi, 26/08). Sondado na OS 12273: o
+    # `note` no insert grava na OS e não encosta nas tarefas, então as duas convivem. É o campo
+    # que faltava: até aqui só existia a nota por ativo, e o recado que vale para o lote inteiro
+    # não tinha onde morar.
+    if (note or "").strip():
+        inner["note"] = note.strip()
     params = {"page": 1, "limit": 200, "start": 0, "append": True,
               "id_internal": str(uuid.uuid4()), "id_background_process_type": 1,
               "status": 1, "determinate": False, "params": inner,
@@ -4952,7 +4958,8 @@ def tempo_trabalhado_em_massa(ids_work_order, max_workers=8) -> dict:
 
 def create_performance_os_agrupada(itens: list, id_responsible=None, responsible_name: str = "",
                                    event_date: datetime = None, progresso=None,
-                                   prog_date: datetime = None, etiquetas_extra=None) -> dict:
+                                   prog_date: datetime = None, etiquetas_extra=None,
+                                   note_os: str = "") -> dict:
     """UMA OS com N tarefas — uma por ativo — no lugar de N OS (Levi, 21/08).
 
     Mesmo `itens` do `create_performance_os`, para as duas rotas comerem o mesmo prato: trocar de
@@ -5034,7 +5041,8 @@ def create_performance_os_agrupada(itens: list, id_responsible=None, responsible
                     id_parent = c.get("id"); break
         except FracttalError:
             id_parent = None
-    wo = _work_order_insert(recs, id_responsible, responsible_name, id_parent=id_parent)
+    wo = _work_order_insert(recs, id_responsible, responsible_name, id_parent=id_parent,
+                            note=note_os)
     idwo, folio = wo.get("id_work_order"), wo.get("wo_folio")
     avisos = []
     if folio_pai and not id_parent:

@@ -355,6 +355,7 @@ class PerfCriar(QWidget):
         self._alvos = []                 # [{asset, plano_id_task, plano_id_item, linkar}]
         self._alvo_by_id = {}
         self._checked = set()            # asset ids marcados
+        self._agrup_tocado = False       # a pessoa já mexeu no "Agrupar"? (ver _auto_agrupar)
         self._clientes_reais = set()     # carteiras com equipamento (preenchido em _fill_clientes)
         self._obs = {}                   # asset id -> observação
         self._ospai = {}                 # asset id -> nº da OS pai (por ativo, na linha da tabela)
@@ -494,6 +495,10 @@ class PerfCriar(QWidget):
         self.ck_agrupar.setToolTip("Em vez de uma OS por ativo, cria uma OS só em que cada ativo "
                                    "vira uma tarefa. A OS só fecha quando TODAS forem concluídas.")
         self.ck_agrupar.toggled.connect(self._on_agrupar)
+        # `clicked` só dispara no CLIQUE humano; `toggled` dispara também quando o código marca.
+        # É o que separa "a pessoa decidiu" de "o app sugeriu" — sem isso, o auto-ligar
+        # remarcaria a caixa que ela acabou de desmarcar, e ela não conseguiria sair do modo.
+        self.ck_agrupar.clicked.connect(lambda *_: setattr(self, "_agrup_tocado", True))
         c_resp.add(campo("Volume de OS", self.ck_agrupar,
                          extra="(a OS só fecha quando todas as tarefas forem concluídas)"))
         # OS PAI ÚNICA no modo agrupado (Levi, 26/08): a OS é uma só, então pedir o pai por ativo
@@ -503,6 +508,17 @@ class PerfCriar(QWidget):
         self._campo_pai_os = campo("OS pai", self.ed_pai_os, extra="(uma só, para a OS inteira)")
         self._campo_pai_os.setVisible(False)
         c_resp.add(self._campo_pai_os)
+        # OBSERVAÇÃO DA OS (Levi, 26/08): o recado que vale para o lote inteiro. Não substitui a
+        # observação POR ATIVO da tabela — as duas convivem, e foi conferido que o Fracttal guarda
+        # a da OS separada das tarefas (OS 12273). Sem este campo, quem quisesse dizer algo geral
+        # tinha de repetir a mesma frase em todas as linhas.
+        self.ed_obs_os = QTextEdit(); self.ed_obs_os.setFixedHeight(66)
+        self.ed_obs_os.setPlaceholderText("vale para a OS inteira — a observação por ativo continua "
+                                          "na tabela acima")
+        self._campo_obs_os = campo("Observação da OS", self.ed_obs_os,
+                                   extra="(uma só, separada das observações por ativo)")
+        self._campo_obs_os.setVisible(False)
+        c_resp.add(self._campo_obs_os)
         lay.addWidget(c_resp)     # OS pai agora é por ativo, na coluna "OS Pai" da tabela de Ativos
 
         # ── botão (no fim, rolando) ──
@@ -576,6 +592,7 @@ class PerfCriar(QWidget):
         elif self.ed_nome.text().strip() in _fixos:
             self.ed_nome.setText(self._base)
         self._checked = set()
+        self._agrup_tocado = False       # tela nova = a sugestão automática volta a valer
         self._repop()
         self._marcar_etm()
 
@@ -942,6 +959,7 @@ class PerfCriar(QWidget):
         OS pai única e o texto do cabeçalho da tabela."""
         ag = bool(self.ck_agrupar.isChecked())
         self._campo_pai_os.setVisible(ag)
+        self._campo_obs_os.setVisible(ag)
         self.tbl.setColumnHidden(1, ag)          # coluna "OS Pai" por ativo
         self.chip_prefixo.setVisible(not ag)
         self.lb_nome.setText(
@@ -959,7 +977,19 @@ class PerfCriar(QWidget):
         é idêntico ao normal, e prometer 'agrupada' para uma tarefa só confunde."""
         return bool(getattr(self, "ck_agrupar", None)) and self.ck_agrupar.isChecked()             and len(self._checked) > 1
 
+    def _auto_agrupar(self):
+        """Mais de um ativo → agrupa por padrão (Levi, 26/08). Uma OS por ativo virou a exceção.
+
+        Só age ENQUANTO a pessoa não tiver mexido na caixa: a partir do primeiro clique dela, a
+        escolha é dela e o app não mexe mais. Também não desmarca ao voltar para 1 ativo — quem
+        tirou um ativo da lista não pediu para mudar de modo."""
+        if self._agrup_tocado or not hasattr(self, "ck_agrupar"):
+            return
+        if len(self._checked) > 1 and not self.ck_agrupar.isChecked():
+            self.ck_agrupar.setChecked(True)      # dispara o _on_agrupar, que abre os campos
+
     def _upd_count(self, *_):
+        self._auto_agrupar()
         n = len(self._checked)
         if self._agrupar():
             self.sel_lbl.setText("%d marcado(s)  ·  1 OS com %d tarefas" % (n, n))
@@ -1062,7 +1092,7 @@ class PerfCriar(QWidget):
         etm = self._etm()
         usina_toda = self._usina_inteira()
         ag_tit = ""      # título literal do modo agrupado (sem o prefixo [Ativo])
-        ag_pai = ""
+        ag_pai = ag_obs = ""
         if self._agrupar():
             # TÍTULO ÚNICO. O Fracttal NÃO aceita título próprio na OS — testei na 12188, ele
             # ignora o `description` do work_order_insert e copia o da PRIMEIRA tarefa. Então a
@@ -1071,6 +1101,7 @@ class PerfCriar(QWidget):
             # histórico mostra o ativo no seletor justamente por isso.
             ag_tit = base
             ag_pai = self.ed_pai_os.text().strip()
+            ag_obs = self.ed_obs_os.toPlainText().strip()
         itens = []
         for al in self._alvos:
             aid = al["asset"].get("id")
@@ -1117,7 +1148,8 @@ class PerfCriar(QWidget):
             self.hint.setText("criando 1 OS com %d tarefas… (pode levar alguns segundos)" % len(itens))
             self._wc = ApiWorker(api.create_performance_os_agrupada, itens, p.get("id_personnel"),
                                  p.get("name"), evt, prog_date=prog,
-                                 etiquetas_extra=list(ETM_ETIQUETAS) if etm else None)
+                                 etiquetas_extra=list(ETM_ETIQUETAS) if etm else None,
+                                 note_os=ag_obs)
             self._wc.ok.connect(self._criou_agrupada)
             self._wc.erro.connect(self._err)
             self._wc.start()
