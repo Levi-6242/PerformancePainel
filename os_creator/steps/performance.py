@@ -759,6 +759,14 @@ class PerfCriar(QWidget):
                          "usina": (d.get("usina") or "").strip(),
                          # OS atribuída ao inversor na plataforma → vira a OS PAI do ativo casado
                          "os_pai": (d.get("os_pai") or "").strip()}
+            # Deep link de ETM (plataforma, 27/08): cai direto no modo ETM do segmentado — "Geração e
+            # ETM > Seleciona ETM > Seleciona Usina, pronto" (Levi). Vale pelo `modo=etm` explícito OU
+            # pelo ativo sugerido ser a estação; ANTES de casar a usina, porque trocar o modo repopula
+            # a tabela e o _aplicar_sug_pendente precisa ver a lista do modo certo.
+            if self._tem_modos and getattr(self, "seg", None) is not None:
+                _modo = api._norm_txt(d.get("modo") or "")
+                if _modo == "etm" or "estacao meteorologica" in api._norm_txt(d.get("ativo") or ""):
+                    self.seg.set_index(MODO_ETM)
             if (d.get("resp") or "").strip():
                 self._resp_pendente = str(d["resp"]).strip()
                 self._aplicar_resp_pendente()          # tenta já; se o combo não carregou, o _set_resp reaplica
