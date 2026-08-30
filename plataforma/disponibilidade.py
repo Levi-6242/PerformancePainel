@@ -527,11 +527,21 @@ def _dias_desmentidos(usina, a, b, geracao, pot_kwp, kwp_afetado):
     afirma, e esse dia não conta. Dia sem dado nunca entra: ausência de prova não é prova."""
     if not geracao or not pot_kwp or pot_kwp <= 0:
         return set()
-    f = min(1.0, max(0.0, (kwp_afetado or 0) / pot_kwp))
+    ent = geracao.get(usina) or {}
+    # Duas formas aceitas: {dia: kWh} (a geração é só desta usina) ou
+    # {"dias": {...}, "kwp": N} — a medição cobre um COMPLEXO e N é o kWp somado dele. É o caso
+    # de Nova Londrina, que o BD_Thopen mede junto: a fração parada e o rendimento passam a ser
+    # calculados sobre o complexo, sem precisar separar a planilha.
+    if isinstance(ent.get("dias"), dict):
+        dias_ger, base = ent["dias"], (ent.get("kwp") or pot_kwp)
+    else:
+        dias_ger, base = ent, pot_kwp
+    if not base or base <= 0:
+        return set()
+    f = min(1.0, max(0.0, (kwp_afetado or 0) / base))
     if f < GER_FRAC_MIN:                       # fatia pequena demais p/ a geração julgar
         return set()
-    dias_ger = geracao.get(usina) or {}
-    normal = _normal_kwh_kwp(dias_ger, pot_kwp)
+    normal = _normal_kwh_kwp(dias_ger, base)
     if not normal:
         return set()
     teto = (1.0 - f) + GER_TOLERANCIA          # fração do normal compatível com a parada
@@ -542,7 +552,7 @@ def _dias_desmentidos(usina, a, b, geracao, pot_kwp, kwp_afetado):
         if not isinstance(kwh, (int, float)):
             d += timedelta(days=1)
             continue
-        if (kwh / pot_kwp) / normal > teto:     # produziu mais do que a parada permitiria
+        if (kwh / base) / normal > teto:        # produziu mais do que a parada permitiria
             out.add(d)
         d += timedelta(days=1)
     return out

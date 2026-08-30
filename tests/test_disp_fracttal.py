@@ -394,6 +394,37 @@ def test_inversor_parado_nao_e_exonerado_por_usina_gerar():
     assert so_alfa(r)["h_perdidas"] > 0, "inversor realmente parado não pode ser exonerado"
 
 
+def test_geracao_medida_no_complexo_julga_a_usina_irma():
+    # caso Nova Londrina: a medição cobre Beta 1 + Beta 2 juntas (1.000 kWp) e não será
+    # separada. OS diz Beta 1 (500 = 50% do complexo) parada, mas o complexo rende pleno.
+    dias = {f"2026-07-{d:02d}": 6000.0 for d in range(1, 32)}      # 6 kWh/kWp do complexo
+    ger = {"Beta 1": {"dias": dias, "kwp": 1000.0},
+           "Beta 2": {"dias": dias, "kwp": 1000.0}}
+    os_b1 = {"60": [task(code="TC-BET100", groups_1_description="TesteCo - Beta 1 e 2 - RN",
+                         items_log_description="TesteCo - Beta 1 e 2 - RN",
+                         description="Usina desligada — Beta 1",
+                         event_date="2026-07-05T12:00:00+00:00",
+                         final_date="2026-07-20T21:00:00+00:00")]}
+    r = calcular(os_b1, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao=ger)
+    b1 = next(u for u in r["usinas"] if u["usina"] == "Beta 1")
+    assert b1["h_perdidas"] == pytest.approx(0.0)
+    assert a_os(r, 60)["dias_exonerados"]["Beta 1"]
+
+
+def test_complexo_com_metade_fora_de_verdade_continua_contando():
+    # o complexo rende ~3 kWh/kWp (metade fora): patamar não é pleno → nada é exonerado
+    dias = {f"2026-07-{d:02d}": 3000.0 for d in range(1, 32)}
+    ger = {"Beta 1": {"dias": dias, "kwp": 1000.0}}
+    os_b1 = {"61": [task(code="TC-BET100", groups_1_description="TesteCo - Beta 1 e 2 - RN",
+                         items_log_description="TesteCo - Beta 1 e 2 - RN",
+                         description="Usina desligada — Beta 1",
+                         event_date="2026-07-05T12:00:00+00:00",
+                         final_date="2026-07-20T21:00:00+00:00")]}
+    r = calcular(os_b1, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao=ger)
+    b1 = next(u for u in r["usinas"] if u["usina"] == "Beta 1")
+    assert b1["h_perdidas"] > 60
+
+
 def test_dia_nublado_nao_atrapalha_a_exoneracao():
     # patamar da usina é pleno (P75 = 6 kWh/kWp); dias de nuvem a 3,5 continuam desmentindo
     # uma parada de usina INTEIRA — foi o que fazia Parelhas perder metade da exoneração

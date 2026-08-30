@@ -16555,15 +16555,34 @@ def _disp_geracao(per_ini, per_fim, equip):
         s = re.sub(r"\(\s*\d+\s*\)", " ", str(s or ""))        # tira "(289)" de qualquer posição
         return _disp_mod.norm(s)
 
-    mapa = {}
+    cat, _lac = _disp_mod.montar_catalogo(equip)
+    mapa = {}                                   # chave → [usinas do catálogo]
     for e in equip:
         alvo = _disp_mod._txt(e.get("usina"))
         if not alvo:
             continue
         for k in (e.get("usina"), e.get("usina_supervisorio")):
             ch = _chave(k)
-            if ch:
-                mapa.setdefault(ch, alvo)
+            if ch and alvo not in mapa.setdefault(ch, []):
+                mapa[ch].append(alvo)
+
+    def _grupo(nome_fonte):
+        """Usinas do catálogo que a medição `nome_fonte` cobre, e o kWp somado delas.
+        Sem correspondência exata, tenta o COMPLEXO: 'Nova Londrina' cobre 'Nova Londrina 1' e
+        '... 2' (o BD_Thopen mede as duas juntas e o Levi não quer separar a aba). O resto do
+        nome tem de ser só um número, senão 'Ipixuna' abocanharia 'Ipixuna do Pará'."""
+        ch = _chave(nome_fonte)
+        if not ch:
+            return [], 0.0
+        alvos = list(mapa.get(ch) or [])
+        if not alvos:
+            rx = re.compile(r"^" + re.escape(ch) + r"\s+\d+$")
+            for ch2, us in mapa.items():
+                if rx.match(ch2):
+                    alvos.extend(u for u in us if u not in alvos)
+        kwp = sum((cat[u].pot or 0) for u in alvos if u in cat)
+        return alvos, kwp
+
     out, orfas = {}, set()
     # (1) PostgreSQL — o mais fresco, mas cobre só as usinas do banco
     try:
@@ -16572,13 +16591,15 @@ def _disp_geracao(per_ini, per_fim, equip):
         for r in linhas:
             if not r.get("confiavel"):
                 continue
-            alvo = mapa.get(_chave(r.get("usina")))
-            if not alvo:
+            alvos, kwp = _grupo(r.get("usina"))
+            if not alvos:
                 orfas.add(str(r.get("usina")))
                 continue
             g = r.get("geracao_kwh")
             if isinstance(g, (int, float)):
-                out.setdefault(alvo, {})[str(r.get("data"))[:10]] = float(g)
+                for u in alvos:
+                    ent = out.setdefault(u, {"dias": {}, "kwp": kwp})
+                    ent["dias"][str(r.get("data"))[:10]] = float(g)
     except Exception as e:
         print(f"[disp] geração do PG falhou: {e}")
     n_pg = len(out)
@@ -16588,20 +16609,23 @@ def _disp_geracao(per_ini, per_fim, equip):
     try:
         import dashboard_thopen as _dth
         reg = _dth._registro()
-        for u in set(reg.keys()) | set(_dth._CARTEIRA_DE.keys()):
-            alvo = mapa.get(_chave(u))
-            if not alvo:
+        for nome in set(reg.keys()) | set(_dth._CARTEIRA_DE.keys()):
+            alvos, kwp = _grupo(nome)
+            # o PG ganha onde existe (mais fresco) — não misturar as duas bases na mesma usina
+            alvos = [u for u in alvos if u not in out]
+            if not alvos:
                 continue
             try:
-                recs = _dth._daily_records(u)
+                recs = _dth._daily_records(nome)
             except Exception:
                 continue
-            for r in recs:
-                d = r.get("data")
-                g = r.get("ger")
-                if d and isinstance(g, (int, float)) and per_ini.date() <= d < per_fim.date():
-                    # o PG ganha onde existe (mais fresco); a planilha preenche o resto
-                    out.setdefault(alvo, {}).setdefault(d.isoformat(), float(g))
+            dias = {r["data"].isoformat(): float(r["ger"]) for r in recs
+                    if r.get("data") and isinstance(r.get("ger"), (int, float))
+                    and per_ini.date() <= r["data"] < per_fim.date()}
+            if not dias:
+                continue
+            for u in alvos:
+                out[u] = {"dias": dias, "kwp": kwp}
     except Exception as e:
         print(f"[disp] geração do BD_Thopen falhou: {e}")
 
