@@ -50,6 +50,13 @@ Design aprovado a partir do mockup de 26/08
 - `Usina Fractall` ↔ `groups_1_description` é o de-para OS→usina (match exato, depois pelo
   "miolo" sem cliente/UF, com romanos normalizados).
 
+### 2.3 Só Full O&M
+
+Desde 30/08 o parque considera **apenas usinas com `Full O&M = Sim`** na aba Equipamentos
+(decisão do Levi). Onde a Grid Co. não faz a manutenção completa, a disponibilidade não é
+responsabilidade nossa e as OSs do Fracttal não contam a história toda. O filtro vale para o
+parque, o resumo por cliente, o diário e a lista de lacunas.
+
 ## 3. O que conta como indisponibilidade
 
 1. OS com tipo de tarefa **Religamento**, **Religamento Remoto** ou **Corretiva Emergencial**
@@ -106,6 +113,33 @@ do nosso linear na janela 06–18h.
   potencial de cada uma ("cenário").
 - Validações: datas com ano fora do período ou no futuro são descartadas (houve fim digitado
   como 2027 e 2025 na fase RDO).
+
+### 4.1 A geração desmente a parada (juiz de parada-fantasma)
+
+OS fechada com atraso vira parada de semanas no papel. Caso real: a OS 8891 dizia Parelhas
+parada de 03/07 a 28/08 enquanto a usina gerava 13.111 kWh/dia, todos os dias; a 12449 dizia
+metade do Junco fora o mês inteiro, com a usina em 6–7 kWh/kWp. O Fracttal não tem como
+distinguir — `stop_assets` é `False` nas 2.596 tarefas do escopo (ninguém preenche) e
+`real_stop_assets_sec` apenas repete evento→fim. **O juiz é a geração.**
+
+A régua compara o que a OS **afirma** com o que a usina **produziu**:
+
+- Vale só para OS com mais de `DIAS_OS_LONGA` (3) dias — OS curta é confiável.
+- Vale só quando a fatia afirmada parada é ≥ `GER_FRAC_MIN` (30%). Abaixo disso a geração não
+  tem resolução: um inversor de 20 muda ~5% da produção, o que se perde no ruído do clima.
+- O **patamar** da usina no período (P75 dos dias, em kWh/kWp) precisa ser de usina plena
+  (≥ `GER_PLENO_KWH_KWP` = 4,5). Sem esse piso, uma usina com metade parada o mês inteiro faria
+  o próprio nível reduzido virar o "normal" e toda parada real seria exonerada.
+- Aí, dia a dia: se a OS afirma que a fração `f` estava parada, a usina deveria render no
+  máximo `(1 − f)` do patamar. Rendeu acima de `(1 − f) + 0,15`? Havia mais capacidade rodando
+  do que a OS afirma — **esse dia não conta**, e vai para `dias_exonerados` no payload.
+- O piso absoluto é do patamar, **não do dia**: dia nublado não prova nem desmente nada, e
+  aplicá-lo por dia fazia Parelhas perder metade da exoneração por causa de nuvem.
+- **Sem geração conhecida não se exonera nada.** Ausência de prova não é prova.
+
+Fonte da geração: PostgreSQL (`_pg_geracao_periodo`, ~20 usinas) mais BD_Thopen
+(`_daily_records`, ~63) — 83 das 118 Full O&M. As demais (Athon e as usinas renomeadas cujo
+nome deixou de casar com a aba do BD_Thopen) seguem sem conferência, contando a parada cheia.
 
 ## 5. Escopo — o que a OS derruba (pelo ATIVO, não por texto)
 

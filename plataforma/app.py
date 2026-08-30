@@ -16498,6 +16498,8 @@ def _disp_equip_linhas():
             pot = r.get("Potência (kWp)")
             linhas.append({
                 "cliente": r.get("Cliente"), "usina": r.get("Usina"),
+                # o supervisório é a ponte com o nome que o PostgreSQL usa na geração
+                "usina_supervisorio": r.get("Usina Supervisório"),
                 "usina_fracttal": r.get("Usina Fractall"), "equipamento": r.get("Equipamento"),
                 "parente": r.get("Equipamento Parente"),
                 "pot_kwp": float(pot) if pd.notna(pot) else None,
@@ -16543,6 +16545,72 @@ def _frac_disp_sweep(limite_dt):
     return wos
 
 
+def _disp_geracao(per_ini, per_fim, equip):
+    """Geração diária por usina do BD (PostgreSQL) → {usina_bd: {'YYYY-MM-DD': kWh}}.
+    Serve de JUIZ contra parada-fantasma: OS longa fechada com atraso dizia a usina parada
+    enquanto ela gerava (caso Parelhas, 30/08). SÓ no worker — é SQL do mês inteiro.
+    O PG nomeia '(289) Nome' e o BD 'Nome (152)': casa pelo nome sem o número.
+    Leitura com confiavel=False é DESCARTADA — exonerar parada por dado ruim seria pior."""
+    def _chave(s):
+        s = re.sub(r"\(\s*\d+\s*\)", " ", str(s or ""))        # tira "(289)" de qualquer posição
+        return _disp_mod.norm(s)
+
+    mapa = {}
+    for e in equip:
+        alvo = _disp_mod._txt(e.get("usina"))
+        if not alvo:
+            continue
+        for k in (e.get("usina"), e.get("usina_supervisorio")):
+            ch = _chave(k)
+            if ch:
+                mapa.setdefault(ch, alvo)
+    out, orfas = {}, set()
+    # (1) PostgreSQL — o mais fresco, mas cobre só as usinas do banco
+    try:
+        linhas = _pg_geracao_periodo(per_ini.strftime("%Y-%m-%d"),
+                                     (per_fim - timedelta(days=1)).strftime("%Y-%m-%d")) or []
+        for r in linhas:
+            if not r.get("confiavel"):
+                continue
+            alvo = mapa.get(_chave(r.get("usina")))
+            if not alvo:
+                orfas.add(str(r.get("usina")))
+                continue
+            g = r.get("geracao_kwh")
+            if isinstance(g, (int, float)):
+                out.setdefault(alvo, {})[str(r.get("data"))[:10]] = float(g)
+    except Exception as e:
+        print(f"[disp] geração do PG falhou: {e}")
+    n_pg = len(out)
+
+    # (2) BD_Thopen — cobre as Thopen, que o PG não alcança (é onde estavam Parelhas,
+    # Nova Londrina e Altair, justamente as contaminadas por fechamento tardio).
+    try:
+        import dashboard_thopen as _dth
+        reg = _dth._registro()
+        for u in set(reg.keys()) | set(_dth._CARTEIRA_DE.keys()):
+            alvo = mapa.get(_chave(u))
+            if not alvo:
+                continue
+            try:
+                recs = _dth._daily_records(u)
+            except Exception:
+                continue
+            for r in recs:
+                d = r.get("data")
+                g = r.get("ger")
+                if d and isinstance(g, (int, float)) and per_ini.date() <= d < per_fim.date():
+                    # o PG ganha onde existe (mais fresco); a planilha preenche o resto
+                    out.setdefault(alvo, {}).setdefault(d.isoformat(), float(g))
+    except Exception as e:
+        print(f"[disp] geração do BD_Thopen falhou: {e}")
+
+    print(f"[disp] geração p/ o juiz de parada-fantasma: {len(out)} usinas "
+          f"({n_pg} do PG, +{len(out) - n_pg} do BD_Thopen)"
+          + (f" | {len(orfas)} nomes do PG sem correspondência" if orfas else ""))
+    return out
+
+
 def _frac_disp_recalcular():
     """WORKER: varre + calcula os 2 meses + persiste (atômico). Varredura vazia não sobrescreve
     índice bom (mesma proteção do _frac_osperf_index)."""
@@ -16561,7 +16629,8 @@ def _frac_disp_recalcular():
     dados = {"ts": time.time(), "meses": {}}
     for rot, ini, fim in meses:
         try:
-            dados["meses"][rot] = _disp_mod.calcular(wos, equip, ini, fim)
+            ger = _disp_geracao(ini, fim, equip)
+            dados["meses"][rot] = _disp_mod.calcular(wos, equip, ini, fim, geracao=ger)
         except Exception as e:
             print(f"[disp] cálculo de {rot} falhou: {e}")
     if not dados["meses"]:

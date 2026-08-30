@@ -24,7 +24,7 @@ TOT_H = 12.0 * DIAS
 # (site Fracttal agrupado, 500 kWp cada)
 EQUIP = [
     {"cliente": "TesteCo", "usina": "Alfa", "usina_fracttal": "TesteCo - Alfa 1 - SP",
-     "equipamento": "UFV", "pot_kwp": 1000.0, "n_inv": 2},
+     "equipamento": "UFV", "pot_kwp": 1000.0, "n_inv": 2, "full_om": "Sim"},
     {"cliente": "TesteCo", "usina": "Alfa", "usina_fracttal": "TesteCo - Alfa 1 - SP",
      "equipamento": "UG 01", "pot_kwp": 600.0},
     {"cliente": "TesteCo", "usina": "Alfa", "usina_fracttal": "TesteCo - Alfa 1 - SP",
@@ -34,9 +34,9 @@ EQUIP = [
     {"cliente": "TesteCo", "usina": "Alfa", "usina_fracttal": "TesteCo - Alfa 1 - SP",
      "equipamento": "Inversor 2.1", "parente": "UG 02", "pot_kwp": 200.0},
     {"cliente": "TesteCo", "usina": "Beta 1", "usina_fracttal": "TesteCo - Beta 1 e 2 - RN",
-     "equipamento": "UFV", "pot_kwp": 500.0, "n_inv": 4},
+     "equipamento": "UFV", "pot_kwp": 500.0, "n_inv": 4, "full_om": "Sim"},
     {"cliente": "TesteCo", "usina": "Beta 2", "usina_fracttal": "TesteCo - Beta 1 e 2 - RN",
-     "equipamento": "UFV", "pot_kwp": 500.0, "n_inv": 4},
+     "equipamento": "UFV", "pot_kwp": 500.0, "n_inv": 4, "full_om": "Sim"},
 ]
 
 
@@ -322,13 +322,138 @@ def test_cabine_derivada_cai_no_nome_sem_parente():
     assert sorted(cat["Delta"].ugs) == [1, 2]
 
 
+# ── parada-fantasma: OS longa em usina que estava gerando ────────────────────
+def _os_longa(folio="50", ini="2026-07-05T12:00:00+00:00", fim="2026-07-20T21:00:00+00:00"):
+    return {folio: [task(event_date=ini, final_date=fim)]}
+
+
+def test_os_longa_com_geracao_normal_nao_conta():
+    # Alfa (1000 kWp) "parada" 15 dias, mas gerando 5.000 kWh/dia (5 kWh/kWp) — caso Parelhas
+    dias = {f"2026-07-{d:02d}": 5000.0 for d in range(1, 32)}
+    r = calcular(_os_longa(), EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
+    u = so_alfa(r)
+    assert u["h_perdidas"] == pytest.approx(0.0), "dia que gerou não pode contar como parada"
+    assert u["disp"] == 100.0
+    o = a_os(r, 50)
+    assert any("exonerados" in f for f in o["flags"])
+    assert len(o["dias_exonerados"]["Alfa"]) == 16
+
+
+def test_os_longa_sem_geracao_conta_normal():
+    # mesma OS, mas a usina realmente parada (geração ~0) → conta tudo
+    dias = {f"2026-07-{d:02d}": 5.0 for d in range(1, 32)}
+    r = calcular(_os_longa(), EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
+    assert so_alfa(r)["h_perdidas"] > 100, "parada real tem de continuar contando"
+
+
+def test_os_longa_sem_dado_de_geracao_conta_normal():
+    # sem geração conhecida NÃO se exonera nada — ausência de prova não é prova
+    r = calcular(_os_longa(), EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao=None)
+    assert so_alfa(r)["h_perdidas"] > 100
+    r2 = calcular(_os_longa(), EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": {}})
+    assert so_alfa(r2)["h_perdidas"] > 100
+
+
+def test_os_curta_nunca_e_exonerada():
+    dias = {f"2026-07-{d:02d}": 4000.0 for d in range(1, 32)}
+    curta = {"51": [task(event_date="2026-07-10T12:00:00+00:00",
+                         final_date="2026-07-10T18:00:00+00:00")]}
+    r = calcular(curta, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
+    assert so_alfa(r)["h_perdidas"] == pytest.approx(6.0)
+
+
+def test_cabine_parada_desmentida_por_geracao_plena():
+    # caso Junco: OS longa diz cabine 2 (400 de 1000 kWp = 40%) parada, mas a usina produz
+    # o normal cheio (5 kWh/kWp) — não dá para render 100% com 60% da capacidade
+    dias = {f"2026-07-{d:02d}": 5000.0 for d in range(1, 32)}
+    cab = {"52": [task(code="TC-ALF100-CABN2", items_log_description="Cabine 2",
+                       event_date="2026-07-05T12:00:00+00:00",
+                       final_date="2026-07-20T21:00:00+00:00")]}
+    r = calcular(cab, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
+    assert so_alfa(r)["h_perdidas"] == pytest.approx(0.0)
+    assert a_os(r, 52)["dias_exonerados"]["Alfa"]
+
+
+def test_cabine_parada_de_verdade_continua_contando():
+    # mesma OS, mas a usina produz ~60% do normal — coerente com a cabine 2 (40%) fora
+    dias = {f"2026-07-{d:02d}": (5000.0 if d < 5 else 3000.0) for d in range(1, 32)}
+    cab = {"53": [task(code="TC-ALF100-CABN2", items_log_description="Cabine 2",
+                       event_date="2026-07-05T12:00:00+00:00",
+                       final_date="2026-07-20T21:00:00+00:00")]}
+    r = calcular(cab, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
+    assert so_alfa(r)["h_perdidas"] > 60, "parada parcial real tem de continuar contando"
+
+
+def test_inversor_parado_nao_e_exonerado_por_usina_gerar():
+    # 1 inversor de 300 em 1000 kWp: a usina gerando 70-95% do normal é COERENTE com ele fora
+    dias = {f"2026-07-{d:02d}": 3600.0 for d in range(1, 32)}     # 90% de 4.000
+    inv = {"54": [task(code="TC-ALF100-INVR1.1", items_log_description="Inversor 1.1",
+                       event_date="2026-07-05T12:00:00+00:00",
+                       final_date="2026-07-20T21:00:00+00:00")]}
+    r = calcular(inv, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
+    assert so_alfa(r)["h_perdidas"] > 0, "inversor realmente parado não pode ser exonerado"
+
+
+def test_dia_nublado_nao_atrapalha_a_exoneracao():
+    # patamar da usina é pleno (P75 = 6 kWh/kWp); dias de nuvem a 3,5 continuam desmentindo
+    # uma parada de usina INTEIRA — foi o que fazia Parelhas perder metade da exoneração
+    dias = {f"2026-07-{d:02d}": (6000.0 if d % 3 else 3500.0) for d in range(1, 32)}
+    r = calcular(_os_longa(), EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
+    assert so_alfa(r)["h_perdidas"] == pytest.approx(0.0)
+    assert len(a_os(r, 50)["dias_exonerados"]["Alfa"]) == 16
+
+
+def test_metade_parada_o_mes_todo_nao_vira_o_proprio_normal():
+    # usina de 1000 kWp rendendo 3,0 (metade fora): o patamar não é pleno → nada é exonerado
+    dias = {f"2026-07-{d:02d}": 3000.0 for d in range(1, 32)}
+    cab = {"55": [task(code="TC-ALF100-CABN1", items_log_description="Cabine 1",
+                       event_date="2026-07-05T12:00:00+00:00",
+                       final_date="2026-07-20T21:00:00+00:00")]}
+    r = calcular(cab, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
+    assert so_alfa(r)["h_perdidas"] > 60
+
+
+def test_usina_parada_o_mes_todo_nao_vira_o_proprio_normal():
+    # se a usina produz pouco o período INTEIRO, o P75 dela não é regime pleno → não exonera
+    dias = {f"2026-07-{d:02d}": 500.0 for d in range(1, 32)}       # 0,5 kWh/kWp
+    r = calcular(_os_longa(), EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
+    assert so_alfa(r)["h_perdidas"] > 100
+
+
+def test_exonera_apenas_os_dias_que_geraram():
+    # gerou até 12/07 e parou de verdade de 13 a 20/07
+    dias = {f"2026-07-{d:02d}": (5000.0 if d <= 12 else 0.0) for d in range(1, 32)}
+    r = calcular(_os_longa(), EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
+    o = a_os(r, 50)
+    assert o["dias_exonerados"]["Alfa"] == [f"2026-07-{d:02d}" for d in range(5, 13)]
+    # restam os dias 13..20 (8 dias): 7 dias cheios (12 h) + o dia 20 até 18:00 = 84 + 12 = 96 h
+    assert so_alfa(r)["h_perdidas"] == pytest.approx(96.0, abs=0.5)
+
+
+# ── só Full O&M entra no parque ──────────────────────────────────────────────
+def test_so_full_om_entra_no_parque():
+    equip = list(EQUIP) + [
+        {"cliente": "TesteCo", "usina": "Terceirizada", "usina_fracttal": "TesteCo - Terc 1 - SP",
+         "equipamento": "UFV", "pot_kwp": 800.0, "n_inv": 2, "full_om": "Não"},
+    ]
+    r = calcular({"40": [task(code="TC-TRC100", groups_1_description="TesteCo - Terc 1 - SP",
+                              items_log_description="TesteCo - Terc 1 - SP",
+                              event_date="2026-07-10T12:00:00+00:00",
+                              final_date="2026-07-10T18:00:00+00:00")]},
+                 equip, PER_INI, PER_FIM, agora=AGORA)
+    assert all(u["usina"] != "Terceirizada" for u in r["usinas"])
+    assert all("Terceirizada" not in (c["cliente"] or "") for c in r["clientes"])
+    # e o Alfa (Full O&M = Sim) continua entrando
+    assert any(u["usina"] == "Alfa" for u in r["usinas"])
+
+
 # ── célula vazia do pandas (NaN) não pode virar vínculo falso ────────────────
 def test_nan_do_pandas_nao_vira_usina_fractall():
     # o pandas devolve float('nan') p/ célula vazia, e NaN é TRUTHY: `str(v or "")` dava "nan".
     # 7 usinas sem 'Usina Fractall' entraram no parque assim, com 100% eterno.
     nan = float("nan")
     equip = [
-        {"cliente": "TesteCo", "usina": "Orfã", "usina_fracttal": nan,
+        {"cliente": "TesteCo", "usina": "Orfã", "usina_fracttal": nan, "full_om": "Sim",
          "equipamento": "UFV", "pot_kwp": 900.0, "n_inv": 3},
         {"cliente": nan, "usina": "Orfã", "usina_fracttal": nan,
          "equipamento": "Inversor 1.1", "parente": nan, "pot_kwp": 300.0},
