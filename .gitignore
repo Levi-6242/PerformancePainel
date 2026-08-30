@@ -41,6 +41,7 @@ trk_eventos.json.bak*
 trk_eventos.json.FALHO
 fracttal_index.json
 frac_osperf_index.json
+frac_disp_index.json
 perdas_strings.json
 whats_ronda.json
 
@@ -114,3 +115,7 @@ push_bases_estado.json
 # eram — e um "git add -A" publicaria todas. Achado na auditoria de 07/08.
 tokens.txt.bak*
 tokens.txt.old*
+
+# cache da ultima leitura boa da API (fonte_api.py) — regenerado sozinho
+cache_bd_thopen.json.gz
+thopen/cache_bd_thopen.json.gz
