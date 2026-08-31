@@ -972,6 +972,36 @@ def _bd_readable_path():
                 pass
         return novo
 
+
+# ── Base EM MEMÓRIA: o passo que tira o disco do caminho ───────────────────────
+# `_bd_readable()` devolve ALGO QUE SE ABRE COMO ARQUIVO — um BytesIO quando os bytes já estão
+# em memória, e o caminho do espelho quando não estão. pandas e openpyxl aceitam os dois, então
+# nenhum ponto de leitura precisou mudar de forma; só de origem.
+#
+# POR QUE UM BytesIO NOVO A CADA CHAMADA: os `bytes` são imutáveis e podem ser compartilhados
+# entre threads sem susto, mas o STREAM tem posição. Duas threads lendo o mesmo BytesIO se
+# atropelariam — e `openpyxl(read_only=True)` guarda o stream para ler sob demanda. Criar o
+# objeto é de graça (medido: 0,000 ms para 1000 criações; o BytesIO referencia os mesmos bytes).
+#
+# BD_MEM=0 volta a ler o arquivo. Serve para comparar as duas origens lado a lado.
+_BD_MEM = os.environ.get("BD_MEM", "1") != "0"
+
+
+def _bd_readable(chave: str = "bd_performance"):
+    """Fonte legível da base: BytesIO (memória) ou caminho do espelho (disco)."""
+    if _BD_MEM:
+        try:
+            import bd_api
+            b = bd_api.carregar(chave)
+            if b:
+                return io.BytesIO(b)
+        except Exception as e:                        # noqa: BLE001
+            # Cair para o arquivo é degradar, não quebrar — mas em voz alta: silêncio aqui
+            # significaria servir espelho velho sem ninguém saber.
+            print(f"[bd_mem] {chave} indisponível em memória ({e}) — usando o espelho em disco")
+    return _bd_readable_path()
+
+
 # Globais preenchidas por load_equipamentos() (recarregáveis em runtime)
 ESPERADO_INV  = {}   # {usina_sup: {equip_sup: strings_esperadas}}
 EQUIP_NAMES   = {}   # {usina_sup: {equip_sup: equipamento_display}}
@@ -1001,7 +1031,7 @@ def load_equipamentos():
     global ESPERADO_INV, EQUIP_NAMES, USINA_DISPLAY, USINA_GRUPO, ESPERADO, FULL_OM, STRING_BOX, POWER_INV, POWER_UFV, FULL_OM_DISP, POWER_INV_DISP, _bd_mtime
     try:
         path = _bd_perf_path()
-        df = pd.read_excel(_bd_readable_path(), sheet_name="Equipamentos", header=2)
+        df = pd.read_excel(_bd_readable(), sheet_name="Equipamentos", header=2)
         df.columns = [str(c).strip() for c in df.columns]
         # ABA SEM CABEÇALHO PRECISA FALHAR ALTO. Estes cinco usavam `next()` SEM default, e um
         # `StopIteration` tem str() VAZIA: o except lá embaixo imprimia "não carregado: " e mais
@@ -1206,7 +1236,7 @@ def load_bd_trackers():
     do PG). Tolerante a usina FORA da planilha (R-10 degrada, não quebra)."""
     global BD_TRK_INV, INV_TRK, BD_TRK_USINAS
     try:
-        df = pd.read_excel(_bd_readable_path(), sheet_name="BD_Trackers", header=2)
+        df = pd.read_excel(_bd_readable(), sheet_name="BD_Trackers", header=2)
     except Exception as e:
         print(f"[AVISO] BD_Trackers não carregado: {e}")
         return
@@ -1359,7 +1389,7 @@ def load_metas():
     global INFO_GERAL, PR_PREVISTO, _metas_mtime
     try:
         path = _bd_perf_path()
-        rd = _bd_readable_path()
+        rd = _bd_readable()
 
         # --- Info Geral: ACHA a linha do cabeçalho, não assume a 1ª ---
         # Em 30/07 alguém inseriu linha acima do cabeçalho e a aba passou a ser lida com as 22
@@ -5675,7 +5705,7 @@ def load_usina_codigos():
     dashboard (nome amigável, código ou descrição) → código, p/ casar as OS da planilha sem erro."""
     global USINA_COD
     try:
-        dg = pd.read_excel(_bd_readable_path(), sheet_name="Info Geral", header=0)
+        dg = pd.read_excel(_bd_readable(), sheet_name="Info Geral", header=0)
         dg.columns = [str(c).strip() for c in dg.columns]
         low = {c: c.lower() for c in dg.columns}
         c_cod = next((c for c in dg.columns if "fractal" in low[c] and ("cod" in low[c] or "cód" in low[c])), None)
@@ -9151,7 +9181,7 @@ def _bdperf_prod_build(ano=None, mes=None):
     try:
         import openpyxl
         hoje_d = hoje.date()
-        wb = openpyxl.load_workbook(_bd_readable_path(), read_only=True, data_only=True)
+        wb = openpyxl.load_workbook(_bd_readable(), read_only=True, data_only=True)
         sheets = set(wb.sheetnames)
 
         # Índice das abas SEM acento, para casar cadastro × aba quando a grafia difere.
@@ -9307,7 +9337,7 @@ def _bdperf_pr_inv(usina, ano=None, mes=None):
     try:
         import openpyxl
         hoje = datetime.now()
-        wb = openpyxl.load_workbook(_bd_readable_path(), read_only=True, data_only=True)
+        wb = openpyxl.load_workbook(_bd_readable(), read_only=True, data_only=True)
         nome = next((s for s in wb.sheetnames if _nrm(s) == k), None)
         if not nome:
             wb.close(); return out
@@ -9421,7 +9451,7 @@ def _etm_problemas_build():
     # 1) Abas por-usina do BD_Performance — série DIÁRIA de IPOA (ETM) e GHI do mês corrente
     try:
         import openpyxl
-        wb = openpyxl.load_workbook(_bd_readable_path(), read_only=True, data_only=True)
+        wb = openpyxl.load_workbook(_bd_readable(), read_only=True, data_only=True)
         sheets = set(wb.sheetnames)
         for k, ig in INFO_GERAL.items():
             nome = ig.get("usina")
@@ -9588,7 +9618,7 @@ def _g_registry():
     ck = (m, len(INFO_GERAL))
     if ck in _g_reg_cache:
         return _g_reg_cache[ck]
-    wb = load_workbook(_bd_readable_path(), read_only=True)
+    wb = load_workbook(_bd_readable(), read_only=True)
     sheets = wb.sheetnames
     wb.close()
     d2s = {_g_n2(dsp): sup for sup, dsp in USINA_DISPLAY.items()}
@@ -9628,7 +9658,7 @@ def _g_build(entries):
     """entries=[(canon, sheet, sup)] → (inv_df, dia_df) por inversor/dia e usina/dia.
     Lê TODAS as abas numa única passada do xlsx (sheet_name=lista) — ler 1 aba por vez
     reabre/parseia o arquivo inteiro N vezes e era o gargalo da visão PR."""
-    path = _bd_readable_path()
+    path = _bd_readable()
     inv_rows, dia_rows = [], []
     try:
         dfs = pd.read_excel(path, sheet_name=[s for _, s, _ in entries], header=0)
@@ -15953,7 +15983,7 @@ def _frac_fractall_map():
         return _frac_bd_map
     m = {}
     try:
-        df = pd.read_excel(_bd_readable_path(), sheet_name="Equipamentos", header=2)
+        df = pd.read_excel(_bd_readable(), sheet_name="Equipamentos", header=2)
         sub = df[["Usina", "Usina Supervisório", "Usina Fractall"]].dropna(subset=["Usina Fractall"])
         for _, r in sub.iterrows():
             fr = str(r["Usina Fractall"]).strip()
@@ -16493,7 +16523,7 @@ def _disp_equip_linhas():
         return _disp_equip_cache["linhas"]
     linhas = []
     try:
-        df = pd.read_excel(_bd_readable_path(), sheet_name="Equipamentos", header=2)
+        df = pd.read_excel(_bd_readable(), sheet_name="Equipamentos", header=2)
         for _, r in df.iterrows():
             pot = r.get("Potência (kWp)")
             linhas.append({
@@ -16628,9 +16658,58 @@ def _disp_geracao(per_ini, per_fim, equip):
                 out[u] = {"dias": dias, "kwp": kwp}
     except Exception as e:
         print(f"[disp] geração do BD_Thopen falhou: {e}")
+    n_thop = len(out)
 
-    print(f"[disp] geração p/ o juiz de parada-fantasma: {len(out)} usinas "
-          f"({n_pg} do PG, +{len(out) - n_pg} do BD_Thopen)"
+    # (3) BD_Performance, abas por usina — cobre quem não está no PG nem no BD_Thopen (Athon,
+    # Axis, RenoGrid, GreenYellow, 2C…). Layout: col Data + col Multimedidor + uma coluna por
+    # inversor. O multimedidor é a medição da usina; faltando (é comum), soma-se os inversores.
+    faltam = {u for u, U in cat.items()
+              if u not in out and U.fracttal and (U.pot or 0) > 0
+              and _disp_mod.norm(U.full_om).startswith("S")}
+    if faltam:
+        try:
+            import openpyxl
+            t0 = time.time()
+            wb = openpyxl.load_workbook(_bd_readable(), read_only=True, data_only=True)
+            achou = 0
+            for aba in wb.sheetnames:
+                alvos, kwp = _grupo(aba)
+                alvos = [u for u in alvos if u in faltam]
+                if not alvos or not kwp:
+                    continue
+                ws = wb[aba]
+                it = ws.iter_rows(values_only=True)
+                hdr = next(it, None) or ()
+                i_data = next((i for i, h in enumerate(hdr)
+                               if _disp_mod.norm(h) == "DATA"), None)
+                if i_data is None:
+                    continue
+                i_mm = next((i for i, h in enumerate(hdr)
+                             if _disp_mod.norm(h).startswith("MULTIMEDIDOR")), None)
+                i_inv = [i for i, h in enumerate(hdr) if _disp_mod.norm(h).startswith("INVERSOR")]
+                dias = {}
+                for row in it:
+                    d = row[i_data] if i_data < len(row) else None
+                    d = d.date() if hasattr(d, "date") else None
+                    if not d or not (per_ini.date() <= d < per_fim.date()):
+                        continue
+                    g = row[i_mm] if (i_mm is not None and i_mm < len(row)) else None
+                    if not isinstance(g, (int, float)) or g <= 0:
+                        g = sum(row[i] for i in i_inv
+                                if i < len(row) and isinstance(row[i], (int, float)))
+                    if g and g > 0:
+                        dias[d.isoformat()] = float(g)
+                if dias:
+                    achou += 1
+                    for u in alvos:
+                        out[u] = {"dias": dias, "kwp": kwp}
+            wb.close()
+            print(f"[disp] BD_Performance: {achou} aba(s) por usina em {time.time()-t0:.1f}s")
+        except Exception as e:
+            print(f"[disp] geração do BD_Performance falhou: {e}")
+
+    print(f"[disp] geração p/ o juiz de parada-fantasma: {len(out)} usinas (PG {n_pg}, "
+          f"+{n_thop - n_pg} BD_Thopen, +{len(out) - n_thop} BD_Performance)"
           + (f" | {len(orfas)} nomes do PG sem correspondência" if orfas else ""))
     return out
 
