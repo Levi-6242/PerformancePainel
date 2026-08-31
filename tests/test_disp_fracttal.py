@@ -354,12 +354,24 @@ def test_os_longa_sem_dado_de_geracao_conta_normal():
     assert so_alfa(r2)["h_perdidas"] > 100
 
 
-def test_os_curta_nunca_e_exonerada():
-    dias = {f"2026-07-{d:02d}": 4000.0 for d in range(1, 32)}
+def test_parada_curta_no_dia_nao_e_julgada():
+    # 1 h de parada = 8% do dia solar: abaixo da resolução da geração, continua contando
+    dias = {f"2026-07-{d:02d}": 5000.0 for d in range(1, 32)}
     curta = {"51": [task(event_date="2026-07-10T12:00:00+00:00",
-                         final_date="2026-07-10T18:00:00+00:00")]}
+                         final_date="2026-07-10T13:00:00+00:00")]}
     r = calcular(curta, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
-    assert so_alfa(r)["h_perdidas"] == pytest.approx(6.0)
+    assert so_alfa(r)["h_perdidas"] == pytest.approx(1.0)
+
+
+def test_os_de_24h_que_come_o_dia_e_conferida():
+    # caso Marialva: religamento aberto num dia e fechado no mesmo horário do seguinte come o
+    # dia solar inteiro. Dura 1 dia — a régua velha, amarrada a "OS longa", não conferia.
+    dias = {f"2026-07-{d:02d}": 5000.0 for d in range(1, 32)}
+    diaria = {"56": [task(event_date="2026-07-10T04:20:00+00:00",     # 01:20 local
+                          final_date="2026-07-11T04:30:00+00:00")]}
+    r = calcular(diaria, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
+    assert so_alfa(r)["h_perdidas"] == pytest.approx(0.0)
+    assert a_os(r, 56)["dias_exonerados"]["Alfa"]
 
 
 def test_cabine_parada_desmentida_por_geracao_plena():

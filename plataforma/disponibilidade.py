@@ -43,7 +43,10 @@ from datetime import datetime, timedelta
 # disso? Então havia mais capacidade rodando do que a OS afirma, e o dia não foi de parada.
 # Assim a régua vale para qualquer nível: pegou Parelhas (f=1, gerando pleno) e Junco (f=0,5,
 # gerando pleno) sem exonerar um inversor real parado (f=0,05 → a usina gera 95%, coerente).
-DIAS_OS_LONGA = 3            # dias corridos: acima disso a OS entra na conferência
+# A conferência é POR DIA, pela fatia do dia que a OS afirma perdida — não pela duração da OS.
+# Amarrar à duração deixava passar o caso Marialva: religamentos abertos num dia e fechados no
+# mesmo horário do seguinte comiam o dia solar inteiro, com a usina gerando 4,97 kWh/kWp (perto
+# do máximo dela), e como duravam "só" 1 dia nem eram conferidos.
 GER_TOLERANCIA = 0.15        # folga sobre o esperado (clima, sujeira, medição)
 # O piso ABSOLUTO se aplica ao PATAMAR da usina no período (o P75), não ao dia. Aplicá-lo dia a
 # dia punia dia nublado, que não prova nem desmente nada — Parelhas, com dias entre 3,5 e 6,
@@ -51,8 +54,9 @@ GER_TOLERANCIA = 0.15        # folga sobre o esperado (clima, sujeira, medição
 # usina com metade parada o mês inteiro faria o próprio nível reduzido virar o "normal" e toda
 # parada real seria exonerada. 4,5 kWh/kWp é usina praticamente plena (o típico vai de 3,5 a 5,5).
 GER_PLENO_KWH_KWP = 4.5
-# Abaixo desta fatia afirmada parada, a geração NÃO tem resolução para desmentir a OS: um
-# inversor de 20 fora muda ~5% da produção, que se perde no ruído de clima. Não se tenta.
+# Abaixo desta fatia do DIA afirmada perdida, a geração NÃO tem resolução para desmentir a OS:
+# um inversor de 20 fora muda ~5% da produção, e meia hora de parada muda 4% — ambos se perdem
+# no ruído do clima. Não se tenta.
 GER_FRAC_MIN = 0.30
 
 TIPOS_QUEDA = {"religamento", "religamento remoto"}
@@ -538,23 +542,22 @@ def _dias_desmentidos(usina, a, b, geracao, pot_kwp, kwp_afetado):
         dias_ger, base = ent, pot_kwp
     if not base or base <= 0:
         return set()
-    f = min(1.0, max(0.0, (kwp_afetado or 0) / base))
-    if f < GER_FRAC_MIN:                       # fatia pequena demais p/ a geração julgar
-        return set()
     normal = _normal_kwh_kwp(dias_ger, base)
     if not normal:
         return set()
-    teto = (1.0 - f) + GER_TOLERANCIA          # fração do normal compatível com a parada
+    frac_pot = min(1.0, max(0.0, (kwp_afetado or 0) / base))
     out = set()
-    d = a.date()
-    while d <= b.date():
+    # a fatia perdida do DIA é a fração de potência vezes a fatia do dia solar coberta
+    for d, horas in horas_solares_por_dia(a, b, b + timedelta(days=1)).items():
+        f_dia = frac_pot * min(1.0, horas / 12.0)
+        if f_dia < GER_FRAC_MIN:               # fatia pequena demais p/ a geração julgar
+            continue
         kwh = dias_ger.get(d.isoformat())
         if not isinstance(kwh, (int, float)):
-            d += timedelta(days=1)
             continue
+        teto = (1.0 - f_dia) + GER_TOLERANCIA  # fração do normal compatível com a parada
         if (kwh / base) / normal > teto:        # produziu mais do que a parada permitiria
             out.add(d)
-        d += timedelta(days=1)
     return out
 
 
@@ -586,9 +589,8 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, geracao=None):
         a, b = max(o["ini"], per_ini), min(o["fim"], per_fim)
         if b <= a:
             continue
-        longa = (o["fim"] - o["ini"]).days > DIAS_OS_LONGA
         for (u, nivel, chave, kwp) in esc:
-            exon = _dias_desmentidos(u, a, b, geracao, usinas[u].pot, kwp) if longa else set()
+            exon = _dias_desmentidos(u, a, b, geracao, usinas[u].pot, kwp)
             if not exon:
                 eventos.append({"usina": u, "nivel": nivel, "kwp": kwp, "ini": a, "fim": b, "o": o})
                 continue
