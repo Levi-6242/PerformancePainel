@@ -119,3 +119,27 @@ tokens.txt.old*
 # cache da ultima leitura boa da API (fonte_api.py) — regenerado sozinho
 cache_bd_thopen.json.gz
 thopen/cache_bd_thopen.json.gz
+
+# ── os_creator: MIGRADO em 28/08 para Grid-Co-CODE/oem ───────────────────────
+# Só o MOVIDO.md fica versionado. O resto é sobra da máquina de quem migrou:
+# build/, dist/, cache de ativos — e o fracttal_login.txt, que chegou a ficar a
+# um `git add -A` de virar commit. As regras de segredo acima citam tokens.txt e
+# afins, mas nunca este caminho: a pasta saiu do repositório depois que elas
+# foram escritas, e ninguém voltou para cobrir o que sobrou.
+os_creator/*
+!os_creator/MOVIDO.md
+
+# ── Sobras de runtime que escapavam das regras de cima ───────────────────────
+# `*.log` (linha 54) NAO pega log rotacionado: `.log.anterior`, `.log.out`,
+# `.log.morreu-1316`. Foi assim que sete arquivos de tunel ficaram aparecendo no
+# status por semanas, e e nesse ruido que um arquivo que importa passa batido.
+*.log.*
+cloudflared*.log*
+tunnel_pid.txt
+
+# Copias "antes de eu mexer" feitas a mao. O sufixo e o MOTIVO do backup
+# (.bak-zumbi, .bak-matava-todos, .bak-alveslima), nao uma extensao fixa.
+*.bak-*
+
+# Medicao pontual do PG, guardada para conferir a conta na mao — nenhum codigo le.
+plataforma/dados_pg_sensores.json
