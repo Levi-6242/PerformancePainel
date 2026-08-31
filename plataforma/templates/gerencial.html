@@ -139,7 +139,7 @@ td{padding:9px 10px;border-bottom:1px solid var(--line)}td b{color:var(--grafite
     </div>
 
     <div class="tblwrap" id="vistaGeracao">
-      <table id="allTable"><thead><tr><th>Usina</th><th>Cliente</th><th class="r">Gerada (MWh)</th><th class="r">Meta P50 (MWh)</th><th>Atingimento</th></tr></thead><tbody></tbody></table>
+      <table id="allTable"><thead><tr><th>Usina</th><th>Cliente</th><th class="r">Gerada (MWh)</th><th class="r">Meta P50 (MWh)</th><th>Atingimento</th><th class="r" style="cursor:pointer;color:var(--accent-700);text-decoration:underline dotted" title="Disponibilidade por OS do Fracttal (janela solar 06–18h). Clique para abrir o painel completo, com filtro de cliente/mês e exportação." onclick="window.open('/gerencial/disponibilidade','_blank')">Disponibilidade ↗</th></tr></thead><tbody></tbody></table>
     </div>
 
     <div class="tblwrap" id="vistaQualidade" hidden>
@@ -283,6 +283,33 @@ const _temGer = u => u.atingimento != null;
 const _temQal = u => (u.pr != null || u.ipoa);
 // busca por nome sem acento/caixa — "araca" acha "Araçoiaba da Serra 1"
 const _nrmB = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+
+// ── Disponibilidade por OS (Fracttal × BD) — coluna da visão Geração × Meta ──────────────
+// O payload vem pronto do índice do worker (/api/gerencial/disponibilidade). O match é por nome
+// NORMALIZADO com romanos ('Piracicaba I' ≡ 'Piracicaba 1') e SEM fallback de base: a granulari-
+// dade das fontes difere ('Ouro Branco II' aqui é sub-usina; no cálculo só existe a agregada
+// 'Ouro Branco') e herdar o número da mãe nas filhas mentiria a linha — sem match = "—".
+let DISP_MAP = null, DISP_MES = '';
+const _ROMD = {I:'1',II:'2',III:'3',IV:'4',V:'5',VI:'6',VII:'7',VIII:'8',IX:'9',X:'10',XI:'11',XII:'12',IA:'1A',IB:'1B'};
+const _nrmD = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase()
+  .replace(/\s*\(.*?\)\s*/g,' ').trim().split(/\s+/).map(t=>_ROMD[t]||t).join(' ');
+async function loadDisp(mes){
+  DISP_MES = mes || '';
+  try{
+    const j = await fetch('/api/gerencial/disponibilidade'+(mes?`?mes=${mes}`:''),{cache:'no-store'}).then(r=>r.json());
+    DISP_MAP = {};
+    if (j.quente && (!mes || j.mes === mes))
+      for (const u of (j.usinas||[])) DISP_MAP[_nrmD(u.usina)] = u.disp;
+  }catch(e){ DISP_MAP = {}; }
+  if (VISTA === 'geracao') renderVista();      // repinta a coluna quando o payload chegar
+}
+function _dispCell(u){
+  const d = DISP_MAP ? DISP_MAP[_nrmD(u.usina)] : undefined;
+  if (d == null)
+    return `<td class="r num" style="color:var(--muted)" title="${DISP_MAP?'sem correspondência direta no cálculo de disponibilidade (granularidade diferente ou mês sem índice)':'carregando…'}">—</td>`;
+  const cor = d >= 99 ? 'var(--ok)' : d >= 80 ? 'var(--warn,#b8860b)' : 'var(--bad,#c0392b)';
+  return `<td class="r num" style="font-weight:700;color:${cor}">${nf(d,2)}%</td>`;
+}
 const _casaBusca = u => !VBUSCA || _nrmB(u.usina).includes(_nrmB(VBUSCA));
 window.setVBusca = v => { VBUSCA = v || ''; renderVista(); };
 
@@ -325,8 +352,8 @@ function renderTodas(us){
   tb.innerHTML = us.map(u=>
     `<tr style="cursor:pointer" data-u="${encodeURIComponent(u.usina)}" onclick="tgCasc(this)"><td><b>${u.usina}</b></td><td>${u.cliente||'—'}</td><td class="r num">${nf(u.prod,1)}</td>`+
     `<td class="r num" style="white-space:nowrap" title="Meta do mês rateada pelos ${u.meta_dias||'—'} dias que a fonte já reportou desta usina.">${_dias(u)}${nf(u.p50,1)}</td>`+
-    `<td><span class="num ${atgCls(u.atingimento)}">${nf(u.atingimento,1)}%</span> ${atgTag(u.atingimento)}</td></tr>`).join('')
-    || '<tr><td colspan="5" style="color:var(--muted)">Nenhuma usina com geração e meta neste filtro.</td></tr>';
+    `<td><span class="num ${atgCls(u.atingimento)}">${nf(u.atingimento,1)}%</span> ${atgTag(u.atingimento)}</td>${_dispCell(u)}</tr>`).join('')
+    || '<tr><td colspan="6" style="color:var(--muted)">Nenhuma usina com geração e meta neste filtro.</td></tr>';
   const naMeta = us.filter(u=>u.atingimento>=97).length;
   const md = us.map(u=>u.meta_dias).filter(v=>v);
   const faixa = md.length ? (Math.min(...md)===Math.max(...md)
@@ -402,7 +429,7 @@ async function tgCasc(tr){
   document.querySelectorAll('#allTable .cascrow').forEach(x=>x.remove());     // uma aberta por vez
   const u=decodeURIComponent(tr.dataset.u||'');
   const row=document.createElement('tr'); row.className='cascrow';
-  row.innerHTML=`<td colspan="5" style="background:var(--bg-soft);padding:13px 14px"><span style="font-size:11px;color:var(--muted)">Calculando a cascata de ${u}…</span></td>`;
+  row.innerHTML=`<td colspan="6" style="background:var(--bg-soft);padding:13px 14px"><span style="font-size:11px;color:var(--muted)">Calculando a cascata de ${u}…</span></td>`;
   tr.after(row);
   // a cascata segue o MÊS selecionado no filtro (RAW.ano/mes_num) — cache por usina+mês
   const qm=(RAW&&RAW.ano)?`&ano=${RAW.ano}&mes=${RAW.mes_num}`:'', ck=u+'|'+qm;
@@ -469,6 +496,8 @@ async function load(ano,mes){
     const fm=document.getElementById('fMes');
     if(fm&&RAW&&RAW.ano) fm.value=`${RAW.ano}-${String(RAW.mes_num).padStart(2,'0')}`;
     _fillCli(RAW); _aplica();
+    // a coluna Disponibilidade segue o MESMO mês do filtro (só existe p/ corrente e anterior)
+    loadDisp(RAW&&RAW.ano?`${RAW.ano}-${String(RAW.mes_num).padStart(2,'0')}`:'');
   }catch(e){ cov.textContent='Falha ao carregar (/api/gerencial).'; }
 }
 load();

@@ -435,7 +435,9 @@ function tileStr(p){
     foot=`<div class="trow"><span class="tcause">${causaIco(p)} ${(p.diag&&p.diag.causa)||p.causa||''}</span>${spark(p.trend,col,42,12)}</div>`;
   }
   const atg=p.atingimento!=null?`<div class="tatg" style="color:${p.atingimento>=95?cssv('--ok'):p.atingimento>=85?cssv('--amber'):cssv('--red')}">atg ${nf(p.atingimento,0)}%</div>`:'';
-  const valor=p.stringbox?'String Box':`${nf(p.strings_ativas)}<span class="u"> str</span>`;
+  /* esconde a contagem só quando NÃO há visão por string (combiner não exposta). String Box com
+     combiner lida tem contagem real (Tanabi 216, Sarandi 137) e mostrá-la é o ponto do painel. */
+  const valor=p.sem_visao?'Sem visão':`${nf(p.strings_ativas)}<span class="u"> str</span>`;
   return `<div class="tile ${p.status}" onclick="openDrawer('${norm(p.usina)}')">${alm}`+
     `<div class="tid">${p.usina}</div><div class="tcli">${p.cliente||''}</div>`+
     `<div class="tmw num">${valor}</div>${atg}${foot}</div>`;
@@ -626,7 +628,10 @@ document.querySelectorAll('#grpFilters button').forEach(b=>b.onclick=()=>{
   b.classList.add('on');curGrp=b.dataset.g;renderRegion();});
 
 /* ====== DRAWER ====== */
-const FMAP={'API PV':'pv','Thopen':'pg','Athon':'athon','Axis':'axis','2C':'2c'};
+/* SEMP navega como 'pv': o id da usina é global na API PV e o backend resolve o token da conta
+   OEM sozinho (_pv_token_for) — o drill completo da Tucano vem de graça. RenoGrid fica sem drill
+   (não há página de diagnóstico p/ SolarEdge); o tile mostra status/contagem normalmente. */
+const FMAP={'API PV':'pv','Thopen':'pg','Athon':'athon','Axis':'axis','2C':'2c','SEMP':'pv'};
 function hasDrill(p){return !!FMAP[p.fonte];}              // TODAS as fontes têm drill (inversores+trackers)
 function hasEngine(p){return p.fonte==='API PV'||p.fonte==='Thopen';}  // motor de causa provável só pv/pg
 function drillUrl(p){const f=FMAP[p.fonte];if(!f)return '';return `/painel/usina/${encodeURIComponent(p.plant_id)}?fonte=${f}&nome=${encodeURIComponent(p.usina)}&ts=${encodeURIComponent(p.ultima_leitura||'')}`;}
@@ -708,7 +713,7 @@ async function openDrawer(key){
     dk('Status',NOME[p.status]||p.status)+dk('Última leitura',fmtTs(p.ultima_leitura))+
     dk('Atingimento',p.atingimento!=null?nf(p.atingimento,1)+'%':'—')+
     '<div class="dk"><div class="l">PR</div><div class="v num" id="dkPR">'+(p.pr!=null?nf(p.pr,1)+'%':'—')+'</div></div>'+
-    dk('Strings ativas',p.stringbox?'String Box':nf(p.strings_ativas))+dk('Strings faltando',nf(p.strings_faltando));
+    dk('Strings ativas',p.sem_visao?'Sem visão':nf(p.strings_ativas))+dk('Strings faltando',nf(p.strings_faltando));
   // PR ao vivo para API PV (gerencial é só PG → para usinas da API PV o PR vem do /api/pv/pr/<id>)
   if(p.fonte==='API PV' && p.pr==null && p.plant_id){
     fetch(`/api/pv/pr/${p.plant_id}`).then(r=>r.json()).then(d=>{const e=document.getElementById('dkPR');if(e&&d&&d.pr!=null)e.textContent=nf(d.pr*100,1)+'%';}).catch(()=>{});

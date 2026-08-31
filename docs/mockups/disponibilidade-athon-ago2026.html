@@ -1,0 +1,317 @@
+<title>Disponibilidade Athon</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+  /* ── tokens da plataforma (tema navy, single-theme deliberado) ─────────── */
+  :root{
+    --bg:#090d18; --surface:#161d30; --surface2:#0e1626;
+    --ink:#e9eef6; --muted:#96a0b4; --faint:#767d92;
+    --line:rgba(150,160,180,.13);
+    --grid:#a3d900; --grid-300:#c4e755; --grid-600:#8bbf00; --grid-800:#495f06;
+    --amber:#f5a623; --red:#f2555a; --blue:#5b9dff;
+    --font:'Inter',system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{background:var(--bg);color:var(--ink);font:400 14px/1.55 var(--font);padding:0 20px 56px}
+  .wrap{max-width:1180px;margin:0 auto}
+
+  /* topbar */
+  .topbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+    padding:14px 0;border-bottom:1px solid var(--line);margin-bottom:30px}
+  .brand{display:flex;align-items:center;gap:10px;font-size:11px;font-weight:600;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .brand .dot{width:8px;height:8px;border-radius:2px;background:var(--grid)}
+  .chip{font-size:10px;font-weight:700;letter-spacing:.1em;color:var(--bg);
+    background:var(--grid);border-radius:3px;padding:2px 7px}
+  .topbar .src{font-size:12px;color:var(--faint)}
+
+  /* header */
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:26px}
+  .head h1{font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1.1;text-wrap:balance}
+  .head h1 span{color:var(--grid)}
+  .head .sub{margin-top:8px;color:var(--muted);font-size:13px;max-width:62ch}
+  .criterio{display:flex;gap:8px;flex-wrap:wrap}
+  .criterio b{font-size:11px;font-weight:600;color:var(--muted);border:1px solid var(--line);
+    border-radius:999px;padding:4px 11px;white-space:nowrap}
+
+  /* kpis */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 20px 16px}
+  .kpi .lbl{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  .kpi .val{font-size:38px;font-weight:800;letter-spacing:-.02em;line-height:1.15;margin-top:6px;
+    font-variant-numeric:tabular-nums}
+  .kpi .val small{font-size:17px;font-weight:600;color:var(--muted)}
+  .kpi .note{font-size:12px;color:var(--muted);margin-top:2px}
+  .kpi.destaque{border-color:rgba(163,217,0,.35)}
+  .kpi.destaque .val{color:var(--grid)}
+
+  /* cards */
+  .row{display:grid;grid-template-columns:7fr 5fr;gap:14px;margin-bottom:14px}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:20px}
+  .card h2{font-size:13px;font-weight:700;letter-spacing:.02em;margin-bottom:2px}
+  .card .desc{font-size:12px;color:var(--faint);margin-bottom:16px}
+
+  /* barras por usina */
+  .barras{display:grid;gap:9px}
+  .linha-b{display:grid;grid-template-columns:74px 1fr 62px;gap:12px;align-items:center}
+  .linha-b .u{font-size:12px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums}
+  .trilho{height:14px;background:var(--surface2);border-radius:4px;overflow:hidden}
+  .fill{height:100%;border-radius:4px 0 0 4px;width:0;transition:width .7s cubic-bezier(.2,.7,.2,1)}
+  .linha-b .v{font-size:13px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+
+  /* ocorrências destaque */
+  .evs{display:grid;gap:0}
+  .ev{display:grid;grid-template-columns:1fr auto;gap:4px 14px;padding:11px 0;border-top:1px solid var(--line)}
+  .ev:first-child{border-top:none;padding-top:2px}
+  .ev .t{font-size:13px;font-weight:600}
+  .ev .t em{font-style:normal;color:var(--grid-300);font-weight:700}
+  .ev .m{grid-column:1;font-size:12px;color:var(--faint)}
+  .ev .kwh{font-size:14px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums;align-self:start}
+  .ev .kwh small{display:block;font-size:10px;font-weight:600;letter-spacing:.06em;color:var(--faint)}
+
+  /* heatmap */
+  .heat-scroll{overflow-x:auto;padding-bottom:4px}
+  .heat{display:grid;grid-template-columns:74px repeat(24,minmax(26px,1fr));gap:3px;min-width:820px}
+  .heat .hu{font-size:12px;font-weight:600;color:var(--muted);align-self:center;font-variant-numeric:tabular-nums}
+  .heat .hd{font-size:10px;color:var(--faint);text-align:center;align-self:end;padding-bottom:2px;
+    font-variant-numeric:tabular-nums}
+  .cel{aspect-ratio:1/.82;border-radius:3px;background:var(--surface2);border:1px solid rgba(150,160,180,.07);
+    cursor:default}
+  .cel:hover{outline:2px solid var(--grid);outline-offset:-1px}
+  .c-ok{background:rgba(163,217,0,.20);border-color:rgba(163,217,0,.14)}
+  .c-a1{background:rgba(245,166,35,.30);border-color:rgba(245,166,35,.18)}
+  .c-a2{background:rgba(245,166,35,.72);border-color:rgba(245,166,35,.4)}
+  .c-r1{background:rgba(242,85,90,.55);border-color:rgba(242,85,90,.35)}
+  .c-r2{background:#f2555a;border-color:#f2555a}
+  .legenda{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;font-size:11px;color:var(--muted)}
+  .legenda span{display:inline-flex;align-items:center;gap:6px}
+  .legenda i{width:13px;height:11px;border-radius:2px;display:inline-block;border:1px solid rgba(150,160,180,.1)}
+
+  /* tooltip */
+  #tip{position:fixed;pointer-events:none;background:var(--surface2);border:1px solid var(--line);
+    border-radius:6px;padding:7px 10px;font-size:12px;display:none;z-index:9;box-shadow:0 6px 18px rgba(0,0,0,.45)}
+  #tip b{font-variant-numeric:tabular-nums}
+
+  /* tabela */
+  table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+  th{font-size:10.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);
+    text-align:right;padding:8px 10px;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child{text-align:left}
+  td{font-size:13px;padding:8px 10px;border-bottom:1px solid rgba(150,160,180,.07);text-align:right}
+  td:first-child{font-weight:600}
+  tr:hover td{background:rgba(150,160,180,.05)}
+  td .pill{display:inline-block;min-width:64px;text-align:center;font-weight:700;font-size:12.5px;
+    border-radius:999px;padding:2px 10px}
+  .p-ok{background:rgba(163,217,0,.16);color:var(--grid-300)}
+  .p-a{background:rgba(245,166,35,.16);color:#f7c063}
+  .p-r{background:rgba(242,85,90,.18);color:#ff8a8e}
+  tfoot td{border-top:1px solid var(--line);border-bottom:none;font-weight:700;color:var(--ink)}
+
+  .metodo{margin-top:22px;padding-top:14px;border-top:1px solid var(--line);
+    font-size:12px;color:var(--faint);max-width:100ch}
+  .metodo b{color:var(--muted);font-weight:600}
+
+  :focus-visible{outline:2px solid var(--grid);outline-offset:2px}
+  @media (max-width:900px){
+    .kpis{grid-template-columns:repeat(2,1fr)}
+    .row{grid-template-columns:1fr}
+    .head h1{font-size:27px}
+  }
+  @media (prefers-reduced-motion:reduce){ .fill{transition:none} }
+</style>
+
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span>Plataforma de Performance<span class="chip">Mockup</span></div>
+    <div class="src">Fracttal &times; BD_Performance &middot; gerado em 26/08/2026</div>
+  </div>
+
+  <div class="head">
+    <div>
+      <h1>Athon <span>&middot;</span> Disponibilidade de agosto</h1>
+      <div class="sub">10 usinas &middot; 64,2 MWp &middot; 01&ndash;24/08/2026 &middot; janela solar 06h&ndash;18h,
+        contada em horas e minutos por dia</div>
+    </div>
+    <div class="criterio">
+      <b>Religamento</b><b>Religamento remoto</b><b>Corretiva emergencial</b>
+    </div>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi destaque">
+      <div class="lbl">Disponibilidade do cliente</div>
+      <div class="val">96,35<small>%</small></div>
+      <div class="note">ponderada pela pot&ecirc;ncia (kWp)</div>
+    </div>
+    <div class="kpi">
+      <div class="lbl">Perda estimada</div>
+      <div class="val">675,5<small> MWh</small></div>
+      <div class="note">&agrave; pot&ecirc;ncia nominal (teto)</div>
+    </div>
+    <div class="kpi">
+      <div class="lbl">OSs consideradas</div>
+      <div class="val">155</div>
+      <div class="note">dos 3 tipos, no Fracttal</div>
+    </div>
+    <div class="kpi">
+      <div class="lbl">Usinas acima de 99%</div>
+      <div class="val">3<small> de 10</small></div>
+      <div class="note">MAB200, JCD100 e MTS100</div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="card">
+      <h2>Disponibilidade por usina</h2>
+      <div class="desc">da mais afetada para a menos &middot; % do m&ecirc;s dentro da janela solar</div>
+      <div class="barras" id="barras"></div>
+    </div>
+    <div class="card">
+      <h2>O que derrubou o m&ecirc;s</h2>
+      <div class="desc">maiores eventos de agosto, pela perda estimada</div>
+      <div class="evs">
+        <div class="ev">
+          <div class="t"><em>SMP100</em> &middot; usina inteira, 4 dias</div>
+          <div class="kwh">285.275<small>kWh</small></div>
+          <div class="m">OS 10758 &middot; religamento &middot; 06/08 15:21 &rarr; 10/08 08:30</div>
+        </div>
+        <div class="ev">
+          <div class="t"><em>SMP100</em> &middot; cabine 6 parada 16 dias</div>
+          <div class="kwh">76.211<small>kWh</small></div>
+          <div class="m">OS 10313 &middot; religamento &middot; 28/07 &rarr; 13/08 15:18 (153 h solares)</div>
+        </div>
+        <div class="ev">
+          <div class="t"><em>TIM100</em> &middot; cabine 4, 5 dias</div>
+          <div class="kwh">45.881<small>kWh</small></div>
+          <div class="m">OS 10395 &middot; religamento &middot; 30/07 &rarr; 04/08 08:54</div>
+        </div>
+        <div class="ev">
+          <div class="t"><em>CPP100</em> &middot; usina inteira</div>
+          <div class="kwh">35.328<small>kWh</small></div>
+          <div class="m">OS 10689 &middot; religamento &middot; 05/08 15:15 &rarr; 06/08 10:26</div>
+        </div>
+        <div class="ev">
+          <div class="t"><em>SMP100</em> &middot; cabine 2, 2 dias</div>
+          <div class="kwh">22.642<small>kWh</small></div>
+          <div class="m">OS 11251 &middot; religamento &middot; 15/08 09:19 &rarr; 17/08 18:16</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:14px">
+    <h2>Mapa di&aacute;rio &middot; usina &times; dia</h2>
+    <div class="desc">disponibilidade de cada dia &middot; passe o mouse para o valor exato</div>
+    <div class="heat-scroll"><div class="heat" id="heat"></div></div>
+    <div class="legenda">
+      <span><i style="background:var(--surface2)"></i>100% &middot; sem evento</span>
+      <span><i class="c-ok"></i>99&ndash;100%</span>
+      <span><i class="c-a1"></i>95&ndash;99%</span>
+      <span><i class="c-a2"></i>80&ndash;95%</span>
+      <span><i class="c-r1"></i>50&ndash;80%</span>
+      <span><i class="c-r2"></i>abaixo de 50%</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Detalhe por usina</h2>
+    <div class="desc">agosto/2026 &middot; 01 a 24/08 &middot; perdas &agrave; pot&ecirc;ncia nominal</div>
+    <div style="overflow-x:auto"><table id="tab">
+      <thead><tr>
+        <th>Usina</th><th>kWp</th><th>Cabines</th><th>Inversores</th><th>OSs</th>
+        <th>Horas-eq. perdidas</th><th>Perda (kWh)</th><th>Disponibilidade</th>
+      </tr></thead>
+      <tbody></tbody>
+      <tfoot></tfoot>
+    </table></div>
+  </div>
+
+  <div class="metodo">
+    <b>Metodologia:</b> OSs do Fracttal com tipo de tarefa Religamento, Religamento Remoto ou Corretiva
+    Emergencial (canceladas fora); in&iacute;cio = event_date, fim = final_date da tarefa; interse&ccedil;&atilde;o
+    com a janela solar 06h&ndash;18h, dia a dia. Escopo pelo ativo da OS: usina &rarr; 100% do kWp; cabine &rarr;
+    kWp da UG; inversor &rarr; kWp do inversor (aba Equipamentos do BD_Performance). Sobreposi&ccedil;&otilde;es
+    n&atilde;o somam al&eacute;m de 100%. Perda = kWp afetado &times; horas indispon&iacute;veis, &agrave;
+    pot&ecirc;ncia nominal &mdash; n&atilde;o pondera irradi&acirc;ncia nem clima.
+  </div>
+</div>
+
+<div id="tip"></div>
+
+<script>
+const DADOS = {"kpi":{"disp":96.35,"kwh":675475,"oss":155,"kwp":64218,"ok99":3},"usinas":[{"u":"SMP100","disp":79.2,"h":59.9,"kwh":415166,"os":13,"kwp":6930,"cab":7,"inv":20,"dias":[90.0,73.8,90.0,90.0,90.0,67.3,0.0,0.0,0.0,64.2,90.0,90.0,92.2,100.0,91.0,90.0,89.8,100.0,100.0,100.0,92.4,100.0,100.0,100.0]},{"u":"CPP100","disp":94.87,"h":14.8,"kwh":72508,"os":59,"kwp":4910,"cab":7,"inv":14,"dias":[75.0,100.0,100.0,100.0,77.1,63.0,96.6,94.1,100.0,100.0,97.9,94.5,100.0,100.0,100.0,88.0,99.5,98.7,100.0,93.5,100.0,99.1,100.0,100.0]},{"u":"TIM100","disp":96.53,"h":10.0,"kwh":61169,"os":4,"kwp":6120,"cab":5,"inv":50,"dias":[70.6,80.0,80.0,95.2,100.0,100.0,100.0,100.0,91.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0]},{"u":"TIM200","disp":98.5,"h":4.3,"kwh":29839,"os":40,"kwp":6930,"cab":5,"inv":20,"dias":[97.7,99.8,98.7,99.6,98.9,98.1,99.4,99.1,99.9,100.0,99.4,97.6,99.4,98.2,99.5,99.4,94.0,98.8,94.4,92.0,100.0,100.0,100.0,100.0]},{"u":"MAB100","disp":98.77,"h":3.5,"kwh":21606,"os":6,"kwp":6120,"cab":5,"inv":50,"dias":[100.0,100.0,100.0,100.0,100.0,100.0,86.9,92.0,99.5,100.0,94.4,100.0,100.0,99.1,100.0,100.0,100.0,100.0,98.6,100.0,100.0,100.0,100.0,100.0]},{"u":"MRO100","disp":98.92,"h":3.1,"kwh":21663,"os":4,"kwp":6942,"cab":2,"inv":25,"dias":[100.0,100.0,100.0,100.0,97.6,96.9,100.0,100.0,100.0,96.5,96.0,96.0,96.0,96.0,100.0,99.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0]},{"u":"MTS200","disp":98.98,"h":2.9,"kwh":17761,"os":2,"kwp":6048,"cab":2,"inv":40,"dias":[100.0,76.1,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,99.4,100.0,100.0,100.0]},{"u":"MAB200","disp":99.06,"h":2.7,"kwh":17799,"os":9,"kwp":6544,"cab":5,"inv":50,"dias":[100.0,100.0,100.0,100.0,100.0,100.0,99.5,98.0,98.0,99.5,100.0,100.0,100.0,100.0,96.0,100.0,100.0,100.0,100.0,99.0,99.0,99.2,89.3,100.0]},{"u":"JCD100","disp":99.23,"h":2.2,"kwh":15672,"os":15,"kwp":7049,"cab":9,"inv":20,"dias":[100.0,100.0,99.0,98.6,100.0,98.5,99.0,100.0,100.0,100.0,100.0,100.0,97.7,100.0,100.0,100.0,100.0,99.5,92.8,99.2,100.0,100.0,98.8,98.6]},{"u":"MTS100","disp":99.88,"h":0.3,"kwh":2292,"os":2,"kwp":6625,"cab":6,"inv":40,"dias":[100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,100.0,97.1,100.0]}]};
+
+const fmt = n => n.toLocaleString('pt-BR');
+const fmtp = n => n.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+function corBarra(d){
+  if (d >= 99) return 'var(--grid-600)';
+  if (d >= 95) return 'var(--amber)';
+  if (d >= 80) return 'var(--amber)';
+  return 'var(--red)';
+}
+function classeCel(d){
+  if (d >= 99.95) return '';
+  if (d >= 99) return 'c-ok';
+  if (d >= 95) return 'c-a1';
+  if (d >= 80) return 'c-a2';
+  if (d >= 50) return 'c-r1';
+  return 'c-r2';
+}
+function classePill(d){ return d >= 99 ? 'p-ok' : d >= 95 ? 'p-a' : d >= 80 ? 'p-a' : 'p-r'; }
+
+// barras
+const bar = document.getElementById('barras');
+for (const u of DADOS.usinas){
+  const row = document.createElement('div');
+  row.className = 'linha-b';
+  row.innerHTML = `<div class="u">${u.u}</div>
+    <div class="trilho"><div class="fill" style="background:${corBarra(u.disp)}"></div></div>
+    <div class="v">${fmtp(u.disp)}%</div>`;
+  bar.appendChild(row);
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    row.querySelector('.fill').style.width = u.disp + '%';
+  }));
+}
+
+// heatmap
+const heat = document.getElementById('heat');
+heat.insertAdjacentHTML('beforeend', '<div></div>');
+for (let d = 1; d <= 24; d++)
+  heat.insertAdjacentHTML('beforeend', `<div class="hd">${String(d).padStart(2,'0')}</div>`);
+const tip = document.getElementById('tip');
+for (const u of DADOS.usinas){
+  heat.insertAdjacentHTML('beforeend', `<div class="hu">${u.u}</div>`);
+  u.dias.forEach((v, i) => {
+    const c = document.createElement('div');
+    c.className = 'cel ' + classeCel(v);
+    c.dataset.txt = `${u.u} · ${String(i+1).padStart(2,'0')}/08 — <b>${fmtp(v)}%</b>`;
+    heat.appendChild(c);
+  });
+}
+heat.addEventListener('mousemove', e => {
+  const c = e.target.closest('.cel');
+  if (!c){ tip.style.display = 'none'; return; }
+  tip.innerHTML = c.dataset.txt;
+  tip.style.display = 'block';
+  const x = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 10);
+  tip.style.left = x + 'px';
+  tip.style.top = (e.clientY + 16) + 'px';
+});
+heat.addEventListener('mouseleave', () => tip.style.display = 'none');
+
+// tabela
+const tb = document.querySelector('#tab tbody');
+for (const u of DADOS.usinas){
+  tb.insertAdjacentHTML('beforeend', `<tr>
+    <td>${u.u}</td><td>${fmt(u.kwp)}</td><td>${u.cab}</td><td>${u.inv}</td><td>${u.os}</td>
+    <td>${u.h.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})}</td>
+    <td>${fmt(u.kwh)}</td>
+    <td><span class="pill ${classePill(u.disp)}">${fmtp(u.disp)}%</span></td></tr>`);
+}
+const k = DADOS.kpi;
+document.querySelector('#tab tfoot').innerHTML = `<tr>
+  <td>Athon</td><td>${fmt(k.kwp)}</td><td></td><td></td><td>${k.oss}</td><td></td>
+  <td>${fmt(k.kwh)}</td><td><span class="pill ${classePill(k.disp)}">${fmtp(k.disp)}%</span></td></tr>`;
+</script>

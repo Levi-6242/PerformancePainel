@@ -1,13 +1,13 @@
 # CLAUDE.md — mapa do repositório
 
-Quatro projetos independentes da Grid Co, um repositório. **Cada pasta tem seu próprio CLAUDE.md**
+Projetos independentes da Grid Co, um repositório. **O OS Creator saiu deste repositório em 28/08/2026** e vive em [Grid-Co-CODE/oem](https://github.com/Grid-Co-CODE/oem), junto com o pacote `chamado_garantia`, que só ele usava. **Cada pasta tem seu próprio CLAUDE.md**
 com o que é específico dela — leia o da pasta em que estiver trabalhando.
 
 | Pasta | Projeto | O que é |
 |---|---|---|
 | `plataforma/` | Plataforma de Performance + ronda de trackers | Flask na porta **5050**, uso interno. É o maior (`app.py`, ~17 mil linhas) |
 | `coletor/` | Coletor automatizado de dados | Scripts de coleta que alimentam as planilhas |
-| `os_creator/` | OS Creator | App de desktop (PyQt6) que cria OS no Fracttal |
+| ~~`os_creator/`~~ | OS Creator | **Migrado em 28/08/2026** para [Grid-Co-CODE/oem](https://github.com/Grid-Co-CODE/oem) — ver `os_creator/MOVIDO.md` |
 | `thopen/` | Dashboard BD_Thopen | Flask na porta **5080**, produto para o **cliente**, publicado no Railway |
 
 Documentação de arquitetura e regras de negócio: `README.md` e `docs/`.

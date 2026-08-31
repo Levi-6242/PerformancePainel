@@ -63,9 +63,6 @@
          padding:12px 14px; box-shadow:0 1px 3px rgba(0,0,0,.04); min-width:0; overflow:hidden; }
   .card h3{ margin:0 0 8px; font-size:12px; font-weight:700; color:#555;
             text-transform:uppercase; letter-spacing:.5px; text-align:center; }
-  /* Unidade NUNCA entra no uppercase do título: kWh viraria "KWH", e W/m² viraria "W/M²".
-     Em SI a caixa muda o significado (k=quilo, M=mega, m=mili), então isto não é estética. */
-  .card h3 .un{ text-transform:none; }
   table{ width:100%; border-collapse:collapse; font-size:12.5px; }
   th,td{ padding:6px 9px; text-align:right; border-bottom:1px solid #eef0f3; white-space:nowrap; }
   th:first-child,td:first-child{ text-align:left; font-weight:600; }
@@ -151,7 +148,7 @@
     <div class="fld" id="fldUsina"><label>USINA</label><select id="selUsina"></select></div>
     <div class="fld" id="fldMes"><label>MÊS</label><select id="selMes"></select></div>
     <div id="subinfo" style="margin-left:auto;color:var(--muted);font-size:12px;"></div>
-    <button id="btnRefresh" title="Recarregar os dados da planilha (BD_Thopen.xlsx)">🔄 Atualizar</button>
+    <button id="btnRefresh" title="Buscar os dados mais recentes do banco">🔄 Atualizar</button>
     <button id="btnPdf" title="Baixar PDF — página 1 Mensal, página 2 Diário">⤓ Baixar PDF</button>
     <button id="btnPdfAll" title="Monta o RELATÓRIO da carteira (Capa → Visão Geral → Mensal/Diário de cada usina) e abre a impressão — Salvar como PDF">⤓ PDF Carteira</button>
   </div>
@@ -169,10 +166,10 @@
     <div class="header pgh"><h1>Performance da Usina — <span class="u-nome"></span></h1><div class="brand"><div class="g">Grid Co.</div><div class="t">THOPEN</div></div></div>
     <div class="sec">COMPARATIVO DE PRODUÇÃO DE ENERGIA E IRRADIAÇÃO - <u>DIÁRIO</u></div>
     <div class="grid">
-      <div class="card" style="display:flex;flex-direction:column"><h3>Energia (<span class="un">kWh</span>) × Irradiação (<span class="un">kWh/m²</span>)</h3><div id="chDiario" style="flex:1;min-height:280px"></div></div>
+      <div class="card" style="display:flex;flex-direction:column"><h3>Energia (kWh) × Irradiação (kWh/m²)</h3><div id="chDiario" style="flex:1;min-height:280px"></div></div>
       <div class="col">
-        <div class="card"><h3>Energia Acumulada no Mês (<span class="un">kWh</span>)</h3><div id="chAcum" style="height:150px"></div></div>
-        <div class="card"><h3>Irradiação no Mês (<span class="un">kWh/m²</span>)</h3>
+        <div class="card"><h3>Energia Acumulada no Mês (kWh)</h3><div id="chAcum" style="height:150px"></div></div>
+        <div class="card"><h3>Irradiação no Mês (kWh/m²)</h3>
           <div class="kpi-row">
             <div><div class="kpi-big" id="irrReal">—</div><div class="kpi-lbl">Real</div></div>
             <div><div class="kpi-big" id="irrMeta">—</div><div class="kpi-lbl">Meta</div></div>
@@ -187,7 +184,7 @@
       <div class="card"><h3>Comentários</h3>
         <div class="cmt-wrap"><table id="tblCmt"><thead><tr><th>Usina</th><th>Data</th><th>Comentário</th></tr></thead><tbody></tbody></table></div>
       </div>
-      <div class="card"><h3>Produção de Energia Anual (<span class="un">kWh</span>)</h3><div id="chAnual" style="height:250px"></div></div>
+      <div class="card"><h3>Produção de Energia Anual (kWh)</h3><div id="chAnual" style="height:250px"></div></div>
     </div>
     <div class="card cx-card" style="margin-top:14px">
       <h3 class="cx-title">Comentários adicionais</h3>
@@ -244,14 +241,7 @@ const $=id=>document.getElementById(id);
 const get=u=>fetch(u).then(r=>r.json());
 const CFG={displayModeBar:false,responsive:true};
 const BASE={paper_bgcolor:'#fff',plot_bgcolor:'#fff',font:{color:'#33363d',size:11},
-  separators:',.',   // pt-BR no hover do Plotly: vírgula decimal, ponto de milhar
   margin:{l:54,r:16,t:14,b:36}};
-
-// Balão do gráfico: 2 casas decimais + unidade (o padrão do Plotly mostra "59.74777").
-// <extra> troca o box lateral pelo nome da série, em vez do rótulo cru.
-const hov  = u => '%{x}<br><b>%{y:,.2f} '+u+'</b><extra>%{fullData.name}</extra>';
-const hovH = u => '%{y}<br><b>%{x:,.2f} '+u+'</b><extra></extra>';   // barra horizontal (Anual): valor no X
-const hovS = u => '%{x}<br><b>%{y:,.2f} '+u+'</b><extra></extra>';   // sem legenda (Acumulado)
 
 function mix(c1,c2,t){
   const p=h=>[parseInt(h.slice(1,3),16),parseInt(h.slice(3,5),16),parseInt(h.slice(5,7),16)];
@@ -379,7 +369,7 @@ async function loadUsina(){
   $('secMensalU').textContent=OV.nome||usina;
   $('subinfo').textContent=(OV.cliente?('Cliente: '+OV.cliente+'  ·  '):'')
       +(OV.potencia_mwp?(nf2.format(OV.potencia_mwp)+' MWp'):'')+(loc?('  ·  '+loc):'')
-      +(OV.planilha_em?('  ·  Planilha: '+OV.planilha_em):'');
+      +(OV.planilha_em?('  ·  Dados de: '+OV.planilha_em):'');
   setComExtra(OV.comentario_extra||'');   // texto adicional da usina (por usina, independe do mês)
   // usa o filtro de MÊS GLOBAL (não repopula/reseta por usina) — mantém o mês escolhido ao trocar
   const mv=$('selMes').value || `${OV.ano}-${new Date().getMonth()+1}`;
@@ -431,7 +421,7 @@ function renderMensal(selMes){
   // slot FIXO por série (alignmentgroup comum + offsetgroup único): sem isso, nos meses em que uma
   // série é nula (ex.: Produzida 2026 em ago–dez) o Plotly redistribui o espaço e ALARGA as barras
   // restantes. Com o slot reservado, toda barra fica com a MESMA largura o ano inteiro.
-  traces.forEach((t,i)=>{ t.alignmentgroup='m'; t.offsetgroup=String(i); t.hovertemplate=hov('MWh'); });
+  traces.forEach((t,i)=>{ t.alignmentgroup='m'; t.offsetgroup=String(i); });
   const lay=Object.assign({},BASE,{barmode:'group',
     legend:{orientation:'h',x:0.5,xanchor:'center',y:-0.12},
     yaxis:{title:'Energia (MWh)',gridcolor:'#eceef2',zeroline:false},
@@ -484,7 +474,7 @@ function renderAnual(selMes){
   const cores=a.map(d=>COR[d.label]||'#9aa0a6');
   const tr={y,x:xv,type:'bar',orientation:'h',marker:{color:cores},
     text:a.map(d=>d.valor==null?'':nf0.format(d.valor)),textposition:'outside',
-    textfont:{size:9},cliponaxis:false,hovertemplate:hovH('kWh')};
+    textfont:{size:9},cliponaxis:false};
   const H=a.length*44+32;
   const lay=Object.assign({},BASE,{height:H,margin:{l:130,r:60,t:8,b:24},bargap:0.32,
     xaxis:{gridcolor:'#eceef2',zeroline:false},
@@ -507,11 +497,11 @@ async function renderDiario(ano,mes){
   const mn=Math.min(...gers), mx=Math.max(...gers), rng=(mx-mn)||1;
   const cores=gers.map(g=>mix('#FFDD1F','#FF484C',(g-mn)/rng));  // baixo=#FFDD1F (amarelo), alto=#FF484C (vermelho)
   const bars={x,y:d.pontos.map(p=>p.ger),type:'bar',name:'Energia Produzida (kWh)',
-    marker:{color:cores},hovertemplate:hov('kWh')};
+    marker:{color:cores}};
   const irr={x,y:d.pontos.map(p=>p.ipoa),type:'scatter',mode:'lines',name:'Irradiação (kWh/m²)',
-    line:{color:'#222',width:1.5},yaxis:'y2',hovertemplate:hov('kWh/m²')};
+    line:{color:'#222',width:1.5},yaxis:'y2'};
   const meta={x,y:x.map(()=>d.meta_dia),type:'scatter',mode:'lines',name:'Meta (kWh)',
-    line:{color:'#2456c7',width:2},hovertemplate:hov('kWh')};
+    line:{color:'#2456c7',width:2}};
   const lay=Object.assign({},BASE,{margin:{l:56,r:54,t:10,b:54},
     legend:{orientation:'h',x:0.5,xanchor:'center',y:-0.22},
     xaxis:{tickmode:'array',tickvals:x,ticktext:ticktext,tickangle:0,tickfont:{size:8},gridcolor:'#fff'},
@@ -523,7 +513,7 @@ async function renderDiario(ano,mes){
   const k=d.kpis;
   const acum={x:['Produzida','Meta'],y:[k.acum_prod,k.acum_meta],type:'bar',
     marker:{color:[ORA,NAVY]},text:[nf0.format(k.acum_prod||0),nf0.format(k.acum_meta||0)],
-    textposition:'outside',textfont:{size:11},cliponaxis:false,hovertemplate:hovS('kWh')};
+    textposition:'outside',textfont:{size:11},cliponaxis:false};
   Plotly.react('chAcum',[acum],Object.assign({},BASE,{showlegend:false,bargap:0.44,
     margin:{l:8,r:8,t:8,b:22},xaxis:{gridcolor:'#fff'},
     yaxis:{visible:false}}),CFG);
@@ -683,40 +673,21 @@ window.addEventListener('afterprint',()=>{
   ['chMensal','chDiario','chAcum','chAnual'].forEach(id=>{const d=$(id); if(d&&d.data&&d.data.length) Plotly.Plots.resize(d);});
 });
 
-// ───────── atualizar dados (força o backend a reler o BD_Thopen.xlsx) ─────────
+// ───────── atualizar dados (força o backend a reler o banco) ─────────
+// Antes daqui saía também um pedido de republicação: a nuvem servia um SNAPSHOT de planilhas,
+// e alguém no PC da Grid tinha de copiar e publicar de novo. Desde 28/08/2026 o dashboard lê
+// direto do PostgreSQL — não há snapshot para republicar, e o botão só relê o banco.
 async function refreshBD(){
   const btn=$('btnRefresh'), old=btn.textContent; btn.disabled=true; btn.textContent='Atualizando…';
   const usinaAtual=$('selUsina').value;
   try{
-    await get('/api/t/reload');                  // backend relê o xlsx (limpa cache)
+    await get('/api/t/reload');                  // backend relê o banco (limpa cache)
     const u=await get('/api/t/usinas');          // lista de usinas (caso tenha entrado nova)
     USINAS=u.usinas||[]; CARTDE=u.carteira_de||{};
     preencheSelUsina(usinaAtual);                // respeita a carteira ativa
     await loadUsina();                           // re-renderiza no MÊS global atual (preservado)
-    // Na nuvem o dado é um snapshot: pede ao PC da Grid que republique com o BD de hoje.
-    const antes=(await get('/api/t/versao')).planilha_em;
-    const r=await fetch('/api/t/publicar',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:'{}'}).then(x=>x.json());
-    if(r && r.modo==='nuvem' && r.estado==='pedido') await aguardaPublicacao(btn, antes);
-    else if(r && r.msg) btn.title=r.msg;
   }catch(e){ alert('Falha ao atualizar: '+(e&&e.message||e)); }
   finally{ btn.disabled=false; btn.textContent=old; }
-}
-
-// Espera o PC da Grid republicar. Detecta pelo carimbo da planilha mudando — funciona
-// mesmo com o servidor reiniciando no meio (é o que acontece quando a nuvem republica).
-async function aguardaPublicacao(btn, antes){
-  const ate=Date.now()+7*60*1000;               // desiste em 7 min
-  while(Date.now()<ate){
-    await new Promise(r=>setTimeout(r,10000));
-    const falta=Math.max(0,Math.round((ate-Date.now())/1000));
-    btn.textContent='Publicando… '+Math.floor(falta/60)+':'+String(falta%60).padStart(2,'0');
-    try{
-      const v=await get('/api/t/versao');
-      if(v && v.planilha_em && v.planilha_em!==antes){ location.reload(); return; }
-    }catch(e){ /* servidor reiniciando durante a republicação — segue tentando */ }
-  }
-  btn.title='A publicação demorou mais que o previsto. Recarregue a página em alguns minutos.';
 }
 $('btnRefresh').onclick=refreshBD;
 

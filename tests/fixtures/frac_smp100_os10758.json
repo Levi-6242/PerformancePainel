@@ -1,0 +1,328 @@
+{
+ "tasks": [
+  {
+   "wo_folio": "10758",
+   "creation_date": "2026-08-06T18:25:39.095605+00:00",
+   "event_date": "2026-08-06T18:21:03.64+00:00",
+   "date_maintenance": "2026-08-06T18:31:03.64+00:00",
+   "final_date": "2026-08-10T11:30:58.542548+00:00",
+   "wo_final_date": null,
+   "id_status_work_order": 2,
+   "tasks_log_task_type_main": "Religamento",
+   "items_log_description": "Athon - Santa Maria do Pará 1 - PA  Santa Maria do Pará  Pará Brasil { ATHN-SMP100 }",
+   "groups_1_description": "Athon - Santa Maria do Pará 1 - PA",
+   "description": "[Usina] - Religamento da Usina",
+   "code": "ATHN-SMP100"
+  }
+ ],
+ "equip": [
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "UFV",
+   "parente": "",
+   "pot_kwp": 6930,
+   "n_inv": 20,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "UG 01",
+   "parente": "UFV",
+   "pot_kwp": 1386,
+   "n_inv": 4,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "UG 02",
+   "parente": "UFV",
+   "pot_kwp": 693,
+   "n_inv": 2,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "UG 03",
+   "parente": "UFV",
+   "pot_kwp": 1386,
+   "n_inv": 4,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "UG 04",
+   "parente": "UFV",
+   "pot_kwp": 693,
+   "n_inv": 2,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "UG 05",
+   "parente": "UFV",
+   "pot_kwp": 693,
+   "n_inv": 2,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "UG 06",
+   "parente": "UFV",
+   "pot_kwp": 693,
+   "n_inv": 2,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "UG 07",
+   "parente": "UFV",
+   "pot_kwp": 1386,
+   "n_inv": 4,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 1.1",
+   "parente": "UG 01",
+   "pot_kwp": 336.6,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 1.2",
+   "parente": "UG 01",
+   "pot_kwp": 356.4,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 1.3",
+   "parente": "UG 01",
+   "pot_kwp": 336.6,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 1.4",
+   "parente": "UG 01",
+   "pot_kwp": 356.4,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 2.1",
+   "parente": "UG 02",
+   "pot_kwp": 356.4,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 2.2",
+   "parente": "UG 02",
+   "pot_kwp": 336.6,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 3.1",
+   "parente": "UG 03",
+   "pot_kwp": 336.6,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 3.2",
+   "parente": "UG 03",
+   "pot_kwp": 356.4,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 3.3",
+   "parente": "UG 03",
+   "pot_kwp": 336.6,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 3.4",
+   "parente": "UG 03",
+   "pot_kwp": 356.4,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 4.1",
+   "parente": "UG 04",
+   "pot_kwp": 356.4,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 4.2",
+   "parente": "UG 04",
+   "pot_kwp": 336.6,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 5.1",
+   "parente": "UG 05",
+   "pot_kwp": 356.4,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 5.2",
+   "parente": "UG 05",
+   "pot_kwp": 336.6,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 6.1",
+   "parente": "UG 06",
+   "pot_kwp": 356.4,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 6.2",
+   "parente": "UG 06",
+   "pot_kwp": 336.6,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 7.1",
+   "parente": "UG 07",
+   "pot_kwp": 336.6,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 7.2",
+   "parente": "UG 07",
+   "pot_kwp": 356.4,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 7.3",
+   "parente": "UG 07",
+   "pot_kwp": 336.6,
+   "n_inv": 1,
+   "full_om": "Sim"
+  },
+  {
+   "cliente": "Athon",
+   "usina": "SMP100",
+   "usina_sup": "SMP100",
+   "usina_fracttal": "Athon - Santa Maria do Pará 1 - PA",
+   "equipamento": "Inversor 7.4",
+   "parente": "UG 07",
+   "pot_kwp": 356.4,
+   "n_inv": 1,
+   "full_om": "Sim"
+  }
+ ]
+}

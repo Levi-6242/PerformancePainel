@@ -46,7 +46,7 @@ ufv_state.json              → estado por UFV ("em manutenção", flags de UI) 
 #   dashboard_thopen.py / dashboard_geracao.py (apps Flask SEPARADOS, portas próprias 5080/etc),
 #   collect_energy.py / coletar_geracao_hoje.py (coletores standalone, não importados),
 #   tests/ + conftest.py + pytest.ini + requirements-dev.txt (testes; rodar do repo, não do pacote),
-#   Procfile + railway.toml (deploy Linux/Railway), os_creator/ (app desktop PyQt6 de OS)
+#   Procfile + railway.toml (deploy Linux/Railway), os_creator/ (MIGRADO 28/08 -> Grid-Co-CODE/oem)
 ```
 
 ## Variáveis de ambiente (.env)

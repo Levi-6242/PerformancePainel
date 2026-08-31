@@ -1,0 +1,1696 @@
+[
+  {
+    "display": "Altair 1 (73)",
+    "fracttal_codebase": "ALT100",
+    "fracttal_nome": "Thopen - Altair 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Altair 1 (73)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 22860
+    }
+  },
+  {
+    "display": "Altair 2 (74)",
+    "fracttal_codebase": "ALT100",
+    "fracttal_nome": "Thopen - Altair 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Altair 2 (74)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 60061
+    }
+  },
+  {
+    "display": "Altair 3 (75)",
+    "fracttal_codebase": "ALT100",
+    "fracttal_nome": "Thopen - Altair 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Altair 3 (75)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 60062
+    }
+  },
+  {
+    "display": "Altair 4 (76)",
+    "fracttal_codebase": "ALT100",
+    "fracttal_nome": "Thopen - Altair 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Altair 4 (76)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 22861
+    }
+  },
+  {
+    "display": "Altair 5 (77)",
+    "fracttal_codebase": "ALT100",
+    "fracttal_nome": "Thopen - Altair 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Altair 5 (77)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 22862
+    }
+  },
+  {
+    "display": "Alto Paraná 1",
+    "fracttal_codebase": "APR100",
+    "fracttal_nome": "Thopen - Alto Paraná 1 - PR",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Alto Parana 1 (40)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18749270
+    }
+  },
+  {
+    "display": "Alto Paraná 2",
+    "fracttal_codebase": "APR200",
+    "fracttal_nome": "Thopen - Alto Paraná 2 - PR",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Alto Parana 2 (42)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18749124
+    }
+  },
+  {
+    "display": "(298) Aparecida 3",
+    "fracttal_codebase": "APR300",
+    "fracttal_nome": "Thopen - Aparecida 3 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": "(298) Aparecida 3",
+    "dois_c_owen": null,
+    "fontes": [
+      "pg"
+    ],
+    "_plant_ids": {
+      "pg": "8"
+    }
+  },
+  {
+    "display": "(299) Araçoiaba da Serra 1",
+    "fracttal_codebase": "ADS100",
+    "fracttal_nome": "Thopen - Araçoiaba da Serra 1- SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": "(299) Araçoiaba da Serra 1",
+    "dois_c_owen": null,
+    "fontes": [
+      "pg"
+    ],
+    "_plant_ids": {
+      "pg": "16"
+    }
+  },
+  {
+    "display": "(300) Araçoiaba da Serra 2",
+    "fracttal_codebase": "ADS200",
+    "fracttal_nome": "Thopen - Araçoiaba da Serra 2 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": "(300) Araçoiaba da Serra 2",
+    "dois_c_owen": null,
+    "fontes": [
+      "pg"
+    ],
+    "_plant_ids": {
+      "pg": "18"
+    }
+  },
+  {
+    "display": "Araputanga",
+    "fracttal_codebase": "APG100",
+    "fracttal_nome": "2C - Araputanga 1 - MT",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": null,
+    "dois_c_owen": "ARA",
+    "fontes": [
+      "owen"
+    ],
+    "_plant_ids": {
+      "owen": "ARA"
+    }
+  },
+  {
+    "display": "Barretos 1 (83)",
+    "fracttal_codebase": "BRS100",
+    "fracttal_nome": "Thopen - Barretos 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Barretos 1 (83)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 297410
+    }
+  },
+  {
+    "display": "Barretos 2 (83)",
+    "fracttal_codebase": "BRS100",
+    "fracttal_nome": "Thopen - Barretos 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Barretos 2 (83)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 297415
+    }
+  },
+  {
+    "display": "Belo Jardim",
+    "fracttal_codebase": "BJD100",
+    "fracttal_nome": "Thopen - Belo Jardim  1 - PE",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Belo Jardim (588)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18748867
+    }
+  },
+  {
+    "display": "(289) Boa Esperança do Sul 1",
+    "fracttal_codebase": "BES100",
+    "fracttal_nome": "Thopen - Boa Esperança do Sul 1 e 2 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": "(289) Boa Esperança do Sul 1",
+    "dois_c_owen": null,
+    "fontes": [
+      "pg"
+    ],
+    "_plant_ids": {
+      "pg": "21"
+    }
+  },
+  {
+    "display": "Brodowski - Skid 1 (86)",
+    "fracttal_codebase": "BWK100",
+    "fracttal_nome": "Thopen - Brodowski 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Brodowski - Skid 1 (86)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 297381
+    }
+  },
+  {
+    "display": "Brodowski - Skid 2 (86)",
+    "fracttal_codebase": "BWK100",
+    "fracttal_nome": "Thopen - Brodowski 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Brodowski - Skid 2 (86)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 297378
+    }
+  },
+  {
+    "display": "(292) Caxambu",
+    "fracttal_codebase": "CXB100",
+    "fracttal_nome": "Thopen - Caxambu 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": "(292) Caxambu",
+    "dois_c_owen": null,
+    "fontes": [
+      "pg"
+    ],
+    "_plant_ids": {
+      "pg": "23"
+    }
+  },
+  {
+    "display": "Ceilândia 1.1 (89)",
+    "fracttal_codebase": "CLN100",
+    "fracttal_nome": "Thopen - Ceilândia 1 - DF",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Ceilândia 1.1 (89)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 53241
+    }
+  },
+  {
+    "display": "Ceilândia 1.2 (90)",
+    "fracttal_codebase": "CLN100",
+    "fracttal_nome": "Thopen - Ceilândia 1 - DF",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Ceilândia 1.2 (90)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 53243
+    }
+  },
+  {
+    "display": "Ceilândia 1.3 (91)",
+    "fracttal_codebase": "CLN100",
+    "fracttal_nome": "Thopen - Ceilândia 1 - DF",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Ceilândia 1.3 (91)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 53213
+    }
+  },
+  {
+    "display": "Ceilândia II - Atena (92)",
+    "fracttal_codebase": "CLN200",
+    "fracttal_nome": "Thopen - Ceilândia 2 - DF",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Ceilândia II - Atena (92)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 22844
+    }
+  },
+  {
+    "display": "Ceilândia II - Cedro Rosa (10)",
+    "fracttal_codebase": "CLN200",
+    "fracttal_nome": "Thopen - Ceilândia 2 - DF",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Ceilândia II - Cedro Rosa (10)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 22843
+    }
+  },
+  {
+    "display": "Ceilândia II - Pinheiro (93)",
+    "fracttal_codebase": "CLN200",
+    "fracttal_nome": "Thopen - Ceilândia 2 - DF",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Ceilândia II - Pinheiro (93)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 22841
+    }
+  },
+  {
+    "display": "Ceilândia II - Pitangueira (94)",
+    "fracttal_codebase": "CLN200",
+    "fracttal_nome": "Thopen - Ceilândia 2 - DF",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Ceilândia II - Pitangueira (94)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 22842
+    }
+  },
+  {
+    "display": "Céu Azul I (102)",
+    "fracttal_codebase": "CAZ100",
+    "fracttal_nome": "Thopen - Céu Azul 1 - PR",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Céu Azul I (102)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 60006
+    }
+  },
+  {
+    "display": "Céu Azul II (103)",
+    "fracttal_codebase": "CAZ100",
+    "fracttal_nome": "Thopen - Céu Azul 1 - PR",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Céu Azul II (103)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 60009
+    }
+  },
+  {
+    "display": "Céu Azul III (104)",
+    "fracttal_codebase": "CAZ100",
+    "fracttal_nome": "Thopen - Céu Azul 1 - PR",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Céu Azul III (104)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 60010
+    }
+  },
+  {
+    "display": "Cidade Gaucha",
+    "fracttal_codebase": "CGH100",
+    "fracttal_nome": "Thopen - Cidade Gaúcha 1 - PR",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Cidade Gaúcha (105)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18744655
+    }
+  },
+  {
+    "display": "Colorado 1",
+    "fracttal_codebase": "CLR100",
+    "fracttal_nome": "Thopen - Colorado 1 - PR",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Colorado 1 (109)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18747567
+    }
+  },
+  {
+    "display": "Colorado 2",
+    "fracttal_codebase": "CLR200",
+    "fracttal_nome": "Thopen - Colorado 2 - PR",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Colorado 2 (110)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18748888
+    }
+  },
+  {
+    "display": "Coração 1",
+    "fracttal_codebase": "COR100",
+    "fracttal_nome": "Thopen - Coração 1 - SC",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Coração 1 (111)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18747862
+    }
+  },
+  {
+    "display": "Coração 2",
+    "fracttal_codebase": null,
+    "fracttal_nome": null,
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Coração 2 (112)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18747863
+    }
+  },
+  {
+    "display": "Corrego Sapucaia 1 (113)",
+    "fracttal_codebase": "CDS100",
+    "fracttal_nome": "Thopen - Córrego do Sapucaia 1 - ES",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Corrego Sapucaia 1 (113)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18748680
+    }
+  },
+  {
+    "display": "Corrego Sapucaia 2 (114)",
+    "fracttal_codebase": "CDS100",
+    "fracttal_nome": "Thopen - Córrego do Sapucaia 1 - ES",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Corrego Sapucaia 2 (114)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18748693
+    }
+  },
+  {
+    "display": "CPP100",
+    "fracttal_codebase": "CPP100",
+    "fracttal_nome": "Athon - Capitão Poço 1 - PA",
+    "athon_sunop": "CPP100",
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "sunop"
+    ],
+    "_plant_ids": {}
+  },
+  {
+    "display": "Embu Guaçu 1 (119)",
+    "fracttal_codebase": "EBG100",
+    "fracttal_nome": "Thopen - Embu Guaçu 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Embu Guaçu 1 (119)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 21511
+    }
+  },
+  {
+    "display": "Embu Guaçu 2 (120)",
+    "fracttal_codebase": "EBG100",
+    "fracttal_nome": "Thopen - Embu Guaçu 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Embu Guaçu 2 (120)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 21512
+    }
+  },
+  {
+    "display": "Embu Guaçu 3 (121)",
+    "fracttal_codebase": "EBG100",
+    "fracttal_nome": "Thopen - Embu Guaçu 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Embu Guaçu 3 (121)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 21513
+    }
+  },
+  {
+    "display": "Fazenda Limão 1 (122)",
+    "fracttal_codebase": "FZL100",
+    "fracttal_nome": "Thopen - Fazenda Limão 1 - RJ",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Fazenda Limão 1 (122)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18746249
+    }
+  },
+  {
+    "display": "Fazenda Limão 2 (122)",
+    "fracttal_codebase": "FZL100",
+    "fracttal_nome": "Thopen - Fazenda Limão 1 - RJ",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Fazenda Limão 2 (122)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18746250
+    }
+  },
+  {
+    "display": "Fernandópolis 1 (123)",
+    "fracttal_codebase": "FRN100",
+    "fracttal_nome": "Thopen - Fernandópolis 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Fernandópolis 1 (123)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 338980
+    }
+  },
+  {
+    "display": "Fernandópolis 2 (125)",
+    "fracttal_codebase": "FRN100",
+    "fracttal_nome": "Thopen - Fernandópolis 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Fernandópolis 2 (125)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 338984
+    }
+  },
+  {
+    "display": "Fernandópolis 3 (124)",
+    "fracttal_codebase": "FRN100",
+    "fracttal_nome": "Thopen - Fernandópolis 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Fernandópolis 3 (124)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 338983
+    }
+  },
+  {
+    "display": "(295) Goytacazes 1",
+    "fracttal_codebase": "GYT100",
+    "fracttal_nome": "Thopen - Campos dos Goytacazes 1 - RJ",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": "(295) Goytacazes 1",
+    "dois_c_owen": null,
+    "fontes": [
+      "pg"
+    ],
+    "_plant_ids": {
+      "pg": "27"
+    }
+  },
+  {
+    "display": "(305) Guaratinguetá V",
+    "fracttal_codebase": "GTA500",
+    "fracttal_nome": "Thopen - Guaratingueta 5 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": "(305) Guaratinguetá V",
+    "dois_c_owen": null,
+    "fontes": [
+      "pg"
+    ],
+    "_plant_ids": {
+      "pg": "26"
+    }
+  },
+  {
+    "display": "Guatambu 1 (127)",
+    "fracttal_codebase": "GTB100",
+    "fracttal_nome": "Thopen - Guatambú 1 - SC",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Guatambu 1 (127)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18747509
+    }
+  },
+  {
+    "display": "Guatambu 2 (129)",
+    "fracttal_codebase": "GTB100",
+    "fracttal_nome": "Thopen - Guatambú 1 - SC",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Guatambu 2 (129)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18747510
+    }
+  },
+  {
+    "display": "Guatambu 3 (130)",
+    "fracttal_codebase": "GTB100",
+    "fracttal_nome": "Thopen - Guatambú 1 - SC",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Guatambu 3 (130)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18747508
+    }
+  },
+  {
+    "display": "Guatambu 4 (128)",
+    "fracttal_codebase": "GTB100",
+    "fracttal_nome": "Thopen - Guatambú 1 - SC",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Guatambu 4 (128)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18747511
+    }
+  },
+  {
+    "display": "(306) Ibaté 1",
+    "fracttal_codebase": "IBT100",
+    "fracttal_nome": "Thopen - Ibaté 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": "(306) Ibaté 1",
+    "dois_c_owen": null,
+    "fontes": [
+      "pg"
+    ],
+    "_plant_ids": {
+      "pg": "1"
+    }
+  },
+  {
+    "display": "(307) Ibaté 2",
+    "fracttal_codebase": "IBT200",
+    "fracttal_nome": "Thopen - Ibaté 2 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": "(307) Ibaté 2",
+    "dois_c_owen": null,
+    "fontes": [
+      "pg"
+    ],
+    "_plant_ids": {
+      "pg": "2"
+    }
+  },
+  {
+    "display": "Indaiatuba 1 (131)",
+    "fracttal_codebase": "IND100",
+    "fracttal_nome": "Thopen - Indaiatuba 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Indaiatuba 1 (131)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 21480
+    }
+  },
+  {
+    "display": "Indaiatuba 2 (133)",
+    "fracttal_codebase": "IND100",
+    "fracttal_nome": "Thopen - Indaiatuba 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Indaiatuba 2 (133)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 21481
+    }
+  },
+  {
+    "display": "Indaiatuba 3 (132)",
+    "fracttal_codebase": "IND100",
+    "fracttal_nome": "Thopen - Indaiatuba 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Indaiatuba 3 (132)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 21482
+    }
+  },
+  {
+    "display": "Indaiatuba 4 (3)",
+    "fracttal_codebase": "IND100",
+    "fracttal_nome": "Thopen - Indaiatuba 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Indaiatuba 4 (3)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 21483
+    }
+  },
+  {
+    "display": "Inhapi 1 (576)",
+    "fracttal_codebase": "INP100",
+    "fracttal_nome": "Thopen - Inhapi 1 - AL",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Inhapi 1 (576)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18748737
+    }
+  },
+  {
+    "display": "Inhapi 2 (577)",
+    "fracttal_codebase": "INP100",
+    "fracttal_nome": "Thopen - Inhapi 1 - AL",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Inhapi 2 (577)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18748738
+    }
+  },
+  {
+    "display": "Inhapi 3 (578)",
+    "fracttal_codebase": "INP100",
+    "fracttal_nome": "Thopen - Inhapi 1 - AL",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Inhapi 3 (578)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18748739
+    }
+  },
+  {
+    "display": "(308) Ipixuna 1",
+    "fracttal_codebase": "IPX100",
+    "fracttal_nome": "Thopen - Ipixuna 1 e 2 - PA",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": "(308) Ipixuna 1",
+    "dois_c_owen": null,
+    "fontes": [
+      "pg"
+    ],
+    "_plant_ids": {
+      "pg": "20"
+    }
+  },
+  {
+    "display": "Ipixuna do Pará",
+    "fracttal_codebase": "IPX100",
+    "fracttal_nome": "2C - Ipixuna do Pará 1 - PA",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": null,
+    "dois_c_owen": "IPX",
+    "fontes": [
+      "owen"
+    ],
+    "_plant_ids": {
+      "owen": "IPX"
+    }
+  },
+  {
+    "display": "JCD100",
+    "fracttal_codebase": "JCD100",
+    "fracttal_nome": "Athon - Jacundá 1 - PA",
+    "athon_sunop": "JCD100",
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "sunop"
+    ],
+    "_plant_ids": {}
+  },
+  {
+    "display": "Junco 1 (46)",
+    "fracttal_codebase": "JNC100",
+    "fracttal_nome": "Thopen - Junco 1 - PI",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Junco 1 (46)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18743602
+    }
+  },
+  {
+    "display": "Junco 2.1 (134)",
+    "fracttal_codebase": "JNC100",
+    "fracttal_nome": "Thopen - Junco 1 - PI",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Junco 2.1 (134)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 16808435
+    }
+  },
+  {
+    "display": "Junco 2.2 (135)",
+    "fracttal_codebase": "JNC100",
+    "fracttal_nome": "Thopen - Junco 1 - PI",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Junco 2.2 (135)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18743615
+    }
+  },
+  {
+    "display": "Junco 2.3 (136)",
+    "fracttal_codebase": "JNC100",
+    "fracttal_nome": "Thopen - Junco 1 - PI",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Junco 2.3 (136)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18743616
+    }
+  },
+  {
+    "display": "MAB100",
+    "fracttal_codebase": "MAB100",
+    "fracttal_nome": "Athon - Marabá 1 - PA",
+    "athon_sunop": "MAB100",
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "sunop"
+    ],
+    "_plant_ids": {}
+  },
+  {
+    "display": "MAB200",
+    "fracttal_codebase": "MAB200",
+    "fracttal_nome": "Athon - Marabá 2 - PA",
+    "athon_sunop": "MAB200",
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "sunop"
+    ],
+    "_plant_ids": {}
+  },
+  {
+    "display": "Mandaguaçu 1 (140)",
+    "fracttal_codebase": "MNG100",
+    "fracttal_nome": "Thopen - Mandaguaçu 1 - PR",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Mandaguaçu 1 (140)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 60560
+    }
+  },
+  {
+    "display": "Mandaguaçu 2 (141)",
+    "fracttal_codebase": "MNG100",
+    "fracttal_nome": "Thopen - Mandaguaçu 1 - PR",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Mandaguaçu 2 (141)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 297431
+    }
+  },
+  {
+    "display": "Mandaguaçu 3 (142)",
+    "fracttal_codebase": "MNG100",
+    "fracttal_nome": "Thopen - Mandaguaçu 1 - PR",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Mandaguaçu 3 (142)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 297432
+    }
+  },
+  {
+    "display": "Mandaguaçu 4 (143)",
+    "fracttal_codebase": "MNG100",
+    "fracttal_nome": "Thopen - Mandaguaçu 1 - PR",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Mandaguaçu 4 (143)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 24133
+    }
+  },
+  {
+    "display": "(321) Marajoara I",
+    "fracttal_codebase": "MRJ100",
+    "fracttal_nome": "Thopen - Marajoara 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": "(321) Marajoara I",
+    "dois_c_owen": null,
+    "fontes": [
+      "pg"
+    ],
+    "_plant_ids": {
+      "pg": "3"
+    }
+  },
+  {
+    "display": "Matão 1",
+    "fracttal_codebase": "MTO100",
+    "fracttal_nome": "Thopen - Matão 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Matão 1 (145)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18744657
+    }
+  },
+  {
+    "display": "Matão 2",
+    "fracttal_codebase": "TPZ100",
+    "fracttal_nome": "Thopen - Topázio (Matão 2) - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Matão II - Topazio (146)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18746667
+    }
+  },
+  {
+    "display": "MRO100",
+    "fracttal_codebase": "MRO100",
+    "fracttal_nome": "Athon - Mãe do Rio 1 - PA",
+    "athon_sunop": "MRO100",
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "sunop"
+    ],
+    "_plant_ids": {}
+  },
+  {
+    "display": "MTS100",
+    "fracttal_codebase": "MTS100",
+    "fracttal_nome": "Athon - Matões 1 - MA",
+    "athon_sunop": "MTS100",
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "sunop"
+    ],
+    "_plant_ids": {}
+  },
+  {
+    "display": "Nova Londrina 1 (152)",
+    "fracttal_codebase": "NVL100",
+    "fracttal_nome": "Thopen - Nova Londrina 1 - PR",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Nova Londrina 1 (152)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 22854
+    }
+  },
+  {
+    "display": "Nova Londrina 2 (153)",
+    "fracttal_codebase": "NVL100",
+    "fracttal_nome": "Thopen - Nova Londrina 1 - PR",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Nova Londrina 2 (153)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 22855
+    }
+  },
+  {
+    "display": "Paranavaí",
+    "fracttal_codebase": "PRV100",
+    "fracttal_nome": "Thopen - Paranavaí 1 - PR",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Paranavaí (78)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18747273
+    }
+  },
+  {
+    "display": "(309) Piracicaba I",
+    "fracttal_codebase": "PRB100",
+    "fracttal_nome": "Thopen - Piracicaba 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": "(309) Piracicaba I",
+    "dois_c_owen": null,
+    "fontes": [
+      "pg"
+    ],
+    "_plant_ids": {
+      "pg": "15"
+    }
+  },
+  {
+    "display": "Poconé 1",
+    "fracttal_codebase": "PCN100",
+    "fracttal_nome": "Thopen - Poconé 1 - MT",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Poconé (158)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18746403
+    }
+  },
+  {
+    "display": "Primavera 1",
+    "fracttal_codebase": "PRM100",
+    "fracttal_nome": "Thopen - Primavera 1 - ES",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Primavera 1 (115)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18746926
+    }
+  },
+  {
+    "display": "Primavera 2",
+    "fracttal_codebase": "PRM200",
+    "fracttal_nome": "Thopen - Primavera 2 - ES",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Primavera 2 (116)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18746659
+    }
+  },
+  {
+    "display": "(310) Salto Pirapora III",
+    "fracttal_codebase": "SPP300",
+    "fracttal_nome": "Thopen - Salto Pirapora 3 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": "(310) Salto Pirapora III",
+    "dois_c_owen": null,
+    "fontes": [
+      "pg"
+    ],
+    "_plant_ids": {
+      "pg": "11"
+    }
+  },
+  {
+    "display": "(311) Santa Bárbara I",
+    "fracttal_codebase": "STB100",
+    "fracttal_nome": "Thopen - Santa Bárbara 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": "(311) Santa Bárbara I",
+    "dois_c_owen": null,
+    "fontes": [
+      "pg"
+    ],
+    "_plant_ids": {
+      "pg": "7"
+    }
+  },
+  {
+    "display": "(317) Santarém 1",
+    "fracttal_codebase": "STR100",
+    "fracttal_nome": "Thopen - Santarém 1 e 2 - PA",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": "(317) Santarém 1",
+    "dois_c_owen": null,
+    "fontes": [
+      "pg"
+    ],
+    "_plant_ids": {
+      "pg": "10"
+    }
+  },
+  {
+    "display": "(318) Santarém 2",
+    "fracttal_codebase": "STR100",
+    "fracttal_nome": "Thopen - Santarém 1 e 2 - PA",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": "(318) Santarém 2",
+    "dois_c_owen": null,
+    "fontes": [
+      "pg"
+    ],
+    "_plant_ids": {
+      "pg": "34"
+    }
+  },
+  {
+    "display": "Santo Antônio da Platina 1",
+    "fracttal_codebase": null,
+    "fracttal_nome": null,
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Santo Antônio da Platina 1",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18749703
+    }
+  },
+  {
+    "display": "Santo Antônio da Platina 2",
+    "fracttal_codebase": null,
+    "fracttal_nome": null,
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Santo Antônio da Platina 2",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18749704
+    }
+  },
+  {
+    "display": "(327) Santo Inácio XII",
+    "fracttal_codebase": null,
+    "fracttal_nome": "Thopen - Santo Inácio 1 e 2 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": "(327) Santo Inácio XII",
+    "dois_c_owen": null,
+    "fontes": [
+      "pg"
+    ],
+    "_plant_ids": {
+      "pg": "6"
+    }
+  },
+  {
+    "display": "São Bento do Una",
+    "fracttal_codebase": "SBU100",
+    "fracttal_nome": "Thopen - São Bento do Una 1 - PE",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "São Bento do Una",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18749510
+    }
+  },
+  {
+    "display": "Sarandi 1",
+    "fracttal_codebase": null,
+    "fracttal_nome": null,
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Sarandi 1",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18750089
+    }
+  },
+  {
+    "display": "Sarandi 2",
+    "fracttal_codebase": null,
+    "fracttal_nome": null,
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Sarandi 2",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18750090
+    }
+  },
+  {
+    "display": "Saturnino 1",
+    "fracttal_codebase": null,
+    "fracttal_nome": "Thopen - Saturnino 1 - RJ",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Saturnino (166)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18745293
+    }
+  },
+  {
+    "display": "Sete Lagoas",
+    "fracttal_codebase": "SLG200",
+    "fracttal_nome": "2C - Sete Lagoas 2 - MG",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": null,
+    "dois_c_owen": "STL",
+    "fontes": [
+      "owen"
+    ],
+    "_plant_ids": {
+      "owen": "STL"
+    }
+  },
+  {
+    "display": "Sitio dos Nogueiras 1 (35)",
+    "fracttal_codebase": "SDN100",
+    "fracttal_nome": "Thopen - Sítio dos Nogueiras 1 - GO",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Sitio dos Nogueiras 1 (35)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18746415
+    }
+  },
+  {
+    "display": "Sitio dos Nogueiras 2 (36)",
+    "fracttal_codebase": "SDN100",
+    "fracttal_nome": "Thopen - Sítio dos Nogueiras 1 - GO",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Sitio dos Nogueiras 2 (36)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18746413
+    }
+  },
+  {
+    "display": "Sitio dos Nogueiras 3 (37)",
+    "fracttal_codebase": "SDN100",
+    "fracttal_nome": "Thopen - Sítio dos Nogueiras 1 - GO",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Sitio dos Nogueiras 3 (37)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18746416
+    }
+  },
+  {
+    "display": "Sitio dos Nogueiras 4 (38)",
+    "fracttal_codebase": "SDN100",
+    "fracttal_nome": "Thopen - Sítio dos Nogueiras 1 - GO",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Sitio dos Nogueiras 4 (38)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18746469
+    }
+  },
+  {
+    "display": "SMP100",
+    "fracttal_codebase": "SMP100",
+    "fracttal_nome": "Athon - Santa Maria do Pará 1 - PA",
+    "athon_sunop": "SMP100",
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "sunop"
+    ],
+    "_plant_ids": {}
+  },
+  {
+    "display": "Tanabi 1 (175)",
+    "fracttal_codebase": "TNB100",
+    "fracttal_nome": "Thopen - Tanabi 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Tanabi 1 (175)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 60819
+    }
+  },
+  {
+    "display": "Tanabi 2 (176)",
+    "fracttal_codebase": "TNB100",
+    "fracttal_nome": "Thopen - Tanabi 1 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Tanabi 2 (176)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 60808
+    }
+  },
+  {
+    "display": "TIM100",
+    "fracttal_codebase": "TIM100",
+    "fracttal_nome": "Athon -  Timon 1 - MA",
+    "athon_sunop": "TIM100",
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "sunop"
+    ],
+    "_plant_ids": {}
+  },
+  {
+    "display": "TIM200",
+    "fracttal_codebase": "TIM200",
+    "fracttal_nome": "Athon -  Timon 2 - MA",
+    "athon_sunop": "TIM200",
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "sunop"
+    ],
+    "_plant_ids": {}
+  },
+  {
+    "display": "Tupi Paulista",
+    "fracttal_codebase": "TPP100",
+    "fracttal_nome": "2C - Tupi Paulista 1 e 2 - SP",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": null,
+    "thopen_pg": null,
+    "dois_c_owen": "TUP",
+    "fontes": [
+      "owen"
+    ],
+    "_plant_ids": {
+      "owen": "TUP"
+    }
+  },
+  {
+    "display": "Vertentes",
+    "fracttal_codebase": "VRT200",
+    "fracttal_nome": "Thopen - Vertentes 2 - PE",
+    "athon_sunop": null,
+    "axis": null,
+    "api_pv": "Vertentes (590)",
+    "thopen_pg": null,
+    "dois_c_owen": null,
+    "fontes": [
+      "pv"
+    ],
+    "_plant_ids": {
+      "pv": 18748859
+    }
+  }
+]

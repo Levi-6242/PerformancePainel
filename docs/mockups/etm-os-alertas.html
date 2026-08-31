@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<title>ETM · OS e alertas — mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0d1220; --surface:#131a2b; --surface2:#1a2338; --divider:#232d47;
+    --text:#e8ecf5; --muted:#8b95ad; --muted2:#5d6880;
+    --verde:#b5e948; --ambar:#f5c877; --verm:#e5484d; --laranja:#ff9838;
+    --radius:12px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font:14px/1.5 Poppins,system-ui,sans-serif;padding:36px 44px 70px}
+  h1{font-size:21px;margin-bottom:4px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:34px}
+  h2{font-size:15px;margin:38px 0 6px;display:flex;align-items:center;gap:10px}
+  h2 .tag{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;background:var(--surface2);color:var(--verde)}
+  .exp{color:var(--muted);font-size:12.5px;margin-bottom:16px;max-width:860px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px;max-width:1180px}
+
+  .card{background:var(--surface);border:1px solid var(--divider);border-radius:var(--radius);
+        padding:16px 16px 13px;position:relative}
+  .nome{font-size:13.5px;font-weight:600;display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .icones{display:inline-flex;gap:9px;color:var(--muted2)}
+  .icones svg{width:15px;height:15px;cursor:pointer}
+  .icones svg:hover{color:var(--text)}
+  .leit{color:var(--muted);font-size:10.5px;margin-top:2px}
+  svg.spark{width:100%;height:46px;display:block;margin:10px 0 9px}
+  .flags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:9px}
+  .flag{font-size:11px;font-weight:600;padding:2px 9px;border-radius:6px}
+  .f-verm{background:rgba(229,72,77,.14);color:#ff8d91}
+  .f-amb{background:rgba(245,200,119,.13);color:var(--ambar)}
+  .manut{color:var(--muted);font-size:11.5px;display:flex;align-items:center;gap:6px}
+  .rotulo{position:absolute;top:-11px;left:14px;background:var(--verde);color:#10160a;
+          font-size:10.5px;font-weight:700;padding:2px 10px;border-radius:20px}
+
+  /* Item 1: variacoes do destaque de OS aberta */
+  .osA{border-left:3px solid var(--laranja);
+       box-shadow:-6px 0 18px -6px rgba(255,152,56,.55)}
+  .osB{border-color:rgba(255,152,56,.55);
+       box-shadow:inset 0 0 22px -6px rgba(255,152,56,.28), 0 0 14px -4px rgba(255,152,56,.35)}
+  .chipOS{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;
+          padding:2px 9px;border-radius:6px;background:rgba(255,152,56,.16);color:var(--laranja)}
+  .chipOS.brilho{box-shadow:0 0 10px rgba(255,152,56,.45)}
+  .chipOS svg{width:12px;height:12px}
+
+  /* Item 3: pulso de anomalia */
+  @keyframes pulsoV{0%,100%{box-shadow:0 0 0 0 rgba(229,72,77,0)}50%{box-shadow:0 0 22px 3px rgba(229,72,77,.5)}}
+  .pulso{border-color:rgba(229,72,77,.55);animation:pulsoV 1.6s ease-in-out infinite}
+  @keyframes respiraV{0%,100%{box-shadow:0 0 10px -2px rgba(229,72,77,.25)}50%{box-shadow:0 0 20px 1px rgba(229,72,77,.45)}}
+  .respira{border-color:rgba(229,72,77,.45);animation:respiraV 3.2s ease-in-out infinite}
+  .btnOS{display:inline-flex;align-items:center;gap:6px;margin-top:9px;font-size:11.5px;font-weight:700;
+         padding:6px 13px;border-radius:8px;border:0;cursor:pointer;background:var(--verm);color:#fff;font-family:inherit}
+  .btnOS.suave{background:rgba(229,72,77,.15);color:#ff8d91;border:1px solid rgba(229,72,77,.4)}
+  .btnOS svg{width:13px;height:13px}
+
+  /* Item 2: modal de historico */
+  .modal{background:var(--surface);border:1px solid var(--divider);border-radius:14px;max-width:560px;
+         box-shadow:0 18px 60px rgba(0,0,0,.55);overflow:hidden}
+  .mh{display:flex;align-items:center;justify-content:space-between;padding:15px 20px;border-bottom:1px solid var(--divider)}
+  .mh b{font-size:14.5px}
+  .mh span{color:var(--muted);font-size:12px}
+  .linha{display:flex;gap:12px;align-items:flex-start;padding:11px 20px;border-bottom:1px solid rgba(35,45,71,.5);font-size:12.5px}
+  .linha:last-of-type{border-bottom:0}
+  .folio{font-weight:700;min-width:64px;color:var(--verde)}
+  .st{font-size:10.5px;font-weight:700;padding:1px 8px;border-radius:20px;white-space:nowrap}
+  .st-ab{background:rgba(255,152,56,.16);color:var(--laranja)}
+  .st-ok{background:rgba(181,233,72,.13);color:var(--verde)}
+  .st-rev{background:rgba(139,149,173,.15);color:var(--muted)}
+  .ldesc{flex:1;color:#c6cdde}
+  .ldata{color:var(--muted2);font-size:11.5px;white-space:nowrap}
+  .mf{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-top:1px solid var(--divider)}
+  .mf .pg{color:var(--muted);font-size:12px}
+  .mf button{font:600 12px Poppins;padding:6px 14px;border-radius:8px;border:1px solid var(--divider);
+             background:var(--surface2);color:var(--text);cursor:pointer}
+  .mf button[disabled]{opacity:.35;cursor:default}
+  .nota{max-width:860px;background:var(--surface);border:1px solid var(--divider);border-radius:var(--radius);
+        padding:16px 20px;margin-top:44px;font-size:12.5px;color:var(--muted)}
+  .nota b{color:var(--text)}
+  .nota li{margin:5px 0 0 18px}
+</style></head><body>
+
+<h1>ETM — OS aberta, histórico e alerta de anomalia</h1>
+<div class="sub">Mockup para escolha · cards idênticos aos do Monitoramento (fonte Banco de Dados como exemplo — vale para todas as fontes com aba ETM)</div>
+
+<h2><span class="tag">ITEM 1</span> OS de estação meteorológica em aberto — escolha a variação</h2>
+<div class="exp">As três formas de destacar o card quando a usina tem OS aberta para ativo do grupo Estação Meteorológica. O laranja é de propósito uma cor que ainda não existe nos cards (verde=ok, âmbar=atenção, vermelho=crítico) — OS aberta é "tem gente cuidando", não severidade.</div>
+<div class="grid">
+  <div class="card osA"><span class="rotulo">A · barra lateral + brilho</span>
+    <div class="nome">Ibaté <span class="icones"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M232 208H48V32a8 8 0 0 0-16 0v184a8 8 0 0 0 8 8h192a8 8 0 0 0 0-16Z"/><path d="m76 172 44-44 32 32 60-60v28a8 8 0 0 0 16 0V80a8 8 0 0 0-8-8h-48a8 8 0 0 0 0 16h28l-52 52-32-32-51 51Z"/></svg></span></div>
+    <div class="leit">Última leitura · 09:25</div>
+    <svg class="spark" viewBox="0 0 240 46" preserveAspectRatio="none"><polyline points="0,36 30,33 60,31 90,30 120,28 150,27 180,26 210,25 240,24" fill="none" stroke="#5d6880" stroke-width="1.4" opacity=".7"/><polyline points="0,40 30,38 60,37 90,36 120,35 150,33 180,32 210,30 240,29" fill="none" stroke="var(--verde)" stroke-width="1.8"/></svg>
+    <div class="flags"><span class="flag f-verm">Sem comunicação · última há 471 min</span><span class="flag f-amb">GHI &gt; POA · 100% do tempo</span></div>
+    <div class="flags"><span class="chipOS"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M226.76 69a8 8 0 0 0-12.84-2.88l-40.3 37.19-17.23-3.7-3.7-17.23 37.19-40.3A8 8 0 0 0 187 29.24 72 72 0 0 0 88 96a72.34 72.34 0 0 0 6 28.94L33.79 187a32 32 0 0 0 45.26 45.26L141.06 170a72 72 0 0 0 85.7-101Z"/></svg> OS 9412 · ETM</span></div>
+    <div class="manut">⚲ Em manutenção</div>
+  </div>
+
+  <div class="card osB"><span class="rotulo">B · brilho na borda inteira</span>
+    <div class="nome">Ibaté <span class="icones"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M232 208H48V32a8 8 0 0 0-16 0v184a8 8 0 0 0 8 8h192a8 8 0 0 0 0-16Z"/><path d="m76 172 44-44 32 32 60-60v28a8 8 0 0 0 16 0V80a8 8 0 0 0-8-8h-48a8 8 0 0 0 0 16h28l-52 52-32-32-51 51Z"/></svg></span></div>
+    <div class="leit">Última leitura · 09:25</div>
+    <svg class="spark" viewBox="0 0 240 46" preserveAspectRatio="none"><polyline points="0,36 30,33 60,31 90,30 120,28 150,27 180,26 210,25 240,24" fill="none" stroke="#5d6880" stroke-width="1.4" opacity=".7"/><polyline points="0,40 30,38 60,37 90,36 120,35 150,33 180,32 210,30 240,29" fill="none" stroke="var(--verde)" stroke-width="1.8"/></svg>
+    <div class="flags"><span class="flag f-verm">Sem comunicação · última há 471 min</span><span class="flag f-amb">GHI &gt; POA · 100% do tempo</span></div>
+    <div class="flags"><span class="chipOS"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M226.76 69a8 8 0 0 0-12.84-2.88l-40.3 37.19-17.23-3.7-3.7-17.23 37.19-40.3A8 8 0 0 0 187 29.24 72 72 0 0 0 88 96a72.34 72.34 0 0 0 6 28.94L33.79 187a32 32 0 0 0 45.26 45.26L141.06 170a72 72 0 0 0 85.7-101Z"/></svg> OS 9412 · ETM</span></div>
+    <div class="manut">⚲ Em manutenção</div>
+  </div>
+
+  <div class="card"><span class="rotulo">C · só o chip, com brilho</span>
+    <div class="nome">Ibaté <span class="icones"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M232 208H48V32a8 8 0 0 0-16 0v184a8 8 0 0 0 8 8h192a8 8 0 0 0 0-16Z"/><path d="m76 172 44-44 32 32 60-60v28a8 8 0 0 0 16 0V80a8 8 0 0 0-8-8h-48a8 8 0 0 0 0 16h28l-52 52-32-32-51 51Z"/></svg></span></div>
+    <div class="leit">Última leitura · 09:25</div>
+    <svg class="spark" viewBox="0 0 240 46" preserveAspectRatio="none"><polyline points="0,36 30,33 60,31 90,30 120,28 150,27 180,26 210,25 240,24" fill="none" stroke="#5d6880" stroke-width="1.4" opacity=".7"/><polyline points="0,40 30,38 60,37 90,36 120,35 150,33 180,32 210,30 240,29" fill="none" stroke="var(--verde)" stroke-width="1.8"/></svg>
+    <div class="flags"><span class="flag f-verm">Sem comunicação · última há 471 min</span><span class="flag f-amb">GHI &gt; POA · 100% do tempo</span></div>
+    <div class="flags"><span class="chipOS brilho"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M226.76 69a8 8 0 0 0-12.84-2.88l-40.3 37.19-17.23-3.7-3.7-17.23 37.19-40.3A8 8 0 0 0 187 29.24 72 72 0 0 0 88 96a72.34 72.34 0 0 0 6 28.94L33.79 187a32 32 0 0 0 45.26 45.26L141.06 170a72 72 0 0 0 85.7-101Z"/></svg> OS 9412 · ETM</span></div>
+    <div class="manut">⚲ Em manutenção</div>
+  </div>
+</div>
+
+<h2><span class="tag">ITEM 3</span> Anomalia sem OS — pulso vermelho + abrir OS</h2>
+<div class="exp">Quando a ETM está com anomalia e <b>não existe OS aberta</b> para ela, o card alerta e oferece o botão que abre o OS Creator já preenchido (usina + ativo Estação Meteorológica + observação com a anomalia). Duas intensidades de pulso e duas versões do botão:</div>
+<div class="grid">
+  <div class="card pulso"><span class="rotulo">P1 · pulso forte (1,6s)</span>
+    <div class="nome">Caxambu <span class="icones"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M232 208H48V32a8 8 0 0 0-16 0v184a8 8 0 0 0 8 8h192a8 8 0 0 0 0-16Z"/><path d="m76 172 44-44 32 32 60-60v28a8 8 0 0 0 16 0V80a8 8 0 0 0-8-8h-48a8 8 0 0 0 0 16h28l-52 52-32-32-51 51Z"/></svg></span></div>
+    <div class="leit">Última leitura · 01:55</div>
+    <svg class="spark" viewBox="0 0 240 46" preserveAspectRatio="none"><polyline points="0,23 40,23 80,23 120,23 160,23 200,23 240,23" fill="none" stroke="#5d6880" stroke-width="1.4" opacity=".7"/></svg>
+    <div class="flags"><span class="flag f-verm">Sem comunicação · última há 921 min</span></div>
+    <button class="btnOS"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M226.76 69a8 8 0 0 0-12.84-2.88l-40.3 37.19-17.23-3.7-3.7-17.23 37.19-40.3A8 8 0 0 0 187 29.24 72 72 0 0 0 88 96a72.34 72.34 0 0 0 6 28.94L33.79 187a32 32 0 0 0 45.26 45.26L141.06 170a72 72 0 0 0 85.7-101Z"/></svg> Abrir OS · ETM</button>
+  </div>
+
+  <div class="card respira"><span class="rotulo">P2 · pulso suave (3,2s) + botão discreto</span>
+    <div class="nome">Caxambu <span class="icones"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M232 208H48V32a8 8 0 0 0-16 0v184a8 8 0 0 0 8 8h192a8 8 0 0 0 0-16Z"/><path d="m76 172 44-44 32 32 60-60v28a8 8 0 0 0 16 0V80a8 8 0 0 0-8-8h-48a8 8 0 0 0 0 16h28l-52 52-32-32-51 51Z"/></svg></span></div>
+    <div class="leit">Última leitura · 01:55</div>
+    <svg class="spark" viewBox="0 0 240 46" preserveAspectRatio="none"><polyline points="0,23 40,23 80,23 120,23 160,23 200,23 240,23" fill="none" stroke="#5d6880" stroke-width="1.4" opacity=".7"/></svg>
+    <div class="flags"><span class="flag f-verm">Sem comunicação · última há 921 min</span></div>
+    <button class="btnOS suave"><svg viewBox="0 0 256 256" fill="currentColor"><path d="M226.76 69a8 8 0 0 0-12.84-2.88l-40.3 37.19-17.23-3.7-3.7-17.23 37.19-40.3A8 8 0 0 0 187 29.24 72 72 0 0 0 88 96a72.34 72.34 0 0 0 6 28.94L33.79 187a32 32 0 0 0 45.26 45.26L141.06 170a72 72 0 0 0 85.7-101Z"/></svg> Abrir OS · ETM</button>
+  </div>
+</div>
+
+<h2><span class="tag">ITEM 2</span> Histórico de OSs da estação — ícone no card + modal</h2>
+<div class="exp">O relóginho entra ao lado do ícone de curva em <b>todos</b> os cards. Clicou, abre o modal com as OSs do ativo ETM daquela usina, 10 por página:</div>
+<div class="modal">
+  <div class="mh"><b>Ibaté — OSs da Estação Meteorológica</b><span>37 OSs</span></div>
+  <div class="linha"><span class="folio">9412</span><span class="st st-ab">Em processo</span><span class="ldesc">ETM sem comunicação desde 25/08, verificar logger e alimentação</span><span class="ldata">25/08/26</span></div>
+  <div class="linha"><span class="folio">9204</span><span class="st st-ok">Concluída</span><span class="ldesc">Limpeza dos piranômetros POA/GHI + verificação de nivelamento</span><span class="ldata">11/08/26</span></div>
+  <div class="linha"><span class="folio">8977</span><span class="st st-ok">Concluída</span><span class="ldesc">GHI lendo acima do POA em céu limpo — recalibração do sensor</span><span class="ldata">28/07/26</span></div>
+  <div class="linha"><span class="folio">8721</span><span class="st st-rev">Revisada</span><span class="ldesc">Troca do pluviômetro (leitura travada em 0 mm)</span><span class="ldata">14/07/26</span></div>
+  <div class="linha"><span class="folio">8459</span><span class="st st-ok">Concluída</span><span class="ldesc">Preventiva mensal — limpeza e aperto de conexões</span><span class="ldata">30/06/26</span></div>
+  <div class="linha" style="opacity:.45"><span class="folio">…</span><span class="ldesc">mais 5 linhas nesta página</span></div>
+  <div class="mf"><button disabled>‹ Mais recentes</button><span class="pg">1–10 de 37</span><button>Mais antigas ›</button></div>
+</div>
+
+<div class="nota"><b>Comportamento proposto (confirmo antes de codar):</b>
+  <li><b>Fonte do destaque laranja:</b> índice de OS abertas do Fracttal que a plataforma já mantém (atualiza a cada 30 min) — filtrado por ativo do grupo Estação Meteorológica. Concluiu a OS, o destaque sai sozinho no ciclo seguinte.</li>
+  <li><b>Pulso vermelho:</b> só quando há anomalia E não há OS aberta de ETM — se já tem OS, vale o laranja (alguém já está cuidando; piscar em cima seria ruído).</li>
+  <li><b>Abrir OS:</b> deep link do OS Creator já preenchido (usina, ativo Estação Meteorológica, observação = a anomalia do card), igual ao fluxo das strings.</li>
+  <li><b>Usina sem cadastro no Fracttal</b> (14 da Thopen): sem chip, sem histórico, e o "Abrir OS" avisa em vez de abrir.</li>
+  <li>Vale para a vista Cards do ETM em <b>todas as fontes</b> (Banco de Dados, API PV, Athon, Axis, SEMP, Alves Lima, 2C).</li>
+</div>
+</body></html>
