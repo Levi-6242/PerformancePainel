@@ -33,7 +33,14 @@ if (Porta5050) {
 }
 
 # 2) TUNEL: mata cloudflared antigo e apaga logs velhos (evita 2 tuneis e URL morta ressuscitada no log).
-Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+# FILTRA PELA PORTA. Antes era `Get-Process cloudflared | Stop-Process`, que matava TODOS os
+# tuneis da maquina - inclusive o da 5080, que e o dashboard do CLIENTE. Cada vez que alguem
+# rodava este script, o link do cliente morria junto e trocava de endereco sem ninguem notar.
+# Foi o que aconteceu em 25/08: o tunel do cliente reiniciou 11:15 e o da 5050 morreu 11:17
+# com "signal terminated". Este script so pode encostar no que serve localhost:5050.
+Get-CimInstance Win32_Process |
+  Where-Object { $_.Name -like 'cloudflared*' -and $_.CommandLine -like '*localhost:5050*' } |
+  ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
 Start-Sleep 1
 Remove-Item $errlog, $outlog -Force -ErrorAction SilentlyContinue
 

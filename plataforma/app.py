@@ -973,6 +973,38 @@ def _bd_readable_path():
         return novo
 
 
+# ── Estado em disco: o que PODE sumir e o que NÃO PODE ────────────────────────
+# Para hospedar a plataforma é preciso saber qual arquivo aguenta um disco efêmero. A resposta
+# não está no nome: medida em 30/08, a divisão é 3,9 MB de cache contra 48,2 MB de dado que
+# ninguém reconstrói — o inverso do que se supõe olhando "cache_snapshot" e "trk_eventos".
+#
+# CACHE (`_p_cache`): sumiu, a plataforma refaz sozinha; custa tempo ou requisições, nada mais.
+# DADO  (`_p_dado`) : sumiu, PERDEU. Ou é coisa que gente digitou, ou é acúmulo que a fonte não
+#                     entrega de novo (e-mail já consumido, snapshot do instante da ronda,
+#                     evento de dia que já passou).
+#
+# GRIDCO_CACHE_DIR aponta o cache para outro lugar (disco efêmero serve). GRIDCO_DADOS_DIR faz
+# o mesmo com o dado — e esse precisa de volume persistente ou backup. Sem as envs, tudo fica
+# onde sempre esteve, e nada muda para quem roda na máquina do analista.
+_CACHE_DIR = os.environ.get("GRIDCO_CACHE_DIR") or _AQUI
+_DADOS_DIR = os.environ.get("GRIDCO_DADOS_DIR") or _AQUI
+for _d in (_CACHE_DIR, _DADOS_DIR):
+    try:
+        os.makedirs(_d, exist_ok=True)
+    except OSError:
+        pass
+
+
+def _p_cache(nome: str) -> str:
+    """Arquivo que a plataforma sabe reconstruir sozinha."""
+    return os.path.join(_CACHE_DIR, nome)
+
+
+def _p_dado(nome: str) -> str:
+    """Arquivo que, se sumir, sumiu. Backup e volume persistente valem para estes."""
+    return os.path.join(_DADOS_DIR, nome)
+
+
 # ── Base EM MEMÓRIA: o passo que tira o disco do caminho ───────────────────────
 # `_bd_readable()` devolve ALGO QUE SE ABRE COMO ARQUIVO — um BytesIO quando os bytes já estão
 # em memória, e o caminho do espelho quando não estão. pandas e openpyxl aceitam os dois, então
@@ -7018,7 +7050,7 @@ TRK_EV_STOW_ANG     = -55.0          # ° — ângulo aproximado do stow leste
 TRK_EV_STOW_TOL     = 10.0           # ° — tolerância (-65° a -45° conta como stow)
 TRK_EV_STOW_INI     = 7 * 60 + 30    # 07:30 — janela onde o stow é esperado
 TRK_EV_STOW_FIM_MAX = 10 * 60 + 30   # 10:30 — limite p/ o tracker sair do stow sem virar ocorrência
-_TRK_EV_PATH = os.path.join(_AQUI, "trk_eventos.json")
+_TRK_EV_PATH = _p_dado("trk_eventos.json")   # historico multi-dia de eventos de tracker
 _trk_eventos = {}      # {data_iso: {str(pid): {"nome","ts","cobertura","eventos":[...]}}}
 _trk_eventos_lock = threading.Lock()
 _trk_ev_prog = {"running": False, "feito": 0, "total": 0, "atual": "", "fim_ts": 0.0, "erro": ""}
@@ -11847,7 +11879,7 @@ def api_etm_pivo_export(fonte):
 
 
 # ── Estado compartilhado: verificação + comentários por usina ──────────────────
-STATE_PATH  = os.path.join(_AQUI, "ufv_state.json")
+STATE_PATH  = _p_dado("ufv_state.json")   # comentarios dos analistas por usina
 _state_lock = threading.Lock()
 
 
@@ -12116,7 +12148,7 @@ def _owen_nome(code):
     return USINA_DISPLAY.get(code) or OWEN_UFVS.get(code) or code
 # Acumulador persistente: como os e-mails são INCREMENTAIS (cada janela traz só o pedaço
 # novo) e o baixador sobrescreve o arquivo, mesclamos cada leitura no acervo do DIA em disco.
-OWEN_ACCUM_PATH = os.path.join(_AQUI, "owen_accum.json")
+OWEN_ACCUM_PATH = _p_dado("owen_accum.json")   # acervo do dia; os e-mails sao INCREMENTAIS e ja' foram consumidos
 OWEN_TS_FMT = "%Y-%m-%d %H:%M:%S"
 _owen_accum = {"date": None, "etm": {}, "strings": {}, "trackers": {}}
 _owen_lock = threading.Lock()
@@ -14290,7 +14322,7 @@ def _marca_inv_sub(invs):
     return invs
 
 
-SPV_NOTAS_PATH = os.path.join(_AQUI, "string_notas.json")
+SPV_NOTAS_PATH = _p_dado("string_notas.json")   # notas de string escritas por gente
 _spv_cache     = {}     # (idusina, data) → {ts, payload}
 _spv_lock      = threading.Lock()
 
@@ -15407,7 +15439,7 @@ def _prewarm_loop():
 # mundo pega carga fria. O loop salva um snapshot por minuto (quando algo mudou) e
 # o boot recarrega: o dashboard volta servindo o último dado conhecido na hora,
 # enquanto o prewarm/SWR busca dado fresco em fundo.
-_PERSIST_PATH = os.path.join(_AQUI, "cache_snapshot.json")
+_PERSIST_PATH = _p_cache("cache_snapshot.json")   # os caches vivem em memoria; sem isto o reinicio da carga fria
 
 
 def _persist_registry():
@@ -15758,6 +15790,43 @@ def _snapshot_watch_loop(intervalo=20):
 BD_API_INTERVALO_S = 1800     # 30 min: as planilhas mudam algumas vezes por dia, não por minuto
 
 
+ESTADO_BACKUP_INTERVALO_S = int(os.environ.get("ESTADO_BACKUP_INTERVALO_S", "3600"))
+_ultima_serie = [0.0]      # quando a cópia das SÉRIES foi publicada pela última vez
+
+
+def _estado_backup_loop():
+    """Publica no PostgreSQL a cópia do estado que ninguém reconstrói (ver estado_backup.py).
+
+    1×/h basta: strings trancadas e comentários mudam algumas vezes por dia, e o custo de
+    perder a última hora é pequeno perto do de perder tudo num re-deploy. Roda SÓ no worker —
+    dois processos publicando a mesma coisa seria escrita à toa no banco.
+
+    Falha aqui nunca derruba o laço: cópia velha é melhor que laço morto, e o `[estado]` no log
+    diz quando a última passou.
+    """
+    import time as _t
+    _t.sleep(120)                     # deixa o boot e o primeiro prewarm terminarem
+    while True:
+        try:
+            import estado_backup
+            for grupo in ("estado", "series"):
+                # a SÉRIE só de 6 em 6 horas: são ~206 mil linhas que crescem um dia por dia,
+                # contra as 8,9 mil do estado, que mudam a cada clique. Republicar a série de
+                # hora em hora seria reescrever tudo para acrescentar algumas dezenas.
+                if grupo == "series" and (_t.time() - _ultima_serie[0]) < 6 * 3600:
+                    continue
+                r = estado_backup.publicar(grupo)
+                env = r.get("enviado") or {}
+                if grupo == "series":
+                    _ultima_serie[0] = _t.time()
+                print(f"[estado] {grupo}: {sum((r.get('abas') or {}).values())} linhas em "
+                      f"{len(r.get('abas') or {})} abas ({r.get('KB')} KB) — "
+                      f"inseridas {env.get('inserted')}, atualizadas {env.get('updated')}")
+        except Exception as e:        # noqa: BLE001
+            print(f"[estado] copia FALHOU (mantendo a anterior): {e}")
+        _t.sleep(ESTADO_BACKUP_INTERVALO_S)
+
+
 def _bd_api_loop():
     """Mantém o espelho de `bases/` alinhado com a Gridco Performance API.
 
@@ -15786,6 +15855,7 @@ def _bd_api_loop():
 # emergência, GRIDCO_SOLO=1 devolve o comportamento antigo (tudo num processo só).
 def _iniciar_loops_de_fundo():
     for alvo in (_bd_api_loop,              # espelho das planilhas vindo da API (tira o OneDrive)
+                 _estado_backup_loop,       # copia no banco do estado que ninguem reconstroi
                  _paradas_book_loop,        # book de paradas: prewarm + 1×/h
                  _fecha_dia_loop,           # fecha o D-1 todo dia às 01:30
                  _perdas_str_backfill_loop,
@@ -16024,7 +16094,7 @@ def redesign_v2():
     return _serve_redesign()
 
 
-_FRAC_INDEX_FILE = os.path.join(_AQUI, "fracttal_index.json")
+_FRAC_INDEX_FILE = _p_cache("fracttal_index.json")   # indice com TTL de 12 h
 
 
 def _frac_codebase_index():
@@ -16167,7 +16237,7 @@ FRAC_OS_PERF_LABEL = 4660
 _frac_osperf_idx = {}
 _frac_osperf_ts = 0.0
 _frac_openwo_idx = {}          # {Usina Fractall (norm) → [TODAS as OS abertas]} — pick-list do "Atribuir OS"
-_FRAC_OSPERF_FILE = os.path.join(_AQUI, "frac_osperf_index.json")
+_FRAC_OSPERF_FILE = _p_cache("frac_osperf_index.json")   # indice; o sweep custa ~19 requests
 FRAC_OSPERF_TTL = 30 * 60
 
 
@@ -16504,7 +16574,7 @@ def _frac_osperf_loop():
 # publica em frac_disp_index.json; o WEB relê o arquivo por mtime e serve — NUNCA calcula.
 import disponibilidade as _disp_mod
 
-_FRAC_DISP_FILE = os.path.join(_AQUI, "frac_disp_index.json")
+_FRAC_DISP_FILE = _p_cache("frac_disp_index.json")   # o worker varre e calcula; reconstroi em ~3 min
 FRAC_DISP_TTL = 30 * 60
 FRAC_DISP_MARGEM_D = 45          # OS criada até 45d antes do mês anterior ainda entra na varredura
 _frac_disp_mem = {"mtime": 0.0, "dados": {}}
@@ -17077,7 +17147,7 @@ def api_fracttal_os():
 # DEDICADO e expõe /send em 127.0.0.1:5099. Config: whats_ronda.json {"enabled", "service_url",
 # "token", "horarios": ["07:30","15:30"], "grupos": {"Norte": "1203...@g.us", ...}}.
 # Texto = MESMO formato do modal da ronda (rondaTexto/_rondaUsinas do index.html), gerado aqui.
-_WHATS_CFG_PATH = os.path.join(_AQUI, "whats_ronda.json")
+_WHATS_CFG_PATH = _p_dado("whats_ronda.json")   # knobs de texto da ronda, por usina
 _WHATS_SENT_PATH = os.path.join(_AQUI, "whats_enviados.json")
 
 
@@ -17122,11 +17192,11 @@ def _ronda_ang(v):
     return f"{round(v)}°" if isinstance(v, (int, float)) else "—"
 
 
-_TRK_GARANTIA_PATH  = os.path.join(_AQUI, "trackers_garantia.json")
+_TRK_GARANTIA_PATH  = _p_dado("trackers_garantia.json")   # garantias marcadas a mao
 # Override LOCAL (fora do git): export do SharePoint regerado NESTA máquina. Existindo, SUBSTITUI o
 # versionado — assim dá p/ atualizar a garantia sem que o `git pull` brigue com o arquivo vivo, e o
 # clone novo continua nascendo com a referência curada do repositório.
-_TRK_GARANTIA_LOCAL = os.path.join(_AQUI, "trackers_garantia.local.json")
+_TRK_GARANTIA_LOCAL = _p_dado("trackers_garantia.local.json")   # idem, camada local
 
 
 def _trk_id_num(s):
@@ -17173,7 +17243,7 @@ _trk_garantia_map._c = None
 # ── Histórico de parados p/ RECORRÊNCIA (Levi 23/07) — grava um snapshot dos trackers parados a cada
 #    coleta FORÇADA da ronda; "recorrente" = tracker parado em vários DIAS. Fonte = a própria detecção
 #    da plataforma (5 fontes solares), NÃO os grupos (leitura quebrada) nem a planilha (que atrasa ~2sem).
-_TRK_HIST_PATH = os.path.join(_AQUI, "trackers_parados_hist.jsonl")
+_TRK_HIST_PATH = _p_dado("trackers_parados_hist.jsonl")   # snapshot do instante da ronda; base da recorrencia entre dias
 
 
 def _trk_parados_snapshot(rows, falhas, dedup_min=45, keep_dias=45):
@@ -17410,10 +17480,10 @@ def _ronda_anota_causa(rows):
             r["causa_reportada"] = causa
 
 
-_NOTAS_TRK_PATH  = os.path.join(_AQUI, "trackers_notas.json")
+_NOTAS_TRK_PATH  = _p_dado("trackers_notas.json")   # notas de tracker escritas por gente
 # Override LOCAL (fora do git): notas escritas NESTA máquina. Aqui o override SOMA ao versionado
 # (tracker a tracker, local ganha no empate) — nota é edição incremental, não export inteiro.
-_NOTAS_TRK_LOCAL = os.path.join(_AQUI, "trackers_notas.local.json")
+_NOTAS_TRK_LOCAL = _p_dado("trackers_notas.local.json")   # idem, camada local
 _notas_trk_cache = {"mtime": -1, "data": {}}
 
 
@@ -18340,7 +18410,7 @@ def api_ronda_whats_preview():
 # Trackers já têm histórico multi-dia (trk_eventos.json + _trk_parado_desde_hist). Strings NÃO tinham
 # nada persistido → guardo aqui os eventos de string por dia (desde 01/07) p/ reconstruir "zerada desde
 # quando" e somar horas solares multi-dia. Backfill em background; o dia de HOJE é sempre reprocessado.
-_PERDAS_STR_PATH = os.path.join(_AQUI, "perdas_strings.json")
+_PERDAS_STR_PATH = _p_dado("perdas_strings.json")   # eventos de string desde 01/07; nada mais os guarda
 _perdas_str = {}          # {date_iso: {fonte: {str(pid): {"usina","ts","eventos":[{inversor,string,caiu,voltou,dur_min,gerando_agora}]}}}}
 _perdas_str_lock = threading.Lock()
 
@@ -18732,7 +18802,7 @@ def _trk_paradas_hist(fonte, ini=None, fim=None):
 # O book nasce derivado do store; guardado em disco ele vira REGISTRO (sobrevive a truncar/perder o
 # trk_eventos) e a aba para de reconstruir 22 dias a cada abertura. Dia fechado é imutável, então
 # recomputar 1×/h basta. Estrutura: {fonte: {ts, ini, fim, rows, dias_classificados}}.
-_PARADAS_PATH = os.path.join(_AQUI, "paradas_book.json")
+_PARADAS_PATH = _p_dado("paradas_book.json")   # o proprio codigo chama de REGISTRO: sobrevive a perder o trk_eventos
 _paradas_book = {}
 _paradas_book_lock = threading.Lock()
 PARADAS_BOOK_TTL = 3600
@@ -20234,6 +20304,14 @@ def api_campo_ronda():
 
 
 if __name__ == "__main__":
+    # ANTES de carregar o estado: num servidor novo o disco esta' vazio, e sem isto a plataforma
+    # subiria sem os comentarios, as strings trancadas e o historico — em silencio, como se
+    # nunca tivessem existido. Nunca sobrescreve arquivo que ja' esta' la'.
+    try:
+        import estado_backup
+        estado_backup.restaurar_se_vazio()
+    except Exception as _e:            # noqa: BLE001 - sem copia, segue com o que houver
+        print(f"[estado] restauracao no boot falhou: {_e}")
     _carregar_estado_do_disco()
     _solo = os.environ.get("GRIDCO_SOLO", "") == "1"
     if _solo:

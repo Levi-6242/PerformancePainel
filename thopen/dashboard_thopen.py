@@ -1,8 +1,17 @@
 # -*- coding: utf-8 -*-
-"""Dashboard Thopen — Performance da Usina (réplica do Power BI), fonte = BD_Thopen.xlsx.
+"""Dashboard Thopen — Performance da Usina (réplica do Power BI), fonte = PostgreSQL.
 
-Lê o BD_Thopen.xlsx sincronizado (o MESMO arquivo que o Power BI consome via SharePoint)
-e reproduz o relatório "Performance da Usina":
+Desde 28/08/2026 (Levi): "vamos continuar atualizando a geração no BD_Thopen mas todos os
+dados vão ser puxados pelo postgresql". A coleta segue escrevendo no BD_Thopen.xlsx, o
+`sync_gridco_api.py` leva o arquivo para o banco, e daqui o dashboard só LÊ do banco — o
+`fonte_api` monta o mesmo workbook em memória, então todos os leitores abaixo continuam
+operando sobre worksheets, sem uma linha de regra de negócio mudando de lugar.
+
+Este app NÃO ABRE ARQUIVO NENHUM ("não pode ter nada de excel, tem que ser 100% postgresql"):
+não há caminho de planilha nem pasta de snapshot. Se a API não responder, quem segura é o cache
+em disco do `fonte_api` — a última leitura boa, com a idade dela na tela.
+
+Reproduz o relatório "Performance da Usina":
 
   • Página Mensal: barras Produzida × Meta + tabela (Meta, Produzida, Diferença %,
     FC Meta, FC Real).  Fonte: tabela diária da usina (soma por mês) + `Historico_2026`
@@ -19,36 +28,26 @@ Contas idênticas ao Power BI (ver as queries M de referência):
   • Meta diária      = Meta_mensal / dias_do_mês  (linha plana do gráfico diário)
 
 Foco V1: Altair (mas o seletor lista todas as usinas que têm tabela diária).
-Recarrega sozinho quando o xlsx muda (mtime). Porta 5080.
+Recarrega sozinho pelo TTL do `fonte_api`; o botão Atualizar derruba o cache. Porta 5080.
 """
 import os
+import re
 import json
-import shutil
-import tempfile
 import threading
 import datetime as dt
 from calendar import monthrange
 
-import openpyxl
 from openpyxl.utils import range_boundaries
 from flask import Flask, jsonify, render_template, request
 
-# ── Localização dos dados ──────────────────────────────────────────────────────
-# Na nuvem (Railway) definimos THOPEN_DATA_DIR=data → lê o SNAPSHOT das planilhas empacotado no repo
-# (data/BD_Thopen.xlsx, data/Polaris, data/Matrix, data/Copel). Local, sem a env, segue lendo AO VIVO
-# do OneDrive (dados sempre atuais). Atualizar a nuvem = novo push da pasta data/.
-_DATA_DIR = os.environ.get("THOPEN_DATA_DIR")
-if not _DATA_DIR and any(k.startswith("RAILWAY_") for k in os.environ):
-    _DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")  # auto na nuvem Railway
+import fonte_api             # leitura pelo PostgreSQL (Gridco Performance API) — ÚNICA fonte
 
-_CANDIDATOS = [
-    os.environ.get("BD_THOPEN_PATH"),
-    os.path.join(_DATA_DIR, "BD_Thopen.xlsx") if _DATA_DIR else None,
-    r"C:\Users\Levi Maia\OneDrive - GRID CO\Grid Co_ - 17. Acesso Externo Thopen"
-    r"\1. Registro usinas Thopen\BD_Thopen.xlsx",
-    r"C:\Users\Levi Maia\OneDrive - GRID CO\BD_Thopen.xlsx",
-    r"C:\Users\Levi Maia\OneDrive - GRID CO\Área de Trabalho\BD_Thopen.xlsx",
-]
+# ── Localização dos dados: não há ──────────────────────────────────────────────
+# Este app NÃO ABRE ARQUIVO NENHUM (Levi, 28/08/2026: "não pode ter nada de excel, tem que ser
+# 100% postgresql"). Não há caminho de planilha, pasta de snapshot nem THOPEN_DATA_DIR: o
+# servidor de produção roda num link fixo, sem OneDrive, e um fallback para arquivo lá seria só
+# uma forma silenciosa de servir dado velho. Se a API não responder, quem segura é o cache em
+# disco do `fonte_api` — a última leitura boa, com a idade dela na tela.
 
 ANO = 2026   # relatório do ano corrente (tabela Historico_2026 é 2026-específica)
 
@@ -78,35 +77,16 @@ def _save_comentarios(data):
         os.replace(tmp, _COMENTARIOS_PATH)   # troca atômica
 
 
-def _bd_path():
-    for c in _CANDIDATOS:
-        if c and os.path.exists(c):
-            return c
-    raise FileNotFoundError("BD_Thopen.xlsx não encontrado (defina BD_THOPEN_PATH).")
-
-
 def _planilha_em():
-    """Data/hora de modificação do BD_Thopen.xlsx, formatada (ou None)."""
-    try:
-        return dt.datetime.fromtimestamp(os.path.getmtime(_bd_path())).strftime("%d/%m/%Y %H:%M")
-    except OSError:
-        return None
+    """Data/hora do dado que está na tela, formatada (ou None).
+
+    É QUANDO ESTE DASHBOARD LEU o banco — não a hora do boot e não a hora de um arquivo. Com o
+    cache em disco em uso, é a hora da leitura ORIGINAL: a tela mostra a idade real do dado."""
+    ts = fonte_api.estado()["carregado_em"]
+    return dt.datetime.fromtimestamp(ts).strftime("%d/%m/%Y %H:%M") if ts else None
 
 
-def _open_wb(path, tmpname="bd_thopen_dash.xlsx"):
-    """Lê o workbook de uma CÓPIA temporária — assim funciona mesmo com o arquivo
-    ABERTO no Excel ou sincronizando no OneDrive (a leitura direta dá PermissionError,
-    mas o Windows permite copiar com leitura compartilhada). `tmpname` separa as cópias
-    (BD_Thopen vs Budget Polaris) pra não se sobrescreverem."""
-    tmp = os.path.join(tempfile.gettempdir(), tmpname)
-    try:
-        shutil.copy2(path, tmp)
-        return openpyxl.load_workbook(tmp, data_only=True)
-    except Exception:
-        return openpyxl.load_workbook(path, data_only=True)   # fallback: leitura direta
-
-
-# ── Cache do workbook por mtime ────────────────────────────────────────────────
+# ── Cache do workbook ──────────────────────────────────────────────────────────
 _lock = threading.Lock()
 _state = {"mtime": None, "path": None, "wb": None, "tbl": {}, "daily": {}, "df": {}}
 
@@ -144,36 +124,81 @@ def _usina_da_aba(ws, ref, hdr):
     return ws.title
 
 
+def _indexa(wb):
+    """(tbl, daily) de um workbook: tabelas nomeadas + as tabelas diárias (header com
+    'Energia Produzida')."""
+    tbl, daily = {}, {}
+    for ws in wb.worksheets:
+        try:
+            names = list(ws.tables.keys())
+        except Exception:
+            names = []
+        for nm in names:
+            ref = _ref_of(ws.tables[nm])
+            tbl[nm] = (ws.title, ref)
+            hdr = _header(ws, ref)
+            hl = [h.lower() for h in hdr]
+            # aba diária = tem 'Energia Produzida' E 'Data' (exclui resumos como "Clientes");
+            # chave = nome da coluna 'Usina' (oficial), não o rótulo da aba
+            if any("energia produzida" in h for h in hl) and "data" in hl:
+                daily[_usina_da_aba(ws, ref, hdr)] = (ws.title, ref)
+        if names:
+            continue
+        # ABA SEM TABELA NOMEADA -> sintetiza a "tabela" da própria aba (migração 25/08:
+        # o espelho gerado da Gridco Performance API não carrega tabelas do Excel — a API
+        # não as expõe — e sem este fallback `daily` ficava VAZIO e o dashboard inteiro
+        # mudo). A régua de conteúdo continua a mesma; só a DESCOBERTA muda de fonte.
+        ref = _ref_da_aba(ws)
+        if not ref:
+            continue
+        hdr = _header(ws, ref)
+        hl = [h.lower() for h in hdr]
+        tbl[ws.title] = (ws.title, ref)
+        if any("energia produzida" in h for h in hl) and "data" in hl:
+            daily[_usina_da_aba(ws, ref, hdr)] = (ws.title, ref)
+    return tbl, daily
+
+
 def _wb():
-    """Workbook em cache; recarrega quando o arquivo muda. Indexa tabelas nomeadas
-    e detecta as tabelas diárias (header com 'Energia Produzida')."""
+    """Workbook em cache, indexado. A FONTE É O POSTGRESQL, e só ele (Levi, 28/08/2026).
+
+    `fonte_api` monta o workbook em memória a partir da Gridco Performance API, então todos os
+    leitores abaixo continuam sendo código de planilha e nenhuma regra de negócio mudou de lugar
+    na migração. Se a API não responder, ele mesmo segura com a última leitura boa (memória ou
+    cache em disco) — aqui não há segundo caminho.
+
+    Assinatura do cache = o instante da carga (`carregado_em`), que muda a cada refresh de TTL.
+    É o que invalida `_state['sheets']` e `_state['polaris']` junto."""
     with _lock:
-        path = _bd_path()
-        m = os.path.getmtime(path)
-        if _state["wb"] is None or _state["mtime"] != m or _state["path"] != path:
-            try:
-                wb = _open_wb(path)
-            except Exception:
-                if _state["wb"] is not None:
-                    return _state["wb"]     # arquivo travado num instante: mantém a última leitura boa
-                raise
-            tbl, daily = {}, {}
-            for ws in wb.worksheets:
-                try:
-                    names = list(ws.tables.keys())
-                except Exception:
-                    names = []
-                for nm in names:
-                    ref = _ref_of(ws.tables[nm])
-                    tbl[nm] = (ws.title, ref)
-                    hdr = _header(ws, ref)
-                    hl = [h.lower() for h in hdr]
-                    # aba diária = tem 'Energia Produzida' E 'Data' (exclui resumos como "Clientes");
-                    # chave = nome da coluna 'Usina' (oficial), não o rótulo da aba
-                    if any("energia produzida" in h for h in hl) and "data" in hl:
-                        daily[_usina_da_aba(ws, ref, hdr)] = (ws.title, ref)
-            _state.update(mtime=m, path=path, wb=wb, tbl=tbl, daily=daily, df={})
+        wb = fonte_api.workbook()
+        if wb is None:
+            raise RuntimeError(
+                "sem dado: a API não respondeu e não há cache em disco. "
+                "Confira %s e o /api/t/fonte." % fonte_api.BASE)
+        if _state["wb"] is not wb:
+            tbl, daily = _indexa(wb)
+            _state.update(mtime=fonte_api.estado()["carregado_em"], path="api",
+                          wb=wb, tbl=tbl, daily=daily, df={})
         return _state["wb"]
+
+
+def _ref_da_aba(ws):
+    """Ref sintética da área útil de uma aba SEM tabela nomeada: acha a linha de cabeçalho e a
+    primeira coluna com conteúdo, e fecha no fim da aba.
+
+    A linha de cabeçalho é a primeira (entre as 4 primeiras) que contenha "Usina" ou "Data" —
+    é o que separa cabeçalho de LINHA DE TÍTULO: no BD_Thopen real, "Dados Mensais 2026",
+    "Historico", "Dados Gerais Usinas", "Clientes", "Santana", "Sapopema" e "Saturnino" têm
+    título/linha vazia acima do cabeçalho, e 5 abas começam na coluna B. Ler "de A1 até o fim"
+    nessas oito daria cabeçalho errado e a aba sumiria das telas em silêncio."""
+    from openpyxl.utils import get_column_letter
+    for r in range(1, min(4, ws.max_row) + 1):
+        vals = [str(c.value).strip().lower() if c.value is not None else "" for c in ws[r]]
+        if any(v in ("usina", "data") for v in vals):
+            c1 = next((i + 1 for i, v in enumerate(vals) if v), 1)
+            return (f"{get_column_letter(c1)}{r}:"
+                    f"{get_column_letter(ws.max_column)}{ws.max_row}")
+    return None
 
 
 def _cols(rows):
@@ -214,6 +239,42 @@ def _table(name):
     wb = _wb()
     if name in _state["df"]:
         return _state["df"][name]
+    # ALIAS DO HISTÓRICO ANUAL — e SÓ entre nomes com ANO. Este arquivo usa DUAS tabelas cujo
+    # nome começa com "Historico", e elas têm formatos incompatíveis:
+    #   Historico_2026 -> Usina | Ano | Mês | FC | Meta | Meta Irradiação | PR   (largo; _meta_mes)
+    #   Historico      -> Usina | Ano | Mês | Tipo | Valor                       (longo; usado em
+    #                                                                            outras duas telas)
+    # Um alias por prefixo faria `_table("Historico_2026")` cair na `Historico` quando o ano virasse,
+    # e a página anual mostraria meta/FC/PR vazios SEM erro nenhum. Então só troca de ano por ano —
+    # nunca para a tabela sem sufixo.
+    if name not in _state["tbl"] and re.fullmatch(r"(?i)historico[_ ]?\d{4}", str(name) or ""):
+        _alt = next((k for k in _state["tbl"]
+                     if re.fullmatch(r"(?i)historico[_ ]?\d{4}", str(k) or "")), None)
+        if _alt:
+            print(f"[BD_Thopen] tabela '{name}' não existe; usando '{_alt}' (mesmo formato anual)")
+            name = _alt
+    if name not in _state["tbl"]:
+        # ESPELHO DA API: as tabelas nomeadas não existem (a API não as expõe) e as entradas de
+        # `tbl` são as próprias ABAS. Cada nome fixo resolve pela ASSINATURA DE COLUNAS — nunca
+        # por posição ou palpite, porque tabela errada aqui devolve dado plausível e errado:
+        #   Historico_2026 -> formato LARGO (Meta + Irradiação + PR)
+        #   Historico      -> formato LONGO (Tipo + Valor)
+        #   T_Usinas       -> cadastro (Cliente + Estado/Cidade)
+        _ASSIN = {
+            "historico_2026": ("meta", "irradia"),
+            "historico":      ("tipo", "valor"),
+            "t_usinas":       ("cliente", "estado"),
+        }
+        _chave = str(name).strip().lower()
+        _quer = _ASSIN.get(re.sub(r"[_ ]?\d{4}$", "_2026", _chave) if _chave.startswith("historico") and _chave != "historico" else _chave)
+        if _quer:
+            wb2 = _state["wb"]
+            for k, (aba, ref) in _state["tbl"].items():
+                hl = [h.lower() for h in _header(wb2[aba], ref)]
+                if (any("usina" in h for h in hl)
+                        and all(any(q in h for h in hl) for q in _quer)):
+                    name = k
+                    break
     out = ([], [])
     if name in _state["tbl"]:
         sheet, ref = _state["tbl"][name]
@@ -222,12 +283,9 @@ def _table(name):
     return out
 
 
-# ── Polaris: os ACTUALS (geração/irradiação/disponibilidade DIÁRIAS) vêm de um Excel de
-#    Budget separado (alimentado semanalmente), NÃO do BD_Thopen. Meta, histórico (2023-2025)
-#    e cadastro continuam vindo do BD_Thopen — igual às outras carteiras. ────────────────────
-_POLARIS_DIR = (os.path.join(_DATA_DIR, "Polaris") if _DATA_DIR else
-                r"C:\Users\Levi Maia\OneDrive - GRID CO\Grid Co_ - 17. Acesso Externo Thopen"
-                r"\3. Polaris")
+# ── Polaris: a aba "Histórico Polaris" do BD_Thopen é a CAMADA DE CORREÇÃO MANUAL por cima
+#    das abas diárias (que vêm do PG do OEM). O de-para abaixo existe porque o nome que a
+#    Polaris usa não é o nome canônico da coleta. ─────────────────────────────────────────
 # nome no Budget (coluna "UFV 1")  →  nome de coleta canônico (igual T_Usinas/CARTEIRAS).
 # De-para EXPLÍCITO (em vez da cadeia frágil de substituições do Power Query).
 _POLARIS_NOME = {
@@ -280,213 +338,119 @@ for _k, _v in _POLARIS_NOME.items():
     _POLARIS_LOOKUP[_v.lower()] = _v
 
 
-def _polaris_budget_path():
-    """Budget Polaris mais recente (Budget_2025_UFVs_Raizen*.xlsx). Escolhe pela DATA no nome
-    (…GridCo - AAAAMMDD.xlsx) e não por mtime — na nuvem o mtime é a hora do checkout, não a real."""
-    import glob
-    cands = glob.glob(os.path.join(_POLARIS_DIR, "Budget_2025_UFVs_Raizen*.xlsx"))
-    return max(cands) if cands else None
-
-
-def _polaris_coments():
-    """{(usina, date): texto} a partir de 'Comentários Polaris.xlsx' (Tabela6)."""
-    out = {}
-    cpath = os.path.join(_POLARIS_DIR, "Comentários Polaris.xlsx")
-    if not os.path.exists(cpath):
-        return out
-    try:
-        wb = _open_wb(cpath, "polaris_coment_dash.xlsx")
-        ws = wb["Comentários"]
-        hdr, rows = _cols(_range_rows(ws, _ref_of(ws.tables["Tabela6"])))
-    except Exception:
-        return out
-    iU = _ci(hdr, "ufv"); iD = _ci(hdr, "data"); iC = _ci(hdr, "coment")
-    if None in (iU, iD, iC):
-        return out
-    for r in rows:
-        u = _POLARIS_LOOKUP.get(str(r[iU]).strip().lower()) if r[iU] else None
-        d = r[iD]
-        if isinstance(d, dt.datetime):
-            d = d.date()
-        elif not isinstance(d, dt.date):                  # a data às vezes vem como texto "dd/mm/aaaa"
-            try:
-                d = dt.datetime.strptime(str(d).strip(), "%d/%m/%Y").date()
-            except (ValueError, TypeError):
-                d = None
-        if u and d and r[iC]:
-            txt = str(r[iC]).strip()
-            out[(u, d)] = (out[(u, d)] + " | " + txt) if (u, d) in out else txt
-    return out
-
-
 def _polaris_records():
-    """{usina_canônica: [{data, ger, ipoa, disp, com}]} a partir do Budget Polaris, no MESMO
-    formato de `_daily_records`. Só o ano corrente (ANO), igual às abas diárias da Thopen.
-    Cache invalidado pelo mtime do Budget."""
-    path = _polaris_budget_path()
-    if not path:
-        return {}
-    m = os.path.getmtime(path)
-    cache = _state.get("polaris")
-    if cache and cache.get("mtime") == m:
-        return cache["recs"]
-    wb = _open_wb(path, "polaris_budget_dash.xlsx")
+    """{usina_canônica: {date: {ger, ipoa, disp, com}}} — a CAMADA DE CORREÇÃO da Polaris.
 
-    def wide(aba, tabela):
-        """Tabela larga (UFV 1 | UFV 2 | <datas…>) → {usina: {date: valor}}."""
-        ws = wb[aba]
-        rows = _range_rows(ws, _ref_of(ws.tables[tabela]))
-        if not rows:
-            return {}
-        header = rows[0]
-        coldate = []
-        for i in range(2, len(header)):
-            h = header[i]
-            d = h.date() if isinstance(h, dt.datetime) else (h if isinstance(h, dt.date) else None)
-            if d is None and h is not None:
-                try:
-                    d = dt.datetime.strptime(str(h).strip(), "%d/%m/%Y").date()
-                except ValueError:
-                    d = None
-            coldate.append((i, d))
-        out = {}
-        for r in rows[1:]:
-            usina = _POLARIS_LOOKUP.get(str(r[0]).strip().lower()) if r[0] else None
-            if not usina:
+    Desde 28/08/2026 a fonte é a aba "Histórico Polaris" do próprio BD_Thopen (e portanto o
+    PostgreSQL), não mais o Excel de Budget. Ela não repete o automático: as 22 usinas Polaris
+    têm aba diária própria, alimentada pelo PG do OEM, e esta aba SOBRESCREVE campo a campo o
+    que o Levi corrigir à mão — foi para isso que ele a pediu ("quando o BD falhar ou tiver com
+    informação incompleta eu preencho lá"). Valor vazio aqui não apaga nada; deixa passar o
+    automático.
+
+    O Budget continua como FALLBACK e só isso: o snapshot da nuvem (data/) pode não ter a aba
+    ainda, e sem ele essas usinas sumiriam do site publicado em silêncio."""
+    _wb()
+    entry = _state["tbl"].get("T_Hist_Polaris") or _state["tbl"].get("Histórico Polaris")
+    if entry:
+        sig = ("bd", _state["mtime"])
+        cache = _state.get("polaris")
+        if cache and cache.get("mtime") == sig:
+            return cache["recs"]
+        aba, ref = entry
+        hdr, rows = _cols(_range_rows(_state["wb"][aba], ref))
+        iD = _ci(hdr, "data"); iU = _ci(hdr, "usina")
+        iG = _ci(hdr, "gera"); iI = _ci(hdr, "irradia")
+        iP = _ci(hdr, "dispon"); iC = _ci(hdr, "coment")
+        recs = {}
+        for r in rows:
+            u = str(r[iU]).strip() if iU is not None and r[iU] else None
+            d = r[iD] if iD is not None else None
+            if isinstance(d, dt.datetime):
+                d = d.date()
+            if not u or not isinstance(d, dt.date):
                 continue
-            s = out.setdefault(usina, {})
-            for i, d in coldate:
-                if d is None or d.year != ANO:
-                    continue
-                v = r[i]
-                if isinstance(v, (int, float)):
-                    s[d] = s.get(d, 0.0) + v
-        return out
+            recs.setdefault(_POLARIS_LOOKUP.get(u.lower(), u), {})[d] = {
+                "ger": _num(r[iG]) if iG is not None else None,
+                "ipoa": _num(r[iI]) if iI is not None else None,
+                "disp": _num(r[iP]) if iP is not None else None,
+                "com": (str(r[iC]).strip() or None) if iC is not None and r[iC] else None,
+            }
+        _state["polaris"] = {"mtime": sig, "recs": recs}
+        return recs
 
-    ger = wide("Ger. Diaria", "GerDiaria")
-    irr = wide("Irradiancia Diaria", "IrradDiaria")
-    disp = wide("Disp. Diaria", "DispDiaria")
-    com = _polaris_coments()
-    recs = {}
-    for u in (set(ger) | set(irr) | set(disp)):
-        datas = sorted(set(ger.get(u, {})) | set(irr.get(u, {})) | set(disp.get(u, {})))
-        lst = [{
-            "data": d,
-            "ger": ger.get(u, {}).get(d),
-            "ipoa": irr.get(u, {}).get(d),
-            "disp": disp.get(u, {}).get(d),
-            "com": com.get((u, d)),
-        } for d in datas]
-        if lst:
-            recs[u] = lst
-    _state["polaris"] = {"mtime": m, "recs": recs}
-    return recs
+    return {}          # sem a aba, não há Polaris — e não há de onde inventar
 
 
-# ── Fontes de planilha externa (Matrix, Copel, …): contexto DIFERENCIADO ─────────────────────────
-#    Os actuals diários (geração/irradiação/disp) de algumas carteiras NÃO vêm do BD_Thopen e sim de
-#    um Excel separado. Regra de corte (_SHEET_CORTE = 01/06/2026):
-#      • usina QUE EXISTE no BD_Thopen        → planilha p/ datas < corte + BD_Thopen p/ datas >= corte
-#      • usina FORA do BD_Thopen (Caroá, Pharma II/III/IV) → planilha INTEIRA (todas as datas do ano)
-#    Meta/histórico/cadastro sempre do BD_Thopen. Cada fonte tem 1 tabela por usina (Data/Usina/
-#    geração/irradiação/disp) + 1 tabela larga de comentários. A coluna "Usina" já traz o canônico.
-_THOPEN_EXT = r"C:\Users\Levi Maia\OneDrive - GRID CO\Grid Co_ - 17. Acesso Externo Thopen"
-_MATRIX_DIR = os.path.join(_DATA_DIR, "Matrix") if _DATA_DIR else _THOPEN_EXT + r"\6. Matrix"
-_COPEL_DIR = os.path.join(_DATA_DIR, "Copel") if _DATA_DIR else _THOPEN_EXT + r"\5. Copel"
-_SHEET_CORTE = dt.date(2026, 6, 1)   # < corte: planilha | >= corte: BD_Thopen (se a usina existir lá)
-_SHEET_SOURCES = [
-    {"dir": _MATRIX_DIR, "glob": "Gera*Matrix*.xlsx", "tmp": "matrix_dash.xlsx"},
-    {"dir": _COPEL_DIR, "glob": "Gera*Copel*.xlsx", "tmp": "copel_dash.xlsx"},
-]
-# nomes que o BD_Thopen grava diferente do cliente/planilha/meta → canoniza p/ tudo casar
+# ── Copel, Matrix, Caroá e Piancó: os actuals diários dessas usinas moram na aba
+#    "Histórico Carteira" do BD_Thopen (coluna Fonte separa as carteiras). Antes vinham de
+#    planilhas soltas no OneDrive; desde 28/08/2026 é tudo banco. A régua de corte segue: para
+#    usina que TAMBÉM tem aba diária, o histórico vale até 01/06 e a aba diária depois disso.
+_SHEET_CORTE = dt.date(2026, 6, 1)
 _NOME_CANON = {"Santo Antonio do Platina": "Santo Antonio da Platina"}
 _BD_ALIAS = {v: k for k, v in _NOME_CANON.items()}   # canônico -> nome da aba no BD_Thopen
 
 
-def _sheet_path(src):
-    import glob
-    cands = [c for c in glob.glob(os.path.join(src["dir"], src["glob"]))
-             if not os.path.basename(c).startswith("~")]
-    return cands[0] if cands else None
-
-
-def _sheet_coments(wb):
-    """{(usina, date): texto} da tabela larga de comentários/ocorrências (Data + 1 coluna por usina).
-    Remove o prefixo 'UFV ' (Copel) e o \\xa0 (Matrix) do nome da coluna."""
-    out = {}
-    alvo = None
-    for w in wb.worksheets:
-        for tn in (list(w.tables.keys()) if hasattr(w, "tables") else []):
-            if "coment" in tn.lower() or "ocorr" in tn.lower():
-                alvo = (w, tn)
-                break
-        if alvo:
-            break
-    if not alvo:
-        return out
-    ws, tn = alvo
-    hdr, rows = _cols(_range_rows(ws, _ref_of(ws.tables[tn])))
-    iD = _ci(hdr, "data")
-    if iD is None:
-        return out
-
-    def _clean(h):
-        h = h.replace("\xa0", " ").strip()
-        return h[4:].strip() if h.upper().startswith("UFV ") else h
-
-    cols = [(i, _clean(h)) for i, h in enumerate(hdr) if i != iD and h]
-    for r in rows:
-        dd = r[iD]
-        if not isinstance(dd, (dt.datetime, dt.date)):
-            continue
-        day = dd.date() if isinstance(dd, dt.datetime) else dd
-        for i, uname in cols:
-            if r[i]:
-                out[(uname, day)] = str(r[i]).strip()
-    return out
-
-
 def _sheet_records():
-    """{usina_canônica: {date: {ger,ipoa,disp,com}}} unindo TODAS as fontes de planilha externa
-    (Matrix, Copel, …). 1 tabela/usina em formato longo. Cache por mtimes das fontes."""
-    paths = [(s, _sheet_path(s)) for s in _SHEET_SOURCES]
-    paths = [(s, p) for s, p in paths if p]
-    sig = tuple((p, os.path.getmtime(p)) for _, p in paths)
+    """{usina_canônica: {date: {ger,ipoa,disp,com}}} dos actuals de Copel, Matrix, Caroá e Piancó.
+
+    Fonte única: a aba "Histórico Carteira" do BD_Thopen (tabela T_Hist_Carteira), onde a coluna
+    Fonte separa as carteiras. Antes de 28/08/2026 cada uma vinha de uma planilha solta no
+    OneDrive, e o Caroá tinha aba própria; hoje a atualização mensal do cliente entra direto no
+    consolidado. O nome antigo da aba fica de alternativa porque o rename é recente."""
+    _wb()                                     # garante _state['tbl'] atualizado
+    sig = ("bd", _state["mtime"])
     cache = _state.get("sheets")
     if cache and cache.get("sig") == sig:
         return cache["recs"]
-    out = {}
-    for src, path in paths:
-        wb = _open_wb(path, src["tmp"])
-        for ws in wb.worksheets:
-            for tn in (list(ws.tables.keys()) if hasattr(ws, "tables") else []):
-                hdr, rows = _cols(_range_rows(ws, _ref_of(ws.tables[tn])))
-                iD = _ci(hdr, "data"); iU = _ci(hdr, "usina")
-                iG = _ci(hdr, "gera")
-                if iG is None:
-                    iG = _ci(hdr, "energia")   # Matrix usa "Geração"; Copel usa "Energia (kWh)"
-                iI = _ci(hdr, "irradia"); iDp = _ci(hdr, "disp")
-                if iD is None or iU is None:
-                    continue   # pula a tabela de comentários (sem coluna "Usina")
-                for r in rows:
-                    u = str(r[iU]).strip() if r[iU] else None
-                    dd = r[iD]
-                    if not u or not isinstance(dd, (dt.datetime, dt.date)):
-                        continue
-                    u = _NOME_CANON.get(u, u)
-                    day = dd.date() if isinstance(dd, dt.datetime) else dd
-                    out.setdefault(u, {})[day] = {
-                        "ger": _num(r[iG]) if iG is not None else None,
-                        "ipoa": _num(r[iI]) if iI is not None else None,
-                        "disp": _num(r[iDp]) if iDp is not None else None,
-                        "com": None,
-                    }
-        for (u, day), txt in _sheet_coments(wb).items():
-            u = _NOME_CANON.get(u, u)
-            cel = out.setdefault(u, {}).setdefault(day, {"ger": None, "ipoa": None, "disp": None, "com": None})
-            cel["com"] = txt
-    _state["sheets"] = {"sig": sig, "recs": out}
-    return out
+
+    def _acha(*nomes):
+        for n in nomes:                       # tabela nomeada OU, no espelho da API, a própria aba
+            if n in _state["tbl"]:
+                return _state["tbl"][n]
+        return None
+
+    def _data(v):
+        if isinstance(v, dt.datetime):
+            return v.date()
+        if isinstance(v, dt.date):
+            return v
+        try:                                  # espelho da API grava a data como texto ISO
+            return dt.date.fromisoformat(str(v).strip()[:10])
+        except (ValueError, TypeError):
+            return None
+
+    # A aba se chamava "Histórico Copel e Matrix" até 28/08/2026, quando passou a carregar
+    # também Caroá e Piancó e virou "Histórico Carteira". Os dois nomes são aceitos.
+    fontes_bd = [_acha("T_Hist_Carteira", "Histórico Carteira",
+                       "T_Hist_Copel_Matrix", "Histórico Copel e Matrix")]
+    fontes_bd = [f for f in fontes_bd if f]
+    if fontes_bd:
+        out = {}
+        wb = _state["wb"]
+        for aba, ref in fontes_bd:
+            hdr, rows = _cols(_range_rows(wb[aba], ref))
+            iD = _ci(hdr, "data"); iU = _ci(hdr, "usina")
+            iG = _ci(hdr, "gera"); iI = _ci(hdr, "irradia")
+            iP = _ci(hdr, "disp"); iC = _ci(hdr, "coment")
+            if iD is None or iU is None:
+                continue
+            for r in rows:
+                u = str(r[iU]).strip() if r[iU] else None
+                day = _data(r[iD])
+                if not u or not day:
+                    continue
+                u = _NOME_CANON.get(u, u)
+                out.setdefault(u, {})[day] = {
+                    "ger": _num(r[iG]) if iG is not None else None,
+                    "ipoa": _num(r[iI]) if iI is not None else None,
+                    "disp": _num(r[iP]) if iP is not None else None,
+                    "com": (str(r[iC]).strip() or None) if iC is not None and r[iC] else None,
+                }
+        _state["sheets"] = {"sig": sig, "recs": out}
+        return out
+
+    return {}          # sem as abas, essas carteiras não têm outra fonte
 
 
 # ── Leitura por domínio ─────────────────────────────────────────────────────────
@@ -527,12 +491,33 @@ def _daily_bd(usina):
 
 
 def _daily_records(usina):
-    """{data, ger, ipoa, disp, com} por usina. Polaris = Budget; Matrix/Copel = planilha externa com
-    corte (planilha < 01/06 + BD_Thopen >= 01/06 se a usina existir no BD; senão planilha inteira);
-    o resto = BD_Thopen."""
+    """Idem `_daily_records_todos`, mas SEM os dias que ainda não aconteceram.
+
+    O BD nasce com o mês inteiro pré-criado, e os dias futuros chegam com geração 0 e
+    disponibilidade 0. Se entrassem na conta, o mês corrente ficaria irreconhecível: em
+    17/08/2026 a frota aparecia com disponibilidade de ~42% e a produção do mês ~77% abaixo
+    da meta, só porque 14 dias que nem existiam ainda entravam como zero."""
+    hoje = dt.date.today()
+    return [r for r in _daily_records_todos(usina) if r["data"] <= hoje]
+
+
+def _daily_records_todos(usina):
+    """{data, ger, ipoa, disp, com} por usina. Polaris = aba diária (PG do OEM) CORRIGIDA pela
+    aba "Histórico Polaris"; Matrix/Copel = planilha externa com corte (planilha < 01/06 +
+    BD_Thopen >= 01/06 se a usina existir no BD; senão planilha inteira); o resto = BD_Thopen."""
     pol = _polaris_records()
     if usina in pol:
-        return pol[usina]
+        # correção manual SOBRESCREVE o automático campo a campo — célula vazia lá não apaga o
+        # dado daqui. Usina sem aba diária (Vargem Grande 1) fica só com a correção, que é a
+        # única fonte que ela tem.
+        base = {r["data"]: dict(r) for r in _daily_bd(usina)}
+        for d, e in pol[usina].items():
+            alvo = base.setdefault(d, {"data": d, "ger": None, "ipoa": None,
+                                       "disp": None, "com": None})
+            for k in ("ger", "ipoa", "disp", "com"):
+                if e.get(k) is not None:
+                    alvo[k] = e[k]
+        return sorted(base.values(), key=lambda r: r["data"])
     sheet = _sheet_records().get(usina)
     if sheet:
         bd = {r["data"]: r for r in _daily_bd(usina)}
@@ -716,6 +701,8 @@ CARTEIRAS = {
         "Sitio dos Nogueiras", "Sorocaba", "Tanabi",
         # Coleta iniciada em 07/2026 (dado no BD_Thopen a partir de 31/07); estavam sem carteira.
         "Cipó Guaçu", "Córrego do Sapucaia", "Guatambu", "Jucurutu",
+        # Entraram em operação em 08/2026 (meta e geração começam em agosto).
+        "Assis", "Caicó", "Diamantino", "Itajá",
     ],
     "Copel": [
         "Pharma II", "Pharma III", "Pharma IV", "Santo Antonio do Platina",
@@ -945,110 +932,53 @@ def geral():
                     "corte": corte.strftime("%d/%m/%Y"), "linhas": linhas, "fora": fora})
 
 
+@app.route("/api/t/fonte")
+def fonte():
+    """Saúde da fonte de dados — de onde veio o que está na tela e há quanto tempo.
+
+    Existe para o servidor de produção, que não tem arquivo nenhum para inspecionar: sem isto,
+    descobrir se o dashboard está servindo o banco ou um cache velho exigiria ler log. Serve
+    também de healthcheck: `origem == "api"` e `idade < ttl` é o estado saudável."""
+    _wb()
+    e = fonte_api.estado() if fonte_api is not None else {}
+    return jsonify({
+        "fonte": _state.get("path"),          # sempre "api": não há outra fonte
+        "origem": e.get("origem"),            # "api" | "cache" (disco) | None
+        "carregado_em": (dt.datetime.fromtimestamp(e["carregado_em"]).strftime("%d/%m/%Y %H:%M:%S")
+                         if e.get("carregado_em") else None),
+        "idade_s": round(e["idade"]) if e.get("idade") is not None else None,
+        "ttl_s": e.get("ttl"), "abas": e.get("abas"),
+        "erro_ultima_tentativa": e.get("erro"),
+        "cache_em_disco": e.get("cache"), "base": e.get("base"),
+        "usinas": len(_state.get("daily") or {}),
+    })
+
+
 @app.route("/api/t/reload")
 def reload_bd():
-    """Força reler o BD_Thopen.xlsx (limpa o cache) — usado pelo botão Atualizar."""
+    """Força reler a fonte (limpa o cache) — usado pelo botão Atualizar."""
+    if fonte_api is not None:
+        fonte_api.invalidar()      # derruba o TTL: o botão tem de buscar o banco AGORA
     with _lock:
         _state["wb"] = None
         _state["mtime"] = None
         _state["df"] = {}
-        _state["polaris"] = None   # força reler o Budget Polaris também
+        _state["polaris"] = None   # força reler os registros da Polaris também
         _state["sheets"] = None    # e as planilhas externas (Matrix, Copel)
     _wb()  # recarrega agora (chamado FORA do lock — _wb() readquire o lock)
     return jsonify({"ok": True, "planilha_em": _planilha_em(),
                     "atualizado_em": dt.datetime.now().strftime("%H:%M:%S")})
 
 
-# ── Publicar sob demanda (o botão Atualizar dispara a atualização da nuvem) ──────
-# A nuvem não enxerga o OneDrive: quem copia as planilhas e dá o push é o PC da Grid.
-# Por isso, na nuvem o botão só REGISTRA o pedido; um agente no PC consulta e executa.
-# Rodando no próprio PC (sem _DATA_DIR), publica na hora.
-_PUB_ESPERA = 300   # s entre pedidos — o site é público, evita republicar à toa
-_PUB_LIMITE = 600   # s: passou disso sem republicar, destrava (PC desligado, sem mudança…)
-# O gunicorn roda com 2 workers (processos separados): guardar o pedido em memória faria
-# o clique cair num worker e a consulta do agente no outro. Por isso o estado vai para um
-# arquivo, que os workers do mesmo contêiner enxergam. Some no re-deploy — e tudo bem,
-# porque re-deploy é justamente o fim da publicação.
-_PUB_PATH = os.path.join(tempfile.gettempdir(), "thopen_publicacao.json")
-
-
-def _pub_ler():
-    try:
-        with open(_PUB_PATH, encoding="utf-8") as f:
-            d = json.load(f)
-        return {"pedido_em": float(d.get("pedido_em") or 0),
-                "estado": str(d.get("estado") or "ocioso")}
-    except (FileNotFoundError, ValueError, OSError, TypeError):
-        return {"pedido_em": 0.0, "estado": "ocioso"}
-
-
-def _pub_gravar(d):
-    tmp = _PUB_PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(d, f)
-    os.replace(tmp, _PUB_PATH)       # troca atômica
-
-
-def _pub_estado(agora):
-    """Estado atual, já soltando pedido pendurado. Sem isso, um dia em que o script não
-    acha mudança (nada a publicar → nuvem não reinicia) travaria o botão para sempre."""
-    d = _pub_ler()
-    if d["estado"] != "ocioso" and (agora - d["pedido_em"]) > _PUB_LIMITE:
-        d["estado"] = "ocioso"
-        _pub_gravar(d)
-    return d
-
-
-@app.route("/api/t/publicar", methods=["POST"])
-def publicar():
-    """Botão Atualizar: pede que o snapshot do site seja republicado com o BD de hoje.
-    O app NUNCA executa o script — ele só anota o pedido. Quem publica é o agente do PC."""
-    if not _DATA_DIR:                       # rodando no PC, os dados já são os do OneDrive
-        return jsonify({"ok": True, "modo": "local",
-                        "msg": "Rodando local: os dados já vêm do OneDrive ao vivo."})
-    agora = dt.datetime.now().timestamp()
-    with _lock:
-        d = _pub_estado(agora)
-        if d["estado"] in ("pedido", "publicando"):
-            return jsonify({"ok": True, "modo": "nuvem", "estado": d["estado"],
-                            "msg": "Atualização já solicitada — aguardando o PC da Grid."})
-        falta = _PUB_ESPERA - (agora - d["pedido_em"])
-        if falta > 0:
-            return jsonify({"ok": True, "modo": "nuvem", "estado": "espera",
-                            "msg": f"Atualizado há pouco. Tente de novo em {int(falta)}s."})
-        _pub_gravar({"pedido_em": agora, "estado": "pedido"})
-    return jsonify({"ok": True, "modo": "nuvem", "estado": "pedido",
-                    "msg": "Atualização solicitada — o site republica em alguns minutos."})
-
-
-@app.route("/api/t/publicar/pendente")
-def publicar_pendente():
-    """Consultado pelo agente que roda no PC da Grid. `assumir=1` marca que ele pegou."""
-    with _lock:
-        d = _pub_estado(dt.datetime.now().timestamp())
-        pend = d["estado"] == "pedido"
-        if pend and request.args.get("assumir") == "1":
-            d["estado"] = "publicando"
-            _pub_gravar(d)
-        return jsonify({"pendente": pend, "estado": d["estado"]})
-
-
-@app.route("/api/t/publicar/concluido", methods=["POST"])
-def publicar_concluido():
-    """O agente avisa que terminou. Importante no caso 'nada mudou': aí a nuvem não
-    reinicia sozinha, e sem este aviso o botão ficaria preso em 'publicando'."""
-    with _lock:
-        d = _pub_ler()
-        d["estado"] = "ocioso"
-        _pub_gravar(d)
-    return jsonify({"ok": True})
+# A publicação sob demanda saiu em 28/08/2026 junto com o Excel: ela existia para o PC da
+# Grid copiar as planilhas e republicar o snapshot da nuvem. Lendo do banco, o dado do site
+# é o dado do banco — não há o que publicar, e o botão Atualizar apenas relê.
 
 
 @app.route("/api/t/versao")
 def versao():
-    """Carimbo do dado publicado — o navegador usa p/ saber que o site já republicou."""
-    return jsonify({"planilha_em": _planilha_em(),
-                    "estado_pub": _pub_estado(dt.datetime.now().timestamp())["estado"]})
+    """Carimbo do dado que está na tela — quando o dashboard leu o banco."""
+    return jsonify({"planilha_em": _planilha_em()})
 
 
 @app.route("/")

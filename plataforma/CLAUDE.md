@@ -1,6 +1,6 @@
 # Plataforma de Performance + ronda de trackers
 
-Flask na porta **5050**, uso interno (3 a 6 analistas). `app.py` tem ~17 mil linhas — **nunca
+Flask na porta **5050**, uso interno (3 a 6 analistas). `app.py` tem ~19,5 mil linhas — **nunca
 peça para lê-lo inteiro**; trabalhe por busca ou por trecho. Ver o `CLAUDE.md` da raiz para as
 convenções gerais e a regra `_AQUI` × `_RAIZ`.
 
@@ -42,6 +42,14 @@ a ronda morre em silêncio.
 - **Ler `.xlsx` sempre de uma cópia.** O Excel/OneDrive tranca o arquivo (`Errno 13`). Use
   `_bd_readable_path()`, que copia uma vez por versão do arquivo. Não volte a copiar por chamada:
   o caminho temporário fixo permitia uma thread truncar o arquivo enquanto outra lia.
+- **As planilhas são 100% API desde 25/08** (decisão do Levi). BD_Performance, BD_Thopen e Tickets
+  vêm da Gridco Performance API (`app.gridco.com.br/db_performace`), materializadas em
+  `plataforma/bases/` pelo `bd_api.py` (laço no worker, 30 min). **Os caminhos do OneDrive foram
+  removidos dos resolvedores de propósito** — não os recoloque "por garantia": as duas fontes
+  divergem de formas silenciosas (cache de fórmula, lock, sync sobrescrevendo). Emergência = env
+  `BD_PERF_PATH`/`TICKETS_PATH`/`BD_THOPEN_PATH`. O espelho NÃO tem tabelas nomeadas (a API não
+  as expõe): os leitores resolvem por aba + assinatura de colunas. Ainda fora da API: os CSVs do
+  2C (e-mail) e o Budget/Comentários da Polaris (só o 5080 usa).
 - **O schema `dbt` do banco congela.** É um pipeline da Thopen, não nosso. Quando congela, puxe das
   tabelas cruas `public.raw_*` (`raw_inverter`, `raw_tracker`, `raw_weather_station`): mesmo dado em
   `json_data`, hypertable indexada, ordens de grandeza mais rápido. Já foi feito para trackers, ETM,
@@ -57,13 +65,38 @@ a ronda morre em silêncio.
 
 ## Arquitetura de cache (importante para desempenho)
 
-Os dados vivem em cache na memória e são servidos em 2–4 ms. Quem reconstrói é o `_prewarm_loop`,
-**dentro do mesmo processo** — e é aí que está o gargalo conhecido: um ciclo completo passa dos
-5 minutos do TTL, então o servidor vive reconstruindo, e quem chega nessa janela espera.
+Os dados vivem em cache na memória e são servidos em 2–4 ms. **São dois processos:** o `worker.py`
+roda o `_prewarm_loop` e PUBLICA em `cache_snapshot.json`; o `app.py` só LÊ e serve. No web,
+`_swr` com cache vencido devolve `stale` e **não reconstrói** — era justamente a reconstrução no
+caminho da requisição que travava todo mundo pelo GIL. (Isto resolveu o gargalo antigo; o
+`GRIDCO_SOLO=1` volta ao modo de um processo só.)
 
-`_cache_save`/`_cache_load` já persistem 21 caches em `cache_snapshot.json` (na raiz). A correção
-estrutural planejada é mover o trabalho pesado para um processo separado, com o web só lendo —
-o mecanismo de snapshot já existe para isso.
+**TTL por cache.** O padrão é `CACHE_TTL` (300s). Um cache pode ter validade própria pela chave
+`"_ttl"` — é o caso do SunOp/Axis, em `SUNOP_TTL` (600s, pedido do Levi: status de trackers e
+inversores a cada 10 min). O `_` no nome mantém a chave **fora do snapshot**: é configuração, não
+estado, e o `_cache_load` faz `update` sem apagá-la.
+
+**Pausa noturna da SunOp.** Fora de 05:40–18:20 (`_sunop_janela_curva`), o `_prewarm_filtra_noturno`
+tira do ciclo as 6 tarefas que dependem de CURVA da SunOp/Axis e mantém as 3 baratas (last_values) —
+é o `ts_max` delas que acende falha de comunicação, então a madrugada não fica cega. ~7.3 mil
+requisições a menos por noite. **O portão vale só para o reaquecimento de HOJE:** a primitiva
+`_sunop_analog_history` fica aberta porque o `_fecha_dia_loop` (01:30) e os backfills horários
+trabalham dias PASSADOS de madrugada, e `force=1`/drill é ação do usuário. Nunca mover o portão
+para dentro da busca — há teste travando isso.
+
+**Curva de tracker é INCREMENTAL no dia corrente** (`_sunop_trk_curvas`): busca a partir do último
+ponto menos 30 min e funde por timestamp (valor novo vence), com uma busca CHEIA por hora para
+reconciliar correção que a SunOp faça atrás. ~76% menos payload; a contagem de requisições NÃO muda
+(o lote é de 40 pathnames). Dia passado e cache sem `cheio_h` sempre buscam cheio. Ao mexer nisso,
+o teste que importa é o de EQUIVALÊNCIA — fusão errada não dá erro, ela deforma a curva, que é o
+insumo de "parado por amplitude".
+
+⚠️ **Armadilha ao mexer no `_prewarm_um_cache`.** Para caches de TTL próprio a margem é o
+**período do ciclo**, não 30s fixos, e isso não é preciosismo: com margem fixa, um cache cujo TTL é
+MAIOR que o ciclo é pulado numa volta e refeito só na seguinte — o período efetivo vira **2× o
+ciclo** (TTL 600 com ciclo de 8,8 min dá 17,7 min, o dobro do que se pediu). A pergunta certa não é
+"já venceu?", é "aguenta até eu passar aqui de novo?". Essa regra vale **só** para quem tem `_ttl`:
+aplicá-la aos demais os faria reconstruir mais cedo em ciclo curto, ou seja, MAIS requisições.
 
 ## Tokens
 

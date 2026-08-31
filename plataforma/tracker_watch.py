@@ -38,7 +38,11 @@ if hasattr(_sys.stdout, "reconfigure"):
 
 # ── Caminhos ─────────────────────────────────────────────────────────────────
 _HERE       = os.path.dirname(os.path.abspath(__file__))
-ISSUES_PATH = os.path.join(_HERE, "tracker_issues.json")
+# DADO, não cache: aqui vive o histórico das ocorrências, com a histerese que impede a
+# detecção de piscar. Reconstruir do zero significaria perder `data_deteccao` e o `history`
+# de cada tracker. Segue a mesma separação do app.py — GRIDCO_DADOS_DIR aponta para um volume
+# persistente no servidor; sem a env, fica onde sempre esteve.
+ISSUES_PATH = os.path.join(os.environ.get("GRIDCO_DADOS_DIR") or _HERE, "tracker_issues.json")
 
 # HISTERESE anti-pisca (06/07): a detecção de "parado" oscila leitura-a-leitura, e resolver na
 # 1ª ausência destruía/recriava a ocorrência dezenas de vezes/dia (data_deteccao reiniciava e o

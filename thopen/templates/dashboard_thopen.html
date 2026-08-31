@@ -148,7 +148,7 @@
     <div class="fld" id="fldUsina"><label>USINA</label><select id="selUsina"></select></div>
     <div class="fld" id="fldMes"><label>MÊS</label><select id="selMes"></select></div>
     <div id="subinfo" style="margin-left:auto;color:var(--muted);font-size:12px;"></div>
-    <button id="btnRefresh" title="Recarregar os dados da planilha (BD_Thopen.xlsx)">🔄 Atualizar</button>
+    <button id="btnRefresh" title="Buscar os dados mais recentes do banco">🔄 Atualizar</button>
     <button id="btnPdf" title="Baixar PDF — página 1 Mensal, página 2 Diário">⤓ Baixar PDF</button>
     <button id="btnPdfAll" title="Monta o RELATÓRIO da carteira (Capa → Visão Geral → Mensal/Diário de cada usina) e abre a impressão — Salvar como PDF">⤓ PDF Carteira</button>
   </div>
@@ -369,7 +369,7 @@ async function loadUsina(){
   $('secMensalU').textContent=OV.nome||usina;
   $('subinfo').textContent=(OV.cliente?('Cliente: '+OV.cliente+'  ·  '):'')
       +(OV.potencia_mwp?(nf2.format(OV.potencia_mwp)+' MWp'):'')+(loc?('  ·  '+loc):'')
-      +(OV.planilha_em?('  ·  Planilha: '+OV.planilha_em):'');
+      +(OV.planilha_em?('  ·  Dados de: '+OV.planilha_em):'');
   setComExtra(OV.comentario_extra||'');   // texto adicional da usina (por usina, independe do mês)
   // usa o filtro de MÊS GLOBAL (não repopula/reseta por usina) — mantém o mês escolhido ao trocar
   const mv=$('selMes').value || `${OV.ano}-${new Date().getMonth()+1}`;
@@ -673,40 +673,21 @@ window.addEventListener('afterprint',()=>{
   ['chMensal','chDiario','chAcum','chAnual'].forEach(id=>{const d=$(id); if(d&&d.data&&d.data.length) Plotly.Plots.resize(d);});
 });
 
-// ───────── atualizar dados (força o backend a reler o BD_Thopen.xlsx) ─────────
+// ───────── atualizar dados (força o backend a reler o banco) ─────────
+// Antes daqui saía também um pedido de republicação: a nuvem servia um SNAPSHOT de planilhas,
+// e alguém no PC da Grid tinha de copiar e publicar de novo. Desde 28/08/2026 o dashboard lê
+// direto do PostgreSQL — não há snapshot para republicar, e o botão só relê o banco.
 async function refreshBD(){
   const btn=$('btnRefresh'), old=btn.textContent; btn.disabled=true; btn.textContent='Atualizando…';
   const usinaAtual=$('selUsina').value;
   try{
-    await get('/api/t/reload');                  // backend relê o xlsx (limpa cache)
+    await get('/api/t/reload');                  // backend relê o banco (limpa cache)
     const u=await get('/api/t/usinas');          // lista de usinas (caso tenha entrado nova)
     USINAS=u.usinas||[]; CARTDE=u.carteira_de||{};
     preencheSelUsina(usinaAtual);                // respeita a carteira ativa
     await loadUsina();                           // re-renderiza no MÊS global atual (preservado)
-    // Na nuvem o dado é um snapshot: pede ao PC da Grid que republique com o BD de hoje.
-    const antes=(await get('/api/t/versao')).planilha_em;
-    const r=await fetch('/api/t/publicar',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:'{}'}).then(x=>x.json());
-    if(r && r.modo==='nuvem' && r.estado==='pedido') await aguardaPublicacao(btn, antes);
-    else if(r && r.msg) btn.title=r.msg;
   }catch(e){ alert('Falha ao atualizar: '+(e&&e.message||e)); }
   finally{ btn.disabled=false; btn.textContent=old; }
-}
-
-// Espera o PC da Grid republicar. Detecta pelo carimbo da planilha mudando — funciona
-// mesmo com o servidor reiniciando no meio (é o que acontece quando a nuvem republica).
-async function aguardaPublicacao(btn, antes){
-  const ate=Date.now()+7*60*1000;               // desiste em 7 min
-  while(Date.now()<ate){
-    await new Promise(r=>setTimeout(r,10000));
-    const falta=Math.max(0,Math.round((ate-Date.now())/1000));
-    btn.textContent='Publicando… '+Math.floor(falta/60)+':'+String(falta%60).padStart(2,'0');
-    try{
-      const v=await get('/api/t/versao');
-      if(v && v.planilha_em && v.planilha_em!==antes){ location.reload(); return; }
-    }catch(e){ /* servidor reiniciando durante a republicação — segue tentando */ }
-  }
-  btn.title='A publicação demorou mais que o previsto. Recarregue a página em alguns minutos.';
 }
 $('btnRefresh').onclick=refreshBD;
 
