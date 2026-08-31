@@ -223,3 +223,23 @@ def test_na_janela_sol_limites():
     assert app._na_janela_sol(datetime(2026, 6, 14, 14, 59)) is True
     assert app._na_janela_sol(datetime(2026, 6, 14, 15, 0)) is False
     assert app._na_janela_sol(datetime(2026, 6, 14, 8, 59)) is False
+
+
+# ── esperadas por inversor no drill (Levi 27/08) ──────────────────────────────
+def test_equip_key_casa_grafias_da_planilha_e_da_api():
+    """Caso real (Rodrigues): API entrega 'INVERSOR01', a aba Equipamentos cadastra 'INVERSOR 01' —
+    o lookup exato falhava e as esperadas por inversor saíam None com o cadastro certo. A chave
+    normalizada casa por IGUALDADE (nunca substring: 2.1 ≠ 2.18, o gotcha do deep link)."""
+    assert app._equip_key("INVERSOR 01") == app._equip_key("INVERSOR01") == "INVERSOR1"
+    assert app._equip_key("Inversor 001") == "INVERSOR1"
+    assert app._equip_key("INVERSOR 10") == "INVERSOR10"          # 10 não perde o zero interno
+    assert app._equip_key("Inversor 2.1") != app._equip_key("Inversor 2.18")
+
+
+def test_equip_lookup_exato_primeiro_e_normalizado_depois():
+    d = {"INVERSOR 01": 17, "INVERSOR 02": 18}
+    assert app._equip_lookup(d, "INVERSOR 01") == 17     # exato continua valendo
+    assert app._equip_lookup(d, "INVERSOR01") == 17      # grafia da API casa
+    assert app._equip_lookup(d, "inversor 02") == 18
+    assert app._equip_lookup(d, "INVERSOR 03") is None   # inexistente não inventa
+    assert app._equip_lookup(None, "x") is None

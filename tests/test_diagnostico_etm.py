@@ -120,3 +120,73 @@ def test_ignora_timestamps_nulos(freeze_now):
     res = app._diagnostico_etm([(None, 800, 700), (None, 500, 400)])
     assert res["severidade"] == 3
     assert res["flags"] == []
+
+
+# ── GHI zerado (Levi 27/08, caso Canarana 1) ─────────────────────────────────
+def _serie_dia(poa_fn, ghi_fn, freeze_now):
+    from datetime import datetime, timedelta
+    freeze_now("2026-08-27 14:00:00")
+    base = datetime(2026, 8, 27, 6, 0)
+    return [(base + timedelta(minutes=10 * i), poa_fn(i), ghi_fn(i)) for i in range(60)]
+
+
+def test_ghi_zerado_com_poa_medindo_vira_atencao(freeze_now):
+    s = _serie_dia(lambda i: 400 + i, lambda i: 0.0, freeze_now)
+    d = app._diagnostico_etm(s)
+    ts = [f["t"] for f in d["flags"]]
+    assert "GHI zerado" in ts
+    assert d["severidade"] == 1                    # atenção, não crítico
+
+
+def test_estacao_sem_sensor_ghi_nao_e_flagada(freeze_now):
+    """GHI = None em tudo → o sensor NÃO EXISTE; zero medido é diferente de nada reportado."""
+    s = _serie_dia(lambda i: 400 + i, lambda i: None, freeze_now)
+    d = app._diagnostico_etm(s)
+    assert "GHI zerado" not in [f["t"] for f in d["flags"]]
+
+
+def test_ghi_normal_nao_flagra(freeze_now):
+    s = _serie_dia(lambda i: 400 + i, lambda i: 380 + i, freeze_now)
+    assert "GHI zerado" not in [f["t"] for f in app._diagnostico_etm(s)["flags"]]
+
+
+def test_ghi_ausente_com_poa_medindo_notifica(freeze_now):
+    """Canarana 1 (27/08): GHI = None o dia todo com POA normal. Decisão do Levi: ausência de GHI
+    É notificável — flag própria, distinta de 'GHI zerado' (zero MEDIDO)."""
+    s = _serie_dia(lambda i: 400 + i, lambda i: None, freeze_now)
+    d = app._diagnostico_etm(s)
+    ts = [f["t"] for f in d["flags"]]
+    assert "Sem leitura de GHI" in ts and "GHI zerado" not in ts
+    assert d["severidade"] == 1
+
+
+def test_poa_tambem_fora_nao_acusa_ghi(freeze_now):
+    """POA sem medir (usina/estação fora) → o problema é maior e já tem flag própria; não empilha
+    'Sem leitura de GHI' em cima."""
+    s = _serie_dia(lambda i: 0.0, lambda i: None, freeze_now)
+    ts = [f["t"] for f in app._diagnostico_etm(s)["flags"]]
+    assert "Sem leitura de GHI" not in ts
+
+
+# ── POA-RI: informativo em AZUL, fora da régua (Levi 27/08) ──────────────────
+def test_poari_zerado_e_info_e_nao_mexe_na_severidade(freeze_now):
+    s = _serie_dia(lambda i: 400 + i, lambda i: 380 + i, freeze_now)
+    ri = [(t, 0.0) for (t, _, _) in s]
+    d = app._diagnostico_etm(s, poari=ri)
+    f = next((f for f in d["flags"] if f["t"] == "POA-RI zerado"), None)
+    assert f and f["tipo"] == "info"
+    assert d["severidade"] == 3                    # NÃO entra na régua
+
+
+def test_poari_ausente_vira_info_leve(freeze_now):
+    s = _serie_dia(lambda i: 400 + i, lambda i: 380 + i, freeze_now)
+    ri = [(t, None) for (t, _, _) in s]
+    d = app._diagnostico_etm(s, poari=ri)
+    assert any(f["t"] == "Sem leitura de POA-RI" and f["tipo"] == "info" for f in d["flags"])
+    assert d["severidade"] == 3
+
+
+def test_fonte_sem_poari_nao_ganha_flag(freeze_now):
+    s = _serie_dia(lambda i: 400 + i, lambda i: 380 + i, freeze_now)
+    d = app._diagnostico_etm(s)                    # sem a lista → nada de POA-RI
+    assert not any("POA-RI" in f["t"] for f in d["flags"])
