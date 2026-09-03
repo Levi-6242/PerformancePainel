@@ -50,3 +50,25 @@ def test_403_abre_o_disjuntor_e_nao_grava():
     ing.disjuntor = Disjuntor(); ing.http = Http(); ing.cfg = type("C", (), {"sunop_base": "http://x", "sunop_token": "t"})()
     assert ing._analog(["P.1"], "2026-08-26T00:00:00", "2026-08-26T23:59:59", None) == {}
     assert ing.disjuntor.aberto()
+
+
+def test_servico_de_dados_usa_o_esquema_bearer_api():
+    """/data/v2/* so aceita 'Bearer API <token de API>'; 'Bearer <token>' puro leva 401 (medido em 03/09/2026)."""
+    visto = {}
+
+    class Resp:
+        status_code = 200
+        text = ""
+        def json(self): return {}
+        def raise_for_status(self): pass
+
+    class Http:
+        def post(self, url, **k): visto["post"] = (url, k.get("headers")); return Resp()
+        def get(self, url, **k): visto["get"] = (url, k.get("headers")); return Resp()
+
+    ing = sunop.IngestorSunOp.__new__(sunop.IngestorSunOp)
+    from gemeo.ingest.base import Disjuntor
+    ing.disjuntor = Disjuntor(); ing.http = Http()
+    ing.cfg = type("C", (), {"sunop_base": "http://x", "sunop_token": "tok", "cache_dir": "cache-inexistente"})()
+    ing._analog(["P.1"], "2026-08-26T00:00:00", "2026-08-26T23:59:59", "15m")
+    assert visto["post"][0].endswith("/data/v2/analog_values") and visto["post"][1]["Authorization"] == "Bearer API tok"

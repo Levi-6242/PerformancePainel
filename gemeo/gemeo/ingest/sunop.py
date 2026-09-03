@@ -67,13 +67,15 @@ class IngestorSunOp(Ingestor):
         self.grupo, self.http = grupo, http or requests.Session()
         self.fonte = "axis" if usinas and usinas[0].fonte == "axis" else "sunop"
 
+    # Esquema de autenticacao do servico de DADOS da SunOp (/data/v2/*): 'Bearer API <token de API>'. 'Bearer <token>' puro
+    # e 'JWT <token web>' levam 401 'Invalid credentials' — medido em 03/09/2026 (o token web e so para /api/*).
     # ── metadata em disco ────────────────────────────────────────────────────
     def metadata(self, usina: UsinaRef) -> list[dict]:
         cache = Path(self.cfg.cache_dir) / f"sunop_meta_{usina.codigo}.json"
         if cache.exists() and time.time() - cache.stat().st_mtime < 86400:
             return json.load(open(cache, encoding="utf-8"))
         r = self.http.get(f"{self.cfg.sunop_base}/data/v2/metadata", params={"plant": usina.fonte_ref, "size": 6000},
-                          headers={"Authorization": f"Bearer {self.cfg.sunop_token}"}, timeout=60)
+                          headers={"Authorization": f"Bearer API {self.cfg.sunop_token}"}, timeout=60)
         if r.status_code == 403:
             self.disjuntor.abrir("403 da borda no metadata")
             raise RuntimeError("403 da borda no metadata")
@@ -118,7 +120,7 @@ class IngestorSunOp(Ingestor):
         if period:
             params["period"] = period
         r = self.http.post(f"{self.cfg.sunop_base}/data/v2/analog_values", params=params, json={"pathnames": pathnames},
-                           headers={"Authorization": f"Bearer {self.cfg.sunop_token}"}, timeout=120)
+                           headers={"Authorization": f"Bearer API {self.cfg.sunop_token}"}, timeout=120)
         if r.status_code == 403:
             self.disjuntor.abrir(f"403 da borda: {r.text[:80]}")
             return {}
