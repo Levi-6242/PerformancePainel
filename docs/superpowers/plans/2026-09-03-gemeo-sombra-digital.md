@@ -3555,4 +3555,254 @@ git commit -m "feat(gemeo): cascata diaria, perda_dia e o job idempotente gemeo 
 
 ---
 
-<!-- CONTINUA: Tarefa 17 -->
+### Tarefa 17: Calibração — dias limpos → `perdas_fixas` → versão nova de `modelo`
+
+**Files:**
+- Create: `gemeo/gemeo/modelar/calibrar.py`
+- Test: `gemeo/tests/test_modelar_calibrar.py`
+
+**Interfaces:**
+- Consumes: `job.modelo_ativo/params_por_inversor/p_ac_30d/referencia_razao/janela_padrao` (T16), `esperado.esperado_por_inversor` (T13), `gate.avaliar` (T12), `carregar_grade` (T11), tabelas `cascata_dia`, `evento`, `modelo`.
+- Produces: `ParamsCalib`, `cv_poa_dia(poa, tz) -> dict[date, float]`, `dias_limpos(cobertura, dias_com_evento, cv, p) -> list[date]`, `razoes_por_dia(grade, r, params) -> DataFrame`, `ajustar_perdas(grade, r, params, dias, p) -> (perdas, metrica)`, `calibrar(conn, usina, dias=45, p, agora=None) -> dict`, `rodar_cli(usina, dias)`.
+- Regra (spec §8, Calibração): dia limpo = sem `evento` de equipamento, `cobertura_gate ≥ 0,9`, CV da POA 10–14 h < 0,25. Ajusta `perdas_fixas` até a mediana medido/esperado dos inversores sãos ser 1,0. Versão nova `cal-AAAA-MM-DD` com `metrica`; **só vira ativa** (tolerância 0,03) com ≥ 30 dias limpos e desvio < 0,03 — antes fica gravada inativa e a placa segue no ar.
+
+- [ ] **Step 1: Escrever os testes (falham: módulo não existe)**
+
+```python
+# gemeo/tests/test_modelar_calibrar.py
+import datetime as dt
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent))
+from golden import G, esperado_de_placa, sem_gate  # noqa: E402
+from sintetico import grade_sintetica  # noqa: E402
+from gemeo.modelar import calibrar, esperado  # noqa: E402
+
+D = dt.date(2026, 8, 31)
+
+
+def test_cv_da_poa_entre_10_e_14_estavel_e_instavel():
+    g = grade_sintetica()                       # 09:00-10:45 de Belem: so os 4 slots das 10 h entram
+    cv = calibrar.cv_poa_dia(g.estacao["poa"], g.usina.tz)
+    assert list(cv) == [D] and cv[D] == pytest.approx(0.0, abs=1e-9)
+    g.estacao["poa"] = [800.0, 800.0, 800.0, 800.0, 200.0, 900.0, 200.0, 900.0]
+    assert calibrar.cv_poa_dia(g.estacao["poa"], g.usina.tz)[D] > 0.25
+
+
+def test_dias_limpos_filtra_evento_cobertura_e_instabilidade():
+    d1, d2, d3, d4 = (dt.date(2026, 8, k) for k in (28, 29, 30, 31))
+    cob = {d1: 0.95, d2: 0.95, d3: 0.5, d4: 0.95}
+    cv = {d1: 0.1, d2: 0.1, d3: 0.1, d4: 0.4}
+    assert calibrar.dias_limpos(cob, {d2}, cv, calibrar.ParamsCalib()) == [d1]
+
+
+def test_ajustar_perdas_leva_a_razao_dos_saos_a_um():
+    g = grade_sintetica(dias=3)
+    params = {i: esperado.ParamsModelo(kwp=277.68, pac0_kw=200.0) for i in g.inv_p.columns}
+    r = sem_gate(g)
+    esp = esperado.esperado_por_inversor(g, r, params)
+    g.inv_p[1001] = esp[1001] * 0.9; g.inv_p[1002] = esp[1002] * 0.9
+    dias = sorted(set(g.indice.tz_convert(g.usina.tz).date))
+    perdas, m = calibrar.ajustar_perdas(g, r, params, dias, calibrar.ParamsCalib())
+    assert perdas == pytest.approx(1 - 0.86 * 0.9, abs=2e-3)      # DC linear em (1 - perdas); o clipping AC nao entra aqui
+    assert m["razao_mediana"] == pytest.approx(1.0, abs=1e-3) and m["n_dias"] == 3 and m["desvio"] < 1e-6
+
+
+def test_ajustar_perdas_sem_dias_e_erro():
+    g = grade_sintetica()
+    params = {i: esperado.ParamsModelo(kwp=277.68, pac0_kw=200.0) for i in g.inv_p.columns}
+    with pytest.raises(ValueError):
+        calibrar.ajustar_perdas(g, sem_gate(g), params, [], calibrar.ParamsCalib())
+
+
+def test_golden_mro100_31_08_calibra_entre_10_e_25_por_cento():
+    g, r, esp = esperado_de_placa(G / "mro100_2026-08-31.json")
+    params = {i: esperado.ParamsModelo(kwp=g.atributos[i]["kwp"], pac0_kw=g.atributos[i]["kw_ac"]) for i in g.inv_p.columns}
+    perdas, m = calibrar.ajustar_perdas(g, r, params, [D], calibrar.ParamsCalib())
+    assert 0.10 < perdas < 0.25 and m["razao_mediana"] == pytest.approx(1.0, abs=2e-3) and m["n_dias"] == 1
+
+
+def test_calibrar_no_banco_recusa_dia_com_evento(conn):
+    import json
+    from semear import semear_fixture
+    from gemeo.modelar import job
+    trk_inv = json.load(open(G / "mro100_trk_inv.json", encoding="utf-8"))
+    usina, _ = semear_fixture(conn, G / "mro100_2026-08-31.json", trk_inv)
+    try:
+        UTC = dt.timezone.utc
+        job.modelar(conn, usina, dt.datetime(2026, 8, 31, 3, tzinfo=UTC), dt.datetime(2026, 9, 1, 3, tzinfo=UTC))
+        res = calibrar.calibrar(conn, usina, dias=3, agora=dt.datetime(2026, 9, 1, 2, tzinfo=UTC))
+        assert res["erro"] == "sem dias limpos" and res["com_evento"] == 1      # 31/08 tem inversor 22 parado: nao calibra
+        with conn.cursor() as cur:
+            cur.execute("SELECT versao FROM modelo"); assert [r[0] for r in cur.fetchall()] == ["placa"]
+    finally:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM evento; DELETE FROM perda_dia; DELETE FROM cascata_dia; DELETE FROM esperado; "
+                        "DELETE FROM modelo; DELETE FROM leitura; DELETE FROM equipamento; DELETE FROM usina; DELETE FROM estado")
+        conn.commit()
+```
+
+- [ ] **Step 2: Rodar e ver falhar**
+
+Run: `cd gemeo && python -m pytest tests/test_modelar_calibrar.py -q`
+Expected: FAIL — `ImportError: cannot import name 'calibrar'`.
+
+- [ ] **Step 3: Implementar a calibração**
+
+```python
+# gemeo/gemeo/modelar/calibrar.py
+"""`gemeo calibrar`: dias limpos -> ajusta perdas_fixas ate a mediana medido/esperado dos inversores saos
+ser 1,0 -> versao NOVA de `modelo` com metrica. So vira ativa (e tolerancia 0,03) com >= 30 dias limpos e
+desvio < 0,03; antes disso fica gravada, inativa, para inspecao — o modelo de placa continua no ar e o
+delta informa sem alarmar."""
+from __future__ import annotations
+import datetime as dt
+import json
+from dataclasses import dataclass
+from zoneinfo import ZoneInfo
+
+import numpy as np
+import pandas as pd
+
+from gemeo.core.modelos import UsinaRef
+from gemeo.modelar import esperado as esp_mod
+from gemeo.modelar import gate as gate_mod
+from gemeo.modelar import job
+from gemeo.modelar.grade import Grade, carregar_grade
+
+H = 0.25
+
+
+@dataclass(frozen=True)
+class ParamsCalib:
+    cv_max: float = 0.25            # CV da POA entre 10 h e 14 h: acima disso o dia e instavel (22-24/08 de Santarem)
+    cobertura_min: float = 0.90
+    dias_min_calibrado: int = 30
+    desvio_max: float = 0.03
+    tolerancia_calibrado: float = 0.03
+    tolerancia_placa: float = 0.08
+    razao_sao_min: float = 0.5      # inversor com razao abaixo disto no dia esta parado/abaixo: nao calibra ninguem
+    iteracoes: int = 4
+
+
+def cv_poa_dia(poa: pd.Series, tz: str, h_ini: int = 10, h_fim: int = 14) -> dict[dt.date, float]:
+    local = poa.index.tz_convert(ZoneInfo(tz))
+    meio = poa[(local.hour >= h_ini) & (local.hour < h_fim)]
+    dia = pd.Series(meio.index.tz_convert(ZoneInfo(tz)).date, index=meio.index)
+    g = meio.groupby(dia)
+    cv = g.std() / g.mean().replace(0, np.nan)
+    return {d: (float(v) if pd.notna(v) else float("nan")) for d, v in cv.items()}
+
+
+def dias_limpos(cobertura: dict[dt.date, float], dias_com_evento: set[dt.date], cv: dict[dt.date, float], p: ParamsCalib) -> list[dt.date]:
+    """Sem evento de equipamento, cobertura do gate >= 0,9 e POA estavel."""
+    return sorted(d for d, c in cobertura.items()
+                  if c >= p.cobertura_min and d not in dias_com_evento and d in cv and pd.notna(cv[d]) and cv[d] < p.cv_max)
+
+
+def razoes_por_dia(grade: Grade, r: gate_mod.Resultado, params: dict[int, esp_mod.ParamsModelo]) -> pd.DataFrame:
+    """medido/esperado por (dia local, inversor) nos MESMOS instantes — a mesma regua do rollup."""
+    esp = esp_mod.esperado_por_inversor(grade, r, params)
+    med = grade.inv_p.reindex(columns=esp.columns)
+    ok = esp.notna() & med.notna()
+    dia = pd.Series(grade.indice.tz_convert(ZoneInfo(grade.usina.tz)).date, index=grade.indice)
+    return ((med.where(ok) * H).groupby(dia).sum(min_count=1)) / ((esp.where(ok) * H).groupby(dia).sum(min_count=1))
+
+
+def ajustar_perdas(grade: Grade, r: gate_mod.Resultado, params: dict[int, esp_mod.ParamsModelo], dias: list[dt.date], p: ParamsCalib) -> tuple[float, dict]:
+    """Itera perdas_fixas ate a mediana das razoes dos saos, nos dias limpos, ser 1,0. O DC do PVWatts e
+    linear em (1 - perdas), entao cada passo e quase exato; o clipping AC e o que pede mais de um."""
+    if not dias:
+        raise ValueError("sem dias limpos para calibrar")
+    perdas = next(iter(params.values())).perdas_fixas
+
+    def avalia(perdas_: float) -> pd.Series:
+        pr = {e: esp_mod.ParamsModelo(q.kwp, q.pac0_kw, q.gamma, perdas_, q.eta_inv, q.pac0_inferido) for e, q in params.items()}
+        raz = razoes_por_dia(grade, r, pr).reindex(dias)
+        return raz.where(raz >= p.razao_sao_min).median(axis=1)
+
+    for _ in range(p.iteracoes):
+        med_dia = avalia(perdas)
+        R = float(np.nanmedian(med_dia.values)) if med_dia.notna().any() else float("nan")
+        if not np.isfinite(R) or R <= 0:
+            raise ValueError("razoes invalidas nos dias limpos")
+        if abs(R - 1.0) < 1e-4:
+            break
+        # perdas fora de [0, 0,5] nao e calibracao, e sensor ou cadastro errado: trava e a metrica denuncia
+        perdas = float(min(0.5, max(0.0, 1.0 - (1.0 - perdas) * R)))
+    med_dia = avalia(perdas)
+    R = float(np.nanmedian(med_dia.values))
+    metrica = {"razao_mediana": round(R, 4), "desvio": round(float(np.nanstd(med_dia.values)), 4),
+               "n_dias": int(med_dia.notna().sum()), "dias": [str(d) for d in dias], "perdas_fixas": round(perdas, 4)}
+    return perdas, metrica
+
+
+def calibrar(conn, usina: UsinaRef, dias: int = 45, p: ParamsCalib = ParamsCalib(), agora: dt.datetime | None = None) -> dict:
+    agora = agora or dt.datetime.now(dt.timezone.utc)
+    tz = ZoneInfo(usina.tz)
+    mod = job.modelo_ativo(conn, usina.id)
+    ini, fim = job.janela_padrao(agora, usina.tz, dias)
+    with conn.cursor() as cur:
+        cur.execute("SELECT dia, cobertura_gate FROM cascata_dia WHERE usina_id=%s AND modelo_id=%s AND dia >= %s",
+                    (usina.id, mod.id, ini.astimezone(tz).date()))
+        cobertura = {d: float(c) for d, c in cur.fetchall()}
+        cur.execute("SELECT DISTINCT (ini AT TIME ZONE %s)::date FROM evento WHERE usina_id=%s AND equipamento_id IS NOT NULL AND ini >= %s",
+                    (usina.tz, usina.id, ini))
+        com_evento = {r[0] for r in cur.fetchall()}
+    grade = carregar_grade(conn, usina, ini, fim)
+    r = gate_mod.avaliar(grade.estacao, job.referencia_razao(conn, usina.id, fim, usina.tz),
+                         gate_mod.ParamsGate(**(mod.parametros.get("gate") or {})), usina.tz)
+    limpos = dias_limpos(cobertura, com_evento, cv_poa_dia(grade.estacao["poa"], usina.tz), p)
+    if not limpos:
+        return {"usina": usina.codigo, "erro": "sem dias limpos", "dias_cascata": len(cobertura), "com_evento": len(com_evento)}
+    params = job.params_por_inversor(grade, mod, job.p_ac_30d(conn, usina.id, fim))
+    perdas, metrica = ajustar_perdas(grade, r, params, limpos, p)
+    calibrado = metrica["n_dias"] >= p.dias_min_calibrado and metrica["desvio"] < p.desvio_max
+    versao = f"cal-{agora.astimezone(tz).date()}"
+    parametros = {**mod.parametros, "perdas_fixas": perdas, "base": mod.versao}
+    with conn.cursor() as cur:
+        if calibrado:
+            cur.execute("UPDATE modelo SET ativo=false WHERE usina_id=%s AND ativo", (usina.id,))
+        cur.execute("INSERT INTO modelo (usina_id, versao, parametros, tolerancia, calibrado, calibrado_em, metrica, ativo) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s) ON CONFLICT (usina_id, versao) DO UPDATE SET parametros=EXCLUDED.parametros, "
+                    "tolerancia=EXCLUDED.tolerancia, calibrado=EXCLUDED.calibrado, calibrado_em=EXCLUDED.calibrado_em, "
+                    "metrica=EXCLUDED.metrica, ativo=EXCLUDED.ativo RETURNING id",
+                    (usina.id, versao, json.dumps(parametros), p.tolerancia_calibrado if calibrado else p.tolerancia_placa,
+                     calibrado, agora if calibrado else None, json.dumps(metrica), calibrado))
+        mid = cur.fetchone()[0]
+    conn.commit()
+    return {"usina": usina.codigo, "versao": versao, "modelo_id": int(mid), "calibrado": calibrado, "ativo": calibrado, **metrica}
+
+
+def rodar_cli(usina: str, dias: int) -> int:
+    from gemeo.core import db
+    from gemeo.core.config import carregar
+    from gemeo.ingest.runner import usinas_do_piloto
+    cfg = carregar(); conn = db.conectar(cfg.db_dsn)
+    usinas = usinas_do_piloto(conn, (usina,))
+    if not usinas:
+        print(f"usina {usina!r} nao esta no banco", flush=True)
+        return 1
+    res = calibrar(conn, usinas[0], dias)
+    print(json.dumps(res, ensure_ascii=False, default=str), flush=True)
+    return 0 if "erro" not in res else 1
+```
+
+- [ ] **Step 4: Rodar e ver passar**
+
+Run: `cd gemeo && python -m pytest tests/test_modelar_calibrar.py -q`
+Expected: 5 passed, 1 skipped (o de banco, sem DSN).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add gemeo/gemeo/modelar/calibrar.py gemeo/tests/test_modelar_calibrar.py
+git commit -m "feat(gemeo): calibracao por dias limpos com versao nova de modelo (Tarefa 17)"
+```
+
+---
+
+<!-- CONTINUA: Tarefa 18 -->
