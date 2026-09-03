@@ -397,13 +397,13 @@ def logout():
     return redirect(_prefixo() + "/login")
 
 
-# ── Gêmeo Digital: proxy /gemeo/* → serviço separado (porta 5070) ─────────────
+# ── Gêmeo Digital: proxy /gemeo/* → serviço separado (porta 5075) ─────────────
 # O gêmeo (pasta gemeo/ deste repositório; futuro Grid-Co-CODE/gemeo) é um processo próprio, só-leitura,
 # com as telas sob o prefixo /gemeo. A plataforma faz proxy para que elas saiam pelo MESMO túnel e pelo
 # MESMO login (o _auth_gate acima já cobre /gemeo/*) e manda a senha compartilhada no header
 # X-Gemeo-Senha, para o gêmeo não pedir uma segunda senha. Gêmeo fora do ar → 503 com texto, nunca 500
 # na plataforma; sem GEMEO_SENHA no tokens.txt o gêmeo responde com a tela de login dele (não quebra).
-GEMEO_URL = os.environ.get("GEMEO_URL", "http://127.0.0.1:5070").rstrip("/")
+GEMEO_URL = os.environ.get("GEMEO_URL", "http://127.0.0.1:5075").rstrip("/")
 GEMEO_SENHA = os.environ.get("GEMEO_SENHA", "").strip()
 
 
@@ -9916,7 +9916,7 @@ def api_etm_ticket():
     return jsonify({"ok": True})
 
 
-# ══ HISTÓRICO D-1 · VISÃO PR — motor do Dashboard de Geração (5070) portado p/ o Painel NOC ═════
+# ══ HISTÓRICO D-1 · VISÃO PR — motor do Dashboard de Geração (5075) portado p/ o Painel NOC ═════
 #   Mesmas regras do Power BI: PR dia = (ger kWh/1000) ÷ (IPOA_DEF × Pot_MWp) × Validação;
 #   agregação SEMPRE ponderada por energia (Σger ÷ ΣIPOA×pot), nunca média de PRs.
 #   Fontes: abas por-usina do BD_Performance (com inversor) + BD_Thopen via dashboard_thopen

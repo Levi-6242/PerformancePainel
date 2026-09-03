@@ -310,8 +310,8 @@ Dúvidas: equipe de Performance (Levi) — `performance@gridco.com.br`.
 
 ## 12. Gêmeo Digital (`/gemeo/`)
 
-Serviço separado (pasta `gemeo/` do repositório, porta 5070 local). A plataforma só faz **proxy** de `/gemeo/*` e
+Serviço separado (pasta `gemeo/` do repositório, porta 5075 local). A plataforma só faz **proxy** de `/gemeo/*` e
 manda a senha compartilhada no header `X-Gemeo-Senha`. No `tokens.txt`: `GEMEO_SENHA=<mesma do gemeo.env>` e,
-se a porta mudar, `GEMEO_URL=http://127.0.0.1:5070`. O proxy passa a existir **no próximo reinício** da plataforma;
+se a porta mudar, `GEMEO_URL=http://127.0.0.1:5075`. O proxy passa a existir **no próximo reinício** da plataforma;
 a entrada "Gêmeo Digital" do menu aparece sozinha quando `/gemeo/healthz` responde. Instalação do gêmeo:
 `gemeo/deploy/README.md`.

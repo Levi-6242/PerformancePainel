@@ -177,13 +177,13 @@ Flask + waitress, só leitura, HTML servido pelo servidor com Jinja, sem build. 
 
 **API:** `/api/frota`, `/api/usina/<id>` (JSON das telas), `/healthz`. São a porta pela qual a plataforma passa a ler o gêmeo (estrangulador).
 
-**Acessível pela plataforma (decisão do Levi, 03/09/2026).** O gêmeo continua projeto separado, mas quem usa encontra tudo num lugar só: a plataforma ganha uma entrada de menu **"Gêmeo Digital"** e um proxy `/gemeo/*` → `127.0.0.1:5070` no próprio `app.py` da plataforma, para que as telas do gêmeo saiam pelo mesmo túnel e pelo mesmo login. O gêmeo é servido sob o prefixo `/gemeo` (todas as rotas e assets relativos ao prefixo) e não sabe que está atrás do proxy.
+**Acessível pela plataforma (decisão do Levi, 03/09/2026).** O gêmeo continua projeto separado, mas quem usa encontra tudo num lugar só: a plataforma ganha uma entrada de menu **"Gêmeo Digital"** e um proxy `/gemeo/*` → `127.0.0.1:5075` no próprio `app.py` da plataforma, para que as telas do gêmeo saiam pelo mesmo túnel e pelo mesmo login. O gêmeo é servido sob o prefixo `/gemeo` (todas as rotas e assets relativos ao prefixo) e não sabe que está atrás do proxy.
 
 ## 10. Operação
 
 - **Repositório:** `Grid-Co-CODE/gemeo`, pacote `gemeo/` com `core/`, `ingest/`, `modelar/`, `app/`, `migrations/`, `tools/`, `tests/`. Nasce fora do OneDrive.
 - **Configuração:** `config.toml` (ritmos, tolerâncias, usinas do piloto, teto da SunOp); segredos em `SECRETS_DIR` fora de pasta sincronizada (credenciais do `powerplants`, do banco `gemeo`, token da API SunOp, `GRIDCO_SQL_TOKEN`). Nenhum caminho fixo no código.
-- **Servidor:** o mesmo Windows da T.I. que hospeda a plataforma; porta própria (`5070`); PostgreSQL 16 local, banco `gemeo`.
+- **Servidor:** o mesmo Windows da T.I. que hospeda a plataforma; porta própria (`5075`); PostgreSQL 16 local, banco `gemeo`.
 - **Três tarefas agendadas:** `gemeo ingest` (longo, reinício automático), `gemeo modelar` (a cada 15 min, encerra), `gemeo app` (longo). `pythonw` pelo caminho real; scripts `.ps1` em ASCII.
 - **Saúde:** `/healthz` por fonte (último ciclo, idade, cobertura, requisições SunOp hoje ÷ teto), último `modelar` e duração, banco alcançável. Monitor externo → Teams. O gêmeo usa o token de **API** da SunOp (o de `/data`, validade de ~1 ano), não o token web de 7 dias; `/healthz` expõe o `exp` do JWT e alarma com 30 dias de antecedência — a troca do segredo é ação humana anual, não renovação automática.
 - **Backup:** `pg_dump` diário para a pasta que a T.I. já copia. Insubstituíveis: `modelo` (calibrações) e `alias` manual; o resto se reconstrói das fontes.

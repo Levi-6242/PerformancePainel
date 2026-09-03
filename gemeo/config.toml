@@ -19,7 +19,7 @@ sobreposicao_min = 30
 [modelar]
 grade_min = 15
 [app]
-porta = 5070
+porta = 5075   # era 5070, mas nesta maquina a 5070 e do Painel de Integridade do Coletor (Painel GridCo.exe)
 [db]
 schema = "gemeo"   # no banco do Thopen o DBA cria "digital_twins": troque aqui ou por GEMEO_DB_SCHEMA no gemeo.env
 [publicar]

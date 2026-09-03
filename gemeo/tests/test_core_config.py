@@ -24,7 +24,7 @@ sobreposicao_min = 30
 [modelar]
 grade_min = 15
 [app]
-porta = 5070
+porta = 5075
 [caminhos]
 cache_dir = "cache"
 """

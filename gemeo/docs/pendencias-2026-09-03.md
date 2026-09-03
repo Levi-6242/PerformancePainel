@@ -84,6 +84,8 @@ Cada item abaixo diz **o que falta** e **o que é preciso** para resolver.
 
 | G4 | **Piloto redefinido (03/09, tarde):** só usinas com relação tracker × inversor no BD_Trackers → `MRO100`, `MAB100`, `MTS100`, `CPP100` (Athon/SunOp). TIM100, TIM200, JCD100 e SMP100 têm trackers sem inversor na aba; as usinas do PostgreSQL do Thopen (Ibaté, Santa Bárbara, Aparecida 3, Araçoiaba, Santarém 1 e 2, ...) têm trackers vivos no `raw_tracker` mas nenhuma linha no BD_Trackers. Santarém 1 saiu do piloto | Se quiser Thopen no gêmeo: preencher o BD_Trackers para essas usinas, ou usar a coluna `cabin` do `tb_devices` (tracker → cabine → inversores da cabine), que é um ajuste no modelo. Volume SunOp estimado para as 4 usinas: ~260 requisições/dia, abaixo do teto de 600. |
 
+| G5 | **Porta do gêmeo mudou de 5070 para 5075.** Na máquina do Levi a 5070 é do Painel de Integridade do Coletor (`Painel GridCo.exe`); o proxy da plataforma encaminhava para lá e devolvia o 404 do Painel | Já trocado em `config.toml`, `GEMEO_URL` do `tokens.txt`, padrão do `app.py` e docs. A plataforma no ar (reiniciada às 12:43) ainda tem `GEMEO_URL` 5070 em memória: precisa de mais um reinício quando o gêmeo subir. |
+
 ## O que foi verificado de fato
 
 - `cd gemeo && python -m pytest -q` → 91 passed, 11 skipped (banco).

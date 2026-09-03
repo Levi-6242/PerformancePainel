@@ -10,7 +10,7 @@ from gemeo.app import consultas, server
 
 UTC = dt.timezone.utc
 AGORA = dt.datetime(2026, 8, 31, 20, 0, tzinfo=UTC)
-CFG = types.SimpleNamespace(senha_app="s3nh4-teste", db_dsn="", porta_app=5070, sunop_token="", teto_sunop_dia=600)
+CFG = types.SimpleNamespace(senha_app="s3nh4-teste", db_dsn="", porta_app=5075, sunop_token="", teto_sunop_dia=600)
 CASC = {"e_esperado": 41636.0, "e_medido": 38971.0, "delta": 2665.0, "inv_parado": 1658.0, "tracker": 104.0, "string": 0.0,
         "residuo": 903.0, "cobertura_gate": 0.95, "trackers_sem_inversor": 1}
 USINA = {"id": 1, "codigo": "MRO100", "nome": "MRO100", "fonte": "sunop", "tz": "America/Belem", "kwp": 6942.0, "kw_ac": 5000.0,

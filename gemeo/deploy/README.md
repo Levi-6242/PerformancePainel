@@ -1,7 +1,7 @@
 <!-- gemeo/deploy/README.md -->
 # Deploy do Gêmeo Digital (servidor Windows da T.I.)
 
-O gêmeo é um serviço separado da plataforma: pasta própria, banco próprio, três tarefas agendadas, porta **5070**
+O gêmeo é um serviço separado da plataforma: pasta própria, banco próprio, três tarefas agendadas, porta **5075**
 em `127.0.0.1`. Quem usa chega por **`/gemeo/` na plataforma** (proxy no `app.py` dela, mesmo túnel e mesmo login).
 
 ## 1. Pré-requisitos
@@ -55,7 +55,7 @@ gemeo importar-alias ..\docs\de-para-trackers-supervisorio-fracttal.xlsx
 gemeo ingest                        # deixa rodando alguns minutos e encerre com Ctrl+C: cadastro + primeiras leituras
 gemeo modelar                       # últimos 3 dias; imprime um JSON por usina e, ao fim, sincroniza o workbook
                                     # gemeo_digital da API da Performance ([publicar] no config.toml; usa o GRIDCO_SQL_TOKEN)
-gemeo app                           # http://127.0.0.1:5070/gemeo/  (login = GEMEO_SENHA)
+gemeo app                           # http://127.0.0.1:5075/gemeo/  (login = GEMEO_SENHA)
 ```
 
 Se `inspecionar-cadastro` mostrar headers diferentes dos esperados pelo `ingest/cadastro.py`, ajuste o de-para de
@@ -79,13 +79,13 @@ $env:GEMEO_DB_DSN = "<mesmo DSN do gemeo.env>"; .\backup.ps1 -Destino "D:\Backup
 
 ## 5. Ligar na plataforma
 
-No `tokens.txt` da plataforma acrescente `GEMEO_SENHA=<a mesma do gemeo.env>` (e `GEMEO_URL=http://127.0.0.1:5070` se
+No `tokens.txt` da plataforma acrescente `GEMEO_SENHA=<a mesma do gemeo.env>` (e `GEMEO_URL=http://127.0.0.1:5075` se
 mudar a porta). **Reinicie a plataforma** — o proxy `/gemeo/*` só existe no processo novo. A entrada "Gêmeo Digital"
 do menu aparece sozinha quando `/gemeo/healthz` passa a responder.
 
 ## 6. Saúde
 
-`GET http://127.0.0.1:5070/gemeo/healthz` (ou `/gemeo/healthz` pela plataforma): 200 = tudo ok; 503 = há problema, e o
+`GET http://127.0.0.1:5075/gemeo/healthz` (ou `/gemeo/healthz` pela plataforma): 200 = tudo ok; 503 = há problema, e o
 JSON diz qual (fonte parada, `modelar` atrasado, SunOp no teto, token da SunOp vencendo em < 30 dias, banco fora, publicação no workbook da Performance falhando).
 Aponte o monitor externo (Teams) para essa URL.
 

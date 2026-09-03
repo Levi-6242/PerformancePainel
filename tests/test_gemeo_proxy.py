@@ -30,7 +30,7 @@ def test_proxy_repassa_header_query_status_e_tipo(cli, monkeypatch):
     monkeypatch.setattr(plataforma.requests, "request", fake)
     r = cli.get("/gemeo/api/frota?agora=2026-08-31T20:00:00Z")
     assert r.status_code == 200 and r.content_type == "application/json" and r.get_json() == {"ok": True}
-    assert visto["url"] == "http://127.0.0.1:5070/gemeo/api/frota" and visto["method"] == "GET"
+    assert visto["url"] == "http://127.0.0.1:5075/gemeo/api/frota" and visto["method"] == "GET"
     assert visto["headers"]["X-Gemeo-Senha"] == "segredo" and visto["params"] == {"agora": ["2026-08-31T20:00:00Z"]}
     assert visto["allow_redirects"] is False
 
@@ -39,7 +39,7 @@ def test_raiz_e_subcaminhos_vao_para_o_mesmo_prefixo(cli, monkeypatch):
     urls = []
     monkeypatch.setattr(plataforma.requests, "request", lambda m, u, **kw: urls.append(u) or _Resp())
     cli.get("/gemeo/"); cli.get("/gemeo/usina/7"); cli.get("/gemeo/static/gemeo.css")
-    assert urls == ["http://127.0.0.1:5070/gemeo/", "http://127.0.0.1:5070/gemeo/usina/7", "http://127.0.0.1:5070/gemeo/static/gemeo.css"]
+    assert urls == ["http://127.0.0.1:5075/gemeo/", "http://127.0.0.1:5075/gemeo/usina/7", "http://127.0.0.1:5075/gemeo/static/gemeo.css"]
 
 
 def test_gemeo_fora_do_ar_da_503_e_nao_500(cli, monkeypatch):

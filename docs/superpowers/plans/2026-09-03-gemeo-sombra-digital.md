@@ -144,7 +144,7 @@ sobreposicao_min = 30
 [modelar]
 grade_min = 15
 [app]
-porta = 5070
+porta = 5075
 [db]
 schema = "gemeo"   # no banco do Thopen o DBA cria "digital_twins": troque aqui ou por GEMEO_DB_SCHEMA no gemeo.env
 [caminhos]
@@ -255,7 +255,7 @@ sobreposicao_min = 30
 [modelar]
 grade_min = 15
 [app]
-porta = 5070
+porta = 5075
 [db]
 schema = "gemeo"   # no banco do Thopen o DBA cria "digital_twins": troque aqui ou por GEMEO_DB_SCHEMA no gemeo.env
 [caminhos]
@@ -4434,7 +4434,7 @@ from gemeo.app import consultas, server
 
 UTC = dt.timezone.utc
 AGORA = dt.datetime(2026, 8, 31, 20, 0, tzinfo=UTC)
-CFG = types.SimpleNamespace(senha_app="s3nh4-teste", db_dsn="", porta_app=5070, sunop_token="", teto_sunop_dia=600)
+CFG = types.SimpleNamespace(senha_app="s3nh4-teste", db_dsn="", porta_app=5075, sunop_token="", teto_sunop_dia=600)
 CASC = {"e_esperado": 41636.0, "e_medido": 38971.0, "delta": 2665.0, "inv_parado": 1658.0, "tracker": 104.0, "string": 0.0,
         "residuo": 903.0, "cobertura_gate": 0.95, "trackers_sem_inversor": 1}
 USINA = {"id": 1, "codigo": "MRO100", "nome": "MRO100", "fonte": "sunop", "tz": "America/Belem", "kwp": 6942.0, "kw_ac": 5000.0,
@@ -4946,7 +4946,7 @@ git commit -m "feat(gemeo): telas Frota e Usina sob /gemeo com login, API e heal
 
 **Interfaces:**
 - Consumes: `_auth_gate` da plataforma (já cobre qualquer caminho fora das exceções, logo `/gemeo/*` exige o login da plataforma), `requests` (importado no topo do `app.py`), `X-Gemeo-Senha` do servidor do gêmeo (T19).
-- Produces: `GEMEO_URL` (padrão `http://127.0.0.1:5070`) e `GEMEO_SENHA` lidos do ambiente (`tokens.txt`); rota `/gemeo/` e `/gemeo/<path:sub>` (GET/POST) que repassa método, query string e corpo, devolve status, content-type e `Location` do gêmeo; gêmeo fora do ar → **503** com texto, nunca 500. Entrada de menu que só aparece quando `/gemeo/healthz` responde 200 ou 503 (404 = plataforma antiga sem o proxy → menu inalterado).
+- Produces: `GEMEO_URL` (padrão `http://127.0.0.1:5075`) e `GEMEO_SENHA` lidos do ambiente (`tokens.txt`); rota `/gemeo/` e `/gemeo/<path:sub>` (GET/POST) que repassa método, query string e corpo, devolve status, content-type e `Location` do gêmeo; gêmeo fora do ar → **503** com texto, nunca 500. Entrada de menu que só aparece quando `/gemeo/healthz` responde 200 ou 503 (404 = plataforma antiga sem o proxy → menu inalterado).
 - **Restrição operacional:** editar `app.py` não muda o processo que está no ar (waitress carregou o módulo no boot) — o proxy passa a existir no **próximo reinício que a T.I. fizer**; o HTML do redesign é relido a cada requisição, e por isso a entrada nasce escondida até o proxy responder. Nada aqui reinicia a plataforma.
 
 - [ ] **Step 1: Escrever o teste do proxy (falha: rota não existe → 404)**
@@ -4984,7 +4984,7 @@ def test_proxy_repassa_header_query_status_e_tipo(cli, monkeypatch):
     monkeypatch.setattr(plataforma.requests, "request", fake)
     r = cli.get("/gemeo/api/frota?agora=2026-08-31T20:00:00Z")
     assert r.status_code == 200 and r.content_type == "application/json" and r.get_json() == {"ok": True}
-    assert visto["url"] == "http://127.0.0.1:5070/gemeo/api/frota" and visto["method"] == "GET"
+    assert visto["url"] == "http://127.0.0.1:5075/gemeo/api/frota" and visto["method"] == "GET"
     assert visto["headers"]["X-Gemeo-Senha"] == "segredo" and visto["params"] == {"agora": ["2026-08-31T20:00:00Z"]}
     assert visto["allow_redirects"] is False
 
@@ -4993,7 +4993,7 @@ def test_raiz_e_subcaminhos_vao_para_o_mesmo_prefixo(cli, monkeypatch):
     urls = []
     monkeypatch.setattr(plataforma.requests, "request", lambda m, u, **kw: urls.append(u) or _Resp())
     cli.get("/gemeo/"); cli.get("/gemeo/usina/7"); cli.get("/gemeo/static/gemeo.css")
-    assert urls == ["http://127.0.0.1:5070/gemeo/", "http://127.0.0.1:5070/gemeo/usina/7", "http://127.0.0.1:5070/gemeo/static/gemeo.css"]
+    assert urls == ["http://127.0.0.1:5075/gemeo/", "http://127.0.0.1:5075/gemeo/usina/7", "http://127.0.0.1:5075/gemeo/static/gemeo.css"]
 
 
 def test_gemeo_fora_do_ar_da_503_e_nao_500(cli, monkeypatch):
@@ -5031,13 +5031,13 @@ def logout():
 inserir:
 
 ```python
-# ── Gêmeo Digital: proxy /gemeo/* → serviço separado (porta 5070) ─────────────
+# ── Gêmeo Digital: proxy /gemeo/* → serviço separado (porta 5075) ─────────────
 # O gêmeo (pasta gemeo/ deste repositório; futuro Grid-Co-CODE/gemeo) é um processo próprio, só-leitura,
 # com as telas sob o prefixo /gemeo. A plataforma faz proxy para que elas saiam pelo MESMO túnel e pelo
 # MESMO login (o _auth_gate acima já cobre /gemeo/*) e manda a senha compartilhada no header
 # X-Gemeo-Senha, para o gêmeo não pedir uma segunda senha. Gêmeo fora do ar → 503 com texto, nunca 500
 # na plataforma; sem GEMEO_SENHA no tokens.txt o gêmeo responde com a tela de login dele (não quebra).
-GEMEO_URL = os.environ.get("GEMEO_URL", "http://127.0.0.1:5070").rstrip("/")
+GEMEO_URL = os.environ.get("GEMEO_URL", "http://127.0.0.1:5075").rstrip("/")
 GEMEO_SENHA = os.environ.get("GEMEO_SENHA", "").strip()
 
 
@@ -5347,7 +5347,7 @@ jobs:
 <!-- gemeo/deploy/README.md -->
 # Deploy do Gêmeo Digital (servidor Windows da T.I.)
 
-O gêmeo é um serviço separado da plataforma: pasta própria, banco próprio, três tarefas agendadas, porta **5070**
+O gêmeo é um serviço separado da plataforma: pasta própria, banco próprio, três tarefas agendadas, porta **5075**
 em `127.0.0.1`. Quem usa chega por **`/gemeo/` na plataforma** (proxy no `app.py` dela, mesmo túnel e mesmo login).
 
 ## 1. Pré-requisitos
@@ -5400,7 +5400,7 @@ gemeo inspecionar-cadastro          # imprime os headers das abas do BD_Performa
 gemeo importar-alias ..\docs\de-para-trackers-supervisorio-fracttal.xlsx
 gemeo ingest                        # deixa rodando alguns minutos e encerre com Ctrl+C: cadastro + primeiras leituras
 gemeo modelar                       # últimos 3 dias; imprime um JSON por usina
-gemeo app                           # http://127.0.0.1:5070/gemeo/  (login = GEMEO_SENHA)
+gemeo app                           # http://127.0.0.1:5075/gemeo/  (login = GEMEO_SENHA)
 ```
 
 Se `inspecionar-cadastro` mostrar headers diferentes dos esperados pelo `ingest/cadastro.py`, ajuste o de-para de
@@ -5424,13 +5424,13 @@ $env:GEMEO_DB_DSN = "<mesmo DSN do gemeo.env>"; .\backup.ps1 -Destino "D:\Backup
 
 ## 5. Ligar na plataforma
 
-No `tokens.txt` da plataforma acrescente `GEMEO_SENHA=<a mesma do gemeo.env>` (e `GEMEO_URL=http://127.0.0.1:5070` se
+No `tokens.txt` da plataforma acrescente `GEMEO_SENHA=<a mesma do gemeo.env>` (e `GEMEO_URL=http://127.0.0.1:5075` se
 mudar a porta). **Reinicie a plataforma** — o proxy `/gemeo/*` só existe no processo novo. A entrada "Gêmeo Digital"
 do menu aparece sozinha quando `/gemeo/healthz` passa a responder.
 
 ## 6. Saúde
 
-`GET http://127.0.0.1:5070/gemeo/healthz` (ou `/gemeo/healthz` pela plataforma): 200 = tudo ok; 503 = há problema, e o
+`GET http://127.0.0.1:5075/gemeo/healthz` (ou `/gemeo/healthz` pela plataforma): 200 = tudo ok; 503 = há problema, e o
 JSON diz qual (fonte parada, `modelar` atrasado, SunOp no teto, token da SunOp vencendo em < 30 dias, banco fora).
 Aponte o monitor externo (Teams) para essa URL.
 
@@ -5453,7 +5453,7 @@ servidor, ao repositório e ao `SECRETS_DIR` (condição do piloto, spec §10).
 |---|---|---|---|
 | `Gemeo Ingest` | um laço por fonte (PostgreSQL `powerplants`, API SunOp, API BD_Performance) → `leitura` + `ingest_run` | contínuo | o agendador reinicia em 1 min |
 | `Gemeo Modelar` | gate → esperado → decomposição → eventos → cascata dos últimos 3 dias; grava `esperado`, `cascata_dia`, `perda_dia`, `evento` | a cada 15 min, encerra | a próxima execução refaz tudo (idempotente) |
-| `Gemeo App` | telas Frota/Usina, API e `/healthz` em `127.0.0.1:5070/gemeo` | contínuo | reinicia em 1 min; a plataforma mostra "fora do ar" (503) enquanto isso |
+| `Gemeo App` | telas Frota/Usina, API e `/healthz` em `127.0.0.1:5075/gemeo` | contínuo | reinicia em 1 min; a plataforma mostra "fora do ar" (503) enquanto isso |
 
 ## Ler o `/healthz`
 
@@ -5529,9 +5529,9 @@ Deploy no servidor da T.I.: `deploy/README.md`. Operação do dia a dia: `docs/r
 ```markdown
 ## 12. Gêmeo Digital (`/gemeo/`)
 
-Serviço separado (pasta `gemeo/` do repositório, porta 5070 local). A plataforma só faz **proxy** de `/gemeo/*` e
+Serviço separado (pasta `gemeo/` do repositório, porta 5075 local). A plataforma só faz **proxy** de `/gemeo/*` e
 manda a senha compartilhada no header `X-Gemeo-Senha`. No `tokens.txt`: `GEMEO_SENHA=<mesma do gemeo.env>` e,
-se a porta mudar, `GEMEO_URL=http://127.0.0.1:5070`. O proxy passa a existir **no próximo reinício** da plataforma;
+se a porta mudar, `GEMEO_URL=http://127.0.0.1:5075`. O proxy passa a existir **no próximo reinício** da plataforma;
 a entrada "Gêmeo Digital" do menu aparece sozinha quando `/gemeo/healthz` responde. Instalação do gêmeo:
 `gemeo/deploy/README.md`.
 ```
