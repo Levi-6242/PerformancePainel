@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from semear import semear_fixture  # noqa: E402
+from semear import limpar_tudo, semear_fixture  # noqa: E402
 from gemeo.modelar import job  # noqa: E402
 
 G = Path(__file__).parent / "fixtures" / "golden"
@@ -18,13 +18,11 @@ UTC = dt.timezone.utc
 
 @pytest.fixture
 def mro100(conn):
+    limpar_tudo(conn)
     trk_inv = json.load(open(G / "mro100_trk_inv.json", encoding="utf-8"))
     usina, ids = semear_fixture(conn, G / "mro100_2026-08-31.json", trk_inv)
     yield usina, ids
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM evento; DELETE FROM perda_dia; DELETE FROM cascata_dia; DELETE FROM esperado; "
-                    "DELETE FROM modelo; DELETE FROM leitura; DELETE FROM equipamento; DELETE FROM usina; DELETE FROM estado")
-    conn.commit()
+    limpar_tudo(conn)
 
 
 def _foto(conn):

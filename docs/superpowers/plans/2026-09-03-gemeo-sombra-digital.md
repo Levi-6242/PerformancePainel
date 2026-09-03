@@ -672,14 +672,21 @@ git commit -m "feat(gemeo): schema gemeo em SQL versionado e runner de migracoes
 """'Vazio nunca sobrescreve' como PROPRIEDADE da escrita, nao como cuidado de quem chama. A plataforma
 aprendeu isso com o pg_trk congelado 33h e com o _sunop_str_med_ent cacheando foto vazia."""
 import datetime as dt
+import sys
+from pathlib import Path
+
 import pytest
-from gemeo.core import db
+
+sys.path.insert(0, str(Path(__file__).parent))
+from semear import limpar_tudo  # noqa: E402
+from gemeo.core import db  # noqa: E402
 
 UTC = dt.timezone.utc
 
 
 @pytest.fixture
 def usina_eq(conn):
+    limpar_tudo(conn)
     with conn.cursor() as cur:
         cur.execute("INSERT INTO usina (codigo, nome, fonte, fonte_ref, tz) VALUES ('T1','Teste','pg','1','America/Belem') RETURNING id")
         u = cur.fetchone()[0]
@@ -687,9 +694,7 @@ def usina_eq(conn):
         e = cur.fetchone()[0]
     conn.commit()
     yield u, e
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM leitura; DELETE FROM ingest_run; DELETE FROM equipamento; DELETE FROM usina")
-    conn.commit()
+    limpar_tudo(conn)
 
 
 def test_none_nunca_sobrescreve_valor(conn, usina_eq):
@@ -2092,7 +2097,8 @@ def carregar_grade(conn, usina: UsinaRef, ini: dt.datetime, fim: dt.datetime, gr
         df["ts"] = pd.to_datetime(df["ts"], utc=True)
     indice = pd.date_range(pd.Timestamp(ini).floor("15min"), pd.Timestamp(fim).ceil("15min"), freq="15min", tz="UTC")
     def _wide(medida, tipos):
-        sub = df[(df.medida == medida) & df.eq.map(tipo).isin(tipos)] if not df.empty else df
+        # df["eq"], nunca df.eq: "eq" e METODO do DataFrame e a coluna some atras dele — a CI (primeiro banco real) achou
+        sub = df[(df.medida == medida) & df["eq"].map(tipo).isin(tipos)] if not df.empty else df
         if sub.empty:
             return pd.DataFrame(index=indice)
         return _regrade(sub.pivot_table(index="ts", columns="eq", values="valor", aggfunc="mean"), indice)
@@ -3070,6 +3076,21 @@ from gemeo.core import db
 from gemeo.core.modelos import UsinaRef
 
 
+TABELAS_EM_ORDEM = ("evento", "perda_dia", "cascata_dia", "esperado", "modelo", "alias", "leitura", "ingest_run", "meta_mes",
+                    "equipamento", "usina", "estado")
+
+
+def limpar_tudo(conn) -> None:
+    """Deixa o banco de teste vazio, na ordem das chaves estrangeiras. Comeca com rollback: se o teste anterior
+    morreu no meio de uma transacao, a conexao (de sessao) fica abortada e todo comando seguinte falha em
+    cascata — foi o que a primeira CI com banco mostrou (6 erros por um AttributeError)."""
+    conn.rollback()
+    with conn.cursor() as cur:
+        for t in TABELAS_EM_ORDEM:
+            cur.execute(f"DELETE FROM {t}")
+    conn.commit()
+
+
 def semear_fixture(conn, caminho: Path, trk_inv: dict[str, str] | None = None) -> tuple[UsinaRef, dict]:
     j = json.load(open(caminho, encoding="utf-8"))
     tz = ZoneInfo(j["tz"]); n_inv = int(j["n_inv"])
@@ -3203,7 +3224,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
-from semear import semear_fixture  # noqa: E402
+from semear import limpar_tudo, semear_fixture  # noqa: E402
 from gemeo.modelar import job  # noqa: E402
 
 G = Path(__file__).parent / "fixtures" / "golden"
@@ -3212,13 +3233,11 @@ UTC = dt.timezone.utc
 
 @pytest.fixture
 def mro100(conn):
+    limpar_tudo(conn)
     trk_inv = json.load(open(G / "mro100_trk_inv.json", encoding="utf-8"))
     usina, ids = semear_fixture(conn, G / "mro100_2026-08-31.json", trk_inv)
     yield usina, ids
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM evento; DELETE FROM perda_dia; DELETE FROM cascata_dia; DELETE FROM esperado; "
-                    "DELETE FROM modelo; DELETE FROM leitura; DELETE FROM equipamento; DELETE FROM usina; DELETE FROM estado")
-    conn.commit()
+    limpar_tudo(conn)
 
 
 def _foto(conn):
@@ -3627,8 +3646,9 @@ def test_golden_mro100_31_08_calibra_entre_10_e_25_por_cento():
 
 def test_calibrar_no_banco_recusa_dia_com_evento(conn):
     import json
-    from semear import semear_fixture
+    from semear import limpar_tudo, semear_fixture
     from gemeo.modelar import job
+    limpar_tudo(conn)
     trk_inv = json.load(open(G / "mro100_trk_inv.json", encoding="utf-8"))
     usina, _ = semear_fixture(conn, G / "mro100_2026-08-31.json", trk_inv)
     try:
@@ -3639,10 +3659,7 @@ def test_calibrar_no_banco_recusa_dia_com_evento(conn):
         with conn.cursor() as cur:
             cur.execute("SELECT versao FROM modelo"); assert [r[0] for r in cur.fetchall()] == ["placa"]
     finally:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM evento; DELETE FROM perda_dia; DELETE FROM cascata_dia; DELETE FROM esperado; "
-                        "DELETE FROM modelo; DELETE FROM leitura; DELETE FROM equipamento; DELETE FROM usina; DELETE FROM estado")
-        conn.commit()
+        limpar_tudo(conn)
 ```
 
 - [ ] **Step 2: Rodar e ver falhar**
@@ -3890,9 +3907,10 @@ def test_exp_do_jwt():
 
 @pytest.fixture
 def mro100_modelada(conn):
-    from semear import semear_fixture
+    from semear import limpar_tudo, semear_fixture
     from gemeo.core import db
     from gemeo.modelar import job
+    limpar_tudo(conn)
     trk_inv = json.load(open(G / "mro100_trk_inv.json", encoding="utf-8"))
     usina, ids = semear_fixture(conn, G / "mro100_2026-08-31.json", trk_inv)
     ini, fim = dt.datetime(2026, 8, 31, 3, tzinfo=UTC), dt.datetime(2026, 9, 1, 3, tzinfo=UTC)
@@ -3902,10 +3920,7 @@ def mro100_modelada(conn):
         cur.execute("UPDATE ingest_run SET criado_em=%s", (dt.datetime(2026, 8, 31, 19, 50, tzinfo=UTC),))
     conn.commit()
     yield usina, ids
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM evento; DELETE FROM perda_dia; DELETE FROM cascata_dia; DELETE FROM esperado; DELETE FROM modelo; "
-                    "DELETE FROM ingest_run; DELETE FROM leitura; DELETE FROM equipamento; DELETE FROM usina; DELETE FROM estado")
-    conn.commit()
+    limpar_tudo(conn)
 
 
 def test_frota_e_usina_sobre_o_banco_semeado(conn, mro100_modelada):

@@ -56,8 +56,9 @@ def test_golden_mro100_31_08_calibra_entre_10_e_25_por_cento():
 
 def test_calibrar_no_banco_recusa_dia_com_evento(conn):
     import json
-    from semear import semear_fixture
+    from semear import limpar_tudo, semear_fixture
     from gemeo.modelar import job
+    limpar_tudo(conn)
     trk_inv = json.load(open(G / "mro100_trk_inv.json", encoding="utf-8"))
     usina, _ = semear_fixture(conn, G / "mro100_2026-08-31.json", trk_inv)
     try:
@@ -68,7 +69,4 @@ def test_calibrar_no_banco_recusa_dia_com_evento(conn):
         with conn.cursor() as cur:
             cur.execute("SELECT versao FROM modelo"); assert [r[0] for r in cur.fetchall()] == ["placa"]
     finally:
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM evento; DELETE FROM perda_dia; DELETE FROM cascata_dia; DELETE FROM esperado; "
-                        "DELETE FROM modelo; DELETE FROM leitura; DELETE FROM equipamento; DELETE FROM usina; DELETE FROM estado")
-        conn.commit()
+        limpar_tudo(conn)

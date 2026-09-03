@@ -2,14 +2,21 @@
 """'Vazio nunca sobrescreve' como PROPRIEDADE da escrita, nao como cuidado de quem chama. A plataforma
 aprendeu isso com o pg_trk congelado 33h e com o _sunop_str_med_ent cacheando foto vazia."""
 import datetime as dt
+import sys
+from pathlib import Path
+
 import pytest
-from gemeo.core import db
+
+sys.path.insert(0, str(Path(__file__).parent))
+from semear import limpar_tudo  # noqa: E402
+from gemeo.core import db  # noqa: E402
 
 UTC = dt.timezone.utc
 
 
 @pytest.fixture
 def usina_eq(conn):
+    limpar_tudo(conn)
     with conn.cursor() as cur:
         cur.execute("INSERT INTO usina (codigo, nome, fonte, fonte_ref, tz) VALUES ('T1','Teste','pg','1','America/Belem') RETURNING id")
         u = cur.fetchone()[0]
@@ -17,9 +24,7 @@ def usina_eq(conn):
         e = cur.fetchone()[0]
     conn.commit()
     yield u, e
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM leitura; DELETE FROM ingest_run; DELETE FROM equipamento; DELETE FROM usina")
-    conn.commit()
+    limpar_tudo(conn)
 
 
 def test_none_nunca_sobrescreve_valor(conn, usina_eq):

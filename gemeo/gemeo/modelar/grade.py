@@ -51,7 +51,8 @@ def carregar_grade(conn, usina: UsinaRef, ini: dt.datetime, fim: dt.datetime, gr
         df["ts"] = pd.to_datetime(df["ts"], utc=True)
     indice = pd.date_range(pd.Timestamp(ini).floor("15min"), pd.Timestamp(fim).ceil("15min"), freq="15min", tz="UTC")
     def _wide(medida, tipos):
-        sub = df[(df.medida == medida) & df.eq.map(tipo).isin(tipos)] if not df.empty else df
+        # df["eq"], nunca df.eq: "eq" e METODO do DataFrame e a coluna some atras dele — a CI (primeiro banco real) achou
+        sub = df[(df.medida == medida) & df["eq"].map(tipo).isin(tipos)] if not df.empty else df
         if sub.empty:
             return pd.DataFrame(index=indice)
         return _regrade(sub.pivot_table(index="ts", columns="eq", values="valor", aggfunc="mean"), indice)

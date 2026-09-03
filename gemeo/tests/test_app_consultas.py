@@ -47,9 +47,10 @@ def test_exp_do_jwt():
 
 @pytest.fixture
 def mro100_modelada(conn):
-    from semear import semear_fixture
+    from semear import limpar_tudo, semear_fixture
     from gemeo.core import db
     from gemeo.modelar import job
+    limpar_tudo(conn)
     trk_inv = json.load(open(G / "mro100_trk_inv.json", encoding="utf-8"))
     usina, ids = semear_fixture(conn, G / "mro100_2026-08-31.json", trk_inv)
     ini, fim = dt.datetime(2026, 8, 31, 3, tzinfo=UTC), dt.datetime(2026, 9, 1, 3, tzinfo=UTC)
@@ -59,10 +60,7 @@ def mro100_modelada(conn):
         cur.execute("UPDATE ingest_run SET criado_em=%s", (dt.datetime(2026, 8, 31, 19, 50, tzinfo=UTC),))
     conn.commit()
     yield usina, ids
-    with conn.cursor() as cur:
-        cur.execute("DELETE FROM evento; DELETE FROM perda_dia; DELETE FROM cascata_dia; DELETE FROM esperado; DELETE FROM modelo; "
-                    "DELETE FROM ingest_run; DELETE FROM leitura; DELETE FROM equipamento; DELETE FROM usina; DELETE FROM estado")
-    conn.commit()
+    limpar_tudo(conn)
 
 
 def test_frota_e_usina_sobre_o_banco_semeado(conn, mro100_modelada):

@@ -12,6 +12,21 @@ from gemeo.core import db
 from gemeo.core.modelos import UsinaRef
 
 
+TABELAS_EM_ORDEM = ("evento", "perda_dia", "cascata_dia", "esperado", "modelo", "alias", "leitura", "ingest_run", "meta_mes",
+                    "equipamento", "usina", "estado")
+
+
+def limpar_tudo(conn) -> None:
+    """Deixa o banco de teste vazio, na ordem das chaves estrangeiras. Comeca com rollback: se o teste anterior
+    morreu no meio de uma transacao, a conexao (de sessao) fica abortada e todo comando seguinte falha em
+    cascata — foi o que a primeira CI com banco mostrou (6 erros por um AttributeError)."""
+    conn.rollback()
+    with conn.cursor() as cur:
+        for t in TABELAS_EM_ORDEM:
+            cur.execute(f"DELETE FROM {t}")
+    conn.commit()
+
+
 def semear_fixture(conn, caminho: Path, trk_inv: dict[str, str] | None = None) -> tuple[UsinaRef, dict]:
     j = json.load(open(caminho, encoding="utf-8"))
     tz = ZoneInfo(j["tz"]); n_inv = int(j["n_inv"])
