@@ -74,6 +74,15 @@ def test_schema_com_espaco_e_erro_em_voz_alta(tmp_path, monkeypatch):
         carregar(d / "config.toml", secrets_dir=d)
 
 
+def test_publicar_tem_padrao_e_le_do_toml(tmp_path):
+    d = _monta(tmp_path)
+    cfg = carregar(d / "config.toml", secrets_dir=d)
+    assert cfg.publicar_ativo is True and cfg.publicar_workbook == "gemeo_digital" and cfg.publicar_dias == 90
+    (d / "config.toml").write_text(TOML + '[publicar]\nativo = false\nworkbook = "gemeo_homolog"\ndias = 30\n', encoding="utf-8")
+    cfg = carregar(d / "config.toml", secrets_dir=d)
+    assert cfg.publicar_ativo is False and cfg.publicar_workbook == "gemeo_homolog" and cfg.publicar_dias == 30
+
+
 def test_config_e_imutavel(tmp_path):
     d = _monta(tmp_path)
     cfg = carregar(d / "config.toml", secrets_dir=d)

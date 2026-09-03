@@ -53,7 +53,8 @@ gemeo migrate                       # cria as tabelas no schema (e o schema, se 
 gemeo inspecionar-cadastro          # imprime os headers das abas do BD_Performance (Info Geral / Info Mensal / BD_Trackers)
 gemeo importar-alias ..\docs\de-para-trackers-supervisorio-fracttal.xlsx
 gemeo ingest                        # deixa rodando alguns minutos e encerre com Ctrl+C: cadastro + primeiras leituras
-gemeo modelar                       # últimos 3 dias; imprime um JSON por usina
+gemeo modelar                       # últimos 3 dias; imprime um JSON por usina e, ao fim, sincroniza o workbook
+                                    # gemeo_digital da API da Performance ([publicar] no config.toml; usa o GRIDCO_SQL_TOKEN)
 gemeo app                           # http://127.0.0.1:5070/gemeo/  (login = GEMEO_SENHA)
 ```
 
@@ -85,7 +86,7 @@ do menu aparece sozinha quando `/gemeo/healthz` passa a responder.
 ## 6. Saúde
 
 `GET http://127.0.0.1:5070/gemeo/healthz` (ou `/gemeo/healthz` pela plataforma): 200 = tudo ok; 503 = há problema, e o
-JSON diz qual (fonte parada, `modelar` atrasado, SunOp no teto, token da SunOp vencendo em < 30 dias, banco fora).
+JSON diz qual (fonte parada, `modelar` atrasado, SunOp no teto, token da SunOp vencendo em < 30 dias, banco fora, publicação no workbook da Performance falhando).
 Aponte o monitor externo (Teams) para essa URL.
 
 ## 7. Atualizar

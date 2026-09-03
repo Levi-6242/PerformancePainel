@@ -56,6 +56,14 @@ Imprime `calibrado: true/false`. Só a versão calibrada vira ativa (tolerância
   BD_Trackers/Equipamentos é do time de Performance; depois disso, `gemeo ingest` relê.
 - `alias` manual e `modelo` são os únicos dados insubstituíveis: estão no backup diário.
 
+## Vitrine: workbook `gemeo_digital` na API da Performance
+
+Ao fim de cada `gemeo modelar`, o gêmeo gera um xlsx com as sete tabelas (cadastro e modelo inteiros; cascata, perdas e eventos
+dos últimos 90 dias) e chama `POST /api/workbooks/gemeo_digital/sync-xlsx?replace=true`. É o único caminho da API que grava
+cabeçalho (criar aba/linha pela API deixa tudo como "Coluna N"). Precisa do `GRIDCO_SQL_TOKEN`. Falha **não** derruba o
+modelo: fica em `estado.publicar.ultimo` e aparece no `/healthz` como `publicar: ...`. Desligar: `[publicar] ativo = false`
+no `config.toml`. Não existe DELETE de workbook na API: o nome fica para sempre, então não troque `workbook` à toa.
+
 ## Restaurar backup
 
 O dump tem só o schema do gêmeo (`backup.ps1 -Schema`), então restaurar não toca no resto do banco.

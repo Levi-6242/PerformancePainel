@@ -35,6 +35,9 @@ class Config:
     sunop_base: str = "https://gridco-api.sunop.net"
     bd_api_base: str = "https://app.gridco.com.br/db_performace"
     db_schema: str = "gemeo"     # schema do gemeo no PostgreSQL; num banco compartilhado o DBA cria com o nome dele (ex.: digital_twins)
+    publicar_ativo: bool = True                 # ao fim do `gemeo modelar`, sincroniza o workbook da API da Performance
+    publicar_workbook: str = "gemeo_digital"
+    publicar_dias: int = 90                     # cascata_dia, perda_dia e evento: so os ultimos N dias vao para o workbook
 
 
 def _ler_env(caminho: Path) -> dict[str, str]:
@@ -74,4 +77,7 @@ def carregar(caminho_config: Path | None = None, secrets_dir: Path | None = None
         janela_solar=tuple(t["sunop"]["janela"]), sobreposicao_min=int(t["ingest"]["sobreposicao_min"]),
         grade_min=int(t["modelar"]["grade_min"]), porta_app=int(t["app"]["porta"]), cache_dir=cache.resolve(),
         db_schema=schema,
+        publicar_ativo=bool(t.get("publicar", {}).get("ativo", True)),
+        publicar_workbook=str(t.get("publicar", {}).get("workbook", "gemeo_digital")),
+        publicar_dias=int(t.get("publicar", {}).get("dias", 90)),
     )

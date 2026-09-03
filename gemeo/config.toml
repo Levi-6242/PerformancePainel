@@ -19,5 +19,9 @@ grade_min = 15
 porta = 5070
 [db]
 schema = "gemeo"   # no banco do Thopen o DBA cria "digital_twins": troque aqui ou por GEMEO_DB_SCHEMA no gemeo.env
+[publicar]
+ativo = true               # ao fim de cada `gemeo modelar`: sync-xlsx (replace) no workbook da API da Performance
+workbook = "gemeo_digital"
+dias = 90                  # cascata_dia, perda_dia e evento dos ultimos N dias; cadastro e modelo vao inteiros
 [caminhos]
 cache_dir = "cache"

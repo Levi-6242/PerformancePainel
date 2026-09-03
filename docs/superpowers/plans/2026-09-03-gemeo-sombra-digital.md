@@ -5560,3 +5560,16 @@ git commit -m "feat(gemeo): tarefas agendadas, backup, CI com PostgreSQL, runboo
 **Consistência de tipos:** `Grade`/`UsinaRef` (T1/T11) usados sem mudança em T12–T17 e T21; `gate.Resultado(gate, motivo_dia, razao_dia)` consumido em T13, T15, T16, T17; `Decomposicao` (T14) em T15, T16, T21; `Cascata` (T16) em T21; `ParamsModelo` (T13) em T14–T17, T21 — mesmos nomes e assinaturas. Ajustes feitos durante a execução e já refletidos nos blocos: teto AC do PVWatts (`pdc0 = pac0/eta`, T13), universo de strings instaladas como parâmetro de `decompor` (T14), veredito de 26/08 sem trackers e resíduo < 5 % (fixture), razão dos sãos de Santarém ≥ 0,85 (fixture).
 
 **Execução:** as Tarefas 1–21 foram executadas nesta mesma sessão (03/09/2026), na pasta `gemeo/` deste repositório, com commits por tarefa no branch `feat/sunop-bases-api-gemeo-spec`; a lista de pendências e o que cada uma exige está na mensagem final ao Levi e no `docs/runbook.md`.
+
+
+---
+
+### Tarefa 22 (adendo de 03/09, tarde): publicação automática no workbook da API da Performance
+
+Pedido do Levi depois da carga manual do workbook `gemeo_digital`: "faz o modelar publicar sozinho no workbook".
+
+**Files:** Create `gemeo/gemeo/modelar/publicar.py`, `gemeo/tests/test_modelar_publicar.py`; Modify `gemeo/gemeo/core/config.py` (`publicar_ativo/workbook/dias`, seção `[publicar]` do `config.toml`), `gemeo/gemeo/modelar/job.py` (`rodar_cli` chama `publicar.publicar` depois de todas as usinas), `gemeo/gemeo/app/consultas.py` (`saude` lê `estado.publicar.ultimo`), `deploy/README.md`, `docs/runbook.md`.
+
+**Desenho:** `tabelas(conn, dias)` lê as sete tabelas do banco (cadastro e modelo inteiros; `cascata_dia`, `perda_dia` e `evento` dos últimos `dias`); `xlsx_bytes(tabelas)` gera o xlsx em memória com linha 1 = cabeçalho e célula vazia = `None` (o parser do sync rejeita texto vazio); `sincronizar(cfg, bytes)` garante o workbook (POST só se faltar — não há DELETE) e chama `sync-xlsx?replace=true`; `publicar(conn, cfg)` nunca levanta exceção: grava `estado.publicar.ultimo` (ok/erro) e o `/healthz` acusa. Motivo do caminho: criar aba e linha pela API não grava cabeçalho (tudo vira "Coluna N"); o `sync-xlsx` é o mesmo caminho dos `_pipe_*.xlsx` da T.I.
+
+**Testes:** xlsx (7 abas, cabeçalho, vazio de verdade, datas e json como texto), sincronização com API falsa (cria só se faltar, `replace=true`, header Bearer), falha que não derruba o modelar, e um teste de banco sobre a MRO100 semeada (contagens e larguras das sete tabelas).

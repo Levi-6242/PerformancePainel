@@ -129,12 +129,16 @@ def _min(agora: dt.datetime, ts: dt.datetime | None) -> int | None:
     return None if ts is None else int((agora - ts).total_seconds() // 60)
 
 
-def _ciclo(conn) -> dict:
-    r = _q(conn, "SELECT valor FROM estado WHERE chave='modelar.ultimo'")
+def _estado_json(conn, chave: str) -> dict:
+    r = _q(conn, "SELECT valor FROM estado WHERE chave=%s", (chave,))
     try:
         return json.loads(r[0][0]) if r else {}
     except Exception:                       # noqa: BLE001
         return {}
+
+
+def _ciclo(conn) -> dict:
+    return _estado_json(conn, "modelar.ultimo")
 
 
 def frota(conn, agora: dt.datetime) -> dict:
@@ -283,6 +287,9 @@ def saude(conn, cfg, agora: dt.datetime) -> dict:
         problemas.append(f"token SunOp vence em {dias_token} dias")
     if sunop_hoje >= getattr(cfg, "teto_sunop_dia", 600):
         problemas.append(f"SunOp no teto: {sunop_hoje}")
+    pub = _estado_json(conn, "publicar.ultimo")             # vitrine na API da Performance: falha aparece, mas nao derruba o modelar
+    if pub and not pub.get("ok"):
+        problemas.append(f"publicar: {str(pub.get('erro', 'falhou'))[:80]}")
     return {"ok": not problemas, "banco": banco, "agora": agora.isoformat(), "fontes": fontes,
             "sunop": {"requisicoes_hoje": sunop_hoje, "teto": getattr(cfg, "teto_sunop_dia", 600), "token_exp": exp.isoformat() if exp else None, "token_dias": dias_token},
-            "modelar": ciclo, "problemas": problemas}
+            "modelar": ciclo, "publicar": pub, "problemas": problemas}

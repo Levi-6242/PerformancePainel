@@ -215,4 +215,8 @@ def rodar_cli(ini: str | None, fim: str | None, usina: str | None) -> int:
         resumos.append(res); print(json.dumps(res, ensure_ascii=False), flush=True)
     db.gravar_estado(conn, "modelar.ultimo", json.dumps(_json_limpo({"em": agora.isoformat(), "duracao_s": round(time.time() - t0, 1), "usinas": resumos}),
                                                          ensure_ascii=False, default=str))
+    # vitrine: o workbook da API da Performance e sincronizado depois de TODAS as usinas; falha la nao muda o codigo de saida
+    if getattr(cfg, "publicar_ativo", False):
+        from gemeo.modelar import publicar as pub_mod
+        print(json.dumps({"publicar": pub_mod.publicar(conn, cfg)}, ensure_ascii=False, default=str), flush=True)
     return 0 if all("erro" not in r for r in resumos) else 1
