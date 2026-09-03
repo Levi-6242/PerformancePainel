@@ -9,3 +9,5 @@ python -m pytest -q
 ```
 
 Segredos em `SECRETS_DIR/gemeo.env` (fora do OneDrive): GEMEO_DB_DSN, POWERPLANTS_DSN, SUNOP_API_TOKEN, GRIDCO_SQL_TOKEN, GEMEO_SENHA.
+
+Deploy no servidor da T.I.: `deploy/README.md`. Operação do dia a dia: `docs/runbook.md`. Mudou lote/período/gate/fusão: `python -m tools.equivalencia` (spec §11).

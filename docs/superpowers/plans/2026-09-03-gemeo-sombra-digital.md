@@ -4979,4 +4979,445 @@ git commit -m "feat(plataforma): proxy /gemeo/* para o Gemeo Digital e entrada d
 
 ---
 
-<!-- CONTINUA: Tarefa 21 -->
+### Tarefa 21: Operação — tarefas agendadas, backup, CI, runbook e a régua de equivalência
+
+**Files:**
+- Create: `gemeo/deploy/instalar_tarefas.ps1`, `gemeo/deploy/backup.ps1` (**ASCII puro**), `gemeo/deploy/README.md`
+- Create: `gemeo/docs/runbook.md`
+- Create: `gemeo/tools/equivalencia.py`
+- Create: `.github/workflows/gemeo-ci.yml` (raiz do repositório)
+- Modify: `gemeo/README.md` (aponta para deploy e runbook), `plataforma/deploy/README.md` (seção 12: Gêmeo Digital)
+- Test: `gemeo/tests/test_tools_equivalencia.py`, `gemeo/tests/test_deploy_ascii.py`
+
+**Interfaces:**
+- Consumes: `gemeo.cli` (T1), `grade_de_fixture` (T11), `gate/esperado/decomposicao/rollup` (T12–16), `GEMEO_TEST_DSN` do `conftest.py`.
+- Produces: três tarefas agendadas (`Gemeo Ingest` e `Gemeo App` no boot com reinício automático; `Gemeo Modelar` a cada 15 min), `backup.ps1` (pg_dump diário, 14 dias), CI com PostgreSQL 16 em container rodando `pytest -q` do gêmeo a cada PR, `tools.equivalencia.rodar(fixture, gate_a, gate_b, modelo_a, modelo_b) -> dict` + CLI que imprime a maior diferença por série e sai 1 acima da tolerância (regra de mudança da spec §11).
+- Restrições: `.ps1` sem nenhum byte fora do ASCII (PowerShell 5.1 lê sem BOM como ANSI e um acento derruba o parse); `pythonw` pelo caminho **real**, nunca o alias da Microsoft Store; nada aqui toca as tarefas agendadas da plataforma.
+
+- [ ] **Step 1: Escrever os testes (falham: módulos/arquivos não existem)**
+
+```python
+# gemeo/tests/test_tools_equivalencia.py
+"""A regua de mudanca: mesma fixture, mesmos parametros -> diferenca zero (dentro de 1e-6); parametro
+diferente -> a diferenca aparece e o CLI sai 1. Igualdade exata de float nunca entra aqui."""
+from pathlib import Path
+
+from gemeo.modelar import gate
+from tools import equivalencia
+
+FX = Path(__file__).parent / "fixtures" / "golden" / "mro100_2026-08-31.json"
+
+
+def test_mesmos_parametros_sao_equivalentes():
+    res = equivalencia.rodar(FX, gate.ParamsGate(), gate.ParamsGate(), {}, {})
+    assert set(res) >= {"esperado_kw", "gate_ok", "parado", "tracker", "string", "residuo", "cascata"}
+    assert max(res.values()) <= 1e-6
+
+
+def test_perdas_diferentes_nao_sao_equivalentes():
+    res = equivalencia.rodar(FX, gate.ParamsGate(), gate.ParamsGate(), {}, {"perdas_fixas": 0.20})
+    assert res["esperado_kw"] > 1.0 and res["cascata"] > 1.0 and res["gate_ok"] <= 1e-6
+
+
+def test_cli_sai_0_quando_equivalente_e_1_quando_nao(capsys):
+    assert equivalencia.main([str(FX)]) == 0
+    assert equivalencia.main([str(FX), "--b-perdas", "0.20"]) == 1
+    saida = capsys.readouterr().out
+    assert '"equivalente": true' in saida and '"equivalente": false' in saida
+```
+
+```python
+# gemeo/tests/test_deploy_ascii.py
+"""Os .ps1 do deploy sao ASCII puro: o PowerShell 5.1 le .ps1 sem BOM como ANSI e um acento num comentario
+ja derruba o parse (aconteceu no deploy da plataforma). O teste trava a regra."""
+from pathlib import Path
+
+
+def test_ps1_do_deploy_sao_ascii():
+    arquivos = list((Path(__file__).parents[1] / "deploy").glob("*.ps1"))
+    assert {a.name for a in arquivos} >= {"instalar_tarefas.ps1", "backup.ps1"}
+    for arq in arquivos:
+        ruins = [i for i, b in enumerate(arq.read_bytes()) if b >= 128]
+        assert not ruins, f"{arq.name}: byte nao-ASCII na posicao {ruins[0]}"
+```
+
+- [ ] **Step 2: Rodar e ver falhar**
+
+Run: `cd gemeo && python -m pytest tests/test_tools_equivalencia.py tests/test_deploy_ascii.py -q`
+Expected: FAIL — `ModuleNotFoundError: tools.equivalencia` e `deploy/*.ps1` inexistentes.
+
+- [ ] **Step 3: Escrever a régua de equivalência, os scripts, a CI e os documentos**
+
+```python
+# gemeo/tools/equivalencia.py
+"""Regra de mudanca da spec (§11): lote, periodo, gate ou fusao alterados -> equivalencia com tolerancia
+1e-6 sobre um dia real, numero no PR. Roda o modelo duas vezes sobre a MESMA fixture golden (A = parametros
+de referencia, B = candidatos) e imprime a maior diferenca absoluta por serie. Tudo aqui compara por
+tolerancia; igualdade exata de float e proibida no projeto."""
+from __future__ import annotations
+import argparse
+import json
+from pathlib import Path
+
+import numpy as np
+
+from gemeo.modelar import decomposicao as dc
+from gemeo.modelar import esperado, gate, grade, rollup
+
+
+def _pipeline(fixture: Path, pg: gate.ParamsGate, pm: dict, trk_inv: dict[int, int] | None) -> dict:
+    g = grade.grade_de_fixture(fixture)
+    r = gate.avaliar(g.estacao, None, pg, g.usina.tz)
+    params = {i: esperado.ParamsModelo(kwp=g.atributos[i]["kwp"], pac0_kw=g.atributos[i]["kw_ac"], **pm) for i in g.inv_p.columns}
+    esp = esperado.esperado_por_inversor(g, r, params)
+    d = dc.decompor(g, esp, trk_inv or {}, dc.ParamsDecomp())
+    c = rollup.cascata(g, r, esp, d)
+    return {"esperado_kw": esp.sum(axis=1), "gate_ok": (r.gate == "ok").astype(float), "parado": d.parado.sum(axis=1),
+            "tracker": d.tracker.sum(axis=1), "string": d.string.sum(axis=1), "residuo": d.residuo.sum(axis=1),
+            "cascata": c.por_dia.iloc[0].astype(float)}
+
+
+def rodar(fixture: Path, gate_a: gate.ParamsGate, gate_b: gate.ParamsGate, modelo_a: dict, modelo_b: dict,
+          trk_inv: dict[int, int] | None = None) -> dict[str, float]:
+    a, b = _pipeline(fixture, gate_a, modelo_a, trk_inv), _pipeline(fixture, gate_b, modelo_b, trk_inv)
+    out = {}
+    for k in a:
+        va, vb = a[k].fillna(0.0).values, b[k].fillna(0.0).values
+        out[k] = float(np.max(np.abs(va - vb))) if len(va) else 0.0
+    return out
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(description="equivalencia A (referencia) x B (candidato) sobre uma fixture golden")
+    p.add_argument("fixture")
+    p.add_argument("--tol", type=float, default=1e-6)
+    p.add_argument("--b-perdas", type=float); p.add_argument("--b-eta", type=float); p.add_argument("--b-gamma", type=float)
+    p.add_argument("--b-razao-min", type=float); p.add_argument("--b-razao-max", type=float); p.add_argument("--b-horas-min", type=float)
+    a = p.parse_args(argv)
+    mb = {k: v for k, v in (("perdas_fixas", a.b_perdas), ("eta_inv", a.b_eta), ("gamma", a.b_gamma)) if v is not None}
+    gb = {k: v for k, v in (("razao_min", a.b_razao_min), ("razao_max", a.b_razao_max), ("horas_min_dia", a.b_horas_min)) if v is not None}
+    res = rodar(Path(a.fixture), gate.ParamsGate(), gate.ParamsGate(**gb), {}, mb)
+    pior = max(res.values())
+    print(json.dumps({"fixture": a.fixture, "tolerancia": a.tol, "max_abs_diff": res, "equivalente": bool(pior <= a.tol)}, ensure_ascii=False, indent=1))
+    return 0 if pior <= a.tol else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+```
+
+```powershell
+# gemeo/deploy/instalar_tarefas.ps1
+# Cria (ou recria) as tres tarefas agendadas do Gemeo Digital no Windows da T.I.
+# ASCII puro de proposito: o PowerShell 5.1 le .ps1 sem BOM como ANSI e um acento vira erro de parse.
+# Uso (PowerShell como administrador, na pasta deploy):
+#   .\instalar_tarefas.ps1 -Raiz "C:\gemeo" -Python "C:\Python312\pythonw.exe" -SecretsDir "C:\gemeo-secrets"
+# -Python precisa ser o caminho REAL do pythonw.exe (o alias da Microsoft Store nao roda em tarefa agendada).
+param(
+  [string]$Raiz = (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)),
+  [string]$Python = "",
+  [string]$SecretsDir = "",
+  [string]$Usuario = "$env:USERDOMAIN\$env:USERNAME"
+)
+$ErrorActionPreference = "Stop"
+if (-not $Python) { $Python = (Get-Command pythonw.exe -ErrorAction SilentlyContinue).Source }
+if (-not $Python) { throw "Informe -Python com o caminho REAL do pythonw.exe." }
+if (-not $SecretsDir) { $SecretsDir = Join-Path $Raiz "secrets" }
+if (-not (Test-Path (Join-Path $SecretsDir "gemeo.env"))) { throw ("Nao achei " + (Join-Path $SecretsDir "gemeo.env") + " - crie os segredos antes (ver deploy\README.md).") }
+$Logs = Join-Path $Raiz "logs"
+New-Item -ItemType Directory -Force $Logs | Out-Null
+$Cmds = Join-Path $Raiz "deploy\cmd"
+New-Item -ItemType Directory -Force $Cmds | Out-Null
+
+function Wrapper($Comando) {
+  # Um .cmd por tarefa: ambiente, pasta e log num lugar so - e o que se abre para depurar as 23h.
+  $arq = Join-Path $Cmds ("gemeo_" + $Comando + ".cmd")
+  $linhas = @(
+    "@echo off",
+    ("set SECRETS_DIR=" + $SecretsDir),
+    ("set GEMEO_CONFIG=" + (Join-Path $Raiz "config.toml")),
+    ("cd /d """ + $Raiz + """"),
+    ("""" + $Python + """ -m gemeo.cli " + $Comando + " >> """ + (Join-Path $Logs ($Comando + ".log")) + """ 2>&1")
+  )
+  Set-Content -Path $arq -Value $linhas -Encoding Ascii
+  return $arq
+}
+
+function Registrar($Nome, $Comando, $Gatilho, $Reinicia) {
+  $acao = New-ScheduledTaskAction -Execute (Wrapper $Comando)
+  if ($Reinicia) {
+    $cfg = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
+  } else {
+    $cfg = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 14) -MultipleInstances IgnoreNew
+  }
+  Unregister-ScheduledTask -TaskName $Nome -Confirm:$false -ErrorAction SilentlyContinue
+  Register-ScheduledTask -TaskName $Nome -Action $acao -Trigger $Gatilho -Settings $cfg -User $Usuario -RunLevel Highest | Out-Null
+  Write-Host ("tarefa registrada: " + $Nome)
+}
+
+$noBoot = New-ScheduledTaskTrigger -AtStartup
+$cada15 = New-ScheduledTaskTrigger -Once -At (Get-Date).Date -RepetitionInterval (New-TimeSpan -Minutes 15) -RepetitionDuration ([TimeSpan]::MaxValue)
+Registrar "Gemeo Ingest" "ingest" $noBoot $true
+Registrar "Gemeo App" "app" $noBoot $true
+Registrar "Gemeo Modelar" "modelar" $cada15 $false
+Write-Host "Pronto. Para iniciar agora: Start-ScheduledTask 'Gemeo Ingest'; Start-ScheduledTask 'Gemeo App'; Start-ScheduledTask 'Gemeo Modelar'"
+```
+
+```powershell
+# gemeo/deploy/backup.ps1
+# pg_dump diario do banco gemeo para a pasta que a T.I. ja copia. Guarda 14 dias. ASCII puro (ver instalar_tarefas.ps1).
+# Insubstituiveis no banco: modelo (calibracoes) e alias manual; o resto se reconstroi das fontes.
+# Uso: .\backup.ps1 -Destino "D:\Backups\gemeo" -PgDump "C:\Program Files\PostgreSQL\16\bin\pg_dump.exe"
+# O DSN vem de GEMEO_DB_DSN (mesmo valor do gemeo.env) para nao deixar senha em linha de comando.
+param(
+  [Parameter(Mandatory = $true)][string]$Destino,
+  [string]$PgDump = "pg_dump",
+  [string]$Dsn = $env:GEMEO_DB_DSN,
+  [int]$Dias = 14
+)
+$ErrorActionPreference = "Stop"
+if (-not $Dsn) { throw "Defina GEMEO_DB_DSN (ou passe -Dsn) com o mesmo valor do gemeo.env." }
+New-Item -ItemType Directory -Force $Destino | Out-Null
+$arq = Join-Path $Destino ("gemeo_" + (Get-Date -Format "yyyyMMdd_HHmm") + ".dump")
+& $PgDump --format=custom --no-owner --file=$arq --dbname=$Dsn
+if ($LASTEXITCODE -ne 0) { throw ("pg_dump falhou com codigo " + $LASTEXITCODE) }
+Get-ChildItem $Destino -Filter "gemeo_*.dump" | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$Dias) } | Remove-Item -Force
+Write-Host ("backup ok: " + $arq)
+```
+
+```yaml
+# .github/workflows/gemeo-ci.yml
+name: gemeo-ci
+on:
+  pull_request:
+    paths: ["gemeo/**", ".github/workflows/gemeo-ci.yml"]
+  push:
+    branches: [main]
+    paths: ["gemeo/**"]
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: gemeo
+          POSTGRES_PASSWORD: gemeo
+          POSTGRES_DB: gemeo_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U gemeo" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e "./gemeo[dev]"
+      - run: python -m pytest -q
+        working-directory: gemeo
+        env:
+          GEMEO_TEST_DSN: postgresql://gemeo:gemeo@localhost:5432/gemeo_test
+```
+
+````markdown
+<!-- gemeo/deploy/README.md -->
+# Deploy do Gêmeo Digital (servidor Windows da T.I.)
+
+O gêmeo é um serviço separado da plataforma: pasta própria, banco próprio, três tarefas agendadas, porta **5070**
+em `127.0.0.1`. Quem usa chega por **`/gemeo/` na plataforma** (proxy no `app.py` dela, mesmo túnel e mesmo login).
+
+## 1. Pré-requisitos
+
+- Python 3.12+ (caminho real do `pythonw.exe`, não o alias da Microsoft Store).
+- **PostgreSQL 16** local: banco `gemeo`, usuário `gemeo` com `CREATE` no banco (o gêmeo cria o schema `gemeo`).
+- Acesso de rede: `44.214.183.214:5432` (PostgreSQL `powerplants` do Thopen), `gridco-api.sunop.net` e
+  `axis-api.sunop.net` (API SunOp), `app.gridco.com.br` (API BD_Performance).
+- Pasta de segredos **fora de qualquer pasta sincronizada** (OneDrive), por exemplo `C:\gemeo-secrets`.
+
+## 2. Instalar
+
+```
+git clone <repositório> C:\gemeo        # ou copiar a pasta gemeo/ deste repositório
+cd C:\gemeo
+python -m pip install -e ".[dev]"
+```
+
+`C:\gemeo-secrets\gemeo.env` (uma chave por linha, sem aspas):
+
+```
+GEMEO_DB_DSN=postgresql://gemeo:<senha>@127.0.0.1:5432/gemeo
+POWERPLANTS_DSN=postgresql://<usuario>:<senha>@44.214.183.214:5432/powerplants
+SUNOP_API_TOKEN=<token de API da SunOp — o de /data, validade ~1 ano; NÃO o token web de 7 dias>
+GRIDCO_SQL_TOKEN=<mesmo do tokens.txt da plataforma>
+GEMEO_SENHA=<senha compartilhada das telas — a MESMA vai no tokens.txt da plataforma>
+```
+
+`config.toml` (versionado): usinas do piloto, ritmos, teto da SunOp (600/dia), porta.
+
+## 3. Primeira carga
+
+```
+set SECRETS_DIR=C:\gemeo-secrets
+gemeo migrate                       # cria o schema gemeo
+gemeo inspecionar-cadastro          # imprime os headers das abas do BD_Performance (Info Geral / Info Mensal / BD_Trackers)
+gemeo importar-alias ..\docs\de-para-trackers-supervisorio-fracttal.xlsx
+gemeo ingest                        # deixa rodando alguns minutos e encerre com Ctrl+C: cadastro + primeiras leituras
+gemeo modelar                       # últimos 3 dias; imprime um JSON por usina
+gemeo app                           # http://127.0.0.1:5070/gemeo/  (login = GEMEO_SENHA)
+```
+
+Se `inspecionar-cadastro` mostrar headers diferentes dos esperados pelo `ingest/cadastro.py`, ajuste o de-para de
+colunas lá antes de seguir (pendência conhecida: Info Geral / Info Mensal / BD_Trackers ainda não foram lidas ao vivo).
+
+## 4. Tarefas agendadas e backup
+
+PowerShell **como administrador**:
+
+```
+cd C:\gemeo\deploy
+.\instalar_tarefas.ps1 -Raiz "C:\gemeo" -Python "C:\Python312\pythonw.exe" -SecretsDir "C:\gemeo-secrets"
+Start-ScheduledTask "Gemeo Ingest"; Start-ScheduledTask "Gemeo App"; Start-ScheduledTask "Gemeo Modelar"
+```
+
+Logs em `C:\gemeo\logs\{ingest,modelar,app}.log`. Backup diário (agende às 02:00 na mesma máquina):
+
+```
+$env:GEMEO_DB_DSN = "<mesmo DSN do gemeo.env>"; .\backup.ps1 -Destino "D:\Backups\gemeo" -PgDump "C:\Program Files\PostgreSQL\16\bin\pg_dump.exe"
+```
+
+## 5. Ligar na plataforma
+
+No `tokens.txt` da plataforma acrescente `GEMEO_SENHA=<a mesma do gemeo.env>` (e `GEMEO_URL=http://127.0.0.1:5070` se
+mudar a porta). **Reinicie a plataforma** — o proxy `/gemeo/*` só existe no processo novo. A entrada "Gêmeo Digital"
+do menu aparece sozinha quando `/gemeo/healthz` passa a responder.
+
+## 6. Saúde
+
+`GET http://127.0.0.1:5070/gemeo/healthz` (ou `/gemeo/healthz` pela plataforma): 200 = tudo ok; 503 = há problema, e o
+JSON diz qual (fonte parada, `modelar` atrasado, SunOp no teto, token da SunOp vencendo em < 30 dias, banco fora).
+Aponte o monitor externo (Teams) para essa URL.
+
+## 7. Atualizar
+
+`git pull` → `gemeo migrate` → reiniciar as três tarefas (`Stop-ScheduledTask`/`Start-ScheduledTask`). Zip da pasta só
+como emergência. Ver `docs/runbook.md` para o resto.
+````
+
+````markdown
+<!-- gemeo/docs/runbook.md -->
+# Runbook — Gêmeo Digital
+
+Para quem opera o gêmeo sem ter escrito o código. Tudo que está aqui pode ser feito pela **segunda pessoa** com acesso ao
+servidor, ao repositório e ao `SECRETS_DIR` (condição do piloto, spec §10).
+
+## O que roda
+
+| Tarefa | O que faz | Ritmo | Se cair |
+|---|---|---|---|
+| `Gemeo Ingest` | um laço por fonte (PostgreSQL `powerplants`, API SunOp, API BD_Performance) → `leitura` + `ingest_run` | contínuo | o agendador reinicia em 1 min |
+| `Gemeo Modelar` | gate → esperado → decomposição → eventos → cascata dos últimos 3 dias; grava `esperado`, `cascata_dia`, `perda_dia`, `evento` | a cada 15 min, encerra | a próxima execução refaz tudo (idempotente) |
+| `Gemeo App` | telas Frota/Usina, API e `/healthz` em `127.0.0.1:5070/gemeo` | contínuo | reinicia em 1 min; a plataforma mostra "fora do ar" (503) enquanto isso |
+
+## Ler o `/healthz`
+
+`problemas: []` e `ok: true` → nada a fazer. Cada linha de `problemas` diz o quê:
+
+- `pg: falha há N min` / `sunop_fino: falha há N min` — a fonte não entregou. Veja `ingest_run.erro` (`SELECT fonte, criado_em, status, erro FROM ingest_run ORDER BY criado_em DESC LIMIT 20`).
+  `403` da SunOp = rate limit da borda (CloudFront), o disjuntor já pausa 90 s; se persistir horas, a cota mensal (100 mil/mês, compartilhada com a plataforma) pode ter acabado — `GET https://gridco-api.sunop.net/data/v2/usage/me`.
+- `SunOp no teto: 600` — o gêmeo parou de chamar a SunOp por hoje (teto próprio). Volta sozinho à meia-noite UTC. Se acontecer todo dia, revise `config.toml` (`[sunop] teto_dia`) junto com a Performance.
+- `modelar há N min` — a tarefa não roda. `Get-ScheduledTaskInfo "Gemeo Modelar"` e `logs\modelar.log`.
+- `token SunOp vence em N dias` — troca **humana e anual**: pedir token de API novo à SunOp, colocar em `gemeo.env` (`SUNOP_API_TOKEN`), reiniciar `Gemeo Ingest`.
+- `banco: false` — PostgreSQL local fora. Serviço `postgresql-x64-16` no Windows.
+
+## A usina sumiu da régua
+
+Ela não some: aparece na faixa **"Não modeladas"** com o motivo. `sem ingestão ok nas últimas 24 h` → fonte; `sensor em falha hoje` → a ETM da usina está mentindo (razão POA/GHI fora da faixa) — evento `sensor_em_falha` na tela da usina; `sem cobertura de sensor hoje` → a ETM não entregou 8 h válidas; `sem esperado calculado hoje` → `modelar` não rodou.
+
+## Refazer um dia
+
+```
+set SECRETS_DIR=C:\gemeo-secrets
+gemeo modelar --ini 2026-08-31 --fim 2026-08-31 --usina MRO100
+```
+
+Datas em dia local da usina. Apaga-e-regrava a janela: rodar duas vezes dá o mesmo resultado.
+
+## Calibrar
+
+Depois de ≥ 30 dias limpos (sem evento, cobertura ≥ 0,9, POA estável):
+
+```
+gemeo calibrar --usina MRO100 --dias 45
+```
+
+Imprime `calibrado: true/false`. Só a versão calibrada vira ativa (tolerância 3 %); antes disso a versão fica gravada em
+`modelo` para inspeção e a placa segue no ar, marcada "modelo de placa — não calibrado".
+
+## Cadastro e de-para
+
+- Usinas, inversores (kWp, kW AC), trackers e metas vêm das abas do BD_Performance pela API; o gêmeo relê a cada 30 min
+  quando o `updated_at` do workbook muda.
+- Tracker → inversor vem do `alias` (`bd_trackers`). Trackers sem inversor aparecem contados na tela da usina
+  (`trackers sem inversor no de-para`) e a perda deles vai para a usina, não para um inversor. Corrigir na planilha
+  BD_Trackers/Equipamentos é do time de Performance; depois disso, `gemeo ingest` relê.
+- `alias` manual e `modelo` são os únicos dados insubstituíveis: estão no backup diário.
+
+## Restaurar backup
+
+```
+pg_restore --clean --if-exists --no-owner --dbname=<DSN> D:\Backups\gemeo\gemeo_AAAAMMDD_HHMM.dump
+```
+
+## Mudou lote, período, gate ou fusão?
+
+Rode a régua de equivalência sobre um dia real e cole o número no PR:
+
+```
+python -m tools.equivalencia tests\fixtures\golden\mro100_2026-08-31.json --b-razao-min 0.25
+```
+````
+
+- [ ] **Step 4: Acrescentar os ponteiros nos READMEs**
+
+`gemeo/README.md`, ao final:
+
+```markdown
+Deploy no servidor da T.I.: `deploy/README.md`. Operação do dia a dia: `docs/runbook.md`. Mudou lote/período/gate/fusão: `python -m tools.equivalencia` (spec §11).
+```
+
+`plataforma/deploy/README.md`, seção nova ao final:
+
+```markdown
+## 12. Gêmeo Digital (`/gemeo/`)
+
+Serviço separado (pasta `gemeo/` do repositório, porta 5070 local). A plataforma só faz **proxy** de `/gemeo/*` e
+manda a senha compartilhada no header `X-Gemeo-Senha`. No `tokens.txt`: `GEMEO_SENHA=<mesma do gemeo.env>` e,
+se a porta mudar, `GEMEO_URL=http://127.0.0.1:5070`. O proxy passa a existir **no próximo reinício** da plataforma;
+a entrada "Gêmeo Digital" do menu aparece sozinha quando `/gemeo/healthz` responde. Instalação do gêmeo:
+`gemeo/deploy/README.md`.
+```
+
+- [ ] **Step 5: Rodar e ver passar**
+
+Run: `cd gemeo && python -m pytest -q` → todos verdes (os de banco pulam sem DSN). `python -m tools.equivalencia tests/fixtures/golden/mro100_2026-08-31.json` → `"equivalente": true`.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add gemeo/deploy gemeo/docs gemeo/tools/equivalencia.py gemeo/tests/test_tools_equivalencia.py gemeo/tests/test_deploy_ascii.py gemeo/README.md plataforma/deploy/README.md .github/workflows/gemeo-ci.yml
+git commit -m "feat(gemeo): tarefas agendadas, backup, CI com PostgreSQL, runbook e regua de equivalencia (Tarefa 21)"
+```
+
+---
+
+## Auto-revisão do plano (03/09/2026)
+
+**Cobertura da spec.** §5 arquitetura (T1, T10, T16, T19); §6 schema (T2), "aparece na tela" (T18 `motivo_nao_modelada`); §7 conectores (T6–T10), marca d'água/sobreposição/reconciliação (T4, T6), cota SunOp/teto/lote 600 (T8), Fracttal via planilha (T5); §8 modelo: grade (T11), gate (T12), esperado (T13), decomposição (T14), eventos (T15), cascata/`perda_dia`/job (T16), calibração (T17); §9 telas Frota/Usina/frescor/API/healthz (T18–T19), acessível pela plataforma (T20); §10 operação (T21); §11 testes (invariantes T14–T16, golden T14–T17, ingestores T6–T9, banco T2–T3, app T18–T19, CI e equivalência T21); §12 critérios: funcional/dado/honestidade cobertos, operação depende da T.I. (PostgreSQL 16, segunda pessoa), aceite é humano.
+
+**Lacunas assumidas (viram pendências, não tarefas):** abas Info Geral/Info Mensal/BD_Trackers do cadastro só serão validadas ao vivo (`gemeo inspecionar-cadastro`); TimescaleDB acima de 10 usinas fica fora do piloto; R$ depende de `meta_mes.preco_mwh` (coluna nula até o contrato chegar); SSO na borda é da T.I.
+
+**Placeholders:** nenhum "TBD/TODO/implementar depois" no plano; cada tarefa tem código e teste completos.
+
+**Consistência de tipos:** `Grade`/`UsinaRef` (T1/T11) usados sem mudança em T12–T17 e T21; `gate.Resultado(gate, motivo_dia, razao_dia)` consumido em T13, T15, T16, T17; `Decomposicao` (T14) em T15, T16, T21; `Cascata` (T16) em T21; `ParamsModelo` (T13) em T14–T17, T21 — mesmos nomes e assinaturas. Ajustes feitos durante a execução e já refletidos nos blocos: teto AC do PVWatts (`pdc0 = pac0/eta`, T13), universo de strings instaladas como parâmetro de `decompor` (T14), veredito de 26/08 sem trackers e resíduo < 5 % (fixture), razão dos sãos de Santarém ≥ 0,85 (fixture).
+
+**Execução:** as Tarefas 1–21 foram executadas nesta mesma sessão (03/09/2026), na pasta `gemeo/` deste repositório, com commits por tarefa no branch `feat/sunop-bases-api-gemeo-spec`; a lista de pendências e o que cada uma exige está na mensagem final ao Levi e no `docs/runbook.md`.
