@@ -10,7 +10,8 @@ def test_fixture_mro100_vira_grade_de_15_min():
     g = grade.grade_de_fixture(G / "mro100_2026-08-31.json")
     assert g.usina.codigo == "MRO100" and g.indice.freq == pd.Timedelta("15min") and g.indice.tz is not None
     assert g.inv_p.shape[1] == 25 and g.trk_ang.shape[1] == 120 and g.str_i.shape[1] == 36
-    assert g.estacao.poa.max() > 900 and g.tipo[2017] == "tracker" and g.pai[3001] == 1001
+    # ids sinteticos da fixture: inversor n -> 1000+n, tracker n -> 2000+n, string "inv.k" -> 3000 + inv*100 + k
+    assert g.estacao.poa.max() > 900 and g.tipo[2017] == "tracker" and g.pai[3101] == 1001
 
 
 def test_fixture_santarem_sem_trackers():
