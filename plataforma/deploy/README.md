@@ -111,26 +111,42 @@ Log das intervenções: `plataforma\logs\ronda_guardian.log`.
 
 ---
 
-## 5. As planilhas: o servidor NÃO usa OneDrive
+## 5. As bases vêm da API — o servidor NÃO usa OneDrive
 
-Três planilhas do OneDrive alimentam o painel (`BD_Performance`, `BD_Thopen`, `Tickets de
-Performance`). Este servidor tem uma porta exposta, e sincronizar OneDrive numa máquina exposta
-significa que um comprometimento alcança as bases da empresa — e o estrago sobe para a nuvem junto.
-Por isso **não instale OneDrive aqui**.
+Três bases alimentam o painel (`BD_Performance`, `BD_Thopen`, `Tickets de Performance`). Este
+servidor tem uma porta exposta, e sincronizar OneDrive numa máquina exposta significa que um
+comprometimento alcança as bases da empresa — e o estrago sobe para a nuvem junto. Por isso
+**não instale OneDrive aqui**, e desde 25/08/2026 não é mais preciso: as bases vêm da **Gridco
+Performance API**.
 
-Em vez disso, a máquina do analista (que já tem OneDrive) **empurra** as planilhas por HTTPS, atrás
-da mesma senha do dashboard. Lá, no Agendador do Windows, a cada 10 minutos:
+O `bd_api.py` baixa as linhas de `https://app.gridco.com.br/db_performace` e monta as planilhas
+**em memória** (`BD_MEM=1`, o padrão) — não há arquivo em disco no caminho normal. Um laço no
+`worker.py` revalida a cada 30 min, e a revalidação é barata: uma chamada compara o `updated_at`
+do workbook e só rebaixa as ~25 mil linhas quando a fonte mudou de verdade.
 
-```bat
-python push_bases.py --url https://<endereco-do-servidor>
-```
+Consequência prática: **o servidor precisa de saída HTTPS para `app.gridco.com.br`**. Sem isso o
+painel sobe sem cadastro nenhum — sem usinas, sem inversores esperados, sem Full O&M.
 
-Manda só o que mudou (compara tamanho + data), então rodar de 10 em 10 minutos é barato. O servidor
-grava em `plataforma\bases\` e passa a ler de lá. Conferir o que chegou e quando:
-`GET /api/admin/bases`.
+O botão **Atualizar** da tela chama `GET /api/check/reload?force=1`, que pergunta à API se a fonte
+mudou e, só nesse caso, reconstrói o cadastro (usinas visíveis, inversores esperados, strings,
+metas, tracker↔inversor). A reconstrução roda em thread e a resposta volta na hora;
+`GET /api/check/reload/status` diz como terminou. Ou seja: alterou no banco, clicou, apareceu.
 
-Enquanto nenhum push chegou, o app usa as planilhas que vieram no zip — dado real, mas congelado na
-data do pacote.
+### Saídas de rede que a T.I. precisa liberar
+
+| Destino | Para quê | Sem isso |
+|---|---|---|
+| `app.gridco.com.br` | **bases (cadastro, metas, tickets)** | painel sobe vazio — bloqueio mais grave |
+| `44.214.183.214:5432` | PostgreSQL de telemetria (fonte PG) | fonte "Banco de Dados" fica cega |
+| `gridco-api.sunop.net`, `axis-api.sunop.net` | SunOp/Athon e Axis | trackers e strings dessas usinas |
+| `apipv.pvoperation.com.br`, `plataforma.pvoperation.com`, `apiplataforma.pvoperation.com` | API PV Operation | trackers, strings e combiner da maior fonte |
+| `monitoring.solaredge.com` | SolarEdge | usinas SolarEdge |
+| `app.fracttal.com` | Fracttal (OS, disponibilidade) | OS e disponibilidade por OS |
+| `login.microsoftonline.com` | login Microsoft (se habilitado) | SSO |
+
+**Fallback, se um dia a API estiver fora:** o envio por push continua existindo. Na máquina de
+quem tem o OneDrive, `python push_bases.py --url https://<servidor>` grava em `plataforma\bases\`,
+e o resolvedor usa o espelho quando a API não responde. Conferir o que chegou: `GET /api/admin/bases`.
 
 ---
 
@@ -269,6 +285,26 @@ Por isso trocar o nome do caminho é trocar uma string, não mexer no código.
   na máquina da equipe de Performance — as telas existem, mas o envio fica inativo aqui.
 - **Coletores de dados**: rodam agendados na máquina da equipe, alimentando as planilhas.
 - **`push_bases.py`**: vem no pacote por conveniência, mas roda na máquina do analista (seção 5).
+
+## 11. O token que NÃO se renova sozinho — leia antes de colocar no ar
+
+Quase todos os tokens do `tokens.txt` se renovam sozinhos. **Um não:** o `PLAT_TOKEN`, da PV
+Operation, que serve os trackers e o combiner box. Ele tem CAPTCHA e MFA, vale **7 dias** e
+precisa ser recolado por uma pessoa.
+
+Isto não é detalhe: em 31/08/2026 ele venceu às 13:30 e, às 15:49, **72 de 72 usinas** apareciam
+como "sem comunicação" e as strings como falha — alarme falso em tudo, porque o app não distingue
+"a API respondeu 401" de "o equipamento parou". Ninguém percebeu por horas.
+
+Como renovar (vale na hora, **sem reiniciar** — o `tokens_runtime.json` é relido a cada uso):
+
+```
+POST /api/pv/trackers/token     {"token": "<colado>"}
+```
+
+Como saber que está perto de vencer: `GET /api/tokens` devolve `dias` restantes por fonte.
+**Vale a pena um alerta** quando `plat` ficar com menos de 1 dia — é o único ponto do sistema em
+que a expiração de credencial se disfarça de falha de campo.
 
 Dúvidas: equipe de Performance (Levi) — `performance@gridco.com.br`.
 

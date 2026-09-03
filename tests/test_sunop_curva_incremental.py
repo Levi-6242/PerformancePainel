@@ -35,9 +35,15 @@ def _fonte(ate_hh):
 def _monta(monkeypatch, ate_hh, agora):
     """Prepara app com uma fonte que só devolve pontos DENTRO da janela pedida."""
     pedidos = []
+    periodos = []
+    _monta.periodos = periodos      # exposto p/ o teste da granularidade abaixo
 
-    def _hist(paths, ini, fim, inst="gridco"):
+    def _hist(paths, ini, fim, inst="gridco", period=None):
+        # `period` entrou em 02/09 (agregação de 15 min pedida à SunOp). Fica registrado à parte
+        # de `pedidos` de propósito: as asserções das janelas comparam a lista inteira, e somar
+        # um terceiro campo às tuplas quebraria todas por um motivo que não é o delas.
         pedidos.append((ini, fim))
+        periodos.append(period)
         todos = _fonte(ate_hh)
         dentro = [(ts, v) for ts, v in todos if ini <= ts <= fim]
         return {p: list(dentro) for p in paths}
@@ -144,6 +150,26 @@ def test_guarda_anti_encolhimento_continua_valendo(monkeypatch):
     hist[("MAB100", "2026-08-26")]["ts"] = 0.0
     hist[("MAB100", "2026-08-26")]["cheio_h"] = -1      # força busca CHEIA (não incremental)
     monkeypatch.setattr(app, "_sunop_analog_history",
-                        lambda paths, ini, fim, inst="gridco": {p: [] for p in paths})
+                        lambda paths, ini, fim, inst="gridco", period=None: {p: [] for p in paths})
     depois = app._sunop_trk_curvas("MAB100", "2026-08-26")
     assert len(depois["posat"]["TRK_1"]) == n_bom, "curva boa foi substituída por resposta vazia"
+
+
+def test_a_granularidade_de_15min_e_pedida_em_TODA_busca(monkeypatch):
+    """Cada busca de curva de tracker tem de mandar `period=15m` — inclusive a INCREMENTAL.
+
+    Se só a busca cheia mandasse, a incremental voltaria com pontos de 5 min e a fusão por
+    timestamp misturaria as duas grades na mesma série. Não daria erro: deformaria a curva, que
+    é o insumo de 'parado por amplitude'. É a mesma classe de falha muda que o teste de
+    EQUIVALÊNCIA acima existe para pegar."""
+    hist = {}
+    monkeypatch.setattr(app, "_si", _si_falso(hist, TRACKERS))
+    _monta(monkeypatch, 10, datetime(2026, 8, 26, 10, 5))
+    app._sunop_trk_curvas("MAB100", "2026-08-26")     # 1ª volta: cheia
+    # sem vencer o TTL a 2ª volta sai do cache e NÃO busca — o teste passaria vendo só a cheia,
+    # que é justamente o caminho que ele NÃO precisa provar.
+    hist[("MAB100", "2026-08-26")]["ts"] = 0.0
+    app._sunop_trk_curvas("MAB100", "2026-08-26")     # 2ª volta na mesma hora: incremental
+    periodos = _monta.periodos
+    assert len(periodos) >= 2, "esperava duas buscas (cheia + incremental)"
+    assert set(periodos) == {app.TRK_CURVA_PERIODO}, periodos

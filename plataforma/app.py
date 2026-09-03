@@ -776,6 +776,7 @@ _axis_curva_cache = {}
 _axis_str_med_cache = {}
 _axis_trk_cache   = {"payload": None, "ts": 0.0, "_ttl": SUNOP_TTL}
 _axis_trk_hist    = {}
+_axis_str_hist    = {}
 _axis_pr_cache    = {}
 _axis_analise_cache = {"payload": None, "ts": 0.0, "_ttl": SUNOP_TTL}
 
@@ -787,13 +788,15 @@ def _si(inst: str = "gridco") -> dict:
                 "env": "AXIS_TOKEN", "token": _axis_token, "meta": _axis_meta,
                 "cache": _axis_cache, "etm_cache": _axis_etm_cache,
                 "curva_cache": _axis_curva_cache, "str_med_cache": _axis_str_med_cache,
-                "trk_cache": _axis_trk_cache, "trk_hist": _axis_trk_hist, "pr_cache": _axis_pr_cache,
+                "trk_cache": _axis_trk_cache, "trk_hist": _axis_trk_hist,
+                "str_hist": _axis_str_hist, "pr_cache": _axis_pr_cache,
                 "analise_cache": _axis_analise_cache}
     return {"config": SUNOP_CONFIG, "data": SUNOP_DATA, "rt_key": SUNOP_RT_KEY,
             "env": "SUNOP_TOKEN", "token": _sunop_token, "meta": _sunop_meta,
             "cache": _sunop_cache, "etm_cache": _sunop_etm_cache,
             "curva_cache": _sunop_curva_cache, "str_med_cache": _sunop_str_med_cache,
-            "trk_cache": _sunop_trk_cache, "trk_hist": _sunop_trk_hist, "pr_cache": _sunop_pr_cache,
+            "trk_cache": _sunop_trk_cache, "trk_hist": _sunop_trk_hist,
+            "str_hist": _sunop_str_hist, "pr_cache": _sunop_pr_cache,
             "analise_cache": _sunop_analise_cache}
 
 
@@ -1005,6 +1008,33 @@ def _p_dado(nome: str) -> str:
     return os.path.join(_DADOS_DIR, nome)
 
 
+def _log_arquivo(nome: str, msg: str) -> None:
+    """Anexa uma linha em `plataforma/logs/<nome>`, com carimbo de hora.
+
+    POR QUE EXISTE: o worker sobe com `pythonw`, que não tem console — todo `print` de laço de
+    fundo cai no vazio. Foi assim que o prewarm ficou 9,8 dias parado sem ninguém ver, e é por
+    isso que hoje não dá para saber se um ciclo rodou sem ir perguntar ao banco.
+
+    Mesma pasta e mesmo formato do `ronda_guardian.py`, para os logs ficarem juntos. NUNCA
+    levanta: registrar não pode derrubar o laço que estava registrando.
+    """
+    try:
+        d = os.path.join(_AQUI, "logs")
+        os.makedirs(d, exist_ok=True)
+        p = os.path.join(d, nome)
+        # Poda pela metade acima de 2 MB: estes laços rodam para sempre e ninguém limpa isto
+        # à mão. Metade preserva histórico suficiente para ver a última semana.
+        if os.path.exists(p) and os.path.getsize(p) > 2 * 1024 * 1024:
+            with open(p, "r", encoding="utf-8", errors="replace") as f:
+                linhas = f.readlines()
+            with open(p, "w", encoding="utf-8") as f:
+                f.writelines(linhas[len(linhas) // 2:])
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "  " + msg + "\n")
+    except Exception:                 # noqa: BLE001
+        pass
+
+
 # ── Base EM MEMÓRIA: o passo que tira o disco do caminho ───────────────────────
 # `_bd_readable()` devolve ALGO QUE SE ABRE COMO ARQUIVO — um BytesIO quando os bytes já estão
 # em memória, e o caminho do espelho quando não estão. pandas e openpyxl aceitam os dois, então
@@ -1019,8 +1049,28 @@ def _p_dado(nome: str) -> str:
 _BD_MEM = os.environ.get("BD_MEM", "1") != "0"
 
 
-def _bd_readable(chave: str = "bd_performance"):
-    """Fonte legível da base: BytesIO (memória) ou caminho do espelho (disco)."""
+def _bd_api_versao(chave: str = "bd_performance"):
+    """Versão da carga em memória daquele workbook (`updated_at` da API), ou None."""
+    try:
+        import bd_api
+        return bd_api.versao_em_memoria(chave)
+    except Exception:                                 # noqa: BLE001
+        return None
+
+
+def _bd_api_mem_ok(chave: str = "bd_performance") -> bool:
+    """A carga em memória daquele workbook existe? Usado só para o LOG dizer a procedência certa."""
+    return bool(_bd_api_versao(chave))
+
+
+def _bd_readable(chave: str = "bd_performance", fallback=None):
+    """Fonte legível da base: BytesIO (memória) ou caminho do espelho (disco).
+
+    `fallback` é o resolvedor de CAMINHO daquela base, usado quando a memória não tem.
+    Ele existe porque cada uma das três tem o seu (OneDrive, espelho, env) e o padrão só
+    servia ao BD_Performance: sem isto, `_bd_readable("bd_thopen")` caindo para o disco
+    devolvia o arquivo do BD_PERFORMANCE — a base errada, aberta como se fosse a certa, sem
+    erro nenhum. Nunca disparou porque até 02/09/2026 ninguém chamava com chave."""
     if _BD_MEM:
         try:
             import bd_api
@@ -1031,7 +1081,7 @@ def _bd_readable(chave: str = "bd_performance"):
             # Cair para o arquivo é degradar, não quebrar — mas em voz alta: silêncio aqui
             # significaria servir espelho velho sem ninguém saber.
             print(f"[bd_mem] {chave} indisponível em memória ({e}) — usando o espelho em disco")
-    return _bd_readable_path()
+    return (fallback or _bd_readable_path)()
 
 
 # Globais preenchidas por load_equipamentos() (recarregáveis em runtime)
@@ -1212,8 +1262,17 @@ def load_equipamentos():
         except OSError:
             _bd_mtime = 0.0
         _n_pot = sum(len(v) for v in power_inv.values())
-        _src = ("LOCAL (fallback)" if path == _BD_PERF_LOCAL
-                else "ESPELHO/API" if os.path.dirname(path) == _BASES_DIR else "ENV")
+        # O rótulo tem de dizer de onde o dado VEIO, não de onde ele viria. Com BD_MEM (o padrão)
+        # a leitura é um BytesIO montado pelo bd_api a partir da API, e `path` nem chega a ser
+        # aberto — mas era ele que decidia o rótulo. Num servidor recém-instalado, sem `bases/`
+        # ainda, isso imprimia "LOCAL (fallback)" enquanto o dado era da API (visto no smoke test
+        # do pacote, 02/09/2026). Log que mente sobre a procedência do dado custa caro no dia do
+        # diagnóstico: foi assim que se perdeu tempo achando que o cadastro estava congelado.
+        if _BD_MEM and _bd_api_mem_ok("bd_performance"):
+            _src = "API (memória)"
+        else:
+            _src = ("LOCAL (fallback)" if path == _BD_PERF_LOCAL
+                    else "ESPELHO/API" if os.path.dirname(path) == _BASES_DIR else "ENV")
         print(f"[OK] BD_Performance/Equipamentos [{_src}]: {len(esperado_inv)} usinas c/ esperadas | "
               f"{len(FULL_OM)} Full O&M | {len(STRING_BOX)} String Box | {_n_pot} aliases de potência | "
               f"{len(power_ufv)} aliases de potência UFV")
@@ -1541,13 +1600,18 @@ def _bd_thopen_path():
 def load_thopen_meta():
     """Lê a tabela nomeada Historico_2026 (meta kWh / irradiância-meta / PR por usina×mês)."""
     global THOPEN_META
-    path = _bd_thopen_path()
-    if not path:
-        print("[AVISO] BD_Thopen.xlsx não encontrado — meta gerencial do banco ficará vazia")
+    # Memória PRIMEIRO (a API), arquivo só como queda. Antes isto só olhava caminho, e num
+    # servidor sem OneDrive nem espelho ainda gravado o resultado era "não encontrado" — com o
+    # dado disponível na API o tempo todo, já carregado para o BD_Performance ao lado. Pior:
+    # `load_thopen_meta` roda UMA vez, no import, e nada a re-chamava; a meta gerencial ficava
+    # vazia até alguém reiniciar. (Levi apontou em 02/09: "não encontrou no PG? tá lá".)
+    src = _bd_readable("bd_thopen", _bd_thopen_path)
+    if not src:
+        print("[AVISO] BD_Thopen não encontrado (nem na API, nem em disco) — meta gerencial vazia")
         return
     try:
         import openpyxl
-        wb = openpyxl.load_workbook(path, data_only=True)
+        wb = openpyxl.load_workbook(src, data_only=True)
         # ESCOLHE A TABELA PELAS COLUNAS, NÃO SÓ PELO NOME. O BD_Thopen tem DUAS tabelas que
         # começam com "Historico" e elas NÃO são intercambiáveis:
         #   Historico_2026 -> Usina | Ano | Mês | FC | Meta | Meta Irradiação | PR   (formato LARGO)
@@ -1688,16 +1752,32 @@ def _auto_reload_bd():
         maybe_reload_tickets()
 
 
+def _tickets_marca():
+    """Marca de versão da planilha de Tickets, VÁLIDA NOS DOIS MODOS.
+
+    Era o mtime do arquivo. Com a fonte em memória (a API) não existe arquivo, e o mtime deixaria
+    a detecção de mudança cega — os Tickets nunca mais recarregariam sozinhos num servidor sem
+    OneDrive. Em memória a marca é o `updated_at` do workbook, que é exatamente o que muda quando
+    alguém edita no banco."""
+    if _BD_MEM:
+        v = _bd_api_versao("tickets_performance")
+        if v:
+            return v
+    p = _tickets_path()
+    if not p:
+        return None
+    try:
+        return os.path.getmtime(p)
+    except OSError:
+        return None
+
+
 def maybe_reload_tickets():
-    """Recarrega a planilha de Tickets se ela mudou (mtime). Com LOCK: o botão Atualizar
+    """Recarrega a planilha de Tickets se ela mudou. Com LOCK: o botão Atualizar
     dispara vários force=1 em paralelo e ler o xlsx em várias threads ao mesmo tempo
     (pandas/openpyxl) pode derrubar o processo."""
-    path = _tickets_path()
-    if not path:
-        return
-    try:
-        m = os.path.getmtime(path)
-    except OSError:
+    m = _tickets_marca()
+    if m is None:
         return
     if m == _tickets_mtime:
         return
@@ -4289,6 +4369,43 @@ TRK_ONALVO_MOV_FRAC  = 0.25  # tracker precisa girar ao menos isto × a frota p/
 #   NORMAIS (verdes) na tabela e nos chips, enquanto o gráfico — que olha a curva do dia — os pintava de
 #   parado. Três telas, dois veredictos. Quem travou de manhã e realmente voltou continua girando junto com
 #   a frota; quem está congelado não gira. É essa a diferença que faltava medir.
+TRK_CURVA_PERIODO = "15m"   # granularidade da AGREGAÇÃO pedida à SunOp na curva de tracker.
+#   Veio da reunião com o gestor de backend deles (02/09/2026): para tracker não faz sentido a
+#   granularidade fina — a agregação de 15 min dá a MESMA curva e é muito mais leve de servir.
+#   ⚠️ NÃO reduz o número de requisições (o lote é de pathnames; 5m e 15m dão o mesmo nº de
+#   POSTs). O que cai é payload e o tempo de processamento do lado deles — 7.984s num único dia
+#   só do nosso token, medido no /v2/usage. Quem reduz a CONTAGEM é o SUNOP_LOTE_PATHNAMES.
+#   VERIFICADO antes de ligar (02/09, contra a API real, 3 usinas × 150 trackers = 450):
+#   TIM100/MAB100/MAB200 deram exatamente os mesmos parados (41/10/10), ZERO divergência, com
+#   60% menos pontos (64.686 → 26.100). A margem do tracker mais próximo do limiar de 15° ficou
+#   entre 10° e 14° nos dois lados — longe de virar veredito. Diferença mediana de amplitude:
+#   1,29°. É a amplitude robusta (percentis 2–98) que consome isto, e ela é o insumo de "parado":
+#   se um dia alguém mexer aqui, o teste que importa é o de EQUIVALÊNCIA do veredito, não o
+#   desenho da curva.
+SUNOP_LOTE_PATHNAMES = 600   # pathnames por POST no /v2/analog_values. ESTE é o número que
+#   controla a CONTAGEM de requisições — não o `period` acima.
+#   Passou de 300 para 600 em 02/09, medido igual: 6.471 pathnames idênticos, 0 divergentes,
+#   maior diferença 1,42e-14, 0 falhas em 21 chamadas. 31 POSTs por ciclo → 21 (32% menos).
+#   Latência: pior chamada de 600 pathnames em 12,1s (mediana 3,4s) contra timeout de 120s —
+#   10× de margem. Não há teto conhecido: 300 e 600 escalaram linearmente e o OpenAPI não
+#   declara limite; se um dia precisar subir mais, o que vigiar é a PIOR chamada, não a média.
+#   Era 40, e 40 não vinha da API: o OpenAPI (/data/v2/openapi.json) não declara limite nenhum
+#   no campo `pathnames`. Trocado em 02/09/2026 depois da reunião com o gestor de backend da
+#   SunOp, que apontou nosso consumo. O quadro medido no /v2/usage/me naquele dia: cota de
+#   100.000 req/mês (10 usinas × 10.000), 9.950 req em 01/09 e 12.678 em 02/09 — projeção de
+#   ~339 mil/mês, 3,4× a cota, com os 77 mil restantes acabando por volta de 09/09.
+#   O ciclo pede 6.607 pathnames (1.005 de tracker + 5.602 de string): 169 POSTs a 40 contra
+#   30 a 300, ou seja 82% menos. O modelo bateu com a realidade — estimei 12.844 POSTs/dia e a
+#   API contou 12.678.
+#   VERIFICADO antes de ligar, nas 10 usinas, tracker E string (02/09): 6.471 pathnames com
+#   valor IDÊNTICO, zero divergência, zero pathname presente em um lote e ausente no outro.
+#   Maior diferença 1,42e-14 — ruído de último bit do float, por isso a comparação é por
+#   TOLERÂNCIA (1e-6) e nunca por `==`: duas buscas cheias iguais já diferem nos últimos bits.
+#   Misturar usinas diferentes no MESMO POST funciona (testado com 300 pathnames de MAB100 +
+#   MAB200); se um dia a contagem precisar cair mais, é por aí — o lote hoje é por usina.
+#   Latência de um lote de 300: 3–5s (MTS200 fez 720 pathnames em 3 lotes / 5,4s). O pico de
+#   68s que apareceu no MTS100 durante o teste era o retry do próprio script após 403 da borda,
+#   não latência — mas o timeout do _fetch subiu para 120s por causa disso mesmo.
 TRK_STALE_MIN    = 45.0  # min — tracker que PAROU de reportar há mais que isto enquanto a FROTA segue =
 #                          SEM COMUNICAÇÃO (offline no meio do dia): o 'atual' vira o último valor CONHECIDO
 #                          (velho), não a posição de agora. Ex.: TIM100 trk 109 parou às 08:09 no -55° e a
@@ -4341,6 +4458,10 @@ def _frota_acordou(amps, dia_coberto=False, data_ref=None):
 
 _sunop_trk_cache = {"payload": None, "ts": 0.0, "_ttl": SUNOP_TTL}
 _sunop_trk_hist  = {}    # cache {(plant,date): {ts, posat:{name:serie}, posal:{name:serie}}}
+_sunop_str_hist  = {}    # cache {(plant,dia): {ts, cheio_h, hist:{pathname:serie}}} — curva CRUA
+#   de corrente por string, insumo de _sunop_strings_curva. Existe para a busca ser INCREMENTAL
+#   (ver _sunop_str_hist_do_dia); guarda o histórico bruto, não o payload já montado — esse
+#   continua no _sunop_curva_cache.
 
 # ── Acumulador intradiário de disparidade dos trackers ─────────────────────────
 # "Desvio médio do dia" SEM rebaixar a curva inteira de cada usina a cada refresh
@@ -4476,7 +4597,7 @@ def _sunop_trk_curvas(plant_name: str, date: str, inst: str = "gridco") -> dict:
 
     # BUSCA INCREMENTAL (26/08). Re-baixar 00:00→23:59 a cada volta significa, às 17h, re-transferir
     # 11h de curva já conhecida para ~1000 trackers × 2 séries. NÃO muda a CONTAGEM de requisições
-    # (o lote é de 40 pathnames: 1h ou 24h dão o mesmo nº de POSTs) — o que cai é payload, latência e
+    # (o lote é de PATHNAMES: 1h ou 24h dão o mesmo nº de POSTs) — o que cai é payload, latência e
     # o parse de JSON, que é CPU sob o GIL e é justamente o que alonga o ciclo do prewarm.
     #
     # Três regras que a tornam segura:
@@ -4502,7 +4623,8 @@ def _sunop_trk_curvas(plant_name: str, date: str, inst: str = "gridco") -> dict:
         ini_ts = f"{date}T00:00:00"
 
     hist = _sunop_analog_history(list(posat.values()) + list(posal.values()),
-                                 ini_ts, f"{date}T23:59:59", inst)
+                                 ini_ts, f"{date}T23:59:59", inst,
+                                 period=TRK_CURVA_PERIODO)
 
     def _series(mapa, chave):
         """Séries do resultado para `chave` ("posat"/"posal"). No incremental FUNDE com o que já
@@ -4581,8 +4703,11 @@ def _sunop_trk_curvas_range(plant_name: str, ini: str, fim: str, inst: str = "gr
     trk = (_si(inst)["meta"].get(plant_name, {}) or {}).get("trackers") or {}
     posat = {n: d["atual"] for n, d in trk.items() if d.get("atual")}
     posal = {n: d["alvo"]  for n, d in trk.items() if d.get("alvo")}
+    # Mesma granularidade da curva de 1 dia: aqui o ganho é ainda maior, porque o gráfico
+    # multi-dia vai até 5 dias — 5× a série, e é o caminho mais pesado que temos (PV frio ~74s).
     hist = _sunop_analog_history(list(posat.values()) + list(posal.values()),
-                                 f"{ini}T00:00:00", f"{fim}T23:59:59", inst)
+                                 f"{ini}T00:00:00", f"{fim}T23:59:59", inst,
+                                 period=TRK_CURVA_PERIODO)
     return {"posat": {n: hist.get(p, []) for n, p in posat.items()},
             "posal": {n: hist.get(p, []) for n, p in posal.items()}}
 
@@ -4847,17 +4972,38 @@ def api_sunop_trackers_plant(plant_name):
 #   Descoberto via DevTools: POST com pathnames no corpo + start/end na query.
 #   Serve curva do dia de QUALQUER medida analógica (tracker POSAT/POSAL, POA, GHI…),
 #   inclusive datas passadas (source=Historical).
-def _sunop_analog_history(pathnames: list, start: str, end: str, inst: str = "gridco") -> dict:
-    """→ {pathname: [(timestamp, value), ...]} ordenado por tempo."""
+def _sunop_analog_history(pathnames: list, start: str, end: str, inst: str = "gridco",
+                          period: str = None) -> dict:
+    """→ {pathname: [(timestamp, value), ...]} ordenado por tempo.
+
+    `period` = granularidade da AGREGAÇÃO no lado da SunOp ("5m", "15m"…). Omitir mantém o
+    default da API, que é `aggregation='avg'` e `period='5m'`.
+
+    Vale registrar porque a reunião de 02/09 partiu do contrário: **nunca puxamos dado CRU**.
+    Não passar `aggregation` não significa "raw" — o default da API é `avg`. O que passamos a
+    escolher aqui é só o tamanho do balde.
+
+    ⚠️ Aumentar o `period` NÃO reduz o número de requisições: o lote é de PATHNAMES, então
+    5m e 15m dão exatamente o mesmo nº de POSTs. O que cai é payload, parse (CPU sob o GIL) e o
+    tempo de processamento do lado deles — que em 01/09 foi de 7.984s só do nosso token.
+
+    Quem reduz a CONTAGEM é `SUNOP_LOTE_PATHNAMES` (300 desde 02/09, era 40) — ver o comentário
+    da constante para a medição de equivalência nas 10 usinas."""
     H = _sunop_data_headers(inst)
     data_url = _si(inst)["data"]
     params = {"fill_missing": "false", "source": "Historical",
               "start_time": start, "end_time": end, "use_plant_timezone": "true"}
-    batches = [pathnames[i:i + 40] for i in range(0, len(pathnames), 40)]
+    if period:
+        params["period"] = period
+    batches = [pathnames[i:i + SUNOP_LOTE_PATHNAMES]
+               for i in range(0, len(pathnames), SUNOP_LOTE_PATHNAMES)]
 
     def _fetch(batch):
+        # timeout 120, não 60: o lote é 7,5× maior. O maior medido (300 pathnames de string) leva
+        # 3–5s, então há folga de sobra — mas estourar o timeout aqui devolve [] em silêncio, e
+        # perder um lote de 300 apaga a curva de meia usina sem nenhum erro na tela.
         r = _sunop_req("POST", f"{data_url}/v2/analog_values", inst,
-                       headers=H, params=params, json={"pathnames": batch}, timeout=60)
+                       headers=H, params=params, json={"pathnames": batch}, timeout=120)
         try:
             return (r.json() or []) if (r is not None and r.status_code == 200) else []
         except Exception:
@@ -4952,7 +5098,130 @@ def _sunop_str_med_usina(plant_name: str, dia: str, inst: str = "gridco") -> flo
     return _sunop_str_med_ent(plant_name, dia, inst)["med"]
 
 
-def _sunop_strings_curva(plant_name: str, dia: str, inv=None, inst: str = "gridco") -> dict:
+STR_CURVA_SOBREPOSICAO_MIN = 30   # min — quanto se volta antes do último ponto conhecido na busca
+#   incremental da curva de STRING. Constante própria, e não a dos trackers, de propósito: são
+#   fenômenos diferentes (string cai em segundos, tracker se move em minutos) e mexer numa não
+#   pode arrastar a outra sem querer.
+
+
+def _sunop_str_hist_do_dia(plant_name: str, dia: str, allp: list, inst: str = "gridco") -> dict:
+    """{pathname: [(ts, corrente)]} do dia — INCREMENTAL quando `dia` é hoje (02/09/2026).
+
+    Mesmo desenho já provado na curva de tracker (26/08), pelo mesmo motivo e com as mesmas três
+    salvaguardas. Aqui pesa muito mais: as strings são 5.602 dos 6.607 pathnames do ciclo, e
+    re-baixar 00:00→23:59 a cada volta significa, às 17h, re-transferir 11h de curva já conhecida
+    ~76 vezes por dia. Não muda a CONTAGEM de POSTs (o lote é de pathnames) — corta payload, parse
+    (CPU sob o GIL) e o tempo de processamento do lado da SunOp, que é a dor que o gestor de
+    backend deles apontou: 7.984s num único dia só do nosso token.
+
+    As salvaguardas:
+     1. Só para HOJE. Dia fechado não cresce; incremental ali seria risco sem ganho.
+     2. SOBREPOSIÇÃO antes do último ponto conhecido, porque a ingestão da SunOp atrasa e um
+        corte exato no último ts perderia o que chegou depois.
+     3. Uma busca CHEIA por hora (`cheio_h`), que reconcilia correção feita lá atrás no dia — a
+        sobreposição sozinha não pega isso.
+
+    E uma quarta, específica daqui: **foto vazia não é cacheada**. Se a busca cheia voltar sem
+    nada (falha de borda/token), devolve {} sem gravar — gravar transformaria uma falha
+    transitória em "usina sem string" pela hora inteira, que é exatamente como o `pg_trk` ficou
+    congelado 33h e o `_sunop_str_med_ent` aprendeu a lição.
+
+    Só o caminho USINA INTEIRA (inv=None) usa isto. Com um inversor só, `allp` é um subconjunto e
+    gravá-lo nesta chave marcaria como completo um dia pela metade."""
+    cheio, ini_ts = _sunop_str_janela(plant_name, dia, inst)
+    novo = _sunop_analog_history(allp, ini_ts, f"{dia}T23:59:59", inst)
+    return _sunop_str_funde(plant_name, dia, allp, novo, cheio, inst)
+
+
+def _sunop_str_janela(plant_name: str, dia: str, inst: str = "gridco"):
+    """→ (cheio, ini_ts): a decisão da busca incremental para UMA usina.
+
+    Vive separada porque DOIS caminhos precisam dela — a busca de uma usina e a de todas juntas
+    (_sunop_str_hist_varias). Duas cópias da regra divergiriam na primeira manutenção, e o sintoma
+    seria curva certa num caminho e deformada no outro, sem erro em lugar nenhum."""
+    ent = _si(inst)["str_hist"].get((plant_name, dia))
+    agora = datetime.now()
+    cheio = not (ent and dia == agora.strftime("%Y-%m-%d") and ent.get("cheio_h") == agora.hour)
+    if not cheio:
+        ultimo = max((s[-1][0] for s in (ent.get("hist") or {}).values() if s), default=None)
+        if not ultimo:
+            return True, f"{dia}T00:00:00"     # cache sem ponto: não há de onde continuar
+        try:
+            return False, (datetime.fromisoformat(ultimo)
+                           - timedelta(minutes=STR_CURVA_SOBREPOSICAO_MIN)
+                           ).strftime("%Y-%m-%dT%H:%M:%S")
+        except Exception:
+            return True, f"{dia}T00:00:00"     # timestamp ilegível → na dúvida, dia inteiro
+    return True, f"{dia}T00:00:00"
+
+
+def _sunop_str_funde(plant_name: str, dia: str, allp: list, novo: dict, cheio: bool,
+                     inst: str = "gridco") -> dict:
+    """Funde o que veio com o que já havia e grava no cache. Mesma regra dos trackers: união por
+    timestamp, valor NOVO vencendo — é o que deixa a correção que veio na sobreposição entrar sem
+    derrubar os pontos antigos que a janela estreita nem pediu."""
+    cache = _si(inst)["str_hist"]
+    ent = cache.get((plant_name, dia))
+    if cheio and not novo:
+        return {}                     # ver salvaguarda 4: não cacheia foto vazia
+    if cheio or not ent:
+        hist = {p: novo.get(p, []) for p in allp}
+    else:
+        anterior = ent.get("hist") or {}
+        hist = {}
+        for p in allp:
+            d = dict(anterior.get(p, []))
+            d.update(novo.get(p, []))
+            hist[p] = sorted(d.items())
+    cache[(plant_name, dia)] = {"ts": time.time(), "hist": hist,
+                                "cheio_h": datetime.now().hour if cheio else ent.get("cheio_h")}
+    return hist
+
+
+def _sunop_str_hist_varias(plants: list, dia: str, inst: str = "gridco") -> dict:
+    """{usina: {pathname: serie}} — UMA baixa para TODAS as usinas, em vez de uma por usina.
+
+    Por que existe (02/09/2026): o lote do `_sunop_analog_history` é de SUNOP_LOTE_PATHNAMES, mas
+    ele era chamado por usina, então cada usina desperdiçava a borda do próprio lote — CPP100
+    usava 392 de 600, MTS100 gastava um lote cheio mais outro de 183. Juntando as 10 usinas, os
+    mesmos 5.602 pathnames de string cabem em 10 POSTs em vez de ~19. Misturar usinas no mesmo
+    POST foi verificado contra a API real antes de existir esta função (300 pathnames de MAB100 +
+    MAB200 num pedido só devolveram os 300).
+
+    As janelas por usina NÃO são idênticas (cada uma tem seu último ponto), e a query só aceita um
+    `start_time`. A solução é agrupar: quem precisa de busca CHEIA vai junto em 00:00, e os
+    incrementais compartilham a MENOR das janelas. Pedir um pouco mais para algumas é barato — a
+    diferença entre elas é de minutos, já que todas leem a mesma ingestão."""
+    meta = _si(inst)["meta"]
+    plano = {}                                  # usina -> (allp, cheio, ini)
+    for p in plants:
+        allp = [x for v in ((meta.get(p) or {}).get("inv_strings") or {}).values() for x in v]
+        if allp:
+            cheio, ini = _sunop_str_janela(p, dia, inst)
+            plano[p] = (allp, cheio, ini)
+    if not plano:
+        return {}
+    incr = [p for p, (_, c, _) in plano.items() if not c]
+    ini_incr = min((plano[p][2] for p in incr), default=None)
+    grupos = {}
+    for p, (_, cheio, _) in plano.items():
+        grupos.setdefault(f"{dia}T00:00:00" if cheio else ini_incr, []).append(p)
+
+    bruto = {}
+    for ini, ps in grupos.items():
+        todos = [x for p in ps for x in plano[p][0]]
+        bruto[ini] = _sunop_analog_history(todos, ini, f"{dia}T23:59:59", inst)
+
+    out = {}
+    for p, (allp, cheio, _) in plano.items():
+        chave = f"{dia}T00:00:00" if cheio else ini_incr
+        recorte = {x: bruto[chave][x] for x in allp if x in bruto[chave]}
+        out[p] = _sunop_str_funde(p, dia, allp, recorte, cheio, inst)
+    return out
+
+
+def _sunop_strings_curva(plant_name: str, dia: str, inv=None, inst: str = "gridco",
+                         hist: dict = None) -> dict:
     ensure_sunop_meta(inst)
     meta = _si(inst)["meta"].get(plant_name)
     if not meta:
@@ -4960,7 +5229,12 @@ def _sunop_strings_curva(plant_name: str, dia: str, inv=None, inst: str = "gridc
     inv_strings = meta["inv_strings"]
     nomes = [inv] if (inv and inv in inv_strings) else list(inv_strings.keys())
     allp  = [p for n in nomes for p in inv_strings.get(n, [])]
-    hist  = _sunop_analog_history(allp, f"{dia}T00:00:00", f"{dia}T23:59:59", inst)
+    # `hist` já pronto = veio da baixa ÚNICA de todas as usinas (_sunop_str_hist_varias). O teste é
+    # `is None` e não a verdade do dicionário: {} é resposta legítima ("usina sem leitura"), e
+    # tratá-lo como ausente faria a usina ser rebaixada sozinha, desfazendo o lote conjunto.
+    if hist is None:
+        hist = (_sunop_str_hist_do_dia(plant_name, dia, allp, inst) if inv is None
+                else _sunop_analog_history(allp, f"{dia}T00:00:00", f"{dia}T23:59:59", inst))
     # UMA baixa serve os dois. Sem `inv`, `allp` é EXATAMENTE a lista que a referência da usina
     # buscaria — passá-la evita repetir ceil(strings/40) POSTs por usina (ver _sunop_str_med_ent).
     # Com `inv`, o pedido é 1 inversor e a referência segue vindo do cache dela (baixa só se frio),
@@ -5613,18 +5887,24 @@ def _tickets_path():
 def load_tickets_trackers():
     """(Re)carrega a aba Trackers da planilha de Tickets (ocorrências não-conformes)."""
     global TICKETS_TRK, TICKETS_PARADO_ABERTO, TICKETS_RSU_ABERTO, _tickets_mtime
-    path = _tickets_path()
-    if not path:
-        print("[AVISO] Tickets de Performance não encontrada (cruzamento desativado)")
+    # Memória PRIMEIRO (a API), arquivo só como queda — mesma correção do BD_Thopen (02/09/2026).
+    src = _bd_readable("tickets_performance", _tickets_path)
+    if src is None:
+        print("[AVISO] Tickets de Performance não encontrada (nem na API, nem em disco)")
         return
     try:
-        import shutil, tempfile
-        try:                                              # o Excel/OneDrive trava a leitura DIRETA (Errno 13),
-            _tmp = os.path.join(tempfile.gettempdir(), "_gridco_tickets_trk.xlsx")   # mas deixa COPIAR — então
-            shutil.copy2(path, _tmp)                                                 # copia p/ temp e lê a cópia.
-            df = pd.read_excel(_tmp, sheet_name="Trackers", header=3)
-        except Exception:
-            df = pd.read_excel(path, sheet_name="Trackers", header=3)   # fallback: leitura direta
+        if not isinstance(src, str):
+            # Fonte em MEMÓRIA: não há arquivo para o Excel travar, então a cópia temporária
+            # abaixo não só é inútil como quebraria (shutil.copy2 não aceita BytesIO).
+            df = pd.read_excel(src, sheet_name="Trackers", header=3)
+        else:
+            import shutil, tempfile
+            try:                                          # o Excel/OneDrive trava a leitura DIRETA (Errno 13),
+                _tmp = os.path.join(tempfile.gettempdir(), "_gridco_tickets_trk.xlsx")   # mas deixa COPIAR — então
+                shutil.copy2(src, _tmp)                                                  # copia p/ temp e lê a cópia.
+                df = pd.read_excel(_tmp, sheet_name="Trackers", header=3)
+            except Exception:
+                df = pd.read_excel(src, sheet_name="Trackers", header=3)   # fallback: leitura direta
         df.columns = [str(c).strip() for c in df.columns]
         c_us = next(c for c in df.columns if c.lower() == "usina")
         c_st = next(c for c in df.columns if c.lower() == "status")
@@ -5674,10 +5954,7 @@ def load_tickets_trackers():
         TICKETS_TRK = m
         TICKETS_PARADO_ABERTO = pa
         TICKETS_RSU_ABERTO = rsu
-        try:
-            _tickets_mtime = os.path.getmtime(path)
-        except OSError:
-            _tickets_mtime = 0.0
+        _tickets_mtime = _tickets_marca()   # mesma marca que o maybe_reload_tickets compara
         print(f"[OK] Tickets/Trackers: {len(m)} usinas c/ ocorrências; "
               f"{sum(len(v) for v in pa.values())} trackers 'Parado+aberto' (fora da ronda) em {len(pa)} usinas; "
               f"{len(rsu)} usina(s) c/ RSU em aberto")
@@ -5768,9 +6045,15 @@ def load_tickets_os():
     nº de OS + usina vira um comentário automático (só-leitura) na usina. Chaveia por nome/código
     (acento-insensível via _usina_key)."""
     global TICKETS_OS
-    path = _tickets_path()
-    if not path:
+    # Memoria PRIMEIRO (a API), arquivo so como queda - mesma correcao do BD_Thopen e da aba
+    # Trackers (02/09/2026). O BytesIO e consumido por VARIOS read_excel abaixo, e um stream
+    # so se le uma vez: por isso cada leitura recebe a sua propria copia (ver _fonte()).
+    _src = _bd_readable("tickets_performance", _tickets_path)
+    if _src is None:
         return
+    _bytes = _src.getvalue() if not isinstance(_src, str) else None
+    def _fonte():
+        return io.BytesIO(_bytes) if _bytes is not None else _src
     out = {}
 
     def _add(u, e):
@@ -5782,7 +6065,7 @@ def load_tickets_os():
 
     # Desligamentos — aberta = 'Fim da ocorrência' vazio (usina/equipamento ainda desligado)
     try:
-        dg = pd.read_excel(path, sheet_name="Desligamentos", header=3)
+        dg = pd.read_excel(_fonte(), sheet_name="Desligamentos", header=3)
         dg.columns = [str(c).strip() for c in dg.columns]
         for _, r in dg.iterrows():
             os_ = _tk_os_num(r.get("OS"))
@@ -5798,7 +6081,7 @@ def load_tickets_os():
 
     # Inversores com baixa potência — aberta = Status fora de Concluído/Cancelado
     try:
-        iv = pd.read_excel(path, sheet_name="Inv. com baixa perfor.", header=3)
+        iv = pd.read_excel(_fonte(), sheet_name="Inv. com baixa perfor.", header=3)
         iv.columns = [str(c).strip() for c in iv.columns]
         for _, r in iv.iterrows():
             os_ = _tk_os_num(r.get("Nº OS"))
@@ -12131,13 +12414,27 @@ def api_state_comment_del():
 #   Point name codifica UFV + dispositivo + medida. Acumula os CSVs das pastas.
 # Pasta dos CSVs do 2C — resolve entre candidatos (o Desktop fica DENTRO do OneDrive,
 # então a pasta real é a "irmã" do projeto em ...\temp\Projetos e-mail).
+#
+# O PC DEDICADO NÃO MONTA ONEDRIVE (requisito de 02/09/2026), então duas regras aqui:
+#   1. `GRIDCO_DADOS_DIR/Projetos e-mail` entra na fila logo depois da env var, para a pasta
+#      viajar junto com o resto do dado quando a plataforma mudar de máquina;
+#   2. o último recurso é uma pasta LOCAL, nunca a do OneDrive. Antes, não achando nenhuma,
+#      o `OWEN_ROOT` apontava para um caminho de nuvem inexistente — e como ele também é a
+#      base do `2C_historico`, a fonte Owen e o histórico do 2C sumiam juntos, em silêncio.
+_OWEN_LOCAL = os.path.join(_DADOS_DIR, "Projetos e-mail")
 _OWEN_CANDS = [p for p in [
     os.environ.get("OWEN_ROOT"),
+    _OWEN_LOCAL,
     os.path.join(os.path.dirname(_RAIZ), "Projetos e-mail"),
     os.path.join(os.path.expanduser("~"), "Desktop", "Projetos e-mail"),
     os.path.join(os.path.expanduser("~"), "OneDrive - GRID CO", "Área de Trabalho", "temp", "Projetos e-mail"),
 ] if p]
-OWEN_ROOT = next((p for p in _OWEN_CANDS if os.path.isdir(p)), _OWEN_CANDS[-1])
+OWEN_ROOT = next((p for p in _OWEN_CANDS if os.path.isdir(p)), _OWEN_LOCAL)
+# Resolveu num candidato REAL? Se não, a fonte Owen está fora do ar e é melhor dizer no log do
+# que descobrir por um gráfico vazio (o print morre no pythonw; ver `_log_arquivo`).
+OWEN_OK = any(os.path.isdir(p) for p in _OWEN_CANDS)
+_log_arquivo("fontes.log", "OWEN_ROOT = %s%s" % (OWEN_ROOT, "" if OWEN_OK else
+             "   [NENHUM CANDIDATO EXISTE — fonte 2C/Owen indisponível; defina OWEN_ROOT]"))
 OWEN_UFVS = {"ARA": "Araputanga", "IPX": "Ipixuna do Pará",
              "STL": "Sete Lagoas 2", "TUP": "Tupi Paulista"}   # fallback (código→nome)
 
@@ -12942,15 +13239,30 @@ def _sunop_strings_eventos(date_iso, inst="gridco", force=False):
     ent = _sunop_str_ev_cache.get(key)
     if ent and not force and (date_iso != hoje or (time.time() - ent["ts"]) < SUNOP_TTL):
         return ent["rows"]
+    if force:
+        # Busta também a curva CRUA do dia. Sem isto, "Atualizar" deixaria de atualizar de verdade:
+        # a busca virou INCREMENTAL (_sunop_str_hist_do_dia) e sozinha ela só releria os últimos
+        # 30 min por cima do cache — quem clica em forçar quer o dia inteiro reconciliado.
+        for k in [k for k in _si(inst)["str_hist"] if k[1] == date_iso]:
+            _si(inst)["str_hist"].pop(k, None)
     try:
         ensure_sunop_meta(inst)
         plants = list(_si(inst)["meta"].keys())
     except Exception:
         return []
 
+    # UMA baixa para todas as usinas, antes do laço: dentro dele cada usina pediria a sua e
+    # desperdiçaria a borda do próprio lote. Se falhar, `hists` fica vazio e cada usina volta a
+    # buscar sozinha — degrada para o comportamento anterior em vez de ficar sem curva.
+    try:
+        hists = _sunop_str_hist_varias(plants, date_iso, inst)
+    except Exception as e:
+        print(f"[SUNOP:{inst}] baixa conjunta de strings falhou ({e}); cada usina busca a sua")
+        hists = {}
+
     def _um(pn):
         try:
-            pay = _sunop_strings_curva(pn, date_iso, None, inst)
+            pay = _sunop_strings_curva(pn, date_iso, None, inst, hist=hists.get(pn))
         except Exception:
             return [], False
         curvas = {iv["nome"]: {st: list(zip(c["x"], c["y"])) for st, c in (iv.get("curva") or {}).items()}
@@ -14512,11 +14824,9 @@ def _spv_trygenerate(idinv, data: str) -> dict:
         return {}
 
 
-def _spv_inversores_hist(idusina, token, plant_nome_api: str) -> list:
-    """[(device_id, nome_exibição)] dos inversores reais da usina via plant_devices — p/ datas
-    passadas (não dependem de leitura do dia). Mesma régua de _carrega_inversores: nome contém
-    'inv', sem x/old/velho/antigo, e — se a usina tem cadastro — só os que estão nele."""
-    dev_names = {}
+def _pv_devices_map(idusina, token) -> dict:
+    """{device_id: nome da API} do /plant_devices. {} em qualquer falha — inclusive na conta OEM,
+    que responde HTTP 200 com {"message":"Invalid permission"} em vez de erro."""
     try:
         devs_raw = _http().get(f"{BASE_URL}/plant_devices", headers={"x-access-token": token},
                                json={"id": idusina}, timeout=20).json()
@@ -14525,9 +14835,75 @@ def _spv_inversores_hist(idusina, token, plant_nome_api: str) -> list:
             devs = devs_raw[0]["plant_devices"]
         elif isinstance(devs_raw, dict):
             devs = devs_raw.get("plant_devices", [])
-        dev_names = {d["device_id"]: str(d.get("device_name", "")).strip() for d in devs}
+        return {d["device_id"]: str(d.get("device_name", "")).strip() for d in devs}
+    except Exception:
+        return {}
+
+
+def _pv_ids_do_dia(idusina, token) -> list:
+    """Ids de inversor com leitura HOJE, pelo day_inverter. É a saída para as usinas da conta OEM:
+    o /plant_devices é negado a elas, mas o day_inverter responde — é o mesmo endpoint que faz a
+    tela de HOJE funcionar nessas usinas. Ordem = (tamanho, texto), a do casamento por ordem."""
+    try:
+        recs = _http().post(f"{BASE_URL}/day_inverter", headers={"x-access-token": token},
+                            json={"id": idusina}, timeout=60).json() or []
+        if isinstance(recs, dict):                 # erro da API vem como dict → sem leitura
+            return []
+        ids = {r.get("idefinversor") for r in recs if r.get("idefinversor")}
+        return sorted(ids, key=lambda x: (len(str(x)), str(x)))
     except Exception:
         return []
+
+
+def _pv_nomes_por_ordem(plant_nome_api: str, ids) -> dict:
+    """{device_id: nome da API} casando os ids com o cadastro POR ORDEM — só quando a quantidade
+    bate exatamente.
+
+    É a régua que a tela de HOJE já usa nas usinas da conta OEM (ver `api_spv_usina`), extraída
+    para as duas telas não divergirem: o front casa a curva pelo NOME, então nome diferente entre
+    o drill e a curva manda a série para o inversor errado.
+
+    Quantidade diferente devolve {} de propósito. Casar 2 nomes em 3 inversores não erra na tela —
+    erra em silêncio, rotulando a curva de um inversor com o nome de outro."""
+    cad = sorted((EQUIP_NAMES.get(plant_nome_api) or {}).keys())
+    ids = sorted(ids, key=lambda x: (len(str(x)), str(x)))
+    if not cad or len(cad) != len(ids):
+        return {}
+    return dict(zip(ids, cad))
+
+
+# Última lista boa de inversores por usina. Existe pela MORADA NOVA: medido em 01/09/2026, ela
+# voltou 0 registros no day_inverter do dia — e sem o cache ficaria sem histórico justamente por
+# não ter reportado hoje, que é quando se quer olhar para trás.
+_spv_inv_hist_cache = {}
+
+
+def _spv_inversores_hist(idusina, token, plant_nome_api: str) -> list:
+    """[(device_id, nome_exibição)] dos inversores reais da usina — p/ datas passadas (não dependem
+    de leitura do dia). Mesma régua de _carrega_inversores: nome contém 'inv', sem x/old/velho/
+    antigo, e — se a usina tem cadastro — só os que estão nele.
+
+    Três fontes, nesta ordem. A 1ª resolve ~todas as usinas; as outras duas existem pelas duas da
+    conta OEM (Tucano e Morada Nova), em que o /plant_devices é negado nas DUAS contas — token OEM
+    devolve "Invalid permission" e o principal, "Invalid id" (medido 31/07 e de novo em 01/09).
+    Sem lista, o laço que busca as curvas nunca roda e o histórico aparecia vazio, embora o dado
+    exista: o trygenerate devolve as 20 strings de cada inversor da Tucano normalmente."""
+    dev_names = _pv_devices_map(idusina, token)
+    if not dev_names:
+        # 2ª fonte: os ids de quem reportou hoje. O filtro de nome abaixo NÃO se aplica aqui —
+        # sem plant_devices o "nome" seria o id numérico e o teste do "inv" reprovaria todos.
+        # Quem tem leitura no day_inverter É inversor: a API só reporta inversor nesse endpoint.
+        # reordena aqui também: o casamento por ordem só vale se a lista chegar na MESMA ordem
+        # que `_pv_nomes_por_ordem` usa por dentro, e depender da ordem de quem chama é frágil.
+        ids = sorted(_pv_ids_do_dia(idusina, token), key=lambda x: (len(str(x)), str(x)))
+        if ids:
+            nomes = _pv_nomes_por_ordem(plant_nome_api, ids)
+            mapa_oem = EQUIP_NAMES.get(plant_nome_api, {})
+            out = [(i, mapa_oem.get(nomes.get(i, ""), nomes.get(i) or str(i))) for i in ids]
+            _spv_inv_hist_cache[idusina] = out
+            return out
+        # 3ª fonte: a última lista que deu certo. Usina que não reportou hoje ainda tem passado.
+        return list(_spv_inv_hist_cache.get(idusina) or [])
     mapa = EQUIP_NAMES.get(plant_nome_api, {})
     EXCL = ["x", "old", "velho", "antigo"]
     out = []
@@ -14542,6 +14918,8 @@ def _spv_inversores_hist(idusina, token, plant_nome_api: str) -> list:
         if mapa and api_nome_orig not in mapa:      # device fantasma fora do cadastro
             continue
         out.append((dev_id, display))
+    if out:
+        _spv_inv_hist_cache[idusina] = out          # alimenta o fallback do dia sem leitura
     return out
 
 
@@ -15137,9 +15515,77 @@ def api_pg_pdf():
     return _curva_pdf_response(payloads, data_br, so_abaixo, "strings_pg")
 
 
+_cadastro_reload = {"rodando": False, "ts": 0.0, "resultado": None}
+_cadastro_reload_lock = threading.Lock()
+
+
+def _recarrega_cadastro_agora():
+    """Rebuild do cadastro SEM o portão de mtime.
+
+    O `maybe_reload_equipamentos` decide por mtime do arquivo, e com `BD_MEM` ligado (o padrão)
+    o arquivo só é reescrito pelo laço de 30 min — então, pelo mtime, o botão "Atualizar" não
+    reagia a nada que tivesse acabado de mudar no banco. Aqui a decisão já foi tomada lá em cima
+    (a versão da API mudou), então é só reconstruir."""
+    with _bd_lock:
+        load_equipamentos()
+        load_metas()
+        load_usina_codigos()
+        load_bd_trackers()
+        # O BD_Thopen entra aqui porque `load_thopen_meta` rodava UMA vez, no import, e nada o
+        # re-chamava: num servidor que subisse antes da 1ª carga, a meta gerencial ficava vazia
+        # até alguém reiniciar. Agora o botão Atualizar também a reconstrói.
+        load_thopen_meta()
+    maybe_reload_tickets()
+
+
+def _reload_worker(chaves):
+    try:
+        for ch in chaves:
+            import bd_api
+            bd_api.carregar(ch, revalidar=True)
+        _recarrega_cadastro_agora()
+        res = {"ok": True, "inversores": sum(len(v) for v in ESPERADO_INV.values()),
+               "usinas_esperadas": len(ESPERADO), "full_om": len(FULL_OM),
+               "trackers": sum(len(v) for v in BD_TRK_INV.values())}
+    except Exception as e:                                  # noqa: BLE001
+        res = {"ok": False, "erro": f"{type(e).__name__}: {e}"}
+    with _cadastro_reload_lock:
+        _cadastro_reload.update(rodando=False, ts=time.time(), resultado=res)
+
+
 @app.route("/api/check/reload", methods=["POST", "GET"])
 def api_check_reload():
-    """Recarrega o cadastro (BD_Performance) se ele mudou (chamado pelo botão Atualizar)."""
+    """Recarrega o cadastro (BD_Performance) — chamado pelo botão Atualizar.
+
+    Com `?force=1` pergunta à API se a fonte mudou (UMA requisição, comparando `updated_at`) e
+    só então reconstrói. A reconstrução vai para uma THREAD e a resposta volta na hora: ela lê
+    57 abas / 25 mil linhas em ~15s de CPU pura, e segurar a requisição travaria todo mundo pelo
+    GIL — a regra do projeto sobre não fazer trabalho pesado no caminho da requisição.
+    A thread ainda disputa o GIL; o que se ganha é o usuário não ficar com a tela pendurada e os
+    demais continuarem sendo servidos, ainda que mais devagar, durante a reconstrução."""
+    if flask_request.args.get("force") == "1":
+        with _cadastro_reload_lock:
+            if _cadastro_reload["rodando"]:
+                return jsonify({"status": "recarregando", "reloaded": False})
+        try:
+            import bd_api
+            antes = {k: bd_api.versao_em_memoria(k) for k in ("bd_performance",)}
+            bd_api.carregar("bd_performance", revalidar=True)
+            mudou = bd_api.versao_em_memoria("bd_performance") != antes["bd_performance"]
+        except Exception as e:                              # noqa: BLE001
+            return jsonify({"status": "erro", "reloaded": False, "erro": str(e)[:160]}), 502
+        if not mudou:
+            # Caminho barato e o mais comum: 1 requisição e nada a fazer. Dizer "sem alteração"
+            # é melhor que devolver reloaded=false seco — sem isso o usuário clica de novo
+            # achando que o botão falhou.
+            return jsonify({"status": "sem alteracao na fonte", "reloaded": False,
+                            "inversores": sum(len(v) for v in ESPERADO_INV.values()),
+                            "usinas_esperadas": len(ESPERADO), "full_om": len(FULL_OM)})
+        with _cadastro_reload_lock:
+            _cadastro_reload.update(rodando=True, resultado=None)
+        threading.Thread(target=_reload_worker, args=(["bd_performance"],), daemon=True).start()
+        return jsonify({"status": "recarregando", "reloaded": True, "fonte_mudou": True})
+
     antes = _bd_mtime
     maybe_reload_equipamentos()
     return jsonify({
@@ -15148,6 +15594,13 @@ def api_check_reload():
         "usinas_esperadas": len(ESPERADO),
         "full_om": len(FULL_OM),
     })
+
+
+@app.route("/api/check/reload/status")
+def api_check_reload_status():
+    """Como foi a última recarga forçada. O botão consulta isto enquanto `rodando` for true."""
+    with _cadastro_reload_lock:
+        return jsonify(dict(_cadastro_reload))
 
 
 def _owen_loop():
@@ -15684,6 +16137,7 @@ _JANITOR_REG = [
     ("PG curva trackers",   "_pg_trk_curva_cache", 12, 300),
     ("SunOp curva string",  "_sunop_curva_cache", 12, 300),
     ("SunOp hist trackers", "_sunop_trk_hist", 12, 300),
+    ("SunOp hist strings",  "_sunop_str_hist", 12, 300),
     ("SPV (strings PV)",    "_spv_cache", 12, 300),
     ("Combiner (plataforma)", "_plat_view_cache", 6, 1000),
     # leves, por dia
@@ -15803,8 +16257,17 @@ def _estado_backup_loop():
 
     Falha aqui nunca derruba o laço: cópia velha é melhor que laço morto, e o `[estado]` no log
     diz quando a última passou.
+
+    O log vai para `plataforma/logs/estado_backup.log` além do `print`: sob `pythonw` não há
+    console, e sem arquivo a única forma de saber se o ciclo rodou era ir perguntar ao banco.
     """
     import time as _t
+
+    def _diz(msg):
+        print(msg)
+        _log_arquivo("estado_backup.log", msg)
+
+    _diz(f"[estado] laço no ar — 1º ciclo em 120 s, depois a cada {ESTADO_BACKUP_INTERVALO_S}s")
     _t.sleep(120)                     # deixa o boot e o primeiro prewarm terminarem
     while True:
         try:
@@ -15819,11 +16282,11 @@ def _estado_backup_loop():
                 env = r.get("enviado") or {}
                 if grupo == "series":
                     _ultima_serie[0] = _t.time()
-                print(f"[estado] {grupo}: {sum((r.get('abas') or {}).values())} linhas em "
-                      f"{len(r.get('abas') or {})} abas ({r.get('KB')} KB) — "
-                      f"inseridas {env.get('inserted')}, atualizadas {env.get('updated')}")
+                _diz(f"[estado] {grupo}: {sum((r.get('abas') or {}).values())} linhas em "
+                     f"{len(r.get('abas') or {})} abas ({r.get('KB')} KB) — "
+                     f"inseridas {env.get('inserted')}, atualizadas {env.get('updated')}")
         except Exception as e:        # noqa: BLE001
-            print(f"[estado] copia FALHOU (mantendo a anterior): {e}")
+            _diz(f"[estado] copia FALHOU (mantendo a anterior): {e}")
         _t.sleep(ESTADO_BACKUP_INTERVALO_S)
 
 
