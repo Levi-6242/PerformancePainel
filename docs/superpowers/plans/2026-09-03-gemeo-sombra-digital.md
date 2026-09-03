@@ -2390,4 +2390,653 @@ def esperado_por_inversor(grade, gate_res, params_por_inv: dict[int, ParamsModel
 
 - [ ] **Passo 4: Rodar** — 5 passed. **Passo 5: Commit** — `git commit -m "feat(gemeo): esperado fisico por inversor com PVWatts sobre a POA medida"`
 
-<!-- CONTINUA: Tarefa 14 -->
+### Tarefa 14: Decomposição — parado / tracker / string / resíduo, por inversor e instante
+
+**Files:**
+- Create: `gemeo/gemeo/modelar/decomposicao.py`
+- Create: `gemeo/tests/sintetico.py` (grade pequena de valores redondos, usada pelas Tarefas 14–16)
+- Create: `gemeo/tests/golden.py` (atalhos dos golden tests: fixture → gate → esperado de placa; de-para da MRO100)
+- Test: `gemeo/tests/test_modelar_decomposicao.py`
+
+**Interfaces:**
+- Consumes: `Grade` (Tarefa 11), `esperado_por_inversor(...) -> DataFrame` (Tarefa 13; NaN onde o gate reprovou), `ParamsModelo`.
+- Produces: `ParamsDecomp`, `Decomposicao` (DataFrames na grade: `delta, parado, tracker, string, residuo` por inversor; `ok, parado_flag, viva` booleanos por inversor; `zeradas` por inversor; `excesso` e `perda_trk` por tracker; `instaladas: dict[inv, list[str_id]]`; `trk_sem_inversor: list[int]`), `decompor(grade, esp, trk_inv, p, instaladas=None) -> Decomposicao` (universo de strings instaladas dos últimos 30 dias; `None` = derivar da janela), `trk_inv_da_grade(grade) -> dict[int, int]`, `f_direta(...)`, `excesso_trackers(...)`.
+- Regras (spec §8.4): parado = medido < 1 kW com esperado > 20 kW → delta inteiro; tracker = esperado × média, nos trackers do inversor, de `f_direta × (1 − cos(excesso))`, excesso = |ângulo − mediana da frota| só acima de 5°, tracker mudo no último ângulo por até 6 h; string = (esperado − tracker) × zeradas ÷ instaladas; resíduo = resto. Tracker sem inversor → perda estimada com o esperado médio por inversor, atribuída à usina.
+
+- [ ] **Step 1: Escrever a grade sintética, os atalhos golden e os testes (falham: módulo não existe)**
+
+```python
+# gemeo/tests/sintetico.py
+"""Grade sintetica pequena para os testes de invariantes do modelo: 2 inversores, 3 trackers (o 2003 sem
+inversor), 4 strings no inversor 1001, 8 slots por dia a partir das 09:00 de Belem. Valores redondos de
+proposito — o teste enxerga a regra, nao o ruido. `dias=3` empilha 29, 30 e 31/08 (para o 'abaixo dos pares')."""
+import pandas as pd
+
+from gemeo.core.modelos import UsinaRef
+from gemeo.modelar.grade import Grade
+
+
+def grade_sintetica(n: int = 8, dias: int = 1, poa: float = 800.0, ghi: float = 700.0) -> Grade:
+    partes = [pd.date_range(f"2026-08-{28 + k:02d}T12:00", periods=n, freq="15min", tz="UTC") for k in range(4 - dias, 4)]
+    idx = partes[0]
+    for p in partes[1:]:
+        idx = idx.union(p)
+    est = pd.DataFrame({"poa": poa, "ghi": ghi, "temp_modulo": 45.0, "temp_ar": 30.0}, index=idx)
+    inv_p = pd.DataFrame({1001: 180.0, 1002: 180.0}, index=idx)
+    inv_e = pd.DataFrame(index=idx)
+    trk = pd.DataFrame({2001: 20.0, 2002: 20.0, 2003: 20.0}, index=idx)   # mediana da frota = 20; o teste desloca um
+    alvo = trk.copy()
+    strs = pd.DataFrame({3101: 8.0, 3102: 8.0, 3103: 8.0, 3104: 8.0}, index=idx)
+    pai = {3101: 1001, 3102: 1001, 3103: 1001, 3104: 1001, 2001: 1001, 2002: 1002}
+    tipo = {1001: "inversor", 1002: "inversor", 2001: "tracker", 2002: "tracker", 2003: "tracker",
+            3101: "string", 3102: "string", 3103: "string", 3104: "string", 1: "estacao"}
+    usina = UsinaRef(id=0, codigo="SINT", fonte="sunop", fonte_ref="", tz="America/Belem", kwp=555.36, kw_ac=400.0, lat=-2.05, lon=-47.55)
+    atributos = {1001: {"kwp": 277.68, "kw_ac": 200.0}, 1002: {"kwp": 277.68, "kw_ac": 200.0}}
+    return Grade(usina, idx, est, inv_p, inv_e, trk, alvo, strs, pai, tipo, atributos, {})
+```
+
+```python
+# gemeo/tests/golden.py
+"""Atalhos dos golden tests: fixture -> grade -> gate -> esperado de placa (kwp e kw_ac do proprio
+inversor), e o de-para tracker->inversor da MRO100 congelado em mro100_trk_inv.json (aba BD_Trackers)."""
+import json
+from pathlib import Path
+
+import pandas as pd
+
+from gemeo.modelar import esperado, gate, grade
+
+G = Path(__file__).parent / "fixtures" / "golden"
+
+
+def esperado_de_placa(caminho: Path):
+    g = grade.grade_de_fixture(caminho)
+    r = gate.avaliar(g.estacao, None, gate.ParamsGate(), g.usina.tz)
+    params = {i: esperado.ParamsModelo(kwp=g.atributos[i]["kwp"], pac0_kw=g.atributos[i]["kw_ac"]) for i in g.inv_p.columns}
+    return g, r, esperado.esperado_por_inversor(g, r, params)
+
+
+def sem_gate(g) -> gate.Resultado:
+    """Gate 'ok' em todo slot — para a grade sintetica, que tem 2 h e nunca passaria nas 8 h minimas do dia."""
+    return gate.Resultado(gate=pd.Series("ok", index=g.indice, dtype=object))
+
+
+def veredito(caminho: Path) -> dict:
+    """O veredito do spike congelado na fixture e o contrato do golden test — quem muda o numero muda a fixture."""
+    return json.load(open(caminho, encoding="utf-8"))["veredito_esperado"]
+
+
+def trk_inv_mro100(g) -> dict[int, int]:
+    # "Inversor 1.4" -> INV_4 -> id 1004. O skid 2 numera de outro jeito (pendencia do de-para, ver spec §13):
+    # o que nao casa com um inversor da grade fica SEM inversor, e e assim que o modelo deve tratar.
+    m = json.load(open(G / "mro100_trk_inv.json", encoding="utf-8"))
+    out = {}
+    for n, nome in m.items():
+        eid = 1000 + int(str(nome).split(".")[-1])
+        if eid in g.inv_p.columns:
+            out[2000 + int(n)] = eid
+    return out
+```
+
+```python
+# gemeo/tests/test_modelar_decomposicao.py
+"""Invariantes (spec §11.1) sobre a grade sintetica e os vereditos dos spikes sobre os golden da MRO100."""
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent))  # sintetico.py e golden.py moram ao lado dos testes
+from golden import G, esperado_de_placa, sem_gate, trk_inv_mro100, veredito  # noqa: E402
+from sintetico import grade_sintetica  # noqa: E402
+from gemeo.modelar import decomposicao as dc  # noqa: E402
+from gemeo.modelar import esperado  # noqa: E402
+
+P = dc.ParamsDecomp(f_direta_fixa=0.6)
+MAPA = {2001: 1001, 2002: 1002}
+UNIVERSO = {1001: [3101, 3102, 3103, 3104], 1002: []}   # strings instaladas, como o job traz dos 30 dias
+H = 0.25
+
+
+def _esp(g):
+    params = {i: esperado.ParamsModelo(kwp=277.68, pac0_kw=200.0) for i in g.inv_p.columns}
+    return esperado.esperado_por_inversor(g, sem_gate(g), params)
+
+
+def test_parcelas_somam_o_delta_onde_ha_dado_e_zeram_onde_nao_ha():
+    g = grade_sintetica()
+    g.inv_p[1001] = 120.0; g.trk_ang[2002] = 50.0; g.str_i[3104] = 0.0
+    g.inv_p.iloc[3, 1] = np.nan
+    d = dc.decompor(g, _esp(g), MAPA, P)
+    soma = d.parado + d.tracker + d.string + d.residuo
+    assert (soma - d.delta).abs().where(d.ok, 0.0).max().max() < 1e-6
+    assert soma.where(~d.ok, 0.0).abs().max().max() < 1e-6 and d.delta[1002].isna().sum() == 1
+
+
+def test_parado_leva_o_delta_inteiro_e_exclui_tracker_e_string():
+    g = grade_sintetica()
+    g.inv_p[1001] = 0.0; g.trk_ang[2001] = 50.0; g.str_i[3104] = 0.0
+    d = dc.decompor(g, _esp(g), MAPA, P)
+    assert d.parado_flag[1001].all() and (d.parado[1001] - d.delta[1001]).abs().max() < 1e-6
+    assert d.tracker[1001].abs().max() < 1e-6 and d.string[1001].abs().max() < 1e-6 and d.residuo[1001].abs().max() < 1e-6
+
+
+def test_nan_nunca_vira_perda():
+    g = grade_sintetica()
+    g.inv_p[1001] = np.nan
+    esp = _esp(g); esp[1002] = np.nan
+    d = dc.decompor(g, esp, MAPA, P)
+    for eid in (1001, 1002):
+        assert d.delta[eid].isna().all() and not d.ok[eid].any()
+        assert (d.parado[eid].abs() + d.tracker[eid].abs() + d.string[eid].abs() + d.residuo[eid].abs()).max() < 1e-6
+
+
+def test_tracker_so_conta_acima_de_5_graus_e_vale_cosseno_vezes_fracao_direta():
+    g = grade_sintetica()
+    g.trk_ang[2002] = 24.0
+    assert dc.decompor(g, _esp(g), MAPA, P).tracker[1002].abs().max() < 1e-6
+    g.trk_ang[2002] = 50.0
+    esp = _esp(g); d = dc.decompor(g, esp, MAPA, P)
+    alvo = esp[1002] * 0.6 * (1 - np.cos(np.radians(30.0)))
+    assert (d.tracker[1002] - alvo).abs().max() < 1e-6 and (d.excesso[2002] - 30.0).abs().max() < 1e-6
+
+
+def test_tracker_sem_inversor_vai_para_a_usina():
+    g = grade_sintetica()
+    g.trk_ang[2003] = 50.0
+    d = dc.decompor(g, _esp(g), MAPA, P)
+    assert d.trk_sem_inversor == [2003] and d.perda_trk[2003].sum() > 0
+    assert d.tracker.abs().max().max() < 1e-6 and d.perda_trk[2001].abs().max() < 1e-6
+
+
+def test_tracker_mudo_fica_no_ultimo_angulo_por_um_limite_e_depois_e_dado_ausente():
+    g = grade_sintetica()
+    g.trk_ang[2002] = [50.0, 50.0] + [np.nan] * 6
+    d = dc.decompor(g, _esp(g), MAPA, P)
+    assert (d.tracker[1002] > 0).all()                       # 6 h de limite cobre os 8 slots
+    d2 = dc.decompor(g, _esp(g), MAPA, dc.ParamsDecomp(f_direta_fixa=0.6, trk_mudo_slots=2))
+    assert (d2.tracker[1002].iloc[:4] > 0).all() and d2.tracker[1002].iloc[4:].abs().max() < 1e-6
+    assert d2.excesso[2002].iloc[4:].isna().all()             # ausente, nao zero: os eventos precisam saber
+
+
+def test_string_zerada_com_inversor_vivo_e_a_fracao_das_instaladas():
+    g = grade_sintetica()
+    g.str_i[3104] = 0.0; g.trk_ang[2001] = 50.0
+    esp = _esp(g); d = dc.decompor(g, esp, MAPA, P, instaladas=UNIVERSO)
+    assert (d.zeradas[1001] == 1).all() and d.instaladas[1001] == [3101, 3102, 3103, 3104]
+    assert (d.string[1001] - (esp[1001] - d.tracker[1001]) / 4).abs().max() < 1e-6
+
+
+def test_string_nao_conta_com_inversor_morto_nem_fora_do_universo_instalado():
+    g = grade_sintetica()
+    g.str_i[[3101, 3102, 3103]] = 0.3; g.str_i[3104] = 0.0; g.str_i.iloc[0] = 5.0
+    d = dc.decompor(g, _esp(g), MAPA, P, instaladas=UNIVERSO)
+    assert d.string[1001].abs().max() < 1e-6 and not d.viva[1001].iloc[1:].any()
+    g = grade_sintetica()
+    g.str_i[3104] = 0.0
+    esp = _esp(g); d = dc.decompor(g, esp, MAPA, P, instaladas={1001: [3101, 3102, 3104]})
+    assert d.instaladas[1001] == [3101, 3102, 3104] and (d.string[1001] - esp[1001] / 3).abs().max() < 1e-6
+
+
+def test_universo_instalado_vem_do_historico_ou_da_propria_janela():
+    g = grade_sintetica(); g.str_i[3104] = 0.0
+    assert dc.decompor(g, _esp(g), MAPA, P).instaladas[1001] == [3101, 3102, 3103]   # so a janela: 3104 nunca passou de 1 A
+    assert dc.decompor(g, _esp(g), MAPA, P, instaladas=UNIVERSO).instaladas[1001] == [3101, 3102, 3103, 3104]
+
+
+@pytest.mark.parametrize("arq", ["mro100_2026-08-26.json", "mro100_2026-08-31.json"])
+def test_golden_mro100_reproduz_o_veredito_do_spike(arq):
+    g, r, esp = esperado_de_placa(G / arq)
+    v = veredito(G / arq)
+    d = dc.decompor(g, esp, trk_inv_mro100(g), dc.ParamsDecomp())
+    for n in v["inv_parado"]:
+        sol = (esp[1000 + int(n)] > 20).fillna(False)
+        assert d.parado_flag[1000 + int(n)][sol].mean() > 0.9
+    top = list((d.perda_trk.sum() * H).sort_values(ascending=False).index[:5])
+    assert {2000 + t for t in v["trackers"]} <= set(top), top
+    e_dia = float(esp.sum().sum() * H)
+    assert abs(float(d.residuo.sum().sum() * H)) / e_dia < v["residuo_max_pct"] / 100
+    assert float(d.string.sum().sum() * H) / e_dia < 0.01
+    assert len(d.trk_sem_inversor) < 10
+```
+
+- [ ] **Step 2: Rodar e ver falhar**
+
+Run: `cd gemeo && python -m pytest tests/test_modelar_decomposicao.py -q`
+Expected: FAIL — `ModuleNotFoundError: gemeo.modelar.decomposicao`.
+
+- [ ] **Step 3: Implementar a decomposição**
+
+```python
+# gemeo/gemeo/modelar/decomposicao.py
+"""Decomposicao do delta (esperado - medido) por inversor e instante em quatro parcelas com nome:
+parado | tracker | string | residuo. Invariantes que os testes cobram: as parcelas somam o delta onde ha
+dado; parado exclui as outras; NaN nunca vira perda; tracker sem inversor no alias vai para a usina."""
+from __future__ import annotations
+from dataclasses import dataclass, field
+
+import numpy as np
+import pandas as pd
+import pvlib
+
+from gemeo.modelar.grade import Grade
+
+
+@dataclass(frozen=True)
+class ParamsDecomp:
+    parado_medido_max: float = 1.0      # kW: abaixo disto o inversor esta parado...
+    parado_esperado_min: float = 20.0   # ...desde que o modelo esperasse mais do que isto
+    excesso_min_graus: float = 5.0      # abaixo disto o desvio do tracker e ruido (TRK_DISP_LEVE da plataforma)
+    trk_mudo_slots: int = 24            # tracker mudo fica no ultimo angulo por ate 6 h; alem disso e dado ausente
+    str_zero_a: float = 0.1
+    str_viva_a: float = 0.5
+    str_instalada_a: float = 1.0
+    ghi_min_fdir: float = 50.0
+    f_direta_fixa: float | None = None  # testes e usinas sem lat/lon: fracao direta constante em vez de Erbs
+
+
+@dataclass
+class Decomposicao:
+    delta: pd.DataFrame
+    parado: pd.DataFrame
+    tracker: pd.DataFrame
+    string: pd.DataFrame
+    residuo: pd.DataFrame
+    ok: pd.DataFrame
+    parado_flag: pd.DataFrame
+    viva: pd.DataFrame
+    zeradas: pd.DataFrame
+    excesso: pd.DataFrame
+    perda_trk: pd.DataFrame
+    instaladas: dict[int, list[int]] = field(default_factory=dict)
+    trk_sem_inversor: list[int] = field(default_factory=list)
+
+
+def f_direta(estacao: pd.DataFrame, indice: pd.DatetimeIndex, lat, lon, p: ParamsDecomp) -> pd.Series:
+    """Fracao direta da irradiancia (Erbs sobre o GHI com a posicao solar): e o quanto o desalinhamento de
+    um tracker custa. Sem coordenadas nao ha posicao solar — usa 0,6 (ceu claro tipico) ate o cadastro
+    (Info Geral) trazer lat/lon."""
+    ghi = estacao["ghi"].fillna(0.0)
+    if p.f_direta_fixa is not None or lat is None or lon is None:
+        fixa = p.f_direta_fixa if p.f_direta_fixa is not None else 0.6
+        return pd.Series(fixa, index=indice).where(ghi > p.ghi_min_fdir, 0.0)
+    solpos = pvlib.solarposition.get_solarposition(indice, lat, lon)
+    erbs = pvlib.irradiance.erbs(ghi.values, solpos["zenith"].values, indice)
+    fd = 1.0 - np.asarray(erbs["dhi"], dtype=float) / np.maximum(ghi.values, 1.0)
+    return pd.Series(np.clip(fd, 0.0, 1.0), index=indice).where(ghi > p.ghi_min_fdir, 0.0)
+
+
+def excesso_trackers(trk_ang: pd.DataFrame, p: ParamsDecomp) -> pd.DataFrame:
+    """|angulo - mediana da frota|: zero abaixo do limiar, NaN onde nao ha angulo conhecido. A referencia e a
+    FROTA, nao o alvo do proprio tracker — o Tracker 17 da MRO100 (31/08) estava a 0,9 graus do alvo dele e a
+    35 da frota: o alvo e que estava errado (mesma regua 'deteccao por alvo' que matou 119 falsos na plataforma)."""
+    if trk_ang.empty:
+        return pd.DataFrame(index=trk_ang.index)
+    ang = trk_ang.ffill(limit=p.trk_mudo_slots)
+    exc = ang.sub(ang.median(axis=1), axis=0).abs()
+    return exc.where((exc > p.excesso_min_graus) | exc.isna(), 0.0)
+
+
+def trk_inv_da_grade(grade: Grade) -> dict[int, int]:
+    """De-para tracker -> inversor pelo `pai_id` do cadastro (alias bd_trackers resolvido no ingest)."""
+    return {e: grade.pai[e] for e, t in grade.tipo.items() if t == "tracker" and e in grade.pai}
+
+
+def decompor(grade: Grade, esp: pd.DataFrame, trk_inv: dict[int, int], p: ParamsDecomp = ParamsDecomp(),
+             instaladas: dict[int, list[int]] | None = None) -> Decomposicao:
+    idx = grade.indice
+    fd = f_direta(grade.estacao, idx, grade.usina.lat, grade.usina.lon, p)
+    exc = excesso_trackers(grade.trk_ang, p)
+    frac = (1.0 - np.cos(np.radians(exc))).mul(fd, axis=0) if not exc.empty else exc
+    invs = list(esp.columns)
+
+    def zeros(cols):
+        return pd.DataFrame(0.0, index=idx, columns=list(cols))
+
+    delta = pd.DataFrame(np.nan, index=idx, columns=invs)
+    A, B, C, R, zer = zeros(invs), zeros(invs), zeros(invs), zeros(invs), zeros(invs)
+    ok = pd.DataFrame(False, index=idx, columns=invs); par = ok.copy(); viva = ok.copy()
+    perda_trk = zeros(frac.columns)
+    universo: dict[int, list[int]] = {}
+    for eid in invs:
+        e = esp[eid]
+        m = grade.inv_p[eid] if eid in grade.inv_p.columns else pd.Series(np.nan, index=idx)
+        ok_i = e.notna() & m.notna()
+        d_i = (e - m).where(ok_i)
+        par_i = ok_i & (m < p.parado_medido_max) & (e > p.parado_esperado_min)
+        ativo = ok_i & ~par_i
+        a = d_i.where(par_i, 0.0)
+        meus = [t for t, i in trk_inv.items() if i == eid and t in frac.columns]
+        if meus:
+            b = (e * frac[meus].mean(axis=1).fillna(0.0)).where(ativo, 0.0)
+            for t in meus:
+                perda_trk[t] = (e * frac[t] / len(meus)).where(ativo, 0.0).fillna(0.0)
+        else:
+            b = pd.Series(0.0, index=idx)
+        # universo instalado: o job traz os canais com > 1 A nos ultimos 30 dias (uma string morta a janela
+        # inteira CONTINUA instalada — e justamente a que interessa); sem esse historico (fixtures), vale a janela
+        if instaladas is not None:
+            cols = [s for s in instaladas.get(eid, []) if s in grade.str_i.columns]
+        else:
+            cols = [s for s in grade.str_i.columns if grade.pai.get(s) == eid and grade.str_i[s].max() > p.str_instalada_a]
+        universo[eid] = cols
+        if cols:
+            cur = grade.str_i[cols]
+            viva_i = cur.median(axis=1) > p.str_viva_a
+            n_zero = (cur < p.str_zero_a).sum(axis=1).where(viva_i, 0)
+            c = ((e - b) * n_zero / len(cols)).where(ativo, 0.0)
+        else:
+            viva_i, n_zero, c = pd.Series(False, index=idx), pd.Series(0, index=idx), pd.Series(0.0, index=idx)
+        delta[eid], A[eid], B[eid], C[eid] = d_i, a, b, c
+        R[eid] = (d_i - a - b - c).where(ok_i, 0.0)
+        ok[eid], par[eid], viva[eid], zer[eid] = ok_i, par_i, viva_i, n_zero.astype(float)
+    # tracker sem inversor: perda estimada com o esperado MEDIO por inversor e a densidade media de
+    # trackers por inversor; nao entra na cascata de nenhum inversor (quebraria 'parcelas somam o delta'),
+    # entra em perda_dia do proprio tracker e no contador trackers_sem_inversor da usina
+    sem = [t for t in frac.columns if trk_inv.get(t) not in invs]
+    if sem:
+        e_ref = esp.mean(axis=1)
+        n_por_inv = max(1.0, len(frac.columns) / max(1, len(invs)))
+        for t in sem:
+            perda_trk[t] = (e_ref * frac[t] / n_por_inv).where(e_ref.notna(), 0.0).fillna(0.0)
+    return Decomposicao(delta, A, B, C, R, ok, par, viva, zer, exc, perda_trk, universo, sem)
+```
+
+- [ ] **Step 4: Rodar e ver passar**
+
+Run: `cd gemeo && python -m pytest tests/test_modelar_decomposicao.py -q`
+Expected: 11 passed. Se o golden falhar no resíduo ou nos trackers, **não afrouxe o número**: abra a fixture e compare com `resultado.json` do spike — o veredito é o contrato.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add gemeo/gemeo/modelar/decomposicao.py gemeo/tests/sintetico.py gemeo/tests/golden.py gemeo/tests/test_modelar_decomposicao.py
+git commit -m "feat(gemeo): decomposicao do delta em parado, tracker, string e residuo (Tarefa 14)"
+```
+
+---
+
+### Tarefa 15: Eventos — as seis assinaturas com início, fim, kWh e severidade
+
+**Files:**
+- Create: `gemeo/gemeo/modelar/eventos.py`
+- Test: `gemeo/tests/test_modelar_eventos.py`
+
+**Interfaces:**
+- Consumes: `Grade`, `gate.Resultado` (motivo_dia, razao_dia), `esp` (Tarefa 13), `Decomposicao` (Tarefa 14).
+- Produces: `ParamsEventos`, `Evento(tipo, equipamento_id, ini, fim, kwh, severidade, detalhe)`, `severidade(kwh, e_ref) -> str`, `detectar(grade, gate_res, esp, d, p) -> list[Evento]`. A Tarefa 16 persiste em `evento` com upsert por `(usina_id, equipamento_id, tipo, ini)`.
+- Regras (spec §8.5): `inversor_parado` ≥ 90 % dos slots com sol (esperado > 20 kW) no dia; `inversor_abaixo` razão do dia < 0,90 × mediana dos pares por 3 dias seguidos (ignora quem já está `parado`); `tracker_fora_alvo` excesso > 10° por ≥ 4 slots diurnos seguidos; `string_sem_corrente` zerada em TODOS os slots vivos do inversor no dia; `sensor_em_falha` / `sem_cobertura` pelo motivo do gate, sempre `grave`. Severidade pelo kWh sobre o esperado do período: < 1 % leve, 1–5 % média, > 5 % grave.
+
+- [ ] **Step 1: Escrever os testes (falham: módulo não existe)**
+
+```python
+# gemeo/tests/test_modelar_eventos.py
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent))
+from golden import G, esperado_de_placa, sem_gate, trk_inv_mro100, veredito  # noqa: E402
+from sintetico import grade_sintetica  # noqa: E402
+from gemeo.modelar import decomposicao as dc  # noqa: E402
+from gemeo.modelar import esperado, eventos, gate  # noqa: E402
+
+P = dc.ParamsDecomp(f_direta_fixa=0.6)
+MAPA = {2001: 1001, 2002: 1002}
+UNIVERSO = {1001: [3101, 3102, 3103, 3104], 1002: []}   # strings instaladas, como o job traz dos 30 dias
+H = 0.25
+
+
+def _tudo(g):
+    params = {i: esperado.ParamsModelo(kwp=277.68, pac0_kw=200.0) for i in g.inv_p.columns}
+    r = sem_gate(g)
+    esp = esperado.esperado_por_inversor(g, r, params)
+    return r, esp, dc.decompor(g, esp, MAPA, P, instaladas=UNIVERSO)
+
+
+def _do_tipo(evs, tipo):
+    return [e for e in evs if e.tipo == tipo]
+
+
+def test_severidade_pelo_kwh_sobre_o_esperado():
+    assert eventos.severidade(5.0, 1000.0) == "leve" and eventos.severidade(30.0, 1000.0) == "media"
+    assert eventos.severidade(60.0, 1000.0) == "grave" and eventos.severidade(0.0, 0.0) == "leve"
+
+
+def test_sensor_e_cobertura_viram_evento_grave_de_dia_inteiro():
+    g = grade_sintetica(); r, esp, d = _tudo(g)
+    dia = g.indice[0].tz_convert("America/Belem").date()
+    r.motivo_dia = {dia: "poa_ghi"}; r.razao_dia = {dia: 0.12}
+    evs = eventos.detectar(g, r, esp, d)
+    ev = _do_tipo(evs, "sensor_em_falha")
+    assert len(ev) == 1 and ev[0].severidade == "grave" and ev[0].equipamento_id is None and ev[0].ini == g.indice[0]
+    assert ev[0].fim == g.indice[-1] + pd.Timedelta(minutes=15) and ev[0].detalhe["razao_poa_ghi"] == 0.12
+    r.motivo_dia = {dia: "cobertura"}
+    assert len(_do_tipo(eventos.detectar(g, r, esp, d), "sem_cobertura")) == 1
+
+
+def test_inversor_parado_o_dia_inteiro():
+    g = grade_sintetica(); g.inv_p[1001] = 0.0
+    r, esp, d = _tudo(g)
+    ev = _do_tipo(eventos.detectar(g, r, esp, d), "inversor_parado")
+    assert [e.equipamento_id for e in ev] == [1001]
+    assert ev[0].kwh == pytest.approx(float(d.parado[1001].sum() * H), rel=1e-6) and ev[0].severidade == "grave"
+    assert ev[0].ini == g.indice[0] and ev[0].fim == g.indice[-1] + pd.Timedelta(minutes=15)
+
+
+def test_inversor_parado_so_uma_parte_do_dia_nao_e_evento():
+    g = grade_sintetica(); g.inv_p.iloc[:4, 0] = 0.0
+    r, esp, d = _tudo(g)
+    assert not _do_tipo(eventos.detectar(g, r, esp, d), "inversor_parado")
+
+
+def test_inversor_abaixo_dos_pares_por_tres_dias():
+    g = grade_sintetica(dias=3); g.inv_p[1002] = 100.0
+    r, esp, d = _tudo(g)
+    ev = _do_tipo(eventos.detectar(g, r, esp, d), "inversor_abaixo")
+    assert [e.equipamento_id for e in ev] == [1002] and ev[0].fim is None and ev[0].ini == g.indice[0]
+    assert ev[0].kwh == pytest.approx(float((esp[1002] - 100.0).sum() * H), rel=1e-6) and len(ev[0].detalhe["razoes"]) == 3
+    g = grade_sintetica(dias=3); g.inv_p.iloc[8:, 1] = 100.0          # so 2 dias abaixo
+    r, esp, d = _tudo(g)
+    assert not _do_tipo(eventos.detectar(g, r, esp, d), "inversor_abaixo")
+
+
+def test_tracker_fora_do_alvo_exige_uma_hora_seguida():
+    g = grade_sintetica(); g.trk_ang[2002] = [50.0] * 6 + [20.0] * 2
+    r, esp, d = _tudo(g)
+    ev = _do_tipo(eventos.detectar(g, r, esp, d), "tracker_fora_alvo")
+    assert [e.equipamento_id for e in ev] == [2002] and ev[0].fim == g.indice[5] + pd.Timedelta(minutes=15)
+    assert ev[0].kwh == pytest.approx(float(d.perda_trk[2002].iloc[:6].sum() * H), rel=1e-6) and ev[0].detalhe["excesso_max"] == pytest.approx(30.0, abs=1e-6)
+    g = grade_sintetica(); g.trk_ang[2002] = [50.0] * 2 + [20.0] * 6
+    r, esp, d = _tudo(g)
+    assert not _do_tipo(eventos.detectar(g, r, esp, d), "tracker_fora_alvo")
+
+
+def test_string_sem_corrente_o_dia_inteiro():
+    g = grade_sintetica(); g.str_i[3104] = 0.0
+    r, esp, d = _tudo(g)
+    ev = _do_tipo(eventos.detectar(g, r, esp, d), "string_sem_corrente")
+    assert [e.equipamento_id for e in ev] == [3104] and ev[0].detalhe["inversor_id"] == 1001
+    assert ev[0].kwh == pytest.approx(float(d.string[1001].sum() * H), rel=1e-6)
+    g = grade_sintetica(); g.str_i.iloc[:4, 3] = 0.0                     # metade do dia nao e 'sem corrente'
+    r, esp, d = _tudo(g)
+    assert not _do_tipo(eventos.detectar(g, r, esp, d), "string_sem_corrente")
+
+
+@pytest.mark.parametrize("arq", ["mro100_2026-08-26.json", "mro100_2026-08-31.json"])
+def test_golden_mro100_eventos(arq):
+    g, r, esp = esperado_de_placa(G / arq)
+    v = veredito(G / arq)
+    d = dc.decompor(g, esp, trk_inv_mro100(g), dc.ParamsDecomp())
+    evs = eventos.detectar(g, r, esp, d)
+    assert {e.equipamento_id for e in _do_tipo(evs, "inversor_parado")} == {1000 + int(n) for n in v["inv_parado"]}
+    assert {2000 + t for t in v["trackers"]} <= {e.equipamento_id for e in _do_tipo(evs, "tracker_fora_alvo")}
+    assert len(_do_tipo(evs, "string_sem_corrente")) == v["strings_sem_corrente"]
+    assert not _do_tipo(evs, "sensor_em_falha") and not _do_tipo(evs, "sem_cobertura")
+```
+
+- [ ] **Step 2: Rodar e ver falhar**
+
+Run: `cd gemeo && python -m pytest tests/test_modelar_eventos.py -q`
+Expected: FAIL — `ImportError: cannot import name 'eventos'`.
+
+- [ ] **Step 3: Implementar os eventos**
+
+```python
+# gemeo/gemeo/modelar/eventos.py
+"""As seis assinaturas viram `evento` (ini, fim, kWh, severidade). Regras da spec §8.5: as de inversor e de
+string sao por DIA LOCAL, a de tracker por corrida de slots, as de sensor pelo motivo do gate. Tudo e
+recomputavel: a Tarefa 16 grava por (usina, equipamento, tipo, ini) e o mesmo dia rodado duas vezes da o mesmo."""
+from __future__ import annotations
+from dataclasses import dataclass, field
+from zoneinfo import ZoneInfo
+
+import numpy as np
+import pandas as pd
+
+from gemeo.modelar.decomposicao import Decomposicao
+from gemeo.modelar.gate import Resultado
+from gemeo.modelar.grade import Grade
+
+H = 0.25  # horas por slot da grade de 15 min
+PASSO = pd.Timedelta(minutes=15)
+
+
+@dataclass(frozen=True)
+class ParamsEventos:
+    parado_frac_min: float = 0.90
+    parado_esperado_min: float = 20.0
+    min_slots_sol: int = 4
+    abaixo_razao: float = 0.90
+    abaixo_dias: int = 3
+    trk_excesso_min: float = 10.0
+    trk_slots_min: int = 4
+    ghi_diurno: float = 50.0
+    str_zero_a: float = 0.1
+    str_slots_min: int = 4
+
+
+@dataclass
+class Evento:
+    tipo: str
+    equipamento_id: int | None
+    ini: pd.Timestamp
+    fim: pd.Timestamp | None
+    kwh: float
+    severidade: str
+    detalhe: dict = field(default_factory=dict)
+
+
+def severidade(kwh: float, e_ref: float) -> str:
+    """< 1 % do esperado do periodo = leve; ate 5 % = media; acima = grave. Sem esperado nao ha regua: leve."""
+    if e_ref <= 0:
+        return "leve"
+    f = kwh / e_ref
+    return "leve" if f < 0.01 else "media" if f <= 0.05 else "grave"
+
+
+def _corridas(mask: pd.Series) -> list[tuple[int, int]]:
+    """Sequencias contiguas de True, como (posicao inicial, posicao final) inclusivas."""
+    out, ini = [], None
+    for i, v in enumerate(mask.fillna(False).values):
+        if v and ini is None:
+            ini = i
+        if not v and ini is not None:
+            out.append((ini, i - 1)); ini = None
+    if ini is not None:
+        out.append((ini, len(mask) - 1))
+    return out
+
+
+def detectar(grade: Grade, gate_res: Resultado, esp: pd.DataFrame, d: Decomposicao, p: ParamsEventos = ParamsEventos()) -> list[Evento]:
+    idx = grade.indice
+    dia = pd.Series(idx.tz_convert(ZoneInfo(grade.usina.tz)).date, index=idx)
+    grupos = dia.groupby(dia).groups
+    e_dia = (esp.sum(axis=1, min_count=1).fillna(0.0) * H).groupby(dia).sum()
+    diurno = (grade.estacao["ghi"] > p.ghi_diurno).fillna(False)
+    evs: list[Evento] = []
+    # sensor e cobertura: um evento por dia reprovado, sempre grave — e um dia inteiro sem modelo
+    for dd, motivo in gate_res.motivo_dia.items():
+        if motivo in ("poa_ghi", "cobertura"):
+            sl = idx[(dia == dd).values]
+            if len(sl):
+                evs.append(Evento("sensor_em_falha" if motivo == "poa_ghi" else "sem_cobertura", None, sl[0], sl[-1] + PASSO, 0.0, "grave",
+                                  {"motivo": motivo, "razao_poa_ghi": gate_res.razao_dia.get(dd)}))
+    # inversor parado: >= 90 % dos slots COM SOL parados. Sobre as 96 celulas do dia a fracao nunca passava
+    # de 0,4 (a noite entra no denominador) — foi o erro do primeiro ensaio na MRO100
+    for eid in d.parado_flag.columns:
+        sol = (esp[eid] > p.parado_esperado_min).fillna(False)
+        for dd, rot in grupos.items():
+            s, f = sol.loc[rot], d.parado_flag[eid].loc[rot]
+            if s.sum() >= p.min_slots_sol and f[s].mean() >= p.parado_frac_min:
+                sl = f[f].index
+                kwh = float(d.parado[eid].loc[rot].sum() * H)
+                evs.append(Evento("inversor_parado", eid, sl[0], sl[-1] + PASSO, kwh, severidade(kwh, float(e_dia.get(dd, 0.0))),
+                                  {"dia": str(dd), "slots_sol": int(s.sum())}))
+    parados = {ev.equipamento_id for ev in evs if ev.tipo == "inversor_parado"}
+    # inversor abaixo dos pares: razao do dia < 0,90 x mediana dos pares, 3 dias seguidos; medido e esperado
+    # mascarados pelos MESMOS instantes (sem isso a razao saia 1,47 no spike: maca com laranja)
+    med = grade.inv_p.reindex(columns=esp.columns)
+    e_ok, m_ok = esp.where(d.ok), med.where(d.ok)
+    r_dia = (m_ok * H).groupby(dia).sum(min_count=1) / (e_ok * H).groupby(dia).sum(min_count=1)
+    if len(r_dia) >= p.abaixo_dias:
+        ult = list(r_dia.index[-p.abaixo_dias:])
+        rel = r_dia.div(r_dia.median(axis=1), axis=0)
+        for eid in r_dia.columns:
+            v = rel.loc[ult, eid]
+            if eid in parados or not v.notna().all() or not (v < p.abaixo_razao).all():
+                continue
+            falta = (e_ok[eid] - m_ok[eid]).clip(lower=0.0)
+            kwh = float(falta[dia.isin(ult).values].sum() * H)
+            evs.append(Evento("inversor_abaixo", eid, idx[(dia == ult[0]).values][0], None, kwh, severidade(kwh, float(e_dia.reindex(ult).sum())),
+                              {"razoes": [round(float(x), 3) for x in v]}))
+    # tracker fora do alvo: excesso > 10 graus por >= 1 h seguida, de dia; NaN (mudo ha mais de 6 h) nao e desvio
+    for t in d.excesso.columns:
+        mask = (d.excesso[t] > p.trk_excesso_min) & diurno
+        for a, b in _corridas(mask):
+            if b - a + 1 < p.trk_slots_min:
+                continue
+            kwh = float(d.perda_trk[t].iloc[a:b + 1].sum() * H)
+            evs.append(Evento("tracker_fora_alvo", t, idx[a], idx[b] + PASSO, kwh, severidade(kwh, float(e_dia.get(dia.iloc[a], 0.0))),
+                              {"excesso_max": float(d.excesso[t].iloc[a:b + 1].max())}))
+    # string sem corrente: zerada em TODOS os slots em que o inversor estava vivo — a regua da plataforma;
+    # o kWh e a parcela 'string' do inversor dividida entre as zeradas
+    for eid, cols in d.instaladas.items():
+        if not cols:
+            continue
+        cur = grade.str_i[cols]
+        for dd, rot in grupos.items():
+            viva = d.viva[eid].loc[rot]
+            if viva.sum() < p.str_slots_min:
+                continue
+            n_zer = d.zeradas[eid].loc[rot].replace(0, np.nan)
+            for s in cols:
+                zer = cur[s].loc[rot] < p.str_zero_a
+                if zer[viva].all():
+                    sl = zer[viva].index
+                    kwh = float((d.string[eid].loc[rot] / n_zer).fillna(0.0).sum() * H)
+                    evs.append(Evento("string_sem_corrente", s, sl[0], sl[-1] + PASSO, kwh, severidade(kwh, float(e_dia.get(dd, 0.0))),
+                                      {"dia": str(dd), "inversor_id": eid}))
+    return evs
+```
+
+- [ ] **Step 4: Rodar e ver passar**
+
+Run: `cd gemeo && python -m pytest tests/test_modelar_eventos.py -q`
+Expected: 9 passed.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add gemeo/gemeo/modelar/eventos.py gemeo/tests/test_modelar_eventos.py
+git commit -m "feat(gemeo): as seis assinaturas viram eventos com kWh e severidade (Tarefa 15)"
+```
+
+---
+
+<!-- CONTINUA: Tarefa 16 -->
