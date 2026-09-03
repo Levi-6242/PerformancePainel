@@ -5573,3 +5573,17 @@ Pedido do Levi depois da carga manual do workbook `gemeo_digital`: "faz o modela
 **Desenho:** `tabelas(conn, dias)` lê as sete tabelas do banco (cadastro e modelo inteiros; `cascata_dia`, `perda_dia` e `evento` dos últimos `dias`); `xlsx_bytes(tabelas)` gera o xlsx em memória com linha 1 = cabeçalho e célula vazia = `None` (o parser do sync rejeita texto vazio); `sincronizar(cfg, bytes)` garante o workbook (POST só se faltar — não há DELETE) e chama `sync-xlsx?replace=true`; `publicar(conn, cfg)` nunca levanta exceção: grava `estado.publicar.ultimo` (ok/erro) e o `/healthz` acusa. Motivo do caminho: criar aba e linha pela API não grava cabeçalho (tudo vira "Coluna N"); o `sync-xlsx` é o mesmo caminho dos `_pipe_*.xlsx` da T.I.
 
 **Testes:** xlsx (7 abas, cabeçalho, vazio de verdade, datas e json como texto), sincronização com API falsa (cria só se faltar, `replace=true`, header Bearer), falha que não derruba o modelar, e um teste de banco sobre a MRO100 semeada (contagens e larguras das sete tabelas).
+
+
+---
+
+### Tarefa 23 (adendo de 03/09, tarde): PostgreSQL → SQLite embutido
+
+Pedido do Levi: "pode seguir com o SQLite" (sem depender do DBA). **Files:** `core/db.py` reescrito (sqlite3 com cursor `with`, tradução
+`%s`→`?`, adapters de datetime aware/date/dict/numpy e converters TIMESTAMP/DATE/BOOLEAN/JSON, WAL, `retencao`), `migrations/0001_schema.sql`
+em SQLite, `core/config.py` (`db_caminho`; segredos obrigatórios só SUNOP_API_TOKEN, GRIDCO_SQL_TOKEN, GEMEO_SENHA), `app/consultas.py`
+(date_bin/percentile/AT TIME ZONE → pandas; últimos ts via índice + LIMIT 1), `modelar/job.py` (executemany, IN em vez de ANY, quantil e
+referência em pandas), `modelar/calibrar.py`, `modelar/publicar.py`, `ingest/runner.py` (uma conexão por thread; PostgreSQL do Thopen
+só com usina pg; retenção diária), `ingest/cadastro.py` (json_patch), `tools/importar_alias.py` (json_extract), `tests/conftest.py`
+(SQLite temporário por sessão: os testes de banco rodam em qualquer máquina), CI sem container, `deploy/backup.ps1` (API de backup),
+docs. **Resultado:** suíte inteira verde localmente (112), incluindo os 13 testes que antes só a CI via.

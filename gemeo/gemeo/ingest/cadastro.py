@@ -91,7 +91,7 @@ def aplicar_equipamentos(conn, usinas: dict, invs: dict) -> dict:
             if u.get("fracttal"):
                 _alias.gravar(conn, "fracttal", str(u["fracttal"]), "direto", "aba Equipamentos", usina_id=r[0])
             for iv in invs.get(cod, []):
-                cur.execute("UPDATE equipamento SET nome_exibicao=%s, atributos = atributos || %s::jsonb WHERE usina_id=%s AND tipo='inversor' AND codigo_fonte=%s RETURNING id",
+                cur.execute("UPDATE equipamento SET nome_exibicao=%s, atributos = json_patch(atributos, %s) WHERE usina_id=%s AND tipo='inversor' AND codigo_fonte=%s RETURNING id",
                             (iv["nome"], json.dumps({"kwp": iv["kwp"], "n_strings_esperadas": iv["n_strings_esperadas"]}), r[0], iv["codigo_fonte"]))
                 e = cur.fetchone()
                 if e:

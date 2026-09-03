@@ -227,3 +227,15 @@ Não é critério: R$ (depende do preço por contrato), Preditivo, Prescritivo.
 ---
 
 *Próximo passo, após revisão deste texto: plano de implementação (`writing-plans`) no repositório `gemeo`.*
+
+
+---
+
+## Adendo (03/09/2026, tarde) — banco embutido
+
+Decisão do Levi: **SQLite embutido** no lugar do PostgreSQL próprio ("para não termos que depender do DBA"). Um arquivo fora do
+OneDrive, sem servidor; mesmas tabelas e chaves naturais (`migrations/0001_schema.sql` em SQLite: instantes como texto ISO em UTC,
+JSON como texto, particionamento por mês substituído por retenção via `DELETE`). O que o PostgreSQL fazia com `date_bin`,
+`percentile_cont` e `AT TIME ZONE` passou a ser feito em pandas sobre o dia. A saída pública é o workbook `gemeo_digital` da
+API SQL da Performance, sincronizado ao fim de cada `modelar`. `psycopg2` fica só para ler o `powerplants` do Thopen (fonte `pg`).
+Escala: adequado ao piloto (4 usinas, 90 dias); acima de ~10 usinas, medir e decidir.

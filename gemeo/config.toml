@@ -21,7 +21,8 @@ grade_min = 15
 [app]
 porta = 5075   # era 5070, mas nesta maquina a 5070 e do Painel de Integridade do Coletor (Painel GridCo.exe)
 [db]
-schema = "gemeo"   # no banco do Thopen o DBA cria "digital_twins": troque aqui ou por GEMEO_DB_SCHEMA no gemeo.env
+# SQLite embutido. Vazio = %LOCALAPPDATA%\GridCo\gemeo\gemeo.sqlite (fora do OneDrive). Aceita variaveis de ambiente.
+caminho = ""
 [publicar]
 ativo = true               # ao fim de cada `gemeo modelar`: sync-xlsx (replace) no workbook da API da Performance
 workbook = "gemeo_digital"

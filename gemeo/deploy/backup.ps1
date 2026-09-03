@@ -1,21 +1,21 @@
 # gemeo/deploy/backup.ps1
-# pg_dump diario SO DO SCHEMA do gemeo (o banco e compartilhado com o powerplants do Thopen) para a pasta que a T.I. ja
-# copia. Guarda 14 dias. ASCII puro (ver instalar_tarefas.ps1).
-# Insubstituiveis no banco: modelo (calibracoes) e alias manual; o resto se reconstroi das fontes.
-# Uso: .\backup.ps1 -Destino "D:\Backups\gemeo" -Schema digital_twins -PgDump "C:\Program Files\PostgreSQL\16\bin\pg_dump.exe"
-# O DSN vem de GEMEO_DB_DSN (mesmo valor do gemeo.env) para nao deixar senha em linha de comando.
+# Copia consistente do banco SQLite do gemeo (API de backup do proprio SQLite, via python) para a pasta que a T.I. ja
+# copia. Guarda 14 dias. ASCII puro (ver instalar_tarefas.ps1). Copiar o arquivo "na mao" com o gemeo rodando pode
+# pegar o WAL pela metade - por isso a API de backup, que e atomica.
+# Uso: .\backup.ps1 -Destino "D:\Backups\gemeo" -Banco "C:\Users\<user>\AppData\Local\GridCo\gemeo\gemeo.sqlite" -Python "C:\Python312\python.exe"
 param(
   [Parameter(Mandatory = $true)][string]$Destino,
-  [string]$PgDump = "pg_dump",
-  [string]$Dsn = $env:GEMEO_DB_DSN,
-  [string]$Schema = "gemeo",
+  [string]$Banco = "",
+  [string]$Python = "python",
   [int]$Dias = 14
 )
 $ErrorActionPreference = "Stop"
-if (-not $Dsn) { throw "Defina GEMEO_DB_DSN (ou passe -Dsn) com o mesmo valor do gemeo.env." }
+if (-not $Banco) { $Banco = Join-Path $env:LOCALAPPDATA "GridCo\gemeo\gemeo.sqlite" }
+if (-not (Test-Path $Banco)) { throw ("Banco nao encontrado: " + $Banco) }
 New-Item -ItemType Directory -Force $Destino | Out-Null
-$arq = Join-Path $Destino ("gemeo_" + (Get-Date -Format "yyyyMMdd_HHmm") + ".dump")
-& $PgDump --format=custom --no-owner --schema=$Schema --file=$arq --dbname=$Dsn
-if ($LASTEXITCODE -ne 0) { throw ("pg_dump falhou com codigo " + $LASTEXITCODE) }
-Get-ChildItem $Destino -Filter "gemeo_*.dump" | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$Dias) } | Remove-Item -Force
+$arq = Join-Path $Destino ("gemeo_" + (Get-Date -Format "yyyyMMdd_HHmm") + ".sqlite")
+$codigo = "import sqlite3,sys; o=sqlite3.connect(sys.argv[1]); d=sqlite3.connect(sys.argv[2]); o.backup(d); d.close(); o.close()"
+& $Python -c $codigo $Banco $arq
+if ($LASTEXITCODE -ne 0) { throw ("backup falhou com codigo " + $LASTEXITCODE) }
+Get-ChildItem $Destino -Filter "gemeo_*.sqlite" | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$Dias) } | Remove-Item -Force
 Write-Host ("backup ok: " + $arq)

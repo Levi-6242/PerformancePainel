@@ -8,6 +8,7 @@ import datetime as dt
 import io
 import json
 import time
+from zoneinfo import ZoneInfo
 
 import requests
 from openpyxl import Workbook
@@ -65,7 +66,7 @@ def tabelas(conn, dias: int = 90) -> dict[str, list[list]]:
         cur.execute("SELECT codigo, fonte, tz, kwp_dc, kw_ac, n_inversores, lat, lon FROM usina WHERE ativo ORDER BY codigo")
         q["usina"] = [list(r) for r in cur.fetchall()]
         cur.execute("SELECT u.codigo, e.tipo, coalesce(e.nome_exibicao, e.codigo_fonte), coalesce(p.nome_exibicao, p.codigo_fonte), "
-                    "e.atributos->>'numero', e.atributos->>'kwp', e.atributos->>'kw_ac' FROM equipamento e JOIN usina u ON u.id=e.usina_id "
+                    "json_extract(e.atributos, '$.numero'), json_extract(e.atributos, '$.kwp'), json_extract(e.atributos, '$.kw_ac') FROM equipamento e JOIN usina u ON u.id=e.usina_id "
                     "LEFT JOIN equipamento p ON p.id=e.pai_id WHERE e.ativo ORDER BY u.codigo, e.tipo, e.codigo_fonte")
         q["equipamento"] = [[r[0], r[1], r[2], r[3], _num(r[4]), _num(r[5]), _num(r[6])] for r in cur.fetchall()]
         cur.execute("SELECT coalesce(u.codigo, u2.codigo), coalesce(e.nome_exibicao, e.codigo_fonte), a.sistema, a.valor, a.confianca, a.origem "
@@ -83,10 +84,12 @@ def tabelas(conn, dias: int = 90) -> dict[str, list[list]]:
                     "JOIN equipamento e ON e.id=p.equipamento_id JOIN usina u ON u.id=e.usina_id JOIN modelo m ON m.id=p.modelo_id "
                     "WHERE p.dia >= %s ORDER BY p.dia DESC, u.codigo, p.kwh DESC", (desde,))
         q["perda_dia"] = [list(r) for r in cur.fetchall()]
-        cur.execute("SELECT u.codigo, ev.tipo, coalesce(e.nome_exibicao, e.codigo_fonte, 'usina'), ev.ini AT TIME ZONE u.tz, "
-                    "ev.fim AT TIME ZONE u.tz, ev.kwh, ev.severidade, ev.detalhe FROM evento ev JOIN usina u ON u.id=ev.usina_id "
+        cur.execute("SELECT u.codigo, ev.tipo, coalesce(e.nome_exibicao, e.codigo_fonte, 'usina'), ev.ini, ev.fim, "
+                    "ev.kwh, ev.severidade, ev.detalhe, u.tz FROM evento ev JOIN usina u ON u.id=ev.usina_id "
                     "LEFT JOIN equipamento e ON e.id=ev.equipamento_id WHERE ev.ini >= %s ORDER BY ev.ini DESC, ev.kwh DESC", (desde_ts,))
-        q["evento"] = [[r[0], ROTULO_EVENTO.get(r[1], r[1]), r[2], r[3], r[4] if r[4] else "aberto", r[5], r[6], r[7]] for r in cur.fetchall()]
+        # hora local em Python: SQLite nao tem AT TIME ZONE
+        q["evento"] = [[r[0], ROTULO_EVENTO.get(r[1], r[1]), r[2], r[3].astimezone(ZoneInfo(r[8])).replace(tzinfo=None),
+                        r[4].astimezone(ZoneInfo(r[8])).replace(tzinfo=None) if r[4] else "aberto", r[5], r[6], r[7]] for r in cur.fetchall()]
     return q
 
 

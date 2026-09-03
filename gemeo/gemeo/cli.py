@@ -21,9 +21,9 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
     if a.cmd == "migrate":
         from gemeo.core import db; from gemeo.core.config import carregar
-        cfg = carregar(); conn = db.conectar(cfg.db_dsn, cfg.db_schema)
-        print("schema:", db.schema_status(conn, cfg.db_schema))
-        for nome in db.migrar(conn, schema=cfg.db_schema): print("aplicada", nome)
+        cfg = carregar(); conn = db.conectar(cfg.db_caminho)
+        for nome in db.migrar(conn): print("aplicada", nome)
+        print("banco:", db.status(conn))
         return 0
     if a.cmd == "ingest":
         from gemeo.ingest.runner import rodar; return rodar()

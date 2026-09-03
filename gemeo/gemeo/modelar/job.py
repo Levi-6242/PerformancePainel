@@ -11,7 +11,6 @@ from zoneinfo import ZoneInfo
 
 import numpy as np
 import pandas as pd
-import psycopg2.extras
 
 from gemeo.core.modelos import UsinaRef
 from gemeo.modelar import decomposicao as dc
@@ -97,26 +96,32 @@ def instaladas_30d(conn, usina_id: int, ate: dt.datetime, dias: int = 30) -> dic
 
 
 def p_ac_30d(conn, usina_id: int, ate: dt.datetime, dias: int = 30) -> dict[int, pd.Series]:
-    """Quantil 0,999 da potencia AC por inversor nos ultimos 30 dias, calculado no banco — e o que
-    `inferir_pac0` precisa quando o cadastro nao traz kw_ac."""
+    """Quantil 0,999 da potencia AC por inversor nos ultimos 30 dias — e o que `inferir_pac0` precisa quando o cadastro
+    nao traz kw_ac. O quantil e calculado em pandas (SQLite nao tem percentile_cont)."""
     with conn.cursor() as cur:
-        cur.execute("SELECT e.id, percentile_cont(0.999) WITHIN GROUP (ORDER BY l.valor) FROM leitura l "
-                    "JOIN equipamento e ON e.id=l.equipamento_id WHERE e.usina_id=%s AND e.tipo='inversor' AND l.medida='p_ac' "
-                    "AND l.ts >= %s AND l.ts < %s AND l.valor > 0 GROUP BY e.id", (usina_id, ate - dt.timedelta(days=dias), ate))
-        return {int(eid): pd.Series([float(q)]) for eid, q in cur.fetchall() if q is not None}
+        cur.execute("SELECT l.equipamento_id, l.valor FROM leitura l WHERE l.medida='p_ac' AND l.valor > 0 AND l.ts >= %s AND l.ts < %s "
+                    "AND l.equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s AND tipo='inversor')",
+                    (ate - dt.timedelta(days=dias), ate, usina_id))
+        df = pd.DataFrame(cur.fetchall(), columns=["eq", "v"])
+    if df.empty:
+        return {}
+    return {int(eid): pd.Series([float(q)]) for eid, q in df.groupby("eq")["v"].quantile(0.999).items()}
 
 
 def referencia_razao(conn, usina_id: int, ate: dt.datetime, tz: str = "UTC", dias: int = 30) -> float | None:
     """Referencia movel do gate: mediana, em 30 dias, da mediana diaria de POA/GHI (GHI > 100). Com menos
-    de 3 dias devolve None e o gate usa a propria janela."""
+    de 3 dias devolve None e o gate usa a propria janela. Fuso e mediana em pandas (SQLite nao tem)."""
     with conn.cursor() as cur:
-        cur.execute("SELECT (p.ts AT TIME ZONE %s)::date, percentile_cont(0.5) WITHIN GROUP (ORDER BY p.valor / g.valor) "
-                    "FROM leitura p JOIN leitura g ON g.equipamento_id=p.equipamento_id AND g.ts=p.ts AND g.medida='ghi' "
-                    "JOIN equipamento e ON e.id=p.equipamento_id "
-                    "WHERE e.usina_id=%s AND e.tipo='estacao' AND p.medida='poa' AND g.valor > 100 AND p.ts >= %s AND p.ts < %s "
-                    "GROUP BY 1", (tz, usina_id, ate - dt.timedelta(days=dias), ate))
-        vals = [float(v) for _, v in cur.fetchall() if v is not None]
-    return float(np.median(vals)) if len(vals) >= 3 else None
+        cur.execute("SELECT p.ts, p.valor, g.valor FROM leitura p JOIN leitura g ON g.equipamento_id=p.equipamento_id AND g.ts=p.ts AND g.medida='ghi' "
+                    "WHERE p.medida='poa' AND g.valor > 100 AND p.ts >= %s AND p.ts < %s "
+                    "AND p.equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s AND tipo='estacao')",
+                    (ate - dt.timedelta(days=dias), ate, usina_id))
+        df = pd.DataFrame(cur.fetchall(), columns=["ts", "poa", "ghi"])
+    if df.empty:
+        return None
+    dia = pd.to_datetime(df["ts"], utc=True).dt.tz_convert(ZoneInfo(tz)).dt.date
+    por_dia = (df["poa"] / df["ghi"]).groupby(dia).median()
+    return float(np.median(por_dia.values)) if len(por_dia) >= 3 else None
 
 
 def janela_padrao(agora: dt.datetime, tz: str, dias: int = DIAS_CONTEXTO) -> tuple[dt.datetime, dt.datetime]:
@@ -143,14 +148,14 @@ def persistir(conn, usina: UsinaRef, mod: Modelo, grade: Grade, r: gate_mod.Resu
     ini_g, fim_g = grade.indice[0].to_pydatetime(), (grade.indice[-1] + pd.Timedelta(minutes=15)).to_pydatetime()
     with conn.cursor() as cur:
         if linhas:
-            psycopg2.extras.execute_values(
-                cur, "INSERT INTO esperado (equipamento_id, ts, modelo_id, p_esperado_kw, poa_usada, temp_usada, gate) VALUES %s "
-                     "ON CONFLICT (equipamento_id, ts, modelo_id) DO UPDATE SET p_esperado_kw=EXCLUDED.p_esperado_kw, "
-                     "poa_usada=EXCLUDED.poa_usada, temp_usada=EXCLUDED.temp_usada, gate=EXCLUDED.gate", linhas, page_size=5000)
+            cur.executemany("INSERT INTO esperado (equipamento_id, ts, modelo_id, p_esperado_kw, poa_usada, temp_usada, gate) VALUES (%s,%s,%s,%s,%s,%s,%s) "
+                            "ON CONFLICT (equipamento_id, ts, modelo_id) DO UPDATE SET p_esperado_kw=excluded.p_esperado_kw, "
+                            "poa_usada=excluded.poa_usada, temp_usada=excluded.temp_usada, gate=excluded.gate", linhas)
         # apaga-e-regrava a janela: e o que torna o job idempotente sem chave para 'evento sem equipamento'
-        cur.execute("DELETE FROM cascata_dia WHERE usina_id=%s AND modelo_id=%s AND dia = ANY(%s)", (usina.id, mod.id, dias))
-        cur.execute("DELETE FROM perda_dia WHERE modelo_id=%s AND dia = ANY(%s) AND equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s)",
-                    (mod.id, dias, usina.id))
+        marcas = ",".join(["%s"] * len(dias)) or "NULL"
+        cur.execute(f"DELETE FROM cascata_dia WHERE usina_id=%s AND modelo_id=%s AND dia IN ({marcas})", (usina.id, mod.id, *dias))
+        cur.execute(f"DELETE FROM perda_dia WHERE modelo_id=%s AND dia IN ({marcas}) AND equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s)",
+                    (mod.id, *dias, usina.id))
         cur.execute("DELETE FROM evento WHERE usina_id=%s AND modelo_id=%s AND ini >= %s AND ini < %s", (usina.id, mod.id, ini_g, fim_g))
         # 'abaixo dos pares' e sempre recomputado dos ultimos 3 dias: o aberto de ontem sai, o de hoje entra
         cur.execute("DELETE FROM evento WHERE usina_id=%s AND modelo_id=%s AND tipo='inversor_abaixo' AND fim IS NULL", (usina.id, mod.id))
@@ -158,17 +163,17 @@ def persistir(conn, usina: UsinaRef, mod: Modelo, grade: Grade, r: gate_mod.Resu
                       float(x.string), float(x.residuo), float(x.cobertura_gate), int(x.trackers_sem_inversor))
                      for dd, x in casc.por_dia.iterrows() if x.e_esperado > 0]
         if casc_rows:
-            psycopg2.extras.execute_values(cur, "INSERT INTO cascata_dia (usina_id, dia, modelo_id, e_esperado, e_medido, delta, inv_parado, "
-                                                "tracker, string, residuo, cobertura_gate, trackers_sem_inversor) VALUES %s", casc_rows)
+            cur.executemany("INSERT INTO cascata_dia (usina_id, dia, modelo_id, e_esperado, e_medido, delta, inv_parado, "
+                            "tracker, string, residuo, cobertura_gate, trackers_sem_inversor) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", casc_rows)
         perda_rows = [(int(x.equipamento_id), x.dia, mod.id, x.parcela, float(x.kwh)) for x in casc.perda_dia.itertuples()]
         if perda_rows:
-            psycopg2.extras.execute_values(cur, "INSERT INTO perda_dia (equipamento_id, dia, modelo_id, parcela, kwh) VALUES %s", perda_rows)
+            cur.executemany("INSERT INTO perda_dia (equipamento_id, dia, modelo_id, parcela, kwh) VALUES (%s,%s,%s,%s,%s)", perda_rows)
         ev_rows = [(usina.id, e.equipamento_id, mod.id, e.tipo, e.ini.to_pydatetime(), e.fim.to_pydatetime() if e.fim is not None else None,
                     e.severidade, float(e.kwh), json.dumps(_json_limpo(e.detalhe), default=str)) for e in evs]
         if ev_rows:
-            psycopg2.extras.execute_values(cur, "INSERT INTO evento (usina_id, equipamento_id, modelo_id, tipo, ini, fim, severidade, kwh, detalhe) VALUES %s "
-                                                "ON CONFLICT (usina_id, equipamento_id, tipo, ini) DO UPDATE SET fim=EXCLUDED.fim, "
-                                                "severidade=EXCLUDED.severidade, kwh=EXCLUDED.kwh, detalhe=EXCLUDED.detalhe, modelo_id=EXCLUDED.modelo_id", ev_rows)
+            cur.executemany("INSERT INTO evento (usina_id, equipamento_id, modelo_id, tipo, ini, fim, severidade, kwh, detalhe) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                            "ON CONFLICT (usina_id, equipamento_id, tipo, ini) DO UPDATE SET fim=excluded.fim, "
+                            "severidade=excluded.severidade, kwh=excluded.kwh, detalhe=excluded.detalhe, modelo_id=excluded.modelo_id", ev_rows)
     conn.commit()
 
 
@@ -195,7 +200,7 @@ def rodar_cli(ini: str | None, fim: str | None, usina: str | None) -> int:
     from gemeo.core import db
     from gemeo.core.config import carregar
     from gemeo.ingest.runner import usinas_do_piloto
-    cfg = carregar(); conn = db.conectar(cfg.db_dsn, cfg.db_schema)
+    cfg = carregar(); conn = db.conectar(cfg.db_caminho)
     usinas = usinas_do_piloto(conn, (usina,) if usina else cfg.usinas_piloto)
     if not usinas:
         print("nenhuma usina do piloto no banco — rode `gemeo ingest` (cadastro) primeiro", flush=True)

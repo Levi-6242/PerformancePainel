@@ -94,9 +94,8 @@ def calibrar(conn, usina: UsinaRef, dias: int = 45, p: ParamsCalib = ParamsCalib
         cur.execute("SELECT dia, cobertura_gate FROM cascata_dia WHERE usina_id=%s AND modelo_id=%s AND dia >= %s",
                     (usina.id, mod.id, ini.astimezone(tz).date()))
         cobertura = {d: float(c) for d, c in cur.fetchall()}
-        cur.execute("SELECT DISTINCT (ini AT TIME ZONE %s)::date FROM evento WHERE usina_id=%s AND equipamento_id IS NOT NULL AND ini >= %s",
-                    (usina.tz, usina.id, ini))
-        com_evento = {r[0] for r in cur.fetchall()}
+        cur.execute("SELECT ini FROM evento WHERE usina_id=%s AND equipamento_id IS NOT NULL AND ini >= %s", (usina.id, ini))
+        com_evento = {r[0].astimezone(tz).date() for r in cur.fetchall()}     # fuso em Python: SQLite nao tem AT TIME ZONE
     grade = carregar_grade(conn, usina, ini, fim)
     r = gate_mod.avaliar(grade.estacao, job.referencia_razao(conn, usina.id, fim, usina.tz),
                          gate_mod.ParamsGate(**(mod.parametros.get("gate") or {})), usina.tz)
@@ -126,7 +125,7 @@ def rodar_cli(usina: str, dias: int) -> int:
     from gemeo.core import db
     from gemeo.core.config import carregar
     from gemeo.ingest.runner import usinas_do_piloto
-    cfg = carregar(); conn = db.conectar(cfg.db_dsn, cfg.db_schema)
+    cfg = carregar(); conn = db.conectar(cfg.db_caminho)
     usinas = usinas_do_piloto(conn, (usina,))
     if not usinas:
         print(f"usina {usina!r} nao esta no banco", flush=True)

@@ -28,10 +28,10 @@ def mro100(conn):
 def _foto(conn):
     out = []
     with conn.cursor() as cur:
-        for sql in ("SELECT count(*), round(sum(p_esperado_kw)::numeric, 3) FROM esperado",
-                    "SELECT count(*), round(sum(delta)::numeric, 3) FROM cascata_dia",
-                    "SELECT count(*), round(sum(kwh)::numeric, 3) FROM perda_dia",
-                    "SELECT count(*), round(sum(kwh)::numeric, 3) FROM evento"):
+        for sql in ("SELECT count(*), round(sum(p_esperado_kw), 3) FROM esperado",
+                    "SELECT count(*), round(sum(delta), 3) FROM cascata_dia",
+                    "SELECT count(*), round(sum(kwh), 3) FROM perda_dia",
+                    "SELECT count(*), round(sum(kwh), 3) FROM evento"):
             cur.execute(sql); out.append(cur.fetchone())
     return out
 
@@ -48,7 +48,7 @@ def test_job_persiste_e_e_idempotente(conn, mro100):
         assert e_esp > e_med and parado > 1000 and tracker > 50 and cob > 0.9
         cur.execute("SELECT equipamento_id FROM evento WHERE tipo='inversor_parado'")
         assert {r[0] for r in cur.fetchall()} == {ids["inv:22"]}
-        cur.execute("SELECT count(*) FROM evento WHERE tipo='tracker_fora_alvo' AND equipamento_id = ANY(%s)", ([ids["trk:4"], ids["trk:17"]],))
+        cur.execute("SELECT count(*) FROM evento WHERE tipo='tracker_fora_alvo' AND equipamento_id IN (%s,%s)", (ids["trk:4"], ids["trk:17"]))
         assert cur.fetchone()[0] >= 2
         cur.execute("SELECT count(*) FROM esperado WHERE gate='ok' AND p_esperado_kw IS NULL")
         assert cur.fetchone()[0] == 0

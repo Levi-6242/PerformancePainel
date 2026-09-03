@@ -13,7 +13,8 @@ from gemeo.core.modelos import UsinaRef
 
 def usinas_do_piloto(conn, codigos: tuple[str, ...]) -> list[UsinaRef]:
     with conn.cursor() as cur:
-        cur.execute("SELECT id, codigo, fonte, fonte_ref, tz, coalesce(kwp_dc,0), coalesce(kw_ac,0), lat, lon FROM usina WHERE ativo AND codigo = ANY(%s)", (list(codigos),))
+        marcas = ",".join(["%s"] * len(codigos)) or "NULL"
+        cur.execute(f"SELECT id, codigo, fonte, fonte_ref, tz, coalesce(kwp_dc,0), coalesce(kw_ac,0), lat, lon FROM usina WHERE ativo AND codigo IN ({marcas})", tuple(codigos))
         return [UsinaRef(*r) for r in cur.fetchall()]
 
 
@@ -32,8 +33,10 @@ def montar(cfg, conn_gemeo, conn_fonte, usinas: list[UsinaRef]) -> list[tuple[st
     return itens
 
 
-def laco(rotulo: str, ingestor, minutos: float, parar: threading.Event) -> None:
+def laco(rotulo: str, ingestor, minutos: float, parar: threading.Event, fabrica_conn=None) -> None:
     ultimo_reconcilia: dt.date | None = None
+    if fabrica_conn is not None:
+        ingestor.conn = fabrica_conn()          # SQLite: uma conexao POR THREAD, aberta dentro da thread
     while not parar.is_set():
         agora = dt.datetime.now(dt.timezone.utc)
         reconciliar = agora.hour == 3 and ultimo_reconcilia != agora.date()
@@ -44,6 +47,8 @@ def laco(rotulo: str, ingestor, minutos: float, parar: threading.Event) -> None:
             ingestor.ciclo(reconciliar=reconciliar) if "reconciliar" in ingestor.ciclo.__code__.co_varnames else ingestor.ciclo()
             if reconciliar:
                 ultimo_reconcilia = agora.date()
+                if fabrica_conn is not None:
+                    print(f"[{rotulo}] retencao: {db.retencao(ingestor.conn, 90)} leituras com mais de 90 dias apagadas", flush=True)
         except Exception:                                   # noqa: BLE001 — o laco nao morre
             print(f"[{rotulo}] ciclo falhou:\n{traceback.format_exc()}", flush=True)
         parar.wait(minutos * 60)
@@ -53,14 +58,15 @@ def rodar() -> int:
     from gemeo.core.config import carregar
     import psycopg2
     cfg = carregar()
-    conn = db.conectar(cfg.db_dsn, cfg.db_schema); conn_fonte = psycopg2.connect(cfg.powerplants_dsn)
-    hoje = dt.date.today()
-    db.garantir_particoes(conn, [hoje, (hoje.replace(day=28) + dt.timedelta(days=4))])
+    conn = db.conectar(cfg.db_caminho)
     usinas = usinas_do_piloto(conn, cfg.usinas_piloto)
+    # PostgreSQL do Thopen so quando ha usina de fonte pg no piloto (e o unico lugar em que psycopg2 continua)
+    conn_fonte = psycopg2.connect(cfg.powerplants_dsn) if any(u.fonte == "pg" for u in usinas) else None
     if not usinas:
         print("nenhuma usina do piloto em `usina` — rode o cadastro primeiro (gemeo ingest cria as linhas base a partir do config)")
     parar = threading.Event()
-    threads = [threading.Thread(target=laco, args=(r, i, m, parar), name=r, daemon=True) for r, i, m in montar(cfg, conn, conn_fonte, usinas)]
+    threads = [threading.Thread(target=laco, args=(r, i, m, parar, lambda: db.conectar(cfg.db_caminho)), name=r, daemon=True)
+               for r, i, m in montar(cfg, conn, conn_fonte, usinas)]
     for t in threads:
         t.start()
     try:

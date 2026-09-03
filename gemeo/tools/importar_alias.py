@@ -65,7 +65,7 @@ def importar(conn, linhas: list[LinhaAlias]) -> dict:
                 r = cur.fetchone()
             if not r:
                 n_sem_usina += 1; continue
-            cur.execute("SELECT id FROM equipamento WHERE usina_id=%s AND tipo='tracker' AND (atributos->>'numero')::int=%s", (r[0], ln.numero))
+            cur.execute("SELECT id FROM equipamento WHERE usina_id=%s AND tipo='tracker' AND CAST(json_extract(atributos, '$.numero') AS INTEGER)=%s", (r[0], ln.numero))
             e = cur.fetchone()
             if not e:
                 n_sem_trk += 1; continue
@@ -77,6 +77,6 @@ def importar(conn, linhas: list[LinhaAlias]) -> dict:
 def rodar_cli(xlsx: str) -> int:
     from gemeo.core import db
     from gemeo.core.config import carregar
-    cfg = carregar(); conn = db.conectar(cfg.db_dsn, cfg.db_schema)
+    cfg = carregar(); conn = db.conectar(cfg.db_caminho)
     print(importar(conn, ler_planilha(Path(xlsx))))
     return 0

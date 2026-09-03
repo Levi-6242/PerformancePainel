@@ -1,28 +1,20 @@
 <!-- gemeo/deploy/README.md -->
 # Deploy do Gêmeo Digital (servidor Windows da T.I.)
 
-O gêmeo é um serviço separado da plataforma: pasta própria, banco próprio, três tarefas agendadas, porta **5075**
-em `127.0.0.1`. Quem usa chega por **`/gemeo/` na plataforma** (proxy no `app.py` dela, mesmo túnel e mesmo login).
+O gêmeo é um serviço separado da plataforma: pasta própria, **banco próprio em um arquivo SQLite** (sem servidor,
+sem DBA), três tarefas agendadas, porta **5075** em `127.0.0.1`. Quem usa chega por **`/gemeo/` na plataforma**
+(proxy no `app.py` dela, mesmo túnel e mesmo login).
 
 ## 1. Pré-requisitos
 
 - Python 3.12+ (caminho real do `pythonw.exe`, não o alias da Microsoft Store).
-- **Um schema num PostgreSQL 14 ou mais novo.** Duas formas:
-  - (a) **no banco `powerplants` do Thopen** (PostgreSQL 17.7, com TimescaleDB): o DBA cria o schema e dá permissão ao
-    usuário do gêmeo. Foi o pedido feito em 03/09/2026 (`digital_twins`). O que pedir:
-
-    ```sql
-    CREATE SCHEMA digital_twins AUTHORIZATION "levi.maia";   -- ou o usuário dedicado do gêmeo
-    -- se o schema já existir com outro dono:
-    GRANT USAGE, CREATE ON SCHEMA digital_twins TO "levi.maia";
-    ```
-
-    Nome em minúsculas e sem espaço (`digital_twins`, não `digital twins`). `gemeo migrate` confere e, se faltar
-    permissão, imprime exatamente o GRANT a pedir. `levi.maia` não tem CREATE no banco, e isso é esperado.
-  - (b) um PostgreSQL 16 próprio (banco `gemeo`, usuário com CREATE no banco): o gêmeo cria o schema sozinho.
-- Acesso de rede: `44.214.183.214:5432` (PostgreSQL `powerplants` do Thopen), `gridco-api.sunop.net` e
-  `axis-api.sunop.net` (API SunOp), `app.gridco.com.br` (API BD_Performance).
+- Acesso de rede: `gridco-api.sunop.net` e `axis-api.sunop.net` (API SunOp), `app.gridco.com.br` (API BD_Performance);
+  `44.214.183.214:5432` (PostgreSQL `powerplants` do Thopen) só se houver usina de fonte `pg` no piloto.
 - Pasta de segredos **fora de qualquer pasta sincronizada** (OneDrive), por exemplo `C:\gemeo-secrets`.
+- **Banco:** nada a instalar. O SQLite vem com o Python. O arquivo nasce no primeiro `gemeo migrate`, em
+  `%LOCALAPPDATA%\GridCo\gemeo\gemeo.sqlite` (padrão) ou no caminho de `[db] caminho` do `config.toml` /
+  `GEMEO_DB_CAMINHO` do `gemeo.env`. **Nunca dentro do OneDrive**: sincronização + SQLite = lock preso e arquivo pela
+  metade. Na pasta do repositório só se ela não for sincronizada.
 
 ## 2. Instalar
 
@@ -35,21 +27,21 @@ python -m pip install -e ".[dev]"
 `C:\gemeo-secrets\gemeo.env` (uma chave por linha, sem aspas):
 
 ```
-GEMEO_DB_DSN=<DSN do banco onde está o schema; na forma (a) é o MESMO valor de POWERPLANTS_DSN>
-GEMEO_DB_SCHEMA=digital_twins        # nome do schema; sem esta linha vale o [db] schema do config.toml (gemeo)
-POWERPLANTS_DSN=postgresql://<usuario>:<senha>@44.214.183.214:5432/powerplants
 SUNOP_API_TOKEN=<token de API da SunOp — o de /data, validade ~1 ano; NÃO o token web de 7 dias>
 GRIDCO_SQL_TOKEN=<mesmo do tokens.txt da plataforma>
 GEMEO_SENHA=<senha compartilhada das telas — a MESMA vai no tokens.txt da plataforma>
+GEMEO_DB_CAMINHO=D:\gemeo-dados\gemeo.sqlite      # opcional; sem esta linha vale o padrão em %LOCALAPPDATA%
+POWERPLANTS_DSN=host=44.214.183.214 port=5432 dbname=powerplants user=... password=...   # só com usina de fonte pg
 ```
 
-`config.toml` (versionado): usinas do piloto, ritmos, teto da SunOp (600/dia), porta.
+`config.toml` (versionado): usinas do piloto (só as com relação tracker × inversor), ritmos, teto da SunOp (600/dia),
+porta, `[db] caminho`, `[publicar]`.
 
 ## 3. Primeira carga
 
 ```
 set SECRETS_DIR=C:\gemeo-secrets
-gemeo migrate                       # cria as tabelas no schema (e o schema, se o banco for nosso)
+gemeo migrate                       # cria o arquivo e as tabelas; imprime onde ficou
 gemeo inspecionar-cadastro          # imprime os headers das abas do BD_Performance (Info Geral / Info Mensal / BD_Trackers)
 gemeo importar-alias ..\docs\de-para-trackers-supervisorio-fracttal.xlsx
 gemeo ingest                        # deixa rodando alguns minutos e encerre com Ctrl+C: cadastro + primeiras leituras
@@ -71,23 +63,24 @@ cd C:\gemeo\deploy
 Start-ScheduledTask "Gemeo Ingest"; Start-ScheduledTask "Gemeo App"; Start-ScheduledTask "Gemeo Modelar"
 ```
 
-Logs em `C:\gemeo\logs\{ingest,modelar,app}.log`. Backup diário (agende às 02:00 na mesma máquina):
+Logs em `C:\gemeo\logs\{ingest,modelar,app}.log`. Backup diário (agende às 02:00 na mesma máquina) — cópia consistente
+do arquivo pela API de backup do próprio SQLite, 14 dias de retenção:
 
 ```
-$env:GEMEO_DB_DSN = "<mesmo DSN do gemeo.env>"; .\backup.ps1 -Destino "D:\Backups\gemeo" -Schema digital_twins -PgDump "C:\Program Files\PostgreSQL\16\bin\pg_dump.exe"
+.\backup.ps1 -Destino "D:\Backups\gemeo" -Banco "<caminho do gemeo.sqlite>" -Python "C:\Python312\python.exe"
 ```
 
 ## 5. Ligar na plataforma
 
-No `tokens.txt` da plataforma acrescente `GEMEO_SENHA=<a mesma do gemeo.env>` (e `GEMEO_URL=http://127.0.0.1:5075` se
-mudar a porta). **Reinicie a plataforma** — o proxy `/gemeo/*` só existe no processo novo. A entrada "Gêmeo Digital"
-do menu aparece sozinha quando `/gemeo/healthz` passa a responder.
+No `tokens.txt` da plataforma acrescente `GEMEO_SENHA=<a mesma do gemeo.env>` e `GEMEO_URL=http://127.0.0.1:5075`.
+**Reinicie a plataforma** — o proxy `/gemeo/*` só existe no processo novo. A entrada "Gêmeo Digital" do menu aparece
+sozinha quando `/gemeo/healthz` passa a responder.
 
 ## 6. Saúde
 
 `GET http://127.0.0.1:5075/gemeo/healthz` (ou `/gemeo/healthz` pela plataforma): 200 = tudo ok; 503 = há problema, e o
-JSON diz qual (fonte parada, `modelar` atrasado, SunOp no teto, token da SunOp vencendo em < 30 dias, banco fora, publicação no workbook da Performance falhando).
-Aponte o monitor externo (Teams) para essa URL.
+JSON diz qual (fonte parada, `modelar` atrasado, SunOp no teto, token da SunOp vencendo em < 30 dias, banco fora,
+publicação no workbook da Performance falhando). Aponte o monitor externo (Teams) para essa URL.
 
 ## 7. Atualizar
 

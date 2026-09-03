@@ -1,12 +1,19 @@
 # gemeo/gemeo/app/consultas.py
-"""Todo o SQL das telas, em funcoes banco -> dict (JSON-serializavel). O app so renderiza. 'Agora' e
-parametro (nunca now()) para as telas serem testaveis sobre um dia congelado — e para 'viajar no tempo'
-ao depurar: `/gemeo/?agora=2026-08-31T20:00:00Z`."""
+"""Todo o SQL das telas, em funcoes banco -> dict (JSON-serializavel). O app so renderiza. 'Agora' e parametro (nunca
+now()) para as telas serem testaveis sobre um dia congelado — e para 'viajar no tempo' ao depurar:
+`/gemeo/?agora=2026-08-31T20:00:00Z`.
+
+Banco e SQLite (03/09/2026): o que o PostgreSQL fazia com date_bin, percentile_cont e AT TIME ZONE aqui e feito em
+pandas sobre o DIA (96 slots por inversor cabem na memoria de sobra). Consultas de 'ultimo ts' andam o indice de ts
+de tras para frente com LIMIT 1 — max() sobre um join varreria a tabela grande."""
 from __future__ import annotations
 import base64
 import datetime as dt
 import json
 from zoneinfo import ZoneInfo
+
+import numpy as np
+import pandas as pd
 
 FRIO_MIN = 30          # frescor: acima disto a usina fica cinza antes de qualquer outra cor (spec §9)
 DEFICIT_GRAVE = 0.08   # faixa 'deficit grave' da regua
@@ -69,35 +76,62 @@ def _q(conn, sql: str, params: tuple = ()) -> list[tuple]:
         return cur.fetchall()
 
 
+def _min(agora: dt.datetime, ts: dt.datetime | None) -> int | None:
+    return None if ts is None else int((agora - ts).total_seconds() // 60)
+
+
+def _estado_json(conn, chave: str) -> dict:
+    r = _q(conn, "SELECT valor FROM estado WHERE chave=%s", (chave,))
+    try:
+        return json.loads(r[0][0]) if r else {}
+    except Exception:                       # noqa: BLE001
+        return {}
+
+
+def _ciclo(conn) -> dict:
+    return _estado_json(conn, "modelar.ultimo")
+
+
+def _ultima_leitura(conn, usina_id: int) -> dt.datetime | None:
+    r = _q(conn, 'SELECT l.ts AS "ts [TIMESTAMP]" FROM leitura l WHERE l.equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s) '
+                 "ORDER BY l.ts DESC LIMIT 1", (usina_id,))
+    return r[0][0] if r else None
+
+
 def _usinas(conn, usina_id: int | None = None) -> list[dict]:
     filtro = "AND u.id=%s" if usina_id else ""
     rows = _q(conn, f"""
         SELECT u.id, u.codigo, u.nome, u.fonte, u.tz, coalesce(u.kwp_dc,0), coalesce(u.kw_ac,0), u.cliente,
                (SELECT count(*) FROM equipamento e WHERE e.usina_id=u.id AND e.ativo),
-               (SELECT max(r.criado_em) FROM ingest_run r WHERE r.usina_id=u.id AND r.status='ok'),
-               (SELECT max(l.ts) FROM leitura l JOIN equipamento e ON e.id=l.equipamento_id WHERE e.usina_id=u.id),
-               m.id, m.versao, coalesce(m.tolerancia, 0.08), coalesce(m.calibrado, false)
+               (SELECT max(r.criado_em) FROM ingest_run r WHERE r.usina_id=u.id AND r.status='ok') AS "ultimo_ingest_ok [TIMESTAMP]",
+               m.id, m.versao, coalesce(m.tolerancia, 0.08), coalesce(m.calibrado, 0)
         FROM usina u LEFT JOIN modelo m ON m.usina_id=u.id AND m.ativo
         WHERE u.ativo {filtro} ORDER BY u.codigo""", (usina_id,) if usina_id else ())
-    chaves = ("id", "codigo", "nome", "fonte", "tz", "kwp", "kw_ac", "cliente", "n_equip", "ultimo_ingest_ok", "ultima_leitura",
+    chaves = ("id", "codigo", "nome", "fonte", "tz", "kwp", "kw_ac", "cliente", "n_equip", "ultimo_ingest_ok",
               "modelo_id", "modelo_versao", "tolerancia", "calibrado")
-    return [dict(zip(chaves, r)) for r in rows]
+    out = []
+    for r in rows:
+        u = dict(zip(chaves, r))
+        u["calibrado"] = bool(u["calibrado"])
+        u["ultima_leitura"] = _ultima_leitura(conn, u["id"])
+        out.append(u)
+    return out
 
 
 def _ultimo_slot(conn, usina_id: int, modelo_id: int | None, agora: dt.datetime) -> dt.datetime | None:
     if modelo_id is None:
         return None
-    r = _q(conn, "SELECT max(x.ts) FROM esperado x JOIN equipamento e ON e.id=x.equipamento_id "
-                 "WHERE e.usina_id=%s AND x.modelo_id=%s AND x.p_esperado_kw IS NOT NULL AND x.ts <= %s", (usina_id, modelo_id, agora))
-    return r[0][0] if r and r[0][0] else None
+    r = _q(conn, 'SELECT x.ts AS "ts [TIMESTAMP]" FROM esperado x WHERE x.equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s) '
+                 "AND x.modelo_id=%s AND x.p_esperado_kw IS NOT NULL AND x.ts <= %s ORDER BY x.ts DESC LIMIT 1", (usina_id, modelo_id, agora))
+    return r[0][0] if r else None
 
 
 def _agora_da_usina(conn, usina_id: int, modelo_id: int, slot: dt.datetime) -> tuple[float | None, float | None, str | None]:
-    esp = _q(conn, "SELECT sum(x.p_esperado_kw), min(x.gate) FROM esperado x JOIN equipamento e ON e.id=x.equipamento_id "
-                   "WHERE e.usina_id=%s AND x.modelo_id=%s AND x.ts=%s", (usina_id, modelo_id, slot))
-    med = _q(conn, "SELECT sum(v) FROM (SELECT avg(l.valor) v FROM leitura l JOIN equipamento e ON e.id=l.equipamento_id "
-                   "WHERE e.usina_id=%s AND e.tipo='inversor' AND l.medida='p_ac' AND l.ts >= %s AND l.ts < %s GROUP BY l.equipamento_id) s",
-             (usina_id, slot, slot + dt.timedelta(minutes=15)))
+    esp = _q(conn, "SELECT sum(x.p_esperado_kw), min(x.gate) FROM esperado x WHERE x.ts=%s AND x.modelo_id=%s "
+                   "AND x.equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s)", (slot, modelo_id, usina_id))
+    med = _q(conn, "SELECT sum(v) FROM (SELECT avg(l.valor) v FROM leitura l WHERE l.medida='p_ac' AND l.ts >= %s AND l.ts < %s "
+                   "AND l.equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s AND tipo='inversor') GROUP BY l.equipamento_id) s",
+             (slot, slot + dt.timedelta(minutes=15), usina_id))
     e = float(esp[0][0]) if esp and esp[0][0] is not None else None
     m = float(med[0][0]) if med and med[0][0] is not None else None
     return e, m, (esp[0][1] if esp else None)
@@ -123,22 +157,6 @@ def _gate_hoje(conn, usina_id: int, ini: dt.datetime, fim: dt.datetime) -> str:
 def _preco(conn, usina_id: int, dia: dt.date) -> float | None:
     r = _q(conn, "SELECT preco_mwh FROM meta_mes WHERE usina_id=%s AND ano=%s AND mes=%s", (usina_id, dia.year, dia.month))
     return float(r[0][0]) if r and r[0][0] is not None else None
-
-
-def _min(agora: dt.datetime, ts: dt.datetime | None) -> int | None:
-    return None if ts is None else int((agora - ts).total_seconds() // 60)
-
-
-def _estado_json(conn, chave: str) -> dict:
-    r = _q(conn, "SELECT valor FROM estado WHERE chave=%s", (chave,))
-    try:
-        return json.loads(r[0][0]) if r else {}
-    except Exception:                       # noqa: BLE001
-        return {}
-
-
-def _ciclo(conn) -> dict:
-    return _estado_json(conn, "modelar.ultimo")
 
 
 def frota(conn, agora: dt.datetime) -> dict:
@@ -180,6 +198,29 @@ def frota(conn, agora: dt.datetime) -> dict:
     }
 
 
+def _p_ac_do_dia(conn, usina_id: int, ini: dt.datetime, fim: dt.datetime) -> pd.DataFrame:
+    """Potencia AC crua dos inversores no dia, ja na grade de 15 min (media por slot e inversor)."""
+    rows = _q(conn, "SELECT l.equipamento_id, l.ts, l.valor FROM leitura l WHERE l.medida='p_ac' AND l.ts >= %s AND l.ts < %s "
+                    "AND l.equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s AND tipo='inversor')", (ini, fim, usina_id))
+    df = pd.DataFrame(rows, columns=["eq", "ts", "v"])
+    if df.empty:
+        return pd.DataFrame(columns=["eq", "b", "v"])
+    df["b"] = pd.to_datetime(df["ts"], utc=True).dt.floor("15min")
+    return df.groupby(["eq", "b"], as_index=False)["v"].mean()
+
+
+def _esperado_do_dia(conn, usina_id: int, modelo_id: int | None, ini: dt.datetime, fim: dt.datetime) -> pd.DataFrame:
+    if modelo_id is None:
+        return pd.DataFrame(columns=["eq", "b", "e"])
+    rows = _q(conn, "SELECT x.equipamento_id, x.ts, x.p_esperado_kw FROM esperado x WHERE x.modelo_id=%s AND x.ts >= %s AND x.ts < %s "
+                    "AND x.p_esperado_kw IS NOT NULL AND x.equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s)",
+              (modelo_id, ini, fim, usina_id))
+    df = pd.DataFrame(rows, columns=["eq", "b", "e"])
+    if not df.empty:
+        df["b"] = pd.to_datetime(df["b"], utc=True)
+    return df
+
+
 def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
     us = _usinas(conn, usina_id)
     if not us:
@@ -197,16 +238,16 @@ def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
                  "delta": delta, "faixa": faixa(delta, float(u["tolerancia"])), "gate_agora": gate_agora,
                  "idade_leitura_min": _min(agora, u["ultima_leitura"]), "idade_esperado_min": _min(agora, slot)}
     cabecalho["frio"] = cabecalho["idade_leitura_min"] is None or cabecalho["idade_leitura_min"] > FRIO_MIN
-    # curva do dia: esperado (dia inteiro, o que o modelo ja calculou) x medido (ate agora), na grade de 15 min
-    esp_curva = dict(_q(conn, "SELECT x.ts, sum(x.p_esperado_kw) FROM esperado x JOIN equipamento e ON e.id=x.equipamento_id "
-                              "WHERE e.usina_id=%s AND x.modelo_id=%s AND x.ts >= %s AND x.ts < %s GROUP BY x.ts", (usina_id, mid, ini, fim))) if mid else {}
-    med_curva = dict(_q(conn, "SELECT b, sum(v) FROM (SELECT date_bin('15 minutes', l.ts, TIMESTAMPTZ '2000-01-01') b, l.equipamento_id, avg(l.valor) v "
-                              "FROM leitura l JOIN equipamento e ON e.id=l.equipamento_id WHERE e.usina_id=%s AND e.tipo='inversor' AND l.medida='p_ac' "
-                              "AND l.ts >= %s AND l.ts < %s GROUP BY 1, 2) s GROUP BY b", (usina_id, ini, min(fim, agora))))
-    curva = [{"ts": ts.isoformat(), "hora": ts.astimezone(tz).strftime("%H:%M"),
-              "esperado_kw": (float(esp_curva[ts]) if esp_curva.get(ts) is not None else None),
-              "medido_kw": (float(med_curva[ts]) if med_curva.get(ts) is not None else None)}
-             for ts in sorted(set(esp_curva) | set(med_curva))]
+    # curva do dia: esperado (o que o modelo ja calculou) x medido (ate agora), na grade de 15 min
+    pac = _p_ac_do_dia(conn, usina_id, ini, min(fim, agora))
+    esp = _esperado_do_dia(conn, usina_id, mid, ini, fim)
+    esp_curva = esp.groupby("b")["e"].sum().to_dict() if not esp.empty else {}
+    med_curva = pac.groupby("b")["v"].sum().to_dict() if not pac.empty else {}
+    curva = []
+    for b in sorted(set(esp_curva) | set(med_curva)):
+        ts = pd.Timestamp(b).to_pydatetime()
+        curva.append({"ts": ts.isoformat(), "hora": ts.astimezone(tz).strftime("%H:%M"),
+                      "esperado_kw": (float(esp_curva[b]) if b in esp_curva else None), "medido_kw": (float(med_curva[b]) if b in med_curva else None)})
     casc = _cascata(conn, usina_id, mid, hoje)
     preco = _preco(conn, usina_id, hoje)
     eventos = [{"id": r[0], "tipo": r[1], "equipamento_id": r[2], "equipamento": r[3], "ini": r[4].isoformat(), "hora_ini": r[4].astimezone(tz).strftime("%H:%M"),
@@ -215,27 +256,27 @@ def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
                                  "ev.severidade, ev.kwh, ev.detalhe FROM evento ev LEFT JOIN equipamento e ON e.id=ev.equipamento_id "
                                  "WHERE ev.usina_id=%s AND (ev.ini >= %s OR ev.fim IS NULL) AND ev.ini < %s ORDER BY ev.kwh DESC, ev.ini", (usina_id, ini, fim))]
     perdas: dict[int, dict[str, float]] = {}
-    for eid, parcela, kwh in _q(conn, "SELECT p.equipamento_id, p.parcela, p.kwh FROM perda_dia p JOIN equipamento e ON e.id=p.equipamento_id "
-                                      "WHERE e.usina_id=%s AND p.modelo_id=%s AND p.dia=%s", (usina_id, mid, hoje)) if mid else []:
+    for eid, parcela, kwh in _q(conn, "SELECT p.equipamento_id, p.parcela, p.kwh FROM perda_dia p WHERE p.modelo_id=%s AND p.dia=%s "
+                                      "AND p.equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s)", (mid, hoje, usina_id)) if mid else []:
         perdas.setdefault(int(eid), {})[parcela] = float(kwh)
     # por inversor: medido e esperado nos MESMOS instantes (a regua do rollup), parcelas do perda_dia, status pelos eventos
-    por_inv = {int(r[0]): (float(r[1]), float(r[2])) for r in _q(conn,
-        "SELECT s.equipamento_id, sum(s.v)*0.25, sum(x.p_esperado_kw)*0.25 FROM (SELECT date_bin('15 minutes', l.ts, TIMESTAMPTZ '2000-01-01') b, "
-        "l.equipamento_id, avg(l.valor) v FROM leitura l JOIN equipamento e ON e.id=l.equipamento_id WHERE e.usina_id=%s AND e.tipo='inversor' "
-        "AND l.medida='p_ac' AND l.ts >= %s AND l.ts < %s GROUP BY 1, 2) s JOIN esperado x ON x.equipamento_id=s.equipamento_id AND x.ts=s.b "
-        "AND x.modelo_id=%s AND x.p_esperado_kw IS NOT NULL GROUP BY 1", (usina_id, ini, fim, mid))} if mid else {}
+    por_inv: dict[int, tuple[float, float]] = {}
+    if not pac.empty and not esp.empty:
+        j = pac.merge(esp, on=["eq", "b"], how="inner")
+        for eid, g in j.groupby("eq"):
+            por_inv[int(eid)] = (float(g["v"].sum() * H), float(g["e"].sum() * H))
     ev_por_eq: dict[int, str] = {}
     for e in eventos:
         if e["equipamento_id"] and e["tipo"] in ("inversor_parado", "inversor_abaixo"):
             ev_por_eq.setdefault(e["equipamento_id"], "parado" if e["tipo"] == "inversor_parado" else "abaixo")
     inversores = []
     for eid, nome, at in _q(conn, "SELECT id, coalesce(nome_exibicao, codigo_fonte), atributos FROM equipamento WHERE usina_id=%s AND tipo='inversor' AND ativo "
-                                  "ORDER BY (atributos->>'numero')::int NULLS LAST, codigo_fonte", (usina_id,)):
-        med, esp = por_inv.get(int(eid), (None, None))
-        razao = (med / esp) if esp else None
+                                  "ORDER BY CAST(json_extract(atributos, '$.numero') AS INTEGER), codigo_fonte", (usina_id,)):
+        med, esp_i = por_inv.get(int(eid), (None, None))
+        razao = (med / esp_i) if esp_i else None
         p = perdas.get(int(eid), {})
         status = ev_por_eq.get(int(eid)) or ("sem_dado" if razao is None else "atencao" if razao < 0.9 else "ok")
-        inversores.append({"id": int(eid), "nome": nome, "kwp": (at or {}).get("kwp"), "medido_kwh": med, "esperado_kwh": esp, "razao": razao,
+        inversores.append({"id": int(eid), "nome": nome, "kwp": (at or {}).get("kwp"), "medido_kwh": med, "esperado_kwh": esp_i, "razao": razao,
                            "inv_parado": p.get("inv_parado", 0.0), "tracker": p.get("tracker", 0.0), "string": p.get("string", 0.0),
                            "residuo": p.get("residuo", 0.0), "status": status})
 
@@ -245,11 +286,11 @@ def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
                   (usina_id, tipo, parcela, mid, hoje, n)) if mid else []
         return [{"id": int(r[0]), "nome": r[1], "pai_id": r[2], "kwh": float(r[3])} for r in rows]
 
-    razao_dia = _q(conn, "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY p.valor / g.valor) FROM leitura p JOIN leitura g ON g.equipamento_id=p.equipamento_id "
-                         "AND g.ts=p.ts AND g.medida='ghi' JOIN equipamento e ON e.id=p.equipamento_id WHERE e.usina_id=%s AND e.tipo='estacao' AND p.medida='poa' "
-                         "AND g.valor > 100 AND p.ts >= %s AND p.ts < %s", (usina_id, ini, fim))
-    sensor = {"razao_poa_ghi": (float(razao_dia[0][0]) if razao_dia and razao_dia[0][0] is not None else None),
-              "cobertura_gate": (casc["cobertura_gate"] if casc else None), "gate_hoje": _gate_hoje(conn, usina_id, ini, fim),
+    pares = _q(conn, "SELECT p.valor, g.valor FROM leitura p JOIN leitura g ON g.equipamento_id=p.equipamento_id AND g.ts=p.ts AND g.medida='ghi' "
+                     "WHERE p.medida='poa' AND g.valor > 100 AND p.ts >= %s AND p.ts < %s "
+                     "AND p.equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s AND tipo='estacao')", (ini, fim, usina_id))
+    razao_dia = float(np.median([a / b for a, b in pares])) if pares else None
+    sensor = {"razao_poa_ghi": razao_dia, "cobertura_gate": (casc["cobertura_gate"] if casc else None), "gate_hoje": _gate_hoje(conn, usina_id, ini, fim),
               "trackers_sem_inversor": (casc["trackers_sem_inversor"] if casc else None)}
     return {"agora": agora.isoformat(), "ciclo": _ciclo(conn), "cabecalho": cabecalho, "curva": curva, "cascata": casc, "preco_mwh": preco,
             "perda_brl": ((max(0.0, casc["delta"]) / 1000.0 * preco) if (casc and preco) else None), "eventos": eventos, "inversores": inversores,
@@ -257,18 +298,19 @@ def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
 
 
 def saude(conn, cfg, agora: dt.datetime) -> dict:
-    """/healthz: por fonte o ultimo ciclo (idade, status, cobertura), SunOp hoje / teto, ultimo modelar, banco, e a
-    validade do token de API da SunOp (alarme 30 dias antes)."""
+    """/healthz: por fonte o ultimo ciclo (idade, status, cobertura), SunOp hoje / teto, ultimo modelar, banco, a
+    publicacao no workbook e a validade do token de API da SunOp (alarme 30 dias antes)."""
     fontes = {}
     try:
-        rows = _q(conn, "SELECT DISTINCT ON (fonte) fonte, criado_em, status, cobertura, n_requisicoes FROM ingest_run ORDER BY fonte, criado_em DESC")
+        rows = _q(conn, "SELECT fonte, criado_em, status, cobertura FROM ingest_run WHERE id IN (SELECT max(id) FROM ingest_run GROUP BY fonte)")
         banco = True
     except Exception as e:                  # noqa: BLE001 — sem banco a resposta e o proprio diagnostico
         return {"ok": False, "banco": False, "erro": f"{type(e).__name__}: {e}"[:200], "agora": agora.isoformat()}
-    for fonte, em, status, cob, nreq in rows:
+    for fonte, em, status, cob in rows:
         fontes[fonte] = {"ultimo": em.isoformat(), "idade_min": _min(agora, em), "status": status, "cobertura": float(cob)}
-    hoje = _q(conn, "SELECT coalesce(sum(n_requisicoes),0) FROM ingest_run WHERE fonte LIKE 'sunop%%' AND (criado_em AT TIME ZONE 'UTC')::date = %s",
-              (agora.astimezone(dt.timezone.utc).date(),))
+    dia0 = dt.datetime.combine(agora.astimezone(dt.timezone.utc).date(), dt.time.min, tzinfo=dt.timezone.utc)
+    hoje = _q(conn, "SELECT coalesce(sum(n_requisicoes),0) FROM ingest_run WHERE fonte LIKE 'sunop%%' AND criado_em >= %s AND criado_em < %s",
+              (dia0, dia0 + dt.timedelta(days=1)))
     sunop_hoje = int(hoje[0][0]) if hoje else 0
     ciclo = _ciclo(conn)
     exp = exp_do_jwt(getattr(cfg, "sunop_token", "") or "")

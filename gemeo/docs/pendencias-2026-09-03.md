@@ -13,12 +13,12 @@ Cada item abaixo diz **o que falta** e **o que é preciso** para resolver.
 
 | # | Pendência | O que é preciso |
 |---|---|---|
-| A1 | **Schema no PostgreSQL existente.** Levi pediu ao DBA em 03/09 o schema `digital twins` no banco `powerplants` do Thopen (PostgreSQL 17.7, com TimescaleDB). Conferido às 12:40 UTC: o schema ainda não existe e `levi.maia` não tem CREATE no banco | O DBA precisa criar o schema com nome **sem espaço** (`digital_twins`) e dar `USAGE, CREATE` ao usuário do gêmeo (SQL pronto em `deploy/README.md`). Depois: `GEMEO_DB_SCHEMA=digital_twins` no `gemeo.env` e `gemeo migrate`, que confere a permissão e imprime o GRANT se faltar. O PostgreSQL 16 próprio deixa de ser necessário. |
+| A1 | ~~Schema no PostgreSQL existente~~ **Resolvido em 03/09 (tarde)**: a pedido do Levi (\"para não termos que depender dele\"), o gêmeo passou a usar **SQLite embutido** — um arquivo fora do OneDrive (`%LOCALAPPDATA%\GridCo\gemeo\gemeo.sqlite` ou `[db] caminho`). Sem servidor, sem schema, sem DBA. Os 13 testes de banco que só rodavam na CI passaram a rodar em qualquer máquina | Nada a pedir ao DBA; o pedido do schema `digital_twins` pode ser cancelado. `psycopg2` continua só para LER o `powerplants` do Thopen quando houver usina de fonte `pg`. |
 | A2 | ~~Testes de banco nunca rodaram~~ **Resolvido em 03/09**: a CI do PR #20 rodou os 11 testes de banco (migrações, upsert, job, calibrar, consultas) — 102 passed | Manter a CI verde a cada PR; localmente basta definir `GEMEO_TEST_DSN`. |
-| A3 | Segredos `SECRETS_DIR/gemeo.env` | `GEMEO_DB_DSN` (com o schema no `powerplants`, é o mesmo valor de `POWERPLANTS_DSN`), `GEMEO_DB_SCHEMA=digital_twins`, `POWERPLANTS_DSN`, `SUNOP_API_TOKEN`, `GRIDCO_SQL_TOKEN`, `GEMEO_SENHA` (gerar uma senha nova). Pasta fora do OneDrive. Modelo em `deploy/README.md`. |
+| A3 | Segredos `SECRETS_DIR/gemeo.env` | Obrigatórios: `SUNOP_API_TOKEN`, `GRIDCO_SQL_TOKEN`, `GEMEO_SENHA`. Opcionais: `GEMEO_DB_CAMINHO` (caminho do SQLite) e `POWERPLANTS_DSN` (só com usina de fonte pg). Já criado nesta máquina em `C:\Users\Levi Maia\gemeo-secrets\gemeo.env`. Modelo em `deploy/README.md`. |
 | A4 | **Token de API da SunOp** (o de `/data`, validade ~1 ano) | Pedir à SunOp. A plataforma usa o token web de 7 dias, que não serve para um serviço contínuo. O `/healthz` alarma 30 dias antes de vencer; a troca é humana e anual. |
 | A5 | Rede do servidor | Saída para `44.214.183.214:5432` (PostgreSQL `powerplants`), `gridco-api.sunop.net`, `axis-api.sunop.net`, `app.gridco.com.br`. |
-| A6 | Tarefas agendadas, backup e monitor | `deploy/instalar_tarefas.ps1` (3 tarefas), `deploy/backup.ps1 -Schema digital_twins` agendado (pg_dump só do schema, diário, 14 dias), monitor externo apontando para `/gemeo/healthz` (Teams). |
+| A6 | Tarefas agendadas, backup e monitor | `deploy/instalar_tarefas.ps1` (3 tarefas), `deploy/backup.ps1` agendado (cópia consistente do arquivo SQLite, diária, 14 dias), monitor externo apontando para `/gemeo/healthz` (Teams). |
 | A7 | **Reinício da plataforma** para o proxy `/gemeo/*` existir | O `app.py` já tem a rota, mas o processo no ar não foi reiniciado (de propósito). No `tokens.txt`: `GEMEO_SENHA=<mesma do gemeo.env>`; reiniciar no próximo horário da T.I. Até lá a entrada "Gêmeo Digital" do menu fica escondida (só aparece quando `/gemeo/healthz` responde). |
 | A8 | Repositório `Grid-Co-CODE/gemeo` | Criar (Levi/T.I.). O pacote `gemeo/` é autocontido; levar junto `.github/workflows/gemeo-ci.yml` (hoje na raiz deste repositório). |
 | A9 | ~~Merge do PR #20~~ **Resolvido em 03/09**: mesclado na `main` (commit `0c588cf`, 22 commits, CI verde) | Nada a fazer. A `main` é a referência para o deploy: `git pull` no servidor traz o gêmeo e o proxy. |
@@ -45,7 +45,7 @@ Cada item abaixo diz **o que falta** e **o que é preciso** para resolver.
 | C4 | Perda por tracker é aproximação (cosseno × fração direta de Erbs, sem geometria) | Serve para ordenar e detectar, não para valorar. Geometria entra pelo Nível 1 (cadastro físico), fora do piloto. |
 | C5 | Tracker mudo há mais de 6 h vira dado ausente (não perda) | Regra da spec; conferir com a Performance se 6 h é o limite certo. |
 | C6 | Universo de strings instaladas vem dos últimos 30 dias de leitura | Nos primeiros 30 dias de uma usina nova o universo é só a janela carregada (string morta o tempo todo não aparece). |
-| C7 | Volume de `esperado` (3 dias × 96 slots × inversores a cada 15 min) | Ok para o piloto; acima de ~10 usinas, `leitura` e `esperado` viram hypertable TimescaleDB (spec §6). |
+| C7 | Volume: `leitura` tem ~70 mil linhas/dia por usina como a MRO100 (a MTS100, com 522 trackers, mais que isso), agora em SQLite | Ok para as 4 usinas do piloto com retenção de 90 dias (alguns GB). Acima de ~10 usinas, medir; a saída é particionar por mês em arquivos ou voltar a um servidor. |
 
 ## D. SunOp
 

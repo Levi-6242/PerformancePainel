@@ -4,12 +4,12 @@ pasta sincronizada). Dois arquivos, dois donos — a mesma separação que a pla
 o tokens.txt e o tokens_runtime.json se pisarem."""
 from __future__ import annotations
 import os
-import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
-SEGREDOS = ("GEMEO_DB_DSN", "POWERPLANTS_DSN", "SUNOP_API_TOKEN", "GRIDCO_SQL_TOKEN", "GEMEO_SENHA")
+SEGREDOS = ("SUNOP_API_TOKEN", "GRIDCO_SQL_TOKEN", "GEMEO_SENHA")
+OPCIONAIS = ("POWERPLANTS_DSN", "GEMEO_DB_CAMINHO")   # POWERPLANTS so para usinas de fonte pg; caminho do SQLite tem padrao
 
 
 class SegredoAusente(RuntimeError):
@@ -18,7 +18,7 @@ class SegredoAusente(RuntimeError):
 
 @dataclass(frozen=True)
 class Config:
-    db_dsn: str
+    db_caminho: Path
     powerplants_dsn: str
     sunop_token: str
     bd_api_token: str
@@ -34,7 +34,6 @@ class Config:
     cache_dir: Path
     sunop_base: str = "https://gridco-api.sunop.net"
     bd_api_base: str = "https://app.gridco.com.br/db_performace"
-    db_schema: str = "gemeo"     # schema do gemeo no PostgreSQL; num banco compartilhado o DBA cria com o nome dele (ex.: digital_twins)
     publicar_ativo: bool = True                 # ao fim do `gemeo modelar`, sincroniza o workbook da API da Performance
     publicar_workbook: str = "gemeo_digital"
     publicar_dias: int = 90                     # cascata_dia, perda_dia e evento: so os ultimos N dias vao para o workbook
@@ -57,26 +56,28 @@ def carregar(caminho_config: Path | None = None, secrets_dir: Path | None = None
     caminho_config = Path(caminho_config or os.environ.get("GEMEO_CONFIG", "config.toml"))
     secrets_dir = Path(secrets_dir or os.environ.get("SECRETS_DIR", caminho_config.parent))
     t = tomllib.loads(caminho_config.read_text(encoding="utf-8"))
-    env = {**_ler_env(secrets_dir / "gemeo.env"), **{k: v for k, v in os.environ.items() if k in SEGREDOS}}
+    env = {**_ler_env(secrets_dir / "gemeo.env"), **{k: v for k, v in os.environ.items() if k in SEGREDOS + OPCIONAIS}}
     faltam = [k for k in SEGREDOS if not env.get(k)]
     if faltam:
         raise SegredoAusente(f"faltam em {secrets_dir / 'gemeo.env'}: {', '.join(faltam)}")
     cache = Path(t.get("caminhos", {}).get("cache_dir", "cache"))
     if not cache.is_absolute():
         cache = (caminho_config.parent / cache)
-    # schema: ambiente > gemeo.env > config.toml > 'gemeo'. Identificador estrito: 'digital twins' com espaco exigiria
-    # aspas em todo lugar (search_path, particoes, pg_dump) — o DBA renomeia com ALTER SCHEMA, e mais barato que suportar
-    schema = (os.environ.get("GEMEO_DB_SCHEMA") or env.get("GEMEO_DB_SCHEMA") or t.get("db", {}).get("schema") or "gemeo").strip()
-    if not re.fullmatch(r"[a-z_][a-z0-9_]*", schema):
-        raise ValueError(f"GEMEO_DB_SCHEMA invalido: {schema!r} — minusculas, digitos e _ (ex.: digital_twins), sem espaco")
+    # banco: SQLite embutido (03/09/2026). Caminho: ambiente > gemeo.env > [db] caminho > %LOCALAPPDATA%/GridCo/gemeo — sempre
+    # FORA de pasta sincronizada (OneDrive + SQLite = lock preso e arquivo subido pela metade)
+    bruto = env.get("GEMEO_DB_CAMINHO") or t.get("db", {}).get("caminho") or ""
+    if bruto:
+        caminho_db = Path(os.path.expandvars(os.path.expanduser(bruto)))
+    else:
+        base = os.environ.get("LOCALAPPDATA") or str(Path.home() / ".local" / "share")
+        caminho_db = Path(base) / "GridCo" / "gemeo" / "gemeo.sqlite"
     return Config(
-        db_dsn=env["GEMEO_DB_DSN"], powerplants_dsn=env["POWERPLANTS_DSN"],
+        db_caminho=caminho_db, powerplants_dsn=env.get("POWERPLANTS_DSN", ""),
         sunop_token=env["SUNOP_API_TOKEN"], bd_api_token=env["GRIDCO_SQL_TOKEN"], senha_app=env["GEMEO_SENHA"],
         usinas_piloto=tuple(t["usinas"]["piloto"]), ritmo_min=dict(t["ritmo_min"]),
         teto_sunop_dia=int(t["sunop"]["teto_dia"]), lote_pathnames=int(t["sunop"]["lote"]),
         janela_solar=tuple(t["sunop"]["janela"]), sobreposicao_min=int(t["ingest"]["sobreposicao_min"]),
         grade_min=int(t["modelar"]["grade_min"]), porta_app=int(t["app"]["porta"]), cache_dir=cache.resolve(),
-        db_schema=schema,
         publicar_ativo=bool(t.get("publicar", {}).get("ativo", True)),
         publicar_workbook=str(t.get("publicar", {}).get("workbook", "gemeo_digital")),
         publicar_dias=int(t.get("publicar", {}).get("dias", 90)),

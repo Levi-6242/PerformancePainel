@@ -28,7 +28,7 @@ porta = 5075
 [caminhos]
 cache_dir = "cache"
 """
-ENV = "GEMEO_DB_DSN=postgresql://g:g@localhost/gemeo\nPOWERPLANTS_DSN=postgresql://l:l@h/powerplants\nSUNOP_API_TOKEN=abc\nGRIDCO_SQL_TOKEN=def\nGEMEO_SENHA=s\n"
+ENV = "POWERPLANTS_DSN=postgresql://l:l@h/powerplants\nSUNOP_API_TOKEN=abc\nGRIDCO_SQL_TOKEN=def\nGEMEO_SENHA=s\n"
 
 
 def _monta(tmp_path, env=ENV):
@@ -44,34 +44,28 @@ def test_carrega_config_e_segredos(tmp_path):
     assert cfg.ritmo_min["sunop_lento"] == 60
     assert cfg.teto_sunop_dia == 600 and cfg.lote_pathnames == 600
     assert cfg.janela_solar == ("05:40", "18:20")
-    assert cfg.db_dsn.startswith("postgresql://g:g")
+    assert cfg.db_caminho.name == "gemeo.sqlite" and cfg.powerplants_dsn.startswith("postgresql://l:l")
     assert cfg.sunop_token == "abc" and cfg.senha_app == "s"
     assert cfg.cache_dir == (d / "cache").resolve()
 
 
 def test_segredo_ausente_nomeia_a_chave(tmp_path):
-    d = _monta(tmp_path, env="GEMEO_DB_DSN=x\n")
+    d = _monta(tmp_path, env="SUNOP_API_TOKEN=x\n")
     with pytest.raises(SegredoAusente) as e:
         carregar(d / "config.toml", secrets_dir=d)
-    assert "POWERPLANTS_DSN" in str(e.value)
+    assert "GRIDCO_SQL_TOKEN" in str(e.value) and "GEMEO_SENHA" in str(e.value)
 
 
-def test_schema_vem_do_toml_do_env_ou_do_ambiente(tmp_path, monkeypatch):
+def test_caminho_do_banco_vem_do_toml_do_env_ou_do_padrao(tmp_path, monkeypatch):
     d = _monta(tmp_path)
-    assert carregar(d / "config.toml", secrets_dir=d).db_schema == "gemeo"
-    (d / "config.toml").write_text(TOML + '[db]\nschema = "digital_twins"\n', encoding="utf-8")
-    assert carregar(d / "config.toml", secrets_dir=d).db_schema == "digital_twins"
-    (d / "gemeo.env").write_text(ENV + "GEMEO_DB_SCHEMA=dt_homolog\n", encoding="utf-8")
-    assert carregar(d / "config.toml", secrets_dir=d).db_schema == "dt_homolog"
-    monkeypatch.setenv("GEMEO_DB_SCHEMA", "dt_env")
-    assert carregar(d / "config.toml", secrets_dir=d).db_schema == "dt_env"
-
-
-def test_schema_com_espaco_e_erro_em_voz_alta(tmp_path, monkeypatch):
-    d = _monta(tmp_path)
-    monkeypatch.setenv("GEMEO_DB_SCHEMA", "digital twins")
-    with pytest.raises(ValueError):
-        carregar(d / "config.toml", secrets_dir=d)
+    monkeypatch.delenv("GEMEO_DB_CAMINHO", raising=False)
+    assert carregar(d / "config.toml", secrets_dir=d).db_caminho.parts[-3:] == ("GridCo", "gemeo", "gemeo.sqlite")
+    (d / "config.toml").write_text(TOML + '[db]\ncaminho = "%s"\n' % str(d / "x.sqlite").replace("\\", "/"), encoding="utf-8")
+    assert carregar(d / "config.toml", secrets_dir=d).db_caminho == d / "x.sqlite"
+    (d / "gemeo.env").write_text(ENV + "GEMEO_DB_CAMINHO=%s\n" % str(d / "y.sqlite").replace("\\", "/"), encoding="utf-8")
+    assert carregar(d / "config.toml", secrets_dir=d).db_caminho == d / "y.sqlite"
+    monkeypatch.setenv("GEMEO_DB_CAMINHO", str(d / "z.sqlite"))
+    assert carregar(d / "config.toml", secrets_dir=d).db_caminho == d / "z.sqlite"
 
 
 def test_publicar_tem_padrao_e_le_do_toml(tmp_path):
