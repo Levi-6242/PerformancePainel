@@ -21,7 +21,7 @@ servidor, ao repositório e ao `SECRETS_DIR` (condição do piloto, spec §10).
 - `SunOp no teto: 600` — o gêmeo parou de chamar a SunOp por hoje (teto próprio). Volta sozinho à meia-noite UTC. Se acontecer todo dia, revise `config.toml` (`[sunop] teto_dia`) junto com a Performance.
 - `modelar há N min` — a tarefa não roda. `Get-ScheduledTaskInfo "Gemeo Modelar"` e `logs\modelar.log`.
 - `token SunOp vence em N dias` — troca **humana e anual**: pedir token de API novo à SunOp, colocar em `gemeo.env` (`SUNOP_API_TOKEN`), reiniciar `Gemeo Ingest`.
-- `banco: false` — PostgreSQL local fora. Serviço `postgresql-x64-16` no Windows.
+- `banco: false` — o PostgreSQL onde está o schema não responde. No banco do Thopen (`powerplants`): falar com o DBA; num PostgreSQL próprio: serviço `postgresql-x64-16` no Windows.
 
 ## A usina sumiu da régua
 
@@ -57,6 +57,8 @@ Imprime `calibrado: true/false`. Só a versão calibrada vira ativa (tolerância
 - `alias` manual e `modelo` são os únicos dados insubstituíveis: estão no backup diário.
 
 ## Restaurar backup
+
+O dump tem só o schema do gêmeo (`backup.ps1 -Schema`), então restaurar não toca no resto do banco.
 
 ```
 pg_restore --clean --if-exists --no-owner --dbname=<DSN> D:\Backups\gemeo\gemeo_AAAAMMDD_HHMM.dump

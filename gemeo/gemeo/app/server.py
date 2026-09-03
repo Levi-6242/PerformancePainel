@@ -42,7 +42,7 @@ def criar_app(cfg, conectar=None) -> Flask:
                 g.conn = app.config["CONECTAR"]()
             else:
                 from gemeo.core import db
-                g.conn = db.conectar(cfg.db_dsn)
+                g.conn = db.conectar(cfg.db_dsn, getattr(cfg, "db_schema", "gemeo"))
         return g.conn
 
     @app.teardown_appcontext

@@ -53,7 +53,7 @@ def rodar() -> int:
     from gemeo.core.config import carregar
     import psycopg2
     cfg = carregar()
-    conn = db.conectar(cfg.db_dsn); conn_fonte = psycopg2.connect(cfg.powerplants_dsn)
+    conn = db.conectar(cfg.db_dsn, cfg.db_schema); conn_fonte = psycopg2.connect(cfg.powerplants_dsn)
     hoje = dt.date.today()
     db.garantir_particoes(conn, [hoje, (hoje.replace(day=28) + dt.timedelta(days=4))])
     usinas = usinas_do_piloto(conn, cfg.usinas_piloto)

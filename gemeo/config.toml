@@ -17,5 +17,7 @@ sobreposicao_min = 30
 grade_min = 15
 [app]
 porta = 5070
+[db]
+schema = "gemeo"   # no banco do Thopen o DBA cria "digital_twins": troque aqui ou por GEMEO_DB_SCHEMA no gemeo.env
 [caminhos]
 cache_dir = "cache"

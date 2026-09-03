@@ -145,6 +145,8 @@ sobreposicao_min = 30
 grade_min = 15
 [app]
 porta = 5070
+[db]
+schema = "gemeo"   # no banco do Thopen o DBA cria "digital_twins": troque aqui ou por GEMEO_DB_SCHEMA no gemeo.env
 [caminhos]
 cache_dir = "cache"
 """
@@ -174,6 +176,24 @@ def test_segredo_ausente_nomeia_a_chave(tmp_path):
     with pytest.raises(SegredoAusente) as e:
         carregar(d / "config.toml", secrets_dir=d)
     assert "POWERPLANTS_DSN" in str(e.value)
+
+
+def test_schema_vem_do_toml_do_env_ou_do_ambiente(tmp_path, monkeypatch):
+    d = _monta(tmp_path)
+    assert carregar(d / "config.toml", secrets_dir=d).db_schema == "gemeo"
+    (d / "config.toml").write_text(TOML + '[db]\nschema = "digital_twins"\n', encoding="utf-8")
+    assert carregar(d / "config.toml", secrets_dir=d).db_schema == "digital_twins"
+    (d / "gemeo.env").write_text(ENV + "GEMEO_DB_SCHEMA=dt_homolog\n", encoding="utf-8")
+    assert carregar(d / "config.toml", secrets_dir=d).db_schema == "dt_homolog"
+    monkeypatch.setenv("GEMEO_DB_SCHEMA", "dt_env")
+    assert carregar(d / "config.toml", secrets_dir=d).db_schema == "dt_env"
+
+
+def test_schema_com_espaco_e_erro_em_voz_alta(tmp_path, monkeypatch):
+    d = _monta(tmp_path)
+    monkeypatch.setenv("GEMEO_DB_SCHEMA", "digital twins")
+    with pytest.raises(ValueError):
+        carregar(d / "config.toml", secrets_dir=d)
 
 
 def test_config_e_imutavel(tmp_path):
@@ -236,6 +256,8 @@ sobreposicao_min = 30
 grade_min = 15
 [app]
 porta = 5070
+[db]
+schema = "gemeo"   # no banco do Thopen o DBA cria "digital_twins": troque aqui ou por GEMEO_DB_SCHEMA no gemeo.env
 [caminhos]
 cache_dir = "cache"
 ```
@@ -247,6 +269,7 @@ pasta sincronizada). Dois arquivos, dois donos — a mesma separação que a pla
 o tokens.txt e o tokens_runtime.json se pisarem."""
 from __future__ import annotations
 import os
+import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -276,6 +299,7 @@ class Config:
     cache_dir: Path
     sunop_base: str = "https://gridco-api.sunop.net"
     bd_api_base: str = "https://app.gridco.com.br/db_performace"
+    db_schema: str = "gemeo"     # schema do gemeo no PostgreSQL; num banco compartilhado o DBA cria com o nome dele (ex.: digital_twins)
 
 
 def _ler_env(caminho: Path) -> dict[str, str]:
@@ -302,6 +326,11 @@ def carregar(caminho_config: Path | None = None, secrets_dir: Path | None = None
     cache = Path(t.get("caminhos", {}).get("cache_dir", "cache"))
     if not cache.is_absolute():
         cache = (caminho_config.parent / cache)
+    # schema: ambiente > gemeo.env > config.toml > 'gemeo'. Identificador estrito: 'digital twins' com espaco exigiria
+    # aspas em todo lugar (search_path, particoes, pg_dump) — o DBA renomeia com ALTER SCHEMA, e mais barato que suportar
+    schema = (os.environ.get("GEMEO_DB_SCHEMA") or env.get("GEMEO_DB_SCHEMA") or t.get("db", {}).get("schema") or "gemeo").strip()
+    if not re.fullmatch(r"[a-z_][a-z0-9_]*", schema):
+        raise ValueError(f"GEMEO_DB_SCHEMA invalido: {schema!r} — minusculas, digitos e _ (ex.: digital_twins), sem espaco")
     return Config(
         db_dsn=env["GEMEO_DB_DSN"], powerplants_dsn=env["POWERPLANTS_DSN"],
         sunop_token=env["SUNOP_API_TOKEN"], bd_api_token=env["GRIDCO_SQL_TOKEN"], senha_app=env["GEMEO_SENHA"],
@@ -309,6 +338,7 @@ def carregar(caminho_config: Path | None = None, secrets_dir: Path | None = None
         teto_sunop_dia=int(t["sunop"]["teto_dia"]), lote_pathnames=int(t["sunop"]["lote"]),
         janela_solar=tuple(t["sunop"]["janela"]), sobreposicao_min=int(t["ingest"]["sobreposicao_min"]),
         grade_min=int(t["modelar"]["grade_min"]), porta_app=int(t["app"]["porta"]), cache_dir=cache.resolve(),
+        db_schema=schema,
     )
 ```
 
@@ -336,8 +366,9 @@ def main(argv: list[str] | None = None) -> int:
     a = p.parse_args(argv)
     if a.cmd == "migrate":
         from gemeo.core import db; from gemeo.core.config import carregar
-        cfg = carregar(); conn = db.conectar(cfg.db_dsn)
-        for nome in db.migrar(conn): print("aplicada", nome)
+        cfg = carregar(); conn = db.conectar(cfg.db_dsn, cfg.db_schema)
+        print("schema:", db.schema_status(conn, cfg.db_schema))
+        for nome in db.migrar(conn, schema=cfg.db_schema): print("aplicada", nome)
         return 0
     if a.cmd == "ingest":
         from gemeo.ingest.runner import rodar; return rodar()
@@ -438,6 +469,25 @@ def test_migrar_cria_todas_as_tabelas(conn):
 
 def test_migrar_e_idempotente(conn):
     assert db.migrar(conn) == []          # segunda chamada: nada a aplicar
+
+
+def test_migrar_em_schema_criado_pelo_dba(conn):
+    """Banco compartilhado: o DBA cria o schema e da USAGE+CREATE; migrar nao tenta CREATE SCHEMA e poe as tabelas LA."""
+    with conn.cursor() as cur:
+        cur.execute("DROP SCHEMA IF EXISTS dt_teste CASCADE; CREATE SCHEMA dt_teste")
+    conn.commit()
+    try:
+        assert db.schema_status(conn, "dt_teste")["existe"] and db.migrar(conn, schema="dt_teste") == ["0001_schema.sql"]
+        with conn.cursor() as cur:
+            cur.execute("select count(*) from information_schema.tables where table_schema='dt_teste' "
+                        "and table_name in ('leitura','esperado','evento','schema_migrations')")
+            assert cur.fetchone()[0] == 4
+        assert db.migrar(conn, schema="dt_teste") == []
+        assert db.schema_status(conn, "nao_existe")["existe"] is False
+    finally:
+        with conn.cursor() as cur:
+            cur.execute("DROP SCHEMA IF EXISTS dt_teste CASCADE; SET search_path TO gemeo, public")
+        conn.commit()
 
 
 def test_leitura_tem_chave_natural(conn):
@@ -613,30 +663,59 @@ from pathlib import Path
 from typing import Iterable
 import psycopg2
 import psycopg2.extras
+from psycopg2 import sql
 
 PASTA_MIGRACOES = Path(__file__).resolve().parents[2] / "migrations"
 
 
-def conectar(dsn: str):
-    conn = psycopg2.connect(dsn, options="-c search_path=gemeo,public")
+def conectar(dsn: str, schema: str = "gemeo"):
+    conn = psycopg2.connect(dsn, options=f"-c search_path={schema},public")
     conn.autocommit = False
     return conn
 
 
-def migrar(conn, pasta: Path | None = None) -> list[str]:
-    """Aplica em ordem os .sql ainda nao registrados em schema_migrations. Idempotente."""
-    pasta = pasta or PASTA_MIGRACOES
+def schema_status(conn, schema: str) -> dict:
+    """Existe? Temos USAGE e CREATE nele? CREATE no banco? E o que `gemeo migrate` imprime — e o pedido ao DBA sai daqui."""
     with conn.cursor() as cur:
-        cur.execute("CREATE SCHEMA IF NOT EXISTS gemeo")
-        cur.execute("CREATE TABLE IF NOT EXISTS gemeo.schema_migrations (nome text PRIMARY KEY, aplicada_em timestamptz NOT NULL DEFAULT now())")
-        cur.execute("SELECT nome FROM gemeo.schema_migrations")
+        cur.execute("SELECT 1 FROM pg_namespace WHERE nspname=%s", (schema,))
+        existe = cur.fetchone() is not None
+        cur.execute("SELECT current_user, has_database_privilege(current_user, current_database(), 'CREATE')")
+        usuario, create_db = cur.fetchone()
+        usage = create = False
+        if existe:
+            cur.execute("SELECT has_schema_privilege(current_user, %s, 'USAGE'), has_schema_privilege(current_user, %s, 'CREATE')", (schema, schema))
+            usage, create = cur.fetchone()
+    return {"schema": schema, "existe": existe, "usuario": usuario, "create_no_banco": bool(create_db), "usage": bool(usage), "create": bool(create)}
+
+
+def migrar(conn, pasta: Path | None = None, schema: str = "gemeo") -> list[str]:
+    """Aplica em ordem os .sql ainda nao registrados em schema_migrations. Idempotente. Cria o schema so se ele nao
+    existir E o usuario puder (banco proprio, CI). Num banco compartilhado (powerplants do Thopen) o DBA cria o schema e
+    da USAGE+CREATE, e aqui so se usa — `CREATE SCHEMA IF NOT EXISTS` num schema que ja existe AINDA exige CREATE no
+    banco (o PostgreSQL checa a permissao antes de olhar o IF NOT EXISTS), e levi.maia nao tem."""
+    pasta = pasta or PASTA_MIGRACOES
+    st = schema_status(conn, schema)
+    ident = sql.Identifier(schema)
+    with conn.cursor() as cur:
+        if not st["existe"]:
+            if not st["create_no_banco"]:
+                raise PermissionError(f"schema {schema!r} nao existe e {st['usuario']!r} nao tem CREATE no banco — peca ao DBA: "
+                                      f"CREATE SCHEMA {schema} AUTHORIZATION \"{st['usuario']}\";")
+            cur.execute(sql.SQL("CREATE SCHEMA {}").format(ident))
+        elif not (st["usage"] and st["create"]):
+            raise PermissionError(f"schema {schema!r} existe mas {st['usuario']!r} nao tem USAGE+CREATE nele — peca ao DBA: "
+                                  f"GRANT USAGE, CREATE ON SCHEMA {schema} TO \"{st['usuario']}\";")
+        # as migracoes criam tabelas sem qualificar: o search_path da sessao decide onde elas nascem
+        cur.execute(sql.SQL("SET search_path TO {}, public").format(ident))
+        cur.execute(sql.SQL("CREATE TABLE IF NOT EXISTS {}.schema_migrations (nome text PRIMARY KEY, aplicada_em timestamptz NOT NULL DEFAULT now())").format(ident))
+        cur.execute(sql.SQL("SELECT nome FROM {}.schema_migrations").format(ident))
         feitas = {r[0] for r in cur.fetchall()}
         aplicadas = []
         for arq in sorted(pasta.glob("*.sql")):
             if arq.name in feitas:
                 continue
             cur.execute(arq.read_text(encoding="utf-8"))
-            cur.execute("INSERT INTO gemeo.schema_migrations (nome) VALUES (%s)", (arq.name,))
+            cur.execute(sql.SQL("INSERT INTO {}.schema_migrations (nome) VALUES (%s)").format(ident), (arq.name,))
             aplicadas.append(arq.name)
     conn.commit()
     return aplicadas
@@ -1090,7 +1169,7 @@ def importar(conn, linhas: list[LinhaAlias]) -> dict:
 def rodar_cli(xlsx: str) -> int:
     from gemeo.core import db
     from gemeo.core.config import carregar
-    cfg = carregar(); conn = db.conectar(cfg.db_dsn)
+    cfg = carregar(); conn = db.conectar(cfg.db_dsn, cfg.db_schema)
     print(importar(conn, ler_planilha(Path(xlsx))))
     return 0
 ```
@@ -1984,7 +2063,7 @@ def rodar() -> int:
     from gemeo.core.config import carregar
     import psycopg2
     cfg = carregar()
-    conn = db.conectar(cfg.db_dsn); conn_fonte = psycopg2.connect(cfg.powerplants_dsn)
+    conn = db.conectar(cfg.db_dsn, cfg.db_schema); conn_fonte = psycopg2.connect(cfg.powerplants_dsn)
     hoje = dt.date.today()
     db.garantir_particoes(conn, [hoje, (hoje.replace(day=28) + dt.timedelta(days=4))])
     usinas = usinas_do_piloto(conn, cfg.usinas_piloto)
@@ -3565,7 +3644,7 @@ def rodar_cli(ini: str | None, fim: str | None, usina: str | None) -> int:
     from gemeo.core import db
     from gemeo.core.config import carregar
     from gemeo.ingest.runner import usinas_do_piloto
-    cfg = carregar(); conn = db.conectar(cfg.db_dsn)
+    cfg = carregar(); conn = db.conectar(cfg.db_dsn, cfg.db_schema)
     usinas = usinas_do_piloto(conn, (usina,) if usina else cfg.usinas_piloto)
     if not usinas:
         print("nenhuma usina do piloto no banco — rode `gemeo ingest` (cadastro) primeiro", flush=True)
@@ -3826,7 +3905,7 @@ def rodar_cli(usina: str, dias: int) -> int:
     from gemeo.core import db
     from gemeo.core.config import carregar
     from gemeo.ingest.runner import usinas_do_piloto
-    cfg = carregar(); conn = db.conectar(cfg.db_dsn)
+    cfg = carregar(); conn = db.conectar(cfg.db_dsn, cfg.db_schema)
     usinas = usinas_do_piloto(conn, (usina,))
     if not usinas:
         print(f"usina {usina!r} nao esta no banco", flush=True)
@@ -4501,7 +4580,7 @@ def criar_app(cfg, conectar=None) -> Flask:
                 g.conn = app.config["CONECTAR"]()
             else:
                 from gemeo.core import db
-                g.conn = db.conectar(cfg.db_dsn)
+                g.conn = db.conectar(cfg.db_dsn, cfg.db_schema)
         return g.conn
 
     @app.teardown_appcontext
@@ -5208,21 +5287,23 @@ Write-Host "Pronto. Para iniciar agora: Start-ScheduledTask 'Gemeo Ingest'; Star
 
 ```powershell
 # gemeo/deploy/backup.ps1
-# pg_dump diario do banco gemeo para a pasta que a T.I. ja copia. Guarda 14 dias. ASCII puro (ver instalar_tarefas.ps1).
+# pg_dump diario SO DO SCHEMA do gemeo (o banco e compartilhado com o powerplants do Thopen) para a pasta que a T.I. ja
+# copia. Guarda 14 dias. ASCII puro (ver instalar_tarefas.ps1).
 # Insubstituiveis no banco: modelo (calibracoes) e alias manual; o resto se reconstroi das fontes.
-# Uso: .\backup.ps1 -Destino "D:\Backups\gemeo" -PgDump "C:\Program Files\PostgreSQL\16\bin\pg_dump.exe"
+# Uso: .\backup.ps1 -Destino "D:\Backups\gemeo" -Schema digital_twins -PgDump "C:\Program Files\PostgreSQL\16\bin\pg_dump.exe"
 # O DSN vem de GEMEO_DB_DSN (mesmo valor do gemeo.env) para nao deixar senha em linha de comando.
 param(
   [Parameter(Mandatory = $true)][string]$Destino,
   [string]$PgDump = "pg_dump",
   [string]$Dsn = $env:GEMEO_DB_DSN,
+  [string]$Schema = "gemeo",
   [int]$Dias = 14
 )
 $ErrorActionPreference = "Stop"
 if (-not $Dsn) { throw "Defina GEMEO_DB_DSN (ou passe -Dsn) com o mesmo valor do gemeo.env." }
 New-Item -ItemType Directory -Force $Destino | Out-Null
 $arq = Join-Path $Destino ("gemeo_" + (Get-Date -Format "yyyyMMdd_HHmm") + ".dump")
-& $PgDump --format=custom --no-owner --file=$arq --dbname=$Dsn
+& $PgDump --format=custom --no-owner --schema=$Schema --file=$arq --dbname=$Dsn
 if ($LASTEXITCODE -ne 0) { throw ("pg_dump falhou com codigo " + $LASTEXITCODE) }
 Get-ChildItem $Destino -Filter "gemeo_*.dump" | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-$Dias) } | Remove-Item -Force
 Write-Host ("backup ok: " + $arq)
@@ -5272,7 +5353,19 @@ em `127.0.0.1`. Quem usa chega por **`/gemeo/` na plataforma** (proxy no `app.py
 ## 1. Pré-requisitos
 
 - Python 3.12+ (caminho real do `pythonw.exe`, não o alias da Microsoft Store).
-- **PostgreSQL 16** local: banco `gemeo`, usuário `gemeo` com `CREATE` no banco (o gêmeo cria o schema `gemeo`).
+- **Um schema num PostgreSQL 14 ou mais novo.** Duas formas:
+  - (a) **no banco `powerplants` do Thopen** (PostgreSQL 17.7, com TimescaleDB): o DBA cria o schema e dá permissão ao
+    usuário do gêmeo. Foi o pedido feito em 03/09/2026 (`digital_twins`). O que pedir:
+
+    ```sql
+    CREATE SCHEMA digital_twins AUTHORIZATION "levi.maia";   -- ou o usuário dedicado do gêmeo
+    -- se o schema já existir com outro dono:
+    GRANT USAGE, CREATE ON SCHEMA digital_twins TO "levi.maia";
+    ```
+
+    Nome em minúsculas e sem espaço (`digital_twins`, não `digital twins`). `gemeo migrate` confere e, se faltar
+    permissão, imprime exatamente o GRANT a pedir. `levi.maia` não tem CREATE no banco, e isso é esperado.
+  - (b) um PostgreSQL 16 próprio (banco `gemeo`, usuário com CREATE no banco): o gêmeo cria o schema sozinho.
 - Acesso de rede: `44.214.183.214:5432` (PostgreSQL `powerplants` do Thopen), `gridco-api.sunop.net` e
   `axis-api.sunop.net` (API SunOp), `app.gridco.com.br` (API BD_Performance).
 - Pasta de segredos **fora de qualquer pasta sincronizada** (OneDrive), por exemplo `C:\gemeo-secrets`.
@@ -5288,7 +5381,8 @@ python -m pip install -e ".[dev]"
 `C:\gemeo-secrets\gemeo.env` (uma chave por linha, sem aspas):
 
 ```
-GEMEO_DB_DSN=postgresql://gemeo:<senha>@127.0.0.1:5432/gemeo
+GEMEO_DB_DSN=<DSN do banco onde está o schema; na forma (a) é o MESMO valor de POWERPLANTS_DSN>
+GEMEO_DB_SCHEMA=digital_twins        # nome do schema; sem esta linha vale o [db] schema do config.toml (gemeo)
 POWERPLANTS_DSN=postgresql://<usuario>:<senha>@44.214.183.214:5432/powerplants
 SUNOP_API_TOKEN=<token de API da SunOp — o de /data, validade ~1 ano; NÃO o token web de 7 dias>
 GRIDCO_SQL_TOKEN=<mesmo do tokens.txt da plataforma>
@@ -5301,7 +5395,7 @@ GEMEO_SENHA=<senha compartilhada das telas — a MESMA vai no tokens.txt da plat
 
 ```
 set SECRETS_DIR=C:\gemeo-secrets
-gemeo migrate                       # cria o schema gemeo
+gemeo migrate                       # cria as tabelas no schema (e o schema, se o banco for nosso)
 gemeo inspecionar-cadastro          # imprime os headers das abas do BD_Performance (Info Geral / Info Mensal / BD_Trackers)
 gemeo importar-alias ..\docs\de-para-trackers-supervisorio-fracttal.xlsx
 gemeo ingest                        # deixa rodando alguns minutos e encerre com Ctrl+C: cadastro + primeiras leituras
@@ -5325,7 +5419,7 @@ Start-ScheduledTask "Gemeo Ingest"; Start-ScheduledTask "Gemeo App"; Start-Sched
 Logs em `C:\gemeo\logs\{ingest,modelar,app}.log`. Backup diário (agende às 02:00 na mesma máquina):
 
 ```
-$env:GEMEO_DB_DSN = "<mesmo DSN do gemeo.env>"; .\backup.ps1 -Destino "D:\Backups\gemeo" -PgDump "C:\Program Files\PostgreSQL\16\bin\pg_dump.exe"
+$env:GEMEO_DB_DSN = "<mesmo DSN do gemeo.env>"; .\backup.ps1 -Destino "D:\Backups\gemeo" -Schema digital_twins -PgDump "C:\Program Files\PostgreSQL\16\bin\pg_dump.exe"
 ```
 
 ## 5. Ligar na plataforma
@@ -5370,7 +5464,7 @@ servidor, ao repositório e ao `SECRETS_DIR` (condição do piloto, spec §10).
 - `SunOp no teto: 600` — o gêmeo parou de chamar a SunOp por hoje (teto próprio). Volta sozinho à meia-noite UTC. Se acontecer todo dia, revise `config.toml` (`[sunop] teto_dia`) junto com a Performance.
 - `modelar há N min` — a tarefa não roda. `Get-ScheduledTaskInfo "Gemeo Modelar"` e `logs\modelar.log`.
 - `token SunOp vence em N dias` — troca **humana e anual**: pedir token de API novo à SunOp, colocar em `gemeo.env` (`SUNOP_API_TOKEN`), reiniciar `Gemeo Ingest`.
-- `banco: false` — PostgreSQL local fora. Serviço `postgresql-x64-16` no Windows.
+- `banco: false` — o PostgreSQL onde está o schema não responde. No banco do Thopen (`powerplants`): falar com o DBA; num PostgreSQL próprio: serviço `postgresql-x64-16` no Windows.
 
 ## A usina sumiu da régua
 
@@ -5406,6 +5500,8 @@ Imprime `calibrado: true/false`. Só a versão calibrada vira ativa (tolerância
 - `alias` manual e `modelo` são os únicos dados insubstituíveis: estão no backup diário.
 
 ## Restaurar backup
+
+O dump tem só o schema do gêmeo (`backup.ps1 -Schema`), então restaurar não toca no resto do banco.
 
 ```
 pg_restore --clean --if-exists --no-owner --dbname=<DSN> D:\Backups\gemeo\gemeo_AAAAMMDD_HHMM.dump

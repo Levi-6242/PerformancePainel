@@ -77,6 +77,6 @@ def importar(conn, linhas: list[LinhaAlias]) -> dict:
 def rodar_cli(xlsx: str) -> int:
     from gemeo.core import db
     from gemeo.core.config import carregar
-    cfg = carregar(); conn = db.conectar(cfg.db_dsn)
+    cfg = carregar(); conn = db.conectar(cfg.db_dsn, cfg.db_schema)
     print(importar(conn, ler_planilha(Path(xlsx))))
     return 0

@@ -56,6 +56,24 @@ def test_segredo_ausente_nomeia_a_chave(tmp_path):
     assert "POWERPLANTS_DSN" in str(e.value)
 
 
+def test_schema_vem_do_toml_do_env_ou_do_ambiente(tmp_path, monkeypatch):
+    d = _monta(tmp_path)
+    assert carregar(d / "config.toml", secrets_dir=d).db_schema == "gemeo"
+    (d / "config.toml").write_text(TOML + '[db]\nschema = "digital_twins"\n', encoding="utf-8")
+    assert carregar(d / "config.toml", secrets_dir=d).db_schema == "digital_twins"
+    (d / "gemeo.env").write_text(ENV + "GEMEO_DB_SCHEMA=dt_homolog\n", encoding="utf-8")
+    assert carregar(d / "config.toml", secrets_dir=d).db_schema == "dt_homolog"
+    monkeypatch.setenv("GEMEO_DB_SCHEMA", "dt_env")
+    assert carregar(d / "config.toml", secrets_dir=d).db_schema == "dt_env"
+
+
+def test_schema_com_espaco_e_erro_em_voz_alta(tmp_path, monkeypatch):
+    d = _monta(tmp_path)
+    monkeypatch.setenv("GEMEO_DB_SCHEMA", "digital twins")
+    with pytest.raises(ValueError):
+        carregar(d / "config.toml", secrets_dir=d)
+
+
 def test_config_e_imutavel(tmp_path):
     d = _monta(tmp_path)
     cfg = carregar(d / "config.toml", secrets_dir=d)

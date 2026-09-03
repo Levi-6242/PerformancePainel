@@ -4,6 +4,7 @@ pasta sincronizada). Dois arquivos, dois donos — a mesma separação que a pla
 o tokens.txt e o tokens_runtime.json se pisarem."""
 from __future__ import annotations
 import os
+import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +34,7 @@ class Config:
     cache_dir: Path
     sunop_base: str = "https://gridco-api.sunop.net"
     bd_api_base: str = "https://app.gridco.com.br/db_performace"
+    db_schema: str = "gemeo"     # schema do gemeo no PostgreSQL; num banco compartilhado o DBA cria com o nome dele (ex.: digital_twins)
 
 
 def _ler_env(caminho: Path) -> dict[str, str]:
@@ -59,6 +61,11 @@ def carregar(caminho_config: Path | None = None, secrets_dir: Path | None = None
     cache = Path(t.get("caminhos", {}).get("cache_dir", "cache"))
     if not cache.is_absolute():
         cache = (caminho_config.parent / cache)
+    # schema: ambiente > gemeo.env > config.toml > 'gemeo'. Identificador estrito: 'digital twins' com espaco exigiria
+    # aspas em todo lugar (search_path, particoes, pg_dump) — o DBA renomeia com ALTER SCHEMA, e mais barato que suportar
+    schema = (os.environ.get("GEMEO_DB_SCHEMA") or env.get("GEMEO_DB_SCHEMA") or t.get("db", {}).get("schema") or "gemeo").strip()
+    if not re.fullmatch(r"[a-z_][a-z0-9_]*", schema):
+        raise ValueError(f"GEMEO_DB_SCHEMA invalido: {schema!r} — minusculas, digitos e _ (ex.: digital_twins), sem espaco")
     return Config(
         db_dsn=env["GEMEO_DB_DSN"], powerplants_dsn=env["POWERPLANTS_DSN"],
         sunop_token=env["SUNOP_API_TOKEN"], bd_api_token=env["GRIDCO_SQL_TOKEN"], senha_app=env["GEMEO_SENHA"],
@@ -66,4 +73,5 @@ def carregar(caminho_config: Path | None = None, secrets_dir: Path | None = None
         teto_sunop_dia=int(t["sunop"]["teto_dia"]), lote_pathnames=int(t["sunop"]["lote"]),
         janela_solar=tuple(t["sunop"]["janela"]), sobreposicao_min=int(t["ingest"]["sobreposicao_min"]),
         grade_min=int(t["modelar"]["grade_min"]), porta_app=int(t["app"]["porta"]), cache_dir=cache.resolve(),
+        db_schema=schema,
     )

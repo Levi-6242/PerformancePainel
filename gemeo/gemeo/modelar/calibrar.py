@@ -126,7 +126,7 @@ def rodar_cli(usina: str, dias: int) -> int:
     from gemeo.core import db
     from gemeo.core.config import carregar
     from gemeo.ingest.runner import usinas_do_piloto
-    cfg = carregar(); conn = db.conectar(cfg.db_dsn)
+    cfg = carregar(); conn = db.conectar(cfg.db_dsn, cfg.db_schema)
     usinas = usinas_do_piloto(conn, (usina,))
     if not usinas:
         print(f"usina {usina!r} nao esta no banco", flush=True)

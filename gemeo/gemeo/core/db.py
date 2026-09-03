@@ -7,30 +7,59 @@ from pathlib import Path
 from typing import Iterable
 import psycopg2
 import psycopg2.extras
+from psycopg2 import sql
 
 PASTA_MIGRACOES = Path(__file__).resolve().parents[2] / "migrations"
 
 
-def conectar(dsn: str):
-    conn = psycopg2.connect(dsn, options="-c search_path=gemeo,public")
+def conectar(dsn: str, schema: str = "gemeo"):
+    conn = psycopg2.connect(dsn, options=f"-c search_path={schema},public")
     conn.autocommit = False
     return conn
 
 
-def migrar(conn, pasta: Path | None = None) -> list[str]:
-    """Aplica em ordem os .sql ainda nao registrados em schema_migrations. Idempotente."""
-    pasta = pasta or PASTA_MIGRACOES
+def schema_status(conn, schema: str) -> dict:
+    """Existe? Temos USAGE e CREATE nele? CREATE no banco? E o que `gemeo migrate` imprime — e o pedido ao DBA sai daqui."""
     with conn.cursor() as cur:
-        cur.execute("CREATE SCHEMA IF NOT EXISTS gemeo")
-        cur.execute("CREATE TABLE IF NOT EXISTS gemeo.schema_migrations (nome text PRIMARY KEY, aplicada_em timestamptz NOT NULL DEFAULT now())")
-        cur.execute("SELECT nome FROM gemeo.schema_migrations")
+        cur.execute("SELECT 1 FROM pg_namespace WHERE nspname=%s", (schema,))
+        existe = cur.fetchone() is not None
+        cur.execute("SELECT current_user, has_database_privilege(current_user, current_database(), 'CREATE')")
+        usuario, create_db = cur.fetchone()
+        usage = create = False
+        if existe:
+            cur.execute("SELECT has_schema_privilege(current_user, %s, 'USAGE'), has_schema_privilege(current_user, %s, 'CREATE')", (schema, schema))
+            usage, create = cur.fetchone()
+    return {"schema": schema, "existe": existe, "usuario": usuario, "create_no_banco": bool(create_db), "usage": bool(usage), "create": bool(create)}
+
+
+def migrar(conn, pasta: Path | None = None, schema: str = "gemeo") -> list[str]:
+    """Aplica em ordem os .sql ainda nao registrados em schema_migrations. Idempotente. Cria o schema so se ele nao
+    existir E o usuario puder (banco proprio, CI). Num banco compartilhado (powerplants do Thopen) o DBA cria o schema e
+    da USAGE+CREATE, e aqui so se usa — `CREATE SCHEMA IF NOT EXISTS` num schema que ja existe AINDA exige CREATE no
+    banco (o PostgreSQL checa a permissao antes de olhar o IF NOT EXISTS), e levi.maia nao tem."""
+    pasta = pasta or PASTA_MIGRACOES
+    st = schema_status(conn, schema)
+    ident = sql.Identifier(schema)
+    with conn.cursor() as cur:
+        if not st["existe"]:
+            if not st["create_no_banco"]:
+                raise PermissionError(f"schema {schema!r} nao existe e {st['usuario']!r} nao tem CREATE no banco — peca ao DBA: "
+                                      f"CREATE SCHEMA {schema} AUTHORIZATION \"{st['usuario']}\";")
+            cur.execute(sql.SQL("CREATE SCHEMA {}").format(ident))
+        elif not (st["usage"] and st["create"]):
+            raise PermissionError(f"schema {schema!r} existe mas {st['usuario']!r} nao tem USAGE+CREATE nele — peca ao DBA: "
+                                  f"GRANT USAGE, CREATE ON SCHEMA {schema} TO \"{st['usuario']}\";")
+        # as migracoes criam tabelas sem qualificar: o search_path da sessao decide onde elas nascem
+        cur.execute(sql.SQL("SET search_path TO {}, public").format(ident))
+        cur.execute(sql.SQL("CREATE TABLE IF NOT EXISTS {}.schema_migrations (nome text PRIMARY KEY, aplicada_em timestamptz NOT NULL DEFAULT now())").format(ident))
+        cur.execute(sql.SQL("SELECT nome FROM {}.schema_migrations").format(ident))
         feitas = {r[0] for r in cur.fetchall()}
         aplicadas = []
         for arq in sorted(pasta.glob("*.sql")):
             if arq.name in feitas:
                 continue
             cur.execute(arq.read_text(encoding="utf-8"))
-            cur.execute("INSERT INTO gemeo.schema_migrations (nome) VALUES (%s)", (arq.name,))
+            cur.execute(sql.SQL("INSERT INTO {}.schema_migrations (nome) VALUES (%s)").format(ident), (arq.name,))
             aplicadas.append(arq.name)
     conn.commit()
     return aplicadas

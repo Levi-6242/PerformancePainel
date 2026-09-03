@@ -7,7 +7,19 @@ em `127.0.0.1`. Quem usa chega por **`/gemeo/` na plataforma** (proxy no `app.py
 ## 1. Pré-requisitos
 
 - Python 3.12+ (caminho real do `pythonw.exe`, não o alias da Microsoft Store).
-- **PostgreSQL 16** local: banco `gemeo`, usuário `gemeo` com `CREATE` no banco (o gêmeo cria o schema `gemeo`).
+- **Um schema num PostgreSQL 14 ou mais novo.** Duas formas:
+  - (a) **no banco `powerplants` do Thopen** (PostgreSQL 17.7, com TimescaleDB): o DBA cria o schema e dá permissão ao
+    usuário do gêmeo. Foi o pedido feito em 03/09/2026 (`digital_twins`). O que pedir:
+
+    ```sql
+    CREATE SCHEMA digital_twins AUTHORIZATION "levi.maia";   -- ou o usuário dedicado do gêmeo
+    -- se o schema já existir com outro dono:
+    GRANT USAGE, CREATE ON SCHEMA digital_twins TO "levi.maia";
+    ```
+
+    Nome em minúsculas e sem espaço (`digital_twins`, não `digital twins`). `gemeo migrate` confere e, se faltar
+    permissão, imprime exatamente o GRANT a pedir. `levi.maia` não tem CREATE no banco, e isso é esperado.
+  - (b) um PostgreSQL 16 próprio (banco `gemeo`, usuário com CREATE no banco): o gêmeo cria o schema sozinho.
 - Acesso de rede: `44.214.183.214:5432` (PostgreSQL `powerplants` do Thopen), `gridco-api.sunop.net` e
   `axis-api.sunop.net` (API SunOp), `app.gridco.com.br` (API BD_Performance).
 - Pasta de segredos **fora de qualquer pasta sincronizada** (OneDrive), por exemplo `C:\gemeo-secrets`.
@@ -23,7 +35,8 @@ python -m pip install -e ".[dev]"
 `C:\gemeo-secrets\gemeo.env` (uma chave por linha, sem aspas):
 
 ```
-GEMEO_DB_DSN=postgresql://gemeo:<senha>@127.0.0.1:5432/gemeo
+GEMEO_DB_DSN=<DSN do banco onde está o schema; na forma (a) é o MESMO valor de POWERPLANTS_DSN>
+GEMEO_DB_SCHEMA=digital_twins        # nome do schema; sem esta linha vale o [db] schema do config.toml (gemeo)
 POWERPLANTS_DSN=postgresql://<usuario>:<senha>@44.214.183.214:5432/powerplants
 SUNOP_API_TOKEN=<token de API da SunOp — o de /data, validade ~1 ano; NÃO o token web de 7 dias>
 GRIDCO_SQL_TOKEN=<mesmo do tokens.txt da plataforma>
@@ -36,7 +49,7 @@ GEMEO_SENHA=<senha compartilhada das telas — a MESMA vai no tokens.txt da plat
 
 ```
 set SECRETS_DIR=C:\gemeo-secrets
-gemeo migrate                       # cria o schema gemeo
+gemeo migrate                       # cria as tabelas no schema (e o schema, se o banco for nosso)
 gemeo inspecionar-cadastro          # imprime os headers das abas do BD_Performance (Info Geral / Info Mensal / BD_Trackers)
 gemeo importar-alias ..\docs\de-para-trackers-supervisorio-fracttal.xlsx
 gemeo ingest                        # deixa rodando alguns minutos e encerre com Ctrl+C: cadastro + primeiras leituras
@@ -60,7 +73,7 @@ Start-ScheduledTask "Gemeo Ingest"; Start-ScheduledTask "Gemeo App"; Start-Sched
 Logs em `C:\gemeo\logs\{ingest,modelar,app}.log`. Backup diário (agende às 02:00 na mesma máquina):
 
 ```
-$env:GEMEO_DB_DSN = "<mesmo DSN do gemeo.env>"; .\backup.ps1 -Destino "D:\Backups\gemeo" -PgDump "C:\Program Files\PostgreSQL\16\bin\pg_dump.exe"
+$env:GEMEO_DB_DSN = "<mesmo DSN do gemeo.env>"; .\backup.ps1 -Destino "D:\Backups\gemeo" -Schema digital_twins -PgDump "C:\Program Files\PostgreSQL\16\bin\pg_dump.exe"
 ```
 
 ## 5. Ligar na plataforma

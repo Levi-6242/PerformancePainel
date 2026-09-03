@@ -195,7 +195,7 @@ def rodar_cli(ini: str | None, fim: str | None, usina: str | None) -> int:
     from gemeo.core import db
     from gemeo.core.config import carregar
     from gemeo.ingest.runner import usinas_do_piloto
-    cfg = carregar(); conn = db.conectar(cfg.db_dsn)
+    cfg = carregar(); conn = db.conectar(cfg.db_dsn, cfg.db_schema)
     usinas = usinas_do_piloto(conn, (usina,) if usina else cfg.usinas_piloto)
     if not usinas:
         print("nenhuma usina do piloto no banco — rode `gemeo ingest` (cadastro) primeiro", flush=True)
