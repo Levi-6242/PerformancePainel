@@ -697,7 +697,12 @@ CARTEIRAS = {
         "Coração 2", "Embu Guaçu", "Fazenda Limão", "Fernandópolis", "Indaiatuba", "Junco",
         "Linhares", "Lyon", "Mandaguaçu", "Matão 1", "Matão 2", "Monte Aprazível", "Nova Iguaçu",
         "Nova Londrina", "Paranavaí", "Parelhas", "Poconé 1", "Primavera", "Ribeirão Cascalheiras",
-        "Rodrigues", "Rondonópolis", "Sapopema", "Saturnino 1", "Senador", "Sitio Bonfim",
+        # "Rodrigues" foi APOSENTADA (contador travado em 12.298,3 kWh desde nov/2025) e
+        # substituída por Rodrigues 1 e 2 — ver _ignorar() no fonte_api. A lista ficou com o
+        # nome morto, então as duas novas ficavam com carteira None e o filtro do seletor as
+        # escondia de TODAS as abas: apareciam na API e em nenhum botão. (01/09/2026)
+        "Rodrigues 1", "Rodrigues 2",
+        "Rondonópolis", "Sapopema", "Saturnino 1", "Senador", "Sitio Bonfim",
         "Sitio dos Nogueiras", "Sorocaba", "Tanabi",
         # Coleta iniciada em 07/2026 (dado no BD_Thopen a partir de 31/07); estavam sem carteira.
         "Cipó Guaçu", "Córrego do Sapucaia", "Guatambu", "Jucurutu",
