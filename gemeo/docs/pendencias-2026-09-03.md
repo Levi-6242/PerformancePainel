@@ -21,7 +21,7 @@ Cada item abaixo diz **o que falta** e **o que é preciso** para resolver.
 | A6 | Tarefas agendadas, backup e monitor | `deploy/instalar_tarefas.ps1` (3 tarefas), `deploy/backup.ps1` agendado (pg_dump diário, 14 dias), monitor externo apontando para `/gemeo/healthz` (Teams). |
 | A7 | **Reinício da plataforma** para o proxy `/gemeo/*` existir | O `app.py` já tem a rota, mas o processo no ar não foi reiniciado (de propósito). No `tokens.txt`: `GEMEO_SENHA=<mesma do gemeo.env>`; reiniciar no próximo horário da T.I. Até lá a entrada "Gêmeo Digital" do menu fica escondida (só aparece quando `/gemeo/healthz` responde). |
 | A8 | Repositório `Grid-Co-CODE/gemeo` | Criar (Levi/T.I.). O pacote `gemeo/` é autocontido; levar junto `.github/workflows/gemeo-ci.yml` (hoje na raiz deste repositório). |
-| A9 | Merge do PR #19 | Branch com os commits do gêmeo, do proxy e das otimizações SunOp. Decisão do Levi. |
+| A9 | Merge do PR #20 | 21 commits: gêmeo (Tarefas 1–21), proxy na plataforma, correções da CI. O #19 (spec e otimizações SunOp) já foi mesclado. Decisão do Levi. |
 | A10 | Segunda pessoa com acesso | Repositório, servidor e `SECRETS_DIR`, treinada em `docs/runbook.md` — condição do piloto (spec §10). |
 
 ## B. Dado e cadastro (Performance)
