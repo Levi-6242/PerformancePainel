@@ -42,6 +42,11 @@ class Evento:
     detalhe: dict = field(default_factory=dict)
 
 
+def _finito(v) -> float | None:
+    """NaN nao vai para o banco: o tipo json do PostgreSQL rejeita 'NaN' (a CI achou na razao POA/GHI de um dia sem GHI)."""
+    return float(v) if v is not None and np.isfinite(v) else None
+
+
 def severidade(kwh: float, e_ref: float) -> str:
     """< 1 % do esperado do periodo = leve; ate 5 % = media; acima = grave. Sem esperado nao ha regua: leve."""
     if e_ref <= 0:
@@ -76,7 +81,7 @@ def detectar(grade: Grade, gate_res: Resultado, esp: pd.DataFrame, d: Decomposic
             sl = idx[(dia == dd).values]
             if len(sl):
                 evs.append(Evento("sensor_em_falha" if motivo == "poa_ghi" else "sem_cobertura", None, sl[0], sl[-1] + PASSO, 0.0, "grave",
-                                  {"motivo": motivo, "razao_poa_ghi": gate_res.razao_dia.get(dd)}))
+                                  {"motivo": motivo, "razao_poa_ghi": _finito(gate_res.razao_dia.get(dd))}))
     # inversor parado: >= 90 % dos slots COM SOL parados. Sobre as 96 celulas do dia a fracao nunca passava
     # de 0,4 (a noite entra no denominador) — foi o erro do primeiro ensaio na MRO100
     for eid in d.parado_flag.columns:

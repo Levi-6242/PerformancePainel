@@ -10,7 +10,7 @@ DSN = os.environ.get("GEMEO_TEST_DSN")
 
 
 @pytest.fixture(scope="session")
-def conn():
+def _conn_sessao():
     if not DSN:
         pytest.skip("GEMEO_TEST_DSN nao definido: sem PostgreSQL de teste")
     c = psycopg2.connect(DSN)
@@ -24,3 +24,12 @@ def conn():
     db.migrar(c)
     yield c
     c.close()
+
+
+@pytest.fixture
+def conn(_conn_sessao):
+    """Por teste: rollback antes de entregar e depois de usar — um teste que morre no meio de uma transacao deixa a
+    conexao abortada e derrubaria todos os seguintes (a CI de 03/09 mostrou 3 falhas em cascata por isso)."""
+    _conn_sessao.rollback()
+    yield _conn_sessao
+    _conn_sessao.rollback()

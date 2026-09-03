@@ -25,6 +25,20 @@ PLACA = {"gamma": -0.0035, "perdas_fixas": 0.14, "eta_inv": 0.96, "gate": {}}
 DIAS_CONTEXTO = 3
 
 
+def _json_limpo(obj):
+    """NaN/inf viram null e numeros do numpy viram nativos: o tipo json do PostgreSQL rejeita 'NaN' — a primeira CI
+    com banco real caiu exatamente nisso, num detalhe de evento."""
+    if isinstance(obj, dict):
+        return {k: _json_limpo(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_limpo(v) for v in obj]
+    if isinstance(obj, np.generic):
+        obj = obj.item()
+    if isinstance(obj, float) and not np.isfinite(obj):
+        return None
+    return obj
+
+
 @dataclass(frozen=True)
 class Modelo:
     id: int
@@ -150,7 +164,7 @@ def persistir(conn, usina: UsinaRef, mod: Modelo, grade: Grade, r: gate_mod.Resu
         if perda_rows:
             psycopg2.extras.execute_values(cur, "INSERT INTO perda_dia (equipamento_id, dia, modelo_id, parcela, kwh) VALUES %s", perda_rows)
         ev_rows = [(usina.id, e.equipamento_id, mod.id, e.tipo, e.ini.to_pydatetime(), e.fim.to_pydatetime() if e.fim is not None else None,
-                    e.severidade, float(e.kwh), json.dumps(e.detalhe, default=str)) for e in evs]
+                    e.severidade, float(e.kwh), json.dumps(_json_limpo(e.detalhe), default=str)) for e in evs]
         if ev_rows:
             psycopg2.extras.execute_values(cur, "INSERT INTO evento (usina_id, equipamento_id, modelo_id, tipo, ini, fim, severidade, kwh, detalhe) VALUES %s "
                                                 "ON CONFLICT (usina_id, equipamento_id, tipo, ini) DO UPDATE SET fim=EXCLUDED.fim, "
@@ -199,6 +213,6 @@ def rodar_cli(ini: str | None, fim: str | None, usina: str | None) -> int:
             conn.rollback()
             res = {"usina": u.codigo, "erro": f"{type(e).__name__}: {e}"[:300]}
         resumos.append(res); print(json.dumps(res, ensure_ascii=False), flush=True)
-    db.gravar_estado(conn, "modelar.ultimo", json.dumps({"em": agora.isoformat(), "duracao_s": round(time.time() - t0, 1), "usinas": resumos},
+    db.gravar_estado(conn, "modelar.ultimo", json.dumps(_json_limpo({"em": agora.isoformat(), "duracao_s": round(time.time() - t0, 1), "usinas": resumos}),
                                                          ensure_ascii=False, default=str))
     return 0 if all("erro" not in r for r in resumos) else 1

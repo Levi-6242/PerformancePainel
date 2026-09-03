@@ -396,7 +396,7 @@ DSN = os.environ.get("GEMEO_TEST_DSN")
 
 
 @pytest.fixture(scope="session")
-def conn():
+def _conn_sessao():
     if not DSN:
         pytest.skip("GEMEO_TEST_DSN nao definido: sem PostgreSQL de teste")
     c = psycopg2.connect(DSN)
@@ -410,6 +410,15 @@ def conn():
     db.migrar(c)
     yield c
     c.close()
+
+
+@pytest.fixture
+def conn(_conn_sessao):
+    """Por teste: rollback antes de entregar e depois de usar — um teste que morre no meio de uma transacao deixa a
+    conexao abortada e derrubaria todos os seguintes (a CI de 03/09 mostrou 3 falhas em cascata por isso)."""
+    _conn_sessao.rollback()
+    yield _conn_sessao
+    _conn_sessao.rollback()
 ```
 
 ```python
@@ -2938,6 +2947,11 @@ class Evento:
     detalhe: dict = field(default_factory=dict)
 
 
+def _finito(v) -> float | None:
+    """NaN nao vai para o banco: o tipo json do PostgreSQL rejeita 'NaN' (a CI achou na razao POA/GHI de um dia sem GHI)."""
+    return float(v) if v is not None and np.isfinite(v) else None
+
+
 def severidade(kwh: float, e_ref: float) -> str:
     """< 1 % do esperado do periodo = leve; ate 5 % = media; acima = grave. Sem esperado nao ha regua: leve."""
     if e_ref <= 0:
@@ -2972,7 +2986,7 @@ def detectar(grade: Grade, gate_res: Resultado, esp: pd.DataFrame, d: Decomposic
             sl = idx[(dia == dd).values]
             if len(sl):
                 evs.append(Evento("sensor_em_falha" if motivo == "poa_ghi" else "sem_cobertura", None, sl[0], sl[-1] + PASSO, 0.0, "grave",
-                                  {"motivo": motivo, "razao_poa_ghi": gate_res.razao_dia.get(dd)}))
+                                  {"motivo": motivo, "razao_poa_ghi": _finito(gate_res.razao_dia.get(dd))}))
     # inversor parado: >= 90 % dos slots COM SOL parados. Sobre as 96 celulas do dia a fracao nunca passava
     # de 0,4 (a noite entra no denominador) — foi o erro do primeiro ensaio na MRO100
     for eid in d.parado_flag.columns:
@@ -3381,6 +3395,20 @@ PLACA = {"gamma": -0.0035, "perdas_fixas": 0.14, "eta_inv": 0.96, "gate": {}}
 DIAS_CONTEXTO = 3
 
 
+def _json_limpo(obj):
+    """NaN/inf viram null e numeros do numpy viram nativos: o tipo json do PostgreSQL rejeita 'NaN' — a primeira CI
+    com banco real caiu exatamente nisso, num detalhe de evento."""
+    if isinstance(obj, dict):
+        return {k: _json_limpo(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_json_limpo(v) for v in obj]
+    if isinstance(obj, np.generic):
+        obj = obj.item()
+    if isinstance(obj, float) and not np.isfinite(obj):
+        return None
+    return obj
+
+
 @dataclass(frozen=True)
 class Modelo:
     id: int
@@ -3506,7 +3534,7 @@ def persistir(conn, usina: UsinaRef, mod: Modelo, grade: Grade, r: gate_mod.Resu
         if perda_rows:
             psycopg2.extras.execute_values(cur, "INSERT INTO perda_dia (equipamento_id, dia, modelo_id, parcela, kwh) VALUES %s", perda_rows)
         ev_rows = [(usina.id, e.equipamento_id, mod.id, e.tipo, e.ini.to_pydatetime(), e.fim.to_pydatetime() if e.fim is not None else None,
-                    e.severidade, float(e.kwh), json.dumps(e.detalhe, default=str)) for e in evs]
+                    e.severidade, float(e.kwh), json.dumps(_json_limpo(e.detalhe), default=str)) for e in evs]
         if ev_rows:
             psycopg2.extras.execute_values(cur, "INSERT INTO evento (usina_id, equipamento_id, modelo_id, tipo, ini, fim, severidade, kwh, detalhe) VALUES %s "
                                                 "ON CONFLICT (usina_id, equipamento_id, tipo, ini) DO UPDATE SET fim=EXCLUDED.fim, "
@@ -3555,7 +3583,7 @@ def rodar_cli(ini: str | None, fim: str | None, usina: str | None) -> int:
             conn.rollback()
             res = {"usina": u.codigo, "erro": f"{type(e).__name__}: {e}"[:300]}
         resumos.append(res); print(json.dumps(res, ensure_ascii=False), flush=True)
-    db.gravar_estado(conn, "modelar.ultimo", json.dumps({"em": agora.isoformat(), "duracao_s": round(time.time() - t0, 1), "usinas": resumos},
+    db.gravar_estado(conn, "modelar.ultimo", json.dumps(_json_limpo({"em": agora.isoformat(), "duracao_s": round(time.time() - t0, 1), "usinas": resumos}),
                                                          ensure_ascii=False, default=str))
     return 0 if all("erro" not in r for r in resumos) else 1
 ```
