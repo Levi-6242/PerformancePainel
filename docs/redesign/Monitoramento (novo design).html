@@ -105,7 +105,51 @@ const EP={
 // escolhe sozinho o token da conta que a enxerga (_pv_token_for). Só o recorte da LISTA muda.
 const PLANT={pv:'/api/plant/',pg:'/api/pg/plant/',sunop:'/api/sunop/plant/',axis:'/api/axis/plant/',solaredge:'/api/solaredge/plant/',owen:'/api/owen/strings/plant/',semp:'/api/plant/',alveslima:'/api/plant/'};
 function _urlFor(view,srcChip){ const base=(EP[view]||{})[SKEY[srcChip]]; if(!base) return null; return view==='pr'?base+'?date='+new Date().toISOString().slice(0,10):base; }
-const RD={pv:null,loading:false,na:false,cache:{},plants:{},curva:{},curvaMeta:{},trk:{},trkChart:{},os:{},comments:{},tracking:{},strProb:{},strEv:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},perdas:{},osAtrib:{},_osList:null};
+const RD={pv:null,loading:false,na:false,erro:null,cache:{},plants:{},curva:{},curvaMeta:{},trk:{},trkChart:{},os:{},comments:{},tracking:{},strProb:{},strEv:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},perdas:{},osAtrib:{},_osList:null};
+
+/* ══ BUSCA COM ESPERA LIMITADA ══════════════════════════════════════════════
+   01/09/2026: o Levi abriu as strings da Santana do Ipanema e a tela girou até ele desistir. A
+   usina estava ótima (239 de 240 strings, 24 inversores ligados) — fora estava a API PV, cujo
+   host aceitava a conexão TCP em 61ms e depois não respondia mais nada.
+
+   Faltar `catch` não era o problema: erro de rede o catch pega; resposta que NUNCA CHEGA, não.
+   Os 33 `fetch` deste arquivo não tinham limite nenhum, então `RD.loading` ficava `true` para
+   sempre e o spinner com ele. Todo fetch de dado passa por aqui agora.                        */
+const FETCH_TMO_MS   = 90000;  // 90s. NÃO baixar: a curva histórica de strings mediu 41,5s
+                               // LEGÍTIMOS na Tucano (01/09) — cortar em 45s mataria busca boa.
+const FETCH_LENTO_MS = 10000;  // aos 10s a tela avisa que está demorando, em vez de ficar muda
+
+async function fetchJSON(url, opts){
+  const o=opts||{}, onLento=o.onLento, tmoMs=o.timeout||FETCH_TMO_MS;
+  const init=Object.assign({},o); delete init.onLento; delete init.timeout;
+  const ctrl=new AbortController();
+  // O aviso de "está demorando" é amarrado ao limite, nunca fixo: com um `timeout` menor que
+  // FETCH_LENTO_MS o aviso seria agendado DEPOIS do abort e não apareceria nunca — falha muda,
+  // do mesmo tipo que este helper existe para eliminar. Um teste trava isso.
+  const lentoMs=Math.min(FETCH_LENTO_MS, Math.floor(tmoMs*0.3));
+  const tLento=onLento?setTimeout(function(){ try{onLento();}catch(e){} },lentoMs):null;
+  const tmo=setTimeout(function(){ ctrl.abort(); },tmoMs);
+  try{
+    const r=await fetch(url,Object.assign({},init,{signal:ctrl.signal}));
+    return await r.json();
+  }catch(e){
+    // `fonteFora` separa "ninguém respondeu" de "respondeu vazio". Sem a marca a tela diz
+    // "sem dado" e manda investigar a USINA quando o problema é a FONTE.
+    const err=new Error(e&&e.name==='AbortError'
+      ? 'a fonte não respondeu em '+Math.round(tmoMs/1000)+'s'
+      : 'não consegui falar com a fonte');
+    err.fonteFora=true; err.motivo=(e&&e.name==='AbortError')?'demorou':'rede';
+    throw err;
+  }finally{ clearTimeout(tmo); if(tLento) clearTimeout(tLento); }
+}
+
+function fonteForaHTML(e,oQue){
+  const det=(e&&e.message)?e.message:'a fonte não respondeu';
+  return '<div class="card" style="padding:22px;border-left:3px solid var(--color-warning,#f59e0b)">'
+       + '<div style="font-weight:600;margin-bottom:6px">Não foi possível carregar '+(oQue||'os dados')+'</div>'
+       + '<div class="text-muted" style="font-size:13px">'+det+'. A fonte externa não respondeu — '
+       + 'o dado da usina pode estar normal.<br>Tente <b>Atualizar</b> em alguns minutos.</div></div>';
+}
 function _snum(s){ const d=String(s==null?'':s).replace(/\D/g,''); return d?parseInt(d,10):null; }   // nº da string ("ST 01"→1, "Ipv1"→1, "I_PV9"→9) — casa chips(/plant) × curva(/spv), nomenclaturas diferentes
 function _abaixoMeta(iv){   // conjunto (por NÚMERO) de strings "abaixo": .sub (subperformance por ENERGIA do dia, backend SPV) + último valor da curva < 60% da mediana das ativas (igual _spvAbaixoSet do original)
   const abaixo=new Set();
@@ -132,7 +176,7 @@ async function loadCurva(pid,invId,nome){   // curva corrente-por-string do inve
   else if(sk==='owen') url='/api/2c/'+iso+'/strings/'+encodeURIComponent(pid);                       // 2C: curva de corrente por string (5 min) do banco-por-dia (hoje = pastas ao vivo)
   if(!url){ RD.curva[key]={}; render(); return; }                                                   // solaredge: sem curva
   try{
-    const d=await fetch(url).then(r=>r.json()); const list=d.inversores||[];
+    const d=await fetchJSON(url); const list=d.inversores||[];
     let iv;
     if(sk==='owen'){                                                                                 // 2C vem como {inv,labels,strings:[{id,y}]} → normaliza p/ {curva,strings} igual às outras fontes
       const raw=list.find(x=>String(x.inv)===String(invId))||list[0]||{};
@@ -213,8 +257,8 @@ async function loadCurrent(force){
     if(!su){ RD.pv=null; RD.loading=false; RD.na=true; render(); return; }
     RD.na=false; const ck='strings|'+src;
     if(!force&&RD.cache[ck]){ RD.pv=RD.cache[ck]; RD.loading=false; render(); return; }
-    RD.loading=true; RD.pv=null; render();
-    try{ const d=await fetch(su).then(r=>r.json()); if(state.view!=='curva'||state.source!==src)return; RD.cache[ck]=d; RD.pv=d; RD.loading=false; render(); }
+    RD.loading=true; RD.pv=null; RD.erro=null; render();
+    try{ const d=await fetchJSON(su); if(state.view!=='curva'||state.source!==src)return; RD.cache[ck]=d; RD.pv=d; RD.loading=false; render(); }
     catch(e){ RD.loading=false; render(); }
     return;
   }
@@ -223,9 +267,12 @@ async function loadCurrent(force){
   if(!url){ RD.pv=null; RD.loading=false; RD.na=true; render(); return; }               // vista indisponível nessa fonte (ex.: ETM/Trackers no SolarEdge)
   RD.na=false;
   if(!force&&RD.cache[key]){ RD.pv=RD.cache[key]; RD.loading=false; render(); if(view==='strings'&&RD.pv&&RD.pv.rows) loadMeta(RD.pv); return; }   // do cache, mas SEMPRE reconta OS/comentários ao entrar na aba
-  RD.loading=true; RD.pv=null; render();
+  RD.loading=true; RD.pv=null; RD.erro=null; render();
   try{
-    const d=await fetch(url+(force?(url.includes('?')?'&':'?')+'force=1':'')).then(r=>r.json());
+    const d=await fetchJSON(url+(force?(url.includes('?')?'&':'?')+'force=1':''),
+      // aos 10s a tela para de girar calada e diz que está esperando (Santana do Ipanema, 01/09)
+      {onLento:()=>{ if(state.view===view&&state.source===src){ RD.lento=true; render(); } }});
+    RD.lento=false;
     if(state.view!==view||state.source!==src) return;                                    // trocou de vista/fonte -> ignora resposta velha
     if(d&&d.carregando){ setTimeout(()=>loadCurrent(force),6000); return; }
     RD.cache[key]=d; RD.pv=d; RD.loading=false; render();
@@ -234,7 +281,11 @@ async function loadCurrent(force){
     // isto, "Atualizar" mostrava o dado velho e "não mudava nada" (Embu Guaçu 3 23/07 acusava −39 já
     // resolvido, mas o refresh servia o cache). Re-busca em SILÊNCIO até vir fresco.
     if(d&&d.stale&&!RD._polling){ RD._polling=true; _pollFresco(url,key,view,src).finally(()=>{RD._polling=false;}); }
-  }catch(e){ RD.loading=false; render(); /* sem sessão (preview estático) -> exemplo */ }
+  }catch(e){ RD.loading=false; RD.lento=false;
+             // fonte fora vira AVISO; qualquer outra falha mantém o comportamento antigo
+             // (preview estático sem sessão cai aqui e deve seguir mostrando o exemplo).
+             if(e&&e.fonteFora) RD.erro=e;
+             render(); }
 }
 // Poll silencioso do stale-while-revalidate: re-busca até o servidor entregar dado FRESCO (não-stale),
 // aí atualiza a tela uma vez. Sem spinner, bounded (10×8s ≈ 80s), para se o usuário trocar de vista.
@@ -242,14 +293,14 @@ async function _pollFresco(url,key,view,src){
   for(let n=0;n<10;n++){
     await new Promise(r=>setTimeout(r,8000));
     if(state.view!==view||state.source!==src) return;
-    let f; try{ f=await fetch(url).then(r=>r.json()); }catch(e){ return; }
+    let f; try{ f=await fetchJSON(url); }catch(e){ return; }
     if(state.view!==view||state.source!==src) return;
     if(f&&!f.stale&&!f.carregando){ RD.cache[key]=f; RD.pv=f; render(); if(view==='strings'&&f.rows) loadMeta(f); return; }
   }
 }
 async function loadMeta(d){   // badges por usina: OS (Fracttal, por nome) + comentários (thread por vkey)
   const names=[...new Set((d.rows||[]).map(r=>r.usina).filter(Boolean))];
-  if(names.length){ try{ const os=await fetch('/api/os-performance/counts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usinas:names})}).then(r=>r.json()); if(os&&typeof os==='object')RD.os=os; }catch(e){} }
+  if(names.length){ try{ const os=await fetchJSON('/api/os-performance/counts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usinas:names})}); if(os&&typeof os==='object')RD.os=os; }catch(e){} }
   // /api/state traz comentários, ACOMPANHAMENTO (coluna ACOMP.) e OS atribuídas. O catch aqui
   // engolia a falha EM SILÊNCIO: bastava o servidor reiniciar com a aba aberta para este fetch
   // morrer, o RD.tracking ficar {} e a coluna ACOMP zerar na tela inteira — com o dado intacto no
@@ -258,7 +309,7 @@ async function loadMeta(d){   // badges por usina: OS (Fracttal, por nome) + com
   // que já estava carregado com vazio.
   for(let tent=0;tent<3;tent++){
     try{
-      const st=await fetch('/api/state').then(r=>r.json());
+      const st=await fetchJSON('/api/state');
       if(st&&!st.error){
         if(st.comments_thread)RD.comments=st.comments_thread;
         if(st.tracking)RD.tracking=st.tracking;
@@ -274,7 +325,7 @@ async function loadPlant(pid){
   const cfg=PLANT[SKEY[state.source]]||'/api/plant/', key=state.source+'|'+pid;
   if(RD.plants[key]!==undefined) return;
   RD.plants[key]=null; render();
-  try{ const d=await fetch(cfg+encodeURIComponent(pid)).then(r=>r.json()); RD.plants[key]=d.inversores||[]; }
+  try{ const d=await fetchJSON(cfg+encodeURIComponent(pid)); RD.plants[key]=d.inversores||[]; }
   catch(e){ RD.plants[key]=[]; }
   render();
 }
@@ -348,7 +399,7 @@ function _toast(txt,tipo){
 const _he=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 window.abrirComent=async(vkey,usina)=>{
   state._ckey=vkey; state._cusina=usina; RD._osList=null; _renderComent();
-  try{ const d=await fetch('/api/os-performance?usina='+encodeURIComponent(usina)).then(r=>r.json()); RD._osList=(d&&d.os)||[]; }catch(e){ RD._osList=[]; }
+  try{ const d=await fetchJSON('/api/os-performance?usina='+encodeURIComponent(usina)); RD._osList=(d&&d.os)||[]; }catch(e){ RD._osList=[]; }
   if(state._ckey===vkey) _renderComent();
 };
 window.fecharComent=()=>{ state._ckey=null; const m=document.getElementById('gc-cmodal'); if(m)m.remove(); };
@@ -356,12 +407,12 @@ window.publicarComent=async()=>{
   const ta=document.getElementById('gc-ctxt'), ni=document.getElementById('gc-cnick');
   const texto=((ta&&ta.value)||'').trim(); if(!texto) return;
   const nick=((ni&&ni.value)||'').trim()||'Anônimo';
-  try{ const d=await fetch('/api/state/comment/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:state._ckey,nick,texto})}).then(r=>r.json());
+  try{ const d=await fetchJSON('/api/state/comment/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:state._ckey,nick,texto})});
     if(d&&d.thread) RD.comments[state._ckey]=d.thread; }catch(e){}
   if(ta)ta.value=''; _renderComent(); render();
 };
 window.excluirComent=async(ts)=>{
-  try{ const d=await fetch('/api/state/comment/del',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:state._ckey,ts})}).then(r=>r.json());
+  try{ const d=await fetchJSON('/api/state/comment/del',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:state._ckey,ts})});
     if(d&&d.thread) RD.comments[state._ckey]=d.thread; }catch(e){}
   _renderComent(); render();
 };
@@ -383,7 +434,7 @@ window.gcAtribuirOS=async(pid,invId,invNome,usina,ev)=>{
   ev&&ev.stopPropagation();
   state._osA={pid,invId,invNome,usina,list:null,sel:null};
   _renderOSAtrib();
-  try{ const d=await fetch('/api/os-abertas?usina='+encodeURIComponent(usina)).then(r=>r.json()); if(state._osA)state._osA.list=(d&&d.os)||[]; }
+  try{ const d=await fetchJSON('/api/os-abertas?usina='+encodeURIComponent(usina)); if(state._osA)state._osA.list=(d&&d.os)||[]; }
   catch(e){ if(state._osA)state._osA.list=[]; }
   _renderOSAtrib();
 };
@@ -394,7 +445,7 @@ window.gcConfirmarOS=async()=>{
   const o=a.list[a.sel]; if(!o) return;
   const nick=(localStorage.getItem('gcNick')||'').trim();
   const _had=!!RD.osAtrib[a.pid+'|'+a.invId];   // já tinha OS neste inversor? (substituir não muda a contagem)
-  try{ const d=await fetch('/api/state/os-atribuir',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pid:a.pid,inv_id:a.invId,inv_nome:a.invNome,usina:a.usina,folio:o.folio,ativo:o.ativo,desc:o.desc,criada:o.criada,evento:o.evento,status:o.status,responsavel:o.responsavel,nick})}).then(r=>r.json());
+  try{ const d=await fetchJSON('/api/state/os-atribuir',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pid:a.pid,inv_id:a.invId,inv_nome:a.invNome,usina:a.usina,folio:o.folio,ativo:o.ativo,desc:o.desc,criada:o.criada,evento:o.evento,status:o.status,responsavel:o.responsavel,nick})});
     if(d&&d.rec){ RD.osAtrib[a.pid+'|'+a.invId]=d.rec; if(!_had&&a.usina){ RD.os=RD.os||{}; RD.os[a.usina]=(RD.os[a.usina]||0)+1; } } }catch(e){}   // badge sobe na hora
   gcFecharOSAtrib(); render();
 };
@@ -685,13 +736,13 @@ function _jsq(s){ return esc(s).replace(/['"\\]/g,''); }
 async function _ensureEtmOS(usinas){ const f=SKEY[state.source]; RD.etmOS=RD.etmOS||{};
   if(RD.etmOS[f]!==undefined||!usinas.length) return;
   RD.etmOS[f]=null;
-  try{ const d=await fetch('/api/etm/os',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usinas})}).then(r=>r.json());
+  try{ const d=await fetchJSON('/api/etm/os',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usinas})});
     RD.etmOS[f]=(d&&d.ok&&d.por_usina)||{}; }catch(e){ RD.etmOS[f]={}; }
   render(); }
 /* Modal de histórico: 10 por página (a busca no backend traz até 200 e cacheia; paginar é local). */
 window.abrirEtmHist=async(usina,offset)=>{ offset=offset||0;
   state._graf={t:'etmhist',usina:usina,offset:offset}; _renderEtmHist('load');
-  let d=null; try{ d=await fetch('/api/etm/os/historico?usina='+encodeURIComponent(usina)+'&offset='+offset).then(r=>r.json()); }catch(e){}
+  let d=null; try{ d=await fetchJSON('/api/etm/os/historico?usina='+encodeURIComponent(usina)+'&offset='+offset); }catch(e){}
   if(!state._graf||state._graf.t!=='etmhist'||String(state._graf.usina)!==String(usina)) return;
   _renderEtmHist(d); };
 function _renderEtmHist(d){ const g=state._graf; if(!g)return;
@@ -720,7 +771,7 @@ window.abrirOsEtm=(usina)=>{ const f=SKEY[state.source];
   // de String — foi o caminho errado que o Levi viu em 26/08); modo=etm pede o segmentado ETM.
   location.href='gridos://performance?'+new URLSearchParams({usina:usina,ativo:'Estação Meteorológica',obs:obs,template:'coleta de dados de geracao',modo:'etm',origem:'plataforma-etm'}).toString(); };
 window.abrirEtmChart=async(usina,pid)=>{ const date=_todayISO(); state._graf={t:'etm',usina:usina,pid:pid,date:date}; _renderEtmChart('load');
-  let d=null; const url=_etmChartUrl(pid,usina,date); if(url){ try{ d=await fetch(url).then(r=>r.json()); }catch(e){} }
+  let d=null; const url=_etmChartUrl(pid,usina,date); if(url){ try{ d=await fetchJSON(url); }catch(e){} }
   if(!state._graf||state._graf.t!=='etm'||String(state._graf.usina)!==String(usina)) return; _renderEtmChart(d); };
 function _renderEtmChart(d){ const g=state._graf; if(!g)return;
   let chart, sub='Irradiância (W/m²) ao longo do dia';
@@ -764,7 +815,7 @@ async function _loadTrkChart(pid){
   if(RD.trkChart[key]!==undefined) return;
   RD.trkChart[key]=null; render();
   const base=(EP.trackers||{})[SKEY[state.source]]; let d=null;
-  if(base){ try{ d=await fetch(base+'/'+encodeURIComponent(pid)+'/chart?ini='+ini+'&fim='+fim).then(r=>r.json()); }catch(e){} }
+  if(base){ try{ d=await fetchJSON(base+'/'+encodeURIComponent(pid)+'/chart?ini='+ini+'&fim='+fim); }catch(e){} }
   RD.trkChart[key]=d||{}; render(); }
 window.setTrkGrafIni=(pid,val)=>{ if(!val)return; state.trkGrafIni=val; if(state.trkGrafFim<val)state.trkGrafFim=val; if(_trkDias(state.trkGrafIni,state.trkGrafFim)>5)state.trkGrafFim=_addDias(state.trkGrafIni,4); render(); _loadTrkChart(pid); };
 window.setTrkGrafFim=(pid,val)=>{ if(!val)return; state.trkGrafFim=val; if(val<state.trkGrafIni)state.trkGrafIni=val; if(_trkDias(state.trkGrafIni,state.trkGrafFim)>5)state.trkGrafIni=_addDias(state.trkGrafFim,-4); render(); _loadTrkChart(pid); };
@@ -903,7 +954,7 @@ function _dedupSkid(rows){
   return out;
 }
 async function _ensureEtmGrupos(){ if(RD.etmGrupos!==undefined) return; RD.etmGrupos=null;
-  try{ const d=await fetch('/api/etm/grupos').then(r=>r.json()); RD.etmGrupos=(d&&d.ok&&d.grupos)||{}; }
+  try{ const d=await fetchJSON('/api/etm/grupos'); RD.etmGrupos=(d&&d.ok&&d.grupos)||{}; }
   catch(e){ RD.etmGrupos={}; }
   render(); }
 
@@ -1150,7 +1201,7 @@ async function loadTrk(pid){   // trackers individuais de UMA usina (drill): /ap
   const key=state.source+'|'+pid;
   if(RD.trk[key]!==undefined) return;
   RD.trk[key]=null; render();
-  try{ const d=await fetch(base+'/'+encodeURIComponent(pid)).then(r=>r.json()); RD.trk[key]=(d&&d.trackers)||[]; }
+  try{ const d=await fetchJSON(base+'/'+encodeURIComponent(pid)); RD.trk[key]=(d&&d.trackers)||[]; }
   catch(e){ RD.trk[key]=[]; }
   render();
 }
@@ -1299,7 +1350,7 @@ async function seOpt(pid,invId,uuid){
   RD.opts=RD.opts||{};
   if(RD.opts[uuid]===undefined){
     RD.opts[uuid]='loading'; render();
-    try{ RD.opts[uuid]=await fetch('/api/solaredge/plant/'+pid+'/optimizers/'+encodeURIComponent(uuid)).then(r=>r.json()); }
+    try{ RD.opts[uuid]=await fetchJSON('/api/solaredge/plant/'+pid+'/optimizers/'+encodeURIComponent(uuid)); }
     catch(e){ RD.opts[uuid]={optimizers:[],erro:1}; }
   }
   render();
@@ -1446,16 +1497,16 @@ const _STR_SUB_FONTES=['pv','pg','owen','sunop','axis'];                        
 const _TRK_SUB_FONTES=['pv','pg','sunop','axis','owen'];                           // fontes com endpoints de trackers parados/eventos
 // ── loaders (cacheados por fonte / fonte|dia; force ignora o cache) ──
 async function loadStrProblema(force){ const f=_fonte(); if(!force&&RD.strProb[f]!==undefined)return; RD.strProb[f]=null; render();
-  try{ RD.strProb[f]=await fetch('/api/'+f+'/strings/problema'+(force?'?force=1':'')).then(r=>r.json()); }catch(e){ RD.strProb[f]={rows:[],erro:1}; } render(); }
+  try{ RD.strProb[f]=await fetchJSON('/api/'+f+'/strings/problema'+(force?'?force=1':'')); }catch(e){ RD.strProb[f]={rows:[],erro:1}; } render(); }
 async function loadStrEventos(force){ const f=_fonte(), rg=_evR(), k=f+'|'+rg.ini+'|'+rg.fim;
   if(f==='pg'){ RD.strEv[k]={rows:[],snapshot:true}; render(); return; }
   if(!force&&RD.strEv[k]!==undefined)return; RD.strEv[k]=null; render();
-  try{ RD.strEv[k]=await fetch('/api/'+f+'/strings/eventos?ini='+rg.ini+'&fim='+rg.fim+(force?'&force=1':'')).then(r=>r.json()); }catch(e){ RD.strEv[k]={rows:[],erro:1}; } render(); }
+  try{ RD.strEv[k]=await fetchJSON('/api/'+f+'/strings/eventos?ini='+rg.ini+'&fim='+rg.fim+(force?'&force=1':'')); }catch(e){ RD.strEv[k]={rows:[],erro:1}; } render(); }
 async function loadTrkParados(force){ const f=_fonte(); if(!force&&RD.trkPar[f]!==undefined)return; RD.trkPar[f]=null; render();
-  try{ RD.trkPar[f]=await fetch('/api/'+f+'/trackers/parados'+(force?'?force=1':'')).then(r=>r.json()); }catch(e){ RD.trkPar[f]={rows:[],erro:1}; } render(); }
+  try{ RD.trkPar[f]=await fetchJSON('/api/'+f+'/trackers/parados'+(force?'?force=1':'')); }catch(e){ RD.trkPar[f]={rows:[],erro:1}; } render(); }
 async function loadTrkEventos(force){ const f=_fonte(), rg=_evR(), k=f+'|'+rg.ini+'|'+rg.fim; if(!force&&RD.trkEv[k]!==undefined)return; RD.trkEv[k]=null; render();
-  try{ const [d,par]=await Promise.all([ fetch('/api/'+f+'/trackers/eventos?ini='+rg.ini+'&fim='+rg.fim).then(r=>r.json()),
-      fetch('/api/'+f+'/trackers/parados').then(r=>r.json()).catch(()=>({rows:[]})) ]);
+  try{ const [d,par]=await Promise.all([ fetchJSON('/api/'+f+'/trackers/eventos?ini='+rg.ini+'&fim='+rg.fim),
+      fetchJSON('/api/'+f+'/trackers/parados').catch(()=>({rows:[]})) ]);
     RD.trkEv[k]={rows:d.rows||[],disp:d.disp||{},parSet:new Set((par.rows||[]).map(r=>String(r.usina)+'|'+String(r.tracker)))};
   }catch(e){ RD.trkEv[k]={rows:[],disp:{},parSet:new Set(),erro:1}; } render(); }
 function _loadSub(){ if(state.view==='strings'){ if(state.subfilter==='sem')loadStrProblema(); else if(state.subfilter==='ocor')loadStrEventos(); }
@@ -1485,7 +1536,7 @@ async function loadCurvaView(pid,force){ const f=_fonte(), dia=state.curvaData||
   else if(f==='sunop'||f==='axis') url='/api/'+f+'/curva/'+encodeURIComponent(pid)+'?data='+dia;
   else if(f==='owen') url='/api/2c/'+dia+'/strings/'+encodeURIComponent(pid);
   if(!url){ RD.curvaView[key]=[]; render(); return; }
-  try{ const d=await fetch(url).then(r=>r.json()); let list=d.inversores||[];
+  try{ const d=await fetchJSON(url); let list=d.inversores||[];
     if(f==='owen') list=list.map(raw=>{ const curva={}; (raw.strings||[]).forEach(s=>{curva[String(s.id)]={x:raw.labels||[],y:s.y||[]};});
       const strings=(raw.strings||[]).map(s=>({nome:String(s.id),sub:false,ativa:(s.y||[]).some(v=>v!=null&&v>0.5)}));
       return {nome:'Inversor '+raw.inv, curva, meta:_abaixoMeta({curva,strings}), abaixo:null, strings}; });
@@ -1500,7 +1551,7 @@ window.setCurvaData=v=>{ state.curvaData=v; render(); if(state.curvaPid)loadCurv
 function _gerKey(){ const f=_fonte(); return f+'|'+(state.gerIni||'auto')+'|'+(state.gerFim||'auto'); }
 async function loadGeracao(force){ const f=_fonte(), k=_gerKey(); if(!force&&RD.gerPivo[k]!==undefined)return; RD.gerPivo[k]=null; render();
   const q=[]; if(force)q.push('force=1'); if(state.gerIni&&state.gerFim){ q.push('ini='+state.gerIni); q.push('fim='+state.gerFim); }
-  try{ RD.gerPivo[k]=await fetch('/api/'+f+'/geracao-pivo'+(q.length?'?'+q.join('&'):'')).then(r=>r.json()); }catch(e){ RD.gerPivo[k]={usinas:[],erro:1}; } render(); }
+  try{ RD.gerPivo[k]=await fetchJSON('/api/'+f+'/geracao-pivo'+(q.length?'?'+q.join('&'):'')); }catch(e){ RD.gerPivo[k]={usinas:[],erro:1}; } render(); }
 window.setGerIni=v=>{ if(!v)return; state.gerIni=v; if(!state.gerFim||state.gerFim<v)state.gerFim=v; render(); loadGeracao(); };
 window.setGerFim=v=>{ if(!v)return; state.gerFim=v; if(!state.gerIni||state.gerIni>v)state.gerIni=v; render(); loadGeracao(); };
 window.setGerModo=m=>{ state.gerModo=m; render(); };
@@ -1660,7 +1711,7 @@ async function loadPerda(sub,force){ const f=_fonte(), key=_perdaKey(sub); if(!f
   let url='/api/perdas/'+f+'/'+_PERDA_EP[sub], dia=state.perdaDia||_ontemISO();
   if(sub==='trk-ocor') url+='?mes=1'+(force?'&force=1':'');        /* ocorrências de tracker = MÊS inteiro (base → ontem) */
   else url+=(_perdaTemDia(sub)?'?dia='+dia+(force?'&force=1':''):(force?'?force=1':''));
-  try{ RD.perdas[key]=await fetch(url).then(r=>r.json()); }catch(e){ RD.perdas[key]={rows:[],erro:1}; } render(); }
+  try{ RD.perdas[key]=await fetchJSON(url); }catch(e){ RD.perdas[key]={rows:[],erro:1}; } render(); }
 window.setPerdaSub=id=>{ state.perdaSub=id; _fUfv=''; render(); loadPerda(id); };   // filtro de UFV é por tela; não vaza pra outra sub-aba
 window.setPerdaDia=v=>{ state.perdaDia=v; render(); loadPerda(state.perdaSub); };
 function _perdaBdg(s){ const M={parado:['#ff5b6e','#ff5b6e'],severo:['#ff8f3c','#ff8f3c'],medio:['#ffb43d','#ffb43d'],leve:['#ffd83d','#ffd83d']}[s]||['var(--color-neutral-500)','var(--color-neutral-300)'], l={parado:'Parado',severo:'Severo',medio:'Médio',leve:'Leve'}[s]||s;
@@ -1797,6 +1848,13 @@ function render(){
   const v=computeVals();
   let panel='';
   if(v.showStrings)panel=renderStrings(v); else if(v.showEtm)panel=renderETM(v); else if(v.showGeracao)panel=renderGeracao(); else if(v.showTrackers)panel=renderTrackers(v); else if(v.showPr)panel=renderPR(v); else if(v.showCurva)panel=renderCurva(v); else if(v.showPerdas)panel=renderPerdas();
+  // A fonte não respondeu: o painel vira aviso. Fica DEPOIS do cálculo normal de propósito — as
+  // abas, os chips de fonte e o botão Atualizar continuam desenhados, então dá para trocar de
+  // fonte ou tentar de novo sem recarregar a página.
+  if(RD.erro&&RD.erro.fonteFora) panel=fonteForaHTML(RD.erro,'os dados desta fonte');
+  else if(RD.lento&&RD.loading) panel='<div class="card" style="padding:22px"><div style="font-weight:600;margin-bottom:6px">'
+      +'<i class="ph ph-circle-notch gc-spin" style="margin-right:8px"></i>Ainda esperando a fonte responder…</div>'
+      +'<div class="text-muted" style="font-size:13px">Passou de 10s. Continuo tentando até 90s — depois disso aviso aqui.</div></div>';
   document.getElementById('app').innerHTML=`
   <div style="min-height:100vh;background:var(--color-bg);padding-bottom:80px">
     <div style="position:sticky;top:0;z-index:40;background:color-mix(in srgb, var(--color-bg) 88%, transparent);backdrop-filter:blur(12px);border-bottom:1px solid var(--color-divider)">

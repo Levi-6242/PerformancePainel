@@ -241,17 +241,37 @@ _mem = {}            # chave -> {"bytes":…, "versao":…, "ts":…, "abas":…
 _mem_lock = threading.Lock()
 
 
-def carregar(workbook_key: str, forcar: bool = False):
+def versao_em_memoria(workbook_key: str):
+    """Marca de versão da carga atual (`updated_at` da API + versão do gerador), ou None.
+
+    Serve para o chamador saber se uma revalidação MUDOU alguma coisa — comparar antes e depois
+    é mais honesto do que o `carregar` devolver um booleano: ele tem três saídas possíveis
+    (cache válido, revalidado sem mudança, rebaixado) e achatá-las em sim/não esconderia
+    justamente o caso "a API não respondeu e estamos servindo a carga anterior"."""
+    with _mem_lock:
+        ent = _mem.get(workbook_key)
+        return ent["versao"] if ent else None
+
+
+def carregar(workbook_key: str, forcar: bool = False, revalidar: bool = False):
     """Bytes do .xlsx do workbook, de um cache em memória. None se a API não responder e não
     houver carga anterior.
 
     A revalidação é BARATA: uma chamada a /api/workbooks compara o `updated_at`. Só quando a
     fonte mudou é que as dezenas de milhares de linhas são baixadas de novo.
+
+    Três modos, e a diferença entre eles importa:
+      * padrão      — dentro do TTL devolve o cache SEM nem perguntar à API. É o do laço.
+      * revalidar   — pula o atalho do TTL mas mantém a comparação de `updated_at`: pergunta
+                      sempre, rebaixa só se mudou. É o do botão "Atualizar" (02/09/2026), que
+                      precisa ser correto na hora e barato quando não houve alteração.
+      * forcar      — rebaixa incondicionalmente, mesmo sem mudança. Só para depurar; usar isto
+                      no botão faria 25 mil linhas trafegarem a cada clique, à toa.
     """
     with _mem_lock:
         ent = _mem.get(workbook_key)
         agora = time.time()
-        if ent and not forcar and (agora - ent["ts"]) < _MEM_TTL:
+        if ent and not forcar and not revalidar and (agora - ent["ts"]) < _MEM_TTL:
             return ent["bytes"]
         try:
             w = {x.get("key"): x for x in workbooks()}.get(workbook_key)

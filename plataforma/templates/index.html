@@ -1758,6 +1758,61 @@
 </div>
 
 <script>
+/* ══ BUSCA COM ESPERA LIMITADA ══════════════════════════════════════════════
+   Em 01/09/2026 o Levi tentou abrir as strings da Santana do Ipanema e a tela girou até ele
+   desistir. A usina estava ótima (239 de 240 strings, 24 inversores ligados) — quem estava fora
+   era a API PV: o host aceitava a conexão TCP em 61ms e depois não respondia mais nada.
+
+   A causa não era falta de `catch`: era `await fetch()` sem limite. Erro de rede o `catch` pega;
+   resposta que nunca chega, não. Dos 58 `fetch` deste arquivo, só 6 tinham `AbortController` —
+   e, ironia, o MESMO dado no drill (togglePvPlant) tinha o limite, enquanto o painel Curva das
+   strings não tinha. Este helper existe para essa diferença deixar de ser sorte.               */
+const FETCH_TMO_MS   = 90000;  // 90s = o limite que os 6 fetches originais já usavam. NÃO baixar:
+                               // a curva histórica de strings mediu 41,5s LEGÍTIMOS na Tucano
+                               // (01/09) — cortar em 45s mataria busca que estava dando certo.
+const FETCH_LENTO_MS = 10000;  // aos 10s a tela avisa que está demorando, em vez de ficar muda.
+                               // Só garantir o fim não bastava: 90s de spinner calado é a mesma
+                               // experiência ruim, só que com hora marcada.
+
+async function fetchJSON(url, opts){
+  const o = opts || {};
+  const onLento = o.onLento, tmoMs = o.timeout || FETCH_TMO_MS;
+  const init = Object.assign({}, o); delete init.onLento; delete init.timeout;
+  const ctrl = new AbortController();
+  // O aviso de "está demorando" é amarrado ao limite, nunca fixo: com um `timeout` menor que
+  // FETCH_LENTO_MS o aviso seria agendado DEPOIS do abort e não apareceria nunca — falha muda,
+  // do mesmo tipo que este helper existe para eliminar. Um teste trava isso.
+  const lentoMs = Math.min(FETCH_LENTO_MS, Math.floor(tmoMs * 0.3));
+  const tLento = onLento ? setTimeout(function(){ try{ onLento(); }catch(e){} }, lentoMs) : null;
+  const tmo = setTimeout(function(){ ctrl.abort(); }, tmoMs);
+  try{
+    const r = await fetch(url, Object.assign({}, init, {signal: ctrl.signal}));
+    return await r.json();
+  }catch(e){
+    // `fonteFora` separa "ninguém respondeu" de "respondeu vazio". Sem essa marca o render diz
+    // "sem dado", que manda o analista investigar a USINA quando o problema é a FONTE — foi
+    // exatamente o tempo perdido na Santana do Ipanema.
+    const err = new Error(e && e.name === 'AbortError'
+      ? 'a fonte não respondeu em ' + Math.round(tmoMs/1000) + 's'
+      : 'não consegui falar com a fonte');
+    err.fonteFora = true;
+    err.motivo = (e && e.name === 'AbortError') ? 'demorou' : 'rede';
+    throw err;
+  }finally{
+    clearTimeout(tmo); if(tLento) clearTimeout(tLento);
+  }
+}
+
+/* Aviso padrão de fonte fora, para as telas não inventarem cada uma o seu texto. */
+function fonteForaHTML(e, oQue){
+  const det = (e && e.message) ? e.message : 'a fonte não respondeu';
+  return '<div style="padding:10px 14px;background:#fffbeb;color:#92400e;font-size:12px;'
+       + 'border-left:3px solid #f59e0b;border-radius:6px">'
+       + '<b>Não foi possível carregar ' + (oQue || 'os dados') + '</b> — ' + det + '.<br>'
+       + '<span style="font-size:11px">A fonte externa não respondeu; o dado da usina pode estar '
+       + 'normal. Tente <b>↻ Atualizar</b> em alguns minutos.</span></div>';
+}
+
 /* ══ STATE ══════════════════════════════════════════════════════════════════ */
 let primary = 'pv', secondary = 'strings';   // aba "Geral" removida (pedido Levi 07/07) — default = Thopen API PV
 /* ══ TEMA (claro/escuro) — navy #090d18/#161d30, escolha salva no navegador ══ */
@@ -1933,7 +1988,7 @@ function updModalOc(){
 let serverState={verified:new Set(),comments:{},comments_thread:{},tracking:{},manutencao:new Set()};
 async function loadState(){
   try{
-    const d=await fetch('/api/state').then(r=>r.json());
+    const d=await fetchJSON('/api/state');
     serverState.verified=new Set(d.verified||[]);
     serverState.comments=d.comments||{};
     serverState.comments_thread=d.comments_thread||{};
@@ -2031,7 +2086,7 @@ async function abrirComentario(key,usina){
   document.getElementById('modal-coment').classList.add('open');
   setTimeout(()=>document.getElementById('coment-text').focus(),50);
   try{                                               // e sincroniza com o servidor (pega o que outros publicaram)
-    const d=await fetch('/api/state').then(r=>r.json());
+    const d=await fetchJSON('/api/state');
     serverState.comments_thread=d.comments_thread||serverState.comments_thread;
     serverState.comments=d.comments||serverState.comments;
     if(_comentKey===key) _renderThread();            // só re-renderiza se o modal ainda é desta usina
@@ -2042,7 +2097,7 @@ async function abrirComentario(key,usina){
 async function _renderComentOs(usina,key){
   const box=document.getElementById('coment-os'); if(!box) return;
   try{
-    const d=await fetch('/api/os-performance?usina='+encodeURIComponent(usina||'')).then(r=>r.json());
+    const d=await fetchJSON('/api/os-performance?usina='+encodeURIComponent(usina||''));
     if(_comentKey!==key) return;                     // trocou de usina antes de responder → descarta
     const os=(d&&d.os)||[];
     osCount[usina]=os.length; _osCountPaint();       // alinha o selo 🛠️ com a lista fresca desta usina
@@ -2100,7 +2155,7 @@ async function loadPvStr(force){
   if(!force&&loaded.pvs)return;
   const L=document.getElementById('pvs-load'),C=document.getElementById('pvs-cont');
   L.style.display='flex';C.style.display='none';
-  const data=await fetch(force?'/api/data?force=1':'/api/data').then(r=>r.json());
+  const data=await fetchJSON(force?'/api/data?force=1':'/api/data');
   if(data.carregando){   // cache ainda sendo montado em background → re-tenta sozinho
     L.innerHTML='<div class="gc-spinner"></div><p>Primeira coleta das usinas (pode levar ~1 min)... carregando em segundo plano.</p>';
     loaded.pvs=false; window._pvRetry=(window._pvRetry||0)+1;
@@ -2247,9 +2302,23 @@ async function togglePvPlant(r){
   pvExp.add(pid);const t=document.querySelector(`#pv-tbody tr[data-pid="${pid}"]`);if(t)t.querySelector('.chevron').classList.add('open');
   if(pvCache[pid]){_pvDrawInvs(pid,r);return;}
   appendPvLoad(document.getElementById('pv-tbody'),pid);
-  let d,dg; try{ [d,dg]=await Promise.all([fetch(`/api/plant/${pid}`).then(rp=>rp.json()),fetch(`/api/diagnostico/pv/${pid}`).then(rp=>rp.json()).catch(()=>null)]); }catch(e){ d={}; dg=null; }
+  // O diagnóstico é acessório (`.catch(()=>null)`); o detalhe da usina, não. Só o segundo derruba
+  // o drill, e por isso só ele vira aviso — antes os dois viravam "sem strings para detalhar",
+  // que mandava investigar a USINA quando quem estava fora era a FONTE.
+  let d,dg,falha=null;
+  try{ [d,dg]=await Promise.all([fetchJSON(`/api/plant/${pid}`),
+                                 fetchJSON(`/api/diagnostico/pv/${pid}`).catch(()=>null)]); }
+  catch(e){ d={}; dg=null; falha=e; }
   pvCache[pid]=d.inversores||[]; pvDiag[pid]=dg;
   document.querySelectorAll(`[data-pvp="${pid}"]`).forEach(e=>e.remove());
+  if(falha && falha.fonteFora){
+    const tb=document.getElementById('pv-tbody'), tr=document.createElement('tr');
+    tr.dataset.pvp=pid;
+    tr.innerHTML='<td colspan="9" style="padding:6px 36px">'+fonteForaHTML(falha,'os inversores desta usina')+'</td>';
+    insAfterPv(tb,pid,tr);
+    delete pvCache[pid];        // não cacheia falha: reabrir tenta de novo
+    return;
+  }
   if(pvExp.has(pid))_pvDrawInvs(pid,r);
 }
 // Desenha os inversores OU, quando o drill-down vem vazio (usina sem leitura hoje),
@@ -2428,7 +2497,7 @@ async function pvTrancaStr(pid,invId,sid,trancada,cb){
   if(chip&&trancada) chip.className='string-chip s-trancada';
   try{ await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},
        body:JSON.stringify({plant_id:pid,inv_id:invId,string:sid,trancada})}); }catch(e){}
-  try{ const d=await fetch('/api/plant/'+pid).then(r=>r.json()); pvCache[pid]=d.inversores||[]; }catch(e){}
+  try{ const d=await fetchJSON('/api/plant/'+pid); pvCache[pid]=d.inversores||[]; }catch(e){}
   // a curva de strings exclui as trancadas → descarta o cache do gráfico desta usina p/ recomputar:
   // aba Strings (curva por inversor) e aba Curva das strings (painel SPV)
   Object.keys(_pvCurvaCache).forEach(k=>{ if(k.split('|')[0]===String(pid)) delete _pvCurvaCache[k]; });
@@ -2460,7 +2529,7 @@ async function trancaStr(src,pid,invId,sid,trancada,cb){
   const ep=src==='so'?_soBase(pid)+'/plant/':src==='pg'?'/api/pg/plant/':src==='owen'?'/api/owen/strings/plant/':'/api/plant/';
   const cache=src==='so'?soCache:src==='pg'?pgCache:src==='owen'?owenCache:pvCache;
   const rend=src==='so'?renderSoStr:src==='pg'?renderPgStr:src==='owen'?renderOwenStr:renderPvStr;
-  try{ const d=await fetch(ep+encodeURIComponent(pid)+'?force=1').then(r=>r.json()); cache[pid]=d.inversores||[]; }catch(e){}
+  try{ const d=await fetchJSON(ep+encodeURIComponent(pid)+'?force=1'); cache[pid]=d.inversores||[]; }catch(e){}
   // as curvas (SunOp/PG) excluem as trancadas → descarta os caches de gráfico desta usina p/ recomputar:
   // aba Strings (curva por inversor) e aba Curva das strings (painel genérico). OBS: o painel
   // genérico usa 'sunop' (não 'so'). 2C/Owen não tem curva de strings → nada a limpar.
@@ -2492,7 +2561,7 @@ async function trancaInativas(src,pid,invId,btn){
        body:JSON.stringify({plant_id:pid,inv_id:invId,strings:alvo,trancada:true})}); }catch(e){}
   const ep=src==='so'?_soBase(pid)+'/plant/':src==='pg'?'/api/pg/plant/':src==='owen'?'/api/owen/strings/plant/':'/api/plant/';
   const rend=src==='so'?renderSoStr:src==='pg'?renderPgStr:src==='owen'?renderOwenStr:renderPvStr;
-  try{ const d=await fetch(ep+encodeURIComponent(pid)+(src==='pv'?'':'?force=1')).then(r=>r.json()); cache[pid]=d.inversores||[]; }catch(e){}
+  try{ const d=await fetchJSON(ep+encodeURIComponent(pid)+(src==='pv'?'':'?force=1')); cache[pid]=d.inversores||[]; }catch(e){}
   // invalida os caches de curva da usina afetada (mesma régua das funções de trancar individuais)
   if(src==='pv'){ Object.keys(_pvCurvaCache).forEach(k=>{ if(k.split('|')[0]===String(pid)) delete _pvCurvaCache[k]; }); delete spvData[pid]; }
   else if(src==='so'){ Object.keys(_soCurvaCache).forEach(k=>{ if(k.startsWith(String(pid)+'|')) delete _soCurvaCache[k]; }); Object.keys(curvagenCache).forEach(k=>{ if(k.startsWith('sunop|'+pid+'|')) delete curvagenCache[k]; }); }
@@ -2654,7 +2723,11 @@ async function loadSoStr(force){
   if(!force&&loaded.sos)return;
   const L=document.getElementById('sos-load'),C=document.getElementById('sos-cont');
   L.style.display='flex';C.style.display='none';
-  const data=await fetch(force?_soBase()+'/data?force=1':_soBase()+'/data').then(r=>r.json());
+  let data;
+  // A mensagem entra NO PRÓPRIO bloco de carregamento: trocar o innerHTML do container de
+  // conteúdo destruiria a tabela e o ↻ Atualizar não teria mais onde redesenhar.
+  try{ data=await fetchJSON(force?_soBase()+'/data?force=1':_soBase()+'/data'); }
+  catch(e){ L.innerHTML=fonteForaHTML(e,'as usinas desta fonte'); loaded.sos=false; return; }
   soRows=data.rows||[];loaded.sos=true;
   document.getElementById('so-total').textContent=data.summary.total_usinas;
   document.getElementById('so-str').textContent=(data.summary.total_strings||0).toLocaleString('pt-BR');
@@ -2701,7 +2774,14 @@ async function toggleSoPlant(r){
   soExp.add(pid);const t=document.querySelector(`#so-tbody tr[data-pid="${pid}"]`);if(t)t.querySelector('.chevron').classList.add('open');
   if(soCache[pid]){appendSoInvs(document.getElementById('so-tbody'),pid,soCache[pid]);return;}
   appendSoLoad(document.getElementById('so-tbody'),pid);
-  const d=await fetch(`${_soBase(pid)}/plant/${pid}`).then(r=>r.json());soCache[pid]=d.inversores||[];
+  let d;
+  // A linha de "carregando" já está na posição certa; no erro ela VIRA o aviso, em vez de sumir
+  // e deixar o drill aberto e vazio.
+  try{ d=await fetchJSON(`${_soBase(pid)}/plant/${pid}`); }
+  catch(e){ document.querySelectorAll(`[data-sop="${pid}"]`).forEach(el=>{
+              el.innerHTML='<td colspan="9" style="padding:6px 36px">'+fonteForaHTML(e,'os inversores desta usina')+'</td>'; });
+            return; }
+  soCache[pid]=d.inversores||[];
   document.querySelectorAll(`[data-sop="${pid}"]`).forEach(e=>e.remove());
   if(soExp.has(pid))appendSoInvs(document.getElementById('so-tbody'),pid,soCache[pid]);
 }
@@ -2796,7 +2876,9 @@ async function loadSeStr(force){
   if(!force&&loaded.ses)return;
   const L=document.getElementById('ses-load'),C=document.getElementById('ses-cont');
   L.style.display='flex';C.style.display='none';
-  const data=await fetch(force?'/api/solaredge/data?force=1':'/api/solaredge/data').then(r=>r.json());
+  let data;
+  try{ data=await fetchJSON(force?'/api/solaredge/data?force=1':'/api/solaredge/data'); }
+  catch(e){ L.innerHTML=fonteForaHTML(e,'as usinas do SolarEdge'); loaded.ses=false; return; }
   seRows=data.rows||[];loaded.ses=true;
   document.getElementById('se-total').textContent=data.summary.total_usinas;
   document.getElementById('se-str').textContent=(data.summary.total_strings||0).toLocaleString('pt-BR');
@@ -2843,7 +2925,12 @@ async function toggleSePlant(r){
   seExp.add(pid);const t=document.querySelector(`#se-tbody tr[data-pid="${pid}"]`);if(t)t.querySelector('.chevron').classList.add('open');
   if(seCache[pid]){appendSeInvs(document.getElementById('se-tbody'),pid,seCache[pid]);return;}
   appendSeLoad(document.getElementById('se-tbody'),pid);
-  const d=await fetch(`/api/solaredge/plant/${pid}`).then(r=>r.json());seCache[pid]=d.inversores||[];
+  let d;
+  try{ d=await fetchJSON(`/api/solaredge/plant/${pid}`); }
+  catch(e){ document.querySelectorAll(`[data-sep="${pid}"]`).forEach(el=>{
+              el.innerHTML='<td colspan="9" style="padding:6px 36px">'+fonteForaHTML(e,'os inversores desta usina')+'</td>'; });
+            return; }
+  seCache[pid]=d.inversores||[];
   document.querySelectorAll(`[data-sep="${pid}"]`).forEach(e=>e.remove());
   if(seExp.has(pid))appendSeInvs(document.getElementById('se-tbody'),pid,seCache[pid]);
 }
@@ -2890,7 +2977,9 @@ async function loadPgStr(force){
   if(!force&&loaded.pgs)return;
   const L=document.getElementById('pgs-load'),C=document.getElementById('pgs-cont');
   L.style.display='flex';C.style.display='none';
-  const data=await fetch(force?'/api/pg/data?force=1':'/api/pg/data').then(r=>r.json());
+  let data;
+  try{ data=await fetchJSON(force?'/api/pg/data?force=1':'/api/pg/data'); }
+  catch(e){ L.innerHTML=fonteForaHTML(e,'as usinas do banco'); loaded.pgs=false; return; }
   pgRows=data.rows||[];loaded.pgs=true;
   document.getElementById('pg-total').textContent=(data.summary&&data.summary.total_usinas)||0;
   document.getElementById('pg-str').textContent=((data.summary&&data.summary.total_strings)||0).toLocaleString('pt-BR');
@@ -2937,7 +3026,12 @@ async function togglePgPlant(r){
   pgExp.add(pid);const t=document.querySelector(`#pg-tbody tr[data-pid="${pid}"]`);if(t)t.querySelector('.chevron').classList.add('open');
   if(pgCache[pid]){appendPgInvs(document.getElementById('pg-tbody'),pid,pgCache[pid]);return;}
   appendPgLoad(document.getElementById('pg-tbody'),pid);
-  const d=await fetch(`/api/pg/plant/${pid}`).then(r=>r.json());pgCache[pid]=d.inversores||[];
+  let d;
+  try{ d=await fetchJSON(`/api/pg/plant/${pid}`); }
+  catch(e){ document.querySelectorAll(`[data-pgp="${pid}"]`).forEach(el=>{
+              el.innerHTML='<td colspan="9" style="padding:6px 36px">'+fonteForaHTML(e,'os inversores desta usina')+'</td>'; });
+            return; }
+  pgCache[pid]=d.inversores||[];
   document.querySelectorAll(`[data-pgp="${pid}"]`).forEach(e=>e.remove());
   if(pgExp.has(pid))appendPgInvs(document.getElementById('pg-tbody'),pid,pgCache[pid]);
 }
@@ -3034,7 +3128,7 @@ async function loadOwenStr(force){
   document.getElementById('owen-str-cont').style.display='none';
   document.getElementById('owen-str-load').style.display='';
   try{
-    const d=await fetch(force?'/api/owen/strings/data?force=1':'/api/owen/strings/data').then(r=>r.json());
+    const d=await fetchJSON(force?'/api/owen/strings/data?force=1':'/api/owen/strings/data');
     owenStrRows=d.rows||[]; loaded.owstr=true;
     if(force){owenExp.clear();owenInvExp.clear();Object.keys(owenCache).forEach(k=>delete owenCache[k]);}
     setTs(d.cache_ts);
@@ -3098,7 +3192,7 @@ function renderOwenStr(){
 }
 async function toggleOwen(pid){
   if(owenExp.has(pid)) owenExp.delete(pid);
-  else { owenExp.add(pid); if(!owenCache[pid]){ try{owenCache[pid]=(await fetch('/api/owen/strings/plant/'+encodeURIComponent(pid)).then(r=>r.json())).inversores||[];}catch(e){owenCache[pid]=[];} } }
+  else { owenExp.add(pid); if(!owenCache[pid]){ try{owenCache[pid]=(await fetchJSON('/api/owen/strings/plant/'+encodeURIComponent(pid))).inversores||[];}catch(e){owenCache[pid]=[];} } }
   renderOwenStr();
 }
 const _owCurvaCache={};   // (pid|date) -> payload de /api/2c/<date>/strings/<pid>
@@ -3113,7 +3207,7 @@ async function owenCurvaInv(pid, invId, cid, force){
   box.innerHTML='<div class="gc-loading" style="min-height:200px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
   try{
     const ck=pid+'|'+ds;
-    if(!_owCurvaCache[ck]) _owCurvaCache[ck]=await fetch('/api/2c/'+ds+'/strings/'+encodeURIComponent(pid)).then(r=>r.json());
+    if(!_owCurvaCache[ck]) _owCurvaCache[ck]=await fetchJSON('/api/2c/'+ds+'/strings/'+encodeURIComponent(pid));
     const inv=(_owCurvaCache[ck].inversores||[]).find(x=>String(x.inv)===String(invId));
     if(!inv||!(inv.strings||[]).length){ box.innerHTML='<p style="color:var(--muted);padding:14px;font-size:12px">Sem curva de strings para esse inversor em '+ds.split("-").reverse().join("/")+'.</p>'; return; }
     // status/ativa de cada string vem do cache do inversor (mesma cor/critério dos cards)
@@ -3155,7 +3249,9 @@ async function loadEtmAnalise(src, force){
   }
   const L=document.getElementById(c.load),C=document.getElementById(c.cont);
   L.style.display='flex';C.style.display='none';
-  const data=await fetch(force?c.url+'?force=1':c.url).then(r=>r.json());
+  let data;
+  try{ data=await fetchJSON(force?c.url+'?force=1':c.url); }
+  catch(e){ L.innerHTML=fonteForaHTML(e,'a pré-análise de ETM'); loaded[c.flag]=false; return; }
   ANA_ROWS[src]=data.rows||[];loaded[c.flag]=true;
   const s=data.summary||{};
   document.getElementById(c.tot).textContent=s.total||0;
@@ -3301,8 +3397,8 @@ async function loadTrkEventos(silent){
   let d, par;
   try{
     [d, par] = await Promise.all([
-      fetch(`${_trkBase()}/eventos?ini=${ini}&fim=${fim}`).then(r=>r.json()),
-      fetch(`${_trkBase()}/parados`).then(r=>r.json()).catch(()=>({rows:[]}))   // p/ sinalizar "parado agora"
+      fetchJSON(`${_trkBase()}/eventos?ini=${ini}&fim=${fim}`),
+      fetchJSON(`${_trkBase()}/parados`).catch(()=>({rows:[]}))   // p/ sinalizar "parado agora"
     ]);
   }catch(e){ d={rows:[]}; par={rows:[]}; }
   _trkParSet = new Set((par.rows||[]).map(r=>String(r.usina)+'|'+String(r.tracker)));
@@ -3398,7 +3494,7 @@ async function loadStrProblema(force){
   const tb=document.getElementById('str-prob-tbody'); if(!tb) return;
   if(!force && _strProbRows.length && _strProbSrc===primary){ _strProbRender(); return; }
   tb.innerHTML='<tr><td colspan="6" style="padding:14px;color:var(--muted)">Consultando strings…</td></tr>';
-  let d; try{ d=await fetch(_strProbBase()+'/problema'+(force?'?force=1':'')).then(r=>r.json()); }catch(e){ d={rows:[]}; }
+  let d; try{ d=await fetchJSON(_strProbBase()+'/problema'+(force?'?force=1':'')); }catch(e){ d={rows:[]}; }
   if(d.indisponivel){ _strProbRows=[]; _strProbSrc=primary;
     tb.innerHTML='<tr><td colspan="6" style="padding:16px;color:var(--muted)">Lista de strings sem corrente ainda não disponível nesta fonte — use as <b>Ocorrências (caiu → voltou)</b> ao lado.</td></tr>';
     const res=document.getElementById('str-prob-resumo'); if(res) res.textContent=''; return; }
@@ -3445,7 +3541,7 @@ async function loadStrEventos(force){
   if(!force && _strEvRows.length && _strEvSrc===primary && _strEvDate===dia){ _strEvRender(); return; }
   const hoje=dia===_trkHoje(), pvPassado=(primary==='pv'&&!hoje);
   tb.innerHTML=`<tr><td colspan="7" style="padding:14px;color:var(--muted)">Processando as curvas de string ${hoje?'do dia':'de '+dia.slice(8,10)+'/'+dia.slice(5,7)}… ${pvPassado?'(histórico por <b>potência</b> da Plataforma — pode levar alguns minutos)':'(pode levar ~1 min)'}</td></tr>`;
-  let d; try{ d=await fetch(_strProbBase()+'/eventos?ini='+dia+(force?'&force=1':'')).then(r=>r.json()); }catch(e){ d={rows:[]}; }
+  let d; try{ d=await fetchJSON(_strProbBase()+'/eventos?ini='+dia+(force?'&force=1':'')); }catch(e){ d={rows:[]}; }
   _strEvRows=d.rows||[]; _strEvSrc=primary; _strEvDate=dia;
   _strEvRender();
 }
@@ -3478,7 +3574,7 @@ let _trkParRows=[], _trkParAuto=null;
 async function loadTrkParados(silent){
   const tb=document.getElementById('trk-par-tbody'); if(!tb) return;
   if(!silent) tb.innerHTML='<tr><td colspan="10" style="padding:14px;color:var(--muted)">Carregando…</td></tr>';
-  let d; try{ d=await fetch(_trkBase()+'/parados').then(r=>r.json()); }catch(e){ d={rows:[]}; }
+  let d; try{ d=await fetchJSON(_trkBase()+'/parados'); }catch(e){ d={rows:[]}; }
   _trkParRows=d.rows||[];
   _trkParRenderTabela();
 }
@@ -3716,7 +3812,7 @@ async function loadSoTrackers(force, silent){
     document.getElementById('trk-load').innerHTML='<div class="gc-spinner"></div><p>Consultando trackers...</p>';
   }
   try{
-    const d=await fetch(force?base+'?force=1':base).then(r=>r.json());
+    const d=await fetchJSON(force?base+'?force=1':base);
     trkRows=d.rows||[]; loaded.sotrk=true;
     if(force||trkLoadedSrc!==primary){
       // Troca de FONTE: colapsa tudo (os ids expandidos são da fonte antiga). FORCE na MESMA fonte
@@ -3987,7 +4083,7 @@ function _trkCabHd(pid, skid, nome){
 }
 async function _trkCabPreview(pid, skid, nome){
   const cid=_trkCss(pid);
-  if(!trkCache[pid]){ try{ trkCache[pid]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)).then(r=>r.json()); }catch(e){ trkCache[pid]={trackers:[]}; } }
+  if(!trkCache[pid]){ try{ trkCache[pid]=await fetchJSON(_trkBase()+'/'+encodeURIComponent(pid)); }catch(e){ trkCache[pid]={trackers:[]}; } }
   _trkCabHd(pid, skid, nome);
   if(!trkSel[pid]) trkSel[pid]=new Set((trkCache[pid].trackers||[]).map(t=>t.id));
   const mbox=document.getElementById('trk-mini-'+cid), det=document.getElementById('trk-det-'+cid);
@@ -3999,7 +4095,7 @@ async function _trkCabPreview(pid, skid, nome){
   if(!mbox) return;
   mbox.style.display=''; mbox.innerHTML='<div class="gc-loading" style="min-height:140px"><div class="gc-spinner"></div></div>';
   const ckey=pid+'|'+_trkHoje();
-  if(!trkChartCache[ckey]){ try{ trkChartCache[ckey]=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+'/chart').then(r=>r.json()); }catch(e){ trkChartCache[ckey]={trackers:[]}; } }
+  if(!trkChartCache[ckey]){ try{ trkChartCache[ckey]=await fetchJSON(_trkBase()+'/'+encodeURIComponent(pid)+'/chart'); }catch(e){ trkChartCache[ckey]={trackers:[]}; } }
   trkChartCache[pid]=trkChartCache[ckey];
   renderTrkChart(pid, 'trk-mini-'+cid);
 }
@@ -4022,7 +4118,7 @@ function toggleCabineDet(pid){
 async function renderTrkDetail(pid){
   let data=trkCache[pid];
   if(!data){
-    try{ data=await fetch(_trkBase()+'/'+encodeURIComponent(pid)).then(r=>r.json()); trkCache[pid]=data; }
+    try{ data=await fetchJSON(_trkBase()+'/'+encodeURIComponent(pid)); trkCache[pid]=data; }
     catch(e){ data={trackers:[]}; }
   }
   const cell=document.getElementById('trk-det-'+_trkCss(pid));
@@ -4189,7 +4285,7 @@ async function trkChartReload(pid){
   const {ini,fim}=_trkRange(pid), ckey=pid+'|'+ini+'|'+fim;
   const tok=(_trkReloadTok[pid]=(_trkReloadTok[pid]||0)+1);
   let payload;
-  try{ payload=await fetch(_trkChartURL(pid,ini,fim)).then(r=>r.json()); }
+  try{ payload=await fetchJSON(_trkChartURL(pid,ini,fim)); }
   catch(e){ payload={trackers:[]}; }
   if(tok!==_trkReloadTok[pid]) return;          // recarga mais nova começou → descarta esta
   trkChartCache[ckey]=payload; trkChartCache[pid]=payload;
@@ -4207,7 +4303,7 @@ async function toggleGraficoTrackers(pid){
   const tok=(_trkReloadTok[pid]=(_trkReloadTok[pid]||0)+1);
   if(!trkChartCache[ckey]){
     let payload;
-    try{ payload=await fetch(_trkChartURL(pid,ini,fim)).then(r=>r.json()); }
+    try{ payload=await fetchJSON(_trkChartURL(pid,ini,fim)); }
     catch(e){ payload={trackers:[]}; }
     if(tok!==_trkReloadTok[pid]) return;        // recarga mais nova começou → descarta esta
     trkChartCache[ckey]=payload;
@@ -4340,8 +4436,8 @@ async function trkModalReload(){
   const tok=(_trkModalTok=(_trkModalTok||0)+1);        // anti-race: só a recarga mais recente do modal renderiza
   try{
     // curva do INTERVALO; status (det) = dia único passado usa ?date, senão o estado ATUAL (hoje)
-    const crv=await fetch(_trkChartURL(pid,ini,fim)).then(r=>r.json());
-    const det=await fetch(_trkBase()+'/'+encodeURIComponent(pid)+(singlePast?('?date='+ini):'')).then(r=>r.json());
+    const crv=await fetchJSON(_trkChartURL(pid,ini,fim));
+    const det=await fetchJSON(_trkBase()+'/'+encodeURIComponent(pid)+(singlePast?('?date='+ini):''));
     if(tok!==_trkModalTok || trkModalPid!==pid) return; // recarga/usina mais nova → descarta esta
     if(fim!==hoje) _trkWindowDetect(crv, det);          // dia passado / último dia do intervalo: status do dia
     trkCache[pid]=det; trkChartCache[pid]=crv;          // alimenta renderTrkChart (status + curva)
@@ -4504,7 +4600,7 @@ async function abrirGraficoEtm(pid, usina, src, est, date){
   const area=document.getElementById('grafico-area');
   area.innerHTML='<div class="gc-loading" style="min-height:380px"><div class="gc-spinner"></div><p>Carregando curva...</p></div>';
   try{
-    const d=await fetch(url).then(r=>r.json());
+    const d=await fetchJSON(url);
     if(d.sem_historico){ area.innerHTML='<p style="text-align:center;color:var(--muted);padding:60px 20px">A API PV só fornece ETM do <b>dia atual</b> — histórico de irradiância indisponível para essa fonte.<br>Para ETM histórico, use usinas do <b>2C</b>, <b>SunOp</b> ou <b>PG</b>.</p>'; return; }
     // Eixo X fixo de 06:00 às 18:00: mapeia "HH:MM" p/ datetime de um dia fictício
     // e fixa o range, pra todos os gráficos de ETM começarem e terminarem no mesmo horário.
@@ -4708,7 +4804,7 @@ async function loadPvPr(force){
   document.getElementById('pvpr-load').style.display='';
   document.getElementById('pvpr-load').innerHTML='<div class="gc-spinner"></div><p>Calculando PR por inversor...</p>';
   try{
-    const d=await fetch(_prBase()+'?date='+encodeURIComponent(dia)+(force?'&force=1':'')).then(r=>r.json());
+    const d=await fetchJSON(_prBase()+'?date='+encodeURIComponent(dia)+(force?'&force=1':''));
     pvPrRows=d.rows||[]; pvPrDetail={}; if(force)pvPrExp.clear();
     document.getElementById('pvpr-usinas').textContent=d.summary.usinas;
     document.getElementById('pvpr-invs').textContent=d.summary.inversores;
@@ -4753,7 +4849,7 @@ function renderPvPr(){
 }
 async function renderPvPrDetail(pid, row){
   let d=pvPrDetail[pid];
-  if(!d){try{const dia=_pvPrData();d=await fetch(_prBase()+'/'+encodeURIComponent(pid)+'?date='+encodeURIComponent(dia)).then(r=>r.json());pvPrDetail[pid]=d;}catch(e){d={inversores:[]};}}
+  if(!d){try{const dia=_pvPrData();d=await fetchJSON(_prBase()+'/'+encodeURIComponent(pid)+'?date='+encodeURIComponent(dia));pvPrDetail[pid]=d;}catch(e){d={inversores:[]};}}
   const cell=document.getElementById('pvpr-det-'+pid);if(!cell)return;
   let invs=(d.inversores||[]).slice();
   if(!invs.length){cell.innerHTML='<span>Sem inversores.</span>';return;}
@@ -4764,7 +4860,7 @@ async function renderPvPrDetail(pid, row){
   else                invs.sort((a,b)=>num(a)-num(b));
   // cruza o status das strings (aba Strings) por nome do inversor — só SunOp/PG têm visão de string
   let smap=pvPrStr[pid]; const sbase=_prStrBase();
-  if(sbase && !smap){ try{ const sd=await fetch(sbase+encodeURIComponent(pid)).then(r=>r.json()); smap={}; (sd.inversores||[]).forEach(iv=>{ smap[iv.nome]=iv; }); pvPrStr[pid]=smap; }catch(e){ smap={}; } }
+  if(sbase && !smap){ try{ const sd=await fetchJSON(sbase+encodeURIComponent(pid)); smap={}; (sd.inversores||[]).forEach(iv=>{ smap[iv.nome]=iv; }); pvPrStr[pid]=smap; }catch(e){ smap={}; } }
   smap=smap||{};
   const med=pvPrVisao==='pr'?(row&&row.pr_mediana!=null?(row.pr_mediana*100).toFixed(1)+'%':'—'):'—';
   const aviso=row&&!row.confiavel?' <span style="color:#d97706">— irradiância pouco confiável: confie na comparação entre inversores, não no PR absoluto</span>':'';
@@ -4841,7 +4937,7 @@ async function loadCurvaGen(force){
   document.getElementById('curvagen-load').style.display='';
   try{
     const ep = src==='axis'?'/api/axis/data':src==='sunop'?'/api/sunop/data':'/api/pg/data';
-    const d=await fetch(force?ep+'?force=1':ep).then(r=>r.json());
+    const d=await fetchJSON(force?ep+'?force=1':ep);
     curvagenRows=(d.rows||[]).filter(r=>!r.sem_dados);
     document.getElementById('curvagen-upd').textContent='• '+curvagenRows.length+' usinas';
     renderCurvaGen();
@@ -5029,7 +5125,7 @@ async function loadSpv(force){
   document.getElementById('spv-cont').style.display='none';
   document.getElementById('spv-load').style.display='';
   try{
-    const d=await fetch(force?'/api/spv/usinas?force=1':'/api/spv/usinas').then(r=>r.json());
+    const d=await fetchJSON(force?'/api/spv/usinas?force=1':'/api/spv/usinas');
     spvUsinas=d.rows||[];
     if(d.erro)document.getElementById('spv-upd').textContent='⚠️ '+d.erro;
     else document.getElementById('spv-upd').textContent=`• ${spvUsinas.length} usinas (${d.excluidas_stringbox||0} string-box ocultas)`;
@@ -5067,7 +5163,7 @@ async function atualizarStatusGeral(){
   async function worker(){
     while(fila.length){
       const u=fila.shift();
-      try{ spvData[u.id]=await fetch(`/api/spv/usina/${u.id}?data=${encodeURIComponent(_spvDataBR())}`).then(r=>r.json()); }
+      try{ spvData[u.id]=await fetchJSON(`/api/spv/usina/${u.id}?data=${encodeURIComponent(_spvDataBR())}`); }
       catch(e){ spvData[u.id]={inversores:[],erro:true}; }
       done++; _spvUpdBadge(u.id); _paint();
     }
@@ -5108,15 +5204,25 @@ async function toggleSpv(id){
         +(_passado?'<br><span style="font-size:11px;color:var(--muted)">Dias anteriores: curva de <b>potência</b> por string (PV Plataforma, um inversor por vez). Pode levar alguns segundos; depois fica instantâneo.</span>':'')+'</p></div>';
     }
     try{
-      spvData[id]=await fetch(`/api/spv/usina/${id}?data=${encodeURIComponent(_spvDataBR())}`).then(r=>r.json());
-    }catch(e){spvData[id]={inversores:[],msg:'Erro: '+e};}
+      // onLento: aos 10s a tela passa a dizer que está esperando. Este é O caminho da Santana do
+      // Ipanema (01/09) — girava calado enquanto a API PV não respondia.
+      spvData[id]=await fetchJSON(`/api/spv/usina/${id}?data=${encodeURIComponent(_spvDataBR())}`,
+        {onLento:()=>{ const b=document.getElementById('spv-body-'+id);
+                       if(b) b.innerHTML='<div class="gc-loading" style="padding:20px"><div class="gc-spinner"></div>'
+                         +'<p>Ainda esperando a fonte responder…<br><span style="font-size:11px;color:var(--muted)">'
+                         +'Passou de 10s. Continuo tentando até 90s.</span></p></div>'; }});
+    }catch(e){spvData[id]={inversores:[],msg:null,fonteFora:e};}
     renderSpvUsina(id);
+    // Falha NÃO fica em cache: sem isto, `if(!spvData[id])` daria a busca por feita e fechar e
+    // reabrir a usina repetiria o erro para sempre, sem tentar de novo. Sucesso continua cacheado.
+    if(spvData[id] && spvData[id].fonteFora) delete spvData[id];
   }
 }
 function renderSpvUsina(id){
   const body=document.getElementById('spv-body-'+id);
   const pd=spvData[id];
   if(!body||!pd)return;
+  if(pd.fonteFora){ body.innerHTML=fonteForaHTML(pd.fonteFora,'as curvas desta usina'); return; }
   if(!pd.inversores||!pd.inversores.length){
     body.innerHTML=`<p style="color:var(--muted)">${pd.msg||'Sem inversores.'}</p>`;return;
   }
@@ -5352,17 +5458,17 @@ async function gBuildDrill(key){
        Reusa os caches/builders de cada fonte apontando p/ um tbody local. */
     if(isPV){
       const [d,dg]=await Promise.all([
-        fetch(`/api/plant/${pid}`).then(r=>r.json()),
-        fetch(`/api/diagnostico/pv/${pid}`).then(r=>r.json()).catch(()=>null)
+        fetchJSON(`/api/plant/${pid}`),
+        fetchJSON(`/api/diagnostico/pv/${pid}`).catch(()=>null)
       ]);
       pvCache[pid]=d.inversores||[]; pvDiag[pid]=dg;
     } else if(isPG){
-      const d=await fetch(`/api/pg/plant/${encodeURIComponent(pid)}`).then(r=>r.json());
+      const d=await fetchJSON(`/api/pg/plant/${encodeURIComponent(pid)}`);
       pgCache[pid]=d.inversores||[];
     } else {
       const base=fonte==='Axis'?'/api/axis':'/api/sunop';
       _soInstByPid[pid]=base;   // curva/trancar acham a instância certa fora da aba da fonte
-      const d=await fetch(`${base}/plant/${encodeURIComponent(pid)}`).then(r=>r.json());
+      const d=await fetchJSON(`${base}/plant/${encodeURIComponent(pid)}`);
       soCache[pid]=d.inversores||[];
     }
     const cols=isPV?['Inversor','','Strings Ativas','Esperadas','Diferença','Disponib.','','Última Leitura','Status']
@@ -5390,7 +5496,7 @@ function _gHydrate(key){
 }
 async function loadGeral(force){
   try{
-    const d=await fetch('/api/macro'+(force?'?force=1':'')).then(r=>r.json());
+    const d=await fetchJSON('/api/macro'+(force?'?force=1':''));
     G=d.usinas||[];
     if(force){_gDrill={};_gRowLike={};gOpen.clear();}
     renderGeralKpis(d); renderGeralFontes(); renderGAlerts(); renderGeral();
