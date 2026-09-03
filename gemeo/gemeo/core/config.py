@@ -5,7 +5,7 @@ o tokens.txt e o tokens_runtime.json se pisarem."""
 from __future__ import annotations
 import os
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 SEGREDOS = ("SUNOP_API_TOKEN", "GRIDCO_SQL_TOKEN", "GEMEO_SENHA")
@@ -37,6 +37,7 @@ class Config:
     publicar_ativo: bool = True                 # ao fim do `gemeo modelar`, sincroniza o workbook da API da Performance
     publicar_workbook: str = "gemeo_digital"
     publicar_dias: int = 90                     # cascata_dia, perda_dia e evento: so os ultimos N dias vao para o workbook
+    usinas_detalhe: dict = field(default_factory=dict)   # [usinas.detalhe] CODIGO = {fonte, fonte_ref, tz, nome}; padrao sunop/America_Belem
 
 
 def _ler_env(caminho: Path) -> dict[str, str]:
@@ -81,4 +82,5 @@ def carregar(caminho_config: Path | None = None, secrets_dir: Path | None = None
         publicar_ativo=bool(t.get("publicar", {}).get("ativo", True)),
         publicar_workbook=str(t.get("publicar", {}).get("workbook", "gemeo_digital")),
         publicar_dias=int(t.get("publicar", {}).get("dias", 90)),
+        usinas_detalhe={k: dict(v) for k, v in t["usinas"].get("detalhe", {}).items()},
     )

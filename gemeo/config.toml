@@ -4,6 +4,13 @@
 # preenchida com inversor. TIM100, TIM200, JCD100 e SMP100 tem trackers sem inversor; as do PostgreSQL do Thopen nao tem
 # relacao nenhuma no BD_Trackers (so "cabine" no tb_devices). Santarem 1 saiu do piloto por isso.
 piloto = ["MRO100", "MAB100", "MTS100", "CPP100"]
+# fonte e fuso de cada usina do piloto (o cadastro traz kWp, cliente e inversores depois). Todas na SunOp/gridco, UTC-3 sem
+# horario de verao. lat/lon vem da Info Geral quando o cadastro ler essa aba (pendencia B1/B3).
+[usinas.detalhe]
+MRO100 = { fonte = "sunop", tz = "America/Belem", nome = "MRO100" }
+MAB100 = { fonte = "sunop", tz = "America/Belem", nome = "MAB100" }
+MTS100 = { fonte = "sunop", tz = "America/Belem", nome = "MTS100" }
+CPP100 = { fonte = "sunop", tz = "America/Belem", nome = "CPP100" }
 [ritmo_min]
 pg = 15
 sunop_fino = 15

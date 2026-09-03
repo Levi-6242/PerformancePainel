@@ -1,7 +1,11 @@
 # gemeo/tests/test_ingest_runner.py
 """O laco nunca morre por excecao da fonte e para quando o Event manda. Ritmo em minutos, do config."""
+import sys
 import threading
-from gemeo.ingest import runner
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from gemeo.ingest import runner  # noqa: E402
 
 
 class Ing:
@@ -26,3 +30,15 @@ def test_montar_usa_o_ritmo_do_config():
     us = [UsinaRef(1, "MRO100", "sunop", "MRO100", "America/Belem"), UsinaRef(2, "Santarem 1", "pg", "10", "America/Belem")]
     itens = runner.montar(cfg, conn_gemeo=None, conn_fonte=None, usinas=us)
     assert {(r, m) for r, _, m in itens} == {("pg", 15), ("sunop_fino", 15), ("sunop_lento", 60), ("cadastro", 30)}
+
+
+def test_garantir_usinas_cria_as_do_piloto_uma_vez(conn):
+    import types
+    from semear import limpar_tudo
+    limpar_tudo(conn)
+    cfg = types.SimpleNamespace(usinas_piloto=("MRO100", "MAB100"), usinas_detalhe={"MRO100": {"fonte": "sunop", "tz": "America/Belem", "nome": "Mae do Rio"}})
+    assert runner.garantir_usinas(conn, cfg) == 2
+    assert runner.garantir_usinas(conn, cfg) == 0                    # idempotente
+    us = {u.codigo: u for u in runner.usinas_do_piloto(conn, cfg.usinas_piloto)}
+    assert us["MRO100"].fonte == "sunop" and us["MRO100"].tz == "America/Belem" and us["MAB100"].fonte_ref == "MAB100"
+    limpar_tudo(conn)

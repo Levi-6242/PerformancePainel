@@ -18,6 +18,20 @@ def usinas_do_piloto(conn, codigos: tuple[str, ...]) -> list[UsinaRef]:
         return [UsinaRef(*r) for r in cur.fetchall()]
 
 
+def garantir_usinas(conn, cfg) -> int:
+    """Linhas base das usinas do piloto a partir do config (fonte, fonte_ref, fuso). Sem elas nem o cadastro nem a
+    descoberta na SunOp tem o que preencher — foi o que faltou na primeira subida (03/09). Idempotente."""
+    n = 0
+    with conn.cursor() as cur:
+        for cod in cfg.usinas_piloto:
+            det = getattr(cfg, "usinas_detalhe", {}).get(cod, {})
+            cur.execute("INSERT INTO usina (codigo, nome, fonte, fonte_ref, tz) VALUES (%s,%s,%s,%s,%s) ON CONFLICT (codigo) DO NOTHING",
+                        (cod, det.get("nome", cod), det.get("fonte", "sunop"), det.get("fonte_ref", cod), det.get("tz", "America/Belem")))
+            n += max(0, cur.rowcount)
+    conn.commit()
+    return n
+
+
 def montar(cfg, conn_gemeo, conn_fonte, usinas: list[UsinaRef]) -> list[tuple[str, object, int]]:
     from gemeo.ingest.cadastro import IngestorCadastro
     from gemeo.ingest.pg import IngestorPG
@@ -59,6 +73,9 @@ def rodar() -> int:
     import psycopg2
     cfg = carregar()
     conn = db.conectar(cfg.db_caminho)
+    novas = garantir_usinas(conn, cfg)
+    if novas:
+        print(f"usinas do piloto criadas a partir do config: {novas}", flush=True)
     usinas = usinas_do_piloto(conn, cfg.usinas_piloto)
     # PostgreSQL do Thopen so quando ha usina de fonte pg no piloto (e o unico lugar em que psycopg2 continua)
     conn_fonte = psycopg2.connect(cfg.powerplants_dsn) if any(u.fonte == "pg" for u in usinas) else None
