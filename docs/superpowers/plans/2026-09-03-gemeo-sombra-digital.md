@@ -4284,4 +4284,533 @@ git commit -m "feat(gemeo): consultas das telas Frota, Usina e saude (Tarefa 18)
 
 ---
 
-<!-- CONTINUA: Tarefa 19 -->
+### Tarefa 19: Servidor Flask sob `/gemeo`, login, telas Frota e Usina, `/healthz`
+
+**Files:**
+- Create: `gemeo/gemeo/app/server.py`
+- Create: `gemeo/gemeo/app/templates/base.html`, `login.html`, `frota.html`, `usina.html`
+- Create: `gemeo/gemeo/app/static/gemeo.css`, `gemeo/gemeo/app/static/gemeo.js` (curva em SVG puro — sem biblioteca, sem CDN)
+- Test: `gemeo/tests/test_app_rotas.py` (sem banco: as consultas viram dicts fixos)
+
+**Interfaces:**
+- Consumes: `consultas.frota/usina/saude` (T18), `formato.*` (T18), `Config.senha_app/porta_app/db_dsn` (T1), `db.conectar` (T2).
+- Produces: `criar_app(cfg, conectar=None) -> Flask` (rotas `/gemeo/`, `/gemeo/usina/<id>`, `/gemeo/api/frota`, `/gemeo/api/usina/<id>`, `/gemeo/healthz`, `/gemeo/login`, `/gemeo/logout`, `/gemeo/static/*`), `servir()`. Autenticação: sessão (senha compartilhada) **ou** header `X-Gemeo-Senha` — é por ele que o proxy da plataforma (Tarefa 20) entra sem segunda senha. `?agora=ISO` em qualquer tela congela o "agora" (teste e depuração). `/healthz` é público (monitor externo) e responde 503 quando há problema.
+- Identidade tokens_grid R00 dos mockups (navy `#191528`, lime `#A9DB21`, status `#2E7D32/#B9770E/#B3261E/#6E6A80`); glifos `● ▲ ✕` são símbolos, não emoji; frescor > 30 min → cinza.
+
+- [ ] **Step 1: Escrever os testes (falham: módulo não existe)**
+
+```python
+# gemeo/tests/test_app_rotas.py
+"""Rotas, login e render das telas SEM banco: as consultas sao substituidas por dicts fixos (a forma que a
+Tarefa 18 devolve), entao o que se testa aqui e o gate, os templates e o JSON. Roda em qualquer maquina."""
+import datetime as dt
+import types
+
+import pytest
+
+from gemeo.app import consultas, server
+
+UTC = dt.timezone.utc
+AGORA = dt.datetime(2026, 8, 31, 20, 0, tzinfo=UTC)
+CFG = types.SimpleNamespace(senha_app="s3nh4-teste", db_dsn="", porta_app=5070, sunop_token="", teto_sunop_dia=600)
+CASC = {"e_esperado": 41636.0, "e_medido": 38971.0, "delta": 2665.0, "inv_parado": 1658.0, "tracker": 104.0, "string": 0.0,
+        "residuo": 903.0, "cobertura_gate": 0.95, "trackers_sem_inversor": 1}
+USINA = {"id": 1, "codigo": "MRO100", "nome": "MRO100", "fonte": "sunop", "tz": "America/Belem", "kwp": 6942.0, "kw_ac": 5000.0,
+         "cliente": "Athon", "n_equip": 182, "ultimo_ingest_ok": AGORA, "ultima_leitura": AGORA, "modelo_id": 1, "modelo_versao": "placa",
+         "tolerancia": 0.08, "calibrado": False, "hoje": "2026-08-31", "slot": AGORA, "esperado_kw": 3100.0, "medido_kw": 2700.0,
+         "delta": -0.129, "gate_agora": "ok", "gate_hoje": "ok", "cascata": CASC, "preco_mwh": None, "perda_kwh": 2665.0, "perda_brl": None,
+         "causa": "inversor parado", "faixa": "grave", "idade_leitura_min": 5, "idade_esperado_min": 5, "frio": False, "motivo": None}
+FROTA = {"agora": AGORA.isoformat(), "ciclo": {"em": "2026-08-31T19:50:00+00:00"}, "usinas": [USINA],
+         "nao_modeladas": [{"id": 2, "codigo": "Santarem 1", "fonte": "pg", "motivo": "sem ingestão ok nas últimas 24 h"}],
+         "totais": {"esperado_kw": 3100.0, "medido_kw": 2700.0, "delta": -0.129, "perda_kwh": 2665.0, "perda_brl": None, "confianca": 0.5,
+                    "n_modeladas": 1, "n_usinas": 2},
+         "regua": {"tolerancia": 0.08, "faixas": {"dentro": 0, "moderado": 0, "grave": 1, "sem_dado": 0}, "calibradas": 0,
+                   "barras": [{"id": 1, "codigo": "MRO100", "faixa": "grave", "frio": False}]}}
+CAB = {k: USINA[k] for k in ("id", "codigo", "nome", "fonte", "cliente", "tz", "kwp", "kw_ac", "hoje", "slot", "esperado_kw", "medido_kw",
+                             "delta", "faixa", "gate_agora", "idade_leitura_min", "idade_esperado_min", "frio")}
+CAB.update({"n_inversores": 25, "n_trackers": 120, "n_strings": 36, "modelo_versao": "placa", "calibrado": False, "tolerancia": 0.08})
+US = {"agora": AGORA.isoformat(), "ciclo": {}, "cabecalho": CAB,
+      "curva": [{"ts": "2026-08-31T09:00:00+00:00", "hora": "06:00", "esperado_kw": 10.0, "medido_kw": 8.0},
+                {"ts": "2026-08-31T15:00:00+00:00", "hora": "12:00", "esperado_kw": 4000.0, "medido_kw": 3500.0}],
+      "cascata": CASC, "preco_mwh": None, "perda_brl": None,
+      "eventos": [{"id": 1, "tipo": "inversor_parado", "equipamento_id": 22, "equipamento": "INV_22", "ini": "2026-08-31T09:00:00+00:00",
+                   "hora_ini": "06:00", "fim": None, "severidade": "media", "kwh": 1658.0, "detalhe": {"dia": "2026-08-31"}}],
+      "inversores": [{"id": 22, "nome": "INV_22", "kwp": 277.68, "medido_kwh": 0.0, "esperado_kwh": 1658.0, "razao": 0.0, "inv_parado": 1658.0,
+                      "tracker": 0.0, "string": 0.0, "residuo": 0.0, "status": "parado"},
+                     {"id": 1, "nome": "INV_1", "kwp": 277.68, "medido_kwh": 1600.0, "esperado_kwh": 1650.0, "razao": 0.97, "inv_parado": 0.0,
+                      "tracker": 4.0, "string": 0.0, "residuo": 46.0, "status": "ok"}],
+      "trackers": [{"id": 4, "nome": "TRK_4", "pai_id": 1, "kwh": 65.0}, {"id": 64, "nome": "TRK_64", "pai_id": None, "kwh": 3.0}], "strings": [],
+      "sensor": {"razao_poa_ghi": 1.31, "cobertura_gate": 0.95, "gate_hoje": "ok", "trackers_sem_inversor": 1}}
+
+
+@pytest.fixture
+def cli(monkeypatch):
+    chamadas: dict = {}
+
+    def frota_fake(conn, agora):
+        chamadas["agora"] = agora
+        return FROTA
+
+    monkeypatch.setattr(consultas, "frota", frota_fake)
+    monkeypatch.setattr(consultas, "usina", lambda conn, uid, agora: US if uid == 1 else None)
+    monkeypatch.setattr(consultas, "saude", lambda conn, cfg, agora: {"ok": True, "banco": True, "problemas": []})
+    app = server.criar_app(CFG, conectar=lambda: object())
+    app.config["TESTING"] = True
+    c = app.test_client()
+    c.chamadas = chamadas
+    return c
+
+
+def _entra(c):
+    r = c.post("/gemeo/login", data={"senha": "s3nh4-teste"})
+    assert r.status_code == 302
+    return c
+
+
+def test_sem_login_redireciona_e_api_devolve_401(cli):
+    assert cli.get("/gemeo/").status_code == 302 and cli.get("/gemeo/api/frota").status_code == 401
+    assert cli.get("/gemeo/healthz").status_code == 200        # saude e publica: e o que o monitor externo bate
+    assert cli.post("/gemeo/login", data={"senha": "errada"}).status_code == 401
+
+
+def test_frota_renderiza_regua_cards_e_nao_modeladas(cli):
+    r = _entra(cli).get("/gemeo/?agora=2026-08-31T20:00:00Z")
+    html = r.get_data(as_text=True)
+    assert r.status_code == 200 and "A frota contra a física" in html and "MRO100" in html and "inversor parado" in html
+    assert "Santarem 1 — sem ingestão ok" in html and "−12,9%" in html and "não calibrado" in html
+    assert cli.chamadas["agora"] == AGORA
+
+
+def test_usina_renderiza_curva_cascata_e_eventos(cli):
+    r = _entra(cli).get("/gemeo/usina/1")
+    html = r.get_data(as_text=True)
+    assert r.status_code == 200 and "Cascata de perdas" in html and "curva-dados" in html and "INV_22" in html and "Inversor parado" in html
+    assert "trackers sem inversor" in html and "(sem inversor)" in html
+    assert cli.get("/gemeo/usina/99").status_code == 404
+
+
+def test_header_da_plataforma_dispensa_sessao_e_api_e_json(cli):
+    r = cli.get("/gemeo/api/frota", headers={"X-Gemeo-Senha": "s3nh4-teste"})
+    assert r.status_code == 200 and r.get_json()["usinas"][0]["codigo"] == "MRO100"
+    assert cli.get("/gemeo/api/usina/1", headers={"X-Gemeo-Senha": "s3nh4-teste"}).get_json()["cabecalho"]["n_trackers"] == 120
+    assert cli.get("/gemeo/api/frota", headers={"X-Gemeo-Senha": "errada"}).status_code == 401
+
+
+def test_healthz_503_quando_ha_problema(cli, monkeypatch):
+    monkeypatch.setattr(consultas, "saude", lambda conn, cfg, agora: {"ok": False, "banco": True, "problemas": ["modelar nunca rodou"]})
+    r = cli.get("/gemeo/healthz")
+    assert r.status_code == 503 and r.get_json()["problemas"] == ["modelar nunca rodou"]
+
+
+def test_fora_do_prefixo_vai_para_a_frota(cli):
+    assert _entra(cli).get("/").status_code == 302
+```
+
+- [ ] **Step 2: Rodar e ver falhar**
+
+Run: `cd gemeo && python -m pytest tests/test_app_rotas.py -q`
+Expected: FAIL — `ImportError: cannot import name 'server'`.
+
+- [ ] **Step 3: Implementar servidor, templates e estáticos**
+
+```python
+# gemeo/gemeo/app/server.py
+"""`gemeo app`: Flask so-leitura sob o prefixo /gemeo (rotas e assets relativos a ele), servido por waitress em
+127.0.0.1:<porta>. A plataforma faz proxy de /gemeo/* e manda a senha compartilhada no header X-Gemeo-Senha;
+quem chega direto usa a tela de login (sessao). O app nao sabe que esta atras do proxy."""
+from __future__ import annotations
+import datetime as dt
+import hashlib
+import hmac
+from pathlib import Path
+
+from flask import Flask, g, jsonify, redirect, render_template, request, session
+
+from gemeo.app import consultas, formato
+
+PREFIXO = "/gemeo"
+AQUI = Path(__file__).resolve().parent
+
+
+def _agora() -> dt.datetime:
+    """'agora' vem da query string quando pedido (viagem no tempo para testar e depurar); senao, UTC real."""
+    q = request.args.get("agora")
+    if q:
+        try:
+            t = dt.datetime.fromisoformat(q.replace("Z", "+00:00"))
+            return t if t.tzinfo else t.replace(tzinfo=dt.timezone.utc)
+        except ValueError:
+            pass
+    return dt.datetime.now(dt.timezone.utc)
+
+
+def criar_app(cfg, conectar=None) -> Flask:
+    app = Flask(__name__, static_url_path=f"{PREFIXO}/static", static_folder=str(AQUI / "static"), template_folder=str(AQUI / "templates"))
+    app.secret_key = hashlib.sha256(("gemeo-" + cfg.senha_app).encode()).hexdigest()
+    app.config["CONECTAR"] = conectar
+    app.config["FECHAR_CONEXAO"] = conectar is None     # conexao injetada (testes) nao e nossa para fechar
+    app.jinja_env.filters.update(num=formato.num, mw=formato.mw, pct=formato.pct, brl=formato.brl)
+    app.jinja_env.globals.update(PREFIXO=PREFIXO)
+
+    def conn():
+        if "conn" not in g:
+            if app.config["CONECTAR"]:
+                g.conn = app.config["CONECTAR"]()
+            else:
+                from gemeo.core import db
+                g.conn = db.conectar(cfg.db_dsn)
+        return g.conn
+
+    @app.teardown_appcontext
+    def _fecha(exc):
+        c = g.pop("conn", None)
+        if c is None:
+            return
+        try:
+            c.rollback()                                    # so-leitura: nunca deixa transacao aberta
+        except Exception:                                   # noqa: BLE001
+            pass
+        if app.config["FECHAR_CONEXAO"]:
+            try:
+                c.close()
+            except Exception:                               # noqa: BLE001
+                pass
+
+    def autenticado() -> bool:
+        cab = request.headers.get("X-Gemeo-Senha", "")
+        return bool(session.get("ok")) or (bool(cab) and hmac.compare_digest(cab, cfg.senha_app))
+
+    @app.before_request
+    def _gate():
+        p = request.path
+        if p in (f"{PREFIXO}/login", f"{PREFIXO}/healthz") or p.startswith(f"{PREFIXO}/static/"):
+            return None
+        if not p.startswith(PREFIXO):
+            return redirect(f"{PREFIXO}/")
+        if autenticado():
+            return None
+        if p.startswith(f"{PREFIXO}/api/"):
+            return jsonify({"erro": "não autenticado"}), 401
+        return redirect(f"{PREFIXO}/login?next={p}")
+
+    @app.route(f"{PREFIXO}/login", methods=["GET", "POST"])
+    def login():
+        erro = ""
+        if request.method == "POST":
+            if hmac.compare_digest((request.form.get("senha") or "").strip(), cfg.senha_app):
+                session.permanent = True
+                session["ok"] = True
+                nxt = request.args.get("next") or f"{PREFIXO}/"
+                return redirect(nxt if nxt.startswith(PREFIXO + "/") else f"{PREFIXO}/")
+            erro = "Senha incorreta"
+        return render_template("login.html", erro=erro), (401 if erro else 200)
+
+    @app.route(f"{PREFIXO}/logout")
+    def logout():
+        session.clear()
+        return redirect(f"{PREFIXO}/login")
+
+    @app.route(f"{PREFIXO}/")
+    def frota():
+        agora = _agora()
+        return render_template("frota.html", d=consultas.frota(conn(), agora), agora=agora)
+
+    @app.route(f"{PREFIXO}/usina/<int:usina_id>")
+    def usina(usina_id: int):
+        agora = _agora()
+        d = consultas.usina(conn(), usina_id, agora)
+        if d is None:
+            return "usina não encontrada", 404
+        return render_template("usina.html", d=d, agora=agora)
+
+    @app.route(f"{PREFIXO}/api/frota")
+    def api_frota():
+        return jsonify(consultas.frota(conn(), _agora()))
+
+    @app.route(f"{PREFIXO}/api/usina/<int:usina_id>")
+    def api_usina(usina_id: int):
+        d = consultas.usina(conn(), usina_id, _agora())
+        return (jsonify(d), 200) if d else (jsonify({"erro": "usina não encontrada"}), 404)
+
+    @app.route(f"{PREFIXO}/healthz")
+    def healthz():
+        try:
+            s = consultas.saude(conn(), cfg, _agora())
+        except Exception as e:                              # noqa: BLE001 — sem banco a resposta e o diagnostico
+            s = {"ok": False, "banco": False, "erro": f"{type(e).__name__}: {e}"[:200]}
+        return jsonify(s), (200 if s.get("ok") else 503)
+
+    return app
+
+
+def servir() -> int:
+    from waitress import serve
+    from gemeo.core.config import carregar
+    cfg = carregar()
+    app = criar_app(cfg)
+    print(f"gemeo app em http://127.0.0.1:{cfg.porta_app}{PREFIXO}/", flush=True)
+    serve(app, host="127.0.0.1", port=cfg.porta_app, threads=4)
+    return 0
+```
+
+```html
+<!-- gemeo/gemeo/app/templates/base.html -->
+<!doctype html>
+<html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block titulo %}Gêmeo Digital{% endblock %} · Grid Co.</title>
+<link rel="stylesheet" href="{{ PREFIXO }}/static/gemeo.css"></head>
+<body>
+<div class="topo">
+  <div class="marca"><span class="g">G</span><span>Grid <em>Co.</em></span><span class="sec">{% block secao %}PLATAFORMA PERFORMANCE · GÊMEO DIGITAL{% endblock %}</span></div>
+  <div class="dir">{% block direita %}{% endblock %}</div>
+</div>
+{% block corpo %}{% endblock %}
+</body></html>
+```
+
+```html
+<!-- gemeo/gemeo/app/templates/login.html -->
+<!doctype html><html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gêmeo Digital · acesso</title><link rel="stylesheet" href="{{ PREFIXO }}/static/gemeo.css"></head>
+<body><div class="login"><form method="post">
+<div class="marca" style="color:var(--gc-navy);margin-bottom:14px"><span class="g">G</span><span>Grid <em style="color:var(--dv-1)">Co.</em></span></div>
+<div style="font-size:13px;color:var(--gc-mut);margin-bottom:10px">Gêmeo Digital — acesso restrito</div>
+<label style="font-size:12px;font-weight:600">Senha</label><input type="password" name="senha" autocomplete="current-password" autofocus>
+<button type="submit">Entrar</button><div class="erro">{{ erro }}</div></form></div></body></html>
+```
+
+```html
+<!-- gemeo/gemeo/app/templates/frota.html -->
+{% extends "base.html" %}
+{% block titulo %}Frota{% endblock %}
+{% block direita %}{% set r = d.regua %}
+  {% if r.barras and r.calibradas == r.barras|length %}<span class="pill ativo"><span class="dot"></span>Modelo calibrado</span>{% else %}<span class="pill placa"><span class="dot"></span>Modelo de placa — não calibrado</span>{% endif %}
+  <span>Ciclo do gêmeo às <b>{{ d.ciclo.em[11:19] if d.ciclo.em else '—' }}</b> UTC</span>
+{% endblock %}
+{% block corpo %}{% set t = d.totais %}{% set r = d.regua %}
+<div class="heroi">
+  <div class="linha"><div><div class="kicker">Gêmeo digital · Esperado × Medido · agora</div><h1>A frota contra a física</h1></div>
+  <div class="data">{{ agora.strftime('%d/%m/%Y · %H:%M') }} UTC</div></div>
+  <div class="regua-cab"><div>Régua da frota — <b>Δ do gêmeo por usina</b> · <span class="num">{{ t.n_modeladas }}</span> modeladas de {{ t.n_usinas }}</div>
+    <div class="leg"><span><span class="gl n-ok">●</span> dentro · <span class="num">{{ r.faixas.dentro }}</span></span>
+      <span><span class="gl n-warn">▲</span> déficit {{ (r.tolerancia*100)|round(0)|int }}–8% · <span class="num">{{ r.faixas.moderado }}</span></span>
+      <span><span class="gl n-risk">✕</span> déficit &gt; 8% · <span class="num">{{ r.faixas.grave }}</span></span></div></div>
+  <div class="regua">{% for b in r.barras %}<a href="{{ PREFIXO }}/usina/{{ b.id }}" class="{{ 'frio' if b.frio else b.faixa }}" title="{{ b.codigo }}"></a>{% else %}<a class="frio" title="nenhuma usina modelada"></a>{% endfor %}</div>
+</div>
+<div class="miolo">
+  <div class="cards">
+    <div class="card kpi"><div class="rot">Esperado agora</div><div class="val num">{{ t.esperado_kw|mw }} <small>MW</small></div><div class="leg">modelo físico · irradiância medida</div></div>
+    <div class="card kpi"><div class="rot">Medido agora</div><div class="val num">{{ t.medido_kw|mw }} <small>MW</small></div><div class="leg">{{ t.n_modeladas }} usinas modeladas</div></div>
+    {% set cf = 'c-off' if t.delta is none else ('c-ok' if t.delta >= -r.tolerancia else ('c-warn' if t.delta >= -0.08 else 'c-risk')) %}
+    <div class="card kpi"><div class="rot">Δ da frota</div><div class="val num {{ cf }}">{{ t.delta|pct }}</div><div class="leg {{ cf }}">tolerância {{ (r.tolerancia*100)|round(0)|int }}%{{ ' (placa)' if r.calibradas == 0 else '' }}</div></div>
+    <div class="card kpi"><div class="rot">Perda de hoje</div><div class="val num">{% if t.perda_brl is not none %}{{ t.perda_brl|brl }}{% else %}{{ (t.perda_kwh/1000)|num(2) }} <small>MWh</small>{% endif %}</div><div class="leg">Σ das cascatas de hoje{{ ' · sem preço no contrato' if t.perda_brl is none else '' }}</div></div>
+    {% set cc = 'c-ok' if t.confianca >= 0.9 else ('c-warn' if t.confianca >= 0.6 else 'c-risk') %}
+    <div class="card kpi"><div class="rot">Confiança do ciclo</div><div class="val num {{ cc }}">{{ (t.confianca*100)|round(0)|int }}<small>%</small></div><div class="leg {{ cc }}">usinas com sensor ok e dado fresco</div></div>
+  </div>
+  <div class="card" style="overflow:hidden;margin-bottom:18px">
+    <div class="tit">Maiores déficits agora <small>ordenado por perda · clique abre o diagnóstico</small></div>
+    <table class="tab"><thead><tr><th>Usina</th><th class="r">Esperado</th><th class="r">Medido</th><th class="r">Δ</th><th>Causa dominante</th><th class="r">Perda hoje</th><th>Status</th></tr></thead><tbody>
+    {% for u in d.usinas %}{% set k = 'off' if u.frio else {'dentro':'ok','moderado':'warn','grave':'risk','sem_dado':'off'}[u.faixa] %}
+      <tr><td><a class="nome" href="{{ PREFIXO }}/usina/{{ u.id }}" style="color:inherit;text-decoration:none">{{ u.codigo }}</a><span class="fonte">{{ (u.cliente ~ ' · ') if u.cliente else '' }}{{ u.fonte }} · {{ u.modelo_versao or 'placa' }}</span></td>
+      <td class="num r">{{ u.esperado_kw|mw }} MW</td><td class="num r">{{ u.medido_kw|mw }} MW</td><td class="num r c-{{ k }}" style="font-weight:600">{{ u.delta|pct }}</td>
+      <td>{{ u.causa }}</td><td class="num r">{% if u.perda_brl is not none %}{{ u.perda_brl|brl }}{% else %}{{ (u.perda_kwh/1000)|num(2) }} MWh{% endif %}</td>
+      <td><span class="tag {{ k }}"><span class="gl">{{ {'ok':'●','warn':'▲','risk':'✕','off':'○'}[k] }}</span> {{ 'sem dado fresco' if u.frio else {'ok':'Normal','warn':'Atenção','risk':'Déficit','off':'Sem dado'}[k] }}</span></td></tr>
+    {% else %}<tr><td colspan="7" style="color:var(--gc-mut)">Nenhuma usina modelada agora.</td></tr>{% endfor %}
+    </tbody></table>
+    {% if d.nao_modeladas %}<div class="faixa-nao"><b>Não modeladas:</b>{% for n in d.nao_modeladas %}<span>{{ n.codigo }} — {{ n.motivo }}</span>{% endfor %}</div>{% endif %}
+  </div>
+  <div class="rodape">Sombra digital (níveis 1–3) · esperado = PVWatts sobre a POA medida · frescor: cinza acima de 30 min</div>
+</div>
+{% endblock %}
+```
+
+```html
+<!-- gemeo/gemeo/app/templates/usina.html -->
+{% extends "base.html" %}
+{% block titulo %}{{ d.cabecalho.codigo }}{% endblock %}
+{% block secao %}GÊMEO DIGITAL · DIAGNÓSTICO{% endblock %}
+{% block direita %}{% set c = d.cabecalho %}<span><a href="{{ PREFIXO }}/" style="color:inherit">Frota</a> › {{ c.cliente or c.fonte }} › <b>{{ c.codigo }}</b></span>{% endblock %}
+{% block corpo %}{% set c = d.cabecalho %}{% set k = 'off' if c.frio else {'dentro':'ok','moderado':'warn','grave':'risk','sem_dado':'off'}[c.faixa] %}
+<div class="heroi"><div class="linha"><div><div class="kicker">Diagnóstico do gêmeo · {{ c.hoje }}</div>
+  <h1>{{ c.codigo }} <span class="sub num">· {{ c.fonte }} · {{ (c.kwp/1000)|num(1) }} MWp · {{ c.n_inversores }} inversores · {{ c.n_trackers }} trackers · {{ c.n_strings }} strings</span></h1></div>
+  <div><span class="tag {{ k }}" style="padding:5px 13px"><span class="gl">{{ {'ok':'●','warn':'▲','risk':'✕','off':'○'}[k] }}</span> {{ 'sem dado fresco' if c.frio else {'ok':'Dentro','warn':'Déficit','risk':'Déficit','off':'Sem dado'}[k] }} <span class="num">{{ c.delta|pct }}</span> agora</span></div></div>
+  <div class="regua-cab" style="margin-top:10px"><div>modelo <b>{{ c.modelo_versao or 'placa' }}</b> · {{ 'calibrado' if c.calibrado else 'não calibrado' }} · tolerância {{ (c.tolerancia*100)|round(0)|int }}% · última leitura há {{ c.idade_leitura_min if c.idade_leitura_min is not none else '—' }} min · último esperado há {{ c.idade_esperado_min if c.idade_esperado_min is not none else '—' }} min</div></div>
+</div>
+{% if c.frio %}<div class="frio-aviso">Dado frio: a última leitura tem mais de 30 min. As cores abaixo valem para o último instante conhecido.</div>{% endif %}
+<div class="miolo">
+ <div class="duas">
+  <div class="card"><div class="tit">Curva do dia — esperado × medido <small>potência CA da usina · MW</small></div>
+   <div style="padding:16px 16px 8px"><svg id="curva" viewBox="0 0 560 240" style="width:100%;height:auto" role="img" aria-label="Curva do dia: esperado do gêmeo e medido até agora"></svg></div>
+   <div class="legenda"><span><span style="width:18px;border-top:2.2px dashed var(--dv-2)"></span> Esperado (gêmeo)</span><span><span style="width:18px;height:2.4px;background:var(--dv-1)"></span> Medido — até agora</span><span><span style="width:12px;height:10px;background:rgba(179,38,30,.14);border:1px solid rgba(179,38,30,.3)"></span> Perda do dia: <span class="num">{{ ((d.cascata.delta if d.cascata else 0)/1000)|num(2) }} MWh</span></span></div>
+   <script type="application/json" id="curva-dados">{{ d.curva|tojson }}</script>
+  </div>
+  <div class="coluna">
+   <div class="card"><div class="tit">Cascata de perdas — {{ c.hoje }}</div>
+    {% if d.cascata %}{% set cs = d.cascata %}{% set base = cs.e_esperado if cs.e_esperado > 0 else 1 %}
+    <div class="casc">
+     <div class="lin"><span class="rot">Esperado (gêmeo)</span><div class="barra"><div class="b esp num" style="width:100%">{{ (cs.e_esperado/1000)|num(2) }} MWh</div></div></div>
+     {% for nome, rot, cor in (('inv_parado','Inversor parado','var(--st-risk)'),('tracker','Trackers fora do alvo','var(--st-warn)'),('string','Strings sem corrente','var(--st-warn)'),('residuo','Resíduo','var(--gc-slate)')) %}{% set v = cs[nome] %}
+     <div class="lin"><span class="rot" style="color:{{ cor }}">{{ rot }}</span><div class="barra"><div style="width:{{ (100 - 100*v/base)|round(1) if v > 0 else 100 }}%"></div><div class="b perda num" style="background:{{ cor }};flex:0 0 auto">−{{ (v/1000)|num(2) }}</div></div></div>
+     {% endfor %}
+     <div class="lin"><span class="rot" style="font-weight:700">Medido</span><div class="barra"><div class="b med num" style="width:{{ (100*cs.e_medido/base)|round(1) }}%">{{ (cs.e_medido/1000)|num(2) }} MWh</div></div></div>
+    </div>
+    <div style="padding:0 16px 14px;font-size:11px;color:var(--gc-mut)">{% if d.perda_brl is not none %}Perda valorada: <b class="num c-risk">{{ d.perda_brl|brl }}</b> · contrato <span class="num">R$ {{ d.preco_mwh|num(0) }}/MWh</span>{% else %}Sem preço no contrato (meta_mes.preco_mwh): perda só em MWh{% endif %} · cobertura do gate <span class="num">{{ (cs.cobertura_gate*100)|round(0)|int }}%</span>{% if cs.trackers_sem_inversor %} · <span class="c-warn">{{ cs.trackers_sem_inversor }} trackers sem inversor no de-para</span>{% endif %}</div>
+    {% else %}<div class="casc" style="color:var(--gc-mut)">Sem cascata hoje — {{ d.sensor.gate_hoje if d.sensor.gate_hoje != 'ok' else 'o modelo ainda não rodou para este dia' }}.</div>{% endif %}
+   </div>
+   <div class="card"><div class="tit">Assinaturas detectadas <small>{{ d.eventos|length }} eventos</small></div>
+    <div class="lista">{% for e in d.eventos[:8] %}{% set ke = {'grave':'risk','media':'warn','leve':'ok'}[e.severidade] %}
+     <div class="item"><div><b>{{ {'inversor_parado':'Inversor parado','inversor_abaixo':'Inversor abaixo dos pares','tracker_fora_alvo':'Tracker fora do alvo','string_sem_corrente':'String sem corrente','sensor_em_falha':'Sensor em falha (POA × GHI)','sem_cobertura':'Sem cobertura de sensor'}[e.tipo] }} — {{ e.equipamento }}</b>
+      <div class="sub">desde {{ e.hora_ini }}{{ ' · aberto' if not e.fim else '' }} · <span class="num">{{ e.kwh|num(0) }} kWh</span>{% if e.detalhe.excesso_max %} · excesso máx. {{ e.detalhe.excesso_max|num(0) }}°{% endif %}{% if e.detalhe.razoes %} · razões {{ e.detalhe.razoes }}{% endif %}</div></div>
+      <span class="tag {{ ke }}"><span class="gl">{{ {'risk':'✕','warn':'▲','ok':'●'}[ke] }}</span> {{ e.severidade }}</span></div>
+    {% else %}<div class="item"><div class="sub">Nenhuma assinatura hoje.</div></div>{% endfor %}</div>
+   </div>
+  </div>
+ </div>
+ <div class="card" style="overflow:hidden;margin-bottom:14px"><div class="tit">Por inversor — {{ c.hoje }} <small>razão medido/esperado nos mesmos instantes · parcelas em kWh</small></div>
+  <table class="tab"><thead><tr><th>Inversor</th><th class="r">Esperado</th><th class="r">Medido</th><th class="r">Razão</th><th class="r">Parado</th><th class="r">Trackers</th><th class="r">Strings</th><th class="r">Resíduo</th><th>Status</th></tr></thead><tbody>
+  {% for i in d.inversores %}{% set ki = {'parado':'risk','abaixo':'warn','atencao':'warn','ok':'ok','sem_dado':'off'}[i.status] %}
+   <tr><td class="nome">{{ i.nome }}</td><td class="num r">{{ i.esperado_kwh|num(0) }}</td><td class="num r">{{ i.medido_kwh|num(0) }}</td><td class="num r c-{{ ki }}">{{ i.razao|num(3) }}</td>
+    <td class="num r">{{ i.inv_parado|num(0) }}</td><td class="num r">{{ i.tracker|num(0) }}</td><td class="num r">{{ i.string|num(0) }}</td><td class="num r">{{ i.residuo|num(0) }}</td>
+    <td><span class="tag {{ ki }}">{{ {'parado':'Parado','abaixo':'Abaixo dos pares','atencao':'Atenção','ok':'Normal','sem_dado':'Sem dado'}[i.status] }}</span></td></tr>
+  {% endfor %}</tbody></table>
+  <details><summary>Trackers com mais perda hoje ({{ d.trackers|length }})</summary><table class="tab"><thead><tr><th>Tracker</th><th class="r">Perda (kWh)</th></tr></thead><tbody>{% for t in d.trackers %}<tr><td>{{ t.nome }}{% if not t.pai_id %} <span class="c-warn">(sem inversor)</span>{% endif %}</td><td class="num r">{{ t.kwh|num(1) }}</td></tr>{% else %}<tr><td colspan="2" style="color:var(--gc-mut)">nenhuma perda em trackers hoje</td></tr>{% endfor %}</tbody></table></details>
+  <details><summary>Strings com mais perda hoje ({{ d.strings|length }})</summary><table class="tab"><thead><tr><th>String</th><th class="r">Perda (kWh)</th></tr></thead><tbody>{% for s in d.strings %}<tr><td>{{ s.nome }}</td><td class="num r">{{ s.kwh|num(1) }}</td></tr>{% else %}<tr><td colspan="2" style="color:var(--gc-mut)">nenhuma perda em strings hoje</td></tr>{% endfor %}</tbody></table></details>
+ </div>
+ <div class="card" style="margin-bottom:14px"><div class="tit">Sensor do dia</div><div class="faixa-nao"><span>razão POA/GHI <b class="num">{{ d.sensor.razao_poa_ghi|num(2) }}</b></span><span>cobertura do gate <b class="num">{{ (d.sensor.cobertura_gate*100)|round(0)|int if d.sensor.cobertura_gate is not none else '—' }}%</b></span><span>gate de hoje <b>{{ d.sensor.gate_hoje }}</b></span></div></div>
+ <div class="rodape">Esperado físico: PVWatts (pvlib) sobre a POA medida · parcelas: parado → trackers (cosseno × fração direta) → strings → resíduo</div>
+</div>
+<script src="{{ PREFIXO }}/static/gemeo.js"></script>
+{% endblock %}
+```
+
+```css
+/* gemeo/gemeo/app/static/gemeo.css */
+/* tokens_grid R00 — extraidos dos mockups do Fillipe (Main.html / Usina.html). Sem fonte externa: a pilha
+   cai para Segoe UI / Consolas, que e o que a maquina da T.I. tem. Cor carrega severidade; contraste antes
+   de paleta; os glifos (● ▲ ✕ ○) sao simbolos tipograficos, nao emoji. */
+:root{--gc-navy:#191528;--gc-slate:#504C63;--gc-lime:#A9DB21;--gc-navy-800:#221D38;--gc-navy-700:#2C2647;--gc-ink:#1D1930;--gc-paper:#F2F2F6;--gc-card:#FFFFFF;--gc-line:#D9D9E0;--gc-zebra:#F0F1F4;--gc-mut:#6E6A80;--st-ok:#2E7D32;--st-warn:#B9770E;--st-risk:#B3261E;--st-off:#6E6A80;--st-ok-n:#A9DB21;--st-warn-n:#E8A33D;--st-risk-n:#EF6461;--st-off-n:#8B87A0;--dv-1:#6A8F0E;--dv-2:#3E7CB1;--dv-3:#B9770E;--dv-4:#8A5FA8;--f-ui:'Archivo','Segoe UI Variable Text','Segoe UI',system-ui,sans-serif;--f-data:'IBM Plex Mono','Cascadia Mono',Consolas,monospace}
+body{margin:0;background:var(--gc-paper);color:var(--gc-ink);font-family:var(--f-ui);font-size:13.5px;-webkit-font-smoothing:antialiased}
+a{color:var(--dv-2)}a:hover{color:var(--gc-navy)}
+.num{font-family:var(--f-data);font-variant-numeric:tabular-nums}
+.gl{font-family:var(--f-data)}
+.topo{background:var(--gc-navy);height:54px;padding:0 26px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--gc-navy-700)}
+.marca{display:flex;align-items:center;gap:10px;color:#fff;font-weight:700;font-size:15px;letter-spacing:-.2px}
+.marca .g{width:28px;height:28px;background:var(--gc-lime);border-radius:7px;display:grid;place-items:center;color:var(--gc-navy);font-weight:800;font-size:13px}
+.marca em{font-style:normal;color:var(--gc-lime)}
+.marca .sec{color:var(--st-off-n);font-size:11px;font-weight:600;border-left:1px solid var(--gc-navy-700);padding-left:10px;margin-left:2px;letter-spacing:.04em}
+.topo .dir{display:flex;align-items:center;gap:14px;color:var(--st-off-n);font-size:11.5px}
+.topo .dir b{color:#fff;font-weight:600;font-family:var(--f-data)}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:3px 11px 3px 8px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.pill.ativo{background:rgba(169,219,33,.1);border:1px solid rgba(169,219,33,.28);color:var(--gc-lime)}
+.pill.placa{background:rgba(232,163,61,.12);border:1px solid rgba(232,163,61,.35);color:var(--st-warn-n)}
+.pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.heroi{background:var(--gc-navy);padding:22px 26px 24px}
+.heroi .kicker{font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--gc-lime);margin-bottom:6px}
+.heroi h1{color:#fff;font-size:26px;font-weight:800;letter-spacing:-.02em;line-height:1.1;margin:0}
+.heroi h1 .sub{color:var(--st-off-n);font-weight:500;font-size:15px}
+.heroi .linha{display:flex;align-items:flex-end;justify-content:space-between;gap:16px}
+.heroi .data{color:var(--st-off-n);font-size:12px;font-family:var(--f-data);padding-bottom:4px}
+.regua-cab{display:flex;align-items:center;justify-content:space-between;margin:16px 0 7px;font-size:10.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--st-off-n)}
+.regua-cab b{color:#fff}
+.regua-cab .leg{display:flex;gap:14px;font-size:11px;font-weight:600;letter-spacing:0;text-transform:none}
+.regua{display:flex;gap:3px;height:16px}
+.regua a{flex:1;border-radius:2.5px;background:var(--st-off-n);display:block}
+.regua a.dentro{background:var(--st-ok-n)}.regua a.moderado{background:var(--st-warn-n)}.regua a.grave{background:var(--st-risk-n)}.regua a.frio,.regua a.sem_dado{background:var(--st-off-n)}
+.c-ok{color:var(--st-ok)}.c-warn{color:var(--st-warn)}.c-risk{color:var(--st-risk)}.c-off{color:var(--st-off)}
+.n-ok{color:var(--st-ok-n)}.n-warn{color:var(--st-warn-n)}.n-risk{color:var(--st-risk-n)}.n-off{color:var(--st-off-n)}
+.miolo{padding:20px 26px 8px;max-width:1280px;margin:0 auto}
+.cards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:14px}
+.card{background:var(--gc-card);border:1px solid var(--gc-line);border-radius:10px;box-shadow:0 1px 10px rgba(25,21,40,.06)}
+.kpi{padding:14px 16px 12px;display:flex;flex-direction:column;gap:2px}
+.kpi .rot{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--gc-mut)}
+.kpi .val{font-size:24px;font-weight:600;line-height:1.25}
+.kpi .val small{font-size:12px;color:var(--gc-mut);font-weight:500}
+.kpi .leg{font-size:11px;font-weight:600;color:var(--gc-mut)}
+.card .tit{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 16px;border-bottom:1px solid var(--gc-line);font-size:16px;font-weight:700;letter-spacing:-.01em}
+.card .tit small{font-size:11.5px;font-weight:500;color:var(--gc-mut);margin-left:6px}
+table.tab{width:100%;border-collapse:collapse;font-size:12.5px}
+.tab th{background:var(--gc-navy);color:#fff;font-weight:700;text-align:left;padding:9px 12px;font-size:11px;letter-spacing:.05em;text-transform:uppercase}
+.tab td{padding:9px 12px;border-bottom:1px solid var(--gc-line);vertical-align:top}
+.tab tr:nth-child(even) td{background:var(--gc-zebra)}
+.tab .r,.tab th.r{text-align:right}
+.tab .nome{font-weight:700}.tab .fonte{font-size:10.5px;color:var(--gc-mut);display:block}
+.tag{display:inline-flex;align-items:center;gap:5px;border-radius:99px;padding:3px 10px;font-size:11px;font-weight:700;white-space:nowrap}
+.tag.ok{background:#E7F2E8;color:var(--st-ok)}.tag.warn{background:#F8EEDD;color:var(--st-warn)}.tag.risk{background:#F7E4E2;color:var(--st-risk)}.tag.off{background:#ECEBF0;color:var(--st-off)}
+.faixa-nao{padding:10px 16px;font-size:12px;color:var(--gc-mut);display:flex;gap:16px;flex-wrap:wrap}
+.rodape{padding:14px 0 24px;font-size:11px;color:var(--gc-mut);font-style:italic}
+.duas{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start;margin-bottom:14px}
+.coluna{display:flex;flex-direction:column;gap:14px}
+.casc{padding:16px;display:flex;flex-direction:column;gap:10px}
+.casc .lin{display:flex;align-items:center;gap:10px}
+.casc .rot{width:150px;font-size:12px;font-weight:600;text-align:right}
+.casc .barra{flex:1;display:flex;align-items:center}
+.casc .b{color:#fff;border-radius:5px;padding:5px 10px;font-size:11.5px;font-weight:600;min-width:52px;box-sizing:border-box}
+.casc .esp{background:var(--dv-2)}.casc .med{background:var(--dv-1)}.casc .perda{text-align:right;padding:5px 8px}
+.lista .item{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:10px 16px;border-bottom:1px solid var(--gc-zebra)}
+.lista .item b{font-size:12.5px}.lista .item .sub{font-size:11px;color:var(--gc-mut)}
+.legenda{padding:0 16px 14px;display:flex;gap:18px;font-size:11px;color:var(--gc-mut);font-weight:600;flex-wrap:wrap}
+.legenda span{display:inline-flex;align-items:center;gap:6px}
+details summary{cursor:pointer;padding:10px 16px;font-weight:700;font-size:13px;list-style:none;border-top:1px solid var(--gc-line)}
+details summary::-webkit-details-marker{display:none}
+.frio-aviso{background:#ECEBF0;color:var(--st-off);padding:6px 26px;font-size:12px;font-weight:600}
+.login{min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--gc-navy)}
+.login form{background:#fff;border-radius:12px;padding:30px 28px;width:320px}
+.login input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--gc-line);border-radius:8px;font-size:15px;margin:6px 0 14px}
+.login button{width:100%;padding:11px;border:0;border-radius:8px;background:var(--gc-lime);color:var(--gc-navy);font-weight:800;font-size:14px;cursor:pointer}
+.login .erro{color:var(--st-risk);font-size:12px;min-height:16px;margin-top:10px;text-align:center}
+@media (max-width:980px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.duas{grid-template-columns:1fr}}
+```
+
+```javascript
+/* gemeo/gemeo/app/static/gemeo.js */
+/* Curva do dia em SVG puro (sem biblioteca, sem CDN): esperado tracejado o dia inteiro, medido cheio ate o
+   ultimo slot conhecido, area de perda entre os dois. Le o JSON que o template injeta em #curva-dados. */
+(function () {
+  var el = document.getElementById("curva-dados"), svg = document.getElementById("curva");
+  if (!el || !svg) return;
+  var pts = JSON.parse(el.textContent || "[]");
+  var x0 = 40, x1 = 540, y0 = 200, y1 = 40, ns = "http://www.w3.org/2000/svg", mono = "IBM Plex Mono, Consolas, monospace";
+  function mk(tag, at, txt) { var e = document.createElementNS(ns, tag); for (var k in at) e.setAttribute(k, at[k]); if (txt != null) e.textContent = txt; svg.appendChild(e); return e; }
+  var max = 0; pts.forEach(function (p) { max = Math.max(max, p.esperado_kw || 0, p.medido_kw || 0); });
+  if (!pts.length || max <= 0) { mk("text", { x: 290, y: 120, "text-anchor": "middle", "font-size": "12", fill: "#6E6A80" }, "sem curva para hoje"); return; }
+  var n = pts.length, xi = function (i) { return x0 + (x1 - x0) * i / Math.max(1, n - 1); }, yv = function (v) { return y0 - (y0 - y1) * v / max; };
+  [0, 0.5, 1].forEach(function (f) {
+    var y = yv(max * f);
+    mk("line", { x1: x0, y1: y, x2: x1, y2: y, stroke: f ? "#F0F1F4" : "#D9D9E0" });
+    mk("text", { x: x0 - 6, y: y + 4, "text-anchor": "end", "font-size": "10", fill: "#6E6A80", "font-family": mono }, (max * f / 1000).toFixed(1).replace(".", ","));
+  });
+  var esp = [], med = [], poly = [], ult = -1;
+  pts.forEach(function (p, i) {
+    if (p.esperado_kw != null) esp.push(xi(i) + "," + yv(p.esperado_kw));
+    if (p.medido_kw != null) { med.push(xi(i) + "," + yv(p.medido_kw)); ult = i; }
+    if (p.esperado_kw != null && p.medido_kw != null) poly.push(xi(i) + "," + yv(p.esperado_kw));
+  });
+  for (var i = n - 1; i >= 0; i--) { var p = pts[i]; if (p.esperado_kw != null && p.medido_kw != null) poly.push(xi(i) + "," + yv(Math.min(p.medido_kw, p.esperado_kw))); }
+  if (poly.length > 2) mk("polygon", { points: poly.join(" "), fill: "rgba(179,38,30,.14)" });
+  if (esp.length) mk("polyline", { points: esp.join(" "), fill: "none", stroke: "#3E7CB1", "stroke-width": "2.2", "stroke-dasharray": "6 4", "stroke-linecap": "round" });
+  if (med.length) mk("polyline", { points: med.join(" "), fill: "none", stroke: "#6A8F0E", "stroke-width": "2.4", "stroke-linecap": "round" });
+  if (ult >= 0) {
+    mk("line", { x1: xi(ult), y1: y1, x2: xi(ult), y2: y0, stroke: "#504C63", "stroke-dasharray": "3 3" });
+    mk("text", { x: xi(ult) + 6, y: y1 + 10, "font-size": "10", fill: "#504C63", "font-family": mono }, pts[ult].hora || "");
+  }
+  pts.forEach(function (p, i) {
+    if (p.hora && /:00$/.test(p.hora) && parseInt(p.hora, 10) % 3 === 0) mk("text", { x: xi(i), y: y0 + 22, "text-anchor": "middle", "font-size": "10", fill: "#6E6A80", "font-family": mono }, p.hora.slice(0, 2) + "h");
+  });
+})();
+```
+
+- [ ] **Step 4: Rodar e ver passar**
+
+Run: `cd gemeo && python -m pytest tests/test_app_rotas.py -q`
+Expected: 6 passed. Depois `python -m pytest -q` inteiro.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add gemeo/gemeo/app/ gemeo/tests/test_app_rotas.py
+git commit -m "feat(gemeo): telas Frota e Usina sob /gemeo com login, API e healthz (Tarefa 19)"
+```
+
+---
+
+<!-- CONTINUA: Tarefa 20 -->

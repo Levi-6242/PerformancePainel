@@ -1,0 +1,56 @@
+<!-- gemeo/gemeo/app/templates/usina.html -->
+{% extends "base.html" %}
+{% block titulo %}{{ d.cabecalho.codigo }}{% endblock %}
+{% block secao %}GÊMEO DIGITAL · DIAGNÓSTICO{% endblock %}
+{% block direita %}{% set c = d.cabecalho %}<span><a href="{{ PREFIXO }}/" style="color:inherit">Frota</a> › {{ c.cliente or c.fonte }} › <b>{{ c.codigo }}</b></span>{% endblock %}
+{% block corpo %}{% set c = d.cabecalho %}{% set k = 'off' if c.frio else {'dentro':'ok','moderado':'warn','grave':'risk','sem_dado':'off'}[c.faixa] %}
+<div class="heroi"><div class="linha"><div><div class="kicker">Diagnóstico do gêmeo · {{ c.hoje }}</div>
+  <h1>{{ c.codigo }} <span class="sub num">· {{ c.fonte }} · {{ (c.kwp/1000)|num(1) }} MWp · {{ c.n_inversores }} inversores · {{ c.n_trackers }} trackers · {{ c.n_strings }} strings</span></h1></div>
+  <div><span class="tag {{ k }}" style="padding:5px 13px"><span class="gl">{{ {'ok':'●','warn':'▲','risk':'✕','off':'○'}[k] }}</span> {{ 'sem dado fresco' if c.frio else {'ok':'Dentro','warn':'Déficit','risk':'Déficit','off':'Sem dado'}[k] }} <span class="num">{{ c.delta|pct }}</span> agora</span></div></div>
+  <div class="regua-cab" style="margin-top:10px"><div>modelo <b>{{ c.modelo_versao or 'placa' }}</b> · {{ 'calibrado' if c.calibrado else 'não calibrado' }} · tolerância {{ (c.tolerancia*100)|round(0)|int }}% · última leitura há {{ c.idade_leitura_min if c.idade_leitura_min is not none else '—' }} min · último esperado há {{ c.idade_esperado_min if c.idade_esperado_min is not none else '—' }} min</div></div>
+</div>
+{% if c.frio %}<div class="frio-aviso">Dado frio: a última leitura tem mais de 30 min. As cores abaixo valem para o último instante conhecido.</div>{% endif %}
+<div class="miolo">
+ <div class="duas">
+  <div class="card"><div class="tit">Curva do dia — esperado × medido <small>potência CA da usina · MW</small></div>
+   <div style="padding:16px 16px 8px"><svg id="curva" viewBox="0 0 560 240" style="width:100%;height:auto" role="img" aria-label="Curva do dia: esperado do gêmeo e medido até agora"></svg></div>
+   <div class="legenda"><span><span style="width:18px;border-top:2.2px dashed var(--dv-2)"></span> Esperado (gêmeo)</span><span><span style="width:18px;height:2.4px;background:var(--dv-1)"></span> Medido — até agora</span><span><span style="width:12px;height:10px;background:rgba(179,38,30,.14);border:1px solid rgba(179,38,30,.3)"></span> Perda do dia: <span class="num">{{ ((d.cascata.delta if d.cascata else 0)/1000)|num(2) }} MWh</span></span></div>
+   <script type="application/json" id="curva-dados">{{ d.curva|tojson }}</script>
+  </div>
+  <div class="coluna">
+   <div class="card"><div class="tit">Cascata de perdas — {{ c.hoje }}</div>
+    {% if d.cascata %}{% set cs = d.cascata %}{% set base = cs.e_esperado if cs.e_esperado > 0 else 1 %}
+    <div class="casc">
+     <div class="lin"><span class="rot">Esperado (gêmeo)</span><div class="barra"><div class="b esp num" style="width:100%">{{ (cs.e_esperado/1000)|num(2) }} MWh</div></div></div>
+     {% for nome, rot, cor in (('inv_parado','Inversor parado','var(--st-risk)'),('tracker','Trackers fora do alvo','var(--st-warn)'),('string','Strings sem corrente','var(--st-warn)'),('residuo','Resíduo','var(--gc-slate)')) %}{% set v = cs[nome] %}
+     <div class="lin"><span class="rot" style="color:{{ cor }}">{{ rot }}</span><div class="barra"><div style="width:{{ (100 - 100*v/base)|round(1) if v > 0 else 100 }}%"></div><div class="b perda num" style="background:{{ cor }};flex:0 0 auto">−{{ (v/1000)|num(2) }}</div></div></div>
+     {% endfor %}
+     <div class="lin"><span class="rot" style="font-weight:700">Medido</span><div class="barra"><div class="b med num" style="width:{{ (100*cs.e_medido/base)|round(1) }}%">{{ (cs.e_medido/1000)|num(2) }} MWh</div></div></div>
+    </div>
+    <div style="padding:0 16px 14px;font-size:11px;color:var(--gc-mut)">{% if d.perda_brl is not none %}Perda valorada: <b class="num c-risk">{{ d.perda_brl|brl }}</b> · contrato <span class="num">R$ {{ d.preco_mwh|num(0) }}/MWh</span>{% else %}Sem preço no contrato (meta_mes.preco_mwh): perda só em MWh{% endif %} · cobertura do gate <span class="num">{{ (cs.cobertura_gate*100)|round(0)|int }}%</span>{% if cs.trackers_sem_inversor %} · <span class="c-warn">{{ cs.trackers_sem_inversor }} trackers sem inversor no de-para</span>{% endif %}</div>
+    {% else %}<div class="casc" style="color:var(--gc-mut)">Sem cascata hoje — {{ d.sensor.gate_hoje if d.sensor.gate_hoje != 'ok' else 'o modelo ainda não rodou para este dia' }}.</div>{% endif %}
+   </div>
+   <div class="card"><div class="tit">Assinaturas detectadas <small>{{ d.eventos|length }} eventos</small></div>
+    <div class="lista">{% for e in d.eventos[:8] %}{% set ke = {'grave':'risk','media':'warn','leve':'ok'}[e.severidade] %}
+     <div class="item"><div><b>{{ {'inversor_parado':'Inversor parado','inversor_abaixo':'Inversor abaixo dos pares','tracker_fora_alvo':'Tracker fora do alvo','string_sem_corrente':'String sem corrente','sensor_em_falha':'Sensor em falha (POA × GHI)','sem_cobertura':'Sem cobertura de sensor'}[e.tipo] }} — {{ e.equipamento }}</b>
+      <div class="sub">desde {{ e.hora_ini }}{{ ' · aberto' if not e.fim else '' }} · <span class="num">{{ e.kwh|num(0) }} kWh</span>{% if e.detalhe.excesso_max %} · excesso máx. {{ e.detalhe.excesso_max|num(0) }}°{% endif %}{% if e.detalhe.razoes %} · razões {{ e.detalhe.razoes }}{% endif %}</div></div>
+      <span class="tag {{ ke }}"><span class="gl">{{ {'risk':'✕','warn':'▲','ok':'●'}[ke] }}</span> {{ e.severidade }}</span></div>
+    {% else %}<div class="item"><div class="sub">Nenhuma assinatura hoje.</div></div>{% endfor %}</div>
+   </div>
+  </div>
+ </div>
+ <div class="card" style="overflow:hidden;margin-bottom:14px"><div class="tit">Por inversor — {{ c.hoje }} <small>razão medido/esperado nos mesmos instantes · parcelas em kWh</small></div>
+  <table class="tab"><thead><tr><th>Inversor</th><th class="r">Esperado</th><th class="r">Medido</th><th class="r">Razão</th><th class="r">Parado</th><th class="r">Trackers</th><th class="r">Strings</th><th class="r">Resíduo</th><th>Status</th></tr></thead><tbody>
+  {% for i in d.inversores %}{% set ki = {'parado':'risk','abaixo':'warn','atencao':'warn','ok':'ok','sem_dado':'off'}[i.status] %}
+   <tr><td class="nome">{{ i.nome }}</td><td class="num r">{{ i.esperado_kwh|num(0) }}</td><td class="num r">{{ i.medido_kwh|num(0) }}</td><td class="num r c-{{ ki }}">{{ i.razao|num(3) }}</td>
+    <td class="num r">{{ i.inv_parado|num(0) }}</td><td class="num r">{{ i.tracker|num(0) }}</td><td class="num r">{{ i.string|num(0) }}</td><td class="num r">{{ i.residuo|num(0) }}</td>
+    <td><span class="tag {{ ki }}">{{ {'parado':'Parado','abaixo':'Abaixo dos pares','atencao':'Atenção','ok':'Normal','sem_dado':'Sem dado'}[i.status] }}</span></td></tr>
+  {% endfor %}</tbody></table>
+  <details><summary>Trackers com mais perda hoje ({{ d.trackers|length }})</summary><table class="tab"><thead><tr><th>Tracker</th><th class="r">Perda (kWh)</th></tr></thead><tbody>{% for t in d.trackers %}<tr><td>{{ t.nome }}{% if not t.pai_id %} <span class="c-warn">(sem inversor)</span>{% endif %}</td><td class="num r">{{ t.kwh|num(1) }}</td></tr>{% else %}<tr><td colspan="2" style="color:var(--gc-mut)">nenhuma perda em trackers hoje</td></tr>{% endfor %}</tbody></table></details>
+  <details><summary>Strings com mais perda hoje ({{ d.strings|length }})</summary><table class="tab"><thead><tr><th>String</th><th class="r">Perda (kWh)</th></tr></thead><tbody>{% for s in d.strings %}<tr><td>{{ s.nome }}</td><td class="num r">{{ s.kwh|num(1) }}</td></tr>{% else %}<tr><td colspan="2" style="color:var(--gc-mut)">nenhuma perda em strings hoje</td></tr>{% endfor %}</tbody></table></details>
+ </div>
+ <div class="card" style="margin-bottom:14px"><div class="tit">Sensor do dia</div><div class="faixa-nao"><span>razão POA/GHI <b class="num">{{ d.sensor.razao_poa_ghi|num(2) }}</b></span><span>cobertura do gate <b class="num">{{ (d.sensor.cobertura_gate*100)|round(0)|int if d.sensor.cobertura_gate is not none else '—' }}%</b></span><span>gate de hoje <b>{{ d.sensor.gate_hoje }}</b></span></div></div>
+ <div class="rodape">Esperado físico: PVWatts (pvlib) sobre a POA medida · parcelas: parado → trackers (cosseno × fração direta) → strings → resíduo</div>
+</div>
+<script src="{{ PREFIXO }}/static/gemeo.js"></script>
+{% endblock %}

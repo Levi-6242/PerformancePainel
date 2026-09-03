@@ -1,0 +1,42 @@
+<!-- gemeo/gemeo/app/templates/frota.html -->
+{% extends "base.html" %}
+{% block titulo %}Frota{% endblock %}
+{% block direita %}{% set r = d.regua %}
+  {% if r.barras and r.calibradas == r.barras|length %}<span class="pill ativo"><span class="dot"></span>Modelo calibrado</span>{% else %}<span class="pill placa"><span class="dot"></span>Modelo de placa — não calibrado</span>{% endif %}
+  <span>Ciclo do gêmeo às <b>{{ d.ciclo.em[11:19] if d.ciclo.em else '—' }}</b> UTC</span>
+{% endblock %}
+{% block corpo %}{% set t = d.totais %}{% set r = d.regua %}
+<div class="heroi">
+  <div class="linha"><div><div class="kicker">Gêmeo digital · Esperado × Medido · agora</div><h1>A frota contra a física</h1></div>
+  <div class="data">{{ agora.strftime('%d/%m/%Y · %H:%M') }} UTC</div></div>
+  <div class="regua-cab"><div>Régua da frota — <b>Δ do gêmeo por usina</b> · <span class="num">{{ t.n_modeladas }}</span> modeladas de {{ t.n_usinas }}</div>
+    <div class="leg"><span><span class="gl n-ok">●</span> dentro · <span class="num">{{ r.faixas.dentro }}</span></span>
+      <span><span class="gl n-warn">▲</span> déficit {{ (r.tolerancia*100)|round(0)|int }}–8% · <span class="num">{{ r.faixas.moderado }}</span></span>
+      <span><span class="gl n-risk">✕</span> déficit &gt; 8% · <span class="num">{{ r.faixas.grave }}</span></span></div></div>
+  <div class="regua">{% for b in r.barras %}<a href="{{ PREFIXO }}/usina/{{ b.id }}" class="{{ 'frio' if b.frio else b.faixa }}" title="{{ b.codigo }}"></a>{% else %}<a class="frio" title="nenhuma usina modelada"></a>{% endfor %}</div>
+</div>
+<div class="miolo">
+  <div class="cards">
+    <div class="card kpi"><div class="rot">Esperado agora</div><div class="val num">{{ t.esperado_kw|mw }} <small>MW</small></div><div class="leg">modelo físico · irradiância medida</div></div>
+    <div class="card kpi"><div class="rot">Medido agora</div><div class="val num">{{ t.medido_kw|mw }} <small>MW</small></div><div class="leg">{{ t.n_modeladas }} usinas modeladas</div></div>
+    {% set cf = 'c-off' if t.delta is none else ('c-ok' if t.delta >= -r.tolerancia else ('c-warn' if t.delta >= -0.08 else 'c-risk')) %}
+    <div class="card kpi"><div class="rot">Δ da frota</div><div class="val num {{ cf }}">{{ t.delta|pct }}</div><div class="leg {{ cf }}">tolerância {{ (r.tolerancia*100)|round(0)|int }}%{{ ' (placa)' if r.calibradas == 0 else '' }}</div></div>
+    <div class="card kpi"><div class="rot">Perda de hoje</div><div class="val num">{% if t.perda_brl is not none %}{{ t.perda_brl|brl }}{% else %}{{ (t.perda_kwh/1000)|num(2) }} <small>MWh</small>{% endif %}</div><div class="leg">Σ das cascatas de hoje{{ ' · sem preço no contrato' if t.perda_brl is none else '' }}</div></div>
+    {% set cc = 'c-ok' if t.confianca >= 0.9 else ('c-warn' if t.confianca >= 0.6 else 'c-risk') %}
+    <div class="card kpi"><div class="rot">Confiança do ciclo</div><div class="val num {{ cc }}">{{ (t.confianca*100)|round(0)|int }}<small>%</small></div><div class="leg {{ cc }}">usinas com sensor ok e dado fresco</div></div>
+  </div>
+  <div class="card" style="overflow:hidden;margin-bottom:18px">
+    <div class="tit">Maiores déficits agora <small>ordenado por perda · clique abre o diagnóstico</small></div>
+    <table class="tab"><thead><tr><th>Usina</th><th class="r">Esperado</th><th class="r">Medido</th><th class="r">Δ</th><th>Causa dominante</th><th class="r">Perda hoje</th><th>Status</th></tr></thead><tbody>
+    {% for u in d.usinas %}{% set k = 'off' if u.frio else {'dentro':'ok','moderado':'warn','grave':'risk','sem_dado':'off'}[u.faixa] %}
+      <tr><td><a class="nome" href="{{ PREFIXO }}/usina/{{ u.id }}" style="color:inherit;text-decoration:none">{{ u.codigo }}</a><span class="fonte">{{ (u.cliente ~ ' · ') if u.cliente else '' }}{{ u.fonte }} · {{ u.modelo_versao or 'placa' }}</span></td>
+      <td class="num r">{{ u.esperado_kw|mw }} MW</td><td class="num r">{{ u.medido_kw|mw }} MW</td><td class="num r c-{{ k }}" style="font-weight:600">{{ u.delta|pct }}</td>
+      <td>{{ u.causa }}</td><td class="num r">{% if u.perda_brl is not none %}{{ u.perda_brl|brl }}{% else %}{{ (u.perda_kwh/1000)|num(2) }} MWh{% endif %}</td>
+      <td><span class="tag {{ k }}"><span class="gl">{{ {'ok':'●','warn':'▲','risk':'✕','off':'○'}[k] }}</span> {{ 'sem dado fresco' if u.frio else {'ok':'Normal','warn':'Atenção','risk':'Déficit','off':'Sem dado'}[k] }}</span></td></tr>
+    {% else %}<tr><td colspan="7" style="color:var(--gc-mut)">Nenhuma usina modelada agora.</td></tr>{% endfor %}
+    </tbody></table>
+    {% if d.nao_modeladas %}<div class="faixa-nao"><b>Não modeladas:</b>{% for n in d.nao_modeladas %}<span>{{ n.codigo }} — {{ n.motivo }}</span>{% endfor %}</div>{% endif %}
+  </div>
+  <div class="rodape">Sombra digital (níveis 1–3) · esperado = PVWatts sobre a POA medida · frescor: cinza acima de 30 min</div>
+</div>
+{% endblock %}
