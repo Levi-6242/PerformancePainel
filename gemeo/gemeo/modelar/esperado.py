@@ -34,7 +34,10 @@ def inferir_pac0(p_ac: pd.Series, kw_ac_placa: float | None, kwp: float) -> tupl
 
 def esperado_inversor(poa: pd.Series, temp_cel: pd.Series, p: ParamsModelo) -> pd.Series:
     pdc = pvlib.pvsystem.pvwatts_dc(poa.fillna(0).values, temp_cel.fillna(25).values, p.kwp, p.gamma) * (1 - p.perdas_fixas)
-    pac = pvlib.inverter.pvwatts(pdc, p.pac0_kw, eta_inv_nom=p.eta_inv)
+    # pdc0 do PVWatts e a entrada DC em que o inversor atinge a placa (pac0 = eta_nom x pdc0): passar a placa
+    # direto limitaria em 0,96 x 200 = 192 kW. E a curva de eficiencia tem um termo -0,0059/zeta, entao um
+    # "teto infinito" leva zeta a zero e o AC a ZERO - o teto tem de ser realista, nunca 1e9.
+    pac = pvlib.inverter.pvwatts(pdc, p.pac0_kw / p.eta_inv, eta_inv_nom=p.eta_inv)
     return pd.Series(np.asarray(pac, dtype=float), index=poa.index)
 
 

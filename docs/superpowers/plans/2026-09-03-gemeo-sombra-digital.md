@@ -1,0 +1,2393 @@
+# Gêmeo Digital — Sombra Digital (Níveis 1–3) — Plano de implementação
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Colocar no ar, para as usinas do piloto (Santarém 1 e MRO100), um serviço que calcula a geração esperada por inversor com modelo físico sobre a irradiância medida, decompõe o delta em perdas com nome e mostra tudo nas telas Frota e Usina — acessível pela plataforma.
+
+**Architecture:** Um pacote `gemeo/` com três pontos de entrada que só se falam pelo banco PostgreSQL próprio: `ingest` (um laço por fonte: PostgreSQL `powerplants`, API SunOp, API BD_Performance), `modelar` (job idempotente a cada 15 min: gate de duas portas → esperado pvlib → decomposição → eventos → cascata) e `app` (Flask só-leitura sob o prefixo `/gemeo`, proxiado pela plataforma). `ingest_run` é o contrato de frescor e cobertura.
+
+**Tech Stack:** Python ≥ 3.12 · psycopg2-binary · pandas · numpy · pvlib · Flask · waitress · requests · openpyxl · pytest · PostgreSQL 16 · SQL puro versionado (sem ORM) · GitHub Actions.
+
+**Spec:** `docs/superpowers/specs/2026-09-03-gemeo-sombra-digital-design.md` — o plano argumenta a partir dela; execute com os dois abertos.
+
+## Global Constraints
+
+- Sempre **pt-BR**, inclusive comentários e mensagens de commit. Comentário explica **por quê**, citando o caso real.
+- **Sem emoji na interface**; severidade se comunica por cor; tema tokens_grid R00: navy `#191528`, lime `#A9DB21`, status `#2E7D32/#B9770E/#B3261E/#6E6A80`.
+- Todo `ts` é `timestamptz` gravado em **UTC**; fuso da usina em `usina.tz`; conversão só na consulta.
+- Toda escrita é **upsert pela chave natural**; **nenhum upsert grava NULL sobre valor**; ciclo vazio grava `ingest_run` com `falha` e **nenhuma** leitura.
+- SunOp: lote de **600** pathnames, **teto diário de 600 requisições**, pausa fora de **05:40–18:20** (fuso da usina), sobreposição de **30 min**, reconciliação de **24 h** uma vez por dia.
+- Modelo: grade de **15 min**; gate POA/GHI em `[0,3; 3]` com GHI > 100 e mediana diária em ±30 % da referência de 30 dias; dia exige **≥ 8 h** válidas; PVWatts com γ **−0,0035**, perdas **0,14**, η **0,96**; tracker: excesso sobre a **mediana da frota** > **5°**; parado = medido < **1 kW** com esperado > **20 kW**; string zerada < **0,1 A** com mediana do inversor > **0,5 A**; instalada = > **1 A** em 30 dias.
+- Calibração: CV da POA (10–14 h) < **0,25**; calibrado = ≥ **30** dias limpos e desvio < **0,03**; tolerância **0,08** antes, **0,03** depois.
+- Comparação de floats sempre por **tolerância 1e-6**, nunca `==`.
+- O gêmeo **não importa** `plataforma/app.py`. Nenhum caminho fixo de máquina no código.
+- Nada aqui pode reiniciar, matar ou reconfigurar a plataforma (5050), o worker, o Thopen (5080), os `cloudflared` ou as tarefas agendadas existentes.
+
+---
+
+## Mapa de arquivos
+
+O projeto nasce como pasta `gemeo/` na raiz **deste** repositório (como `plataforma/` e `thopen/`) e migra para `Grid-Co-CODE/gemeo` quando o repositório existir — o pacote já é autocontido para isso.
+
+```
+gemeo/
+  pyproject.toml                 pacote `gemeo`, script `gemeo = gemeo.cli:main`
+  config.toml                    não-segredo: usinas do piloto, ritmos, tetos, porta
+  README.md                      como rodar; aponta para o runbook
+  gemeo/
+    __init__.py
+    cli.py                       gemeo migrate | ingest | modelar | calibrar | app | importar-alias | inspecionar-cadastro
+    core/
+      config.py                  Config + carregar(): config.toml + SECRETS_DIR/gemeo.env
+      db.py                      conectar, migrar, upsert_leituras, registrar_ingest_run, marca_dagua, requisicoes_hoje
+      tempo.py                   piso_grade, janela, dia_local, dentro_janela_solar
+      alias.py                   resolver, gravar (de-para como dado)
+      modelos.py                 UsinaRef, EquipRef (dataclasses compartilhadas)
+    ingest/
+      base.py                    Ingestor (ciclo, marca d'água, ingest_run, Disjuntor), Busca
+      pg.py                      IngestorPG — raw_weather_station, raw_inverter, raw_tracker
+      sunop.py                   IngestorSunOp — metadata em disco, lote 600 atravessando usinas, teto
+      cadastro.py                IngestorCadastro — API BD_Performance → usina, equipamento, alias, meta_mes
+      runner.py                  três laços em threads; `gemeo ingest`
+    modelar/
+      grade.py                   carregar_grade(): leituras → Grade (DataFrames na grade de 15 min)
+      gate.py                    avaliar(): duas portas → gate por instante + motivo por dia
+      esperado.py                temp_celula, inferir_pac0, esperado_inversor (pvlib)
+      decomposicao.py            decompor(): parado / tracker / string / resíduo
+      eventos.py                 detectar(): as seis assinaturas
+      rollup.py                  cascata(): cascata_dia + perda_dia
+      job.py                     modelar(): orquestra e persiste; `gemeo modelar`
+      calibrar.py                calibrar(): dias limpos → versão nova de modelo
+    app/
+      server.py                  criar_app(), prefixo /gemeo, login, rotas, waitress
+      consultas.py               frota(), usina(), saude() — todo SQL das telas
+      templates/ base.html login.html frota.html usina.html
+      static/ tokens.css gemeo.css uplot.min.js uplot.min.css
+  migrations/0001_schema.sql
+  tools/importar_alias.py  tools/equivalencia.py  tools/golden_from_spike.py
+  tests/ conftest.py  fixtures/  test_*.py
+  deploy/ instalar_tarefas.ps1  backup.ps1  README.md
+  docs/runbook.md
+.github/workflows/gemeo-ci.yml   (na raiz do repositório)
+plataforma/app.py                +rota proxy /gemeo/*   (Tarefa 20)
+docs/redesign/Monitoramento (novo design).html   +entrada de menu   (Tarefa 20)
+```
+
+**Fixtures que já existem** (extraídas dos spikes em 03/09, `docs/superpowers/plans/golden/`): `santarem1_2026-08-26.json`, `santarem1_2026-09-01.json`, `mro100_2026-08-26.json`, `mro100_2026-08-31.json`, `mro100_trk_inv.json`. A Tarefa 1 as move para `gemeo/tests/fixtures/golden/`. Formato: `{"usina","fonte","tz","kwp","kw_ac","n_inv","dia","estacao":{"poa":{ts:valor},...},"inv_p":{inv:{ts:kw}},"inv_e_dia","trk_ang","trk_alvo","str_i":{"inv.k":{ts:A}},"sunop_pot_esp_pu","veredito_esperado":{...}}` com `ts` no formato `YYYY-MM-DDTHH:MM` **em hora local da usina**.
+
+**Interfaces compartilhadas** (`gemeo/core/modelos.py`, criado na Tarefa 1):
+
+```python
+from dataclasses import dataclass, field
+
+@dataclass(frozen=True)
+class UsinaRef:
+    id: int
+    codigo: str          # "MRO100", "Santarem 1"
+    fonte: str           # "pg" | "sunop" | "axis"
+    fonte_ref: str       # pid no PG ("10") ou nome na SunOp ("MRO100")
+    tz: str              # "America/Belem"
+    kwp: float = 0.0
+    kw_ac: float = 0.0
+    lat: float | None = None
+    lon: float | None = None
+
+@dataclass(frozen=True)
+class EquipRef:
+    id: int
+    usina_id: int
+    tipo: str            # inversor | tracker | string | estacao | cabine
+    codigo_fonte: str    # "INV_7", "TRK_17", "INV_7.I_PV3", "ESTM", "765"
+    pai_id: int | None = None
+    atributos: dict = field(default_factory=dict)   # numero, kwp, kw_ac, n_strings_esperadas...
+```
+
+---
+
+## Fase A — Fundação
+
+### Tarefa 1: Esqueleto do pacote, CLI e configuração com segredos
+
+**Files:**
+- Create: `gemeo/pyproject.toml`, `gemeo/config.toml`, `gemeo/README.md`, `gemeo/gemeo/__init__.py`, `gemeo/gemeo/cli.py`, `gemeo/gemeo/core/__init__.py`, `gemeo/gemeo/core/config.py`, `gemeo/gemeo/core/modelos.py` (código acima), `gemeo/tests/__init__.py`, `gemeo/tests/test_core_config.py`
+- Move: `docs/superpowers/plans/golden/*.json` → `gemeo/tests/fixtures/golden/`
+
+**Interfaces:**
+- Produces: `Config` (dataclass congelada), `carregar(caminho_config: Path | None = None, secrets_dir: Path | None = None) -> Config`, `SegredoAusente(RuntimeError)`. Segredos em `SECRETS_DIR/gemeo.env`, linhas `CHAVE=VALOR`: `GEMEO_DB_DSN`, `POWERPLANTS_DSN`, `SUNOP_API_TOKEN`, `GRIDCO_SQL_TOKEN`, `GEMEO_SENHA`.
+
+- [ ] **Passo 1: Escrever o teste que falha**
+
+```python
+# gemeo/tests/test_core_config.py
+"""config.toml + SECRETS_DIR/gemeo.env viram um Config congelado. Segredo faltando falha NOMEANDO
+a chave — a plataforma perdeu horas em 25/07 com um token velho 'sequestrando' a renovação em
+silêncio; aqui, ausência é erro em voz alta."""
+from pathlib import Path
+import pytest
+from gemeo.core.config import carregar, SegredoAusente
+
+TOML = """
+[usinas]
+piloto = ["MRO100", "Santarem 1"]
+[ritmo_min]
+pg = 15
+sunop_fino = 15
+sunop_lento = 60
+cadastro = 30
+modelar = 15
+[sunop]
+teto_dia = 600
+lote = 600
+janela = ["05:40", "18:20"]
+[ingest]
+sobreposicao_min = 30
+[modelar]
+grade_min = 15
+[app]
+porta = 5070
+[caminhos]
+cache_dir = "cache"
+"""
+ENV = "GEMEO_DB_DSN=postgresql://g:g@localhost/gemeo\nPOWERPLANTS_DSN=postgresql://l:l@h/powerplants\nSUNOP_API_TOKEN=abc\nGRIDCO_SQL_TOKEN=def\nGEMEO_SENHA=s\n"
+
+
+def _monta(tmp_path, env=ENV):
+    (tmp_path / "config.toml").write_text(TOML, encoding="utf-8")
+    (tmp_path / "gemeo.env").write_text(env, encoding="utf-8")
+    return tmp_path
+
+
+def test_carrega_config_e_segredos(tmp_path):
+    d = _monta(tmp_path)
+    cfg = carregar(d / "config.toml", secrets_dir=d)
+    assert cfg.usinas_piloto == ("MRO100", "Santarem 1")
+    assert cfg.ritmo_min["sunop_lento"] == 60
+    assert cfg.teto_sunop_dia == 600 and cfg.lote_pathnames == 600
+    assert cfg.janela_solar == ("05:40", "18:20")
+    assert cfg.db_dsn.startswith("postgresql://g:g")
+    assert cfg.sunop_token == "abc" and cfg.senha_app == "s"
+    assert cfg.cache_dir == (d / "cache").resolve()
+
+
+def test_segredo_ausente_nomeia_a_chave(tmp_path):
+    d = _monta(tmp_path, env="GEMEO_DB_DSN=x\n")
+    with pytest.raises(SegredoAusente) as e:
+        carregar(d / "config.toml", secrets_dir=d)
+    assert "POWERPLANTS_DSN" in str(e.value)
+
+
+def test_config_e_imutavel(tmp_path):
+    d = _monta(tmp_path)
+    cfg = carregar(d / "config.toml", secrets_dir=d)
+    with pytest.raises(Exception):
+        cfg.teto_sunop_dia = 1  # type: ignore[misc]
+```
+
+- [ ] **Passo 2: Rodar para ver falhar**
+
+Run: `cd gemeo && python -m pytest tests/test_core_config.py -q`
+Expected: FAIL — `ModuleNotFoundError: No module named 'gemeo'`
+
+- [ ] **Passo 3: Criar o pacote, o `pyproject.toml` e o `config.py`**
+
+```toml
+# gemeo/pyproject.toml
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gemeo"
+version = "0.1.0"
+description = "Gemeo digital das usinas Grid Co - sombra digital (niveis 1-3)"
+requires-python = ">=3.12"
+dependencies = [
+  "psycopg2-binary>=2.9", "pandas>=2.2", "numpy>=1.26", "pvlib>=0.11",
+  "flask>=3.0", "waitress>=3.0", "requests>=2.31", "openpyxl>=3.1",
+]
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+[project.scripts]
+gemeo = "gemeo.cli:main"
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["gemeo*"]
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+```
+
+```toml
+# gemeo/config.toml — NÃO-SEGREDO. Segredos ficam em SECRETS_DIR/gemeo.env, fora do OneDrive.
+[usinas]
+piloto = ["MRO100", "Santarem 1"]
+[ritmo_min]
+pg = 15
+sunop_fino = 15
+sunop_lento = 60
+cadastro = 30
+modelar = 15
+[sunop]
+teto_dia = 600
+lote = 600
+janela = ["05:40", "18:20"]
+[ingest]
+sobreposicao_min = 30
+[modelar]
+grade_min = 15
+[app]
+porta = 5070
+[caminhos]
+cache_dir = "cache"
+```
+
+```python
+# gemeo/gemeo/core/config.py
+"""Configuração = config.toml (não-segredo, versionado) + SECRETS_DIR/gemeo.env (segredo, fora de
+pasta sincronizada). Dois arquivos, dois donos — a mesma separação que a plataforma adotou depois de
+o tokens.txt e o tokens_runtime.json se pisarem."""
+from __future__ import annotations
+import os
+import tomllib
+from dataclasses import dataclass
+from pathlib import Path
+
+SEGREDOS = ("GEMEO_DB_DSN", "POWERPLANTS_DSN", "SUNOP_API_TOKEN", "GRIDCO_SQL_TOKEN", "GEMEO_SENHA")
+
+
+class SegredoAusente(RuntimeError):
+    pass
+
+
+@dataclass(frozen=True)
+class Config:
+    db_dsn: str
+    powerplants_dsn: str
+    sunop_token: str
+    bd_api_token: str
+    senha_app: str
+    usinas_piloto: tuple[str, ...]
+    ritmo_min: dict[str, int]
+    teto_sunop_dia: int
+    lote_pathnames: int
+    janela_solar: tuple[str, str]
+    sobreposicao_min: int
+    grade_min: int
+    porta_app: int
+    cache_dir: Path
+    sunop_base: str = "https://gridco-api.sunop.net"
+    bd_api_base: str = "https://app.gridco.com.br/db_performace"
+
+
+def _ler_env(caminho: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if not caminho.exists():
+        return out
+    for linha in caminho.read_text(encoding="utf-8").splitlines():
+        linha = linha.strip()
+        if not linha or linha.startswith("#") or "=" not in linha:
+            continue
+        k, v = linha.split("=", 1)
+        out[k.strip()] = v.strip()
+    return out
+
+
+def carregar(caminho_config: Path | None = None, secrets_dir: Path | None = None) -> Config:
+    caminho_config = Path(caminho_config or os.environ.get("GEMEO_CONFIG", "config.toml"))
+    secrets_dir = Path(secrets_dir or os.environ.get("SECRETS_DIR", caminho_config.parent))
+    t = tomllib.loads(caminho_config.read_text(encoding="utf-8"))
+    env = {**_ler_env(secrets_dir / "gemeo.env"), **{k: v for k, v in os.environ.items() if k in SEGREDOS}}
+    faltam = [k for k in SEGREDOS if not env.get(k)]
+    if faltam:
+        raise SegredoAusente(f"faltam em {secrets_dir / 'gemeo.env'}: {', '.join(faltam)}")
+    cache = Path(t.get("caminhos", {}).get("cache_dir", "cache"))
+    if not cache.is_absolute():
+        cache = (caminho_config.parent / cache)
+    return Config(
+        db_dsn=env["GEMEO_DB_DSN"], powerplants_dsn=env["POWERPLANTS_DSN"],
+        sunop_token=env["SUNOP_API_TOKEN"], bd_api_token=env["GRIDCO_SQL_TOKEN"], senha_app=env["GEMEO_SENHA"],
+        usinas_piloto=tuple(t["usinas"]["piloto"]), ritmo_min=dict(t["ritmo_min"]),
+        teto_sunop_dia=int(t["sunop"]["teto_dia"]), lote_pathnames=int(t["sunop"]["lote"]),
+        janela_solar=tuple(t["sunop"]["janela"]), sobreposicao_min=int(t["ingest"]["sobreposicao_min"]),
+        grade_min=int(t["modelar"]["grade_min"]), porta_app=int(t["app"]["porta"]), cache_dir=cache.resolve(),
+    )
+```
+
+```python
+# gemeo/gemeo/cli.py
+"""`gemeo <comando>`. Cada comando importa só o que usa: o app não carrega pvlib, o ingest não carrega Flask."""
+from __future__ import annotations
+import argparse
+import sys
+
+
+def main(argv: list[str] | None = None) -> int:
+    p = argparse.ArgumentParser(prog="gemeo")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("migrate", help="aplica as migracoes SQL pendentes")
+    sub.add_parser("ingest", help="laco de ingestao (tres fontes)")
+    m = sub.add_parser("modelar", help="roda o modelo para as usinas do piloto")
+    m.add_argument("--ini"); m.add_argument("--fim"); m.add_argument("--usina")
+    c = sub.add_parser("calibrar", help="gera versao calibrada do modelo")
+    c.add_argument("--usina", required=True); c.add_argument("--dias", type=int, default=45)
+    sub.add_parser("app", help="sobe as telas (waitress)")
+    ia = sub.add_parser("importar-alias", help="planilha de-para -> tabela alias")
+    ia.add_argument("xlsx")
+    sub.add_parser("inspecionar-cadastro", help="imprime os headers das abas do BD_Performance")
+    a = p.parse_args(argv)
+    if a.cmd == "migrate":
+        from gemeo.core import db; from gemeo.core.config import carregar
+        cfg = carregar(); conn = db.conectar(cfg.db_dsn)
+        for nome in db.migrar(conn): print("aplicada", nome)
+        return 0
+    if a.cmd == "ingest":
+        from gemeo.ingest.runner import rodar; return rodar()
+    if a.cmd == "modelar":
+        from gemeo.modelar.job import rodar_cli; return rodar_cli(a.ini, a.fim, a.usina)
+    if a.cmd == "calibrar":
+        from gemeo.modelar.calibrar import rodar_cli; return rodar_cli(a.usina, a.dias)
+    if a.cmd == "app":
+        from gemeo.app.server import servir; return servir()
+    if a.cmd == "importar-alias":
+        from tools.importar_alias import rodar_cli; return rodar_cli(a.xlsx)
+    if a.cmd == "inspecionar-cadastro":
+        from gemeo.ingest.cadastro import inspecionar_cli; return inspecionar_cli()
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+```
+
+`gemeo/gemeo/__init__.py` e `gemeo/gemeo/core/__init__.py`: vazios. `gemeo/gemeo/core/modelos.py`: o código das interfaces compartilhadas acima. Mover as fixtures: `git mv docs/superpowers/plans/golden gemeo/tests/fixtures/golden`.
+
+- [ ] **Passo 4: Instalar em modo editável e rodar os testes**
+
+Run: `cd gemeo && python -m pip install -e ".[dev]" && python -m pytest tests/test_core_config.py -q`
+Expected: 3 passed
+
+- [ ] **Passo 5: Commit**
+
+```bash
+git add gemeo/ docs/superpowers/plans/
+git commit -m "feat(gemeo): esqueleto do pacote, CLI e configuracao com segredos fora do OneDrive"
+```
+
+### Tarefa 2: Banco — conexão, migrações e o schema `gemeo`
+
+**Files:**
+- Create: `gemeo/gemeo/core/db.py`, `gemeo/migrations/0001_schema.sql`, `gemeo/tests/conftest.py`, `gemeo/tests/test_core_db_migracoes.py`
+
+**Interfaces:**
+- Consumes: `Config.db_dsn` (Tarefa 1).
+- Produces: `conectar(dsn: str)` → conexão psycopg2 com `search_path=gemeo,public`; `migrar(conn, pasta: Path | None = None) -> list[str]` (nomes aplicados nesta chamada; idempotente via tabela `gemeo.schema_migrations`); fixture pytest `conn` (schema `gemeo` recriado por sessão em `GEMEO_TEST_DSN`; testes de banco são **pulados** sem a variável — não falham).
+
+- [ ] **Passo 1: Escrever o teste que falha**
+
+```python
+# gemeo/tests/conftest.py
+"""Banco de teste = GEMEO_TEST_DSN (um PostgreSQL local). Sem a variável, os testes de banco são
+PULADOS e não falham: a máquina do analista não tem PostgreSQL (verificado 03/09) e a suíte de
+modelo/gate/decomposição — que é pandas puro — precisa rodar mesmo assim."""
+import os
+import pytest
+import psycopg2
+
+DSN = os.environ.get("GEMEO_TEST_DSN")
+
+
+@pytest.fixture(scope="session")
+def conn():
+    if not DSN:
+        pytest.skip("GEMEO_TEST_DSN nao definido: sem PostgreSQL de teste")
+    c = psycopg2.connect(DSN)
+    c.autocommit = True
+    with c.cursor() as cur:
+        cur.execute("DROP SCHEMA IF EXISTS gemeo CASCADE; CREATE SCHEMA gemeo;")
+    c.autocommit = False
+    from gemeo.core import db
+    with c.cursor() as cur:
+        cur.execute("SET search_path TO gemeo, public")
+    db.migrar(c)
+    yield c
+    c.close()
+```
+
+```python
+# gemeo/tests/test_core_db_migracoes.py
+from pathlib import Path
+from gemeo.core import db
+
+TABELAS = {"usina", "equipamento", "alias", "leitura", "ingest_run", "modelo", "esperado",
+           "cascata_dia", "perda_dia", "evento", "meta_mes", "estado", "schema_migrations"}
+
+
+def test_migrar_cria_todas_as_tabelas(conn):
+    with conn.cursor() as cur:
+        cur.execute("select table_name from information_schema.tables where table_schema='gemeo'")
+        assert TABELAS <= {r[0] for r in cur.fetchall()}
+
+
+def test_migrar_e_idempotente(conn):
+    assert db.migrar(conn) == []          # segunda chamada: nada a aplicar
+
+
+def test_leitura_tem_chave_natural(conn):
+    with conn.cursor() as cur:
+        cur.execute("""select count(*) from information_schema.table_constraints
+                       where table_schema='gemeo' and table_name='leitura' and constraint_type='PRIMARY KEY'""")
+        assert cur.fetchone()[0] == 1
+```
+
+- [ ] **Passo 2: Rodar para ver falhar**
+
+Run: `cd gemeo && set GEMEO_TEST_DSN=postgresql://postgres:postgres@localhost:5432/gemeo_test && python -m pytest tests/test_core_db_migracoes.py -q`
+Expected: FAIL — `ImportError: cannot import name 'db'` (sem a variável: 3 skipped)
+
+- [ ] **Passo 3: Escrever o schema e o `db.py`**
+
+```sql
+-- gemeo/migrations/0001_schema.sql
+-- Schema da Sombra Digital. Convencoes: todo ts e timestamptz em UTC (fuso na usina);
+-- chave natural em tudo; leitura particionada por mes; nada aqui e ORM.
+CREATE TABLE IF NOT EXISTS schema_migrations (nome text PRIMARY KEY, aplicada_em timestamptz NOT NULL DEFAULT now());
+
+CREATE TABLE IF NOT EXISTS usina (
+  id            serial PRIMARY KEY,
+  codigo        text NOT NULL UNIQUE,            -- 'MRO100', 'Santarem 1'
+  nome          text NOT NULL,
+  fonte         text NOT NULL CHECK (fonte IN ('pg','sunop','axis','apipv','solaredge','owen')),
+  fonte_ref     text NOT NULL,                   -- pid no PG ou nome na SunOp
+  cliente       text,
+  lat           double precision, lon double precision,
+  tz            text NOT NULL DEFAULT 'America/Sao_Paulo',
+  kwp_dc        double precision, kw_ac double precision,
+  n_inversores  int,
+  full_om       boolean NOT NULL DEFAULT false,
+  ativo         boolean NOT NULL DEFAULT true,
+  criado_em     timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (fonte, fonte_ref)
+);
+
+CREATE TABLE IF NOT EXISTS equipamento (
+  id             serial PRIMARY KEY,
+  usina_id       int NOT NULL REFERENCES usina(id),
+  tipo           text NOT NULL CHECK (tipo IN ('inversor','tracker','string','estacao','cabine')),
+  codigo_fonte   text NOT NULL,                  -- 'INV_7', 'TRK_17', 'INV_7.I_PV3', 'ESTM', '765'
+  nome_exibicao  text,
+  pai_id         int REFERENCES equipamento(id),
+  atributos      jsonb NOT NULL DEFAULT '{}'::jsonb,   -- numero, kwp, kw_ac, n_strings_esperadas...
+  descoberto_em  timestamptz NOT NULL DEFAULT now(),
+  ativo          boolean NOT NULL DEFAULT true,
+  UNIQUE (usina_id, tipo, codigo_fonte)
+);
+CREATE INDEX IF NOT EXISTS equipamento_pai ON equipamento(pai_id);
+
+CREATE TABLE IF NOT EXISTS alias (
+  id             serial PRIMARY KEY,
+  usina_id       int REFERENCES usina(id),
+  equipamento_id int REFERENCES equipamento(id),
+  sistema        text NOT NULL CHECK (sistema IN ('fracttal','bd_performance','bd_trackers','sunop','apipv','pg')),
+  valor          text NOT NULL,
+  confianca      text NOT NULL CHECK (confianca IN ('direto','contagem','ordem','limite_skid','manual')),
+  origem         text NOT NULL,
+  criado_em      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (sistema, valor),
+  CHECK (usina_id IS NOT NULL OR equipamento_id IS NOT NULL)
+);
+
+CREATE TABLE IF NOT EXISTS leitura (
+  equipamento_id int NOT NULL,
+  medida         text NOT NULL CHECK (medida IN ('poa','ghi','temp_modulo','temp_ar','vento','p_ac','e_dia',
+                                                 'i_string','angulo','angulo_alvo','estado')),
+  ts             timestamptz NOT NULL,
+  valor          double precision NOT NULL,
+  PRIMARY KEY (equipamento_id, medida, ts)
+) PARTITION BY RANGE (ts);
+-- particoes mensais: o ingest cria a do mes corrente e a do proximo ao subir (ver db.garantir_particoes)
+CREATE TABLE IF NOT EXISTS leitura_default PARTITION OF leitura DEFAULT;
+CREATE INDEX IF NOT EXISTS leitura_eq_med_ts ON leitura (equipamento_id, medida, ts DESC);
+
+CREATE TABLE IF NOT EXISTS ingest_run (
+  id             serial PRIMARY KEY,
+  fonte          text NOT NULL,
+  usina_id       int REFERENCES usina(id),
+  ini            timestamptz NOT NULL, fim timestamptz NOT NULL,
+  status         text NOT NULL CHECK (status IN ('ok','parcial','falha')),
+  n_linhas       int NOT NULL DEFAULT 0,
+  n_requisicoes  int NOT NULL DEFAULT 0,
+  duracao_s      double precision NOT NULL DEFAULT 0,
+  cobertura      double precision NOT NULL DEFAULT 0,
+  erro           text,
+  criado_em      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ingest_run_fonte_ts ON ingest_run (fonte, criado_em DESC);
+
+CREATE TABLE IF NOT EXISTS modelo (
+  id            serial PRIMARY KEY,
+  usina_id      int NOT NULL REFERENCES usina(id),
+  versao        text NOT NULL,                   -- 'placa', 'cal-2026-10-15'
+  parametros    jsonb NOT NULL,                  -- pac0_kw, gamma, perdas_fixas, eta_inv, pac0_inferido, gate{}
+  tolerancia    double precision NOT NULL DEFAULT 0.08,
+  calibrado     boolean NOT NULL DEFAULT false,
+  calibrado_em  timestamptz,
+  metrica       jsonb NOT NULL DEFAULT '{}'::jsonb,
+  ativo         boolean NOT NULL DEFAULT false,
+  criado_em     timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (usina_id, versao)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS modelo_um_ativo_por_usina ON modelo (usina_id) WHERE ativo;
+
+CREATE TABLE IF NOT EXISTS esperado (
+  equipamento_id int NOT NULL,
+  ts             timestamptz NOT NULL,
+  modelo_id      int NOT NULL REFERENCES modelo(id),
+  p_esperado_kw  double precision,
+  poa_usada      double precision, temp_usada double precision,
+  gate           text NOT NULL CHECK (gate IN ('ok','poa_ghi','cobertura','plausibilidade')),
+  PRIMARY KEY (equipamento_id, ts, modelo_id)
+);
+
+CREATE TABLE IF NOT EXISTS cascata_dia (
+  usina_id       int NOT NULL REFERENCES usina(id),
+  dia            date NOT NULL,
+  modelo_id      int NOT NULL REFERENCES modelo(id),
+  e_esperado     double precision NOT NULL, e_medido double precision NOT NULL, delta double precision NOT NULL,
+  inv_parado     double precision NOT NULL DEFAULT 0, tracker double precision NOT NULL DEFAULT 0,
+  string         double precision NOT NULL DEFAULT 0, residuo double precision NOT NULL DEFAULT 0,
+  cobertura_gate double precision NOT NULL DEFAULT 0,
+  trackers_sem_inversor int NOT NULL DEFAULT 0,
+  PRIMARY KEY (usina_id, dia, modelo_id)
+);
+
+CREATE TABLE IF NOT EXISTS perda_dia (
+  equipamento_id int NOT NULL REFERENCES equipamento(id),
+  dia            date NOT NULL,
+  modelo_id      int NOT NULL REFERENCES modelo(id),
+  parcela        text NOT NULL CHECK (parcela IN ('inv_parado','tracker','string','residuo')),
+  kwh            double precision NOT NULL,
+  PRIMARY KEY (equipamento_id, dia, modelo_id, parcela)
+);
+
+CREATE TABLE IF NOT EXISTS evento (
+  id             serial PRIMARY KEY,
+  usina_id       int NOT NULL REFERENCES usina(id),
+  equipamento_id int REFERENCES equipamento(id),
+  modelo_id      int REFERENCES modelo(id),
+  tipo           text NOT NULL CHECK (tipo IN ('inversor_parado','inversor_abaixo','tracker_fora_alvo',
+                                               'string_sem_corrente','sensor_em_falha','sem_cobertura')),
+  ini            timestamptz NOT NULL, fim timestamptz,
+  severidade     text NOT NULL CHECK (severidade IN ('leve','media','grave')),
+  kwh            double precision NOT NULL DEFAULT 0,
+  detalhe        jsonb NOT NULL DEFAULT '{}'::jsonb,
+  UNIQUE (usina_id, equipamento_id, tipo, ini)
+);
+
+CREATE TABLE IF NOT EXISTS meta_mes (
+  usina_id       int NOT NULL REFERENCES usina(id),
+  ano int NOT NULL, mes int NOT NULL,
+  pr_previsto    double precision, ipoa_previsto double precision, p50_mwh double precision,
+  disp_alvo      double precision, preco_mwh double precision,
+  PRIMARY KEY (usina_id, ano, mes)
+);
+
+-- estado pequeno dos ingestores (ex.: updated_at do workbook que o cadastro viu por ultimo)
+CREATE TABLE IF NOT EXISTS estado (chave text PRIMARY KEY, valor text NOT NULL, atualizado_em timestamptz NOT NULL DEFAULT now());
+```
+
+```python
+# gemeo/gemeo/core/db.py
+"""Acesso ao banco do gemeo: conexao, migracoes em SQL puro, e os poucos upserts que valem regra.
+SQL puro de proposito — quem for depurar as 23h precisa ler o schema, nao um ORM."""
+from __future__ import annotations
+import datetime as dt
+from pathlib import Path
+from typing import Iterable
+import psycopg2
+import psycopg2.extras
+
+PASTA_MIGRACOES = Path(__file__).resolve().parents[2] / "migrations"
+
+
+def conectar(dsn: str):
+    conn = psycopg2.connect(dsn, options="-c search_path=gemeo,public")
+    conn.autocommit = False
+    return conn
+
+
+def migrar(conn, pasta: Path | None = None) -> list[str]:
+    """Aplica em ordem os .sql ainda nao registrados em schema_migrations. Idempotente."""
+    pasta = pasta or PASTA_MIGRACOES
+    with conn.cursor() as cur:
+        cur.execute("CREATE SCHEMA IF NOT EXISTS gemeo")
+        cur.execute("CREATE TABLE IF NOT EXISTS gemeo.schema_migrations (nome text PRIMARY KEY, aplicada_em timestamptz NOT NULL DEFAULT now())")
+        cur.execute("SELECT nome FROM gemeo.schema_migrations")
+        feitas = {r[0] for r in cur.fetchall()}
+        aplicadas = []
+        for arq in sorted(pasta.glob("*.sql")):
+            if arq.name in feitas:
+                continue
+            cur.execute(arq.read_text(encoding="utf-8"))
+            cur.execute("INSERT INTO gemeo.schema_migrations (nome) VALUES (%s)", (arq.name,))
+            aplicadas.append(arq.name)
+    conn.commit()
+    return aplicadas
+
+
+def garantir_particoes(conn, meses: Iterable[dt.date]) -> None:
+    """Cria a particao mensal de leitura para cada mes pedido (o ingest chama para o mes corrente e o
+    proximo). Sem particao, a linha cai na DEFAULT — funciona, mas a retencao por mes deixa de ser um DROP."""
+    with conn.cursor() as cur:
+        for m in meses:
+            ini = m.replace(day=1)
+            fim = (ini.replace(year=ini.year + (ini.month // 12), month=ini.month % 12 + 1))
+            nome = f"leitura_{ini:%Y_%m}"
+            cur.execute(f"CREATE TABLE IF NOT EXISTS {nome} PARTITION OF leitura FOR VALUES FROM (%s) TO (%s)", (ini, fim))
+    conn.commit()
+```
+
+- [ ] **Passo 4: Rodar os testes**
+
+Run (com PostgreSQL): `cd gemeo && python -m pytest tests/test_core_db_migracoes.py -q` → Expected: 3 passed. Sem PostgreSQL: 3 skipped.
+
+- [ ] **Passo 5: Commit**
+
+```bash
+git add gemeo/gemeo/core/db.py gemeo/migrations/0001_schema.sql gemeo/tests/conftest.py gemeo/tests/test_core_db_migracoes.py
+git commit -m "feat(gemeo): schema gemeo em SQL versionado e runner de migracoes idempotente"
+```
+
+### Tarefa 3: Upsert de leituras, `ingest_run` e marca d'água
+
+**Files:**
+- Modify: `gemeo/gemeo/core/db.py` (acrescentar funções abaixo de `garantir_particoes`)
+- Create: `gemeo/tests/test_core_db_upsert.py`
+
+**Interfaces:**
+- Produces: `upsert_leituras(conn, linhas: Iterable[tuple[int, str, dt.datetime, float | None]]) -> int` (linhas com `valor None` são **ignoradas**, nunca gravadas); `registrar_ingest_run(conn, fonte, usina_id, ini, fim, status, n_linhas=0, n_requisicoes=0, duracao_s=0.0, cobertura=0.0, erro=None) -> int`; `marca_dagua(conn, usina_id: int) -> dt.datetime | None` (maior `ts` de leitura da usina); `requisicoes_hoje(conn, fonte: str, dia_utc: dt.date) -> int`; `ler_estado(conn, chave) -> str | None`; `gravar_estado(conn, chave, valor)`.
+
+- [ ] **Passo 1: Escrever o teste que falha**
+
+```python
+# gemeo/tests/test_core_db_upsert.py
+"""'Vazio nunca sobrescreve' como PROPRIEDADE da escrita, nao como cuidado de quem chama. A plataforma
+aprendeu isso com o pg_trk congelado 33h e com o _sunop_str_med_ent cacheando foto vazia."""
+import datetime as dt
+import pytest
+from gemeo.core import db
+
+UTC = dt.timezone.utc
+
+
+@pytest.fixture
+def usina_eq(conn):
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO usina (codigo, nome, fonte, fonte_ref, tz) VALUES ('T1','Teste','pg','1','America/Belem') RETURNING id")
+        u = cur.fetchone()[0]
+        cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte) VALUES (%s,'inversor','INV_1') RETURNING id", (u,))
+        e = cur.fetchone()[0]
+    conn.commit()
+    yield u, e
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM leitura; DELETE FROM ingest_run; DELETE FROM equipamento; DELETE FROM usina")
+    conn.commit()
+
+
+def test_none_nunca_sobrescreve_valor(conn, usina_eq):
+    _, e = usina_eq
+    ts = dt.datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    assert db.upsert_leituras(conn, [(e, "p_ac", ts, 150.0)]) == 1
+    assert db.upsert_leituras(conn, [(e, "p_ac", ts, None)]) == 0
+    with conn.cursor() as cur:
+        cur.execute("SELECT valor FROM leitura WHERE equipamento_id=%s", (e,))
+        assert cur.fetchone()[0] == pytest.approx(150.0)
+
+
+def test_valor_novo_vence_na_colisao(conn, usina_eq):
+    _, e = usina_eq
+    ts = dt.datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    db.upsert_leituras(conn, [(e, "p_ac", ts, 150.0)])
+    db.upsert_leituras(conn, [(e, "p_ac", ts, 151.5)])
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*), max(valor) FROM leitura WHERE equipamento_id=%s", (e,))
+        n, v = cur.fetchone()
+    assert n == 1 and v == pytest.approx(151.5)
+
+
+def test_marca_dagua_e_o_maior_ts_da_usina(conn, usina_eq):
+    u, e = usina_eq
+    assert db.marca_dagua(conn, u) is None
+    t1 = dt.datetime(2026, 9, 1, 12, 0, tzinfo=UTC); t2 = t1 + dt.timedelta(minutes=15)
+    db.upsert_leituras(conn, [(e, "p_ac", t2, 1.0), (e, "p_ac", t1, 1.0)])
+    assert db.marca_dagua(conn, u) == t2
+
+
+def test_ingest_run_e_requisicoes_hoje(conn, usina_eq):
+    u, _ = usina_eq
+    hoje = dt.datetime.now(UTC)
+    db.registrar_ingest_run(conn, "sunop", u, hoje, hoje, "ok", n_linhas=10, n_requisicoes=3, duracao_s=1.2, cobertura=1.0)
+    db.registrar_ingest_run(conn, "sunop", u, hoje, hoje, "falha", n_requisicoes=1, erro="403 borda")
+    assert db.requisicoes_hoje(conn, "sunop", hoje.date()) == 4
+    assert db.requisicoes_hoje(conn, "pg", hoje.date()) == 0
+
+
+def test_estado_pequeno(conn):
+    assert db.ler_estado(conn, "cadastro.updated_at") is None
+    db.gravar_estado(conn, "cadastro.updated_at", "2026-09-02T14:51")
+    db.gravar_estado(conn, "cadastro.updated_at", "2026-09-03T08:00")
+    assert db.ler_estado(conn, "cadastro.updated_at") == "2026-09-03T08:00"
+```
+
+- [ ] **Passo 2: Rodar para ver falhar**
+
+Run: `cd gemeo && python -m pytest tests/test_core_db_upsert.py -q` → Expected: FAIL `AttributeError: module 'gemeo.core.db' has no attribute 'upsert_leituras'` (ou 5 skipped sem PostgreSQL)
+
+- [ ] **Passo 3: Implementar (acrescentar ao final de `db.py`)**
+
+```python
+def upsert_leituras(conn, linhas: Iterable[tuple[int, str, dt.datetime, float | None]]) -> int:
+    """Grava (equipamento, medida, ts, valor). Valor None e DESCARTADO antes de chegar ao banco — e a
+    propriedade 'vazio nunca sobrescreve'. Na colisao, o valor novo vence (correcao tardia da fonte)."""
+    validas = [(e, m, ts, float(v)) for e, m, ts, v in linhas if v is not None]
+    if not validas:
+        return 0
+    with conn.cursor() as cur:
+        psycopg2.extras.execute_values(
+            cur,
+            "INSERT INTO leitura (equipamento_id, medida, ts, valor) VALUES %s "
+            "ON CONFLICT (equipamento_id, medida, ts) DO UPDATE SET valor = EXCLUDED.valor",
+            validas, page_size=5000)
+    conn.commit()
+    return len(validas)
+
+
+def registrar_ingest_run(conn, fonte: str, usina_id: int | None, ini: dt.datetime, fim: dt.datetime, status: str,
+                         n_linhas: int = 0, n_requisicoes: int = 0, duracao_s: float = 0.0,
+                         cobertura: float = 0.0, erro: str | None = None) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO ingest_run (fonte, usina_id, ini, fim, status, n_linhas, n_requisicoes, duracao_s, cobertura, erro) "
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+            (fonte, usina_id, ini, fim, status, n_linhas, n_requisicoes, duracao_s, cobertura, erro))
+        rid = cur.fetchone()[0]
+    conn.commit()
+    return rid
+
+
+def marca_dagua(conn, usina_id: int) -> dt.datetime | None:
+    with conn.cursor() as cur:
+        cur.execute("SELECT max(l.ts) FROM leitura l JOIN equipamento e ON e.id = l.equipamento_id WHERE e.usina_id = %s", (usina_id,))
+        return cur.fetchone()[0]
+
+
+def requisicoes_hoje(conn, fonte: str, dia_utc: dt.date) -> int:
+    with conn.cursor() as cur:
+        cur.execute("SELECT coalesce(sum(n_requisicoes),0) FROM ingest_run WHERE fonte=%s AND (criado_em AT TIME ZONE 'UTC')::date = %s", (fonte, dia_utc))
+        return int(cur.fetchone()[0])
+
+
+def ler_estado(conn, chave: str) -> str | None:
+    with conn.cursor() as cur:
+        cur.execute("SELECT valor FROM estado WHERE chave=%s", (chave,))
+        r = cur.fetchone()
+        return r[0] if r else None
+
+
+def gravar_estado(conn, chave: str, valor: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO estado (chave, valor) VALUES (%s,%s) ON CONFLICT (chave) DO UPDATE SET valor=EXCLUDED.valor, atualizado_em=now()", (chave, valor))
+    conn.commit()
+```
+
+- [ ] **Passo 4: Rodar os testes** — `python -m pytest tests/test_core_db_upsert.py -q` → 5 passed (ou 5 skipped)
+
+- [ ] **Passo 5: Commit**
+
+```bash
+git add gemeo/gemeo/core/db.py gemeo/tests/test_core_db_upsert.py
+git commit -m "feat(gemeo): upsert de leituras que nunca grava vazio, ingest_run e marca d'agua"
+```
+
+### Tarefa 4: Tempo — grade de 15 min, janela incremental, fuso da usina
+
+**Files:**
+- Create: `gemeo/gemeo/core/tempo.py`, `gemeo/tests/test_core_tempo.py`
+
+**Interfaces:**
+- Produces: `GRADE_MIN = 15`; `piso_grade(ts: datetime, minutos: int = 15) -> datetime`; `janela(agora: datetime, marca: datetime | None, sobreposicao_min: int, reconciliar: bool = False, dias_iniciais: int = 3) -> tuple[datetime, datetime]`; `dia_local(ts: datetime, tz: str) -> date`; `dentro_janela_solar(agora: datetime, tz: str, janela: tuple[str, str]) -> bool`. Todos os `datetime` são **aware** (UTC); passar naive levanta `ValueError`.
+
+- [ ] **Passo 1: Escrever o teste que falha**
+
+```python
+# gemeo/tests/test_core_tempo.py
+"""Tudo em UTC aware. Naive levanta erro: foi um filtro sem fuso que zerou o resultado em silencio
+no dbt ('ultimas 2 horas' caiu no futuro)."""
+import datetime as dt
+import pytest
+from gemeo.core import tempo
+
+UTC = dt.timezone.utc
+
+
+def test_piso_grade_arredonda_para_baixo():
+    assert tempo.piso_grade(dt.datetime(2026, 9, 3, 12, 14, 59, tzinfo=UTC)) == dt.datetime(2026, 9, 3, 12, 0, tzinfo=UTC)
+    assert tempo.piso_grade(dt.datetime(2026, 9, 3, 12, 15, tzinfo=UTC)) == dt.datetime(2026, 9, 3, 12, 15, tzinfo=UTC)
+
+
+def test_naive_e_erro():
+    with pytest.raises(ValueError):
+        tempo.piso_grade(dt.datetime(2026, 9, 3, 12, 0))
+
+
+def test_janela_sem_marca_volta_dias_iniciais():
+    agora = dt.datetime(2026, 9, 3, 12, 7, tzinfo=UTC)
+    ini, fim = tempo.janela(agora, None, sobreposicao_min=30, dias_iniciais=3)
+    assert ini == agora - dt.timedelta(days=3) and fim == agora
+
+
+def test_janela_incremental_volta_a_sobreposicao():
+    agora = dt.datetime(2026, 9, 3, 12, 7, tzinfo=UTC)
+    marca = dt.datetime(2026, 9, 3, 11, 45, tzinfo=UTC)
+    ini, fim = tempo.janela(agora, marca, sobreposicao_min=30)
+    assert ini == dt.datetime(2026, 9, 3, 11, 15, tzinfo=UTC) and fim == agora
+
+
+def test_janela_reconciliar_volta_24h():
+    agora = dt.datetime(2026, 9, 3, 12, 7, tzinfo=UTC)
+    ini, _ = tempo.janela(agora, agora - dt.timedelta(minutes=10), sobreposicao_min=30, reconciliar=True)
+    assert ini == agora - dt.timedelta(hours=24)
+
+
+def test_dia_local_usa_o_fuso_da_usina():
+    # 02:30 UTC de 04/09 ainda e 23:30 de 03/09 em Belem (UTC-3)
+    assert tempo.dia_local(dt.datetime(2026, 9, 4, 2, 30, tzinfo=UTC), "America/Belem") == dt.date(2026, 9, 3)
+
+
+def test_janela_solar():
+    j = ("05:40", "18:20")
+    assert tempo.dentro_janela_solar(dt.datetime(2026, 9, 3, 15, 0, tzinfo=UTC), "America/Belem", j)     # 12:00 local
+    assert not tempo.dentro_janela_solar(dt.datetime(2026, 9, 3, 23, 0, tzinfo=UTC), "America/Belem", j) # 20:00 local
+```
+
+- [ ] **Passo 2: Rodar para ver falhar** — `python -m pytest tests/test_core_tempo.py -q` → `ModuleNotFoundError: gemeo.core.tempo`
+
+- [ ] **Passo 3: Implementar**
+
+```python
+# gemeo/gemeo/core/tempo.py
+"""Tempo: grade de 15 min, janela incremental e fuso da usina. Tudo aware em UTC — naive e erro."""
+from __future__ import annotations
+import datetime as dt
+from zoneinfo import ZoneInfo
+
+GRADE_MIN = 15
+
+
+def _exige_aware(ts: dt.datetime) -> None:
+    if ts.tzinfo is None or ts.utcoffset() is None:
+        raise ValueError(f"timestamp sem fuso: {ts!r} — tudo no gemeo e aware em UTC")
+
+
+def piso_grade(ts: dt.datetime, minutos: int = GRADE_MIN) -> dt.datetime:
+    _exige_aware(ts)
+    return ts.replace(minute=(ts.minute // minutos) * minutos, second=0, microsecond=0)
+
+
+def janela(agora: dt.datetime, marca: dt.datetime | None, sobreposicao_min: int,
+           reconciliar: bool = False, dias_iniciais: int = 3) -> tuple[dt.datetime, dt.datetime]:
+    """Inicio da busca: sem marca d'agua = `dias_iniciais` para tras (primeiro ciclo de uma usina);
+    com marca = marca menos a sobreposicao (a ingestao das fontes atrasa); reconciliar = 24h inteiras,
+    uma vez por dia, para pegar correcao feita la atras."""
+    _exige_aware(agora)
+    if reconciliar:
+        return agora - dt.timedelta(hours=24), agora
+    if marca is None:
+        return agora - dt.timedelta(days=dias_iniciais), agora
+    _exige_aware(marca)
+    return marca - dt.timedelta(minutes=sobreposicao_min), agora
+
+
+def dia_local(ts: dt.datetime, tz: str) -> dt.date:
+    _exige_aware(ts)
+    return ts.astimezone(ZoneInfo(tz)).date()
+
+
+def dentro_janela_solar(agora: dt.datetime, tz: str, janela_hm: tuple[str, str]) -> bool:
+    _exige_aware(agora)
+    local = agora.astimezone(ZoneInfo(tz))
+    h0, m0 = map(int, janela_hm[0].split(":")); h1, m1 = map(int, janela_hm[1].split(":"))
+    minuto = local.hour * 60 + local.minute
+    return h0 * 60 + m0 <= minuto <= h1 * 60 + m1
+```
+
+- [ ] **Passo 4: Rodar** — 7 passed. **Passo 5: Commit** — `git commit -m "feat(gemeo): grade de 15 min, janela incremental e fuso da usina, tudo aware em UTC"`
+
+### Tarefa 5: Alias — o de-para como dado, e a importação da planilha de trackers
+
+**Files:**
+- Create: `gemeo/gemeo/core/alias.py`, `gemeo/tools/__init__.py`, `gemeo/tools/importar_alias.py`, `gemeo/tests/test_core_alias.py`
+
+**Interfaces:**
+- Produces: `CONFIANCAS = ("direto","contagem","ordem","limite_skid","manual")`; `resolver(conn, sistema: str, valor: str) -> int | None` (equipamento_id); `gravar(conn, sistema, valor, confianca, origem, equipamento_id=None, usina_id=None) -> int` (upsert por `(sistema, valor)`); `tools.importar_alias.ler_planilha(caminho) -> list[LinhaAlias]` (puro, sem banco) e `importar(conn, linhas) -> dict` com contagens. `LinhaAlias(usina_sup, tracker_sup, numero, code_fracttal, confianca)`.
+- Mapeamento da coluna "Como casou" da planilha → `confianca`: `direto`→`direto`; `por contagem da sub-usina`→`contagem`; `por skid da planilha BD_Trackers`→`contagem`; `por ordem da sub-usina (CONFIRMAR)`→`ordem`; `por bloco na serie unica (CONFIRMAR)`→`ordem`; `por limite dos skids...`→`limite_skid`. Linha sem `Code Fracttal` é ignorada.
+
+- [ ] **Passo 1: Escrever o teste que falha**
+
+```python
+# gemeo/tests/test_core_alias.py
+"""O de-para e DADO com confianca, nao codigo. A planilha docs/de-para-trackers-supervisorio-fracttal.xlsx
+(4.313 pares, 03/09) entra linha a linha; a coluna 'Como casou' vira a confianca."""
+import openpyxl
+from tools.importar_alias import ler_planilha, CONFIANCA_POR_COMO_CASOU
+
+
+def _xlsx(tmp_path):
+    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "De-Para Trackers"
+    ws.append(["Fonte", "UFV Supervisório", "UFV Fracttal", "Tracker Supervisório", "Tracker Fracttal", "Code Fracttal", "Cabine (Fracttal)", "Como casou", "Observação"])
+    ws.append(["Athon (SunOp)", "MRO100", "Athon - Mãe do Rio 1 - PA", "TRK_7", "Tracker 7", "MRO100-ETKR7.101", "101", "por limite dos skids (CONFIRMAR)", ""])
+    ws.append(["API PV", "Guatambu 2 (129)", "Thopen - Guatambú 1 - SC", "TRK11", "Tracker 1.101", "THPN-GTB100-ETKR1.101", "101", "por contagem da sub-usina", ""])
+    ws.append(["API PV", "Junco 2.3 (136)", "Thopen - Junco 1 - PI", "TRK5", "", "", "", "", "excedente do supervisorio - este tracker nao existe no Fracttal"])
+    p = tmp_path / "depara.xlsx"; wb.save(p); return p
+
+
+def test_le_planilha_e_mapeia_confianca(tmp_path):
+    linhas = ler_planilha(_xlsx(tmp_path))
+    assert len(linhas) == 2                         # a linha sem code e ignorada
+    a, b = linhas
+    assert (a.usina_sup, a.tracker_sup, a.numero, a.code_fracttal, a.confianca) == ("MRO100", "TRK_7", 7, "MRO100-ETKR7.101", "limite_skid")
+    assert (b.numero, b.confianca) == (11, "contagem")
+
+
+def test_todo_como_casou_conhecido_tem_confianca():
+    assert set(CONFIANCA_POR_COMO_CASOU.values()) <= {"direto", "contagem", "ordem", "limite_skid", "manual"}
+```
+
+- [ ] **Passo 2: Rodar para ver falhar** — `ModuleNotFoundError: tools.importar_alias`
+
+- [ ] **Passo 3: Implementar**
+
+```python
+# gemeo/gemeo/core/alias.py
+"""O de-para entre sistemas como dado de primeira classe, com confianca. E o '7o de-para' que a
+sondagem do Fracttal pediu — sem ele, falha e telemetria nao se cruzam."""
+from __future__ import annotations
+
+CONFIANCAS = ("direto", "contagem", "ordem", "limite_skid", "manual")
+
+
+def resolver(conn, sistema: str, valor: str) -> int | None:
+    with conn.cursor() as cur:
+        cur.execute("SELECT equipamento_id FROM alias WHERE sistema=%s AND valor=%s", (sistema, valor))
+        r = cur.fetchone()
+        return r[0] if r else None
+
+
+def gravar(conn, sistema: str, valor: str, confianca: str, origem: str,
+           equipamento_id: int | None = None, usina_id: int | None = None) -> int:
+    if confianca not in CONFIANCAS:
+        raise ValueError(f"confianca invalida: {confianca}")
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO alias (usina_id, equipamento_id, sistema, valor, confianca, origem) VALUES (%s,%s,%s,%s,%s,%s) "
+            "ON CONFLICT (sistema, valor) DO UPDATE SET equipamento_id=EXCLUDED.equipamento_id, usina_id=EXCLUDED.usina_id, "
+            "confianca=EXCLUDED.confianca, origem=EXCLUDED.origem RETURNING id",
+            (usina_id, equipamento_id, sistema, valor, confianca, origem))
+        rid = cur.fetchone()[0]
+    conn.commit()
+    return rid
+```
+
+```python
+# gemeo/tools/importar_alias.py
+"""Planilha de-para trackers (supervisorio x Fracttal) -> tabela alias. Leitura pura, gravacao a parte."""
+from __future__ import annotations
+import re
+from dataclasses import dataclass
+from pathlib import Path
+
+CONFIANCA_POR_COMO_CASOU = {
+    "direto": "direto",
+    "por contagem da sub-usina": "contagem",
+    "por skid da planilha bd_trackers": "contagem",
+    "por ordem da sub-usina (confirmar)": "ordem",
+    "por bloco na serie unica (confirmar)": "ordem",
+    "por limite dos skids (confirmar)": "limite_skid",
+    "por limite dos skids, ordem do mab100": "limite_skid",
+}
+
+
+@dataclass(frozen=True)
+class LinhaAlias:
+    usina_sup: str
+    tracker_sup: str
+    numero: int
+    code_fracttal: str
+    confianca: str
+
+
+def _numero(nome: str) -> int | None:
+    m = re.search(r"(\d+)", str(nome or ""))
+    return int(m.group(1)) if m else None
+
+
+def ler_planilha(caminho: Path) -> list[LinhaAlias]:
+    import openpyxl
+    ws = openpyxl.load_workbook(caminho, read_only=True)["De-Para Trackers"]
+    linhas = iter(ws.iter_rows(values_only=True))
+    cab = [str(c or "").strip() for c in next(linhas)]
+    col = {n: cab.index(n) for n in ("UFV Supervisório", "Tracker Supervisório", "Code Fracttal", "Como casou")}
+    out = []
+    for r in linhas:
+        code = str(r[col["Code Fracttal"]] or "").strip()
+        if not code:
+            continue
+        como = str(r[col["Como casou"]] or "").strip().lower()
+        conf = CONFIANCA_POR_COMO_CASOU.get(como, "manual")
+        num = _numero(r[col["Tracker Supervisório"]])
+        if num is None:
+            continue
+        out.append(LinhaAlias(str(r[col["UFV Supervisório"]]).strip(), str(r[col["Tracker Supervisório"]]).strip(), num, code, conf))
+    return out
+
+
+def importar(conn, linhas: list[LinhaAlias]) -> dict:
+    """Casa cada linha com o tracker da usina pelo NUMERO (equipamento.atributos->>'numero') e grava
+    alias(sistema='fracttal', valor=code). Usina e resolvida pelo alias 'bd_performance' do nome do
+    supervisorio, ou pelo codigo da usina."""
+    from gemeo.core import alias as al
+    n_ok = n_sem_usina = n_sem_trk = 0
+    with conn.cursor() as cur:
+        for ln in linhas:
+            cur.execute("SELECT id FROM usina WHERE codigo=%s", (ln.usina_sup,))
+            r = cur.fetchone()
+            if not r:
+                cur.execute("SELECT usina_id FROM alias WHERE sistema='bd_performance' AND valor=%s AND usina_id IS NOT NULL", (ln.usina_sup,))
+                r = cur.fetchone()
+            if not r:
+                n_sem_usina += 1; continue
+            cur.execute("SELECT id FROM equipamento WHERE usina_id=%s AND tipo='tracker' AND (atributos->>'numero')::int=%s", (r[0], ln.numero))
+            e = cur.fetchone()
+            if not e:
+                n_sem_trk += 1; continue
+            al.gravar(conn, "fracttal", ln.code_fracttal, ln.confianca, "planilha de-para 03/09/2026", equipamento_id=e[0], usina_id=r[0])
+            n_ok += 1
+    return {"gravados": n_ok, "sem_usina": n_sem_usina, "sem_tracker": n_sem_trk}
+
+
+def rodar_cli(xlsx: str) -> int:
+    from gemeo.core import db
+    from gemeo.core.config import carregar
+    cfg = carregar(); conn = db.conectar(cfg.db_dsn)
+    print(importar(conn, ler_planilha(Path(xlsx))))
+    return 0
+```
+
+`gemeo/tools/__init__.py`: vazio.
+
+- [ ] **Passo 4: Rodar** — `python -m pytest tests/test_core_alias.py -q` → 2 passed. **Passo 5: Commit** — `git commit -m "feat(gemeo): alias como dado com confianca e importacao da planilha de-para"`
+
+## Fase B — Conectores
+
+### Tarefa 6: Ingestor base — ciclo, marca d'água, disjuntor e o contrato `ingest_run`
+
+**Files:**
+- Create: `gemeo/gemeo/ingest/__init__.py`, `gemeo/gemeo/ingest/base.py`, `gemeo/tests/test_ingest_base.py`
+
+**Interfaces:**
+- Consumes: `db.marca_dagua`, `db.upsert_leituras`, `db.registrar_ingest_run` (Tarefa 3); `tempo.janela` (Tarefa 4); `UsinaRef` (Tarefa 1).
+- Produces: `Busca(leituras: list[tuple[int,str,datetime,float]], n_requisicoes: int = 0, esperadas: int = 0)`; `Disjuntor(pausa_s: float)` com `aberto() -> bool` e `abrir(motivo: str)`; `class Ingestor` com atributo `fonte`, `__init__(cfg, conn, usinas: list[UsinaRef])`, métodos abstratos `descobrir(usina) -> None` e `buscar(usina, ini, fim) -> Busca`, e `ciclo(agora: datetime | None = None, reconciliar: bool = False) -> list[int]` (ids de `ingest_run`). Regras do ciclo: disjuntor aberto → run `falha` com erro `disjuntor`, sem chamar `buscar`; exceção em `buscar` → run `falha` com o texto do erro; `Busca` vazia → run `falha`, cobertura 0, **nenhuma** leitura; senão `upsert` e cobertura = `len(leituras)/esperadas` (1,0 se `esperadas == 0`), status `ok` se ≥ 0,9 senão `parcial`.
+
+- [ ] **Passo 1: Escrever o teste que falha** — usa um ingestor falso e um banco falso (sem PostgreSQL): o que se testa aqui é a REGRA do ciclo.
+
+```python
+# gemeo/tests/test_ingest_base.py
+"""O ciclo e onde as regras de honestidade moram: ciclo vazio grava falha e nada mais; disjuntor aberto
+nem chama a fonte; excecao vira ingest_run com o erro em texto. Testado com dublês — sem banco."""
+import datetime as dt
+from gemeo.core.modelos import UsinaRef
+from gemeo.ingest import base
+
+UTC = dt.timezone.utc
+U = UsinaRef(id=1, codigo="T1", fonte="pg", fonte_ref="1", tz="America/Belem")
+
+
+class BancoFalso:
+    def __init__(self):
+        self.leituras, self.runs, self.marca = [], [], None
+    def marca_dagua(self, conn, usina_id): return self.marca
+    def upsert_leituras(self, conn, linhas): ls = list(linhas); self.leituras += ls; return len(ls)
+    def registrar_ingest_run(self, conn, **kw): self.runs.append(kw); return len(self.runs)
+
+
+class Falso(base.Ingestor):
+    fonte = "falso"
+    def __init__(self, resposta, *a, **kw):
+        super().__init__(*a, **kw); self.resposta = resposta; self.chamadas = 0
+    def descobrir(self, usina): pass
+    def buscar(self, usina, ini, fim):
+        self.chamadas += 1
+        if isinstance(self.resposta, Exception): raise self.resposta
+        return self.resposta
+
+
+def _ing(resposta, banco):
+    ing = Falso(resposta, cfg=type("C", (), {"sobreposicao_min": 30})(), conn=None, usinas=[U])
+    ing._db = banco
+    return ing
+
+
+def test_busca_vazia_grava_falha_e_nenhuma_leitura():
+    b = BancoFalso(); ing = _ing(base.Busca(leituras=[]), b)
+    ing.ciclo(agora=dt.datetime(2026, 9, 3, 12, 0, tzinfo=UTC))
+    assert b.leituras == [] and b.runs[0]["status"] == "falha" and b.runs[0]["cobertura"] == 0
+
+
+def test_busca_boa_grava_e_mede_cobertura():
+    ts = dt.datetime(2026, 9, 3, 11, 0, tzinfo=UTC)
+    b = BancoFalso(); ing = _ing(base.Busca(leituras=[(7, "p_ac", ts, 1.0)] * 9, esperadas=10, n_requisicoes=2), b)
+    ing.ciclo(agora=dt.datetime(2026, 9, 3, 12, 0, tzinfo=UTC))
+    r = b.runs[0]
+    assert len(b.leituras) == 9 and r["status"] == "ok" and abs(r["cobertura"] - 0.9) < 1e-9 and r["n_requisicoes"] == 2
+
+
+def test_cobertura_baixa_e_parcial():
+    ts = dt.datetime(2026, 9, 3, 11, 0, tzinfo=UTC)
+    b = BancoFalso(); ing = _ing(base.Busca(leituras=[(7, "p_ac", ts, 1.0)] * 5, esperadas=10), b)
+    ing.ciclo(agora=dt.datetime(2026, 9, 3, 12, 0, tzinfo=UTC))
+    assert b.runs[0]["status"] == "parcial"
+
+
+def test_excecao_vira_run_com_erro():
+    b = BancoFalso(); ing = _ing(RuntimeError("timeout na fonte"), b)
+    ing.ciclo(agora=dt.datetime(2026, 9, 3, 12, 0, tzinfo=UTC))
+    assert b.runs[0]["status"] == "falha" and "timeout" in b.runs[0]["erro"]
+
+
+def test_disjuntor_aberto_nao_chama_a_fonte():
+    b = BancoFalso(); ing = _ing(base.Busca(leituras=[]), b)
+    ing.disjuntor.abrir("403 da borda")
+    ing.ciclo(agora=dt.datetime(2026, 9, 3, 12, 0, tzinfo=UTC))
+    assert ing.chamadas == 0 and b.runs[0]["erro"].startswith("disjuntor")
+
+
+def test_janela_parte_da_marca_menos_sobreposicao():
+    b = BancoFalso(); b.marca = dt.datetime(2026, 9, 3, 11, 45, tzinfo=UTC)
+    vistas = {}
+    class Espia(Falso):
+        def buscar(self, usina, ini, fim): vistas["ini"] = ini; return base.Busca(leituras=[])
+    ing = Espia(None, cfg=type("C", (), {"sobreposicao_min": 30})(), conn=None, usinas=[U]); ing._db = b
+    ing.ciclo(agora=dt.datetime(2026, 9, 3, 12, 0, tzinfo=UTC))
+    assert vistas["ini"] == dt.datetime(2026, 9, 3, 11, 15, tzinfo=UTC)
+```
+
+- [ ] **Passo 2: Rodar para ver falhar** — `ModuleNotFoundError: gemeo.ingest`
+
+- [ ] **Passo 3: Implementar**
+
+```python
+# gemeo/gemeo/ingest/base.py
+"""Ingestor: um laco por fonte, com marca d'agua, disjuntor e o contrato ingest_run. Falha e dado."""
+from __future__ import annotations
+import datetime as dt
+import time
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+
+from gemeo.core import db as _db_mod
+from gemeo.core import tempo
+from gemeo.core.modelos import UsinaRef
+
+
+@dataclass
+class Busca:
+    leituras: list[tuple[int, str, dt.datetime, float]] = field(default_factory=list)
+    n_requisicoes: int = 0
+    esperadas: int = 0
+
+
+class Disjuntor:
+    """Abre por `pausa_s` segundos. Enquanto aberto, o ciclo nem chama a fonte — insistir na borda da
+    SunOp so alimenta o bloqueio (403 CloudFront = rate limit da conta, nao token)."""
+    def __init__(self, pausa_s: float = 90.0):
+        self.pausa_s, self._ate, self.motivo = pausa_s, 0.0, ""
+    def aberto(self) -> bool:
+        return time.time() < self._ate
+    def abrir(self, motivo: str) -> None:
+        self._ate, self.motivo = time.time() + self.pausa_s, motivo
+
+
+class Ingestor(ABC):
+    fonte: str = "?"
+
+    def __init__(self, cfg, conn, usinas: list[UsinaRef]):
+        self.cfg, self.conn, self.usinas = cfg, conn, usinas
+        self.disjuntor = Disjuntor()
+        self._db = _db_mod           # trocavel nos testes
+
+    @abstractmethod
+    def descobrir(self, usina: UsinaRef) -> None: ...
+
+    @abstractmethod
+    def buscar(self, usina: UsinaRef, ini: dt.datetime, fim: dt.datetime) -> Busca: ...
+
+    def ciclo(self, agora: dt.datetime | None = None, reconciliar: bool = False) -> list[int]:
+        agora = agora or dt.datetime.now(dt.timezone.utc)
+        ids = []
+        for u in self.usinas:
+            t0 = time.time()
+            marca = self._db.marca_dagua(self.conn, u.id)
+            ini, fim = tempo.janela(agora, marca, self.cfg.sobreposicao_min, reconciliar=reconciliar)
+            if self.disjuntor.aberto():
+                ids.append(self._db.registrar_ingest_run(self.conn, fonte=self.fonte, usina_id=u.id, ini=ini, fim=fim,
+                                                         status="falha", cobertura=0.0, erro=f"disjuntor aberto: {self.disjuntor.motivo}"))
+                continue
+            try:
+                b = self.buscar(u, ini, fim)
+            except Exception as e:                       # noqa: BLE001 — a fonte falhou; registra e segue
+                ids.append(self._db.registrar_ingest_run(self.conn, fonte=self.fonte, usina_id=u.id, ini=ini, fim=fim,
+                                                         status="falha", cobertura=0.0, duracao_s=time.time() - t0,
+                                                         erro=f"{type(e).__name__}: {e}"[:400]))
+                continue
+            if not b.leituras:
+                ids.append(self._db.registrar_ingest_run(self.conn, fonte=self.fonte, usina_id=u.id, ini=ini, fim=fim,
+                                                         status="falha", n_requisicoes=b.n_requisicoes,
+                                                         duracao_s=time.time() - t0, cobertura=0.0, erro="fonte devolveu vazio"))
+                continue
+            n = self._db.upsert_leituras(self.conn, b.leituras)
+            cob = min(1.0, n / b.esperadas) if b.esperadas else 1.0
+            ids.append(self._db.registrar_ingest_run(self.conn, fonte=self.fonte, usina_id=u.id, ini=ini, fim=fim,
+                                                     status="ok" if cob >= 0.9 else "parcial", n_linhas=n,
+                                                     n_requisicoes=b.n_requisicoes, duracao_s=time.time() - t0, cobertura=cob))
+        return ids
+```
+
+`gemeo/gemeo/ingest/__init__.py`: vazio.
+
+- [ ] **Passo 4: Rodar** — 6 passed. **Passo 5: Commit** — `git commit -m "feat(gemeo): ingestor base com marca d'agua, disjuntor e ingest_run como contrato"`
+
+### Tarefa 7: Ingestor PostgreSQL `powerplants` (Thopen/PG)
+
+**Files:**
+- Create: `gemeo/gemeo/ingest/pg.py`, `gemeo/tests/test_ingest_pg.py`
+
+**Interfaces:**
+- Consumes: `Ingestor`, `Busca` (Tarefa 6); `UsinaRef` com `fonte_ref` = `power_plant_id`.
+- Produces: `IngestorPG(cfg, conn, usinas, conn_fonte)` com `fonte = "pg"`; `descobrir(usina)` cria `equipamento` por `device_id` (estação de `raw_weather_station`, inversor de `raw_inverter` com strings `string_N_current` como filhas, tracker de `raw_tracker`) com `atributos.numero`; `buscar(usina, ini, fim) -> Busca`. Função pura `linhas_de(json_data: dict, tabela: str, mapa_eq: dict) -> list[tuple]` — é ela que os testes cobrem sem banco. Chaves reais (verificadas em 03/09): `raw_weather_station`: `irradiance_poa`, `irradiance_ghi`, `module_temperature`, `air_temperature`, `wind_speed`; `raw_inverter`: `active_power` (kW), `daily_active_energy`, `state_simplified`, `string_N_current`; `raw_tracker`: `posat`, `posal`.
+
+- [ ] **Passo 1: Escrever o teste que falha**
+
+```python
+# gemeo/tests/test_ingest_pg.py
+"""Parse do json_data das tabelas raw_* → leituras normalizadas. Chaves reais medidas em 03/09/2026."""
+import datetime as dt
+from gemeo.ingest import pg
+
+UTC = dt.timezone.utc
+TS = dt.datetime(2026, 9, 3, 15, 0, tzinfo=UTC)
+
+
+def test_weather_vira_cinco_medidas():
+    mapa = {("estacao", "900"): 50}
+    ls = pg.linhas_de({"irradiance_poa": 812.5, "irradiance_ghi": 700.0, "module_temperature": 48.2,
+                       "air_temperature": 31.0, "wind_speed": 2.1, "rain_signal": 0}, "raw_weather_station", "900", TS, mapa)
+    assert {(m, v) for _, m, _, v in ls} == {("poa", 812.5), ("ghi", 700.0), ("temp_modulo", 48.2), ("temp_ar", 31.0), ("vento", 2.1)}
+    assert all(e == 50 for e, *_ in ls)
+
+
+def test_inversor_e_suas_strings():
+    mapa = {("inversor", "765"): 10, ("string", "765.string_1"): 11, ("string", "765.string_2"): 12}
+    ls = pg.linhas_de({"active_power": 150.0, "daily_active_energy": 1479.9, "state_simplified": 2,
+                       "string_1_current": 8.4, "string_2_current": 0.0, "string_3_current": None}, "raw_inverter", "765", TS, mapa)
+    d = {(e, m): v for e, m, _, v in ls}
+    assert d[(10, "p_ac")] == 150.0 and d[(10, "e_dia")] == 1479.9 and d[(10, "estado")] == 2
+    assert d[(11, "i_string")] == 8.4 and d[(12, "i_string")] == 0.0
+    assert (13, "i_string") not in d                     # string_3 sem equipamento cadastrado e None: fora
+
+
+def test_tracker_angulos():
+    mapa = {("tracker", "77"): 3}
+    ls = pg.linhas_de({"posat": -12.5, "posal": -13.0, "flh_com": 0}, "raw_tracker", "77", TS, mapa)
+    assert {(m, v) for _, m, _, v in ls} == {("angulo", -12.5), ("angulo_alvo", -13.0)}
+
+
+def test_valor_nao_numerico_e_descartado():
+    ls = pg.linhas_de({"active_power": "erro"}, "raw_inverter", "765", TS, {("inversor", "765"): 10})
+    assert ls == []
+```
+
+- [ ] **Passo 2: Rodar para ver falhar** — `ModuleNotFoundError: gemeo.ingest.pg`
+
+- [ ] **Passo 3: Implementar**
+
+```python
+# gemeo/gemeo/ingest/pg.py
+"""Fonte PostgreSQL `powerplants` (Thopen): raw_weather_station, raw_inverter, raw_tracker.
+So leitura. Timestamps ja sao timestamptz (UTC) — nenhuma conversao na gravacao."""
+from __future__ import annotations
+import datetime as dt
+import re
+
+from gemeo.core.modelos import UsinaRef
+from gemeo.ingest.base import Busca, Ingestor
+
+MEDIDAS = {
+    "raw_weather_station": {"irradiance_poa": "poa", "irradiance_ghi": "ghi", "module_temperature": "temp_modulo",
+                            "air_temperature": "temp_ar", "wind_speed": "vento"},
+    "raw_inverter": {"active_power": "p_ac", "daily_active_energy": "e_dia", "state_simplified": "estado"},
+    "raw_tracker": {"posat": "angulo", "posal": "angulo_alvo"},
+}
+TIPO = {"raw_weather_station": "estacao", "raw_inverter": "inversor", "raw_tracker": "tracker"}
+_STR = re.compile(r"^string_(\d+)_current$")
+
+
+def _num(v):
+    if isinstance(v, bool) or v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def linhas_de(json_data: dict, tabela: str, device_id: str, ts: dt.datetime, mapa_eq: dict) -> list[tuple]:
+    """(equipamento_id, medida, ts, valor) para um registro cru. Valor nao numerico e descartado."""
+    out = []
+    eid = mapa_eq.get((TIPO[tabela], str(device_id)))
+    if eid is not None:
+        for chave, medida in MEDIDAS[tabela].items():
+            v = _num(json_data.get(chave))
+            if v is not None:
+                out.append((eid, medida, ts, v))
+    if tabela == "raw_inverter":
+        for chave, val in json_data.items():
+            m = _STR.match(chave)
+            if not m:
+                continue
+            sid = mapa_eq.get(("string", f"{device_id}.string_{m.group(1)}"))
+            v = _num(val)
+            if sid is not None and v is not None:
+                out.append((sid, "i_string", ts, v))
+    return out
+
+
+class IngestorPG(Ingestor):
+    fonte = "pg"
+
+    def __init__(self, cfg, conn, usinas: list[UsinaRef], conn_fonte):
+        super().__init__(cfg, conn, usinas)
+        self.fonte_conn = conn_fonte
+
+    def _mapa(self, usina: UsinaRef) -> dict:
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT tipo, codigo_fonte, id FROM equipamento WHERE usina_id=%s AND ativo", (usina.id,))
+            return {(t, c): i for t, c, i in cur.fetchall()}
+
+    def descobrir(self, usina: UsinaRef) -> None:
+        """Equipamento novo na fonte vira linha em `equipamento` com atributos.numero; o cadastro
+        enriquece depois. Strings nascem das chaves string_N_current do ultimo registro do inversor."""
+        pid = int(usina.fonte_ref)
+        with self.fonte_conn.cursor() as src, self.conn.cursor() as cur:
+            for tabela, tipo in TIPO.items():
+                src.execute(f"SELECT DISTINCT device_id FROM public.{tabela} WHERE power_plant_id=%s AND timestamp >= now() - interval '7 days'", (pid,))
+                for (dev,) in src.fetchall():
+                    cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte, atributos) VALUES (%s,%s,%s,%s) "
+                                "ON CONFLICT (usina_id, tipo, codigo_fonte) DO NOTHING RETURNING id",
+                                (usina.id, tipo, str(dev), '{"numero": %d}' % int(dev)))
+                    if tabela != "raw_inverter":
+                        continue
+                    src.execute("SELECT json_data FROM public.raw_inverter WHERE power_plant_id=%s AND device_id=%s ORDER BY timestamp DESC LIMIT 1", (pid, dev))
+                    r = src.fetchone()
+                    cur.execute("SELECT id FROM equipamento WHERE usina_id=%s AND tipo='inversor' AND codigo_fonte=%s", (usina.id, str(dev)))
+                    inv_id = cur.fetchone()[0]
+                    for chave in (r[0] if r else {}):
+                        m = _STR.match(chave)
+                        if m:
+                            cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte, pai_id, atributos) VALUES (%s,'string',%s,%s,%s) "
+                                        "ON CONFLICT (usina_id, tipo, codigo_fonte) DO NOTHING",
+                                        (usina.id, f"{dev}.string_{m.group(1)}", inv_id, '{"numero": %d}' % int(m.group(1))))
+        self.conn.commit()
+
+    def buscar(self, usina: UsinaRef, ini: dt.datetime, fim: dt.datetime) -> Busca:
+        mapa = self._mapa(usina)
+        pid = int(usina.fonte_ref)
+        leituras: list[tuple] = []
+        with self.fonte_conn.cursor() as src:
+            for tabela in MEDIDAS:
+                src.execute(f"SELECT timestamp, device_id, json_data FROM public.{tabela} "
+                            "WHERE power_plant_id=%s AND timestamp > %s AND timestamp <= %s", (pid, ini, fim))
+                for ts, dev, jd in src.fetchall():
+                    leituras.extend(linhas_de(jd or {}, tabela, str(dev), ts, mapa))
+        n_series = len(mapa)
+        esperadas = int(n_series * max(1, (fim - ini).total_seconds() / 300))   # 5 min por serie
+        return Busca(leituras=leituras, n_requisicoes=len(MEDIDAS), esperadas=esperadas)
+```
+
+- [ ] **Passo 4: Rodar** — 4 passed. **Passo 5: Commit** — `git commit -m "feat(gemeo): ingestor PostgreSQL powerplants (estacao, inversores, strings, trackers)"`
+
+### Tarefa 8: Ingestor SunOp — metadata em disco, lote de 600 atravessando usinas, teto diário
+
+**Files:**
+- Create: `gemeo/gemeo/ingest/sunop.py`, `gemeo/tests/test_ingest_sunop.py`
+- Fixture (já existe): `gemeo/tests/fixtures/sunop_metadata_mro100.json` — 34 itens reais do `/v2/metadata` da MRO100 cobrindo cada tipo de pathname.
+
+**Interfaces:**
+- Consumes: `Ingestor`, `Busca`, `Disjuntor` (Tarefa 6); `db.requisicoes_hoje`, `db.upsert_leituras`, `db.registrar_ingest_run` (Tarefa 3); `tempo.dentro_janela_solar`, `tempo.janela` (Tarefa 4); `Config.sunop_base/sunop_token/lote_pathnames/teto_sunop_dia/janela_solar/cache_dir`.
+- Produces: `classificar(pathname: str) -> tuple[str, str, str, dict] | None` → `(tipo, codigo_fonte, medida, atributos)` ou `None` se o pathname não interessa; `GRUPOS = {"fino": {"estacao","inversor"}, "lento": {"tracker","string"}}`; `IngestorSunOp(cfg, conn, usinas, grupo: str, http=None)` com `fonte = "sunop"` (ou `"axis"` se `usinas[0].fonte == "axis"`); `metadata(usina) -> list[dict]` (cache em `cfg.cache_dir/sunop_meta_<codigo>.json`, validade 24 h); `descobrir(usina)`; **`ciclo()` sobrescrito**: uma baixa para TODAS as usinas do grupo, lotes de `cfg.lote_pathnames` atravessando usinas, `period="15m"` no grupo lento, resultado recortado por usina e um `ingest_run` por usina; fora da janela solar não busca (run `falha` com erro `fora da janela solar`); teto diário via `requisicoes_hoje` → run `falha` `teto diario`; HTTP 403 → `disjuntor.abrir`. Timestamps vêm no fuso da usina (`use_plant_timezone=true`) e são convertidos para UTC com `usina.tz`.
+
+- [ ] **Passo 1: Escrever o teste que falha**
+
+```python
+# gemeo/tests/test_ingest_sunop.py
+"""Metadata real (34 itens da MRO100) → equipamentos; lote atravessando usinas; teto e 403 → disjuntor.
+HTTP e banco sao dubles: o que se testa e o contrato, nao a SunOp."""
+import datetime as dt
+import json
+from pathlib import Path
+from gemeo.ingest import sunop
+
+FIX = json.load(open(Path(__file__).parent / "fixtures" / "sunop_metadata_mro100.json", encoding="utf-8"))
+
+
+def test_classificar_cada_tipo():
+    assert sunop.classificar("MRO100.ESTM.POA.IRAD") == ("estacao", "ESTM", "poa", {})
+    assert sunop.classificar("MRO100.INV_7.MEDIDAS.P") == ("inversor", "INV_7", "p_ac", {"numero": 7})
+    assert sunop.classificar("MRO100.INV_7.MEDIDAS.EPD") == ("inversor", "INV_7", "e_dia", {"numero": 7})
+    assert sunop.classificar("MRO100.INV_7.MEDIDAS.STR.I_PV3") == ("string", "INV_7.I_PV3", "i_string", {"numero": 3, "inversor": "INV_7"})
+    assert sunop.classificar("MRO100.TRK_17.MEDIDAS.POSAT") == ("tracker", "TRK_17", "angulo", {"numero": 17})
+    assert sunop.classificar("MRO100.TRK_17.MEDIDAS.POSAL") == ("tracker", "TRK_17", "angulo_alvo", {"numero": 17})
+    assert sunop.classificar("MRO100.TRK_17.STATUS.WORKSTATE") == ("tracker", "TRK_17", "estado", {"numero": 17})
+    assert sunop.classificar("MRO100.CALC.POT.ESP") is None and sunop.classificar("MRO100.TRK_1.ALARME.AUTO_ON") is None
+
+
+def test_metadata_real_vira_equipamentos_distintos():
+    eqs = sunop.equipamentos_de(FIX)
+    tipos = {(t, c) for t, c, _ in eqs}
+    assert ("estacao", "ESTM") in tipos and ("inversor", "INV_25") in tipos
+    assert ("string", "INV_1.I_PV18") in tipos and ("tracker", "TRK_120") in tipos
+    assert len(eqs) == len(tipos)                     # um equipamento por (tipo, codigo)
+
+
+def test_lotes_atravessam_usinas():
+    lotes = sunop.lotear(["A.1", "A.2", "B.1", "B.2", "B.3"], tamanho=2)
+    assert lotes == [["A.1", "A.2"], ["B.1", "B.2"], ["B.3"]]
+
+
+def test_ts_local_vira_utc():
+    ts = sunop.ts_utc("2026-08-26T12:00:00", "America/Belem")
+    assert ts == dt.datetime(2026, 8, 26, 15, 0, tzinfo=dt.timezone.utc)
+
+
+def test_403_abre_o_disjuntor_e_nao_grava():
+    class Resp:
+        status_code = 403
+        text = "Forbidden (CloudFront)"
+        def json(self): return []
+    class Http:
+        def post(self, *a, **k): return Resp()
+    ing = sunop.IngestorSunOp.__new__(sunop.IngestorSunOp)
+    from gemeo.ingest.base import Disjuntor
+    ing.disjuntor = Disjuntor(); ing.http = Http(); ing.cfg = type("C", (), {"sunop_base": "http://x", "sunop_token": "t"})()
+    assert ing._analog(["P.1"], "2026-08-26T00:00:00", "2026-08-26T23:59:59", None) == {}
+    assert ing.disjuntor.aberto()
+```
+
+- [ ] **Passo 2: Rodar para ver falhar** — `ModuleNotFoundError: gemeo.ingest.sunop`
+
+- [ ] **Passo 3: Implementar**
+
+```python
+# gemeo/gemeo/ingest/sunop.py
+"""Fonte SunOp (Athon; Axis e a mesma classe com outra instancia). Tres regras que custaram caro:
+metadata em DISCO (e a chamada que derruba a borda quando refeita), lote de pathnames atravessando
+usinas (o que corta a CONTAGEM — o period so corta payload), e teto diario proprio (a cota e
+compartilhada com a plataforma)."""
+from __future__ import annotations
+import datetime as dt
+import json
+import re
+import time
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import requests
+
+from gemeo.core import db as _db
+from gemeo.core import tempo
+from gemeo.core.modelos import UsinaRef
+from gemeo.ingest.base import Busca, Ingestor
+
+_RX = [
+    (re.compile(r"^\w+\.ESTM[^.]*\.POA\.IRAD$"), lambda m: ("estacao", "ESTM", "poa", {})),
+    (re.compile(r"^\w+\.ESTM[^.]*\.GHI\.IRAD$"), lambda m: ("estacao", "ESTM", "ghi", {})),
+    (re.compile(r"^\w+\.ESTM[^.]*\.PNL\.TEMP$"), lambda m: ("estacao", "ESTM", "temp_modulo", {})),
+    (re.compile(r"^\w+\.ESTM[^.]*\.AR\.TEMP$"), lambda m: ("estacao", "ESTM", "temp_ar", {})),
+    (re.compile(r"^\w+\.ESTM[^.]*\.AR\.VEL$"), lambda m: ("estacao", "ESTM", "vento", {})),
+    (re.compile(r"^\w+\.INV_(\d+)\.MEDIDAS\.P$"), lambda m: ("inversor", f"INV_{m.group(1)}", "p_ac", {"numero": int(m.group(1))})),
+    (re.compile(r"^\w+\.INV_(\d+)\.MEDIDAS\.EPD$"), lambda m: ("inversor", f"INV_{m.group(1)}", "e_dia", {"numero": int(m.group(1))})),
+    (re.compile(r"^\w+\.INV_(\d+)\.MEDIDAS\.Workstate$"), lambda m: ("inversor", f"INV_{m.group(1)}", "estado", {"numero": int(m.group(1))})),
+    (re.compile(r"^\w+\.INV_(\d+)\.MEDIDAS\.STR\.I_PV(\d+)$"), lambda m: ("string", f"INV_{m.group(1)}.I_PV{m.group(2)}", "i_string", {"numero": int(m.group(2)), "inversor": f"INV_{m.group(1)}"})),
+    (re.compile(r"^\w+\.TRK_(\d+)\.MEDIDAS\.POSAT$"), lambda m: ("tracker", f"TRK_{m.group(1)}", "angulo", {"numero": int(m.group(1))})),
+    (re.compile(r"^\w+\.TRK_(\d+)\.MEDIDAS\.POSAL$"), lambda m: ("tracker", f"TRK_{m.group(1)}", "angulo_alvo", {"numero": int(m.group(1))})),
+    (re.compile(r"^\w+\.TRK_(\d+)\.STATUS\.WORKSTATE$"), lambda m: ("tracker", f"TRK_{m.group(1)}", "estado", {"numero": int(m.group(1))})),
+]
+GRUPOS = {"fino": {"estacao", "inversor"}, "lento": {"tracker", "string"}}
+PERIOD = {"fino": None, "lento": "15m"}
+
+
+def classificar(pathname: str):
+    for rx, f in _RX:
+        m = rx.match(pathname)
+        if m:
+            return f(m)
+    return None
+
+
+def equipamentos_de(metadata: list[dict]) -> list[tuple[str, str, dict]]:
+    vistos, out = set(), []
+    for it in metadata:
+        c = classificar(str(it.get("pathname") or ""))
+        if c and (c[0], c[1]) not in vistos:
+            vistos.add((c[0], c[1])); out.append((c[0], c[1], c[3]))
+    return out
+
+
+def lotear(pathnames: list[str], tamanho: int) -> list[list[str]]:
+    return [pathnames[i:i + tamanho] for i in range(0, len(pathnames), tamanho)]
+
+
+def ts_utc(texto: str, tz: str) -> dt.datetime:
+    return dt.datetime.fromisoformat(texto).replace(tzinfo=ZoneInfo(tz)).astimezone(dt.timezone.utc)
+
+
+class IngestorSunOp(Ingestor):
+    def __init__(self, cfg, conn, usinas: list[UsinaRef], grupo: str = "fino", http=None):
+        super().__init__(cfg, conn, usinas)
+        self.grupo, self.http = grupo, http or requests.Session()
+        self.fonte = "axis" if usinas and usinas[0].fonte == "axis" else "sunop"
+
+    # ── metadata em disco ────────────────────────────────────────────────────
+    def metadata(self, usina: UsinaRef) -> list[dict]:
+        cache = Path(self.cfg.cache_dir) / f"sunop_meta_{usina.codigo}.json"
+        if cache.exists() and time.time() - cache.stat().st_mtime < 86400:
+            return json.load(open(cache, encoding="utf-8"))
+        r = self.http.get(f"{self.cfg.sunop_base}/data/v2/metadata", params={"plant": usina.fonte_ref, "size": 6000},
+                          headers={"Authorization": f"Bearer {self.cfg.sunop_token}"}, timeout=60)
+        if r.status_code == 403:
+            self.disjuntor.abrir("403 da borda no metadata")
+            raise RuntimeError("403 da borda no metadata")
+        r.raise_for_status()
+        itens = r.json().get("data", [])
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        json.dump(itens, open(cache, "w", encoding="utf-8"), ensure_ascii=False)
+        return itens
+
+    def descobrir(self, usina: UsinaRef) -> None:
+        eqs = equipamentos_de(self.metadata(usina))
+        with self.conn.cursor() as cur:
+            for tipo, codigo, atr in eqs:
+                if tipo == "string":
+                    continue
+                cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte, atributos) VALUES (%s,%s,%s,%s) "
+                            "ON CONFLICT (usina_id, tipo, codigo_fonte) DO NOTHING", (usina.id, tipo, codigo, json.dumps(atr)))
+            for tipo, codigo, atr in eqs:
+                if tipo != "string":
+                    continue
+                cur.execute("SELECT id FROM equipamento WHERE usina_id=%s AND tipo='inversor' AND codigo_fonte=%s", (usina.id, atr["inversor"]))
+                pai = cur.fetchone()
+                cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte, pai_id, atributos) VALUES (%s,'string',%s,%s,%s) "
+                            "ON CONFLICT (usina_id, tipo, codigo_fonte) DO NOTHING", (usina.id, codigo, pai[0] if pai else None, json.dumps({"numero": atr["numero"]})))
+        self.conn.commit()
+
+    # ── busca ─────────────────────────────────────────────────────────────────
+    def _pathnames(self, usina: UsinaRef) -> dict[str, tuple[int, str]]:
+        """pathname -> (equipamento_id, medida) para o grupo deste ingestor."""
+        with self.conn.cursor() as cur:
+            cur.execute("SELECT tipo, codigo_fonte, id FROM equipamento WHERE usina_id=%s AND ativo", (usina.id,))
+            ids = {(t, c): i for t, c, i in cur.fetchall()}
+        out = {}
+        for it in self.metadata(usina):
+            p = str(it.get("pathname") or ""); c = classificar(p)
+            if c and c[0] in GRUPOS[self.grupo] and (c[0], c[1]) in ids:
+                out[p] = (ids[(c[0], c[1])], c[2])
+        return out
+
+    def _analog(self, pathnames: list[str], ini: str, fim: str, period: str | None) -> dict:
+        params = {"fill_missing": "false", "source": "Historical", "start_time": ini, "end_time": fim, "use_plant_timezone": "true"}
+        if period:
+            params["period"] = period
+        r = self.http.post(f"{self.cfg.sunop_base}/data/v2/analog_values", params=params, json={"pathnames": pathnames},
+                           headers={"Authorization": f"Bearer {self.cfg.sunop_token}"}, timeout=120)
+        if r.status_code == 403:
+            self.disjuntor.abrir(f"403 da borda: {r.text[:80]}")
+            return {}
+        if r.status_code != 200:
+            return {}
+        out: dict[str, list] = {}
+        for rec in r.json() or []:
+            v = rec.get("value")
+            if isinstance(v, (int, float)):
+                out.setdefault(rec["pathname"], []).append((rec["timestamp"], float(v)))
+        return out
+
+    def buscar(self, usina: UsinaRef, ini: dt.datetime, fim: dt.datetime) -> Busca:
+        """Uma usina so — usado quando o ciclo conjunto nao se aplica (testes, reprocesso)."""
+        return self._buscar_varias([usina], ini, fim)[usina.id]
+
+    def _buscar_varias(self, usinas: list[UsinaRef], ini: dt.datetime, fim: dt.datetime) -> dict[int, Busca]:
+        mapa = {u.id: self._pathnames(u) for u in usinas}
+        todos = [p for m in mapa.values() for p in m]
+        tz0 = usinas[0].tz
+        ini_l = ini.astimezone(ZoneInfo(tz0)).strftime("%Y-%m-%dT%H:%M:%S"); fim_l = fim.astimezone(ZoneInfo(tz0)).strftime("%Y-%m-%dT%H:%M:%S")
+        bruto: dict[str, list] = {}; n = 0
+        for lote in lotear(todos, self.cfg.lote_pathnames):
+            hoje = dt.datetime.now(dt.timezone.utc).date()
+            if self._db.requisicoes_hoje(self.conn, self.fonte, hoje) + n >= self.cfg.teto_sunop_dia:
+                self.disjuntor.abrir("teto diario de requisicoes")
+                break
+            bruto.update(self._analog(lote, ini_l, fim_l, PERIOD[self.grupo])); n += 1
+        passo = 15 if PERIOD[self.grupo] else 5
+        out = {}
+        for u in usinas:
+            ls = [(eid, med, ts_utc(t, u.tz), v) for p, (eid, med) in mapa[u.id].items() for t, v in bruto.get(p, [])]
+            esperadas = int(len(mapa[u.id]) * max(1, (fim - ini).total_seconds() / (passo * 60)))
+            out[u.id] = Busca(leituras=ls, n_requisicoes=n if u is usinas[0] else 0, esperadas=esperadas)
+        return out
+
+    def ciclo(self, agora: dt.datetime | None = None, reconciliar: bool = False) -> list[int]:
+        """Sobrescreve o ciclo base: UMA baixa para todas as usinas do grupo (lotes atravessam usinas),
+        janela comum = a mais antiga entre as marcas d'agua. Fora da janela solar, nao busca."""
+        agora = agora or dt.datetime.now(dt.timezone.utc)
+        ids = []
+        ativas = [u for u in self.usinas if tempo.dentro_janela_solar(agora, u.tz, self.cfg.janela_solar)]
+        for u in self.usinas:
+            if u not in ativas:
+                ids.append(self._db.registrar_ingest_run(self.conn, fonte=self.fonte, usina_id=u.id, ini=agora, fim=agora, status="falha", cobertura=0.0, erro="fora da janela solar"))
+        if not ativas:
+            return ids
+        if self.disjuntor.aberto():
+            return ids + [self._db.registrar_ingest_run(self.conn, fonte=self.fonte, usina_id=u.id, ini=agora, fim=agora, status="falha", cobertura=0.0, erro=f"disjuntor aberto: {self.disjuntor.motivo}") for u in ativas]
+        janelas = [tempo.janela(agora, self._db.marca_dagua(self.conn, u.id), self.cfg.sobreposicao_min, reconciliar=reconciliar) for u in ativas]
+        ini, fim = min(j[0] for j in janelas), agora
+        t0 = time.time()
+        try:
+            buscas = self._buscar_varias(ativas, ini, fim)
+        except Exception as e:                       # noqa: BLE001
+            return ids + [self._db.registrar_ingest_run(self.conn, fonte=self.fonte, usina_id=u.id, ini=ini, fim=fim, status="falha", cobertura=0.0, duracao_s=time.time() - t0, erro=f"{type(e).__name__}: {e}"[:400]) for u in ativas]
+        for u in ativas:
+            b = buscas[u.id]
+            if not b.leituras:
+                ids.append(self._db.registrar_ingest_run(self.conn, fonte=self.fonte, usina_id=u.id, ini=ini, fim=fim, status="falha", n_requisicoes=b.n_requisicoes, cobertura=0.0, erro="fonte devolveu vazio")); continue
+            n = self._db.upsert_leituras(self.conn, b.leituras)
+            cob = min(1.0, n / b.esperadas) if b.esperadas else 1.0
+            ids.append(self._db.registrar_ingest_run(self.conn, fonte=self.fonte, usina_id=u.id, ini=ini, fim=fim, status="ok" if cob >= 0.9 else "parcial", n_linhas=n, n_requisicoes=b.n_requisicoes, duracao_s=time.time() - t0, cobertura=cob))
+        return ids
+```
+
+- [ ] **Passo 4: Rodar** — 5 passed. **Passo 5: Commit** — `git commit -m "feat(gemeo): ingestor SunOp com metadata em disco, lote atravessando usinas e teto diario"`
+
+### Tarefa 9: Ingestor de cadastro — API BD_Performance → usina, equipamento, alias, meta_mes
+
+**Files:**
+- Create: `gemeo/gemeo/ingest/cadastro.py`, `gemeo/tests/test_ingest_cadastro.py`
+
+**Interfaces:**
+- Consumes: `db.ler_estado/gravar_estado` (Tarefa 3); `alias.gravar` (Tarefa 5); `Config.bd_api_base/bd_api_token/usinas_piloto`.
+- Produces: `linhas_da_aba(http, base, token, sheet_id, header_row) -> list[dict]` (cada linha = `{header: valor}` só das linhas após `header_row`, páginas de 500); `IngestorCadastro(cfg, conn, http=None)` com `ciclo(force=False) -> dict` (contagens) — só rebaixa se `updated_at` do workbook `bd_performance` mudou (guardado em `estado['cadastro.updated_at']`); `aplicar_equipamentos(conn, linhas, piloto) -> dict`; `inspecionar_cli()` imprime os headers de cada aba (para conferir Info Geral, Info Mensal e BD_Trackers no primeiro uso real). Formato real da API (03/09): `GET /api/workbooks` → `[{key, updated_at, sheet_count}]`; `GET /api/sheets` → `[{id, sheet_name, workbook_key, header_row, row_count}]`; `GET /api/sheets/{id}/rows?offset&limit=500` → `{"rows":[{"row_number", "headers":[...], "values":[...]}]}`.
+- Colunas da aba Equipamentos (reais): `Cliente`, `Usina Supervisório`, `Usina Fractall`, `Equipamento`, `Equipamento Supervisório`, `Equipamento Parente`, `Potência (kWp)`, `N de Inversores`, `String Box`, `Full O&M`, `Strings Ativas`. Linha com `Equipamento Parente == "UFV"` é o cabeçalho da usina; as demais são inversores.
+
+- [ ] **Passo 1: Escrever o teste que falha**
+
+```python
+# gemeo/tests/test_ingest_cadastro.py
+"""Linhas da API (headers + values) viram usina/equipamento/alias. HTTP e um dublê com o formato real."""
+from gemeo.ingest import cadastro
+
+HDR = ["", "Cliente", "Usina", "Usina Supervisório", "Usina Fractall", "Equipamento", "Equipamento Supervisório",
+       "Equipamento Parente", "Chave", "Chave 2", "Potência (kWp)", "N de Inversores", "String Box", "Full O&M", "Strings Ativas", "Observações"]
+
+
+def _row(n, vals):
+    return {"row_number": n, "headers": HDR, "values": vals + [None] * (len(HDR) - len(vals))}
+
+
+class Http:
+    def __init__(self):
+        self.pags = {0: {"rows": [
+            _row(4, [None, "Athon", "MRO100", "MRO100", "Athon - Mãe do Rio 1 - PA", "UFV", None, "UFV", "MRO100", "MRO100", 6942.0, 25, "Não", "Sim", None]),
+            _row(5, [None, "Athon", "MRO100", "MRO100", "Athon - Mãe do Rio 1 - PA", "Inversor 1.1", "INV_1", "UFV", "MRO100", "MRO100INV_1", 277.68, None, "Não", "Sim", 17]),
+            _row(6, [None, "Athon", "MRO100", "MRO100", "Athon - Mãe do Rio 1 - PA", "Inversor 1.2", "INV_2", "UFV", "MRO100", "MRO100INV_2", 277.68, None, "Não", "Sim", 17]),
+        ]}, 500: {"rows": []}}
+    def get(self, url, params=None, headers=None, timeout=None):
+        off = int((params or {}).get("offset", 0))
+        class R:
+            status_code = 200
+            def __init__(s, j): s._j = j
+            def json(s): return s._j
+            def raise_for_status(s): pass
+        return R(self.pags.get(off, {"rows": []}))
+
+
+def test_linhas_da_aba_pula_cabecalho_e_pagina():
+    ls = cadastro.linhas_da_aba(Http(), "http://x", "tok", sheet_id=46, header_row=3)
+    assert len(ls) == 3 and ls[1]["Equipamento Supervisório"] == "INV_1" and ls[1]["Strings Ativas"] == 17
+
+
+def test_separa_usina_de_inversores():
+    ls = cadastro.linhas_da_aba(Http(), "http://x", "tok", sheet_id=46, header_row=3)
+    us, invs = cadastro.separar_equipamentos(ls, piloto=("MRO100",))
+    assert us["MRO100"]["kwp"] == 6942.0 and us["MRO100"]["n_inversores"] == 25 and us["MRO100"]["full_om"] is True
+    assert us["MRO100"]["fracttal"] == "Athon - Mãe do Rio 1 - PA"
+    assert [i["codigo_fonte"] for i in invs["MRO100"]] == ["INV_1", "INV_2"]
+    assert invs["MRO100"][0]["nome"] == "Inversor 1.1" and invs["MRO100"][0]["n_strings_esperadas"] == 17
+
+
+def test_usina_fora_do_piloto_e_ignorada():
+    ls = cadastro.linhas_da_aba(Http(), "http://x", "tok", sheet_id=46, header_row=3)
+    us, invs = cadastro.separar_equipamentos(ls, piloto=("OUTRA",))
+    assert us == {} and invs == {}
+```
+
+- [ ] **Passo 2: Rodar para ver falhar** — `ModuleNotFoundError: gemeo.ingest.cadastro`
+
+- [ ] **Passo 3: Implementar**
+
+```python
+# gemeo/gemeo/ingest/cadastro.py
+"""Cadastro e metas vindos da Gridco Performance API (BD_Performance). Rebaixa so se o updated_at do
+workbook mudou — a mesma revalidacao barata do bd_api da plataforma."""
+from __future__ import annotations
+import json
+import requests
+
+from gemeo.core import alias as _alias
+from gemeo.core import db as _db
+
+
+def _get(http, base, token, caminho, params=None):
+    r = http.get(f"{base}{caminho}", params=params, headers={"Accept": "application/json", "Authorization": f"Bearer {token}"}, timeout=90)
+    r.raise_for_status()
+    return r.json()
+
+
+def linhas_da_aba(http, base: str, token: str, sheet_id: int, header_row: int) -> list[dict]:
+    """Cada linha vira {header: valor}; linhas ate header_row sao cabecalho e saem. Pagina de 500."""
+    out, off = [], 0
+    while True:
+        j = _get(http, base, token, f"/api/sheets/{sheet_id}/rows", {"offset": off, "limit": 500})
+        rows = j.get("rows") or []
+        for r in rows:
+            if int(r.get("row_number") or 0) <= header_row:
+                continue
+            hs, vs = r.get("headers") or [], r.get("values") or []
+            out.append({str(h).strip(): vs[i] if i < len(vs) else None for i, h in enumerate(hs) if str(h).strip()})
+        if len(rows) < 500:
+            return out
+        off += 500
+
+
+def _sim(v) -> bool:
+    return str(v or "").strip().lower() in ("sim", "s", "true", "1")
+
+
+def separar_equipamentos(linhas: list[dict], piloto: tuple[str, ...]) -> tuple[dict, dict]:
+    """Aba Equipamentos → (usinas, inversores por usina), so para as usinas do piloto."""
+    usinas: dict[str, dict] = {}
+    invs: dict[str, list] = {}
+    for ln in linhas:
+        cod = str(ln.get("Usina Supervisório") or "").strip()
+        if cod not in piloto:
+            continue
+        if str(ln.get("Equipamento") or "").strip().upper() == "UFV" or str(ln.get("Equipamento Parente") or "").strip().upper() == "UFV" and not str(ln.get("Equipamento Supervisório") or "").strip():
+            usinas[cod] = {"cliente": ln.get("Cliente"), "fracttal": ln.get("Usina Fractall"), "kwp": ln.get("Potência (kWp)"),
+                           "n_inversores": ln.get("N de Inversores"), "full_om": _sim(ln.get("Full O&M")), "string_box": _sim(ln.get("String Box"))}
+            continue
+        invs.setdefault(cod, []).append({"codigo_fonte": str(ln.get("Equipamento Supervisório") or "").strip(), "nome": ln.get("Equipamento"),
+                                         "kwp": ln.get("Potência (kWp)"), "n_strings_esperadas": ln.get("Strings Ativas")})
+    return usinas, invs
+
+
+class IngestorCadastro:
+    fonte = "cadastro"
+
+    def __init__(self, cfg, conn, http=None):
+        self.cfg, self.conn, self.http = cfg, conn, http or requests.Session()
+
+    def _sheets(self) -> dict[str, dict]:
+        lst = _get(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, "/api/sheets")
+        lst = lst if isinstance(lst, list) else lst.get("items") or []
+        return {str(s["sheet_name"]).strip().lower(): s for s in lst if s.get("workbook_key") == "bd_performance"}
+
+    def ciclo(self, force: bool = False) -> dict:
+        wbs = _get(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, "/api/workbooks")
+        wb = next((w for w in (wbs if isinstance(wbs, list) else wbs.get("items") or []) if w.get("key") == "bd_performance"), {})
+        versao = str(wb.get("updated_at") or "")
+        if not force and versao and versao == _db.ler_estado(self.conn, "cadastro.updated_at"):
+            return {"mudou": False}
+        sheets = self._sheets()
+        eq = sheets["equipamentos"]
+        linhas = linhas_da_aba(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, eq["id"], int(eq.get("header_row") or 0))
+        usinas, invs = separar_equipamentos(linhas, self.cfg.usinas_piloto)
+        res = aplicar_equipamentos(self.conn, usinas, invs)
+        _db.gravar_estado(self.conn, "cadastro.updated_at", versao)
+        return {"mudou": True, **res}
+
+
+def aplicar_equipamentos(conn, usinas: dict, invs: dict) -> dict:
+    n_u = n_i = 0
+    with conn.cursor() as cur:
+        for cod, u in usinas.items():
+            cur.execute("UPDATE usina SET cliente=%s, kwp_dc=%s, n_inversores=%s, full_om=%s WHERE codigo=%s RETURNING id",
+                        (u["cliente"], u["kwp"], u["n_inversores"], u["full_om"], cod))
+            r = cur.fetchone()
+            if not r:
+                continue
+            n_u += 1
+            if u.get("fracttal"):
+                _alias.gravar(conn, "fracttal", str(u["fracttal"]), "direto", "aba Equipamentos", usina_id=r[0])
+            for iv in invs.get(cod, []):
+                cur.execute("UPDATE equipamento SET nome_exibicao=%s, atributos = atributos || %s::jsonb WHERE usina_id=%s AND tipo='inversor' AND codigo_fonte=%s RETURNING id",
+                            (iv["nome"], json.dumps({"kwp": iv["kwp"], "n_strings_esperadas": iv["n_strings_esperadas"]}), r[0], iv["codigo_fonte"]))
+                e = cur.fetchone()
+                if e:
+                    n_i += 1
+                    _alias.gravar(conn, "bd_performance", f"{cod}|{iv['nome']}", "direto", "aba Equipamentos", equipamento_id=e[0], usina_id=r[0])
+    conn.commit()
+    return {"usinas": n_u, "inversores": n_i}
+
+
+def inspecionar_cli() -> int:
+    from gemeo.core.config import carregar
+    cfg = carregar(); http = requests.Session()
+    for nome, s in sorted(IngestorCadastro(cfg, None, http)._sheets().items()):
+        if nome in ("equipamentos", "info geral", "info mensal", "bd_trackers"):
+            j = _get(http, cfg.bd_api_base, cfg.bd_api_token, f"/api/sheets/{s['id']}/rows", {"offset": int(s.get('header_row') or 0), "limit": 1})
+            print(f"{s['sheet_name']} (id {s['id']}, header_row {s.get('header_row')}):", (j.get("rows") or [{}])[0].get("headers"))
+    return 0
+```
+
+> **Info Geral, Info Mensal e BD_Trackers** entram na Tarefa 9b (após o primeiro `gemeo inspecionar-cadastro` no servidor, que imprime os headers reais dessas abas). Até lá, kWp/n_inversores vêm da linha UFV da aba Equipamentos; `meta_mes` e o pai dos trackers ficam vazios — e a tela mostra isso, não esconde.
+
+- [ ] **Passo 4: Rodar** — 3 passed. **Passo 5: Commit** — `git commit -m "feat(gemeo): ingestor de cadastro pela API do BD_Performance com revalidacao por updated_at"`
+
+### Tarefa 10: Runner — três laços em threads e o comando `gemeo ingest`
+
+**Files:**
+- Create: `gemeo/gemeo/ingest/runner.py`, `gemeo/tests/test_ingest_runner.py`
+
+**Interfaces:**
+- Consumes: `IngestorPG` (7), `IngestorSunOp` (8), `IngestorCadastro` (9), `db.conectar/garantir_particoes` (2), `Config.ritmo_min`.
+- Produces: `usinas_do_piloto(conn, codigos) -> list[UsinaRef]`; `montar(cfg, conn_gemeo, conn_fonte, usinas) -> list[tuple[str, objeto, int]]` (rótulo, ingestor, minutos); `laco(rotulo, ingestor, minutos, parar: threading.Event) -> None` (chama `ciclo()` a cada `minutos`, reconciliando uma vez por dia às 03:00 UTC, nunca deixa exceção matar a thread); `rodar() -> int` (CLI).
+
+- [ ] **Passo 1: Escrever o teste que falha**
+
+```python
+# gemeo/tests/test_ingest_runner.py
+"""O laco nunca morre por excecao da fonte e para quando o Event manda. Ritmo em minutos, do config."""
+import threading
+from gemeo.ingest import runner
+
+
+class Ing:
+    def __init__(self, falha=False): self.n = 0; self.falha = falha; self.fonte = "x"
+    def ciclo(self, reconciliar=False):
+        self.n += 1
+        if self.falha: raise RuntimeError("fonte fora")
+
+
+def test_laco_para_no_event_e_sobrevive_a_excecao():
+    parar = threading.Event(); ing = Ing(falha=True)
+    def _depois(): parar.set()
+    t = threading.Timer(0.3, _depois); t.start()
+    runner.laco("x", ing, minutos=0.001, parar=parar)     # 0,001 min = 60 ms entre ciclos
+    assert ing.n >= 2                                      # continuou apos a excecao
+
+
+def test_montar_usa_o_ritmo_do_config():
+    cfg = type("C", (), {"ritmo_min": {"pg": 15, "sunop_fino": 15, "sunop_lento": 60, "cadastro": 30}, "usinas_piloto": ("MRO100",),
+                        "sobreposicao_min": 30, "cache_dir": ".", "sunop_base": "", "sunop_token": "", "lote_pathnames": 600, "teto_sunop_dia": 600, "janela_solar": ("05:40","18:20"), "bd_api_base": "", "bd_api_token": ""})()
+    from gemeo.core.modelos import UsinaRef
+    us = [UsinaRef(1, "MRO100", "sunop", "MRO100", "America/Belem"), UsinaRef(2, "Santarem 1", "pg", "10", "America/Belem")]
+    itens = runner.montar(cfg, conn_gemeo=None, conn_fonte=None, usinas=us)
+    assert {(r, m) for r, _, m in itens} == {("pg", 15), ("sunop_fino", 15), ("sunop_lento", 60), ("cadastro", 30)}
+```
+
+- [ ] **Passo 2: Rodar para ver falhar** — `ModuleNotFoundError: gemeo.ingest.runner`
+
+- [ ] **Passo 3: Implementar**
+
+```python
+# gemeo/gemeo/ingest/runner.py
+"""`gemeo ingest`: um processo, tres laços em threads (pg, sunop fino/lento, cadastro), cada um com
+seu ritmo e seu disjuntor. Exceção da fonte nunca mata a thread — vira ingest_run e o laco segue."""
+from __future__ import annotations
+import datetime as dt
+import threading
+import time
+import traceback
+
+from gemeo.core import db
+from gemeo.core.modelos import UsinaRef
+
+
+def usinas_do_piloto(conn, codigos: tuple[str, ...]) -> list[UsinaRef]:
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, codigo, fonte, fonte_ref, tz, coalesce(kwp_dc,0), coalesce(kw_ac,0), lat, lon FROM usina WHERE ativo AND codigo = ANY(%s)", (list(codigos),))
+        return [UsinaRef(*r) for r in cur.fetchall()]
+
+
+def montar(cfg, conn_gemeo, conn_fonte, usinas: list[UsinaRef]) -> list[tuple[str, object, int]]:
+    from gemeo.ingest.cadastro import IngestorCadastro
+    from gemeo.ingest.pg import IngestorPG
+    from gemeo.ingest.sunop import IngestorSunOp
+    pg = [u for u in usinas if u.fonte == "pg"]; su = [u for u in usinas if u.fonte in ("sunop", "axis")]
+    itens: list[tuple[str, object, int]] = []
+    if pg:
+        itens.append(("pg", IngestorPG(cfg, conn_gemeo, pg, conn_fonte), int(cfg.ritmo_min["pg"])))
+    if su:
+        itens.append(("sunop_fino", IngestorSunOp(cfg, conn_gemeo, su, grupo="fino"), int(cfg.ritmo_min["sunop_fino"])))
+        itens.append(("sunop_lento", IngestorSunOp(cfg, conn_gemeo, su, grupo="lento"), int(cfg.ritmo_min["sunop_lento"])))
+    itens.append(("cadastro", IngestorCadastro(cfg, conn_gemeo), int(cfg.ritmo_min["cadastro"])))
+    return itens
+
+
+def laco(rotulo: str, ingestor, minutos: float, parar: threading.Event) -> None:
+    ultimo_reconcilia: dt.date | None = None
+    while not parar.is_set():
+        agora = dt.datetime.now(dt.timezone.utc)
+        reconciliar = agora.hour == 3 and ultimo_reconcilia != agora.date()
+        try:
+            if hasattr(ingestor, "descobrir"):
+                for u in getattr(ingestor, "usinas", []):
+                    ingestor.descobrir(u)
+            ingestor.ciclo(reconciliar=reconciliar) if "reconciliar" in ingestor.ciclo.__code__.co_varnames else ingestor.ciclo()
+            if reconciliar:
+                ultimo_reconcilia = agora.date()
+        except Exception:                                   # noqa: BLE001 — o laco nao morre
+            print(f"[{rotulo}] ciclo falhou:\n{traceback.format_exc()}", flush=True)
+        parar.wait(minutos * 60)
+
+
+def rodar() -> int:
+    from gemeo.core.config import carregar
+    import psycopg2
+    cfg = carregar()
+    conn = db.conectar(cfg.db_dsn); conn_fonte = psycopg2.connect(cfg.powerplants_dsn)
+    hoje = dt.date.today()
+    db.garantir_particoes(conn, [hoje, (hoje.replace(day=28) + dt.timedelta(days=4))])
+    usinas = usinas_do_piloto(conn, cfg.usinas_piloto)
+    if not usinas:
+        print("nenhuma usina do piloto em `usina` — rode o cadastro primeiro (gemeo ingest cria as linhas base a partir do config)")
+    parar = threading.Event()
+    threads = [threading.Thread(target=laco, args=(r, i, m, parar), name=r, daemon=True) for r, i, m in montar(cfg, conn, conn_fonte, usinas)]
+    for t in threads:
+        t.start()
+    try:
+        while any(t.is_alive() for t in threads):
+            time.sleep(5)
+    except KeyboardInterrupt:
+        parar.set()
+    return 0
+```
+
+> Cada ingestor SunOp precisa de conexão própria por thread (psycopg2 não é thread-safe por conexão): na Tarefa 21 o `rodar` passa a abrir uma conexão por laço. Está registrado ali para não ficar esquecido aqui.
+
+- [ ] **Passo 4: Rodar** — 2 passed. **Passo 5: Commit** — `git commit -m "feat(gemeo): runner com um laco por fonte e o comando gemeo ingest"`
+
+---
+
+## Fase C — Modelo
+
+### Tarefa 11: Grade — leituras (do banco ou de fixture) na grade de 15 min
+
+**Files:**
+- Create: `gemeo/gemeo/modelar/__init__.py`, `gemeo/gemeo/modelar/grade.py`, `gemeo/tests/test_modelar_grade.py`
+
+**Interfaces:**
+- Produces: `@dataclass Grade(usina: UsinaRef, indice: DatetimeIndex (UTC, 15 min), estacao: DataFrame[poa, ghi, temp_modulo, temp_ar], inv_p: DataFrame[cols=ids de inversor], inv_e: DataFrame, trk_ang: DataFrame[cols=ids de tracker], trk_alvo: DataFrame, str_i: DataFrame[cols=ids de string], pai: dict[int,int], tipo: dict[int,str], atributos: dict[int,dict], nome: dict[int,str])`; `carregar_grade(conn, usina, ini, fim, grade_min=15) -> Grade`; `grade_de_fixture(caminho: Path) -> Grade` — mesma estrutura a partir dos golden (`tests/fixtures/golden/*.json`; ids sintéticos: inversores 1000+n, trackers 2000+n, strings 3000+k, estação 1). **A fixture é o que permite testar todo o modelo sem PostgreSQL.**
+
+- [ ] **Passo 1: Escrever o teste que falha**
+
+```python
+# gemeo/tests/test_modelar_grade.py
+from pathlib import Path
+import pandas as pd
+from gemeo.modelar import grade
+
+G = Path(__file__).parent / "fixtures" / "golden"
+
+
+def test_fixture_mro100_vira_grade_de_15_min():
+    g = grade.grade_de_fixture(G / "mro100_2026-08-31.json")
+    assert g.usina.codigo == "MRO100" and g.indice.freq == pd.Timedelta("15min") and g.indice.tz is not None
+    assert g.inv_p.shape[1] == 25 and g.trk_ang.shape[1] == 120 and g.str_i.shape[1] == 36
+    # ids sinteticos da fixture: inversor n -> 1000+n, tracker n -> 2000+n, string "inv.k" -> 3000 + inv*100 + k
+    assert g.estacao.poa.max() > 900 and g.tipo[2017] == "tracker" and g.pai[3101] == 1001
+
+
+def test_fixture_santarem_sem_trackers():
+    g = grade.grade_de_fixture(G / "santarem1_2026-08-26.json")
+    assert g.inv_p.shape[1] == 10 and g.trk_ang.shape[1] == 0 and g.str_i.shape[1] == 0
+
+
+def test_ts_da_fixture_e_hora_local_convertida_para_utc():
+    g = grade.grade_de_fixture(G / "mro100_2026-08-26.json")
+    # 12:00 local (Belem, UTC-3) = 15:00 UTC; o pico de POA da MRO100 fica entre 12h e 14h locais
+    assert g.estacao.poa.idxmax().tz_convert("America/Belem").hour in (11, 12, 13, 14)
+```
+
+- [ ] **Passo 2: Rodar para ver falhar** — `ModuleNotFoundError: gemeo.modelar`
+
+- [ ] **Passo 3: Implementar**
+
+```python
+# gemeo/gemeo/modelar/grade.py
+"""Leituras → DataFrames na grade de 15 min (UTC). Duas origens, mesma estrutura: o banco e os golden
+dos spikes — e o segundo que deixa a suite do modelo rodar sem PostgreSQL."""
+from __future__ import annotations
+import datetime as dt
+import json
+from dataclasses import dataclass, field
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+
+from gemeo.core.modelos import UsinaRef
+
+MEDIDAS_ESTACAO = ("poa", "ghi", "temp_modulo", "temp_ar")
+
+
+@dataclass
+class Grade:
+    usina: UsinaRef
+    indice: pd.DatetimeIndex
+    estacao: pd.DataFrame
+    inv_p: pd.DataFrame
+    inv_e: pd.DataFrame
+    trk_ang: pd.DataFrame
+    trk_alvo: pd.DataFrame
+    str_i: pd.DataFrame
+    pai: dict[int, int] = field(default_factory=dict)
+    tipo: dict[int, str] = field(default_factory=dict)
+    atributos: dict[int, dict] = field(default_factory=dict)
+    nome: dict[int, str] = field(default_factory=dict)
+
+
+def _regrade(df: pd.DataFrame, indice: pd.DatetimeIndex) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(index=indice)
+    return df.resample("15min").mean().reindex(indice)
+
+
+def carregar_grade(conn, usina: UsinaRef, ini: dt.datetime, fim: dt.datetime, grade_min: int = 15) -> Grade:
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, tipo, pai_id, atributos, coalesce(nome_exibicao, codigo_fonte) FROM equipamento WHERE usina_id=%s AND ativo", (usina.id,))
+        eqs = cur.fetchall()
+        cur.execute("SELECT l.equipamento_id, l.medida, l.ts, l.valor FROM leitura l JOIN equipamento e ON e.id=l.equipamento_id "
+                    "WHERE e.usina_id=%s AND l.ts >= %s AND l.ts < %s", (usina.id, ini, fim))
+        rows = cur.fetchall()
+    tipo = {i: t for i, t, *_ in eqs}; pai = {i: p for i, _, p, *_ in eqs if p}
+    atributos = {i: (a or {}) for i, _, _, a, _ in eqs}; nome = {i: n for i, *_, n in eqs}
+    df = pd.DataFrame(rows, columns=["eq", "medida", "ts", "valor"])
+    if not df.empty:
+        df["ts"] = pd.to_datetime(df["ts"], utc=True)
+    indice = pd.date_range(pd.Timestamp(ini).floor("15min"), pd.Timestamp(fim).ceil("15min"), freq="15min", tz="UTC")
+    def _wide(medida, tipos):
+        sub = df[(df.medida == medida) & df.eq.map(tipo).isin(tipos)] if not df.empty else df
+        if sub.empty:
+            return pd.DataFrame(index=indice)
+        return _regrade(sub.pivot_table(index="ts", columns="eq", values="valor", aggfunc="mean"), indice)
+    est = pd.DataFrame(index=indice)
+    for m in MEDIDAS_ESTACAO:
+        w = _wide(m, {"estacao"})
+        est[m] = w.mean(axis=1) if not w.empty else float("nan")
+    return Grade(usina, indice, est, _wide("p_ac", {"inversor"}), _wide("e_dia", {"inversor"}),
+                 _wide("angulo", {"tracker"}), _wide("angulo_alvo", {"tracker"}), _wide("i_string", {"string"}), pai, tipo, atributos, nome)
+
+
+def grade_de_fixture(caminho: Path) -> Grade:
+    j = json.load(open(caminho, encoding="utf-8"))
+    tz = ZoneInfo(j["tz"])
+    def _serie(d: dict) -> pd.Series:
+        if not d:
+            return pd.Series(dtype=float)
+        s = pd.Series({pd.Timestamp(k).tz_localize(tz).tz_convert("UTC"): float(v) for k, v in d.items()})
+        return s.sort_index()
+    dia = pd.Timestamp(j["dia"]).tz_localize(tz)
+    indice = pd.date_range(dia.tz_convert("UTC"), (dia + pd.Timedelta(days=1)).tz_convert("UTC"), freq="15min", inclusive="left")
+    est = pd.DataFrame({m: _serie(j["estacao"].get(m, {})) for m in MEDIDAS_ESTACAO}).reindex(indice)
+    tipo, pai, atributos, nome = {}, {}, {}, {}
+    def _bloco(chave, base, tipo_eq):
+        cols = {}
+        for k, d in (j.get(chave) or {}).items():
+            eid = base + int(str(k).split(".")[-1]) if tipo_eq != "string" else 3000 + int(str(k).split(".")[0]) * 100 + int(str(k).split(".")[1])
+            cols[eid] = _serie(d); tipo[eid] = tipo_eq; nome[eid] = f"{tipo_eq} {k}"
+            atributos[eid] = {"numero": int(str(k).split(".")[-1])}
+            if tipo_eq == "string":
+                pai[eid] = 1000 + int(str(k).split(".")[0])
+        return pd.DataFrame(cols).reindex(indice) if cols else pd.DataFrame(index=indice)
+    inv_p = _bloco("inv_p", 1000, "inversor"); inv_e = _bloco("inv_e_dia", 1000, "inversor")
+    trk_ang = _bloco("trk_ang", 2000, "tracker"); trk_alvo = _bloco("trk_alvo", 2000, "tracker")
+    str_i = _bloco("str_i", 3000, "string")
+    tipo[1] = "estacao"; nome[1] = "ESTM"
+    for eid in inv_p.columns:
+        atributos[eid].update({"kwp": j["kwp"] / j["n_inv"], "kw_ac": j["kw_ac"] / j["n_inv"]})
+    usina = UsinaRef(id=0, codigo=j["usina"], fonte=j["fonte"], fonte_ref="", tz=j["tz"], kwp=j["kwp"], kw_ac=j["kw_ac"], lat=-2.05, lon=-47.55)
+    return Grade(usina, indice, est, inv_p, inv_e, trk_ang, trk_alvo, str_i, pai, tipo, atributos, nome)
+```
+
+> O de-para tracker→inversor da fixture (`mro100_trk_inv.json`, nomes `Inversor 1.x`/`2.x`) é aplicado na Tarefa 14 pela função `trk_por_inversor`, que casa `Inversor 1.7` → inversor 1007 pelo número; os 62 trackers cujo nome não existe na aba Equipamentos ficam **sem inversor** de propósito — é o caso real que a tela precisa mostrar.
+
+- [ ] **Passo 4: Rodar** — 3 passed. **Passo 5: Commit** — `git commit -m "feat(gemeo): grade de 15 min a partir do banco ou dos golden dos spikes"`
+
+### Tarefa 12: Gate de duas portas — plausibilidade POA × GHI e cobertura
+
+**Files:**
+- Create: `gemeo/gemeo/modelar/gate.py`, `gemeo/tests/test_modelar_gate.py`
+
+**Interfaces:**
+- Consumes: `Grade.estacao` (Tarefa 11).
+- Produces: `@dataclass ParamsGate(poa_max=1400.0, ghi_max=1400.0, razao_min=0.3, razao_max=3.0, ghi_min_razao=100.0, tolerancia_dia=0.30, horas_min_dia=8.0, ghi_dia=50.0)`; `avaliar(estacao: DataFrame, referencia_razao: float | None, params: ParamsGate, tz: str) -> Resultado(gate: Series[str] ("ok"|"poa_ghi"|"cobertura"|"plausibilidade"), motivo_dia: dict[date, str] ("ok"|"poa_ghi"|"cobertura"), razao_dia: dict[date, float])`. `referencia_razao` é a mediana de POA/GHI dos últimos 30 dias da usina (None no primeiro dia → usa a mediana do próprio intervalo).
+
+- [ ] **Passo 1: Escrever o teste que falha**
+
+```python
+# gemeo/tests/test_modelar_gate.py
+"""As duas portas. Caso real 1 (Santarem, 02/09): POA leu 0,12 do GHI com inversores normais — sensor
+em falha, e um gate por faixa deixaria passar. Caso real 2 (MRO100, 21–24/08): ETM sem dado — sai
+por cobertura, nao por plausibilidade."""
+import datetime as dt
+import numpy as np
+import pandas as pd
+from pathlib import Path
+from gemeo.modelar import gate, grade
+
+G = Path(__file__).parent / "fixtures" / "golden"
+P = gate.ParamsGate()
+
+
+def _dia_limpo():
+    g = grade.grade_de_fixture(G / "mro100_2026-08-26.json")
+    return g.estacao, g.usina.tz
+
+
+def test_dia_limpo_passa_inteiro():
+    est, tz = _dia_limpo()
+    r = gate.avaliar(est, referencia_razao=None, params=P, tz=tz)
+    assert r.motivo_dia[dt.date(2026, 8, 26)] == "ok"
+    diurno = est.ghi > 50
+    assert (r.gate[diurno] == "ok").mean() > 0.95
+
+
+def test_sensor_de_poa_em_falha_reprova_por_poa_ghi():
+    est, tz = _dia_limpo()
+    est = est.copy(); est["poa"] = est["poa"] * 0.12            # o caso de Santarem em 02/09
+    r = gate.avaliar(est, referencia_razao=1.23, params=P, tz=tz)
+    assert r.motivo_dia[dt.date(2026, 8, 26)] == "poa_ghi"
+    assert (r.gate[est.ghi > 100] == "poa_ghi").all()
+
+
+def test_sem_poa_reprova_por_cobertura():
+    est, tz = _dia_limpo()
+    est = est.copy(); est["poa"] = np.nan                       # ETM muda o dia inteiro (MRO100 21–24/08)
+    r = gate.avaliar(est, referencia_razao=1.23, params=P, tz=tz)
+    assert r.motivo_dia[dt.date(2026, 8, 26)] == "cobertura"
+    assert (r.gate == "cobertura").all()
+
+
+def test_valor_fora_de_faixa_e_plausibilidade():
+    est, tz = _dia_limpo()
+    est = est.copy(); i = est.poa.idxmax(); est.loc[i, "poa"] = 2500.0
+    r = gate.avaliar(est, referencia_razao=1.23, params=P, tz=tz)
+    assert r.gate[i] == "plausibilidade" and r.motivo_dia[dt.date(2026, 8, 26)] == "ok"
+```
+
+- [ ] **Passo 2: Rodar para ver falhar** — `ModuleNotFoundError: gemeo.modelar.gate`
+
+- [ ] **Passo 3: Implementar**
+
+```python
+# gemeo/gemeo/modelar/gate.py
+"""Gate de sensor com DUAS portas. Plausibilidade: faixa e razao POA/GHI (instante e dia). Cobertura:
+o instante exige POA; o dia exige horas minimas. O modelo so roda onde o gate diz 'ok'."""
+from __future__ import annotations
+import datetime as dt
+from dataclasses import dataclass, field
+from zoneinfo import ZoneInfo
+
+import numpy as np
+import pandas as pd
+
+
+@dataclass(frozen=True)
+class ParamsGate:
+    poa_max: float = 1400.0
+    ghi_max: float = 1400.0
+    razao_min: float = 0.3
+    razao_max: float = 3.0
+    ghi_min_razao: float = 100.0
+    tolerancia_dia: float = 0.30
+    horas_min_dia: float = 8.0
+    ghi_dia: float = 50.0
+
+
+@dataclass
+class Resultado:
+    gate: pd.Series
+    motivo_dia: dict[dt.date, str] = field(default_factory=dict)
+    razao_dia: dict[dt.date, float] = field(default_factory=dict)
+
+
+def avaliar(estacao: pd.DataFrame, referencia_razao: float | None, params: ParamsGate, tz: str) -> Resultado:
+    poa, ghi = estacao["poa"], estacao["ghi"]
+    dia = pd.Series(estacao.index.tz_convert(ZoneInfo(tz)).date, index=estacao.index)
+    gate = pd.Series("ok", index=estacao.index, dtype=object)
+    # porta 1a: faixa
+    fora = (poa < 0) | (poa > params.poa_max) | (ghi < 0) | (ghi > params.ghi_max)
+    gate[fora.fillna(False)] = "plausibilidade"
+    # porta 1b: razao POA/GHI no instante e no dia
+    razao = (poa / ghi).where(ghi > params.ghi_min_razao)
+    ruim_inst = razao.notna() & ~razao.between(params.razao_min, params.razao_max)
+    gate[ruim_inst & (gate == "ok")] = "poa_ghi"
+    razao_dia = razao.groupby(dia).median()
+    ref = referencia_razao if referencia_razao else float(np.nanmedian(razao_dia.values)) if razao_dia.notna().any() else None
+    dias_ruins = set(razao_dia[(razao_dia / ref - 1).abs() > params.tolerancia_dia].index) if ref else set()
+    gate[dia.isin(dias_ruins) & (gate == "ok")] = "poa_ghi"
+    # porta 2: cobertura — instante sem POA nao roda; dia com poucas horas validas nao conta
+    gate[poa.isna()] = "cobertura"
+    motivo: dict[dt.date, str] = {}
+    slots_min = params.horas_min_dia * 4
+    for d, idx in dia.groupby(dia).groups.items():
+        g = gate.loc[idx]; diurno = (ghi.loc[idx] > params.ghi_dia).sum()
+        if d in dias_ruins:
+            motivo[d] = "poa_ghi"
+        elif (g == "ok").sum() < min(slots_min, max(diurno, 1)) and (g == "ok").sum() < slots_min:
+            motivo[d] = "cobertura"
+        else:
+            motivo[d] = "ok"
+        if motivo[d] == "cobertura":
+            gate.loc[idx] = gate.loc[idx].where(gate.loc[idx] != "ok", "cobertura")
+    return Resultado(gate=gate, motivo_dia=motivo, razao_dia={d: (float(v) if pd.notna(v) else float("nan")) for d, v in razao_dia.items()})
+```
+
+- [ ] **Passo 4: Rodar** — 4 passed. **Passo 5: Commit** — `git commit -m "feat(gemeo): gate de duas portas (POA x GHI e cobertura) com os casos reais dos spikes"`
+
+### Tarefa 13: Esperado — PVWatts sobre a POA medida, por inversor
+
+**Files:**
+- Create: `gemeo/gemeo/modelar/esperado.py`, `gemeo/tests/test_modelar_esperado.py`
+
+**Interfaces:**
+- Consumes: `Grade` (11), `Resultado` do gate (12).
+- Produces: `@dataclass ParamsModelo(kwp: float, pac0_kw: float, gamma=-0.0035, perdas_fixas=0.14, eta_inv=0.96, pac0_inferido=False)`; `temp_celula(temp_modulo, temp_ar, poa) -> Series`; `inferir_pac0(p_ac: Series, kw_ac_placa: float | None, kwp: float) -> tuple[float, bool]` (placa quando existe; senão o máximo observado, marcado inferido); `esperado_inversor(poa, temp_cel, p: ParamsModelo) -> Series` (kW); `esperado_por_inversor(grade, gate, params_por_inv: dict[int, ParamsModelo]) -> DataFrame[cols=ids]` (NaN onde o gate ≠ ok).
+
+- [ ] **Passo 1: Escrever o teste que falha**
+
+```python
+# gemeo/tests/test_modelar_esperado.py
+"""Numeros de referencia: a 1000 W/m2 e 25 C, 277,68 kWp com perdas 14% e eta 0,96 dao 229,2 kW de AC
+(277,68 x 0,86 x 0,96) com teto folgado (300 kW); a curva de carga parcial do PVWatts desvia ~0,2%, por isso
+rel=1e-2. Teto 1e9 NAO serve: zeta -> 0 zera o AC. Com teto de 200 kW, 200. Zero POA da zero."""
+import numpy as np
+import pandas as pd
+import pytest
+from pathlib import Path
+from gemeo.modelar import esperado, gate, grade
+
+G = Path(__file__).parent / "fixtures" / "golden"
+
+
+def test_ponto_de_referencia_stc():
+    p = esperado.ParamsModelo(kwp=277.68, pac0_kw=300.0)
+    s = esperado.esperado_inversor(pd.Series([1000.0, 0.0]), pd.Series([25.0, 25.0]), p)
+    assert s.iloc[0] == pytest.approx(277.68 * 0.86 * 0.96, rel=1e-2) and s.iloc[1] == 0.0
+
+
+def test_teto_ac_limita():
+    p = esperado.ParamsModelo(kwp=277.68, pac0_kw=200.0)
+    assert esperado.esperado_inversor(pd.Series([1000.0]), pd.Series([25.0]), p).iloc[0] == pytest.approx(200.0, rel=1e-3)
+
+
+def test_temperatura_alta_reduz():
+    p = esperado.ParamsModelo(kwp=277.68, pac0_kw=300.0)
+    frio, quente = esperado.esperado_inversor(pd.Series([800.0, 800.0]), pd.Series([25.0, 55.0]), p)
+    assert quente < frio and quente / frio == pytest.approx(1 - 0.0035 * 30, rel=1e-3)
+
+
+def test_inferir_pac0_prefere_a_placa_e_marca_quando_infere():
+    obs = pd.Series([150.0, 200.0, 199.0, 0.0])
+    assert esperado.inferir_pac0(obs, kw_ac_placa=214.0, kwp=277.68) == (214.0, False)
+    v, inf = esperado.inferir_pac0(obs, kw_ac_placa=None, kwp=277.68)
+    assert v == pytest.approx(200.0, abs=0.1) and inf is True  # quantil 0,999 de 4 pontos = 199,997
+
+
+def test_esperado_por_inversor_respeita_o_gate():
+    g = grade.grade_de_fixture(G / "mro100_2026-08-26.json")
+    r = gate.avaliar(g.estacao, None, gate.ParamsGate(), g.usina.tz)
+    params = {i: esperado.ParamsModelo(kwp=277.68, pac0_kw=200.0) for i in g.inv_p.columns}
+    e = esperado.esperado_por_inversor(g, r, params)
+    assert e.shape == g.inv_p.shape
+    assert e[r.gate != "ok"].isna().all().all() and e[r.gate == "ok"].notna().all().all()
+    assert 0 < e.max().max() <= 200.0
+```
+
+- [ ] **Passo 2: Rodar para ver falhar** — `ModuleNotFoundError: gemeo.modelar.esperado`
+
+- [ ] **Passo 3: Implementar**
+
+```python
+# gemeo/gemeo/modelar/esperado.py
+"""Esperado fisico por inversor: PVWatts (pvlib) sobre a POA MEDIDA. Sem transposicao e sem geometria —
+o sensor esta no plano dos modulos (POA/GHI ~1,2 nas usinas de tracker, verificado). O esperado tem de
+ser fisico: os modelos aprendidos da saida (POT.ESP, AIML da SunOp) igualam o medido e nao veem perda."""
+from __future__ import annotations
+from dataclasses import dataclass
+
+import numpy as np
+import pandas as pd
+import pvlib
+
+
+@dataclass(frozen=True)
+class ParamsModelo:
+    kwp: float
+    pac0_kw: float
+    gamma: float = -0.0035
+    perdas_fixas: float = 0.14
+    eta_inv: float = 0.96
+    pac0_inferido: bool = False
+
+
+def temp_celula(temp_modulo: pd.Series, temp_ar: pd.Series, poa: pd.Series) -> pd.Series:
+    """Temperatura de modulo medida; sem ela, ar + 0,03 x POA (NOCT simplificado); sem nada, 25 C."""
+    return temp_modulo.where(temp_modulo.notna(), (temp_ar + 0.03 * poa.fillna(0))).fillna(25.0)
+
+
+def inferir_pac0(p_ac: pd.Series, kw_ac_placa: float | None, kwp: float) -> tuple[float, bool]:
+    if kw_ac_placa and kw_ac_placa > 0:
+        return float(kw_ac_placa), False
+    obs = float(np.nanquantile(p_ac.dropna().values, 0.999)) if p_ac.notna().any() else 0.0
+    return (obs, True) if obs > 0 else (float(kwp), True)
+
+
+def esperado_inversor(poa: pd.Series, temp_cel: pd.Series, p: ParamsModelo) -> pd.Series:
+    pdc = pvlib.pvsystem.pvwatts_dc(poa.fillna(0).values, temp_cel.fillna(25).values, p.kwp, p.gamma) * (1 - p.perdas_fixas)
+    # pdc0 do PVWatts e a entrada DC em que o inversor atinge a placa (pac0 = eta_nom x pdc0): passar a placa
+    # direto limitaria em 0,96 x 200 = 192 kW. E a curva de eficiencia tem um termo -0,0059/zeta, entao um
+    # "teto infinito" leva zeta a zero e o AC a ZERO - o teto tem de ser realista, nunca 1e9.
+    pac = pvlib.inverter.pvwatts(pdc, p.pac0_kw / p.eta_inv, eta_inv_nom=p.eta_inv)
+    return pd.Series(np.asarray(pac, dtype=float), index=poa.index)
+
+
+def esperado_por_inversor(grade, gate_res, params_por_inv: dict[int, ParamsModelo]) -> pd.DataFrame:
+    est = grade.estacao
+    tcel = temp_celula(est["temp_modulo"], est["temp_ar"], est["poa"])
+    ok = gate_res.gate == "ok"
+    cols = {}
+    for eid, p in params_por_inv.items():
+        cols[eid] = esperado_inversor(est["poa"], tcel, p).where(ok)
+    return pd.DataFrame(cols, index=grade.indice)
+```
+
+- [ ] **Passo 4: Rodar** — 5 passed. **Passo 5: Commit** — `git commit -m "feat(gemeo): esperado fisico por inversor com PVWatts sobre a POA medida"`
+
+<!-- CONTINUA: Tarefa 14 -->
