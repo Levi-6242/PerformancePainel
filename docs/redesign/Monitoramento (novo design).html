@@ -43,6 +43,8 @@ h2{font-family:var(--font-heading);font-weight:800;letter-spacing:-.01em}
 .nav a{color:var(--color-neutral-400);text-decoration:none;padding:7px 12px;border-radius:8px;font-size:14px;font-weight:500;transition:color .15s,background .15s}
 .nav a:hover{color:var(--color-text)}
 .nav a[aria-current="page"]{color:var(--color-text);background:color-mix(in srgb,var(--color-accent) 13%,transparent)}
+/* Gêmeo Digital: a entrada só aparece quando o proxy /gemeo responde (fetch no fim do arquivo) */
+html:not(.gemeo-on) #nav-gemeo{display:none}
 .btn{display:inline-flex;align-items:center;gap:7px;padding:8px 14px;border-radius:var(--radius-md);font-family:var(--font-heading);font-size:13px;font-weight:600;cursor:pointer;border:1px solid transparent;background:transparent;color:var(--color-text);transition:background .15s,border-color .15s;white-space:nowrap}
 .btn i{font-size:15px}
 .btn-primary{border-color:var(--color-accent);color:var(--color-accent)}
@@ -1860,7 +1862,7 @@ function render(){
     <div style="position:sticky;top:0;z-index:40;background:color-mix(in srgb, var(--color-bg) 88%, transparent);backdrop-filter:blur(12px);border-bottom:1px solid var(--color-divider)">
       <nav class="nav" style="max-width:1640px;margin:0 auto;padding:14px 32px">
         <img src="/static/logos/grid-h-branco.png" alt="Grid Co." style="height:26px;margin-right:30px;display:block;object-fit:contain" onerror="this.outerHTML='&lt;span class=&quot;nav-brand&quot; style=&quot;margin-right:30px;font-size:21px&quot;&gt;Grid&lt;span style=&quot;color:var(--color-accent)&quot;&gt;Co&lt;/span&gt;&lt;/span&gt;'">
-        <a href="#" aria-current="page">Monitoramento</a><a href="#">Ronda de Trackers</a><a href="/painel" target="gridco-painel" rel="noopener">Painel</a><a href="/gerencial" target="gridco-gerencial" rel="noopener">Gerencial</a><a href="/relatorio" target="gridco-relatorio" rel="noopener">Criador de Relatório</a><a href="/tokens" target="gridco-tokens" rel="noopener" id="nav-tokens">Tokens</a>
+        <a href="#" aria-current="page">Monitoramento</a><a href="#">Ronda de Trackers</a><a href="/painel" target="gridco-painel" rel="noopener">Painel</a><a href="/gerencial" target="gridco-gerencial" rel="noopener">Gerencial</a><a href="/relatorio" target="gridco-relatorio" rel="noopener">Criador de Relatório</a><a href="/tokens" target="gridco-tokens" rel="noopener" id="nav-tokens">Tokens</a><a href="/gemeo/" target="gridco-gemeo" rel="noopener" id="nav-gemeo">Gêmeo Digital</a>
         <span style="margin-left:auto;display:flex;align-items:center;gap:20px">
           <span style="display:flex;align-items:center;gap:7px;font-size:12.5px" class="text-muted"><span style="width:7px;height:7px;border-radius:50%;background:var(--color-accent);animation:gc-pulse 2.2s ease-in-out infinite"></span><span style="color:var(--color-text);font-weight:500">ao vivo</span><span>· ${v.lastUpdate}</span></span>
           <button class="btn btn-primary" onclick="refreshApp()"><i class="ph ph-arrows-clockwise"></i> Atualizar</button>
@@ -1876,6 +1878,12 @@ function render(){
     </div>
   </div>`;
 }
+// Gêmeo Digital (projeto separado, proxy /gemeo/* no app.py): a entrada do menu só aparece quando o
+// serviço responde — 200 ou 503 (healthz com problema ainda é o gêmeo falando); 404 = plataforma sem
+// o proxy (versão antiga no ar) e o menu fica como está.
+fetch('/gemeo/healthz', {cache: 'no-store'}).then(function (r) {
+  if (r.status === 200 || r.status === 503) document.documentElement.classList.add('gemeo-on');
+}).catch(function () {});
 render();
 loadCurrent();
 </script>
