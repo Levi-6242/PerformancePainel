@@ -3039,4 +3039,520 @@ git commit -m "feat(gemeo): as seis assinaturas viram eventos com kWh e severida
 
 ---
 
-<!-- CONTINUA: Tarefa 16 -->
+### Tarefa 16: Cascata diária, `perda_dia` e o job `gemeo modelar` (persistência idempotente)
+
+**Files:**
+- Create: `gemeo/gemeo/modelar/rollup.py`
+- Create: `gemeo/gemeo/modelar/job.py`
+- Create: `gemeo/tests/semear.py` (fixture golden → banco de teste; serve ao job e ao app)
+- Test: `gemeo/tests/test_modelar_rollup.py` (pandas puro, roda sem banco)
+- Test: `gemeo/tests/test_modelar_job.py` (banco; pula sem `GEMEO_TEST_DSN`)
+
+**Interfaces:**
+- Consumes: `Grade`/`carregar_grade` (T11), `gate.avaliar/ParamsGate/Resultado` (T12), `esperado.*` (T13), `decomposicao.decompor/trk_inv_da_grade` (T14), `eventos.detectar/Evento` (T15), `db.conectar/gravar_estado` (T2–3), `runner.usinas_do_piloto` (T10).
+- Produces: `rollup.Cascata(por_dia, perda_dia, razao_inv_dia)`, `rollup.cascata(grade, gate_res, esp, d, ghi_diurno=50, str_zero_a=0.1) -> Cascata`; `job.Modelo`, `job.modelo_ativo(conn, usina_id)`, `job.params_por_inversor(grade, mod, p_ac_hist)`, `job.instaladas_30d`, `job.p_ac_30d`, `job.referencia_razao`, `job.janela_padrao(agora, tz)`, `job.modelar(conn, usina, ini, fim, mod=None) -> dict`, `job.persistir(...)`, `job.rodar_cli(ini, fim, usina)`. Estado `modelar.ultimo` (JSON) para o `/healthz` da Tarefa 18.
+- Contrato: o job carrega **3 dias locais** (o "abaixo dos pares" exige 3; hoje é recomputado a cada 15 min), grava `esperado` por upsert e **apaga-e-regrava** `cascata_dia`, `perda_dia` e `evento` da janela — rodar duas vezes deixa o banco igual.
+
+- [ ] **Step 1: Escrever a semeadura e os testes (falham: módulos não existem)**
+
+```python
+# gemeo/tests/semear.py
+"""Semeia o banco de teste com uma fixture golden: usina, equipamentos (estacao, inversores, trackers com
+pai pelo de-para, strings) e leituras em UTC. Devolve a UsinaRef e o mapa 'chave da fixture' -> id.
+Serve ao teste do job (Tarefa 16) e aos do app (Tarefa 18)."""
+import json
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import pandas as pd
+
+from gemeo.core import db
+from gemeo.core.modelos import UsinaRef
+
+
+def semear_fixture(conn, caminho: Path, trk_inv: dict[str, str] | None = None) -> tuple[UsinaRef, dict]:
+    j = json.load(open(caminho, encoding="utf-8"))
+    tz = ZoneInfo(j["tz"]); n_inv = int(j["n_inv"])
+    ids: dict[str, int] = {}
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO usina (codigo, nome, fonte, fonte_ref, tz, kwp_dc, kw_ac, n_inversores, lat, lon) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                    (j["usina"], j["usina"], j["fonte"], j["usina"], j["tz"], j["kwp"], j["kw_ac"], n_inv, -2.05, -47.55))
+        uid = cur.fetchone()[0]
+
+        def eq(tipo, codigo, pai=None, atributos=None):
+            cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte, pai_id, atributos) VALUES (%s,%s,%s,%s,%s) RETURNING id",
+                        (uid, tipo, codigo, pai, json.dumps(atributos or {})))
+            return cur.fetchone()[0]
+
+        ids["estacao"] = eq("estacao", "ESTM")
+        for n in j["inv_p"]:
+            ids[f"inv:{n}"] = eq("inversor", f"INV_{n}", None, {"numero": int(n), "kwp": j["kwp"] / n_inv, "kw_ac": j["kw_ac"] / n_inv})
+        for n in (j.get("trk_ang") or {}):
+            pai = ids.get("inv:" + str(trk_inv[n]).split(".")[-1]) if trk_inv and n in trk_inv else None
+            ids[f"trk:{n}"] = eq("tracker", f"TRK_{n}", pai, {"numero": int(n)})
+        for k in (j.get("str_i") or {}):
+            i, s = k.split(".")
+            ids[f"str:{k}"] = eq("string", f"INV_{i}.I_PV{s}", ids[f"inv:{i}"], {"numero": int(s)})
+    conn.commit()
+
+    def ts_utc(k):
+        return pd.Timestamp(k).tz_localize(tz).tz_convert("UTC").to_pydatetime()
+
+    linhas = [(ids["estacao"], m, ts_utc(k), v) for m, serie in j["estacao"].items() for k, v in serie.items()]
+    for chave, pref, medida in (("inv_p", "inv", "p_ac"), ("inv_e_dia", "inv", "e_dia"), ("trk_ang", "trk", "angulo"),
+                                ("trk_alvo", "trk", "angulo_alvo"), ("str_i", "str", "i_string")):
+        for k, serie in (j.get(chave) or {}).items():
+            linhas += [(ids[f"{pref}:{k}"], medida, ts_utc(t), v) for t, v in serie.items()]
+    db.upsert_leituras(conn, linhas)
+    usina = UsinaRef(id=uid, codigo=j["usina"], fonte=j["fonte"], fonte_ref=j["usina"], tz=j["tz"], kwp=j["kwp"], kw_ac=j["kw_ac"], lat=-2.05, lon=-47.55)
+    return usina, ids
+```
+
+```python
+# gemeo/tests/test_modelar_rollup.py
+"""Invariantes da cascata na grade sintetica e os vereditos dos spikes (Santarem 1: inversor 106 parado e os
+saos entre 0,90 e 1,05; MRO100 31/08: parado ~1,6 MWh e trackers ~0,1 MWh, como o spike registrou)."""
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent))
+from golden import G, esperado_de_placa, sem_gate, trk_inv_mro100, veredito  # noqa: E402
+from sintetico import grade_sintetica  # noqa: E402
+from gemeo.modelar import decomposicao as dc  # noqa: E402
+from gemeo.modelar import esperado, rollup  # noqa: E402
+
+P = dc.ParamsDecomp(f_direta_fixa=0.6)
+MAPA = {2001: 1001, 2002: 1002}
+UNIVERSO = {1001: [3101, 3102, 3103, 3104], 1002: []}
+H = 0.25
+
+
+def _tudo(g):
+    params = {i: esperado.ParamsModelo(kwp=277.68, pac0_kw=200.0) for i in g.inv_p.columns}
+    r = sem_gate(g)
+    esp = esperado.esperado_por_inversor(g, r, params)
+    return r, esp, dc.decompor(g, esp, MAPA, P, instaladas=UNIVERSO)
+
+
+def test_cascata_fecha_por_dia_e_perda_dia_bate_com_a_cascata():
+    g = grade_sintetica(dias=2)
+    g.inv_p[1001] = 120.0; g.trk_ang[2002] = 50.0; g.str_i[3104] = 0.0
+    g.trk_ang[2003] = -10.0   # -10 e nao 50: com dois em 50 a MEDIANA da frota viraria 50 e o 2001 e que ficaria 'fora'
+    r, esp, d = _tudo(g)
+    c = rollup.cascata(g, r, esp, d)
+    assert len(c.por_dia) == 2 and (c.por_dia.delta - (c.por_dia.e_esperado - c.por_dia.e_medido)).abs().max() < 1e-6
+    soma = c.por_dia[list(rollup.PARCELAS)].sum(axis=1)
+    assert (soma - c.por_dia.delta).abs().max() < 1e-6
+    assert c.por_dia.cobertura_gate.between(0, 1).all() and (c.por_dia.trackers_sem_inversor == 1).all()
+    inv = c.perda_dia[c.perda_dia.equipamento_id.isin(esp.columns)]
+    for parcela in rollup.PARCELAS:
+        por_dia = inv[inv.parcela == parcela].groupby("dia").kwh.sum().reindex(c.por_dia.index).fillna(0.0)
+        assert (por_dia - c.por_dia[parcela]).abs().max() < 1e-6, parcela
+    trk = c.perda_dia[c.perda_dia.equipamento_id == 2003]
+    assert len(trk) == 2 and (trk.parcela == "tracker").all() and (trk.kwh > 0).all()
+    strs = c.perda_dia[c.perda_dia.equipamento_id == 3104]
+    assert (strs.kwh.values - c.por_dia.string.values < 1e-6).all() and (strs.parcela == "string").all()
+
+
+def test_cascata_nao_inventa_energia_onde_nao_ha_dado():
+    g = grade_sintetica(); g.inv_p[1001] = np.nan
+    r, esp, d = _tudo(g)
+    c = rollup.cascata(g, r, esp, d)
+    assert c.por_dia.e_esperado.iloc[0] == pytest.approx(float(esp[1002].sum() * H), rel=1e-6)
+    assert c.razao_inv_dia[1001].isna().all() and c.razao_inv_dia[1002].notna().all()
+
+
+@pytest.mark.parametrize("arq", ["santarem1_2026-08-26.json", "santarem1_2026-09-01.json"])
+def test_golden_santarem_inversor_106_parado_e_saos_dentro_da_faixa(arq):
+    g, r, esp = esperado_de_placa(G / arq); v = veredito(G / arq)
+    d = dc.decompor(g, esp, {}, dc.ParamsDecomp())
+    c = rollup.cascata(g, r, esp, d)
+    parados = {1000 + int(n) for n in v["inv_parado"]}
+    dia = c.por_dia.index[0]
+    for eid in parados:
+        assert c.perda_dia[(c.perda_dia.equipamento_id == eid) & (c.perda_dia.parcela == "inv_parado")].kwh.sum() > 0
+    saos = c.razao_inv_dia.loc[dia].drop(list(parados))
+    assert saos.between(v["razao_saos_min"], v["razao_saos_max"]).all(), saos.round(3).to_dict()
+
+
+def test_golden_mro100_31_08_reproduz_a_cascata_do_spike():
+    g, r, esp = esperado_de_placa(G / "mro100_2026-08-31.json")
+    d = dc.decompor(g, esp, trk_inv_mro100(g), dc.ParamsDecomp())
+    c = rollup.cascata(g, r, esp, d)
+    x = c.por_dia.iloc[0]
+    # resultado.json do spike 2 em 31/08: inv_parado 1634,9 | tracker 102,6 | string 0,3 | esperado 41068 | medido 38971
+    assert x.inv_parado == pytest.approx(1634.9, rel=0.05) and x.tracker == pytest.approx(102.6, rel=0.10)
+    assert x.e_medido == pytest.approx(38971.0, rel=0.02) and x.e_esperado == pytest.approx(41068.0, rel=0.03)
+    assert x.string < 5.0 and x.cobertura_gate > 0.9
+```
+
+```python
+# gemeo/tests/test_modelar_job.py
+"""Job de ponta a ponta sobre o banco semeado com a fixture golden da MRO100 (31/08): persiste esperado,
+cascata_dia, perda_dia e evento, e rodar duas vezes deixa o banco IGUAL. Pula sem GEMEO_TEST_DSN."""
+import datetime as dt
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent))
+from semear import semear_fixture  # noqa: E402
+from gemeo.modelar import job  # noqa: E402
+
+G = Path(__file__).parent / "fixtures" / "golden"
+UTC = dt.timezone.utc
+
+
+@pytest.fixture
+def mro100(conn):
+    trk_inv = json.load(open(G / "mro100_trk_inv.json", encoding="utf-8"))
+    usina, ids = semear_fixture(conn, G / "mro100_2026-08-31.json", trk_inv)
+    yield usina, ids
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM evento; DELETE FROM perda_dia; DELETE FROM cascata_dia; DELETE FROM esperado; "
+                    "DELETE FROM modelo; DELETE FROM leitura; DELETE FROM equipamento; DELETE FROM usina; DELETE FROM estado")
+    conn.commit()
+
+
+def _foto(conn):
+    out = []
+    with conn.cursor() as cur:
+        for sql in ("SELECT count(*), round(sum(p_esperado_kw)::numeric, 3) FROM esperado",
+                    "SELECT count(*), round(sum(delta)::numeric, 3) FROM cascata_dia",
+                    "SELECT count(*), round(sum(kwh)::numeric, 3) FROM perda_dia",
+                    "SELECT count(*), round(sum(kwh)::numeric, 3) FROM evento"):
+            cur.execute(sql); out.append(cur.fetchone())
+    return out
+
+
+def test_job_persiste_e_e_idempotente(conn, mro100):
+    usina, ids = mro100
+    ini, fim = dt.datetime(2026, 8, 31, 3, 0, tzinfo=UTC), dt.datetime(2026, 9, 1, 3, 0, tzinfo=UTC)   # 00:00 -> 24:00 de Belem
+    res = job.modelar(conn, usina, ini, fim)
+    assert res["modelo"] == "placa" and res["dias"] >= 1 and res["e_esperado"] > 30000 and res["inferidos"] == 0
+    foto1 = _foto(conn)
+    with conn.cursor() as cur:
+        cur.execute("SELECT e_esperado, e_medido, inv_parado, tracker, cobertura_gate FROM cascata_dia WHERE usina_id=%s AND dia=%s", (usina.id, dt.date(2026, 8, 31)))
+        e_esp, e_med, parado, tracker, cob = cur.fetchone()
+        assert e_esp > e_med and parado > 1000 and tracker > 50 and cob > 0.9
+        cur.execute("SELECT equipamento_id FROM evento WHERE tipo='inversor_parado'")
+        assert {r[0] for r in cur.fetchall()} == {ids["inv:22"]}
+        cur.execute("SELECT count(*) FROM evento WHERE tipo='tracker_fora_alvo' AND equipamento_id = ANY(%s)", ([ids["trk:4"], ids["trk:17"]],))
+        assert cur.fetchone()[0] >= 2
+        cur.execute("SELECT count(*) FROM esperado WHERE gate='ok' AND p_esperado_kw IS NULL")
+        assert cur.fetchone()[0] == 0
+        cur.execute("SELECT versao, ativo, tolerancia FROM modelo")
+        assert cur.fetchone() == ("placa", True, 0.08)
+    job.modelar(conn, usina, ini, fim)
+    assert _foto(conn) == foto1
+
+
+def test_janela_padrao_cobre_tres_dias_locais():
+    agora = dt.datetime(2026, 9, 3, 15, 7, tzinfo=UTC)          # 12:07 em Belem
+    ini, fim = job.janela_padrao(agora, "America/Belem")
+    assert ini == dt.datetime(2026, 9, 1, 3, 0, tzinfo=UTC) and fim == agora
+```
+
+- [ ] **Step 2: Rodar e ver falhar**
+
+Run: `cd gemeo && python -m pytest tests/test_modelar_rollup.py tests/test_modelar_job.py -q`
+Expected: FAIL — `ImportError: cannot import name 'rollup'`; os de banco pulam sem DSN.
+
+- [ ] **Step 3: Implementar a cascata e o job**
+
+```python
+# gemeo/gemeo/modelar/rollup.py
+"""Do instante ao dia: `cascata_dia` (usina) e `perda_dia` (equipamento), em kWh, por dia LOCAL. O medido
+que entra no delta e o MASCARADO pelos mesmos instantes do esperado (maca com maca — sem isso a razao
+saia 1,47 no spike); o contador do dia fica para a meta, que nao tem gate. So DataFrames: quem persiste
+e o job."""
+from __future__ import annotations
+from dataclasses import dataclass
+from zoneinfo import ZoneInfo
+
+import numpy as np
+import pandas as pd
+
+from gemeo.modelar.decomposicao import Decomposicao
+from gemeo.modelar.gate import Resultado
+from gemeo.modelar.grade import Grade
+
+H = 0.25
+PARCELAS = ("inv_parado", "tracker", "string", "residuo")
+
+
+@dataclass
+class Cascata:
+    por_dia: pd.DataFrame        # index dia local; e_esperado, e_medido, delta, 4 parcelas, cobertura_gate, trackers_sem_inversor
+    perda_dia: pd.DataFrame      # equipamento_id, dia, parcela, kwh — so kwh != 0
+    razao_inv_dia: pd.DataFrame  # index dia, coluna por inversor: medido/esperado nos mesmos instantes
+
+
+def cascata(grade: Grade, gate_res: Resultado, esp: pd.DataFrame, d: Decomposicao,
+            ghi_diurno: float = 50.0, str_zero_a: float = 0.1) -> Cascata:
+    idx = grade.indice
+    dia = pd.Series(idx.tz_convert(ZoneInfo(grade.usina.tz)).date, index=idx)
+    med = grade.inv_p.reindex(columns=esp.columns)
+    e_ok, m_ok = esp.where(d.ok), med.where(d.ok)
+    e_esp = (e_ok.sum(axis=1, min_count=1).fillna(0.0) * H).groupby(dia).sum()
+    e_med = (m_ok.sum(axis=1, min_count=1).fillna(0.0) * H).groupby(dia).sum()
+    por_dia = pd.DataFrame({"e_esperado": e_esp, "e_medido": e_med, "delta": e_esp - e_med})
+    frames = {"inv_parado": d.parado, "tracker": d.tracker, "string": d.string, "residuo": d.residuo}
+    for nome, df in frames.items():
+        por_dia[nome] = (df.sum(axis=1) * H).groupby(dia).sum()
+    diurno = (grade.estacao["ghi"] > ghi_diurno).fillna(False)
+    ok_diurno = ((gate_res.gate == "ok") & diurno).groupby(dia).sum()
+    por_dia["cobertura_gate"] = (ok_diurno / diurno.groupby(dia).sum().replace(0, np.nan)).fillna(0.0)
+    por_dia["trackers_sem_inversor"] = len(d.trk_sem_inversor)
+    linhas: list[tuple] = []
+
+    def junta(eid, serie_kw, parcela):
+        for dd, v in (serie_kw * H).groupby(dia).sum().items():
+            if abs(v) > 1e-9:
+                linhas.append((int(eid), dd, parcela, float(v)))
+
+    for eid in esp.columns:
+        for nome, df in frames.items():
+            junta(eid, df[eid], nome)
+    for t in d.perda_trk.columns:            # mapeados e sem inversor: a perda e do proprio tracker
+        junta(t, d.perda_trk[t], "tracker")
+    for eid, cols in d.instaladas.items():   # a parcela do inversor dividida entre as zeradas de cada slot
+        if not cols:
+            continue
+        quota = (d.string[eid] / d.zeradas[eid].replace(0, np.nan)).fillna(0.0)
+        for s in cols:
+            junta(s, quota.where((grade.str_i[s] < str_zero_a) & d.viva[eid], 0.0), "string")
+    perda = pd.DataFrame(linhas, columns=["equipamento_id", "dia", "parcela", "kwh"])
+    razao = ((m_ok * H).groupby(dia).sum(min_count=1)) / ((e_ok * H).groupby(dia).sum(min_count=1))
+    return Cascata(por_dia, perda, razao)
+```
+
+```python
+# gemeo/gemeo/modelar/job.py
+"""`gemeo modelar`: para cada usina do piloto, carrega os ultimos 3 dias locais (o 'abaixo dos pares' pede
+3 dias, e o dia de hoje e recomputado a cada 15 min), roda gate -> esperado -> decomposicao -> eventos ->
+cascata e persiste por chave natural. Idempotente: rodar duas vezes deixa o banco igual."""
+from __future__ import annotations
+import datetime as dt
+import json
+import time
+from dataclasses import dataclass
+from zoneinfo import ZoneInfo
+
+import numpy as np
+import pandas as pd
+import psycopg2.extras
+
+from gemeo.core.modelos import UsinaRef
+from gemeo.modelar import decomposicao as dc
+from gemeo.modelar import esperado as esp_mod
+from gemeo.modelar import eventos as ev_mod
+from gemeo.modelar import gate as gate_mod
+from gemeo.modelar import rollup
+from gemeo.modelar.grade import Grade, carregar_grade
+
+PLACA = {"gamma": -0.0035, "perdas_fixas": 0.14, "eta_inv": 0.96, "gate": {}}
+DIAS_CONTEXTO = 3
+
+
+@dataclass(frozen=True)
+class Modelo:
+    id: int
+    versao: str
+    parametros: dict
+    tolerancia: float
+    calibrado: bool
+
+
+def modelo_ativo(conn, usina_id: int) -> Modelo:
+    """A versao ativa; sem nenhuma, nasce a 'placa' (gamma -0,35 %/C, perdas 14 %, eta 0,96, tolerancia 0,08,
+    calibrado=false) — e a faixa 'modelo de placa — nao calibrado' das telas vem daqui."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, versao, parametros, tolerancia, calibrado FROM modelo WHERE usina_id=%s AND ativo", (usina_id,))
+        r = cur.fetchone()
+        if r is None:
+            cur.execute("INSERT INTO modelo (usina_id, versao, parametros, tolerancia, calibrado, ativo) VALUES (%s,'placa',%s,0.08,false,true) "
+                        "ON CONFLICT (usina_id, versao) DO UPDATE SET ativo=true RETURNING id, versao, parametros, tolerancia, calibrado",
+                        (usina_id, json.dumps(PLACA)))
+            r = cur.fetchone()
+    conn.commit()
+    return Modelo(int(r[0]), r[1], r[2] if isinstance(r[2], dict) else json.loads(r[2]), float(r[3]), bool(r[4]))
+
+
+def params_por_inversor(grade: Grade, mod: Modelo, p_ac_hist: dict[int, pd.Series] | None = None) -> dict[int, esp_mod.ParamsModelo]:
+    """kwp e kw_ac do proprio inversor (equipamento.atributos, vindos do cadastro); sem kwp, a placa da usina
+    dividida pelos inversores; sem kw_ac, infere do maximo observado (30 dias se o job trouxe, senao a
+    janela) e marca `pac0_inferido` — a tela mostra."""
+    invs = [e for e, t in grade.tipo.items() if t == "inversor"]
+    pr = mod.parametros
+    out = {}
+    for eid in invs:
+        at = grade.atributos.get(eid, {})
+        kwp = float(at.get("kwp") or (grade.usina.kwp / max(1, len(invs))))
+        serie = (p_ac_hist or {}).get(eid)
+        if serie is None:
+            serie = grade.inv_p[eid] if eid in grade.inv_p.columns else pd.Series(dtype=float)
+        pac0, inferido = esp_mod.inferir_pac0(serie, at.get("kw_ac"), kwp)
+        out[eid] = esp_mod.ParamsModelo(kwp=kwp, pac0_kw=pac0, gamma=float(pr.get("gamma", PLACA["gamma"])),
+                                        perdas_fixas=float(pr.get("perdas_fixas", PLACA["perdas_fixas"])),
+                                        eta_inv=float(pr.get("eta_inv", PLACA["eta_inv"])), pac0_inferido=inferido)
+    return out
+
+
+def instaladas_30d(conn, usina_id: int, ate: dt.datetime, dias: int = 30) -> dict[int, list[int]]:
+    """Universo de strings: canal com > 1 A em algum momento dos ultimos 30 dias, agrupado pelo inversor pai."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT e.pai_id, e.id FROM leitura l JOIN equipamento e ON e.id=l.equipamento_id "
+                    "WHERE e.usina_id=%s AND e.tipo='string' AND l.medida='i_string' AND l.ts >= %s AND l.ts < %s "
+                    "GROUP BY e.pai_id, e.id HAVING max(l.valor) > 1.0 ORDER BY e.pai_id, e.id",
+                    (usina_id, ate - dt.timedelta(days=dias), ate))
+        out: dict[int, list[int]] = {}
+        for pai, sid in cur.fetchall():
+            out.setdefault(pai, []).append(sid)
+    return out
+
+
+def p_ac_30d(conn, usina_id: int, ate: dt.datetime, dias: int = 30) -> dict[int, pd.Series]:
+    """Quantil 0,999 da potencia AC por inversor nos ultimos 30 dias, calculado no banco — e o que
+    `inferir_pac0` precisa quando o cadastro nao traz kw_ac."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT e.id, percentile_cont(0.999) WITHIN GROUP (ORDER BY l.valor) FROM leitura l "
+                    "JOIN equipamento e ON e.id=l.equipamento_id WHERE e.usina_id=%s AND e.tipo='inversor' AND l.medida='p_ac' "
+                    "AND l.ts >= %s AND l.ts < %s AND l.valor > 0 GROUP BY e.id", (usina_id, ate - dt.timedelta(days=dias), ate))
+        return {int(eid): pd.Series([float(q)]) for eid, q in cur.fetchall() if q is not None}
+
+
+def referencia_razao(conn, usina_id: int, ate: dt.datetime, tz: str = "UTC", dias: int = 30) -> float | None:
+    """Referencia movel do gate: mediana, em 30 dias, da mediana diaria de POA/GHI (GHI > 100). Com menos
+    de 3 dias devolve None e o gate usa a propria janela."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT (p.ts AT TIME ZONE %s)::date, percentile_cont(0.5) WITHIN GROUP (ORDER BY p.valor / g.valor) "
+                    "FROM leitura p JOIN leitura g ON g.equipamento_id=p.equipamento_id AND g.ts=p.ts AND g.medida='ghi' "
+                    "JOIN equipamento e ON e.id=p.equipamento_id "
+                    "WHERE e.usina_id=%s AND e.tipo='estacao' AND p.medida='poa' AND g.valor > 100 AND p.ts >= %s AND p.ts < %s "
+                    "GROUP BY 1", (tz, usina_id, ate - dt.timedelta(days=dias), ate))
+        vals = [float(v) for _, v in cur.fetchall() if v is not None]
+    return float(np.median(vals)) if len(vals) >= 3 else None
+
+
+def janela_padrao(agora: dt.datetime, tz: str, dias: int = DIAS_CONTEXTO) -> tuple[dt.datetime, dt.datetime]:
+    local = agora.astimezone(ZoneInfo(tz))
+    ini = (local - dt.timedelta(days=dias - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return ini.astimezone(dt.timezone.utc), agora
+
+
+def persistir(conn, usina: UsinaRef, mod: Modelo, grade: Grade, r: gate_mod.Resultado, esp: pd.DataFrame,
+              evs: list[ev_mod.Evento], casc: rollup.Cascata) -> None:
+    est = grade.estacao
+    tcel = esp_mod.temp_celula(est["temp_modulo"], est["temp_ar"], est["poa"])
+    linhas = []
+    for eid in esp.columns:
+        col = esp[eid]
+        for ts, g in r.gate.items():
+            poa = est["poa"].get(ts)
+            if poa is None or pd.isna(poa):      # sem POA nao ha o que dizer: a ausencia e o evento de cobertura
+                continue
+            v = col.get(ts); t = tcel.get(ts)
+            linhas.append((int(eid), ts.to_pydatetime(), mod.id, None if pd.isna(v) else float(v), float(poa),
+                           None if pd.isna(t) else float(t), str(g)))
+    dias = [d for d in casc.por_dia.index]
+    ini_g, fim_g = grade.indice[0].to_pydatetime(), (grade.indice[-1] + pd.Timedelta(minutes=15)).to_pydatetime()
+    with conn.cursor() as cur:
+        if linhas:
+            psycopg2.extras.execute_values(
+                cur, "INSERT INTO esperado (equipamento_id, ts, modelo_id, p_esperado_kw, poa_usada, temp_usada, gate) VALUES %s "
+                     "ON CONFLICT (equipamento_id, ts, modelo_id) DO UPDATE SET p_esperado_kw=EXCLUDED.p_esperado_kw, "
+                     "poa_usada=EXCLUDED.poa_usada, temp_usada=EXCLUDED.temp_usada, gate=EXCLUDED.gate", linhas, page_size=5000)
+        # apaga-e-regrava a janela: e o que torna o job idempotente sem chave para 'evento sem equipamento'
+        cur.execute("DELETE FROM cascata_dia WHERE usina_id=%s AND modelo_id=%s AND dia = ANY(%s)", (usina.id, mod.id, dias))
+        cur.execute("DELETE FROM perda_dia WHERE modelo_id=%s AND dia = ANY(%s) AND equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s)",
+                    (mod.id, dias, usina.id))
+        cur.execute("DELETE FROM evento WHERE usina_id=%s AND modelo_id=%s AND ini >= %s AND ini < %s", (usina.id, mod.id, ini_g, fim_g))
+        # 'abaixo dos pares' e sempre recomputado dos ultimos 3 dias: o aberto de ontem sai, o de hoje entra
+        cur.execute("DELETE FROM evento WHERE usina_id=%s AND modelo_id=%s AND tipo='inversor_abaixo' AND fim IS NULL", (usina.id, mod.id))
+        casc_rows = [(usina.id, dd, mod.id, float(x.e_esperado), float(x.e_medido), float(x.delta), float(x.inv_parado), float(x.tracker),
+                      float(x.string), float(x.residuo), float(x.cobertura_gate), int(x.trackers_sem_inversor))
+                     for dd, x in casc.por_dia.iterrows() if x.e_esperado > 0]
+        if casc_rows:
+            psycopg2.extras.execute_values(cur, "INSERT INTO cascata_dia (usina_id, dia, modelo_id, e_esperado, e_medido, delta, inv_parado, "
+                                                "tracker, string, residuo, cobertura_gate, trackers_sem_inversor) VALUES %s", casc_rows)
+        perda_rows = [(int(x.equipamento_id), x.dia, mod.id, x.parcela, float(x.kwh)) for x in casc.perda_dia.itertuples()]
+        if perda_rows:
+            psycopg2.extras.execute_values(cur, "INSERT INTO perda_dia (equipamento_id, dia, modelo_id, parcela, kwh) VALUES %s", perda_rows)
+        ev_rows = [(usina.id, e.equipamento_id, mod.id, e.tipo, e.ini.to_pydatetime(), e.fim.to_pydatetime() if e.fim is not None else None,
+                    e.severidade, float(e.kwh), json.dumps(e.detalhe, default=str)) for e in evs]
+        if ev_rows:
+            psycopg2.extras.execute_values(cur, "INSERT INTO evento (usina_id, equipamento_id, modelo_id, tipo, ini, fim, severidade, kwh, detalhe) VALUES %s "
+                                                "ON CONFLICT (usina_id, equipamento_id, tipo, ini) DO UPDATE SET fim=EXCLUDED.fim, "
+                                                "severidade=EXCLUDED.severidade, kwh=EXCLUDED.kwh, detalhe=EXCLUDED.detalhe, modelo_id=EXCLUDED.modelo_id", ev_rows)
+    conn.commit()
+
+
+def modelar(conn, usina: UsinaRef, ini: dt.datetime, fim: dt.datetime, mod: Modelo | None = None) -> dict:
+    t0 = time.time()
+    mod = mod or modelo_ativo(conn, usina.id)
+    grade = carregar_grade(conn, usina, ini, fim)
+    pg = gate_mod.ParamsGate(**(mod.parametros.get("gate") or {}))
+    r = gate_mod.avaliar(grade.estacao, referencia_razao(conn, usina.id, fim, usina.tz), pg, usina.tz)
+    params = params_por_inversor(grade, mod, p_ac_30d(conn, usina.id, fim))
+    esp = esp_mod.esperado_por_inversor(grade, r, params)
+    d = dc.decompor(grade, esp, dc.trk_inv_da_grade(grade), dc.ParamsDecomp(), instaladas=instaladas_30d(conn, usina.id, fim))
+    evs = ev_mod.detectar(grade, r, esp, d)
+    casc = rollup.cascata(grade, r, esp, d)
+    persistir(conn, usina, mod, grade, r, esp, evs, casc)
+    return {"usina": usina.codigo, "modelo": mod.versao, "dias": int(len(casc.por_dia)), "eventos": len(evs),
+            "e_esperado": round(float(casc.por_dia.e_esperado.sum()), 1), "e_medido": round(float(casc.por_dia.e_medido.sum()), 1),
+            "inferidos": sum(1 for p in params.values() if p.pac0_inferido), "duracao_s": round(time.time() - t0, 1)}
+
+
+def rodar_cli(ini: str | None, fim: str | None, usina: str | None) -> int:
+    """`gemeo modelar [--ini AAAA-MM-DD] [--fim AAAA-MM-DD] [--usina CODIGO]` — datas em dia LOCAL da usina;
+    sem datas, os ultimos 3 dias ate agora. Grava `estado.modelar.ultimo` para o /healthz."""
+    from gemeo.core import db
+    from gemeo.core.config import carregar
+    from gemeo.ingest.runner import usinas_do_piloto
+    cfg = carregar(); conn = db.conectar(cfg.db_dsn)
+    usinas = usinas_do_piloto(conn, (usina,) if usina else cfg.usinas_piloto)
+    if not usinas:
+        print("nenhuma usina do piloto no banco — rode `gemeo ingest` (cadastro) primeiro", flush=True)
+        return 1
+    agora = dt.datetime.now(dt.timezone.utc); t0 = time.time(); resumos = []
+    for u in usinas:
+        if ini:
+            i0 = pd.Timestamp(ini).tz_localize(u.tz).tz_convert("UTC").to_pydatetime()
+            f0 = (pd.Timestamp(fim or ini) + pd.Timedelta(days=1)).tz_localize(u.tz).tz_convert("UTC").to_pydatetime()
+        else:
+            i0, f0 = janela_padrao(agora, u.tz)
+        try:
+            res = modelar(conn, u, i0, f0)
+        except Exception as e:                                   # noqa: BLE001 — uma usina nao derruba as outras
+            conn.rollback()
+            res = {"usina": u.codigo, "erro": f"{type(e).__name__}: {e}"[:300]}
+        resumos.append(res); print(json.dumps(res, ensure_ascii=False), flush=True)
+    db.gravar_estado(conn, "modelar.ultimo", json.dumps({"em": agora.isoformat(), "duracao_s": round(time.time() - t0, 1), "usinas": resumos},
+                                                         ensure_ascii=False, default=str))
+    return 0 if all("erro" not in r for r in resumos) else 1
+```
+
+- [ ] **Step 4: Rodar e ver passar**
+
+Run: `cd gemeo && python -m pytest -q`
+Expected: os de rollup passam; `test_modelar_job` passa com `GEMEO_TEST_DSN` (na CI da Tarefa 21) e pula sem.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add gemeo/gemeo/modelar/rollup.py gemeo/gemeo/modelar/job.py gemeo/tests/semear.py gemeo/tests/test_modelar_rollup.py gemeo/tests/test_modelar_job.py
+git commit -m "feat(gemeo): cascata diaria, perda_dia e o job idempotente gemeo modelar (Tarefa 16)"
+```
+
+---
+
+<!-- CONTINUA: Tarefa 17 -->
