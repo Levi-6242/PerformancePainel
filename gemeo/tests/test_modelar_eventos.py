@@ -94,7 +94,7 @@ def test_string_sem_corrente_o_dia_inteiro():
     assert not _do_tipo(eventos.detectar(g, r, esp, d), "string_sem_corrente")
 
 
-@pytest.mark.parametrize("arq", ["mro100_2026-08-26.json", "mro100_2026-08-31.json"])
+@pytest.mark.parametrize("arq", ["mro100_2026-08-26.json", "mro100_2026-08-31.json", "mro100_2026-09-01.json"])
 def test_golden_mro100_eventos(arq):
     g, r, esp = esperado_de_placa(G / arq)
     v = veredito(G / arq)

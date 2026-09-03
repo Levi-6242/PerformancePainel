@@ -105,7 +105,7 @@ def test_universo_instalado_vem_do_historico_ou_da_propria_janela():
     assert dc.decompor(g, _esp(g), MAPA, P, instaladas=UNIVERSO).instaladas[1001] == [3101, 3102, 3103, 3104]
 
 
-@pytest.mark.parametrize("arq", ["mro100_2026-08-26.json", "mro100_2026-08-31.json"])
+@pytest.mark.parametrize("arq", ["mro100_2026-08-26.json", "mro100_2026-08-31.json", "mro100_2026-09-01.json"])
 def test_golden_mro100_reproduz_o_veredito_do_spike(arq):
     g, r, esp = esperado_de_placa(G / arq)
     v = veredito(G / arq)
