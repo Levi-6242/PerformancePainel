@@ -4,6 +4,8 @@
 {% block direita %}{% set r = d.regua %}
   {% if r.barras and r.calibradas == r.barras|length %}<span class="pill ativo"><span class="dot"></span>Modelo calibrado</span>{% else %}<span class="pill placa"><span class="dot"></span>Modelo de placa — não calibrado</span>{% endif %}
   <span>Ciclo do gêmeo às <b>{{ d.ciclo.em[11:19] if d.ciclo.em else '—' }}</b> UTC</span>
+  <form method="get" class="dia" action="{{ PREFIXO }}/"><input type="date" name="dia" value="{{ dia_sel }}" aria-label="dia"><button class="btn sec" type="submit">Ver dia</button></form>
+  <a class="btn" href="{{ PREFIXO }}/">Atualizar</a>
 {% endblock %}
 {% block corpo %}{% set t = d.totais %}{% set r = d.regua %}
 <div class="heroi">
@@ -26,14 +28,15 @@
     <div class="card kpi"><div class="rot">Confiança do ciclo</div><div class="val num {{ cc }}">{{ (t.confianca*100)|round(0)|int }}<small>%</small></div><div class="leg {{ cc }}">usinas com sensor ok e dado fresco</div></div>
   </div>
   <div class="card" style="overflow:hidden;margin-bottom:18px">
-    <div class="tit">Maiores déficits agora <small>ordenado por perda · clique abre o diagnóstico</small></div>
-    <table class="tab"><thead><tr><th>Usina</th><th class="r">Esperado</th><th class="r">Medido</th><th class="r">Δ</th><th>Causa dominante</th><th class="r">Perda hoje</th><th>Status</th></tr></thead><tbody>
+    <div class="tit">Maiores déficits {{ "em " ~ dia_sel if dia_sel else "agora" }} <small>ordenado por perda · clique na linha abre o diagnóstico</small></div>
+    <table class="tab"><thead><tr><th>Usina</th><th class="r">Esperado</th><th class="r">Medido</th><th class="r">Δ</th><th>Causa dominante</th><th class="r">Perda hoje</th><th>Status</th><th></th></tr></thead><tbody>
     {% for u in d.usinas %}{% set k = 'off' if u.frio else {'dentro':'ok','moderado':'warn','grave':'risk','sem_dado':'off'}[u.faixa] %}
-      <tr><td><a class="nome" href="{{ PREFIXO }}/usina/{{ u.id }}" style="color:inherit;text-decoration:none">{{ u.codigo }}</a><span class="fonte">{{ (u.cliente ~ ' · ') if u.cliente else '' }}{{ u.fonte }} · {{ u.modelo_versao or 'placa' }}</span></td>
+      <tr class="lk" onclick="location.href='{{ PREFIXO }}/usina/{{ u.id }}'"><td><a class="nome" href="{{ PREFIXO }}/usina/{{ u.id }}">{{ u.codigo }}</a><span class="fonte">{{ (u.cliente ~ ' · ') if u.cliente else '' }}{{ u.fonte }} · {{ u.modelo_versao or 'placa' }}</span></td>
       <td class="num r">{{ u.esperado_kw|mw }} MW</td><td class="num r">{{ u.medido_kw|mw }} MW</td><td class="num r c-{{ k }}" style="font-weight:600">{{ u.delta|pct }}</td>
       <td>{{ u.causa }}</td><td class="num r">{% if u.perda_brl is not none %}{{ u.perda_brl|brl }}{% else %}{{ (u.perda_kwh/1000)|num(2) }} MWh{% endif %}</td>
-      <td><span class="tag {{ k }}"><span class="gl">{{ {'ok':'●','warn':'▲','risk':'✕','off':'○'}[k] }}</span> {{ 'sem dado fresco' if u.frio else {'ok':'Normal','warn':'Atenção','risk':'Déficit','off':'Sem dado'}[k] }}</span></td></tr>
-    {% else %}<tr><td colspan="7" style="color:var(--gc-mut)">Nenhuma usina modelada agora.</td></tr>{% endfor %}
+      <td><span class="tag {{ k }}"><span class="gl">{{ {'ok':'●','warn':'▲','risk':'✕','off':'○'}[k] }}</span> {{ 'sem dado fresco' if u.frio else {'ok':'Normal','warn':'Atenção','risk':'Déficit','off':'Sem dado'}[k] }}</span></td>
+      <td class="r"><a class="btn mini" href="{{ PREFIXO }}/usina/{{ u.id }}">Diagnóstico ›</a></td></tr>
+    {% else %}<tr><td colspan="8" style="color:var(--gc-mut)">Nenhuma usina modelada agora.</td></tr>{% endfor %}
     </tbody></table>
     {% if d.nao_modeladas %}<div class="faixa-nao"><b>Não modeladas:</b>{% for n in d.nao_modeladas %}<span>{{ n.codigo }} — {{ n.motivo }}</span>{% endfor %}</div>{% endif %}
   </div>

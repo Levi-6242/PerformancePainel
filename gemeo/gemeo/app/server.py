@@ -17,7 +17,14 @@ AQUI = Path(__file__).resolve().parent
 
 
 def _agora() -> dt.datetime:
-    """'agora' vem da query string quando pedido (viagem no tempo para testar e depurar); senao, UTC real."""
+    """'agora' vem da query string quando pedido (viagem no tempo para testar e depurar); `dia=AAAA-MM-DD` congela no fim
+    daquele dia (usinas do piloto: UTC-3, sem horario de verao); senao, UTC real."""
+    d = request.args.get("dia")
+    if d:
+        try:
+            return dt.datetime.combine(dt.date.fromisoformat(d), dt.time(23, 59, 59), tzinfo=dt.timezone(dt.timedelta(hours=-3)))
+        except ValueError:
+            pass
     q = request.args.get("agora")
     if q:
         try:
@@ -94,10 +101,14 @@ def criar_app(cfg, conectar=None) -> Flask:
         session.clear()
         return redirect(f"{PREFIXO}/login")
 
+    def _vivo() -> dict:
+        """Sem dia/agora na URL a tela e ao vivo: auto-refresh de 5 min; com dia escolhido, fica parada nele."""
+        return {"auto": "agora" not in request.args and "dia" not in request.args, "dia_sel": request.args.get("dia", "")}
+
     @app.route(f"{PREFIXO}/")
     def frota():
         agora = _agora()
-        return render_template("frota.html", d=consultas.frota(conn(), agora), agora=agora)
+        return render_template("frota.html", d=consultas.frota(conn(), agora), agora=agora, **_vivo())
 
     @app.route(f"{PREFIXO}/usina/<int:usina_id>")
     def usina(usina_id: int):
@@ -105,7 +116,7 @@ def criar_app(cfg, conectar=None) -> Flask:
         d = consultas.usina(conn(), usina_id, agora)
         if d is None:
             return "usina não encontrada", 404
-        return render_template("usina.html", d=d, agora=agora)
+        return render_template("usina.html", d=d, agora=agora, **_vivo())
 
     @app.route(f"{PREFIXO}/api/frota")
     def api_frota():

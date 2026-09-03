@@ -2,7 +2,11 @@
 {% extends "base.html" %}
 {% block titulo %}{{ d.cabecalho.codigo }}{% endblock %}
 {% block secao %}GÊMEO DIGITAL · DIAGNÓSTICO{% endblock %}
-{% block direita %}{% set c = d.cabecalho %}<span><a href="{{ PREFIXO }}/" style="color:inherit">Frota</a> › {{ c.cliente or c.fonte }} › <b>{{ c.codigo }}</b></span>{% endblock %}
+{% block direita %}{% set c = d.cabecalho %}<span><a href="{{ PREFIXO }}/" style="color:inherit">Frota</a> › {{ c.cliente or c.fonte }} › <b>{{ c.codigo }}</b></span>
+  <a class="btn sec" href="{{ PREFIXO }}/{{ '?dia=' ~ dia_sel if dia_sel else '' }}">‹ Frota</a>
+  <form method="get" class="dia" action="{{ PREFIXO }}/usina/{{ c.id }}"><input type="date" name="dia" value="{{ dia_sel or c.hoje }}" aria-label="dia"><button class="btn sec" type="submit">Ver dia</button></form>
+  <a class="btn" href="{{ PREFIXO }}/usina/{{ c.id }}">Atualizar</a>
+  <a class="btn sec" href="{{ PREFIXO }}/api/usina/{{ c.id }}{{ '?dia=' ~ dia_sel if dia_sel else '' }}" target="_blank" rel="noopener">JSON</a>{% endblock %}
 {% block corpo %}{% set c = d.cabecalho %}{% set k = 'off' if c.frio else {'dentro':'ok','moderado':'warn','grave':'risk','sem_dado':'off'}[c.faixa] %}
 <div class="heroi"><div class="linha"><div><div class="kicker">Diagnóstico do gêmeo · {{ c.hoje }}</div>
   <h1>{{ c.codigo }} <span class="sub num">· {{ c.fonte }} · {{ (c.kwp/1000)|num(1) }} MWp · {{ c.n_inversores }} inversores · {{ c.n_trackers }} trackers · {{ c.n_strings }} strings</span></h1></div>

@@ -2,7 +2,8 @@
 <!doctype html>
 <html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{% block titulo %}Gêmeo Digital{% endblock %} · Grid Co.</title>
-<link rel="stylesheet" href="{{ PREFIXO }}/static/gemeo.css"></head>
+<link rel="stylesheet" href="{{ PREFIXO }}/static/gemeo.css">
+{% if auto %}<meta http-equiv="refresh" content="300">{% endif %}</head>
 <body>
 <div class="topo">
   <div class="marca"><span class="g">G</span><span>Grid <em>Co.</em></span><span class="sec">{% block secao %}PLATAFORMA PERFORMANCE · GÊMEO DIGITAL{% endblock %}</span></div>

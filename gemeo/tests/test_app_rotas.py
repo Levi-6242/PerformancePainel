@@ -102,3 +102,14 @@ def test_healthz_503_quando_ha_problema(cli, monkeypatch):
 
 def test_fora_do_prefixo_vai_para_a_frota(cli):
     assert _entra(cli).get("/").status_code == 302
+
+
+def test_dia_escolhido_congela_o_agora_e_desliga_o_auto_refresh(cli):
+    r = _entra(cli).get("/gemeo/?dia=2026-09-01")
+    html = r.get_data(as_text=True)
+    assert cli.chamadas["agora"] == dt.datetime(2026, 9, 2, 2, 59, 59, tzinfo=UTC)          # fim do dia em UTC-3
+    assert 'http-equiv="refresh"' not in html and "Diagnóstico ›" in html and 'value="2026-09-01"' in html
+    html_vivo = cli.get("/gemeo/").get_data(as_text=True)
+    assert 'http-equiv="refresh" content="300"' in html_vivo and 'class="lk"' in html_vivo
+    html_usina = cli.get("/gemeo/usina/1?dia=2026-09-01").get_data(as_text=True)
+    assert "‹ Frota" in html_usina and "/gemeo/api/usina/1?dia=2026-09-01" in html_usina
