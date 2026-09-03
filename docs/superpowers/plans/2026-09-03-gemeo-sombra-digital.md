@@ -3805,4 +3805,483 @@ git commit -m "feat(gemeo): calibracao por dias limpos com versao nova de modelo
 
 ---
 
-<!-- CONTINUA: Tarefa 18 -->
+## Fase D — Telas
+
+### Tarefa 18: Consultas das telas — Frota, Usina e saúde, em dicts testáveis
+
+**Files:**
+- Create: `gemeo/gemeo/app/__init__.py` (vazio)
+- Create: `gemeo/gemeo/app/formato.py`
+- Create: `gemeo/gemeo/app/consultas.py`
+- Test: `gemeo/tests/test_app_formato.py`, `gemeo/tests/test_app_consultas.py`
+
+**Interfaces:**
+- Consumes: tabelas do schema (T2), `estado.modelar.ultimo` (T16), `Config` (T1).
+- Produces: `formato.num/mw/pct/brl/idade`; `consultas.faixa(delta, tolerancia)`, `causa_dominante(cascata)`, `motivo_nao_modelada(u, agora)`, `frota(conn, agora) -> dict`, `usina(conn, usina_id, agora) -> dict`, `saude(conn, cfg, agora) -> dict`, `exp_do_jwt(token) -> datetime | None`. Tudo JSON-serializável; `agora` é parâmetro (nunca `now()`) para as telas serem testáveis sobre um dia congelado.
+- Régua (spec §9): `delta = (medido − esperado) / esperado`; **dentro** se `delta ≥ −tolerancia`; **moderado** se `−0,08 ≤ delta < −tolerancia`; **grave** se `delta < −0,08`. Com a placa (`tolerancia` 0,08) a faixa moderada fica vazia de propósito. "Aparece na régua" = usina ativa com equipamento, `ingest_run` ok nas últimas 24 h, gate de hoje não reprovado e esperado calculado. Frescor > 30 min → `frio`.
+
+- [ ] **Step 1: Escrever os testes (falham: módulos não existem)**
+
+```python
+# gemeo/tests/test_app_formato.py
+import datetime as dt
+from gemeo.app import formato as f
+
+
+def test_numeros_em_pt_br():
+    assert f.num(1234.5, 1) == "1.234,5" and f.num(0.0, 0) == "0" and f.num(None) == "—"
+    assert f.mw(148200.0) == "148,2" and f.mw(950.0) == "0,95" and f.pct(-0.044) == "−4,4%" and f.pct(None) == "—"
+    assert f.brl(1400.0) == "R$ 1,4 mil" and f.brl(390.0) == "R$ 390" and f.brl(None) == "—"
+
+
+def test_idade_em_minutos_e_horas():
+    ref = dt.datetime(2026, 9, 3, 15, 0, tzinfo=dt.timezone.utc)
+    assert f.idade(ref - dt.timedelta(minutes=7), ref) == "7 min" and f.idade(ref - dt.timedelta(hours=26), ref) == "26 h"
+    assert f.idade(None, ref) == "nunca"
+```
+
+```python
+# gemeo/tests/test_app_consultas.py
+"""As regras puras da tela (faixa, causa, motivo) sem banco; e a Frota e a Usina de ponta a ponta sobre o
+banco semeado com a MRO100 de 31/08 (pula sem GEMEO_TEST_DSN)."""
+import datetime as dt
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+sys.path.insert(0, str(Path(__file__).parent))
+from gemeo.app import consultas as c  # noqa: E402
+
+G = Path(__file__).parent / "fixtures" / "golden"
+UTC = dt.timezone.utc
+
+
+def test_faixa_da_regua_com_placa_e_com_modelo_calibrado():
+    assert c.faixa(-0.02, 0.08) == "dentro" and c.faixa(-0.05, 0.08) == "dentro" and c.faixa(-0.09, 0.08) == "grave"
+    assert c.faixa(-0.05, 0.03) == "moderado" and c.faixa(-0.081, 0.03) == "grave" and c.faixa(0.01, 0.03) == "dentro"
+    assert c.faixa(None, 0.03) == "sem_dado"
+
+
+def test_causa_dominante_e_a_maior_parcela():
+    assert c.causa_dominante({"inv_parado": 1600.0, "tracker": 100.0, "string": 0.0, "residuo": 300.0}) == "inversor parado"
+    assert c.causa_dominante({"inv_parado": 0.0, "tracker": 0.0, "string": 0.0, "residuo": 0.0}) == "dentro da tolerância do modelo"
+    assert c.causa_dominante(None) == "sem cascata hoje"
+
+
+def test_motivo_nao_modelada():
+    agora = dt.datetime(2026, 8, 31, 20, 0, tzinfo=UTC)
+    base = {"n_equip": 5, "ultimo_ingest_ok": agora - dt.timedelta(hours=1), "gate_hoje": "ok", "esperado_kw": 100.0}
+    assert c.motivo_nao_modelada(base, agora) is None
+    assert c.motivo_nao_modelada({**base, "n_equip": 0}, agora) == "sem equipamentos no cadastro"
+    assert c.motivo_nao_modelada({**base, "ultimo_ingest_ok": agora - dt.timedelta(hours=30)}, agora) == "sem ingestão ok nas últimas 24 h"
+    assert c.motivo_nao_modelada({**base, "gate_hoje": "poa_ghi"}, agora) == "sensor em falha hoje (POA × GHI)"
+    assert c.motivo_nao_modelada({**base, "gate_hoje": "cobertura"}, agora) == "sem cobertura de sensor hoje"
+    assert c.motivo_nao_modelada({**base, "esperado_kw": None}, agora) == "sem esperado calculado hoje"
+
+
+def test_exp_do_jwt():
+    import base64
+    payload = base64.urlsafe_b64encode(json.dumps({"exp": 1790000000}).encode()).decode().rstrip("=")
+    assert c.exp_do_jwt(f"x.{payload}.y") == dt.datetime.fromtimestamp(1790000000, UTC)
+    assert c.exp_do_jwt("nao-e-jwt") is None and c.exp_do_jwt("") is None
+
+
+@pytest.fixture
+def mro100_modelada(conn):
+    from semear import semear_fixture
+    from gemeo.core import db
+    from gemeo.modelar import job
+    trk_inv = json.load(open(G / "mro100_trk_inv.json", encoding="utf-8"))
+    usina, ids = semear_fixture(conn, G / "mro100_2026-08-31.json", trk_inv)
+    ini, fim = dt.datetime(2026, 8, 31, 3, tzinfo=UTC), dt.datetime(2026, 9, 1, 3, tzinfo=UTC)
+    job.modelar(conn, usina, ini, fim)
+    db.registrar_ingest_run(conn, "sunop", usina.id, ini, fim, "ok", n_linhas=100, cobertura=1.0)
+    with conn.cursor() as cur:   # o ingest_run 'ok' precisa parecer recente para o 'agora' congelado da tela
+        cur.execute("UPDATE ingest_run SET criado_em=%s", (dt.datetime(2026, 8, 31, 19, 50, tzinfo=UTC),))
+    conn.commit()
+    yield usina, ids
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM evento; DELETE FROM perda_dia; DELETE FROM cascata_dia; DELETE FROM esperado; DELETE FROM modelo; "
+                    "DELETE FROM ingest_run; DELETE FROM leitura; DELETE FROM equipamento; DELETE FROM usina; DELETE FROM estado")
+    conn.commit()
+
+
+def test_frota_e_usina_sobre_o_banco_semeado(conn, mro100_modelada):
+    usina, ids = mro100_modelada
+    agora = dt.datetime(2026, 8, 31, 20, 0, tzinfo=UTC)        # 17:00 em Belem, com sol
+    fr = c.frota(conn, agora)
+    assert [u["codigo"] for u in fr["usinas"]] == ["MRO100"] and fr["nao_modeladas"] == []
+    u = fr["usinas"][0]
+    assert u["esperado_kw"] > 0 and u["medido_kw"] > 0 and u["faixa"] in ("dentro", "moderado", "grave")
+    assert u["cascata"]["inv_parado"] > 1000 and u["causa"] == "inversor parado" and u["perda_kwh"] > 1000
+    assert fr["totais"]["confianca"] == 1.0 and fr["regua"]["tolerancia"] == 0.08 and fr["regua"]["calibradas"] == 0
+    us = c.usina(conn, usina.id, agora)
+    assert us["cabecalho"]["codigo"] == "MRO100" and us["cabecalho"]["n_inversores"] == 25 and us["cabecalho"]["n_trackers"] == 120
+    assert len(us["curva"]) > 40 and all(p["esperado_kw"] is None or p["esperado_kw"] >= 0 for p in us["curva"])
+    assert us["cascata"]["inv_parado"] > 1000 and any(e["tipo"] == "inversor_parado" for e in us["eventos"])
+    inv22 = next(i for i in us["inversores"] if i["id"] == ids["inv:22"])
+    assert inv22["status"] == "parado" and inv22["inv_parado"] > 1000
+    assert us["trackers"][0]["id"] in (ids["trk:4"], ids["trk:17"]) and us["sensor"]["cobertura_gate"] > 0.9
+    # sem ingestao recente a usina sai da regua com motivo, nao some
+    fr2 = c.frota(conn, agora + dt.timedelta(hours=30))
+    assert fr2["usinas"] == [] and fr2["nao_modeladas"][0]["motivo"] == "sem ingestão ok nas últimas 24 h"
+```
+
+- [ ] **Step 2: Rodar e ver falhar**
+
+Run: `cd gemeo && python -m pytest tests/test_app_formato.py tests/test_app_consultas.py -q`
+Expected: FAIL — `ModuleNotFoundError: gemeo.app`.
+
+- [ ] **Step 3: Implementar formato e consultas**
+
+```python
+# gemeo/gemeo/app/__init__.py
+```
+
+```python
+# gemeo/gemeo/app/formato.py
+"""Numeros em pt-BR para as telas: virgula decimal, ponto de milhar, travessao para o que nao existe.
+O sinal de menos e o tipografico (U+2212), como nos mockups."""
+from __future__ import annotations
+import datetime as dt
+
+
+def num(v: float | None, casas: int = 1) -> str:
+    if v is None:
+        return "—"
+    s = f"{abs(v):,.{casas}f}".replace(",", "\x00").replace(".", ",").replace("\x00", ".")
+    return ("−" if v < 0 else "") + s
+
+
+def mw(kw: float | None) -> str:
+    if kw is None:
+        return "—"
+    v = kw / 1000.0
+    return num(v, 2) if abs(v) < 1 else num(v, 1)
+
+
+def pct(frac: float | None, casas: int = 1) -> str:
+    return "—" if frac is None else num(frac * 100.0, casas) + "%"
+
+
+def brl(v: float | None) -> str:
+    if v is None:
+        return "—"
+    return f"R$ {num(v / 1000.0, 1)} mil" if abs(v) >= 1000 else f"R$ {num(v, 0)}"
+
+
+def idade(ts: dt.datetime | None, agora: dt.datetime) -> str:
+    if ts is None:
+        return "nunca"
+    m = int((agora - ts).total_seconds() // 60)
+    return f"{m} min" if m < 120 else f"{m // 60} h"
+```
+
+```python
+# gemeo/gemeo/app/consultas.py
+"""Todo o SQL das telas, em funcoes banco -> dict (JSON-serializavel). O app so renderiza. 'Agora' e
+parametro (nunca now()) para as telas serem testaveis sobre um dia congelado — e para 'viajar no tempo'
+ao depurar: `/gemeo/?agora=2026-08-31T20:00:00Z`."""
+from __future__ import annotations
+import base64
+import datetime as dt
+import json
+from zoneinfo import ZoneInfo
+
+FRIO_MIN = 30          # frescor: acima disto a usina fica cinza antes de qualquer outra cor (spec §9)
+DEFICIT_GRAVE = 0.08   # faixa 'deficit grave' da regua
+H = 0.25
+NOMES_PARCELA = {"inv_parado": "inversor parado", "tracker": "trackers fora do alvo",
+                 "string": "strings sem corrente", "residuo": "resíduo (não explicado)"}
+
+
+def faixa(delta: float | None, tolerancia: float) -> str:
+    """dentro | moderado | grave | sem_dado. delta = (medido - esperado)/esperado; negativo = deficit."""
+    if delta is None:
+        return "sem_dado"
+    if delta >= -tolerancia:
+        return "dentro"
+    return "moderado" if delta >= -DEFICIT_GRAVE else "grave"
+
+
+def causa_dominante(c: dict | None) -> str:
+    if not c:
+        return "sem cascata hoje"
+    k = max(NOMES_PARCELA, key=lambda n: c.get(n) or 0.0)
+    return NOMES_PARCELA[k] if (c.get(k) or 0.0) > 0 else "dentro da tolerância do modelo"
+
+
+def motivo_nao_modelada(u: dict, agora: dt.datetime) -> str | None:
+    """Por que a usina do cadastro nao esta na regua — None quando esta. E a definicao de 'aparece na
+    tela' da spec §6: ativa, com equipamento, ingest ok em 24 h, gate de hoje nao reprovado, esperado."""
+    if not u.get("n_equip"):
+        return "sem equipamentos no cadastro"
+    if u.get("ultimo_ingest_ok") is None or agora - u["ultimo_ingest_ok"] > dt.timedelta(hours=24):
+        return "sem ingestão ok nas últimas 24 h"
+    if u.get("gate_hoje") in ("poa_ghi", "plausibilidade"):
+        return "sensor em falha hoje (POA × GHI)"
+    if u.get("gate_hoje") == "cobertura":
+        return "sem cobertura de sensor hoje"
+    if u.get("esperado_kw") is None:
+        return "sem esperado calculado hoje"
+    return None
+
+
+def exp_do_jwt(token: str) -> dt.datetime | None:
+    """`exp` do token de API da SunOp (validade ~1 ano): o /healthz alarma 30 dias antes."""
+    try:
+        payload = token.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        exp = json.loads(base64.urlsafe_b64decode(payload))["exp"]
+        return dt.datetime.fromtimestamp(int(exp), dt.timezone.utc)
+    except Exception:                       # noqa: BLE001 — token que nao e JWT nao tem validade legivel
+        return None
+
+
+def _dia_utc(dia: dt.date, tz: ZoneInfo) -> tuple[dt.datetime, dt.datetime]:
+    ini = dt.datetime.combine(dia, dt.time.min, tzinfo=tz)
+    return ini.astimezone(dt.timezone.utc), (ini + dt.timedelta(days=1)).astimezone(dt.timezone.utc)
+
+
+def _q(conn, sql: str, params: tuple = ()) -> list[tuple]:
+    with conn.cursor() as cur:
+        cur.execute(sql, params)
+        return cur.fetchall()
+
+
+def _usinas(conn, usina_id: int | None = None) -> list[dict]:
+    filtro = "AND u.id=%s" if usina_id else ""
+    rows = _q(conn, f"""
+        SELECT u.id, u.codigo, u.nome, u.fonte, u.tz, coalesce(u.kwp_dc,0), coalesce(u.kw_ac,0), u.cliente,
+               (SELECT count(*) FROM equipamento e WHERE e.usina_id=u.id AND e.ativo),
+               (SELECT max(r.criado_em) FROM ingest_run r WHERE r.usina_id=u.id AND r.status='ok'),
+               (SELECT max(l.ts) FROM leitura l JOIN equipamento e ON e.id=l.equipamento_id WHERE e.usina_id=u.id),
+               m.id, m.versao, coalesce(m.tolerancia, 0.08), coalesce(m.calibrado, false)
+        FROM usina u LEFT JOIN modelo m ON m.usina_id=u.id AND m.ativo
+        WHERE u.ativo {filtro} ORDER BY u.codigo""", (usina_id,) if usina_id else ())
+    chaves = ("id", "codigo", "nome", "fonte", "tz", "kwp", "kw_ac", "cliente", "n_equip", "ultimo_ingest_ok", "ultima_leitura",
+              "modelo_id", "modelo_versao", "tolerancia", "calibrado")
+    return [dict(zip(chaves, r)) for r in rows]
+
+
+def _ultimo_slot(conn, usina_id: int, modelo_id: int | None, agora: dt.datetime) -> dt.datetime | None:
+    if modelo_id is None:
+        return None
+    r = _q(conn, "SELECT max(x.ts) FROM esperado x JOIN equipamento e ON e.id=x.equipamento_id "
+                 "WHERE e.usina_id=%s AND x.modelo_id=%s AND x.p_esperado_kw IS NOT NULL AND x.ts <= %s", (usina_id, modelo_id, agora))
+    return r[0][0] if r and r[0][0] else None
+
+
+def _agora_da_usina(conn, usina_id: int, modelo_id: int, slot: dt.datetime) -> tuple[float | None, float | None, str | None]:
+    esp = _q(conn, "SELECT sum(x.p_esperado_kw), min(x.gate) FROM esperado x JOIN equipamento e ON e.id=x.equipamento_id "
+                   "WHERE e.usina_id=%s AND x.modelo_id=%s AND x.ts=%s", (usina_id, modelo_id, slot))
+    med = _q(conn, "SELECT sum(v) FROM (SELECT avg(l.valor) v FROM leitura l JOIN equipamento e ON e.id=l.equipamento_id "
+                   "WHERE e.usina_id=%s AND e.tipo='inversor' AND l.medida='p_ac' AND l.ts >= %s AND l.ts < %s GROUP BY l.equipamento_id) s",
+             (usina_id, slot, slot + dt.timedelta(minutes=15)))
+    e = float(esp[0][0]) if esp and esp[0][0] is not None else None
+    m = float(med[0][0]) if med and med[0][0] is not None else None
+    return e, m, (esp[0][1] if esp else None)
+
+
+def _cascata(conn, usina_id: int, modelo_id: int | None, dia: dt.date) -> dict | None:
+    if modelo_id is None:
+        return None
+    r = _q(conn, "SELECT e_esperado, e_medido, delta, inv_parado, tracker, string, residuo, cobertura_gate, trackers_sem_inversor "
+                 "FROM cascata_dia WHERE usina_id=%s AND modelo_id=%s AND dia=%s", (usina_id, modelo_id, dia))
+    if not r:
+        return None
+    ch = ("e_esperado", "e_medido", "delta", "inv_parado", "tracker", "string", "residuo", "cobertura_gate", "trackers_sem_inversor")
+    return {k: (float(v) if k != "trackers_sem_inversor" else int(v)) for k, v in zip(ch, r[0])}
+
+
+def _gate_hoje(conn, usina_id: int, ini: dt.datetime, fim: dt.datetime) -> str:
+    r = _q(conn, "SELECT tipo FROM evento WHERE usina_id=%s AND tipo IN ('sensor_em_falha','sem_cobertura') AND ini >= %s AND ini < %s LIMIT 1",
+           (usina_id, ini, fim))
+    return {"sensor_em_falha": "poa_ghi", "sem_cobertura": "cobertura"}.get(r[0][0], "ok") if r else "ok"
+
+
+def _preco(conn, usina_id: int, dia: dt.date) -> float | None:
+    r = _q(conn, "SELECT preco_mwh FROM meta_mes WHERE usina_id=%s AND ano=%s AND mes=%s", (usina_id, dia.year, dia.month))
+    return float(r[0][0]) if r and r[0][0] is not None else None
+
+
+def _min(agora: dt.datetime, ts: dt.datetime | None) -> int | None:
+    return None if ts is None else int((agora - ts).total_seconds() // 60)
+
+
+def _ciclo(conn) -> dict:
+    r = _q(conn, "SELECT valor FROM estado WHERE chave='modelar.ultimo'")
+    try:
+        return json.loads(r[0][0]) if r else {}
+    except Exception:                       # noqa: BLE001
+        return {}
+
+
+def frota(conn, agora: dt.datetime) -> dict:
+    usinas = []
+    for u in _usinas(conn):
+        tz = ZoneInfo(u["tz"]); hoje = agora.astimezone(tz).date(); ini, fim = _dia_utc(hoje, tz)
+        slot = _ultimo_slot(conn, u["id"], u["modelo_id"], agora)
+        esp_kw = med_kw = gate_agora = None
+        if slot:
+            esp_kw, med_kw, gate_agora = _agora_da_usina(conn, u["id"], u["modelo_id"], slot)
+        casc = _cascata(conn, u["id"], u["modelo_id"], hoje)
+        preco = _preco(conn, u["id"], hoje)
+        delta = (med_kw - esp_kw) / esp_kw if esp_kw and med_kw is not None else None
+        perda_kwh = max(0.0, casc["delta"]) if casc else 0.0
+        u.update({
+            "hoje": str(hoje), "slot": slot, "esperado_kw": esp_kw, "medido_kw": med_kw, "delta": delta, "gate_agora": gate_agora,
+            "gate_hoje": _gate_hoje(conn, u["id"], ini, fim), "cascata": casc, "preco_mwh": preco, "perda_kwh": perda_kwh,
+            "perda_brl": (perda_kwh / 1000.0 * preco) if preco else None, "causa": causa_dominante(casc),
+            "faixa": faixa(delta, float(u["tolerancia"])), "idade_leitura_min": _min(agora, u["ultima_leitura"]),
+            "idade_esperado_min": _min(agora, slot)})
+        u["frio"] = u["idade_leitura_min"] is None or u["idade_leitura_min"] > FRIO_MIN
+        u["motivo"] = motivo_nao_modelada(u, agora)
+        usinas.append(u)
+    modeladas = sorted([u for u in usinas if u["motivo"] is None], key=lambda u: -(u["perda_brl"] or u["perda_kwh"]))
+    nao = [{"id": u["id"], "codigo": u["codigo"], "fonte": u["fonte"], "motivo": u["motivo"]} for u in usinas if u["motivo"]]
+    tot_esp = sum(u["esperado_kw"] for u in modeladas if u["esperado_kw"] is not None)
+    tot_med = sum(u["medido_kw"] for u in modeladas if u["medido_kw"] is not None)
+    com_preco = [u["perda_brl"] for u in modeladas if u["perda_brl"] is not None]
+    confianca = (sum(1 for u in usinas if u["gate_agora"] == "ok" and not u["frio"]) / len(usinas)) if usinas else 0.0
+    faixas = {k: sum(1 for u in modeladas if u["faixa"] == k) for k in ("dentro", "moderado", "grave", "sem_dado")}
+    tol = min([float(u["tolerancia"]) for u in modeladas], default=0.08)
+    return {
+        "agora": agora.isoformat(), "ciclo": _ciclo(conn), "usinas": modeladas, "nao_modeladas": nao,
+        "totais": {"esperado_kw": tot_esp, "medido_kw": tot_med, "delta": ((tot_med - tot_esp) / tot_esp) if tot_esp else None,
+                   "perda_kwh": sum(u["perda_kwh"] for u in modeladas), "perda_brl": sum(com_preco) if com_preco else None,
+                   "confianca": confianca, "n_modeladas": len(modeladas), "n_usinas": len(usinas)},
+        "regua": {"tolerancia": tol, "faixas": faixas, "calibradas": sum(1 for u in modeladas if u["calibrado"]),
+                  "barras": [{"id": u["id"], "codigo": u["codigo"], "faixa": u["faixa"], "frio": u["frio"]} for u in modeladas]},
+    }
+
+
+def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
+    us = _usinas(conn, usina_id)
+    if not us:
+        return None
+    u = us[0]; tz = ZoneInfo(u["tz"]); hoje = agora.astimezone(tz).date(); ini, fim = _dia_utc(hoje, tz)
+    mid = u["modelo_id"]
+    n_tipo = dict(_q(conn, "SELECT tipo, count(*) FROM equipamento WHERE usina_id=%s AND ativo GROUP BY tipo", (usina_id,)))
+    slot = _ultimo_slot(conn, usina_id, mid, agora)
+    esp_kw, med_kw, gate_agora = _agora_da_usina(conn, usina_id, mid, slot) if slot else (None, None, None)
+    delta = (med_kw - esp_kw) / esp_kw if esp_kw and med_kw is not None else None
+    cabecalho = {"id": usina_id, "codigo": u["codigo"], "nome": u["nome"], "fonte": u["fonte"], "cliente": u["cliente"], "tz": u["tz"],
+                 "kwp": u["kwp"], "kw_ac": u["kw_ac"], "n_inversores": int(n_tipo.get("inversor", 0)), "n_trackers": int(n_tipo.get("tracker", 0)),
+                 "n_strings": int(n_tipo.get("string", 0)), "modelo_versao": u["modelo_versao"], "calibrado": bool(u["calibrado"]),
+                 "tolerancia": float(u["tolerancia"]), "hoje": str(hoje), "slot": slot, "esperado_kw": esp_kw, "medido_kw": med_kw,
+                 "delta": delta, "faixa": faixa(delta, float(u["tolerancia"])), "gate_agora": gate_agora,
+                 "idade_leitura_min": _min(agora, u["ultima_leitura"]), "idade_esperado_min": _min(agora, slot)}
+    cabecalho["frio"] = cabecalho["idade_leitura_min"] is None or cabecalho["idade_leitura_min"] > FRIO_MIN
+    # curva do dia: esperado (dia inteiro, o que o modelo ja calculou) x medido (ate agora), na grade de 15 min
+    esp_curva = dict(_q(conn, "SELECT x.ts, sum(x.p_esperado_kw) FROM esperado x JOIN equipamento e ON e.id=x.equipamento_id "
+                              "WHERE e.usina_id=%s AND x.modelo_id=%s AND x.ts >= %s AND x.ts < %s GROUP BY x.ts", (usina_id, mid, ini, fim))) if mid else {}
+    med_curva = dict(_q(conn, "SELECT b, sum(v) FROM (SELECT date_bin('15 minutes', l.ts, TIMESTAMPTZ '2000-01-01') b, l.equipamento_id, avg(l.valor) v "
+                              "FROM leitura l JOIN equipamento e ON e.id=l.equipamento_id WHERE e.usina_id=%s AND e.tipo='inversor' AND l.medida='p_ac' "
+                              "AND l.ts >= %s AND l.ts < %s GROUP BY 1, 2) s GROUP BY b", (usina_id, ini, min(fim, agora))))
+    curva = [{"ts": ts.isoformat(), "hora": ts.astimezone(tz).strftime("%H:%M"),
+              "esperado_kw": (float(esp_curva[ts]) if esp_curva.get(ts) is not None else None),
+              "medido_kw": (float(med_curva[ts]) if med_curva.get(ts) is not None else None)}
+             for ts in sorted(set(esp_curva) | set(med_curva))]
+    casc = _cascata(conn, usina_id, mid, hoje)
+    preco = _preco(conn, usina_id, hoje)
+    eventos = [{"id": r[0], "tipo": r[1], "equipamento_id": r[2], "equipamento": r[3], "ini": r[4].isoformat(), "hora_ini": r[4].astimezone(tz).strftime("%H:%M"),
+                "fim": r[5].isoformat() if r[5] else None, "severidade": r[6], "kwh": float(r[7]), "detalhe": r[8] or {}}
+               for r in _q(conn, "SELECT ev.id, ev.tipo, ev.equipamento_id, coalesce(e.nome_exibicao, e.codigo_fonte, 'estação'), ev.ini, ev.fim, "
+                                 "ev.severidade, ev.kwh, ev.detalhe FROM evento ev LEFT JOIN equipamento e ON e.id=ev.equipamento_id "
+                                 "WHERE ev.usina_id=%s AND (ev.ini >= %s OR ev.fim IS NULL) AND ev.ini < %s ORDER BY ev.kwh DESC, ev.ini", (usina_id, ini, fim))]
+    perdas: dict[int, dict[str, float]] = {}
+    for eid, parcela, kwh in _q(conn, "SELECT p.equipamento_id, p.parcela, p.kwh FROM perda_dia p JOIN equipamento e ON e.id=p.equipamento_id "
+                                      "WHERE e.usina_id=%s AND p.modelo_id=%s AND p.dia=%s", (usina_id, mid, hoje)) if mid else []:
+        perdas.setdefault(int(eid), {})[parcela] = float(kwh)
+    # por inversor: medido e esperado nos MESMOS instantes (a regua do rollup), parcelas do perda_dia, status pelos eventos
+    por_inv = {int(r[0]): (float(r[1]), float(r[2])) for r in _q(conn,
+        "SELECT s.equipamento_id, sum(s.v)*0.25, sum(x.p_esperado_kw)*0.25 FROM (SELECT date_bin('15 minutes', l.ts, TIMESTAMPTZ '2000-01-01') b, "
+        "l.equipamento_id, avg(l.valor) v FROM leitura l JOIN equipamento e ON e.id=l.equipamento_id WHERE e.usina_id=%s AND e.tipo='inversor' "
+        "AND l.medida='p_ac' AND l.ts >= %s AND l.ts < %s GROUP BY 1, 2) s JOIN esperado x ON x.equipamento_id=s.equipamento_id AND x.ts=s.b "
+        "AND x.modelo_id=%s AND x.p_esperado_kw IS NOT NULL GROUP BY 1", (usina_id, ini, fim, mid))} if mid else {}
+    ev_por_eq: dict[int, str] = {}
+    for e in eventos:
+        if e["equipamento_id"] and e["tipo"] in ("inversor_parado", "inversor_abaixo"):
+            ev_por_eq.setdefault(e["equipamento_id"], "parado" if e["tipo"] == "inversor_parado" else "abaixo")
+    inversores = []
+    for eid, nome, at in _q(conn, "SELECT id, coalesce(nome_exibicao, codigo_fonte), atributos FROM equipamento WHERE usina_id=%s AND tipo='inversor' AND ativo "
+                                  "ORDER BY (atributos->>'numero')::int NULLS LAST, codigo_fonte", (usina_id,)):
+        med, esp = por_inv.get(int(eid), (None, None))
+        razao = (med / esp) if esp else None
+        p = perdas.get(int(eid), {})
+        status = ev_por_eq.get(int(eid)) or ("sem_dado" if razao is None else "atencao" if razao < 0.9 else "ok")
+        inversores.append({"id": int(eid), "nome": nome, "kwp": (at or {}).get("kwp"), "medido_kwh": med, "esperado_kwh": esp, "razao": razao,
+                           "inv_parado": p.get("inv_parado", 0.0), "tracker": p.get("tracker", 0.0), "string": p.get("string", 0.0),
+                           "residuo": p.get("residuo", 0.0), "status": status})
+
+    def _top(tipo: str, parcela: str, n: int = 15) -> list[dict]:
+        rows = _q(conn, "SELECT e.id, coalesce(e.nome_exibicao, e.codigo_fonte), e.pai_id, p.kwh FROM perda_dia p JOIN equipamento e ON e.id=p.equipamento_id "
+                        "WHERE e.usina_id=%s AND e.tipo=%s AND p.parcela=%s AND p.modelo_id=%s AND p.dia=%s ORDER BY p.kwh DESC LIMIT %s",
+                  (usina_id, tipo, parcela, mid, hoje, n)) if mid else []
+        return [{"id": int(r[0]), "nome": r[1], "pai_id": r[2], "kwh": float(r[3])} for r in rows]
+
+    razao_dia = _q(conn, "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY p.valor / g.valor) FROM leitura p JOIN leitura g ON g.equipamento_id=p.equipamento_id "
+                         "AND g.ts=p.ts AND g.medida='ghi' JOIN equipamento e ON e.id=p.equipamento_id WHERE e.usina_id=%s AND e.tipo='estacao' AND p.medida='poa' "
+                         "AND g.valor > 100 AND p.ts >= %s AND p.ts < %s", (usina_id, ini, fim))
+    sensor = {"razao_poa_ghi": (float(razao_dia[0][0]) if razao_dia and razao_dia[0][0] is not None else None),
+              "cobertura_gate": (casc["cobertura_gate"] if casc else None), "gate_hoje": _gate_hoje(conn, usina_id, ini, fim),
+              "trackers_sem_inversor": (casc["trackers_sem_inversor"] if casc else None)}
+    return {"agora": agora.isoformat(), "ciclo": _ciclo(conn), "cabecalho": cabecalho, "curva": curva, "cascata": casc, "preco_mwh": preco,
+            "perda_brl": ((max(0.0, casc["delta"]) / 1000.0 * preco) if (casc and preco) else None), "eventos": eventos, "inversores": inversores,
+            "trackers": _top("tracker", "tracker"), "strings": _top("string", "string"), "sensor": sensor}
+
+
+def saude(conn, cfg, agora: dt.datetime) -> dict:
+    """/healthz: por fonte o ultimo ciclo (idade, status, cobertura), SunOp hoje / teto, ultimo modelar, banco, e a
+    validade do token de API da SunOp (alarme 30 dias antes)."""
+    fontes = {}
+    try:
+        rows = _q(conn, "SELECT DISTINCT ON (fonte) fonte, criado_em, status, cobertura, n_requisicoes FROM ingest_run ORDER BY fonte, criado_em DESC")
+        banco = True
+    except Exception as e:                  # noqa: BLE001 — sem banco a resposta e o proprio diagnostico
+        return {"ok": False, "banco": False, "erro": f"{type(e).__name__}: {e}"[:200], "agora": agora.isoformat()}
+    for fonte, em, status, cob, nreq in rows:
+        fontes[fonte] = {"ultimo": em.isoformat(), "idade_min": _min(agora, em), "status": status, "cobertura": float(cob)}
+    hoje = _q(conn, "SELECT coalesce(sum(n_requisicoes),0) FROM ingest_run WHERE fonte LIKE 'sunop%%' AND (criado_em AT TIME ZONE 'UTC')::date = %s",
+              (agora.astimezone(dt.timezone.utc).date(),))
+    sunop_hoje = int(hoje[0][0]) if hoje else 0
+    ciclo = _ciclo(conn)
+    exp = exp_do_jwt(getattr(cfg, "sunop_token", "") or "")
+    dias_token = (exp - agora).days if exp else None
+    problemas = []
+    for f, v in fontes.items():
+        if v["status"] != "ok" or (v["idade_min"] or 0) > 120:
+            problemas.append(f"{f}: {v['status']} há {v['idade_min']} min")
+    if ciclo.get("em"):
+        idade_ciclo = _min(agora, dt.datetime.fromisoformat(ciclo["em"]))
+        if idade_ciclo is not None and idade_ciclo > 45:
+            problemas.append(f"modelar há {idade_ciclo} min")
+    else:
+        problemas.append("modelar nunca rodou")
+    if dias_token is not None and dias_token < 30:
+        problemas.append(f"token SunOp vence em {dias_token} dias")
+    if sunop_hoje >= getattr(cfg, "teto_sunop_dia", 600):
+        problemas.append(f"SunOp no teto: {sunop_hoje}")
+    return {"ok": not problemas, "banco": banco, "agora": agora.isoformat(), "fontes": fontes,
+            "sunop": {"requisicoes_hoje": sunop_hoje, "teto": getattr(cfg, "teto_sunop_dia", 600), "token_exp": exp.isoformat() if exp else None, "token_dias": dias_token},
+            "modelar": ciclo, "problemas": problemas}
+```
+
+- [ ] **Step 4: Rodar e ver passar**
+
+Run: `cd gemeo && python -m pytest tests/test_app_formato.py tests/test_app_consultas.py -q`
+Expected: 6 passed, 1 skipped (o de banco, sem DSN).
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add gemeo/gemeo/app/ gemeo/tests/test_app_formato.py gemeo/tests/test_app_consultas.py
+git commit -m "feat(gemeo): consultas das telas Frota, Usina e saude (Tarefa 18)"
+```
+
+---
+
+<!-- CONTINUA: Tarefa 19 -->
