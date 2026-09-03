@@ -82,6 +82,8 @@ Cada item abaixo diz **o que falta** e **o que é preciso** para resolver.
 | G2 | A API ganhou `/api/raw/*` (customers, power-plants, device-types, devices e ingestão por tipo de equipamento, com fila e "latest") — mesma estrutura das tabelas `raw_*` do Thopen; tudo vazio em 03/09 | É a Fase 4 nascendo do lado da T.I. Decidir com eles quem alimenta: a coleta da plataforma, o gêmeo (que já unifica as três fontes) ou os dois. Sem consulta por período, não substitui o schema do gêmeo. |
 | G3 | A API **não tem DELETE de workbook** | Os workbooks `zz_teste_claude_apagar` (id 4), `plataforma_estado` (33) e `plataforma_series` (35) só saem pela T.I. |
 
+| G4 | **Piloto redefinido (03/09, tarde):** só usinas com relação tracker × inversor no BD_Trackers → `MRO100`, `MAB100`, `MTS100`, `CPP100` (Athon/SunOp). TIM100, TIM200, JCD100 e SMP100 têm trackers sem inversor na aba; as usinas do PostgreSQL do Thopen (Ibaté, Santa Bárbara, Aparecida 3, Araçoiaba, Santarém 1 e 2, ...) têm trackers vivos no `raw_tracker` mas nenhuma linha no BD_Trackers. Santarém 1 saiu do piloto | Se quiser Thopen no gêmeo: preencher o BD_Trackers para essas usinas, ou usar a coluna `cabin` do `tb_devices` (tracker → cabine → inversores da cabine), que é um ajuste no modelo. Volume SunOp estimado para as 4 usinas: ~260 requisições/dia, abaixo do teto de 600. |
+
 ## O que foi verificado de fato
 
 - `cd gemeo && python -m pytest -q` → 91 passed, 11 skipped (banco).

@@ -1,6 +1,9 @@
 # gemeo/config.toml — NÃO-SEGREDO. Segredos ficam em SECRETS_DIR/gemeo.env, fora do OneDrive.
 [usinas]
-piloto = ["MRO100", "Santarem 1"]
+# so usinas com relacao tracker x inversor no BD_Trackers (decisao do Levi, 03/09): as quatro da Athon/SunOp que tem a aba
+# preenchida com inversor. TIM100, TIM200, JCD100 e SMP100 tem trackers sem inversor; as do PostgreSQL do Thopen nao tem
+# relacao nenhuma no BD_Trackers (so "cabine" no tb_devices). Santarem 1 saiu do piloto por isso.
+piloto = ["MRO100", "MAB100", "MTS100", "CPP100"]
 [ritmo_min]
 pg = 15
 sunop_fino = 15
