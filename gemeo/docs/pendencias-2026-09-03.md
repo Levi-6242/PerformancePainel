@@ -19,7 +19,7 @@ Cada item abaixo diz **o que falta** e **o que é preciso** para resolver.
 | A4 | **Token de API da SunOp** (o de `/data`, validade ~1 ano) | Pedir à SunOp. A plataforma usa o token web de 7 dias, que não serve para um serviço contínuo. O `/healthz` alarma 30 dias antes de vencer; a troca é humana e anual. |
 | A5 | Rede do servidor | Saída para `44.214.183.214:5432` (PostgreSQL `powerplants`), `gridco-api.sunop.net`, `axis-api.sunop.net`, `app.gridco.com.br`. |
 | A6 | Tarefas agendadas, backup e monitor | `deploy/instalar_tarefas.ps1` (3 tarefas), `deploy/backup.ps1` agendado (cópia consistente do arquivo SQLite, diária, 14 dias), monitor externo apontando para `/gemeo/healthz` (Teams). |
-| A7 | **Reinício da plataforma** para o proxy `/gemeo/*` existir | O `app.py` já tem a rota, mas o processo no ar não foi reiniciado (de propósito). No `tokens.txt`: `GEMEO_SENHA=<mesma do gemeo.env>`; reiniciar no próximo horário da T.I. Até lá a entrada "Gêmeo Digital" do menu fica escondida (só aparece quando `/gemeo/healthz` responde). |
+| A7 | ~~Reinício da plataforma~~ **Resolvido em 03/09 (tarde)**: plataforma reiniciada duas vezes pelo ritual (12:43 e 16:55), com `GEMEO_SENHA` e `GEMEO_URL=http://127.0.0.1:5075` no `tokens.txt`; `/gemeo/*` chega ao gêmeo pela plataforma (mesmo login e túnel) | Nada a fazer aqui. No servidor da T.I. vale o mesmo: `tokens.txt` + reinício. |
 | A8 | Repositório `Grid-Co-CODE/gemeo` | Criar (Levi/T.I.). O pacote `gemeo/` é autocontido; levar junto `.github/workflows/gemeo-ci.yml` (hoje na raiz deste repositório). |
 | A9 | ~~Merge do PR #20~~ **Resolvido em 03/09**: mesclado na `main` (commit `0c588cf`, 22 commits, CI verde) | Nada a fazer. A `main` é a referência para o deploy: `git pull` no servidor traz o gêmeo e o proxy. |
 | A10 | Segunda pessoa com acesso | Repositório, servidor e `SECRETS_DIR`, treinada em `docs/runbook.md` — condição do piloto (spec §10). |
@@ -28,9 +28,9 @@ Cada item abaixo diz **o que falta** e **o que é preciso** para resolver.
 
 | # | Pendência | O que é preciso |
 |---|---|---|
-| B1 | Abas **Info Geral, Info Mensal e BD_Trackers** nunca foram lidas ao vivo pelo gêmeo | Rodar `gemeo inspecionar-cadastro` no servidor e ajustar o de-para de colunas em `ingest/cadastro.py` se os headers diferirem. Só a aba Equipamentos foi validada nos spikes. Sem isso: sem `meta_mes`, sem lat/lon, sem `alias` de trackers pelo cadastro. |
-| B2 | De-para tracker → inversor incompleto na MRO100 (62 de 120 sem inversor: BD_Trackers e Equipamentos discordam no skid 2) | Corrigir nas planilhas (time de Performance). No gêmeo isso aparece como `trackers sem inversor no de-para` na tela da usina; a perda desses trackers vai para a usina, não para um inversor. |
-| B3 | Latitude/longitude por usina | Vem da Info Geral (B1). Sem coordenadas a fração direta da irradiância usa 0,6 fixo, e a perda por tracker fica mais grosseira. |
+| B1 | ~~Abas nunca lidas ao vivo~~ **Parcial**: o cadastro lê ao vivo **Equipamentos, Info Geral (kWp total, inversores, trackers, cliente) e BD_Trackers (tracker → inversor)**. Falta **Info Mensal** (metas: PR, IPOA, P50 por mês) | Implementar `separar_info_mensal` no `ingest/cadastro.py` com os headers da aba (`gemeo inspecionar-cadastro`) para preencher `meta_mes`. |
+| B2 | ~~De-para tracker → inversor incompleto~~ **Quase resolvido**: pela BD_Trackers, CPP100 63/63, MAB100 150/150, MRO100 119/120 (271 casam direto, 61 pela ordem "Inversor c.n → INV_n"). Só o "Inversor 2.28" da MRO100 não existe | **MTS100: 0/52** — a planilha nomeia os trackers `SKC_n` e sem inversor; a SunOp tem `TRK_1..52`. Corrigir a aba BD_Trackers da MTS100 (Performance). |
+| B3 | Latitude/longitude por usina | A Info Geral **não tem** lat/lon (só Estado e Região). Sem coordenadas a fração direta usa 0,6 fixo. Colocar lat/lon na Info Geral ou no `[usinas.detalhe]` do `config.toml`. |
 | B4 | kW AC por inversor | Vem da aba Equipamentos; se faltar, o gêmeo infere `pac0` do máximo observado em 30 dias e marca (`inferidos` no JSON do `modelar`). |
 | B5 | Preço por contrato (`meta_mes.preco_mwh`) | Nulo até o contrato chegar: as telas mostram perda em MWh, sem R$. |
 | B6 | De-para trackers supervisório ↔ Fracttal com 8 usinas pendentes (planilha `docs/de-para-trackers-supervisorio-fracttal.xlsx`) | Completar a planilha; `gemeo importar-alias` grava como `alias` com `confianca`. |
@@ -59,7 +59,7 @@ Cada item abaixo diz **o que falta** e **o que é preciso** para resolver.
 
 | # | Pendência | O que é preciso |
 |---|---|---|
-| E1 | `plataforma/app.py` ganhou a rota `gemeo_proxy` (após `logout`) — o processo no ar não a tem | Reinício pela T.I. (A7). Hoje `/gemeo/healthz` na 5050 devolve 302 (login) / 404. |
+| E1 | ~~Processo no ar sem a rota~~ **Resolvido em 03/09 (tarde)**: reiniciado; `/gemeo/healthz`, `/gemeo/` e `/gemeo/api/frota` respondem pela plataforma (logado) | A entrada "Gêmeo Digital" do menu aparece sozinha (o `fetch` acha o `/gemeo/healthz`). |
 | E2 | `docs/redesign/Monitoramento (novo design).html` (relido a cada requisição) ganhou o link escondido e um `fetch('/gemeo/healthz')` por carga de página | Inofensivo até o proxy existir (404 = fica escondido). Foi o único arquivo "ao vivo" tocado. |
 | E3 | Links do gêmeo são absolutos (`/gemeo/...`) | Se a plataforma rodar atrás de prefixo (`_prefixo()`), os links quebram — tratar quando/se houver prefixo. |
 | E4 | Só `tests/test_gemeo_proxy.py` (4 testes) foi rodado da suíte da raiz nesta rodada | Rodar `python -m pytest -q` na raiz antes do merge. |
@@ -85,6 +85,20 @@ Cada item abaixo diz **o que falta** e **o que é preciso** para resolver.
 | G4 | **Piloto redefinido (03/09, tarde):** só usinas com relação tracker × inversor no BD_Trackers → `MRO100`, `MAB100`, `MTS100`, `CPP100` (Athon/SunOp). TIM100, TIM200, JCD100 e SMP100 têm trackers sem inversor na aba; as usinas do PostgreSQL do Thopen (Ibaté, Santa Bárbara, Aparecida 3, Araçoiaba, Santarém 1 e 2, ...) têm trackers vivos no `raw_tracker` mas nenhuma linha no BD_Trackers. Santarém 1 saiu do piloto | Se quiser Thopen no gêmeo: preencher o BD_Trackers para essas usinas, ou usar a coluna `cabin` do `tb_devices` (tracker → cabine → inversores da cabine), que é um ajuste no modelo. Volume SunOp estimado para as 4 usinas: ~260 requisições/dia, abaixo do teto de 600. |
 
 | G5 | **Porta do gêmeo mudou de 5070 para 5075.** Na máquina do Levi a 5070 é do Painel de Integridade do Coletor (`Painel GridCo.exe`); o proxy da plataforma encaminhava para lá e devolvia o 404 do Painel | Já trocado em `config.toml`, `GEMEO_URL` do `tokens.txt`, padrão do `app.py` e docs. A plataforma no ar (reiniciada às 12:43) ainda tem `GEMEO_URL` 5070 em memória: precisa de mais um reinício quando o gêmeo subir. |
+
+## H. Primeira subida real nesta máquina (03/09, tarde)
+
+O gêmeo está **rodando nesta máquina** com dado real: `gemeo ingest` (SunOp das 4 usinas + cadastro pela API) e `gemeo app` na 5075, processos destacados (não são tarefas agendadas: morrem se a máquina reiniciar). Banco em `%LOCALAPPDATA%\GridCo\gemeo\gemeo.sqlite`. `gemeo modelar` rodado à mão; ainda **não está agendado a cada 15 min** (tarefa agendada só no servidor, via `deploy/instalar_tarefas.ps1`).
+
+| # | Achado | O que é preciso |
+|---|---|---|
+| H1 | **MTS100 tem GHI sempre 0** (sensor ou tag morta); POA normal (máx. 1.095 W/m²) | O gate não consegue validar POA × GHI nessa usina (roda só com plausibilidade e cobertura). Cobertura passou a usar POA quando o GHI está morto. Ver com a Athon/SunOp o tag `MTS100.ESTM.GHI.IRAD`. |
+| H2 | **CPP100 mede 17 % acima do esperado** (01–02/09: 24,9 MWh medidos vs 20,5 esperados) | Ou o kWp da Info Geral (4.910) está baixo, ou a POA lê baixo. Conferir placa e sensor com a Performance antes de confiar na régua dessa usina. |
+| H3 | Cobertura dos ciclos SunOp ~50 % (`parcial`) | Os primeiros ciclos (janela de 3 dias num lote só) deram timeout; corrigido (pedaços de 24 h), mas os buracos do passado só entram na reconciliação diária (24 h). Daqui para a frente os ciclos de 15 min cobrem. |
+| H4 | Trackers da MTS100 sem leitura de ângulo | Os pathnames existem na SunOp (`MTS100.TRK_n.MEDIDAS.POSAT`); o grupo lento começou hoje. Acompanhar no próximo ciclo; se seguir vazio, olhar o `classificar` para os tags `POSAT_MOT_n`. |
+| H5 | Consumo SunOp do gêmeo hoje: 30 requisições até 17:00 (teto 600) | Medido no `/healthz` (`sunop.requisicoes_hoje`). Dentro da estimativa. |
+| H6 | O "agora" da Frota perto do pôr do sol dá Δ positivo alto (MRO100 +38 % às 16:58) | Com POA baixa o esperado é pequeno e a razão explode; a régua diária (cascata) é a que vale. Avaliar suavizar o "agora" para a média da última hora. |
+| H7 | Reinícios da plataforma (12:43 e 16:55) e do gêmeo por mim | O `.bat` da raiz só sobe o Thopen; app.py e worker.py sobem à mão pelo ritual da memória. Nada do túnel foi tocado. |
 
 ## O que foi verificado de fato
 
