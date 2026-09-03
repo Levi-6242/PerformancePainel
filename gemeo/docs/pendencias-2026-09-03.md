@@ -2,8 +2,9 @@
 
 As 21 tarefas do plano (`docs/superpowers/plans/2026-09-03-gemeo-sombra-digital.md`) foram executadas nesta
 sessão, na pasta `gemeo/` deste repositório, com um commit por tarefa no branch `feat/sunop-bases-api-gemeo-spec`
-(PR #19). Suíte do gêmeo: **91 testes passando, 11 pulados** — os pulados são os de banco, porque esta máquina não
-tem PostgreSQL. Nada do que está no ar (plataforma 5050, worker, Thopen 5080, `cloudflared`, tarefas agendadas)
+(PR #20; o #19, da spec, foi mesclado). Suíte do gêmeo: **91 passando e 11 pulados nesta máquina** (sem PostgreSQL) e
+**102 passando na CI do PR #20**, com PostgreSQL 16 em container — a CI achou, e a sessão corrigiu, dois defeitos que só o
+banco revela (`df.eq` em `grade.py`, que colidia com o método do DataFrame, e `NaN` dentro de JSON de evento). Nada do que está no ar (plataforma 5050, worker, Thopen 5080, `cloudflared`, tarefas agendadas)
 foi reiniciado ou reconfigurado.
 
 Cada item abaixo diz **o que falta** e **o que é preciso** para resolver.
@@ -13,7 +14,7 @@ Cada item abaixo diz **o que falta** e **o que é preciso** para resolver.
 | # | Pendência | O que é preciso |
 |---|---|---|
 | A1 | **PostgreSQL 16** para o banco `gemeo` | Instalar no servidor da T.I. (ou instância Azure): banco `gemeo`, usuário `gemeo` com `CREATE` no banco. Sem isso nada roda. |
-| A2 | **Testes de banco nunca rodaram** (11 pulados: migrações, upsert, job, calibrar, consultas) | Primeira execução acontece na CI do PR (`.github/workflows/gemeo-ci.yml`, PostgreSQL 16 em container) ou localmente com `GEMEO_TEST_DSN`. O SQL do `job.persistir`, das `consultas` e do `semear` pode ter erro que só o banco revela — **conferir o resultado da CI antes de instalar**. |
+| A2 | ~~Testes de banco nunca rodaram~~ **Resolvido em 03/09**: a CI do PR #20 rodou os 11 testes de banco (migrações, upsert, job, calibrar, consultas) — 102 passed | Manter a CI verde a cada PR; localmente basta definir `GEMEO_TEST_DSN`. |
 | A3 | Segredos `SECRETS_DIR/gemeo.env` | `GEMEO_DB_DSN`, `POWERPLANTS_DSN`, `SUNOP_API_TOKEN`, `GRIDCO_SQL_TOKEN`, `GEMEO_SENHA` (gerar uma senha nova). Pasta fora do OneDrive. Modelo em `deploy/README.md`. |
 | A4 | **Token de API da SunOp** (o de `/data`, validade ~1 ano) | Pedir à SunOp. A plataforma usa o token web de 7 dias, que não serve para um serviço contínuo. O `/healthz` alarma 30 dias antes de vencer; a troca é humana e anual. |
 | A5 | Rede do servidor | Saída para `44.214.183.214:5432` (PostgreSQL `powerplants`), `gridco-api.sunop.net`, `axis-api.sunop.net`, `app.gridco.com.br`. |
@@ -78,6 +79,7 @@ Cada item abaixo diz **o que falta** e **o que é preciso** para resolver.
 - `cd gemeo && python -m pytest -q` → 91 passed, 11 skipped (banco).
 - `python -m tools.equivalencia tests/fixtures/golden/mro100_2026-08-31.json` → `"equivalente": true`.
 - `python -m pytest tests/test_gemeo_proxy.py -q` (raiz) → 4 passed.
+- CI do PR #20 (`gemeo-ci`, PostgreSQL 16 em container) → **102 passed** (run 33752954156).
 - Telas Frota e Usina renderizadas com dados fixos e conferidas no navegador (identidade tokens_grid R00).
 - Depois de tudo: `5050 /healthz → 200`, `5080 → 200`, dois `cloudflared` vivos, `tunnel_url.txt` inalterado.
-- **Não verificado:** qualquer SQL contra um PostgreSQL real (A2); as três tarefas agendadas e o backup em um Windows real; o proxy no processo da plataforma (só no cliente de teste).
+- **Não verificado:** as três tarefas agendadas e o backup em um Windows real; o proxy no processo da plataforma (só no cliente de teste); o cadastro ao vivo (B1).
