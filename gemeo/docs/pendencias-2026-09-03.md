@@ -74,6 +74,14 @@ Cada item abaixo diz **o que falta** e **o que é preciso** para resolver.
 | F3 | `plataforma/deploy/oem-app.zip` contém `tokens.txt` | Entregar à T.I. por canal seguro; nunca por e-mail aberto. |
 | F4 | Fixtures golden no repositório (~3,3 MB em 4 arquivos) | Aceitável; se pesar, mover para Git LFS quando o repo `gemeo` nascer. |
 
+## G. Publicação na API SQL da Performance (03/09, tarde)
+
+| # | Pendência | O que é preciso |
+|---|---|---|
+| G1 | Workbook **`gemeo_digital`** (id 36) criado na API da Performance com 7 abas (`usina`, `equipamento`, `alias`, `modelo`, `cascata_dia`, `perda_dia`, `evento`) e carregado com a rodada real de **01/09** da MRO100 e da Santarém 1 (739 linhas). Foi carga MANUAL (script no scratchpad da sessão) | O `modelar` ainda não publica sozinho: falta um passo "publicar" no job que envie `cascata_dia`, `perda_dia` e `evento` de cada rodada para o workbook (uma linha por POST; `PUT rows/{n}` para atualizar o dia corrente). `leitura` e `esperado` continuam só no PostgreSQL (volume; a API não tem consulta por período). |
+| G2 | A API ganhou `/api/raw/*` (customers, power-plants, device-types, devices e ingestão por tipo de equipamento, com fila e "latest") — mesma estrutura das tabelas `raw_*` do Thopen; tudo vazio em 03/09 | É a Fase 4 nascendo do lado da T.I. Decidir com eles quem alimenta: a coleta da plataforma, o gêmeo (que já unifica as três fontes) ou os dois. Sem consulta por período, não substitui o schema do gêmeo. |
+| G3 | A API **não tem DELETE de workbook** | Os workbooks `zz_teste_claude_apagar` (id 4), `plataforma_estado` (33) e `plataforma_series` (35) só saem pela T.I. |
+
 ## O que foi verificado de fato
 
 - `cd gemeo && python -m pytest -q` → 91 passed, 11 skipped (banco).
