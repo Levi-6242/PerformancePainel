@@ -3,6 +3,8 @@
 workbook mudou — a mesma revalidacao barata do bd_api da plataforma."""
 from __future__ import annotations
 import json
+import re
+
 import requests
 
 from gemeo.core import alias as _alias
@@ -86,7 +88,77 @@ def aplicar_info_geral(conn, dados: dict) -> int:
     return n
 
 
-VERSAO_CADASTRO = "2026-09-03b"   # entra na marca de versao: mudou o parser, reprocessa mesmo com o workbook igual
+VERSAO_CADASTRO = "2026-09-03c"   # entra na marca de versao: mudou o parser, reprocessa mesmo com o workbook igual
+
+
+def separar_trackers(linhas: list[dict], piloto: tuple[str, ...]) -> dict[str, list[tuple[str, str, str]]]:
+    """Aba BD_Trackers: (tracker supervisorio, inversor supervisorio, inversor nome) por usina do piloto. Formatos vistos em
+    03/09: tracker 'TRK_17' (igual a SunOp); inversor 'INV_1' (MAB100) ou 'Inversor 1.4' (MRO100, CPP100). A MTS100 vem
+    com 'SKC_1' e sem inversor — nao casa com nada (pendencia)."""
+    out: dict[str, list] = {}
+    for ln in linhas:
+        cod = str(ln.get("Usina Supervisório") or "").strip()
+        if cod not in piloto:
+            continue
+        trk = str(ln.get("Tracker Supervisório") or "").strip()
+        if not trk:
+            continue
+        inv_sup = str(ln.get("Inversor Supervisório") or "").strip().replace("\n", "")
+        inv_nome = str(ln.get("Inversor") or "").strip().replace("\n", "")
+        out.setdefault(cod, []).append((trk, inv_sup, inv_nome))
+    return out
+
+
+def _inversor_de(cur, usina_id: int, inv_sup: str, inv_nome: str) -> tuple[int | None, str]:
+    """Resolve o inversor do tracker: codigo da fonte ('INV_4') > nome de exibicao do cadastro ('Inversor 1.4') >
+    numero apos o ponto ('Inversor 2.11' -> INV_11, a convencao que casou 119 de 120 na MRO100)."""
+    for cand in (inv_sup, inv_nome):
+        if re.fullmatch(r"INV_\d+", cand):
+            cur.execute("SELECT id FROM equipamento WHERE usina_id=%s AND tipo='inversor' AND codigo_fonte=%s", (usina_id, cand))
+            r = cur.fetchone()
+            if r:
+                return r[0], "direto"
+    for cand in (inv_sup, inv_nome):
+        if cand:
+            cur.execute("SELECT id FROM equipamento WHERE usina_id=%s AND tipo='inversor' AND nome_exibicao=%s", (usina_id, cand))
+            r = cur.fetchone()
+            if r:
+                return r[0], "direto"
+    for cand in (inv_sup, inv_nome):
+        m = re.search(r"(\d+)\s*$", cand) if cand else None
+        if m:
+            cur.execute("SELECT id FROM equipamento WHERE usina_id=%s AND tipo='inversor' AND codigo_fonte=%s", (usina_id, f"INV_{int(m.group(1))}"))
+            r = cur.fetchone()
+            if r:
+                return r[0], "ordem"
+    return None, ""
+
+
+def aplicar_trackers(conn, dados: dict[str, list[tuple[str, str, str]]]) -> dict:
+    """Grava o pai (inversor) de cada tracker e o alias bd_trackers com a confianca de como casou. Sem isso toda
+    perda de tracker vai para a usina, nao para um inversor."""
+    mapeados = sem_inversor = sem_tracker = 0
+    with conn.cursor() as cur:
+        for cod, itens in dados.items():
+            cur.execute("SELECT id FROM usina WHERE codigo=%s", (cod,))
+            u = cur.fetchone()
+            if not u:
+                continue
+            for trk, inv_sup, inv_nome in itens:
+                cur.execute("SELECT id FROM equipamento WHERE usina_id=%s AND tipo='tracker' AND codigo_fonte=%s", (u[0], trk))
+                t = cur.fetchone()
+                if not t:
+                    sem_tracker += 1
+                    continue
+                inv_id, conf = _inversor_de(cur, u[0], inv_sup, inv_nome)
+                if inv_id is None:
+                    sem_inversor += 1
+                    continue
+                cur.execute("UPDATE equipamento SET pai_id=%s WHERE id=%s", (inv_id, t[0]))
+                _alias.gravar(conn, "bd_trackers", f"{cod}|{trk}", conf, "aba BD_Trackers", equipamento_id=t[0], usina_id=u[0])
+                mapeados += 1
+    conn.commit()
+    return {"mapeados": mapeados, "sem_inversor": sem_inversor, "sem_tracker": sem_tracker}
 
 
 class IngestorCadastro:
@@ -115,6 +187,10 @@ class IngestorCadastro:
         if ig:                                   # a placa TOTAL da usina vem daqui, por cima da soma parcial da Equipamentos
             linhas_ig = linhas_da_aba(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, ig["id"], int(ig.get("header_row") or 0))
             res["info_geral"] = aplicar_info_geral(self.conn, separar_info_geral(linhas_ig, self.cfg.usinas_piloto))
+        bt = sheets.get("bd_trackers")
+        if bt:                                   # tracker -> inversor
+            linhas_bt = linhas_da_aba(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, bt["id"], int(bt.get("header_row") or 0))
+            res["trackers"] = aplicar_trackers(self.conn, separar_trackers(linhas_bt, self.cfg.usinas_piloto))
         _db.gravar_estado(self.conn, "cadastro.updated_at", versao)
         return {"mudou": True, **res}
 

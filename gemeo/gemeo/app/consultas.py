@@ -44,7 +44,7 @@ def motivo_nao_modelada(u: dict, agora: dt.datetime) -> str | None:
     if not u.get("n_equip"):
         return "sem equipamentos no cadastro"
     if u.get("ultimo_ingest_ok") is None or agora - u["ultimo_ingest_ok"] > dt.timedelta(hours=24):
-        return "sem ingestão ok nas últimas 24 h"
+        return "sem ingestão nas últimas 24 h"           # ok OU parcial: dado chegou; cobertura baixa e assunto do /healthz
     if u.get("gate_hoje") in ("poa_ghi", "plausibilidade"):
         return "sensor em falha hoje (POA × GHI)"
     if u.get("gate_hoje") == "cobertura":
@@ -103,7 +103,7 @@ def _usinas(conn, usina_id: int | None = None) -> list[dict]:
     rows = _q(conn, f"""
         SELECT u.id, u.codigo, u.nome, u.fonte, u.tz, coalesce(u.kwp_dc,0), coalesce(u.kw_ac,0), u.cliente,
                (SELECT count(*) FROM equipamento e WHERE e.usina_id=u.id AND e.ativo),
-               (SELECT max(r.criado_em) FROM ingest_run r WHERE r.usina_id=u.id AND r.status='ok') AS "ultimo_ingest_ok [TIMESTAMP]",
+               (SELECT max(r.criado_em) FROM ingest_run r WHERE r.usina_id=u.id AND r.status IN ('ok','parcial')) AS "ultimo_ingest_ok [TIMESTAMP]",
                m.id, m.versao, coalesce(m.tolerancia, 0.08), coalesce(m.calibrado, 0)
         FROM usina u LEFT JOIN modelo m ON m.usina_id=u.id AND m.ativo
         WHERE u.ativo {filtro} ORDER BY u.codigo""", (usina_id,) if usina_id else ())

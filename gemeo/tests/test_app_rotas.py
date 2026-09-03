@@ -19,7 +19,7 @@ USINA = {"id": 1, "codigo": "MRO100", "nome": "MRO100", "fonte": "sunop", "tz": 
          "delta": -0.129, "gate_agora": "ok", "gate_hoje": "ok", "cascata": CASC, "preco_mwh": None, "perda_kwh": 2665.0, "perda_brl": None,
          "causa": "inversor parado", "faixa": "grave", "idade_leitura_min": 5, "idade_esperado_min": 5, "frio": False, "motivo": None}
 FROTA = {"agora": AGORA.isoformat(), "ciclo": {"em": "2026-08-31T19:50:00+00:00"}, "usinas": [USINA],
-         "nao_modeladas": [{"id": 2, "codigo": "Santarem 1", "fonte": "pg", "motivo": "sem ingestão ok nas últimas 24 h"}],
+         "nao_modeladas": [{"id": 2, "codigo": "Santarem 1", "fonte": "pg", "motivo": "sem ingestão nas últimas 24 h"}],
          "totais": {"esperado_kw": 3100.0, "medido_kw": 2700.0, "delta": -0.129, "perda_kwh": 2665.0, "perda_brl": None, "confianca": 0.5,
                     "n_modeladas": 1, "n_usinas": 2},
          "regua": {"tolerancia": 0.08, "faixas": {"dentro": 0, "moderado": 0, "grave": 1, "sem_dado": 0}, "calibradas": 0,
@@ -75,7 +75,7 @@ def test_frota_renderiza_regua_cards_e_nao_modeladas(cli):
     r = _entra(cli).get("/gemeo/?agora=2026-08-31T20:00:00Z")
     html = r.get_data(as_text=True)
     assert r.status_code == 200 and "A frota contra a física" in html and "MRO100" in html and "inversor parado" in html
-    assert "Santarem 1 — sem ingestão ok" in html and "−12,9%" in html and "não calibrado" in html
+    assert "Santarem 1 — sem ingestão nas" in html and "−12,9%" in html and "não calibrado" in html
     assert cli.chamadas["agora"] == AGORA
 
 

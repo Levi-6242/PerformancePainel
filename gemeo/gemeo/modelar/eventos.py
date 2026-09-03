@@ -73,7 +73,7 @@ def detectar(grade: Grade, gate_res: Resultado, esp: pd.DataFrame, d: Decomposic
     dia = pd.Series(idx.tz_convert(ZoneInfo(grade.usina.tz)).date, index=idx)
     grupos = dia.groupby(dia).groups
     e_dia = (esp.sum(axis=1, min_count=1).fillna(0.0) * H).groupby(dia).sum()
-    diurno = (grade.estacao["ghi"] > p.ghi_diurno).fillna(False)
+    diurno = ((grade.estacao["ghi"] > p.ghi_diurno) | (grade.estacao["poa"] > p.ghi_diurno)).fillna(False)
     evs: list[Evento] = []
     # sensor e cobertura: um evento por dia reprovado, sempre grave — e um dia inteiro sem modelo
     for dd, motivo in gate_res.motivo_dia.items():

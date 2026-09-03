@@ -65,3 +65,34 @@ def test_info_geral_da_a_placa_total_e_vence_a_soma_parcial_da_equipamentos(conn
         cur.execute("SELECT kwp_dc, n_inversores, cliente FROM usina WHERE codigo='MRO100'")
         assert cur.fetchone() == (6942.0, 25, "Athon")
     limpar_tudo(conn)
+
+
+def test_bd_trackers_da_o_inversor_de_cada_tracker_com_a_confianca_de_como_casou(conn):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent))
+    from semear import limpar_tudo
+    linhas = [{"Usina Supervisório": "MRO100", "Tracker Supervisório": "TRK_1", "Inversor Supervisório": "Inversor 1.1", "Inversor": "Inversor 1.1"},
+              {"Usina Supervisório": "MRO100", "Tracker Supervisório": "TRK_2", "Inversor Supervisório": "INV_2", "Inversor": "Inversor 1.2"},
+              {"Usina Supervisório": "MRO100", "Tracker Supervisório": "TRK_3", "Inversor Supervisório": "Inversor 2.11", "Inversor": "Inversor 2.\n11"},
+              {"Usina Supervisório": "MRO100", "Tracker Supervisório": "TRK_4", "Inversor Supervisório": "", "Inversor": "Inversor 2.28"},
+              {"Usina Supervisório": "MRO100", "Tracker Supervisório": "TRK_99", "Inversor Supervisório": "INV_1", "Inversor": ""},
+              {"Usina Supervisório": "XPTO", "Tracker Supervisório": "TRK_1", "Inversor Supervisório": "INV_1"}]
+    d = cadastro.separar_trackers(linhas, ("MRO100",))
+    assert list(d) == ["MRO100"] and d["MRO100"][2] == ("TRK_3", "Inversor 2.11", "Inversor 2.11")
+    limpar_tudo(conn)
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO usina (codigo, nome, fonte, fonte_ref, tz) VALUES ('MRO100','MRO100','sunop','MRO100','America/Belem') RETURNING id")
+        uid = cur.fetchone()[0]
+        for n in (1, 2, 11):
+            cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte, nome_exibicao) VALUES (%s,'inversor',%s,%s)", (uid, f"INV_{n}", f"Inversor 1.{n}" if n == 1 else None))
+        for n in (1, 2, 3, 4):
+            cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte) VALUES (%s,'tracker',%s)", (uid, f"TRK_{n}"))
+    conn.commit()
+    res = cadastro.aplicar_trackers(conn, d)
+    assert res == {"mapeados": 3, "sem_inversor": 1, "sem_tracker": 1}          # TRK_4 -> INV_28 nao existe; TRK_99 nao existe
+    with conn.cursor() as cur:
+        cur.execute("SELECT t.codigo_fonte, p.codigo_fonte, a.confianca FROM equipamento t JOIN equipamento p ON p.id=t.pai_id "
+                    "JOIN alias a ON a.equipamento_id=t.id WHERE t.tipo='tracker' ORDER BY t.codigo_fonte")
+        assert cur.fetchall() == [("TRK_1", "INV_1", "direto"), ("TRK_2", "INV_2", "direto"), ("TRK_3", "INV_11", "ordem")]
+    limpar_tudo(conn)

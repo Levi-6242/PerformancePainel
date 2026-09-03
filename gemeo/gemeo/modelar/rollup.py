@@ -37,7 +37,8 @@ def cascata(grade: Grade, gate_res: Resultado, esp: pd.DataFrame, d: Decomposica
     frames = {"inv_parado": d.parado, "tracker": d.tracker, "string": d.string, "residuo": d.residuo}
     for nome, df in frames.items():
         por_dia[nome] = (df.sum(axis=1) * H).groupby(dia).sum()
-    diurno = (grade.estacao["ghi"] > ghi_diurno).fillna(False)
+    est = grade.estacao
+    diurno = ((est["ghi"] > ghi_diurno) | (est["poa"] > ghi_diurno)).fillna(False)   # GHI morto (MTS100, max 0,0) nao zera a cobertura
     ok_diurno = ((gate_res.gate == "ok") & diurno).groupby(dia).sum()
     por_dia["cobertura_gate"] = (ok_diurno / diurno.groupby(dia).sum().replace(0, np.nan)).fillna(0.0)
     por_dia["trackers_sem_inversor"] = len(d.trk_sem_inversor)
