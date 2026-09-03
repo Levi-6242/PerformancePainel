@@ -45,3 +45,23 @@ def test_usina_fora_do_piloto_e_ignorada():
     ls = cadastro.linhas_da_aba(Http(), "http://x", "tok", sheet_id=46, header_row=3)
     us, invs = cadastro.separar_equipamentos(ls, piloto=("OUTRA",))
     assert us == {} and invs == {}
+
+
+def test_info_geral_da_a_placa_total_e_vence_a_soma_parcial_da_equipamentos(conn):
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent))
+    from semear import limpar_tudo
+    linhas = [{"Usina": "MRO100", "Potência (KWp)": 6942, "Quantidade de Inversores": 25, "Qnt. Trackers": 120, "Cliente": "Athon", "P50 (MWh)": 12058},
+              {"Usina": "XPTO", "Potência (KWp)": 1, "Quantidade de Inversores": 1}, {"Usina": "", "Potência (KWp)": 9}]
+    d = cadastro.separar_info_geral(linhas, ("MRO100",))
+    assert d == {"MRO100": {"kwp": 6942.0, "n_inversores": 25, "n_trackers": 120, "cliente": "Athon", "p50_mwh_ano": 12058.0}}
+    limpar_tudo(conn)
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO usina (codigo, nome, fonte, fonte_ref, tz, kwp_dc, n_inversores) VALUES ('MRO100','MRO100','sunop','MRO100','America/Belem',3332.16,12)")
+    conn.commit()
+    assert cadastro.aplicar_info_geral(conn, d) == 1
+    with conn.cursor() as cur:
+        cur.execute("SELECT kwp_dc, n_inversores, cliente FROM usina WHERE codigo='MRO100'")
+        assert cur.fetchone() == (6942.0, 25, "Athon")
+    limpar_tudo(conn)

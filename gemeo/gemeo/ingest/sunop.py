@@ -53,6 +53,16 @@ def equipamentos_de(metadata: list[dict]) -> list[tuple[str, str, dict]]:
     return out
 
 
+def pedacos_de_um_dia(ini: dt.datetime, fim: dt.datetime) -> list[tuple[dt.datetime, dt.datetime]]:
+    """[ini, fim) em pedacos de ate 24 h — uma requisicao por pedaco e lote."""
+    out, a = [], ini
+    while a < fim:
+        b = min(fim, a + dt.timedelta(hours=24))
+        out.append((a, b))
+        a = b
+    return out
+
+
 def lotear(pathnames: list[str], tamanho: int) -> list[list[str]]:
     return [pathnames[i:i + tamanho] for i in range(0, len(pathnames), tamanho)]
 
@@ -120,7 +130,7 @@ class IngestorSunOp(Ingestor):
         if period:
             params["period"] = period
         r = self.http.post(f"{self.cfg.sunop_base}/data/v2/analog_values", params=params, json={"pathnames": pathnames},
-                           headers={"Authorization": f"Bearer API {self.cfg.sunop_token}"}, timeout=120)
+                           headers={"Authorization": f"Bearer API {self.cfg.sunop_token}"}, timeout=180)
         if r.status_code == 403:
             self.disjuntor.abrir(f"403 da borda: {r.text[:80]}")
             return {}
@@ -141,14 +151,18 @@ class IngestorSunOp(Ingestor):
         mapa = {u.id: self._pathnames(u) for u in usinas}
         todos = [p for m in mapa.values() for p in m]
         tz0 = usinas[0].tz
-        ini_l = ini.astimezone(ZoneInfo(tz0)).strftime("%Y-%m-%dT%H:%M:%S"); fim_l = fim.astimezone(ZoneInfo(tz0)).strftime("%Y-%m-%dT%H:%M:%S")
         bruto: dict[str, list] = {}; n = 0
-        for lote in lotear(todos, self.cfg.lote_pathnames):
-            hoje = dt.datetime.now(dt.timezone.utc).date()
-            if self._db.requisicoes_hoje(self.conn, self.fonte, hoje) + n >= self.cfg.teto_sunop_dia:
-                self.disjuntor.abrir("teto diario de requisicoes")
-                break
-            bruto.update(self._analog(lote, ini_l, fim_l, PERIOD[self.grupo])); n += 1
+        # janela em pedacos de ate 24 h: 600 pathnames x 3 dias a 5 min numa chamada so estourava o timeout (primeira subida, 03/09)
+        for p_ini, p_fim in pedacos_de_um_dia(ini, fim):
+            ini_l = p_ini.astimezone(ZoneInfo(tz0)).strftime("%Y-%m-%dT%H:%M:%S"); fim_l = p_fim.astimezone(ZoneInfo(tz0)).strftime("%Y-%m-%dT%H:%M:%S")
+            for lote in lotear(todos, self.cfg.lote_pathnames):
+                hoje = dt.datetime.now(dt.timezone.utc).date()
+                if self._db.requisicoes_hoje(self.conn, self.fonte, hoje) + n >= self.cfg.teto_sunop_dia:
+                    self.disjuntor.abrir("teto diario de requisicoes")
+                    break
+                for path, pts in self._analog(lote, ini_l, fim_l, PERIOD[self.grupo]).items():
+                    bruto.setdefault(path, []).extend(pts)
+                n += 1
         passo = 15 if PERIOD[self.grupo] else 5
         out = {}
         for u in usinas:

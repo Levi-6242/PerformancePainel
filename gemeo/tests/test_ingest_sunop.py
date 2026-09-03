@@ -72,3 +72,11 @@ def test_servico_de_dados_usa_o_esquema_bearer_api():
     ing.cfg = type("C", (), {"sunop_base": "http://x", "sunop_token": "tok", "cache_dir": "cache-inexistente"})()
     ing._analog(["P.1"], "2026-08-26T00:00:00", "2026-08-26T23:59:59", "15m")
     assert visto["post"][0].endswith("/data/v2/analog_values") and visto["post"][1]["Authorization"] == "Bearer API tok"
+
+
+def test_janela_em_pedacos_de_um_dia():
+    ini = dt.datetime(2026, 8, 31, 17, 0, tzinfo=dt.timezone.utc)
+    ped = sunop.pedacos_de_um_dia(ini, ini + dt.timedelta(days=3))
+    assert len(ped) == 3 and ped[0] == (ini, ini + dt.timedelta(hours=24)) and ped[-1][1] == ini + dt.timedelta(days=3)
+    assert sunop.pedacos_de_um_dia(ini, ini + dt.timedelta(minutes=30)) == [(ini, ini + dt.timedelta(minutes=30))]
+    assert sunop.pedacos_de_um_dia(ini, ini) == []

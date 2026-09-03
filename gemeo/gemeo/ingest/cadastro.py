@@ -52,6 +52,43 @@ def separar_equipamentos(linhas: list[dict], piloto: tuple[str, ...]) -> tuple[d
     return usinas, invs
 
 
+def separar_info_geral(linhas: list[dict], piloto: tuple[str, ...]) -> dict:
+    """Aba Info Geral (cabecalho na linha 2): kWp TOTAL da usina, quantidade de inversores e trackers, cliente e P50 anual.
+    E a fonte da placa da usina — a aba Equipamentos so lista PARTE dos inversores (03/09: MRO100 12 de 25, MTS100 4 de 40,
+    CPP100 2 de 14), e somar o que ela tem dava metade do esperado."""
+    def num(ln, k):
+        v = ln.get(k)
+        try:
+            return float(v) if v not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
+    out = {}
+    for ln in linhas:
+        cod = str(ln.get("Usina") or "").strip()
+        if cod not in piloto:
+            continue
+        ni, nt = num(ln, "Quantidade de Inversores"), num(ln, "Qnt. Trackers")
+        out[cod] = {"kwp": num(ln, "Potência (KWp)"), "n_inversores": int(ni) if ni else None, "n_trackers": int(nt) if nt else None,
+                    "cliente": (str(ln.get("Cliente")).strip() if ln.get("Cliente") else None), "p50_mwh_ano": num(ln, "P50 (MWh)")}
+    return out
+
+
+def aplicar_info_geral(conn, dados: dict) -> int:
+    n = 0
+    with conn.cursor() as cur:
+        for cod, d in dados.items():
+            if not d.get("kwp"):
+                continue
+            cur.execute("UPDATE usina SET kwp_dc=%s, n_inversores=coalesce(%s, n_inversores), cliente=coalesce(%s, cliente) WHERE codigo=%s",
+                        (d["kwp"], d.get("n_inversores"), d.get("cliente"), cod))
+            n += max(0, cur.rowcount)
+    conn.commit()
+    return n
+
+
+VERSAO_CADASTRO = "2026-09-03b"   # entra na marca de versao: mudou o parser, reprocessa mesmo com o workbook igual
+
+
 class IngestorCadastro:
     fonte = "cadastro"
 
@@ -66,7 +103,7 @@ class IngestorCadastro:
     def ciclo(self, force: bool = False) -> dict:
         wbs = _get(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, "/api/workbooks")
         wb = next((w for w in (wbs if isinstance(wbs, list) else wbs.get("items") or []) if w.get("key") == "bd_performance"), {})
-        versao = str(wb.get("updated_at") or "")
+        versao = f"{wb.get('updated_at') or ''}|{VERSAO_CADASTRO}"
         if not force and versao and versao == _db.ler_estado(self.conn, "cadastro.updated_at"):
             return {"mudou": False}
         sheets = self._sheets()
@@ -74,6 +111,10 @@ class IngestorCadastro:
         linhas = linhas_da_aba(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, eq["id"], int(eq.get("header_row") or 0))
         usinas, invs = separar_equipamentos(linhas, self.cfg.usinas_piloto)
         res = aplicar_equipamentos(self.conn, usinas, invs)
+        ig = sheets.get("info geral")
+        if ig:                                   # a placa TOTAL da usina vem daqui, por cima da soma parcial da Equipamentos
+            linhas_ig = linhas_da_aba(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, ig["id"], int(ig.get("header_row") or 0))
+            res["info_geral"] = aplicar_info_geral(self.conn, separar_info_geral(linhas_ig, self.cfg.usinas_piloto))
         _db.gravar_estado(self.conn, "cadastro.updated_at", versao)
         return {"mudou": True, **res}
 
