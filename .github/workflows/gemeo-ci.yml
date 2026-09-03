@@ -1,0 +1,31 @@
+# .github/workflows/gemeo-ci.yml
+name: gemeo-ci
+on:
+  pull_request:
+    paths: ["gemeo/**", ".github/workflows/gemeo-ci.yml"]
+  push:
+    branches: [main]
+    paths: ["gemeo/**"]
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: gemeo
+          POSTGRES_PASSWORD: gemeo
+          POSTGRES_DB: gemeo_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U gemeo" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -e "./gemeo[dev]"
+      - run: python -m pytest -q
+        working-directory: gemeo
+        env:
+          GEMEO_TEST_DSN: postgresql://gemeo:gemeo@localhost:5432/gemeo_test

@@ -1,0 +1,240 @@
+[
+{
+"pathname": "MRO100.AIML.P",
+"plant": "MRO100",
+"description": "Potência Ativa (AI ML)",
+"type": "Analog",
+"eu": "kW"
+},
+{
+"pathname": "MRO100.AIML.POA",
+"plant": "MRO100",
+"description": "Irradiância (AI ML)",
+"type": "Analog",
+"eu": "W/m²"
+},
+{
+"pathname": "MRO100.CALC.InvsParados",
+"plant": "MRO100",
+"description": "Número de inversores parados",
+"type": "Discrete",
+"eu": null
+},
+{
+"pathname": "MRO100.CALC.POT.ESP",
+"plant": "MRO100",
+"description": "Potência esperada",
+"type": "Analog",
+"eu": "kW"
+},
+{
+"pathname": "MRO100.ESTM.AR.TEMP",
+"plant": "MRO100",
+"description": "Temperatura instantânea do ar",
+"type": "Analog",
+"eu": "°C"
+},
+{
+"pathname": "MRO100.ESTM.AR.VEL",
+"plant": "MRO100",
+"description": "Velocidade do vento atual",
+"type": "Analog",
+"eu": "m/s"
+},
+{
+"pathname": "MRO100.ESTM.GHI.IRAD",
+"plant": "MRO100",
+"description": "Irradiância GHI",
+"type": "Analog",
+"eu": "W/m²"
+},
+{
+"pathname": "MRO100.ESTM.PNL.TEMP",
+"plant": "MRO100",
+"description": "Temperatura do módulo",
+"type": "Analog",
+"eu": "°C"
+},
+{
+"pathname": "MRO100.ESTM.POA.IRAD",
+"plant": "MRO100",
+"description": "Irradiância POA",
+"type": "Analog",
+"eu": "W/m²"
+},
+{
+"pathname": "MRO100.INV_1.MEDIDAS.EPD",
+"plant": "MRO100",
+"description": "Rendimento de energia ativa diário",
+"type": "Analog",
+"eu": "kWh"
+},
+{
+"pathname": "MRO100.INV_1.MEDIDAS.P",
+"plant": "MRO100",
+"description": "Potência ativa",
+"type": "Analog",
+"eu": "kW"
+},
+{
+"pathname": "MRO100.INV_1.MEDIDAS.STR.I_PV1",
+"plant": "MRO100",
+"description": "Corrente STR - PV1",
+"type": "Analog",
+"eu": "A"
+},
+{
+"pathname": "MRO100.INV_1.MEDIDAS.STR.I_PV18",
+"plant": "MRO100",
+"description": "Corrente STR - PV18",
+"type": "Analog",
+"eu": "A"
+},
+{
+"pathname": "MRO100.INV_1.MEDIDAS.STR.I_PV2",
+"plant": "MRO100",
+"description": "Corrente STR - PV2",
+"type": "Analog",
+"eu": "A"
+},
+{
+"pathname": "MRO100.INV_1.MEDIDAS.Workstate",
+"plant": "MRO100",
+"description": "Estado de operação",
+"type": "Analog",
+"eu": null
+},
+{
+"pathname": "MRO100.INV_2.MEDIDAS.EPD",
+"plant": "MRO100",
+"description": "Rendimento de energia ativa diário",
+"type": "Analog",
+"eu": "kWh"
+},
+{
+"pathname": "MRO100.INV_2.MEDIDAS.P",
+"plant": "MRO100",
+"description": "Potência ativa",
+"type": "Analog",
+"eu": "kW"
+},
+{
+"pathname": "MRO100.INV_2.MEDIDAS.STR.I_PV1",
+"plant": "MRO100",
+"description": "Corrente STR - PV1",
+"type": "Analog",
+"eu": "A"
+},
+{
+"pathname": "MRO100.INV_2.MEDIDAS.STR.I_PV18",
+"plant": "MRO100",
+"description": "Corrente STR - PV18",
+"type": "Analog",
+"eu": "A"
+},
+{
+"pathname": "MRO100.INV_2.MEDIDAS.STR.I_PV2",
+"plant": "MRO100",
+"description": "Corrente STR - PV2",
+"type": "Analog",
+"eu": "A"
+},
+{
+"pathname": "MRO100.INV_2.MEDIDAS.Workstate",
+"plant": "MRO100",
+"description": "Estado de operação",
+"type": "Analog",
+"eu": null
+},
+{
+"pathname": "MRO100.INV_25.MEDIDAS.EPD",
+"plant": "MRO100",
+"description": "Rendimento de energia ativa diário",
+"type": "Analog",
+"eu": "kWh"
+},
+{
+"pathname": "MRO100.INV_25.MEDIDAS.P",
+"plant": "MRO100",
+"description": "Potência ativa",
+"type": "Analog",
+"eu": "kW"
+},
+{
+"pathname": "MRO100.INV_25.MEDIDAS.Workstate",
+"plant": "MRO100",
+"description": "Estado de operação",
+"type": "Analog",
+"eu": null
+},
+{
+"pathname": "MRO100.TRK_1.ALARME.AUTO_ON",
+"plant": "MRO100",
+"description": "Modo de controle automático, persistido por mais de 10 minutos",
+"type": "Discrete",
+"eu": null
+},
+{
+"pathname": "MRO100.TRK_1.MEDIDAS.POSAL",
+"plant": "MRO100",
+"description": "Posição angular alvo do tracker",
+"type": "Analog",
+"eu": "°"
+},
+{
+"pathname": "MRO100.TRK_1.MEDIDAS.POSAT",
+"plant": "MRO100",
+"description": "Posição angular atual do tracker",
+"type": "Analog",
+"eu": "°"
+},
+{
+"pathname": "MRO100.TRK_1.STATUS.WORKSTATE",
+"plant": "MRO100",
+"description": "Estado tracker",
+"type": "Discrete",
+"eu": null
+},
+{
+"pathname": "MRO100.TRK_120.MEDIDAS.POSAL",
+"plant": "MRO100",
+"description": "Posição angular alvo do tracker",
+"type": "Analog",
+"eu": "°"
+},
+{
+"pathname": "MRO100.TRK_120.MEDIDAS.POSAT",
+"plant": "MRO100",
+"description": "Posição angular atual do tracker",
+"type": "Analog",
+"eu": "°"
+},
+{
+"pathname": "MRO100.TRK_120.STATUS.WORKSTATE",
+"plant": "MRO100",
+"description": "Estado tracker",
+"type": "Discrete",
+"eu": null
+},
+{
+"pathname": "MRO100.TRK_17.MEDIDAS.POSAL",
+"plant": "MRO100",
+"description": "Posição angular alvo do tracker",
+"type": "Analog",
+"eu": "°"
+},
+{
+"pathname": "MRO100.TRK_17.MEDIDAS.POSAT",
+"plant": "MRO100",
+"description": "Posição angular atual do tracker",
+"type": "Analog",
+"eu": "°"
+},
+{
+"pathname": "MRO100.TRK_17.STATUS.WORKSTATE",
+"plant": "MRO100",
+"description": "Estado tracker",
+"type": "Discrete",
+"eu": null
+}
+]

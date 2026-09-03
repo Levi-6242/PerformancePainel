@@ -397,6 +397,36 @@ def logout():
     return redirect(_prefixo() + "/login")
 
 
+# ── Gêmeo Digital: proxy /gemeo/* → serviço separado (porta 5070) ─────────────
+# O gêmeo (pasta gemeo/ deste repositório; futuro Grid-Co-CODE/gemeo) é um processo próprio, só-leitura,
+# com as telas sob o prefixo /gemeo. A plataforma faz proxy para que elas saiam pelo MESMO túnel e pelo
+# MESMO login (o _auth_gate acima já cobre /gemeo/*) e manda a senha compartilhada no header
+# X-Gemeo-Senha, para o gêmeo não pedir uma segunda senha. Gêmeo fora do ar → 503 com texto, nunca 500
+# na plataforma; sem GEMEO_SENHA no tokens.txt o gêmeo responde com a tela de login dele (não quebra).
+GEMEO_URL = os.environ.get("GEMEO_URL", "http://127.0.0.1:5070").rstrip("/")
+GEMEO_SENHA = os.environ.get("GEMEO_SENHA", "").strip()
+
+
+@app.route("/gemeo/", defaults={"sub": ""}, methods=["GET", "POST"])
+@app.route("/gemeo/<path:sub>", methods=["GET", "POST"])
+def gemeo_proxy(sub):
+    from flask import Response
+    cab = {"X-Gemeo-Senha": GEMEO_SENHA, "Accept": flask_request.headers.get("Accept", "*/*")}
+    if flask_request.content_type:
+        cab["Content-Type"] = flask_request.content_type
+    try:
+        r = requests.request(flask_request.method, f"{GEMEO_URL}/gemeo/{sub}", params=flask_request.args.to_dict(flat=False),
+                             data=flask_request.get_data(), headers=cab, timeout=30, allow_redirects=False)
+    except requests.RequestException as e:
+        return Response(f"Gêmeo Digital fora do ar ({type(e).__name__}). Ver gemeo/deploy/README.md.",
+                        status=503, mimetype="text/plain; charset=utf-8")
+    resp = Response(r.content, status=r.status_code, content_type=r.headers.get("Content-Type", "text/html; charset=utf-8"))
+    for k, v in r.headers.items():
+        if k.lower() in ("location", "cache-control"):
+            resp.headers[k] = v
+    return resp
+
+
 @app.route("/auth/login")
 def auth_login():
     """Início do login Microsoft (Entra ID): redireciona pro Microsoft; a volta cai em /auth/callback."""

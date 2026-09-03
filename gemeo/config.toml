@@ -1,0 +1,21 @@
+# gemeo/config.toml — NÃO-SEGREDO. Segredos ficam em SECRETS_DIR/gemeo.env, fora do OneDrive.
+[usinas]
+piloto = ["MRO100", "Santarem 1"]
+[ritmo_min]
+pg = 15
+sunop_fino = 15
+sunop_lento = 60
+cadastro = 30
+modelar = 15
+[sunop]
+teto_dia = 600
+lote = 600
+janela = ["05:40", "18:20"]
+[ingest]
+sobreposicao_min = 30
+[modelar]
+grade_min = 15
+[app]
+porta = 5070
+[caminhos]
+cache_dir = "cache"

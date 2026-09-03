@@ -1,0 +1,12 @@
+<!-- gemeo/gemeo/app/templates/base.html -->
+<!doctype html>
+<html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{% block titulo %}Gêmeo Digital{% endblock %} · Grid Co.</title>
+<link rel="stylesheet" href="{{ PREFIXO }}/static/gemeo.css"></head>
+<body>
+<div class="topo">
+  <div class="marca"><span class="g">G</span><span>Grid <em>Co.</em></span><span class="sec">{% block secao %}PLATAFORMA PERFORMANCE · GÊMEO DIGITAL{% endblock %}</span></div>
+  <div class="dir">{% block direita %}{% endblock %}</div>
+</div>
+{% block corpo %}{% endblock %}
+</body></html>
