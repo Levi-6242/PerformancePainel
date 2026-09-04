@@ -39,8 +39,10 @@ US = {"agora": AGORA.isoformat(), "ciclo": {}, "cabecalho": CAB,
                       "tracker": 4.0, "string": 0.0, "residuo": 46.0, "status": "ok"}],
       "trackers": [{"id": 4, "nome": "TRK_4", "pai_id": 1, "kwh": 65.0}, {"id": 64, "nome": "TRK_64", "pai_id": None, "kwh": 3.0}], "strings": [],
       "sensor": {"razao_poa_ghi": 1.31, "cobertura_gate": 0.95, "gate_hoje": "ok", "trackers_sem_inversor": 1},
-      "periodo": {"dias": 1, "de": "2026-08-31", "ate": "2026-08-31"}, "dias": []}
-USP = {**US, "periodo": {"dias": 7, "de": "2026-08-25", "ate": "2026-08-31"}, "curva": [],
+      "periodo": {"dias": 1, "de": "2026-08-31", "ate": "2026-08-31"}, "dias": [],
+      "paradas": [{"ini": "2026-08-31T13:00:00+00:00", "fim": "2026-08-31T17:00:00+00:00", "hora_ini": "10:00", "hora_fim": "14:00",
+                   "min": 240, "n": 8, "de": 12, "kwh": 4962.0, "equipamentos": ["Inversor 1.1"]}]}
+USP = {**US, "paradas": [], "periodo": {"dias": 7, "de": "2026-08-25", "ate": "2026-08-31"}, "curva": [],
        "dias": [{"dia": "2026-08-30", "e_esperado": 40000.0, "e_medido": 38000.0, "delta": 2000.0, "inv_parado": 1500.0, "tracker": 0.0, "string": 0.0, "residuo": 500.0, "cobertura_gate": 1.0, "trackers_sem_inversor": 1},
                 {"dia": "2026-08-31", "e_esperado": 41636.0, "e_medido": 38971.0, "delta": 2665.0, "inv_parado": 1658.0, "tracker": 104.0, "string": 0.0, "residuo": 903.0, "cobertura_gate": 0.95, "trackers_sem_inversor": 1}]}
 
@@ -127,3 +129,9 @@ def test_periodo_de_7_ou_30_dias_troca_a_curva_por_barras_e_agrega(cli):
     assert "Por dia — esperado × medido" in html and "Cascata de perdas — 7 dias" in html and "no período" in html
     assert cli.get("/gemeo/api/usina/1?periodo=mes").get_json()["periodo"]["dias"] == 30
     assert cli.get("/gemeo/api/usina/1?periodo=xyz").get_json()["periodo"]["dias"] == 1     # periodo desconhecido = dia
+
+
+def test_faixa_de_parada_chega_a_tela_e_a_legenda(cli):
+    html = _entra(cli).get("/gemeo/usina/1").get_data(as_text=True)
+    assert "paradas-dados" in html and '"hora_ini": "10:00"' in html.replace("&#34;", '"') and "Parada de inversores" in html
+    assert "paradas-dados" not in cli.get("/gemeo/usina/1?periodo=semana").get_data(as_text=True)   # 7/30 dias troca a curva por barras

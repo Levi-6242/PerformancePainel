@@ -22,6 +22,7 @@ class ParamsEventos:
     parado_frac_min: float = 0.90
     parado_esperado_min: float = 20.0
     min_slots_sol: int = 4
+    parado_slots_min: int = 4
     abaixo_razao: float = 0.90
     abaixo_dias: int = 3
     trk_excesso_min: float = 10.0
@@ -82,18 +83,25 @@ def detectar(grade: Grade, gate_res: Resultado, esp: pd.DataFrame, d: Decomposic
             if len(sl):
                 evs.append(Evento("sensor_em_falha" if motivo == "poa_ghi" else "sem_cobertura", None, sl[0], sl[-1] + PASSO, 0.0, "grave",
                                   {"motivo": motivo, "razao_poa_ghi": _finito(gate_res.razao_dia.get(dd))}))
-    # inversor parado: >= 90 % dos slots COM SOL parados. Sobre as 96 celulas do dia a fracao nunca passava
-    # de 0,4 (a noite entra no denominador) — foi o erro do primeiro ensaio na MRO100
+    # inversor parado: CORRIDA de slots com sol parados, de pelo menos 1 h. A regra antiga pedia >= 90 % dos slots
+    # com sol do dia e so enxergava apagao de dia inteiro: em 03/09/2026 a CPP100 desligou 8 dos 12 inversores das
+    # 10h as 14h locais — 4.962 kWh na cascata — e a tela nao mostrou assinatura nenhuma. Por corrida o ini/fim
+    # tambem passa a ser a janela real da parada, que e o que a curva do dia marca em vermelho.
+    # (A noite nao quebra nada: sem sol a mascara e falsa, entao corrida nenhuma atravessa a madrugada.)
     for eid in d.parado_flag.columns:
         sol = (esp[eid] > p.parado_esperado_min).fillna(False)
-        for dd, rot in grupos.items():
-            s, f = sol.loc[rot], d.parado_flag[eid].loc[rot]
-            if s.sum() >= p.min_slots_sol and f[s].mean() >= p.parado_frac_min:
-                sl = f[f].index
-                kwh = float(d.parado[eid].loc[rot].sum() * H)
-                evs.append(Evento("inversor_parado", eid, sl[0], sl[-1] + PASSO, kwh, severidade(kwh, float(e_dia.get(dd, 0.0))),
-                                  {"dia": str(dd), "slots_sol": int(s.sum())}))
-    parados = {ev.equipamento_id for ev in evs if ev.tipo == "inversor_parado"}
+        sol_dia = sol.groupby(dia).sum()
+        for a, b in _corridas((d.parado_flag[eid].fillna(False) & sol)):
+            n = b - a + 1
+            if n < p.parado_slots_min:
+                continue
+            dd = dia.iloc[a]
+            kwh = float(d.parado[eid].iloc[a:b + 1].sum() * H)
+            evs.append(Evento("inversor_parado", eid, idx[a], idx[b] + PASSO, kwh, severidade(kwh, float(e_dia.get(dd, 0.0))),
+                              {"dia": str(dd), "slots": int(n), "slots_sol": int(sol_dia.get(dd, 0)),
+                               "dia_inteiro": bool(sol_dia.get(dd, 0) >= p.min_slots_sol and n >= p.parado_frac_min * float(sol_dia.get(dd, 0)))}))
+    # so quem passou o dia parado sai da regra dos pares: uma parada de 1 h nao invalida a comparacao do dia
+    parados = {ev.equipamento_id for ev in evs if ev.tipo == "inversor_parado" and ev.detalhe.get("dia_inteiro")}
     # inversor abaixo dos pares: razao do dia < 0,90 x mediana dos pares, 3 dias seguidos; medido e esperado
     # mascarados pelos MESMOS instantes (sem isso a razao saia 1,47 no spike: maca com laranja)
     med = grade.inv_p.reindex(columns=esp.columns)

@@ -114,3 +114,31 @@ def test_saude_a_noite_nao_cobra_idade_do_ciclo_mas_falha_acusa_sempre(conn, mro
     assert any(p.startswith("sunop: ok há") for p in c.saude(conn, cfg, dia)["problemas"])
     db.registrar_ingest_run(conn, "sunop", usina.id, noite, noite, "falha", n_requisicoes=1, erro="403 borda")
     assert any(p.startswith("sunop: falha") for p in c.saude(conn, cfg, noite)["problemas"])
+
+
+def test_paradas_juntam_inversores_que_caem_na_mesma_janela(conn, mro100_modelada):
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo("America/Belem")
+    ev = [{"tipo": "inversor_parado", "equipamento": "Inversor 1.1", "kwh": 600.0, "ini": "2026-09-03T13:00:00+00:00", "fim": "2026-09-03T17:00:00+00:00"},
+          {"tipo": "inversor_parado", "equipamento": "Inversor 1.2", "kwh": 620.0, "ini": "2026-09-03T13:15:00+00:00", "fim": "2026-09-03T17:00:00+00:00"},
+          {"tipo": "inversor_parado", "equipamento": "Inversor 4.1", "kwh": 580.0, "ini": "2026-09-03T17:15:00+00:00", "fim": "2026-09-03T18:00:00+00:00"},  # encosta: mesma janela
+          {"tipo": "inversor_parado", "equipamento": "Inversor 6.1", "kwh": 100.0, "ini": "2026-09-03T20:00:00+00:00", "fim": "2026-09-03T21:00:00+00:00"},  # separada
+          {"tipo": "tracker_fora_alvo", "equipamento": "TRK_4", "kwh": 9.0, "ini": "2026-09-03T13:00:00+00:00", "fim": "2026-09-03T17:00:00+00:00"},
+          {"tipo": "inversor_parado", "equipamento": "Inversor 9.9", "kwh": 5.0, "ini": "2026-09-03T13:00:00+00:00", "fim": None}]               # em aberto: fica de fora
+    j = c._paradas(ev, tz, 12)
+    assert len(j) == 2
+    assert (j[0]["hora_ini"], j[0]["hora_fim"], j[0]["n"], j[0]["de"], j[0]["min"]) == ("10:00", "15:00", 3, 12, 300)
+    assert j[0]["kwh"] == 1800.0 and j[1]["n"] == 1 and j[1]["hora_ini"] == "17:00"
+    assert c._paradas([e for e in ev if e["tipo"] != "inversor_parado"], tz, 12) == []
+
+
+def test_dia_fechado_mostra_o_selo_do_dia_e_nao_o_instante_da_meia_noite(conn, mro100_modelada):
+    usina, _ = mro100_modelada
+    fim_do_dia = dt.datetime(2026, 9, 1, 2, 59, 59, tzinfo=UTC)          # 23:59:59 de 31/08 em Belem: o que "Ver dia" congela
+    d = c.usina(conn, usina.id, fim_do_dia)["cabecalho"]
+    assert d["base"] == "dia" and d["faixa"] != "sem_dado" and -1 < (d["delta"] or 0) < 1
+    meio_dia = dt.datetime(2026, 8, 31, 17, 0, tzinfo=UTC)              # 14:00 em Belem: ai o instante vale
+    assert c.usina(conn, usina.id, meio_dia)["cabecalho"]["base"] == "agora"
+    velho = dt.datetime(2026, 8, 31, 2, 59, 59, tzinfo=UTC)             # dia 30/08: a leitura mais nova e POSTERIOR
+    v = c.usina(conn, usina.id, velho)["cabecalho"]
+    assert v["idade_leitura_min"] is None and v["frio"] is False        # "ha -1440 min" nao vai para a tela

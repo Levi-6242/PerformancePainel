@@ -55,10 +55,26 @@ def test_inversor_parado_o_dia_inteiro():
     assert ev[0].ini == g.indice[0] and ev[0].fim == g.indice[-1] + pd.Timedelta(minutes=15)
 
 
-def test_inversor_parado_so_uma_parte_do_dia_nao_e_evento():
-    g = grade_sintetica(); g.inv_p.iloc[:4, 0] = 0.0
+def test_inversor_parado_de_meia_hora_nao_e_evento_o_de_uma_hora_e():
+    """A regra virou CORRIDA de slots (04/09/2026): a CPP100 desligou 8 de 12 inversores por 4 h em 03/09 e a regra
+    antiga, de >= 90 % dos slots com sol do dia, nao emitia assinatura nenhuma. Abaixo de 1 h continua sendo ruido."""
+    g = grade_sintetica(); g.inv_p.iloc[:2, 0] = 0.0                  # 30 min parado
     r, esp, d = _tudo(g)
     assert not _do_tipo(eventos.detectar(g, r, esp, d), "inversor_parado")
+    g = grade_sintetica(); g.inv_p.iloc[2:6, 0] = 0.0                 # 1 h parado no meio do dia
+    r, esp, d = _tudo(g)
+    ev = _do_tipo(eventos.detectar(g, r, esp, d), "inversor_parado")
+    assert len(ev) == 1 and ev[0].equipamento_id == 1001
+    assert ev[0].ini == g.indice[2] and ev[0].fim == g.indice[5] + pd.Timedelta(minutes=15)   # a janela REAL da parada
+    assert ev[0].detalhe["slots"] == 4 and ev[0].detalhe["dia_inteiro"] is False
+    assert ev[0].kwh == pytest.approx(float(d.parado[1001].iloc[2:6].sum() * H), rel=1e-6)
+
+
+def test_duas_paradas_no_mesmo_dia_viram_dois_eventos():
+    g = grade_sintetica(); g.inv_p.iloc[0:4, 0] = 0.0; g.inv_p.iloc[5:8, 0] = 0.0   # 1 h, volta 15 min, para de novo
+    r, esp, d = _tudo(g)
+    ev = sorted(_do_tipo(eventos.detectar(g, r, esp, d), "inversor_parado"), key=lambda e: e.ini)
+    assert len(ev) == 1 and ev[0].ini == g.indice[0]        # a 2a corrida tem 3 slots (45 min): fica de fora
 
 
 def test_inversor_abaixo_dos_pares_por_tres_dias():

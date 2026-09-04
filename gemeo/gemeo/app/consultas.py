@@ -237,9 +237,14 @@ def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
                  "kwp": u["kwp"], "kw_ac": u["kw_ac"], "n_inversores": int(n_tipo.get("inversor", 0)), "n_trackers": int(n_tipo.get("tracker", 0)),
                  "n_strings": int(n_tipo.get("string", 0)), "modelo_versao": u["modelo_versao"], "calibrado": bool(u["calibrado"]),
                  "tolerancia": float(u["tolerancia"]), "hoje": str(hoje), "slot": slot, "esperado_kw": esp_kw, "medido_kw": med_kw,
-                 "delta": delta, "faixa": faixa(delta, float(u["tolerancia"])), "gate_agora": gate_agora,
+                 "delta": delta, "faixa": faixa(delta, float(u["tolerancia"])), "gate_agora": gate_agora, "base": "agora",
                  "idade_leitura_min": _min(agora, u["ultima_leitura"]), "idade_esperado_min": _min(agora, slot)}
-    cabecalho["frio"] = cabecalho["idade_leitura_min"] is None or cabecalho["idade_leitura_min"] > FRIO_MIN
+    # "Ver dia" congela o agora no fim do dia escolhido, entao ha leitura DEPOIS dele: idade negativa nao e frio,
+    # e "ha -531 min" nao quer dizer nada para quem le. Some, e a tela deixa de acusar dado velho que nao existe.
+    passado = (cabecalho["idade_leitura_min"] or 0) < 0
+    if passado:
+        cabecalho["idade_leitura_min"] = None
+    cabecalho["frio"] = not passado and (cabecalho["idade_leitura_min"] is None or cabecalho["idade_leitura_min"] > FRIO_MIN)
     # curva do dia: esperado (o que o modelo ja calculou) x medido (ate agora), na grade de 15 min
     pac = _p_ac_do_dia(conn, usina_id, ini, min(fim, agora))
     esp = _esperado_do_dia(conn, usina_id, mid, ini, fim)
@@ -251,9 +256,16 @@ def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
         curva.append({"ts": ts.isoformat(), "hora": ts.astimezone(tz).strftime("%H:%M"),
                       "esperado_kw": (float(esp_curva[b]) if b in esp_curva else None), "medido_kw": (float(med_curva[b]) if b in med_curva else None)})
     casc = _cascata(conn, usina_id, mid, hoje)
+    # Sem sol no ultimo slot nao existe instante para comparar: as 23h o esperado e ~0 e a razao medido/esperado
+    # explodia — a CPP100 de 03/09 abria com "Dentro 365,1% agora". Nesse caso o selo passa a mostrar o DIA fechado.
+    piso = max(20.0, 0.02 * float(u["kw_ac"] or 0.0))
+    if casc and (esp_kw is None or esp_kw < piso):
+        d_dia = ((casc["e_medido"] - casc["e_esperado"]) / casc["e_esperado"]) if casc["e_esperado"] else None
+        cabecalho.update({"delta": d_dia, "faixa": faixa(d_dia, float(u["tolerancia"])), "base": "dia"})
     preco = _preco(conn, usina_id, hoje)
+    n_inv_ativos = int(_q(conn, "SELECT count(*) FROM equipamento WHERE usina_id=%s AND tipo='inversor' AND ativo", (usina_id,))[0][0])
     eventos = [{"id": r[0], "tipo": r[1], "equipamento_id": r[2], "equipamento": r[3], "ini": r[4].isoformat(), "hora_ini": r[4].astimezone(tz).strftime("%H:%M"),
-                "fim": r[5].isoformat() if r[5] else None, "severidade": r[6], "kwh": float(r[7]), "detalhe": r[8] or {}}
+                "fim": r[5].isoformat() if r[5] else None, "hora_fim": (r[5].astimezone(tz).strftime("%H:%M") if r[5] else None), "severidade": r[6], "kwh": float(r[7]), "detalhe": r[8] or {}}
                for r in _q(conn, "SELECT ev.id, ev.tipo, ev.equipamento_id, coalesce(e.nome_exibicao, e.codigo_fonte, 'estação'), ev.ini, ev.fim, "
                                  "ev.severidade, ev.kwh, ev.detalhe FROM evento ev LEFT JOIN equipamento e ON e.id=ev.equipamento_id "
                                  "WHERE ev.usina_id=%s AND (ev.ini >= %s OR ev.fim IS NULL) AND ev.ini < %s ORDER BY ev.kwh DESC, ev.ini", (usina_id, ini, fim))]
@@ -295,9 +307,28 @@ def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
     sensor = {"razao_poa_ghi": razao_dia, "cobertura_gate": (casc["cobertura_gate"] if casc else None), "gate_hoje": _gate_hoje(conn, usina_id, ini, fim),
               "trackers_sem_inversor": (casc["trackers_sem_inversor"] if casc else None)}
     return {"agora": agora.isoformat(), "ciclo": _ciclo(conn), "cabecalho": cabecalho, "periodo": {"dias": 1, "de": str(hoje), "ate": str(hoje)},
-            "dias": [], "curva": curva, "cascata": casc, "preco_mwh": preco,
+            "dias": [], "curva": curva, "paradas": _paradas(eventos, tz, n_inv_ativos), "cascata": casc, "preco_mwh": preco,
             "perda_brl": ((max(0.0, casc["delta"]) / 1000.0 * preco) if (casc and preco) else None), "eventos": eventos, "inversores": inversores,
             "trackers": _top("tracker", "tracker"), "strings": _top("string", "string"), "sensor": sensor}
+
+
+def _paradas(eventos: list[dict], tz: ZoneInfo, n_inversores: int) -> list[dict]:
+    """Junta os eventos de inversor parado que se sobrepoem numa janela so: e o desligamento visto pela usina,
+    nao pelo equipamento. A curva do dia marca cada janela em vermelho. Quantos inversores caem juntos e o que
+    separa a falha de UM equipamento do desligamento (ou corte remoto) que atinge a usina inteira."""
+    linhas = sorted(((dt.datetime.fromisoformat(e["ini"]), dt.datetime.fromisoformat(e["fim"]), e)
+                     for e in eventos if e["tipo"] == "inversor_parado" and e.get("fim")), key=lambda x: x[0])
+    janelas: list[dict] = []
+    for ini, fim, e in linhas:
+        if janelas and ini <= janelas[-1]["_fim"] + dt.timedelta(minutes=15):
+            j = janelas[-1]
+            j["_fim"] = max(j["_fim"], fim); j["kwh"] += e["kwh"]; j["equipamentos"].append(e["equipamento"])
+        else:
+            janelas.append({"_ini": ini, "_fim": fim, "kwh": e["kwh"], "equipamentos": [e["equipamento"]]})
+    return [{"ini": j["_ini"].isoformat(), "fim": j["_fim"].isoformat(),
+             "hora_ini": j["_ini"].astimezone(tz).strftime("%H:%M"), "hora_fim": j["_fim"].astimezone(tz).strftime("%H:%M"),
+             "min": int((j["_fim"] - j["_ini"]).total_seconds() // 60), "n": len(set(j["equipamentos"])), "de": n_inversores,
+             "kwh": round(float(j["kwh"]), 1), "equipamentos": sorted(set(j["equipamentos"]))} for j in janelas]
 
 
 def usina_periodo(conn, usina_id: int, agora: dt.datetime, dias: int) -> dict | None:
@@ -374,7 +405,7 @@ def usina_periodo(conn, usina_id: int, agora: dt.datetime, dias: int) -> dict | 
     sensor = {"razao_poa_ghi": (float(np.median([a / b for a, b in pares])) if pares else None), "cobertura_gate": (casc["cobertura_gate"] if casc else None),
               "gate_hoje": _gate_hoje(conn, usina_id, ini, fim), "trackers_sem_inversor": (casc["trackers_sem_inversor"] if casc else None)}
     return {"agora": agora.isoformat(), "ciclo": _ciclo(conn), "cabecalho": cabecalho, "periodo": {"dias": dias, "de": d0.isoformat(), "ate": hoje.isoformat()},
-            "dias": dias_l, "curva": [], "cascata": casc, "preco_mwh": preco,
+            "dias": dias_l, "curva": [], "paradas": [], "cascata": casc, "preco_mwh": preco,
             "perda_brl": ((max(0.0, casc["delta"]) / 1000.0 * preco) if (casc and preco) else None), "eventos": eventos, "inversores": inversores,
             "trackers": _top("tracker", "tracker"), "strings": _top("string", "string"), "sensor": sensor}
 
