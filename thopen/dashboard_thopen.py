@@ -387,6 +387,31 @@ def _polaris_records():
 #    planilhas soltas no OneDrive; desde 28/08/2026 é tudo banco. A régua de corte segue: para
 #    usina que TAMBÉM tem aba diária, o histórico vale até 01/06 e a aba diária depois disso.
 _SHEET_CORTE = dt.date(2026, 6, 1)
+
+
+def _corte_da_usina(bd):
+    """Data a partir da qual a aba diária manda, para ESTA usina.
+
+    POR QUE NÃO BASTA A DATA FIXA (achado de 04/09/2026): o corte em 01/06 valia para Santo
+    Antonio, Sarandi e Segredo, onde o histórico termina em 31/05 e a aba diária começa em
+    01/06 — emenda perfeita. Nos Pharmas não: o histórico do cliente vai até 31/07, mas a aba
+    diária só começa em 01/08 (Pharma II), 27/08 (Pharma IV) ou nunca (Pharma III). Junho e
+    julho caíam no vão — o histórico já tinha sido cortado e a aba ainda não tinha nascido — e
+    o cliente via o gráfico com dois meses vazios.
+
+    A régua passa a ser a MAIS TARDIA entre a data fixa e o primeiro dia em que a aba diária
+    tem geração de fato. Assim:
+      - quem emenda em 01/06 continua idêntico (a data fixa vence);
+      - quem tem aba começando depois usa o histórico até lá;
+      - aba sem nenhuma geração no ano devolve `date.max`, ou seja, histórico o ano inteiro.
+    Linha com geração nula ou zero NÃO conta como início: as abas são criadas com o mês todo em
+    branco, e contar a linha vazia traria de volta exatamente o buraco que isto conserta.
+    """
+    prim = min((r["data"] for r in bd.values()
+                if r.get("ger") not in (None, 0) and r["data"].year == ANO), default=None)
+    return max(_SHEET_CORTE, prim) if prim else dt.date.max
+
+
 _NOME_CANON = {"Santo Antonio do Platina": "Santo Antonio da Platina"}
 _BD_ALIAS = {v: k for k, v in _NOME_CANON.items()}   # canônico -> nome da aba no BD_Thopen
 
@@ -521,11 +546,12 @@ def _daily_records_todos(usina):
     sheet = _sheet_records().get(usina)
     if sheet:
         bd = {r["data"]: r for r in _daily_bd(usina)}
-        if bd:   # usina existe no BD_Thopen → planilha antes do corte + BD a partir do corte
+        if bd:   # usina existe no BD_Thopen → histórico antes do corte + BD a partir do corte
+            corte = _corte_da_usina(bd)
             recs = [{"data": d, "ger": e.get("ger"), "ipoa": e.get("ipoa"),
                      "disp": e.get("disp"), "com": e.get("com")}
-                    for d, e in sheet.items() if d.year == ANO and d < _SHEET_CORTE]
-            recs += [r for r in bd.values() if r["data"] >= _SHEET_CORTE]
+                    for d, e in sheet.items() if d.year == ANO and d < corte]
+            recs += [r for r in bd.values() if r["data"] >= corte]
         else:    # usina fora do BD_Thopen → planilha inteira (todas as datas do ano)
             recs = [{"data": d, "ger": e.get("ger"), "ipoa": e.get("ipoa"),
                      "disp": e.get("disp"), "com": e.get("com")}

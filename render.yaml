@@ -1,20 +1,30 @@
-# Deploy do dashboard Thopen no Render (plano free).
+# Deploy do dashboard Thopen (5080) — Render.
 #
-# --workers 1 é obrigatório aqui: cada worker carrega o BD_Thopen inteiro em memória
-# (medido: 334 MB de pico) e o plano free corta em 512 MB. Com 2 workers, estoura.
+# ATUALIZADO EM 04/09/2026. O que mudou e por quê:
+#   • saiu THOPEN_DATA_DIR=data. Desde 28/08/2026 o dashboard não abre arquivo nenhum: o
+#     `fonte_api` monta o workbook EM MEMÓRIA lendo a Gridco Performance API (PostgreSQL).
+#     A env não fazia mais nada, e o snapshot em thopen/data/ (5 MB) virou entulho.
+#   • entrou GRIDCO_SQL_TOKEN. É o que autentica a leitura. SEM ELE O APP SOBE E NÃO LÊ NADA.
+#     Fica com sync:false de propósito: é SEGREDO, tem de ser digitado no painel do Render,
+#     nunca commitado aqui.
+#   • o startCommand ganhou --chdir thopen, igual ao do Railway. Antes ele dependia de o
+#     serviço ter "Root Directory" configurado na mão — duas convenções brigando.
 #
-# THOPEN_DATA_DIR=data faz o app ler o snapshot versionado em data/ (o Render não
-# enxerga o OneDrive). Sem ele, o app tentaria os caminhos locais do Windows.
+# --workers 1 é obrigatório no plano free: cada worker carrega o BD_Thopen inteiro em
+# memória (medido: 334 MB de pico) e o free corta em 512 MB. Com 2, estoura.
+#
+# O deploy leva o REPOSITÓRIO, mas o app são 3 arquivos (~105 KB): thopen/dashboard_thopen.py,
+# thopen/fonte_api.py e thopen/templates/dashboard_thopen.html.
 services:
   - type: web
     name: thopen-dashboard
     runtime: python
     plan: free
     buildCommand: pip install -r requirements-thopen.txt
-    startCommand: gunicorn dashboard_thopen:app --bind 0.0.0.0:$PORT --workers 1 --timeout 180
+    startCommand: gunicorn dashboard_thopen:app --chdir thopen --bind 0.0.0.0:$PORT --workers 1 --timeout 180
     healthCheckPath: /
     envVars:
-      - key: THOPEN_DATA_DIR
-        value: data
+      - key: GRIDCO_SQL_TOKEN
+        sync: false          # SEGREDO — preencher no painel, nunca no repositório
       - key: PYTHON_VERSION
         value: "3.12.7"

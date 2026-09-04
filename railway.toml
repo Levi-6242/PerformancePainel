@@ -1,0 +1,25 @@
+# Deploy do dashboard Thopen (5080) — Railway.
+#
+# POR QUE ESTE ARQUIVO ESTÁ NA RAIZ (04/09/2026): existia um railway.toml em
+# thopen/deploy/, mas o Railway procura a configuração na RAIZ do repositório. Lá dentro ele
+# nunca era lido — e o startCommand de lá já usava `--chdir thopen`, ou seja, foi escrito
+# supondo a raiz. Ficava sem efeito.
+#
+# GRIDCO_SQL_TOKEN não entra aqui: é SEGREDO, vai nas Variables do serviço no painel do
+# Railway. Sem ele o app sobe e não lê nada da Gridco Performance API.
+#
+# --workers 1: cada worker carrega o BD_Thopen inteiro em memória (pico medido de 334 MB).
+# Suba para 2 só em plano com folga de RAM.
+#
+# O app são 3 arquivos (~105 KB): thopen/dashboard_thopen.py, thopen/fonte_api.py e
+# thopen/templates/dashboard_thopen.html. O resto de thopen/ (data/, deploy/, logs, .bat,
+# .ps1, cache) é local e não faz falta na nuvem.
+
+[build]
+builder = "NIXPACKS"
+buildCommand = "pip install -r requirements-thopen.txt"
+
+[deploy]
+startCommand = "gunicorn dashboard_thopen:app --chdir thopen --bind 0.0.0.0:$PORT --workers 1 --timeout 180"
+healthcheckPath = "/"
+restartPolicyType = "ON_FAILURE"
