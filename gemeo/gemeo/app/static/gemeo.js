@@ -72,10 +72,10 @@
     var a = minu(j.hora_ini), b = minu(j.hora_fim);
     if (a === null || b === null || b < mIni || a > mFim) return;
     var xa = xm(Math.max(a, mIni)), xb = xm(Math.min(b, mFim));
-    mk("rect", { x: xa, y: y1, width: Math.max(1.5, xb - xa), height: y0 - y1, fill: "rgba(179,38,30,.10)" });
-    [xa, xb].forEach(function (x) { mk("line", { x1: x, y1: y1, x2: x, y2: y0, stroke: "#B3261E", "stroke-width": "1.4" }); });
-    var rot = mk("text", { x: (xa + xb) / 2, y: y1 - 6, "text-anchor": "middle", "font-size": "10", fill: "#B3261E", "font-family": mono, "font-weight": "700" },
-                 j.n + "/" + j.de + " inv. parados");
+    mk("rect", { "class": "parada-marca", x: xa, y: y1, width: Math.max(1.5, xb - xa), height: y0 - y1, fill: "rgba(179,38,30,.10)" });
+    [xa, xb].forEach(function (x) { mk("line", { "class": "parada-marca", x1: x, y1: y1, x2: x, y2: y0, stroke: "#B3261E", "stroke-width": "1.4" }); });
+    var rot = mk("text", { "class": "parada-marca", x: (xa + xb) / 2, y: y1 - 6, "text-anchor": "middle", "font-size": "10", fill: "#B3261E", "font-family": mono, "font-weight": "700" },
+                 j.n + (j.n > 1 ? " inversores parados" : " inversor parado"));
     var tt = document.createElementNS(ns, "title");
     tt.textContent = j.hora_ini + " a " + j.hora_fim + " (" + j.min + " min) · " + j.n + " de " + j.de + " inversores · " + j.kwh + " kWh";
     rot.appendChild(tt);
@@ -108,13 +108,45 @@
     if (par.length) {
       var kwh = 0, nmax = 0, minutos = 0;
       par.forEach(function (j) { kwh += j.kwh || 0; nmax = Math.max(nmax, j.n || 0); minutos += j.min || 0; });
-      mk("rect", { x: cx - larg / 2 + 1, y: y1, width: Math.max(2, larg - 2), height: y0 - y1, fill: "rgba(179,38,30,.10)" });
-      mk("line", { x1: cx - larg / 2 + 1, y1: y0 + 3.5, x2: cx + larg / 2 - 1, y2: y0 + 3.5, stroke: "#B3261E", "stroke-width": "2.5" });
-      txt = " · parada: " + nmax + "/" + par[0].de + " inversores, " + minutos + " min, " + Math.round(kwh) + " kWh";
+      mk("rect", { "class": "parada-marca", x: cx - larg / 2 + 1, y: y1, width: Math.max(2, larg - 2), height: y0 - y1, fill: "rgba(179,38,30,.10)" });
+      mk("line", { "class": "parada-marca", x1: cx - larg / 2 + 1, y1: y0 + 3.5, x2: cx + larg / 2 - 1, y2: y0 + 3.5, stroke: "#B3261E", "stroke-width": "2.5" });
+      txt = " · parada: " + nmax + " de " + par[0].de + " inversores, " + minutos + " min, " + Math.round(kwh) + " kWh";
     }
     mk("rect", { x: cx - bw, y: y0 - he, width: bw, height: he, fill: "none", stroke: "#3E7CB1", "stroke-width": "1.5", "stroke-dasharray": "4 3" });
     var r = mk("rect", { x: cx, y: y0 - hm, width: bw, height: hm, fill: "#6A8F0E" });
     var t = document.createElementNS(ns, "title"); t.textContent = d.dia + ": esperado " + ((d.e_esperado || 0) / 1000).toFixed(1) + " MWh · medido " + ((d.e_medido || 0) / 1000).toFixed(1) + " MWh" + txt; r.appendChild(t);
-    if (i % passo === 0) mk("text", { x: cx, y: y0 + 14, "text-anchor": "middle", "font-size": "9", fill: par.length ? "#B3261E" : "#6E6A80", "font-family": mono, "font-weight": par.length ? "700" : "400" }, d.dia.slice(8, 10) + "/" + d.dia.slice(5, 7));
+    if (i % passo === 0) {
+      var dt = d.dia.slice(8, 10) + "/" + d.dia.slice(5, 7);
+      mk("text", { "class": par.length ? "parada-marca" : "", x: cx, y: y0 + 14, "text-anchor": "middle", "font-size": "9", fill: par.length ? "#B3261E" : "#6E6A80", "font-family": mono, "font-weight": par.length ? "700" : "400" }, dt);
+      // a mesma data em cinza por baixo: aparece no lugar da vermelha quando as marcas estao escondidas
+      if (par.length) mk("text", { "class": "parada-off", x: cx, y: y0 + 14, "text-anchor": "middle", "font-size": "9", fill: "#6E6A80", "font-family": mono }, dt);
+    }
   });
+})();
+
+/* Clicar em "Parada de inversores" na legenda esconde as marcas vermelhas do grafico — pedido do Levi (04/09) para
+   tirar print sem elas. A escolha fica no navegador: sem isso o auto-refresh de 5 min traria as linhas de volta no
+   meio do print. E so visual: o evento, a cascata e o workbook continuam iguais. */
+(function () {
+  var CHAVE = "gemeo.paradas.ocultas", botoes = document.querySelectorAll(".lg-toggle");
+  if (!botoes.length) return;
+  var oculto = false;
+  try { oculto = localStorage.getItem(CHAVE) === "1"; } catch (e) { }
+  function pinta() {
+    botoes.forEach(function (b) {
+      var svg = document.getElementById(b.getAttribute("data-alvo"));
+      if (svg) svg.classList.toggle("sem-paradas", oculto);
+      b.classList.toggle("off", oculto);
+      b.setAttribute("aria-pressed", oculto ? "false" : "true");
+      b.title = oculto ? "mostrar as marcas de parada" : "esconder as marcas de parada (para o print)";
+    });
+  }
+  botoes.forEach(function (b) {
+    b.addEventListener("click", function () {
+      oculto = !oculto;
+      try { localStorage.setItem(CHAVE, oculto ? "1" : "0"); } catch (e) { }
+      pinta();
+    });
+  });
+  pinta();
 })();

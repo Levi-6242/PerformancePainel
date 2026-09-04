@@ -72,6 +72,12 @@ table.tab{width:100%;border-collapse:collapse;font-size:12.5px}
 .lista .item b{font-size:12.5px}.lista .item .sub{font-size:11px;color:var(--gc-mut)}
 .legenda{padding:0 16px 14px;display:flex;gap:18px;font-size:11px;color:var(--gc-mut);font-weight:600;flex-wrap:wrap}
 .legenda span{display:inline-flex;align-items:center;gap:6px}
+/* Item de legenda que liga e desliga as marcas de parada: o Levi pediu para poder tirar print sem elas (04/09). */
+.legenda .lg-toggle{display:inline-flex;align-items:center;gap:6px;background:none;border:0;padding:0;font:inherit;color:inherit;cursor:pointer}
+.legenda .lg-toggle:hover{color:var(--gc-navy)}
+.legenda .lg-toggle.off{opacity:.38;text-decoration:line-through}
+svg.sem-paradas .parada-marca{display:none}
+svg:not(.sem-paradas) .parada-off{display:none}
 details summary{cursor:pointer;padding:10px 16px;font-weight:700;font-size:13px;list-style:none;border-top:1px solid var(--gc-line)}
 details summary::-webkit-details-marker{display:none}
 .frio-aviso{background:#ECEBF0;color:var(--st-off);padding:6px 26px;font-size:12px;font-weight:600}
