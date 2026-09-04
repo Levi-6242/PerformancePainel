@@ -20,6 +20,8 @@ a{color:var(--dv-2)}a:hover{color:var(--gc-navy)}
 .btn.mini{padding:4px 9px;font-size:11px;background:#E7F2E8;color:var(--st-ok);white-space:nowrap}.btn.mini:hover{background:var(--gc-lime);color:var(--gc-navy)}
 .dia{display:inline-flex;align-items:center;gap:6px}.dia input{background:var(--gc-navy-800);color:#fff;border:1px solid var(--gc-navy-700);border-radius:8px;padding:5px 8px;font-family:var(--f-data);font-size:12px;color-scheme:dark}
 .tab tr.lk{cursor:pointer}.tab tr.lk:hover td{background:#EEF3E6}.tab tr.lk .nome{color:inherit;text-decoration:none;border-bottom:1px dotted var(--gc-mut)}
+.seg{display:inline-flex;border:1px solid var(--gc-navy-700);border-radius:8px;overflow:hidden;margin-right:14px;text-transform:none;letter-spacing:0}
+.seg a{color:var(--st-off-n);padding:4px 10px;text-decoration:none;font-size:11px;font-weight:700}.seg a.on{background:var(--gc-lime);color:var(--gc-navy)}.seg a:hover{color:#fff}.seg a.on:hover{color:var(--gc-navy)}
 .pill{display:inline-flex;align-items:center;gap:6px;border-radius:99px;padding:3px 11px 3px 8px;font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
 .pill.ativo{background:rgba(169,219,33,.1);border:1px solid rgba(169,219,33,.28);color:var(--gc-lime)}
 .pill.placa{background:rgba(232,163,61,.12);border:1px solid rgba(232,163,61,.35);color:var(--st-warn-n)}

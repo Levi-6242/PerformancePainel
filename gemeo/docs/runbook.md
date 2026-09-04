@@ -70,6 +70,8 @@ O backup é uma cópia consistente do arquivo (`backup.ps1`, API de backup do SQ
 
 ```
 Stop-ScheduledTask "Gemeo Ingest"; Stop-ScheduledTask "Gemeo App"; Stop-ScheduledTask "Gemeo Modelar"
+# no modo -SemAdmin a acao e um .vbs: parar a tarefa mata so o wscript e o pythonw fica orfao segurando a porta - mate-o tambem:
+Get-CimInstance Win32_Process -Filter "Name='pythonw.exe'" | Where-Object { $_.CommandLine -like '*gemeo.cli*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
 Copy-Item D:\Backups\gemeo\gemeo_AAAAMMDD_HHMM.sqlite <caminho do gemeo.sqlite>
 Start-ScheduledTask "Gemeo Ingest"; Start-ScheduledTask "Gemeo App"; Start-ScheduledTask "Gemeo Modelar"
 ```

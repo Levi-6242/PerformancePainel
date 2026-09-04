@@ -82,3 +82,35 @@ def test_frota_e_usina_sobre_o_banco_semeado(conn, mro100_modelada):
     # sem ingestao recente a usina sai da regua com motivo, nao some
     fr2 = c.frota(conn, agora + dt.timedelta(hours=30))
     assert fr2["usinas"] == [] and fr2["nao_modeladas"][0]["motivo"] == "sem ingestão nas últimas 24 h"
+
+
+def test_usina_periodo_soma_as_cascatas_e_as_perdas(conn, mro100_modelada):
+    usina, ids = mro100_modelada
+    agora = dt.datetime(2026, 8, 31, 20, 0, tzinfo=UTC)
+    with conn.cursor() as cur:   # um segundo dia sintetico na cascata, para a soma ter o que somar
+        cur.execute("SELECT modelo_id FROM cascata_dia WHERE usina_id=%s LIMIT 1", (usina.id,))
+        mid = cur.fetchone()[0]
+        cur.execute("INSERT INTO cascata_dia (usina_id, dia, modelo_id, e_esperado, e_medido, delta, inv_parado, tracker, string, residuo, cobertura_gate, trackers_sem_inversor) "
+                    "VALUES (%s,%s,%s,40000,38000,2000,1500,0,0,500,1.0,1)", (usina.id, dt.date(2026, 8, 30), mid))
+    conn.commit()
+    p = c.usina_periodo(conn, usina.id, agora, 7)
+    assert p["periodo"] == {"dias": 7, "de": "2026-08-25", "ate": "2026-08-31"} and [d["dia"] for d in p["dias"]] == ["2026-08-30", "2026-08-31"]
+    assert p["cascata"]["n_dias"] == 2 and p["cascata"]["e_esperado"] == pytest.approx(40000 + p["dias"][1]["e_esperado"])
+    assert p["cascata"]["inv_parado"] > 2500 and p["cabecalho"]["faixa"] in ("dentro", "moderado", "grave")
+    assert any(e["tipo"] == "inversor_parado" for e in p["eventos"])
+    inv22 = next(i for i in p["inversores"] if i["id"] == ids["inv:22"])
+    assert inv22["status"] == "parado" and inv22["inv_parado"] > 1000 and p["trackers"][0]["kwh"] > 0
+    assert c.usina_periodo(conn, 999999, agora, 7) is None
+
+
+def test_saude_a_noite_nao_cobra_idade_do_ciclo_mas_falha_acusa_sempre(conn, mro100_modelada):
+    from types import SimpleNamespace
+    from gemeo.core import db
+    usina, _ = mro100_modelada
+    cfg = SimpleNamespace(sunop_token="", teto_sunop_dia=600, janela_solar=("05:40", "18:20"))
+    noite = dt.datetime(2026, 9, 1, 2, 0, tzinfo=UTC)       # 23:00 em Belem; ultimo ciclo 'ok' (19:50Z) tem 130 min
+    assert not [p for p in c.saude(conn, cfg, noite)["problemas"] if p.startswith("sunop")]
+    dia = dt.datetime(2026, 9, 1, 14, 0, tzinfo=UTC)        # 11:00 em Belem, mesmo ciclo com 18 h: ai sim e problema
+    assert any(p.startswith("sunop: ok há") for p in c.saude(conn, cfg, dia)["problemas"])
+    db.registrar_ingest_run(conn, "sunop", usina.id, noite, noite, "falha", n_requisicoes=1, erro="403 borda")
+    assert any(p.startswith("sunop: falha") for p in c.saude(conn, cfg, noite)["problemas"])

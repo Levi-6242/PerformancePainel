@@ -38,7 +38,11 @@ US = {"agora": AGORA.isoformat(), "ciclo": {}, "cabecalho": CAB,
                      {"id": 1, "nome": "INV_1", "kwp": 277.68, "medido_kwh": 1600.0, "esperado_kwh": 1650.0, "razao": 0.97, "inv_parado": 0.0,
                       "tracker": 4.0, "string": 0.0, "residuo": 46.0, "status": "ok"}],
       "trackers": [{"id": 4, "nome": "TRK_4", "pai_id": 1, "kwh": 65.0}, {"id": 64, "nome": "TRK_64", "pai_id": None, "kwh": 3.0}], "strings": [],
-      "sensor": {"razao_poa_ghi": 1.31, "cobertura_gate": 0.95, "gate_hoje": "ok", "trackers_sem_inversor": 1}}
+      "sensor": {"razao_poa_ghi": 1.31, "cobertura_gate": 0.95, "gate_hoje": "ok", "trackers_sem_inversor": 1},
+      "periodo": {"dias": 1, "de": "2026-08-31", "ate": "2026-08-31"}, "dias": []}
+USP = {**US, "periodo": {"dias": 7, "de": "2026-08-25", "ate": "2026-08-31"}, "curva": [],
+       "dias": [{"dia": "2026-08-30", "e_esperado": 40000.0, "e_medido": 38000.0, "delta": 2000.0, "inv_parado": 1500.0, "tracker": 0.0, "string": 0.0, "residuo": 500.0, "cobertura_gate": 1.0, "trackers_sem_inversor": 1},
+                {"dia": "2026-08-31", "e_esperado": 41636.0, "e_medido": 38971.0, "delta": 2665.0, "inv_parado": 1658.0, "tracker": 104.0, "string": 0.0, "residuo": 903.0, "cobertura_gate": 0.95, "trackers_sem_inversor": 1}]}
 
 
 @pytest.fixture
@@ -51,6 +55,7 @@ def cli(monkeypatch):
 
     monkeypatch.setattr(consultas, "frota", frota_fake)
     monkeypatch.setattr(consultas, "usina", lambda conn, uid, agora: US if uid == 1 else None)
+    monkeypatch.setattr(consultas, "usina_periodo", lambda conn, uid, agora, dias: dict(USP, periodo={**USP["periodo"], "dias": dias}) if uid == 1 else None)
     monkeypatch.setattr(consultas, "saude", lambda conn, cfg, agora: {"ok": True, "banco": True, "problemas": []})
     app = server.criar_app(CFG, conectar=lambda: object())
     app.config["TESTING"] = True
@@ -113,3 +118,12 @@ def test_dia_escolhido_congela_o_agora_e_desliga_o_auto_refresh(cli):
     assert 'http-equiv="refresh" content="300"' in html_vivo and 'class="lk"' in html_vivo
     html_usina = cli.get("/gemeo/usina/1?dia=2026-09-01").get_data(as_text=True)
     assert "‹ Frota" in html_usina and "/gemeo/api/usina/1?dia=2026-09-01" in html_usina
+
+
+def test_periodo_de_7_ou_30_dias_troca_a_curva_por_barras_e_agrega(cli):
+    r = _entra(cli).get("/gemeo/usina/1?periodo=semana")
+    html = r.get_data(as_text=True)
+    assert r.status_code == 200 and "dias-dados" in html and "curva-dados" not in html and "7 dias · 2026-08-25 a 2026-08-31" in html
+    assert "Por dia — esperado × medido" in html and "Cascata de perdas — 7 dias" in html and "no período" in html
+    assert cli.get("/gemeo/api/usina/1?periodo=mes").get_json()["periodo"]["dias"] == 30
+    assert cli.get("/gemeo/api/usina/1?periodo=xyz").get_json()["periodo"]["dias"] == 1     # periodo desconhecido = dia

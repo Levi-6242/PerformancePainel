@@ -177,9 +177,8 @@ class IngestorSunOp(Ingestor):
         agora = agora or dt.datetime.now(dt.timezone.utc)
         ids = []
         ativas = [u for u in self.usinas if tempo.dentro_janela_solar(agora, u.tz, self.cfg.janela_solar)]
-        for u in self.usinas:
-            if u not in ativas:
-                ids.append(self._db.registrar_ingest_run(self.conn, fonte=self.fonte, usina_id=u.id, ini=agora, fim=agora, status="falha", cobertura=0.0, erro="fora da janela solar"))
+        # Fora da janela solar NAO se registra ingest_run: na noite de 03/09 cada ciclo gravava uma linha 'falha' com
+        # erro "fora da janela solar" e o /healthz passou a noite em "sunop: falha ha 0 min" (503) sem nada errado.
         if not ativas:
             return ids
         if self.disjuntor.aberto():

@@ -80,3 +80,14 @@ def test_janela_em_pedacos_de_um_dia():
     assert len(ped) == 3 and ped[0] == (ini, ini + dt.timedelta(hours=24)) and ped[-1][1] == ini + dt.timedelta(days=3)
     assert sunop.pedacos_de_um_dia(ini, ini + dt.timedelta(minutes=30)) == [(ini, ini + dt.timedelta(minutes=30))]
     assert sunop.pedacos_de_um_dia(ini, ini) == []
+
+
+def test_fora_da_janela_solar_nao_registra_ingest_run():
+    # Noite de 03/09: cada ciclo gravava 'falha' com "fora da janela solar" e o /healthz ficou em 503 a noite inteira.
+    class DB:
+        def registrar_ingest_run(self, *a, **k): raise AssertionError("noite nao e ciclo: nada a registrar")
+    from gemeo.ingest.base import Disjuntor
+    ing = sunop.IngestorSunOp.__new__(sunop.IngestorSunOp)
+    ing.usinas = [type("U", (), {"id": 1, "tz": "America/Belem"})()]
+    ing.cfg = type("C", (), {"janela_solar": ("05:40", "18:20")})(); ing._db = DB(); ing.conn = None; ing.fonte = "sunop"; ing.disjuntor = Disjuntor()
+    assert ing.ciclo(agora=dt.datetime(2026, 9, 4, 2, 0, tzinfo=dt.timezone.utc)) == []      # 23:00 em Belem

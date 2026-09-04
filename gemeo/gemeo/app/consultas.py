@@ -15,6 +15,8 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
+from gemeo.core import tempo
+
 FRIO_MIN = 30          # frescor: acima disto a usina fica cinza antes de qualquer outra cor (spec §9)
 DEFICIT_GRAVE = 0.08   # faixa 'deficit grave' da regua
 H = 0.25
@@ -292,7 +294,87 @@ def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
     razao_dia = float(np.median([a / b for a, b in pares])) if pares else None
     sensor = {"razao_poa_ghi": razao_dia, "cobertura_gate": (casc["cobertura_gate"] if casc else None), "gate_hoje": _gate_hoje(conn, usina_id, ini, fim),
               "trackers_sem_inversor": (casc["trackers_sem_inversor"] if casc else None)}
-    return {"agora": agora.isoformat(), "ciclo": _ciclo(conn), "cabecalho": cabecalho, "curva": curva, "cascata": casc, "preco_mwh": preco,
+    return {"agora": agora.isoformat(), "ciclo": _ciclo(conn), "cabecalho": cabecalho, "periodo": {"dias": 1, "de": str(hoje), "ate": str(hoje)},
+            "dias": [], "curva": curva, "cascata": casc, "preco_mwh": preco,
+            "perda_brl": ((max(0.0, casc["delta"]) / 1000.0 * preco) if (casc and preco) else None), "eventos": eventos, "inversores": inversores,
+            "trackers": _top("tracker", "tracker"), "strings": _top("string", "string"), "sensor": sensor}
+
+
+def usina_periodo(conn, usina_id: int, agora: dt.datetime, dias: int) -> dict | None:
+    """Diagnostico agregado dos ultimos `dias` (7 ou 30) terminando no dia de `agora`: soma das cascatas diarias, perdas por
+    equipamento somadas, eventos do periodo e razao por inversor nos mesmos instantes. Tudo sai das tabelas diarias que o
+    job ja grava — nao recalcula o modelo."""
+    us = _usinas(conn, usina_id)
+    if not us:
+        return None
+    u = us[0]; tz = ZoneInfo(u["tz"]); mid = u["modelo_id"]
+    hoje = agora.astimezone(tz).date(); d0 = hoje - dt.timedelta(days=dias - 1)
+    ini, _ = _dia_utc(d0, tz); _, fim = _dia_utc(hoje, tz)
+    n_tipo = dict(_q(conn, "SELECT tipo, count(*) FROM equipamento WHERE usina_id=%s AND ativo GROUP BY tipo", (usina_id,)))
+    cabecalho = {"id": usina_id, "codigo": u["codigo"], "nome": u["nome"], "fonte": u["fonte"], "cliente": u["cliente"], "tz": u["tz"],
+                 "kwp": u["kwp"], "kw_ac": u["kw_ac"], "n_inversores": int(n_tipo.get("inversor", 0)), "n_trackers": int(n_tipo.get("tracker", 0)),
+                 "n_strings": int(n_tipo.get("string", 0)), "modelo_versao": u["modelo_versao"], "calibrado": bool(u["calibrado"]),
+                 "tolerancia": float(u["tolerancia"]), "hoje": str(hoje), "slot": None, "esperado_kw": None, "medido_kw": None, "delta": None,
+                 "faixa": "sem_dado", "gate_agora": None, "idade_leitura_min": _min(agora, u["ultima_leitura"]), "idade_esperado_min": None}
+    cabecalho["frio"] = cabecalho["idade_leitura_min"] is None or cabecalho["idade_leitura_min"] > FRIO_MIN
+    ch = ("e_esperado", "e_medido", "delta", "inv_parado", "tracker", "string", "residuo", "cobertura_gate", "trackers_sem_inversor")
+    rows = _q(conn, "SELECT dia, e_esperado, e_medido, delta, inv_parado, tracker, string, residuo, cobertura_gate, trackers_sem_inversor "
+                    "FROM cascata_dia WHERE usina_id=%s AND modelo_id=%s AND dia >= %s AND dia <= %s ORDER BY dia", (usina_id, mid, d0, hoje)) if mid else []
+    dias_l = [{"dia": r[0].isoformat(), **{k: (float(v) if k != "trackers_sem_inversor" else int(v)) for k, v in zip(ch, r[1:])}} for r in rows]
+    casc = None
+    if dias_l:
+        casc = {k: float(sum(d[k] for d in dias_l)) for k in ("e_esperado", "e_medido", "delta", "inv_parado", "tracker", "string", "residuo")}
+        casc["cobertura_gate"] = float(sum(d["cobertura_gate"] for d in dias_l) / len(dias_l))
+        casc["trackers_sem_inversor"] = max(d["trackers_sem_inversor"] for d in dias_l)
+        casc["n_dias"] = len(dias_l)
+        # delta do periodo sobre o esperado: e a faixa da regua, agora com dias inteiros em vez de um slot
+        delta = (casc["e_medido"] - casc["e_esperado"]) / casc["e_esperado"] if casc["e_esperado"] else None
+        cabecalho.update({"delta": delta, "faixa": faixa(delta, float(u["tolerancia"])), "esperado_kw": casc["e_esperado"], "medido_kw": casc["e_medido"]})
+    preco = _preco(conn, usina_id, hoje)
+    eventos = [{"id": r[0], "tipo": r[1], "equipamento_id": r[2], "equipamento": r[3], "ini": r[4].isoformat(), "hora_ini": r[4].astimezone(tz).strftime("%d/%m %H:%M"),
+                "fim": r[5].isoformat() if r[5] else None, "severidade": r[6], "kwh": float(r[7]), "detalhe": r[8] or {}}
+               for r in _q(conn, "SELECT ev.id, ev.tipo, ev.equipamento_id, coalesce(e.nome_exibicao, e.codigo_fonte, 'estação'), ev.ini, ev.fim, "
+                                 "ev.severidade, ev.kwh, ev.detalhe FROM evento ev LEFT JOIN equipamento e ON e.id=ev.equipamento_id "
+                                 "WHERE ev.usina_id=%s AND ev.ini >= %s AND ev.ini < %s ORDER BY ev.kwh DESC, ev.ini", (usina_id, ini, fim))]
+    perdas: dict[int, dict[str, float]] = {}
+    for eid, parcela, kwh in _q(conn, "SELECT p.equipamento_id, p.parcela, sum(p.kwh) FROM perda_dia p WHERE p.modelo_id=%s AND p.dia >= %s AND p.dia <= %s "
+                                      "AND p.equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s) GROUP BY 1, 2", (mid, d0, hoje, usina_id)) if mid else []:
+        perdas.setdefault(int(eid), {})[parcela] = float(kwh)
+    pac = _p_ac_do_dia(conn, usina_id, ini, min(fim, agora))
+    esp = _esperado_do_dia(conn, usina_id, mid, ini, fim)
+    por_inv: dict[int, tuple[float, float]] = {}
+    if not pac.empty and not esp.empty:
+        j = pac.merge(esp, on=["eq", "b"], how="inner")
+        for eid, g in j.groupby("eq"):
+            por_inv[int(eid)] = (float(g["v"].sum() * H), float(g["e"].sum() * H))
+    ev_por_eq: dict[int, str] = {}
+    for e in eventos:
+        if e["equipamento_id"] and e["tipo"] in ("inversor_parado", "inversor_abaixo"):
+            ev_por_eq.setdefault(e["equipamento_id"], "parado" if e["tipo"] == "inversor_parado" else "abaixo")
+    inversores = []
+    for eid, nome, at in _q(conn, "SELECT id, coalesce(nome_exibicao, codigo_fonte), atributos FROM equipamento WHERE usina_id=%s AND tipo='inversor' AND ativo "
+                                  "ORDER BY CAST(json_extract(atributos, '$.numero') AS INTEGER), codigo_fonte", (usina_id,)):
+        med, esp_i = por_inv.get(int(eid), (None, None))
+        razao = (med / esp_i) if esp_i else None
+        p = perdas.get(int(eid), {})
+        status = ev_por_eq.get(int(eid)) or ("sem_dado" if razao is None else "atencao" if razao < 0.9 else "ok")
+        inversores.append({"id": int(eid), "nome": nome, "kwp": (at or {}).get("kwp"), "medido_kwh": med, "esperado_kwh": esp_i, "razao": razao,
+                           "inv_parado": p.get("inv_parado", 0.0), "tracker": p.get("tracker", 0.0), "string": p.get("string", 0.0),
+                           "residuo": p.get("residuo", 0.0), "status": status})
+
+    def _top(tipo: str, parcela: str, n: int = 15) -> list[dict]:
+        rows = _q(conn, "SELECT e.id, coalesce(e.nome_exibicao, e.codigo_fonte), e.pai_id, sum(p.kwh) FROM perda_dia p JOIN equipamento e ON e.id=p.equipamento_id "
+                        "WHERE e.usina_id=%s AND e.tipo=%s AND p.parcela=%s AND p.modelo_id=%s AND p.dia >= %s AND p.dia <= %s GROUP BY e.id ORDER BY 4 DESC LIMIT %s",
+                  (usina_id, tipo, parcela, mid, d0, hoje, n)) if mid else []
+        return [{"id": int(r[0]), "nome": r[1], "pai_id": r[2], "kwh": float(r[3])} for r in rows]
+
+    pares = _q(conn, "SELECT p.valor, g.valor FROM leitura p JOIN leitura g ON g.equipamento_id=p.equipamento_id AND g.ts=p.ts AND g.medida='ghi' "
+                     "WHERE p.medida='poa' AND g.valor > 100 AND p.ts >= %s AND p.ts < %s "
+                     "AND p.equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s AND tipo='estacao')", (ini, fim, usina_id))
+    sensor = {"razao_poa_ghi": (float(np.median([a / b for a, b in pares])) if pares else None), "cobertura_gate": (casc["cobertura_gate"] if casc else None),
+              "gate_hoje": _gate_hoje(conn, usina_id, ini, fim), "trackers_sem_inversor": (casc["trackers_sem_inversor"] if casc else None)}
+    return {"agora": agora.isoformat(), "ciclo": _ciclo(conn), "cabecalho": cabecalho, "periodo": {"dias": dias, "de": d0.isoformat(), "ate": hoje.isoformat()},
+            "dias": dias_l, "curva": [], "cascata": casc, "preco_mwh": preco,
             "perda_brl": ((max(0.0, casc["delta"]) / 1000.0 * preco) if (casc and preco) else None), "eventos": eventos, "inversores": inversores,
             "trackers": _top("tracker", "tracker"), "strings": _top("string", "string"), "sensor": sensor}
 
@@ -316,8 +398,12 @@ def saude(conn, cfg, agora: dt.datetime) -> dict:
     exp = exp_do_jwt(getattr(cfg, "sunop_token", "") or "")
     dias_token = (exp - agora).days if exp else None
     problemas = []
+    # A noite nao ha ciclo SunOp (janela solar): a idade do ultimo ciclo so e problema com alguma usina em janela.
+    # 'parcial' e o normal do crepusculo (cobertura ~50% que a reconciliacao das 03h completa) — so 'falha' acusa.
+    janela = getattr(cfg, "janela_solar", ("05:40", "18:20"))
+    dia = any(tempo.dentro_janela_solar(agora, u["tz"], janela) for u in _usinas(conn))
     for f, v in fontes.items():
-        if v["status"] != "ok" or (v["idade_min"] or 0) > 120:
+        if v["status"] == "falha" or (dia and (v["idade_min"] or 0) > 120):
             problemas.append(f"{f}: {v['status']} há {v['idade_min']} min")
     if ciclo.get("em"):
         idade_ciclo = _min(agora, dt.datetime.fromisoformat(ciclo["em"]))

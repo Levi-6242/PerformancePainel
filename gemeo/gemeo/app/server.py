@@ -110,13 +110,19 @@ def criar_app(cfg, conectar=None) -> Flask:
         agora = _agora()
         return render_template("frota.html", d=consultas.frota(conn(), agora), agora=agora, **_vivo())
 
+    PERIODOS = {"dia": 1, "semana": 7, "mes": 30}
+
+    def _usina(usina_id: int, agora: dt.datetime):
+        dias = PERIODOS.get(request.args.get("periodo", "dia"), 1)
+        return consultas.usina(conn(), usina_id, agora) if dias == 1 else consultas.usina_periodo(conn(), usina_id, agora, dias)
+
     @app.route(f"{PREFIXO}/usina/<int:usina_id>")
     def usina(usina_id: int):
         agora = _agora()
-        d = consultas.usina(conn(), usina_id, agora)
+        d = _usina(usina_id, agora)
         if d is None:
             return "usina não encontrada", 404
-        return render_template("usina.html", d=d, agora=agora, **_vivo())
+        return render_template("usina.html", d=d, agora=agora, periodo=request.args.get("periodo", "dia"), **_vivo())
 
     @app.route(f"{PREFIXO}/api/frota")
     def api_frota():
@@ -124,7 +130,7 @@ def criar_app(cfg, conectar=None) -> Flask:
 
     @app.route(f"{PREFIXO}/api/usina/<int:usina_id>")
     def api_usina(usina_id: int):
-        d = consultas.usina(conn(), usina_id, _agora())
+        d = _usina(usina_id, _agora())
         return (jsonify(d), 200) if d else (jsonify({"erro": "usina não encontrada"}), 404)
 
     @app.route(f"{PREFIXO}/healthz")

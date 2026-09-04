@@ -109,3 +109,36 @@ O gêmeo está **rodando nesta máquina** com dado real: `gemeo ingest` (SunOp d
 - Telas Frota e Usina renderizadas com dados fixos e conferidas no navegador (identidade tokens_grid R00).
 - Depois de tudo: `5050 /healthz → 200`, `5080 → 200`, dois `cloudflared` vivos, `tunnel_url.txt` inalterado.
 - **Não verificado:** as três tarefas agendadas e o backup em um Windows real; o proxy no processo da plataforma (só no cliente de teste); o cadastro ao vivo (B1).
+
+## I. Noite de 03/09 → 04/09: o gêmeo sumiu, o banco "vazio" e as tarefas agendadas
+
+O que aconteceu, em ordem, com a causa de cada coisa:
+
+1. **Ingest, modelar e app morreram entre 22:36 e 23:18** junto com a plataforma (o guardião do túnel registrou "porta
+   5050 fechada" às 23:18; o `ronda_guardian.py` religou worker/app às 23:23). Eram processos soltos, subidos à mão —
+   **um logoff mata tudo isso**. Resolvido: as três tarefas agendadas do `deploy/instalar_tarefas.ps1` agora existem
+   neste PC, no modo novo `-SemAdmin` (sem elevação, sobem no logon, gatilho de 5 min faz de guardião, ação via `.vbs`
+   para não piscar console). Ver `deploy/README.md`.
+2. **Caminho com acento**: `Set-Content -Encoding Ascii` gravou `?rea de Trabalho` no `.cmd` e a tarefa nem achava a
+   pasta. O instalador passou a usar o nome curto 8.3 (`READET~1`) quando o caminho tem algo fora do ASCII.
+3. **O banco "sem tabelas"**: as tarefas abriam `%LOCALAPPDATA%\GridCo\gemeo\gemeo.sqlite` e viam um arquivo de 4 KB sem
+   schema, enquanto o de 29 MB seguia intacto. Causa: o app Claude é um pacote **MSIX** e o Windows virtualiza
+   `AppData\Local` para tudo que nasce dentro dele (os shells do Claude Code inclusive) — o gêmeo escreveu o dia inteiro
+   em `AppData\Local\Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\GridCo\gemeo\`. O `py` da Store (PythonManager)
+   tem outro cache e via um terceiro estado. Resolvido: banco resgatado pela API de backup do SQLite (248.225 leituras,
+   integrity ok) para **`C:\GridcoAuto\gemeo\gemeo.sqlite`**, fora de AppData; `GEMEO_DB_CAMINHO` no `gemeo.env` e
+   `-Banco` no instalador apontam para lá; conferido que os dois contextos enxergam o mesmo arquivo.
+4. **Noite marcada como falha**: fora da janela solar o ingest registrava `ingest_run` 'falha' com "fora da janela solar"
+   a cada ciclo e o `/healthz` passava a noite em 503. Resolvido: sem registro fora da janela; a saúde só cobra idade do
+   ciclo quando alguma usina está em janela e 'parcial' deixou de ser problema (só 'falha' acusa).
+
+Pendente / a saber:
+
+- **Sobras a apagar quando quiser**: o `gemeo.sqlite` de 4 KB no `%LOCALAPPDATA%\GridCo\gemeo` *real* (só se vê de fora
+  do app Claude) e a cópia de 29 MB em `Packages\Claude_pzs8sxrjxfjjc\LocalCache\Local\GridCo\gemeo\` (serve de backup
+  de 03/09 até lá).
+- **Parar o gêmeo no modo -SemAdmin** exige matar o `pythonw` além de `Stop-ScheduledTask` (o .vbs morre, o Python fica
+  órfão segurando a porta). Está no runbook.
+- **`logs/*.log` crescem sem rotação** (o wrapper faz `>>`). Aceitável por semanas; não por meses.
+- **Regra geral para este PC**: qualquer coisa subida pelo Claude Code que grave em `AppData\Local`/`Roaming` grava no
+  cache do pacote, não no lugar que uma tarefa agendada ou o usuário veem. Vale para tudo, não só para o gêmeo.

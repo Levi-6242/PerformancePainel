@@ -63,6 +63,26 @@ cd C:\gemeo\deploy
 Start-ScheduledTask "Gemeo Ingest"; Start-ScheduledTask "Gemeo App"; Start-ScheduledTask "Gemeo Modelar"
 ```
 
+Num **PC de uso, sem administrador** (o caso do PC do Levi em 03/09/2026): acrescente `-SemAdmin`. As tarefas sobem no
+logon do usuário e um gatilho de 5 min faz de guardião (se já está rodando, o Windows ignora; se morreu, sobe de novo) —
+é o que sobrevive a um logoff, que mata tudo que foi iniciado à mão. A ação passa por um `.vbs` para não piscar console,
+e os wrappers usam o caminho 8.3 da pasta quando ela tem acento (`Área de Trabalho` vira `READET~1`): `.cmd` é ASCII.
+
+```
+.\instalar_tarefas.ps1 -Python "<pythonw.exe real>" -SecretsDir "C:\Users\<voce>\gemeo-secrets" -SemAdmin
+```
+
+Para remover: `Unregister-ScheduledTask "Gemeo Ingest","Gemeo App","Gemeo Modelar" -Confirm:$false`.
+
+**Armadilha real (03/09/2026, PC do Levi): `%LOCALAPPDATA%` não é o mesmo arquivo para todo mundo.** O app Claude
+(desktop) é um pacote MSIX e o Windows *virtualiza* `AppData\Local` para tudo que nasce dentro dele — inclusive os
+shells do Claude Code. O `gemeo.sqlite` gravado o dia inteiro por processos subidos dali foi parar em
+`AppData\Local\Packages\Claude_<id>\LocalCache\Local\GridCo\gemeo\`, enquanto as tarefas agendadas (fora do pacote)
+abriam um arquivo VAZIO no caminho "real" — `no such table: usina` com o banco de 29 MB intacto do outro lado. O mesmo
+vale para o `py` da Microsoft Store (pacote PythonManager, com o seu próprio cache). Regra: **num PC assim, `-Banco` e
+`GEMEO_DB_CAMINHO` apontam para fora de `AppData`** (aqui: `C:\GridcoAuto\gemeo\gemeo.sqlite`); no servidor da T.I.,
+sem app empacotado, o padrão em `%LOCALAPPDATA%` serve.
+
 Logs em `C:\gemeo\logs\{ingest,modelar,app}.log`. Backup diário (agende às 02:00 na mesma máquina) — cópia consistente
 do arquivo pela API de backup do próprio SQLite, 14 dias de retenção:
 

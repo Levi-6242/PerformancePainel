@@ -2,27 +2,36 @@
 {% extends "base.html" %}
 {% block titulo %}{{ d.cabecalho.codigo }}{% endblock %}
 {% block secao %}GÊMEO DIGITAL · DIAGNÓSTICO{% endblock %}
-{% block direita %}{% set c = d.cabecalho %}<span><a href="{{ PREFIXO }}/" style="color:inherit">Frota</a> › {{ c.cliente or c.fonte }} › <b>{{ c.codigo }}</b></span>
+{% block direita %}{% set c = d.cabecalho %}{% set qs = ('&dia=' ~ dia_sel) if dia_sel else '' %}<span><a href="{{ PREFIXO }}/" style="color:inherit">Frota</a> › {{ c.cliente or c.fonte }} › <b>{{ c.codigo }}</b></span>
   <a class="btn sec" href="{{ PREFIXO }}/{{ '?dia=' ~ dia_sel if dia_sel else '' }}">‹ Frota</a>
   <form method="get" class="dia" action="{{ PREFIXO }}/usina/{{ c.id }}"><input type="date" name="dia" value="{{ dia_sel or c.hoje }}" aria-label="dia"><button class="btn sec" type="submit">Ver dia</button></form>
-  <a class="btn" href="{{ PREFIXO }}/usina/{{ c.id }}">Atualizar</a>
+  <a class="btn" href="{{ PREFIXO }}/usina/{{ c.id }}?periodo={{ periodo }}{{ qs }}">Atualizar</a>
   <a class="btn sec" href="{{ PREFIXO }}/api/usina/{{ c.id }}{{ '?dia=' ~ dia_sel if dia_sel else '' }}" target="_blank" rel="noopener">JSON</a>{% endblock %}
 {% block corpo %}{% set c = d.cabecalho %}{% set k = 'off' if c.frio else {'dentro':'ok','moderado':'warn','grave':'risk','sem_dado':'off'}[c.faixa] %}
-<div class="heroi"><div class="linha"><div><div class="kicker">Diagnóstico do gêmeo · {{ c.hoje }}</div>
+{% set qs = ('&dia=' ~ dia_sel) if dia_sel else '' %}
+<div class="heroi"><div class="linha"><div><div class="kicker">Diagnóstico do gêmeo · {{ c.hoje if d.periodo.dias == 1 else (d.periodo.dias ~ " dias · " ~ d.periodo.de ~ " a " ~ d.periodo.ate) }}</div>
   <h1>{{ c.codigo }} <span class="sub num">· {{ c.fonte }} · {{ (c.kwp/1000)|num(1) }} MWp · {{ c.n_inversores }} inversores · {{ c.n_trackers }} trackers · {{ c.n_strings }} strings</span></h1></div>
   <div><span class="tag {{ k }}" style="padding:5px 13px"><span class="gl">{{ {'ok':'●','warn':'▲','risk':'✕','off':'○'}[k] }}</span> {{ 'sem dado fresco' if c.frio else {'ok':'Dentro','warn':'Déficit','risk':'Déficit','off':'Sem dado'}[k] }} <span class="num">{{ c.delta|pct }}</span> agora</span></div></div>
-  <div class="regua-cab" style="margin-top:10px"><div>modelo <b>{{ c.modelo_versao or 'placa' }}</b> · {{ 'calibrado' if c.calibrado else 'não calibrado' }} · tolerância {{ (c.tolerancia*100)|round(0)|int }}% · última leitura há {{ c.idade_leitura_min if c.idade_leitura_min is not none else '—' }} min · último esperado há {{ c.idade_esperado_min if c.idade_esperado_min is not none else '—' }} min</div></div>
+  <div class="regua-cab" style="margin-top:10px"><div class="seg">{% for p, rot in (('dia', 'Dia'), ('semana', '7 dias'), ('mes', '30 dias')) %}<a href="{{ PREFIXO }}/usina/{{ c.id }}?periodo={{ p }}{{ qs }}" class="{{ 'on' if periodo == p else '' }}">{{ rot }}</a>{% endfor %}</div><div>modelo <b>{{ c.modelo_versao or 'placa' }}</b> · {{ 'calibrado' if c.calibrado else 'não calibrado' }} · tolerância {{ (c.tolerancia*100)|round(0)|int }}% · última leitura há {{ c.idade_leitura_min if c.idade_leitura_min is not none else '—' }} min · último esperado há {{ c.idade_esperado_min if c.idade_esperado_min is not none else '—' }} min</div></div>
 </div>
 {% if c.frio %}<div class="frio-aviso">Dado frio: a última leitura tem mais de 30 min. As cores abaixo valem para o último instante conhecido.</div>{% endif %}
 <div class="miolo">
  <div class="duas">
+  {% if d.periodo.dias > 1 %}
+  <div class="card"><div class="tit">Por dia — esperado × medido <small>energia da usina · MWh · {{ d.dias|length }} dias com cascata</small></div>
+   <div style="padding:16px 16px 8px"><svg id="barras" viewBox="0 0 560 240" style="width:100%;height:auto" role="img" aria-label="Esperado e medido por dia"></svg></div>
+   <div class="legenda"><span><span style="width:14px;height:10px;border:1.5px dashed var(--dv-2)"></span> Esperado (gêmeo)</span><span><span style="width:14px;height:10px;background:var(--dv-1)"></span> Medido</span><span>Δ do período: <span class="num">{{ c.delta|pct }}</span></span></div>
+   <script type="application/json" id="dias-dados">{{ d.dias|tojson }}</script>
+  </div>
+  {% else %}
   <div class="card"><div class="tit">Curva do dia — esperado × medido <small>potência CA da usina · MW</small></div>
    <div style="padding:16px 16px 8px"><svg id="curva" viewBox="0 0 560 240" style="width:100%;height:auto" role="img" aria-label="Curva do dia: esperado do gêmeo e medido até agora"></svg></div>
    <div class="legenda"><span><span style="width:18px;border-top:2.2px dashed var(--dv-2)"></span> Esperado (gêmeo)</span><span><span style="width:18px;height:2.4px;background:var(--dv-1)"></span> Medido — até agora</span><span><span style="width:12px;height:10px;background:rgba(179,38,30,.14);border:1px solid rgba(179,38,30,.3)"></span> Perda do dia: <span class="num">{{ ((d.cascata.delta if d.cascata else 0)/1000)|num(2) }} MWh</span></span></div>
    <script type="application/json" id="curva-dados">{{ d.curva|tojson }}</script>
   </div>
+  {% endif %}
   <div class="coluna">
-   <div class="card"><div class="tit">Cascata de perdas — {{ c.hoje }}</div>
+   <div class="card"><div class="tit">Cascata de perdas — {{ c.hoje if d.periodo.dias == 1 else (d.periodo.dias ~ " dias") }}</div>
     {% if d.cascata %}{% set cs = d.cascata %}{% set base = cs.e_esperado if cs.e_esperado > 0 else 1 %}
     <div class="casc">
      <div class="lin"><span class="rot">Esperado (gêmeo)</span><div class="barra"><div class="b esp num" style="width:100%">{{ (cs.e_esperado/1000)|num(2) }} MWh</div></div></div>
@@ -43,15 +52,15 @@
    </div>
   </div>
  </div>
- <div class="card" style="overflow:hidden;margin-bottom:14px"><div class="tit">Por inversor — {{ c.hoje }} <small>razão medido/esperado nos mesmos instantes · parcelas em kWh</small></div>
+ <div class="card" style="overflow:hidden;margin-bottom:14px"><div class="tit">Por inversor — {{ c.hoje if d.periodo.dias == 1 else (d.periodo.de ~ " a " ~ d.periodo.ate) }} <small>razão medido/esperado nos mesmos instantes · parcelas em kWh</small></div>
   <table class="tab"><thead><tr><th>Inversor</th><th class="r">Esperado</th><th class="r">Medido</th><th class="r">Razão</th><th class="r">Parado</th><th class="r">Trackers</th><th class="r">Strings</th><th class="r">Resíduo</th><th>Status</th></tr></thead><tbody>
   {% for i in d.inversores %}{% set ki = {'parado':'risk','abaixo':'warn','atencao':'warn','ok':'ok','sem_dado':'off'}[i.status] %}
    <tr><td class="nome">{{ i.nome }}</td><td class="num r">{{ i.esperado_kwh|num(0) }}</td><td class="num r">{{ i.medido_kwh|num(0) }}</td><td class="num r c-{{ ki }}">{{ i.razao|num(3) }}</td>
     <td class="num r">{{ i.inv_parado|num(0) }}</td><td class="num r">{{ i.tracker|num(0) }}</td><td class="num r">{{ i.string|num(0) }}</td><td class="num r">{{ i.residuo|num(0) }}</td>
     <td><span class="tag {{ ki }}">{{ {'parado':'Parado','abaixo':'Abaixo dos pares','atencao':'Atenção','ok':'Normal','sem_dado':'Sem dado'}[i.status] }}</span></td></tr>
   {% endfor %}</tbody></table>
-  <details><summary>Trackers com mais perda hoje ({{ d.trackers|length }})</summary><table class="tab"><thead><tr><th>Tracker</th><th class="r">Perda (kWh)</th></tr></thead><tbody>{% for t in d.trackers %}<tr><td>{{ t.nome }}{% if not t.pai_id %} <span class="c-warn">(sem inversor)</span>{% endif %}</td><td class="num r">{{ t.kwh|num(1) }}</td></tr>{% else %}<tr><td colspan="2" style="color:var(--gc-mut)">nenhuma perda em trackers hoje</td></tr>{% endfor %}</tbody></table></details>
-  <details><summary>Strings com mais perda hoje ({{ d.strings|length }})</summary><table class="tab"><thead><tr><th>String</th><th class="r">Perda (kWh)</th></tr></thead><tbody>{% for s in d.strings %}<tr><td>{{ s.nome }}</td><td class="num r">{{ s.kwh|num(1) }}</td></tr>{% else %}<tr><td colspan="2" style="color:var(--gc-mut)">nenhuma perda em strings hoje</td></tr>{% endfor %}</tbody></table></details>
+  <details><summary>Trackers com mais perda {{ "hoje" if d.periodo.dias == 1 else "no período" }} ({{ d.trackers|length }})</summary><table class="tab"><thead><tr><th>Tracker</th><th class="r">Perda (kWh)</th></tr></thead><tbody>{% for t in d.trackers %}<tr><td>{{ t.nome }}{% if not t.pai_id %} <span class="c-warn">(sem inversor)</span>{% endif %}</td><td class="num r">{{ t.kwh|num(1) }}</td></tr>{% else %}<tr><td colspan="2" style="color:var(--gc-mut)">nenhuma perda em trackers hoje</td></tr>{% endfor %}</tbody></table></details>
+  <details><summary>Strings com mais perda {{ "hoje" if d.periodo.dias == 1 else "no período" }} ({{ d.strings|length }})</summary><table class="tab"><thead><tr><th>String</th><th class="r">Perda (kWh)</th></tr></thead><tbody>{% for s in d.strings %}<tr><td>{{ s.nome }}</td><td class="num r">{{ s.kwh|num(1) }}</td></tr>{% else %}<tr><td colspan="2" style="color:var(--gc-mut)">nenhuma perda em strings hoje</td></tr>{% endfor %}</tbody></table></details>
  </div>
  <div class="card" style="margin-bottom:14px"><div class="tit">Sensor do dia</div><div class="faixa-nao"><span>razão POA/GHI <b class="num">{{ d.sensor.razao_poa_ghi|num(2) }}</b></span><span>cobertura do gate <b class="num">{{ (d.sensor.cobertura_gate*100)|round(0)|int if d.sensor.cobertura_gate is not none else '—' }}%</b></span><span>gate de hoje <b>{{ d.sensor.gate_hoje }}</b></span></div></div>
  <div class="rodape">Esperado físico: PVWatts (pvlib) sobre a POA medida · parcelas: parado → trackers (cosseno × fração direta) → strings → resíduo</div>
