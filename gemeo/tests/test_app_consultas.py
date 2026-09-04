@@ -142,3 +142,12 @@ def test_dia_fechado_mostra_o_selo_do_dia_e_nao_o_instante_da_meia_noite(conn, m
     velho = dt.datetime(2026, 8, 31, 2, 59, 59, tzinfo=UTC)             # dia 30/08: a leitura mais nova e POSTERIOR
     v = c.usina(conn, usina.id, velho)["cabecalho"]
     assert v["idade_leitura_min"] is None and v["frio"] is False        # "ha -1440 min" nao vai para a tela
+
+
+def test_periodo_marca_o_dia_que_teve_parada(conn, mro100_modelada):
+    usina, ids = mro100_modelada
+    p = c.usina_periodo(conn, usina.id, dt.datetime(2026, 8, 31, 20, 0, tzinfo=UTC), 7)
+    dia31 = next(d for d in p["dias"] if d["dia"] == "2026-08-31")
+    assert dia31["paradas"] and dia31["paradas"][0]["n"] >= 1 and dia31["paradas"][0]["de"] == 25
+    assert dia31["paradas"][0]["hora_fim"] and dia31["paradas"][0]["kwh"] > 0
+    assert p["paradas"] == [j for d in p["dias"] for j in d["paradas"]]        # o topo e a soma dos dias

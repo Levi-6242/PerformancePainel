@@ -404,8 +404,17 @@ def usina_periodo(conn, usina_id: int, agora: dt.datetime, dias: int) -> dict | 
                      "AND p.equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s AND tipo='estacao')", (ini, fim, usina_id))
     sensor = {"razao_poa_ghi": (float(np.median([a / b for a, b in pares])) if pares else None), "cobertura_gate": (casc["cobertura_gate"] if casc else None),
               "gate_hoje": _gate_hoje(conn, usina_id, ini, fim), "trackers_sem_inversor": (casc["trackers_sem_inversor"] if casc else None)}
+    # a mesma marca vermelha da curva do dia, agora por DIA: cada coluna do grafico de 7/30 dias sabe se houve
+    # desligamento e de que tamanho. Sem isso a barra de um dia com 8 inversores fora parece so um dia ruim.
+    por_dia: dict[str, list[dict]] = {}
+    for e in eventos:
+        if e["tipo"] == "inversor_parado" and e.get("fim"):
+            por_dia.setdefault(dt.datetime.fromisoformat(e["ini"]).astimezone(tz).date().isoformat(), []).append(e)
+    n_inv = int(n_tipo.get("inversor", 0))
+    for d in dias_l:
+        d["paradas"] = [{k: j[k] for k in ("hora_ini", "hora_fim", "n", "de", "kwh", "min")} for j in _paradas(por_dia.get(d["dia"], []), tz, n_inv)]
     return {"agora": agora.isoformat(), "ciclo": _ciclo(conn), "cabecalho": cabecalho, "periodo": {"dias": dias, "de": d0.isoformat(), "ate": hoje.isoformat()},
-            "dias": dias_l, "curva": [], "paradas": [], "cascata": casc, "preco_mwh": preco,
+            "dias": dias_l, "curva": [], "paradas": [p for d in dias_l for p in d["paradas"]], "cascata": casc, "preco_mwh": preco,
             "perda_brl": ((max(0.0, casc["delta"]) / 1000.0 * preco) if (casc and preco) else None), "eventos": eventos, "inversores": inversores,
             "trackers": _top("tracker", "tracker"), "strings": _top("string", "string"), "sensor": sensor}
 

@@ -102,9 +102,19 @@
   var n = dias.length, larg = (x1 - x0) / n, bw = Math.max(2, larg * 0.36), passo = Math.max(1, Math.ceil(n / 12));
   dias.forEach(function (d, i) {
     var cx = x0 + larg * (i + 0.5), he = (y0 - y1) * (d.e_esperado || 0) / max, hm = (y0 - y1) * (d.e_medido || 0) / max;
+    /* Dia com desligamento: a mesma marca vermelha da curva do dia, aqui na coluna inteira mais um traco no eixo.
+       Sem ela a barra de um dia com 8 inversores fora passa por "dia ruim" qualquer. */
+    var par = d.paradas || [], txt = "";
+    if (par.length) {
+      var kwh = 0, nmax = 0, minutos = 0;
+      par.forEach(function (j) { kwh += j.kwh || 0; nmax = Math.max(nmax, j.n || 0); minutos += j.min || 0; });
+      mk("rect", { x: cx - larg / 2 + 1, y: y1, width: Math.max(2, larg - 2), height: y0 - y1, fill: "rgba(179,38,30,.10)" });
+      mk("line", { x1: cx - larg / 2 + 1, y1: y0 + 3.5, x2: cx + larg / 2 - 1, y2: y0 + 3.5, stroke: "#B3261E", "stroke-width": "2.5" });
+      txt = " · parada: " + nmax + "/" + par[0].de + " inversores, " + minutos + " min, " + Math.round(kwh) + " kWh";
+    }
     mk("rect", { x: cx - bw, y: y0 - he, width: bw, height: he, fill: "none", stroke: "#3E7CB1", "stroke-width": "1.5", "stroke-dasharray": "4 3" });
     var r = mk("rect", { x: cx, y: y0 - hm, width: bw, height: hm, fill: "#6A8F0E" });
-    var t = document.createElementNS(ns, "title"); t.textContent = d.dia + ": esperado " + ((d.e_esperado || 0) / 1000).toFixed(1) + " MWh · medido " + ((d.e_medido || 0) / 1000).toFixed(1) + " MWh"; r.appendChild(t);
-    if (i % passo === 0) mk("text", { x: cx, y: y0 + 14, "text-anchor": "middle", "font-size": "9", fill: "#6E6A80", "font-family": mono }, d.dia.slice(8, 10) + "/" + d.dia.slice(5, 7));
+    var t = document.createElementNS(ns, "title"); t.textContent = d.dia + ": esperado " + ((d.e_esperado || 0) / 1000).toFixed(1) + " MWh · medido " + ((d.e_medido || 0) / 1000).toFixed(1) + " MWh" + txt; r.appendChild(t);
+    if (i % passo === 0) mk("text", { x: cx, y: y0 + 14, "text-anchor": "middle", "font-size": "9", fill: par.length ? "#B3261E" : "#6E6A80", "font-family": mono, "font-weight": par.length ? "700" : "400" }, d.dia.slice(8, 10) + "/" + d.dia.slice(5, 7));
   });
 })();

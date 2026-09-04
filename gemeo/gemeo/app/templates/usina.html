@@ -20,7 +20,7 @@
   {% if d.periodo.dias > 1 %}
   <div class="card"><div class="tit">Por dia — esperado × medido <small>energia da usina · MWh · {{ d.dias|length }} dias com cascata</small></div>
    <div style="padding:16px 16px 8px"><svg id="barras" viewBox="0 0 560 240" style="width:100%;height:auto" role="img" aria-label="Esperado e medido por dia"></svg></div>
-   <div class="legenda"><span><span style="width:14px;height:10px;border:1.5px dashed var(--dv-2)"></span> Esperado (gêmeo)</span><span><span style="width:14px;height:10px;background:var(--dv-1)"></span> Medido</span><span>Δ do período: <span class="num">{{ c.delta|pct }}</span></span></div>
+   <div class="legenda"><span><span style="width:14px;height:10px;border:1.5px dashed var(--dv-2)"></span> Esperado (gêmeo)</span><span><span style="width:14px;height:10px;background:var(--dv-1)"></span> Medido</span><span>Δ do período: <span class="num">{{ c.delta|pct }}</span></span>{% set n_par = d.dias|selectattr('paradas')|list|length %}{% if n_par %}<span><span style="width:12px;height:10px;background:rgba(179,38,30,.10);border-bottom:2.5px solid #B3261E"></span> Parada de inversores: <span class="num">{{ n_par }}</span> dia{{ "s" if n_par > 1 }}</span>{% endif %}</div>
    <script type="application/json" id="dias-dados">{{ d.dias|tojson }}</script>
   </div>
   {% else %}
