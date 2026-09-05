@@ -16,7 +16,7 @@ import requests
 from gemeo.core import db as _db
 from gemeo.core import tempo
 from gemeo.core.modelos import UsinaRef
-from gemeo.ingest.base import Busca, Ingestor
+from gemeo.ingest.base import Busca, Ingestor, valor_valido
 
 _RX = [
     (re.compile(r"^\w+\.ESTM[^.]*\.POA\.IRAD$"), lambda m: ("estacao", "ESTM", "poa", {})),
@@ -166,7 +166,7 @@ class IngestorSunOp(Ingestor):
         passo = 15 if PERIOD[self.grupo] else 5
         out = {}
         for u in usinas:
-            ls = [(eid, med, ts_utc(t, u.tz), v) for p, (eid, med) in mapa[u.id].items() for t, v in bruto.get(p, [])]
+            ls = [(eid, med, ts_utc(t, u.tz), v) for p, (eid, med) in mapa[u.id].items() for t, v in bruto.get(p, []) if valor_valido(med, v)]
             esperadas = int(len(mapa[u.id]) * max(1, (fim - ini).total_seconds() / (passo * 60)))
             out[u.id] = Busca(leituras=ls, n_requisicoes=n if u is usinas[0] else 0, esperadas=esperadas)
         return out

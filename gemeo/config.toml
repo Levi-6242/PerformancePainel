@@ -1,9 +1,13 @@
 # gemeo/config.toml — NÃO-SEGREDO. Segredos ficam em SECRETS_DIR/gemeo.env, fora do OneDrive.
 [usinas]
-# so usinas com relacao tracker x inversor no BD_Trackers (decisao do Levi, 03/09): as quatro da Athon/SunOp que tem a aba
-# preenchida com inversor. TIM100, TIM200, JCD100 e SMP100 tem trackers sem inversor; as do PostgreSQL do Thopen nao tem
-# relacao nenhuma no BD_Trackers (so "cabine" no tb_devices). Santarem 1 saiu do piloto por isso.
-piloto = ["MRO100", "MAB100", "MTS100", "CPP100"]
+# Athon/SunOp: so as quatro com relacao tracker x inversor no BD_Trackers (decisao do Levi, 03/09) — TIM100, TIM200,
+# JCD100 e SMP100 tem trackers sem inversor. Thopen/PostgreSQL: entraram em 04/09 a pedido do Levi. Elas nao tem a
+# relacao tracker x inversor em lugar nenhum, entao a parcela de tracker nao e atribuida; o resto da cascata vale igual,
+# e elas trazem placa e coordenadas do proprio banco (tb_power_plants), que as da SunOp ainda nao tem.
+piloto = ["MRO100", "MAB100", "MTS100", "CPP100",
+          # 04/09: as 18 do PostgreSQL do Thopen que tem estacao com POA, inversor e leitura fresca. Ipixuna 1 e 2
+          # ficaram de fora (inversor sim, estacao nao), e as outras 13 do banco nao tem leitura nenhuma.
+          "BOA ESPERANCA DO SUL 1", "BOA ESPERANCA DO SUL 2", "CAXAMBU", "GOYTACAZES 1", "APARECIDA 3", "ARACOIABA DA SERRA 1", "ARACOIABA DA SERRA 2", "IBATE 1", "IBATE 2", "PIRACICABA I", "SALTO PIRAPORA III", "SANTA BARBARA I", "SAO BENTO V", "SANTAREM 1", "SANTAREM 2", "APARECIDA DO TABOADO 1", "APARECIDA DO TABOADO 2", "SANTO INACIO XII"]
 # fonte e fuso de cada usina do piloto (o cadastro traz kWp, cliente e inversores depois). Todas na SunOp/gridco, UTC-3 sem
 # horario de verao. lat/lon vem da Info Geral quando o cadastro ler essa aba (pendencia B1/B3).
 [usinas.detalhe]
@@ -11,6 +15,24 @@ MRO100 = { fonte = "sunop", tz = "America/Belem", nome = "MRO100" }
 MAB100 = { fonte = "sunop", tz = "America/Belem", nome = "MAB100" }
 MTS100 = { fonte = "sunop", tz = "America/Belem", nome = "MTS100" }
 CPP100 = { fonte = "sunop", tz = "America/Belem", nome = "CPP100" }
+"BOA ESPERANCA DO SUL 1" = { fonte = "pg", fonte_ref = "21", tz = "America/Sao_Paulo", nome = "(289) Boa Esperança do Sul 1" }
+"BOA ESPERANCA DO SUL 2" = { fonte = "pg", fonte_ref = "32", tz = "America/Sao_Paulo", nome = "(290) Boa Esperança do Sul 2" }
+"CAXAMBU" = { fonte = "pg", fonte_ref = "23", tz = "America/Sao_Paulo", nome = "(292) Caxambu" }
+"GOYTACAZES 1" = { fonte = "pg", fonte_ref = "27", tz = "America/Sao_Paulo", nome = "(295) Goytacazes 1" }
+"APARECIDA 3" = { fonte = "pg", fonte_ref = "8", tz = "America/Sao_Paulo", nome = "(298) Aparecida 3" }
+"ARACOIABA DA SERRA 1" = { fonte = "pg", fonte_ref = "16", tz = "America/Sao_Paulo", nome = "(299) Araçoiaba da Serra 1" }
+"ARACOIABA DA SERRA 2" = { fonte = "pg", fonte_ref = "18", tz = "America/Sao_Paulo", nome = "(300) Araçoiaba da Serra 2" }
+"IBATE 1" = { fonte = "pg", fonte_ref = "1", tz = "America/Sao_Paulo", nome = "(306) Ibaté 1" }
+"IBATE 2" = { fonte = "pg", fonte_ref = "2", tz = "America/Sao_Paulo", nome = "(307) Ibaté 2" }
+"PIRACICABA I" = { fonte = "pg", fonte_ref = "15", tz = "America/Sao_Paulo", nome = "(309) Piracicaba I" }
+"SALTO PIRAPORA III" = { fonte = "pg", fonte_ref = "11", tz = "America/Sao_Paulo", nome = "(310) Salto Pirapora III" }
+"SANTA BARBARA I" = { fonte = "pg", fonte_ref = "7", tz = "America/Sao_Paulo", nome = "(311) Santa Bárbara I" }
+"SAO BENTO V" = { fonte = "pg", fonte_ref = "5", tz = "America/Sao_Paulo", nome = "(312) São Bento V" }
+"SANTAREM 1" = { fonte = "pg", fonte_ref = "10", tz = "America/Santarem", nome = "(317) Santarém 1" }
+"SANTAREM 2" = { fonte = "pg", fonte_ref = "34", tz = "America/Santarem", nome = "(318) Santarém 2" }
+"APARECIDA DO TABOADO 1" = { fonte = "pg", fonte_ref = "9", tz = "America/Campo_Grande", nome = "(323) Aparecida do Taboado 1" }
+"APARECIDA DO TABOADO 2" = { fonte = "pg", fonte_ref = "31", tz = "America/Campo_Grande", nome = "(324) Aparecida do taboado 2" }
+"SANTO INACIO XII" = { fonte = "pg", fonte_ref = "6", tz = "America/Sao_Paulo", nome = "(327) Santo Inácio XII" }
 [ritmo_min]
 pg = 15
 sunop_fino = 15

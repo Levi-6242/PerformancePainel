@@ -76,3 +76,14 @@ def test_janela_parte_da_marca_menos_sobreposicao():
     ing = Espia(None, cfg=type("C", (), {"sobreposicao_min": 30})(), conn=None, usinas=[U]); ing._db = b
     ing.ciclo(agora=dt.datetime(2026, 9, 3, 12, 0, tzinfo=UTC))
     assert vistas["ini"] == dt.datetime(2026, 9, 3, 11, 15, tzinfo=UTC)
+
+
+def test_sentinela_de_sensor_nao_vira_irradiancia():
+    """-999 no POA da Santarem (PostgreSQL) e -666 no GHI da MAB100 (SunOp) sao codigo de erro do equipamento.
+    Gravados como medida, derrubavam o gate: a razao POA/GHI da Santarem 1 deu -0,46 e o esperado do dia foi a zero."""
+    from gemeo.ingest.base import valor_valido
+    assert not valor_valido("poa", -999.0) and not valor_valido("ghi", -666.0)
+    assert not valor_valido("poa", None)
+    assert valor_valido("ghi", -1.7)          # offset termico do piranometro a noite e leitura de verdade
+    assert valor_valido("poa", 0.0) and valor_valido("poa", 943.2)
+    assert valor_valido("p_ac", -999.0)       # so irradiancia tem essa regra; potencia negativa e consumo real

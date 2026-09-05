@@ -29,6 +29,22 @@ class Disjuntor:
         self._ate, self.motivo = time.time() + self.pausa_s, motivo
 
 
+# Sentinela de sensor com defeito: a estacao manda um numero impossivel em vez de "sem leitura". Cada fabricante
+# escolheu o seu — -999 no PostgreSQL do Thopen (POA da Santarem 1 e 2, o dia inteiro) e -666 na SunOp (GHI da
+# ESTM 1 da MAB100, que a propria plataforma ja pinta como erro). Gravar isso como irradiancia envenena o gate: a
+# razao POA/GHI da Santarem saiu -0,46, o dia inteiro foi reprovado e o esperado do gemeo ficou em zero.
+# Irradiancia negativa de verdade existe (offset termico do piranometro a noite), mas fica em poucos W/m2.
+PISO_IRRADIANCIA = -20.0
+MEDIDAS_IRRADIANCIA = ("poa", "ghi")
+
+
+def valor_valido(medida: str, valor: float | None) -> bool:
+    """False quando o valor e codigo de erro do sensor, e nao medida. Quem chama descarta a leitura."""
+    if valor is None:
+        return False
+    return not (medida in MEDIDAS_IRRADIANCIA and valor < PISO_IRRADIANCIA)
+
+
 class Ingestor(ABC):
     fonte: str = "?"
 
