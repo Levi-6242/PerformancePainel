@@ -143,3 +143,5 @@ tunnel_pid.txt
 
 # Medicao pontual do PG, guardada para conferir a conta na mao — nenhum codigo le.
 plataforma/dados_pg_sensores.json
+# lista de usinas do Athon vinda do catalogo da SunOp: cache de runtime, refeito sozinho a cada 24 h
+plataforma/sunop_plants_cache.json

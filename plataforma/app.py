@@ -3719,8 +3719,11 @@ def _load_sunop_plant_meta(plant_name: str, inst: str = "gridco") -> dict:
             etm_stations.setdefault(sub, {})["poa"] = path
             plant_paths["POA"] = path
 
-    # Se há estações numeradas (ESTM_1, ESTM_2…), descarta a "ESTM" solta (redundante/agregada)
-    numeradas = [s for s in etm_stations if s != "ESTM"]
+    # Se há estações numeradas (ESTM_1, ESTM_2…), descarta a "ESTM" solta (redundante/agregada).
+    # A "AIML" NÃO conta como numerada: é a pseudo-estação da previsão (AI/ML), sem leitura de sensor. Contando,
+    # toda usina de estação única perdia a estação de verdade e sobrava a linha vazia — MRO100, CPP100, MTS100,
+    # MTS200 e SMP100 apareciam na aba ETM com POA/GHI "sem" enquanto o dado estava lá (medido em 04/09/2026).
+    numeradas = [s for s in etm_stations if s not in ("ESTM", "AIML")]
     if numeradas:
         etm_stations = {s: etm_stations[s] for s in numeradas}
 
@@ -3734,6 +3737,57 @@ def _load_sunop_plant_meta(plant_name: str, inst: str = "gridco") -> dict:
 
 
 _sunop_plants_lista = {}   # inst -> {"nomes": [...], "ts": float} — lista de usinas do /api/plants
+
+
+_SUNOP_PLANTS_ARQ = os.path.join(_AQUI, "sunop_plants_cache.json")
+
+
+def _sunop_plants_do_dados(inst: str = "gridco") -> list:
+    """Lista de usinas SEM o serviço de configuração. O `/api/plants` exige o token WEB, que morre quando a SunOp
+    invalida a sessão no servidor — 03 e 04/09/2026: `exp` ainda no futuro e `401 Invalid credentials` nas duas
+    instâncias, só o login humano recupera. Sem a lista, `ensure_sunop_meta` desistia antes do laço e o painel do
+    Athon ficava com ZERO usinas, embora todo o resto (metadata por usina, last_values, histórico) já rode no token
+    de API, válido até 06/2027. O catálogo do serviço de DADOS traz o campo `plant` em cada item: uma chamada,
+    47.874 itens, as 10 usinas. Fica em disco por 24 h porque custa ~20 s e a lista muda uma vez por ano.
+    A Axis não tem token de API: lá o `_sunop_data_headers` devolve o header web e isto falha igual — de propósito,
+    para não inventar dado; ela continua dependendo do login até a SunOp emitir um token de API para a 2ª instância."""
+    try:
+        with open(_SUNOP_PLANTS_ARQ, encoding="utf-8") as fh:
+            disco = json.load(fh)
+        ent = disco.get(inst) or {}
+        if ent.get("nomes") and (time.time() - ent.get("ts", 0)) < 86400:
+            return list(ent["nomes"])
+    except Exception:
+        disco = {}
+    nomes, pagina = set(), 1
+    while pagina <= 12:                     # teto de segurança: hoje o catálogo inteiro cabe em 1 página
+        r = _sunop_req("GET", f"{_si(inst)['data']}/v2/metadata", inst,
+                       params={"size": 6000, "page": pagina}, timeout=120)
+        if r is None or r.status_code != 200:
+            break
+        try:
+            d = r.json()
+        except Exception:
+            break
+        for it in d.get("data", []):
+            p = (it or {}).get("plant")
+            if p:
+                nomes.add(str(p))
+        if pagina >= int(d.get("pages") or 1):
+            break
+        pagina += 1
+    if not nomes:
+        print(f"[SUNOP:{inst}] catálogo do serviço de dados não veio: sem lista de usinas")
+        return []
+    saida = sorted(nomes)
+    try:
+        disco = disco if isinstance(disco, dict) else {}
+        disco[inst] = {"nomes": saida, "ts": time.time()}
+        with open(_SUNOP_PLANTS_ARQ, "w", encoding="utf-8") as fh:
+            json.dump(disco, fh, ensure_ascii=False, indent=1)
+    except Exception as e:
+        print(f"[SUNOP:{inst}] não consegui gravar o cache de usinas: {e}")
+    return saida
 
 
 def ensure_sunop_meta(inst: str = "gridco"):
@@ -3757,12 +3811,16 @@ def ensure_sunop_meta(inst: str = "gridco"):
             plants = _http().get(f"{S['config']}/plants", headers=H, timeout=15).json()
         except Exception as e:
             print(f"[SUNOP:{inst}] Erro plants: {e}")
-            return
+            plants = None
     # Blindagem: se o token expirou, /api/plants devolve um dict de erro (ex.:
     # {"detail":"Token has expired."}) em vez da lista → não crashar.
     if not isinstance(plants, list) or not all(isinstance(p, dict) and "name" in p for p in plants):
         print(f"[SUNOP:{inst}] /plants não retornou lista de plantas (token expirado?): {str(plants)[:120]}")
-        return
+        de_dados = _sunop_plants_do_dados(inst)
+        if not de_dados:
+            return
+        print(f"[SUNOP:{inst}] lista veio do serviço de DADOS: {len(de_dados)} usinas")
+        plants = [{"name": n} for n in de_dados]
     nomes = [p["name"] for p in plants]
     _sunop_plants_lista[inst] = {"nomes": nomes, "ts": time.time()}
     faltam = [n for n in nomes if n not in S["meta"]]
