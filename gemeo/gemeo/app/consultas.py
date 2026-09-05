@@ -17,6 +17,11 @@ import pandas as pd
 
 from gemeo.core import tempo
 
+# Janela de dia da Frota: a mesma 05h-19h da curva do dia. Serve para decidir se existe um "agora" para comparar, e
+# olha o RELOGIO, nao o sensor: a POA da Ibate 2 fica congelada em 302 W/m2 a noite inteira, o modelo obedece e
+# calculava 1,1 MW esperados as 23h30. Sol abaixo do horizonte nao tem instante a comparar, sensor dizendo o que for.
+JANELA_DIA = ("05:00", "19:00")
+
 FRIO_MIN = 30          # frescor: acima disto a usina fica cinza antes de qualquer outra cor (spec §9)
 DEFICIT_GRAVE = 0.08   # faixa 'deficit grave' da regua
 H = 0.25
@@ -182,16 +187,60 @@ def frota(conn, agora: dt.datetime) -> dict:
         u["frio"] = u["idade_leitura_min"] is None or u["idade_leitura_min"] > FRIO_MIN
         u["motivo"] = motivo_nao_modelada(u, agora)
         usinas.append(u)
+    # Sem sol em nenhuma usina — de noite, ou num dia escolhido que ja fechou — o instante nao diz nada: o esperado
+    # das 23h e ~0 e a razao medido/esperado explode (a Frota abriu com "-66,4% agora" em 04/09). A tela inteira
+    # passa entao a falar do DIA: energia esperada x medida da cascata, que e o que se quer saber de um dia fechado.
+    # A troca e da frota toda, e nao usina a usina, para as colunas nao misturarem MW com MWh na mesma tabela.
+    # "agora" exige um instante que exista de verdade: com sol (acima do piso) E recente. Sem a segunda parte, o
+    # ultimo slot COM esperado pode ser o do por do sol — a Frota de 04/09 as 23:55 comparava contra as 17h da Ibate 2
+    # e mostrava "1,1 MW esperados" no meio da madrugada.
+    def _instante_vale(u: dict) -> bool:
+        piso = max(20.0, 0.02 * float(u["kw_ac"] or 0.0))
+        idade = u["idade_esperado_min"]
+        return (tempo.dentro_janela_solar(agora, u["tz"], JANELA_DIA)
+                and (u["esperado_kw"] or 0.0) >= piso and idade is not None and idade <= FRIO_MIN)
+
+    base = "agora" if any(_instante_vale(u) for u in usinas) else "dia"
+    dia_ref = None
+    if base == "dia":
+        # Qual dia a tela mostra e decidido POR USINA e pelo relogio dela: antes das 5h o dia local mal comecou e nao
+        # tem cascata, entao a referencia e o dia que fechou; das 19h em diante e o proprio dia. Nao se cai para ontem
+        # por "falta de cascata" — isso esconderia uma usina que falhou o dia inteiro atras dos numeros bons da vespera.
+        # E por usina porque a frota mistura UTC-3 e UTC-4: a meia-noite de Sao Paulo ainda e 23h em Campo Grande.
+        datas = []
+        for u in usinas:
+            tz_u = ZoneInfo(u["tz"]); local = agora.astimezone(tz_u); d_local = local.date()
+            if local.hour < 5:
+                d_local = d_local - dt.timedelta(days=1)
+                i2, f2 = _dia_utc(d_local, tz_u)
+                u["cascata"] = _cascata(conn, u["id"], u["modelo_id"], d_local)
+                u["gate_hoje"] = _gate_hoje(conn, u["id"], i2, f2)      # a regua de exclusao olha o MESMO dia
+                u["causa"] = causa_dominante(u["cascata"])
+                u["perda_kwh"] = max(0.0, u["cascata"]["delta"]) if u["cascata"] else 0.0
+                u["perda_brl"] = (u["perda_kwh"] / 1000.0 * u["preco_mwh"]) if u["preco_mwh"] else None
+            u["dia_ref"] = d_local.isoformat(); datas.append(d_local)
+            c = u["cascata"]
+            d = ((c["e_medido"] - c["e_esperado"]) / c["e_esperado"]) if (c and c["e_esperado"]) else None
+            u.update({"esperado_kw": (c["e_esperado"] if c else None), "medido_kw": (c["e_medido"] if c else None),
+                      "delta": d, "faixa": faixa(d, float(u["tolerancia"])), "frio": c is None})
+            u["motivo"] = motivo_nao_modelada(u, agora)                 # com o gate e o esperado do dia que a tela mostra
+        dia_ref = max(set(datas), key=datas.count) if datas else None   # rotulo da frota: o dia da maioria
     modeladas = sorted([u for u in usinas if u["motivo"] is None], key=lambda u: -(u["perda_brl"] or u["perda_kwh"]))
     nao = [{"id": u["id"], "codigo": u["codigo"], "fonte": u["fonte"], "motivo": u["motivo"]} for u in usinas if u["motivo"]]
     tot_esp = sum(u["esperado_kw"] for u in modeladas if u["esperado_kw"] is not None)
     tot_med = sum(u["medido_kw"] for u in modeladas if u["medido_kw"] is not None)
     com_preco = [u["perda_brl"] for u in modeladas if u["perda_brl"] is not None]
-    confianca = (sum(1 for u in usinas if u["gate_agora"] == "ok" and not u["frio"]) / len(usinas)) if usinas else 0.0
+    # de dia, sensor ok no instante; de noite, o gate do dia — senao a confianca cairia a zero toda madrugada
+    if base == "agora":
+        bons = sum(1 for u in usinas if u["gate_agora"] == "ok" and not u["frio"])
+    else:
+        bons = sum(1 for u in usinas if u["gate_hoje"] == "ok")
+    confianca = (bons / len(usinas)) if usinas else 0.0
     faixas = {k: sum(1 for u in modeladas if u["faixa"] == k) for k in ("dentro", "moderado", "grave", "sem_dado")}
     tol = min([float(u["tolerancia"]) for u in modeladas], default=0.08)
     return {
-        "agora": agora.isoformat(), "ciclo": _ciclo(conn), "usinas": modeladas, "nao_modeladas": nao,
+        "agora": agora.isoformat(), "ciclo": _ciclo(conn), "base": base, "dia_ref": (dia_ref.isoformat() if dia_ref else None),
+        "usinas": modeladas, "nao_modeladas": nao,
         "totais": {"esperado_kw": tot_esp, "medido_kw": tot_med, "delta": ((tot_med - tot_esp) / tot_esp) if tot_esp else None,
                    "perda_kwh": sum(u["perda_kwh"] for u in modeladas), "perda_brl": sum(com_preco) if com_preco else None,
                    "confianca": confianca, "n_modeladas": len(modeladas), "n_usinas": len(usinas)},

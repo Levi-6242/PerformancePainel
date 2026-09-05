@@ -151,3 +151,43 @@ def test_periodo_marca_o_dia_que_teve_parada(conn, mro100_modelada):
     assert dia31["paradas"] and dia31["paradas"][0]["n"] >= 1 and dia31["paradas"][0]["de"] == 25
     assert dia31["paradas"][0]["hora_fim"] and dia31["paradas"][0]["kwh"] > 0
     assert p["paradas"] == [j for d in p["dias"] for j in d["paradas"]]        # o topo e a soma dos dias
+
+
+def test_frota_a_noite_fala_do_dia_e_nao_do_instante(conn, mro100_modelada):
+    usina, _ = mro100_modelada
+    meio_dia = dt.datetime(2026, 8, 31, 17, 0, tzinfo=UTC)               # 14:00 em Belem
+    f = c.frota(conn, meio_dia)
+    assert f["base"] == "agora" and f["totais"]["esperado_kw"] > 0
+    noite = dt.datetime(2026, 9, 1, 2, 30, tzinfo=UTC)                   # 23:30 em Belem, mesmo dia local
+    n = c.frota(conn, noite)
+    assert n["base"] == "dia"
+    u = next(x for x in n["usinas"] if x["id"] == usina.id)
+    assert u["esperado_kw"] == pytest.approx(u["cascata"]["e_esperado"])  # energia do dia, nao potencia do instante
+    assert u["medido_kw"] == pytest.approx(u["cascata"]["e_medido"])
+    assert -1 < u["delta"] < 1 and u["faixa"] != "sem_dado" and u["frio"] is False
+    assert n["totais"]["delta"] == pytest.approx((u["cascata"]["e_medido"] - u["cascata"]["e_esperado"]) / u["cascata"]["e_esperado"])
+    assert n["totais"]["confianca"] > 0                                  # de noite a confianca vem do gate do DIA
+
+
+def test_frota_nao_chama_de_agora_um_esperado_velho(conn, mro100_modelada):
+    """04/09 as 23:55: a Ibate 2 tinha esperado de 1,1 MW no ultimo slot COM esperado — o do por do sol, 7 h antes —
+    e isso segurava a Frota no modo 'agora' no meio da madrugada."""
+    usina, _ = mro100_modelada
+    tarde = dt.datetime(2026, 8, 31, 21, 45, tzinfo=UTC)     # 18:45 em Belem: o sol ja se pos, mas o slot e recente
+    assert c.frota(conn, tarde)["base"] in ("agora", "dia")  # depende do dado; o que nao pode e quebrar
+    muito_depois = dt.datetime(2026, 9, 1, 4, 0, tzinfo=UTC) # 01:00: qualquer esperado tem mais de 30 min
+    f = c.frota(conn, muito_depois)
+    assert f["base"] == "dia"
+
+
+def test_frota_de_madrugada_cai_no_ultimo_dia_fechado(conn, mro100_modelada):
+    """Entre a meia-noite e as 5h o dia local mal comecou e nao tem cascata: quem abre a tela a essa hora quer o dia
+    que fechou. A tela passa a dizer qual dia esta mostrando (`dia_ref`)."""
+    usina, _ = mro100_modelada
+    madrugada = dt.datetime(2026, 9, 1, 4, 30, tzinfo=UTC)          # 01:30 de 01/09 em Belem; a cascata e de 31/08
+    f = c.frota(conn, madrugada)
+    assert f["base"] == "dia" and f["dia_ref"] == "2026-08-31"
+    u = next(x for x in f["usinas"] if x["id"] == usina.id)
+    assert u["esperado_kw"] > 0 and u["esperado_kw"] == pytest.approx(u["cascata"]["e_esperado"])
+    fim_da_tarde = dt.datetime(2026, 9, 1, 2, 30, tzinfo=UTC)       # 23:30 de 31/08: o proprio dia ja tem cascata
+    assert c.frota(conn, fim_da_tarde)["dia_ref"] == "2026-08-31"

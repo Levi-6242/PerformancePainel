@@ -9,7 +9,8 @@
 {% endblock %}
 {% block corpo %}{% set t = d.totais %}{% set r = d.regua %}
 <div class="heroi">
-  <div class="linha"><div><div class="kicker">Gêmeo digital · Esperado × Medido · agora</div><h1>A frota contra a física</h1></div>
+  <div class="linha"><div>{% set no_dia = d.base == 'dia' %}{% set un = 'MWh' if no_dia else 'MW' %}{% set quando = 'no dia' if no_dia else 'agora' %}
+  <div class="kicker">Gêmeo digital · Esperado × Medido · {{ ('dia ' ~ d.dia_ref[8:10] ~ '/' ~ d.dia_ref[5:7]) if (no_dia and d.dia_ref) else 'agora' }}</div><h1>A frota contra a física</h1></div>
   <div class="data">{{ agora.strftime('%d/%m/%Y · %H:%M') }} UTC</div></div>
   <div class="regua-cab"><div>Régua da frota — <b>Δ do gêmeo por usina</b> · <span class="num">{{ t.n_modeladas }}</span> modeladas de {{ t.n_usinas }}</div>
     <div class="leg"><span><span class="gl n-ok">●</span> dentro · <span class="num">{{ r.faixas.dentro }}</span></span>
@@ -19,8 +20,8 @@
 </div>
 <div class="miolo">
   <div class="cards">
-    <div class="card kpi"><div class="rot">Esperado agora</div><div class="val num">{{ t.esperado_kw|mw }} <small>MW</small></div><div class="leg">modelo físico · irradiância medida</div></div>
-    <div class="card kpi"><div class="rot">Medido agora</div><div class="val num">{{ t.medido_kw|mw }} <small>MW</small></div><div class="leg">{{ t.n_modeladas }} usinas modeladas</div></div>
+    <div class="card kpi"><div class="rot">Esperado {{ quando }}</div><div class="val num">{{ t.esperado_kw|mw }} <small>{{ un }}</small></div><div class="leg">modelo físico · irradiância medida</div></div>
+    <div class="card kpi"><div class="rot">Medido {{ quando }}</div><div class="val num">{{ t.medido_kw|mw }} <small>{{ un }}</small></div><div class="leg">{{ t.n_modeladas }} usinas modeladas</div></div>
     {% set cf = 'c-off' if t.delta is none else ('c-ok' if t.delta >= -r.tolerancia else ('c-warn' if t.delta >= -0.08 else 'c-risk')) %}
     <div class="card kpi"><div class="rot">Δ da frota</div><div class="val num {{ cf }}">{{ t.delta|pct }}</div><div class="leg {{ cf }}">tolerância {{ (r.tolerancia*100)|round(0)|int }}%{{ ' (placa)' if r.calibradas == 0 else '' }}</div></div>
     <div class="card kpi"><div class="rot">Perda de hoje</div><div class="val num">{% if t.perda_brl is not none %}{{ t.perda_brl|brl }}{% else %}{{ (t.perda_kwh/1000)|num(2) }} <small>MWh</small>{% endif %}</div><div class="leg">Σ das cascatas de hoje{{ ' · sem preço no contrato' if t.perda_brl is none else '' }}</div></div>
@@ -28,11 +29,11 @@
     <div class="card kpi"><div class="rot">Confiança do ciclo</div><div class="val num {{ cc }}">{{ (t.confianca*100)|round(0)|int }}<small>%</small></div><div class="leg {{ cc }}">usinas com sensor ok e dado fresco</div></div>
   </div>
   <div class="card" style="overflow:hidden;margin-bottom:18px">
-    <div class="tit">Maiores déficits {{ "em " ~ dia_sel if dia_sel else "agora" }} <small>ordenado por perda · clique na linha abre o diagnóstico</small></div>
+    <div class="tit">Maiores déficits {{ ("em " ~ dia_sel) if dia_sel else quando }} <small>ordenado por perda · clique na linha abre o diagnóstico</small></div>
     <table class="tab"><thead><tr><th>Usina</th><th class="r">Esperado</th><th class="r">Medido</th><th class="r">Δ</th><th>Causa dominante</th><th class="r">Perda hoje</th><th>Status</th><th></th></tr></thead><tbody>
     {% for u in d.usinas %}{% set k = 'off' if u.frio else {'dentro':'ok','moderado':'warn','grave':'risk','sem_dado':'off'}[u.faixa] %}
       <tr class="lk" onclick="location.href='{{ PREFIXO }}/usina/{{ u.id }}'"><td><a class="nome" href="{{ PREFIXO }}/usina/{{ u.id }}">{{ u.codigo }}</a><span class="fonte">{{ (u.cliente ~ ' · ') if u.cliente else '' }}{{ u.fonte }} · {{ u.modelo_versao or 'placa' }}</span></td>
-      <td class="num r">{{ u.esperado_kw|mw }} MW</td><td class="num r">{{ u.medido_kw|mw }} MW</td><td class="num r c-{{ k }}" style="font-weight:600">{{ u.delta|pct }}</td>
+      <td class="num r">{{ u.esperado_kw|mw }} {{ un }}</td><td class="num r">{{ u.medido_kw|mw }} {{ un }}</td><td class="num r c-{{ k }}" style="font-weight:600">{{ u.delta|pct }}</td>
       <td>{{ u.causa }}</td><td class="num r">{% if u.perda_brl is not none %}{{ u.perda_brl|brl }}{% else %}{{ (u.perda_kwh/1000)|num(2) }} MWh{% endif %}</td>
       <td><span class="tag {{ k }}"><span class="gl">{{ {'ok':'●','warn':'▲','risk':'✕','off':'○'}[k] }}</span> {{ 'sem dado fresco' if u.frio else {'ok':'Normal','warn':'Atenção','risk':'Déficit','off':'Sem dado'}[k] }}</span></td>
       <td class="r"><a class="btn mini" href="{{ PREFIXO }}/usina/{{ u.id }}">Diagnóstico ›</a></td></tr>
