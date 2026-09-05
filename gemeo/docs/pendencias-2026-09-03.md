@@ -145,29 +145,29 @@ Pendente / a saber:
 
 ## J. As 18 usinas do Thopen (PostgreSQL) entraram no piloto — 04/09/2026, à noite
 
-A pedido do Levi. O piloto foi de 4 para 22 usinas. Das 33 do banco , 18 tinham o que o modelo precisa
+A pedido do Levi. O piloto foi de 4 para 22 usinas. Das 33 do banco `powerplants`, 18 tinham o que o modelo precisa
 (inversor + estação com POA + leitura fresca); Ipixuna 1 e 2 têm inversor mas nenhuma estação, e as outras 13 não têm
-leitura nenhuma. Elas trazem **placa e coordenadas do próprio **, que as quatro da SunOp ainda não têm
+leitura nenhuma. Elas trazem **placa e coordenadas do próprio `tb_power_plants`**, que as quatro da SunOp ainda não têm
 (lá a fração direta cai no valor fixo de 0,6).
 
 Primeira rodada, 3 dias, sem calibração: **11 usinas dentro de 10%** entre esperado e medido (São Bento V em 0,1%,
-Santa Bárbara I em 0,5%, Araçoiaba 2 em 0,6%), 5 entre 10 e 30%, nenhuma fora.
+Santa Bárbara I em 0,5%, Araçoiaba da Serra 2 em 0,6%), 5 entre 10 e 30%, nenhuma fora.
 
 Pendências que nasceram daqui:
 
-- **Santarém 1 e 2 não modelam: o piranômetro de POA está morto**, manda  o dia inteiro (o GHI está bom, 900 a
-  1100 W/m²). Ou o sensor é trocado em campo, ou o gêmeo aprende a transpor GHI para o plano dos módulos (pvlib faz,
+- **Santarém 1 e 2 não modelam: o piranômetro de POA está morto**, manda `-999` o dia inteiro (o GHI está bom, 900 a
+  1100 W/m²). Ou o sensor é trocado em campo, ou o gêmeo aprende a transpor GHI para o plano dos módulos (o pvlib faz;
   é a mesma conta que a fração direta já usa). Enquanto isso o gate reprova o dia, e está certo em reprovar.
-- **Sentinela de sensor virou regra** (): irradiância abaixo de -20 W/m² é código de erro, não
-  medida. Vale para as duas fontes — o Thopen usa , a SunOp usa  (o GHI da ESTM 1 da MAB100, que a
-  plataforma já pinta como erro na aba ETM). Antes disso, o -999 entrava como irradiância e a razão POA/GHI da
-  Santarém saía -0,46.
-- **Cinco usinas com desvio de 10 a 30%** para revisar placa ou POA: Aparecida 3 (-26,7%), Santo Inácio XII (+21,2%),
-  Aparecida do Taboado 1 (+19,8%) e 2 (+11,9%), Ibaté 1 (-12,0%). A placa vem do  do PostgreSQL; vale
-  conferir contra a Info Geral do BD_Performance.
-- **Tracker sem inversor**: nenhuma usina do Thopen tem a relação no BD_Trackers, então a parcela de tracker não é
-  atribuída a inversor. O evento  continua saindo (só precisa de ângulo e alvo).
-- **Volume**: tracker e corrente de string passaram a ser gravados uma vez a cada 15 min (), a mesma
-  grade do modelo. Sem isso as 18 usinas custariam 17 GB em 90 dias, 72% só de corrente de string a cada 5 min.
-  Com a amostragem são ~82 MB/dia, cerca de 7 GB no regime de 90 dias. Potência do inversor e estação continuam finas:
-  delas sai a média do bloco.
+- **Sentinela de sensor virou regra** (`ingest/base.valor_valido`): irradiância abaixo de -20 W/m² é código de erro, não
+  medida. Vale para as duas fontes — o Thopen usa `-999`, a SunOp usa `-666` (o GHI da ESTM 1 da MAB100, que a
+  plataforma já pinta como erro na aba ETM). Antes disso o -999 entrava como irradiância e a razão POA/GHI da Santarém
+  saía -0,46, o que reprovava o dia inteiro por "sensor em falha".
+- **Cinco usinas com desvio de 10 a 30%**, para revisar placa ou POA: Aparecida 3 com -26,7%, Santo Inácio XII com
+  +21,2%, Aparecida do Taboado 1 com +19,8% e a 2 com +11,9%, Ibaté 1 com -12,0%. A placa vem do campo `capacity` do
+  PostgreSQL; vale conferir contra a Info Geral do BD_Performance.
+- **Tracker sem inversor**: nenhuma usina do Thopen tem essa relação no BD_Trackers, então a parcela de tracker não é
+  atribuída a inversor nenhum. O evento `tracker_fora_alvo` continua saindo, porque só precisa do ângulo e do alvo.
+- **Volume**: tracker e corrente de string passaram a ser gravados uma vez a cada 15 min (`GROSSAS` em `ingest/pg.py`),
+  a mesma grade do modelo. Sem isso as 18 usinas custariam 17 GB em 90 dias, e 72% disso seria corrente de string a
+  cada 5 min. Com a amostragem são cerca de 82 MB por dia, algo como 7 GB no regime de 90 dias. Potência do inversor e
+  estação continuam na cadência da fonte: é delas que sai a média de cada bloco.
