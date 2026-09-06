@@ -290,31 +290,51 @@ AZURE_ALLOWED_DOMAIN = os.environ.get("AZURE_ALLOWED_DOMAIN", "gridco.com.br").s
 MS_SSO_ON = bool(AZURE_CLIENT_ID and AZURE_TENANT_ID and AZURE_CLIENT_SECRET and AZURE_REDIRECT_URI)
 _AZURE_AUTHORITY = f"https://login.microsoftonline.com/{AZURE_TENANT_ID}"
 
+# Login no mesmo desenho da entrada (05/09/2026): tokens do Monitoramento novo, Inter, brilho verde no alto. O
+# formulario e o de sempre (campo `senha`, botao da Microsoft quando o SSO esta ligado) — so a roupa mudou.
 _LOGIN_HTML = """<!doctype html><html lang="pt-br"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Grid Co. — Acesso</title><style>
-*{box-sizing:border-box;font-family:Inter,system-ui,Arial,sans-serif}
-body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-background:#0b0e16;color:#e5e7eb}
-.card{background:#11151f;border:1px solid #1f2733;border-radius:14px;padding:34px 30px;width:320px;
-box-shadow:0 10px 40px rgba(0,0,0,.4)}
-h1{margin:0 0 4px;font-size:20px}.s{color:#9aa4b2;font-size:13px;margin:0 0 22px}
-.lb{display:block;color:#cfd6e0;font-size:13px;margin-bottom:6px}
-input{width:100%;padding:11px 12px;border-radius:9px;border:1px solid #2a3340;background:#0b0e16;
-color:#fff;font-size:15px}
-button{width:100%;margin-top:16px;padding:11px;border:0;border-radius:9px;background:#a3e635;
-color:#0b0e16;font-weight:700;font-size:15px;cursor:pointer}
-.err{color:#f87171;font-size:13px;margin-top:12px;min-height:16px;text-align:center}
-.g{color:#a3e635}
-.msbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:11px;border-radius:9px;background:#fff;color:#1f2733;font-weight:600;font-size:14px;text-decoration:none;border:1px solid #2a3340}
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#090d18">
+<title>Entrar · Grid Co.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#090d18;--surface:#161d30;--surface-2:#1b2338;--text:#e9eef6;--n300:#c3cad7;--n400:#96a0b4;--n500:#767d92;--divider:rgba(255,255,255,.09);--accent:#a3d900;--red:#f2555a}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:26px;padding:24px;
+     background:var(--bg);color:var(--text);font-family:'Inter',system-ui,-apple-system,sans-serif;font-size:14px;-webkit-font-smoothing:antialiased;
+     background-image:radial-gradient(700px 360px at 50% -80px, rgba(163,217,0,.12), transparent 70%)}
+.marca{display:flex;flex-direction:column;align-items:center;gap:10px;opacity:0;animation:entra .7s cubic-bezier(.2,.7,.2,1) .05s forwards}
+.marca img{height:34px;display:block}
+.marca span{font-size:12px;color:var(--n400);letter-spacing:.02em}
+.card{width:min(360px,100%);padding:28px 26px 24px;border-radius:14px;background:linear-gradient(180deg,var(--surface-2),var(--surface));
+      border:1px solid var(--divider);box-shadow:0 18px 44px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.05);
+      opacity:0;transform:translateY(16px);animation:entra .75s cubic-bezier(.2,.7,.2,1) .15s forwards}
+@keyframes entra{to{opacity:1;transform:none}}
+.kicker{font-size:10.5px;text-transform:uppercase;letter-spacing:.16em;font-weight:700;color:var(--n500);display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.kicker i{display:inline-block;width:22px;height:1px;background:var(--n500);opacity:.7}
+h1{margin:0 0 18px;font-size:22px;font-weight:800;letter-spacing:-.02em}
+.lb{display:block;color:var(--n300);font-size:12.5px;font-weight:600;margin-bottom:7px}
+input{width:100%;padding:11px 12px;border-radius:9px;border:1px solid var(--divider);background:var(--bg);color:#fff;font:inherit;font-size:15px;outline:none;transition:border-color .2s}
+input:focus{border-color:var(--accent)}
+button{width:100%;margin-top:14px;padding:11px;border:0;border-radius:9px;background:var(--accent);color:#0b0e16;font:inherit;font-weight:700;font-size:14.5px;cursor:pointer;transition:filter .2s}
+button:hover{filter:brightness(1.07)}
+.err{color:var(--red);font-size:13px;margin-top:12px;min-height:16px;text-align:center}
+.msbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:11px;border-radius:9px;background:#fff;color:#1f2733;font-weight:600;font-size:14px;text-decoration:none;border:1px solid #d0d7e2}
 .msbtn:hover{background:#eef1f5}
-.ordiv{display:flex;align-items:center;gap:10px;margin:16px 0 14px;color:#5b6472;font-size:12px}
-.ordiv span{flex:1;height:1px;background:#2a3340}</style></head>
-<body><form class="card" method="post" action="">
-<img src="/static/logos/grid-h-branco.png" alt="Grid Co." style="height:38px;display:block;margin:0 auto 18px">
-<p class="s" style="text-align:center">Monitoramento O&amp;M — acesso restrito</p>
-{{ms}}<label class="lb">Senha</label><input type="password" name="senha" autocomplete="current-password">
-<button type="submit">Entrar</button><div class="err">{{erro}}</div></form></body></html>"""
+.ordiv{display:flex;align-items:center;gap:10px;margin:16px 0 14px;color:var(--n500);font-size:12px}
+.ordiv span{flex:1;height:1px;background:var(--divider)}
+.pe{font-family:'IBM Plex Mono',Consolas,monospace;font-size:11.5px;color:var(--n500)}
+@media (prefers-reduced-motion:reduce){.marca,.card{animation:none;opacity:1;transform:none}}
+</style></head>
+<body>
+<div class="marca"><img src="/static/logos/grid-h-branco.png" alt="Grid Co."><span>Plataforma de Performance</span></div>
+<form class="card" method="post" action="">
+<div class="kicker"><i></i>Acesso restrito</div>
+<h1>Entrar</h1>
+{{ms}}<label class="lb">Senha</label><input type="password" name="senha" autocomplete="current-password" autofocus>
+<button type="submit">Entrar</button><div class="err">{{erro}}</div></form>
+<div class="pe">Grid Co. · uso interno</div>
+</body></html>"""
 
 
 @app.before_request
@@ -2664,10 +2684,286 @@ def _serve_redesign():
 
 
 @app.route("/")
-def index():
-    # Monitoramento — NOVO design (JS puro) promovido a página principal (Levi 20/07).
-    # A versão antiga (Jinja/index.html) segue em /antigo.
+@app.route("/tempo-real")
+@app.route("/tempo-real/<fonte_id>")
+def index(fonte_id=None):
+    # 05/09/2026: a ENTRADA por perfil (tempo real / diagnostico / gestao) vira a pagina principal; o Monitoramento
+    # desce para /monitoramento (decisao do Levi). /tempo-real e o drill-down do 1o card: o MESMO html decide o nivel
+    # pelo caminho (JS), a URL fica linkavel e o botao voltar funciona. A versao antiga (Jinja) segue em /antigo.
+    return _serve_html_cru("Entrada.html")
+
+
+@app.route("/monitoramento")
+def monitoramento():
+    # Monitoramento — novo design (JS puro). Foi a raiz de 20/07 a 05/09/2026; agora mora aqui.
     return _serve_redesign()
+
+
+_HTML_CRU_CACHE = {}
+
+
+def _serve_html_cru(nome: str):
+    """Mesma ideia do _serve_redesign, para outras paginas cruas de docs/redesign: rele so quando o arquivo muda
+    (mtime + tamanho). Iterar no visual nao pede restart da plataforma."""
+    p = os.path.join(_RAIZ, "docs", "redesign", nome)
+    try:
+        st = os.stat(p)
+        key = (st.st_mtime, st.st_size)
+        ent = _HTML_CRU_CACHE.get(nome)
+        if ent and ent["key"] == key:
+            return ent["html"]
+        with open(p, encoding="utf-8") as f:
+            html = f.read()
+        _HTML_CRU_CACHE[nome] = {"key": key, "html": html}
+        return html
+    except Exception as e:
+        return ("%s não encontrado: %s" % (nome, e)), 404
+
+
+@app.route("/teste")
+@app.route("/teste/<nivel>")
+def entrada_teste(nivel=None):
+    # A entrada nasceu em /teste (05/09/2026) e subiu para a raiz no mesmo dia; quem guardou o link cai no lugar certo.
+    return redirect("/" + (nivel or ""), code=302)
+
+
+# ── Entrada: drill-down "Operacao em tempo real" ─────────────────────────────
+# (cliente, fonte como o rollup rotula, id da fonte no Monitoramento) — na ordem em que os cards aparecem
+_ENTRADA_GRUPOS = [("Thopen", "API PV", "thopen-pv"), ("Thopen", "Thopen", "thopen-db"), ("Athon", "Athon", "athon"),
+                   ("Axis", "Axis", "axis"), ("Renogrid", "RenoGrid", "renogrid"), ("2C", "2C", "2c"),
+                   ("SEMP", "SEMP", "semp"), ("Alves Lima", "Alves Lima", "alveslima")]
+_ENTRADA_FONTE_ID = {f: fid for _c, f, fid in _ENTRADA_GRUPOS}
+_ENTRADA_TR_CACHE = {"ts": 0.0, "data": None, "building": False}
+_ENTRADA_TR_TTL = 120
+
+
+def _entrada_tempo_real_build() -> dict:
+    """Por cliente x fonte, o que o plantao olha: strings faltando e usinas sem comunicacao (rollup do macro),
+    ETMs com problema no mes (etm/problemas, com ticket) e trackers parados agora (as rotas de parados de cada
+    fonte, com ticket). Cliente e regiao vem da Info Geral, pela mesma regua do macro (_trk_geo_annotate)."""
+    grupos: dict = {}
+
+    def g(cliente, fonte):
+        k = (cliente or "Sem cliente", fonte or "Sem fonte")
+        if k not in grupos:
+            grupos[k] = {"cliente": k[0], "fonte": k[1], "fonte_id": _ENTRADA_FONTE_ID.get(k[1], ""), "usinas": {},
+                         "strings_faltando": 0, "usinas_critico": 0, "usinas_sem_comm": 0, "usinas_ok": 0,
+                         "ultima_leitura": None, "etm_problema": 0, "etm_com_os": 0, "trk_parados": 0, "trk_com_os": 0,
+                         "trk_fonte_ok": False}
+        return grupos[k]
+
+    # Os 8 pares cliente x fonte do Monitoramento existem SEMPRE, com ou sem dado (pedido do Levi, 05/09): Axis esta
+    # sem token web e Alves Lima nao esta no rollup, mas o plantao precisa ver o card e ler "sem leitura" nele.
+    for cliente, fonte, _fid in _ENTRADA_GRUPOS:
+        g(cliente, fonte)
+
+    rows = [dict(u) for u in ((_macro_cache.get("data") or {}).get("usinas") or [])]
+    _trk_geo_annotate(rows)
+    chave_de: dict = {}
+    for u in rows:
+        x = g(u.get("cliente"), u.get("fonte"))
+        nome = u.get("usina") or ""
+        chave_de[_nrm(_macro_usina_nome(nome))] = (x["cliente"], x["fonte"])
+        x["usinas"][nome] = {"usina": nome, "plant_id": u.get("plant_id"), "status": u.get("status"), "causa": u.get("causa"),
+                             "strings_faltando": int(u.get("strings_faltando") or 0), "str_esp": u.get("str_esp"),
+                             "strings_ativas": u.get("strings_ativas"), "qtd_inversores": u.get("qtd_inversores"),
+                             "inv_off": u.get("inv_off"), "estado": u.get("estado"), "regiao": u.get("regiao"),
+                             "ultima_leitura": u.get("ultima_leitura"), "etm": [], "etm_os": False,
+                             "trk_parados": 0, "trk_com_os": 0}
+        x["strings_faltando"] += int(u.get("strings_faltando") or 0)
+        st = u.get("status")
+        if st == "critico":
+            x["usinas_critico"] += 1
+        elif st == "sem_comm":
+            x["usinas_sem_comm"] += 1
+        elif st == "ok":
+            x["usinas_ok"] += 1
+        ul = u.get("ultima_leitura")
+        if ul and (x["ultima_leitura"] is None or ul > x["ultima_leitura"]):
+            x["ultima_leitura"] = ul
+    # ETM de usina que nao esta no rollup ao vivo (Greenyellow, GD Energy, Ultragaz... so no BD_Performance) nao
+    # vira card de "tempo real": vai para um rodape, por cliente, para nao sumir nem fingir que e ao vivo.
+    fora: dict = {}
+    for it in ((_etm_prob_cache.get("data") or {}).get("itens") or []):
+        nome_n = _nrm(_macro_usina_nome(it.get("usina") or ""))
+        chave = chave_de.get(nome_n)
+        if chave:
+            x = g(*chave)
+            x["etm_problema"] += 1
+            if it.get("ticket"):
+                x["etm_com_os"] += 1
+            for uu in x["usinas"].values():                       # anexa o diagnostico a usina certa
+                if _nrm(_macro_usina_nome(uu["usina"])) == nome_n:
+                    uu["etm"] = list(it.get("problemas") or [])
+                    uu["etm_os"] = bool(it.get("ticket"))
+        else:
+            f = fora.setdefault(it.get("cliente") or "Sem cliente", {"cliente": it.get("cliente") or "Sem cliente", "n": 0, "com_os": 0})
+            f["n"] += 1
+            if it.get("ticket"):
+                f["com_os"] += 1
+    def _pv():
+        # sem token da Plataforma a lista vem [] em silencio: o errout e o que distingue "zero parados" de "sem leitura"
+        err: dict = {}
+        rows_pv = _pv_parados_rows(errout=err)
+        if err.get("erro"):
+            raise RuntimeError(err["erro"])
+        return rows_pv
+
+    fontes_trk = {"Athon": lambda: _sunop_parados_rows("gridco"), "Axis": lambda: _sunop_parados_rows("axis"),
+                  "API PV": _pv, "RenoGrid": lambda: _owen_parados_rows(), "Thopen": lambda: _pg_parados_rows()}
+    for fonte, fn in fontes_trk.items():
+        try:
+            trows = fn() or []
+        except Exception as e:                                    # uma fonte fria ou fora nao derruba as outras
+            print(f"[ENTRADA] trackers parados de {fonte}: {e}")
+            continue
+        for x in grupos.values():
+            if x["fonte"] == fonte:
+                x["trk_fonte_ok"] = True
+        for r in trows:
+            nome_n = _nrm(_macro_usina_nome(r.get("usina") or ""))
+            chave = chave_de.get(nome_n) or (r.get("cliente"), fonte)
+            x = g(*chave)
+            x["trk_fonte_ok"] = True
+            x["trk_parados"] += 1
+            if r.get("ticket_status"):
+                x["trk_com_os"] += 1
+            for uu in x["usinas"].values():
+                if _nrm(_macro_usina_nome(uu["usina"])) == nome_n:
+                    uu["trk_parados"] += 1
+                    if r.get("ticket_status"):
+                        uu["trk_com_os"] += 1
+    ordem_fixa = {(c, f): i for i, (c, f, _fid) in enumerate(_ENTRADA_GRUPOS)}
+    _sev = {"sem_comm": 0, "critico": 1, "atencao": 2, "ok": 3}
+    saida = []
+    for x in sorted(grupos.values(), key=lambda x: (ordem_fixa.get((x["cliente"], x["fonte"]), 99), x["cliente"], x["fonte"])):
+        us = list(x.pop("usinas").values())
+        us.sort(key=lambda u: (_sev.get(u["status"], 9), -u["strings_faltando"], u["usina"]))
+        x["usinas"] = us
+        x["n_usinas"] = len(us)
+        x["sem_leitura"] = not us
+        saida.append(x)
+    return {"cache_ts": datetime.now().strftime("%H:%M:%S"), "grupos": saida,
+            "etm_fora": sorted(fora.values(), key=lambda f: (-f["n"], f["cliente"])),
+            "etm_mes": ((_etm_prob_cache.get("data") or {}).get("mes"))}
+
+
+# ── Notificacoes: string que ZEROU desde a ultima leitura ────────────────────
+# Pedido do Levi (05/09/2026): "a cada 30 min, se uma string nova zerou, sobe uma notificacao — se eu estiver olhando
+# Thopen e a Athon tiver queda, quero saber". A leitura e a mesma da aba "Strings sem corrente" de cada fonte
+# (_strings_problema_rows: string zerada COM o inversor gerando), comparada com a leitura anterior. So de dia:
+# a noite toda string esta em zero e nao e queda. A 1a leitura de cada dia so estabelece a base — senao o
+# amanhecer avisaria todas as strings que ja estavam mortas de vespera. Estado no JSON compartilhado (`notif`).
+_NOTIF_FONTES = (("pv", "Thopen · API PV"), ("pg", "Thopen · Banco de dados"), ("sunop", "Athon"),
+                 ("axis", "Axis"), ("owen", "RenoGrid"))
+_NOTIF_INTERVALO_S = 30 * 60
+_NOTIF_MAX = 300
+_NOTIF_JANELA = ("05:40", "18:20")     # janela solar, a mesma do gemeo
+
+
+def _notif_de_dia(agora=None) -> bool:
+    h = (agora or datetime.now()).strftime("%H:%M")
+    return _NOTIF_JANELA[0] <= h <= _NOTIF_JANELA[1]
+
+
+def _notif_chave(fonte: str, r: dict) -> str:
+    return f"{fonte}|{r.get('plant_id') or r.get('usina')}|{r.get('inversor') or ''}|{r.get('string')}"
+
+
+def _notif_ciclo(forcar: bool = False) -> int:
+    """Uma leitura: o que esta sem corrente agora e nao estava na leitura anterior e queda nova. Devolve quantas.
+    De noite nao le nem grava (salvo `forcar`): a leitura noturna virava a base do dia e o amanhecer avisaria
+    de uma vez todas as strings que ja estavam mortas — 114 na 1a leitura de teste, 05/09 01:43."""
+    if not forcar and not _notif_de_dia():
+        return 0
+    agora = datetime.now()
+    with _state_lock:
+        n_ant = dict((_load_state().get("notif") or {}))
+    snap_ant = n_ant.get("snapshot") or {}
+    hoje = agora.strftime("%Y-%m-%d")
+    base_do_dia = n_ant.get("dia") != hoje
+    novos, snap = [], {}
+    for fonte, rotulo in _NOTIF_FONTES:
+        try:
+            rows = _strings_problema_rows(fonte) or []
+        except Exception as e:                                       # noqa: BLE001
+            print(f"[NOTIF] {fonte} nao respondeu ({e}); mantenho a leitura anterior dessa fonte")
+            for k, v in snap_ant.items():                            # fonte fora nao "recupera" tudo para reavisar depois
+                if k.startswith(fonte + "|"):
+                    snap[k] = v
+            continue
+        for r in rows:
+            k = _notif_chave(fonte, r)
+            snap[k] = {"usina": r.get("usina"), "plant_id": r.get("plant_id"), "inversor": r.get("inversor") or "",
+                       "string": str(r.get("string")), "fonte": fonte, "rotulo": rotulo, "cliente": r.get("cliente")}
+            if not base_do_dia and k not in snap_ant:
+                novos.append(dict(snap[k], quando=agora.isoformat(timespec="seconds"), tipo="string_zerou"))
+    with _state_lock:
+        st = _load_state()
+        n = st.setdefault("notif", {})
+        n["snapshot"], n["ultima"], n["dia"] = snap, agora.isoformat(timespec="seconds"), hoje
+        n["eventos"] = ((n.get("eventos") or []) + novos)[-_NOTIF_MAX:]
+        _save_state(st)
+    if novos:
+        print(f"[NOTIF] {len(novos)} string(s) zeraram desde a leitura anterior")
+    return len(novos)
+
+
+def _notif_strings_loop():
+    time.sleep(150)                                                  # deixa o processo aquecer as fontes
+    while True:
+        try:
+            if _notif_de_dia():
+                _notif_ciclo()
+        except Exception as e:                                       # noqa: BLE001 — o laco nao morre
+            print(f"[NOTIF] ciclo falhou: {e}")
+        time.sleep(_NOTIF_INTERVALO_S)
+
+
+@app.route("/api/notificacoes")
+def api_notificacoes():
+    """Sino das telas (static/notif.js): eventos, ultima leitura, intervalo. ?desde=<iso> filtra os mais novos."""
+    desde = (flask_request.args.get("desde") or "").strip()
+    with _state_lock:
+        n = dict((_load_state().get("notif") or {}))
+    ev = n.get("eventos") or []
+    if desde:
+        ev = [e for e in ev if (e.get("quando") or "") > desde]
+    return jsonify({"eventos": ev[-100:], "ultima_leitura": n.get("ultima"), "intervalo_min": _NOTIF_INTERVALO_S // 60,
+                    "de_dia": _notif_de_dia(), "zeradas_agora": len(n.get("snapshot") or {})})
+
+
+@app.route("/api/notificacoes/ler-agora", methods=["POST"])
+def api_notificacoes_ler_agora():
+    """Dispara uma leitura ja, em fundo (a API PV fria leva minutos; a requisicao nao espera). ?forcar=1 le e grava
+    mesmo de noite — so para teste, porque vira base."""
+    forcar = flask_request.args.get("forcar") == "1"
+    threading.Thread(target=lambda: _notif_ciclo(forcar=forcar), name="notif-ler-agora", daemon=True).start()
+    return jsonify({"disparado": True, "de_dia": _notif_de_dia(), "forcar": forcar})
+
+
+@app.route("/api/entrada/tempo-real")
+def api_entrada_tempo_real():
+    """Serve o cache na hora e reconstroi em fundo quando venceu: as rotas de trackers parados custam de 5 a 25 s
+    frias e a entrada nao pode esperar por fonte nenhuma. Na 1a chamada de um processo responde `aquecendo`."""
+    c = _ENTRADA_TR_CACHE
+    agora = time.time()
+    if (c["data"] is None or (agora - c["ts"]) > _ENTRADA_TR_TTL) and not c["building"]:
+        c["building"] = True
+
+        def _bg():
+            try:
+                d = _entrada_tempo_real_build()
+                c["data"], c["ts"] = d, time.time()
+            except Exception as e:                                # noqa: BLE001 — o cache anterior continua servindo
+                print(f"[ENTRADA] build do tempo real falhou: {e}")
+            finally:
+                c["building"] = False
+
+        threading.Thread(target=_bg, name="entrada-tempo-real", daemon=True).start()
+    if c["data"] is None:
+        return jsonify({"aquecendo": True, "grupos": [], "cache_ts": None})
+    return jsonify(dict(c["data"], stale=(agora - c["ts"]) > _ENTRADA_TR_TTL))
 
 
 @app.route("/antigo")
@@ -16422,6 +16718,7 @@ def _iniciar_loops_de_fundo():
                  _perdas_ocor_warm_loop,
                  _macro_prewarm_loop,
                  _tunnel_url_loop,
+                 _notif_strings_loop,       # strings que zeraram desde a ultima leitura (30 min, de dia) → sino
                  _frac_osperf_loop,
                  _frac_disp_loop,           # disponibilidade por OS (Gerencial) — varre + calcula
                  _janitor_loop):            # impede o processo de dias inchar sem teto

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Grid Co. — Monitoramento O&amp;M (novo design)</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="/static/notif.js" defer></script>
 <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
 <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
 <style>
@@ -92,7 +93,13 @@ tr.gc-alerta:hover{background:linear-gradient(90deg, color-mix(in srgb, var(--gc
 
 <script>
 /* ═══ Componente portado do protótipo DC (nocturne) p/ JS puro — mesma lógica/dados/SVG ═══ */
-const state = { source:'thopen-pv', view:'strings', subfilter:'geral', trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, perdaSub:'trk-par', perdaDia:null, expandedUsina:null, expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, etmMode:'cards', gerIni:null, gerFim:null, gerModo:'usinas' };
+// ?embed=1: a tela do cliente da Entrada (/tempo-real/<fonte>) embute este Monitoramento com a fonte travada e sem
+// cabecalho/hero/barra de fontes — as tabelas continuam as mesmas. A altura vai ao pai por postMessage (sem rolagem dupla).
+const EMBED=new URLSearchParams(location.search).get('embed')==='1';
+function _embedAltura(){ try{ parent.postMessage({gc:'altura',h:document.documentElement.scrollHeight},'*'); }catch(e){} }
+if(EMBED){ document.documentElement.classList.add('embed'); new ResizeObserver(function(){ _embedAltura(); }).observe(document.documentElement); }
+// ?fonte=<id> vem dos cards da Entrada (/teste/tempo-real): o card de um cliente abre o Monitoramento ja na fonte dele (05/09/2026)
+const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:'strings', subfilter:'geral', trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, perdaSub:'trk-par', perdaDia:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, etmMode:'cards', gerIni:null, gerFim:null, gerModo:'usinas' };
 function setState(patch){ Object.assign(state, patch); render(); }
 /* ═══ DADO REAL — por VISTA e por FONTE. Cada uma devolve {rows,summary}; muda só o endpoint. ═══ */
 const SKEY={'thopen-pv':'pv','thopen-db':'pg','athon':'sunop','axis':'axis','renogrid':'solaredge','2c':'owen','semp':'semp','alveslima':'alveslima'};
@@ -1858,20 +1865,22 @@ function render(){
       +'<i class="ph ph-circle-notch gc-spin" style="margin-right:8px"></i>Ainda esperando a fonte responder…</div>'
       +'<div class="text-muted" style="font-size:13px">Passou de 10s. Continuo tentando até 90s — depois disso aviso aqui.</div></div>';
   document.getElementById('app').innerHTML=`
-  <div style="min-height:100vh;background:var(--color-bg);padding-bottom:80px">
-    <div style="position:sticky;top:0;z-index:40;background:color-mix(in srgb, var(--color-bg) 88%, transparent);backdrop-filter:blur(12px);border-bottom:1px solid var(--color-divider)">
+  <div style="min-height:${EMBED?'0':'100vh'};background:var(--color-bg);padding-bottom:${EMBED?'8px':'80px'}">
+    ${EMBED?'':`<div style="position:sticky;top:0;z-index:40;background:color-mix(in srgb, var(--color-bg) 88%, transparent);backdrop-filter:blur(12px);border-bottom:1px solid var(--color-divider)">
       <nav class="nav" style="max-width:1640px;margin:0 auto;padding:14px 32px">
-        <img src="/static/logos/grid-h-branco.png" alt="Grid Co." style="height:26px;margin-right:30px;display:block;object-fit:contain" onerror="this.outerHTML='&lt;span class=&quot;nav-brand&quot; style=&quot;margin-right:30px;font-size:21px&quot;&gt;Grid&lt;span style=&quot;color:var(--color-accent)&quot;&gt;Co&lt;/span&gt;&lt;/span&gt;'">
-        <a href="#" aria-current="page">Monitoramento</a><a href="#">Ronda de Trackers</a><a href="/painel" target="gridco-painel" rel="noopener">Painel</a><a href="/gerencial" target="gridco-gerencial" rel="noopener">Gerencial</a><a href="/relatorio" target="gridco-relatorio" rel="noopener">Criador de Relatório</a><a href="/tokens" target="gridco-tokens" rel="noopener" id="nav-tokens">Tokens</a><a href="/gemeo/" target="gridco-gemeo" rel="noopener" id="nav-gemeo">Gêmeo Digital</a>
+        <a href="/" title="Entrada" style="display:block;margin-right:30px"><img src="/static/logos/grid-h-branco.png" alt="Grid Co." style="height:26px;display:block;object-fit:contain" onerror="this.outerHTML='&lt;span class=&quot;nav-brand&quot; style=&quot;margin-right:30px;font-size:21px&quot;&gt;Grid&lt;span style=&quot;color:var(--color-accent)&quot;&gt;Co&lt;/span&gt;&lt;/span&gt;'">
+</a>
+        <a href="/">Início</a><a href="#" aria-current="page">Monitoramento</a><a href="#">Ronda de Trackers</a><a href="/painel" target="gridco-painel" rel="noopener">Painel</a><a href="/gerencial" target="gridco-gerencial" rel="noopener">Gerencial</a><a href="/relatorio" target="gridco-relatorio" rel="noopener">Criador de Relatório</a><a href="/tokens" target="gridco-tokens" rel="noopener" id="nav-tokens">Tokens</a><a href="/gemeo/" target="gridco-gemeo" rel="noopener" id="nav-gemeo">Gêmeo Digital</a>
         <span style="margin-left:auto;display:flex;align-items:center;gap:20px">
+          <span id="gc-sino"></span>
           <span style="display:flex;align-items:center;gap:7px;font-size:12.5px" class="text-muted"><span style="width:7px;height:7px;border-radius:50%;background:var(--color-accent);animation:gc-pulse 2.2s ease-in-out infinite"></span><span style="color:var(--color-text);font-weight:500">ao vivo</span><span>· ${v.lastUpdate}</span></span>
           <button class="btn btn-primary" onclick="refreshApp()"><i class="ph ph-arrows-clockwise"></i> Atualizar</button>
         </span>
       </nav>
-    </div>
-    <div style="max-width:1640px;margin:0 auto;padding:32px 32px 0">
-      <div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:28px"><div><div class="card-kicker" style="margin-bottom:8px">Monitoramento O&amp;M</div><h2 style="margin:0;font-size:30px">Strings, ETM &amp; Trackers</h2></div><div class="text-muted" style="font-size:13px">${v.today}</div></div>
-      ${renderSources(v)}
+    </div>`}
+    <div style="max-width:1640px;margin:0 auto;padding:${EMBED?'0':'32px 32px 0'}">
+      ${EMBED?'':`<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:28px"><div><div class="card-kicker" style="margin-bottom:8px">Monitoramento O&amp;M</div><h2 style="margin:0;font-size:30px">Strings, ETM &amp; Trackers</h2></div><div class="text-muted" style="font-size:13px">${v.today}</div></div>`}
+      ${EMBED?'':renderSources(v)}
       ${renderViewTabs(v)}
       ${(v.showCurva||v.showGeracao||v.showPerdas)?'':renderKPIs(v)}
       ${panel}
