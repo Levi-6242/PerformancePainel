@@ -103,10 +103,12 @@ class IngestorPG(Ingestor):
         enriquece depois. Strings nascem das chaves string_N_current do ultimo registro do inversor."""
         self._cadastro_da_usina(usina)
         pid = int(usina.fonte_ref)
+        descobertos: list[int] = []
         with self.fonte_conn.cursor() as src, self.conn.cursor() as cur:
             for tabela, tipo in TIPO.items():
                 src.execute(f"SELECT DISTINCT device_id FROM public.{tabela} WHERE power_plant_id=%s AND timestamp >= now() - interval '7 days'", (pid,))
                 for (dev,) in src.fetchall():
+                    descobertos.append(int(dev))
                     cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte, atributos) VALUES (%s,%s,%s,%s) "
                                 "ON CONFLICT (usina_id, tipo, codigo_fonte) DO NOTHING RETURNING id",
                                 (usina.id, tipo, str(dev), '{"numero": %d}' % int(dev)))
@@ -123,6 +125,25 @@ class IngestorPG(Ingestor):
                                         "ON CONFLICT (usina_id, tipo, codigo_fonte) DO NOTHING",
                                         (usina.id, f"{dev}.string_{m.group(1)}", inv_id, '{"numero": %d}' % int(m.group(1))))
         self.conn.commit()
+        self._nomes_legiveis(usina, descobertos)
+
+    def _nomes_legiveis(self, usina: UsinaRef, devs: list[int]) -> None:
+        """tb_devices.device_name ('Inversor 1.1') vira nome_exibicao. Sem isto o gemeo mostrava os inversores do Thopen
+        como 83, 84... (Santo Inacio XII, 06/09) e o Raio-X do /painel nao conseguia casar com a plataforma pelo nome.
+        So preenche o que esta vazio e nunca derruba a descoberta: falha aqui e aviso, nao erro."""
+        if not devs:
+            return
+        try:
+            with self.fonte_conn.cursor() as src, self.conn.cursor() as cur:
+                src.execute("SELECT id, device_name FROM public.tb_devices WHERE id = ANY(%s)", (devs,))
+                for dev, nome in src.fetchall():
+                    if nome and str(nome).strip():
+                        cur.execute("UPDATE equipamento SET nome_exibicao=%s WHERE usina_id=%s AND codigo_fonte=%s "
+                                    "AND (nome_exibicao IS NULL OR nome_exibicao='')", (str(nome).strip(), usina.id, str(dev)))
+            self.conn.commit()
+        except Exception as e:                                   # noqa: BLE001 — nome bonito nao pode parar o ingest
+            self.conn.rollback()
+            print(f"[pg] nomes de equipamento nao vieram ({e}); sigo com codigo_fonte")
 
     def buscar(self, usina: UsinaRef, ini: dt.datetime, fim: dt.datetime) -> Busca:
         mapa = self._mapa(usina)

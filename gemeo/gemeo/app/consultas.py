@@ -108,13 +108,13 @@ def _ultima_leitura(conn, usina_id: int) -> dt.datetime | None:
 def _usinas(conn, usina_id: int | None = None) -> list[dict]:
     filtro = "AND u.id=%s" if usina_id else ""
     rows = _q(conn, f"""
-        SELECT u.id, u.codigo, u.nome, u.fonte, u.tz, coalesce(u.kwp_dc,0), coalesce(u.kw_ac,0), u.cliente,
+        SELECT u.id, u.codigo, u.nome, u.fonte, u.fonte_ref, u.tz, coalesce(u.kwp_dc,0), coalesce(u.kw_ac,0), u.cliente,
                (SELECT count(*) FROM equipamento e WHERE e.usina_id=u.id AND e.ativo),
                (SELECT max(r.criado_em) FROM ingest_run r WHERE r.usina_id=u.id AND r.status IN ('ok','parcial')) AS "ultimo_ingest_ok [TIMESTAMP]",
                m.id, m.versao, coalesce(m.tolerancia, 0.08), coalesce(m.calibrado, 0)
         FROM usina u LEFT JOIN modelo m ON m.usina_id=u.id AND m.ativo
         WHERE u.ativo {filtro} ORDER BY u.codigo""", (usina_id,) if usina_id else ())
-    chaves = ("id", "codigo", "nome", "fonte", "tz", "kwp", "kw_ac", "cliente", "n_equip", "ultimo_ingest_ok",
+    chaves = ("id", "codigo", "nome", "fonte", "fonte_ref", "tz", "kwp", "kw_ac", "cliente", "n_equip", "ultimo_ingest_ok",
               "modelo_id", "modelo_versao", "tolerancia", "calibrado")
     out = []
     for r in rows:
@@ -282,7 +282,7 @@ def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
     slot = _ultimo_slot(conn, usina_id, mid, agora)
     esp_kw, med_kw, gate_agora = _agora_da_usina(conn, usina_id, mid, slot) if slot else (None, None, None)
     delta = (med_kw - esp_kw) / esp_kw if esp_kw and med_kw is not None else None
-    cabecalho = {"id": usina_id, "codigo": u["codigo"], "nome": u["nome"], "fonte": u["fonte"], "cliente": u["cliente"], "tz": u["tz"],
+    cabecalho = {"id": usina_id, "codigo": u["codigo"], "nome": u["nome"], "fonte": u["fonte"], "fonte_ref": u["fonte_ref"], "cliente": u["cliente"], "tz": u["tz"],
                  "kwp": u["kwp"], "kw_ac": u["kw_ac"], "n_inversores": int(n_tipo.get("inversor", 0)), "n_trackers": int(n_tipo.get("tracker", 0)),
                  "n_strings": int(n_tipo.get("string", 0)), "modelo_versao": u["modelo_versao"], "calibrado": bool(u["calibrado"]),
                  "tolerancia": float(u["tolerancia"]), "hoje": str(hoje), "slot": slot, "esperado_kw": esp_kw, "medido_kw": med_kw,
@@ -299,8 +299,8 @@ def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
     esp = _esperado_do_dia(conn, usina_id, mid, ini, fim)
     esp_curva = esp.groupby("b")["e"].sum().to_dict() if not esp.empty else {}
     med_curva = pac.groupby("b")["v"].sum().to_dict() if not pac.empty else {}
-    curva = []
-    for b in sorted(set(esp_curva) | set(med_curva)):
+    curva, slots = [], sorted(set(esp_curva) | set(med_curva))
+    for b in slots:
         ts = pd.Timestamp(b).to_pydatetime()
         curva.append({"ts": ts.isoformat(), "hora": ts.astimezone(tz).strftime("%H:%M"),
                       "esperado_kw": (float(esp_curva[b]) if b in esp_curva else None), "medido_kw": (float(med_curva[b]) if b in med_curva else None)})
@@ -332,16 +332,26 @@ def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
     for e in eventos:
         if e["equipamento_id"] and e["tipo"] in ("inversor_parado", "inversor_abaixo"):
             ev_por_eq.setdefault(e["equipamento_id"], "parado" if e["tipo"] == "inversor_parado" else "abaixo")
+    # curva por inversor nos MESMOS slots da curva da usina (o Raio-X do /painel desenha inversor sobre usina; 06/09):
+    # a soma das curvas medidas dos inversores e exatamente a curva medida da usina, porque ela nasce deste mesmo `pac`.
+    med_inv = {int(eid): g.groupby("b")["v"].mean().to_dict() for eid, g in pac.groupby("eq")} if not pac.empty else {}
+    esp_inv = {int(eid): g.groupby("b")["e"].mean().to_dict() for eid, g in esp.groupby("eq")} if not esp.empty else {}
+
+    def _serie(d: dict) -> list:
+        return [(round(float(d[b]), 2) if b in d else None) for b in slots]
+
     inversores = []
-    for eid, nome, at in _q(conn, "SELECT id, coalesce(nome_exibicao, codigo_fonte), atributos FROM equipamento WHERE usina_id=%s AND tipo='inversor' AND ativo "
-                                  "ORDER BY CAST(json_extract(atributos, '$.numero') AS INTEGER), codigo_fonte", (usina_id,)):
+    for eid, nome, at, codigo in _q(conn, "SELECT id, coalesce(nome_exibicao, codigo_fonte), atributos, codigo_fonte FROM equipamento "
+                                          "WHERE usina_id=%s AND tipo='inversor' AND ativo "
+                                          "ORDER BY CAST(json_extract(atributos, '$.numero') AS INTEGER), codigo_fonte", (usina_id,)):
         med, esp_i = por_inv.get(int(eid), (None, None))
         razao = (med / esp_i) if esp_i else None
         p = perdas.get(int(eid), {})
         status = ev_por_eq.get(int(eid)) or ("sem_dado" if razao is None else "atencao" if razao < 0.9 else "ok")
-        inversores.append({"id": int(eid), "nome": nome, "kwp": (at or {}).get("kwp"), "medido_kwh": med, "esperado_kwh": esp_i, "razao": razao,
+        inversores.append({"id": int(eid), "nome": nome, "codigo": codigo, "kwp": (at or {}).get("kwp"), "medido_kwh": med, "esperado_kwh": esp_i, "razao": razao,
                            "inv_parado": p.get("inv_parado", 0.0), "tracker": p.get("tracker", 0.0), "string": p.get("string", 0.0),
-                           "residuo": p.get("residuo", 0.0), "status": status})
+                           "residuo": p.get("residuo", 0.0), "status": status,
+                           "curva_medida_kw": _serie(med_inv.get(int(eid), {})), "curva_esperada_kw": _serie(esp_inv.get(int(eid), {}))})
 
     def _top(tipo: str, parcela: str, n: int = 15) -> list[dict]:
         rows = _q(conn, "SELECT e.id, coalesce(e.nome_exibicao, e.codigo_fonte), e.pai_id, p.kwh FROM perda_dia p JOIN equipamento e ON e.id=p.equipamento_id "
@@ -391,7 +401,7 @@ def usina_periodo(conn, usina_id: int, agora: dt.datetime, dias: int) -> dict | 
     hoje = agora.astimezone(tz).date(); d0 = hoje - dt.timedelta(days=dias - 1)
     ini, _ = _dia_utc(d0, tz); _, fim = _dia_utc(hoje, tz)
     n_tipo = dict(_q(conn, "SELECT tipo, count(*) FROM equipamento WHERE usina_id=%s AND ativo GROUP BY tipo", (usina_id,)))
-    cabecalho = {"id": usina_id, "codigo": u["codigo"], "nome": u["nome"], "fonte": u["fonte"], "cliente": u["cliente"], "tz": u["tz"],
+    cabecalho = {"id": usina_id, "codigo": u["codigo"], "nome": u["nome"], "fonte": u["fonte"], "fonte_ref": u["fonte_ref"], "cliente": u["cliente"], "tz": u["tz"],
                  "kwp": u["kwp"], "kw_ac": u["kw_ac"], "n_inversores": int(n_tipo.get("inversor", 0)), "n_trackers": int(n_tipo.get("tracker", 0)),
                  "n_strings": int(n_tipo.get("string", 0)), "modelo_versao": u["modelo_versao"], "calibrado": bool(u["calibrado"]),
                  "tolerancia": float(u["tolerancia"]), "hoje": str(hoje), "slot": None, "esperado_kw": None, "medido_kw": None, "delta": None,
@@ -432,13 +442,14 @@ def usina_periodo(conn, usina_id: int, agora: dt.datetime, dias: int) -> dict | 
         if e["equipamento_id"] and e["tipo"] in ("inversor_parado", "inversor_abaixo"):
             ev_por_eq.setdefault(e["equipamento_id"], "parado" if e["tipo"] == "inversor_parado" else "abaixo")
     inversores = []
-    for eid, nome, at in _q(conn, "SELECT id, coalesce(nome_exibicao, codigo_fonte), atributos FROM equipamento WHERE usina_id=%s AND tipo='inversor' AND ativo "
-                                  "ORDER BY CAST(json_extract(atributos, '$.numero') AS INTEGER), codigo_fonte", (usina_id,)):
+    for eid, nome, at, codigo in _q(conn, "SELECT id, coalesce(nome_exibicao, codigo_fonte), atributos, codigo_fonte FROM equipamento "
+                                          "WHERE usina_id=%s AND tipo='inversor' AND ativo "
+                                          "ORDER BY CAST(json_extract(atributos, '$.numero') AS INTEGER), codigo_fonte", (usina_id,)):
         med, esp_i = por_inv.get(int(eid), (None, None))
         razao = (med / esp_i) if esp_i else None
         p = perdas.get(int(eid), {})
         status = ev_por_eq.get(int(eid)) or ("sem_dado" if razao is None else "atencao" if razao < 0.9 else "ok")
-        inversores.append({"id": int(eid), "nome": nome, "kwp": (at or {}).get("kwp"), "medido_kwh": med, "esperado_kwh": esp_i, "razao": razao,
+        inversores.append({"id": int(eid), "nome": nome, "codigo": codigo, "kwp": (at or {}).get("kwp"), "medido_kwh": med, "esperado_kwh": esp_i, "razao": razao,
                            "inv_parado": p.get("inv_parado", 0.0), "tracker": p.get("tracker", 0.0), "string": p.get("string", 0.0),
                            "residuo": p.get("residuo", 0.0), "status": status})
 
@@ -466,6 +477,13 @@ def usina_periodo(conn, usina_id: int, agora: dt.datetime, dias: int) -> dict | 
             "dias": dias_l, "curva": [], "paradas": [p for d in dias_l for p in d["paradas"]], "cascata": casc, "preco_mwh": preco,
             "perda_brl": ((max(0.0, casc["delta"]) / 1000.0 * preco) if (casc and preco) else None), "eventos": eventos, "inversores": inversores,
             "trackers": _top("tracker", "tracker"), "strings": _top("string", "string"), "sensor": sensor}
+
+
+def catalogo(conn) -> list[dict]:
+    """Quem esta no gemeo e como a plataforma o encontra: (fonte, fonte_ref) e a chave — 'pg' + plant_id do PostgreSQL,
+    'sunop' + nome da planta na SunOp. E o que o Raio-X do /painel usa para saber se a usina tem gemeo (06/09/2026)."""
+    return [{"id": u["id"], "codigo": u["codigo"], "nome": u["nome"], "fonte": u["fonte"], "fonte_ref": u["fonte_ref"], "cliente": u["cliente"],
+             "kwp": u["kwp"], "n_equip": u["n_equip"], "modelo_versao": u["modelo_versao"], "calibrado": u["calibrado"]} for u in _usinas(conn)]
 
 
 def saude(conn, cfg, agora: dt.datetime) -> dict:

@@ -128,6 +128,10 @@ def criar_app(cfg, conectar=None) -> Flask:
     def api_frota():
         return jsonify(consultas.frota(conn(), _agora()))
 
+    @app.route(f"{PREFIXO}/api/catalogo")
+    def api_catalogo():
+        return jsonify(consultas.catalogo(conn()))
+
     @app.route(f"{PREFIXO}/api/usina/<int:usina_id>")
     def api_usina(usina_id: int):
         d = _usina(usina_id, _agora())

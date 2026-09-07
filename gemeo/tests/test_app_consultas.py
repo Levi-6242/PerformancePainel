@@ -191,3 +191,31 @@ def test_frota_de_madrugada_cai_no_ultimo_dia_fechado(conn, mro100_modelada):
     assert u["esperado_kw"] > 0 and u["esperado_kw"] == pytest.approx(u["cascata"]["e_esperado"])
     fim_da_tarde = dt.datetime(2026, 9, 1, 2, 30, tzinfo=UTC)       # 23:30 de 31/08: o proprio dia ja tem cascata
     assert c.frota(conn, fim_da_tarde)["dia_ref"] == "2026-08-31"
+
+
+def test_usina_traz_curva_por_inversor_alinhada_a_da_usina_e_codigo(conn, mro100_modelada):
+    """O Raio-X do /painel desenha a curva do inversor sobre a da usina (06/09/2026). Cada inversor sai com `codigo`
+    (codigo_fonte, para casar com a plataforma) e duas series do MESMO tamanho da curva da usina; a soma das medidas
+    dos inversores em cada slot e a propria curva medida da usina (mesma origem, `pac`)."""
+    usina, ids = mro100_modelada
+    agora = dt.datetime(2026, 8, 31, 20, 0, tzinfo=UTC)
+    d = c.usina(conn, usina.id, agora)
+    n = len(d["curva"])
+    assert n > 0 and d["inversores"] and d["cabecalho"]["fonte_ref"]
+    for inv in d["inversores"]:
+        assert inv["codigo"] and len(inv["curva_medida_kw"]) == n and len(inv["curva_esperada_kw"]) == n
+    for i, ponto in enumerate(d["curva"]):
+        parcelas = [inv["curva_medida_kw"][i] for inv in d["inversores"] if inv["curva_medida_kw"][i] is not None]
+        if ponto["medido_kw"] is None:
+            assert not parcelas
+        else:
+            assert sum(parcelas) == pytest.approx(ponto["medido_kw"], abs=0.05 * len(parcelas) + 0.01)
+    p = c.usina_periodo(conn, usina.id, agora, 7)
+    assert all(inv["codigo"] for inv in p["inversores"]) and p["cabecalho"]["fonte_ref"]
+
+
+def test_catalogo_diz_como_a_plataforma_acha_a_usina(conn, mro100_modelada):
+    usina, _ = mro100_modelada
+    cat = c.catalogo(conn)
+    m = next(u for u in cat if u["id"] == usina.id)
+    assert m["codigo"] == "MRO100" and m["fonte"] == "sunop" and m["fonte_ref"] and "n_equip" in m
