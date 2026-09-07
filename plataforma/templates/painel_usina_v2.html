@@ -179,7 +179,11 @@ table.v2t td{padding:7px 8px;border-top:1px solid var(--line);vertical-align:mid
   <a class="back" href="/painel">← Portfólio</a><a class="back" id="v2Antigo" href="#" title="A tela anterior, intacta" style="margin-left:4px;color:var(--faint)">versão anterior</a>
   <div class="scope">▸ <b id="uName">Usina</b> <span id="uMeta"></span></div>
   <div class="spacer"></div>
-  <div class="live-pill"><span class="pulse"></span> AO VIVO</div>
+  <input type="date" id="v2Dia" onchange="v2SetDia(this.value)" title="Dia do diagnóstico — vale para trackers, curvas e energia por inversor"
+         style="border:1px solid var(--line);border-radius:8px;padding:4px 8px;font:600 11.5px inherit;background:var(--panel-2);color:var(--txt);margin-right:10px">
+  <button id="v2Hoje" onclick="v2SetDia('')" title="Voltar para hoje" hidden
+          style="border:1px solid var(--line);border-radius:8px;padding:4px 10px;font:600 11.5px inherit;background:var(--panel-2);color:var(--muted);cursor:pointer;margin-right:10px">hoje</button>
+  <div class="live-pill" id="v2Pill"><span class="pulse"></span> AO VIVO</div>
   <div class="upd" id="upd">—</div>
 </div>
 
@@ -189,7 +193,7 @@ table.v2t td{padding:7px 8px;border-top:1px solid var(--line);vertical-align:mid
   <!-- Diagnóstico v2 (06/09/2026): o INVERSOR no centro. Abas: Inversores (tabela) · Trackers (tabela) · Curvas (card
        antigo, intacto) · Mês (diagnóstico + cascata + OS + mapa de strings + cards de tracker, tudo o que era a 1ª tela). -->
   <div class="v2-tabs"><button class="on" data-t="inv" onclick="v2Tab('inv')">Inversores <small id="v2nInv"></small></button><button data-t="trk" onclick="v2Tab('trk')">Trackers <small id="v2nTrk"></small></button><button data-t="cur" onclick="v2Tab('cur')">Curvas</button><button data-t="mes" onclick="v2Tab('mes')">Mês · gerencial</button></div>
-  <div id="v2-inv" class="v2-pane"><div class="card" id="v2InvCard"><div class="v2-bar"><span class="v2-sub">pior primeiro · clique na linha para abrir strings, ocorrências e trackers do inversor · traço = mediana</span><div class="v2-f"><button id="v2fi-todos" class="on" onclick="v2FInv('todos')">todos</button><button id="v2fi-prob" onclick="v2FInv('prob')">só com problema</button></div></div><div id="v2InvBody"><div class="loading">Carregando inversores…</div></div><div class="v2-nota" id="v2InvNota"></div></div></div>
+  <div id="v2-inv" class="v2-pane"><div class="card" id="v2InvCard"><div class="v2-bar"><span class="v2-sub" id="v2InvSub">pior primeiro · clique na linha para abrir strings, ocorrências e trackers do inversor · traço = mediana</span><div class="v2-f"><button id="v2fi-todos" class="on" onclick="v2FInv('todos')">todos</button><button id="v2fi-prob" onclick="v2FInv('prob')">só com problema</button></div></div><div id="v2InvBody"><div class="loading">Carregando inversores…</div></div><div class="v2-nota" id="v2InvNota"></div></div></div>
   <div id="v2-trk" class="v2-pane" hidden><div class="card" id="v2TrkCard"><div class="v2-bar"><span class="v2-sub" id="v2TrkSub">parados e severos · ticket = planilha de Tickets, só ocorrência aberta · Fracttal = código do ativo (de-para)</span><div class="v2-f"><button id="v2ft-prob" class="on" onclick="v2FTrk('prob')">parados e severos</button><button id="v2ft-todos" onclick="v2FTrk('todos')">todos</button><button id="v2ft-fora" onclick="v2FTrk('fora')">fora do alvo</button><button id="v2ft-os" onclick="v2FTrk('os')">com OS / sugestão</button></div></div><div id="v2TrkBody"><div class="loading">Carregando trackers…</div></div><div class="v2-nota">Parado (mês) = book de paradas da plataforma em horas solares · recorrência = dias distintos parado nos últimos 14 (snapshots da ronda) · sugestão = motor de OS sugeridas · perda = gêmeo digital, quando a usina está no piloto. Clique no tracker para ver a curva ângulo × alvo.</div></div></div>
   <div id="v2-cur" class="v2-pane" hidden>
 <!-- CARD ÚNICO de curvas (Levi 22/07): Correlação | Inversor | Strings — Correlação é o padrão.
@@ -1311,7 +1315,7 @@ async function overlayCorrelacao(t){
    curvas (agora nas abas Mês e Curvas). Aqui entram: os 5 KPIs novos (renderBelow redefinida), a tabela de inversores e
    a de trackers, alimentadas pelo que o antigo já buscou + PR de hoje, gêmeo, de-para, book de paradas, recorrência,
    OS sugeridas, notificações e o acumulador de energia do mês. Cada busca tem prazo; quem falha vira '—'. */
-const V2={tab:'inv',fInv:'todos',fTrk:'prob',sel:null,pr:null,gid:null,gemeo:null,gemeoMes:null,depara:null,hist:null,rec:null,sug:null,notif:null,emes:null,osPerf:null,falhas:{}};
+const V2={tab:'inv',fInv:'todos',fTrk:'prob',dia:null,edia:null,sel:null,pr:null,gid:null,gemeo:null,gemeoMes:null,depara:null,hist:null,rec:null,sug:null,notif:null,emes:null,osPerf:null,falhas:{}};
 const V2_SK={pv:'pv',pg:'pg',athon:'sunop',axis:'axis','2c':'owen'}[FONTE]||FONTE;
 const V2_PR={pv:'/api/pv/pr/'+ID,pg:'/api/pg/pr/'+ID,athon:'/api/sunop/pr/'+ID,axis:'/api/axis/pr/'+ID}[FONTE]||null;
 const V2_GF={pg:'pg',athon:'sunop',axis:'axis'}[FONTE]||null;
@@ -1323,6 +1327,37 @@ const V2_CORST={ativa:'var(--ok)',baixa_perf:'var(--amber)',sem_corrente:'var(--
 function v2GET(url,ms){const c=new AbortController();const t=setTimeout(()=>c.abort(),ms||10000);return fetch(url,{signal:c.signal}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).finally(()=>clearTimeout(t));}
 window.v2Tab=t=>{V2.tab=t;document.querySelectorAll('.v2-tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));document.querySelectorAll('.v2-pane').forEach(p=>{p.hidden=(p.id!=='v2-'+t);});v2Render();};
 window.v2FInv=v=>{V2.fInv=v;['todos','prob'].forEach(x=>{const b=document.getElementById('v2fi-'+x);if(b)b.classList.toggle('on',x===v);});v2Render();};
+// ── DATA do diagnóstico ───────────────────────────────────────────────────────────────────────────────────────
+// O snapshot das fontes fala do AGORA; o histórico existe, mas espalhado (curva do tracker, curva das strings,
+// energia por inversor). Este controle junta os três num só dia e diz, na cara, o que não tem versão histórica —
+// mostrar o estado de agora sob um rótulo de ontem seria pior do que não mostrar (Levi, 07/09/2026).
+function v2HojeISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function v2DiaSel(){ return V2.dia||v2HojeISO(); }
+function v2DiaHoje(){ return v2DiaSel()===v2HojeISO(); }
+function v2DiaBR(){ const p=v2DiaSel().split('-'); return p[2]+'/'+p[1]+'/'+p[0]; }
+window.v2SetDia=v=>{
+  const novo=(v||'').trim()||v2HojeISO();
+  if(novo===v2DiaSel()&&V2.dia!==null) return;
+  V2.dia=novo; V2.edia=null;
+  const inp=document.getElementById('v2Dia'); if(inp) inp.value=novo;
+  const bt=document.getElementById('v2Hoje'); if(bt) bt.hidden=v2DiaHoje();
+  const pill=document.getElementById('v2Pill');
+  if(pill) pill.innerHTML=v2DiaHoje()?'<span class="pulse"></span> AO VIVO':('<span class="pulse" style="background:var(--amber);animation:none"></span> '+v2DiaBR());
+  // curvas: o card já tinha data própria — passa a seguir o cabeçalho, para não haver dois controles discordando
+  const ic=document.getElementById('icData'); if(ic&&ic.value!==novo){ ic.value=novo; try{ icSetData(); }catch(e){} }
+  v2CarregaDia();
+  v2Render();
+};
+// trackers e energia por inversor do dia escolhido (as duas coisas que TÊM histórico por fonte)
+function v2CarregaDia(){
+  const dia=v2DiaSel(), q=v2DiaHoje()?'':'?date='+dia;
+  v2GET(CFG.trk+q,90000).then(d=>{ if(dia!==v2DiaSel()) return; TRK=d; v2Render(); try{ renderTrackers(d); }catch(e){} })
+    .catch(e=>{ if(dia===v2DiaSel()){ TRK={trackers:[],_erro:String(e&&e.message||e)}; v2Render(); } });
+  if(v2DiaHoje()){ V2.edia=null; return; }
+  v2GET('/api/'+V2_SK+'/inversores/energia-mes/'+ID+'?dia='+dia,40000)
+    .then(d=>{ if(dia===v2DiaSel()){ V2.edia=(d&&d.inversores)||{}; v2Render(); } })
+    .catch(()=>{ if(dia===v2DiaSel()){ V2.edia={}; v2Render(); } });
+}
 window.v2FTrk=v=>{V2.fTrk=v;['prob','todos','fora','os'].forEach(x=>{const b=document.getElementById('v2ft-'+x);if(b)b.classList.toggle('on',x===v);});v2Render();};
 window.v2Sel=k=>{V2.sel=(V2.sel===k?null:k);v2Render();};
 window.v2Curva=(nome,ev)=>{if(ev)ev.stopPropagation();v2Tab('cur');try{setCurvaVista('inv');selInvCurva(nome);}catch(e){console.error('[v2] curva',e);}};   // começa por Inversor; Correlação e Strings seguem no seletor (Levi, 06/09)
@@ -1371,9 +1406,16 @@ function v2TabInv(){
   const el=document.getElementById('v2InvBody'), nota=document.getElementById('v2InvNota'); if(!el) return;
   const invs0=((PLANT&&PLANT.inversores)||[]);
   if(!invs0.length){ el.innerHTML=PLANT?'<div class="v2vazio">A fonte não devolveu inversores para esta usina.</div>':'<div class="loading">Carregando inversores…</div>'; return; }
-  let invs=invs0.slice().sort((a,b)=>(V2_ORD[v2Status(a)[0]]-V2_ORD[v2Status(b)[0]])||((a.eday??9e9)-(b.eday??9e9)));
-  if(V2.fInv==='prob') invs=invs.filter(i=>v2Status(i)[0]!=='ok'||v2Eventos(i).length||v2OsInv(i).length);
-  const comE=invs0.filter(i=>i.eday!=null), maxE=Math.max(1,...comE.map(i=>i.eday)), med=comE.length?comE.map(i=>i.eday).sort((a,b)=>a-b)[Math.floor(comE.length/2)]:null;
+  // Num dia passado a energia vem do acumulador/banco (`?dia=`); estado, strings e PR são leitura de AGORA e não
+  // têm versão histórica — viram "só ao vivo" em vez de repetirem o número de hoje sob o rótulo de ontem.
+  const _hj=v2DiaHoje(), _ed=i=>_hj?i.eday:((V2.edia&&V2.edia[i.nome]!=null)?V2.edia[i.nome]:null);
+  const _soVivo='<span class="v2chip mudo" title="leitura de agora — não existe versão deste dado para um dia passado">só ao vivo</span>';
+  const _sb=document.getElementById('v2InvSub');
+  if(_sb) _sb.textContent=_hj?'pior primeiro · clique na linha para abrir strings, ocorrências e trackers do inversor · traço = mediana'
+    : ('energia de '+v2DiaBR()+' por inversor · traço = mediana do dia · estado, strings e PR só existem ao vivo');
+  let invs=invs0.slice().sort((a,b)=>(_hj?(V2_ORD[v2Status(a)[0]]-V2_ORD[v2Status(b)[0]]):0)||((_ed(a)??9e9)-(_ed(b)??9e9)));
+  if(V2.fInv==='prob'&&_hj) invs=invs.filter(i=>v2Status(i)[0]!=='ok'||v2Eventos(i).length||v2OsInv(i).length);
+  const comE=invs0.filter(i=>_ed(i)!=null), maxE=Math.max(1,...comE.map(i=>_ed(i))), med=comE.length?comE.map(i=>_ed(i)).sort((a,b)=>a-b)[Math.floor(comE.length/2)]:null;
   const temKw=invs0.some(i=>i.active_power!=null), trkInv=v2TrkInv(), gm=!!V2.gemeoMes, emes=(V2.emes&&V2.emes.inversores)||{};
   const zer={}; (V2.notif||[]).forEach(e=>{ const k=v2nrm(e.inversor); zer[k]=(zer[k]||0)+1; });
   const rows=invs.map(i=>{ const [st,rot]=v2Status(i), s=v2Strings(i), p=v2Pr(i), g=v2Gm(i), evs=v2Eventos(i), oss=v2OsInv(i), k=v2esc(i.nome), cor=(st==='parado'||st==='sem_com')?'var(--red)':(st==='abaixo'||st==='atencao')?'var(--amber)':'var(--ok)';
@@ -1381,12 +1423,12 @@ function v2TabInv(){
     const strTxt=i.sem_visao?'<span class="v2chip mudo">s/ visão</span>':(st==='sem_com'||st==='parado')?'<span style="color:var(--faint)">—</span>':`${nf(i.strings_ativas)}<span style="color:var(--faint)">/${nf(i.str_esp)}</span>${s.sem?` · <b style="color:var(--red)">${s.sem} s/ corr.</b>`:''}${s.baixa?` · <b style="color:var(--amber)">${s.baixa} baixa</b>`:''}${zer[v2nrm(i.nome)]?` · <b style="color:var(--red)">${zer[v2nrm(i.nome)]} zeraram hoje</b>`:''}`;
     const oc=[...(evs.length?[`<span class="v2tag ev" title="${v2esc(evs.map(e=>e.hora_ini).join(' · '))}">parou ${evs.length}× no mês · últ. ${v2esc(evs[evs.length-1].hora_ini||'')}</span>`]:[]),...oss.map(o=>`<span class="v2tag os" title="${v2esc(o.tit)}">${v2esc(o.rot)}${o.q?' · '+v2esc(o.q):''}</span>`)].join('')||'<span style="color:var(--faint)">—</span>';
     const tr=`<tr class="l ${V2.sel===i.nome?'sel':''}" onclick="v2Sel('${k.replace(/'/g,'')}')"><td><b>${k}</b>${(trkInv&&Object.values(trkInv).some(v=>v2nrm(v)===v2nrm(i.nome)))?`<div style="font-size:10.5px;color:var(--faint)">${Object.values(trkInv).filter(v=>v2nrm(v)===v2nrm(i.nome)).length} trackers</div>`:''}</td>
-      <td><span class="v2chip ${st}">${rot}</span><div style="font-family:var(--mono,monospace);font-size:11px;color:var(--muted);margin-top:3px">${temKw?nf(i.active_power)+' kW':''}${(i.temp!=null&&i.temp>0)?(temKw?' · ':'')+nf(i.temp)+'°C':''}</div></td>
-      <td><div class="v2barra"><i style="width:${i.eday!=null?Math.min(100,i.eday/maxE*100):0}%;background:${cor}"></i>${med?`<em style="left:${Math.min(100,med/maxE*100)}%"></em>`:''}</div></td>
-      <td class="v2n">${nf(i.eday)}</td><td class="v2n" style="color:${(med&&i.eday!=null&&i.eday<0.9*med)?'var(--red)':'var(--muted)'}">${(med&&i.eday!=null)?nf(i.eday/med*100)+'%':'—'}</td>
-      <td class="v2n" style="color:${p&&p.status==='severo'?'var(--red)':p&&p.status==='leve'?'var(--amber)':'var(--muted)'}">${V2.pr===null?'…':(p&&p.pr!=null&&p.pr<=1.5)?nf(p.pr*100)+'%':'—'}</td>
+      <td>${_hj?`<span class="v2chip ${st}">${rot}</span><div style="font-family:var(--mono,monospace);font-size:11px;color:var(--muted);margin-top:3px">${temKw?nf(i.active_power)+' kW':''}${(i.temp!=null&&i.temp>0)?(temKw?' · ':'')+nf(i.temp)+'°C':''}</div>`:_soVivo}</td>
+      <td><div class="v2barra"><i style="width:${_ed(i)!=null?Math.min(100,_ed(i)/maxE*100):0}%;background:${_hj?cor:'var(--blue)'}"></i>${med?`<em style="left:${Math.min(100,med/maxE*100)}%"></em>`:''}</div></td>
+      <td class="v2n">${nf(_ed(i))}</td><td class="v2n" style="color:${(med&&_ed(i)!=null&&_ed(i)<0.9*med)?'var(--red)':'var(--muted)'}">${(med&&_ed(i)!=null)?nf(_ed(i)/med*100)+'%':'—'}</td>
+      <td class="v2n" style="color:${p&&p.status==='severo'?'var(--red)':p&&p.status==='leve'?'var(--amber)':'var(--muted)'}">${!_hj?'—':V2.pr===null?'…':(p&&p.pr!=null&&p.pr<=1.5)?nf(p.pr*100)+'%':'—'}</td>
       <td class="v2n">${mesK==null?'<span style="color:var(--faint)">—</span>':nf(mesK)}</td><td class="v2n" style="color:${mesR==null?'var(--faint)':mesR<0.9?'var(--red)':'var(--muted)'}">${mesR==null?'—':nf(mesR*100)+'%'}</td>
-      <td>${strTxt}</td><td>${oc}</td><td class="v2n" style="color:var(--faint)">${v2hhmm(i.ultima_leitura)}</td></tr>`;
+      <td>${_hj?strTxt:_soVivo}</td><td>${oc}</td><td class="v2n" style="color:var(--faint)">${v2hhmm(i.ultima_leitura)}</td></tr>`;
     if(V2.sel!==i.nome) return tr;
     const trks=Object.entries(trkInv).filter(([n,v])=>v2nrm(v)===v2nrm(i.nome)).map(([n])=>Number(n)).sort((a,b)=>a-b);
     return tr+`<tr class="v2exp"><td colspan="11"><div class="g">
@@ -1436,6 +1478,9 @@ function v2TabTrk(){
 function v2Render(){ try{ renderBelow(); }catch(e){ console.error('[v2] kpis',e); } try{ if(V2.tab==='inv') v2TabInv(); else if(V2.tab==='trk') v2TabTrk(); }catch(e){ console.error('[v2] aba',e); } }
 async function v2Boot(){
   const a=document.getElementById('v2Antigo'); if(a){ const q=new URLSearchParams(location.search); q.set('antigo','1'); a.href=location.pathname+'?'+q.toString(); }
+  // o seletor nasce em hoje; ?dia=YYYY-MM-DD no link já abre o diagnóstico naquele dia (dá para mandar pronto)
+  const _di=document.getElementById('v2Dia'); if(_di) _di.value=v2HojeISO();
+  const _qd=(Q.get('dia')||'').trim(); if(/^\d{4}-\d{2}-\d{2}$/.test(_qd)&&_qd!==v2HojeISO()) v2SetDia(_qd);
   const ok=k=>v=>{V2[k]=v;v2Render();}, nao=k=>e=>{V2.falhas[k]=String(e&&e.message||e);V2[k]=false;v2Render();};
   if(V2_PR) v2GET(V2_PR,30000).then(d=>{const m={};((d&&d.inversores)||[]).forEach(i=>{const k=v2nrm(i.nome||i.id);if(k)m[k]=i;});ok('pr')({map:m,med:d&&d.pr_mediana,usina:d&&d.pr});}).catch(nao('pr')); else V2.pr=false;
   v2GET('/api/trackers/de-para?fonte='+V2_SK+'&usina='+encodeURIComponent(NOME),10000).then(d=>ok('depara')(d&&!d.sem_depara?d:{n:0,por_num:{}})).catch(nao('depara'));

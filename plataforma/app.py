@@ -5213,7 +5213,7 @@ def _sunop_trk_curvas_range(plant_name: str, ini: str, fim: str, inst: str = "gr
             "posal": {n: hist.get(p, []) for n, p in posal.items()}}
 
 
-def _sunop_trackers_plant_curva(plant_name: str, inst: str = "gridco") -> dict:
+def _sunop_trackers_plant_curva(plant_name: str, inst: str = "gridco", data: str = None) -> dict:
     """Análise por CURVA do dia:
     - 'parado' (vermelho): amplitude do ângulo baixa enquanto os VIZINHOS se moveram (não
       precisa de alvo → funciona em plantas sem POSAL, ex.: MAB100).
@@ -5228,7 +5228,12 @@ def _sunop_trackers_plant_curva(plant_name: str, inst: str = "gridco") -> dict:
             "trackers": [], "tem_trackers": bool(trk)}
     if not trk:
         return base
-    cur = _sunop_trk_curvas(plant_name, datetime.now().strftime("%Y-%m-%d"), inst)
+    # `data` (YYYY-MM-DD) permite julgar um dia PASSADO com a mesma régua: a curva histórica já era buscável
+    # (o gráfico usa), só a análise estava presa em hoje. É o que faz o diagnóstico servir de manhã cedo e à
+    # noite, quando "agora" não conta história nenhuma (Levi, 07/09/2026).
+    _dia = data or datetime.now().strftime("%Y-%m-%d")
+    base["date"] = _dia
+    cur = _sunop_trk_curvas(plant_name, _dia, inst)
     posat, posal = cur["posat"], cur["posal"]
     g = {name.replace("TRK_", "Tracker "): [{"x": ts, "y": v} for ts, v in s]
          for name, s in posat.items() if s}   # grafico p/ a régua freeze-based (id = "Tracker N")
@@ -5450,7 +5455,8 @@ def api_sunop_trackers():
 def api_sunop_trackers_plant(plant_name):
     inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     ensure_sunop_meta(inst)
-    return jsonify(_sunop_trackers_plant_curva(plant_name, inst))   # análise por curva do dia
+    _d = (flask_request.args.get("date") or "").strip() or None
+    return jsonify(_sunop_trackers_plant_curva(plant_name, inst, data=_d))   # análise por curva do dia (?date= = dia passado)
 
 
 # ── SunOp: HISTÓRICO intradiário (endpoint /data/v2/analog_values) ─────────────
@@ -20300,8 +20306,28 @@ def _inv_energia_loop():
 
 @app.route("/api/<fonte>/inversores/energia-mes/<pid>")
 def api_inv_energia_mes(fonte, pid):
-    """kWh por inversor no mês (?mes=YYYY-MM, padrão o corrente). PG: do banco (geracao-pivo, dia a dia); demais fontes:
-    acumulador diário (só os dias fotografados desde que subiu, 06/09/2026)."""
+    """kWh por inversor no mês (?mes=YYYY-MM, padrão o corrente) ou em UM dia (?dia=YYYY-MM-DD). PG: do banco
+    (geracao-pivo, dia a dia); demais fontes: acumulador diário (só os dias fotografados desde que subiu, 06/09/2026).
+
+    O `?dia=` é o que sustenta o seletor de data do diagnóstico: o snapshot da fonte só sabe do "agora", mas a
+    energia POR DIA já estava guardada — faltava uma porta para ela (Levi, 07/09/2026)."""
+    _dia = (flask_request.args.get("dia") or "").strip()
+    if _dia:
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", _dia):
+            return jsonify({"erro": "dia invalido (YYYY-MM-DD)"}), 400
+        fonte = {"athon": "sunop", "2c": "owen", "thopen": "pg", "solaredge": "owen"}.get(fonte, fonte)
+        if fonte == "pg":
+            try:
+                usinas = _pg_gerpivo_get(_dia, _dia)
+            except Exception as e:                                            # noqa: BLE001
+                return jsonify({"erro": str(e), "inversores": {}, "dia": _dia}), 500
+            u = next((x for x in usinas if str(x.get("plant_id")) == str(pid)), None)
+            d0 = next((d for d in ((u or {}).get("dias") or []) if d.get("data") == _dia), None)
+            inv = {k: round(float(v), 1) for k, v in ((d0 or {}).get("ger") or {}).items() if v is not None}
+            return jsonify({"dia": _dia, "inversores": inv, "origem": "banco", "tem_dado": bool(inv)})
+        _st = _inv_energia_ler().get(fonte, {}).get(str(pid), {})
+        inv = {k: v for k, v in (_st.get(_dia) or {}).items() if v is not None}
+        return jsonify({"dia": _dia, "inversores": inv, "origem": "acumulador", "tem_dado": bool(inv)})
     m = (flask_request.args.get("mes") or datetime.now().strftime("%Y-%m")).strip()
     try:
         ano, mes = int(m[:4]), int(m[5:7])
