@@ -130,6 +130,11 @@
   .volta{display:inline-flex;align-items:center;gap:6px;color:var(--n400);text-decoration:none;font-size:13px;font-weight:600;margin-bottom:14px}
   .volta:hover{color:var(--accent)}
   .tr-meta{font-family:var(--f-data);font-size:12px;color:var(--n500);text-align:right}
+  .tr-meta .prox{color:var(--n500)}
+  .tr-meta button.atualiza{margin-top:8px;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--divider);background:var(--surface-2);color:var(--n300);font:600 12px var(--f-ui);padding:6px 12px;border-radius:8px;cursor:pointer;transition:border-color .2s,color .2s}
+  .tr-meta button.atualiza:hover{border-color:var(--accent);color:var(--accent)}
+  .tr-meta button.atualiza[disabled]{opacity:.6;cursor:progress}
+  .m .val .de{font-size:15px;color:var(--n500);font-weight:400;margin-left:1px}
   .tr-nota{margin:14px 0 0;padding:12px 16px;border:1px solid var(--divider);border-left:3px solid var(--n500);border-radius:10px;color:var(--n300);font-size:13.5px;background:rgba(255,255,255,.02)}
   .tr-nota.noite{border-left-color:var(--amber)}
   .tr-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:18px;margin-top:26px}
@@ -147,6 +152,7 @@
   .g-fonte{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--n500)}
   .g-fonte i{width:6px;height:6px;border-radius:50%;background:var(--n500)}
   .g-mostr{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding-top:12px;border-top:1px solid var(--divider)}
+  .g-mostr .m{min-width:0}
   .m{display:flex;flex-direction:column;gap:3px;min-width:0}
   .m .rot{font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;font-weight:700;color:var(--n500)}
   .m .val{font-family:var(--f-data);font-size:24px;font-weight:500;line-height:1.05;color:var(--text)}
@@ -161,8 +167,35 @@
   /* ── nivel 3: um cliente x fonte, usina a usina ───────────────────────── */
   .g.vazio-dado{opacity:.62}
   .g.vazio-dado:hover{opacity:1}
-  .u-resumo{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-top:22px}
-  .u-resumo .m{padding:16px 18px;border-radius:12px;background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--divider)}
+  .u-resumo{display:grid;grid-template-columns:repeat(4,1fr) minmax(110px,.55fr);gap:14px;margin-top:22px}
+  .u-resumo .m{position:relative;padding:16px 18px;border-radius:12px;background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--divider);text-align:left;color:inherit;font:inherit}
+  /* Strings, ETM e Trackers SAO os botoes de aba do Monitoramento embutido (pedido do Levi, 05/09): menos cards, mais funcao */
+  .u-resumo .m.aba{cursor:pointer;transition:border-color .2s,transform .2s,box-shadow .2s;user-select:none}
+  .u-resumo .m.aba:hover{border-color:rgba(163,217,0,.4);transform:translateY(-2px)}
+  .u-resumo .m.aba:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  .u-resumo .m.mais.aberto{transform:none;border-color:rgba(163,217,0,.4)}
+  .u-resumo .m.on{border-color:var(--accent);box-shadow:0 0 0 1px rgba(163,217,0,.35), 0 14px 34px rgba(163,217,0,.10)}
+  .u-resumo .m.on .rot{color:var(--accent)}
+  .u-resumo .m.on::after{content:"";position:absolute;left:18px;right:18px;bottom:-1px;height:2px;background:var(--accent);border-radius:2px}
+  .u-resumo .m.mais{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px}
+  .u-resumo .m.mais .val{font-size:26px;letter-spacing:.1em;line-height:1}
+  .u-resumo .m.mais .sub{font-size:11.5px;text-align:center}
+  .mais-lista{position:absolute;right:0;top:calc(100% + 8px);z-index:30;min-width:210px;padding:6px;border-radius:12px;background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--divider);box-shadow:0 26px 54px rgba(0,0,0,.55)}
+  .mais-lista button{display:block;width:100%;text-align:left;padding:9px 12px;border:0;border-radius:8px;background:none;color:var(--n300);font:600 13px var(--f-ui);cursor:pointer}
+  .mais-lista button:hover,.mais-lista button.on{background:rgba(163,217,0,.10);color:var(--text)}
+  /* seta no titulo: trocar de cliente/fonte sem voltar */
+  .troca{position:relative;display:inline-block}
+  .troca > button{display:inline-flex;align-items:center;gap:10px;background:none;border:0;padding:0;color:var(--text);font:800 30px/1.1 var(--f-ui);letter-spacing:-.025em;cursor:pointer;margin:6px 0 0}
+  .troca > button svg{width:22px;height:22px;color:var(--n500);transition:transform .2s,color .2s;flex:none}
+  .troca > button:hover svg{color:var(--accent)}
+  .troca.aberto > button svg{transform:rotate(180deg);color:var(--accent)}
+  .troca-lista{position:absolute;left:0;top:calc(100% + 10px);z-index:40;min-width:320px;padding:6px;border-radius:12px;background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--divider);box-shadow:0 26px 54px rgba(0,0,0,.55)}
+  .troca-lista a{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 12px;border-radius:8px;text-decoration:none;color:var(--n300);font-size:13.5px}
+  .troca-lista a:hover{background:rgba(163,217,0,.10);color:var(--text)}
+  .troca-lista a.on{color:var(--text);background:rgba(255,255,255,.04)}
+  .troca-lista a b{font-weight:700}.troca-lista a small{color:var(--n500);font-family:var(--f-data);font-size:11.5px;white-space:nowrap}
+  .troca-lista a .f{display:block;font-size:11.5px;color:var(--n500);font-weight:500}
+  @media (max-width:980px){.u-resumo{grid-template-columns:repeat(2,1fr)}.troca-lista{min-width:260px}}
   .u-lista{margin-top:22px;border:1px solid var(--divider);border-radius:14px;overflow:hidden;background:var(--surface)}
   .u-lista table{width:100%;border-collapse:collapse;font-size:13.5px}
   .u-lista th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;font-weight:700;color:var(--n500);padding:12px 14px;border-bottom:1px solid var(--divider);background:rgba(255,255,255,.02)}
@@ -310,7 +343,7 @@
     <div>
       <a class="volta" href="/tempo-real">‹ Tempo real</a>
       <div class="kicker" id="us-kicker"><i></i>Agora</div>
-      <h1 id="us-titulo">Cliente</h1>
+      <div class="troca" id="us-troca"><button type="button" id="us-titulo" aria-haspopup="listbox" aria-expanded="false">Cliente <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button><div class="troca-lista" id="us-lista-troca" role="listbox" hidden></div></div>
     </div>
     <div class="tr-meta" id="us-meta"></div>
   </div>
@@ -347,15 +380,22 @@
     var partes = location.pathname.replace(/\/+$/, "").split("/").filter(Boolean);   // ["tempo-real"] ou ["tempo-real", "athon"]
     if (partes[0] !== "tempo-real") return;
     var fonteSel = partes[1] || null;
+    var VIEWS = ["strings", "etm", "geracao", "trackers", "pr", "curva", "perdas"];
+    var viewSel = (function () { var v = new URLSearchParams(location.search).get("view"); return VIEWS.indexOf(v) >= 0 ? v : "strings"; })();
     document.querySelectorAll(".n1").forEach(function (e) { e.hidden = true; });
     document.body.classList.add("largo");
     var sec = document.getElementById(fonteSel ? "nivel-us" : "nivel-tr"); sec.hidden = false;
     if (fonteSel) {
       var fr = document.getElementById("us-frame");
-      fr.src = "/monitoramento?fonte=" + encodeURIComponent(fonteSel) + "&embed=1";
+      var qs0 = new URLSearchParams(location.search), fundo = "";
+      ["usina", "inversor", "dia"].forEach(function (k) { if (qs0.get(k)) fundo += "&" + k + "=" + encodeURIComponent(qs0.get(k)); });
+      fr.src = "/monitoramento?fonte=" + encodeURIComponent(fonteSel) + "&embed=1&view=" + viewSel + fundo;
       fr.hidden = false;
       window.addEventListener("message", function (ev) {
-        if (ev.data && ev.data.gc === "altura" && ev.data.h > 200) fr.style.height = (ev.data.h + 24) + "px";
+        var d = ev.data || {};
+        if (d.gc === "altura" && d.h > 200) fr.style.height = (d.h + 24) + "px";
+        // o embutido nao rola sozinho (a altura dele e a do conteudo): ele diz onde esta o inversor e o pai rola ate la
+        if (d.gc === "rolar" && typeof d.y === "number") window.scrollTo({ top: Math.max(0, fr.getBoundingClientRect().top + window.scrollY + d.y - 96), behavior: "smooth" });
       });
     }
     document.title = "Tempo real · Grid Co.";
@@ -368,38 +408,143 @@
     // De noite strings e trackers nao contam: a usina esta em zero e o tracker estacionado. O que importa e comunicacao.
     function ehNoite() { var h = new Date().getHours(); return h < 5 || h >= 19; }
     function esqueleto() { if (fonteSel) return; grade.innerHTML = "<div class='esq'></div><div class='esq'></div><div class='esq'></div>"; }
+    // Strings, ETM e Trackers SAO os botoes de aba do Monitoramento embutido (pedido do Levi, 05/09: "muitos cards para
+    // pouca funcao"). "Sem comunicacao" e so leitura. O card "..." abre as demais abas (Geracao, PR, Curva, Perdas).
+    var OUTRAS = [["geracao", "Geração"], ["pr", "PR Inversores"], ["curva", "Curva das strings"], ["perdas", "Perdas"]];
+    var frPronto = false;
+    function marcaAba() {
+      var res = document.getElementById("us-resumo");
+      res.querySelectorAll(".m.aba").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-view") === viewSel); });
+      var mais = document.getElementById("us-mais"), outra = OUTRAS.filter(function (o) { return o[0] === viewSel; })[0];
+      if (mais) { mais.classList.toggle("on", !!outra); mais.querySelector(".sub").textContent = outra ? outra[1] : "mais"; }
+      res.querySelectorAll("#us-mais-lista button").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-view") === viewSel); });
+    }
+    function fechaMais() { var l = document.getElementById("us-mais-lista"), m = document.getElementById("us-mais"); if (l) l.hidden = true; if (m) m.classList.remove("aberto"); }
+    function escolheAba(id) {
+      if (VIEWS.indexOf(id) < 0) return;
+      viewSel = id; marcaAba();
+      var fr = document.getElementById("us-frame");
+      // o iframe ainda carregando perderia a mensagem: nesse caso troca o src, que ja nasce na aba certa
+      if (frPronto) { try { fr.contentWindow.postMessage({ gc: "view", id: id }, "*"); } catch (e) { } }
+      else fr.src = "/monitoramento?fonte=" + encodeURIComponent(fonteSel) + "&embed=1&view=" + id;
+      try { history.replaceState(null, "", location.pathname + "?view=" + id); } catch (e) { }
+    }
+    function fechaTroca() {
+      var troca = document.getElementById("us-troca"), lista = document.getElementById("us-lista-troca"), tit = document.getElementById("us-titulo");
+      if (!lista || lista.hidden) return;
+      lista.hidden = true; troca.classList.remove("aberto"); tit.setAttribute("aria-expanded", "false");
+    }
+    // listeners registrados UMA vez (desenhaCliente redesenha a cada 60 s): delegacao no #us-resumo e no documento
+    if (fonteSel) {
+      document.getElementById("us-frame").addEventListener("load", function () { frPronto = true; });
+      document.getElementById("us-resumo").addEventListener("click", function (ev) {
+        var op = ev.target.closest("#us-mais-lista button");
+        if (op) { ev.stopPropagation(); fechaMais(); escolheAba(op.getAttribute("data-view")); return; }
+        var mais = ev.target.closest("#us-mais");
+        if (mais) { ev.stopPropagation(); var l = document.getElementById("us-mais-lista"); l.hidden = !l.hidden; mais.classList.toggle("aberto", !l.hidden); return; }
+        var card = ev.target.closest(".m.aba");
+        if (card) escolheAba(card.getAttribute("data-view"));
+      });
+      document.getElementById("us-resumo").addEventListener("keydown", function (ev) {
+        if (ev.key !== "Enter" && ev.key !== " ") return;
+        var card = ev.target.closest(".m.aba[role=button]"); if (!card) return;
+        ev.preventDefault(); card.click();
+      });
+      document.getElementById("us-titulo").addEventListener("click", function (ev) {
+        ev.stopPropagation(); fechaMais();
+        var troca = document.getElementById("us-troca"), lista = document.getElementById("us-lista-troca");
+        var abre = lista.hidden; lista.hidden = !abre; troca.classList.toggle("aberto", abre); this.setAttribute("aria-expanded", abre ? "true" : "false");
+      });
+      document.addEventListener("click", function () { fechaMais(); fechaTroca(); });
+      document.addEventListener("keydown", function (ev) { if (ev.key === "Escape") { fechaMais(); fechaTroca(); } });
+    }
+    // ── Strings faltando = "nao reconhecidas / total" (Levi, 06/09). Nao reconhecida = string faltando que ninguem
+    //    marcou no acompanhamento da usina (coluna ACOMP. do Monitoramento); o total continua sendo esperadas − ativas.
+    //    Sem o campo (servidor antigo), mostra so o total, como antes.
+    // compacto = coluna estreita do card da grade (3 metricas em ~100 px): so o numero grande; o total vai para a
+    // linha de baixo. "1.030/1.086" no valor invadia a coluna do ETM (Levi, 06/09 17h).
+    function strVal(g, compacto) {
+      var tot = g.strings_faltando || 0, nr = g.strings_nao_rec;
+      if (nr == null) return fmt(tot);
+      if (!tot || compacto) return fmt(nr);
+      return fmt(nr) + "<span class='de'>/" + fmt(tot) + "</span>";
+    }
+    function strSub(g, sep, compacto) {
+      var crit = "<b>" + fmt(g.usinas_critico) + "</b> usina" + (g.usinas_critico === 1 ? "" : "s") + " crítica" + (g.usinas_critico === 1 ? "" : "s");
+      var tot = g.strings_faltando || 0, nr = g.strings_nao_rec;
+      if (nr == null) return crit;
+      if (!tot) return "nenhuma faltando" + sep + crit;
+      var ac = Math.max(0, tot - nr);
+      if (!nr) return "todas as " + fmt(tot) + " em acompanhamento" + sep + crit;
+      if (compacto) return "não reconhecidas de <b>" + fmt(tot) + "</b>" + sep + crit;
+      return "não reconhecidas / total" + sep + crit + (ac > 0 ? " · " + fmt(ac) + " em acompanhamento" : "");
+    }
+    function strCls(g) {
+      var n = g.strings_nao_rec == null ? g.strings_faltando : g.strings_nao_rec;
+      if (!(n > 0)) return "";
+      return g.usinas_critico > 0 ? " ruim" : " aviso";
+    }
+    // ── cabecalho: atualizado HH:MM:SS · proxima HH:MM + botao Atualizar (a construcao e a cada 30 min desde 06/09)
+    var atualizando = false;
+    function hhmm(epoch) { var x = new Date(epoch * 1000); return ("0" + x.getHours()).slice(-2) + ":" + ("0" + x.getMinutes()).slice(-2); }
+    function metaHtml(d) {
+      var s = "atualizado " + (d.cache_ts || "—");
+      if (d.renovando || d.stale) s += " · renovando";
+      else if (d.cache_epoch && d.ttl_s) s += "<span class='prox'> · próxima " + hhmm(d.cache_epoch + d.ttl_s) + "</span>";
+      var ocupado = atualizando || !!d.renovando;
+      s += "<br><button type='button' class='atualiza' data-atualizar" + (ocupado ? " disabled" : "") + ">" + (ocupado ? "atualizando…" : "Atualizar") + "</button>";
+      return s;
+    }
+    function atualizar() {
+      if (atualizando) return;
+      atualizando = true;
+      document.querySelectorAll("button.atualiza").forEach(function (b) { b.disabled = true; b.textContent = "atualizando…"; });
+      fetch("/api/entrada/tempo-real/atualizar", { method: "POST" }).then(function (r) { return r.json(); }).then(function (r) {
+        var antes = r.cache_ts, tenta = 0;
+        (function espera() {           // redesenha quando o cache_ts mudar; 2 min sem mudar = fonte lenta, segue em fundo
+          fetch("/api/entrada/tempo-real", { cache: "no-store" }).then(function (x) { return x.json(); }).then(function (d) {
+            var pronto = !d.aquecendo && d.cache_ts && d.cache_ts !== antes;
+            if (pronto || ++tenta > 40) { atualizando = false; if (!d.aquecendo) desenha(d); return; }
+            setTimeout(espera, 3000);
+          }).catch(function () { atualizando = false; });
+        })();
+      }).catch(function () { atualizando = false; document.querySelectorAll("button.atualiza").forEach(function (b) { b.disabled = false; b.textContent = "Atualizar"; }); });
+    }
+    document.addEventListener("click", function (ev) { if (ev.target.closest("[data-atualizar]")) { ev.preventDefault(); atualizar(); } });
     function desenhaCliente(d) {
       var noite = ehNoite();
       var g = (d.grupos || []).filter(function (x) { return (x.fonte_id || FONTE_ID[x.fonte]) === fonteSel; })[0];
       var tit = document.getElementById("us-titulo"), kick = document.getElementById("us-kicker"), met = document.getElementById("us-meta");
-      var res = document.getElementById("us-resumo"), lista = document.getElementById("us-lista"), nt = document.getElementById("us-nota");
-      if (!g) { tit.textContent = "Fonte desconhecida"; lista.innerHTML = "<div class='vazio'>Nenhum grupo com o id “" + fonteSel + "”.</div>"; return; }
+      var res = document.getElementById("us-resumo"), aviso = document.getElementById("us-lista"), nt = document.getElementById("us-nota");
+      var listaTroca = document.getElementById("us-lista-troca");
+      // seta no titulo: trocar de cliente/fonte sem voltar ao nivel anterior (os 8 grupos existem sempre)
+      listaTroca.innerHTML = (d.grupos || []).map(function (x) {
+        var id = x.fonte_id || FONTE_ID[x.fonte] || "";
+        return "<a href='/tempo-real/" + id + "' class='" + (id === fonteSel ? "on" : "") + "' role='option' aria-selected='" + (id === fonteSel) + "'><span><b>" + x.cliente + "</b><span class='f'>" + x.fonte + " · " + (FONTE_ROT[x.fonte] || "") + "</span></span><small>" + (x.sem_leitura ? "sem leitura" : fmt(x.n_usinas) + " usina" + (x.n_usinas === 1 ? "" : "s")) + "</small></a>";
+      }).join("");
+      if (!g) { tit.firstChild.nodeValue = "Fonte desconhecida "; aviso.innerHTML = "<div class='vazio'>Nenhum grupo com o id “" + fonteSel + "”. Use a seta ao lado do título para escolher outro.</div>"; return; }
+      aviso.innerHTML = "";
       document.title = g.cliente + " · Tempo real · Grid Co.";
-      tit.textContent = g.cliente;
+      tit.firstChild.nodeValue = g.cliente + " ";
       kick.innerHTML = "<i></i>Agora · " + g.fonte + " · " + (FONTE_ROT[g.fonte] || "");
-      met.innerHTML = fmt(g.n_usinas) + " usina" + (g.n_usinas === 1 ? "" : "s") + "<br>atualizado " + (d.cache_ts || "—") + (d.stale ? " · renovando" : "");
+      met.innerHTML = fmt(g.n_usinas) + " usina" + (g.n_usinas === 1 ? "" : "s") + "<br>" + metaHtml(d);
       nt.hidden = false; nt.className = "tr-nota" + (noite ? " noite" : "");
       nt.textContent = g.sem_leitura
         ? "Esta fonte não entregou leitura de nenhuma usina. O card existe para ela não sumir da vista; quando a fonte voltar, os números aparecem aqui."
-        : (noite ? "Sem sol agora: strings e trackers não contam até o amanhecer. À noite o que vale é comunicação. Abaixo, as abas do Monitoramento só desta fonte." : "Resumo desta fonte agora. Abaixo, as abas do Monitoramento só dela: Strings, ETM, Trackers e as demais.");
-      var mostr = function (rot, val, sub, cls) { return "<div class='m'><div class='rot'>" + rot + "</div><div class='val" + (cls || "") + "'>" + val + "</div><div class='sub'>" + sub + "</div></div>"; };
-      res.innerHTML = (noite ? mostr("Strings", "sem sol", "volta ao amanhecer", " mudo") : mostr("Strings faltando", fmt(g.strings_faltando), "<b>" + fmt(g.usinas_critico) + "</b> usinas críticas", g.usinas_critico > 0 ? " ruim" : ""))
-        + mostr("Sem comunicação", fmt(g.usinas_sem_comm), "usinas sem reportar", g.usinas_sem_comm > 0 ? " ruim" : " bom")
-        + mostr("ETM", fmt(g.etm_problema), "com problema no mês · <b>" + fmt(g.etm_com_os) + "</b> com OS", g.etm_problema > 0 ? (g.etm_com_os >= g.etm_problema ? " bom" : " aviso") : "")
-        + (noite ? mostr("Trackers", "estacionados", "volta ao amanhecer", " mudo") : mostr("Trackers parados", g.trk_fonte_ok ? fmt(g.trk_parados) : "—", g.trk_fonte_ok ? "<b>" + fmt(g.trk_com_os) + "</b> com OS" : "fonte não respondeu", g.trk_parados > 0 ? " aviso" : ""));
-      lista.innerHTML = "";
-      if (true) { return; }   // a tabela usina a usina foi substituida pelo Monitoramento embutido (padrao anterior)
-      if (!g.usinas || !g.usinas.length) { lista.innerHTML = "<div class='vazio' style='border:0'>Nenhuma usina com leitura nesta fonte agora.</div>"; return; }
-      var ROT = { sem_comm: "sem comunicação", critico: "crítico", atencao: "atenção", ok: "normal" };
-      lista.innerHTML = "<table><thead><tr><th>Usina</th><th>Situação</th><th class='r'>Strings faltando</th><th>ETM</th><th class='r'>Trackers parados</th><th class='r'>Última leitura</th></tr></thead><tbody>"
-        + g.usinas.map(function (u) {
-          var st = u.status || "ok", situ = (noite && st === "critico") ? "<span class='pill noite'>sem sol</span>" : "<span class='pill " + st + "'>" + (ROT[st] || st) + "</span>";
-          var strs = noite ? "<span class='mudo'>—</span>" : (fmt(u.strings_faltando) + (u.str_esp ? "<span class='mudo'> / " + fmt(u.str_esp) + "</span>" : ""));
-          var etm = u.etm && u.etm.length ? "<span class='etm-tag" + (u.etm_os ? " os" : "") + "' title='" + u.etm.join(" | ").replace(/'/g, "&#39;") + "'>" + u.etm.length + " problema" + (u.etm.length === 1 ? "" : "s") + " <i>" + (u.etm_os ? "com OS" : "sem OS") + "</i></span>" : "<span class='mudo'>—</span>";
-          var trk = noite ? "<span class='mudo'>—</span>" : (u.trk_parados ? fmt(u.trk_parados) + (u.trk_com_os ? "<span class='mudo'> · " + fmt(u.trk_com_os) + " OS</span>" : "") : "<span class='mudo'>0</span>");
-          var alvo = "/monitoramento?fonte=" + fonteSel + (u.plant_id ? "&usina=" + encodeURIComponent(u.plant_id) : "");
-          return "<tr class='lk' onclick=\"location.href='" + alvo + "'\"><td class='nome'>" + u.usina + (u.regiao ? "<small>" + u.regiao + (u.estado ? " · " + u.estado : "") + "</small>" : "") + "</td><td>" + situ + "</td><td class='num'>" + strs + "</td><td>" + etm + "</td><td class='num'>" + trk + "</td><td class='num'>" + hora(u.ultima_leitura) + "</td></tr>";
-        }).join("") + "</tbody></table>";
+        : (noite ? "Sem sol agora: strings e trackers não contam até o amanhecer. À noite o que vale é comunicação. Clique num card para ver a aba dele; em ··· estão as outras." : "Clique em Strings, ETM ou Trackers para ver a aba do Monitoramento só desta fonte; em ··· estão Geração, PR, Curva e Perdas.");
+      var mostr = function (rot, val, sub, cls, view) {
+        var tag = view ? "button" : "div", extra = view ? " type='button' data-view='" + view + "' title='ver " + rot.toLowerCase() + " desta fonte'" : "";
+        return "<" + tag + " class='m" + (view ? " aba" : "") + "'" + extra + "><div class='rot'>" + rot + "</div><div class='val" + (cls || "") + "'>" + val + "</div><div class='sub'>" + sub + "</div></" + tag + ">";
+      };
+      var maisAberto = !!(document.getElementById("us-mais-lista") && !document.getElementById("us-mais-lista").hidden);
+      res.innerHTML = mostr("Sem comunicação", fmt(g.usinas_sem_comm), "usinas sem reportar", g.usinas_sem_comm > 0 ? " ruim" : " bom")   // primeiro: vale a qualquer hora
+        + (noite ? mostr("Strings", "sem sol", "volta ao amanhecer", " mudo", "strings") : mostr("Strings faltando", strVal(g), strSub(g, " · "), strCls(g), "strings"))
+        + mostr("ETM", fmt(g.etm_problema), "com problema no mês · <b>" + fmt(g.etm_com_os) + "</b> com OS", g.etm_problema > 0 ? (g.etm_com_os >= g.etm_problema ? " bom" : " aviso") : "", "etm")
+        + (noite ? mostr("Trackers", "estacionados", "volta ao amanhecer", " mudo", "trackers") : mostr("Trackers parados", g.trk_fonte_ok ? fmt(g.trk_parados) : "—", g.trk_fonte_ok ? "<b>" + fmt(g.trk_com_os) + "</b> com OS" : "fonte não respondeu", g.trk_parados > 0 ? " aviso" : "", "trackers"))
+        // "..." e um div (button dentro de button e invalido: o parser fecharia o de fora e a lista cairia solta na grade)
+        + "<div class='m aba mais" + (maisAberto ? " aberto" : "") + "' id='us-mais' data-view='' role='button' tabindex='0' aria-haspopup='menu' title='outras abas'><div class='val'>···</div><div class='sub'>mais</div>"
+        + "<div class='mais-lista' id='us-mais-lista' role='menu'" + (maisAberto ? "" : " hidden") + ">" + OUTRAS.map(function (o) { return "<button type='button' role='menuitem' data-view='" + o[0] + "'>" + o[1] + "</button>"; }).join("") + "</div></div>";
+      marcaAba();
     }
     function desenha(d) {
       if (fonteSel) { desenhaCliente(d); return; }
@@ -409,7 +554,7 @@
       nota.textContent = noite
         ? "Sem sol agora. Strings em zero e trackers estacionados são o normal da noite, então esses dois não contam: o que vale até o amanhecer é comunicação. As ETMs são o diagnóstico do mês."
         : "Strings faltando e trackers parados são a leitura mais recente de cada fonte. As ETMs com problema são o diagnóstico do mês, com quantas já têm OS.";
-      meta.innerHTML = "atualizado " + (d.cache_ts || "—") + (d.stale ? " · renovando" : "") + "<br>" + fmt(d.grupos.length) + " grupos";
+      meta.innerHTML = metaHtml(d) + "<br>" + fmt(d.grupos.length) + " grupos";
       var fora = document.getElementById("tr-fora"), lf = d.etm_fora || [];
       fora.hidden = !lf.length;
       if (lf.length) fora.innerHTML = "ETMs com problema no mês em usinas <b>sem fonte ao vivo</b> (só no BD_Performance): " + lf.map(function (f) { return "<b>" + f.cliente + "</b> " + fmt(f.n) + (f.com_os ? " (" + fmt(f.com_os) + " com OS)" : ""); }).join(" · ") + ".";
@@ -419,7 +564,7 @@
         var cls = function (n, ruim) { return n > 0 ? (ruim ? " ruim" : " aviso") : ""; };
         var strings = noite
           ? "<div class='m'><div class='rot'>Strings</div><div class='val mudo'>sem sol</div><div class='sub'>volta ao amanhecer</div></div>"
-          : "<div class='m'><div class='rot'>Strings faltando</div><div class='val" + cls(g.strings_faltando, g.usinas_critico > 0) + "'>" + fmt(g.strings_faltando) + "</div><div class='sub'><b>" + fmt(g.usinas_critico) + "</b> usina" + (g.usinas_critico === 1 ? "" : "s") + " crítica" + (g.usinas_critico === 1 ? "" : "s") + "</div></div>";
+          : "<div class='m'><div class='rot'>Strings faltando</div><div class='val" + strCls(g) + "'>" + strVal(g, true) + "</div><div class='sub'>" + strSub(g, "<br>", true) + "</div></div>";
         var etm = "<div class='m'><div class='rot'>ETM</div><div class='val" + (g.etm_problema > 0 ? (g.etm_com_os >= g.etm_problema ? " bom" : " aviso") : "") + "'>" + fmt(g.etm_problema) + "</div><div class='sub'>com problema no mês<br><b>" + fmt(g.etm_com_os) + "</b> com OS</div></div>";
         var trk = !g.trk_fonte_ok
           ? "<div class='m'><div class='rot'>Trackers</div><div class='val mudo'>sem leitura</div><div class='sub'>fonte não respondeu</div></div>"
@@ -436,12 +581,26 @@
           + "</a>";
       }).join("");
     }
+    // Aquecimento: a 1a construcao depois de um restart leva ~1 min. Passando disso e porque alguma fonte esta lenta —
+    // e o silencio assustava (05/09: 15 min de esqueleto sem explicacao, com o banco pendurado). Diz ha quanto tempo,
+    // e diz TAMBEM na tela do cliente, onde o texto ia para um elemento do nivel 2, que esta escondido.
+    var esperando = 0;
+    function aviso(txt) {
+      meta.textContent = txt;
+      var av = document.getElementById("us-lista");
+      if (fonteSel && av) av.innerHTML = "<div class='vazio' style='border-style:solid'>" + txt + "</div>";
+    }
     function carrega() {
       fetch("/api/entrada/tempo-real", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (d) {
-        if (d.aquecendo) { esqueleto(); meta.textContent = "coletando as fontes pela primeira vez"; setTimeout(carrega, 5000); return; }
+        if (d.aquecendo) {
+          esqueleto(); esperando += 5;
+          aviso(esperando <= 60 ? "coletando as fontes pela primeira vez…" : "ainda coletando há " + esperando + "s · alguma fonte está lenta; a tela abre assim que der");
+          setTimeout(carrega, 5000); return;
+        }
+        esperando = 0;
         desenha(d);
         setTimeout(carrega, 60000);
-      }).catch(function () { meta.textContent = "sem resposta da plataforma · tentando de novo"; setTimeout(carrega, 8000); });
+      }).catch(function () { aviso("sem resposta da plataforma · tentando de novo"); setTimeout(carrega, 8000); });
     }
     esqueleto(); carrega();
   })();

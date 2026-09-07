@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Grid Co. · Monitoramento de Portfólio (NOC)</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
 /* ===== NOSSO ESTILO (claro) — padrão ===== */
@@ -128,7 +128,7 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
 /* DRAWER */
 .backdrop{position:fixed;inset:0;background:rgba(5,9,18,.55);opacity:0;pointer-events:none;transition:opacity .25s;z-index:40;}
 .backdrop.open{opacity:1;pointer-events:auto;}
-.drawer{position:fixed;top:0;right:0;width:440px;max-width:92vw;height:100vh;background:var(--panel);border-left:1px solid var(--line-2);box-shadow:-8px 0 30px rgba(0,0,0,.25);transform:translateX(100%);transition:transform .25s;z-index:50;overflow:auto;padding:18px 18px 40px;}
+.drawer{position:fixed;top:0;right:0;width:780px;max-width:96vw;height:100vh;background:var(--panel);border-left:1px solid var(--line-2);box-shadow:-8px 0 30px rgba(0,0,0,.25);transform:translateX(100%);transition:transform .25s;z-index:50;overflow:auto;padding:18px 18px 40px;}
 .drawer.open{transform:translateX(0);}
 .dx{position:absolute;top:14px;right:16px;cursor:pointer;color:var(--muted);font-size:20px;background:none;border:0;}
 .dhdr .dt{font-size:17px;font-weight:600;}.dhdr .dm{font-size:11.5px;color:var(--faint);margin-bottom:14px;}
@@ -140,6 +140,54 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
 .minihm-row{display:grid;grid-template-columns:62px 1fr;align-items:center;gap:8px;margin-bottom:5px;}.minihm-row .ml{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .minihm-cells{display:grid;gap:4px;}.mcell{height:13px;border-radius:3px;border:1px solid rgba(0,0,0,.12);}
 .empty{color:var(--faint);font-size:12px;padding:18px;text-align:center;}
+/* RAIO-X DA USINA (painel lateral, 06/09/2026) */
+.drawer{--rx-mono:'IBM Plex Mono',Consolas,monospace;padding:22px 26px 30px;}
+.rx-hdr{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;margin:0 30px 6px 0}
+.rx-hdr .t{font-size:20px;font-weight:700;letter-spacing:-.01em}.rx-hdr .m{font-size:12px;color:var(--muted);margin-top:2px}
+.rx-pill{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;text-transform:uppercase;letter-spacing:.06em}
+.rx-pill i{width:7px;height:7px;border-radius:50%;background:currentColor;display:inline-block}
+.rx-pill.critico{background:rgba(220,38,38,.12);color:var(--red)}.rx-pill.sem_comm{background:rgba(100,116,139,.18);color:var(--muted)}.rx-pill.atencao{background:rgba(217,119,6,.14);color:var(--amber)}.rx-pill.ok{background:rgba(22,163,74,.14);color:var(--ok)}
+.rx-links{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 16px}
+.rx-links a{font-size:12px;font-weight:600;color:var(--txt);text-decoration:none;padding:6px 11px;border:1px solid var(--line-2);border-radius:8px;background:var(--panel-2)}
+.rx-links a.p{background:var(--brand);color:#16140e;border-color:transparent}.rx-links a[hidden]{display:none}
+.rx-ver{border:1px solid var(--line-2);border-left:3px solid var(--red);border-radius:12px;padding:12px 16px;background:var(--panel-2);margin-bottom:16px}
+.rx-ver .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:700;margin-bottom:4px}
+.rx-ver .f{font-size:14.5px;line-height:1.45}.rx-ver .f b{color:var(--txt)}.rx-ver .motor{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.45}.rx-ver .motor b{color:var(--txt)}
+.rx-casc{display:flex;height:12px;border-radius:6px;overflow:hidden;margin-top:10px;background:var(--raise)}.rx-casc span{height:100%}
+.rx-leg{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:6px}.rx-leg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+.rx-tres{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+.rx-bloco{background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;position:relative;min-height:112px}
+.rx-bloco .l{font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:700;display:flex;justify-content:space-between;gap:6px}
+.rx-bloco .v{font:600 26px/1.1 var(--rx-mono);margin:6px 0 2px}.rx-bloco .v small{font-size:13px;color:var(--muted);font-weight:400;font-family:var(--font)}
+.rx-bloco .v.ruim{color:var(--red)}.rx-bloco .v.aviso{color:var(--amber)}.rx-bloco .v.bom{color:var(--ok)}.rx-bloco .v.mudo{color:var(--muted);font-size:15px;font-family:var(--font);font-weight:500}
+.rx-bloco .s{font-size:11.5px;color:var(--muted);line-height:1.4}.rx-bloco .s b{color:var(--txt);font-weight:600}
+.rx-bloco a{color:var(--brand-d, var(--brand));text-decoration:none;font-weight:600;font-size:11.5px;white-space:nowrap}
+body.dark .rx-bloco a{color:var(--brand)}
+.rx-sec{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:18px 0 8px}.rx-sec h3{font-size:13px;margin:0;font-weight:700}.rx-sec .sub{font-size:11.5px;color:var(--faint);text-align:right}
+.rx-card{background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+table.rx-inv{width:100%;border-collapse:collapse;font-size:12px}table.rx-inv th{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);text-align:left;padding:4px 6px;font-weight:700}
+table.rx-inv td{padding:5px 6px;border-top:1px solid var(--line);vertical-align:middle}table.rx-inv tr.sel td{background:rgba(163,217,0,.08)}table.rx-inv tbody tr{cursor:pointer}
+.rx-barra{position:relative;height:9px;background:var(--raise);border-radius:5px;overflow:hidden;min-width:110px}.rx-barra i{position:absolute;left:0;top:0;bottom:0;border-radius:5px}
+.rx-barra em{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--txt);opacity:.5}
+.rx-chip{font-size:10px;font-weight:700;padding:2px 7px;border-radius:12px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+.rx-chip.parado{background:rgba(220,38,38,.14);color:var(--red)}.rx-chip.abaixo{background:rgba(217,119,6,.16);color:var(--amber)}.rx-chip.ok{background:rgba(22,163,74,.14);color:var(--ok)}.rx-chip.sem_dado{background:var(--raise);color:var(--muted)}
+.rx-num{font-family:var(--rx-mono);text-align:right;white-space:nowrap}.rx-c{text-align:center !important}
+.rx-svg text{font-family:var(--rx-mono);font-size:10px;fill:var(--faint)}.rx-band{fill:rgba(220,38,38,.13)}
+.rx-tl{list-style:none;margin:0;padding:0 0 0 14px;border-left:2px solid var(--line-2)}.rx-tl li{position:relative;padding:0 0 10px 14px;font-size:12px}
+.rx-tl li::before{content:"";position:absolute;left:-19px;top:6px;width:8px;height:8px;border-radius:50%;background:var(--muted)}
+.rx-tl li.red::before{background:var(--red)}.rx-tl li.amber::before{background:var(--amber)}.rx-tl li.ok::before{background:var(--ok)}.rx-tl li.blue::before{background:var(--blue)}
+.rx-tl .q{font:500 11px var(--rx-mono);color:var(--muted);margin-right:8px}.rx-tl b{font-weight:600}
+details.rx-fr{margin-top:14px;border:1px solid var(--line);border-radius:12px;background:var(--panel-2)}details.rx-fr summary{cursor:pointer;padding:10px 14px;font-weight:600;font-size:12.5px;color:var(--muted);list-style:none}
+details.rx-fr summary::-webkit-details-marker{display:none}details.rx-fr summary::before{content:"›";display:inline-block;margin-right:8px;transition:transform .15s;color:var(--faint)}details.rx-fr[open] summary::before{transform:rotate(90deg)}
+details.rx-fr .in{padding:0 14px 14px}
+.rx-os{border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:8px;padding:6px 10px;margin-bottom:6px;font-size:11.5px}
+.rx-mini{display:grid;grid-template-columns:78px 1fr;gap:6px;align-items:center;margin-bottom:4px}.rx-mini .n{font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rx-cells{display:grid;gap:3px}.rx-cells i{height:11px;border-radius:2px;display:block}
+.rx-dias{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}.rx-dia{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.rx-dia .d{font:500 11px var(--rx-mono);color:var(--muted)}.rx-dia .p{font:600 15px var(--rx-mono);margin-top:2px}.rx-dia .p.bom{color:var(--ok)}.rx-dia .p.ruim{color:var(--red)}.rx-dia .p.aviso{color:var(--amber)}.rx-dia .x{font-size:10.5px;color:var(--faint)}
+.rx-esq{color:var(--faint);font-size:11.5px;padding:6px 0}.rx-esq::after{content:"…";animation:rxp 1.2s infinite}@keyframes rxp{50%{opacity:.3}}
+.rx-nota{font-size:11.5px;color:var(--faint);padding:8px 0 0}
+@media (max-width:980px){.rx-tres{grid-template-columns:1fr}.rx-dias{grid-template-columns:repeat(3,1fr)}}
 .legend{display:flex;flex-wrap:wrap;gap:13px;font-size:10.5px;color:var(--muted);margin:2px 0 10px;}
 .legend span{display:flex;align-items:center;gap:5px;}.sw{width:11px;height:11px;border-radius:3px;display:inline-block;}
 .foot{margin-top:22px;text-align:center;font-size:10.5px;color:var(--faint);}.foot b{color:var(--brand-d);}
@@ -178,18 +226,21 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
       </div>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:2px 0 8px">
         <span id="wallViewTog" style="display:inline-flex;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px">
-          <button data-wv="str" onclick="setWallView('str')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:var(--brand);color:#16140e">String em risco</button>
-          <button data-wv="pr" onclick="setWallView('pr')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">PR &amp; meta</button>
-          <button data-wv="etm" onclick="setWallView('etm')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">ETM</button>
+          <!-- ordem e padrao pedidos pelo Levi (06/09): Meta (atingimento do mes) primeiro, depois PR, depois Strings -->
+          <button data-wv="meta" onclick="setWallView('meta')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:var(--brand);color:#16140e">Meta</button>
+          <button data-wv="pr" onclick="setWallView('pr')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">PR</button>
+          <button data-wv="str" onclick="setWallView('str')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">Strings</button>
+          <!-- a visao "ETM" saiu do seletor em 06/09/2026 (Levi: "nao estamos usando agora"); renderEtm() segue no codigo -->
         </span>
         <input id="wallSearch" type="search" placeholder="🔍  Filtrar usina..." oninput="wallFilterInput(this.value)"
                style="width:220px;max-width:100%;box-sizing:border-box;margin-left:auto;padding:6px 10px;font-size:12px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--txt)">
       </div>
       <div class="legend" id="wallLegend">
-        <span><span class="sw" style="background:var(--ok)"></span>Normal</span>
-        <span><span class="sw" style="background:var(--amber)"></span>Atenção</span>
-        <span><span class="sw" style="background:var(--red)"></span>Crítico</span>
-        <span><span class="sw" style="background:var(--off)"></span>Sem comunicação</span>
+        <!-- legenda inicial = visao Meta (padrao desde 06/09); setWallView troca ao clicar -->
+        <span><span class="sw" style="background:var(--ok)"></span>Na meta (≥ 95%)</span>
+        <span><span class="sw" style="background:var(--amber)"></span>85–95%</span>
+        <span><span class="sw" style="background:var(--red)"></span>&lt; 85%</span>
+        <span><span class="sw" style="background:var(--faint)"></span>Sem meta no mês</span>
       </div>
       <div class="wall" id="wall"><div class="empty">Carregando frota…</div></div>
     </div>
@@ -293,19 +344,18 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
 <div class="backdrop" id="backdrop" onclick="closeDrawer()"></div>
 <div class="drawer" id="drawer">
   <button class="dx" onclick="closeDrawer()">✕</button>
-  <div class="dhdr"><div class="dt" id="dTitle"></div><div class="dm" id="dMeta"></div></div>
-  <div class="dkpis" id="dKpis"></div>
-  <div class="dsec">Diagnóstico 🔎</div><div id="dDiag"><div class="empty">—</div></div>
-  <div id="dHeatWrap"></div>
-  <div id="dComentOs" style="margin-bottom:6px"></div>
-  <div class="dsec">Comentários 💬</div>
-  <div id="dComentLista" style="max-height:220px;overflow:auto;margin-bottom:8px"></div>
-  <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:14px">
-    <input id="dComentNick" placeholder="Seu nick" maxlength="40" style="width:96px;border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt)">
-    <textarea id="dComentTexto" rows="2" placeholder="Escreva um comentário..." maxlength="2000" style="flex:1;border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:12px;font-family:inherit;background:var(--panel-2);color:var(--txt);resize:vertical"></textarea>
-  </div>
-  <button class="dbtn" style="border:0;cursor:pointer;margin-bottom:16px" onclick="publicarComentarioDrawer()">Publicar comentário</button>
-  <a class="dbtn" id="dFull" href="#">Abrir diagnóstico completo →</a>
+  <div id="rx"></div>
+  <details class="rx-fr" id="rxFr"><summary id="rxFrSum">Fracttal e notas</summary><div class="in">
+    <div id="rxOsLista"></div>
+    <div class="dsec" style="margin-top:8px">Comentários</div>
+    <div id="dComentLista" style="max-height:220px;overflow:auto;margin-bottom:8px"></div>
+    <div style="display:flex;gap:8px;align-items:flex-start;margin-bottom:10px">
+      <input id="dComentNick" placeholder="Seu nick" maxlength="40" style="width:96px;border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:12px;font-family:inherit;background:var(--panel);color:var(--txt)">
+      <textarea id="dComentTexto" rows="2" placeholder="Escreva um comentário para a equipe…" maxlength="2000" style="flex:1;border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:12px;font-family:inherit;background:var(--panel);color:var(--txt);resize:vertical"></textarea>
+    </div>
+    <button class="dbtn" style="border:0;cursor:pointer;margin-top:0" onclick="publicarComentarioDrawer()">Publicar comentário</button>
+  </div></details>
+  <span id="dComentOs" hidden></span>
 </div>
 
 <script>
@@ -409,13 +459,16 @@ function renderKpis(){
 /* ====== WALL ====== */
 let curWQ='';
 function wallFilterInput(v){ curWQ=norm(v); renderWall(); }   // norm = minúsculo + sem acento (igual ao nome)
-let wallView='str';   // 'str' = string em risco (pior estado) · 'pr' = PR do mês vs meta da UFV
+let wallView='meta';   // 'meta' = atingimento da meta do mês (padrão, Levi 06/09) · 'pr' = PR do mês vs meta da UFV · 'str' = string em risco
 function setWallView(v){
+  if(v==='etm') v='str';   // botao removido em 06/09/2026; a visao continua no codigo, mas nao e mais alcancavel pela tela
   wallView=v;
   document.querySelectorAll('#wallViewTog button').forEach(b=>{ const on=b.dataset.wv===v;
     b.style.background=on?'var(--brand)':'transparent'; b.style.color=on?'#16140e':'var(--muted)'; });
   const lg=document.getElementById('wallLegend');
-  if(lg) lg.innerHTML = v==='pr'
+  if(lg) lg.innerHTML = v==='meta'
+    ? `<span><span class="sw" style="background:var(--ok)"></span>Na meta (≥ 95%)</span><span><span class="sw" style="background:var(--amber)"></span>85–95%</span><span><span class="sw" style="background:var(--red)"></span>&lt; 85%</span><span><span class="sw" style="background:var(--faint)"></span>Sem meta no mês</span>`
+    : v==='pr'
     ? `<span><span class="sw" style="background:var(--ok)"></span>Na meta (≥ −2 pp)</span><span><span class="sw" style="background:var(--amber)"></span>até −8 pp</span><span><span class="sw" style="background:var(--red)"></span>&lt; −8 pp</span><span><span class="sw" style="background:var(--off)"></span>Sem PR no mês</span>`
     : v==='etm'
     ? `<span style="color:var(--muted)">Régua: IPOA/GHI nula ou zerada · valor constante ≥3 dias (sensor travado) · PR anômalo (&gt;130% = IPOA furada)</span>`
@@ -442,6 +495,24 @@ function tileStr(p){
     `<div class="tid">${p.usina}</div><div class="tcli">${p.cliente||''}</div>`+
     `<div class="tmw num">${valor}</div>${atg}${foot}</div>`;
 }
+// atingimento da meta (gerada ÷ P50 do mês, o mesmo número do Gerencial): mesma régua do "atg" que já ia no rodapé do tile
+function _metaCls(a){ return a==null?'sem_comm':a>=95?'ok':a>=85?'atencao':'critico'; }
+function tileMeta(p){
+  const a=p.atingimento, cls=_metaCls(a);
+  const col=cls==='ok'?cssv('--ok'):cls==='atencao'?cssv('--amber'):cls==='critico'?cssv('--red'):cssv('--faint');
+  const val=a!=null?`${nf(a,0)}%<span class="u"> da meta</span>`:`—<span class="u"> sem meta</span>`;
+  const sub=(p.prod!=null&&p.p50)?`<div class="tatg" style="color:${col}">gerada ${nf(p.prod,1)} · P50 ${nf(p.p50,1)} MWh</div>`:(a==null?`<div class="tatg" style="color:var(--faint)">sem meta no mês</div>`:'');
+  const pr=(_prReliable(p.pr)&&p.pr_meta!=null)?`<div class="tatg" style="color:var(--faint)">PR ${nf(p.pr,0)}% · meta ${nf(p.pr_meta,0)}%</div>`:'';
+  return `<div class="tile ${cls}" onclick="openDrawer('${norm(p.usina)}')">`+
+    `<div class="tid">${p.usina}</div><div class="tcli">${p.cliente||''}</div>`+
+    `<div class="tmw num" style="color:${col}">${val}</div>${sub}${pr}</div>`;
+}
+// cor do tile na visão ativa — é o que "Só exceções" e "Críticas" filtram (antes olhavam sempre o status de strings)
+function _wallCls(p){
+  if(wallView==='meta') return _metaCls(p.atingimento);
+  if(wallView==='pr'){ const pr=_prReliable(p.pr)?p.pr:null; return pr==null?'sem_comm':_prCls(p.pr_meta!=null?pr-p.pr_meta:null); }
+  return p.status;
+}
 function tilePr(p){
   const pr=_prReliable(p.pr)?p.pr:null, meta=p.pr_meta, d=(pr!=null&&meta!=null)?pr-meta:null;
   const cls=pr==null?'sem_comm':_prCls(d);
@@ -466,8 +537,9 @@ function renderWall(){
   if(wallView==='etm'){ wallEl.style.display='block'; renderEtm(); return; }
   wallEl.style.display='';
   let items=Object.values(MAP).filter(p=>{
-    if(curWF==='exc'&&p.status==='ok')return false;
-    if(curWF==='crit'&&p.status!=='critico')return false;
+    const c=_wallCls(p);
+    if(curWF==='exc'&&c==='ok')return false;
+    if(curWF==='crit'&&c!=='critico')return false;
     if(curWQ && !norm(p.usina).includes(curWQ)) return false;
     return true;
   });
@@ -478,7 +550,10 @@ function renderWall(){
       return da-db;
     });
   }
-  const tile=wallView==='pr'?tilePr:tileStr;
+  if(wallView==='meta'){  // piores atingimentos primeiro; sem meta vão pro fim
+    items=items.slice().sort((a,b)=>((a.atingimento??1e9)-(b.atingimento??1e9)));
+  }
+  const tile=wallView==='pr'?tilePr:wallView==='meta'?tileMeta:tileStr;
   document.getElementById('wall').innerHTML=items.map(tile).join('');
 }
 document.querySelectorAll('#wallFilters button').forEach(b=>b.onclick=()=>{
@@ -627,7 +702,11 @@ document.querySelectorAll('#grpFilters button').forEach(b=>b.onclick=()=>{
   document.querySelectorAll('#grpFilters button').forEach(x=>x.classList.remove('on'));
   b.classList.add('on');curGrp=b.dataset.g;renderRegion();});
 
-/* ====== DRAWER ====== */
+/* ====== DRAWER · RAIO-X DA USINA (06/09/2026) ======
+   O que ajuda o analista a entender a usina, nesta ordem: veredito do dia (gêmeo, quando há), as três perguntas
+   (strings, trackers, ETM), comparativo entre inversores, curva do inversor sobre a da usina, últimos dias, o que
+   aconteceu hoje. Fracttal e comentários ficam recolhidos no fim. Cada parte chega em paralelo com prazo próprio:
+   quem não responde diz isso no lugar em vez de segurar o resto (o banco travou por 15 min em 05/09). */
 /* SEMP navega como 'pv': o id da usina é global na API PV e o backend resolve o token da conta
    OEM sozinho (_pv_token_for) — o drill completo da Tucano vem de graça. RenoGrid fica sem drill
    (não há página de diagnóstico p/ SolarEdge); o tile mostra status/contagem normalmente. */
@@ -635,18 +714,17 @@ const FMAP={'API PV':'pv','Thopen':'pg','Athon':'athon','Axis':'axis','2C':'2c',
 function hasDrill(p){return !!FMAP[p.fonte];}              // TODAS as fontes têm drill (inversores+trackers)
 function hasEngine(p){return p.fonte==='API PV'||p.fonte==='Thopen';}  // motor de causa provável só pv/pg
 function drillUrl(p){const f=FMAP[p.fonte];if(!f)return '';return `/painel/usina/${encodeURIComponent(p.plant_id)}?fonte=${f}&nome=${encodeURIComponent(p.usina)}&ts=${encodeURIComponent(p.ultima_leitura||'')}`;}
-
 /* ---- Comentários multi-analista (thread) — MESMA chave/API do dashboard operacional (index.html),
    então um comentário publicado lá ou aqui aparece nos dois lugares. ---- */
 const KEYPFX={'API PV':'pv','Thopen':'pg','Athon':'so','Axis':'so','2C':'owen'};
 function stateKey(p){const pfx=KEYPFX[p.fonte];return pfx?(pfx+':'+p.plant_id):null;}
 let _comentKeyAtual=null;
-function _cmEsc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function _cmEsc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function _cmTs(ts){const m=String(ts||'').match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);return m?`${m[3]}/${m[2]} ${m[4]}:${m[5]}`:'';}
 function _renderComentDrawer(thread){
   const lst=(thread||[]).slice().reverse();
   document.getElementById('dComentLista').innerHTML = lst.length ? lst.map(c=>
-    `<div style="border:1px solid var(--line);border-radius:8px;padding:7px 10px;margin-bottom:6px;background:var(--panel-2)">
+    `<div style="border:1px solid var(--line);border-radius:8px;padding:7px 10px;margin-bottom:6px;background:var(--panel)">
        <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--faint);margin-bottom:3px">
          <b style="color:var(--txt)">${_cmEsc(c.nick)}</b>
          <span>${_cmTs(c.ts)}${c.ts?` <span onclick="excluirComentarioDrawer('${c.ts}')" title="Excluir" style="cursor:pointer;color:var(--red);margin-left:8px;font-weight:700">✕</span>`:''}</span>
@@ -675,22 +753,22 @@ async function excluirComentarioDrawer(ts){
     _renderComentDrawer(r.thread||[]);
   }catch(e){}
 }
-function _carregarOsDrawer(usina){   // OSs de Performance (Fracttal) da usina — só-leitura, acima dos comentários
-  const box=document.getElementById('dComentOs'); if(!box) return;
-  box.innerHTML='';
+function _carregarOsDrawer(usina){   // OSs de Performance (Fracttal) da usina — só-leitura, dentro de "Fracttal e notas"
+  const box=document.getElementById('rxOsLista'); if(!box) return;
+  box.innerHTML='<div class="rx-esq">Consultando o Fracttal</div>';
+  const seq=RX.seq;
   gGET('/api/os-performance?usina='+encodeURIComponent(usina||'')).then(d=>{
-    const os=(d&&d.os)||[]; if(!os.length){ box.innerHTML=''; return; }
-    const cards=os.map(o=>
-      `<div style="border:1px solid var(--line);border-left:3px solid #f59e0b;border-radius:8px;padding:6px 9px;margin-bottom:5px;background:var(--panel-2)">
-         <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
-           <b style="font-family:monospace;font-size:11px">OS #${_cmEsc(o.os)}</b>
-           <span style="font-size:9px;color:var(--faint);background:var(--panel);padding:1px 6px;border-radius:4px">${_cmEsc(o.categoria)}</span>
-           <span style="margin-left:auto;font-size:9px;font-weight:700;padding:1px 7px;border-radius:20px;background:rgba(245,158,11,.16);color:#f59e0b;white-space:nowrap">${_cmEsc(o.status)}</span></div>
-         ${o.nota?`<div style="font-size:10.5px;color:var(--muted);margin-top:4px;line-height:1.4">${_cmEsc(String(o.nota).slice(0,170))}</div>`:''}
-       </div>`).join('');
-    box.innerHTML=`<div class="dsec" style="margin-top:0">OSs de Performance 🛠️ <span style="font-weight:400;color:var(--faint);font-size:11px">· ${os.length} em aberto</span></div>${cards}`;
-  }).catch(()=>{ box.innerHTML=''; });
+    if(seq!==RX.seq) return;
+    const os=(d&&d.os)||[], vistos=new Set(), unicas=[];
+    os.forEach(o=>{ if(!vistos.has(o.os)){ vistos.add(o.os); unicas.push(Object.assign({},o,{itens:os.filter(x=>x.os===o.os).length})); } });   // a mesma OS repete por inversor
+    RX.os=unicas; rxRender();
+    box.innerHTML=unicas.length?unicas.map(o=>
+      `<div class="rx-os"><b style="font-family:var(--rx-mono)">OS #${_cmEsc(o.os)}</b> · ${_cmEsc(o.status)} · ${_cmEsc(_cmData(o.data))} — ${_cmEsc(String(o.nota||'').slice(0,160))}${o.itens>1?` <span style="color:var(--faint)">· ${o.itens} equipamentos</span>`:(o.sub?` <span style="color:var(--faint)">· ${_cmEsc(o.sub)}</span>`:'')}</div>`).join('')
+      :'<div style="color:var(--faint);font-size:12px;margin-bottom:6px">Nenhuma OS de Performance em aberto.</div>';
+    const s=document.getElementById('rxFrSum'); if(s) s.textContent=`Fracttal e notas · ${unicas.length} OS em aberto · comentários`;
+  }).catch(()=>{ if(seq!==RX.seq) return; RX.os=false; rxRender(); box.innerHTML='<div style="color:var(--faint);font-size:12px">Fracttal não respondeu.</div>'; });
 }
+function _cmData(d){const m=String(d||'').match(/(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}`:String(d||'');}
 function _carregarComentariosDrawer(p){
   _comentKeyAtual=stateKey(p);
   _carregarOsDrawer(p&&p.usina);
@@ -705,73 +783,263 @@ function _carregarComentariosDrawer(p){
   }).catch(()=>{document.getElementById('dComentLista').innerHTML='<div class="empty">Falha ao carregar.</div>';});
 }
 
+/* ---- Raio-X: fontes de dado por fonte da usina ---- */
+const RX_MON={'API PV':'thopen-pv','Thopen':'thopen-db','Athon':'athon','Axis':'axis','2C':'2c','SEMP':'semp','RenoGrid':'renogrid','Alves Lima':'alveslima'};   // ?fonte= do Monitoramento
+const RX_SRC={   // pr = PR de HOJE por inversor (o "PR do mês" do BD_Performance só existe para 58 abas, nenhuma Thopen)
+  pv:       {plant:id=>'/api/plant/'+id,              trk:id=>'/api/pv/trackers/'+id,    etm:'/api/etm/analise',           diag:id=>'/api/diagnostico/pv/'+id, pr:id=>'/api/pv/pr/'+id,    dp:'pv',   lento:true},
+  pg:       {plant:id=>'/api/pg/plant/'+id,           trk:id=>'/api/pg/trackers/'+id,    etm:'/api/pg/etm/analise',        diag:id=>'/api/diagnostico/'+id,    pr:id=>'/api/pg/pr/'+id,    dp:'pg'},
+  athon:    {plant:id=>'/api/sunop/plant/'+id,        trk:id=>'/api/sunop/trackers/'+id, etm:'/api/sunop/etm/analise',                                         pr:id=>'/api/sunop/pr/'+id, dp:'sunop'},
+  axis:     {plant:id=>'/api/axis/plant/'+id,         trk:id=>'/api/axis/trackers/'+id,  etm:'/api/axis/etm/analise',                                          pr:id=>'/api/axis/pr/'+id,  dp:'axis'},
+  '2c':     {plant:id=>'/api/owen/strings/plant/'+id, trk:id=>'/api/owen/trackers/'+id,  etm:'/api/owen/etm/analise',                                                                      dp:'owen'},
+  semp:     {plant:id=>'/api/plant/'+id,                                                  etm:'/api/semp/etm/analise',                                          pr:id=>'/api/pv/pr/'+id,    lento:true},   // id global da API PV (token da conta OEM no backend)
+  alveslima:{plant:id=>'/api/plant/'+id,                                                  etm:'/api/alveslima/etm/analise',                                     pr:id=>'/api/pv/pr/'+id,    lento:true},
+  solaredge:{plant:id=>'/api/solaredge/plant/'+id,                                                                                                              pr:id=>'/api/solaredge/pr/'+id}};
+const RX_SK={'API PV':'pv','Thopen':'pg','Athon':'athon','Axis':'axis','2C':'2c','SEMP':'semp','Alves Lima':'alveslima','RenoGrid':'solaredge'};
+const RX_GEMEO_FONTE={'Thopen':'pg','Athon':'sunop','Axis':'axis'};   // como o gêmeo chama a fonte (catálogo: fonte + fonte_ref)
+let RX={seq:0,p:null};
+const _rxCache={};
+function rxGET(url,ms){ const c=new AbortController(); const t=setTimeout(()=>c.abort(),ms||8000);
+  return fetch(url,{signal:c.signal}).then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }).finally(()=>clearTimeout(t)); }
+function rxCached(chave,ttlMs,fazer){ const c=_rxCache[chave]; if(c&&(Date.now()-c.ts)<ttlMs) return c.p;
+  const p=fazer().catch(e=>{ delete _rxCache[chave]; throw e; }); _rxCache[chave]={ts:Date.now(),p}; return p; }
+const rxCatalogo=()=>rxCached('catalogo',600000,()=>rxGET('/gemeo/api/catalogo',8000));
+const rxEtmAnalise=url=>rxCached('etm|'+url,300000,()=>rxGET(url,12000).then(d=>(d&&d.rows)||[]));
+const rxEtmMes=()=>ETMP?Promise.resolve(ETMP.itens||[]):rxCached('etmmes',900000,()=>rxGET('/api/etm/problemas',12000).then(d=>{ETMP=d;return d.itens||[];}));
+const rxNotif=()=>rxCached('notif',60000,()=>rxGET('/api/notificacoes',8000).then(d=>(d&&d.eventos)||[]));
+function rxGemeoId(p){ const gf=RX_GEMEO_FONTE[p.fonte]; if(!gf) return Promise.resolve(null);
+  return rxCatalogo().then(cat=>{ const l=(cat||[]); const pid=String(p.plant_id);
+    const u=l.find(c=>c.fonte===gf&&String(c.fonte_ref)===pid)||l.find(c=>c.fonte===gf&&norm(c.codigo)===norm(pid))||l.find(c=>c.fonte===gf&&norm(c.nome).includes(norm(p.usina)));
+    return u?u.id:null; }); }
+const rxHojeISO=()=>{const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+const rxNoite=()=>{const h=new Date().getHours();return h<5||h>=19;};
+const rxN=(v,d=0)=>(v==null||isNaN(v))?'—':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+const rxPct=(v,d=0)=>v==null?'—':(v>0?'+':'')+rxN(v*100,d)+'%';
+const rxMWh=v=>v==null?'—':rxN(v/1000,1)+' MWh';
+const RX_NOME={critico:'Crítico',sem_comm:'Sem comunicação',atencao:'Atenção',ok:'Normal'};
+
 async function openDrawer(key){
   const p=MAP[key]; if(!p)return;
-  document.getElementById('dTitle').textContent=p.usina;
-  document.getElementById('dMeta').textContent=`${p.cliente||'—'} · ${p.fonte}${p.pot_mwp?' · '+nf(p.pot_mwp,1)+' MWp':''}`;
-  document.getElementById('dKpis').innerHTML=
-    dk('Status',NOME[p.status]||p.status)+dk('Última leitura',fmtTs(p.ultima_leitura))+
-    dk('Atingimento',p.atingimento!=null?nf(p.atingimento,1)+'%':'—')+
-    '<div class="dk"><div class="l">PR</div><div class="v num" id="dkPR">'+(p.pr!=null?nf(p.pr,1)+'%':'—')+'</div></div>'+
-    dk('Strings ativas',p.sem_visao?'Sem visão':nf(p.strings_ativas))+dk('Strings faltando',nf(p.strings_faltando));
-  // PR ao vivo para API PV (gerencial é só PG → para usinas da API PV o PR vem do /api/pv/pr/<id>)
-  if(p.fonte==='API PV' && p.pr==null && p.plant_id){
-    fetch(`/api/pv/pr/${p.plant_id}`).then(r=>r.json()).then(d=>{const e=document.getElementById('dkPR');if(e&&d&&d.pr!=null)e.textContent=nf(d.pr*100,1)+'%';}).catch(()=>{});
-  }
+  const seq=++RX.seq;
+  RX=Object.assign(RX,{p,gemeo:null,semana:null,plant:null,trk:null,etm:null,etmMes:null,notif:null,os:null,pr:null,depara:null,diag:null,gid:null,sel:null,heatOpen:false,falhas:{}});
   document.getElementById('backdrop').classList.add('open');
-  document.getElementById('drawer').classList.add('open');
-  document.getElementById('dHeatWrap').innerHTML='';
+  const dr=document.getElementById('drawer'); dr.classList.add('open'); dr.scrollTop=0;
+  const fr=document.getElementById('rxFr'); if(fr){ fr.open=false; document.getElementById('rxFrSum').textContent='Fracttal e notas · comentários'; }
+  rxRender();
+  const S=RX_SRC[RX_SK[p.fonte]]||null, pid=p.plant_id;
+  const ok=k=>v=>{ if(seq!==RX.seq) return; RX[k]=v; rxRender(); };
+  const nao=k=>e=>{ if(seq!==RX.seq) return; RX.falhas[k]=String(e&&e.message||e); RX[k]=false; rxRender(); };
+  if(S&&S.plant) rxGET(S.plant(pid),S.lento?45000:15000).then(ok('plant')).catch(nao('plant')); else RX.plant=false;   // API PV: day_inverter + combiner por inversor passam de 15 s
+  if(S&&S.pr) rxGET(S.pr(pid),30000).then(d=>{ const m={}; ((d&&d.inversores)||[]).forEach(i=>{ const k=norm(i.nome||i.id); if(k&&i.pr!=null) m[k]=i.pr; }); ok('pr')(m); }).catch(nao('pr')); else RX.pr=false;
+  if(S&&S.dp) rxGET('/api/trackers/de-para?fonte='+S.dp+'&usina='+encodeURIComponent(p.usina),10000).then(d=>ok('depara')(d&&!d.sem_depara?d:false)).catch(nao('depara')); else RX.depara=false;
+  if(S&&S.trk)   rxGET(S.trk(pid),25000).then(ok('trk')).catch(nao('trk')); else RX.trk=false;
+  if(S&&S.etm)   rxEtmAnalise(S.etm).then(rows=>ok('etm')(rows.find(r=>String(r.plant_id)===String(pid))||{sem_linha:true})).catch(nao('etm')); else RX.etm=false;
+  if(S&&S.diag)  rxGET(S.diag(pid),15000).then(d=>ok('diag')((d&&d.diagnosticos)||[])).catch(nao('diag')); else RX.diag=false;
+  rxEtmMes().then(it=>ok('etmMes')((it||[]).filter(i=>norm(i.usina)===norm(p.usina)))).catch(nao('etmMes'));
+  rxNotif().then(ev=>ok('notif')((ev||[]).filter(e=>norm(e.usina)===norm(p.usina)&&String(e.quando||'').slice(0,10)===rxHojeISO()))).catch(nao('notif'));
+  rxGemeoId(p).then(gid=>{ if(seq!==RX.seq) return; RX.gid=gid; if(!gid){ RX.gemeo=false; RX.semana=false; rxRender(); return; }
+      // de madrugada o dia de hoje ainda está vazio no gêmeo: o veredito fala do dia FECHADO de ontem (mesma régua da Frota do gêmeo)
+      const h=new Date().getHours(), ontem=new Date(Date.now()-86400000), qd=h<5?('dia='+ontem.getFullYear()+'-'+String(ontem.getMonth()+1).padStart(2,'0')+'-'+String(ontem.getDate()).padStart(2,'0')):'';
+      rxGET('/gemeo/api/usina/'+gid+(qd?'?'+qd:''),12000).then(ok('gemeo')).catch(nao('gemeo'));
+      rxGET('/gemeo/api/usina/'+gid+'?periodo=semana'+(qd?'&'+qd:''),12000).then(ok('semana')).catch(nao('semana'));
+    }).catch(()=>{ if(seq!==RX.seq) return; RX.gemeo=false; RX.semana=false; rxRender(); });
   _carregarComentariosDrawer(p);
-  const dFull=document.getElementById('dFull');
-  dFull.style.display='block'; dFull.href=drillUrl(p);   // todas as fontes têm diagnóstico completo (inversores+trackers)
-  if(!hasEngine(p)){  // Athon/Axis/2C: sem motor de causa → o drill completo mostra inversores × strings e trackers
-    document.getElementById('dDiag').innerHTML=`<div class="empty">Fonte <b>${p.fonte}</b> — sem motor de causa provável. Abra o <b>diagnóstico completo</b> para ver inversores × strings e trackers.<br>Status: ${p.causa||NOME[p.status]} · última leitura ${fmtTs(p.ultima_leitura)}.</div>`;
-    return;
-  }
-  const semBanner=p.status==='sem_comm'?`<div class="anom sem_comm" style="cursor:default;margin-bottom:10px"><div class="dline"><span class="ic">📡</span><span class="cz">Sem comunicação agora</span></div><div class="action">Última leitura: <b>${fmtTs(p.ultima_leitura)}</b> · o diagnóstico abaixo usa os <b>últimos dados</b> recebidos.</div></div>`:'';
-  document.getElementById('dDiag').innerHTML='<div class="empty">Carregando diagnóstico…</div>';
-  const isPv=(p.fonte==='API PV');
-  try{
-    const url=isPv?`/api/diagnostico/pv/${p.plant_id}`:`/api/diagnostico/${p.plant_id}`;
-    const d=await fetch(url).then(r=>r.json());
-    const diags=d.diagnosticos||[];
-    document.getElementById('dDiag').innerHTML=semBanner+(diags.length?diags.map(x=>
-      `<div class="anom atencao" style="cursor:default;margin-bottom:8px"><div class="dline"><span class="ic">${causaIco({diag:x,causa:x.causa})}</span><span class="cz">${x.causa}</span>`+
-      (x.confianca?`<span class="conf ${x.confianca}">conf. ${x.confianca}</span>`:'')+`</div>`+
-      `<div class="where" style="margin:0 0 5px">${x.escopo||''}</div>`+
-      (x.evidencia&&x.evidencia.length?`<div class="action">${x.evidencia.join(' ')}</div>`:'')+
-      (x.acao?`<div class="action"><b>Ação:</b> ${x.acao}</div>`:'')+`</div>`
-    ).join(''):`<div class="empty">${p.status==='sem_comm'?'Sem anomalia detectada nos últimos dados recebidos.':'Sem anomalias por inversor — usina dentro do esperado.'}</div>`);
-    if(isPv) loadHeat(p.plant_id);
-  }catch(e){ document.getElementById('dDiag').innerHTML='<div class="empty">Diagnóstico indisponível.</div>'; }
 }
-function dk(l,v){return `<div class="dk"><div class="l">${l}</div><div class="v num">${v}</div></div>`;}
 function closeDrawer(){document.getElementById('backdrop').classList.remove('open');document.getElementById('drawer').classList.remove('open');}
+window.rxSel=nome=>{ RX.sel=nome; rxRender(); };
+window.rxHeatToggle=el=>{ RX.heatOpen=el.open; };
 
-const heatColor=d=>d<3?cssv('--ok'):d<10?'#D9C24E':d<30?cssv('--amber'):cssv('--red');
-async function loadHeat(pid){
-  try{
-    const d=await fetch(`/api/plant/${pid}`).then(r=>r.json());
-    // oculta strings trancadas — só as "vivas" (OK / baixa / sem corrente)
-    const invs=(d.inversores||[]).map(i=>({nome:i.nome,strings:(i.strings||[]).filter(s=>s.status!=='trancada')})).filter(i=>i.strings.length);
-    if(!invs.length)return;
-    const maxS=Math.max(...invs.map(i=>i.strings.length));
-    if(maxS<=1){  // String Box: 1 canal agregado por inversor → sem visão por string
-      document.getElementById('dHeatWrap').innerHTML='<div class="dsec">Inversores × strings</div><div class="empty">String Box — corrente agregada (1 canal por inversor), sem visão por string individual.</div>';
-      return;
-    }
-    let hh='<div class="dsec">Inversores × strings 🔥 <span style="font-weight:400;color:var(--faint);font-size:10px">(trancadas ocultas)</span></div>';
-    hh+='<div class="legend"><span><span class="sw" style="background:'+cssv('--ok')+'"></span>OK</span><span><span class="sw" style="background:'+cssv('--amber')+'"></span>Baixa</span><span><span class="sw" style="background:'+cssv('--red')+'"></span>Sem corrente</span></div>';
-    invs.slice(0,12).forEach(i=>{
-      let cells='';
-      i.strings.forEach(s=>{
-        const st=s.status, col=st==='sem_corrente'?cssv('--red'):st==='baixa_perf'?cssv('--amber'):cssv('--ok');
-        cells+=`<div class="mcell" title="${s.id}: ${nf(s.corrente,1)} A (${st})" style="background:${col}"></div>`;
-      });
-      hh+=`<div class="minihm-row"><div class="ml" title="${i.nome}">${i.nome}</div><div class="minihm-cells" style="grid-template-columns:repeat(${maxS},1fr)">${cells}</div></div>`;
-    });
-    document.getElementById('dHeatWrap').innerHTML=hh;
-  }catch(e){}
+/* ---- casamento inversor gêmeo × inversor plataforma (nome, código/ id, nome_api) ---- */
+function rxInvPlat(){ const inv=(RX.plant&&RX.plant.inversores)||[]; return inv.map(i=>{ const ss=(i.strings||[]).map(s=>({id:s.id,st:s.trancada?'trancada':(s.status||(s.ativa?'ativa':'inativa'))}));
+  return {nome:i.nome||i.nome_api||String(i.id),id:String(i.id),api:String(i.nome_api||''),
+  sem:ss.filter(s=>s.st==='sem_corrente').map(s=>s.id),nDesl:ss.filter(s=>s.st==='desligado').length,ativas:i.strings_ativas,esp:i.str_esp,total:i.total_strings||ss.length,
+  desligado:!!i.desligado,falha:!!i.falha_comunicacao,semVisao:!!i.sem_visao,rampa:!!i.rampa,eday:i.eday,strings:ss,ultima:i.ultima_leitura}; }); }
+// célula "strings sem corrente": só faz sentido com o inversor produzindo e com visão por string
+function rxCelStr(pl){ if(!pl||pl.ativas==null&&!pl.strings.length) return '—'; if(pl.semVisao) return '<span title="String Box: sem visão por string">s/ visão</span>';
+  if(pl.falha||pl.desligado||(pl.nDesl&&pl.nDesl>=pl.strings.length-0)) return '<span title="inversor parado ou mudo: strings não contam">—</span>';
+  return (pl.sem.length?`<b style="color:var(--red)">${pl.sem.length}</b>`:'0')+(pl.esp?`<span style="color:var(--faint)">/${pl.esp}</span>`:''); }
+function rxPrCel(nome,alt){ if(RX.pr===null) return '<span style="color:var(--faint)">…</span>'; if(!RX.pr) return '—'; const v=RX.pr[norm(nome)]??(alt?RX.pr[norm(alt)]:undefined);
+  return (v==null)?'—':(v>1.5?'<span title="PR fora de escala (irradiância do sensor)">?</span>':rxN(v*100)+'%'); }
+function rxCasa(gi,plats){ const n=norm(gi.nome), c=String(gi.codigo||''); return plats.find(x=>norm(x.nome)===n)||plats.find(x=>x.id===c||x.api===c)||plats.find(x=>norm(x.api)===n)||null; }
+
+/* ---- veredito ---- */
+function rxVeredito(u){
+  const p=RX.p, g=RX.gemeo, cab=g&&g.cabecalho, c=g&&g.cascata;
+  const semComm=p.status==='sem_comm';
+  let f='';
+  if(g&&cab){
+    if(c&&c.e_esperado){
+      const par=(g.paradas||[]);
+      const parTxt=par.length?` <b>${par[0].n} de ${par[0].de} inversores pararam ${par.length===1?'uma vez':par.length+' vezes'}</b> (${par.map(x=>x.hora_ini+'–'+x.hora_fim).join(' e ')}): ${rxMWh(c.inv_parado)} perdidos.`:'';
+      const res=c.residuo||0;
+      f=`${semComm?`<b>Sem comunicação desde ${_cmTs(p.ultima_leitura).slice(6)}.</b> Até o último dado, g`:'G'}erou <b>${rxMWh(c.e_medido)}</b> de ${rxMWh(c.e_esperado)} esperados (<b>${rxPct(cab.delta,1)}</b>).${parTxt} Trackers fora do alvo custaram ${rxMWh(c.tracker)}; strings, ${rxN(c.string,1)} kWh.${Math.abs(res)>0.03*c.e_esperado?` O que sobra (${rxMWh(Math.abs(res))} ${res<0?'a mais':'a menos'}) é modelo ainda não calibrado.`:''}`;
+    } else if(cab.esperado_kw!=null&&cab.medido_kw!=null){
+      f=`Agora: <b>${rxN(cab.medido_kw/1000,2)} MW</b> medidos para ${rxN(cab.esperado_kw/1000,2)} esperados (<b>${rxPct(cab.delta,1)}</b>)${cab.frio?` — último dado há ${rxN(cab.idade_leitura_min)} min`:''}. Cascata do dia ainda não fechou.`;
+    } else f=`O gêmeo conhece a usina, mas ainda não tem esperado hoje${cab.gate_agora&&cab.gate_agora!=='ok'?` (sensor: ${cab.gate_agora})`:''}. Abaixo, o dado da plataforma.`;
+  } else {
+    const inv=rxInvPlat(), off=inv.filter(i=>i.desligado).length||p.inv_off||0, semStr=inv.reduce((s,i)=>s+i.sem.length,0);
+    const partes=[];
+    if(semComm) partes.push(`<b>Sem comunicação desde ${_cmTs(p.ultima_leitura)}.</b> Tudo abaixo é do último dado; primeiro passo é comunicação e disjuntor.`);
+    else if(p.causa&&p.status!=='ok') partes.push(`<b>${_cmEsc(p.causa)}</b>.`);
+    else partes.push('<b>Dentro do esperado</b> pelas réguas da plataforma.');
+    if(!semComm){ if(off) partes.push(`${off} inversor${off>1?'es':''} desligado${off>1?'s':''}.`);
+      if(RX.plant&&!rxNoite()) partes.push(`${semStr} string${semStr===1?'':'s'} sem corrente agora${p.str_esp?` de ${rxN(p.str_esp)} esperadas`:''}.`);
+      else if(p.strings_faltando) partes.push(`${rxN(p.strings_faltando)} strings abaixo do esperado${p.str_esp?` de ${rxN(p.str_esp)}`:''}.`); }
+    f=partes.join(' ')+(RX.gemeo===false?' <span style="color:var(--faint)">Sem gêmeo digital para esta usina.</span>':'');
+  }
+  const motor=(RX.diag&&RX.diag.length)?`<div class="motor">Motor de causa: <b>${_cmEsc(RX.diag[0].causa)}</b>${RX.diag[0].confianca?` (conf. ${_cmEsc(RX.diag[0].confianca)})`:''}${RX.diag[0].escopo?` · ${_cmEsc(RX.diag[0].escopo)}`:''}${RX.diag[0].acao?`<br>Ação: ${_cmEsc(RX.diag[0].acao)}`:''}${RX.diag.length>1?` <span style="color:var(--faint)">+${RX.diag.length-1} no diagnóstico completo</span>`:''}</div>`:'';
+  const cor=semComm?'var(--off)':(p.status==='ok'?'var(--ok)':p.status==='atencao'?'var(--amber)':'var(--red)');
+  const dia=(cab&&cab.hoje)?cab.hoje.slice(8)+'/'+cab.hoje.slice(5,7):'hoje';
+  return `<div class="rx-ver" style="border-left-color:${cor}"><div class="k">Veredito de ${dia} · ${g&&cab?'gêmeo digital':'plataforma'}</div><div class="f">${f}</div>${g&&c&&c.e_esperado?rxCascata(c):''}${motor}</div>`;
+}
+function rxCascata(c){
+  const tot=Math.max(1,(c.inv_parado||0)+(c.tracker||0)+(c.string||0)+Math.abs(c.residuo||0));
+  const seg=(v,cor)=>`<span style="width:${Math.max(0,(Math.abs(v||0)/tot)*100)}%;background:${cor}"></span>`;
+  return `<div class="rx-casc">${seg(c.inv_parado,'var(--red)')}${seg(c.tracker,'var(--amber)')}${seg(c.string,'#c084fc')}${seg(c.residuo,'var(--off)')}</div>
+  <div class="rx-leg"><span><i style="background:var(--red)"></i>inversor parado ${rxMWh(c.inv_parado)}</span><span><i style="background:var(--amber)"></i>trackers ${rxMWh(c.tracker)}</span><span><i style="background:#c084fc"></i>strings ${rxN(c.string,1)} kWh</span><span><i style="background:var(--off)"></i>resíduo do modelo ${rxMWh(Math.abs(c.residuo||0))}</span></div>`;
+}
+/* ---- as três perguntas ---- */
+function rxTres(){
+  const p=RX.p, g=RX.gemeo||{}, fid=RX_MON[p.fonte], lk=v=>fid?`<a href="/monitoramento?fonte=${fid}&usina=${encodeURIComponent(p.plant_id)}&view=${v}">aba ${v==='strings'?'Strings':v==='trackers'?'Trackers':'ETM'} ›</a>`:'';
+  // strings
+  let strV, strS;
+  const inv=rxInvPlat(), semAgora=inv.reduce((s,i)=>s+i.sem.length,0), invAfet=inv.filter(i=>i.sem.length).length, tot=inv.reduce((s,i)=>s+(i.total||0),0)||p.str_esp;
+  const zer=RX.notif?rxZeraram().length:null;
+  if(RX.plant===null) { strV='<div class="rx-esq">consultando</div>'; strS=''; }
+  else if(p.sem_visao){ strV='<div class="v mudo">sem visão por string</div>'; strS='String Box: corrente agregada por inversor'; }
+  else if(RX.plant===false){ strV='<div class="v mudo">fonte não respondeu</div>'; strS=p.strings_faltando?`macro: <b>${rxN(p.strings_faltando)}</b> abaixo do esperado`:''; }
+  else if(rxNoite()&&semAgora===0){ strV='<div class="v mudo">sem sol</div>'; strS=`volta ao amanhecer · <b>${rxN(tot)}</b> strings${zer!=null?` · <b>${zer}</b> zeraram hoje`:''}`; }
+  else { strV=`<div class="v ${semAgora>0?'ruim':'bom'}">${rxN(semAgora)} <small>/ ${rxN(tot)} sem corrente</small></div>`;
+    strS=`${zer==null?'':`<b>${zer}</b> zeraram hoje · `}<b>${invAfet}</b> inversor${invAfet===1?'':'es'} afetado${invAfet===1?'':'s'}`; }
+  if(g.strings&&g.strings.length) strS+=`<br>maior perda (gêmeo): <b>${_cmEsc(g.strings[0].nome)}</b> ${rxN(g.strings[0].kwh,1)} kWh`;
+  // trackers
+  let trV, trS; const t=RX.trk;
+  if(t===null){ trV='<div class="rx-esq">consultando</div>'; trS=''; }
+  else if(t===false){ trV='<div class="v mudo">'+(RX.falhas.trk&&/abort/i.test(RX.falhas.trk)?'fonte não respondeu':'sem trackers nesta fonte')+'</div>'; trS=g.cabecalho&&g.cabecalho.n_trackers?`gêmeo: <b>${g.cabecalho.n_trackers}</b> trackers${g.sensor&&g.sensor.trackers_sem_inversor?` · <b>${g.sensor.trackers_sem_inversor}</b> sem inversor no cadastro`:''}`:''; }
+  else if(t.tem_trackers===false||!(t.trackers||[]).length&&!t.total){ trV='<div class="v mudo">sem trackers</div>'; trS='usina fixa ou sem telemetria de tracker'; }
+  else { const trs=t.trackers||[], total=t.total||trs.length, os=trs.filter(x=>x.ticket_status).length,
+      dv=trs.length?trs.filter(x=>x.status==='desvio').length:(t.desvios||0), sc=trs.length?trs.filter(x=>x.sem_comunicacao).length:0;   // topo traz booleanos (tem_ticket, sem_comunicacao): conta pela lista
+    if(rxNoite()){   // de noite o tracker está estacionado e a rota marca todos como "parado" (CPP100 00:30: 63/63, sem alvo): não é parada, é noite
+      trV='<div class="v mudo">estacionados</div>'; trS=`volta ao amanhecer · <b>${rxN(total)}</b> trackers · <b>${rxN(os)}</b> com OS`; }
+    else { const par=t.parados!=null?t.parados:trs.filter(x=>x.status==='parado').length;
+      trV=`<div class="v ${par>0?'aviso':'bom'}">${rxN(par)} <small>/ ${rxN(total)} parados</small></div>`;
+      trS=`<b>${rxN(os)}</b> com OS · <b>${rxN(dv)}</b> em desvio · <b>${rxN(sc)}</b> sem comunicação`; } }
+  if(g.trackers&&g.trackers.length) trS+=`<br>maior perda (gêmeo): <b>${_cmEsc(g.trackers[0].nome)}</b> ${rxN(g.trackers[0].kwh)} kWh`;
+  if(RX.depara&&RX.depara.n) trS+=`<br>Fracttal: <b>${rxN(RX.depara.casados+RX.depara.a_confirmar)}</b> de ${rxN(RX.depara.n)} com par${RX.depara.a_confirmar?` (${rxN(RX.depara.a_confirmar)} a confirmar)`:''}${RX.depara.sem_par?` · <span style="color:var(--red)">${rxN(RX.depara.sem_par)} sem par</span>`:''}`;
+  else if(RX.depara===false&&t&&t!==null) trS+=`<br><span style="color:var(--faint)">sem de-para no Fracttal</span>`;
+  // ETM
+  let etV, etS; const e=RX.etm, flags=(e&&e.flags)||[], crit=flags.filter(f=>f.tipo==='crit'), warn=flags.filter(f=>f.tipo!=='crit');
+  if(e===null){ etV='<div class="rx-esq">consultando</div>'; etS=''; }
+  else if(e===false){ etV='<div class="v mudo">sem ETM nesta fonte</div>'; etS=''; }
+  else if(e.sem_linha){ etV='<div class="v mudo">sem estação</div>'; etS='a usina não tem ETM cadastrada nesta fonte'; }
+  else if(e.sem_dados){ etV='<div class="v ruim">sem dados</div>'; etS='estação sem leitura hoje'; }
+  else { etV=crit.length?`<div class="v ruim">${crit.length} <small>falha${crit.length>1?'s':''}</small></div>`:warn.length?`<div class="v aviso">${warn.length} <small>alerta${warn.length>1?'s':''}</small></div>`:'<div class="v bom">ok</div>';
+    etS=flags.length?flags.slice(0,3).map(f=>`<b>${_cmEsc(f.t)}</b> · ${_cmEsc(f.info||'')}`).join('<br>'):'POA e GHI coerentes hoje'; }
+  if(g.sensor) etS+=`<br>gêmeo: gate <b>${_cmEsc(g.sensor.gate_hoje||'—')}</b>${g.sensor.razao_poa_ghi?` · POA/GHI ${rxN(g.sensor.razao_poa_ghi,2)}`:''}`;
+  if(RX.etmMes&&RX.etmMes.length) etS+=`<br>no mês: ${_cmEsc(RX.etmMes[0].problemas[0]||'')}${RX.etmMes[0].ticket&&RX.etmMes[0].ticket.feito?' · ticket aberto':''}`;
+  return `<div class="rx-tres">
+    <div class="rx-bloco"><div class="l"><span>Strings</span>${lk('strings')}</div>${strV}<div class="s">${strS}</div></div>
+    <div class="rx-bloco"><div class="l"><span>Trackers</span>${lk('trackers')}</div>${trV}<div class="s">${trS}</div></div>
+    <div class="rx-bloco"><div class="l"><span>ETM</span>${lk('etm')}</div>${etV}<div class="s">${etS}</div></div></div>`;
+}
+function rxZeraram(){ const m={}; (RX.notif||[]).forEach(z=>{ const k=String(z.quando).slice(11,16)+'|'+z.inversor; (m[k]=m[k]||{q:String(z.quando).slice(11,16),inv:z.inversor,s:[]}).s.push(String(z.string)); }); return Object.values(m); }
+
+/* ---- inversores: gêmeo (gerado ÷ esperado) quando há; senão energia do dia da plataforma ---- */
+function rxInversores(){
+  const g=RX.gemeo, plats=rxInvPlat();
+  let linhas=[], sub='';
+  if(g&&g.inversores&&g.inversores.length){
+    const ord={parado:0,abaixo:1,atencao:1,ok:2,sem_dado:3};
+    const invs=g.inversores.slice().sort((a,b)=>(ord[a.status]-ord[b.status])||((a.razao||9)-(b.razao||9)));
+    if(!RX.sel) RX.sel=invs[0].nome;
+    const maxR=Math.max(1.3,...invs.map(i=>i.razao||0));
+    linhas=invs.map(i=>{ const pl=rxCasa(i,plats)||null, cor=i.status==='parado'?'var(--red)':(i.status==='abaixo'||i.status==='atencao')?'var(--amber)':'var(--ok)';
+      return `<tr class="${RX.sel===i.nome?'sel':''}" onclick="rxSel('${_cmEsc(i.nome).replace(/'/g,'')}')"><td><b>${_cmEsc(i.nome)}</b></td>
+        <td><div class="rx-barra"><i style="width:${Math.min(100,(i.razao||0)/maxR*100)}%;background:${cor}"></i><em style="left:${1/maxR*100}%"></em></div></td>
+        <td class="rx-num">${i.razao==null?'—':rxN(i.razao*100)+'%'}</td><td class="rx-num">${i.medido_kwh==null?'—':rxN(i.medido_kwh)}</td>
+        <td class="rx-num rx-c" style="color:var(--muted)">${rxCelStr(pl)}</td>
+        <td class="rx-num" style="color:var(--muted)">${rxPrCel(i.nome,pl&&pl.nome)}</td><td><span class="rx-chip ${i.status==='atencao'?'abaixo':i.status}">${i.status==='parado'?'parou':i.status==='atencao'||i.status==='abaixo'?'abaixo':i.status==='sem_dado'?'sem dado':'ok'}</span></td></tr>`; });
+    sub='barra = gerado ÷ esperado pelo gêmeo · traço = 100% · clique para ver a curva';
+  } else if(plats.length){
+    const comE=plats.filter(i=>i.eday!=null), maxE=Math.max(1,...comE.map(i=>i.eday||0)), med=comE.length?comE.map(i=>i.eday).sort((a,b)=>a-b)[Math.floor(comE.length/2)]:null;
+    // sem comunicação manda: com o dado parado, "desligado" e "abaixo" são só o retrato velho (Rodrigues 2, 06/09)
+    const ord=i=>i.falha?0:i.desligado?1:i.sem.length?2:3;
+    const invs=plats.slice().sort((a,b)=>(ord(a)-ord(b))||((a.eday==null?9e9:a.eday)-(b.eday==null?9e9:b.eday)));
+    linhas=invs.map(i=>{ const st=i.falha?'sem_dado':i.desligado?'parado':(i.sem.length||(med&&i.eday!=null&&i.eday<0.9*med))?'abaixo':'ok', cor=st==='parado'?'var(--red)':st==='abaixo'?'var(--amber)':st==='sem_dado'?'var(--off)':'var(--ok)';
+      return `<tr><td><b>${_cmEsc(i.nome)}</b>${i.falha&&i.ultima?`<div style="font-size:10.5px;color:var(--faint)">última ${_cmEsc(_cmTs(i.ultima))}</div>`:''}</td><td><div class="rx-barra"><i style="width:${i.eday!=null?Math.min(100,i.eday/maxE*100):0}%;background:${cor}"></i>${med?`<em style="left:${Math.min(100,med/maxE*100)}%"></em>`:''}</div></td>
+        <td class="rx-num">${(med&&i.eday!=null)?rxN(i.eday/med*100)+'%':'—'}</td><td class="rx-num">${i.eday==null?'—':rxN(i.eday)}</td>
+        <td class="rx-num rx-c" style="color:var(--muted)">${rxCelStr(i)}</td>
+        <td class="rx-num" style="color:var(--muted)">${rxPrCel(i.nome,i.api)}</td><td><span class="rx-chip ${st}">${st==='parado'?'parado agora':st==='sem_dado'?'sem com.':st==='abaixo'?'abaixo':'ok'}</span></td></tr>`; });
+    sub=comE.length?'barra = energia do dia · traço = mediana dos inversores · razão = inversor ÷ mediana':'sem energia por inversor nesta fonte · strings pela plataforma';
+  } else if(RX.plant===null) return `<div class="rx-sec"><h3>Inversores</h3></div><div class="rx-card"><div class="rx-esq">Consultando inversores e strings${(RX_SRC[RX_SK[RX.p.fonte]]||{}).lento?' na API PV (pode levar até 1 min)':''}</div></div>`;
+  else return `<div class="rx-sec"><h3>Inversores</h3></div><div class="rx-card rx-nota">${RX.plant===false?'A fonte não devolveu o detalhe por inversor.':'Sem inversores cadastrados nesta fonte.'}</div>`;
+  return `<div class="rx-sec"><h3>Inversores no dia</h3><span class="sub">${sub}</span></div>
+  <div class="rx-card" style="padding:6px 10px;overflow-x:auto"><table class="rx-inv"><thead><tr><th>Inversor</th><th>${RX.gemeo&&RX.gemeo.inversores&&RX.gemeo.inversores.length?'gerado ÷ esperado':'energia do dia'}</th><th class="rx-num">razão</th><th class="rx-num">kWh</th><th class="rx-num rx-c">strings s/ corrente</th><th class="rx-num" title="PR de hoje por inversor (rota /api/<fonte>/pr)">PR hoje</th><th></th></tr></thead><tbody>${linhas.join('')}</tbody></table></div>`;
+}
+/* ---- curva do inversor sobre a da usina (só com gêmeo) ---- */
+function rxCurva(){
+  const g=RX.gemeo; if(!g) return '';
+  const pts=(g.curva||[]).filter(c=>c.esperado_kw!=null||c.medido_kw!=null);
+  if(!pts.length) return `<div class="rx-sec"><h3>Curva do dia</h3></div><div class="rx-card rx-nota">O gêmeo ainda não tem curva para hoje${g.cabecalho&&g.cabecalho.gate_agora&&g.cabecalho.gate_agora!=='ok'?` (sensor: ${_cmEsc(g.cabecalho.gate_agora)})`:''}.</div>`;
+  const idx=[]; (g.curva||[]).forEach((c,i)=>{ if(c.esperado_kw!=null||c.medido_kw!=null) idx.push(i); });
+  const inv=(g.inversores||[]).find(i=>i.nome===RX.sel)||null;
+  // Inversor selecionado: compara com a MÉDIA por inversor (usina ÷ N) em kW. Na escala da usina inteira (MW) a curva
+  // de um inversor ficava colada no zero e trocar de inversor não mudava nada visível (Levi, 06/09).
+  const N=inv?(((g.inversores||[]).filter(x=>x.curva_medida_kw&&x.curva_medida_kw.some(v=>v!=null)).length)||(g.inversores||[]).length||1):1;
+  const W=720,H=190,L=44,R=12,T=14,B=26,n=pts.length;
+  const invMax=inv?Math.max(0,...(inv.curva_medida_kw||[]).map(v=>v||0),...(inv.curva_esperada_kw||[]).map(v=>v||0)):0;
+  const ymax=(Math.max(invMax,...pts.map(p=>Math.max(p.esperado_kw||0,p.medido_kw||0)/N))||1)*1.08;
+  const x=i=>L+(W-L-R)*i/Math.max(1,n-1), y=v=>T+(H-T-B)*(1-v/ymax);
+  const path=(get)=>{let s='';pts.forEach((p,i)=>{const v=get(p,idx[i]); if(v==null){return;} s+=(s?'L':'M')+x(i).toFixed(1)+' '+y(v).toFixed(1)+' ';}); return s;};
+  const hi=h=>{const i=pts.findIndex(p=>p.hora>=h);return i<0?W-R:x(i);};
+  const bands=(g.paradas||[]).map(p=>`<rect class="rx-band" x="${hi(p.hora_ini)}" y="${T}" width="${Math.max(2,hi(p.hora_fim)-hi(p.hora_ini))}" height="${H-T-B}"/><text x="${hi(p.hora_ini)+4}" y="${T+11}" style="fill:var(--red)">${p.n} inversores parados</text>`).join('');
+  const emMW=ymax>=1500, esc=v=>emMW?rxN(v/1000,1):rxN(v);
+  const grid=[0,.25,.5,.75,1].map(f=>`<line x1="${L}" x2="${W-R}" y1="${y(ymax*f)}" y2="${y(ymax*f)}" stroke="var(--line)"/><text x="${L-6}" y="${y(ymax*f)+3}" text-anchor="end">${esc(ymax*f)}</text>`).join('');
+  const passo=Math.max(1,Math.round(n/6)), xt=pts.map((p,i)=>i%passo===0?`<text x="${x(i)}" y="${H-8}" text-anchor="middle">${p.hora}</text>`:'').join('');
+  const invM=inv&&inv.curva_medida_kw?path((p,i)=>inv.curva_medida_kw[i]):'', invE=inv&&inv.curva_esperada_kw?path((p,i)=>inv.curva_esperada_kw[i]):'';
+  return `<div class="rx-sec"><h3>Curva do dia · ${inv?_cmEsc(inv.nome)+' × média por inversor':'usina'}</h3><span class="sub">${emMW?'MW':'kW'} · esperado pelo gêmeo (tracejado) × medido${inv?` · usina ÷ ${N} inversores`:''} · faixa vermelha = parada</span></div>
+  <div class="rx-card"><svg class="rx-svg" viewBox="0 0 ${W} ${H}" width="100%" height="${H}">${grid}${bands}
+   <path d="${path(p=>p.esperado_kw==null?null:p.esperado_kw/N)}" fill="none" stroke="var(--muted)" stroke-width="1.4" stroke-dasharray="4 4"/>
+   <path d="${path(p=>p.medido_kw==null?null:p.medido_kw/N)}" fill="none" stroke="var(--brand)" stroke-width="2.2"/>
+   ${invE?`<path d="${invE}" fill="none" stroke="var(--blue)" stroke-width="1" stroke-dasharray="3 4" opacity=".7"/>`:''}
+   ${invM?`<path d="${invM}" fill="none" stroke="var(--blue)" stroke-width="2"/>`:''}${xt}</svg>
+  <div class="rx-leg"><span><i style="background:var(--brand)"></i>${inv?'média por inversor (medida)':'usina medida'}</span><span><i style="background:var(--muted)"></i>${inv?'média esperada':'usina esperada'}</span>${inv?`<span><i style="background:var(--blue)"></i>${_cmEsc(inv.nome)} medido (tracejado = esperado)</span>`:''}<span><i style="background:rgba(220,38,38,.45)"></i>parada</span></div></div>`;
+}
+function rxSemana(){
+  const s=RX.semana; if(!s||!s.dias||!s.dias.length) return '';
+  return `<div class="rx-sec"><h3>Últimos dias</h3><span class="sub">gerado ÷ esperado por dia · energia parada em inversor</span></div><div class="rx-dias">${s.dias.map(d=>{const r=d.e_esperado?d.e_medido/d.e_esperado:null, cls=r==null?'':r<0.9?'ruim':r<0.97?'aviso':'bom';
+    return `<div class="rx-dia"><div class="d">${d.dia.slice(8)}/${d.dia.slice(5,7)}</div><div class="p ${cls}">${r==null?'—':rxN(r*100)+'%'}</div><div class="x">${rxN(d.e_medido/1000,1)} MWh${d.inv_parado>500?` · <span style="color:var(--red)">${rxN(d.inv_parado/1000,1)} MWh parado</span>`:''}</div></div>`;}).join('')}</div>`;
+}
+function rxTimeline(){
+  const p=RX.p, g=RX.gemeo||{}, it=[];
+  (g.paradas||[]).forEach(x=>{ it.push({q:x.hora_ini,c:'red',t:`<b>${x.n} de ${x.de} inversores pararam</b>${x.equipamentos&&x.equipamentos.length?' — '+_cmEsc(x.equipamentos.slice(0,4).join(', '))+(x.equipamentos.length>4?'…':''):''}`}); if(x.hora_fim) it.push({q:x.hora_fim,c:'ok',t:`voltaram (${x.min} min, ${rxMWh(x.kwh)} perdidos)`}); });
+  rxZeraram().forEach(z=>it.push({q:z.q,c:'amber',t:`<b>${_cmEsc(z.inv)}</b> · ${z.s.length} string${z.s.length>1?'s':''} zeraram (${_cmEsc(z.s.slice(0,5).join(', '))}${z.s.length>5?'…':''})`}));
+  if(p.status==='sem_comm') it.push({q:_cmTs(p.ultima_leitura).slice(6),c:'red',t:'<b>última leitura</b> — a usina parou de reportar'});
+  const tarde=[]; ((RX.etm&&RX.etm.flags)||[]).forEach(f=>tarde.push({q:'agora',c:f.tipo==='crit'?'red':'amber',t:`ETM: <b>${_cmEsc(f.t)}</b> · ${_cmEsc(f.info||'')}`}));
+  (RX.os||[]).slice(0,2).forEach(o=>tarde.push({q:_cmData(o.data),c:'blue',t:`OS <b>#${_cmEsc(o.os)}</b> ${_cmEsc(String(o.status||'').toLowerCase())} · ${_cmEsc(String(o.nota||'').slice(0,90))}`}));
+  it.sort((a,b)=>String(a.q).localeCompare(String(b.q)));
+  const tudo=it.concat(tarde);
+  if(RX.notif===null&&RX.gemeo===null) return `<div class="rx-sec"><h3>O que aconteceu</h3></div><div class="rx-card"><div class="rx-esq">Juntando paradas, strings e ETM</div></div>`;
+  return `<div class="rx-sec"><h3>O que aconteceu</h3><span class="sub">paradas do gêmeo · strings que zeraram · ETM · Fracttal</span></div><div class="rx-card"><ul class="rx-tl">${tudo.length?tudo.map(i=>`<li class="${i.c}"><span class="q">${_cmEsc(i.q)}</span>${i.t}</li>`).join(''):'<li>nada registrado hoje</li>'}</ul></div>`;
+}
+function rxHeat(){
+  const invs=rxInvPlat().filter(i=>i.strings.length); if(!invs.length) return '';
+  const cor={sem_corrente:'var(--red)',baixa_perf:'var(--amber)',ativa:'var(--ok)',trancada:'var(--raise)',inativa:'var(--off)',desligado:'#7a2e2e'};
+  const maxS=Math.max(...invs.map(i=>i.strings.length));
+  if(maxS<=1) return `<details class="rx-fr" ${RX.heatOpen?'open':''} ontoggle="rxHeatToggle(this)"><summary>Inversores × strings agora</summary><div class="in rx-nota">String Box — corrente agregada (1 canal por inversor), sem visão por string individual.</div></details>`;
+  return `<details class="rx-fr" ${RX.heatOpen?'open':''} ontoggle="rxHeatToggle(this)"><summary>Inversores × strings agora · ${invs.length} inversores · última leitura ${_cmTs(RX.p.ultima_leitura)}</summary><div class="in">${invs.map(i=>`<div class="rx-mini"><div class="n" title="${_cmEsc(i.nome)}">${_cmEsc(i.nome)}</div><div class="rx-cells" style="grid-template-columns:repeat(${maxS},1fr)">${i.strings.map(s=>`<i title="${_cmEsc(s.id)} ${_cmEsc(s.st)}" style="background:${cor[s.st]||'var(--off)'}"></i>`).join('')}</div></div>`).join('')}
+  <div class="rx-leg" style="margin-top:8px"><span><i style="background:var(--ok)"></i>com corrente</span><span><i style="background:var(--red)"></i>sem corrente</span><span><i style="background:var(--amber)"></i>baixa</span><span><i style="background:var(--off)"></i>sem sol / inativa</span><span><i style="background:var(--raise)"></i>trancada</span></div></div></details>`;
+}
+function rxRender(){
+  const p=RX.p; if(!p) return;
+  const g=RX.gemeo, cab=(g&&g.cabecalho)||{}, plats=rxInvPlat();
+  const kwp=cab.kwp?rxN(cab.kwp/1000,1)+' MWp':(p.pot_mwp?rxN(p.pot_mwp,1)+' MWp':''), nInv=cab.n_inversores||p.qtd_inversores||plats.length||null, nStr=cab.n_strings||p.str_esp||null, nTrk=cab.n_trackers||(RX.trk&&RX.trk.total)||null;
+  const meta=[p.cliente||'—',p.fonte,(p.regiao||'')+(p.estado?' / '+p.estado:''),kwp,nInv?nInv+' inversores':'',nStr?rxN(nStr)+' strings':'',nTrk?nTrk+' trackers':''].filter(Boolean).join(' · ');
+  const fid=RX_MON[p.fonte];
+  document.getElementById('rx').innerHTML=`
+  <div class="rx-hdr"><div><div class="t">${_cmEsc(p.usina)}</div><div class="m">${_cmEsc(meta)}</div></div>
+    <div style="margin-left:auto;text-align:right"><span class="rx-pill ${p.status}"><i></i>${RX_NOME[p.status]||_cmEsc(p.status)}</span><div class="m">última leitura ${_cmEsc(fmtTs(p.ultima_leitura)||'—')}</div></div></div>
+  <div class="rx-links">${fid?`<a class="p" href="/monitoramento?fonte=${fid}&usina=${encodeURIComponent(p.plant_id)}&view=strings">Monitoramento desta usina ›</a>`:''}${hasDrill(p)?`<a id="dFull" href="${drillUrl(p)}">Diagnóstico completo</a>`:''}${RX.gid?`<a href="/gemeo/usina/${RX.gid}">Gêmeo digital</a>`:''}</div>
+  ${rxVeredito()}${rxTres()}${rxInversores()}${rxCurva()}${rxSemana()}${rxTimeline()}${rxHeat()}`;
 }
 
 /* ====== HISTÓRICO ====== */

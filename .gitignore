@@ -29,6 +29,7 @@ token_gmail.json
 owen_accum.json
 ufv_state.json
 tracker_issues.json
+inv_energia_dia.json
 tracker_issues.bak.json
 string_notas.json
 spv_stringbox.json
@@ -70,6 +71,8 @@ comentarios_adicionais.json
 # Caminho atualizado na separação por projeto (data/ virou thopen/data/) — regra com barra é
 # ancorada na raiz, então a antiga deixaria um .xlsx NOVO do snapshot ser ignorado em silêncio.
 !thopen/data/**/*.xlsx
+# EXCEÇÃO: de-para de trackers supervisório ↔ Fracttal — dado da plataforma, editado pelo time (06/09/2026)
+!plataforma/trackers_depara.xlsx
 
 # ── Logos: versiona só as cópias de nome limpo (grid-*.png); ignora os originais
 #    com acentos/espaços que o time dropar na pasta.

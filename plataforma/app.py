@@ -2733,8 +2733,16 @@ _ENTRADA_GRUPOS = [("Thopen", "API PV", "thopen-pv"), ("Thopen", "Thopen", "thop
                    ("Axis", "Axis", "axis"), ("Renogrid", "RenoGrid", "renogrid"), ("2C", "2C", "2c"),
                    ("SEMP", "SEMP", "semp"), ("Alves Lima", "Alves Lima", "alveslima")]
 _ENTRADA_FONTE_ID = {f: fid for _c, f, fid in _ENTRADA_GRUPOS}
+# prefixo da chave do acompanhamento de strings (/api/state tracking, "<prefixo>:<plant_id>") — o VKEY do Monitoramento
+_ENTRADA_VKEY = {"thopen-pv": "pv", "thopen-db": "pg", "athon": "so", "axis": "ax", "renogrid": "se", "2c": "owen",
+                 "semp": "semp", "alveslima": "al"}
 _ENTRADA_TR_CACHE = {"ts": 0.0, "data": None, "building": False}
-_ENTRADA_TR_TTL = 120
+_ENTRADA_TR_TTL = 1800         # 30 min (Levi, 06/09): cada construcao bate nas 5 fontes de trackers; era 2 min e
+                               # custava cota da SunOp sem o plantao precisar. Urgencia = botao Atualizar.
+_ENTRADA_TR_MIN_FORCA_S = 60   # dois cliques em Atualizar em menos de 1 min = uma construcao so
+_ENTRADA_TR_TTL_PENDENTE = 300 # alguma fonte de trackers estourou o prazo (cache frio pos-restart): tenta de novo em 5 min,
+                               # nao em 30 — a thread que estourou segue aquecendo o cache e a proxima construcao a aproveita
+_ENTRADA_TRK_PRAZO_S = 30      # prazo por fonte de trackers parados; quem estoura vira "fonte nao respondeu" no card
 
 
 def _entrada_tempo_real_build() -> dict:
@@ -2747,10 +2755,19 @@ def _entrada_tempo_real_build() -> dict:
         k = (cliente or "Sem cliente", fonte or "Sem fonte")
         if k not in grupos:
             grupos[k] = {"cliente": k[0], "fonte": k[1], "fonte_id": _ENTRADA_FONTE_ID.get(k[1], ""), "usinas": {},
-                         "strings_faltando": 0, "usinas_critico": 0, "usinas_sem_comm": 0, "usinas_ok": 0,
-                         "ultima_leitura": None, "etm_problema": 0, "etm_com_os": 0, "trk_parados": 0, "trk_com_os": 0,
-                         "trk_fonte_ok": False}
+                         "strings_faltando": 0, "strings_nao_rec": 0, "usinas_critico": 0, "usinas_sem_comm": 0,
+                         "usinas_ok": 0, "ultima_leitura": None, "etm_problema": 0, "etm_com_os": 0, "trk_parados": 0,
+                         "trk_com_os": 0, "trk_fonte_ok": False}
         return grupos[k]
+
+    # Strings "nao reconhecidas" (Levi, 06/09): das faltando (esperadas - ativas), as que ninguem marcou no acompanhamento
+    # da usina — a coluna ACOMP. do Monitoramento, guardada no /api/state como tracking["<prefixo>:<plant_id>"]. E o que
+    # pede acao do plantao; o total continua no card, como "nao reconhecidas / total".
+    try:
+        with _state_lock:
+            acomp_de = dict((_load_state() or {}).get("tracking") or {})
+    except Exception:                                             # noqa: BLE001 — sem estado, tudo e "nao reconhecida"
+        acomp_de = {}
 
     # Os 8 pares cliente x fonte do Monitoramento existem SEMPRE, com ou sem dado (pedido do Levi, 05/09): Axis esta
     # sem token web e Alves Lima nao esta no rollup, mas o plantao precisa ver o card e ler "sem leitura" nele.
@@ -2764,13 +2781,18 @@ def _entrada_tempo_real_build() -> dict:
         x = g(u.get("cliente"), u.get("fonte"))
         nome = u.get("usina") or ""
         chave_de[_nrm(_macro_usina_nome(nome))] = (x["cliente"], x["fonte"])
+        falt = int(u.get("strings_faltando") or 0)
+        ac = acomp_de.get(f"{_ENTRADA_VKEY.get(x['fonte_id'], 'pv')}:{u.get('plant_id')}")
+        ac = int(ac) if isinstance(ac, (int, float)) and ac > 0 else 0
+        nao_rec = max(0, falt - ac)
         x["usinas"][nome] = {"usina": nome, "plant_id": u.get("plant_id"), "status": u.get("status"), "causa": u.get("causa"),
-                             "strings_faltando": int(u.get("strings_faltando") or 0), "str_esp": u.get("str_esp"),
+                             "strings_faltando": falt, "strings_acomp": ac, "strings_nao_rec": nao_rec, "str_esp": u.get("str_esp"),
                              "strings_ativas": u.get("strings_ativas"), "qtd_inversores": u.get("qtd_inversores"),
                              "inv_off": u.get("inv_off"), "estado": u.get("estado"), "regiao": u.get("regiao"),
                              "ultima_leitura": u.get("ultima_leitura"), "etm": [], "etm_os": False,
                              "trk_parados": 0, "trk_com_os": 0}
-        x["strings_faltando"] += int(u.get("strings_faltando") or 0)
+        x["strings_faltando"] += falt
+        x["strings_nao_rec"] += nao_rec
         st = u.get("status")
         if st == "critico":
             x["usinas_critico"] += 1
@@ -2811,11 +2833,29 @@ def _entrada_tempo_real_build() -> dict:
 
     fontes_trk = {"Athon": lambda: _sunop_parados_rows("gridco"), "Axis": lambda: _sunop_parados_rows("axis"),
                   "API PV": _pv, "RenoGrid": lambda: _owen_parados_rows(), "Thopen": lambda: _pg_parados_rows()}
-    for fonte, fn in fontes_trk.items():
+    # As cinco correm em PARALELO e com PRAZO. Sequencial e sem prazo, bastava uma consulta lenta para a entrada nunca
+    # ficar pronta (05/09: o PG passou de 15 min e a tela ficou eternamente "coletando as fontes pela primeira vez").
+    # Excecao nao cobria o caso: consulta lenta nao levanta, so nao volta. A thread que estourou o prazo continua viva
+    # (daemon) e aquece o cache da propria fonte — a proxima construcao aproveita.
+    colhido: dict = {}
+
+    def _corre(fonte, fn):
         try:
-            trows = fn() or []
+            colhido[fonte] = fn() or []
         except Exception as e:                                    # uma fonte fria ou fora nao derruba as outras
             print(f"[ENTRADA] trackers parados de {fonte}: {e}")
+
+    ths = [threading.Thread(target=_corre, args=(f, fn), name=f"entrada-trk-{f}", daemon=True)
+           for f, fn in fontes_trk.items()]
+    for th in ths:
+        th.start()
+    limite = time.time() + _ENTRADA_TRK_PRAZO_S
+    for th in ths:
+        th.join(max(0.0, limite - time.time()))
+    for fonte in fontes_trk:
+        trows = colhido.get(fonte)
+        if trows is None:
+            print(f"[ENTRADA] {fonte}: trackers parados nao vieram em {_ENTRADA_TRK_PRAZO_S}s — card fica 'fonte nao respondeu'")
             continue
         for x in grupos.values():
             if x["fonte"] == fonte:
@@ -2844,6 +2884,7 @@ def _entrada_tempo_real_build() -> dict:
         x["sem_leitura"] = not us
         saida.append(x)
     return {"cache_ts": datetime.now().strftime("%H:%M:%S"), "grupos": saida,
+            "fontes_pendentes": [f for f in fontes_trk if f not in colhido],
             "etm_fora": sorted(fora.values(), key=lambda f: (-f["n"], f["cliente"])),
             "etm_mes": ((_etm_prob_cache.get("data") or {}).get("mes"))}
 
@@ -2855,7 +2896,9 @@ def _entrada_tempo_real_build() -> dict:
 # a noite toda string esta em zero e nao e queda. A 1a leitura de cada dia so estabelece a base — senao o
 # amanhecer avisaria todas as strings que ja estavam mortas de vespera. Estado no JSON compartilhado (`notif`).
 _NOTIF_FONTES = (("pv", "Thopen · API PV"), ("pg", "Thopen · Banco de dados"), ("sunop", "Athon"),
-                 ("axis", "Axis"), ("owen", "RenoGrid"))
+                 ("axis", "Axis"), ("owen", "RenoGrid"), ("semp", "SEMP"), ("alveslima", "Alves Lima"))
+# 2C fica de fora de proposito: a string do 2C vem por e-mail (banco-por-dia), nao ha leitura ao vivo para comparar.
+_NOTIF_REBASE_H = 3               # leitura anterior mais velha que isto (PC suspenso, processo fora) → vira base, nao avisa
 _NOTIF_INTERVALO_S = 30 * 60
 _NOTIF_MAX = 300
 _NOTIF_JANELA = ("05:40", "18:20")     # janela solar, a mesma do gemeo
@@ -2873,7 +2916,13 @@ def _notif_chave(fonte: str, r: dict) -> str:
 def _notif_ciclo(forcar: bool = False) -> int:
     """Uma leitura: o que esta sem corrente agora e nao estava na leitura anterior e queda nova. Devolve quantas.
     De noite nao le nem grava (salvo `forcar`): a leitura noturna virava a base do dia e o amanhecer avisaria
-    de uma vez todas as strings que ja estavam mortas — 114 na 1a leitura de teste, 05/09 01:43."""
+    de uma vez todas as strings que ja estavam mortas — 114 na 1a leitura de teste, 05/09 01:43.
+    Tres protecoes aprendidas em 05/09:
+      - intervalo > _NOTIF_REBASE_H desde a leitura anterior (o PC dormiu 12:56→22:20) → rebase, sem avisar: comparar
+        com uma foto de horas atras despejaria tudo que zerou no meio como se fosse agora;
+      - fonte que devolve lista VAZIA tendo zeradas na leitura anterior → mantem a anterior: logo apos restart o payload
+        da aba ainda nao existe e a lista sai vazia, e a leitura seguinte avisaria todas como novas;
+      - grava por fonte o que foi lido (`fontes`), para o sino dizer quem esta coberto e quem nao respondeu."""
     if not forcar and not _notif_de_dia():
         return 0
     agora = datetime.now()
@@ -2882,16 +2931,30 @@ def _notif_ciclo(forcar: bool = False) -> int:
     snap_ant = n_ant.get("snapshot") or {}
     hoje = agora.strftime("%Y-%m-%d")
     base_do_dia = n_ant.get("dia") != hoje
-    novos, snap = [], {}
+    if not base_do_dia and n_ant.get("ultima"):
+        try:
+            atraso_h = (agora - datetime.fromisoformat(n_ant["ultima"])).total_seconds() / 3600
+        except (TypeError, ValueError):
+            atraso_h = 0.0
+        if atraso_h > _NOTIF_REBASE_H:
+            print(f"[NOTIF] ultima leitura ha {atraso_h:.1f} h ({n_ant['ultima']}): rebase, sem avisar")
+            base_do_dia = True
+    novos, snap, fontes = [], {}, {}
     for fonte, rotulo in _NOTIF_FONTES:
+        ant = {k: v for k, v in snap_ant.items() if k.startswith(fonte + "|")}
         try:
             rows = _strings_problema_rows(fonte) or []
         except Exception as e:                                       # noqa: BLE001
             print(f"[NOTIF] {fonte} nao respondeu ({e}); mantenho a leitura anterior dessa fonte")
-            for k, v in snap_ant.items():                            # fonte fora nao "recupera" tudo para reavisar depois
-                if k.startswith(fonte + "|"):
-                    snap[k] = v
+            snap.update(ant)                                         # fonte fora nao "recupera" tudo para reavisar depois
+            fontes[fonte] = {"rotulo": rotulo, "ok": False, "n": len(ant), "erro": str(e)[:120]}
             continue
+        if not rows and ant:
+            print(f"[NOTIF] {fonte} devolveu lista vazia com {len(ant)} zerada(s) antes; mantenho a anterior (cache frio?)")
+            snap.update(ant)
+            fontes[fonte] = {"rotulo": rotulo, "ok": True, "n": len(ant), "nota": "lista vazia; mantive a anterior"}
+            continue
+        fontes[fonte] = {"rotulo": rotulo, "ok": True, "n": len(rows)}
         for r in rows:
             k = _notif_chave(fonte, r)
             snap[k] = {"usina": r.get("usina"), "plant_id": r.get("plant_id"), "inversor": r.get("inversor") or "",
@@ -2901,7 +2964,7 @@ def _notif_ciclo(forcar: bool = False) -> int:
     with _state_lock:
         st = _load_state()
         n = st.setdefault("notif", {})
-        n["snapshot"], n["ultima"], n["dia"] = snap, agora.isoformat(timespec="seconds"), hoje
+        n["snapshot"], n["ultima"], n["dia"], n["fontes"] = snap, agora.isoformat(timespec="seconds"), hoje, fontes
         n["eventos"] = ((n.get("eventos") or []) + novos)[-_NOTIF_MAX:]
         _save_state(st)
     if novos:
@@ -2929,8 +2992,9 @@ def api_notificacoes():
     ev = n.get("eventos") or []
     if desde:
         ev = [e for e in ev if (e.get("quando") or "") > desde]
-    return jsonify({"eventos": ev[-100:], "ultima_leitura": n.get("ultima"), "intervalo_min": _NOTIF_INTERVALO_S // 60,
-                    "de_dia": _notif_de_dia(), "zeradas_agora": len(n.get("snapshot") or {})})
+    return jsonify({"eventos": ev[-_NOTIF_MAX:], "ultima_leitura": n.get("ultima"), "intervalo_min": _NOTIF_INTERVALO_S // 60,
+                    "de_dia": _notif_de_dia(), "zeradas_agora": len(n.get("snapshot") or {}),
+                    "fontes": n.get("fontes") or {}})
 
 
 @app.route("/api/notificacoes/ler-agora", methods=["POST"])
@@ -2942,28 +3006,63 @@ def api_notificacoes_ler_agora():
     return jsonify({"disparado": True, "de_dia": _notif_de_dia(), "forcar": forcar})
 
 
+def _entrada_tr_disparar(forcar: bool = False) -> bool:
+    """Dispara a reconstrucao do tempo real em fundo (uma por vez). `forcar` e o botao Atualizar: ignora o TTL,
+    mas respeita _ENTRADA_TR_MIN_FORCA_S desde a ultima construcao — clique repetido nao vira rajada nas fontes."""
+    c = _ENTRADA_TR_CACHE
+    agora = time.time()
+    if c["building"]:
+        return False
+    vencido = c["data"] is None or (agora - c["ts"]) > _entrada_tr_ttl()
+    if not vencido and not (forcar and (agora - c["ts"]) >= _ENTRADA_TR_MIN_FORCA_S):
+        return False
+    c["building"] = True
+
+    def _bg():
+        try:
+            d = _entrada_tempo_real_build()
+            c["data"], c["ts"] = d, time.time()
+        except Exception as e:                                # noqa: BLE001 — o cache anterior continua servindo
+            print(f"[ENTRADA] build do tempo real falhou: {e}")
+        finally:
+            c["building"] = False
+
+    threading.Thread(target=_bg, name="entrada-tempo-real", daemon=True).start()
+    return True
+
+
+def _entrada_tr_ttl() -> int:
+    """TTL vigente: 30 min com todas as fontes de trackers dentro; 5 min se alguma estourou o prazo na ultima construcao."""
+    return _ENTRADA_TR_TTL_PENDENTE if (_ENTRADA_TR_CACHE["data"] or {}).get("fontes_pendentes") else _ENTRADA_TR_TTL
+
+
+def _entrada_tr_payload() -> dict:
+    """O que a tela recebe: o ultimo publicado + idade, TTL (para dizer a hora da proxima) e se ha construcao em curso."""
+    c = _ENTRADA_TR_CACHE
+    agora = time.time()
+    if c["data"] is None:
+        return {"aquecendo": True, "grupos": [], "cache_ts": None, "ttl_s": _ENTRADA_TR_TTL, "renovando": c["building"]}
+    ttl = _entrada_tr_ttl()
+    return dict(c["data"], stale=(agora - c["ts"]) > ttl, ttl_s=ttl,
+                cache_epoch=int(c["ts"]), idade_s=int(agora - c["ts"]), renovando=c["building"])
+
+
 @app.route("/api/entrada/tempo-real")
 def api_entrada_tempo_real():
     """Serve o cache na hora e reconstroi em fundo quando venceu: as rotas de trackers parados custam de 5 a 25 s
     frias e a entrada nao pode esperar por fonte nenhuma. Na 1a chamada de um processo responde `aquecendo`."""
+    _entrada_tr_disparar()
+    return jsonify(_entrada_tr_payload())
+
+
+@app.route("/api/entrada/tempo-real/atualizar", methods=["POST"])
+def api_entrada_tempo_real_atualizar():
+    """Botao Atualizar da tela (Levi, 06/09): reconstroi agora, em fundo. Devolve se disparou e o cache_ts vigente —
+    a tela espera o cache_ts mudar para redesenhar, em vez de esperar a resposta desta rota."""
+    disparou = _entrada_tr_disparar(forcar=True)
     c = _ENTRADA_TR_CACHE
-    agora = time.time()
-    if (c["data"] is None or (agora - c["ts"]) > _ENTRADA_TR_TTL) and not c["building"]:
-        c["building"] = True
-
-        def _bg():
-            try:
-                d = _entrada_tempo_real_build()
-                c["data"], c["ts"] = d, time.time()
-            except Exception as e:                                # noqa: BLE001 — o cache anterior continua servindo
-                print(f"[ENTRADA] build do tempo real falhou: {e}")
-            finally:
-                c["building"] = False
-
-        threading.Thread(target=_bg, name="entrada-tempo-real", daemon=True).start()
-    if c["data"] is None:
-        return jsonify({"aquecendo": True, "grupos": [], "cache_ts": None})
-    return jsonify(dict(c["data"], stale=(agora - c["ts"]) > _ENTRADA_TR_TTL))
+    return jsonify({"ok": True, "disparou": disparou, "renovando": c["building"],
+                    "cache_ts": (c["data"] or {}).get("cache_ts"), "min_intervalo_s": _ENTRADA_TR_MIN_FORCA_S})
 
 
 @app.route("/antigo")
@@ -2993,10 +3092,17 @@ def painel_portfolio():
 
 
 
+_PAINEL_USINA_PADRAO = os.environ.get("PAINEL_USINA_PADRAO", "v2")   # "antigo" devolve a versão anterior como padrão
+
+
 @app.route("/painel/usina/<plant_id>")
 def painel_usina(plant_id):
     # Painel NOC — Diagnóstico de Usina (drill). id pode ser int (PV/PG) ou string (Athon/Axis/2C).
-    return render_template("painel_usina.html", plant_id=plant_id,
+    # 06/09/2026: a versão com o INVERSOR no centro (painel_usina_v2.html) assumiu o endereço; a anterior fica na
+    # reserva, intacta, em ?antigo=1 (Levi: "deixa o antigo na reserva para eu poder voltar atrás"). Para inverter o
+    # padrão sem mexer em código: PAINEL_USINA_PADRAO=antigo (e ?novo=1 abre a nova).
+    antigo = flask_request.args.get("antigo") == "1" or (_PAINEL_USINA_PADRAO == "antigo" and flask_request.args.get("novo") != "1")
+    return render_template("painel_usina.html" if antigo else "painel_usina_v2.html", plant_id=plant_id,
                            today=datetime.now().strftime("%d/%m/%Y"))
 
 
@@ -5190,22 +5296,7 @@ def _sunop_trackers_plant_curva(plant_name: str, inst: str = "gridco") -> dict:
                     "status": status})
     parados, sev, med, lev = _trk_status_from_curva(lst, g)   # STATUS pela régua freeze-based definitiva (Levi 10/07)
     pior = max((t["max_disp"] for t in lst if t["max_disp"] is not None), default=None)
-    # Cruzamento com a planilha de Tickets (nome da usina + nº do tracker) — espelha a API PV
-    tick, ambiguo = _tickets_lookup(_tk_norm(base["usina"]))
-    nums = (tick or {}).get("nums", {})
-    novos = acomp = normalizados = 0
-    for t in lst:
-        tstat = nums.get(_pv_trk_num(t["id"]))
-        t["na_planilha"]   = tstat is not None
-        t["ticket_status"] = tstat
-        t["normalizado"]   = bool(t["na_planilha"] and t["status"] == "normal")
-        if t["normalizado"]:
-            normalizados += 1
-        if t["status"] != "normal":                 # anômalo (parado/desvio/atraso)
-            if t["na_planilha"]:
-                acomp += 1
-            else:
-                novos += 1
+    tk = _trk_cruza_tickets(base["usina"], lst)   # planilha de Tickets: só ocorrências abertas (motor único das 5 fontes)
     # métricas p/ o OVERVIEW (mesmo motor de curva, sem depender do snapshot):
     _atuais = [r["atual"] for r in raw if r["atual"] is not None]
     media_ang = (sum(_atuais) / len(_atuais)) if _atuais else None
@@ -5214,8 +5305,7 @@ def _sunop_trackers_plant_curva(plant_name: str, inst: str = "gridco") -> dict:
     base.update({"total": len(lst), "parados": parados, "desvios": sev, "atrasos": lev, "esquema": "novo",
                  "sem_alvo": sem_alvo, "amp_ref": round(amp_ref, 1), "sem_comunicacao": sem_dados,
                  "pior_disparidade": round(pior, 2) if pior is not None else None,
-                 "tem_ticket": tick is not None, "ambiguo": ambiguo,
-                 "novos": novos, "acompanhados": acomp, "normalizados": normalizados,
+                 **tk,
                  # régua freeze-based: severos/medios/leves = as próprias classes (não mais aliases)
                  "severos": sev, "medios": med, "leves": lev, "fora_media": 0,
                  "media_angulo": round(media_ang, 1) if media_ang is not None else None,
@@ -6253,6 +6343,7 @@ _TICKETS_CANDS = [p for p in [os.environ.get("TICKETS_PATH")] if p]
 TICKETS_TRK    = {}     # usina_norm → {"nums": {int: status}, "statuses": set}
 TICKETS_PARADO_ABERTO = {}   # usina (_tk_norm) → {nº do tracker} p/ Status="Parado" E "Fim da ocorrência" VAZIO
 TICKETS_RSU_ABERTO = {}      # usina (_tk_norm) → {"desde","equip"} p/ Equipamento~RSU E "Fim da ocorrência" VAZIO (ponto 4)
+TICKETS_USINA = {}           # usina (_tk_norm) → {skid_str: {"equip","status","desde","qtd"}} p/ ticket ABERTO da usina/skid inteira
 _tickets_mtime = 0.0
 _tickets_lock  = threading.Lock()
 
@@ -6270,7 +6361,7 @@ def _tickets_path():
 
 def load_tickets_trackers():
     """(Re)carrega a aba Trackers da planilha de Tickets (ocorrências não-conformes)."""
-    global TICKETS_TRK, TICKETS_PARADO_ABERTO, TICKETS_RSU_ABERTO, _tickets_mtime
+    global TICKETS_TRK, TICKETS_PARADO_ABERTO, TICKETS_RSU_ABERTO, TICKETS_USINA, _tickets_mtime
     # Memória PRIMEIRO (a API), arquivo só como queda — mesma correção do BD_Thopen (02/09/2026).
     src = _bd_readable("tickets_performance", _tickets_path)
     if src is None:
@@ -6302,9 +6393,11 @@ def load_tickets_trackers():
             ns = re.findall(r"\d+", str(x))              # só é definido bem depois neste arquivo)
             return max(int(v) for v in ns) if ns else None
 
-        m = {}    # usina_norm → {skid_str: {"nums": {int: status}, "statuses": set}}  (skid "" = sem skid)
+        m = {}    # usina_norm → {skid_str: {"nums": {int: status}, "statuses": set, "desde": {int: 'dd/mm/aaaa'}}}  (skid "" = sem skid)
         pa = {}   # usina (_tk_norm) → {nº tracker} p/ Status="Parado" E "Fim da ocorrência" VAZIO
         rsu = {}  # usina (_tk_norm) → {"desde","equip"} p/ Equipamento~RSU E "Fim da ocorrência" VAZIO (ponto 4)
+        tu = {}   # usina (_tk_norm) → {skid_str: {"equip","status","desde","qtd"}} p/ ticket ABERTO da usina/skid inteira
+        c_qt = next((c for c in df.columns if "quantidade" in c.lower()), None)
         for _, row in df.iterrows():
             st = str(row[c_st]).strip()
             if not st or st.lower() in ("nan", "em conformidade"):
@@ -6315,17 +6408,42 @@ def load_tickets_trackers():
             sk = ""
             if c_sk and pd.notna(row[c_sk]):
                 sk = re.sub(r"\.0$", "", str(row[c_sk]).strip())   # "1.0" → "1"
-            try:
-                n = int(float(row[c_nt]))
-            except (TypeError, ValueError):
-                n = None
-            e = m.setdefault(u, {}).setdefault(sk, {"nums": {}, "statuses": set()})
-            e["statuses"].add(st)
-            if n is not None:
-                e["nums"][n] = st
+            aberto = c_fim is None or pd.isna(row[c_fim])           # sem "Fim da ocorrência" = ocorrência ABERTA
+            bruto = "" if pd.isna(row[c_nt]) else str(row[c_nt]).strip()
+            # "1.2" = skid 1, tracker 2 (Boa Esperança, Ipixuna, 2C); "57.0" = 57 (float do Excel). O skid do id manda
+            # sobre a coluna: Araputanga tem tickets "2.10" com a coluna dizendo 1. Antes int(float("1.2")) virava 1.
+            m_ab = re.fullmatch(r"(\d+)\.(\d+)", bruto)
+            if m_ab and int(m_ab.group(2)) > 0 and not bruto.endswith(".0"):
+                sk, n = m_ab.group(1), int(m_ab.group(2))
+            else:
+                try:
+                    n = int(float(bruto))
+                except (TypeError, ValueError):
+                    n = None
+            equip = str(row[c_eq]).strip() if c_eq is not None and pd.notna(row[c_eq]) else ""
+            qtd = None
+            if c_qt is not None and pd.notna(row[c_qt]):
+                try:
+                    qtd = int(float(row[c_qt]))
+                except (TypeError, ValueError):
+                    qtd = None
+            desde = _tk_data(row[c_ini]) if c_ini is not None else ""
+            # Só ocorrência ABERTA conta como "na planilha": fechada (Fim preenchido) não cobre nada. Era o que inflava o
+            # NORMALIZ. da tabela — ticket já fechado do CPP100 aparecia como "normalizado". (Levi, 06/09)
+            if aberto:
+                if n is not None:
+                    e = m.setdefault(u, {}).setdefault(sk, {"nums": {}, "statuses": set(), "desde": {}})
+                    e["statuses"].add(st)
+                    e["nums"][n] = st
+                    if desde:
+                        e["desde"][n] = desde
+                elif re.search(r"\b(rsu|ncu|skc|cabine|skid)\b", equip, re.I) or bruto.lower() in ("todos", "ufv", "-", "geral") \
+                        or (qtd is not None and qtd >= 5):
+                    # ticket da usina/skid inteira (RSU, NCU, "Todos"): cobre todos os trackers parados dela
+                    tu.setdefault(u, {}).setdefault(sk, {"equip": equip or "usina", "status": st, "desde": desde, "qtd": qtd})
             # Exclusão da RONDA (Levi 15/07): "Parado" + "Fim da ocorrência" VAZIO = já acompanhado → não alerta.
-            if st.lower() == "parado" and c_fim is not None and pd.isna(row[c_fim]):
-                tn = _tk_num(row[c_nt])
+            if st.lower() == "parado" and c_fim is not None and aberto:
+                tn = n if n is not None else _tk_num(bruto)
                 if tn is not None:
                     pa.setdefault(u, set()).add(tn)
             # RSU EM ABERTO (Levi 22/07): Equipamento ~ "RSU" + "Fim da ocorrência" VAZIO → a usina tem chamado
@@ -6335,13 +6453,29 @@ def load_tickets_trackers():
                     and re.search(r"\brsu\b", str(row[c_eq]), re.I) and u not in rsu:
                 desde = _tk_data(row[c_ini]) if c_ini is not None else ""
                 rsu[u] = {"desde": desde, "equip": str(row[c_eq]).strip()}
+        # "X 1 e 2" na planilha = duas sub-usinas na plataforma ("(289) Boa Esperança do Sul 1", "(308) Ipixuna 1"): cria
+        # a chave de cada sub-usina com os tickets do skid dela (linha sem skid entra nas duas — cobrir vale mais que calar).
+        for u in set(list(m.keys()) + list(tu.keys())):
+            mm = re.fullmatch(r"(.+?)\s+(\d+)\s+e\s+(\d+)", u)
+            if not mm:
+                continue
+            for k in (mm.group(2), mm.group(3)):
+                alias = f"{mm.group(1)} {k}"
+                for sk, e in (m.get(u) or {}).items():
+                    if sk in (k, ""):
+                        a = m.setdefault(alias, {}).setdefault("", {"nums": {}, "statuses": set(), "desde": {}})
+                        a["nums"].update(e["nums"]); a["statuses"] |= e["statuses"]; a["desde"].update(e["desde"])
+                for sk, e in (tu.get(u) or {}).items():
+                    if sk in (k, ""):
+                        tu.setdefault(alias, {}).setdefault("", dict(e))
         TICKETS_TRK = m
+        TICKETS_USINA = tu
         TICKETS_PARADO_ABERTO = pa
         TICKETS_RSU_ABERTO = rsu
         _tickets_mtime = _tickets_marca()   # mesma marca que o maybe_reload_tickets compara
         print(f"[OK] Tickets/Trackers: {len(m)} usinas c/ ocorrências; "
               f"{sum(len(v) for v in pa.values())} trackers 'Parado+aberto' (fora da ronda) em {len(pa)} usinas; "
-              f"{len(rsu)} usina(s) c/ RSU em aberto")
+              f"{len(rsu)} usina(s) c/ RSU em aberto; {sum(len(v) for v in tu.values())} ticket(s) de usina inteira")
     except Exception as e:
         print(f"[AVISO] Tickets/Trackers não carregado: {e}")
 
@@ -6608,14 +6742,86 @@ def _tickets_lookup(plant_norm, skid=None):
         if skid in e:
             return e[skid], ambiguo                      # SKID exato → confiável
         if any(k for k in e):                            # usina separa por skid, mas não tem este
-            return {"nums": {}, "statuses": set()}, ambiguo
+            return {"nums": {}, "statuses": set(), "desde": {}}, ambiguo
         # planilha não separa por skid (só "") → cai no agregado abaixo
-    nums, statuses = {}, set()
+    nums, statuses, desde = {}, set(), {}
     for v in e.values():
         nums.update(v.get("nums", {}))
         statuses |= v.get("statuses", set())
+        desde.update(v.get("desde", {}))
     multi = sum(1 for k in e if k) > 1
-    return {"nums": nums, "statuses": statuses}, (ambiguo or (skid is None and multi))
+    return {"nums": nums, "statuses": statuses, "desde": desde}, (ambiguo or (skid is None and multi))
+
+
+def _tickets_usina_lookup(plant_norm, skid=None):
+    """Ticket ABERTO da usina/skid inteira (RSU, NCU, 'Todos') → {"equip","status","desde","qtd"} ou None."""
+    e = TICKETS_USINA.get(plant_norm)
+    if not e:
+        return None
+    if skid is not None and str(skid) in e:
+        return e[str(skid)]
+    if "" in e:
+        return e[""]
+    return None if skid is not None else next(iter(e.values()), None)
+
+
+def _trk_num_skid(tid):
+    """'Tracker 1.6' → (6, '1'): no 2C o skid vem no nome. 'TRK88' → (88, None); 'Tracker 02' → (2, None)."""
+    m = re.search(r"(\d+)\.(\d+)", str(tid or ""))
+    if m:
+        return int(m.group(2)), m.group(1)
+    return _pv_trk_num(tid), None
+
+
+def _trk_cruza_tickets(nome, lst, skid=None) -> dict:
+    """Cruza os trackers de uma usina com a planilha de Tickets (só ocorrências ABERTAS) — o mesmo motor para as 5
+    fontes (Levi, 06/09: "quero ver de forma visual o que não está sendo coberto"). Marca em cada tracker:
+    na_planilha / ticket_status / ticket_desde / normalizado (ticket aberto mas tracker normal = candidato a fechar) /
+    ticket_usina (coberto por ticket da usina/skid inteira). Devolve os campos do overview: tem_ticket, ambiguo, novos e
+    acompanhados (anômalos sem/com ticket), normalizados, parados_com / parados_sem (só os PARADOS — é a coluna
+    "Tickets" da tabela) e ticket_usina. Na API PV cada skid é uma usina ("Indaiatuba 1 (131)") → casa por skid quando
+    a planilha agrupa a usina; senão pelo nome todo."""
+    limpo = re.sub(r"\s*-\s*skid\s*", " ", str(nome or ""), flags=re.I)       # "Brodowski - Skid 1 (86)" → "Brodowski 1 (86)"
+    m_sk = re.match(r"^(.*?)\s+(\d+)\s*(?:\(\d+\))?\s*$", limpo)
+    if skid is None and m_sk and _tk_norm(m_sk.group(1)) in TICKETS_TRK:
+        plant_norm, skid = _tk_norm(m_sk.group(1)), m_sk.group(2)
+    else:
+        plant_norm = _tk_norm(nome)
+    tick, ambiguo = _tickets_lookup(plant_norm, skid)
+    tu = _tickets_usina_lookup(plant_norm, skid)
+    por_skid = {}                                       # 2C: 'Tracker 2.10' consulta o skid 2 mesmo com skid=None
+
+    def _de(sk):
+        if sk is None or sk == skid:
+            return tick, tu
+        if sk not in por_skid:
+            por_skid[sk] = (_tickets_lookup(plant_norm, sk)[0], _tickets_usina_lookup(plant_norm, sk))
+        return por_skid[sk]
+    novos = acomp = normalizados = par_com = par_sem = 0
+    anomalo = ("parado", "severo", "medio", "leve", "desvio", "atraso")
+    for tr in lst:
+        n, sk_t = _trk_num_skid(tr.get("id"))
+        tk_, tu_ = _de(sk_t)
+        ts = ((tk_ or {}).get("nums") or {}).get(n)
+        tr["na_planilha"] = ts is not None
+        tr["ticket_status"] = ts
+        tr["ticket_desde"] = ((tk_ or {}).get("desde") or {}).get(n)
+        tr["ticket_usina"] = bool(tu_)
+        tr["normalizado"] = bool(tr["na_planilha"] and tr.get("status") == "normal")
+        if tr["normalizado"]:
+            normalizados += 1
+        if tr.get("status") in anomalo:
+            if tr["na_planilha"] or tr["ticket_usina"]:
+                acomp += 1
+            else:
+                novos += 1
+        if tr.get("status") == "parado":
+            if tr["na_planilha"] or tr["ticket_usina"]:
+                par_com += 1
+            else:
+                par_sem += 1
+    return {"tem_ticket": tick is not None or tu is not None, "ambiguo": ambiguo, "novos": novos, "acompanhados": acomp,
+            "normalizados": normalizados, "parados_com": par_com, "parados_sem": par_sem, "ticket_usina": tu}
 
 
 load_tickets_trackers()   # carga inicial
@@ -7389,28 +7595,7 @@ def _pv_trackers_analise(idusina, nome_disp, date=None, curva=False, fetch_curva
         _pv_trk_refina_curva(idusina, lst, date, fetch=fetch_curvas)
         # (RÉGUA ÚNICA por warm em background DESLIGADA — estava disputando a API PV e travando o gráfico.
         #  A régua única volta pelo agrupamento por complexo, que classifica a curva já baixada do gráfico.)
-    # Cruzamento com a planilha de Tickets. Na API PV cada SKID é uma usina ("Indaiatuba 1 (131)"
-    # = Indaiatuba/Skid 1) → casa por SKID quando a planilha agrupa a usina (senão, pelo nome todo).
-    m_sk = re.match(r"^(.*?)\s+(\d+)\s*(?:\(\d+\))?\s*$", str(nome_disp or ""))
-    if m_sk and _tk_norm(m_sk.group(1)) in TICKETS_TRK:
-        tick, ambiguo = _tickets_lookup(_tk_norm(m_sk.group(1)), m_sk.group(2))
-    else:
-        tick, ambiguo = _tickets_lookup(_tk_norm(nome_disp))
-    nums = (tick or {}).get("nums", {})
-    novos = acomp = normalizados = 0
-    for t in lst:
-        ts = nums.get(_pv_trk_num(t["id"]))
-        t["na_planilha"] = ts is not None
-        t["ticket_status"] = ts
-        # Normalizado = está NORMAL no tempo real mas a planilha lista como problema
-        t["normalizado"] = bool(t["na_planilha"] and t["status"] == "normal")
-        if t["normalizado"]:
-            normalizados += 1
-        if t["status"] in ("severo", "medio", "leve", "parado"):  # anômalo (inclui travado o dia todo)
-            if t["na_planilha"]:
-                acomp += 1
-            else:
-                novos += 1
+    tk = _trk_cruza_tickets(nome_disp, lst)   # planilha de Tickets: só ocorrências abertas; skid pelo nome ("Indaiatuba 1 (131)")
     sev  = sum(1 for t in lst if t["status"] == "severo")
     med  = sum(1 for t in lst if t["status"] == "medio")
     lev  = sum(1 for t in lst if t["status"] == "leve")
@@ -7425,8 +7610,7 @@ def _pv_trackers_analise(idusina, nome_disp, date=None, curva=False, fetch_curva
                  "desvio_medio": _trk_accum_desvio(idusina),
                  "media_angulo": round(sum(atuais) / len(atuais), 1) if atuais else None,
                  "ultima_leitura": _ult, "trackers": lst, "refinado": curva,
-                 "tem_ticket": tick is not None, "ambiguo": ambiguo,
-                 "novos": novos, "acompanhados": acomp, "normalizados": normalizados})
+                 **tk})
     _trk_alvo_mediana(base)   # fonte sem alvo → alvo inferido = mediana da frota (in-place)
     return base
 
@@ -7450,10 +7634,11 @@ def _build_pv_trk_payload(fetch_curvas=False):
                 if r.get("tem_trackers"):
                     r["grupo"] = USINA_GRUPO.get(futs[f]["nome"].strip())   # usina física do cadastro → agrupa sub-usinas
                     _pv_trk_plant[r["plant_id"]] = {"ts": agora, "payload": r}
-                    rows.append({k: r[k] for k in ("plant_id", "usina", "total", "severos", "leves",
+                    rows.append({k: r.get(k) for k in ("plant_id", "usina", "total", "severos", "leves",
                                  "parados", "desvios", "atrasos",
                                  "fora_media", "pior_disparidade", "desvio_medio", "ultima_leitura",
                                  "media_angulo", "novos", "acompanhados", "normalizados",
+                                 "parados_com", "parados_sem", "ticket_usina",   # coluna "Tickets" (06/09)
                                  "tem_ticket", "ambiguo", "sem_comunicacao", "grupo")})
                     if not r.get("sem_comunicacao"):    # usina avaliada (com comm) → entra no livro
                         cobertas.add(r["plant_id"])
@@ -12642,6 +12827,7 @@ def api_state_string_trancada():
     # PERMANENTE em dia passado da API PV). Levi 08/07: "trancada não pode aparecer nas 2 abas". (PG e
     # 2C reaplicam a régua na LEITURA → não precisam.)
     _str_prob_pv_cache["rows"] = None                    # sem-corrente API PV
+    _str_prob_oem_cache.clear()                          # idem SEMP / Alves Lima (conta OEM)
     _pv_str_ev_cache.clear()                             # ocorrências API PV (todas as datas)
     _sunop_str_ev_cache.clear()                          # ocorrências SunOp/Axis
     for _c in (_sunop_str_med_cache, _pg_str_med_cache, _axis_str_med_cache):
@@ -13096,6 +13282,7 @@ def _owen_strings_rows(force=False):
 _STR_PROB   = ("sem_corrente",)
 _STR_LABEL  = {"sem_corrente": "sem corrente"}
 _str_prob_pv_cache = {"ts": 0.0, "rows": None}
+_str_prob_oem_cache = {}          # {"semp": {ts, rows}, "alveslima": {...}} — 1 usina cada, calculado no proprio processo
 
 
 def _strings_problema_rows(fonte, force=False):
@@ -13117,24 +13304,28 @@ def _strings_problema_rows(fonte, force=False):
             for inv in invs:
                 for s in inv.get("strings", []):
                     _add(usina, pid, inv.get("nome"), s.get("id"), s.get("corrente"), s.get("status"))
-    elif fonte == "pv":
-        ent = _str_prob_pv_cache
+    elif fonte in ("pv", "semp", "alveslima"):
+        # SEMP e Alves Lima (conta OEM) usam o MESMO motor: muda o recorte (payload da aba deles) e o token, que
+        # _pv_token_for escolhe por usina. Sem este ramo a sub-aba dizia "indisponivel" e o sino nao via queda de
+        # string da Tucano nem da Morada Nova (Levi, 05/09: "a notificacao vale para todos os clientes?").
+        ent = _str_prob_pv_cache if fonte == "pv" else _str_prob_oem_cache.setdefault(fonte, {"ts": 0.0, "rows": None})
         if ent["rows"] is not None and not force and (time.time() - ent["ts"]) < CACHE_TTL:
             rows = [dict(r) for r in ent["rows"]]
         else:
             token = get_token()
             try:
-                pid2api = {p["id"]: p["nome"].strip() for p in get_plants(token)}
+                pid2api = {p["id"]: p["nome"].strip() for p in get_plants(token)}   # catalogo e global (token principal)
             except Exception:
                 pid2api = {}
-            ov = (_cache.get("payload") or {}).get("rows", [])
+            _ov = {"pv": _cache, "semp": _semp_cache, "alveslima": _alveslima_cache}[fonte]
+            ov = (_ov.get("payload") or {}).get("rows", [])
             alvo = [r for r in ov if not r.get("sem_dados") and not r.get("stringbox")
                     and isinstance(r.get("diferenca"), (int, float)) and r["diferenca"] < 0]
             sbox = [r for r in ov if r.get("stringbox") and not r.get("sem_dados")]
 
             def _um(r):
                 pid = r["plant_id"]
-                curvas = _pv_curvas_strings(pid, pid2api.get(pid, r["usina"]), token)
+                curvas = _pv_curvas_strings(pid, pid2api.get(pid, r["usina"]), _pv_token_for(pid))   # token da conta que ve a usina
                 mortas = _str_mortas_calc(_macro_usina_nome(r["usina"]) or r["usina"], curvas)
                 for m in mortas:
                     m["plant_id"] = pid
@@ -13193,7 +13384,7 @@ def _strings_problema_rows(fonte, force=False):
 
 @app.route("/api/<fonte>/strings/problema")
 def api_strings_problema(fonte):
-    if fonte not in ("pv", "pg", "owen", "sunop", "axis"):
+    if fonte not in ("pv", "semp", "alveslima", "pg", "owen", "sunop", "axis"):
         return jsonify({"rows": [], "total": 0, "indisponivel": True,
                         "cache_ts": datetime.now().strftime("%H:%M:%S")})
     rows = _strings_problema_rows(fonte, force=flask_request.args.get("force") == "1")
@@ -13206,7 +13397,7 @@ def api_strings_problema_xlsx(fonte):
     import openpyxl
     from openpyxl.styles import Font, PatternFill
     from openpyxl.utils import get_column_letter
-    if fonte not in ("pv", "pg", "owen", "sunop", "axis"):
+    if fonte not in ("pv", "semp", "alveslima", "pg", "owen", "sunop", "axis"):
         return jsonify({"error": "fonte sem strings por-string"}), 404
     qf = (flask_request.args.get("usina") or "").strip().lower()
     rows = _strings_problema_rows(fonte)
@@ -13962,6 +14153,7 @@ def _owen_trackers_analise(plant_id, date=None):
     media_ang = (sum(_atuais) / len(_atuais)) if _atuais else None
     _cdisp = [r["cur"] for r in raw if r["cur"] is not None]
     desvio_med = (sum(_cdisp) / len(_cdisp)) if _cdisp else None
+    tk = _trk_cruza_tickets(base["usina"], lst)   # planilha de Tickets (Levi, 06/09: cobertura nas 5 fontes)
     base.update({"total": len(lst), "parados": par, "desvios": sev, "atrasos": lev, "esquema": "novo",
                  # aliases p/ a tabela-resumo compartilhada (renderSoTrackers lê severos/leves/fora_media)
                  "severos": sev, "medios": med, "leves": lev, "fora_media": 0,
@@ -13970,7 +14162,7 @@ def _owen_trackers_analise(plant_id, date=None):
                  "desvio_medio": round(desvio_med, 2) if desvio_med is not None else None,
                  "sem_comunicacao": not _atuais,
                  "ultima_leitura": ts_max.strftime("%Y-%m-%d %H:%M") if ts_max else None,
-                 "trackers": lst})
+                 "trackers": lst, **tk})
     return _trk_alvo_mediana(base)
 
 
@@ -14558,6 +14750,7 @@ def _pg_trackers_analise(plant_id: str, date: str = None) -> dict:
     media_ang = (sum(_atuais) / len(_atuais)) if _atuais else None
     _cdisp = [r["cur"] for r in raw if r["cur"] is not None]
     desvio_med = (sum(_cdisp) / len(_cdisp)) if _cdisp else None
+    tk = _trk_cruza_tickets(base["usina"], lst)   # planilha de Tickets (Levi, 06/09: cobertura nas 5 fontes)
     base.update({"total": len(lst), "parados": par, "desvios": sev, "atrasos": lev, "esquema": "novo",
                  "severos": sev, "medios": med, "leves": lev, "fora_media": 0,
                  "sem_alvo": sem_alvo, "pior_disparidade": pior,
@@ -14565,7 +14758,7 @@ def _pg_trackers_analise(plant_id: str, date: str = None) -> dict:
                  "desvio_medio": round(desvio_med, 2) if desvio_med is not None else None,
                  "sem_comunicacao": not _atuais,
                  "ultima_leitura": ts_max.strftime("%Y-%m-%d %H:%M") if ts_max else None,
-                 "trackers": lst})
+                 "trackers": lst, **tk})
     return _trk_alvo_mediana(base)
 
 
@@ -16719,6 +16912,7 @@ def _iniciar_loops_de_fundo():
                  _macro_prewarm_loop,
                  _tunnel_url_loop,
                  _notif_strings_loop,       # strings que zeraram desde a ultima leitura (30 min, de dia) → sino
+                 _inv_energia_loop,         # foto do eday por inversor depois das 19:30 → kWh do mes por inversor (Diagnostico v2)
                  _frac_osperf_loop,
                  _frac_disp_loop,           # disponibilidade por OS (Gerencial) — varre + calcula
                  _janitor_loop):            # impede o processo de dias inchar sem teto
@@ -18054,6 +18248,168 @@ def _trk_id_num(s):
     return max(int(x) for x in ns) if ns else None
 
 
+# ── De-para de trackers: supervisório ↔ Fracttal (06/09/2026) ─────────────────────────────────────────────────────
+# Pedido do Levi: "adicione o de-para de trackers na plataforma; logo mais vamos conectar os trackers da plataforma para
+# gerar OS no Fracttal e comparar com a base de tickets". A planilha (aba "De-Para Trackers": Fonte, UFV Supervisório,
+# UFV Fracttal, Tracker Supervisório, Tracker Fracttal, Code Fracttal, Cabine, Como casou, Observação) é a fonte da
+# verdade e fica VERSIONADA em plataforma/trackers_depara.xlsx (exceção no .gitignore); um trackers_depara.local.xlsx,
+# se existir, tem precedência — mesmo padrão do trackers_garantia. Relida por mtime, sem restart.
+_TRK_DEPARA_PATH  = os.path.join(_AQUI, "trackers_depara.xlsx")
+_TRK_DEPARA_LOCAL = _p_dado("trackers_depara.local.xlsx")
+_TRK_DEPARA_FONTE = {"api pv": "pv", "apipv": "pv", "pv": "pv", "banco de dados": "pg", "pg": "pg", "thopen": "pg",
+                     "athon (sunop)": "sunop", "athon": "sunop", "sunop": "sunop", "axis": "axis", "2c": "owen", "owen": "owen"}
+
+
+_TRK_DEPARA_ROMANO = {"i": "1", "ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6", "vii": "7", "viii": "8", "ix": "9", "x": "10",
+                      "xi": "11", "xii": "12", "xiii": "13", "xiv": "14", "xv": "15"}
+_TRK_DEPARA_CONECTIVO = {"do", "da", "de", "dos", "das", "e"}
+
+
+def _trk_depara_nrm(nome) -> str:
+    """Nome de usina comparável entre planilha e plataforma: sem o código entre parênteses ('Altair 1 (73)',
+    '(327) Santo Inácio XII'), sem acento, minúsculo, só letras e números separados por um espaço, SEM conectivos
+    ('Córrego do Sapucaia' = 'Corrego Sapucaia') e com algarismo romano virando número ('Salto Pirapora III' = 'Salto
+    Pirapora 3'). Vale dos dois lados, então 'PE III' e 'PEIII' seguem casando pela comparação sem espaços."""
+    s = re.sub(r"\(\s*\d+\s*\)", " ", str(nome or ""))
+    s = "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
+    partes = [w for w in re.sub(r"[^a-z0-9]+", " ", s.lower()).split() if w not in _TRK_DEPARA_CONECTIVO]
+    saida = []
+    for w in partes:
+        if w in _TRK_DEPARA_ROMANO:                                         # token inteiro romano ('XII' → 12) — ANTES do colado, senão 'viii' vira 'vi 2'
+            saida.append(_TRK_DEPARA_ROMANO[w])
+            continue
+        m = re.fullmatch(r"([a-z]{2,}?)(ii|iii|iv|vi|vii|viii|ix)", w)     # romano COLADO ('PEIII' → 'pe 3'; prefixo preguiçoso, senão 'peiii' → 'pei 2'); 'i', 'v', 'x' sozinhos ficam
+        saida.append(f"{m[1]} {_TRK_DEPARA_ROMANO[m[2]]}" if m else w)
+    return " ".join(saida)
+
+
+def _trk_depara_carregar() -> dict:
+    """Planilha inteira, indexada: {'por_usina': {(fonte, nome_nrm): {fonte, usina, usina_fracttal, trackers[], por_num{}}},
+    'resumo': [...], 'pendencias': [...], 'arquivo', 'mtime', 'n'}. Sem planilha = vazio (tudo segue funcionando sem de-para)."""
+    path = next((x for x in (_TRK_DEPARA_LOCAL, _TRK_DEPARA_PATH) if os.path.exists(x)), None)
+    vazio = {"por_usina": {}, "resumo": [], "pendencias": [], "arquivo": None, "mtime": None, "n": 0}
+    if not path:
+        return vazio
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        return vazio
+    c = _trk_depara_carregar._c
+    if c and c[0] == (path, mt):
+        return c[1]
+    out = dict(vazio, arquivo=os.path.basename(path), mtime=datetime.fromtimestamp(mt).strftime("%d/%m/%Y %H:%M"))
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
+        ws = wb["De-Para Trackers"] if "De-Para Trackers" in wb.sheetnames else wb.worksheets[0]
+        it = ws.iter_rows(values_only=True)
+        hdr = [str(h or "").strip().lower() for h in (next(it, None) or ())]
+
+        def col(*nomes):
+            for n in nomes:
+                for i, h in enumerate(hdr):
+                    if n in h:
+                        return i
+            return None
+        ci = {"fonte": col("fonte"), "usina": col("ufv supervis"), "usina_fr": col("ufv fracttal"), "trk": col("tracker supervis"),
+              "trk_fr": col("tracker fracttal"), "code": col("code"), "cab": col("cabine"), "casou": col("como casou"), "obs": col("observa")}
+
+        def g(r, k):
+            i = ci.get(k)
+            v = r[i] if (i is not None and i < len(r)) else None
+            return str(v).strip() if (v is not None and str(v).strip() != "") else None
+        for r in it:
+            fonte_raw, usina, trk = g(r, "fonte"), g(r, "usina"), g(r, "trk")
+            if not (fonte_raw and usina and trk):
+                continue
+            fonte = _TRK_DEPARA_FONTE.get(fonte_raw.lower(), fonte_raw.lower())
+            casou, obs = (g(r, "casou") or ""), g(r, "obs")
+            # sem par = a planilha diz por que não casou (excedente, cabine com menos trackers); a confirmar = casou por
+            # ordem/bloco/limite e alguém precisa validar em campo; casado = par direto ou já confirmado
+            situacao = "sem_par" if obs else ("a_confirmar" if "confirmar" in casou.lower() else "casado")
+            linha = {"tracker": trk, "num": _trk_id_num(trk), "fracttal": g(r, "trk_fr"), "code": g(r, "code"),
+                     "cabine": g(r, "cab"), "casou": casou, "obs": obs, "situacao": situacao}
+            k = (fonte, _trk_depara_nrm(usina))
+            u = out["por_usina"].setdefault(k, {"fonte": fonte, "usina": usina, "usina_fracttal": g(r, "usina_fr"), "trackers": [], "por_num": {}})
+            u["trackers"].append(linha)
+            if linha["num"] is not None:
+                u["por_num"].setdefault(linha["num"], linha)
+            out["n"] += 1
+        if "Pendências" in wb.sheetnames:
+            pit = wb["Pendências"].iter_rows(values_only=True)
+            ph = [str(h or "").strip() for h in (next(pit, None) or ())]
+            out["pendencias"] = [dict(zip(ph, [("" if v is None else str(v)) for v in r])) for r in pit if any(v is not None for v in r)]
+        wb.close()
+    except Exception as e:                                                # noqa: BLE001 — planilha ruim não derruba a plataforma
+        print(f"[de-para trackers] {os.path.basename(path)} inválido: {e}")
+    for u in out["por_usina"].values():
+        u["resumo"] = {s: sum(1 for x in u["trackers"] if x["situacao"] == s) for s in ("casado", "a_confirmar", "sem_par")}
+        u["resumo"]["n"] = len(u["trackers"])
+    out["resumo"] = sorted(({"fonte": u["fonte"], "usina": u["usina"], "usina_fracttal": u["usina_fracttal"], **u["resumo"]}
+                            for u in out["por_usina"].values()), key=lambda x: (x["fonte"], _trk_depara_nrm(x["usina"])))
+    _trk_depara_carregar._c = ((path, mt), out)
+    return out
+
+
+_trk_depara_carregar._c = None
+
+
+def _trk_depara_saida(us: list) -> dict:
+    trackers = [dict(x, usina=u["usina"]) for u in us for x in u["trackers"]]
+    por_num = {}
+    for u in us:
+        for n, x in u["por_num"].items():
+            por_num.setdefault(str(n), dict(x, usina=u["usina"]))
+    return {"fonte": us[0]["fonte"], "usinas": [u["usina"] for u in us], "usina_fracttal": next((u["usina_fracttal"] for u in us if u["usina_fracttal"]), None),
+            "n": len(trackers), "casados": sum(1 for x in trackers if x["situacao"] == "casado"),
+            "a_confirmar": sum(1 for x in trackers if x["situacao"] == "a_confirmar"), "sem_par": sum(1 for x in trackers if x["situacao"] == "sem_par"),
+            "trackers": trackers, "por_num": por_num}
+
+
+def _trk_depara_usina(fonte, nome):
+    """De-para de UMA usina da plataforma. Exato por (fonte, nome normalizado); senão substring ÚNICA (um lado contém o
+    outro: 'Caicó' × 'Caicó 1.1'); senão UNIÃO dos que começam pelo nome — a plataforma agrupa sub-usinas ('Altair' =
+    Altair 1..5 na API PV) e o de-para lista cada uma. None quando nada casa."""
+    d = _trk_depara_carregar()
+    f = _TRK_DEPARA_FONTE.get(str(fonte or "").strip().lower(), str(fonte or "").strip().lower())
+    k = _trk_depara_nrm(nome)
+    if not k or not d["por_usina"]:
+        return None
+    if (f, k) in d["por_usina"]:
+        return _trk_depara_saida([d["por_usina"][(f, k)]])
+    cands = [u for (ff, kk), u in d["por_usina"].items() if ff == f and (k in kk or kk in k)]
+    if len(cands) == 1:
+        return _trk_depara_saida(cands)
+    pref = [u for (ff, kk), u in d["por_usina"].items() if ff == f and kk.startswith(k + " ")]
+    if pref:
+        return _trk_depara_saida(sorted(pref, key=lambda u: _trk_depara_nrm(u["usina"])))
+    # ultimo recurso: sem espacos ('PE III' na plataforma x 'PEIII' na planilha)
+    kc = k.replace(" ", "")
+    cands = [u for (ff, kk), u in d["por_usina"].items() if ff == f and (kc == kk.replace(" ", "") or kc in kk.replace(" ", "") or kk.replace(" ", "") in kc)]
+    if len(cands) == 1:
+        return _trk_depara_saida(cands)
+    return None
+
+
+@app.route("/api/trackers/de-para")
+def api_trackers_depara():
+    """?fonte=<pv|pg|sunop|axis|owen ou o rótulo da aba>&usina=<nome como a plataforma o chama> → trackers com o par no Fracttal."""
+    fonte = (flask_request.args.get("fonte") or "").strip()
+    usina = (flask_request.args.get("usina") or "").strip()
+    if not usina:
+        return jsonify({"erro": "informe ?fonte=&usina="}), 400
+    d = _trk_depara_carregar()
+    r = _trk_depara_usina(fonte, usina)
+    return jsonify(dict(r or {"n": 0, "casados": 0, "a_confirmar": 0, "sem_par": 0, "trackers": [], "por_num": {}, "sem_depara": True},
+                        arquivo=d.get("arquivo"), atualizado=d.get("mtime")))
+
+
+@app.route("/api/trackers/de-para/resumo")
+def api_trackers_depara_resumo():
+    d = _trk_depara_carregar()
+    return jsonify({"arquivo": d.get("arquivo"), "atualizado": d.get("mtime"), "n": d["n"], "usinas": d["resumo"], "pendencias": d["pendencias"]})
+
+
 def _trk_garantia_map():
     """{usina_substring_nrm: set(números de tracker)} da planilha de Gestão de Chamados (status !=
     Concluído), de trackers_garantia.json — ou do .local.json, que tem precedência. Ausente/vazio =
@@ -18192,7 +18548,11 @@ def api_ronda_recorrentes():
         dias = int(flask_request.args.get("dias") or 14)
     except Exception:
         dias = 14
-    return jsonify(_trk_recorrentes(max(1, min(dias, 60))))
+    res = _trk_recorrentes(max(1, min(dias, 60)))
+    uq = _nrm(flask_request.args.get("usina") or "")
+    if uq and isinstance(res, dict):             # ?usina= → só a usina (Diagnóstico v2, 06/09)
+        res = dict(res, recorrentes=[r for r in (res.get("recorrentes") or []) if uq in _nrm(r.get("usina") or "") or _nrm(r.get("usina") or "") in uq])
+    return jsonify(res)
 
 
 def _ronda_corta_onalvo(rows, dmin):
@@ -19759,6 +20119,132 @@ def _fecha_dia_anterior(dia=None):
     print(f"[fecha_dia] {dia} consolidado em {_fecha_dia_prog['seg']}s")
 
 
+# ── Energia por INVERSOR por dia (acumulador) ──────────────────────────────────────────────────────────────────
+# O Diagnóstico com o inversor no centro (06/09/2026) mostra kWh do MÊS por inversor. Fora do gêmeo nenhuma fonte guarda
+# isso: API PV e SunOp só dão o eday de HOJE por inversor. Então o worker fotografa o eday de cada inversor depois do pôr
+# do sol (19:30, todas as usinas ao sul de Belém já anoiteceram) e acumula em inv_energia_dia.json; o mês é a soma dos
+# dias fotografados — começa a contar do dia em que subiu. O PG não precisa: /api/pg/geracao-pivo tem o dia a dia por
+# inversor no próprio banco.
+_INV_ENERGIA_PATH = _p_dado("inv_energia_dia.json")
+_INV_ENERGIA_HORA = (19, 30)
+_inv_energia_lock = threading.Lock()
+_inv_energia_feito: dict = {}          # "fonte|pid" → dia já fotografado neste processo (refotografar sobrescreve, é inofensivo)
+
+
+def _inv_energia_ler() -> dict:
+    try:
+        with open(_INV_ENERGIA_PATH, encoding="utf-8") as f:
+            return json.load(f) or {}
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _inv_energia_gravar(d: dict) -> None:
+    tmp = _INV_ENERGIA_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False)
+    os.replace(tmp, _INV_ENERGIA_PATH)
+
+
+def _inv_energia_registrar(fonte: str, pid, dia: str, por_inv: dict) -> int:
+    """Grava {inversor: kWh} do dia; sobrescreve o dia (a foto mais tarde é a mais completa). Devolve quantos gravou."""
+    limpo = {str(k): round(float(v), 1) for k, v in (por_inv or {}).items() if v is not None}
+    if not limpo:
+        return 0
+    with _inv_energia_lock:
+        d = _inv_energia_ler()
+        d.setdefault(fonte, {}).setdefault(str(pid), {})[dia] = limpo
+        _inv_energia_gravar(d)
+    return len(limpo)
+
+
+def _inv_energia_mes(store: dict, fonte: str, pid, ano: int, mes: int) -> dict:
+    """Soma por inversor dos dias fotografados no mês. Pura: só olha o dicionário."""
+    dias = (store.get(fonte) or {}).get(str(pid)) or {}
+    pref = f"{ano:04d}-{mes:02d}-"
+    soma, lista = {}, []
+    for dia, por_inv in sorted(dias.items()):
+        if not dia.startswith(pref):
+            continue
+        lista.append(dia)
+        for inv, kwh in (por_inv or {}).items():
+            soma[inv] = round(soma.get(inv, 0.0) + float(kwh or 0), 1)
+    return {"mes": f"{mes:02d}/{ano:04d}", "dias": len(lista), "dias_lista": lista, "inversores": soma, "origem": "acumulador"}
+
+
+def _inv_energia_snapshot(fonte: str, pid) -> dict:
+    """{nome do inversor: eday de hoje} pela mesma rota de detalhe que a tela usa."""
+    if fonte in ("pv", "semp", "alveslima"):
+        invs = _pv_plant_inversores(int(pid))
+    elif fonte in ("sunop", "axis"):
+        invs = _sunop_plant_get(str(pid), False, "axis" if fonte == "axis" else "gridco")
+    else:
+        return {}
+    return {(i.get("nome") or i.get("nome_api") or str(i.get("id"))): i.get("eday") for i in (invs or []) if i.get("eday") is not None}
+
+
+def _inv_energia_plantas(fonte: str) -> list:
+    """[(plant_id, usina)] das usinas com dado hoje, pelo overview já em cache — sem chamada nova."""
+    c = {"pv": _cache, "semp": _semp_cache, "alveslima": _alveslima_cache, "sunop": _sunop_cache, "axis": _axis_cache}.get(fonte)
+    rows = ((c or {}).get("payload") or {}).get("rows") or []
+    return [(r.get("plant_id"), r.get("usina")) for r in rows if r.get("plant_id") is not None and not r.get("sem_dados")]
+
+
+def _inv_energia_loop():
+    """Worker: depois das 19:30 fotografa o eday por inversor de cada usina (uma vez por dia por usina)."""
+    time.sleep(240)
+    while True:
+        try:
+            agora = datetime.now()
+            if (agora.hour, agora.minute) >= _INV_ENERGIA_HORA:
+                dia = agora.strftime("%Y-%m-%d")
+                for fonte in ("pv", "semp", "alveslima", "sunop", "axis"):
+                    for pid, nome in _inv_energia_plantas(fonte):
+                        k = f"{fonte}|{pid}"
+                        if _inv_energia_feito.get(k) == dia:
+                            continue
+                        try:
+                            n = _inv_energia_registrar(fonte, pid, dia, _inv_energia_snapshot(fonte, pid))
+                            _inv_energia_feito[k] = dia
+                            if n:
+                                print(f"[inv-energia] {fonte} {nome}: {n} inversores fotografados")
+                        except Exception as e:                                # noqa: BLE001 — uma usina não derruba a volta
+                            print(f"[inv-energia] {fonte} {nome}: {e}")
+                        time.sleep(1.0)                                       # não atropela a API PV (54 usinas em fila)
+        except Exception as e:                                                # noqa: BLE001
+            print(f"[inv-energia] loop: {e}")
+        time.sleep(600)
+
+
+@app.route("/api/<fonte>/inversores/energia-mes/<pid>")
+def api_inv_energia_mes(fonte, pid):
+    """kWh por inversor no mês (?mes=YYYY-MM, padrão o corrente). PG: do banco (geracao-pivo, dia a dia); demais fontes:
+    acumulador diário (só os dias fotografados desde que subiu, 06/09/2026)."""
+    m = (flask_request.args.get("mes") or datetime.now().strftime("%Y-%m")).strip()
+    try:
+        ano, mes = int(m[:4]), int(m[5:7])
+    except ValueError:
+        return jsonify({"erro": "mes invalido (YYYY-MM)"}), 400
+    fonte = {"athon": "sunop", "2c": "owen", "thopen": "pg", "solaredge": "owen"}.get(fonte, fonte)
+    if fonte == "pg":
+        hoje = datetime.now()
+        ult = calendar.monthrange(ano, mes)[1]
+        fim = (min(datetime(ano, mes, ult), hoje) if (ano, mes) <= (hoje.year, hoje.month) else datetime(ano, mes, ult)).strftime("%Y-%m-%d")
+        try:
+            usinas = _pg_gerpivo_get(f"{ano:04d}-{mes:02d}-01", fim)
+        except Exception as e:                                                # noqa: BLE001
+            return jsonify({"erro": str(e), "inversores": {}, "dias": 0}), 500
+        u = next((x for x in usinas if str(x.get("plant_id")) == str(pid)), None)
+        soma, dias = {}, []
+        for d in (u or {}).get("dias") or []:
+            dias.append(d.get("data"))
+            for inv, kwh in (d.get("ger") or {}).items():
+                if kwh is not None:
+                    soma[inv] = round(soma.get(inv, 0.0) + float(kwh), 1)
+        return jsonify({"mes": f"{mes:02d}/{ano:04d}", "dias": len(dias), "dias_lista": sorted(x for x in dias if x), "inversores": soma, "origem": "banco"})
+    return jsonify(_inv_energia_mes(_inv_energia_ler(), fonte, pid, ano, mes))
+
+
 def _fecha_dia_loop():
     """1×/dia após 01:30. Se o app subir depois do horário (ou a máquina passou a noite desligada),
     consolida o D-1 assim que puder — dia perdido não fica para trás."""
@@ -20309,6 +20795,9 @@ def api_perdas_trk_paradas_hist(fonte):
             rows, ndias = ent.get("rows") or [], ent.get("dias_classificados") or 0
     except Exception as e:
         return jsonify({"error": str(e), "rows": []}), 500
+    uq = _nrm(flask_request.args.get("usina") or "")
+    if uq:                                       # a tela da usina pede só a sua (Diagnóstico v2, 06/09): sem isso vinham 1.500 linhas
+        rows = [r for r in rows if uq in _nrm(r.get("usina") or "") or _nrm(r.get("usina") or "") in uq]
     ab = [r for r in rows if r.get("aberta")]
     return jsonify({"rows": rows, "total": len(rows), "abertas": len(ab),
                     "fechadas": len(rows) - len(ab),

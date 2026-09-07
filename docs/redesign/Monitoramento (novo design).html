@@ -97,9 +97,11 @@ tr.gc-alerta:hover{background:linear-gradient(90deg, color-mix(in srgb, var(--gc
 // cabecalho/hero/barra de fontes — as tabelas continuam as mesmas. A altura vai ao pai por postMessage (sem rolagem dupla).
 const EMBED=new URLSearchParams(location.search).get('embed')==='1';
 function _embedAltura(){ try{ parent.postMessage({gc:'altura',h:document.documentElement.scrollHeight},'*'); }catch(e){} }
-if(EMBED){ document.documentElement.classList.add('embed'); new ResizeObserver(function(){ _embedAltura(); }).observe(document.documentElement); }
+if(EMBED){ document.documentElement.classList.add('embed'); new ResizeObserver(function(){ _embedAltura(); }).observe(document.documentElement);
+  window.addEventListener('message',function(ev){ var d=ev.data||{}; if(d.gc==='view'&&_VIEWS_URL.includes(d.id)&&window.setView) setView(d.id); }); }
 // ?fonte=<id> vem dos cards da Entrada (/teste/tempo-real): o card de um cliente abre o Monitoramento ja na fonte dele (05/09/2026)
-const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:'strings', subfilter:'geral', trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, perdaSub:'trk-par', perdaDia:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, etmMode:'cards', gerIni:null, gerFim:null, gerModo:'usinas' };
+const _VIEWS_URL=['strings','etm','geracao','trackers','pr','curva','perdas'];
+const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'), subfilter:'geral', trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, perdaSub:'trk-par', perdaDia:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, etmMode:'cards', gerIni:null, gerFim:null, gerModo:'usinas' };
 function setState(patch){ Object.assign(state, patch); render(); }
 /* ═══ DADO REAL — por VISTA e por FONTE. Cada uma devolve {rows,summary}; muda só o endpoint. ═══ */
 const SKEY={'thopen-pv':'pv','thopen-db':'pg','athon':'sunop','axis':'axis','renogrid':'solaredge','2c':'owen','semp':'semp','alveslima':'alveslima'};
@@ -114,7 +116,7 @@ const EP={
 // escolhe sozinho o token da conta que a enxerga (_pv_token_for). Só o recorte da LISTA muda.
 const PLANT={pv:'/api/plant/',pg:'/api/pg/plant/',sunop:'/api/sunop/plant/',axis:'/api/axis/plant/',solaredge:'/api/solaredge/plant/',owen:'/api/owen/strings/plant/',semp:'/api/plant/',alveslima:'/api/plant/'};
 function _urlFor(view,srcChip){ const base=(EP[view]||{})[SKEY[srcChip]]; if(!base) return null; return view==='pr'?base+'?date='+new Date().toISOString().slice(0,10):base; }
-const RD={pv:null,loading:false,na:false,erro:null,cache:{},plants:{},curva:{},curvaMeta:{},trk:{},trkChart:{},os:{},comments:{},tracking:{},strProb:{},strEv:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},perdas:{},osAtrib:{},_osList:null};
+const RD={pv:null,loading:false,na:false,erro:null,cache:{},plants:{},curva:{},curvaMeta:{},trk:{},depara:{},trkChart:{},os:{},comments:{},tracking:{},strProb:{},strEv:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},perdas:{},osAtrib:{},_osList:null};
 
 /* ══ BUSCA COM ESPERA LIMITADA ══════════════════════════════════════════════
    01/09/2026: o Levi abriu as strings da Santana do Ipanema e a tela girou até ele desistir. A
@@ -836,9 +838,16 @@ window.setCurvaRed=()=>{ state.curvaRed=!state.curvaRed; render(); };   // curva
 // filtrado não funcionava, porque a peneira o descartava logo depois. Agora "severo" MARCA os severos
 // e desmarca o resto; daí em diante o card é a única verdade do gráfico e clicar acrescenta.
 window.setTrkGrafFiltro=(pid,f)=>{
+  // 'Alvo' na legenda NAO e filtro: liga/desliga so a linha tracejada do alvo. Como filtro ('so o alvo') ele
+  // apagava os 63 trackers de uma vez — era o unico botao do grafico que desmarcava todos (Levi, 06/09).
+  if(f==='alvo'){ state.trkGrafSemAlvo=!state.trkGrafSemAlvo; render(); return; }
+  const antes=state.trkGrafFiltro;
   state.trkGrafFiltro=f;
   const ini=state.trkGrafIni||_todayISO(), fim=state.trkGrafFim||ini;
   const all=((RD.trkChart[state.source+'|'+pid+'|'+ini+'|'+fim])||{}).trackers||[];
+  // "Todos" já aceso e clicado de novo = DESMARCA todos (Levi, 06/09): é o ponto de partida para escolher poucos
+  // cards à mão. O clique seguinte em Todos (ou num filtro da legenda) marca de novo.
+  if(f==='todos'&&antes==='todos'&&all.length){ const h={}; all.forEach(t=>{ h[String(_snum(t.id))]=1; }); state.trkHide=h; state.trkGrafFiltro='nenhum'; render(); return; }
   const _st=t=>(t&&t.sem_comunicacao?'sem_comunicacao':((t&&t.status)||'normal'));
   const _bad=st=>['parado','severo','medio','leve','desvio','atraso','sem_comunicacao'].includes(st||'');
   const inF=t=>{ const st=_st(t);
@@ -847,7 +856,6 @@ window.setTrkGrafFiltro=(pid,f)=>{
     if(f==='bons'||f==='normal')return !_bad(st);
     if(f==='severo')return st==='severo'||st==='desvio';
     if(f==='leve')return st==='leve'||st==='atraso';
-    if(f==='alvo')return false;
     return st===f; };
   const h={};
   if(f!=='todos') all.forEach(t=>{ if(!inF(t)) h[String(_snum(t.id))]=1; });
@@ -880,7 +888,6 @@ function _trkChartInline(pid){
     else if(F==='severo') shown=all.filter(t=>t.status==='severo'||t.status==='desvio');
     else if(F==='medio') shown=all.filter(t=>t.status==='medio');
     else if(F==='leve') shown=all.filter(t=>t.status==='leve'||t.status==='atraso');
-    else if(F==='alvo') shown=[];
   }
   shown=shown.filter(t=>!_sel[String(_snum(t.id))]);   // cards desmarcados saem do gráfico
   let trks, alvo;
@@ -892,7 +899,8 @@ function _trkChartInline(pid){
   if(state.trkGrafExp) opts.tall=true;
   let series=trks.slice(), alvoS=null;
   if(alvo&&alvo.xm)alvoS={xm:alvo.xm,y:alvo.y}; else if(alvo&&alvo.x)alvoS={xm:(alvo.x||[]).map(_hm),y:alvo.y};
-  if(alvoS)series.push({...alvoS,name:'Alvo',color:'var(--color-neutral-200)',width:1.8,dash:'7 5',opacity:.9}); else if(typeof alvo==='number')opts.target=alvo;
+  if(state.trkGrafSemAlvo){ /* alvo desligado na legenda */ }
+  else if(alvoS)series.push({...alvoS,name:'Alvo',color:'var(--color-neutral-200)',width:1.8,dash:'7 5',opacity:.9}); else if(typeof alvo==='number')opts.target=alvo;
   // Rótulo herdado de quando este gráfico TAMBÉM desenhava curva sintética. Hoje ele não desenha
   // nada (ver trks=[] acima), então dizer "exemplo" sugeria que havia um exemplo na tela.
   // O NÚMERO SAI DA LISTA, não de um contador mandado pronto. O backend enviava d.parados por
@@ -901,8 +909,9 @@ function _trkChartInline(pid){
   // chip vermelho para apontar qual. Contando o que a própria tela mostra, divergir vira impossível.
   const _st=t=>(t&&t.sem_comunicacao?'sem_comunicacao':((t&&t.status)||'normal'));
   const _qt=s=>all.filter(t=>_st(t)===s).length;
-  const resumo=ex?'<span class="text-muted">sem leitura de tracker nesta data</span>':`<span style="color:#ff5b6e;font-weight:600">${_qt('parado')} parado</span> · <span style="color:#ff8f3c;font-weight:600">${_qt('severo')} severo</span> · <span style="color:#ffb43d;font-weight:600">${_qt('medio')} médio</span> · <span style="color:#ffd83d;font-weight:600">${_qt('leve')} leve</span>${_qt('sem_comunicacao')?` · <span style="color:#c9b6ff;font-weight:600">${_qt('sem_comunicacao')} sem comunicação</span>`:''} · <span class="text-muted">mostrando ${shown.length} de ${all.length}</span>`;
-  const legI=(color,label,f,dash)=>{const on=F===f;return `<button onclick="event.stopPropagation();setTrkGrafFiltro('${pe}','${on?'todos':f}')" title="${on?'Mostrar todos':'Mostrar só '+label}" style="display:inline-flex;align-items:center;gap:6px;background:${on?'color-mix(in srgb,var(--color-accent) 15%,transparent)':'transparent'};border:1px solid ${on?'var(--color-accent)':'transparent'};border-radius:7px;padding:3px 9px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:${on?600:400};color:${on?'var(--color-text)':'var(--color-neutral-300)'}"><span style="width:15px;height:3px;border-radius:2px;background:${dash?'repeating-linear-gradient(90deg,'+color+' 0 4px,transparent 4px 7px)':color}"></span>${label}</button>`;};
+  const _nenhum=(!ex&&!shown.length)?' · <span style="color:var(--gc-amber);font-weight:600">nenhum selecionado — clique nos cards ou em Todos</span>':'';
+  const resumo=ex?'<span class="text-muted">sem leitura de tracker nesta data</span>':`<span style="color:#ff5b6e;font-weight:600">${_qt('parado')} parado</span> · <span style="color:#ff8f3c;font-weight:600">${_qt('severo')} severo</span> · <span style="color:#ffb43d;font-weight:600">${_qt('medio')} médio</span> · <span style="color:#ffd83d;font-weight:600">${_qt('leve')} leve</span>${_qt('sem_comunicacao')?` · <span style="color:#c9b6ff;font-weight:600">${_qt('sem_comunicacao')} sem comunicação</span>`:''} · <span class="text-muted">mostrando ${shown.length} de ${all.length}${_nenhum}</span>`;
+  const legI=(color,label,f,dash)=>{const on=(f==='alvo')?!state.trkGrafSemAlvo:F===f;return `<button onclick="event.stopPropagation();setTrkGrafFiltro('${pe}','${(on&&f!=='alvo')?'todos':f}')" title="${f==='alvo'?(on?'Ocultar a linha do alvo':'Mostrar a linha do alvo'):(on?'Mostrar todos':'Mostrar só '+label)}" style="display:inline-flex;align-items:center;gap:6px;background:${on?'color-mix(in srgb,var(--color-accent) 15%,transparent)':'transparent'};border:1px solid ${on?'var(--color-accent)':'transparent'};border-radius:7px;padding:3px 9px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:${on?600:400};color:${on?'var(--color-text)':'var(--color-neutral-300)'}"><span style="width:15px;height:3px;border-radius:2px;background:${dash?'repeating-linear-gradient(90deg,'+color+' 0 4px,transparent 4px 7px)':color}"></span>${label}</button>`;};
   const leg=`<div style="display:flex;gap:3px;flex-wrap:wrap">${legI(_trkCor('parado')[0],'Parado','parado')}${legI(_trkCor('severo')[0],'Severo','severo')}${legI(_trkCor('medio')[0],'Médio','medio')}${legI(_trkCor('leve')[0],'Leve','leve')}${legI(_trkCor('sem_comunicacao')[0],'Sem comunicação','sem_comunicacao')}${legI(_trkCor('normal')[0],'Normal','normal')}${legI('var(--color-neutral-200)','Alvo','alvo',true)}</div>`;
   // ── MULTI-DIA: cada ponto vai para a seção da SUA DATA (o x vem em ISO com a data). O jeito
   //    antigo cortava onde a hora regredia e casava segmentos por POSIÇÃO — tracker sem leitura
@@ -1155,6 +1164,7 @@ function computeVals(){
         return {name:r.usina,pid:_pid,expanded:_exp,caretDeg:_exp?90:0,total:r.total??'—',parados,severo,medio,leve,
           dispPct:(_velho?null:dispPct),dispTempo,   // % de dado velho é mentira: mostra "—"
           staleRead:_velho,staleTit:(_velho?`Sem leitura nova há ${_hh} — números congelados nesta data`:''),
+          tkCom:(r.parados_com!=null?r.parados_com:null),tkSem:(r.parados_sem!=null?r.parados_sem:null),tkUsina:!!r.ticket_usina,
           normalizados:r.normalizados??0,desvioMed:(r.desvio_medio!=null?Number(r.desvio_medio).toFixed(1)+'°':'—'),lastRead:(r.ultima_leitura?_dtBR(r.ultima_leitura):'—'),
           paradosColor:parados>0?'var(--gc-amber)':'var(--color-neutral-400)',
           status:(_velho?`Sem dado há ${_hh}`:r.sem_comunicacao?'Sem comunicação':todosParados?'Todos parados':warn?'Atenção':'OK'),
@@ -1210,8 +1220,17 @@ async function loadTrk(pid){   // trackers individuais de UMA usina (drill): /ap
   const key=state.source+'|'+pid;
   if(RD.trk[key]!==undefined) return;
   RD.trk[key]=null; render();
-  try{ const d=await fetchJSON(base+'/'+encodeURIComponent(pid)); RD.trk[key]=(d&&d.trackers)||[]; }
+  let nome=null;
+  try{ const d=await fetchJSON(base+'/'+encodeURIComponent(pid)); RD.trk[key]=(d&&d.trackers)||[]; nome=d&&d.usina; }
   catch(e){ RD.trk[key]=[]; }
+  render();
+  _loadDepara(key, nome||pid);
+}
+async function _loadDepara(key,nome){   // de-para supervisório ↔ Fracttal desta usina (06/09/2026): código do ativo em cada chip
+  const f=SKEY[state.source]; if(!f||!nome||RD.depara[key]!==undefined) return;
+  RD.depara[key]=null;
+  try{ const d=await fetchJSON('/api/trackers/de-para?fonte='+encodeURIComponent(f)+'&usina='+encodeURIComponent(nome)); RD.depara[key]=(d&&!d.sem_depara)?d:{n:0,por_num:{}}; }
+  catch(e){ RD.depara[key]={n:0,por_num:{}}; }
   render();
 }
 // Ao EXPANDIR, joga fora a lista cacheada e rebusca: o cache era buscado UMA vez por sessão e os
@@ -1254,8 +1273,8 @@ function renderSources(v){ return `<div style="display:flex;gap:10px;overflow-x:
     <span style="width:30px;height:30px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;background:${src.iconBg}"><i class="${src.icon}" style="font-size:16px;color:${src.iconColor}"></i></span>
     <span style="display:flex;flex-direction:column;align-items:flex-start;line-height:1.25;text-align:left"><span style="font-size:14px;font-weight:600;color:${src.nameColor}">${src.name}</span><span class="text-muted" style="font-size:11.5px">${src.sub}</span></span>
   </button>`).join('')}</div>`; }
-function renderViewTabs(v){ return `<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px">
-  <div style="display:flex;gap:8px;flex-wrap:wrap">${v.views.map(x=>`<button onclick="setView('${x.id}')" style="${x.style}">${x.label}</button>`).join('')}</div>
+function renderViewTabs(v){ return `<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:${EMBED?'flex-end':'space-between'};gap:16px;margin-bottom:20px">
+  ${EMBED?'':`<div style="display:flex;gap:8px;flex-wrap:wrap">${v.views.map(x=>`<button onclick="setView('${x.id}')" style="${x.style}">${x.label}</button>`).join('')}</div>`}
   <div style="position:relative;width:300px;max-width:40vw"><i class="ph ph-magnifying-glass" style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--color-neutral-500);font-size:15px"></i><input class="input" id="flt-usina" value="${_q.replace(/"/g,'&quot;')}" oninput="onSearch(this.value)" placeholder="Filtrar usina..." style="padding-left:34px"></div>
 </div>`; }
 // Barra de STATUS da tabela de strings: conta e filtra. Cor pela mesma régua de severidade do resto
@@ -1332,7 +1351,7 @@ function renderInversor(inv,chart){
     ?`<span onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;gap:7px;padding:5px 10px;border-radius:8px;background:color-mix(in srgb, var(--color-accent) 15%, transparent);border:1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);color:var(--color-accent);font-size:12px;font-weight:600" title="OS ${_he(_atr.folio)} atribuída${_atr.ativo?' — '+_he(_atr.ativo):''}"><i class="ph ph-clipboard-text"></i>OS ${_he(_atr.folio)}<i class="ph ph-x" onclick="gcDesatribuirOS('${inv.pid}','${inv.invId}',event)" style="font-size:12px;color:var(--color-neutral-400);cursor:pointer" title="Desatribuir OS"></i></span>`
     :`<button onclick="gcAtribuirOS('${inv.pid}','${inv.invId}','${(inv.name||'').replace(/['"\\]/g,'')}','${(inv.usina||'').replace(/['"\\]/g,'')}',event)" style="display:inline-flex;align-items:center;gap:6px;background:transparent;border:1px solid color-mix(in srgb, var(--gc-amber) 55%, transparent);color:var(--gc-amber);border-radius:8px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit"><i class="ph ph-plus"></i>Atribuir OS</button>`);
   return `<div style="border-radius:var(--radius-md);margin-bottom:8px;${outBg}">
-    <div class="gc-chip" onclick="toggleInversor('${inv.id}',event,'${inv.pid||''}','${inv.invId||''}','${(inv.name||'').replace(/['"\\]/g,'')}')" style="display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;border-radius:var(--radius-md)">
+    <div class="gc-chip" data-inv="${inv.id}" onclick="toggleInversor('${inv.id}',event,'${inv.pid||''}','${inv.invId||''}','${(inv.name||'').replace(/['"\\]/g,'')}')" style="display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;border-radius:var(--radius-md)">
       <i class="ph ph-caret-right" style="font-size:11px;color:var(--color-neutral-500);transform:rotate(${inv.caretDeg}deg)"></i>
       <span style="font-weight:600;font-size:14px">${inv.name}</span>${inv.cabine?`<span class="tag tag-neutral">${inv.cabine}</span>`:''}<span class="text-muted" style="font-size:12px">${inv.kwh} kWh</span>${semTxt?`<span style="flex:1;text-align:center;font-size:14.4px;color:#a1a39d">${semTxt}</span>`:''}
       <span style="margin-left:auto;display:flex;align-items:center;gap:22px;font-size:13px">
@@ -1433,21 +1452,35 @@ function renderTrackers(v){
   if(v.loading) return bar+_loadingPanel();
   const trows=(v.trackerRows||[]).filter(r=>_matchQ(r.name));
   return bar+`<div class="card" style="padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 22px;border-bottom:1px solid var(--color-divider)"><div style="display:flex;align-items:baseline;gap:12px"><span style="font-family:var(--font-heading);font-size:17px">Trackers — Seguidores solares</span><span class="text-muted" style="font-size:12.5px">clique na usina para ver os trackers</span></div>${_histBtn()}</div>
-  <div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th style="text-align:center">Trackers</th><th style="text-align:center">Parado</th><th style="text-align:center">Severo</th><th style="text-align:center">Médio</th><th style="text-align:center">Leve</th><th style="text-align:right">Disponibilidade</th><th style="text-align:center">Normaliz.</th><th style="text-align:right">Desvio médio</th><th style="text-align:right">Última leitura</th><th style="text-align:center;padding-right:22px">Status</th></tr></thead>
-  <tbody>${(!trows.length&&_q)?`<tr><td colspan="11" style="text-align:center;padding:28px;color:var(--color-neutral-500)">Nenhuma usina casa "${_he(_q)}".</td></tr>`:''}${trows.map(r=>`<tr ${r.pid!=null?`onclick="toggleTrk('${esc(r.pid).replace(/['"\\]/g,'')}')" style="cursor:pointer;${r.expanded?'background:color-mix(in srgb, var(--gc-amber) 7%, transparent);':''}"`:''}><td style="padding-left:22px;font-weight:600">${r.pid!=null?`<i class="ph ph-caret-right" style="font-size:11px;color:var(--color-neutral-500);margin-right:8px;transition:transform .15s;transform:rotate(${r.caretDeg}deg)"></i>`:''}${r.name}</td><td style="text-align:center;color:var(--color-neutral-400)">${r.total}</td><td style="text-align:center;font-weight:600;color:${r.paradosColor}">${r.parados}</td><td style="text-align:center;color:${r.severo>0?'var(--gc-amber)':'var(--color-neutral-300)'}">${r.severo}</td><td style="text-align:center;font-weight:${r.medio>0?600:400};color:${r.medio>0?'#ffb43d':'var(--color-neutral-300)'}">${r.medio}</td><td style="text-align:center;color:var(--color-neutral-300)">${r.leve}</td><td>${_trkBar(r.dispPct,r.dispTempo)}</td><td style="text-align:center;color:var(--color-neutral-400)">${r.normalizados}</td><td style="text-align:right;color:var(--color-neutral-400)">${r.desvioMed}</td><td title="${r.staleTit||''}" style="text-align:right;font-size:12.5px;${r.staleRead?'color:#c9b6ff;font-weight:600':'color:var(--color-neutral-500)'}">${r.lastRead}</td><td style="text-align:center;padding-right:22px"><span style="${r.statusStyle}">${r.status}</span></td></tr>${r.expanded?`<tr><td colspan="11" style="padding:0;border:0"><div style="background:color-mix(in srgb, var(--color-neutral-900) 55%, transparent);padding:16px 22px 20px">${_trkDrill(r.pid)}</div></td></tr>`:''}`).join('')}</tbody></table></div></div>`;
+  <div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th style="text-align:center">Trackers</th><th style="text-align:center">Parado</th><th style="text-align:center">Severo</th><th style="text-align:center">Médio</th><th style="text-align:center">Leve</th><th style="text-align:right">Disponibilidade</th><th style="text-align:center" title="parados com ticket aberto na planilha de Tickets ÷ parados">Tickets</th><th style="text-align:center" title="ticket aberto na planilha, mas o tracker voltou a acompanhar o alvo: candidato a fechar">Normaliz.</th><th style="text-align:right">Desvio médio</th><th style="text-align:right">Última leitura</th><th style="text-align:center;padding-right:22px">Status</th></tr></thead>
+  <tbody>${(!trows.length&&_q)?`<tr><td colspan="12" style="text-align:center;padding:28px;color:var(--color-neutral-500)">Nenhuma usina casa "${_he(_q)}".</td></tr>`:''}${trows.map(r=>`<tr ${r.pid!=null?`onclick="toggleTrk('${esc(r.pid).replace(/['"\\]/g,'')}')" style="cursor:pointer;${r.expanded?'background:color-mix(in srgb, var(--gc-amber) 7%, transparent);':''}"`:''}><td style="padding-left:22px;font-weight:600">${r.pid!=null?`<i class="ph ph-caret-right" style="font-size:11px;color:var(--color-neutral-500);margin-right:8px;transition:transform .15s;transform:rotate(${r.caretDeg}deg)"></i>`:''}${r.name}</td><td style="text-align:center;color:var(--color-neutral-400)">${r.total}</td><td style="text-align:center;font-weight:600;color:${r.paradosColor}">${r.parados}</td><td style="text-align:center;color:${r.severo>0?'var(--gc-amber)':'var(--color-neutral-300)'}">${r.severo}</td><td style="text-align:center;font-weight:${r.medio>0?600:400};color:${r.medio>0?'#ffb43d':'var(--color-neutral-300)'}">${r.medio}</td><td style="text-align:center;color:var(--color-neutral-300)">${r.leve}</td><td>${_trkBar(r.dispPct,r.dispTempo)}</td><td style="text-align:center">${_tkCel(r)}</td><td style="text-align:center;color:${r.normalizados>0?'#3fb950':'var(--color-neutral-400)'};font-weight:${r.normalizados>0?600:400}">${r.normalizados}</td><td style="text-align:right;color:var(--color-neutral-400)">${r.desvioMed}</td><td title="${r.staleTit||''}" style="text-align:right;font-size:12.5px;${r.staleRead?'color:#c9b6ff;font-weight:600':'color:var(--color-neutral-500)'}">${r.lastRead}</td><td style="text-align:center;padding-right:22px"><span style="${r.statusStyle}">${r.status}</span></td></tr>${r.expanded?`<tr><td colspan="12" style="padding:0;border:0"><div style="background:color-mix(in srgb, var(--color-neutral-900) 55%, transparent);padding:16px 22px 20px">${_trkDrill(r.pid)}</div></td></tr>`:''}`).join('')}</tbody></table></div></div>`;
 }
 function _trkDrill(pid){
   const arr=RD.trk[state.source+'|'+pid];
   if(arr===undefined||arr===null) return `<div class="text-muted" style="font-size:13px;padding:6px 2px"><i class="ph ph-circle-notch gc-spin"></i> Carregando trackers…</div>`;
   if(!arr.length) return `<div class="text-muted" style="font-size:13px;padding:6px 2px">Sem trackers para detalhar nesta usina.</div>`;
   const ruins=arr.filter(t=>['parado','severo','medio','leve','desvio','atraso'].includes(t.status||'')).length;
+  const _par=arr.filter(t=>t.status==='parado'), _parCom=_par.filter(t=>t.na_planilha||t.ticket_usina).length, _parSem=_par.length-_parCom, _volt=arr.filter(t=>t.normalizado).length;
+  const tkTxt=(_par.length||_volt)?` · <span title="planilha de Tickets, só ocorrências abertas">tickets: <b style="color:var(--color-neutral-200)">${_parCom}</b> de ${_par.length} parados${_parSem?` · <span style="color:var(--gc-red);font-weight:600">${_parSem} sem ticket</span>`:''}${_volt?` · <span style="color:#3fb950">${_volt} voltaram (fechar)</span>`:''}</span>`:'';
+  const dp=RD.depara[state.source+'|'+pid]||null;
+  const dpTxt=dp&&dp.n?` · <span title="de-para supervisório ↔ Fracttal (plataforma/trackers_depara.xlsx)">Fracttal: <b style="color:var(--color-neutral-200)">${dp.casados+dp.a_confirmar}</b> com par${dp.a_confirmar?` (<span style="color:var(--gc-amber)">${dp.a_confirmar} a confirmar</span>)`:''}${dp.sem_par?`, <span style="color:var(--gc-red)">${dp.sem_par} sem par</span>`:''}</span>`:'';
   const grafOn=String(state.trkGraf)===String(pid);
   return `<div style="margin-bottom:13px"><button class="btn ${grafOn?'btn-primary':'btn-secondary'}" onclick="event.stopPropagation();abrirTrkChart('${esc(pid).replace(/['"\\]/g,'')}')"><i class="ph ${grafOn?'ph-caret-up':'ph-chart-line'}"></i> Gráfico</button></div>
     ${grafOn?_trkChartInline(pid):''}
-    <div class="card-kicker" style="color:var(--color-neutral-400);margin-bottom:10px">Trackers (${arr.length})${ruins?` · <span style="color:var(--gc-amber)">${ruins} fora do alvo</span>`:''}</div>
-    <div style="display:flex;flex-wrap:wrap;gap:7px">${arr.map(_trkChip).join('')}</div>`;
+    <div class="card-kicker" style="color:var(--color-neutral-400);margin-bottom:10px">Trackers (${arr.length})${ruins?` · <span style="color:var(--gc-amber)">${ruins} fora do alvo</span>`:''}${tkTxt}${dpTxt}</div>
+    <div style="display:flex;flex-wrap:wrap;gap:7px">${arr.map(t=>_trkChip(t,dp)).join('')}</div>`;
 }
-function _trkChip(t){
+// Coluna "Tickets" da tabela: parados com ticket aberto ÷ parados. Verde = todos cobertos; vermelho = há parado sem
+// ticket (o que pede ação); "—" quando não há parado ou a fonte não cruza com a planilha.
+function _tkCel(r){
+  const par=Number(r.parados)||0;
+  if(!par) return '<span style="color:var(--color-neutral-500)">—</span>';
+  if(r.tkCom==null) return '<span style="color:var(--color-neutral-500)" title="fonte sem cruzamento com a planilha">—</span>';
+  const com=r.tkCom, sem=(r.tkSem!=null?r.tkSem:Math.max(0,par-com)), pct=Math.max(0,Math.min(100,Math.round(com/par*100)));
+  const cor=sem>0?'#ff5b6e':'#3fb950';
+  return `<span title="${com} de ${par} parados com ticket aberto${sem?` · ${sem} sem ticket`:''}${r.tkUsina?' · há ticket da usina inteira':''}" style="display:inline-flex;align-items:center;gap:7px;justify-content:center"><span style="width:44px;height:6px;border-radius:3px;background:var(--color-neutral-800);overflow:hidden;display:inline-block"><span style="display:block;height:100%;width:${pct}%;background:${cor}"></span></span><span style="font-weight:600;color:${cor}">${com}/${par}</span>${r.tkUsina?'<i class="ph ph-clipboard-text" title="ticket da usina inteira" style="font-size:11px;color:var(--gc-blue)"></i>':''}</span>`;
+}
+function _trkChip(t,dp){
   // SEM COMUNICAÇÃO manda na cor. O backend guarda isso num campo À PARTE do status, então um
   // tracker mudo podia vir com status 'normal' e pintar de VERDE — foi o TRK44 (04/08): único
   // "normal" da usina, sem leitura nenhuma, chip verde e nenhuma curva verde no gráfico para
@@ -1455,8 +1488,16 @@ function _trkChip(t){
   const st=(t.sem_comunicacao?'sem_comunicacao':(t.status||'normal')), c=_trkCor(st);
   const disp=(t.disparidade!=null?(t.disparidade>0?'+':'')+Number(t.disparidade).toFixed(0)+'°':'—');
   const n=_snum(t.id), hid=!!(state.trkHide&&state.trkHide[String(n)]);   // clicado = oculto no gráfico
-  const tip=`${st} · alvo ${t.alvo!=null?Number(t.alvo).toFixed(0)+'°':'—'} · atual ${t.atual!=null?Number(t.atual).toFixed(0)+'°':'—'} · desvio ${disp} · clique p/ ${hid?'mostrar':'ocultar'} no gráfico`;
-  return `<span title="${esc(tip)}" onclick="event.stopPropagation();toggleTrkHide(${n})" onmouseenter="_hlTrk(${n},1)" onmouseleave="_hlTrk(${n},0)" style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:var(--radius-sm);background:${c[1]};border:1px solid ${c[2]};font-size:11.5px;cursor:pointer;transition:opacity .12s,border-color .12s;opacity:${hid?'.38':'1'}"><span style="font-weight:600;color:${c[0]}">${esc(t.id)}</span><span class="text-muted" style="font-size:11px">${disp}</span>${t.na_planilha?'<i class="ph ph-clipboard-text" style="font-size:10px;color:var(--color-neutral-500)"></i>':''}</span>`;
+  const fr=(dp&&dp.por_num&&n!=null)?dp.por_num[String(n)]:null;   // par no Fracttal (de-para)
+  // Ticket (planilha de Tickets, só ocorrência ABERTA): parado com ticket = "ticket"; parado sem = "sem ticket" em
+  // vermelho (é o que o Levi quer enxergar); ticket aberto mas tracker normal = "voltou" (candidato a fechar).
+  const _tkTxt=t.na_planilha?`ticket ${t.ticket_status||''}${t.ticket_desde?' desde '+t.ticket_desde:''}`:(t.ticket_usina?'coberto por ticket da usina inteira':(t.status==='parado'?'parado SEM ticket na planilha':''));
+  const tip=`${st} · alvo ${t.alvo!=null?Number(t.alvo).toFixed(0)+'°':'—'} · atual ${t.atual!=null?Number(t.atual).toFixed(0)+'°':'—'} · desvio ${disp}${fr?` · Fracttal ${fr.fracttal||''} ${fr.code||''}${fr.situacao==='a_confirmar'?' (a confirmar)':fr.situacao==='sem_par'?' (sem par: '+(fr.obs||'')+')':''}`:''}${_tkTxt?' · '+_tkTxt:''} · clique p/ ${hid?'mostrar':'ocultar'} no gráfico`;
+  const _tag=(txt,cor,ic)=>`<span style="display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:9px;font-size:10px;font-weight:700;letter-spacing:.02em;background:color-mix(in srgb, ${cor} 18%, transparent);border:1px solid color-mix(in srgb, ${cor} 45%, transparent);color:${cor}">${ic?`<i class="ph ${ic}" style="font-size:10px"></i>`:''}${txt}</span>`;
+  const tk=t.normalizado?_tag('voltou','#3fb950','ph-check'):t.na_planilha?_tag('ticket','var(--gc-blue)','ph-clipboard-text'):(t.ticket_usina&&t.status==='parado')?_tag('ticket da usina','var(--gc-blue)','ph-clipboard-text'):(t.status==='parado')?_tag('sem ticket','#ff5b6e','ph-warning'):'';
+  // Fracttal: só o ícone (o code inteiro atropelava o card; fica no tooltip). Cinza = casado, âmbar = a confirmar, vermelho = sem par.
+  const frIc=(fr&&fr.code)?`<i class="ph ${fr.situacao==='sem_par'?'ph-link-break':'ph-link'}" title="Fracttal ${esc(fr.code)}${fr.situacao==='a_confirmar'?' (a confirmar)':fr.situacao==='sem_par'?' (sem par)':''}" style="font-size:12px;color:${fr.situacao==='casado'?'var(--color-neutral-400)':fr.situacao==='a_confirmar'?'var(--gc-amber)':'var(--gc-red)'}"></i>`:'';
+  return `<span title="${esc(tip)}" onclick="event.stopPropagation();toggleTrkHide(${n})" onmouseenter="_hlTrk(${n},1)" onmouseleave="_hlTrk(${n},0)" style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:var(--radius-sm);background:${c[1]};border:1px solid ${c[2]};font-size:11.5px;cursor:pointer;transition:opacity .12s,border-color .12s;opacity:${hid?'.38':'1'}"><span style="font-weight:600;color:${c[0]}">${esc(t.id)}</span><span class="text-muted" style="font-size:11px">${disp}</span>${frIc}${tk}</span>`;
 }
 function _trkCor(st){   // semáforo por HUE distinto → contraste máximo entre os níveis (vermelho→laranja→amarelo→verde)
   if(st==='parado') return ['#ff5b6e','color-mix(in srgb, #ff5b6e 16%, transparent)','color-mix(in srgb, #ff5b6e 48%, transparent)'];
@@ -1502,7 +1543,7 @@ function renderCurva(v){
 
 /* ══ Bloco B — subabas de Strings (sem corrente / ocorrências) e Trackers (parados / ocorrências) ══ */
 function _fonte(){ return SKEY[state.source]; }                                    // pv|pg|sunop|axis|solaredge|owen
-const _STR_SUB_FONTES=['pv','pg','owen','sunop','axis'];                           // fontes com detalhe por-string
+const _STR_SUB_FONTES=['pv','pg','owen','sunop','axis','semp','alveslima'];   // semp/alveslima: sem-corrente sim, ocorrências ainda não (o backend responde indisponivel)                           // fontes com detalhe por-string
 const _TRK_SUB_FONTES=['pv','pg','sunop','axis','owen'];                           // fontes com endpoints de trackers parados/eventos
 // ── loaders (cacheados por fonte / fonte|dia; force ignora o cache) ──
 async function loadStrProblema(force){ const f=_fonte(); if(!force&&RD.strProb[f]!==undefined)return; RD.strProb[f]=null; render();
@@ -1882,7 +1923,7 @@ function render(){
       ${EMBED?'':`<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:28px"><div><div class="card-kicker" style="margin-bottom:8px">Monitoramento O&amp;M</div><h2 style="margin:0;font-size:30px">Strings, ETM &amp; Trackers</h2></div><div class="text-muted" style="font-size:13px">${v.today}</div></div>`}
       ${EMBED?'':renderSources(v)}
       ${renderViewTabs(v)}
-      ${(v.showCurva||v.showGeracao||v.showPerdas)?'':renderKPIs(v)}
+      ${(EMBED||v.showCurva||v.showGeracao||v.showPerdas)?'':renderKPIs(v)}
       ${panel}
     </div>
   </div>`;
@@ -1895,6 +1936,35 @@ fetch('/gemeo/healthz', {cache: 'no-store'}).then(function (r) {
 }).catch(function () {});
 render();
 loadCurrent();
+// ── Deep link do sino / da tela do cliente: ?usina=<pid>&inversor=<nome ou id>&dia=<YYYY-MM-DD> ─────────────────
+// Abre a usina, acha o inversor pelo nome (ou pelo id, ou pelos numeros "2.7") e abre a curva de corrente por string
+// do dia. `?usina=` sozinho tambem passa a carregar os inversores: antes a linha nascia expandida e ficava em
+// "carregando" para sempre, porque so o clique (toggleUsina) chamava loadPlant. No embutido, pede ao pai para rolar.
+(function(){
+  const qs=new URLSearchParams(location.search), pid=qs.get('usina'), invQ=(qs.get('inversor')||'').trim(), dia=qs.get('dia')||'';
+  if(!pid) return;
+  const norm=s=>String(s||'').toLowerCase().replace(/\s+/g,' ').trim();
+  const nums=s=>(String(s||'').match(/\d+(?:\.\d+)?/g)||[]).join('.');
+  const acha=invs=>invs.find(x=>norm(x.nome)===norm(invQ))||invs.find(x=>String(x.id)===invQ)||invs.find(x=>nums(x.nome)&&nums(x.nome)===nums(invQ));
+  const rolar=iid=>{ const el=document.querySelector('[data-inv="'+iid+'"]'); if(!el) return; const y=el.getBoundingClientRect().top+window.scrollY-12;
+    if(EMBED){ try{ parent.postMessage({gc:'rolar',y:y},'*'); }catch(e){} } else window.scrollTo({top:Math.max(0,y-80),behavior:'smooth'}); };
+  const t0=Date.now();
+  (function passo(){
+    if(Date.now()-t0>90000) return;                                                    // 90 s e desiste (fonte fora)
+    if(state.view!=='strings'||!RD.pv||!RD.pv.rows){ setTimeout(passo,300); return; }
+    if(!RD.pv.rows.some(r=>String(r.plant_id)===String(pid))) return;                  // usina nao e desta fonte
+    if(state.expandedUsina!==String(pid)) setState({expandedUsina:String(pid),expandedInversor:null});
+    const key=state.source+'|'+pid, invs=RD.plants[key];
+    if(invs===undefined){ loadPlant(pid); setTimeout(passo,300); return; }
+    if(invs===null){ setTimeout(passo,300); return; }
+    if(!invQ){ setTimeout(()=>rolar(null),0); return; }
+    const inv=acha(invs); if(!inv) return;
+    const iid=pid+'-'+inv.id;
+    if(/^\d{4}-\d{2}-\d{2}$/.test(dia)&&dia!==_todayISO()) state.invData=dia;         // dia do evento (hoje = padrao)
+    if(state.expandedInversor!==iid) toggleInversor(iid,null,pid,inv.id,inv.nome);
+    setTimeout(()=>rolar(iid),350); setTimeout(()=>rolar(iid),1600);                 // 2a vez: depois da curva chegar e a altura mudar
+  })();
+})();
 </script>
 </body>
 </html>
