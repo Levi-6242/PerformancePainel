@@ -1655,9 +1655,20 @@ def load_thopen_meta():
     # dado disponível na API o tempo todo, já carregado para o BD_Performance ao lado. Pior:
     # `load_thopen_meta` roda UMA vez, no import, e nada a re-chamava; a meta gerencial ficava
     # vazia até alguém reiniciar. (Levi apontou em 02/09: "não encontrou no PG? tá lá".)
-    src = _bd_readable("bd_thopen", _bd_thopen_path)
+    # SÓ o PostgreSQL (Levi, 07/09/2026: "a plataforma deve ler o postgresql do BD_Thopen, nunca o excel").
+    # O .xlsx do OneDrive é onde a COLETA escreve; ler dele aqui é ler um retrato que pode estar horas atrás do
+    # banco — e pior, em silêncio. Sem banco, mantém a meta que já está carregada e diz por quê.
+    src = None
+    try:
+        import bd_api
+        _b = bd_api.carregar("bd_thopen")
+        if _b:
+            src = io.BytesIO(_b)
+    except Exception as e:                                # noqa: BLE001
+        print(f"[bd_mem] bd_thopen indisponível na API ({e})")
     if not src:
-        print("[AVISO] BD_Thopen não encontrado (nem na API, nem em disco) — meta gerencial vazia")
+        print("[AVISO] BD_Thopen: a API (PostgreSQL) não respondeu — meta gerencial fica como está. "
+              "O Excel NÃO é lido de propósito.")
         return
     try:
         import openpyxl
@@ -9986,8 +9997,10 @@ def _thopen_prod_build(ano=None, mes=None):
         reg = _dth._registro()                       # T_Usinas: {usina: {cliente, pot_mwp, ...}}
         universo = set(reg.keys()) | set(_dth._CARTEIRA_DE.keys())
         for u in universo:
-            if _dth._CARTEIRA_DE.get(u) == "Polaris":   # Polaris já vem do PG (tempo real)
-                continue
+            # Polaris NÃO é mais pulada em bloco (Levi, 07/09/2026). As que o PG do OEM entrega já são
+            # descartadas pelo `pg_keys` lá no gerencial; pular todas aqui cegava as que têm ABA PRÓPRIA no
+            # BD_Thopen e não estão no PG — Guaratinguetá V é o caso: aba desde agosto (408,7 MWh em 08/2026)
+            # e, antes disto, caía em "sem meta" no mosaico.
             try:
                 recs = _dth._daily_records(u)
             except Exception:
@@ -10024,7 +10037,9 @@ def _thopen_prod_build(ano=None, mes=None):
                                 # tudo que vem do BD_Thopen é cliente Thopen (regra Levi) — usina nova
                                 # sem cliente no T_Usinas não pode cair em "—" no Gerencial
                                 "cliente": (reg.get(u) or {}).get("cliente") or "Thopen"}
-        print(f"[gerencial] Thopen prod {alvo_m:02d}/{alvo_a} (xlsx): {len(out)} usinas")
+        # o rótulo dizia "(xlsx)" desde antes da migração de 28/08/2026 e mentia: `dashboard_thopen._wb()`
+        # lê do PostgreSQL (fonte_api) e não tem segundo caminho. Log errado manda gente investigar o lado errado.
+        print(f"[gerencial] Thopen prod {alvo_m:02d}/{alvo_a} (PostgreSQL): {len(out)} usinas")
     except Exception as e:
         print(f"[gerencial] Thopen prod build falhou: {e}")
     if atual:                                     # mês passado NÃO pode sobrescrever o cache MTD
@@ -10890,6 +10905,52 @@ def api_g_inversores():
 _GER_HIST_CACHE = {}     # (ano, mes) PASSADO -> {ts, data} — mês fechado é imutável, TTL longo
 
 
+_GER_ROMANO = {"i": "1", "ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6", "vii": "7", "viii": "8",
+               "ix": "9", "x": "10", "xi": "11", "xii": "12", "xiii": "13", "xiv": "14", "xv": "15"}
+_GER_CONECTIVO = {"do", "da", "de", "dos", "das", "e"}
+
+
+def _ger_fold(nome) -> str:
+    """Chave TOLERANTE para reconhecer a mesma usina escrita de jeitos diferentes entre as bases: sem acento,
+    algarismo romano vira número, conectivo sai e o código entre parênteses some.
+
+    Nasceu de dois casos reais (07/09/2026): a aba do BD_Thopen chama 'Piracicaba 1' e 'Marajoara 1' o que o PG
+    chama 'Piracicaba I' e 'Marajoara I' — a usina entrava DUAS vezes no gerencial e a meta ficava na cópia
+    errada; e 'Santo Antonio do Platina' (ao vivo) × 'Santo Antonio da Platina' (base). É a mesma ideia do
+    `_trk_depara_nrm` do de-para de trackers, aqui com escopo pequeno de propósito: só de-duplicação e busca de
+    meta. O `_nrm` continua sendo a chave oficial — esta é a rede de segurança, não a substituta."""
+    s = unicodedata.normalize("NFKD", str(nome or ""))
+    s = "".join(c for c in s if not unicodedata.combining(c)).lower()
+    s = re.sub(r"\(\s*\d+\s*\)", " ", s)
+    toks = [w for w in re.split(r"[^a-z0-9]+", s) if w and w not in _GER_CONECTIVO]
+    # SEM espaço no fim, como o `_nrm`: as chaves dos cadastros já vêm coladas ('piracicaba1'), então juntar com
+    # espaço aqui nunca casaria com elas — o romano seria convertido e a comparação falharia assim mesmo.
+    return "".join(_GER_ROMANO.get(w, w) for w in toks)
+
+
+# ── Grupos do mosaico: onde a BASE e as FONTES AO VIVO discordam da granularidade ─────────────────────────────
+# O gerencial é por usina do CADASTRO; o mosaico da Frota lista o que as fontes entregam ao vivo. Quando os dois
+# recortes divergem, o casamento por nome falha e a usina aparecia "sem meta" tendo meta (Levi, 07/09/2026):
+#   • a base junta o que a API PV separa  → Nova Londrina 1+2, Primavera 1+2 viram UM bloco;
+#   • a base separa o que a API PV junta  → Ouro Branco = soma de Ouro Branco I..V;
+#   • grafia divergente                   → "Santo Antonio do Platina" (ao vivo) × "da Platina" (base).
+# `vivo` são os nomes das fontes ao vivo; `ger` são as linhas do gerencial que somam. A soma é feita na tela,
+# com os números do gerencial — aqui só mora a relação.
+_GER_GRUPOS = [
+    {"nome": "Nova Londrina", "vivo": ["Nova Londrina 1", "Nova Londrina 2"], "ger": ["Nova Londrina"]},
+    {"nome": "Primavera", "vivo": ["Primavera 1", "Primavera 2"], "ger": ["Primavera"]},
+    {"nome": "Ouro Branco", "vivo": ["Ouro Branco"],
+     "ger": ["Ouro Branco I", "Ouro Branco II", "Ouro Branco III", "Ouro Branco IV", "Ouro Branco V"]},
+    {"nome": "Santo Antonio da Platina", "vivo": ["Santo Antonio do Platina"], "ger": ["Santo Antonio da Platina"]},
+]
+
+
+@app.route("/api/gerencial/grupos")
+def api_gerencial_grupos():
+    """A relação usada pelo mosaico para somar os dois lados. Rota própria para conferir sem abrir a tela."""
+    return jsonify({"grupos": _GER_GRUPOS})
+
+
 def _gerencial_payload(force=False, ano=None, mes=None):
     hoje = datetime.now().date()
     alvo_a, alvo_m = int(ano or hoje.year), int(mes or hoje.month)
@@ -10986,6 +11047,18 @@ def _gerencial_payload(force=False, ano=None, mes=None):
         if isinstance(ipoa, (int, float)): d["ipoa"]     += ipoa
         _g = row.get("ghi")
         if isinstance(_g, (int, float)):   d["ghi"]      += _g
+    # índice tolerante da meta: resolve 'Piracicaba I' (PG) achando a linha de 'Piracicaba 1' (BD_Thopen)
+    _meta_fold = {}
+    for _mk, _mv in THOPEN_META.items():
+        _meta_fold.setdefault(_ger_fold(_mk), _mv)
+
+    def _meta_mes(chave, nome=None):
+        """Meta do mês alvo por chave oficial; caindo para a grafia tolerante."""
+        _m = (THOPEN_META.get(chave) or {}).get(alvo_m)
+        if _m:
+            return _m
+        return (_meta_fold.get(_ger_fold(nome if nome is not None else chave)) or {}).get(alvo_m) or {}
+
     # 2) decompõe por usina (casa com INFO_GERAL/PR_PREVISTO; P50/IPOA previsto prorrateados MTD)
     usinas, sem_match = [], 0
     for k, d in agg.items():
@@ -10994,7 +11067,7 @@ def _gerencial_payload(force=False, ano=None, mes=None):
             sem_match += 1
             continue
         # META: 1º BD_Thopen (banco), depois Info Mensal (outras carteiras), por fim P50 anual/12
-        tm = (THOPEN_META.get(k) or {}).get(alvo_m) or {}
+        tm = _meta_mes(k, d["usina"])
         p50_mes, ipoa_prev_mes = tm.get("meta_mwh"), tm.get("ipoa_meta")
         p50_src = "thopen" if p50_mes else None
         if p50_mes is None or ipoa_prev_mes is None:
@@ -11054,6 +11127,9 @@ def _gerencial_payload(force=False, ano=None, mes=None):
 
     # 2b) carteiras NÃO-PG (Thopen/Copel/Matrix): geração do mês via BD_Thopen (motor dashboard_thopen)
     pg_keys = set(agg.keys())
+    # ...e o mesmo conjunto na grafia tolerante: sem isto 'Piracicaba 1' (aba do BD_Thopen) entrava ao lado de
+    # 'Piracicaba I' (PG) e a usina contava duas vezes no rollup do portfólio.
+    pg_folds = {_ger_fold((d.get("usina") or "")) for d in agg.values()} | {_ger_fold(x) for x in agg}
     # Canonização de grafia (auditoria 07/08) — usada aqui e no bloco do cadastro lá embaixo.
     # O universo do BD_Thopen (CARTEIRAS) carrega as DUAS grafias da Platina; a legada virava
     # linha fantasma "sem dado" ao lado da real.
@@ -11069,12 +11145,12 @@ def _gerencial_payload(force=False, ano=None, mes=None):
     _tp_map = (_thopen_prod_build(alvo_a, alvo_m) if (force or not atual)
                else _thopen_prod_mtd())
     for k, tp in _tp_map.items():
-        if k in pg_keys:                                   # já veio do PG (tempo real)
+        if k in pg_keys or _ger_fold(tp.get("usina") or k) in pg_folds:   # já veio do PG (tempo real)
             continue
         _cn = _GER_CANON.get(k)
         if _cn and (_nrm(_cn) in pg_keys or _nrm(_cn) in _tp_map):
             continue                                       # grafia legada com a canônica presente
-        tm = (THOPEN_META.get(k) or {}).get(alvo_m) or {}
+        tm = _meta_mes(k, tp["usina"])
         p50_mes = tm.get("meta_mwh"); p50_src = "thopen" if p50_mes else None
         if p50_mes is None:
             prm_all = PR_PREVISTO.get(k) or {}
@@ -11220,16 +11296,22 @@ def _gerencial_payload(force=False, ano=None, mes=None):
             _partes = [f"{_base} {_a}", f"{_base} {_b}"]
             if all(p in _nomes_ja for p in _partes):
                 continue
-        p50_mes = None
+        # A meta vem da MESMA cadeia dos ramos com geração — inclusive o BD_Thopen, que faltava aqui: Tanabi
+        # (1.021 MWh) e Guaratinguetá V (435 MWh) têm meta cadastrada e apareciam como "sem meta" só porque a
+        # geração do mês não foi encontrada. Uma coisa é não ter meta, outra é não ter geração (Levi, 07/09).
+        p50_mes, p50_src = None, "cadastro"
+        _tmc = _meta_mes(k, nome)
+        if _tmc.get("meta_mwh"):
+            p50_mes, p50_src = _tmc["meta_mwh"], "thopen"
         prm_all = PR_PREVISTO.get(k) or {}
-        if (prm_all.get(ym) or {}).get("p50_mwh"):
-            p50_mes = prm_all[ym]["p50_mwh"]
-        else:
+        if p50_mes is None and (prm_all.get(ym) or {}).get("p50_mwh"):
+            p50_mes, p50_src = prm_all[ym]["p50_mwh"], "mes_exato"
+        if p50_mes is None:
             for (yy, mm), v in prm_all.items():
                 if mm == alvo_m and v.get("p50_mwh"):
-                    p50_mes = v["p50_mwh"]; break
+                    p50_mes, p50_src = v["p50_mwh"], "mesmo_mes"; break
         if p50_mes is None and ig.get("p50_mwh"):
-            p50_mes = ig["p50_mwh"] / 12.0
+            p50_mes, p50_src = ig["p50_mwh"] / 12.0, "anual_12"
         _rec = pr_previsto(nome, alvo_a, alvo_m); _prm = _rec.get("pr_previsto") if _rec else None
         usinas.append({"usina": nome, "cliente": ig.get("cliente") or "—",
                        "carteira": _carteira_de(nome) or ig.get("cliente") or "—",
@@ -11237,7 +11319,7 @@ def _gerencial_payload(force=False, ano=None, mes=None):
                        "recurso": None, "pot_mwp": ig.get("potencia_mwp"),
                        "atingimento": None, "pr": None,
                        "pr_meta": round(_prm * 100, 1) if isinstance(_prm, (int, float)) else None,
-                       "ipoa": 0, "ipoa_prev": None, "p50_src": "cadastro", "src": "cadastro",
+                       "ipoa": 0, "ipoa_prev": None, "p50_src": p50_src, "src": "cadastro",
                        "sem_dado": True,          # aparece na lista, mas não entra nas razões
                        "full_oem": k in full_om_nrm,
                        # NÃO afirmar causa: sabemos que não achamos geração desta usina em
@@ -11352,7 +11434,7 @@ def _gerencial_payload(force=False, ano=None, mes=None):
     best = sorted(comatg, key=lambda u: -u["atingimento"])[:6]
     worst = sorted(comatg, key=lambda u: u["atingimento"])[:6]
     out = {"mes": f"{alvo_m:02d}/{alvo_a}", "ano": alvo_a, "mes_num": alvo_m,
-           "prorata": round(prorata, 2),
+           "prorata": round(prorata, 2), "grupos": _GER_GRUPOS,
            "portfolio": portfolio, "clientes": clientes,
            "best": best, "worst": worst, "usinas": usinas,
            "cobertura": {"com_geracao": len(agg), "com_match": len(usinas), "sem_match": sem_match,

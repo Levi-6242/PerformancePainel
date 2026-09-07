@@ -428,7 +428,32 @@ function merge(){
       recurso:gg.recurso, atingimento:gg.atingimento, pr:gg.pr, pr_meta:gg.pr_meta, pot_mwp:gg.pot_mwp
     });
   });
+  aplicaGrupos();
   // usinas que só existem no gerencial (com meta, sem item de macro) entram no histórico
+}
+
+// Grupos (vêm do /api/gerencial): a base lança junto o que a fonte ao vivo separa (Nova Londrina 1+2,
+// Primavera 1+2) e separa o que ela junta (Ouro Branco I..V). Sem isto o casamento por nome falhava e o
+// mosaico dizia "sem meta" em usina que TEM meta. Soma as linhas do gerencial e cola o resultado em cada
+// membro; nas visões de Meta e PR só o líder do grupo vira bloco (ver renderWall).
+function aplicaGrupos(){
+  const gmapN={}; (GER&&GER.usinas||[]).forEach(u=>{gmapN[norm(u.usina)]=u;});
+  ((GER&&GER.grupos)||[]).forEach(g=>{
+    const vivos=(g.vivo||[]).map(norm).filter(k=>MAP[k]);
+    const gers=(g.ger||[]).map(n=>gmapN[norm(n)]).filter(Boolean);
+    if(!vivos.length||!gers.length) return;
+    const soma=f=>{ const v=gers.map(x=>x[f]).filter(x=>x!=null); return v.length?v.reduce((a,b)=>a+b,0):null; };
+    // PR e meta de PR são percentuais: somar seria errado — pondera pela potência de quem tem o número.
+    const pond=f=>{ let sp=0,sv=0; gers.forEach(x=>{ if(x[f]!=null&&x.pot_mwp){ sv+=x[f]*x.pot_mwp; sp+=x.pot_mwp; } }); return sp?+(sv/sp).toFixed(1):null; };
+    const prod=soma('prod'), p50=soma('p50');
+    const atg=(prod!=null&&p50)?+(prod/p50*100).toFixed(1):null;
+    // o cliente também vem do gerencial: nos grupos o nome não casa, e o bloco saía com o cliente em branco
+    const cli=(gers.find(x=>x.cliente&&x.cliente!=='—')||{}).cliente;
+    vivos.forEach((k,i)=>Object.assign(MAP[k],{
+      prod:prod, p50:p50, pot_mwp:soma('pot_mwp'), atingimento:atg, pr:pond('pr'), pr_meta:pond('pr_meta'),
+      cliente:(cli||MAP[k].cliente||'—'),
+      grupo:g.nome, grupo_n:vivos.length, grupo_lider:(i===0)}));
+  });
 }
 
 function stamp(){
@@ -498,15 +523,23 @@ function tileStr(p){
 // atingimento da meta (gerada ÷ P50 do mês, o mesmo número do Gerencial): mesma régua do "atg" que já ia no rodapé do tile
 function _metaCls(a){ return a==null?'sem_comm':a>=95?'ok':a>=85?'atencao':'critico'; }
 function tileMeta(p){
-  const a=p.atingimento, cls=_metaCls(a);
+  const a=p.atingimento, temP50=p.p50!=null&&p.p50>0, cls=(a==null&&temP50)?'sem_comm':_metaCls(a);
   const col=cls==='ok'?cssv('--ok'):cls==='atencao'?cssv('--amber'):cls==='critico'?cssv('--red'):cssv('--faint');
-  const val=a!=null?`${nf(a,0)}%<span class="u"> da meta</span>`:`—<span class="u"> sem meta</span>`;
-  const sub=(p.prod!=null&&p.p50)?`<div class="tatg" style="color:${col}">gerada ${nf(p.prod,1)} · P50 ${nf(p.p50,1)} MWh</div>`:(a==null?`<div class="tatg" style="color:var(--faint)">sem meta no mês</div>`:'');
+  // "sem meta" e "tem meta, falta a geração do mês" são problemas DIFERENTES e pedem gente diferente: o
+  // primeiro é cadastro de meta, o segundo é coleta/linhas do mês. Dizer "sem meta" nos dois era mentir
+  // sobre metade dos casos (Tanabi e Guaratinguetá V têm meta; ver /api/gerencial p50_src).
+  const val=a!=null?`${nf(a,0)}%<span class="u"> da meta</span>`
+           :temP50?`—<span class="u"> sem geração</span>`:`—<span class="u"> sem meta</span>`;
+  const sub=(p.prod!=null&&p.p50)?`<div class="tatg" style="color:${col}">gerada ${nf(p.prod,1)} · P50 ${nf(p.p50,1)} MWh</div>`
+           :temP50?`<div class="tatg" style="color:var(--amber)">meta ${nf(p.p50,1)} MWh · geração do mês não encontrada</div>`
+           :`<div class="tatg" style="color:var(--faint)">sem meta no mês</div>`;
   const pr=(_prReliable(p.pr)&&p.pr_meta!=null)?`<div class="tatg" style="color:var(--faint)">PR ${nf(p.pr,0)}% · meta ${nf(p.pr_meta,0)}%</div>`:'';
   return `<div class="tile ${cls}" onclick="openDrawer('${norm(p.usina)}')">`+
-    `<div class="tid">${p.usina}</div><div class="tcli">${p.cliente||''}</div>`+
+    `<div class="tid">${p.grupo||p.usina}</div><div class="tcli">${p.cliente||''}${_grpNota(p)}</div>`+
     `<div class="tmw num" style="color:${col}">${val}</div>${sub}${pr}</div>`;
 }
+// nota do bloco agrupado: quantas usinas ao vivo ele soma (o clique abre a primeira)
+function _grpNota(p){ return (p.grupo&&p.grupo_n>1)?` · ${p.grupo_n} usinas somadas`:''; }
 // cor do tile na visão ativa — é o que "Só exceções" e "Críticas" filtram (antes olhavam sempre o status de strings)
 function _wallCls(p){
   if(wallView==='meta') return _metaCls(p.atingimento);
@@ -529,7 +562,7 @@ function tilePr(p){
       ? `<div class="tatg" style="color:var(--amber);font-weight:600" title="motivo de não ter PR${p.full_oem?' · Full O&amp;M (deveria ter)':''}">${_mot}</div>${metaLn}`
       : metaLn;
   return `<div class="tile ${cls}" onclick="openDrawer('${norm(p.usina)}')">`+
-    `<div class="tid">${p.usina}</div><div class="tcli">${p.cliente||''}</div>`+
+    `<div class="tid">${p.grupo||p.usina}</div><div class="tcli">${p.cliente||''}${_grpNota(p)}</div>`+
     `<div class="tmw num" style="color:${col}">${val}</div>${sub}</div>`;
 }
 function renderWall(){
@@ -537,6 +570,8 @@ function renderWall(){
   if(wallView==='etm'){ wallEl.style.display='block'; renderEtm(); return; }
   wallEl.style.display='';
   let items=Object.values(MAP).filter(p=>{
+    // Meta e PR falam do MÊS, que a base lança pelo grupo: um bloco só (as strings seguem por usina ao vivo).
+    if((wallView==='meta'||wallView==='pr') && p.grupo && !p.grupo_lider) return false;
     const c=_wallCls(p);
     if(curWF==='exc'&&c==='ok')return false;
     if(curWF==='crit'&&c!=='critico')return false;
