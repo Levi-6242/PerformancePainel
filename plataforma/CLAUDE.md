@@ -121,3 +121,12 @@ boot. Não inverta essa ordem: com "ambiente primeiro", uma semente velha no `to
 a renovação e colar token novo não muda nada (aconteceu em 25/07).
 
 Os demais (SunOp, Axis, SolarEdge, API PV) se renovam sozinhos.
+
+**O `GRIDCO_SQL_TOKEN` também grava em nome do OS Creator** (desde 07/09/2026). O app de desktop
+não carrega o token: manda a alteração para `/api/tickets/...` com o JWT do login do Fracttal, a
+plataforma confere quem é (`tickets_relay.identificar`) e grava com o token daqui — só nas abas
+de `tickets_relay.ABAS`, carimbando o nome verificado no diário e deixando rastro em
+`logs/tickets_relay.log`. Essas rotas passam pelo `_auth_gate` por isenção explícita (gate
+próprio no handler, como `/api/campo/`). E como o túnel troca de endereço a cada subida, o
+`_tunnel_url_loop` publica a URL atual no banco (`os_creator/plataforma`) — é de lá que o app a
+lê. Sem essa publicação o app fica só-leitura, então **restart da plataforma = URL republicada**.

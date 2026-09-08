@@ -352,6 +352,10 @@ def _auth_gate():
     # API de campo (integração externa): gate próprio por x-api-key no handler, fora da sessão humana.
     if p.startswith("/api/campo/"):
         return
+    # Relay de escrita dos tickets (OS Creator, app de desktop, sem sessão humana daqui): gate
+    # próprio no handler pelo JWT do login do Fracttal — ver tickets_relay.py.
+    if p.startswith("/api/tickets/"):
+        return
     if session.get("auth"):
         return
     if p.startswith("/api/"):
@@ -17085,8 +17089,25 @@ def _tunnel_url_atual() -> str:
     return ""
 
 
+def _publicar_tunel_no_banco(url):
+    """A URL do túnel vai para o banco (os_creator/plataforma, chave/valor), onde o OS Creator a
+    lê antes de gravar — ele não tem outro jeito de achar esta máquina, porque o quick tunnel
+    troca de endereço a cada subida (ver tickets_relay.py). Erro aqui não derruba o laço: sem
+    banco o app fica sem relay, não a plataforma sem túnel."""
+    try:
+        import tickets_relay as _relay
+        import estado_backup as _eb
+        tok = _eb._token()
+        if url and tok:
+            _relay.publicar_url_tunel(url, tok)
+            print(f"[tunnel_url] publicada no banco: {url}")
+    except Exception as e:
+        print(f"[tunnel_url] não publiquei no banco: {e}")
+
+
 def _tunnel_url_loop():
     last = _tunnel_url_atual()
+    _publicar_tunel_no_banco(last)      # no boot, mesmo sem mudança: o banco pode estar atrás
     while True:
         try:
             # SÓ o log mais RECENTE, e só se for recente de verdade. Concatenar todos misturava
@@ -17105,6 +17126,7 @@ def _tunnel_url_loop():
                 with open(_TUNNEL_URL_FILE, "w", encoding="utf-8") as f:
                     f.write(last)
                 print(f"[tunnel_url] URL atual: {last}")
+                _publicar_tunel_no_banco(last)
         except Exception as e:
             print(f"[tunnel_url_loop] falhou: {e}")
         time.sleep(20)
@@ -17114,6 +17136,78 @@ def _tunnel_url_loop():
 def api_tunnel_url():
     """URL pública atual do túnel (lida de tunnel_url.txt) — usada pela UI e pelo os_creator."""
     return jsonify({"url": _tunnel_url_atual()})
+
+
+# ════ RELAY DE ESCRITA DOS TICKETS (OS Creator) ═══════════════════════════════════════════
+# O app manda a alteração para cá com o JWT do login do Fracttal; a plataforma confere quem é e
+# grava no banco com o token DELA — que assim fica num lugar só (Levi, 07/09/2026). A lógica e
+# os testes estão em tickets_relay.py; aqui é só o encaixe no Flask. Passa pelo _auth_gate por
+# isenção explícita, porque o app de desktop não tem sessão humana desta plataforma.
+import tickets_relay as _relay
+import estado_backup as _estado_backup
+
+
+def _relay_quem():
+    """(email, nome) do JWT do header, ou (None, resposta) — quem chama devolve a resposta.
+    401 é login recusado (o app pede login de novo); 502 é o Fracttal fora do ar, que não é culpa
+    de quem clicou e não deve virar 'faça login de novo'."""
+    try:
+        return _relay.identificar(flask_request.headers.get("X-Fracttal-JWT", "")), None
+    except _relay.NaoAutenticado as e:
+        return None, (jsonify({"error": str(e)}), 401)
+    except (RuntimeError, requests.RequestException) as e:
+        return None, (jsonify({"error": "não consegui conferir o login no Fracttal: %s"
+                               % str(e)[:160]}), 502)
+
+
+@app.route("/api/tickets/quem")
+def api_tickets_quem():
+    """Quem a plataforma acha que é — para o app mostrar e para testar a ligação."""
+    quem, erro = _relay_quem()
+    if erro:
+        return erro
+    return jsonify({"email": quem[0], "nome": quem[1]})
+
+
+@app.route("/api/tickets/<int:sheet_id>/rows", methods=["POST"])
+@app.route("/api/tickets/<int:sheet_id>/rows/<int:row>", methods=["PUT", "DELETE"])
+def api_tickets_relay(sheet_id, row=None):
+    """Grava/apaga uma linha em nome de quem mandou. A resposta do banco volta INTEIRA: é ela que
+    o app confere (o eco da linha gravada) — o relay não reinterpreta nem esconde erro."""
+    quem, erro = _relay_quem()
+    if erro:
+        return erro
+    tok = _estado_backup._token()
+    if not tok:
+        return jsonify({"error": "a plataforma está sem o GRIDCO_SQL_TOKEN"}), 503
+    corpo = flask_request.get_json(silent=True) if flask_request.method != "DELETE" else None
+    try:
+        status, texto = _relay.encaminhar(flask_request.method, sheet_id, row, corpo, quem, tok)
+    except _relay.AbaForaDaLista as e:
+        return jsonify({"error": str(e)}), 403
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except requests.RequestException as e:
+        return jsonify({"error": "banco fora do ar: %s" % str(e)[:160]}), 503
+    return (texto, status, {"Content-Type": "application/json"})
+
+
+@app.route("/api/tickets/workbooks/<wb>/sheets", methods=["POST"])
+def api_tickets_aba(wb):
+    """Cria uma aba nova (o diário v4, quando precisar de coluna nova) — só em workbook permitido."""
+    quem, erro = _relay_quem()
+    if erro:
+        return erro
+    tok = _estado_backup._token()
+    if not tok:
+        return jsonify({"error": "a plataforma está sem o GRIDCO_SQL_TOKEN"}), 503
+    try:
+        status, texto = _relay.criar_aba(wb, flask_request.get_json(silent=True), quem, tok)
+    except _relay.AbaForaDaLista as e:
+        return jsonify({"error": str(e)}), 403
+    except requests.RequestException as e:
+        return jsonify({"error": "banco fora do ar: %s" % str(e)[:160]}), 503
+    return (texto, status, {"Content-Type": "application/json"})
 
 
 # ════ FRACTTAL (CMMS de manutenção) — OS por ativo, no drill do inversor ════════════
