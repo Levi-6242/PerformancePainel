@@ -84,6 +84,18 @@ ESPELHO = {
     "tickets_performance": "Tickets de Performance (atualizada).xlsx",
 }
 
+# Workbooks em que o `updated_at` NÃO serve de gatilho, e por isso se refaz o espelho todo ciclo.
+#
+# Medido em 08/09/2026: gravar uma LINHA (PUT em /api/sheets/<id>/rows/<n>) não mexe no
+# `updated_at` do workbook — só operação de workbook (o `sync-xlsx` do coletor) mexe. O OS Creator
+# escreve os tickets linha a linha, e desde o corte do pipeline (06/09) ele é a ÚNICA origem das
+# abas Trackers e Strings indisp. Resultado: o espelho ficou 9 dias parado no 30/08 enquanto o
+# banco recebia 234 correções de usina, e a plataforma servia o dado velho sem nenhum aviso.
+#
+# Refazer sempre custa 5s por ciclo de 30 min para este workbook (11 mil linhas). É barato perto
+# de servir ticket de uma semana atrás como se fosse de agora.
+SEMPRE_REFAZ = frozenset({"tickets_performance"})
+
 _lock = threading.Lock()
 
 
@@ -339,7 +351,8 @@ def sincronizar(force: bool = False) -> dict:
             # A marca é "versão da FONTE + versão do GERADOR": mudou qualquer um dos dois, refaz.
             versao = f"{w.get('updated_at') or ''}|g{_GERADOR_VER}"
             destino = os.path.join(_BASES_DIR, arquivo)
-            if not force and marca.get(chave) == versao and os.path.exists(destino):
+            if (not force and chave not in SEMPRE_REFAZ
+                    and marca.get(chave) == versao and os.path.exists(destino)):
                 resumo[chave] = "sem mudança"
                 continue
             try:
