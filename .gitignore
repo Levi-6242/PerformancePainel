@@ -62,6 +62,8 @@ logs/
 # ── Artefatos de build / empacotamento (não versionar) ───────────────────────
 oem-app.zip
 *.oem.zip
+# saída do thopen/deploy/_package_thopen.py — instalação à mão; a nuvem puxa o git (10/09/2026)
+thopen-app.zip
 
 # ── Runtime do dashboard Thopen (comentários adicionais gravados pelo app) ─────
 comentarios_adicionais.json
