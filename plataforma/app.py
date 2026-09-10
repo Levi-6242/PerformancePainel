@@ -4,6 +4,7 @@ import unicodedata
 import calendar
 import io
 import csv
+import copy
 import time
 import json
 import shutil
@@ -2371,9 +2372,27 @@ def _equip_lookup(d, nome):
     return None
 
 
-def _pv_plant_inversores(plant_id):
+_PV_PLANT_MEMO: dict = {}          # plant_id -> (ts, inversores) — memo CURTO, ver _pv_plant_inversores
+_PV_PLANT_MEMO_S = 90              # s: cobre a abertura da tela (as duas pernas) sem envelhecer a leitura
+_pv_plant_memo_lock = threading.Lock()
+
+
+def _pv_plant_inversores(plant_id, force=False):
     """Inversores da usina (API PV) com strings classificadas. Reusado pelo endpoint /api/plant
-    e pelo motor de diagnóstico (R-10). Levanta exceção em erro de rede."""
+    e pelo motor de diagnóstico (R-10). Levanta exceção em erro de rede.
+
+    MEMO DE 90 s (Levi, 08/09/2026: "está demorando muito para carregar os inversores da PV Operation").
+    Abrir o Diagnóstico de uma usina da API PV disparava DUAS varreduras completas desta função: uma pelo
+    /api/plant e outra dentro do /api/diagnostico/pv, que a refaz do zero — cada uma com 1 POST day_inverter
+    (timeout 60), 1 GET plant_devices (20) e até N GET de combiner (25 CADA, no laço por inversor). Medido em
+    Coração 1: 5,3 s na 1ª chamada e 18,4 s na 2ª. O memo faz a segunda perna reaproveitar a primeira, corta
+    as chamadas à fonte pela metade e ainda deixa instantâneo reabrir a mesma usina logo em seguida. Curto
+    de propósito: a tela é AO VIVO, então 90 s é o teto do que se pode repetir sem mentir sobre o "agora"."""
+    if not force:
+        with _pv_plant_memo_lock:
+            ent = _PV_PLANT_MEMO.get(plant_id)
+        if ent and (time.time() - ent[0]) < _PV_PLANT_MEMO_S:
+            return ent[1]
     token = _pv_token_for(plant_id)
     records = _http().post(f"{BASE_URL}/day_inverter",
                             headers={"x-access-token": token},
@@ -2608,13 +2627,15 @@ def _pv_plant_inversores(plant_id):
             for s in inv["strings"]:
                 if s["status"] != "trancada":
                     s["status"] = "desligado"; s["ativa"] = False
-    return inversores
+    with _pv_plant_memo_lock:
+        _PV_PLANT_MEMO[plant_id] = (time.time(), inversores)
+    return _PV_PLANT_MEMO[plant_id][1]
 
 
 @app.route("/api/plant/<int:plant_id>")
 def api_plant_detail(plant_id):
     try:
-        invs = _pv_plant_inversores(plant_id)
+        invs = _pv_plant_inversores(plant_id, force=flask_request.args.get("force") == "1")
     except Exception as e:
         # Antes o rótulo era sempre "timeout", e não era: um id inexistente faz a API PV devolver
         # 401 {"error": "Invalid id"} — um DICT. O código então iterava as CHAVES do dict e morria
@@ -2846,8 +2867,12 @@ def _entrada_tempo_real_build() -> dict:
             raise RuntimeError(err["erro"])
         return rows_pv
 
+    # `owen` E o 2C (OWEN_UFVS = Araputanga, Ipixuna do Pará, Sete Lagoas 2, Tupi Paulista), como o resto do
+    # arquivo já diz: _TRK_FONTE_LABEL["owen"]="2C", o rollup faz add("2C", r) e _ENTRADA_VKEY["2c"]="owen".
+    # Registrado sob "RenoGrid", o card do 2C NUNCA era marcado como lido (ficava "fonte não respondeu" para
+    # sempre) e o da RenoGrid — que não tem leitura de trackers — se dizia lido. Varredura de 09/09/2026.
     fontes_trk = {"Athon": lambda: _sunop_parados_rows("gridco"), "Axis": lambda: _sunop_parados_rows("axis"),
-                  "API PV": _pv, "RenoGrid": lambda: _owen_parados_rows(), "Thopen": lambda: _pg_parados_rows()}
+                  "API PV": _pv, "2C": lambda: _owen_parados_rows(), "Thopen": lambda: _pg_parados_rows()}
     # As cinco correm em PARALELO e com PRAZO. Sequencial e sem prazo, bastava uma consulta lenta para a entrada nunca
     # ficar pronta (05/09: o PG passou de 15 min e a tela ficou eternamente "coletando as fontes pela primeira vez").
     # Excecao nao cobria o caso: consulta lenta nao levanta, so nao volta. A thread que estourou o prazo continua viva
@@ -2911,7 +2936,7 @@ def _entrada_tempo_real_build() -> dict:
 # a noite toda string esta em zero e nao e queda. A 1a leitura de cada dia so estabelece a base — senao o
 # amanhecer avisaria todas as strings que ja estavam mortas de vespera. Estado no JSON compartilhado (`notif`).
 _NOTIF_FONTES = (("pv", "Thopen · API PV"), ("pg", "Thopen · Banco de dados"), ("sunop", "Athon"),
-                 ("axis", "Axis"), ("owen", "RenoGrid"), ("semp", "SEMP"), ("alveslima", "Alves Lima"))
+                 ("axis", "Axis"), ("owen", "2C"), ("semp", "SEMP"), ("alveslima", "Alves Lima"))
 # 2C fica de fora de proposito: a string do 2C vem por e-mail (banco-por-dia), nao ha leitura ao vivo para comparar.
 _NOTIF_REBASE_H = 3               # leitura anterior mais velha que isto (PC suspenso, processo fora) → vira base, nao avisa
 _NOTIF_INTERVALO_S = 30 * 60
@@ -3051,6 +3076,89 @@ def _entrada_tr_ttl() -> int:
     return _ENTRADA_TR_TTL_PENDENTE if (_ENTRADA_TR_CACHE["data"] or {}).get("fontes_pendentes") else _ENTRADA_TR_TTL
 
 
+_ENTRADA_TR_VIVO = {"ts": 0.0, "epoch": None, "data": None}   # memo curto da parte de strings recalculada ao vivo
+_ENTRADA_TR_VIVO_S = 15
+
+
+def _entrada_tr_strings_de(r: dict) -> dict:
+    """Campos de strings de uma usina a partir da linha do rollup. Usina SEM COMUNICAÇÃO entra com a ÚLTIMA leitura
+    (é o que a tabela do Monitoramento mostra em vermelho); usina parada e String Box sem visão seguem em zero, como
+    no macro. Sem `diferenca` (linha antiga) vale o `strings_faltando` que vier."""
+    dif = r.get("diferenca")
+    ult = max(0, -int(dif)) if isinstance(dif, (int, float)) else int(r.get("strings_faltando") or 0)
+    st = r.get("status")
+    falt = 0 if (st == "sem_producao" or r.get("sem_visao")) else ult
+    return {"status": st, "causa": r.get("causa"), "strings_faltando": falt, "strings_sem_comm": st == "sem_comm",
+            "str_esp": r.get("str_esp"), "strings_ativas": r.get("strings_ativas"), "ultima_leitura": r.get("ultima_leitura")}
+
+
+def _entrada_tr_strings_ao_vivo(data: dict, epoch) -> dict:
+    """Recalcula, NA HORA DA LEITURA, a parte de strings de cada grupo do tempo real: mesmos caches que a tabela do
+    Monitoramento lê (_portfolio_rollup, nenhuma chamada nova) e o acompanhamento vigente (/api/state). ETM e trackers
+    ficam como estão no cache de 30 min. Não mexe no cache: devolve uma cópia.
+
+    Por quê (Levi, 08/09/2026): o card da Athon dizia "65/153" quando a tabela, lida na mesma hora, só tinha a SMP100
+    com 28 sem acompanhamento — o build de 30 min tinha congelado o rollup de 40 min antes (rampa da manhã: 65 strings
+    "faltando" às 08h40 viraram 28 às 09h06) e o acompanhamento que ele acabara de marcar. E o Thopen dizia "2/28"
+    com a Ipixuna 1 mostrando −15 na tabela: o macro zera as faltantes de usina sem comunicação; a tabela, não."""
+    m = _ENTRADA_TR_VIVO
+    if m["data"] is not None and m["epoch"] == epoch and (time.time() - m["ts"]) < _ENTRADA_TR_VIVO_S:
+        return m["data"]
+    try:
+        rows = _portfolio_rollup()
+        _trk_geo_annotate(rows)
+        with _state_lock:
+            tracking = dict((_load_state() or {}).get("tracking") or {})
+    except Exception as e:                                                    # noqa: BLE001 — sem rollup, vale o cache
+        print(f"[entrada] strings ao vivo: {e}")
+        return data
+    vivo = {(r.get("cliente") or "Sem cliente", r.get("fonte") or "Sem fonte", str(r.get("plant_id"))): r for r in rows}
+    _sev = {"sem_comm": 0, "critico": 1, "atencao": 2, "ok": 3}
+
+    def _ac(pref, pid):
+        v = tracking.get(f"{pref}:{pid}")
+        return int(v) if isinstance(v, (int, float)) and v > 0 else 0
+
+    grupos = []
+    for x0 in (data.get("grupos") or []):
+        x = dict(x0)
+        pref = _ENTRADA_VKEY.get(x.get("fonte_id") or "", "pv")
+        chave = (x.get("cliente"), x.get("fonte"))
+        vistos, usinas = set(), []
+        for u0 in (x0.get("usinas") or []):
+            u = dict(u0)
+            r = vivo.get((chave[0], chave[1], str(u.get("plant_id"))))
+            if r is not None:
+                vistos.add(str(u.get("plant_id")))
+                u.update(_entrada_tr_strings_de(r))
+            u["strings_acomp"] = _ac(pref, u.get("plant_id"))
+            u["strings_nao_rec"] = max(0, int(u.get("strings_faltando") or 0) - u["strings_acomp"])
+            usinas.append(u)
+        for (cli, fon, pid), r in vivo.items():                # usina que apareceu depois do build entra sem esperar 30 min
+            if (cli, fon) == chave and pid not in vistos:
+                u = {"usina": r.get("usina"), "plant_id": r.get("plant_id"), "qtd_inversores": r.get("qtd_inversores"),
+                     "inv_off": r.get("inv_off"), "estado": r.get("estado"), "regiao": r.get("regiao"),
+                     "etm": [], "etm_os": False, "trk_parados": 0, "trk_com_os": 0}
+                u.update(_entrada_tr_strings_de(r))
+                u["strings_acomp"] = _ac(pref, pid)
+                u["strings_nao_rec"] = max(0, u["strings_faltando"] - u["strings_acomp"])
+                usinas.append(u)
+        usinas.sort(key=lambda u: (_sev.get(u.get("status"), 9), -int(u.get("strings_faltando") or 0), u.get("usina") or ""))
+        x["usinas"], x["n_usinas"], x["sem_leitura"] = usinas, len(usinas), not usinas
+        x["strings_faltando"] = sum(int(u.get("strings_faltando") or 0) for u in usinas)
+        x["strings_nao_rec"] = sum(int(u.get("strings_nao_rec") or 0) for u in usinas)
+        x["strings_faltando_sem_comm"] = sum(int(u.get("strings_faltando") or 0) for u in usinas if u.get("strings_sem_comm"))
+        x["usinas_critico"] = sum(1 for u in usinas if u.get("status") == "critico")
+        x["usinas_sem_comm"] = sum(1 for u in usinas if u.get("status") == "sem_comm")
+        x["usinas_ok"] = sum(1 for u in usinas if u.get("status") == "ok")
+        uls = [u.get("ultima_leitura") for u in usinas if u.get("ultima_leitura")]
+        x["ultima_leitura"] = max(uls) if uls else x.get("ultima_leitura")
+        grupos.append(x)
+    out = dict(data, grupos=grupos, strings_ts=datetime.now().strftime("%H:%M:%S"))
+    m.update(ts=time.time(), epoch=epoch, data=out)
+    return out
+
+
 def _entrada_tr_payload() -> dict:
     """O que a tela recebe: o ultimo publicado + idade, TTL (para dizer a hora da proxima) e se ha construcao em curso."""
     c = _ENTRADA_TR_CACHE
@@ -3058,7 +3166,7 @@ def _entrada_tr_payload() -> dict:
     if c["data"] is None:
         return {"aquecendo": True, "grupos": [], "cache_ts": None, "ttl_s": _ENTRADA_TR_TTL, "renovando": c["building"]}
     ttl = _entrada_tr_ttl()
-    return dict(c["data"], stale=(agora - c["ts"]) > ttl, ttl_s=ttl,
+    return dict(_entrada_tr_strings_ao_vivo(c["data"], c["ts"]), stale=(agora - c["ts"]) > ttl, ttl_s=ttl,
                 cache_epoch=int(c["ts"]), idade_s=int(agora - c["ts"]), renovando=c["building"])
 
 
@@ -5866,9 +5974,15 @@ def _sunop_pr_one(plant_name: str, dia: str, inst: str = "gridco"):
         eday = max((v for _, v in hist.get(ep, [])), default=None)
         disp = (EQUIP_NAMES.get(plant_name, {}) or {}).get(inv_name)
         pot  = _pot_inv(plant_name, inv_name, disp)
-        pr   = round(eday / (ipoa * pot), 3) if (eday and ipoa and pot) else None
+        # `is not None`, não verdade: 0,0 kWh é o inversor MORTO (reportou o dia todo e não produziu)
+        # e 'sem série' é ausência de leitura. Com o teste por verdade os dois caíam em None, o morto
+        # aparecia como "sem dado", saía da mediana e o `abaixo` de _sunop_pr_build (que exige
+        # `pr is not None`) não o contava — some da tela justamente quem ela existe para achar. As
+        # outras fontes (API PV, PG, SolarEdge) já usavam `is not None`; só Athon/Axis destoava.
+        pr   = round(eday / (ipoa * pot), 3) if (eday is not None and ipoa and pot) else None
         invs.append({"id": inv_name, "nome": disp or inv_name, "nome_api": inv_name,
-                     "geracao_kwh": round(eday, 1) if eday else None, "pot_kwp": pot, "pr": pr})
+                     "geracao_kwh": round(eday, 1) if eday is not None else None,
+                     "pot_kwp": pot, "pr": pr})
     return ipoa, len(serie), invs
 
 
@@ -5988,7 +6102,8 @@ def api_sunop_trackers_chart(plant_name):
                "ini": ini, "fim": fim, "ndias": ndias, "trackers": trackers, "alvo": alvo}
     g_full = {n.replace("TRK_", "Tracker "): [{"x": t, "y": v} for t, v in posat.get(n, [])]
               for n in trk if posat.get(n)}                # chaves = ids da resposta
-    _trk_chart_aplica_status(trackers, g_full, payload)    # status do DIA VISTO (freeze-based)
+    _alvos = {n.replace("TRK_", "Tracker "): posal[n][-1][1] for n in trk if posal.get(n)}
+    _trk_chart_aplica_status(trackers, g_full, payload, _alvos)   # MESMA régua dos cards (ver a função)
     return jsonify(payload)
 
 
@@ -7051,10 +7166,10 @@ def _trk_classifica_curso(g, jini=6 * 60, jfim=18 * 60, usina=None):
                 if cl in ("normal", "leve") and tid in med:     # + detecção DIRETA do médio 8–10° nas transições
                     cl = "medio"
                 out[tid] = _REGUA_STATUS_MAP.get(cl, "normal")
-            return out
+            return _trk_promove_semcom(g or {}, out, jini, jfim)
         except Exception as e:
             print(f"[regua_v2] curso caiu p/ legacy ({e})")
-    return _trk_classifica_curso_legacy(g, jini, jfim)
+    return _trk_promove_semcom(g or {}, _trk_classifica_curso_legacy(g, jini, jfim), jini, jfim)
 
 
 def _trk_classifica_curso_legacy(g, jini=6 * 60, jfim=18 * 60):
@@ -7120,7 +7235,8 @@ def _trk_semcom_set(g, jini=6 * 60, jfim=18 * 60):
     assinatura do 1º ramo do _trk_classifica_curso, caso TIM100); (2) CURVA DEFASADA — o tracker PAROU de
     reportar há > TRK_STALE_MIN enquanto a FROTA segue (perdeu comm no meio do dia): o 'atual' vira o último
     valor CONHECIDO, velho, então a ronda mostra 'sem comunicação' em vez de um ângulo que não é o de agora
-    (TIM100 trk 109 parou às 08:09 no -55°, Levi 30/07). Serve só p/ ROTULAR: NÃO muda status nem a contagem."""
+    (TIM100 trk 109 parou às 08:09 no -55°, Levi 30/07). Serve p/ ROTULAR (cor e etiqueta); desde 08/09/2026 o `_trk_promove_semcom` usa este mesmo conjunto para
+    PROMOVER a parado quem está travado num ângulo fixo — mas quem decide isso é ele, não esta função."""
     out = set()
     ult = {}                                             # último minuto reportado por tracker (todos os pontos)
     for n, pts in (g or {}).items():
@@ -7137,6 +7253,56 @@ def _trk_semcom_set(g, jini=6 * 60, jfim=18 * 60):
         elif frota_ult is not None and n in ult and (frota_ult - ult[n]) > TRK_STALE_MIN:
             out.add(n)                                   # (2) curva DEFASADA: parou de reportar (offline no dia)
     return out
+
+
+def _trk_promove_semcom(g, cls, jini=6 * 60, jfim=18 * 60):
+    """Tracker SEM COMUNICAÇÃO parado num ÂNGULO FIXO conta como PARADO (Levi, 08/09/2026).
+
+    Até aqui o `_trk_semcom_set` só ROTULAVA — a própria docstring dizia "NÃO muda status nem a contagem".
+    Quem perdia comunicação no MEIO do dia tinha rastreado horas antes de congelar, então a amplitude do dia
+    era grande e o classificador (legacy e v2) devolvia 'normal': ficava com a etiqueta de sem comunicação na
+    tela e FORA da contagem de parados, da disponibilidade e da ronda — apesar de estar fisicamente travado
+    num ângulo, gerando de menos. Para o campo não há diferença entre "congelou e continua reportando" e
+    "congelou e parou de reportar"; a única diferença é que do segundo só se conhece o ÚLTIMO ângulo.
+
+    Promove só quem tem ÂNGULO CONHECIDO (ao menos uma leitura na janela) e está mesmo travado:
+      • amplitude do dia < TRK_PARADO_AMP2 → ângulo fixo, medido (é o caso do sensor morto em 0,00°); ou
+      • última leitura mais velha que a MEDIANA da frota por mais de TRK_STALE_MIN → congelou e emudeceu.
+    A mediana (e não o máximo, que o `_trk_semcom_set` usa para rotular) é a trava contra amplificação: com o
+    máximo, UM tracker reportando às 23:50 declararia a frota inteira defasada — o que antes só errava a cor
+    e agora mexeria no CONTADOR. Usina inteira sem leitura não chega aqui (curva vazia → conjunto vazio) e
+    segue como 'sem comunicação' de USINA.
+    O RÓTULO não muda: `sem_comunicacao` continua True e a UI segue pintando por ele; só o contador soma."""
+    if not cls:
+        return cls
+    ult, amp = {}, {}
+    for n, pts in (g or {}).items():
+        s = [(_trk_mins(p.get("x")), p.get("y")) for p in (pts or [])
+             if isinstance(p.get("y"), (int, float)) and _trk_mins(p.get("x")) is not None
+             and jini <= _trk_mins(p.get("x")) <= jfim]
+        if s:
+            ult[n] = max(m for m, _ in s)
+            amp[n] = _amp_robusta([v for _, v in s])
+    if not ult:
+        return cls
+    _o = sorted(ult.values())
+    frota_med = _o[len(_o) // 2]
+    for n in _trk_semcom_set(g, jini, jfim):
+        v = cls.get(n)
+        if v is None or n not in ult:
+            continue                                   # sem leitura na janela = sem ângulo conhecido
+        travado = amp.get(n) is not None and amp[n] < TRK_PARADO_AMP2
+        defasado = (frota_med - ult[n]) > TRK_STALE_MIN
+        if not (travado or defasado):
+            continue
+        if isinstance(v, dict):                        # contrato de PERDAS (status + janela do episódio)
+            if v.get("status") != "parado":
+                v["status"] = "parado"
+                if v.get("dur_min") is None and jfim > ult[n]:
+                    v.update({"ini_min": ult[n], "fim_min": jfim, "dur_min": jfim - ult[n]})
+        elif v != "parado":                            # contrato de CURSO (string)
+            cls[n] = "parado"
+    return cls
 
 
 def _trk_classifica_curso_perdas(g, jini=6 * 60, jfim=18 * 60, usina=None):
@@ -7166,10 +7332,10 @@ def _trk_classifica_curso_perdas(g, jini=6 * 60, jfim=18 * 60, usina=None):
                                 "ini_min": o.get("ini"), "fim_min": o.get("fim")}
                 else:
                     out[tid] = {"status": cl, "dur_min": None, "ini_min": None, "fim_min": None}
-            return out
+            return _trk_promove_semcom(g or {}, out, jini, jfim)
         except Exception as e:
             print(f"[regua_v2] perdas caiu p/ legacy ({e})")
-    return _trk_classifica_curso_perdas_legacy(g, jini, jfim)
+    return _trk_promove_semcom(g or {}, _trk_classifica_curso_perdas_legacy(g, jini, jfim), jini, jfim)
 
 
 def _trk_classifica_curso_perdas_legacy(g, jini=6 * 60, jfim=18 * 60):
@@ -7400,51 +7566,45 @@ def _trk_g_ultimo_dia(g):
     return {n: [p for p in (pts or []) if _trk_daykey(p.get("x")) == ult] for n, pts in (g or {}).items()}
 
 
-def _trk_chart_status(g_full, jini=6 * 60, jfim=18 * 60):
-    """Do gráfico full-res g = {tracker:[{x,y}]}, classifica o ÚLTIMO dia pela régua FREEZE-BASED e devolve
-    (status {tracker: parado/severo/leve/normal}, dev {tracker: maior desvio da frota °}, par, sev, lev).
-    Usado pelos endpoints /chart p/ o front colorir o status do DIA VISTO (dia passado, ou último dia do
-    intervalo) — antes o front recalculava por régua antiga e o resumo mostrava os números de HOJE."""
-    gd = _trk_g_ultimo_dia(g_full or {})
-    cls = _trk_classifica_curso(gd)
-    _M = {"desvio_severo": "severo", "desvio_leve": "leve", "desvio_medio": "medio"}
-    st = {n: _M.get(c, c) for n, c in cls.items()}
-    # dev por tracker = MAIOR |ângulo - mediana da frota| na janela (número mostrado na badge do dia)
-    series = {}
-    for n, pts in gd.items():
-        s = [(_trk_mins(p.get("x")), p.get("y")) for p in (pts or [])
-             if isinstance(p.get("y"), (int, float)) and _trk_mins(p.get("x")) is not None
-             and jini <= _trk_mins(p.get("x")) <= jfim]
-        if s:
-            series[n] = s
-    by = {}
-    for s in series.values():
-        for mn, v in s:
-            by.setdefault(mn, []).append(v)
-    fleet = {mn: sorted(v)[len(v) // 2] for mn, v in by.items()}
-    dev = {n: round(max((abs(v - fleet[mn]) for mn, v in s if mn in fleet), default=0.0), 1)
-           for n, s in series.items()}
-    par = sum(1 for c in st.values() if c == "parado")
-    sev = sum(1 for c in st.values() if c == "severo")
-    med = sum(1 for c in st.values() if c == "medio")
-    lev = sum(1 for c in st.values() if c == "leve")
-    return st, dev, par, sev, med, lev
+def _trk_chart_aplica_status(trackers, g_full, payload, alvos=None):
+    """Anexa a cada tracker do /chart o status do DIA VISTO + as contagens no payload, pela MESMA CADEIA QUE
+    OS CARDS usam: `_trk_status_from_curva` (freeze-based + comm-morta + prova de movimento) e depois
+    `_trk_alvo_mediana` (alvo = mediana da frota, disparidade contra ele e a exoneração definitiva do
+    falso-parado EM CIMA DO ALVO).
 
+    `trackers` = lista [{id,x,y}] da resposta; `g_full` = o mesmo gráfico em resolução cheia, com as chaves
+    IGUAIS aos ids da resposta; `alvos` = {id: alvo do supervisório} nas fontes que têm (SunOp/PG/2C).
 
-def _trk_chart_aplica_status(trackers, g_full, payload):
-    """Anexa o status do DIA VISTO (freeze-based) a cada tracker do /chart + contagens no payload.
-    `trackers` = lista [{id,x,y}] da resposta; `g_full` = mesmo gráfico em resolução cheia com as chaves
-    IGUAIS aos ids da resposta. Mutação in-place; devolve o payload."""
-    st, dev, par, sev, med, lev = _trk_chart_status(g_full or {})
+    Até 08/09/2026 aqui rodava um motor PARALELO, só do /chart: a classificação crua da curva e nada mais — sem
+    exonerar o falso-parado em cima do alvo e sem separar quem está sem comunicação. O TIM100 então dizia
+    "76 parado" na legenda do gráfico enquanto os cards, na mesma tela, mostravam 8 parados, 36 sem
+    comunicação e 101 normais — 32 dos 76 eram trackers que a régua consolidada rebaixa. "O certo é o dos
+    cards" (Levi): régua de status é UMA, e é esta. Mutação in-place; devolve o payload."""
+    gd = _trk_g_ultimo_dia(g_full or {})          # o gráfico pode cobrir vários dias: classifica o ÚLTIMO
+    lst = []
     for t in trackers:
-        c = st.get(t["id"])
-        if c:
-            t["status"] = c
-        d = dev.get(t["id"])
-        if d is not None:
-            t["disparidade"] = d
-    payload.update({"parados": par, "severos": sev, "medios": med, "leves": lev,
-                    "desvios": sev, "atrasos": lev, "esquema": "novo", "cls_dia": True})
+        pts = [p for p in (gd.get(t["id"]) or []) if isinstance(p.get("y"), (int, float))]
+        lst.append({"id": t["id"], "atual": pts[-1]["y"] if pts else None,
+                    "alvo": (alvos or {}).get(t["id"]), "status": "normal"})
+    _trk_status_from_curva(lst, gd)
+    # `sem_comunicacao` no nível da USINA = curva vazia (nenhum ponto): é o gatilho do traço no _trk_alvo_mediana
+    base = {"trackers": lst, "parados": 0, "sem_comunicacao": not any(gd.get(t["id"]) for t in trackers)}
+    _trk_alvo_mediana(base)
+    por_id = {r["id"]: r for r in lst}
+    for t in trackers:
+        r = por_id.get(t["id"])
+        if not r:
+            continue
+        t["status"] = r.get("status") or "normal"
+        t["sem_comunicacao"] = bool(r.get("sem_comunicacao"))
+        t["disparidade"] = r.get("disparidade")
+
+    def _n(s):
+        return sum(1 for r in lst if r.get("status") == s)
+    payload.update({"parados": _n("parado"), "severos": _n("severo"), "medios": _n("medio"), "leves": _n("leve"),
+                    "desvios": _n("severo"), "atrasos": _n("leve"),
+                    "sem_comunicacao_n": sum(1 for r in lst if r.get("sem_comunicacao")),
+                    "esquema": "novo", "cls_dia": True})
     return payload
 
 
@@ -8696,7 +8856,7 @@ def api_pv_trackers_chart(idusina):
                                for p in s]})
     payload = {"plant": idusina, "date": datetime.strptime(ini_iso, "%Y-%m-%d").strftime("%d/%m/%Y"),
                "ini": ini_iso, "fim": fim_iso, "ndias": ndias, "trackers": trackers, "alvo": None}
-    _trk_chart_aplica_status(trackers, g, payload)   # status do DIA VISTO (freeze-based) p/ colorir o dia
+    _trk_chart_aplica_status(trackers, g, payload)   # MESMA régua dos cards (a API PV não manda alvo por tracker)
     if ndias == 1:
         _pv_trk_chart_cache[(idusina, payload["date"])] = {"ts": agora, "payload": payload}
     return jsonify(payload)
@@ -8894,10 +9054,14 @@ def _se_day_range(tzname):
     return frm, to
 
 
-def se_string_power(site_id, uuids, tzname) -> dict:
-    """generate-chart em lotes → {uuid: ultima_potencia_W ou None}, e timestamp máx."""
+def se_string_power(site_id, uuids, tzname):
+    """generate-chart em lotes → ({uuid: ultima_potencia_W ou None}, timestamp máx, lotes_falhos).
+
+    O 3º valor é o que separa "string sem potência" de "leitura que não veio": um lote de 50 que falha
+    tira 50 uuids do mapa, e quem consome conta uuid ausente como string morta. Mesma armadilha que o
+    SunOp levou em 31/07 (248 alarmes falsos com sem_dados=false) — ver `process_plant_sunop`."""
     frm, to = _se_day_range(tzname)
-    out, ts_max = {}, ""
+    out, ts_max, lotes_falhos = {}, "", 0
     H = _se_headers()
     for i in range(0, len(uuids), 50):
         batch = uuids[i:i + 50]
@@ -8920,9 +9084,11 @@ def se_string_power(site_id, uuids, tzname) -> dict:
                 f"{SE_BASE}/services/cni/ui-api/pages/site/analysis/custom/site/{site_id}/generate-chart",
                 headers=H, json=payload, timeout=40)
             if r.status_code != 200:
+                lotes_falhos += 1
                 continue
             d = r.json()
         except Exception:
+            lotes_falhos += 1
             continue
         metas = d.get("meta", {}).get("datasetsMeta", [])
         data  = d.get("data", [])
@@ -8937,7 +9103,7 @@ def se_string_power(site_id, uuids, tzname) -> dict:
                     if row[0] > ts_max:
                         ts_max = row[0]
             out[uuid] = last_p
-    return out, ts_max
+    return out, ts_max, lotes_falhos
 
 
 # ── SolarEdge: OTIMIZADORES de uma string (lazy — só ao expandir a string no drill) ────────────
@@ -9042,8 +9208,14 @@ def process_site_solaredge(site: dict) -> dict:
     if not strings:
         return base
     uuids = [s["deviceSerial"] for s in strings]
-    power, ts_max = se_string_power(sid, uuids, site.get("timezone"))
+    power, ts_max, lotes_falhos = se_string_power(sid, uuids, site.get("timezone"))
     if not power:
+        return base
+    if lotes_falhos:
+        # LOTE FALHO = FOTO INCOMPLETA (a mesma regra do SunOp, ver process_plant_sunop): as strings do
+        # lote que não voltou ficam FORA do mapa, e a conta abaixo leria cada uma como morta. Uma falha
+        # de rede viraria 50 alarmes falsos com sem_dados=false. Uuid que não voltou é DESCONHECIDO.
+        print(f"[SE] {nome}: {lotes_falhos} lote(s) de strings falharam — usina marcada SEM DADOS")
         return base
     ativas = sum(1 for u in uuids if (power.get(u) is not None and power[u] > SE_STRING_MIN_W))
     total  = len(strings)
@@ -9096,8 +9268,39 @@ def api_solaredge_data():
     return jsonify(_swr(_se_cache, _build_se_payload, force))
 
 
-@app.route("/api/solaredge/plant/<int:site_id>")
-def api_solaredge_plant(site_id):
+def _inv_eday_do_pr(invs: list, pr_invs: list) -> int:
+    """Preenche `eday` (kWh de HOJE) dos inversores do detalhe com a geração que a rota de PR do dia já calculou.
+
+    Thopen (PG) e SolarEdge não trazem energia no detalhe por inversor: a tabela "Inversores no dia" do /painel ficava
+    com a barra vazia e "—" em kWh mesmo com o PR preenchido (Ipixuna 1, Ibaté 1, Colider 1 — Levi, 07/09/2026). O
+    número já existia no cache de PR do dia (banco no PG, render-chart MONTH na SolarEdge, TTL de 5 min), só não era
+    casado. Casa por id (device_id / serial), depois pelo nome da fonte, depois pelo nome de exibição; sobrescreve o
+    que tiver (o PR é a leitura mais fresca) e não inventa: inversor sem geração no PR fica None. Devolve quantos casou."""
+    por_id, por_api, por_nome = {}, {}, {}
+    for x in pr_invs or []:
+        g = x.get("geracao_kwh")
+        if g is None:
+            continue
+        por_id[str(x.get("id"))] = g
+        if x.get("nome_api"):
+            por_api[str(x["nome_api"])] = g
+        if x.get("nome"):
+            por_nome[str(x["nome"])] = g
+    n = 0
+    for inv in invs or []:
+        g = por_id.get(str(inv.get("id")))
+        if g is None:
+            g = por_api.get(str(inv.get("nome_api") or ""))
+        if g is None:
+            g = por_nome.get(str(inv.get("nome") or ""))
+        if g is not None:
+            inv["eday"] = g
+            n += 1
+    return n
+
+
+def _se_plant_inversores(site_id: int) -> list:
+    """Inversores + strings de um site SolarEdge (o detalhe que /api/solaredge/plant devolve), já com o eday de hoje."""
     # Busca timezone e nome do site (da lista, em cache curto)
     site = next((s for s in se_sites() if int(s["id"]) == site_id), None)
     tzname    = site.get("timezone") if site else None
@@ -9107,14 +9310,14 @@ def api_solaredge_plant(site_id):
 
     devs = se_devices(site_id)
     if not devs:
-        return jsonify({"plant_id": site_id, "inversores": []})
+        return []
 
     invs    = [d for d in devs if d.get("deviceType") == "INVERTER"]
     strings = [d for d in devs if d.get("deviceType") == "STRING"]
     inv_nome = {d["deviceSerial"]: d.get("deviceName", d["deviceSerial"]) for d in invs}
 
     uuids = [s["deviceSerial"] for s in strings]
-    power, _ = se_string_power(site_id, uuids, tzname)
+    power, _ts_pw, lotes_falhos = se_string_power(site_id, uuids, tzname)
 
     # Agrupa strings por inversor (partOfSerial / pluggedTo)
     por_inv = {}
@@ -9145,7 +9348,10 @@ def api_solaredge_plant(site_id):
                           "unidade": "W", "ativa": ativa,
                           "uuid": s["deviceSerial"]})     # p/ o lazy-load dos otimizadores no expand
         total = len(slist)
-        desligado = ativas == 0
+        # se algum lote não voltou, as strings deste inversor podem estar ausentes do mapa — e ausência
+        # não é zero: o inversor entra como SEM COMUNICAÇÃO (é o que a tela sabe pintar), nunca desligado
+        _sem_leitura = lotes_falhos > 0 and all(power.get(s["deviceSerial"]) is None for s in slist)
+        desligado = (ativas == 0) and not _sem_leitura
         nome_inv = inv_nome.get(parent, parent)            # nome SolarEdge (ex.: "Inverter 1")
         str_esp_inv = esp_inv_map.get(nome_inv)            # esperadas da planilha
         if str_esp_inv is None:
@@ -9153,7 +9359,7 @@ def api_solaredge_plant(site_id):
         nome_disp = equip_disp_map.get(nome_inv, nome_inv) # nome de exibição (BD_Performance)
         inversores.append({
             "id": parent, "nome": nome_disp, "nome_api": nome_inv,
-            "ultima_leitura": None, "falha_comunicacao": False, "desligado": desligado,
+            "ultima_leitura": None, "falha_comunicacao": _sem_leitura, "desligado": desligado,
             "strings_ativas": ativas, "total_strings": total,
             "str_esp": str_esp_inv, "diferenca": ativas - str_esp_inv,
             "temp": None, "eday": None, "strings": chips,
@@ -9162,7 +9368,18 @@ def api_solaredge_plant(site_id):
         m = re.search(r"(\d+)", name or "")
         return int(m.group(1)) if m else 999
     inversores.sort(key=lambda x: _inv_num(x["nome"]))
-    return jsonify({"plant_id": site_id, "inversores": inversores})
+    # energia de HOJE por inversor: o detalhe da SolarEdge não a traz, o cache de PR do dia (render-chart MONTH) traz
+    try:
+        _, _prd = _se_pr_get(datetime.now().date().isoformat())
+        _inv_eday_do_pr(inversores, _prd.get(site_id, []))
+    except Exception as e:                                                    # noqa: BLE001 — sem PR o detalhe segue sem energia
+        print(f"[solaredge] plant {site_id}: eday do PR indisponível ({e})")
+    return inversores
+
+
+@app.route("/api/solaredge/plant/<int:site_id>")
+def api_solaredge_plant(site_id):
+    return jsonify({"plant_id": site_id, "inversores": _se_plant_inversores(site_id)})
 
 
 # ── SolarEdge: PR por inversor (render-chart MONTH) ────────────────────────────
@@ -9997,19 +10214,73 @@ def _trk_geo_annotate(rows):
     return rows
 
 
+def _somar_partes_da_usina(item, irmas):
+    """Uma usina FÍSICA fatiada em várias plantas na MESMA fonte (Indaiatuba 1-4, Altair 1-5, Brodowski
+    Skid 1/2) tem que aparecer INTEIRA no /painel. O `add()` já elegeu a pior fatia como representante;
+    aqui só se soma o que é contável. "Em Indaiatuba está contando apenas com a Indaiatuba 2, tem que
+    contar com os demais" (Levi, 08/09/2026): eram 4 plantas (21480-21483, 18 inversores, 380 strings) e
+    o drawer mostrava as de UMA fatia só.
+
+    SÓ SOMA DENTRO DA MESMA FONTE — é isso que preserva a dedup PG × API PV. Quando a mesma usina aparece
+    em duas fontes, as linhas seguem DISPUTANDO (pior vence) e nada é somado; somar entre fontes duplicaria
+    a frota. Medido em 08/09/2026: nenhuma usina cai hoje em duas fontes, então a soma por fonte é inócua
+    para a dedup e a proteção continua de pé para quando isso mudar.
+
+    `plant_id` NÃO muda: é a âncora de tudo que veio depois (drill, /monitoramento, comentários,
+    acompanhamento em tracking["pv:<plant_id>"]). Trocá-lo orfanaria comentário e acompanhamento gravados."""
+    if len(irmas) < 2:
+        return
+
+    def _soma(campo):
+        v = [x.get(campo) for x in irmas if isinstance(x.get(campo), (int, float))]
+        return sum(v) if v else None
+
+    # a fotografia das fatias vem ANTES das somas: o vencedor É uma das irmãs e, mutado primeiro,
+    # apareceria no próprio rodapé já com o total (Indaiatuba 1 lida como 18 inversores em vez de 10)
+    item["n_partes"] = len(irmas)
+    item["partes"] = [{"plant_id": x.get("plant_id"), "usina": x.get("usina_fonte") or x.get("usina"),
+                       "status": x.get("status"), "qtd_inversores": x.get("qtd_inversores"),
+                       "strings_faltando": x.get("strings_faltando")} for x in irmas]
+    item["qtd_inversores"] = _soma("qtd_inversores")
+    item["inv_off"] = _soma("inv_off")
+    item["strings_ativas"] = _soma("strings_ativas")
+    item["str_esp"] = _soma("str_esp")
+    # cada irmã JÁ vem silenciada pelo _macro_item (sem produção / sem comunicação / sem visão entram com
+    # 0). Somar o campo já silenciado é o único jeito de KPI, card e /tempo-real falarem o mesmo número —
+    # recalcular por Σativas − Σesperadas ressuscitaria o déficit da fatia que a régua tinha calado.
+    falt = sum(int(x.get("strings_faltando") or 0) for x in irmas)
+    item["strings_faltando"] = falt
+    item["diferenca"] = -falt if falt else item.get("diferenca")
+    ult = [x.get("ultima_leitura") for x in irmas if x.get("ultima_leitura")]
+    if ult:
+        item["ultima_leitura"] = max(ult)
+    # o veredito passa a falar dos números somados; sem strings_ativas/str_esp de propósito, p/ o
+    # _macro_dif cair no `diferenca` acima (o já silenciado) e não recontar o que foi calado.
+    # `inv_padrao` viaja junto: sem ele a causa de Barretos voltava a "Normal" com o status em atenção
+    # (10/09, primeiro ciclo da régua de padrão no ar — a fatia vencedora tinha o alerta, o resumo não).
+    item["causa"] = _macro_causa({"inv_off": item["inv_off"], "qtd_inversores": item["qtd_inversores"],
+                                  "diferenca": item["diferenca"], "sem_visao": item.get("sem_visao"),
+                                  "inv_padrao": item.get("inv_padrao")},
+                                 item["status"])
+
+
 def _portfolio_rollup() -> list:
     """Lista única de usinas do portfólio, pior→melhor. Reusa os caches das fontes.
     Nome pela coluna 'Usina' (Equipamentos); sub-usinas que caem na mesma 'Usina' física são
-    agrupadas mantendo o PIOR status (e a dedup PG↔API PV cai naturalmente nessa chave)."""
+    agrupadas mantendo o PIOR status e SOMANDO o que é contável (ver _somar_partes_da_usina). A dedup
+    PG↔API PV cai naturalmente nessa chave, e a soma acontece só DENTRO de uma fonte."""
     por_usina = {}                            # nrm('Usina') -> item (mantém o pior)
+    partes = {}                               # nrm('Usina') -> {fonte: [itens]} — as fatias da mesma usina
 
     def add(fonte, r):
         item = _macro_item(fonte, r)
         nome = _macro_usina_nome(item.get("usina"))
         if not nome:
             return
+        item["usina_fonte"] = item["usina"]   # nome da FATIA ("Indaiatuba 2 (133)") p/ o rodapé do drawer
         item["usina"] = nome
         k = _nrm(nome)
+        partes.setdefault(k, {}).setdefault(fonte, []).append(item)
         prev = por_usina.get(k)
         if (prev is None or item["sev"] < prev["sev"]
                 or (item["sev"] == prev["sev"]
@@ -10058,6 +10329,8 @@ def _portfolio_rollup() -> list:
     except Exception as e:
         print(f"[macro] SEMP indisponível: {e}")
 
+    for _k, _it in por_usina.items():         # soma as fatias da MESMA fonte do vencedor (antes do guard
+        _somar_partes_da_usina(_it, (partes.get(_k) or {}).get(_it["fonte"]) or [])   # de telemetria, que zera)
     usinas = list(por_usina.values())
     # Guard de telemetria parada: se a frota está lendo fresco (dia/sistema no ar) mas uma usina
     # está com a última leitura velha (>2h), é problema de comunicação — não "sem geração".
@@ -10204,6 +10477,15 @@ def _carteira_de(usina):
         return None
 
 
+def _thopen_dia_coberto(r) -> bool:
+    """Dia que conta no denominador da meta prorrateada: geração > 0, ou zero CONFIRMADO por IPOA medida (aí a usina
+    de fato não gerou). Zero SEM sol medido é lacuna da coleta, não usina parada: em 05–07/09/2026 as 93 usinas do
+    BD_Thopen vieram zeradas e a meta cobrava 3 dias que ninguém mediu — Coração 2 marcava 64% com 112% nos dias
+    reais, enquanto os inversores (acumulador) mostravam ~88%. "Confirme pelo IPOA" (régua de 06/07)."""
+    g = r.get("ger")
+    return g is not None and (g > 0 or (r.get("ipoa") or 0) > 0.3)
+
+
 def _thopen_prod_build(ano=None, mes=None):
     """Produção/PR das usinas Thopen no MÊS alvo (default: corrente — comportamento original).
     Mês passado NÃO mexe no cache MTD; devolve o dict (o histórico é cacheado no payload do gerencial).
@@ -10211,7 +10493,7 @@ def _thopen_prod_build(ano=None, mes=None):
     hoje = datetime.now()
     alvo_a, alvo_m = int(ano or hoje.year), int(mes or hoje.month)
     atual = (alvo_a, alvo_m) == (hoje.year, hoje.month)
-    out = {}
+    out, completo = {}, False
     try:
         import dashboard_thopen as _dth
         reg = _dth._registro()                       # T_Usinas: {usina: {cliente, pot_mwp, ...}}
@@ -10227,15 +10509,15 @@ def _thopen_prod_build(ano=None, mes=None):
                 continue
             prod = sum(r["ger"] for r in recs
                        if r.get("ger") and r["data"].year == alvo_a and r["data"].month == alvo_m)
-            # Dias que a planilha REPORTOU no mês (registro existente, mesmo com geração 0).
-            # É o denominador da meta prorrateada no gerencial — ver _prorata_de().
+            # Dias que a planilha REPORTOU no mês (geração > 0, ou zero confirmado por IPOA — ver
+            # _thopen_dia_coberto). É o denominador da meta prorrateada no gerencial — ver _prorata_de().
             # O `<= hoje.day` NÃO é detalhe: a aba diária do BD_Thopen já vem com as linhas do
             # mês inteiro criadas e zeradas, então sem o corte uma usina marcava 31 dias cobertos
             # em 28/07 e a meta cobrava 3 dias que ainda nem aconteceram (Sorocaba caía de 141,7%
             # para 128,0%). Dia futuro zerado é formulário em branco, não usina parada.
             _lim = hoje.day if atual else 31
             dias_cob = len({r["data"].day for r in recs
-                            if r.get("ger") is not None
+                            if _thopen_dia_coberto(r)
                             and r["data"].year == alvo_a and r["data"].month == alvo_m
                             and r["data"].day <= _lim})
             if prod > 0:
@@ -10250,6 +10532,9 @@ def _thopen_prod_build(ano=None, mes=None):
                         gsum += r["ger"]; isum += r["ipoa"]
                 pr_frac = (gsum / 1000.0 / (isum * pot)) if (pot and isum) else None
                 out[_nrm(u)] = {"usina": u, "prod_mwh": prod / 1000.0,
+                                # numerador do PR: só os dias que também entraram na `ipoa` (>0,3).
+                                # `prod_mwh` é o mês inteiro e serve ao atingimento.
+                                "prod_pr_mwh": gsum / 1000.0,
                                 "carteira": _dth._CARTEIRA_DE.get(u),
                                 "dias_cob": dias_cob,
                                 "pot_mwp": pot, "ipoa": round(isum, 1),
@@ -10260,11 +10545,21 @@ def _thopen_prod_build(ano=None, mes=None):
         # o rótulo dizia "(xlsx)" desde antes da migração de 28/08/2026 e mentia: `dashboard_thopen._wb()`
         # lê do PostgreSQL (fonte_api) e não tem segundo caminho. Log errado manda gente investigar o lado errado.
         print(f"[gerencial] Thopen prod {alvo_m:02d}/{alvo_a} (PostgreSQL): {len(out)} usinas")
+        completo = True
     except Exception as e:
         print(f"[gerencial] Thopen prod build falhou: {e}")
     if atual:                                     # mês passado NÃO pode sobrescrever o cache MTD
-        _thopen_prod_cache.update({"data": out, "ts": time.time(),
-                                   "ym": (datetime.now().year, datetime.now().month), "warming": False})
+        # ...e build que MORREU NO MEIO também não. O `try` envolve o laço inteiro: banco fora do ar
+        # deixa `out` vazio, e carimbar `ts=agora` congelava esse vazio por um TTL inteiro (30 min) —
+        # a carteira Thopen inteira aparecia como "sem coleta" no Gerencial por causa de uma falha de
+        # 2 segundos, sem ninguém tentar de novo. Mesma lição que o _cache_load e o
+        # _meta_snapshot_preservando já carregam escrita: VAZIO NÃO SOBRESCREVE CHEIO.
+        if completo and (out or not _thopen_prod_cache.get("data")):
+            _thopen_prod_cache.update({"data": out, "ts": time.time(),
+                                       "ym": (datetime.now().year, datetime.now().month), "warming": False})
+        else:
+            _thopen_prod_cache["warming"] = False   # libera a próxima tentativa; NÃO carimba o ts
+            print("[gerencial] Thopen prod incompleto — mantendo o último bom")
     return out
 
 
@@ -10296,7 +10591,7 @@ def _bdperf_prod_build(ano=None, mes=None):
     hoje = datetime.now()
     alvo_a, alvo_m = int(ano or hoje.year), int(mes or hoje.month)
     atual = (alvo_a, alvo_m) == (hoje.year, hoje.month)
-    out = {}
+    out, completo = {}, False
     try:
         import openpyxl
         hoje_d = hoje.date()
@@ -10397,6 +10692,9 @@ def _bdperf_prod_build(ano=None, mes=None):
                     rec = pr_previsto(nome, alvo_a, alvo_m)
                     prm = rec.get("pr_previsto") if rec else None
                     out[k] = {"usina": nome, "prod_mwh": tot / 1000.0,
+                              # numerador do PR: só os dias FECHADOS, validados e com DEF/ETM
+                              # utilizável — os mesmos que somaram a `ipoa` abaixo
+                              "prod_pr_mwh": gen_pr / 1000.0,
                               "cliente": ig.get("cliente"), "pot_mwp": mwp,
                               "dias_cob": len(dias_cob),
                               "ghi": round(ghi, 2) if ghi else None,
@@ -10411,11 +10709,18 @@ def _bdperf_prod_build(ano=None, mes=None):
         except Exception:
             pass
         print(f"[gerencial] BD_Performance prod {alvo_m:02d}/{alvo_a} (Athon/Axis/2C): {len(out)} usinas")
+        completo = True
     except Exception as e:
         print(f"[gerencial] BD_Performance prod build falhou: {e}")
     if atual:                                     # mês passado NÃO pode sobrescrever o cache MTD
-        _bdperf_prod_cache.update({"data": out, "ts": time.time(),
-                                   "ym": (datetime.now().year, datetime.now().month), "warming": False})
+        # mesma regra do Thopen acima: planilha travada pelo OneDrive (o caso comum aqui) não pode
+        # apagar Athon/Axis/2C do Gerencial por meia hora
+        if completo and (out or not _bdperf_prod_cache.get("data")):
+            _bdperf_prod_cache.update({"data": out, "ts": time.time(),
+                                       "ym": (datetime.now().year, datetime.now().month), "warming": False})
+        else:
+            _bdperf_prod_cache["warming"] = False
+            print("[gerencial] BD_Performance prod incompleto — mantendo o último bom")
     return out
 
 
@@ -10518,6 +10823,42 @@ def _bdperf_pr_inv(usina, ano=None, mes=None):
     return out
 
 
+def _bdperf_inv_dias(usina: str, ano: int, mes: int) -> dict:
+    """{dia ISO: {"ipoa": kWh/m² ou None, "inv": {nome: kWh}}} da aba da usina no BD_Performance — só dias FECHADOS.
+    Mesmas colunas do _bdperf_pr_inv ("Inversor ..."), mas SEM pular o dia sem IPOA: no histórico a geração
+    interessa mesmo quando o analista rejeitou a DEF (o PR daquele dia fica vazio; a energia, não)."""
+    k = _nrm(usina)
+    out = {}
+    try:
+        import openpyxl
+        hoje_d = datetime.now().date()
+        wb = openpyxl.load_workbook(_bd_readable(), read_only=True, data_only=True)
+        nome = next((s for s in wb.sheetnames if _nrm(s) == k), None)
+        if not nome:
+            wb.close(); return out
+        it = wb[nome].iter_rows(values_only=True)
+        hdr = next(it, None) or ()
+        invc = [(i, str(h).strip()) for i, h in enumerate(hdr) if h and str(h).startswith("Inversor")]
+        ii = next((i for i, h in enumerate(hdr) if h and "IPOA" in str(h) and "DEF" in str(h)), None)
+        etmc = [i for i, h in enumerate(hdr) if h and "IPOA" in str(h).upper() and "ETM" in str(h).upper()]
+        for r in it:
+            d = r[1] if len(r) > 1 else None
+            if not (isinstance(d, datetime) and d.year == ano and d.month == mes and d.date() < hoje_d):
+                continue
+            ipd = r[ii] if (ii is not None and ii < len(r)) else None
+            ip = ipd if (isinstance(ipd, (int, float)) and ipd > 0.5) else None
+            if ip is None:                # DEF em branco/rejeitada → melhor IPOA medida (ETM) do dia
+                cand = [r[i] for i in etmc if i < len(r) and isinstance(r[i], (int, float)) and r[i] > 0.5]
+                ip = max(cand) if cand else None
+            inv = {nm: round(float(r[i]), 1) for i, nm in invc if i < len(r) and isinstance(r[i], (int, float))}
+            if inv or ip is not None:
+                out[d.strftime("%Y-%m-%d")] = {"ipoa": round(float(ip), 2) if ip is not None else None, "inv": inv}
+        wb.close()
+    except Exception as e:                                                    # noqa: BLE001 — planilha travada/ausente: fica sem essa fonte
+        print(f"[inv-hist] BD_Performance {usina}: {e}")
+    return out
+
+
 @app.route("/api/inv/pr-mes")
 def api_inv_pr_mes():
     """PR por inversor de uma usina (abas do BD_Performance). ?usina=<nome>&mes=YYYY-MM
@@ -10560,6 +10901,11 @@ def _etm_prob_warm():
 def _etm_problemas_build():
     hoje = datetime.now()
     hoje_d = hoje.date()
+    # No dia 1º, "do mês corrente E já fechado" é um conjunto VAZIO por construção: a única data do mês
+    # é hoje, que o filtro exclui. O painel abria sem nenhum item (ou, nas usinas com GHI, acusava a
+    # frota inteira de "sem leitura no mês inteiro"). Nesse dia o mês de referência é o que ACABOU de
+    # fechar — que é justamente o que se quer olhar em 1º de mês. (Varredura de 09/09/2026.)
+    ref = hoje if hoje.day > 1 else (hoje.replace(day=1) - timedelta(days=1))
     probs = {}   # nrm -> {"usina","cliente","problemas":[...]}
 
     def add(nome, cliente, txt):
@@ -10579,15 +10925,26 @@ def _etm_problemas_build():
             try:
                 it = wb[nome].iter_rows(values_only=True)
                 hdr = next(it, None) or ()
-                etmc = [i for i, h in enumerate(hdr) if h and "IPOA" in str(h).upper() and "ETM" in str(h).upper()]
+                def _cols_com(*toks):
+                    return [i for i, h in enumerate(hdr)
+                            if h and all(tk in str(h).upper() for tk in toks)]
+
+                # MESMA cadeia do motor de PR (`_g_build`): DEF (a coluna validada pelo analista) → ETM →
+                # qualquer IPOA. Exigir a palavra "ETM" no título deixava o painel cego na MAIORIA da
+                # planilha: medido no espelho de 09/09/2026, das 63 abas 51 têm "IPOA (kWh/m²) DEF", 41
+                # têm "IPOA (kWh/m²)" e só 10 têm alguma com "ETM". O efeito não era silêncio, era ALARME
+                # FALSO: 11 usinas (Tupi Paulista, Araputanga, Sete Lagoas, Ipixuna do Pará, União 1 e 2,
+                # Demerval Lobão, Macaiba 1, Cedro 1 e 2, Tucano 1 e 2) apareciam com "IPOA sem leitura o
+                # mês inteiro — PR não calculável" enquanto a coluna DEF tinha os 8 dias, pico ~9 kWh/m².
+                etmc = _cols_com("IPOA", "DEF") or _cols_com("IPOA", "ETM") or _cols_com("IPOA")
                 ghic = [i for i, h in enumerate(hdr) if h and str(h).strip().upper().startswith("GHI")]
                 if not etmc and not ghic:
                     continue
                 si, sg = [], []      # série diária (dias completos do mês): melhor leitura do dia
                 for r in it:
                     d = r[1] if len(r) > 1 else None
-                    if not (isinstance(d, datetime) and d.year == hoje.year
-                            and d.month == hoje.month and d.date() < hoje_d):
+                    if not (isinstance(d, datetime) and d.year == ref.year
+                            and d.month == ref.month and d.date() < hoje_d):
                         continue
                     iv = [r[i] for i in etmc if i < len(r) and isinstance(r[i], (int, float))]
                     gv = [r[i] for i in ghic if i < len(r) and isinstance(r[i], (int, float))]
@@ -10616,7 +10973,7 @@ def _etm_problemas_build():
                     nz = sum(1 for v in vals if v <= 0.5)
                     if 3 <= nz < len(vals):
                         add(nome, ig.get("cliente"), f"{rot} zerada/nula em {nz} de {len(serie)} dias")
-                _diag(si, "IPOA (ETM)", trava_pr=True)   # sem IPOA não há PR
+                _diag(si, "IPOA", trava_pr=True)   # sem IPOA não há PR (a leitura pode vir de DEF, ETM ou crua)
                 _diag(sg, "GHI")                          # GHI não trava o PR, mas é sensor doente
             except Exception:
                 continue
@@ -10637,7 +10994,7 @@ def _etm_problemas_build():
         print(f"[etm/problemas] gerencial falhou: {e}")
 
     itens = sorted(probs.values(), key=lambda p: p["usina"])
-    return {"itens": itens, "mes": hoje.strftime("%m/%Y"),
+    return {"itens": itens, "mes": ref.strftime("%m/%Y"),
             "cache_ts": datetime.now().strftime("%H:%M:%S")}
 
 
@@ -10936,10 +11293,14 @@ def _g_th_inversores(usina, ini=None, fim=None):
         m = s.notna()                         # SÓ os dias em que ESTE inversor reportou: somar o POA do
         ger = float(s[m].sum())               # período inteiro contra a geração de meia dúzia de dias
         poa = float(d.loc[m, c_poa].sum())    # afundaria o PR de quem tem buraco na planilha
-        if not (ger > 0 and poa > 0):
+        # Sem POA no período lido = SEM VISÃO deste inversor → fora (PR seria chute). Já geração ZERO
+        # com sol é o inversor MORTO — o caso que o analista abre a tela para achar. Até 09/09/2026 os
+        # dois caíam no mesmo `continue` e o morto sumia da lista, calado; e o caminho do
+        # BD_Performance (mesma rota, cliente não-Thopen) já mostrava esse inversor com PR 0.
+        if poa <= 0:
             continue
         den = poa * (kwp / 1000.0)            # kWh/m² × MWp
-        rows.append({"inversor": str(c).strip(), "pr": ger / 1000.0 / den, "dias": int(m.sum())})
+        rows.append({"inversor": str(c).strip(), "pr": max(ger, 0.0) / 1000.0 / den, "dias": int(m.sum())})
     return rows, d[c_data].min()
 
 
@@ -11171,6 +11532,21 @@ def api_gerencial_grupos():
     return jsonify({"grupos": _GER_GRUPOS})
 
 
+def _ger_prod_pr(u):
+    """Geração que CASA com a IPOA somada da usina — o numerador do PR (em MWh).
+
+    `prod` é a geração do MÊS INTEIRO e é o numerador do ATINGIMENTO, não do PR: a IPOA só acumula
+    dia que passou na régua da fonte (BD_Thopen soma ipoa>0,3; BD_Performance exige dia FECHADO +
+    Validação>0 + DEF utilizável; o PG só soma o dia que veio com POA). Dividir um pelo outro punha
+    dias de geração a mais sobre dias de sol a menos e o card "PR ponderado (mês)" subia sozinho —
+    a linha da usina, que sempre usou o par certo, discordava do card logo acima dela.
+
+    Sem `prod_pr` (usina de fonte que ainda não separa os dois), cai no `prod` — mesmo número de
+    antes, nunca pior."""
+    v = u.get("prod_pr")
+    return v if isinstance(v, (int, float)) else u.get("prod")
+
+
 def _gerencial_payload(force=False, ano=None, mes=None):
     hoje = datetime.now().date()
     alvo_a, alvo_m = int(ano or hoje.year), int(mes or hoje.month)
@@ -11257,9 +11633,12 @@ def _gerencial_payload(force=False, ano=None, mes=None):
             continue
         nome = _macro_usina_nome(name)
         d = agg.setdefault(_nrm(nome), {"usina": nome, "prod_kwh": 0.0, "ipoa": 0.0,
-                                        "ghi": 0.0, "dias": set()})
+                                        "prod_pr_kwh": 0.0, "ghi": 0.0, "dias": set()})
         if isinstance(ger, (int, float)):
             d["prod_kwh"] += ger
+            # ...e, em paralelo, só o que casa com a IPOA logo abaixo: é este o numerador do PR
+            if isinstance(ipoa, (int, float)):
+                d["prod_pr_kwh"] += ger
             # Dia que a FONTE reportou (mesmo com geração 0 — usina parada é dado, não lacuna).
             # É o denominador honesto da meta: ver _prorata_de().
             if row.get("data"):
@@ -11330,7 +11709,8 @@ def _gerencial_payload(force=False, ano=None, mes=None):
         _rec = pr_previsto(d["usina"], alvo_a, alvo_m); _prm = _rec.get("pr_previsto") if _rec else None
         usinas.append({"usina": d["usina"], "cliente": ig.get("cliente") or "—",
                        "carteira": _carteira_de(d["usina"]) or ig.get("cliente") or "—",
-                       "prod": round(prod, 1), "p50": round(p50, 1) if p50 else None,
+                       "prod": round(prod, 1), "prod_pr": round(d["prod_pr_kwh"] / 1000.0, 1),
+                       "p50": round(p50, 1) if p50 else None,
                        "recurso": round(recurso, 1) if recurso else None,
                        "pot_mwp": pot, "atingimento": round(atg, 1) if atg is not None else None,
                        "pr": round(pr, 1) if pr is not None else None,
@@ -11402,7 +11782,10 @@ def _gerencial_payload(force=False, ano=None, mes=None):
         _ipoa_prev_th = (_ipoa_prev_th * _prt) if _ipoa_prev_th else None
         usinas.append({"usina": tp["usina"], "cliente": tp.get("cliente") or "Thopen",
                        "carteira": tp.get("carteira") or "—",
-                       "prod": round(prod, 1), "p50": round(p50, 1) if p50 else None,
+                       "prod": round(prod, 1),
+                       "prod_pr": (round(tp["prod_pr_mwh"], 1) if isinstance(tp.get("prod_pr_mwh"), (int, float))
+                                   else None),
+                       "p50": round(p50, 1) if p50 else None,
                        "recurso": None, "pot_mwp": tp.get("pot_mwp"),
                        "atingimento": round(atg, 1) if atg is not None else None,
                        "pr": _pr_th, "pr_meta": round(_prm * 100, 1) if isinstance(_prm, (int, float)) else None,
@@ -11461,7 +11844,10 @@ def _gerencial_payload(force=False, ano=None, mes=None):
         _ghp_bp = (_ghp_bp * _prt) if _ghp_bp else None
         usinas.append({"usina": bp["usina"], "cliente": bp.get("cliente") or "—",
                        "carteira": bp.get("cliente") or "—",
-                       "prod": round(prod, 1), "p50": round(p50, 1) if p50 else None,
+                       "prod": round(prod, 1),
+                       "prod_pr": (round(bp["prod_pr_mwh"], 1) if isinstance(bp.get("prod_pr_mwh"), (int, float))
+                                   else None),
+                       "p50": round(p50, 1) if p50 else None,
                        "recurso": None, "pot_mwp": bp.get("pot_mwp"),
                        "atingimento": round(atg, 1) if atg is not None else None,
                        "pr": bp.get("pr"), "pr_grid": bp.get("pr_grid"), "pr_meta": bp.get("pr_meta"),
@@ -11610,7 +11996,10 @@ def _gerencial_payload(force=False, ano=None, mes=None):
         spR = sum(u["prod"] for u in comR); sr = sum(u["recurso"] for u in comR)
         s50R = sum(u["p50"] for u in comR)
         comPR = [u for u in comG if u["ipoa"] and u["pot_mwp"]]  # tem IPOA medido → PR
-        spPR = sum(u["prod"] for u in comPR); sipot = sum(u["ipoa"] * u["pot_mwp"] for u in comPR)
+        # numerador = geração dos MESMOS dias que formaram a IPOA (ver _ger_prod_pr). Com `prod` (mês
+        # inteiro) o card do portfólio ficava acima das próprias linhas da tabela e podia passar de 100%.
+        spPR = sum(_ger_prod_pr(u) or 0 for u in comPR)
+        sipot = sum(u["ipoa"] * u["pot_mwp"] for u in comPR)
         # POA do portfólio: média PONDERADA PELA POTÊNCIA (somar kWh/m² de usinas diferentes não
         # significa nada). Medido e esperado saem do MESMO subconjunto — as usinas que têm os dois —
         # senão a comparação misturaria universos e o desvio seria fictício.
@@ -12146,6 +12535,12 @@ def api_pg_plant(plant_id):
                     s["status"] = "desligado"; s["ativa"] = False
         if inv.get("str_esp") is not None:
             inv["diferenca"] = inv["strings_ativas"] - inv["str_esp"]
+    # energia de HOJE por inversor: o snapshot não a tem, o cache de PR do dia (mesmo banco, TTL 5 min) tem
+    try:
+        _, _prd = _pg_pr_get(datetime.now().date().isoformat())
+        _inv_eday_do_pr(invs, _prd.get(plant_id, []))
+    except Exception as e:                                                    # noqa: BLE001 — sem banco o detalhe segue sem energia
+        print(f"[pg] plant {plant_id}: eday do PR indisponível ({e})")
     return jsonify({"plant_id": plant_id, "inversores": invs})
 
 
@@ -13083,6 +13478,68 @@ def _str_trancada(plant_id, inv_id, ipv):
     return _str_key(plant_id, inv_id, ipv) in _trancadas or (str(inv_id), ipv) in _TRANC_INV
 
 
+# ── As travas atravessando a fronteira dos processos ───────────────────────────────────────────────
+# Quem GRAVA a trava é a rota POST logo abaixo, que roda no processo WEB. Quem CONSTRÓI os números que
+# a trava muda — mosaico do /painel, tabela do /monitoramento, card do tempo real, sino de strings —
+# é o WORKER, outro processo. Até 09/09/2026 o `_trancadas` era lido UMA vez, no import: o worker nunca
+# relia o arquivo, então a trava só passava a valer no reciclo das 03:00. O analista via a tela piscar
+# certo (era a resposta do próprio web) e voltar atrás no ciclo seguinte, com a string contando como
+# faltando de novo — e concluía, com razão, que "trancar não funciona".
+_TRANC_MARCA = None       # (mtime, tamanho) do ufv_state.json na última leitura das travas
+
+
+def _tranc_stat():
+    try:
+        st = os.stat(STATE_PATH)
+        return (st.st_mtime, st.st_size)
+    except Exception:
+        return None
+
+
+def _tranc_marca_lido():
+    """Carimba o arquivo como já lido. Quem acabou de gravá-lo (a rota POST) chama isto para o watch
+    do PRÓPRIO processo não repetir a invalidação de cache um instante depois, à toa."""
+    global _TRANC_MARCA
+    _TRANC_MARCA = _tranc_stat()
+
+
+def _tranc_invalida_caches():
+    """A mesma limpeza que a rota POST faz na usina afetada — só que sem saber QUAL usina mudou: quem
+    recarrega de outro processo só sabe que o conjunto mudou. Custa uma reconstrução, e só acontece
+    quando alguém de fato trancou ou destrancou alguma coisa."""
+    _marca_invalidacao_local()
+    for c in (_spv_cache, _sunop_curva_cache, _str_prob_oem_cache, _pv_str_ev_cache,
+              _sunop_str_ev_cache, _sunop_str_med_cache, _pg_str_med_cache, _axis_str_med_cache):
+        try:
+            c.clear()
+        except Exception:                      # noqa: BLE001 - cache é descartável; nunca derruba o laço
+            pass
+    _str_prob_pv_cache["rows"] = None
+
+
+def _trancadas_recarrega() -> bool:
+    """Relê `strings_trancadas` do disco quando o arquivo muda. → True se o conjunto mudou de fato.
+
+    Arquivo ilegível ou sumido (OneDrive/antivírus segurando por um instante) NÃO destranca nada: sem
+    estado novo para ler, o que já está na memória continua valendo."""
+    global _trancadas, _TRANC_MARCA
+    marca = _tranc_stat()
+    if marca is None or marca == _TRANC_MARCA:
+        return False
+    with _state_lock:
+        novo = set(_load_state().get("strings_trancadas", []))
+        _TRANC_MARCA = marca
+        if novo == _trancadas:
+            return False        # o arquivo mexeu em OUTRO campo (comentário, OS atribuída) — nada a refazer
+        _trancadas = novo
+        _rebuild_tranc_inv()
+    _tranc_invalida_caches()
+    return True
+
+
+_TRANC_MARCA = _tranc_stat()   # o import acima já leu o arquivo: o 1º ciclo do watch não tem o que fazer
+
+
 @app.route("/api/state")
 def api_state_get():
     with _state_lock:
@@ -13116,6 +13573,8 @@ def api_state_string_trancada():
         _save_state(d)
         _trancadas = s
         _rebuild_tranc_inv()
+        _tranc_marca_lido()      # este processo já está em dia: o watch daqui não precisa refazer nada
+    _marca_invalidacao_local()   # o snapshot do worker (calculado antes da trava) não pode repor nada disto
     # As curvas de strings excluem as trancadas → invalida os caches da usina afetada
     # (API PV e SunOp) p/ a próxima abertura do gráfico recomputar já sem a string.
     # O ck[0] é o id da usina em ambos (idusina / plant_name) = o plant_id do POST.
@@ -13605,6 +14064,12 @@ def _strings_problema_rows(fonte, force=False):
             usina = _macro_usina_nome(nome_by.get(str(pid), "")) or nome_by.get(str(pid), str(pid))
             for inv in invs:
                 for s in inv.get("strings", []):
+                    # a trava é REAPLICADA aqui, na leitura: o `status` vem do snapshot que o WORKER
+                    # construiu, e entre o analista trancar e o worker publicar o ciclo seguinte a
+                    # string continuava listada como "sem corrente" (e contando no sino). O comentário
+                    # da rota que tranca já prometia isto para PG e 2C — só o 2C cumpria.
+                    if _str_trancada(pid, inv.get("id"), str(s.get("id"))):
+                        continue
                     _add(usina, pid, inv.get("nome"), s.get("id"), s.get("corrente"), s.get("status"))
     elif fonte in ("pv", "semp", "alveslima"):
         # SEMP e Alves Lima (conta OEM) usam o MESMO motor: muda o recorte (payload da aba deles) e o token, que
@@ -14527,7 +14992,8 @@ def api_owen_trackers_chart(plant_id):
                "ndias": ndias, "trackers": out, "alvo": alvo}
     g_full = {f"Tracker {n}": [{"x": t.strftime("%Y-%m-%dT%H:%M:%S"), "y": v} for t, v in (merged[n]["atual"] or [])]
               for n in merged if merged[n].get("atual")}      # chaves = ids da resposta
-    _trk_chart_aplica_status(out, g_full, payload)            # status do DIA VISTO (freeze-based)
+    _alvos = {f"Tracker {n}": merged[n]["alvo"][-1][1] for n in merged if merged[n].get("alvo")}
+    _trk_chart_aplica_status(out, g_full, payload, _alvos)    # MESMA régua dos cards (ver a função)
     return jsonify(payload)
 
 
@@ -15104,7 +15570,8 @@ def api_pg_trackers_chart(plant_id):
                "ndias": ndias, "trackers": out, "alvo": alvo}
     g_full = {n: [{"x": t.strftime("%Y-%m-%dT%H:%M:%S"), "y": v} for t, v in (trks[n]["atual"] or [])]
               for n in trks if trks[n].get("atual")}         # chaves = ids da resposta
-    _trk_chart_aplica_status(out, g_full, payload)           # status do DIA VISTO (freeze-based)
+    _alvos = {n: trks[n]["alvo"][-1][1] for n in trks if trks[n].get("alvo")}
+    _trk_chart_aplica_status(out, g_full, payload, _alvos)   # MESMA régua dos cards (ver a função)
     return jsonify(payload)
 
 
@@ -16773,6 +17240,18 @@ def _prewarm_loop():
 # enquanto o prewarm/SWR busca dado fresco em fundo.
 _PERSIST_PATH = _p_cache("cache_snapshot.json")   # os caches vivem em memoria; sem isto o reinicio da carga fria
 
+# Marca d'água das invalidações feitas NESTE processo. O `_cache_load` sabe comparar `ts` — mas não
+# sabe distinguir "cache vazio porque o processo nasceu agora" (pode encher com o snapshot) de "cache
+# esvaziado de propósito há 3 segundos" (não pode). Sem esta marca, trancar uma string limpava as
+# ocorrências no web e o watch do snapshot as reinjetava até 20 s depois, com a trancada dentro.
+_INVALIDADO_EM = [0.0]
+
+
+def _marca_invalidacao_local():
+    """Chamado por quem esvazia cache de propósito: daqui em diante, só entra do snapshot o que o
+    worker calculou DEPOIS deste instante."""
+    _INVALIDADO_EM[0] = time.time()
+
 
 def _persist_registry():
     return {
@@ -16823,15 +17302,26 @@ def _meta_snapshot_preservando() -> dict:
 
 
 def _cache_save():
+    # NADA de estrutura VIVA por referência dentro do json.dump. O worker escreve nos acumuladores a
+    # cada leitura de tracker e o serializador anda a estrutura por dentro: "dictionary changed size
+    # during iteration" no meio da gravação. Pior, o erro estourava DEPOIS de o _persist_loop baixar a
+    # flag `dirty` — o snapshot ficava sem escrever e o web servia dado velho até alguém sujar a flag
+    # de novo. Os dois acumuladores têm lock próprio; o resto sai por cópia rasa, e é por isso que as
+    # compreensões abaixo passaram a nascer de `list(...)`: list()/dict() sobre dict são atômicos em
+    # CPython (C, sem soltar o GIL), a compreensão é bytecode e pode ser interrompida no meio.
+    with _trk_accum_lock:
+        _accum_snap = copy.deepcopy(_trk_accum)
+    with _trk_parada_lock:
+        _parada_snap = copy.deepcopy(_trk_parada_total)
     data = {"saved_at": time.time(),
-            "last_known": _last_known,
-            "trk_accum": _trk_accum,
-            "trk_parada": _trk_parada_total,
+            "last_known": dict(_last_known),
+            "trk_accum": _accum_snap,
+            "trk_parada": _parada_snap,
             "pg": {"summary": _pg_cache["summary"], "detail": _pg_cache["detail"],
                    "ts": _pg_cache["ts"]},
             "caches": {}}
     for nome, c in _persist_registry().items():
-        data["caches"][nome] = {k: v for k, v in c.items() if not k.startswith("_")}
+        data["caches"][nome] = {k: v for k, v in list(c.items()) if not k.startswith("_")}
     # EXTRAS — caches com forma própria (não são {payload, ts}) que também eram caros a frio:
     # gerencial/macro (Excel+PG), produção mensal (Excel), strings-problema, eventos de string do
     # SunOp (~1 min!) e a combiner (1 HTTP por inversor). Chaves-tupla viram "a|b" no JSON.
@@ -16845,8 +17335,8 @@ def _cache_save():
         "etm_prob":     {"ts": _etm_prob_cache.get("ts", 0.0), "data": _etm_prob_cache.get("data")},
         "str_prob_pv":  {"ts": _str_prob_pv_cache.get("ts", 0.0), "rows": _str_prob_pv_cache.get("rows")},
         "inv_padrao":   {"ts": _inv_padrao_cache.get("ts", 0.0), "data": _inv_padrao_cache.get("data")},
-        "sunop_str_ev": {f"{k[0]}|{k[1]}": v for k, v in _sunop_str_ev_cache.items() if isinstance(k, tuple)},
-        "plat_view":    {str(k): v for k, v in _plat_view_cache.items()},
+        "sunop_str_ev": {f"{k[0]}|{k[1]}": v for k, v in list(_sunop_str_ev_cache.items()) if isinstance(k, tuple)},
+        "plat_view":    {str(k): v for k, v in list(_plat_view_cache.items())},
         # Metadata do SunOp/Axis (pathnames por usina). O WEB é reiniciado com o meta VAZIO e o
         # drill da 1ª carga disparava 10 buscas de metadata na hora — se a borda estivesse
         # bloqueada (o worker raja a cada ciclo), o disjuntor abria, TODAS pulavam e o drill
@@ -16864,7 +17354,7 @@ def _cache_save():
         # Refinado POR USINA dos trackers PV (worker roda com curva; o web não tem curva no boot e
         # recomputava o drill SEM refino → chips 48/1/0 contra linha 3/26 e gráfico 52/4/28,
         # Brodowski 07/08). Com isto no snapshot, o web serve o refinado do worker.
-        "pv_trk_plant": {str(k): v for k, v in _pv_trk_plant.items()},
+        "pv_trk_plant": {str(k): v for k, v in list(_pv_trk_plant.items())},
     }
     tmp = _PERSIST_PATH + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
@@ -16919,6 +17409,10 @@ def _cache_load():
                               ("str_prob_pv", _str_prob_pv_cache, "rows"),
                               ("inv_padrao", _inv_padrao_cache, "data")):
         s = ex.get(nome) or {}
+        # o "sem corrente" é invalidado zerando `rows` e MANTENDO o ts — só a regra ">= ts" deixava o
+        # snapshot do worker repor as linhas com a string que o analista acabou de trancar
+        if nome == "str_prob_pv" and s.get("ts", 0.0) < _INVALIDADO_EM[0]:
+            continue
         if s.get(campo) is not None and s.get("ts", 0.0) >= alvo.get("ts", 0.0):
             alvo[campo] = s[campo]; alvo["ts"] = s.get("ts", 0.0); n += 1
     for nome, alvo in (("thopen_prod", _thopen_prod_cache), ("bdperf_prod", _bdperf_prod_cache)):
@@ -16928,15 +17422,31 @@ def _cache_load():
             alvo.update({"data": s["data"], "ts": s.get("ts", 0.0),
                          "ym": tuple(_ym) if len(_ym) == 2 else None})
             n += 1
+    # Estes dois eram injetados às CEGAS — únicos extras sem a regra anti-retrocesso. Efeito no
+    # SunOp: o web limpava as ocorrências ao trancar uma string e o watch do snapshot (20 s) trazia
+    # de volta a lista calculada ANTES da trava. Agora vale o mesmo de sempre: quem tem ts maior manda.
     _sv = ex.get("sunop_str_ev") or {}
     for k, v in _sv.items():
-        if "|" in str(k):
-            _a, _b = str(k).split("|", 1)
-            _sunop_str_ev_cache[(_a, _b)] = v
+        if "|" not in str(k) or not isinstance(v, dict):
+            continue
+        _a, _b = str(k).split("|", 1)
+        _ts = float(v.get("ts") or 0.0)
+        if _ts < _INVALIDADO_EM[0]:
+            continue                                   # calculado antes da trava — reinjetar é desfazê-la
+        _cur = _sunop_str_ev_cache.get((_a, _b))
+        if _cur and float(_cur.get("ts") or 0.0) > _ts:
+            continue                                   # memória mais nova que o snapshot
+        _sunop_str_ev_cache[(_a, _b)] = v
     n += 1 if _sv else 0
     _pvw = ex.get("plat_view") or {}
     for k, v in _pvw.items():
-        _plat_view_cache[int(k) if str(k).lstrip("-").isdigit() else k] = v
+        _kk = int(k) if str(k).lstrip("-").isdigit() else k
+        if not isinstance(v, dict):
+            continue
+        _cur = _plat_view_cache.get(_kk)
+        if _cur and float(_cur.get("ts") or 0.0) > float(v.get("ts") or 0.0):
+            continue
+        _plat_view_cache[_kk] = v
     n += 1 if _pvw else 0
     # Metadata SunOp/Axis — SÓ no processo WEB (o _MODO_WEB ainda não foi setado quando isto
     # roda, então o gate é pelo script principal). O worker NÃO restaura: ele deriva o meta
@@ -16991,7 +17501,10 @@ def _persist_loop():
             _persist_flag["dirty"] = False
             _cache_save()
         except Exception as e:
-            print(f"[persist] save falhou: {e}")
+            # a flag volta a subir: gravação que falhou tem de ser tentada de novo no ciclo seguinte,
+            # senão a alteração que sujou a flag some do snapshot até alguém sujá-la outra vez
+            _persist_flag["dirty"] = True
+            print(f"[persist] save falhou (vai tentar de novo): {e}")
 
 
 # ── Faxineiro de memória ──────────────────────────────────────────────────────
@@ -17063,8 +17576,16 @@ def _janitor_passada():
     # um objeto Lock por (usina, dia) para sempre
     try:
         vivos = set(_pv_trk_graf_cache.keys())
-        for k in [k for k in list(_pv_trk_graf_locks.keys()) if k not in vivos]:
-            _pv_trk_graf_locks.pop(k, None)
+        # sob o MESMO guarda que cria os locks, e sem tirar o de quem está buscando: a chave só entra
+        # no cache DEPOIS do trackerschart (até 90 s). Tirar o lock no meio fazia o próximo pedido
+        # criar outro — dois fetches pesados simultâneos da mesma usina/dia, exatamente o que o dedup
+        # existe para impedir, e logo na hora de carga alta que faz o faxineiro rodar.
+        with _pv_trk_graf_lock_guard:
+            for k in [k for k in list(_pv_trk_graf_locks.keys()) if k not in vivos]:
+                lk = _pv_trk_graf_locks.get(k)
+                if lk is not None and lk.locked():
+                    continue
+                _pv_trk_graf_locks.pop(k, None)
     except Exception:
         pass
 
@@ -17120,6 +17641,21 @@ def _snapshot_watch_loop(intervalo=20):
         except Exception as e:
             print(f"[web] recarga do snapshot falhou: {e}")
         time.sleep(intervalo)
+
+
+def _tranc_watch_loop(intervalo=20):
+    """O terceiro pedaço de estado que atravessa processos (os outros dois são o snapshot e o
+    tunnel_url): as strings trancadas. Roda nos DOIS lados — no worker, para que a trava entre na
+    conta que ele constrói; no web, para o caso de existir mais de um processo servindo (já
+    aconteceu: dois pythons co-escutando a 5050). Custa um os.stat a cada 20 s enquanto ninguém
+    tranca nada."""
+    while True:
+        time.sleep(intervalo)
+        try:
+            if _trancadas_recarrega():
+                print(f"[travas] ufv_state.json mudou — {len(_trancadas)} strings trancadas em memória")
+        except Exception as e:                 # noqa: BLE001 - o laço não pode morrer por um json ruim
+            print(f"[travas] recarga falhou: {e}")
 
 
 BD_API_INTERVALO_S = 1800     # 30 min: as planilhas mudam algumas vezes por dia, não por minuto
@@ -17217,9 +17753,9 @@ def _iniciar_loops_de_fundo():
                  _tunnel_url_loop,
                  _notif_strings_loop,       # strings que zeraram desde a ultima leitura (30 min, de dia) → sino
                  _inv_padrao_loop,          # padrão por inversor das usinas sem visão por string (1×/h) → macro + sino
-                 _inv_energia_loop,         # foto do eday por inversor depois das 19:30 → kWh do mes por inversor (Diagnostico v2)
                  _frac_osperf_loop,
                  _frac_disp_loop,           # disponibilidade por OS (Gerencial) — varre + calcula
+                 _tranc_watch_loop,         # strings trancadas: o web grava, o worker tem de reler
                  _janitor_loop):            # impede o processo de dias inchar sem teto
         threading.Thread(target=alvo, daemon=True).start()
 
@@ -18511,7 +19047,13 @@ def _frac_os_filtradas(id_item, mes=None):
             continue
         aberta = st in (0, 1, 5, 6)                  # não encerrada
         cri = str(w.get("creation_date") or "")
-        if not aberta and mes and cri[:7] != mes:    # concluída fora do mês → fora
+        # O mês tem de ser lido no MESMO relógio do resto do laço (evento e fim já saem por
+        # _frac_dt_local). O `creation_date` vem com offset explícito (+00:00): cortar a string crua
+        # comparava UTC com mês local e a OS criada depois das 21h do último dia do mês sumia dos DOIS
+        # meses — some do mês em que foi criada e nunca aparece no seguinte (achado da varredura 09/09).
+        _cri_loc = _frac_dt_local(w.get("creation_date"))
+        _cri_mes = _cri_loc.strftime("%Y-%m") if _cri_loc else cri[:7]
+        if not aberta and mes and _cri_mes != mes:   # concluída fora do mês → fora
             continue
         fol = w.get("wo_folio")
         if fol in seen:
@@ -20514,150 +21056,332 @@ def _fecha_dia_anterior(dia=None):
     print(f"[fecha_dia] {dia} consolidado em {_fecha_dia_prog['seg']}s")
 
 
-# ── Energia por INVERSOR por dia (acumulador) ──────────────────────────────────────────────────────────────────
-# O Diagnóstico com o inversor no centro (06/09/2026) mostra kWh do MÊS por inversor. Fora do gêmeo nenhuma fonte guarda
-# isso: API PV e SunOp só dão o eday de HOJE por inversor. Então o worker fotografa o eday de cada inversor depois do pôr
-# do sol (19:30, todas as usinas ao sul de Belém já anoiteceram) e acumula em inv_energia_dia.json; o mês é a soma dos
-# dias fotografados — começa a contar do dia em que subiu. O PG não precisa: /api/pg/geracao-pivo tem o dia a dia por
-# inversor no próprio banco.
-_INV_ENERGIA_PATH = _p_dado("inv_energia_dia.json")
-_INV_ENERGIA_HORA = (19, 30)
-_inv_energia_lock = threading.Lock()
-_inv_energia_feito: dict = {}          # "fonte|pid" → dia já fotografado neste processo (refotografar sobrescreve, é inofensivo)
+# ── Energia por INVERSOR: só as bases aprovadas ────────────────────────────────────────────────────────────────────
+# "A ideia é deixar a fonte 100% PG, BD_Thopen ou Performance, para economizarmos tokens e podermos melhorar nossa
+# fonte de dados" (Levi, 08/09/2026). Saiu daqui o acumulador noturno: até 07/09 o worker fotografava, depois das
+# 19:30, o eday de cada inversor de ~70 usinas chamando a API de cada fonte (API PV, SunOp, Axis, SolarEdge) e
+# guardava num JSON aqui na pasta. Custava requisição todo dia e criava uma QUARTA base, que só a plataforma tinha —
+# ninguém conseguia auditar nem corrigir. Agora: PG lê o banco; as demais fontes leem a aba da usina no
+# BD_Performance. Usina que não está em nenhuma das duas fica sem histórico por inversor e a tela DIZ o motivo, para
+# a lacuna ser resolvida na base (aquele JSON ficou órfão e pode ser apagado).
 
 
-def _inv_energia_ler() -> dict:
+def _bdthopen_inv_dias(usina: str, ano: int, mes: int) -> dict:
+    """{dia ISO: {"ipoa", "inv": {nome da coluna: kWh}, "validacao"}} da aba diária da usina no BD_Thopen — só dias
+    FECHADOS (data < hoje).
+
+    "Para usinas Thopen as informações de histórico do diagnóstico tem que pegar do BD_Thopen" (Levi, 08/09/2026): é
+    a base consolidada (fechamento das 23:30, correções), lida pelo PostgreSQL via bd_api — nunca o Excel, e não
+    mais o banco cru do supervisório (raw_inverter, que carrega a sobra da meia-noite). A aba é achada pelo nome de
+    exibição com a chave tolerante: 'Piracicaba I' na plataforma é 'Piracicaba 1' na coluna Usina da aba."""
+    import dashboard_thopen as _dth
+    out = {}
     try:
-        with open(_INV_ENERGIA_PATH, encoding="utf-8") as f:
-            return json.load(f) or {}
-    except (FileNotFoundError, json.JSONDecodeError):
-        return {}
+        _dth._wb()                                            # garante o índice das abas diárias (cache do 5080)
+        chaves = list(_dth._state.get("daily") or {})
+        alvo = _ger_fold(usina)
+        nome = usina if usina in chaves else next((k for k in chaves if _ger_fold(k) == alvo), None)
+        if not nome:
+            return out
+        hoje_d = datetime.now().date()
+        for r in _dth._daily_inversores(nome):
+            d = r.get("data")
+            if not d or d.year != ano or d.month != mes or d >= hoje_d:
+                continue
+            inv = {k: round(float(v), 1) for k, v in (r.get("inv") or {}).items() if v is not None}
+            ip = _fin(r.get("ipoa"))
+            if inv or ip:
+                out[d.strftime("%Y-%m-%d")] = {"ipoa": round(ip, 2) if ip and ip > 0 else None, "inv": inv,
+                                                "validacao": r.get("validacao")}
+    except Exception as e:                                                    # noqa: BLE001 — API fora: fica sem essa fonte
+        print(f"[inv-hist] BD_Thopen {usina}: {e}")
+    return out
 
 
-def _inv_energia_gravar(d: dict) -> None:
-    tmp = _INV_ENERGIA_PATH + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(d, f, ensure_ascii=False)
-    os.replace(tmp, _INV_ENERGIA_PATH)
+def _inv_nome_de(fonte: str, pid):
+    """Tradutor nome da FONTE → nome de EXIBIÇÃO pelo cache de PR de hoje (id, nome_api). A aba do BD_Thopen da
+    Ibaté 1 chama 'inversor 10' o que a plataforma mostra como 'Inversor 1.10'; sem PR, fica o nome da fonte."""
+    api2nome = {}
+    for x in _inv_hist_pr_detail(fonte, pid):
+        for k in (x.get("nome_api"), x.get("id")):
+            if k is not None:
+                api2nome[_nrm(str(k))] = x.get("nome") or str(k)
+    return lambda k: api2nome.get(_nrm(str(k)), str(k))
 
 
-def _inv_energia_registrar(fonte: str, pid, dia: str, por_inv: dict) -> int:
-    """Grava {inversor: kWh} do dia; sobrescreve o dia (a foto mais tarde é a mais completa). Devolve quantos gravou."""
-    limpo = {str(k): round(float(v), 1) for k, v in (por_inv or {}).items() if v is not None}
-    if not limpo:
-        return 0
-    with _inv_energia_lock:
-        d = _inv_energia_ler()
-        d.setdefault(fonte, {}).setdefault(str(pid), {})[dia] = limpo
-        _inv_energia_gravar(d)
-    return len(limpo)
-
-
-def _inv_energia_mes(store: dict, fonte: str, pid, ano: int, mes: int) -> dict:
-    """Soma por inversor dos dias fotografados no mês. Pura: só olha o dicionário."""
-    dias = (store.get(fonte) or {}).get(str(pid)) or {}
-    pref = f"{ano:04d}-{mes:02d}-"
+def _inv_energia_soma(dias: dict) -> tuple:
+    """(kWh por inversor somados, [dias ISO com inversor]) de um {dia: {"inv": {...}}} — a régua única do ?mes=."""
     soma, lista = {}, []
-    for dia, por_inv in sorted(dias.items()):
-        if not dia.startswith(pref):
+    for d, e in sorted((dias or {}).items()):
+        if not e.get("inv"):
             continue
-        lista.append(dia)
-        for inv, kwh in (por_inv or {}).items():
-            soma[inv] = round(soma.get(inv, 0.0) + float(kwh or 0), 1)
-    return {"mes": f"{mes:02d}/{ano:04d}", "dias": len(lista), "dias_lista": lista, "inversores": soma, "origem": "acumulador"}
+        lista.append(d)
+        for nome_inv, kwh in e["inv"].items():
+            soma[nome_inv] = round(soma.get(nome_inv, 0.0) + float(kwh), 1)
+    return soma, lista
 
 
-def _inv_energia_snapshot(fonte: str, pid) -> dict:
-    """{nome do inversor: eday de hoje} pela mesma rota de detalhe que a tela usa."""
-    if fonte in ("pv", "semp", "alveslima"):
-        invs = _pv_plant_inversores(int(pid))
-    elif fonte in ("sunop", "axis"):
-        invs = _sunop_plant_get(str(pid), False, "axis" if fonte == "axis" else "gridco")
-    else:
-        return {}
-    return {(i.get("nome") or i.get("nome_api") or str(i.get("id"))): i.get("eday") for i in (invs or []) if i.get("eday") is not None}
+def _nome_da_planta(fonte: str, pid) -> str:
+    """Nome de exibição da usina a partir do id — é a chave das abas do BD_Performance.
 
-
-def _inv_energia_plantas(fonte: str) -> list:
-    """[(plant_id, usina)] das usinas com dado hoje, pelo overview já em cache — sem chamada nova."""
-    c = {"pv": _cache, "semp": _semp_cache, "alveslima": _alveslima_cache, "sunop": _sunop_cache, "axis": _axis_cache}.get(fonte)
+    Usa os overviews que já estão em cache (nenhuma chamada nova) e tira o "(123)" que algumas fontes anexam ao nome.
+    As telas mandam ?usina=; isto é a rede de segurança para quem chamar a rota só com o id."""
+    c = {"pv": _cache, "semp": _semp_cache, "alveslima": _alveslima_cache,
+         "sunop": _sunop_cache, "axis": _axis_cache, "solaredge": _se_cache}.get(fonte)
     rows = ((c or {}).get("payload") or {}).get("rows") or []
-    return [(r.get("plant_id"), r.get("usina")) for r in rows if r.get("plant_id") is not None and not r.get("sem_dados")]
-
-
-def _inv_energia_loop():
-    """Worker: depois das 19:30 fotografa o eday por inversor de cada usina (uma vez por dia por usina)."""
-    time.sleep(240)
-    while True:
+    if fonte == "pg":
+        rows = (_pg_cache.get("summary") or []) if isinstance(_pg_cache, dict) else []
+    for r in rows:
+        if str(r.get("plant_id")) == str(pid):
+            return re.sub(r"\s*\(\d+\)\s*$", "", str(r.get("usina") or "")).strip()
+    if fonte == "owen":
         try:
-            agora = datetime.now()
-            if (agora.hour, agora.minute) >= _INV_ENERGIA_HORA:
-                dia = agora.strftime("%Y-%m-%d")
-                for fonte in ("pv", "semp", "alveslima", "sunop", "axis"):
-                    for pid, nome in _inv_energia_plantas(fonte):
-                        k = f"{fonte}|{pid}"
-                        if _inv_energia_feito.get(k) == dia:
-                            continue
-                        try:
-                            n = _inv_energia_registrar(fonte, pid, dia, _inv_energia_snapshot(fonte, pid))
-                            _inv_energia_feito[k] = dia
-                            if n:
-                                print(f"[inv-energia] {fonte} {nome}: {n} inversores fotografados")
-                        except Exception as e:                                # noqa: BLE001 — uma usina não derruba a volta
-                            print(f"[inv-energia] {fonte} {nome}: {e}")
-                        time.sleep(1.0)                                       # não atropela a API PV (54 usinas em fila)
-        except Exception as e:                                                # noqa: BLE001
-            print(f"[inv-energia] loop: {e}")
-        time.sleep(600)
+            return _owen_nome(pid) or ""
+        except Exception:                                                     # noqa: BLE001
+            return ""
+    return ""
 
 
 @app.route("/api/<fonte>/inversores/energia-mes/<pid>")
 def api_inv_energia_mes(fonte, pid):
-    """kWh por inversor no mês (?mes=YYYY-MM, padrão o corrente) ou em UM dia (?dia=YYYY-MM-DD). PG: do banco
-    (geracao-pivo, dia a dia); demais fontes: acumulador diário (só os dias fotografados desde que subiu, 06/09/2026).
+    """kWh por inversor no mês (?mes=YYYY-MM) ou em UM dia (?dia=YYYY-MM-DD); ?usina=<nome> quando o id não basta.
 
-    O `?dia=` é o que sustenta o seletor de data do diagnóstico: o snapshot da fonte só sabe do "agora", mas a
-    energia POR DIA já estava guardada — faltava uma porta para ela (Levi, 07/09/2026)."""
+    Thopen lê a aba diária do BD_Thopen (por inversor, pelo PostgreSQL); as demais fontes leem a aba da usina no
+    BD_Performance — só dias FECHADOS, nas duas. Sem aba, responde vazio com o motivo em vez de inventar um número."""
+    fonte = _INV_HIST_FONTE.get(fonte, fonte)
+    usina = (flask_request.args.get("usina") or "").strip() or _nome_da_planta(fonte, pid)
     _dia = (flask_request.args.get("dia") or "").strip()
     if _dia:
         if not re.match(r"^\d{4}-\d{2}-\d{2}$", _dia):
             return jsonify({"erro": "dia invalido (YYYY-MM-DD)"}), 400
-        fonte = {"athon": "sunop", "2c": "owen", "thopen": "pg", "solaredge": "owen"}.get(fonte, fonte)
+        ler = _bdthopen_inv_dias if fonte == "pg" else _bdperf_inv_dias
+        inv = ((ler(usina, int(_dia[:4]), int(_dia[5:7])) if usina else {}).get(_dia) or {}).get("inv") or {}
         if fonte == "pg":
-            try:
-                usinas = _pg_gerpivo_get(_dia, _dia)
-            except Exception as e:                                            # noqa: BLE001
-                return jsonify({"erro": str(e), "inversores": {}, "dia": _dia}), 500
-            u = next((x for x in usinas if str(x.get("plant_id")) == str(pid)), None)
-            d0 = next((d for d in ((u or {}).get("dias") or []) if d.get("data") == _dia), None)
-            inv = {k: round(float(v), 1) for k, v in ((d0 or {}).get("ger") or {}).items() if v is not None}
-            return jsonify({"dia": _dia, "inversores": inv, "origem": "banco", "tem_dado": bool(inv)})
-        _st = _inv_energia_ler().get(fonte, {}).get(str(pid), {})
-        inv = {k: v for k, v in (_st.get(_dia) or {}).items() if v is not None}
-        return jsonify({"dia": _dia, "inversores": inv, "origem": "acumulador", "tem_dado": bool(inv)})
+            nome_de = _inv_nome_de(fonte, pid)
+            inv = {nome_de(k): v for k, v in inv.items()}
+        return jsonify({"dia": _dia, "usina": usina, "inversores": inv, "origem": "bd_thopen" if fonte == "pg" else "bd_performance",
+                        "tem_dado": bool(inv), "motivo": None if inv else _inv_sem_base(fonte, usina)})
     m = (flask_request.args.get("mes") or datetime.now().strftime("%Y-%m")).strip()
     try:
         ano, mes = int(m[:4]), int(m[5:7])
     except ValueError:
         return jsonify({"erro": "mes invalido (YYYY-MM)"}), 400
-    fonte = {"athon": "sunop", "2c": "owen", "thopen": "pg", "solaredge": "owen"}.get(fonte, fonte)
+    ler = _bdthopen_inv_dias if fonte == "pg" else _bdperf_inv_dias
+    soma, dias = _inv_energia_soma(ler(usina, ano, mes) if usina else {})
     if fonte == "pg":
-        hoje = datetime.now()
-        ult = calendar.monthrange(ano, mes)[1]
-        fim = (min(datetime(ano, mes, ult), hoje) if (ano, mes) <= (hoje.year, hoje.month) else datetime(ano, mes, ult)).strftime("%Y-%m-%d")
+        nome_de = _inv_nome_de(fonte, pid)
+        soma = {nome_de(k): v for k, v in soma.items()}
+    return jsonify({"mes": f"{mes:02d}/{ano:04d}", "usina": usina, "dias": len(dias), "dias_lista": dias,
+                    "inversores": soma, "origem": "bd_thopen" if fonte == "pg" else "bd_performance",
+                    "motivo": None if dias else _inv_sem_base(fonte, usina)})
+
+
+# ── Histórico do mês POR INVERSOR ──────────────────────────────────────────────────────────────────────────────────
+# "No diagnóstico [...] ver o histórico melhor daquele inversor: geração, PR, meta do dia alcançada de acordo com
+# IPOA" (Levi, 07/09/2026). Uma régua só, dia a dia, para o Raio-X e o Diagnóstico v2:
+#   • geração do inversor: Thopen → aba diária do BD_Thopen (por inversor, PostgreSQL via bd_api); demais fontes →
+#     aba da usina no BD_Performance. Só dias fechados, só bases consolidadas (Levi, 08/09/2026 — ver o comentário
+#     do acumulador acima); `origem` diz qual. Usina fora das duas fica sem histórico E DIZ POR QUÊ (`motivo`).
+#   • IPOA do dia e metas da usina: a MESMA base diária da cascata (/api/g/diario — banco p/ Thopen, BD_Performance
+#     p/ o resto): P50/dia, IPOA meta/dia, potência e PR meta. Dia sem IPOA lá cai na IPOA da própria fonte.
+#   • fatia do inversor: potência do Equipamentos (a mesma do PR) quando TODOS têm; senão partes iguais da usina
+#     (régua do /api/inv/pr-mes).
+#   • PR do dia = ger ÷ (IPOA × pot); meta do dia = P50/dia × fatia; meta pelo IPOA = pot × IPOA × PR meta — é a
+#     "Meta ger. IPOA" da cascata, por inversor: o que o sol que veio permitia.
+#   O dia em curso só entra depois das 19h: antes disso é geração parcial.
+_inv_hist_cache: dict = {}
+_inv_hist_lock = threading.Lock()
+_INV_HIST_TTL = 600
+_INV_HIST_FONTE = {"athon": "sunop", "2c": "owen", "thopen": "pg"}
+
+
+def _inv_sem_base(fonte: str, usina: str) -> str:
+    """Por que esta usina não tem energia por inversor — texto que a tela mostra no lugar do vazio."""
+    if fonte == "pg":
+        return f"a usina '{usina}' não tem aba diária com geração por inversor no BD_Thopen neste mês" if usina \
+            else "sem o nome da usina não dá para achar a aba no BD_Thopen"
+    if not usina:
+        return "sem o nome da usina não dá para achar a aba no BD_Performance"
+    return f"a usina '{usina}' não tem aba com colunas de inversor no BD_Performance — a coleta precisa criá-las"
+
+
+def _inv_hist_pr_detail(fonte: str, pid) -> list:
+    """Inversores do cache de PR de HOJE da fonte ({nome, nome_api, id, pot_kwp}) — a mesma potência que o PR usa."""
+    hoje = datetime.now().date().isoformat()
+    try:
+        if fonte == "pg":
+            return _pg_pr_get(hoje)[1].get(int(pid), [])
+        if fonte == "solaredge":
+            return _se_pr_get(hoje)[1].get(int(pid), [])
+        if fonte in ("sunop", "axis"):
+            det = _sunop_pr_get(hoje, False, "axis" if fonte == "axis" else "gridco")[1]
+            return det.get(str(pid)) or det.get(pid) or []
+        if fonte in ("pv", "semp", "alveslima"):
+            return ((_pv_pr_cache.get("detail") or {}).get(int(pid)) or {}).get("inversores") or []
+    except Exception as e:                                                    # noqa: BLE001 — sem PR só perde a potência por inversor
+        print(f"[inv-hist] PR {fonte} {pid}: {e}")
+    return []
+
+
+def _fin(x):
+    """float finito ou None — a base diária vem do pandas e manda NaN onde não há cadastro (Ipixuna 2, 07/09)."""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if (v == v and abs(v) != float("inf")) else None
+
+
+def _inv_hist_ord(nome: str):
+    ns = re.findall(r"\d+", str(nome or ""))
+    return tuple(int(x) for x in ns) or (9999,)
+
+
+def _inv_historico(fonte: str, pid, usina: str, ano: int, mes: int, agora: datetime = None) -> dict:
+    agora = agora or datetime.now()
+    fonte = _INV_HIST_FONTE.get(fonte, fonte)
+    ym = f"{ano:04d}-{mes:02d}"
+    hoje = agora.strftime("%Y-%m-%d")
+
+    def fechado(d):                                  # dia inteiro: passado, ou hoje depois das 19h
+        return d < hoje or (d == hoje and agora.hour >= 19)
+
+    # 1) base diária da usina — a mesma da cascata
+    base = {}
+    if usina:
         try:
-            usinas = _pg_gerpivo_get(f"{ano:04d}-{mes:02d}-01", fim)
-        except Exception as e:                                                # noqa: BLE001
-            return jsonify({"erro": str(e), "inversores": {}, "dias": 0}), 500
-        u = next((x for x in usinas if str(x.get("plant_id")) == str(pid)), None)
-        soma, dias = {}, []
-        for d in (u or {}).get("dias") or []:
-            dias.append(d.get("data"))
-            for inv, kwh in (d.get("ger") or {}).items():
-                if kwh is not None:
-                    soma[inv] = round(soma.get(inv, 0.0) + float(kwh), 1)
-        return jsonify({"mes": f"{mes:02d}/{ano:04d}", "dias": len(dias), "dias_lista": sorted(x for x in dias if x), "inversores": soma, "origem": "banco"})
-    return jsonify(_inv_energia_mes(_inv_energia_ler(), fonte, pid, ano, mes))
+            cli = ((INFO_GERAL.get(_nrm(usina)) or {}).get("cliente") or "").strip()
+            with app.test_request_context(f"/api/g/diario?cliente={cli}&usina={usina}&ano={ano}&mes={mes}"):
+                base = api_g_diario().get_json() or {}
+        except Exception as e:                                                # noqa: BLE001 — sem base: energia sim, IPOA/meta não
+            print(f"[inv-hist] base diária {usina}: {e}")
+    ipoa_dia = {}
+    for p in (base.get("pontos") or []):
+        try:
+            d = f"{ym}-{int(p['dia']):02d}"
+        except (TypeError, ValueError):
+            continue
+        _pv = _fin(p.get("poa"))
+        if _pv and _pv > 0:                                                  # 0/NaN = sem medição, não "sem sol"
+            ipoa_dia[d] = _pv
+    _pu, _mg = _fin(base.get("pot")), _fin(base.get("meta_ger"))
+    pot_ufv = round(_pu * 1000.0, 1) if _pu else None                       # MWp → kWp
+    prm = _fin(base.get("meta")) or None                                     # PR meta (fração)
+    mger = round(_mg * 1000.0, 1) if _mg else None                           # MWh/dia → kWh/dia
+    mpoa = _fin(base.get("meta_poa"))
+
+    # 2) geração por inversor por dia, na ordem de confiança; nomes = os de exibição da plataforma
+    pot_inv = {}
+    for x in _inv_hist_pr_detail(fonte, pid):
+        if x.get("nome") and _fin(x.get("pot_kwp")):                       # NaN do cadastro é truthy: passaria no all() e sujava a fatia
+            pot_inv[x["nome"]] = _fin(x["pot_kwp"])
+    nome_de = _inv_nome_de(fonte, pid)
+
+    fontes = []                                      # [(origem, {dia: {nome: kwh}})]
+    if fonte == "pg":                                # Thopen: a aba diária do BD_Thopen, por inversor
+        bdt = _bdthopen_inv_dias(usina, ano, mes) if usina else {}
+        fontes.append(("bd_thopen", {d: {nome_de(k): v for k, v in e["inv"].items()} for d, e in bdt.items() if e.get("inv")}))
+        for d, e in bdt.items():
+            if e.get("ipoa"):
+                ipoa_dia.setdefault(d, e["ipoa"])
+    bdp = _bdperf_inv_dias(usina, ano, mes) if usina else {}
+    fontes.append(("bd_performance", {d: e["inv"] for d, e in bdp.items() if e.get("inv")}))
+    for d, e in bdp.items():
+        if e.get("ipoa"):
+            ipoa_dia.setdefault(d, e["ipoa"])
+
+    # 3) por dia vale a primeira fonte que tem o dado
+    dias = {}
+    for origem, m_ in fontes:
+        for d, inv in m_.items():
+            if inv and d not in dias and fechado(d):
+                dias[d] = {"origem": origem, "inv": dict(inv)}
+    nomes = sorted({n for e in dias.values() for n in e["inv"]}, key=_inv_hist_ord)
+
+    # 4) fatia da meta: potência do Equipamentos quando todos têm; senão partes iguais (e a potência da usina rateada).
+    #    O PR de HOJE (de onde vem a potência acima) nasce vazio de manhã — sem esta rede o mesmo inversor tinha uma
+    #    meta de manhã e outra à noite, com o rateio pulando de "potência" para "partes iguais" (Ipixuna 1, 08/09).
+    if nomes and any(not pot_inv.get(n) for n in nomes):
+        # o Equipamentos é chaveado pelo nome do SUPERVISÓRIO ("(308) Ipixuna 1", "UFV Xavantina 1"); aqui só temos o
+        # de exibição, então o de-para do USINA_DISPLAY faz a ponte (uma vez, não por inversor)
+        _sup = usina if usina in POWER_INV else next(
+            (s for s, d in USINA_DISPLAY.items() if _nrm(d) == _nrm(usina) and s in POWER_INV), usina)
+        for n in nomes:
+            if not pot_inv.get(n):
+                _p = _fin(_pot_inv(_sup, n, n))
+                if _p:
+                    pot_inv[n] = _p
+    rateio_pot = bool(nomes) and all(pot_inv.get(n) for n in nomes)
+    if rateio_pot:
+        soma = sum(pot_inv[n] for n in nomes)
+        share = {n: pot_inv[n] / soma for n in nomes}
+    else:
+        share = {n: 1.0 / len(nomes) for n in nomes} if nomes else {}
+        if nomes and pot_ufv and not any(pot_inv.get(n) for n in nomes):
+            for n in nomes:
+                pot_inv[n] = round(pot_ufv / len(nomes), 1)
+
+    # 5) números por dia e totais por inversor (só nos dias em que o inversor tem dado)
+    def _pr(g, ip, pt):
+        return round(g / (ip * pt), 3) if (g is not None and ip and ip > 0.5 and pt) else None
+
+    tot = {n: {"ger": 0.0, "dias": 0, "meta": 0.0, "g_meta": 0.0, "meta_ipoa": 0.0, "g_mip": 0.0, "ipoa": 0.0, "g_ip": 0.0} for n in nomes}
+    out_dias = []
+    for d in sorted(dias):
+        e = dias[d]
+        ip = ipoa_dia.get(d)
+        linha = {}
+        for n, g in e["inv"].items():
+            pt = pot_inv.get(n)
+            meta = round(mger * share[n], 1) if (mger and n in share) else None
+            mip = round(pt * ip * prm, 1) if (pt and ip and prm) else None
+            linha[n] = {"ger": round(g, 1), "pr": _pr(g, ip, pt), "meta": meta, "meta_ipoa": mip}
+            t = tot[n]
+            t["ger"] += g; t["dias"] += 1
+            if meta is not None:
+                t["meta"] += meta; t["g_meta"] += g
+            if mip is not None:
+                t["meta_ipoa"] += mip; t["g_mip"] += g
+            if ip and ip > 0.5 and pt:
+                t["ipoa"] += ip; t["g_ip"] += g
+        out_dias.append({"data": d, "ipoa": round(ip, 2) if ip is not None else None, "origem": e["origem"], "inv": linha})
+    inversores = {}
+    for n in nomes:
+        t, pt = tot[n], pot_inv.get(n)
+        inversores[n] = {"ger": round(t["ger"], 1), "dias": t["dias"], "pot_kwp": pt,
+                         "meta": round(t["meta"], 1) if t["meta"] else None,
+                         "meta_ipoa": round(t["meta_ipoa"], 1) if t["meta_ipoa"] else None,
+                         "pct_meta": round(t["g_meta"] / t["meta"] * 100, 1) if t["meta"] else None,
+                         "pct_ipoa": round(t["g_mip"] / t["meta_ipoa"] * 100, 1) if t["meta_ipoa"] else None,
+                         "pr": round(t["g_ip"] / (t["ipoa"] * pt), 3) if (t["ipoa"] and pt) else None}
+    return {"fonte": fonte, "plant_id": pid, "usina": usina, "mes": ym, "dias": out_dias, "inversores": inversores,
+            "motivo": None if out_dias else _inv_sem_base(fonte, usina),
+            "pot_kwp": pot_ufv, "pr_meta": prm, "meta_dia_kwh": mger, "ipoa_meta_dia": mpoa,
+            "rateio": "potencia" if rateio_pot else "igual", "n_dias": len(out_dias),
+            "origens": sorted({e["origem"] for e in out_dias}), "tem_base": bool(base.get("pontos"))}
+
+
+@app.route("/api/<fonte>/inversores/historico/<pid>")
+def api_inv_historico(fonte, pid):
+    """Histórico do mês por inversor (?usina=<nome>&mes=YYYY-MM; padrão o corrente). Ver _inv_historico."""
+    usina = (flask_request.args.get("usina") or "").strip()
+    m = (flask_request.args.get("mes") or datetime.now().strftime("%Y-%m")).strip()
+    if not re.match(r"^\d{4}-\d{2}$", m):
+        return jsonify({"erro": "mes invalido (YYYY-MM)"}), 400
+    k = (fonte, str(pid), m)
+    if flask_request.args.get("force") != "1":
+        with _inv_hist_lock:
+            ent = _inv_hist_cache.get(k)
+        if ent and (time.time() - ent["ts"]) < _INV_HIST_TTL:
+            return jsonify(ent["d"])
+    try:
+        d = _inv_historico(fonte, pid, usina, int(m[:4]), int(m[5:7]))
+    except Exception as e:                                                    # noqa: BLE001
+        return jsonify({"erro": str(e), "dias": [], "inversores": {}}), 500
+    with _inv_hist_lock:
+        _inv_hist_cache[k] = {"ts": time.time(), "d": d}
+    return jsonify(d)
+
 
 
 def _fecha_dia_loop():
@@ -22076,6 +22800,7 @@ if __name__ == "__main__":
         _MODO_WEB = True
         print("[server] modo WEB — quem reconstrói é o worker.py; este processo só serve")
         threading.Thread(target=_snapshot_watch_loop, daemon=True).start()
+        threading.Thread(target=_tranc_watch_loop, daemon=True).start()
     try:
         from waitress import serve
         print("[server] waitress em http://0.0.0.0:5050 (threads=16)")

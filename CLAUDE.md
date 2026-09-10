@@ -34,8 +34,8 @@ aquele arquivo.
 
 ## Acoplamento conhecido: plataforma → thopen
 
-`plataforma/app.py` importa `dashboard_thopen` para usar **três** leitores do `BD_Thopen.xlsx`:
-`_CARTEIRA_DE`, `_registro()` e `_daily_records()`. É resolvido por um `sys.path.insert` no topo
+`plataforma/app.py` importa `dashboard_thopen` para usar **quatro** leitores do BD_Thopen (hoje o PostgreSQL,
+via `bd_api`): `_CARTEIRA_DE`, `_registro()`, `_daily_records()` e `_daily_inversores()` (histórico por inversor). É resolvido por um `sys.path.insert` no topo
 do `app.py` apontando para `thopen/`.
 
 Não é acidente: a planilha é genuinamente compartilhada. Extrair um módulo comum arrastaria junto

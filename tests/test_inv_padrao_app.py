@@ -69,3 +69,19 @@ def test_sino_recebe_um_evento_por_inversor_e_dia(monkeypatch, tmp_path):
     assert len(ev) == 1 and ev[0]["tipo"] == "inv_padrao" and ev[0]["inversor"] == "Inversor 1.1"
     assert ev[0]["fonte"] == "pv" and ev[0]["plant_id"] == 60009 and ev[0]["usina"] == "Céu Azul II"
     assert ev[0]["razao"] == 68.0 and ev[0]["base"] == 91.0 and ev[0]["delta"] == -23.0 and ev[0]["dia"] == "2026-09-09"
+
+
+def test_usina_fatiada_mantem_a_causa_do_padrao_ao_somar_as_partes():
+    """Barretos e uma usina fisica em duas plantas (Barretos 1 e 2). O add() elege a pior fatia (Barretos 2, atencao)
+    e _somar_partes_da_usina RECALCULA a causa com um dicionario reduzido — sem o inv_padrao a causa voltava a
+    'Normal' com o status em atencao (visto ao vivo em 10/09, primeiro ciclo no ar)."""
+    r1 = _row(usina="Barretos 1 (83)", plant_id=297410, sem_visao=False, stringbox=True, strings_ativas=120, str_esp=None,
+              qtd_inversores=20, inv_padrao={"status": "ok", "dia": "2026-09-09", "alertas": [], "cronicos": ["Inversor 1.3"]})
+    r2 = _row(usina="Barretos 2 (83)", plant_id=297415, sem_visao=False, stringbox=True, strings_ativas=24, str_esp=None,
+              qtd_inversores=20, inv_padrao={"status": "atencao", "dia": "2026-09-09", "cronicos": [],
+                                             "alertas": [{"inv": "Inversor 2.7", "status": "atencao", "razao": 88.0, "base": 98.8, "delta": -10.8}]})
+    i1, i2 = app._macro_item("API PV", r1), app._macro_item("API PV", r2)
+    assert i2["status"] == "atencao" and "Inversor 2.7" in i2["causa"]
+    app._somar_partes_da_usina(i2, [i1, i2])
+    assert i2["status"] == "atencao" and i2["n_partes"] == 2 and i2["qtd_inversores"] == 40
+    assert "Inversor 2.7" in i2["causa"], i2["causa"]

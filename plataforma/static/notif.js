@@ -9,7 +9,7 @@
 (function () {
   if (document.documentElement.classList.contains("embed")) return;   // dentro da tela do cliente, o sino e o do pai
   var CHAVE = "gc.notif.visto", ULT = "gc.notif.ultimo", VISTOS = "gc.notif.vistos";
-  var FONTE_ID = { pv: "thopen-pv", pg: "thopen-db", sunop: "athon", axis: "axis", owen: "renogrid", semp: "semp", alveslima: "alveslima" };
+  var FONTE_ID = { pv: "thopen-pv", pg: "thopen-db", sunop: "athon", axis: "axis", owen: "2c", semp: "semp", alveslima: "alveslima" };
   var visto = "", ultimo = "", vistos = {}, grupos = [], aberto = false, meta = {};
   try {
     visto = localStorage.getItem(CHAVE) || ""; ultimo = localStorage.getItem(ULT) || "";

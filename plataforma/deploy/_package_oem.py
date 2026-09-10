@@ -29,6 +29,11 @@ INCLUIR = [
     "plataforma",              # o app: código, templates/, static/
     "docs",                    # o "/" lê docs/redesign/Monitoramento (novo design).html
     "thopen/dashboard_thopen.py",   # IMPORTADO pelo app (gerencial/carteiras) via sys.path
+    # SEM ISTO O SERVIDOR NÃO SOBE (achado em 08/09/2026, montando o pacote do deploy): desde a
+    # migração de 28/08 o dashboard lê o PostgreSQL, e faz `import fonte_api` no TOPO, sem
+    # try/except. Faltando o módulo, quebra o import do dashboard — e junto o do app.py, que o
+    # importa para o gerencial/carteiras. A lista era anterior à migração e não tinha sido revista.
+    "thopen/fonte_api.py",
     "thopen/templates",
     "thopen/data",             # BD_Thopen + planilhas Copel/Matrix/Polaris
     "requirements.txt",

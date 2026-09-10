@@ -39,6 +39,20 @@ def entrada(monkeypatch):
     return {"fonte": _fonte, "chamadas": chamadas}
 
 
+@pytest.fixture(autouse=True)
+def _sem_fonte_real(monkeypatch):
+    """NENHUM teste deste arquivo pode tocar a fonte de verdade.
+
+    Desde 08/09 o `_entrada_tr_payload` recalcula a parte de strings AO VIVO, e para isso chama
+    `_portfolio_rollup()`. Com os caches frios (que e como um processo de teste nasce), o rollup cai no
+    `_pg_get_snapshot`, que na primeira carga constroi SINCRONO — ou seja, vai ao PostgreSQL de producao e
+    fica pendurado. Efeito: `python -m pytest` parava no 4o teste deste arquivo e a suite inteira nunca
+    terminava (pego em 09/09/2026, na varredura). Quem precisa de um rollup especifico sobrescreve depois.
+    """
+    monkeypatch.setattr(app, "_portfolio_rollup", lambda: [])
+    monkeypatch.setattr(app, "_ENTRADA_TR_VIVO", {"ts": 0.0, "epoch": None, "data": None})
+
+
 def _grupo(saida, cliente, fonte):
     return [g for g in saida["grupos"] if g["cliente"] == cliente and g["fonte"] == fonte][0]
 
@@ -75,7 +89,10 @@ def test_fonte_que_levanta_excecao_tambem_nao_derruba(entrada, monkeypatch):
     d = app._entrada_tempo_real_build()
     assert _grupo(d, "Thopen", "API PV")["trk_fonte_ok"] is False       # levantou → "fonte nao respondeu"
     assert _grupo(d, "Thopen", "Thopen")["trk_fonte_ok"] is True
-    assert _grupo(d, "Renogrid", "RenoGrid")["trk_fonte_ok"] is True    # respondeu vazio: zero parados ≠ sem leitura
+    # `_owen_parados_rows` E a fonte do 2C (OWEN_UFVS = Araputanga, Ipixuna do Para, Sete Lagoas 2, Tupi
+    # Paulista) — ate 09/09/2026 ela estava registrada sob "RenoGrid" e este teste guardava o engano.
+    assert _grupo(d, "2C", "2C")["trk_fonte_ok"] is True                # respondeu vazio: zero parados ≠ sem leitura
+    assert _grupo(d, "Renogrid", "RenoGrid")["trk_fonte_ok"] is False   # a RenoGrid nao tem leitura de trackers
 
 
 def test_todas_as_fontes_sao_consultadas_em_paralelo(entrada, monkeypatch):
@@ -91,7 +108,7 @@ def test_todas_as_fontes_sao_consultadas_em_paralelo(entrada, monkeypatch):
     gasto = time.time() - t0
     assert gasto < 2.0, f"as fontes foram lidas em sequencia ({gasto:.1f}s)"
     for cliente, fonte in (("Thopen", "API PV"), ("Thopen", "Thopen"), ("Athon", "Athon"),
-                           ("Axis", "Axis"), ("Renogrid", "RenoGrid")):
+                           ("Axis", "Axis"), ("2C", "2C")):          # 2C = a fonte `owen` (era lida como RenoGrid)
         assert _grupo(d, cliente, fonte)["trk_fonte_ok"] is True, f"{cliente}/{fonte} ficou de fora"
 
 
@@ -171,3 +188,51 @@ def test_strings_nao_reconhecidas_descontam_o_acompanhamento(entrada, monkeypatc
     assert (por["SMP100"]["strings_nao_rec"], por["CPP100"]["strings_nao_rec"]) == (8, 0)
     pv = _grupo(d, "Thopen", "API PV")
     assert pv["strings_faltando"] == 5 and pv["strings_nao_rec"] == 0          # acompanha mais do que falta: nada pendente
+
+
+def test_strings_do_card_sao_ao_vivo_e_contam_usina_sem_comunicacao(monkeypatch):
+    """O card lia o rollup congelado no build de 30 min (SMP100: 65 as 08h40, 28 as 09h06 na tabela) e zerava a usina
+    sem comunicacao (Ipixuna 1: -15 na tabela, 0 no card). Agora a parte de strings e recalculada a cada leitura sobre
+    os mesmos caches da tabela, com o acompanhamento vigente; sem comunicacao entra com a ultima leitura, a parte."""
+    cache = {"ts": time.time(), "building": False, "data": {"cache_ts": "09:07:11", "fontes_pendentes": [], "grupos": [
+        {"cliente": "Athon", "fonte": "Athon", "fonte_id": "athon", "strings_faltando": 153, "strings_nao_rec": 65,
+         "usinas_critico": 4, "usinas_sem_comm": 0, "usinas_ok": 0, "usinas": [
+             {"usina": "SMP100", "plant_id": "SMP100", "status": "critico", "strings_faltando": 65, "strings_acomp": 0,
+              "strings_nao_rec": 65, "etm": [], "etm_os": False, "trk_parados": 3, "trk_com_os": 1},
+             {"usina": "MRO100", "plant_id": "MRO100", "status": "critico", "strings_faltando": 34, "strings_acomp": 0,
+              "strings_nao_rec": 34, "etm": [], "etm_os": False, "trk_parados": 0, "trk_com_os": 0}]},
+        {"cliente": "Thopen", "fonte": "Thopen", "fonte_id": "thopen-db", "strings_faltando": 28, "strings_nao_rec": 2,
+         "usinas_critico": 1, "usinas_sem_comm": 1, "usinas_ok": 0, "usinas": [
+             {"usina": "Ipixuna 1", "plant_id": 20, "status": "sem_comm", "strings_faltando": 0, "strings_acomp": 0,
+              "strings_nao_rec": 0, "etm": [], "etm_os": False, "trk_parados": 0, "trk_com_os": 0}]}]}}
+    monkeypatch.setattr(app, "_ENTRADA_TR_CACHE", cache)
+    monkeypatch.setattr(app, "_ENTRADA_TR_VIVO", {"ts": 0.0, "epoch": None, "data": None})
+    monkeypatch.setattr(app, "_portfolio_rollup", lambda: [
+        {"usina": "SMP100", "plant_id": "SMP100", "fonte": "Athon", "cliente": "Athon", "status": "critico", "diferenca": -28,
+         "strings_faltando": 28, "strings_ativas": 322, "str_esp": 350, "ultima_leitura": "2026-09-08 09:06"},
+        {"usina": "MRO100", "plant_id": "MRO100", "fonte": "Athon", "cliente": "Athon", "status": "critico", "diferenca": -34,
+         "strings_faltando": 34, "strings_ativas": 391, "str_esp": 425, "ultima_leitura": "2026-09-08 09:05"},
+        {"usina": "Ipixuna 1", "plant_id": 20, "fonte": "Thopen", "cliente": "Thopen", "status": "sem_comm", "diferenca": -15,
+         "strings_faltando": 0, "strings_ativas": 98, "str_esp": 113, "ultima_leitura": "2026-09-07 14:50"},
+        {"usina": "Santarem 2", "plant_id": 34, "fonte": "Thopen", "cliente": "Thopen", "status": "critico", "diferenca": -21,
+         "strings_faltando": 21, "strings_ativas": 183, "str_esp": 204, "ultima_leitura": "2026-09-08 08:55"}])
+    monkeypatch.setattr(app, "_trk_geo_annotate", lambda rows: rows)
+    monkeypatch.setattr(app, "_load_state", lambda: {"tracking": {"so:MRO100": 34, "pg:34": 21}})
+    d = app._entrada_tr_payload()
+    athon = [g for g in d["grupos"] if g["fonte_id"] == "athon"][0]
+    assert (athon["strings_faltando"], athon["strings_nao_rec"]) == (62, 28)     # SMP100 28 (tabela) + MRO100 34 acompanhadas
+    smp = [u for u in athon["usinas"] if u["usina"] == "SMP100"][0]
+    assert smp["strings_faltando"] == 28 and smp["trk_parados"] == 3              # strings ao vivo; trackers seguem do cache
+    th = [g for g in d["grupos"] if g["fonte_id"] == "thopen-db"][0]
+    assert (th["strings_faltando"], th["strings_nao_rec"], th["strings_faltando_sem_comm"]) == (36, 15, 15)
+    por = {u["usina"]: u for u in th["usinas"]}
+    assert por["Ipixuna 1"]["strings_faltando"] == 15 and por["Ipixuna 1"]["strings_sem_comm"] is True
+    assert por["Santarem 2"]["strings_nao_rec"] == 0 and th["n_usinas"] == 2 and th["usinas_sem_comm"] == 1   # usina nova entra
+    assert cache["data"]["grupos"][0]["strings_nao_rec"] == 65 and d["strings_ts"]   # o cache em si nao foi mexido
+    # rollup fora do ar: o cache e servido como esta (memo zerado para nao devolver a copia viva anterior)
+    monkeypatch.setattr(app, "_ENTRADA_TR_VIVO", {"ts": 0.0, "epoch": None, "data": None})
+
+    def _cai():
+        raise RuntimeError("fora")
+    monkeypatch.setattr(app, "_portfolio_rollup", _cai)
+    assert app._entrada_tr_payload()["grupos"][0]["strings_nao_rec"] == 65
