@@ -5,7 +5,7 @@ O snapshot das fontes só fala do AGORA, mas o histórico existe espalhado. Esta
 para o seletor de data funcionar nas cinco fontes:
 
   1. `?dia=YYYY-MM-DD` em /api/<fonte>/inversores/energia-mes/<pid> devolve a energia POR INVERSOR daquele dia
-     (banco no PG, acumulador nas demais) — sem isso a coluna de energia não tinha como voltar no tempo;
+     (banco no PG, aba do BD_Performance nas demais desde 08/09) — sem isso a coluna de energia não voltava no tempo;
   2. a análise de trackers do SunOp/Axis passou a aceitar um dia passado (PG, 2C e API PV já aceitavam).
 """
 import pytest
@@ -19,36 +19,40 @@ def cliente(monkeypatch):
     return app.app.test_client()
 
 
-def test_energia_de_um_dia_pelo_acumulador(cliente, tmp_path, monkeypatch):
-    monkeypatch.setattr(app, "_INV_ENERGIA_PATH", str(tmp_path / "e.json"))
-    app._inv_energia_registrar("sunop", "CPP100", "2026-09-05", {"Inversor 1.1": 1200.0, "Inversor 1.2": 0.0})
-    app._inv_energia_registrar("sunop", "CPP100", "2026-09-06", {"Inversor 1.1": 1135.7, "Inversor 1.2": None})
+def test_energia_de_um_dia_pela_aba_do_bd_performance(cliente, monkeypatch):
+    monkeypatch.setattr(app, "_bdperf_inv_dias", lambda u, a, m: {
+        "2026-09-05": {"ipoa": 6.0, "inv": {"Inversor 1.1": 1200.0, "Inversor 1.2": 0.0}},
+        "2026-09-06": {"ipoa": 5.5, "inv": {"Inversor 1.1": 1135.7}}} if (u == "CPP100" and (a, m) == (2026, 9)) else {})
 
-    d = cliente.get("/api/athon/inversores/energia-mes/CPP100?dia=2026-09-06").get_json()
-    assert d["dia"] == "2026-09-06" and d["origem"] == "acumulador" and d["tem_dado"] is True
-    assert d["inversores"] == {"Inversor 1.1": 1135.7}          # None não vira zero: é ausência de leitura
-    assert cliente.get("/api/athon/inversores/energia-mes/CPP100?dia=2026-09-05").get_json()["inversores"] == \
+    d = cliente.get("/api/athon/inversores/energia-mes/CPP100?usina=CPP100&dia=2026-09-06").get_json()
+    assert d["dia"] == "2026-09-06" and d["origem"] == "bd_performance" and d["tem_dado"] is True
+    assert d["inversores"] == {"Inversor 1.1": 1135.7}          # inversor sem número na linha não vira zero
+    assert cliente.get("/api/athon/inversores/energia-mes/CPP100?usina=CPP100&dia=2026-09-05").get_json()["inversores"] == \
         {"Inversor 1.1": 1200.0, "Inversor 1.2": 0.0}           # zero medido é dado, e continua aparecendo
-    # dia sem fotografia: responde vazio e DIZ que está vazio (a tela precisa distinguir de "zero gerado")
-    vazio = cliente.get("/api/athon/inversores/energia-mes/CPP100?dia=2026-01-01").get_json()
+    # dia que a aba não fechou: responde vazio e DIZ que está vazio (a tela precisa distinguir de "zero gerado")
+    vazio = cliente.get("/api/athon/inversores/energia-mes/CPP100?usina=CPP100&dia=2026-01-01").get_json()
     assert vazio["inversores"] == {} and vazio["tem_dado"] is False
     assert cliente.get("/api/athon/inversores/energia-mes/CPP100?dia=06-09-2026").status_code == 400
     # e o mês continua funcionando como antes
-    assert cliente.get("/api/athon/inversores/energia-mes/CPP100?mes=2026-09").get_json()["dias"] == 2
+    assert cliente.get("/api/athon/inversores/energia-mes/CPP100?usina=CPP100&mes=2026-09").get_json()["dias"] == 2
 
 
-def test_energia_de_um_dia_no_pg_vem_do_banco(cliente, monkeypatch):
+def test_energia_de_um_dia_no_thopen_vem_do_bd_thopen(cliente, monkeypatch):
+    """Usina Thopen: a aba diária do BD_Thopen (Levi, 08/09), com os nomes da aba traduzidos pelo PR de hoje."""
     chamadas = []
 
-    def _pivo(ini, fim):
-        chamadas.append((ini, fim))
-        return [{"plant_id": 27, "dias": [{"data": "2026-09-06", "ger": {"Inversor 1.1": 402.5, "Inversor 1.2": None}}]}]
-    monkeypatch.setattr(app, "_pg_gerpivo_get", _pivo)
-    d = cliente.get("/api/pg/inversores/energia-mes/27?dia=2026-09-06").get_json()
-    assert chamadas == [("2026-09-06", "2026-09-06")], "pediu um intervalo em vez do dia pedido"
-    assert d["origem"] == "banco" and d["inversores"] == {"Inversor 1.1": 402.5} and d["tem_dado"] is True
-    monkeypatch.setattr(app, "_pg_gerpivo_get", lambda *a: [])
-    assert cliente.get("/api/pg/inversores/energia-mes/27?dia=2026-09-06").get_json()["tem_dado"] is False
+    def _dias(usina, ano, mes):
+        chamadas.append((usina, ano, mes))
+        return {"2026-09-06": {"ipoa": 4.2, "inv": {"inversor 10": 402.5}}} if usina == "Ibaté 1" else {}
+    monkeypatch.setattr(app, "_bdthopen_inv_dias", _dias)
+    monkeypatch.setattr(app, "_pg_pr_get", lambda dia, force=False: ([], {27: [{"id": 10, "nome": "Inversor 1.10", "nome_api": "inversor 10", "pot_kwp": 250.0}]}))
+    d = cliente.get("/api/pg/inversores/energia-mes/27?usina=Ibat%C3%A9%201&dia=2026-09-06").get_json()
+    assert chamadas == [("Ibaté 1", 2026, 9)]
+    assert d["origem"] == "bd_thopen" and d["inversores"] == {"Inversor 1.10": 402.5} and d["tem_dado"] is True
+    vazio = cliente.get("/api/pg/inversores/energia-mes/27?usina=Outra&dia=2026-09-06").get_json()
+    assert vazio["tem_dado"] is False and "BD_Thopen" in vazio["motivo"]
+    m = cliente.get("/api/pg/inversores/energia-mes/27?usina=Ibat%C3%A9%201&mes=2026-09").get_json()
+    assert m["origem"] == "bd_thopen" and m["inversores"] == {"Inversor 1.10": 402.5} and m["dias"] == 1
 
 
 def test_trackers_do_sunop_aceitam_dia_passado(monkeypatch):

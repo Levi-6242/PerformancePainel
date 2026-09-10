@@ -123,9 +123,19 @@ if (-not $url) { Registra 'subi o cloudflared mas nao capturei a URL'; exit 1 }
 #    nao existe. Se nao resolver, derruba o proprio tunel e deixa o proximo ciclo tentar limpo.
 $alvo = ([uri]$url).Host
 $dns_ok = $false
-foreach ($i in 1..12) {
+# A OU AAAA, exigindo ENDERECO de verdade, e com paciencia (10/09/2026). Duas coisas aqui
+# derrubavam tunel SAUDAVEL, em ciclo infinito:
+#   1) '-Type A' sozinho: o quick tunnel as vezes provisiona o AAAA primeiro - o
+#      roy-regarded-moses-annotation resolvia em 2606:4700::6810:e684 e nao tinha A nenhum;
+#   2) 60 s (12 x 5) era curto: nesse dia a Cloudflare levou ~4 min para o nome existir nos
+#      resolvedores publicos. O guardiao matava o conector antes disso e repetia para sempre
+#      (09:08 sobe -> 09:09:44 derruba -> 09:22 sobe -> ...), deixando o time sem link.
+# O filtro por IPAddress e' de proposito: em nome com CNAME o Resolve-DnsName devolve o CNAME
+# sem endereco, e a mera existencia de registro nao prova que o hostname esta publicado.
+foreach ($i in 1..48) {
     Start-Sleep -Seconds 5
-    if (Resolve-DnsName -Name $alvo -Type A -ErrorAction SilentlyContinue) { $dns_ok = $true; break }
+    $reg = Resolve-DnsName -Name $alvo -Type A_AAAA -ErrorAction SilentlyContinue
+    if ($reg | Where-Object { $_.IPAddress }) { $dns_ok = $true; break }
 }
 if (-not $dns_ok) {
     Registra "URL $url nao resolve no DNS (hostname nao provisionado); derrubei e vou tentar no proximo ciclo"

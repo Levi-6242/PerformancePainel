@@ -155,9 +155,15 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
 .rx-ver .f{font-size:14.5px;line-height:1.45}.rx-ver .f b{color:var(--txt)}.rx-ver .motor{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.45}.rx-ver .motor b{color:var(--txt)}
 .rx-casc{display:flex;height:12px;border-radius:6px;overflow:hidden;margin-top:10px;background:var(--raise)}.rx-casc span{height:100%}
 .rx-leg{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:6px}.rx-leg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:5px;vertical-align:-1px}
-.rx-tres{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:16px}
+.rx-tres{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px}   /* 2x2 desde o card de Inversores (08/09) */
+.rx-meta{min-height:0;margin-bottom:12px}.rx-meta-row{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;margin-top:6px}
+.rx-meta .v{margin:0;white-space:nowrap}.rx-meta .rx-barra{height:10px}.rx-meta .s{text-align:right;white-space:nowrap}
+.rx-tog{display:inline-flex;gap:2px;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:2px;margin-right:8px;vertical-align:middle}
+.rx-tog button{border:0;font:600 10.5px var(--font);padding:3px 9px;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer}.rx-tog button.on{background:var(--brand);color:#16140e}
+@media (max-width:980px){.rx-meta-row{grid-template-columns:1fr}.rx-meta .s{text-align:left;white-space:normal}}
 .rx-bloco{background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;position:relative;min-height:112px}
 .rx-bloco .l{font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:700;display:flex;justify-content:space-between;gap:6px}
+.rx-of{margin-bottom:16px;min-height:0}.rx-of .l .sub{font-size:10.5px;color:var(--faint);font-weight:400;text-transform:none;letter-spacing:0;text-align:right}.rx-of-g{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:8px}.rx-of-t{font-size:12px;color:var(--muted);margin-bottom:4px}.rx-of-t b{font-size:20px;font-weight:700;margin-right:6px;font-family:var(--mono,monospace)}.rx-of-t b.ruim{color:var(--red)}.rx-of-t b.aviso{color:var(--amber)}.rx-of-i{font-size:12px;color:var(--txt);line-height:1.45;margin-top:3px}.rx-of-i span{display:block;font-size:11px;color:var(--faint)}.rx-of-i.mudo{color:var(--faint)}
 .rx-bloco .v{font:600 26px/1.1 var(--rx-mono);margin:6px 0 2px}.rx-bloco .v small{font-size:13px;color:var(--muted);font-weight:400;font-family:var(--font)}
 .rx-bloco .v.ruim{color:var(--red)}.rx-bloco .v.aviso{color:var(--amber)}.rx-bloco .v.bom{color:var(--ok)}.rx-bloco .v.mudo{color:var(--muted);font-size:15px;font-family:var(--font);font-weight:500}
 .rx-bloco .s{font-size:11.5px;color:var(--muted);line-height:1.4}.rx-bloco .s b{color:var(--txt);font-weight:600}
@@ -181,13 +187,11 @@ details.rx-fr{margin-top:14px;border:1px solid var(--line);border-radius:12px;ba
 details.rx-fr summary::-webkit-details-marker{display:none}details.rx-fr summary::before{content:"›";display:inline-block;margin-right:8px;transition:transform .15s;color:var(--faint)}details.rx-fr[open] summary::before{transform:rotate(90deg)}
 details.rx-fr .in{padding:0 14px 14px}
 .rx-os{border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:8px;padding:6px 10px;margin-bottom:6px;font-size:11.5px}
-.rx-mini{display:grid;grid-template-columns:78px 1fr;gap:6px;align-items:center;margin-bottom:4px}.rx-mini .n{font-size:10.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.rx-cells{display:grid;gap:3px}.rx-cells i{height:11px;border-radius:2px;display:block}
 .rx-dias{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}.rx-dia{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:8px 10px}
 .rx-dia .d{font:500 11px var(--rx-mono);color:var(--muted)}.rx-dia .p{font:600 15px var(--rx-mono);margin-top:2px}.rx-dia .p.bom{color:var(--ok)}.rx-dia .p.ruim{color:var(--red)}.rx-dia .p.aviso{color:var(--amber)}.rx-dia .x{font-size:10.5px;color:var(--faint)}
 .rx-esq{color:var(--faint);font-size:11.5px;padding:6px 0}.rx-esq::after{content:"…";animation:rxp 1.2s infinite}@keyframes rxp{50%{opacity:.3}}
 .rx-nota{font-size:11.5px;color:var(--faint);padding:8px 0 0}
-@media (max-width:980px){.rx-tres{grid-template-columns:1fr}.rx-dias{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:980px){.rx-tres{grid-template-columns:1fr}.rx-of-g{grid-template-columns:1fr}.rx-of .l{flex-direction:column}.rx-of .l .sub{text-align:left}.rx-dias{grid-template-columns:repeat(3,1fr)}}
 .legend{display:flex;flex-wrap:wrap;gap:13px;font-size:10.5px;color:var(--muted);margin:2px 0 10px;}
 .legend span{display:flex;align-items:center;gap:5px;}.sw{width:11px;height:11px;border-radius:3px;display:inline-block;}
 .foot{margin-top:22px;text-align:center;font-size:10.5px;color:var(--faint);}.foot b{color:var(--brand-d);}
@@ -256,10 +260,6 @@ details.rx-fr .in{padding:0 14px 14px}
           <span class="chip" data-ff="clima">Clima</span>
         </div>
         <div class="feed" id="feed"><div class="empty">Carregando…</div></div>
-      </div>
-      <div class="card" style="margin-top:14px;">
-        <div class="chead"><div><h3>Usinas que exigem ação</h3><div class="csub">Mês ATUAL (gerada ÷ P50 prorrateado) · todas as usinas, piores atingimentos primeiro</div></div></div>
-        <div style="max-height:380px;overflow:auto;"><table id="tbWorstLive"><thead><tr><th>Usina</th><th>Cliente</th><th class="r">Atg.</th><th class="r">Perda MWh</th></tr></thead><tbody></tbody></table></div>
       </div>
       <div class="card" style="margin-top:14px;">
         <div class="chead"><div><h3>Agrupamento 🗺️</h3><div class="csub">Faixa = status das usinas · atingimento/PR no mês onde há meta</div></div>
@@ -407,7 +407,7 @@ async function boot(){
       fetch('/api/gerencial').then(r=>r.json()).catch(()=>null)
     ]);
     MACRO=m; GER=g; merge();
-    renderKpis(); renderWall(); renderFeed(); renderWorstTable('#tbWorstLive'); renderRegion(); stamp();
+    renderKpis(); renderWall(); renderFeed(); renderRegion(); stamp();   // a tabela "Usinas que exigem ação" saiu daqui (Levi, 08/09): o mosaico por meta já diz isso; ela segue no Histórico
   }catch(e){ document.getElementById('wall').innerHTML='<div class="empty">Falha ao carregar: '+e+'</div>'; }
 }
 
@@ -425,7 +425,8 @@ function merge(){
     gg=gg||{};
     MAP[k]=Object.assign({}, u, {
       cliente: gg.cliente||u.cliente||'—', prod:gg.prod, p50:gg.p50,
-      recurso:gg.recurso, atingimento:gg.atingimento, pr:gg.pr, pr_meta:gg.pr_meta, pot_mwp:gg.pot_mwp
+      recurso:gg.recurso, atingimento:gg.atingimento, pr:gg.pr, pr_meta:gg.pr_meta, pot_mwp:gg.pot_mwp,
+      meta_dias:gg.meta_dias, dias_mes:gg.dias_mes, dias_cob:gg.dias_cob   // a meta "até hoje" do Raio-X é o P50 rateado por estes dias
     });
   });
   aplicaGrupos();
@@ -452,6 +453,7 @@ function aplicaGrupos(){
     vivos.forEach((k,i)=>Object.assign(MAP[k],{
       prod:prod, p50:p50, pot_mwp:soma('pot_mwp'), atingimento:atg, pr:pond('pr'), pr_meta:pond('pr_meta'),
       cliente:(cli||MAP[k].cliente||'—'),
+      meta_dias:Math.max(0,...gers.map(x=>x.meta_dias||0))||null, dias_mes:(gers.find(x=>x.dias_mes)||{}).dias_mes||null,
       grupo:g.nome, grupo_n:vivos.length, grupo_lider:(i===0)}));
   });
 }
@@ -743,9 +745,9 @@ document.querySelectorAll('#grpFilters button').forEach(b=>b.onclick=()=>{
    aconteceu hoje. Fracttal e comentários ficam recolhidos no fim. Cada parte chega em paralelo com prazo próprio:
    quem não responde diz isso no lugar em vez de segurar o resto (o banco travou por 15 min em 05/09). */
 /* SEMP navega como 'pv': o id da usina é global na API PV e o backend resolve o token da conta
-   OEM sozinho (_pv_token_for) — o drill completo da Tucano vem de graça. RenoGrid fica sem drill
-   (não há página de diagnóstico p/ SolarEdge); o tile mostra status/contagem normalmente. */
-const FMAP={'API PV':'pv','Thopen':'pg','Athon':'athon','Axis':'axis','2C':'2c','SEMP':'pv'};
+   OEM sozinho (_pv_token_for) — o drill completo da Tucano vem de graça. RenoGrid entrou no drill em
+   07/09/2026 (v2 com inversores, PR e energia; sem trackers nem curva por string). */
+const FMAP={'API PV':'pv','Thopen':'pg','Athon':'athon','Axis':'axis','2C':'2c','SEMP':'pv','RenoGrid':'solaredge'};
 function hasDrill(p){return !!FMAP[p.fonte];}              // TODAS as fontes têm drill (inversores+trackers)
 function hasEngine(p){return p.fonte==='API PV'||p.fonte==='Thopen';}  // motor de causa provável só pv/pg
 function drillUrl(p){const f=FMAP[p.fonte];if(!f)return '';return `/painel/usina/${encodeURIComponent(p.plant_id)}?fonte=${f}&nome=${encodeURIComponent(p.usina)}&ts=${encodeURIComponent(p.ultima_leitura||'')}`;}
@@ -855,7 +857,7 @@ const RX_NOME={critico:'Crítico',sem_comm:'Sem comunicação',atencao:'Atençã
 async function openDrawer(key){
   const p=MAP[key]; if(!p)return;
   const seq=++RX.seq;
-  RX=Object.assign(RX,{p,gemeo:null,semana:null,plant:null,trk:null,etm:null,etmMes:null,notif:null,os:null,pr:null,depara:null,diag:null,gid:null,sel:null,heatOpen:false,falhas:{}});
+  RX=Object.assign(RX,{p,gemeo:null,semana:null,plant:null,trk:null,etm:null,etmMes:null,notif:null,os:null,pr:null,depara:null,diag:null,gid:null,sel:null,falhas:{},hist:null,h30:null,invModo:'energia'});
   document.getElementById('backdrop').classList.add('open');
   const dr=document.getElementById('drawer'); dr.classList.add('open'); dr.scrollTop=0;
   const fr=document.getElementById('rxFr'); if(fr){ fr.open=false; document.getElementById('rxFrSum').textContent='Fracttal e notas · comentários'; }
@@ -866,6 +868,10 @@ async function openDrawer(key){
   if(S&&S.plant) rxGET(S.plant(pid),S.lento?45000:15000).then(ok('plant')).catch(nao('plant')); else RX.plant=false;   // API PV: day_inverter + combiner por inversor passam de 15 s
   if(S&&S.pr) rxGET(S.pr(pid),30000).then(d=>{ const m={}; ((d&&d.inversores)||[]).forEach(i=>{ const k=norm(i.nome||i.id); if(k&&i.pr!=null) m[k]=i.pr; }); ok('pr')(m); }).catch(nao('pr')); else RX.pr=false;
   if(S&&S.dp) rxGET('/api/trackers/de-para?fonte='+S.dp+'&usina='+encodeURIComponent(p.usina),10000).then(d=>ok('depara')(d&&!d.sem_depara?d:false)).catch(nao('depara')); else RX.depara=false;
+  // livro de paradas: é o que sabe do DIA (início/fim por tracker); a rota de trackers só sabe do instante
+  if(S&&S.dp) rxGET('/api/perdas/'+S.dp+'/trackers/paradas-hist?usina='+encodeURIComponent(p.usina),25000).then(d=>ok('hist')((d&&d.rows)||[])).catch(nao('hist')); else RX.hist=false;
+  // mês fechado por inversor (BD_Thopen / BD_Performance): alimenta o modo "meta" acumulado (Levi, 07/09)
+  if(S) rxGET('/api/'+RX_SK[p.fonte]+'/inversores/historico/'+pid+'?usina='+encodeURIComponent(p.usina),120000).then(ok('h30')).catch(nao('h30')); else RX.h30=false;
   if(S&&S.trk)   rxGET(S.trk(pid),25000).then(ok('trk')).catch(nao('trk')); else RX.trk=false;
   if(S&&S.etm)   rxEtmAnalise(S.etm).then(rows=>ok('etm')(rows.find(r=>String(r.plant_id)===String(pid))||{sem_linha:true})).catch(nao('etm')); else RX.etm=false;
   if(S&&S.diag)  rxGET(S.diag(pid),15000).then(d=>ok('diag')((d&&d.diagnosticos)||[])).catch(nao('diag')); else RX.diag=false;
@@ -881,13 +887,42 @@ async function openDrawer(key){
 }
 function closeDrawer(){document.getElementById('backdrop').classList.remove('open');document.getElementById('drawer').classList.remove('open');}
 window.rxSel=nome=>{ RX.sel=nome; rxRender(); };
-window.rxHeatToggle=el=>{ RX.heatOpen=el.open; };
 
 /* ---- casamento inversor gêmeo × inversor plataforma (nome, código/ id, nome_api) ---- */
 function rxInvPlat(){ const inv=(RX.plant&&RX.plant.inversores)||[]; return inv.map(i=>{ const ss=(i.strings||[]).map(s=>({id:s.id,st:s.trancada?'trancada':(s.status||(s.ativa?'ativa':'inativa'))}));
   return {nome:i.nome||i.nome_api||String(i.id),id:String(i.id),api:String(i.nome_api||''),
   sem:ss.filter(s=>s.st==='sem_corrente').map(s=>s.id),nDesl:ss.filter(s=>s.st==='desligado').length,ativas:i.strings_ativas,esp:i.str_esp,total:i.total_strings||ss.length,
-  desligado:!!i.desligado,falha:!!i.falha_comunicacao,semVisao:!!i.sem_visao,rampa:!!i.rampa,eday:i.eday,strings:ss,ultima:i.ultima_leitura}; }); }
+  desligado:!!i.desligado,falha:!!i.falha_comunicacao,semVisao:!!i.sem_visao,rampa:!!i.rampa,eday:i.eday,strings:ss,ultima:i.ultima_leitura,
+  pac:(typeof i.active_power==='number')?i.active_power:null,prod:(i.produzindo===true||i.produzindo===false)?i.produzindo:null}; }); }
+
+/* ── Inversores SEM GERAÇÃO AGORA (Levi, 08/09/2026) ──────────────────────────────────────────────
+   A régua velha de "inversor parado" só olhava eday===0 e o flag `desligado`. Não pegava o caso da
+   Indaiatuba: inversor com eday NULO (o ping da API PV não trouxe Eday), sem potência e com todas as
+   strings 'inativa' — porque _classifica_strings só chama de 'sem_corrente' quando o inversor produz.
+   Saía desligado=false, eday=null, 0 strings sem corrente: invisível nos ofensores.
+   Ordem das provas, da mais forte para a mais fraca (a primeira que bater decide):
+     1. produzindo===false        → o backend já decidiu pela potência ativa
+     2. potência < 2 kW           → espelho do MACRO_POT_INV_MIN do app.py
+     3. desligado===true          → a fonte marcou
+     4. sem potência e sem produzindo: 0 strings ativas com a usina viva (≥2 inversores gerando)
+     5. eday===0 com a mediana dos pares > 0
+   Fora: sem comunicação (já é outro ofensor), sem visão e rampa — nenhum dos três prova parada.
+   eday NULO nunca é prova sozinho: PG e 2C mandam eday=None para todos, e a usina inteira viraria
+   'parada'. Janela 07–18h, a MESMA em que o backend marca `desligado` (fora dela ninguém gera). */
+const RX_POT_MIN=2.0;                                   // kW — espelho do MACRO_POT_INV_MIN do app.py
+const rxDiaSolar=()=>{const h=new Date().getHours();return h>=7&&h<18;};
+// `janela` só existe para dar prova: de noite a régua devolve lista vazia por desenho, e sem poder forçar
+// a janela não daria para conferir as 5 condições fora do horário solar. Em produção ninguém passa o 2º arg.
+function rxSemGeracao(plats,janela){
+  const cand=plats.filter(i=>!i.falha&&!i.semVisao&&!i.rampa);
+  const eds=cand.filter(i=>!i.desligado&&i.eday!=null).map(i=>i.eday).sort((a,b)=>a-b);
+  const medE=eds.length?eds[Math.floor(eds.length/2)]:null;
+  const plantProd=cand.filter(i=>(i.ativas||0)>0).length>=2;   // usina viva: mesmo gate do backend
+  const dia=(janela===undefined)?rxDiaSolar():!!janela;
+  const lst=dia?cand.filter(i=>i.prod===false||(i.pac!=null&&i.pac<RX_POT_MIN)||i.desligado
+      ||(i.pac==null&&i.prod==null&&i.ativas===0&&i.total>0&&plantProd)||(i.eday===0&&medE>0)):[];
+  return {lst,nomes:new Set(lst.map(i=>i.nome)),medE,dia,mudos:plats.filter(i=>i.falha).length};
+}
 // célula "strings sem corrente": só faz sentido com o inversor produzindo e com visão por string
 function rxCelStr(pl){ if(!pl||pl.ativas==null&&!pl.strings.length) return '—'; if(pl.semVisao) return '<span title="String Box: sem visão por string">s/ visão</span>';
   if(pl.falha||pl.desligado||(pl.nDesl&&pl.nDesl>=pl.strings.length-0)) return '<span title="inversor parado ou mudo: strings não contam">—</span>';
@@ -938,6 +973,21 @@ function rxTres(){
   // strings
   let strV, strS;
   const inv=rxInvPlat(), semAgora=inv.reduce((s,i)=>s+i.sem.length,0), invAfet=inv.filter(i=>i.sem.length).length, tot=inv.reduce((s,i)=>s+(i.total||0),0)||p.str_esp;
+  // Inversores sem gerar AGORA: é o ofensor de maior peso (na cascata o inversor parado vem primeiro) e
+  // não tinha card próprio — só aparecia como chip na tabela, quando aparecia (Levi, 08/09).
+  const SG=rxSemGeracao(inv);
+  let ivV, ivS;
+  if(RX.plant===null){ ivV='<div class="rx-esq">consultando</div>'; ivS=''; }
+  else if(RX.plant===false){ ivV='<div class="v mudo">fonte não respondeu</div>'; ivS=p.inv_off?`macro: <b>${rxN(p.inv_off)}</b> com potência ~0`:''; }
+  else if(!inv.length){ ivV='<div class="v mudo">sem inversores</div>'; ivS='a fonte não devolveu inversores'; }
+  else if(!SG.dia){ ivV='<div class="v mudo">fora da janela solar</div>'; ivS=`<b>${rxN(inv.length)}</b> inversores · parada só conta das 07h às 18h${SG.mudos?` · <b>${rxN(SG.mudos)}</b> sem comunicação`:''}`; }
+  else { const nsg=SG.lst.length;
+    ivV=`<div class="v ${nsg>0?'ruim':'bom'}">${rxN(nsg)} <small>/ ${rxN(inv.length)} sem geração</small></div>`;
+    ivS=(nsg?SG.lst.slice(0,3).map(i=>`<b>${_cmEsc(i.nome)}</b>`).join(' · ')+(nsg>3?' …':''):'todos gerando')
+       +(SG.mudos?` · <b>${rxN(SG.mudos)}</b> sem comunicação`:''); }
+  // usina fatiada: o cabeçalho soma as N plantas, mas o DETALHE por inversor é o da planta principal — a
+  // fonte só entrega inversor por planta. Dizer isso evita ler "10" como se contradissesse os "18" de cima.
+  if(p.n_partes>1&&inv.length) ivS+=` · detalhe de 1 de ${p.n_partes} plantas (${rxN(inv.length)} de ${rxN(p.qtd_inversores||inv.length)} inversores)`;
   const zer=RX.notif?rxZeraram().length:null;
   if(RX.plant===null) { strV='<div class="rx-esq">consultando</div>'; strS=''; }
   else if(p.sem_visao){ strV='<div class="v mudo">sem visão por string</div>'; strS='String Box: corrente agregada por inversor'; }
@@ -953,11 +1003,20 @@ function rxTres(){
   else if(t.tem_trackers===false||!(t.trackers||[]).length&&!t.total){ trV='<div class="v mudo">sem trackers</div>'; trS='usina fixa ou sem telemetria de tracker'; }
   else { const trs=t.trackers||[], total=t.total||trs.length, os=trs.filter(x=>x.ticket_status).length,
       dv=trs.length?trs.filter(x=>x.status==='desvio').length:(t.desvios||0), sc=trs.length?trs.filter(x=>x.sem_comunicacao).length:0;   // topo traz booleanos (tem_ticket, sem_comunicacao): conta pela lista
-    if(rxNoite()){   // de noite o tracker está estacionado e a rota marca todos como "parado" (CPP100 00:30: 63/63, sem alvo): não é parada, é noite
-      trV='<div class="v mudo">estacionados</div>'; trS=`volta ao amanhecer · <b>${rxN(total)}</b> trackers · <b>${rxN(os)}</b> com OS`; }
-    else { const par=t.parados!=null?t.parados:trs.filter(x=>x.status==='parado').length;
-      trV=`<div class="v ${par>0?'aviso':'bom'}">${rxN(par)} <small>/ ${rxN(total)} parados</small></div>`;
-      trS=`<b>${rxN(os)}</b> com OS · <b>${rxN(dv)}</b> em desvio · <b>${rxN(sc)}</b> sem comunicação`; } }
+    // O DIA, não o instante (Levi, 07/09): quantos pararam ou ficaram parados hoje, pelo livro de paradas
+    // (episódio com início ≤ hoje ≤ fim). "Ainda parados" = episódio aberto; "voltaram" = fechou hoje. De noite o
+    // instante não diz nada ("estacionados", e a rota marca todos como parado), mas o dia continua contando.
+    const hoje=rxHojeISO(), H=RX.hist, ep=(Array.isArray(H)?H:[]).filter(r=>String(r.inicio||'').slice(0,10)<=hoje&&String(r.fim||'').slice(0,10)>=hoje);
+    const trkDia=new Set(ep.map(r=>r.tracker)), ainda=new Set(ep.filter(r=>r.aberta).map(r=>r.tracker)), volt=new Set(ep.filter(r=>!r.aberta).map(r=>r.tracker));
+    const parAgora=t.parados!=null?t.parados:trs.filter(x=>x.status==='parado').length;
+    if(H===null){ trV='<div class="rx-esq">consultando o dia</div>'; trS=`<b>${rxN(total)}</b> trackers · <b>${rxN(os)}</b> com OS`; }
+    else if(Array.isArray(H)){
+      trV=`<div class="v ${trkDia.size>0?'aviso':'bom'}">${rxN(trkDia.size)} <small>/ ${rxN(total)} parados no dia</small></div>`;
+      trS=`<b>${rxN(ainda.size)}</b> ainda parado${ainda.size===1?'':'s'} · <b>${rxN(volt.size)}</b> voltar${volt.size===1?'ou':'am'} hoje · <b>${rxN(os)}</b> com OS`
+         +(rxNoite()?' · agora estacionados':` · <b>${rxN(dv)}</b> em desvio · <b>${rxN(sc)}</b> sem com.`); }
+    else if(rxNoite()){ trV='<div class="v mudo">estacionados</div>'; trS=`livro de paradas não respondeu · <b>${rxN(total)}</b> trackers · <b>${rxN(os)}</b> com OS`; }
+    else { trV=`<div class="v ${parAgora>0?'aviso':'bom'}">${rxN(parAgora)} <small>/ ${rxN(total)} parados agora</small></div>`;
+      trS=`livro de paradas não respondeu · <b>${rxN(os)}</b> com OS · <b>${rxN(dv)}</b> em desvio · <b>${rxN(sc)}</b> sem comunicação`; } }
   if(g.trackers&&g.trackers.length) trS+=`<br>maior perda (gêmeo): <b>${_cmEsc(g.trackers[0].nome)}</b> ${rxN(g.trackers[0].kwh)} kWh`;
   if(RX.depara&&RX.depara.n) trS+=`<br>Fracttal: <b>${rxN(RX.depara.casados+RX.depara.a_confirmar)}</b> de ${rxN(RX.depara.n)} com par${RX.depara.a_confirmar?` (${rxN(RX.depara.a_confirmar)} a confirmar)`:''}${RX.depara.sem_par?` · <span style="color:var(--red)">${rxN(RX.depara.sem_par)} sem par</span>`:''}`;
   else if(RX.depara===false&&t&&t!==null) trS+=`<br><span style="color:var(--faint)">sem de-para no Fracttal</span>`;
@@ -971,44 +1030,130 @@ function rxTres(){
     etS=flags.length?flags.slice(0,3).map(f=>`<b>${_cmEsc(f.t)}</b> · ${_cmEsc(f.info||'')}`).join('<br>'):'POA e GHI coerentes hoje'; }
   if(g.sensor) etS+=`<br>gêmeo: gate <b>${_cmEsc(g.sensor.gate_hoje||'—')}</b>${g.sensor.razao_poa_ghi?` · POA/GHI ${rxN(g.sensor.razao_poa_ghi,2)}`:''}`;
   if(RX.etmMes&&RX.etmMes.length) etS+=`<br>no mês: ${_cmEsc(RX.etmMes[0].problemas[0]||'')}${RX.etmMes[0].ticket&&RX.etmMes[0].ticket.feito?' · ticket aberto':''}`;
-  return `<div class="rx-tres">
+  // Meta do mês até hoje: o MESMO número do bloco da Frota (gerada ÷ P50 rateado pelos dias cobertos), com a barra que
+  // o Levi pediu ao lado dos três cards. "Sem geração" e "sem meta" continuam sendo coisas diferentes.
+  let mtV, mtS; const atg=p.atingimento, temP=p.p50!=null&&p.p50>0, mtCls=atg==null?'mudo':atg>=95?'bom':atg>=85?'aviso':'ruim';
+  const mtCor=mtCls==='bom'?'var(--ok)':mtCls==='aviso'?'var(--amber)':'var(--red)';
+  if(atg!=null){ mtV=`<div class="v ${mtCls}">${rxN(atg)}<small>% da meta</small></div>`;
+    mtS=`gerada <b>${rxN(p.prod,1)}</b> MWh · meta até hoje <b>${rxN(p.p50,1)}</b> MWh${p.meta_dias?` · <b>${p.meta_dias}</b> de ${p.dias_mes||'—'} dias`:''}${p.grupo_n>1?` · ${p.grupo_n} usinas somadas`:''}`; }
+  else if(temP){ mtV='<div class="v mudo">sem geração</div>'; mtS=`meta até hoje <b>${rxN(p.p50,1)}</b> MWh · geração do mês não encontrada nas bases`; }
+  else { mtV='<div class="v mudo">sem meta</div>'; mtS='sem meta cadastrada para o mês'; }
+  const mtBar=atg!=null?`<div class="rx-barra"><i style="width:${Math.min(100,atg)}%;background:${mtCor}"></i><em style="left:99%"></em></div>`:'<div class="rx-barra"></div>';
+  return `<div class="rx-bloco rx-meta"><div class="l"><span>Meta do mês · até hoje</span><a href="/gerencial">Gerencial ›</a></div>
+    <div class="rx-meta-row">${mtV}${mtBar}<div class="s">${mtS}</div></div></div>
+  <div class="rx-tres">
+    <div class="rx-bloco"><div class="l"><span>Inversores</span>${hasDrill(p)?`<a href="${drillUrl(p)}">Diagnóstico ›</a>`:''}</div>${ivV}<div class="s">${ivS}</div></div>
     <div class="rx-bloco"><div class="l"><span>Strings</span>${lk('strings')}</div>${strV}<div class="s">${strS}</div></div>
     <div class="rx-bloco"><div class="l"><span>Trackers</span>${lk('trackers')}</div>${trV}<div class="s">${trS}</div></div>
     <div class="rx-bloco"><div class="l"><span>ETM</span>${lk('etm')}</div>${etV}<div class="s">${etS}</div></div></div>`;
 }
 function rxZeraram(){ const m={}; (RX.notif||[]).forEach(z=>{ const k=String(z.quando).slice(11,16)+'|'+z.inversor; (m[k]=m[k]||{q:String(z.quando).slice(11,16),inv:z.inversor,s:[]}).s.push(String(z.string)); }); return Object.values(m); }
 
+/* ---- ofensores do dia (Levi, 07/09): IDENTIFICADO = causa visível na telemetria (string sem corrente, tracker parado,
+   ETM com problema); NÃO IDENTIFICADO = perda sem causa visível — inversor abaixo dos pares sem string fora e strings
+   com baixa performance (sujidade, sombra, vegetação, conector…). Cada item conta 1; o total é a soma. ---- */
+function rxOfensores(){
+  const p=RX.p, plats=rxInvPlat(), g=RX.gemeo;
+  if(RX.plant===null&&RX.trk===null&&RX.etm===null) return '';
+  const ident=[], nao=[];
+  // Quem não está gerando sai do 'vivo': senão o MESMO inversor conta duas vezes — uma como parado,
+  // outra como "abaixo dos pares" — e as strings de um inversor parado viram falha de string.
+  const SG=rxSemGeracao(plats);
+  const vivo=plats.filter(i=>!i.falha&&!i.desligado&&!SG.nomes.has(i.nome));
+  // strings sem corrente com o inversor produzindo (fonte com visão por string)
+  const semCor=vivo.filter(i=>!i.semVisao).flatMap(i=>i.sem.map(s=>i.nome+' · '+s));
+  if(semCor.length) ident.push({n:semCor.length,t:'string'+(semCor.length>1?'s':'')+' sem corrente',l:semCor});
+  // trackers parados: o DIA pelo livro de paradas; sem livro, o instante
+  const t=RX.trk, Hh=RX.hist, hoje=rxHojeISO();
+  if(t&&t!==false&&t.tem_trackers!==false&&((t.trackers||[]).length||t.total)){
+    let trk;
+    if(Array.isArray(Hh)) trk=[...new Set(Hh.filter(r=>String(r.inicio||'').slice(0,10)<=hoje&&String(r.fim||'').slice(0,10)>=hoje).map(r=>String(r.tracker)))];
+    else { const lst=(t.trackers||[]).filter(x=>x.status==='parado').map(x=>String(x.id)); trk=lst.length?lst:Array.from({length:t.parados||0},(_,k)=>'tracker '+(k+1)); }
+    if(trk.length) ident.push({n:trk.length,t:'tracker'+(trk.length>1?'s':'')+' parado'+(trk.length>1?'s':'')+(Array.isArray(Hh)?' no dia':' agora'),l:trk});
+  }
+  // ETM: sem leitura ou com alerta/falha (não conta "sem estação": não é ofensor, é ausência)
+  const e=RX.etm, flags=(e&&e.flags)||[];
+  if(e&&e!==false&&!e.sem_linha){ if(e.sem_dados) ident.push({n:1,t:'ETM sem leitura hoje',l:[]}); else if(flags.length) ident.push({n:flags.length,t:'ETM com '+(flags.length>1?'alertas':'alerta'),l:flags.map(f=>f.t)}); }
+  // não identificados: produzindo abaixo dos pares (ou "abaixo" no gêmeo) SEM string fora; strings com baixa performance
+  const comE=vivo.filter(i=>i.eday!=null), med=comE.length?comE.map(i=>i.eday).sort((a,b)=>a-b)[Math.floor(comE.length/2)]:null;
+  // inversor sem geração agora e inversor mudo: causa visível, contam como identificados. A lista sai do
+  // rxSemGeracao — a MESMA do card de Inversores, para card e ofensor nunca discordarem.
+  const par=SG.lst.map(i=>i.nome+(i.pac!=null?' · '+rxN(i.pac,1)+' kW':(i.eday===0?' · 0 kWh no dia':(i.ativas===0?' · 0 strings ativas':''))));
+  if(par.length) ident.push({n:par.length,t:'inversor'+(par.length>1?'es':'')+' sem geração agora',l:par});
+  const mudo=plats.filter(i=>i.falha).map(i=>i.nome);
+  if(mudo.length) ident.push({n:mudo.length,t:'inversor'+(mudo.length>1?'es':'')+' sem comunicação',l:mudo});
+  const gSt={}; ((g&&g.inversores)||[]).forEach(i=>{ const pl=rxCasa(i,plats); gSt[(pl&&pl.nome)||i.nome]=i.status; });
+  const abaixo=vivo.filter(i=>!i.sem.length&&((med&&i.eday!=null&&i.eday<0.9*med)||gSt[i.nome]==='abaixo'||gSt[i.nome]==='atencao'))
+    .map(i=>i.nome+((med&&i.eday!=null)?' · '+rxN(i.eday/med*100)+'% da mediana':''));
+  if(abaixo.length) nao.push({n:abaixo.length,t:'inversor'+(abaixo.length>1?'es':'')+' abaixo dos pares sem string fora',l:abaixo});
+  const baixa=vivo.flatMap(i=>i.strings.filter(s=>s.st==='baixa_perf').map(s=>i.nome+' · '+s.id));
+  if(baixa.length) nao.push({n:baixa.length,t:'string'+(baixa.length>1?'s':'')+' com baixa performance',l:baixa});
+  const soma=l=>l.reduce((a,x)=>a+x.n,0);
+  const col=(tit,lst,cls)=>`<div><div class="rx-of-t"><b class="${cls}">${rxN(soma(lst))}</b>${tit}</div>${lst.length?lst.map(x=>`<div class="rx-of-i" title="${_cmEsc(x.l.slice(0,40).join(' · '))}"><b>${rxN(x.n)}</b> ${_cmEsc(x.t)}${x.l.length?`<span>${_cmEsc(x.l.slice(0,3).join(' · '))}${x.l.length>3?' …':''}</span>`:''}</div>`).join(''):'<div class="rx-of-i mudo">nenhum</div>'}</div>`;
+  const pend=[RX.plant===null?'inversores':'',RX.trk===null?'trackers':'',RX.etm===null?'ETM':''].filter(Boolean);
+  return `<div class="rx-bloco rx-of"><div class="l"><span>Ofensores de hoje</span><span class="sub">identificado = causa visível na telemetria · não identificado = perda sem causa visível (sujidade, sombra, vegetação…)</span></div>
+    <div class="rx-of-g">${col('identificados',ident,'ruim')}${col('não identificados',nao,'aviso')}</div>${pend.length?`<div class="s" style="color:var(--faint)">ainda consultando: ${pend.join(', ')}</div>`:(rxNoite()&&!comE.length?'<div class="s" style="color:var(--faint)">de noite só o que ficou registrado no dia</div>':'')}</div>`;
+}
 /* ---- inversores: gêmeo (gerado ÷ esperado) quando há; senão energia do dia da plataforma ---- */
+// Meta POR INVERSOR (Levi, 07/09: "qual inversor está mais próximo da sua meta"): a usina tem o P50 do mês rateado
+// pelos dias cobertos; o dia médio é isso ÷ dias, e cada inversor leva a fatia das suas strings esperadas (proxy da
+// potência DC). Só rateia por strings quando TODOS os inversores têm esperadas; senão, partes iguais.
+function rxMetaDiaKwh(){ const p=RX.p; return (p&&p.p50>0&&p.meta_dias>0)?p.p50/p.meta_dias*1000:null; }
+function rxMetaInv(pl,plats){ const m=rxMetaDiaKwh(); if(!m||!plats.length) return null;
+  const esps=plats.map(x=>Number(x.esp)||0), soma=esps.reduce((a,b)=>a+b,0), todas=esps.every(x=>x>0);
+  const share=(todas&&pl&&Number(pl.esp)>0)?Number(pl.esp)/soma:1/plats.length; return m*share; }
+window.rxInvModo=m=>{ RX.invModo=m; rxRender(); };
 function rxInversores(){
   const g=RX.gemeo, plats=rxInvPlat();
   let linhas=[], sub='';
+  // modo "meta" = ACUMULADO do mês (Levi, 07/09): gerado no mês ÷ meta até hoje do inversor, pela rota de histórico
+  // (só dias fechados; fatia por potência do cadastro). Inversor sem histórico cai na régua do dia (P50/dia × strings).
+  const H=RX.h30, hInv=(H&&H.inversores)||{}, temMes=!!(H&&H.n_dias);
+  const hDe=(nome,alt)=>hInv[nome]||(alt?hInv[alt]:null)||null;
+  const modoMeta=RX.invModo==='meta'&&(temMes||rxMetaDiaKwh()!=null);
+  const rzMeta=(kwh,pl,alt)=>{ const h=hDe(pl&&pl.nome,alt); if(h&&h.pct_meta!=null) return h.pct_meta/100; const m=rxMetaInv(pl,plats); return (kwh!=null&&m)?kwh/m:null; };
+  const kwhMeta=(kwh,pl,alt)=>{ const h=hDe(pl&&pl.nome,alt); return (h&&h.pct_meta!=null)?h.ger:kwh; };
+  const tipMeta=(pl,alt)=>{ const h=hDe(pl&&pl.nome,alt);
+    if(h&&h.pct_meta!=null) return `mês até hoje: ${rxN(h.ger)} kWh gerados · meta ${rxN(h.meta)} kWh em ${h.dias} dia${h.dias===1?'':'s'}${h.pct_ipoa!=null?` · pelo IPOA que veio: ${rxN(h.pct_ipoa)}%`:''}${h.pr!=null?` · PR do mês ${rxN(h.pr*100)}%`:''}`;
+    const m=rxMetaInv(pl,plats); return m?`sem histórico fechado: só hoje · meta do dia deste inversor ${rxN(m)} kWh`:''; };
+  const _hl=Object.values(hInv), _hg=_hl.reduce((a,x)=>a+(x.meta?x.ger:0),0), _hm=_hl.reduce((a,x)=>a+(x.meta||0),0), pctU=_hm?_hg/_hm*100:null;
+  const subMeta=temMes?`barra = gerado no mês ÷ meta até hoje do inversor (P50/dia × dias com dado; rateio por ${H.rateio==='potencia'?'potência do cadastro':'partes iguais'}) · traço = 100% · mais perto da meta primeiro${pctU!=null?` · usina nesses ${H.n_dias} dia${H.n_dias===1?'':'s'}: <b>${rxN(pctU)}%</b>`:''}${RX.p.atingimento!=null?` · Gerencial no mês: ${rxN(RX.p.atingimento)}% em ${RX.p.meta_dias||'—'} dias (BD_Thopen)`:''}`
+    :(H===null?'consultando o histórico do mês… por enquanto energia de hoje ÷ meta do dia':((H&&H.motivo)?_cmEsc(H.motivo)+' · usando energia de hoje ÷ meta do dia':'sem histórico fechado nesta fonte · energia de hoje ÷ meta do dia (P50 do mês ÷ dias, rateado pelas strings esperadas)'));
   if(g&&g.inversores&&g.inversores.length){
     const ord={parado:0,abaixo:1,atencao:1,ok:2,sem_dado:3};
-    const invs=g.inversores.slice().sort((a,b)=>(ord[a.status]-ord[b.status])||((a.razao||9)-(b.razao||9)));
+    const rzG=i=>rzMeta(i.medido_kwh,rxCasa(i,plats)||null,i.nome);
+    const invs=g.inversores.slice().sort(modoMeta?((a,b)=>((rzG(b)??-1)-(rzG(a)??-1))):((a,b)=>(ord[a.status]-ord[b.status])||((a.razao||9)-(b.razao||9))));
     if(!RX.sel) RX.sel=invs[0].nome;
-    const maxR=Math.max(1.3,...invs.map(i=>i.razao||0));
-    linhas=invs.map(i=>{ const pl=rxCasa(i,plats)||null, cor=i.status==='parado'?'var(--red)':(i.status==='abaixo'||i.status==='atencao')?'var(--amber)':'var(--ok)';
+    const maxR=Math.max(1.3,...invs.map(i=>(modoMeta?rzG(i):i.razao)||0));
+    linhas=invs.map(i=>{ const pl=rxCasa(i,plats)||null, cor=i.status==='parado'?'var(--red)':(i.status==='abaixo'||i.status==='atencao')?'var(--amber)':'var(--ok)', rz=modoMeta?rzG(i):i.razao, kv=modoMeta?kwhMeta(i.medido_kwh,pl,i.nome):i.medido_kwh;
       return `<tr class="${RX.sel===i.nome?'sel':''}" onclick="rxSel('${_cmEsc(i.nome).replace(/'/g,'')}')"><td><b>${_cmEsc(i.nome)}</b></td>
-        <td><div class="rx-barra"><i style="width:${Math.min(100,(i.razao||0)/maxR*100)}%;background:${cor}"></i><em style="left:${1/maxR*100}%"></em></div></td>
-        <td class="rx-num">${i.razao==null?'—':rxN(i.razao*100)+'%'}</td><td class="rx-num">${i.medido_kwh==null?'—':rxN(i.medido_kwh)}</td>
+        <td><div class="rx-barra"><i style="width:${Math.min(100,(rz||0)/maxR*100)}%;background:${cor}"></i><em style="left:${1/maxR*100}%"></em></div></td>
+        <td class="rx-num" title="${modoMeta?tipMeta(pl,i.nome):''}">${rz==null?'—':rxN(rz*100)+'%'}</td><td class="rx-num">${kv==null?'—':rxN(kv)}</td>
         <td class="rx-num rx-c" style="color:var(--muted)">${rxCelStr(pl)}</td>
         <td class="rx-num" style="color:var(--muted)">${rxPrCel(i.nome,pl&&pl.nome)}</td><td><span class="rx-chip ${i.status==='atencao'?'abaixo':i.status}">${i.status==='parado'?'parou':i.status==='atencao'||i.status==='abaixo'?'abaixo':i.status==='sem_dado'?'sem dado':'ok'}</span></td></tr>`; });
-    sub='barra = gerado ÷ esperado pelo gêmeo · traço = 100% · clique para ver a curva';
+    sub=modoMeta?subMeta:'barra = gerado ÷ esperado pelo gêmeo · traço = 100% · clique para ver a curva';
   } else if(plats.length){
     const comE=plats.filter(i=>i.eday!=null), maxE=Math.max(1,...comE.map(i=>i.eday||0)), med=comE.length?comE.map(i=>i.eday).sort((a,b)=>a-b)[Math.floor(comE.length/2)]:null;
     // sem comunicação manda: com o dado parado, "desligado" e "abaixo" são só o retrato velho (Rodrigues 2, 06/09)
     const ord=i=>i.falha?0:i.desligado?1:i.sem.length?2:3;
-    const invs=plats.slice().sort((a,b)=>(ord(a)-ord(b))||((a.eday==null?9e9:a.eday)-(b.eday==null?9e9:b.eday)));
-    linhas=invs.map(i=>{ const st=i.falha?'sem_dado':i.desligado?'parado':(i.sem.length||(med&&i.eday!=null&&i.eday<0.9*med))?'abaixo':'ok', cor=st==='parado'?'var(--red)':st==='abaixo'?'var(--amber)':st==='sem_dado'?'var(--off)':'var(--ok)';
-      return `<tr><td><b>${_cmEsc(i.nome)}</b>${i.falha&&i.ultima?`<div style="font-size:10.5px;color:var(--faint)">última ${_cmEsc(_cmTs(i.ultima))}</div>`:''}</td><td><div class="rx-barra"><i style="width:${i.eday!=null?Math.min(100,i.eday/maxE*100):0}%;background:${cor}"></i>${med?`<em style="left:${Math.min(100,med/maxE*100)}%"></em>`:''}</div></td>
-        <td class="rx-num">${(med&&i.eday!=null)?rxN(i.eday/med*100)+'%':'—'}</td><td class="rx-num">${i.eday==null?'—':rxN(i.eday)}</td>
+    const rzE=i=>rzMeta(i.eday,i,i.api), maxR=Math.max(1.3,...plats.map(i=>rzE(i)||0));
+    const invs=plats.slice().sort(modoMeta?((a,b)=>((rzE(b)??-1)-(rzE(a)??-1))):((a,b)=>(ord(a)-ord(b))||((a.eday==null?9e9:a.eday)-(b.eday==null?9e9:b.eday))));
+    const _sg=rxSemGeracao(plats).nomes;   // mesma régua do card: a tabela não pode contradizê-lo
+    linhas=invs.map(i=>{ const st=i.falha?'sem_dado':(i.desligado||_sg.has(i.nome))?'parado':(i.sem.length||(med&&i.eday!=null&&i.eday<0.9*med))?'abaixo':'ok', cor=st==='parado'?'var(--red)':st==='abaixo'?'var(--amber)':st==='sem_dado'?'var(--off)':'var(--ok)', rz=rzE(i), kv=modoMeta?kwhMeta(i.eday,i,i.api):i.eday;
+      const barra=modoMeta?`<div class="rx-barra"><i style="width:${rz!=null?Math.min(100,rz/maxR*100):0}%;background:${cor}"></i><em style="left:${1/maxR*100}%"></em></div>`
+        :`<div class="rx-barra"><i style="width:${i.eday!=null?Math.min(100,i.eday/maxE*100):0}%;background:${cor}"></i>${med?`<em style="left:${Math.min(100,med/maxE*100)}%"></em>`:''}</div>`;
+      const razao=modoMeta?`<td class="rx-num" title="${tipMeta(i,i.api)}">${rz==null?'—':rxN(rz*100)+'%'}</td>`:`<td class="rx-num">${(med&&i.eday!=null)?rxN(i.eday/med*100)+'%':'—'}</td>`;
+      return `<tr><td><b>${_cmEsc(i.nome)}</b>${i.falha&&i.ultima?`<div style="font-size:10.5px;color:var(--faint)">última ${_cmEsc(_cmTs(i.ultima))}</div>`:''}</td><td>${barra}</td>
+        ${razao}<td class="rx-num">${kv==null?'—':rxN(kv)}</td>
         <td class="rx-num rx-c" style="color:var(--muted)">${rxCelStr(i)}</td>
         <td class="rx-num" style="color:var(--muted)">${rxPrCel(i.nome,i.api)}</td><td><span class="rx-chip ${st}">${st==='parado'?'parado agora':st==='sem_dado'?'sem com.':st==='abaixo'?'abaixo':'ok'}</span></td></tr>`; });
-    sub=comE.length?'barra = energia do dia · traço = mediana dos inversores · razão = inversor ÷ mediana':'sem energia por inversor nesta fonte · strings pela plataforma';
+    sub=modoMeta?subMeta
+      :(comE.length?'barra = energia do dia · traço = mediana dos inversores · razão = inversor ÷ mediana':'sem energia por inversor nesta fonte hoje · strings pela plataforma');
   } else if(RX.plant===null) return `<div class="rx-sec"><h3>Inversores</h3></div><div class="rx-card"><div class="rx-esq">Consultando inversores e strings${(RX_SRC[RX_SK[RX.p.fonte]]||{}).lento?' na API PV (pode levar até 1 min)':''}</div></div>`;
   else return `<div class="rx-sec"><h3>Inversores</h3></div><div class="rx-card rx-nota">${RX.plant===false?'A fonte não devolveu o detalhe por inversor.':'Sem inversores cadastrados nesta fonte.'}</div>`;
-  return `<div class="rx-sec"><h3>Inversores no dia</h3><span class="sub">${sub}</span></div>
-  <div class="rx-card" style="padding:6px 10px;overflow-x:auto"><table class="rx-inv"><thead><tr><th>Inversor</th><th>${RX.gemeo&&RX.gemeo.inversores&&RX.gemeo.inversores.length?'gerado ÷ esperado':'energia do dia'}</th><th class="rx-num">razão</th><th class="rx-num">kWh</th><th class="rx-num rx-c">strings s/ corrente</th><th class="rx-num" title="PR de hoje por inversor (rota /api/<fonte>/pr)">PR hoje</th><th></th></tr></thead><tbody>${linhas.join('')}</tbody></table></div>`;
+  const tog=(temMes||rxMetaDiaKwh()!=null)?`<span class="rx-tog" title="energia = como está hoje · meta = quem está mais perto da meta do mês (acumulado até hoje)"><button class="${!modoMeta?'on':''}" onclick="rxInvModo('energia')">energia</button><button class="${modoMeta?'on':''}" onclick="rxInvModo('meta')">meta</button></span>`:'';
+  return `<div class="rx-sec"><h3>Inversores no dia</h3><span class="sub">${tog}${sub}</span></div>
+  <div class="rx-card" style="padding:6px 10px;overflow-x:auto"><table class="rx-inv"><thead><tr><th>Inversor</th><th>${modoMeta?'gerado ÷ meta':(RX.gemeo&&RX.gemeo.inversores&&RX.gemeo.inversores.length?'gerado ÷ esperado':'energia do dia')}</th><th class="rx-num">${modoMeta?(temMes?'% da meta (mês)':'% da meta (hoje)'):'razão'}</th><th class="rx-num">${modoMeta&&temMes?'kWh mês':'kWh'}</th><th class="rx-num rx-c">strings s/ corrente</th><th class="rx-num" title="PR de hoje por inversor (rota /api/<fonte>/pr)">PR hoje</th><th></th></tr></thead><tbody>${linhas.join('')}</tbody></table></div>`;
 }
 /* ---- curva do inversor sobre a da usina (só com gêmeo) ---- */
 function rxCurva(){
@@ -1056,25 +1201,20 @@ function rxTimeline(){
   if(RX.notif===null&&RX.gemeo===null) return `<div class="rx-sec"><h3>O que aconteceu</h3></div><div class="rx-card"><div class="rx-esq">Juntando paradas, strings e ETM</div></div>`;
   return `<div class="rx-sec"><h3>O que aconteceu</h3><span class="sub">paradas do gêmeo · strings que zeraram · ETM · Fracttal</span></div><div class="rx-card"><ul class="rx-tl">${tudo.length?tudo.map(i=>`<li class="${i.c}"><span class="q">${_cmEsc(i.q)}</span>${i.t}</li>`).join(''):'<li>nada registrado hoje</li>'}</ul></div>`;
 }
-function rxHeat(){
-  const invs=rxInvPlat().filter(i=>i.strings.length); if(!invs.length) return '';
-  const cor={sem_corrente:'var(--red)',baixa_perf:'var(--amber)',ativa:'var(--ok)',trancada:'var(--raise)',inativa:'var(--off)',desligado:'#7a2e2e'};
-  const maxS=Math.max(...invs.map(i=>i.strings.length));
-  if(maxS<=1) return `<details class="rx-fr" ${RX.heatOpen?'open':''} ontoggle="rxHeatToggle(this)"><summary>Inversores × strings agora</summary><div class="in rx-nota">String Box — corrente agregada (1 canal por inversor), sem visão por string individual.</div></details>`;
-  return `<details class="rx-fr" ${RX.heatOpen?'open':''} ontoggle="rxHeatToggle(this)"><summary>Inversores × strings agora · ${invs.length} inversores · última leitura ${_cmTs(RX.p.ultima_leitura)}</summary><div class="in">${invs.map(i=>`<div class="rx-mini"><div class="n" title="${_cmEsc(i.nome)}">${_cmEsc(i.nome)}</div><div class="rx-cells" style="grid-template-columns:repeat(${maxS},1fr)">${i.strings.map(s=>`<i title="${_cmEsc(s.id)} ${_cmEsc(s.st)}" style="background:${cor[s.st]||'var(--off)'}"></i>`).join('')}</div></div>`).join('')}
-  <div class="rx-leg" style="margin-top:8px"><span><i style="background:var(--ok)"></i>com corrente</span><span><i style="background:var(--red)"></i>sem corrente</span><span><i style="background:var(--amber)"></i>baixa</span><span><i style="background:var(--off)"></i>sem sol / inativa</span><span><i style="background:var(--raise)"></i>trancada</span></div></div></details>`;
-}
 function rxRender(){
   const p=RX.p; if(!p) return;
   const g=RX.gemeo, cab=(g&&g.cabecalho)||{}, plats=rxInvPlat();
   const kwp=cab.kwp?rxN(cab.kwp/1000,1)+' MWp':(p.pot_mwp?rxN(p.pot_mwp,1)+' MWp':''), nInv=cab.n_inversores||p.qtd_inversores||plats.length||null, nStr=cab.n_strings||p.str_esp||null, nTrk=cab.n_trackers||(RX.trk&&RX.trk.total)||null;
-  const meta=[p.cliente||'—',p.fonte,(p.regiao||'')+(p.estado?' / '+p.estado:''),kwp,nInv?nInv+' inversores':'',nStr?rxN(nStr)+' strings':'',nTrk?nTrk+' trackers':''].filter(Boolean).join(' · ');
+  // usina fatiada: o cabeçalho diz de quantas plantas os números vieram (Levi, 08/09) — sem isso o
+  // "18 inversores" da Indaiatuba não se explica contra as 4 linhas que o Monitoramento lista
+  const meta=[p.cliente||'—',p.fonte,(p.regiao||'')+(p.estado?' / '+p.estado:''),kwp,nInv?nInv+' inversores':'',nStr?rxN(nStr)+' strings':'',nTrk?nTrk+' trackers':'',
+    (p.n_partes>1?p.n_partes+' plantas somadas':'')].filter(Boolean).join(' · ');
   const fid=RX_MON[p.fonte];
   document.getElementById('rx').innerHTML=`
   <div class="rx-hdr"><div><div class="t">${_cmEsc(p.usina)}</div><div class="m">${_cmEsc(meta)}</div></div>
     <div style="margin-left:auto;text-align:right"><span class="rx-pill ${p.status}"><i></i>${RX_NOME[p.status]||_cmEsc(p.status)}</span><div class="m">última leitura ${_cmEsc(fmtTs(p.ultima_leitura)||'—')}</div></div></div>
   <div class="rx-links">${fid?`<a class="p" href="/monitoramento?fonte=${fid}&usina=${encodeURIComponent(p.plant_id)}&view=strings">Monitoramento desta usina ›</a>`:''}${hasDrill(p)?`<a id="dFull" href="${drillUrl(p)}">Diagnóstico completo</a>`:''}${RX.gid?`<a href="/gemeo/usina/${RX.gid}">Gêmeo digital</a>`:''}</div>
-  ${rxVeredito()}${rxTres()}${rxInversores()}${rxCurva()}${rxSemana()}${rxTimeline()}${rxHeat()}`;
+  ${rxVeredito()}${rxTres()}${rxOfensores()}${rxInversores()}${rxCurva()}${rxSemana()}${rxTimeline()}`;
 }
 
 /* ====== HISTÓRICO ====== */
@@ -1139,10 +1279,15 @@ const gPct=v=>v==null?'—':nf(v*100,1)+'%';
 const gGET=u=>fetch(u).then(r=>r.json());
 function gCtx(){ return {cliente:document.getElementById('gCli').value, usina:document.getElementById('gUsi').value,
                          ini:document.getElementById('gIni').value, fim:document.getElementById('gFim').value}; }
+// data LOCAL, nunca toISOString(): o BR e UTC-3 o ano todo, entao das 21h em diante o "Ate" nascia
+// AMANHA. No ultimo dia do mes isso jogava o periodo inteiro para o mes seguinte e o grafico Diario
+// abria vazio (achado da varredura de 09/09; o gIni escapava so' porque meia-noite local do dia 1o
+// ainda cai no dia 1o em UTC).
+const _gIso=d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 async function gInit(){
   const t=new Date();
-  document.getElementById('gIni').value=new Date(t.getFullYear(),t.getMonth(),1).toISOString().slice(0,10);
-  document.getElementById('gFim').value=t.toISOString().slice(0,10);
+  document.getElementById('gIni').value=_gIso(new Date(t.getFullYear(),t.getMonth(),1));
+  document.getElementById('gFim').value=_gIso(t);
   const cls=await gGET('/api/g/clientes');
   document.getElementById('gCli').innerHTML=cls.map(c=>`<option>${c}</option>`).join('');
   await gLoadUsinas();

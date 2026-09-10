@@ -337,6 +337,18 @@ for _k, _v in _POLARIS_NOME.items():
     _POLARIS_LOOKUP[_k.lower()] = _v
     _POLARIS_LOOKUP[_v.lower()] = _v
 
+# Grafias que a planilha de Comentários usa e que não são nem o nome do Budget nem o canônico.
+# "Aparecida III" apareceu em 09/09/2026: ao levar os comentários de agosto para o Histórico
+# Polaris, 9 deles não casavam com nada e sumiriam CALADOS — o de-para conhecia "UFV Aparecida
+# III 1" e "Aparecida 3", mas não a forma que o analista digita. Confirmado pelo Levi:
+# "Aparecida 3 = Aparecida III". Nome que não casa some sem erro; por isso o alias fica aqui,
+# e não num script solto.
+_POLARIS_APELIDO = {
+    "Aparecida III": "Aparecida 3",
+}
+for _k, _v in _POLARIS_APELIDO.items():
+    _POLARIS_LOOKUP[_k.lower()] = _v
+
 
 def _polaris_records():
     """{usina_canônica: {date: {ger, ipoa, disp, com}}} — a CAMADA DE CORREÇÃO da Polaris.
@@ -510,6 +522,48 @@ def _daily_bd(usina):
                 "ipoa": _num(r[iI]) if iI is not None else None,
                 "disp": _num(r[iDp]) if iDp is not None else None,
                 "com": com,
+            })
+    _state["df"][key] = recs
+    return recs
+
+
+def _daily_inversores(usina):
+    """Registros diários da tabela do BD_Thopen da usina COM a geração por inversor (colunas "Inversor N.M"):
+    [{data, ger, ipoa, validacao, inv: {nome da coluna: kWh}}]. Mesma tabela e mesma resolução de aba do
+    `_daily_bd`; separado porque o dashboard 5080 não olha inversor e a plataforma 5050 precisa dele para o
+    histórico do Diagnóstico ("para usinas Thopen as informações de histórico do diagnóstico tem que pegar do
+    BD_Thopen" — Levi, 08/09/2026). Célula vazia não vira zero: é ausência (linha pré-criada do mês)."""
+    key = ("recs_inv", usina)
+    if key in _state["df"]:
+        return _state["df"][key]
+    wb = _wb()
+    entry = _state["daily"].get(usina)
+    if entry is None and usina in _BD_ALIAS:
+        entry = _state["daily"].get(_BD_ALIAS[usina])
+    recs = []
+    if entry:
+        sheet_title, ref = entry
+        hdr, rows = _cols(_range_rows(wb[sheet_title], ref))
+        iD = _ci(hdr, "data")
+        iG = _ci(hdr, "energia produzida")
+        iI = _ci(hdr, "ipoa")
+        iV = _ci(hdr, "valida")
+        inv_cols = [(i, h) for i, h in enumerate(hdr) if h.lower().startswith("inversor")]
+        for r in rows:
+            d = r[iD] if iD is not None else None
+            if not isinstance(d, (dt.datetime, dt.date)):
+                continue
+            inv = {}
+            for i, nome in inv_cols:
+                v = _num(r[i]) if i < len(r) else None
+                if v is not None:
+                    inv[nome] = v
+            recs.append({
+                "data": d.date() if isinstance(d, dt.datetime) else d,
+                "ger": _num(r[iG]) if iG is not None else None,
+                "ipoa": _num(r[iI]) if iI is not None else None,
+                "validacao": _num(r[iV]) if (iV is not None and iV < len(r)) else None,
+                "inv": inv,
             })
     _state["df"][key] = recs
     return recs

@@ -75,8 +75,16 @@ tr.gc-alerta:hover{background:linear-gradient(90deg, color-mix(in srgb, var(--gc
 @media (prefers-reduced-motion: reduce){tr.gc-alerta{animation:none;box-shadow:inset 3px 0 0 var(--gc-red)}}
 /* ETM: anomalia SEM OS aberta de estação — pulso vermelho FORTE (P1, escolha final do Levi 26/08;
    ele viu o suave e preferiu a chamada de atenção máxima). */
-@keyframes gc-etm-resp{0%,100%{box-shadow:0 0 2px 0 rgba(229,72,77,.12);border-color:rgba(229,72,77,.25)}50%{box-shadow:0 0 24px 4px rgba(229,72,77,.55);border-color:rgba(229,72,77,.95)}}
+@keyframes gc-etm-resp{0%,100%{box-shadow:0 0 9px 0 rgba(229,72,77,.30)}50%{box-shadow:0 0 26px 5px rgba(229,72,77,.62)}}
 .gc-etm-pulse{animation:gc-etm-resp 1.6s ease-in-out infinite}
+/* ETM COM PROBLEMA (08/09/2026): o pulso sozinho nao achava as 4 no meio de ~15 cards — metade do ciclo
+   ele fica invisivel, e o vermelho dele mora na borda de 1px. Aqui a marca e ESTATICA: anel + veu vermelho.
+   Anel por `outline` (nao border) para nao brigar com o box-shadow do pulso nem repintar o border-left de
+   severidade. O keyframe acima perdeu o `border-color` pelo mesmo motivo: ele pintava de vermelho a borda
+   ambar de quem era so 'atencao'. Card saudavel continua exatamente como estava. */
+.gc-etm-prob{outline:2px solid rgba(229,72,77,.9);outline-offset:-1px;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--gc-red) 13%,transparent),transparent 58%),var(--color-surface)}
+.gc-etm-prob.gc-chip:hover{background:linear-gradient(180deg,color-mix(in srgb,var(--gc-red) 20%,transparent),transparent 58%),var(--color-surface)!important}
 @media (prefers-reduced-motion: reduce){.gc-etm-pulse{animation:none;box-shadow:0 0 16px 0 rgba(229,72,77,.45)}}
 @keyframes gc-spin{to{transform:rotate(360deg)}}
 .gc-spin{display:inline-block;color:var(--color-accent);animation:gc-spin .8s linear infinite}
@@ -98,10 +106,23 @@ tr.gc-alerta:hover{background:linear-gradient(90deg, color-mix(in srgb, var(--gc
 const EMBED=new URLSearchParams(location.search).get('embed')==='1';
 function _embedAltura(){ try{ parent.postMessage({gc:'altura',h:document.documentElement.scrollHeight},'*'); }catch(e){} }
 if(EMBED){ document.documentElement.classList.add('embed'); new ResizeObserver(function(){ _embedAltura(); }).observe(document.documentElement);
-  window.addEventListener('message',function(ev){ var d=ev.data||{}; if(d.gc==='view'&&_VIEWS_URL.includes(d.id)&&window.setView) setView(d.id); }); }
+  window.addEventListener('message',function(ev){ var d=ev.data||{}; if(d.gc==='view'&&_VIEWS_URL.includes(d.id)&&window.setView){ if(d.id==='etm') state.etmProb=!!d.prob; setView(d.id); } }); }
+// Overlays (os modais e a barra do Criar OS) são position:fixed — e dentro do iframe da Entrada "fixo" é a caixa
+// INTEIRA do iframe, que cresce com o conteúdo (_embedAltura, sem rolagem própria). O card do "Atribuir OS" ficava a
+// 60 px do topo do iframe, metros acima de quem rolou até o inversor: sobrava só o blur; a barra do Criar OS ficava
+// no pé do iframe, abaixo da dobra — "não aparece a opção" (Levi, 08/09/2026). Mesma origem → o iframe enxerga que
+// fatia dele está na janela do pai (frameElement) e prende cada overlay nela; fora do embed não muda nada.
+function _faixaVisivel(){ if(!EMBED) return null;
+  try{ const fe=window.frameElement; if(!fe) return null; const r=fe.getBoundingClientRect(), ph=parent.innerHeight;
+    const vt=Math.max(0,-r.top), vb=Math.min(r.height, ph-r.top);
+    return (vb-vt>120)?{top:vt,h:vb-vt}:{top:vt,h:Math.min(ph,r.height)}; }catch(e){ return null; } }
+function _prendeOverlays(){ const v=_faixaVisivel(); if(!v) return;
+  document.querySelectorAll('.gc-overlay').forEach(o=>{ o.style.top=v.top+'px'; o.style.height=v.h+'px'; o.style.bottom='auto'; });
+  const bar=document.getElementById('gc-osbar'); if(bar&&bar.style.display!=='none'){ bar.style.bottom='auto'; bar.style.top=(v.top+v.h-bar.offsetHeight)+'px'; } }
+if(EMBED){ try{ parent.addEventListener('scroll',_prendeOverlays,{passive:true}); parent.addEventListener('resize',_prendeOverlays); }catch(e){} }
 // ?fonte=<id> vem dos cards da Entrada (/teste/tempo-real): o card de um cliente abre o Monitoramento ja na fonte dele (05/09/2026)
 const _VIEWS_URL=['strings','etm','geracao','trackers','pr','curva','perdas'];
-const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'), subfilter:'geral', trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, perdaSub:'trk-par', perdaDia:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, etmMode:'cards', gerIni:null, gerFim:null, gerModo:'usinas' };
+const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'), subfilter:'geral', trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, perdaSub:'trk-par', perdaDia:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, etmMode:'cards', etmProb:(new URLSearchParams(location.search).get('etmprob')==='1'), gerIni:null, gerFim:null, gerModo:'usinas' };
 function setState(patch){ Object.assign(state, patch); render(); }
 /* ═══ DADO REAL — por VISTA e por FONTE. Cada uma devolve {rows,summary}; muda só o endpoint. ═══ */
 const SKEY={'thopen-pv':'pv','thopen-db':'pg','athon':'sunop','axis':'axis','renogrid':'solaredge','2c':'owen','semp':'semp','alveslima':'alveslima'};
@@ -115,7 +136,7 @@ const EP={
 // SEMP usa o MESMO /api/plant/<id> do Thopen-PV: o id da usina é global na API PV e o backend
 // escolhe sozinho o token da conta que a enxerga (_pv_token_for). Só o recorte da LISTA muda.
 const PLANT={pv:'/api/plant/',pg:'/api/pg/plant/',sunop:'/api/sunop/plant/',axis:'/api/axis/plant/',solaredge:'/api/solaredge/plant/',owen:'/api/owen/strings/plant/',semp:'/api/plant/',alveslima:'/api/plant/'};
-function _urlFor(view,srcChip){ const base=(EP[view]||{})[SKEY[srcChip]]; if(!base) return null; return view==='pr'?base+'?date='+new Date().toISOString().slice(0,10):base; }
+function _urlFor(view,srcChip){ const base=(EP[view]||{})[SKEY[srcChip]]; if(!base) return null; return view==='pr'?base+'?date='+_todayISO():base; }   // data LOCAL: com toISOString(), das 21h em diante o BR pedia o dia SEGUINTE e a tabela voltava vazia
 const RD={pv:null,loading:false,na:false,erro:null,cache:{},plants:{},curva:{},curvaMeta:{},trk:{},depara:{},trkChart:{},os:{},comments:{},tracking:{},strProb:{},strEv:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},perdas:{},osAtrib:{},_osList:null};
 
 /* ══ BUSCA COM ESPERA LIMITADA ══════════════════════════════════════════════
@@ -438,7 +459,8 @@ function _renderComent(){
   const thHtml = thread.length
     ? thread.map(c=>`<div style="padding:9px 12px;border-radius:8px;background:var(--color-neutral-900);border:1px solid var(--color-divider);margin-bottom:6px"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:3px"><span style="font-size:12px;font-weight:700;color:var(--color-accent-200)">${_he(c.nick)}</span><span style="display:flex;align-items:center;gap:8px"><span class="text-muted" style="font-size:11px">${_he((c.ts||'').slice(0,16))}</span><i class="ph ph-x" onclick="excluirComent('${esc(c.ts).replace(/['"\\]/g,'')}')" title="Excluir" style="cursor:pointer;font-size:12px;color:var(--color-neutral-500)"></i></span></div><div style="font-size:13px;white-space:pre-wrap">${_he(c.texto)}</div></div>`).join('')
     : `<div class="text-muted" style="font-size:12.5px;padding:6px 0">Nenhum comentário ainda.</div>`;
-  m.innerHTML=`<div onclick="fecharComent()" style="position:fixed;inset:0;z-index:200;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:60px 16px;overflow-y:auto"><div onclick="event.stopPropagation()" class="card" style="width:560px;max-width:100%;padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--color-divider)"><span style="font-family:var(--font-heading);font-size:16px"><i class="ph-fill ph-chat-circle" style="color:var(--gc-blue);margin-right:7px"></i>${_he(state._cusina)}</span><i class="ph ph-x" onclick="fecharComent()" style="cursor:pointer;font-size:18px;color:var(--color-neutral-400)"></i></div><div style="padding:16px 20px;max-height:62vh;overflow-y:auto"><div class="card-kicker" style="color:var(--color-neutral-400);margin-bottom:8px">Ordens de serviço</div>${osHtml}<div class="card-kicker" style="color:var(--color-neutral-400);margin:16px 0 8px">Comentários</div>${thHtml}<div style="margin-top:14px;display:flex;flex-direction:column;gap:8px"><input id="gc-cnick" class="input" placeholder="Seu nome" style="font-size:13px"><textarea id="gc-ctxt" class="input" rows="3" placeholder="Escrever comentário…" style="font-size:13px;resize:vertical"></textarea><button class="btn btn-primary" onclick="publicarComent()" style="align-self:flex-end"><i class="ph ph-paper-plane-tilt"></i> Publicar</button></div></div></div></div>`;
+  m.innerHTML=`<div onclick="fecharComent()" class="gc-overlay" style="position:fixed;inset:0;z-index:200;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:60px 16px;overflow-y:auto"><div onclick="event.stopPropagation()" class="card" style="width:560px;max-width:100%;padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid var(--color-divider)"><span style="font-family:var(--font-heading);font-size:16px"><i class="ph-fill ph-chat-circle" style="color:var(--gc-blue);margin-right:7px"></i>${_he(state._cusina)}</span><i class="ph ph-x" onclick="fecharComent()" style="cursor:pointer;font-size:18px;color:var(--color-neutral-400)"></i></div><div style="padding:16px 20px;max-height:62vh;overflow-y:auto"><div class="card-kicker" style="color:var(--color-neutral-400);margin-bottom:8px">Ordens de serviço</div>${osHtml}<div class="card-kicker" style="color:var(--color-neutral-400);margin:16px 0 8px">Comentários</div>${thHtml}<div style="margin-top:14px;display:flex;flex-direction:column;gap:8px"><input id="gc-cnick" class="input" placeholder="Seu nome" style="font-size:13px"><textarea id="gc-ctxt" class="input" rows="3" placeholder="Escrever comentário…" style="font-size:13px;resize:vertical"></textarea><button class="btn btn-primary" onclick="publicarComent()" style="align-self:flex-end"><i class="ph ph-paper-plane-tilt"></i> Publicar</button></div></div></div></div>`;
+  _prendeOverlays();
 }
 /* ── Atribuir OS (Fracttal) a um inversor sem geração ── */
 window.gcAtribuirOS=async(pid,invId,invNome,usina,ev)=>{
@@ -490,11 +512,14 @@ function _renderOSAtrib(){
   }
   const selO=(list&&sel!=null)?list[sel]:null;
   const foot=(list&&list.length)?`<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 18px;border-top:1px solid var(--color-divider)"><span class="text-muted" style="font-size:12px">${selO?`Selecionada: <b style="color:var(--color-neutral-200)">OS ${_he(selO.folio)}</b>`:'Selecione uma OS na tabela'}</span><button onclick="${selO?'gcConfirmarOS()':''}" style="display:inline-flex;align-items:center;gap:7px;background:${selO?'var(--color-accent)':'var(--color-neutral-900)'};color:${selO?'#161826':'var(--color-neutral-500)'};border:none;border-radius:8px;padding:8px 15px;font-size:12.5px;font-weight:600;cursor:${selO?'pointer':'default'};font-family:inherit"><i class="ph ph-clipboard-text"></i>${selO?'Atribuir OS '+_he(selO.folio):'Atribuir OS'}</button></div>`:'';
-  m.innerHTML=`<div onclick="gcFecharOSAtrib()" style="position:fixed;inset:0;z-index:210;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:60px 16px;overflow-y:auto"><div onclick="event.stopPropagation()" class="card" style="width:960px;max-width:100%;padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 20px;border-bottom:1px solid var(--color-divider)"><div style="display:flex;flex-direction:column;gap:2px"><span style="font-family:var(--font-heading);font-size:16px">Atribuir OS ao ${_he(a.invNome)}</span><span class="text-muted" style="font-size:12px">${_he(a.usina)} · OS abertas no Fracttal</span></div><i class="ph ph-x" onclick="gcFecharOSAtrib()" style="cursor:pointer;font-size:18px;color:var(--color-neutral-400)"></i></div>${inner}${foot}</div></div>`;
+  m.innerHTML=`<div onclick="gcFecharOSAtrib()" class="gc-overlay" style="position:fixed;inset:0;z-index:210;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:60px 16px;overflow-y:auto"><div onclick="event.stopPropagation()" class="card" style="width:960px;max-width:100%;padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 20px;border-bottom:1px solid var(--color-divider)"><div style="display:flex;flex-direction:column;gap:2px"><span style="font-family:var(--font-heading);font-size:16px">Atribuir OS ao ${_he(a.invNome)}</span><span class="text-muted" style="font-size:12px">${_he(a.usina)} · OS abertas no Fracttal</span></div><i class="ph ph-x" onclick="gcFecharOSAtrib()" style="cursor:pointer;font-size:18px;color:var(--color-neutral-400)"></i></div>${inner}${foot}</div></div>`;
+  _prendeOverlays();
 }
 const N2='var(--color-neutral-200)',N3='var(--color-neutral-300)',N4='var(--color-neutral-400)',N5='var(--color-neutral-500)';
 const esc = s => String(s==null?'':s);
 
+/* Vermelho porque nesta casa severidade se comunica por cor — mesmo desenho do segStyle, so a cor muda. */
+function segStyleRed(on){ return `padding:6px 13px;border-radius:var(--radius-md);cursor:pointer;font-family:var(--font-heading);font-size:12.5px;font-weight:500;background:${on?'var(--gc-red)':'transparent'};color:${on?'#fff':'var(--color-neutral-300)'};border:1px solid ${on?'var(--gc-red)':'color-mix(in srgb, var(--gc-red) 45%, transparent)'};`; }
 function segStyle(on){ return `padding:6px 13px;border-radius:var(--radius-md);cursor:pointer;font-family:var(--font-heading);font-size:12.5px;font-weight:500;background:${on?'var(--color-accent)':'transparent'};color:${on?'#161826':'var(--color-neutral-300)'};border:1px solid ${on?'var(--color-accent)':'var(--color-divider)'};`; }
 const pill=(bg,fg)=>`display:inline-flex;padding:3px 11px;border-radius:6px;background:${bg};color:${fg};font-size:11.5px;font-weight:500;`;
 const pillOk=pill('color-mix(in srgb, var(--color-accent) 16%, transparent)','var(--color-accent-200)');
@@ -614,6 +639,7 @@ function _osBar(){ let bar=document.getElementById('gc-osbar'); if(!bar){ bar=do
   const n=_osSel.size, grps=_osGrupos().length;
   bar.style.cssText=`position:fixed;left:0;right:0;bottom:0;z-index:400;align-items:center;gap:14px;background:var(--color-surface);color:var(--color-text);border-top:2px solid var(--color-accent);padding:12px 28px;font-size:13px;box-shadow:0 -6px 24px rgba(0,0,0,.4);display:${(state.osMode&&n>0)?'flex':'none'}`;
   bar.innerHTML=`<span style="flex:1;color:var(--color-neutral-300)">${n} string(s) selecionada(s) — ${grps} OS (uma por inversor).</span><button onclick="osClear()" style="background:transparent;color:var(--color-neutral-400);text-decoration:underline;border:0;cursor:pointer;font-size:12px">limpar</button><button onclick="osGerar()" style="background:var(--color-accent);color:#161826;font-weight:700;border:0;border-radius:8px;padding:8px 16px;font-size:12.5px;cursor:pointer"><i class="ph ph-wrench" style="margin-right:5px"></i>Criar OS(s)</button>`;
+  _prendeOverlays();
 }
 window.osGerar=async()=>{
   const grupos=_osGrupos(); if(!grupos.length) return;
@@ -626,7 +652,8 @@ window.osGerar=async()=>{
   if(links.length===1){ window.location.href=links[0]; osClear(); return; }
   let m=document.getElementById('gc-osmodal'); if(!m){ m=document.createElement('div'); m.id='gc-osmodal'; document.body.appendChild(m); }
   const inner=grupos.map((g,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0"><a href="${links[i]}" style="background:var(--color-accent);color:#161826;font-weight:700;text-decoration:none;padding:7px 14px;border-radius:8px;font-size:12px;white-space:nowrap"><i class="ph ph-wrench" style="margin-right:5px"></i>Criar OS</a><span style="font-size:12.5px;color:var(--color-neutral-300)">${_he(g.usina)} · ${_he(g.inv)} · ${_he(_osObs(g.sids))}</span></div>`).join('');
-  m.innerHTML=`<div onclick="if(event.target===this)document.getElementById('gc-osmodal').remove()" style="position:fixed;inset:0;z-index:500;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:40px 16px"><div class="card" style="width:560px;max-width:100%;padding:20px 22px"><div style="font-family:var(--font-heading);font-size:16px;margin-bottom:12px">Criar ${grupos.length} OS (uma por inversor)</div>${inner}<div style="text-align:right;margin-top:14px"><button class="btn btn-secondary" onclick="document.getElementById('gc-osmodal').remove()">Fechar</button></div></div></div>`;
+  m.innerHTML=`<div onclick="if(event.target===this)document.getElementById('gc-osmodal').remove()" class="gc-overlay" style="position:fixed;inset:0;z-index:500;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:40px 16px"><div class="card" style="width:560px;max-width:100%;padding:20px 22px"><div style="font-family:var(--font-heading);font-size:16px;margin-bottom:12px">Criar ${grupos.length} OS (uma por inversor)</div>${inner}<div style="text-align:right;margin-top:14px"><button class="btn btn-secondary" onclick="document.getElementById('gc-osmodal').remove()">Fechar</button></div></div></div>`;
+  _prendeOverlays();
 };
 function _brdate(iso){ const p=String(iso).split('-'); return p.length===3?(p[2]+' / '+p[1]+' / '+p[0]):iso; }
 // ── Tooltip de gráfico: ponto mais próximo do cursor → nome + valor + horário (trackers e strings) ──
@@ -723,7 +750,8 @@ function _gchartDias(days,o){
 function _leg(items){ return `<div style="display:flex;gap:16px;margin-bottom:6px;font-size:12px" class="text-muted">${items.map(i=>`<span style="display:inline-flex;align-items:center;gap:6px"><span style="width:15px;height:3px;border-radius:2px;background:${i.dash?'repeating-linear-gradient(90deg,'+i.c+' 0 4px,transparent 4px 7px)':i.c}"></span>${i.t}</span>`).join('')}</div>`; }
 function _closeGraf(){ state._graf=null; const m=document.getElementById('gc-gmodal'); if(m)m.remove(); }
 function _grafModal(o){ let m=document.getElementById('gc-gmodal'); if(!m){ m=document.createElement('div'); m.id='gc-gmodal'; document.body.appendChild(m); }
-  m.innerHTML=`<div onclick="_closeGraf()" style="position:fixed;inset:0;z-index:200;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:44px 16px;overflow-y:auto"><div onclick="event.stopPropagation()" class="card" style="width:900px;max-width:100%;padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 22px;border-bottom:1px solid var(--color-divider)"><span style="font-family:var(--font-heading);font-size:16px">${o.title}</span><div style="display:flex;align-items:center;gap:14px">${o.controls||''}<i class="ph ph-x" onclick="_closeGraf()" style="cursor:pointer;font-size:18px;color:var(--color-neutral-400)"></i></div></div><div style="padding:14px 22px 4px">${o.legend||''}${o.chart}</div><div style="display:flex;align-items:center;justify-content:space-between;padding:4px 22px 18px"><span class="text-muted" style="font-size:12px">${o.sub||''}</span><button class="btn btn-secondary" onclick="_closeGraf()">Fechar</button></div></div></div>`;
+  m.innerHTML=`<div onclick="_closeGraf()" class="gc-overlay" style="position:fixed;inset:0;z-index:200;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:44px 16px;overflow-y:auto"><div onclick="event.stopPropagation()" class="card" style="width:900px;max-width:100%;padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 22px;border-bottom:1px solid var(--color-divider)"><span style="font-family:var(--font-heading);font-size:16px">${o.title}</span><div style="display:flex;align-items:center;gap:14px">${o.controls||''}<i class="ph ph-x" onclick="_closeGraf()" style="cursor:pointer;font-size:18px;color:var(--color-neutral-400)"></i></div></div><div style="padding:14px 22px 4px">${o.legend||''}${o.chart}</div><div style="display:flex;align-items:center;justify-content:space-between;padding:4px 22px 18px"><span class="text-muted" style="font-size:12px">${o.sub||''}</span><button class="btn btn-secondary" onclick="_closeGraf()">Fechar</button></div></div></div>`;
+  _prendeOverlays();
 }
 // _bell() e _exTrk() viviam aqui: geravam curva de irradiância e de ângulo SINTÉTICAS, herança
 // do protótipo sem backend. Viraram dado exibido — o ETM de qualquer fonte sem endpoint abria a
@@ -971,6 +999,21 @@ function _dedupSkid(rows){
     else out.push(r); });
   return out;
 }
+/* As "N com problema no mes" do card da Entrada saem do /api/entrada/tempo-real (mesma varredura do
+   /api/etm/problemas, ja casada por cliente x fonte e por usina no backend). Buscar AQUI e o que faz o
+   numero do botao BATER com o do card la em cima: a severidade ao vivo da aba e outra regua e, sozinha,
+   nao acha as mesmas 4 (Levi, 08/09/2026). Servido do cache de 30 min do servidor; 1 fetch por sessao. */
+function _nrmU(u){ return String(u||'').split('·')[0].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s*\(\d+\)\s*$/,'').replace(/\s+/g,' ').trim(); }
+async function _ensureEtmMes(){ if(RD.etmMes!==undefined) return; RD.etmMes=null;
+  try{ const d=await fetchJSON('/api/entrada/tempo-real');
+    if(d&&d.aquecendo){ RD.etmMes=undefined; setTimeout(_ensureEtmMes,5000); return; }   // 1a construcao pos-restart
+    const m={}; (d&&d.grupos||[]).forEach(g=>{ const f=g.fonte_id||''; (g.usinas||[]).forEach(u=>{
+      if(!(u.etm&&u.etm.length)) return;
+      m[f+'|p:'+String(u.plant_id)]=1; m[f+'|n:'+_nrmU(u.usina)]=1; }); });
+    RD.etmMes=m; }catch(e){ RD.etmMes={}; }
+  render(); }
+function _etmProbMes(r){ const m=RD.etmMes; if(!m) return false; const f=state.source;
+  return !!(m[f+'|p:'+String(r.plant_id)]||m[f+'|n:'+_nrmU(r.usinaQ||r.usina)]||m[f+'|n:'+_nrmU(r.usina)]); }
 async function _ensureEtmGrupos(){ if(RD.etmGrupos!==undefined) return; RD.etmGrupos=null;
   try{ const d=await fetchJSON('/api/etm/grupos'); RD.etmGrupos=(d&&d.ok&&d.grupos)||{}; }
   catch(e){ RD.etmGrupos={}; }
@@ -1098,6 +1141,7 @@ function computeVals(){
       ];
       const sevC={0:'var(--gc-red)',1:'var(--gc-amber)',3:'var(--color-accent)',9:'var(--color-neutral-500)'};
       _ensureEtmGrupos();
+      _ensureEtmMes();
       _ensureEtmOS(rowsE.map(r=>r.usinaQ||r.usina));   // OS de estação meteorológica (Fracttal) — 1 fetch por fonte (usinaQ = nome pré-dedup, o que casa no Fracttal)
       etmCardsUse=rowsE.map(r=>{
         const sp=r.spark||{}, lb=sp.labels||[], keep=i=>{ if(lb.length!==(sp.poa||[]).length) return true; const m=_hm(lb[i]); return m>=360&&m<=1080; };   // trava o spark em 06–18h
@@ -1117,13 +1161,19 @@ function computeVals(){
         const anom=sev!==3&&sev!==9;
         // O pulso alerta a ANOMALIA — existir no Fracttal não muda o defeito (Bernardino, 27/08).
         // Só o BOTÃO exige cadastro (sem ele o OS Creator não acha a usina); noFrac vira aviso.
-        const pulse=anom&&!temOS;
+        const probMes=_etmProbMes(r);          // diagnóstico do MÊS — as mesmas N que o card da Entrada conta
+        // O vermelho é SÓ das com problema no mês (Levi, 08/09: "destaque melhor as 4 · sombra vermelha só nela").
+        // A severidade AO VIVO marcava 15 de 19 cards da Athon — com tudo aceso, nada se destacava. Ela continua
+        // dizendo o que é, na barra de severidade do border-left; o vermelho ficou para o diagnóstico do mês.
+        // Enquanto o mês não chega (cache aquecendo), vale a régua antiga para a tela não ficar sem sinal nenhum.
+        const mesOk=RD.etmMes!=null, prob=mesOk?probMes:anom;
+        const pulse=prob&&!temOS;
         const osGlow=temOS?'border-color:rgba(255,152,56,.55);box-shadow:inset 0 0 22px -6px rgba(255,152,56,.28), 0 0 14px -4px rgba(255,152,56,.35);':'';
         const flagsRuins=(r.flags||[]).filter(f=>!/ok|coer/i.test(f.tipo||'')).map(f=>f.t||f.tipo||'').join('; ');
         (RD._etmObs=RD._etmObs||{})[r.usinaQ||r.usina]=flagsRuins;   // observação do deep link "Abrir OS" 
         return {name:r.usina,pid:r.plant_id,usina:r.usina,leit:'Última leitura · '+(r.ultima_leitura?String(r.ultima_leitura).slice(11,16):'—'),
           poaPts:_sparkPts(poaF,mx),ghiPts:_sparkPts(ghiF.some(v=>v!=null)?ghiF:[],mx),
-          temOS,osList:temOS?eo.os:[],pulse,noFrac,usinaQ:r.usinaQ||r.usina,anomObs:flagsRuins||'Anomalia na estação meteorológica',
+          temOS,osList:temOS?eo.os:[],pulse,prob,probMes,noFrac,usinaQ:r.usinaQ||r.usina,anomObs:flagsRuins||'Anomalia na estação meteorológica',
           cardStyle:`padding:14px 16px;${osGlow}border-left:3px solid ${sevC[sev]};`,
           alarmes:_etmAlarmes(r.flags)};
       });
@@ -1133,7 +1183,8 @@ function computeVals(){
           :(r.severidade===1?{s:'Atenção',c:'#f5c877',d:'var(--gc-amber)',row:'background:color-mix(in srgb, var(--gc-amber) 8%, transparent);'}
           :{s:'OK',c:'var(--color-accent-300)',d:'var(--color-accent)',row:''}));
         const f=v=>(v==null?'—':Number(v).toFixed(2));
-        return {name:r.usina,poa:f(r.poa_kwh),ghi:f(r.ghi_kwh),poari:f(r.poari_kwh),chuva:(r.chuva!=null?Number(r.chuva).toFixed(1):'—'),
+        const prob=(RD.etmMes!=null)?_etmProbMes(r):(r.severidade===0||r.severidade===1);   // mesma régua dos cards, p/ o filtro valer na tabela
+        return {prob,name:r.usina,poa:f(r.poa_kwh),ghi:f(r.ghi_kwh),poari:f(r.poari_kwh),chuva:(r.chuva!=null?Number(r.chuva).toFixed(1):'—'),
           lastRead:(r.ultima_leitura?String(r.ultima_leitura).slice(11,16):'—'),hasTag:false,tag:'',status:m.s,statusColor:m.c,dotColor:m.d,rowStyle:m.row,
           valColor:dim?'var(--color-neutral-500)':N3,poaColor:(r.poa_kwh==null?'var(--color-neutral-500)':N3),chuvaColor:(r.chuva==null?'var(--color-neutral-500)':(Number(r.chuva)>0?'var(--gc-blue)':N4))};
       });
@@ -1189,8 +1240,13 @@ function computeVals(){
       });
     }
   }
+  // O botao conta USINAS, nao cards: a aba mostra uma estacao por card (MTS100 e MTS100 · AIML sao a mesma
+  // usina) e o card da Entrada conta usinas. Contar cards diria 8 onde o Levi le 4.
+  const _etmProbN=new Set((etmCardsUse||[]).filter(c=>c.prob).map(c=>c.pid||c.usina)).size;
+  const _etmProbCards=(etmCardsUse||[]).filter(c=>c.prob).length;
+  const _etmProbMesN=new Set((etmCardsUse||[]).filter(c=>c.probMes).map(c=>c.pid||c.usina)).size;
   const _cts=RD.pv&&(RD.pv.cache_ts||(RD.pv.summary||{}).cache_ts);
-  return {lastUpdate:(_cts?String(_cts).slice(0,5):_horaAgora()),today:_dataHojeExt(),sources,views,subfilters,cards,usinas,loading:RD.loading,na:RD.na,chart:getChart(),showStrings:s.view==='strings',showEtm:s.view==='etm',showTrackers:s.view==='trackers',showPr:s.view==='pr',showCurva:s.view==='curva',showGeracao:s.view==='geracao',showPerdas:s.view==='perdas',etmRows:etmRowsUse,trackerRows:trackerRowsUse,prRows:prRowsUse,curvaStrings,etmCards:etmCardsUse,etmModeCards:s.etmMode==='cards',etmModeTable:s.etmMode==='tabela',etmTabCards:segStyle(s.etmMode==='cards'),etmTabTable:segStyle(s.etmMode==='tabela'),curvaLabel:'Alto Paraná 2 · Inversor 1.1 — corrente por string · 14/07/2026'};
+  return {lastUpdate:(_cts?String(_cts).slice(0,5):_horaAgora()),today:_dataHojeExt(),sources,views,subfilters,cards,usinas,loading:RD.loading,na:RD.na,chart:getChart(),showStrings:s.view==='strings',showEtm:s.view==='etm',showTrackers:s.view==='trackers',showPr:s.view==='pr',showCurva:s.view==='curva',showGeracao:s.view==='geracao',showPerdas:s.view==='perdas',etmRows:etmRowsUse,trackerRows:trackerRowsUse,prRows:prRowsUse,curvaStrings,etmCards:etmCardsUse,etmModeCards:s.etmMode==='cards',etmModeTable:s.etmMode==='tabela',etmTabCards:segStyle(s.etmMode==='cards'),etmTabTable:segStyle(s.etmMode==='tabela'),etmProbOn:s.etmProb,etmProbN:_etmProbN,etmProbCards:_etmProbCards,etmProbMesN:_etmProbMesN,etmTabProb:segStyleRed(s.etmProb),curvaLabel:'Alto Paraná 2 · Inversor 1.1 — corrente por string · 14/07/2026'};
 }
 
 /* ── handlers globais ── */
@@ -1243,6 +1299,9 @@ async function _loadDepara(key,nome){   // de-para supervisório ↔ Fracttal de
 // Custo ~zero: o servidor segura o payload por 5 min de cache próprio.
 window.toggleTrk=pid=>{ const abrir=String(state.expandedTrk)!==String(pid); state.expandedTrk=abrir?String(pid):null; state.trkGraf=null; if(abrir) delete RD.trk[state.source+'|'+pid]; render(); if(abrir) loadTrk(pid); };
 window.setEtm=m=>setState({etmMode:m});
+// O card "ETM — N com problema no mes" da Entrada LIGA este filtro; o botao e o mesmo interruptor, visivel,
+// para desligar. Destaque e filtro sao independentes: desligado, os cards com problema seguem com o anel.
+window.setEtmProb=()=>setState({etmProb:!state.etmProb});
 window.refreshApp=()=>{ if(RD.pv||RD.loading||RD.na) loadCurrent(true); else render(); };
 const COMM_STALE_MIN=120;   // min sem leitura nova = falha de comunicação (régua do Levi 22/07: 2h)
 let _q='';   // busca de usina (filtra a tabela Strings; re-render + re-foco pra não perder o cursor)
@@ -1435,20 +1494,20 @@ function renderStrings(v){
 function renderETM(v){
   if(v.na) return _naPanel('ETM');
   if(v.loading) return _loadingPanel();
-  return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><button onclick="setEtm('cards')" style="${v.etmTabCards}"><i class="ph ph-squares-four" style="margin-right:5px"></i>Cards</button><button onclick="setEtm('tabela')" style="${v.etmTabTable}"><i class="ph ph-table" style="margin-right:5px"></i>Tabela</button></div>
-  ${v.etmModeCards?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">${v.etmCards.filter(c=>_matchQ(c.usina)).map(c=>`
-    <div class="card elev-sm gc-chip${c.pulse?' gc-etm-pulse':''}" onclick="abrirEtmChart('${_jsq(c.usina)}',${c.pid==null?'null':`'${_jsq(c.pid)}'`})" style="cursor:pointer;height:188px;display:flex;flex-direction:column;overflow:hidden;${c.cardStyle}">
+  return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><button onclick="setEtm('cards')" style="${v.etmTabCards}"><i class="ph ph-squares-four" style="margin-right:5px"></i>Cards</button><button onclick="setEtm('tabela')" style="${v.etmTabTable}"><i class="ph ph-table" style="margin-right:5px"></i>Tabela</button><span style="width:1px;height:20px;background:var(--color-divider);margin:0 4px"></span><button onclick="setEtmProb()" style="${v.etmTabProb}" title="${v.etmProbMesN} usina(s) com problema de ETM no mês — o mesmo número do card da Entrada — em ${v.etmProbCards} estação(ões). Clique de novo para ver todas."><i class="ph ph-warning-circle" style="margin-right:5px"></i>ETM com problemas${v.etmProbN?` &middot; ${v.etmProbN}`:''}</button></div>
+  ${v.etmModeCards?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">${v.etmCards.filter(c=>_matchQ(c.usina)&&(!v.etmProbOn||c.prob)).map(c=>`
+    <div class="card elev-sm gc-chip${c.prob?' gc-etm-prob':''}${c.pulse?' gc-etm-pulse':''}" onclick="abrirEtmChart('${_jsq(c.usina)}',${c.pid==null?'null':`'${_jsq(c.pid)}'`})" style="cursor:pointer;height:188px;display:flex;flex-direction:column;overflow:hidden;${c.cardStyle}">
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex:none"><span style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</span><span style="display:inline-flex;gap:9px;flex:none">${c.noFrac?'':`<i class="ph ph-clock-counter-clockwise" title="Histórico de OSs da estação" onclick="event.stopPropagation();abrirEtmHist('${_jsq(c.usinaQ||c.usina)}')" style="font-size:14px;color:var(--color-neutral-500);cursor:pointer"></i>`}<i class="ph ph-chart-line" title="Ver curva do dia" style="font-size:14px;color:var(--color-neutral-500)"></i></span></div>
       <div class="text-muted" style="font-size:10.5px;margin-top:2px;flex:none">${c.leit}</div>
       <svg viewBox="0 0 240 46" preserveAspectRatio="none" style="width:100%;height:46px;display:block;margin:10px 0 8px;flex:none"><polyline points="${c.ghiPts}" fill="none" stroke="var(--color-neutral-500)" stroke-width="1.4" stroke-opacity="0.7" stroke-linejoin="round"></polyline><polyline points="${c.poaPts}" fill="none" stroke="var(--color-accent)" stroke-width="1.8" stroke-linejoin="round"></polyline></svg>
-      <div style="height:24px;display:flex;align-items:center;gap:6px;overflow:hidden;flex:none">${c.alarmes.length?`<span class="text-muted" style="font-size:10.5px;flex:none">Alarme:</span>${c.alarmes.map(a=>`<span title="${_he(a.txts.join(String.fromCharCode(10)))}" style="display:inline-flex;font-size:10.5px;font-weight:700;letter-spacing:.4px;padding:2px 8px;border-radius:6px;cursor:default;background:${a.cor[0]};color:${a.cor[1]}">${a.sig}</span>`).join('')}`:''}</div>
+      <div style="height:24px;display:flex;align-items:center;gap:6px;overflow:hidden;flex:none">${(c.alarmes||[]).length?`<span class="text-muted" style="font-size:10.5px;flex:none">Alarme:</span>${(c.alarmes||[]).map(a=>`<span title="${_he(a.txts.join(String.fromCharCode(10)))}" style="display:inline-flex;font-size:10.5px;font-weight:700;letter-spacing:.4px;padding:2px 8px;border-radius:6px;cursor:default;background:${a.cor[0]};color:${a.cor[1]}">${a.sig}</span>`).join('')}`:''}</div>
       <div style="flex:1"></div>
       <div style="height:32px;display:flex;align-items:center;gap:5px;overflow:hidden;flex:none">${c.temOS?c.osList.map(o=>`<span onclick="event.stopPropagation();abrirEtmHist('${_jsq(c.usinaQ||c.usina)}')" title="${_he(o.desc||'')} — clique p/ o histórico" style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:6px;background:rgba(255,152,56,.16);color:#ff9838;white-space:nowrap"><i class="ph ph-wrench" style="font-size:12px"></i>OS ${_he(o.folio||'')} · ETM</span>`).join(''):(c.pulse?(c.noFrac?`<span onclick="event.stopPropagation()" style="font-size:11px;color:var(--color-neutral-500)" title="A usina não tem 'Usina Fractall' na aba Equipamentos — o OS Creator não a encontra">sem cadastro no Fracttal — OS indisponível</span>`:`<button onclick="event.stopPropagation();abrirOsEtm('${_jsq(c.usinaQ||c.usina)}')" style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:6px 13px;border-radius:8px;cursor:pointer;font-family:inherit;background:var(--gc-red);color:#fff;border:0"><i class="ph ph-wrench" style="font-size:13px"></i> Abrir OS · ETM</button>`):'')}</div>
     </div>`).join('')}</div>
     <div class="text-muted" style="font-size:10.5px;display:flex;gap:14px;margin-top:10px"><span><span style="display:inline-block;width:14px;height:2px;background:var(--color-accent);vertical-align:middle;margin-right:4px"></span>POA</span><span><span style="display:inline-block;width:14px;height:2px;background:var(--color-neutral-500);vertical-align:middle;margin-right:4px"></span>GHI</span></div>`
   :`<div class="card" style="padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 22px;border-bottom:1px solid var(--color-divider)"><div style="display:flex;align-items:baseline;gap:12px"><span style="font-family:var(--font-heading);font-size:17px">Estações Meteorológicas</span><span class="text-muted" style="font-size:12.5px">POA · GHI · POA-RI (acumulado do dia, kWh/m²) · Pluviômetro (mm)</span></div></div>
     <div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th style="text-align:right">POA (kWh/m²)</th><th style="text-align:right">GHI (kWh/m²)</th><th style="text-align:right">POA-RI (kWh/m²)</th><th style="text-align:right">Pluviômetro (mm)</th><th style="text-align:right">Última leitura</th><th style="text-align:center;padding-right:22px">Status</th></tr></thead>
-    <tbody>${v.etmRows.filter(r=>_matchQ(r.name)).map(r=>`<tr style="${r.rowStyle}"><td style="padding-left:22px;font-weight:600">${r.name} ${r.hasTag?`<span class="tag tag-neutral" style="margin-left:4px;font-size:10px">${r.tag}</span>`:''}</td><td style="text-align:right;color:${r.poaColor}">${r.poa}</td><td style="text-align:right;color:${r.valColor}">${r.ghi}</td><td style="text-align:right;color:${r.valColor}">${r.poari}</td><td style="text-align:right;color:${r.chuvaColor}">${r.chuva}</td><td style="text-align:right;color:var(--color-neutral-500);font-size:12.5px">${r.lastRead}</td><td style="text-align:center;padding-right:22px"><span style="display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:12.5px;color:${r.statusColor}"><span style="width:8px;height:8px;border-radius:50%;background:${r.dotColor}"></span>${r.status}</span></td></tr>`).join('')}</tbody></table></div></div>`}`;
+    <tbody>${v.etmRows.filter(r=>_matchQ(r.name)&&(!v.etmProbOn||r.prob)).map(r=>`<tr style="${r.rowStyle}"><td style="padding-left:22px;font-weight:600">${r.name} ${r.hasTag?`<span class="tag tag-neutral" style="margin-left:4px;font-size:10px">${r.tag}</span>`:''}</td><td style="text-align:right;color:${r.poaColor}">${r.poa}</td><td style="text-align:right;color:${r.valColor}">${r.ghi}</td><td style="text-align:right;color:${r.valColor}">${r.poari}</td><td style="text-align:right;color:${r.chuvaColor}">${r.chuva}</td><td style="text-align:right;color:var(--color-neutral-500);font-size:12.5px">${r.lastRead}</td><td style="text-align:center;padding-right:22px"><span style="display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:12.5px;color:${r.statusColor}"><span style="width:8px;height:8px;border-radius:50%;background:${r.dotColor}"></span>${r.status}</span></td></tr>`).join('')}</tbody></table></div></div>`}`;
 }
 function renderTrackers(v){
   if(v.na) return _naPanel('Trackers');
