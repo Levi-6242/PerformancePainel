@@ -3314,6 +3314,10 @@ def api_data():
         threading.Thread(target=_refresh_data_cache, daemon=True).start()
     if _cache["payload"]:
         out = dict(_cache["payload"]); out["stale"] = not fresh
+        # Usina sem visão por string leva a régua de padrão por inversor (só as da lista). Cópia da linha:
+        # o payload em cache é do worker e não pode ser mexido no caminho da requisição.
+        out["rows"] = [dict(r, inv_padrao=_inv_padrao_resumo(r.get("plant_id"))) if r.get("plant_id") in INV_PADRAO_PLANTAS else r
+                       for r in (out.get("rows") or [])]
         return jsonify(out)
     # 1ª carga, cache ainda vazio → resposta leve "carregando" (frontend re-tenta)
     return jsonify({"rows": [], "alertas_comm_list": [], "alertas_strings_list": [],
@@ -9614,6 +9618,204 @@ def api_pg_data():
 MACRO_POT_INV_MIN = 2.0     # potência ativa por inversor abaixo disto = NÃO produzindo (mesma base do R-06)
 
 
+# ── PADRÃO DE PROPORCIONALIDADE POR INVERSOR — usinas SEM visão por string ─────────────────────
+# Ceilândia 1, Céu Azul e Ouro Branco são String Box com a combiner não exposta na API PV (0 strings
+# por desenho) e Barretos não tem esperado no cadastro: a régua de strings não vê nada e a usina
+# ficava "ok" para sempre. Pedido do Levi (10/09/2026): aprender nos 30 dias anteriores quanto cada
+# inversor gera em relação aos pares e alertar quando cair 10 pp ou mais. O núcleo (função pura, com
+# teste) é o inv_padrao.py; aqui é só o encaixe: buscar o kWh diário por inversor (`custom_query
+# energy`, a rota leve que o coletor já usa — 390 chamadas em 5 min no estudo, 0 erros), guardar em
+# inv_padrao.json, julgar o D-1 e uma prévia de hoje da tarde em diante, e levar ao macro e ao sino.
+import inv_padrao as _ip
+
+INV_PADRAO_PLANTAS = {297410, 297415,                                   # Barretos 1 e 2 (83)
+                      53241, 53243, 53213,                               # Ceilândia 1.1 / 1.2 / 1.3
+                      60006, 60009, 60010,                               # Céu Azul I / II / III
+                      18748853, 18748854, 18748856, 18748855, 18748931}  # Ouro Branco 1–5
+INV_PADRAO_INTERVALO_S = 3600
+_inv_padrao_store = _ip.Store(os.path.join(_AQUI, "inv_padrao.json"))
+_inv_padrao_cache = {"ts": 0.0, "data": {}}   # {str(pid): {"nome", "d1": avaliação do D-1, "previa": {id: ...}|None}}
+_inv_padrao_lock = threading.Lock()
+
+
+def _inv_padrao_nome(plant_nome_api: str, devs: dict, inv_id) -> str:
+    """id da API PV → nome do cadastro ('INVERSOR03' → 'Inversor 1.3'); sem cadastro, fica o nome da API."""
+    api = (devs or {}).get(str(inv_id)) or str(inv_id)
+    return (EQUIP_NAMES.get((plant_nome_api or "").strip()) or {}).get(api, api)
+
+
+def _inv_padrao_resumo(pid):
+    """O que o macro e o sino precisam da avaliação de uma usina, já com os nomes do cadastro. None = sem avaliação
+    (usina fora da régua, ou o worker ainda não julgou)."""
+    ent = (_inv_padrao_cache.get("data") or {}).get(str(pid))
+    if not ent or not ent.get("d1"):
+        return None
+    d1 = ent["d1"]
+    devs = _inv_padrao_store.devs(pid)
+    if not devs:                              # o web carregou o store antes do worker gravar os devices
+        _inv_padrao_store.recarregar()
+        devs = _inv_padrao_store.devs(pid)
+    nome = ent.get("nome") or ""
+
+    def tr(i):
+        return _inv_padrao_nome(nome, devs, i)
+
+    previa = sorted([{"inv": tr(i), "status": x["status"], "razao": x.get("razao"), "base": x.get("base"),
+                      "delta": x.get("delta")} for i, x in (ent.get("previa") or {}).items()
+                     if x.get("status") in ("atencao", "critico")], key=lambda a: a["delta"] or 0)
+    return {"status": d1.get("status"), "dia": d1.get("dia"), "n_dias_base": d1.get("n_dias_base"),
+            "alertas": [dict(a, inv=tr(a["inv"])) for a in d1.get("alertas") or []],
+            "cronicos": sorted(tr(i) for i, x in (d1.get("inversores") or {}).items() if x.get("cronico")),
+            "previa": previa or None}
+
+
+def _inv_padrao_status_de(r):
+    """'critico' / 'atencao' quando a régua de padrão tem alerta no D-1 desta linha; senão None."""
+    st = (r.get("inv_padrao") or {}).get("status")
+    return st if st in ("critico", "atencao") else None
+
+
+def _inv_padrao_causa(r) -> str:
+    ip = r["inv_padrao"]
+    al = ip.get("alertas") or []
+    a = al[0]
+    dia = ip.get("dia") or ""
+    ontem = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    rot = "ontem" if dia == ontem else (f"{dia[8:10]}/{dia[5:7]}" if len(dia) == 10 else dia)
+    txt = f"{a['inv']} a {a['razao']:.0f} % do padrão de {a['base']:.0f} % ({a['delta']:+.0f} pp, {rot})"
+    if len(al) > 1:
+        txt += f" · +{len(al) - 1} inversor(es) abaixo do padrão"
+    return txt
+
+
+def _inv_padrao_notificar(pid, nome_usina_: str, resumo: dict) -> int:
+    """Leva ao sino os inversores em atenção/crítico do D-1 — UM evento por inversor e dia. O ciclo roda de hora
+    em hora; sem essa chave cada volta repetiria o aviso. Mesma caixa `notif` do ufv_state que o sino já lê."""
+    al = [a for a in (resumo or {}).get("alertas") or [] if a.get("status") in ("atencao", "critico")]
+    if not al:
+        return 0
+    dia = resumo.get("dia")
+    agora = datetime.now().isoformat(timespec="seconds")
+    novos = []
+    with _state_lock:
+        st = _load_state()
+        n = st.setdefault("notif", {})
+        avisados = n.setdefault("inv_padrao_avisados", [])
+        for a in al:
+            k = f"{pid}|{a['inv']}|{dia}"
+            if k in avisados:
+                continue
+            avisados.append(k)
+            novos.append({"tipo": "inv_padrao", "quando": agora, "fonte": "pv", "rotulo": "API PV", "cliente": None,
+                          "usina": nome_usina_, "plant_id": pid, "inversor": a["inv"], "string": "",
+                          "status": a["status"], "razao": a["razao"], "base": a["base"], "delta": a["delta"], "dia": dia})
+        if novos:
+            del avisados[:-2000]
+            n["eventos"] = ((n.get("eventos") or []) + novos)[-_NOTIF_MAX:]
+            _save_state(st)
+    return len(novos)
+
+
+def _inv_padrao_ciclo():
+    """Uma volta (worker): completa os dias que faltam na janela (D-35..D-1), julga o D-1 de cada usina, faz a
+    prévia de hoje da tarde em diante, publica no cache (→ snapshot → web) e avisa o sino."""
+    token = get_token()
+    hoje = datetime.now()
+    d1 = (hoje - timedelta(days=1)).strftime("%Y-%m-%d")
+    nomes = {p["id"]: str(p["nome"]).strip() for p in (get_plants(token) or []) if p.get("id") is not None}
+
+    def _post(payload):
+        return _http().post(f"{BASE_URL}/custom_query", headers={"x-access-token": token}, json=payload, timeout=90).json()
+
+    novo = {}
+    for pid in sorted(INV_PADRAO_PLANTAS):
+        try:
+            devs = _inv_padrao_store.devs(pid)
+            if not devs:
+                devs = {str(k): v for k, v in _pv_devices_map(pid, token).items()}
+            _inv_padrao_store.gravar_devs(pid, devs, nomes.get(pid))
+            # a janela de coleta é maior que a de julgamento: dia de chuva não conta como válido
+            for dia in _inv_padrao_store.dias_faltando(pid, ate=d1, janela=_ip.INV_PADRAO_JANELA + 5):
+                m = _ip.coletar_dia(_post, pid, dia)
+                if m is not None:                       # erro da API não vira "dia sem geração"
+                    _inv_padrao_store.gravar_dia(pid, dia, m)
+                time.sleep(0.3)
+            E = _inv_padrao_store.dias(pid)
+            aval = _ip.avaliar_dia(E, d1) if d1 in E else None
+            previa = None
+            if hoje.hour >= _ip.INV_PADRAO_PREVIA_HORA:
+                mh = _ip.coletar_dia(_post, pid, hoje.strftime("%Y-%m-%d"))
+                if mh:
+                    previa = _ip.previa_hoje(mh, _ip.baseline(E), hoje.hour)
+            novo[str(pid)] = {"nome": nomes.get(pid) or (_inv_padrao_store.data.get(str(pid)) or {}).get("nome"),
+                              "d1": aval, "previa": previa}
+        except Exception as e:                                        # noqa: BLE001 — uma usina não derruba as 13
+            print(f"[inv_padrao] {pid}: {e}")
+            ant = (_inv_padrao_cache.get("data") or {}).get(str(pid))
+            if ant:
+                novo[str(pid)] = ant
+    _inv_padrao_store.salvar()
+    with _inv_padrao_lock:
+        _inv_padrao_cache["data"], _inv_padrao_cache["ts"] = novo, time.time()
+    _persist_flag["dirty"] = True
+    for pid, ent in novo.items():
+        res = _inv_padrao_resumo(pid)
+        if res:
+            try:
+                _inv_padrao_notificar(int(pid), nome_usina(int(pid), ent.get("nome") or ""), res)
+            except Exception as e:                                    # noqa: BLE001
+                print(f"[inv_padrao] sino {pid}: {e}")
+    n_al = sum(len((e.get("d1") or {}).get("alertas") or []) for e in novo.values())
+    print(f"[inv_padrao] {len(novo)} usinas julgadas para {d1}; {n_al} inversor(es) fora do padrão")
+
+
+def _inv_padrao_loop():
+    time.sleep(120)                                                   # deixa o processo aquecer o token/plants
+    while True:
+        try:
+            _inv_padrao_ciclo()
+        except Exception as e:                                        # noqa: BLE001 — o laço não morre
+            print(f"[inv_padrao] ciclo falhou: {e}")
+        time.sleep(INV_PADRAO_INTERVALO_S)
+
+
+@app.route("/api/pv/inv-padrao")
+def api_inv_padrao():
+    """Padrão por inversor das usinas sem visão por string: avaliação do D-1 + prévia de hoje, nomes do cadastro."""
+    out = {}
+    for pid in sorted(INV_PADRAO_PLANTAS):
+        ent = (_inv_padrao_cache.get("data") or {}).get(str(pid)) or {}
+        out[str(pid)] = dict(_inv_padrao_resumo(pid) or {"status": None},
+                             usina=nome_usina(pid, ent.get("nome") or ""), nome_api=ent.get("nome"))
+    return jsonify({"usinas": out, "ts": _inv_padrao_cache.get("ts"),
+                    "regua": {"janela_dias": _ip.INV_PADRAO_JANELA, "min_dias": _ip.INV_PADRAO_MIN_DIAS,
+                              "queda_atencao_pp": _ip.INV_PADRAO_QUEDA_ATENCAO, "queda_critico_pp": _ip.INV_PADRAO_QUEDA_CRITICO,
+                              "dias_seguidos": _ip.INV_PADRAO_DIAS_SEGUIDOS, "cronico_abaixo_de": _ip.INV_PADRAO_CRONICO,
+                              "previa_a_partir_de": f"{_ip.INV_PADRAO_PREVIA_HORA:02d}:00"}})
+
+
+@app.route("/api/pv/inv-padrao/<int:pid>")
+def api_inv_padrao_usina(pid):
+    """Baseline, razão do D-1 e prévia de hoje de CADA inversor da usina — o que a aba Inversores do diagnóstico mostra."""
+    ent = (_inv_padrao_cache.get("data") or {}).get(str(pid)) or {}
+    devs = _inv_padrao_store.devs(pid)
+    if not devs:
+        _inv_padrao_store.recarregar()
+        devs = _inv_padrao_store.devs(pid)
+    nome = ent.get("nome") or ""
+    d1 = ent.get("d1") or {}
+    prev = ent.get("previa") or {}
+    invs = []
+    for i, x in (d1.get("inversores") or {}).items():
+        p = prev.get(i) or {}
+        invs.append(dict(x, id=i, inv=_inv_padrao_nome(nome, devs, i),
+                         previa={"razao": p.get("razao"), "delta": p.get("delta"), "status": p.get("status")} if p else None))
+    invs.sort(key=lambda x: (x.get("delta") if x.get("delta") is not None else 999, x["inv"]))
+    return jsonify({"plant_id": pid, "usina": nome_usina(pid, nome), "nome_api": nome, "na_regua": pid in INV_PADRAO_PLANTAS,
+                    "dia": d1.get("dia"), "status": d1.get("status"), "n_dias_base": d1.get("n_dias_base"),
+                    "tipico_kwh": d1.get("tipico_kwh"), "inversores": invs, "ts": _inv_padrao_cache.get("ts")})
+
+
 def _macro_prod(powers):
     """powers = potência ativa por inversor (None = sem dado).
     → (produzindo: list[bool|None] alinhada, pot_med, n_off). Sem dado de potência → tudo None."""
@@ -9668,10 +9870,13 @@ def _macro_status(r) -> str:
     (combiner não exposta: Céu Azul, Ouro Branco, Ceilândia 1.x) segue silenciada — ali 0 É esperado."""
     if r.get("sem_dados") or r.get("falha_comunicacao"):
         return "sem_comm"
-    if r.get("sem_visao"):
-        return "ok"
     if _macro_sem_producao(r):
         return "sem_producao"                          # usina parada (potência ~0) → alerta próprio
+    _ipst = _inv_padrao_status_de(r)                   # padrão por inversor: a única régua de quem não vê string
+    if _ipst:
+        return _ipst
+    if r.get("sem_visao"):
+        return "ok"
     off = r.get("inv_off")
     if isinstance(off, int) and off > 0 and _macro_eh_dia(r):
         return "critico"                               # usina PRODUZINDO com inversor(es) parado(s) = crítico
@@ -9684,14 +9889,14 @@ def _macro_status(r) -> str:
 def _macro_causa(r, status: str) -> str:
     if status == "sem_comm":
         return "Sem comunicação"
-    if r.get("sem_visao"):
+    if r.get("sem_visao") and not _inv_padrao_status_de(r):
         return "Sem visão por string (combiner não exposta)"
     if status == "sem_producao":
         off, tot = r.get("inv_off"), r.get("qtd_inversores")
         if isinstance(off, int) and off and isinstance(tot, int):
             return f"Sem produção · {off}/{tot} inversores parados"
         return "Usina sem produção"
-    partes = []
+    partes = [_inv_padrao_causa(r)] if _inv_padrao_status_de(r) else []
     off = r.get("inv_off")
     if isinstance(off, int) and off > 0:
         partes.append(f"{off} inversor(es) parado(s)")
@@ -9704,6 +9909,8 @@ def _macro_causa(r, status: str) -> str:
 def _macro_item(fonte: str, r: dict) -> dict:
     status = _macro_status(r)
     sev = 0 if status == "sem_producao" else severidade(r)   # parada é crítica no ranking
+    if status == _inv_padrao_status_de(r):
+        sev = 1 if status == "critico" else 2                # inversor fora do padrão = degrau da falha de string
     dif = _macro_dif(r)
     faltando = max(0, -dif) if isinstance(dif, (int, float)) else 0
     if status in ("sem_producao", "sem_comm") or r.get("sem_visao"):
@@ -9715,6 +9922,7 @@ def _macro_item(fonte: str, r: dict) -> dict:
         # `sem_visao` é o que o front deve usar p/ esconder contagem — `stringbox` virou só topologia
         # (a corrente por string vem da combiner), e essa usina TEM contagem real p/ mostrar.
         "sem_visao": bool(r.get("sem_visao")),
+        "inv_padrao": r.get("inv_padrao"),           # régua de padrão por inversor (só usinas sem visão por string)
         "strings_ativas": r.get("strings_ativas"), "str_esp": r.get("str_esp"),
         "diferenca": dif, "strings_faltando": faltando,
         "inv_off": r.get("inv_off"), "qtd_inversores": r.get("qtd_inversores"),
@@ -9816,6 +10024,8 @@ def _portfolio_rollup() -> list:
         print(f"[macro] PG/Thopen indisponível: {e}")
     try:                                      # API PV (cache prewarmed) — completa o que faltar
         for r in (_cache.get("payload") or {}).get("rows", []):
+            if r.get("plant_id") in INV_PADRAO_PLANTAS:   # usina sem visão por string: entra a régua de padrão
+                r = dict(r, inv_padrao=_inv_padrao_resumo(r.get("plant_id")))
             add("API PV", r)
     except Exception as e:
         print(f"[macro] API PV indisponível: {e}")
@@ -16634,6 +16844,7 @@ def _cache_save():
                          "ym": list(_bdperf_prod_cache.get("ym") or []), "data": _bdperf_prod_cache.get("data")},
         "etm_prob":     {"ts": _etm_prob_cache.get("ts", 0.0), "data": _etm_prob_cache.get("data")},
         "str_prob_pv":  {"ts": _str_prob_pv_cache.get("ts", 0.0), "rows": _str_prob_pv_cache.get("rows")},
+        "inv_padrao":   {"ts": _inv_padrao_cache.get("ts", 0.0), "data": _inv_padrao_cache.get("data")},
         "sunop_str_ev": {f"{k[0]}|{k[1]}": v for k, v in _sunop_str_ev_cache.items() if isinstance(k, tuple)},
         "plat_view":    {str(k): v for k, v in _plat_view_cache.items()},
         # Metadata do SunOp/Axis (pathnames por usina). O WEB é reiniciado com o meta VAZIO e o
@@ -16705,7 +16916,8 @@ def _cache_load():
     ex = data.get("extras") or {}
     for nome, alvo, campo in (("macro", _macro_cache, "data"), ("ger", _ger_cache, "data"),
                               ("etm_prob", _etm_prob_cache, "data"),
-                              ("str_prob_pv", _str_prob_pv_cache, "rows")):
+                              ("str_prob_pv", _str_prob_pv_cache, "rows"),
+                              ("inv_padrao", _inv_padrao_cache, "data")):
         s = ex.get(nome) or {}
         if s.get(campo) is not None and s.get("ts", 0.0) >= alvo.get("ts", 0.0):
             alvo[campo] = s[campo]; alvo["ts"] = s.get("ts", 0.0); n += 1
@@ -17004,6 +17216,7 @@ def _iniciar_loops_de_fundo():
                  _macro_prewarm_loop,
                  _tunnel_url_loop,
                  _notif_strings_loop,       # strings que zeraram desde a ultima leitura (30 min, de dia) → sino
+                 _inv_padrao_loop,          # padrão por inversor das usinas sem visão por string (1×/h) → macro + sino
                  _inv_energia_loop,         # foto do eday por inversor depois das 19:30 → kWh do mes por inversor (Diagnostico v2)
                  _frac_osperf_loop,
                  _frac_disp_loop,           # disponibilidade por OS (Gerencial) — varre + calcula

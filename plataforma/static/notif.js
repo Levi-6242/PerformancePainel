@@ -61,13 +61,17 @@
   function agrupar(lista) {
     var m = {}, ordem = [];
     lista.forEach(function (e) {
-      var k = [e.quando, e.fonte, e.plant_id, e.inversor].join("|");
-      if (!m[k]) { m[k] = { chave: k, quando: e.quando, fonte: e.fonte, rotulo: e.rotulo, cliente: e.cliente, usina: e.usina, plant_id: e.plant_id, inversor: e.inversor, strings: [] }; ordem.push(k); }
-      m[k].strings.push(String(e.string));
+      // tipo "inv_padrao" (10/09): inversor que caiu do padrao dos 30 dias numa usina sem visao por string — um evento
+      // por inversor e dia, sem lista de strings; o link abre o diagnostico da usina, nao a curva de strings
+      var tipo = e.tipo || "string_zerou";
+      var k = [e.quando, e.fonte, e.plant_id, e.inversor, tipo].join("|");
+      if (!m[k]) { m[k] = { chave: k, quando: e.quando, tipo: tipo, fonte: e.fonte, rotulo: e.rotulo, cliente: e.cliente, usina: e.usina, plant_id: e.plant_id, inversor: e.inversor, strings: [], padrao: null }; ordem.push(k); }
+      if (tipo === "inv_padrao") m[k].padrao = e; else m[k].strings.push(String(e.string));
     });
     return ordem.map(function (k) { return m[k]; });
   }
   function link(g) {
+    if (g.tipo === "inv_padrao") return "/painel/usina/" + encodeURIComponent(g.plant_id) + "?fonte=" + encodeURIComponent(g.fonte || "pv") + "&nome=" + encodeURIComponent(g.usina || "");
     var fid = FONTE_ID[g.fonte];
     if (!fid) return "/monitoramento";
     var u = "/tempo-real/" + fid + "?view=strings";
@@ -82,7 +86,12 @@
     if (s.length > 6) return s.length + " strings zeraram (" + s.slice(0, 4).join(", ") + "…)";
     return "strings " + s.slice(0, -1).join(", ") + " e " + s[s.length - 1] + " zeraram";
   }
-  function texto(g) { return "<b>" + esc(g.usina || "?") + "</b>" + (g.inversor ? " · " + esc(g.inversor) : "") + " · " + esc(textoStrings(g)); }
+  function textoPadrao(g) {
+    var p = g.padrao || {}, r = Math.round(p.razao || 0), b = Math.round(p.base || 0), d = Math.round(p.delta || 0);
+    var dia = p.dia ? " em " + String(p.dia).slice(8, 10) + "/" + String(p.dia).slice(5, 7) : "";
+    return (p.status === "critico" ? "caiu para " : "abaixo do padrão: ") + r + "% do padrão de " + b + "% (" + (d > 0 ? "+" : "") + d + " pp" + dia + ")";
+  }
+  function texto(g) { return "<b>" + esc(g.usina || "?") + "</b>" + (g.inversor ? " · " + esc(g.inversor) : "") + " · " + esc(g.tipo === "inv_padrao" ? textoPadrao(g) : textoStrings(g)); }
   function fonte(g) { return esc((g.rotulo || g.fonte || "") + (g.cliente && g.cliente !== g.rotulo && (g.rotulo || "").indexOf(g.cliente) < 0 ? " · " + g.cliente : "")); }
   function novo(g) { return g.quando > visto && !vistos[g.chave]; }
   function marcaVisto(g) {
@@ -128,9 +137,9 @@
     badge.hidden = !naoVistos.length; badge.textContent = naoVistos.length > 99 ? "99+" : String(naoVistos.length);
     bt.classList.toggle("tem", naoVistos.length > 0);
     var ult = grupos.slice(-40).reverse();
-    caixa.innerHTML = '<div class="gc-notif-cab"><span>Strings que zeraram</span>' + (naoVistos.length ? '<button type="button" id="gc-notif-lidas">marcar como vistas</button>' : "") + "</div>"
+    caixa.innerHTML = '<div class="gc-notif-cab"><span>Alertas · strings e inversores</span>' + (naoVistos.length ? '<button type="button" id="gc-notif-lidas">marcar como vistas</button>' : "") + "</div>"
       + (ult.length ? ult.map(function (g) {
-          return '<a class="gc-notif-item' + (novo(g) ? " novo" : "") + '" href="' + esc(link(g)) + '" data-chave="' + esc(g.chave) + '" title="abrir a curva deste inversor no dia"><span class="q">' + dia(g.quando) + " " + hora(g.quando) + "</span><span>" + texto(g) + '<div class="f">' + fonte(g) + '</div></span><span class="ir" aria-hidden="true">›</span></a>';
+          return '<a class="gc-notif-item' + (novo(g) ? " novo" : "") + '" href="' + esc(link(g)) + '" data-chave="' + esc(g.chave) + '" title="' + (g.tipo === "inv_padrao" ? "abrir o diagnóstico da usina" : "abrir a curva deste inversor no dia") + '"><span class="q">' + dia(g.quando) + " " + hora(g.quando) + "</span><span>" + texto(g) + '<div class="f">' + fonte(g) + '</div></span><span class="ir" aria-hidden="true">›</span></a>';
         }).join("") : '<div class="gc-notif-vazio">Nenhuma queda nova desde a última leitura.</div>')
       + '<div class="gc-notif-pe">' + rodape() + "</div>";
     var ml = document.getElementById("gc-notif-lidas");
@@ -153,7 +162,7 @@
     }
     try {
       if (window.Notification && Notification.permission === "granted") {
-        new Notification("Strings zeraram · " + novos.length + (novos.length === 1 ? " inversor" : " inversores"),
+        new Notification("Alertas · " + novos.length + (novos.length === 1 ? " inversor" : " inversores"),
           { body: novos.slice(0, 3).map(function (g) { return (g.rotulo || g.fonte) + " · " + g.usina + (g.inversor ? " · " + g.inversor : "") + " · " + textoStrings(g); }).join("\n"), silent: true });
       }
     } catch (e) { }

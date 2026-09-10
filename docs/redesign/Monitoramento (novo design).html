@@ -1018,6 +1018,10 @@ function computeVals(){
       // não está parada — está com irradiância baixa (início/fim de dia). Âmbar, não vermelho.
       else if(r.rampa){stt='Baixa irradiância';ps=pillAmber;}
       // String Box PRODUZINDO mas sem combiner exposta (sem visão por string) → NÃO é "Sem geração"
+      // Usina sem visão por string com a régua de PADRÃO por inversor (10/09): um inversor que caiu 10 pp ou mais do
+      // que sempre gerou em relação aos pares (D-1) tira a usina do "sem visão" eterno — vermelho a 20 pp, âmbar a 10.
+      else if(r.inv_padrao&&r.inv_padrao.status==='critico'){stt='Inversor fora do padrão';ps=pillRed;}
+      else if(r.inv_padrao&&r.inv_padrao.status==='atencao'){stt='Inversor abaixo do padrão';ps=pillAmber;}
       else if(r.sem_visao){stt='Sem visão de strings';ps=pill('var(--color-neutral-900)','var(--color-neutral-400)');}
       else if(temD&&r.strings_ativas===0){stt='Sem geração';ps=semGer;}
       else if(difN){stt='Falha de string';ps=pillRed;}
