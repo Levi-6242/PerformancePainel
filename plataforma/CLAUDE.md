@@ -111,6 +111,17 @@ Armadilhas: o dia julgado **não** ensina o próprio baseline; dia com a usina a
 (chuva forte vira ruído); Barretos lista 31/40 "INVERTER" para 20 reais no `plant_devices` — a régua
 trabalha por id que reportou energia e traduz pelo cadastro.
 
+## Strings: inversor desligado e OS atribuída
+
+Desde 11/09/2026, na linha da usina (`build_summary`) o inversor **desligado de dia** (régua de potência do
+`_macro_prod`: Pac abaixo do piso ou < 5 % da mediana dos pares, com sol e a usina gerando) conta **todas** as
+strings como faltantes — a régua por string deixava passar o ruído de corrente reversa (0,8–1 A). E inversor com
+**OS atribuída** (`os_atribuidas`, chave `plant_id|idefinversor`, lida por `_os_atribuidas_map()` com cache de
+30 s) sai inteiro da conta (ativas e esperadas): a linha leva `inv_com_os`/`strings_com_os`. O drill
+(`_pv_plant_inversores`) aplica o mesmo: desligado = 0 ativas, `diferenca = −esperadas`, e cada inversor leva
+`os_atribuida`. À noite nada é zerado (Pac ~0 é a noite). O `gerencial.html` é tema escuro por padrão só por
+tokens (`:root[data-theme="dark"]`); é Jinja — mudança nele exige restart do web.
+
 ## ETM: o que alarma
 
 Régua do Levi (10/09/2026): **só IPOA (POA) e GHI medidos em zero com sol alarmam** — hoje (`_diagnostico_etm`,
