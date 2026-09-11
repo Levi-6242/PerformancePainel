@@ -39,7 +39,8 @@ def test_macro_status_sem_visao_e_ok_e_nao_critico():
     assert app._macro_status({"sem_visao": True, "strings_ativas": 0, "str_esp": 216}) == "ok"
 
 
-def test_macro_status_deficit_5_e_o_corte_entre_atencao_e_critico():
+def test_macro_status_deficit_5_e_o_corte_entre_atencao_e_critico(freeze_now):
+    freeze_now("2026-09-09 12:00:00")          # régua de déficit só vale com sol (desde 10/09 nada se julga à noite)
     base = {"strings_ativas": 0, "str_esp": 0}
     assert app._macro_status(dict(base, strings_ativas=212, str_esp=216)) == "atencao"     # −4
     assert app._macro_status(dict(base, strings_ativas=211, str_esp=216)) == "critico"     # −5
@@ -54,10 +55,11 @@ def _item(**kw):
     return app._macro_item("API PV", r)
 
 
-def test_macro_item_zera_faltando_quando_a_usina_esta_calada():
+def test_macro_item_zera_faltando_quando_a_usina_esta_calada(freeze_now):
     """Regra de ouro do mosaico: usina sem comunicação/sem produção/sem visão NÃO entra no ranking de
     strings faltando — senão a frota inteira aparece 'faltando' toda madrugada. É o campo já silenciado
     que o rollup soma (por isso `_somar_partes_da_usina` soma `strings_faltando`, não Σativas−Σesperadas)."""
+    freeze_now("2026-09-09 12:00:00")          # com sol: à noite o próprio portão solar já zera o faltando
     assert _item()["strings_faltando"] == 20
     assert _item(sem_dados=True)["strings_faltando"] == 0
     assert _item(sem_visao=True)["strings_faltando"] == 0

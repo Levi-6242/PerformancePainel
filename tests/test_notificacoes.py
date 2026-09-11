@@ -113,13 +113,16 @@ def test_intervalo_longo_rebaseia_sem_avisar(estado, fontes, freeze_now):
     app._notif_ciclo()
     freeze_now("2026-09-05 12:45:00")
     app._notif_ciclo()
-    # o PC dormiu 12:56 → 22:20 (caso real de 05/09); a leitura das 17:00 nao existiu, a proxima e as 17:50
-    freeze_now("2026-09-05 17:50:00")
+    # o PC dormiu (caso real de 05/09: 12:56 → 22:20); a leitura das 13:00 nao existiu, a proxima e 3h15 depois.
+    # Horarios com SOL de proposito: desde 10/09 uma string que zera com o sol baixo na usina (sol.py) e
+    # descartada como anoitecer — o cenario original (17:50 → 18:15) hoje cai nessa peneira, e isso e testado em
+    # test_sol_macro_sino.py. Aqui o que se prova e o rebase por intervalo longo.
+    freeze_now("2026-09-05 16:00:00")
     fontes["pv"] = [_row("Guatambu", 1, "Inversor 1.1", str(i)) for i in range(30)]
-    assert app._notif_ciclo() == 0                          # 29 strings novas, mas 5 h depois: e base, nao aviso
+    assert app._notif_ciclo() == 0                          # 29 strings novas, mas 3h15 depois: e base, nao aviso
     n = _notif(estado)
-    assert n["ultima"] == "2026-09-05T17:50:00" and len(n["snapshot"]) == 30
-    freeze_now("2026-09-05 18:15:00")                       # a partir dai volta a comparar normalmente
+    assert n["ultima"] == "2026-09-05T16:00:00" and len(n["snapshot"]) == 30
+    freeze_now("2026-09-05 16:30:00")                       # a partir dai volta a comparar normalmente
     fontes["pv"].append(_row("Guatambu", 1, "Inversor 1.2", "1"))
     assert app._notif_ciclo() == 1
 

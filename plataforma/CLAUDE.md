@@ -111,6 +111,19 @@ Armadilhas: o dia julgado **não** ensina o próprio baseline; dia com a usina a
 (chuva forte vira ruído); Barretos lista 31/40 "INVERTER" para 20 reais no `plant_devices` — a régua
 trabalha por id que reportou energia e traduz pelo cadastro.
 
+## Sol por estado (macro e sino)
+
+**O pôr do sol não é falha.** Medido em 10/09/2026 às 17:52: 89 de 102 usinas "críticas" no `/api/macro` e
+300 eventos "string zerou" numa leitura só do sino — era o anoitecer de setembro (~17:50 em SP) dentro de
+janelas fixas ("dia" até 18h; sino até 18:20). Agora `sol.py` calcula a elevação do sol pela capital do
+**estado** da usina (Info Geral; não há lat/lon no cadastro) e `_macro_sol_baixo(r)` / `_notif_filtra_novos`
+descartam o julgamento ao vivo com o sol abaixo de `SOL_BAIXO_GRAUS` (8°). O D-1 da régua de padrão por
+inversor continua valendo à noite. O sino ainda tem uma segunda peneira: mais de `_NOTIF_MAX_NOVOS_LEITURA`
+(100) quedas novas numa leitura é evento ambiente, nada é avisado individualmente. **Usina sem estado no
+cadastro cai na janela fixa antiga** — cadastrar o estado é o que liga a régua para ela. Teste que usa
+`_macro_status`/`_notif_ciclo` com usina real precisa de `freeze_now` em horário de sol, senão passa de dia
+e falha à noite.
+
 ## Tokens
 
 **Dois arquivos, dois donos.** O `tokens.txt` (raiz) é **semente**, formato `CHAVE=VALOR`, editado

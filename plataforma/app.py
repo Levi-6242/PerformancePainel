@@ -3001,15 +3001,43 @@ def _notif_ciclo(forcar: bool = False) -> int:
                        "string": str(r.get("string")), "fonte": fonte, "rotulo": rotulo, "cliente": r.get("cliente")}
             if not base_do_dia and k not in snap_ant:
                 novos.append(dict(snap[k], quando=agora.isoformat(timespec="seconds"), tipo="string_zerou"))
+    novos, descartes = _notif_filtra_novos(novos, agora)
     with _state_lock:
         st = _load_state()
         n = st.setdefault("notif", {})
         n["snapshot"], n["ultima"], n["dia"], n["fontes"] = snap, agora.isoformat(timespec="seconds"), hoje, fontes
+        n["descartes_ultima"] = descartes
         n["eventos"] = ((n.get("eventos") or []) + novos)[-_NOTIF_MAX:]
         _save_state(st)
     if novos:
         print(f"[NOTIF] {len(novos)} string(s) zeraram desde a leitura anterior")
+    if descartes["sol_baixo"] or descartes["inundacao"]:
+        print(f"[NOTIF] descartados: {descartes['sol_baixo']} com o sol baixo na usina, "
+              f"{descartes['inundacao']} por inundação (leitura com mais de {_NOTIF_MAX_NOVOS_LEITURA} quedas novas)")
     return len(novos)
+
+
+_NOTIF_MAX_NOVOS_LEITURA = 100    # acima disto numa leitura só não é defeito de string — é nuvem, anoitecer ou telemetria
+
+
+def _notif_filtra_novos(novos: list, agora) -> tuple:
+    """Duas peneiras entre a comparação de leituras e o sino (10/09/2026, medido: 300 eventos às 17:43, o teto):
+    1. string que zerou com o SOL BAIXO no estado da usina (sol.py) — é o anoitecer, não uma queda; a janela
+       fixa 05:40–18:20 do sino deixava a última leitura do dia ver as strings apagando;
+    2. INUNDAÇÃO — mais de _NOTIF_MAX_NOVOS_LEITURA quedas novas numa leitura só. Nenhuma frota perde 100+
+       strings de defeito ao mesmo tempo; é evento ambiente (nuvem, pôr do sol de usina sem estado, telemetria).
+       Nada é avisado individualmente; fica a contagem em `descartes_ultima` para o rodapé.
+    Devolve (mantidos, {"sol_baixo": n, "inundacao": n})."""
+    mantidos, descartes = [], {"sol_baixo": 0, "inundacao": 0}
+    for e in novos:
+        if _sol.sol_baixo(_estado_da_usina(e.get("usina")), agora):
+            descartes["sol_baixo"] += 1
+        else:
+            mantidos.append(e)
+    if len(mantidos) > _NOTIF_MAX_NOVOS_LEITURA:
+        descartes["inundacao"] = len(mantidos)
+        mantidos = []
+    return mantidos, descartes
 
 
 def _notif_strings_loop():
@@ -9844,6 +9872,7 @@ MACRO_POT_INV_MIN = 2.0     # potência ativa por inversor abaixo disto = NÃO p
 # energy`, a rota leve que o coletor já usa — 390 chamadas em 5 min no estudo, 0 erros), guardar em
 # inv_padrao.json, julgar o D-1 e uma prévia de hoje da tarde em diante, e levar ao macro e ao sino.
 import inv_padrao as _ip
+import sol as _sol            # elevação do sol por estado — separa "usina parada" de "anoiteceu" (macro e sino)
 
 INV_PADRAO_PLANTAS = {297410, 297415,                                   # Barretos 1 e 2 (83)
                       53241, 53243, 53213,                               # Ceilândia 1.1 / 1.2 / 1.3
@@ -10056,11 +10085,39 @@ def _macro_sem_producao(r) -> bool:
     return pm < MACRO_POT_INV_MIN and bool(r.get("qtd_inversores")) and _macro_eh_dia(r)
 
 
+def _estado_da_usina(nome):
+    """Estado da usina pela Info Geral, com a MESMA régua de nome do macro (_macro_usina_nome) e o mesmo
+    fallback de sub-usina de _trk_geo_annotate ('Junco 2.1 (134)' → 'Junco' → 'Piaui'). None se não achar."""
+    canon = _macro_usina_nome(nome or "") or (nome or "")
+    ig = INFO_GERAL.get(_nrm(canon)) or INFO_GERAL.get(_nrm(nome or "")) or {}
+    if not ig and canon:
+        base = _nrm(canon)
+        ig = next((v for k, v in INFO_GERAL.items()
+                   if k.startswith(base) and 0 < len(k) - len(base) <= 8
+                   and any(ch.isdigit() for ch in k[len(base):])), {})
+    return ig.get("estado") or None
+
+
+def _macro_sol_baixo(r, agora=None) -> bool:
+    """Sol abaixo de SOL_BAIXO_GRAUS no estado da usina — anoitecer, amanhecer ou noite: inversor desligado e
+    string a zero são o esperado, não falha. Medido em 10/09/2026 às 17:52: 89 de 102 usinas 'críticas' porque
+    a janela fixa dizia 'dia' até 18h e o sol de setembro se pôs às 17:50. Sem estado no cadastro vale a janela
+    fixa de sempre — e fora dela (antes das 7h, depois das 18h) ninguém é julgado ao vivo, com ou sem estado:
+    às 22:40 do mesmo dia 4 usinas com estado EM BRANCO na Info Geral (Santo Antonio do Platina, Corrego do
+    Sapucaia, Alvares Machado, Santo Anastacio) seguiam 'críticas' por déficit de strings, que não tinha portão."""
+    agora = agora or datetime.now()
+    if not (7 <= agora.hour < 18):
+        return True
+    return _sol.sol_baixo(_estado_da_usina(r.get("usina")), agora)
+
+
 def _macro_eh_dia(r) -> bool:
-    """De dia (07–18h Brasília) — a régua de 'sem produção'/inversor-parado só vale com sol.
+    """De dia — a régua de 'sem produção'/inversor-parado só vale com sol. Janela 07–18h (Brasília) E sol acima
+    de SOL_BAIXO_GRAUS no estado da usina (quando o cadastro tem estado).
     A frescura já vem embutida: pot_med sai da analógica das ÚLTIMAS 6h (PG) / última leitura do dia
     (PV); dado velho não gera pot_med → não vira 'sem produção'."""
-    return 7 <= datetime.now().hour < 18
+    agora = datetime.now()
+    return 7 <= agora.hour < 18 and not _macro_sol_baixo(r, agora)
 
 
 def _macro_dif(r):
@@ -10087,9 +10144,11 @@ def _macro_status(r) -> str:
     (combiner não exposta: Céu Azul, Ouro Branco, Ceilândia 1.x) segue silenciada — ali 0 É esperado."""
     if r.get("sem_dados") or r.get("falha_comunicacao"):
         return "sem_comm"
+    _ipst = _inv_padrao_status_de(r)                   # padrão por inversor: a única régua de quem não vê string
+    if _macro_sol_baixo(r):
+        return _ipst or "ok"                           # sem sol nada se julga ao vivo; o D-1 do padrão continua valendo
     if _macro_sem_producao(r):
         return "sem_producao"                          # usina parada (potência ~0) → alerta próprio
-    _ipst = _inv_padrao_status_de(r)                   # padrão por inversor: a única régua de quem não vê string
     if _ipst:
         return _ipst
     if r.get("sem_visao"):
@@ -10106,6 +10165,9 @@ def _macro_status(r) -> str:
 def _macro_causa(r, status: str) -> str:
     if status == "sem_comm":
         return "Sem comunicação"
+    if _macro_sol_baixo(r):                            # sem sol só o D-1 do padrão fala; inversor parado é a noite
+        return _inv_padrao_causa(r) if _inv_padrao_status_de(r) else \
+            "Sem sol na usina (fora da janela solar) — nada a julgar ao vivo"
     if r.get("sem_visao") and not _inv_padrao_status_de(r):
         return "Sem visão por string (combiner não exposta)"
     if status == "sem_producao":
@@ -10130,8 +10192,8 @@ def _macro_item(fonte: str, r: dict) -> dict:
         sev = 1 if status == "critico" else 2                # inversor fora do padrão = degrau da falha de string
     dif = _macro_dif(r)
     faltando = max(0, -dif) if isinstance(dif, (int, float)) else 0
-    if status in ("sem_producao", "sem_comm") or r.get("sem_visao"):
-        faltando = 0                                   # sai do ranking de "strings abaixo"
+    if status in ("sem_producao", "sem_comm") or r.get("sem_visao") or _macro_sol_baixo(r):
+        faltando = 0                                   # sai do ranking de "strings abaixo" (sem sol, string a zero é o normal)
     return {
         "fonte": fonte, "usina": r.get("usina"), "plant_id": r.get("plant_id"),
         "status": status, "sev": sev, "causa": _macro_causa(r, status),
