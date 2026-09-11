@@ -47,3 +47,10 @@ def test_v2_legenda_da_string_com_a_cor_da_linha_e_id_da_api_pelo_plant():
     v2 = (RAIZ / "plataforma/templates/painel_usina_v2.html").read_text(encoding="utf-8")
     assert "function _hdCor(" in v2 and v2.count("_hdCor(") >= 4                   # strings, inversor, correlação
     assert "function _hdApiId(" in v2 and "_hdApiId(k)" in v2
+
+
+def test_raio_x_sem_botao_e_sem_visao_meta():
+    """Levi, 11/09 (tarde): "remova o botão e visão meta" do card lateral — fica só a energia do dia."""
+    por = (RAIZ / "plataforma/templates/painel_portfolio.html").read_text(encoding="utf-8")
+    assert "onclick=\"rxInvModo('meta')\"" not in por and "rxInvModo('energia')" not in por
+    assert "const modoMeta=false" in por

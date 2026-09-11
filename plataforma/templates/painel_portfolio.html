@@ -1111,7 +1111,7 @@ function rxInversores(){
   // (só dias fechados; fatia por potência do cadastro). Inversor sem histórico cai na régua do dia (P50/dia × strings).
   const H=RX.h30, hInv=(H&&H.inversores)||{}, temMes=!!(H&&H.n_dias);
   const hDe=(nome,alt)=>hInv[nome]||(alt?hInv[alt]:null)||null;
-  const modoMeta=RX.invModo==='meta'&&(temMes||rxMetaDiaKwh()!=null);
+  const modoMeta=false;   // a visão "meta" (acumulado ÷ meta) saiu do Raio-X (Levi, 11/09/2026) — fica só a energia do dia
   const rzMeta=(kwh,pl,alt)=>{ const h=hDe(pl&&pl.nome,alt); if(h&&h.pct_meta!=null) return h.pct_meta/100; const m=rxMetaInv(pl,plats); return (kwh!=null&&m)?kwh/m:null; };
   const kwhMeta=(kwh,pl,alt)=>{ const h=hDe(pl&&pl.nome,alt); return (h&&h.pct_meta!=null)?h.ger:kwh; };
   const tipMeta=(pl,alt)=>{ const h=hDe(pl&&pl.nome,alt);
@@ -1152,7 +1152,7 @@ function rxInversores(){
       :(comE.length?'barra = energia do dia · traço = mediana dos inversores · razão = inversor ÷ mediana':'sem energia por inversor nesta fonte hoje · strings pela plataforma');
   } else if(RX.plant===null) return `<div class="rx-sec"><h3>Inversores</h3></div><div class="rx-card"><div class="rx-esq">Consultando inversores e strings${(RX_SRC[RX_SK[RX.p.fonte]]||{}).lento?' na API PV (pode levar até 1 min)':''}</div></div>`;
   else return `<div class="rx-sec"><h3>Inversores</h3></div><div class="rx-card rx-nota">${RX.plant===false?'A fonte não devolveu o detalhe por inversor.':'Sem inversores cadastrados nesta fonte.'}</div>`;
-  const tog=(temMes||rxMetaDiaKwh()!=null)?`<span class="rx-tog" title="energia = como está hoje · meta = quem está mais perto da meta do mês (acumulado até hoje)"><button class="${!modoMeta?'on':''}" onclick="rxInvModo('energia')">energia</button><button class="${modoMeta?'on':''}" onclick="rxInvModo('meta')">meta</button></span>`:'';
+  const tog='';   // sem o seletor energia|meta (Levi, 11/09/2026)
   return `<div class="rx-sec"><h3>Inversores no dia</h3><span class="sub">${tog}${sub}</span></div>
   <div class="rx-card" style="padding:6px 10px;overflow-x:auto"><table class="rx-inv"><thead><tr><th>Inversor</th><th>${modoMeta?'gerado ÷ meta':(RX.gemeo&&RX.gemeo.inversores&&RX.gemeo.inversores.length?'gerado ÷ esperado':'energia do dia')}</th><th class="rx-num">${modoMeta?(temMes?'% da meta (mês)':'% da meta (hoje)'):'razão'}</th><th class="rx-num">${modoMeta&&temMes?'kWh mês':'kWh'}</th><th class="rx-num rx-c">strings s/ corrente</th><th class="rx-num" title="PR de hoje por inversor (rota /api/<fonte>/pr)">PR hoje</th><th></th></tr></thead><tbody>${linhas.join('')}</tbody></table></div>`;
 }
