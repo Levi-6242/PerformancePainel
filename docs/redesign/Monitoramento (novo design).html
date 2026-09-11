@@ -148,17 +148,17 @@ const _VIEWS_URL=['strings','etm','geracao','trackers','pr','curva','perdas'];
 const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'), subfilter:'geral', trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, perdaSub:'trk-par', perdaDia:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, etmMode:'cards', etmProb:(new URLSearchParams(location.search).get('etmprob')==='1'), gerIni:null, gerFim:null, gerModo:'usinas' };
 function setState(patch){ Object.assign(state, patch); render(); }
 /* ═══ DADO REAL — por VISTA e por FONTE. Cada uma devolve {rows,summary}; muda só o endpoint. ═══ */
-const SKEY={'thopen-pv':'pv','thopen-db':'pg','athon':'sunop','axis':'axis','renogrid':'solaredge','2c':'owen','semp':'semp','alveslima':'alveslima'};
-const VKEY={'thopen-pv':'pv','thopen-db':'pg','athon':'so','axis':'ax','renogrid':'se','2c':'owen','semp':'semp','alveslima':'al'};  // prefixo da chave de comentário (igual ao dashboard original)
+const SKEY={'thopen-pv':'pv','thopen-db':'pg','athon':'sunop','axis':'axis','renogrid':'solaredge','2c':'owen','semp':'semp','alveslima':'alveslima','2capi':'2capi'};
+const VKEY={'thopen-pv':'pv','thopen-db':'pg','athon':'so','axis':'ax','renogrid':'se','2c':'owen','semp':'semp','alveslima':'al','2capi':'c2'};  // prefixo da chave de comentário (igual ao dashboard original)
 const EP={
-  strings:{pv:'/api/data',pg:'/api/pg/data',sunop:'/api/sunop/data',axis:'/api/axis/data',solaredge:'/api/solaredge/data',owen:'/api/owen/strings/data',semp:'/api/semp/data',alveslima:'/api/alveslima/data'},
-  etm:{pv:'/api/etm/analise',pg:'/api/pg/etm/analise',sunop:'/api/sunop/etm/analise',axis:'/api/axis/etm/analise',owen:'/api/owen/etm/analise',semp:'/api/semp/etm/analise',alveslima:'/api/alveslima/etm/analise'},
+  strings:{pv:'/api/data',pg:'/api/pg/data',sunop:'/api/sunop/data',axis:'/api/axis/data',solaredge:'/api/solaredge/data',owen:'/api/owen/strings/data',semp:'/api/semp/data',alveslima:'/api/alveslima/data','2capi':'/api/2capi/data'},
+  etm:{pv:'/api/etm/analise',pg:'/api/pg/etm/analise',sunop:'/api/sunop/etm/analise',axis:'/api/axis/etm/analise',owen:'/api/owen/etm/analise',semp:'/api/semp/etm/analise',alveslima:'/api/alveslima/etm/analise','2capi':'/api/2capi/etm/analise'},
   trackers:{pv:'/api/pv/trackers',pg:'/api/pg/trackers',sunop:'/api/sunop/trackers',axis:'/api/axis/trackers',owen:'/api/owen/trackers'},
   pr:{pv:'/api/pv/pr',pg:'/api/pg/pr',sunop:'/api/sunop/pr',axis:'/api/axis/pr',solaredge:'/api/solaredge/pr'},
 };
 // SEMP usa o MESMO /api/plant/<id> do Thopen-PV: o id da usina é global na API PV e o backend
 // escolhe sozinho o token da conta que a enxerga (_pv_token_for). Só o recorte da LISTA muda.
-const PLANT={pv:'/api/plant/',pg:'/api/pg/plant/',sunop:'/api/sunop/plant/',axis:'/api/axis/plant/',solaredge:'/api/solaredge/plant/',owen:'/api/owen/strings/plant/',semp:'/api/plant/',alveslima:'/api/plant/'};
+const PLANT={pv:'/api/plant/',pg:'/api/pg/plant/',sunop:'/api/sunop/plant/',axis:'/api/axis/plant/',solaredge:'/api/solaredge/plant/',owen:'/api/owen/strings/plant/',semp:'/api/plant/',alveslima:'/api/plant/','2capi':'/api/plant/'};
 function _urlFor(view,srcChip){ const base=(EP[view]||{})[SKEY[srcChip]]; if(!base) return null; return view==='pr'?base+'?date='+_todayISO():base; }   // data LOCAL: com toISOString(), das 21h em diante o BR pedia o dia SEGUINTE e a tabela voltava vazia
 const RD={pv:null,loading:false,na:false,erro:null,cache:{},plants:{},curva:{},curvaMeta:{},trk:{},depara:{},trkChart:{},os:{},comments:{},tracking:{},strProb:{},strEv:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},perdas:{},osAtrib:{},_osList:null};
 
@@ -225,7 +225,7 @@ async function loadCurva(pid,invId,nome){   // curva corrente-por-string do inve
   RD.curva[key]=null; render();
   const br=iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4);
   let url=null;
-  if(sk==='pv'||sk==='semp'||sk==='alveslima') url='/api/spv/usina/'+encodeURIComponent(pid)+'?full=1&data='+br;    // PV e SEMP: mesma API PV (id global) — o SEMP não tinha ramo NENHUM e a curva ficava eternamente "sem corrente" (Tucano, 06/08)
+  if(sk==='pv'||sk==='semp'||sk==='alveslima'||sk==='2capi') url='/api/spv/usina/'+encodeURIComponent(pid)+'?full=1&data='+br;    // PV e SEMP: mesma API PV (id global) — o SEMP não tinha ramo NENHUM e a curva ficava eternamente "sem corrente" (Tucano, 06/08)
   else if(sk==='pg') url='/api/pg/curva/'+encodeURIComponent(pid)+'?data='+iso;
   else if(sk==='sunop'||sk==='axis') url='/api/'+sk+'/curva/'+encodeURIComponent(pid)+'?inv='+encodeURIComponent(invId)+'&data='+iso;
   else if(sk==='owen') url='/api/2c/'+iso+'/strings/'+encodeURIComponent(pid);                       // 2C: curva de corrente por string (5 min) do banco-por-dia (hoje = pastas ao vivo)
@@ -238,7 +238,7 @@ async function loadCurva(pid,invId,nome){   // curva corrente-por-string do inve
       const curva={}; (raw.strings||[]).forEach(s=>{ curva[String(s.id)]={x:raw.labels||[],y:s.y||[]}; });
       iv={curva, mediana:null, strings:(raw.strings||[]).map(s=>({nome:String(s.id),sub:false,ativa:(s.y||[]).some(v=>v!=null&&v>0.5)}))};
     }else{
-      iv=((sk==='pv'||sk==='semp'))?(list.find(x=>(x.nome||'')===nome)||list[0]):(list.find(x=>String(x.id)===String(invId))||list[0]);
+      iv=((sk==='pv'||sk==='semp'||sk==='2capi'))?(list.find(x=>(x.nome||'')===nome)||list[0]):(list.find(x=>String(x.id)===String(invId))||list[0]);
     }
     RD.curva[key]=(iv&&iv.curva)||{};
     RD.curvaMeta[key]=_abaixoMeta(iv);   // conjunto "abaixo" (sub por energia + último<60% mediana) + mediana
@@ -632,11 +632,11 @@ function _dataHojeExt(){ const M=['janeiro','fevereiro','março','abril','maio',
 /* ── Botão "Histórico": abre a página do dia (só fontes que têm — API PV e 2C; some nas outras) ── */
 function _histLink(){ const sk=SKEY[state.source]; if(sk==='pv')return{href:'/historico-plataforma',tab:'gridco-hist-pv'}; if(sk==='owen')return{href:'/historico2c',tab:'gridco-hist2c'}; return null; }
 function _histBtn(){ const h=_histLink(); return h?`<a href="${h.href}" target="${h.tab}" rel="noopener" class="btn btn-secondary" style="text-decoration:none"><i class="ph ph-clock-counter-clockwise"></i> Histórico</a>`:''; }
-function _srcNome(){ return ({'thopen-pv':'API PV Operation','thopen-db':'Banco de Dados','athon':'Athon (SunOp)','axis':'Axis','renogrid':'RenoGrid (SolarEdge)','2c':'2C (Email)','semp':'SEMP (API PV Operation)','alveslima':'Alves Lima (API PV Operation)'})[state.source]||'Fonte'; }
+function _srcNome(){ return ({'thopen-pv':'API PV Operation','thopen-db':'Banco de Dados','athon':'Athon (SunOp)','axis':'Axis','renogrid':'RenoGrid (SolarEdge)','2c':'2C (Email)','semp':'SEMP (API PV Operation)','alveslima':'Alves Lima (API PV Operation)','2capi':'2C (API PV Operation)'})[state.source]||'Fonte'; }
 /* ── Modo "Criar OS" (portado do dashboard): seleciona strings SEM CORRENTE → deep link gridos:// p/ o OS Creator (1 OS por inversor). Barra fixa no rodapé; some fora do modo. ── */
 const _osSel=new Map();   // "pid|invId|sid" → {pid,invId,sid,usina,inv}
 function _osKey(p,i,s){ return p+'|'+i+'|'+s; }
-function _osBtn(){ if(!['pv','pg','sunop','owen','semp'].includes(SKEY[state.source])) return ''; const on=state.osMode; return `<button onclick="toggleOsMode()" class="btn ${on?'btn-primary':'btn-secondary'}"><i class="ph ph-wrench"></i> ${on?'Sair do modo OS':'Criar OS'}</button>`; }
+function _osBtn(){ if(!['pv','pg','sunop','owen','semp','2capi'].includes(SKEY[state.source])) return ''; const on=state.osMode; return `<button onclick="toggleOsMode()" class="btn ${on?'btn-primary':'btn-secondary'}"><i class="ph ph-wrench"></i> ${on?'Sair do modo OS':'Criar OS'}</button>`; }
 window.toggleOsMode=()=>{ const on=!state.osMode; if(!on)_osSel.clear(); setState({osMode:on}); _osBar(); };
 window.osToggle=(pid,invId,sid,usina,inv)=>{ const k=_osKey(pid,invId,sid); if(_osSel.has(k))_osSel.delete(k); else _osSel.set(k,{pid:String(pid),invId:String(invId),sid:String(sid),usina:usina||'',inv:inv||''}); render(); _osBar(); };
 window.osClear=()=>{ _osSel.clear(); render(); _osBar(); };
@@ -773,7 +773,7 @@ function _grafModal(o){ let m=document.getElementById('gc-gmodal'); if(!m){ m=do
 // ligado, e RenoGrid (SolarEdge) não tem. Sem URL, o modal caía num gráfico de exemplo — ver
 // _renderEtmChart.
 function _etmChartUrl(pid,usina,date){ const s=state.source;
-  if(s==='thopen-pv'||s==='semp'||s==='alveslima') return pid!=null?('/api/etm/chart?plant_id='+encodeURIComponent(pid)+'&date='+date):null;   // mesma API PV; o backend escolhe o token pela usina
+  if(s==='thopen-pv'||s==='semp'||s==='alveslima'||s==='2capi') return pid!=null?('/api/etm/chart?plant_id='+encodeURIComponent(pid)+'&date='+date):null;   // mesma API PV; o backend escolhe o token pela usina
   if(s==='thopen-db') return pid!=null?('/api/pg/etm/chart?plant_id='+encodeURIComponent(pid)+'&date='+date):null;
   if(s==='athon') return '/api/sunop/etm/chart?plant='+encodeURIComponent(usina)+'&date='+date;
   if(s==='axis') return '/api/axis/etm/chart?plant='+encodeURIComponent(usina)+'&date='+date;
@@ -1065,7 +1065,7 @@ async function _ensureEtmGrupos(){ if(RD.etmGrupos!==undefined) return; RD.etmGr
 
 function computeVals(){
   const s=state;
-  const srcDefs=[{id:'thopen-pv',icon:'ph ph-broadcast',name:'Thopen',sub:'API PV Operation'},{id:'thopen-db',icon:'ph ph-database',name:'Thopen',sub:'Banco de Dados'},{id:'athon',icon:'ph ph-lightning',name:'Athon',sub:'API SunOp'},{id:'axis',icon:'ph ph-sun',name:'Axis',sub:'PE III / Ponto Belo'},{id:'renogrid',icon:'ph ph-diamond',name:'RenoGrid',sub:'API SolarEdge'},{id:'2c',icon:'ph ph-envelope-simple',name:'2C',sub:'Email'},{id:'semp',icon:'ph ph-plug',name:'SEMP',sub:'API PV Operation'},{id:'alveslima',icon:'ph ph-buildings',name:'Alves Lima',sub:'API PV Operation'}];
+  const srcDefs=[{id:'thopen-pv',icon:'ph ph-broadcast',name:'Thopen',sub:'API PV Operation'},{id:'thopen-db',icon:'ph ph-database',name:'Thopen',sub:'Banco de Dados'},{id:'athon',icon:'ph ph-lightning',name:'Athon',sub:'API SunOp'},{id:'axis',icon:'ph ph-sun',name:'Axis',sub:'PE III / Ponto Belo'},{id:'renogrid',icon:'ph ph-diamond',name:'RenoGrid',sub:'API SolarEdge'},{id:'2c',icon:'ph ph-envelope-simple',name:'2C',sub:'Email'},{id:'semp',icon:'ph ph-plug',name:'SEMP',sub:'API PV Operation'},{id:'alveslima',icon:'ph ph-buildings',name:'Alves Lima',sub:'API PV Operation'},{id:'2capi',icon:'ph ph-broadcast',name:'2C',sub:'API PV Operation'}];
   const sources=srcDefs.map(d=>{const on=s.source===d.id; return {icon:d.icon,name:d.name,sub:d.sub,id:d.id,iconBg:on?'color-mix(in srgb, var(--color-accent) 22%, transparent)':'var(--color-neutral-900)',iconColor:on?'var(--color-accent)':'var(--color-neutral-300)',nameColor:on?'var(--color-text)':'var(--color-neutral-300)',style:`display:flex;align-items:center;gap:11px;padding:10px 14px;border-radius:var(--radius-md);cursor:pointer;font-family:inherit;flex-shrink:0;background:var(--color-surface);border:1px solid ${on?'var(--color-accent)':'var(--color-divider)'};`};});
   const viewDefs=[{id:'strings',label:'Strings'},{id:'etm',label:'ETM'},{id:'geracao',label:'Geração'},{id:'trackers',label:'Trackers'},{id:'pr',label:'PR Inversores'},{id:'curva',label:'Curva das strings'},{id:'perdas',label:'Perdas'}];
   const views=viewDefs.map(v=>{const on=s.view===v.id; return {label:v.label,id:v.id,style:`padding:8px 15px;border-radius:var(--radius-md);cursor:pointer;font-family:var(--font-heading);font-size:13.5px;font-weight:500;background:${on?'var(--color-accent)':'transparent'};color:${on?'#161826':'var(--color-neutral-300)'};border:1px solid ${on?'var(--color-accent)':'var(--color-divider)'};`};});
@@ -1678,7 +1678,7 @@ function renderCurva(v){
 
 /* ══ Bloco B — subabas de Strings (sem corrente / ocorrências) e Trackers (parados / ocorrências) ══ */
 function _fonte(){ return SKEY[state.source]; }                                    // pv|pg|sunop|axis|solaredge|owen
-const _STR_SUB_FONTES=['pv','pg','owen','sunop','axis','semp','alveslima'];   // semp/alveslima: sem-corrente sim, ocorrências ainda não (o backend responde indisponivel)                           // fontes com detalhe por-string
+const _STR_SUB_FONTES=['pv','pg','owen','sunop','axis','semp','alveslima','2capi'];   // semp/alveslima: sem-corrente sim, ocorrências ainda não (o backend responde indisponivel)                           // fontes com detalhe por-string
 const _TRK_SUB_FONTES=['pv','pg','sunop','axis','owen'];                           // fontes com endpoints de trackers parados/eventos
 // ── loaders (cacheados por fonte / fonte|dia; force ignora o cache) ──
 async function loadStrProblema(force){ const f=_fonte(); if(!force&&RD.strProb[f]!==undefined)return; RD.strProb[f]=null; render();
@@ -1710,7 +1710,7 @@ window.setEvMonth=(ym)=>{ if(!ym)return; const t=_todayISO(), ini=ym+'-01'; if(i
   state.evIni=ini; state.evFim=fim; render(); _evReload(); };
 window.setEvMode=(m)=>{ state.evMode=m; if(m==='mes'){ setEvMonth((state.evIni||_ontemISO()).slice(0,7)); } else render(); };   // toggle Intervalo/Mês — 1 controle por vez
 // ── Bloco C — vista "Curva das strings": escolhe usina → curva de corrente por string de cada inversor (reusa curvaSVG/_abaixoMeta; pv/pg/sunop/axis/owen num fetch só) ──
-const _CURVA_FONTES=['pv','pg','sunop','axis','owen','semp'];
+const _CURVA_FONTES=['pv','pg','sunop','axis','owen','semp','2capi'];
 function _brData(iso){ return iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4); }
 async function loadCurvaView(pid,force){ const f=_fonte(), dia=state.curvaData||_todayISO(), key=f+'|'+pid+'|'+dia;
   if(!force&&RD.curvaView[key]!==undefined) return;

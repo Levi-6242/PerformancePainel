@@ -150,6 +150,20 @@ pela geração ficam só no Gerencial) com as OS já carregadas do Fracttal (`OS
 entrega ETM intradiária do dia atual (dia passado → `sem_historico`) — o drill-down diz isso em vez de esconder.
 Na aba Curvas, de madrugada o card recua UMA vez para ontem quando hoje ainda não tem curva (`_icRecuou`).
 
+## Fonte `2capi`: as três usinas da 2C pela API PV
+
+Desde 11/09/2026 Araputanga (18771898), "Sete Lagoa" (18771901 — singular na API, "Sete Lagoas" no cadastro) e Tupi
+Paulista (18750925) entram pela conta oem@ da API PV como fonte `2capi` ("2C · API PV"): strings ao vivo, ETM
+completa, curva, Diagnóstico v2. É o padrão SEMP/Alves Lima (`PV_FONTES` + bloco da fonte), com três coisas próprias:
+fonte explícita filtra por **id**, não pelo `FULL_OM` (`_pv_plantas_da_fonte` — o FULL_OM é por nome de supervisório
+e "Sete Lagoa" não está lá); `PV_NOME_API_ALIAS` traduz o nome da API para o do cadastro em `nome_usina`; e
+`PV_INV_NOMES` dá o nome do inversor (a conta oem@ não devolve nome e as abas da 2C não têm linha no Equipamentos) —
+de-para fechado **por valor** contra o kWh diário do BD, nunca pela ordem dos ids. No rollup do macro a fonte entra
+**antes** do e-mail (`owen`): em empate de severidade fica quem entrou primeiro, e um estado pior no e-mail continua
+vencendo. **Trackers não vêm pela API** (a PV Plataforma nega com o PLAT_TOKEN do usuário gridco) e a Ipixuna do Pará
+não está na API — os dois seguem pelo e-mail na fonte `owen`. A conta principal responde "Invalid id" para as três:
+qualquer chamada delas tem de ir por `_pv_token_for`. Teste: `tests/test_fonte_2capi.py`.
+
 ## Sol por estado (macro e sino)
 
 **O pôr do sol não é falha.** Medido em 10/09/2026 às 17:52: 89 de 102 usinas "críticas" no `/api/macro` e

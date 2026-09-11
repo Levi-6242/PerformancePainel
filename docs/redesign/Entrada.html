@@ -404,8 +404,8 @@
     document.title = "Tempo real · Grid Co.";
     var grade = document.getElementById("tr-grade"), meta = document.getElementById("tr-meta"), nota = document.getElementById("tr-nota");
     // id da fonte no Monitoramento, para o card abrir ja na fonte certa (?fonte=)
-    var FONTE_ID = { "API PV": "thopen-pv", "Thopen": "thopen-db", "Athon": "athon", "Axis": "axis", "RenoGrid": "renogrid", "2C": "2c", "SEMP": "semp", "Alves Lima": "alveslima" };
-    var FONTE_ROT = { "API PV": "API PV Operation", "Thopen": "Banco de dados", "Athon": "API SunOp", "Axis": "SunOp · PE III / Ponto Belo", "RenoGrid": "API SolarEdge", "2C": "E-mail", "SEMP": "API PV Operation", "Alves Lima": "API PV Operation" };
+    var FONTE_ID = { "API PV": "thopen-pv", "Thopen": "thopen-db", "Athon": "athon", "Axis": "axis", "RenoGrid": "renogrid", "2C": "2c", "SEMP": "semp", "Alves Lima": "alveslima", "2C · API PV": "2capi" };
+    var FONTE_ROT = { "API PV": "API PV Operation", "Thopen": "Banco de dados", "Athon": "API SunOp", "Axis": "SunOp · PE III / Ponto Belo", "RenoGrid": "API SolarEdge", "2C": "E-mail", "SEMP": "API PV Operation", "Alves Lima": "API PV Operation", "2C · API PV": "API PV Operation" };
     function fmt(n) { return (n || 0).toLocaleString("pt-BR"); }
     function hora(iso) { return iso ? String(iso).slice(11, 16) : "—"; }
     // De noite strings e trackers nao contam: a usina esta em zero e o tracker estacionado. O que importa e comunicacao.
@@ -523,7 +523,7 @@
       var tit = document.getElementById("us-titulo"), kick = document.getElementById("us-kicker"), met = document.getElementById("us-meta");
       var res = document.getElementById("us-resumo"), aviso = document.getElementById("us-lista"), nt = document.getElementById("us-nota");
       var listaTroca = document.getElementById("us-lista-troca");
-      // seta no titulo: trocar de cliente/fonte sem voltar ao nivel anterior (os 8 grupos existem sempre)
+      // seta no titulo: trocar de cliente/fonte sem voltar ao nivel anterior (os grupos existem sempre)
       listaTroca.innerHTML = (d.grupos || []).map(function (x) {
         var id = x.fonte_id || FONTE_ID[x.fonte] || "";
         return "<a href='/tempo-real/" + id + "' class='" + (id === fonteSel ? "on" : "") + "' role='option' aria-selected='" + (id === fonteSel) + "'><span><b>" + x.cliente + "</b><span class='f'>" + x.fonte + " · " + (FONTE_ROT[x.fonte] || "") + "</span></span><small>" + (x.sem_leitura ? "sem leitura" : fmt(x.n_usinas) + " usina" + (x.n_usinas === 1 ? "" : "s")) + "</small></a>";

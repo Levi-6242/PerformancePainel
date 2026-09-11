@@ -174,7 +174,9 @@ table.v2t td{padding:7px 8px;border-top:1px solid var(--line);vertical-align:mid
 .v2tog{display:inline-flex;gap:2px;background:var(--raise);border-radius:8px;padding:2px;margin:0 0 8px}.v2tog button{border:0;background:transparent;color:var(--muted);font:600 11px var(--font);padding:5px 10px;border-radius:6px;cursor:pointer}.v2tog button.on{background:var(--brand);color:#16140e}
 .v2exp .g .full{grid-column:1/-1}.v2t.v2h td,.v2t.v2h th{padding:4px 8px;font-size:11.5px}.v2t.v2h tfoot td{border-top:1px solid var(--line-2)}
 /* drill-down do DIA dentro do histórico (11/09): curva do dia em dois gráficos, chips ligam/desligam as séries */
-.v2t.v2h tr.v2hd td{padding:10px 10px 14px!important;background:rgba(0,0,0,.14)!important;text-align:left}.v2hd-g{display:grid;grid-template-columns:1.35fr 1fr;gap:16px}@media (max-width:1100px){.v2hd-g{grid-template-columns:1fr}}
+table.v2t tr.v2hd td{padding:10px 12px 14px!important;background:rgba(0,0,0,.14)!important;text-align:left}
+.v2hd-seg{display:inline-flex;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px}.v2hd-seg button{border:0;font:600 11.5px var(--font);padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)}.v2hd-seg button.on{background:var(--brand);color:#16140e}
+.v2hd-read{margin-top:8px}.v2hd-chips[hidden]{display:none}
 .v2hd-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;font-size:12px;color:var(--muted)}.v2hd-head b{color:var(--txt)}
 .v2chipt{font:600 10.5px var(--font);border:1px solid var(--line-2);background:var(--panel-2);color:var(--txt);padding:2px 8px;border-radius:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;margin:0 4px 6px 0}.v2chipt i{width:9px;height:9px;border-radius:2px;display:inline-block}.v2chipt.off{opacity:.45}.v2chipt.off span{text-decoration:line-through}.v2chipt.na{opacity:.35;cursor:default}
 .v2t.v2h tbody tr.hd td:first-child{text-align:left;white-space:nowrap}
@@ -190,7 +192,6 @@ table.v2t td{padding:7px 8px;border-top:1px solid var(--line);vertical-align:mid
          style="border:1px solid var(--line);border-radius:8px;padding:4px 8px;font:600 11.5px inherit;background:var(--panel-2);color:var(--txt);margin-right:10px">
   <button id="v2Hoje" onclick="v2SetDia('')" title="Voltar para hoje" hidden
           style="border:1px solid var(--line);border-radius:8px;padding:4px 10px;font:600 11.5px inherit;background:var(--panel-2);color:var(--muted);cursor:pointer;margin-right:10px">hoje</button>
-  <div class="live-pill" id="v2Pill"><span class="pulse"></span> AO VIVO</div>
   <div class="upd" id="upd">—</div>
 </div>
 
@@ -201,7 +202,7 @@ table.v2t td{padding:7px 8px;border-top:1px solid var(--line);vertical-align:mid
        antigo, intacto) · Mês (diagnóstico + cascata + OS + mapa de strings + cards de tracker, tudo o que era a 1ª tela). -->
   <div class="v2-tabs"><button class="on" data-t="inv" onclick="v2Tab('inv')">Inversores <small id="v2nInv"></small></button><button data-t="trk" onclick="v2Tab('trk')">Trackers <small id="v2nTrk"></small></button><button data-t="cur" onclick="v2Tab('cur')">Curvas</button><button data-t="mes" onclick="v2Tab('mes')">Mês · gerencial</button></div>
   <div id="v2-inv" class="v2-pane"><div class="card" id="v2InvCard"><div class="v2-bar"><span class="v2-sub" id="v2InvSub">pior primeiro · clique na linha para abrir strings, ocorrências e trackers do inversor · traço = mediana</span><div class="v2-f"><button id="v2fi-todos" class="on" onclick="v2FInv('todos')">todos</button><button id="v2fi-prob" onclick="v2FInv('prob')">só com problema</button></div></div><div id="v2InvBody"><div class="loading">Carregando inversores…</div></div><div class="v2-nota" id="v2InvNota"></div></div></div>
-  <div id="v2-trk" class="v2-pane" hidden><div class="card" id="v2TrkCard"><div class="v2-bar"><span class="v2-sub" id="v2TrkSub">parados e severos · ticket = planilha de Tickets, só ocorrência aberta · Fracttal = código do ativo (de-para)</span><div class="v2-f"><button id="v2ft-prob" class="on" onclick="v2FTrk('prob')">parados e severos</button><button id="v2ft-todos" onclick="v2FTrk('todos')">todos</button><button id="v2ft-fora" onclick="v2FTrk('fora')">fora do alvo</button><button id="v2ft-os" onclick="v2FTrk('os')">com OS / sugestão</button></div></div><div id="v2TrkBody"><div class="loading">Carregando trackers…</div></div><div class="v2-nota">Parado (mês) = book de paradas da plataforma em horas solares · recorrência = dias distintos parado nos últimos 14 (snapshots da ronda) · sugestão = motor de OS sugeridas · perda = gêmeo digital, quando a usina está no piloto. Clique no tracker para ver a curva ângulo × alvo.</div></div></div>
+  <div id="v2-trk" class="v2-pane" hidden><div class="card" id="v2TrkCard"><div class="v2-bar"><span class="v2-sub" id="v2TrkSub">parados e severos · ticket = planilha de Tickets, só ocorrência aberta · Fracttal = código do ativo (de-para)</span><div class="v2-f"><button id="v2ft-prob" class="on" onclick="v2FTrk('prob')">parados e severos</button><button id="v2ft-todos" onclick="v2FTrk('todos')">todos</button><button id="v2ft-fora" onclick="v2FTrk('fora')">fora do alvo</button><button id="v2ft-os" onclick="v2FTrk('os')">com OS / sugestão</button></div></div><div id="v2TrkBody"><div class="loading">Carregando trackers…</div></div><div class="v2-nota">Parado (mês) = book de paradas da plataforma em horas solares · recorrência = dias distintos parado nos últimos 14 (snapshots da ronda) · sugestão = motor de OS sugeridas · perda = gêmeo digital, quando a usina está no piloto. Clique no tracker para abrir aqui a curva ângulo × alvo do dia (a correlação com o inversor vem junto).</div></div></div>
   <div id="v2-cur" class="v2-pane" hidden>
 <!-- CARD ÚNICO de curvas (Levi 22/07): Correlação | Inversor | Strings — Correlação é o padrão.
            Fundiu os dois cards; os ids (chCorr/chInv/curveSub/etc.) foram preservados p/ o JS existente. -->
@@ -1333,24 +1334,28 @@ function drawCurve(t){
 /* sobrepõe a PRODUÇÃO do inversor associado ao tracker (de-para BD_Trackers; sem de-para → pior
    inversor do dia) + mediana dos pares, no eixo direito. Todas as fontes do drill; falhou → só o ângulo. */
 const CORR_FONTE={pv:'pv',pg:'pg',athon:'sunop',axis:'axis','2c':'owen'}[FONTE]||null;
-async function overlayCorrelacao(t){
+async function overlayCorrelacao(t, ch=null, els=null){
+  // 11/09/2026: serve também ao drill-down do tracker (outro canvas e outros elementos de texto); sem argumentos, é o card Curvas
+  ch=ch||corr; els=els||{title:'curveTitle',sub:'curveSub',read:'curveRead'};
   let d; try{ const r=await fetch('/api/painel/correlacao/'+CORR_FONTE+'/'+ID+'?tracker='+encodeURIComponent(t.id)); if(!r.ok)return; d=await r.json(); }catch(e){ return; }
-  if(!d||!d.curva||!corr||lastCurveTrk!==t) return;   // trocou de tracker enquanto carregava
+  if(!d||!d.curva||!ch) return;
+  if(ch===corr&&lastCurveTrk!==t) return;                       // trocou de tracker enquanto carregava
+  if(ch!==corr&&!document.getElementById(els.sub)) return;      // a linha do drill-down fechou
   const toMin=s=>{const m=String(s).match(/(\d{1,2}):(\d{2})/);return m?(+m[1]*60+ +m[2]):null;};
   const base=toMin(d.curva.x[0]), passo=d.curva.x.length>1?(toMin(d.curva.x[1])-base):10;
   const alinhar=ys=>t.x.map(lbl=>{const m=toMin(fmtHora(lbl));if(m==null)return null;
     const c=Math.round((m-base)/passo);return (c>=0&&c<ys.length)?ys[c]:null;});
   const yInv=alinhar(d.curva.y), yPar=alinhar(d.pares.y||[]);
   const un=d.unidade||'A/string';
-  corr.data.datasets.push({type:'line',label:d.inversor+' ('+un+')',data:yInv,borderColor:cssv('--red'),borderWidth:2,pointRadius:0,tension:.25,spanGaps:true,yAxisID:'y2'});
-  if(yPar.some(v=>v!=null)) corr.data.datasets.push({type:'line',label:'mediana dos pares ('+un+')',data:yPar,borderColor:cssv('--muted'),borderDash:[5,4],borderWidth:1.4,pointRadius:0,tension:.25,spanGaps:true,yAxisID:'y2'});
-  corr.options.scales.y2.display=true;
-  corr.options.scales.y2.title.text=un;
-  corr.options.plugins.legend={display:true,labels:{color:cssv('--muted'),font:{size:9},boxWidth:14}};
-  corr.update();
-  document.getElementById('curveTitle').textContent='Correlação — '+t.id+' × '+d.inversor;
+  ch.data.datasets.push({type:'line',label:d.inversor+' ('+un+')',data:yInv,borderColor:cssv('--red'),borderWidth:2,pointRadius:0,tension:.25,spanGaps:true,yAxisID:'y2'});
+  if(yPar.some(v=>v!=null)) ch.data.datasets.push({type:'line',label:'mediana dos pares ('+un+')',data:yPar,borderColor:cssv('--muted'),borderDash:[5,4],borderWidth:1.4,pointRadius:0,tension:.25,spanGaps:true,yAxisID:'y2'});
+  ch.options.scales.y2.display=true;
+  ch.options.scales.y2.title.text=un;
+  ch.options.plugins.legend={display:true,labels:{color:cssv('--muted'),font:{size:9},boxWidth:14}};
+  ch.update();
+  const _tt=els.title&&document.getElementById(els.title); if(_tt) _tt.textContent='Correlação — '+t.id+' × '+d.inversor;
   const met=d.metodo==='bd_trackers'?'de-para da aba BD_Trackers':'sem de-para na BD_Trackers — mostrando o inversor de pior performance do dia';
-  document.getElementById('curveSub').textContent='Ângulo do tracker + produção do '+d.inversor+' em '+un+' ('+met+')';
+  const _ss=document.getElementById(els.sub); if(_ss) _ss.textContent='Ângulo do tracker + produção do '+d.inversor+' em '+un+' ('+met+')';
   // leitura combinada: déficit médio do inversor vs pares (só onde ambos têm dado e os pares produzem)
   const flat=_flatTail(t); const razoes=[];
   for(let i=0;i<yInv.length;i++){ if(yInv[i]!=null&&yPar[i]!=null&&yPar[i]>0.5) razoes.push(yInv[i]/yPar[i]); }
@@ -1360,7 +1365,7 @@ async function overlayCorrelacao(t){
   else if(flat) msg='<b>Leitura:</b> platô no tracker, mas o '+d.inversor+' acompanha os pares — sem impacto visível na produção (por ora).';
   else if(ratio!=null) msg='<b>Leitura:</b> tracker segue o sol e o '+d.inversor+' acompanha os pares ('+Math.round(ratio*100)+'% da mediana) — sem correlação de problema.';
   else msg='<b>Leitura:</b> tracker segue o sol; sem dado suficiente dos pares para comparar a produção.';
-  document.getElementById('curveRead').innerHTML=msg;
+  const _rr=document.getElementById(els.read); if(_rr) _rr.innerHTML=msg;
 }
 
 
@@ -1369,7 +1374,7 @@ async function overlayCorrelacao(t){
    curvas (agora nas abas Mês e Curvas). Aqui entram: os 5 KPIs novos (renderBelow redefinida), a tabela de inversores e
    a de trackers, alimentadas pelo que o antigo já buscou + PR de hoje, gêmeo, de-para, book de paradas, recorrência,
    OS sugeridas, notificações e a energia do mês por inversor. Cada busca tem prazo; quem falha vira '—'. */
-const V2={tab:'inv',invModo:'energia',fInv:'todos',fTrk:'prob',dia:null,edia:null,sel:null,histAberto:null,corrVis:{inv:true,poa:true,ghi:true,poari:true,temp:true},pr:null,gid:null,gemeo:null,gemeoMes:null,depara:null,hist:null,rec:null,sug:null,notif:null,emes:null,osPerf:null,falhas:{}};
+const V2={tab:'inv',invModo:'energia',fInv:'todos',fTrk:'prob',dia:null,edia:null,sel:null,histAberto:null,hdVista:'str',trkAberto:null,corrVis:{inv:true,poa:true,ghi:true,poari:true,temp:true},pr:null,gid:null,gemeo:null,gemeoMes:null,depara:null,hist:null,rec:null,sug:null,notif:null,emes:null,osPerf:null,falhas:{}};
 const V2_SK={pv:'pv',pg:'pg',athon:'sunop',axis:'axis','2c':'owen'}[FONTE]||FONTE;
 const V2_PR={pv:'/api/pv/pr/'+ID,pg:'/api/pg/pr/'+ID,athon:'/api/sunop/pr/'+ID,axis:'/api/axis/pr/'+ID,solaredge:'/api/solaredge/pr/'+ID}[FONTE]||null;
 const V2_GF={pg:'pg',athon:'sunop',axis:'axis'}[FONTE]||null;
@@ -1395,8 +1400,6 @@ window.v2SetDia=v=>{
   V2.dia=novo; V2.edia=null;
   const inp=document.getElementById('v2Dia'); if(inp) inp.value=novo;
   const bt=document.getElementById('v2Hoje'); if(bt) bt.hidden=v2DiaHoje();
-  const pill=document.getElementById('v2Pill');
-  if(pill) pill.innerHTML=v2DiaHoje()?'<span class="pulse"></span> AO VIVO':('<span class="pulse" style="background:var(--amber);animation:none"></span> '+v2DiaBR());
   // curvas: o card já tinha data própria — passa a seguir o cabeçalho, para não haver dois controles discordando
   const ic=document.getElementById('icData'); if(ic&&ic.value!==novo){ ic.value=novo; try{ icSetData(); }catch(e){} }
   v2CarregaDia();
@@ -1517,7 +1520,7 @@ function v2TabInv(){
       <td class="v2n">${mesK==null?'<span style="color:var(--faint)">—</span>':nf(mesK)}</td><td class="v2n" style="color:${mesR==null?'var(--faint)':mesR<0.9?'var(--red)':'var(--muted)'}">${mesR==null?'—':nf(mesR*100)+'%'}</td>
       `;
     const tr=`<tr class="l ${V2.sel===i.nome?'sel':''}" onclick="v2Sel('${k.replace(/'/g,'')}')"><td><b>${k}</b>${(trkInv&&Object.values(trkInv).some(v=>v2nrm(v)===v2nrm(i.nome)))?`<div style="font-size:10.5px;color:var(--faint)">${Object.values(trkInv).filter(v=>v2nrm(v)===v2nrm(i.nome)).length} trackers</div>`:''}</td>
-      <td>${_hj?`<span class="v2chip ${st}">${rot}</span><div style="font-family:var(--mono,monospace);font-size:11px;color:var(--muted);margin-top:3px">${temKw?nf(i.active_power)+' kW':''}${(i.temp!=null&&i.temp>0)?(temKw?' · ':'')+nf(i.temp)+'°C':''}</div>`:_soVivo}</td>
+      <td>${_hj?`<span class="v2chip ${st}">${rot}</span>${temKw?`<div style="font-family:var(--mono,monospace);font-size:11px;color:var(--muted);margin-top:3px">${nf(i.active_power)} kW</div>`:''}`:_soVivo}</td>
       ${mid}<td>${_hj?strTxt:_soVivo}</td><td>${oc}</td><td class="v2n" style="color:var(--faint)">${v2hhmm(i.ultima_leitura)}</td></tr>`;
     if(V2.sel!==i.nome) return tr;
     try{
@@ -1594,12 +1597,13 @@ function _dispTd(dp){
   const tit=(dp.det.length?dp.det:['sem OS de parada neste dia']).concat(dp.outras).join('\n');
   return `<td class="v2n" style="color:${c}" title="${v2esc(tit)}">${nf(dp.pct)}%${dp.det.length?` <small style="color:var(--faint)">${_hFmt(dp.h)}</small>`:''}</td>`;
 }
-/* Drill-down do DIA: dois gráficos na mesma grade 06:00–18:00 (10 min) da aba Curvas. A) correlação — potência do inversor
-   (ou a mediana das strings, quando a fonte não dá Pac) × POA / GHI / POA-RI da ETM da fonte × temperatura do inversor, cada
-   série com o próprio eixo e um chip para ligar/desligar; B) as strings do inversor, outliers em âmbar. Mesmos endpoints da
-   aba Curvas (cache por dia — e por inversor no SunOp) e da ETM; o que a fonte NÃO tem naquele dia é dito, não escondido. */
-const _hdCache={curva:{},etm:{}}, _hdCharts={corr:null,str:null};
+/* Drill-down do DIA (11/09/2026; revisto na manhã): UM gráfico no estilo do card Curvas, com o seletor Strings | Inversor |
+   Correlação — Levi: "são dois gráficos, eu só quero um gráfico nesse mesmo estilo". Mesma grade 06:00–18:00 (10 min) e os
+   mesmos endpoints da aba Curvas e da ETM; o que a fonte NÃO tem naquele dia é dito na leitura, não escondido. As promessas
+   ficam em cache porque o v2Render redesenha várias vezes enquanto a fonte responde e não pode disparar o fetch de novo. */
+const _hdCache={curva:{},etm:{},trk:{}}, _hdCharts={ch:null,trk:null};
 const _HD_GRID=(()=>{ const L=[]; for(let m=360;m<=1080;m+=10) L.push(String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0')); return L; })();
+const _HD_VISTAS=[['str','Strings'],['inv','Inversor'],['corr','Correlação']];
 function _hdId(k,dia){ return 'hd-'+v2nrm(k).replace(/[^a-z0-9]/g,'')+'-'+dia.replace(/-/g,''); }
 function _hdBR(dia){ return dia.slice(8,10)+'/'+dia.slice(5,7)+'/'+dia.slice(0,4); }
 function _hdCel(h){ const m=/(\d+):(\d+)/.exec(String(h||'')); if(!m) return -1; const c=Math.round(((+m[1])*60+(+m[2])-360)/10); return (c>=0&&c<_HD_GRID.length)?c:-1; }
@@ -1610,20 +1614,23 @@ function _hdEtmUrl(dia){
   if(FONTE==='pg') return `/api/pg/etm/chart?plant_id=${ID}&date=${dia}`;
   if(FONTE==='athon') return `/api/sunop/etm/chart?plant=${encodeURIComponent(PLANT_ID)}&date=${dia}`;
   if(FONTE==='axis') return `/api/axis/etm/chart?plant=${encodeURIComponent(PLANT_ID)}&date=${dia}`;
-  if(FONTE==='pv'||FONTE==='semp'||FONTE==='alveslima') return `/api/etm/chart?plant_id=${ID}&date=${dia}`;   // só o dia atual tem ETM intradiária na API PV
+  if(FONTE==='pv'||FONTE==='semp'||FONTE==='alveslima'||FONTE==='2capi') return `/api/etm/chart?plant_id=${ID}&date=${dia}`;   // só o dia atual tem ETM intradiária na API PV
   return null;
 }
 function _histDrillHtml(k,dia){
-  const id=_hdId(k,dia), kq=v2esc(k).replace(/'/g,''), dd=dia.slice(8,10)+'/'+dia.slice(5,7);
-  return `<div class="v2hd-head"><b>${v2esc(k)} · ${dd}</b><span id="${id}-sub">carregando a curva de ${dd}…</span><button class="v2act" style="margin-left:auto" onclick="v2HistCurva('${kq}','${dia}',event)">abrir na aba Curvas</button></div>
-    <div class="v2hd-g"><div><h4>Correlação · inversor × irradiância × temperatura</h4><div id="${id}-chips"></div><div class="cwrap" style="height:220px"><canvas id="${id}-corr"></canvas></div><div class="v2-nota" id="${id}-nota"></div></div>
-    <div><h4>Strings do inversor</h4><div class="cwrap" style="height:220px;margin-top:27px"><canvas id="${id}-str"></canvas></div><div class="v2-nota" id="${id}-snota"></div></div></div>`;
+  const id=_hdId(k,dia), kq=v2esc(k).replace(/'/g,''), dd=dia.slice(8,10)+'/'+dia.slice(5,7), v=V2.hdVista||'str';
+  return `<div class="v2hd-head"><b>Curva do inversor — ${v2esc(k)} · ${dd}</b><span id="${id}-sub">carregando a curva de ${dd}…</span>
+      <span class="v2hd-seg" style="margin-left:auto">${_HD_VISTAS.map(([vv,rot])=>`<button class="${v===vv?'on':''}" onclick="v2HdVista('${vv}','${kq}','${dia}',event)">${rot}</button>`).join('')}</span>
+      <button class="v2act" onclick="v2HistCurva('${kq}','${dia}',event)">abrir na aba Curvas</button></div>
+    <div id="${id}-chips" class="v2hd-chips" ${v==='corr'?'':'hidden'}></div>
+    <div class="cwrap" style="height:240px"><canvas id="${id}-ch"></canvas></div>
+    <div class="read v2hd-read" id="${id}-read" style="display:none"></div>`;
 }
+window.v2HdVista=(v,k,dia,ev)=>{ if(ev)ev.stopPropagation(); V2.hdVista=v; v2Render(); };   // redesenha com as promessas já em cache
 async function v2HistDrawDia(k,dia){
   const id=_hdId(k,dia), sub=document.getElementById(id+'-sub'); if(!sub) return;   // a linha já fechou
   if(!CURVA_SCOPE){ sub.textContent=(FONTE==='2c')?'a 2C entrega leitura pontual das strings (sem série ao longo do dia)':'curva por string indisponível nesta fonte'; return; }
   const br=_hdBR(dia), ck=CURVA_SCOPE==='inv'?dia+'|'+k:dia;
-  // promessas em cache: o v2Render redesenha várias vezes enquanto a fonte responde e NÃO pode disparar o fetch de novo
   if(!_hdCache.curva[ck]) _hdCache.curva[ck]=(async()=>{ const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
     try{ return await fetch(CURVA_EP[FONTE](encodeURIComponent(br),(window.IC_INVID&&IC_INVID[k])||k),{signal:ctrl.signal}).then(r=>r.json()); }
     catch(e){ return {_erro:e.name==='AbortError'?'a fonte demorou demais (SunOp lento) — feche e abra o dia de novo':String(e)}; }
@@ -1634,61 +1641,110 @@ async function v2HistDrawDia(k,dia){
   try{ _hdDesenha(k,dia,cur,etm); }catch(e){ console.error('[v2] drill do dia',e); const s2=document.getElementById(id+'-sub'); if(s2) s2.textContent='falha ao desenhar a curva — ver console'; }
 }
 function _hdDesenha(k,dia,cur,etm){
-  const id=_hdId(k,dia), sub=document.getElementById(id+'-sub'), nota=document.getElementById(id+'-nota'), snota=document.getElementById(id+'-snota'), chips=document.getElementById(id+'-chips');
-  const cC=document.getElementById(id+'-corr'), cS=document.getElementById(id+'-str');
-  if(!cC||!cS||cC.dataset.ok) return; cC.dataset.ok='1';                 // redesenhou no meio, ou este canvas já foi pintado
-  const tk=cssv('--muted'), grid=document.body.classList.contains('dark')?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';
-  const inv=((cur&&cur.inversores)||[]).find(i=>i.nome===k||String(i.nome).endsWith(k))||null, series=inv?_seriesOf(inv):[];
+  const id=_hdId(k,dia), sub=document.getElementById(id+'-sub'), read=document.getElementById(id+'-read'), chips=document.getElementById(id+'-chips');
+  const cv=document.getElementById(id+'-ch'); if(!cv||cv.dataset.ok) return; cv.dataset.ok='1';   // redesenhou no meio, ou já pintado
+  const vista=V2.hdVista||'str', tk=cssv('--muted'), grid=document.body.classList.contains('dark')?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';
+  const allInvs=(cur&&cur.inversores)||[], inv=allInvs.find(i=>i.nome===k||String(i.nome).endsWith(k))||null, series=inv?_seriesOf(inv):[];
   const uni=(cur&&cur.unidade==='potencia')?'W/string':'A/string';   // API PV: hoje = corrente (day_inverter); dia passado = potência (trygenerate)
-  const avisos=[], tem=a=>!!(a&&a.some(v=>v!=null));
-  if(cur&&cur._erro) avisos.push('curva: '+cur._erro);
-  else if(!inv||!series.length) avisos.push((cur&&cur.msg)||'a fonte não devolveu a curva das strings deste inversor neste dia');
-  // A) correlação
+  const tem=a=>!!(a&&a.some(v=>v!=null)), setRead=h=>{ if(read){ read.innerHTML=h||''; read.style.display=h?'':'none'; } };
+  if(_hdCharts.ch){ try{ _hdCharts.ch.destroy(); }catch(e){} _hdCharts.ch=null; }
+  if(chips) chips.hidden=(vista!=='corr');
+  if(cur&&cur._erro){ sub.textContent='curva: '+cur._erro; setRead(''); return; }
+  if(!inv||!series.length){ sub.textContent=(cur&&cur.msg)||'a fonte não devolveu a curva das strings deste inversor neste dia'; setRead(''); return; }
   const L=_HD_GRID, gS=series.map(([,s])=>_hdGrade(s.x,s.y)), med=L.map((_,c)=>_median(gS.map(g=>g[c])));
-  const pac=(inv&&inv.pac&&inv.pac.x)?_hdGrade(inv.pac.x,inv.pac.y):null, temp=(inv&&inv.temp&&inv.temp.x)?_hdGrade(inv.temp.x,inv.temp.y):null;
-  const eOk=!!(etm&&!etm._erro&&(etm.labels||[]).length);
-  const poa=eOk?_hdGrade(etm.labels,etm.poa):null, ghi=eOk?_hdGrade(etm.labels,etm.ghi):null, pri=eOk?_hdGrade(etm.labels,etm.poari):null;
-  const DS=[
-    {key:'inv',label:tem(pac)?'potência do inversor (kW)':'mediana das strings ('+uni+')',data:tem(pac)?pac:(tem(med)?med:null),color:cssv('--amber'),axis:'y',width:2.4},
-    {key:'poa',label:'POA (W/m²)',data:poa,color:cssv('--blue')||'#5bc8e8',axis:'y1',width:1.6},
-    {key:'ghi',label:'GHI (W/m²)',data:ghi,color:'#8ab4ff',axis:'y1',width:1.2,dash:[5,4]},
-    {key:'poari',label:'POA-RI (W/m²)',data:pri,color:cssv('--faint'),axis:'y1',width:1.2,dash:[2,3]},
-    {key:'temp',label:'temperatura do inversor (°C)',data:temp,color:cssv('--red'),axis:'y2',width:1.6}];
-  const vis=V2.corrVis||(V2.corrVis={inv:true,poa:true,ghi:true,poari:true,temp:true});
-  if(chips) chips.innerHTML=DS.map(d=>{ const na=!tem(d.data);
-    return `<button class="v2chipt ${na?'na':(vis[d.key]?'':'off')}" ${na?'disabled title="sem esta série neste dia"':`title="ligar/desligar" onclick="v2CorrTog('${d.key}',this)"`}><i style="background:${d.color}"></i><span>${d.label}</span></button>`; }).join('');
-  const temTemp=tem(temp), temIrr=tem(poa)||tem(ghi)||tem(pri);
-  if(_hdCharts.corr){ try{ _hdCharts.corr.destroy(); }catch(e){} _hdCharts.corr=null; }
-  if(DS.some(d=>tem(d.data))){
-    _hdCharts.corr=new Chart(cC,{type:'line',data:{labels:L,datasets:DS.filter(d=>tem(d.data)).map(d=>({label:d.label,data:d.data,borderColor:d.color,borderWidth:d.width,borderDash:d.dash||[],pointRadius:0,tension:.25,spanGaps:true,yAxisID:d.axis,hidden:!vis[d.key],_key:d.key}))},
+  const medE=inv.mediana||_median((inv.strings||[]).map(s=>s.energia));
+  if(vista==='str'){
+    // todas as strings do inversor; outlier = energia do dia < 85% da mediana das strings (mesma régua da aba Curvas)
+    const subSet=new Set((inv.strings||[]).filter(s=>s.energia!=null&&medE&&s.energia<medE*0.85).map(s=>s.nome));
+    const ds=series.map(([nome],i)=>{ const bad=subSet.has(nome); return {label:nome,data:gS[i],borderColor:bad?cssv('--amber'):'rgba(122,163,0,.35)',borderWidth:bad?2.2:1,pointRadius:0,tension:.25,spanGaps:true}; });
+    ds.push({label:'mediana do inversor',data:med,borderColor:cssv('--muted'),borderDash:[6,4],borderWidth:1.6,pointRadius:0,tension:.25,spanGaps:true});
+    const o=_icOpt(tk,grid,false); o.scales.y.title.text=uni;
+    _hdCharts.ch=new Chart(cv,{type:'line',data:{labels:L,datasets:ds},options:o});
+    sub.textContent=`corrente de cada string do inversor em ${_hdBR(dia)} · destacadas as que ficaram abaixo da mediana (outliers) · ${uni}`;
+    let pj=null; try{ pj=_strPiorJanela(inv); }catch(e){}
+    setRead(`<b>Leitura:</b> ${series.length} string${series.length===1?'':'s'} · <b>${subSet.size}</b> mais de 15% abaixo da mediana das strings deste inversor (em âmbar) · tracejada = mediana do inversor.${(pj&&pj.jan.length)?' '+_strJanelaTexto(pj,false):''}`);
+  } else if(vista==='inv'){
+    // mediana das strings do inversor × mediana REAL das strings da usina (pv/pg trazem a usina inteira; athon/axis mandam a
+    // mediana da usina na grade) — sem nenhuma das duas, a referência é o nível de energia mediano da usina escalado
+    let medUsi=null, real=false;
+    if(allInvs.length>1){ const gAll=[]; allInvs.forEach(iv=>_seriesOf(iv).forEach(([,s2])=>gAll.push(_hdGrade(s2.x,s2.y)))); medUsi=L.map((_,c)=>_median(gAll.map(g=>g[c]))); real=true; }
+    else if(cur.mediana_usina_curva&&cur.mediana_usina_curva.x){ medUsi=_hdGrade(cur.mediana_usina_curva.x,cur.mediana_usina_curva.y); real=true; }
+    else { const usiE=cur.mediana_usina||inv.mediana_usina||null, kf=(usiE&&medE&&medE>0)?(usiE/medE):1; medUsi=med.map(v=>v!=null?v*kf:null); }
+    const o=_icOpt(tk,grid,true); o.scales.y.title.text=uni;
+    _hdCharts.ch=new Chart(cv,{type:'line',data:{labels:L,datasets:[
+      {label:'mediana das strings da usina',data:medUsi,borderColor:cssv('--faint'),borderDash:[5,4],borderWidth:1.5,pointRadius:0,tension:.2,spanGaps:true},
+      {label:'mediana das strings deste inversor',data:med,borderColor:cssv('--amber'),borderWidth:2.6,pointRadius:0,tension:.2,spanGaps:true}]},options:o});
+    let usiE=cur.mediana_usina; if(usiE==null&&allInvs.length>1){ const allE=[]; allInvs.forEach(iv=>(iv.strings||[]).forEach(s2=>{ if(s2.energia!=null) allE.push(s2.energia); })); usiE=_median(allE); }
+    const r=(medE&&usiE&&usiE>0)?medE/usiE:null;
+    sub.textContent=real?`mediana das strings do inversor (laranja) vs mediana REAL das strings da usina por instante (tracejada) · ${_hdBR(dia)}`:`mediana das strings do inversor (laranja) vs nível de energia mediano da usina escalado (tracejada, referência aproximada) · ${_hdBR(dia)}`;
+    setRead((r!=null&&r<0.95)?`<b>Leitura:</b> este inversor rendeu <b>${Math.round((1-r)*100)}% abaixo</b> da mediana da usina no dia (em energia acumulada) — a distância entre a linha laranja e a tracejada mostra <b>quando</b> ele ficou para trás.`:(r!=null?'<b>Leitura:</b> o inversor acompanha a mediana da usina (dentro do fluxo dos pares).':'<b>Leitura:</b> sem referência da usina neste dia para comparar.'));
+  } else {
+    // correlação: potência do inversor (Pac, API PV hoje) ou mediana das strings × POA/GHI/POA-RI da ETM × temperatura do inversor
+    const pac=(inv.pac&&inv.pac.x)?_hdGrade(inv.pac.x,inv.pac.y):null, temp=(inv.temp&&inv.temp.x)?_hdGrade(inv.temp.x,inv.temp.y):null;
+    const eOk=!!(etm&&!etm._erro&&(etm.labels||[]).length);
+    const poa=eOk?_hdGrade(etm.labels,etm.poa):null, ghi=eOk?_hdGrade(etm.labels,etm.ghi):null, pri=eOk?_hdGrade(etm.labels,etm.poari):null;
+    const DS=[
+      {key:'inv',label:tem(pac)?'potência do inversor (kW)':'mediana das strings ('+uni+')',data:tem(pac)?pac:(tem(med)?med:null),color:cssv('--amber'),axis:'y',width:2.4},
+      {key:'poa',label:'POA (W/m²)',data:poa,color:cssv('--blue')||'#5bc8e8',axis:'y1',width:1.6},
+      {key:'ghi',label:'GHI (W/m²)',data:ghi,color:'#8ab4ff',axis:'y1',width:1.2,dash:[5,4]},
+      {key:'poari',label:'POA-RI (W/m²)',data:pri,color:cssv('--faint'),axis:'y1',width:1.2,dash:[2,3]},
+      {key:'temp',label:'temperatura do inversor (°C)',data:temp,color:cssv('--red'),axis:'y2',width:1.6}];
+    const vis=V2.corrVis||(V2.corrVis={inv:true,poa:true,ghi:true,poari:true,temp:true});
+    if(chips) chips.innerHTML=DS.map(d=>{ const na=!tem(d.data);
+      return `<button class="v2chipt ${na?'na':(vis[d.key]?'':'off')}" ${na?'disabled title="sem esta série neste dia"':`title="ligar/desligar" onclick="v2CorrTog('${d.key}',this)"`}><i style="background:${d.color}"></i><span>${d.label}</span></button>`; }).join('');
+    const temTemp=tem(temp), temIrr=tem(poa)||tem(ghi)||tem(pri);
+    _hdCharts.ch=new Chart(cv,{type:'line',data:{labels:L,datasets:DS.filter(d=>tem(d.data)).map(d=>({label:d.label,data:d.data,borderColor:d.color,borderWidth:d.width,borderDash:d.dash||[],pointRadius:0,tension:.25,spanGaps:true,yAxisID:d.axis,hidden:!vis[d.key],_key:d.key}))},
       options:{responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},
         plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.y==null?'—':nf(c.parsed.y,c.dataset.yAxisID==='y1'?0:c.dataset.yAxisID==='y2'?1:2)}`}}},
         scales:{x:{grid:{display:false},ticks:{color:tk,font:{size:9},maxTicksLimit:9}},
           y:{position:'left',grid:{color:grid},ticks:{color:tk,font:{size:9}},beginAtZero:true,title:{display:true,text:tem(pac)?'kW':uni,color:tk,font:{size:9}}},
           y1:{position:'right',display:temIrr,grid:{drawOnChartArea:false},ticks:{color:tk,font:{size:9}},beginAtZero:true,title:{display:true,text:'W/m²',color:tk,font:{size:9}}},
           y2:{position:'right',display:temTemp,grid:{drawOnChartArea:false},ticks:{color:tk,font:{size:9}},title:{display:true,text:'°C',color:tk,font:{size:9}}}}}});
+    const hoje=dia===v2HojeISO(), apipv=(FONTE==='pv'||FONTE==='semp'||FONTE==='alveslima'||FONTE==='2capi'), avisos=[];
+    if(!temIrr) avisos.push((etm&&etm._erro)?'irradiância: '+etm._erro:(etm&&etm.sem_historico)?'irradiância: a API PV só entrega a ETM intradiária do dia atual — dia passado fica sem POA/GHI aqui':_hdEtmUrl(dia)?'irradiância: sem leitura da ETM neste dia':'irradiância: sem ETM intradiária nesta fonte');
+    if(!temTemp) avisos.push(apipv?(hoje?'temperatura: o inversor não informou Temp hoje':'temperatura: a API PV só traz a temperatura do inversor no dia atual'):'temperatura: sem série de temperatura do inversor nesta fonte');
+    sub.textContent=`${tem(pac)?'potência do inversor':'mediana das strings'}${temIrr?' × irradiância':''}${temTemp?' × temperatura':''} · ${_hdBR(dia)} · clique nos chips para ligar/desligar as séries`;
+    setRead(avisos.length?'<b>Leitura:</b> '+avisos.join(' · ')+'.':'');
   }
-  // B) strings do inversor: outlier = energia do dia < 85% da mediana das strings (mesma régua da aba Curvas)
-  if(_hdCharts.str){ try{ _hdCharts.str.destroy(); }catch(e){} _hdCharts.str=null; }
-  if(series.length){
-    const medE=inv.mediana||_median((inv.strings||[]).map(s=>s.energia));
-    const subSet=new Set((inv.strings||[]).filter(s=>s.energia!=null&&medE&&s.energia<medE*0.85).map(s=>s.nome));
-    const ds=series.map(([nome],i)=>{ const bad=subSet.has(nome); return {label:nome,data:gS[i],borderColor:bad?cssv('--amber'):'rgba(122,163,0,.35)',borderWidth:bad?2:1,pointRadius:0,tension:.25,spanGaps:true}; });
-    ds.push({label:'mediana do inversor',data:med,borderColor:cssv('--muted'),borderDash:[6,4],borderWidth:1.6,pointRadius:0,tension:.25,spanGaps:true});
-    const o=_icOpt(tk,grid,false); o.scales.y.title.text=uni;
-    _hdCharts.str=new Chart(cS,{type:'line',data:{labels:L,datasets:ds},options:o});
-    if(snota) snota.textContent=`${series.length} string${series.length===1?'':'s'} · ${subSet.size} abaixo de 85% da mediana (âmbar) · tracejada = mediana do inversor · ${uni}`;
-  } else if(snota) snota.textContent='sem curva das strings neste dia';
-  // o que a fonte NÃO tem neste dia, dito na cara
-  const hoje=dia===v2HojeISO(), apipv=(FONTE==='pv'||FONTE==='semp'||FONTE==='alveslima');
-  if(!temIrr) avisos.push((etm&&etm._erro)?'irradiância: '+etm._erro:(etm&&etm.sem_historico)?'irradiância: a API PV só entrega a ETM intradiária do dia atual — dia passado fica sem POA/GHI aqui':_hdEtmUrl(dia)?'irradiância: sem leitura da ETM neste dia':'irradiância: sem ETM intradiária nesta fonte');
-  if(!temTemp) avisos.push(apipv?(hoje?'temperatura: o inversor não informou Temp hoje':'temperatura: a API PV só traz a temperatura do inversor no dia atual'):'temperatura: sem série de temperatura do inversor nesta fonte');
-  if(nota) nota.textContent=avisos.join(' · ');
-  if(sub) sub.textContent=`curva de ${_hdBR(dia)} · ${tem(pac)?'potência do inversor':'mediana das strings'}${temIrr?' × irradiância':''}${temTemp?' × temperatura':''} · clique nos chips para ligar/desligar as séries`;
 }
 window.v2CorrTog=(key,btn)=>{ const vis=V2.corrVis||(V2.corrVis={}); vis[key]=!vis[key];
-  const ch=_hdCharts.corr; if(ch){ ch.data.datasets.forEach((d,i)=>{ if(d._key===key) ch.setDatasetVisibility(i,!!vis[key]); }); ch.update(); }
+  const ch=_hdCharts.ch; if(ch){ ch.data.datasets.forEach((d,i)=>{ if(d._key===key) ch.setDatasetVisibility(i,!!vis[key]); }); ch.update(); }
   if(btn) btn.classList.toggle('off',!vis[key]); };
+/* Drill-down do TRACKER (Levi, 11/09): a linha da aba Trackers abre aqui a curva ângulo × alvo do dia, com a correlação com o
+   inversor associado — o mesmo motor da aba Curvas (_chartURL + overlayCorrelacao), só que noutro canvas. */
+function _trkId(id){ return 'trk-'+String(id).replace(/[^A-Za-z0-9]/g,''); }
+function _trkDrillHtml(t){
+  const tid=_trkId(t.id), tq=v2esc(String(t.id)).replace(/'/g,'');
+  return `<div class="v2hd-head"><b>Curva do tracker — ${v2esc(t.id)} · ${v2DiaBR()}</b><span id="${tid}-sub">carregando a curva…</span>
+      <button class="v2act" style="margin-left:auto" onclick="v2Trk('${tq}',event)">abrir na aba Curvas</button></div>
+    <div class="cwrap" style="height:240px"><canvas id="${tid}-ch"></canvas></div>
+    <div class="read v2hd-read" id="${tid}-read">A curva mostra o ângulo real do tracker ao longo do dia — um platô = travado.</div>`;
+}
+window.v2TrkToggle=(id,ev)=>{ if(ev)ev.stopPropagation(); V2.trkAberto=(V2.trkAberto===String(id))?null:String(id); v2Render(); };
+async function v2TrkDrawDia(id){
+  const tid=_trkId(id), sub=document.getElementById(tid+'-sub'); if(!sub) return;
+  if(!CFG.chart){ sub.textContent='sem curva de tracker nesta fonte'; return; }
+  const dia=v2DiaSel();
+  if(!_hdCache.trk[dia]) _hdCache.trk[dia]=fetch(_chartURL()).then(r=>r.json()).catch(e=>({_erro:String(e)}));
+  const c=await _hdCache.trk[dia];
+  const cv=document.getElementById(tid+'-ch'); if(!cv||cv.dataset.ok) return; cv.dataset.ok='1';
+  const ts=(c&&c.trackers)||[], t=ts.find(x=>String(x.id)===String(id))||ts.find(x=>String(x.id).includes(String(id)));
+  if(!t){ sub.textContent=(c&&c._erro)?'falha ao carregar a curva: '+c._erro:'sem curva para '+id+' em '+dia+' (a fonte não retornou este tracker no dia)'; return; }
+  _trkDesenha(cv,t,{title:null,sub:tid+'-sub',read:tid+'-read'});
+}
+function _trkDesenha(cv,t,els){
+  if(_hdCharts.trk){ try{ _hdCharts.trk.destroy(); }catch(e){} _hdCharts.trk=null; }
+  const tk=cssv('--muted'),grid=document.body.classList.contains('dark')?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';
+  const ch=new Chart(cv,{data:{labels:t.x.map(fmtHora),datasets:[{type:'line',label:'ângulo (°)',data:t.y,borderColor:cssv('--amber'),backgroundColor:'rgba(240,181,61,.10)',borderWidth:2.2,pointRadius:0,tension:.25,fill:true}]},
+    options:{responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},plugins:{legend:{display:false}},
+      scales:{x:{grid:{display:false},ticks:{color:tk,font:{size:9},maxTicksLimit:8}},y:{min:-60,max:60,grid:{color:grid},ticks:{color:tk,font:{size:9},stepSize:20},title:{display:true,text:'ângulo (°)',color:tk,font:{size:9}}},
+        y2:{position:'right',display:false,grid:{drawOnChartArea:false},ticks:{color:tk,font:{size:9}},title:{display:true,text:'A/string',color:tk,font:{size:9}}}}}});
+  _hdCharts.trk=ch;
+  const sub=document.getElementById(els.sub); if(sub) sub.textContent='ângulo real do tracker ao longo do dia';
+  const flat=_flatTail(t), read=document.getElementById(els.read);
+  if(read) read.innerHTML=flat?'<b>Leitura:</b> a curva <b>estaciona</b> no fim do dia (platô) — assinatura de tracker travado. Cruze com a corrente das strings do inversor associado.':'<b>Leitura:</b> o tracker segue o sol ao longo do dia (sem platô prolongado).';
+  if(CORR_FONTE) overlayCorrelacao(t, ch, els);
+}
 /* ── aba Trackers ── */
 function v2TabTrk(){
   const el=document.getElementById('v2TrkBody'); if(!el) return;
@@ -1708,7 +1764,8 @@ function v2TabTrk(){
   if(V2.fTrk==='prob') trs=trs.filter(x=>['parado','sem_comunicacao','severo','desvio'].includes(x.st));   // padrão (Levi, 06/09): só o que pede ação
   if(V2.fTrk==='fora') trs=trs.filter(x=>x.st!=='normal'); if(V2.fTrk==='os') trs=trs.filter(x=>x.t.ticket_status||(osTrk[x.n]||[]).length||sug[x.n]);
   const rows=trs.map(({t,n,st,h,horas,desde})=>{ const d=dp[String(n)]||{}, r=rec[n], sg=sug[n], g=gtrk[n], os=osTrk[n]||[], inv=trkInv[n], dv=t.disparidade;
-    return `<tr class="l" onclick="v2Trk('${v2esc(String(t.id)).replace(/'/g,'')}',event)"><td><b>${v2esc(t.id)}</b>${inv?`<div style="font-size:10.5px;color:var(--faint)">${v2esc(inv)}</div>`:''}</td>
+    const tq=v2esc(String(t.id)).replace(/'/g,''), open=V2.trkAberto===String(t.id);
+    const linha=`<tr class="l ${open?'sel':''}" onclick="v2TrkToggle('${tq}',event)" title="${open?'fechar a curva':'abrir a curva ângulo × alvo deste dia'}"><td><b>${open?'▾ ':'▸ '}${v2esc(t.id)}</b>${inv?`<div style="font-size:10.5px;color:var(--faint)">${v2esc(inv)}</div>`:''}</td>
       <td>${d.code?`<span class="v2tag fr ${d.situacao||''}" title="${v2esc(d.fracttal||'')} · ${v2esc(d.situacao||'')}${d.obs?' · '+v2esc(d.obs):''}">${v2esc(d.code)}</span>`:(V2.depara===null?'…':'<span style="color:var(--faint)">sem par</span>')}</td>
       <td><span class="v2chip ${st}">${st==='normal'?'ok':v2esc(st.replace('_',' '))}</span></td>
       <td class="v2n">${t.atual!=null?nf(t.atual)+'°':'—'} <span style="color:var(--faint)">/ ${t.alvo!=null?nf(t.alvo)+'°':'—'}</span></td><td class="v2n" style="color:${Math.abs(dv||0)>=10?'var(--red)':Math.abs(dv||0)>=3?'var(--amber)':'var(--muted)'}">${dv!=null?(dv>0?'+':'')+nf(dv)+'°':'—'}</td>
@@ -1719,8 +1776,10 @@ function v2TabTrk(){
         ...(t.ticket_status?[`<span class="v2tag os" title="planilha de Tickets (ocorrência aberta)${t.ticket_desde?' · desde '+v2esc(t.ticket_desde):''}">ticket ${v2esc(t.ticket_status)}${t.ticket_desde?' · '+v2esc(t.ticket_desde):''}</span>`]:[]),
         ...((!t.ticket_status&&t.ticket_usina&&(st==='parado'||st==='sem_comunicacao'))?[`<span class="v2tag os" title="coberto por ticket da usina inteira (RSU/NCU) na planilha">ticket da usina</span>`]:[]),
         ...((!t.ticket_status&&!t.ticket_usina&&(st==='parado'||st==='sem_comunicacao'))?[`<span class="v2tag sem" title="parado e sem ticket na planilha de Tickets">sem ticket</span>`]:[]),...os.map(o=>`<span class="v2tag os" title="${v2esc(o.nota||'')}">OS #${v2esc(o.os)} ${v2esc(String(o.status||'').toLowerCase())}</span>`),...(sg?[`<span class="v2tag sug" title="${v2esc(sg.descricao||'')}">sugerir OS · ${v2esc(sg.motivo_os||'')}</span>`]:[])].join(' ')||'<span style="color:var(--faint)">—</span>'}</td>
-      <td class="v2n" style="color:${g?'var(--red)':'var(--faint)'}">${g?nf(g.kwh):'—'}</td></tr>`; }).join('');
+      <td class="v2n" style="color:${g?'var(--red)':'var(--faint)'}">${g?nf(g.kwh):'—'}</td></tr>`;
+    return open?linha+`<tr class="v2exp v2hd"><td colspan="10">${_trkDrillHtml(t)}</td></tr>`:linha; }).join('');
   el.innerHTML=`<div style="overflow-x:auto"><table class="v2t"><thead><tr><th>Tracker</th><th>Fracttal</th><th>Agora</th><th class="v2n">ângulo / alvo</th><th class="v2n">desvio</th><th class="v2n">amplitude</th><th>Parado (mês)</th><th class="v2c">Recorrência</th><th>Ticket · OS · sugestão</th><th class="v2n">perda kWh</th></tr></thead><tbody>${rows||'<tr><td colspan="10" class="v2vazio">nada neste filtro</td></tr>'}</tbody></table></div>`;
+  if(V2.trkAberto) setTimeout(()=>v2TrkDrawDia(V2.trkAberto),0);   // o innerHTML acabou de recriar o canvas
   const sub=document.getElementById('v2TrkSub'); if(sub) sub.textContent=`${V2.fTrk==='prob'?'só parados e severos':'parados e fora do alvo primeiro'} · ticket = planilha de Tickets, só ocorrência aberta · Fracttal = código do ativo (de-para${V2.depara&&V2.depara.n?`: ${(V2.depara.casados||0)+(V2.depara.a_confirmar||0)} com par`:''})${V2.gemeoMes?` · perda = gêmeo, ${(V2.gemeoMes.dias||[]).length} dias`:''}`;
 }
 function v2Render(){ try{ renderBelow(); }catch(e){ console.error('[v2] kpis',e); } try{ if(V2.tab==='inv') v2TabInv(); else if(V2.tab==='trk') v2TabTrk(); }catch(e){ console.error('[v2] aba',e); } }

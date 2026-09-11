@@ -821,7 +821,7 @@ function _carregarComentariosDrawer(p){
 }
 
 /* ---- Raio-X: fontes de dado por fonte da usina ---- */
-const RX_MON={'API PV':'thopen-pv','Thopen':'thopen-db','Athon':'athon','Axis':'axis','2C':'2c','SEMP':'semp','RenoGrid':'renogrid','Alves Lima':'alveslima'};   // ?fonte= do Monitoramento
+const RX_MON={'API PV':'thopen-pv','Thopen':'thopen-db','Athon':'athon','Axis':'axis','2C':'2c','SEMP':'semp','RenoGrid':'renogrid','Alves Lima':'alveslima','2C · API PV':'2capi'};   // ?fonte= do Monitoramento
 const RX_SRC={   // pr = PR de HOJE por inversor (o "PR do mês" do BD_Performance só existe para 58 abas, nenhuma Thopen)
   pv:       {plant:id=>'/api/plant/'+id,              trk:id=>'/api/pv/trackers/'+id,    etm:'/api/etm/analise',           diag:id=>'/api/diagnostico/pv/'+id, pr:id=>'/api/pv/pr/'+id,    dp:'pv',   lento:true},
   pg:       {plant:id=>'/api/pg/plant/'+id,           trk:id=>'/api/pg/trackers/'+id,    etm:'/api/pg/etm/analise',        diag:id=>'/api/diagnostico/'+id,    pr:id=>'/api/pg/pr/'+id,    dp:'pg'},
@@ -830,8 +830,9 @@ const RX_SRC={   // pr = PR de HOJE por inversor (o "PR do mês" do BD_Performan
   '2c':     {plant:id=>'/api/owen/strings/plant/'+id, trk:id=>'/api/owen/trackers/'+id,  etm:'/api/owen/etm/analise',                                                                      dp:'owen'},
   semp:     {plant:id=>'/api/plant/'+id,                                                  etm:'/api/semp/etm/analise',                                          pr:id=>'/api/pv/pr/'+id,    lento:true},   // id global da API PV (token da conta OEM no backend)
   alveslima:{plant:id=>'/api/plant/'+id,                                                  etm:'/api/alveslima/etm/analise',                                     pr:id=>'/api/pv/pr/'+id,    lento:true},
+  '2capi':  {plant:id=>'/api/plant/'+id,                                                  etm:'/api/2capi/etm/analise',                                         pr:id=>'/api/pv/pr/'+id,    lento:true},   // 2C pela API PV (conta oem@), 11/09/2026
   solaredge:{plant:id=>'/api/solaredge/plant/'+id,                                                                                                              pr:id=>'/api/solaredge/pr/'+id}};
-const RX_SK={'API PV':'pv','Thopen':'pg','Athon':'athon','Axis':'axis','2C':'2c','SEMP':'semp','Alves Lima':'alveslima','RenoGrid':'solaredge'};
+const RX_SK={'API PV':'pv','Thopen':'pg','Athon':'athon','Axis':'axis','2C':'2c','SEMP':'semp','Alves Lima':'alveslima','RenoGrid':'solaredge','2C · API PV':'2capi'};
 const RX_GEMEO_FONTE={'Thopen':'pg','Athon':'sunop','Axis':'axis'};   // como o gêmeo chama a fonte (catálogo: fonte + fonte_ref)
 let RX={seq:0,p:null};
 const _rxCache={};

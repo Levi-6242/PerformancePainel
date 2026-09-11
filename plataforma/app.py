@@ -1886,8 +1886,11 @@ def maybe_reload_tickets():
 
 
 def nome_usina(plant_id, nome_api):
-    # Nome de exibição vem do BD_Performance (coluna "Usina"); senão, o nome da própria API
-    return USINA_DISPLAY.get(nome_api.strip()) or nome_api.strip()
+    # Nome de exibição vem do BD_Performance (coluna "Usina"); senão, o nome da própria API — passando pelo alias
+    # dos nomes que a API escreve diferente do cadastro ("Sete Lagoa" → "Sete Lagoas"; ver PV_NOME_API_ALIAS)
+    n = nome_api.strip()
+    n2 = PV_NOME_API_ALIAS.get(n, n)
+    return USINA_DISPLAY.get(n) or USINA_DISPLAY.get(n2) or n2
 
 
 # ── Auth & helpers ─────────────────────────────────────────────────────────────
@@ -1946,6 +1949,25 @@ PV_OEM_PASSWORD = os.environ.get("PV_OEM_PASSWORD", "")
 PV_FONTES = {
     "semp":      {18758732},    # UFV Tucano
     "alveslima": {18766373},    # MORADA NOVA (CE) — 8 inversores, 2.508 kWp, ativa desde 05/08/2026
+    # 2C pela API PV (Levi, 11/09/2026: "quero que rode na plataforma primeiro"). As três estão na conta oem@ com
+    # strings (28 Ipv por inversor), ETM completa e curva — a conta principal responde "Invalid id" para elas.
+    # Trackers NÃO: a PV Plataforma nega com o token do usuário gridco (precisaria de um token logado como oem@),
+    # então trackers das três continuam só pelo e-mail (fonte `owen`). A Ipixuna do Pará não está na API.
+    "2capi":     {18771898, 18771901, 18750925},    # Araputanga, "Sete Lagoa" (singular na API), Tupi Paulista
+}
+# A API escreve alguns nomes diferente do cadastro (coluna "Usina" do Equipamentos) e o cadastro é a chave de tudo:
+# aba do BD, cliente, esperadas. "Sete Lagoa" (API) é "Sete Lagoas" no BD — sem esta ponte a usina ficava fora do
+# FULL_OM, sem histórico por inversor e sem cliente.
+PV_NOME_API_ALIAS = {"Sete Lagoa": "Sete Lagoas"}
+# Conta oem@ não devolve NOME de inversor (só idefinversor) e as abas da 2C não têm linha no Equipamentos. Este
+# de-para foi fechado POR VALOR contra o kWh diário que o e-mail já gravou no BD (11/09/2026: Tupi 20/20 em 4 dias,
+# Araputanga 10/10 em 2, Sete Lagoa 10/10 no único dia que havia) — nunca pela ordem dos ids, que só por acaso
+# coincide. Mesma tabela do coletor (coletar_semp.USINAS, fonte "2C"). Sem ela o inversor apareceria como INV-400771.
+PV_INV_NOMES = {
+    18771898: {400771 + i: f"Inversor 1.{i + 1}" for i in range(10)},                        # Araputanga
+    18771901: {400784 + i: f"Inversor 1.{i + 1}" for i in range(10)},                        # Sete Lagoa(s)
+    18750925: {**{367506 + i: f"Inversor 1.{i + 1}" for i in range(10)},                     # Tupi Paulista
+               **{367516 + i: f"Inversor 2.{i + 1}" for i in range(10)}},
 }
 PV_OEM_PLANTS   = set().union(*PV_FONTES.values()) if PV_FONTES else set()
 _pv_oem_token   = {"token": None, "exp": 0.0}
@@ -1983,6 +2005,17 @@ def get_token_oem(force=False) -> str:
             pass
         _pv_oem_token.update({"token": tok, "exp": exp})
         return tok
+
+
+def _pv_plantas_da_fonte(all_plants, fonte):
+    """As usinas da API PV que pertencem à `fonte`. A principal (None) passa pelo FULL_OM (nome de supervisório do
+    Equipamentos) e exclui as das outras contas; uma fonte de PV_FONTES já é escolha explícita por ID — não passa
+    pelo FULL_OM, porque a API pode escrever o nome diferente do cadastro ("Sete Lagoa" × "Sete Lagoas", 11/09/2026)
+    e a usina sumia da própria aba sem aviso."""
+    if fonte is None:
+        base = [p for p in all_plants if p["nome"].strip() in FULL_OM] if FULL_OM else list(all_plants)
+        return [p for p in base if _pv_fonte_de(p["id"]) is None]
+    return [p for p in all_plants if _pv_fonte_de(p["id"]) == fonte]
 
 
 def _pv_is_oem(plant_id) -> bool:
@@ -2339,10 +2372,9 @@ def fetch_all(fonte: str = None) -> list:
     token     = get_token()
     all_plants = get_plants(token)
     # Filtra apenas usinas Full O&M = Sim (se a lista estiver carregada)
-    plants = [p for p in all_plants if p["nome"].strip() in FULL_OM] if FULL_OM else all_plants
     # As contas são clientes DIFERENTES na tela: a conta OEM é a SEMP, e a Tucano não pode
-    # aparecer misturada com a Thopen. Cada fonte enxerga só as suas.
-    plants = [p for p in plants if _pv_fonte_de(p["id"]) == fonte]
+    # aparecer misturada com a Thopen. Cada fonte enxerga só as suas (FULL_OM só na principal).
+    plants = _pv_plantas_da_fonte(all_plants, fonte)
     plant_map = {p["id"]: p for p in plants}
     rows      = []
 
@@ -2538,7 +2570,9 @@ def _pv_plant_inversores(plant_id, force=False):
 
     inversores = []
     for inv_id in all_ids:
-        inv_nome_api = dev_names.get(inv_id) or _pos_map.get(inv_id) or f"INV-{inv_id}"
+        inv_nome_api = (dev_names.get(inv_id) or _pos_map.get(inv_id)
+                        or PV_INV_NOMES.get(plant_id, {}).get(inv_id)      # 2C pela API PV: de-para por valor
+                        or f"INV-{inv_id}")
         # Traduz para o nome da planilha (Equipamento), mantém API name como fallback
         inv_nome = _equip_lookup(EQUIP_NAMES.get(plant_nome_api), inv_nome_api) or inv_nome_api
         rec      = latest.get(inv_id)          # None se inversor sem dados hoje
@@ -2831,11 +2865,12 @@ def entrada_teste(nivel=None):
 # (cliente, fonte como o rollup rotula, id da fonte no Monitoramento) — na ordem em que os cards aparecem
 _ENTRADA_GRUPOS = [("Thopen", "API PV", "thopen-pv"), ("Thopen", "Thopen", "thopen-db"), ("Athon", "Athon", "athon"),
                    ("Axis", "Axis", "axis"), ("Renogrid", "RenoGrid", "renogrid"), ("2C", "2C", "2c"),
-                   ("SEMP", "SEMP", "semp"), ("Alves Lima", "Alves Lima", "alveslima")]
+                   ("SEMP", "SEMP", "semp"), ("Alves Lima", "Alves Lima", "alveslima"),
+                   ("2C", "2C · API PV", "2capi")]   # as três da 2C pela API PV (11/09/2026); o e-mail segue no "2C"
 _ENTRADA_FONTE_ID = {f: fid for _c, f, fid in _ENTRADA_GRUPOS}
 # prefixo da chave do acompanhamento de strings (/api/state tracking, "<prefixo>:<plant_id>") — o VKEY do Monitoramento
 _ENTRADA_VKEY = {"thopen-pv": "pv", "thopen-db": "pg", "athon": "so", "axis": "ax", "renogrid": "se", "2c": "owen",
-                 "semp": "semp", "alveslima": "al"}
+                 "semp": "semp", "alveslima": "al", "2capi": "c2"}
 _ENTRADA_TR_CACHE = {"ts": 0.0, "data": None, "building": False}
 _ENTRADA_TR_TTL = 1800         # 30 min (Levi, 06/09): cada construcao bate nas 5 fontes de trackers; era 2 min e
                                # custava cota da SunOp sem o plantao precisar. Urgencia = botao Atualizar.
@@ -3011,7 +3046,8 @@ def _entrada_tempo_real_build() -> dict:
 # a noite toda string esta em zero e nao e queda. A 1a leitura de cada dia so estabelece a base — senao o
 # amanhecer avisaria todas as strings que ja estavam mortas de vespera. Estado no JSON compartilhado (`notif`).
 _NOTIF_FONTES = (("pv", "Thopen · API PV"), ("pg", "Thopen · Banco de dados"), ("sunop", "Athon"),
-                 ("axis", "Axis"), ("owen", "2C"), ("semp", "SEMP"), ("alveslima", "Alves Lima"))
+                 ("axis", "Axis"), ("owen", "2C"), ("semp", "SEMP"), ("alveslima", "Alves Lima"),
+                 ("2capi", "2C · API PV"))
 # 2C fica de fora de proposito: a string do 2C vem por e-mail (banco-por-dia), nao ha leitura ao vivo para comparar.
 _NOTIF_REBASE_H = 3               # leitura anterior mais velha que isto (PC suspenso, processo fora) → vira base, nao avisa
 _NOTIF_INTERVALO_S = 30 * 60
@@ -3511,6 +3547,45 @@ def api_alveslima_etm_analise():
     return jsonify(_swr(_alveslima_etm_analise_cache, _build_alveslima_etm_analise_payload, force))
 
 
+# ── Fonte 2C · API PV (mesma credencial OEM; cliente 2C) ─────────────────────
+# 11/09/2026: Araputanga, "Sete Lagoa" e Tupi Paulista vinham só pelo e-mail da 2C (fonte `owen`: strings como último
+# valor, ETM em janelas de 3 h, sem curva). Pela conta oem@ da API PV elas têm strings ao vivo, ETM completa e curva.
+# Trackers e Ipixuna do Pará continuam pelo e-mail. Ver PV_FONTES.
+_2capi_cache             = {"payload": None, "ts": 0.0}
+_2capi_etm_cache         = {"payload": None, "ts": 0.0}
+_2capi_etm_analise_cache = {"payload": None, "ts": 0.0}
+
+
+def _build_2capi_payload():
+    return _build_data_payload(fonte="2capi")
+
+
+def _build_2capi_etm_payload():
+    return _build_etm_payload(fonte="2capi")
+
+
+def _build_2capi_etm_analise_payload():
+    return _build_etm_analise_payload(fonte="2capi")
+
+
+@app.route("/api/2capi/data")
+def api_2capi_data():
+    force = flask_request.args.get("force", "0") == "1"
+    return jsonify(_swr(_2capi_cache, _build_2capi_payload, force))
+
+
+@app.route("/api/2capi/etm")
+def api_2capi_etm():
+    force = flask_request.args.get("force", "0") == "1"
+    return jsonify(_swr(_2capi_etm_cache, _build_2capi_etm_payload, force))
+
+
+@app.route("/api/2capi/etm/analise")
+def api_2capi_etm_analise():
+    force = flask_request.args.get("force", "0") == "1"
+    return jsonify(_swr(_2capi_etm_analise_cache, _build_2capi_etm_analise_payload, force))
+
+
 @app.route("/api/data")
 def api_data():
     # Stale-while-revalidate: NUNCA bloqueia na busca lenta (~71 usinas). Serve o cache
@@ -3627,9 +3702,8 @@ def etm_severidade(r: dict) -> int:
 def _build_etm_payload(fonte: str = None):
     token      = get_token()
     all_plants = get_plants(token)
-    plants     = [p for p in all_plants if p["nome"].strip() in FULL_OM] if FULL_OM else all_plants
     # Cada conta da API PV é uma fonte separada: o Thopen não mostra usina da SEMP e vice-versa.
-    plants     = [p for p in plants if _pv_fonte_de(p["id"]) == fonte]
+    plants     = _pv_plantas_da_fonte(all_plants, fonte)
     rows       = []
     with ThreadPoolExecutor(max_workers=20) as ex:
         futures = {ex.submit(fetch_etm_plant, _pv_token_for(p["id"]), p): p for p in plants}
@@ -3962,8 +4036,7 @@ def _agrupar_skids_etm(rows: list) -> list:
 def _build_etm_analise_payload(fonte: str = None):
     token      = get_token()
     all_plants = get_plants(token)
-    plants     = [p for p in all_plants if p["nome"].strip() in FULL_OM] if FULL_OM else all_plants
-    plants     = [p for p in plants if _pv_fonte_de(p["id"]) == fonte]
+    plants     = _pv_plantas_da_fonte(all_plants, fonte)
     rows = []
     with ThreadPoolExecutor(max_workers=8) as ex:
         futures = {ex.submit(_analisa_etm_plant, _pv_token_for(p["id"]), p): p for p in plants}
@@ -10493,6 +10566,14 @@ def _portfolio_rollup() -> list:
             add("Axis", r)
     except Exception as e:
         print(f"[macro] Axis indisponível: {e}")
+    # 2C pela API PV ANTES do e-mail: em empate de severidade o `add` fica com quem entrou primeiro, e a API é a fonte
+    # viva das três (strings ao vivo, ETM completa) — o e-mail só cobre o que ela não vê (Ipixuna, trackers). Um estado
+    # PIOR no e-mail continua vencendo, como em toda fonte (11/09/2026).
+    try:                                      # 2C pela API PV (conta oem@) — Araputanga, Sete Lagoas, Tupi
+        for r in (_2capi_cache.get("payload") or {}).get("rows", []):
+            add("2C · API PV", r)
+    except Exception as e:
+        print(f"[macro] 2C API PV indisponível: {e}")
     try:                                      # 2C / Owen (arquivos locais, barato/cacheado)
         for r in _owen_strings_rows():
             add("2C", r)
@@ -14291,7 +14372,7 @@ def _strings_problema_rows(fonte, force=False):
                     if _str_trancada(pid, inv.get("id"), str(s.get("id"))):
                         continue
                     _add(usina, pid, inv.get("nome"), s.get("id"), s.get("corrente"), s.get("status"))
-    elif fonte in ("pv", "semp", "alveslima"):
+    elif fonte in ("pv", "semp", "alveslima", "2capi"):
         # SEMP e Alves Lima (conta OEM) usam o MESMO motor: muda o recorte (payload da aba deles) e o token, que
         # _pv_token_for escolhe por usina. Sem este ramo a sub-aba dizia "indisponivel" e o sino nao via queda de
         # string da Tucano nem da Morada Nova (Levi, 05/09: "a notificacao vale para todos os clientes?").
@@ -14304,7 +14385,7 @@ def _strings_problema_rows(fonte, force=False):
                 pid2api = {p["id"]: p["nome"].strip() for p in get_plants(token)}   # catalogo e global (token principal)
             except Exception:
                 pid2api = {}
-            _ov = {"pv": _cache, "semp": _semp_cache, "alveslima": _alveslima_cache}[fonte]
+            _ov = {"pv": _cache, "semp": _semp_cache, "alveslima": _alveslima_cache, "2capi": _2capi_cache}[fonte]
             ov = (_ov.get("payload") or {}).get("rows", [])
             alvo = [r for r in ov if not r.get("sem_dados") and not r.get("stringbox")
                     and isinstance(r.get("diferenca"), (int, float)) and r["diferenca"] < 0]
@@ -14371,7 +14452,7 @@ def _strings_problema_rows(fonte, force=False):
 
 @app.route("/api/<fonte>/strings/problema")
 def api_strings_problema(fonte):
-    if fonte not in ("pv", "semp", "alveslima", "pg", "owen", "sunop", "axis"):
+    if fonte not in ("pv", "semp", "alveslima", "2capi", "pg", "owen", "sunop", "axis"):
         return jsonify({"rows": [], "total": 0, "indisponivel": True,
                         "cache_ts": datetime.now().strftime("%H:%M:%S")})
     rows = _strings_problema_rows(fonte, force=flask_request.args.get("force") == "1")
@@ -14384,7 +14465,7 @@ def api_strings_problema_xlsx(fonte):
     import openpyxl
     from openpyxl.styles import Font, PatternFill
     from openpyxl.utils import get_column_letter
-    if fonte not in ("pv", "semp", "alveslima", "pg", "owen", "sunop", "axis"):
+    if fonte not in ("pv", "semp", "alveslima", "2capi", "pg", "owen", "sunop", "axis"):
         return jsonify({"error": "fonte sem strings por-string"}), 404
     qf = (flask_request.args.get("usina") or "").strip().lower()
     rows = _strings_problema_rows(fonte)
@@ -14652,7 +14733,7 @@ def _strings_curva_longo(fonte, usina, data_iso):
     """→ (linhas[(inversor, string, hora, valor)], rótulo_da_coluna_valor). data_iso = YYYY-MM-DD.
     A unidade varia: API PV hoje = corrente (A); API PV dia passado = potência (W); demais = corrente (A)."""
     rows = []
-    if fonte in ("pv", "semp", "alveslima"):
+    if fonte in ("pv", "semp", "alveslima", "2capi"):
         pid = int(usina)
         # SEMP (conta OEM) precisa do token DELA no day_inverter; p/ as demais _pv_token_for devolve
         # o principal. O catálogo continua no token principal (é global e o cache é único).
@@ -14707,7 +14788,7 @@ def api_strings_curva_csv(fonte):
     Trancadas já excluídas (mesmos builders da tela). Vale p/ pv/semp/pg/sunop/axis/owen."""
     import csv as _csv
     import io as _io
-    if fonte not in ("pv", "semp", "alveslima", "pg", "sunop", "axis", "owen"):
+    if fonte not in ("pv", "semp", "alveslima", "2capi", "pg", "sunop", "axis", "owen"):
         return jsonify({"error": "fonte sem curva de strings"}), 404
     usina = (flask_request.args.get("usina") or "").strip()
     data_iso = (flask_request.args.get("data") or datetime.now().strftime("%Y-%m-%d")).strip()
@@ -17384,6 +17465,9 @@ def _prewarm_loop():
             ("Alves Lima",     _alveslima_cache,     _build_alveslima_payload),
             ("Alves Lima ETM", _alveslima_etm_cache, _build_alveslima_etm_payload),
             ("Alves Lima ETM anál.", _alveslima_etm_analise_cache, _build_alveslima_etm_analise_payload),
+            ("2C API PV",      _2capi_cache,         _build_2capi_payload),
+            ("2C API PV ETM",  _2capi_etm_cache,     _build_2capi_etm_payload),
+            ("2C API PV ETM anál.", _2capi_etm_analise_cache, _build_2capi_etm_analise_payload),
             ("PV PR",          _pv_pr_cache,         _build_pv_pr_payload),
         ]
         if _plat_token():
@@ -17503,6 +17587,9 @@ def _persist_registry():
         "pv_pr":         _pv_pr_cache,
         "semp":          _semp_cache,
         "alveslima":     _alveslima_cache,
+        "2capi":         _2capi_cache,
+        "2capi_etm":     _2capi_etm_cache,
+        "2capi_analise": _2capi_etm_analise_cache,
         "semp_etm":      _semp_etm_cache,
         "semp_analise":  _semp_etm_analise_cache,
     }
@@ -21358,7 +21445,7 @@ def _nome_da_planta(fonte: str, pid) -> str:
 
     Usa os overviews que já estão em cache (nenhuma chamada nova) e tira o "(123)" que algumas fontes anexam ao nome.
     As telas mandam ?usina=; isto é a rede de segurança para quem chamar a rota só com o id."""
-    c = {"pv": _cache, "semp": _semp_cache, "alveslima": _alveslima_cache,
+    c = {"pv": _cache, "semp": _semp_cache, "alveslima": _alveslima_cache, "2capi": _2capi_cache,
          "sunop": _sunop_cache, "axis": _axis_cache, "solaredge": _se_cache}.get(fonte)
     rows = ((c or {}).get("payload") or {}).get("rows") or []
     if fonte == "pg":
@@ -21549,7 +21636,7 @@ def _inv_hist_pr_detail(fonte: str, pid) -> list:
         if fonte in ("sunop", "axis"):
             det = _sunop_pr_get(hoje, False, "axis" if fonte == "axis" else "gridco")[1]
             return det.get(str(pid)) or det.get(pid) or []
-        if fonte in ("pv", "semp", "alveslima"):
+        if fonte in ("pv", "semp", "alveslima", "2capi"):
             return ((_pv_pr_cache.get("detail") or {}).get(int(pid)) or {}).get("inversores") or []
     except Exception as e:                                                    # noqa: BLE001 — sem PR só perde a potência por inversor
         print(f"[inv-hist] PR {fonte} {pid}: {e}")
