@@ -2865,8 +2865,9 @@ def entrada_teste(nivel=None):
 # (cliente, fonte como o rollup rotula, id da fonte no Monitoramento) — na ordem em que os cards aparecem
 _ENTRADA_GRUPOS = [("Thopen", "API PV", "thopen-pv"), ("Thopen", "Thopen", "thopen-db"), ("Athon", "Athon", "athon"),
                    ("Axis", "Axis", "axis"), ("Renogrid", "RenoGrid", "renogrid"), ("2C", "2C", "2c"),
-                   ("SEMP", "SEMP", "semp"), ("Alves Lima", "Alves Lima", "alveslima"),
-                   ("2C", "2C · API PV", "2capi")]   # as três da 2C pela API PV (11/09/2026); o e-mail segue no "2C"
+                   ("SEMP", "SEMP", "semp"), ("Alves Lima", "Alves Lima", "alveslima")]
+# A 2C e' UM card: as tres da API PV e a Ipixuna do e-mail entram juntas em "2C" (Levi, 11/09/2026) — a fonte `2capi`
+# existe como aba do Monitoramento, nao como card.
 _ENTRADA_FONTE_ID = {f: fid for _c, f, fid in _ENTRADA_GRUPOS}
 # prefixo da chave do acompanhamento de strings (/api/state tracking, "<prefixo>:<plant_id>") — o VKEY do Monitoramento
 _ENTRADA_VKEY = {"thopen-pv": "pv", "thopen-db": "pg", "athon": "so", "axis": "ax", "renogrid": "se", "2c": "owen",
@@ -10396,6 +10397,7 @@ def _macro_item(fonte: str, r: dict) -> dict:
         # (a corrente por string vem da combiner), e essa usina TEM contagem real p/ mostrar.
         "sem_visao": bool(r.get("sem_visao")),
         "inv_padrao": r.get("inv_padrao"),           # régua de padrão por inversor (só usinas sem visão por string)
+        "sub_fonte": r.get("sub_fonte"),             # 2C: "api" quando a linha veio da API PV (senão e-mail)
         "strings_ativas": r.get("strings_ativas"), "str_esp": r.get("str_esp"),
         "diferenca": dif, "strings_faltando": faltando,
         "inv_off": r.get("inv_off"), "qtd_inversores": r.get("qtd_inversores"),
@@ -10566,12 +10568,13 @@ def _portfolio_rollup() -> list:
             add("Axis", r)
     except Exception as e:
         print(f"[macro] Axis indisponível: {e}")
-    # 2C pela API PV ANTES do e-mail: em empate de severidade o `add` fica com quem entrou primeiro, e a API é a fonte
-    # viva das três (strings ao vivo, ETM completa) — o e-mail só cobre o que ela não vê (Ipixuna, trackers). Um estado
-    # PIOR no e-mail continua vencendo, como em toda fonte (11/09/2026).
+    # UM card "2C" misturando API PV e e-mail (Levi, 11/09/2026: "as que não têm na PV ficam por e-mail"). A API entra
+    # ANTES: em empate de severidade o `add` fica com quem entrou primeiro, e a API é a fonte viva das três (strings ao
+    # vivo, ETM completa); o e-mail cobre o que ela não vê (Ipixuna, trackers) e um estado PIOR no e-mail continua
+    # vencendo, como em toda fonte. `sub_fonte` diz de onde veio a linha vencedora.
     try:                                      # 2C pela API PV (conta oem@) — Araputanga, Sete Lagoas, Tupi
         for r in (_2capi_cache.get("payload") or {}).get("rows", []):
-            add("2C · API PV", r)
+            add("2C", dict(r, sub_fonte="api"))
     except Exception as e:
         print(f"[macro] 2C API PV indisponível: {e}")
     try:                                      # 2C / Owen (arquivos locais, barato/cacheado)

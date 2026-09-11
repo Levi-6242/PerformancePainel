@@ -48,7 +48,8 @@ def test_de_para_de_inversor_das_tres_fechado_por_valor():
 def test_rotas_entrada_notificacao_e_snapshot():
     regras = {str(r) for r in app.app.url_map.iter_rules()}
     assert {"/api/2capi/data", "/api/2capi/etm", "/api/2capi/etm/analise"} <= regras
-    assert ("2C", "2C · API PV", "2capi") in app._ENTRADA_GRUPOS and app._ENTRADA_VKEY["2capi"] == "c2"
+    assert not any(fid == "2capi" for _c, _f, fid in app._ENTRADA_GRUPOS)   # UM card "2C" (Levi): a API entra nele
+    assert app._ENTRADA_VKEY["2capi"] == "c2"
     assert ("2capi", "2C · API PV") in app._NOTIF_FONTES
     assert {"2capi", "2capi_etm", "2capi_analise"} <= set(app._persist_registry())   # o worker publica, o web instala
 
@@ -93,7 +94,7 @@ def test_no_rollup_a_api_vence_o_email_em_empate(monkeypatch):
     primeiro — e a API entra primeiro: é a fonte viva (strings ao vivo, ETM completa); o e-mail só cobre o que ela não vê."""
     ok = {"usina": "Araputanga", "strings_ativas": 236, "str_esp": 236, "ultima_leitura": "2026-09-11 10:00"}
     u = _rollup_so_com(monkeypatch, [dict(ok, plant_id="ARA")], [dict(ok, plant_id=18771898)])
-    assert u["fonte"] == "2C · API PV" and u["plant_id"] == 18771898
+    assert u["fonte"] == "2C" and u["plant_id"] == 18771898 and u["sub_fonte"] == "api"   # mesmo card, linha da API
 
 
 def test_no_rollup_um_estado_pior_no_email_ainda_prevalece(monkeypatch):
@@ -101,4 +102,4 @@ def test_no_rollup_um_estado_pior_no_email_ainda_prevalece(monkeypatch):
     ok = {"usina": "Araputanga", "strings_ativas": 236, "str_esp": 236, "ultima_leitura": "2026-09-11 10:00"}
     pior = dict(ok, strings_ativas=200, plant_id="ARA")
     u = _rollup_so_com(monkeypatch, [pior], [dict(ok, plant_id=18771898)])
-    assert u["fonte"] == "2C" and u["strings_faltando"] == 36
+    assert u["fonte"] == "2C" and u["strings_faltando"] == 36 and u["plant_id"] == "ARA" and not u.get("sub_fonte")
