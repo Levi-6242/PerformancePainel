@@ -2238,10 +2238,35 @@ def build_summary(plant: dict, records: list) -> dict:
         _media = str_esp / len(latest)
         _desc = sum(_esp_inv.get(_dn.get(i), _media) if _dn else _media for i in neutros_ids)
         str_esp = max(0, round(str_esp - _desc))
-    diferenca = (strings_ativas - str_esp) if (str_esp is not None) else None
     # potência ativa → parada por inversor; deficit operante = tira os inversores parados.
     # (sem nome de inversor aqui p/ o esperado individual → estima pela média str_esp/qtd)
     prod, pot_med, n_off = _macro_prod(pacs)
+    # ── Inversor DESLIGADO de dia conta TODAS as strings como faltantes (Levi, 11/09/2026) ──────────────
+    # A régua por string (mediana do próprio inversor) deixava passar o ruído: inversor com Pac ~0 e strings a
+    # 0,8–1 A de corrente reversa passava por "produzindo" e suas strings contavam como ATIVAS — o déficit da
+    # usina saía menor do que é. Vale a mesma régua de potência do drill (_macro_prod: abaixo do piso ou muito
+    # abaixo da mediana dos pares), SÓ de dia e com a usina gerando — à noite Pac ~0 é a noite, não um trip.
+    inv_ids = list(latest.keys())
+    ativas_de = dict(zip(inv_ids, ativas_inv))
+    _gerando = (not _macro_sol_baixo({"usina": nome})) and isinstance(pot_med, (int, float)) and pot_med >= MACRO_POT_INV_MIN
+    off_ids = {i for i, pr in zip(inv_ids, prod) if pr is False and i not in neutros_ids} if _gerando else set()
+    for i in off_ids:
+        strings_ativas -= ativas_de.get(i) or 0
+    # ── OS atribuída ao inversor (os_atribuidas, chave plant_id|idefinversor): ele sai INTEIRO da conta — ativas
+    # e esperadas — porque alguém já está cuidando; o déficit dele deixa de ser "faltante" (Levi, 11/09/2026).
+    _os_map = _os_atribuidas_map()
+    os_ids = [i for i in inv_ids if f"{pid}|{i}" in _os_map and i not in neutros_ids]
+    strings_com_os = 0
+    if os_ids and isinstance(str_esp, (int, float)) and latest:
+        _esp_inv = ESPERADO_INV.get(plant["nome"].strip()) or {}
+        _dn = _pv_dev_names(pid, _pv_token_for(pid)) if _esp_inv else {}
+        _media = (esp.get("str_esp") or str_esp) / len(latest)
+        strings_com_os = round(sum(_esp_inv.get(_dn.get(i), _media) if _dn else _media for i in os_ids))
+        str_esp = max(0, str_esp - strings_com_os)
+        for i in os_ids:
+            if i not in off_ids:
+                strings_ativas -= ativas_de.get(i) or 0
+    diferenca = (strings_ativas - str_esp) if (str_esp is not None) else None
     dif_operante = diferenca
     if (isinstance(diferenca, (int, float)) and n_off and str_esp and latest):
         esp_por_inv = str_esp / len(latest)
@@ -2251,6 +2276,7 @@ def build_summary(plant: dict, records: list) -> dict:
         "usina": nome, "plant_id": pid,
         "qtd_inversores": len(latest),
         "strings_ativas": strings_ativas,
+        "inv_com_os": len(os_ids), "strings_com_os": strings_com_os,   # inversores com OS atribuída: fora da conta
         "pot_med": pot_med, "inv_off": n_off, "diferenca_operante": dif_operante,
         "inv_esp": inv_esp, "str_esp": str_esp, "diferenca": diferenca,
         "temp_media": round(sum(temps) / len(temps), 1) if temps else None,
@@ -2647,7 +2673,9 @@ def _pv_plant_inversores(plant_id, force=False):
     _prod, _potmed, _ = _macro_prod([inv.get("active_power") for inv in inversores])
     _tem_pac = any(isinstance(inv.get("active_power"), (int, float)) for inv in inversores)
     _plant_prod = len([inv for inv in inversores if (inv.get("strings_ativas") or 0) > 0]) >= 2
+    _os_map = _os_atribuidas_map()
     for inv, pr in zip(inversores, _prod):
+        inv["os_atribuida"] = f"{plant_id}|{inv.get('id')}" in _os_map    # o analista já grudou uma OS nele
         if _tem_pac:
             _off = pr is False and _dia
         else:                                     # fallback sem Pac: só se a usina está gerando
@@ -2657,6 +2685,12 @@ def _pv_plant_inversores(plant_id, force=False):
             for s in inv["strings"]:
                 if s["status"] != "trancada":
                     s["status"] = "desligado"; s["ativa"] = False
+            # (11/09/2026) desligado = 0 ativas e TODAS as esperadas faltando — a mesma conta da linha da usina
+            # (build_summary). Antes a contagem por string ficava como estava e a corrente reversa residual
+            # (0,8–1 A) deixava strings "ativas" num inversor parado.
+            inv["strings_ativas"] = 0
+            if isinstance(inv.get("str_esp"), (int, float)):
+                inv["diferenca"] = -inv["str_esp"]
     with _pv_plant_memo_lock:
         _PV_PLANT_MEMO[plant_id] = (time.time(), inversores)
     return _PV_PLANT_MEMO[plant_id][1]
@@ -6898,6 +6932,24 @@ def api_os_performance():
     except Exception as e:
         print(f"[os-atribuidas] merge falhou p/ {u}: {e}")
     return jsonify({"usina": u, "codigo": cod, "os": res})
+
+
+_os_map_cache = {"ts": 0.0, "map": {}}
+_OS_MAP_TTL = 30
+
+
+def _os_atribuidas_map() -> dict:
+    """{plant_id|idefinversor: rec} das OS atribuídas a inversor — lido do estado com cache curto, porque a linha
+    da usina (build_summary) pergunta por ele a cada usina de cada ciclo e o estado é um JSON em disco."""
+    agora = time.time()
+    if agora - _os_map_cache["ts"] > _OS_MAP_TTL:
+        try:
+            with _state_lock:
+                m = dict(_load_state().get("os_atribuidas", {}) or {})
+        except Exception:                                 # noqa: BLE001 — sem estado, ninguém tem OS
+            m = {}
+        _os_map_cache["map"], _os_map_cache["ts"] = {k: v for k, v in m.items() if isinstance(v, dict)}, agora
+    return _os_map_cache["map"]
 
 
 def _os_atribuidas_de(usina):

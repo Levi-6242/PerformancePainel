@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="pt-BR" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,34 +7,47 @@
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --grafite:#191528;--ardosia:#504C63;--ardosia-tint:#BDBACA;
-  --verde:#A9DB21;--verde-dark:#5E7E12;--verde-soft:#F1F7DC;
+  --grafite:#191528;--ardosia:#504C63;--ardosia-tint:#BDBACA;--on-ardosia:#fff;
+  --verde:#A9DB21;--verde-dark:#5E7E12;--verde-soft:#F1F7DC;--note-line:#DDE9B8;
   --ink:#191528;--muted:#6E6A80;--faint:#9C99A8;
   --line:#E6E4EC;--line-2:#CFCCD7;--bg:#FFFFFF;--bg-soft:#F7F6FA;--bg-app:#EEEDF2;
   --ok:#5E7E12;--ok-soft:#F1F7DC;--warn:#B0791A;--warn-soft:#FBF1DA;--danger:#B23A2B;--danger-soft:#FAE8E5;
+  color-scheme:light;
+}
+/* Tema ESCURO (Levi, 11/09/2026: "visão dark aos moldes do estilo atual, com contraste") — o navy da plataforma
+   (#090d18 fundo, #161d30 card) e o verde Grid como acento. Só tokens: o layout é o mesmo. É o padrão; o botão
+   "Tema claro" no topo troca e lembra a escolha (localStorage ger.tema). Semáforo com hue distinto para o
+   contraste (ok verde-frio, atenção âmbar, ruim vermelho), como nas outras telas. */
+:root[data-theme="dark"]{
+  --grafite:#e9eef6;--ardosia:#6b7699;--ardosia-tint:#4f5877;--on-ardosia:#0b1020;
+  --verde:#a3d900;--verde-dark:#c4e755;--verde-soft:rgba(163,217,0,.12);--note-line:rgba(163,217,0,.35);
+  --ink:#e9eef6;--muted:#9aa3b8;--faint:#7c859c;
+  --line:rgba(255,255,255,.08);--line-2:rgba(255,255,255,.16);--bg:#161d30;--bg-soft:#1b2338;--bg-app:#090d18;
+  --ok:#4ade80;--ok-soft:rgba(74,222,128,.14);--warn:#f5c877;--warn-soft:rgba(245,166,35,.14);--danger:#ff5b6e;--danger-soft:rgba(255,91,110,.14);
+  color-scheme:dark;
 }
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg-app);color:var(--ink);font-family:"Poppins",system-ui,sans-serif;font-size:13px;line-height:1.55}
 .num{font-variant-numeric:tabular-nums lining-nums}
 h1,h2,h3{font-weight:600;margin:0;letter-spacing:-.01em;color:var(--grafite)}
 a{color:var(--verde-dark);text-decoration:none}
-.topbar{display:flex;align-items:center;gap:16px;padding:13px 24px;background:#fff;border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30}
+.topbar{display:flex;align-items:center;gap:16px;padding:13px 24px;background:var(--bg);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:30}
 .logo{font-weight:700;font-size:17px}.logo .g{color:var(--verde-dark)}.logo .c{color:var(--grafite)}
 .title{font-size:14px;color:var(--muted)}.title b{color:var(--grafite);font-weight:600}
 .spacer{flex:1}
 .back{font-size:12px;font-weight:600;padding:6px 13px;border:1px solid var(--line);border-radius:8px;color:var(--grafite)}
 .upd{font-size:11px;color:var(--faint)}
 .wrap{padding:18px 24px 48px;max-width:1320px;margin:0 auto}
-.note{font-size:11.5px;color:var(--muted);background:var(--verde-soft);border:1px solid #DDE9B8;border-radius:9px;padding:9px 13px;margin-bottom:14px}
+.note{font-size:11.5px;color:var(--muted);background:var(--verde-soft);border:1px solid var(--note-line);border-radius:9px;padding:9px 13px;margin-bottom:14px}
 .note b{color:var(--grafite)}
 .scorecard{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:14px}
-.sc{background:#fff;border:1px solid var(--line);border-radius:13px;padding:14px 15px}
+.sc{background:var(--bg);border:1px solid var(--line);border-radius:13px;padding:14px 15px}
 .sc .l{font-size:11px;color:var(--muted)}
 .sc .v{font-size:25px;font-weight:600;margin-top:4px;letter-spacing:-.02em}
 .sc .v .u{font-size:12px;color:var(--faint);font-weight:500}
 .sc .tgt{font-size:10px;color:var(--faint);margin-top:3px}
 .sc.pend .v{color:var(--faint);font-size:15px;font-weight:500;margin-top:8px}
-.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 17px;margin-bottom:14px}
+.card{background:var(--bg);border:1px solid var(--line);border-radius:14px;padding:16px 17px;margin-bottom:14px}
 .card h3{font-size:14px;margin-bottom:2px}.csub{font-size:11px;color:var(--faint);margin-bottom:13px}
 .row2{display:grid;grid-template-columns:1.4fr 1fr;gap:14px;align-items:start}
 .cols2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
@@ -47,7 +60,7 @@ a{color:var(--verde-dark);text-decoration:none}
 .blab{font-size:11.5px}.blab .bt{font-weight:600;color:var(--grafite)}.blab .bs{font-size:9.5px;color:var(--faint)}
 .btrack{position:relative;height:30px;background:var(--bg-soft);border-radius:8px;overflow:hidden}
 .bfill{position:absolute;left:0;top:0;bottom:0;border-radius:8px;display:flex;align-items:center;justify-content:flex-end;padding-right:10px;font-weight:600;font-size:12px}
-.bfill.p50{background:var(--ardosia);color:#fff}.bfill.ger{background:var(--verde);color:#16140e}
+.bfill.p50{background:var(--ardosia);color:var(--on-ardosia)}.bfill.ger{background:var(--verde);color:#16140e}
 .reread{font-size:11.5px;background:var(--bg-soft);border-left:4px solid var(--verde);border-radius:8px;padding:10px 13px;margin-top:12px}
 .reread b{font-weight:600}.reread .clima{color:var(--ardosia);font-weight:600}.reread .perf{color:var(--verde-dark);font-weight:600}
 table{width:100%;border-collapse:collapse;font-size:12px}
@@ -64,7 +77,7 @@ td{padding:9px 10px;border-bottom:1px solid var(--line)}td b{color:var(--grafite
 .vswitch button{font-family:inherit;font-size:12.5px;font-weight:500;color:var(--muted);background:transparent;
   border:0;border-radius:7px;padding:7px 15px;cursor:pointer;transition:background .12s,color .12s,box-shadow .12s}
 .vswitch button:hover{color:var(--grafite)}
-.vswitch button[aria-selected="true"]{background:#fff;color:var(--grafite);font-weight:600;box-shadow:0 1px 2px rgba(25,21,40,.09)}
+.vswitch button[aria-selected="true"]{background:var(--bg);color:var(--grafite);font-weight:600;box-shadow:0 1px 2px rgba(25,21,40,.09)}
 .vswitch button:focus-visible{outline:2px solid var(--verde-dark);outline-offset:1px}
 .selcli{background:var(--bg-soft);color:inherit;border:1px solid var(--line);border-radius:8px;
   padding:6px 10px;font-size:12.5px;font-family:inherit;cursor:pointer}
@@ -79,16 +92,25 @@ td{padding:9px 10px;border-bottom:1px solid var(--line)}td b{color:var(--grafite
   <div class="spacer"></div>
   <span class="upd" id="upd"></span>
   <a class="back" href="/">← Início</a> <a class="back" href="/monitoramento" style="margin-left:8px">Monitoramento</a>
+  <button type="button" class="back" id="tema" onclick="alternaTema()" style="margin-left:8px;background:transparent;cursor:pointer;font-family:inherit" title="alternar tema claro/escuro (fica salvo neste navegador)">Tema claro</button>
 </div>
+<script>
+// Tema (11/09/2026): escuro é o padrão; a escolha fica no navegador (ger.tema). Roda antes do resto para não piscar.
+(function(){ try{ if(localStorage.getItem('ger.tema')==='claro'){ document.documentElement.removeAttribute('data-theme'); var b=document.getElementById('tema'); if(b) b.textContent='Tema escuro'; } }catch(e){} })();
+function alternaTema(){ var esc=document.documentElement.getAttribute('data-theme')==='dark';
+  if(esc){ document.documentElement.removeAttribute('data-theme'); } else { document.documentElement.setAttribute('data-theme','dark'); }
+  try{ localStorage.setItem('ger.tema', esc?'claro':'dark'); }catch(e){}
+  var b=document.getElementById('tema'); if(b) b.textContent=esc?'Tema escuro':'Tema claro'; }
+</script>
 <div class="wrap">
   <div class="note" id="cov">Carregando…</div>
   <!-- Filtros pedidos pela Ana (reunião 16/07): cliente ("quero ver só o 2C, estilo planilha" — a visão
        da reunião de segunda) e mês ("se eu quiser ver o mês 6 direto daqui"). -->
   <div style="display:flex;gap:14px;align-items:center;margin-bottom:14px;flex-wrap:wrap">
     <label style="font-size:11px;color:var(--muted);font-weight:600">Mês
-      <input type="month" id="fMes" onchange="mudaMes()" style="margin-left:7px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:12px;background:#fff"></label>
+      <input type="month" id="fMes" onchange="mudaMes()" style="margin-left:7px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:12px;background:var(--bg-soft);color:var(--ink)"></label>
     <label style="font-size:11px;color:var(--muted);font-weight:600">Cliente
-      <select id="fCli" onchange="mudaCli()" style="margin-left:7px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:12px;background:#fff;min-width:130px">
+      <select id="fCli" onchange="mudaCli()" style="margin-left:7px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:12px;background:var(--bg-soft);color:var(--ink);min-width:130px">
         <option value="">Todos</option></select></label>
     <span id="fInfo" style="font-size:10.5px;color:var(--faint)"></span>
   </div>
@@ -258,7 +280,7 @@ function render(j){
       // a célula inteira e o layout da coluna ficava desengonçado (pedido do Levi, 28/07)
       : `<div style="display:flex;align-items:center;gap:8px">`+
         `<span class="num ${atgCls(c.atingimento)}" style="min-width:50px;text-align:right">${nf(c.atingimento,1)}%</span>`+
-        `<div class="bar" style="flex:0 1 96px;margin-top:0"><i style="width:${Math.min(100,c.atingimento||0)}%;background:#5E7E12"></i></div></div>`;
+        `<div class="bar" style="flex:0 1 96px;margin-top:0"><i style="width:${Math.min(100,c.atingimento||0)}%;background:var(--ok)"></i></div></div>`;
     return `<tr${semTudo?' style="opacity:.55"':''}><td><b>${c.cliente||'—'}</b></td>`+
       `<td class="r num">${usinas}</td><td>${atg}</td>`+
       `<td class="r num">${temGer?fmtE(c.prod):'—'}</td>`+
@@ -307,7 +329,7 @@ function _dispCell(u){
   const d = DISP_MAP ? DISP_MAP[_nrmD(u.usina)] : undefined;
   if (d == null)
     return `<td class="r num" style="color:var(--muted)" title="${DISP_MAP?'sem correspondência direta no cálculo de disponibilidade (granularidade diferente ou mês sem índice)':'carregando…'}">—</td>`;
-  const cor = d >= 99 ? 'var(--ok)' : d >= 80 ? 'var(--warn,#b8860b)' : 'var(--bad,#c0392b)';
+  const cor = d >= 99 ? 'var(--ok)' : d >= 80 ? 'var(--warn)' : 'var(--danger)';
   return `<td class="r num" style="font-weight:700;color:${cor}">${nf(d,2)}%</td>`;
 }
 const _casaBusca = u => !VBUSCA || _nrmB(u.usina).includes(_nrmB(VBUSCA));
@@ -414,13 +436,13 @@ function renderCasc(d){
       <div class="num" style="text-align:right;font-size:12px;${forte?'font-weight:600':'color:var(--muted)'}">${val<0?'−':''}${nf(Math.abs(val),1)} MWh</div>
     </div>${sub?`<div style="margin:-2px 0 8px 180px;font-size:10px;color:var(--faint)">${sub}</div>`:''}`;
   const t=d.trk||{},os=d.os||{};
-  return L('Geração sem perdas',d.p50,'#504C63',`P50 · ${d.dias} dias · ${nf(d.pot,2)} MWp`,true)
-   +L('− Baixo IPOA (externo)',-d.perda_ipoa,'#BDBACA',`POA ${nf(d.poa,1)} vs ${nf(d.poa_prev,1)} kWh/m² previsto`)
-   +L('= Possível com o sol',d.possivel,'#6E6A80','o que o recurso solar do mês permitia',true)
+  return L('Geração sem perdas',d.p50,'var(--ardosia)',`P50 · ${d.dias} dias · ${nf(d.pot,2)} MWp`,true)
+   +L('− Baixo IPOA (externo)',-d.perda_ipoa,'var(--ardosia-tint)',`POA ${nf(d.poa,1)} vs ${nf(d.poa_prev,1)} kWh/m² previsto`)
+   +L('= Possível com o sol',d.possivel,'var(--muted)','o que o recurso solar do mês permitia',true)
    +L('− Tracker parado',-d.perda_trk,'#A9DB21',t.horas_solares?`${nf(t.horas_solares,0)}h solares · ${t.paradas} paradas · ganho do rastreio ${Math.round(100*(t.ganho||0))}%`:'sem parada de tracker no período')
    +L('− Queda de energia (rede)',-(d.perda_rede||0),'#8CB817',(os.rede&&os.rede.horas_solares)?`${nf(os.rede.horas_solares,1)}h solares · ${os.rede.qtd} OS de religamento (Fracttal)`:'sem religamento no mês')
    +L('− Equipamento / manutenção',-(d.perda_equip||0),'#7BA80E',(os.equip&&os.equip.horas_solares)?`${nf(os.equip.horas_solares,1)}h solares · ${os.equip.qtd} OS corretiva (Fracttal) · disponibilidade UFV ${nf(100*(d.disponibilidade_ufv||0),1)}%`:`sem corretiva no mês · disponibilidade UFV ${nf(100*(d.disponibilidade_ufv||0),1)}%`)
-   +L('− Não explicado',-d.nao_explicado,'#9C99A8','falta modelar (inversor abaixo dos pares, sujeira, degradação…)')
+   +L('− Não explicado',-d.nao_explicado,'var(--faint)','falta modelar (inversor abaixo dos pares, sujeira, degradação…)')
    +L('= Geração real',d.geracao,'#A9DB21',`PR ${d.pr_real!=null?nf(d.pr_real*100,1)+'%':'—'} · meta ${d.pr_meta!=null?nf(d.pr_meta*100,1)+'%':'—'}`,true);
 }
 async function tgCasc(tr){

@@ -79,6 +79,10 @@ tr.gc-alerta:hover{background:linear-gradient(90deg, color-mix(in srgb, var(--gc
    sem comunicação; verde = ok; cinza = sem dados. Sumiram o anel vermelho do "problema no mês" (08/09), o brilho
    laranja da OS (26/08) e a borda de severidade pintada por outra régua — a OS aberta é um chip laranja no rodapé.
    O pulso (P1 de 26/08) ficou só para ALARME SEM OS, e só em vermelho. */
+/* 4 estações por linha (Levi, 11/09: "muita informação para pouco espaço"): o card ganha largura para o gráfico e
+   os três blocos de sensor. Em tela estreita cai para 2, nunca para 1 coluna gigante. */
+.gc-etm-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width:1180px){.gc-etm-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .gc-etm{border-left:3px solid var(--color-neutral-500)}
 .gc-etm-al{border-left-color:var(--gc-red)}.gc-etm-at{border-left-color:var(--gc-amber)}.gc-etm-cm{border-left-color:var(--gc-violet)}
 .gc-etm-ok{border-left-color:var(--color-accent)}.gc-etm-sd{border-left-color:var(--color-neutral-500);opacity:.85}
@@ -568,6 +572,12 @@ function buildInversores(pid){
   const invs=RD.plants[state.source+'|'+pid];
   if(invs==null) return 'loading';
   const _urow=(RD.pv&&RD.pv.rows||[]).find(r=>String(r.plant_id)===String(pid)); const _un=_urow?_urow.usina:'';   // nome da usina p/ o deep link do Criar OS
+  // Usina sem visão por string: o inversor mostra a PROPORCIONALIDADE (padrão 30d) no lugar de ativas/esp/dif (Levi,
+  // 11/09). Busca 1× por usina em /api/pv/inv-padrao/<pid> (barato: cache do worker) e casa pelo nome do cadastro.
+  const _pd=RD.invPadrao||(RD.invPadrao={});
+  if(state.source==='pv'&&_urow&&(_urow.sem_visao||_urow.inv_padrao)&&_pd[pid]===undefined){ _pd[pid]=null;
+    fetchJSON('/api/pv/inv-padrao/'+encodeURIComponent(pid)).then(d=>{ _pd[pid]=(d&&d.na_regua)?d:false; render(); }).catch(()=>{ _pd[pid]=false; }); }
+  const _pdInv=(_pd[pid]&&_pd[pid].inversores)||[], _pdDia=(_pd[pid]&&_pd[pid].dia)||null;
   return invs.map(inv=>{
     const iid=pid+'-'+inv.id, expanded=state.expandedInversor===iid, cab=String(inv.nome||'').match(/(\d+)\.\d+/);
     const strings=(inv.strings||[]).map(sx=>{ const trc=!!sx.trancada, st=trc?'trancada':(sx.status||(sx.ativa?'ativa':'inativa')), c=_SCHIP[st]||_SCHIP.inativa;
@@ -580,7 +590,8 @@ function buildInversores(pid){
       /* rampa (correntes reais porém baixas, amanhecer/anoitecer) NÃO é "sem geração": as strings existem e aparecem, só não entram na contagem */
       semGer:(!inv.sem_visao&&!inv.rampa&&Number(inv.strings_ativas)===0), atrib:(RD.osAtrib||{})[pid+'|'+inv.id]||null, name:inv.nome, cabine:cab?('cabine '+cab[1]):'', kwh:(inv.eday!=null?inv.eday:'—'),
       active:((inv.sem_visao||inv.rampa)?'—':(inv.strings_ativas+'/'+inv.total_strings)), esp:(inv.str_esp!=null?inv.str_esp:'—'), diff:(inv.diferenca!=null?inv.diferenca:'—'),
-      lastRead:(inv.ultima_leitura?String(inv.ultima_leitura).slice(0,16).replace('T',' '):'—'), caretDeg:expanded?90:0, expanded, isReal:true, trackers:[], strings };
+      lastRead:(inv.ultima_leitura?String(inv.ultima_leitura).slice(0,16).replace('T',' '):'—'), caretDeg:expanded?90:0, expanded, isReal:true, trackers:[],
+      padrao:((inv.sem_visao||_urow&&_urow.inv_padrao)?(_pdInv.find(x=>_nrmU(x.inv)===_nrmU(inv.nome)||_nrmU(x.inv)===_nrmU(inv.nome_api||''))||null):null), padraoDia:_pdDia, padraoPend:(_pd[pid]===null), osAtrib:!!inv.os_atribuida, strings };
   });
 }
 let _chart=null;
@@ -829,7 +840,9 @@ function _renderEtmChart(d){ const g=state._graf; if(!g)return;
     sub='Irradiância (W/m²) ao longo do dia'; }
   else{ const xm=d.labels.map(_hm);
     const poa={xm,y:d.poa}, ghi={xm,y:d.ghi}, poari={xm,y:d.poari};
-    chart=_gchart([{...poa,color:'var(--color-accent)',width:2},{...ghi,color:'var(--gc-blue)',width:2},{...poari,color:'var(--gc-amber)',width:1.6,opacity:.85}],{ymin:0,yLabel:'W/m²',xmin:360,xmax:1080});
+    // `name` liga o tooltip do _gchart (_chartTip só olha polyline com data-name): ao passar o mouse mostra
+    // sensor, valor e hora — pedido do Levi, 11/09. `unit` vai junto no balão.
+    chart=_gchart([{...poa,name:'POA',color:'var(--color-accent)',width:2},{...ghi,name:'GHI',color:'var(--gc-blue)',width:2},{...poari,name:'POA-RI',color:'var(--gc-amber)',width:1.6,opacity:.85}],{ymin:0,yLabel:'W/m²',unit:' W/m²',xmin:360,xmax:1080});
     sub+=` · ${d.labels.length} leituras`; }
   _grafModal({title:`<i class="ph-fill ph-chart-line" style="color:var(--gc-blue);margin-right:7px"></i>ETM — ${_he(g.usina)}`,sub:sub,
     legend:_leg([{c:'var(--color-accent)',t:'POA'},{c:'var(--gc-blue)',t:'GHI'},{c:'var(--gc-amber)',t:'POA-RI'}]),
@@ -1033,6 +1046,18 @@ function _etmSensTile(rot,s,avisoSo){ s=s||{pico:null,status:'sem_leitura'};
 /* Texto curto do diagnóstico do mês para a linha do card ("IPOA zerada no mês inteiro (9d) — PR não calculável" →
    "IPOA zerada no mês inteiro (9d)"); o texto completo fica no title. */
 function _etmMesCurto(t){ return String(t||'').replace(/\s+—.*$/,'').replace(/\s*\(sensor travado\?\)/,''); }
+/* Inversor de usina SEM visão por string (Levi, 11/09): no lugar de "ativas · esp · dif", a proporcionalidade do
+   padrão 30d — energia de ontem em % da mediana da usina, o padrão dele e o desvio em pp (cores da régua). */
+function _padraoSpans(inv){
+  const p=inv.padrao;
+  if(!p) return `<span class="text-muted" title="proporcionalidade do inversor (padrão 30d): ${inv.padraoPend?'carregando':'sem base ainda — precisa de 7 dias válidos'}">padrão <b style="color:var(--color-neutral-400)">${inv.padraoPend?'…':'sem base'}</b></span>`;
+  const nf=v=>Number(v).toLocaleString('pt-BR',{maximumFractionDigits:1});
+  const cor=p.status==='critico'?'var(--gc-red)':p.status==='atencao'?'var(--gc-amber)':(p.status==='ok'?'var(--color-accent-300)':'var(--color-neutral-300)');
+  const rot=p.status==='sem_base'?'sem base':p.status==='sem_julgamento'?'sem sol p/ julgar':(p.razao!=null?nf(p.razao)+'%':'—');
+  return `<span class="text-muted" title="energia de ${_he(inv.padraoDia||'D-1')} em % da mediana dos inversores da usina">ontem <b style="color:${cor}">${rot}</b></span>`
+    +`<span class="text-muted" title="mediana dessa razão nos 30 dias válidos anteriores (σ ${p.sigma!=null?nf(p.sigma):'—'} pp)">padrão <b style="color:var(--color-neutral-200)">${p.base!=null?nf(p.base)+'%':'—'}</b></span>`
+    +`<span class="text-muted" title="alerta a partir de −${p.limiar!=null?nf(p.limiar):'10'} pp${p.cronico?' · cronicamente abaixo dos pares':''}${p.dias_seguidos>1?' · '+p.dias_seguidos+' dias seguidos abaixo':''}">Δ <b style="color:${cor}">${p.delta!=null?(p.delta>0?'+':'')+nf(p.delta)+' pp':'—'}</b></span>`;
+}
 async function _ensureEtmGrupos(){ if(RD.etmGrupos!==undefined) return; RD.etmGrupos=null;
   try{ const d=await fetchJSON('/api/etm/grupos'); RD.etmGrupos=(d&&d.ok&&d.grupos)||{}; }
   catch(e){ RD.etmGrupos={}; }
@@ -1097,10 +1122,19 @@ function computeVals(){
       const bate=(dif!=null&&tCount!=null&&dif===-tCount);
       // 0 = déficit NÃO acompanhado (pede ação, pulsa) · 1 = déficit já batendo · 2 = sem déficit · 3 = sem dado
       const _grp=(dif==null?3:(difN?(bate?1:0):2));
+      // Usina sem visão por string (String Box sem combiner, Barretos) leva a PROPORCIONALIDADE dos inversores no lugar
+      // dos traços (Levi, 11/09): "ativas" = inversores dentro do padrão / total, "diferença" = o pior desvio (D-1).
+      const _ip=(r.sem_visao||r.inv_padrao)?(r.inv_padrao||null):null, _ipAl=(_ip&&_ip.alertas)||[], _ipQ=r.qtd_inversores||0;
+      const _ipPior=_ipAl[0]||null, _ipFmt=v=>(v>0?'+':'')+Number(v).toLocaleString('pt-BR',{maximumFractionDigits:1})+' pp';
+      const _ipCor=_ip?(_ip.status==='critico'?'var(--gc-red)':_ip.status==='atencao'?'var(--gc-amber)':'var(--color-accent-300)'):null;
       return {name:r.usina,inv:(r.qtd_inversores!=null?(r.inv_esp!=null?r.qtd_inversores+'/'+r.inv_esp:''+r.qtd_inversores):'—'),
-        active:((r.rampa||r.sem_visao)?'—':(r.strings_ativas??'—')),expected:((r.rampa||r.sem_visao)?'—':(r.str_esp??'—')),
-        diff:((r.rampa||r.sem_visao)?'—':(dif==null?'—':(dif>0?'+'+dif:''+dif))),diffColor:(bate?'var(--gc-blue)':(difN?'var(--gc-red)':'var(--color-neutral-400)')),
-        avail:(r.str_esp&&r.strings_ativas!=null&&!r.rampa&&!r.sem_visao)?(r.strings_ativas/r.str_esp*100).toFixed(1)+'%':'—',availColor:(!r.rampa&&!r.sem_visao&&temD&&r.strings_ativas===0)?'#ff9a9d':'var(--color-neutral-300)',
+        active:_ip?`${Math.max(0,_ipQ-_ipAl.length)}/${_ipQ} inv.`:((r.rampa||r.sem_visao)?'—':(r.strings_ativas??'—')),
+        expected:_ip?`padrão ${_ip.n_dias_base||30}d`:((r.rampa||r.sem_visao)?'—':(r.str_esp??'—')),
+        diff:_ip?(_ipPior?`${_ipPior.inv} ${_ipFmt(_ipPior.delta)}`:'no padrão'):((r.rampa||r.sem_visao)?'—':(dif==null?'—':(dif>0?'+'+dif:''+dif))),
+        diffColor:_ip?_ipCor:(bate?'var(--gc-blue)':(difN?'var(--gc-red)':'var(--color-neutral-400)')),
+        diffTit:_ip?(`Proporcionalidade de ${_ip.dia||'D-1'}: cada inversor vs. o que ele gera em relação à mediana da usina nos 30 dias anteriores. `+(_ipAl.length?_ipAl.map(a=>`${a.inv} ${Number(a.razao).toFixed(0)}% do padrão de ${Number(a.base).toFixed(0)}% (${_ipFmt(a.delta)})`).join(' · '):'todos dentro do padrão')+((_ip.cronicos||[]).length?` · crônicos: ${_ip.cronicos.join(', ')}`:'')):'',
+        avail:_ip?((_ip.cronicos||[]).length?`${_ip.cronicos.length} crônico${_ip.cronicos.length===1?'':'s'}`:'—'):((r.str_esp&&r.strings_ativas!=null&&!r.rampa&&!r.sem_visao)?(r.strings_ativas/r.str_esp*100).toFixed(1)+'%':'—'),
+        availColor:_ip?'var(--color-neutral-400)':((!r.rampa&&!r.sem_visao&&temD&&r.strings_ativas===0)?'#ff9a9d':'var(--color-neutral-300)'),
         acomp:(tCount!=null?tCount:''),_dif:(dif==null?null:dif),_grp,pulse:(_grp===0),lastRead:leit,staleRead:_velho,
         staleTit:(_velho?`Sem leitura nova há ${Math.floor(_idadeMin/60)}h${String(Math.round(_idadeMin%60)).padStart(2,'0')}`:''),
         status:stt,statusStyle:ps,hasFlag:cCount>0,flagCount:cCount,hasOS:oCount>0,osCount:oCount,vkey,caretDeg:expanded?90:0,diffColor2:0,expanded,id:pid,inversores:expanded?buildInversores(pid):[]};
@@ -1455,7 +1489,7 @@ function renderInversor(inv,chart){
       <i class="ph ph-caret-right" style="font-size:11px;color:var(--color-neutral-500);transform:rotate(${inv.caretDeg}deg)"></i>
       <span style="font-weight:600;font-size:14px">${inv.name}</span>${inv.cabine?`<span class="tag tag-neutral">${inv.cabine}</span>`:''}<span class="text-muted" style="font-size:12px">${inv.kwh} kWh</span>${semTxt?`<span style="flex:1;text-align:center;font-size:14.4px;color:#a1a39d">${semTxt}</span>`:''}
       <span style="margin-left:auto;display:flex;align-items:center;gap:22px;font-size:13px">
-        ${_osBtn}<span class="text-muted">ativas <b style="color:var(--color-neutral-200)">${inv.active}</b></span><span class="text-muted" title="Strings esperadas deste inversor (aba Equipamentos)">esp <b style="color:var(--color-neutral-200)">${inv.esp}</b></span><span class="text-muted">dif <b style="color:${difRed?'var(--gc-red)':'var(--color-neutral-300)'}">${inv.diff}</b></span>
+        ${_osBtn}${(inv.padrao||inv.padraoPend)&&inv.semVisao!==undefined&&(inv.semVisao||inv.padrao)?_padraoSpans(inv):`<span class="text-muted">ativas <b style="color:var(--color-neutral-200)">${inv.active}</b></span><span class="text-muted" title="Strings esperadas deste inversor (aba Equipamentos)">esp <b style="color:var(--color-neutral-200)">${inv.esp}</b></span><span class="text-muted">dif <b style="color:${difRed?'var(--gc-red)':'var(--color-neutral-300)'}">${inv.diff}</b></span>`}
         <span class="text-muted" style="font-size:12px">${inv.lastRead}</span>
       </span>
     </div>
@@ -1517,7 +1551,7 @@ function renderStrings(v){
       <tr class="gc-urow${(u.pulse&&!u.expanded)?' gc-alerta':''}" onclick="toggleUsina('${u.id}')" style="cursor:pointer;${u.expanded?'background:linear-gradient(90deg, color-mix(in srgb, #0a4f52 70%, transparent), color-mix(in srgb, #0a4f52 28%, transparent) 34%, transparent 58%);':''}">
         <td style="padding-left:22px"><span style="display:inline-flex;align-items:center;gap:9px"><i class="ph ph-caret-right" style="font-size:12px;color:var(--color-neutral-500);transition:transform .15s;transform:rotate(${u.caretDeg}deg)"></i><span style="font-weight:600">${u.name}</span>${u.hasOS?`<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="OS de performance — abrir" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:6px;background:color-mix(in srgb, var(--gc-amber) 16%, transparent);color:var(--gc-amber);font-size:11px;font-weight:600"><i class="ph ph-wrench"></i>${u.osCount}</span>`:''}<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="Comentários dos analistas" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:6px;${u.hasFlag?'background:#1D5FB5;color:#0e2a4d;font-weight:700;':'color:var(--color-neutral-600);'}font-size:11px"><i class="${u.hasFlag?'ph-fill ph-chat-circle':'ph ph-chat-circle'}" style="font-size:13px"></i>${u.hasFlag?u.flagCount:''}</span></span></td>
         <td style="text-align:center;color:var(--color-neutral-400)">${u.inv}</td><td style="text-align:right;color:var(--color-neutral-300)">${u.active}</td><td style="text-align:right;color:var(--color-neutral-300)">${u.expected}</td>
-        <td style="text-align:right;font-weight:600;color:${u.diffColor}">${u.diff}</td><td style="text-align:right;color:${u.availColor}">${u.avail}</td><td style="text-align:center" onclick="event.stopPropagation()"><input type="number" min="0" value="${u.acomp}" placeholder="—" title="Strings que você está acompanhando" class="gc-numin" onclick="event.stopPropagation()" onchange="setTracking('${u.vkey||''}',this.value)" style="width:58px;text-align:center;padding:5px 6px;font-size:12.5px;font-family:inherit;border:1px solid var(--color-divider);border-radius:6px;background:var(--color-neutral-900);color:var(--color-text)"></td>
+        <td style="text-align:right;font-weight:600;color:${u.diffColor}"${u.diffTit?` title="${_he(u.diffTit)}"`:''}>${u.diff}</td><td style="text-align:right;color:${u.availColor}">${u.avail}</td><td style="text-align:center" onclick="event.stopPropagation()"><input type="number" min="0" value="${u.acomp}" placeholder="—" title="Strings que você está acompanhando" class="gc-numin" onclick="event.stopPropagation()" onchange="setTracking('${u.vkey||''}',this.value)" style="width:58px;text-align:center;padding:5px 6px;font-size:12.5px;font-family:inherit;border:1px solid var(--color-divider);border-radius:6px;background:var(--color-neutral-900);color:var(--color-text)"></td>
         <td title="${u.staleTit||''}" style="text-align:right;font-size:12.5px;${u.staleRead?'color:#c9b6ff;font-weight:600':'color:var(--color-neutral-500)'}">${u.lastRead}</td><td style="text-align:center;padding-right:22px"><span style="${u.statusStyle}">${u.status}</span></td>
       </tr>
       ${u.expanded?`<tr><td colspan="9" style="padding:0;border:0"><div style="background:color-mix(in srgb, var(--color-neutral-900) 55%, transparent);padding:18px 22px 22px">
@@ -1532,7 +1566,7 @@ function renderETM(v){
   if(v.na) return _naPanel('ETM');
   if(v.loading) return _loadingPanel();
   return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><button onclick="setEtm('cards')" style="${v.etmTabCards}"><i class="ph ph-squares-four" style="margin-right:5px"></i>Cards</button><button onclick="setEtm('tabela')" style="${v.etmTabTable}"><i class="ph ph-table" style="margin-right:5px"></i>Tabela</button><span style="width:1px;height:20px;background:var(--color-divider);margin:0 4px"></span><button onclick="setEtmProb()" style="${v.etmTabProb}" title="Alarme = IPOA ou GHI medidos em zero, hoje ou no mês (BD_Performance). ${v.etmProbMesN} usina(s) com alarme no mês — o número do card da Entrada — e ${v.etmProbCards} estação(ões) em alarme agora. Clique de novo para ver todas."><i class="ph ph-warning-circle" style="margin-right:5px"></i>Alarmes${v.etmProbN?` &middot; ${v.etmProbN}`:''}</button></div>
-  ${v.etmModeCards?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">${v.etmCards.filter(c=>_matchQ(c.usina)&&(!v.etmProbOn||c.prob)).map(c=>`
+  ${v.etmModeCards?`<div class="gc-etm-grid">${v.etmCards.filter(c=>_matchQ(c.usina)&&(!v.etmProbOn||c.prob)).map(c=>`
     <div class="card elev-sm gc-chip gc-etm gc-etm-${c.estado}${c.pulse?' gc-etm-pulse':''}" onclick="abrirEtmChart('${_jsq(c.usina)}',${c.pid==null?'null':`'${_jsq(c.pid)}'`})" style="cursor:pointer;height:240px;display:flex;flex-direction:column;overflow:hidden;${c.cardStyle}">
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex:none"><span style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</span><span style="display:inline-flex;align-items:center;gap:9px;flex:none"><span style="font-family:'IBM Plex Mono',Consolas,monospace;font-size:10.5px;color:${c.leitOld?'#c9b6ff':'var(--color-neutral-500)'}">${c.leit}</span>${c.noFrac?'':`<i class="ph ph-clock-counter-clockwise" title="Histórico de OSs da estação" onclick="event.stopPropagation();abrirEtmHist('${_jsq(c.usinaQ||c.usina)}')" style="font-size:14px;color:var(--color-neutral-500);cursor:pointer"></i>`}<i class="ph ph-chart-line" title="Ver curva do dia" style="font-size:14px;color:var(--color-neutral-500)"></i></span></div>
       <div class="gc-etm-vd" title="${_he(c.anomObs||'')}"><i></i><b>${_he(c.vd)}</b>${c.vdSub?`<span>${_he(c.vdSub)}</span>`:''}</div>
