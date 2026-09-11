@@ -1459,10 +1459,40 @@ def maybe_reload_equipamentos():
         if m == _bd_mtime:           # outro thread já recarregou
             return
         print("[BD] BD_Performance alterado -> recarregando cadastro (esperadas/nomes/Full O&M/potência)...")
+        if _BD_MEM:
+            # O espelho em disco mudou (o worker sincronizou com a API), mas quem alimenta os loaders é a
+            # base EM MEMÓRIA — e o `carregar()` padrão devolve bytes de até 30 min atrás (TTL) sem perguntar
+            # à API. Sem revalidar, a recarga relia a versão velha e carimbava o mtime novo: a mudança sumia
+            # até a próxima. `revalidar=True` é uma chamada a /api/workbooks; só rebaixa se a fonte mudou.
+            try:
+                import bd_api
+                bd_api.carregar("bd_performance", revalidar=True)
+            except Exception as e:                    # noqa: BLE001 — sem API, os loaders caem para o disco
+                print(f"[BD] revalidação da base em memória falhou ({e}); relendo o que houver")
         load_equipamentos()
         load_metas()
         load_usina_codigos()
         load_bd_trackers()
+
+
+def _cadastro_watch_tick():
+    """Uma checagem do vigia do WEB: relê o cadastro (BD_Performance) e os tickets se os espelhos mudaram.
+    Barato — dois os.stat quando nada mudou. Cada recarga tem o próprio lock; erro numa não cala a outra."""
+    for f in (maybe_reload_equipamentos, maybe_reload_tickets):
+        try:
+            f()
+        except Exception as e:                        # noqa: BLE001 — o vigia não morre
+            print(f"[cadastro] recarga falhou ({e}); tento no próximo ciclo")
+
+
+def _cadastro_watch_loop(intervalo=60):
+    """O WEB só relia o cadastro num `?force=1` (botão Atualizar). Em 10/09/2026 o Levi preencheu o Cliente de
+    Cambé, Taguaí, Alvares Machado e Santo Anastacio; a API mudou 17:34, o worker releu no ciclo seguinte, e o
+    web ficou até as 23h com as 5 usinas em "Sem cliente" na Entrada (que é montada aqui) porque ninguém
+    clicou. O worker já tem esta checagem no prewarm; o web ganha a dele."""
+    while True:
+        time.sleep(intervalo)
+        _cadastro_watch_tick()
 
 
 # ── Metas / previsto: BD_Performance, abas "Info Geral" e "Info Mensal" ───────
@@ -22863,6 +22893,7 @@ if __name__ == "__main__":
         print("[server] modo WEB — quem reconstrói é o worker.py; este processo só serve")
         threading.Thread(target=_snapshot_watch_loop, daemon=True).start()
         threading.Thread(target=_tranc_watch_loop, daemon=True).start()
+        threading.Thread(target=_cadastro_watch_loop, daemon=True).start()   # cadastro/tickets mudaram → relê sem clique
     try:
         from waitress import serve
         print("[server] waitress em http://0.0.0.0:5050 (threads=16)")
