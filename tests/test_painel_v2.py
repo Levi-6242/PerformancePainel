@@ -48,9 +48,13 @@ def test_energia_mes_le_a_aba_do_bd_performance(cliente, monkeypatch):
     assert d["dias"] == 2 and d["dias_lista"] == ["2026-09-05", "2026-09-06"]
     um = cliente.get("/api/athon/inversores/energia-mes/CPP100?usina=CPP100&dia=2026-09-06").get_json()
     assert um["inversores"] == {"Inversor 1.1": 1135.7} and um["tem_dado"] is True and um["origem"] == "bd_performance"
-    # usina sem aba: vazio E com o motivo — é assim que a lacuna aparece, em vez de um número que só a plataforma tinha
+    # usina sem aba: vazio E com o motivo — é assim que a lacuna aparece, em vez de um número que só a plataforma tinha.
+    # Coração 2 é do cliente Thopen: desde 11/09 vai ao BD_Thopen primeiro (qualquer fonte), e o motivo aponta para lá.
+    monkeypatch.setattr(app, "_bdthopen_inv_dias", lambda u, a, m: {})
     sem = cliente.get("/api/pv/inversores/energia-mes/18747863?usina=Cora%C3%A7%C3%A3o%202&mes=2026-09").get_json()
-    assert sem["inversores"] == {} and sem["dias"] == 0 and "BD_Performance" in sem["motivo"]
+    assert sem["inversores"] == {} and sem["dias"] == 0 and "BD_Thopen" in sem["motivo"]
+    outra = cliente.get("/api/solaredge/inversores/energia-mes/1?usina=Xavantina%201&mes=2026-09").get_json()   # RenoGrid
+    assert outra["inversores"] == {} and outra["dias"] == 0 and "BD_Performance" in outra["motivo"]
     assert cliente.get("/api/pv/inversores/energia-mes/1?mes=x").status_code == 400
 
 
@@ -69,3 +73,18 @@ def test_acumulador_noturno_foi_removido():
         assert morto not in src, f"{morto} voltou ao app.py"        # api_inv_energia_mes é a ROTA, e continua
     for n in ("_inv_energia_loop", "_inv_energia_ler", "_inv_energia_registrar", "_se_mes_get"):
         assert not hasattr(app, n), f"{n} voltou"
+
+
+def test_historico_do_mes_tem_drill_down_disp_e_sem_botao_antigo(cliente):
+    """Lote de 11/09 (Levi): sem o botão "versão anterior"; a linha do dia abre o drill-down com a curva (correlação
+    inversor × irradiância × temperatura, séries ligáveis, e strings); coluna "% disp" pela régua do Gerencial; a coluna
+    "fonte" saiu da tabela e virou legenda; de madrugada a aba Curvas recua para ontem em vez de ficar vazia."""
+    html = cliente.get("/painel/usina/18747567?fonte=pv&nome=Colorado%202").get_data(as_text=True)
+    assert "v2Antigo" not in html and "versão anterior" not in html
+    assert "v2HistToggle(" in html and "function v2HistDrawDia" in html and "v2CorrTog(" in html
+    assert "% disp" in html and "function _dispDia" in html
+    assert "DISP_TIPOS=new Set(['religamento','religamento remoto','corretiva emergencial'])" in html
+    assert "<th>fonte</th>" not in html and "fonte da geração:" in html
+    assert "_icRecuou" in html and "mostrando ontem" in html
+    # a antiga (reserva) continua servida por ?antigo=1 — só o botão que levava a ela saiu
+    assert 'id="v2-inv"' not in cliente.get("/painel/usina/18747567?fonte=pv&antigo=1").get_data(as_text=True)

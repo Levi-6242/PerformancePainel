@@ -16295,10 +16295,21 @@ def _spv_analise_inversor(idinv, nome, recs, data, notas, full=False, plant_id=N
     soma  = {k: 0.0 for k in reais}                     # média/sub só nas ativas
     curva = {k: {"x": [], "y": []} for k in plot_keys}
     step  = max(1, len(recs) // 160)                    # downsample p/ ~160 pts na curva
+    # Temperatura e potência do INVERSOR (Temp/Pac do day_inverter), na mesma grade da curva — para a visão de
+    # correlação do drill-down do dia no Diagnóstico v2 (Levi, 11/09/2026: "curva do inversor, temperatura se
+    # tiver, irradiação"). Só existe em HOJE (o histórico vem do trygenerate, que não traz Temp).
+    temp = {"x": [], "y": []}
+    pac  = {"x": [], "y": []}
     for i, r in enumerate(recs):
         cj   = parse_cj(r.get("conteudojson"))
         hhmm = (r.get("tsleitura_new") or "")[11:16]
         emt  = (i % step == 0)
+        if emt:
+            _t, _p = cj.get("Temp"), cj.get("Pac")
+            if isinstance(_t, (int, float)) and -40 < _t < 150:
+                temp["x"].append(hhmm); temp["y"].append(round(_t, 1))
+            if isinstance(_p, (int, float)):
+                pac["x"].append(hhmm); pac["y"].append(round(_p, 2))
         for k in plot_keys:
             v = cj.get(k)
             if isinstance(v, (int, float)):
@@ -16325,7 +16336,8 @@ def _spv_analise_inversor(idinv, nome, recs, data, notas, full=False, plant_id=N
     nota = notas.get(f"{data}|{idinv}", "")
     return {"id": idinv, "nome": nome, "n_strings": len(reais),
             "mediana": round(med, 1), "media": round(avg, 1), "abaixo": abaixo,
-            "strings": strings, "curva": curva_fmt, "nota": nota}
+            "strings": strings, "curva": curva_fmt, "nota": nota,
+            "temp": temp if temp["x"] else None, "pac": pac if pac["x"] else None}
 
 
 def _spv_med_usina(ordem) -> float:
@@ -21366,41 +21378,56 @@ def _nome_da_planta(fonte: str, pid) -> str:
 def api_inv_energia_mes(fonte, pid):
     """kWh por inversor no mês (?mes=YYYY-MM) ou em UM dia (?dia=YYYY-MM-DD); ?usina=<nome> quando o id não basta.
 
-    Thopen lê a aba diária do BD_Thopen (por inversor, pelo PostgreSQL); as demais fontes leem a aba da usina no
-    BD_Performance — só dias FECHADOS, nas duas. Sem aba, responde vazio com o motivo em vez de inventar um número."""
+    Usina do cliente Thopen (qualquer fonte) lê a aba diária do BD_Thopen (por inversor, pelo PostgreSQL), com o
+    BD_Performance de reserva; as demais leem a aba da usina no BD_Performance — só dias FECHADOS, nas duas
+    (_inv_dias_por_base). Sem aba, responde vazio com o motivo em vez de inventar um número."""
     fonte = _INV_HIST_FONTE.get(fonte, fonte)
     usina = (flask_request.args.get("usina") or "").strip() or _nome_da_planta(fonte, pid)
     _dia = (flask_request.args.get("dia") or "").strip()
     if _dia:
         if not re.match(r"^\d{4}-\d{2}-\d{2}$", _dia):
             return jsonify({"erro": "dia invalido (YYYY-MM-DD)"}), 400
-        ler = _bdthopen_inv_dias if fonte == "pg" else _bdperf_inv_dias
-        inv = ((ler(usina, int(_dia[:4]), int(_dia[5:7])) if usina else {}).get(_dia) or {}).get("inv") or {}
-        if fonte == "pg":
+        inv, origem = {}, None
+        for org, m_ in _inv_dias_por_base(fonte, usina, int(_dia[:4]), int(_dia[5:7])):
+            inv = (m_.get(_dia) or {}).get("inv") or {}
+            if inv:
+                origem = org
+                break
+        if origem == "bd_thopen":
             nome_de = _inv_nome_de(fonte, pid)
             inv = {nome_de(k): v for k, v in inv.items()}
-        return jsonify({"dia": _dia, "usina": usina, "inversores": inv, "origem": "bd_thopen" if fonte == "pg" else "bd_performance",
+        return jsonify({"dia": _dia, "usina": usina, "inversores": inv,
+                        "origem": origem or ("bd_thopen" if _inv_usina_thopen(fonte, usina) else "bd_performance"),
                         "tem_dado": bool(inv), "motivo": None if inv else _inv_sem_base(fonte, usina)})
     m = (flask_request.args.get("mes") or datetime.now().strftime("%Y-%m")).strip()
     try:
         ano, mes = int(m[:4]), int(m[5:7])
     except ValueError:
         return jsonify({"erro": "mes invalido (YYYY-MM)"}), 400
-    ler = _bdthopen_inv_dias if fonte == "pg" else _bdperf_inv_dias
-    soma, dias = _inv_energia_soma(ler(usina, ano, mes) if usina else {})
-    if fonte == "pg":
-        nome_de = _inv_nome_de(fonte, pid)
-        soma = {nome_de(k): v for k, v in soma.items()}
+    dias_m, origens, nome_de = {}, [], None
+    for org, m_ in _inv_dias_por_base(fonte, usina, ano, mes):       # por dia vale a primeira base com dado
+        for d, e in m_.items():
+            if not e.get("inv") or d in dias_m:
+                continue
+            if org == "bd_thopen":
+                nome_de = nome_de or _inv_nome_de(fonte, pid)
+                dias_m[d] = {"inv": {nome_de(k): v for k, v in e["inv"].items()}}
+            else:
+                dias_m[d] = {"inv": e["inv"]}
+            if org not in origens:
+                origens.append(org)
+    soma, dias = _inv_energia_soma(dias_m)
     return jsonify({"mes": f"{mes:02d}/{ano:04d}", "usina": usina, "dias": len(dias), "dias_lista": dias,
-                    "inversores": soma, "origem": "bd_thopen" if fonte == "pg" else "bd_performance",
+                    "inversores": soma, "origens": origens,
+                    "origem": (origens[0] if origens else ("bd_thopen" if _inv_usina_thopen(fonte, usina) else "bd_performance")),
                     "motivo": None if dias else _inv_sem_base(fonte, usina)})
 
 
 # ── Histórico do mês POR INVERSOR ──────────────────────────────────────────────────────────────────────────────────
 # "No diagnóstico [...] ver o histórico melhor daquele inversor: geração, PR, meta do dia alcançada de acordo com
 # IPOA" (Levi, 07/09/2026). Uma régua só, dia a dia, para o Raio-X e o Diagnóstico v2:
-#   • geração do inversor: Thopen → aba diária do BD_Thopen (por inversor, PostgreSQL via bd_api); demais fontes →
-#     aba da usina no BD_Performance. Só dias fechados, só bases consolidadas (Levi, 08/09/2026 — ver o comentário
+#   • geração do inversor: usina do CLIENTE Thopen (qualquer fonte — Levi, 11/09/2026) → aba diária do BD_Thopen
+#     (por inversor, PostgreSQL via bd_api), BD_Performance de reserva; demais → aba da usina no BD_Performance. Só dias fechados, só bases consolidadas (Levi, 08/09/2026 — ver o comentário
 #     do acumulador acima); `origem` diz qual. Usina fora das duas fica sem histórico E DIZ POR QUÊ (`motivo`).
 #   • IPOA do dia e metas da usina: a MESMA base diária da cascata (/api/g/diario — banco p/ Thopen, BD_Performance
 #     p/ o resto): P50/dia, IPOA meta/dia, potência e PR meta. Dia sem IPOA lá cai na IPOA da própria fonte.
@@ -21415,11 +21442,97 @@ _INV_HIST_TTL = 600
 _INV_HIST_FONTE = {"athon": "sunop", "2c": "owen", "thopen": "pg"}
 
 
+def _inv_usina_thopen(fonte: str, usina: str) -> bool:
+    """A usina é do cliente THOPEN? — é isso que escolhe a base do histórico por inversor, não a fonte.
+
+    "Todas as usinas do cliente Thopen tem que ser pelo BD_Thopen" (Levi, 11/09/2026). A régua era pela FONTE (só o
+    banco `pg` ia ao BD_Thopen) e as Thopen da API PV — Colorado 2, Barretos, Ceilândia, Ouro Branco, Céu Azul… —
+    caíam no BD_Performance, que não tem aba por inversor para elas: o Diagnóstico v2 pedia para "a coleta criá-las"
+    enquanto o BD_Thopen já tinha a aba diária ('Inversor 1.1'…, fechada até D-1). Vale: fonte `pg`, carteira do 5080
+    (Polaris/Copel/Matrix são carteiras Thopen) ou cliente 'Thopen' na Info Geral — pelo nome de exibição ou pelo da
+    usina física (Barretos 2 → Barretos)."""
+    if _INV_HIST_FONTE.get(fonte, fonte) == "pg":
+        return True
+    u = (usina or "").strip()
+    if not u:
+        return False
+    vistos = []
+    for cand in (u, _macro_usina_nome(u)):
+        if not cand or cand in vistos:
+            continue
+        vistos.append(cand)
+        if _carteira_de(cand):
+            return True
+        cli = str((INFO_GERAL.get(_nrm(cand)) or {}).get("cliente") or "")
+        if "thopen" in cli.lower():
+            return True
+    return False
+
+
+def _inv_usina_fisica_cands(usina: str) -> list:
+    """Abas a tentar quando a sub-usina não tem a sua: a usina física do cadastro (USINA_GRUPO) e o nome sem o último
+    índice — 'Barretos 2' → 'Barretos'; 'Ceilândia 1.2' → 'Ceilândia 1' → 'Ceilândia'; 'Ouro Branco IV' → 'Ouro Branco'.
+    A aba do BD_Thopen é da usina FÍSICA e traz os inversores 1.x e 2.x juntos."""
+    u = (usina or "").strip()
+    out, chaves = [], {_ger_fold(u)}
+
+    def _add(n):
+        n = (n or "").strip()
+        if n and _ger_fold(n) not in chaves:
+            chaves.add(_ger_fold(n))
+            out.append(n)
+    _add(_macro_usina_nome(u))
+    cur = u
+    while True:
+        prox = re.sub(r"(?:\.\d+|[\s\-–]+(?:\d+|[IVX]+))$", "", cur).strip()
+        if not prox or prox == cur:
+            break
+        _add(prox)
+        cur = prox
+    return out
+
+
+def _inv_bloco_da_sub_usina(dias: dict, usina: str) -> dict:
+    """Da aba da usina física, só os inversores do bloco da sub-usina: 'Barretos 2' → 'Inversor 2.x'. O bloco é o
+    último número do nome da usina e o PRIMEIRO do nome do inversor. Se nenhum inversor casar (aba com outra
+    numeração), devolve a aba inteira — melhor tudo do que nada."""
+    m = re.search(r"(\d+)\s*$", (usina or "").strip())
+    if not m or not dias:
+        return dias
+    bloco = m.group(1)
+    out, achou = {}, False
+    for d, e in dias.items():
+        inv = {k: v for k, v in (e.get("inv") or {}).items()
+               if (re.findall(r"\d+", str(k)) or [None])[0] == bloco}
+        achou = achou or bool(inv)
+        out[d] = dict(e, inv=inv)
+    return out if achou else dias
+
+
+def _inv_dias_por_base(fonte: str, usina: str, ano: int, mes: int) -> list:
+    """[(origem, {dia ISO: {"ipoa", "inv": {...}}})] na ordem de confiança, só das bases que cabem à usina:
+    Thopen → BD_Thopen (aba da usina; sem ela, a da usina física filtrada pelo bloco) e BD_Performance de reserva;
+    demais → só BD_Performance. Quem consome pega, por dia, a primeira base com dado — e diz a `origem`."""
+    if not (usina or "").strip():
+        return []
+    bases = []
+    if _inv_usina_thopen(fonte, usina):
+        bdt = _bdthopen_inv_dias(usina, ano, mes)
+        for alt in ([] if bdt else _inv_usina_fisica_cands(usina)):
+            bdt = _inv_bloco_da_sub_usina(_bdthopen_inv_dias(alt, ano, mes), usina)
+            if bdt:
+                break
+        bases.append(("bd_thopen", bdt or {}))
+    bases.append(("bd_performance", _bdperf_inv_dias(usina, ano, mes)))
+    return bases
+
+
 def _inv_sem_base(fonte: str, usina: str) -> str:
     """Por que esta usina não tem energia por inversor — texto que a tela mostra no lugar do vazio."""
-    if fonte == "pg":
-        return f"a usina '{usina}' não tem aba diária com geração por inversor no BD_Thopen neste mês" if usina \
-            else "sem o nome da usina não dá para achar a aba no BD_Thopen"
+    if _inv_usina_thopen(fonte, usina):
+        if not usina:
+            return "sem o nome da usina não dá para achar a aba no BD_Thopen"
+        return f"a usina '{usina}' não tem aba diária com geração por inversor no BD_Thopen neste mês"
     if not usina:
         return "sem o nome da usina não dá para achar a aba no BD_Performance"
     return f"a usina '{usina}' não tem aba com colunas de inversor no BD_Performance — a coleta precisa criá-las"
@@ -21498,17 +21611,14 @@ def _inv_historico(fonte: str, pid, usina: str, ano: int, mes: int, agora: datet
     nome_de = _inv_nome_de(fonte, pid)
 
     fontes = []                                      # [(origem, {dia: {nome: kwh}})]
-    if fonte == "pg":                                # Thopen: a aba diária do BD_Thopen, por inversor
-        bdt = _bdthopen_inv_dias(usina, ano, mes) if usina else {}
-        fontes.append(("bd_thopen", {d: {nome_de(k): v for k, v in e["inv"].items()} for d, e in bdt.items() if e.get("inv")}))
-        for d, e in bdt.items():
+    # usina Thopen (por CLIENTE, não por fonte — Levi, 11/09/2026): aba diária do BD_Thopen primeiro, BD_Performance
+    # de reserva; as demais só BD_Performance. Ver _inv_dias_por_base. A aba do BD_Thopen usa o nome da fonte → nome_de.
+    for origem, m_ in _inv_dias_por_base(fonte, usina, ano, mes):
+        tr = nome_de if origem == "bd_thopen" else (lambda k: k)
+        fontes.append((origem, {d: {tr(k): v for k, v in e["inv"].items()} for d, e in m_.items() if e.get("inv")}))
+        for d, e in m_.items():
             if e.get("ipoa"):
                 ipoa_dia.setdefault(d, e["ipoa"])
-    bdp = _bdperf_inv_dias(usina, ano, mes) if usina else {}
-    fontes.append(("bd_performance", {d: e["inv"] for d, e in bdp.items() if e.get("inv")}))
-    for d, e in bdp.items():
-        if e.get("ipoa"):
-            ipoa_dia.setdefault(d, e["ipoa"])
 
     # 3) por dia vale a primeira fonte que tem o dado
     dias = {}

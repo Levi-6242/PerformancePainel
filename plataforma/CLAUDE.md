@@ -134,6 +134,22 @@ ou brilho com outro significado — OS aberta é chip laranja no rodapé. Gotcha
 de CURVA e fica pausada à noite; mudança de régua só aparece nos cards da Athon/Axis no ciclo da manhã (a tela
 tem fallback para linhas do snapshot antigo sem `sensor`/`sensores`).
 
+## Histórico por inversor: base por CLIENTE e drill-down do dia
+
+Desde 11/09/2026 a base do histórico/energia por inversor (`/api/<fonte>/inversores/historico` e `energia-mes`)
+é escolhida pelo **cliente**, não pela fonte: usina Thopen (fonte `pg`, carteira do 5080 ou cliente 'Thopen' na
+Info Geral — `_inv_usina_thopen`) lê a aba diária do **BD_Thopen** primeiro, BD_Performance de reserva; as
+demais só BD_Performance (`_inv_dias_por_base`). Colorado 2, Barretos, Ceilândia, Ouro Branco… são API PV e
+caíam no BD_Performance, que não tem aba por inversor para elas. Sub-usina sem aba própria cai na da usina
+**física** filtrada pelo bloco (`Barretos 2` → aba `Barretos`, só os `Inversor 2.x`). No Diagnóstico v2 a linha
+do dia do "Histórico do mês" abre um drill-down com a curva daquele dia (mesmos endpoints da aba Curvas; ETM da
+fonte para POA/GHI/POA-RI; `temp`/`pac` do inversor só na API PV e só HOJE — `_spv_analise_inversor`), séries
+ligáveis por chip; a coluna **% disp** refaz no front a régua do Gerencial (`disponibilidade.py`: só Religamento,
+Religamento Remoto e Corretiva Emergencial, janela solar 06–18h, OS aberta sem fim = 0 h; cabine e conferência
+pela geração ficam só no Gerencial) com as OS já carregadas do Fracttal (`OSALL`/`OSSITE`). Gotcha: a API PV só
+entrega ETM intradiária do dia atual (dia passado → `sem_historico`) — o drill-down diz isso em vez de esconder.
+Na aba Curvas, de madrugada o card recua UMA vez para ontem quando hoje ainda não tem curva (`_icRecuou`).
+
 ## Sol por estado (macro e sino)
 
 **O pôr do sol não é falha.** Medido em 10/09/2026 às 17:52: 89 de 102 usinas "críticas" no `/api/macro` e

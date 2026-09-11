@@ -173,12 +173,17 @@ table.v2t td{padding:7px 8px;border-top:1px solid var(--line);vertical-align:mid
 .v2act{font:600 11px var(--font);border:1px solid var(--line-2);background:var(--panel-2);color:var(--txt);padding:4px 9px;border-radius:7px;cursor:pointer;margin:2px 4px 0 0}.v2act:hover{border-color:var(--brand)}
 .v2tog{display:inline-flex;gap:2px;background:var(--raise);border-radius:8px;padding:2px;margin:0 0 8px}.v2tog button{border:0;background:transparent;color:var(--muted);font:600 11px var(--font);padding:5px 10px;border-radius:6px;cursor:pointer}.v2tog button.on{background:var(--brand);color:#16140e}
 .v2exp .g .full{grid-column:1/-1}.v2t.v2h td,.v2t.v2h th{padding:4px 8px;font-size:11.5px}.v2t.v2h tfoot td{border-top:1px solid var(--line-2)}
+/* drill-down do DIA dentro do histórico (11/09): curva do dia em dois gráficos, chips ligam/desligam as séries */
+.v2t.v2h tr.v2hd td{padding:10px 10px 14px!important;background:rgba(0,0,0,.14)!important;text-align:left}.v2hd-g{display:grid;grid-template-columns:1.35fr 1fr;gap:16px}@media (max-width:1100px){.v2hd-g{grid-template-columns:1fr}}
+.v2hd-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px;font-size:12px;color:var(--muted)}.v2hd-head b{color:var(--txt)}
+.v2chipt{font:600 10.5px var(--font);border:1px solid var(--line-2);background:var(--panel-2);color:var(--txt);padding:2px 8px;border-radius:12px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;margin:0 4px 6px 0}.v2chipt i{width:9px;height:9px;border-radius:2px;display:inline-block}.v2chipt.off{opacity:.45}.v2chipt.off span{text-decoration:line-through}.v2chipt.na{opacity:.35;cursor:default}
+.v2t.v2h tbody tr.hd td:first-child{text-align:left;white-space:nowrap}
 </style>
 </head>
 <body>
 <div class="topbar">
   <div class="logo"><span class="g">Grid</span><span class="c"> Co.</span></div>
-  <a class="back" href="/painel">← Portfólio</a><a class="back" id="v2Antigo" href="#" title="A tela anterior, intacta" style="margin-left:4px;color:var(--faint)">versão anterior</a>
+  <a class="back" href="/painel">← Portfólio</a>
   <div class="scope">▸ <b id="uName">Usina</b> <span id="uMeta"></span></div>
   <div class="spacer"></div>
   <input type="date" id="v2Dia" onchange="v2SetDia(this.value)" title="Dia do diagnóstico — vale para trackers, curvas e energia por inversor"
@@ -515,6 +520,11 @@ async function completarIrmas(){
 /* ── Ordens de serviço Fracttal (acima do diagnóstico) — Corretiva/Emergencial/Religamento ── */
 const OS_TIPOS=new Set(['corretiva','corretiva emergencial','religamento','religamento remoto']);
 let OSBYINV={};   // nome inversor (display) -> [OS ABERTAS dos tipos acompanhados] p/ cruzar no diagnóstico
+// TODAS as OS do mês por inversor (abertas e concluídas) + as de nível USINA — base da coluna "% disp" do histórico do
+// inversor. Régua do Gerencial (plataforma/disponibilidade.py): só Religamento, Religamento Remoto e Corretiva
+// Emergencial contam; 'Corretiva' simples ficou de fora (decisão do Levi, 29/08).
+let OSALL={}, OSSITE=[];
+const DISP_TIPOS=new Set(['religamento','religamento remoto','corretiva emergencial']);
 function osTipoCor(t){ t=(t||'').toLowerCase();
   if(t==='corretiva emergencial') return ['rgba(220,38,38,.14)','var(--red)'];
   if(t==='corretiva') return ['rgba(217,119,6,.14)','var(--amber)'];
@@ -720,6 +730,8 @@ async function loadFracttalOS(){
     const ab=(v.os||[]).filter(o=>o.aberta&&OS_TIPOS.has(String(o.tipo||'').toLowerCase()));
     if(ab.length) OSBYINV[nm]=ab;
   });
+  OSALL={}; Object.entries(d.por_inversor||{}).forEach(([nm,v])=>{ OSALL[nm]=(v.os||[]).slice(); });   // % disp do histórico
+  OSSITE=(d.usina_os||[]).slice();
   const todas=[]; (d.usina_os||[]).forEach(o=>todas.push(o));
   Object.values(d.por_inversor||{}).forEach(v=>(v.os||[]).forEach(o=>todas.push(o)));
   const seen=new Set(), rows=[];
@@ -1025,12 +1037,13 @@ const CURVA_EP={
 // inteira no SunOp é lenta demais) → a referência da usina é a energia mediana da usina escalada.
 const CURVA_SCOPE={pv:'usina',pg:'usina',athon:'inv',axis:'inv'}[FONTE]||null;
 let INVCURVA=null, _icCache={}, icSelInv=null, icModo='str', chInv=null;
+let _icRecuou=false;   // a curva de HOJE veio vazia e o card já recuou para ontem nesta data (não recua duas vezes)
 function _icDataBR(){
   const v=(document.getElementById('icData')||{}).value;             // filtro de dia do card
   const d=v?new Date(v+'T12:00'):new Date();
   return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+'/'+d.getFullYear();
 }
-function icSetData(){ INVCURVA=null; _icCache={};                    // dia mudou → invalida e recarrega
+function icSetData(){ INVCURVA=null; _icCache={}; _icRecuou=false;  // dia mudou → invalida e recarrega
   if(icSelInv){ document.getElementById('invCurvaSub').textContent='Carregando a curva de '+icSelInv+' em '+_icDataBR()+'…'; selInvCurva(icSelInv); } }
 function setInvCurvaModo(m){ icModo=m; if(icSelInv) renderInvCurva(); }
 // Vista do card único: 'corr' (padrão) | 'inv' | 'str'. Alterna os blocos, o seletor de dia (só nas
@@ -1070,12 +1083,34 @@ async function ensureInvCurva(nome){
   }catch(e){ INVCURVA={_erro:e.name==='AbortError'?'A Plataforma demorou demais (SunOp lento) — clique de novo.':String(e)}; }
   return INVCURVA;
 }
+// A resposta trouxe curva DESTE inversor? (pode vir sem inversores, sem este, ou com as strings todas nulas)
+function _icTemCurva(nome){
+  const ic=INVCURVA; if(!ic||ic._erro||ic._naosuportado||!ic.inversores) return false;
+  const inv=(ic.inversores||[]).find(i=>i.nome===nome||String(i.nome).endsWith(nome));
+  return !!(inv&&_seriesOf(inv).some(([,s])=>(s.y||[]).some(v=>v!=null)));
+}
 async function selInvCurva(nome){
   icSelInv=nome;
   if(_curvaVista==='corr') setCurvaVista('str');    // clicou num inversor → sai da Correlação (para Strings, o padrão)
   document.querySelectorAll('.hm-row').forEach(r=>{ r.style.background=(r.dataset.inv===nome)?'var(--raise)':''; });
   document.getElementById('invCurvaSub').textContent='Carregando a curva de '+nome+' em '+_icDataBR()+'…';
   await ensureInvCurva(nome);
+  // OBS do Levi (11/09, CPP100 à 01:00): o card nasce em HOJE e de madrugada ainda não há curva — parecia defeito da
+  // fonte. Sem curva de hoje para este inversor, recua UMA vez para ontem (último dia fechado) e diz isso no subtítulo.
+  const ic=document.getElementById('icData');
+  if(!_icTemCurva(nome)&&ic&&ic.value===v2HojeISO()&&!_icRecuou){
+    _icRecuou=true;
+    const hojeBR=_icDataBR(), d=new Date(); d.setDate(d.getDate()-1);
+    ic.value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    INVCURVA=null; _icCache={};
+    document.getElementById('invCurvaSub').textContent='Hoje ('+hojeBR+') ainda sem curva — carregando ontem, '+_icDataBR()+'…';
+    await ensureInvCurva(nome);
+    if(icSelInv!==nome) return;                       // clicou noutro inversor enquanto carregava
+    renderInvCurva();
+    const sub=document.getElementById('invCurvaSub');
+    sub.textContent='Hoje ('+hojeBR+') ainda não há curva deste inversor — mostrando ontem, '+_icDataBR()+'. '+sub.textContent;
+    return;
+  }
   renderInvCurva();
 }
 function _median(arr){ const v=arr.filter(x=>x!=null&&!isNaN(x)).sort((a,b)=>a-b); if(!v.length)return null; const m=Math.floor(v.length/2); return v.length%2?v[m]:(v[m-1]+v[m])/2; }
@@ -1334,7 +1369,7 @@ async function overlayCorrelacao(t){
    curvas (agora nas abas Mês e Curvas). Aqui entram: os 5 KPIs novos (renderBelow redefinida), a tabela de inversores e
    a de trackers, alimentadas pelo que o antigo já buscou + PR de hoje, gêmeo, de-para, book de paradas, recorrência,
    OS sugeridas, notificações e a energia do mês por inversor. Cada busca tem prazo; quem falha vira '—'. */
-const V2={tab:'inv',invModo:'energia',fInv:'todos',fTrk:'prob',dia:null,edia:null,sel:null,pr:null,gid:null,gemeo:null,gemeoMes:null,depara:null,hist:null,rec:null,sug:null,notif:null,emes:null,osPerf:null,falhas:{}};
+const V2={tab:'inv',invModo:'energia',fInv:'todos',fTrk:'prob',dia:null,edia:null,sel:null,histAberto:null,corrVis:{inv:true,poa:true,ghi:true,poari:true,temp:true},pr:null,gid:null,gemeo:null,gemeoMes:null,depara:null,hist:null,rec:null,sug:null,notif:null,emes:null,osPerf:null,falhas:{}};
 const V2_SK={pv:'pv',pg:'pg',athon:'sunop',axis:'axis','2c':'owen'}[FONTE]||FONTE;
 const V2_PR={pv:'/api/pv/pr/'+ID,pg:'/api/pg/pr/'+ID,athon:'/api/sunop/pr/'+ID,axis:'/api/axis/pr/'+ID,solaredge:'/api/solaredge/pr/'+ID}[FONTE]||null;
 const V2_GF={pg:'pg',athon:'sunop',axis:'axis'}[FONTE]||null;
@@ -1502,7 +1537,10 @@ function v2TabInv(){
   if(nota&&mm&&H) nota.innerHTML+=` Meta: ${H.n_dias} dia${H.n_dias===1?'':'s'} fechado${H.n_dias===1?'':'s'}, fatia por ${H.rateio==='potencia'?'potência do cadastro':'partes iguais'}; % meta IPOA = gerado ÷ (potência × IPOA que veio × PR meta${H.pr_meta!=null?' '+nf(H.pr_meta*100)+'%':''}).`;
 }
 window.v2InvModo=m=>{ V2.invModo=m; v2Render(); };
-/* ── histórico do mês do inversor, dia a dia (Levi, 07/09): geração, IPOA, PR, meta do dia e meta pelo IPOA ── */
+/* ── histórico do mês do inversor, dia a dia (Levi, 07/09): geração, IPOA, PR, meta do dia e meta pelo IPOA.
+   11/09 (Levi): a linha do dia abre um DRILL-DOWN com a curva daquele dia (correlação inversor × irradiância × temperatura,
+   com as séries ligáveis, e as strings), ganhou a coluna "% disp" (OS do Fracttal em horas solares — régua do Gerencial)
+   e a coluna "fonte" virou legenda, porque é a mesma em todos os dias. ── */
 function v2HistInv(i){
   const H=V2.h30, cab='<h4>Histórico do mês</h4>';
   if(H===undefined||H===null) return `<div class="full">${cab}<div class="li">carregando…</div></div>`;
@@ -1510,13 +1548,147 @@ function v2HistInv(i){
   const k=i.nome, ka=i.nome_api, rows=H.dias.map(d=>({d,x:d.inv[k]||d.inv[ka]})).filter(r=>r.x);
   if(!rows.length) return `<div class="full">${cab}<div class="li" style="color:var(--faint)">este inversor não aparece nos dias fechados do mês</div></div>`;
   const pc=v=>v==null?'—':`<span style="color:${v>=95?'var(--ok)':v>=85?'var(--amber)':'var(--red)'}">${nf(v)}%</span>`;
-  const tt=H.inversores[k]||H.inversores[ka]||{};
-  const tr=rows.map(({d,x})=>`<tr class="l" onclick="v2HistCurva('${v2esc(k).replace(/'/g,'')}','${d.data}',event)" title="Ver a curva das strings deste inversor em ${d.data.slice(8,10)}/${d.data.slice(5,7)}"><td>${d.data.slice(8,10)}/${d.data.slice(5,7)}</td><td class="v2n">${nf(x.ger)}</td><td class="v2n">${d.ipoa==null?'—':nf(d.ipoa,2)}</td><td class="v2n">${x.pr==null?'—':nf(x.pr*100)+'%'}</td><td class="v2n">${x.meta==null?'—':nf(x.meta)}</td><td class="v2n">${x.meta_ipoa==null?'—':nf(x.meta_ipoa)}</td><td class="v2n">${pc(x.meta?x.ger/x.meta*100:null)}</td><td class="v2n">${pc(x.meta_ipoa?x.ger/x.meta_ipoa*100:null)}</td><td style="color:var(--faint)">${v2esc(({bd_thopen:'BD_Thopen',bd_performance:'BD_Performance'})[d.origem]||String(d.origem||''))}</td></tr>`).join('');
+  const tt=H.inversores[k]||H.inversores[ka]||{}, kq=v2esc(k).replace(/'/g,''), ab=(V2.histAberto&&V2.histAberto.inv===k)?V2.histAberto.dia:null;
+  let hOs=0, comOs=0;
+  const tr=rows.map(({d,x})=>{ const dp=_dispDia(k,d.data); hOs+=dp.h; if(dp.det.length) comOs++;
+    const open=ab===d.data, dd=d.data.slice(8,10)+'/'+d.data.slice(5,7);
+    const linha=`<tr class="l hd ${open?'sel':''}" onclick="v2HistToggle('${kq}','${d.data}',event)" title="${open?'fechar a curva deste dia':'abrir a curva deste dia: correlação (inversor × irradiância × temperatura) e strings'}"><td>${open?'▾':'▸'} ${dd}</td><td class="v2n">${nf(x.ger)}</td><td class="v2n">${d.ipoa==null?'—':nf(d.ipoa,2)}</td><td class="v2n">${x.pr==null?'—':nf(x.pr*100)+'%'}</td><td class="v2n">${x.meta==null?'—':nf(x.meta)}</td><td class="v2n">${x.meta_ipoa==null?'—':nf(x.meta_ipoa)}</td><td class="v2n">${pc(x.meta?x.ger/x.meta*100:null)}</td><td class="v2n">${pc(x.meta_ipoa?x.ger/x.meta_ipoa*100:null)}</td>${_dispTd(dp)}</tr>`;
+    return open?linha+`<tr class="v2exp v2hd"><td colspan="9">${_histDrillHtml(k,d.data)}</td></tr>`:linha; }).join('');
+  const dispMes=rows.length?100*(1-hOs/(12*rows.length)):null;
+  if(ab) setTimeout(()=>v2HistDrawDia(k,ab),0);   // o innerHTML acabou de recriar os canvases: desenha depois do render
   return `<div class="full"><h4>Histórico do mês · ${v2esc(k)} · ${rows.length} dia${rows.length===1?'':'s'} fechado${rows.length===1?'':'s'}</h4>
-    <div style="overflow-x:auto"><table class="v2t v2h"><thead><tr><th>Dia</th><th class="v2n">kWh</th><th class="v2n">IPOA</th><th class="v2n">PR</th><th class="v2n">meta do dia</th><th class="v2n">meta IPOA</th><th class="v2n">% meta</th><th class="v2n">% IPOA</th><th>fonte</th></tr></thead>
-    <tbody>${tr}</tbody><tfoot><tr><td><b>mês</b></td><td class="v2n"><b>${nf(tt.ger)}</b></td><td></td><td class="v2n">${tt.pr==null?'—':nf(tt.pr*100)+'%'}</td><td class="v2n">${tt.meta==null?'—':nf(tt.meta)}</td><td class="v2n">${tt.meta_ipoa==null?'—':nf(tt.meta_ipoa)}</td><td class="v2n">${pc(tt.pct_meta)}</td><td class="v2n">${pc(tt.pct_ipoa)}</td><td></td></tr></tfoot></table></div>
-    <div class="li" style="margin-top:6px;font-size:11px;color:var(--faint)">clique no dia para ver a curva das strings daquele dia · meta do dia = P50 do mês ÷ dias × fatia do inversor (${H.rateio==='potencia'?'potência do cadastro':'partes iguais'}) · meta IPOA = potência × IPOA do dia × PR meta${H.pr_meta!=null?' ('+nf(H.pr_meta*100)+'%)':''} = o que o sol que veio permitia · PR = kWh ÷ (IPOA × potência) · dia em curso entra depois das 19h · fonte: ${v2esc((H.origens||[]).map(o=>({bd_thopen:'BD_Thopen',bd_performance:'BD_Performance'})[o]||o).join(' + ')||'—')}</div></div>`;
+    <div style="overflow-x:auto"><table class="v2t v2h"><thead><tr><th>Dia</th><th class="v2n">kWh</th><th class="v2n">IPOA</th><th class="v2n">PR</th><th class="v2n">meta do dia</th><th class="v2n">meta IPOA</th><th class="v2n">% meta</th><th class="v2n">% IPOA</th><th class="v2n" title="disponibilidade do inversor no dia = 1 − horas solares (06–18h) em OS de Religamento, Religamento Remoto ou Corretiva Emergencial (no inversor ou na usina inteira) ÷ 12 h — a régua do Gerencial; passe o mouse no valor para ver a OS e quanto durou">% disp</th></tr></thead>
+    <tbody>${tr}</tbody><tfoot><tr><td><b>mês</b></td><td class="v2n"><b>${nf(tt.ger)}</b></td><td></td><td class="v2n">${tt.pr==null?'—':nf(tt.pr*100)+'%'}</td><td class="v2n">${tt.meta==null?'—':nf(tt.meta)}</td><td class="v2n">${tt.meta_ipoa==null?'—':nf(tt.meta_ipoa)}</td><td class="v2n">${pc(tt.pct_meta)}</td><td class="v2n">${pc(tt.pct_ipoa)}</td><td class="v2n" title="${_hFmt(hOs)} solares em OS nos ${rows.length} dias fechados · ${comOs} dia${comOs===1?'':'s'} com OS de parada">${dispMes==null?'—':pc(dispMes)}</td></tr></tfoot></table></div>
+    <div class="li" style="margin-top:6px;font-size:11px;color:var(--faint)">clique no dia para abrir a curva daquele dia (correlação e strings) · <b style="color:var(--muted)">fonte da geração: ${v2esc((H.origens||[]).map(o=>({bd_thopen:'BD_Thopen',bd_performance:'BD_Performance'})[o]||o).join(' + ')||'—')}</b> · meta do dia = P50 do mês ÷ dias × fatia do inversor (${H.rateio==='potencia'?'potência do cadastro':'partes iguais'}) · meta IPOA = potência × IPOA do dia × PR meta${H.pr_meta!=null?' ('+nf(H.pr_meta*100)+'%)':''} = o que o sol que veio permitia · PR = kWh ÷ (IPOA × potência) · % disp = régua do Gerencial: OS de Religamento / Religamento Remoto / Corretiva Emergencial em horas solares 06–18h, no inversor ou na usina inteira; OS aberta sem fim não conta (cabine e conferência pela geração só no Gerencial) · dia em curso entra depois das 19h</div></div>`;
 }
+window.v2HistToggle=(inv,dia,ev)=>{ if(ev)ev.stopPropagation();
+  const ab=V2.histAberto; V2.histAberto=(ab&&ab.inv===inv&&ab.dia===dia)?null:{inv,dia};
+  v2Render(); };
+function _hFmt(h){ const m=Math.round((h||0)*60); return m<60?`${m} min`:`${Math.floor(m/60)}h${String(m%60).padStart(2,'0')}`; }
+// Disponibilidade do inversor num DIA — a régua do Gerencial (plataforma/disponibilidade.py) refeita no front com as OS já
+// carregadas do Fracttal para o mês: só Religamento, Religamento Remoto e Corretiva Emergencial; janela solar 06–18h (12 h);
+// OS do ATIVO do inversor + OS de nível USINA (usina inteira parada); OS aberta sem fim = 0 h (como lá, "cenário à parte");
+// sobreposições unidas — nunca passa de 12 h. O que fica só no Gerencial: escopo de CABINE e a conferência "OS longa × geração".
+function _dispDia(nome, dia){
+  const j0=new Date(dia+'T06:00:00').getTime(), j1=new Date(dia+'T18:00:00').getTime();
+  const lst=[]; ((OSALL||{})[nome]||[]).forEach(o=>lst.push({o,nivel:'inversor'})); (OSSITE||[]).forEach(o=>lst.push({o,nivel:'usina'}));
+  const fmt=t=>{ const d=new Date(t); return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
+  const vis=new Set(), ints=[], det=[], outras=[];
+  lst.forEach(({o,nivel})=>{
+    if(vis.has(o.folio)) return; vis.add(o.folio);
+    if(!DISP_TIPOS.has(String(o.tipo||'').toLowerCase())||!o.evento_ts) return;
+    const a=new Date(o.evento_ts).getTime(); if(isNaN(a)) return;
+    const rot=`OS #${o.folio||'?'} ${o.tipo||''}${nivel==='usina'?' · usina inteira':''}`;
+    if(!o.fim_ts){ if(a<=j1) outras.push(`${rot} · em aberto desde ${fmt(a)} — sem fim não conta (como no Gerencial)`); return; }
+    const b=new Date(o.fim_ts).getTime(); if(isNaN(b)) return;
+    const x0=Math.max(a,j0), x1=Math.min(b,j1); if(x1<=x0) return;
+    ints.push([x0,x1]); det.push(`${rot} · ${_hFmt((x1-x0)/36e5)} solares neste dia · ${fmt(a)} → ${fmt(b)}${o.ativo?' · '+o.ativo:''}`);
+  });
+  ints.sort((p,q)=>p[0]-q[0]); let h=0, cur=null;
+  ints.forEach(([a,b])=>{ if(cur&&a<=cur[1]) cur[1]=Math.max(cur[1],b); else { if(cur) h+=(cur[1]-cur[0]); cur=[a,b]; } }); if(cur) h+=(cur[1]-cur[0]);
+  h=Math.min(12,h/36e5);
+  return {pct:100*(1-h/12),h,det,outras};
+}
+function _dispTd(dp){
+  const c=dp.det.length?(dp.pct>=95?'var(--amber)':'var(--red)'):'var(--ok)';
+  const tit=(dp.det.length?dp.det:['sem OS de parada neste dia']).concat(dp.outras).join('\n');
+  return `<td class="v2n" style="color:${c}" title="${v2esc(tit)}">${nf(dp.pct)}%${dp.det.length?` <small style="color:var(--faint)">${_hFmt(dp.h)}</small>`:''}</td>`;
+}
+/* Drill-down do DIA: dois gráficos na mesma grade 06:00–18:00 (10 min) da aba Curvas. A) correlação — potência do inversor
+   (ou a mediana das strings, quando a fonte não dá Pac) × POA / GHI / POA-RI da ETM da fonte × temperatura do inversor, cada
+   série com o próprio eixo e um chip para ligar/desligar; B) as strings do inversor, outliers em âmbar. Mesmos endpoints da
+   aba Curvas (cache por dia — e por inversor no SunOp) e da ETM; o que a fonte NÃO tem naquele dia é dito, não escondido. */
+const _hdCache={curva:{},etm:{}}, _hdCharts={corr:null,str:null};
+const _HD_GRID=(()=>{ const L=[]; for(let m=360;m<=1080;m+=10) L.push(String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0')); return L; })();
+function _hdId(k,dia){ return 'hd-'+v2nrm(k).replace(/[^a-z0-9]/g,'')+'-'+dia.replace(/-/g,''); }
+function _hdBR(dia){ return dia.slice(8,10)+'/'+dia.slice(5,7)+'/'+dia.slice(0,4); }
+function _hdCel(h){ const m=/(\d+):(\d+)/.exec(String(h||'')); if(!m) return -1; const c=Math.round(((+m[1])*60+(+m[2])-360)/10); return (c>=0&&c<_HD_GRID.length)?c:-1; }
+function _hdGrade(xs,ys){ const s=new Array(_HD_GRID.length).fill(0), n=new Array(_HD_GRID.length).fill(0);   // média por célula de 10 min
+  (xs||[]).forEach((h,i)=>{ const c=_hdCel(h), v=(ys||[])[i]; if(c<0||v==null||isNaN(v)) return; s[c]+=+v; n[c]++; });
+  return s.map((v,i)=>n[i]?v/n[i]:null); }
+function _hdEtmUrl(dia){
+  if(FONTE==='pg') return `/api/pg/etm/chart?plant_id=${ID}&date=${dia}`;
+  if(FONTE==='athon') return `/api/sunop/etm/chart?plant=${encodeURIComponent(PLANT_ID)}&date=${dia}`;
+  if(FONTE==='axis') return `/api/axis/etm/chart?plant=${encodeURIComponent(PLANT_ID)}&date=${dia}`;
+  if(FONTE==='pv'||FONTE==='semp'||FONTE==='alveslima') return `/api/etm/chart?plant_id=${ID}&date=${dia}`;   // só o dia atual tem ETM intradiária na API PV
+  return null;
+}
+function _histDrillHtml(k,dia){
+  const id=_hdId(k,dia), kq=v2esc(k).replace(/'/g,''), dd=dia.slice(8,10)+'/'+dia.slice(5,7);
+  return `<div class="v2hd-head"><b>${v2esc(k)} · ${dd}</b><span id="${id}-sub">carregando a curva de ${dd}…</span><button class="v2act" style="margin-left:auto" onclick="v2HistCurva('${kq}','${dia}',event)">abrir na aba Curvas</button></div>
+    <div class="v2hd-g"><div><h4>Correlação · inversor × irradiância × temperatura</h4><div id="${id}-chips"></div><div class="cwrap" style="height:220px"><canvas id="${id}-corr"></canvas></div><div class="v2-nota" id="${id}-nota"></div></div>
+    <div><h4>Strings do inversor</h4><div class="cwrap" style="height:220px;margin-top:27px"><canvas id="${id}-str"></canvas></div><div class="v2-nota" id="${id}-snota"></div></div></div>`;
+}
+async function v2HistDrawDia(k,dia){
+  const id=_hdId(k,dia), sub=document.getElementById(id+'-sub'); if(!sub) return;   // a linha já fechou
+  if(!CURVA_SCOPE){ sub.textContent=(FONTE==='2c')?'a 2C entrega leitura pontual das strings (sem série ao longo do dia)':'curva por string indisponível nesta fonte'; return; }
+  const br=_hdBR(dia), ck=CURVA_SCOPE==='inv'?dia+'|'+k:dia;
+  // promessas em cache: o v2Render redesenha várias vezes enquanto a fonte responde e NÃO pode disparar o fetch de novo
+  if(!_hdCache.curva[ck]) _hdCache.curva[ck]=(async()=>{ const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
+    try{ return await fetch(CURVA_EP[FONTE](encodeURIComponent(br),(window.IC_INVID&&IC_INVID[k])||k),{signal:ctrl.signal}).then(r=>r.json()); }
+    catch(e){ return {_erro:e.name==='AbortError'?'a fonte demorou demais (SunOp lento) — feche e abra o dia de novo':String(e)}; }
+    finally{ clearTimeout(tmo); } })();
+  if(!_hdCache.etm[dia]) _hdCache.etm[dia]=(async()=>{ const u=_hdEtmUrl(dia); if(!u) return null;
+    try{ return await v2GET(u,40000); }catch(e){ return {_erro:String(e&&e.message||e)}; } })();
+  const [cur,etm]=await Promise.all([_hdCache.curva[ck],_hdCache.etm[dia]]);
+  try{ _hdDesenha(k,dia,cur,etm); }catch(e){ console.error('[v2] drill do dia',e); const s2=document.getElementById(id+'-sub'); if(s2) s2.textContent='falha ao desenhar a curva — ver console'; }
+}
+function _hdDesenha(k,dia,cur,etm){
+  const id=_hdId(k,dia), sub=document.getElementById(id+'-sub'), nota=document.getElementById(id+'-nota'), snota=document.getElementById(id+'-snota'), chips=document.getElementById(id+'-chips');
+  const cC=document.getElementById(id+'-corr'), cS=document.getElementById(id+'-str');
+  if(!cC||!cS||cC.dataset.ok) return; cC.dataset.ok='1';                 // redesenhou no meio, ou este canvas já foi pintado
+  const tk=cssv('--muted'), grid=document.body.classList.contains('dark')?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';
+  const inv=((cur&&cur.inversores)||[]).find(i=>i.nome===k||String(i.nome).endsWith(k))||null, series=inv?_seriesOf(inv):[];
+  const uni=(cur&&cur.unidade==='potencia')?'W/string':'A/string';   // API PV: hoje = corrente (day_inverter); dia passado = potência (trygenerate)
+  const avisos=[], tem=a=>!!(a&&a.some(v=>v!=null));
+  if(cur&&cur._erro) avisos.push('curva: '+cur._erro);
+  else if(!inv||!series.length) avisos.push((cur&&cur.msg)||'a fonte não devolveu a curva das strings deste inversor neste dia');
+  // A) correlação
+  const L=_HD_GRID, gS=series.map(([,s])=>_hdGrade(s.x,s.y)), med=L.map((_,c)=>_median(gS.map(g=>g[c])));
+  const pac=(inv&&inv.pac&&inv.pac.x)?_hdGrade(inv.pac.x,inv.pac.y):null, temp=(inv&&inv.temp&&inv.temp.x)?_hdGrade(inv.temp.x,inv.temp.y):null;
+  const eOk=!!(etm&&!etm._erro&&(etm.labels||[]).length);
+  const poa=eOk?_hdGrade(etm.labels,etm.poa):null, ghi=eOk?_hdGrade(etm.labels,etm.ghi):null, pri=eOk?_hdGrade(etm.labels,etm.poari):null;
+  const DS=[
+    {key:'inv',label:tem(pac)?'potência do inversor (kW)':'mediana das strings ('+uni+')',data:tem(pac)?pac:(tem(med)?med:null),color:cssv('--amber'),axis:'y',width:2.4},
+    {key:'poa',label:'POA (W/m²)',data:poa,color:cssv('--blue')||'#5bc8e8',axis:'y1',width:1.6},
+    {key:'ghi',label:'GHI (W/m²)',data:ghi,color:'#8ab4ff',axis:'y1',width:1.2,dash:[5,4]},
+    {key:'poari',label:'POA-RI (W/m²)',data:pri,color:cssv('--faint'),axis:'y1',width:1.2,dash:[2,3]},
+    {key:'temp',label:'temperatura do inversor (°C)',data:temp,color:cssv('--red'),axis:'y2',width:1.6}];
+  const vis=V2.corrVis||(V2.corrVis={inv:true,poa:true,ghi:true,poari:true,temp:true});
+  if(chips) chips.innerHTML=DS.map(d=>{ const na=!tem(d.data);
+    return `<button class="v2chipt ${na?'na':(vis[d.key]?'':'off')}" ${na?'disabled title="sem esta série neste dia"':`title="ligar/desligar" onclick="v2CorrTog('${d.key}',this)"`}><i style="background:${d.color}"></i><span>${d.label}</span></button>`; }).join('');
+  const temTemp=tem(temp), temIrr=tem(poa)||tem(ghi)||tem(pri);
+  if(_hdCharts.corr){ try{ _hdCharts.corr.destroy(); }catch(e){} _hdCharts.corr=null; }
+  if(DS.some(d=>tem(d.data))){
+    _hdCharts.corr=new Chart(cC,{type:'line',data:{labels:L,datasets:DS.filter(d=>tem(d.data)).map(d=>({label:d.label,data:d.data,borderColor:d.color,borderWidth:d.width,borderDash:d.dash||[],pointRadius:0,tension:.25,spanGaps:true,yAxisID:d.axis,hidden:!vis[d.key],_key:d.key}))},
+      options:{responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},
+        plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.y==null?'—':nf(c.parsed.y,c.dataset.yAxisID==='y1'?0:c.dataset.yAxisID==='y2'?1:2)}`}}},
+        scales:{x:{grid:{display:false},ticks:{color:tk,font:{size:9},maxTicksLimit:9}},
+          y:{position:'left',grid:{color:grid},ticks:{color:tk,font:{size:9}},beginAtZero:true,title:{display:true,text:tem(pac)?'kW':uni,color:tk,font:{size:9}}},
+          y1:{position:'right',display:temIrr,grid:{drawOnChartArea:false},ticks:{color:tk,font:{size:9}},beginAtZero:true,title:{display:true,text:'W/m²',color:tk,font:{size:9}}},
+          y2:{position:'right',display:temTemp,grid:{drawOnChartArea:false},ticks:{color:tk,font:{size:9}},title:{display:true,text:'°C',color:tk,font:{size:9}}}}}});
+  }
+  // B) strings do inversor: outlier = energia do dia < 85% da mediana das strings (mesma régua da aba Curvas)
+  if(_hdCharts.str){ try{ _hdCharts.str.destroy(); }catch(e){} _hdCharts.str=null; }
+  if(series.length){
+    const medE=inv.mediana||_median((inv.strings||[]).map(s=>s.energia));
+    const subSet=new Set((inv.strings||[]).filter(s=>s.energia!=null&&medE&&s.energia<medE*0.85).map(s=>s.nome));
+    const ds=series.map(([nome],i)=>{ const bad=subSet.has(nome); return {label:nome,data:gS[i],borderColor:bad?cssv('--amber'):'rgba(122,163,0,.35)',borderWidth:bad?2:1,pointRadius:0,tension:.25,spanGaps:true}; });
+    ds.push({label:'mediana do inversor',data:med,borderColor:cssv('--muted'),borderDash:[6,4],borderWidth:1.6,pointRadius:0,tension:.25,spanGaps:true});
+    const o=_icOpt(tk,grid,false); o.scales.y.title.text=uni;
+    _hdCharts.str=new Chart(cS,{type:'line',data:{labels:L,datasets:ds},options:o});
+    if(snota) snota.textContent=`${series.length} string${series.length===1?'':'s'} · ${subSet.size} abaixo de 85% da mediana (âmbar) · tracejada = mediana do inversor · ${uni}`;
+  } else if(snota) snota.textContent='sem curva das strings neste dia';
+  // o que a fonte NÃO tem neste dia, dito na cara
+  const hoje=dia===v2HojeISO(), apipv=(FONTE==='pv'||FONTE==='semp'||FONTE==='alveslima');
+  if(!temIrr) avisos.push((etm&&etm._erro)?'irradiância: '+etm._erro:(etm&&etm.sem_historico)?'irradiância: a API PV só entrega a ETM intradiária do dia atual — dia passado fica sem POA/GHI aqui':_hdEtmUrl(dia)?'irradiância: sem leitura da ETM neste dia':'irradiância: sem ETM intradiária nesta fonte');
+  if(!temTemp) avisos.push(apipv?(hoje?'temperatura: o inversor não informou Temp hoje':'temperatura: a API PV só traz a temperatura do inversor no dia atual'):'temperatura: sem série de temperatura do inversor nesta fonte');
+  if(nota) nota.textContent=avisos.join(' · ');
+  if(sub) sub.textContent=`curva de ${_hdBR(dia)} · ${tem(pac)?'potência do inversor':'mediana das strings'}${temIrr?' × irradiância':''}${temTemp?' × temperatura':''} · clique nos chips para ligar/desligar as séries`;
+}
+window.v2CorrTog=(key,btn)=>{ const vis=V2.corrVis||(V2.corrVis={}); vis[key]=!vis[key];
+  const ch=_hdCharts.corr; if(ch){ ch.data.datasets.forEach((d,i)=>{ if(d._key===key) ch.setDatasetVisibility(i,!!vis[key]); }); ch.update(); }
+  if(btn) btn.classList.toggle('off',!vis[key]); };
 /* ── aba Trackers ── */
 function v2TabTrk(){
   const el=document.getElementById('v2TrkBody'); if(!el) return;
@@ -1553,7 +1725,6 @@ function v2TabTrk(){
 }
 function v2Render(){ try{ renderBelow(); }catch(e){ console.error('[v2] kpis',e); } try{ if(V2.tab==='inv') v2TabInv(); else if(V2.tab==='trk') v2TabTrk(); }catch(e){ console.error('[v2] aba',e); } }
 async function v2Boot(){
-  const a=document.getElementById('v2Antigo'); if(a){ const q=new URLSearchParams(location.search); q.set('antigo','1'); a.href=location.pathname+'?'+q.toString(); }
   // o seletor nasce em hoje; ?dia=YYYY-MM-DD no link já abre o diagnóstico naquele dia (dá para mandar pronto)
   const _di=document.getElementById('v2Dia'); if(_di) _di.value=v2HojeISO();
   const _qd=(Q.get('dia')||'').trim(); if(/^\d{4}-\d{2}-\d{2}$/.test(_qd)&&_qd!==v2HojeISO()) v2SetDia(_qd);
