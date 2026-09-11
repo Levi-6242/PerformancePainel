@@ -59,7 +59,8 @@ def test_coluna_ipoa_pelada_tambem_e_lida(tmp_path, monkeypatch):
 def test_ipoa_de_verdade_zerada_continua_acusando(tmp_path, monkeypatch):
     """O painel não pode ficar cego do outro lado: sensor morto segue sendo problema."""
     probs = _roda(monkeypatch, _planilha(tmp_path, "IPOA (kWh/m²) DEF", [0.0, 0.0, 0.0]))
-    assert any("sem leitura" in p for p in probs), f"sensor morto deixou de acusar: {probs}"
+    # desde 10/09 o texto separa "zerada" (medida em zero) de "sem leitura" (coluna vazia) — aqui é zero medido
+    assert any("IPOA zerada no mês inteiro" in p for p in probs), f"sensor morto deixou de acusar: {probs}"
 
 
 def test_sensor_travado_continua_sendo_pego(tmp_path, monkeypatch):

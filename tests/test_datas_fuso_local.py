@@ -93,7 +93,8 @@ def test_no_dia_primeiro_o_painel_olha_o_mes_que_fechou(tmp_path, monkeypatch):
     saida = app._etm_problemas_build()
     assert saida["mes"] == "09/2026", "no dia 1º o mês de referência tem de ser o que acabou de fechar"
     probs = [p for it in saida["itens"] for p in it["problemas"]]
-    assert any("sem leitura" in p for p in probs), "sensor morto ficou invisível no primeiro dia do mês"
+    # desde 10/09 o texto separa "zerada" (zero medido) de "sem leitura" (coluna vazia); as duas são sensor morto
+    assert any(("sem leitura" in p) or ("zerada" in p) for p in probs), "sensor morto ficou invisível no primeiro dia do mês"
 
 
 def test_no_meio_do_mes_nada_muda(tmp_path, monkeypatch):
@@ -106,7 +107,7 @@ def test_no_meio_do_mes_nada_muda(tmp_path, monkeypatch):
     monkeypatch.setattr(app, "_gerencial_payload", lambda *a, **k: {"usinas": []})
     saida = app._etm_problemas_build()
     assert saida["mes"] == "10/2026"
-    assert any("sem leitura" in p for it in saida["itens"] for p in it["problemas"])
+    assert any(("sem leitura" in p) or ("zerada" in p) for it in saida["itens"] for p in it["problemas"])
 
 
 # ── 3. as três telas que montavam data local com toISOString ───────────────────────────────────────

@@ -2822,7 +2822,7 @@ def _entrada_tempo_real_build() -> dict:
         if k not in grupos:
             grupos[k] = {"cliente": k[0], "fonte": k[1], "fonte_id": _ENTRADA_FONTE_ID.get(k[1], ""), "usinas": {},
                          "strings_faltando": 0, "strings_nao_rec": 0, "usinas_critico": 0, "usinas_sem_comm": 0,
-                         "usinas_ok": 0, "ultima_leitura": None, "etm_problema": 0, "etm_com_os": 0, "trk_parados": 0,
+                         "usinas_ok": 0, "ultima_leitura": None, "etm_problema": 0, "etm_atencao": 0, "etm_com_os": 0, "trk_parados": 0,
                          "trk_com_os": 0, "trk_fonte_ok": False}
         return grupos[k]
 
@@ -2875,16 +2875,27 @@ def _entrada_tempo_real_build() -> dict:
     for it in ((_etm_prob_cache.get("data") or {}).get("itens") or []):
         nome_n = _nrm(_macro_usina_nome(it.get("usina") or ""))
         chave = chave_de.get(nome_n)
+        # ALARME (IPOA/GHI zerada no mes) e o que conta em etm_problema; AVISO (sensor travado, GHI que nao
+        # reporta, PR anomalo) vai para etm_atencao — regua de 10/09 (Levi): "alarmar apenas GHI e IPOA zerados".
+        alarme = _etm_item_alarme(it)
         if chave:
             x = g(*chave)
-            x["etm_problema"] += 1
-            if it.get("ticket"):
-                x["etm_com_os"] += 1
+            if alarme:
+                x["etm_problema"] += 1
+                if it.get("ticket"):
+                    x["etm_com_os"] += 1
+            else:
+                x["etm_atencao"] += 1
             for uu in x["usinas"].values():                       # anexa o diagnostico a usina certa
                 if _nrm(_macro_usina_nome(uu["usina"])) == nome_n:
                     uu["etm"] = list(it.get("problemas") or [])
+                    uu["etm_alarme"] = alarme
+                    uu["etm_alarmes"] = list(it.get("alarmes") if "alarmes" in it else (uu["etm"] if alarme else []))
+                    uu["etm_avisos"] = list(it.get("avisos") if "avisos" in it else ([] if alarme else uu["etm"]))
                     uu["etm_os"] = bool(it.get("ticket"))
         else:
+            if not alarme:                                        # rodape "fora do rollup" so lista alarmes
+                continue
             f = fora.setdefault(it.get("cliente") or "Sem cliente", {"cliente": it.get("cliente") or "Sem cliente", "n": 0, "com_os": 0})
             f["n"] += 1
             if it.get("ticket"):
@@ -3701,16 +3712,44 @@ def _etm_clamp(x):
     return round(max(0.0, x), 1)
 
 
+def _etm_sensores(series: list, poari, agora) -> dict:
+    """Resumo POR SENSOR para a tela desenhar os três blocos do card (Levi, 10/09/2026): pico da janela
+    9–15h e status. `zerado` = mediu e deu ~0 com a manhã já passada; `sem_leitura` = nenhum valor na
+    janela (sensor que a estação não tem, ou que não reportou); `ok` = o resto. É FATO por sensor —
+    quem decide se vira alarme, com os portões de sol, é a régua das flags logo abaixo."""
+    def _res(vals):
+        vals = [v for v in vals if v is not None]
+        if not vals:
+            return {"pico": None, "status": "sem_leitura"}
+        pico = max(vals)
+        return {"pico": round(pico, 1), "status": "zerado" if (agora.hour >= 10 and pico < 20) else "ok"}
+    jan = [(t, p, g) for (t, p, g) in series if 9 <= t.hour < 15]
+    return {"poa": _res([p for (_, p, _) in jan]),
+            "ghi": _res([g for (_, _, g) in jan]),
+            "poari": _res([v for (t, v) in (poari or []) if 9 <= t.hour < 15])}
+
+
 def _diagnostico_etm(series: list, poari: list = None) -> dict:
-    """series = [(datetime, poa, ghi), ...] ordenada → {flags, severidade, spark, ultima_leitura}.
+    """series = [(datetime, poa, ghi), ...] ordenada → {flags, severidade, spark, sensores, ultima_leitura}.
 
     Compartilhado por todas as fontes que tenham curva intradiária (PV, PG).
     `poari` (opcional) = [(datetime, valor)] do POA-RI. Decisão do Levi 27/08: POA-RI **fora da
     régua** — problema nele NÃO muda a severidade nem pulsa; vira flag `tipo="info"` (azul,
     alerta leve). Fonte que não tem o sensor simplesmente não passa a lista.
+
+    Régua de alarme (Levi, 10/09/2026: "alarmar apenas GHI e IPOA zerados; POA-RI é só aviso"):
+    cada flag leva `sensor` (POA/GHI/POARI/COM) e o `tipo` diz a hierarquia —
+      crit = IPOA (POA) ou GHI medidos em zero com sol, e estação muda (COM)   → alarme
+      warn = atenção (atraso de dia, GHI > POA, quedas de POA, buraco na série)
+      info = aviso (tudo do POA-RI)
+      nota = sensor que não reportou nada hoje — não existe na estação (GHI das AIML da Athon) ou
+             está mudo; cinza, nunca alarma. Antes era 'warn' e pintava 8 cards por sensor inexistente.
     """
     base = {"flags": [], "severidade": 3,
-            "spark": {"labels": [], "poa": [], "ghi": []}, "ultima_leitura": None}
+            "spark": {"labels": [], "poa": [], "ghi": []}, "ultima_leitura": None,
+            "sensores": {"poa": {"pico": None, "status": "sem_leitura"},
+                         "ghi": {"pico": None, "status": "sem_leitura"},
+                         "poari": {"pico": None, "status": "sem_leitura"}}}
     series = [s for s in series if s[0] is not None]
     if not series:
         return base
@@ -3723,11 +3762,11 @@ def _diagnostico_etm(series: list, poari: list = None) -> dict:
     # 1) Falha de comunicação — última leitura velha
     diff_min = (agora - last_t).total_seconds() / 60
     if diff_min > COMM_ALERT_MINUTES:
-        flags.append({"t": "Sem comunicação", "tipo": "crit",
+        flags.append({"t": "Sem comunicação", "tipo": "crit", "sensor": "COM",
                       "info": f"última há {int(diff_min)} min"}); sev = min(sev, 0)
     elif ETM_DIA_INI <= agora.hour < ETM_DIA_FIM and diff_min > ETM_LATE_WARN_MIN:
         # de dia, a estação parou de enviar há um tempo (mas < limite crítico) → possível falta
-        flags.append({"t": "Possível falta de dados", "tipo": "warn",
+        flags.append({"t": "Possível falta de dados", "tipo": "warn", "sensor": "COM",
                       "info": f"sem leitura nova há {int(diff_min)} min"}); sev = min(sev, 1)
 
     # 2) POA zerado — em horário de sol o pico de POA é ~0
@@ -3735,38 +3774,37 @@ def _diagnostico_etm(series: list, poari: list = None) -> dict:
     if janela and agora.hour >= 10:
         pico_jan = max([p for (_, p) in janela if p is not None] or [0])
         if pico_jan < 20:
-            flags.append({"t": "POA zerado", "tipo": "crit",
+            flags.append({"t": "POA zerado", "tipo": "crit", "sensor": "POA",
                           "info": f"pico {pico_jan:.0f} W/m²"}); sev = min(sev, 0)
 
-    # 2b) GHI zerado — espelho da regra do POA, como ATENÇÃO (o GHI é referência, não operação).
-    # Caso Canarana 1 (Levi 27/08): GHI reto no zero o dia todo com POA medindo, e nenhuma flag.
-    # Só acusa se o sensor REPORTA (valores 0.0 medidos): estação sem sensor GHI manda None em
-    # tudo e não pode virar alarme de sensor que não existe.
+    # 2b) GHI zerado — espelho da regra do POA, e desde 10/09/2026 ALARME igual a ele (Levi: "deve-se alarmar
+    # apenas GHI e IPOA zerados"). Caso Canarana 1 (27/08): GHI reto no zero o dia todo com POA medindo; caso
+    # MTS100 (10/09): POA 1.143 W/m² e GHI 0 medido — ficava âmbar, sem destaque. Só acusa se o sensor REPORTA
+    # (valores 0.0 medidos).
     ghis_jan = [g for (t, _, g) in series if 9 <= t.hour < 15 and g is not None]
     poas_jan = [p for (t, p, _) in series if 9 <= t.hour < 15 and p is not None]
     if agora.hour >= 10 and poas_jan and max(poas_jan) > 50:
         if ghis_jan and max(ghis_jan) < 20:
-            flags.append({"t": "GHI zerado", "tipo": "warn",
-                          "info": f"pico {max(ghis_jan):.0f} W/m²"}); sev = min(sev, 1)
+            flags.append({"t": "GHI zerado", "tipo": "crit", "sensor": "GHI",
+                          "info": f"pico {max(ghis_jan):.0f} W/m²"}); sev = min(sev, 0)
         elif not ghis_jan:
-            # Sensor que NÃO REPORTA (todos None) com o POA medindo normal. Primeiro escrevi a guarda
-            # oposta ("sem sensor não flagra") — o Levi derrubou na mesma hora com o caso Canarana 1
-            # (27/08): para quem opera, GHI ausente É problema a notificar, seja sensor morto ou campo
-            # que parou de vir. A tela ainda por cima desenhava os None como linha no zero, escondendo
-            # a diferença. Se aparecer usina SEM sensor GHI de fábrica flagada aqui, o caminho é knob
-            # de trancamento, não voltar a guarda.
-            flags.append({"t": "Sem leitura de GHI", "tipo": "warn",
-                          "info": "sensor não reportou hoje"}); sev = min(sev, 1)
+            # Sensor que NÃO REPORTA (todos None) com o POA medindo normal. Em 27/08 isto era 'warn' (Canarana 1:
+            # "GHI ausente É problema a notificar"). Em 10/09 o Levi viu o efeito na Athon: as estações AIML não
+            # TÊM GHI, e 8 cards ficavam alarmados por um sensor inexistente. Virou NOTA (cinza): a tela mostra
+            # "— sem leitura" no bloco do sensor, sem severidade. Sensor que existia e parou de vir aparece no
+            # diagnóstico do MÊS (BD_Performance: "GHI sem leitura no mês inteiro"), que é o lugar de notificar.
+            flags.append({"t": "Sem leitura de GHI", "tipo": "nota", "sensor": "GHI",
+                          "info": "sensor não reportou hoje"})
 
     # 2c) POA-RI — SÓ INFORMATIVO (azul), nunca severidade. Mesmo gate matinal das réguas de
     # zerado; "com o POA medindo" evita acusar sensor secundário quando a estação toda caiu.
     if poari and agora.hour >= 10 and poas_jan and max(poas_jan) > 50:
         ri_jan = [v for (t, v) in poari if 9 <= t.hour < 15 and v is not None]
         if ri_jan and max(ri_jan) < 20:
-            flags.append({"t": "POA-RI zerado", "tipo": "info",
+            flags.append({"t": "POA-RI zerado", "tipo": "info", "sensor": "POARI",
                           "info": f"pico {max(ri_jan):.0f} W/m²"})
         elif not ri_jan:
-            flags.append({"t": "Sem leitura de POA-RI", "tipo": "info",
+            flags.append({"t": "Sem leitura de POA-RI", "tipo": "info", "sensor": "POARI",
                           "info": "sensor não reportou hoje"})
 
     dia = [(t, p, g) for (t, p, g) in series
@@ -3778,7 +3816,7 @@ def _diagnostico_etm(series: list, poari: list = None) -> dict:
         cnt = sum(1 for p, g in both if g > p + 5)
         frac = cnt / len(both)
         if frac > 0.6:
-            flags.append({"t": "GHI > POA", "tipo": "warn",
+            flags.append({"t": "GHI > POA", "tipo": "warn", "sensor": "POA",
                           "info": f"{int(frac*100)}% do tempo"}); sev = min(sev, 1)
 
     # 4) Quedas de POA a zero e volta (dropouts)
@@ -3797,7 +3835,7 @@ def _diagnostico_etm(series: list, poari: list = None) -> dict:
         else:
             i += 1
     if drops >= 1:
-        flags.append({"t": f"Quedas de POA ({drops})", "tipo": "warn",
+        flags.append({"t": f"Quedas de POA ({drops})", "tipo": "warn", "sensor": "POA",
                       "info": "caiu a zero e voltou"}); sev = min(sev, 1)
 
     # 5) Possível falta de dados — buraco grande na série DURANTE O DIA (ignora madrugada,
@@ -3806,7 +3844,7 @@ def _diagnostico_etm(series: list, poari: list = None) -> dict:
     maxgap = max(((diurnas[i] - diurnas[i - 1]).total_seconds() / 60
                   for i in range(1, len(diurnas))), default=0)
     if maxgap > ETM_GAP_WARN_MIN:
-        flags.append({"t": "Possível falta de dados", "tipo": "warn",
+        flags.append({"t": "Possível falta de dados", "tipo": "warn", "sensor": "COM",
                       "info": f"buraco de {int(maxgap)} min na série"}); sev = min(sev, 1)
 
     # Sparkline (~48 pontos)
@@ -3818,6 +3856,7 @@ def _diagnostico_etm(series: list, poari: list = None) -> dict:
 
     return {"flags": flags, "severidade": sev,
             "spark": {"labels": labels, "poa": sp_poa, "ghi": sp_ghi},
+            "sensores": _etm_sensores(series, poari, agora),
             "ultima_leitura": last_t.strftime("%Y-%m-%d %H:%M")}
 
 
@@ -10990,6 +11029,66 @@ def _etm_prob_warm():
     return True
 
 
+# ── Diagnóstico do MÊS por sensor: alarme × aviso (Levi, 10/09/2026) ─────────────────────────────
+# O número "ETM · N com problema" do card da Entrada saía de UMA lista de textos, onde "GHI sem leitura"
+# (sensor que a estação talvez nem tenha) pesava o mesmo que "IPOA zerada o mês inteiro". A régua agora
+# é a mesma dos cards ao vivo: ALARME = IPOA ou GHI medidos em zero (o mês inteiro, ou 3+ dias) e IPOA
+# sem leitura (sem ela não há PR); AVISO = sensor travado (valor constante), GHI que não reporta, PR anômalo.
+def _etm_prob_classifica(serie: list, rot: str, trava_pr: bool = False) -> list:
+    """[(texto, 'alarme'|'aviso')] da série diária de um sensor (None = dia sem leitura) no mês."""
+    if not serie:
+        return []
+    suf = " — PR não calculável" if trava_pr else ""
+    n = len(serie)
+    vals = [v for v in serie if v is not None]
+    if not vals:
+        if trava_pr:
+            return [(f"{rot} sem leitura no mês inteiro ({n}d){suf}", "alarme")]
+        return [(f"{rot} sem leitura no mês inteiro ({n}d) — sensor não reporta?", "aviso")]
+    if all(v <= 0.5 for v in vals):
+        return [(f"{rot} zerada no mês inteiro ({n}d){suf}", "alarme")]
+    out = []
+    # valor CONSTANTE ≥3 dias seguidos (sensor travado; pega -1, 0.0 repetido etc.)
+    run_v = None; run_n = 0; best_v = None; best_n = 0
+    for v in serie:
+        if v is not None and v == run_v:
+            run_n += 1
+        else:
+            run_v, run_n = v, (1 if v is not None else 0)
+        if run_v is not None and run_n > best_n:
+            best_v, best_n = run_v, run_n
+    if best_n >= 3:
+        out.append((f"{rot} constante em {round(best_v, 3)} por {best_n} dias seguidos (sensor travado?)", "aviso"))
+    nz = sum(1 for v in vals if v <= 0.5)
+    if 3 <= nz < len(vals):
+        out.append((f"{rot} zerada/nula em {nz} de {n} dias", "alarme"))
+    return out
+
+
+def _etm_prob_add(probs: dict, nome: str, cliente, txt: str, tipo: str) -> None:
+    p = probs.setdefault(_nrm(nome), {"usina": nome, "cliente": cliente or "—", "alarmes": [], "avisos": []})
+    alvo = p["alarmes"] if tipo == "alarme" else p["avisos"]
+    if txt not in alvo:
+        alvo.append(txt)
+
+
+def _etm_prob_itens(probs: dict) -> list:
+    """Lista final, por usina: `alarme` (bool), `alarmes`, `avisos` e `problemas` (= alarmes + avisos, o campo
+    que a Entrada e a tela já liam antes desta separação)."""
+    itens = []
+    for p in probs.values():
+        itens.append(dict(p, alarme=bool(p["alarmes"]), problemas=list(p["alarmes"]) + list(p["avisos"])))
+    return sorted(itens, key=lambda p: p["usina"])
+
+
+def _etm_item_alarme(it: dict) -> bool:
+    """Item do mês conta como ALARME? Item antigo (snapshot de antes da separação) só tem `problemas` — vale
+    como alarme, que era a leitura de então."""
+    if "alarme" in it:
+        return bool(it.get("alarme"))
+    return bool(it.get("problemas"))
+
+
 def _etm_problemas_build():
     hoje = datetime.now()
     hoje_d = hoje.date()
@@ -10998,12 +11097,10 @@ def _etm_problemas_build():
     # frota inteira de "sem leitura no mês inteiro"). Nesse dia o mês de referência é o que ACABOU de
     # fechar — que é justamente o que se quer olhar em 1º de mês. (Varredura de 09/09/2026.)
     ref = hoje if hoje.day > 1 else (hoje.replace(day=1) - timedelta(days=1))
-    probs = {}   # nrm -> {"usina","cliente","problemas":[...]}
+    probs = {}   # nrm -> {"usina","cliente","alarmes":[...],"avisos":[...]} (ver _etm_prob_add / _etm_prob_itens)
 
-    def add(nome, cliente, txt):
-        p = probs.setdefault(_nrm(nome), {"usina": nome, "cliente": cliente or "—", "problemas": []})
-        if txt not in p["problemas"]:
-            p["problemas"].append(txt)
+    def add(nome, cliente, txt, tipo):
+        _etm_prob_add(probs, nome, cliente, txt, tipo)
 
     # 1) Abas por-usina do BD_Performance — série DIÁRIA de IPOA (ETM) e GHI do mês corrente
     try:
@@ -11043,30 +11140,9 @@ def _etm_problemas_build():
                     si.append(max(iv) if iv else None)
                     sg.append(max(gv) if gv else None)
 
-                def _diag(serie, rot, trava_pr=False):
-                    if not serie:
-                        return
-                    suf = " — PR não calculável" if trava_pr else ""
-                    vals = [v for v in serie if v is not None]
-                    if not vals or all(v <= 0.5 for v in vals):
-                        add(nome, ig.get("cliente"), f"{rot} sem leitura/zerada no mês inteiro ({len(serie)}d){suf}")
-                        return
-                    # valor CONSTANTE ≥3 dias seguidos (sensor travado; pega -1, 0.0 repetido etc.)
-                    run_v = None; run_n = 0; best_v = None; best_n = 0
-                    for v in serie:
-                        if v is not None and v == run_v:
-                            run_n += 1
-                        else:
-                            run_v, run_n = v, (1 if v is not None else 0)
-                        if run_v is not None and run_n > best_n:
-                            best_v, best_n = run_v, run_n
-                    if best_n >= 3:
-                        add(nome, ig.get("cliente"), f"{rot} constante em {round(best_v, 3)} por {best_n} dias seguidos (sensor travado?)")
-                    nz = sum(1 for v in vals if v <= 0.5)
-                    if 3 <= nz < len(vals):
-                        add(nome, ig.get("cliente"), f"{rot} zerada/nula em {nz} de {len(serie)} dias")
-                _diag(si, "IPOA", trava_pr=True)   # sem IPOA não há PR (a leitura pode vir de DEF, ETM ou crua)
-                _diag(sg, "GHI")                          # GHI não trava o PR, mas é sensor doente
+                # sem IPOA não há PR (a leitura pode vir de DEF, ETM ou crua); GHI não trava o PR, mas é sensor doente
+                for txt, tipo in _etm_prob_classifica(si, "IPOA", trava_pr=True) + _etm_prob_classifica(sg, "GHI"):
+                    add(nome, ig.get("cliente"), txt, tipo)
             except Exception:
                 continue
         wb.close()
@@ -11079,13 +11155,13 @@ def _etm_problemas_build():
         for u in g.get("usinas", []):
             pr = u.get("pr")
             if u.get("src") == "pg" and not u.get("ipoa") and (u.get("prod") or 0) > 0:
-                add(u["usina"], u.get("cliente"), "IPOA do PG zerada/ausente no mês com usina gerando — PR não calculável")
+                add(u["usina"], u.get("cliente"), "IPOA do PG zerada/ausente no mês com usina gerando — PR não calculável", "alarme")
             if pr is not None and (pr > 130 or pr < 0):
-                add(u["usina"], u.get("cliente"), f"PR anômalo ({nfmt(pr)}%) — IPOA subestimada/furada (régua SENSOR >130%)")
+                add(u["usina"], u.get("cliente"), f"PR anômalo ({nfmt(pr)}%) — IPOA subestimada/furada (régua SENSOR >130%)", "aviso")
     except Exception as e:
         print(f"[etm/problemas] gerencial falhou: {e}")
 
-    itens = sorted(probs.values(), key=lambda p: p["usina"])
+    itens = _etm_prob_itens(probs)
     return {"itens": itens, "mes": ref.strftime("%m/%Y"),
             "cache_ts": datetime.now().strftime("%H:%M:%S")}
 

@@ -546,7 +546,10 @@
       res.innerHTML = mostr("Sem comunicação", fmt(g.usinas_sem_comm), "usinas sem reportar", g.usinas_sem_comm > 0 ? " ruim" : " bom")   // primeiro: vale a qualquer hora
         + (noite ? mostr("Strings", "sem sol", "volta ao amanhecer", " mudo", "strings") : mostr("Strings faltando", strVal(g), strSub(g, " · "), strCls(g), "strings"))
         + (function(){ probEtm = (g.etm_problema || 0) > 0; return ""; })()
-        + mostr("ETM", fmt(g.etm_problema), "com problema no mês · <b>" + fmt(g.etm_com_os) + "</b> com OS", g.etm_problema > 0 ? (g.etm_com_os >= g.etm_problema ? " bom" : " aviso") : "", "etm")
+        // ETM: o número são ALARMES do mês (IPOA/GHI medido em zero no BD_Performance); avisos (sensor travado, GHI que
+        // não reporta, PR anômalo) ficam no subtítulo — régua de 10/09 (Levi: "alarmar apenas GHI e IPOA zerados").
+        + mostr("ETM", fmt(g.etm_problema), "IPOA/GHI zerado no mês · <b>" + fmt(g.etm_com_os) + "</b> com OS" + (g.etm_atencao > 0 ? " · " + fmt(g.etm_atencao) + " em atenção" : ""),
+                g.etm_problema > 0 ? (g.etm_com_os >= g.etm_problema ? " bom" : " ruim") : (g.etm_atencao > 0 ? " aviso" : ""), "etm")
         + (noite ? mostr("Trackers", "estacionados", "volta ao amanhecer", " mudo", "trackers") : mostr("Trackers parados", g.trk_fonte_ok ? fmt(g.trk_parados) : "—", g.trk_fonte_ok ? "<b>" + fmt(g.trk_com_os) + "</b> com OS" : "fonte não respondeu", g.trk_parados > 0 ? " aviso" : "", "trackers"))
         // "..." e um div (button dentro de button e invalido: o parser fecharia o de fora e a lista cairia solta na grade)
         + "<div class='m aba mais" + (maisAberto ? " aberto" : "") + "' id='us-mais' data-view='' role='button' tabindex='0' aria-haspopup='menu' title='outras abas'><div class='val'>···</div><div class='sub'>mais</div>"
@@ -564,7 +567,7 @@
       meta.innerHTML = metaHtml(d) + "<br>" + fmt(d.grupos.length) + " grupos";
       var fora = document.getElementById("tr-fora"), lf = d.etm_fora || [];
       fora.hidden = !lf.length;
-      if (lf.length) fora.innerHTML = "ETMs com problema no mês em usinas <b>sem fonte ao vivo</b> (só no BD_Performance): " + lf.map(function (f) { return "<b>" + f.cliente + "</b> " + fmt(f.n) + (f.com_os ? " (" + fmt(f.com_os) + " com OS)" : ""); }).join(" · ") + ".";
+      if (lf.length) fora.innerHTML = "ETMs com IPOA/GHI zerado no mês em usinas <b>sem fonte ao vivo</b> (só no BD_Performance): " + lf.map(function (f) { return "<b>" + f.cliente + "</b> " + fmt(f.n) + (f.com_os ? " (" + fmt(f.com_os) + " com OS)" : ""); }).join(" · ") + ".";
       if (!d.grupos.length) { grade.innerHTML = "<div class='vazio'>Nenhuma fonte respondeu ainda. Esta tela atualiza sozinha.</div>"; return; }
       grade.innerHTML = d.grupos.map(function (g, i) {
         var idF = g.fonte_id || FONTE_ID[g.fonte] || "", alvo = idF ? "/tempo-real/" + idF : "/monitoramento";
@@ -572,7 +575,7 @@
         var strings = noite
           ? "<div class='m'><div class='rot'>Strings</div><div class='val mudo'>sem sol</div><div class='sub'>volta ao amanhecer</div></div>"
           : "<div class='m'><div class='rot'>Strings faltando</div><div class='val" + strCls(g) + "'>" + strVal(g, true) + "</div><div class='sub'>" + strSub(g, "<br>", true) + "</div></div>";
-        var etm = "<div class='m'><div class='rot'>ETM</div><div class='val" + (g.etm_problema > 0 ? (g.etm_com_os >= g.etm_problema ? " bom" : " aviso") : "") + "'>" + fmt(g.etm_problema) + "</div><div class='sub'>com problema no mês<br><b>" + fmt(g.etm_com_os) + "</b> com OS</div></div>";
+        var etm = "<div class='m'><div class='rot'>ETM</div><div class='val" + (g.etm_problema > 0 ? (g.etm_com_os >= g.etm_problema ? " bom" : " ruim") : (g.etm_atencao > 0 ? " aviso" : "")) + "'>" + fmt(g.etm_problema) + "</div><div class='sub'>IPOA/GHI zerado no mês<br><b>" + fmt(g.etm_com_os) + "</b> com OS" + (g.etm_atencao > 0 ? " · " + fmt(g.etm_atencao) + " em atenção" : "") + "</div></div>";
         var trk = !g.trk_fonte_ok
           ? "<div class='m'><div class='rot'>Trackers</div><div class='val mudo'>sem leitura</div><div class='sub'>fonte não respondeu</div></div>"
           : noite

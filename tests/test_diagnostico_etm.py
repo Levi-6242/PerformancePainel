@@ -130,12 +130,14 @@ def _serie_dia(poa_fn, ghi_fn, freeze_now):
     return [(base + timedelta(minutes=10 * i), poa_fn(i), ghi_fn(i)) for i in range(60)]
 
 
-def test_ghi_zerado_com_poa_medindo_vira_atencao(freeze_now):
+def test_ghi_zerado_com_poa_medindo_vira_alarme(freeze_now):
+    """Até 09/09 era 'atenção' (âmbar). Régua do Levi em 10/09: "alarmar apenas GHI e IPOA zerados" — GHI medido em
+    zero com o POA medindo é crítico igual ao POA zerado, e a flag diz o sensor (caso MTS100: POA 1.143, GHI 0)."""
     s = _serie_dia(lambda i: 400 + i, lambda i: 0.0, freeze_now)
     d = app._diagnostico_etm(s)
-    ts = [f["t"] for f in d["flags"]]
-    assert "GHI zerado" in ts
-    assert d["severidade"] == 1                    # atenção, não crítico
+    f = {x["t"]: x for x in d["flags"]}
+    assert f["GHI zerado"]["tipo"] == "crit" and f["GHI zerado"]["sensor"] == "GHI"
+    assert d["severidade"] == 0
 
 
 def test_estacao_sem_sensor_ghi_nao_e_flagada(freeze_now):
@@ -150,14 +152,18 @@ def test_ghi_normal_nao_flagra(freeze_now):
     assert "GHI zerado" not in [f["t"] for f in app._diagnostico_etm(s)["flags"]]
 
 
-def test_ghi_ausente_com_poa_medindo_notifica(freeze_now):
-    """Canarana 1 (27/08): GHI = None o dia todo com POA normal. Decisão do Levi: ausência de GHI
-    É notificável — flag própria, distinta de 'GHI zerado' (zero MEDIDO)."""
+def test_ghi_ausente_com_poa_medindo_vira_nota(freeze_now):
+    """Canarana 1 (27/08): GHI = None o dia todo com POA normal — flag própria, distinta de 'GHI zerado' (zero
+    MEDIDO). Em 27/08 era 'warn'; em 10/09 o Levi viu 8 cards da Athon alarmados por estações AIML que NÃO TÊM
+    sensor de GHI e mandou: só zero medido alarma. Ausência vira NOTA (cinza), sem severidade; o sensor que
+    existia e sumiu aparece no diagnóstico do mês (BD_Performance), que é onde se notifica."""
     s = _serie_dia(lambda i: 400 + i, lambda i: None, freeze_now)
     d = app._diagnostico_etm(s)
-    ts = [f["t"] for f in d["flags"]]
-    assert "Sem leitura de GHI" in ts and "GHI zerado" not in ts
-    assert d["severidade"] == 1
+    f = {x["t"]: x for x in d["flags"]}
+    assert "Sem leitura de GHI" in f and "GHI zerado" not in f
+    assert f["Sem leitura de GHI"]["tipo"] == "nota" and f["Sem leitura de GHI"]["sensor"] == "GHI"
+    assert d["severidade"] == 3
+    assert d["sensores"]["ghi"]["status"] == "sem_leitura"
 
 
 def test_poa_tambem_fora_nao_acusa_ghi(freeze_now):

@@ -73,19 +73,38 @@ tr.gc-alerta{background:linear-gradient(90deg, color-mix(in srgb, var(--gc-red) 
 tr.gc-alerta:hover{background:linear-gradient(90deg, color-mix(in srgb, var(--gc-red) 38%, transparent),
              color-mix(in srgb, var(--gc-red) 14%, transparent) 40%, transparent 68%)}
 @media (prefers-reduced-motion: reduce){tr.gc-alerta{animation:none;box-shadow:inset 3px 0 0 var(--gc-red)}}
-/* ETM: anomalia SEM OS aberta de estação — pulso vermelho FORTE (P1, escolha final do Levi 26/08;
-   ele viu o suave e preferiu a chamada de atenção máxima). */
-@keyframes gc-etm-resp{0%,100%{box-shadow:0 0 9px 0 rgba(229,72,77,.30)}50%{box-shadow:0 0 26px 5px rgba(229,72,77,.62)}}
-.gc-etm-pulse{animation:gc-etm-resp 1.6s ease-in-out infinite}
-/* ETM COM PROBLEMA (08/09/2026): o pulso sozinho nao achava as 4 no meio de ~15 cards — metade do ciclo
-   ele fica invisivel, e o vermelho dele mora na borda de 1px. Aqui a marca e ESTATICA: anel + veu vermelho.
-   Anel por `outline` (nao border) para nao brigar com o box-shadow do pulso nem repintar o border-left de
-   severidade. O keyframe acima perdeu o `border-color` pelo mesmo motivo: ele pintava de vermelho a borda
-   ambar de quem era so 'atencao'. Card saudavel continua exatamente como estava. */
-.gc-etm-prob{outline:2px solid rgba(229,72,77,.9);outline-offset:-1px;
-  background:linear-gradient(180deg,color-mix(in srgb,var(--gc-red) 13%,transparent),transparent 58%),var(--color-surface)}
-.gc-etm-prob.gc-chip:hover{background:linear-gradient(180deg,color-mix(in srgb,var(--gc-red) 20%,transparent),transparent 58%),var(--color-surface)!important}
-@media (prefers-reduced-motion: reduce){.gc-etm-pulse{animation:none;box-shadow:0 0 16px 0 rgba(229,72,77,.45)}}
+/* ETM — UMA hierarquia de cor (Levi, 10/09/2026: "essa hierarquia de cores com as cores laterais e cores de
+   sombra está confusa, deixe no padrão"). O estado do card mora em DOIS lugares que dizem a MESMA coisa: a borda
+   esquerda e o ponto do veredito. Vermelho = IPOA/GHI medido em zero (hoje ou no mês); âmbar = atenção; violeta =
+   sem comunicação; verde = ok; cinza = sem dados. Sumiram o anel vermelho do "problema no mês" (08/09), o brilho
+   laranja da OS (26/08) e a borda de severidade pintada por outra régua — a OS aberta é um chip laranja no rodapé.
+   O pulso (P1 de 26/08) ficou só para ALARME SEM OS, e só em vermelho. */
+.gc-etm{border-left:3px solid var(--color-neutral-500)}
+.gc-etm-al{border-left-color:var(--gc-red)}.gc-etm-at{border-left-color:var(--gc-amber)}.gc-etm-cm{border-left-color:var(--gc-violet)}
+.gc-etm-ok{border-left-color:var(--color-accent)}.gc-etm-sd{border-left-color:var(--color-neutral-500);opacity:.85}
+.gc-etm-vd{display:flex;align-items:center;gap:7px;font-size:12.5px;line-height:1.25;margin-top:7px;min-width:0}
+.gc-etm-vd i{width:8px;height:8px;border-radius:50%;flex:none;background:var(--color-neutral-500)}
+.gc-etm-vd b{font-weight:700;white-space:nowrap}.gc-etm-vd span{color:var(--color-neutral-400);font-size:11px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gc-etm-al .gc-etm-vd{color:#ff9a9d}.gc-etm-al .gc-etm-vd i{background:var(--gc-red);box-shadow:0 0 8px var(--gc-red)}
+.gc-etm-at .gc-etm-vd{color:#f5c877}.gc-etm-at .gc-etm-vd i{background:var(--gc-amber)}
+.gc-etm-cm .gc-etm-vd{color:#c9b6ff}.gc-etm-cm .gc-etm-vd i{background:var(--gc-violet)}
+.gc-etm-ok .gc-etm-vd{color:var(--color-accent-300)}.gc-etm-ok .gc-etm-vd i{background:var(--color-accent)}
+.gc-etm-sd .gc-etm-vd{color:var(--color-neutral-400)}
+/* três blocos de sensor: POA · GHI · POA-RI com pico do dia e um ponto — vermelho só quando MEDIU zero;
+   azul = POA-RI (aviso); cinza = sem leitura (sensor que a estação não tem) */
+.gc-etm-sens{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-top:7px}
+.gc-etm-sn{background:var(--color-neutral-900);border-radius:8px;padding:5px 8px;min-width:0}
+.gc-etm-sn .k{font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-neutral-500);font-weight:700;display:flex;align-items:center;gap:5px}
+.gc-etm-sn .k i{width:7px;height:7px;border-radius:50%;background:var(--color-neutral-500);flex:none;opacity:.6}
+.gc-etm-sn .k i.g{background:var(--color-accent);opacity:1}.gc-etm-sn .k i.r{background:var(--gc-red);box-shadow:0 0 6px var(--gc-red);opacity:1}.gc-etm-sn .k i.b{background:var(--gc-blue);opacity:1}
+.gc-etm-sn .n{font-family:'IBM Plex Mono',Consolas,monospace;font-size:12.5px;font-weight:600;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gc-etm-sn .n small{font-family:inherit;font-size:9.5px;color:var(--color-neutral-500);font-weight:500;margin-left:3px}
+.gc-etm-sn.r .n{color:#ff9a9d}.gc-etm-sn.b .n{color:#7fb8ff}.gc-etm-sn.x .n{color:var(--color-neutral-500)}
+.gc-etm-mes{font-size:10.5px;color:var(--color-neutral-400);margin-top:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.gc-etm-mes .r{color:#ff9a9d;font-weight:700}.gc-etm-mes .a{color:#f5c877;font-weight:600}.gc-etm-mes .g{color:var(--color-accent-300)}
+@keyframes gc-etm-resp{0%,100%{box-shadow:0 0 0 0 rgba(242,85,90,0)}50%{box-shadow:0 0 18px 2px rgba(242,85,90,.45)}}
+.gc-etm-al.gc-etm-pulse{animation:gc-etm-resp 1.6s ease-in-out infinite}
+@media (prefers-reduced-motion: reduce){.gc-etm-al.gc-etm-pulse{animation:none;box-shadow:0 0 12px 0 rgba(242,85,90,.35)}}
 @keyframes gc-spin{to{transform:rotate(360deg)}}
 .gc-spin{display:inline-block;color:var(--color-accent);animation:gc-spin .8s linear infinite}
 .gc-numin::-webkit-outer-spin-button,.gc-numin::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
@@ -589,28 +608,9 @@ function spark(seed,drop){
 }
 function flagStyle(kind){ const m={crit:['color-mix(in srgb, var(--gc-red) 18%, transparent)','#ff9a9d'],warn:['color-mix(in srgb, var(--gc-amber) 18%, transparent)','#f5c877'],info:['color-mix(in srgb, var(--gc-blue) 16%, transparent)','#7fb8ff'],ok:['color-mix(in srgb, var(--color-accent) 16%, transparent)','var(--color-accent-300)']}[kind]; return `display:inline-flex;align-items:center;gap:4px;font-size:10.5px;font-weight:600;border-radius:99px;padding:2px 9px;background:${m[0]};color:${m[1]};`; }
 
-/* Alarmes do card de ETM em SIGLAS (Levi 27/08): em vez de listar badges longos (que quebravam
-   linha e esticavam o card), uma linha fixa "Alarme: POA GHI POARI COM". Cores dele: POA/GHI
-   vermelho, POARI azul, COM roxo (o mesmo violeta que a plataforma já usa p/ sem-comunicação).
-   O texto completo do problema vai no title (hover). Flag futura sem categoria vira sigla ETM
-   cinza — alarme nunca some em silêncio. */
-function _etmAlarmes(flags){
-  const CAT=[
-    [/poa\s*-?\s*ri/i,'POARI',['color-mix(in srgb, var(--gc-blue) 16%, transparent)','#7fb8ff']],
-    [/ghi/i,'GHI',['color-mix(in srgb, var(--gc-red) 18%, transparent)','#ff9a9d']],
-    [/poa/i,'POA',['color-mix(in srgb, var(--gc-red) 18%, transparent)','#ff9a9d']],
-    [/comunica|falta de dados/i,'COM',['color-mix(in srgb, var(--gc-violet) 20%, transparent)','#c9b6ff']],
-  ];
-  const g={};
-  for(const f of (flags||[])){
-    if(/^ok$/i.test(f.tipo||'')) continue;
-    const txt=(f.t||'')+(f.info?' · '+f.info:'');
-    const hit=CAT.find(([rx])=>rx.test(f.t||''));
-    const sig=hit?hit[1]:'ETM', cor=hit?hit[2]:['color-mix(in srgb, var(--color-neutral-500) 18%, transparent)','var(--color-neutral-300)'];
-    (g[sig]=g[sig]||{sig,cor,txts:[]}).txts.push(txt);
-  }
-  return ['POA','GHI','POARI','COM','ETM'].filter(s=>g[s]).map(s=>g[s]);
-}
+/* (A linha "Alarme: POA GHI POARI COM" de 27/08 saiu em 10/09: os chips misturavam sensor medido em zero com
+   sensor que a estação não tem. No lugar, três blocos de sensor com valor e cor — _etmSensTile — e uma
+   frase-veredito por card.) */
 function _sparkPts(arr,mx){ if(!arr||!arr.length) return ''; const w=240,h=46,x0=2,x1=w-2,n=arr.length,m=mx||Math.max(1,...arr.filter(v=>v!=null)); return arr.map((v,i)=>{ const x=x0+(x1-x0)*(i/Math.max(1,n-1)), y=h-3-(h-6)*Math.max(0,Math.min(1,(v||0)/m)); return x.toFixed(1)+','+y.toFixed(1); }).join(' '); }
 /* ══ Gráfico do dia (modal): ETM (POA/GHI/POA-RI) e Trackers (ângulo×hora) ══ */
 function _hm(s){ const m=String(s||'').match(/(\d{1,2}):(\d{2})/); return m?(+m[1]*60+ +m[2]):0; }  // aceita "HH:MM", "HH:MM:SS" e ISO "YYYY-MM-DDTHH:MM:SSZ"
@@ -1007,13 +1007,32 @@ function _nrmU(u){ return String(u||'').split('·')[0].toLowerCase().normalize('
 async function _ensureEtmMes(){ if(RD.etmMes!==undefined) return; RD.etmMes=null;
   try{ const d=await fetchJSON('/api/entrada/tempo-real');
     if(d&&d.aquecendo){ RD.etmMes=undefined; setTimeout(_ensureEtmMes,5000); return; }   // 1a construcao pos-restart
+    // Desde 10/09 o item do mes vem separado em ALARMES (IPOA/GHI zerada) e AVISOS (sensor travado, GHI que nao
+    // reporta, PR anomalo); o card so fica vermelho pelos alarmes. Item antigo (so `etm`) vale como alarme.
     const m={}; (d&&d.grupos||[]).forEach(g=>{ const f=g.fonte_id||''; (g.usinas||[]).forEach(u=>{
       if(!(u.etm&&u.etm.length)) return;
-      m[f+'|p:'+String(u.plant_id)]=1; m[f+'|n:'+_nrmU(u.usina)]=1; }); });
+      const al=('etm_alarme' in u)?!!u.etm_alarme:true;
+      const o={alarme:al,alarmes:u.etm_alarmes||(al?u.etm:[]),avisos:u.etm_avisos||(al?[]:u.etm)};
+      m[f+'|p:'+String(u.plant_id)]=o; m[f+'|n:'+_nrmU(u.usina)]=o; }); });
     RD.etmMes=m; }catch(e){ RD.etmMes={}; }
   render(); }
-function _etmProbMes(r){ const m=RD.etmMes; if(!m) return false; const f=state.source;
-  return !!(m[f+'|p:'+String(r.plant_id)]||m[f+'|n:'+_nrmU(r.usinaQ||r.usina)]||m[f+'|n:'+_nrmU(r.usina)]); }
+function _etmProbMes(r){ const m=RD.etmMes; if(!m) return null; const f=state.source;
+  return m[f+'|p:'+String(r.plant_id)]||m[f+'|n:'+_nrmU(r.usinaQ||r.usina)]||m[f+'|n:'+_nrmU(r.usina)]||null; }
+/* Pico 9–15h por sensor a partir do spark — só para snapshot ANTERIOR a 10/09, que ainda não traz `sensores`. */
+function _etmSensFallback(sp){ const lb=(sp&&sp.labels)||[], h=new Date().getHours();
+  const res=arr=>{ const v=(arr||[]).filter((x,i)=>x!=null&&(!lb[i]||(_hm(lb[i])>=540&&_hm(lb[i])<900))); if(!v.length) return {pico:null,status:'sem_leitura'};
+    const p=Math.max(...v); return {pico:Math.round(p*10)/10,status:(h>=10&&p<20)?'zerado':'ok'}; };
+  return {poa:res(sp&&sp.poa),ghi:res(sp&&sp.ghi),poari:res(sp&&sp.poari)}; }
+/* Um bloco de sensor do card: rótulo + ponto + valor. Vermelho só quando MEDIU zero; POA-RI zerado é azul (aviso);
+   sem leitura = cinza (sensor que a estação não tem, ou mudo hoje). */
+function _etmSensTile(rot,s,avisoSo){ s=s||{pico:null,status:'sem_leitura'};
+  const nf=v=>Number(v).toLocaleString('pt-BR',{maximumFractionDigits:0});
+  if(s.status==='sem_leitura') return `<div class="gc-etm-sn x"><div class="k"><i></i>${rot}</div><div class="n">—<small>sem leitura</small></div></div>`;
+  if(s.status==='zerado') return `<div class="gc-etm-sn ${avisoSo?'b':'r'}"><div class="k"><i class="${avisoSo?'b':'r'}"></i>${rot}</div><div class="n">0<small>W/m² · ${avisoSo?'aviso':'zerado'}</small></div></div>`;
+  return `<div class="gc-etm-sn"><div class="k"><i class="g"></i>${rot}</div><div class="n">${nf(s.pico)}<small>W/m² pico</small></div></div>`; }
+/* Texto curto do diagnóstico do mês para a linha do card ("IPOA zerada no mês inteiro (9d) — PR não calculável" →
+   "IPOA zerada no mês inteiro (9d)"); o texto completo fica no title. */
+function _etmMesCurto(t){ return String(t||'').replace(/\s+—.*$/,'').replace(/\s*\(sensor travado\?\)/,''); }
 async function _ensureEtmGrupos(){ if(RD.etmGrupos!==undefined) return; RD.etmGrupos=null;
   try{ const d=await fetchJSON('/api/etm/grupos'); RD.etmGrupos=(d&&d.ok&&d.grupos)||{}; }
   catch(e){ RD.etmGrupos={}; }
@@ -1158,24 +1177,41 @@ function computeVals(){
         const eo=((RD.etmOS||{})[SKEY[state.source]]||{})[r.usinaQ||r.usina]||null;
         const temOS=!!(eo&&eo.cadastrada&&(eo.os||[]).length);
         const noFrac=!!(eo&&!eo.cadastrada);
-        const anom=sev!==3&&sev!==9;
-        // O pulso alerta a ANOMALIA — existir no Fracttal não muda o defeito (Bernardino, 27/08).
-        // Só o BOTÃO exige cadastro (sem ele o OS Creator não acha a usina); noFrac vira aviso.
-        const probMes=_etmProbMes(r);          // diagnóstico do MÊS — as mesmas N que o card da Entrada conta
-        // O vermelho é SÓ das com problema no mês (Levi, 08/09: "destaque melhor as 4 · sombra vermelha só nela").
-        // A severidade AO VIVO marcava 15 de 19 cards da Athon — com tudo aceso, nada se destacava. Ela continua
-        // dizendo o que é, na barra de severidade do border-left; o vermelho ficou para o diagnóstico do mês.
-        // Enquanto o mês não chega (cache aquecendo), vale a régua antiga para a tela não ficar sem sinal nenhum.
-        const mesOk=RD.etmMes!=null, prob=mesOk?probMes:anom;
-        const pulse=prob&&!temOS;
-        const osGlow=temOS?'border-color:rgba(255,152,56,.55);box-shadow:inset 0 0 22px -6px rgba(255,152,56,.28), 0 0 14px -4px rgba(255,152,56,.35);':'';
-        const flagsRuins=(r.flags||[]).filter(f=>!/ok|coer/i.test(f.tipo||'')).map(f=>f.t||f.tipo||'').join('; ');
-        (RD._etmObs=RD._etmObs||{})[r.usinaQ||r.usina]=flagsRuins;   // observação do deep link "Abrir OS" 
-        return {name:r.usina,pid:r.plant_id,usina:r.usina,leit:'Última leitura · '+(r.ultima_leitura?String(r.ultima_leitura).slice(11,16):'—'),
+        // ── ESTADO do card: uma régua só (Levi, 10/09: "alarmar apenas GHI e IPOA zerados; POA-RI é só aviso") ──
+        // alarme (vermelho)  = IPOA/GHI MEDIDOS em zero hoje (flag crit com sensor POA/GHI) ou no mês (BD_Performance)
+        // sem comunicação    = estação muda (violeta) · atenção (âmbar) = warn · ok (verde) · sem dados (cinza)
+        // O que sumiu: o vermelho herdado da usina em toda estação (8 cards por 4 usinas na Athon), a AIML sem sensor
+        // de GHI contada como problema, e o TIM200 com POA zerado HOJE sem destaque nenhum (o vermelho era só do mês).
+        const probMes=_etmProbMes(r);          // {alarme, alarmes, avisos} do mês, ou null
+        const mesOk=RD.etmMes!=null;
+        const fl=r.flags||[];
+        const critSens=fl.filter(f=>f.tipo==='crit'&&(f.sensor==='POA'||f.sensor==='GHI'||(!f.sensor&&/zerado/i.test(f.t||''))));
+        const semCom=fl.find(f=>f.tipo==='crit'&&(f.sensor==='COM'||(!f.sensor&&/comunica/i.test(f.t||''))));
+        const warns=fl.filter(f=>f.tipo==='warn'), avisos=fl.filter(f=>f.tipo==='info');
+        const alHoje=critSens.length>0, alMes=!!(probMes&&probMes.alarme);
+        const estado=r.sem_dados?(alMes?'al':'sd'):((alHoje||alMes)?'al':(semCom?'cm':(warns.length?'at':'ok')));
+        let vd,vdSub='';
+        if(alHoje){ const f=critSens[0]; vd=(f.sensor==='GHI'||/GHI/i.test(f.t||''))?'GHI zerado hoje':'IPOA zerada hoje'; vdSub=[f.info].concat(critSens.slice(1).map(x=>x.t)).filter(Boolean).join(' · '); }
+        else if(alMes){ vd=_etmMesCurto(probMes.alarmes[0]); vdSub='no mês (BD_Performance)'+(probMes.alarmes.length>1?' · +'+(probMes.alarmes.length-1):''); }
+        else if(r.sem_dados){ vd='Sem dados hoje'; vdSub='estação não apareceu na fonte'; }
+        else if(semCom){ vd='Sem comunicação'; vdSub=semCom.info||''; }
+        else if(warns.length){ vd=warns[0].t; vdSub=[warns[0].info,(warns.length>1?'+'+(warns.length-1)+' em atenção':'')].filter(Boolean).join(' · '); }
+        else { vd='Estação OK'; vdSub=avisos.length?'aviso: '+avisos.map(a=>a.t).join(' · '):''; }
+        const prob=estado==='al';              // o que o filtro "Alarmes" e o número do topo contam
+        const pulse=prob&&!temOS;              // alarme SEM OS pulsa (P1 de 26/08); com OS alguém já cuida
+        const sens=r.sem_dados?null:(r.sensores||_etmSensFallback(sp));
+        const sensHtml=_etmSensTile('POA',sens&&sens.poa)+_etmSensTile('GHI',sens&&sens.ghi)+_etmSensTile('POA-RI',sens&&sens.poari,true);
+        const mesPartes=!mesOk?['<span>Mês (BD): carregando…</span>']
+          :(!probMes?['<span>Mês (BD): <span class="g">IPOA e GHI ok</span></span>']
+          :['<span>Mês (BD):</span>'].concat(probMes.alarmes.map(t=>`<span class="r">${_he(_etmMesCurto(t))}</span>`),probMes.avisos.map(t=>`<span class="a">${_he(_etmMesCurto(t))}</span>`)));
+        const mesTit=probMes?[].concat(probMes.alarmes,probMes.avisos).join(String.fromCharCode(10)):'';
+        const flagsRuins=[].concat(critSens.map(f=>f.t),alMes?probMes.alarmes:[],semCom?[semCom.t]:[],warns.map(f=>f.t)).join('; ');
+        (RD._etmObs=RD._etmObs||{})[r.usinaQ||r.usina]=flagsRuins;   // observação do deep link "Abrir OS"
+        return {name:r.usina,pid:r.plant_id,usina:r.usina,leit:(r.ultima_leitura?'última leitura '+String(r.ultima_leitura).slice(11,16):'sem leitura hoje'),leitOld:(!r.ultima_leitura||!!semCom),
           poaPts:_sparkPts(poaF,mx),ghiPts:_sparkPts(ghiF.some(v=>v!=null)?ghiF:[],mx),
-          temOS,osList:temOS?eo.os:[],pulse,prob,probMes,noFrac,usinaQ:r.usinaQ||r.usina,anomObs:flagsRuins||'Anomalia na estação meteorológica',
-          cardStyle:`padding:14px 16px;${osGlow}border-left:3px solid ${sevC[sev]};`,
-          alarmes:_etmAlarmes(r.flags)};
+          temOS,osList:temOS?eo.os:[],pulse,prob,probMes:alMes,noFrac,usinaQ:r.usinaQ||r.usina,anomObs:flagsRuins||'Anomalia na estação meteorológica',
+          estado,vd,vdSub,sensHtml,mesHtml:mesPartes.join(' · '),mesTit,
+          cardStyle:'padding:13px 15px 12px;'};
       });
       etmRowsUse=rowsE.map(r=>{ const dim=r.sem_dados;
         const m=r.sem_dados?{s:'Sem dados',c:'var(--color-neutral-500)',d:'var(--gc-red)',row:''}
@@ -1183,7 +1219,8 @@ function computeVals(){
           :(r.severidade===1?{s:'Atenção',c:'#f5c877',d:'var(--gc-amber)',row:'background:color-mix(in srgb, var(--gc-amber) 8%, transparent);'}
           :{s:'OK',c:'var(--color-accent-300)',d:'var(--color-accent)',row:''}));
         const f=v=>(v==null?'—':Number(v).toFixed(2));
-        const prob=(RD.etmMes!=null)?_etmProbMes(r):(r.severidade===0||r.severidade===1);   // mesma régua dos cards, p/ o filtro valer na tabela
+        const _pm=_etmProbMes(r), _crit=(r.flags||[]).some(f=>f.tipo==='crit'&&(f.sensor==='POA'||f.sensor==='GHI'));
+        const prob=_crit||!!(_pm&&_pm.alarme);   // mesma régua dos cards (alarme = IPOA/GHI zerado hoje ou no mês), p/ o filtro valer na tabela
         return {prob,name:r.usina,poa:f(r.poa_kwh),ghi:f(r.ghi_kwh),poari:f(r.poari_kwh),chuva:(r.chuva!=null?Number(r.chuva).toFixed(1):'—'),
           lastRead:(r.ultima_leitura?String(r.ultima_leitura).slice(11,16):'—'),hasTag:false,tag:'',status:m.s,statusColor:m.c,dotColor:m.d,rowStyle:m.row,
           valColor:dim?'var(--color-neutral-500)':N3,poaColor:(r.poa_kwh==null?'var(--color-neutral-500)':N3),chuvaColor:(r.chuva==null?'var(--color-neutral-500)':(Number(r.chuva)>0?'var(--gc-blue)':N4))};
@@ -1494,15 +1531,16 @@ function renderStrings(v){
 function renderETM(v){
   if(v.na) return _naPanel('ETM');
   if(v.loading) return _loadingPanel();
-  return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><button onclick="setEtm('cards')" style="${v.etmTabCards}"><i class="ph ph-squares-four" style="margin-right:5px"></i>Cards</button><button onclick="setEtm('tabela')" style="${v.etmTabTable}"><i class="ph ph-table" style="margin-right:5px"></i>Tabela</button><span style="width:1px;height:20px;background:var(--color-divider);margin:0 4px"></span><button onclick="setEtmProb()" style="${v.etmTabProb}" title="${v.etmProbMesN} usina(s) com problema de ETM no mês — o mesmo número do card da Entrada — em ${v.etmProbCards} estação(ões). Clique de novo para ver todas."><i class="ph ph-warning-circle" style="margin-right:5px"></i>ETM com problemas${v.etmProbN?` &middot; ${v.etmProbN}`:''}</button></div>
+  return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><button onclick="setEtm('cards')" style="${v.etmTabCards}"><i class="ph ph-squares-four" style="margin-right:5px"></i>Cards</button><button onclick="setEtm('tabela')" style="${v.etmTabTable}"><i class="ph ph-table" style="margin-right:5px"></i>Tabela</button><span style="width:1px;height:20px;background:var(--color-divider);margin:0 4px"></span><button onclick="setEtmProb()" style="${v.etmTabProb}" title="Alarme = IPOA ou GHI medidos em zero, hoje ou no mês (BD_Performance). ${v.etmProbMesN} usina(s) com alarme no mês — o número do card da Entrada — e ${v.etmProbCards} estação(ões) em alarme agora. Clique de novo para ver todas."><i class="ph ph-warning-circle" style="margin-right:5px"></i>Alarmes${v.etmProbN?` &middot; ${v.etmProbN}`:''}</button></div>
   ${v.etmModeCards?`<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">${v.etmCards.filter(c=>_matchQ(c.usina)&&(!v.etmProbOn||c.prob)).map(c=>`
-    <div class="card elev-sm gc-chip${c.prob?' gc-etm-prob':''}${c.pulse?' gc-etm-pulse':''}" onclick="abrirEtmChart('${_jsq(c.usina)}',${c.pid==null?'null':`'${_jsq(c.pid)}'`})" style="cursor:pointer;height:188px;display:flex;flex-direction:column;overflow:hidden;${c.cardStyle}">
-      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex:none"><span style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</span><span style="display:inline-flex;gap:9px;flex:none">${c.noFrac?'':`<i class="ph ph-clock-counter-clockwise" title="Histórico de OSs da estação" onclick="event.stopPropagation();abrirEtmHist('${_jsq(c.usinaQ||c.usina)}')" style="font-size:14px;color:var(--color-neutral-500);cursor:pointer"></i>`}<i class="ph ph-chart-line" title="Ver curva do dia" style="font-size:14px;color:var(--color-neutral-500)"></i></span></div>
-      <div class="text-muted" style="font-size:10.5px;margin-top:2px;flex:none">${c.leit}</div>
-      <svg viewBox="0 0 240 46" preserveAspectRatio="none" style="width:100%;height:46px;display:block;margin:10px 0 8px;flex:none"><polyline points="${c.ghiPts}" fill="none" stroke="var(--color-neutral-500)" stroke-width="1.4" stroke-opacity="0.7" stroke-linejoin="round"></polyline><polyline points="${c.poaPts}" fill="none" stroke="var(--color-accent)" stroke-width="1.8" stroke-linejoin="round"></polyline></svg>
-      <div style="height:24px;display:flex;align-items:center;gap:6px;overflow:hidden;flex:none">${(c.alarmes||[]).length?`<span class="text-muted" style="font-size:10.5px;flex:none">Alarme:</span>${(c.alarmes||[]).map(a=>`<span title="${_he(a.txts.join(String.fromCharCode(10)))}" style="display:inline-flex;font-size:10.5px;font-weight:700;letter-spacing:.4px;padding:2px 8px;border-radius:6px;cursor:default;background:${a.cor[0]};color:${a.cor[1]}">${a.sig}</span>`).join('')}`:''}</div>
+    <div class="card elev-sm gc-chip gc-etm gc-etm-${c.estado}${c.pulse?' gc-etm-pulse':''}" onclick="abrirEtmChart('${_jsq(c.usina)}',${c.pid==null?'null':`'${_jsq(c.pid)}'`})" style="cursor:pointer;height:240px;display:flex;flex-direction:column;overflow:hidden;${c.cardStyle}">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex:none"><span style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</span><span style="display:inline-flex;align-items:center;gap:9px;flex:none"><span style="font-family:'IBM Plex Mono',Consolas,monospace;font-size:10.5px;color:${c.leitOld?'#c9b6ff':'var(--color-neutral-500)'}">${c.leit}</span>${c.noFrac?'':`<i class="ph ph-clock-counter-clockwise" title="Histórico de OSs da estação" onclick="event.stopPropagation();abrirEtmHist('${_jsq(c.usinaQ||c.usina)}')" style="font-size:14px;color:var(--color-neutral-500);cursor:pointer"></i>`}<i class="ph ph-chart-line" title="Ver curva do dia" style="font-size:14px;color:var(--color-neutral-500)"></i></span></div>
+      <div class="gc-etm-vd" title="${_he(c.anomObs||'')}"><i></i><b>${_he(c.vd)}</b>${c.vdSub?`<span>${_he(c.vdSub)}</span>`:''}</div>
+      <svg viewBox="0 0 240 46" preserveAspectRatio="none" style="width:100%;height:40px;display:block;margin:6px 0 0;flex:none"><polyline points="${c.ghiPts}" fill="none" stroke="var(--color-neutral-500)" stroke-width="1.4" stroke-opacity="0.7" stroke-linejoin="round"></polyline><polyline points="${c.poaPts}" fill="none" stroke="var(--color-accent)" stroke-width="1.8" stroke-linejoin="round"></polyline></svg>
+      <div class="gc-etm-sens">${c.sensHtml}</div>
+      <div class="gc-etm-mes" title="${_he(c.mesTit||'')}">${c.mesHtml}</div>
       <div style="flex:1"></div>
-      <div style="height:32px;display:flex;align-items:center;gap:5px;overflow:hidden;flex:none">${c.temOS?c.osList.map(o=>`<span onclick="event.stopPropagation();abrirEtmHist('${_jsq(c.usinaQ||c.usina)}')" title="${_he(o.desc||'')} — clique p/ o histórico" style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:6px;background:rgba(255,152,56,.16);color:#ff9838;white-space:nowrap"><i class="ph ph-wrench" style="font-size:12px"></i>OS ${_he(o.folio||'')} · ETM</span>`).join(''):(c.pulse?(c.noFrac?`<span onclick="event.stopPropagation()" style="font-size:11px;color:var(--color-neutral-500)" title="A usina não tem 'Usina Fractall' na aba Equipamentos — o OS Creator não a encontra">sem cadastro no Fracttal — OS indisponível</span>`:`<button onclick="event.stopPropagation();abrirOsEtm('${_jsq(c.usinaQ||c.usina)}')" style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:6px 13px;border-radius:8px;cursor:pointer;font-family:inherit;background:var(--gc-red);color:#fff;border:0"><i class="ph ph-wrench" style="font-size:13px"></i> Abrir OS · ETM</button>`):'')}</div>
+      <div style="height:30px;display:flex;align-items:center;gap:5px;overflow:hidden;flex:none">${c.temOS?c.osList.map(o=>`<span onclick="event.stopPropagation();abrirEtmHist('${_jsq(c.usinaQ||c.usina)}')" title="${_he(o.desc||'')} — clique p/ o histórico" style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:6px;background:rgba(255,152,56,.16);color:#ff9838;white-space:nowrap"><i class="ph ph-wrench" style="font-size:12px"></i>OS ${_he(o.folio||'')} · ETM</span>`).join(''):(c.prob?(c.noFrac?`<span onclick="event.stopPropagation()" style="font-size:11px;color:var(--color-neutral-500)" title="A usina não tem 'Usina Fractall' na aba Equipamentos — o OS Creator não a encontra">sem cadastro no Fracttal — OS indisponível</span>`:`<button onclick="event.stopPropagation();abrirOsEtm('${_jsq(c.usinaQ||c.usina)}')" style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:6px 13px;border-radius:8px;cursor:pointer;font-family:inherit;background:var(--gc-red);color:#fff;border:0"><i class="ph ph-wrench" style="font-size:13px"></i> Abrir OS · ETM</button>`):'')}</div>
     </div>`).join('')}</div>
     <div class="text-muted" style="font-size:10.5px;display:flex;gap:14px;margin-top:10px"><span><span style="display:inline-block;width:14px;height:2px;background:var(--color-accent);vertical-align:middle;margin-right:4px"></span>POA</span><span><span style="display:inline-block;width:14px;height:2px;background:var(--color-neutral-500);vertical-align:middle;margin-right:4px"></span>GHI</span></div>`
   :`<div class="card" style="padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 22px;border-bottom:1px solid var(--color-divider)"><div style="display:flex;align-items:baseline;gap:12px"><span style="font-family:var(--font-heading);font-size:17px">Estações Meteorológicas</span><span class="text-muted" style="font-size:12.5px">POA · GHI · POA-RI (acumulado do dia, kWh/m²) · Pluviômetro (mm)</span></div></div>
