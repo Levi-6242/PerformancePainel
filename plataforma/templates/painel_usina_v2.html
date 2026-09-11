@@ -1604,6 +1604,11 @@ function _dispTd(dp){
 const _hdCache={curva:{},etm:{},trk:{}}, _hdCharts={ch:null,trk:null};
 const _HD_GRID=(()=>{ const L=[]; for(let m=360;m<=1080;m+=10) L.push(String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0')); return L; })();
 const _HD_VISTAS=[['str','Strings'],['inv','Inversor'],['corr','Correlação']];
+// legenda/tooltip com a COR da linha (Chart.js pinta a caixinha com backgroundColor; sem ele saía branca — Levi, 11/09)
+function _hdCor(ds){ ds.forEach(d=>{ if(d.backgroundColor==null) d.backgroundColor=d.borderColor; }); return ds; }
+// id do inversor na fonte, direto do PLANT: o IC_INVID só nasce na aba Curvas e, sem ele, o SunOp recebia o NOME e
+// devolvia a usina inteira (lento, estourava os 90 s) — era a MTS100 "sem strings" no drill-down (11/09)
+function _hdApiId(k){ const inv=((PLANT&&PLANT.inversores)||[]).find(x=>x.nome===k); return (inv&&inv.id!=null)?inv.id:((window.IC_INVID&&IC_INVID[k])||k); }
 function _hdId(k,dia){ return 'hd-'+v2nrm(k).replace(/[^a-z0-9]/g,'')+'-'+dia.replace(/-/g,''); }
 function _hdBR(dia){ return dia.slice(8,10)+'/'+dia.slice(5,7)+'/'+dia.slice(0,4); }
 function _hdCel(h){ const m=/(\d+):(\d+)/.exec(String(h||'')); if(!m) return -1; const c=Math.round(((+m[1])*60+(+m[2])-360)/10); return (c>=0&&c<_HD_GRID.length)?c:-1; }
@@ -1632,7 +1637,7 @@ async function v2HistDrawDia(k,dia){
   if(!CURVA_SCOPE){ sub.textContent=(FONTE==='2c')?'a 2C entrega leitura pontual das strings (sem série ao longo do dia)':'curva por string indisponível nesta fonte'; return; }
   const br=_hdBR(dia), ck=CURVA_SCOPE==='inv'?dia+'|'+k:dia;
   if(!_hdCache.curva[ck]) _hdCache.curva[ck]=(async()=>{ const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
-    try{ return await fetch(CURVA_EP[FONTE](encodeURIComponent(br),(window.IC_INVID&&IC_INVID[k])||k),{signal:ctrl.signal}).then(r=>r.json()); }
+    try{ return await fetch(CURVA_EP[FONTE](encodeURIComponent(br),_hdApiId(k)),{signal:ctrl.signal}).then(r=>r.json()); }
     catch(e){ return {_erro:e.name==='AbortError'?'a fonte demorou demais (SunOp lento) — feche e abra o dia de novo':String(e)}; }
     finally{ clearTimeout(tmo); } })();
   if(!_hdCache.etm[dia]) _hdCache.etm[dia]=(async()=>{ const u=_hdEtmUrl(dia); if(!u) return null;
@@ -1659,7 +1664,7 @@ function _hdDesenha(k,dia,cur,etm){
     const ds=series.map(([nome],i)=>{ const bad=subSet.has(nome); return {label:nome,data:gS[i],borderColor:bad?cssv('--amber'):'rgba(122,163,0,.35)',borderWidth:bad?2.2:1,pointRadius:0,tension:.25,spanGaps:true}; });
     ds.push({label:'mediana do inversor',data:med,borderColor:cssv('--muted'),borderDash:[6,4],borderWidth:1.6,pointRadius:0,tension:.25,spanGaps:true});
     const o=_icOpt(tk,grid,false); o.scales.y.title.text=uni;
-    _hdCharts.ch=new Chart(cv,{type:'line',data:{labels:L,datasets:ds},options:o});
+    _hdCharts.ch=new Chart(cv,{type:'line',data:{labels:L,datasets:_hdCor(ds)},options:o});
     sub.textContent=`corrente de cada string do inversor em ${_hdBR(dia)} · destacadas as que ficaram abaixo da mediana (outliers) · ${uni}`;
     let pj=null; try{ pj=_strPiorJanela(inv); }catch(e){}
     setRead(`<b>Leitura:</b> ${series.length} string${series.length===1?'':'s'} · <b>${subSet.size}</b> mais de 15% abaixo da mediana das strings deste inversor (em âmbar) · tracejada = mediana do inversor.${(pj&&pj.jan.length)?' '+_strJanelaTexto(pj,false):''}`);
@@ -1671,9 +1676,9 @@ function _hdDesenha(k,dia,cur,etm){
     else if(cur.mediana_usina_curva&&cur.mediana_usina_curva.x){ medUsi=_hdGrade(cur.mediana_usina_curva.x,cur.mediana_usina_curva.y); real=true; }
     else { const usiE=cur.mediana_usina||inv.mediana_usina||null, kf=(usiE&&medE&&medE>0)?(usiE/medE):1; medUsi=med.map(v=>v!=null?v*kf:null); }
     const o=_icOpt(tk,grid,true); o.scales.y.title.text=uni;
-    _hdCharts.ch=new Chart(cv,{type:'line',data:{labels:L,datasets:[
+    _hdCharts.ch=new Chart(cv,{type:'line',data:{labels:L,datasets:_hdCor([
       {label:'mediana das strings da usina',data:medUsi,borderColor:cssv('--faint'),borderDash:[5,4],borderWidth:1.5,pointRadius:0,tension:.2,spanGaps:true},
-      {label:'mediana das strings deste inversor',data:med,borderColor:cssv('--amber'),borderWidth:2.6,pointRadius:0,tension:.2,spanGaps:true}]},options:o});
+      {label:'mediana das strings deste inversor',data:med,borderColor:cssv('--amber'),borderWidth:2.6,pointRadius:0,tension:.2,spanGaps:true}])},options:o});
     let usiE=cur.mediana_usina; if(usiE==null&&allInvs.length>1){ const allE=[]; allInvs.forEach(iv=>(iv.strings||[]).forEach(s2=>{ if(s2.energia!=null) allE.push(s2.energia); })); usiE=_median(allE); }
     const r=(medE&&usiE&&usiE>0)?medE/usiE:null;
     sub.textContent=real?`mediana das strings do inversor (laranja) vs mediana REAL das strings da usina por instante (tracejada) · ${_hdBR(dia)}`:`mediana das strings do inversor (laranja) vs nível de energia mediano da usina escalado (tracejada, referência aproximada) · ${_hdBR(dia)}`;
@@ -1693,7 +1698,7 @@ function _hdDesenha(k,dia,cur,etm){
     if(chips) chips.innerHTML=DS.map(d=>{ const na=!tem(d.data);
       return `<button class="v2chipt ${na?'na':(vis[d.key]?'':'off')}" ${na?'disabled title="sem esta série neste dia"':`title="ligar/desligar" onclick="v2CorrTog('${d.key}',this)"`}><i style="background:${d.color}"></i><span>${d.label}</span></button>`; }).join('');
     const temTemp=tem(temp), temIrr=tem(poa)||tem(ghi)||tem(pri);
-    _hdCharts.ch=new Chart(cv,{type:'line',data:{labels:L,datasets:DS.filter(d=>tem(d.data)).map(d=>({label:d.label,data:d.data,borderColor:d.color,borderWidth:d.width,borderDash:d.dash||[],pointRadius:0,tension:.25,spanGaps:true,yAxisID:d.axis,hidden:!vis[d.key],_key:d.key}))},
+    _hdCharts.ch=new Chart(cv,{type:'line',data:{labels:L,datasets:_hdCor(DS.filter(d=>tem(d.data)).map(d=>({label:d.label,data:d.data,borderColor:d.color,borderWidth:d.width,borderDash:d.dash||[],pointRadius:0,tension:.25,spanGaps:true,yAxisID:d.axis,hidden:!vis[d.key],_key:d.key})))},
       options:{responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},
         plugins:{legend:{display:false},tooltip:{callbacks:{label:c=>` ${c.dataset.label}: ${c.parsed.y==null?'—':nf(c.parsed.y,c.dataset.yAxisID==='y1'?0:c.dataset.yAxisID==='y2'?1:2)}`}}},
         scales:{x:{grid:{display:false},ticks:{color:tk,font:{size:9},maxTicksLimit:9}},

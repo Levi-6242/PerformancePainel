@@ -65,10 +65,10 @@ def test_strings_problema_conhece_a_fonte(monkeypatch):
 
 def test_fronts_conhecem_a_fonte():
     mon = (RAIZ / "docs/redesign/Monitoramento (novo design).html").read_text(encoding="utf-8")
-    assert "'2capi':'/api/2capi/data'" in mon and "id:'2capi'" in mon and "'2capi':'c2'" in mon
+    assert "'2capi':'/api/2capi/data'" in mon and "'2capi':'c2'" in mon and "id:'2capi'" not in mon   # rotas sim, aba separada não
     assert "sk==='2capi'" in mon and "s==='2capi'" in mon and "'2C (API PV Operation)'" in mon
     ent = (RAIZ / "docs/redesign/Entrada.html").read_text(encoding="utf-8")
-    assert '"2C · API PV": "2capi"' in ent and '"2C · API PV": "API PV Operation"' in ent
+    assert '"2C · API PV"' not in ent                                    # a 2C é UM card/uma aba
     por = (RAIZ / "plataforma/templates/painel_portfolio.html").read_text(encoding="utf-8")
     assert "'2C · API PV':'2capi'" in por and "'/api/2capi/etm/analise'" in por
     nj = (RAIZ / "plataforma/static/notif.js").read_text(encoding="utf-8")

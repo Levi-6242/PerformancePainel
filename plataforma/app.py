@@ -2288,7 +2288,17 @@ def build_summary(plant: dict, records: list) -> dict:
     # ── OS atribuída ao inversor (os_atribuidas, chave plant_id|idefinversor): ele sai INTEIRO da conta — ativas
     # e esperadas — porque alguém já está cuidando; o déficit dele deixa de ser "faltante" (Levi, 11/09/2026).
     _os_map = _os_atribuidas_map()
-    os_ids = [i for i in inv_ids if f"{pid}|{i}" in _os_map and i not in neutros_ids]
+    # ...e o inversor DESLIGADO com OS ABERTA no Fracttal no seu ativo (índice de disponibilidade): "se está desligado e
+    # tem OS então está tudo OK" (Levi, 11/09/2026). Só quem está desligado — ver _ids_com_os_fracttal.
+    _fr_ids = set()
+    _rot = _os_fracttal_inv_abertas().get(_nrm(nome)) or set()
+    if _rot and off_ids:
+        try:
+            _fr_ids = _ids_com_os_fracttal(off_ids, _pv_dev_names(pid, _pv_token_for(pid)) or {},
+                                           EQUIP_NAMES.get(plant["nome"].strip()) or {}, _rot)
+        except Exception as e:                                                # noqa: BLE001 — sem nomes, sem OS: conta normal
+            print(f"[os-fracttal] {nome}: {e}")
+    os_ids = [i for i in inv_ids if (f"{pid}|{i}" in _os_map or i in _fr_ids) and i not in neutros_ids]
     strings_com_os = 0
     if os_ids and isinstance(str_esp, (int, float)) and latest:
         _esp_inv = ESPERADO_INV.get(plant["nome"].strip()) or {}
@@ -7010,6 +7020,42 @@ def api_os_performance():
 
 _os_map_cache = {"ts": 0.0, "map": {}}
 _OS_MAP_TTL = 30
+
+
+_os_frac_inv_cache = {"ts": 0.0, "map": {}}
+
+
+def _os_fracttal_inv_abertas() -> dict:
+    """{nrm(usina): {nrm('Inversor N.M'), ...}} das OS ABERTAS no Fracttal cujo ativo é um INVERSOR — lido do índice de
+    disponibilidade que o worker já monta (escopo por nível usina/cabine/inversor), sem bater no Fracttal por usina a
+    cada ciclo. Cache curto: o build_summary pergunta por isto a cada usina de cada ciclo."""
+    agora = time.time()
+    if agora - _os_frac_inv_cache["ts"] > 60:
+        m = {}
+        try:
+            meses = (_frac_disp_dados() or {}).get("meses") or {}
+            for o in (((meses.get(max(meses)) or {}).get("oss") or []) if meses else []):
+                if not o.get("aberta"):
+                    continue
+                for e in (o.get("escopo") or []):
+                    if str(e.get("nivel")) == "inversor" and e.get("usina") and e.get("rotulo"):
+                        m.setdefault(_nrm(e["usina"]), set()).add(_nrm(e["rotulo"]))
+        except Exception as e:                                                # noqa: BLE001 — sem índice, ninguém tem OS
+            print(f"[os-fracttal] índice de OS indisponível: {e}")
+        _os_frac_inv_cache["map"], _os_frac_inv_cache["ts"] = m, agora
+    return _os_frac_inv_cache["map"]
+
+
+def _ids_com_os_fracttal(off_ids, api_nome_de, disp_de, rotulos_nrm) -> set:
+    """Dos inversores DESLIGADOS, os que têm OS aberta no Fracttal no seu ativo: id da API → nome da API → nome de
+    exibição do cadastro → rótulo da OS ('Inversor N.M'). "Se está desligado e tem OS então está tudo OK" (Levi,
+    11/09/2026). Ligado com OS aberta continua na conta — esconder string morta de inversor que produz seria pior."""
+    out = set()
+    for i in off_ids or ():
+        api_nome = api_nome_de.get(i, str(i))
+        if _nrm(disp_de.get(api_nome, api_nome)) in rotulos_nrm:
+            out.add(i)
+    return out
 
 
 def _os_atribuidas_map() -> dict:
@@ -14261,6 +14307,8 @@ def api_owen_etm_analise():
             continue
         diag = _diagnostico_etm(merged)
         rows.append({"usina": nome, "plant_id": u, "sem_dados": False, "sem_curva": False, **diag})
+    # as três da API PV: a estação delas vem da API (a do e-mail é janela de 3 h); o resto segue pelo e-mail (11/09/2026)
+    rows = _2c_unifica_rows(rows, (_2capi_etm_analise_cache.get("payload") or {}).get("rows"))
     rows.sort(key=lambda x: (x["severidade"], x["usina"]))
     return jsonify({"rows": rows, "summary": {
         "total": len(rows),
@@ -15088,9 +15136,45 @@ def api_strings_eventos_xlsx(fonte):
     return _xlsx_resp(wb, f"ocorrencias_strings_{fonte}_{ini}_a_{fim}.xlsx")
 
 
+# código da usina no CSV do e-mail (rodar_2c.MAP / OWEN_UFVS) → id na API PV. Casar por NOME não serve: depois do cadastro
+# de 11/09 o e-mail chama a STL de "Sete Lagoas 2" e a API de "Sete Lagoas", e a usina aparecia duas vezes na aba.
+_2C_EMAIL_PARA_API = {"ARA": 18771898, "STL": 18771901, "TUP": 18750925}
+
+
+def _2c_par_api(r, por_id, por_nome):
+    """A linha da API correspondente a uma linha do e-mail: pelo código (ARA/STL/TUP) e, na falta, pelo nome."""
+    pid_api = _2C_EMAIL_PARA_API.get(str(r.get("plant_id") or ""))
+    if pid_api is not None and pid_api in por_id:
+        return por_id[pid_api]
+    return por_nome.get(_nrm(_macro_usina_nome(r.get("usina") or "")))
+
+
+def _2c_unifica_rows(rows_email, api_rows):
+    """UMA linha por usina para a aba 2C do Tempo Real (Levi, 11/09/2026: "eu quero no tempo real, tudo junto"): a da
+    API PV quando a usina está na conta oem@ (linha viva — strings ao vivo, ETM completa), a do e-mail para as demais
+    (Ipixuna do Pará não está na API). `sub_fonte` diz de onde veio. Sem cache da API (worker frio) a aba segue
+    inteira pelo e-mail, como antes."""
+    api_rows = [r for r in (api_rows or []) if r.get("usina")]
+    por_id = {r.get("plant_id"): r for r in api_rows}
+    por_nome = {_nrm(_macro_usina_nome(r["usina"])): r for r in api_rows}
+    out, usados = [], set()
+    for r in rows_email:
+        a = _2c_par_api(r, por_id, por_nome)
+        if a is not None:
+            out.append(dict(a, sub_fonte="api"))
+            usados.add(id(a))
+        else:
+            out.append(dict(r, sub_fonte="email"))
+    for a in api_rows:                                # usina da API que o e-mail não lista entra também
+        if id(a) not in usados:
+            out.append(dict(a, sub_fonte="api"))
+    return out
+
+
 @app.route("/api/owen/strings/data")
 def api_owen_strings_data():
-    rows = _owen_strings_rows(flask_request.args.get("force") == "1")
+    rows = _2c_unifica_rows(_owen_strings_rows(flask_request.args.get("force") == "1"),
+                            (_2capi_cache.get("payload") or {}).get("rows"))
     return jsonify({"rows": rows, "summary": {
         "total_usinas": len(rows),
         "total_strings": sum(r["strings_ativas"] for r in rows if r.get("strings_ativas")),
@@ -15100,6 +15184,14 @@ def api_owen_strings_data():
 
 @app.route("/api/owen/strings/plant/<plant_id>")
 def api_owen_strings_plant(plant_id):
+    # Usina da 2C que a API PV enxerga (id numérico da conta oem@): o drill é o da API PV — mesmo formato de
+    # inversor/strings que o do e-mail, então a tela não muda (11/09/2026, "tudo junto").
+    if str(plant_id).isdigit() and int(plant_id) in PV_FONTES.get("2capi", set()):
+        try:
+            invs = _pv_plant_inversores(int(plant_id), force=flask_request.args.get("force") == "1")
+        except Exception as e:                                                # noqa: BLE001
+            return jsonify({"error": "falha", "detalhe": f"{type(e).__name__}: {e}"}), 504
+        return jsonify({"plant_id": int(plant_id), "inversores": invs, "sub_fonte": "api"})
     data = _owen_strings_build()
     nome = _owen_nome(plant_id)
     invs = data.get(plant_id, {})

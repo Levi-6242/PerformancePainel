@@ -1123,7 +1123,7 @@ function rxInversores(){
   if(g&&g.inversores&&g.inversores.length){
     const ord={parado:0,abaixo:1,atencao:1,ok:2,sem_dado:3};
     const rzG=i=>rzMeta(i.medido_kwh,rxCasa(i,plats)||null,i.nome);
-    const invs=g.inversores.slice().sort(modoMeta?((a,b)=>((rzG(b)??-1)-(rzG(a)??-1))):((a,b)=>(ord[a.status]-ord[b.status])||((a.razao||9)-(b.razao||9))));
+    const invs=g.inversores.slice().sort(modoMeta?((a,b)=>((rzG(a)??9e9)-(rzG(b)??9e9))):((a,b)=>((a.razao??9e9)-(b.razao??9e9))));
     if(!RX.sel) RX.sel=invs[0].nome;
     const maxR=Math.max(1.3,...invs.map(i=>(modoMeta?rzG(i):i.razao)||0));
     linhas=invs.map(i=>{ const pl=rxCasa(i,plats)||null, cor=i.status==='parado'?'var(--red)':(i.status==='abaixo'||i.status==='atencao')?'var(--amber)':'var(--ok)', rz=modoMeta?rzG(i):i.razao, kv=modoMeta?kwhMeta(i.medido_kwh,pl,i.nome):i.medido_kwh;
@@ -1138,7 +1138,7 @@ function rxInversores(){
     // sem comunicação manda: com o dado parado, "desligado" e "abaixo" são só o retrato velho (Rodrigues 2, 06/09)
     const ord=i=>i.falha?0:i.desligado?1:i.sem.length?2:3;
     const rzE=i=>rzMeta(i.eday,i,i.api), maxR=Math.max(1.3,...plats.map(i=>rzE(i)||0));
-    const invs=plats.slice().sort(modoMeta?((a,b)=>((rzE(b)??-1)-(rzE(a)??-1))):((a,b)=>(ord(a)-ord(b))||((a.eday==null?9e9:a.eday)-(b.eday==null?9e9:b.eday))));
+    const invs=plats.slice().sort(modoMeta?((a,b)=>((rzE(a)??9e9)-(rzE(b)??9e9))):((a,b)=>((a.eday==null?9e9:a.eday)-(b.eday==null?9e9:b.eday))));
     const _sg=rxSemGeracao(plats).nomes;   // mesma régua do card: a tabela não pode contradizê-lo
     linhas=invs.map(i=>{ const st=i.falha?'sem_dado':(i.desligado||_sg.has(i.nome))?'parado':(i.sem.length||(med&&i.eday!=null&&i.eday<0.9*med))?'abaixo':'ok', cor=st==='parado'?'var(--red)':st==='abaixo'?'var(--amber)':st==='sem_dado'?'var(--off)':'var(--ok)', rz=rzE(i), kv=modoMeta?kwhMeta(i.eday,i,i.api):i.eday;
       const barra=modoMeta?`<div class="rx-barra"><i style="width:${rz!=null?Math.min(100,rz/maxR*100):0}%;background:${cor}"></i><em style="left:${1/maxR*100}%"></em></div>`
