@@ -103,3 +103,19 @@ def test_no_rollup_um_estado_pior_no_email_ainda_prevalece(monkeypatch):
     pior = dict(ok, strings_ativas=200, plant_id="ARA")
     u = _rollup_so_com(monkeypatch, [pior], [dict(ok, plant_id=18771898)])
     assert u["fonte"] == "2C" and u["strings_faltando"] == 36 and u["plant_id"] == "ARA" and not u.get("sub_fonte")
+
+
+def test_alias_da_api_vale_em_todos_os_mapas_do_cadastro(monkeypatch):
+    """O cadastro diz "Sete Lagoas", a API "Sete Lagoa": esperadas, nomes, Full O&M e display têm de responder pelos dois."""
+    monkeypatch.setattr(app, "ESPERADO_INV", {"Sete Lagoas": {"INVERSOR01": 24}})
+    monkeypatch.setattr(app, "EQUIP_NAMES", {"Sete Lagoas": {"INVERSOR01": "Inversor 1.1"}})
+    monkeypatch.setattr(app, "ESPERADO", {"Sete Lagoas": {"inv_esp": 1, "str_esp": 24}})
+    monkeypatch.setattr(app, "USINA_DISPLAY", {"Sete Lagoas": "Sete Lagoas"})
+    monkeypatch.setattr(app, "FULL_OM", {"Sete Lagoas"})
+    monkeypatch.setattr(app, "STRING_BOX", set())
+    monkeypatch.setattr(app, "POWER_INV", {"Sete Lagoas": {"INVERSOR01": 250.0}})
+    app._aplica_alias_api_cadastro()
+    assert app.ESPERADO_INV["Sete Lagoa"] == {"INVERSOR01": 24} and app.EQUIP_NAMES["Sete Lagoa"]["INVERSOR01"] == "Inversor 1.1"
+    assert app.ESPERADO["Sete Lagoa"]["str_esp"] == 24 and app.USINA_DISPLAY["Sete Lagoa"] == "Sete Lagoas"
+    assert "Sete Lagoa" in app.FULL_OM and app.POWER_INV["Sete Lagoa"]["INVERSOR01"] == 250.0
+    assert "Sete Lagoa" not in app.STRING_BOX                                 # só copia o que o cadastro tem

@@ -1161,6 +1161,24 @@ def _nrm(s) -> str:
     return re.sub(r"\s+", "", str(s)).strip().lower()
 
 
+# A API PV escreve alguns nomes diferente do cadastro (coluna "Usina Supervisório" do Equipamentos), e o cadastro é a
+# chave de tudo: esperadas, nomes de inversor, Full O&M, display, aba do BD. "Sete Lagoa" (API) é "Sete Lagoas" no
+# cadastro (Levi cadastrou no plural, 11/09/2026) — sem esta ponte a usina entrava sem esperadas e sem nomes.
+PV_NOME_API_ALIAS = {"Sete Lagoa": "Sete Lagoas"}
+
+
+def _aplica_alias_api_cadastro():
+    """Faz os mapas do cadastro responderem também pelo nome que a API escreve (ver PV_NOME_API_ALIAS): copia a entrada
+    do nome do cadastro para o nome da API, só onde o cadastro tem a usina. Chamado no fim do load_equipamentos."""
+    for api, cad in PV_NOME_API_ALIAS.items():
+        for m in (ESPERADO_INV, EQUIP_NAMES, ESPERADO, POWER_INV, USINA_DISPLAY):
+            if cad in m and api not in m:
+                m[api] = m[cad]
+        for conj in (FULL_OM, STRING_BOX):
+            if cad in conj:
+                conj.add(api)
+
+
 def load_equipamentos():
     """(Re)carrega TODO o cadastro a partir da aba 'Equipamentos' do BD_Performance:
     esperadas (Strings Ativas), nomes de exibição, Full O&M e potência por inversor.
@@ -1303,6 +1321,7 @@ def load_equipamentos():
         USINA_GRUPO = usina_grupo
         ESPERADO, FULL_OM, STRING_BOX, POWER_INV = esperado, full_om, string_box, power_inv
         POWER_UFV, FULL_OM_DISP, POWER_INV_DISP = power_ufv, full_om_disp, power_inv_disp
+        _aplica_alias_api_cadastro()             # "Sete Lagoa" (API) responde pelo cadastro "Sete Lagoas"
         # CADASTRO VAZIO NÃO CARIMBA O MTIME. No reboot de 26/08 o app subiu às 07:54, antes de
         # o OneDrive hidratar os arquivos: a leitura "deu certo" com ZERO usinas, o mtime foi
         # carimbado como sucesso e a recarga automática (que compara mtime) passou a achar que
@@ -1955,10 +1974,7 @@ PV_FONTES = {
     # então trackers das três continuam só pelo e-mail (fonte `owen`). A Ipixuna do Pará não está na API.
     "2capi":     {18771898, 18771901, 18750925},    # Araputanga, "Sete Lagoa" (singular na API), Tupi Paulista
 }
-# A API escreve alguns nomes diferente do cadastro (coluna "Usina" do Equipamentos) e o cadastro é a chave de tudo:
-# aba do BD, cliente, esperadas. "Sete Lagoa" (API) é "Sete Lagoas" no BD — sem esta ponte a usina ficava fora do
-# FULL_OM, sem histórico por inversor e sem cliente.
-PV_NOME_API_ALIAS = {"Sete Lagoa": "Sete Lagoas"}
+# PV_NOME_API_ALIAS ("Sete Lagoa" → "Sete Lagoas") está definido antes do load_equipamentos, que o aplica ao cadastro.
 # Conta oem@ não devolve NOME de inversor (só idefinversor) e as abas da 2C não têm linha no Equipamentos. Este
 # de-para foi fechado POR VALOR contra o kWh diário que o e-mail já gravou no BD (11/09/2026: Tupi 20/20 em 4 dias,
 # Araputanga 10/10 em 2, Sete Lagoa 10/10 no único dia que havia) — nunca pela ordem dos ids, que só por acaso
