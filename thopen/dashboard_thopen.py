@@ -34,6 +34,7 @@ import os
 import re
 import json
 import threading
+import unicodedata
 import datetime as dt
 from calendar import monthrange
 
@@ -615,31 +616,132 @@ def _daily_records_todos(usina):
     return _daily_bd(usina)
 
 
-def _meta2026(usina):
-    """{mes: {meta(kWh), fc, metairr, pr}} para a usina (tabela Historico_2026)."""
+def _norm_nome(s):
+    """Chave de comparação de nome: sem acento, sem caixa, sem espaço repetido.
+    SÓ CASA — nunca renomeia nada na planilha (regra do Levi para todo de-para daqui)."""
+    t = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode()
+    return re.sub(r"\s+", " ", t).strip().lower()
+
+
+# De-para de nome usado APENAS para ACHAR a meta. Cada linha é um caso real medido em 10/09/2026:
+# a usina existe no cadastro (`T_Usinas`) com um nome e a meta do cliente veio com outro, e o
+# dashboard mostrava a usina "sem meta" em silêncio — o mesmo sintoma que fez a Cipó Guaçu passar
+# meses invisível. Explícito de propósito, como o `_POLARIS_NOME`: uma regra automática do tipo
+# "ignore o I" ou "ignore o 1 solto" casaria `Ouro Branco 1` com `Ouro Branco 2`.
+_META_NOME = {
+    # nome no cadastro          nome onde a meta está
+    "Boa Viagem I 1":           "Boa Viagem 1",
+    "Ceará Mirim I 1":          "Ceará Mirim 1",
+    "Ceará Mirim I 2":          "Ceará Mirim 2",
+    "Delmiro Gouvea 2":         "Delmiro Gouvea 1 2",
+    "Delmiro Gouvea 3":         "Delmiro Gouvea 1 3",
+    "Delmiro Gouvea 4":         "Delmiro Gouvea 1 4",
+    "Porto Real 3":             "Porto Real 3 1",
+    # a aba `Historico` escreve sem o "a" final; o cadastro e a tabela derivada escrevem com ele
+    "Córrego do Sapucaia":      "Córrego do Sapucai",
+}
+
+_META_CAMPOS = ("meta", "fc", "metairr", "pr")
+
+
+def _hist_pivot():
+    """{(nome_normalizado, mês): {meta, fc, metairr, pr}} pivotado da tabela `Historico`.
+
+    POR QUE NÃO BASTA A `Historico_2026`: aquela tabela é **saída de Power Query** ("Consulta -
+    Historico") e só se refaz quando um humano abre o Excel e manda atualizar. Em 10/09/2026 a
+    Cipó Guaçu aparecia "sem meta" por isso — os 12 meses dela estavam na `Historico` desde
+    sempre e a tabela derivada nunca tinha sido refeita. Pivotando na leitura, meta colada na
+    `Historico` vale na hora, sem depender de ninguém abrir a planilha.
+
+    A `Historico` é LONGA (Usina | Ano | Mês | Tipo | Valor) e guarda vários anos; aqui entram só
+    os quatro tipos do ANO corrente.
+    """
+    if ("hist_piv",) in _state["df"]:
+        return _state["df"][("hist_piv",)]
+    alvo = {"fc (%d)" % ANO: "fc", "meta (%d)" % ANO: "meta",
+            "meta irradiação (%d)" % ANO: "metairr", "pr (%d)" % ANO: "pr"}
+    hdr, rows = _table("Historico")
+    out = {}
+    iU = _ci(hdr, "usina") if hdr else None
+    iMes = (_ci(hdr, "mês") if hdr and _ci(hdr, "mês") is not None else
+            (_ci(hdr, "mes") if hdr else None))
+    iTipo = _ci(hdr, "tipo") if hdr else None
+    iVal = _ci(hdr, "valor") if hdr else None
+    if None not in (iU, iMes, iTipo, iVal):
+        for r in rows:
+            u = r[iU]
+            # o `Tipo` chega com espaço sobrando em parte das linhas (ex.: " Produzida (2023)")
+            k = alvo.get(str(r[iTipo]).strip().lower()) if r[iTipo] is not None else None
+            if not isinstance(u, str) or not k:
+                continue
+            mv = r[iMes]
+            m = mv.month if isinstance(mv, (dt.datetime, dt.date)) else _num(mv)
+            if not m:
+                continue
+            out.setdefault((_norm_nome(u), int(m)), {})[k] = _num(r[iVal])
+    _state["df"][("hist_piv",)] = out
+    return out
+
+
+def _meta_tabela():
+    """{(nome_normalizado, mês): {meta, fc, metairr, pr}} da tabela LARGA `Historico_2026`."""
+    if ("meta_tbl",) in _state["df"]:
+        return _state["df"][("meta_tbl",)]
     hdr, rows = _table("Historico_2026")
     out = {}
-    if not hdr:
-        return out
-    iU = _ci(hdr, "usina")
-    iMes = _ci(hdr, "mês") if _ci(hdr, "mês") is not None else _ci(hdr, "mes")
-    iFC = _ci(hdr, "fc")
-    iMeta = _ci(hdr, "meta (2026)")
-    iIrr = _ci(hdr, "irradia")
-    iPR = _ci(hdr, "pr")
-    for r in rows:
-        if iU is None or str(r[iU]).strip() != usina:
-            continue
-        mv = r[iMes]
-        m = mv.month if isinstance(mv, (dt.datetime, dt.date)) else _num(mv)
-        if not m:
-            continue
-        out[int(m)] = {
-            "meta": _num(r[iMeta]) if iMeta is not None else None,
-            "fc": _num(r[iFC]) if iFC is not None else None,
-            "metairr": _num(r[iIrr]) if iIrr is not None else None,
-            "pr": _num(r[iPR]) if iPR is not None else None,
-        }
+    if hdr:
+        iU = _ci(hdr, "usina")
+        iMes = _ci(hdr, "mês") if _ci(hdr, "mês") is not None else _ci(hdr, "mes")
+        iFC = _ci(hdr, "fc")
+        iMeta = _ci(hdr, "meta (%d)" % ANO)
+        iIrr = _ci(hdr, "irradia")
+        iPR = _ci(hdr, "pr")
+        for r in rows:
+            if iU is None or not isinstance(r[iU], str):
+                continue
+            mv = r[iMes]
+            m = mv.month if isinstance(mv, (dt.datetime, dt.date)) else _num(mv)
+            if not m:
+                continue
+            out[(_norm_nome(r[iU]), int(m))] = {
+                "meta": _num(r[iMeta]) if iMeta is not None else None,
+                "fc": _num(r[iFC]) if iFC is not None else None,
+                "metairr": _num(r[iIrr]) if iIrr is not None else None,
+                "pr": _num(r[iPR]) if iPR is not None else None,
+            }
+    _state["df"][("meta_tbl",)] = out
+    return out
+
+
+def _meta2026(usina):
+    """{mes: {meta(kWh), fc, metairr, pr}} para a usina.
+
+    Duas fontes, nesta ordem de precedência, campo a campo:
+      1. `Historico` pivotada — a verdade, porque é onde a meta é COLADA (ver `_hist_pivot`);
+      2. `Historico_2026`, a tabela derivada — reserva. Não é redundância: Caicó, Diamantino e
+         Itajá existem SÓ nela, e cortar a reserva apagaria a meta dessas três da tela.
+
+    Campo vazio na fonte 1 NÃO apaga o valor da fonte 2 — foi o que se viu no Lyon, cujo PR está
+    preenchido na `Historico` e vazio na tabela derivada (e o inverso acontece em outras).
+    """
+    chaves = []
+    for c in (usina, _META_NOME.get(usina)):
+        k = _norm_nome(c) if c else None
+        if k and k not in chaves:
+            chaves.append(k)
+
+    piv, tbl = _hist_pivot(), _meta_tabela()
+    out = {}
+    for fonte in (tbl, piv):                    # piv depois: sobrescreve campo a campo
+        for k in chaves:
+            for mes in range(1, 13):
+                e = fonte.get((k, mes))
+                if not e:
+                    continue
+                alvo = out.setdefault(mes, {c: None for c in _META_CAMPOS})
+                for c in _META_CAMPOS:
+                    if e.get(c) is not None:
+                        alvo[c] = e[c]
     return out
 
 
@@ -788,6 +890,12 @@ CARTEIRAS = {
         "Cipó Guaçu", "Córrego do Sapucaia", "Guatambu", "Jucurutu",
         # Entraram em operação em 08/2026 (meta e geração começam em agosto).
         "Assis", "Caicó", "Diamantino", "Itajá",
+        # Usinas novas, com histórico trazido da API PV em 11/09/2026: Álvares Machado e
+        # Santo Anastácio desde junho, Taguaí desde março. "Santo Anastacio" vai SEM acento de
+        # propósito: a chave daqui é o valor da coluna `Usina` DENTRO da aba (ver
+        # `_usina_da_aba`), e lá está sem acento. Escrever com acento aqui deixaria as três
+        # fora de toda carteira e o seletor as esconderia — mesmo caso do "Rodrigues" acima.
+        "Alvares Machado", "Santo Anastacio", "Taguaí",
     ],
     "Copel": [
         "Pharma II", "Pharma III", "Pharma IV", "Santo Antonio do Platina",
