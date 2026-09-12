@@ -452,6 +452,46 @@ def gemeo_proxy(sub):
     return resp
 
 
+# ── OS Creator na web: proxy /os/* → serviço do repositório oem (porta 5090) ─────────────────
+# Levi, 12/09/2026: "traga toda a estrutura do OS Creator para a plataforma, de forma que para entrar no card tenha que
+# logar no Fracttal". O serviço (`os_creator/os_web`, repositório Grid-Co-CODE/oem) reaproveita o `api.py` do app
+# desktop e refaz as telas em HTML; a plataforma só o publica pelo mesmo túnel e pelo mesmo login (o _auth_gate cobre
+# /os/*). Diferente do Gêmeo, NÃO há senha compartilhada: cada pessoa loga no Fracttal e a sessão dela vive num cookie
+# do próprio serviço (`os_sessao`, Path=/os) — por isso o proxy repassa ESSE cookie nos dois sentidos, e só ele (o
+# cookie de sessão da plataforma não sai daqui). Serviço fora do ar → 503 com texto, nunca 500.
+OS_WEB_URL = os.environ.get("OS_WEB_URL", "http://127.0.0.1:5090").rstrip("/")
+_OS_WEB_COOKIE = "os_sessao"
+
+
+@app.route("/os/", defaults={"sub": ""}, methods=["GET", "POST"])
+@app.route("/os/<path:sub>", methods=["GET", "POST"])
+def os_web_proxy(sub):
+    from flask import Response
+    cab = {"Accept": flask_request.headers.get("Accept", "*/*")}
+    if flask_request.content_type:
+        cab["Content-Type"] = flask_request.content_type
+    sessao = flask_request.cookies.get(_OS_WEB_COOKIE)
+    if sessao:
+        cab["Cookie"] = f"{_OS_WEB_COOKIE}={sessao}"
+    try:
+        r = requests.request(flask_request.method, f"{OS_WEB_URL}/os/{sub}", params=flask_request.args.to_dict(flat=False),
+                             data=flask_request.get_data(), headers=cab, timeout=180, allow_redirects=False)
+    except requests.RequestException as e:
+        return Response(f"OS Creator web fora do ar ({type(e).__name__}). Ver os_creator/os_web no repositório oem.",
+                        status=503, mimetype="text/plain; charset=utf-8")
+    resp = Response(r.content, status=r.status_code, content_type=r.headers.get("Content-Type", "text/html; charset=utf-8"))
+    for k, v in r.headers.items():
+        if k.lower() in ("location", "cache-control"):
+            resp.headers[k] = v
+    try:                                                   # cada Set-Cookie separado (o dict de headers os junta com vírgula)
+        for v in r.raw.headers.getlist("Set-Cookie"):
+            resp.headers.add("Set-Cookie", v)
+    except AttributeError:
+        if r.headers.get("Set-Cookie"):
+            resp.headers.add("Set-Cookie", r.headers["Set-Cookie"])
+    return resp
+
+
 @app.route("/auth/login")
 def auth_login():
     """Início do login Microsoft (Entra ID): redireciona pro Microsoft; a volta cai em /auth/callback."""
