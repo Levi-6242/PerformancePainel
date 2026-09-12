@@ -209,3 +209,13 @@ de `tickets_relay.ABAS`, carimbando o nome verificado no diário e deixando rast
 próprio no handler, como `/api/campo/`). E como o túnel troca de endereço a cada subida, o
 `_tunnel_url_loop` publica a URL atual no banco (`os_creator/plataforma`) — é de lá que o app a
 lê. Sem essa publicação o app fica só-leitura, então **restart da plataforma = URL republicada**.
+
+## OS Creator na web — proxy `/os/*` (12/09/2026)
+
+O card "Criar OS" da Entrada abre o OS Creator dentro da plataforma. O serviço NÃO mora aqui: é `os_creator/os_web`
+no repositório Grid-Co-CODE/oem (clone em `C:\GridcoBuild\oem`), waitress em 127.0.0.1:5090, lançado por
+`deploy/os_web.cmd|.vbs`. O `app.py` só faz o proxy (`os_web_proxy`, `OS_WEB_URL` no tokens.txt), no molde do
+`/gemeo/*`, com uma diferença: repassa o cookie `os_sessao` (Path=/os) nos dois sentidos — a sessão do Fracttal é de
+cada pessoa, não há senha compartilhada. O `_auth_gate` cobre `/os/*`: primeiro o login da plataforma, depois o do
+Fracttal. Serviço fora do ar → 503 com texto. Testes: `tests/test_os_web_proxy.py`. Detalhes: `docs/os-creator-web.md`
+no repositório oem.
