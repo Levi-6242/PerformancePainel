@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Criar OS na plataforma · proposta 12/09/2026</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#090d18;--surface:#161d30;--surface-2:#1b2338;--text:#e9eef6;--n300:#c3cad7;--n400:#96a0b4;--n500:#767d92;--divider:rgba(255,255,255,.09);
+      --accent:#a3d900;--accent-300:#c4e755;--ok:#4ade80;--warn:#f5c877;--bad:#ff5b6e;--blue:#5bc8e8;--f-ui:'Inter',system-ui,sans-serif;--f-data:'IBM Plex Mono',Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 var(--f-ui);background-image:radial-gradient(900px 420px at 50% -120px, rgba(163,217,0,.10), transparent 70%)}
+.wrap{max-width:1240px;margin:0 auto;padding:28px 24px 70px}
+h1{font-size:26px;font-weight:800;letter-spacing:-.02em;margin:0 0 6px}
+h1 small{font-family:var(--f-data);font-size:13px;font-weight:500;color:var(--accent);margin-left:10px}
+.sub{color:var(--n400);margin:0 0 18px;max-width:900px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:1.6px;color:var(--accent);margin:44px 0 12px;font-weight:700}
+h2 span{color:var(--n500);font-weight:500;letter-spacing:0;text-transform:none;font-size:13px;margin-left:10px}
+h3{font-size:15px;margin:0 0 6px;font-weight:700}
+.card{background:var(--surface);border:1px solid var(--divider);border-radius:14px;padding:16px 18px}
+.muted{color:var(--n400)} .faint{color:var(--n500)}
+.pill{display:inline-block;font-family:var(--f-data);font-size:10.5px;letter-spacing:.6px;text-transform:uppercase;padding:3px 8px;border-radius:999px;border:1px solid;font-weight:600;white-space:nowrap}
+.p-ok{color:var(--ok);border-color:rgba(74,222,128,.45)} .p-op{color:var(--blue);border-color:rgba(91,200,232,.45)} .p-warn{color:var(--warn);border-color:rgba(245,200,119,.5)} .p-pend{color:var(--n400);border-color:var(--divider)} .p-bad{color:var(--bad);border-color:rgba(255,91,110,.5)} .p-acc{color:var(--accent);border-color:rgba(163,217,0,.5)}
+code{font-family:var(--f-data);font-size:12px;background:var(--surface-2);padding:1px 5px;border-radius:4px}
+.frame{border:1px solid var(--divider);border-radius:16px;overflow:hidden;background:var(--bg)}
+.frame .bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--surface-2);border-bottom:1px solid var(--divider);font-family:var(--f-data);font-size:11.5px;color:var(--n400)}
+.frame .bar i{width:9px;height:9px;border-radius:50%;background:#2c3550;display:inline-block}
+.frame .bar .url{margin-left:8px;color:var(--n300)}
+.legenda{color:var(--n500);font-size:12.5px;margin:8px 2px 0}
+/* ── Entrada replica ── */
+.topo{display:flex;align-items:center;justify-content:space-between;padding:18px 26px 0;max-width:1180px;margin:0 auto}
+.marca{display:flex;align-items:center;gap:12px;font-weight:800;font-size:17px}
+.marca b{color:var(--accent);font-size:20px}
+.marca span{font-size:12px;color:var(--n400);border-left:1px solid var(--divider);padding-left:12px;font-weight:400}
+.vivo{font-family:var(--f-data);font-size:12px;color:var(--n400)} .vivo i{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--accent);margin-right:8px}
+.abre{text-align:center;padding:38px 20px 4px} .abre h1{font-size:30px} .abre p{margin:0;color:var(--n400);font-size:14.5px} .abre p b{color:var(--n300)}
+.altitudes{max-width:1180px;margin:0 auto;padding:30px 26px 34px;display:grid;grid-template-columns:repeat(4,1fr);gap:18px}
+.ent{background:var(--surface);border:1px solid var(--divider);border-radius:16px;padding:18px 18px 14px;display:flex;flex-direction:column;min-height:400px;position:relative}
+.ent.novo{outline:2px solid rgba(163,217,0,.55);outline-offset:3px}
+.ent .kicker{font-family:var(--f-data);font-size:10.5px;letter-spacing:1.6px;text-transform:uppercase;color:var(--n500);display:flex;align-items:center;gap:8px}
+.ent .kicker i{width:22px;height:1px;background:var(--n500);display:inline-block}
+.ent svg{width:100%;height:auto;margin:14px 0 8px;stroke-width:2;fill:none}
+.ent svg .chao{stroke:#2c3550} .ent svg .fino{stroke:#3a4463} .ent svg .verde{stroke:var(--accent)} .ent svg .fill{fill:var(--accent);stroke:none} .ent svg .cx{stroke:var(--n500);stroke-dasharray:4 4}
+.ent h4{font-size:19px;line-height:1.2;margin:4px 0 8px;font-weight:800;letter-spacing:-.01em}
+.ent .desc{color:var(--n300);margin:0 0 8px;font-size:13px}
+.ent .quem{color:var(--n400);font-size:12.5px;margin:0 0 12px} .ent .quem b{color:var(--n300)}
+.ent .links{margin-top:auto;border-top:1px solid var(--divider);padding-top:10px;display:flex;gap:12px;flex-wrap:wrap;font-size:12.5px}
+.ent .links .prim{color:var(--accent);font-weight:700} .ent .links .sec{color:var(--n500)}
+.ent .tag{position:absolute;top:14px;right:14px}
+.ent .cadeado{display:inline-flex;align-items:center;gap:6px;font-family:var(--f-data);font-size:10.5px;color:var(--warn);border:1px solid rgba(245,200,119,.45);border-radius:999px;padding:2px 8px;margin-left:auto}
+/* ── telas /os ── */
+.os-top{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-bottom:1px solid var(--divider);background:var(--surface)}
+.os-top .t{font-weight:800;font-size:15px} .os-top .t span{color:var(--n500);font-weight:500;margin-left:10px;font-size:12.5px}
+.os-top .user{font-family:var(--f-data);font-size:12px;color:var(--n400)} .os-top .user b{color:var(--ok);font-weight:500}
+.tabs{display:flex;gap:4px;padding:10px 20px 0;border-bottom:1px solid var(--divider);background:var(--surface)}
+.tab{padding:8px 14px;border-radius:8px 8px 0 0;color:var(--n400);font-weight:600;font-size:13px} .tab.on{background:var(--bg);color:var(--text);border:1px solid var(--divider);border-bottom-color:var(--bg);margin-bottom:-1px}
+.body{padding:18px 20px 22px}
+.launch{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.mod{background:var(--surface);border:1px solid var(--divider);border-radius:12px;padding:14px 14px 12px;min-height:126px;display:flex;flex-direction:column}
+.mod .k{font-family:var(--f-data);font-size:10.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--n500)}
+.mod h4{margin:6px 0 4px;font-size:15px;font-weight:700} .mod p{margin:0;color:var(--n400);font-size:12.5px;flex:1}
+.mod .pill{margin-top:10px;align-self:flex-start}
+/* login */
+.gate{display:grid;grid-template-columns:1fr 1fr;gap:26px;padding:34px 40px;align-items:center}
+.login{background:var(--surface);border:1px solid var(--divider);border-radius:14px;padding:22px 24px;max-width:420px;margin:0 auto}
+.login label{display:block;font-size:12px;color:var(--n400);margin:12px 0 4px} .login .in{border:1px solid var(--divider);background:var(--bg);border-radius:8px;padding:9px 12px;font-family:var(--f-data);font-size:13px;color:var(--n300)}
+.login .btn{margin-top:16px;background:var(--accent);color:#0e1626;font-weight:800;border-radius:8px;padding:10px;text-align:center}
+.login .aviso{margin-top:12px;color:var(--n500);font-size:12px}
+/* performance flow */
+.flow{display:grid;grid-template-columns:1.1fr 1.6fr 1fr;gap:12px}
+.plan{border:1px solid var(--divider);border-radius:10px;padding:10px 12px;margin-bottom:8px;background:var(--surface)} .plan.on{border-color:rgba(163,217,0,.55)}
+.plan .k{font-family:var(--f-data);font-size:10.5px;color:var(--n500);letter-spacing:1.2px;text-transform:uppercase} .plan b{display:block;font-size:13.5px;margin-top:2px}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th{text-align:left;color:var(--n500);font-size:10.5px;text-transform:uppercase;letter-spacing:1px;padding:7px 8px;border-bottom:1px solid var(--divider)}
+td{padding:7px 8px;border-bottom:1px solid var(--divider);vertical-align:top} tr:last-child td{border-bottom:none}
+td.m{font-family:var(--f-data);white-space:nowrap} .chk{display:inline-block;width:14px;height:14px;border:1px solid var(--n500);border-radius:3px;vertical-align:middle} .chk.on{background:var(--accent);border-color:var(--accent)}
+.st{font-family:var(--f-data);font-size:11px} .st.pend{color:var(--warn)} .st.and{color:var(--blue)} .st.conc{color:var(--ok)} .st.canc{color:var(--n500)}
+.kan{display:grid;grid-template-columns:1fr;gap:8px} .pes{border:1px solid var(--divider);border-radius:8px;padding:8px 10px;font-size:12.5px;display:flex;justify-content:space-between} .pes span{font-family:var(--f-data);color:var(--n400)}
+/* arquitetura */
+.arq{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;align-items:stretch}
+.box{background:var(--surface);border:1px solid var(--divider);border-radius:12px;padding:12px 14px;position:relative;border-top:3px solid var(--n500)}
+.box.b-acc{border-top-color:var(--accent)} .box.b-blue{border-top-color:var(--blue)} .box.b-warn{border-top-color:var(--warn)}
+.box .k{font-family:var(--f-data);font-size:10.5px;letter-spacing:1.2px;text-transform:uppercase;color:var(--n500)} .box h4{margin:3px 0 6px;font-size:14px} .box p{margin:0;color:var(--n400);font-size:12.5px}
+.box:after{content:"";position:absolute;right:-11px;top:50%;border-left:9px solid var(--divider);border-top:6px solid transparent;border-bottom:6px solid transparent} .box:last-child:after{display:none}
+.fases{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+ul.li{margin:6px 0 0;padding-left:18px} ul.li li{margin:3px 0;color:var(--n300);font-size:13px}
+.num{font-family:var(--f-data);font-size:22px;font-weight:600}
+@media (max-width:1000px){.altitudes,.launch,.arq,.fases{grid-template-columns:1fr 1fr}.flow,.gate{grid-template-columns:1fr}.box:after{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Criar OS na plataforma <small>proposta · 12/09/2026 00:50</small></h1>
+<p class="sub">O quarto card da Entrada abre o OS Creator dentro da plataforma, atrás de um segundo login: o do Fracttal. A OS continua nascendo no nome de quem a cria.
+Abaixo: como fica a Entrada, a porta, a área <code>/os</code>, um fluxo inteiro (Performance) e o histórico; depois a arquitetura, o tamanho real do que "passa" e as fases.</p>
+
+<h2>1 · A Entrada com o quarto card <span>o card novo tem contorno verde só aqui, para destacar</span></h2>
+<div class="frame">
+  <div class="bar"><i></i><i></i><i></i><span class="url">https://…trycloudflare.com/</span></div>
+  <div class="topo"><div class="marca"><b>G</b> Grid Co. <span>Plataforma de Performance</span></div><div class="vivo"><i></i>sábado, 12 set · 00:50</div></div>
+  <div class="abre"><h1>Por onde você entra hoje?</h1><p>Três leituras da mesma usina, <b>o segundo</b>, <b>o dia</b> e <b>o mês</b>, e <b>a ação</b> que sai delas.</p></div>
+  <div class="altitudes">
+    <article class="ent"><div class="kicker"><i></i>Agora</div>
+      <svg viewBox="0 0 300 110"><path class="cx" d="M40 92 A110 110 0 0 1 260 92"/><circle class="fill" cx="96" cy="58" r="5"/><line class="chao" x1="14" y1="92" x2="286" y2="92"/><g class="fino"><line x1="60" y1="72" x2="60" y2="92"/><line x1="110" y1="72" x2="110" y2="92"/><line x1="160" y1="72" x2="160" y2="92"/><line x1="210" y1="72" x2="210" y2="92"/></g><g class="verde"><line x1="46" y1="74" x2="74" y2="66"/><line x1="96" y1="74" x2="124" y2="66"/><line x1="146" y1="74" x2="174" y2="66"/><line x1="196" y1="74" x2="224" y2="66"/></g></svg>
+      <h4>Operação em tempo real</h4><p class="desc">Strings, estações e trackers de todas as fontes, com a leitura mais recente de cada usina.</p><p class="quem">Para quem está <b>de plantão</b>.</p>
+      <div class="links"><span class="prim">Monitoramento ›</span><span class="sec">Strings · ETM · Trackers</span></div></article>
+    <article class="ent"><div class="kicker"><i></i>Hoje e o histórico</div>
+      <svg viewBox="0 0 300 110"><line class="chao" x1="14" y1="92" x2="286" y2="92"/><path class="cx" d="M20 92 C70 26,110 20,150 19 C190 20,230 26,280 92"/><path class="verde" d="M20 92 C70 30,110 24,146 34 C150 40,158 62,166 62 C176 62,184 44,196 36 C230 28,250 40,280 92"/></svg>
+      <h4>Diagnóstico de performance</h4><p class="desc">Do histórico de geração ao inversor que ficou para trás, e o motivo por trás dele.</p><p class="quem">Para quem <b>investiga</b>.</p>
+      <div class="links"><span class="prim">Painel ›</span><span class="sec">Gêmeo Digital · Criador de Relatório</span></div></article>
+    <article class="ent"><div class="kicker"><i></i>O mês</div>
+      <svg viewBox="0 0 300 110"><line class="chao" x1="14" y1="92" x2="286" y2="92"/><g class="fill"><rect x="30" y="30" width="18" height="62" rx="2"/><rect x="62" y="36" width="18" height="56" rx="2"/><rect x="126" y="28" width="18" height="64" rx="2"/><rect x="158" y="40" width="18" height="52" rx="2"/><rect x="222" y="33" width="18" height="59" rx="2"/><rect x="254" y="38" width="18" height="54" rx="2"/></g><g class="fino"><rect x="94" y="58" width="18" height="34" rx="2"/><rect x="190" y="66" width="18" height="26" rx="2"/></g><line class="cx" x1="14" y1="44" x2="286" y2="44"/></svg>
+      <h4>Visão gerencial</h4><p class="desc">Geração contra a meta, disponibilidade e acompanhamento de cada usina e de cada cliente.</p><p class="quem">Para quem <b>responde pelo resultado</b>.</p>
+      <div class="links"><span class="prim">Gerencial ›</span></div></article>
+    <article class="ent novo"><span class="tag pill p-acc">novo</span><div class="kicker"><i></i>A ação</div>
+      <svg viewBox="0 0 300 110"><line class="chao" x1="14" y1="92" x2="286" y2="92"/><rect class="fino" x="70" y="10" width="160" height="82" rx="6"/><line class="fino" x1="92" y1="34" x2="180" y2="34"/><line class="fino" x1="92" y1="52" x2="208" y2="52"/><line class="fino" x1="92" y1="70" x2="160" y2="70"/><circle class="verde" cx="212" cy="26" r="13"/><path class="verde" d="M205 26 l5 5 l10 -11"/><rect class="fill" x="70" y="10" width="160" height="6" rx="3"/></svg>
+      <h4>Criar OS</h4><p class="desc">Ordens de serviço, solicitações e chamados no Fracttal, no nome de quem abre, com o ativo e a régua da plataforma já preenchidos.</p><p class="quem">Para quem <b>executa</b>.</p>
+      <div class="links"><span class="prim">Criar OS ›</span><span class="sec">Históricos · Chamados · Tickets</span><span class="cadeado">login Fracttal</span></div></article>
+  </div>
+</div>
+<p class="legenda">Grade de 3 para 4 colunas (a Entrada já tem a regra de 4 por linha acima de 1400 px para as usinas). Sem emoji; o cadeado é texto.</p>
+
+<h2>2 · A porta: o segundo login <span>o da plataforma não loga ninguém no Fracttal; são dois sistemas</span></h2>
+<div class="frame">
+  <div class="bar"><i></i><i></i><i></i><span class="url">…/os/login</span></div>
+  <div class="gate">
+    <div>
+      <h3>Entrar no Fracttal para criar OS</h3>
+      <p class="muted">Você já está na plataforma como <code>levi.maia@gridco.com.br</code>. Para abrir OS, o Fracttal precisa saber quem é você: a OS, o histórico e as fotos saem da sua sessão nele, não de um robô.</p>
+      <ul class="li">
+        <li>E-mail e senha <b>do Fracttal</b>. A senha vai para o nosso servidor, que faz o login no Fracttal e guarda só a sessão (JWT, ~12 h). Ninguém guarda a senha.</li>
+        <li>Quem entra no Fracttal <b>pela Microsoft (SSO) não tem senha</b> e não consegue entrar por aqui. É a pergunta a levar ao suporte deles: existe OAuth para integradores?</li>
+        <li>O Fracttal aceita ~1 sessão por conta: entrar aqui derruba o Fracttal aberto em outra aba, e vice-versa. A tela avisa e oferece entrar de novo.</li>
+      </ul>
+    </div>
+    <div class="login">
+      <div style="font-weight:800;font-size:16px">Fracttal · GRID CO. LTDA</div>
+      <div class="faint" style="font-size:12px">sessão pessoal, guardada só neste navegador</div>
+      <label>E-mail do Fracttal</label><div class="in">levi.maia@gridco.com.br</div>
+      <label>Senha do Fracttal</label><div class="in">••••••••••</div>
+      <div class="btn">Entrar e ir para Criar OS</div>
+      <div class="aviso">Entrou pela Microsoft no Fracttal? Você não tem senha lá. Peça a criação de uma senha ao administrador do Fracttal ou aguarde o OAuth.</div>
+    </div>
+  </div>
+</div>
+
+<h2>3 · A área /os: o mesmo lançador do app <span>três abas e a grade de cards, na ordem em que aparecem hoje</span></h2>
+<div class="frame">
+  <div class="bar"><i></i><i></i><i></i><span class="url">…/os/</span></div>
+  <div class="os-top"><div class="t">Criar OS <span>Fracttal · GRID CO. LTDA</span></div><div class="user">Fracttal: <b>Levi Maia</b> · sessão até 12:48 · sair</div></div>
+  <div class="tabs"><div class="tab on">Criar OS</div><div class="tab">Solicitação / PCM</div><div class="tab">Históricos de OS</div><div class="tab">Tickets</div></div>
+  <div class="body"><div class="launch">
+    <div class="mod"><div class="k">Nasce de um ativo</div><h4>Ativos</h4><p>Fluxo tradicional: ativo → detalhes → subtarefas → responsável. Várias OS de uma vez.</p><span class="pill p-op">fase 2</span></div>
+    <div class="mod"><div class="k">Nasce da geração</div><h4>Performance</h4><p>Quatro planos (coleta, inspeção do inversor, recomposição de string, tracker parado), cascata cliente → usina → ativos, Kanban da equipe.</p><span class="pill p-acc">fase 1</span></div>
+    <div class="mod"><div class="k">Nasce da proteção</div><h4>COS</h4><p>Proteções ANSI, categorias A/B/C e o texto da observação pelas regras do COS.</p><span class="pill p-op">fase 2</span></div>
+    <div class="mod"><div class="k">Nasce do plano</div><h4>PCM</h4><p>Temas padronizados do PCM e a tela de padronização.</p><span class="pill p-op">fase 2</span></div>
+    <div class="mod"><div class="k">Nasce do cliente</div><h4>Chamados</h4><p>Abrir, detalhar e inspecionar chamados; garantia de peças pelo pacote chamado_garantia.</p><span class="pill p-pend">fase 3</span></div>
+    <div class="mod"><div class="k">Nasce de outra OS</div><h4>Clonar OS</h4><p>Recria todas as tarefas, ativos e subtarefas de uma OS existente.</p><span class="pill p-op">fase 2</span></div>
+    <div class="mod"><div class="k">Nasce do ticket</div><h4>Tickets</h4><p>Trackers e strings da Gridco Performance API; o diário da aba 387. Já lê o banco da plataforma: não precisa do Fracttal.</p><span class="pill p-pend">fase 3</span></div>
+    <div class="mod"><div class="k">Nasce da engenharia</div><h4>Engenharia</h4><p>Ticket de engenharia e a tela da área, hoje pequena no app.</p><span class="pill p-pend">fase 3</span></div>
+  </div></div>
+</div>
+<p class="legenda">Históricos de OS (criadas e atribuídas, detalhe com fotos, subtarefas, trocar responsável, cancelar) entra na fase 1 junto com Performance: é o que a equipe abre o dia todo.</p>
+
+<h2>4 · Um fluxo inteiro na web: Performance <span>a mesma tela do app, em três colunas</span></h2>
+<div class="frame">
+  <div class="bar"><i></i><i></i><i></i><span class="url">…/os/performance?usina=Tanabi+2&ativo=Inversor+2.18&template=recomposicao</span></div>
+  <div class="os-top"><div class="t">Performance <span>OS por ativo, no nome de Levi Maia</span></div><div class="user">vindo do deep link da plataforma: 2 strings sem corrente no Inversor 2.18</div></div>
+  <div class="body"><div class="flow">
+    <div>
+      <div class="plan"><div class="k">plano</div><b>Coleta de dados de geração</b></div>
+      <div class="plan"><div class="k">plano</div><b>Inspeção Geral do Inversor</b></div>
+      <div class="plan on"><div class="k">plano · selecionado</div><b>Recomposição de String</b><div class="faint" style="font-size:12px;margin-top:4px">subtarefas do plano já montadas; observação vem da plataforma</div></div>
+      <div class="plan"><div class="k">plano</div><b>Verificação de Tracker Parado</b></div>
+    </div>
+    <div class="card" style="padding:12px 14px">
+      <div class="faint" style="font-family:var(--f-data);font-size:11px;margin-bottom:6px">Thopen · Tanabi 2 · 20 inversores</div>
+      <table>
+        <tr><th></th><th>Ativo</th><th>Observação</th><th>OS aberta</th></tr>
+        <tr><td><span class="chk on"></span></td><td>Inversor 2.18</td><td>Strings Ipv10 e Ipv17 com corrente nula, verificar e normalizar</td><td class="m">—</td></tr>
+        <tr><td><span class="chk"></span></td><td>Inversor 2.17</td><td class="faint">—</td><td class="m">9786 · Janderson</td></tr>
+        <tr><td><span class="chk"></span></td><td>Inversor 2.16</td><td class="faint">—</td><td class="m">—</td></tr>
+        <tr><td><span class="chk"></span></td><td>Inversor 2.15</td><td class="faint">—</td><td class="m">—</td></tr>
+      </table>
+      <div class="faint" style="font-size:12px;margin-top:8px">Marcar vários ativos = uma OS por ativo. OS pai e responsável herdados quando o inversor já tem OS atribuída.</div>
+    </div>
+    <div>
+      <div class="faint" style="font-family:var(--f-data);font-size:11px;margin-bottom:6px">Responsável · carga da semana</div>
+      <div class="kan">
+        <div class="pes">Janderson Miranda <span>7 OS</span></div>
+        <div class="pes" style="border-color:rgba(163,217,0,.55)">Luiz Silva <span>3 OS</span></div>
+        <div class="pes">Ana Patrícia <span>5 OS</span></div>
+      </div>
+      <div class="login" style="padding:0;border:none;background:none;margin-top:12px"><div class="btn">Criar 1 OS no Fracttal</div></div>
+      <div class="faint" style="font-size:12px;margin-top:8px">Resultado: folio, link para o detalhe e aviso na plataforma (o índice de OS por inversor atualiza sozinho).</div>
+    </div>
+  </div></div>
+</div>
+
+<h2>5 · Históricos de OS <span>criadas por mim · atribuídas a mim · por usina</span></h2>
+<div class="frame">
+  <div class="bar"><i></i><i></i><i></i><span class="url">…/os/historico?modo=criadas&de=01/09/2026</span></div>
+  <div class="body"><table>
+    <tr><th>Folio</th><th>Usina</th><th>Ativo</th><th>Descrição</th><th>Responsável</th><th>Criada</th><th>Status</th></tr>
+    <tr><td class="m">9812</td><td>Tanabi 2</td><td>Inversor 2.18</td><td>Recomposição de String</td><td>Luiz Silva</td><td class="m">12/09 00:52</td><td><span class="st pend">Pendente</span></td></tr>
+    <tr><td class="m">9786</td><td>Tanabi 2</td><td>Inversor 4.2</td><td>Inspeção Geral do Inversor</td><td>Janderson Miranda</td><td class="m">10/09 14:10</td><td><span class="st and">Em andamento</span></td></tr>
+    <tr><td class="m">9773</td><td>Araputanga</td><td>Inversor 1.5</td><td>Verificação de Tracker Parado</td><td>Luiz Silva</td><td class="m">09/09 09:32</td><td><span class="st conc">Concluída</span></td></tr>
+    <tr><td class="m">9761</td><td>CPP100</td><td>Cabine 6</td><td>Coleta de dados de geração</td><td>Ana Patrícia</td><td class="m">08/09 16:05</td><td><span class="st canc">Cancelada</span></td></tr>
+  </table>
+  <div class="faint" style="font-size:12px;margin-top:8px">Clique no folio abre o detalhe: tarefas, subtarefas com respostas, fotos e anexos, eventos, trocar responsável, mudar status, cancelar com motivo, criar solicitação do mesmo ativo. Tudo isso já existe em <code>api.py</code>.</div>
+  </div>
+</div>
+
+<h2>6 · Arquitetura: o que passa e como <span>mesmo desenho do Gêmeo Digital, que já está no ar</span></h2>
+<div class="arq">
+  <div class="box b-acc"><div class="k">1 · plataforma :5050</div><h4>Card + proxy /os/*</h4><p>Login da plataforma na frente (como já cobre /gemeo/*). Guarda a sessão do Fracttal de cada pessoa no seu cookie e a manda ao serviço num header, nunca na URL. Deep link <code>gridos://</code> passa a apontar para <code>/os/performance?…</code>.</p></div>
+  <div class="box b-blue"><div class="k">2 · serviço OS Web :5090</div><h4>Flask no repositório oem</h4><p>Nasce ao lado do app desktop, no mesmo repositório, e importa o mesmo <code>api.py</code> (5.639 linhas) e as specs puras. Telas em HTML no tema navy. Sem estado próprio além do catálogo em cache.</p></div>
+  <div class="box b-warn"><div class="k">3 · api.py</div><h4>Um ajuste, retrocompatível</h4><p>Hoje o JWT é global (arquivo). Ganha um "porta-sessão" por requisição (contextvar) que <code>_login_jwt()</code> consulta antes do arquivo. O desktop continua igual; a web serve N pessoas ao mesmo tempo.</p></div>
+  <div class="box"><div class="k">4 · Fracttal</div><h4>RPC com a sessão da pessoa</h4><p><code>rpc/login_new</code> (e-mail + MD5 duplo) dá o JWT; criar OS, histórico, fotos e responsáveis saem do RPC nessa sessão. O REST OAuth da empresa não cria OS (401): continua fora.</p></div>
+</div>
+<div class="fases" style="margin-top:14px">
+  <div class="card"><div class="num">35.295</div><div class="muted">linhas de Python no OS Creator hoje</div></div>
+  <div class="card"><div class="num" style="color:var(--ok)">~7.700</div><div class="muted">passam como estão: <code>api.py</code>, specs (COS, Performance, chamados, solicitação, tickets), regras de garantia, temas</div></div>
+  <div class="card"><div class="num" style="color:var(--warn)">~27.000</div><div class="muted">são telas Qt (47 arquivos em <code>steps/</code>): a regra já está fora delas, mas cada tela precisa nascer de novo em HTML</div></div>
+</div>
+
+<h2>7 · Fases <span>cada uma sai pela mesma porta e o desktop continua funcionando até a última</span></h2>
+<div class="fases">
+  <div class="card"><h3><span class="pill p-acc">fase 1</span> &nbsp;A porta e o dia a dia</h3>
+    <ul class="li"><li>Card "Criar OS" na Entrada; proxy <code>/os/*</code>; serviço :5090.</li><li>Login Fracttal (e-mail + senha), sessão por pessoa, aviso de sessão derrubada.</li><li>Performance completa: 4 planos, cascata, ativos, responsável com carga, OS pai herdada.</li><li>Históricos: criadas, atribuídas, por usina; detalhe da OS com fotos e subtarefas; trocar responsável; cancelar.</li><li>Deep link da plataforma passa a abrir <code>/os/performance</code>.</li></ul></div>
+  <div class="card"><h3><span class="pill p-op">fase 2</span> &nbsp;Os outros caminhos da OS</h3>
+    <ul class="li"><li>Ativos (tradicional) e Várias OS.</li><li>COS e PCM com os temas padronizados.</li><li>Clonar OS.</li><li>Solicitação / PCM: criar, várias, histórico, cancelar.</li></ul></div>
+  <div class="card"><h3><span class="pill p-pend">fase 3</span> &nbsp;Chamados, Tickets, Engenharia e o fim do .exe</h3>
+    <ul class="li"><li>Chamados: abrir, detalhe, inspeção, garantia de peças.</li><li>Tickets (já lê o banco da Gridco; o diário da aba 387 vem junto).</li><li>Engenharia.</li><li>Aposentar o instalador quando a web cobrir tudo e o SSO do Fracttal estiver resolvido.</li></ul></div>
+</div>
+
+<h2>8 · O que só você decide <span>antes de eu escrever a primeira linha</span></h2>
+<div class="card">
+  <ul class="li">
+    <li><b>Login por e-mail e senha do Fracttal</b> como porta da web, sabendo que a senha passa pelo nosso servidor (não fica guardada) e que quem entra no Fracttal pela Microsoft fica de fora até o Fracttal oferecer OAuth. Quantos da equipe entram por SSO?</li>
+    <li><b>Serviço separado no repositório oem</b> (como o Gêmeo) em vez de copiar o <code>api.py</code> para dentro da plataforma. Um só cliente do Fracttal para o desktop e a web.</li>
+    <li><b>Ordem das fases</b>: Performance + Históricos primeiro. Se o dia a dia da equipe é outro caminho (Ativos, PCM, Chamados), ele sobe antes.</li>
+  </ul>
+</div>
+
+</div>
+</body>
+</html>
