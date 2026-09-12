@@ -96,3 +96,49 @@ def test_bd_trackers_da_o_inversor_de_cada_tracker_com_a_confianca_de_como_casou
                     "JOIN alias a ON a.equipamento_id=t.id WHERE t.tipo='tracker' ORDER BY t.codigo_fonte")
         assert cur.fetchall() == [("TRK_1", "INV_1", "direto"), ("TRK_2", "INV_2", "direto"), ("TRK_3", "INV_11", "ordem")]
     limpar_tudo(conn)
+
+
+def test_usina_sem_supervisorio_entra_pelo_nome_e_a_ug_nao_sobrescreve_a_ufv():
+    """2C (11/09/2026): a linha UFV e as UG 01/UG 02 vem com 'Usina Supervisório' VAZIO — so os inversores trazem o codigo.
+    Sem cair para o nome, Araputanga/Sete Lagoas/Tupi Paulista ficavam sem usina e os inversores nunca eram aplicados; e a
+    UG 02 da Tupi (3402 kWp, 10 inversores) passava por cima da UFV (6804 kWp, 20)."""
+    ls = [{"Cliente": "2C", "Usina": "Tupi Paulista", "Usina Supervisório": None, "Usina Fractall": "2C - Tupi Paulista 1 e 2 - SP",
+           "Equipamento": "UFV", "Equipamento Supervisório": None, "Equipamento Parente": None, "Potência (kWp)": 6804.0, "N de Inversores": 20, "Full O&M": "Sim"},
+          {"Usina": "Tupi Paulista", "Usina Supervisório": None, "Equipamento": "UG 01", "Equipamento Supervisório": None, "Equipamento Parente": "UFV", "Potência (kWp)": 3402, "N de Inversores": 10},
+          {"Usina": "Tupi Paulista", "Usina Supervisório": None, "Equipamento": "UG 02", "Equipamento Supervisório": None, "Equipamento Parente": "UFV", "Potência (kWp)": 3402, "N de Inversores": 10},
+          {"Usina": "Tupi Paulista", "Usina Supervisório": "Tupi Paulista", "Equipamento": "Inversor 2.1", "Equipamento Supervisório": "INVERSOR11",
+           "Equipamento Parente": "UG 02", "Potência (kWp)": 340.2, "Strings Ativas": 20},
+          {"Usina": "(289) Boa Esperança do Sul 1", "Usina Supervisório": None, "Equipamento": "UFV", "Potência (kWp)": 1}]      # nome != codigo: segue fora
+    us, invs = cadastro.separar_equipamentos(ls, ("Tupi Paulista", "BOA ESPERANCA DO SUL 1"))
+    assert list(us) == ["Tupi Paulista"]
+    assert us["Tupi Paulista"]["kwp"] == 6804.0 and us["Tupi Paulista"]["n_inversores"] == 20 and us["Tupi Paulista"]["fracttal"] == "2C - Tupi Paulista 1 e 2 - SP"
+    assert invs["Tupi Paulista"] == [{"codigo_fonte": "INVERSOR11", "nome": "Inversor 2.1", "kwp": 340.2, "n_strings_esperadas": 20}]
+
+
+def test_inversor_casa_pelo_nome_de_exibicao_quando_o_codigo_da_fonte_e_outro(conn):
+    """API PV: codigo_fonte e o idefinversor (400771) e o cadastro so conhece 'INVERSOR01' — o que os dois tem em comum e o
+    nome 'Inversor 1.1' (de-para por valor no config). Mesma escada do tracker: codigo da fonte > nome de exibicao."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).parent))
+    from semear import limpar_tudo
+    limpar_tudo(conn)
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO usina (codigo, nome, fonte, fonte_ref, tz) VALUES ('Araputanga','Araputanga','apipv','18771898','America/Cuiaba') RETURNING id")
+        uid = cur.fetchone()[0]
+        cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte, nome_exibicao) VALUES (%s,'inversor','400771','Inversor 1.1')", (uid,))
+        cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte, nome_exibicao) VALUES (%s,'inversor','400772','Inversor 1.2')", (uid,))
+    conn.commit()
+    us = {"Araputanga": {"cliente": "2C", "fracttal": "2C - Araputanga 1 - MT", "kwp": 3469.2, "n_inversores": 10, "full_om": True, "string_box": False}}
+    invs = {"Araputanga": [{"codigo_fonte": "INVERSOR01", "nome": "Inversor 1.1", "kwp": 338.1, "n_strings_esperadas": 23},
+                           {"codigo_fonte": "INVERSOR09", "nome": "Inversor 1.9", "kwp": 352.8, "n_strings_esperadas": 24}]}     # 1.9 nao existe na fonte
+    assert cadastro.aplicar_equipamentos(conn, us, invs) == {"usinas": 1, "inversores": 1}
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, atributos FROM equipamento WHERE usina_id=%s AND codigo_fonte='400771'", (uid,))
+        eid, at = cur.fetchone()
+        cur.execute("SELECT equipamento_id FROM alias WHERE sistema='bd_performance' AND valor='Araputanga|Inversor 1.1'")
+        assert cur.fetchone()[0] == eid
+        cur.execute("SELECT atributos FROM equipamento WHERE usina_id=%s AND codigo_fonte='400772'", (uid,))
+        assert cur.fetchone()[0] == {}
+    assert at == {"kwp": 338.1, "n_strings_esperadas": 23}
+    limpar_tudo(conn)

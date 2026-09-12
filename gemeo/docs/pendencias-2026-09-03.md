@@ -171,3 +171,25 @@ Pendências que nasceram daqui:
   a mesma grade do modelo. Sem isso as 18 usinas custariam 17 GB em 90 dias, e 72% disso seria corrente de string a
   cada 5 min. Com a amostragem são cerca de 82 MB por dia, algo como 7 GB no regime de 90 dias. Potência do inversor e
   estação continuam na cadência da fonte: é delas que sai a média de cada bloco.
+
+## 11/09/2026 — fonte `apipv`: as três da 2C pela conta oem@ da API PV Operation
+
+Pedido do Levi depois da visão do Gêmeo ("Comportamento": quanto a usina deveria gerar AGORA e a cascata de perdas em
+tempo real): "comece com as usinas da 2C que estão na API PV". Araputanga, Sete Lagoas e Tupi Paulista entraram no piloto
+com `gemeo/ingest/apipv.py` (day_inverter/day_meteo de hoje a cada 15 min; dia passado por `custom_query` só quando a
+janela cobre o dia). Carimbos da API são horário de Brasília para todas (medido), a estação mente por chave (POA/GHI com a
+ordem de campos do coletor e teto de 2000 W/m²), inversor a 5 min, string a 15 min, estação a 1 min. O cadastro passou a
+aceitar "Usina Supervisório" vazio (cai para "Usina") e a casar inversor pelo nome de exibição — as 2C só têm
+`INVERSOR01..20` no BD_Performance e a API só dá o idefinversor.
+
+Pendências que nasceram daqui:
+
+- **O "agora" do Comportamento ainda não existe**: o gêmeo calcula esperado em blocos de 15 min a cada rodada do
+  `modelar`; falta um endpoint/card com esperado × medido do instante (e a cascata do dia até agora) para a plataforma.
+- **Trackers das três não entram**: a API PV (apiplataforma) nega trackers para a conta oem@/token gridco; sem eles a
+  parcela de tracker vai para o resíduo. Precisa de PLAT_TOKEN da conta oem@ ou de outra fonte.
+- **Calibração**: modelo "placa" até haver ≥ 30 dias limpos (a API guarda histórico, mas o `custom_query` de inversor leva
+  ~146 s por usina/dia — backfill só fora de pico e em lote pequeno).
+- **Ipixuna do Pará** (2C) segue fora: só existe no e-mail.
+- **Sete Lagoas** tem nome triplo: "Sete Lagoas" no cadastro (código do gêmeo), "Sete Lagoas 2" no Fracttal e "Sete Lagoa"
+  na API — o de-para é por id/código, nunca por nome.

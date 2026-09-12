@@ -42,14 +42,23 @@ def separar_equipamentos(linhas: list[dict], piloto: tuple[str, ...]) -> tuple[d
     usinas: dict[str, dict] = {}
     invs: dict[str, list] = {}
     for ln in linhas:
-        cod = str(ln.get("Usina Supervisório") or "").strip()
+        # "Usina Supervisório" VAZIO nao descarta a linha: nas tres da 2C (11/09/2026) so os inversores trazem o codigo — a UFV e
+        # as UG 01/UG 02 vem sem ele, e o nome da usina ("Usina") e o proprio codigo. Mesma regra que a plataforma adotou.
+        cod = str(ln.get("Usina Supervisório") or ln.get("Usina") or "").strip()
         if cod not in piloto:
             continue
-        if str(ln.get("Equipamento") or "").strip().upper() == "UFV" or str(ln.get("Equipamento Parente") or "").strip().upper() == "UFV" and not str(ln.get("Equipamento Supervisório") or "").strip():
-            usinas[cod] = {"cliente": ln.get("Cliente"), "fracttal": ln.get("Usina Fractall"), "kwp": ln.get("Potência (kWp)"),
-                           "n_inversores": ln.get("N de Inversores"), "full_om": _sim(ln.get("Full O&M")), "string_box": _sim(ln.get("String Box"))}
+        eh_ufv = str(ln.get("Equipamento") or "").strip().upper() == "UFV"
+        eh_agrupador = str(ln.get("Equipamento Parente") or "").strip().upper() == "UFV" and not str(ln.get("Equipamento Supervisório") or "").strip()
+        if eh_ufv or eh_agrupador:
+            # a UG (agrupador) so vale quando nao ha linha UFV: na Tupi a UG 02 (3402 kWp, 10 inversores) passava por cima da UFV (6804, 20)
+            if eh_ufv or cod not in usinas:
+                usinas[cod] = {"cliente": ln.get("Cliente"), "fracttal": ln.get("Usina Fractall"), "kwp": ln.get("Potência (kWp)"),
+                               "n_inversores": ln.get("N de Inversores"), "full_om": _sim(ln.get("Full O&M")), "string_box": _sim(ln.get("String Box"))}
             continue
-        invs.setdefault(cod, []).append({"codigo_fonte": str(ln.get("Equipamento Supervisório") or "").strip(), "nome": ln.get("Equipamento"),
+        codigo_fonte, nome = str(ln.get("Equipamento Supervisório") or "").strip(), ln.get("Equipamento")
+        if not (codigo_fonte or nome):
+            continue
+        invs.setdefault(cod, []).append({"codigo_fonte": codigo_fonte, "nome": nome,
                                          "kwp": ln.get("Potência (kWp)"), "n_strings_esperadas": ln.get("Strings Ativas")})
     return usinas, invs
 
@@ -88,7 +97,7 @@ def aplicar_info_geral(conn, dados: dict) -> int:
     return n
 
 
-VERSAO_CADASTRO = "2026-09-03c"   # entra na marca de versao: mudou o parser, reprocessa mesmo com o workbook igual
+VERSAO_CADASTRO = "2026-09-11a"   # entra na marca de versao: mudou o parser, reprocessa mesmo com o workbook igual (11/09: usina pelo nome, inversor pelo nome de exibicao)
 
 
 def separar_trackers(linhas: list[dict], piloto: tuple[str, ...]) -> dict[str, list[tuple[str, str, str]]]:
@@ -195,6 +204,22 @@ class IngestorCadastro:
         return {"mudou": True, **res}
 
 
+def _aplicar_inversor(cur, usina_id: int, iv: dict):
+    """Escada igual a do tracker: codigo da fonte ('INV_1') > nome de exibicao ('Inversor 1.1'). O segundo degrau e o das
+    usinas da API PV (11/09/2026): la o codigo_fonte e o idefinversor (400771) e o cadastro so conhece 'INVERSOR01' — o que
+    os dois tem em comum e o nome, que o de-para do config ja escreveu no equipamento na descoberta."""
+    patch = json.dumps({"kwp": iv["kwp"], "n_strings_esperadas": iv["n_strings_esperadas"]})
+    for coluna, valor in (("codigo_fonte", iv["codigo_fonte"]), ("nome_exibicao", iv["nome"])):
+        if not valor:
+            continue
+        cur.execute(f"UPDATE equipamento SET nome_exibicao=%s, atributos = json_patch(atributos, %s) WHERE usina_id=%s AND tipo='inversor' AND {coluna}=%s RETURNING id",
+                    (iv["nome"], patch, usina_id, str(valor).strip()))
+        e = cur.fetchone()
+        if e:
+            return e
+    return None
+
+
 def aplicar_equipamentos(conn, usinas: dict, invs: dict) -> dict:
     n_u = n_i = 0
     with conn.cursor() as cur:
@@ -208,9 +233,7 @@ def aplicar_equipamentos(conn, usinas: dict, invs: dict) -> dict:
             if u.get("fracttal"):
                 _alias.gravar(conn, "fracttal", str(u["fracttal"]), "direto", "aba Equipamentos", usina_id=r[0])
             for iv in invs.get(cod, []):
-                cur.execute("UPDATE equipamento SET nome_exibicao=%s, atributos = json_patch(atributos, %s) WHERE usina_id=%s AND tipo='inversor' AND codigo_fonte=%s RETURNING id",
-                            (iv["nome"], json.dumps({"kwp": iv["kwp"], "n_strings_esperadas": iv["n_strings_esperadas"]}), r[0], iv["codigo_fonte"]))
-                e = cur.fetchone()
+                e = _aplicar_inversor(cur, r[0], iv)
                 if e:
                     n_i += 1
                     _alias.gravar(conn, "bd_performance", f"{cod}|{iv['nome']}", "direto", "aba Equipamentos", equipamento_id=e[0], usina_id=r[0])

@@ -8,7 +8,7 @@ servidor, ao repositório e ao `SECRETS_DIR` (condição do piloto, spec §10).
 
 | Tarefa | O que faz | Ritmo | Se cair |
 |---|---|---|---|
-| `Gemeo Ingest` | um laço por fonte (PostgreSQL `powerplants`, API SunOp, API BD_Performance) → `leitura` + `ingest_run` | contínuo | o agendador reinicia em 1 min |
+| `Gemeo Ingest` | um laço por fonte (PostgreSQL `powerplants`, API SunOp, API PV Operation pela conta oem@ — Araputanga, Sete Lagoas e Tupi Paulista da 2C —, API BD_Performance) → `leitura` + `ingest_run` | contínuo | o agendador reinicia em 1 min |
 | `Gemeo Modelar` | gate → esperado → decomposição → eventos → cascata dos últimos 3 dias; grava `esperado`, `cascata_dia`, `perda_dia`, `evento` | a cada 15 min, encerra | a próxima execução refaz tudo (idempotente) |
 | `Gemeo App` | telas Frota/Usina, API e `/healthz` em `127.0.0.1:5075/gemeo` | contínuo | reinicia em 1 min; a plataforma mostra "fora do ar" (503) enquanto isso |
 

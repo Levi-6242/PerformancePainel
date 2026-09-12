@@ -42,3 +42,31 @@ def test_garantir_usinas_cria_as_do_piloto_uma_vez(conn):
     us = {u.codigo: u for u in runner.usinas_do_piloto(conn, cfg.usinas_piloto)}
     assert us["MRO100"].fonte == "sunop" and us["MRO100"].tz == "America/Belem" and us["MAB100"].fonte_ref == "MAB100"
     limpar_tudo(conn)
+
+
+def test_montar_inclui_a_api_pv_quando_ha_usina_dessa_fonte():
+    cfg = type("C", (), {"ritmo_min": {"pg": 15, "sunop_fino": 15, "sunop_lento": 60, "cadastro": 30, "apipv": 15}, "usinas_piloto": ("Araputanga",),
+                        "sobreposicao_min": 30, "cache_dir": ".", "sunop_base": "", "sunop_token": "", "lote_pathnames": 600, "teto_sunop_dia": 600,
+                        "janela_solar": ("05:40", "18:20"), "bd_api_base": "", "bd_api_token": "", "apipv_base": "http://x", "pv_oem_usuario": "u",
+                        "pv_oem_senha": "s", "usinas_detalhe": {}})()
+    from gemeo.core.modelos import UsinaRef
+    us = [UsinaRef(3, "Araputanga", "apipv", "18771898", "America/Cuiaba")]
+    itens = runner.montar(cfg, conn_gemeo=None, conn_fonte=None, usinas=us)
+    assert {(r, m) for r, _, m in itens} == {("apipv", 15), ("cadastro", 30)}
+    assert next(i for r, i, _ in itens if r == "apipv").fonte == "apipv"
+
+
+def test_usina_da_api_pv_sem_credencial_falha_nomeando_as_chaves():
+    """Segredo ausente e erro em voz alta ANTES de subir as threads — a plataforma perdeu horas com credencial vazia
+    virando token vazio em silencio. Sem usina apipv no piloto, nada e exigido."""
+    import types
+    import pytest
+    from gemeo.core.config import SegredoAusente
+    from gemeo.core.modelos import UsinaRef
+    ara = UsinaRef(3, "Araputanga", "apipv", "18771898", "America/Cuiaba")
+    mro = UsinaRef(1, "MRO100", "sunop", "MRO100", "America/Belem")
+    with pytest.raises(SegredoAusente) as e:
+        runner.exigir_credenciais_apipv(types.SimpleNamespace(pv_oem_usuario="", pv_oem_senha=""), [mro, ara])
+    assert "PV_OEM_USERNAME" in str(e.value) and "PV_OEM_PASSWORD" in str(e.value)
+    runner.exigir_credenciais_apipv(types.SimpleNamespace(pv_oem_usuario="", pv_oem_senha=""), [mro])
+    runner.exigir_credenciais_apipv(types.SimpleNamespace(pv_oem_usuario="u", pv_oem_senha="s"), [mro, ara])

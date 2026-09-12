@@ -82,3 +82,16 @@ def test_config_e_imutavel(tmp_path):
     cfg = carregar(d / "config.toml", secrets_dir=d)
     with pytest.raises(Exception):
         cfg.teto_sunop_dia = 1  # type: ignore[misc]
+
+
+def test_credenciais_da_api_pv_sao_opcionais_e_vem_do_gemeo_env(tmp_path, monkeypatch):
+    """Conta oem@ da API PV Operation (as tres da 2C, 11/09/2026): so e exigida quando ha usina apipv no piloto — quem
+    exige e o runner; aqui ela e opcional e a base da API tem padrao."""
+    monkeypatch.delenv("PV_OEM_USERNAME", raising=False)
+    monkeypatch.delenv("PV_OEM_PASSWORD", raising=False)
+    d = _monta(tmp_path)
+    cfg = carregar(d / "config.toml", secrets_dir=d)
+    assert cfg.pv_oem_usuario == "" and cfg.pv_oem_senha == "" and cfg.apipv_base == "https://apipv.pvoperation.com.br/api/v1"
+    (d / "gemeo.env").write_text(ENV + "PV_OEM_USERNAME=oem@x\nPV_OEM_PASSWORD=s\n", encoding="utf-8")
+    cfg = carregar(d / "config.toml", secrets_dir=d)
+    assert cfg.pv_oem_usuario == "oem@x" and cfg.pv_oem_senha == "s"

@@ -13,6 +13,7 @@ import datetime as dt
 import json
 import os
 import sqlite3
+import time
 from pathlib import Path
 from typing import Iterable
 
@@ -22,6 +23,9 @@ import pandas as pd
 PASTA_MIGRACOES = Path(__file__).resolve().parents[2] / "migrations"
 UTC = dt.timezone.utc
 _AGORA_SQL = "strftime('%Y-%m-%dT%H:%M:%S+00:00','now')"
+# "database is locked" na subida de 11/09/2026: pg, sunop, cadastro e apipv disputando o arquivo na largada. WAL + busy_timeout de
+# 30 s nao bastam — a fila do SQLite nao e justa e quem perde nao espera de novo. Quem escreve leva grande desfaz, espera e repete.
+TENTATIVAS_LOCK, PAUSA_LOCK_S = 6, 10.0
 
 
 def caminho_padrao() -> Path:
@@ -137,17 +141,33 @@ def retencao(conn, dias: int = 90) -> int:
     return int(n)
 
 
+def com_retentativa_de_lock(conn, fn, tentativas: int = TENTATIVAS_LOCK, pausa_s: float = PAUSA_LOCK_S):
+    """Roda `fn()`; em 'database is locked' desfaz a transacao, espera e tenta de novo; qualquer outro erro sobe na hora e o
+    lock tambem sobe depois da ultima tentativa. O ingestor da API PV perdeu o primeiro INSERT da vida assim (11/09/2026)."""
+    for i in range(1, tentativas + 1):
+        try:
+            return fn()
+        except sqlite3.OperationalError as e:
+            if "locked" not in str(e).lower() or i == tentativas:
+                raise
+            conn.rollback()
+            time.sleep(pausa_s)
+
+
 def upsert_leituras(conn, linhas: Iterable[tuple[int, str, dt.datetime, float | None]]) -> int:
     """Grava (equipamento, medida, ts, valor). Valor None e DESCARTADO antes de chegar ao banco — e a
     propriedade 'vazio nunca sobrescreve'. Na colisao, o valor novo vence (correcao tardia da fonte)."""
     validas = [(e, m, ts, float(v)) for e, m, ts, v in linhas if v is not None]
     if not validas:
         return 0
-    with conn.cursor() as cur:
-        cur.executemany("INSERT INTO leitura (equipamento_id, medida, ts, valor) VALUES (%s,%s,%s,%s) "
-                        "ON CONFLICT (equipamento_id, medida, ts) DO UPDATE SET valor = excluded.valor", validas)
-    conn.commit()
-    return len(validas)
+
+    def _grava():
+        with conn.cursor() as cur:
+            cur.executemany("INSERT INTO leitura (equipamento_id, medida, ts, valor) VALUES (%s,%s,%s,%s) "
+                            "ON CONFLICT (equipamento_id, medida, ts) DO UPDATE SET valor = excluded.valor", validas)
+        conn.commit()
+        return len(validas)
+    return com_retentativa_de_lock(conn, _grava)
 
 
 def registrar_ingest_run(conn, fonte: str, usina_id: int | None, ini: dt.datetime, fim: dt.datetime, status: str,
