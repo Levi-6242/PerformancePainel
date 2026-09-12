@@ -34,6 +34,7 @@ GEMEO_DB_CAMINHO=D:\gemeo-dados\gemeo.sqlite      # opcional; sem esta linha val
 POWERPLANTS_DSN=host=44.214.183.214 port=5432 dbname=powerplants user=... password=...   # só com usina de fonte pg
 PV_OEM_USERNAME=<conta oem@ da API PV Operation — a mesma do tokens.txt da plataforma>   # só com usina de fonte apipv (as três da 2C)
 PV_OEM_PASSWORD=<senha da conta oem@>                                                    # idem; sem as duas o `gemeo ingest` para nomeando a chave
+PV_PLAT_TOKEN_OEM=<token x-auth-token-update da PV Plataforma, conta oem@>              # opcional: trackers das três da 2C; VENCE EM 7 DIAS (ver runbook)
 ```
 
 `config.toml` (versionado): usinas do piloto (só as com relação tracker × inversor), ritmos, teto da SunOp (600/dia),

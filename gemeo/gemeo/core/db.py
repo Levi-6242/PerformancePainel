@@ -141,9 +141,13 @@ def retencao(conn, dias: int = 90) -> int:
     return int(n)
 
 
-def com_retentativa_de_lock(conn, fn, tentativas: int = TENTATIVAS_LOCK, pausa_s: float = PAUSA_LOCK_S):
+def com_retentativa_de_lock(conn, fn, tentativas: int | None = None, pausa_s: float | None = None):
     """Roda `fn()`; em 'database is locked' desfaz a transacao, espera e tenta de novo; qualquer outro erro sobe na hora e o
-    lock tambem sobe depois da ultima tentativa. O ingestor da API PV perdeu o primeiro INSERT da vida assim (11/09/2026)."""
+    lock tambem sobe depois da ultima tentativa. O ingestor da API PV perdeu o primeiro INSERT da vida assim (11/09/2026);
+    o cadastro, o UPDATE de pai_id enquanto a fonte plat gravava 17 mil angulos (12/09). Os padroes sao lidos na chamada
+    (nao na definicao) para os testes poderem zerar a pausa."""
+    tentativas = TENTATIVAS_LOCK if tentativas is None else tentativas
+    pausa_s = PAUSA_LOCK_S if pausa_s is None else pausa_s
     for i in range(1, tentativas + 1):
         try:
             return fn()
@@ -183,9 +187,16 @@ def registrar_ingest_run(conn, fonte: str, usina_id: int | None, ini: dt.datetim
     return rid
 
 
-def marca_dagua(conn, usina_id: int) -> dt.datetime | None:
+def marca_dagua(conn, usina_id: int, tipos: tuple[str, ...] | None = None) -> dt.datetime | None:
+    """Maior ts da usina — ou so dos equipamentos de `tipos`. Duas fontes na mesma usina (12/09/2026: inversores pela API PV,
+    trackers pela PV Plataforma) precisam cada uma da marca dos SEUS equipamentos, senao uma empurra a marca da outra."""
+    sql = 'SELECT max(l.ts) AS "ts [TIMESTAMP]" FROM leitura l JOIN equipamento e ON e.id = l.equipamento_id WHERE e.usina_id = %s'
+    params: list = [usina_id]
+    if tipos:
+        sql += " AND e.tipo IN (" + ",".join(["%s"] * len(tipos)) + ")"
+        params += list(tipos)
     with conn.cursor() as cur:
-        cur.execute('SELECT max(l.ts) AS "ts [TIMESTAMP]" FROM leitura l JOIN equipamento e ON e.id = l.equipamento_id WHERE e.usina_id = %s', (usina_id,))
+        cur.execute(sql, tuple(params))
         return cur.fetchone()[0]
 
 

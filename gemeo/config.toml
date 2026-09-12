@@ -103,7 +103,8 @@ pg = 15
 sunop_fino = 15
 sunop_lento = 60
 cadastro = 30
-apipv = 15      # API PV Operation: day_inverter/day_meteo a cada 15 min (1 leitura/min na fonte)
+apipv = 15          # API PV Operation: day_inverter/day_meteo a cada 15 min (1 leitura/min na fonte)
+plat = 15           # trackers das mesmas tres pela PV Plataforma (token PV_PLAT_TOKEN_OEM, 7 dias)
 modelar = 15
 [sunop]
 teto_dia = 600

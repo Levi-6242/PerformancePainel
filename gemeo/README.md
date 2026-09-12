@@ -8,7 +8,7 @@ gemeo migrate | ingest | modelar | calibrar | app
 python -m pytest -q
 ```
 
-Segredos em `SECRETS_DIR/gemeo.env` (fora do OneDrive): SUNOP_API_TOKEN, GRIDCO_SQL_TOKEN, GEMEO_SENHA; opcionais GEMEO_DB_CAMINHO, POWERPLANTS_DSN (usinas pg) e PV_OEM_USERNAME/PV_OEM_PASSWORD (usinas apipv — conta oem@ da API PV Operation, as três da 2C).
+Segredos em `SECRETS_DIR/gemeo.env` (fora do OneDrive): SUNOP_API_TOKEN, GRIDCO_SQL_TOKEN, GEMEO_SENHA; opcionais GEMEO_DB_CAMINHO, POWERPLANTS_DSN (usinas pg), PV_PLAT_TOKEN_OEM (trackers das usinas apipv pela PV Plataforma, 7 dias) e PV_OEM_USERNAME/PV_OEM_PASSWORD (usinas apipv — conta oem@ da API PV Operation, as três da 2C).
 
 Banco: **SQLite embutido** (03/09/2026), um arquivo fora do OneDrive (`%LOCALAPPDATA%\GridCo\gemeo\gemeo.sqlite` por padrão). Sem servidor, sem DBA.
 

@@ -64,11 +64,14 @@ def separar_equipamentos(linhas: list[dict], piloto: tuple[str, ...]) -> tuple[d
 
 
 def separar_info_geral(linhas: list[dict], piloto: tuple[str, ...]) -> dict:
-    """Aba Info Geral (cabecalho na linha 2): kWp TOTAL da usina, quantidade de inversores e trackers, cliente e P50 anual.
-    E a fonte da placa da usina — a aba Equipamentos so lista PARTE dos inversores (03/09: MRO100 12 de 25, MTS100 4 de 40,
-    CPP100 2 de 14), e somar o que ela tem dava metade do esperado."""
+    """Aba Info Geral (cabecalho na linha 2): kWp TOTAL da usina, quantidade de inversores e trackers, cliente, P50 anual e,
+    desde 12/09, LATITUDE/LONGITUDE (Levi: "preenchido no info_geral, colunas criadas"). E a fonte da placa da usina — a aba
+    Equipamentos so lista PARTE dos inversores (03/09: MRO100 12 de 25, MTS100 4 de 40, CPP100 2 de 14), e somar o que ela tem
+    dava metade do esperado. A coordenada e o que liga a posicao solar (fracao direta, horario solar) as usinas da SunOp."""
     def num(ln, k):
         v = ln.get(k)
+        if isinstance(v, str):
+            v = v.strip().replace(",", ".")       # coordenada digitada com virgula decimal ("-1,763717")
         try:
             return float(v) if v not in (None, "") else None
         except (TypeError, ValueError):
@@ -80,7 +83,8 @@ def separar_info_geral(linhas: list[dict], piloto: tuple[str, ...]) -> dict:
             continue
         ni, nt = num(ln, "Quantidade de Inversores"), num(ln, "Qnt. Trackers")
         out[cod] = {"kwp": num(ln, "Potência (KWp)"), "n_inversores": int(ni) if ni else None, "n_trackers": int(nt) if nt else None,
-                    "cliente": (str(ln.get("Cliente")).strip() if ln.get("Cliente") else None), "p50_mwh_ano": num(ln, "P50 (MWh)")}
+                    "cliente": (str(ln.get("Cliente")).strip() if ln.get("Cliente") else None), "p50_mwh_ano": num(ln, "P50 (MWh)"),
+                    "lat": num(ln, "LATITUDE"), "lon": num(ln, "LONGITUDE")}
     return out
 
 
@@ -90,14 +94,16 @@ def aplicar_info_geral(conn, dados: dict) -> int:
         for cod, d in dados.items():
             if not d.get("kwp"):
                 continue
-            cur.execute("UPDATE usina SET kwp_dc=%s, n_inversores=coalesce(%s, n_inversores), cliente=coalesce(%s, cliente) WHERE codigo=%s",
-                        (d["kwp"], d.get("n_inversores"), d.get("cliente"), cod))
+            # coordenada: a Info Geral manda quando traz; sem ela fica o que veio do PG ou do /plants da API PV
+            cur.execute("UPDATE usina SET kwp_dc=%s, n_inversores=coalesce(%s, n_inversores), cliente=coalesce(%s, cliente), "
+                        "lat=coalesce(%s, lat), lon=coalesce(%s, lon) WHERE codigo=%s",
+                        (d["kwp"], d.get("n_inversores"), d.get("cliente"), d.get("lat"), d.get("lon"), cod))
             n += max(0, cur.rowcount)
     conn.commit()
     return n
 
 
-VERSAO_CADASTRO = "2026-09-11a"   # entra na marca de versao: mudou o parser, reprocessa mesmo com o workbook igual (11/09: usina pelo nome, inversor pelo nome de exibicao)
+VERSAO_CADASTRO = "2026-09-12a"   # entra na marca de versao: mudou o parser, reprocessa mesmo com o workbook igual (12/09: lat/lon da Info Geral)
 
 
 def separar_trackers(linhas: list[dict], piloto: tuple[str, ...]) -> dict[str, list[tuple[str, str, str]]]:
@@ -191,15 +197,19 @@ class IngestorCadastro:
         eq = sheets["equipamentos"]
         linhas = linhas_da_aba(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, eq["id"], int(eq.get("header_row") or 0))
         usinas, invs = separar_equipamentos(linhas, self.cfg.usinas_piloto)
-        res = aplicar_equipamentos(self.conn, usinas, invs)
+        # cada gravacao insiste no lock: as fontes escrevem no mesmo arquivo (12/09/2026: 'database is locked' no aplicar_trackers
+        # enquanto a fonte plat gravava 17 mil angulos — a passada inteira do cadastro foi perdida)
+        res = _db.com_retentativa_de_lock(self.conn, lambda: aplicar_equipamentos(self.conn, usinas, invs))
         ig = sheets.get("info geral")
         if ig:                                   # a placa TOTAL da usina vem daqui, por cima da soma parcial da Equipamentos
             linhas_ig = linhas_da_aba(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, ig["id"], int(ig.get("header_row") or 0))
-            res["info_geral"] = aplicar_info_geral(self.conn, separar_info_geral(linhas_ig, self.cfg.usinas_piloto))
+            dados_ig = separar_info_geral(linhas_ig, self.cfg.usinas_piloto)
+            res["info_geral"] = _db.com_retentativa_de_lock(self.conn, lambda: aplicar_info_geral(self.conn, dados_ig))
         bt = sheets.get("bd_trackers")
         if bt:                                   # tracker -> inversor
             linhas_bt = linhas_da_aba(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, bt["id"], int(bt.get("header_row") or 0))
-            res["trackers"] = aplicar_trackers(self.conn, separar_trackers(linhas_bt, self.cfg.usinas_piloto))
+            dados_bt = separar_trackers(linhas_bt, self.cfg.usinas_piloto)
+            res["trackers"] = _db.com_retentativa_de_lock(self.conn, lambda: aplicar_trackers(self.conn, dados_bt))
         _db.gravar_estado(self.conn, "cadastro.updated_at", versao)
         return {"mudou": True, **res}
 

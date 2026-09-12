@@ -118,7 +118,7 @@ def detectar(grade: Grade, gate_res: Resultado, esp: pd.DataFrame, d: Decomposic
             kwh = float(falta[dia.isin(ult).values].sum() * H)
             evs.append(Evento("inversor_abaixo", eid, idx[(dia == ult[0]).values][0], None, kwh, severidade(kwh, float(e_dia.reindex(ult).sum())),
                               {"razoes": [round(float(x), 3) for x in v]}))
-    # tracker fora do alvo: excesso > 10 graus por >= 1 h seguida, de dia; NaN (mudo ha mais de 6 h) nao e desvio
+    # tracker fora do alvo: excesso > 10 graus por >= 1 h seguida, de dia; NaN (mudo ha mais de 4 h de sol) nao e desvio
     for t in d.excesso.columns:
         mask = (d.excesso[t] > p.trk_excesso_min) & diurno
         for a, b in _corridas(mask):

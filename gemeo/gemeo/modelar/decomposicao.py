@@ -17,7 +17,7 @@ class ParamsDecomp:
     parado_medido_max: float = 1.0      # kW: abaixo disto o inversor esta parado...
     parado_esperado_min: float = 20.0   # ...desde que o modelo esperasse mais do que isto
     excesso_min_graus: float = 5.0      # abaixo disto o desvio do tracker e ruido (TRK_DISP_LEVE da plataforma)
-    trk_mudo_slots: int = 24            # tracker mudo fica no ultimo angulo por ate 6 h; alem disso e dado ausente
+    trk_mudo_slots: int = 16            # tracker mudo fica no ultimo angulo por ate 4 h DE SOL (Levi, 12/09/2026); alem disso e dado ausente
     str_zero_a: float = 0.1
     str_viva_a: float = 0.5
     str_instalada_a: float = 1.0
@@ -56,13 +56,25 @@ def f_direta(estacao: pd.DataFrame, indice: pd.DatetimeIndex, lat, lon, p: Param
     return pd.Series(np.clip(fd, 0.0, 1.0), index=indice).where(ghi > p.ghi_min_fdir, 0.0)
 
 
-def excesso_trackers(trk_ang: pd.DataFrame, p: ParamsDecomp) -> pd.DataFrame:
+def _ffill_de_sol(trk_ang: pd.DataFrame, sol: pd.Series | None, limite: int) -> pd.DataFrame:
+    """ffill cujo limite so conta os slots COM sol. Levi (12/09/2026): "a partir de 4 horas sem dados de trackers ja e de se
+    alarmar (em horario solar, claro)" — a noite ninguem perde nada, e um tracker que cala as 17 h ainda tem as primeiras
+    horas da manha seguinte antes de virar 'dado ausente'. Sem `sol` (testes de unidade) vale o ffill simples."""
+    if sol is None:
+        return trk_ang.ffill(limit=limite)
+    s = sol.reindex(trk_ang.index).fillna(False).astype(int).cumsum()
+    marca = pd.DataFrame(np.where(trk_ang.notna(), s.values[:, None], np.nan), index=trk_ang.index, columns=trk_ang.columns).ffill()
+    decorrido = marca.rsub(s, axis=0)              # slots de sol desde a ultima leitura; NaN antes da primeira
+    return trk_ang.ffill().where(decorrido <= limite)
+
+
+def excesso_trackers(trk_ang: pd.DataFrame, p: ParamsDecomp, sol: pd.Series | None = None) -> pd.DataFrame:
     """|angulo - mediana da frota|: zero abaixo do limiar, NaN onde nao ha angulo conhecido. A referencia e a
     FROTA, nao o alvo do proprio tracker — o Tracker 17 da MRO100 (31/08) estava a 0,9 graus do alvo dele e a
     35 da frota: o alvo e que estava errado (mesma regua 'deteccao por alvo' que matou 119 falsos na plataforma)."""
     if trk_ang.empty:
         return pd.DataFrame(index=trk_ang.index)
-    ang = trk_ang.ffill(limit=p.trk_mudo_slots)
+    ang = _ffill_de_sol(trk_ang, sol, p.trk_mudo_slots)
     exc = ang.sub(ang.median(axis=1), axis=0).abs()
     return exc.where((exc > p.excesso_min_graus) | exc.isna(), 0.0)
 
@@ -76,7 +88,7 @@ def decompor(grade: Grade, esp: pd.DataFrame, trk_inv: dict[int, int], p: Params
              instaladas: dict[int, list[int]] | None = None) -> Decomposicao:
     idx = grade.indice
     fd = f_direta(grade.estacao, idx, grade.usina.lat, grade.usina.lon, p)
-    exc = excesso_trackers(grade.trk_ang, p)
+    exc = excesso_trackers(grade.trk_ang, p, sol=fd > 0)      # 'com sol' = onde ha fracao direta (ghi acima do piso)
     frac = (1.0 - np.cos(np.radians(exc))).mul(fd, axis=0) if not exc.empty else exc
     invs = list(esp.columns)
 

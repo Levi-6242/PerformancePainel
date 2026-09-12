@@ -114,3 +114,17 @@ def test_upsert_espera_o_lock_do_sqlite_em_vez_de_derrubar_a_leva(monkeypatch):
     with pytest.raises(sqlite3.OperationalError):
         db.upsert_leituras(c3, [(1, "p_ac", ts, 1.0)])
     assert c3.rollbacks == 0
+
+
+def test_marca_dagua_pode_olhar_so_alguns_tipos_de_equipamento(conn, usina_eq):
+    """Duas fontes na MESMA usina (12/09/2026: inversores pela API PV, trackers pela PV Plataforma): cada ingestor precisa da
+    marca dos SEUS equipamentos, senao o p_ac de 15 em 15 min empurra a marca e o buraco dos angulos nunca e coberto."""
+    u, e = usina_eq
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte, atributos) VALUES (%s,'tracker','TRK1','{}') RETURNING id", (u,))
+        trk = cur.fetchone()[0]
+    conn.commit()
+    t1 = dt.datetime(2026, 9, 1, 12, 0, tzinfo=UTC); t2 = t1 + dt.timedelta(hours=3)
+    db.upsert_leituras(conn, [(e, "p_ac", t2, 1.0), (trk, "angulo", t1, 20.0)])
+    assert db.marca_dagua(conn, u) == t2 and db.marca_dagua(conn, u, tipos=("tracker",)) == t1
+    assert db.marca_dagua(conn, u, tipos=("estacao",)) is None

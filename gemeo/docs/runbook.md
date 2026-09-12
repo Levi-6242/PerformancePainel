@@ -83,3 +83,22 @@ Rode a régua de equivalência sobre um dia real e cole o número no PR:
 ```
 python -m tools.equivalencia tests\fixtures\golden\mro100_2026-08-31.json --b-razao-min 0.25
 ```
+
+## Token da PV Plataforma venceu (trackers das três da 2C)
+
+Sintoma: `/healthz` ou `ingest_run` com a fonte `plat` em `falha` e o erro "PV Plataforma recusou o token (HTTP 401): renovar
+PV_PLAT_TOKEN_OEM no gemeo.env". Os inversores e a estação das três continuam entrando (fonte `apipv`, que tem login por
+senha); só o ângulo dos trackers para, e a parcela de tracker volta para o resíduo até o token novo.
+
+O token da PV Plataforma (`apiplataforma.pvoperation.com`, header `x-auth-token-update`) vale **7 dias** e não tem login por
+senha na API para a conta oem@: alguém loga em plataforma.pvoperation.com com a conta oem@, copia o token da sessão (o mesmo
+que a plataforma de performance usa em `plat_token.txt`) e cola em `gemeo.env`:
+
+```
+PV_PLAT_TOKEN_OEM=<token novo>
+```
+
+Reinicie só o ingest (`Gemeo Ingest`: matar o `pythonw -m gemeo.cli ingest` e a tarefa sobe de novo em até 5 min, ou
+`Start-ScheduledTask 'Gemeo Ingest'`). O primeiro ciclo depois do token novo puxa 3 dias de gráfico por usina; a marca d'água
+dos trackers é a dos próprios trackers, então o buraco do período sem token é coberto até o limite da janela — para mais que
+isso, `tools/backfill_apipv.py` não serve (é da fonte apipv); rode um ciclo com `reconciliar` ou peça um backfill de trackers.

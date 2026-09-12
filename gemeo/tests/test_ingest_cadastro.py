@@ -55,7 +55,7 @@ def test_info_geral_da_a_placa_total_e_vence_a_soma_parcial_da_equipamentos(conn
     linhas = [{"Usina": "MRO100", "Potência (KWp)": 6942, "Quantidade de Inversores": 25, "Qnt. Trackers": 120, "Cliente": "Athon", "P50 (MWh)": 12058},
               {"Usina": "XPTO", "Potência (KWp)": 1, "Quantidade de Inversores": 1}, {"Usina": "", "Potência (KWp)": 9}]
     d = cadastro.separar_info_geral(linhas, ("MRO100",))
-    assert d == {"MRO100": {"kwp": 6942.0, "n_inversores": 25, "n_trackers": 120, "cliente": "Athon", "p50_mwh_ano": 12058.0}}
+    assert d == {"MRO100": {"kwp": 6942.0, "n_inversores": 25, "n_trackers": 120, "cliente": "Athon", "p50_mwh_ano": 12058.0, "lat": None, "lon": None}}
     limpar_tudo(conn)
     with conn.cursor() as cur:
         cur.execute("INSERT INTO usina (codigo, nome, fonte, fonte_ref, tz, kwp_dc, n_inversores) VALUES ('MRO100','MRO100','sunop','MRO100','America/Belem',3332.16,12)")

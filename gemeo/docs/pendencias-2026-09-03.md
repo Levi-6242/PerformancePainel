@@ -193,3 +193,29 @@ Pendências que nasceram daqui:
 - **Ipixuna do Pará** (2C) segue fora: só existe no e-mail.
 - **Sete Lagoas** tem nome triplo: "Sete Lagoas" no cadastro (código do gêmeo), "Sete Lagoas 2" no Fracttal e "Sete Lagoa"
   na API — o de-para é por id/código, nunca por nome.
+
+## 12/09/2026 — respostas do Levi ao passo a passo e o que entrou na madrugada
+
+O Levi respondeu o mockup de 11/09 passo a passo. O que ele decidiu e o que mudou no código:
+
+- **Passo 1 (cadastro).** Preço do MWh: "deixar de molho". Lat/lon: ele preencheu LATITUDE/LONGITUDE na Info Geral → o
+  cadastro lê e grava `usina.lat/lon` (Info Geral manda; vírgula decimal aceita; `VERSAO_CADASTRO=2026-09-12a`). As quatro
+  SunOp já têm coordenada (CPP100 -1,76/-47,07; MAB100 -5,13/-49,02; MRO100 -2,06/-47,56; MTS100 -5,57/-43,18). De-para
+  de trackers: preenchido na BD_Trackers — mas a MTS100 vem como `SKC_n` (controlador) com até 10 motores por controlador
+  alimentando 2 a 4 inversores, e a coluna Tracker é 1 em todas as linhas: não identifica o motor. Ver o mockup de andamento.
+- **Passo 2 (ingestão).** Token da PV Plataforma da conta oem@ chegou → fonte `plat` (`gemeo/ingest/plat.py`): trackers das
+  três da 2C com o de-para tracker → inversor vindo da própria API (Araputanga 59, Sete Lagoas 59, Tupi Paulista 100). Ipixuna:
+  "esquece por enquanto". Santarém: ele investiga o POA. PC definitivo: mockup "Máquina nova" (docs/mockups).
+- **Passo 3 (grade).** Tracker mudo: "a partir de 4 horas sem dados já é de se alarmar (em horário solar)" → `trk_mudo_slots=16`
+  contando só slots com sol (`_ffill_de_sol`).
+- **Passo 4 (esperado).** Calibração e revisão de placa: "focar na 2C por hora".
+
+Pendências que nasceram ou mudaram:
+
+- **MTS100 sem ângulo nenhum na SunOp**: os 52 `TRK_n` existem na metadata, mas `POSAT`/`POSAL`/`POSAT_MOT_k` devolvem 0 registros
+  (11/09 inteiro) — strings e inversores fluem. É pergunta para a SunOp/2C, não para o código.
+- **MTS100 mapeamento**: proposta = tracker controlador (`TRK_n`) ligado a VÁRIOS inversores com peso (n linhas da planilha por
+  inversor); exige `pai_id` virar tabela de pesos na decomposição. Só vale a pena quando houver ângulo (item acima).
+- **PV_PLAT_TOKEN_OEM vence em 7 dias** (este: 19/09/2026 00:39). Renovação manual; procedimento no runbook.
+- **Lock do SQLite no cadastro**: a passada das 05:18 caiu em "database is locked" no `aplicar_trackers` enquanto a fonte plat
+  gravava 17 mil ângulos — corrigido embrulhando as gravações do cadastro em `com_retentativa_de_lock`.

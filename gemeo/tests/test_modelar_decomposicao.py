@@ -74,7 +74,7 @@ def test_tracker_mudo_fica_no_ultimo_angulo_por_um_limite_e_depois_e_dado_ausent
     g = grade_sintetica()
     g.trk_ang[2002] = [50.0, 50.0] + [np.nan] * 6
     d = dc.decompor(g, _esp(g), MAPA, P)
-    assert (d.tracker[1002] > 0).all()                       # 6 h de limite cobre os 8 slots
+    assert (d.tracker[1002] > 0).all()                       # 4 h de sol (16 slots) cobrem os 8 slots
     d2 = dc.decompor(g, _esp(g), MAPA, dc.ParamsDecomp(f_direta_fixa=0.6, trk_mudo_slots=2))
     assert (d2.tracker[1002].iloc[:4] > 0).all() and d2.tracker[1002].iloc[4:].abs().max() < 1e-6
     assert d2.excesso[2002].iloc[4:].isna().all()             # ausente, nao zero: os eventos precisam saber
@@ -119,3 +119,21 @@ def test_golden_mro100_reproduz_o_veredito_do_spike(arq):
     assert abs(float(d.residuo.sum().sum() * H)) / e_dia < v["residuo_max_pct"] / 100
     assert float(d.string.sum().sum() * H) / e_dia < 0.01
     assert len(d.trk_sem_inversor) < 10
+
+
+def test_tracker_mudo_so_gasta_o_limite_em_horario_solar_a_noite_nao_conta():
+    """Levi (12/09/2026): "a partir de 4 horas sem dados de trackers ja e de se alarmar (em horario solar, claro)". O relogio
+    do mudo so anda quando ha sol: um tracker que cala as 17h nao vira 'dado ausente' de madrugada, e ainda tem as primeiras
+    horas da manha seguinte antes de expirar. Aqui a 'noite' e o meio da grade (ghi = 0 nos slots 2..5)."""
+    g = grade_sintetica()
+    g.estacao.iloc[2:6, g.estacao.columns.get_loc("ghi")] = 0.0
+    g.trk_ang[2002] = [50.0, 50.0] + [np.nan] * 6
+    d = dc.decompor(g, _esp(g), MAPA, dc.ParamsDecomp(f_direta_fixa=0.6, trk_mudo_slots=2))
+    assert d.tracker[1002].iloc[2:6].abs().max() < 1e-6                 # noite: sem fracao direta, nada a perder
+    assert (d.tracker[1002].iloc[6:] > 0).all()                         # manha: 2 slots de sol desde a ultima leitura, ainda vale
+    d1 = dc.decompor(g, _esp(g), MAPA, dc.ParamsDecomp(f_direta_fixa=0.6, trk_mudo_slots=1))
+    assert d1.tracker[1002].iloc[6] > 0 and abs(d1.tracker[1002].iloc[7]) < 1e-6 and np.isnan(d1.excesso[2002].iloc[7])
+
+
+def test_limite_padrao_do_tracker_mudo_e_de_4_horas_solares():
+    assert dc.ParamsDecomp().trk_mudo_slots == 16
