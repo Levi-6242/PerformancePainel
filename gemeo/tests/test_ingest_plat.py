@@ -108,7 +108,7 @@ def test_estado_da_o_alvo_do_instante():
     ini, fim = dt.datetime(2026, 9, 11, 16, 0, tzinfo=UTC), dt.datetime(2026, 9, 11, 16, 30, tzinfo=UTC)
     ls = plat.leituras_estado(estado(), mapa, ini, fim)
     t = dt.datetime(2026, 9, 11, 16, 16, tzinfo=UTC)
-    assert (21, "angulo_alvo", t, -10.0) in ls and (22, "angulo", t, -10.6) in ls and len(ls) == 6
+    assert (21, "angulo_alvo", t, -10.0) in ls and (22, "angulo", t, -10.6) in ls and len(ls) == 9   # + alarme_com
     assert plat.leituras_estado(estado(), mapa, ini, dt.datetime(2026, 9, 11, 16, 10, tzinfo=UTC)) == []   # instante depois da janela
 
 
@@ -216,3 +216,16 @@ def test_validade_do_token_vem_do_exp_do_jwt():
     tok = "h." + base64.urlsafe_b64encode(json.dumps({"exp": 1789789166}).encode()).decode().rstrip("=") + ".s"
     assert plat.validade_token(tok) == dt.datetime(2026, 9, 19, 3, 39, 26, tzinfo=UTC)
     assert plat.validade_token("opaco") is None
+
+
+def test_estado_traz_o_alarme_de_comunicacao_de_cada_tracker():
+    """Araputanga TRK5 (13/09/2026): a PV Plataforma manda posAg=0,0 fixo e aComm=1 — e um tracker MUDO, nao um angulo. O alarme
+    entra como medida `alarme_com` (0/1) por ciclo, para o modelo e o card 'agora' distinguirem mudo de desalinhado."""
+    est = estado()
+    est["dados"][1]["trackers"][0]["ultimaleitura"]["aComm"] = 1        # TRK3 sem comunicacao
+    mapa = {"TRK1": 21, "TRK2": 22, "TRK3": 23}
+    ini, fim = dt.datetime(2026, 9, 11, 16, 0, tzinfo=UTC), dt.datetime(2026, 9, 11, 16, 30, tzinfo=UTC)
+    ls = plat.leituras_estado(est, mapa, ini, fim)
+    t = dt.datetime(2026, 9, 11, 16, 16, tzinfo=UTC)
+    assert (21, "alarme_com", t, 0.0) in ls and (23, "alarme_com", t, 1.0) in ls
+    assert len(ls) == 9                                                    # 3 trackers x (angulo, angulo_alvo, alarme_com)

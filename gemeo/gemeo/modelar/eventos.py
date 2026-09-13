@@ -27,6 +27,8 @@ class ParamsEventos:
     abaixo_dias: int = 3
     trk_excesso_min: float = 10.0
     trk_slots_min: int = 4
+    trk_congelado_graus: float = 1.0        # angulo bruto com amplitude <= isto no dia = congelado (travado ou mudo)
+    trk_frota_amplitude_min: float = 30.0   # ...desde que a FROTA tenha se mexido pelo menos isto (dia de stow nao conta)
     ghi_diurno: float = 50.0
     str_zero_a: float = 0.1
     str_slots_min: int = 4
@@ -118,11 +120,39 @@ def detectar(grade: Grade, gate_res: Resultado, esp: pd.DataFrame, d: Decomposic
             kwh = float(falta[dia.isin(ult).values].sum() * H)
             evs.append(Evento("inversor_abaixo", eid, idx[(dia == ult[0]).values][0], None, kwh, severidade(kwh, float(e_dia.reindex(ult).sum())),
                               {"razoes": [round(float(x), 3) for x in v]}))
-    # tracker fora do alvo: excesso > 10 graus por >= 1 h seguida, de dia; NaN (mudo ha mais de 4 h de sol) nao e desvio
+    # tracker CONGELADO: angulo bruto constante o dia inteiro enquanto a frota se mexe. Sete Lagoas, 11/09/2026: TRK51 em
+    # 25,8 graus das 9h as 17h com a frota indo de -46 a +55 — TRAVADO (comunica, nao mexe): UM evento no dia, com a perda do
+    # dia, em vez de varias corridas de 'fora do alvo'. Araputanga TRK5: 0,0 fixo e aComm=1 na PV Plataforma — sensor MUDO,
+    # o zero nao e angulo e a perda e incerta. A amplitude da FROTA e a guarda: dia de stow (vento/nuvem) nao tem travado.
+    congelados: set = set()
+    if not grade.trk_ang.empty:
+        frota_bruta = grade.trk_ang.median(axis=1)
+        dias_de_sol = dia[diurno].groupby(dia[diurno]).groups
+        for t in d.excesso.columns:
+            if t not in grade.trk_ang.columns:
+                continue
+            for dd, ind in dias_de_sol.items():
+                v = grade.trk_ang.loc[ind, t].dropna()
+                fr = frota_bruta.loc[ind].dropna()
+                if len(v) < p.trk_slots_min or fr.empty or (fr.max() - fr.min()) < p.trk_frota_amplitude_min:
+                    continue
+                if (v.max() - v.min()) > p.trk_congelado_graus:
+                    continue
+                ang = float(v.median())
+                mudo = abs(ang) < 1e-9
+                kwh = float(d.perda_trk[t].loc[ind].sum() * H) if t in d.perda_trk.columns else 0.0
+                det = {"angulo": round(ang, 2), "slots": int(len(v))}
+                if mudo:
+                    det["estimativa"] = "incerta"
+                evs.append(Evento("tracker_sem_comunicacao" if mudo else "tracker_travado", t, ind[0], ind[-1] + PASSO, kwh,
+                                  severidade(kwh, float(e_dia.get(dd, 0.0))), det))
+                congelados.add((t, dd))
+    # tracker fora do alvo: excesso > 10 graus por >= 1 h seguida, de dia; NaN (mudo ha mais de 4 h de sol) nao e desvio;
+    # o dia em que o tracker esta congelado ja saiu acima e nao se repete aqui
     for t in d.excesso.columns:
         mask = (d.excesso[t] > p.trk_excesso_min) & diurno
         for a, b in _corridas(mask):
-            if b - a + 1 < p.trk_slots_min:
+            if b - a + 1 < p.trk_slots_min or (t, dia.iloc[a]) in congelados:
                 continue
             kwh = float(d.perda_trk[t].iloc[a:b + 1].sum() * H)
             evs.append(Evento("tracker_fora_alvo", t, idx[a], idx[b] + PASSO, kwh, severidade(kwh, float(e_dia.get(dia.iloc[a], 0.0))),

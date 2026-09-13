@@ -108,8 +108,9 @@ def leituras_grafico(payload, mapa_trk: dict[str, int], ini: dt.datetime, fim: d
 
 
 def leituras_estado(payload, mapa_trk: dict[str, int], ini: dt.datetime, fim: dt.datetime) -> list[tuple]:
-    """Angulo e alvo do instante (`ultimaleitura`), carimbados com o `tsleitura` do inversor: e o 'agora' dos trackers, e o
-    unico lugar de onde vem o alvo."""
+    """Angulo, alvo e alarme de comunicacao do instante (`ultimaleitura`), carimbados com o `tsleitura` do inversor: e o
+    'agora' dos trackers, o unico lugar de onde vem o alvo, e o que separa um tracker MUDO de um desalinhado — a Araputanga
+    TRK5 (13/09/2026) vinha 0,0 grau fixo no grafico com aComm=1: o zero nao e angulo, e um sensor sem comunicacao."""
     out: list[tuple] = []
     if not isinstance(payload, dict):
         return out
@@ -127,7 +128,7 @@ def leituras_estado(payload, mapa_trk: dict[str, int], ini: dt.datetime, fim: dt
             if eid is None:
                 continue
             ul = t.get("ultimaleitura") or {}
-            for medida, chave in (("angulo", "posAg"), ("angulo_alvo", "posAl")):
+            for medida, chave in (("angulo", "posAg"), ("angulo_alvo", "posAl"), ("alarme_com", "aComm")):
                 v = ul.get(chave)
                 if isinstance(v, (int, float)) and not isinstance(v, bool):
                     out.append((eid, medida, ts, float(v)))

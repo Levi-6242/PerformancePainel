@@ -219,3 +219,31 @@ Pendências que nasceram ou mudaram:
 - **PV_PLAT_TOKEN_OEM vence em 7 dias** (este: 19/09/2026 00:39). Renovação manual; procedimento no runbook.
 - **Lock do SQLite no cadastro**: a passada das 05:18 caiu em "database is locked" no `aplicar_trackers` enquanto a fonte plat
   gravava 17 mil ângulos — corrigido embrulhando as gravações do cadastro em `com_retentativa_de_lock`.
+
+## 13/09/2026 — trackers da 2C: o que os dados mostraram e o que mudou no modelo
+
+O Levi pediu para olhar os trackers de Tupi Paulista e Araputanga com o gêmeo já ingerindo a fonte `plat`. Cruzando o banco
+(ângulo por bloco de 15 min), os eventos gerados e o estado ao vivo da PV Plataforma (posAg/posAl/aComm/statusTRK):
+
+- **Tupi Paulista** — 33 eventos "fora do alvo" em 11/09 concentrados de 07h a 08h e às 15h (Brasília): parte do bloco 2
+  (inversores 2.3, 2.4, 2.9, 2.10) **acorda 2 a 3 h atrasada** em alguns dias — ficou em −9,1° (stow) e depois em 0,0° até
+  ~09h30 enquanto a frota já estava em −55°. Foram 13 trackers em 10/09, 26 em 11/09, 2 em 12/09. Evento real, detecção certa.
+  Pergunta para a 2C: o controlador do bloco 2 reinicia de manhã?
+- **Sete Lagoas** — TRK51 (Inv 1.9) e TRK38 (Inv 1.7) **travados o dia inteiro** (25,8° e 4,3° fixos, frota de −46 a +55),
+  comunicando (aComm=0) e sem seguir o alvo (posAl −5 à noite, statusTRK 528). ~140 kWh/dia. Candidatos a OS.
+- **Araputanga** — TRK5 (Inv 1.1) **sem comunicação** (aComm=1, statusTRK 0): a PV Plataforma manda 0,0° fixo e o gêmeo lia
+  como desalinhamento de até 55°.
+
+Mudanças no modelo (TDD, 176 testes verdes):
+
+1. `excesso_trackers` usa a **mediana do grupo do inversor** quando o grupo tem ≥ 3 trackers com dado no slot (senão a frota):
+   os dois blocos da Tupi fazem backtracking diferente ao amanhecer/entardecer (41,5° × 33,8° às 17h) e a frota punia um bloco
+   inteiro por 6 a 8 graus.
+2. **Ângulo congelado o dia inteiro** com a frota se mexendo (amplitude ≥ 30°) vira UM evento no dia: `tracker_travado`
+   (ângulo ≠ 0; perda do dia) ou `tracker_sem_comunicacao` (0,0 fixo; perda marcada como incerta) — e não corridas de
+   `tracker_fora_alvo`. No golden da MRO100 (31/08) o tracker 4, o dia inteiro em 15°, passou de fora_alvo para travado.
+3. A fonte `plat` grava `alarme_com` (aComm 0/1) por tracker a cada ciclo, para o modelo e o card "agora".
+4. Migração `0002_evento_tipos_tracker.sql` amplia o CHECK de `evento.tipo` (recria a tabela; ids preservados). **As tarefas
+   não migram sozinhas: `python -m gemeo.cli migrate`** — aplicada no banco de produção em 13/09 (2703 eventos intactos).
+
+Pendente: perguntar à 2C sobre o bloco 2 da Tupi; abrir OS para TRK51/TRK38 de Sete Lagoas e para a comunicação do TRK5.

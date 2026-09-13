@@ -102,3 +102,16 @@ Reinicie só o ingest (`Gemeo Ingest`: matar o `pythonw -m gemeo.cli ingest` e a
 `Start-ScheduledTask 'Gemeo Ingest'`). O primeiro ciclo depois do token novo puxa 3 dias de gráfico por usina; a marca d'água
 dos trackers é a dos próprios trackers, então o buraco do período sem token é coberto até o limite da janela — para mais que
 isso, `tools/backfill_apipv.py` não serve (é da fonte apipv); rode um ciclo com `reconciliar` ou peça um backfill de trackers.
+
+## Tracker travado ou sem comunicação
+
+Dois eventos novos (13/09/2026), ambos "ângulo congelado o dia inteiro enquanto a frota se mexe":
+
+- `tracker_travado`: o ângulo é um valor fixo diferente de zero (Sete Lagoas TRK51 em 25,8°). O tracker comunica e não mexe —
+  OS de campo. O kWh do evento é a perda do dia pelo cosseno, confiável.
+- `tracker_sem_comunicacao`: o ângulo é 0,0 fixo (Araputanga TRK5, aComm=1 na PV Plataforma). Não é ângulo, é sensor mudo —
+  checar comunicação/controlador antes de mandar alguém ao tracker. O kWh vem marcado `estimativa: incerta`.
+
+Dia de stow (vento/nuvem, frota toda parada no mesmo ângulo) não gera nenhum dos dois: a amplitude da frota é a guarda.
+Se um `.sql` novo aparecer em `migrations/`, rode `python -m gemeo.cli migrate` antes da próxima rodada do modelar — as
+tarefas agendadas não aplicam migração.

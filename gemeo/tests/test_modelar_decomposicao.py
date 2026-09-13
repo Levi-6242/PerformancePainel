@@ -137,3 +137,23 @@ def test_tracker_mudo_so_gasta_o_limite_em_horario_solar_a_noite_nao_conta():
 
 def test_limite_padrao_do_tracker_mudo_e_de_4_horas_solares():
     assert dc.ParamsDecomp().trk_mudo_slots == 16
+
+
+def test_excesso_usa_a_mediana_do_grupo_do_inversor_quando_ha_tres_ou_mais_trackers():
+    """Tupi Paulista (11/09/2026): dois blocos de 50 trackers com backtracking diferente ao amanhecer e ao entardecer
+    (bloco 1 a 41,5 graus e bloco 2 a 33,8 as 17h) — a mediana da FROTA punia um bloco inteiro por 6 a 8 graus. A referencia
+    passa a ser a mediana dos trackers do MESMO inversor quando ha pelo menos tres com dado; com menos, a frota, como antes."""
+    g = grade_sintetica()
+    for t, inv, ang in ((2004, 1001, 40.0), (2005, 1001, 40.0), (2006, 1001, 40.0), (2007, 1002, 20.0), (2008, 1002, 20.0), (2009, 1002, 20.0)):
+        g.trk_ang[t] = ang; g.pai[t] = inv; g.tipo[t] = "tracker"
+    g.trk_ang[2001] = 40.0; g.trk_ang[2002] = 20.0; g.trk_ang[2003] = 70.0        # 2003 sem inversor: mede-se contra a frota
+    mapa = {2001: 1001, 2002: 1002, 2004: 1001, 2005: 1001, 2006: 1001, 2007: 1002, 2008: 1002, 2009: 1002}
+    exc = dc.excesso_trackers(g.trk_ang, P, grupos=mapa)
+    assert exc[2004].abs().max() < 1e-6 and exc[2007].abs().max() < 1e-6 and exc[2001].abs().max() < 1e-6   # blocos alinhados: zero
+    assert (exc[2003] > 0).all()                                                    # sem grupo: contra a frota (mediana 20 -> 50)
+    g.trk_ang[2006] = 10.0                                                          # um tracker do bloco 1 fora dos pares
+    exc = dc.excesso_trackers(g.trk_ang, P, grupos=mapa)
+    assert (exc[2006] - 30.0).abs().max() < 1e-6 and exc[2004].abs().max() < 1e-6  # so ele, contra a mediana do SEU grupo (40)
+    # grupo com menos de tres trackers cai na frota: o comportamento de sempre (MAPA tem um tracker por inversor)
+    exc_frota = dc.excesso_trackers(g.trk_ang, P, grupos={2001: 1001, 2002: 1002})
+    assert (exc_frota[2001] - 20.0).abs().max() < 1e-6                              # mediana da frota = 20 -> 40 fica 20 fora

@@ -18,6 +18,7 @@ class ParamsDecomp:
     parado_esperado_min: float = 20.0   # ...desde que o modelo esperasse mais do que isto
     excesso_min_graus: float = 5.0      # abaixo disto o desvio do tracker e ruido (TRK_DISP_LEVE da plataforma)
     trk_mudo_slots: int = 16            # tracker mudo fica no ultimo angulo por ate 4 h DE SOL (Levi, 12/09/2026); alem disso e dado ausente
+    trk_grupo_min: int = 3              # referencia = mediana do grupo do inversor quando ha pelo menos este tanto de trackers com dado no slot
     str_zero_a: float = 0.1
     str_viva_a: float = 0.5
     str_instalada_a: float = 1.0
@@ -68,14 +69,31 @@ def _ffill_de_sol(trk_ang: pd.DataFrame, sol: pd.Series | None, limite: int) -> 
     return trk_ang.ffill().where(decorrido <= limite)
 
 
-def excesso_trackers(trk_ang: pd.DataFrame, p: ParamsDecomp, sol: pd.Series | None = None) -> pd.DataFrame:
-    """|angulo - mediana da frota|: zero abaixo do limiar, NaN onde nao ha angulo conhecido. A referencia e a
-    FROTA, nao o alvo do proprio tracker — o Tracker 17 da MRO100 (31/08) estava a 0,9 graus do alvo dele e a
-    35 da frota: o alvo e que estava errado (mesma regua 'deteccao por alvo' que matou 119 falsos na plataforma)."""
+def excesso_trackers(trk_ang: pd.DataFrame, p: ParamsDecomp, sol: pd.Series | None = None,
+                     grupos: dict[int, int] | None = None) -> pd.DataFrame:
+    """|angulo - referencia|: zero abaixo do limiar, NaN onde nao ha angulo conhecido. A referencia e a FROTA, nao o alvo do
+    proprio tracker — o Tracker 17 da MRO100 (31/08) estava a 0,9 graus do alvo dele e a 35 da frota: o alvo e que estava
+    errado (mesma regua 'deteccao por alvo' que matou 119 falsos na plataforma). Quando `grupos` (tracker -> inversor) da
+    um grupo com pelo menos `trk_grupo_min` trackers com dado no slot, a referencia e a mediana DESSE grupo: na Tupi Paulista
+    (11/09/2026) os dois blocos de 50 trackers fazem backtracking diferente e a frota punia um bloco inteiro por 6 a 8 graus
+    ao amanhecer e ao entardecer. Grupo pequeno ou tracker sem inversor continuam contra a frota."""
     if trk_ang.empty:
         return pd.DataFrame(index=trk_ang.index)
     ang = _ffill_de_sol(trk_ang, sol, p.trk_mudo_slots)
-    exc = ang.sub(ang.median(axis=1), axis=0).abs()
+    frota = ang.median(axis=1)
+    ref = pd.DataFrame({c: frota for c in ang.columns}, index=ang.index)
+    por_grupo: dict[int, list] = {}
+    for t, g in (grupos or {}).items():
+        if t in ang.columns:
+            por_grupo.setdefault(g, []).append(t)
+    for ts in por_grupo.values():
+        if len(ts) < p.trk_grupo_min:
+            continue
+        bloco = ang[ts]
+        med = bloco.median(axis=1).where(bloco.notna().sum(axis=1) >= p.trk_grupo_min, frota)
+        for t in ts:
+            ref[t] = med
+    exc = ang.sub(ref).abs()
     return exc.where((exc > p.excesso_min_graus) | exc.isna(), 0.0)
 
 
@@ -88,7 +106,7 @@ def decompor(grade: Grade, esp: pd.DataFrame, trk_inv: dict[int, int], p: Params
              instaladas: dict[int, list[int]] | None = None) -> Decomposicao:
     idx = grade.indice
     fd = f_direta(grade.estacao, idx, grade.usina.lat, grade.usina.lon, p)
-    exc = excesso_trackers(grade.trk_ang, p, sol=fd > 0)      # 'com sol' = onde ha fracao direta (ghi acima do piso)
+    exc = excesso_trackers(grade.trk_ang, p, sol=fd > 0, grupos=trk_inv)   # 'com sol' = onde ha fracao direta; grupo = inversor
     frac = (1.0 - np.cos(np.radians(exc))).mul(fd, axis=0) if not exc.empty else exc
     invs = list(esp.columns)
 

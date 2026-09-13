@@ -46,7 +46,7 @@
    </div>
    <div class="card"><div class="tit">Assinaturas detectadas <small>{{ d.eventos|length }} eventos</small></div>
     <div class="lista">{% for e in d.eventos[:8] %}{% set ke = {'grave':'risk','media':'warn','leve':'ok'}[e.severidade] %}
-     <div class="item"><div><b>{{ {'inversor_parado':'Inversor parado','inversor_abaixo':'Inversor abaixo dos pares','tracker_fora_alvo':'Tracker fora do alvo','string_sem_corrente':'String sem corrente','sensor_em_falha':'Sensor em falha (POA × GHI)','sem_cobertura':'Sem cobertura de sensor'}[e.tipo] }} — {{ e.equipamento }}</b>
+     <div class="item"><div><b>{{ {'inversor_parado':'Inversor parado','inversor_abaixo':'Inversor abaixo dos pares','tracker_fora_alvo':'Tracker fora do alvo','tracker_travado':'Tracker travado','tracker_sem_comunicacao':'Tracker sem comunicação','string_sem_corrente':'String sem corrente','sensor_em_falha':'Sensor em falha (POA × GHI)','sem_cobertura':'Sem cobertura de sensor'}[e.tipo] }} — {{ e.equipamento }}</b>
       <div class="sub">{{ ('das ' ~ e.hora_ini ~ ' às ' ~ e.hora_fim) if e.hora_fim else ('desde ' ~ e.hora_ini ~ ' · aberto') }} · <span class="num">{{ e.kwh|num(0) }} kWh</span>{% if e.detalhe.excesso_max %} · excesso máx. {{ e.detalhe.excesso_max|num(0) }}°{% endif %}{% if e.detalhe.razoes %} · razões {{ e.detalhe.razoes }}{% endif %}</div></div>
       <span class="tag {{ ke }}"><span class="gl">{{ {'risk':'✕','warn':'▲','ok':'●'}[ke] }}</span> {{ e.severidade }}</span></div>
     {% else %}<div class="item"><div class="sub">Nenhuma assinatura hoje.</div></div>{% endfor %}</div>

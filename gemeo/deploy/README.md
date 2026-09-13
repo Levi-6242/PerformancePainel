@@ -109,3 +109,9 @@ publicação no workbook da Performance falhando). Aponte o monitor externo (Tea
 
 `git pull` → `gemeo migrate` → reiniciar as três tarefas (`Stop-ScheduledTask`/`Start-ScheduledTask`). Zip da pasta só
 como emergência. Ver `docs/runbook.md` para o resto.
+
+### Migrações
+
+`git pull` que traga um arquivo novo em `migrations/` exige `python -m gemeo.cli migrate` (com `SECRETS_DIR` e `GEMEO_CONFIG`)
+ANTES de a próxima rodada do modelar/ingest escrever — as tarefas não migram sozinhas. A 0002 (13/09/2026) recria a tabela
+`evento` para ampliar o CHECK de `tipo`; é rápida e preserva os ids.

@@ -48,7 +48,8 @@ def test_job_persiste_e_e_idempotente(conn, mro100):
         assert e_esp > e_med and parado > 1000 and tracker > 50 and cob > 0.9
         cur.execute("SELECT equipamento_id FROM evento WHERE tipo='inversor_parado'")
         assert {r[0] for r in cur.fetchall()} == {ids["inv:22"]}
-        cur.execute("SELECT count(*) FROM evento WHERE tipo='tracker_fora_alvo' AND equipamento_id IN (%s,%s)", (ids["trk:4"], ids["trk:17"]))
+        # trk 4 ficou o dia em 15 graus (TRAVADO, 13/09/2026) e trk 17 saiu do alvo: um evento de tracker para cada, de tipos diferentes
+        cur.execute("SELECT count(*) FROM evento WHERE tipo IN ('tracker_fora_alvo','tracker_travado') AND equipamento_id IN (%s,%s)", (ids["trk:4"], ids["trk:17"]))
         assert cur.fetchone()[0] >= 2
         cur.execute("SELECT count(*) FROM esperado WHERE gate='ok' AND p_esperado_kw IS NULL")
         assert cur.fetchone()[0] == 0
