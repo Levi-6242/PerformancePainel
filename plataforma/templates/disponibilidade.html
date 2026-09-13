@@ -73,7 +73,12 @@
   .card h2{font-size:13px;font-weight:700;margin-bottom:2px}
   .card .desc{font-size:12px;color:var(--faint);margin-bottom:14px}
 
-  .barras{display:grid;gap:8px;max-height:560px;overflow-y:auto;padding-right:6px}
+  .barras{display:grid;gap:8px;max-height:560px;overflow-y:auto;padding-right:10px;scrollbar-width:thin;
+    scrollbar-color:var(--line) transparent;scrollbar-gutter:stable}
+  .barras::-webkit-scrollbar{width:6px}
+  .barras::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
+  .barras::-webkit-scrollbar-thumb:hover{background:var(--faint)}
+  .barras::-webkit-scrollbar-track{background:transparent}
   .linha-b{display:grid;grid-template-columns:150px 1fr 62px;gap:12px;align-items:center}
   .linha-b .u{font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap;overflow:hidden;
     text-overflow:ellipsis}
@@ -89,12 +94,16 @@
   .ev .kwh{font-size:13.5px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums;align-self:start}
   .ev .kwh small{display:block;font-size:10px;font-weight:600;letter-spacing:.06em;color:var(--faint)}
 
-  .heat-scroll{overflow:auto;max-height:520px;padding-bottom:4px}
-  .heat{display:grid;gap:3px;min-width:840px}
+  .heat-scroll{overflow-x:auto;overflow-y:hidden;padding-bottom:8px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+  .heat-scroll::-webkit-scrollbar{height:6px}
+  .heat-scroll::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
+  .heat-scroll::-webkit-scrollbar-thumb:hover{background:var(--faint)}
+  .heat-scroll::-webkit-scrollbar-track{background:transparent}
+  .heat{display:grid;gap:3px;min-width:840px;grid-auto-rows:30px;min-height:calc(9 * 30px + 8 * 3px)}
   .heat .hu{font-size:12px;font-weight:600;color:var(--muted);align-self:center;white-space:nowrap;
     overflow:hidden;text-overflow:ellipsis;padding-right:6px}
   .heat .hd{font-size:10px;color:var(--faint);text-align:center;align-self:end;padding-bottom:2px}
-  .cel{aspect-ratio:1/.8;border-radius:3px;background:var(--surface2);border:1px solid rgba(150,160,180,.07)}
+  .cel{height:30px;border-radius:4px;background:var(--surface2);border:1px solid rgba(150,160,180,.07)}
   .cel:hover{outline:2px solid var(--grid);outline-offset:-1px}
   .c-ok{background:rgba(163,217,0,.20);border-color:rgba(163,217,0,.14)}
   .c-a1{background:rgba(245,166,35,.30);border-color:rgba(245,166,35,.18)}
@@ -104,6 +113,22 @@
   .legenda{display:flex;gap:14px;flex-wrap:wrap;margin-top:12px;font-size:11px;color:var(--muted)}
   .legenda span{display:inline-flex;align-items:center;gap:6px}
   .legenda i{width:13px;height:11px;border-radius:2px;display:inline-block;border:1px solid rgba(150,160,180,.1)}
+  .heat-bar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin:10px 0 12px}
+  .heat-bar .filtro{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .heat-bar input[type=search]{background:var(--surface2);color:var(--ink);border:1px solid var(--line);border-radius:7px;
+    padding:7px 11px;font:600 12.5px var(--font);width:240px;outline:none}
+  .heat-bar input[type=search]:focus{border-color:var(--grid)}
+  .heat-bar input[type=search]::placeholder{color:var(--faint);font-weight:500}
+  .chk{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none}
+  .chk input{accent-color:var(--grid)}
+  .pager{display:flex;align-items:center;gap:8px}
+  .pager button{width:32px;height:32px;border-radius:8px;border:1px solid var(--line);background:var(--surface2);color:var(--muted);
+    cursor:pointer;font-size:20px;line-height:1;display:inline-flex;align-items:center;justify-content:center;padding:0 0 3px}
+  .pager button:hover:not(:disabled){border-color:var(--grid);color:var(--grid-300)}
+  .pager button:disabled{opacity:.3;cursor:default}
+  .pager .pos{font-size:12px;color:var(--muted);min-width:120px;text-align:center;font-variant-numeric:tabular-nums}
+  .pager .pos b{color:var(--ink)}
+  .heat .hu.vazio{color:var(--faint);font-weight:500}
   #tip{position:fixed;pointer-events:none;background:var(--surface2);border:1px solid var(--line);
     border-radius:6px;padding:7px 10px;font-size:12px;display:none;z-index:9;box-shadow:0 6px 18px rgba(0,0,0,.45)}
   #tip b{font-variant-numeric:tabular-nums}
@@ -214,6 +239,19 @@
         </div>
         <button class="btn destaque" onclick="exportar()">Exportar Excel — mapa diário</button>
       </div>
+      <div class="heat-bar">
+        <div class="filtro">
+          <input id="heatFiltro" type="search" list="heatUsinas" placeholder="Filtrar usina" autocomplete="off"
+                 oninput="heatFiltrar(this.value)" aria-label="Filtrar usina no mapa diário">
+          <datalist id="heatUsinas"></datalist>
+          <label class="chk"><input type="checkbox" id="heatSoPerda" onchange="heatSoPerda(this.checked)"> só usinas com perda</label>
+        </div>
+        <div class="pager">
+          <button id="heatAnt" onclick="heatPagina(-1)" title="8 usinas anteriores (seta para a esquerda)">&lsaquo;</button>
+          <span class="pos" id="heatPos">—</span>
+          <button id="heatProx" onclick="heatPagina(1)" title="próximas 8 usinas (seta para a direita)">&rsaquo;</button>
+        </div>
+      </div>
       <div class="heat-scroll"><div class="heat" id="heat"></div></div>
       <div class="legenda">
         <span><i style="background:var(--surface2)"></i>100% · sem evento</span>
@@ -290,6 +328,7 @@ function mesLabel(m){
 
 async function carregar(){
   const cli = $('selCliente').value, mes = $('selMes').value;
+  if (cli !== HEAT.cli){ HEAT.cli = cli; HEAT.pag = 0; }       // mudou o cliente: o mapa volta à primeira página
   const q = new URLSearchParams(); if (mes) q.set('mes', mes); if (cli) q.set('cliente', cli);
   const j = await (await fetch('/api/gerencial/disponibilidade?' + q)).json();
   if (!j.quente){ $('frio').hidden = false; $('conteudo').hidden = true; return; }
@@ -356,33 +395,7 @@ function render(j, cli){
       &rarr; ${(o.fim || '').slice(5, 16).replace('T', ' ')} · ${o.h_solar} h solares</div></div>`).join('')
     || '<div class="desc">Nenhum evento com perda no período.</div>';
 
-  // heatmap — com muitos clientes juntos, só usinas com evento (senão vira um paredão)
-  const nd = j.periodo.dias;
-  let hs = us;
-  if (!cli && us.length > 40){
-    hs = us.filter(u => u.h_perdidas > 0);
-    $('heatDesc').textContent = `mostrando as ${hs.length} usinas com evento no período (filtre um cliente para ver todas) · clique num dia com perda para ver as OSs`;
-  } else {
-    $('heatDesc').textContent = 'disponibilidade de cada dia · clique num dia com perda para ver as OSs, quem criou e o cálculo';
-  }
-  const heat = $('heat');
-  heat.style.gridTemplateColumns = `150px repeat(${nd}, minmax(24px, 1fr))`;
-  const [ano, mn] = j.mes.split('-');
-  let html = '<div></div>';
-  for (let d = 1; d <= nd; d++) html += `<div class="hd">${String(d).padStart(2, '0')}</div>`;
-  for (const u of hs){
-    html += `<div class="hu" title="${u.usina}">${u.usina}</div>`;
-    const dia = j.diario[u.usina] || {};
-    for (let d = 1; d <= nd; d++){
-      const k = `${ano}-${mn}-${String(d).padStart(2, '0')}`;
-      const v = dia[k] ? dia[k].disp : 100.0;
-      const temPerda = v < 99.95;
-      html += `<div class="cel ${classeCel(v)}${temPerda ? ' click' : ''}"
-        ${temPerda ? `data-u="${encodeURIComponent(u.usina)}" data-d="${d}"` : ''}
-        data-txt="${u.usina} · ${String(d).padStart(2, '0')}/${mn} — <b>${fmtp(v)}%</b>${temPerda ? ' · clique p/ detalhes' : ''}"></div>`;
-    }
-  }
-  heat.innerHTML = html;
+  desenhaHeat(j);
 
   // tabela
   $('tabDesc').textContent = `${mesLabel(j.mes)} · ${j.periodo.dias} dias fechados · perdas à potência nominal`;
@@ -464,6 +477,59 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharModal(
 document.addEventListener('click', e => {
   const c = e.target.closest('.cel.click');
   if (c) abrirDia(decodeURIComponent(c.dataset.u), +c.dataset.d);
+});
+
+// Mapa diário (Levi, 13/09/2026): 8 usinas por página, em ORDEM ALFABÉTICA (o resto da página é pior→melhor), setas para
+// passar, filtro por nome e "só com perda" opcional. O estado fica FORA do render(): o carregar() roda de novo a cada
+// 5 min e redesenha tudo — a pessoa não pode perder a página nem o filtro no meio da leitura. A exportação continua
+// levando o mês inteiro do recorte de cliente, sem página nem filtro.
+const HEAT = {POR_PAG: 8, pag: 0, filtro: '', soPerda: false, cli: null};
+const _nrmH = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+function desenhaHeat(j){
+  const nd = j.periodo.dias;
+  const todas = j.usinas.slice().sort((a, b) => a.usina.localeCompare(b.usina, 'pt-BR', {sensitivity: 'base', numeric: true}));
+  $('heatUsinas').innerHTML = todas.map(u => `<option value="${u.usina}">`).join('');
+  const f = _nrmH(HEAT.filtro);
+  let lista = todas;
+  if (f) lista = lista.filter(u => _nrmH(u.usina).includes(f));
+  if (HEAT.soPerda) lista = lista.filter(u => u.h_perdidas > 0);
+  const nPag = Math.max(1, Math.ceil(lista.length / HEAT.POR_PAG));
+  HEAT.pag = Math.min(Math.max(0, HEAT.pag), nPag - 1);
+  const ini = HEAT.pag * HEAT.POR_PAG;
+  const hs = lista.slice(ini, ini + HEAT.POR_PAG);
+  $('heatAnt').disabled = HEAT.pag === 0;
+  $('heatProx').disabled = HEAT.pag >= nPag - 1;
+  $('heatPos').innerHTML = lista.length ? `<b>${ini + 1}–${ini + hs.length}</b> de ${lista.length}` : '<b>0</b> de 0';
+  const recorte = [f ? `filtro "${HEAT.filtro.trim()}"` : '', HEAT.soPerda ? 'só com perda' : ''].filter(Boolean).join(' · ');
+  $('heatDesc').textContent = `${lista.length} usinas em ordem alfabética, ${HEAT.POR_PAG} por página`
+    + (recorte ? ` (${recorte})` : '') + ' · clique num dia com perda para ver as OSs, quem criou e o cálculo';
+  const heat = $('heat');
+  heat.style.gridTemplateColumns = `150px repeat(${nd}, minmax(24px, 1fr))`;
+  const [ano, mn] = j.mes.split('-');
+  let html = '<div></div>';
+  for (let d = 1; d <= nd; d++) html += `<div class="hd">${String(d).padStart(2, '0')}</div>`;
+  for (const u of hs){
+    html += `<div class="hu" title="${u.usina}">${u.usina}</div>`;
+    const dia = j.diario[u.usina] || {};
+    for (let d = 1; d <= nd; d++){
+      const k = `${ano}-${mn}-${String(d).padStart(2, '0')}`;
+      const v = dia[k] ? dia[k].disp : 100.0;
+      const temPerda = v < 99.95;
+      html += `<div class="cel ${classeCel(v)}${temPerda ? ' click' : ''}"
+        ${temPerda ? `data-u="${encodeURIComponent(u.usina)}" data-d="${d}"` : ''}
+        data-txt="${u.usina} · ${String(d).padStart(2, '0')}/${mn} — <b>${fmtp(v)}%</b>${temPerda ? ' · clique p/ detalhes' : ''}"></div>`;
+    }
+  }
+  if (!hs.length) html += '<div class="hu vazio" style="grid-column:1 / -1">Nenhuma usina neste recorte.</div>';
+  heat.innerHTML = html;
+}
+function heatPagina(d){ HEAT.pag += d; if (DADOS) desenhaHeat(DADOS); }
+function heatFiltrar(v){ HEAT.filtro = v; HEAT.pag = 0; if (DADOS) desenhaHeat(DADOS); }
+function heatSoPerda(on){ HEAT.soPerda = !!on; HEAT.pag = 0; if (DADOS) desenhaHeat(DADOS); }
+document.addEventListener('keydown', e => {              // setas do teclado passam a página, fora dos campos de texto
+  if (['INPUT', 'SELECT', 'TEXTAREA'].includes(String(e.target.tagName || '').toUpperCase())) return;
+  if (e.key === 'ArrowLeft') heatPagina(-1);
+  if (e.key === 'ArrowRight') heatPagina(1);
 });
 
 function exportar(){

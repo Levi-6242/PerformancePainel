@@ -3044,7 +3044,7 @@ def _entrada_tempo_real_build() -> dict:
             raise RuntimeError(err["erro"])
         return rows_pv
 
-    # `owen` E o 2C (OWEN_UFVS = Araputanga, Ipixuna do Pará, Sete Lagoas 2, Tupi Paulista), como o resto do
+    # `owen` E o 2C (OWEN_UFVS = Araputanga, Ipixuna do Pará, Sete Lagoas, Tupi Paulista), como o resto do
     # arquivo já diz: _TRK_FONTE_LABEL["owen"]="2C", o rollup faz add("2C", r) e _ENTRADA_VKEY["2c"]="owen".
     # Registrado sob "RenoGrid", o card do 2C NUNCA era marcado como lido (ficava "fonte não respondeu" para
     # sempre) e o da RenoGrid — que não tem leitura de trackers — se dizia lido. Varredura de 09/09/2026.
@@ -14172,8 +14172,12 @@ OWEN_ROOT = next((p for p in _OWEN_CANDS if os.path.isdir(p)), _OWEN_LOCAL)
 OWEN_OK = any(os.path.isdir(p) for p in _OWEN_CANDS)
 _log_arquivo("fontes.log", "OWEN_ROOT = %s%s" % (OWEN_ROOT, "" if OWEN_OK else
              "   [NENHUM CANDIDATO EXISTE — fonte 2C/Owen indisponível; defina OWEN_ROOT]"))
+# Fallback (código→nome) com o nome do CADASTRO (Info Geral), não o do Fracttal: a STL era "Sete Lagoas 2" (Fracttal) e
+# não casava com "Sete Lagoas" da Info Geral/API PV — a linha do e-mail ficava sem cliente e virava um 9º card "Sem
+# cliente" no /tempo-real, cópia da antiga visão da 2C, com os 2 trackers parados dela (Levi, 13/09/2026). O par
+# e-mail↔API continua pelo CÓDIGO (_2C_EMAIL_PARA_API); aqui é só o nome de exibição.
 OWEN_UFVS = {"ARA": "Araputanga", "IPX": "Ipixuna do Pará",
-             "STL": "Sete Lagoas 2", "TUP": "Tupi Paulista"}   # fallback (código→nome)
+             "STL": "Sete Lagoas", "TUP": "Tupi Paulista"}
 
 
 def _owen_nome(code):

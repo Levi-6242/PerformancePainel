@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gêmeo Digital · pendências 13/09/2026 · exatamente o que falta, por dono</title>
+<style>
+:root{--bg:#090d18;--panel:#161d30;--panel2:#1b2338;--line:#26304a;--txt:#e6ebf5;--muted:#9aa6c4;--faint:#6b7699;--brand:#a3d900;--ok:#4ade80;--warn:#f5c877;--bad:#ff5b6e;--blue:#5bc8e8;--mono:Consolas,"Cascadia Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif}
+.wrap{max-width:1240px;margin:0 auto;padding:28px 22px 60px}
+h1{font-size:24px;margin:0 0 4px;font-weight:650;letter-spacing:.2px}
+h1 small{color:var(--brand);font-family:var(--mono);font-size:13px;font-weight:500;margin-left:10px}
+h2{font-size:15px;text-transform:uppercase;letter-spacing:1.4px;color:var(--brand);margin:36px 0 12px;font-weight:600}
+h2 span{color:var(--faint);font-weight:500;letter-spacing:.4px;text-transform:none;font-size:13px;margin-left:10px}
+.sub{color:var(--muted);margin:0 0 16px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.kpi .n{font-family:var(--mono);font-size:26px;font-weight:600;line-height:1.1;margin:2px 0 4px}
+.kpi .l{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:1px}
+.kpi .d{color:var(--muted);font-size:12.5px}
+.muted{color:var(--muted)} .faint{color:var(--faint)}
+.ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)} .blue{color:var(--blue)} .brand{color:var(--brand)}
+.pill{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:.6px;text-transform:uppercase;padding:3px 9px;border-radius:999px;border:1px solid var(--line);white-space:nowrap;vertical-align:middle}
+.p-ok{color:var(--ok);border-color:rgba(74,222,128,.45);background:rgba(74,222,128,.08)}
+.p-op{color:var(--blue);border-color:rgba(91,200,232,.45);background:rgba(91,200,232,.08)}
+.p-warn{color:var(--warn);border-color:rgba(245,200,119,.5);background:rgba(245,200,119,.08)}
+.p-pend{color:var(--muted);border-color:var(--line);background:var(--panel2)}
+.p-bad{color:var(--bad);border-color:rgba(255,91,110,.5);background:rgba(255,91,110,.08)}
+.p-brand{color:var(--brand);border-color:rgba(163,217,0,.5);background:rgba(163,217,0,.08)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:1px;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:bottom}
+td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td.n{white-space:nowrap;font-family:var(--mono);color:var(--faint);font-size:12px}
+code,.mono{font-family:var(--mono);font-size:12.5px;color:#cfe3a0}
+.box{border-top:3px solid var(--line)}
+.b-ok{border-top-color:var(--ok)} .b-warn{border-top-color:var(--warn)} .b-blue{border-top-color:var(--blue)} .b-bad{border-top-color:var(--bad)} .b-brand{border-top-color:var(--brand)}
+.dono{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-top:10px}
+.dono .card{padding:12px 14px}
+.dono .h{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:4px}
+.dono .h b{font-size:14px}
+.dono .h .c{font-family:var(--mono);font-size:22px;font-weight:600}
+.dono .x{color:var(--muted);font-size:12.5px}
+.tl{display:grid;grid-template-columns:repeat(5,1fr);gap:0;margin-top:8px;position:relative}
+.tl:before{content:"";position:absolute;left:0;right:0;top:7px;height:2px;background:var(--line)}
+.tl .m{position:relative;padding:22px 10px 0 0}
+.tl .m:before{content:"";position:absolute;left:0;top:2px;width:12px;height:12px;border-radius:50%;background:var(--panel);border:2px solid var(--muted)}
+.tl .m.ok:before{border-color:var(--ok);background:var(--ok)} .tl .m.warn:before{border-color:var(--warn)} .tl .m.bad:before{border-color:var(--bad);background:var(--bad)} .tl .m.brand:before{border-color:var(--brand)}
+.tl .d{font-family:var(--mono);font-size:12px;color:var(--faint)}
+.tl .t{font-weight:600;font-size:13px;margin:2px 0}
+.tl .x{color:var(--muted);font-size:12px;line-height:1.4}
+.leg{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 0}
+.foot{color:var(--faint);font-size:12px;margin-top:40px;border-top:1px solid var(--line);padding-top:12px}
+@media (max-width:1000px){.grid,.dono{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}.tl{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Gêmeo Digital · o que está pendente <small>13/09/2026 · 11h10 Brasília · dados do banco e do /healthz</small></h1>
+<p class="sub">Um item por linha, cada um com dono, o que trava e o que destrava. O que já entrou não está aqui: está no mockup de andamento de 12/09 e no <span class="mono">docs/pendencias-2026-09-03.md</span>. Os números saem do <span class="mono">gemeo.sqlite</span> desta máquina, lidos agora.</p>
+
+<div class="grid">
+  <div class="card kpi"><div class="l">Usinas modeladas</div><div class="n ok">25</div><div class="d">4 Athon/SunOp · 18 Thopen/PostgreSQL · 3 da 2C pela API PV (conta oem@)</div></div>
+  <div class="card kpi"><div class="l">Equipamentos</div><div class="n">1.258 <span class="muted" style="font-size:14px">trackers</span></div><div class="d">361 inversores · 8.273 strings · 25 estações · 218 trackers das 2C pela PV Plataforma</div></div>
+  <div class="card kpi"><div class="l">Eventos · 30 dias</div><div class="n warn">2.712</div><div class="d">2.093 tracker fora do alvo · 342 inversor parado · 101 string sem corrente · 69 tracker travado · 60 sem comunicação</div></div>
+  <div class="card kpi"><div class="l">Modelos calibrados</div><div class="n bad">0 <span class="muted" style="font-size:14px">de 25</span></div><div class="d">Todos "de placa", tolerância 8 %. Calibrar pede 30 dias limpos: as SunOp têm 13, a Tupi 4</div></div>
+</div>
+
+<h2>Saúde agora <span>o que o /gemeo/healthz respondeu às 11h10</span></h2>
+<div class="grid2">
+  <div class="card">
+    <table>
+      <tr><th>Fonte</th><th>Estado</th><th>Cobertura</th><th>Último ciclo</th><th>Observação</th></tr>
+      <tr><td><b>plat</b> · PV Plataforma (trackers 2C)</td><td><span class="pill p-ok">ok</span></td><td class="n">100 %</td><td class="n">10:57</td><td class="muted">230 ciclos ok em 24 h; ângulo a cada 15 min nas três da 2C</td></tr>
+      <tr><td><b>apipv</b> · API PV Operation (2C)</td><td><span class="pill p-ok">ok</span></td><td class="n">100 %</td><td class="n">10:56</td><td class="muted">280 ok, 2 parciais</td></tr>
+      <tr><td><b>sunop</b> · Athon (4 usinas)</td><td><span class="pill p-warn">parcial</span></td><td class="n">67 %</td><td class="n">11:10</td><td class="muted">180 parciais e 8 falhas "fonte devolveu vazio" (06h30) em 24 h</td></tr>
+      <tr><td><b>pg</b> · PostgreSQL Thopen (18 usinas)</td><td><span class="pill p-warn">parcial</span></td><td class="n">25 %</td><td class="n">11:08</td><td class="muted">540 ciclos, todos parciais: a fonte entrega bem menos que o esperado. Ver item C2</td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <table>
+      <tr><th>Etapa</th><th>Estado</th><th>Quando</th><th>Resultado</th></tr>
+      <tr><td><b>Modelar</b> (cascata + eventos)</td><td><span class="pill p-ok">ok</span></td><td class="n">11:00</td><td class="muted">25 usinas em 34,9 s; roda a cada 15 min</td></tr>
+      <tr><td><b>Publicar</b> (API SQL da Performance)</td><td><span class="pill p-ok">ok</span></td><td class="n">11:00</td><td class="muted">workbook gemeo_digital: 25 usinas, 232 dias de cascata, 7.819 perdas, 2.712 eventos</td></tr>
+      <tr><td><b>Tarefas agendadas</b></td><td><span class="pill p-warn">na tomada</span></td><td class="n">11:05</td><td class="muted">Voltaram sozinhas quando o notebook foi para a tomada. Na bateria param de novo (item A1)</td></tr>
+      <tr><td><b>Token PV Plataforma</b></td><td><span class="pill p-warn">vence 19/09</span></td><td class="n">00:39</td><td class="muted">Sem ele a fonte plat para e os trackers da 2C somem do modelo (item A2)</td></tr>
+    </table>
+  </div>
+</div>
+
+<h2>Por dono <span>quem destrava cada coisa</span></h2>
+<div class="dono">
+  <div class="card box b-brand"><div class="h"><b>Você</b><span class="c brand">6</span></div><div class="x">Decisões e acessos que só você dá: bateria, token, máquina, preço, Ipixuna/Santarém, perguntas à 2C</div></div>
+  <div class="card box b-warn"><div class="h"><b>Performance</b><span class="c warn">6</span></div><div class="x">Conferir no campo o que o modelo apontou e abrir OS onde for real</div></div>
+  <div class="card box b-blue"><div class="h"><b>T.I.</b><span class="c blue">4</span></div><div class="x">Servidor, backup, monitor, repositório e a Fase 4 da SunOp</div></div>
+  <div class="card box b-ok"><div class="h"><b>Código (eu)</b><span class="c ok">7</span></div><div class="x">Fila técnica, na ordem em que proponho atacar</div></div>
+</div>
+
+<h2>A · Você <span>o que está esperando uma resposta ou uma ação sua</span></h2>
+<div class="card">
+<table>
+  <tr><th style="width:44px">#</th><th>Pendência</th><th>Por que importa</th><th>O que destrava</th><th style="width:130px">Estado</th></tr>
+  <tr><td class="n">A1</td><td><b>Liberar as 5 tarefas agendadas na bateria</b><br><span class="muted">Gemeo App, Gemeo Ingest, Gemeo Modelar, OS Creator Web, Tunel Guardian</span></td><td class="muted">Hoje o agendador recusou todas das 09h15 até você ligar o carregador (~11h). Toda vez que o notebook sair da tomada, o gêmeo, o OS Creator web e o guardião do túnel param.</td><td class="muted">Seu OK. É um comando (<span class="mono">Set-ScheduledTask</span>) nas cinco; a Ronda Guardian já roda assim.</td><td><span class="pill p-brand">decisão sua</span></td></tr>
+  <tr><td class="n">A2</td><td><b>Renovar o PV_PLAT_TOKEN_OEM até 19/09 00h39</b></td><td class="muted">Token de 7 dias da PV Plataforma (conta oem@). Vencido, a fonte plat cai com "recusou o token" e os 218 trackers da 2C ficam sem ângulo.</td><td class="muted">Gerar o token novo e colar no <span class="mono">gemeo.env</span>; procedimento no runbook. A fonte volta sozinha no ciclo seguinte.</td><td><span class="pill p-warn">prazo 19/09</span></td></tr>
+  <tr><td class="n">A3</td><td><b>Máquina definitiva</b> (mockup "Máquina nova", 12/09)</td><td class="muted">O gêmeo roda no seu notebook: desligou, parou. Banco, tarefas e túnel moram aqui.</td><td class="muted">Definir a máquina (PC dedicado ou servidor da T.I.). O pacote de deploy e as tarefas já existem em <span class="mono">gemeo/deploy</span>.</td><td><span class="pill p-brand">decisão sua</span></td></tr>
+  <tr><td class="n">A4</td><td><b>Preço do MWh por contrato</b></td><td class="muted">A tabela <span class="mono">meta_mes</span> está vazia: as telas mostram perda em MWh, nunca em R$.</td><td class="muted">Você disse "deixar de molho" em 12/09. Fica parado até você voltar ao assunto.</td><td><span class="pill p-pend">de molho</span></td></tr>
+  <tr><td class="n">A5</td><td><b>Ipixuna</b> e <b>POA de Santarém</b></td><td class="muted">Ipixuna fora do gêmeo por decisão sua ("esquece por enquanto"). Santarém: você ficou de investigar o sensor de POA.</td><td class="muted">Um "pode entrar" para Ipixuna; o veredito do POA de Santarém.</td><td><span class="pill p-pend">com você</span></td></tr>
+  <tr><td class="n">A6</td><td><b>Duas perguntas para a 2C</b></td><td class="muted">1) O bloco 2 da Tupi Paulista (inversores 2.1 a 2.4, 2.9, 2.10) acorda 2 a 3 h atrasado em alguns dias: o controlador reinicia de manhã? 2) MTS100 não tem ângulo nenhum na SunOp (POSAT/POSAL com 0 registros); sem isso o mapeamento SKC nem vale a pena.</td><td class="muted">Mandar as duas perguntas (posso redigir).</td><td><span class="pill p-op">pergunta externa</span></td></tr>
+</table>
+</div>
+
+<h2>B · Performance <span>o modelo apontou; falta confirmar no campo e abrir OS</span></h2>
+<div class="card">
+<table>
+  <tr><th style="width:44px">#</th><th>Pendência</th><th>O que o gêmeo viu</th><th>O que destrava</th><th style="width:130px">Estado</th></tr>
+  <tr><td class="n">B1</td><td><b>OS candidatas na 2C</b></td><td class="muted">Sete Lagoas TRK51 (Inv 1.9) e TRK38 (Inv 1.7) travados o dia inteiro (25,8° e 4,3° com a frota de −46° a +55°), ~140 kWh/dia. Araputanga TRK5 (Inv 1.1) sem comunicação (aComm=1, 0,0° fixo).</td><td class="muted">Confirmar e abrir as três OS pelo OS Creator.</td><td><span class="pill p-bad">abrir OS</span></td></tr>
+  <tr><td class="n">B2</td><td><b>Tupi Paulista: 13 trackers em alarme de comunicação neste instante</b></td><td class="muted">TRK50, TRK61 a TRK68, TRK97 a TRK100 com aComm=1 na PV Plataforma às 11h. Novo hoje. Pode ser o mesmo controlador do bloco 2 reiniciando.</td><td class="muted">Olhar o supervisório da Tupi agora; se persistir à tarde, é OS de comunicação.</td><td><span class="pill p-warn">conferir hoje</span></td></tr>
+  <tr><td class="n">B3</td><td><b>Trackers congelados fora da 2C</b></td><td class="muted">Regra do ângulo congelado, 7 dias: Aparecida 3 (17 travados + 3 mudos), Boa Esperança do Sul 1 (28 sem comunicação), MAB100 (14 travados), Ibaté 2 e Araçoiaba 2 (4 + 1 cada). Pode ser sensor parado na fonte, não mecânica.</td><td class="muted">Uma passada da Performance por usina: mecânico vira OS; sensor vira "dado ausente" no modelo.</td><td><span class="pill p-warn">conferir</span></td></tr>
+  <tr><td class="n">B4</td><td><b>Aparecida do Taboado 1 e 2 sem dado desde 06/09</b></td><td class="muted">Esperado e medido em 0,0 há 7 dias; a cascata parou em 06/09. Fonte PostgreSQL do Thopen.</td><td class="muted">Saber se a usina está mesmo parada ou se a coleta do Thopen morreu para elas (a plataforma também deve mostrar).</td><td><span class="pill p-bad">7 dias sem dado</span></td></tr>
+  <tr><td class="n">B5</td><td><b>CPP100 mede 17 % acima do esperado</b></td><td class="muted">Desde 03/09: 24,9 MWh medidos contra 20,5 esperados em dois dias. Ou o kWp da Info Geral (4.910) está baixo, ou a POA lê baixo.</td><td class="muted">Conferir placa e sensor com a Athon. Até lá a régua dessa usina não vale.</td><td><span class="pill p-warn">conferir</span></td></tr>
+  <tr><td class="n">B6</td><td><b>MTS100 com GHI sempre zero</b></td><td class="muted">Sensor ou tag morta; POA normal. O gate valida só com plausibilidade e cobertura.</td><td class="muted">Athon/SunOp arrumar a tag; ou aceitar rodar só com POA.</td><td><span class="pill p-pend">desde 03/09</span></td></tr>
+</table>
+</div>
+
+<h2>C · T.I. e infra <span>o que muda quando sair do seu notebook</span></h2>
+<div class="card">
+<table>
+  <tr><th style="width:44px">#</th><th>Pendência</th><th>Por que importa</th><th>O que destrava</th><th style="width:130px">Estado</th></tr>
+  <tr><td class="n">C1</td><td><b>Servidor: tarefas, backup e monitor</b></td><td class="muted">Hoje não há backup do <span class="mono">gemeo.sqlite</span> nem monitor externo. Se o disco do notebook for, o histórico vai junto.</td><td class="muted"><span class="mono">deploy/instalar_tarefas.ps1</span> (3 tarefas) + <span class="mono">deploy/backup.ps1</span> diário (14 dias) + monitor do <span class="mono">/gemeo/healthz</span> no Teams. Tudo pronto, falta a máquina (A3).</td><td><span class="pill p-op">depende de A3</span></td></tr>
+  <tr><td class="n">C2</td><td><b>Fonte pg com cobertura de 25 %</b></td><td class="muted">As 18 usinas do Thopen entregam um quarto das leituras esperadas por ciclo. Parte é estrutural (usina sem string ou tracker no PostgreSQL), parte pode ser a coleta do Thopen (dbt congelado, leitura em raw_*).</td><td class="muted">Medir por usina o que falta (string, tracker, estação) e separar "não existe" de "parou". É código meu (D2) com resposta da T.I. sobre o dbt.</td><td><span class="pill p-warn">medir</span></td></tr>
+  <tr><td class="n">C3</td><td><b>Repositório Grid-Co-CODE/gemeo e segunda pessoa com acesso</b></td><td class="muted">O gêmeo vive dentro do repositório da plataforma; só você e eu conhecemos o runbook.</td><td class="muted">Criar o repositório (o pacote é autocontido, leva o workflow de CI junto) e treinar alguém no <span class="mono">docs/runbook.md</span>.</td><td><span class="pill p-pend">condição do piloto</span></td></tr>
+  <tr><td class="n">C4</td><td><b>Fase 4 da SunOp</b></td><td class="muted">A plataforma ainda faz ~4.000 requisições/dia na SunOp para curvas que o gêmeo já tem no banco. Cota mensal compartilhada de 100 mil.</td><td class="muted">Plataforma passar a ler as curvas do gêmeo. Ganho medido só depois de estável no servidor.</td><td><span class="pill p-pend">depois do servidor</span></td></tr>
+</table>
+</div>
+
+<h2>D · Código <span>minha fila, na ordem que proponho</span></h2>
+<div class="card">
+<table>
+  <tr><th style="width:44px">#</th><th>Pendência</th><th>O que falta</th><th>Depende de</th><th style="width:130px">Estado</th></tr>
+  <tr><td class="n">D1</td><td><b>Card "agora" dos trackers na tela da usina</b></td><td class="muted">O alarme de comunicação (aComm) já é gravado nos atributos de cada tracker a cada ciclo. Falta mostrar: quantos mudos, quantos travados, desde quando, ao lado do ângulo da frota.</td><td class="muted">Nada. Próximo item.</td><td><span class="pill p-ok">pronto para fazer</span></td></tr>
+  <tr><td class="n">D2</td><td><b>Cobertura por usina da fonte pg</b></td><td class="muted">Relatório do que cada usina do Thopen entrega e do que o cadastro espera; marcar "não existe" para não contar como parcial.</td><td class="muted">C2 (dbt do Thopen).</td><td><span class="pill p-ok">pronto para fazer</span></td></tr>
+  <tr><td class="n">D3</td><td><b>Metas por mês (Info Mensal: PR, IPOA, P50)</b></td><td class="muted">A tabela <span class="mono">meta_mes</span> está vazia; o cadastro lê Equipamentos, Info Geral e BD_Trackers, mas não a Info Mensal. Sem meta não há régua de P50 nem R$ (com A4).</td><td class="muted">Confirmar com você a coluna certa da Info Mensal.</td><td><span class="pill p-pend">a combinar</span></td></tr>
+  <tr><td class="n">D4</td><td><b>Calibração</b></td><td class="muted"><span class="mono">gemeo calibrar --usina X</span> existe; pede 30 dias limpos e desvio &lt; 0,03. As SunOp chegam a 30 dias em 01/10; a Tupi, em 10/10. A tolerância cai de 8 % para 3 %.</td><td class="muted">Tempo de dado. Você pediu foco na 2C.</td><td><span class="pill p-pend">01/10 (SunOp) · 10/10 (2C)</span></td></tr>
+  <tr><td class="n">D5</td><td><b>MTS100: controlador SKC com vários inversores</b></td><td class="muted">Um TRK_n (controlador) alimenta 2 a 4 inversores com até 10 motores; o pai único vira tabela de pesos na decomposição.</td><td class="muted">A6 (ângulo na SunOp). Sem ângulo, não vale a pena.</td><td><span class="pill p-pend">travado em A6</span></td></tr>
+  <tr><td class="n">D6</td><td><b>Fechamento do evento inversor_abaixo</b></td><td class="muted">Hoje é recomputado dos últimos 3 dias e o evento aberto anterior é apagado; não fica histórico de quando fechou.</td><td class="muted">Nada; é pequeno.</td><td><span class="pill p-pend">baixa prioridade</span></td></tr>
+  <tr><td class="n">D7</td><td><b>"Agora" da Frota perto do pôr do sol</b></td><td class="muted">Com POA baixa o esperado é pequeno e o Δ explode (MRO100 +38 % às 16h58). Suavizar para a média da última hora.</td><td class="muted">Nada.</td><td><span class="pill p-pend">baixa prioridade</span></td></tr>
+</table>
+</div>
+
+<h2>Linha do tempo <span>o que tem data</span></h2>
+<div class="card">
+<div class="tl">
+  <div class="m ok"><div class="d">13/09 · hoje</div><div class="t">Modelo com grupo do inversor e ângulo congelado</div><div class="x">Migração 0002 aplicada, publicação ok às 11h00.</div></div>
+  <div class="m bad"><div class="d">19/09 · 00h39</div><div class="t">PV_PLAT_TOKEN_OEM vence</div><div class="x">Renovar antes (A2). Sem isso, a fonte plat para.</div></div>
+  <div class="m warn"><div class="d">01/10</div><div class="t">30 dias de cascata nas 4 SunOp</div><div class="x">Primeira calibração possível (D4), se os dias forem limpos.</div></div>
+  <div class="m warn"><div class="d">10/10</div><div class="t">30 dias na Tupi Paulista</div><div class="x">Calibração da primeira usina da 2C.</div></div>
+  <div class="m brand"><div class="d">sem data</div><div class="t">Máquina definitiva</div><div class="x">A3 puxa C1, C3 e C4. É a decisão que mais destrava.</div></div>
+</div>
+</div>
+
+<h2>Legenda</h2>
+<div class="leg">
+  <span class="pill p-brand">decisão sua</span><span class="pill p-warn">prazo / conferir</span><span class="pill p-bad">abrir OS / sem dado</span><span class="pill p-op">pergunta externa / depende</span><span class="pill p-ok">pronto para fazer</span><span class="pill p-pend">parado por decisão ou tempo</span>
+</div>
+
+<p class="foot">Fontes: <span class="mono">C:\GridcoAuto\gemeo\gemeo.sqlite</span> (usina, equipamento, evento, modelo, cascata_dia, ingest_run, estado) lido às 14:10 UTC; <span class="mono">GET /gemeo/healthz</span>; <span class="mono">Get-ScheduledTask</span>; <span class="mono">gemeo/docs/pendencias-2026-09-03.md</span> (seções A a J, 11/09, 12/09, 13/09). Mockup de acompanhamento, sem emojis, tokens da plataforma.</p>
+</div>
+</body>
+</html>

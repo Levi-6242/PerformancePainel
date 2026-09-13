@@ -296,12 +296,14 @@ function render(j){
 }
 
 // ── DUAS VISÕES da mesma lista de usinas ───────────────────────────────────────────────
-// Cada visão tem seu critério de "vale listar": Geração exige atingimento (gerada E meta),
+// Cada visão tem seu critério de "vale listar": Geração exige META (com geração mostra o atingimento; sem geração entra como "sem dado"),
 // Qualidade exige PR ou IPOA medido — uma usina pode estar numa e não na outra, e por isso os
 // dois rodapés contam totais diferentes. O recorte por CLIENTE vem do filtro do topo: USINAS já
 // chega filtrado por deriva(), então as duas visões seguem o mesmo cliente sem controle extra.
 let USINAS = [], VISTA = 'geracao', VBUSCA = '';
-const _temGer = u => u.atingimento != null;
+// GD Energy, 09/2026 (Levi: "tem geração, só não tem ETM"): as três abas da BD_Performance vieram sem lançamento no mês,
+// a usina entrava só pelo cadastro (prod=null) e SUMIA daqui — lacuna de dado tem que ficar visível, não desaparecer.
+const _temGer = u => u.atingimento != null || u.p50 != null;
 const _temQal = u => (u.pr != null || u.ipoa);
 // busca por nome sem acento/caixa — "araca" acha "Araçoiaba da Serra 1"
 const _nrmB = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
@@ -362,7 +364,7 @@ function renderTodas(us){
   if(!tb) return;
   document.getElementById('vSub').innerHTML =
     'Gerada × meta no mês · ordenado por atingimento · <b>clique na usina para abrir a cascata de perdas</b>';
-  us = us.slice().sort((a,b)=>b.atingimento-a.atingimento);
+  us = us.slice().sort((a,b)=>(b.atingimento ?? -1) - (a.atingimento ?? -1));   // sem dado por último (null vira NaN no sort)
   // A meta é prorrateada pelos dias que a FONTE já reportou, não pelo dia de hoje. Sem dizer
   // isso na célula, dois números iguais de meta viriam de janelas diferentes e ninguém saberia.
   // meta_dias vem do backend = quantos dias a meta REALMENTE cobre (mês fechado = mês inteiro).
@@ -371,17 +373,23 @@ function renderTodas(us){
   // número precisa continuar na borda direita para os dígitos alinharem coluna abaixo.
   const _dias = u => (u.meta_dias && u.dias_mes)
     ? `<span style="font-size:10px;color:var(--faint);font-weight:400;margin-right:9px">${u.meta_dias} de ${u.dias_mes} dias</span>` : '';
+  // Usina com meta e SEM geração no mês entra como "sem dado": a linha cinza cobra o lançamento de quem lança.
+  const _atg = u => u.atingimento == null
+    ? '<span class="tag" title="Geração não encontrada nas fontes do mês (BD_Performance, BD_Thopen ou banco). A meta existe; o dado não chegou.">sem dado</span>'
+    : `<span class="num ${atgCls(u.atingimento)}">${nf(u.atingimento,1)}%</span> ${atgTag(u.atingimento)}`;
   tb.innerHTML = us.map(u=>
     `<tr style="cursor:pointer" data-u="${encodeURIComponent(u.usina)}" onclick="tgCasc(this)"><td><b>${u.usina}</b></td><td>${u.cliente||'—'}</td><td class="r num">${nf(u.prod,1)}</td>`+
     `<td class="r num" style="white-space:nowrap" title="Meta do mês rateada pelos ${u.meta_dias||'—'} dias que a fonte já reportou desta usina.">${_dias(u)}${nf(u.p50,1)}</td>`+
-    `<td><span class="num ${atgCls(u.atingimento)}">${nf(u.atingimento,1)}%</span> ${atgTag(u.atingimento)}</td>${_dispCell(u)}</tr>`).join('')
+    `<td>${_atg(u)}</td>${_dispCell(u)}</tr>`).join('')
     || '<tr><td colspan="6" style="color:var(--muted)">Nenhuma usina com geração e meta neste filtro.</td></tr>';
   const naMeta = us.filter(u=>u.atingimento>=97).length;
   const md = us.map(u=>u.meta_dias).filter(v=>v);
   const faixa = md.length ? (Math.min(...md)===Math.max(...md)
     ? `${md[0]} dias` : `de ${Math.min(...md)} a ${Math.max(...md)} dias`) : '';
   document.getElementById('vNota').innerHTML =
-    `${us.length} usinas com geração e meta no mês · <b>${naMeta}</b> na meta (≥97%). `+
+    `${us.filter(u=>u.atingimento!=null).length} usinas com geração e meta no mês`+
+    (us.some(u=>u.atingimento==null)?` · <b>${us.filter(u=>u.atingimento==null).length}</b> com meta e sem geração lançada (sem dado)`:'')+
+    ` · <b>${naMeta}</b> na meta (≥97%). `+
     `A meta de cada usina cobre <b>só os dias que a fonte já reportou</b>`+
     (faixa?` (hoje, ${faixa})`:'')+
     ` — cobrar dias que ainda não coletamos derrubaria o atingimento sem culpa da usina. `+

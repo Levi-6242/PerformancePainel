@@ -101,7 +101,7 @@ collect_energy.py / coletar_geracao_hoje.py  scripts standalone (API PV)
   `.../generate-chart`. String ativa = potência > 0 W. **Sem ETM, sem trackers.**
 
 ### 3.5 2C (Email) — CSV SCADA via Gmail  [a mais nova]
-- 4 UFVs: **ARA** (Araputanga), **IPX** (Ipixuna do Pará), **STL** (Sete Lagoas 2), **TUP** (Tupi Paulista).
+- 4 UFVs: **ARA** (Araputanga), **IPX** (Ipixuna do Pará), **STL** (Sete Lagoas; "Sete Lagoas 2" só no Fracttal), **TUP** (Tupi Paulista).
 - Baixador externo `Desktop\Projetos e-mail\1-Automatizador\app_gridco.py` (Gmail OAuth) salva CSVs em
   `Desktop\Projetos e-mail\{ETM,Strings,Trackers}\`.
 - **E-mails INCREMENTAIS** (4/dia): 9h traz 06→09, 12h traz 09→12, 15h traz 12→15, 18h traz 15→18.
