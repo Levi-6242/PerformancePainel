@@ -111,6 +111,17 @@ Armadilhas: o dia julgado **não** ensina o próprio baseline; dia com a usina a
 (chuva forte vira ruído); Barretos lista 31/40 "INVERTER" para 20 reais no `plant_devices` — a régua
 trabalha por id que reportou energia e traduz pelo cadastro.
 
+
+## Visão Geração no drill-down do Monitoramento
+
+Desde 13/09/2026 a usina expandida na aba Strings tem o seletor **Strings | Geração** (`state.invView`, vale de
+usina em usina). Geração = barras de kWh por inversor no período (fichas Ontem / 7 dias / Mês ou de/até, só dias
+**fechados**, até 62 dias), desvio contra a **mediana da usina** (por kWh/kWp quando a base traz `pot_kwp`; kWh
+puro quando não), participação × esperado e o padrão 30d onde existe. A fonte é `/api/<fonte>/inversores/
+historico/<pid>?usina=&mes=` (BD_Thopen p/ cliente Thopen, BD_Performance p/ o resto) — nunca a API ao vivo. A
+conta (`_gerAgrega`, `_gerFaixa`) roda no node em `tests/test_monitoramento_geracao_logica.py` com o código
+extraído do HTML: mudou a régua, mude o teste. Régua: até −5 % normal, −10 observar, −20 crítico.
+
 ## Strings: inversor desligado e OS atribuída
 
 Desde 11/09/2026, na linha da usina (`build_summary`) o inversor **desligado de dia** (régua de potência do

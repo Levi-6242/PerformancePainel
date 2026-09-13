@@ -145,7 +145,7 @@ function _prendeOverlays(){ const v=_faixaVisivel(); if(!v) return;
 if(EMBED){ try{ parent.addEventListener('scroll',_prendeOverlays,{passive:true}); parent.addEventListener('resize',_prendeOverlays); }catch(e){} }
 // ?fonte=<id> vem dos cards da Entrada (/teste/tempo-real): o card de um cliente abre o Monitoramento ja na fonte dele (05/09/2026)
 const _VIEWS_URL=['strings','etm','geracao','trackers','pr','curva','perdas'];
-const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'), subfilter:'geral', trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, perdaSub:'trk-par', perdaDia:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, etmMode:'cards', etmProb:(new URLSearchParams(location.search).get('etmprob')==='1'), gerIni:null, gerFim:null, gerModo:'usinas' };
+const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'), subfilter:'geral', invView:'strings', invGer:{modo:'mes',ini:null,fim:null}, trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, perdaSub:'trk-par', perdaDia:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, etmMode:'cards', etmProb:(new URLSearchParams(location.search).get('etmprob')==='1'), gerIni:null, gerFim:null, gerModo:'usinas' };
 function setState(patch){ Object.assign(state, patch); render(); }
 /* ═══ DADO REAL — por VISTA e por FONTE. Cada uma devolve {rows,summary}; muda só o endpoint. ═══ */
 // 2C tudo junto (11/09/2026): linha da 2C com id NUMÉRICO veio da API PV (conta oem@) → curva e ETM pelo caminho da API PV
@@ -162,7 +162,7 @@ const EP={
 // escolhe sozinho o token da conta que a enxerga (_pv_token_for). Só o recorte da LISTA muda.
 const PLANT={pv:'/api/plant/',pg:'/api/pg/plant/',sunop:'/api/sunop/plant/',axis:'/api/axis/plant/',solaredge:'/api/solaredge/plant/',owen:'/api/owen/strings/plant/',semp:'/api/plant/',alveslima:'/api/plant/','2capi':'/api/plant/'};
 function _urlFor(view,srcChip){ const base=(EP[view]||{})[SKEY[srcChip]]; if(!base) return null; return view==='pr'?base+'?date='+_todayISO():base; }   // data LOCAL: com toISOString(), das 21h em diante o BR pedia o dia SEGUINTE e a tabela voltava vazia
-const RD={pv:null,loading:false,na:false,erro:null,cache:{},plants:{},curva:{},curvaMeta:{},trk:{},depara:{},trkChart:{},os:{},comments:{},tracking:{},strProb:{},strEv:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},perdas:{},osAtrib:{},_osList:null};
+const RD={pv:null,loading:false,na:false,erro:null,cache:{},plants:{},curva:{},curvaMeta:{},trk:{},depara:{},trkChart:{},os:{},comments:{},tracking:{},strProb:{},strEv:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},invHist:{},perdas:{},osAtrib:{},_osList:null};
 
 /* ══ BUSCA COM ESPERA LIMITADA ══════════════════════════════════════════════
    01/09/2026: o Levi abriu as strings da Santana do Ipanema e a tela girou até ele desistir. A
@@ -577,7 +577,7 @@ function buildInversores(pid){
   // Usina sem visão por string: o inversor mostra a PROPORCIONALIDADE (padrão 30d) no lugar de ativas/esp/dif (Levi,
   // 11/09). Busca 1× por usina em /api/pv/inv-padrao/<pid> (barato: cache do worker) e casa pelo nome do cadastro.
   const _pd=RD.invPadrao||(RD.invPadrao={});
-  if(state.source==='pv'&&_urow&&(_urow.sem_visao||_urow.inv_padrao)&&_pd[pid]===undefined){ _pd[pid]=null;
+  if(SKEY[state.source]==='pv'&&_urow&&(_urow.sem_visao||_urow.inv_padrao)&&_pd[pid]===undefined){   // pela FONTE (SKEY→'pv'): a fonte chama-se 'thopen-pv', e comparar com 'pv' nunca buscava o padrão (13/09/2026) _pd[pid]=null;
     fetchJSON('/api/pv/inv-padrao/'+encodeURIComponent(pid)).then(d=>{ _pd[pid]=(d&&d.na_regua)?d:false; render(); }).catch(()=>{ _pd[pid]=false; }); }
   const _pdInv=(_pd[pid]&&_pd[pid].inversores)||[], _pdDia=(_pd[pid]&&_pd[pid].dia)||null;
   return invs.map(inv=>{
@@ -1536,6 +1536,116 @@ function _optPanel(pid,uuid){
     <div class="card-kicker" style="color:var(--color-neutral-400);margin-bottom:10px">Otimizadores desta string · <b style="color:var(--color-neutral-200)">${d.ativos}/${d.total}</b> ativos</div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:6px">${cards}</div></div>`;
 }
+/* ══ Drill-down · visão GERAÇÃO (Levi, 13/09/2026; mockup aprovado no mesmo dia) ══
+   No lugar das linhas de strings: barras de kWh por inversor no período, desvio contra a MEDIANA da usina (rendimento por
+   kWp quando a base tem a potência de cada inversor; kWh puro quando não tem), participação contra o esperado e o padrão
+   30d onde ele existe. Fonte = histórico por inversor do BANCO (BD_Thopen p/ cliente Thopen, BD_Performance p/ os demais),
+   só dias FECHADOS — a mesma regra do painel da usina; nada de API ao vivo no gráfico. A escolha Strings|Geração e o
+   período ficam em `state` e valem de usina em usina. */
+const GER_MAX_DIAS=62;
+function _usinaLimpa(n){ return String(n||'').replace(/\s*\(\d+\)\s*$/,'').trim(); }   // "Indaiatuba 2 (133)" → "Indaiatuba 2" (a base é pelo nome)
+function _gerPeriodo(){   // {ini,fim} ISO, sempre até ONTEM: hoje ainda não fechou
+  const g=state.invGer||{}, ontem=_ontemISO();
+  if(g.modo==='ontem') return {ini:ontem,fim:ontem};
+  if(g.modo==='7d') return {ini:_isoAdd(ontem,-6),fim:ontem};
+  if(g.modo==='custom'&&g.ini&&g.fim){ let ini=g.ini, fim=g.fim>ontem?ontem:g.fim; if(ini>fim) ini=fim; if(_isoDiff(ini,fim)>GER_MAX_DIAS-1) ini=_isoAdd(fim,-(GER_MAX_DIAS-1)); return {ini,fim}; }
+  return {ini:ontem.slice(0,7)+'-01',fim:ontem};   // 'mes': do dia 1 do mês de ontem até ontem (dia 1 → o mês passado inteiro)
+}
+function _gerMeses(p){ const out=[]; let m=p.ini.slice(0,7); while(m<=p.fim.slice(0,7)&&out.length<4){ out.push(m); const y=+m.slice(0,4), mm=+m.slice(5,7); m=mm===12?(y+1)+'-01':y+'-'+String(mm+1).padStart(2,'0'); } return out; }
+async function loadInvHist(pid,nome,mes){
+  const key=state.source+'|'+pid+'|'+mes; if(RD.invHist[key]!==undefined) return;
+  RD.invHist[key]=null;   // "carregando" — sem render() aqui: quem chama já está dentro de um render
+  try{ RD.invHist[key]=await fetchJSON('/api/'+_fonte()+'/inversores/historico/'+encodeURIComponent(pid)+'?usina='+encodeURIComponent(_usinaLimpa(nome))+'&mes='+mes); }
+  catch(e){ RD.invHist[key]=false; }
+  render();
+}
+window.setInvView=v=>{ state.invView=v; render(); };
+window.setInvGerModo=m=>{ const g=state.invGer||(state.invGer={}); if(m==='custom'){ const p=_gerPeriodo(); g.ini=g.ini||p.ini; g.fim=g.fim||p.fim; } g.modo=m; render(); };
+window.setInvGerIni=v=>{ const g=state.invGer||(state.invGer={}), p=_gerPeriodo(); g.ini=v||p.ini; g.fim=g.modo==='custom'&&g.fim?g.fim:p.fim; if(g.fim<g.ini) g.fim=g.ini; g.modo='custom'; render(); };
+window.setInvGerFim=v=>{ const g=state.invGer||(state.invGer={}), p=_gerPeriodo(); g.fim=v||p.fim; g.ini=g.modo==='custom'&&g.ini?g.ini:p.ini; if(g.ini>g.fim) g.ini=g.fim; g.modo='custom'; render(); };
+function _gerFaixa(dev){   // régua do mockup: até -5 % normal · -5 a -10 observar · -10 a -20 atenção · abaixo de -20 crítico
+  const k=dev==null?'sem':dev<=-20?'critico':dev<=-10?'atencao':dev<=-5?'observar':'normal';
+  const rot={sem:'sem base',critico:'crítico',atencao:'atenção',observar:'observar',normal:'normal'}[k];
+  const cor={sem:'var(--color-neutral-400)',critico:'var(--gc-red)',atencao:'var(--gc-red)',observar:'var(--gc-amber)',normal:(dev>=0?'var(--color-accent-300)':'var(--color-neutral-300)')}[k];
+  const bar={sem:'var(--color-neutral-600)',critico:'var(--gc-red)',atencao:'var(--gc-red)',observar:'var(--gc-amber)',normal:'var(--color-accent)'}[k];
+  return {k,rot,cor,bar};
+}
+/* fim _gerFaixa */
+function _gerAgrega(hists,invs,ini,fim){
+  // hists: payloads de /inversores/historico dos meses do período; invs: [{name,cabine,padrao}] da lista ao vivo (casa por
+  // nome; se NENHUM casar, valem os nomes da base). Só dias dentro de [ini,fim]; dia sem dado do inversor não conta como zero.
+  const porInv={}, pot={}, dias=new Set(), origens=new Set(); let potOk=false;
+  for(const h of hists){ if(!h) continue; if(h.rateio==='potencia') potOk=true;
+    for(const [n,v] of Object.entries(h.inversores||{})) if(v&&v.pot_kwp) pot[n]=v.pot_kwp;
+    for(const d of (h.dias||[])){ if(!d||d.data<ini||d.data>fim) continue; dias.add(d.data); if(d.origem) origens.add(d.origem);
+      for(const [n,v] of Object.entries(d.inv||{})){ const g=v?v.ger:null; if(g==null) continue; const t=porInv[n]||(porInv[n]={kwh:0,n:0}); t.kwh+=g; t.n++; } } }
+  const nomesBase=Object.keys(porInv);
+  const casa=n=>nomesBase.find(b=>_nrmU(b)===_nrmU(n))||null;
+  let linhas=(invs||[]).map(iv=>({name:iv.name,cabine:iv.cabine||'',padrao:iv.padrao||null,base:casa(iv.name)}));
+  if(!linhas.some(l=>l.base)) linhas=nomesBase.slice().sort((a,b)=>String(a).localeCompare(b,'pt-BR',{numeric:true})).map(n=>({name:n,cabine:'',padrao:null,base:n}));
+  const comBase=linhas.filter(l=>l.base);
+  const usaPot=potOk&&comBase.length>0&&comBase.every(l=>pot[l.base]>0);
+  const med=arr=>{ const s=arr.slice().sort((a,b)=>a-b), n=s.length; return n?(n%2?s[(n-1)/2]:(s[n/2-1]+s[n/2])/2):null; };
+  const yi=l=>porInv[l.base].kwh/(usaPot?pot[l.base]:1);                     // rendimento (kWh/kWp) ou kWh puro
+  const medY=med(comBase.map(yi)), medKwh=med(comBase.map(l=>porInv[l.base].kwh));
+  const total=comBase.reduce((s,l)=>s+porInv[l.base].kwh,0), somaPot=usaPot?comBase.reduce((s,l)=>s+pot[l.base],0):0;
+  for(const l of linhas){
+    if(!l.base){ Object.assign(l,{kwh:null,n:0,dev:null,part:null,esp:null,ref:null}); continue; }
+    const t=porInv[l.base], y=yi(l);
+    l.kwh=t.kwh; l.n=t.n;
+    l.esp=usaPot?pot[l.base]/somaPot*100:100/comBase.length;
+    l.part=total>0?t.kwh/total*100:null;
+    l.ref=medY!=null?medY*(usaPot?pot[l.base]:1):null;                       // kWh que a mediana daria a ESTE inversor (traço)
+    l.dev=(medY>0)?(y/medY-1)*100:null;
+  }
+  return {linhas,total,mediana:medKwh,abaixo:linhas.filter(l=>l.dev!=null&&l.dev<=-10).length,nDias:dias.size,nComBase:comBase.length,rateio:usaPot?'potencia':'igual',origens:[...origens].sort()};
+}
+/* fim _gerAgrega */
+function _ddBarra(u){   // seletor Strings | Geração no topo do drill-down (+ controles do período em Geração)
+  const on=state.invView==='geracao';
+  return `<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px"><div style="display:inline-flex;gap:6px" onclick="event.stopPropagation()"><button onclick="setInvView('strings')" style="${segStyle(!on)}">Strings</button><button onclick="setInvView('geracao')" style="${segStyle(on)}">Geração</button></div>${on?_gerControles():''}</div>`;
+}
+function _gerControles(){
+  const g=state.invGer||{modo:'mes'}, p=_gerPeriodo(), ontem=_ontemISO();
+  const q=(id,lb)=>`<button onclick="event.stopPropagation();setInvGerModo('${id}')" style="border:1px solid ${g.modo===id?'var(--color-accent)':'var(--color-divider)'};background:${g.modo===id?'color-mix(in srgb,var(--color-accent) 16%,transparent)':'transparent'};color:${g.modo===id?'var(--color-accent)':'var(--color-neutral-300)'};font-family:inherit;font-size:11.5px;font-weight:600;padding:5px 11px;border-radius:7px;cursor:pointer">${lb}</button>`;
+  const dIn=(v,fn)=>`<input type="date" value="${v}" max="${ontem}" onclick="event.stopPropagation()" onchange="event.stopPropagation();${fn}(this.value)" style="background:var(--color-neutral-900);border:1px solid var(--color-divider);border-radius:6px;color:var(--color-text);font-family:inherit;font-size:12px;padding:4px 7px">`;
+  return `<div class="text-muted" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px" onclick="event.stopPropagation()">${q('ontem','Ontem')}${q('7d','7 dias')}${q('mes','Mês')}<span>de</span>${dIn(p.ini,'setInvGerIni')}<span>até</span>${dIn(p.fim,'setInvGerFim')}<span title="Só dias fechados: hoje entra amanhã. Até ${GER_MAX_DIAS} dias.">· dias fechados</span></div>`;
+}
+function _gerBlock(u){
+  const pid=u.id, p=_gerPeriodo(), meses=_gerMeses(p);
+  const hists=meses.map(m=>RD.invHist[state.source+'|'+pid+'|'+m]);
+  meses.forEach((m,i)=>{ if(hists[i]===undefined) loadInvHist(pid,u.name,m); });
+  const box=b=>`<div style="padding:14px 16px;border-radius:var(--radius-md);background:color-mix(in srgb, var(--color-surface) 60%, transparent)">${b}</div>`;
+  if(hists.some(h=>h===undefined||h===null)) return box(`<span class="text-muted" style="font-size:13px"><i class="ph ph-circle-notch gc-spin"></i> carregando o histórico por inversor…</span>`);
+  const nf=(v,d=1)=>v==null?'—':Number(v).toLocaleString('pt-BR',{minimumFractionDigits:d,maximumFractionDigits:d});
+  const invs=Array.isArray(u.inversores)?u.inversores:[];
+  const a=_gerAgrega(hists,invs,p.ini,p.fim), nJan=_isoDiff(p.ini,p.fim)+1, faixa=`${_brData(p.ini)} a ${_brData(p.fim)}`;
+  if(!a.nComBase||!a.nDias){
+    const mot=(hists.find(h=>h&&h.motivo)||{}).motivo||(hists.every(h=>h===false)?'a plataforma não respondeu ao histórico por inversor':'sem dia fechado com geração por inversor neste período');
+    return box(`<div style="font-size:13px"><b style="color:var(--gc-amber)">sem base por inversor</b> <span class="text-muted">· ${_he(faixa)} — ${_he(mot)}</span></div>`);
+  }
+  const ORIG={bd_thopen:'BD_Thopen (banco)',bd_performance:'BD_Performance'}, orig=a.origens.map(o=>ORIG[o]||o).join(' + ');
+  const max=Math.max(1,...a.linhas.map(l=>l.kwh||0)), MONO='font-family:var(--font-mono,Consolas,monospace)';
+  const grid='display:grid;grid-template-columns:200px 1fr 120px 150px 120px 100px;gap:14px;align-items:center';
+  const cab=`<div style="${grid};padding:0 12px 6px;font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--color-neutral-500)"><span>Inversor</span><span>Geração no período · traço = mediana</span><span style="text-align:right">kWh</span><span>Desvio vs. mediana</span><span>Participação</span><span>Padrão 30d</span></div>`;
+  const rows=a.linhas.map(l=>{ const f=_gerFaixa(l.dev), w=l.kwh?Math.max(1,l.kwh/max*100):0, tick=l.ref!=null?Math.min(100,l.ref/max*100):null;
+    const pc=l.padrao&&l.padrao.status==='critico'?'var(--gc-red)':l.padrao&&l.padrao.status==='atencao'?'var(--gc-amber)':'var(--color-neutral-300)';
+    const pd=(l.padrao&&l.padrao.delta!=null)?`<span style="color:${pc}" title="participação de ontem contra o padrão dos últimos 30 dias (pp)">${l.padrao.delta>0?'+':''}${nf(l.padrao.delta)} pp</span>`:`<span class="text-muted">—</span>`;
+    const sub=l.kwh==null?'sem dado na base':(l.n<nJan?`${f.rot} · ${l.n} de ${nJan} dias`:`${f.rot} · ${l.n} dias`);
+    return `<div style="${grid};padding:9px 12px;border-radius:8px" onmouseenter="this.style.background='color-mix(in srgb, var(--color-neutral-900) 70%, transparent)'" onmouseleave="this.style.background=''">
+      <span style="font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:8px">${_he(l.name)}${l.cabine?`<span class="tag tag-neutral" style="font-size:11px">${_he(l.cabine)}</span>`:''}</span>
+      <div style="height:14px;background:var(--color-neutral-900);border:1px solid var(--color-divider);border-radius:5px;overflow:hidden;position:relative"><i style="display:block;height:100%;width:${w}%;background:${f.bar};border-radius:4px 0 0 4px"></i>${tick!=null?`<span style="position:absolute;top:-3px;bottom:-3px;left:${tick}%;width:2px;background:rgba(230,235,245,.55)"></span>`:''}</div>
+      <span style="${MONO};font-size:13px;text-align:right">${l.kwh==null?'—':nf(l.kwh)}<small class="text-muted" style="font-size:11px;margin-left:3px">kWh</small></span>
+      <span style="${MONO};font-size:13px;font-weight:600;color:${f.cor}">${l.dev==null?'—':(l.dev>0?'+':'')+nf(l.dev)+' %'}<small style="display:block;font-family:inherit;font-weight:500;font-size:10.5px;color:var(--color-neutral-500)">${_he(sub)}</small></span>
+      <span style="${MONO};font-size:12.5px;color:var(--color-neutral-300)">${l.part==null?'—':nf(l.part)+' %'}<small style="display:block;font-family:inherit;font-size:10.5px;color:var(--color-neutral-500)">${l.esp==null?'':'esperado '+nf(l.esp)+' %'}</small></span>
+      <span style="font-size:11.5px">${pd}</span></div>`; }).join('');
+  const kpi=(l,v,c)=>`<div><div style="font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--color-neutral-500)">${l}</div><div style="${MONO};font-size:16px;font-weight:600;${c?'color:'+c:''}">${v}</div></div>`;
+  const un=`<span class="text-muted" style="font-size:12px;font-weight:500">kWh</span>`;
+  const resumo=`<div style="display:inline-grid;grid-template-columns:repeat(4,auto);gap:26px;padding:10px 14px;border:1px solid var(--color-divider);border-radius:10px;background:color-mix(in srgb, var(--color-neutral-900) 60%, transparent);margin-bottom:12px">${kpi('Gerado no período',nf(a.total,0)+' '+un)}${kpi('Mediana por inversor',nf(a.mediana,0)+' '+un)}${kpi('Abaixo de −10 %',a.abaixo+' <span class="text-muted" style="font-size:12px;font-weight:500">de '+a.nComBase+'</span>',a.abaixo?'var(--gc-amber)':'')}${kpi('Dias com dado',a.nDias+' <span class="text-muted" style="font-size:12px;font-weight:500">de '+nJan+'</span>')}</div>`;
+  const sw=c=>`<i style="display:inline-block;width:12px;height:12px;border-radius:3px;background:${c};vertical-align:-2px;margin-right:6px"></i>`;
+  const leg=`<div class="text-muted" style="display:flex;gap:16px;flex-wrap:wrap;font-size:12px;margin-top:10px"><span>${sw('var(--color-accent)')}até −5 % · normal</span><span>${sw('var(--gc-amber)')}−5 a −10 % · observar</span><span>${sw('var(--gc-red)')}abaixo de −10 % · atenção (−20 % crítico)</span><span>${_he(faixa)} · ${_he(orig)} · ${a.rateio==='potencia'?'esperado proporcional ao kWp de cada inversor':'esperado em partes iguais (a base não tem kWp por inversor)'}</span></div>`;
+  return box(resumo+cab+rows+leg);
+}
 function renderStrings(v){
   const f=_fonte(), subOk=_STR_SUB_FONTES.includes(f);
   const bar=subOk?`<div style="display:flex;gap:8px;margin-bottom:24px">${v.subfilters.map(x=>`<button onclick="setSub('${x.id}')" style="${x.style}">${x.label}</button>`).join('')}</div>`:'';
@@ -1559,7 +1669,7 @@ function renderStrings(v){
       ${u.expanded?`<tr><td colspan="9" style="padding:0;border:0"><div style="background:color-mix(in srgb, var(--color-neutral-900) 55%, transparent);padding:18px 22px 22px">
         ${RD.pv?'':`<div style="display:flex;flex-wrap:wrap;gap:22px;padding:12px 16px;margin-bottom:16px;border-radius:var(--radius-md);background:color-mix(in srgb, var(--gc-blue) 10%, transparent);font-size:13px">
           <span><b>0</b> <span class="text-muted">strings abaixo</span></span><span><b>0</b> <span class="text-muted">inversores abaixo dos pares</span></span><span><b style="color:var(--gc-amber)">1</b> <span class="text-muted">trackers parados</span></span><span><b>0</b> <span class="text-muted">correlação tracker→inversor</span></span>
-        </div>`}${u.inversores==='loading'?`<div class="text-muted" style="padding:14px 4px;font-size:13px">carregando inversores…</div>`:(u.inversores||[]).map(inv=>renderInversor(inv,v.chart)).join('')}</div></td></tr>`:''}
+        </div>`}${RD.pv?_ddBarra(u):''}${u.inversores==='loading'?`<div class="text-muted" style="padding:14px 4px;font-size:13px">carregando inversores…</div>`:(state.invView==='geracao'?_gerBlock(u):(u.inversores||[]).map(inv=>renderInversor(inv,v.chart)).join(''))}</div></td></tr>`:''}
     `).join(''))}</tbody></table></div>
   </div>
   <div class="text-muted" style="text-align:center;margin-top:18px;font-size:12.5px">${v.usinas.length} usinas</div>`;
