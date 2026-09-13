@@ -19,6 +19,7 @@ class ParamsDecomp:
     excesso_min_graus: float = 5.0      # abaixo disto o desvio do tracker e ruido (TRK_DISP_LEVE da plataforma)
     trk_mudo_slots: int = 16            # tracker mudo fica no ultimo angulo por ate 4 h DE SOL (Levi, 12/09/2026); alem disso e dado ausente
     trk_grupo_min: int = 3              # referencia = mediana do grupo do inversor quando ha pelo menos este tanto de trackers com dado no slot
+    trk_grupo_desvio_max: float = 12.0  # ...e so se essa mediana esta a ate isto da frota: grupo inteiro longe da frota e anomalia, nao backtracking
     str_zero_a: float = 0.1
     str_viva_a: float = 0.5
     str_instalada_a: float = 1.0
@@ -90,7 +91,11 @@ def excesso_trackers(trk_ang: pd.DataFrame, p: ParamsDecomp, sol: pd.Series | No
         if len(ts) < p.trk_grupo_min:
             continue
         bloco = ang[ts]
-        med = bloco.median(axis=1).where(bloco.notna().sum(axis=1) >= p.trk_grupo_min, frota)
+        med = bloco.median(axis=1)
+        # o grupo so e referencia quando esta PERTO da frota (backtracking de bloco: 4 a 8 graus na Tupi). Os cinco trackers
+        # do Inversor 2.10 acordaram atrasados JUNTOS em 11/09 e concordavam entre si — medidos contra o proprio grupo, sumiam.
+        vale = (bloco.notna().sum(axis=1) >= p.trk_grupo_min) & ((med - frota).abs() <= p.trk_grupo_desvio_max)
+        med = med.where(vale, frota)
         for t in ts:
             ref[t] = med
     exc = ang.sub(ref).abs()

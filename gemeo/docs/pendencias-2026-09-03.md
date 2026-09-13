@@ -247,3 +247,10 @@ Mudanças no modelo (TDD, 176 testes verdes):
    não migram sozinhas: `python -m gemeo.cli migrate`** — aplicada no banco de produção em 13/09 (2703 eventos intactos).
 
 Pendente: perguntar à 2C sobre o bloco 2 da Tupi; abrir OS para TRK51/TRK38 de Sete Lagoas e para a comunicação do TRK5.
+
+### 13/09 (tarde) — ajustes depois de rodar sobre o banco real
+
+- A referencia por grupo do inversor **so vale quando o grupo esta perto da frota** (`trk_grupo_desvio_max` = 12 graus). Sem essa guarda, os cinco trackers do Inversor 2.10 da Tupi, atrasados JUNTOS em 11/09, concordavam entre si e o atraso sumia (33 eventos viraram 6). Com ela, os 33 voltaram — todos no bloco 2 (inversores 2.1 a 2.4, 2.9, 2.10).
+- O job do modelar insiste no lock do SQLite como as fontes (`persistir` sob `com_retentativa_de_lock`): com o ingest gravando 17 mil angulos, 4 usinas morriam em `database is locked` e ficavam sem cascata ate a rodada seguinte.
+- A regra do angulo congelado, rodada sobre todas as usinas, apontou trackers travados/sem comunicacao fora da 2C: Aparecida 3 (17 travados + 3 mudos), Boa Esperanca do Sul 1 (14 mudos), MAB100 (5 + 4), IBATE 2 (4 + 1), Aracoiaba 2 (4 + 1) — a conferir com a Performance antes de virar OS: pode ser sensor congelado na fonte, nao mecanica.
+- **Infra:** o notebook estava na bateria e as tarefas Gemeo Modelar/Ingest/App, OS Creator Web e Tunel Guardian tem 'nao iniciar na bateria' (padrao do Register-ScheduledTask): o agendador recusou tudo desde 09:15 (codigo 2147943467). Quem estava vivo foi o que subiu a mao. Pedido ao Levi: liberar as cinco tarefas na bateria, como ja esta a Ronda Guardian.

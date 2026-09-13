@@ -142,18 +142,36 @@ def test_limite_padrao_do_tracker_mudo_e_de_4_horas_solares():
 def test_excesso_usa_a_mediana_do_grupo_do_inversor_quando_ha_tres_ou_mais_trackers():
     """Tupi Paulista (11/09/2026): dois blocos de 50 trackers com backtracking diferente ao amanhecer e ao entardecer
     (bloco 1 a 41,5 graus e bloco 2 a 33,8 as 17h) — a mediana da FROTA punia um bloco inteiro por 6 a 8 graus. A referencia
-    passa a ser a mediana dos trackers do MESMO inversor quando ha pelo menos tres com dado; com menos, a frota, como antes."""
+    passa a ser a mediana dos trackers do MESMO inversor quando ha pelo menos tres com dado e ela esta perto da frota; com
+    menos, ou sem inversor, a frota, como antes."""
     g = grade_sintetica()
-    for t, inv, ang in ((2004, 1001, 40.0), (2005, 1001, 40.0), (2006, 1001, 40.0), (2007, 1002, 20.0), (2008, 1002, 20.0), (2009, 1002, 20.0)):
+    for t, inv, ang in ((2004, 1001, 27.0), (2005, 1001, 27.0), (2006, 1001, 27.0), (2007, 1002, 20.0), (2008, 1002, 20.0), (2009, 1002, 20.0)):
         g.trk_ang[t] = ang; g.pai[t] = inv; g.tipo[t] = "tracker"
-    g.trk_ang[2001] = 40.0; g.trk_ang[2002] = 20.0; g.trk_ang[2003] = 70.0        # 2003 sem inversor: mede-se contra a frota
+    g.trk_ang[2001] = 27.0; g.trk_ang[2002] = 20.0; g.trk_ang[2003] = 70.0        # bloco 1 a 7 graus do bloco 2; 2003 sem inversor
     mapa = {2001: 1001, 2002: 1002, 2004: 1001, 2005: 1001, 2006: 1001, 2007: 1002, 2008: 1002, 2009: 1002}
     exc = dc.excesso_trackers(g.trk_ang, P, grupos=mapa)
     assert exc[2004].abs().max() < 1e-6 and exc[2007].abs().max() < 1e-6 and exc[2001].abs().max() < 1e-6   # blocos alinhados: zero
-    assert (exc[2003] > 0).all()                                                    # sem grupo: contra a frota (mediana 20 -> 50)
-    g.trk_ang[2006] = 10.0                                                          # um tracker do bloco 1 fora dos pares
+    assert (exc[2003] > 0).all()                                                    # sem grupo: contra a frota
+    g.trk_ang[2006] = 0.0                                                           # um tracker do bloco 1 fora dos pares
     exc = dc.excesso_trackers(g.trk_ang, P, grupos=mapa)
-    assert (exc[2006] - 30.0).abs().max() < 1e-6 and exc[2004].abs().max() < 1e-6  # so ele, contra a mediana do SEU grupo (40)
+    assert (exc[2006] - 27.0).abs().max() < 1e-6 and exc[2004].abs().max() < 1e-6  # so ele, contra a mediana do SEU grupo (27)
     # grupo com menos de tres trackers cai na frota: o comportamento de sempre (MAPA tem um tracker por inversor)
     exc_frota = dc.excesso_trackers(g.trk_ang, P, grupos={2001: 1001, 2002: 1002})
-    assert (exc_frota[2001] - 20.0).abs().max() < 1e-6                              # mediana da frota = 20 -> 40 fica 20 fora
+    assert (exc_frota[2001] - 7.0).abs().max() < 1e-6                               # mediana da frota = 20 -> 27 fica 7 fora
+
+
+def test_grupo_inteiro_fora_da_frota_nao_se_esconde_atras_da_propria_mediana():
+    """Tupi Paulista, 11/09/2026: os cinco trackers do Inversor 2.10 acordaram 2-3 h atrasados JUNTOS (todos em -9 e depois em 0
+    com a frota em -55). Com a referencia so do grupo, os cinco concordavam entre si e o excesso sumia — a mediana do grupo so vale
+    quando o grupo esta perto da frota (backtracking de bloco, poucos graus); grupo inteiro longe da frota e medido contra a frota."""
+    g = grade_sintetica()
+    for t, inv, ang in ((2004, 1001, 60.0), (2005, 1001, 60.0), (2006, 1001, 60.0), (2007, 1002, 20.0), (2008, 1002, 20.0), (2009, 1002, 20.0)):
+        g.trk_ang[t] = ang; g.pai[t] = inv; g.tipo[t] = "tracker"
+    g.trk_ang[2001] = 60.0; g.trk_ang[2002] = 20.0; g.trk_ang[2003] = 20.0
+    mapa = {2001: 1001, 2002: 1002, 2004: 1001, 2005: 1001, 2006: 1001, 2007: 1002, 2008: 1002, 2009: 1002}
+    exc = dc.excesso_trackers(g.trk_ang, P, grupos=mapa)
+    assert (exc[2004] - 40.0).abs().max() < 1e-6 and (exc[2001] - 40.0).abs().max() < 1e-6   # grupo todo a 40 da frota: aparece
+    assert exc[2007].abs().max() < 1e-6                                                          # o grupo alinhado com a frota: zero
+    g.trk_ang[[2001, 2004, 2005, 2006]] = 27.0                                                    # grupo 7 graus fora: backtracking de bloco
+    exc = dc.excesso_trackers(g.trk_ang, P, grupos=mapa)
+    assert exc[2004].abs().max() < 1e-6                                                          # dentro da tolerancia: vale o grupo

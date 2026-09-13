@@ -12,6 +12,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
+from gemeo.core import db as _db
 from gemeo.core.modelos import UsinaRef
 from gemeo.modelar import decomposicao as dc
 from gemeo.modelar import esperado as esp_mod
@@ -188,7 +189,8 @@ def modelar(conn, usina: UsinaRef, ini: dt.datetime, fim: dt.datetime, mod: Mode
     d = dc.decompor(grade, esp, dc.trk_inv_da_grade(grade), dc.ParamsDecomp(), instaladas=instaladas_30d(conn, usina.id, fim))
     evs = ev_mod.detectar(grade, r, esp, d)
     casc = rollup.cascata(grade, r, esp, d)
-    persistir(conn, usina, mod, grade, r, esp, evs, casc)
+    # a gravacao insiste no lock como as fontes (13/09/2026: 4 usinas morreram em 'database is locked' com o ingest gravando)
+    _db.com_retentativa_de_lock(conn, lambda: persistir(conn, usina, mod, grade, r, esp, evs, casc))
     return {"usina": usina.codigo, "modelo": mod.versao, "dias": int(len(casc.por_dia)), "eventos": len(evs),
             "e_esperado": round(float(casc.por_dia.e_esperado.sum()), 1), "e_medido": round(float(casc.por_dia.e_medido.sum()), 1),
             "inferidos": sum(1 for p in params.values() if p.pac0_inferido), "duracao_s": round(time.time() - t0, 1)}
