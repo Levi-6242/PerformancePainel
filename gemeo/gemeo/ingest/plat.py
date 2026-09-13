@@ -108,9 +108,10 @@ def leituras_grafico(payload, mapa_trk: dict[str, int], ini: dt.datetime, fim: d
 
 
 def leituras_estado(payload, mapa_trk: dict[str, int], ini: dt.datetime, fim: dt.datetime) -> list[tuple]:
-    """Angulo, alvo e alarme de comunicacao do instante (`ultimaleitura`), carimbados com o `tsleitura` do inversor: e o
-    'agora' dos trackers, o unico lugar de onde vem o alvo, e o que separa um tracker MUDO de um desalinhado — a Araputanga
-    TRK5 (13/09/2026) vinha 0,0 grau fixo no grafico com aComm=1: o zero nao e angulo, e um sensor sem comunicacao."""
+    """Angulo e alvo do instante (`ultimaleitura`), carimbados com o `tsleitura` do inversor: e o 'agora' dos trackers e o
+    unico lugar de onde vem o alvo. O alarme de comunicacao (aComm) NAO entra aqui: `leitura.medida` tem CHECK fechado (0001)
+    e a primeira tentativa derrubou a fonte inteira (IntegrityError a cada ciclo, 13/09/2026 12:33) — vai para os atributos
+    do tracker em `alarmes_do_estado`/`_gravar_alarmes`."""
     out: list[tuple] = []
     if not isinstance(payload, dict):
         return out
@@ -128,10 +129,31 @@ def leituras_estado(payload, mapa_trk: dict[str, int], ini: dt.datetime, fim: dt
             if eid is None:
                 continue
             ul = t.get("ultimaleitura") or {}
-            for medida, chave in (("angulo", "posAg"), ("angulo_alvo", "posAl"), ("alarme_com", "aComm")):
+            for medida, chave in (("angulo", "posAg"), ("angulo_alvo", "posAl")):
                 v = ul.get(chave)
                 if isinstance(v, (int, float)) and not isinstance(v, bool):
                     out.append((eid, medida, ts, float(v)))
+    return out
+
+
+def alarmes_do_estado(payload) -> dict[str, tuple[int, dt.datetime]]:
+    """{nome do tracker: (aComm 0/1, ts)} do estado. A Araputanga TRK5 (13/09/2026) vinha 0,0 grau fixo no grafico com aComm=1:
+    o zero nao e angulo, e um sensor sem comunicacao — e isto que separa um tracker MUDO de um desalinhado."""
+    out: dict = {}
+    if not isinstance(payload, dict):
+        return out
+    for item in payload.get("dados") or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            ts = ts_utc((item.get("dadosGerais") or {}).get("tsleitura") or payload.get("ultimaLeitura"))
+        except ValueError:
+            continue
+        for t in item.get("trackers") or []:
+            nome = str((t or {}).get("nome") or "").strip()
+            ac = (t.get("ultimaleitura") or {}).get("aComm")
+            if nome and isinstance(ac, (int, float)) and not isinstance(ac, bool):
+                out[nome] = (int(ac), ts)
     return out
 
 
@@ -208,6 +230,21 @@ class IngestorPlatTrackers(Ingestor):
             self.conn.commit()
         self._db.com_retentativa_de_lock(self.conn, _grava)
 
+    def _gravar_alarmes(self, usina: UsinaRef, estado: dict) -> None:
+        """Ultimo aComm de cada tracker em `equipamento.atributos` (alarme_com, alarme_com_ts): e o ultimo estado que o card
+        'agora' precisa, nao uma serie — e nao cabe em `leitura` (CHECK de medida)."""
+        alarmes = alarmes_do_estado(estado)
+        if not alarmes:
+            return
+
+        def _grava():
+            with self.conn.cursor() as cur:
+                for nome, (ac, ts) in alarmes.items():
+                    cur.execute("UPDATE equipamento SET atributos = json_patch(atributos, %s) WHERE usina_id=%s AND tipo='tracker' AND codigo_fonte=%s",
+                                (json.dumps({"alarme_com": ac, "alarme_com_ts": ts.isoformat()}), usina.id, nome))
+            self.conn.commit()
+        self._db.com_retentativa_de_lock(self.conn, _grava)
+
     def _mapa(self, usina: UsinaRef) -> dict[str, int]:
         with self.conn.cursor() as cur:
             cur.execute("SELECT codigo_fonte, id FROM equipamento WHERE usina_id=%s AND tipo='tracker' AND ativo", (usina.id,))
@@ -220,6 +257,7 @@ class IngestorPlatTrackers(Ingestor):
         estado = self._estado(usina)
         n = 1
         self._gravar_trackers(usina, estado)               # tracker novo ou pai que faltava entram aqui, sem esperar reinicio
+        self._gravar_alarmes(usina, estado)                # ultimo aComm de cada tracker, nos atributos
         mapa = self._mapa(usina)
         leituras = leituras_estado(estado, mapa, ini, fim)
         for dia in dias_da_janela(ini, fim):

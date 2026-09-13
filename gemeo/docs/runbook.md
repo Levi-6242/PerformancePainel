@@ -115,3 +115,7 @@ Dois eventos novos (13/09/2026), ambos "ângulo congelado o dia inteiro enquanto
 Dia de stow (vento/nuvem, frota toda parada no mesmo ângulo) não gera nenhum dos dois: a amplitude da frota é a guarda.
 Se um `.sql` novo aparecer em `migrations/`, rode `python -m gemeo.cli migrate` antes da próxima rodada do modelar — as
 tarefas agendadas não aplicam migração.
+
+## Medida nova? Leia o CHECK antes
+
+`leitura.medida` e `evento.tipo` tem CHECK fechado na migracao 0001. Uma medida fora da lista (13/09/2026: `alarme_com`) derruba a fonte inteira a cada ciclo com IntegrityError, e o ciclo que falha deixava a transacao aberta e travava o banco para as outras threads e para o modelar (`database is locked` em serie). Hoje o laco desfaz a transacao ao falhar, mas a regra fica: estado que nao e serie (alarme, ultimo status) vai para `equipamento.atributos` (json_patch); serie nova exige migracao do CHECK — e `leitura` tem mais de 1 GB, recriar a tabela nao e opcao. Para `evento.tipo`, a 0002 mostra o caminho.

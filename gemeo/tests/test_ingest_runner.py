@@ -70,3 +70,18 @@ def test_usina_da_api_pv_sem_credencial_falha_nomeando_as_chaves():
     assert "PV_OEM_USERNAME" in str(e.value) and "PV_OEM_PASSWORD" in str(e.value)
     runner.exigir_credenciais_apipv(types.SimpleNamespace(pv_oem_usuario="", pv_oem_senha=""), [mro])
     runner.exigir_credenciais_apipv(types.SimpleNamespace(pv_oem_usuario="u", pv_oem_senha="s"), [mro, ara])
+
+
+def test_laco_desfaz_a_transacao_quando_o_ciclo_falha():
+    """13/09/2026 12:33: a fonte plat falhou (IntegrityError) e a conexao da thread ficou com a transacao ABERTA durante os
+    15 min de espera — 'database is locked' no apipv, no pg e em 4 usinas do modelar. Ciclo que falha tem de dar rollback."""
+    class Conn:
+        def __init__(self): self.rollbacks = 0
+        def rollback(self): self.rollbacks += 1
+    class IngFalha:
+        def __init__(self): self.conn = Conn(); self.fonte = "x"
+        def ciclo(self, reconciliar=False): raise RuntimeError("CHECK constraint failed")
+    parar = threading.Event(); ing = IngFalha()
+    threading.Timer(0.25, parar.set).start()
+    runner.laco("x", ing, minutos=0.001, parar=parar)
+    assert ing.conn.rollbacks >= 1

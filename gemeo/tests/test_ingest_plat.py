@@ -108,7 +108,7 @@ def test_estado_da_o_alvo_do_instante():
     ini, fim = dt.datetime(2026, 9, 11, 16, 0, tzinfo=UTC), dt.datetime(2026, 9, 11, 16, 30, tzinfo=UTC)
     ls = plat.leituras_estado(estado(), mapa, ini, fim)
     t = dt.datetime(2026, 9, 11, 16, 16, tzinfo=UTC)
-    assert (21, "angulo_alvo", t, -10.0) in ls and (22, "angulo", t, -10.6) in ls and len(ls) == 9   # + alarme_com
+    assert (21, "angulo_alvo", t, -10.0) in ls and (22, "angulo", t, -10.6) in ls and len(ls) == 6
     assert plat.leituras_estado(estado(), mapa, ini, dt.datetime(2026, 9, 11, 16, 10, tzinfo=UTC)) == []   # instante depois da janela
 
 
@@ -218,14 +218,21 @@ def test_validade_do_token_vem_do_exp_do_jwt():
     assert plat.validade_token("opaco") is None
 
 
-def test_estado_traz_o_alarme_de_comunicacao_de_cada_tracker():
+def test_alarme_de_comunicacao_vai_para_os_atributos_do_tracker_nao_para_leitura(conn):
     """Araputanga TRK5 (13/09/2026): a PV Plataforma manda posAg=0,0 fixo e aComm=1 — e um tracker MUDO, nao um angulo. O alarme
-    entra como medida `alarme_com` (0/1) por ciclo, para o modelo e o card 'agora' distinguirem mudo de desalinhado."""
+    NAO pode virar leitura: `leitura.medida` tem CHECK fechado (0001) e o primeiro ciclo com 'alarme_com' derrubou a fonte plat
+    inteira (IntegrityError a cada ciclo, 13/09 12:33). Vai para `equipamento.atributos` (alarme_com + alarme_com_ts), que e o
+    que o card 'agora' precisa: o ultimo estado, nao a serie."""
+    u = _usina(conn)
     est = estado()
     est["dados"][1]["trackers"][0]["ultimaleitura"]["aComm"] = 1        # TRK3 sem comunicacao
-    mapa = {"TRK1": 21, "TRK2": 22, "TRK3": 23}
-    ini, fim = dt.datetime(2026, 9, 11, 16, 0, tzinfo=UTC), dt.datetime(2026, 9, 11, 16, 30, tzinfo=UTC)
-    ls = plat.leituras_estado(est, mapa, ini, fim)
-    t = dt.datetime(2026, 9, 11, 16, 16, tzinfo=UTC)
-    assert (21, "alarme_com", t, 0.0) in ls and (23, "alarme_com", t, 1.0) in ls
-    assert len(ls) == 9                                                    # 3 trackers x (angulo, angulo_alvo, alarme_com)
+    ing = plat.IngestorPlatTrackers(_cfg(), conn, [u], http=Http(estado_=est, graficos={"11/09/2026": grafico()}))
+    ing.descobrir(u)
+    ini, fim = dt.datetime(2026, 9, 11, 16, 0, tzinfo=UTC), dt.datetime(2026, 9, 11, 17, 0, tzinfo=UTC)
+    b = ing.buscar(u, ini, fim)
+    assert not any(m == "alarme_com" for _, m, _, _ in b.leituras)          # nada de medida fora do CHECK
+    por = _equip(conn, u)
+    assert por["TRK3"][1]["alarme_com"] == 1 and por["TRK1"][1]["alarme_com"] == 0
+    assert por["TRK3"][1]["alarme_com_ts"].startswith("2026-09-11T16:16")
+    assert por["TRK3"][1]["numero"] == 3                                    # o resto dos atributos fica
+    limpar_tudo(conn)

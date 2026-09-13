@@ -85,6 +85,14 @@ def laco(rotulo: str, ingestor, minutos: float, parar: threading.Event, fabrica_
                     print(f"[{rotulo}] retencao: {db.retencao(ingestor.conn, 90)} leituras com mais de 90 dias apagadas", flush=True)
         except Exception:                                   # noqa: BLE001 — o laco nao morre
             print(f"[{rotulo}] ciclo falhou:\n{traceback.format_exc()}", flush=True)
+            # 13/09/2026 12:33: a fonte plat falhou num INSERT e a conexao da thread ficou com a transacao ABERTA pelos 15 min
+            # de espera — 'database is locked' no apipv, no pg e em 4 usinas do modelar. Ciclo que falha desfaz o que abriu.
+            conn = getattr(ingestor, "conn", None)
+            if conn is not None:
+                try:
+                    conn.rollback()
+                except Exception:                           # noqa: BLE001 — rollback e best-effort
+                    pass
         parar.wait(minutos * 60)
 
 
