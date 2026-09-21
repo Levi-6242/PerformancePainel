@@ -171,8 +171,10 @@ e "Sete Lagoa" não está lá); `PV_NOME_API_ALIAS` traduz o nome da API para o 
 `PV_INV_NOMES` dá o nome do inversor (a conta oem@ não devolve nome e as abas da 2C não têm linha no Equipamentos) —
 de-para fechado **por valor** contra o kWh diário do BD, nunca pela ordem dos ids. No rollup do macro a fonte entra
 **antes** do e-mail (`owen`): em empate de severidade fica quem entrou primeiro, e um estado pior no e-mail continua
-vencendo. **Trackers não vêm pela API** (a PV Plataforma nega com o PLAT_TOKEN do usuário gridco) e a Ipixuna do Pará
-não está na API — os dois seguem pelo e-mail na fonte `owen`. A conta principal responde "Invalid id" para as três:
+vencendo. **Trackers seguem pelo e-mail** (fonte `owen`), junto com a Ipixuna do Pará, que não está na API. Não é mais
+por falta de permissão: desde 15/09/2026 a PV Plataforma devolve as três (ARA 59, STL 59, TUP 100, iguais ao
+BD_Trackers) — é para não ter a MESMA ocorrência em duas fontes. Quem decide migrar é o Levi; a API é ~2h45
+mais fresca. A trava está em `PV_TRK_OUTRA_FONTE` (ver "Trackers das usinas da conta OEM" abaixo). A conta principal responde "Invalid id" para as três:
 qualquer chamada delas tem de ir por `_pv_token_for`. Teste: `tests/test_fonte_2capi.py`.
 
 ## Sol por estado (macro e sino)
@@ -230,3 +232,33 @@ no repositório Grid-Co-CODE/oem (clone em `C:\GridcoBuild\oem`), waitress em 12
 cada pessoa, não há senha compartilhada. O `_auth_gate` cobre `/os/*`: primeiro o login da plataforma, depois o do
 Fracttal. Serviço fora do ar → 503 com texto. Testes: `tests/test_os_web_proxy.py`. Detalhes: `docs/os-creator-web.md`
 no repositório oem.
+
+## Qualidade de dado: clipping e valor travado (pvanalytics, 17/09/2026)
+
+`qualidade.py` (módulo PURO, com teste) embrulha duas réguas do **pvanalytics**; `_qualidade_loop`
+roda 1×/h **no worker** e publica no snapshot; `/api/qualidade` só lê. É pandas — nunca chamar no
+caminho de uma requisição.
+
+- **Clipping** (`features.clipping.geometric`, sobre o Pac do `day_inverter`). **Tem PISO
+  obrigatório** (`FRACAO_MINIMA = 0.10`): o detector marca o topo da curva de sino como platô mesmo
+  SEM teto nenhum. Medido: sino liso sem teto = 0,053; com ruído de 2% já cai a 0,000; clipping real
+  vai de 0,193 a 0,649. Sem o piso, usina de céu limpo acusaria clipping todo meio-dia.
+- **Valor travado** (`quality.gaps.stale_values_diff`), só em valor **NÃO-ZERO** — zero é assunto da
+  régua de inversor desligado, e zero repetido de madrugada é a noite de todo mundo.
+
+**DUAS ARMADILHAS que só o teste de campo pegou:**
+1. O `stale_values_diff` marca VÁRIAS sequências no mesmo dia (a madrugada em zero E o platô de
+   clipping). Tratar `marcados[0]`/`marcados[-1]` como uma sequência só produziu *"250 kW travado
+   desde 23:58 por 9,8 h"* na Sorocaba — 10 falsos positivos. A régua agrupa em blocos **contíguos**
+   e reporta o mais longo; não desfaça isso.
+2. O `day_inverter` traz leituras a partir de ~23:58 do dia ANTERIOR, então a série de "hoje" começa
+   no dia -1. O parâmetro `date` dele é **ignorado** (só existe o dia corrente).
+
+Achados reais na 1ª varredura: Coração 1 (9 inversores em clipping, o pior a 60% do dia),
+Coração 2 (3), Altair 1 (1), Tupi Paulista (8 de 20, cravados em 250,24 kW desde 08:15).
+
+**Decisões de 17/09 (tarde):** **clipping NÃO conta como perda** (é de projeto, não de operação —
+`QUALIDADE_CLIPPING_E_PERDA=False` e `regua.clipping_e_perda` no payload; não somar às perdas
+evitáveis nem valorar em R$) e o recorte é **só a 2C** (`QUALIDADE_PLANTAS = PV_FONTES["2capi"]`;
+a Ipixuna fica fora por não estar na API). Ciclo caiu de 80 s para ~11 s. O nome do inversor vem do
+`PV_INV_NOMES` porque a conta oem@ não pode chamar `/plant_devices`.

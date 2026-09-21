@@ -156,6 +156,9 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
 .v2-f button{font:600 11px var(--font);border:1px solid var(--line-2);background:var(--panel-2);color:var(--muted);padding:5px 10px;border-radius:7px;cursor:pointer}.v2-f button.on{background:var(--brand);color:#16140e;border-color:transparent}
 table.v2t{width:100%;border-collapse:collapse;font-size:12.5px}table.v2t th{font-size:10px;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);text-align:center;padding:6px 8px;font-weight:700;white-space:nowrap;border-bottom:1px solid var(--line-2)}
 table.v2t td{padding:7px 8px;border-top:1px solid var(--line);vertical-align:middle;text-align:center}table.v2t tbody tr.l{cursor:pointer}table.v2t tbody tr.l:hover td{background:rgba(255,255,255,.025)}table.v2t tr.sel td{background:rgba(163,217,0,.07)}
+/* Diagnóstico de performance (Levi, 14/09): a linha do inversor NÃO quebra em nenhuma coluna — a única que pode quebrar é "Ocorrências · OS" (a penúltima). Antes o nome ("Inversor 1.10") e a coluna "Agora" quebravam; agora forçam o scroll horizontal do wrapper. Escopo em #v2InvBody + :not(.v2h) para não pegar as tabelas de trackers e de histórico, que também usam tr.l. */
+#v2InvBody table.v2t:not(.v2h)>tbody>tr.l>td{white-space:nowrap}
+#v2InvBody table.v2t:not(.v2h)>tbody>tr.l>td:nth-last-child(2){white-space:normal}
 .v2n{font-family:var(--mono,'IBM Plex Mono',Consolas,monospace);text-align:center;white-space:nowrap}.v2c{text-align:center}
 .v2chip{font-size:10px;font-weight:700;padding:2px 7px;border-radius:12px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;display:inline-block}
 .v2chip.ok{background:rgba(111,160,30,.16);color:var(--ok)}.v2chip.abaixo,.v2chip.atencao,.v2chip.medio,.v2chip.leve,.v2chip.atraso,.v2chip.fora_media{background:rgba(240,181,61,.16);color:var(--amber)}
@@ -314,6 +317,8 @@ const FONTE=(Q.get('fonte')||'pv').toLowerCase();
 const NOME=Q.get('nome')||('Usina '+PLANT_ID);
 const TS=Q.get('ts')||'';
 const ID=encodeURIComponent(PLANT_ID);
+const HIST=Q.get('hist')==='1';               // MODO HISTÓRICO: usina sem fonte ao vivo (Levi 14/09) — só cadastro/BD_Performance/Fracttal
+const CLIENTE=Q.get('cliente')||'';
 // config por fonte: TODAS têm inversores(strings)+trackers+curva; só pv/pg têm motor de causa (diag)
 const SRC={
   pv:   {plant:'/api/plant/'+ID,              trk:'/api/pv/trackers/'+ID,    chart:'/api/pv/trackers/'+ID+'/chart',    diag:'/api/diagnostico/pv/'+ID, label:'API PV'},
@@ -453,6 +458,7 @@ function _safe(nome,fn){ try{ fn(); }catch(e){ console.error('[painel] '+nome+' 
   const map={diags:'diags',heat:'heatmap',trk:'trackers'}[nome];
   if(map){ const el=document.getElementById(map); if(el&&/Carregando|^—$/.test(el.textContent.trim())) el.innerHTML='<div class="empty">Falha ao montar ('+nome+') — ver console.</div>'; } } }
 async function boot(){
+  if(HIST){ return bootHist(); }   // usina SEM fonte ao vivo → tela histórica (Levi 14/09); nada do caminho ao vivo roda
   loadComentarios();
   const pTrk=CFG.trk?fetch(CFG.trk).then(r=>r.json()).catch(()=>null):Promise.resolve({trackers:[],sem_fonte:true});   // dispara já, mas NÃO bloqueia; fonte sem trackers (RenoGrid) responde vazio na hora
   // A tabela de inversores esperava a MAIS LENTA das duas pernas: o diagnóstico da API PV leva 6-9 s e
@@ -476,6 +482,240 @@ async function boot(){
   // ?inv=Inversor N.M (vindo do Histórico PR do Painel NOC) → já abre a curva desse inversor
   const qinv=Q.get('inv');
   if(qinv){ document.getElementById('invCurvaCard').scrollIntoView({behavior:'smooth'}); selInvCurva(qinv); }
+}
+
+/* ================= MODO HISTÓRICO — usina sem fonte ao vivo (Levi 14/09/2026) =================
+   Só cadastro/BD_Performance/Fracttal: PR do mês por inversor (/api/g/inversores), acumulado do mês
+   por inversor, disponibilidade (/api/gerencial/disponibilidade, com % disp por inversor e cascata da
+   cabine) e Trackers só se houver ticket. Sem Curvas, Strings-de-agora nem Gêmeo (dependem de leitura
+   ao vivo). Nada do caminho ao vivo do boot() roda aqui. */
+function _histMesAtual(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
+const _hpct=(v,d=1)=>(v==null||isNaN(v))?'—':nf(v*100,d)+'%';        // v em fração 0-1
+const _hdpp=x=>(x==null||isNaN(x))?'—':((x>=0?'+':'−')+nf(Math.abs(x),1)+' pp');
+const _hcol=(v,g,a)=>v==null?'var(--faint)':v>=g?'var(--ok)':v>=a?'var(--amber)':'var(--red)';
+
+let HISTST=null;   // estado do modo histórico (linhas/alvo/disp): o filtro redesenha a partir daqui
+let HISTDIA=null;  // /api/g/diario do mês: geração x esperado POR DIA (Levi, 15/09)
+let HISTOS='';     // texto das OS que descontaram disponibilidade — vai no title do % disp
+
+const _hattr=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+// Dia COM DADO no diário: o /api/g/diario devolve o mês inteiro e preenche com 0 os dias que a base
+// ainda não tem. Contar esses zeros inflava o "esperado" (Cedro 1: 260 MWh em vez dos 78 do Gerencial).
+// Dia com POA mas geração 0 continua contando — aí o zero é real (usina parada).
+const _hTemDia=p=>(typeof p.geracao==='number'&&p.geracao>0)||(typeof p.poa==='number'&&p.poa>0);
+// Detalhe das OS no tooltip da disponibilidade (Levi, 15/09): folio, descrição, tipo, janela, horas e kWh.
+function _histOsTip(oss){
+  if(!oss || !oss.length) return 'Sem OS de religamento/corretiva no mês — disponibilidade cheia.';
+  return 'OS que descontaram disponibilidade no mês:\n' + oss.map(o=>{
+    const ini=String(o.ini||'').replace('T',' ').slice(0,16);
+    const fim=o.fim?String(o.fim).replace('T',' ').slice(0,16):'em aberto';
+    const tp=(o.tipos&&o.tipos.length)?o.tipos.join(' / '):(o.origem||'—');
+    return `#${o.folio} ${o.desc||''}`.trim()+`\n    ${tp} · ${ini} → ${fim} · ${nf(o.h_solar,1)} h solares · ${nf(o.kwh,0)} kWh`;
+  }).join('\n');
+}
+
+async function bootHist(){
+  document.getElementById('uName').textContent=NOME;
+  document.getElementById('uMeta').innerHTML=` · <span style="color:#5bc8e8;font-weight:600">Modo histórico — sem fonte ao vivo</span>${CLIENTE?' · '+v2esc(CLIENTE):''}`;
+  const _h=id=>{ const e=document.getElementById(id); if(e) e.style.display='none'; };
+  _h('v2Dia'); _h('v2Hoje');
+  const upd=document.getElementById('upd'); if(upd) upd.textContent='mês fechado · BD_Performance';
+  const fs=document.getElementById('footsrc'); if(fs) fs.textContent='histórico · BD_Performance / Fracttal';
+  // SEM ABAS no modo histórico (Levi, 15/09): tudo numa coluna só — Inversores, depois Mês · gerencial,
+  // depois Trackers (só com ticket). A v2 ao vivo segue com as abas de sempre; isto vale só aqui.
+  const _tabs=document.querySelector('.v2-tabs'); if(_tabs) _tabs.style.display='none';
+  const pInv=document.getElementById('v2-inv'), pMes=document.getElementById('v2-mes'),
+        pTrk=document.getElementById('v2-trk'), pCur=document.getElementById('v2-cur');
+  if(pCur) pCur.hidden=true;                                      // curvas não existem sem fonte ao vivo
+  const _trkF=document.querySelector('#v2TrkCard .v2-f'); if(_trkF) _trkF.style.display='none';
+  const body=document.getElementById('v2InvBody'); if(body) body.innerHTML='<div class="loading">Carregando o mês fechado…</div>';
+
+  const mes=_histMesAtual(), _ya=+mes.slice(0,4), _mo=+mes.slice(5,7);
+  const qi=`cliente=${encodeURIComponent(CLIENTE)}&usina=${encodeURIComponent(NOME)}`;
+  // RECORTE DO MÊS (Levi, 15/09): sem ini/fim o /api/g/inversores soma o HISTÓRICO INTEIRO — o Cedro 1
+  // vinha com 2.046 MWh (12 meses) no lugar dos 71,7 do mês, e o PR por inversor também era do período todo.
+  const _d1=`${_ya}-${String(_mo).padStart(2,'0')}-01`;
+  const _d2=`${_ya}-${String(_mo).padStart(2,'0')}-${String(new Date(_ya,_mo,0).getDate()).padStart(2,'0')}`;
+  const qim=`${qi}&ini=${_d1}&fim=${_d2}`;
+  const [inv, disp, men, tk, dia] = await Promise.all([
+    fetch('/api/g/inversores?'+qim).then(r=>r.json()).catch(()=>null),
+    fetch(`/api/gerencial/disponibilidade?mes=${mes}&cliente=${encodeURIComponent(CLIENTE)}`).then(r=>r.json()).catch(()=>null),
+    fetch('/api/g/mensal?'+qi).then(r=>r.json()).catch(()=>null),
+    fetch('/api/g/tickets-trackers?usina='+encodeURIComponent(NOME)).then(r=>r.json()).catch(()=>null),
+    fetch(`/api/g/diario?${qi}&ano=${_ya}&mes=${_mo}`).then(r=>r.json()).catch(()=>null)   // gerado x esperado POR DIA
+  ]);
+  const rows=((inv&&inv.inversores)||[]).slice();
+  const alvo=inv&&inv.alvo;
+  const du=(disp&&(disp.usinas||[]).find(x=>v2nrm(x.usina)===v2nrm(NOME)))||null;
+  const dispInv={}; ((du&&du.inversores)||[]).forEach(i=>{ dispInv[v2nrm(i.inversor)]=i; });
+  HISTDIA=dia;
+  // OS desta usina (as que descontaram disponibilidade) → detalhe no tooltip do % disp
+  HISTOS=_histOsTip(((disp&&disp.oss)||[]).filter(o=>
+    ((o.usinas||[]).some(u=>v2nrm(u)===v2nrm(NOME))) || v2nrm(o.g1||'').indexOf(v2nrm(NOME))>=0));
+  HISTST={rows: rows, alvo: alvo, dispInv: dispInv};
+  // "todos / só com problema" redesenha a tabela histórica — o v2Render ao vivo está barrado no HIST
+  window.v2FInv=v=>{ V2.fInv=v;
+    ['todos','prob'].forEach(x=>{ const b=document.getElementById('v2fi-'+x); if(b) b.classList.toggle('on', x===v); });
+    if(HISTST) _histInv(HISTST.rows, HISTST.alvo, HISTST.dispInv); };
+
+  _histKpis(men, du, rows);
+  _histInv(rows, alvo, dispInv);
+  _histRenderMes(rows, alvo, du);
+  const nI=document.getElementById('v2nInv'); if(nI) nI.textContent=rows.length||'';
+  // empilha na ordem pedida: Inversores → Mês · gerencial → Trackers (só com ticket)
+  if(pInv) pInv.insertAdjacentHTML('afterbegin', '<div style="margin:2px 2px 8px;font-size:11.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted)">Inversores</div>');
+  if(pInv && pMes && pInv.parentNode){ pInv.parentNode.insertBefore(pMes, pInv.nextSibling); pMes.hidden=false; }
+  if(tk && tk.tem_ticket && pTrk && pMes && pMes.parentNode){
+    _histTrk(tk);
+    pTrk.insertAdjacentHTML('afterbegin', '<div style="margin:20px 2px 8px;font-size:11.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted)">Trackers · com ticket aberto</div>');
+    pMes.parentNode.insertBefore(pTrk, pMes.nextSibling); pTrk.hidden=false;
+    const nT=document.getElementById('v2nTrk'); if(nT) nT.textContent=(tk.trackers||[]).length||'';
+  }
+}
+
+function _histKpis(men, du, rows){
+  const el=document.getElementById('below'); if(!el) return;
+  const pts=(men&&men.pontos)||[], withReal=pts.filter(p=>p.realizado!=null);
+  const last=withReal.length?withReal[withReal.length-1]:null;
+  const real=last&&last.realizado, meta=last&&last.meta;
+  const dpp=(real!=null&&meta!=null)?(real-meta)*100:null;
+  const disp=du&&du.disp, abaixo=rows.filter(r=>r.dif!=null&&r.dif<0).length;
+  const card=(l,v,s,col,tip)=>`<div${tip?` title="${_hattr(tip)}"`:''} style="flex:1;min-width:130px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 14px${tip?';cursor:help':''}"><div style="color:var(--faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.6px">${l}</div><div style="font-family:monospace;font-size:19px;font-weight:600;margin-top:2px;${col?'color:'+col:''}">${v}</div><div style="color:var(--faint);font-size:11px">${s}</div></div>`;
+  // GERADO x ESPERADO do mês (Levi, 15/09), do /api/g/diario: soma dos dias com dado × meta do dia
+  const _pd=(HISTDIA&&HISTDIA.pontos)||[];
+  const _ger=_pd.reduce((a,p)=>a+(typeof p.geracao==='number'?p.geracao:0),0);
+  const _nd=_pd.filter(_hTemDia).length;                 // só dias COM dado (ver _hTemDia)
+  const _espD=(HISTDIA&&HISTDIA.meta_ger)||null;
+  const _esp=(_espD!=null&&_nd)?_espD*_nd:null;
+  const _pctE=(_ger&&_esp)?(_ger/_esp*100):null;
+  // #below já é um grid de 5 colunas — os cards entram direto como células (sem wrapper, senão espremem numa coluna só)
+  el.innerHTML=
+    card('PR do mês', _hpct(real), meta!=null?'vs meta '+_hpct(meta):'', (real!=null&&meta!=null)?(real>=meta?'var(--ok)':'var(--red)'):'')+
+    card('Disponibilidade', disp!=null?nf(disp,1)+'%':'—', du?('equip '+nf(du.disp_equip,1)+'% · queda '+nf(du.disp_queda,1)+'%'):'',
+         _hcol(disp!=null?disp/100:null,0.98,0.95), HISTOS)+
+    card('Geração do mês', _ger?nf(_ger,1)+' MWh':'—',
+         _esp!=null?('esperado '+nf(_esp,1)+' MWh'+(_pctE!=null?' · '+nf(_pctE,0)+'%':'')):'sem diário no mês',
+         _pctE!=null?(_pctE>=95?'var(--ok)':_pctE>=85?'var(--amber)':'var(--red)'):'',
+         _esp!=null?`Gerado ${nf(_ger,1)} MWh em ${_nd} dia(s) com dado · esperado ${nf(_espD,2)} MWh/dia × ${_nd} = ${nf(_esp,1)} MWh`:'')+
+    card('Δ vs meta', _hdpp(dpp), 'atingimento do mês', dpp!=null?(dpp>=0?'var(--ok)':'var(--red)'):'')+
+    card('Inversores', rows.length||'—', abaixo?abaixo+' abaixo da meta':'todos no alvo', abaixo?'var(--amber)':'var(--ok)');
+}
+
+function _histInv(rows, alvo, dispInv){
+  const body=document.getElementById('v2InvBody'); if(!body) return;
+  const sub=document.getElementById('v2InvSub'); if(sub) sub.innerHTML='mês fechado · PR do inversor ÷ alvo da usina · % disp pela régua do Gerencial (usina › cabine › inversor)';
+  if(!rows.length){ body.innerHTML='<div class="v2-nota">Esta usina ainda não tem quebra por inversor no BD_Performance (poucos dias no banco). A geração do mês está na aba Mês.</div>'; return; }
+  const rs=rows.slice().sort((a,b)=>((a.pr==null)-(b.pr==null))||((a.pr||0)-(b.pr||0)));
+  const _al=r=>r.alvo!=null?r.alvo:alvo;
+  // "só com problema" no histórico = PR abaixo do alvo (sinal principal) OU disponibilidade baixa.
+  // O corte é 95% e não 100%: um religamento de cabine derruba TODOS os inversores juntos alguns
+  // décimos (Cedro 1: 98,1%), e marcar a usina inteira como problema esvazia o filtro.
+  const _prob=r=>{ const di=dispInv[v2nrm(r.inversor)]||null, a=_al(r);
+                   return (r.pr!=null && a!=null && r.pr<a) || !!(di && di.disp!=null && di.disp<95); };
+  const rs2=(V2 && V2.fInv==='prob') ? rs.filter(_prob) : rs;
+  if(!rs2.length){ body.innerHTML='<div class="v2-nota">Nenhum inversor abaixo da meta nem com indisponibilidade no mês.</div>'; return; }
+  const tr=rs2.map(r=>{
+    const di=dispInv[v2nrm(r.inversor)]||null;
+    const dcol=_hcol(di&&di.disp!=null?di.disp/100:null,0.98,0.95);
+    const prcol=(r.pr!=null&&_al(r)!=null)?((r.pr>=_al(r))?'var(--ok)':'var(--red)'):'var(--faint)';
+    const dif=r.dif!=null?((r.dif>=0?'+':'−')+nf(Math.abs(r.dif)*100,1)):'—';
+    const occ=(di&&di.h_perdidas>0)?('OS: '+nf(di.h_perdidas,1)+' h em horas solares'):'<span style="color:var(--faint)">sem OS no mês</span>';
+    // GERADO x ESPERADO do inversor (Levi, 15/09): esperado = o que o alvo de PR daria com a
+    // irradiância que de fato veio (Σ IPOA × potência do inversor × alvo). Comparável direto.
+    const _g=(typeof r.ger_mwh==='number')?r.ger_mwh:null, _e=(typeof r.esp_mwh==='number')?r.esp_mwh:null;
+    const _gp=(_g!=null&&_e)?(_g/_e*100):null;
+    const gcol=(_gp==null)?'var(--faint)':(_gp>=100?'var(--ok)':_gp>=90?'var(--amber)':'var(--red)');
+    const gtip=(_g!=null&&_e!=null)
+      ? `${nf(_g,2)} MWh gerados · esperado ${nf(_e,2)} MWh · ${nf(_gp,0)}% do esperado\n(esperado = irradiância do período × potência do inversor × alvo de PR ${_hpct(_al(r))})`
+      : '';
+    return `<tr>`+
+      `<td style="text-align:left;font-weight:600">${v2esc(r.inversor)}</td>`+
+      `<td style="color:var(--faint)">${di&&di.cabine!=null?'Cabine '+di.cabine:'—'}</td>`+
+      `<td style="text-align:right;color:${gcol};font-weight:600${gtip?';cursor:help':''}"${gtip?` title="${_hattr(gtip)}"`:''}>${_g!=null?nf(_g,1):'—'}</td>`+
+      `<td style="text-align:right;color:var(--faint)">${_e!=null?nf(_e,1):'—'}</td>`+
+      `<td style="text-align:right;color:${gcol}">${_gp!=null?nf(_gp,0)+'%':'—'}</td>`+
+      `<td style="text-align:right;color:${prcol};font-weight:600">${_hpct(r.pr)}</td>`+
+      `<td style="text-align:right;color:var(--faint)">${_hpct(_al(r))}</td>`+
+      `<td style="text-align:right;color:${r.dif>=0?'var(--ok)':'var(--red)'}">${dif}</td>`+
+      `<td style="text-align:right;color:${dcol}${di?';cursor:help':''}"${di?` title="${_hattr((di.h_perdidas?`Este inversor: ${nf(di.h_perdidas,2)} h perdidas em horas solares`+(di.cabine!=null?` (cabine ${di.cabine})`:'')+'\n\n':'')+HISTOS)}"`:''}>${di&&di.disp!=null?nf(di.disp,1)+'%':'—'}</td>`+
+      `<td style="text-align:left;font-size:11.5px">${occ}</td></tr>`;
+  }).join('');
+  body.innerHTML=`<div style="overflow-x:auto"><table class="v2t" style="width:100%;border-collapse:collapse"><thead><tr>`+
+    `<th style="text-align:left">Inversor</th><th style="text-align:left">Cabine</th>`+
+    `<th style="text-align:right" title="MWh gerados por este inversor no mês">Gerado</th>`+
+    `<th style="text-align:right" title="MWh que o alvo de PR daria com a irradiância que veio">Esperado</th>`+
+    `<th style="text-align:right">do esperado</th>`+
+    `<th style="text-align:right">PR do mês</th><th style="text-align:right">alvo</th><th style="text-align:right">Δ vs meta</th><th style="text-align:right">% disp</th><th style="text-align:left">Ocorrências · OS</th>`+
+    `</tr></thead><tbody>${tr}</tbody></table></div>`;
+}
+
+function _hdcell(l,v,s,col,tip){ return `<div${tip?` title="${_hattr(tip)}"`:''} style="background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:10px 12px${tip?';cursor:help':''}"><div style="color:var(--faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.6px">${l}</div><div style="font-family:monospace;font-size:18px;font-weight:600;margin-top:2px;${col?'color:'+col:''}">${v}</div><div style="color:var(--faint);font-size:11px">${s}</div></div>`; }
+function _histRenderMes(rows, alvo, du){
+  const pane=document.getElementById('v2-mes'); if(!pane) return;
+  const _al=r=>r.alvo!=null?r.alvo:alvo;
+  const rs=rows.slice().sort((a,b)=>((a.pr==null)-(b.pr==null))||((a.pr||0)-(b.pr||0)));
+  const bars=rs.map(r=>{
+    const pr=r.pr!=null?r.pr*100:0;
+    const col=(r.pr!=null&&_al(r)!=null)?((r.pr>=_al(r))?'var(--ok)':'var(--red)'):'var(--faint)';
+    const lbl=v2esc(String(r.inversor).replace(/^Inversor\s*/i,''));
+    return `<div style="flex:1;min-width:26px;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end">`+
+      `<span style="font-family:monospace;font-size:9.5px;color:var(--muted)">${r.pr!=null?nf(r.pr*100,0):'—'}</span>`+
+      `<div style="width:100%;max-width:32px;height:${Math.max(2,Math.min(100,pr))}%;background:${col};border-radius:4px 4px 0 0"></div>`+
+      `<span style="font-size:10px;color:var(--faint);margin-top:4px">${lbl}</span></div>`;
+  }).join('') || '<div class="v2-nota">Sem quebra por inversor no BD_Performance ainda.</div>';
+  // GERADO x ESPERADO POR DIA (Levi, 15/09): barra por dia, cor contra a meta do dia, detalhe no mouse
+  const _pd=(HISTDIA&&HISTDIA.pontos)||[];
+  const _espD=(HISTDIA&&HISTDIA.meta_ger)||null;
+  let ddia='';
+  if(_pd.length){
+    const _mx=Math.max(_espD||0, ..._pd.map(p=>typeof p.geracao==='number'?p.geracao:0))||1;
+    const dbars=_pd.map(p=>{
+      const ok=_hTemDia(p);
+      const g=(typeof p.geracao==='number')?p.geracao:null;
+      const col=!ok?'var(--line)':(_espD!=null?(g>=_espD?'var(--ok)':'var(--red)'):'var(--blue)');
+      const h=(ok&&g!=null)?Math.max(2,Math.min(100,g/_mx*100)):2;
+      const tip=ok
+        ? `Dia ${p.dia} · gerado ${g!=null?nf(g,2):'—'} MWh`+(_espD!=null?` · esperado ${nf(_espD,2)} MWh`:'')
+          +(p.realizado!=null?` · PR ${nf(p.realizado*100,1)}%`:'')+(p.poa!=null?` · POA ${nf(p.poa,2)}`:'')
+        : `Dia ${p.dia} · sem dado no BD (não entra na conta do mês)`;
+      return `<div title="${_hattr(tip)}" style="flex:1;min-width:13px;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;cursor:help">`+
+        `<div style="width:100%;max-width:22px;height:${h}%;background:${col};border-radius:3px 3px 0 0${ok?'':';opacity:.45'}"></div>`+
+        `<span style="font-size:9px;color:var(--faint);margin-top:3px">${p.dia}</span></div>`;
+    }).join('');
+    const _tg=_pd.reduce((a,p)=>a+(typeof p.geracao==='number'?p.geracao:0),0);
+    const _nn=_pd.filter(_hTemDia).length;
+    const _te=(_espD!=null&&_nn)?_espD*_nn:null;
+    ddia=`<div style="margin:20px 2px 8px;font-size:11.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted)">Gerado x esperado por dia</div>`+
+      `<div class="card"><div class="csub" style="margin-bottom:10px">Barra = gerado no dia · verde cumpriu o esperado (${_espD!=null?nf(_espD,2)+' MWh/dia':'—'}), vermelho ficou abaixo · passe o mouse para o detalhe do dia`+
+      (_te!=null?` · <b style="color:var(--muted)">mês: ${nf(_tg,1)} de ${nf(_te,1)} MWh esperados em ${_nn} dia${_nn===1?'':'s'} com dado</b>`:'')+`</div>`+
+      `<div style="display:flex;align-items:flex-end;gap:3px;height:130px;padding:8px 4px 0;border-bottom:1px solid var(--line)">${dbars}</div></div>`;
+  }
+  const dcard = du ? (
+    `<div class="card" style="margin-top:14px"><h3 style="margin:0 0 8px">Disponibilidade <span style="font-weight:500;color:var(--faint);font-size:12px">· OS do Fracttal (Religamento / Corretiva), horas solares 06–18h · passe o mouse para ver as OS</span></h3>`+
+    `<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px">`+
+    _hdcell('Disponibilidade', nf(du.disp,1)+'%', 'total do mês', _hcol(du.disp/100,0.98,0.95), HISTOS)+
+    _hdcell('Por equipamento', nf(du.disp_equip,1)+'%', 'parada de inversor', '', HISTOS)+
+    _hdcell('Por queda', nf(du.disp_queda,1)+'%', 'religamento', '', HISTOS)+
+    _hdcell('Horas perdidas', nf(du.h_perdidas,2)+' h', 'janela solar', '', HISTOS)+
+    _hdcell('OS no mês', du.n_os!=null?du.n_os:'—', 'religamento/corretiva', '', HISTOS)+
+    _hdcell('kWh perdidos', du.kwh!=null?nf(du.kwh,0):'—', 'no mês', '', HISTOS)+
+    `</div></div>`
+  ) : '<div class="v2-nota" style="margin-top:14px">Disponibilidade do mês ainda não disponível para esta usina (fora do Fracttal ou não Full O&amp;M).</div>';
+  // rótulo da seção: no modo histórico não há abas, os blocos vêm empilhados e precisam se identificar
+  pane.innerHTML=`<div style="margin:20px 2px 8px;font-size:11.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted)">Mês · gerencial</div>`+
+    `<div class="card"><h3 style="margin:0 0 4px">Acumulado do mês por inversor</h3>`+
+    `<div class="csub" style="margin-bottom:10px">PR do mês por inversor (não o total da usina) · alvo ${_hpct(alvo)}</div>`+
+    `<div style="display:flex;align-items:flex-end;gap:8px;height:150px;padding:8px 4px 0;border-bottom:1px solid var(--line)">${bars}</div></div>`+ddia+dcard;
+}
+
+function _histTrk(tk){
+  const body=document.getElementById('v2TrkBody'); if(!body) return;
+  const sub=document.getElementById('v2TrkSub'); if(sub) sub.textContent='sem fonte ao vivo — só os trackers com ticket ABERTO na planilha de Tickets';
+  const rows=(tk.trackers||[]);
+  const ut=tk.usina_inteira?`<div class="v2-nota" style="margin-bottom:8px">Ticket da usina/skid inteira: ${v2esc(tk.usina_inteira.equip||'—')} — ${v2esc(tk.usina_inteira.status||'')}${tk.usina_inteira.qtd?(' · '+v2esc(String(tk.usina_inteira.qtd))):''}</div>`:'';
+  if(!rows.length && !tk.usina_inteira){ body.innerHTML='<div class="v2-nota">Sem ticket de tracker aberto.</div>'; return; }
+  const tr=rows.map(r=>`<tr><td style="text-align:left;font-weight:600">${v2esc(r.tracker)}</td><td style="text-align:left">${v2esc(r.status||'')}</td><td style="text-align:left;color:var(--faint)">${v2esc(r.desde||'')}</td></tr>`).join('');
+  body.innerHTML=ut+`<div style="overflow-x:auto"><table class="v2t" style="width:100%;border-collapse:collapse"><thead><tr><th style="text-align:left">Tracker</th><th style="text-align:left">Status</th><th style="text-align:left">Desde</th></tr></thead><tbody>${tr}</tbody></table></div>`;
 }
 
 /* ── Usina fatiada em VÁRIAS plantas no API PV ────────────────────────────────────────────
@@ -1380,6 +1620,7 @@ const V2_PR={pv:'/api/pv/pr/'+ID,pg:'/api/pg/pr/'+ID,athon:'/api/sunop/pr/'+ID,a
 const V2_GF={pg:'pg',athon:'sunop',axis:'axis'}[FONTE]||null;
 const v2esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const v2num=s=>{const ns=String(s==null?'':s).match(/\d+/g);return ns?Math.max(...ns.map(Number)):null;};
+const _invnum=s=>{const m=String(s==null?'':s).match(/(\d+(?:\.\d+)?)/);return m?m[1]:null;};   // "Inversor 1.10" -> "1.10" (v2num daria 10 e casaria "1.10" com "3.10"); casa OS ao inversor por numero EXATO
 const v2nrm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
 const v2hhmm=t=>t?String(t).replace('T',' ').slice(11,16):'—', v2ddmm=t=>t?String(t).slice(8,10)+'/'+String(t).slice(5,7):'—';
 const V2_CORST={ativa:'var(--ok)',baixa_perf:'var(--amber)',sem_corrente:'var(--red)',desligado:'#7a2e2e',inativa:'var(--off)',trancada:'var(--raise)'};
@@ -1435,8 +1676,9 @@ function v2Pr(i){ return (V2.pr&&V2.pr.map)?(V2.pr.map[v2nrm(i.nome)]||V2.pr.map
 function v2Gm(i){ const g=V2.gemeoMes&&V2.gemeoMes.inversores; if(!g) return null; const k=v2nrm(i.nome), a=v2nrm(i.nome_api), id=String(i.id);
   return g.find(x=>v2nrm(x.nome)===k)||g.find(x=>String(x.codigo)===id||String(x.codigo)===a||v2nrm(x.codigo)===a)||null; }
 function v2Eventos(i){ const g=V2.gemeoMes; if(!g) return []; const k=v2nrm(i.nome); return (g.eventos||[]).filter(e=>e.tipo==='inversor_parado'&&v2nrm(e.equipamento)===k); }
-function v2OsInv(i){ const k=v2nrm(i.nome), out=[]; ((OSBYINV||{})[i.nome]||[]).forEach(o=>out.push({rot:`#${o.folio||'?'} ${o.tipo||''}`,q:o.criada||'',tit:o.descricao||o.ativo||''}));
-  (V2.osPerf||[]).forEach(o=>{ if(v2nrm(o.sub||'').startsWith(k)) out.push({rot:`OS #${o.os} ${String(o.status||'').toLowerCase()}`,q:v2ddmm(o.data),tit:o.nota||''}); }); return out; }
+function v2OsInv(i){ const ni=_invnum(i.nome), out=[]; ((OSBYINV||{})[i.nome]||[]).forEach(o=>out.push({rot:`#${o.folio||'?'} ${o.tipo||''}`,q:o.criada||'',tit:o.descricao||o.ativo||''}));
+  // casa a OS de performance ao inversor pelo NUMERO EXATO: antes era startsWith(v2nrm(i.nome)) e "inversor 1.10" comeca com "inversor 1.1" — a OS do 1.10 grudava tambem no 1.1 (Levi, 14/09)
+  (V2.osPerf||[]).forEach(o=>{ if(ni!=null && _invnum(o.sub)===ni) out.push({rot:`OS #${o.os} ${String(o.status||'').toLowerCase()}`,q:v2ddmm(o.data),tit:o.nota||''}); }); return out; }
 /* Régua de PADRÃO por inversor (10/09): nas usinas sem visão por string (Ceilândia 1, Céu Azul, Ouro Branco, Barretos) o
    /api/pv/inv-padrao/<id> diz quanto cada inversor gerou ONTEM em relação à mediana da usina, contra o que ele sempre gerou
    nos 30 dias anteriores. Casa pelo nome do cadastro (o back já traduz o id da API). */
@@ -1519,8 +1761,10 @@ function v2TabInv(){
       <td class="v2n" style="color:${p&&p.status==='severo'?'var(--red)':p&&p.status==='leve'?'var(--amber)':'var(--muted)'}">${!_hj?'—':V2.pr===null?'…':(p&&p.pr!=null&&p.pr<=1.5)?nf(p.pr*100)+'%':'—'}</td>
       <td class="v2n">${mesK==null?'<span style="color:var(--faint)">—</span>':nf(mesK)}</td><td class="v2n" style="color:${mesR==null?'var(--faint)':mesR<0.9?'var(--red)':'var(--muted)'}">${mesR==null?'—':nf(mesR*100)+'%'}</td>
       `;
+    // "Agora" = SÓ o status (Levi, 15/09): o kW embaixo do selo empilhava e dobrava a altura de TODAS
+    // as linhas da tabela. O valor não se perde — vai no title do selo (passa o mouse para ver).
     const tr=`<tr class="l ${V2.sel===i.nome?'sel':''}" onclick="v2Sel('${k.replace(/'/g,'')}')"><td><b>${k}</b>${(trkInv&&Object.values(trkInv).some(v=>v2nrm(v)===v2nrm(i.nome)))?`<div style="font-size:10.5px;color:var(--faint)">${Object.values(trkInv).filter(v=>v2nrm(v)===v2nrm(i.nome)).length} trackers</div>`:''}</td>
-      <td>${_hj?`<span class="v2chip ${st}">${rot}</span>${temKw?`<div style="font-family:var(--mono,monospace);font-size:11px;color:var(--muted);margin-top:3px">${nf(i.active_power)} kW</div>`:''}`:_soVivo}</td>
+      <td>${_hj?`<span class="v2chip ${st}"${temKw?` title="${nf(i.active_power)} kW agora"`:''}>${rot}</span>`:_soVivo}</td>
       ${mid}<td>${_hj?strTxt:_soVivo}</td><td>${oc}</td><td class="v2n" style="color:var(--faint)">${v2hhmm(i.ultima_leitura)}</td></tr>`;
     if(V2.sel!==i.nome) return tr;
     try{
@@ -1787,8 +2031,13 @@ function v2TabTrk(){
   if(V2.trkAberto) setTimeout(()=>v2TrkDrawDia(V2.trkAberto),0);   // o innerHTML acabou de recriar o canvas
   const sub=document.getElementById('v2TrkSub'); if(sub) sub.textContent=`${V2.fTrk==='prob'?'só parados e severos':'parados e fora do alvo primeiro'} · ticket = planilha de Tickets, só ocorrência aberta · Fracttal = código do ativo (de-para${V2.depara&&V2.depara.n?`: ${(V2.depara.casados||0)+(V2.depara.a_confirmar||0)} com par`:''})${V2.gemeoMes?` · perda = gêmeo, ${(V2.gemeoMes.dias||[]).length} dias`:''}`;
 }
-function v2Render(){ try{ renderBelow(); }catch(e){ console.error('[v2] kpis',e); } try{ if(V2.tab==='inv') v2TabInv(); else if(V2.tab==='trk') v2TabTrk(); }catch(e){ console.error('[v2] aba',e); } }
+// MODO HISTÓRICO: quem monta a tela é o bootHist(). Sem este portão, qualquer clique (aba, filtro)
+// chamava o render ao vivo, que sem dado ao vivo reescrevia a tabela com "Carregando inversores…"
+// e ela nunca mais saía (Levi, 15/09: loop infinito ao voltar de "Mês · gerencial").
+function v2Render(){ if(HIST) return;
+  try{ renderBelow(); }catch(e){ console.error('[v2] kpis',e); } try{ if(V2.tab==='inv') v2TabInv(); else if(V2.tab==='trk') v2TabTrk(); }catch(e){ console.error('[v2] aba',e); } }
 async function v2Boot(){
+  if(HIST) return;   // modo histórico: quem monta a tela é o bootHist(); nada do caminho ao vivo (nem o tick de v2Render) roda (Levi 14/09)
   // o seletor nasce em hoje; ?dia=YYYY-MM-DD no link já abre o diagnóstico naquele dia (dá para mandar pronto)
   const _di=document.getElementById('v2Dia'); if(_di) _di.value=v2HojeISO();
   const _qd=(Q.get('dia')||'').trim(); if(/^\d{4}-\d{2}-\d{2}$/.test(_qd)&&_qd!==v2HojeISO()) v2SetDia(_qd);

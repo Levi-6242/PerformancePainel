@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Usina sem fonte ao vivo · o que aparece e o que falta · 14/09/2026</title>
+<style>
+:root{--bg:#090d18;--panel:#161d30;--panel2:#1b2338;--line:#26304a;--txt:#e6ebf5;--muted:#9aa6c4;--faint:#6b7699;--brand:#a3d900;--ok:#4ade80;--warn:#f5c877;--bad:#ff5b6e;--blue:#5bc8e8;--mono:Consolas,"Cascadia Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 "Segoe UI",system-ui,sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:26px 22px 60px}
+h1{font-size:23px;margin:0 0 4px;font-weight:650}
+h1 small{color:var(--brand);font-family:var(--mono);font-size:13px;font-weight:500;margin-left:10px}
+.sub{color:var(--muted);margin:0 0 18px;max-width:940px}
+.sub b{color:var(--txt)}
+h2{font-size:14px;text-transform:uppercase;letter-spacing:1.3px;color:var(--brand);margin:30px 0 12px;font-weight:600}
+h2 span{color:var(--faint);font-weight:500;letter-spacing:.3px;text-transform:none;font-size:12.5px;margin-left:8px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:13px 15px}
+.kpi .n{font-family:var(--mono);font-size:24px;font-weight:600;line-height:1.1;margin:2px 0 3px}
+.kpi .l{color:var(--muted);font-size:11.5px;text-transform:uppercase;letter-spacing:.7px}
+.kpi .d{color:var(--faint);font-size:11.5px}
+.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}.blue{color:var(--blue)}.brand{color:var(--brand)}.muted{color:var(--muted)}
+.mono{font-family:var(--mono)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.lay{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.lay.live{border-left:3px solid var(--bad)}
+.lay.metas{border-left:3px solid var(--ok)}
+.lay h3{margin:0 0 3px;font-size:15px}
+.lay .cap{color:var(--faint);font-size:12px;margin-bottom:9px}
+.lay ul{margin:0;padding-left:2px;list-style:none}
+.lay li{padding:5px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:13px;color:var(--txt);display:flex;gap:8px;align-items:flex-start}
+.lay li:last-child{border-bottom:none}
+.lay li .k{font-family:var(--mono);font-size:11px;margin-top:1px;flex:0 0 auto;min-width:26px}
+.live li .k{color:var(--bad)}.metas li .k{color:var(--ok)}
+.lay li small{color:var(--faint);display:block;font-size:11.5px}
+.rowflow{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:4px}
+.step{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.step .t{font-weight:600;font-size:13px;margin-bottom:5px}
+.step .x{color:var(--muted);font-size:12px}
+.tag{display:inline-block;font-family:var(--mono);font-size:10.5px;letter-spacing:.4px;padding:2px 7px;border-radius:999px;border:1px solid var(--line);margin-bottom:6px}
+.t-no{color:var(--bad);border-color:rgba(255,91,110,.4);background:rgba(255,91,110,.08)}
+.t-yes{color:var(--ok);border-color:rgba(74,222,128,.4);background:rgba(74,222,128,.08)}
+.t-gap{color:var(--warn);border-color:rgba(245,200,119,.45);background:rgba(245,200,119,.08)}
+.step.gap{border-color:rgba(245,200,119,.5);background:linear-gradient(180deg,rgba(245,200,119,.07),transparent)}
+.cli-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
+.cli{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:13px 15px;border-left:3px solid var(--blue)}
+.cli h3{margin:0 0 2px;font-size:15px;display:flex;align-items:baseline;justify-content:space-between;gap:8px}
+.cli h3 .c{font-family:var(--mono);font-size:12px;color:var(--faint);font-weight:500}
+.cli .motivo{color:var(--muted);font-size:12px;margin:6px 0 8px}
+.cli ul{margin:0;padding-left:16px;color:var(--muted);font-size:12.5px;columns:2;column-gap:14px}
+.cli ul li{margin:2px 0}
+.cli ul li.hastab{color:var(--txt)}
+.cli ul li.hastab::marker{color:var(--ok)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:.9px;padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:none}
+.legend{color:var(--faint);font-size:12px;margin:8px 2px 0}
+.legend .ok{font-weight:600}
+.gapbox{background:var(--panel);border:1px solid rgba(245,200,119,.45);border-radius:10px;padding:15px 17px;border-left:3px solid var(--warn)}
+.gapbox h3{margin:0 0 6px;font-size:15px;color:var(--warn)}
+.gapbox p{margin:0 0 8px;color:var(--muted)}
+.gapbox p b{color:var(--txt)}
+.gapbox .ex{font-family:var(--mono);font-size:12px;color:var(--faint)}
+.foot{color:var(--faint);font-size:12px;margin-top:36px;border-top:1px solid var(--line);padding-top:12px}
+@media (max-width:900px){.grid{grid-template-columns:1fr 1fr}.two{grid-template-columns:1fr}.rowflow{grid-template-columns:1fr 1fr}.cli ul{columns:1}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Usina sem fonte ao vivo: o que aparece, e o que realmente falta <small>14/09/2026 · cadastro x /api/macro x /api/g/*, lidos agora</small></h1>
+<p class="sub">Correção do quadro anterior. Uma usina sem monitoramento ao vivo <b>não some do Painel</b> — ela sai apenas da <b>parede AO VIVO</b> (o mosaico do topo, montado do <span class="mono">/api/macro</span>). Na <b>parte de Metas / Histórico</b> ela continua inteira, com tudo que <b>não depende de leitura instantânea</b>: atingimento da meta, PR do mês, geração, perda e a <b>tabelinha de inversores por PR</b>. O que falta de verdade é só a camada ao vivo.</p>
+
+<div class="grid">
+  <div class="card kpi"><div class="l">Usinas no cadastro</div><div class="n">121</div><div class="d">11 clientes</div></div>
+  <div class="card kpi"><div class="l">Com fonte ao vivo</div><div class="n ok">102</div><div class="d">entram na parede</div></div>
+  <div class="card kpi"><div class="l">Só cadastro/histórico</div><div class="n blue">27</div><div class="d">só na parte de Metas</div></div>
+  <div class="card kpi"><div class="l">Diagnóstico bloqueado</div><div class="n warn">27</div><div class="d">o furo a corrigir</div></div>
+</div>
+
+<h2>As duas camadas <span>o que exige ao vivo x o que já vem do cadastro/histórico</span></h2>
+<div class="two">
+  <div class="lay live">
+    <h3 class="bad">Só com fonte ao vivo</h3>
+    <div class="cap">É por isso que a usina sai da parede AO VIVO. Nada disto existe sem uma das 8 fontes lendo agora.</div>
+    <ul>
+      <li><span class="k">ETM</span><div>IPOA / GHI do momento e alarme de irradiância<small>sem sensor lendo, não há régua de ETM</small></div></li>
+      <li><span class="k">TRK</span><div>trackers parados / sem comunicação<small>ronda e detecção por alvo</small></div></li>
+      <li><span class="k">STR</span><div>strings sem corrente, inversor abaixo dos pares<small>visão instantânea por string</small></div></li>
+      <li><span class="k">INV</span><div>inversor ligado/desligado agora e curva de hoje<small>estado ao vivo + sino de anomalia</small></div></li>
+    </ul>
+  </div>
+  <div class="lay metas">
+    <h3 class="ok">Já aparece na parte de Metas / Histórico</h3>
+    <div class="cap">Vem do BD_Performance / BD_Thopen (mês fechado). Não precisa de fonte ao vivo — some da parede, não do sistema.</div>
+    <ul>
+      <li><span class="k">OK</span><div>Atingimento da meta e PR do mês<small>Histórico &rarr; Perda e Histórico &rarr; PR</small></div></li>
+      <li><span class="k">OK</span><div>Geração mensal e diária<small>/api/g/mensal · fonte bd_perf</small></div></li>
+      <li><span class="k">OK</span><div>Tabelinha de inversores por PR<small>/api/g/inversores — Cedro 1: 10 inv · Castelo do Piauí: 16 · Ibirapuã I: 10</small></div></li>
+      <li><span class="k">OK</span><div>Perda do mês, OS de Performance e comentários<small>tabela de piores atingimentos + thread da UFV</small></div></li>
+    </ul>
+  </div>
+</div>
+
+<h2>Onde a mesma usina aparece hoje <span>seguindo uma usina só-cadastro pela tela</span></h2>
+<div class="rowflow">
+  <div class="step"><span class="tag t-no">NÃO</span><div class="t">Parede AO VIVO</div><div class="x">Meta / PR / Strings / ETM do topo. Montada do <span class="mono">/api/macro</span> — sem fonte ao vivo, sem bloco.</div></div>
+  <div class="step"><span class="tag t-yes">SIM</span><div class="t">Histórico &rarr; Perda</div><div class="x">Lista todas as usinas do <span class="mono">/api/gerencial</span>: atingimento e perda do mês.</div></div>
+  <div class="step"><span class="tag t-yes">SIM</span><div class="t">Histórico &rarr; PR (D-1)</div><div class="x">No seletor de usina; geração e a <b>tabelinha de inversores</b> por PR do período.</div></div>
+  <div class="step gap"><span class="tag t-gap">HOJE NÃO</span><div class="t">Diagnóstico completo</div><div class="x">Clicar o inversor tenta abrir a página v2, mas o botão exige fonte ao vivo e barra com um alerta.</div></div>
+</div>
+
+<h2>Clientes que somem da parede AO VIVO <span>nenhuma usina ao vivo — mas todas estão em Metas</span></h2>
+<p class="legend">Marcadas em <span class="ok">verde</span> = já têm a tabelinha de inversores por PR (BD_Performance com histórico por inversor). As demais só ainda não têm quebra por inversor no banco (usina nova / poucos dias).</p>
+<div class="cli-grid">
+  <div class="cli"><h3>Alves Lima <span class="c">1 usina</span></h3><div class="motivo">Morada Nova — desligada; volta à parede quando voltar a gerar.</div><ul><li>Morada Nova</li></ul></div>
+  <div class="cli"><h3>GD Energy <span class="c">3 usinas</span></h3><div class="motivo">Só no BD_Performance (sem API ao vivo). Guajirú e Sol do Norte ainda com poucos dias no banco.</div><ul><li>Guajirú 1</li><li>Sol do Norte 1</li><li>Sol do Norte 2</li></ul></div>
+  <div class="cli"><h3>Greenyellow <span class="c">6 usinas</span></h3><div class="motivo">Só no BD_Performance. Já com tabelinha de inversores por PR.</div><ul><li class="hastab">Castelo do Piauí</li><li class="hastab">Cedro 1</li><li class="hastab">Cedro 2</li><li class="hastab">Demerval Lobão</li><li class="hastab">Irecê 2</li><li class="hastab">Macaíba 1</li></ul></div>
+  <div class="cli"><h3>Sal Energia <span class="c">5 usinas</span></h3><div class="motivo">Só no BD_Performance; Quixadá/Aquiraz ainda com poucos dias no banco.</div><ul><li>Aquiraz 1 (Salvales)</li><li>Aquiraz 2 (Carosa)</li><li>Cascavel (Sunpower)</li><li>Quixadá 1 (Hortina)</li><li>Quixadá 2 (Vitesse)</li></ul></div>
+  <div class="cli"><h3>Ultragaz <span class="c">2 usinas</span></h3><div class="motivo">Só no BD_Performance. Já com tabelinha de inversores por PR.</div><ul><li class="hastab">Ibirapuã I</li><li class="hastab">Ibirapuã II</li></ul></div>
+</div>
+
+<h2>Clientes que aparecem na parede, com algumas usinas só em Metas</h2>
+<div class="card" style="padding:0;overflow:hidden">
+<table>
+  <tr><th>Cliente</th><th>Na parede ao vivo</th><th>Só em Metas (sem fonte ao vivo)</th><th>Motivo provável</th></tr>
+  <tr><td><b>Axis</b></td><td>1 de 6</td><td>Marialva, PE I, PE II, PE III, Ponto Belo</td><td>Axis sem token web na plataforma — o SunOp da Axis não reporta ao vivo.</td></tr>
+  <tr><td><b>Thopen</b></td><td>71 de 74</td><td>Pharma II, Pharma III, Pharma IV</td><td>Sem leitura ao vivo no ciclo (fonte não retornou / usinas novas).</td></tr>
+  <tr><td><b>2C</b></td><td>4 de 5</td><td>União 1 e 2</td><td>Sem leitura ao vivo — só no gerencial/histórico.</td></tr>
+  <tr><td><b>SEMP</b></td><td>1 de 2</td><td>Tucano 2</td><td>Sem leitura ao vivo — SEMP é a 2ª conta; Tucano 2 não reporta.</td></tr>
+</table>
+</div>
+
+<h2>O furo a corrigir</h2>
+<div class="gapbox">
+  <h3>O Diagnóstico completo está bloqueado para as usinas sem fonte ao vivo</h3>
+  <p>O botão de diagnóstico (na parede, no Histórico PR e no clique do inversor) passa por <span class="mono">hasDrill(p)</span> / <span class="mono">drillUrl(p)</span>, que só montam a URL quando a usina tem fonte ao vivo (<span class="mono">FMAP</span>). Sem fonte, o clique cai no alerta <span class="mono">"Esta usina não tem página de diagnóstico"</span> — mesmo já existindo o histórico por inversor.</p>
+  <p><b>Dá para liberar:</b> abrir a página v2 em <b>modo histórico</b> para essas usinas, mostrando a tabelinha de inversores (meta, PR, IPOA por inversor do <span class="mono">/api/g/inversores</span> e do histórico por inversor), a geração mensal/diária e a curva dos dias fechados — escondendo os blocos que dependem de leitura ao vivo (ETM/GHI de agora, estado ligado/desligado, strings instantâneas).</p>
+  <p class="ex">Comprovado agora: /api/g/inversores devolve por inversor em Cedro 1 (10), Castelo do Piauí (16) e Ibirapuã I (10). Guajirú 1 e Quixadá 1 ainda sem quebra por inversor (poucos dias no BD_Performance).</p>
+</div>
+
+<h2>Duas usinas ao vivo sem cliente amarrado</h2>
+<div class="card">
+  <p class="muted" style="margin:0 0 8px">Aparecem na parede em "Todos os clientes", mas o cadastro não amarrou cliente a elas, então caem fora de qualquer filtro de cliente. Basta preencher o Cliente na Info Geral.</p>
+  <div><span class="tag" style="color:var(--muted)">Ouro Branco</span> &nbsp; <span class="tag" style="color:var(--muted)">Santo Antonio do Platina</span></div>
+</div>
+
+<p class="foot">Fontes lidas agora: <span class="mono">/api/macro</span> (102 usinas ao vivo), <span class="mono">/api/gerencial</span> (meta por usina), <span class="mono">/api/g/clientes</span> + <span class="mono">/api/g/usinas</span> (cadastro: 11 clientes, 121 usinas), <span class="mono">/api/g/mensal</span> e <span class="mono">/api/g/inversores</span> (geração e inversores por PR das usinas só-cadastro). Regras confirmadas no código: <span class="mono">painel_portfolio.html::merge()</span> monta a parede só do macro; <span class="mono">renderWorstTable()</span> e <span class="mono">gInversores()</span> mostram todas as usinas em Metas; <span class="mono">hasDrill()</span>/<span class="mono">drillUrl()</span> exigem fonte ao vivo para o diagnóstico. Sem emojis; tokens navy da plataforma.</p>
+</div>
+</body>
+</html>

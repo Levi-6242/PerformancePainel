@@ -54,6 +54,21 @@ TIMEOUT = 30
 ABAS = {123: "tickets_performance/Trackers",
         128: "tickets_performance/Strings indisp",
         387: "tickets_performance/Edicoes do app",
+        # AS TRÊS GERAÇÕES DO DIÁRIO (14/09/2026). O app não usa mais a 387: o `garantir_aba` do
+        # `tickets_diario` procura a aba PELO NOME e, quando o formato ganha coluna, cria a
+        # seguinte — "Edicoes do app v2", depois "v3". Hoje ele grava na 399.
+        #
+        # ISSO QUEBROU O VÍNCULO OS↔OCORRÊNCIA POR UMA SEMANA, sem ninguém ver. Desde 07/09 a
+        # escrita sai por aqui, e aqui só a 387 era aceita: a linha da ocorrência entrava (123 e
+        # 128 estão na lista) e o registro do diário era recusado logo na entrada, ANTES do log —
+        # por isso nem rastro ficou. O erro voltava como "linha criada, mas a OS não ficou
+        # vinculada", uma frase no fim de uma caixa que ninguém lê. Medido em 14/09: 34 OS de
+        # String e Tracker criadas em dez dias, ZERO com vínculo no diário.
+        #
+        # QUANDO NASCER A v4, ELA PRECISA ENTRAR AQUI. Enquanto a lista for de números, o app
+        # cria a aba sozinho e o relay não fica sabendo.
+        398: "tickets_performance/Edicoes do app v2",
+        399: "tickets_performance/Edicoes do app v3",
         374: "teste/FASE2_Trackers"}
 # onde o app pode CRIAR aba (o diário v4, quando precisar de coluna nova — a API não alarga aba)
 WORKBOOKS_ABA_NOVA = {"tickets_performance"}

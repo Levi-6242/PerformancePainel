@@ -1,0 +1,273 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Metadata da SunOp — por que 13 requisições a cada partida</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Archivo:wght@600;700;800&display=swap">
+<style>
+  :root{
+    --ground:#090d18; --surface:#161d30; --surface-2:#1d2540; --line:#2b3654;
+    --ink:#eaeffb; --ink-2:#a8b3cc; --ink-3:#71809e;
+    --grid:#3ddc84; --grid-soft:rgba(61,220,132,.14);
+    --risk:#ff6b6b; --risk-soft:rgba(255,107,107,.12);
+    --warn:#ffb020; --warn-soft:rgba(255,176,32,.12);
+  }
+  @media (prefers-color-scheme:light){
+    :root:not([data-theme="dark"]){
+      --ground:#f4f6fa; --surface:#ffffff; --surface-2:#eef1f7; --line:#d6dce8;
+      --ink:#0d1526; --ink-2:#4a5468; --ink-3:#77839a;
+      --grid:#0f9d58; --grid-soft:rgba(15,157,88,.12);
+      --risk:#c62828; --risk-soft:rgba(198,40,40,.09);
+      --warn:#b26a00; --warn-soft:rgba(178,106,0,.1);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);
+       font-family:"IBM Plex Sans",system-ui,sans-serif;line-height:1.62;
+       padding-inline:16px;}
+  .wrap{max-width:900px;margin:0 auto;padding-block:44px 80px;}
+  h1,h2,h3{font-family:Archivo,"IBM Plex Sans",sans-serif;margin:0;text-wrap:balance;}
+  h1{font-size:clamp(27px,4.6vw,39px);font-weight:800;letter-spacing:-.02em;line-height:1.14;}
+  h2{font-size:clamp(18px,3vw,22px);font-weight:700;margin-block:50px 12px;letter-spacing:-.01em;}
+  h3{font-size:15px;font-weight:700;margin-block:24px 4px;}
+  p{margin:0 0 14px;max-width:68ch;color:var(--ink-2);}
+  strong{color:var(--ink);font-weight:600;}
+  .eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;
+           text-transform:uppercase;color:var(--ink-3);margin-bottom:10px;}
+  .lede{font-size:17px;max-width:62ch;margin-top:14px;}
+  code{font-family:"IBM Plex Mono",monospace;font-size:.88em;background:var(--surface-2);
+       padding:1px 6px;border-radius:4px;color:var(--ink);}
+  .num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;}
+
+  figure{margin:26px 0 0;background:var(--surface);border:1px solid var(--line);
+         border-radius:12px;padding:18px 14px 8px;}
+  figure svg{display:block;width:100%;height:auto;}
+  figcaption{font-size:12.5px;color:var(--ink-3);padding:8px 6px 6px;max-width:72ch;}
+
+  .cartoes{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:28px;}
+  .c{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:15px;}
+  .c .r{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.09em;
+        text-transform:uppercase;color:var(--ink-3);}
+  .c .v{font-family:Archivo,sans-serif;font-size:27px;font-weight:800;margin-top:5px;
+        letter-spacing:-.02em;line-height:1;font-variant-numeric:tabular-nums;}
+  .c .s{font-size:12px;color:var(--ink-3);margin-top:5px;}
+
+  .fluxo{display:grid;gap:0;margin-top:22px;border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+  .et{display:grid;grid-template-columns:30px 1fr;gap:14px;padding:15px 16px;background:var(--surface);
+      border-bottom:1px solid var(--line);align-items:start;}
+  .et:last-child{border-bottom:none;}
+  .et .n{font-family:"IBM Plex Mono",monospace;font-size:12px;font-weight:600;color:var(--grid);
+         background:var(--grid-soft);border-radius:6px;width:30px;height:26px;display:grid;place-items:center;}
+  .et.mau .n{color:var(--risk);background:var(--risk-soft);}
+  .et h4{margin:0;font-size:14.5px;font-weight:700;font-family:"IBM Plex Sans",sans-serif;}
+  .et p{margin:4px 0 0;font-size:13.5px;}
+
+  .tabela{overflow-x:auto;margin:18px 0 0;border:1px solid var(--line);border-radius:10px;background:var(--surface);}
+  table{border-collapse:collapse;width:100%;font-size:13.5px;}
+  th,td{text-align:left;padding:9px 14px;border-bottom:1px solid var(--line);}
+  th{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+     color:var(--ink-3);font-weight:500;background:var(--surface-2);white-space:nowrap;}
+  tbody tr:last-child td{border-bottom:none;}
+  td.r,th.r{text-align:right;font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;}
+
+  .caixa{border-left:3px solid var(--warn);background:var(--surface);border-radius:0 10px 10px 0;
+         padding:15px 17px;margin:22px 0 0;}
+  .caixa.risco{border-left-color:var(--risk);}
+  .caixa.bom{border-left-color:var(--grid);}
+  .caixa .r{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.1em;
+            text-transform:uppercase;color:var(--warn);margin-bottom:7px;}
+  .caixa.risco .r{color:var(--risk);} .caixa.bom .r{color:var(--grid);}
+  .caixa p:last-child{margin-bottom:0;}
+
+  .dois{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px;}
+  @media (max-width:640px){ .dois{grid-template-columns:1fr;} }
+  .lado{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;}
+  .lado h4{margin:0 0 4px;font-size:14px;font-family:"IBM Plex Sans",sans-serif;font-weight:700;}
+  .lado .tag{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.07em;
+             text-transform:uppercase;padding:2px 8px;border-radius:99px;border:1px solid currentColor;
+             display:inline-block;margin-bottom:9px;}
+  .lado.a .tag{color:var(--grid);} .lado.b .tag{color:var(--risk);}
+  .lado p{margin:0;font-size:13.5px;}
+
+  footer{margin-top:58px;padding-top:18px;border-top:1px solid var(--line);
+         font-size:12.5px;color:var(--ink-3);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">Grid Co · API SunOp / Athon · 20/09/2026</div>
+  <h1>O mapa que a plataforma redesenha toda vez que acorda</h1>
+  <p class="lede">O <code>metadata</code> é 1% da cota e uma fatia muito maior das falhas.
+     Entender por que exige separar duas perguntas que costumam virar uma só:
+     quanto custa, e quanto estraga.</p>
+
+  <div class="cartoes">
+    <div class="c"><div class="r">Por partida</div><div class="v num">13</div><div class="s">medido hoje, no boot do worker</div></div>
+    <div class="c"><div class="r">Partidas por dia</div><div class="v num">4 a 6</div><div class="s">guardião + reciclagem das 03h</div></div>
+    <div class="c"><div class="r">Custo diário</div><div class="v num">~70</div><div class="s">≈1% das 8.145 req/dia</div></div>
+    <div class="c"><div class="r">Em regime</div><div class="v num">0</div><div class="s">estabilizou em 15 e parou</div></div>
+  </div>
+
+  <h2>O que é, em uma frase</h2>
+  <p>É a <strong>planta baixa</strong> da usina: quais inversores, trackers e strings existem e qual é o
+     endereço de leitura de cada um. Sem esse mapa a plataforma não sabe o que pedir — não dá para
+     buscar a corrente da string 42 sem antes saber que a string 42 existe e como ela se chama.</p>
+  <p>Por isso ele vem <strong>antes</strong> de qualquer leitura. É a primeira coisa que um processo novo
+     faz, e é feito usina por usina.</p>
+
+  <figure>
+    <svg viewBox="0 0 800 260" role="img" aria-label="Rajada de metadata na partida contra o regime estável">
+      <text x="20" y="20" fill="var(--ink-3)" font-family="IBM Plex Mono, monospace" font-size="11">requisições de metadata ao longo do tempo</text>
+
+      <line x1="20" y1="180" x2="780" y2="180" stroke="var(--line)" stroke-width="1"/>
+
+      <rect x="42" y="56" width="11" height="124" fill="var(--risk)" rx="2"/>
+      <rect x="56" y="56" width="11" height="124" fill="var(--risk)" rx="2"/>
+      <rect x="70" y="56" width="11" height="124" fill="var(--risk)" rx="2"/>
+      <rect x="84" y="56" width="11" height="124" fill="var(--risk)" rx="2"/>
+      <rect x="98" y="56" width="11" height="124" fill="var(--risk)" rx="2"/>
+      <rect x="112" y="56" width="11" height="124" fill="var(--risk)" rx="2"/>
+      <rect x="126" y="56" width="11" height="124" fill="var(--risk)" rx="2"/>
+      <rect x="140" y="56" width="11" height="124" fill="var(--risk)" rx="2"/>
+      <rect x="154" y="56" width="11" height="124" fill="var(--risk)" rx="2"/>
+      <rect x="168" y="56" width="11" height="124" fill="var(--risk)" rx="2"/>
+      <rect x="182" y="56" width="11" height="124" fill="var(--risk)" rx="2"/>
+      <rect x="196" y="56" width="11" height="124" fill="var(--risk)" rx="2"/>
+      <rect x="210" y="56" width="11" height="124" fill="var(--risk)" rx="2"/>
+
+      <text x="42" y="46" fill="var(--risk)" font-family="IBM Plex Mono, monospace" font-size="12" font-weight="600">13 de uma vez</text>
+      <text x="42" y="200" fill="var(--ink-2)" font-family="IBM Plex Sans, sans-serif" font-size="12">partida do processo</text>
+      <text x="42" y="218" fill="var(--ink-3)" font-family="IBM Plex Sans, sans-serif" font-size="11.5">todas as usinas, em paralelo, em segundos</text>
+
+      <line x1="250" y1="40" x2="250" y2="200" stroke="var(--line)" stroke-width="1" stroke-dasharray="3 4"/>
+
+      <rect x="300" y="172" width="11" height="8" fill="var(--grid)" rx="2"/>
+      <rect x="420" y="172" width="11" height="8" fill="var(--grid)" rx="2"/>
+      <text x="300" y="200" fill="var(--ink-2)" font-family="IBM Plex Sans, sans-serif" font-size="12">regime</text>
+      <text x="300" y="218" fill="var(--ink-3)" font-family="IBM Plex Sans, sans-serif" font-size="11.5">o mapa já está na memória: quase nada</text>
+
+      <path d="M600,150 L600,60" stroke="var(--warn)" stroke-width="1.5" stroke-dasharray="4 3"/>
+      <circle cx="600" cy="172" r="6" fill="var(--warn)"/>
+      <text x="614" y="64" fill="var(--warn)" font-family="IBM Plex Sans, sans-serif" font-size="12" font-weight="600">reinício</text>
+      <text x="614" y="82" fill="var(--ink-3)" font-family="IBM Plex Sans, sans-serif" font-size="11.5">e a rajada recomeça do zero</text>
+      <rect x="640" y="56" width="9" height="124" fill="var(--risk)" opacity=".45" rx="2"/>
+      <rect x="652" y="56" width="9" height="124" fill="var(--risk)" opacity=".45" rx="2"/>
+      <rect x="664" y="56" width="9" height="124" fill="var(--risk)" opacity=".45" rx="2"/>
+      <rect x="676" y="56" width="9" height="124" fill="var(--risk)" opacity=".45" rx="2"/>
+      <rect x="688" y="56" width="9" height="124" fill="var(--risk)" opacity=".45" rx="2"/>
+
+      <text x="20" y="246" fill="var(--ink-3)" font-family="IBM Plex Mono, monospace" font-size="11">o gasto não está no ritmo — está no recomeço</text>
+    </svg>
+    <figcaption>Medido pelo contador novo (<code>/api/sunop/uso</code>) na noite de 20/09: 13 chamadas
+      no primeiro ciclo após o reinício, e depois estabiliza — subiu a 15 e parou.</figcaption>
+  </figure>
+
+  <h2>Por que 1% da cota merece atenção</h2>
+  <p>Porque o dano não é proporcional à contagem. Essa rajada é <strong>a chamada que derruba a borda</strong>.</p>
+
+  <div class="fluxo">
+    <div class="et"><div class="n">1</div><div>
+      <h4>O processo sobe sem memória</h4>
+      <p>Worker reiniciado não sabe nada sobre as usinas. Precisa do mapa antes de qualquer leitura.</p>
+    </div></div>
+    <div class="et"><div class="n">2</div><div>
+      <h4>Pede as 10 usinas quase ao mesmo tempo</h4>
+      <p>Em paralelo, porque sequencial demoraria demais para a primeira tela ficar pronta.</p>
+    </div></div>
+    <div class="et mau"><div class="n">3</div><div>
+      <h4>A CloudFront entende como abuso</h4>
+      <p>Uma rajada de ~45 requisições faz a conta inteira receber <code>403</code> em 0,0 segundo —
+         o servidor da SunOp nem chega a ser consultado. Libera sozinha em 30 a 48 segundos,
+         <strong>depois</strong> que se para de bater.</p>
+    </div></div>
+    <div class="et mau"><div class="n">4</div><div>
+      <h4>O disjuntor abre e tudo para junto</h4>
+      <p>Não só o metadata: toda chamada ao serviço de dados passa a devolver vazio por 90 segundos.
+         É o sintoma que aparece como "o Athon não carrega os inversores".</p>
+    </div></div>
+  </div>
+
+  <div class="caixa risco">
+    <div class="r">O engano que isso provoca</div>
+    <p>Token válido leva <code>403</code> exatamente igual. Em 06/08 o sintoma fez caçar token duas
+      vezes no mesmo dia — e não era token. <strong>Quando a plataforma volta e o Athon aparece vazio
+      nos primeiros minutos, quase sempre é isto.</strong></p>
+  </div>
+
+  <h2>Por que ainda não está resolvido</h2>
+  <p>Não é esquecimento. É uma decisão, e ela tem um bom motivo dos dois lados:</p>
+
+  <div class="dois">
+    <div class="lado a">
+      <span class="tag">processo web</span>
+      <h4>Restaura do snapshot</h4>
+      <p>Sobe com o mapa já pronto, lido do disco. Foi o que fez o drill de usina voltar a abrir em
+        segundos depois de um reinício, em vez de devolver tabela vazia.</p>
+    </div>
+    <div class="lado b">
+      <span class="tag">processo worker</span>
+      <h4>Nunca restaura, sempre rebusca</h4>
+      <p>De propósito: se ele guardasse o mapa, um inversor trocado em campo nunca apareceria. O mapa
+        velho se eternizaria e ninguém perceberia.</p>
+    </div>
+  </div>
+
+  <p style="margin-top:18px">O worker está certo em desconfiar do mapa antigo. O erro está em tratar
+     <strong>"desconfiar" como "jogar fora"</strong>. Hoje a escolha é binária: ou guarda para sempre,
+     ou rebusca tudo a cada partida. Não existe meio-termo, e o meio-termo é exatamente o que cabe aqui.</p>
+
+  <h2>O desenho que eu proponho</h2>
+  <p>Cache em disco com <strong>idade</strong>, não com presença. O worker lê o mapa salvo; se ele tem
+     menos de 12 horas, usa; se tem mais, rebusca e regrava. Some a rajada de toda partida e o mapa
+     continua envelhecendo — inversor trocado aparece no mesmo dia.</p>
+
+  <div class="tabela">
+    <table>
+      <thead><tr><th>Situação</th><th class="r">Hoje</th><th class="r">Com cache por idade</th></tr></thead>
+      <tbody>
+        <tr><td>Reinício às 09h (guardião)</td><td class="r">13</td><td class="r">0</td></tr>
+        <tr><td>Reinício às 17h (guardião)</td><td class="r">13</td><td class="r">0</td></tr>
+        <tr><td>Reciclagem das 03h</td><td class="r">13</td><td class="r">13</td></tr>
+        <tr><td>Deploy / reinício manual</td><td class="r">13</td><td class="r">0</td></tr>
+        <tr><td><strong>Risco de derrubar a borda</strong></td><td class="r">a cada partida</td><td class="r">1× por dia</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="caixa bom">
+    <div class="r">O ganho que interessa</div>
+    <p>Em requisições é modesto: talvez 50 por dia, menos de 1% da cota. <strong>Em confiabilidade é
+      grande</strong>: a janela em que o Athon aparece vazio depois de um reinício deixa de existir na
+      maior parte das vezes. E reinício não é exceção — foram seis só hoje.</p>
+  </div>
+
+  <h2>A regra por trás</h2>
+  <p>Vale para muito além da SunOp, e é a mesma frase do relatório anterior:
+     <strong>o tempo de vida de um cache tem de ser o ritmo com que o dado muda.</strong></p>
+
+  <div class="tabela">
+    <table>
+      <thead><tr><th>Dado</th><th>Muda a cada</th><th>Tratado hoje como</th><th>Deveria ser</th></tr></thead>
+      <tbody>
+        <tr><td>Mapa da usina (metadata)</td><td>meses</td><td>a cada partida</td><td>12 a 24 horas, em disco</td></tr>
+        <tr><td>Leitura atual (last_values)</td><td>~5 minutos</td><td>5 a 10 minutos</td><td>está certo</td></tr>
+        <tr><td>Curva de hoje</td><td>continuamente</td><td>minutos</td><td>está certo</td></tr>
+        <tr><td>Curva de dia fechado</td><td><strong>nunca mais</strong></td><td>rebaixa a cada reinício</td><td>para sempre, em disco</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <p style="margin-top:16px">O metadata e a curva de dia fechado erram pelo mesmo lado: são os dois dados
+     mais estáveis do sistema, e são os dois que a plataforma mais rebusca. A diferença é que a curva
+     custa volume e o metadata custa <strong>estabilidade</strong>.</p>
+
+  <footer>
+    Medições de 20/09/2026: contador novo em <code>/api/sunop/uso</code>, log do guardião em
+    <code>plataforma/logs/ronda_guardian.log</code> e o comportamento da borda registrado em 06/08.
+    As 10 usinas Athon estavam todas servindo dado no momento desta medição.
+  </footer>
+</div>
+</body>
+</html>

@@ -81,3 +81,18 @@ def test_entrada_tem_o_quarto_card_criar_os():
     assert "Para quem <b>executa</b>" in ent and "login Fracttal" in ent
     assert "grid-template-columns:repeat(4,1fr)" in ent           # 3 leituras + a acao, lado a lado
     assert ent.index('data-href="/gerencial"') < ent.index('data-href="/os/"')   # a acao vem depois das tres leituras
+
+
+def test_proxy_repassa_download_e_o_cabecalho_do_fetch(cli, monkeypatch):
+    """As telas portadas em 13/09 exportam CSV (Content-Disposition) e pedem fragmentos com X-Requested-With: fetch —
+    sem repassar os dois, o CSV abria inline e o card de detalhe vinha com a pagina inteira."""
+    visto = {}
+
+    def fake(method, url, **kw):
+        visto.update(**kw)
+        return _Resp(status=200, content=b"a;b", ctype="text/csv; charset=utf-8",
+                     extra={"Content-Disposition": 'attachment; filename="solicitacoes.csv"'})
+    monkeypatch.setattr(plataforma.requests, "request", fake)
+    r = cli.get("/os/solicitacao/historico.csv", headers={"X-Requested-With": "fetch"})
+    assert r.status_code == 200 and r.headers["Content-Disposition"] == 'attachment; filename="solicitacoes.csv"'
+    assert visto["headers"]["X-Requested-With"] == "fetch"
