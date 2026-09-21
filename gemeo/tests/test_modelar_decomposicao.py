@@ -25,11 +25,15 @@ def _esp(g):
 
 
 def test_parcelas_somam_o_delta_onde_ha_dado_e_zeram_onde_nao_ha():
+    """17/09/2026: a invariante passou de QUATRO para CINCO parcelas — entrou `clipping`, que
+    reclassifica a fatia do residuo em que o inversor esta no proprio teto. Neste cenario o 1001
+    esta cravado em 120 kW, que e exatamente um teto, entao parte do delta dele sai como clipping
+    e a soma antiga (sem a parcela) nao fecha mais."""
     g = grade_sintetica()
     g.inv_p[1001] = 120.0; g.trk_ang[2002] = 50.0; g.str_i[3104] = 0.0
     g.inv_p.iloc[3, 1] = np.nan
     d = dc.decompor(g, _esp(g), MAPA, P)
-    soma = d.parado + d.tracker + d.string + d.residuo
+    soma = d.parado + d.tracker + d.string + d.clipping + d.residuo
     assert (soma - d.delta).abs().where(d.ok, 0.0).max().max() < 1e-6
     assert soma.where(~d.ok, 0.0).abs().max().max() < 1e-6 and d.delta[1002].isna().sum() == 1
 
@@ -175,3 +179,52 @@ def test_grupo_inteiro_fora_da_frota_nao_se_esconde_atras_da_propria_mediana():
     g.trk_ang[[2001, 2004, 2005, 2006]] = 27.0                                                    # grupo 7 graus fora: backtracking de bloco
     exc = dc.excesso_trackers(g.trk_ang, P, grupos=mapa)
     assert exc[2004].abs().max() < 1e-6                                                          # dentro da tolerancia: vale o grupo
+
+
+# ── CLIPPING: parcela nova (Levi, 17/09/2026) ──────────────────────────────────────────────────
+# O esperado sai do PVWatts sobre a POA medida, e o PVWatts NAO sabe do limite AC do inversor. Em
+# usina sobredimensionada o modelo espera mais do que o equipamento entrega e a diferenca caia toda
+# no RESIDUO, como perda inexplicada. O clipping nao cria perda nova: ele RECLASSIFICA a parte do
+# residuo em que o inversor esta no proprio teto. Decisao do Levi: clipping NAO conta como perda
+# evitavel (e de projeto, nao de operacao) — por isso e parcela propria, separada.
+
+def test_clipping_reclassifica_o_residuo_e_nao_cria_perda_nova():
+    g = grade_sintetica()
+    esp = _esp(g)
+    # inversor 1001 cravado num teto abaixo do que o modelo espera = clipping
+    teto = float(esp[1001].max()) * 0.6
+    g.inv_p[1001] = teto
+    d = dc.decompor(g, esp, MAPA, P)
+    soma = d.parado + d.tracker + d.string + d.clipping + d.residuo
+    assert (soma - d.delta).abs().where(d.ok, 0.0).max().max() < 1e-6, "as 5 parcelas somam o delta"
+    assert d.clipping[1001].sum() > 0, "o teto tinha de virar clipping"
+    # e saiu do residuo: sem a reclassificacao, tudo isso seria 'nao sei explicar'
+    sem_clip = dc.decompor(g, esp, MAPA, dc.ParamsDecomp(f_direta_fixa=0.6, clipping_ligado=False))
+    assert sem_clip.residuo[1001].sum() > d.residuo[1001].sum() + 1e-6
+
+
+def test_clipping_nao_marca_inversor_que_segue_a_curva():
+    """Inversor saudavel acompanha o esperado — nao ha teto, nao ha clipping."""
+    g = grade_sintetica()
+    d = dc.decompor(g, _esp(g), MAPA, P)
+    assert d.clipping.abs().max().max() < 1e-9
+
+
+def test_clipping_nao_marca_inversor_parado():
+    """Parado leva o delta inteiro e exclui as outras parcelas — inclusive o clipping, senao um
+    inversor morto (medido constante em ~0) seria lido como 'no teto'."""
+    g = grade_sintetica()
+    g.inv_p[1001] = 0.0
+    d = dc.decompor(g, _esp(g), MAPA, P)
+    assert d.clipping[1001].abs().max() < 1e-9
+    assert d.parado[1001].sum() > 0
+
+
+def test_clipping_desligado_mantem_o_comportamento_antigo():
+    """Trava de compatibilidade: com a parcela desligada, as 4 de sempre continuam somando o delta."""
+    g = grade_sintetica()
+    g.inv_p[1001] = float(_esp(g)[1001].max()) * 0.6
+    d = dc.decompor(g, _esp(g), MAPA, dc.ParamsDecomp(f_direta_fixa=0.6, clipping_ligado=False))
+    soma = d.parado + d.tracker + d.string + d.residuo
+    assert (soma - d.delta).abs().where(d.ok, 0.0).max().max() < 1e-6
+    assert d.clipping.abs().max().max() < 1e-9

@@ -25,6 +25,15 @@ class ParamsDecomp:
     str_instalada_a: float = 1.0
     ghi_min_fdir: float = 50.0
     f_direta_fixa: float | None = None  # testes e usinas sem lat/lon: fracao direta constante em vez de Erbs
+    # CLIPPING (17/09/2026): o esperado sai do PVWatts sobre a POA medida, e o PVWatts nao sabe do
+    # limite AC do inversor. Em usina sobredimensionada o modelo espera mais do que o equipamento
+    # entrega e isso caia todo no RESIDUO, como perda inexplicada. Nao e perda nova — e a parte do
+    # residuo em que o inversor esta no proprio teto. Decisao do Levi: NAO conta como perda evitavel
+    # (e de projeto, nao de operacao), por isso e parcela propria e separada.
+    clipping_ligado: bool = True
+    clip_teto_tol: float = 0.02      # esta "no teto" quem chega a 98% do maior medido do periodo
+    clip_min_slots: int = 4          # menos que isto no teto e ruido, nao patamar
+    clip_teto_min_kw: float = 5.0    # teto irrisorio = inversor morto ou quase; nao e clipping
 
 
 @dataclass
@@ -33,6 +42,7 @@ class Decomposicao:
     parado: pd.DataFrame
     tracker: pd.DataFrame
     string: pd.DataFrame
+    clipping: pd.DataFrame
     residuo: pd.DataFrame
     ok: pd.DataFrame
     parado_flag: pd.DataFrame
@@ -120,6 +130,7 @@ def decompor(grade: Grade, esp: pd.DataFrame, trk_inv: dict[int, int], p: Params
 
     delta = pd.DataFrame(np.nan, index=idx, columns=invs)
     A, B, C, R, zer = zeros(invs), zeros(invs), zeros(invs), zeros(invs), zeros(invs)
+    K = zeros(invs)                      # clipping: a fatia do residuo em que o inversor esta no teto
     ok = pd.DataFrame(False, index=idx, columns=invs); par = ok.copy(); viva = ok.copy()
     perda_trk = zeros(frac.columns)
     universo: dict[int, list[int]] = {}
@@ -153,7 +164,18 @@ def decompor(grade: Grade, esp: pd.DataFrame, trk_inv: dict[int, int], p: Params
         else:
             viva_i, n_zero, c = pd.Series(False, index=idx), pd.Series(0, index=idx), pd.Series(0.0, index=idx)
         delta[eid], A[eid], B[eid], C[eid] = d_i, a, b, c
-        R[eid] = (d_i - a - b - c).where(ok_i, 0.0)
+        resto = (d_i - a - b - c).where(ok_i, 0.0)
+        # CLIPPING: nao cria perda, RECLASSIFICA o resto. "No teto" = o medido encostou no maior valor
+        # que ESTE inversor entregou no periodo, com o modelo esperando mais. Exclui o parado (medido
+        # constante em ~0 tambem "encosta no proprio maximo", e seria lido como teto) e exige um
+        # patamar de verdade, nao um pico solto.
+        if p.clipping_ligado:
+            teto = float(m.where(ativo).max()) if ativo.any() else float("nan")
+            if np.isfinite(teto) and teto >= p.clip_teto_min_kw:
+                no_teto = ativo & (m >= teto * (1.0 - p.clip_teto_tol)) & (resto > 0)
+                if int(no_teto.sum()) >= p.clip_min_slots:
+                    K[eid] = resto.where(no_teto, 0.0)
+        R[eid] = resto - K[eid]
         ok[eid], par[eid], viva[eid], zer[eid] = ok_i, par_i, viva_i, n_zero.astype(float)
     # tracker sem inversor: perda estimada com o esperado MEDIO por inversor e a densidade media de
     # trackers por inversor; nao entra na cascata de nenhum inversor (quebraria 'parcelas somam o delta'),
@@ -164,4 +186,4 @@ def decompor(grade: Grade, esp: pd.DataFrame, trk_inv: dict[int, int], p: Params
         n_por_inv = max(1.0, len(frac.columns) / max(1, len(invs)))
         for t in sem:
             perda_trk[t] = (e_ref * frac[t] / n_por_inv).where(e_ref.notna(), 0.0).fillna(0.0)
-    return Decomposicao(delta, A, B, C, R, ok, par, viva, zer, exc, perda_trk, universo, sem)
+    return Decomposicao(delta, A, B, C, K, R, ok, par, viva, zer, exc, perda_trk, universo, sem)

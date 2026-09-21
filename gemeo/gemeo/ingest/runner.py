@@ -82,7 +82,8 @@ def laco(rotulo: str, ingestor, minutos: float, parar: threading.Event, fabrica_
             if reconciliar:
                 ultimo_reconcilia = agora.date()
                 if fabrica_conn is not None:
-                    print(f"[{rotulo}] retencao: {db.retencao(ingestor.conn, 90)} leituras com mais de 90 dias apagadas", flush=True)
+                    # ANALYZE junto da retencao: sem ele o otimizador fica cego e a Frota vai a 50 s (17/09/2026)
+                    print(f"[{rotulo}] {db.manutencao_diaria(ingestor.conn, 90)}", flush=True)
         except Exception:                                   # noqa: BLE001 — o laco nao morre
             print(f"[{rotulo}] ciclo falhou:\n{traceback.format_exc()}", flush=True)
             # 13/09/2026 12:33: a fonte plat falhou num INSERT e a conexao da thread ficou com a transacao ABERTA pelos 15 min

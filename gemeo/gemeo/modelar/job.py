@@ -161,11 +161,11 @@ def persistir(conn, usina: UsinaRef, mod: Modelo, grade: Grade, r: gate_mod.Resu
         # 'abaixo dos pares' e sempre recomputado dos ultimos 3 dias: o aberto de ontem sai, o de hoje entra
         cur.execute("DELETE FROM evento WHERE usina_id=%s AND modelo_id=%s AND tipo='inversor_abaixo' AND fim IS NULL", (usina.id, mod.id))
         casc_rows = [(usina.id, dd, mod.id, float(x.e_esperado), float(x.e_medido), float(x.delta), float(x.inv_parado), float(x.tracker),
-                      float(x.string), float(x.residuo), float(x.cobertura_gate), int(x.trackers_sem_inversor))
+                      float(x.string), float(x.clipping), float(x.residuo), float(x.cobertura_gate), int(x.trackers_sem_inversor))
                      for dd, x in casc.por_dia.iterrows() if x.e_esperado > 0]
         if casc_rows:
             cur.executemany("INSERT INTO cascata_dia (usina_id, dia, modelo_id, e_esperado, e_medido, delta, inv_parado, "
-                            "tracker, string, residuo, cobertura_gate, trackers_sem_inversor) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", casc_rows)
+                            "tracker, string, clipping, residuo, cobertura_gate, trackers_sem_inversor) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)", casc_rows)
         perda_rows = [(int(x.equipamento_id), x.dia, mod.id, x.parcela, float(x.kwh)) for x in casc.perda_dia.itertuples()]
         if perda_rows:
             cur.executemany("INSERT INTO perda_dia (equipamento_id, dia, modelo_id, parcela, kwh) VALUES (%s,%s,%s,%s,%s)", perda_rows)

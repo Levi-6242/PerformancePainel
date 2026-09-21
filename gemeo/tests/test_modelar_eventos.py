@@ -159,3 +159,99 @@ def test_frota_toda_em_stow_nao_e_tracker_travado():
     r, esp, d = _tudo(g)
     evs = eventos.detectar(g, r, esp, d)
     assert not _do_tipo(evs, "tracker_travado") and not _do_tipo(evs, "tracker_sem_comunicacao")
+
+
+# ── SENSOR CONGELADO (17/09/2026) ──────────────────────────────────────────────────────────────
+# A POA medida e a ENTRADA do modelo: piranometro travado nao gera um evento, gera um ESPERADO
+# INTEIRO errado. O `sensor_em_falha` que ja existia e outra coisa (razao POA/GHI fora da faixa) e
+# nao pega sensor repetindo um valor PLAUSIVEL. Regra: valor repetido com sol, dentro da janela.
+
+def test_sensor_congelado_quando_a_poa_repete_com_sol():
+    g = grade_sintetica()
+    g.estacao["poa"] = 700.0          # travada o dia inteiro, valor plausivel
+    r, esp, d = _tudo(g)
+    evs = eventos.detectar(g, r, esp, d)
+    achados = _do_tipo(evs, "sensor_congelado")
+    assert achados, "POA repetindo com sol tem de virar evento"
+    assert achados[0].severidade == "grave"
+    assert achados[0].detalhe.get("medida") == "poa"
+
+
+def test_sensor_congelado_nao_dispara_com_sensor_variando():
+    """A grade sintetica nasce com POA e GHI CONSTANTES (700), que o detector — corretamente —
+    acusa. Para provar o negativo e preciso variar os dois: sensor que se mexe nao e congelado."""
+    import numpy as np
+    g = grade_sintetica()
+    n = len(g.indice)
+    g.estacao["poa"] = 700.0 + np.arange(n) * 3.0
+    g.estacao["ghi"] = 600.0 + np.arange(n) * 2.5
+    r, esp, d = _tudo(g)
+    evs = eventos.detectar(g, r, esp, d)
+    assert not _do_tipo(evs, "sensor_congelado")
+
+
+def test_sensor_congelado_pega_o_GHI_tambem():
+    """Nao e so a POA: o GHI entra no gate POA/GHI, entao travado ali tambem corrompe o julgamento."""
+    import numpy as np
+    g = grade_sintetica()
+    g.estacao["poa"] = 700.0 + np.arange(len(g.indice)) * 3.0   # POA saudavel
+    r, esp, d = _tudo(g)                                        # GHI segue constante por construcao
+    achados = _do_tipo(eventos.detectar(g, r, esp, d), "sensor_congelado")
+    assert achados and achados[0].detalhe.get("medida") == "ghi"
+
+
+def test_sensor_congelado_ignora_zero_a_noite():
+    """Sem sol a POA e zero para todo mundo: acusar isso seria alarme todas as madrugadas.
+
+    17/09/2026: a fixture desta prova nao era noite — tinha os dois inversores gerando 180 kW com a
+    POA em zero, que e outra coisa (ver o teste seguinte). Noite de verdade e sem geracao."""
+    g = grade_sintetica()
+    g.estacao["poa"] = 0.0
+    g.estacao["ghi"] = 0.0
+    g.inv_p = g.inv_p * 0.0                       # noite: ninguem gerando
+    r, esp, d = _tudo(g)
+    evs = eventos.detectar(g, r, esp, d)
+    assert not _do_tipo(evs, "sensor_congelado")
+
+
+def test_usina_gerando_com_irradiancia_em_zero_e_sensor_morto():
+    """O outro lado da mesma moeda: 180 kW saindo dos inversores com POA e GHI em zero nao e noite,
+    e piranometro morto — e o esperado do gemeo nasce dessa POA. A regra antiga nunca via este caso
+    porque perguntava ao proprio sensor se era dia (a MTS100 tem GHI fixo em 0,0 desde sempre)."""
+    g = grade_sintetica()                          # inversores em 180 kW por construcao
+    g.estacao["poa"] = 0.0
+    g.estacao["ghi"] = 0.0
+    r, esp, d = _tudo(g)
+    achados = _do_tipo(eventos.detectar(g, r, esp, d), "sensor_congelado")
+    assert achados and achados[0].detalhe.get("valor") == 0.0
+
+
+def test_sensor_congelado_nao_chama_a_madrugada_de_dia_por_causa_do_proprio_sensor():
+    """17/09/2026, achado no banco de producao: a Ibate 2 apareceu com POA congelada em 464,04 e GHI
+    em 467,24 das 00:00 as 00:00 — 96 slots, o dia inteiro. O congelamento e REAL (287 leituras, UM
+    valor distinto), mas a JANELA saiu errada por circularidade: `diurno` vinha de `poa > 50 ou
+    ghi > 50`, isto e, do proprio sensor sob suspeita. Travado num valor plausivel, ele declara que
+    e dia a noite toda.
+
+    A producao dos inversores nao depende do piranometro: se a usina gera, o sol esta la."""
+    import numpy as np
+    import pandas as pd
+    idx = pd.date_range("2026-08-28T00:00", periods=96, freq="15min", tz="UTC")
+    g = grade_sintetica()
+    g.indice = idx
+    g.estacao = pd.DataFrame({"poa": 464.04, "ghi": 467.24, "temp_modulo": 45.0, "temp_ar": 30.0}, index=idx)
+    # inversores so geram das 09:00 as 21:00 UTC (dia em Belem); o resto e noite de verdade
+    hora = idx.hour
+    gera = np.where((hora >= 9) & (hora < 21), 180.0, 0.0)
+    g.inv_p = pd.DataFrame({1001: gera, 1002: gera}, index=idx)
+    g.inv_e = pd.DataFrame(index=idx)
+    g.trk_ang = pd.DataFrame({2001: 20.0, 2002: 20.0, 2003: 20.0}, index=idx)
+    g.trk_alvo = g.trk_ang.copy()
+    g.str_i = pd.DataFrame({3101: 8.0, 3102: 8.0, 3103: 8.0, 3104: 8.0}, index=idx)
+
+    r, esp, d = _tudo(g)
+    achados = _do_tipo(eventos.detectar(g, r, esp, d), "sensor_congelado")
+    assert achados, "a POA congelada continua tendo de ser detectada"
+    e = achados[0]
+    assert e.ini.hour >= 9 and e.fim.hour <= 21, f"janela invadiu a noite: {e.ini} -> {e.fim}"
+    assert e.detalhe["slots"] <= 48, f"{e.detalhe['slots']} slots num dia de 12 h de sol"

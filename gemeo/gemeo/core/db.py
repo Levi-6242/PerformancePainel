@@ -141,6 +141,50 @@ def retencao(conn, dias: int = 90) -> int:
     return int(n)
 
 
+# As medidas do CHECK da tabela `leitura`, na mesma ordem do schema. Existem aqui porque a PK e
+# (equipamento_id, medida, ts): consulta que fixa as TRES usa busca, consulta que fixa so o
+# equipamento varre todas as medidas daquele equipamento. Ver SQL_ULTIMA_LEITURA em app/consultas.py.
+# Um teste garante que esta lista e o CHECK do schema nao se separem (medida nova esquecida aqui
+# faria a ultima leitura devolver carimbo velho sem erro nenhum).
+MEDIDAS = ("poa", "ghi", "temp_modulo", "temp_ar", "vento", "p_ac", "e_dia",
+           "i_string", "angulo", "angulo_alvo", "estado")
+
+
+def analisar(conn) -> bool:
+    """Reescreve `sqlite_stat1` (ANALYZE). Roda junto da retencao, uma vez por dia.
+
+    17/09/2026: o banco de producao viveu tres meses SEM estatistica nenhuma. Com 17,3 M linhas em
+    `leitura` o otimizador escolhia plano no escuro e a Frota levava 50,1 s — o proxy da plataforma
+    (timeout=30) devolvia ReadTimeout e parecia servico fora do ar. Depois do ANALYZE: 2,5 s. O
+    EXPLAIN QUERY PLAN e o MESMO antes e depois; o que muda e o custo estimado, entao ler so o plano
+    nao denuncia o problema.
+
+    Nao se mantem sozinho: a migracao 0003/0004 recriou tabelas e derrubou tudo de novo (37 s ->
+    2,7 s depois de reanalisar). Por isso e rotina diaria, nao socorro manual. Leva ~70 s no banco
+    cheio e nao muda schema nem dado, so estatistica."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("ANALYZE")
+        conn.commit()
+        return True
+    except Exception:                                   # noqa: BLE001 — manutencao nunca derruba o laco
+        try:
+            conn.rollback()
+        except Exception:                               # noqa: BLE001
+            pass
+        return False
+
+
+def manutencao_diaria(conn, dias: int = 90) -> str:
+    """Retencao + ANALYZE na mesma passada, uma vez por dia. Devolve a linha do log.
+
+    Andam juntos de proposito: apagar milhoes de linhas e exatamente o que envelhece a estatistica
+    que o `analisar` reescreve."""
+    n = retencao(conn, dias)
+    ok = analisar(conn)
+    return f"retencao: {n} leituras com mais de {dias} dias apagadas; ANALYZE {'ok' if ok else 'FALHOU'}"
+
+
 def com_retentativa_de_lock(conn, fn, tentativas: int | None = None, pausa_s: float | None = None):
     """Roda `fn()`; em 'database is locked' desfaz a transacao, espera e tenta de novo; qualquer outro erro sobe na hora e o
     lock tambem sobe depois da ultima tentativa. O ingestor da API PV perdeu o primeiro INSERT da vida assim (11/09/2026);
