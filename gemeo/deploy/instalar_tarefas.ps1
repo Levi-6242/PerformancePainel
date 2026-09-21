@@ -87,9 +87,11 @@ function Registrar($Nome, $Comando, $Gatilho, $Reinicia) {
   $w = Wrapper $Comando
   if ($w.Args) { $acao = New-ScheduledTaskAction -Execute $w.Exe -Argument $w.Args } else { $acao = New-ScheduledTaskAction -Execute $w.Exe }
   if ($Reinicia) {
-    $cfg = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
+    # Bateria: o padrao do Register-ScheduledTask e NAO iniciar na bateria e PARAR ao sair da tomada (13/09/2026: o notebook do Levi saiu da tomada as 09h15 e o agendador
+    # recusou Gemeo App/Ingest/Modelar, OS Creator Web e Tunel Guardian ate as 11h, codigo 2147943467). Liberado por ele.
+    $cfg = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
   } else {
-    $cfg = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 14) -MultipleInstances IgnoreNew
+    $cfg = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 14) -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
   }
   Unregister-ScheduledTask -TaskName $Nome -Confirm:$false -ErrorAction SilentlyContinue
   if ($SemAdmin) {

@@ -16,7 +16,7 @@ from openpyxl import Workbook
 from gemeo.core import db
 
 ROTULO_EVENTO = {"inversor_parado": "Inversor parado", "inversor_abaixo": "Inversor abaixo dos pares",
-                 "tracker_fora_alvo": "Tracker fora do alvo", "string_sem_corrente": "String sem corrente",
+                 "tracker_fora_alvo": "Tracker fora do alvo", "tracker_travado": "Tracker travado", "tracker_sem_comunicacao": "Tracker sem comunicação", "string_sem_corrente": "String sem corrente",
                  "sensor_em_falha": "Sensor em falha (POA x GHI)", "sem_cobertura": "Sem cobertura de sensor"}
 CABECALHOS = {
     "usina": ["codigo", "fonte", "tz", "kwp_dc", "kw_ac", "n_inversores", "lat", "lon"],

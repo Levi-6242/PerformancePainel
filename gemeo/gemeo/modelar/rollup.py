@@ -15,7 +15,9 @@ from gemeo.modelar.gate import Resultado
 from gemeo.modelar.grade import Grade
 
 H = 0.25
-PARCELAS = ("inv_parado", "tracker", "string", "residuo")
+# 17/09/2026: entrou `clipping` — reclassifica a fatia do residuo em que o inversor esta no
+# proprio teto. NAO e perda evitavel (decisao do Levi): quem soma perdas de operacao ignora esta.
+PARCELAS = ("inv_parado", "tracker", "string", "clipping", "residuo")
 
 
 @dataclass
@@ -34,7 +36,8 @@ def cascata(grade: Grade, gate_res: Resultado, esp: pd.DataFrame, d: Decomposica
     e_esp = (e_ok.sum(axis=1, min_count=1).fillna(0.0) * H).groupby(dia).sum()
     e_med = (m_ok.sum(axis=1, min_count=1).fillna(0.0) * H).groupby(dia).sum()
     por_dia = pd.DataFrame({"e_esperado": e_esp, "e_medido": e_med, "delta": e_esp - e_med})
-    frames = {"inv_parado": d.parado, "tracker": d.tracker, "string": d.string, "residuo": d.residuo}
+    frames = {"inv_parado": d.parado, "tracker": d.tracker, "string": d.string,
+              "clipping": d.clipping, "residuo": d.residuo}
     for nome, df in frames.items():
         por_dia[nome] = (df.sum(axis=1) * H).groupby(dia).sum()
     est = grade.estacao

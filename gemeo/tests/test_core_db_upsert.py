@@ -70,3 +70,61 @@ def test_estado_pequeno(conn):
     db.gravar_estado(conn, "cadastro.updated_at", "2026-09-02T14:51")
     db.gravar_estado(conn, "cadastro.updated_at", "2026-09-03T08:00")
     assert db.ler_estado(conn, "cadastro.updated_at") == "2026-09-03T08:00"
+
+
+def test_upsert_espera_o_lock_do_sqlite_em_vez_de_derrubar_a_leva(monkeypatch):
+    """Na subida de 11/09/2026 (fonte apipv nova) o primeiro INSERT levou 'database is locked': pg, sunop, cadastro e apipv
+    disputando o mesmo arquivo na largada — a fila do SQLite nao e justa e o busy_timeout de 30 s nao bastou. Perder uma leva
+    de 146 s de custom_query por um lock e caro: desfaz, espera e tenta de novo; so depois de esgotar e que a excecao sobe."""
+    import datetime as dt
+    import sqlite3
+    import pytest
+    from gemeo.core import db
+    dorme = []
+    monkeypatch.setattr(db.time, "sleep", lambda s: dorme.append(s))
+
+    class Cur:
+        def __init__(s, c): s.c = c
+        def __enter__(s): return s
+        def __exit__(s, *a): return False
+        def executemany(s, sql, seq):
+            s.c.tentativas += 1
+            if s.c.tentativas < 3:
+                raise sqlite3.OperationalError("database is locked")
+
+    class Conn:
+        def __init__(s): s.tentativas = 0; s.rollbacks = 0; s.commits = 0
+        def cursor(s): return Cur(s)
+        def rollback(s): s.rollbacks += 1
+        def commit(s): s.commits += 1
+
+    ts = dt.datetime(2026, 9, 11, 16, 0, tzinfo=dt.timezone.utc)
+    c = Conn()
+    assert db.upsert_leituras(c, [(1, "p_ac", ts, 1.0)]) == 1
+    assert (c.tentativas, c.rollbacks, c.commits, len(dorme)) == (3, 2, 1, 2)
+    c2 = Conn(); c2.tentativas = -100                                   # nunca destrava
+    with pytest.raises(sqlite3.OperationalError):
+        db.upsert_leituras(c2, [(1, "p_ac", ts, 1.0)])
+    assert c2.tentativas == -100 + db.TENTATIVAS_LOCK and c2.commits == 0
+    c3 = Conn(); c3.tentativas = 10                                     # outro erro nao e lock: sobe na primeira
+
+    class CurOutro(Cur):
+        def executemany(s, sql, seq): raise sqlite3.OperationalError("no such table: leitura")
+    c3.cursor = lambda: CurOutro(c3)
+    with pytest.raises(sqlite3.OperationalError):
+        db.upsert_leituras(c3, [(1, "p_ac", ts, 1.0)])
+    assert c3.rollbacks == 0
+
+
+def test_marca_dagua_pode_olhar_so_alguns_tipos_de_equipamento(conn, usina_eq):
+    """Duas fontes na MESMA usina (12/09/2026: inversores pela API PV, trackers pela PV Plataforma): cada ingestor precisa da
+    marca dos SEUS equipamentos, senao o p_ac de 15 em 15 min empurra a marca e o buraco dos angulos nunca e coberto."""
+    u, e = usina_eq
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte, atributos) VALUES (%s,'tracker','TRK1','{}') RETURNING id", (u,))
+        trk = cur.fetchone()[0]
+    conn.commit()
+    t1 = dt.datetime(2026, 9, 1, 12, 0, tzinfo=UTC); t2 = t1 + dt.timedelta(hours=3)
+    db.upsert_leituras(conn, [(e, "p_ac", t2, 1.0), (trk, "angulo", t1, 20.0)])
+    assert db.marca_dagua(conn, u) == t2 and db.marca_dagua(conn, u, tipos=("tracker",)) == t1
+    assert db.marca_dagua(conn, u, tipos=("estacao",)) is None

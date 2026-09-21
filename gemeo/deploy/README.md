@@ -32,6 +32,9 @@ GRIDCO_SQL_TOKEN=<mesmo do tokens.txt da plataforma>
 GEMEO_SENHA=<senha compartilhada das telas — a MESMA vai no tokens.txt da plataforma>
 GEMEO_DB_CAMINHO=D:\gemeo-dados\gemeo.sqlite      # opcional; sem esta linha vale o padrão em %LOCALAPPDATA%
 POWERPLANTS_DSN=host=44.214.183.214 port=5432 dbname=powerplants user=... password=...   # só com usina de fonte pg
+PV_OEM_USERNAME=<conta oem@ da API PV Operation — a mesma do tokens.txt da plataforma>   # só com usina de fonte apipv (as três da 2C)
+PV_OEM_PASSWORD=<senha da conta oem@>                                                    # idem; sem as duas o `gemeo ingest` para nomeando a chave
+PV_PLAT_TOKEN_OEM=<token x-auth-token-update da PV Plataforma, conta oem@>              # opcional: trackers das três da 2C; VENCE EM 7 DIAS (ver runbook)
 ```
 
 `config.toml` (versionado): usinas do piloto (só as com relação tracker × inversor), ritmos, teto da SunOp (600/dia),
@@ -106,3 +109,9 @@ publicação no workbook da Performance falhando). Aponte o monitor externo (Tea
 
 `git pull` → `gemeo migrate` → reiniciar as três tarefas (`Stop-ScheduledTask`/`Start-ScheduledTask`). Zip da pasta só
 como emergência. Ver `docs/runbook.md` para o resto.
+
+### Migrações
+
+`git pull` que traga um arquivo novo em `migrations/` exige `python -m gemeo.cli migrate` (com `SECRETS_DIR` e `GEMEO_CONFIG`)
+ANTES de a próxima rodada do modelar/ingest escrever — as tarefas não migram sozinhas. A 0002 (13/09/2026) recria a tabela
+`evento` para ampliar o CHECK de `tipo`; é rápida e preserva os ids.

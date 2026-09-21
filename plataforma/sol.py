@@ -7,7 +7,8 @@ pôr do sol (setembro, ~17:50 em SP) caindo dentro de janelas FIXAS — "dia" at
 Uma janela fixa erra para os dois lados ao longo do ano (junho anoitece ~17:30, dezembro ~18:55) e entre
 regiões (Mato Grosso está 10° a oeste de SP: 40 min a mais de sol em hora de Brasília).
 
-O cadastro (Info Geral) não tem coordenadas, só o ESTADO da usina. A capital da UF como proxy erra o
+O cadastro (Info Geral) TEM LATITUDE/LONGITUDE, mas só em 117 das 157 usinas (medido 17/09/2026) —
+e quando este módulo nasceu ninguém as lia. A capital da UF como proxy vale para a frota inteira e erra o
 horário solar em até ~15 min dentro do estado — irrelevante para a pergunta "o sol já está baixo?", que
 usa um limite de elevação (SOL_BAIXO_GRAUS), não o instante exato do pôr do sol.
 

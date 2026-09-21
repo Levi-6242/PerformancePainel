@@ -42,24 +42,36 @@ def separar_equipamentos(linhas: list[dict], piloto: tuple[str, ...]) -> tuple[d
     usinas: dict[str, dict] = {}
     invs: dict[str, list] = {}
     for ln in linhas:
-        cod = str(ln.get("Usina Supervisório") or "").strip()
+        # "Usina Supervisório" VAZIO nao descarta a linha: nas tres da 2C (11/09/2026) so os inversores trazem o codigo — a UFV e
+        # as UG 01/UG 02 vem sem ele, e o nome da usina ("Usina") e o proprio codigo. Mesma regra que a plataforma adotou.
+        cod = str(ln.get("Usina Supervisório") or ln.get("Usina") or "").strip()
         if cod not in piloto:
             continue
-        if str(ln.get("Equipamento") or "").strip().upper() == "UFV" or str(ln.get("Equipamento Parente") or "").strip().upper() == "UFV" and not str(ln.get("Equipamento Supervisório") or "").strip():
-            usinas[cod] = {"cliente": ln.get("Cliente"), "fracttal": ln.get("Usina Fractall"), "kwp": ln.get("Potência (kWp)"),
-                           "n_inversores": ln.get("N de Inversores"), "full_om": _sim(ln.get("Full O&M")), "string_box": _sim(ln.get("String Box"))}
+        eh_ufv = str(ln.get("Equipamento") or "").strip().upper() == "UFV"
+        eh_agrupador = str(ln.get("Equipamento Parente") or "").strip().upper() == "UFV" and not str(ln.get("Equipamento Supervisório") or "").strip()
+        if eh_ufv or eh_agrupador:
+            # a UG (agrupador) so vale quando nao ha linha UFV: na Tupi a UG 02 (3402 kWp, 10 inversores) passava por cima da UFV (6804, 20)
+            if eh_ufv or cod not in usinas:
+                usinas[cod] = {"cliente": ln.get("Cliente"), "fracttal": ln.get("Usina Fractall"), "kwp": ln.get("Potência (kWp)"),
+                               "n_inversores": ln.get("N de Inversores"), "full_om": _sim(ln.get("Full O&M")), "string_box": _sim(ln.get("String Box"))}
             continue
-        invs.setdefault(cod, []).append({"codigo_fonte": str(ln.get("Equipamento Supervisório") or "").strip(), "nome": ln.get("Equipamento"),
+        codigo_fonte, nome = str(ln.get("Equipamento Supervisório") or "").strip(), ln.get("Equipamento")
+        if not (codigo_fonte or nome):
+            continue
+        invs.setdefault(cod, []).append({"codigo_fonte": codigo_fonte, "nome": nome,
                                          "kwp": ln.get("Potência (kWp)"), "n_strings_esperadas": ln.get("Strings Ativas")})
     return usinas, invs
 
 
 def separar_info_geral(linhas: list[dict], piloto: tuple[str, ...]) -> dict:
-    """Aba Info Geral (cabecalho na linha 2): kWp TOTAL da usina, quantidade de inversores e trackers, cliente e P50 anual.
-    E a fonte da placa da usina — a aba Equipamentos so lista PARTE dos inversores (03/09: MRO100 12 de 25, MTS100 4 de 40,
-    CPP100 2 de 14), e somar o que ela tem dava metade do esperado."""
+    """Aba Info Geral (cabecalho na linha 2): kWp TOTAL da usina, quantidade de inversores e trackers, cliente, P50 anual e,
+    desde 12/09, LATITUDE/LONGITUDE (Levi: "preenchido no info_geral, colunas criadas"). E a fonte da placa da usina — a aba
+    Equipamentos so lista PARTE dos inversores (03/09: MRO100 12 de 25, MTS100 4 de 40, CPP100 2 de 14), e somar o que ela tem
+    dava metade do esperado. A coordenada e o que liga a posicao solar (fracao direta, horario solar) as usinas da SunOp."""
     def num(ln, k):
         v = ln.get(k)
+        if isinstance(v, str):
+            v = v.strip().replace(",", ".")       # coordenada digitada com virgula decimal ("-1,763717")
         try:
             return float(v) if v not in (None, "") else None
         except (TypeError, ValueError):
@@ -71,7 +83,8 @@ def separar_info_geral(linhas: list[dict], piloto: tuple[str, ...]) -> dict:
             continue
         ni, nt = num(ln, "Quantidade de Inversores"), num(ln, "Qnt. Trackers")
         out[cod] = {"kwp": num(ln, "Potência (KWp)"), "n_inversores": int(ni) if ni else None, "n_trackers": int(nt) if nt else None,
-                    "cliente": (str(ln.get("Cliente")).strip() if ln.get("Cliente") else None), "p50_mwh_ano": num(ln, "P50 (MWh)")}
+                    "cliente": (str(ln.get("Cliente")).strip() if ln.get("Cliente") else None), "p50_mwh_ano": num(ln, "P50 (MWh)"),
+                    "lat": num(ln, "LATITUDE"), "lon": num(ln, "LONGITUDE")}
     return out
 
 
@@ -81,14 +94,16 @@ def aplicar_info_geral(conn, dados: dict) -> int:
         for cod, d in dados.items():
             if not d.get("kwp"):
                 continue
-            cur.execute("UPDATE usina SET kwp_dc=%s, n_inversores=coalesce(%s, n_inversores), cliente=coalesce(%s, cliente) WHERE codigo=%s",
-                        (d["kwp"], d.get("n_inversores"), d.get("cliente"), cod))
+            # coordenada: a Info Geral manda quando traz; sem ela fica o que veio do PG ou do /plants da API PV
+            cur.execute("UPDATE usina SET kwp_dc=%s, n_inversores=coalesce(%s, n_inversores), cliente=coalesce(%s, cliente), "
+                        "lat=coalesce(%s, lat), lon=coalesce(%s, lon) WHERE codigo=%s",
+                        (d["kwp"], d.get("n_inversores"), d.get("cliente"), d.get("lat"), d.get("lon"), cod))
             n += max(0, cur.rowcount)
     conn.commit()
     return n
 
 
-VERSAO_CADASTRO = "2026-09-03c"   # entra na marca de versao: mudou o parser, reprocessa mesmo com o workbook igual
+VERSAO_CADASTRO = "2026-09-12a"   # entra na marca de versao: mudou o parser, reprocessa mesmo com o workbook igual (12/09: lat/lon da Info Geral)
 
 
 def separar_trackers(linhas: list[dict], piloto: tuple[str, ...]) -> dict[str, list[tuple[str, str, str]]]:
@@ -182,17 +197,37 @@ class IngestorCadastro:
         eq = sheets["equipamentos"]
         linhas = linhas_da_aba(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, eq["id"], int(eq.get("header_row") or 0))
         usinas, invs = separar_equipamentos(linhas, self.cfg.usinas_piloto)
-        res = aplicar_equipamentos(self.conn, usinas, invs)
+        # cada gravacao insiste no lock: as fontes escrevem no mesmo arquivo (12/09/2026: 'database is locked' no aplicar_trackers
+        # enquanto a fonte plat gravava 17 mil angulos — a passada inteira do cadastro foi perdida)
+        res = _db.com_retentativa_de_lock(self.conn, lambda: aplicar_equipamentos(self.conn, usinas, invs))
         ig = sheets.get("info geral")
         if ig:                                   # a placa TOTAL da usina vem daqui, por cima da soma parcial da Equipamentos
             linhas_ig = linhas_da_aba(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, ig["id"], int(ig.get("header_row") or 0))
-            res["info_geral"] = aplicar_info_geral(self.conn, separar_info_geral(linhas_ig, self.cfg.usinas_piloto))
+            dados_ig = separar_info_geral(linhas_ig, self.cfg.usinas_piloto)
+            res["info_geral"] = _db.com_retentativa_de_lock(self.conn, lambda: aplicar_info_geral(self.conn, dados_ig))
         bt = sheets.get("bd_trackers")
         if bt:                                   # tracker -> inversor
             linhas_bt = linhas_da_aba(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, bt["id"], int(bt.get("header_row") or 0))
-            res["trackers"] = aplicar_trackers(self.conn, separar_trackers(linhas_bt, self.cfg.usinas_piloto))
+            dados_bt = separar_trackers(linhas_bt, self.cfg.usinas_piloto)
+            res["trackers"] = _db.com_retentativa_de_lock(self.conn, lambda: aplicar_trackers(self.conn, dados_bt))
         _db.gravar_estado(self.conn, "cadastro.updated_at", versao)
         return {"mudou": True, **res}
+
+
+def _aplicar_inversor(cur, usina_id: int, iv: dict):
+    """Escada igual a do tracker: codigo da fonte ('INV_1') > nome de exibicao ('Inversor 1.1'). O segundo degrau e o das
+    usinas da API PV (11/09/2026): la o codigo_fonte e o idefinversor (400771) e o cadastro so conhece 'INVERSOR01' — o que
+    os dois tem em comum e o nome, que o de-para do config ja escreveu no equipamento na descoberta."""
+    patch = json.dumps({"kwp": iv["kwp"], "n_strings_esperadas": iv["n_strings_esperadas"]})
+    for coluna, valor in (("codigo_fonte", iv["codigo_fonte"]), ("nome_exibicao", iv["nome"])):
+        if not valor:
+            continue
+        cur.execute(f"UPDATE equipamento SET nome_exibicao=%s, atributos = json_patch(atributos, %s) WHERE usina_id=%s AND tipo='inversor' AND {coluna}=%s RETURNING id",
+                    (iv["nome"], patch, usina_id, str(valor).strip()))
+        e = cur.fetchone()
+        if e:
+            return e
+    return None
 
 
 def aplicar_equipamentos(conn, usinas: dict, invs: dict) -> dict:
@@ -208,9 +243,7 @@ def aplicar_equipamentos(conn, usinas: dict, invs: dict) -> dict:
             if u.get("fracttal"):
                 _alias.gravar(conn, "fracttal", str(u["fracttal"]), "direto", "aba Equipamentos", usina_id=r[0])
             for iv in invs.get(cod, []):
-                cur.execute("UPDATE equipamento SET nome_exibicao=%s, atributos = json_patch(atributos, %s) WHERE usina_id=%s AND tipo='inversor' AND codigo_fonte=%s RETURNING id",
-                            (iv["nome"], json.dumps({"kwp": iv["kwp"], "n_strings_esperadas": iv["n_strings_esperadas"]}), r[0], iv["codigo_fonte"]))
-                e = cur.fetchone()
+                e = _aplicar_inversor(cur, r[0], iv)
                 if e:
                     n_i += 1
                     _alias.gravar(conn, "bd_performance", f"{cod}|{iv['nome']}", "direto", "aba Equipamentos", equipamento_id=e[0], usina_id=r[0])

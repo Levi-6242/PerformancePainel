@@ -80,6 +80,7 @@ a{color:inherit;}
 .tile .tmw{font-size:15px;font-weight:700;}.tile .tmw .u{font-size:9px;color:var(--faint);font-weight:500;}
 .tile .talm{position:absolute;top:8px;right:9px;font-size:9px;font-weight:700;border-radius:5px;padding:1px 5px;}
 .tile .talm.c{background:rgba(220,38,38,.16);color:var(--red);}.tile .talm.a{background:rgba(217,119,6,.16);color:var(--amber);}
+.tile .thist{position:absolute;top:8px;right:9px;font-size:8.5px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;border-radius:5px;padding:1px 5px;background:rgba(91,200,232,.14);color:var(--info,#5bc8e8);border:1px solid rgba(91,200,232,.35);}
 .tile .trow{display:flex;align-items:center;justify-content:space-between;margin-top:6px;gap:6px;}
 .tile .tcause{font-size:8.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:3px;}
 .tile .tatg{font-size:9px;margin-top:3px;font-weight:600;}
@@ -238,6 +239,10 @@ details.rx-fr .in{padding:0 14px 14px}
         </span>
         <input id="wallSearch" type="search" placeholder="🔍  Filtrar usina..." oninput="wallFilterInput(this.value)"
                style="width:220px;max-width:100%;box-sizing:border-box;margin-left:auto;padding:6px 10px;font-size:12px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--txt)">
+        <select id="wallCli" onchange="wallSetCli(this.value)" title="Filtrar a frota por cliente"
+                style="max-width:100%;box-sizing:border-box;padding:6px 10px;font-size:12px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--txt);cursor:pointer">
+          <option value="">Todos os clientes</option>
+        </select>
       </div>
       <div class="legend" id="wallLegend">
         <!-- legenda inicial = visao Meta (padrao desde 06/09); setWallView troca ao clicar -->
@@ -407,7 +412,7 @@ async function boot(){
       fetch('/api/gerencial').then(r=>r.json()).catch(()=>null)
     ]);
     MACRO=m; GER=g; merge();
-    renderKpis(); renderWall(); renderFeed(); renderRegion(); stamp();   // a tabela "Usinas que exigem ação" saiu daqui (Levi, 08/09): o mosaico por meta já diz isso; ela segue no Histórico
+    renderKpis(); fillWallCli(); renderWall(); renderFeed(); renderRegion(); stamp();   // a tabela "Usinas que exigem ação" saiu daqui (Levi, 08/09): o mosaico por meta já diz isso; ela segue no Histórico
   }catch(e){ document.getElementById('wall').innerHTML='<div class="empty">Falha ao carregar: '+e+'</div>'; }
 }
 
@@ -416,18 +421,32 @@ function merge(){
   const gmap={};
   (GER&&GER.usinas||[]).forEach(u=>{gmap[norm(u.usina)]=u;});
   const gkeys=Object.keys(gmap);
+  const gUsado=new Set();   // chaves do gerencial já casadas com uma usina AO VIVO (p/ achar as só-gerencial, Levi 14/09)
   (MACRO&&MACRO.usinas||[]).forEach(u=>{
-    const k=norm(u.usina); let gg=gmap[k];
+    const k=norm(u.usina); let gg=gmap[k], gk=gmap[k]?k:null;
     if(!gg){ // nomes ligeiramente diferentes entre fonte live e gerencial ("Usina" vs "Usina 1"):
       const cand=gkeys.filter(x=>x.startsWith(k)||k.startsWith(x));
-      if(cand.length===1) gg=gmap[cand[0]];   // só quando o casamento é INEQUÍVOCO
+      if(cand.length===1){ gg=gmap[cand[0]]; gk=cand[0]; }   // só quando o casamento é INEQUÍVOCO
     }
+    if(gk) gUsado.add(gk);
     gg=gg||{};
     MAP[k]=Object.assign({}, u, {
       cliente: gg.cliente||u.cliente||'—', prod:gg.prod, p50:gg.p50,
       recurso:gg.recurso, atingimento:gg.atingimento, pr:gg.pr, pr_meta:gg.pr_meta, pot_mwp:gg.pot_mwp,
       meta_dias:gg.meta_dias, dias_mes:gg.dias_mes, dias_cob:gg.dias_cob   // a meta "até hoje" do Raio-X é o P50 rateado por estes dias
     });
+  });
+  // Usinas SÓ no gerencial (Greenyellow, GD Energy, Ultragaz, Sal Energia, Axis/Thopen/2C/SEMP parciais…):
+  // sem fonte ao vivo, mas com meta/PR/geração do mês. Entram na parede em MODO HISTÓRICO (Levi 14/09) —
+  // aparecem nas visões Meta e PR e o clique abre o diagnóstico histórico. Fora das visões Strings/ETM (não há ao vivo).
+  (GER&&GER.usinas||[]).forEach(u=>{
+    const k=norm(u.usina);
+    if(gUsado.has(k) || MAP[k]) return;
+    if(u.sem_dado) return;   // só usinas com ABA criada entram na parede (Levi 14/09): sem aba = sem geração = fora
+    MAP[k]=Object.assign({}, u, { _soHist:true, fonte:'histórico', plant_id:k,
+      cliente:u.cliente||'—', prod:u.prod, p50:u.p50, recurso:u.recurso,
+      atingimento:u.atingimento, pr:u.pr, pr_meta:u.pr_meta, pot_mwp:u.pot_mwp,
+      meta_dias:u.meta_dias, dias_mes:u.dias_mes, dias_cob:u.dias_cob });
   });
   aplicaGrupos();
   // usinas que só existem no gerencial (com meta, sem item de macro) entram no histórico
@@ -487,6 +506,15 @@ function renderKpis(){
 let curWQ='';
 function wallFilterInput(v){ curWQ=norm(v); renderWall(); }   // norm = minúsculo + sem acento (igual ao nome)
 let wallView='meta';   // 'meta' = atingimento da meta do mês (padrão, Levi 06/09) · 'pr' = PR do mês vs meta da UFV · 'str' = string em risco
+let wallCli='';   // filtro de cliente da frota (Levi, 14/09): '' = todos os clientes
+function wallSetCli(v){ wallCli=v; renderWall(); }
+function fillWallCli(){   // popula o <select> com os clientes distintos do MAP, preservando a seleção nos refresh de 60 s
+  const sel=document.getElementById('wallCli'); if(!sel) return;
+  const cli=[...new Set(Object.values(MAP).map(p=>p.cliente).filter(c=>c&&c!=='—'))].sort((a,b)=>String(a).localeCompare(b,'pt-BR'));
+  const atual=sel.value;
+  sel.innerHTML='<option value="">Todos os clientes</option>'+cli.map(c=>`<option${c===atual?' selected':''}>${c}</option>`).join('');
+  if(atual&&!cli.includes(atual)) wallCli='';   // o cliente selecionado sumiu do MAP → volta a todos
+}
 function setWallView(v){
   if(v==='etm') v='str';   // botao removido em 06/09/2026; a visao continua no codigo, mas nao e mais alcancavel pela tela
   wallView=v;
@@ -536,7 +564,9 @@ function tileMeta(p){
            :temP50?`<div class="tatg" style="color:var(--amber)">meta ${nf(p.p50,1)} MWh · geração do mês não encontrada</div>`
            :`<div class="tatg" style="color:var(--faint)">sem meta no mês</div>`;
   const pr=(_prReliable(p.pr)&&p.pr_meta!=null)?`<div class="tatg" style="color:var(--faint)">PR ${nf(p.pr,0)}% · meta ${nf(p.pr_meta,0)}%</div>`:'';
-  return `<div class="tile ${cls}" onclick="openDrawer('${norm(p.usina)}')">`+
+  const _clk=p._soHist?`openHist('${norm(p.usina)}')`:`openDrawer('${norm(p.usina)}')`;
+  const _ht=p._soHist?'<span class="thist" title="sem fonte ao vivo — clique para o diagnóstico histórico">hist</span>':'';
+  return `<div class="tile ${cls}" onclick="${_clk}">${_ht}`+
     `<div class="tid">${p.grupo||p.usina}</div><div class="tcli">${p.cliente||''}${_grpNota(p)}</div>`+
     `<div class="tmw num" style="color:${col}">${val}</div>${sub}${pr}</div>`;
 }
@@ -563,7 +593,9 @@ function tilePr(p){
     : _mot
       ? `<div class="tatg" style="color:var(--amber);font-weight:600" title="motivo de não ter PR${p.full_oem?' · Full O&amp;M (deveria ter)':''}">${_mot}</div>${metaLn}`
       : metaLn;
-  return `<div class="tile ${cls}" onclick="openDrawer('${norm(p.usina)}')">`+
+  const _clk=p._soHist?`openHist('${norm(p.usina)}')`:`openDrawer('${norm(p.usina)}')`;
+  const _ht=p._soHist?'<span class="thist" title="sem fonte ao vivo — clique para o diagnóstico histórico">hist</span>':'';
+  return `<div class="tile ${cls}" onclick="${_clk}">${_ht}`+
     `<div class="tid">${p.grupo||p.usina}</div><div class="tcli">${p.cliente||''}${_grpNota(p)}</div>`+
     `<div class="tmw num" style="color:${col}">${val}</div>${sub}</div>`;
 }
@@ -574,10 +606,12 @@ function renderWall(){
   let items=Object.values(MAP).filter(p=>{
     // Meta e PR falam do MÊS, que a base lança pelo grupo: um bloco só (as strings seguem por usina ao vivo).
     if((wallView==='meta'||wallView==='pr') && p.grupo && !p.grupo_lider) return false;
+    if(wallView==='str' && p._soHist) return false;   // usina sem fonte ao vivo não tem string agora (Levi 14/09)
     const c=_wallCls(p);
     if(curWF==='exc'&&c==='ok')return false;
     if(curWF==='crit'&&c!=='critico')return false;
     if(curWQ && !norm(p.usina).includes(curWQ)) return false;
+    if(wallCli && (p.cliente||'—')!==wallCli) return false;   // filtro de cliente (Levi, 14/09)
     return true;
   });
   if(!items.length){wallEl.innerHTML='<div class="empty">Sem usinas neste filtro.</div>';return;}
@@ -748,9 +782,14 @@ document.querySelectorAll('#grpFilters button').forEach(b=>b.onclick=()=>{
    OEM sozinho (_pv_token_for) — o drill completo da Tucano vem de graça. RenoGrid entrou no drill em
    07/09/2026 (v2 com inversores, PR e energia; sem trackers nem curva por string). */
 const FMAP={'API PV':'pv','Thopen':'pg','Athon':'athon','Axis':'axis','2C':'2c','SEMP':'pv','RenoGrid':'solaredge'};
-function hasDrill(p){return !!FMAP[p.fonte];}              // TODAS as fontes têm drill (inversores+trackers)
+function hasDrill(p){return p._soHist?true:!!FMAP[p.fonte];}   // usina sem fonte ao vivo → diagnóstico HISTÓRICO (Levi 14/09)
 function hasEngine(p){return p.fonte==='API PV'||p.fonte==='Thopen';}  // motor de causa provável só pv/pg
-function drillUrl(p){const f=FMAP[p.fonte];if(!f)return '';return `/painel/usina/${encodeURIComponent(p.plant_id)}?fonte=${f}&nome=${encodeURIComponent(p.usina)}&ts=${encodeURIComponent(p.ultima_leitura||'')}`;}
+function drillUrl(p){
+  if(p._soHist) return `/painel/usina/${encodeURIComponent(p.plant_id||norm(p.usina))}?hist=1&cliente=${encodeURIComponent(p.cliente||'')}&nome=${encodeURIComponent(p.usina)}`;
+  const f=FMAP[p.fonte];if(!f)return '';return `/painel/usina/${encodeURIComponent(p.plant_id)}?fonte=${f}&nome=${encodeURIComponent(p.usina)}&ts=${encodeURIComponent(p.ultima_leitura||'')}`;
+}
+// clique num tile SÓ-histórico → abre o diagnóstico histórico completo em nova aba (não há drawer ao vivo)
+function openHist(k){ const p=MAP[k]; if(p) window.open(drillUrl(p),'_blank'); }
 /* ---- Comentários multi-analista (thread) — MESMA chave/API do dashboard operacional (index.html),
    então um comentário publicado lá ou aqui aparece nos dois lugares. ---- */
 const KEYPFX={'API PV':'pv','Thopen':'pg','Athon':'so','Axis':'so','2C':'owen'};
@@ -828,9 +867,9 @@ const RX_SRC={   // pr = PR de HOJE por inversor (o "PR do mês" do BD_Performan
   athon:    {plant:id=>'/api/sunop/plant/'+id,        trk:id=>'/api/sunop/trackers/'+id, etm:'/api/sunop/etm/analise',                                         pr:id=>'/api/sunop/pr/'+id, dp:'sunop'},
   axis:     {plant:id=>'/api/axis/plant/'+id,         trk:id=>'/api/axis/trackers/'+id,  etm:'/api/axis/etm/analise',                                          pr:id=>'/api/axis/pr/'+id,  dp:'axis'},
   '2c':     {plant:id=>'/api/owen/strings/plant/'+id, trk:id=>'/api/owen/trackers/'+id,  etm:'/api/owen/etm/analise',                                                                      dp:'owen'},
-  semp:     {plant:id=>'/api/plant/'+id,                                                  etm:'/api/semp/etm/analise',                                          pr:id=>'/api/pv/pr/'+id,    lento:true},   // id global da API PV (token da conta OEM no backend)
+  semp:     {plant:id=>'/api/plant/'+id,              trk:id=>'/api/pv/trackers/'+id,    etm:'/api/semp/etm/analise',                                          pr:id=>'/api/pv/pr/'+id,    lento:true},   // id global da API PV (token da conta OEM no backend); trackers pela PV Plataforma desde 15/09/2026 (o token novo parou de negar)
   alveslima:{plant:id=>'/api/plant/'+id,                                                  etm:'/api/alveslima/etm/analise',                                     pr:id=>'/api/pv/pr/'+id,    lento:true},
-  '2capi':  {plant:id=>'/api/plant/'+id,                                                  etm:'/api/2capi/etm/analise',                                         pr:id=>'/api/pv/pr/'+id,    lento:true},   // 2C pela API PV (conta oem@), 11/09/2026
+  '2capi':  {plant:id=>'/api/plant/'+id,              trk:id=>'/api/2capi/trackers/'+id, etm:'/api/2capi/etm/analise',                                         pr:id=>'/api/pv/pr/'+id,    lento:true},   // 2C pela API PV (conta oem@), 11/09/2026; trackers desde 16/09/2026
   solaredge:{plant:id=>'/api/solaredge/plant/'+id,                                                                                                              pr:id=>'/api/solaredge/pr/'+id}};
 const RX_SK={'API PV':'pv','Thopen':'pg','Athon':'athon','Axis':'axis','2C':'2c','SEMP':'semp','Alves Lima':'alveslima','RenoGrid':'solaredge','2C · API PV':'2capi'};
 const RX_GEMEO_FONTE={'Thopen':'pg','Athon':'sunop','Axis':'axis'};   // como o gêmeo chama a fonte (catálogo: fonte + fonte_ref)

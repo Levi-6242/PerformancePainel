@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Máquina nova · mapeamento do que roda, onde mora e como sobe · 12/09/2026</title>
+<style>
+:root{--bg:#090d18;--panel:#161d30;--panel2:#1b2338;--line:#26304a;--txt:#e6ebf5;--muted:#9aa6c4;--faint:#6b7699;--brand:#a3d900;--ok:#4ade80;--warn:#f5c877;--bad:#ff5b6e;--blue:#5bc8e8;--mono:Consolas,"Cascadia Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif}
+.wrap{max-width:1240px;margin:0 auto;padding:28px 22px 60px}
+h1{font-size:24px;margin:0 0 4px;font-weight:650;letter-spacing:.2px}
+h1 small{color:var(--brand);font-family:var(--mono);font-size:13px;font-weight:500;margin-left:10px}
+h2{font-size:15px;text-transform:uppercase;letter-spacing:1.4px;color:var(--brand);margin:36px 0 12px;font-weight:600}
+h3{font-size:15px;margin:0 0 6px;font-weight:600}
+.sub{color:var(--muted);margin:0 0 16px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0}
+.chip{font-family:var(--mono);font-size:12px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;color:var(--muted);background:var(--panel)}
+.chip b{color:var(--txt);font-weight:600}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.kpi .n{font-family:var(--mono);font-size:26px;font-weight:600;line-height:1.1;margin:2px 0 4px}
+.kpi .l{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:1px}
+.kpi .d{color:var(--muted);font-size:12.5px}
+.muted{color:var(--muted)} .faint{color:var(--faint)}
+.ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)} .blue{color:var(--blue)} .brand{color:var(--brand)}
+.pill{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:.6px;text-transform:uppercase;padding:3px 9px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.p-ok{color:var(--ok);border-color:rgba(74,222,128,.45);background:rgba(74,222,128,.08)}
+.p-op{color:var(--blue);border-color:rgba(91,200,232,.45);background:rgba(91,200,232,.08)}
+.p-warn{color:var(--warn);border-color:rgba(245,200,119,.5);background:rgba(245,200,119,.08)}
+.p-pend{color:var(--muted);border-color:var(--line);background:var(--panel2)}
+.p-bad{color:var(--bad);border-color:rgba(255,91,110,.5);background:rgba(255,91,110,.08)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:1px;padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:bottom}
+td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:none}
+code,.mono{font-family:var(--mono);font-size:12.5px;color:#cfe3a0}
+td code{white-space:nowrap}
+.wrapx{overflow-x:auto}
+ul.li{margin:0;padding-left:18px} ul.li li{margin:4px 0}
+.map{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px;border-top:3px solid var(--line)}
+.box.b-ok{border-top-color:var(--ok)} .box.b-warn{border-top-color:var(--warn)} .box.b-blue{border-top-color:var(--blue)} .box.b-bad{border-top-color:var(--bad)}
+.box .k{font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:1px}
+.box .t{font-weight:600;margin:2px 0 6px;font-size:13.5px}
+.box .x{color:var(--muted);font-size:12.5px;line-height:1.45}
+.steps{list-style:none;margin:0;padding:0;counter-reset:s}
+.steps li{display:grid;grid-template-columns:36px 1fr;gap:12px;padding:8px 0;border-bottom:1px solid var(--line)}
+.steps li:last-child{border-bottom:none}
+.steps li:before{counter-increment:s;content:counter(s);width:30px;height:30px;border-radius:50%;border:2px solid var(--line);display:flex;align-items:center;justify-content:center;font-family:var(--mono);color:var(--brand);font-weight:600}
+.foot{color:var(--faint);font-size:12px;margin-top:40px;border-top:1px solid var(--line);padding-top:12px}
+@media (max-width:1000px){.grid,.map{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Máquina nova <small>mapeamento do que roda, onde mora e como sobe</small></h1>
+<p class="sub">Resposta ao passo 2, item 4 ("crie um mockup de como deve ser o mapeamento correto e que faça sentido para a máquina nova"). Vale para tudo o que hoje roda no PC do Levi: plataforma, gêmeo, OS Creator web, coletor, ronda e o dashboard do Thopen. Princípio: <b>nada que roda mora no OneDrive</b>; tudo sobe por tarefa agendada, atualiza por <code>git pull</code> e guarda segredo numa pasta só.</p>
+<div class="chips">
+  <span class="chip"><b>12</b> tarefas agendadas hoje</span>
+  <span class="chip"><b>5</b> portas locais: 5050 · 5070 · 5075 · 5080 · 5090</span>
+  <span class="chip"><b>3</b> repositórios: plataforma (com gêmeo, coletor, thopen) · oem · Grid-Co-CODE/gemeo (a criar)</span>
+  <span class="chip"><b>1</b> pasta de segredos por projeto, fora do OneDrive e fora do git</span>
+</div>
+
+<h2>1. O que roda: processo por processo</h2>
+<div class="wrapx"><table>
+<tr><th>Serviço</th><th>Porta</th><th>Como sobe hoje</th><th>Como deve subir na máquina nova</th><th>Do que depende (segredo · estado)</th></tr>
+<tr><td><b>Plataforma de Performance</b><br><span class="muted">plataforma/app.py + worker.py</span></td><td><code>5050</code></td><td>À mão: <code>Iniciar Dashboards.bat</code> ou <code>Compartilhar Dashboard.bat</code> (sobe app + túnel)</td><td>Tarefa <b>Plataforma</b> no mesmo padrão do gêmeo (AtLogOn + repete a cada 5 min, <code>IgnoreNew</code>, sem limite de tempo) para app.py e outra para worker.py. Sai o .bat manual.</td><td><code>tokens.txt</code>, <code>.env</code> (DASH_PASSWORD), <code>tokens_runtime.json</code>, <code>pg_password.txt</code>, <code>se_credentials.txt</code>, <code>plat_token.txt</code>; ~7 MB de estado: <code>trk_eventos.json</code>, <code>perdas_strings.json</code>, <code>ufv_state.json</code>, <code>fracttal_index.json</code>, <code>whats_*.json</code>, <code>cache_snapshot.json</code></td></tr>
+<tr><td><b>Túnel Cloudflare</b><br><span class="muted">cloudflared, publica a 5050</span></td><td>—</td><td>Tarefa <b>GridCo Tunel Guardian</b> (quick tunnel; a URL muda a cada queda)</td><td>Igual, até haver URL fixa. Túnel <b>nomeado</b> exige o domínio na Cloudflare — decisão da seção 6. Uma URL fixa destrava também o login Microsoft e o callback do Fracttal.</td><td>Quick tunnel: nada. Nomeado: <code>cert.pem</code> + credencial do túnel.</td></tr>
+<tr><td><b>Gêmeo · ingest</b><br><span class="muted">gemeo.cli ingest — threads pg, sunop fino/lento, apipv, plat, cadastro</span></td><td>—</td><td>Tarefa <b>Gemeo Ingest</b> (<code>instalar_tarefas.ps1 -SemAdmin</code>)</td><td>Igual. Só muda o caminho do código (clone fora do OneDrive) e o do log.</td><td><code>gemeo-secrets/gemeo.env</code>: SUNOP_API_TOKEN, GRIDCO_SQL_TOKEN, GEMEO_SENHA, POWERPLANTS_DSN, PV_OEM_USERNAME/PASSWORD, <b>PV_PLAT_TOKEN_OEM</b> (vence a cada 7 dias) · banco <code>C:\GridcoAuto\gemeo\gemeo.sqlite</code></td></tr>
+<tr><td><b>Gêmeo · app</b><br><span class="muted">gemeo.cli app; a plataforma publica em /gemeo/*</span></td><td><code>5075</code></td><td>Tarefa <b>Gemeo App</b></td><td>Igual.</td><td>GEMEO_SENHA (o proxy da plataforma já cuida da autenticação)</td></tr>
+<tr><td><b>Gêmeo · modelar</b><br><span class="muted">novo processo a cada 15 min: grade, esperado, decomposição, cascata, publicação</span></td><td>—</td><td>Tarefa <b>Gemeo Modelar</b> (a cada 15 min)</td><td>Igual.</td><td>GRIDCO_SQL_TOKEN (publica o workbook gemeo_digital)</td></tr>
+<tr><td><b>OS Creator web</b><br><span class="muted">os_web.servir (waitress); a plataforma publica em /os/*</span></td><td><code>5090</code></td><td>Tarefa <b>OS Creator Web</b> (vbs espera o cmd)</td><td>Igual; repo <code>oem</code> clonado em <code>C:\GridcoBuild\oem</code> como hoje.</td><td><code>os_creator/.env</code>: FRACTTAL_CLIENT_ID/SECRET, FRACTTAL_OAUTH_VOLTA (quando a página fixa existir) · <code>os_web_segredo.txt</code> (cookie de sessão)</td></tr>
+<tr><td><b>Dashboard Thopen</b><br><span class="muted">thopen/dashboard_thopen.py — produto do cliente</span></td><td><code>5080</code></td><td>Produção no <b>Railway</b> (URL fixa). Local: as tarefas <b>Dashboard Thopen - Vigia / Atualizar Nuvem / Agente Publicar</b> empurram o snapshot</td><td>As três tarefas de publicação vão junto (precisam do git com credencial). O serviço em si continua no Railway.</td><td>GRIDCO_SQL_TOKEN nas Variables do Railway · credencial git da máquina</td></tr>
+<tr><td><b>Coletor GridCo</b><br><span class="muted">Coletor GridCo.exe + Painel de Integridade</span></td><td><code>5070</code></td><td>Tarefas <b>Coletor GridCo - 22h30</b>, <b>GridCo Fechamento Noturno</b>, <b>2C - Baixar E-mails GridCo</b></td><td>Igual — mas coleta em <b>UMA</b> máquina só: duas escrevendo geram cópia de conflito e perdem o dia. O corte é seco.</td><td><code>config.ini</code> (caminhos dos BD_*), credenciais das APIs e do e-mail da 2C</td></tr>
+<tr><td><b>Ronda WhatsApp</b><br><span class="muted">whatsapp-web.js (um Chromium inteiro)</span></td><td>—</td><td>Tarefa <b>GridCo Ronda Guardian</b>; sessão do chip em <code>C:\GridcoWhats\session</code></td><td>Reparear o chip na máquina nova lendo o QR. <b>Nunca</b> as duas máquinas com a ronda ligada (brigam pela sessão).</td><td>Sessão do chip (perfil do Chromium)</td></tr>
+</table></div>
+
+<h2>2. Onde mora cada coisa</h2>
+<div class="wrapx"><table>
+<tr><th>O que</th><th>Hoje</th><th>Máquina nova</th><th>Por quê</th></tr>
+<tr><td>Código (plataforma, gêmeo, coletor, thopen)</td><td>Repo git dentro do <b>OneDrive</b> (<code>…\Área de Trabalho\temp\Projeto API PV</code>)</td><td><code>C:\GridcoBuild\plataforma</code> (clone) — como o oem já está em <code>C:\GridcoBuild\oem</code></td><td>OneDrive sincroniza <code>.git</code> e arquivo meio-escrito; caminho com acento quebra script (aconteceu hoje com o vbs). Atualização = <code>git pull</code> + reinício da tarefa, com rollback se o <code>/healthz</code> não responder em 60 s.</td></tr>
+<tr><td>Banco do gêmeo</td><td><code>C:\GridcoAuto\gemeo\gemeo.sqlite</code></td><td>Igual (já está certo)</td><td>SQLite em pasta sincronizada = lock preso e arquivo subido pela metade.</td></tr>
+<tr><td>Logs do gêmeo</td><td><code>gemeo\logs\ingest.log</code> <b>dentro do OneDrive</b> (o .cmd escreve no repo)</td><td><code>C:\GridcoAuto\gemeo\logs\</code></td><td>Mesma razão; e log cresce. <span class="warn">Pendência pequena: mudar os três .cmd.</span></td></tr>
+<tr><td>Segredos</td><td>Espalhados: <code>gemeo-secrets</code> no perfil, <code>tokens.txt</code>/<code>.env</code> na raiz do repo, <code>os_creator/.env</code>, keyring do Fracttal</td><td><code>C:\GridcoSecrets\&lt;projeto&gt;\</code> — uma pasta por projeto, fora do OneDrive e do git, ACL só para a conta de serviço; cópia no cofre da empresa</td><td>É o que o git não leva e o que ninguém pode perder; hoje a cópia de segurança é a memória de quem configurou.</td></tr>
+<tr><td>Planilhas BD_*</td><td>OneDrive ("sempre neste dispositivo") e, onde já migrou, a API SQL Gridco</td><td>Igual; a API é o alvo</td><td>Arquivos sob demanda viram arquivo-fantasma para o pandas.</td></tr>
+<tr><td>Estado da plataforma (7 MB)</td><td><code>plataforma\</code> dentro do repo (ignorado pelo git)</td><td>Igual, dentro do clone; copiado no corte por canal seguro</td><td>Esquecer = perder comentários, travas, eventos de tracker e o índice do Fracttal.</td></tr>
+</table></div>
+
+<h2>3. Tarefas agendadas: o padrão que já funciona</h2>
+<div class="grid2">
+  <div class="card">
+    <h3>O padrão (gemeo/deploy/instalar_tarefas.ps1)</h3>
+    <ul class="li">
+      <li>Gatilhos: <b>AtLogOn</b> + <b>repetição a cada 5 min</b> por 10 anos — se o processo cair, a próxima repetição sobe de novo; se está de pé, <code>MultipleInstances IgnoreNew</code> não duplica.</li>
+      <li><code>ExecutionTimeLimit = 0</code> (sem matar às 72 h) e o <b>.vbs espera</b> o .cmd (senão a tarefa acha que terminou e duplica).</li>
+      <li>Roda como o usuário logado (<code>-SemAdmin</code>): na máquina nova, uma <b>conta de serviço</b> com logon automático e bloqueio de tela.</li>
+      <li>Python <b>real</b> (não o alias da Store, que sobe um stub e duplica o app.py).</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3>As 12 de hoje → o que muda</h3>
+    <ul class="li">
+      <li><span class="ok">Ficam iguais:</span> Gemeo Ingest · Gemeo App · Gemeo Modelar · OS Creator Web · GridCo Tunel Guardian · GridCo Ronda Guardian · Coletor GridCo - 22h30 · GridCo Fechamento Noturno · 2C - Baixar E-mails GridCo · Dashboard Thopen - Vigia / Atualizar Nuvem / Agente Publicar.</li>
+      <li><span class="warn">Entram:</span> <b>Plataforma App</b> e <b>Plataforma Worker</b> (hoje é .bat à mão) · <b>Backup Gemeo</b> (23:40) · <b>Backup Estado</b> (23:45).</li>
+      <li><span class="blue">Um instalador só:</span> um <code>instalar_tudo.ps1</code> que chama o do gêmeo e registra as demais, para a T.I. rodar sem ler runbook.</li>
+    </ul>
+  </div>
+</div>
+
+<h2>4. Backup e monitor externo</h2>
+<div class="map">
+  <div class="box b-ok"><div class="k">BACKUP · BANCO</div><div class="t">gemeo.sqlite, diário</div><div class="x"><code>sqlite3 .backup</code> às 23:40 para <code>C:\GridcoAuto\backup\gemeo-AAAAMMDD.sqlite</code>, guarda 7 dias; cópia semanal para o SharePoint da equipe. Restauração testada uma vez por mês (abrir a cópia e rodar <code>gemeo.cli status</code>).</div></div>
+  <div class="box b-ok"><div class="k">BACKUP · ESTADO</div><div class="t">7 MB da plataforma, diário</div><div class="x">Zip dos json de estado + <code>tokens_runtime.json</code> às 23:45, mesma pasta e mesma retenção. É o que o git não leva.</div></div>
+  <div class="box b-warn"><div class="k">BACKUP · SEGREDOS</div><div class="t">Cofre, não arquivo</div><div class="x">Cada chave em <code>C:\GridcoSecrets</code> tem uma cópia no cofre da empresa (1Password/Bitwarden), com o nome do arquivo e a data. Tokens que vencem (PV_PLAT_TOKEN_OEM, 7 dias) ganham lembrete no calendário até existir renovação automática.</div></div>
+  <div class="box b-blue"><div class="k">MONITOR</div><div class="t">Local hoje, externo com URL fixa</div><div class="x">Local: os guardians (5 min) e o Vigia do Thopen já reerguem o que cai. Externo (UptimeRobot/Better Stack, grátis) batendo em <code>/healthz</code> (5050), <code>/gemeo/api/frota</code> e <code>/os/login</code> a cada 5 min e avisando no WhatsApp da ronda — <b>exige URL fixa</b>: é a mesma decisão do domínio.</div></div>
+</div>
+
+<h2>5. A ordem do corte</h2>
+<div class="card">
+<ol class="steps">
+  <li><div><b>Preparar a máquina.</b> Windows 11 Pro, 16 GB, 4 a 8 núcleos, SSD 512 GB, rede por cabo. Instalar Python real (aliases da Store desligados), git, cloudflared, OneDrive com as pastas BD_* "sempre neste dispositivo", Excel. Criar a conta de serviço.</div></li>
+  <li><div><b>Clonar e configurar.</b> <code>git clone</code> dos dois repositórios em <code>C:\GridcoBuild</code>; criar <code>C:\GridcoSecrets\&lt;projeto&gt;</code> e <code>C:\GridcoAuto</code>; copiar segredos e os 7 MB de estado por canal seguro (não por e-mail, não pelo OneDrive).</div></li>
+  <li><div><b>Rodar lado a lado com coleta e ronda DESLIGADAS.</b> Gêmeo, plataforma e OS Creator web sobem na máquina nova e a gente compara os números com a antiga por dois dias (<code>/gemeo/api/frota</code>, Entrada, Diagnóstico).</div></li>
+  <li><div><b>Corte seco.</b> Desliga tudo aqui (coletor, ronda, túnel), liga lá, repareia o chip do WhatsApp, confirma o IP novo na regra do PostgreSQL se houver.</div></li>
+  <li><div><b>Reserva fria.</b> O PC antigo fica duas semanas sem formatar e sem tarefas ativas.</div></li>
+</ol>
+</div>
+
+<h2>6. Decisões para o Levi</h2>
+<div class="grid">
+  <div class="card"><h3 class="warn">URL fixa</h3><p class="muted">Uma decisão, quatro problemas: link da plataforma que muda, login Microsoft, callback do Fracttal e monitor externo. Opções: (a) trazer <code>gridco.com.br</code> para a Cloudflare e usar túnel nomeado — mexe no DNS da empresa, é com a T.I.; (b) subdomínio (<code>plataforma.gridco.com.br</code>) apontado para um serviço com URL fixa; (c) seguir com o quick tunnel e conviver.</p></div>
+  <div class="card"><h3 class="blue">Conta e acesso</h3><p class="muted">Quem loga na máquina (conta de serviço da Grid Co ou usuário do Levi), quem tem a senha do cofre e quem é a segunda pessoa treinada no runbook. Sugestão: conta de serviço + Levi + uma pessoa da T.I. com acesso somente ao instalador.</p></div>
+  <div class="card"><h3 class="brand">O que vai junto</h3><p class="muted">Coletor e ronda vão para a mesma máquina (evita duas máquinas escrevendo planilha)? E o gêmeo ganha repositório próprio (<code>Grid-Co-CODE/gemeo</code>) antes ou depois do corte? Sugestão: tudo junto, repositório próprio antes.</p></div>
+</div>
+
+<p class="foot">Fontes: tarefas agendadas desta máquina em 12/09/2026 (Get-ScheduledTask), <code>gemeo/config.toml</code>, <code>gemeo/deploy/instalar_tarefas.ps1</code>, <code>gemeo/deploy/README.md</code>, <code>deploy/os_web.cmd</code>, plano do PC dedicado de 22/07/2026. Mockup: não executa nada; é para decidir.</p>
+</div>
+</body>
+</html>

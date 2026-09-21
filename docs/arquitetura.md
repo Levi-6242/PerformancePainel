@@ -193,7 +193,7 @@ C:\Users\Levi Maia\.claude\projects\C--Users-Levi-Maia\memory\
 - Só tem visão de **strings** (sem ETM/trackers). Corrente "ativa" = potência > 0.
 
 ### 4.6 2C / E-mail (Owen) — `owen` (cliente: 2C, 4 UFVs)
-- **UFVs:** `OWEN_UFVS = {ARA: Araputanga, IPX: Ipixuna do Pará, STL: Sete Lagoas 2, TUP: Tupi Paulista}`.
+- **UFVs:** `OWEN_UFVS = {ARA: Araputanga, IPX: Ipixuna do Pará, STL: Sete Lagoas, TUP: Tupi Paulista}` — nomes do cadastro (Info Geral); no Fracttal a STL chama-se "Sete Lagoas 2".
 - **Origem:** SCADA envia CSVs por e-mail em 4 janelas/dia (9/12/15/18h). O `app_gridco.py`
   (Gmail OAuth) baixa para `Desktop\Projetos e-mail\{ETM,Strings,Trackers}\`.
 - **Acumulador:** como os e-mails são INCREMENTAIS e o baixador sobrescreve, o dashboard mescla

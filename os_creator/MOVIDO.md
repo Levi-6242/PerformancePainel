@@ -37,5 +37,5 @@ build falha: o `assets_cache.json` está no `datas` do `.spec`.
   os dois projetos é HTTP, não import.
 
 **Cuidado que passou a existir:** as duas pontas do `gridos://` agora vivem em repositórios
-diferentes — quem manda é `plataforma/templates/index.html`, quem recebe é `os_creator/main.py`.
+diferentes — quem manda é o front do Monitoramento (`docs/redesign/Monitoramento (novo design).html`), quem recebe é `os_creator/main.py`. Era o `templates/index.html` até 19/09/2026, quando o front Jinja antigo e a rota `/antigo` foram removidos — o deep link já vivia no design novo.
 Mudar o formato do link virou duas alterações coordenadas, e nada avisa se uma esquecer da outra.

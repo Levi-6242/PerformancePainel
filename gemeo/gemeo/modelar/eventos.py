@@ -27,7 +27,15 @@ class ParamsEventos:
     abaixo_dias: int = 3
     trk_excesso_min: float = 10.0
     trk_slots_min: int = 4
+    trk_congelado_graus: float = 1.0        # angulo bruto com amplitude <= isto no dia = congelado (travado ou mudo)
+    trk_frota_amplitude_min: float = 30.0   # ...desde que a FROTA tenha se mexido pelo menos isto (dia de stow nao conta)
     ghi_diurno: float = 50.0
+    # SENSOR CONGELADO (17/09/2026): a POA medida e a ENTRADA do modelo — um piranometro travado
+    # nao produz um evento, produz um ESPERADO INTEIRO errado, e nada avisava. Diferente do
+    # `sensor_em_falha`, que e a razao POA/GHI fora da faixa e nao pega sensor repetindo um valor
+    # PLAUSIVEL. So conta COM SOL: sem sol a POA e zero para todo mundo e seria alarme toda noite.
+    sens_congelado_slots: int = 8      # 8 slots de 15 min = 2 h repetindo o mesmo valor
+    sens_congelado_rtol: float = 1e-4  # ruido de conversor A/D nao 'descongela' o sensor
     str_zero_a: float = 0.1
     str_slots_min: int = 4
 
@@ -83,6 +91,45 @@ def detectar(grade: Grade, gate_res: Resultado, esp: pd.DataFrame, d: Decomposic
             if len(sl):
                 evs.append(Evento("sensor_em_falha" if motivo == "poa_ghi" else "sem_cobertura", None, sl[0], sl[-1] + PASSO, 0.0, "grave",
                                   {"motivo": motivo, "razao_poa_ghi": _finito(gate_res.razao_dia.get(dd))}))
+    # sensor congelado: a POA (ou o GHI) repetindo o MESMO valor com sol. Varre por dia, so nos
+    # slots diurnos; um sensor travado num valor plausivel passa por todos os outros testes.
+    #
+    # O `diurno` geral NAO serve aqui: ele vem de `poa > 50 ou ghi > 50`, isto e, do proprio sensor
+    # sob suspeita. A Ibate 2 (17/09/2026) apareceu congelada em POA 464,04 e GHI 467,24 e, travada
+    # num valor plausivel, declarava que era dia a noite inteira — o evento saia com 96 slots, das
+    # 00:00 as 00:00. Aqui o dia vem da PRODUCAO dos inversores, que nao depende do piranometro:
+    # se a usina gera, o sol esta la. Sem inversor com dado, cai no `diurno` de sempre.
+    gerando = grade.inv_p.sum(axis=1, min_count=1) > 0 if not grade.inv_p.empty else None
+    sol = diurno if gerando is None else gerando.reindex(grade.indice).fillna(False)
+    for medida in ("poa", "ghi"):
+        if medida not in grade.estacao.columns:
+            continue
+        serie = grade.estacao[medida]
+        for dd, ii in grupos.items():
+            sl = [i for i in ii if bool(sol.get(i, False))]
+            if len(sl) < p.sens_congelado_slots:
+                continue
+            v = serie.reindex(sl).astype(float)
+            if v.isna().all():
+                continue
+            ini = fim = None
+            corrida: list = []
+            for ts in sl:
+                x = v.get(ts)
+                if x is None or pd.isna(x):
+                    corrida = []
+                    continue
+                if corrida and abs(x - float(v.get(corrida[0]))) <= max(abs(x) * p.sens_congelado_rtol, 1e-9):
+                    corrida.append(ts)
+                else:
+                    corrida = [ts]
+                if len(corrida) >= p.sens_congelado_slots and (fim is None or ts > fim):
+                    ini, fim = corrida[0], ts
+            if ini is not None:
+                evs.append(Evento("sensor_congelado", None, ini, fim + PASSO, 0.0, "grave",
+                                  {"medida": medida, "valor": _finito(float(v.get(fim))),
+                                   "slots": int((fim - ini) / PASSO) + 1}))
+
     # inversor parado: CORRIDA de slots com sol parados, de pelo menos 1 h. A regra antiga pedia >= 90 % dos slots
     # com sol do dia e so enxergava apagao de dia inteiro: em 03/09/2026 a CPP100 desligou 8 dos 12 inversores das
     # 10h as 14h locais — 4.962 kWh na cascata — e a tela nao mostrou assinatura nenhuma. Por corrida o ini/fim
@@ -118,11 +165,39 @@ def detectar(grade: Grade, gate_res: Resultado, esp: pd.DataFrame, d: Decomposic
             kwh = float(falta[dia.isin(ult).values].sum() * H)
             evs.append(Evento("inversor_abaixo", eid, idx[(dia == ult[0]).values][0], None, kwh, severidade(kwh, float(e_dia.reindex(ult).sum())),
                               {"razoes": [round(float(x), 3) for x in v]}))
-    # tracker fora do alvo: excesso > 10 graus por >= 1 h seguida, de dia; NaN (mudo ha mais de 6 h) nao e desvio
+    # tracker CONGELADO: angulo bruto constante o dia inteiro enquanto a frota se mexe. Sete Lagoas, 11/09/2026: TRK51 em
+    # 25,8 graus das 9h as 17h com a frota indo de -46 a +55 — TRAVADO (comunica, nao mexe): UM evento no dia, com a perda do
+    # dia, em vez de varias corridas de 'fora do alvo'. Araputanga TRK5: 0,0 fixo e aComm=1 na PV Plataforma — sensor MUDO,
+    # o zero nao e angulo e a perda e incerta. A amplitude da FROTA e a guarda: dia de stow (vento/nuvem) nao tem travado.
+    congelados: set = set()
+    if not grade.trk_ang.empty:
+        frota_bruta = grade.trk_ang.median(axis=1)
+        dias_de_sol = dia[diurno].groupby(dia[diurno]).groups
+        for t in d.excesso.columns:
+            if t not in grade.trk_ang.columns:
+                continue
+            for dd, ind in dias_de_sol.items():
+                v = grade.trk_ang.loc[ind, t].dropna()
+                fr = frota_bruta.loc[ind].dropna()
+                if len(v) < p.trk_slots_min or fr.empty or (fr.max() - fr.min()) < p.trk_frota_amplitude_min:
+                    continue
+                if (v.max() - v.min()) > p.trk_congelado_graus:
+                    continue
+                ang = float(v.median())
+                mudo = abs(ang) < 1e-9
+                kwh = float(d.perda_trk[t].loc[ind].sum() * H) if t in d.perda_trk.columns else 0.0
+                det = {"angulo": round(ang, 2), "slots": int(len(v))}
+                if mudo:
+                    det["estimativa"] = "incerta"
+                evs.append(Evento("tracker_sem_comunicacao" if mudo else "tracker_travado", t, ind[0], ind[-1] + PASSO, kwh,
+                                  severidade(kwh, float(e_dia.get(dd, 0.0))), det))
+                congelados.add((t, dd))
+    # tracker fora do alvo: excesso > 10 graus por >= 1 h seguida, de dia; NaN (mudo ha mais de 4 h de sol) nao e desvio;
+    # o dia em que o tracker esta congelado ja saiu acima e nao se repete aqui
     for t in d.excesso.columns:
         mask = (d.excesso[t] > p.trk_excesso_min) & diurno
         for a, b in _corridas(mask):
-            if b - a + 1 < p.trk_slots_min:
+            if b - a + 1 < p.trk_slots_min or (t, dia.iloc[a]) in congelados:
                 continue
             kwh = float(d.perda_trk[t].iloc[a:b + 1].sum() * H)
             evs.append(Evento("tracker_fora_alvo", t, idx[a], idx[b] + PASSO, kwh, severidade(kwh, float(e_dia.get(dia.iloc[a], 0.0))),

@@ -3,8 +3,10 @@
 banco semeado com a MRO100 de 31/08 (pula sem GEMEO_TEST_DSN)."""
 import datetime as dt
 import json
+import types
 import sys
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -219,3 +221,107 @@ def test_catalogo_diz_como_a_plataforma_acha_a_usina(conn, mro100_modelada):
     cat = c.catalogo(conn)
     m = next(u for u in cat if u["id"] == usina.id)
     assert m["codigo"] == "MRO100" and m["fonte"] == "sunop" and m["fonte_ref"] and "n_equip" in m
+
+
+def test_o_bloco_de_clima_chega_na_tela_porque_a_consulta_traz_lat_lon(conn, mro100_modelada):
+    """17/09/2026 — bug meu: `clima_do_dia` recebia lat/lon de `_usinas`, que NAO os seleciona.
+
+    O retorno era `{None, None}` e a tela simplesmente escondia variabilidade e GHI x ceu claro:
+    falha SILENCIOSA, o pior tipo. A usina semeada tem coordenada, entao os dois campos tem de sair."""
+    usina, _ = mro100_modelada
+    assert c._usinas(conn, usina.id)[0]["lat"] is not None, "a consulta da usina precisa trazer lat"
+    us = c.usina(conn, usina.id, dt.datetime(2026, 8, 31, 20, 0, tzinfo=UTC))
+    assert us["sensor"]["ghi_x_clarosky"] is not None and us["sensor"]["variabilidade"] is not None
+
+
+def test_saude_nao_varre_a_tabela_de_leitura(conn, mro100_modelada):
+    """17/09/2026 — o /healthz levava 56 s e o proxy da plataforma (timeout=30) sempre devolvia 503:
+    o gemeo estava SAUDAVEL e parecia fora do ar.
+
+    A culpa era `_usinas`, que faz um `_ultima_leitura` por usina sobre 17,3 M linhas (38,8 s com
+    cache frio). O healthz so precisa do FUSO de cada usina, para saber se alguma esta em janela
+    solar. Trava-se aqui que ele nao paga esse preco."""
+    usina, _ = mro100_modelada
+    chamadas = []
+    original = c._ultima_leitura
+    c._ultima_leitura = lambda conn_, uid: chamadas.append(uid) or original(conn_, uid)
+    try:
+        s = c.saude(conn, types.SimpleNamespace(sunop_token="", teto_sunop_dia=600, janela_solar=("05:40", "18:20")),
+                    dt.datetime(2026, 8, 31, 20, 0, tzinfo=UTC))
+    finally:
+        c._ultima_leitura = original
+    assert s["banco"] is True
+    assert chamadas == [], f"healthz varreu leitura para {len(chamadas)} usinas"
+
+
+def test_rendimento_implicito_denuncia_irradiancia_lida_abaixo_da_producao(conn, mro100_modelada):
+    """17/09/2026 — a regua que eu tinha escrito (GHI/ceu claro < 0,85 = piranometro sujo) ERRA:
+    medi 6 dias das tres usinas 2C e dia encoberto de verdade da o mesmo numero. Tupi 14/09 leu 9%
+    do ceu claro o dia inteiro com cobertura cheia — era nuvem, nao sujeira. Variabilidade tambem
+    nao separa: estrato liso tambem tem VI baixo.
+
+    O criterio que a FISICA sustenta: a usina nao produz mais do que o sol entrega. O rendimento
+    implicito (medido / (kWp x POA/1000)) e a assinatura da usina — medido, fica em 0,76 a 0,81 na
+    Araputanga e 0,79 na Tupi, com p10-p90 de 0,79-0,81 num dia limpo. Mediana acima de 1 so acontece
+    se a irradiancia lida estiver ABAIXO da real."""
+    usina, _ = mro100_modelada
+    ini, fim = c._dia_utc(dt.date(2026, 8, 31), ZoneInfo("America/Belem"))
+    r = c.rendimento_do_dia(conn, usina.id, ini, fim, kwp=6942.0)
+    assert r["rendimento"] is not None and 0.2 < r["rendimento"] < 1.0, r
+    assert r["sensor_baixo"] is False
+
+    # mesma usina, POA cortada pela metade: a producao nao muda e o rendimento dobra
+    with conn.cursor() as cur:
+        cur.execute("UPDATE leitura SET valor = valor / 2.0 WHERE medida='poa' AND ts >= %s AND ts < %s "
+                    "AND equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s AND tipo='estacao')",
+                    (ini, fim, usina.id))
+    conn.commit()
+    r2 = c.rendimento_do_dia(conn, usina.id, ini, fim, kwp=6942.0)
+    assert r2["rendimento"] > r["rendimento"] * 1.8
+    assert r2["sensor_baixo"] is True, "POA pela metade tem de acusar sensor lendo baixo"
+
+
+def test_ceu_do_dia_vira_palavra_e_nao_so_um_indice():
+    """VI 92,74 na tela nao diz nada a quem opera. Medido em 18 dias-usina: dia limpo da 1,0 a 1,1
+    (Araputanga 15 e 16/09), e o dia de nuvem quebrada da Sete Lagoas deu 92,7 — com GHI oscilando
+    1225 -> 372 -> 1202 em minutos e picos de 1238 W/m2 (realce de borda de nuvem)."""
+    assert c.ceu_do_indice(1.05) == "limpo" and c.ceu_do_indice(None) is None
+    assert c.ceu_do_indice(3.6) == "parcial"
+    assert c.ceu_do_indice(11.2) == "instável" and c.ceu_do_indice(92.7) == "instável"
+
+
+def test_ultima_leitura_usa_as_tres_colunas_da_chave_e_nao_varre_a_leitura(conn, mro100_modelada):
+    """17/09/2026 — a Frota estourava o timeout=30 do proxy e virava "Gêmeo Digital fora do ar".
+
+    MEDIR POR TEMPO AQUI ENGANA, e me enganou: a mesma consulta deu 35 s numa hora e 2 s noutra, so
+    pelo cache do sistema operacional. Cheguei a anunciar uma melhora de 16x que era artefato — a
+    alternativa tinha rodado depois de a outra aquecer o cache. Contando passos da VM do SQLite, que
+    nao dependem de cache, nas 25 usinas do banco de producao:
+
+        ORDER BY ts DESC LIMIT 1 sobre equipamento_id IN (...)   122.828.000 passos
+        max(ts) fixando so o equipamento                          87.583.000  (1,4x — quase nada)
+        max(ts) fixando equipamento E medida                       2.269.000  (54x)
+
+    O meio-termo quase passou: `medida` esta no MEIO da PK (equipamento_id, medida, ts), entao sem
+    ela o max(ts) ainda varre todas as medidas daquele equipamento. Valor identico nas 25, conferido
+    uma a uma. O teste trava o PLANO — tempo em teste e flaky, e era o plano que estava errado."""
+    usina, _ = mro100_modelada
+    assert c._ultima_leitura(conn, usina.id) is not None
+    with conn.cursor() as cur:
+        cur.execute("EXPLAIN QUERY PLAN " + c.SQL_ULTIMA_LEITURA.replace("%s", "?"), (usina.id,))
+        plano = " | ".join(str(r[-1]) for r in cur.fetchall())
+    assert "TEMP B-TREE" not in plano.upper(), plano
+    assert "SCAN leitura" not in plano, plano       # varredura da tabela de 17 M linhas: nunca
+
+
+def test_ultima_leitura_da_o_mesmo_valor_da_consulta_ingenua(conn, mro100_modelada):
+    """A consulta rapida so vale se der o MESMO carimbo da lenta. Conferido nas 25 usinas de producao
+    (zero divergencia, inclusive nas que estao dois dias sem dado); aqui fica travado no banco semeado."""
+    usina, _ = mro100_modelada
+    ingenua = _q_lista(conn, 'SELECT l.ts AS "ts [TIMESTAMP]" FROM leitura l WHERE l.equipamento_id IN '
+                             "(SELECT id FROM equipamento WHERE usina_id=%s) ORDER BY l.ts DESC LIMIT 1", (usina.id,))
+    assert c._ultima_leitura(conn, usina.id) == (ingenua[0][0] if ingenua else None)
+
+
+def _q_lista(conn, sql, params):
+    return c._q(conn, sql, params)

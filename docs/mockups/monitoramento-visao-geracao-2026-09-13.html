@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitoramento · visão Geração no drill-down da usina · mockup 13/09/2026</title>
+<style>
+:root{--bg:#090d18;--panel:#161d30;--panel2:#0f1526;--line:#26304a;--txt:#e6ebf5;--muted:#9aa6c4;--faint:#6b7699;--brand:#a3d900;--ok:#4ade80;--amber:#f5a623;--red:#f2555a;--blue:#5bc8e8;--mono:Consolas,"Cascadia Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 Inter,"Segoe UI",system-ui,sans-serif}
+.wrap{max-width:1320px;margin:0 auto;padding:26px 22px 60px}
+h1{font-size:22px;margin:0 0 4px;font-weight:650}
+h1 small{color:var(--brand);font-family:var(--mono);font-size:13px;font-weight:500;margin-left:10px}
+.sub{color:var(--muted);margin:0 0 18px;max-width:1000px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:1.4px;color:var(--brand);margin:28px 0 10px;font-weight:600}
+.usina{background:linear-gradient(90deg,rgba(163,217,0,.10),rgba(163,217,0,0) 40%),var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.urow{display:grid;grid-template-columns:24px 220px 60px 90px 100px 210px 1fr 150px 190px;align-items:center;gap:14px;padding:14px 18px;font-size:14px;border-bottom:1px solid var(--line)}
+.urow .nome{font-weight:600;display:flex;align-items:center;gap:8px}
+.chip{display:inline-block;font-size:11.5px;padding:2px 8px;border-radius:6px;border:1px solid var(--line);background:var(--panel2);color:var(--muted)}
+.chip.amber{color:var(--amber);border-color:rgba(245,166,35,.45);background:rgba(245,166,35,.10)}
+.chip.key{color:var(--amber);border-color:rgba(245,166,35,.45);font-family:var(--mono)}
+.dd{background:var(--panel2);padding:14px 18px 18px}
+.bar-tools{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{background:transparent;border:none;color:var(--muted);font:600 12px Inter,"Segoe UI",sans-serif;padding:7px 14px;cursor:pointer}
+.seg button.on{background:rgba(163,217,0,.16);color:var(--brand)}
+.periodo{display:flex;align-items:center;gap:8px;flex-wrap:wrap;color:var(--muted);font-size:12px}
+.periodo .q{background:transparent;border:1px solid var(--line);border-radius:7px;color:var(--muted);font:600 11.5px Inter,"Segoe UI",sans-serif;padding:5px 11px;cursor:pointer}
+.periodo .q.on{border-color:var(--brand);color:var(--brand);background:rgba(163,217,0,.10)}
+.periodo input{background:#0b1020;border:1px solid var(--line);border-radius:6px;color:var(--txt);font:12px Inter,"Segoe UI",sans-serif;padding:4px 8px}
+.resumo{display:grid;grid-template-columns:repeat(4,auto);gap:26px;padding:10px 14px;border:1px solid var(--line);border-radius:10px;background:var(--panel);margin-bottom:12px;width:max-content}
+.resumo .l{font-size:10.5px;text-transform:uppercase;letter-spacing:1px;color:var(--faint)}
+.resumo .v{font-family:var(--mono);font-size:16px;font-weight:600}
+.ger{display:grid;grid-template-columns:200px 1fr 120px 150px 110px 90px;gap:14px;align-items:center;padding:9px 12px;border-radius:8px}
+.ger:hover{background:var(--panel)}
+.ger .n{font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:8px}
+.ger .n .chip{font-size:11px}
+.trilho{height:14px;background:#0b1020;border:1px solid var(--line);border-radius:5px;overflow:hidden;position:relative}
+.trilho i{display:block;height:100%;border-radius:4px 0 0 4px;background:var(--brand)}
+.trilho.a i{background:var(--amber)} .trilho.r i{background:var(--red)}
+.trilho .med{position:absolute;top:-3px;bottom:-3px;width:2px;background:rgba(230,235,245,.55)}
+.kwh{font-family:var(--mono);font-size:13px;text-align:right}
+.kwh small{color:var(--faint);font-size:11px;margin-left:3px}
+.dev{font-family:var(--mono);font-size:13px;font-weight:600}
+.dev small{display:block;font-family:Inter,"Segoe UI",sans-serif;font-weight:500;font-size:10.5px;color:var(--faint);letter-spacing:.3px}
+.ok{color:var(--ok)} .am{color:var(--amber)} .rd{color:var(--red)} .mu{color:var(--muted)}
+.part{font-family:var(--mono);font-size:12.5px;color:var(--muted)}
+.part small{display:block;font-family:Inter,"Segoe UI",sans-serif;font-size:10.5px;color:var(--faint)}
+.pad{font-size:11.5px}
+.head-ger{color:var(--faint);font-size:10.5px;text-transform:uppercase;letter-spacing:1px;padding:0 12px 6px}
+.head-ger.ger:hover{background:transparent}
+.nota{color:var(--faint);font-size:12px;margin-top:12px;line-height:1.5}
+.nota b{color:var(--muted)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.card h3{margin:0 0 6px;font-size:14px}
+.card ul{margin:0;padding-left:18px;color:var(--muted);font-size:13px}
+.card li{margin:4px 0}
+.leg{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:10px}
+.leg i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-right:6px}
+.foot{color:var(--faint);font-size:12px;margin-top:36px;border-top:1px solid var(--line);padding-top:12px}
+@media (max-width:1000px){.urow{grid-template-columns:24px 1fr}.urow>*:nth-child(n+3){display:none}.ger{grid-template-columns:150px 1fr 100px}.ger>*:nth-child(n+4){display:none}.grid2{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Monitoramento · botão "Geração" no drill-down da usina <small>mockup 13/09/2026</small></h1>
+<p class="sub">Seu pedido: quando a usina abre e ainda mostra a visão de strings, ter um botão <b>Geração</b> que troca as linhas dos inversores por <b>barras de geração</b>, com <b>filtro de dias</b> e a <b>especificação dos desvios</b> ao lado. Abaixo, a Céu Azul III como ficaria, com os números reais de 01 a 11/09 lidos da BD_Thopen (banco) — a mesma fonte do histórico por inversor que já existe na plataforma.</p>
+
+<h2>Como fica · usina expandida, visão Geração</h2>
+<div class="usina">
+  <div class="urow">
+    <span class="mu">&#8964;</span>
+    <span class="nome">Céu Azul III (104) <span class="chip key">&#9919; 6</span></span>
+    <span class="mu">8/8</span><span class="mu">7/8 inv.</span><span class="mu">padrão 30d</span>
+    <span class="am" style="font-weight:600">Inversor 3.1 −12,5 pp</span><span></span>
+    <span class="mu">2026-09-13 10:43</span><span class="chip amber">Inversor abaixo do padrão</span>
+  </div>
+  <div class="dd">
+    <div class="bar-tools">
+      <div class="seg"><button>Strings</button><button class="on">Geração</button></div>
+      <div class="periodo">
+        <button class="q">Ontem</button><button class="q">7 dias</button><button class="q on">Mês</button>
+        <span>de</span><input type="date" value="2026-09-01"><span>até</span><input type="date" value="2026-09-11">
+        <span class="mu">· 11 dias fechados · BD_Thopen (banco)</span>
+      </div>
+    </div>
+    <div class="resumo">
+      <div><div class="l">Gerado no período</div><div class="v">47.383 <span class="mu" style="font-size:12px">kWh</span></div></div>
+      <div><div class="l">Mediana por inversor</div><div class="v">5.974 <span class="mu" style="font-size:12px">kWh</span></div></div>
+      <div><div class="l">Abaixo de −10 %</div><div class="v am">1 <span class="mu" style="font-size:12px">de 8</span></div></div>
+      <div><div class="l">Dias com dado</div><div class="v">11 <span class="mu" style="font-size:12px">de 11</span></div></div>
+    </div>
+
+    <div class="ger head-ger"><span>Inversor</span><span>Geração no período · traço = mediana</span><span style="text-align:right">kWh</span><span>Desvio vs. mediana</span><span>Participação</span><span>Padrão 30d</span></div>
+
+    <div class="ger"><span class="n">Inversor 3.1 <span class="chip">cabine 3</span></span><div class="trilho r"><i style="width:81.4%"></i><span class="med" style="left:92.6%"></span></div><span class="kwh">5.250,5<small>kWh</small></span><span class="dev rd">−12,1 %<small>atenção · 11 dias abaixo</small></span><span class="part">11,1 %<small>esperado 12,5 %</small></span><span class="pad am">−12,5 pp</span></div>
+    <div class="ger"><span class="n">Inversor 3.2 <span class="chip">cabine 3</span></span><div class="trilho"><i style="width:95.6%"></i><span class="med" style="left:92.6%"></span></div><span class="kwh">6.164,5<small>kWh</small></span><span class="dev ok">+3,2 %<small>normal</small></span><span class="part">13,0 %<small>esperado 12,5 %</small></span><span class="pad mu">—</span></div>
+    <div class="ger"><span class="n">Inversor 3.3 <span class="chip">cabine 3</span></span><div class="trilho"><i style="width:97.6%"></i><span class="med" style="left:92.6%"></span></div><span class="kwh">6.295,7<small>kWh</small></span><span class="dev ok">+5,4 %<small>normal</small></span><span class="part">13,3 %<small>esperado 12,5 %</small></span><span class="pad mu">—</span></div>
+    <div class="ger"><span class="n">Inversor 3.4 <span class="chip">cabine 3</span></span><div class="trilho"><i style="width:88.9%"></i><span class="med" style="left:92.6%"></span></div><span class="kwh">5.731,8<small>kWh</small></span><span class="dev mu">−4,1 %<small>normal</small></span><span class="part">12,1 %<small>esperado 12,5 %</small></span><span class="pad mu">—</span></div>
+    <div class="ger"><span class="n">Inversor 3.5 <span class="chip">cabine 3</span></span><div class="trilho"><i style="width:92.7%"></i><span class="med" style="left:92.6%"></span></div><span class="kwh">5.979,3<small>kWh</small></span><span class="dev ok">+0,1 %<small>normal</small></span><span class="part">12,6 %<small>esperado 12,5 %</small></span><span class="pad mu">—</span></div>
+    <div class="ger"><span class="n">Inversor 3.6 <span class="chip">cabine 3</span></span><div class="trilho"><i style="width:92.5%"></i><span class="med" style="left:92.6%"></span></div><span class="kwh">5.968,5<small>kWh</small></span><span class="dev mu">−0,1 %<small>normal</small></span><span class="part">12,6 %<small>esperado 12,5 %</small></span><span class="pad mu">—</span></div>
+    <div class="ger"><span class="n">Inversor 3.7 <span class="chip">cabine 3</span></span><div class="trilho"><i style="width:88.3%"></i><span class="med" style="left:92.6%"></span></div><span class="kwh">5.696,8<small>kWh</small></span><span class="dev mu">−4,6 %<small>normal</small></span><span class="part">12,0 %<small>esperado 12,5 %</small></span><span class="pad mu">—</span></div>
+    <div class="ger"><span class="n">Inversor 3.8 <span class="chip">cabine 3</span></span><div class="trilho"><i style="width:97.6%"></i><span class="med" style="left:92.6%"></span></div><span class="kwh">6.295,6<small>kWh</small></span><span class="dev ok">+5,4 %<small>normal</small></span><span class="part">13,3 %<small>esperado 12,5 %</small></span><span class="pad mu">—</span></div>
+
+    <div class="leg"><span><i style="background:var(--brand)"></i>até −5 % · normal</span><span><i style="background:var(--amber)"></i>−5 a −10 % · observar</span><span><i style="background:var(--red)"></i>abaixo de −10 % · atenção (−20 % crítico)</span><span><i style="background:rgba(230,235,245,.55);width:2px"></i>mediana dos inversores no período</span></div>
+    <p class="nota"><b>Referência do desvio:</b> a mediana dos inversores da própria usina no período. Quando a BD traz o kWp de cada inversor, o esperado passa a ser proporcional à potência (rateio por potência); na Céu Azul III a BD não tem kWp por inversor, então o esperado é a divisão igual. <b>Padrão 30d</b> é a régua que já existe (participação de hoje contra os últimos 30 dias, em pontos percentuais): aparece só nas 13 usinas que têm essa régua. Dia sem dado na BD não conta como zero — a linha diz quantos dias entraram.</p>
+  </div>
+</div>
+
+<h2>O que muda e o que não muda</h2>
+<div class="grid2">
+  <div class="card"><h3>Muda</h3><ul>
+    <li>Um seletor <b>Strings | Geração</b> no topo do drill-down. Strings continua igual ao de hoje (ativas · esp · dif).</li>
+    <li>Em Geração: barras por inversor com <b>kWh</b>, <b>desvio vs. mediana</b> (cor por faixa), <b>participação</b> na usina contra o esperado e, onde existe, o <b>padrão 30d</b>.</li>
+    <li>Filtro de dias: <b>Ontem · 7 dias · Mês</b> ou de/até. A escolha fica guardada enquanto você passa de usina em usina.</li>
+    <li>Uma linha de resumo: gerado no período, mediana por inversor, quantos abaixo de −10 %, dias com dado.</li>
+  </ul></div>
+  <div class="card"><h3>Não muda</h3><ul>
+    <li>A fonte: geração por inversor vem do <b>banco</b> (BD_Thopen para o Thopen, BD_Performance para os demais), só dias fechados — a mesma regra do histórico por inversor do painel da usina. Nada de API ao vivo no gráfico.</li>
+    <li>O dia de hoje continua onde está: o kWh de hoje já aparece na linha de cada inversor na visão Strings.</li>
+    <li>Cores e tipografia do Monitoramento; sem emoji; nenhum redesign da tabela de usinas.</li>
+    <li>Usina cuja BD não tem coluna por inversor (13 sem visão por string) mostra o aviso "sem base por inversor" em vez de barras vazias.</li>
+  </ul></div>
+</div>
+
+<p class="foot">Números reais de 01 a 11/09/2026 (BD_Thopen, via /api/pv/inversores/historico). Mediana da Céu Azul III (8 inversores): 5.974 kWh. Esperado por divisão igual: 12,5 %. Mockup para validação antes de codar, como combinado.</p>
+</div>
+</body>
+</html>

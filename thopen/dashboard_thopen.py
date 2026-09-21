@@ -644,6 +644,31 @@ _META_NOME = {
 _META_CAMPOS = ("meta", "fc", "metairr", "pr")
 
 
+def _mes_do_valor(mv):
+    """Numero do mes (1..12) a partir da coluna `Mês`, venha ela como for.
+
+    Em 11/09/2026 a coluna `Mês` da tabela `Historico_2026` perdeu o formato de data e passou a
+    chegar como o SERIAL cru do Excel (46023, 46054...). O código fazia `_num(mv)` e gravava a
+    meta na chave 46023; a tela procura 1..12, não acha, e a usina aparece SEM META — em 32
+    usinas de uma vez, calado. Formatação de planilha não pode derrubar dado: aqui o serial vira
+    data antes de virar mês.
+    """
+    if isinstance(mv, (dt.datetime, dt.date)):
+        return mv.month
+    n = _num(mv)
+    if not n:
+        return None
+    n = int(n)
+    if 1 <= n <= 12:
+        return n
+    if n > 366:                      # serial do Excel (base 30/12/1899)
+        try:
+            return (dt.date(1899, 12, 30) + dt.timedelta(days=n)).month
+        except (OverflowError, ValueError):
+            return None
+    return None
+
+
 def _hist_pivot():
     """{(nome_normalizado, mês): {meta, fc, metairr, pr}} pivotado da tabela `Historico`.
 
@@ -675,7 +700,7 @@ def _hist_pivot():
             if not isinstance(u, str) or not k:
                 continue
             mv = r[iMes]
-            m = mv.month if isinstance(mv, (dt.datetime, dt.date)) else _num(mv)
+            m = _mes_do_valor(mv)
             if not m:
                 continue
             out.setdefault((_norm_nome(u), int(m)), {})[k] = _num(r[iVal])
@@ -700,7 +725,7 @@ def _meta_tabela():
             if iU is None or not isinstance(r[iU], str):
                 continue
             mv = r[iMes]
-            m = mv.month if isinstance(mv, (dt.datetime, dt.date)) else _num(mv)
+            m = _mes_do_valor(mv)
             if not m:
                 continue
             out[(_norm_nome(r[iU]), int(m))] = {
@@ -896,6 +921,11 @@ CARTEIRAS = {
         # `_usina_da_aba`), e lá está sem acento. Escrever com acento aqui deixaria as três
         # fora de toda carteira e o seletor as esconderia — mesmo caso do "Rodrigues" acima.
         "Alvares Machado", "Santo Anastacio", "Taguaí",
+        # Cambé ficou de fora do lote de 11/09 e só entrou em 16/09 (Levi: "só Cambé mesmo,
+        # carteira Thopen"). O dado já estava completo antes disso — 30 dias na aba e metas de
+        # set a dez no `Historico` —, faltava só o nome aqui: sem constar na carteira, a usina
+        # não aparece no seletor por mais cheia que a aba esteja.
+        "Cambé",
     ],
     "Copel": [
         "Pharma II", "Pharma III", "Pharma IV", "Santo Antonio do Platina",

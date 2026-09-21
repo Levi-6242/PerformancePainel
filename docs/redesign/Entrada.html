@@ -29,7 +29,7 @@
   a{color:inherit}
 
   /* ── cabecalho ───────────────────────────────────────────────────────── */
-  .topo{max-width:1180px;margin:0 auto;padding:26px 28px 0;display:flex;align-items:center;justify-content:space-between;gap:16px}
+  .topo{max-width:1480px;margin:0 auto;padding:26px 28px 0;display:flex;align-items:center;justify-content:space-between;gap:16px}
   body.largo .topo,body.largo .pe{max-width:1640px}
   .marca{display:flex;align-items:center;gap:14px;text-decoration:none}
   .marca img{height:26px;display:block}
@@ -46,12 +46,15 @@
   .abre p b{color:var(--n300);font-weight:600}
 
   /* ── as tres altitudes ──────────────────────────────────────────────── */
-  .altitudes{max-width:1180px;margin:0 auto;padding:44px 28px 40px;display:grid;grid-template-columns:repeat(3,1fr);gap:26px;align-items:stretch}
+  /* 12/09/2026: quatro colunas — as tres leituras e a ACAO que sai delas (Criar OS, o OS Creator dentro da plataforma). */
+  .altitudes{max-width:1480px;margin:0 auto;padding:44px 28px 40px;display:grid;grid-template-columns:repeat(4,1fr);gap:22px;align-items:stretch}
+  @media (max-width:1240px) and (min-width:981px){.altitudes{grid-template-columns:repeat(2,1fr)}}
   /* Abertura: a escadinha (o segundo no chao, o mes no alto) e o primeiro quadro; os cards sobem e param
      paralelos. Pedido do Levi (05/09): "de escadinha para paralelo sempre que atualizar". */
   .col:nth-child(1) .entra{--degrau:72px;animation-delay:.05s}
   .col:nth-child(2) .entra{--degrau:36px;animation-delay:.15s}
   .col:nth-child(3) .entra{--degrau:0px;animation-delay:.25s}
+  .col:nth-child(4) .entra{--degrau:0px;animation-delay:.35s}
   .entra{height:100%;opacity:0;transform:translateY(calc(var(--degrau) + 16px));animation:escada 1.9s cubic-bezier(.2,.7,.2,1) forwards}
   @keyframes escada{
     0%  {opacity:0;transform:translateY(calc(var(--degrau) + 16px))}
@@ -63,6 +66,7 @@
   .col:nth-child(1) .flutua{animation-delay:-1.1s}
   .col:nth-child(2) .flutua{animation-delay:-3.6s}
   .col:nth-child(3) .flutua{animation-delay:-5.9s}
+  .col:nth-child(4) .flutua{animation-delay:-2.3s}
   @keyframes flutua{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
 
   .card{position:relative;height:100%;display:flex;flex-direction:column;gap:14px;padding:24px 24px 22px;border-radius:14px;cursor:pointer;
@@ -123,6 +127,13 @@
   .m3 .barra:nth-child(5){animation-delay:.2s}.m3 .barra:nth-child(6){animation-delay:.25s}.m3 .barra:nth-child(7){animation-delay:.3s}.m3 .barra:nth-child(8){animation-delay:.35s}
   @keyframes sobe{from{transform:scaleY(.18)}to{transform:scaleY(1)}}
   .m3 .meta{stroke:var(--accent);stroke-dasharray:4 4;stroke-width:1.2}
+  /* instrumento 4: a ordem de servico ganha o 'feito' ----------------------- */
+  .m4 .folha{fill:rgba(255,255,255,.02)}
+  .m4 .check{stroke-dasharray:40;stroke-dashoffset:40;transition:stroke-dashoffset .7s cubic-bezier(.2,.7,.2,1) .1s}
+  .card:hover .m4 .check,.card:focus-within .m4 .check{stroke-dashoffset:0}
+  .m4 .selo{transform-box:fill-box;transform-origin:center;transform:scale(.85);opacity:.7;transition:transform .5s,opacity .5s}
+  .card:hover .m4 .selo,.card:focus-within .m4 .selo{transform:scale(1);opacity:1}
+  .lnk.cadeado{margin-left:auto;font-family:var(--f-data);font-size:10.5px;color:#f5a623;border:1px solid rgba(245,166,35,.45);border-radius:999px;padding:1px 8px;cursor:default}
 
   /* ── nivel 2: operacao em tempo real, por cliente x fonte ─────────────── */
   :root{--amber:#f5a623;--red:#f2555a;--ok:#a3d900}   /* --gc-amber / --gc-red do Monitoramento */
@@ -255,7 +266,7 @@
 
 <section class="abre n1">
   <h1>Por onde você entra hoje?</h1>
-  <p>Três leituras da mesma usina: <b>o segundo</b>, <b>o dia</b> e <b>o mês</b>.</p>
+  <p>Três leituras da mesma usina: <b>o segundo</b>, <b>o dia</b> e <b>o mês</b> — e <b>a ação</b> que sai delas.</p>
 </section>
 
 <main class="altitudes n1">
@@ -322,6 +333,25 @@
       <p class="desc">Geração contra a meta, disponibilidade e acompanhamento de cada usina e de cada cliente, sem precisar descer ao detalhe.</p>
       <p class="quem">Para quem <b>responde pelo resultado</b>.</p>
       <div class="links"><a class="lnk prim" href="/gerencial">Gerencial</a></div>
+    </article>
+  </div></div></div>
+
+  <div class="col"><div class="entra"><div class="flutua">
+    <article class="card" data-href="/os/">
+      <div class="kicker"><i></i>A ação</div>
+      <svg class="instr m4" viewBox="0 -64 300 174" aria-hidden="true">
+        <line class="chao" x1="14" y1="92" x2="286" y2="92"/>
+        <rect class="fino folha" x="92" y="-30" width="116" height="122" rx="8"/>
+        <line class="fino" x1="112" y1="-4" x2="176" y2="-4"/><line class="fino" x1="112" y1="16" x2="188" y2="16"/>
+        <line class="fino" x1="112" y1="36" x2="160" y2="36"/><line class="fino" x1="112" y1="56" x2="182" y2="56"/>
+        <rect class="verde" x="92" y="-30" width="116" height="10" rx="5" style="fill:var(--accent);stroke:none;opacity:.9"/>
+        <g class="selo"><circle class="verde" cx="206" cy="-16" r="15" style="fill:var(--surface)"/>
+          <path class="verde check" d="M198 -16 l6 6 l11 -13"/></g>
+      </svg>
+      <h2><a href="/os/">Criar OS</a></h2>
+      <p class="desc">Ordens de serviço, solicitações e chamados no Fracttal, no nome de quem abre, com o ativo e a régua da plataforma já preenchidos.</p>
+      <p class="quem">Para quem <b>executa</b>.</p>
+      <div class="links"><a class="lnk prim" href="/os/">Criar OS</a><a class="lnk" href="/os/historico">Históricos</a><span class="lnk cadeado" title="Além do login da plataforma, esta área pede o seu login no Fracttal">login Fracttal</span></div>
     </article>
   </div></div></div>
 

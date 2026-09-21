@@ -48,7 +48,8 @@ def test_job_persiste_e_e_idempotente(conn, mro100):
         assert e_esp > e_med and parado > 1000 and tracker > 50 and cob > 0.9
         cur.execute("SELECT equipamento_id FROM evento WHERE tipo='inversor_parado'")
         assert {r[0] for r in cur.fetchall()} == {ids["inv:22"]}
-        cur.execute("SELECT count(*) FROM evento WHERE tipo='tracker_fora_alvo' AND equipamento_id IN (%s,%s)", (ids["trk:4"], ids["trk:17"]))
+        # trk 4 ficou o dia em 15 graus (TRAVADO, 13/09/2026) e trk 17 saiu do alvo: um evento de tracker para cada, de tipos diferentes
+        cur.execute("SELECT count(*) FROM evento WHERE tipo IN ('tracker_fora_alvo','tracker_travado') AND equipamento_id IN (%s,%s)", (ids["trk:4"], ids["trk:17"]))
         assert cur.fetchone()[0] >= 2
         cur.execute("SELECT count(*) FROM esperado WHERE gate='ok' AND p_esperado_kw IS NULL")
         assert cur.fetchone()[0] == 0
@@ -62,3 +63,24 @@ def test_janela_padrao_cobre_tres_dias_locais():
     agora = dt.datetime(2026, 9, 3, 15, 7, tzinfo=UTC)          # 12:07 em Belem
     ini, fim = job.janela_padrao(agora, "America/Belem")
     assert ini == dt.datetime(2026, 9, 1, 3, 0, tzinfo=UTC) and fim == agora
+
+
+def test_job_insiste_quando_o_banco_esta_travado(conn, mro100, monkeypatch):
+    """13/09/2026 ~13:00: com o ingest gravando 17 mil angulos, 4 usinas do modelar morreram em 'database is locked' e ficaram
+    sem cascata e sem eventos ate a rodada seguinte (a Araputanga continuou com o TRK5 classificado errado por isso). A gravacao
+    do job insiste no lock como as fontes ja insistem."""
+    import sqlite3
+    from gemeo.core import db
+    usina, ids = mro100
+    monkeypatch.setattr(db, "PAUSA_LOCK_S", 0.0)
+    real = job.persistir
+    n = {"v": 0}
+    def trava_uma_vez(*a, **k):
+        n["v"] += 1
+        if n["v"] == 1:
+            raise sqlite3.OperationalError("database is locked")
+        return real(*a, **k)
+    monkeypatch.setattr(job, "persistir", trava_uma_vez)
+    ini, fim = dt.datetime(2026, 8, 31, 3, 0, tzinfo=UTC), dt.datetime(2026, 9, 1, 3, 0, tzinfo=UTC)
+    res = job.modelar(conn, usina, ini, fim)
+    assert n["v"] == 2 and res["eventos"] > 0 and res["dias"] >= 1

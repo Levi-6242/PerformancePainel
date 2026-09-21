@@ -46,7 +46,10 @@ fracttal_index.json
 frac_osperf_index.json
 frac_disp_index.json
 perdas_strings.json
-whats_ronda.json
+# Sufixo composto escapa do padrao exato: o backup `whats_ronda.json.bak_20260916_143840`
+# NAO era ignorado e carrega o token do servico, o telefone e os ids dos grupos. Mesmo
+# tropeco dos `*_token.txt.migrado` no empacotador (28/07) e dos `.html.bak-*` (20/09).
+whats_ronda.json*
 
 # ── Overrides LOCAIS de referência curada (o .json base FICA no git e viaja pro PC novo; o .local
 #    é o que esta máquina editou/regerou, e é ele que evita conflito no `git pull`) ───────────────

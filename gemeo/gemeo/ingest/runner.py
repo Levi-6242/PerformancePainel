@@ -1,5 +1,5 @@
 # gemeo/gemeo/ingest/runner.py
-"""`gemeo ingest`: um processo, tres laços em threads (pg, sunop fino/lento, cadastro), cada um com
+"""`gemeo ingest`: um processo, um laço por fonte em threads (pg, sunop fino/lento, apipv, cadastro), cada um com
 seu ritmo e seu disjuntor. Exceção da fonte nunca mata a thread — vira ingest_run e o laco segue."""
 from __future__ import annotations
 import datetime as dt
@@ -32,17 +32,37 @@ def garantir_usinas(conn, cfg) -> int:
     return n
 
 
+def exigir_credenciais_apipv(cfg, usinas: list[UsinaRef]) -> None:
+    """Usina de fonte apipv no piloto exige PV_OEM_USERNAME/PV_OEM_PASSWORD no gemeo.env — em voz alta e ANTES das threads
+    subirem: credencial vazia virando token vazio em silencio ja custou horas na plataforma (25/07/2026)."""
+    if not any(u.fonte == "apipv" for u in usinas):
+        return
+    faltam = [k for k, v in (("PV_OEM_USERNAME", getattr(cfg, "pv_oem_usuario", "")), ("PV_OEM_PASSWORD", getattr(cfg, "pv_oem_senha", ""))) if not v]
+    if faltam:
+        from gemeo.core.config import SegredoAusente
+        raise SegredoAusente("usina apipv no piloto exige no gemeo.env: " + ", ".join(faltam))
+
+
 def montar(cfg, conn_gemeo, conn_fonte, usinas: list[UsinaRef]) -> list[tuple[str, object, int]]:
+    from gemeo.ingest.apipv import IngestorAPIPV
     from gemeo.ingest.cadastro import IngestorCadastro
     from gemeo.ingest.pg import IngestorPG
+    from gemeo.ingest.plat import IngestorPlatTrackers
     from gemeo.ingest.sunop import IngestorSunOp
     pg = [u for u in usinas if u.fonte == "pg"]; su = [u for u in usinas if u.fonte in ("sunop", "axis")]
+    ap = [u for u in usinas if u.fonte == "apipv"]
     itens: list[tuple[str, object, int]] = []
     if pg:
         itens.append(("pg", IngestorPG(cfg, conn_gemeo, pg, conn_fonte), int(cfg.ritmo_min["pg"])))
     if su:
         itens.append(("sunop_fino", IngestorSunOp(cfg, conn_gemeo, su, grupo="fino"), int(cfg.ritmo_min["sunop_fino"])))
         itens.append(("sunop_lento", IngestorSunOp(cfg, conn_gemeo, su, grupo="lento"), int(cfg.ritmo_min["sunop_lento"])))
+    if ap:                                   # API PV Operation, conta oem@ (as tres da 2C) — uma thread, ciclo por usina
+        itens.append(("apipv", IngestorAPIPV(cfg, conn_gemeo, ap), int(cfg.ritmo_min.get("apipv", 15))))
+        if (getattr(cfg, "pv_plat_token_oem", "") or "").strip():   # trackers das mesmas usinas pela PV Plataforma (12/09/2026)
+            itens.append(("plat", IngestorPlatTrackers(cfg, conn_gemeo, ap), int(cfg.ritmo_min.get("plat", 15))))
+        else:
+            print("[plat] sem PV_PLAT_TOKEN_OEM no gemeo.env: trackers das usinas da API PV ficam de fora")
     itens.append(("cadastro", IngestorCadastro(cfg, conn_gemeo), int(cfg.ritmo_min["cadastro"])))
     return itens
 
@@ -62,9 +82,18 @@ def laco(rotulo: str, ingestor, minutos: float, parar: threading.Event, fabrica_
             if reconciliar:
                 ultimo_reconcilia = agora.date()
                 if fabrica_conn is not None:
-                    print(f"[{rotulo}] retencao: {db.retencao(ingestor.conn, 90)} leituras com mais de 90 dias apagadas", flush=True)
+                    # ANALYZE junto da retencao: sem ele o otimizador fica cego e a Frota vai a 50 s (17/09/2026)
+                    print(f"[{rotulo}] {db.manutencao_diaria(ingestor.conn, 90)}", flush=True)
         except Exception:                                   # noqa: BLE001 — o laco nao morre
             print(f"[{rotulo}] ciclo falhou:\n{traceback.format_exc()}", flush=True)
+            # 13/09/2026 12:33: a fonte plat falhou num INSERT e a conexao da thread ficou com a transacao ABERTA pelos 15 min
+            # de espera — 'database is locked' no apipv, no pg e em 4 usinas do modelar. Ciclo que falha desfaz o que abriu.
+            conn = getattr(ingestor, "conn", None)
+            if conn is not None:
+                try:
+                    conn.rollback()
+                except Exception:                           # noqa: BLE001 — rollback e best-effort
+                    pass
         parar.wait(minutos * 60)
 
 
@@ -77,6 +106,7 @@ def rodar() -> int:
     if novas:
         print(f"usinas do piloto criadas a partir do config: {novas}", flush=True)
     usinas = usinas_do_piloto(conn, cfg.usinas_piloto)
+    exigir_credenciais_apipv(cfg, usinas)
     # PostgreSQL do Thopen so quando ha usina de fonte pg no piloto (e o unico lugar em que psycopg2 continua)
     conn_fonte = psycopg2.connect(cfg.powerplants_dsn) if any(u.fonte == "pg" for u in usinas) else None
     if not usinas:

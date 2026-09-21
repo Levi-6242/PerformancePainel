@@ -13,6 +13,7 @@ import datetime as dt
 import json
 import os
 import sqlite3
+import time
 from pathlib import Path
 from typing import Iterable
 
@@ -22,6 +23,9 @@ import pandas as pd
 PASTA_MIGRACOES = Path(__file__).resolve().parents[2] / "migrations"
 UTC = dt.timezone.utc
 _AGORA_SQL = "strftime('%Y-%m-%dT%H:%M:%S+00:00','now')"
+# "database is locked" na subida de 11/09/2026: pg, sunop, cadastro e apipv disputando o arquivo na largada. WAL + busy_timeout de
+# 30 s nao bastam — a fila do SQLite nao e justa e quem perde nao espera de novo. Quem escreve leva grande desfaz, espera e repete.
+TENTATIVAS_LOCK, PAUSA_LOCK_S = 6, 10.0
 
 
 def caminho_padrao() -> Path:
@@ -137,17 +141,81 @@ def retencao(conn, dias: int = 90) -> int:
     return int(n)
 
 
+# As medidas do CHECK da tabela `leitura`, na mesma ordem do schema. Existem aqui porque a PK e
+# (equipamento_id, medida, ts): consulta que fixa as TRES usa busca, consulta que fixa so o
+# equipamento varre todas as medidas daquele equipamento. Ver SQL_ULTIMA_LEITURA em app/consultas.py.
+# Um teste garante que esta lista e o CHECK do schema nao se separem (medida nova esquecida aqui
+# faria a ultima leitura devolver carimbo velho sem erro nenhum).
+MEDIDAS = ("poa", "ghi", "temp_modulo", "temp_ar", "vento", "p_ac", "e_dia",
+           "i_string", "angulo", "angulo_alvo", "estado")
+
+
+def analisar(conn) -> bool:
+    """Reescreve `sqlite_stat1` (ANALYZE). Roda junto da retencao, uma vez por dia.
+
+    17/09/2026: o banco de producao viveu tres meses SEM estatistica nenhuma. Com 17,3 M linhas em
+    `leitura` o otimizador escolhia plano no escuro e a Frota levava 50,1 s — o proxy da plataforma
+    (timeout=30) devolvia ReadTimeout e parecia servico fora do ar. Depois do ANALYZE: 2,5 s. O
+    EXPLAIN QUERY PLAN e o MESMO antes e depois; o que muda e o custo estimado, entao ler so o plano
+    nao denuncia o problema.
+
+    Nao se mantem sozinho: a migracao 0003/0004 recriou tabelas e derrubou tudo de novo (37 s ->
+    2,7 s depois de reanalisar). Por isso e rotina diaria, nao socorro manual. Leva ~70 s no banco
+    cheio e nao muda schema nem dado, so estatistica."""
+    try:
+        with conn.cursor() as cur:
+            cur.execute("ANALYZE")
+        conn.commit()
+        return True
+    except Exception:                                   # noqa: BLE001 — manutencao nunca derruba o laco
+        try:
+            conn.rollback()
+        except Exception:                               # noqa: BLE001
+            pass
+        return False
+
+
+def manutencao_diaria(conn, dias: int = 90) -> str:
+    """Retencao + ANALYZE na mesma passada, uma vez por dia. Devolve a linha do log.
+
+    Andam juntos de proposito: apagar milhoes de linhas e exatamente o que envelhece a estatistica
+    que o `analisar` reescreve."""
+    n = retencao(conn, dias)
+    ok = analisar(conn)
+    return f"retencao: {n} leituras com mais de {dias} dias apagadas; ANALYZE {'ok' if ok else 'FALHOU'}"
+
+
+def com_retentativa_de_lock(conn, fn, tentativas: int | None = None, pausa_s: float | None = None):
+    """Roda `fn()`; em 'database is locked' desfaz a transacao, espera e tenta de novo; qualquer outro erro sobe na hora e o
+    lock tambem sobe depois da ultima tentativa. O ingestor da API PV perdeu o primeiro INSERT da vida assim (11/09/2026);
+    o cadastro, o UPDATE de pai_id enquanto a fonte plat gravava 17 mil angulos (12/09). Os padroes sao lidos na chamada
+    (nao na definicao) para os testes poderem zerar a pausa."""
+    tentativas = TENTATIVAS_LOCK if tentativas is None else tentativas
+    pausa_s = PAUSA_LOCK_S if pausa_s is None else pausa_s
+    for i in range(1, tentativas + 1):
+        try:
+            return fn()
+        except sqlite3.OperationalError as e:
+            if "locked" not in str(e).lower() or i == tentativas:
+                raise
+            conn.rollback()
+            time.sleep(pausa_s)
+
+
 def upsert_leituras(conn, linhas: Iterable[tuple[int, str, dt.datetime, float | None]]) -> int:
     """Grava (equipamento, medida, ts, valor). Valor None e DESCARTADO antes de chegar ao banco — e a
     propriedade 'vazio nunca sobrescreve'. Na colisao, o valor novo vence (correcao tardia da fonte)."""
     validas = [(e, m, ts, float(v)) for e, m, ts, v in linhas if v is not None]
     if not validas:
         return 0
-    with conn.cursor() as cur:
-        cur.executemany("INSERT INTO leitura (equipamento_id, medida, ts, valor) VALUES (%s,%s,%s,%s) "
-                        "ON CONFLICT (equipamento_id, medida, ts) DO UPDATE SET valor = excluded.valor", validas)
-    conn.commit()
-    return len(validas)
+
+    def _grava():
+        with conn.cursor() as cur:
+            cur.executemany("INSERT INTO leitura (equipamento_id, medida, ts, valor) VALUES (%s,%s,%s,%s) "
+                            "ON CONFLICT (equipamento_id, medida, ts) DO UPDATE SET valor = excluded.valor", validas)
+        conn.commit()
+        return len(validas)
+    return com_retentativa_de_lock(conn, _grava)
 
 
 def registrar_ingest_run(conn, fonte: str, usina_id: int | None, ini: dt.datetime, fim: dt.datetime, status: str,
@@ -163,9 +231,16 @@ def registrar_ingest_run(conn, fonte: str, usina_id: int | None, ini: dt.datetim
     return rid
 
 
-def marca_dagua(conn, usina_id: int) -> dt.datetime | None:
+def marca_dagua(conn, usina_id: int, tipos: tuple[str, ...] | None = None) -> dt.datetime | None:
+    """Maior ts da usina — ou so dos equipamentos de `tipos`. Duas fontes na mesma usina (12/09/2026: inversores pela API PV,
+    trackers pela PV Plataforma) precisam cada uma da marca dos SEUS equipamentos, senao uma empurra a marca da outra."""
+    sql = 'SELECT max(l.ts) AS "ts [TIMESTAMP]" FROM leitura l JOIN equipamento e ON e.id = l.equipamento_id WHERE e.usina_id = %s'
+    params: list = [usina_id]
+    if tipos:
+        sql += " AND e.tipo IN (" + ",".join(["%s"] * len(tipos)) + ")"
+        params += list(tipos)
     with conn.cursor() as cur:
-        cur.execute('SELECT max(l.ts) AS "ts [TIMESTAMP]" FROM leitura l JOIN equipamento e ON e.id = l.equipamento_id WHERE e.usina_id = %s', (usina_id,))
+        cur.execute(sql, tuple(params))
         return cur.fetchone()[0]
 
 

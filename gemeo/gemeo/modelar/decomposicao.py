@@ -17,12 +17,23 @@ class ParamsDecomp:
     parado_medido_max: float = 1.0      # kW: abaixo disto o inversor esta parado...
     parado_esperado_min: float = 20.0   # ...desde que o modelo esperasse mais do que isto
     excesso_min_graus: float = 5.0      # abaixo disto o desvio do tracker e ruido (TRK_DISP_LEVE da plataforma)
-    trk_mudo_slots: int = 24            # tracker mudo fica no ultimo angulo por ate 6 h; alem disso e dado ausente
+    trk_mudo_slots: int = 16            # tracker mudo fica no ultimo angulo por ate 4 h DE SOL (Levi, 12/09/2026); alem disso e dado ausente
+    trk_grupo_min: int = 3              # referencia = mediana do grupo do inversor quando ha pelo menos este tanto de trackers com dado no slot
+    trk_grupo_desvio_max: float = 12.0  # ...e so se essa mediana esta a ate isto da frota: grupo inteiro longe da frota e anomalia, nao backtracking
     str_zero_a: float = 0.1
     str_viva_a: float = 0.5
     str_instalada_a: float = 1.0
     ghi_min_fdir: float = 50.0
     f_direta_fixa: float | None = None  # testes e usinas sem lat/lon: fracao direta constante em vez de Erbs
+    # CLIPPING (17/09/2026): o esperado sai do PVWatts sobre a POA medida, e o PVWatts nao sabe do
+    # limite AC do inversor. Em usina sobredimensionada o modelo espera mais do que o equipamento
+    # entrega e isso caia todo no RESIDUO, como perda inexplicada. Nao e perda nova — e a parte do
+    # residuo em que o inversor esta no proprio teto. Decisao do Levi: NAO conta como perda evitavel
+    # (e de projeto, nao de operacao), por isso e parcela propria e separada.
+    clipping_ligado: bool = True
+    clip_teto_tol: float = 0.02      # esta "no teto" quem chega a 98% do maior medido do periodo
+    clip_min_slots: int = 4          # menos que isto no teto e ruido, nao patamar
+    clip_teto_min_kw: float = 5.0    # teto irrisorio = inversor morto ou quase; nao e clipping
 
 
 @dataclass
@@ -31,6 +42,7 @@ class Decomposicao:
     parado: pd.DataFrame
     tracker: pd.DataFrame
     string: pd.DataFrame
+    clipping: pd.DataFrame
     residuo: pd.DataFrame
     ok: pd.DataFrame
     parado_flag: pd.DataFrame
@@ -56,14 +68,47 @@ def f_direta(estacao: pd.DataFrame, indice: pd.DatetimeIndex, lat, lon, p: Param
     return pd.Series(np.clip(fd, 0.0, 1.0), index=indice).where(ghi > p.ghi_min_fdir, 0.0)
 
 
-def excesso_trackers(trk_ang: pd.DataFrame, p: ParamsDecomp) -> pd.DataFrame:
-    """|angulo - mediana da frota|: zero abaixo do limiar, NaN onde nao ha angulo conhecido. A referencia e a
-    FROTA, nao o alvo do proprio tracker — o Tracker 17 da MRO100 (31/08) estava a 0,9 graus do alvo dele e a
-    35 da frota: o alvo e que estava errado (mesma regua 'deteccao por alvo' que matou 119 falsos na plataforma)."""
+def _ffill_de_sol(trk_ang: pd.DataFrame, sol: pd.Series | None, limite: int) -> pd.DataFrame:
+    """ffill cujo limite so conta os slots COM sol. Levi (12/09/2026): "a partir de 4 horas sem dados de trackers ja e de se
+    alarmar (em horario solar, claro)" — a noite ninguem perde nada, e um tracker que cala as 17 h ainda tem as primeiras
+    horas da manha seguinte antes de virar 'dado ausente'. Sem `sol` (testes de unidade) vale o ffill simples."""
+    if sol is None:
+        return trk_ang.ffill(limit=limite)
+    s = sol.reindex(trk_ang.index).fillna(False).astype(int).cumsum()
+    marca = pd.DataFrame(np.where(trk_ang.notna(), s.values[:, None], np.nan), index=trk_ang.index, columns=trk_ang.columns).ffill()
+    decorrido = marca.rsub(s, axis=0)              # slots de sol desde a ultima leitura; NaN antes da primeira
+    return trk_ang.ffill().where(decorrido <= limite)
+
+
+def excesso_trackers(trk_ang: pd.DataFrame, p: ParamsDecomp, sol: pd.Series | None = None,
+                     grupos: dict[int, int] | None = None) -> pd.DataFrame:
+    """|angulo - referencia|: zero abaixo do limiar, NaN onde nao ha angulo conhecido. A referencia e a FROTA, nao o alvo do
+    proprio tracker — o Tracker 17 da MRO100 (31/08) estava a 0,9 graus do alvo dele e a 35 da frota: o alvo e que estava
+    errado (mesma regua 'deteccao por alvo' que matou 119 falsos na plataforma). Quando `grupos` (tracker -> inversor) da
+    um grupo com pelo menos `trk_grupo_min` trackers com dado no slot, a referencia e a mediana DESSE grupo: na Tupi Paulista
+    (11/09/2026) os dois blocos de 50 trackers fazem backtracking diferente e a frota punia um bloco inteiro por 6 a 8 graus
+    ao amanhecer e ao entardecer. Grupo pequeno ou tracker sem inversor continuam contra a frota."""
     if trk_ang.empty:
         return pd.DataFrame(index=trk_ang.index)
-    ang = trk_ang.ffill(limit=p.trk_mudo_slots)
-    exc = ang.sub(ang.median(axis=1), axis=0).abs()
+    ang = _ffill_de_sol(trk_ang, sol, p.trk_mudo_slots)
+    frota = ang.median(axis=1)
+    ref = pd.DataFrame({c: frota for c in ang.columns}, index=ang.index)
+    por_grupo: dict[int, list] = {}
+    for t, g in (grupos or {}).items():
+        if t in ang.columns:
+            por_grupo.setdefault(g, []).append(t)
+    for ts in por_grupo.values():
+        if len(ts) < p.trk_grupo_min:
+            continue
+        bloco = ang[ts]
+        med = bloco.median(axis=1)
+        # o grupo so e referencia quando esta PERTO da frota (backtracking de bloco: 4 a 8 graus na Tupi). Os cinco trackers
+        # do Inversor 2.10 acordaram atrasados JUNTOS em 11/09 e concordavam entre si — medidos contra o proprio grupo, sumiam.
+        vale = (bloco.notna().sum(axis=1) >= p.trk_grupo_min) & ((med - frota).abs() <= p.trk_grupo_desvio_max)
+        med = med.where(vale, frota)
+        for t in ts:
+            ref[t] = med
+    exc = ang.sub(ref).abs()
     return exc.where((exc > p.excesso_min_graus) | exc.isna(), 0.0)
 
 
@@ -76,7 +121,7 @@ def decompor(grade: Grade, esp: pd.DataFrame, trk_inv: dict[int, int], p: Params
              instaladas: dict[int, list[int]] | None = None) -> Decomposicao:
     idx = grade.indice
     fd = f_direta(grade.estacao, idx, grade.usina.lat, grade.usina.lon, p)
-    exc = excesso_trackers(grade.trk_ang, p)
+    exc = excesso_trackers(grade.trk_ang, p, sol=fd > 0, grupos=trk_inv)   # 'com sol' = onde ha fracao direta; grupo = inversor
     frac = (1.0 - np.cos(np.radians(exc))).mul(fd, axis=0) if not exc.empty else exc
     invs = list(esp.columns)
 
@@ -85,6 +130,7 @@ def decompor(grade: Grade, esp: pd.DataFrame, trk_inv: dict[int, int], p: Params
 
     delta = pd.DataFrame(np.nan, index=idx, columns=invs)
     A, B, C, R, zer = zeros(invs), zeros(invs), zeros(invs), zeros(invs), zeros(invs)
+    K = zeros(invs)                      # clipping: a fatia do residuo em que o inversor esta no teto
     ok = pd.DataFrame(False, index=idx, columns=invs); par = ok.copy(); viva = ok.copy()
     perda_trk = zeros(frac.columns)
     universo: dict[int, list[int]] = {}
@@ -118,7 +164,18 @@ def decompor(grade: Grade, esp: pd.DataFrame, trk_inv: dict[int, int], p: Params
         else:
             viva_i, n_zero, c = pd.Series(False, index=idx), pd.Series(0, index=idx), pd.Series(0.0, index=idx)
         delta[eid], A[eid], B[eid], C[eid] = d_i, a, b, c
-        R[eid] = (d_i - a - b - c).where(ok_i, 0.0)
+        resto = (d_i - a - b - c).where(ok_i, 0.0)
+        # CLIPPING: nao cria perda, RECLASSIFICA o resto. "No teto" = o medido encostou no maior valor
+        # que ESTE inversor entregou no periodo, com o modelo esperando mais. Exclui o parado (medido
+        # constante em ~0 tambem "encosta no proprio maximo", e seria lido como teto) e exige um
+        # patamar de verdade, nao um pico solto.
+        if p.clipping_ligado:
+            teto = float(m.where(ativo).max()) if ativo.any() else float("nan")
+            if np.isfinite(teto) and teto >= p.clip_teto_min_kw:
+                no_teto = ativo & (m >= teto * (1.0 - p.clip_teto_tol)) & (resto > 0)
+                if int(no_teto.sum()) >= p.clip_min_slots:
+                    K[eid] = resto.where(no_teto, 0.0)
+        R[eid] = resto - K[eid]
         ok[eid], par[eid], viva[eid], zer[eid] = ok_i, par_i, viva_i, n_zero.astype(float)
     # tracker sem inversor: perda estimada com o esperado MEDIO por inversor e a densidade media de
     # trackers por inversor; nao entra na cascata de nenhum inversor (quebraria 'parcelas somam o delta'),
@@ -129,4 +186,4 @@ def decompor(grade: Grade, esp: pd.DataFrame, trk_inv: dict[int, int], p: Params
         n_por_inv = max(1.0, len(frac.columns) / max(1, len(invs)))
         for t in sem:
             perda_trk[t] = (e_ref * frac[t] / n_por_inv).where(e_ref.notna(), 0.0).fillna(0.0)
-    return Decomposicao(delta, A, B, C, R, ok, par, viva, zer, exc, perda_trk, universo, sem)
+    return Decomposicao(delta, A, B, C, K, R, ok, par, viva, zer, exc, perda_trk, universo, sem)

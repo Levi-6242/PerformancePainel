@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gêmeo Digital · passo a passo e status · 11/09/2026</title>
+<style>
+:root{--bg:#090d18;--panel:#161d30;--panel2:#1b2338;--line:#26304a;--txt:#e6ebf5;--muted:#9aa6c4;--faint:#6b7699;--brand:#a3d900;--ok:#4ade80;--warn:#f5c877;--bad:#ff5b6e;--blue:#5bc8e8;--mono:"IBM Plex Mono",Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.5 "Segoe UI",system-ui,-apple-system,sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 22px 60px}
+h1{font-size:24px;margin:0 0 4px;font-weight:650;letter-spacing:.2px}
+h1 small{color:var(--brand);font-family:var(--mono);font-size:13px;font-weight:500;margin-left:10px}
+h2{font-size:15px;text-transform:uppercase;letter-spacing:1.4px;color:var(--brand);margin:36px 0 12px;font-weight:600}
+h3{font-size:15px;margin:0 0 6px;font-weight:600}
+.sub{color:var(--muted);margin:0 0 16px}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0 0}
+.chip{font-family:var(--mono);font-size:12px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;color:var(--muted);background:var(--panel)}
+.chip b{color:var(--txt);font-weight:600}
+.chip.novo{border-color:var(--brand);color:var(--brand)}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.kpi .n{font-family:var(--mono);font-size:26px;font-weight:600;line-height:1.1;margin:2px 0 4px}
+.kpi .l{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:1px}
+.kpi .d{color:var(--muted);font-size:12.5px}
+.muted{color:var(--muted)} .faint{color:var(--faint)}
+.ok{color:var(--ok)} .warn{color:var(--warn)} .bad{color:var(--bad)} .blue{color:var(--blue)} .brand{color:var(--brand)}
+.pill{display:inline-block;font-family:var(--mono);font-size:11px;letter-spacing:.6px;text-transform:uppercase;padding:3px 9px;border-radius:999px;border:1px solid;font-weight:600;white-space:nowrap}
+.p-ok{color:var(--ok);border-color:rgba(74,222,128,.45);background:rgba(74,222,128,.08)}
+.p-op{color:var(--blue);border-color:rgba(91,200,232,.45);background:rgba(91,200,232,.08)}
+.p-warn{color:var(--warn);border-color:rgba(245,200,119,.5);background:rgba(245,200,119,.08)}
+.p-pend{color:var(--muted);border-color:var(--line);background:var(--panel2)}
+.p-bad{color:var(--bad);border-color:rgba(255,91,110,.5);background:rgba(255,91,110,.08)}
+/* pipeline */
+.pipe{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;align-items:stretch}
+.pipe .st{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 12px 10px;position:relative;border-top:3px solid var(--line)}
+.pipe .st.s-ok{border-top-color:var(--ok)} .pipe .st.s-op{border-top-color:var(--blue)} .pipe .st.s-warn{border-top-color:var(--warn)} .pipe .st.s-pend{border-top-color:var(--faint)} .pipe .st.s-bad{border-top-color:var(--bad)}
+.pipe .st .k{font-family:var(--mono);font-size:11px;color:var(--faint);letter-spacing:1px}
+.pipe .st .t{font-weight:600;margin:2px 0 6px;font-size:13.5px}
+.pipe .st .x{color:var(--muted);font-size:12px;line-height:1.4}
+.pipe .st:after{content:"";position:absolute;right:-9px;top:50%;width:0;height:0;border-left:8px solid var(--line);border-top:6px solid transparent;border-bottom:6px solid transparent}
+.pipe .st:last-child:after{display:none}
+/* stepper */
+.steps{list-style:none;margin:0;padding:0}
+.step{display:grid;grid-template-columns:44px 1fr;gap:14px;position:relative;padding:0 0 22px}
+.step:before{content:"";position:absolute;left:21px;top:40px;bottom:0;width:2px;background:var(--line)}
+.step:last-child:before{display:none}
+.num{width:42px;height:42px;border-radius:50%;border:2px solid var(--line);background:var(--panel);display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-weight:700;font-size:15px;color:var(--muted)}
+.num.n-ok{border-color:var(--ok);color:var(--ok)} .num.n-op{border-color:var(--blue);color:var(--blue)} .num.n-warn{border-color:var(--warn);color:var(--warn)} .num.n-pend{border-color:var(--faint);color:var(--faint)} .num.n-bad{border-color:var(--bad);color:var(--bad)}
+.step .card{padding:14px 16px 12px}
+.step .head{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+.step .head h3{margin:0}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.cols .h{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--faint);margin-bottom:4px}
+ul.li{margin:0;padding-left:18px} ul.li li{margin:3px 0;color:var(--txt)} ul.li li span.muted{color:var(--muted)}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:var(--faint);font-size:11px;text-transform:uppercase;letter-spacing:1px;padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:8px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:none}
+td.m{font-family:var(--mono);white-space:nowrap}
+.tl{border-left:2px solid var(--line);margin-left:6px;padding-left:16px}
+.tl .ev{position:relative;padding:0 0 12px}
+.tl .ev:before{content:"";position:absolute;left:-21px;top:6px;width:8px;height:8px;border-radius:50%;background:var(--brand)}
+.tl .ev.bad:before{background:var(--bad)} .tl .ev.blue:before{background:var(--blue)}
+.tl .h{font-family:var(--mono);font-size:12px;color:var(--faint)}
+.foot{margin-top:36px;color:var(--faint);font-size:12px;border-top:1px solid var(--line);padding-top:12px}
+code{font-family:var(--mono);font-size:12px;background:var(--panel2);padding:1px 5px;border-radius:4px;color:var(--txt)}
+@media (max-width:900px){.grid,.grid2,.cols{grid-template-columns:1fr}.pipe{grid-template-columns:1fr 1fr}.pipe .st:after{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Gêmeo Digital <small>passo a passo e status · 11/09/2026 22:35</small></h1>
+<p class="sub">Sombra digital das usinas Grid Co (níveis 1 a 3): o que já está no ar, o que entrou hoje e o que falta para o
+"Comportamento" que o Levi pediu — quanto a usina <b>deveria</b> estar gerando agora e quanto estamos perdendo, por qual motivo.
+Números ao vivo do banco do gêmeo e de <code>/gemeo/api/frota</code>.</p>
+<div class="chips">
+  <span class="chip"><b>25</b> usinas no piloto</span>
+  <span class="chip"><b>21</b> com veredito hoje · <b>4</b> sem</span>
+  <span class="chip">modelo de <b>placa</b> em 25 · <b>0</b> calibradas</span>
+  <span class="chip novo">novo hoje: fonte <b>API PV</b> (Araputanga, Sete Lagoas, Tupi Paulista)</span>
+  <span class="chip">commits <b>0b86743</b> e <b>977614c</b></span>
+</div>
+
+<h2>Onde estamos</h2>
+<div class="grid">
+  <div class="card kpi"><div class="l">Usinas no piloto</div><div class="n">25</div><div class="d">18 Thopen (PostgreSQL) · 4 Athon (SunOp) · <span class="brand">3 2C (API PV, hoje)</span></div></div>
+  <div class="card kpi"><div class="l">Equipamentos cadastrados</div><div class="n">9.699</div><div class="d">361 inversores · 8.273 strings · 1.040 trackers · 25 estações</div></div>
+  <div class="card kpi"><div class="l">Leituras no banco</div><div class="n">10,1 mi</div><div class="d">1,17 mi só hoje · 1,07 GB em SQLite · retenção de 90 dias</div></div>
+  <div class="card kpi"><div class="l">Frota hoje (21 modeladas)</div><div class="n">356 <span class="muted" style="font-size:15px">×</span> 332 MWh</div><div class="d">esperado × medido · <span class="bad">−6,6 %</span> · confiança 84 %</div></div>
+  <div class="card kpi"><div class="l">Régua de hoje (tolerância 8 %)</div><div class="n"><span class="ok">14</span> <span class="muted" style="font-size:15px">dentro</span> · <span class="warn">0</span> <span class="muted" style="font-size:15px">moderado</span> · <span class="bad">7</span> <span class="muted" style="font-size:15px">grave</span></div><div class="d">4 sem veredito (sensor em falha ou sem cobertura); as três da 2C já com veredito "dentro"</div></div>
+  <div class="card kpi"><div class="l">Cascata e eventos</div><div class="n">187</div><div class="d">usina-dias de cascata (01 a 11/09) · 2.446 eventos · publicado no workbook <code>gemeo_digital</code></div></div>
+</div>
+
+<h2>Como o gêmeo responde às duas perguntas</h2>
+<div class="pipe">
+  <div class="st s-op"><div class="k">1 · FONTES</div><div class="t">Telemetria e cadastro</div><div class="x">PostgreSQL Thopen (5 min), SunOp (fino 15 / lento 60), <span class="brand">API PV conta oem@ (1 min)</span>, BD_Performance</div></div>
+  <div class="st s-op"><div class="k">2 · INGESTÃO</div><div class="t">Leitura em UTC</div><div class="x">marca d'água, sobreposição de 30 min, disjuntor por fonte, reconciliação diária, <code>ingest_run</code></div></div>
+  <div class="st s-ok"><div class="k">3 · GRADE + GATE</div><div class="t">Blocos de 15 min</div><div class="x">duas portas: razão POA×GHI plausível e cobertura de 8 h — dia reprovado não gera número</div></div>
+  <div class="st s-warn"><div class="k">4 · ESPERADO</div><div class="t">pvlib · PVWatts</div><div class="x">POA medida + temperatura, por inversor; modelo de PLACA (não calibrado)</div></div>
+  <div class="st s-ok"><div class="k">5 · DECOMPOSIÇÃO</div><div class="t">Onde foi a perda</div><div class="x">inversor parado → tracker fora do alvo → string sem corrente → resíduo</div></div>
+  <div class="st s-op"><div class="k">6 · CASCATA</div><div class="t">Eventos e dia</div><div class="x">6 tipos de evento, cascata por dia local, telas /gemeo e workbook</div></div>
+  <div class="st s-pend"><div class="k">7 · AGORA</div><div class="t">Comportamento</div><div class="x">esperado × medido do instante e cascata do dia até agora, na plataforma — próximo passo</div></div>
+</div>
+
+<h2>Passo a passo</h2>
+<ol class="steps">
+
+  <li class="step"><div class="num n-warn">1</div><div class="card">
+    <div class="head"><h3>Cadastro e de-para (Nível 1)</h3><span class="pill p-warn">parcial</span></div>
+    <div class="cols">
+      <div><div class="h">O que existe</div><ul class="li">
+        <li>Lê ao vivo do BD_Performance: Equipamentos, Info Geral (kWp total, inversores, trackers, cliente, P50) e BD_Trackers (tracker → inversor).</li>
+        <li>169 inversores e 332 trackers casados; 7 usinas com alias do Fracttal.</li>
+        <li><span class="brand">Hoje:</span> aceita "Usina Supervisório" vazio (cai para o nome) e casa inversor pelo nome de exibição — era o que as 2C precisavam.</li>
+      </ul></div>
+      <div><div class="h">O que falta</div><ul class="li">
+        <li>Info Mensal (metas e P50 do mês) → <code>meta_mes</code>; preço por MWh (perda sai em MWh, sem R$).</li>
+        <li>Lat/lon das 4 usinas SunOp (a Info Geral só tem Estado; a fração direta usa 0,6 fixo). PG e API PV já trazem.</li>
+        <li>De-para trackers supervisório ↔ Fracttal com 8 usinas pendentes na planilha.</li>
+      </ul></div>
+    </div>
+  </div></li>
+
+  <li class="step"><div class="num n-op">2</div><div class="card">
+    <div class="head"><h3>Ingestão das fontes (Nível 2)</h3><span class="pill p-op">em operação</span></div>
+    <div class="cols">
+      <div><div class="h">O que existe</div><ul class="li">
+        <li>PostgreSQL Thopen: 18 usinas, 5 min, com placa e coordenadas do próprio banco.</li>
+        <li>SunOp: 4 usinas Athon, teto próprio de 600 requisições/dia, janela solar, disjuntor para o 403 da borda.</li>
+        <li><span class="brand">API PV (hoje):</span> Araputanga, Sete Lagoas e Tupi Paulista — inversor a 5 min, string a 15, estação a 1; dia passado por <code>custom_query</code> só quando a janela cobre o dia.</li>
+        <li>Lock do SQLite na largada resolvido com retentativa (6 × 10 s).</li>
+      </ul></div>
+      <div><div class="h">O que falta</div><ul class="li">
+        <li>Trackers das 2C: a API PV nega para a conta oem@; sem eles a parcela de tracker vai para o resíduo.</li>
+        <li>Ipixuna do Pará (2C) só existe no e-mail: fora do gêmeo.</li>
+        <li>Santarém 1 e 2: piranômetro de POA morto (−999). Ou troca em campo, ou transpor GHI para o plano dos módulos.</li>
+        <li>PC definitivo: as tarefas agendadas, o backup diário e o monitor externo precisam ser instalados na máquina nova.</li>
+      </ul></div>
+    </div>
+  </div></li>
+
+  <li class="step"><div class="num n-ok">3</div><div class="card">
+    <div class="head"><h3>Grade de 15 min e gate de qualidade</h3><span class="pill p-ok">concluído</span></div>
+    <div class="cols">
+      <div><div class="h">O que existe</div><ul class="li">
+        <li>Duas portas por dia: razão POA×GHI dentro da faixa e pelo menos 8 h de sensor válido.</li>
+        <li>Sentinela de sensor: irradiância abaixo de −20 W/m² é código de erro (−999 Thopen, −666 SunOp); acima de 2000 também (API PV).</li>
+        <li>Hoje reprovou, com razão: Aparecida do Taboado 1 e 2 (sensor em falha) e Santarém 1 e 2 (sem cobertura).</li>
+      </ul></div>
+      <div><div class="h">O que falta</div><ul class="li">
+        <li>Nada estrutural. Conferir com a Performance se 6 h de tracker mudo é o limite certo para "dado ausente".</li>
+      </ul></div>
+    </div>
+  </div></li>
+
+  <li class="step"><div class="num n-warn">4</div><div class="card">
+    <div class="head"><h3>Esperado por inversor (pvlib)</h3><span class="pill p-warn">no ar, não calibrado</span></div>
+    <div class="cols">
+      <div><div class="h">O que existe</div><ul class="li">
+        <li>PVWatts sobre POA e temperatura medidas, por inversor, com kWp/kW AC do cadastro (ou pac0 inferido dos 30 dias).</li>
+        <li>Modelo de placa: γ −0,35 %/°C, perdas 14 %, η 0,96, tolerância 8 %. Primeira rodada: 11 usinas dentro de 10 %.</li>
+        <li>As três da 2C já com veredito "dentro" na rodada das 22:15: Araputanga 0,1 %, Sete Lagoas −3,5 %, Tupi 16,2 % (medido acima do esperado: placa/pac0 inferido dos 20 inversores a revisar).</li>
+      </ul></div>
+      <div><div class="h">O que falta</div><ul class="li">
+        <li>Calibração exige ≥ 30 dias limpos e desvio &lt; 0,03: PG e SunOp por volta de 03 a 04/10; 2C por volta de 11/10.</li>
+        <li>Revisar placa ou POA das 5 com desvio de 10 a 30 % (Aparecida 3, Santo Inácio XII, Taboado 1 e 2, Ibaté 1).</li>
+      </ul></div>
+    </div>
+  </div></li>
+
+  <li class="step"><div class="num n-ok">5</div><div class="card">
+    <div class="head"><h3>Decomposição da perda e eventos</h3><span class="pill p-ok">concluído</span></div>
+    <div class="cols">
+      <div><div class="h">O que existe</div><ul class="li">
+        <li>Ordem fixa: inversor parado → tracker fora do alvo (excesso sobre a mediana da frota &gt; 5°) → string sem corrente → resíduo.</li>
+        <li>Seis tipos de evento por dia local, com severidade em kWh; golden tests da MRO100 e Santarém travam a regra.</li>
+      </ul></div>
+      <div><div class="h">O que falta</div><ul class="li">
+        <li>Perda por tracker é aproximação (cosseno × fração direta) — serve para ordenar e detectar, não para valorar.</li>
+        <li>Thopen não tem tracker ↔ inversor: a parcela de tracker fica na usina; 2C sem trackers.</li>
+      </ul></div>
+    </div>
+  </div></li>
+
+  <li class="step"><div class="num n-op">6</div><div class="card">
+    <div class="head"><h3>Cascata diária, telas e publicação</h3><span class="pill p-op">em operação</span></div>
+    <div class="cols">
+      <div><div class="h">O que existe</div><ul class="li">
+        <li><code>gemeo modelar</code> a cada 15 min (janela de 3 dias, idempotente): 187 usina-dias de cascata desde 01/09, 2.446 eventos.</li>
+        <li>Telas Frota e Usina em <code>/gemeo/</code> pela plataforma; workbook <code>gemeo_digital</code> na API da Performance atualizado a cada rodada.</li>
+      </ul></div>
+      <div><div class="h">O que falta</div><ul class="li">
+        <li>Preço do contrato para a perda sair em R$.</li>
+        <li>Repositório próprio (<code>Grid-Co-CODE/gemeo</code>) e segunda pessoa treinada no runbook.</li>
+      </ul></div>
+    </div>
+  </div></li>
+
+  <li class="step"><div class="num n-pend">7</div><div class="card">
+    <div class="head"><h3>Comportamento "agora" na plataforma</h3><span class="pill p-pend">pendente · próximo passo</span></div>
+    <div class="cols">
+      <div><div class="h">O que existe</div><ul class="li">
+        <li>Toda a matéria-prima: esperado por bloco de 15 min, medido, gate do instante e a cascata do dia.</li>
+        <li>As três da 2C já entram no mesmo laço — era o pré-requisito do pedido de hoje.</li>
+      </ul></div>
+      <div><div class="h">O que falta</div><ul class="li">
+        <li>Endpoint e card: "quanto esta usina deveria estar gerando neste instante" e "quanto estamos perdendo e por quê" (cascata até agora), com a idade do dado.</li>
+        <li>Decidir onde entra na plataforma: Diagnóstico v2 da usina e/ou Entrada.</li>
+      </ul></div>
+    </div>
+  </div></li>
+
+  <li class="step"><div class="num n-bad">8</div><div class="card">
+    <div class="head"><h3>Preditivo (falha ↔ telemetria)</h3><span class="pill p-bad">bloqueado</span></div>
+    <div class="cols">
+      <div><div class="h">O que existe</div><ul class="li"><li>Alias do Fracttal por usina e o índice de OS que a plataforma já monta.</li></ul></div>
+      <div><div class="h">O que falta</div><ul class="li"><li>Granularidade das OS no Fracttal não permite ligar falha a equipamento e instante com confiança. Sem isso não há rótulo para aprender.</li></ul></div>
+    </div>
+  </div></li>
+</ol>
+
+<h2>Hoje, 11/09 — a fonte API PV entrou</h2>
+<div class="grid2">
+  <div class="card">
+    <h3>O que foi feito</h3>
+    <div class="tl">
+      <div class="ev"><div class="h">19:26 · medições na API</div>Carimbo é horário de Brasília para todas as usinas (Araputanga/MT inclusive); <code>day_*</code> só hoje a 1 leitura/min; <code>custom_query</code> de inversor leva ~146 s por usina; a estação mente por chave (piraPOA1 = 4921 na Tupi, IrGHI = 41 milhões na Araputanga).</div>
+      <div class="ev"><div class="h">20:30 · código com testes primeiro</div><code>ingest/apipv.py</code> novo; cadastro pelo nome e pelo nome de exibição; credenciais opcionais; retentativa no lock do SQLite. Suíte do gêmeo: 151 passando.</div>
+      <div class="ev blue"><div class="h">19:55 · ingest reiniciado</div>3 usinas, 40 inversores nomeados pelo de-para, 1.120 strings com pai, 3 estações; cadastro aplicou kWp e strings esperadas nos 40.</div>
+      <div class="ev bad"><div class="h">20:00 a 21:08 · rede da máquina caiu</div>Evento do Windows "Rede Desconectada". Sete Lagoas e Tupi falharam por DNS e o histórico de 09 e 10/09 não veio; o worker da plataforma caiu igual. Tudo voltou sozinho no ciclo seguinte.</div>
+      <div class="ev"><div class="h">21:50 · verificação</div>Araputanga: pico POA 1167,7 W/m² às 13:18, Pac 250 kW (teto AC), energia do dia por inversor igual à API, 23/24 strings com corrente ao meio-dia por inversor — igual ao cadastro. Sete Lagoas: 79.230 leituras no primeiro ciclo; Tupi: 145.835 (fechou 22:09). Os dias 08 a 10/09 que a queda de rede levou foram refeitos pelo backfill, uma usina por vez.</div>
+      <div class="ev"><div class="h">22:34 · backfill (tools/backfill_apipv)</div>Estação dos dias 08 a 10/09 completa nas três; inversor de 10/09 completo nas três (Araputanga 40.045 leituras em 161 s). Inversor de 08 e 09/09: a API devolveu HTTP 502 para as três usinas, inclusive a Tupi, que tem histórico — limite da API, não da rede.</div>
+      <div class="ev"><div class="h">22:15 · modelar</div>As três da 2C entraram no laço do modelo e saíram "dentro" da tolerância: Araputanga 0,1 %, Sete Lagoas −3,5 %, Tupi 16,2 %. Frota: 21 de 25 com veredito.</div>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Fontes e cobertura</h3>
+    <table>
+      <tr><th>Fonte</th><th>Usinas</th><th>Cadência</th><th>Último ciclo</th><th>Status</th></tr>
+      <tr><td>PostgreSQL Thopen</td><td class="m">18</td><td class="m">15 min</td><td class="m">19:57</td><td><span class="pill p-op">parcial 50 %</span></td></tr>
+      <tr><td>SunOp (Athon)</td><td class="m">4</td><td class="m">15 / 60 min</td><td class="m">18:21</td><td><span class="pill p-pend">fora da janela solar</span></td></tr>
+      <tr><td>API PV (2C, conta oem@)</td><td class="m">3</td><td class="m">15 min</td><td class="m">22:09</td><td><span class="pill p-op">parcial 67 %</span></td></tr>
+      <tr><td>BD_Performance (cadastro)</td><td class="m">25</td><td class="m">30 min</td><td class="m">20:0x</td><td><span class="pill p-ok">aplicado</span></td></tr>
+    </table>
+    <p class="muted" style="margin:10px 0 0;font-size:12.5px">"Parcial" à noite é esperado: a cobertura conta séries por minuto e os inversores dormem; o gate do modelo só olha o dia solar.</p>
+    <h3 style="margin-top:16px">Sem veredito hoje e por quê</h3>
+    <table>
+      <tr><th>Usina</th><th>Motivo</th><th>Ação</th></tr>
+      <tr><td>Aparecida do Taboado 1 e 2</td><td>sensor em falha (POA × GHI fora da faixa)</td><td>conferir a estação em campo</td></tr>
+      <tr><td>Santarém 1 e 2</td><td>sem cobertura de sensor (POA em −999)</td><td>trocar piranômetro ou transpor GHI</td></tr>
+    </table>
+  </div>
+</div>
+
+<h2>Decisões e pendências para o Levi</h2>
+<div class="grid">
+  <div class="card">
+    <h3 class="brand">Próximo passo</h3>
+    <ul class="li">
+      <li>Fase 2 do Comportamento: card "agora" (esperado × medido do instante + cascata do dia) na plataforma. Onde: Diagnóstico v2 e/ou Entrada?</li>
+      <li>Histórico de inversor anterior a D-1 na API PV: o <code>custom_query</code> devolveu HTTP 502 para 08 e 09/09 nas três (10/09 veio inteiro). A partir de hoje o histórico se acumula ao vivo; para trás só com a PV Plataforma (trygenerate), como a plataforma já faz.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3 class="warn">Acesso e infra</h3>
+    <ul class="li">
+      <li>Trackers das 2C: precisa de token da PV Plataforma da conta oem@ (a atual nega).</li>
+      <li>PC definitivo: instalar tarefas agendadas, backup e monitor externo; segredos fora do OneDrive.</li>
+      <li>Repositório próprio do gêmeo e uma segunda pessoa com acesso.</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h3 class="blue">Dado e modelo</h3>
+    <ul class="li">
+      <li>Info Mensal (metas) e preço do MWh no cadastro, para a perda sair em R$.</li>
+      <li>Santarém 1 e 2: sensor de POA morto — decisão de campo.</li>
+      <li>Calibração automática a partir de 30 dias limpos (início de outubro); até lá o número é de placa.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="foot">Fontes: banco do gêmeo (<code>C:\GridcoAuto\gemeo\gemeo.sqlite</code>) e <code>/gemeo/api/frota</code> às 22:30 de 11/09/2026 · processos <code>gemeo.cli ingest/app</code> ativos, <code>modelar</code> a cada 15 min · código em <code>gemeo/</code>, commit <code>0b86743</code> na main · pendências completas em <code>gemeo/docs/pendencias-2026-09-03.md</code>.</div>
+
+</div>
+</body>
+</html>

@@ -15,7 +15,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
-from gemeo.core import tempo
+from gemeo.core import db, tempo
 
 # Janela de dia da Frota: a mesma 05h-19h da curva do dia. Serve para decidir se existe um "agora" para comparar, e
 # olha o RELOGIO, nao o sensor: a POA da Ibate 2 fica congelada em 302 W/m2 a noite inteira, o modelo obedece e
@@ -26,7 +26,8 @@ FRIO_MIN = 30          # frescor: acima disto a usina fica cinza antes de qualqu
 DEFICIT_GRAVE = 0.08   # faixa 'deficit grave' da regua
 H = 0.25
 NOMES_PARCELA = {"inv_parado": "inversor parado", "tracker": "trackers fora do alvo",
-                 "string": "strings sem corrente", "residuo": "resíduo (não explicado)"}
+                 "string": "strings sem corrente", "clipping": "clipping (inversor no teto)",
+                 "residuo": "resíduo (não explicado)"}
 
 
 def faixa(delta: float | None, tolerancia: float) -> str:
@@ -99,22 +100,45 @@ def _ciclo(conn) -> dict:
     return _estado_json(conn, "modelar.ultimo")
 
 
+# A ultima leitura da usina fixando as TRES colunas da PK (equipamento_id, medida, ts). Medido em
+# 17/09/2026 contando passos da VM do SQLite (tempo engana: o cache do sistema operacional entrega
+# 2 s numa hora e 55 s noutra, com o mesmo codigo):
+#
+#   ORDER BY l.ts DESC LIMIT 1 sobre `equipamento_id IN (...)`   122.828.000 passos nas 25 usinas
+#   max(ts) fixando so o equipamento                              87.583.000  (so 1,4x melhor)
+#   max(ts) fixando equipamento E medida                           2.269.000  (54x melhor)
+#
+# O meio-termo quase me enganou: sem a medida, `max(ts)` ainda varre TODAS as medidas daquele
+# equipamento, porque `medida` esta no meio da chave. Com as tres fixas, cada uma vira um seek.
+# Conferido valor a valor nas 25 usinas do banco de producao: zero divergencia, inclusive nas que
+# estao dois dias sem dado. Era esta consulta, rodada por usina na Frota, que fazia a aba estourar o
+# timeout=30 do proxy e virar "Gêmeo Digital fora do ar".
+_MEDIDAS_SQL = " UNION ALL ".join(
+    ("SELECT '%s' AS v" if i == 0 else "SELECT '%s'") % m for i, m in enumerate(db.MEDIDAS))
+SQL_ULTIMA_LEITURA = ('SELECT max(ts) AS "ts [TIMESTAMP]" FROM (SELECT '
+                      "(SELECT max(l.ts) FROM leitura l WHERE l.equipamento_id=e.id AND l.medida=m.v) AS ts "
+                      f"FROM equipamento e CROSS JOIN ({_MEDIDAS_SQL}) m "
+                      "WHERE e.usina_id=%s)")
+
+
 def _ultima_leitura(conn, usina_id: int) -> dt.datetime | None:
-    r = _q(conn, 'SELECT l.ts AS "ts [TIMESTAMP]" FROM leitura l WHERE l.equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s) '
-                 "ORDER BY l.ts DESC LIMIT 1", (usina_id,))
-    return r[0][0] if r else None
+    r = _q(conn, SQL_ULTIMA_LEITURA, (usina_id,))
+    return r[0][0] if r and r[0][0] else None
 
 
 def _usinas(conn, usina_id: int | None = None) -> list[dict]:
     filtro = "AND u.id=%s" if usina_id else ""
     rows = _q(conn, f"""
         SELECT u.id, u.codigo, u.nome, u.fonte, u.fonte_ref, u.tz, coalesce(u.kwp_dc,0), coalesce(u.kw_ac,0), u.cliente,
+               u.lat, u.lon,
                (SELECT count(*) FROM equipamento e WHERE e.usina_id=u.id AND e.ativo),
                (SELECT max(r.criado_em) FROM ingest_run r WHERE r.usina_id=u.id AND r.status IN ('ok','parcial')) AS "ultimo_ingest_ok [TIMESTAMP]",
                m.id, m.versao, coalesce(m.tolerancia, 0.08), coalesce(m.calibrado, 0)
         FROM usina u LEFT JOIN modelo m ON m.usina_id=u.id AND m.ativo
         WHERE u.ativo {filtro} ORDER BY u.codigo""", (usina_id,) if usina_id else ())
-    chaves = ("id", "codigo", "nome", "fonte", "fonte_ref", "tz", "kwp", "kw_ac", "cliente", "n_equip", "ultimo_ingest_ok",
+    # lat/lon entram aqui porque o bloco de clima do dia (ceu claro) depende deles; sem isso o
+    # `clima_do_dia` devolvia None e a tela escondia o bloco sem dizer por que (17/09/2026)
+    chaves = ("id", "codigo", "nome", "fonte", "fonte_ref", "tz", "kwp", "kw_ac", "cliente", "lat", "lon", "n_equip", "ultimo_ingest_ok",
               "modelo_id", "modelo_versao", "tolerancia", "calibrado")
     out = []
     for r in rows:
@@ -147,12 +171,111 @@ def _agora_da_usina(conn, usina_id: int, modelo_id: int, slot: dt.datetime) -> t
 def _cascata(conn, usina_id: int, modelo_id: int | None, dia: dt.date) -> dict | None:
     if modelo_id is None:
         return None
-    r = _q(conn, "SELECT e_esperado, e_medido, delta, inv_parado, tracker, string, residuo, cobertura_gate, trackers_sem_inversor "
+    r = _q(conn, "SELECT e_esperado, e_medido, delta, inv_parado, tracker, string, clipping, residuo, cobertura_gate, trackers_sem_inversor "
                  "FROM cascata_dia WHERE usina_id=%s AND modelo_id=%s AND dia=%s", (usina_id, modelo_id, dia))
     if not r:
         return None
-    ch = ("e_esperado", "e_medido", "delta", "inv_parado", "tracker", "string", "residuo", "cobertura_gate", "trackers_sem_inversor")
+    ch = ("e_esperado", "e_medido", "delta", "inv_parado", "tracker", "string", "clipping", "residuo", "cobertura_gate", "trackers_sem_inversor")
     return {k: (float(v) if k != "trackers_sem_inversor" else int(v)) for k, v in zip(ch, r[0])}
+
+
+def clima_do_dia(conn, usina_id: int, ini, fim, lat, lon, tz: str) -> dict:
+    """Contexto meteorologico do dia: `variabilidade` e `ghi_x_clarosky` (17/09/2026).
+
+    **Variabilidade** = comprimento do caminho da curva medida dividido pelo da curva de ceu claro
+    (indice de variabilidade). Perto de 1 = ceu limpo; bem acima = dia instavel. E o que separa
+    "deficit porque nublou" de "deficit sem desculpa" — ate aqui essa resposta saia do olho de quem
+    analisa.
+
+    **ghi_x_clarosky** = mediana do GHI medido sobre o GHI de ceu claro, so com sol alto. A regua de
+    ETM da plataforma so alarma com POA/GHI em ZERO: um piranometro SUJO lendo 700 onde caberia
+    1.050 e invisivel. Abaixo de ~0,85 em dia limpo (variabilidade baixa) e sujeira ou desalinho.
+
+    Sem lat/lon nao ha ceu claro — devolve None em vez de inventar. (117 das 157 usinas tem
+    coordenada na Info Geral; as outras ficam sem este bloco.)"""
+    vazio = {"variabilidade": None, "ghi_x_clarosky": None}
+    if lat is None or lon is None:
+        return vazio
+    rows = _q(conn, 'SELECT l.ts AS "ts [TIMESTAMP]", l.valor FROM leitura l WHERE l.medida=%s AND l.ts >= %s AND l.ts < %s '
+                    "AND l.equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s AND tipo='estacao') ORDER BY l.ts",
+              ("ghi", ini, fim, usina_id))
+    if len(rows) < 12:
+        return vazio
+    try:
+        import numpy as _np
+        import pandas as _pd
+        import pvlib as _pvlib
+        s = _pd.Series([float(v) for _, v in rows], index=_pd.DatetimeIndex([r[0] for r in rows]))
+        if s.index.tz is None:
+            s.index = s.index.tz_localize("UTC")
+        cs = _pvlib.location.Location(float(lat), float(lon), tz="UTC").get_clearsky(s.index)["ghi"]
+        alto = cs > 200.0                      # so com sol alto: de madrugada a razao explode
+        if int(alto.sum()) < 8:
+            return vazio
+        razao = float(_np.median((s[alto] / cs[alto]).replace([_np.inf, -_np.inf], _np.nan).dropna()))
+        dt_min = float(_np.median(_np.diff(s.index.values).astype("timedelta64[m]").astype(float))) or 1.0
+        def _caminho(v):
+            d = _np.diff(_np.asarray(v, dtype=float))
+            return float(_np.nansum(_np.sqrt(d ** 2 + dt_min ** 2)))
+        base = _caminho(cs[alto])
+        vi = (_caminho(s[alto]) / base) if base > 0 else None
+        return {"variabilidade": (round(vi, 2) if vi is not None else None), "ghi_x_clarosky": round(razao, 3)}
+    except Exception:
+        return vazio
+
+
+# Limites do indice de variabilidade, medidos em 18 dias-usina das tres da 2C (17/09/2026): dia limpo
+# fica em 1,0 a 1,1 (Araputanga 15 e 16/09, curva de GHI lisa), e o dia de nuvem quebrada da Sete
+# Lagoas deu 92,7 — GHI oscilando 1225 -> 372 -> 1202 em minutos, com picos de 1238 W/m2 acima do ceu
+# claro (realce de borda de nuvem). O numero cru nao diz nada a quem opera; a palavra diz.
+CEU_LIMPO = 2.0
+CEU_PARCIAL = 8.0
+
+# Rendimento implicito a partir do qual a irradiancia lida esta abaixo da real. A usina nao produz mais
+# do que o sol entrega: medido / (kWp x POA/1000) e a assinatura dela e ficou em 0,76 a 0,81 na
+# Araputanga em 4 dias e 0,79 na Tupi num dia limpo (p10-p90 de 0,79 a 0,81). Mediana acima de 1,0 nao
+# tem explicacao fisica do lado da usina — sobra o sensor.
+RENDIMENTO_IMPOSSIVEL = 1.0
+
+
+def ceu_do_indice(vi: float | None) -> str | None:
+    """Traduz o indice de variabilidade em palavra: limpo, parcial, instavel."""
+    if vi is None:
+        return None
+    return "limpo" if vi <= CEU_LIMPO else ("parcial" if vi <= CEU_PARCIAL else "instável")
+
+
+def rendimento_do_dia(conn, usina_id: int, ini, fim, kwp: float | None) -> dict:
+    """Rendimento implicito do dia: mediana de `medido / (kWp x POA/1000)` com sol alto (17/09/2026).
+
+    Existe porque a regua anterior errava. "GHI abaixo de 85% do ceu claro = piranometro sujo" parece
+    certo e NAO e: medi 6 dias das tres usinas 2C e um dia encoberto de verdade da o mesmo numero —
+    a Tupi leu 9% do ceu claro o dia inteiro em 14/09 com cobertura cheia, e era nuvem. A
+    variabilidade tambem nao separa, porque estrato liso tem VI baixo igual a dia limpo.
+
+    Este criterio a fisica sustenta: a usina nao produz mais do que o sol entrega. Se a mediana passa
+    de 1,0, a irradiancia lida esta ABAIXO da real — e ai o problema nao e uma perda, e o `esperado`
+    inteiro do gemeo, que nasce da POA medida.
+
+    Usa a MEDIANA de proposito: em dia de nuvem quebrada os instantes soltos estouram (a Sete Lagoas
+    chegou a 1,95 num ponto) porque o piranometro e um ponto e a usina e um campo — a mediana
+    atravessa isso (ficou em 0,71 a 0,85 nos mesmos dias)."""
+    vazio = {"rendimento": None, "sensor_baixo": False}
+    if not kwp:
+        return vazio
+    rows = _q(conn, """SELECT s.poa, t.pac FROM
+          (SELECT ts, avg(valor) AS poa FROM leitura WHERE medida='poa' AND ts >= %s AND ts < %s
+             AND equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s AND tipo='estacao') GROUP BY ts) s
+        JOIN (SELECT ts, sum(valor) AS pac FROM leitura WHERE medida='p_ac' AND ts >= %s AND ts < %s
+             AND equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s AND tipo='inversor') GROUP BY ts) t
+          ON t.ts = s.ts WHERE s.poa > 300""", (ini, fim, usina_id, ini, fim, usina_id))
+    if len(rows) < 20:                       # poucos pares: dia curto ou fonte falhando, nao se opina
+        return vazio
+    v = [float(pac) / (float(kwp) * float(poa) / 1000.0) for poa, pac in rows if poa and float(poa) > 0]
+    if len(v) < 20:
+        return vazio
+    r = float(np.median(v))
+    return {"rendimento": round(r, 2), "sensor_baixo": r > RENDIMENTO_IMPOSSIVEL}
 
 
 def _gate_hoje(conn, usina_id: int, ini: dt.datetime, fim: dt.datetime) -> str:
@@ -350,6 +473,7 @@ def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
         status = ev_por_eq.get(int(eid)) or ("sem_dado" if razao is None else "atencao" if razao < 0.9 else "ok")
         inversores.append({"id": int(eid), "nome": nome, "codigo": codigo, "kwp": (at or {}).get("kwp"), "medido_kwh": med, "esperado_kwh": esp_i, "razao": razao,
                            "inv_parado": p.get("inv_parado", 0.0), "tracker": p.get("tracker", 0.0), "string": p.get("string", 0.0),
+                           "clipping": p.get("clipping", 0.0),
                            "residuo": p.get("residuo", 0.0), "status": status,
                            "curva_medida_kw": _serie(med_inv.get(int(eid), {})), "curva_esperada_kw": _serie(esp_inv.get(int(eid), {}))})
 
@@ -364,10 +488,16 @@ def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
                      "AND p.equipamento_id IN (SELECT id FROM equipamento WHERE usina_id=%s AND tipo='estacao')", (ini, fim, usina_id))
     razao_dia = float(np.median([a / b for a, b in pares])) if pares else None
     sensor = {"razao_poa_ghi": razao_dia, "cobertura_gate": (casc["cobertura_gate"] if casc else None), "gate_hoje": _gate_hoje(conn, usina_id, ini, fim),
-              "trackers_sem_inversor": (casc["trackers_sem_inversor"] if casc else None)}
+              "trackers_sem_inversor": (casc["trackers_sem_inversor"] if casc else None),
+              "congelado": any(e.get("tipo") == "sensor_congelado" for e in eventos),
+              **clima_do_dia(conn, usina_id, ini, fim, u.get("lat"), u.get("lon"), tz),
+              **rendimento_do_dia(conn, usina_id, ini, fim, u.get("kwp"))}
+    sensor["ceu"] = ceu_do_indice(sensor.get("variabilidade"))
     return {"agora": agora.isoformat(), "ciclo": _ciclo(conn), "cabecalho": cabecalho, "periodo": {"dias": 1, "de": str(hoje), "ate": str(hoje)},
             "dias": [], "curva": curva, "paradas": _paradas(eventos, tz, n_inv_ativos), "cascata": casc, "preco_mwh": preco,
-            "perda_brl": ((max(0.0, casc["delta"]) / 1000.0 * preco) if (casc and preco) else None), "eventos": eventos, "inversores": inversores,
+            # clipping fora da conta: e limite de PROJETO, nao falha de operacao (Levi, 17/09/2026)
+            "perda_brl": ((max(0.0, casc["delta"] - casc.get("clipping", 0.0)) / 1000.0 * preco)
+                          if (casc and preco) else None), "eventos": eventos, "inversores": inversores,
             "trackers": _top("tracker", "tracker"), "strings": _top("string", "string"), "sensor": sensor}
 
 
@@ -407,8 +537,8 @@ def usina_periodo(conn, usina_id: int, agora: dt.datetime, dias: int) -> dict | 
                  "tolerancia": float(u["tolerancia"]), "hoje": str(hoje), "slot": None, "esperado_kw": None, "medido_kw": None, "delta": None,
                  "faixa": "sem_dado", "gate_agora": None, "idade_leitura_min": _min(agora, u["ultima_leitura"]), "idade_esperado_min": None}
     cabecalho["frio"] = cabecalho["idade_leitura_min"] is None or cabecalho["idade_leitura_min"] > FRIO_MIN
-    ch = ("e_esperado", "e_medido", "delta", "inv_parado", "tracker", "string", "residuo", "cobertura_gate", "trackers_sem_inversor")
-    rows = _q(conn, "SELECT dia, e_esperado, e_medido, delta, inv_parado, tracker, string, residuo, cobertura_gate, trackers_sem_inversor "
+    ch = ("e_esperado", "e_medido", "delta", "inv_parado", "tracker", "string", "clipping", "residuo", "cobertura_gate", "trackers_sem_inversor")
+    rows = _q(conn, "SELECT dia, e_esperado, e_medido, delta, inv_parado, tracker, string, clipping, residuo, cobertura_gate, trackers_sem_inversor "
                     "FROM cascata_dia WHERE usina_id=%s AND modelo_id=%s AND dia >= %s AND dia <= %s ORDER BY dia", (usina_id, mid, d0, hoje)) if mid else []
     dias_l = [{"dia": r[0].isoformat(), **{k: (float(v) if k != "trackers_sem_inversor" else int(v)) for k, v in zip(ch, r[1:])}} for r in rows]
     casc = None
@@ -475,7 +605,9 @@ def usina_periodo(conn, usina_id: int, agora: dt.datetime, dias: int) -> dict | 
         d["paradas"] = [{k: j[k] for k in ("hora_ini", "hora_fim", "n", "de", "kwh", "min")} for j in _paradas(por_dia.get(d["dia"], []), tz, n_inv)]
     return {"agora": agora.isoformat(), "ciclo": _ciclo(conn), "cabecalho": cabecalho, "periodo": {"dias": dias, "de": d0.isoformat(), "ate": hoje.isoformat()},
             "dias": dias_l, "curva": [], "paradas": [p for d in dias_l for p in d["paradas"]], "cascata": casc, "preco_mwh": preco,
-            "perda_brl": ((max(0.0, casc["delta"]) / 1000.0 * preco) if (casc and preco) else None), "eventos": eventos, "inversores": inversores,
+            # clipping fora da conta: e limite de PROJETO, nao falha de operacao (Levi, 17/09/2026)
+            "perda_brl": ((max(0.0, casc["delta"] - casc.get("clipping", 0.0)) / 1000.0 * preco)
+                          if (casc and preco) else None), "eventos": eventos, "inversores": inversores,
             "trackers": _top("tracker", "tracker"), "strings": _top("string", "string"), "sensor": sensor}
 
 
@@ -508,7 +640,11 @@ def saude(conn, cfg, agora: dt.datetime) -> dict:
     # A noite nao ha ciclo SunOp (janela solar): a idade do ultimo ciclo so e problema com alguma usina em janela.
     # 'parcial' e o normal do crepusculo (cobertura ~50% que a reconciliacao das 03h completa) — so 'falha' acusa.
     janela = getattr(cfg, "janela_solar", ("05:40", "18:20"))
-    dia = any(tempo.dentro_janela_solar(agora, u["tz"], janela) for u in _usinas(conn))
+    # SO os fusos, direto da tabela `usina`: `_usinas` faria um `_ultima_leitura` por usina e o healthz
+    # levava 56 s sobre 17,3 M linhas — o proxy da plataforma (timeout=30) devolvia 503 num gemeo
+    # saudavel, que e como esta rota passou a mentir sobre gravidade (17/09/2026)
+    fusos = [f for f, in _q(conn, "SELECT tz FROM usina WHERE ativo")]
+    dia = any(tempo.dentro_janela_solar(agora, f, janela) for f in fusos)
     for f, v in fontes.items():
         if v["status"] == "falha" or (dia and (v["idade_min"] or 0) > 120):
             problemas.append(f"{f}: {v['status']} há {v['idade_min']} min")

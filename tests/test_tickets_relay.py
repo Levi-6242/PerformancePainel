@@ -247,3 +247,23 @@ def test_url_invalida_nao_publica(log):
     with pytest.raises(ValueError):
         tr.publicar_url_tunel("", "tok", http=b)
     assert b.escritas == []
+
+
+# ── as geracoes do diario (14/09/2026) ─────────────────────────────────────────────────────
+def test_o_relay_aceita_a_aba_que_o_app_usa_HOJE():
+    """O app grava o diario na aba que o `tickets_diario.garantir_aba` acha PELO NOME, e ele cria
+    a proxima geracao quando o formato muda: 387 -> 398 (v2) -> 399 (v3). Hoje ele usa a 399.
+
+    Aceitar so a 387 custou uma semana de vinculo perdido: a linha da ocorrencia entrava (123 e
+    128 estao na lista) e o registro do diario era recusado AQUI, antes do log, devolvendo um
+    aviso que ninguem le. Medido em 14/09: 34 OS de String/Tracker em dez dias, zero vinculadas."""
+    import tickets_relay as relay
+    for sid in (387, 398, 399):
+        assert sid in relay.ABAS, "a geracao %s do diario precisa passar pelo relay" % sid
+    assert "Edicoes do app v3" in relay.ABAS[399]
+
+
+def test_o_relay_continua_recusando_aba_de_fora():
+    """A lista curta e' o que protege: este token grava no banco inteiro."""
+    import tickets_relay as relay
+    assert 999 not in relay.ABAS

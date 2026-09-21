@@ -510,6 +510,55 @@ def _varrer(eventos, usinas, per_fim):
     return h_eq, kwh, det_os
 
 
+def _disp_por_inversor(eventos, usinas, per_fim, tot_h):
+    """Disponibilidade POR INVERSOR, com a CASCATA da cabine (pedido do Levi, 14/09/2026): uma OS de
+    USINA derruba todos os inversores; uma de CABINE derruba os inversores daquela cabine (mapa
+    inversor→UG da coluna 'Equipamento Parente' da aba Equipamentos = `inv_ug`); uma de INVERSOR só
+    ele. União das janelas por inversor (duas OS sobrepostas não somam além do período coberto — é a
+    mesma varredura por bordas do `_varrer`, mas por inversor). Só usinas com catálogo por inversor.
+    → {usina: [ {inversor, disp, h_perdidas}, ... ]} (pior disp primeiro)."""
+    por_usina = defaultdict(list)
+    for e in eventos:
+        por_usina[e["usina"]].append(e)
+    out = {}
+    for u, U in usinas.items():
+        if not U.invs:
+            continue
+        inv_keys = list(U.invs.keys())
+        ev_por_inv = {k: [] for k in inv_keys}
+        for e in por_usina.get(u, []):
+            nivel, chave = e["nivel"], (e.get("chave") or "")
+            if nivel == "usina":
+                alvo = inv_keys
+            elif nivel == "cabine":
+                m = re.match(r"cab(\d+)$", chave)
+                ncab = int(m.group(1)) if m else None
+                alvo = [k for k in inv_keys if U.inv_ug.get(k) == ncab]
+            elif nivel == "inversor":
+                num = chave[3:] if chave.startswith("inv") else ""
+                alvo = [num] if num in U.invs else []
+            else:
+                alvo = []
+            for k in alvo:
+                ev_por_inv[k].append(e)
+        linhas = []
+        for k in inv_keys:
+            evs = ev_por_inv[k]
+            h_down = 0.0
+            if evs:                                   # bordas → cada fatia conta uma vez (união)
+                bordas = sorted({e["ini"] for e in evs} | {e["fim"] for e in evs})
+                for i in range(len(bordas) - 1):
+                    a, b = bordas[i], bordas[i + 1]
+                    if any(e["ini"] <= a and e["fim"] >= b for e in evs):
+                        h_down += sum(horas_solares_por_dia(a, b, per_fim).values())
+            linhas.append({"inversor": "Inversor " + k, "cabine": U.inv_ug.get(k),
+                           "disp": round(100.0 * (1 - h_down / tot_h), 2) if tot_h else None,
+                           "h_perdidas": round(h_down, 2)})
+        linhas.sort(key=lambda x: (x["disp"] if x["disp"] is not None else 1e9))
+        out[u] = linhas
+    return out
+
+
 # ══ cálculo principal ════════════════════════════════════════════════════════
 def _normal_kwh_kwp(dias_ger, pot_kwp):
     """Produção 'normal' da usina no período, em kWh/kWp: P75 dos dias com dado. O P75 (e não a
@@ -592,7 +641,7 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, geracao=None):
         for (u, nivel, chave, kwp) in esc:
             exon = _dias_desmentidos(u, a, b, geracao, usinas[u].pot, kwp)
             if not exon:
-                eventos.append({"usina": u, "nivel": nivel, "kwp": kwp, "ini": a, "fim": b, "o": o})
+                eventos.append({"usina": u, "nivel": nivel, "chave": chave, "kwp": kwp, "ini": a, "fim": b, "o": o})
                 continue
             # a geração desmente a parada nesses dias: parte o evento e pula
             o["flags"].append(f"{u}: {len(exon)} dia(s) exonerados — a geração desmente a parada "
@@ -604,7 +653,7 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, geracao=None):
                     ini_d = max(a, datetime(d.year, d.month, d.day))
                     fim_d = min(b, datetime(d.year, d.month, d.day) + timedelta(days=1))
                     if fim_d > ini_d:
-                        eventos.append({"usina": u, "nivel": nivel, "kwp": kwp,
+                        eventos.append({"usina": u, "nivel": nivel, "chave": chave, "kwp": kwp,
                                         "ini": ini_d, "fim": fim_d, "o": o})
                 d += timedelta(days=1)
 
@@ -613,6 +662,7 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, geracao=None):
     h_qd, kwh_qd, _ = _varrer([e for e in eventos if e["o"]["origem"] == "queda"], usinas, per_fim)
     h_eq_ip, kwh_ip, _ = _varrer([e for e in eventos if e["o"]["origem"] == "equipamento"],
                                  usinas, per_fim)
+    disp_inv = _disp_por_inversor(eventos, usinas, per_fim, tot_h)   # por inversor, com cascata da cabine (Levi 14/09)
 
     os_h = {}
     cenario = []
@@ -651,7 +701,8 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, geracao=None):
                            "h_queda": round(phq, 2), "kwh_queda": round(sum(kwh_qd[u].values())),
                            "disp_equip": round(100.0 * (1 - phe / tot_h), 2) if tot_h else None,
                            "h_equip": round(phe, 2), "kwh_equip": round(sum(kwh_ip[u].values())),
-                           "n_os": len({e["o"]["folio"] for e in eventos if e["usina"] == u})})
+                           "n_os": len({e["o"]["folio"] for e in eventos if e["usina"] == u}),
+                           "inversores": disp_inv.get(u, [])})
 
     por_cli = defaultdict(lambda: {"kwp": 0.0, "ph_pond": 0.0, "phq_pond": 0.0, "phe_pond": 0.0,
                                    "kwh": 0.0, "kwh_q": 0.0, "kwh_e": 0.0, "n_os": 0,

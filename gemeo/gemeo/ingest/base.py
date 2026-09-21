@@ -47,6 +47,7 @@ def valor_valido(medida: str, valor: float | None) -> bool:
 
 class Ingestor(ABC):
     fonte: str = "?"
+    tipos: tuple[str, ...] | None = None   # marca d'agua so destes tipos de equipamento (fonte que divide a usina com outra)
 
     def __init__(self, cfg, conn, usinas: list[UsinaRef]):
         self.cfg, self.conn, self.usinas = cfg, conn, usinas
@@ -64,7 +65,7 @@ class Ingestor(ABC):
         ids = []
         for u in self.usinas:
             t0 = time.time()
-            marca = self._db.marca_dagua(self.conn, u.id)
+            marca = self._db.marca_dagua(self.conn, u.id, tipos=self.tipos) if self.tipos else self._db.marca_dagua(self.conn, u.id)
             ini, fim = tempo.janela(agora, marca, self.cfg.sobreposicao_min, reconciliar=reconciliar)
             if self.disjuntor.aberto():
                 ids.append(self._db.registrar_ingest_run(self.conn, fonte=self.fonte, usina_id=u.id, ini=ini, fim=fim,

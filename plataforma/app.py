@@ -182,7 +182,7 @@ def _tokens_rt_set(chave: str, valor: str):
 
 
 app = Flask(__name__)
-app.config["TEMPLATES_AUTO_RELOAD"] = True   # relê o index.html sem precisar reiniciar o servidor
+app.config["TEMPLATES_AUTO_RELOAD"] = True   # relê os templates sem precisar reiniciar o servidor
 app.jinja_env.auto_reload = True
 Compress(app)   # gzip nas respostas (JSON do /api/data cai ~10x)
 
@@ -449,6 +449,51 @@ def gemeo_proxy(sub):
     for k, v in r.headers.items():
         if k.lower() in ("location", "cache-control"):
             resp.headers[k] = v
+    return resp
+
+
+# ── OS Creator na web: proxy /os/* → serviço do repositório oem (porta 5090) ─────────────────
+# Levi, 12/09/2026: "traga toda a estrutura do OS Creator para a plataforma, de forma que para entrar no card tenha que
+# logar no Fracttal". O serviço (`os_creator/os_web`, repositório Grid-Co-CODE/oem) reaproveita o `api.py` do app
+# desktop e refaz as telas em HTML; a plataforma só o publica pelo mesmo túnel e pelo mesmo login (o _auth_gate cobre
+# /os/*). Diferente do Gêmeo, NÃO há senha compartilhada: cada pessoa loga no Fracttal e a sessão dela vive num cookie
+# do próprio serviço (`os_sessao`, Path=/os) — por isso o proxy repassa ESSE cookie nos dois sentidos, e só ele (o
+# cookie de sessão da plataforma não sai daqui). Serviço fora do ar → 503 com texto, nunca 500.
+OS_WEB_URL = os.environ.get("OS_WEB_URL", "http://127.0.0.1:5090").rstrip("/")
+_OS_WEB_COOKIE = "os_sessao"
+
+
+@app.route("/os/", defaults={"sub": ""}, methods=["GET", "POST"])
+@app.route("/os/<path:sub>", methods=["GET", "POST"])
+def os_web_proxy(sub):
+    from flask import Response
+    cab = {"Accept": flask_request.headers.get("Accept", "*/*")}
+    if flask_request.content_type:
+        cab["Content-Type"] = flask_request.content_type
+    # As telas portadas em 13/09 pedem FRAGMENTO com este cabecalho; sem repassar, o os_web devolve
+    # a pagina inteira e o card de detalhe abre um dashboard dentro de si.
+    if flask_request.headers.get("X-Requested-With"):
+        cab["X-Requested-With"] = flask_request.headers["X-Requested-With"]
+    sessao = flask_request.cookies.get(_OS_WEB_COOKIE)
+    if sessao:
+        cab["Cookie"] = f"{_OS_WEB_COOKIE}={sessao}"
+    try:
+        r = requests.request(flask_request.method, f"{OS_WEB_URL}/os/{sub}", params=flask_request.args.to_dict(flat=False),
+                             data=flask_request.get_data(), headers=cab, timeout=180, allow_redirects=False)
+    except requests.RequestException as e:
+        return Response(f"OS Creator web fora do ar ({type(e).__name__}). Ver os_creator/os_web no repositório oem.",
+                        status=503, mimetype="text/plain; charset=utf-8")
+    resp = Response(r.content, status=r.status_code, content_type=r.headers.get("Content-Type", "text/html; charset=utf-8"))
+    for k, v in r.headers.items():
+        # content-disposition entra aqui senao o CSV exportado abre INLINE em vez de baixar
+        if k.lower() in ("location", "cache-control", "content-disposition"):
+            resp.headers[k] = v
+    try:                                                   # cada Set-Cookie separado (o dict de headers os junta com vírgula)
+        for v in r.raw.headers.getlist("Set-Cookie"):
+            resp.headers.add("Set-Cookie", v)
+    except AttributeError:
+        if r.headers.get("Set-Cookie"):
+            resp.headers.add("Set-Cookie", r.headers["Set-Cookie"])
     return resp
 
 
@@ -1797,9 +1842,63 @@ def load_thopen_meta():
                 "ipoa_meta": float(v[iIrr]) if (iIrr is not None and isinstance(v[iIrr], (int, float))) else None,
                 "pr_meta": float(v[iPR]) if (iPR is not None and isinstance(v[iPR], (int, float))) else None,
             }
+        # SUPLEMENTO do formato LONGO (Levi, 14/09/2026): algumas usinas têm a meta SÓ na aba
+        # "Historico" (Usina|Ano|Mês|Tipo|Valor), fora do "Dados Mensais 2026" (LARGO) lido acima —
+        # foi o caso de Santo Anastácio e Álvares Machado, que ficavam p50_src="sem" com a geração
+        # já achada. Aqui só COMPLETA quem falta (setdefault por campo): o LARGO continua mandando.
+        _n_supl = 0
+        try:
+            _ano_meta = datetime.now().year
+            for _ws in wb.worksheets:
+                if str(_ws.title).strip().lower() != "historico":
+                    continue
+                _hd2 = None; _st2 = 1
+                for _i in range(1, min(4, _ws.max_row) + 1):
+                    _vs = [str(c.value).strip().lower() if c.value is not None else "" for c in _ws[_i]]
+                    if "usina" in _vs and any("tipo" in v for v in _vs):
+                        _hd2 = _vs; _st2 = _i + 1; break
+                if not _hd2:
+                    continue
+
+                def _cx(*needles):
+                    for _j, _h in enumerate(_hd2):
+                        if any(x in _h for x in needles):
+                            return _j
+                    return None
+                _cu, _ca, _cm, _ct, _cv = _cx("usina"), _cx("ano"), _cx("mês", "mes"), _cx("tipo"), _cx("valor")
+                if None in (_cu, _cm, _ct, _cv):
+                    continue
+                for _r in _ws.iter_rows(min_row=_st2, values_only=True):
+                    _u = _r[_cu] if _cu < len(_r) else None
+                    if not _u:
+                        continue
+                    if _ca is not None and _ca < len(_r) and _r[_ca] not in (None, _ano_meta):
+                        continue
+                    _mv = _r[_cm] if _cm < len(_r) else None
+                    _mo = _mv.month if hasattr(_mv, "month") else (int(_mv) if isinstance(_mv, (int, float)) else None)
+                    if not _mo:
+                        continue
+                    _vl = _r[_cv] if _cv < len(_r) else None
+                    if not isinstance(_vl, (int, float)):
+                        continue
+                    _tp = str(_r[_ct] or "").strip().lower()
+                    _slot = out.setdefault(_nrm(str(_u).strip()), {}).setdefault(int(_mo), {})
+                    if "irradia" in _tp:                       # "Meta Irradiação" ANTES de "meta"
+                        if _slot.get("ipoa_meta") is None:
+                            _slot["ipoa_meta"] = float(_vl)
+                    elif _tp == "pr" or _tp.startswith("pr"):
+                        if _slot.get("pr_meta") is None:
+                            _slot["pr_meta"] = float(_vl)
+                    elif "meta" in _tp:                        # "Meta (2026)" = energia (kWh→MWh)
+                        if _slot.get("meta_mwh") is None:
+                            _slot["meta_mwh"] = (_vl / 1000.0 if _vl > 10000 else _vl)
+                            _n_supl += 1
+        except Exception as _e:                                # noqa: BLE001
+            print(f"[thopen_meta] suplemento LONGO falhou: {_e}")
         wb.close()
         THOPEN_META = out
-        print(f"[OK] BD_Thopen/{tabela} (aba {sheet.title}): {len(out)} usinas com meta (gerencial)")
+        print(f"[OK] BD_Thopen/{tabela} (aba {sheet.title}): {len(out)} usinas com meta (gerencial)"
+              + (f" · +{_n_supl} metas do LONGO Historico" if _n_supl else ""))
     except Exception as e:
         print(f"[AVISO] BD_Thopen meta não carregado: {e}")
 
@@ -1966,12 +2065,18 @@ PV_OEM_PASSWORD = os.environ.get("PV_OEM_PASSWORD", "")
 # na aba da SEMP — cliente errado no rótulo. Com o mapa, cada cliente é uma linha e o resto do
 # motor não muda. Tupi Paulista fica FORA de propósito: já vem da 2C.
 PV_FONTES = {
-    "semp":      {18758732},    # UFV Tucano
+    # A SEMP tem DUAS usinas na conta oem@: "UFV Tucano 1" (18758732) e "UFV Tucano 2" (18768694).
+    # Até 15/09/2026 só a 1 estava aqui, então a Tucano 2 nunca aparecia no tempo real — só no
+    # histórico, pela aba do BD_Performance (Levi: "está na PV Operation que nem a Tucano 1").
+    # O de-para de supervisório já existia no Equipamentos ("UFV Tucano 2" → "Tucano 2").
+    "semp":      {18758732, 18768694},    # UFV Tucano 1 e 2
     "alveslima": {18766373},    # MORADA NOVA (CE) — 8 inversores, 2.508 kWp, ativa desde 05/08/2026
     # 2C pela API PV (Levi, 11/09/2026: "quero que rode na plataforma primeiro"). As três estão na conta oem@ com
     # strings (28 Ipv por inversor), ETM completa e curva — a conta principal responde "Invalid id" para elas.
-    # Trackers NÃO: a PV Plataforma nega com o token do usuário gridco (precisaria de um token logado como oem@),
-    # então trackers das três continuam só pelo e-mail (fonte `owen`). A Ipixuna do Pará não está na API.
+    # Trackers: a PV Plataforma DEIXOU de negar (token de 15/09/2026) e devolve as três — Araputanga 59,
+    # Sete Lagoa 59, Tupi 100, iguais ao BD_Trackers. Mesmo assim seguem pelo e-mail (fonte `owen`), para não
+    # duplicar a mesma ocorrência em duas fontes; migrar é decisão do Levi (a API é ~2h45 mais fresca que o
+    # e-mail). Ver PV_TRK_OUTRA_FONTE. A Ipixuna do Pará não está na API.
     "2capi":     {18771898, 18771901, 18750925},    # Araputanga, "Sete Lagoa" (singular na API), Tupi Paulista
 }
 # PV_NOME_API_ALIAS ("Sete Lagoa" → "Sete Lagoas") está definido antes do load_equipamentos, que o aplica ao cadastro.
@@ -1986,8 +2091,26 @@ PV_INV_NOMES = {
                **{367516 + i: f"Inversor 2.{i + 1}" for i in range(10)}},
 }
 PV_OEM_PLANTS   = set().union(*PV_FONTES.values()) if PV_FONTES else set()
+# TRACKERS: até 15/09/2026 a varredura excluía TODA usina da conta OEM, porque a apiplataforma
+# respondia "Usuário não possui permissão" com o PLAT_TOKEN do usuário gridco — 1 chamada condenada
+# por ciclo. Com o token renovado nesse dia (usuarioid 8540) a negativa acabou: conferido ao vivo,
+# Tucano 1 e Tucano 2 devolvem 40 trackers cada, leitura do minuto (Levi: "SEMP não tá puxando ainda
+# os trackers via PV, já tem os dados lá no sistema da PV"). A exclusão deixou de ser "é da conta
+# OEM" e passou a ser "o tracker JÁ VEM DE OUTRA FONTE" — hoje só as três da 2C, que chegam pelo
+# e-mail (fonte `owen`, rótulo "2C"). Duas fontes para o MESMO tracker duplicariam a ocorrência no
+# livro (tracker_watch) e o "parado" da Entrada. A Morada Nova fica DE FORA desta lista de propósito:
+# ela responde 200 com zero trackers (ausência honesta), e no dia em que ganhar seguidor aparece só.
+PV_TRK_OUTRA_FONTE = set(PV_FONTES.get("2capi") or ())
 _pv_oem_token   = {"token": None, "exp": 0.0}
 _pv_oem_lock    = threading.Lock()
+
+
+def _pv_trk_fora(plant_id) -> bool:
+    """True = não varrer tracker desta usina pela PV Plataforma (o dado vem de outra fonte)."""
+    try:
+        return int(plant_id) in PV_TRK_OUTRA_FONTE
+    except Exception:
+        return False
 
 
 def get_token_oem(force=False) -> str:
@@ -2236,7 +2359,7 @@ def build_summary(plant: dict, records: list) -> dict:
             # String Box: corrente por string REAL vem da COMBINER (Plataforma). O day_inverter às vezes
             # traz 24 Ipv quase todas ZERO → contar CHAVES deixava a combiner de fora (Ceilândia II
             # 23/07: 12 inv × 1 string = déficit falso -156). Conta corrente REAL.
-            cmb = _plat_combiner_strings(inv_id)
+            cmb = _combiner_strings(plant["id"], inv_id)   # API PV primeiro, Plataforma de reserva
             if cmb:
                 cj = dict(cj); cj.update(dict(cmb["strings"]))
                 ipv_keys = [k for k, _ in cmb["strings"]]
@@ -2630,7 +2753,7 @@ def _pv_plant_inversores(plant_id, force=False):
             _ipv_reais = sum(1 for k in ipv_keys
                              if isinstance(scj.get(k), (int, float)) and scj[k] > STRING_SEM_CORRENTE_A)
             if _ipv_reais <= 1:
-                cmb = _plat_combiner_strings(inv_id)
+                cmb = _combiner_strings(plant_id, inv_id)   # API PV primeiro, Plataforma de reserva
                 if cmb:
                     scj = dict(scj)                       # não polui o cj original (Temp/Eday ficam)
                     scj.update(dict(cmb["strings"]))
@@ -3004,7 +3127,7 @@ def _entrada_tempo_real_build() -> dict:
             raise RuntimeError(err["erro"])
         return rows_pv
 
-    # `owen` E o 2C (OWEN_UFVS = Araputanga, Ipixuna do Pará, Sete Lagoas 2, Tupi Paulista), como o resto do
+    # `owen` E o 2C (OWEN_UFVS = Araputanga, Ipixuna do Pará, Sete Lagoas, Tupi Paulista), como o resto do
     # arquivo já diz: _TRK_FONTE_LABEL["owen"]="2C", o rollup faz add("2C", r) e _ENTRADA_VKEY["2c"]="owen".
     # Registrado sob "RenoGrid", o card do 2C NUNCA era marcado como lido (ficava "fonte não respondeu" para
     # sempre) e o da RenoGrid — que não tem leitura de trackers — se dizia lido. Varredura de 09/09/2026.
@@ -3354,19 +3477,6 @@ def api_entrada_tempo_real_atualizar():
                     "cache_ts": (c["data"] or {}).get("cache_ts"), "min_intervalo_s": _ENTRADA_TR_MIN_FORCA_S})
 
 
-@app.route("/antigo")
-def index_antigo():
-    # Versão ANTIGA do Monitoramento (index.html/Jinja) — mantida após a promoção do novo design.
-    return render_template("index.html", today=datetime.now().strftime("%d/%m/%Y"))
-
-
-@app.route("/teste-layout")
-def teste_layout():
-    # Protótipo do NOVO estilo da página principal (aba API PV · Strings · Visão geral).
-    # Consome o /api/data ao vivo. Aprovado → portar p/ index.html; reprovado → apagar rota+template.
-    return render_template("teste_layout.html", today=datetime.now().strftime("%d/%m/%Y"))
-
-
 @app.route("/gerencial")
 def gerencial():
     # Painel 3 — Visão Gerencial (atingimento × P50 por usina/cliente). Consome /api/gerencial.
@@ -3460,7 +3570,7 @@ def _build_data_payload(fonte: str = None):
     alertas_comm    = [r for r in rows if r.get("sem_dados") or r.get("falha_comunicacao")]
 
     # Gráficos de barras (strings ativas + temperatura) são montados no navegador
-    # a partir de "rows" (renderPvCharts no index.html) — nada de Plotly no payload.
+    # a partir de "rows" (o antigo renderPvCharts do front Jinja, removido em 19/09/2026) — nada de Plotly no payload.
     payload = {
         "rows": rows,
         "summary": {
@@ -4327,12 +4437,111 @@ def _sunop_edge_trip():
     _sunop_bloqueio["ate"] = agora + SUNOP_BLOQUEIO_S
 
 
+# ── Contador de requisições à SunOp (20/09/2026) ─────────────────────────────
+# O `/data/v2/usage/me` acusou 162.892 requisições de 01 a 20/09 contra uma cota de 100.000/mês:
+# saldo ZERO desde o dia 12, US$ 31,45 já cobrados. O gêmeo sabia que gastava 85/dia porque MEDE
+# (ingest_run.n_requisicoes); a plataforma não media nada — dava para ver a fatura, não o extrato.
+#
+# Conta por endpoint e por dia, em memória, e despeja em `logs/sunop_uso_<papel>.json` a cada
+# `_SUNOP_USO_FLUSH` incrementos. Um arquivo por PAPEL (web/worker) de propósito: são dois
+# processos e um arquivo só daria corrida de escrita. Quem lê soma os dois.
+_SUNOP_USO: dict = {}
+_SUNOP_USO_FLUSH = 25
+_sunop_uso_n = 0
+_sunop_uso_lock = threading.Lock()
+
+
+def _sunop_uso_papel() -> str:
+    return "web" if _MODO_WEB else "worker"
+
+
+def _sunop_uso_endpoint(url: str) -> str:
+    """Último segmento estável da URL. `/metadata/MRO100` e `/metadata/CPP100` são o MESMO gasto."""
+    caminho = str(url).split("?")[0].rstrip("/")
+    partes = [p for p in caminho.split("/") if p]
+    for p in reversed(partes):
+        if p and not p[0].isdigit() and p not in ("v1", "v2") and not p.isupper():
+            return p
+    return partes[-1] if partes else "?"
+
+
+def _sunop_uso_zerar() -> None:
+    global _sunop_uso_n
+    with _sunop_uso_lock:
+        _SUNOP_USO.clear()
+        _sunop_uso_n = 0
+
+
+def _sunop_uso_hoje() -> dict:
+    return dict(_SUNOP_USO.get(datetime.now().date().isoformat(), {}))
+
+
+def _sunop_uso_conta(url: str) -> None:
+    """Incrementa e, de tempos em tempos, grava. NUNCA levanta — ver `_log_arquivo`."""
+    global _sunop_uso_n
+    dia = datetime.now().date().isoformat()
+    with _sunop_uso_lock:
+        _SUNOP_USO.setdefault(dia, {})
+        ep = _sunop_uso_endpoint(url)
+        _SUNOP_USO[dia][ep] = _SUNOP_USO[dia].get(ep, 0) + 1
+        _sunop_uso_n += 1
+        despeja = _sunop_uso_n >= _SUNOP_USO_FLUSH
+        if despeja:
+            _sunop_uso_n = 0
+            foto = {d: dict(v) for d, v in _SUNOP_USO.items()}
+    if despeja:
+        try:
+            d = os.path.join(_AQUI, "logs")
+            os.makedirs(d, exist_ok=True)
+            tmp = os.path.join(d, f"sunop_uso_{_sunop_uso_papel()}.json.tmp")
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(foto, f)
+            os.replace(tmp, os.path.join(d, f"sunop_uso_{_sunop_uso_papel()}.json"))
+        except Exception:                       # noqa: BLE001 — registrar não derruba quem registrava
+            pass
+
+
+SUNOP_COTA_MES = 100000          # 10 usinas x 10.000 (plano da conta, confirmado no /v2/usage/me)
+
+
+def _sunop_uso_relatorio() -> dict:
+    """Extrato local: soma os arquivos dos DOIS processos, por dia e por endpoint.
+
+    É o espelho local do `/data/v2/usage/me` deles — com a diferença de dizer QUEM gastou. O deles
+    dá o total e a fatura; este diz qual endpoint comer a cota, que é o que se precisa para cortar."""
+    total: dict = {}
+    d = os.path.join(_AQUI, "logs")
+    for papel in ("worker", "web"):
+        try:
+            with open(os.path.join(d, f"sunop_uso_{papel}.json"), encoding="utf-8") as f:
+                dados = json.load(f)
+        except Exception:                        # noqa: BLE001 — arquivo ainda não existe é normal
+            continue
+        for dia, eps in (dados or {}).items():
+            alvo = total.setdefault(dia, {})
+            for ep, n in (eps or {}).items():
+                alvo[ep] = alvo.get(ep, 0) + int(n)
+    for dia, eps in total.items():
+        eps["_total"] = sum(v for k, v in eps.items() if k != "_total")
+    return {"dias": dict(sorted(total.items())), "cota_mes": SUNOP_COTA_MES,
+            "teto_diario_para_caber": round(SUNOP_COTA_MES / 30)}
+
+
+@app.route("/api/sunop/uso")
+def api_sunop_uso():
+    return jsonify(_sunop_uso_relatorio())
+
+
 def _sunop_req(metodo: str, url: str, inst: str = "gridco", **kw):
     """GET/POST ao serviço de DADOS do SunOp, com disjuntor. → Response, ou None quando o
     disjuntor está aberto ou a chamada falhou. Chamador trata None como 'não veio leitura'."""
     if _sunop_edge_aberto():
-        return None
+        return None                             # não tocou a rede: não conta na cota
     kw.setdefault("headers", _sunop_data_headers(inst))
+    try:
+        _sunop_uso_conta(url)
+    except Exception:                           # noqa: BLE001 — o contador é acessório
+        pass
     try:
         r = _http().request(metodo, url, **kw)
     except Exception:
@@ -6699,6 +6908,148 @@ def _plat_combiner_strings(idinv):
         return prev
 
 
+# ── COMBINER pela API PV (substitui a PV Plataforma) ───────────────────────────────────────────
+# 16/09/2026, avisado pelo administrador da Solan: a combiner TAMBÉM está na API de dados.
+# `POST /api/v2/custom_query` com data_type="combiner" devolve o dia inteiro da USINA de uma vez —
+# idcombiner, conteudojson (Ipv1..N, Upv, Pac, sn) e tsleitura. Três ganhos sobre o caminho antigo
+# (`apiplataforma /v2/inversores/view`, um GET de 25 s POR INVERSOR, com o PLAT_TOKEN manual):
+#   1. 1 chamada por usina no lugar de N por inversor;
+#   2. token que renova sozinho (usuário+senha, 1 h) em vez do manual de 7 dias com CAPTCHA/MFA;
+#   3. dado CORRETO — ver a guarda de idade abaixo.
+# Conferido valor a valor na Tanabi 2: em 3 dos 4 combiners as duas fontes deram o mesmo número no
+# MESMO segundo (maior diferença 0,00 A).
+PV_V2_BASE = "https://apipv.pvoperation.com.br/api/v2"   # a v2 do custom_query: mais recente PRIMEIRO
+_PV_COMB_MAX_IDADE_H = 6.0     # leitura mais velha que isto não é "agora" (ver o INVERSOR02 abaixo)
+_pv_comb_cache = {}            # plant_id -> {"ts": float, "por_inv": {...}}
+_pv_devs_cache = {}            # plant_id -> {"ts": float, "devs": [...]}
+
+
+def _pv_plant_devices(plant_id) -> list:
+    """Lista CRUA do /plant_devices (device_id, device_name, device_type, device_esn…), cache 30 min.
+
+    O `_pv_dev_names` guarda só id→nome; aqui o que importa é o `device_esn`, que é o que casa com
+    o `sn` do combiner. Gotcha herdado: este endpoint é um GET com CORPO json (não query string) —
+    mandar `params` devolve 401."""
+    ent = _pv_devs_cache.get(plant_id)
+    if ent and (time.time() - ent["ts"]) < 1800:
+        return ent["devs"]
+    devs = []
+    try:
+        raw = _http().get(f"{BASE_URL}/plant_devices", headers={"x-access-token": _pv_token_for(plant_id)},
+                          json={"id": plant_id}, timeout=20).json()
+        devs = raw
+        if isinstance(raw, list) and raw and isinstance(raw[0], dict) and "plant_devices" in raw[0]:
+            devs = raw[0]["plant_devices"]
+        elif isinstance(raw, dict):
+            devs = raw.get("plant_devices", [])
+        if not isinstance(devs, list):
+            devs = []
+    except Exception as e:
+        print(f"[plant_devices] usina {plant_id}: {e}")
+        return (ent or {}).get("devs") or []
+    _pv_devs_cache[plant_id] = {"ts": time.time(), "devs": devs}
+    return devs
+
+
+def _pv_comb_parse(rows, devs, agora=None, max_idade_h=_PV_COMB_MAX_IDADE_H) -> dict:
+    """Resposta crua do custom_query → {idinversor: {"strings": [(IpvN, A)], "ts", "idcombiner"}}.
+
+    O de-para combiner→inversor é DETERMINÍSTICO pelo número de série: o `sn` do combiner é "CMB" +
+    o `device_esn` do inversor no plant_devices (o esn pode ter um sufixo "@..." que não conta).
+    Nada de casar por ordem de id — o gotcha da Morada Nova já mostrou que a ordem mente.
+
+    **GUARDA DE IDADE (o motivo de existir esta função separada).** A fonte antiga devolvia o
+    INVERSOR02 Novo da Tanabi 2 (id 365433) com as 13 strings em ZERO e `tsleitura` de 28/05/2026
+    09:48 — quase QUATRO MESES congelada — enquanto o inversor gerava 92,32 kW e a API PV dava a
+    corrente real. A usina acusava 13 strings mortas desde maio e ninguém via, porque o código
+    nunca olhava a idade da leitura. Leitura velha agora é DESCARTADA: o inversor cai em
+    "sem visão", que é honesto, em vez de virar um monte de string zerada."""
+    if not rows or not devs:
+        return {}
+    ag = agora or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        ag_dt = datetime.strptime(str(ag)[:19], "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        ag_dt = datetime.now()
+    por_esn = {}                                   # esn base → inversor
+    for d in devs:
+        if str(d.get("device_type") or "").upper() != "INVERTER":
+            continue
+        esn = str(d.get("device_esn") or "").split("@")[0].strip()
+        if esn:
+            por_esn[esn] = d
+    ult = {}                                       # idcombiner → (ts, conteudojson)
+    for e in rows:
+        cj = e.get("conteudojson") or {}
+        if not isinstance(cj, dict):
+            continue
+        k = e.get("idcombiner")
+        ts = str(cj.get("tsleitura") or e.get("tsleitura") or "")
+        if k not in ult or ts > ult[k][0]:
+            ult[k] = (ts, cj)
+    out = {}
+    for k, (ts, cj) in ult.items():
+        sn = str(cj.get("sn") or "")
+        esn = sn[3:] if sn[:3].upper() == "CMB" else sn
+        inv = por_esn.get(esn)
+        if not inv:
+            continue                               # combiner sem inversor no cadastro da API
+        try:                                       # leitura congelada não passa por leitura de agora
+            if (ag_dt - datetime.strptime(ts[:19], "%Y-%m-%d %H:%M:%S")).total_seconds() > max_idade_h * 3600:
+                continue
+        except Exception:
+            continue                               # sem timestamp legível = não dá para confiar
+        strings = sorted(((a, float(b)) for a, b in cj.items()
+                          if a.startswith("Ipv") and isinstance(b, (int, float))),
+                         key=lambda t: _pv_trk_num(t[0]))     # Ipv10 DEPOIS de Ipv9, não entre 1 e 2
+        if strings:
+            out[inv["device_id"]] = {"strings": strings, "ts": ts, "idcombiner": k}
+    return out
+
+
+def _pv_combiner_usina(plant_id, force=False) -> dict:
+    """Combiner de TODA a usina em UMA chamada. → {idinversor: {"strings", "ts", "idcombiner"}}.
+
+    Cacheado por usina (CACHE_TTL). Falha devolve o último bom, nunca envenena com {} — senão a
+    String Box PISCA para "sem visão", o mesmo cuidado que a fonte antiga já tinha."""
+    ent = _pv_comb_cache.get(plant_id)
+    if ent and not force and (time.time() - ent["ts"]) < CACHE_TTL:
+        return ent["por_inv"]
+    prev = (ent or {}).get("por_inv") or {}
+    try:
+        tok = _pv_token_for(plant_id)
+        h = {"x-access-token": tok, "Content-Type": "application/json"}
+        agora = datetime.now()
+        r = _http().post(f"{PV_V2_BASE}/custom_query", headers=h,
+                         json={"id": plant_id, "data_type": "combiner",
+                               "period": agora.strftime("%Y%m"), "day": agora.day}, timeout=90)
+        if r.status_code != 200:
+            print(f"[combiner/apipv] usina {plant_id}: HTTP {r.status_code} — mantém o cache anterior")
+            return prev
+        devs = _pv_plant_devices(plant_id)
+        por_inv = _pv_comb_parse(r.json() or [], devs)
+        _pv_comb_cache[plant_id] = {"ts": time.time(), "por_inv": por_inv}
+        return por_inv
+    except Exception as e:
+        print(f"[combiner/apipv] usina {plant_id}: {e} — mantém o cache anterior")
+        return prev
+
+
+def _combiner_strings(plant_id, idinv):
+    """Corrente por string de UM inversor. API PV primeiro; PV Plataforma como reserva.
+
+    A reserva continua porque a API PV é nova neste caminho: usina cujo combiner não esteja lá (ou
+    cujo `sn` não case com nenhum `device_esn`) seguiria pelo caminho antigo em vez de sumir. Assim
+    a troca não pode piorar nada — só melhorar."""
+    try:
+        d = (_pv_combiner_usina(plant_id) or {}).get(idinv)
+        if d and d.get("strings"):
+            return d
+    except Exception as e:
+        print(f"[combiner] apipv falhou p/ inv {idinv} ({e}) — tentando a PV Plataforma")
+    return _plat_combiner_strings(idinv)
+
+
 def _pv_trk_num(nome) -> int:
     try:
         return int("".join(c for c in str(nome) if c.isdigit()) or 999)
@@ -8089,9 +8440,9 @@ def _build_pv_trk_payload(fetch_curvas=False):
     plants = get_plants(get_token())
     agora = time.time()
     alvo_plants = [p for p in plants if (not FULL_OM or p["nome"].strip() in FULL_OM)]
-    # Usina da conta OEM fica fora: o PLAT_TOKEN é do usuário gridco e a apiplataforma responde
-    # "Usuário não possui permissão" para ela — 1 chamada condenada por ciclo, sem resultado.
-    alvo_plants = [p for p in alvo_plants if not _pv_is_oem(p["id"])]
+    # Fica fora só quem já tem tracker por OUTRA fonte (as três da 2C, pelo e-mail) — ver
+    # PV_TRK_OUTRA_FONTE. Era "toda usina da conta OEM", e isso tirava a Tucano junto.
+    alvo_plants = [p for p in alvo_plants if not _pv_trk_fora(p["id"])]
     rows = []
     parados_livro, cobertas = [], set()          # alimenta o livro de ocorrências (tracker_watch)
     with ThreadPoolExecutor(max_workers=8) as ex:
@@ -8160,6 +8511,89 @@ def api_pv_trackers():
         # (force=False) segue LIGHT, curva-ciente pelo job de eventos (30 min) — não martela o Plataforma.
         build = (lambda: _build_pv_trk_payload(fetch_curvas=True)) if force else _build_pv_trk_payload
         return jsonify(_swr(_pv_trk_cache, build, force))
+    except Exception as e:
+        return jsonify({"rows": [], "summary": {"usinas": 0, "trackers": 0, "severos": 0, "leves": 0},
+                        "erro": f"API PV indisponível: {e}"})
+
+
+_pv_trk_fonte_cache = {}    # fonte -> {"ts": float, "payload": {...}}
+
+
+def _pv_trk_payload_da_fonte(fonte, force=False):
+    """Overview de trackers de UMA fonte (SEMP, 2C · API PV…), construído com as usinas DELA.
+
+    O id da usina é global na API PV e quem escolhe o token é `_pv_token_for`; o que muda é o
+    recorte, por ID (mesma régua de `_pv_plantas_da_fonte`, nunca por nome).
+
+    **CONSTRÓI, não recorta o payload global — e isso é o ponto.** `_build_pv_trk_payload` é a
+    varredura da CONTA PRINCIPAL e alimenta o livro de ocorrências (`tracker_watch`); as três da 2C
+    ficam fora dela de propósito (`PV_TRK_OUTRA_FONTE`), para não poluir a aba da Thopen-PV com
+    usina de outro cliente nem abrir a MESMA ocorrência que o e-mail (`owen`) já abre. A primeira
+    versão desta função recortava o global — com isso `/api/2capi/trackers` devolveria sempre vazio,
+    porque o que ela procura foi excluído de lá (Levi, 16/09: "não está aparecendo ETM nem trackers").
+    A SEMP funcionava por acidente: ela está na varredura global desde 15/09."""
+    ent = _pv_trk_fonte_cache.get(fonte)
+    if ent and not force and (time.time() - ent["ts"]) < CACHE_TTL:
+        return ent["payload"]
+    ids = sorted(PV_FONTES.get(fonte) or ())
+    rows = []
+    if ids:
+        # nome DA API → de-para do cadastro. Sem isto o fallback do `nome_usina` é o próprio id e a
+        # tela lista "18771901" no lugar de "Sete Lagoas" (a API ainda escreve no singular).
+        nomes_api = {}
+        try:
+            nomes_api = {p["id"]: p["nome"] for p in get_plants(get_token())}
+        except Exception as e:
+            print(f"[trk/{fonte}] sem lista de plantas p/ nomear ({e})")
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            futs = {ex.submit(_pv_trackers_analise, pid,
+                              nome_usina(pid, nomes_api.get(pid) or str(pid)),
+                              curva=True, fetch_curvas=force): pid for pid in ids}
+            for f in as_completed(futs):
+                try:
+                    r = f.result()
+                    if r.get("tem_trackers"):
+                        _pv_trk_plant[r["plant_id"]] = {"ts": time.time(), "payload": r}
+                        rows.append(r)
+                except Exception as e:
+                    print(f"[trk/{fonte}] usina {futs[f]}: {e}")
+    rows.sort(key=lambda x: (not x.get("sem_comunicacao"),
+                             -((x.get("severos") or 0) * 10 + (x.get("leves") or 0)), x.get("usina") or ""))
+    som = lambda k: sum((r.get(k) or 0) for r in rows)
+    payload = {"rows": rows,
+               "summary": {"usinas": len(rows), "trackers": som("total"), "severos": som("severos"),
+                           "medios": som("medios"), "leves": som("leves"), "novos": som("novos"),
+                           "acompanhados": som("acompanhados"), "normalizados": som("normalizados")},
+               "cache_ts": datetime.now().strftime("%H:%M:%S")}
+    _pv_trk_fonte_cache[fonte] = {"ts": time.time(), "payload": payload}
+    return payload
+
+
+@app.route("/api/semp/trackers")
+def api_semp_trackers():
+    """Trackers da SEMP (Tucano 1 e 2) — 40 cada, pela PV Plataforma. Liberado em 15/09/2026:
+    o token novo parou de responder "Usuário não possui permissão" para a conta OEM."""
+    if not _plat_token():
+        return jsonify({"rows": [], "summary": {"usinas": 0, "trackers": 0, "severos": 0, "leves": 0},
+                        "sem_token": True, "cache_ts": datetime.now().strftime("%H:%M:%S")})
+    try:
+        return jsonify(_pv_trk_payload_da_fonte("semp", flask_request.args.get("force", "0") == "1"))
+    except Exception as e:
+        return jsonify({"rows": [], "summary": {"usinas": 0, "trackers": 0, "severos": 0, "leves": 0},
+                        "erro": f"API PV indisponível: {e}"})
+
+
+@app.route("/api/2capi/trackers")
+def api_2capi_trackers():
+    """Trackers das três da 2C que estão na PV Operation — Araputanga 59, Sete Lagoa 59,
+    Tupi Paulista 100 (Levi, 16/09/2026). Elas também chegam pelo e-mail (fonte `owen`), mas ali o
+    dado é de horas antes; aqui é a leitura do minuto. Continuam FORA da varredura da conta
+    principal (`PV_TRK_OUTRA_FONTE`), para a mesma ocorrência não nascer duas vezes no livro."""
+    if not _plat_token():
+        return jsonify({"rows": [], "summary": {"usinas": 0, "trackers": 0, "severos": 0, "leves": 0},
+                        "sem_token": True, "cache_ts": datetime.now().strftime("%H:%M:%S")})
+    try:
+        return jsonify(_pv_trk_payload_da_fonte("2capi", flask_request.args.get("force", "0") == "1"))
     except Exception as e:
         return jsonify({"rows": [], "summary": {"usinas": 0, "trackers": 0, "severos": 0, "leves": 0},
                         "erro": f"API PV indisponível: {e}"})
@@ -9176,6 +9610,45 @@ def api_pv_trackers_chart_csv(idusina):
              ).replace("/", "-").replace(" ", "_")
     return app.response_class(buf.getvalue(), mimetype="text/csv; charset=utf-8",
                               headers={"Content-Disposition": 'attachment; filename="%s"' % fname})
+
+
+# ── SEMP: o MESMO drill da API PV sob o prefixo da fonte ───────────────────────────────────────
+# O Monitoramento deriva TRÊS urls de `EP.trackers[fonte]`: `base/<pid>` (drill da usina),
+# `base/<pid>/chart` (curva) e `base/<pid>/chart.csv` (botão "CSV bruto"). Só a lista com o
+# recorte da fonte (`/api/semp/trackers`) faria as três darem 404 — a tela mostraria os trackers
+# e nada abriria, que é pior do que não mostrar, porque parece funcionar. O id da usina é GLOBAL
+# na API PV (quem escolhe o token é `_pv_token_for`), então aqui é delegação pura, sem lógica
+# própria a divergir. Conferido ao vivo em 15/09/2026: Tucano 1 e 2, 40 trackers e 182 pontos de
+# curva cada; o TRK42 da Tucano 2 é uma reta em 20,1° o dia inteiro enquanto a frota foi a 59,9°.
+@app.route("/api/semp/trackers/<int:idusina>")
+def api_semp_trackers_plant(idusina):
+    return api_pv_trackers_plant(idusina)
+
+
+@app.route("/api/semp/trackers/<int:idusina>/chart")
+def api_semp_trackers_chart(idusina):
+    return api_pv_trackers_chart(idusina)
+
+
+@app.route("/api/semp/trackers/<int:idusina>/chart.csv")
+def api_semp_trackers_chart_csv(idusina):
+    return api_pv_trackers_chart_csv(idusina)
+
+
+# As mesmas três derivadas para a 2C · API PV (o id é global; delegação pura, sem lógica própria).
+@app.route("/api/2capi/trackers/<int:idusina>")
+def api_2capi_trackers_plant(idusina):
+    return api_pv_trackers_plant(idusina)
+
+
+@app.route("/api/2capi/trackers/<int:idusina>/chart")
+def api_2capi_trackers_chart(idusina):
+    return api_pv_trackers_chart(idusina)
+
+
+@app.route("/api/2capi/trackers/<int:idusina>/chart.csv")
+def api_2capi_trackers_chart_csv(idusina):
+    return api_pv_trackers_chart_csv(idusina)
 
 
 @app.route("/api/pv/trackers/token", methods=["POST", "OPTIONS"])
@@ -10282,6 +10755,146 @@ def _inv_padrao_loop():
         time.sleep(INV_PADRAO_INTERVALO_S)
 
 
+# ── QUALIDADE DE DADO: clipping e valor travado (pvanalytics, 17/09/2026) ──────────────────────
+# As duas primeiras réguas do estudo do dia — escolhidas por não dependerem de coordenada, então
+# valem para a frota inteira. A conta mora em `qualidade.py` (módulo puro, com teste); aqui fica só
+# a coleta e o recorte de domínio.
+#
+# POR QUE AQUI E NÃO NO WEB: é pandas. O CLAUDE.md é explícito sobre o GIL — um rebuild já deixou
+# endpoints de 2 ms em 2.900 ms. Roda no worker, 1×/h, e publica no snapshot como o inv_padrao.
+#
+# ACHADO QUE MOTIVOU (medido em 17/09, Tupi Paulista): 8 dos 20 inversores cravados em 250,24 kW
+# desde as 08:15 — a nominal de 250 kVA. Clipping derruba o PR SEM ser defeito, e até hoje a
+# plataforma lia isso como perda.
+QUALIDADE_INTERVALO_S = 3600
+# RECORTE (Levi, 17/09/2026: "vamos focar apenas nas usinas 2C por ora"). Eram 40 usinas da FULL_OM
+# por ciclo; agora são as três da 2C que existem na API PV — Araputanga, Sete Lagoa e Tupi Paulista.
+# A Ipixuna do Pará fica de fora porque não está na API (só chega pelo e-mail, fonte `owen`), e sem
+# série intradiária de Pac nenhuma das duas réguas tem o que ler.
+QUALIDADE_PLANTAS = set(PV_FONTES.get("2capi") or ())
+# CLIPPING NÃO É PERDA (decisão do Levi no mesmo dia). É perda de PROJETO, não de operação: ninguém
+# vai consertar um inversor que está no limite do que foi dimensionado. Somá-lo com string morta e
+# tracker travado faria a usina parecer mal operada estando apenas no teto — por isso o payload diz
+# isso explicitamente, para nenhum consumidor (tela, cascata do gêmeo, valoração em R$) somar junto.
+QUALIDADE_CLIPPING_E_PERDA = False
+_qualidade_cache = {"ts": 0.0, "data": {}}   # {str(pid): {"usina", "clipping": [...], "travados": [...]}}
+
+try:
+    import qualidade as _qa
+    _QA_OK = True
+except Exception as _e:                                    # pragma: no cover
+    _QA_OK = False
+    print(f"[qualidade] módulo indisponível ({_e}) — régua desligada")
+
+
+def _qualidade_usina(pid, nome):
+    """Avalia UMA usina. Devolve {"clipping": [...], "travados": [...]} ou None.
+
+    Processa e descarta por usina: o worker já tem histórico de inchaço (281 MB → 4,1 GB num
+    backfill), e guardar os registros de 146 usinas seria exatamente esse erro."""
+    from collections import defaultdict as _dd
+
+    import pandas as _pd
+    recs = _http().post(f"{BASE_URL}/day_inverter", headers={"x-access-token": _pv_token_for(pid)},
+                        json={"id": pid}, timeout=90).json() or []
+    if isinstance(recs, dict):                             # erro da API vem como dict
+        return None
+    serie = _dd(list)
+    for r in recs:
+        cj = r.get("conteudojson") or {}
+        ts, pac = r.get("tsleitura_new"), cj.get("Pac")
+        if ts and isinstance(pac, (int, float)):
+            serie[r.get("idefinversor")].append((ts, float(pac)))
+    del recs
+    # Nome do inversor: o `plant_devices` é NEGADO para a conta oem@ (sem a permissão), e as três da
+    # 2C são justamente dela — sem o de-para a tela listaria "inv 367511". O `PV_INV_NOMES` existe
+    # exatamente para isso, fechado POR VALOR contra o kWh do BD (nunca pela ordem dos ids).
+    nomes = dict(_pv_dev_names(pid, _pv_token_for(pid)) or {})
+    for _id, _n in (PV_INV_NOMES.get(pid) or {}).items():
+        nomes.setdefault(_id, _n)
+    clip, trav = [], []
+    for inv, pts in serie.items():
+        if len(pts) < 8:
+            continue
+        pts.sort()
+        idx = _pd.to_datetime([t for t, _ in pts])
+        s = _pd.Series([v for _, v in pts], index=idx)
+        rot = nomes.get(inv) or f"inv {inv}"
+        c = _qa.clipping_dia(s, tracking=True)
+        if c["clipping"]:
+            clip.append({"inversor": rot, "id": inv, "fracao": c["fracao"], "teto": c["teto"],
+                         "inicio": str(c["inicio"])[11:16], "fim": str(c["fim"])[11:16]})
+        # Pac travado num valor NÃO-ZERO: zero já é assunto da régua de inversor desligado, e
+        # zero repetido à noite é a madrugada de todo mundo.
+        dia = _pd.Series([(6 <= d.hour < 18) for d in idx], index=idx)
+        g = _qa.congelado(s, janela=8, mascara_dia=dia)
+        if g["congelado"] and g["valor"]:
+            trav.append({"inversor": rot, "id": inv, "valor": g["valor"], "horas": g["horas"],
+                         "desde": str(g["desde"])[11:16], "n": g["n"]})
+    if not clip and not trav:
+        return {"usina": nome, "clipping": [], "travados": []}
+    clip.sort(key=lambda x: -x["fracao"])
+    return {"usina": nome, "clipping": clip, "travados": trav}
+
+
+def _qualidade_ciclo():
+    if not _QA_OK or not QUALIDADE_PLANTAS:
+        return
+    nomes_api = {}
+    try:
+        nomes_api = {p["id"]: p["nome"] for p in get_plants(get_token())}
+    except Exception as e:                                 # noqa: BLE001
+        print(f"[qualidade] sem lista de plantas p/ nomear ({e})")
+    out, n_erro = {}, 0
+    for pid in sorted(QUALIDADE_PLANTAS):
+        try:
+            r = _qualidade_usina(pid, nome_usina(pid, nomes_api.get(pid) or str(pid)))
+            if r:
+                out[str(pid)] = r
+        except Exception as e:                             # noqa: BLE001 — uma usina não derruba o ciclo
+            n_erro += 1
+            print(f"[qualidade] usina {pid}: {e}")
+    _qualidade_cache.update({"ts": time.time(), "data": out})
+    n_c = sum(len(v["clipping"]) for v in out.values())
+    n_t = sum(len(v["travados"]) for v in out.values())
+    print(f"[qualidade] {len(out)} usinas | {n_c} inversores em clipping | {n_t} com valor travado"
+          + (f" | {n_erro} falharam" if n_erro else ""))
+
+
+def _qualidade_loop():
+    time.sleep(240)                                        # deixa token/plants aquecerem
+    while True:
+        try:
+            _qualidade_ciclo()
+        except Exception as e:                             # noqa: BLE001 — o laço não morre
+            print(f"[qualidade] ciclo falhou: {e}")
+        time.sleep(QUALIDADE_INTERVALO_S)
+
+
+@app.route("/api/qualidade")
+def api_qualidade():
+    """Clipping e valor travado por inversor (pvanalytics). Só leitura do que o worker publicou."""
+    data = _qualidade_cache.get("data") or {}
+    usinas = [dict(v, plant_id=int(k)) for k, v in data.items()
+              if v.get("clipping") or v.get("travados")]
+    usinas.sort(key=lambda u: (-len(u["clipping"]), -len(u["travados"]), u["usina"]))
+    ts = _qualidade_cache.get("ts") or 0
+    return jsonify({
+        "usinas": usinas,
+        "summary": {"usinas_avaliadas": len(data), "usinas_com_achado": len(usinas),
+                    "inversores_clipping": sum(len(u["clipping"]) for u in usinas),
+                    "inversores_travados": sum(len(u["travados"]) for u in usinas)},
+        # `clipping_e_perda: False` é contrato, não enfeite (Levi, 17/09): clipping é perda de
+        # PROJETO, não de operação. Quem consome — tela, cascata do gêmeo, valoração em R$ — não
+        # pode somá-lo às perdas evitáveis, senão a usina parece mal operada estando só no teto.
+        "regua": {"piso_clipping": _qa.FRACAO_MINIMA if _QA_OK else None,
+                  "janela_travado": 8, "indisponivel": not _QA_OK,
+                  "clipping_e_perda": False,
+                  "recorte": "2C (Araputanga, Sete Lagoa, Tupi Paulista)",
+                  "plantas": sorted(QUALIDADE_PLANTAS)},
+        "ts": ts, "computado": datetime.fromtimestamp(ts).strftime("%d/%m %H:%M") if ts else None})
+
+
 @app.route("/api/pv/inv-padrao")
 def api_inv_padrao():
     """Padrão por inversor das usinas sem visão por string: avaliação do D-1 + prévia de hoje, nomes do cadastro."""
@@ -10916,6 +11529,12 @@ _bdperf_prod_cache = {"ts": 0.0, "ym": None, "data": {}, "warming": False}
 _BDPERF_PROD_TTL = 1800
 
 
+# Teto físico de geração de UM inversor num dia (kWh). Nenhum inversor real chega perto: os maiores
+# do parque (~2-3 MW) fazem ~15-20 mil kWh/dia. Serve só para rejeitar linha-lixo do BD (Ibirapuã II
+# 11/09: 1,3 mi kWh num inversor). Ver `_lixo` em _bdperf_prod_build.
+_INV_DIA_MAX_KWH = 100000.0
+
+
 def _bdperf_prod_build(ano=None, mes=None):
     hoje = datetime.now()
     alvo_a, alvo_m = int(ano or hoje.year), int(mes or hoje.month)
@@ -10977,24 +11596,26 @@ def _bdperf_prod_build(ano=None, mes=None):
                     if not isinstance(d, datetime) or d.year != alvo_a or d.month != alvo_m:
                         continue
                     _vals = [r[i] for i in invcols if i < len(r) and isinstance(r[i], (int, float))]
-                    # Dia PRESENTE = linha com algum número de inversor, mesmo que some zero.
-                    # Zero é dado (usina parada); linha ausente é lacuna nossa. Ver _prorata_de().
-                    # Dia FUTURO não conta: aba pré-preenchida com zeros faria a meta cobrar dias
-                    # que ainda não aconteceram.
-                    if _vals and (not atual or d.date() <= hoje_d):
+                    _val = r[ival] if (ival is not None and ival < len(r)) else None
+                    validado = (_val > 0) if isinstance(_val, (int, float)) else (ival is None)
+                    # LINHA LIXO fora do prod (Levi, 14/09): dia NÃO validado com um inversor em valor
+                    # fisicamente impossível (Ibirapuã II 11/09: 1,3 mi kWh num inversor, Validação 0)
+                    # inflava o prod de 73 p/ 10 mil MWh. Só rejeita o LIXO — dia não validado com
+                    # valor plausível (usina cujo mês ainda não foi validado, ex. Marialva/Ponto Belo,
+                    # que geram de verdade) CONTINUA somando, senão a usina some da parede (regra 1).
+                    _lixo = (not validado) and any(v > _INV_DIA_MAX_KWH for v in _vals)
+                    # Dia PRESENTE = linha com número de inversor (mesmo que some zero = usina parada);
+                    # linha ausente ou lixo é lacuna. Dia FUTURO não conta.
+                    if _vals and not _lixo and (not atual or d.date() <= hoje_d):
                         dias_cob.add(d.day)
-                    rowgen = sum(_vals)
+                    rowgen = 0.0 if _lixo else sum(_vals)
                     tot += rowgen
                     if ghic and d.date() < hoje_d:      # mesma régua de "dia completo" do IPOA
                         _gv = [r[i] for i in ghic
                                if i < len(r) and isinstance(r[i], (int, float)) and r[i] > 0.5]
                         if _gv:
                             ghi += max(_gv)
-                    if d.date() < hoje_d:               # PR só de dias COMPLETOS
-                        # Gate do BI: só entra dia com Validação > 0. Quando a coluna não
-                        # existe na aba, mantém o comportamento antigo (ter IPOA já basta).
-                        val = r[ival] if (ival is not None and ival < len(r)) else None
-                        validado = (val > 0) if isinstance(val, (int, float)) else (ival is None)
+                    if d.date() < hoje_d and validado:  # PR só de dias COMPLETOS e VALIDADOS (gate do BI, já calculado acima)
                         ipd = r[ii] if (ii is not None and ii < len(r)) else None
                         ip = None
                         if isinstance(ipd, (int, float)):
@@ -11005,7 +11626,7 @@ def _bdperf_prod_build(ano=None, mes=None):
                                     if i < len(r) and isinstance(r[i], (int, float)) and r[i] > 0.5]
                             if cand:
                                 ip = max(cand)
-                        if ip is not None and validado:
+                        if ip is not None:
                             ipoa += ip; gen_pr += rowgen
                             mm = r[imm] if (imm is not None and imm < len(r)) else None
                             if isinstance(mm, (int, float)):
@@ -11665,8 +12286,10 @@ def _g_th_inversores(usina, ini=None, fim=None):
         # BD_Performance (mesma rota, cliente não-Thopen) já mostrava esse inversor com PR 0.
         if poa <= 0:
             continue
-        den = poa * (kwp / 1000.0)            # kWh/m² × MWp
-        rows.append({"inversor": str(c).strip(), "pr": max(ger, 0.0) / 1000.0 / den, "dias": int(m.sum())})
+        den = poa * (kwp / 1000.0)            # kWh/m² × MWp = MWh por unidade de PR
+        # `_den` viaja para a rota calcular o ESPERADO do inversor (den × alvo de PR) — Levi, 15/09
+        rows.append({"inversor": str(c).strip(), "pr": max(ger, 0.0) / 1000.0 / den, "dias": int(m.sum()),
+                     "ger_mwh": round(max(ger, 0.0) / 1000.0, 2), "_den": den})
     return rows, d[c_data].min()
 
 
@@ -11816,9 +12439,15 @@ def api_g_inversores():
         if not rows:
             return jsonify({"usina": u, "alvo": None, "por_usina": True, "inversores": []})
         alvo = (pr_previsto(u, d0.year, d0.month) or {}).get("pr_previsto") if d0 is not None else None
+        if alvo is None and d0 is not None:
+            # usina do BD_Thopen não é cadastrada na Info Mensal — a meta de PR dela vem do próprio
+            # BD_Thopen (Levi, 15/09: Álvares Machado / Santo Anastácio vinham sem alvo e sem esperado)
+            alvo = ((THOPEN_META.get(_nrm(u)) or {}).get(d0.month) or {}).get("pr_meta")
         for r in rows:
             r["alvo"] = alvo
             r["dif"] = (r["pr"] - alvo) if (r["pr"] is not None and alvo is not None) else None
+            _d = r.pop("_den", None)
+            r["esp_mwh"] = round(_d * alvo, 2) if (_d and alvo is not None) else None
         rows.sort(key=lambda x: (x["pr"] is None, x["pr"]))
         return jsonify({"usina": u, "alvo": alvo, "inversores": rows})
     inv, _ = _g_get(cli)
@@ -11836,8 +12465,10 @@ def api_g_inversores():
         pot = grp["pot_kwp"].dropna()
         if grp.empty or pot.empty:
             continue
-        den = grp["ipoa"].sum() * (pot.iloc[0] / 1000.0)
-        rows.append({"inversor": nome, "pr": (grp["geracao"].sum() / 1000.0 / den) if den else None})
+        den = grp["ipoa"].sum() * (pot.iloc[0] / 1000.0)   # MWh por unidade de PR
+        _ger = grp["geracao"].sum() / 1000.0               # MWh gerados por ESTE inversor no período
+        rows.append({"inversor": nome, "pr": (_ger / den) if den else None,
+                     "ger_mwh": round(_ger, 2), "_den": den})
     alvo = None
     if not sub.empty:
         d0 = sub["data"].min()
@@ -11845,8 +12476,41 @@ def api_g_inversores():
     for r in rows:
         r["alvo"] = alvo
         r["dif"] = (r["pr"] - alvo) if (r["pr"] is not None and alvo is not None) else None
+        # ESPERADO do inversor (Levi, 15/09) = o que o ALVO de PR daria com a irradiância que de fato
+        # veio no período (Σ IPOA × potência do inversor × alvo). Comparável direto com o gerado.
+        _d = r.pop("_den", None)
+        r["esp_mwh"] = round(_d * alvo, 2) if (_d and alvo is not None) else None
     rows.sort(key=lambda x: (x["pr"] is None, x["pr"]))
     return jsonify({"usina": disp, "alvo": alvo, "inversores": rows})
+
+
+@app.route("/api/g/tickets-trackers")
+def api_g_tickets_trackers():
+    """Tickets ABERTOS de tracker de uma usina (planilha de Tickets) — para a v2 em MODO HISTÓRICO
+    (usina sem fonte ao vivo) decidir se mostra a aba Trackers: só com ticket (pedido do Levi,
+    14/09/2026). Só leitura; não toca em fonte ao vivo."""
+    nome = flask_request.args.get("usina", "")
+    maybe_reload_tickets()
+    pn = _tk_norm(nome)
+    tick, ambiguo = _tickets_lookup(pn)
+    tu = _tickets_usina_lookup(pn)
+    nums = (tick or {}).get("nums", {}) or {}
+    desde = (tick or {}).get("desde", {}) or {}
+    statuses = (tick or {}).get("statuses", set()) or set()
+
+    def _st(v):
+        return None if isinstance(v, (set, dict, list)) else v
+
+    rows = [{"tracker": str(k), "status": _st(nums.get(k)),
+             "desde": (str(desde.get(k)) if desde.get(k) else None)}
+            for k in sorted(nums, key=lambda x: str(x))]
+    tu_out = None
+    if tu:
+        tu_out = {"equip": tu.get("equip"), "status": _st(tu.get("status")),
+                  "qtd": tu.get("qtd"), "desde": (str(tu.get("desde")) if tu.get("desde") else None)}
+    return jsonify({"usina": nome, "tem_ticket": bool(nums) or bool(tu),
+                    "trackers": rows, "statuses": sorted(str(s) for s in statuses),
+                    "usina_inteira": tu_out, "ambiguo": bool(ambiguo)})
 
 
 _GER_HIST_CACHE = {}     # (ano, mes) PASSADO -> {ts, data} — mês fechado é imutável, TTL longo
@@ -12099,7 +12763,10 @@ def _gerencial_payload(force=False, ano=None, mes=None):
     # Canonização de grafia (auditoria 07/08) — usada aqui e no bloco do cadastro lá embaixo.
     # O universo do BD_Thopen (CARTEIRAS) carrega as DUAS grafias da Platina; a legada virava
     # linha fantasma "sem dado" ao lado da real.
-    _GER_CANON = {_nrm("Santo Antonio do Platina"): "Santo Antonio da Platina"}
+    # "Vargem Grande IB" (Info Geral) é a mesma usina da aba "Vargem Grande 1" do BD_Thopen (Levi,
+    # 14/09/2026): sem o de-para ela virava linha fantasma "sem dado" ao lado da real com geração+meta.
+    _GER_CANON = {_nrm("Santo Antonio do Platina"): "Santo Antonio da Platina",
+                  _nrm("Vargem Grande IB"): "Vargem Grande 1"}
 
     def _fold(s):
         s = unicodedata.normalize("NFKD", str(s or ""))
@@ -14132,8 +14799,12 @@ OWEN_ROOT = next((p for p in _OWEN_CANDS if os.path.isdir(p)), _OWEN_LOCAL)
 OWEN_OK = any(os.path.isdir(p) for p in _OWEN_CANDS)
 _log_arquivo("fontes.log", "OWEN_ROOT = %s%s" % (OWEN_ROOT, "" if OWEN_OK else
              "   [NENHUM CANDIDATO EXISTE — fonte 2C/Owen indisponível; defina OWEN_ROOT]"))
+# Fallback (código→nome) com o nome do CADASTRO (Info Geral), não o do Fracttal: a STL era "Sete Lagoas 2" (Fracttal) e
+# não casava com "Sete Lagoas" da Info Geral/API PV — a linha do e-mail ficava sem cliente e virava um 9º card "Sem
+# cliente" no /tempo-real, cópia da antiga visão da 2C, com os 2 trackers parados dela (Levi, 13/09/2026). O par
+# e-mail↔API continua pelo CÓDIGO (_2C_EMAIL_PARA_API); aqui é só o nome de exibição.
 OWEN_UFVS = {"ARA": "Araputanga", "IPX": "Ipixuna do Pará",
-             "STL": "Sete Lagoas 2", "TUP": "Tupi Paulista"}   # fallback (código→nome)
+             "STL": "Sete Lagoas", "TUP": "Tupi Paulista"}
 
 
 def _owen_nome(code):
@@ -15355,24 +16026,58 @@ def api_owen_trackers():
     disp_pid = _owen_disp_hoje()                   # disponibilidade por TEMPO (janela 06:00–18:00)
     for r in rows:
         r["disponibilidade_tempo"] = disp_pid.get(r["plant_id"])
+    # As três que a API PV enxerga vêm DELA, como a ETM e as strings desta mesma aba já faziam
+    # (Levi, 11/09: "eu quero no tempo real, tudo junto" — a aba separada saiu do seletor). Antes
+    # disto o tracker das três era o do e-mail: leitura de 11:59 enquanto a PV Plataforma já tinha
+    # a das 14:56. A Ipixuna do Pará não está na API e segue pelo e-mail (16/09/2026).
+    try:
+        api_rows = [dict(r) for r in (_pv_trk_payload_da_fonte("2capi") or {}).get("rows") or []]
+        for r in api_rows:
+            r.pop("trackers", None)
+        if api_rows:
+            rows = _2c_unifica_rows(rows, api_rows)
+    except Exception as e:
+        print(f"[owen/trackers] API PV indisponível ({e}) — aba segue inteira pelo e-mail")
     rows.sort(key=lambda x: (_trk_severidade2(x), x["usina"]))
+    _n = lambda r, k: (r.get(k) or 0)
     return jsonify({"rows": rows, "summary": {
-        "usinas": sum(1 for r in rows if r["total"]),
-        "trackers": sum(r["total"] for r in rows),
-        "parados": sum(r["parados"] for r in rows),
-        "medios": sum(r.get("medios", 0) for r in rows),
-        "atrasos": sum(r["atrasos"] for r in rows)},
+        "usinas": sum(1 for r in rows if _n(r, "total")),
+        "trackers": sum(_n(r, "total") for r in rows),
+        "parados": sum(_n(r, "parados") for r in rows),
+        "medios": sum(_n(r, "medios") for r in rows),
+        "atrasos": sum(_n(r, "atrasos") for r in rows)},
         "cache_ts": datetime.now().strftime("%H:%M:%S")})
+
+
+def _owen_id_da_api_pv(plant_id):
+    """id numerico de usina da 2C que vem da API PV (e nao do acervo de e-mail), ou None.
+
+    A fonte unificada serve DOIS acervos: o e-mail, chaveado por codigo ('IPX'), e a API PV,
+    chaveada pelo id global. Sem esta separacao o id numerico cai no acervo de e-mail, que nao o
+    conhece, e o detalhe volta VAZIO — foi o que o Levi viu em 18/09/2026 ("mesmo lendo os trackers
+    nao estao carregando as curvas"): a lista mostrava ARA 59, STL 59 e TUP 100 e o clique nao
+    trazia nada. A lista foi unificada em 15/09 e as derivadas ficaram para tras."""
+    try:
+        pid = int(str(plant_id).strip())
+    except (TypeError, ValueError):
+        return None                                   # 'IPX' e afins: acervo de e-mail
+    return pid if pid in (PV_FONTES.get("2capi") or ()) else None
 
 
 @app.route("/api/owen/trackers/<plant_id>")
 def api_owen_trackers_plant(plant_id):
+    pid = _owen_id_da_api_pv(plant_id)
+    if pid is not None:
+        return api_pv_trackers_plant(pid)
     date = (flask_request.args.get("date") or "").strip()
     return jsonify(_owen_trackers_analise(plant_id, date=date or None))
 
 
 @app.route("/api/owen/trackers/<plant_id>/chart")
 def api_owen_trackers_chart(plant_id):
+    pid = _owen_id_da_api_pv(plant_id)
+    if pid is not None:
+        return api_pv_trackers_chart(pid)
     ini, fim, ndias = _trk_chart_range()
     hoje = datetime.now().strftime("%Y-%m-%d")
     # concatena dia a dia (o acervo do 2C é por dia): {tracker: {'atual':[(dt,v)], 'alvo':[...]}}
@@ -17765,6 +18470,7 @@ def _cache_save():
         "etm_prob":     {"ts": _etm_prob_cache.get("ts", 0.0), "data": _etm_prob_cache.get("data")},
         "str_prob_pv":  {"ts": _str_prob_pv_cache.get("ts", 0.0), "rows": _str_prob_pv_cache.get("rows")},
         "inv_padrao":   {"ts": _inv_padrao_cache.get("ts", 0.0), "data": _inv_padrao_cache.get("data")},
+        "qualidade":    {"ts": _qualidade_cache.get("ts", 0.0), "data": _qualidade_cache.get("data")},
         "sunop_str_ev": {f"{k[0]}|{k[1]}": v for k, v in list(_sunop_str_ev_cache.items()) if isinstance(k, tuple)},
         "plat_view":    {str(k): v for k, v in list(_plat_view_cache.items())},
         # Metadata do SunOp/Axis (pathnames por usina). O WEB é reiniciado com o meta VAZIO e o
@@ -17837,7 +18543,8 @@ def _cache_load():
     for nome, alvo, campo in (("macro", _macro_cache, "data"), ("ger", _ger_cache, "data"),
                               ("etm_prob", _etm_prob_cache, "data"),
                               ("str_prob_pv", _str_prob_pv_cache, "rows"),
-                              ("inv_padrao", _inv_padrao_cache, "data")):
+                              ("inv_padrao", _inv_padrao_cache, "data"),
+                              ("qualidade", _qualidade_cache, "data")):
         s = ex.get(nome) or {}
         # o "sem corrente" é invalidado zerando `rows` e MANTENDO o ts — só a regra ">= ts" deixava o
         # snapshot do worker repor as linhas com a string que o analista acabou de trancar
@@ -18183,6 +18890,7 @@ def _iniciar_loops_de_fundo():
                  _tunnel_url_loop,
                  _notif_strings_loop,       # strings que zeraram desde a ultima leitura (30 min, de dia) → sino
                  _inv_padrao_loop,          # padrão por inversor das usinas sem visão por string (1×/h) → macro + sino
+                 _qualidade_loop,           # clipping e valor travado por inversor (pvanalytics, 1×/h)
                  _frac_osperf_loop,
                  _frac_disp_loop,           # disponibilidade por OS (Gerencial) — varre + calcula
                  _tranc_watch_loop,         # strings trancadas: o web grava, o worker tem de reler
@@ -19555,7 +20263,8 @@ def api_fracttal_os():
 # Serviço Node local (C:\GridcoWhats\wa_service.js, whatsapp-web.js) segura a sessão do CHIP
 # DEDICADO e expõe /send em 127.0.0.1:5099. Config: whats_ronda.json {"enabled", "service_url",
 # "token", "horarios": ["07:30","15:30"], "grupos": {"Norte": "1203...@g.us", ...}}.
-# Texto = MESMO formato do modal da ronda (rondaTexto/_rondaUsinas do index.html), gerado aqui.
+# Texto = MESMO formato do modal da ronda (rondaTexto/_rondaUsinas do front Jinja antigo, removido em
+    # 19/09/2026 junto com /antigo) — a formatação vive AQUI desde então, não há mais cópia no front.
 _WHATS_CFG_PATH = _p_dado("whats_ronda.json")   # knobs de texto da ronda, por usina
 _WHATS_SENT_PATH = os.path.join(_AQUI, "whats_enviados.json")
 

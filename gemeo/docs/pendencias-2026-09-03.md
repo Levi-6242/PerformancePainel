@@ -171,3 +171,92 @@ Pendências que nasceram daqui:
   a mesma grade do modelo. Sem isso as 18 usinas custariam 17 GB em 90 dias, e 72% disso seria corrente de string a
   cada 5 min. Com a amostragem são cerca de 82 MB por dia, algo como 7 GB no regime de 90 dias. Potência do inversor e
   estação continuam na cadência da fonte: é delas que sai a média de cada bloco.
+
+## 11/09/2026 — fonte `apipv`: as três da 2C pela conta oem@ da API PV Operation
+
+Pedido do Levi depois da visão do Gêmeo ("Comportamento": quanto a usina deveria gerar AGORA e a cascata de perdas em
+tempo real): "comece com as usinas da 2C que estão na API PV". Araputanga, Sete Lagoas e Tupi Paulista entraram no piloto
+com `gemeo/ingest/apipv.py` (day_inverter/day_meteo de hoje a cada 15 min; dia passado por `custom_query` só quando a
+janela cobre o dia). Carimbos da API são horário de Brasília para todas (medido), a estação mente por chave (POA/GHI com a
+ordem de campos do coletor e teto de 2000 W/m²), inversor a 5 min, string a 15 min, estação a 1 min. O cadastro passou a
+aceitar "Usina Supervisório" vazio (cai para "Usina") e a casar inversor pelo nome de exibição — as 2C só têm
+`INVERSOR01..20` no BD_Performance e a API só dá o idefinversor.
+
+Pendências que nasceram daqui:
+
+- **O "agora" do Comportamento ainda não existe**: o gêmeo calcula esperado em blocos de 15 min a cada rodada do
+  `modelar`; falta um endpoint/card com esperado × medido do instante (e a cascata do dia até agora) para a plataforma.
+- **Trackers das três não entram**: a API PV (apiplataforma) nega trackers para a conta oem@/token gridco; sem eles a
+  parcela de tracker vai para o resíduo. Precisa de PLAT_TOKEN da conta oem@ ou de outra fonte.
+- **Calibração**: modelo "placa" até haver ≥ 30 dias limpos (a API guarda histórico, mas o `custom_query` de inversor leva
+  ~146 s por usina/dia — backfill só fora de pico e em lote pequeno).
+- **Ipixuna do Pará** (2C) segue fora: só existe no e-mail.
+- **Sete Lagoas** tem nome triplo: "Sete Lagoas" no cadastro (código do gêmeo), "Sete Lagoas 2" no Fracttal e "Sete Lagoa"
+  na API — o de-para é por id/código, nunca por nome.
+
+## 12/09/2026 — respostas do Levi ao passo a passo e o que entrou na madrugada
+
+O Levi respondeu o mockup de 11/09 passo a passo. O que ele decidiu e o que mudou no código:
+
+- **Passo 1 (cadastro).** Preço do MWh: "deixar de molho". Lat/lon: ele preencheu LATITUDE/LONGITUDE na Info Geral → o
+  cadastro lê e grava `usina.lat/lon` (Info Geral manda; vírgula decimal aceita; `VERSAO_CADASTRO=2026-09-12a`). As quatro
+  SunOp já têm coordenada (CPP100 -1,76/-47,07; MAB100 -5,13/-49,02; MRO100 -2,06/-47,56; MTS100 -5,57/-43,18). De-para
+  de trackers: preenchido na BD_Trackers — mas a MTS100 vem como `SKC_n` (controlador) com até 10 motores por controlador
+  alimentando 2 a 4 inversores, e a coluna Tracker é 1 em todas as linhas: não identifica o motor. Ver o mockup de andamento.
+- **Passo 2 (ingestão).** Token da PV Plataforma da conta oem@ chegou → fonte `plat` (`gemeo/ingest/plat.py`): trackers das
+  três da 2C com o de-para tracker → inversor vindo da própria API (Araputanga 59, Sete Lagoas 59, Tupi Paulista 100). Ipixuna:
+  "esquece por enquanto". Santarém: ele investiga o POA. PC definitivo: mockup "Máquina nova" (docs/mockups).
+- **Passo 3 (grade).** Tracker mudo: "a partir de 4 horas sem dados já é de se alarmar (em horário solar)" → `trk_mudo_slots=16`
+  contando só slots com sol (`_ffill_de_sol`).
+- **Passo 4 (esperado).** Calibração e revisão de placa: "focar na 2C por hora".
+
+Pendências que nasceram ou mudaram:
+
+- **MTS100 sem ângulo nenhum na SunOp**: os 52 `TRK_n` existem na metadata, mas `POSAT`/`POSAL`/`POSAT_MOT_k` devolvem 0 registros
+  (11/09 inteiro) — strings e inversores fluem. É pergunta para a SunOp/2C, não para o código.
+- **MTS100 mapeamento**: proposta = tracker controlador (`TRK_n`) ligado a VÁRIOS inversores com peso (n linhas da planilha por
+  inversor); exige `pai_id` virar tabela de pesos na decomposição. Só vale a pena quando houver ângulo (item acima).
+- **PV_PLAT_TOKEN_OEM vence em 7 dias** (este: 19/09/2026 00:39). Renovação manual; procedimento no runbook.
+- **Lock do SQLite no cadastro**: a passada das 05:18 caiu em "database is locked" no `aplicar_trackers` enquanto a fonte plat
+  gravava 17 mil ângulos — corrigido embrulhando as gravações do cadastro em `com_retentativa_de_lock`.
+
+## 13/09/2026 — trackers da 2C: o que os dados mostraram e o que mudou no modelo
+
+O Levi pediu para olhar os trackers de Tupi Paulista e Araputanga com o gêmeo já ingerindo a fonte `plat`. Cruzando o banco
+(ângulo por bloco de 15 min), os eventos gerados e o estado ao vivo da PV Plataforma (posAg/posAl/aComm/statusTRK):
+
+- **Tupi Paulista** — 33 eventos "fora do alvo" em 11/09 concentrados de 07h a 08h e às 15h (Brasília): parte do bloco 2
+  (inversores 2.3, 2.4, 2.9, 2.10) **acorda 2 a 3 h atrasada** em alguns dias — ficou em −9,1° (stow) e depois em 0,0° até
+  ~09h30 enquanto a frota já estava em −55°. Foram 13 trackers em 10/09, 26 em 11/09, 2 em 12/09. Evento real, detecção certa.
+  Pergunta para a 2C: o controlador do bloco 2 reinicia de manhã?
+- **Sete Lagoas** — TRK51 (Inv 1.9) e TRK38 (Inv 1.7) **travados o dia inteiro** (25,8° e 4,3° fixos, frota de −46 a +55),
+  comunicando (aComm=0) e sem seguir o alvo (posAl −5 à noite, statusTRK 528). ~140 kWh/dia. Candidatos a OS.
+- **Araputanga** — TRK5 (Inv 1.1) **sem comunicação** (aComm=1, statusTRK 0): a PV Plataforma manda 0,0° fixo e o gêmeo lia
+  como desalinhamento de até 55°.
+
+Mudanças no modelo (TDD, 176 testes verdes):
+
+1. `excesso_trackers` usa a **mediana do grupo do inversor** quando o grupo tem ≥ 3 trackers com dado no slot (senão a frota):
+   os dois blocos da Tupi fazem backtracking diferente ao amanhecer/entardecer (41,5° × 33,8° às 17h) e a frota punia um bloco
+   inteiro por 6 a 8 graus.
+2. **Ângulo congelado o dia inteiro** com a frota se mexendo (amplitude ≥ 30°) vira UM evento no dia: `tracker_travado`
+   (ângulo ≠ 0; perda do dia) ou `tracker_sem_comunicacao` (0,0 fixo; perda marcada como incerta) — e não corridas de
+   `tracker_fora_alvo`. No golden da MRO100 (31/08) o tracker 4, o dia inteiro em 15°, passou de fora_alvo para travado.
+3. A fonte `plat` grava `alarme_com` (aComm 0/1) por tracker a cada ciclo, para o modelo e o card "agora".
+4. Migração `0002_evento_tipos_tracker.sql` amplia o CHECK de `evento.tipo` (recria a tabela; ids preservados). **As tarefas
+   não migram sozinhas: `python -m gemeo.cli migrate`** — aplicada no banco de produção em 13/09 (2703 eventos intactos).
+
+Pendente: perguntar à 2C sobre o bloco 2 da Tupi; abrir OS para TRK51/TRK38 de Sete Lagoas e para a comunicação do TRK5.
+
+### 13/09 (tarde) — ajustes depois de rodar sobre o banco real
+
+- A referencia por grupo do inversor **so vale quando o grupo esta perto da frota** (`trk_grupo_desvio_max` = 12 graus). Sem essa guarda, os cinco trackers do Inversor 2.10 da Tupi, atrasados JUNTOS em 11/09, concordavam entre si e o atraso sumia (33 eventos viraram 6). Com ela, os 33 voltaram — todos no bloco 2 (inversores 2.1 a 2.4, 2.9, 2.10).
+- O job do modelar insiste no lock do SQLite como as fontes (`persistir` sob `com_retentativa_de_lock`): com o ingest gravando 17 mil angulos, 4 usinas morriam em `database is locked` e ficavam sem cascata ate a rodada seguinte.
+- A regra do angulo congelado, rodada sobre todas as usinas, apontou trackers travados/sem comunicacao fora da 2C: Aparecida 3 (17 travados + 3 mudos), Boa Esperanca do Sul 1 (14 mudos), MAB100 (5 + 4), IBATE 2 (4 + 1), Aracoiaba 2 (4 + 1) — a conferir com a Performance antes de virar OS: pode ser sensor congelado na fonte, nao mecanica.
+- **Infra:** o notebook estava na bateria e as tarefas Gemeo Modelar/Ingest/App, OS Creator Web e Tunel Guardian tem 'nao iniciar na bateria' (padrao do Register-ScheduledTask): o agendador recusou tudo desde 09:15 (codigo 2147943467). Quem estava vivo foi o que subiu a mao. Pedido ao Levi: liberar as cinco tarefas na bateria, como ja esta a Ronda Guardian.
+
+### 13/09 (tarde, 2) — mockup de pendencias
+
+A pedido do Levi ("faca um mockup explicando exatamente o que esta pendente"): `docs/mockups/gemeo-pendencias-2026-09-13.html`, com os numeros lidos do banco as 14:10 UTC (25 usinas, 1.258 trackers, 2.712 eventos em 30 dias, 0 modelos calibrados) e a lista por dono — Levi (bateria, token 19/09, maquina, preco, Ipixuna/Santarem, perguntas a 2C), Performance (OS candidatas, Tupi com 13 trackers em alarme de comunicacao as 11h, congelados fora da 2C, Aparecida do Taboado 1 e 2 sem dado desde 06/09, CPP100 +17 %, MTS100 GHI 0), T.I. (servidor/backup/monitor, fonte pg com cobertura 25 %, repositorio, Fase 4) e codigo (card agora, cobertura pg, Info Mensal, calibracao 01/10 e 10/10, SKC, fechamento do inversor_abaixo, agora da Frota). Achado novo: a fonte pg roda 100 % 'parcial' (cobertura 0,25) e a sunop 67 % — medir por usina o que falta antes de chamar de problema.
+
+**Bateria liberada (13/09, noite):** o Levi autorizou ("Pode liberar as 5 tarefas na bateria"). `Set-ScheduledTask` nas cinco (Gemeo App, Gemeo Ingest, Gemeo Modelar, OS Creator Web, GridCo Tunel Guardian): `DisallowStartIfOnBatteries=False`, `StopIfGoingOnBatteries=False`, conferido antes e depois. `deploy/instalar_tarefas.ps1` passou a registrar com `-AllowStartIfOnBatteries -DontStopIfGoingOnBatteries`, para a maquina nova nascer certa. Item A1 do mockup de pendencias: resolvido.

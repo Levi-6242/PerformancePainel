@@ -8,7 +8,7 @@ servidor, ao repositório e ao `SECRETS_DIR` (condição do piloto, spec §10).
 
 | Tarefa | O que faz | Ritmo | Se cair |
 |---|---|---|---|
-| `Gemeo Ingest` | um laço por fonte (PostgreSQL `powerplants`, API SunOp, API BD_Performance) → `leitura` + `ingest_run` | contínuo | o agendador reinicia em 1 min |
+| `Gemeo Ingest` | um laço por fonte (PostgreSQL `powerplants`, API SunOp, API PV Operation pela conta oem@ — Araputanga, Sete Lagoas e Tupi Paulista da 2C —, API BD_Performance) → `leitura` + `ingest_run` | contínuo | o agendador reinicia em 1 min |
 | `Gemeo Modelar` | gate → esperado → decomposição → eventos → cascata dos últimos 3 dias; grava `esperado`, `cascata_dia`, `perda_dia`, `evento` | a cada 15 min, encerra | a próxima execução refaz tudo (idempotente) |
 | `Gemeo App` | telas Frota/Usina, API e `/healthz` em `127.0.0.1:5075/gemeo` | contínuo | reinicia em 1 min; a plataforma mostra "fora do ar" (503) enquanto isso |
 
@@ -83,3 +83,39 @@ Rode a régua de equivalência sobre um dia real e cole o número no PR:
 ```
 python -m tools.equivalencia tests\fixtures\golden\mro100_2026-08-31.json --b-razao-min 0.25
 ```
+
+## Token da PV Plataforma venceu (trackers das três da 2C)
+
+Sintoma: `/healthz` ou `ingest_run` com a fonte `plat` em `falha` e o erro "PV Plataforma recusou o token (HTTP 401): renovar
+PV_PLAT_TOKEN_OEM no gemeo.env". Os inversores e a estação das três continuam entrando (fonte `apipv`, que tem login por
+senha); só o ângulo dos trackers para, e a parcela de tracker volta para o resíduo até o token novo.
+
+O token da PV Plataforma (`apiplataforma.pvoperation.com`, header `x-auth-token-update`) vale **7 dias** e não tem login por
+senha na API para a conta oem@: alguém loga em plataforma.pvoperation.com com a conta oem@, copia o token da sessão (o mesmo
+que a plataforma de performance usa em `plat_token.txt`) e cola em `gemeo.env`:
+
+```
+PV_PLAT_TOKEN_OEM=<token novo>
+```
+
+Reinicie só o ingest (`Gemeo Ingest`: matar o `pythonw -m gemeo.cli ingest` e a tarefa sobe de novo em até 5 min, ou
+`Start-ScheduledTask 'Gemeo Ingest'`). O primeiro ciclo depois do token novo puxa 3 dias de gráfico por usina; a marca d'água
+dos trackers é a dos próprios trackers, então o buraco do período sem token é coberto até o limite da janela — para mais que
+isso, `tools/backfill_apipv.py` não serve (é da fonte apipv); rode um ciclo com `reconciliar` ou peça um backfill de trackers.
+
+## Tracker travado ou sem comunicação
+
+Dois eventos novos (13/09/2026), ambos "ângulo congelado o dia inteiro enquanto a frota se mexe":
+
+- `tracker_travado`: o ângulo é um valor fixo diferente de zero (Sete Lagoas TRK51 em 25,8°). O tracker comunica e não mexe —
+  OS de campo. O kWh do evento é a perda do dia pelo cosseno, confiável.
+- `tracker_sem_comunicacao`: o ângulo é 0,0 fixo (Araputanga TRK5, aComm=1 na PV Plataforma). Não é ângulo, é sensor mudo —
+  checar comunicação/controlador antes de mandar alguém ao tracker. O kWh vem marcado `estimativa: incerta`.
+
+Dia de stow (vento/nuvem, frota toda parada no mesmo ângulo) não gera nenhum dos dois: a amplitude da frota é a guarda.
+Se um `.sql` novo aparecer em `migrations/`, rode `python -m gemeo.cli migrate` antes da próxima rodada do modelar — as
+tarefas agendadas não aplicam migração.
+
+## Medida nova? Leia o CHECK antes
+
+`leitura.medida` e `evento.tipo` tem CHECK fechado na migracao 0001. Uma medida fora da lista (13/09/2026: `alarme_com`) derruba a fonte inteira a cada ciclo com IntegrityError, e o ciclo que falha deixava a transacao aberta e travava o banco para as outras threads e para o modelar (`database is locked` em serie). Hoje o laco desfaz a transacao ao falhar, mas a regra fica: estado que nao e serie (alarme, ultimo status) vai para `equipamento.atributos` (json_patch); serie nova exige migracao do CHECK — e `leitura` tem mais de 1 GB, recriar a tabela nao e opcao. Para `evento.tipo`, a 0002 mostra o caminho.

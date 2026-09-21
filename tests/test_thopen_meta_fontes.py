@@ -105,3 +105,25 @@ def test_nome_casa_ignorando_acento_e_caixa(monkeypatch):
 def test_usina_sem_meta_em_lugar_nenhum_volta_vazio(monkeypatch):
     _liga(monkeypatch, longo=[], largo=[])
     assert dt._meta2026("Alvares Machado") == {}
+
+
+def test_mes_como_serial_do_excel_ainda_da_meta(monkeypatch):
+    """11/09/2026: a coluna `Mês` da tabela derivada perdeu o formato de data e passou a chegar
+    como o serial cru do Excel (46023 = 01/01/2026). O código fazia `_num(mv)` e guardava a meta
+    na chave 46023; a tela procura 1..12 e 32 usinas ficaram SEM META de uma vez, sem erro nenhum.
+    Formatação de planilha não pode derrubar dado."""
+    serial = (dt.dt.date(2026, 3, 1) - dt.dt.date(1899, 12, 30)).days      # 46082
+    largo = [["Urupês 1", 2026, serial, 0.21, 300000.0, 180.0, 0.81]]
+    _liga(monkeypatch, longo=[], largo=largo)
+    m = dt._meta2026("Urupês 1")
+    assert 3 in m, "serial do Excel tem de virar o mês 3"
+    assert m[3]["meta"] == pytest.approx(300000.0)
+    assert not [k for k in m if k > 12], "nenhuma chave fora de 1..12"
+
+
+def test_mes_ja_numerico_continua_valendo(monkeypatch):
+    """Mês que chega como 1..12 (e não como data) não pode ser confundido com serial."""
+    largo = [["Urupês 1", 2026, 5, 0.21, 123.0, 180.0, 0.81]]
+    _liga(monkeypatch, longo=[], largo=largo)
+    m = dt._meta2026("Urupês 1")
+    assert list(m) == [5] and m[5]["meta"] == pytest.approx(123.0)

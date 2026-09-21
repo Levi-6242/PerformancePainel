@@ -7,7 +7,10 @@
 piloto = ["MRO100", "MAB100", "MTS100", "CPP100",
           # 04/09: as 18 do PostgreSQL do Thopen que tem estacao com POA, inversor e leitura fresca. Ipixuna 1 e 2
           # ficaram de fora (inversor sim, estacao nao), e as outras 13 do banco nao tem leitura nenhuma.
-          "BOA ESPERANCA DO SUL 1", "BOA ESPERANCA DO SUL 2", "CAXAMBU", "GOYTACAZES 1", "APARECIDA 3", "ARACOIABA DA SERRA 1", "ARACOIABA DA SERRA 2", "IBATE 1", "IBATE 2", "PIRACICABA I", "SALTO PIRAPORA III", "SANTA BARBARA I", "SAO BENTO V", "SANTAREM 1", "SANTAREM 2", "APARECIDA DO TABOADO 1", "APARECIDA DO TABOADO 2", "SANTO INACIO XII"]
+          "BOA ESPERANCA DO SUL 1", "BOA ESPERANCA DO SUL 2", "CAXAMBU", "GOYTACAZES 1", "APARECIDA 3", "ARACOIABA DA SERRA 1", "ARACOIABA DA SERRA 2", "IBATE 1", "IBATE 2", "PIRACICABA I", "SALTO PIRAPORA III", "SANTA BARBARA I", "SAO BENTO V", "SANTAREM 1", "SANTAREM 2", "APARECIDA DO TABOADO 1", "APARECIDA DO TABOADO 2", "SANTO INACIO XII",
+          # 11/09: as tres da 2C que a API PV Operation enxerga pela conta oem@ (Levi: "comece com as usinas da 2C que estao na
+          # API PV"). Codigo = "Usina Supervisório" do cadastro. Ipixuna do Para fica de fora (so existe no e-mail).
+          "Araputanga", "Sete Lagoas", "Tupi Paulista"]
 # fonte e fuso de cada usina do piloto (o cadastro traz kWp, cliente e inversores depois). Todas na SunOp/gridco, UTC-3 sem
 # horario de verao. lat/lon vem da Info Geral quando o cadastro ler essa aba (pendencia B1/B3).
 [usinas.detalhe]
@@ -33,11 +36,75 @@ CPP100 = { fonte = "sunop", tz = "America/Belem", nome = "CPP100" }
 "APARECIDA DO TABOADO 1" = { fonte = "pg", fonte_ref = "9", tz = "America/Campo_Grande", nome = "(323) Aparecida do Taboado 1" }
 "APARECIDA DO TABOADO 2" = { fonte = "pg", fonte_ref = "31", tz = "America/Campo_Grande", nome = "(324) Aparecida do taboado 2" }
 "SANTO INACIO XII" = { fonte = "pg", fonte_ref = "6", tz = "America/Sao_Paulo", nome = "(327) Santo Inácio XII" }
+# API PV Operation, conta oem@ (11/09/2026): fonte_ref = id da usina na API; tz = fuso da USINA (dia local e janela solar) —
+# os carimbos da API vem em Brasilia para todas (medido: Araputanga/MT 19:20 as 19:26 de Brasilia) e o ingestor converte
+# sozinho. `inversores` e o de-para idefinversor -> nome do cadastro, fechado POR VALOR contra o BD_Performance (a conta
+# oem@ nao devolve nome de inversor e plant_devices e negado): Tupi 20/20 em 4 dias, Araputanga 10/10, Sete Lagoa 10/10.
+[usinas.detalhe."Araputanga"]
+fonte = "apipv"
+fonte_ref = "18771898"
+tz = "America/Cuiaba"
+nome = "Araputanga"
+[usinas.detalhe."Araputanga".inversores]
+"400771" = "Inversor 1.1"
+"400772" = "Inversor 1.2"
+"400773" = "Inversor 1.3"
+"400774" = "Inversor 1.4"
+"400775" = "Inversor 1.5"
+"400776" = "Inversor 1.6"
+"400777" = "Inversor 1.7"
+"400778" = "Inversor 1.8"
+"400779" = "Inversor 1.9"
+"400780" = "Inversor 1.10"
+[usinas.detalhe."Sete Lagoas"]
+fonte = "apipv"
+fonte_ref = "18771901"
+tz = "America/Sao_Paulo"
+nome = "Sete Lagoas"
+[usinas.detalhe."Sete Lagoas".inversores]
+"400784" = "Inversor 1.1"
+"400785" = "Inversor 1.2"
+"400786" = "Inversor 1.3"
+"400787" = "Inversor 1.4"
+"400788" = "Inversor 1.5"
+"400789" = "Inversor 1.6"
+"400790" = "Inversor 1.7"
+"400791" = "Inversor 1.8"
+"400792" = "Inversor 1.9"
+"400793" = "Inversor 1.10"
+[usinas.detalhe."Tupi Paulista"]
+fonte = "apipv"
+fonte_ref = "18750925"
+tz = "America/Sao_Paulo"
+nome = "Tupi Paulista"
+[usinas.detalhe."Tupi Paulista".inversores]
+"367506" = "Inversor 1.1"
+"367507" = "Inversor 1.2"
+"367508" = "Inversor 1.3"
+"367509" = "Inversor 1.4"
+"367510" = "Inversor 1.5"
+"367511" = "Inversor 1.6"
+"367512" = "Inversor 1.7"
+"367513" = "Inversor 1.8"
+"367514" = "Inversor 1.9"
+"367515" = "Inversor 1.10"
+"367516" = "Inversor 2.1"
+"367517" = "Inversor 2.2"
+"367518" = "Inversor 2.3"
+"367519" = "Inversor 2.4"
+"367520" = "Inversor 2.5"
+"367521" = "Inversor 2.6"
+"367522" = "Inversor 2.7"
+"367523" = "Inversor 2.8"
+"367524" = "Inversor 2.9"
+"367525" = "Inversor 2.10"
 [ritmo_min]
 pg = 15
 sunop_fino = 15
 sunop_lento = 60
 cadastro = 30
+apipv = 15          # API PV Operation: day_inverter/day_meteo a cada 15 min (1 leitura/min na fonte)
+plat = 15           # trackers das mesmas tres pela PV Plataforma (token PV_PLAT_TOKEN_OEM, 7 dias)
 modelar = 15
 [sunop]
 teto_dia = 600
