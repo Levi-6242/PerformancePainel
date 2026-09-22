@@ -1,0 +1,758 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Acompanhamento COS · Grid Co.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap">
+<style>
+  /* Acompanhamento COS (22/09/2026) — o card "A resposta" da Entrada. Tempo do EVENTO até a OS no Fracttal
+     (MTTA), por operador. A régua mora em mtta.py; aqui só as contas de tela (mediana, P90, Tukey), sobre as
+     linhas do /api/cos/mtta — assim os filtros respondem na hora, sem ida ao servidor.
+     Tokens da plataforma (tema navy — os mesmos do /gerencial/disponibilidade). */
+  :root{
+    --bg:#090d18; --surface:#161d30; --surface2:#0e1626; --surface3:#1c2439;
+    --ink:#e9eef6; --muted:#96a0b4; --faint:#767d92; --dim:#4d566c;
+    --line:rgba(150,160,180,.13); --grid-l:#1f2840;
+    --grid:#a3d900; --grid-300:#c4e755; --grid-600:#8bbf00;
+    --noite:#8fbcff; --noite-bg:rgba(91,157,255,.07);
+    --bom:#4ade80; --ruim:#ff5b6e;
+    --font:'Inter',system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{color-scheme:dark}
+  body{background:var(--bg);color:var(--ink);font:400 14px/1.55 var(--font);padding:0 20px 56px}
+  .wrap{max-width:1180px;margin:0 auto}
+  [hidden]{display:none!important}
+
+  .topbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;
+    padding:14px 0;border-bottom:1px solid var(--line);margin-bottom:26px}
+  .brand{display:flex;align-items:center;gap:10px;font-size:11px;font-weight:600;
+    letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .brand .dot{width:8px;height:8px;border-radius:2px;background:var(--grid)}
+  .topbar .lnks{display:flex;gap:8px}
+  .topbar .lnk{font-size:12px;color:var(--muted);text-decoration:none;border:1px solid var(--line);
+    border-radius:6px;padding:6px 12px}
+  .topbar .lnk:hover{color:var(--ink);border-color:var(--faint)}
+
+  .head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px}
+  .head h1{font-size:30px;font-weight:800;letter-spacing:-.02em;line-height:1.15}
+  .head h1 span{color:var(--grid)}
+  .head .sub{margin-top:6px;color:var(--muted);font-size:13px}
+  .fonte{font-size:12px;color:var(--faint);text-align:right;line-height:1.5}
+  .fonte b{color:var(--muted);font-weight:600}
+
+  /* filtros: uma linha, acima de tudo o que eles recortam */
+  .filtros{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px;
+    padding:10px 12px;background:var(--surface2);border:1px solid var(--line);border-radius:10px}
+  .flbl{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-right:-2px}
+  .seg{display:inline-flex;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:2px}
+  .seg button{background:transparent;border:0;color:var(--muted);font:600 12.5px var(--font);padding:6px 11px;
+    border-radius:6px;cursor:pointer;white-space:nowrap}
+  .seg button:hover{color:var(--ink)}
+  .seg button.on{background:var(--surface3);color:var(--ink);box-shadow:inset 0 0 0 1px rgba(163,217,0,.35)}
+  .chip{background:var(--surface);border:1px solid var(--line);color:var(--muted);font:600 12.5px var(--font);
+    padding:6px 11px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+  .chip i{width:8px;height:8px;border-radius:50%;border:1.5px solid var(--faint)}
+  .chip.on{color:var(--ink);border-color:rgba(163,217,0,.35)}
+  .chip.on i{background:var(--grid);border-color:var(--grid)}
+  .sep{width:1px;height:22px;background:var(--line);margin:0 2px}
+  select{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:8px;
+    padding:7px 11px;font:600 12.5px var(--font);cursor:pointer;max-width:220px}
+  select:focus{outline:none;border-color:var(--grid)}
+  .chk{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;user-select:none}
+  .chk input{accent-color:var(--grid)}
+  .limpar{margin-left:auto;font-size:12px;color:var(--faint);background:none;border:0;cursor:pointer;font-family:var(--font)}
+  .limpar:hover{color:var(--grid-300)}
+
+  .foco{display:flex;align-items:center;gap:10px;margin:-4px 0 14px;font-size:12.5px;color:var(--muted)}
+  .foco b{color:var(--ink)}
+  .foco .x{background:none;border:1px solid var(--line);color:var(--muted);border-radius:6px;padding:2px 9px;
+    font:600 11.5px var(--font);cursor:pointer}
+  .foco .x:hover{border-color:var(--grid);color:var(--grid-300)}
+
+  .kpis{display:grid;grid-template-columns:1.25fr 1fr 1fr 1fr;gap:14px;margin-bottom:14px}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px 14px;min-width:0}
+  .kpi .lbl{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+  .kpi .val{font-size:34px;font-weight:800;letter-spacing:-.02em;line-height:1.15;margin-top:6px}
+  .kpi .val small{font-size:16px;font-weight:600;color:var(--muted);margin-left:3px}
+  .kpi.hero .val{font-size:48px}
+  .kpi .note{font-size:12px;color:var(--muted);margin-top:3px}
+  .kpi .note b{color:var(--ink);font-weight:600}
+  .kpi.destaque{border-color:rgba(163,217,0,.35)}
+  .kpi.destaque .val{color:var(--grid)}
+  .delta{display:inline-flex;align-items:center;gap:4px;font-weight:700}
+  .delta.bom{color:var(--bom)} .delta.ruim{color:var(--ruim)} .delta.neutro{color:var(--muted)}
+  .meter{height:8px;background:var(--surface2);border-radius:4px;margin-top:10px;position:relative;overflow:hidden}
+  .meter i{position:absolute;left:0;top:0;bottom:0;background:var(--grid);border-radius:4px}
+  .meter b{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--ink);opacity:.55}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 20px;margin-bottom:14px;min-width:0}
+  .card-h{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+  .card h2{font-size:13px;font-weight:700;margin-bottom:2px}
+  .card .desc{font-size:12px;color:var(--faint);max-width:760px}
+  .legenda{display:flex;gap:14px;flex-wrap:wrap;font-size:11.5px;color:var(--muted);align-items:center}
+  .legenda span{display:inline-flex;align-items:center;gap:6px}
+  .row{display:grid;grid-template-columns:7fr 5fr;gap:14px}
+  .row>.card{margin-bottom:14px}
+
+  /* tabela por operador (a "visão tabela" do painel: todo número está aqui) */
+  .ops{overflow-x:auto}
+  .ops-g{min-width:820px}
+  .op-l{display:grid;grid-template-columns:178px 50px 1fr 66px 66px 62px 58px;gap:0 12px;align-items:center}
+  .op-h{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);
+    padding:0 8px 6px;border-bottom:1px solid var(--line)}
+  .op-h .num,.op-r .num{text-align:right;font-variant-numeric:tabular-nums}
+  .op-grupo{font-size:10.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
+    padding:14px 8px 4px}
+  .op-r{padding:3px 8px;border-radius:7px;cursor:pointer;border:1px solid transparent}
+  .op-r:hover{background:var(--surface2)}
+  .op-r.sel{background:var(--surface2);border-color:rgba(163,217,0,.35)}
+  .op-r.apagado{opacity:.5}
+  .op-r .nm{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .op-r .num{font-size:13px;font-weight:600}
+  .op-r .num.fraco{color:var(--muted);font-weight:500}
+  .op-r svg{display:block}
+  .tag{display:inline-block;font-size:9.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border-radius:3px;
+    padding:1px 5px;margin-left:7px;vertical-align:1px}
+  .t-dia{background:rgba(163,217,0,.13);color:var(--grid-300)}
+  .t-noite{background:rgba(91,157,255,.15);color:var(--noite)}
+  .t-misto{background:rgba(150,160,180,.14);color:var(--muted)}
+  .eixo-top text,.eixo text{fill:var(--faint);font:500 10.5px var(--font);text-transform:none;letter-spacing:0}
+
+  .viz{position:relative}
+  .viz svg{display:block;overflow:visible}
+
+  .dist{display:grid;gap:7px}
+  .dist-l{display:grid;grid-template-columns:104px 1fr 92px;gap:12px;align-items:center;font-size:12.5px}
+  .dist-l .u{color:var(--muted);font-weight:600;white-space:nowrap}
+  .trilho{height:13px;background:var(--surface2);border-radius:4px;position:relative}
+  .trilho i{position:absolute;left:0;top:0;bottom:0;border-radius:0 4px 4px 0;background:var(--grid)}
+  .trilho b{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);opacity:.55;border-radius:1px}
+  .dist-l .v{text-align:right;font-variant-numeric:tabular-nums;font-weight:700}
+  .dist-l .v small{color:var(--faint);font-weight:500;margin-left:5px}
+
+  table.out{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.out th{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);
+    text-align:left;padding:0 8px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+  table.out td{padding:7px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+  table.out tr:last-child td{border-bottom:0}
+  table.out td.n,table.out th.n{text-align:right;font-variant-numeric:tabular-nums}
+  table.out td.forte{font-weight:700}
+  table.out td.fraco{color:var(--muted)}
+  .out-wrap{max-height:392px;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+  .mais{font-size:12px;color:var(--faint);margin-top:10px}
+
+  ul.notas{list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:11px 28px}
+  @media (max-width:900px){ul.notas{grid-template-columns:1fr}}
+  ul.notas li{font-size:12.5px;color:var(--muted);padding-left:14px;position:relative;line-height:1.5}
+  ul.notas li::before{content:"";position:absolute;left:0;top:8px;width:5px;height:5px;border-radius:1px;background:var(--dim)}
+  ul.notas li b{color:var(--ink);font-weight:600}
+  ul.notas li.alerta::before{background:var(--ruim)}
+
+  #tip{position:fixed;pointer-events:none;background:var(--surface3);border:1px solid rgba(150,160,180,.22);
+    border-radius:7px;padding:8px 11px;font-size:12px;display:none;z-index:9;box-shadow:0 8px 22px rgba(0,0,0,.5);
+    max-width:320px;line-height:1.45}
+  #tip .v{font-size:15px;font-weight:800;color:var(--ink);letter-spacing:-.01em}
+  #tip .l{color:var(--muted)}
+  #tip .k{display:inline-block;width:12px;height:2px;border-radius:1px;vertical-align:3px;margin-right:6px}
+
+  .rodape{font-size:11.5px;color:var(--faint);margin-top:6px;line-height:1.6}
+  .estado{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--faint);border-radius:10px;
+    padding:14px 18px;margin-bottom:14px;font-size:13px;color:var(--muted)}
+  .estado b{color:var(--ink)}
+  body.frio .kpis,body.frio .card,body.frio .row,body.frio .filtros,body.frio .rodape{opacity:.28;pointer-events:none}
+
+  @media (max-width:900px){
+    .kpis{grid-template-columns:1fr 1fr}
+    .row{grid-template-columns:1fr}
+    .kpi.hero .val{font-size:40px}
+  }
+  @media (max-width:560px){
+    body{padding:0 16px 40px}
+    .kpis{grid-template-columns:1fr}
+    .head h1{font-size:25px}
+    .fonte{text-align:left}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand"><span class="dot"></span>Grid Co · COS</div>
+    <div class="lnks"><a class="lnk" href="/">← Início</a><a class="lnk" href="/gerencial/disponibilidade">Disponibilidade</a></div>
+  </div>
+
+  <div class="head">
+    <div>
+      <h1>Acompanhamento <span>COS</span></h1>
+      <div class="sub">MTTA · tempo entre o evento e a abertura da OS no Fracttal · Religamento, Religamento Remoto e Corretiva Emergencial</div>
+    </div>
+    <div class="fonte" id="fonte"></div>
+  </div>
+
+  <div class="filtros" id="filtros">
+    <span class="flbl">Período</span>
+    <div class="seg" id="f-per">
+      <button data-v="30">30 dias</button><button data-v="90">90 dias</button>
+      <button data-v="180">6 meses</button><button data-v="0">Tudo</button>
+    </div>
+    <span class="sep"></span>
+    <span class="flbl">Turno do evento</span>
+    <div class="seg" id="f-turno">
+      <button data-v="todos">Todos</button><button data-v="dia">Dia 06–18h</button><button data-v="noite">Noite 18–06h</button>
+    </div>
+    <span class="sep"></span>
+    <div id="f-tipo" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+    <span class="sep"></span>
+    <select id="f-op" aria-label="Operador em foco"></select>
+    <label class="chk" title="Mesmo evento registrado em várias OSs (vários ativos) conta uma vez só"><input type="checkbox" id="f-lote"> Lote conta 1 vez</label>
+    <button class="limpar" id="limpar">limpar filtros</button>
+  </div>
+
+  <div class="estado" id="estado" role="status">Carregando o histórico de OSs do COS…</div>
+  <div class="foco" id="foco" hidden></div>
+
+  <div class="kpis">
+    <div class="kpi hero destaque"><div class="lbl">Mediana</div><div class="val" id="k-med"></div><div class="note" id="k-med-n"></div></div>
+    <div class="kpi"><div class="lbl">P90</div><div class="val" id="k-p90"></div><div class="note" id="k-p90-n"></div></div>
+    <div class="kpi"><div class="lbl">Em até 30 min</div><div class="val" id="k-30"></div><div class="meter" id="k-30-m"><i></i><b hidden></b></div><div class="note" id="k-30-n"></div></div>
+    <div class="kpi"><div class="lbl">OSs medidas</div><div class="val" id="k-n"></div><div class="note" id="k-n-n"></div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-h">
+      <div>
+        <h2>Por operador</h2>
+        <div class="desc">Cada ponto é uma OS. A faixa é a metade central (P25 a P75), o traço verde é a mediana e o risco claro é o P90. Escala logarítmica. Clique numa linha para pôr o operador em foco.</div>
+      </div>
+      <div class="legenda">
+        <span><span class="tag t-dia" style="margin:0">Dia</span> cria OS entre 06h e 18h</span>
+        <span><span class="tag t-noite" style="margin:0">Noite</span> cria OS entre 18h e 06h</span>
+      </div>
+    </div>
+    <div class="ops"><div class="ops-g" id="ops"></div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-h">
+      <div>
+        <h2>Dispersão no tempo</h2>
+        <div class="desc" id="sc-desc">Tempo até a OS de cada ocorrência, pela data do evento. A linha clara é a mediana semanal; a vermelha, o limite de outlier do recorte.</div>
+      </div>
+      <div class="legenda" id="sc-leg"></div>
+    </div>
+    <div class="viz" id="scatter"></div>
+  </div>
+
+  <div class="row">
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <h2>Tempo por hora do evento</h2>
+          <div class="desc">Mediana por hora do dia (Brasília). A faixa azulada é a noite.</div>
+        </div>
+        <div class="legenda" id="h-leg"></div>
+      </div>
+      <div class="viz" id="horas"></div>
+    </div>
+    <div class="card">
+      <div class="card-h">
+        <div>
+          <h2>Distribuição</h2>
+          <div class="desc">Parcela das OSs em cada faixa de tempo.</div>
+        </div>
+        <div class="legenda" id="d-leg"></div>
+      </div>
+      <div class="dist" id="dist"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-h">
+      <div>
+        <h2>Fora da curva</h2>
+        <div class="desc" id="out-desc"></div>
+      </div>
+    </div>
+    <div class="out-wrap"><table class="out" id="out"></table></div>
+    <div class="mais" id="out-mais"></div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-bottom:12px">O que este número mede</h2>
+    <ul class="notas" id="notas"></ul>
+  </div>
+
+  <div class="rodape" id="rodape"></div>
+</div>
+<div id="tip" role="tooltip"></div>
+
+<script>
+function iniciar(D) {
+  const H = 3600e3, DIA = 864e5, BRT = 3 * H;
+  const OPS = D.ops, TIPOS = D.tipos, USINAS = D.usinas;
+  // mtta.payload: [folio, i_operador, i_tipo, i_usina, evento (s), tempo (min), cls (0 ok · 1 evento depois ·
+  //                2 evento = criação), lote_n, lote_1o, i_cliente, hora do evento, hora da criação, rajada]
+  const ROWS = D.os.map(r => ({f: r[0], op: r[1], tp: r[2], us: r[3], ev: r[4] * 1000, m: r[5], cls: r[6],
+    lote: r[7], l1: r[8], cli: r[9], hev: r[10], hcri: r[11], raj: r[12]}));
+  const FIM = ROWS.reduce((a, r) => Math.max(a, r.ev + r.m * 6e4), 0);
+  const INI_TUDO = ROWS.reduce((a, r) => Math.min(a, r.ev), Infinity);
+
+  // ── formatação ─────────────────────────────────────────────────────────────────────
+  const nf = new Intl.NumberFormat('pt-BR');
+  const pad = n => String(n).padStart(2, '0');
+  const b = ts => new Date(ts - BRT);                       // relógio de Brasília, lido com getUTC*
+  const fDH = ts => { const d = b(ts); return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`; };
+  const fD = ts => { const d = b(ts); return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)}/${d.getUTCFullYear()}`; };
+  const MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  function fDur(min) {                                      // texto corrido: "37 min", "4 h 43 min", "2 d 5 h"
+    if (min == null) return '—';
+    if (min < 1) return 'menos de 1 min';
+    if (min < 59.5) return `${Math.round(min)} min`;
+    if (min < 1440) { const t = Math.round(min), h = Math.floor(t / 60), mm = t % 60; return mm ? `${h} h ${pad(mm)} min` : `${h} h`; }
+    const t = Math.round(min / 60), d = Math.floor(t / 24), h = t % 24; return h ? `${d} d ${h} h` : `${d} d`;
+  }
+  function fDurCurta(min) {                                  // coluna: "37 min", "4h43", "2d 5h"
+    if (min == null) return '—';
+    if (min < 59.5) return `${Math.max(0, Math.round(min))} min`;
+    if (min < 1440) { const t = Math.round(min), h = Math.floor(t / 60), mm = t % 60; return `${h}h${pad(mm)}`; }
+    const t = Math.round(min / 60), d = Math.floor(t / 24), h = t % 24; return `${d}d ${h}h`;
+  }
+  function tile(el, min) {                                   // número grande: valor + unidade
+    if (min == null) { el.innerHTML = '—'; return; }
+    let v, u;
+    if (min < 59.5) { v = String(Math.round(min)); u = 'min'; }
+    else if (min < 1440) { v = (min / 60).toFixed(1).replace('.', ','); u = 'h'; }
+    else { v = (min / 1440).toFixed(1).replace('.', ','); u = 'dias'; }
+    el.innerHTML = `${v}<small>${u}</small>`;
+  }
+  const fPct = x => x == null ? '—' : `${Math.round(x * 100)}%`;
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+
+  // ── estatística ────────────────────────────────────────────────────────────────────
+  function q(v, p) { if (!v.length) return null; const k = (v.length - 1) * p, f = Math.floor(k), c = Math.ceil(k); return f === c ? v[f] : v[f] + (v[c] - v[f]) * (k - f); }
+  /* fim q */
+  function est(lst) {
+    const v = lst.map(r => r.m).sort((a, b) => a - b), n = v.length;
+    if (!n) return null;
+    const cnt = t => v.filter(x => x <= t).length / n;
+    return {n, p25: q(v, .25), p50: q(v, .5), p75: q(v, .75), p90: q(v, .9), a15: cnt(15), a30: cnt(30), a60: cnt(60),
+      raj: lst.filter(r => r.raj).length / n};
+  }
+  /* fim est */
+  function cerca(lst) {                                      // Tukey na escala log do recorte
+    if (lst.length < 8) return Infinity;
+    const v = lst.map(r => Math.log10(Math.max(r.m, .5))).sort((a, b) => a - b);
+    const q1 = q(v, .25), q3 = q(v, .75);
+    return Math.pow(10, q3 + 1.5 * (q3 - q1));
+  }
+  /* fim cerca */
+  const turnoDoEvento = r => (r.hev >= 6 && r.hev < 18) ? 'dia' : 'noite';
+
+  // turno de cada operador = quando ele CRIA as OSs (histórico inteiro, não o recorte)
+  const TURNO_OP = OPS.map((_, i) => {
+    const l = ROWS.filter(r => r.op === i);
+    const dia = l.filter(r => r.hcri >= 6 && r.hcri < 18).length / (l.length || 1);
+    return dia >= .75 ? 'dia' : dia <= .25 ? 'noite' : 'misto';
+  });
+  const N_OP = OPS.map((_, i) => ROWS.filter(r => r.op === i).length);
+
+  // ── estado + recorte ───────────────────────────────────────────────────────────────
+  const S = {per: 90, turno: 'todos', tipos: new Set([0, 1, 2]), op: null, lote: false};
+  function recorte(desloc = 0) {                              // desloc=1 → a janela ANTERIOR, p/ o delta
+    const fim = S.per ? FIM - desloc * S.per * DIA : Infinity;
+    const ini = S.per ? fim - S.per * DIA : -Infinity;
+    return ROWS.filter(r => r.ev >= ini && r.ev < fim && S.tipos.has(r.tp)
+      && (S.turno === 'todos' || turnoDoEvento(r) === S.turno) && (!S.lote || r.l1));
+  }
+
+  // ── escala log de tempo (1 min … 7 dias) ───────────────────────────────────────────
+  const LMIN = 1, LMAX = 10080, L0 = Math.log10(LMIN), L1 = Math.log10(LMAX);
+  const TICKS = [[1, '1 min'], [5, '5'], [15, '15'], [30, '30 min'], [60, '1 h'], [120, '2 h'], [240, '4 h'],
+    [720, '12 h'], [1440, '1 d'], [4320, '3 d'], [10080, '7 d']];
+  const lg = (v, a, bb) => a + (Math.log10(Math.min(Math.max(v, LMIN), LMAX)) - L0) / (L1 - L0) * (bb - a);
+  const jit = f => { let x = Math.sin(f * 12.9898) * 43758.5453; return x - Math.floor(x); };  // jitter estável por OS
+
+  // ── tooltip ────────────────────────────────────────────────────────────────────────
+  const tip = document.getElementById('tip');
+  function tipShow(html, ev) {
+    tip.innerHTML = html; tip.style.display = 'block';
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let x = ev.clientX + 14, y = ev.clientY + 14;
+    if (x + w > innerWidth - 8) x = ev.clientX - w - 14;
+    if (y + h > innerHeight - 8) y = ev.clientY - h - 14;
+    tip.style.left = x + 'px'; tip.style.top = y + 'px';
+  }
+  const tipHide = () => { tip.style.display = 'none'; };
+  const tipOS = r => `<div class="v">${fDur(r.m)}</div>
+    <div>OS ${r.f} · ${esc(OPS[r.op])}</div>
+    <div class="l">${esc(USINAS[r.us] || 'sem usina')} · ${esc(TIPOS[r.tp])}</div>
+    <div class="l">evento ${fDH(r.ev)} → OS ${fDH(r.ev + r.m * 6e4)}</div>
+    ${r.lote > 1 ? `<div class="l">lote: mesmo evento em ${r.lote} OSs</div>` : ''}
+    ${r.raj ? `<div class="l">registrada em rajada (3+ ocorrências em 30 min)</div>` : ''}`;
+
+  // ── filtros ────────────────────────────────────────────────────────────────────────
+  const $ = id => document.getElementById(id);
+  function seg(id, key, conv) {
+    const el = $(id);
+    el.addEventListener('click', e => {
+      const bt = e.target.closest('button'); if (!bt) return;
+      S[key] = conv(bt.dataset.v); desenha();
+    });
+    return () => el.querySelectorAll('button').forEach(bt => bt.classList.toggle('on', conv(bt.dataset.v) === S[key]));
+  }
+  const marcaPer = seg('f-per', 'per', Number);
+  const marcaTurno = seg('f-turno', 'turno', String);
+  const ft = $('f-tipo');
+  TIPOS.forEach((t, i) => {
+    const c = document.createElement('button'); c.className = 'chip'; c.dataset.i = i;
+    c.innerHTML = '<i></i>'; c.appendChild(document.createTextNode(t));
+    c.addEventListener('click', () => {
+      if (S.tipos.has(i) && S.tipos.size === 1) return;       // pelo menos um tipo
+      S.tipos.has(i) ? S.tipos.delete(i) : S.tipos.add(i); desenha();
+    });
+    ft.appendChild(c);
+  });
+  const fop = $('f-op');
+  function opcoesOp() {
+    fop.innerHTML = '';
+    const o0 = document.createElement('option'); o0.value = ''; o0.textContent = 'Toda a equipe'; fop.appendChild(o0);
+    OPS.map((n, i) => [n, i]).filter(([, i]) => N_OP[i] >= 10).sort((a, b) => a[0].localeCompare(b[0], 'pt-BR'))
+      .forEach(([n, i]) => { const o = document.createElement('option'); o.value = i; o.textContent = n; fop.appendChild(o); });
+  }
+  opcoesOp();
+  fop.addEventListener('change', () => { S.op = fop.value === '' ? null : Number(fop.value); desenha(); });
+  $('f-lote').addEventListener('change', e => { S.lote = e.target.checked; desenha(); });
+  $('limpar').addEventListener('click', () => {
+    Object.assign(S, {per: 90, turno: 'todos', tipos: new Set([0, 1, 2]), op: null, lote: false});
+    $('f-lote').checked = false; desenha();
+  });
+  function foco(i) { S.op = (S.op === i ? null : i); desenha(); }
+
+  // ── KPIs ───────────────────────────────────────────────────────────────────────────
+  function kpis(sel, base, ant, excl) {
+    const s = est(sel), sb = est(base), sa = est(ant);
+    tile($('k-med'), s && s.p50);
+    tile($('k-p90'), s && s.p90);
+    $('k-30').innerHTML = s ? `${Math.round(s.a30 * 100)}<small>%</small>` : '—';
+    $('k-n').textContent = s ? nf.format(s.n) : '0';
+    const emFoco = S.op != null;
+    let nMed = s ? `metade das OSs aberta em até <b>${fDur(s.p50)}</b>` : 'sem OSs no recorte';
+    if (emFoco && sb) nMed = `equipe: <b>${fDur(sb.p50)}</b>`;
+    if (s && sa && S.per) {
+      // compara em minutos inteiros: diferença de segundos não é mudança (e não pinta de vermelho)
+      const d = Math.round(s.p50) - Math.round(sa.p50);
+      nMed += d === 0
+        ? `<br><span class="delta neutro">= mesma mediana</span> dos ${S.per} dias anteriores`
+        : `<br><span class="delta ${d < 0 ? 'bom' : 'ruim'}">${d < 0 ? '▼' : '▲'} ${fDur(Math.abs(d))}</span> vs ${S.per} dias anteriores (${fDur(sa.p50)})`;
+    }
+    $('k-med-n').innerHTML = nMed;
+    $('k-p90-n').innerHTML = s ? (emFoco && sb ? `equipe: <b>${fDur(sb.p90)}</b>` : `9 em cada 10 OSs em até <b>${fDur(s.p90)}</b>`) : '';
+    const m = $('k-30-m');
+    m.querySelector('i').style.width = s ? `${s.a30 * 100}%` : '0';
+    const mk = m.querySelector('b');
+    if (emFoco && sb) { mk.hidden = false; mk.style.left = `calc(${sb.a30 * 100}% - 1px)`; } else mk.hidden = true;
+    $('k-30-n').innerHTML = s ? (emFoco && sb ? `equipe: <b>${fPct(sb.a30)}</b> (marca branca)` : `em até 15 min: <b>${fPct(s.a15)}</b> · em até 1 h: <b>${fPct(s.a60)}</b>`) : '';
+    const nExcl = excl.depois + excl.criacao;
+    $('k-n-n').innerHTML = nExcl
+      ? `<b>${nf.format(nExcl)}</b> fora da conta: ${[excl.criacao ? `${nf.format(excl.criacao)} com o evento na hora da criação` : '',
+          excl.depois ? `${nf.format(excl.depois)} com evento depois da criação` : ''].filter(Boolean).join(' · ')}`
+      : 'nenhuma fora da conta no recorte';
+  }
+
+  // ── por operador ───────────────────────────────────────────────────────────────────
+  const W_STRIP = () => { const g = $('ops'); const w = g.clientWidth - 178 - 50 - 66 - 66 - 62 - 58 - 6 * 12 - 16; return Math.max(260, w); };
+  function strip(lst, s, w, emFoco) {
+    const h = 30, y0 = 15;
+    let g = '';
+    TICKS.forEach(([v]) => { const x = lg(v, 0, w).toFixed(1); g += `<line x1="${x}" x2="${x}" y1="2" y2="${h - 2}" stroke="var(--grid-l)" stroke-width="1"/>`; });
+    // pontos = contexto (cinza); o resumo (faixa + mediana) é o que carrega a leitura. Só o
+    // operador em foco ganha pontos verdes.
+    const cor = emFoco ? 'var(--grid)' : 'var(--faint)', op = emFoco ? .5 : .4;
+    lst.forEach(r => { g += `<circle cx="${lg(r.m, 0, w).toFixed(1)}" cy="${(y0 + (jit(r.f) - .5) * 18).toFixed(1)}" r="2.1" fill="${cor}" fill-opacity="${op}"/>`; });
+    if (s) {
+      const a = lg(s.p25, 0, w), c = lg(s.p75, 0, w);
+      g += `<rect x="${a.toFixed(1)}" y="${y0 - 5}" width="${Math.max(2, c - a).toFixed(1)}" height="10" rx="3" fill="var(--grid)" fill-opacity=".22" stroke="var(--grid)" stroke-opacity=".5" stroke-width="1"/>`;
+      g += `<line x1="${lg(s.p90, 0, w).toFixed(1)}" x2="${lg(s.p90, 0, w).toFixed(1)}" y1="${y0 - 6}" y2="${y0 + 6}" stroke="var(--ink)" stroke-opacity=".6" stroke-width="1.5" stroke-linecap="round"/>`;
+      g += `<line x1="${lg(s.p50, 0, w).toFixed(1)}" x2="${lg(s.p50, 0, w).toFixed(1)}" y1="${y0 - 9}" y2="${y0 + 9}" stroke="var(--grid)" stroke-width="3" stroke-linecap="round"/>`;
+    }
+    return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" aria-hidden="true">${g}</svg>`;
+  }
+  function porOperador(med, lim) {
+    const w = W_STRIP();
+    const grupos = new Map();
+    med.forEach(r => { if (!grupos.has(r.op)) grupos.set(r.op, []); grupos.get(r.op).push(r); });
+    const linhas = [], outros = [];
+    grupos.forEach((l, op) => (l.length >= 10 ? linhas : outros).push([op, l]));
+    let html = `<div class="op-l op-h"><div>Operador</div><div class="num">OSs</div>
+      <div><svg class="eixo-top" width="${w}" height="14" viewBox="0 0 ${w} 14" style="display:block;overflow:visible">${
+        TICKS.map(([v, t], i) => `<text x="${lg(v, 0, w).toFixed(1)}" y="11" text-anchor="${i === 0 ? 'start' : i === TICKS.length - 1 ? 'end' : 'middle'}">${t}</text>`).join('')
+      }</svg></div><div class="num">Mediana</div><div class="num">P90</div><div class="num">≤ 30 min</div><div class="num">Rajada</div></div>`;
+    const ordem = {dia: 0, misto: 1, noite: 2}, nomeG = {dia: 'Turno do dia', misto: 'Turno misto', noite: 'Turno da noite'};
+    const rows = linhas.map(([op, l]) => ({op, l, s: est(l), t: TURNO_OP[op]}))
+      .sort((a, bb) => ordem[a.t] - ordem[bb.t] || a.s.p50 - bb.s.p50);
+    let gAtual = null;
+    rows.forEach(({op, l, s, t}) => {
+      if (t !== gAtual) { gAtual = t; html += `<div class="op-grupo">${nomeG[t]}</div>`; }
+      const sel = S.op === op, apag = S.op != null && !sel;
+      html += `<div class="op-l op-r${sel ? ' sel' : ''}${apag ? ' apagado' : ''}" data-op="${op}" tabindex="0">
+        <div class="nm">${esc(OPS[op])}<span class="tag t-${t}">${t === 'dia' ? 'Dia' : t === 'noite' ? 'Noite' : 'Misto'}</span></div>
+        <div class="num fraco">${nf.format(s.n)}</div>
+        <div>${strip(l, s, w, sel)}</div>
+        <div class="num">${fDurCurta(s.p50)}</div><div class="num fraco">${fDurCurta(s.p90)}</div>
+        <div class="num">${fPct(s.a30)}</div><div class="num fraco">${fPct(s.raj)}</div></div>`;
+    });
+    if (outros.length) {
+      const l = outros.flatMap(([, x]) => x), s = est(l);
+      const nomes = outros.map(([op, x]) => `${OPS[op]} (${x.length})`).join(', ');
+      html += `<div class="op-grupo">Menos de 10 OSs no recorte</div>
+        <div class="op-l op-r apagado" style="cursor:default" title="${esc(nomes)}">
+        <div class="nm">Outros · ${outros.length} ${outros.length === 1 ? 'pessoa' : 'pessoas'}</div>
+        <div class="num fraco">${nf.format(s.n)}</div><div>${strip(l, s, w, false)}</div>
+        <div class="num">${fDurCurta(s.p50)}</div><div class="num fraco">${fDurCurta(s.p90)}</div>
+        <div class="num">${fPct(s.a30)}</div><div class="num fraco">${fPct(s.raj)}</div></div>`;
+    }
+    if (!linhas.length && !outros.length) html += `<div class="op-grupo">Nenhuma OS no recorte</div>`;
+    $('ops').innerHTML = html;
+  }
+  $('ops').addEventListener('click', e => { const r = e.target.closest('.op-r[data-op]'); if (r) foco(Number(r.dataset.op)); });
+  $('ops').addEventListener('keydown', e => { if (e.key === 'Enter') { const r = e.target.closest('.op-r[data-op]'); if (r) foco(Number(r.dataset.op)); } });
+  $('ops').addEventListener('pointermove', e => {
+    const r = e.target.closest('.op-r'); if (!r) { tipHide(); return; }
+    if (!e.target.closest('svg')) { tipHide(); return; }
+    const op = r.dataset.op; if (op == null) { tipHide(); return; }
+    const l = SNAP.med.filter(x => x.op === Number(op)), s = est(l); if (!s) return;
+    tipShow(`<div class="v">${fDur(s.p50)}</div><div>mediana de ${esc(OPS[op])}</div>
+      <div class="l">metade central: ${fDur(s.p25)} a ${fDur(s.p75)}</div><div class="l">P90: ${fDur(s.p90)} · ${nf.format(s.n)} OSs</div>`, e);
+  });
+  $('ops').addEventListener('pointerleave', tipHide);
+
+  // ── dispersão no tempo ─────────────────────────────────────────────────────────────
+  let PTS = [];
+  function dispersao(med, lim) {
+    const el = $('scatter'), W = Math.max(el.clientWidth, 320), Hh = 320, m = {l: 50, r: 12, t: 10, b: 26};
+    const x0 = S.per ? FIM - S.per * DIA : INI_TUDO, x1 = FIM;
+    const X = t => m.l + (t - x0) / (x1 - x0) * (W - m.l - m.r);
+    const Y = v => lg(v, Hh - m.b, m.t);
+    let g = '';
+    TICKS.forEach(([v, t]) => { const y = Y(v).toFixed(1); g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}" stroke="var(--grid-l)"/><text x="${m.l - 8}" y="${(+y + 3.5).toFixed(1)}" text-anchor="end">${t}</text>`; });
+    // eixo x: semanas p/ janela curta, meses p/ longa
+    const dias = (x1 - x0) / DIA;
+    const tk = [];
+    if (dias <= 45) {
+      const d = b(x0); let t = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) + BRT;
+      while (b(t).getUTCDay() !== 1) t += DIA;
+      for (; t <= x1; t += 7 * DIA) tk.push([t, fD(t).slice(0, 5)]);
+    } else {
+      const d = b(x0); let y = d.getUTCFullYear(), mo = d.getUTCMonth() + 1;
+      if (mo > 11) { mo = 0; y++; }
+      const passo = dias > 200 ? 1 : 1;
+      for (;;) { const t = Date.UTC(y, mo, 1) + BRT; if (t > x1) break; tk.push([t, `${MESES[mo]}${mo === 0 ? ' ' + String(y).slice(2) : ''}`]); mo += passo; if (mo > 11) { mo -= 12; y++; } }
+    }
+    tk.forEach(([t, s]) => { const x = X(t).toFixed(1); g += `<line x1="${x}" x2="${x}" y1="${Hh - m.b}" y2="${Hh - m.b + 4}" stroke="var(--dim)"/><text x="${x}" y="${Hh - 8}" text-anchor="middle">${s}</text>`; });
+    g += `<line x1="${m.l}" x2="${W - m.r}" y1="${Hh - m.b}" y2="${Hh - m.b}" stroke="var(--dim)"/>`;
+    // pontos: contexto em cinza, foco em verde por cima (anel da cor da superfície)
+    PTS = [];
+    const emFoco = S.op != null;
+    const fundo = [], frente = [];
+    med.forEach(r => { const p = {r, x: X(r.ev), y: Y(r.m)}; PTS.push(p); (emFoco && r.op === S.op ? frente : fundo).push(p); });
+    fundo.forEach(p => { g += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="2.3" fill="${emFoco ? 'var(--faint)' : 'var(--grid)'}" fill-opacity="${emFoco ? .3 : .42}"/>`; });
+    frente.forEach(p => { g += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3.4" fill="var(--grid)" stroke="var(--surface)" stroke-width="1.5"/>`; });
+    // mediana semanal: a tendência no meio da nuvem (do operador em foco, senão da equipe).
+    // Semana com menos de 5 OSs não entra — mediana de 2 pontos é ruído.
+    const baseSem = emFoco ? med.filter(r => r.op === S.op) : med, sem = new Map();
+    baseSem.forEach(r => { const k = Math.floor((r.ev - x0) / (7 * DIA)); if (!sem.has(k)) sem.set(k, []); sem.get(k).push(r.m); });
+    const linha = [...sem.entries()].filter(([, v]) => v.length >= 5).sort((a, bb) => a[0] - bb[0])
+      .map(([k, v]) => { v.sort((a, bb) => a - bb); return `${X(Math.min(x0 + (k + .5) * 7 * DIA, x1)).toFixed(1)},${Y(q(v, .5)).toFixed(1)}`; });
+    if (linha.length > 1) {
+      const pts = linha.join(' ');
+      g += `<polyline points="${pts}" fill="none" stroke="var(--surface)" stroke-opacity=".9" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/>
+        <polyline points="${pts}" fill="none" stroke="var(--ink)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+    }
+    if (isFinite(lim) && lim < LMAX) {
+      const y = Y(lim).toFixed(1);
+      g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}" stroke="var(--ruim)" stroke-opacity=".85" stroke-width="1"/>
+        <text x="${W - m.r}" y="${(+y - 6).toFixed(1)}" text-anchor="end" style="fill:var(--ruim);font-weight:600">limite de outlier · ${fDur(lim)}</text>`;
+    }
+    g += `<circle id="sc-hl" r="6" fill="none" stroke="var(--ink)" stroke-width="1.5" style="display:none"/>`;
+    el.innerHTML = `<svg class="eixo" width="${W}" height="${Hh}" viewBox="0 0 ${W} ${Hh}" role="img" aria-label="Dispersão do tempo até a OS pela data do evento">${g}</svg>`;
+    const legLinha = `<span><svg width="16" height="10"><line x1="1" x2="15" y1="5" y2="5" stroke="var(--ink)" stroke-width="2" stroke-linecap="round"/></svg>mediana semanal${emFoco ? ' dele' : ''}</span>`;
+    $('sc-leg').innerHTML = emFoco
+      ? `<span><svg width="10" height="10"><circle cx="5" cy="5" r="4" fill="var(--grid)"/></svg>${esc(OPS[S.op])}</span><span><svg width="10" height="10"><circle cx="5" cy="5" r="3" fill="var(--faint)" fill-opacity=".6"/></svg>resto da equipe</span>${legLinha}`
+      : `<span><svg width="10" height="10"><circle cx="5" cy="5" r="3" fill="var(--grid)" fill-opacity=".6"/></svg>${nf.format(med.length)} OSs</span>${legLinha}`;
+  }
+  $('scatter').addEventListener('pointermove', e => {
+    const svg = $('scatter').querySelector('svg'); if (!svg) return;
+    const rc = svg.getBoundingClientRect(), mx = e.clientX - rc.left, my = e.clientY - rc.top;
+    let best = null, bd = 18 * 18;
+    const soFoco = S.op != null;
+    for (const p of PTS) {
+      if (soFoco && p.r.op !== S.op) continue;               // em foco, só o operador responde
+      const d = (p.x - mx) ** 2 + (p.y - my) ** 2; if (d < bd) { bd = d; best = p; }
+    }
+    const hl = $('sc-hl');
+    if (!best) { tipHide(); if (hl) hl.style.display = 'none'; return; }
+    hl.setAttribute('cx', best.x); hl.setAttribute('cy', best.y); hl.style.display = '';
+    tipShow(tipOS(best.r), e);
+  });
+  $('scatter').addEventListener('pointerleave', () => { tipHide(); const hl = $('sc-hl'); if (hl) hl.style.display = 'none'; });
+
+  // ── por hora do evento ─────────────────────────────────────────────────────────────
+  let HBAR = [];
+  function porHora(sel, base) {
+    const el = $('horas'), W = Math.max(el.clientWidth, 320), Hh = 230, m = {l: 44, r: 6, t: 16, b: 24};
+    const hs = [...Array(24)].map((_, h) => est(sel.filter(r => r.hev === h)));
+    const hb = [...Array(24)].map((_, h) => est(base.filter(r => r.hev === h)));
+    const emFoco = S.op != null;
+    const topo = Math.max(60, ...hs.map(s => s ? s.p50 : 0), ...(emFoco ? hb.map(s => s ? s.p50 : 0) : []));
+    const passo = topo > 360 ? 120 : topo > 150 ? 60 : 30, ymax = Math.ceil(topo / passo) * passo;
+    const bw = (W - m.l - m.r) / 24, cw = Math.min(22, bw * .62);
+    const X = h => m.l + h * bw, Y = v => (Hh - m.b) - v / ymax * (Hh - m.b - m.t);
+    let g = '';
+    [[0, 6], [18, 24]].forEach(([a, c]) => { g += `<rect x="${X(a)}" y="${m.t - 6}" width="${(c - a) * bw}" height="${Hh - m.b - m.t + 6}" fill="var(--noite-bg)"/>`; });
+    g += `<text x="${X(3)}" y="${m.t + 4}" text-anchor="middle" style="fill:var(--noite)">noite</text><text x="${X(21)}" y="${m.t + 4}" text-anchor="middle" style="fill:var(--noite)">noite</text>`;
+    for (let v = 0; v <= ymax; v += passo) { const y = Y(v).toFixed(1); g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}" stroke="var(--grid-l)"/><text x="${m.l - 8}" y="${(+y + 3.5).toFixed(1)}" text-anchor="end">${v === 0 ? '0' : v < 60 ? v + ' min' : (v / 60) + ' h'}</text>`; }
+    HBAR = [];
+    hs.forEach((s, h) => {
+      const cx = X(h) + bw / 2;
+      if (s) {
+        const y = Y(s.p50), hh = (Hh - m.b) - y;
+        // coluna com ponta arredondada, quadrada na base
+        const r = Math.min(4, hh, cw / 2), x = cx - cw / 2, yb = Hh - m.b;
+        g += `<path d="M${x},${yb} V${y + r} Q${x},${y} ${x + r},${y} H${x + cw - r} Q${x + cw},${y} ${x + cw},${y + r} V${yb} Z" fill="var(--grid)" fill-opacity="${s.n < 10 ? .35 : .85}"/>`;
+      }
+      if (emFoco && hb[h]) { const y = Y(hb[h].p50).toFixed(1); g += `<line x1="${cx - cw / 2 - 3}" x2="${cx + cw / 2 + 3}" y1="${y}" y2="${y}" stroke="var(--ink)" stroke-opacity=".55" stroke-width="2" stroke-linecap="round"/>`; }
+      if (h % 3 === 0) g += `<text x="${cx}" y="${Hh - 8}" text-anchor="middle">${pad(h)}h</text>`;
+      HBAR.push({h, x0: X(h), x1: X(h) + bw, s, sb: hb[h]});
+    });
+    g += `<line x1="${m.l}" x2="${W - m.r}" y1="${Hh - m.b}" y2="${Hh - m.b}" stroke="var(--dim)"/>`;
+    el.innerHTML = `<svg class="eixo" width="${W}" height="${Hh}" viewBox="0 0 ${W} ${Hh}" role="img" aria-label="Mediana do tempo até a OS por hora do evento">${g}</svg>`;
+    $('h-leg').innerHTML = emFoco ? `<span><svg width="12" height="10"><rect width="12" height="10" rx="2" fill="var(--grid)"/></svg>${esc(OPS[S.op])}</span><span><svg width="14" height="10"><line x1="1" x2="13" y1="5" y2="5" stroke="var(--ink)" stroke-opacity=".6" stroke-width="2"/></svg>equipe</span>` : '';
+  }
+  $('horas').addEventListener('pointermove', e => {
+    const svg = $('horas').querySelector('svg'); if (!svg) return;
+    const mx = e.clientX - svg.getBoundingClientRect().left;
+    const hb = HBAR.find(x => mx >= x.x0 && mx < x.x1);
+    if (!hb || !hb.s) { tipHide(); return; }
+    const s = hb.s;
+    tipShow(`<div class="v">${fDur(s.p50)}</div><div>mediana · evento às ${pad(hb.h)}h</div>
+      <div class="l">${nf.format(s.n)} OSs · metade central ${fDur(s.p25)} a ${fDur(s.p75)}</div>
+      ${S.op != null && hb.sb ? `<div class="l"><span class="k" style="background:var(--ink);opacity:.6"></span>equipe: ${fDur(hb.sb.p50)}</div>` : ''}`, e);
+  });
+  $('horas').addEventListener('pointerleave', tipHide);
+
+  // ── distribuição ───────────────────────────────────────────────────────────────────
+  const FAIXAS = [[0, 5, 'até 5 min'], [5, 15, '5–15 min'], [15, 30, '15–30 min'], [30, 60, '30 min–1 h'], [60, 120, '1–2 h'],
+    [120, 240, '2–4 h'], [240, 720, '4–12 h'], [720, 1440, '12–24 h'], [1440, 4320, '1–3 dias'], [4320, Infinity, 'mais de 3 dias']];
+  function distribuicao(sel, base) {
+    const n = sel.length || 1, nb = base.length || 1, emFoco = S.op != null;
+    const cont = (l, a, c) => l.filter(r => r.m >= a && r.m < c).length;
+    const vals = FAIXAS.map(([a, c]) => cont(sel, a, c) / n), vb = FAIXAS.map(([a, c]) => cont(base, a, c) / nb);
+    const topo = Math.max(...vals, ...(emFoco ? vb : []), .01);
+    $('dist').innerHTML = FAIXAS.map(([a, c, t], i) => {
+      const k = cont(sel, a, c);
+      return `<div class="dist-l" data-i="${i}"><div class="u">${t}</div>
+        <div class="trilho"><i style="width:${(vals[i] / topo * 100).toFixed(1)}%"></i>${emFoco ? `<b style="left:calc(${(vb[i] / topo * 100).toFixed(1)}% - 1px)"></b>` : ''}</div>
+        <div class="v">${fPct(vals[i])}<small>${nf.format(k)}</small></div></div>`;
+    }).join('');
+    $('d-leg').innerHTML = emFoco ? `<span><svg width="12" height="10"><rect width="12" height="10" rx="2" fill="var(--grid)"/></svg>${esc(OPS[S.op])}</span><span><svg width="8" height="12"><rect x="3" width="2" height="12" fill="var(--ink)" fill-opacity=".6"/></svg>equipe</span>` : '';
+  }
+
+  // ── fora da curva ──────────────────────────────────────────────────────────────────
+  function foraDaCurva(sel, lim) {
+    const l = sel.filter(r => r.m > lim).sort((a, bb) => bb.m - a.m);
+    $('out-desc').innerHTML = isFinite(lim)
+      ? `OSs abertas mais de <b style="color:var(--ink)">${fDur(lim)}</b> depois do evento — o limite de outlier do recorte (Q3 + 1,5 × IQR na escala log). ${nf.format(l.length)} no recorte.`
+      : 'Poucas OSs no recorte para calcular o limite.';
+    const MAX = 40;
+    // o tempo vem PRIMEIRO: é a razão de a linha estar na lista (na 1ª versão ele ficava cortado à direita)
+    $('out').innerHTML = l.length ? `<thead><tr><th class="n">Tempo</th><th>OS</th><th>Operador</th><th>Usina</th><th>Tipo</th><th>Evento</th><th>OS aberta</th><th>Turno do evento</th></tr></thead><tbody>${
+      l.slice(0, MAX).map(r => `<tr><td class="n forte">${fDurCurta(r.m)}</td><td class="fraco">${r.f}</td><td>${esc(OPS[r.op])}</td>
+        <td>${esc(USINAS[r.us] || '—')}</td><td class="fraco">${esc(TIPOS[r.tp])}</td><td class="fraco">${fDH(r.ev)}</td>
+        <td class="fraco">${fDH(r.ev + r.m * 6e4)}</td><td class="fraco">${turnoDoEvento(r) === 'dia' ? 'dia' : 'noite'}</td></tr>`).join('')
+    }</tbody>` : `<tbody><tr><td class="fraco">Nenhuma OS acima do limite.</td></tr></tbody>`;
+    $('out-mais').textContent = l.length > MAX ? `e mais ${l.length - MAX} — a lista mostra as ${MAX} maiores.` : '';
+  }
+
+  // ── o que o número mede ────────────────────────────────────────────────────────────
+  function notas(rec, med, lim) {
+    const lotes = med.filter(r => r.lote > 1), epis = new Set(lotes.filter(r => r.l1).map(r => r.f)).size;
+    const raj = med.filter(r => r.raj).length;
+    const neg = rec.filter(r => r.cls === 1).length, agora = rec.filter(r => r.cls === 2).length;
+    const it = [
+      `<b>Mede:</b> da hora do evento informada na OS até a OS aparecer no Fracttal. No COS a OS costuma nascer já concluída, então o tempo inclui o religamento, e não só o reconhecimento.`,
+      `<b>Rajada:</b> ${fPct(med.length ? raj / med.length : 0)} das OSs do recorte foram abertas junto com outras 2 ou mais ocorrências em 30 min. É o padrão de fim de turno (05h e 16–17h): registro acumulado, que infla o tempo.`,
+      `<b>Lote:</b> ${nf.format(lotes.length)} OSs são o mesmo evento em vários ativos. “Lote conta 1 vez” conta cada evento uma vez só.`,
+      `<b>Fora da conta no recorte:</b> ${nf.format(agora)} com o evento gravado na hora da própria criação (o app carimbou “agora”, a hora real não foi informada) e ${nf.format(neg)} com evento depois da criação (OS programada). No histórico inteiro também saem ${nf.format(D.canceladas)} canceladas e ${nf.format(D.teste)} da planta de teste.`,
+    ];
+    const alerta = `<b>Ponto cego:</b> a tela do COS abre com o evento em “agora − 10 min”. Se o operador não corrige, a OS registra cerca de 10 min sem ser medição, e o dado não permite separar esses casos.`;
+    $('notas').innerHTML = it.map(t => `<li>${t}</li>`).join('') + `<li class="alerta">${alerta}</li>`;
+  }
+
+  // ── desenho ────────────────────────────────────────────────────────────────────────
+  let SNAP = {med: []};
+  function desenha() {
+    marcaPer(); marcaTurno();
+    ft.querySelectorAll('.chip').forEach(c => c.classList.toggle('on', S.tipos.has(Number(c.dataset.i))));
+    fop.value = S.op == null ? '' : String(S.op);
+    const rec = recorte(), med = rec.filter(r => r.cls === 0);
+    const ant = S.per ? recorte(1).filter(r => r.cls === 0) : [];
+    const lim = cerca(med);
+    const sel = S.op == null ? med : med.filter(r => r.op === S.op);
+    const antSel = S.op == null ? ant : ant.filter(r => r.op === S.op);
+    SNAP = {med};
+    const fo = $('foco');
+    if (S.op != null) {
+      fo.hidden = false;
+      fo.innerHTML = `Em foco: <b>${esc(OPS[S.op])}</b> <span class="tag t-${TURNO_OP[S.op]}">${TURNO_OP[S.op] === 'dia' ? 'Dia' : TURNO_OP[S.op] === 'noite' ? 'Noite' : 'Misto'}</span> — indicadores, horas, distribuição e lista mostram só ele; a comparação é com a equipe no mesmo recorte. <button class="x" id="sai-foco">tirar foco</button>`;
+      $('sai-foco').onclick = () => foco(S.op);
+    } else fo.hidden = true;
+    const recSel = S.op == null ? rec : rec.filter(r => r.op === S.op);
+    kpis(sel, med, antSel, {depois: recSel.filter(r => r.cls === 1).length, criacao: recSel.filter(r => r.cls === 2).length});
+    porOperador(med, lim);
+    dispersao(med, lim);
+    porHora(sel, med);
+    distribuicao(sel, med);
+    foraDaCurva(sel, lim);
+    notas(rec, med, lim);
+  }
+
+  const vr = D.varrido_em ? D.varrido_em.replace(/^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}).*$/, '$3/$2 $4:$5') : '—';
+  const CRI_TUDO = ROWS.reduce((a, r) => Math.min(a, r.ev + r.m * 6e4), Infinity);
+  $('fonte').innerHTML = `Fracttal · varredura de <b>${vr}</b><br>${nf.format(D.total_tarefas)} tarefas lidas · OSs criadas desde ${fD(CRI_TUDO)}`;
+  $('rodape').innerHTML = `Fonte: varredura só-leitura do <b>work_orders</b> do Fracttal, atualizada a cada 30 min (a base inteira é refeita 1×/dia). Operador = quem criou a OS (<i>created_by</i>); o Fracttal grafa o mesmo nome com e sem espaço, aqui unificados. Tempo = criação da OS − data do evento; datas em Brasília. Régua em <b>mtta.py</b>.`;
+  // recorte pela URL (?per=30&turno=noite&op=Felipe%20Silva&lote=1) — dá para mandar o link de um recorte
+  const qs = new URLSearchParams(location.search);
+  if (qs.has('per')) S.per = Number(qs.get('per')) || 0;
+  if (['todos', 'dia', 'noite'].includes(qs.get('turno'))) S.turno = qs.get('turno');
+  if (qs.has('op')) { const i = OPS.indexOf(qs.get('op')); if (i >= 0) S.op = i; }
+  if (qs.get('lote') === '1') { S.lote = true; $('f-lote').checked = true; }
+  let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(desenha, 120); });
+  document.body.classList.remove('frio');
+  $('estado').hidden = true;
+  desenha();
+}
+
+// A 1ª varredura depois de um deploy lê o histórico inteiro do Fracttal (~350 páginas, uns 10 min); até lá
+// o /api/cos/mtta responde quente:false e esta tela avisa em vez de mostrar zeros.
+(function carrega(tentativa) {
+  const est = document.getElementById('estado');
+  document.body.classList.add('frio');
+  fetch('/api/cos/mtta', {cache: 'no-store'}).then(r => r.json()).then(d => {
+    if (!d.quente) {
+      est.innerHTML = '<b>Montando o índice pela primeira vez.</b> A plataforma está lendo o histórico de OSs do Fracttal ' +
+        '(uns 10 minutos depois de uma atualização). Esta página tenta de novo sozinha.';
+      setTimeout(() => carrega(tentativa + 1), 20000);
+      return;
+    }
+    iniciar(d);
+  }).catch(() => {
+    est.innerHTML = '<b>Sem resposta da plataforma.</b> Tentando de novo…';
+    setTimeout(() => carrega(tentativa + 1), 15000);
+  });
+})(0);
+</script>
+</body>
+</html>

@@ -19655,6 +19655,7 @@ def _iniciar_loops_de_fundo():
                  _qualidade_loop,           # clipping e valor travado por inversor (pvanalytics, 1×/h)
                  _frac_osperf_loop,
                  _frac_disp_loop,           # disponibilidade por OS (Gerencial) — varre + calcula
+                 _frac_mtta_loop,           # Acompanhamento COS: tempo do evento até a OS (base acumulada)
                  _tranc_watch_loop,         # strings trancadas: o web grava, o worker tem de reler
                  _janitor_loop):            # impede o processo de dias inchar sem teto
         threading.Thread(target=alvo, daemon=True).start()
@@ -20812,6 +20813,138 @@ def api_gerencial_disp_export():
     nome = f"Disponibilidade_{cliente or 'parque'}_{mes}.xlsx".replace(" ", "_")
     return send_file(buf, as_attachment=True, download_name=nome,
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+# ── Acompanhamento COS: MTTA, do evento até a OS no Fracttal (22/09/2026) ─────────────────────
+# A régua mora em mtta.py (PURO, testado em tests/test_mtta_cos.py). Mesmo arranjo da
+# Disponibilidade: o WORKER varre e publica frac_mtta_index.json; o WEB só relê por mtime.
+# Diferença: a tela olha o histórico inteiro (desde dez/2025), e varrer as ~350 páginas a cada
+# 30 min seria desperdício. A base fica acumulada em disco; cada ciclo relê só os últimos
+# FRAC_MTTA_JANELA_D dias (OS nova, cancelada ou editada) e a base inteira é refeita 1×/dia,
+# para cancelamento de OS antiga também chegar.
+import mtta as _mtta_mod
+
+_FRAC_MTTA_FILE = _p_cache("frac_mtta_index.json")      # pacote pronto da tela
+_FRAC_MTTA_BASE = _p_cache("frac_mtta_linhas.json")     # tarefas acumuladas (só o worker escreve)
+FRAC_MTTA_TTL = 30 * 60
+FRAC_MTTA_JANELA_D = 10
+FRAC_MTTA_CHEIA_H = 24
+# Varredura cheia que leu bem menos que o `total` do Fracttal não substitui a base: com a paginação
+# andando enquanto OSs novas entram, perder algumas linhas é normal; perder 10% é falha no meio.
+FRAC_MTTA_COBERTURA_MIN = 0.90
+_frac_mtta_mem = {"mtime": 0.0, "dados": {}}
+
+
+def _frac_mtta_sweep(limite_dt=None, pausa=0.0):
+    """work_orders/ DESC por criação até passar de `limite_dt` (None = base inteira) → tarefas
+    reduzidas. Página que não volta INTERROMPE com erro: a varredura pela metade não pode virar
+    base, senão o histórico some da tela até a cheia seguinte (o _frac_disp_sweep aceita parar,
+    porque recalcula tudo a cada ciclo; aqui a base é acumulada)."""
+    linhas, vistos, start, total = [], set(), 0, None
+    limite = limite_dt.strftime("%Y-%m-%d") if limite_dt else None
+    while start < 200000:
+        d = _frac_get("work_orders/", start=start, limit=200)
+        if d is None:
+            raise RuntimeError(f"Fracttal não respondeu na página start={start}")
+        if total is None and isinstance(d, dict):
+            total = d.get("total")
+        rows = (d.get("data") if isinstance(d, dict) else d) or []
+        if not rows:
+            break
+        ultima = ""
+        for w in rows:
+            ultima = str(w.get("creation_date") or "")[:10]
+            k = w.get("id_work_orders_tasks") or (w.get("wo_folio"), w.get("id_task"), w.get("code"))
+            if k in vistos:
+                continue
+            vistos.add(k)
+            linhas.append(_mtta_mod.reduzir(w))
+        start += len(rows)
+        if limite and ultima and ultima < limite:
+            break
+        if pausa:
+            time.sleep(pausa)
+    if limite is None and total and len(linhas) < FRAC_MTTA_COBERTURA_MIN * total:
+        raise RuntimeError(f"varredura cheia incompleta: {len(linhas)} de {total} tarefas")
+    return linhas
+
+
+def _frac_mtta_gravar(caminho, dados):
+    tmp = caminho + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(dados, f, ensure_ascii=False, separators=(",", ":"))
+    os.replace(tmp, caminho)
+
+
+def _frac_mtta_recalcular():
+    """WORKER: atualiza a base (cheia ou só a janela recente) e publica o pacote da tela."""
+    if not FRACTTAL_ON:
+        return
+    try:
+        with open(_FRAC_MTTA_BASE, encoding="utf-8") as f:
+            base = json.load(f)
+    except (OSError, ValueError):
+        base = {}
+    agora = datetime.now(timezone.utc)
+    linhas = base.get("linhas") or []
+    cheia = not linhas or (time.time() - float(base.get("cheia_ts") or 0)) > FRAC_MTTA_CHEIA_H * 3600
+    t0 = time.time()
+    if cheia:
+        # ~350 páginas: com pausa, para não disputar o teto de 200 req/min com a Disponibilidade
+        linhas = _frac_mtta_sweep(None, pausa=0.3)
+        base = {"cheia_ts": time.time(), "linhas": linhas}
+    else:
+        desde = (agora - timedelta(days=FRAC_MTTA_JANELA_D)).replace(hour=0, minute=0, second=0, microsecond=0)
+        novas = _frac_mtta_sweep(desde)
+        base["linhas"] = linhas = _mtta_mod.fundir(linhas, novas, desde.isoformat())
+    _frac_mtta_gravar(_FRAC_MTTA_BASE, base)
+    pacote = _mtta_mod.payload(linhas, varrido_em=agora.astimezone(_mtta_mod.BRT).strftime("%Y-%m-%d %H:%M"))
+    _frac_mtta_gravar(_FRAC_MTTA_FILE, pacote)
+    print(f"[mtta] índice publicado ({'cheia' if cheia else 'janela recente'}): {len(linhas)} tarefas, "
+          f"{len(pacote['os'])} OSs em {time.time() - t0:.0f}s")
+
+
+def _frac_mtta_dados():
+    """WEB: lê o pacote publicado pelo worker (relê só quando o mtime muda). Nunca varre."""
+    try:
+        mt = os.path.getmtime(_FRAC_MTTA_FILE)
+    except OSError:
+        return {}
+    if mt > _frac_mtta_mem["mtime"]:
+        try:
+            with open(_FRAC_MTTA_FILE, encoding="utf-8") as f:
+                _frac_mtta_mem["dados"] = json.load(f)
+            _frac_mtta_mem["mtime"] = mt
+        except Exception as e:
+            print(f"[mtta] leitura do índice falhou: {e}")
+    return _frac_mtta_mem["dados"] or {}
+
+
+def _frac_mtta_loop():
+    """Boot + a cada 30 min, no worker. Erro de um ciclo mantém o índice anterior."""
+    while True:
+        try:
+            _frac_mtta_recalcular()
+        except Exception as e:
+            print(f"[mtta] ciclo falhou (índice anterior mantido): {e}")
+        time.sleep(FRAC_MTTA_TTL)
+
+
+@app.route("/cos")
+def cos_acompanhamento():
+    # Card "Acompanhamento COS" da Entrada. /cos é caminho novo no servidor: o Caddy tem rota
+    # própria para alguns caminhos (ver a nota da rota /monitor) — foi sondado antes de publicar.
+    return render_template("cos.html")
+
+
+@app.route("/api/cos/mtta")
+def api_cos_mtta():
+    """Pacote do Acompanhamento COS (as contas da tela rodam no navegador, sobre estas linhas).
+    Frio (worker ainda na 1ª varredura) → quente:false, sem calcular nada aqui."""
+    d = _frac_mtta_dados()
+    if not d.get("os"):
+        return jsonify({"quente": False})
+    return jsonify({"quente": True, **d})
 
 
 @app.route("/api/fracttal/inversor")

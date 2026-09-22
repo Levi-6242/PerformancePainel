@@ -49,12 +49,57 @@
   /* 12/09/2026: quatro colunas — as tres leituras e a ACAO que sai delas (Criar OS, o OS Creator dentro da plataforma). */
   .altitudes{max-width:1480px;margin:0 auto;padding:44px 28px 40px;display:grid;grid-template-columns:repeat(4,1fr);gap:22px;align-items:stretch}
   @media (max-width:1240px) and (min-width:981px){.altitudes{grid-template-columns:repeat(2,1fr)}}
+  /* 22/09/2026: quinto card (Acompanhamento COS) num TRILHO. Com a tela larga ficam 4 à vista e a seta lateral
+     desliza os cards para a esquerda (pedido do Levi). O card que sai esmaece em vez de ser cortado: cortar na
+     borda comeria a sombra e o "levantar" do hover. Abaixo de 1241 px volta a grade, com os 5 à vista — o
+     trilho vira display:contents e as colunas caem direto na grade de antes. */
+  .faixa{overflow-x:clip}
+  .trilho{display:contents}
+  .seta,.pontos{display:none}
+  @media (min-width:1241px){
+    /* A seta precisa de ~72 px entre o card e a borda da janela. Na tela larga essa folga já existe na margem
+       da página e os cards mantêm a largura de antes; só na estreita o trilho cede o espaço. */
+    .altitudes{display:block;position:relative;--pad:max(28px, calc(72px - max(0px, (100vw - 1480px) / 2)));
+               padding-left:var(--pad);padding-right:var(--pad)}
+    .trilho{display:flex;gap:22px;align-items:stretch;transition:transform .75s cubic-bezier(.2,.7,.2,1)}
+    .trilho>.col{flex:0 0 calc((100% - 66px) / 4);min-width:0;transition:opacity .5s ease,visibility .5s}
+    .trilho>.col.fora-vista{opacity:0;visibility:hidden;pointer-events:none}
+    .seta{display:grid;place-items:center;position:absolute;top:calc(50% - 10px);transform:translateY(-50%);width:46px;height:46px;
+          border-radius:50%;border:1px solid var(--divider);background:linear-gradient(180deg,var(--surface-2),var(--surface));
+          color:var(--n300);cursor:pointer;z-index:6;box-shadow:0 14px 34px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.05);
+          transition:border-color .25s,color .25s,transform .25s,box-shadow .25s}
+    .seta svg{width:20px;height:20px}
+    .seta:hover,.seta:focus-visible{border-color:rgba(163,217,0,.55);color:var(--accent);outline:none;
+          box-shadow:0 18px 40px rgba(0,0,0,.55),0 0 0 4px rgba(163,217,0,.10)}
+    .seta.s-prox{right:calc(var(--pad) - 59px)}.seta.s-ant{left:calc(var(--pad) - 59px)}   /* centro a 36 px da borda do card */
+    .seta.s-prox:hover{transform:translateY(-50%) translateX(2px)}.seta.s-ant:hover{transform:translateY(-50%) translateX(-2px)}
+    .seta.s-prox.novo{border-color:rgba(163,217,0,.45);color:var(--accent)}
+    .seta[hidden]{display:none}
+    .pontos{display:flex;justify-content:center;gap:8px;margin-top:26px}
+    .pontos button{width:8px;height:8px;padding:0;border:0;border-radius:999px;background:var(--n500);opacity:.45;cursor:pointer;
+          transition:width .35s cubic-bezier(.2,.7,.2,1),opacity .35s,background .35s}
+    .pontos button.on{width:26px;background:var(--accent);opacity:1}
+    .pontos button:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  }
+  /* instrumento 5: a dispersão do tempo de reação, operador a operador (é a tela do COS em miniatura) */
+  .m5 .ponto{fill:var(--n500);opacity:.55}
+  .m5 .faixa-iqr{fill:rgba(163,217,0,.16);stroke:var(--accent);stroke-opacity:.6;stroke-width:1;transform-box:fill-box;transform-origin:center;
+          transition:transform .7s cubic-bezier(.2,.7,.2,1)}
+  .m5 .med{stroke:var(--accent);stroke-width:2.6;stroke-linecap:round;transition:transform .7s cubic-bezier(.2,.7,.2,1)}
+  .m5 .lim{stroke:#f2555a;stroke-width:1;opacity:.55}
+  .card:hover .m5 .faixa-iqr,.card:focus-within .m5 .faixa-iqr{animation:abreIqr .8s cubic-bezier(.2,.7,.2,1) both}
+  .card:hover .m5 .med,.card:focus-within .m5 .med{animation:chegaMed .8s cubic-bezier(.2,.7,.2,1) both}
+  .m5 g:nth-of-type(2) .faixa-iqr,.m5 g:nth-of-type(2) .med{animation-delay:.08s}
+  .m5 g:nth-of-type(3) .faixa-iqr,.m5 g:nth-of-type(3) .med{animation-delay:.16s}
+  @keyframes abreIqr{from{transform:scaleX(.25);opacity:.4}to{transform:scaleX(1);opacity:1}}
+  @keyframes chegaMed{from{transform:translateX(-26px);opacity:0}to{transform:translateX(0);opacity:1}}
   /* Abertura: a escadinha (o segundo no chao, o mes no alto) e o primeiro quadro; os cards sobem e param
      paralelos. Pedido do Levi (05/09): "de escadinha para paralelo sempre que atualizar". */
   .col:nth-child(1) .entra{--degrau:72px;animation-delay:.05s}
   .col:nth-child(2) .entra{--degrau:36px;animation-delay:.15s}
   .col:nth-child(3) .entra{--degrau:0px;animation-delay:.25s}
   .col:nth-child(4) .entra{--degrau:0px;animation-delay:.35s}
+  .col:nth-child(5) .entra{--degrau:0px;animation-delay:.45s}
   .entra{height:100%;opacity:0;transform:translateY(calc(var(--degrau) + 16px));animation:escada 1.9s cubic-bezier(.2,.7,.2,1) forwards}
   @keyframes escada{
     0%  {opacity:0;transform:translateY(calc(var(--degrau) + 16px))}
@@ -67,6 +112,7 @@
   .col:nth-child(2) .flutua{animation-delay:-3.6s}
   .col:nth-child(3) .flutua{animation-delay:-5.9s}
   .col:nth-child(4) .flutua{animation-delay:-2.3s}
+  .col:nth-child(5) .flutua{animation-delay:-4.7s}
   @keyframes flutua{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
 
   .card{position:relative;height:100%;display:flex;flex-direction:column;gap:14px;padding:24px 24px 22px;border-radius:14px;cursor:pointer;
@@ -265,7 +311,8 @@
   @media (prefers-reduced-motion:reduce){
     .entra{animation:none;opacity:1;transform:none}
     .flutua,.vivo .pt{animation:none}
-    .card,.m1 .painel,.m1 .sol,.m3 .barra{transition:none}
+    .card,.m1 .painel,.m1 .sol,.m3 .barra,.trilho,.trilho>.col,.m5 .faixa-iqr,.m5 .med{transition:none}
+    .card:hover .m5 .faixa-iqr,.card:hover .m5 .med{animation:none}
     .card:hover .m2 .cursor,.card:hover .m3 .barra{animation:none}
   }
 </style>
@@ -279,10 +326,14 @@
 
 <section class="abre n1">
   <h1>Por onde você entra hoje?</h1>
-  <p>Três leituras da mesma usina: <b>o segundo</b>, <b>o dia</b> e <b>o mês</b> — e <b>a ação</b> que sai delas.</p>
+  <p>Três leituras da mesma usina: <b>o segundo</b>, <b>o dia</b> e <b>o mês</b> — <b>a ação</b> que sai delas e <b>a resposta</b> de quem opera.</p>
 </section>
 
-<main class="altitudes n1">
+<div class="faixa n1">
+<main class="altitudes" id="altitudes" aria-roledescription="carrossel" aria-label="Por onde entrar">
+  <button type="button" class="seta s-ant" id="seta-ant" aria-label="Voltar aos primeiros cards" title="Voltar" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></button>
+  <button type="button" class="seta s-prox" id="seta-prox" aria-label="Ver mais: Acompanhamento COS" title="Acompanhamento COS"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg></button>
+  <div class="trilho" id="trilho">
 
   <div class="col"><div class="entra"><div class="flutua">
     <article class="card" data-href="/tempo-real">
@@ -368,7 +419,51 @@
     </article>
   </div></div></div>
 
+  <div class="col"><div class="entra"><div class="flutua">
+    <article class="card" data-href="/cos">
+      <div class="kicker"><i></i>A resposta</div>
+      <svg class="instr m5" viewBox="0 -64 300 174" aria-hidden="true">
+        <line class="chao" x1="14" y1="92" x2="286" y2="92"/>
+        <line class="lim" x1="252" y1="-40" x2="252" y2="84"/>
+        <g>
+          <line class="fino" x1="24" y1="-18" x2="276" y2="-18"/>
+          <circle class="ponto" cx="44" cy="-22" r="2.4"/><circle class="ponto" cx="58" cy="-14" r="2.4"/><circle class="ponto" cx="71" cy="-21" r="2.4"/>
+          <circle class="ponto" cx="83" cy="-15" r="2.4"/><circle class="ponto" cx="92" cy="-23" r="2.4"/><circle class="ponto" cx="104" cy="-13" r="2.4"/>
+          <circle class="ponto" cx="113" cy="-20" r="2.4"/><circle class="ponto" cx="127" cy="-16" r="2.4"/><circle class="ponto" cx="146" cy="-22" r="2.4"/>
+          <circle class="ponto" cx="171" cy="-15" r="2.4"/>
+          <rect class="faixa-iqr" x="66" y="-23" width="58" height="10" rx="3"/>
+          <line class="med" x1="92" y1="-28" x2="92" y2="-8"/>
+        </g>
+        <g>
+          <line class="fino" x1="24" y1="22" x2="276" y2="22"/>
+          <circle class="ponto" cx="62" cy="18" r="2.4"/><circle class="ponto" cx="81" cy="26" r="2.4"/><circle class="ponto" cx="97" cy="17" r="2.4"/>
+          <circle class="ponto" cx="109" cy="25" r="2.4"/><circle class="ponto" cx="118" cy="19" r="2.4"/><circle class="ponto" cx="131" cy="27" r="2.4"/>
+          <circle class="ponto" cx="142" cy="18" r="2.4"/><circle class="ponto" cx="157" cy="24" r="2.4"/><circle class="ponto" cx="183" cy="19" r="2.4"/>
+          <circle class="ponto" cx="214" cy="26" r="2.4"/>
+          <rect class="faixa-iqr" x="94" y="17" width="72" height="10" rx="3"/>
+          <line class="med" x1="124" y1="12" x2="124" y2="32"/>
+        </g>
+        <g>
+          <line class="fino" x1="24" y1="62" x2="276" y2="62"/>
+          <circle class="ponto" cx="88" cy="58" r="2.4"/><circle class="ponto" cx="112" cy="66" r="2.4"/><circle class="ponto" cx="131" cy="57" r="2.4"/>
+          <circle class="ponto" cx="149" cy="65" r="2.4"/><circle class="ponto" cx="162" cy="59" r="2.4"/><circle class="ponto" cx="178" cy="66" r="2.4"/>
+          <circle class="ponto" cx="193" cy="58" r="2.4"/><circle class="ponto" cx="209" cy="64" r="2.4"/><circle class="ponto" cx="231" cy="59" r="2.4"/>
+          <circle class="ponto" cx="264" cy="65" r="2.4"/>
+          <rect class="faixa-iqr" x="134" y="57" width="80" height="10" rx="3"/>
+          <line class="med" x1="170" y1="52" x2="170" y2="72"/>
+        </g>
+      </svg>
+      <h2><a href="/cos">Acompanhamento COS</a></h2>
+      <p class="desc">Quanto tempo o COS leva do evento até a OS no Fracttal, operador a operador e por turno, e o que ficou fora da curva.</p>
+      <p class="quem">Para quem <b>coordena o plantão</b>.</p>
+      <div class="links"><a class="lnk prim" href="/cos">Acompanhamento COS</a><span class="lnk" style="cursor:default;color:var(--n500)">MTTA · por operador</span></div>
+    </article>
+  </div></div></div>
+
+  </div>
+  <div class="pontos" id="pontos" role="tablist" aria-label="Posição do carrossel"></div>
 </main>
+</div>
 
 <main class="tr" id="nivel-tr" hidden>
   <div class="tr-topo">
@@ -692,6 +787,50 @@
       }).catch(function () { aviso("sem resposta da plataforma · tentando de novo"); setTimeout(carrega, 8000); });
     }
     esqueleto(); carrega();
+  })();
+  // ── trilho da Entrada (22/09/2026): 5 cards, 4 à vista na tela larga; a seta lateral desliza para a
+  //    esquerda e abre espaço para o Acompanhamento COS. #cos no endereço já abre com ele à vista.
+  //    O passo é calc(100% + gap)/4 — sem medir nada, então redimensionar a janela não desalinha.
+  (function () {
+    var trilho = document.getElementById("trilho"); if (!trilho) return;
+    var cols = Array.prototype.slice.call(trilho.children);
+    var esq = document.getElementById("seta-ant"), dir = document.getElementById("seta-prox"), pts = document.getElementById("pontos");
+    var larga = window.matchMedia("(min-width:1241px)"), VIS = 4, GAP = 22;
+    var pos = location.hash === "#cos" ? cols.length - VIS : 0;
+    function ultima() { return Math.max(0, cols.length - VIS); }
+    function aplica() {
+      var ativo = larga.matches;
+      pos = ativo ? Math.min(Math.max(pos, 0), ultima()) : 0;
+      trilho.style.transform = ativo && pos ? "translateX(calc(" + (-pos) + " * (100% + " + GAP + "px) / " + VIS + "))" : "";
+      cols.forEach(function (c, i) {
+        var fora = ativo && (i < pos || i >= pos + VIS);
+        c.classList.toggle("fora-vista", fora);
+        c.inert = fora;                                   // card escondido não recebe foco nem clique
+        c.setAttribute("aria-hidden", fora ? "true" : "false");
+      });
+      esq.hidden = !ativo || pos === 0;
+      dir.hidden = !ativo || pos >= ultima();
+      pts.querySelectorAll("button").forEach(function (b, i) { b.classList.toggle("on", i === pos); b.setAttribute("aria-selected", i === pos ? "true" : "false"); });
+    }
+    for (var i = 0; i <= ultima(); i++) {
+      var b = document.createElement("button");
+      b.type = "button"; b.setAttribute("role", "tab");
+      b.setAttribute("aria-label", i === ultima() ? "Mostrar o Acompanhamento COS" : "Mostrar os primeiros cards");
+      b.addEventListener("click", (function (k) { return function () { pos = k; aplica(); }; })(i));
+      pts.appendChild(b);
+    }
+    // a seta da direita chama a atenção até o primeiro uso: o card é novo e mora fora da vista
+    try { if (!localStorage.getItem("gc_entrada_cos_visto")) dir.classList.add("novo"); } catch (e) { }
+    function visto() { dir.classList.remove("novo"); try { localStorage.setItem("gc_entrada_cos_visto", "1"); } catch (e) { } }
+    dir.addEventListener("click", function () { pos += 1; visto(); aplica(); });
+    esq.addEventListener("click", function () { pos -= 1; aplica(); });
+    document.getElementById("altitudes").addEventListener("keydown", function (ev) {
+      if (!larga.matches || ev.target.closest("a,input,textarea")) return;
+      if (ev.key === "ArrowRight" && pos < ultima()) { pos += 1; visto(); aplica(); }
+      else if (ev.key === "ArrowLeft" && pos > 0) { pos -= 1; aplica(); }
+    });
+    if (larga.addEventListener) larga.addEventListener("change", aplica); else larga.addListener(aplica);
+    aplica();
   })();
   // o card inteiro leva ao destino principal; os links de dentro seguem cada um o seu.
   // ctrl/cmd e botao do meio abrem em nova aba, como faria um link de verdade.
