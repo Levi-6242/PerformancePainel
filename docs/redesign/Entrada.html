@@ -629,7 +629,7 @@
         // não reporta, PR anômalo) ficam no subtítulo — régua de 10/09 (Levi: "alarmar apenas GHI e IPOA zerados").
         + mostr("ETM", fmt(g.etm_problema), "IPOA/GHI zerado no mês · <b>" + fmt(g.etm_com_os) + "</b> com OS" + (g.etm_atencao > 0 ? " · " + fmt(g.etm_atencao) + " em atenção" : ""),
                 g.etm_problema > 0 ? (g.etm_com_os >= g.etm_problema ? " bom" : " ruim") : (g.etm_atencao > 0 ? " aviso" : ""), "etm")
-        + (noite ? mostr("Trackers", "estacionados", "volta ao amanhecer", " mudo", "trackers") : mostr("Trackers parados", g.trk_fonte_ok ? fmt(g.trk_parados) : "—", g.trk_fonte_ok ? ("<b>" + fmt(g.trk_com_os) + "</b> com OS" + (g.trk_atrasado ? " · da leitura anterior" : "")) : "fonte não respondeu", g.trk_parados > 0 ? " aviso" : "", "trackers"))
+        + (noite ? mostr("Trackers", "estacionados", "volta ao amanhecer", " mudo", "trackers") : mostr("Trackers parados", g.trk_fonte_ok ? fmt(g.trk_parados) : "—", g.trk_fonte_ok ? ("<b>" + fmt(g.trk_com_os) + "</b> com OS" + (g.trk_atrasado ? " · da leitura " + (g.trk_lido_em ? "das " + g.trk_lido_em : "anterior") : "")) : "fonte não respondeu", g.trk_parados > 0 ? " aviso" : "", "trackers"))
         // "..." e um div (button dentro de button e invalido: o parser fecharia o de fora e a lista cairia solta na grade)
         + "<div class='m aba mais" + (maisAberto ? " aberto" : "") + "' id='us-mais' data-view='' role='button' tabindex='0' aria-haspopup='menu' title='outras abas'><div class='val'>···</div><div class='sub'>mais</div>"
         + "<div class='mais-lista' id='us-mais-lista' role='menu'" + (maisAberto ? "" : " hidden") + ">" + OUTRAS.map(function (o) { return "<button type='button' role='menuitem' data-view='" + o[0] + "'>" + o[1] + "</button>"; }).join("") + "</div></div>";
@@ -659,7 +659,7 @@
           ? "<div class='m'><div class='rot'>Trackers</div><div class='val mudo'>sem leitura</div><div class='sub'>fonte não respondeu</div></div>"
           : noite
             ? "<div class='m'><div class='rot'>Trackers</div><div class='val mudo'>estacionados</div><div class='sub'>volta ao amanhecer</div></div>"
-            : "<div class='m'><div class='rot'>Trackers parados</div><div class='val" + cls(g.trk_parados, false) + "'>" + fmt(g.trk_parados) + "</div><div class='sub'><b>" + fmt(g.trk_com_os) + "</b> com OS" + (g.trk_atrasado ? "<br>da leitura anterior" : "") + "</div></div>";
+            : "<div class='m'><div class='rot'>Trackers parados</div><div class='val" + cls(g.trk_parados, false) + "'>" + fmt(g.trk_parados) + "</div><div class='sub'><b>" + fmt(g.trk_com_os) + "</b> com OS" + (g.trk_atrasado ? "<br>da leitura " + (g.trk_lido_em ? "das " + g.trk_lido_em : "anterior") : "") + "</div></div>";
         var comm = g.sem_leitura ? "<span class='mudo'>sem leitura de nenhuma usina</span>" : (g.usinas_sem_comm > 0 ? "<span class='ruim'>" + fmt(g.usinas_sem_comm) + " sem comunicação</span>" : "<span>comunicação ok</span>");
         if (g.sem_leitura) { strings = "<div class='m'><div class='rot'>Strings</div><div class='val mudo'>sem leitura</div><div class='sub'>fonte sem dado agora</div></div>"; trk = "<div class='m'><div class='rot'>Trackers</div><div class='val mudo'>sem leitura</div><div class='sub'>fonte sem dado agora</div></div>"; }
         return "<a class='g" + (g.sem_leitura ? " vazio-dado" : "") + "' href='" + alvo + "' style='animation-delay:" + (i * 45) + "ms'>"

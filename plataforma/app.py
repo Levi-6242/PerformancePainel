@@ -3114,6 +3114,62 @@ _ENTRADA_TR_MIN_FORCA_S = 60   # dois cliques em Atualizar em menos de 1 min = u
 _ENTRADA_TR_TTL_PENDENTE = 300 # alguma fonte de trackers estourou o prazo (cache frio pos-restart): tenta de novo em 5 min,
                                # nao em 30 — a thread que estourou segue aquecendo o cache e a proxima construcao a aproveita
 _ENTRADA_TRK_PRAZO_S = 30      # prazo por fonte de trackers parados; quem estoura vira "fonte nao respondeu" no card
+# A ULTIMA LEITURA BOA de cada fonte, em disco (22/09/2026). O reaproveitamento de quem estoura o prazo
+# usava a montagem anterior da MEMORIA — e o servidor reinicia a cada push (deploy automatico). Na primeira
+# montagem depois do restart nao havia anterior e o card ficava "fonte nao respondeu" por 5 a 10 min, ate a
+# fonte esquentar (medido: 15:23 Athon/API PV/Thopen pendentes; 15:29 Athon 93, API PV 250). Teto de 3 h:
+# contagem mais velha que isso nao e reaproveitada — ai o traco volta a ser o honesto.
+_ENTRADA_TRK_ULTIMO = os.path.join(_AQUI, "entrada_trk_ultimo.json")
+_ENTRADA_TRK_ULTIMO_MAX_S = 3 * 3600
+
+
+def _entrada_trk_ultimo_ler() -> dict:
+    try:
+        with open(_ENTRADA_TRK_ULTIMO, encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}                                    # sem arquivo ou corrompido: a montagem segue sem ele
+
+
+def _entrada_trk_ultimo_gravar(grupos) -> None:
+    """Guarda as contagens FRESCAS desta montagem, mantendo as das fontes que estouraram. Contagem
+    reaproveitada (`trk_atrasado`) nao entra: renovaria o horario de uma leitura velha a cada montagem e
+    ela nunca passaria do teto — o card mostraria para sempre um numero antigo com cara de recente."""
+    d = _entrada_trk_ultimo_ler()
+    agora, mudou = time.time(), False
+    for x in grupos or []:
+        if not x.get("trk_fonte_ok") or x.get("trk_atrasado"):
+            continue
+        d[f"{x.get('cliente')}|{x.get('fonte')}"] = {
+            "ts": agora, "lido_em": x.get("trk_lido_em"),
+            "trk_parados": int(x.get("trk_parados") or 0), "trk_com_os": int(x.get("trk_com_os") or 0),
+            "usinas": {u.get("usina"): {"trk_parados": int(u.get("trk_parados") or 0),
+                                        "trk_com_os": int(u.get("trk_com_os") or 0)}
+                       for u in (x.get("usinas") or []) if u.get("usina")}}
+        mudou = True
+    if not mudou:
+        return
+    tmp = _ENTRADA_TRK_ULTIMO + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(d, f, ensure_ascii=False)
+    os.replace(tmp, _ENTRADA_TRK_ULTIMO)             # atomico: leitor nunca ve arquivo pela metade
+
+
+def _entrada_trk_anterior(anterior: dict, cliente, fonte):
+    """A contagem a reaproveitar quando a fonte estoura o prazo: a da memoria se houver (e a mais nova),
+    senao a do disco — que e o que sobrevive ao restart do deploy. None = nunca houve leitura boa recente."""
+    ant = anterior.get((cliente, fonte))
+    if ant and ant.get("trk_fonte_ok"):
+        return ant
+    e = _entrada_trk_ultimo_ler().get(f"{cliente}|{fonte}")
+    if not e or (time.time() - float(e.get("ts") or 0)) > _ENTRADA_TRK_ULTIMO_MAX_S:
+        return None
+    return {"trk_fonte_ok": True, "trk_parados": int(e.get("trk_parados") or 0),
+            "trk_com_os": int(e.get("trk_com_os") or 0), "trk_lido_em": e.get("lido_em"),
+            "usinas": [{"usina": u, "trk_parados": int((v or {}).get("trk_parados") or 0),
+                        "trk_com_os": int((v or {}).get("trk_com_os") or 0)}
+                       for u, v in (e.get("usinas") or {}).items()]}
 
 
 def _entrada_tempo_real_build() -> dict:
@@ -3253,11 +3309,12 @@ def _entrada_tempo_real_build() -> dict:
             for x in grupos.values():
                 if x["fonte"] != fonte:
                     continue
-                ant = anterior.get((x["cliente"], x["fonte"]))
-                if not ant or not ant.get("trk_fonte_ok"):
-                    continue                                  # nunca houve leitura boa: aí o traço é honesto
+                ant = _entrada_trk_anterior(anterior, x["cliente"], x["fonte"])   # memória, depois disco
+                if not ant:
+                    continue                                  # nunca houve leitura boa recente: aí o traço é honesto
                 x["trk_fonte_ok"] = True
                 x["trk_atrasado"] = True
+                x["trk_lido_em"] = ant.get("trk_lido_em")     # o card diz DE QUANDO é o número
                 x["trk_parados"] = ant.get("trk_parados") or 0
                 x["trk_com_os"] = ant.get("trk_com_os") or 0
                 por_usina = {_nrm(u.get("usina") or ""): u for u in (ant.get("usinas") or [])}
@@ -3267,14 +3324,17 @@ def _entrada_tempo_real_build() -> dict:
                         uu["trk_parados"] = a.get("trk_parados") or 0
                         uu["trk_com_os"] = a.get("trk_com_os") or 0
             continue
+        _lido_hm = datetime.now().strftime("%H:%M")
         for x in grupos.values():
             if x["fonte"] == fonte:
                 x["trk_fonte_ok"] = True
+                x["trk_lido_em"] = _lido_hm
         for r in trows:
             nome_n = _nrm(_macro_usina_nome(r.get("usina") or ""))
             chave = chave_de.get(nome_n) or (r.get("cliente"), fonte)
             x = g(*chave)
             x["trk_fonte_ok"] = True
+            x.setdefault("trk_lido_em", _lido_hm)
             x["trk_parados"] += 1
             if r.get("ticket_status"):
                 x["trk_com_os"] += 1
@@ -3293,6 +3353,10 @@ def _entrada_tempo_real_build() -> dict:
         x["n_usinas"] = len(us)
         x["sem_leitura"] = not us
         saida.append(x)
+    try:
+        _entrada_trk_ultimo_gravar(saida)
+    except Exception as e:                                    # noqa: BLE001 — sem disco, segue como era
+        print(f"[ENTRADA] nao gravei a ultima leitura de trackers: {e}")
     return {"cache_ts": datetime.now().strftime("%H:%M:%S"), "grupos": saida,
             "fontes_pendentes": [f for f in fontes_trk if f not in colhido],
             "etm_fora": sorted(fora.values(), key=lambda f: (-f["n"], f["cliente"])),

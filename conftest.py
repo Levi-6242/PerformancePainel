@@ -19,6 +19,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "pla
 import app  # noqa: E402  (carga pesada única; roda as cargas do BD_Performance local)
 
 
+@pytest.fixture(autouse=True)
+def _estado_de_runtime_isolado(tmp_path, monkeypatch):
+    """Nenhum teste grava estado de runtime DE VERDADE em plataforma/ (22/09/2026).
+
+    A montagem do tempo real passou a guardar a última contagem boa de trackers em
+    `plataforma/entrada_trk_ultimo.json`, para sobreviver ao restart do deploy. Na primeira rodada, os
+    testes da montagem — com fontes SIMULADAS — gravaram zeros falsos no arquivo real, e o teste seguinte,
+    que espera "sem leitura anterior", achou o arquivo e reaproveitou a contagem. Além de vazar estado
+    entre testes, sujava a plataforma local com dado inventado. Cada teste agora tem o seu arquivo."""
+    monkeypatch.setattr(app, "_ENTRADA_TRK_ULTIMO", str(tmp_path / "entrada_trk_ultimo.json"), raising=False)
+
+
 @pytest.fixture
 def freeze_now(monkeypatch):
     """Congela app.datetime.now() num instante fixo, sem mexer no resto da classe.
