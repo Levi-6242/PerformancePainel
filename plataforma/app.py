@@ -5130,6 +5130,7 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
         "temp_media": None, "ultima_leitura": None,
         "sem_dados": True, "falha_comunicacao": False,
         "energia_dia": None, "potencia_atual": None,
+        "inv_desligados": 0, "strings_fora": 0, "inv_desligados_nomes": [],
     }
     meta = _si(inst)["meta"].get(plant_name)
     if not meta:
@@ -5193,6 +5194,7 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
     total_str   = 0
     total_ativas = 0
     qtd_inv_com_dados = 0
+    por_inv     = []     # (inversor, strings ativas, potência ativa kW) — p/ a régua de desligado
 
     for inv_name, str_paths in meta["inv_strings"].items():
         correntes, ids = [], []
@@ -5214,6 +5216,9 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
         ativas = _str_ativas(_classifica_strings(plant_name, inv_name, ids, correntes))
         total_str   += len(correntes)
         total_ativas += ativas
+        _p_path = meta["inv_other"].get(inv_name, {}).get("P")
+        _p_val = by_path[_p_path].get("value") if (_p_path and _p_path in by_path) else None
+        por_inv.append((inv_name, ativas, _p_val if isinstance(_p_val, (int, float)) else None))
 
         # Temperatura do inversor
         temp_path = meta["inv_other"].get(inv_name, {}).get("TEMP_INT")
@@ -5228,8 +5233,17 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
     # Esperados: vêm do BD_Performance/Equipamentos (ESPERADO_INV), mesma fonte da API PV.
     # Soma apenas os inversores presentes na metadata (respeita limites como MTS100 > INV_40).
     esp_inv  = ESPERADO_INV.get(plant_name, {})
-    esp_vals = [esp_inv[inv] for inv in meta["inv_strings"] if inv in esp_inv]
+    # Inversor DESLIGADO (potência ~0 com sol e a usina gerando) sai da conta — ativas E esperadas (Levi,
+    # 22/09/2026). Desligado é falha de INVERSOR, que tem alarme próprio; contado como string faltando,
+    # inflava o déficit de strings. Ele não some: a linha leva inv_desligados/strings_fora e a tela avisa.
+    _off = _inv_desligados_por_potencia([pw for _i, _a, pw in por_inv],
+                                        _macro_eh_dia({"usina": USINA_DISPLAY.get(plant_name, plant_name)}))
+    desligados = [inv for (inv, _a, _pw), o in zip(por_inv, _off) if o]
+    if desligados:
+        total_ativas = sum(a for (_inv, a, _pw), o in zip(por_inv, _off) if not o)
+    esp_vals = [esp_inv[inv] for inv in meta["inv_strings"] if inv in esp_inv and inv not in desligados]
     str_esp  = sum(esp_vals) if esp_vals else None
+    strings_fora = sum(esp_inv.get(inv, 0) for inv in desligados)
     inv_esp  = len(meta["inv_strings"])
     diferenca = (total_ativas - str_esp) if str_esp is not None else None
 
@@ -5275,6 +5289,8 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
         "str_esp": str_esp,
         "diferenca": diferenca,
         "pot_med": pot_med, "inv_off": inv_off,
+        "inv_desligados": len(desligados), "strings_fora": strings_fora,
+        "inv_desligados_nomes": [_sunop_inv_display(plant_name, inv) for inv in desligados],
         "temp_media": round(sum(temps) / len(temps), 1) if temps else None,
         "ultima_leitura": ts_max or None,
         "sem_dados": False,
@@ -5432,10 +5448,23 @@ def _sunop_plant_build(plant_name, inst: str = "gridco"):
             "total_strings": len(strings),
             "str_esp": str_esp_inv,
             "diferenca": inv_diferenca,
-            "temp": temp, "eday": eday,
+            "temp": temp, "eday": eday, "active_power": _ov("P"),
             "strings": strings,
         })
 
+    # Mesma régua da linha da usina (22/09/2026): desligado de dia, com a usina gerando, sai da conta.
+    # Continua listado — marcado, com as strings em "desligado" e sem diferença.
+    _pw = [iv["active_power"] if isinstance(iv["active_power"], (int, float)) else None for iv in inversores]
+    _off = _inv_desligados_por_potencia(_pw, _macro_eh_dia({"usina": USINA_DISPLAY.get(plant_name, plant_name)}))
+    for iv, o in zip(inversores, _off):
+        iv["fora_da_conta"] = bool(o)
+        if o:
+            iv["desligado"] = True
+            iv["diferenca"] = None
+            for s_ in iv["strings"]:
+                if s_["status"] != "trancada":
+                    s_["status"] = "desligado"
+                    s_["ativa"] = False
     return inversores
 
 
@@ -11605,6 +11634,26 @@ def api_inv_padrao_usina(pid):
     return jsonify({"plant_id": pid, "usina": nome_usina(pid, nome), "nome_api": nome, "na_regua": pid in INV_PADRAO_PLANTAS,
                     "dia": d1.get("dia"), "status": d1.get("status"), "n_dias_base": d1.get("n_dias_base"),
                     "tipico_kwh": d1.get("tipico_kwh"), "inversores": invs, "ts": _inv_padrao_cache.get("ts")})
+
+
+def _inv_desligados_por_potencia(powers, com_sol: bool) -> list:
+    """Quais inversores estão DESLIGADOS de verdade — e por isso saem das strings esperadas (22/09/2026).
+
+    Pedido do Levi: inversor desligado não conta nas esperadas da linha da usina. O sinal é a POTÊNCIA
+    ATIVA, não o estado de operação: o `Workstate` da SunOp tem dicionário de UM modelo só — nas outras
+    oito usinas da Athon o inversor gerando normal manda o código que o dicionário chama de "Falha na
+    ventilação" (217 de 329 em 22/09, gerando 18 kW em média).
+
+    A mesma régua do `_macro_prod` (abaixo de max(piso, 5% da mediana dos vizinhos)), com três portões:
+    SEM SOL ninguém é desligado (é a noite); USINA INTEIRA A ZERO também não (usina parada é outra
+    ocorrência — tirar tudo da conta esconderia a usina morta atrás de "0 strings faltando"); e SEM
+    LEITURA de potência não é desligado, é sem comunicação."""
+    if not com_sol:
+        return [False] * len(powers)
+    prod, _med, _n = _macro_prod(powers)
+    if not any(x is True for x in prod):
+        return [False] * len(powers)
+    return [x is False for x in prod]
 
 
 def _macro_prod(powers):
