@@ -1049,6 +1049,22 @@ function _nrmU(u){ return String(u||'').split('·')[0].toLowerCase().normalize('
 // Extraida do .map() dos cards em 21/09 para virar testavel (mesmo padrao de _gerAgrega). A regra:
 // vermelho SO com IPOA/GHI medidos em zero HOJE. O mes (BD_Performance) vem junto no retorno como
 // `alMes`, mas so alimenta a linha cinza "Mes (BD)" e a etiqueta do rodape — nunca a cor nem o pulso.
+/* RESTAURADAS em 22/09/2026. Saíram por engano no commit 2c75fb8, quando a linha do "mês BD" deixou
+   o card: moravam coladas no _etmProbMes e no _etmMesCurto (esses dois saíram com razão) e o bloco
+   foi inteiro. As chamadas ficaram, e a aba ETM travou em "Coletando dados…" em TODAS as fontes
+   (ReferenceError). tests/test_telas_sem_funcao_fantasma.py trava a classe do erro. */
+/* Pico 9–15h por sensor a partir do spark — só para snapshot ANTERIOR a 10/09, que ainda não traz `sensores`. */
+function _etmSensFallback(sp){ const lb=(sp&&sp.labels)||[], h=new Date().getHours();
+  const res=arr=>{ const v=(arr||[]).filter((x,i)=>x!=null&&(!lb[i]||(_hm(lb[i])>=540&&_hm(lb[i])<900))); if(!v.length) return {pico:null,status:'sem_leitura'};
+    const p=Math.max(...v); return {pico:Math.round(p*10)/10,status:(h>=10&&p<20)?'zerado':'ok'}; };
+  return {poa:res(sp&&sp.poa),ghi:res(sp&&sp.ghi),poari:res(sp&&sp.poari)}; }
+/* Um bloco de sensor do card: rótulo + ponto + valor. Vermelho só quando MEDIU zero; POA-RI zerado é azul (aviso);
+   sem leitura = cinza (sensor que a estação não tem, ou mudo hoje). */
+function _etmSensTile(rot,s,avisoSo){ s=s||{pico:null,status:'sem_leitura'};
+  const nf=v=>Number(v).toLocaleString('pt-BR',{maximumFractionDigits:0});
+  if(s.status==='sem_leitura') return `<div class="gc-etm-sn x"><div class="k"><i></i>${rot}</div><div class="n">—<small>sem leitura</small></div></div>`;
+  if(s.status==='zerado') return `<div class="gc-etm-sn ${avisoSo?'b':'r'}"><div class="k"><i class="${avisoSo?'b':'r'}"></i>${rot}</div><div class="n">0<small>W/m² · ${avisoSo?'aviso':'zerado'}</small></div></div>`;
+  return `<div class="gc-etm-sn"><div class="k"><i class="g"></i>${rot}</div><div class="n">${nf(s.pico)}<small>W/m² pico</small></div></div>`; }
 function _etmEstado(r,probMes){
   const fl=r.flags||[];
   const critSens=fl.filter(f=>f.tipo==='crit'&&(f.sensor==='POA'||f.sensor==='GHI'||(!f.sensor&&/zerado/i.test(f.t||''))));
