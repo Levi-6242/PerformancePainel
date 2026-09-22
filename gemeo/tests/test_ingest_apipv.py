@@ -195,7 +195,7 @@ def test_descobrir_cria_estacao_inversores_nomeados_e_strings_e_preenche_coorden
     limpar_tudo(conn)
 
 
-def test_buscar_hoje_reaproveita_o_dia_baixado_na_descoberta_e_conta_esperadas(conn):
+def test_buscar_hoje_reaproveita_o_dia_baixado_na_descoberta(conn):
     u = _usina(conn)
     http = _http_hoje()
     ing = apipv.IngestorAPIPV(_cfg(), conn, [u], http=http)
@@ -211,7 +211,6 @@ def test_buscar_hoje_reaproveita_o_dia_baixado_na_descoberta_e_conta_esperadas(c
     assert (inv1, "p_ac", t, 250.0) in b.leituras and (est, "poa", t, 1000.0) in b.leituras and (est, "ghi", t, 900.0) in b.leituras
     assert len(b.leituras) == 2 * 2 + 5 + 5                                     # 2 inversores x (p_ac, e_dia) + 5 strings + 5 medidas da estacao
     assert sum(1 for c in http.chamadas if c[0] == "day_inverter") == 1 and b.n_requisicoes == 2     # descoberta e busca dividem a mesma baixa
-    assert b.esperadas == 60 // 5 * 2 * 2 + 60 * 5 + 5 * (60 // 15)            # inversores a 5 min, estacao a 1 min, strings a 15 min
     assert not any(c[0] == "custom_query" for c in http.chamadas)               # janela so de hoje: nada de historico
     limpar_tudo(conn)
 

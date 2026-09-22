@@ -55,6 +55,9 @@ def main():
 
 
 if __name__ == "__main__":
+    _f = app._conferir_fuso()          # o worker roda a ronda e o fechamento do dia: fuso errado
+    print(f"[worker] fuso do processo: UTC{_f['fuso_h']:+g}"                 # dispara tudo na hora errada
+          + ("" if _f["ok"] else "  <<< " + _f["msg"]), flush=True)
     if os.environ.get("GRIDCO_SOLO", "") == "1":
         print("[worker] GRIDCO_SOLO=1 está ligado: o app.py já faz tudo sozinho. "
               "Subir este worker junto duplicaria a ronda. Saindo.")

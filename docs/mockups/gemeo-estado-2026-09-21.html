@@ -1,0 +1,72 @@
+<!doctype html><html lang="pt-br"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Gemeo Digital - estado</title>
+<style>
+:root{--bg:#090d18;--panel:#161d30;--line:rgba(255,255,255,.08);--txt:#e9eef6;--mut:#94a3b8;
+--faint:#64748b;--brand:#a3d900;--blue:#5BC8E8;--amber:#F0B53D;--red:#FF5C4D}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font:15px/1.55 -apple-system,Segoe UI,Roboto,sans-serif;padding:30px 16px 70px}
+.w{max-width:1140px;margin:0 auto}
+h1{font-size:28px;margin:0 0 4px;letter-spacing:-.025em}
+.lead{color:var(--mut);font-size:14px;margin:0 0 24px;max-width:78ch}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:11px;margin-bottom:26px}
+.k{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 14px}
+.k .r{font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);font-weight:700}
+.k .v{font-size:24px;font-weight:700;letter-spacing:-.025em;margin-top:3px;font-variant-numeric:tabular-nums}
+.k .d{font-size:11px;color:var(--mut);margin-top:2px;line-height:1.35}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:16px 18px 6px;margin-bottom:14px}
+.cab{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+.cab h2{font-size:15px;margin:0;flex:1}
+.pin{width:9px;height:9px;border-radius:50%;flex:none}
+.cont{font-size:11px;font-weight:700;color:var(--faint);background:rgba(255,255,255,.05);
+  padding:2px 8px;border-radius:20px}
+.pronto .pin{background:var(--brand)} .meio .pin{background:var(--amber)} .falta .pin{background:var(--red)}
+ul{list-style:none;margin:0;padding:0}
+li{padding:9px 0;border-top:1px solid var(--line)}
+li:first-child{border-top:0;padding-top:2px}
+li b{font-size:13.5px;font-weight:650}
+.ev{font-size:11px;font-weight:700;color:var(--blue);background:rgba(91,200,232,.1);
+  padding:1px 8px;border-radius:5px;margin-left:7px;white-space:nowrap}
+.por{font-size:12.5px;color:var(--mut);margin-top:3px;max-width:92ch}
+.duas{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+.destaque{background:linear-gradient(180deg,rgba(255,92,77,.07),transparent 60%);
+  border-color:rgba(255,92,77,.28)}
+.nota{font-size:12.5px;color:var(--faint);margin:20px 0 0;border-top:1px solid var(--line);padding-top:14px}
+h3.sec{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
+  margin:26px 0 10px;font-weight:700}
+ol.prio{counter-reset:p;list-style:none;padding:0;margin:0}
+ol.prio li{display:flex;gap:12px;padding:11px 0;border-top:1px solid var(--line)}
+ol.prio li:first-child{border-top:0}
+ol.prio li::before{counter-increment:p;content:counter(p);flex:none;width:22px;height:22px;border-radius:50%;
+  background:rgba(255,255,255,.06);color:var(--txt);font-size:11px;font-weight:700;display:grid;place-items:center}
+@media(max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}.duas{grid-template-columns:1fr}}
+</style></head><body><div class="w">
+<h1>G&ecirc;meo Digital &mdash; onde est&aacute;, e o que falta</h1>
+<p class="lead">Levantamento de 21/09/2026 com os n&uacute;meros lidos do banco do pr&oacute;prio g&ecirc;meo, n&atilde;o estimados.
+Janela do acervo: 31/08 a 21/09 (21 dias).</p>
+
+<div class="kpis"><div class="k"><div class="r">Usinas com g&ecirc;meo</div><div class="v">25<span style='font-size:14px;color:var(--faint)'>/105</span></div><div class="d">do portf&oacute;lio ao vivo da plataforma</div></div><div class="k"><div class="r">Leituras no acervo</div><div class="v">21,9<span style='font-size:14px;color:var(--faint)'> M</span></div><div class="d">21 dias &middot; 2,2 GB</div></div><div class="k"><div class="r">Cascatas calculadas</div><div class="v">384</div><div class="d">dias-usina em 23 usinas</div></div><div class="k"><div class="r">Assinaturas detectadas</div><div class="v">4.139</div><div class="d">com janela, custo e severidade</div></div><div class="k"><div class="r">Modelos calibrados</div><div class="v" style="color:var(--red)">0<span style='font-size:14px;color:var(--faint)'>/28</span></div><div class="d">todos no modelo de placa</div></div></div>
+
+<div class="card pronto"><div class="cab"><span class="pin"></span><h2>Funciona e est&aacute; em uso</h2><span class="cont">8</span></div><ul><li><b>Ingestão contínua de 4 fontes</b> <span class="ev">21,9 milhões de leituras</span><div class="por">PG (18 usinas), SunOp (4), API PV da conta oem@ (3) e os trackers da 2C. Roda a cada 15 min, guarda em vez de re-perguntar — é o que permitiu servir a curva da SunOp sem estourar a cota.</div></li><li><b>Cascata de perdas diária</b> <span class="ev">384 dias-usina, 23 usinas</span><div class="por">Do esperado físico ao medido, descontando inversor parado, tracker fora do alvo, string sem corrente e clipping. O que sobra é resíduo, e ele é declarado como tal em vez de ser diluído.</div></li><li><b>Detecção de assinaturas</b> <span class="ev">4.139 eventos</span><div class="por">Tracker fora do alvo (2.728), inversor parado (637), tracker sem comunicação (243), travado (234), string sem corrente (182), sensor congelado (28). Cada um com janela, custo em kWh e severidade.</div></li><li><b>Ações propostas com o motivo</b> <span class="ev">no gêmeo e no painel</span><div class="por">O gêmeo deixou de só apontar e passou a dizer o que fazer e por quê — ordenado pelo que custa mais, com sensor comprometido no topo. Desde 21/09 aparece também no Diagnóstico do painel.</div></li><li><b>EPI e as checagens da IEC 61724-1</b> <span class="ev">§14.4 e §12.2.1</span><div class="por">A razão medido/esperado virou EPI, o nome da norma. Três checagens de qualidade entraram: limites físicos, taxa de variação impossível e carimbos duplicados/lacunas.</div></li><li><b>Curva das strings por inversor</b> <span class="ev">hoje, 21/09</span><div class="por">Clicar numa string da lista de perdas abre as 28 irmãs do mesmo inversor, com a clicada em destaque e a mediana tracejada — porque a pergunta é se ela caiu SOZINHA.</div></li><li><b>Serve a plataforma (Fase 4)</b> <span class="ev">corta a cota da SunOp</span><div class="por">A plataforma passa a ler a curva do acervo do gêmeo em vez de rebaixar da SunOp a cada ciclo. A cota estava em 162.892 requisições contra 100.000/mês.</div></li><li><b>Desempenho do banco</b> <span class="ev">healthz 56 s → 0,1 s</span><div class="por">ANALYZE diário e a consulta de última leitura fixando equipamento E medida: 54× menos trabalho na VM do SQLite. A frota saiu de 50 s para 2 s.</div></li></ul></div>
+
+<div class="duas"><div class="card meio"><div class="cab"><span class="pin"></span><h2>Pela metade</h2><span class="cont">4</span></div><ul><li><b>Cobertura do portfólio</b> <span class="ev">25 de 105 usinas</span><div class="por">Um quarto da frota que a plataforma acompanha. As 80 restantes não têm gêmeo — nem esperado, nem cascata, nem ação proposta.</div></li><li><b>Trackers da 2C na Tupi</b> <span class="ev">de-para por suposição</span><div class="por">Araputanga e Sete Lagoas são inequívocas. Na Tupi a ordem entre os 3 grupos de nomes foi uma decisão sua, não uma medição: tentei provar pelas curvas e em dia normal elas são indistinguíveis. Há uma função pronta que fecha a conta no primeiro dia com tracker parado.</div></li><li><b>Ações propostas no período</b> <span class="ev">só na visão do dia</span><div class="por">Abrir 7 ou 30 dias não traz ações. Não é esquecimento: ação de período precisa de outra régua (o que persistiu, o que voltou sozinho), e inventá-la sem pensar produziria lista repetida.</div></li><li><b>Satélite como referência</b> <span class="ev">medido, não ligado</span><div class="por">GOES contra o piranômetro de Sete Lagoas: 6,2% de erro no dia. Serve para acusar sensor sujo lendo baixo — que é o buraco atual. Falta virar régua dentro do gêmeo.</div></li></ul></div><div class="card falta destaque"><div class="cab"><span class="pin"></span><h2>Falta &mdash; e por qu&ecirc;</h2><span class="cont">5</span></div><ul><li><b>Calibração: 0 de 25 usinas</b> <span class="ev">e o motivo NÃO é histórico</span><div class="por">Corrigido em 21/09 depois de rodar a calibração nas 25: a primeira versão desta página dizia que faltava histórico. Falta, mas só para 4 usinas. Nas outras 21 a calibração nem chega a medir. Três bloqueios distintos: (1) 18 usinas — TODAS as do PG — têm kwp=0 por inversor, então o esperado por inversor dá zero e a razão medido/esperado vira infinito; é cadastro, e nenhum tempo resolve. A cascata delas funciona porque usa o kWp da USINA, que está preenchido — por isso passou despercebido. (2) 3 usinas com kWp (CPP100, MAB100, MRO100) param em 'sem dias limpos'. (3) as 4 que mediram deram desvio de 1,8% a 3,7% com 3 a 11 dias: essas sim só precisam de tempo, e o modelo está na faixa certa.</div></li><li><b>O rótulo de saúde da ingestão não serve</b> <span class="ev">480 de 480 execuções do PG dizem 'parcial'</span><div class="por">A cobertura assume leitura a cada 5 min para toda série, inclusive de madrugada e em string que não reporta. Resultado: fonte perfeitamente saudável fica permanentemente 'parcial', e ninguém consegue distinguir degradação real do normal. O rótulo existe e mente.</div></li><li><b>Retenção de 90 dias</b> <span class="ev">sem ano contra ano</span><div class="por">O banco já tem 2,2 GB com 21 dias. Comparar setembro com setembro, medir degradação ou sazonalidade não é possível — e é o que uma O&M pergunta no fim do ano.</div></li><li><b>O gêmeo não vai no pacote do deploy</b> <span class="ev">migração à parte</span><div class="por">O oem-app.zip leva a plataforma. O gêmeo é processo próprio, com banco de 2,2 GB e segredos em pasta fora do repositório. Para segunda, isso é passo separado e ainda não roteirizado.</div></li><li><b>Propor não é executar — de propósito</b> <span class="ev">decisão, não pendência</span><div class="por">O gêmeo sugere a OS; quem abre é uma pessoa. Está travado por teste. Registrado aqui para não ser confundido com falta: o dia em que uma sugestão virar OS sozinha é o dia em que ninguém mais confia na tela.</div></li></ul></div></div>
+
+<h3 class="sec">Se eu tivesse que escolher a ordem</h3>
+<div class="card">
+<ol class="prio">
+<li><div><b>Calibrar.</b> Enquanto o modelo for de cat&aacute;logo, toda diferen&ccedil;a abaixo de 8% &eacute; ru&iacute;do do
+modelo, n&atilde;o achado da usina &mdash; e o g&ecirc;meo s&oacute; enxerga o que for grande. N&atilde;o falta algoritmo, falta
+hist&oacute;rico limpo: Sete Lagoas tinha 8 dias dos 30 exigidos. O tempo resolve sozinho se ningu&eacute;m mexer.</div></li>
+<li><div><b>Consertar o r&oacute;tulo de sa&uacute;de.</b> Uma fonte que diz &quot;parcial&quot; 480 vezes seguidas estando
+saud&aacute;vel &eacute; pior que n&atilde;o ter r&oacute;tulo: ensina a ignorar. &Eacute; conta, n&atilde;o infraestrutura.</div></li>
+<li><div><b>Ligar o sat&eacute;lite como refer&ecirc;ncia.</b> O buraco de hoje &eacute; piran&ocirc;metro sujo lendo baixo &mdash;
+o g&ecirc;meo s&oacute; pega travado ou zerado. Com 6,2% de erro no dia d&aacute; para acusar, e o teste j&aacute; est&aacute; feito.</div></li>
+<li><div><b>Ampliar a cobertura.</b> Depois dos tr&ecirc;s acima, e n&atilde;o antes: levar um modelo n&atilde;o calibrado
+com r&oacute;tulo de sa&uacute;de quebrado para 80 usinas novas multiplica o problema por 80.</div></li>
+</ol></div>
+
+<p class="nota">Base: 25 usinas ativas (18 PG, 4 SunOp, 3 API PV), 9.917 equipamentos monitorados,
+21.870.698 leituras em 2,2 GB de banco, 235 testes automatizados em 33 arquivos.
+Os textos de &quot;o que falta&quot; dizem o MOTIVO, n&atilde;o s&oacute; a aus&ecirc;ncia &mdash; sem o motivo, uma lista de
+lacunas vira lista de desejos.</p>
+</div></body></html>

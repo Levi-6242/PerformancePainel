@@ -41,10 +41,21 @@ def separar_equipamentos(linhas: list[dict], piloto: tuple[str, ...]) -> tuple[d
     """Aba Equipamentos → (usinas, inversores por usina), so para as usinas do piloto."""
     usinas: dict[str, dict] = {}
     invs: dict[str, list] = {}
+    # A linha UFV vem SEM "Usina Supervisório" (so os inversores trazem), entao ela cairia para "Usina"
+    # e a usina ficaria numa chave e os inversores em OUTRA — nas 18 do PG a UFV dava "Caxambu" e os
+    # inversores "(292) Caxambu", e `aplicar_equipamentos`, que itera as usinas e busca `invs[cod]`,
+    # nunca achava inversor nenhum. Nas tres da 2C isso nao aparecia porque la o supervisorio e igual
+    # ao nome ("Araputanga"), e as duas chaves calhavam de coincidir. Este mapa fecha a diferenca:
+    # "Usina" -> supervisorio usado pelas linhas de equipamento DAQUELA usina (22/09/2026).
+    sup_da_usina = {}
     for ln in linhas:
-        # "Usina Supervisório" VAZIO nao descarta a linha: nas tres da 2C (11/09/2026) so os inversores trazem o codigo — a UFV e
-        # as UG 01/UG 02 vem sem ele, e o nome da usina ("Usina") e o proprio codigo. Mesma regra que a plataforma adotou.
-        cod = str(ln.get("Usina Supervisório") or ln.get("Usina") or "").strip()
+        sup, usi = str(ln.get("Usina Supervisório") or "").strip(), str(ln.get("Usina") or "").strip()
+        if sup and usi:
+            sup_da_usina.setdefault(usi, sup)
+    for ln in linhas:
+        cod = (str(ln.get("Usina Supervisório") or "").strip()
+               or sup_da_usina.get(str(ln.get("Usina") or "").strip())
+               or str(ln.get("Usina") or "").strip())
         if cod not in piloto:
             continue
         eh_ufv = str(ln.get("Equipamento") or "").strip().upper() == "UFV"
@@ -187,6 +198,27 @@ class IngestorCadastro:
         lst = lst if isinstance(lst, list) else lst.get("items") or []
         return {str(s["sheet_name"]).strip().lower(): s for s in lst if s.get("workbook_key") == "bd_performance"}
 
+    def _piloto_amplo(self) -> tuple[str, ...]:
+        """Codigos do piloto MAIS o `nome` de cada usina ativa (22/09/2026).
+
+        A aba Equipamentos chama as 18 usinas do PG de "(311) Santa Barbara I" — com o numero do
+        supervisorio e acento. No config o codigo e "SANTA BARBARA I", e o filtro `cod not in piloto`
+        descartava a linha ANTES de qualquer casamento. O `nome` da usina no gemeo e exatamente o que
+        a aba usa, entao aceitar os dois abre o portao sem afrouxar nada: quem resolve a linha para a
+        usina certa continua sendo `aplicar_equipamentos`, que casa por codigo e depois por nome.
+
+        Sem isto, o inversor dessas usinas ficava com kwp=0 e a CALIBRACAO morria em "razoes invalidas"
+        — tres camadas depois da causa. A cascata nao acusava nada porque usa o kWp da Info Geral.
+        """
+        try:
+            with self.conn.cursor() as cur:
+                cur.execute("SELECT nome FROM usina WHERE ativo AND nome IS NOT NULL AND nome <> ''")
+                nomes = [str(n).strip() for n, in cur.fetchall() if str(n or "").strip()]
+        except Exception as e:                       # noqa: BLE001 — sem banco, segue so com o config
+            print(f"[cadastro] nao consegui ler os nomes das usinas ({e}); uso so os codigos do piloto")
+            nomes = []
+        return tuple(dict.fromkeys(tuple(self.cfg.usinas_piloto) + tuple(nomes)))
+
     def ciclo(self, force: bool = False) -> dict:
         wbs = _get(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, "/api/workbooks")
         wb = next((w for w in (wbs if isinstance(wbs, list) else wbs.get("items") or []) if w.get("key") == "bd_performance"), {})
@@ -196,7 +228,7 @@ class IngestorCadastro:
         sheets = self._sheets()
         eq = sheets["equipamentos"]
         linhas = linhas_da_aba(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, eq["id"], int(eq.get("header_row") or 0))
-        usinas, invs = separar_equipamentos(linhas, self.cfg.usinas_piloto)
+        usinas, invs = separar_equipamentos(linhas, self._piloto_amplo())
         # cada gravacao insiste no lock: as fontes escrevem no mesmo arquivo (12/09/2026: 'database is locked' no aplicar_trackers
         # enquanto a fonte plat gravava 17 mil angulos — a passada inteira do cadastro foi perdida)
         res = _db.com_retentativa_de_lock(self.conn, lambda: aplicar_equipamentos(self.conn, usinas, invs))
@@ -219,10 +251,16 @@ def _aplicar_inversor(cur, usina_id: int, iv: dict):
     usinas da API PV (11/09/2026): la o codigo_fonte e o idefinversor (400771) e o cadastro so conhece 'INVERSOR01' — o que
     os dois tem em comum e o nome, que o de-para do config ja escreveu no equipamento na descoberta."""
     patch = json.dumps({"kwp": iv["kwp"], "n_strings_esperadas": iv["n_strings_esperadas"]})
-    for coluna, valor in (("codigo_fonte", iv["codigo_fonte"]), ("nome_exibicao", iv["nome"])):
+    # A comparacao ignora caixa e espaco (22/09/2026): a IBATE 1 chega do PG com os inversores em
+    # "inversor 11" (minuscula, sem ponto) — e o nome vem do `tb_devices.device_name`, nao e escolha
+    # nossa — enquanto a aba traz "Inversor 1". Igualdade exata deixava 12 de 12 sem kWp, sozinha
+    # entre as 18 do PG. `lower()` nao afrouxa: "inversor 1" continua diferente de "inversor 11".
+    for coluna, valor in (("codigo_fonte", iv["codigo_fonte"]), ("nome_exibicao", iv["nome"]),
+                          ("nome_exibicao", iv["codigo_fonte"])):
         if not valor:
             continue
-        cur.execute(f"UPDATE equipamento SET nome_exibicao=%s, atributos = json_patch(atributos, %s) WHERE usina_id=%s AND tipo='inversor' AND {coluna}=%s RETURNING id",
+        cur.execute(f"UPDATE equipamento SET nome_exibicao=%s, atributos = json_patch(atributos, %s) "
+                    f"WHERE usina_id=%s AND tipo='inversor' AND lower(trim({coluna}))=lower(trim(%s)) RETURNING id",
                     (iv["nome"], patch, usina_id, str(valor).strip()))
         e = cur.fetchone()
         if e:
@@ -234,9 +272,21 @@ def aplicar_equipamentos(conn, usinas: dict, invs: dict) -> dict:
     n_u = n_i = 0
     with conn.cursor() as cur:
         for cod, u in usinas.items():
-            cur.execute("UPDATE usina SET cliente=%s, kwp_dc=%s, n_inversores=%s, full_om=%s WHERE codigo=%s RETURNING id",
-                        (u["cliente"], u["kwp"], u["n_inversores"], u["full_om"], cod))
-            r = cur.fetchone()
+            # ESCADA, como a do inversor: codigo > nome. O segundo degrau entrou em 22/09/2026 e e o
+            # das 18 usinas do PG. Na aba Equipamentos elas se chamam "(311) Santa Barbara I"; no gemeo
+            # o `codigo` e "SANTA BARBARA I" (maiuscula, sem acento, sem o numero) e o `nome` e
+            # EXATAMENTE "(311) Santa Barbara I". A igualdade so no codigo nao casava, e a consequencia
+            # nao aparecia na tela: a cascata segue funcionando porque o kWp da USINA vem da Info Geral,
+            # e so a CALIBRACAO, que trabalha por inversor, quebrava — kwp=0 por inversor => esperado
+            # zero => razao medido/esperado = infinito => "razoes invalidas nos dias limpos".
+            # Conferido antes de ligar: `nome` e unico entre as ativas e nenhum nome colide com o
+            # codigo de outra usina, entao o degrau novo nao pode roubar linha de ninguem.
+            for coluna in ("codigo", "nome"):
+                cur.execute(f"UPDATE usina SET cliente=%s, kwp_dc=%s, n_inversores=%s, full_om=%s WHERE {coluna}=%s RETURNING id",
+                            (u["cliente"], u["kwp"], u["n_inversores"], u["full_om"], cod))
+                r = cur.fetchone()
+                if r:
+                    break
             if not r:
                 continue
             n_u += 1

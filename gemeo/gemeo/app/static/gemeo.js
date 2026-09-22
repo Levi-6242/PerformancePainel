@@ -150,3 +150,146 @@
   });
   pinta();
 })();
+
+// ── Alternador Cascata / Assinaturas (Levi, 21/09/2026) ─────────────────────────────────────────
+// Os dois respondem a mesma pergunta — o que a usina perdeu hoje — e lado a lado disputavam a
+// largura que a curva precisa. Viraram um card so. Abre SEMPRE em Cascata, como ele pediu: nao
+// guardo a escolha, porque "default em cascata" tem de valer toda vez que alguem abre a usina.
+// Troca por `hidden`, nao por remocao: o SVG e as listas ja estao montados, mudar de aba nao refaz nada.
+(function () {
+  var barra = document.querySelector(".alt");
+  if (!barra) return;
+  var rot = document.getElementById("alt-rot");
+  var botoes = Array.prototype.slice.call(barra.querySelectorAll("button[data-aba]"));
+
+  // O rotulo vem em data-rot/data-sub, texto puro: montar HTML aqui e mais seguro que carregar
+  // marcacao dentro de atributo (e foi onde a primeira versao quebrou, escapando aspas do Jinja).
+  function rotular(b) {
+    if (!rot) return;
+    rot.textContent = b.dataset.rot || "";
+    if (b.dataset.sub) {
+      var s = document.createElement("small");
+      s.textContent = b.dataset.sub;
+      rot.appendChild(s);
+    }
+  }
+
+  function mostrar(aba) {
+    botoes.forEach(function (b) {
+      var meu = b.dataset.aba === aba;
+      b.setAttribute("aria-selected", meu ? "true" : "false");
+      var painel = document.getElementById(b.getAttribute("aria-controls"));
+      if (painel) painel.hidden = !meu;
+      if (meu) rotular(b);
+    });
+  }
+
+  barra.addEventListener("click", function (ev) {
+    var b = ev.target.closest("button[data-aba]");
+    if (b) mostrar(b.dataset.aba);
+  });
+  // setas esquerda/direita, que e o que um role="tablist" promete a quem navega por teclado
+  barra.addEventListener("keydown", function (ev) {
+    if (ev.key !== "ArrowLeft" && ev.key !== "ArrowRight") return;
+    var i = botoes.indexOf(document.activeElement);
+    if (i < 0) return;
+    var alvo = botoes[(i + (ev.key === "ArrowRight" ? 1 : botoes.length - 1)) % botoes.length];
+    alvo.focus(); mostrar(alvo.dataset.aba); ev.preventDefault();
+  });
+})();
+
+// ── Drill-down: curva das strings do inversor (Levi, 21/09/2026) ────────────────────────────────
+// "quando eu clicar nessa linha quero que abra um drill down da curva das strings do inversor para
+// aquele dia". Desenha TODAS as irmãs do mesmo inversor, com a clicada em destaque e a mediana da
+// família tracejada — porque a pergunta que se faz olhando uma string ruim não é "ela caiu?", é
+// "ela caiu SOZINHA?". Contra as irmãs isso se vê num relance; a string isolada não responde nada.
+(function () {
+  var alvo = document.getElementById("str-drill");
+  if (!alvo) return;
+  var cacheInv = null;
+
+  function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : s; return d.innerHTML; }
+  function hhmm(iso) { return String(iso).slice(11, 16); }
+
+  function svg(dados, destaque) {
+    var nomes = Object.keys(dados.series || {});
+    if (!nomes.length) return '<div class="vazio">Sem corrente por string gravada neste dia.</div>';
+    var W = 560, H = 210, L = 34, B = 24, pts = [], mx = 0, t0 = null, t1 = null;
+    nomes.forEach(function (n) {
+      (dados.series[n] || []).forEach(function (p) {
+        var t = Date.parse(p[0]); if (!isFinite(t)) return;
+        if (t0 === null || t < t0) t0 = t; if (t1 === null || t > t1) t1 = t;
+        if (p[1] > mx) mx = p[1];
+      });
+    });
+    if (t0 === null || t1 === t0) return '<div class="vazio">Sem janela de tempo utilizável.</div>';
+    mx = mx || 1;
+    var x = function (t) { return L + (t - t0) / (t1 - t0) * (W - L - 8); };
+    var y = function (v) { return H - B - v / mx * (H - B - 12); };
+    function linha(serie, cor, larg, trac) {
+      var d = serie.map(function (p) { return x(Date.parse(p[0])).toFixed(1) + "," + y(p[1]).toFixed(1); }).join(" ");
+      return '<polyline fill="none" stroke="' + cor + '" stroke-width="' + larg + '"'
+        + (trac ? ' stroke-dasharray="5 4"' : "") + ' points="' + d + '"/>';
+    }
+    // irmãs primeiro, em cinza; o destaque e a mediana por cima, para não ficarem soterrados
+    var corpo = nomes.filter(function (n) { return n !== destaque; })
+      .map(function (n) { return linha(dados.series[n], "var(--gc-line)", 1.2, false); }).join("");
+    if (dados.mediana && dados.mediana.length) corpo += linha(dados.mediana, "var(--gc-mut)", 1.8, true);
+    if (dados.series[destaque]) corpo += linha(dados.series[destaque], "var(--st-risk)", 2.4, false);
+    var eixo = "";
+    for (var k = 0; k <= 4; k++) {
+      var t = t0 + (t1 - t0) * k / 4;
+      eixo += '<text x="' + x(t).toFixed(0) + '" y="' + (H - 6) + '" class="ax">' + hhmm(new Date(t).toISOString()) + "</text>";
+    }
+    return '<svg viewBox="0 0 ' + W + " " + H + '" class="cv" role="img" aria-label="Corrente das strings do inversor">'
+      + '<line x1="' + L + '" y1="' + (H - B) + '" x2="' + (W - 8) + '" y2="' + (H - B) + '" class="gl"/>'
+      + '<text x="2" y="' + y(mx).toFixed(0) + '" class="ax">' + mx.toFixed(1).replace(".", ",") + " A</text>" + corpo + eixo + "</svg>";
+  }
+
+  function pinta(dados, destaque, dia) {
+    if (dados.erro) { alvo.innerHTML = '<div class="vazio">' + esc(dados.erro) + "</div>"; alvo.hidden = false; return; }
+    alvo.innerHTML =
+      '<div class="drill-cab"><b>' + esc(dados.inversor) + "</b> · " + esc(dia)
+      + ' <small>' + dados.n_strings + " strings · destaque: " + esc(destaque) + "</small>"
+      + '<button type="button" id="str-fechar">fechar</button></div>'
+      + svg(dados, destaque)
+      + '<div class="drill-leg"><span><i style="border-color:var(--st-risk)"></i>' + esc(destaque) + "</span>"
+      + '<span><i style="border-color:var(--gc-mut);border-top-style:dashed"></i>mediana do inversor</span>'
+      + '<span><i style="border-color:var(--gc-line)"></i>irmãs</span></div>';
+    alvo.hidden = false;
+    var b = document.getElementById("str-fechar");
+    if (b) b.addEventListener("click", function () { alvo.hidden = true; });
+    alvo.scrollIntoView({ block: "nearest" });
+  }
+
+  async function abrir(tr) {
+    var inv = tr.dataset.inv, str = tr.dataset.str, uid = tr.dataset.uid, dia = tr.dataset.dia;
+    if (!inv || !uid) return;
+    // cache por (inversor, dia): clicar em cinco strings do MESMO inversor é o caso comum, e cada
+    // clique rebuscando as 28 séries seria pagar cinco vezes pela mesma resposta.
+    var chave = uid + "|" + inv + "|" + dia;
+    if (cacheInv && cacheInv.chave === chave) { pinta(cacheInv.dados, str, dia); return; }
+    alvo.innerHTML = '<div class="vazio">Carregando a curva das strings…</div>';
+    alvo.hidden = false;
+    try {
+      var u = (window.GEMEO_PREFIXO || "/gemeo") + "/api/usina/" + encodeURIComponent(uid) + "/strings"
+        + "?inversor=" + encodeURIComponent(inv) + "&dia=" + encodeURIComponent(dia);
+      var r = await fetch(u, { headers: { Accept: "application/json" } });
+      var d = await r.json();
+      cacheInv = { chave: chave, dados: d };
+      pinta(d, str, dia);
+    } catch (e) {
+      alvo.innerHTML = '<div class="vazio">Não consegui carregar a curva (' + esc(String(e && e.message || e)) + ").</div>";
+    }
+  }
+
+  document.addEventListener("click", function (ev) {
+    var tr = ev.target.closest && ev.target.closest("tr.str-lin");
+    if (tr) abrir(tr);
+  });
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key !== "Enter" && ev.key !== " ") return;
+    var tr = ev.target.closest && ev.target.closest("tr.str-lin");
+    if (tr) { abrir(tr); ev.preventDefault(); }
+  });
+})();

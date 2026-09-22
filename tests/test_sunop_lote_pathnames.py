@@ -75,6 +75,6 @@ def test_o_timeout_acompanha_o_lote(monkeypatch):
 def test_nao_sobrou_lote_fixo_na_funcao():
     """A constante tem de ser a ÚNICA fonte do passo. Um `40` esquecido aqui volta a triplicar a
     contagem no dia em que alguém mexer na constante achando que basta."""
-    fonte = inspect.getsource(app._sunop_analog_history)
+    fonte = inspect.getsource(app._sunop_analog_history_api)
     assert "SUNOP_LOTE_PATHNAMES" in fonte
     assert "i + 40" not in fonte

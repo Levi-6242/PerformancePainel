@@ -3,6 +3,7 @@
 <html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{% block titulo %}Gêmeo Digital{% endblock %} · Grid Co.</title>
 <link rel="stylesheet" href="{{ PREFIXO }}/static/gemeo.css">
+<script>window.GEMEO_PREFIXO={{ PREFIXO|tojson }};</script>  <!-- o JS monta URL de API; sem isto ele chutaria "/gemeo" e quebraria se o prefixo mudar -->
 {% if auto %}<meta http-equiv="refresh" content="300">{% endif %}</head>
 <body>
 <div class="topo">

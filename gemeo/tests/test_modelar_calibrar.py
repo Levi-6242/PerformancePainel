@@ -70,3 +70,42 @@ def test_calibrar_no_banco_recusa_dia_com_evento(conn):
             cur.execute("SELECT versao FROM modelo"); assert [r[0] for r in cur.fetchall()] == ["placa"]
     finally:
         limpar_tudo(conn)
+
+
+def test_evento_que_nao_custou_energia_nao_veta_o_dia():
+    """21/09/2026 — piloto de calibracao nas tres usinas da 2C (Levi: "vamos testar em poucas
+    usinas primeiro"). O comando devolveu 1, 1 e ZERO dias limpos em 12, 10 e 10 dias de cascata.
+
+    A causa nao era falta de dado: `SELECT ini FROM evento WHERE equipamento_id IS NOT NULL` veta o
+    dia por QUALQUER evento de equipamento, e na 2C isso e tracker o tempo todo — `tracker_travado`
+    matava 8 dos 10 dias de Sete Lagoas, `tracker_sem_comunicacao` 8 dos 12 da Araputanga,
+    `tracker_fora_alvo` 8 dos 10 da Tupi.
+
+    E medido: a parcela `tracker` da cascata desses MESMOS dias e **zero kWh** nas tres usinas. A
+    regua estava vetando o dia por um evento que ela propria valorou em nada.
+
+    O criterio passa a ser auto-validante: veta quem CUSTOU energia, nao quem apenas apareceu. Um
+    tracker que de fato derrubou geracao entra na parcela e continua vetando; um que so foi
+    detectado, nao."""
+    import datetime as _dt
+    d1, d2, d3 = _dt.date(2026, 9, 10), _dt.date(2026, 9, 11), _dt.date(2026, 9, 12)
+    cob = {d1: 0.98, d2: 0.98, d3: 0.98}
+    cv = {d1: 0.05, d2: 0.05, d3: 0.05}
+    p = calibrar.ParamsCalib()
+    # d1: evento de tracker que nao custou nada -> ENTRA. d2: o mesmo evento custando 4% -> sai.
+    # d3: inversor parado (tipo grave) -> sai sempre, tenha custado o que tiver.
+    perda = {d1: {"tracker": 0.0, "esperado": 30000.0},
+             d2: {"tracker": 1200.0, "esperado": 30000.0},
+             d3: {"tracker": 0.0, "esperado": 30000.0}}
+    graves = {d3}
+    assert calibrar.dias_limpos(cob, graves, cv, p, perda_por_dia=perda) == [d1]
+
+
+def test_sem_a_parcela_o_comportamento_antigo_continua():
+    """`perda_por_dia` ausente mantem a regra velha — o veto por evento. Assim a mudanca nao
+    altera em silencio quem chama de outro lugar."""
+    import datetime as _dt
+    d1, d2 = _dt.date(2026, 9, 10), _dt.date(2026, 9, 11)
+    cob = {d1: 0.98, d2: 0.98}
+    cv = {d1: 0.05, d2: 0.05}
+    assert calibrar.dias_limpos(cob, {d2}, cv, calibrar.ParamsCalib()) == [d1]

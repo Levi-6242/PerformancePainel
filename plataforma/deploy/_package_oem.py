@@ -68,11 +68,29 @@ SKIP_FILES = {
     "README.md",                              # o do repo — substituído pelo README de atualização
     "oem-app.zip", "_package_oem.py",
 }
-SKIP_EXT = {".log", ".out", ".tmp", ".pyc", ".zip", ".exe",
-            # os *_token.txt antigos viraram "*.txt.migrado" quando o app consolidou tudo no
-            # tokens_runtime.json. AINDA TÊM O TOKEN DENTRO, e o nome deixou de casar com o
-            # SKIP_FILES por causa do sufixo — entraram no zip até 28/07. Barrar pela extensão.
-            ".migrado", ".bak", ".old", ".recebendo"}
+SKIP_EXT = {".log", ".out", ".tmp", ".pyc", ".zip", ".exe"}
+
+# SUFIXO COMPOSTO — a mesma classe de bug já apareceu três vezes, sempre pelo mesmo motivo:
+# `splitext("x.html.bak-acomp")` devolve ".bak-acomp", não ".html". Casar a EXTENSÃO EXATA não
+# enxerga `algo.ext.marcador`.
+#   28/07  `plat_token.txt.migrado` entrou no zip COM O TOKEN DENTRO. Remendo: pôr ".migrado" na
+#          lista de extensões — tratou o caso, deixou a classe viva.
+#   20/09  `Monitoramento (novo design).html.bak-acomp` e `.bak-alveslima`, 0,22 MB cada, entraram:
+#          a lista tinha ".bak", o nome terminava em ".bak-acomp".
+#   21/09  o mesmo tropeço no .gitignore, com `whats_ronda.json.bak_20260916_143840`.
+# Agora olha CADA segmento pontuado do nome. A regra do separador é o que impede a correção de
+# comer arquivo legítimo: sem ela, `backup.py` (começa com "bak") sairia do pacote.
+LIXO = ("bak", "old", "orig", "copia", "migrado", "residual", "recebendo",
+        "anterior", "morreu", "antes", "tmp", "falho")
+
+
+def _e_lixo(base: str) -> bool:
+    """True se algum segmento pontuado do nome for marca de backup/rascunho."""
+    for seg in base.lower().split(".")[1:]:          # o [0] é o nome; marcas vêm depois
+        for m in LIXO:
+            if seg == m or seg.startswith(m + "-") or seg.startswith(m + "_"):
+                return True
+    return False
 
 
 # Dados que PRECISAM viajar (o resto de .json/.jsonl/.csv na raiz de plataforma/ é estado).
@@ -87,7 +105,7 @@ def incluir(rel):
     if base in SKIP_FILES:
         return False
     _, ext = os.path.splitext(base)
-    if ext.lower() in SKIP_EXT:
+    if ext.lower() in SKIP_EXT or _e_lixo(base):
         return False
     # O ESTADO do app vive solto na raiz de plataforma/ (perdas_strings.json, paradas_book.json,
     # trackers_parados_hist.jsonl, notas...). Listar cada um pelo nome sempre atrasa: todo estado

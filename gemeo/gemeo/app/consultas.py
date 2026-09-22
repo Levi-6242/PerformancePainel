@@ -16,6 +16,8 @@ import numpy as np
 import pandas as pd
 
 from gemeo.core import db, tempo
+from gemeo.modelar import acoes as _acoes
+from gemeo.modelar import qualidade as _qual
 
 # Janela de dia da Frota: a mesma 05h-19h da curva do dia. Serve para decidir se existe um "agora" para comparar, e
 # olha o RELOGIO, nao o sensor: a POA da Ibate 2 fica congelada em 302 W/m2 a noite inteira, o modelo obedece e
@@ -278,6 +280,188 @@ def rendimento_do_dia(conn, usina_id: int, ini, fim, kwp: float | None) -> dict:
     return {"rendimento": round(r, 2), "sensor_baixo": r > RENDIMENTO_IMPOSSIVEL}
 
 
+# ── Rotulo de string: quem lê não conhece idefinversor ──────────────────────────────────────────
+# A string nasce com `codigo_fonte` = "<idefinversor>.Ipv<n>" (é o que a API PV entrega e o que o
+# ingestor grava, e tem de continuar assim — é a chave). Só que na tela isso vira "400787.Ipv11",
+# e ninguém sabe de cor que 400787 é o Inversor 1.4 (Levi, 21/09/2026: "creio que seja o ID do
+# inversor, quero o nome do inversor"). O nome sai do PAI, que toda string tem: nas três da 2C são
+# 280 strings, 0 sem pai. Sem pai, cai no rótulo cru — melhor do que esconder a linha.
+def _rotulo_string(nome: str, pai_nome, pai_cod) -> tuple[str, str]:
+    """('400787.Ipv11', 'Inversor 1.4', '400787') -> ('Inversor 1.4', 'Ipv11'). -> (pai, sufixo)."""
+    sufixo = str(nome or "")
+    pref = str(pai_cod or "")
+    if pref and sufixo.startswith(pref + "."):
+        sufixo = sufixo[len(pref) + 1:]
+    return (str(pai_nome) if pai_nome else "", sufixo)
+
+
+def _com_pai(r) -> dict:
+    """Linha de `_top` -> dict da tela. `nome` fica sendo o que se LÊ; `codigo` guarda a chave."""
+    pai, sufixo = _rotulo_string(r[1], r[4] if len(r) > 4 else None, r[5] if len(r) > 5 else None)
+    return {"id": int(r[0]), "codigo": r[1], "nome": (f"{pai} · {sufixo}" if pai else r[1]),
+            "pai_id": r[2], "pai": pai, "pai_codigo": (r[5] if len(r) > 5 else None),
+            "sufixo": sufixo, "kwh": float(r[3])}
+
+
+def curva_strings_do_inversor(conn, usina_id: int, inversor: str, ini, fim) -> dict:
+    """Corrente de cada string de UM inversor no dia — o drill-down da lista de perdas.
+
+    Pedido do Levi em 21/09/2026: "quando eu clicar nessa linha quero que abra um drill down da
+    curva das strings do inversor para aquele dia". A pergunta que ele responde não é "esta string
+    caiu?", é "ela caiu SOZINHA?" — string ruim só se reconhece contra as irmãs do mesmo inversor,
+    que veem o mesmo sol, a mesma sujeira e a mesma sombra. Por isso a curva é do INVERSOR inteiro,
+    com a string clicada em destaque, e não da string isolada.
+
+    `inversor` é o `codigo_fonte` (idefinversor) ou o nome de exibição — a tela tem os dois.
+    Devolve também a mediana das strings por instante: é contra ela que o olho compara."""
+    inv = _q(conn, "SELECT id, coalesce(nome_exibicao, codigo_fonte), codigo_fonte FROM equipamento "
+                   "WHERE usina_id=%s AND tipo='inversor' AND (codigo_fonte=%s OR nome_exibicao=%s)",
+             (usina_id, inversor, inversor))
+    if not inv:
+        return {"inversor": inversor, "series": {}, "tem_dado": False, "erro": "inversor não encontrado"}
+    inv_id, inv_nome, inv_cod = int(inv[0][0]), str(inv[0][1]), str(inv[0][2])
+    linhas = _q(conn, 'SELECT e.codigo_fonte, l.ts AS "ts [TIMESTAMP]", l.valor '
+                      "FROM leitura l JOIN equipamento e ON e.id=l.equipamento_id "
+                      "WHERE e.pai_id=%s AND e.tipo='string' AND l.medida='i_string' "
+                      "AND l.ts >= %s AND l.ts < %s ORDER BY e.codigo_fonte, l.ts",
+               (inv_id, ini, fim))
+    series: dict[str, list] = {}
+    por_ts: dict = {}
+    for cod, ts, valor in linhas:
+        _, sufixo = _rotulo_string(str(cod), inv_nome, inv_cod)
+        v = float(valor)
+        series.setdefault(sufixo, []).append([ts.isoformat(), v])
+        por_ts.setdefault(ts, []).append(v)
+    mediana = [[ts.isoformat(), _mediana(v)] for ts, v in sorted(por_ts.items())]
+    return {"inversor": inv_nome, "inversor_codigo": inv_cod, "usina_id": usina_id,
+            "series": series, "mediana": mediana, "n_strings": len(series),
+            "tem_dado": bool(series), "n_pontos": sum(len(v) for v in series.values())}
+
+
+def _mediana(vals: list[float]):
+    v = sorted(vals)
+    n = len(v)
+    if not n:
+        return None
+    return v[n // 2] if n % 2 else (v[n // 2 - 1] + v[n // 2]) / 2.0
+
+
+def curva_para_plataforma(conn, codigo: str, medida: str, ini, fim) -> dict:
+    """Fase 4: a curva que a plataforma hoje busca na API da SunOp, servida do acervo do gemeo.
+
+    POR QUE EXISTE. O `/data/v2/usage/me` da SunOp acusou 162.892 requisicoes de 01 a 20/09 contra
+    uma cota de 100.000/mes — saldo zero desde o dia 12, US$ 31,45 cobrados, e a projecao num
+    servidor 24 h passa de 400 mil. O gemeo ingere as MESMAS medidas das mesmas usinas por **85
+    requisicoes/dia**, porque guarda em vez de re-perguntar. A plataforma re-baixa a curva inteira a
+    cada ciclo; aqui ela passa a ler do acervo.
+
+    Devolve {equipamento: [[ts_iso, valor], ...]}. Usina que o gemeo nao cobre responde vazio com
+    `tem_dado: False` — de proposito: 'nao tenho' precisa ser barato e explicito, senao o fallback
+    para a SunOp fica escondido atras de um except.
+
+    `medida` vem de fora, entao so a lista do CHECK do schema e aceita (db.MEDIDAS)."""
+    vazio = {"usina": codigo, "medida": medida, "series": {}, "tem_dado": False}
+    if medida not in db.MEDIDAS:
+        return {**vazio, "erro": "medida desconhecida"}
+    u = _q(conn, "SELECT id FROM usina WHERE ativo AND (codigo=%s OR nome=%s)", (codigo, codigo))
+    if not u:
+        return {**vazio, "erro": "usina fora do gemeo"}
+    usina_id = int(u[0][0])
+    # PK (equipamento_id, medida, ts): com as tres colunas fixas cada equipamento e um seek.
+    linhas = _q(conn, 'SELECT coalesce(e.nome_exibicao, e.codigo_fonte) AS nome, l.ts AS "ts [TIMESTAMP]", l.valor '
+                      "FROM leitura l JOIN equipamento e ON e.id=l.equipamento_id "
+                      "WHERE e.usina_id=%s AND l.medida=%s AND l.ts >= %s AND l.ts < %s "
+                      "ORDER BY nome, l.ts", (usina_id, medida, ini, fim))
+    series: dict[str, list] = {}
+    for nome, ts, valor in linhas:
+        series.setdefault(str(nome), []).append([ts.isoformat(), float(valor)])
+    return {"usina": codigo, "medida": medida, "series": series, "tem_dado": bool(series),
+            "n_pontos": sum(len(v) for v in series.values())}
+
+
+# O de-para pathname -> (tipo, codigo_fonte, medida) e o do PROPRIO ingestor: e ele que gravou o
+# dado. Reconstruir a convencao por fora e como a curva do TRK_17 acaba rotulada como 18, em
+# silencio — ha teste travando esta identidade.
+from gemeo.ingest.sunop import classificar as classificar_pathname      # noqa: E402
+
+
+def curva_por_pathname(conn, pathnames: list[str], ini, fim) -> dict:
+    """Fase 4, no formato que a plataforma ja consome: {pathname: [[ts_iso, valor], ...]}.
+
+    O `_sunop_analog_history` da plataforma trabalha por pathname, entao servir por pathname faz a
+    troca ser encaixe direto — sem de-para novo no meio, que e onde a curva iria para o equipamento
+    errado.
+
+    `nao_atendidos` lista o que este acervo NAO tem: pathname desconhecido, usina fora do gemeo ou
+    equipamento sem leitura na janela. A plataforma cai para a SunOp so nesses — se virassem serie
+    vazia, ela desenharia um grafico em branco achando que foi atendida."""
+    series: dict[str, list] = {}
+    nao: list[str] = []
+    # agrupa por (usina do pathname, medida): uma consulta por grupo, nao uma por pathname
+    alvo: dict[tuple[str, str], list[tuple[str, str]]] = {}
+    for pn in pathnames or []:
+        c = classificar_pathname(str(pn))
+        if not c:
+            nao.append(pn); continue
+        _tipo, codigo_fonte, medida, _attr = c
+        usina_cod = str(pn).split(".")[0]
+        alvo.setdefault((usina_cod, medida), []).append((pn, codigo_fonte))
+    for (usina_cod, medida), itens in alvo.items():
+        if medida not in db.MEDIDAS:
+            nao.extend(pn for pn, _ in itens); continue
+        u = _q(conn, "SELECT id FROM usina WHERE ativo AND (codigo=%s OR nome=%s)", (usina_cod, usina_cod))
+        if not u:
+            nao.extend(pn for pn, _ in itens); continue
+        uid = int(u[0][0])
+        por_codigo = {cf: pn for pn, cf in itens}
+        marc = ",".join("%s" for _ in por_codigo)
+        linhas = _q(conn, f'SELECT e.codigo_fonte, l.ts AS "ts [TIMESTAMP]", l.valor '
+                          f"FROM leitura l JOIN equipamento e ON e.id=l.equipamento_id "
+                          f"WHERE e.usina_id=%s AND e.codigo_fonte IN ({marc}) AND l.medida=%s "
+                          f"AND l.ts >= %s AND l.ts < %s ORDER BY e.codigo_fonte, l.ts",
+                    (uid, *por_codigo.keys(), medida, ini, fim))
+        for cf, ts, valor in linhas:
+            series.setdefault(por_codigo[cf], []).append([ts.isoformat(), float(valor)])
+        nao.extend(pn for cf, pn in por_codigo.items() if pn not in series)
+    return {"series": series, "nao_atendidos": sorted(nao),
+            "n_pontos": sum(len(v) for v in series.values())}
+
+
+def qualidade_do_dia(conn, usina_id: int, ini, fim) -> dict:
+    """As tres checagens da IEC 61724-1 §12.2.1 que faltavam, sobre as series da estacao do dia.
+
+    So a estacao: e dela que sai a ENTRADA do modelo (POA), entao dado ruim ali nao produz uma
+    perda, produz um esperado inteiro errado. Inversor e string ja tem regua propria na cascata."""
+    series = {}
+    for medida in ("poa", "ghi", "temp_modulo", "temp_ar", "vento"):
+        linhas = _q(conn, 'SELECT l.ts AS "ts [TIMESTAMP]", l.valor FROM leitura l '
+                          "WHERE l.medida=%s AND l.ts >= %s AND l.ts < %s AND l.equipamento_id IN "
+                          "(SELECT id FROM equipamento WHERE usina_id=%s AND tipo='estacao') ORDER BY l.ts",
+                    (medida, ini, fim, usina_id))
+        if linhas:
+            series[medida] = [(t, float(v)) for t, v in linhas]
+    if not series:
+        return {"total": 0, "detalhes": []}
+    # passo esperado = mediana do passo observado; a fonte varia (1 min na API PV, 5 no PG)
+    ref = next(iter(series.values()))
+    passos = [(b - a).total_seconds() / 60.0 for (a, _), (b, _) in zip(ref, ref[1:])]
+    passo = sorted(passos)[len(passos) // 2] if passos else 1.0
+    return _qual.resumo(series, passo_esperado_min=passo or 1.0)
+
+
+def _epi(delta: float | None) -> float | None:
+    """EPI — *Energy Performance Index* da IEC 61724-1:2021 §14.4: "a razao entre a saida MEDIDA e a
+    saida ESPERADA" por um modelo detalhado de desempenho. E exatamente o que a cascata calcula.
+
+    Fica ao lado do `delta`, nao no lugar dele: EPI = 1 + delta, mesma informacao em escalas
+    diferentes, e a regua de faixa (dentro/moderado/grave) segue ancorada no delta. Trocar um pelo
+    outro ali mudaria todos os limiares em silencio.
+
+    Por que o nome importa: com ele, o numero deixa de ser uma invencao nossa e passa a ser um
+    indice de norma — o que se pode afirmar na frente de cliente muda."""
+    return None if delta is None else round(1.0 + float(delta), 4)
+
+
 def _gate_hoje(conn, usina_id: int, ini: dt.datetime, fim: dt.datetime) -> str:
     r = _q(conn, "SELECT tipo FROM evento WHERE usina_id=%s AND tipo IN ('sensor_em_falha','sem_cobertura') AND ini >= %s AND ini < %s LIMIT 1",
            (usina_id, ini, fim))
@@ -409,7 +593,7 @@ def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
                  "kwp": u["kwp"], "kw_ac": u["kw_ac"], "n_inversores": int(n_tipo.get("inversor", 0)), "n_trackers": int(n_tipo.get("tracker", 0)),
                  "n_strings": int(n_tipo.get("string", 0)), "modelo_versao": u["modelo_versao"], "calibrado": bool(u["calibrado"]),
                  "tolerancia": float(u["tolerancia"]), "hoje": str(hoje), "slot": slot, "esperado_kw": esp_kw, "medido_kw": med_kw,
-                 "delta": delta, "faixa": faixa(delta, float(u["tolerancia"])), "gate_agora": gate_agora, "base": "agora",
+                 "delta": delta, "epi": _epi(delta), "faixa": faixa(delta, float(u["tolerancia"])), "gate_agora": gate_agora, "base": "agora",
                  "idade_leitura_min": _min(agora, u["ultima_leitura"]), "idade_esperado_min": _min(agora, slot)}
     # "Ver dia" congela o agora no fim do dia escolhido, entao ha leitura DEPOIS dele: idade negativa nao e frio,
     # e "ha -531 min" nao quer dizer nada para quem le. Some, e a tela deixa de acusar dado velho que nao existe.
@@ -433,7 +617,7 @@ def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
     piso = max(20.0, 0.02 * float(u["kw_ac"] or 0.0))
     if casc and (esp_kw is None or esp_kw < piso):
         d_dia = ((casc["e_medido"] - casc["e_esperado"]) / casc["e_esperado"]) if casc["e_esperado"] else None
-        cabecalho.update({"delta": d_dia, "faixa": faixa(d_dia, float(u["tolerancia"])), "base": "dia"})
+        cabecalho.update({"delta": d_dia, "epi": _epi(d_dia), "faixa": faixa(d_dia, float(u["tolerancia"])), "base": "dia"})
     preco = _preco(conn, usina_id, hoje)
     n_inv_ativos = int(_q(conn, "SELECT count(*) FROM equipamento WHERE usina_id=%s AND tipo='inversor' AND ativo", (usina_id,))[0][0])
     eventos = [{"id": r[0], "tipo": r[1], "equipamento_id": r[2], "equipamento": r[3], "ini": r[4].isoformat(), "hora_ini": r[4].astimezone(tz).strftime("%H:%M"),
@@ -478,10 +662,13 @@ def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
                            "curva_medida_kw": _serie(med_inv.get(int(eid), {})), "curva_esperada_kw": _serie(esp_inv.get(int(eid), {}))})
 
     def _top(tipo: str, parcela: str, n: int = 15) -> list[dict]:
-        rows = _q(conn, "SELECT e.id, coalesce(e.nome_exibicao, e.codigo_fonte), e.pai_id, p.kwh FROM perda_dia p JOIN equipamento e ON e.id=p.equipamento_id "
+        rows = _q(conn, "SELECT e.id, coalesce(e.nome_exibicao, e.codigo_fonte), e.pai_id, p.kwh, "
+                        "       coalesce(pa.nome_exibicao, pa.codigo_fonte), pa.codigo_fonte "
+                        "FROM perda_dia p JOIN equipamento e ON e.id=p.equipamento_id "
+                        "LEFT JOIN equipamento pa ON pa.id=e.pai_id "
                         "WHERE e.usina_id=%s AND e.tipo=%s AND p.parcela=%s AND p.modelo_id=%s AND p.dia=%s ORDER BY p.kwh DESC LIMIT %s",
                   (usina_id, tipo, parcela, mid, hoje, n)) if mid else []
-        return [{"id": int(r[0]), "nome": r[1], "pai_id": r[2], "kwh": float(r[3])} for r in rows]
+        return [_com_pai(r) for r in rows]
 
     pares = _q(conn, "SELECT p.valor, g.valor FROM leitura p JOIN leitura g ON g.equipamento_id=p.equipamento_id AND g.ts=p.ts AND g.medida='ghi' "
                      "WHERE p.medida='poa' AND g.valor > 100 AND p.ts >= %s AND p.ts < %s "
@@ -491,13 +678,17 @@ def usina(conn, usina_id: int, agora: dt.datetime) -> dict | None:
               "trackers_sem_inversor": (casc["trackers_sem_inversor"] if casc else None),
               "congelado": any(e.get("tipo") == "sensor_congelado" for e in eventos),
               **clima_do_dia(conn, usina_id, ini, fim, u.get("lat"), u.get("lon"), tz),
-              **rendimento_do_dia(conn, usina_id, ini, fim, u.get("kwp"))}
+              **rendimento_do_dia(conn, usina_id, ini, fim, u.get("kwp")),
+              "qualidade": qualidade_do_dia(conn, usina_id, ini, fim)}
     sensor["ceu"] = ceu_do_indice(sensor.get("variabilidade"))
     return {"agora": agora.isoformat(), "ciclo": _ciclo(conn), "cabecalho": cabecalho, "periodo": {"dias": 1, "de": str(hoje), "ate": str(hoje)},
             "dias": [], "curva": curva, "paradas": _paradas(eventos, tz, n_inv_ativos), "cascata": casc, "preco_mwh": preco,
             # clipping fora da conta: e limite de PROJETO, nao falha de operacao (Levi, 17/09/2026)
             "perda_brl": ((max(0.0, casc["delta"] - casc.get("clipping", 0.0)) / 1000.0 * preco)
                           if (casc and preco) else None), "eventos": eventos, "inversores": inversores,
+            # O gemeo deixa de so reportar: traduz evento + cascata em acao com dono, motivo e
+            # custo. Propor NAO e executar — quem abre a OS e uma pessoa (ver modelar/acoes.py).
+            "acoes": _acoes.propor(eventos, casc, preco),
             "trackers": _top("tracker", "tracker"), "strings": _top("string", "string"), "sensor": sensor}
 
 
@@ -584,10 +775,14 @@ def usina_periodo(conn, usina_id: int, agora: dt.datetime, dias: int) -> dict | 
                            "residuo": p.get("residuo", 0.0), "status": status})
 
     def _top(tipo: str, parcela: str, n: int = 15) -> list[dict]:
-        rows = _q(conn, "SELECT e.id, coalesce(e.nome_exibicao, e.codigo_fonte), e.pai_id, sum(p.kwh) FROM perda_dia p JOIN equipamento e ON e.id=p.equipamento_id "
-                        "WHERE e.usina_id=%s AND e.tipo=%s AND p.parcela=%s AND p.modelo_id=%s AND p.dia >= %s AND p.dia <= %s GROUP BY e.id ORDER BY 4 DESC LIMIT %s",
+        rows = _q(conn, "SELECT e.id, coalesce(e.nome_exibicao, e.codigo_fonte), e.pai_id, sum(p.kwh), "
+                        "       coalesce(pa.nome_exibicao, pa.codigo_fonte), pa.codigo_fonte "
+                        "FROM perda_dia p JOIN equipamento e ON e.id=p.equipamento_id "
+                        "LEFT JOIN equipamento pa ON pa.id=e.pai_id "
+                        "WHERE e.usina_id=%s AND e.tipo=%s AND p.parcela=%s AND p.modelo_id=%s AND p.dia >= %s AND p.dia <= %s "
+                        "GROUP BY e.id ORDER BY 4 DESC LIMIT %s",
                   (usina_id, tipo, parcela, mid, d0, hoje, n)) if mid else []
-        return [{"id": int(r[0]), "nome": r[1], "pai_id": r[2], "kwh": float(r[3])} for r in rows]
+        return [_com_pai(r) for r in rows]
 
     pares = _q(conn, "SELECT p.valor, g.valor FROM leitura p JOIN leitura g ON g.equipamento_id=p.equipamento_id AND g.ts=p.ts AND g.medida='ghi' "
                      "WHERE p.medida='poa' AND g.valor > 100 AND p.ts >= %s AND p.ts < %s "
@@ -638,7 +833,13 @@ def saude(conn, cfg, agora: dt.datetime) -> dict:
     dias_token = (exp - agora).days if exp else None
     problemas = []
     # A noite nao ha ciclo SunOp (janela solar): a idade do ultimo ciclo so e problema com alguma usina em janela.
-    # 'parcial' e o normal do crepusculo (cobertura ~50% que a reconciliacao das 03h completa) — so 'falha' acusa.
+    # 'parcial' NAO entra como problema aqui, e agora por outro motivo. Ate 21/09/2026 ele era ruido —
+    # saia de um total esperado fabricado e aparecia em 480 de 480 ciclos do PG com a fonte sa. Hoje
+    # significa "a leitura mais nova esta atrasada alem da tolerancia", e isso quase sempre e a USINA
+    # muda, nao o gemeo doente: em 21/09 as cinco 'parcial' do PG eram exatamente as cinco que o
+    # /painel ja marcava SEM COMUNICACAO. Pintar o /healthz de vermelho por planta muda faria o proxy
+    # da plataforma tratar um gemeo saudavel como fora do ar. Quem precisa ver usina atrasada e a tela
+    # da frota, nao esta rota. So 'falha' (nada chegou) acusa aqui.
     janela = getattr(cfg, "janela_solar", ("05:40", "18:20"))
     # SO os fusos, direto da tabela `usina`: `_usinas` faria um `_ultima_leitura` por usina e o healthz
     # levava 56 s sobre 17,3 M linhas — o proxy da plataforma (timeout=30) devolvia 503 num gemeo

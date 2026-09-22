@@ -59,10 +59,12 @@ def montar(cfg, conn_gemeo, conn_fonte, usinas: list[UsinaRef]) -> list[tuple[st
         itens.append(("sunop_lento", IngestorSunOp(cfg, conn_gemeo, su, grupo="lento"), int(cfg.ritmo_min["sunop_lento"])))
     if ap:                                   # API PV Operation, conta oem@ (as tres da 2C) — uma thread, ciclo por usina
         itens.append(("apipv", IngestorAPIPV(cfg, conn_gemeo, ap), int(cfg.ritmo_min.get("apipv", 15))))
-        if (getattr(cfg, "pv_plat_token_oem", "") or "").strip():   # trackers das mesmas usinas pela PV Plataforma (12/09/2026)
+        # Trackers das mesmas usinas. Ate 21/09/2026 dependiam de PV_PLAT_TOKEN_OEM; agora vem da
+        # Plataforma de Performance (acervo da 2C por e-mail), com o segredo que os dois ja dividem.
+        if (getattr(cfg, "senha_app", "") or "").strip() and (getattr(cfg, "plataforma_url", "") or "").strip():
             itens.append(("plat", IngestorPlatTrackers(cfg, conn_gemeo, ap), int(cfg.ritmo_min.get("plat", 15))))
         else:
-            print("[plat] sem PV_PLAT_TOKEN_OEM no gemeo.env: trackers das usinas da API PV ficam de fora")
+            print("[plat] sem GEMEO_SENHA/PLATAFORMA_URL: trackers das usinas da API PV ficam de fora")
     itens.append(("cadastro", IngestorCadastro(cfg, conn_gemeo), int(cfg.ritmo_min["cadastro"])))
     return itens
 

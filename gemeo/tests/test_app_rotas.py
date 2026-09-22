@@ -138,3 +138,21 @@ def test_faixa_de_parada_chega_a_tela_e_a_legenda(cli):
     html7 = cli.get("/gemeo/usina/1?periodo=semana").get_data(as_text=True)
     assert "paradas-dados" not in html7                                    # 7/30 dias troca a curva por barras...
     assert '"hora_ini": "10:00"' in html7.replace("&#34;", '"') and "Parada de inversores" in html7 and "1</span> dia" in html7
+
+
+def test_bloco_de_acoes_aparece_mesmo_sem_acao(cli_factory=None):
+    """21/09/2026 — o Levi abriu a Sete Lagoas e disse "não vi mudanças". Estava tudo lá, mas o
+    bloco "Ações propostas" SOME quando não há o que propor, e era justo a novidade mais visível.
+
+    Bloco ausente não comunica "está tudo bem" — comunica "não fizeram nada". Ausência de achado é
+    informação, e tem de ocupar espaço na tela igual ao achado."""
+    from jinja2 import Environment, FileSystemLoader
+    from pathlib import Path
+    tpl_dir = Path(__file__).parents[1] / "gemeo" / "app" / "templates"
+    env = Environment(loader=FileSystemLoader(str(tpl_dir)))
+    fonte = (tpl_dir / "usina.html").read_text(encoding="utf-8")
+    # o bloco não pode estar inteiro dentro de um {% if d.acoes %}
+    i = fonte.index("Ações propostas")
+    antes = fonte[max(0, i - 400):i]
+    assert "{% if d.acoes %}" not in antes, "o bloco some quando não há ação — mostre o vazio"
+    assert "nenhuma ação" in fonte.lower(), "falta o texto do caso sem ação"

@@ -325,3 +325,54 @@ def test_ultima_leitura_da_o_mesmo_valor_da_consulta_ingenua(conn, mro100_modela
 
 def _q_lista(conn, sql, params):
     return c._q(conn, sql, params)
+
+
+# ── Fase 4: curva servida do acervo do gêmeo (21/09/2026) ─────────────────────────────
+def test_curva_por_medida_volta_serie_por_equipamento(conn, mro100_modelada):
+    """A forma que a plataforma consome: {equipamento: [[ts, valor], ...]}."""
+    usina, _ = mro100_modelada
+    ini, fim = c._dia_utc(dt.date(2026, 8, 31), __import__("zoneinfo").ZoneInfo("America/Belem"))
+    r = c.curva_para_plataforma(conn, usina.codigo, "angulo", ini, fim)
+    assert r["usina"] == usina.codigo and r["medida"] == "angulo"
+    assert r["series"], "a MRO100 semeada tem ângulo de tracker"
+    nome, serie = next(iter(r["series"].items()))
+    assert isinstance(nome, str) and len(serie) > 10
+    ts, valor = serie[0]
+    assert isinstance(ts, str) and isinstance(valor, (int, float))
+
+
+def test_medida_desconhecida_nao_chega_no_SQL(conn, mro100_modelada):
+    """`medida` vem de fora. A lista do CHECK do schema é a única aceita — nada de interpolar
+    string de chamador em consulta."""
+    usina, _ = mro100_modelada
+    r = c.curva_para_plataforma(conn, usina.codigo, "'; DROP TABLE leitura; --",
+                                dt.datetime(2026, 8, 31, tzinfo=UTC), dt.datetime(2026, 9, 1, tzinfo=UTC))
+    assert r["series"] == {} and r.get("erro") == "medida desconhecida"
+    with conn.cursor() as cur:                      # a tabela continua lá
+        cur.execute("SELECT count(*) FROM leitura")
+        assert cur.fetchone()[0] >= 0
+
+
+
+
+# ── EPI: o nome de norma para a razão do gêmeo (21/09/2026) ───────────────────────────
+def test_o_gemeo_publica_o_EPI_com_nome_de_norma(conn, mro100_modelada):
+    """IEC 61724-1:2021 §14.4 define o *Energy Performance Index* como "a razão entre a saída
+    MEDIDA e a saída ESPERADA" por um modelo detalhado de desempenho. É exatamente o que a cascata
+    do gêmeo calcula — só não se chamava assim.
+
+    Importa porque muda o que se pode afirmar na frente de cliente: deixa de ser um número que
+    nós inventamos e passa a ser um índice de norma.
+
+    O `delta` (desvio relativo) CONTINUA existindo e é ele que alimenta a régua de faixa — EPI e
+    delta são a mesma informação em escalas diferentes (EPI = 1 + delta), e trocar um pelo outro
+    na régua mudaria os limiares em silêncio."""
+    usina, _ = mro100_modelada
+    us = c.usina(conn, usina.id, dt.datetime(2026, 8, 31, 20, 0, tzinfo=UTC))
+    cab = us["cabecalho"]
+    assert "epi" in cab and cab["epi"] is not None
+    # 1e-4 e não 1e-9: o EPI é arredondado na 4ª casa de propósito, para exibição
+    assert abs(cab["epi"] - (1.0 + cab["delta"])) < 1e-4, "EPI e delta têm de ser a mesma conta"
+    assert 0 < cab["epi"] < 3, cab["epi"]
+    # a régua de faixa segue no delta, não no EPI
+    assert cab["faixa"] in ("dentro", "moderado", "grave")

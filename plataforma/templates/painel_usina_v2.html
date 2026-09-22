@@ -259,6 +259,18 @@ table.v2t tr.v2hd td{padding:10px 12px 14px!important;background:rgba(0,0,0,.14)
           <div class="csub" id="cascSub" style="margin-bottom:10px">Da geração sem perdas (P50) à geração real.</div>
           <div id="cascBody"><div class="loading">Calculando a cascata…</div></div>
         </div>
+        <!-- AÇÕES PROPOSTAS do gêmeo (Levi, 21/09/2026: "gostei das ações propostas, conseguimos fazer isso
+             aparecer na parte de diagnóstico no painel? sempre bom explicar o motivo"). Vem de V2.gemeo.acoes,
+             que a tela JÁ busca — nenhuma requisição nova. Fica entre a cascata (para onde foi o desvio) e os
+             diagnósticos (por que), porque é o passo seguinte: o que fazer. O gêmeo PROPÕE; quem abre OS é gente. -->
+        <div id="acoesCard" style="display:none;margin:4px 0 16px;padding:12px 13px;border:1px solid var(--line);border-radius:10px">
+          <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+            <div style="font-size:12.5px;font-weight:600">Ações propostas <span class="tagai">gêmeo digital</span></div>
+            <div class="csub" id="acoesQuando"></div>
+          </div>
+          <div class="csub" style="margin:2px 0 10px">Ordenado pelo que custa mais, com sensor comprometido sempre no topo. Nada aqui abre OS sozinho.</div>
+          <div id="acoesBody"></div>
+        </div>
         <div class="diags" id="diags"><div class="loading">Cruzando string, inversor e tracker…</div></div>
       </div>
       <div class="card" id="osCard" style="margin-bottom:14px;display:none">
@@ -2034,8 +2046,35 @@ function v2TabTrk(){
 // MODO HISTÓRICO: quem monta a tela é o bootHist(). Sem este portão, qualquer clique (aba, filtro)
 // chamava o render ao vivo, que sem dado ao vivo reescrevia a tabela com "Carregando inversores…"
 // e ela nunca mais saía (Levi, 15/09: loop infinito ao voltar de "Mês · gerencial").
+// ── Ações propostas do gêmeo, dentro do Diagnóstico (21/09/2026) ───────────────────────────────
+// Le de V2.gemeo (visao do DIA; o periodo de mes nao carrega `acoes`). Mostra a acao, o PORQUE e o
+// custo — o porque e o que o Levi pediu explicitamente, e e o que separa "abrir OS no inversor 2.8"
+// de "abrir OS porque ele produziu 383 kWh abaixo dos irmaos desde 00:00".
+function renderAcoes(){
+  const card=document.getElementById('acoesCard'); if(!card) return;
+  const g=V2.gemeo;
+  if(!g||!g.acoes||!g.acoes.length){ card.style.display='none'; return; }
+  const cor={1:'var(--red)',2:'var(--amber)',3:'var(--ok)'};
+  const quando=document.getElementById('acoesQuando');
+  if(quando) quando.textContent=(g.periodo&&g.periodo.de)?('dia '+g.periodo.de):'';
+  document.getElementById('acoesBody').innerHTML=g.acoes.slice(0,8).map(a=>{
+    const c=cor[a.prioridade]||'var(--off)';
+    const custo=(a.brl!=null)?('R$ '+nf(a.brl,2)):((a.kwh>0)?(nf(a.kwh)+' kWh'):'');
+    return `<div style="display:flex;gap:9px;padding:8px 0;border-top:1px solid var(--line)">
+      <i style="flex:none;width:3px;border-radius:2px;background:${c}"></i>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:12.5px;font-weight:600">${v2esc(a.acao||'')}${a.compromete_diagnostico
+          ?' <span style="color:var(--red);font-weight:500;font-size:11px">· o número desta usina não é confiável até resolver</span>':''}</div>
+        <div class="csub" style="margin-top:2px">${v2esc(a.porque||'')}</div>
+      </div>
+      ${custo?`<div style="flex:none;font-size:12px;color:var(--muted);white-space:nowrap">${custo}</div>`:''}
+    </div>`;
+  }).join('');
+  card.style.display='';
+}
+
 function v2Render(){ if(HIST) return;
-  try{ renderBelow(); }catch(e){ console.error('[v2] kpis',e); } try{ if(V2.tab==='inv') v2TabInv(); else if(V2.tab==='trk') v2TabTrk(); }catch(e){ console.error('[v2] aba',e); } }
+  try{ renderBelow(); }catch(e){ console.error('[v2] kpis',e); } try{ renderAcoes(); }catch(e){ console.error('[v2] acoes',e); } try{ if(V2.tab==='inv') v2TabInv(); else if(V2.tab==='trk') v2TabTrk(); }catch(e){ console.error('[v2] aba',e); } }
 async function v2Boot(){
   if(HIST) return;   // modo histórico: quem monta a tela é o bootHist(); nada do caminho ao vivo (nem o tick de v2Render) roda (Levi 14/09)
   // o seletor nasce em hoje; ?dia=YYYY-MM-DD no link já abre o diagnóstico naquele dia (dá para mandar pronto)

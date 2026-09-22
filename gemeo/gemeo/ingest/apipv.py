@@ -314,8 +314,6 @@ class IngestorAPIPV(Ingestor):
                     print(f"[apipv] {usina.codigo} {dia} {tipo}: {e}")
                     continue
                 leituras += leituras_inversor(recs, mapa, ini, fim, vistos) if tipo == "inverter" else leituras_estacao(recs, est, ini, fim)
-        minutos = max(1.0, (fim - ini).total_seconds() / 60)
         n_inv = sum(1 for t, _ in mapa if t == "inversor")
         n_str = sum(1 for t, _ in mapa if t == "string")
-        esperadas = int(minutos // BLOCO_MIN["p_ac"] * 2 * n_inv + minutos * 5 * (1 if est else 0) + n_str * (minutos // BLOCO_MIN["i_string"]))
-        return Busca(leituras=leituras, n_requisicoes=n, esperadas=esperadas)
+        return Busca(leituras=leituras, n_requisicoes=n)

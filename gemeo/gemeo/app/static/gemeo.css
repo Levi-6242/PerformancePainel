@@ -40,7 +40,7 @@ a{color:var(--dv-2)}a:hover{color:var(--gc-navy)}
 .regua a.dentro{background:var(--st-ok-n)}.regua a.moderado{background:var(--st-warn-n)}.regua a.grave{background:var(--st-risk-n)}.regua a.frio,.regua a.sem_dado{background:var(--st-off-n)}
 .c-ok{color:var(--st-ok)}.c-warn{color:var(--st-warn)}.c-risk{color:var(--st-risk)}.c-off{color:var(--st-off)}
 .n-ok{color:var(--st-ok-n)}.n-warn{color:var(--st-warn-n)}.n-risk{color:var(--st-risk-n)}.n-off{color:var(--st-off-n)}
-.miolo{padding:20px 26px 8px;max-width:1280px;margin:0 auto}
+.miolo{padding:20px 26px 8px;max-width:1640px;margin:0 auto}
 .cards{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:14px}
 .card{background:var(--gc-card);border:1px solid var(--gc-line);border-radius:10px;box-shadow:0 1px 10px rgba(25,21,40,.06)}
 .kpi{padding:14px 16px 12px;display:flex;flex-direction:column;gap:2px}
@@ -62,6 +62,15 @@ table.tab{width:100%;border-collapse:collapse;font-size:12.5px}
 .rodape{padding:14px 0 24px;font-size:11px;color:var(--gc-mut);font-style:italic}
 .duas{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;align-items:start;margin-bottom:14px}
 .coluna{display:flex;flex-direction:column;gap:14px}
+/* 70/30 (Levi, 21/09): a curva e o que se olha; cascata e assinaturas dividem UM card a direita. */
+.setenta{display:grid;grid-template-columns:70fr 30fr;gap:14px;align-items:start;margin-bottom:14px}
+.setenta .casc{padding:14px 12px}.setenta .casc .rot{width:118px;font-size:11px;line-height:1.25}
+.setenta .casc .b{padding:5px 7px;font-size:11px;min-width:46px}
+.setenta .lista .item{padding:9px 12px}
+/* alternador do card: um segmentado pequeno no cabecalho, sem emoji — a cor nao carrega severidade aqui */
+.alt{display:inline-flex;gap:2px;background:var(--gc-zebra);border-radius:7px;padding:2px;margin-left:auto}
+.alt button{font:inherit;font-size:11px;font-weight:700;padding:4px 10px;border:0;border-radius:5px;background:transparent;color:var(--gc-mut);cursor:pointer}
+.alt button[aria-selected="true"]{background:var(--gc-card);color:var(--gc-txt);box-shadow:0 1px 2px rgba(0,0,0,.18)}
 .casc{padding:16px;display:flex;flex-direction:column;gap:10px}
 .casc .lin{display:flex;align-items:center;gap:10px}
 .casc .rot{width:150px;font-size:12px;font-weight:600;text-align:right}
@@ -86,4 +95,19 @@ details summary::-webkit-details-marker{display:none}
 .login input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid var(--gc-line);border-radius:8px;font-size:15px;margin:6px 0 14px}
 .login button{width:100%;padding:11px;border:0;border-radius:8px;background:var(--gc-lime);color:var(--gc-navy);font-weight:800;font-size:14px;cursor:pointer}
 .login .erro{color:var(--st-risk);font-size:12px;min-height:16px;margin-top:10px;text-align:center}
-@media (max-width:980px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.duas{grid-template-columns:1fr}}
+@media (max-width:1180px){.setenta{grid-template-columns:62fr 38fr}}
+@media (max-width:980px){.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.duas,.setenta{grid-template-columns:1fr}.setenta .casc .rot{width:150px;font-size:12px}}
+/* Drill-down das strings do inversor (21/09/2026) */
+tr.str-lin{cursor:pointer}
+tr.str-lin:hover,tr.str-lin:focus{background:var(--gc-zebra);outline:none}
+tr.str-lin:focus-visible{box-shadow:inset 2px 0 0 var(--gc-verde)}
+#str-drill{padding:10px 16px 14px;border-top:1px solid var(--gc-line);background:var(--gc-zebra)}
+#str-drill .drill-cab{display:flex;align-items:baseline;gap:8px;font-size:13px;margin-bottom:6px}
+#str-drill .drill-cab small{color:var(--gc-mut);font-size:11.5px}
+#str-drill .drill-cab button{margin-left:auto;font:inherit;font-size:11px;padding:3px 10px;border:1px solid var(--gc-line);
+  border-radius:6px;background:var(--gc-card);color:var(--gc-mut);cursor:pointer}
+#str-drill .cv{width:100%;height:auto} #str-drill .gl{stroke:var(--gc-line)}
+#str-drill .ax{fill:var(--gc-mut);font-size:9px}
+#str-drill .vazio{font-size:12.5px;color:var(--gc-mut);padding:8px 0}
+#str-drill .drill-leg{display:flex;gap:14px;font-size:11.5px;color:var(--gc-mut);margin-top:4px}
+#str-drill .drill-leg i{display:inline-block;width:16px;height:0;border-top:2.4px solid;vertical-align:middle;margin-right:5px}

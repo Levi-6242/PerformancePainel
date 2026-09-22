@@ -31,8 +31,13 @@ def rodar(ingestor, conn, usina, ini: dt.datetime, fim: dt.datetime) -> dict:
     t0 = time.time()
     b = ingestor.buscar(usina, ini, fim)
     n = db.upsert_leituras(conn, b.leituras)
-    cob = min(1.0, n / b.esperadas) if b.esperadas else 1.0
-    status = "ok" if cob >= 0.9 else "parcial"
+    # Aqui NAO entra a regra de frescor do laco normal, e a razao e do dominio: backfill le dia
+    # FECHADO, e num dia fechado a leitura mais nova e o POR DO SOL — uma noite inteira antes do fim
+    # da janela, por construcao. Medir atraso contra `fim` reprovaria todo backfill correto (o teste
+    # pegou: 12 h de "atraso" num dia perfeitamente baixado). A pergunta do backfill e outra: trouxe
+    # o dia, ou voltou vazio? Ate 21/09 este era o TERCEIRO lugar com a conta de cobertura copiada.
+    status = "ok" if b.leituras else "falha"
+    cob = 1.0 if b.leituras else 0.0
     rid = db.registrar_ingest_run(conn, fonte=ingestor.fonte, usina_id=usina.id, ini=ini, fim=fim, status=status, n_linhas=n,
                                   n_requisicoes=b.n_requisicoes, duracao_s=time.time() - t0, cobertura=cob)
     por_medida: dict[str, int] = {}

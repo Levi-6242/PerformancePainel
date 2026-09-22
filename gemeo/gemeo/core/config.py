@@ -9,7 +9,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 SEGREDOS = ("SUNOP_API_TOKEN", "GRIDCO_SQL_TOKEN", "GEMEO_SENHA")
-OPCIONAIS = ("POWERPLANTS_DSN", "GEMEO_DB_CAMINHO", "PV_OEM_USERNAME", "PV_OEM_PASSWORD", "PV_PLAT_TOKEN_OEM")
+OPCIONAIS = ("POWERPLANTS_DSN", "GEMEO_DB_CAMINHO", "PV_OEM_USERNAME", "PV_OEM_PASSWORD", "PV_PLAT_TOKEN_OEM",
+             "PLATAFORMA_URL")
 # POWERPLANTS so para usinas de fonte pg; PV_OEM_* so para usinas de fonte apipv (o runner exige quando ha uma); o caminho do
 # SQLite tem padrao
 
@@ -44,9 +45,13 @@ class Config:
     apipv_base: str = "https://apipv.pvoperation.com.br/api/v1"
     pv_oem_usuario: str = ""
     pv_oem_senha: str = ""
-    # PV Plataforma (trackers das mesmas tres — 12/09/2026): token colado a mao, vale 7 dias; sem ele os trackers ficam de fora
-    plat_base: str = "https://apiplataforma.pvoperation.com"
-    pv_plat_token_oem: str = ""
+    # Trackers das mesmas tres (fonte `plat`). Ate 21/09/2026 iam direto na apiplataforma com um token
+    # colado a mao; ela NEGA essas usinas para a conta gridco (HTTP 200 + "Usuario nao possui permissao"),
+    # e o token do gemeo era justamente o da gridco. Passaram a vir da Plataforma de Performance, que ja
+    # recebe o acervo da 2C por e-mail — sem token nenhum, so o segredo compartilhado (GEMEO_SENHA).
+    plat_base: str = "https://apiplataforma.pvoperation.com"    # mantido: nao e mais usado pela fonte `plat`
+    pv_plat_token_oem: str = ""                                 # idem — fica ate a limpeza, para nao quebrar gemeo.env antigo
+    plataforma_url: str = "http://127.0.0.1:5050"
 
 
 def _ler_env(caminho: Path) -> dict[str, str]:
@@ -95,4 +100,5 @@ def carregar(caminho_config: Path | None = None, secrets_dir: Path | None = None
         apipv_base=str(t.get("apipv", {}).get("base", Config.apipv_base)),
         pv_oem_usuario=env.get("PV_OEM_USERNAME", ""), pv_oem_senha=env.get("PV_OEM_PASSWORD", ""),
         plat_base=str(t.get("plat", {}).get("base", Config.plat_base)), pv_plat_token_oem=env.get("PV_PLAT_TOKEN_OEM", ""),
+        plataforma_url=str(env.get("PLATAFORMA_URL") or t.get("plat", {}).get("plataforma_url", Config.plataforma_url)).rstrip("/"),
     )

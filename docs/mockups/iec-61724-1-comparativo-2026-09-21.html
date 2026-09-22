@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IEC 61724-1 × Plataforma Grid Co — comparativo item a item</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Archivo:wght@600;700;800&display=swap">
+<style>
+  :root{
+    --ground:#090d18; --surface:#161d30; --surface-2:#1d2540; --line:#2b3654;
+    --ink:#eaeffb; --ink-2:#a8b3cc; --ink-3:#71809e;
+    --ok:#3ddc84; --ok-bg:rgba(61,220,132,.12);
+    --warn:#ffb020; --warn-bg:rgba(255,176,32,.12);
+    --risk:#ff6b6b; --risk-bg:rgba(255,107,107,.12);
+    --nd:#8b9ac2;  --nd-bg:rgba(139,154,194,.12);
+  }
+  @media (prefers-color-scheme:light){ :root:not([data-theme="dark"]){
+    --ground:#f4f6fa; --surface:#fff; --surface-2:#eef1f7; --line:#d6dce8;
+    --ink:#0d1526; --ink-2:#4a5468; --ink-3:#77839a;
+    --ok:#0f9d58; --ok-bg:rgba(15,157,88,.10);
+    --warn:#b26a00; --warn-bg:rgba(178,106,0,.10);
+    --risk:#c62828; --risk-bg:rgba(198,40,40,.08);
+    --nd:#5b6884; --nd-bg:rgba(91,104,132,.10);
+  }}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;
+       line-height:1.6;padding-inline:16px;}
+  .wrap{max-width:1120px;margin:0 auto;padding-block:44px 80px;}
+  h1,h2{font-family:Archivo,sans-serif;margin:0;text-wrap:balance;}
+  h1{font-size:clamp(26px,4.4vw,38px);font-weight:800;letter-spacing:-.02em;line-height:1.14;}
+  h2{font-size:clamp(17px,2.6vw,21px);font-weight:700;margin-block:46px 10px;letter-spacing:-.01em;}
+  p{margin:0 0 13px;max-width:72ch;color:var(--ink-2);}
+  strong{color:var(--ink);font-weight:600;}
+  .eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;
+           text-transform:uppercase;color:var(--ink-3);margin-bottom:9px;}
+  .lede{font-size:16.5px;max-width:64ch;margin-top:13px;}
+  code{font-family:"IBM Plex Mono",monospace;font-size:.87em;background:var(--surface-2);
+       padding:1px 5px;border-radius:4px;color:var(--ink);}
+
+  .placar{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:26px;}
+  .p{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px;}
+  .p .v{font-family:Archivo,sans-serif;font-size:29px;font-weight:800;line-height:1;letter-spacing:-.02em;}
+  .p .r{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;
+        text-transform:uppercase;color:var(--ink-3);margin-top:6px;}
+  .p.ok .v{color:var(--ok)} .p.warn .v{color:var(--warn)} .p.risk .v{color:var(--risk)} .p.nd .v{color:var(--nd)}
+
+  .tab{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface);margin-top:16px;}
+  table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:840px;}
+  th,td{text-align:left;padding:11px 13px;border-bottom:1px solid var(--line);vertical-align:top;}
+  th{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+     color:var(--ink-3);font-weight:500;background:var(--surface-2);white-space:nowrap;position:sticky;top:0;}
+  tbody tr:last-child td{border-bottom:none;}
+  td.cl{font-family:"IBM Plex Mono",monospace;color:var(--ink-3);white-space:nowrap;font-size:12px;}
+  .sel{display:inline-block;font-family:"IBM Plex Mono",monospace;font-size:10px;letter-spacing:.06em;
+       text-transform:uppercase;padding:3px 8px;border-radius:99px;white-space:nowrap;font-weight:600;}
+  .sel.ok{color:var(--ok);background:var(--ok-bg)} .sel.warn{color:var(--warn);background:var(--warn-bg)}
+  .sel.risk{color:var(--risk);background:var(--risk-bg)} .sel.nd{color:var(--nd);background:var(--nd-bg)}
+
+  .caixa{border-left:3px solid var(--warn);background:var(--surface);border-radius:0 10px 10px 0;
+         padding:14px 16px;margin:22px 0 0;}
+  .caixa.ok{border-left-color:var(--ok)} .caixa.risk{border-left-color:var(--risk)}
+  .caixa .r{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.1em;
+            text-transform:uppercase;color:var(--warn);margin-bottom:6px;}
+  .caixa.ok .r{color:var(--ok)} .caixa.risk .r{color:var(--risk)}
+  .caixa p:last-child{margin-bottom:0}
+  footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink-3);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">Grid Co · 21/09/2026 · norma IEC 61724-1:2021 (BS EN), 72 páginas</div>
+  <h1>O que a norma de monitoramento exige, e onde estamos</h1>
+  <p class="lede">Classe A — a que se aplica a usina de grande porte, que é o nosso caso. Item a item,
+     com o que foi <strong>medido</strong> de um lado e do outro, e o que eu não sei marcado como não sei.</p>
+
+  <div class="placar">
+    <div class="p ok"><div class="v">9</div><div class="r">atende</div></div>
+    <div class="p warn"><div class="v">7</div><div class="r">atende em parte</div></div>
+    <div class="p risk"><div class="v">4</div><div class="r">não atende</div></div>
+    <div class="p nd"><div class="v">6</div><div class="r">não sei — é campo</div></div>
+  </div>
+
+  <h2>Cadência e carimbo de tempo</h2>
+  <div class="tab"><table>
+    <thead><tr><th>Cláusula</th><th>Exigência Classe A</th><th>Nosso estado (medido)</th><th>Veredito</th></tr></thead>
+    <tbody>
+      <tr><td class="cl">6.1</td><td>Amostragem no máximo a cada <strong>5 s</strong></td>
+        <td>Não controlamos — é do supervisório do fabricante. Recebemos já agregado.</td>
+        <td><span class="sel nd">perguntar ao fabricante</span></td></tr>
+      <tr><td class="cl">6.1</td><td>Registro no máximo a cada <strong>5 min</strong>; 1 min recomendado</td>
+        <td>API PV entrega <strong>1 min</strong> (medido na investigação de defasagem, 17/09). Atende ao recomendado.</td>
+        <td><span class="sel ok">atende</span></td></tr>
+      <tr><td class="cl">6.1</td><td>Idem, para o acervo do gêmeo</td>
+        <td>Gêmeo grava tracker e string com <code>period=15m</code> — isso é Classe <strong>B</strong>, não A.</td>
+        <td><span class="sel warn">rebaixa a classe</span></td></tr>
+      <tr><td class="cl">6.2</td><td>Declarar se o carimbo é o <strong>início ou o fim</strong> do intervalo</td>
+        <td>Nunca documentamos. É a defasagem de meio intervalo que o relatório da IEA alertava — medi em 17/09 e deu <strong>lag zero em 10 dias-usina</strong>, mas a escolha segue sem registro.</td>
+        <td><span class="sel warn">medido, não documentado</span></td></tr>
+      <tr><td class="cl">6.2</td><td>Hora local padrão <em>ou</em> UTC, sem horário de verão, e a escolha declarada</td>
+        <td>Gêmeo grava UTC; plataforma carimba em Brasília. Coerente, mas não declarado em lugar nenhum.</td>
+        <td><span class="sel warn">declarar</span></td></tr>
+      <tr><td class="cl">6.2</td><td>Relógios sincronizados por NTP/GPS quando há várias aquisições</td>
+        <td>Não verificado do lado dos supervisórios.</td>
+        <td><span class="sel nd">não sei</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>Grandezas medidas e número de sensores</h2>
+  <p>A Tabela 2 exige, e a Tabela 3 multiplica por porte: abaixo de 40 MW o multiplicador é <strong>2</strong>.
+     Todas as nossas estão nessa faixa.</p>
+  <div class="tab"><table>
+    <thead><tr><th>Grandeza</th><th>Exigido (Classe A)</th><th>Temos</th><th>Veredito</th></tr></thead>
+    <tbody>
+      <tr><td>Irradiância no plano (POA)</td><td><strong>2</strong> sensores por usina</td>
+        <td><strong>1</strong> por usina, nas 23 que reportam</td><td><span class="sel risk">metade</span></td></tr>
+      <tr><td>Irradiância horizontal (GHI)</td><td><strong>2</strong> por usina</td>
+        <td><strong>1</strong> por usina, nas 25</td><td><span class="sel risk">metade</span></td></tr>
+      <tr><td>Temperatura de módulo</td><td><strong>6</strong> por usina (3 × multiplicador)</td>
+        <td><strong>1</strong> por usina — 69.848 leituras em 7 dias</td><td><span class="sel risk">um sexto</span></td></tr>
+      <tr><td>Temperatura ambiente</td><td>2 por usina</td><td>1 por usina, coletada</td><td><span class="sel warn">metade</span></td></tr>
+      <tr><td>Velocidade do vento</td><td>2 por usina</td><td>1 por usina, coletada</td><td><span class="sel warn">metade</span></td></tr>
+      <tr><td>Direção do vento</td><td>2 por usina</td><td>não coletamos</td><td><span class="sel risk">não atende</span></td></tr>
+      <tr><td>Chuva</td><td>2 por usina</td><td>não coletamos</td><td><span class="sel risk">não atende</span></td></tr>
+      <tr><td><strong>Soiling ratio</strong></td><td>Exigido <em>se</em> a perda anual por sujeira passar de 2%</td>
+        <td>Não medimos, e não sabemos se passa de 2%</td><td><span class="sel warn">ver abaixo</span></td></tr>
+      <tr><td>Ângulo do tracker (eixo único)</td><td>Exigido, precisão <strong>±1°</strong></td>
+        <td>Coletamos ângulo e ângulo-alvo em 20 e 19 usinas. Precisão do sensor, desconhecida.</td>
+        <td><span class="sel warn">temos o dado, não a precisão</span></td></tr>
+      <tr><td>Potência CA por inversor</td><td>Exigido</td><td>341 inversores, 589 mil leituras/7 dias</td><td><span class="sel ok">atende</span></td></tr>
+      <tr><td>Corrente por string</td><td>Opcional (recomendado p/ detecção de falha)</td>
+        <td>7.966 strings, 5 milhões de leituras/7 dias</td><td><span class="sel ok">acima do exigido</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>Qualidade do sensor e manutenção</h2>
+  <div class="tab"><table>
+    <thead><tr><th>Cláusula</th><th>Exigência Classe A</th><th>Nosso estado</th><th>Veredito</th></tr></thead>
+    <tbody>
+      <tr><td class="cl">Tab. 4</td><td>Piranômetro <strong>Classe A ISO 9060:2018</strong>, espectralmente plano, incerteza de calibração ≤ 2% a 1.000 W/m², faixa até 1.500, resolução ≤ 1 W/m²</td>
+        <td>Não sei o modelo nem a classe dos piranômetros instalados.</td>
+        <td><span class="sel nd">levantar em campo</span></td></tr>
+      <tr><td class="cl">8.2.5</td><td><strong>Limpeza semanal</strong> dos sensores de irradiância — <em>ou</em> tecnologia que detecte a sujeira e permita agendar a limpeza</td>
+        <td>Não há rotina de limpeza documentada nem detecção.</td>
+        <td><span class="sel risk">não atende</span></td></tr>
+      <tr><td class="cl">8.2.6</td><td>Mitigar orvalho e geada onde ocorrem em mais de 2% das horas de sol</td>
+        <td>Não avaliado.</td><td><span class="sel nd">não sei</span></td></tr>
+      <tr><td class="cl">5.2</td><td>Recalibração no prazo do fabricante; <strong>cruzar cada sensor com sensores irmãos</strong> para achar o descalibrado</td>
+        <td>Impossível cruzar: há <strong>um</strong> sensor por usina. Foi por isso que a Ibaté 2 ficou três dias travada em 464 W/m² sem ninguém notar.</td>
+        <td><span class="sel risk">bloqueado pela falta do 2º sensor</span></td></tr>
+      <tr><td class="cl">5.6</td><td>Inspeção do sistema de monitoramento ao menos anual</td>
+        <td>Não documentada.</td><td><span class="sel nd">não sei</span></td></tr>
+      <tr><td class="cl">11.1/11.2</td><td>Precisão elétrica: ±2% tensão e corrente, ±3% potência; medidor da usina Classe 0,2 S (IEC 62053-22)</td>
+        <td>Não sei a classe dos medidores.</td><td><span class="sel nd">levantar</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>Checagem de qualidade do dado — §12.2.1</h2>
+  <p>A norma lista dez métodos recomendados. É a cláusula em que estamos <strong>melhor</strong>, e a que
+     dá o roteiro mais barato para melhorar.</p>
+  <div class="tab"><table>
+    <thead><tr><th>Método recomendado</th><th>Onde estamos</th><th>Veredito</th></tr></thead>
+    <tbody>
+      <tr><td>Limites físicos mínimo e máximo</td><td>Gate POA×GHI do gêmeo; régua de ETM da plataforma</td><td><span class="sel ok">temos</span></td></tr>
+      <tr><td><strong>Leitura travada num valor por tempo prolongado</strong></td>
+        <td><code>sensor_congelado</code> (gêmeo, 17/09) e valor travado do <code>qualidade.py</code> (plataforma, via pvanalytics). Achou a Ibaté 2 com 287 leituras e um valor distinto.</td>
+        <td><span class="sel ok">temos</span></td></tr>
+      <tr><td>Limites de taxa máxima de variação</td><td>Não temos</td><td><span class="sel risk">falta</span></td></tr>
+      <tr><td>Testes estatísticos de outlier, <strong>comparando sensores múltiplos</strong></td>
+        <td>Entre inversores sim (régua de padrão e inversor abaixo dos pares). Entre <em>sensores</em>, impossível: só há um.</td>
+        <td><span class="sel warn">parcial</span></td></tr>
+      <tr><td>Códigos de erro do sensor</td><td>Não lemos</td><td><span class="sel risk">falta</span></td></tr>
+      <tr><td>Registros redundantes / duplicados</td><td>Não checamos</td><td><span class="sel risk">falta</span></td></tr>
+      <tr><td>Dado faltante</td><td>Cobertura do gate, por dia e por usina</td><td><span class="sel ok">temos</span></td></tr>
+      <tr><td>Lacunas e duplicatas de carimbo</td><td>Não checamos explicitamente</td><td><span class="sel warn">parcial</span></td></tr>
+      <tr><td>Relatórios de disponibilidade</td><td>Disponibilidade por tempo e por OS, no gerencial</td><td><span class="sel ok">temos</span></td></tr>
+      <tr><td>Tratamento do dado inválido documentado (§12.2.2)</td>
+        <td>Temos as regras (sem visão, rampa, dia zerado) e elas estão comentadas no código — mas não num documento de método.</td>
+        <td><span class="sel warn">existe, não publicado</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>Métricas — e aqui a norma nos dá um nome</h2>
+  <div class="tab"><table>
+    <thead><tr><th>Cláusula</th><th>O que a norma define</th><th>Nosso estado</th><th>Veredito</th></tr></thead>
+    <tbody>
+      <tr><td class="cl">14.3</td><td><strong>PR</strong> — razão de desempenho, baseada na placa</td>
+        <td>Temos, alinhado ao BI</td><td><span class="sel ok">atende</span></td></tr>
+      <tr><td class="cl">14.4</td><td><strong>EPI</strong> — <em>Energy Performance Index</em>: "razão entre a saída medida e a saída esperada" por um modelo detalhado</td>
+        <td>É exatamente a razão medido/esperado do gêmeo. Só não se chama assim.</td>
+        <td><span class="sel ok">temos — falta o nome</span></td></tr>
+      <tr><td class="cl">14.1</td><td>O PR de placa "omite fatores conhecidos"; alta razão DC/AC opera abaixo da placa e <strong>isso é atributo esperado do projeto</strong></td>
+        <td>É literalmente a decisão do clipping de 17/09, e o motivo de a Tupi enganar no PR.</td>
+        <td><span class="sel ok">alinhado</span></td></tr>
+      <tr><td class="cl">15.3</td><td>Períodos de indisponibilidade devem ser <strong>excluídos com nota</strong>, incluídos com nota, ou a análise feita das duas formas</td>
+        <td>É exatamente a discussão do déficit em usina sem comunicação, que ficou em aberto. A norma diz que qualquer das três serve — <strong>desde que anotada</strong>.</td>
+        <td><span class="sel warn">decisão pendente</span></td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="caixa ok">
+    <div class="r">O que a norma valida do que já fizemos</div>
+    <p>A régua de <strong>valor travado</strong> está na lista de métodos recomendados da §12.2.1, com essas
+      palavras. O <strong>gêmeo</strong> tem nome de norma: o que ele calcula é o EPI da §14.4. E a decisão
+      de <strong>não contar clipping como perda</strong> está justificada no texto da §14.1.</p>
+  </div>
+
+  <div class="caixa">
+    <div class="r">O caminho barato que a norma abre</div>
+    <p>A §8.2.5 exige limpeza semanal dos piranômetros <strong>ou</strong> "tecnologia que detecte a sujeira
+      para que a limpeza seja agendada quando necessário". Ou seja: construir a detecção de sujeira —
+      o rendimento implícito, a comparação com satélite — não é só melhoria de diagnóstico,
+      é <strong>rota de conformidade</strong> para uma exigência que hoje não cumprimos.</p>
+  </div>
+
+  <div class="caixa risk">
+    <div class="r">O buraco que mais custa</div>
+    <p><strong>Um sensor de irradiância por usina onde a norma pede dois.</strong> Isso bloqueia de uma vez
+      a exigência de contagem (Tabela 2), o cruzamento entre sensores irmãos da §5.2 e o teste estatístico
+      da §12.2.1. E tem custo já observado: a Ibaté 2 passou três dias com a POA travada em 464 W/m²,
+      alimentando um modelo inteiro com número falso, porque não havia com o que comparar.</p>
+  </div>
+
+  <footer>
+    Lado da norma: IEC 61724-1:2021, cláusulas 4 a 15 e Tabelas 1 a 8, lidas do PDF.
+    Nosso lado: medido em 21/09/2026 no banco do gêmeo (25 usinas, 7 dias) e no código da plataforma.
+    Seis itens estão marcados como <strong>não sei</strong> de propósito — dependem de levantamento em
+    campo ou de dado do fabricante, e chutar um veredito ali seria pior que deixar em branco.
+  </footer>
+</div>
+</body>
+</html>

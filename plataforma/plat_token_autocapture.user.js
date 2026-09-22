@@ -1,12 +1,13 @@
 // ==UserScript==
 // @name         GridCo - Auto-token PV Plataforma -> Dashboard
 // @namespace    gridco.pv.trackers
-// @version      1.1
-// @description  Captura o JWT (x-auth-token-update) da PV Plataforma e o envia sozinho ao dashboard (localhost:5050), renovando o token dos Trackers/Curva sem copiar e colar. Dispara quando a Plataforma esta aberta.
+// @version      1.2
+// @description  Captura o JWT (x-auth-token-update) da PV Plataforma e o envia sozinho ao(s) dashboard(s) — servidor e local —, renovando o token dos Trackers/Curva sem copiar e colar. Dispara quando a Plataforma esta aberta.
 // @author       GridCo Performance
 // @match        https://plataforma.pvoperation.com/*
 // @run-at       document-start
 // @grant        GM_xmlhttpRequest
+// @connect      app.gridco.com.br
 // @connect      localhost
 // @connect      127.0.0.1
 // @noframes
@@ -16,10 +17,21 @@
   'use strict';
 
   // ----------------------------------------------------------------------------
-  // CONFIG: para onde mandar o token. O dashboard roda na MESMA maquina ->
-  // localhost:5050 e estavel (a URL do tunel Cloudflare muda, nao usar aqui).
-  // Se um dia rodar a Plataforma noutra maquina, troque por: https://SEU-TUNEL.trycloudflare.com
-  var DASH_URL = 'http://localhost:5050/api/pv/trackers/token';
+  // CONFIG: para onde mandar o token. Manda para TODOS os destinos da lista.
+  //
+  // Ate 22/09/2026 aqui havia UM endereco, localhost:5050, com o comentario "se um dia rodar
+  // noutra maquina, troque". O dia chegou: a plataforma entrou num servidor
+  // (https://app.gridco.com.br) e o PLAT_TOKEN de la ficou 59 dias vencido, porque o bookmarklet
+  // seguia entregando o token para uma maquina que nao e mais a que serve a equipe. O sintoma foi
+  // "os trackers da API PV nao carregam" — a tres passos da causa.
+  //
+  // Por que uma LISTA e nao uma troca: enquanto existir a instalacao local (desenvolvimento) e a
+  // do servidor, as duas precisam do token, e quem renova e uma pessoa clicando uma vez. Falha num
+  // destino nao impede o outro; o POST e idempotente e o backend recusa token vencido.
+  var DASH_URLS = [
+    'https://app.gridco.com.br/api/pv/trackers/token',   // servidor (producao)
+    'http://localhost:5050/api/pv/trackers/token'        // instalacao local, quando houver
+  ];
   var SCAN_MS  = 5 * 60 * 1000;   // varredura de seguranca a cada 5 min
   // ----------------------------------------------------------------------------
 
@@ -42,16 +54,28 @@
     if (!tok || tok === ultimoEnviado) return;     // dedup: so reenvia se mudou
     if (!jwtExp(tok)) return;                       // ignora valores que nao sao JWT
     ultimoEnviado = tok;
-    GM_xmlhttpRequest({
-      method: 'POST',
-      url: DASH_URL,
-      headers: { 'Content-Type': 'application/json' },
-      data: JSON.stringify({ token: tok }),
-      timeout: 12000,
-      onload:  function (r) { toast(r.status === 200 ? 'token enviado ao dashboard' : 'falha ao enviar (HTTP ' + r.status + ')'); },
-      onerror: function ()  { ultimoEnviado = ''; toast('dashboard offline em ' + DASH_URL); },
-      ontimeout: function () { ultimoEnviado = ''; toast('dashboard nao respondeu'); }
+    var pendentes = DASH_URLS.length, okAlgum = false;
+    DASH_URLS.forEach(function (url) {
+      GM_xmlhttpRequest({
+        method: 'POST',
+        url: url,
+        headers: { 'Content-Type': 'application/json' },
+        data: JSON.stringify({ token: tok }),
+        timeout: 12000,
+        onload: function (r) { if (r.status === 200) okAlgum = true; fim(url, r.status === 200 ? 'ok' : 'HTTP ' + r.status); },
+        onerror: function () { fim(url, 'offline'); },
+        ontimeout: function () { fim(url, 'sem resposta'); }
+      });
     });
+    function fim(url, estado) {
+      var host = String(url).split('/')[2];
+      if (estado !== 'ok') { try { console.warn('[gridco] token nao entrou em ' + host + ': ' + estado); } catch (e) {} }
+      if (--pendentes > 0) return;
+      // So limpa o dedup se NINGUEM aceitou — assim a proxima varredura tenta de novo em vez de
+      // achar que ja enviou. Se um destino aceitou, o token esta onde precisa estar.
+      if (!okAlgum) ultimoEnviado = '';
+      toast(okAlgum ? 'token enviado ao dashboard' : 'nenhum dashboard aceitou o token');
+    }
   }
 
   // 1) FONTE PRINCIPAL: intercepta o header que o proprio app envia nas chamadas

@@ -69,7 +69,6 @@ async function init(){
   $('#selData').max=hojeISO();
   try{
     const d=await getJSON('/api/pv/trackers');
-    if(d.sem_token){ $('#conteudo').innerHTML='<div class="sec"><div class="note">Sem token da Plataforma no momento — não dá pra listar as usinas da API PV. Renove o token e recarregue.</div></div>'; return; }
     USINAS=(d.rows||[]).filter(r=>r.plant_id!=null).map(r=>({id:r.plant_id,nome:r.usina}));
     USINAS.sort((a,b)=>String(a.nome).localeCompare(String(b.nome)));
     if(!USINAS.length){ $('#conteudo').innerHTML='<div class="sec"><div class="msg">Nenhuma usina de trackers na API PV.</div></div>'; return; }

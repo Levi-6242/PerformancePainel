@@ -445,7 +445,9 @@
     // pouca funcao"). "Sem comunicacao" e so leitura. O card "..." abre as demais abas (Geracao, PR, Curva, Perdas).
     var OUTRAS = [["geracao", "Geração"], ["pr", "PR Inversores"], ["curva", "Curva das strings"], ["perdas", "Perdas"]];
     var frPronto = false;
-    var probEtm = false;   // o card de ETM so liga o filtro do Monitoramento quando ha o que destacar
+    // 21/09/2026: o card de ETM NAO liga mais o filtro do Monitoramento. Ele conta alarme do MES
+    // (BD_Performance) e a aba passou a mostrar so o AGORA — a tela abria filtrada por um motivo que
+    // nem valia mais ali, e o Levi via o botao "Alarmes" marcado sem ter pedido.
     function marcaAba() {
       var res = document.getElementById("us-resumo");
       res.querySelectorAll(".m.aba").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-view") === viewSel); });
@@ -459,8 +461,8 @@
       viewSel = id; marcaAba();
       var fr = document.getElementById("us-frame");
       // o iframe ainda carregando perderia a mensagem: nesse caso troca o src, que ja nasce na aba certa
-      if (frPronto) { try { fr.contentWindow.postMessage({ gc: "view", id: id, prob: (id === "etm" && probEtm) }, "*"); } catch (e) { } }
-      else fr.src = "/monitoramento?fonte=" + encodeURIComponent(fonteSel) + "&embed=1&view=" + id + ((id === "etm" && probEtm) ? "&etmprob=1" : "");
+      if (frPronto) { try { fr.contentWindow.postMessage({ gc: "view", id: id, prob: false }, "*"); } catch (e) { } }
+      else fr.src = "/monitoramento?fonte=" + encodeURIComponent(fonteSel) + "&embed=1&view=" + id;
       try { history.replaceState(null, "", location.pathname + "?view=" + id); } catch (e) { }
     }
     function fechaTroca() {
@@ -575,12 +577,11 @@
       var maisAberto = !!(document.getElementById("us-mais-lista") && !document.getElementById("us-mais-lista").hidden);
       res.innerHTML = mostr("Sem comunicação", fmt(g.usinas_sem_comm), "usinas sem reportar", g.usinas_sem_comm > 0 ? " ruim" : " bom")   // primeiro: vale a qualquer hora
         + (noite ? mostr("Strings", "sem sol", "volta ao amanhecer", " mudo", "strings") : mostr("Strings faltando", strVal(g), strSub(g, " · "), strCls(g), "strings"))
-        + (function(){ probEtm = (g.etm_problema || 0) > 0; return ""; })()
         // ETM: o número são ALARMES do mês (IPOA/GHI medido em zero no BD_Performance); avisos (sensor travado, GHI que
         // não reporta, PR anômalo) ficam no subtítulo — régua de 10/09 (Levi: "alarmar apenas GHI e IPOA zerados").
         + mostr("ETM", fmt(g.etm_problema), "IPOA/GHI zerado no mês · <b>" + fmt(g.etm_com_os) + "</b> com OS" + (g.etm_atencao > 0 ? " · " + fmt(g.etm_atencao) + " em atenção" : ""),
                 g.etm_problema > 0 ? (g.etm_com_os >= g.etm_problema ? " bom" : " ruim") : (g.etm_atencao > 0 ? " aviso" : ""), "etm")
-        + (noite ? mostr("Trackers", "estacionados", "volta ao amanhecer", " mudo", "trackers") : mostr("Trackers parados", g.trk_fonte_ok ? fmt(g.trk_parados) : "—", g.trk_fonte_ok ? "<b>" + fmt(g.trk_com_os) + "</b> com OS" : "fonte não respondeu", g.trk_parados > 0 ? " aviso" : "", "trackers"))
+        + (noite ? mostr("Trackers", "estacionados", "volta ao amanhecer", " mudo", "trackers") : mostr("Trackers parados", g.trk_fonte_ok ? fmt(g.trk_parados) : "—", g.trk_fonte_ok ? ("<b>" + fmt(g.trk_com_os) + "</b> com OS" + (g.trk_atrasado ? " · da leitura anterior" : "")) : "fonte não respondeu", g.trk_parados > 0 ? " aviso" : "", "trackers"))
         // "..." e um div (button dentro de button e invalido: o parser fecharia o de fora e a lista cairia solta na grade)
         + "<div class='m aba mais" + (maisAberto ? " aberto" : "") + "' id='us-mais' data-view='' role='button' tabindex='0' aria-haspopup='menu' title='outras abas'><div class='val'>···</div><div class='sub'>mais</div>"
         + "<div class='mais-lista' id='us-mais-lista' role='menu'" + (maisAberto ? "" : " hidden") + ">" + OUTRAS.map(function (o) { return "<button type='button' role='menuitem' data-view='" + o[0] + "'>" + o[1] + "</button>"; }).join("") + "</div></div>";
@@ -610,7 +611,7 @@
           ? "<div class='m'><div class='rot'>Trackers</div><div class='val mudo'>sem leitura</div><div class='sub'>fonte não respondeu</div></div>"
           : noite
             ? "<div class='m'><div class='rot'>Trackers</div><div class='val mudo'>estacionados</div><div class='sub'>volta ao amanhecer</div></div>"
-            : "<div class='m'><div class='rot'>Trackers parados</div><div class='val" + cls(g.trk_parados, false) + "'>" + fmt(g.trk_parados) + "</div><div class='sub'><b>" + fmt(g.trk_com_os) + "</b> com OS</div></div>";
+            : "<div class='m'><div class='rot'>Trackers parados</div><div class='val" + cls(g.trk_parados, false) + "'>" + fmt(g.trk_parados) + "</div><div class='sub'><b>" + fmt(g.trk_com_os) + "</b> com OS" + (g.trk_atrasado ? "<br>da leitura anterior" : "") + "</div></div>";
         var comm = g.sem_leitura ? "<span class='mudo'>sem leitura de nenhuma usina</span>" : (g.usinas_sem_comm > 0 ? "<span class='ruim'>" + fmt(g.usinas_sem_comm) + " sem comunicação</span>" : "<span>comunicação ok</span>");
         if (g.sem_leitura) { strings = "<div class='m'><div class='rot'>Strings</div><div class='val mudo'>sem leitura</div><div class='sub'>fonte sem dado agora</div></div>"; trk = "<div class='m'><div class='rot'>Trackers</div><div class='val mudo'>sem leitura</div><div class='sub'>fonte sem dado agora</div></div>"; }
         return "<a class='g" + (g.sem_leitura ? " vazio-dado" : "") + "' href='" + alvo + "' style='animation-delay:" + (i * 45) + "ms'>"

@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Como o Gêmeo Digital funciona</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Archivo:wght@600;700;800&display=swap">
+<style>
+  :root{
+    --ground:#090d18; --surface:#161d30; --surface-2:#1d2540; --line:#2b3654;
+    --ink:#eaeffb; --ink-2:#a8b3cc; --ink-3:#71809e;
+    --grid:#3ddc84; --grid-soft:rgba(61,220,132,.13);
+    --risk:#ff6b6b; --warn:#ffb020; --azul:#5aa9ff; --roxo:#b388ff;
+  }
+  @media (prefers-color-scheme:light){ :root:not([data-theme="dark"]){
+    --ground:#f4f6fa; --surface:#fff; --surface-2:#eef1f7; --line:#d6dce8;
+    --ink:#0d1526; --ink-2:#4a5468; --ink-3:#77839a;
+    --grid:#0f9d58; --grid-soft:rgba(15,157,88,.11);
+    --risk:#c62828; --warn:#b26a00; --azul:#1565c0; --roxo:#6a3fbf;
+  }}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;
+       line-height:1.62;padding-inline:16px;}
+  .wrap{max-width:960px;margin:0 auto;padding-block:44px 80px;}
+  h1,h2,h3{font-family:Archivo,sans-serif;margin:0;text-wrap:balance;}
+  h1{font-size:clamp(27px,4.6vw,40px);font-weight:800;letter-spacing:-.02em;line-height:1.13;}
+  h2{font-size:clamp(18px,3vw,23px);font-weight:700;margin-block:52px 12px;letter-spacing:-.01em;}
+  h3{font-size:15.5px;font-weight:700;margin-block:26px 4px;}
+  p{margin:0 0 14px;max-width:70ch;color:var(--ink-2);}
+  strong{color:var(--ink);font-weight:600;}
+  .eyebrow{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.14em;
+           text-transform:uppercase;color:var(--ink-3);margin-bottom:9px;}
+  .lede{font-size:17px;max-width:64ch;margin-top:14px;}
+  code{font-family:"IBM Plex Mono",monospace;font-size:.88em;background:var(--surface-2);
+       padding:1px 6px;border-radius:4px;color:var(--ink);}
+  .num{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;}
+
+  figure{margin:24px 0 0;background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 12px 6px;}
+  figure svg{display:block;width:100%;height:auto;}
+  figcaption{font-size:12.5px;color:var(--ink-3);padding:8px 6px 4px;max-width:72ch;}
+
+  .passos{display:grid;gap:0;margin-top:20px;border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+  .passo{display:grid;grid-template-columns:38px 1fr;gap:14px;padding:16px;background:var(--surface);
+         border-bottom:1px solid var(--line);align-items:start;}
+  .passo:last-child{border-bottom:none}
+  .passo .n{font-family:Archivo,sans-serif;font-weight:800;font-size:15px;color:var(--grid);
+            background:var(--grid-soft);border-radius:8px;width:38px;height:30px;display:grid;place-items:center;}
+  .passo h4{margin:0;font-size:15px;font-family:"IBM Plex Sans",sans-serif;font-weight:700;}
+  .passo p{margin:5px 0 0;font-size:14px;}
+
+  .tab{overflow-x:auto;border:1px solid var(--line);border-radius:10px;background:var(--surface);margin-top:16px;}
+  table{border-collapse:collapse;width:100%;font-size:13.5px;min-width:560px;}
+  th,td{text-align:left;padding:10px 13px;border-bottom:1px solid var(--line);vertical-align:top;}
+  th{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;
+     color:var(--ink-3);font-weight:500;background:var(--surface-2);white-space:nowrap;}
+  tbody tr:last-child td{border-bottom:none}
+  td.r{text-align:right;font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums;}
+
+  .caixa{border-left:3px solid var(--warn);background:var(--surface);border-radius:0 10px 10px 0;
+         padding:15px 17px;margin:22px 0 0;}
+  .caixa.ok{border-left-color:var(--grid)} .caixa.risk{border-left-color:var(--risk)}
+  .caixa .r{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.1em;
+            text-transform:uppercase;color:var(--warn);margin-bottom:6px;}
+  .caixa.ok .r{color:var(--grid)} .caixa.risk .r{color:var(--risk)}
+  .caixa p:last-child{margin-bottom:0}
+  footer{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink-3);}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">Grid Co · Gêmeo Digital · 21/09/2026</div>
+  <h1>Como o gêmeo decide que uma usina está perdendo, e de quem é a culpa</h1>
+  <p class="lede">Ele não compara com a meta nem com o mês passado. Ele <strong>simula a usina</strong>
+     com a irradiância que o sensor mediu, e cobra a diferença — depois reparte essa diferença entre
+     os culpados, até sobrar zero.</p>
+
+  <h2>A ideia em uma frase</h2>
+  <p>A cada 15 minutos o gêmeo pergunta: <em>com o sol que bateu agora, quanto esta usina
+     deveria estar produzindo?</em> A resposta vem de um modelo físico (PVWatts, da biblioteca pvlib)
+     alimentado pela POA medida em campo. O que falta para o medido é a perda — e o trabalho dele é
+     dizer <strong>de quem</strong>.</p>
+
+  <figure>
+    <svg viewBox="0 0 900 200" role="img" aria-label="Fluxo: ingestão, grade, portão, esperado, cascata, eventos, ações">
+      <defs><marker id="s" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+        <path d="M0,0 L8,4 L0,8 z" fill="var(--ink-3)"/></marker></defs>
+      <g font-family="IBM Plex Sans, sans-serif" font-size="12.5">
+        <rect x="8"   y="60" width="118" height="54" rx="9" fill="var(--surface-2)" stroke="var(--line)"/>
+        <text x="67"  y="82"  fill="var(--ink)" text-anchor="middle" font-weight="600">Ingestão</text>
+        <text x="67"  y="99"  fill="var(--ink-3)" text-anchor="middle" font-size="11">4 fontes, 90 dias</text>
+
+        <rect x="152" y="60" width="118" height="54" rx="9" fill="var(--surface-2)" stroke="var(--line)"/>
+        <text x="211" y="82"  fill="var(--ink)" text-anchor="middle" font-weight="600">Grade 15 min</text>
+        <text x="211" y="99"  fill="var(--ink-3)" text-anchor="middle" font-size="11">tudo no mesmo relógio</text>
+
+        <rect x="296" y="60" width="118" height="54" rx="9" fill="var(--surface-2)" stroke="var(--warn)"/>
+        <text x="355" y="82"  fill="var(--warn)" text-anchor="middle" font-weight="600">Portão</text>
+        <text x="355" y="99"  fill="var(--ink-3)" text-anchor="middle" font-size="11">o sensor é confiável?</text>
+
+        <rect x="440" y="60" width="118" height="54" rx="9" fill="var(--surface-2)" stroke="var(--azul)"/>
+        <text x="499" y="82"  fill="var(--azul)" text-anchor="middle" font-weight="600">Esperado</text>
+        <text x="499" y="99"  fill="var(--ink-3)" text-anchor="middle" font-size="11">PVWatts sobre a POA</text>
+
+        <rect x="584" y="60" width="118" height="54" rx="9" fill="var(--surface-2)" stroke="var(--roxo)"/>
+        <text x="643" y="82"  fill="var(--roxo)" text-anchor="middle" font-weight="600">Cascata</text>
+        <text x="643" y="99"  fill="var(--ink-3)" text-anchor="middle" font-size="11">reparte a perda</text>
+
+        <rect x="728" y="60" width="164" height="54" rx="9" fill="var(--grid-soft)" stroke="var(--grid)"/>
+        <text x="810" y="82"  fill="var(--grid)" text-anchor="middle" font-weight="600">Eventos e ações</text>
+        <text x="810" y="99"  fill="var(--ink-3)" text-anchor="middle" font-size="11">o que fazer hoje</text>
+
+        <line x1="126" y1="87" x2="148" y2="87" stroke="var(--ink-3)" marker-end="url(#s)"/>
+        <line x1="270" y1="87" x2="292" y2="87" stroke="var(--ink-3)" marker-end="url(#s)"/>
+        <line x1="414" y1="87" x2="436" y2="87" stroke="var(--ink-3)" marker-end="url(#s)"/>
+        <line x1="558" y1="87" x2="580" y2="87" stroke="var(--ink-3)" marker-end="url(#s)"/>
+        <line x1="702" y1="87" x2="724" y2="87" stroke="var(--ink-3)" marker-end="url(#s)"/>
+
+        <text x="355" y="140" fill="var(--warn)" text-anchor="middle" font-size="11">reprovou → o dia não conta</text>
+        <line x1="355" y1="118" x2="355" y2="128" stroke="var(--warn)" stroke-dasharray="3 3"/>
+        <text x="8" y="176" fill="var(--ink-3)" font-size="11.5" font-family="IBM Plex Mono, monospace">SunOp · API PV · PostgreSQL do Thopen · PV Plataforma</text>
+      </g>
+    </svg>
+    <figcaption>O ciclo roda a cada 15 minutos, por usina. Hoje são 25 usinas: 18 pelo PG, 4 pela SunOp e 3 pela API PV.</figcaption>
+  </figure>
+
+  <h2>Os seis passos, com o porquê de cada um</h2>
+  <div class="passos">
+    <div class="passo"><div class="n">1</div><div>
+      <h4>Ingestão — baixa uma vez e guarda</h4>
+      <p>Lê as quatro fontes e grava num banco próprio com 90 dias de retenção. É a diferença entre
+        <em>cache</em> e <em>acervo</em>: a plataforma re-baixa a curva a cada ciclo e gasta ~8.000
+        requisições por dia na SunOp; o gêmeo gasta <strong>85</strong>, porque não pergunta duas vezes.</p>
+    </div></div>
+
+    <div class="passo"><div class="n">2</div><div>
+      <h4>Grade de 15 minutos — tudo no mesmo relógio</h4>
+      <p>Irradiância, potência, corrente de string e ângulo de tracker chegam em cadências
+        diferentes. Sem alinhar, comparar medido com esperado seria comparar instantes distintos.</p>
+    </div></div>
+
+    <div class="passo"><div class="n">3</div><div>
+      <h4>Portão — o sensor merece crédito?</h4>
+      <p>Duas portas: a razão POA/GHI tem de fazer sentido físico, e a cobertura do dia tem de ser
+        suficiente. Se o portão reprova, <strong>o gêmeo se cala</strong> em vez de publicar um
+        número que nasceu de sensor ruim. Um diagnóstico errado com ar de certeza é pior que nenhum.</p>
+    </div></div>
+
+    <div class="passo"><div class="n">4</div><div>
+      <h4>Esperado — a usina simulada</h4>
+      <p>PVWatts (pvlib) sobre a <strong>POA medida</strong>, por inversor, com a potência de placa e
+        a temperatura. Não é meta nem histórico: é o que a física diz que deveria sair com
+        <em>aquele</em> sol, naquele minuto.</p>
+    </div></div>
+
+    <div class="passo"><div class="n">5</div><div>
+      <h4>Cascata — reparte a diferença até sobrar zero</h4>
+      <p>A perda do dia é descontada em ordem, e cada parcela tem dono. O que não se explica vira
+        resíduo — e resíduo grande é confissão de ignorância, não conclusão.</p>
+    </div></div>
+
+    <div class="passo"><div class="n">6</div><div>
+      <h4>Eventos e ações — de número para tarefa</h4>
+      <p>Nove tipos de evento viram uma lista ordenada pelo que custa mais, com o motivo e o valor.
+        <strong>Propor não é executar</strong>: quem abre a OS é uma pessoa.</p>
+    </div></div>
+  </div>
+
+  <h2>A cascata, que é o coração</h2>
+  <p>A ordem importa: cada parcela desconta do que sobrou da anterior, então ninguém é cobrado duas
+     vezes pelo mesmo kWh.</p>
+  <div class="tab"><table>
+    <thead><tr><th>Parcela</th><th>O que é</th><th>Como o gêmeo sabe</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Esperado</strong></td><td>o que a física prometia</td><td>PVWatts sobre a POA medida</td></tr>
+      <tr><td>− Inversor parado</td><td>equipamento fora</td><td>potência zerada com sol e com os irmãos produzindo</td></tr>
+      <tr><td>− Trackers</td><td>seguidor fora do alvo</td><td>excesso sobre a mediana da frota, acima de 5°</td></tr>
+      <tr><td>− Strings</td><td>string sem corrente</td><td>zeradas sobre instaladas, universo dos últimos 30 dias</td></tr>
+      <tr><td>− Clipping</td><td>inversor no teto</td><td>medido cravado em 98% do máximo do período</td></tr>
+      <tr><td>− Resíduo</td><td><strong>o que não se explicou</strong></td><td>é o que sobra — sujeira, sombra, cadastro errado</td></tr>
+      <tr><td><strong>= Medido</strong></td><td>o que a usina entregou</td><td>soma dos inversores, nos mesmos instantes</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="caixa ok">
+    <div class="r">Clipping não conta como perda</div>
+    <p>Decisão sua, de 17/09, e a norma concorda: a IEC 61724-1 §14.1 diz que sistema com alta razão
+      DC/AC opera abaixo da placa em alta irradiância e que <strong>isso é atributo esperado do
+      projeto</strong>. Clipping aparece na cascata para explicar o resíduo, mas fica fora da perda
+      valorada — não se manda ninguém a campo consertar um projeto funcionando como desenhado.</p>
+  </div>
+
+  <h2>O EPI — o número que resume tudo</h2>
+  <p><strong>EPI = medido ÷ esperado.</strong> Um EPI de 1,00 significa que a usina entregou
+     exatamente o que o modelo previu. É o <em>Energy Performance Index</em> da IEC 61724-1:2021
+     §14.4 — não é métrica nossa, é de norma.</p>
+  <p>Ele é diferente do PR tradicional, e a diferença importa: o PR compara com a <strong>placa</strong>
+     e por isso pune usina que clipa ou que tem tracker; o EPI compara com um <strong>modelo</strong>
+     que já sabe disso. A própria norma diz que esses efeitos "são melhor tratados por um índice
+     baseado em modelo detalhado".</p>
+  <div class="tab"><table>
+    <thead><tr><th>Usina</th><th class="r">EPI hoje</th><th>Leitura</th></tr></thead>
+    <tbody>
+      <tr><td>Tupi Paulista</td><td class="r">1,067</td><td>entregou 6,7% acima do modelo — dentro da tolerância</td></tr>
+      <tr><td>MRO100</td><td class="r">0,707</td><td>entregou 29% abaixo; a cascata diz por quê</td></tr>
+      <tr><td><strong>Ibaté 2</strong></td><td class="r"><strong>3,171</strong></td>
+        <td>três vezes o esperado — e isso <em>não</em> é a usina indo bem: o piranômetro está travado
+          em 464 W/m², então o esperado nasceu errado. A tela acusa "sensor congelado".</td></tr>
+    </tbody>
+  </table></div>
+
+  <div class="caixa risk">
+    <div class="r">O ponto mais frágil de todo o desenho</div>
+    <p>O esperado nasce da <strong>POA medida</strong>. Se o piranômetro mente, o gêmeo inteiro mente
+      junto — e com ar de autoridade. Sensor travado não produz um alarme de perda, produz um
+      <em>esperado inteiro errado</em>. É por isso que metade das checagens novas é sobre o sensor,
+      e por que a norma pede <strong>dois</strong> piranômetros por usina onde temos um.</p>
+  </div>
+
+  <h2>Como ele desconfia do próprio dado</h2>
+  <p>Seguindo a lista de métodos da IEC 61724-1 §12.2.1:</p>
+  <div class="tab"><table>
+    <thead><tr><th>Checagem</th><th>O que pegou de verdade</th></tr></thead>
+    <tbody>
+      <tr><td>Valor travado com sol</td><td>Ibaté 2: 287 leituras no dia, <strong>um</strong> valor distinto, por três dias</td></tr>
+      <tr><td>Limites físicos por medida</td><td>MTS100: vento <span class="num">−1,0</span> gravado 364 vezes — é sentinela de "sem dado" virando medição</td></tr>
+      <tr><td>Taxa máxima de variação</td><td>só onde a física proíbe (temperatura). Irradiância salta 1225→372→1202 em minutos e é nuvem, não defeito</td></tr>
+      <tr><td>Carimbos duplicados e lacunas</td><td>integridade da série</td></tr>
+      <tr><td>Céu do dia e rendimento implícito</td><td>separa "deficit porque nublou" de "deficit sem desculpa"</td></tr>
+      <tr><td>Cobertura do portão</td><td>quanto do dia teve sensor confiável</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>O que ele ainda NÃO é</h2>
+  <p>Pela taxonomia do relatório IEA-PVPS T13-34, ele é uma <strong>Sombra Digital</strong>: o fluxo é
+     automático só numa direção, do campo para a tela. Gêmeo de verdade agiria de volta. Hoje ele
+     propõe e para — e essa fronteira é proposital.</p>
+  <p>Também <strong>nenhum modelo está calibrado</strong>. As 25 usinas rodam com modelo de placa e
+     tolerância de 8%. O piloto das três da 2C achou 7, 7 e 3 dias limpos contra os 30 exigidos; a
+     Sete Lagoas apareceu com 21% de perdas fixas contra os 14% de placa, o que vale investigar.</p>
+
+  <footer>
+    Medições de 21/09/2026 no banco do gêmeo — 25 usinas, 90 dias de retenção, 223 testes automatizados.
+    Referências: IEC 61724-1:2021 §12.2.1, §14.1 e §14.4; relatório IEA-PVPS T13-34 (2026).
+  </footer>
+</div>
+</body>
+</html>

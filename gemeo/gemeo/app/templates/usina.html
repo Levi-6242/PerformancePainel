@@ -11,12 +11,13 @@
 {% set qs = ('&dia=' ~ dia_sel) if dia_sel else '' %}
 <div class="heroi"><div class="linha"><div><div class="kicker">Diagnóstico do gêmeo · {{ c.hoje if d.periodo.dias == 1 else (d.periodo.dias ~ " dias · " ~ d.periodo.de ~ " a " ~ d.periodo.ate) }}</div>
   <h1>{{ c.codigo }} <span class="sub num">· {{ c.fonte }} · {{ (c.kwp/1000)|num(1) }} MWp · {{ c.n_inversores }} inversores · {{ c.n_trackers }} trackers · {{ c.n_strings }} strings</span></h1></div>
-  <div><span class="tag {{ k }}" style="padding:5px 13px"><span class="gl">{{ {'ok':'●','warn':'▲','risk':'✕','off':'○'}[k] }}</span> {{ 'sem dado fresco' if c.frio else {'ok':'Dentro','warn':'Déficit','risk':'Déficit','off':'Sem dado'}[k] }} <span class="num">{{ c.delta|pct }}</span> {{ 'no dia' if c.base == 'dia' else 'agora' }}</span></div></div>
+  <div><span class="tag {{ k }}" style="padding:5px 13px"><span class="gl">{{ {'ok':'●','warn':'▲','risk':'✕','off':'○'}[k] }}</span> {{ 'sem dado fresco' if c.frio else {'ok':'Dentro','warn':'Déficit','risk':'Déficit','off':'Sem dado'}[k] }} <span class="num">{{ c.delta|pct }}</span> {{ 'no dia' if c.base == 'dia' else 'agora' }}</span>
+   {% if c.get('epi') is not none %}<span class="tag" style="padding:5px 13px;margin-left:6px" title="Energy Performance Index — IEC 61724-1:2021 §14.4: saída medida ÷ saída esperada pelo modelo. 1,00 = a usina entregou exatamente o que o modelo previu.">EPI <span class="num">{{ c.get('epi')|num(3) }}</span></span>{% endif %}</div></div>
   <div class="regua-cab" style="margin-top:10px"><div class="seg">{% for p, rot in (('dia', 'Dia'), ('semana', '7 dias'), ('mes', '30 dias')) %}<a href="{{ PREFIXO }}/usina/{{ c.id }}?periodo={{ p }}{{ qs }}" class="{{ 'on' if periodo == p else '' }}">{{ rot }}</a>{% endfor %}</div><div>modelo <b>{{ c.modelo_versao or 'placa' }}</b> · {{ 'calibrado' if c.calibrado else 'não calibrado' }} · tolerância {{ (c.tolerancia*100)|round(0)|int }}% · última leitura há {{ c.idade_leitura_min if c.idade_leitura_min is not none else '—' }} min · último esperado há {{ c.idade_esperado_min if c.idade_esperado_min is not none else '—' }} min</div></div>
 </div>
 {% if c.frio %}<div class="frio-aviso">Dado frio: a última leitura tem mais de 30 min. As cores abaixo valem para o último instante conhecido.</div>{% endif %}
 <div class="miolo">
- <div class="duas">
+<div class="setenta">
   {% if d.periodo.dias > 1 %}
   <div class="card"><div class="tit">Por dia — esperado × medido <small>energia da usina · MWh · {{ d.dias|length }} dias com cascata</small></div>
    <div style="padding:16px 16px 8px"><svg id="barras" viewBox="0 0 560 240" style="width:100%;height:auto" role="img" aria-label="Esperado e medido por dia"></svg></div>
@@ -31,8 +32,20 @@
    <script type="application/json" id="paradas-dados">{{ d.paradas|tojson }}</script>
   </div>
   {% endif %}
-  <div class="coluna">
-   <div class="card"><div class="tit">Cascata de perdas — {{ c.hoje if d.periodo.dias == 1 else (d.periodo.dias ~ " dias") }}</div>
+  <div class="card">
+   <!-- Cascata e Assinaturas dividem UM card (Levi, 21/09): "separados por um botao, default em cascata".
+        Os dois respondem a mesma pergunta — o que a usina perdeu hoje — e lado a lado disputavam a largura
+        que a curva precisa. O alternador e `hidden`, nao remocao: trocar de aba nao refaz nada. -->
+   <div class="tit" style="gap:10px">
+    <span id="alt-rot">Cascata de perdas — {{ c.hoje if d.periodo.dias == 1 else (d.periodo.dias ~ " dias") }}</span>
+    <span class="alt" role="tablist" aria-label="Cascata ou assinaturas">
+     <button type="button" role="tab" data-aba="casc" aria-selected="true" aria-controls="aba-casc"
+      data-rot='Cascata de perdas — {{ c.hoje if d.periodo.dias == 1 else (d.periodo.dias ~ " dias") }}'>Cascata</button>
+     <button type="button" role="tab" data-aba="ass" aria-selected="false" aria-controls="aba-ass"
+      data-rot="Assinaturas detectadas" data-sub="{{ d.eventos|length }} eventos">Assinaturas</button>
+    </span>
+   </div>
+   <div id="aba-casc" role="tabpanel">
     {% if d.cascata %}{% set cs = d.cascata %}{% set base = cs.e_esperado if cs.e_esperado > 0 else 1 %}
     <div class="casc">
      <div class="lin"><span class="rot">Esperado (gêmeo)</span><div class="barra"><div class="b esp num" style="width:100%">{{ (cs.e_esperado/1000)|num(2) }} MWh</div></div></div>
@@ -44,7 +57,7 @@
     <div style="padding:0 16px 14px;font-size:11px;color:var(--gc-mut)">{% if d.perda_brl is not none %}Perda valorada: <b class="num c-risk">{{ d.perda_brl|brl }}</b> · contrato <span class="num">R$ {{ d.preco_mwh|num(0) }}/MWh</span>{% else %}Sem preço no contrato (meta_mes.preco_mwh): perda só em MWh{% endif %} · cobertura do gate <span class="num">{{ (cs.cobertura_gate*100)|round(0)|int }}%</span>{% if cs.get('clipping', 0) > 0 %} · <span style="color:var(--dv-4)">clipping <span class="num">{{ (cs.get('clipping', 0)/1000)|num(2) }} MWh</span> não entra na perda: é limite de projeto, não falha de operação</span>{% endif %}{% if cs.trackers_sem_inversor %} · <span class="c-warn">{{ cs.trackers_sem_inversor }} trackers sem inversor no de-para</span>{% endif %}</div>
     {% else %}<div class="casc" style="color:var(--gc-mut)">Sem cascata hoje — {{ d.sensor.gate_hoje if d.sensor.gate_hoje != 'ok' else 'o modelo ainda não rodou para este dia' }}.</div>{% endif %}
    </div>
-   <div class="card"><div class="tit">Assinaturas detectadas <small>{{ d.eventos|length }} eventos</small></div>
+   <div id="aba-ass" role="tabpanel" hidden>
     <div class="lista">{% for e in d.eventos[:8] %}{% set ke = {'grave':'risk','media':'warn','leve':'ok'}[e.severidade] %}
      <div class="item"><div><b>{{ {'inversor_parado':'Inversor parado','inversor_abaixo':'Inversor abaixo dos pares','tracker_fora_alvo':'Tracker fora do alvo','tracker_travado':'Tracker travado','tracker_sem_comunicacao':'Tracker sem comunicação','string_sem_corrente':'String sem corrente','sensor_em_falha':'Sensor em falha (POA × GHI)','sem_cobertura':'Sem cobertura de sensor'}[e.tipo] }} — {{ e.equipamento }}</b>
       <div class="sub">{{ ('das ' ~ e.hora_ini ~ ' às ' ~ e.hora_fim) if e.hora_fim else ('desde ' ~ e.hora_ini ~ ' · aberto') }} · <span class="num">{{ e.kwh|num(0) }} kWh</span>{% if e.detalhe.excesso_max %} · excesso máx. {{ e.detalhe.excesso_max|num(0) }}°{% endif %}{% if e.detalhe.razoes %} · razões {{ e.detalhe.razoes }}{% endif %}</div></div>
@@ -52,19 +65,44 @@
     {% else %}<div class="item"><div class="sub">Nenhuma assinatura hoje.</div></div>{% endfor %}</div>
    </div>
   </div>
- </div>
+</div>
+   <div class="card" style="margin-bottom:14px">{% set acoes = d.get('acoes') or [] %}
+    <div class="tit">Ações propostas <small>{{ acoes|length if acoes else 'nenhuma hoje' }}{{ ' · o gêmeo sugere, você decide' if acoes else '' }}</small></div>
+    {% if not acoes %}<div style="padding:4px 16px 14px;font-size:13px;color:var(--gc-mut)">
+     {% if not d.cascata %}Sem ação proposta porque não houve cascata neste dia: sem ela não há como valorar
+     evento nenhum{{ ' — e há ' ~ d.eventos|length ~ ' assinatura(s) detectada(s) esperando preço' if d.eventos else '' }}.
+     Ausência de ação aqui é falta de conta, não ausência de problema.
+     {% else %}Nenhuma ação proposta para hoje: o gêmeo não achou evento com custo nem resíduo acima de 5% do esperado.
+     O bloco fica visível de propósito — ausência de achado é informação, e some da tela seria confundido com não ter olhado.
+     {% endif %}
+    </div>{% endif %}
+    <div class="lista">{% for a in acoes[:8] %}{% set kp = {1:'risk',2:'warn',3:'ok'}[a.prioridade] %}
+     <div class="item">
+      <div><b class="c-{{ kp }}">{{ a.acao }}</b>{% if a.compromete_diagnostico %} <span class="c-risk" style="font-size:11px">· o número desta usina não é confiável até resolver</span>{% endif %}</div>
+      <div style="font-size:12px;color:var(--gc-mut)">{{ a.porque }}</div>
+     </div>{% endfor %}</div>
+    {% if acoes %}<div style="padding:0 16px 12px;font-size:11px;color:var(--gc-mut)">
+     Ordenado pelo que custa mais, com o sensor comprometido sempre no topo — com ele aberto, os outros números não valem.
+     Clipping não vira ação: é limite de projeto, não falha de operação. Nada aqui abre OS sozinho.
+    </div>{% endif %}
+   </div>
  <div class="card" style="overflow:hidden;margin-bottom:14px"><div class="tit">Por inversor — {{ c.hoje if d.periodo.dias == 1 else (d.periodo.de ~ " a " ~ d.periodo.ate) }} <small>razão medido/esperado nos mesmos instantes · parcelas em kWh</small></div>
-  <table class="tab"><thead><tr><th>Inversor</th><th class="r">Esperado</th><th class="r">Medido</th><th class="r">Razão</th><th class="r">Parado</th><th class="r">Trackers</th><th class="r">Strings</th><th class="r" style="color:var(--dv-4)">Clipping</th><th class="r">Resíduo</th><th>Status</th></tr></thead><tbody>
+  <table class="tab"><thead><tr><th>Inversor</th><th class="r">Esperado</th><th class="r">Medido</th><th class="r" title="EPI por inversor — medido ÷ esperado nos mesmos instantes (IEC 61724-1 §14.4)">EPI</th><th class="r">Parado</th><th class="r">Trackers</th><th class="r">Strings</th><th class="r" style="color:var(--dv-4)">Clipping</th><th class="r">Resíduo</th><th>Status</th></tr></thead><tbody>
   {% for i in d.inversores %}{% set ki = {'parado':'risk','abaixo':'warn','atencao':'warn','ok':'ok','sem_dado':'off'}[i.status] %}
    <tr><td class="nome">{{ i.nome }}</td><td class="num r">{{ i.esperado_kwh|num(0) }}</td><td class="num r">{{ i.medido_kwh|num(0) }}</td><td class="num r c-{{ ki }}">{{ i.razao|num(3) }}</td>
     <td class="num r">{{ i.inv_parado|num(0) }}</td><td class="num r">{{ i.tracker|num(0) }}</td><td class="num r">{{ i.string|num(0) }}</td><td class="num r" style="color:var(--dv-4)">{{ i.get('clipping', 0)|num(0) }}</td><td class="num r">{{ i.residuo|num(0) }}</td>
     <td><span class="tag {{ ki }}">{{ {'parado':'Parado','abaixo':'Abaixo dos pares','atencao':'Atenção','ok':'Normal','sem_dado':'Sem dado'}[i.status] }}</span></td></tr>
   {% endfor %}</tbody></table>
   <details><summary>Trackers com mais perda {{ "hoje" if d.periodo.dias == 1 else "no período" }} ({{ d.trackers|length }})</summary><table class="tab"><thead><tr><th>Tracker</th><th class="r">Perda (kWh)</th></tr></thead><tbody>{% for t in d.trackers %}<tr><td>{{ t.nome }}{% if not t.pai_id %} <span class="c-warn">(sem inversor)</span>{% endif %}</td><td class="num r">{{ t.kwh|num(1) }}</td></tr>{% else %}<tr><td colspan="2" style="color:var(--gc-mut)">nenhuma perda em trackers hoje</td></tr>{% endfor %}</tbody></table></details>
-  <details><summary>Strings com mais perda {{ "hoje" if d.periodo.dias == 1 else "no período" }} ({{ d.strings|length }})</summary><table class="tab"><thead><tr><th>String</th><th class="r">Perda (kWh)</th></tr></thead><tbody>{% for s in d.strings %}<tr><td>{{ s.nome }}</td><td class="num r">{{ s.kwh|num(1) }}</td></tr>{% else %}<tr><td colspan="2" style="color:var(--gc-mut)">nenhuma perda em strings hoje</td></tr>{% endfor %}</tbody></table></details>
+  <details><summary>Strings com mais perda {{ "hoje" if d.periodo.dias == 1 else "no período" }} ({{ d.strings|length }})</summary><table class="tab"><thead><tr><th>String</th><th class="r">Perda (kWh)</th></tr></thead><tbody>{% for s in d.strings %}<tr class="str-lin" tabindex="0" role="button"
+   data-inv="{{ s.pai_codigo or s.pai }}" data-str="{{ s.sufixo }}" data-uid="{{ c.id }}" data-dia="{{ d.periodo.ate }}"
+   title="Abrir a curva das strings do {{ s.pai or 'inversor' }} neste dia"><td>{{ s.nome }}</td><td class="num r">{{ s.kwh|num(1) }}</td></tr>{% else %}<tr><td colspan="2" style="color:var(--gc-mut)">nenhuma perda em strings hoje</td></tr>{% endfor %}</tbody></table>
+  <!-- Drill-down (Levi, 21/09): a pergunta não é "esta string caiu?", é "ela caiu SOZINHA?" — só as
+       irmãs do mesmo inversor respondem, porque veem o mesmo sol, a mesma sujeira e a mesma sombra. -->
+  <div id="str-drill" hidden></div></details>
  </div>
- <div class="card" style="margin-bottom:14px"><div class="tit">Sensor do dia</div><div class="faixa-nao"><span>razão POA/GHI <b class="num">{{ d.sensor.razao_poa_ghi|num(2) }}</b></span><span>cobertura do gate <b class="num">{{ (d.sensor.cobertura_gate*100)|round(0)|int if d.sensor.cobertura_gate is not none else '—' }}%</b></span><span>gate de hoje <b>{{ d.sensor.gate_hoje }}</b></span>{% if d.sensor.get('ceu') %}<span title="índice de variabilidade da irradiância: até 2 = limpo, até 8 = parcial, acima = nuvem quebrada">céu <b>{{ d.sensor.get('ceu') }}</b> <span class="num" style="opacity:.65">(VI {{ d.sensor.get('variabilidade') }})</span></span>{% endif %}{% if d.sensor.get('ghi_x_clarosky') is not none %}<span title="GHI medido ÷ GHI de céu claro. É quanto do dia chegou — em dia encoberto cai sozinho, então não acusa sensor por si só">GHI × céu claro <b class="num">{{ d.sensor.get('ghi_x_clarosky') }}</b></span>{% endif %}{% if d.sensor.get('rendimento') is not none %}<span title="medido ÷ (kWp × POA/1000): a usina não produz mais do que o sol entrega. Acima de 1,00 a irradiância lida está abaixo da real">rendimento <b class="num{{ ' c-risk' if d.sensor.get('sensor_baixo') else '' }}">{{ d.sensor.get('rendimento') }}</b></span>{% endif %}{% if d.sensor.get('sensor_baixo') %}<span class="c-risk">irradiância lida ABAIXO da produção — o esperado do gêmeo está subestimado</span>{% endif %}{% if d.sensor.get('congelado') %}<span class="c-risk">sensor congelado <b>sim</b></span>{% endif %}</div><div style="padding:0 16px 12px;font-size:11px;color:var(--gc-mut)">A POA medida é a ENTRADA do modelo: sensor travado não gera um evento, gera um esperado inteiro errado.</div></div>
- <div class="rodape">Esperado físico: PVWatts (pvlib) sobre a POA medida · parcelas: parado → trackers (cosseno × fração direta) → strings → clipping → resíduo</div>
+ <div class="card" style="margin-bottom:14px"><div class="tit">Sensor do dia</div><div class="faixa-nao"><span>razão POA/GHI <b class="num">{{ d.sensor.razao_poa_ghi|num(2) }}</b></span><span>cobertura do gate <b class="num">{{ (d.sensor.cobertura_gate*100)|round(0)|int if d.sensor.cobertura_gate is not none else '—' }}%</b></span><span>gate de hoje <b>{{ d.sensor.gate_hoje }}</b></span>{% if d.sensor.get('ceu') %}<span title="índice de variabilidade da irradiância: até 2 = limpo, até 8 = parcial, acima = nuvem quebrada">céu <b>{{ d.sensor.get('ceu') }}</b> <span class="num" style="opacity:.65">(VI {{ d.sensor.get('variabilidade') }})</span></span>{% endif %}{% if d.sensor.get('ghi_x_clarosky') is not none %}<span title="GHI medido ÷ GHI de céu claro. É quanto do dia chegou — em dia encoberto cai sozinho, então não acusa sensor por si só">GHI × céu claro <b class="num">{{ d.sensor.get('ghi_x_clarosky') }}</b></span>{% endif %}{% if d.sensor.get('rendimento') is not none %}<span title="medido ÷ (kWp × POA/1000): a usina não produz mais do que o sol entrega. Acima de 1,00 a irradiância lida está abaixo da real">rendimento <b class="num{{ ' c-risk' if d.sensor.get('sensor_baixo') else '' }}">{{ d.sensor.get('rendimento') }}</b></span>{% endif %}{% if d.sensor.get('sensor_baixo') %}<span class="c-risk">irradiância lida ABAIXO da produção — o esperado do gêmeo está subestimado</span>{% endif %}{% if d.sensor.get('congelado') %}<span class="c-risk">sensor congelado <b>sim</b></span>{% endif %}{% set qd = d.sensor.get('qualidade') or {} %}{% if qd.get('total') %}<span class="c-warn" title="{{ qd.get('detalhes')|join(' · ') }}">qualidade do dado <b>{{ qd.get('total') }}</b> ocorrência(s)</span>{% endif %}</div><div style="padding:0 16px 12px;font-size:11px;color:var(--gc-mut)">A POA medida é a ENTRADA do modelo: sensor travado não gera um evento, gera um esperado inteiro errado. Checagens conforme IEC 61724-1:2021 §12.2.1 — limites físicos, taxa de variação, valor travado, carimbos duplicados e lacunas.</div></div>
+ <div class="rodape">EPI = medido ÷ esperado, o <i>Energy Performance Index</i> da IEC 61724-1:2021 §14.4 · Esperado físico: PVWatts (pvlib) sobre a POA medida · parcelas: parado → trackers (cosseno × fração direta) → strings → clipping → resíduo</div>
 </div>
 <script src="{{ PREFIXO }}/static/gemeo.js"></script>
 {% endblock %}

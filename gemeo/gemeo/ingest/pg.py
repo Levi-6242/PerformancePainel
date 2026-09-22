@@ -156,6 +156,6 @@ class IngestorPG(Ingestor):
                             "WHERE power_plant_id=%s AND timestamp > %s AND timestamp <= %s ORDER BY timestamp", (pid, ini, fim))
                 for ts, dev, jd in src.fetchall():
                     leituras.extend(linhas_de(jd or {}, tabela, str(dev), ts, mapa, vistos))
-        n_series = len(mapa)
-        esperadas = int(n_series * max(1, (fim - ini).total_seconds() / 300))   # 5 min por serie
-        return Busca(leituras=leituras, n_requisicoes=len(MEDIDAS), esperadas=esperadas)
+        # `esperadas` saiu em 21/09/2026: supunha 5 min por serie, de madrugada inclusive, e punha
+        # 480 de 480 ciclos em "parcial" com a fonte sa. Quem decide o status agora e o frescor.
+        return Busca(leituras=leituras, n_requisicoes=len(MEDIDAS))

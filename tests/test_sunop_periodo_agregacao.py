@@ -30,7 +30,7 @@ def test_a_curva_de_tracker_pede_15_minutos():
 def test_a_busca_de_historico_aceita_period():
     # se o parâmetro sumir, o `period=` das chamadas vira TypeError na primeira busca — mas só
     # em produção, porque nada mais exercita esse caminho.
-    assert "period" in inspect.signature(app._sunop_analog_history).parameters
+    assert "period" in inspect.signature(app._sunop_analog_history_api).parameters
 
 
 def test_period_so_entra_nos_params_quando_pedido():
@@ -38,7 +38,7 @@ def test_period_so_entra_nos_params_quando_pedido():
 
     Mandar `period=None` na querystring viraria a string "None" e a SunOp responderia erro — e o
     chamador veria lista vazia, que aqui não é erro: é "usina sem curva". Falha muda."""
-    fonte = inspect.getsource(app._sunop_analog_history)
+    fonte = inspect.getsource(app._sunop_analog_history_api)
     assert re.search(r"if period:\s*\n\s*params\[.period.\]\s*=\s*period", fonte)
 
 

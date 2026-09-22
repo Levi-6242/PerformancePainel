@@ -64,3 +64,15 @@ def trk_accum(monkeypatch):
     state = {"date": "", "plants": {}}
     monkeypatch.setattr(app, "_trk_accum", state)
     return state
+
+
+@pytest.fixture(autouse=True)
+def _fase4_desligada_por_padrao(monkeypatch):
+    """A Fase 4 (curva lida do acervo do gêmeo) fala pela REDE com o serviço em 127.0.0.1:5075.
+
+    Sem esta trava, todo teste que passa por `_sunop_analog_history` passaria ou falharia conforme
+    o gêmeo estivesse no ar na máquina de quem roda — e na CI ele nunca está. Quem testa a Fase 4
+    liga explicitamente (`monkeypatch.setattr(app, "GEMEO_CURVA_ATIVO", True)`) e dubla o
+    `_gemeo_curva`; todo o resto da suíte segue offline e determinístico.
+    """
+    monkeypatch.setattr(app, "GEMEO_CURVA_ATIVO", False, raising=False)

@@ -104,8 +104,6 @@ tr.gc-alerta:hover{background:linear-gradient(90deg, color-mix(in srgb, var(--gc
 .gc-etm-sn .n{font-family:'IBM Plex Mono',Consolas,monospace;font-size:12.5px;font-weight:600;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gc-etm-sn .n small{font-family:inherit;font-size:9.5px;color:var(--color-neutral-500);font-weight:500;margin-left:3px}
 .gc-etm-sn.r .n{color:#ff9a9d}.gc-etm-sn.b .n{color:#7fb8ff}.gc-etm-sn.x .n{color:var(--color-neutral-500)}
-.gc-etm-mes{font-size:10.5px;color:var(--color-neutral-400);margin-top:7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.gc-etm-mes .r{color:#ff9a9d;font-weight:700}.gc-etm-mes .a{color:#f5c877;font-weight:600}.gc-etm-mes .g{color:var(--color-accent-300)}
 @keyframes gc-etm-resp{0%,100%{box-shadow:0 0 0 0 rgba(242,85,90,0)}50%{box-shadow:0 0 18px 2px rgba(242,85,90,.45)}}
 .gc-etm-al.gc-etm-pulse{animation:gc-etm-resp 1.6s ease-in-out infinite}
 @media (prefers-reduced-motion: reduce){.gc-etm-al.gc-etm-pulse{animation:none;box-shadow:0 0 12px 0 rgba(242,85,90,.35)}}
@@ -145,7 +143,7 @@ function _prendeOverlays(){ const v=_faixaVisivel(); if(!v) return;
 if(EMBED){ try{ parent.addEventListener('scroll',_prendeOverlays,{passive:true}); parent.addEventListener('resize',_prendeOverlays); }catch(e){} }
 // ?fonte=<id> vem dos cards da Entrada (/teste/tempo-real): o card de um cliente abre o Monitoramento ja na fonte dele (05/09/2026)
 const _VIEWS_URL=['strings','etm','geracao','trackers','pr','curva','perdas'];
-const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'), subfilter:'geral', invView:'strings', invGer:{modo:'mes',ini:null,fim:null}, trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, perdaSub:'trk-par', perdaDia:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, etmMode:'cards', etmProb:(new URLSearchParams(location.search).get('etmprob')==='1'), gerIni:null, gerFim:null, gerModo:'usinas' };
+const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'), subfilter:'geral', invView:'strings', invGer:{modo:'mes',ini:null,fim:null}, trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, perdaSub:'trk-par', perdaDia:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, etmMode:'cards', etmProb:false   /* Levi 21/09: nasce DESMARCADO. O ?etmprob=1 vinha da Entrada por causa da contagem do MÊS, e prendia a tela num filtro que o usuário não pediu */, gerIni:null, gerFim:null, gerModo:'usinas' };
 function setState(patch){ Object.assign(state, patch); render(); }
 /* ═══ DADO REAL — por VISTA e por FONTE. Cada uma devolve {rows,summary}; muda só o endpoint. ═══ */
 // 2C tudo junto (11/09/2026): linha da 2C com id NUMÉRICO veio da API PV (conta oem@) → curva e ETM pelo caminho da API PV
@@ -635,7 +633,7 @@ function _dataHojeExt(){ const M=['janeiro','fevereiro','março','abril','maio',
 function _histLink(){ const sk=SKEY[state.source]; if(sk==='pv')return{href:'/historico-plataforma',tab:'gridco-hist-pv'}; if(sk==='owen')return{href:'/historico2c',tab:'gridco-hist2c'}; return null; }
 function _histBtn(){ const h=_histLink(); return h?`<a href="${h.href}" target="${h.tab}" rel="noopener" class="btn btn-secondary" style="text-decoration:none"><i class="ph ph-clock-counter-clockwise"></i> Histórico</a>`:''; }
 function _srcNome(){ return ({'thopen-pv':'API PV Operation','thopen-db':'Banco de Dados','athon':'Athon (SunOp)','axis':'Axis','renogrid':'RenoGrid (SolarEdge)','2c':'2C (API PV + Email)','semp':'SEMP (API PV Operation)','alveslima':'Alves Lima (API PV Operation)','2capi':'2C (API PV Operation)'})[state.source]||'Fonte'; }
-/* ── Modo "Criar OS" (portado do dashboard): seleciona strings SEM CORRENTE → deep link gridos:// p/ o OS Creator (1 OS por inversor). Barra fixa no rodapé; some fora do modo. ── */
+/* ── Modo "Criar OS": seleciona strings SEM CORRENTE → abre o OS Creator WEB em /os/ (1 OS por inversor). Barra fixa no rodapé; some fora do modo. ── */
 const _osSel=new Map();   // "pid|invId|sid" → {pid,invId,sid,usina,inv}
 function _osKey(p,i,s){ return p+'|'+i+'|'+s; }
 function _osBtn(){ if(!['pv','pg','sunop','owen','semp','2capi'].includes(SKEY[state.source])) return ''; const on=state.osMode; return `<button onclick="toggleOsMode()" class="btn ${on?'btn-primary':'btn-secondary'}"><i class="ph ph-wrench"></i> ${on?'Sair do modo OS':'Criar OS'}</button>`; }
@@ -644,10 +642,18 @@ window.osToggle=(pid,invId,sid,usina,inv)=>{ const k=_osKey(pid,invId,sid); if(_
 window.osClear=()=>{ _osSel.clear(); render(); _osBar(); };
 function _osGrupos(){ const g=new Map(); _osSel.forEach(v=>{ const k=v.pid+'|'+v.invId; if(!g.has(k))g.set(k,{pid:v.pid,invId:v.invId,usina:v.usina,inv:v.inv,sids:[]}); g.get(k).sids.push(v.sid); }); return [...g.values()]; }
 function _osObs(sids){ const l=sids.slice().sort((a,b)=>(_snum(a)||0)-(_snum(b)||0)); if(l.length===1)return `String ${l[0]} com corrente nula, verificar e normalizar`; return `Strings ${l.slice(0,-1).join(', ')} e ${l[l.length-1]} com corrente nula, verificar e normalizar`; }
-function _osLink(g){ const p={usina:g.usina,ativo:g.inv,obs:_osObs(g.sids),template:'recomposicao',origem:'plataforma-strings'};
+/* O atalho vai para o OS CREATOR WEB (Levi, 21/09), no lugar do `gridos://` que acordava o app
+   instalado. Duas consequências que o código precisa tratar:
+   · `frase` no lugar de `template`: a web casa o plano por frase EXATA (`plano_por_frase`), então
+     'recomposicao' sozinho cairia em 404 — tem de ser a frase inteira do plano.
+   · abrir em ABA NOVA: o `gridos://` não navegava (só acordava o app), e a página ficava com a
+     seleção de strings de pé. Com URL de verdade, um `location.href` levaria a pessoa embora e
+     jogaria fora o que ela marcou. */
+const OS_WEB_CRIAR='/os/performance/criar';
+function _osLink(g){ const p={frase:'recomposicao de string',usina:g.usina,ativo:g.inv,obs:_osObs(g.sids),origem:'plataforma-strings'};
   const atr=(RD.osAtrib||{})[g.pid+'|'+g.invId];   // inversor com OS atribuída → ela vira a OS PAI e herda o responsável
   if(atr&&atr.folio){ p.os_pai=String(atr.folio); if(atr.responsavel)p.resp=atr.responsavel; }
-  return 'gridos://performance?'+new URLSearchParams(p).toString(); }
+  return OS_WEB_CRIAR+'?'+new URLSearchParams(p).toString(); }
 function _osBar(){ let bar=document.getElementById('gc-osbar'); if(!bar){ bar=document.createElement('div'); bar.id='gc-osbar'; document.body.appendChild(bar); }
   const n=_osSel.size, grps=_osGrupos().length;
   bar.style.cssText=`position:fixed;left:0;right:0;bottom:0;z-index:400;align-items:center;gap:14px;background:var(--color-surface);color:var(--color-text);border-top:2px solid var(--color-accent);padding:12px 28px;font-size:13px;box-shadow:0 -6px 24px rgba(0,0,0,.4);display:${(state.osMode&&n>0)?'flex':'none'}`;
@@ -662,9 +668,9 @@ window.osGerar=async()=>{
     if(rr.ok) fmap=(((await rr.json())||{}).map)||{};
   }catch(e){}
   const links=grupos.map(g=>_osLink(Object.assign({},g,{usina:fmap[g.usina]||g.usina})));
-  if(links.length===1){ window.location.href=links[0]; osClear(); return; }
+  if(links.length===1){ window.open(links[0],'_blank','noopener'); osClear(); return; }
   let m=document.getElementById('gc-osmodal'); if(!m){ m=document.createElement('div'); m.id='gc-osmodal'; document.body.appendChild(m); }
-  const inner=grupos.map((g,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0"><a href="${links[i]}" style="background:var(--color-accent);color:#161826;font-weight:700;text-decoration:none;padding:7px 14px;border-radius:8px;font-size:12px;white-space:nowrap"><i class="ph ph-wrench" style="margin-right:5px"></i>Criar OS</a><span style="font-size:12.5px;color:var(--color-neutral-300)">${_he(g.usina)} · ${_he(g.inv)} · ${_he(_osObs(g.sids))}</span></div>`).join('');
+  const inner=grupos.map((g,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0"><a href="${links[i]}" target="_blank" rel="noopener" style="background:var(--color-accent);color:#161826;font-weight:700;text-decoration:none;padding:7px 14px;border-radius:8px;font-size:12px;white-space:nowrap"><i class="ph ph-wrench" style="margin-right:5px"></i>Criar OS</a><span style="font-size:12.5px;color:var(--color-neutral-300)">${_he(g.usina)} · ${_he(g.inv)} · ${_he(_osObs(g.sids))}</span></div>`).join('');
   m.innerHTML=`<div onclick="if(event.target===this)document.getElementById('gc-osmodal').remove()" class="gc-overlay" style="position:fixed;inset:0;z-index:500;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:40px 16px"><div class="card" style="width:560px;max-width:100%;padding:20px 22px"><div style="font-family:var(--font-heading);font-size:16px;margin-bottom:12px">Criar ${grupos.length} OS (uma por inversor)</div>${inner}<div style="text-align:right;margin-top:14px"><button class="btn btn-secondary" onclick="document.getElementById('gc-osmodal').remove()">Fechar</button></div></div></div>`;
   _prendeOverlays();
 };
@@ -785,6 +791,23 @@ function _etmChartUrl(pid,usina,date){ const s=state.source;
    RD.etmOS[fonte] = {usina: {cadastrada, os:[...]}} — 1 POST /api/etm/os por fonte, disparado pelo
    builder dos cards. undefined = nunca buscou, null = buscando (evita rajada de re-render). */
 function _jsq(s){ return esc(s).replace(/['"\\]/g,''); }
+/* FROTA DE TRACKERS PARADA (Levi, 21/09/2026): "alarme específico para quando todos os trackers
+   ficam parados por + de 2 horas". Não é o mesmo que "tem tracker parado": é o sistema de
+   rastreamento fora, e a usina passa a gerar como fixa. Só as 5 fontes com tracker respondem. */
+const _FROTA_FONTES=['pv','pg','sunop','axis','owen'];
+async function _ensureFrota(){ const f=SKEY[state.source]; RD.frota=RD.frota||{};
+  if(RD.frota[f]!==undefined) return;
+  if(!_FROTA_FONTES.includes(f)){ RD.frota[f]={}; return; }
+  RD.frota[f]=null;
+  try{ const d=await fetchJSON('/api/'+f+'/trackers/frota-parada');
+    const m={}; ((d&&d.itens)||[]).forEach(i=>{ m[_nrmU(i.usina)]=i; }); RD.frota[f]=m;
+  }catch(e){ RD.frota[f]={}; }
+  render(); }
+function _frotaDe(nome){ const m=RD.frota&&RD.frota[SKEY[state.source]]; return m?(m[_nrmU(nome)]||null):null; }
+/* "há 288,1h" não se lê; "há 12 dias" sim. */
+function _frotaHa(h){ if(h==null) return ''; if(h<1) return Math.round(h*60)+' min';
+  if(h<48) return (Math.round(h*10)/10).toString().replace('.',',')+'h';
+  return Math.round(h/24)+' dias'; }
 async function _ensureEtmOS(usinas){ const f=SKEY[state.source]; RD.etmOS=RD.etmOS||{};
   if(RD.etmOS[f]!==undefined||!usinas.length) return;
   RD.etmOS[f]=null;
@@ -819,9 +842,9 @@ function _renderEtmHist(d){ const g=state._graf; if(!g)return;
 window.abrirOsEtm=(usina)=>{ const f=SKEY[state.source];
   const eo=((RD.etmOS||{})[f]||{})[usina]; if(eo&&!eo.cadastrada) return;
   const obs=(RD._etmObs||{})[usina]||'Estação meteorológica com anomalia, verificar';
-  // template = FRASE do plano "Geração e ETM" no OS Creator (sem ele o roteador cai em Recomposição
-  // de String — foi o caminho errado que o Levi viu em 26/08); modo=etm pede o segmentado ETM.
-  location.href='gridos://performance?'+new URLSearchParams({usina:usina,ativo:'Estação Meteorológica',obs:obs,template:'coleta de dados de geracao',modo:'etm',origem:'plataforma-etm'}).toString(); };
+  // `frase` = a FRASE do plano "Geração e ETM" na web (sem ela o roteador cai em Recomposição de
+  // String — foi o caminho errado que o Levi viu em 26/08); modo=etm pede o segmentado ETM.
+  window.open(OS_WEB_CRIAR+'?'+new URLSearchParams({frase:'coleta de dados de geracao',usina:usina,ativo:'Estação Meteorológica',obs:obs,modo:'etm',origem:'plataforma-etm'}).toString(),'_blank','noopener'); };
 window.abrirEtmChart=async(usina,pid)=>{ const date=_todayISO(); state._graf={t:'etm',usina:usina,pid:pid,date:date}; _renderEtmChart('load');
   let d=null; const url=_etmChartUrl(pid,usina,date); if(url){ try{ d=await fetchJSON(url); }catch(e){} }
   if(!state._graf||state._graf.t!=='etm'||String(state._graf.usina)!==String(usina)) return; _renderEtmChart(d); };
@@ -1019,35 +1042,29 @@ function _dedupSkid(rows){
    numero do botao BATER com o do card la em cima: a severidade ao vivo da aba e outra regua e, sozinha,
    nao acha as mesmas 4 (Levi, 08/09/2026). Servido do cache de 30 min do servidor; 1 fetch por sessao. */
 function _nrmU(u){ return String(u||'').split('·')[0].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s*\(\d+\)\s*$/,'').replace(/\s+/g,' ').trim(); }
-async function _ensureEtmMes(){ if(RD.etmMes!==undefined) return; RD.etmMes=null;
-  try{ const d=await fetchJSON('/api/entrada/tempo-real');
-    if(d&&d.aquecendo){ RD.etmMes=undefined; setTimeout(_ensureEtmMes,5000); return; }   // 1a construcao pos-restart
-    // Desde 10/09 o item do mes vem separado em ALARMES (IPOA/GHI zerada) e AVISOS (sensor travado, GHI que nao
-    // reporta, PR anomalo); o card so fica vermelho pelos alarmes. Item antigo (so `etm`) vale como alarme.
-    const m={}; (d&&d.grupos||[]).forEach(g=>{ const f=g.fonte_id||''; (g.usinas||[]).forEach(u=>{
-      if(!(u.etm&&u.etm.length)) return;
-      const al=('etm_alarme' in u)?!!u.etm_alarme:true;
-      const o={alarme:al,alarmes:u.etm_alarmes||(al?u.etm:[]),avisos:u.etm_avisos||(al?[]:u.etm)};
-      m[f+'|p:'+String(u.plant_id)]=o; m[f+'|n:'+_nrmU(u.usina)]=o; }); });
-    RD.etmMes=m; }catch(e){ RD.etmMes={}; }
-  render(); }
-function _etmProbMes(r){ const m=RD.etmMes; if(!m) return null; const f=state.source;
-  return m[f+'|p:'+String(r.plant_id)]||m[f+'|n:'+_nrmU(r.usinaQ||r.usina)]||m[f+'|n:'+_nrmU(r.usina)]||null; }
-/* Pico 9–15h por sensor a partir do spark — só para snapshot ANTERIOR a 10/09, que ainda não traz `sensores`. */
-function _etmSensFallback(sp){ const lb=(sp&&sp.labels)||[], h=new Date().getHours();
-  const res=arr=>{ const v=(arr||[]).filter((x,i)=>x!=null&&(!lb[i]||(_hm(lb[i])>=540&&_hm(lb[i])<900))); if(!v.length) return {pico:null,status:'sem_leitura'};
-    const p=Math.max(...v); return {pico:Math.round(p*10)/10,status:(h>=10&&p<20)?'zerado':'ok'}; };
-  return {poa:res(sp&&sp.poa),ghi:res(sp&&sp.ghi),poari:res(sp&&sp.poari)}; }
-/* Um bloco de sensor do card: rótulo + ponto + valor. Vermelho só quando MEDIU zero; POA-RI zerado é azul (aviso);
-   sem leitura = cinza (sensor que a estação não tem, ou mudo hoje). */
-function _etmSensTile(rot,s,avisoSo){ s=s||{pico:null,status:'sem_leitura'};
-  const nf=v=>Number(v).toLocaleString('pt-BR',{maximumFractionDigits:0});
-  if(s.status==='sem_leitura') return `<div class="gc-etm-sn x"><div class="k"><i></i>${rot}</div><div class="n">—<small>sem leitura</small></div></div>`;
-  if(s.status==='zerado') return `<div class="gc-etm-sn ${avisoSo?'b':'r'}"><div class="k"><i class="${avisoSo?'b':'r'}"></i>${rot}</div><div class="n">0<small>W/m² · ${avisoSo?'aviso':'zerado'}</small></div></div>`;
-  return `<div class="gc-etm-sn"><div class="k"><i class="g"></i>${rot}</div><div class="n">${nf(s.pico)}<small>W/m² pico</small></div></div>`; }
-/* Texto curto do diagnóstico do mês para a linha do card ("IPOA zerada no mês inteiro (9d) — PR não calculável" →
-   "IPOA zerada no mês inteiro (9d)"); o texto completo fica no title. */
-function _etmMesCurto(t){ return String(t||'').replace(/\s+—.*$/,'').replace(/\s*\(sensor travado\?\)/,''); }
+// A busca do diagnóstico do MÊS foi removida em 21/09/2026 junto com a linha "Mês (BD)" do card
+// (Levi: "se eu quiser saber do BD eu vejo em outro canto"). Sem leitor, ela seguiria varrendo o
+// BD_Performance uma vez por sessão para alimentar nada. O mês continua vivo no backend e na Entrada.
+// ── ESTADO de um card da ETM: alarme = AGORA, historico do mes nao pinta ─────────────────────────
+// Extraida do .map() dos cards em 21/09 para virar testavel (mesmo padrao de _gerAgrega). A regra:
+// vermelho SO com IPOA/GHI medidos em zero HOJE. O mes (BD_Performance) vem junto no retorno como
+// `alMes`, mas so alimenta a linha cinza "Mes (BD)" e a etiqueta do rodape — nunca a cor nem o pulso.
+function _etmEstado(r,probMes){
+  const fl=r.flags||[];
+  const critSens=fl.filter(f=>f.tipo==='crit'&&(f.sensor==='POA'||f.sensor==='GHI'||(!f.sensor&&/zerado/i.test(f.t||''))));
+  const semCom=fl.find(f=>f.tipo==='crit'&&(f.sensor==='COM'||(!f.sensor&&/comunica/i.test(f.t||''))));
+  const warns=fl.filter(f=>f.tipo==='warn'), avisos=fl.filter(f=>f.tipo==='info');
+  const alHoje=critSens.length>0, alMes=!!(probMes&&probMes.alarme);
+  const estado=r.sem_dados?'sd':(alHoje?'al':(semCom?'cm':(warns.length?'at':'ok')));
+  let vd,vdSub='';
+  if(alHoje){ const f=critSens[0]; vd=(f.sensor==='GHI'||/GHI/i.test(f.t||''))?'GHI zerado hoje':'IPOA zerada hoje'; vdSub=[f.info].concat(critSens.slice(1).map(x=>x.t)).filter(Boolean).join(' · '); }
+  else if(r.sem_dados){ vd='Sem dados hoje'; vdSub='estação não apareceu na fonte'; }
+  else if(semCom){ vd='Sem comunicação'; vdSub=semCom.info||''; }
+  else if(warns.length){ vd=warns[0].t; vdSub=[warns[0].info,(warns.length>1?'+'+(warns.length-1)+' em atenção':'')].filter(Boolean).join(' · '); }
+  else { vd='Estação OK'; vdSub=avisos.length?'aviso: '+avisos.map(a=>a.t).join(' · '):''; }
+  return {estado,vd,vdSub,prob:estado==='al',alHoje,alMes,semCom,critSens,warns};
+}
+/* fim _etmEstado */
 /* Inversor de usina SEM visão por string (Levi, 11/09): no lugar de "ativas · esp · dif", a proporcionalidade do
    padrão 30d — energia de ontem em % da mediana da usina, o padrão dele e o desvio em pp (cores da régua). */
 function _padraoSpans(inv){
@@ -1196,7 +1213,6 @@ function computeVals(){
       ];
       const sevC={0:'var(--gc-red)',1:'var(--gc-amber)',3:'var(--color-accent)',9:'var(--color-neutral-500)'};
       _ensureEtmGrupos();
-      _ensureEtmMes();
       _ensureEtmOS(rowsE.map(r=>r.usinaQ||r.usina));   // OS de estação meteorológica (Fracttal) — 1 fetch por fonte (usinaQ = nome pré-dedup, o que casa no Fracttal)
       etmCardsUse=rowsE.map(r=>{
         const sp=r.spark||{}, lb=sp.labels||[], keep=i=>{ if(lb.length!==(sp.poa||[]).length) return true; const m=_hm(lb[i]); return m>=360&&m<=1080; };   // trava o spark em 06–18h
@@ -1214,39 +1230,32 @@ function computeVals(){
         const temOS=!!(eo&&eo.cadastrada&&(eo.os||[]).length);
         const noFrac=!!(eo&&!eo.cadastrada);
         // ── ESTADO do card: uma régua só (Levi, 10/09: "alarmar apenas GHI e IPOA zerados; POA-RI é só aviso") ──
-        // alarme (vermelho)  = IPOA/GHI MEDIDOS em zero hoje (flag crit com sensor POA/GHI) ou no mês (BD_Performance)
+        // alarme (vermelho)  = IPOA/GHI MEDIDOS em zero HOJE (flag crit com sensor POA/GHI). SO HOJE.
+        // O mes (BD_Performance) NAO pinta mais o card (Levi, 21/09): Araputanga, Sete Lagoas e Tupi Paulista
+        // estavam vermelhas e pulsando por "IPOA zerada/nula em 3 de 20 dias" enquanto o sensor lia 1.267,
+        // 1.160 e 898 W/m2 naquele minuto. Alarme que descreve o passado em tela chamada "Tempo real" e
+        // alarme falso: some com o unico caso real (Ipixuna, 0 W/m2 hoje) no meio de tres saudaveis.
+        // O historico do mes continua na linha cinza "Mes (BD)" do rodape do card, que e onde ele informa
+        // sem mandar ninguem a campo.
         // sem comunicação    = estação muda (violeta) · atenção (âmbar) = warn · ok (verde) · sem dados (cinza)
         // O que sumiu: o vermelho herdado da usina em toda estação (8 cards por 4 usinas na Athon), a AIML sem sensor
         // de GHI contada como problema, e o TIM200 com POA zerado HOJE sem destaque nenhum (o vermelho era só do mês).
-        const probMes=_etmProbMes(r);          // {alarme, alarmes, avisos} do mês, ou null
-        const mesOk=RD.etmMes!=null;
-        const fl=r.flags||[];
-        const critSens=fl.filter(f=>f.tipo==='crit'&&(f.sensor==='POA'||f.sensor==='GHI'||(!f.sensor&&/zerado/i.test(f.t||''))));
-        const semCom=fl.find(f=>f.tipo==='crit'&&(f.sensor==='COM'||(!f.sensor&&/comunica/i.test(f.t||''))));
-        const warns=fl.filter(f=>f.tipo==='warn'), avisos=fl.filter(f=>f.tipo==='info');
-        const alHoje=critSens.length>0, alMes=!!(probMes&&probMes.alarme);
-        const estado=r.sem_dados?(alMes?'al':'sd'):((alHoje||alMes)?'al':(semCom?'cm':(warns.length?'at':'ok')));
-        let vd,vdSub='';
-        if(alHoje){ const f=critSens[0]; vd=(f.sensor==='GHI'||/GHI/i.test(f.t||''))?'GHI zerado hoje':'IPOA zerada hoje'; vdSub=[f.info].concat(critSens.slice(1).map(x=>x.t)).filter(Boolean).join(' · '); }
-        else if(alMes){ vd=_etmMesCurto(probMes.alarmes[0]); vdSub='no mês (BD_Performance)'+(probMes.alarmes.length>1?' · +'+(probMes.alarmes.length-1):''); }
-        else if(r.sem_dados){ vd='Sem dados hoje'; vdSub='estação não apareceu na fonte'; }
-        else if(semCom){ vd='Sem comunicação'; vdSub=semCom.info||''; }
-        else if(warns.length){ vd=warns[0].t; vdSub=[warns[0].info,(warns.length>1?'+'+(warns.length-1)+' em atenção':'')].filter(Boolean).join(' · '); }
-        else { vd='Estação OK'; vdSub=avisos.length?'aviso: '+avisos.map(a=>a.t).join(' · '):''; }
-        const prob=estado==='al';              // o que o filtro "Alarmes" e o número do topo contam
+        // 21/09/2026, Levi: "tire essa informação de mês BD, se eu quiser saber do BD eu vejo em outro
+        // canto". A linha do mês saiu do card — e com ela o vermelho que aparecia em estação OK, que era
+        // o texto do BD_Performance pintado de risco embaixo de um veredito verde. O diagnóstico do mês
+        // continua existindo no backend e no card da Entrada; aqui esta tela é o AGORA.
+        const {estado,vd,vdSub,prob,semCom,critSens,warns}=_etmEstado(r,null);
         const pulse=prob&&!temOS;              // alarme SEM OS pulsa (P1 de 26/08); com OS alguém já cuida
         const sens=r.sem_dados?null:(r.sensores||_etmSensFallback(sp));
         const sensHtml=_etmSensTile('POA',sens&&sens.poa)+_etmSensTile('GHI',sens&&sens.ghi)+_etmSensTile('POA-RI',sens&&sens.poari,true);
-        const mesPartes=!mesOk?['<span>Mês (BD): carregando…</span>']
-          :(!probMes?['<span>Mês (BD): <span class="g">IPOA e GHI ok</span></span>']
-          :['<span>Mês (BD):</span>'].concat(probMes.alarmes.map(t=>`<span class="r">${_he(_etmMesCurto(t))}</span>`),probMes.avisos.map(t=>`<span class="a">${_he(_etmMesCurto(t))}</span>`)));
-        const mesTit=probMes?[].concat(probMes.alarmes,probMes.avisos).join(String.fromCharCode(10)):'';
-        const flagsRuins=[].concat(critSens.map(f=>f.t),alMes?probMes.alarmes:[],semCom?[semCom.t]:[],warns.map(f=>f.t)).join('; ');
+        // Observação do "Abrir OS" também sem o mês: OS nascida de um card verde não pode levar
+        // texto de histórico do BD como se fosse o motivo do chamado.
+        const flagsRuins=[].concat(critSens.map(f=>f.t),semCom?[semCom.t]:[],warns.map(f=>f.t)).join('; ');
         (RD._etmObs=RD._etmObs||{})[r.usinaQ||r.usina]=flagsRuins;   // observação do deep link "Abrir OS"
         return {name:r.usina,pid:r.plant_id,usina:r.usina,leit:(r.ultima_leitura?'última leitura '+String(r.ultima_leitura).slice(11,16):'sem leitura hoje'),leitOld:(!r.ultima_leitura||!!semCom),
           poaPts:_sparkPts(poaF,mx),ghiPts:_sparkPts(ghiF.some(v=>v!=null)?ghiF:[],mx),
-          temOS,osList:temOS?eo.os:[],pulse,prob,probMes:alMes,noFrac,usinaQ:r.usinaQ||r.usina,anomObs:flagsRuins||'Anomalia na estação meteorológica',
-          estado,vd,vdSub,sensHtml,mesHtml:mesPartes.join(' · '),mesTit,
+          temOS,osList:temOS?eo.os:[],pulse,prob,noFrac,usinaQ:r.usinaQ||r.usina,anomObs:flagsRuins||'Anomalia na estação meteorológica',
+          estado,vd,vdSub,sensHtml,
           cardStyle:'padding:13px 15px 12px;'};
       });
       etmRowsUse=rowsE.map(r=>{ const dim=r.sem_dados;
@@ -1255,13 +1264,15 @@ function computeVals(){
           :(r.severidade===1?{s:'Atenção',c:'#f5c877',d:'var(--gc-amber)',row:'background:color-mix(in srgb, var(--gc-amber) 8%, transparent);'}
           :{s:'OK',c:'var(--color-accent-300)',d:'var(--color-accent)',row:''}));
         const f=v=>(v==null?'—':Number(v).toFixed(2));
-        const _pm=_etmProbMes(r), _crit=(r.flags||[]).some(f=>f.tipo==='crit'&&(f.sensor==='POA'||f.sensor==='GHI'));
-        const prob=_crit||!!(_pm&&_pm.alarme);   // mesma régua dos cards (alarme = IPOA/GHI zerado hoje ou no mês), p/ o filtro valer na tabela
+        // Mesma funcao dos cards, nao uma copia da regra: quando as duas eram copias, Cards e Tabela
+        // passaram a contar coisas diferentes sem ninguem notar (o filtro "Alarmes" marcava 4 e 1).
+        const prob=_etmEstado(r,null).prob;      // mesma função dos cards; o mês saiu da tela em 21/09
         return {prob,name:r.usina,poa:f(r.poa_kwh),ghi:f(r.ghi_kwh),poari:f(r.poari_kwh),chuva:(r.chuva!=null?Number(r.chuva).toFixed(1):'—'),
           lastRead:(r.ultima_leitura?String(r.ultima_leitura).slice(11,16):'—'),hasTag:false,tag:'',status:m.s,statusColor:m.c,dotColor:m.d,rowStyle:m.row,
           valColor:dim?'var(--color-neutral-500)':N3,poaColor:(r.poa_kwh==null?'var(--color-neutral-500)':N3),chuvaColor:(r.chuva==null?'var(--color-neutral-500)':(Number(r.chuva)>0?'var(--gc-blue)':N4))};
       });
     } else if(s.view==='trackers'){
+      _ensureFrota();
       cards=[
         {icon:'ph ph-factory',value:sm.usinas??'—',label:'Usinas c/ tracker',accent:'var(--gc-blue)',numColor:'var(--gc-blue)'},
         {icon:'ph ph-arrows-in-line-horizontal',value:(sm.trackers||0).toLocaleString('pt-BR'),label:'Trackers',accent:'var(--color-accent)',numColor:'var(--color-accent)'},
@@ -1289,13 +1300,17 @@ function computeVals(){
         const _velho=(_idadeMin!=null&&_idadeMin>COMM_STALE_MIN);
         const _hh=_velho?`${Math.floor(_idadeMin/60)}h${String(Math.round(_idadeMin%60)).padStart(2,'0')}`:'';
         const _pid=(r.plant_id!=null?r.plant_id:(r.idusina!=null?r.idusina:r.id)), _exp=state.expandedTrk!=null&&String(state.expandedTrk)===String(_pid);
+        const _fr=_velho?null:_frotaDe(r.usina);   // dado velho já grita por si; não somar dois motivos no mesmo selo
         return {name:r.usina,pid:_pid,expanded:_exp,caretDeg:_exp?90:0,total:r.total??'—',parados,severo,medio,leve,
           dispPct:(_velho?null:dispPct),dispTempo,   // % de dado velho é mentira: mostra "—"
           staleRead:_velho,staleTit:(_velho?`Sem leitura nova há ${_hh} — números congelados nesta data`:''),
           tkCom:(r.parados_com!=null?r.parados_com:null),tkSem:(r.parados_sem!=null?r.parados_sem:null),tkUsina:!!r.ticket_usina,
           normalizados:r.normalizados??0,desvioMed:(r.desvio_medio!=null?Number(r.desvio_medio).toFixed(1)+'°':'—'),lastRead:(r.ultima_leitura?_dtBR(r.ultima_leitura):'—'),
           paradosColor:parados>0?'var(--gc-amber)':'var(--color-neutral-400)',
-          status:(_velho?`Sem dado há ${_hh}`:r.sem_comunicacao?'Sem comunicação':todosParados?'Todos parados':warn?'Atenção':'OK'),
+          frotaTit:(_fr&&_fr.alarme?`Os ${r.total} trackers desta usina estão parados há ${_frotaHa(_fr.horas)} — sistema de rastreamento fora, a usina está gerando como se fosse fixa`:(_fr&&_fr.duracao_desconhecida?'Frota inteira parada; sem registro de quando começou':'')),
+          status:(_velho?`Sem dado há ${_hh}`:r.sem_comunicacao?'Sem comunicação'
+            :(_fr&&_fr.alarme)?`Frota parada há ${_frotaHa(_fr.horas)}`
+            :todosParados?'Todos parados':warn?'Atenção':'OK'),
           statusStyle:((_velho||r.sem_comunicacao)?pill('color-mix(in srgb, var(--gc-violet) 18%, transparent)','#c9b6ff'):todosParados?pillRed:warn?pillAmber:pillOk)};
       });
     } else if(s.view==='pr'){
@@ -1317,9 +1332,8 @@ function computeVals(){
   // usina) e o card da Entrada conta usinas. Contar cards diria 8 onde o Levi le 4.
   const _etmProbN=new Set((etmCardsUse||[]).filter(c=>c.prob).map(c=>c.pid||c.usina)).size;
   const _etmProbCards=(etmCardsUse||[]).filter(c=>c.prob).length;
-  const _etmProbMesN=new Set((etmCardsUse||[]).filter(c=>c.probMes).map(c=>c.pid||c.usina)).size;
   const _cts=RD.pv&&(RD.pv.cache_ts||(RD.pv.summary||{}).cache_ts);
-  return {lastUpdate:(_cts?String(_cts).slice(0,5):_horaAgora()),today:_dataHojeExt(),sources,views,subfilters,cards,usinas,loading:RD.loading,na:RD.na,chart:getChart(),showStrings:s.view==='strings',showEtm:s.view==='etm',showTrackers:s.view==='trackers',showPr:s.view==='pr',showCurva:s.view==='curva',showGeracao:s.view==='geracao',showPerdas:s.view==='perdas',etmRows:etmRowsUse,trackerRows:trackerRowsUse,prRows:prRowsUse,curvaStrings,etmCards:etmCardsUse,etmModeCards:s.etmMode==='cards',etmModeTable:s.etmMode==='tabela',etmTabCards:segStyle(s.etmMode==='cards'),etmTabTable:segStyle(s.etmMode==='tabela'),etmProbOn:s.etmProb,etmProbN:_etmProbN,etmProbCards:_etmProbCards,etmProbMesN:_etmProbMesN,etmTabProb:segStyleRed(s.etmProb),curvaLabel:'Alto Paraná 2 · Inversor 1.1 — corrente por string · 14/07/2026'};
+  return {lastUpdate:(_cts?String(_cts).slice(0,5):_horaAgora()),today:_dataHojeExt(),sources,views,subfilters,cards,usinas,loading:RD.loading,na:RD.na,chart:getChart(),showStrings:s.view==='strings',showEtm:s.view==='etm',showTrackers:s.view==='trackers',showPr:s.view==='pr',showCurva:s.view==='curva',showGeracao:s.view==='geracao',showPerdas:s.view==='perdas',etmRows:etmRowsUse,trackerRows:trackerRowsUse,prRows:prRowsUse,curvaStrings,etmCards:etmCardsUse,etmModeCards:s.etmMode==='cards',etmModeTable:s.etmMode==='tabela',etmTabCards:segStyle(s.etmMode==='cards'),etmTabTable:segStyle(s.etmMode==='tabela'),etmProbOn:s.etmProb,etmProbN:_etmProbN,etmProbCards:_etmProbCards,etmTabProb:segStyleRed(s.etmProb),curvaLabel:'Alto Paraná 2 · Inversor 1.1 — corrente por string · 14/07/2026'};
 }
 
 /* ── handlers globais ── */
@@ -1677,14 +1691,13 @@ function renderStrings(v){
 function renderETM(v){
   if(v.na) return _naPanel('ETM');
   if(v.loading) return _loadingPanel();
-  return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><button onclick="setEtm('cards')" style="${v.etmTabCards}"><i class="ph ph-squares-four" style="margin-right:5px"></i>Cards</button><button onclick="setEtm('tabela')" style="${v.etmTabTable}"><i class="ph ph-table" style="margin-right:5px"></i>Tabela</button><span style="width:1px;height:20px;background:var(--color-divider);margin:0 4px"></span><button onclick="setEtmProb()" style="${v.etmTabProb}" title="Alarme = IPOA ou GHI medidos em zero, hoje ou no mês (BD_Performance). ${v.etmProbMesN} usina(s) com alarme no mês — o número do card da Entrada — e ${v.etmProbCards} estação(ões) em alarme agora. Clique de novo para ver todas."><i class="ph ph-warning-circle" style="margin-right:5px"></i>Alarmes${v.etmProbN?` &middot; ${v.etmProbN}`:''}</button></div>
+  return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:16px"><button onclick="setEtm('cards')" style="${v.etmTabCards}"><i class="ph ph-squares-four" style="margin-right:5px"></i>Cards</button><button onclick="setEtm('tabela')" style="${v.etmTabTable}"><i class="ph ph-table" style="margin-right:5px"></i>Tabela</button><span style="width:1px;height:20px;background:var(--color-divider);margin:0 4px"></span><button onclick="setEtmProb()" style="${v.etmTabProb}" title="Alarme = IPOA ou GHI medidos em zero AGORA. O histórico do mês (BD_Performance) não entra aqui — ele fica na linha cinza de cada card. ${v.etmProbCards} estação(ões) em alarme agora. Clique de novo para ver todas."><i class="ph ph-warning-circle" style="margin-right:5px"></i>Alarmes${v.etmProbN?` &middot; ${v.etmProbN}`:''}</button></div>
   ${v.etmModeCards?`<div class="gc-etm-grid">${v.etmCards.filter(c=>_matchQ(c.usina)&&(!v.etmProbOn||c.prob)).map(c=>`
     <div class="card elev-sm gc-chip gc-etm gc-etm-${c.estado}${c.pulse?' gc-etm-pulse':''}" onclick="abrirEtmChart('${_jsq(c.usina)}',${c.pid==null?'null':`'${_jsq(c.pid)}'`})" style="cursor:pointer;height:240px;display:flex;flex-direction:column;overflow:hidden;${c.cardStyle}">
       <div style="display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex:none"><span style="font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.name}</span><span style="display:inline-flex;align-items:center;gap:9px;flex:none"><span style="font-family:'IBM Plex Mono',Consolas,monospace;font-size:10.5px;color:${c.leitOld?'#c9b6ff':'var(--color-neutral-500)'}">${c.leit}</span>${c.noFrac?'':`<i class="ph ph-clock-counter-clockwise" title="Histórico de OSs da estação" onclick="event.stopPropagation();abrirEtmHist('${_jsq(c.usinaQ||c.usina)}')" style="font-size:14px;color:var(--color-neutral-500);cursor:pointer"></i>`}<i class="ph ph-chart-line" title="Ver curva do dia" style="font-size:14px;color:var(--color-neutral-500)"></i></span></div>
       <div class="gc-etm-vd" title="${_he(c.anomObs||'')}"><i></i><b>${_he(c.vd)}</b>${c.vdSub?`<span>${_he(c.vdSub)}</span>`:''}</div>
       <svg viewBox="0 0 240 46" preserveAspectRatio="none" style="width:100%;height:40px;display:block;margin:6px 0 0;flex:none"><polyline points="${c.ghiPts}" fill="none" stroke="var(--color-neutral-500)" stroke-width="1.4" stroke-opacity="0.7" stroke-linejoin="round"></polyline><polyline points="${c.poaPts}" fill="none" stroke="var(--color-accent)" stroke-width="1.8" stroke-linejoin="round"></polyline></svg>
       <div class="gc-etm-sens">${c.sensHtml}</div>
-      <div class="gc-etm-mes" title="${_he(c.mesTit||'')}">${c.mesHtml}</div>
       <div style="flex:1"></div>
       <div style="height:30px;display:flex;align-items:center;gap:5px;overflow:hidden;flex:none">${c.temOS?c.osList.map(o=>`<span onclick="event.stopPropagation();abrirEtmHist('${_jsq(c.usinaQ||c.usina)}')" title="${_he(o.desc||'')} — clique p/ o histórico" style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:2px 9px;border-radius:6px;background:rgba(255,152,56,.16);color:#ff9838;white-space:nowrap"><i class="ph ph-wrench" style="font-size:12px"></i>OS ${_he(o.folio||'')} · ETM</span>`).join(''):(c.prob?(c.noFrac?`<span onclick="event.stopPropagation()" style="font-size:11px;color:var(--color-neutral-500)" title="A usina não tem 'Usina Fractall' na aba Equipamentos — o OS Creator não a encontra">sem cadastro no Fracttal — OS indisponível</span>`:`<button onclick="event.stopPropagation();abrirOsEtm('${_jsq(c.usinaQ||c.usina)}')" style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:700;padding:6px 13px;border-radius:8px;cursor:pointer;font-family:inherit;background:var(--gc-red);color:#fff;border:0"><i class="ph ph-wrench" style="font-size:13px"></i> Abrir OS · ETM</button>`):'')}</div>
     </div>`).join('')}</div>
@@ -1700,7 +1713,7 @@ function renderTrackers(v){
   const trows=(v.trackerRows||[]).filter(r=>_matchQ(r.name));
   return bar+`<div class="card" style="padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 22px;border-bottom:1px solid var(--color-divider)"><div style="display:flex;align-items:baseline;gap:12px"><span style="font-family:var(--font-heading);font-size:17px">Trackers — Seguidores solares</span><span class="text-muted" style="font-size:12.5px">clique na usina para ver os trackers</span></div>${_histBtn()}</div>
   <div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th style="text-align:center">Trackers</th><th style="text-align:center">Parado</th><th style="text-align:center">Severo</th><th style="text-align:center">Médio</th><th style="text-align:center">Leve</th><th style="text-align:right">Disponibilidade</th><th style="text-align:center" title="parados com ticket aberto na planilha de Tickets ÷ parados">Tickets</th><th style="text-align:center" title="ticket aberto na planilha, mas o tracker voltou a acompanhar o alvo: candidato a fechar">Normaliz.</th><th style="text-align:right">Desvio médio</th><th style="text-align:right">Última leitura</th><th style="text-align:center;padding-right:22px">Status</th></tr></thead>
-  <tbody>${(!trows.length&&_q)?`<tr><td colspan="12" style="text-align:center;padding:28px;color:var(--color-neutral-500)">Nenhuma usina casa "${_he(_q)}".</td></tr>`:''}${trows.map(r=>`<tr ${r.pid!=null?`onclick="toggleTrk('${esc(r.pid).replace(/['"\\]/g,'')}')" style="cursor:pointer;${r.expanded?'background:color-mix(in srgb, var(--gc-amber) 7%, transparent);':''}"`:''}><td style="padding-left:22px;font-weight:600">${r.pid!=null?`<i class="ph ph-caret-right" style="font-size:11px;color:var(--color-neutral-500);margin-right:8px;transition:transform .15s;transform:rotate(${r.caretDeg}deg)"></i>`:''}${r.name}</td><td style="text-align:center;color:var(--color-neutral-400)">${r.total}</td><td style="text-align:center;font-weight:600;color:${r.paradosColor}">${r.parados}</td><td style="text-align:center;color:${r.severo>0?'var(--gc-amber)':'var(--color-neutral-300)'}">${r.severo}</td><td style="text-align:center;font-weight:${r.medio>0?600:400};color:${r.medio>0?'#ffb43d':'var(--color-neutral-300)'}">${r.medio}</td><td style="text-align:center;color:var(--color-neutral-300)">${r.leve}</td><td>${_trkBar(r.dispPct,r.dispTempo)}</td><td style="text-align:center">${_tkCel(r)}</td><td style="text-align:center;color:${r.normalizados>0?'#3fb950':'var(--color-neutral-400)'};font-weight:${r.normalizados>0?600:400}">${r.normalizados}</td><td style="text-align:right;color:var(--color-neutral-400)">${r.desvioMed}</td><td title="${r.staleTit||''}" style="text-align:right;font-size:12.5px;${r.staleRead?'color:#c9b6ff;font-weight:600':'color:var(--color-neutral-500)'}">${r.lastRead}</td><td style="text-align:center;padding-right:22px"><span style="${r.statusStyle}">${r.status}</span></td></tr>${r.expanded?`<tr><td colspan="12" style="padding:0;border:0"><div style="background:color-mix(in srgb, var(--color-neutral-900) 55%, transparent);padding:16px 22px 20px">${_trkDrill(r.pid)}</div></td></tr>`:''}`).join('')}</tbody></table></div></div>`;
+  <tbody>${(!trows.length&&_q)?`<tr><td colspan="12" style="text-align:center;padding:28px;color:var(--color-neutral-500)">Nenhuma usina casa "${_he(_q)}".</td></tr>`:''}${trows.map(r=>`<tr ${r.pid!=null?`onclick="toggleTrk('${esc(r.pid).replace(/['"\\]/g,'')}')" style="cursor:pointer;${r.expanded?'background:color-mix(in srgb, var(--gc-amber) 7%, transparent);':''}"`:''}><td style="padding-left:22px;font-weight:600">${r.pid!=null?`<i class="ph ph-caret-right" style="font-size:11px;color:var(--color-neutral-500);margin-right:8px;transition:transform .15s;transform:rotate(${r.caretDeg}deg)"></i>`:''}${r.name}</td><td style="text-align:center;color:var(--color-neutral-400)">${r.total}</td><td style="text-align:center;font-weight:600;color:${r.paradosColor}">${r.parados}</td><td style="text-align:center;color:${r.severo>0?'var(--gc-amber)':'var(--color-neutral-300)'}">${r.severo}</td><td style="text-align:center;font-weight:${r.medio>0?600:400};color:${r.medio>0?'#ffb43d':'var(--color-neutral-300)'}">${r.medio}</td><td style="text-align:center;color:var(--color-neutral-300)">${r.leve}</td><td>${_trkBar(r.dispPct,r.dispTempo)}</td><td style="text-align:center">${_tkCel(r)}</td><td style="text-align:center;color:${r.normalizados>0?'#3fb950':'var(--color-neutral-400)'};font-weight:${r.normalizados>0?600:400}">${r.normalizados}</td><td style="text-align:right;color:var(--color-neutral-400)">${r.desvioMed}</td><td title="${r.staleTit||''}" style="text-align:right;font-size:12.5px;${r.staleRead?'color:#c9b6ff;font-weight:600':'color:var(--color-neutral-500)'}">${r.lastRead}</td><td style="text-align:center;padding-right:22px"><span style="${r.statusStyle}" title="${_he(r.frotaTit||'')}">${r.status}</span></td></tr>${r.expanded?`<tr><td colspan="12" style="padding:0;border:0"><div style="background:color-mix(in srgb, var(--color-neutral-900) 55%, transparent);padding:16px 22px 20px">${_trkDrill(r.pid)}</div></td></tr>`:''}`).join('')}</tbody></table></div></div>`;
 }
 function _trkDrill(pid){
   const arr=RD.trk[state.source+'|'+pid];
@@ -1935,7 +1948,6 @@ function renderTrkParados(){ const f=_fonte(), d=RD.trkPar[f];
   const cnt=(d&&d.rows)?`${rows.length} trackers em ${new Set(rows.map(r=>r.usina)).size} usinas`:'';
   const bar=_subBar('Trackers parados (agora)',cnt,_expBtn('/api/'+f+'/trackers/parados/export.xlsx')+_atualBtn('loadTrkParados'));
   if(d===undefined||d===null) return bar+_subLoad();
-  if(d.sem_token) return bar+_subMsg('Token da Plataforma ausente/vencido — não dá para listar os parados agora.');
   if(!rows.length) return bar+_subMsg(_q?`Nenhuma usina casa "${_he(_q)}".`:'Nenhum tracker parado no momento.');
   const ang=x=>x==null?'—':(Math.round(x*10)/10).toFixed(1)+'°';
   const desde=r=>{ if(!r.parado_desde)return '—'; const t=_dtBR(r.parado_desde), h=r.horas_parado;

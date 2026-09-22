@@ -42,10 +42,40 @@ def cv_poa_dia(poa: pd.Series, tz: str, h_ini: int = 10, h_fim: int = 14) -> dic
     return {d: (float(v) if pd.notna(v) else float("nan")) for d, v in cv.items()}
 
 
-def dias_limpos(cobertura: dict[dt.date, float], dias_com_evento: set[dt.date], cv: dict[dt.date, float], p: ParamsCalib) -> list[dt.date]:
-    """Sem evento de equipamento, cobertura do gate >= 0,9 e POA estavel."""
-    return sorted(d for d, c in cobertura.items()
-                  if c >= p.cobertura_min and d not in dias_com_evento and d in cv and pd.notna(cv[d]) and cv[d] < p.cv_max)
+# Tipos que tornam o MEDIDO nao representativo do dia: o inversor parou, a string zerou, o sensor
+# mentiu. Tracker fica de fora desta lista de proposito — ver `dias_limpos`.
+TIPOS_GRAVES = ("inversor_parado", "inversor_abaixo", "string_sem_corrente",
+                "sensor_em_falha", "sensor_congelado", "sem_cobertura")
+FRACAO_TRACKER_MAX = 0.01      # tracker que custou <=1% do esperado do dia nao invalida a calibracao
+
+
+def dias_limpos(cobertura: dict[dt.date, float], dias_com_evento: set[dt.date], cv: dict[dt.date, float],
+                p: ParamsCalib, perda_por_dia: dict[dt.date, dict] | None = None) -> list[dt.date]:
+    """Cobertura do gate >= 0,9, POA estavel e nada que torne o medido nao representativo.
+
+    21/09/2026 — o piloto nas tres usinas da 2C devolveu 1, 1 e ZERO dias limpos em 12, 10 e 10 dias
+    de cascata. Nao era falta de dado: a regra vetava o dia por QUALQUER evento de equipamento, e na
+    2C isso e tracker o tempo todo (`tracker_travado` matou 8 dos 10 dias de Sete Lagoas). E a
+    parcela `tracker` da cascata desses MESMOS dias e **zero kWh** nas tres — a regua vetava o dia
+    por um evento que ela propria valorou em nada.
+
+    Com `perda_por_dia` o criterio passa a ser auto-validante: veta o que CUSTOU energia, nao o que
+    apenas apareceu. Tracker que derrubou geracao de verdade entra na parcela e continua vetando.
+    Sem o argumento, mantem o comportamento antigo — para nao mudar em silencio quem chama de fora."""
+    def ok(d):
+        if cobertura[d] < p.cobertura_min:
+            return False
+        if d not in cv or pd.isna(cv[d]) or cv[d] >= p.cv_max:
+            return False
+        if perda_por_dia is None:
+            return d not in dias_com_evento
+        if d in dias_com_evento:                       # graves vetam sempre
+            return False
+        parc = perda_por_dia.get(d) or {}
+        esp = float(parc.get("esperado") or 0.0)
+        trk = float(parc.get("tracker") or 0.0)
+        return esp <= 0 or (trk / esp) <= FRACAO_TRACKER_MAX
+    return sorted(d for d in cobertura if ok(d))
 
 
 def razoes_por_dia(grade: Grade, r: gate_mod.Resultado, params: dict[int, esp_mod.ParamsModelo]) -> pd.DataFrame:
@@ -91,15 +121,23 @@ def calibrar(conn, usina: UsinaRef, dias: int = 45, p: ParamsCalib = ParamsCalib
     mod = job.modelo_ativo(conn, usina.id)
     ini, fim = job.janela_padrao(agora, usina.tz, dias)
     with conn.cursor() as cur:
-        cur.execute("SELECT dia, cobertura_gate FROM cascata_dia WHERE usina_id=%s AND modelo_id=%s AND dia >= %s",
+        cur.execute("SELECT dia, cobertura_gate, tracker, e_esperado FROM cascata_dia "
+                    "WHERE usina_id=%s AND modelo_id=%s AND dia >= %s",
                     (usina.id, mod.id, ini.astimezone(tz).date()))
-        cobertura = {d: float(c) for d, c in cur.fetchall()}
-        cur.execute("SELECT ini FROM evento WHERE usina_id=%s AND equipamento_id IS NOT NULL AND ini >= %s", (usina.id, ini))
+        cobertura, perda_por_dia = {}, {}
+        for d, c, trk, esp in cur.fetchall():
+            cobertura[d] = float(c)
+            perda_por_dia[d] = {"tracker": float(trk or 0.0), "esperado": float(esp or 0.0)}
+        # So os tipos GRAVES vetam o dia por si; tracker e julgado pelo que custou (ver dias_limpos)
+        marc = ",".join("%s" for _ in TIPOS_GRAVES)
+        cur.execute(f"SELECT ini FROM evento WHERE usina_id=%s AND equipamento_id IS NOT NULL "
+                    f"AND ini >= %s AND tipo IN ({marc})", (usina.id, ini, *TIPOS_GRAVES))
         com_evento = {r[0].astimezone(tz).date() for r in cur.fetchall()}     # fuso em Python: SQLite nao tem AT TIME ZONE
     grade = carregar_grade(conn, usina, ini, fim)
     r = gate_mod.avaliar(grade.estacao, job.referencia_razao(conn, usina.id, fim, usina.tz),
                          gate_mod.ParamsGate(**(mod.parametros.get("gate") or {})), usina.tz)
-    limpos = dias_limpos(cobertura, com_evento, cv_poa_dia(grade.estacao["poa"], usina.tz), p)
+    limpos = dias_limpos(cobertura, com_evento, cv_poa_dia(grade.estacao["poa"], usina.tz), p,
+                         perda_por_dia=perda_por_dia)
     if not limpos:
         return {"usina": usina.codigo, "erro": "sem dias limpos", "dias_cascata": len(cobertura), "com_evento": len(com_evento)}
     params = job.params_por_inversor(grade, mod, job.p_ac_30d(conn, usina.id, fim))

@@ -357,6 +357,10 @@ def _auth_gate():
     # próprio no handler pelo JWT do login do Fracttal — ver tickets_relay.py.
     if p.startswith("/api/tickets/"):
         return
+    # Gêmeo Digital lendo os trackers da 2C: gate próprio no handler, pelo MESMO segredo que esta
+    # plataforma já manda a ele em X-Gemeo-Senha. Não é sessão humana, e não abre /api/owen/* inteiro.
+    if p.startswith("/api/gemeo/"):
+        return
     if session.get("auth"):
         return
     if p.startswith("/api/"):
@@ -553,7 +557,11 @@ def auth_callback():
 
 @app.route("/healthz")
 def healthz():
-    return "ok", 200
+    """"ok" enquanto o processo estiver sadio. Fuso errado NÃO devolve erro (monitor que só olha o
+    código HTTP continua vendo 200), mas aparece no corpo: em 22/09/2026 um servidor em UTC marcou
+    108 de 115 usinas como "sem comunicação" e ninguém tinha onde ler isso."""
+    f = _conferir_fuso()
+    return ("ok" if f["ok"] else "ok (ATENCAO) " + f["msg"]), 200
 
 
 def _tokens_status():
@@ -574,17 +582,34 @@ def _tokens_status():
             st = "ok"   # auto-renova (SunOp/Axis): renova sozinho pelo keepalive → só alerta se VENCIDO
         if tipo == "auto-login":          # login com usuário/senha: se cura sozinho → nunca alerta
             st = "auto"
+        if tipo == "info":                # existe para explicar, não para alarmar (ver o bloco abaixo)
+            st = "info"
         return {"nome": nome, "fonte": fonte, "tipo": tipo,
                 "exp": datetime.fromtimestamp(exp).strftime("%d/%m/%Y %H:%M") if exp else None,
                 "dias": round(dias, 1) if dias is not None else None, "status": st, "dica": dica}
 
+    # O TOKEN DE API ENTROU NESTA TELA EM 22/09/2026, e a falta dele aqui custou semanas.
+    # A linha "SunOp / Athon" abaixo mostra o token WEB, que só serve aos endpoints de configuração.
+    # Quem libera os DADOS (strings, ETM, trackers, curvas) desde 30/07 é o token de API — e ele não
+    # aparecia em lugar nenhum. Resultado: a tela gritou "SunOp: VENCIDO" por semanas, estava certa
+    # e era irrelevante, e todo mundo aprendeu a ignorá-la; quando o de API faltou de verdade, no
+    # servidor novo, a Athon subiu muda sem UM aviso que apontasse para a causa.
+    # O de API é o que alarma de fato: sem ele não há dado. O web fica como informação.
     rows = [
-        _row("Plataforma (trackers)", "plat", _jwt_exp(_plat_token()), "manual",
-             "Renove pelo bookmarklet de 1 clique (logado em plataforma.pvoperation.com)."),
-        _row("SunOp / Athon", "sunop", _jwt_exp(_sunop_token.get("token", "")), "auto-renova",
-             "Renova sozinho; só recolar SUNOP_TOKEN no .env se o servidor ficou dias desligado."),
-        _row("Axis SunOp", "axis", _jwt_exp(_axis_token.get("token", "")), "auto-renova",
-             "Renova sozinho; recolar AXIS_TOKEN no tokens.txt se ficar dias desligado."),
+        _row("Plataforma — reserva (trackers/combiner)", "plat", _jwt_exp(_plat_token()), "info",
+             "REBAIXADO EM 22/09/2026: os trackers passaram a vir da API PV fixa, que faz login "
+             "sozinho. Esta linha é reserva — vencida, os trackers continuam vindo. Se quiser "
+             "renovar mesmo assim, é o bookmarklet de 1 clique (logado em plataforma.pvoperation.com)."),
+        _row("SunOp / Athon — API (dados)", "sunop_api", _jwt_exp(_sunop_api_token("gridco")), "manual",
+             "É ESTE que libera strings/ETM/trackers. Gerado na interface do SunOp, vale meses; "
+             "guarde como SUNOP_API_TOKEN no tokens.txt."),
+        _row("Axis — API (dados)", "axis_api", _jwt_exp(_sunop_api_token("axis")), "manual",
+             "A Axis ainda não tem token de API gerado — é por isso que ela não traz dados. "
+             "Gerar na interface da Axis e guardar como AXIS_API_TOKEN no tokens.txt."),
+        _row("SunOp / Athon — web (config)", "sunop", _jwt_exp(_sunop_token.get("token", "")), "info",
+             "Só endpoints de configuração. Vencido aqui NÃO derruba os dados."),
+        _row("Axis SunOp — web (config)", "axis", _jwt_exp(_axis_token.get("token", "")), "info",
+             "Só endpoints de configuração. Vencido aqui NÃO derruba os dados."),
         _row("SolarEdge", "solaredge", _se_cookie.get("exp", 0.0), "auto-login", ""),
         _row("API PV", "apipv", _pv_token.get("exp", 0.0), "auto-login", ""),
     ]
@@ -741,6 +766,42 @@ STRING_INV_MIN_MED_A   = 0.5    # mediana do inversor abaixo disto = inversor pa
 _trancadas = set()              # chaves "plant_id|inv_id|Ipv" das strings trancadas (preenchido do estado)
 TEMP_ALERT         = 65.0
 COMM_ALERT_MINUTES = 30
+
+
+# ── O PROCESSO TEM DE RODAR EM HORÁRIO DE BRASÍLIA ───────────────────────────────────────────────
+# Esta plataforma compara carimbo de usina com `datetime.now()` NAIVE em dezenas de lugares — o
+# `falha_comunicacao`, a janela solar de 07-18 h, a ronda das 08:25/13:00, o fechamento do dia às
+# 01:30. Todos assumem que a hora local do processo É Brasília, o que sempre foi verdade nas
+# máquinas Windows da equipe.
+#
+# EM 22/09/2026 ISSO CUSTOU UM DIA. A plataforma entrou num servidor Linux rodando em UTC: o
+# `datetime.now()` passou a devolver 3 h a mais que o carimbo das usinas, `diff` deu ~183 min contra
+# o limiar de 30, e **108 das 115 usinas da API PV apareceram "sem comunicação"** — com o dado
+# chegando normalmente e mais fresco que o da máquina local. Usina marcada assim tem as strings
+# suprimidas, então a tela simplesmente não listava string nenhuma.
+#
+# O conserto de verdade é o fuso do servidor (TZ=America/Sao_Paulo). O que esta função faz é não
+# deixar a próxima vez ser silenciosa: um deslocamento de fuso vira uma LINHA DE LOG que se lê, em
+# vez de 108 usinas "mudas" que mandam investigar rede à toa.
+FUSO_ESPERADO_H = -3.0                 # Brasília, sem horário de verão desde 2019
+
+
+def _fuso_do_processo_h() -> float:
+    """Deslocamento da hora local do processo contra UTC, em horas."""
+    agora = datetime.now()
+    return round((agora - datetime.utcnow()).total_seconds() / 3600, 1)
+
+
+def _conferir_fuso() -> dict:
+    """{ok, fuso_h, esperado_h, msg}. Chamada no boot e servida pelo /healthz."""
+    h = _fuso_do_processo_h()
+    ok = abs(h - FUSO_ESPERADO_H) < 0.5
+    msg = "" if ok else (
+        f"FUSO ERRADO: este processo roda em UTC{h:+g}, mas as réguas assumem Brasília (UTC-3). "
+        f"Efeito: toda usina aparece com {abs(h - FUSO_ESPERADO_H) * 60:.0f} min de atraso, "
+        f"'sem comunicação' em massa e strings suprimidas. Suba o serviço com TZ=America/Sao_Paulo.")
+    return {"ok": ok, "fuso_h": h, "esperado_h": FUSO_ESPERADO_H, "msg": msg}
+
 ETM_LATE_WARN_MIN  = 15    # ETM: última leitura atrasando (entre isto e COMM_ALERT_MINUTES, de dia) = possível falta (atenção)
 ETM_GAP_WARN_MIN   = 30    # ETM: buraco na série durante o dia (min) = possível falta (atenção)
 ETM_DIA_INI, ETM_DIA_FIM = 6, 18   # janela diurna em que a estação deveria estar reportando
@@ -2106,7 +2167,7 @@ _pv_oem_lock    = threading.Lock()
 
 
 def _pv_trk_fora(plant_id) -> bool:
-    """True = não varrer tracker desta usina pela PV Plataforma (o dado vem de outra fonte)."""
+    """True = não varrer tracker desta usina pela API PV (o dado vem de outra fonte)."""
     try:
         return int(plant_id) in PV_TRK_OUTRA_FONTE
     except Exception:
@@ -2978,7 +3039,19 @@ def index(fonte_id=None):
 
 @app.route("/monitoramento")
 def monitoramento():
-    # Monitoramento — novo design (JS puro). Foi a raiz de 20/07 a 05/09/2026; agora mora aqui.
+    """Monitoramento — novo design (JS puro). Foi a raiz de 20/07 a 05/09/2026; agora mora aqui.
+
+    SEM `fonte` nem `embed`, redireciona para o Tempo real (Levi, 21/09/2026). Ele clicou no atalho
+    "Monitoramento" do cabeçalho do /painel e achou que tinha caído numa "visão antiga que não usamos
+    mais" — é ESTA MESMA tela, só que pelada: sem parâmetro ela abre na fonte padrão, na aba Strings e
+    sem a casca da Entrada (cards de KPI, chips de fonte). Mesma tela, sem o entorno e numa fonte
+    qualquer, passa por tela velha.
+
+    O redirecionamento é DESTE caso só. Tudo que traz `fonte` seguiu igual, e é o que importa: o
+    `/tempo-real/<fonte>` embute esta rota num iframe (`?fonte=…&embed=1`) e o /painel tem dois deep
+    links por usina. Apagar a rota — o pedido original — derrubaria o Tempo real inteiro."""
+    if not flask_request.args.get("fonte") and not flask_request.args.get("embed"):
+        return redirect(_prefixo() + "/tempo-real")
     return _serve_redesign()
 
 
@@ -3152,10 +3225,34 @@ def _entrada_tempo_real_build() -> dict:
     limite = time.time() + _ENTRADA_TRK_PRAZO_S
     for th in ths:
         th.join(max(0.0, limite - time.time()))
+    # Fonte que estourou o prazo NAO apaga o que ja se sabia (Levi, 21/09/2026: "a contagem de trackers
+    # esta como 'fonte nao respondeu' sendo que temos leitura de trackers"). O print dele mostrava o card
+    # com um traco e, logo abaixo na mesma tela, a tabela com 52 trackers por skid e leitura das 14:05:
+    # a fonte respondeu, so nao em 30 s. Agora carrega o numero da ULTIMA construcao boa e marca
+    # `trk_atrasado`, para a tela dizer "de tal hora" em vez de fingir que nao ha dado. Dado velho rotulado
+    # e util; traco no lugar de 148 trackers parados nao e.
+    anterior = {(gg.get("cliente"), gg.get("fonte")): gg
+                for gg in ((_ENTRADA_TR_CACHE.get("data") or {}).get("grupos") or [])}
     for fonte in fontes_trk:
         trows = colhido.get(fonte)
         if trows is None:
-            print(f"[ENTRADA] {fonte}: trackers parados nao vieram em {_ENTRADA_TRK_PRAZO_S}s — card fica 'fonte nao respondeu'")
+            print(f"[ENTRADA] {fonte}: trackers parados nao vieram em {_ENTRADA_TRK_PRAZO_S}s — usando a contagem anterior")
+            for x in grupos.values():
+                if x["fonte"] != fonte:
+                    continue
+                ant = anterior.get((x["cliente"], x["fonte"]))
+                if not ant or not ant.get("trk_fonte_ok"):
+                    continue                                  # nunca houve leitura boa: aí o traço é honesto
+                x["trk_fonte_ok"] = True
+                x["trk_atrasado"] = True
+                x["trk_parados"] = ant.get("trk_parados") or 0
+                x["trk_com_os"] = ant.get("trk_com_os") or 0
+                por_usina = {_nrm(u.get("usina") or ""): u for u in (ant.get("usinas") or [])}
+                for uu in x["usinas"].values():
+                    a = por_usina.get(_nrm(uu["usina"]))
+                    if a:
+                        uu["trk_parados"] = a.get("trk_parados") or 0
+                        uu["trk_com_os"] = a.get("trk_com_os") or 0
             continue
         for x in grupos.values():
             if x["fonte"] == fonte:
@@ -4291,6 +4388,26 @@ def _sunop_headers(inst: str = "gridco") -> dict:
                    "Content-Type": "application/json"})
 
 
+def _sunop_api_token(inst: str = "gridco") -> str:
+    """Token de API do SunOp (o que o /data aceita): SEMENTE no tokens.txt, estado no runtime.
+
+    POR QUE GANHOU UMA SEMENTE EM 22/09/2026. Ele vivia SÓ no tokens_runtime.json, e isso o
+    classificava como estado de runtime — o que ele não é: é gerado à mão na interface do SunOp e
+    vale 6 a 12 meses (o atual vence em 09/06/2027). Na migração para o servidor dedicado o
+    tokens_runtime.json ficou de fora DE PROPÓSITO, porque para o PLAT_TOKEN levar estado antigo
+    sequestra a renovação — regra certa para aquele, errada para este. Resultado medido: a Athon
+    subiu sem strings, sem ETM e sem trackers, porque o /data caía no token WEB (SUNOP_TOKEN do
+    tokens.txt), vencido desde 23/07, e tomava 401 em tudo.
+
+    A escada é a mesma do PLAT_TOKEN: vence quem tem validade MAIOR, nunca "ambiente primeiro".
+    Semente velha não pode ganhar de um token gerado depois."""
+    rt = _tokens_rt_get(_si(inst)["rt_key"] + "_api")
+    env = (os.environ.get(_si(inst)["rt_key"].upper() + "_API_TOKEN", "") or "").strip()
+    if not rt or not env:
+        return rt or env
+    return rt if (_jwt_exp(rt) or 0) >= (_jwt_exp(env) or 0) else env
+
+
 def _sunop_data_headers(inst: str = "gridco") -> dict:
     """Headers do serviço de DADOS (…/data) — preferem o API TOKEN, esquema `Bearer API`.
 
@@ -4302,7 +4419,7 @@ def _sunop_data_headers(inst: str = "gridco") -> dict:
 
     Sem API token gravado (chave `<rt_key>_api` no tokens_runtime.json), cai no header web —
     comportamento antigo, e é o caso da Axis até gerarem o token lá."""
-    tok = _tokens_rt_get(_si(inst)["rt_key"] + "_api")
+    tok = _sunop_api_token(inst)
     if tok:
         return dict(_sunop_browser_headers(inst),
                     **{"Authorization": f"Bearer API {tok}", "Content-Type": "application/json"})
@@ -6019,8 +6136,68 @@ def api_sunop_trackers_plant(plant_name):
 #   Descoberto via DevTools: POST com pathnames no corpo + start/end na query.
 #   Serve curva do dia de QUALQUER medida analógica (tracker POSAT/POSAL, POA, GHI…),
 #   inclusive datas passadas (source=Historical).
+# ── FASE 4: a curva vem do acervo do gemeo, nao da API da SunOp ──────────────────────────────
+# O /data/v2/usage/me acusou 162.892 requisicoes de 01 a 20/09 contra cota de 100.000/mes — saldo
+# ZERO desde o dia 12, US$ 31,45 cobrados, e num servidor 24 h a projecao passa de 400 mil. O gemeo
+# ingere as MESMAS medidas das mesmas usinas por 85 requisicoes/DIA, porque guarda em vez de
+# re-perguntar. Aqui a plataforma passa a ler do acervo dele e so vai a SunOp pelo que sobrar.
+#
+# EQUIVALENCIA MEDIDA ANTES DE LIGAR (MRO100, 20/09, 20 trackers, contra a API real): 95 de 96
+# pontos IDENTICOS por serie. O unico divergente e sempre 20:30 UTC (17:30 em Belem, por do sol),
+# com ~2,4 graus — e o dado que a SunOp ingere ATRASADO e chega depois de o gemeo gravar o slot.
+#
+# Tres enganos do caminho, que custaram tempo e ficam registrados: a SunOp responde em HORA DA
+# USINA (use_plant_timezone) e o gemeo grava em UTC — 3 h de deslocamento viram 66 graus num
+# tracker; o gemeo grava tracker com period=15m e a SunOp devolve 10m por padrao; e a resposta da
+# SunOp e PLANA (um item por ponto, com pathname), nao aninhada por serie.
+GEMEO_CURVA_ATIVO = os.environ.get("GEMEO_CURVA", "1") != "0"   # interruptor p/ o dia do deploy
+_GEMEO_CURVA_S = 25                                             # o gemeo e local; se demorar, nao serve
+
+
+def _gemeo_curva(pathnames: list, ini: str, fim: str) -> dict | None:
+    """{series, nao_atendidos} do acervo do gemeo, ou None se ele nao puder servir.
+
+    O gemeo e OPCIONAL neste caminho: qualquer falha devolve None e a plataforma busca tudo na
+    SunOp como sempre. Nunca o contrario — seria trocar uma dependencia por duas."""
+    r = _http().post(f"{GEMEO_URL}/gemeo/api/curva/pathnames",
+                     headers={"X-Gemeo-Senha": os.environ.get("GEMEO_SENHA", "")},
+                     json={"pathnames": list(pathnames), "ini": ini, "fim": fim},
+                     timeout=_GEMEO_CURVA_S)
+    if r.status_code != 200:
+        return None
+    d = r.json()
+    return d if isinstance(d, dict) and "series" in d else None
+
+
+def _iso_utc(t: str) -> str:
+    """'2026-09-20 00:00:00' (hora da usina, como a SunOp recebe) -> ISO. O gemeo guarda UTC; quem
+    chama aqui ja passa a janela na mesma referencia que manda para a SunOp."""
+    return str(t).replace(" ", "T")
+
+
 def _sunop_analog_history(pathnames: list, start: str, end: str, inst: str = "gridco",
                           period: str = None) -> dict:
+    """Curva por pathname. Tenta o acervo do gemeo primeiro (ver FASE 4 acima) e pede a SunOp
+    apenas o que ele nao atendeu — e o que reduz a CONTAGEM de requisicoes, nao so o payload."""
+    if GEMEO_CURVA_ATIVO and pathnames:
+        try:
+            g = _gemeo_curva(pathnames, _iso_utc(start), _iso_utc(end))
+        except Exception:                      # noqa: BLE001 — gemeo fora nao pode derrubar a curva
+            g = None
+        if g:
+            servidas = {k: [tuple(x) for x in v] for k, v in (g.get("series") or {}).items()}
+            faltam = [p for p in pathnames if p not in servidas]
+            if servidas:
+                _log_arquivo("fase4.log", f"gemeo serviu {len(servidas)}/{len(pathnames)} pathnames "
+                                          f"({start} a {end}); a SunOp recebeu {len(faltam)}")
+            if not faltam:
+                return servidas
+            return {**servidas, **_sunop_analog_history_api(faltam, start, end, inst, period)}
+    return _sunop_analog_history_api(pathnames, start, end, inst, period)
+
+
+def _sunop_analog_history_api(pathnames: list, start: str, end: str, inst: str = "gridco",
+                              period: str = None) -> dict:
     """→ {pathname: [(timestamp, value), ...]} ordenado por tempo.
 
     `period` = granularidade da AGREGAÇÃO no lado da SunOp ("5m", "15m"…). Omitir mantém o
@@ -6804,11 +6981,14 @@ def api_sunop_trackers_eventos():
                     "data_ini_hist": "2026-06-01", "progresso": {}})
 
 
-# ── API PV · Trackers (fonte: PV Plataforma) ──────────────────────────────────
-#   A API PV (apipv) NÃO expõe posição de tracker; o dado só existe na PV Plataforma
-#   (mesma idusina). Endpoints: /v2/usinas/trackers (estado atual: posAg=atual,
-#   posAl=alvo, parametros.{alertaPosicao,criticoPosicao}) e /v2/usinas/trackerschart
-#   (curva do dia por tracker). Token manual (CAPTCHA+MFA) na chave "plat" do tokens_runtime.json.
+# ── PV Plataforma · agora só RESERVA dos trackers (rebaixada em 22/09/2026) ───
+#   Este bloco dizia que "a API PV (apipv) NÃO expõe posição de tracker; o dado só existe na PV
+#   Plataforma". Era FALSO — e é o tipo de erro caro, porque uma frase no código vira premissa e
+#   ninguém mais testa. Expõe: POST /api/v1/trackers {idusina, date}. Ver `_pv_trk_dia`.
+#   Endpoints daqui, ainda usados quando a API PV não trouxer a usina: /v2/usinas/trackers (estado
+#   atual: posAg=atual, posAl=alvo) e /v2/usinas/trackerschart (curva do dia).
+#   Token manual (CAPTCHA+MFA) na chave "plat" do tokens_runtime.json — é justamente dele que a
+#   troca liberta o caminho crítico: vence a cada 7 dias e precisa de gente colando na tela.
 PLAT_BASE        = "https://apiplataforma.pvoperation.com"
 PLAT_RT_KEY      = "plat"      # chave no tokens_runtime.json (era plat_token.txt)
 _pv_trk_cache    = {"payload": None, "ts": 0.0}
@@ -7608,15 +7788,161 @@ load_tickets_os()         # OSs de Performance (planilha de Tickets) → coment�
 # Detecção por desvio vs a MEDIANA DA FROTA — independe do alvo, que na API PV pode vir tão
 # furado quanto o tracker travado (ex.: Saturnino TRK22, cujo posAl também travou em 43.9°).
 TRK_PV_DESVIO_FROTA = 10.0   # ° — desvio do tracker vs a mediana da frota = anômalo (instantâneo e curva)
+# ── Trackers pela API PV FIXA (Levi, 22/09/2026) ──────────────────────────────
+#   Até aqui este bloco começava afirmando que "a API PV (apipv) NÃO expõe posição de tracker; o
+#   dado só existe na PV Plataforma". Era falso, e custava caro: prendia os trackers ao PLAT_TOKEN,
+#   que vence a cada 7 dias e só se renova COLANDO um token à mão pelo bookmarklet (CAPTCHA+MFA).
+#   Num servidor sem ninguém na frente da tela, isso é uma fonte que morre toda semana.
+#
+#   A API fixa serve o mesmo dado: POST /api/v1/trackers {idusina, date:"DD/MM/AAAA"} devolve o DIA
+#   INTEIRO — uma entrada por leitura (~2,5 min), cada uma com todos os trackers e os 38 campos do
+#   controlador. Medido em Brodowski - Skid 2 antes de trocar: 52/52 trackers com posAg/posAl/aComm
+#   idênticos ao instantâneo da Plataforma (mesmo carimbo), e 29.551 de 29.551 pontos da curva do dia
+#   idênticos ao trackerschart, maior diferença 0,000°.
+#
+#   Uma busca serve os DOIS consumidores (curva e instantâneo), e é por isso que ela fica aqui, num
+#   cache só: hoje o detalhe custa snapshot (479 KB) + trackerschart (17,2 MB); pela API PV é uma
+#   chamada de 13,2 MB. Menos tráfego e uma dependência a menos.
+#
+#   CARIMBO: `tsleitura` já vem em Brasília — NÃO converter. (O `x` do trackerschart diz "GMT" e
+#   mente; as duas fontes batem minuto a minuto justamente porque nenhuma é convertida.)
+#   CUSTO: a API só entrega o DIA INTEIRO — `last`, `limit`, `init/end`, `hora` e `ultima` foram
+#   testados em 22/09 e todos IGNORADOS (as seis variantes devolveram as mesmas 610 leituras e
+#   13,8 MB). Então a frequência é a única alavanca, e ela vale 30 min, não os 5 do CACHE_TTL:
+#   medido em 16 usinas com 8 workers, o dia custa 8,85 MB/usina contra 0,375 MB do instantâneo
+#   antigo. Buscar de 5 em 5 min daria ~8 GB/h nas ~80 usinas com tracker — quatro vezes o de hoje —
+#   para ganhar duas leituras. A 30 min dá ~1,4 GB/h, MENOS que os ~2,0 GB/h de hoje, e ainda mata a
+#   chamada separada de instantâneo. O job de eventos já roda nessa cadência e aquece este cache
+#   sozinho (ele chama `_pv_trk_grafico`, que agora passa por aqui), então a tela lê quente.
+#   O preço: o instantâneo do overview envelhece até 30 min em vez de 5. Não muda decisão — a usina
+#   lê de 2,5 em 2,5 min e a régua de parado trabalha em horas — e "Atualizar status" busca na hora.
+TRK_DIA_TTL = 1800           # s — 30 min, alinhado ao job de eventos (CACHE_TTL aqui = 4× o tráfego)
+_pv_trk_dia_cache = {}       # (idusina, data) -> {ts, d}: dia cru da API PV, serve curva + instantâneo
+_pv_trk_dia_locks = {}       # (idusina, data) -> Lock: DEDUP (a busca é cara; 1 por chave)
+_pv_trk_dia_guard = threading.Lock()
+
+
+def _pv_trk_parse_dia(payload) -> dict:
+    """Dia cru da API PV → {"curva": {trk: [{x,y}]}, "ultima": {trk: {...}}, "ultima_ts": str|None}.
+
+    Puro de propósito (sem rede): é aqui que a troca de fonte pode errar em silêncio, então é o que
+    os testes prendem. Leitura torta é PULADA, não levanta — uma usina com um registro defeituoso
+    não pode derrubar a varredura das outras 115."""
+    curva, ultima, ultima_ts = {}, {}, None
+    if not isinstance(payload, list):        # erro da API vem como dict; dia sem leitura vem vazio
+        return {"curva": {}, "ultima": {}, "ultima_ts": None}
+    # ORDENA: a API devolve fora de ordem (medido: o 1º registro era 05:11 num dia que começa 00:00).
+    # A régua de amplitude/freeze lê isto como série temporal — desordenado, tracker saudável vira
+    # "salto de recuperação".
+    leituras = [r for r in payload if isinstance(r, dict) and r.get("tsleitura")]
+    for r in sorted(leituras, key=lambda x: str(x.get("tsleitura"))):
+        ts = str(r.get("tsleitura"))
+        trks = ((r.get("conteudojson") or {}).get("Trackers") or []) if isinstance(r.get("conteudojson"), dict) else []
+        if not trks:
+            continue
+        ultima_ts = ts
+        # x = "AAAA-MM-DD HH:MM", NÃO só "HH:MM": o gráfico e o CSV aceitam ?ini=&fim= e CONCATENAM
+        # vários dias numa série só (`g.setdefault(nome, []).extend(pts)`). Sem a data, 10:21 do dia 20
+        # e do dia 21 viram o mesmo ponto e a curva multi-dia vira um novelo. O carimbo longo do
+        # trackerschart ("Tue, 22 Sep 2026 00:20:00 GMT") carregava a data; este carrega também.
+        # Os dois parsers de HH:MM que existem — `_trk_mins` aqui e `fmtHora` no painel — pegam o
+        # PRIMEIRO \d{1,2}:\d{2} da string, então continuam achando a hora sem alteração nenhuma.
+        hhmm = ts[:16]
+        for item in trks:
+            if not isinstance(item, dict) or not item:
+                continue
+            nome, v = next(iter(item.items()))
+            if not isinstance(v, dict):
+                continue
+            pos = v.get("posAg")
+            # posição ausente entra como None, NUNCA 0.0: zero é um ângulo real (meio-dia), e
+            # inventá-lo apaga justamente o sintoma de comunicação morta que a régua procura.
+            curva.setdefault(nome, []).append({"x": hhmm, "y": float(pos) if isinstance(pos, (int, float)) else None})
+            ultima[nome] = v
+    if ultima_ts:                            # o instantâneo é a leitura MAIS NOVA, não a primeira
+        ultima = {}
+        for r in leituras:
+            if str(r.get("tsleitura")) != ultima_ts:
+                continue
+            for item in ((r.get("conteudojson") or {}).get("Trackers") or []):
+                if isinstance(item, dict) and item:
+                    nome, v = next(iter(item.items()))
+                    if isinstance(v, dict):
+                        ultima[nome] = v
+    return {"curva": curva, "ultima": ultima, "ultima_ts": ultima_ts}
+
+
+def _pv_trk_j_da_api(d: dict) -> dict:
+    """Dia da API PV → o formato que `_pv_trackers_analise` já lê (`dados[].trackers[]` da PV
+    Plataforma). Normalizar a fonte em vez de mexer na régua: são ~60 linhas calibradas com 11 casos
+    rotulados (mediana da frota, acumulador do dia, cruzamento com tickets) e nenhuma delas tem
+    motivo para mudar só porque o dado passou a chegar por outra porta.
+
+    Dia sem leitura devolve {} — e NÃO um `dados` com lista vazia, que a régua leria como "usina com
+    0 trackers" e o alarme de frota como 100% parada."""
+    ultima = d.get("ultima") or {}
+    if not ultima:
+        return {}
+    trks = [{"nome": nome, "ultimaleitura": v, "parametros": {}}
+            for nome, v in sorted(ultima.items(), key=lambda kv: _pv_trk_num(kv[0]))]
+    return {"dados": [{"trackers": trks}], "ultimaLeitura": d.get("ultima_ts")}
+
+
+def _pv_trk_dia(idusina, data: str, fetch: bool = True) -> dict:
+    """Dia de trackers da usina pela API PV FIXA, cacheado por (usina, data).
+
+    `fetch=False` devolve SÓ o cache (não dispara a busca, que é pesada) — mesmo contrato do
+    `_pv_trk_grafico`, usado no refino do overview p/ não travar a tela.
+
+    Dia FECHADO nunca expira: o passado não muda, e rebuscar 13 MB por causa do TTL era o
+    desperdício que o cache do trackerschart já evitava."""
+    hoje = datetime.now().strftime("%d/%m/%Y")
+    key, agora = (idusina, data), time.time()
+    ent = _pv_trk_dia_cache.get(key)
+    if ent and ((data != hoje and ent["d"]["curva"]) or (agora - ent["ts"]) < TRK_DIA_TTL):
+        return ent["d"]
+    if not fetch:
+        return (ent or {}).get("d") or {"curva": {}, "ultima": {}, "ultima_ts": None}
+    with _pv_trk_dia_guard:
+        lk = _pv_trk_dia_locks.setdefault(key, threading.Lock())
+    with lk:
+        ent = _pv_trk_dia_cache.get(key)          # re-check: outro thread pode ter buscado
+        if ent and ((data != hoje and ent["d"]["curva"]) or (time.time() - ent["ts"]) < TRK_DIA_TTL):
+            return ent["d"]
+        try:
+            r = _http().post(f"{BASE_URL}/trackers",
+                             headers={"x-access-token": _pv_token_for(idusina),
+                                      "Content-Type": "application/json"},
+                             json={"idusina": idusina, "date": data}, timeout=180)
+            d = _pv_trk_parse_dia(r.json() if r.status_code == 200 else None)
+        except Exception as e:
+            print(f"[trackers/apipv] usina {idusina} {data}: {e}")
+            d = {"curva": {}, "ultima": {}, "ultima_ts": None}
+        if d["curva"]:
+            _pv_trk_dia_cache[key] = {"ts": time.time(), "d": d}
+            return d
+        # busca vazia (usina sem tracker, madrugada, throttle): NÃO cacheia vazio — senão "Sem curva"
+        # gruda por 5 min mesmo com a fonte já respondendo. Mesmo cuidado do trackerschart.
+        return (ent or {}).get("d") or d
+
+
 _pv_trk_graf_cache  = {}     # (idusina, data) -> {ts, g}: grafico cru do trackerschart (reusa detalhe+chart)
 _pv_trk_graf_locks  = {}     # (idusina, data) -> Lock: DEDUP de fetch concorrente (1 busca por chave)
 _pv_trk_graf_lock_guard = threading.Lock()
 
 
 def _pv_trk_grafico(idusina, data: str, fetch: bool = True) -> dict:
-    """Curva crua do dia (PV Plataforma /v2/usinas/trackerschart) → {tracker: [{x,y}]}. Cacheada
-    por (usina, data). fetch=False → SÓ o cache (não dispara o trackerschart, que é pesado ~46k–104k
-    pontos e pode passar de 90s) — usado no refino do detalhe p/ não travar/zerar a detecção."""
+    """Curva crua do dia → {tracker: [{x,y}]}. API PV FIXA primeiro; PV Plataforma como reserva.
+
+    A reserva continua pelo mesmo motivo do combiner: a API PV é nova neste caminho, e usina que
+    ainda não esteja lá seguiria pelo caminho antigo em vez de sumir da tela. Assim a troca não pode
+    piorar nada — só tirar o PLAT_TOKEN do caminho crítico.
+
+    fetch=False → SÓ o cache (não dispara a busca, pesada) — usado no refino do detalhe p/ não
+    travar/zerar a detecção."""
+    d = _pv_trk_dia(idusina, data, fetch=fetch)
+    if d.get("curva"):
+        return d["curva"]
     hoje = datetime.now().strftime("%d/%m/%Y")
     key, agora = (idusina, data), time.time()
     ent = _pv_trk_graf_cache.get(key)
@@ -7785,6 +8111,17 @@ def _trk_medio_curva(g, jini=6 * 60, jfim=18 * 60, dev_max=MEDIO_DEV_MAX):
     return out
 
 
+def _trk_janela_curva(g: dict, jini: int, jfim: int) -> dict:
+    """Recorta {tracker: [{x,y}]} à janela de geração (minutos desde 00:00, inclusiva nas duas pontas).
+
+    Ponto sem hora legível é MANTIDO: descartar por não entender o carimbo esvaziaria a curva de uma
+    fonte nova inteira, e a régua leria "sem dado" como "parado" — que é o pior erro possível aqui,
+    porque abre ocorrência e derruba disponibilidade de uma usina que está bem."""
+    return {nome: [p for p in (pts or [])
+                   if (_trk_mins(p.get("x")) is None or jini <= _trk_mins(p.get("x")) <= jfim)]
+            for nome, pts in (g or {}).items()}
+
+
 def _trk_classifica_curso(g, jini=6 * 60, jfim=18 * 60, usina=None):
     """Dispatcher (rótulo por tracker): régua v2 sob flag, senão a legacy freeze-based. Mesma saída
     {tracker: parado|desvio_severo|desvio_leve|normal}. v2 só na janela padrão 06–18h.
@@ -7792,7 +8129,15 @@ def _trk_classifica_curso(g, jini=6 * 60, jfim=18 * 60, usina=None):
     senão overview e detalhe divergem (invariante 'overview == detalhe == disponibilidade')."""
     if TRK_REGUA_V2 and jini == 6 * 60 and jfim == 18 * 60:
         try:
-            res = _regua_v2(g or {})
+            # JANELA APLICADA EM 22/09/2026. A assinatura promete 06–18 h e a legacy cumpre (recebe
+            # jini/jfim); a v2 — que é a que roda com o flag ligado — recebia a curva CRUA, madrugada
+            # inclusive. O furo só apareceu quando a fonte virou a API PV, que entrega desde 00:00
+            # (o trackerschart começava ~00:20): 19 pontos de madrugada bastaram para 3 trackers de
+            # Brodowski virarem "normal". Ao medir, o defeito era maior que o sintoma — em Guatambu 4
+            # a amplitude entre 06 e 18 h é 0,00° nos 41 trackers (frota parada o dia todo, mexendo
+            # só no estacionamento noturno) e a régua reportava 30 deles como NORMAL.
+            # Medido em 40 usinas: 70 de 1049 trackers (6,7%) mudam, TODOS no sentido de parado.
+            res = _regua_v2(_trk_janela_curva(g or {}, jini, jfim))
             res.pop("__resumo__", None)
             _dmax = _medio_dev_max(usina)
             med = _trk_medio_curva(g or {}, dev_max=_dmax)
@@ -7949,7 +8294,15 @@ def _trk_classifica_curso_perdas(g, jini=6 * 60, jfim=18 * 60, usina=None):
     _dmax = _medio_dev_max(usina)
     if TRK_REGUA_V2 and jini == 6 * 60 and jfim == 18 * 60:
         try:
-            res = _regua_v2(g or {})
+            # JANELA APLICADA EM 22/09/2026. A assinatura promete 06–18 h e a legacy cumpre (recebe
+            # jini/jfim); a v2 — que é a que roda com o flag ligado — recebia a curva CRUA, madrugada
+            # inclusive. O furo só apareceu quando a fonte virou a API PV, que entrega desde 00:00
+            # (o trackerschart começava ~00:20): 19 pontos de madrugada bastaram para 3 trackers de
+            # Brodowski virarem "normal". Ao medir, o defeito era maior que o sintoma — em Guatambu 4
+            # a amplitude entre 06 e 18 h é 0,00° nos 41 trackers (frota parada o dia todo, mexendo
+            # só no estacionamento noturno) e a régua reportava 30 deles como NORMAL.
+            # Medido em 40 usinas: 70 de 1049 trackers (6,7%) mudam, TODOS no sentido de parado.
+            res = _regua_v2(_trk_janela_curva(g or {}, jini, jfim))
             res.pop("__resumo__", None)
             out = {}
             med = _trk_medio_curva(g or {}, dev_max=_dmax)
@@ -8057,7 +8410,9 @@ def api_trk_regua_diff():
         t0 = _t.time(); leg = _trk_classifica_curso_legacy(g or {}); ms_l = (_t.time() - t0) * 1000
         t0 = _t.time()
         try:
-            res = _regua_v2(g or {}); res.pop("__resumo__", None)
+            # janela igual à da legacy (que recebe 6–18h por default): sem isto a comparação
+            # mede a janela, não as réguas — ver a nota em `_trk_classifica_curso`.
+            res = _regua_v2(_trk_janela_curva(g or {}, 6 * 60, 18 * 60)); res.pop("__resumo__", None)
             v2 = {tid: _REGUA_STATUS_MAP.get(r["classe"], "normal") for tid, r in res.items()}
         except Exception:
             v2 = {}
@@ -8354,7 +8709,8 @@ def _pv_curva_warm_kick(idusina, date):
 
 
 def _pv_trackers_analise(idusina, nome_disp, date=None, curva=False, fetch_curvas=False) -> dict:
-    """Analisa os trackers de UMA usina. Instantâneo (overview, rápido): disparidade |posAg-posAl|
+    """Analisa os trackers de UMA usina — fonte: API PV fixa desde 22/09/2026 (ver `_pv_trk_dia`;
+    a PV Plataforma ficou como reserva). Instantâneo (overview, rápido): disparidade |posAg-posAl|
     vs limiares. curva=True (detalhe, sob demanda): refina pela CURVA do dia (travado + desvio vs
     a mediana da frota) — pega o que o instantâneo perde. Formato compatível c/ a aba Trackers."""
     base = {"plant_id": idusina, "usina": nome_disp, "total": 0, "severos": 0, "medios": 0, "leves": 0,
@@ -8363,9 +8719,14 @@ def _pv_trackers_analise(idusina, nome_disp, date=None, curva=False, fetch_curva
             "trackers": [], "tem_trackers": False}
     try:
         date = date or datetime.now().strftime("%d/%m/%Y")
-        r = _http().get(f"{PLAT_BASE}/v2/usinas/trackers", headers=_plat_headers(),
-                         params={"idusina": idusina, "date": date}, timeout=30)
-        j = r.json() if r.status_code == 200 else {}
+        # API PV FIXA primeiro (22/09/2026). A mesma busca já alimenta a curva, então no detalhe
+        # (curva=True) o instantâneo sai de graça do cache — e some a dependência do PLAT_TOKEN,
+        # que vence toda semana e só se renova com alguém colando um token na tela.
+        j = _pv_trk_j_da_api(_pv_trk_dia(idusina, date, fetch=True))
+        if not j:                                   # reserva: a PV Plataforma, como estava
+            r = _http().get(f"{PLAT_BASE}/v2/usinas/trackers", headers=_plat_headers(),
+                             params={"idusina": idusina, "date": date}, timeout=30)
+            j = r.json() if r.status_code == 200 else {}
     except Exception:
         return base
     lst, atuais = [], []
@@ -8497,11 +8858,12 @@ def _build_pv_trk_payload(fetch_curvas=False):
 
 @app.route("/api/pv/trackers")
 def api_pv_trackers():
-    """Overview de trackers das usinas API PV (Full O&M). Fonte: PV Plataforma."""
+    """Overview de trackers das usinas API PV (Full O&M). Fonte: API PV fixa (PV Plataforma = reserva)."""
     force = flask_request.args.get("force", "0") == "1"
-    if not _plat_token():
-        return jsonify({"rows": [], "summary": {"usinas": 0, "trackers": 0, "severos": 0, "leves": 0},
-                        "sem_token": True, "cache_ts": datetime.now().strftime("%H:%M:%S")})
+    # PORTÃO REMOVIDO em 22/09/2026: abortava aqui quando o PLAT_TOKEN faltava. A fonte passou a
+    # ser a API PV fixa (ver `_pv_trk_dia`), que faz login sozinha — desistir por causa do token da
+    # RESERVA trancava a porta de uma casa que tem outra entrada, e trancava mentindo: a tela dizia
+    # "sem token" e mandava renovar justamente o que não era o problema.
     try:
         # "Atualizar status" (force) = rebuild PROFUNDO: baixa a curva do dia que faltar no cache e
         # refina (frota girou e ele travou → 'parado', não 'desvio'). Sem isto o botão rebuildava LIGHT
@@ -8571,11 +8933,12 @@ def _pv_trk_payload_da_fonte(fonte, force=False):
 
 @app.route("/api/semp/trackers")
 def api_semp_trackers():
-    """Trackers da SEMP (Tucano 1 e 2) — 40 cada, pela PV Plataforma. Liberado em 15/09/2026:
+    """Trackers da SEMP (Tucano 1 e 2) — 40 cada, pela API PV fixa. Liberado em 15/09/2026:
     o token novo parou de responder "Usuário não possui permissão" para a conta OEM."""
-    if not _plat_token():
-        return jsonify({"rows": [], "summary": {"usinas": 0, "trackers": 0, "severos": 0, "leves": 0},
-                        "sem_token": True, "cache_ts": datetime.now().strftime("%H:%M:%S")})
+    # PORTÃO REMOVIDO em 22/09/2026: abortava aqui quando o PLAT_TOKEN faltava. A fonte passou a
+    # ser a API PV fixa (ver `_pv_trk_dia`), que faz login sozinha — desistir por causa do token da
+    # RESERVA trancava a porta de uma casa que tem outra entrada, e trancava mentindo: a tela dizia
+    # "sem token" e mandava renovar justamente o que não era o problema.
     try:
         return jsonify(_pv_trk_payload_da_fonte("semp", flask_request.args.get("force", "0") == "1"))
     except Exception as e:
@@ -8589,9 +8952,10 @@ def api_2capi_trackers():
     Tupi Paulista 100 (Levi, 16/09/2026). Elas também chegam pelo e-mail (fonte `owen`), mas ali o
     dado é de horas antes; aqui é a leitura do minuto. Continuam FORA da varredura da conta
     principal (`PV_TRK_OUTRA_FONTE`), para a mesma ocorrência não nascer duas vezes no livro."""
-    if not _plat_token():
-        return jsonify({"rows": [], "summary": {"usinas": 0, "trackers": 0, "severos": 0, "leves": 0},
-                        "sem_token": True, "cache_ts": datetime.now().strftime("%H:%M:%S")})
+    # PORTÃO REMOVIDO em 22/09/2026: abortava aqui quando o PLAT_TOKEN faltava. A fonte passou a
+    # ser a API PV fixa (ver `_pv_trk_dia`), que faz login sozinha — desistir por causa do token da
+    # RESERVA trancava a porta de uma casa que tem outra entrada, e trancava mentindo: a tela dizia
+    # "sem token" e mandava renovar justamente o que não era o problema.
     try:
         return jsonify(_pv_trk_payload_da_fonte("2capi", flask_request.args.get("force", "0") == "1"))
     except Exception as e:
@@ -8623,8 +8987,10 @@ def api_pv_trackers_parada():
     """Alerta de tela: usinas com TODOS os trackers parados há >= TRK_PARADA_NOTIF_HORAS (a partir das
     9h). Leve — garante o cache do overview (SWR; força só na 1ª vez) e reconcilia o estado a partir
     dos payloads por-planta. O 'desde' (1ª observação) persiste entre restarts."""
-    if not _plat_token():
-        return jsonify({"alertas": [], "sem_token": True})
+    # PORTÃO REMOVIDO em 22/09/2026: abortava aqui quando o PLAT_TOKEN faltava. A fonte passou a
+    # ser a API PV fixa (ver `_pv_trk_dia`), que faz login sozinha — desistir por causa do token da
+    # RESERVA trancava a porta de uma casa que tem outra entrada, e trancava mentindo: a tela dizia
+    # "sem token" e mandava renovar justamente o que não era o problema.
     try:
         _swr(_pv_trk_cache, _build_pv_trk_payload, force=not _pv_trk_plant)
     except Exception:
@@ -8658,10 +9024,10 @@ def _pv_parados_rows(force=False, errout=None):
     'Usina' (_macro_usina_nome) + inversor via BD_TRK_INV; 'parado desde' pelo histórico/livro.
     Devolve [] se sem token. errout: dict opcional — falha no recomputo vira mensagem VISÍVEL
     (a ronda mostrava 0 parados quando o rebuild quebrava calado)."""
-    if not _plat_token():
-        if errout is not None:
-            errout["erro"] = "token da Plataforma ausente/vencido"
-        return []
+    # PORTÃO REMOVIDO em 22/09/2026: a fonte virou a API PV fixa (`_pv_trk_dia`), que faz login
+    # sozinha. Gatear por um token de RESERVA devolvia LISTA VAZIA — e vazio aqui lê-se como
+    # "nenhum tracker parado", indistinguível de "está tudo bem". Foi o que calou o alarme de frota
+    # parada na validação de 22/09, com quatro usinas a 100% de parados na tabela ao lado.
     _force = force
     try:
         # force (ronda) → re-puxa o snapshot de TODAS as usinas E baixa a curva do dia que estiver
@@ -8722,8 +9088,10 @@ def _pv_parados_rows(force=False, errout=None):
 
 @app.route("/api/pv/trackers/parados")
 def api_pv_trackers_parados():
-    if not _plat_token():
-        return jsonify({"rows": [], "sem_token": True, "erro": "token da Plataforma ausente/vencido"})
+    # PORTÃO REMOVIDO em 22/09/2026: abortava aqui quando o PLAT_TOKEN faltava. A fonte passou a
+    # ser a API PV fixa (ver `_pv_trk_dia`), que faz login sozinha — desistir por causa do token da
+    # RESERVA trancava a porta de uma casa que tem outra entrada, e trancava mentindo: a tela dizia
+    # "sem token" e mandava renovar justamente o que não era o problema.
     err = {}
     rows = _pv_parados_rows(force=flask_request.args.get("force") == "1", errout=err)
     ts = max((e.get("ts", 0) for e in _pv_trk_plant.values()), default=0)
@@ -9332,6 +9700,117 @@ def _trk_eventos_export_data(fonte, ini):
     return [], {}
 
 
+# ── FROTA DE TRACKERS PARADA: alarme de usina, não de tracker (Levi, 21/09/2026) ────────────────
+# "temos que ter um alarme específico para quando todos os trackers ficam parados por + de 2 horas".
+# POR QUE É OUTRA COISA: um tracker parado é manutenção de um equipamento; a frota INTEIRA parada é o
+# sistema de rastreamento fora — controlador, comunicação ou alimentação — e a usina inteira passa a
+# gerar como se fosse fixa. A tela de hoje mostra "20 parados de 52" e "52 de 52" com a mesma cor de
+# aviso, e a segunda é uma ocorrência de outra natureza.
+FROTA_PARADA_HORAS = 2.0
+
+
+def frota_parada(total_por_usina: dict, rows: list, horas: float = FROTA_PARADA_HORAS,
+                 de_dia_por_usina=None) -> list:
+    """Usinas com TODOS os trackers parados há mais de `horas`. Função pura: `rows` são as linhas de
+    `_trk_parados_rows_fonte` (já trazem `horas_parado`) e `total_por_usina` o total de cada usina.
+
+    Três decisões que mudam o resultado, e o porquê de cada uma:
+
+    - **O tempo é o do tracker que parou por ÚLTIMO** (o MÍNIMO das horas). O pedido é "todos ficam
+      parados por mais de 2 h": a frota só está parada há 2 h quando o último a cair já completou 2 h.
+      Usar o máximo diria "3 h" numa frota cujo último tracker caiu há 5 minutos.
+    - **Duração desconhecida não vira alarme**, vira `duracao_desconhecida`. Sem `parado_desde` não dá
+      para afirmar "mais de 2 h" — e afirmar o que não se mediu é o que torna um alarme ignorável.
+    - **De noite não existe**: tracker estacionado à noite está parado por definição. Quem decide é o
+      mesmo portão do resto do sistema (sol por estado); aqui entra pronto, para a função ser testável.
+    """
+    por_usina: dict = {}
+    for r in (rows or []):
+        u = r.get("usina")
+        if not u:
+            continue
+        d = por_usina.setdefault(u, {"n": 0, "horas": [], "sem_hora": 0, "plant_id": r.get("plant_id")})
+        d["n"] += 1
+        h = r.get("horas_parado")
+        if isinstance(h, (int, float)) and not isinstance(h, bool):
+            d["horas"].append(float(h))
+        else:
+            d["sem_hora"] += 1
+
+    out = []
+    for usina, d in por_usina.items():
+        total = total_por_usina.get(usina)
+        if not total or d["n"] < total:            # falta tracker parado: não é a frota inteira
+            continue
+        if de_dia_por_usina is not None and not de_dia_por_usina(usina):
+            continue
+        desconhecida = d["sem_hora"] > 0 or not d["horas"]
+        horas_min = min(d["horas"]) if d["horas"] else None
+        out.append({"usina": usina, "plant_id": d["plant_id"], "trackers": total,
+                    "horas": horas_min, "duracao_desconhecida": desconhecida,
+                    "alarme": bool(not desconhecida and horas_min is not None and horas_min >= horas)})
+    out.sort(key=lambda x: (not x["alarme"], -(x["horas"] or 0), x["usina"]))
+    return out
+
+
+def _trk_totais_fonte(fonte) -> dict:
+    """{usina: total de trackers} da fonte, do MESMO rollup que a tabela mostra (cacheado, via `_swr`).
+
+    Existe porque `_trk_parados_rows_fonte` só devolve os PARADOS: sem o total não dá para dizer que a
+    frota inteira caiu. Fonte fria ou fora devolve {} — e aí a regra simplesmente não acusa, em vez de
+    acusar errado por achar que o total é o número de parados."""
+    try:
+        if fonte == "pg":
+            rows = (_swr(_pg_trk_cache, _pg_trackers_overview) or {}).get("rows") or []
+        elif fonte == "pv":
+            rows = (_swr(_pv_trk_cache, _build_pv_trk_payload) or {}).get("rows") or []
+        elif fonte in ("sunop", "axis"):
+            inst = "axis" if fonte == "axis" else "gridco"
+            rows = (_swr(_si(inst)["trk_cache"], lambda: _build_sunop_trk_payload(inst)) or {}).get("rows") or []
+        elif fonte == "owen":
+            rows = [_owen_trackers_analise(u) for u in OWEN_UFVS]
+        else:
+            return {}
+    except Exception as e:                                   # fonte fora não derruba a regra
+        print(f"[FROTA] totais de {fonte}: {e}")
+        return {}
+    out = {}
+    for r in rows:
+        nome = _macro_usina_nome(r.get("usina") or "") or r.get("usina")
+        tot = r.get("total")
+        if nome and isinstance(tot, (int, float)) and tot > 0:
+            out[nome] = int(tot)
+    return out
+
+
+# Rota por fonte, NAO `/api/<fonte>/...`: com o curinga, `/api/pg/trackers/<plant_id>` (registrada
+# antes e com mais segmentos estaticos a esquerda) vence no Werkzeug e "frota-parada" chega como se
+# fosse um id de usina — devolvia uma analise vazia com plant_id="frota-parada", HTTP 200 e tudo.
+@app.route("/api/pv/trackers/frota-parada")
+@app.route("/api/pg/trackers/frota-parada")
+@app.route("/api/sunop/trackers/frota-parada")
+@app.route("/api/axis/trackers/frota-parada")
+@app.route("/api/owen/trackers/frota-parada")
+def api_trk_frota_parada():
+    """Usinas com a frota INTEIRA de trackers parada — e há quanto tempo (Levi, 21/09/2026).
+
+    `?horas=` muda o corte (padrão 2 h). Devolve também as que estão todas paradas há MENOS que o
+    corte, com `alarme: false`: saber que a frota caiu há 20 min é informação, só não é alarme ainda."""
+    fonte = flask_request.path.split("/")[2]
+    if fonte not in _TRK_FONTES:
+        return jsonify({"error": "fonte inválida"}), 404
+    try:
+        horas = float(flask_request.args.get("horas") or FROTA_PARADA_HORAS)
+    except ValueError:
+        horas = FROTA_PARADA_HORAS
+    rows = _trk_parados_rows_fonte(fonte)
+    itens = frota_parada(_trk_totais_fonte(fonte), rows, horas,
+                         de_dia_por_usina=lambda u: not _macro_sol_baixo({"usina": u}))
+    return jsonify({"fonte": fonte, "horas_corte": horas,
+                    "alarmes": [i for i in itens if i["alarme"]], "itens": itens,
+                    "cache_ts": datetime.now().strftime("%H:%M:%S")})
+
+
 def _trk_parados_rows_fonte(fonte, force=False):
     """Linhas de 'trackers parados agora' p/ a fonte (mesma origem da tabela/endpoint)."""
     if fonte == "pv":   return _pv_parados_rows(force)
@@ -9485,8 +9964,10 @@ def api_trk_parados_xlsx(fonte):
 @app.route("/api/pv/trackers/eventos/gerar", methods=["POST"])
 def api_pv_trackers_eventos_gerar():
     """Dispara (em 2º plano) o processamento do histórico de eventos de ini..fim (default 01/06→hoje)."""
-    if not _plat_token():
-        return jsonify({"ok": False, "sem_token": True})
+    # PORTÃO REMOVIDO em 22/09/2026: abortava aqui quando o PLAT_TOKEN faltava. A fonte passou a
+    # ser a API PV fixa (ver `_pv_trk_dia`), que faz login sozinha — desistir por causa do token da
+    # RESERVA trancava a porta de uma casa que tem outra entrada, e trancava mentindo: a tela dizia
+    # "sem token" e mandava renovar justamente o que não era o problema.
     if _trk_ev_prog["running"]:
         return jsonify({"ok": True, "ja_rodando": True, "progresso": dict(_trk_ev_prog)})
     body = flask_request.get_json(silent=True) or {}
@@ -9542,7 +10023,7 @@ _pv_trk_chart_cache = {}   # (idusina, data) -> {ts, payload}: evita rebater o t
 
 @app.route("/api/pv/trackers/<int:idusina>/chart")
 def api_pv_trackers_chart(idusina):
-    """Curva de posição por tracker (PV Plataforma /v2/usinas/trackerschart). 1 dia (cacheado) ou
+    """Curva de posição por tracker (API PV fixa; trackerschart da Plataforma = reserva). 1 dia (cacheado) ou
     intervalo De/Até (até TRK_CHART_MAX_DIAS): concatena a curva de cada dia — cada dia é uma busca
     ao trackerschart (pesada), mas cada uma é cacheada por (usina, dia)."""
     ini_iso, fim_iso, ndias = _trk_chart_range()
@@ -15826,6 +16307,44 @@ def api_strings_eventos_xlsx(fonte):
 # código da usina no CSV do e-mail (rodar_2c.MAP / OWEN_UFVS) → id na API PV. Casar por NOME não serve: depois do cadastro
 # de 11/09 o e-mail chama a STL de "Sete Lagoas 2" e a API de "Sete Lagoas", e a usina aparecia duas vezes na aba.
 _2C_EMAIL_PARA_API = {"ARA": 18771898, "STL": 18771901, "TUP": 18750925}
+_2C_API_PARA_EMAIL = {v: k for k, v in _2C_EMAIL_PARA_API.items()}
+
+
+# ── Trackers da 2C para o GÊMEO DIGITAL (21/09/2026) ────────────────────────────────────────────
+# Por que existe: o gêmeo mantinha token PRÓPRIO da apiplataforma para as três usinas da 2C, e a
+# apiplataforma NEGA essas usinas para a conta gridco — responde HTTP 200 com "Usuário não possui
+# permissão", medido em 21/09 com a fonte `plat` do gêmeo parada desde 19/09 (o token nem estava
+# vencido: era o mesmo desta plataforma, válido). Esse caminho também devolve zero AQUI. Quem tem o
+# dado é o acervo da 2C que chega por e-mail, e ele já está nesta casa: ARA 59, STL 59, TUP 100.
+# Então o gêmeo lê daqui, e para de existir um segundo token que ninguém renova.
+# Aceita o código do e-mail (ARA/STL/TUP) OU o id da API PV, que é o que o gêmeo guarda em
+# `usina.fonte_ref` — assim o gêmeo não precisa de um de-para próprio para manter sincronizado.
+def _gemeo_autorizado() -> bool:
+    import hmac                               # local, como no gate da /api/campo/ (hmac não é import de topo aqui)
+    if not GEMEO_SENHA:                       # sem segredo configurado, ninguém entra por aqui
+        return False
+    return hmac.compare_digest(flask_request.headers.get("X-Gemeo-Senha", ""), GEMEO_SENHA)
+
+
+def _2c_codigo_de(ref):
+    """'ARA' | id da API PV ('18771898') → o código do acervo de e-mail, ou None."""
+    r = str(ref or "").strip().upper()
+    if r in _2C_EMAIL_PARA_API:
+        return r
+    try:
+        return _2C_API_PARA_EMAIL.get(int(r))
+    except (TypeError, ValueError):
+        return None
+
+
+@app.route("/api/gemeo/trackers/<ref>/chart")
+def api_gemeo_trackers_chart(ref):
+    if not _gemeo_autorizado():
+        return jsonify({"error": "não autenticado"}), 401
+    cod = _2c_codigo_de(ref)
+    if cod is None:
+        return jsonify({"error": "usina fora do acervo da 2C", "ref": ref}), 404
+    return api_owen_trackers_chart(cod)
 
 
 def _2c_par_api(r, por_id, por_nome):
@@ -18286,7 +18805,7 @@ def _prewarm_loop():
             ("2C API PV ETM anál.", _2capi_etm_analise_cache, _build_2capi_etm_analise_payload),
             ("PV PR",          _pv_pr_cache,         _build_pv_pr_payload),
         ]
-        if _plat_token():
+        if True:      # (era `if _plat_token()` — a fonte agora é a API PV fixa)
             # RÉGUA ÚNICA: o worker publica a classificação com a curva COMPLETA (fetch_curvas=True).
             # Antes o prewarm usava a build LIGHT, que classifica com as curvas que por acaso já
             # estavam em cache — os demais trackers caíam na régua instantânea. Mesma função, entrada
@@ -18939,7 +19458,7 @@ def _trk_ev_hoje_loop():
     time.sleep(120)                               # dá tempo do servidor estabilizar antes da 1ª rodada
     while True:
         try:
-            if _plat_token() and _pv_trk_plant and not _trk_ev_prog["running"]:
+            if _pv_trk_plant and not _trk_ev_prog["running"]:      # (sem portão de PLAT: fonte = API PV)
                 hoje = datetime.now().strftime("%Y-%m-%d")
                 ontem = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
                 threading.Thread(target=_trk_ev_backfill, args=(ontem, hoje), daemon=True).start()
@@ -22177,7 +22696,7 @@ def _fecha_dia_anterior(dia=None):
         _fecha_dia_prog["erro"] = f"fontes: {e}"
         print(f"[fecha_dia] fontes {dia}: {e}")
     try:
-        if _plat_token():
+        if True:      # (era `if _plat_token()` — fonte = API PV fixa)
             _trk_ev_backfill(dia, dia, force=True)             # pv
     except Exception as e:
         _fecha_dia_prog["erro"] += f" | pv: {e}"
@@ -23690,7 +24209,7 @@ def _trk_ev_pv_mes(force=False):
     Com force=True pula só o que JÁ TEM `classes` — é o que faz a migração da classificação terminar
     sozinha, mesmo que o processo caia no meio (e não marca 'feito' enquanto não fechar)."""
     global _trk_ev_pv_mes_feito
-    if _trk_ev_pv_mes_feito or _trk_ev_prog["running"] or not _plat_token():
+    if _trk_ev_pv_mes_feito or _trk_ev_prog["running"]:      # (sem portão de PLAT: fonte = API PV)
         return
     try:
         _trk_ev_backfill(PERDAS_DATA_INI, datetime.now().strftime("%Y-%m-%d"), force=force)
@@ -23788,7 +24307,7 @@ def _trk_ev_rebackfill_mes(so=None):
         if so != "pv":
             _trk_ev_backfill_fontes(PERDAS_DATA_INI, hoje, force=True)     # pg/owen/sunop/axis
         _trk_ev_reb_prog["fase"] = "pv"
-        if so != "fontes" and _plat_token():
+        if so != "fontes":      # (sem portão de PLAT: fonte = API PV)
             _trk_ev_backfill(PERDAS_DATA_INI, hoje, force=True)        # pv (gentil, throttle interno)
     except Exception as e:
         _trk_ev_reb_prog["erro"] = str(e)
@@ -23833,8 +24352,7 @@ def _perdas_pv_warm_dm1_loop():
     time.sleep(300)                        # depois do prewarm/estabilização
     ontem = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
     try:
-        if not _plat_token():
-            return
+        # (sem portão de PLAT: a fonte virou a API PV fixa)
         try:
             _swr(_pv_trk_cache, _build_pv_trk_payload, force=not _pv_trk_plant)
         except Exception:
@@ -24026,6 +24544,8 @@ if __name__ == "__main__":
     except Exception as _e:            # noqa: BLE001 - sem copia, segue com o que houver
         print(f"[estado] restauracao no boot falhou: {_e}")
     _carregar_estado_do_disco()
+    _f = _conferir_fuso()
+    print(f"[server] fuso do processo: UTC{_f['fuso_h']:+g}" + ("" if _f["ok"] else "  <<< " + _f["msg"]))
     _solo = os.environ.get("GRIDCO_SOLO", "") == "1"
     if _solo:
         # Modo antigo: tudo num processo só. Serve para desenvolvimento e como saída de

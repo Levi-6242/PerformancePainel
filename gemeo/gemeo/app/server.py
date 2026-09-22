@@ -137,6 +137,62 @@ def criar_app(cfg, conectar=None) -> Flask:
         d = _usina(usina_id, _agora())
         return (jsonify(d), 200) if d else (jsonify({"erro": "usina não encontrada"}), 404)
 
+    @app.route(f"{PREFIXO}/api/usina/<int:usina_id>/strings")
+    def api_strings_do_inversor(usina_id: int):
+        """Drill-down da lista de perdas: corrente das strings de UM inversor no dia (21/09/2026).
+
+        `inversor` = codigo_fonte (idefinversor) ou nome de exibição; `dia` ISO, padrão hoje em UTC.
+        A janela é o dia inteiro em UTC de propósito: as três usinas da 2C gravam carimbo já
+        convertido, e recortar por fuso local aqui reintroduziria a conversão em um segundo lugar."""
+        inversor = (request.args.get("inversor") or "").strip()
+        dia = (request.args.get("dia") or "").strip()
+        if not inversor:
+            return jsonify({"series": {}, "tem_dado": False, "erro": "falta o parâmetro inversor"}), 400
+        try:
+            d = dt.date.fromisoformat(dia) if dia else dt.datetime.now(dt.timezone.utc).date()
+        except ValueError:
+            return jsonify({"series": {}, "tem_dado": False, "erro": "dia inválido (use AAAA-MM-DD)"}), 400
+        ini = dt.datetime.combine(d, dt.time.min, tzinfo=dt.timezone.utc)
+        r = consultas.curva_strings_do_inversor(conn(), usina_id, inversor, ini, ini + dt.timedelta(days=1))
+        return jsonify({**r, "dia": d.isoformat()})
+
+    @app.route(f"{PREFIXO}/api/curva")
+    def api_curva():
+        """Fase 4: a curva que a plataforma busca hoje na API da SunOp, servida do acervo do gemeo.
+
+        Cota da SunOp: 162.892 requisicoes de 01 a 20/09 contra 100.000/mes. O gemeo ingere as
+        mesmas medidas por 85/dia. `usina` e o CODIGO (MRO100), que e o mesmo nome que a plataforma
+        ja usa; `dia` no formato ISO; `medida` restrita ao CHECK do schema."""
+        usina = (request.args.get("usina") or "").strip()
+        medida = (request.args.get("medida") or "").strip()
+        dia = (request.args.get("dia") or "").strip()
+        try:
+            d = dt.date.fromisoformat(dia) if dia else dt.datetime.now(dt.timezone.utc).date()
+        except ValueError:
+            return jsonify({"series": {}, "tem_dado": False, "erro": "dia invalido (use AAAA-MM-DD)"}), 400
+        ini = dt.datetime.combine(d, dt.time.min, tzinfo=dt.timezone.utc)
+        return jsonify(consultas.curva_para_plataforma(conn(), usina, medida, ini, ini + dt.timedelta(days=1)))
+
+    @app.route(f"{PREFIXO}/api/curva/pathnames", methods=["POST"])
+    def api_curva_pathnames():
+        """Fase 4 no formato que a plataforma ja consome: POST {pathnames:[...], ini, fim} ->
+        {pathname: [[ts, valor]]}. Serve por PATHNAME de proposito — o `_sunop_analog_history` da
+        plataforma trabalha assim, entao a troca vira encaixe direto, sem de-para novo no meio."""
+        body = request.get_json(force=True, silent=True) or {}
+        pns = body.get("pathnames") or []
+        if not isinstance(pns, list) or len(pns) > 2000:
+            return jsonify({"series": {}, "nao_atendidos": [], "erro": "pathnames invalido (lista, ate 2000)"}), 400
+        try:
+            ini = dt.datetime.fromisoformat(str(body.get("ini")))
+            fim = dt.datetime.fromisoformat(str(body.get("fim")))
+        except Exception:                      # noqa: BLE001 — sem janela valida nao ha o que servir
+            return jsonify({"series": {}, "nao_atendidos": pns, "erro": "ini/fim invalidos (ISO)"}), 400
+        if ini.tzinfo is None:
+            ini = ini.replace(tzinfo=dt.timezone.utc)
+        if fim.tzinfo is None:
+            fim = fim.replace(tzinfo=dt.timezone.utc)
+        return jsonify(consultas.curva_por_pathname(conn(), [str(x) for x in pns], ini, fim))
+
     @app.route(f"{PREFIXO}/healthz")
     def healthz():
         try:

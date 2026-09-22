@@ -36,7 +36,7 @@ def test_rodar_grava_pelo_upsert_e_registra_a_corrida(conn):
         fonte = "apipv"
         def buscar(self, usina, ini, fim):
             assert usina is u
-            return Busca(leituras=[(eid, "p_ac", ts, 100.0), (eid, "e_dia", ts, None)], n_requisicoes=6, esperadas=1)
+            return Busca(leituras=[(eid, "p_ac", ts, 100.0), (eid, "e_dia", ts, None)], n_requisicoes=6)
 
     ini, fim = backfill_apipv.janela("2026-09-10", "2026-09-11")
     res = backfill_apipv.rodar(Ing(), conn, u, ini, fim)
