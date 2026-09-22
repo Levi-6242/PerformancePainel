@@ -203,7 +203,7 @@ details.rx-fr .in{padding:0 14px 14px}
 
 <div class="topbar">
   <div class="logo"><span class="g">Grid</span><span class="c"> Co.</span></div>
-  <a class="back" href="/">← Início</a> <a class="back" href="/monitoramento" style="margin-left:8px">Monitoramento</a>
+  <a class="back" href="/">← Início</a> <a class="back" href="/tempo-real" style="margin-left:8px">Monitoramento</a>
   <div class="scope">▸ Monitoramento de Portfólio</div>
   <div class="spacer"></div>
   <div class="toggle" id="modeToggle">
@@ -1009,7 +1009,7 @@ function rxCascata(c){
 }
 /* ---- as três perguntas ---- */
 function rxTres(){
-  const p=RX.p, g=RX.gemeo||{}, fid=RX_MON[p.fonte], lk=v=>fid?`<a href="/monitoramento?fonte=${fid}&usina=${encodeURIComponent(p.plant_id)}&view=${v}">aba ${v==='strings'?'Strings':v==='trackers'?'Trackers':'ETM'} ›</a>`:'';
+  const p=RX.p, g=RX.gemeo||{}, fid=RX_MON[p.fonte], lk=v=>fid?`<a href="/monitor?fonte=${fid}&usina=${encodeURIComponent(p.plant_id)}&view=${v}">aba ${v==='strings'?'Strings':v==='trackers'?'Trackers':'ETM'} ›</a>`:'';
   // strings
   let strV, strS;
   const inv=rxInvPlat(), semAgora=inv.reduce((s,i)=>s+i.sem.length,0), invAfet=inv.filter(i=>i.sem.length).length, tot=inv.reduce((s,i)=>s+(i.total||0),0)||p.str_esp;
@@ -1253,7 +1253,7 @@ function rxRender(){
   document.getElementById('rx').innerHTML=`
   <div class="rx-hdr"><div><div class="t">${_cmEsc(p.usina)}</div><div class="m">${_cmEsc(meta)}</div></div>
     <div style="margin-left:auto;text-align:right"><span class="rx-pill ${p.status}"><i></i>${RX_NOME[p.status]||_cmEsc(p.status)}</span><div class="m">última leitura ${_cmEsc(fmtTs(p.ultima_leitura)||'—')}</div></div></div>
-  <div class="rx-links">${fid?`<a class="p" href="/monitoramento?fonte=${fid}&usina=${encodeURIComponent(p.plant_id)}&view=strings">Monitoramento desta usina ›</a>`:''}${hasDrill(p)?`<a id="dFull" href="${drillUrl(p)}">Diagnóstico completo</a>`:''}${RX.gid?`<a href="/gemeo/usina/${RX.gid}">Gêmeo digital</a>`:''}</div>
+  <div class="rx-links">${fid?`<a class="p" href="/monitor?fonte=${fid}&usina=${encodeURIComponent(p.plant_id)}&view=strings">Monitoramento desta usina ›</a>`:''}${hasDrill(p)?`<a id="dFull" href="${drillUrl(p)}">Diagnóstico completo</a>`:''}${RX.gid?`<a href="/gemeo/usina/${RX.gid}">Gêmeo digital</a>`:''}</div>
   ${rxVeredito()}${rxTres()}${rxOfensores()}${rxInversores()}${rxCurva()}${rxSemana()}${rxTimeline()}`;
 }
 

@@ -59,8 +59,14 @@ def test_a_rota_nao_foi_apagada():
 
 def test_a_entrada_ainda_aponta_o_iframe_para_ca():
     """Se a Entrada deixar de montar esta URL, o redirecionamento acima vira letra morta e alguém
-    vai 'limpar' a rota achando que ninguém usa."""
+    vai 'limpar' a rota achando que ninguém usa.
+
+    Desde 22/09/2026 o iframe usa `/monitor`, não `/monitoramento`: o Caddy do servidor sequestra
+    esse caminho e responde 502 sem repassar (ver test_monitoramento_fora_do_caddy.py). Mudou o
+    caminho, não a função — e é a função que este teste protege."""
     import pathlib
     raiz = pathlib.Path(appmod.__file__).resolve().parents[1]
     entrada = (raiz / "docs" / "redesign" / "Entrada.html").read_text(encoding="utf-8")
-    assert "/monitoramento?fonte=" in entrada and "embed=1" in entrada
+    assert "/monitor?fonte=" in entrada and "embed=1" in entrada
+    rotas = {r.rule: r.endpoint for r in appmod.app.url_map.iter_rules()}
+    assert rotas.get("/monitor") == rotas.get("/monitoramento") == "monitoramento", rotas.get("/monitor")

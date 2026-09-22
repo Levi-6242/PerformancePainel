@@ -73,7 +73,7 @@
   function link(g) {
     if (g.tipo === "inv_padrao") return "/painel/usina/" + encodeURIComponent(g.plant_id) + "?fonte=" + encodeURIComponent(g.fonte || "pv") + "&nome=" + encodeURIComponent(g.usina || "");
     var fid = FONTE_ID[g.fonte];
-    if (!fid) return "/monitoramento";
+    if (!fid) return "/tempo-real";
     var u = "/tempo-real/" + fid + "?view=strings";
     if (g.plant_id != null && g.plant_id !== "") u += "&usina=" + encodeURIComponent(g.plant_id);
     if (g.inversor) u += "&inversor=" + encodeURIComponent(g.inversor);

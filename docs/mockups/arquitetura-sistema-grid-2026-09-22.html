@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arquitetura do sistema Grid</title>
+<style>
+  :root{
+    --bg:#090d18; --panel:#161d30; --txt:#e9eef6; --mut:#94a3b8; --faint:#64748b;
+    --brand:#a3d900; --blue:#5BC8E8; --amber:#F0B53D; --red:#FF5C4D; --linha:#243049; --fundo2:#0d1425;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:40px 20px 80px}
+  h1{font-size:30px;margin:0 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--mut);margin:0 0 6px;font-size:16px}
+  .data{color:var(--faint);font-size:13px;margin:0 0 30px}
+  h2{font-size:20px;margin:46px 0 4px;letter-spacing:-.01em}
+  h2 .n{color:var(--brand);font-variant-numeric:tabular-nums;margin-right:10px}
+  .lead{color:var(--mut);margin:0 0 18px;max-width:80ch}
+  .card{background:var(--panel);border:1px solid var(--linha);border-radius:12px;padding:20px 22px;margin:14px 0}
+  .card h3{margin:0 0 8px;font-size:16px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{text-align:left;padding:10px 10px;border-bottom:1px solid var(--linha);vertical-align:top}
+  th{color:var(--faint);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em}
+  tr:last-child td{border-bottom:0}
+  td.cam{font-weight:700;white-space:nowrap}
+  td.hoje{color:var(--mut)}
+  td.caso{color:var(--mut);font-size:13px}
+  td.caso b{color:var(--amber);font-weight:600}
+  code,.mono{font:12.5px/1.5 ui-monospace,"Cascadia Code",Consolas,monospace}
+  code{background:var(--fundo2);border:1px solid var(--linha);border-radius:4px;padding:1px 6px;color:var(--blue)}
+  .nota{border-left:3px solid var(--brand);padding:12px 0 12px 16px;margin:18px 0;color:var(--mut)}
+  .nota strong{color:var(--txt)}
+  .alerta{border-left-color:var(--amber)}
+  .grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:14px}
+  .grid3 .card p{color:var(--mut);margin:0}
+  .grid3 .card .ev{margin-top:10px;font-size:12.5px;color:var(--faint)}
+  .grid3 .card .ev b{color:var(--amber);font-weight:600}
+  svg{display:block;width:100%;height:auto}
+  .passos{list-style:none;padding:0;margin:0;counter-reset:p}
+  .passos li{position:relative;padding:14px 0 14px 46px;border-bottom:1px solid var(--linha)}
+  .passos li:last-child{border-bottom:0}
+  .passos li::before{counter-increment:p;content:counter(p);position:absolute;left:0;top:13px;width:30px;height:30px;
+    border-radius:50%;border:1px solid var(--linha);display:grid;place-items:center;font-weight:700;color:var(--brand);font-size:13px}
+  .passos li.feito::before{content:"";background:var(--brand);border-color:var(--brand)}
+  .passos li.feito::after{content:"";position:absolute;left:10px;top:21px;width:9px;height:5px;
+    border-left:2px solid #0b1020;border-bottom:2px solid #0b1020;transform:rotate(-45deg)}
+  .passos b{color:var(--txt)} .passos span{color:var(--mut)}
+  .tag{display:inline-block;padding:1px 8px;border-radius:999px;font-size:10.5px;font-weight:700;
+       text-transform:uppercase;letter-spacing:.05em;margin-left:6px;vertical-align:1px}
+  .t-ok{background:rgba(163,217,0,.13);color:var(--brand);border:1px solid rgba(163,217,0,.32)}
+  .t-av{background:rgba(240,181,61,.13);color:var(--amber);border:1px solid rgba(240,181,61,.32)}
+  @media (max-width:640px){ .wrap{padding:24px 16px 60px} h1{font-size:24px} td.cam{white-space:normal} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Arquitetura do sistema Grid</h1>
+  <p class="sub">Da fonte de dado até a tela — hoje, o destino e o caminho</p>
+  <p class="data">22/09/2026 &middot; proposta &middot; cada mudança cita o incidente real que a pede</p>
+
+  <div class="nota">
+    <strong>Não é reescrever nada.</strong> As réguas, as telas e as regras de negócio ficam como
+    estão — foram calibradas com caso real e funcionam. O que muda é o <strong>encanamento</strong>:
+    quem busca o dado, onde ele mora e como o código chega ao servidor. Hoje essas três coisas
+    estão espalhadas, e foi daí que saiu cada incidente grande das últimas semanas.
+  </div>
+
+  <!-- ══════════ 1 ══════════ -->
+  <h2><span class="n">1</span>O sistema hoje</h2>
+  <p class="lead">Três programas buscam dado nas mesmas fontes, cada um do seu jeito, e guardam em
+  quatro lugares diferentes. A planilha ainda é a dona da verdade — o banco é espelho dela.</p>
+
+  <div class="card">
+    <svg viewBox="0 0 1100 470" role="img" aria-label="Diagrama do sistema hoje">
+      <defs>
+        <marker id="h1" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#64748b"/></marker>
+        <marker id="h2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#F0B53D"/></marker>
+      </defs>
+      <text x="90"  y="26" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">FONTES</text>
+      <text x="370" y="26" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">QUEM BUSCA</text>
+      <text x="650" y="26" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">ONDE FICA</text>
+      <text x="960" y="26" fill="#64748b" font-size="11" font-weight="700" text-anchor="middle">QUEM USA</text>
+
+      <!-- fontes -->
+      <g font-size="12" fill="#e9eef6" text-anchor="middle">
+        <rect x="14" y="40"  width="152" height="36" rx="7" fill="#0d1425" stroke="#243049"/><text x="90" y="63">API PV · 2 contas</text>
+        <rect x="14" y="84"  width="152" height="36" rx="7" fill="#0d1425" stroke="#243049"/><text x="90" y="107">SunOp · Athon · Axis</text>
+        <rect x="14" y="128" width="152" height="36" rx="7" fill="#0d1425" stroke="#243049"/><text x="90" y="151">SolarEdge</text>
+        <rect x="14" y="172" width="152" height="36" rx="7" fill="#0d1425" stroke="#243049"/><text x="90" y="195">Postgres da Thopen</text>
+        <rect x="14" y="216" width="152" height="36" rx="7" fill="#0d1425" stroke="#243049"/><text x="90" y="239">2C por e-mail</text>
+        <rect x="14" y="260" width="152" height="36" rx="7" fill="#0d1425" stroke="#243049"/><text x="90" y="283">Fracttal (OS)</text>
+        <rect x="14" y="304" width="152" height="36" rx="7" fill="#0d1425" stroke="#243049"/><text x="90" y="327">Digitação manual</text>
+      </g>
+
+      <!-- quem busca: tres coletores -->
+      <rect x="272" y="56" width="196" height="64" rx="9" fill="#161d30" stroke="#F0B53D" stroke-opacity=".7"/>
+      <text x="370" y="82" fill="#e9eef6" font-size="13" font-weight="600" text-anchor="middle">worker da plataforma</text>
+      <text x="370" y="101" fill="#64748b" font-size="11" text-anchor="middle">servidor · a cada 5–30 min</text>
+
+      <rect x="272" y="146" width="196" height="64" rx="9" fill="#161d30" stroke="#F0B53D" stroke-opacity=".7"/>
+      <text x="370" y="172" fill="#e9eef6" font-size="13" font-weight="600" text-anchor="middle">ingest do gêmeo</text>
+      <text x="370" y="191" fill="#64748b" font-size="11" text-anchor="middle">máquina Windows · SQLite</text>
+
+      <rect x="272" y="236" width="196" height="64" rx="9" fill="#161d30" stroke="#F0B53D" stroke-opacity=".7"/>
+      <text x="370" y="262" fill="#e9eef6" font-size="13" font-weight="600" text-anchor="middle">coletor .exe</text>
+      <text x="370" y="281" fill="#64748b" font-size="11" text-anchor="middle">PC dedicado · 22:30</text>
+
+      <!-- setas fontes -> coletores (fan-in, a mesma fonte chega 3 vezes) -->
+      <g stroke="#F0B53D" stroke-width="1.4" fill="none" opacity=".75">
+        <path d="M166 58 C 220 58, 220 82, 268 82" marker-end="url(#h2)"/>
+        <path d="M166 58 C 220 58, 220 172, 268 172" marker-end="url(#h2)"/>
+        <path d="M166 58 C 220 58, 220 262, 268 262" marker-end="url(#h2)"/>
+        <path d="M166 102 C 220 102, 220 92, 268 92" marker-end="url(#h2)"/>
+        <path d="M166 102 C 220 102, 220 182, 268 182" marker-end="url(#h2)"/>
+        <path d="M166 102 C 220 102, 220 272, 268 272" marker-end="url(#h2)"/>
+      </g>
+      <g stroke="#64748b" stroke-width="1.2" fill="none" opacity=".6">
+        <path d="M166 146 C 220 146, 220 102, 268 102" marker-end="url(#h1)"/>
+        <path d="M166 190 C 220 190, 220 110, 268 110" marker-end="url(#h1)"/>
+        <path d="M166 190 C 220 190, 220 196, 268 196" marker-end="url(#h1)"/>
+        <path d="M166 234 C 220 234, 220 286, 268 286" marker-end="url(#h1)"/>
+      </g>
+      <text x="241" y="398" fill="#F0B53D" font-size="11.5" text-anchor="middle">a mesma fonte chega três vezes:</text>
+      <text x="241" y="415" fill="#F0B53D" font-size="11.5" text-anchor="middle">três tokens, três réguas de fuso</text>
+
+      <!-- onde fica -->
+      <rect x="556" y="40" width="190" height="62" rx="9" fill="#0d1425" stroke="#FF5C4D" stroke-opacity=".75"/>
+      <text x="651" y="65" fill="#e9eef6" font-size="12.5" font-weight="600" text-anchor="middle">Planilhas .xlsx</text>
+      <text x="651" y="84" fill="#FF5C4D" font-size="11" text-anchor="middle">a MESTRA · OneDrive</text>
+
+      <rect x="556" y="118" width="190" height="62" rx="9" fill="#0d1425" stroke="#243049"/>
+      <text x="651" y="143" fill="#e9eef6" font-size="12.5" font-weight="600" text-anchor="middle">API das planilhas</text>
+      <text x="651" y="162" fill="#64748b" font-size="11" text-anchor="middle">espelho via sync-xlsx</text>
+
+      <rect x="556" y="196" width="190" height="52" rx="9" fill="#0d1425" stroke="#243049"/>
+      <text x="651" y="226" fill="#e9eef6" font-size="12.5" font-weight="600" text-anchor="middle">SQLite do gêmeo 2,2 GB</text>
+
+      <rect x="556" y="264" width="190" height="52" rx="9" fill="#0d1425" stroke="#243049"/>
+      <text x="651" y="294" fill="#e9eef6" font-size="12.5" font-weight="600" text-anchor="middle">JSONs de estado</text>
+
+      <path d="M651 102 V 114" stroke="#64748b" stroke-width="1.4" marker-end="url(#h1)"/>
+      <g stroke="#64748b" stroke-width="1.2" fill="none" opacity=".7">
+        <path d="M468 262 C 510 262, 510 72, 552 72" marker-end="url(#h1)"/>
+        <path d="M468 178 C 510 178, 510 222, 552 222" marker-end="url(#h1)"/>
+        <path d="M468 96 C 510 96, 510 290, 552 290" marker-end="url(#h1)"/>
+        <path d="M166 322 C 200 314, 230 312, 280 312 L 500 312 C 516 312, 524 304, 524 290 L 524 96 C 524 84, 536 78, 552 78" marker-end="url(#h1)"/>
+      </g>
+
+      <!-- quem usa -->
+      <g font-size="12" text-anchor="middle">
+        <rect x="860" y="40"  width="200" height="40" rx="8" fill="#161d30" stroke="#a3d900" stroke-opacity=".6"/><text x="960" y="65" fill="#e9eef6">Plataforma · 5050</text>
+        <rect x="860" y="90"  width="200" height="40" rx="8" fill="#161d30" stroke="#243049"/><text x="960" y="115" fill="#e9eef6">Gêmeo · 5075</text>
+        <rect x="860" y="140" width="200" height="40" rx="8" fill="#161d30" stroke="#243049"/><text x="960" y="165" fill="#e9eef6">Thopen cliente · 5080</text>
+        <rect x="860" y="190" width="200" height="40" rx="8" fill="#161d30" stroke="#243049"/><text x="960" y="215" fill="#e9eef6">OS Creator · app e web</text>
+        <rect x="860" y="240" width="200" height="40" rx="8" fill="#161d30" stroke="#243049"/><text x="960" y="265" fill="#e9eef6">Ronda WhatsApp</text>
+      </g>
+      <g stroke="#64748b" stroke-width="1.1" fill="none" opacity=".55">
+        <path d="M746 150 C 800 150, 800 60, 856 60" marker-end="url(#h1)"/>
+        <path d="M746 150 C 800 150, 800 160, 856 160" marker-end="url(#h1)"/>
+        <path d="M746 222 C 800 222, 800 110, 856 110" marker-end="url(#h1)"/>
+        <path d="M746 290 C 800 290, 800 64, 856 64" marker-end="url(#h1)"/>
+        <path d="M746 290 C 800 290, 800 260, 856 260" marker-end="url(#h1)"/>
+      </g>
+      <path d="M166 286 C 200 290, 220 340, 290 340 L 790 340 C 812 340, 820 330, 820 312 L 820 222 C 820 213, 834 210, 856 210" stroke="#5BC8E8" stroke-width="1.3" fill="none" stroke-dasharray="5 4" marker-end="url(#h1)"/>
+
+      <!-- a planilha e mestra: o Excel aberto reverte -->
+      <rect x="556" y="360" width="504" height="92" rx="10" fill="rgba(255,92,77,.06)" stroke="#FF5C4D" stroke-opacity=".45"/>
+      <text x="576" y="386" fill="#FF5C4D" font-size="12" font-weight="700">Por que a planilha como mestra dói</text>
+      <text x="576" y="407" fill="#94a3b8" font-size="11.5">Excel aberto reverteu gravações (21/09) · "dois mestres" (10/09)</text>
+      <text x="576" y="425" fill="#94a3b8" font-size="11.5">backfill parcial zerou uma aba: 101 MWh (11/09)</text>
+      <text x="576" y="443" fill="#94a3b8" font-size="11.5">o Excel "reparou" e apagou uma tabela de consulta</text>
+    </svg>
+  </div>
+
+  <div class="grid3">
+    <div class="card">
+      <h3>Cada programa busca cada fonte</h3>
+      <p>Plataforma, gêmeo e coletor falam com a API PV, a SunOp e o Postgres cada um por conta
+      própria — com token próprio, fuso próprio e tratamento de erro próprio. Consertar num lugar
+      não conserta nos outros.</p>
+      <p class="ev"><b>Caso real:</b> o gêmeo mantinha token próprio da PV Plataforma e tomava "sem
+      permissão"; a SunOp tem cota e limite de taxa, e três clientes dividem o mesmo teto.</p>
+    </div>
+    <div class="card">
+      <h3>A planilha ainda é a dona da verdade</h3>
+      <p>O banco das planilhas existe desde 25/08, mas como espelho: o coletor escreve no
+      <code>.xlsx</code> e sincroniza. Quem ganha em conflito é o Excel — inclusive o Excel aberto
+      na máquina de alguém.</p>
+      <p class="ev"><b>Caso real:</b> em 21/09 o Excel aberto reverteu as gravações de Segredo e de
+      Altair no mesmo dia.</p>
+    </div>
+    <div class="card">
+      <h3>Peças críticas presas a máquina e a pessoa</h3>
+      <p>O gêmeo, o OS Creator web, o coletor e a ronda sobem por lançador de Windows
+      (<code>.cmd</code>, <code>.vbs</code>, Tarefa Agendada) e caminho <code>C:\</code>. A ronda
+      depende de uma sessão de navegador presa a um chip.</p>
+      <p class="ev"><b>Caso real:</b> hoje o token que libera a Athon vivia só num arquivo de estado
+      de uma máquina — não viajou na migração, e a Athon subiu muda no servidor.</p>
+    </div>
+  </div>
+
+  <!-- ══════════ 2 ══════════ -->
+  <h2><span class="n">2</span>O destino</h2>
+  <p class="lead">Cinco camadas, cada uma com um dono e uma porta só. O dado entra por um lugar,
+  mora num lugar, e todo mundo lê desse lugar.</p>
+
+  <div class="card">
+    <svg viewBox="0 0 1100 560" role="img" aria-label="Diagrama da arquitetura ideal">
+      <defs>
+        <marker id="i1" markerWidth="9" markerHeight="9" refX="4.5" refY="8" orient="auto"><path d="M0,0 L4.5,8 L9,0 z" fill="#a3d900"/></marker>
+        <marker id="i2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z" fill="#5BC8E8"/></marker>
+      </defs>
+
+      <!-- camada 5: portal -->
+      <rect x="20" y="16" width="800" height="72" rx="11" fill="#161d30" stroke="#a3d900" stroke-width="1.5"/>
+      <text x="40" y="42" fill="#a3d900" font-size="11" font-weight="700">5 · PORTAL</text>
+      <text x="40" y="66" fill="#e9eef6" font-size="14" font-weight="600">app.gridco.com.br · login Microsoft · um endereço para tudo</text>
+      <text x="800" y="66" fill="#64748b" font-size="11.5" text-anchor="end">proxy por registro de aplicações</text>
+
+      <!-- camada 4: aplicacoes -->
+      <rect x="20" y="112" width="800" height="96" rx="11" fill="#0d1425" stroke="#243049"/>
+      <text x="40" y="136" fill="#94a3b8" font-size="11" font-weight="700">4 · APLICAÇÕES — leem o banco, não a fonte</text>
+      <g font-size="12.5" text-anchor="middle" fill="#e9eef6">
+        <rect x="40"  y="150" width="140" height="42" rx="8" fill="#161d30" stroke="#243049"/><text x="110" y="176">Plataforma</text>
+        <rect x="192" y="150" width="140" height="42" rx="8" fill="#161d30" stroke="#243049"/><text x="262" y="176">Gêmeo</text>
+        <rect x="344" y="150" width="140" height="42" rx="8" fill="#161d30" stroke="#243049"/><text x="414" y="176">OS Creator web</text>
+        <rect x="496" y="150" width="140" height="42" rx="8" fill="#161d30" stroke="#a3d900" stroke-dasharray="5 4"/><text x="566" y="176" fill="#a3d900">PCM</text>
+        <rect x="648" y="150" width="152" height="42" rx="8" fill="#161d30" stroke="#243049"/><text x="724" y="176">Ronda · alertas</text>
+      </g>
+
+      <!-- camada 3: banco -->
+      <rect x="20" y="232" width="800" height="126" rx="11" fill="#161d30" stroke="#a3d900" stroke-opacity=".55"/>
+      <text x="40" y="256" fill="#a3d900" font-size="11" font-weight="700">3 · BANCO DA GRID — o dono da verdade</text>
+      <g font-size="12" text-anchor="middle">
+        <rect x="40"  y="270" width="182" height="54" rx="8" fill="#0d1425" stroke="#243049"/>
+        <text x="131" y="292" fill="#e9eef6" font-weight="600">Telemetria</text><text x="131" y="310" fill="#64748b" font-size="11">leitura por equipamento</text>
+        <rect x="234" y="270" width="182" height="54" rx="8" fill="#0d1425" stroke="#243049"/>
+        <text x="325" y="292" fill="#e9eef6" font-weight="600">Diário e mensal</text><text x="325" y="310" fill="#64748b" font-size="11">o que hoje é BD_Thopen/Perf.</text>
+        <rect x="428" y="270" width="182" height="54" rx="8" fill="#0d1425" stroke="#243049"/>
+        <text x="519" y="292" fill="#e9eef6" font-weight="600">Cadastro</text><text x="519" y="310" fill="#64748b" font-size="11">usina, equipamento, kWp</text>
+        <rect x="622" y="270" width="178" height="54" rx="8" fill="#0d1425" stroke="#243049"/>
+        <text x="711" y="292" fill="#e9eef6" font-weight="600">Operação</text><text x="711" y="310" fill="#64748b" font-size="11">tickets, OS, comentários</text>
+      </g>
+      <text x="40" y="346" fill="#94a3b8" font-size="11.5">porta: a API — login para LER, token para ESCREVER · a planilha vira exportação, não mestra</text>
+
+      <!-- camada 2: coleta -->
+      <rect x="20" y="382" width="800" height="72" rx="11" fill="#0d1425" stroke="#5BC8E8" stroke-opacity=".55"/>
+      <text x="40" y="406" fill="#5BC8E8" font-size="11" font-weight="700">2 · COLETA — um serviço só</text>
+      <text x="40" y="430" fill="#e9eef6" font-size="13">dono das credenciais · cada fonte buscada UMA vez · carimbo em UTC na entrada</text>
+      <text x="40" y="446" fill="#64748b" font-size="11.5">cota, limite de taxa e disjuntor num lugar · publica o frescor de cada fonte</text>
+
+      <!-- camada 1: fontes -->
+      <rect x="20" y="478" width="800" height="66" rx="11" fill="#0d1425" stroke="#243049" stroke-dasharray="4 4"/>
+      <text x="40" y="502" fill="#64748b" font-size="11" font-weight="700">1 · FONTES — externas, não controlamos</text>
+      <text x="40" y="526" fill="#94a3b8" font-size="12.5">API PV · SunOp/Athon/Axis · SolarEdge · Postgres Thopen · 2C · Fracttal · satélite</text>
+
+      <!-- fluxo -->
+      <g stroke="#a3d900" stroke-width="1.8" fill="none">
+        <path d="M420 478 V 458" marker-end="url(#i1)"/>
+        <path d="M420 382 V 362" marker-end="url(#i1)"/>
+        <path d="M420 232 V 212" marker-end="url(#i1)"/>
+        <path d="M420 112 V 92" marker-end="url(#i1)"/>
+      </g>
+      <!-- excecao: OS Creator fala com o Fracttal em nome da pessoa -->
+      <path d="M470 192 C 470 216, 616 214, 616 240 L 616 468 C 616 490, 470 494, 432 506" stroke="#5BC8E8" stroke-width="1.3" fill="none" stroke-dasharray="5 4" marker-end="url(#i2)"/>
+      <text x="630" y="424" fill="#5BC8E8" font-size="10.5">única exceção: agir no</text>
+      <text x="630" y="438" fill="#5BC8E8" font-size="10.5">Fracttal em nome da pessoa</text>
+
+      <!-- transversal -->
+      <rect x="850" y="16" width="232" height="528" rx="11" fill="#161d30" stroke="#243049"/>
+      <text x="966" y="44" fill="#94a3b8" font-size="11" font-weight="700" text-anchor="middle">TRANSVERSAL</text>
+      <g font-size="12.5">
+        <text x="870" y="84"  fill="#e9eef6" font-weight="600">Segredos</text>
+        <text x="870" y="104" fill="#64748b" font-size="11.5">um lugar, no servidor</text>
+        <text x="870" y="120" fill="#64748b" font-size="11.5">semente × estado, escrito</text>
+
+        <text x="870" y="170" fill="#e9eef6" font-weight="600">Deploy</text>
+        <text x="870" y="190" fill="#64748b" font-size="11.5">push → testes → atualiza</text>
+        <text x="870" y="206" fill="#64748b" font-size="11.5">→ reinicia → /versao</text>
+        <text x="870" y="222" fill="#64748b" font-size="11.5">→ volta se /healthz falhar</text>
+
+        <text x="870" y="272" fill="#e9eef6" font-weight="600">Frescor</text>
+        <text x="870" y="292" fill="#64748b" font-size="11.5">cada fonte diz a idade</text>
+        <text x="870" y="308" fill="#64748b" font-size="11.5">do seu último dado</text>
+
+        <text x="870" y="358" fill="#e9eef6" font-weight="600">Tempo</text>
+        <text x="870" y="378" fill="#64748b" font-size="11.5">UTC no banco</text>
+        <text x="870" y="394" fill="#64748b" font-size="11.5">Brasília só na tela</text>
+
+        <text x="870" y="444" fill="#e9eef6" font-weight="600">Acesso</text>
+        <text x="870" y="464" fill="#64748b" font-size="11.5">repositório privado</text>
+        <text x="870" y="480" fill="#64748b" font-size="11.5">banco fechado por IP</text>
+        <text x="870" y="496" fill="#64748b" font-size="11.5">API com login</text>
+      </g>
+    </svg>
+  </div>
+
+  <div class="nota">
+    <strong>A decisão que carrega as outras: as aplicações leem o banco, não a fonte.</strong>
+    Quando a plataforma e o gêmeo param de chamar a API PV e a SunOp direto, token, fuso, cota e
+    de-para passam a existir num lugar só — e consertar uma vez conserta para todos. É também o
+    que deixa o PCM, ou qualquer aplicação que venha, nascer sem precisar aprender a falar com seis
+    fornecedores.
+  </div>
+
+  <!-- ══════════ 3 ══════════ -->
+  <h2><span class="n">3</span>Camada por camada: hoje, destino e o porquê</h2>
+  <p class="lead">A coluna da direita é o que torna cada linha uma decisão, e não uma opinião.</p>
+
+  <div class="card" style="padding:6px 12px">
+    <table>
+      <tr><th>Camada</th><th>Hoje</th><th>Destino</th><th>O caso que pede a mudança</th></tr>
+      <tr>
+        <td class="cam">Coleta</td>
+        <td class="hoje">Três coletores — worker da plataforma, ingest do gêmeo, coletor <code>.exe</code> — cada um com token e régua próprios.</td>
+        <td>Um serviço de coleta, dono das credenciais de fonte. Aplicações leem o banco.</td>
+        <td class="caso">O gêmeo tinha token próprio da Plataforma e tomava <b>"sem permissão"</b>; a SunOp tem cota e limite de taxa divididos entre três clientes.</td>
+      </tr>
+      <tr>
+        <td class="cam">Dado mestre</td>
+        <td class="hoje">A planilha é a mestra; a API é espelho, alimentada por <code>sync-xlsx</code>.</td>
+        <td>O banco é o mestre. A planilha vira exportação — ou visão para quem ainda digita.</td>
+        <td class="caso">Excel aberto <b>reverteu gravações</b> (21/09); backfill parcial <b>zerou uma aba — 101 MWh</b> (11/09); o Excel "reparou" e apagou uma tabela de consulta.</td>
+      </tr>
+      <tr>
+        <td class="cam">Tempo</td>
+        <td class="hoje">Data e hora sem fuso, interpretadas pelo relógio do processo.</td>
+        <td>UTC gravado no banco (<code>timestamptz</code>); Brasília só na tela.</td>
+        <td class="caso">Hoje: servidor em UTC deixou <b>108 de 115 usinas "sem comunicação"</b> com o dado chegando normal.</td>
+      </tr>
+      <tr>
+        <td class="cam">Segredos</td>
+        <td class="hoje"><code>tokens.txt</code>, <code>.env</code> e <code>tokens_runtime.json</code>, em máquinas diferentes.</td>
+        <td>Um lugar, no servidor. Semente (credencial de gente) separada de estado (o que o app renova).</td>
+        <td class="caso">Hoje: o token que libera a Athon <b>não viajou na migração</b> — vivia só num arquivo de estado.</td>
+      </tr>
+      <tr>
+        <td class="cam">Acesso</td>
+        <td class="hoje">Repositório público; a API das planilhas lê sem login; o IP do Postgres está no histórico público.</td>
+        <td>Repositório privado com chave de deploy; API com login para ler; Postgres aceitando só os IPs da Grid.</td>
+        <td class="caso">Medido hoje: <b>leitura aberta</b> (200 sem credencial), escrita protegida (13 rotas com token). Nenhuma senha vazou.</td>
+      </tr>
+      <tr>
+        <td class="cam">Deploy</td>
+        <td class="hoje"><b style="color:var(--brand)">Já é automático</b>: o push das 14:37 estava no ar às 14:41, sem ninguém mexer. Mas sem teste antes, sem volta se quebrar, e a troca deixa a plataforma fora do ar por até 2 min.</td>
+        <td>Push roda a suíte ANTES; passando, o servidor sobe o processo novo antes de derrubar o velho, confere <code>/versao</code> e volta sozinho se o <code>/healthz</code> falhar.</td>
+        <td class="caso">Medido hoje pelo <code>/versao</code>: commit às 14:37, <b>no ar às 14:41</b>, com 502 durante a troca. Do mesmo jeito, um commit quebrado iria <b>direto para produção</b>.</td>
+      </tr>
+      <tr>
+        <td class="cam">Máquinas</td>
+        <td class="hoje">Gêmeo, OS Creator web, coletor e ronda sobem por lançador de Windows e caminho <code>C:\</code>.</td>
+        <td>Tudo no servidor, como serviço que reinicia sozinho. Nenhum caminho de máquina pessoal.</td>
+        <td class="caso">A ronda depende de uma <b>sessão de navegador presa a um chip</b>; o OneDrive corrompe build do PyInstaller.</td>
+      </tr>
+      <tr>
+        <td class="cam">Portal</td>
+        <td class="hoje">Plataforma faz proxy de <code>/gemeo/*</code> e <code>/os/*</code>, cada um escrito à mão, com identidade de um jeito cada.</td>
+        <td>Um proxy dirigido por registro; identidade declarada por aplicação — ver o documento do portal.</td>
+        <td class="caso">O portão de login já tem seis exceções, cada uma com regra própria morando longe dele.</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- ══════════ 4 ══════════ -->
+  <h2><span class="n">4</span>O caminho</h2>
+  <p class="lead">Em ordem de retorno sobre esforço. Nenhum passo depende do seguinte — dá para
+  parar em qualquer um e o que já foi feito continua valendo.</p>
+
+  <div class="card">
+    <ol class="passos">
+      <li class="feito"><b>Hoje: o servidor em pé e verificável.</b> <span>Fuso no serviço, token da
+        Athon no <code>tokens.txt</code>, trackers pela API fixa (o token manual saiu do caminho
+        crítico), o ícone de versão com <code>/versao</code> pública — e o deploy automático
+        confirmado: push às 14:37, no ar às 14:41, sem ninguém mexer.</span></li>
+      <li><b>Fechar as portas.</b> <span>Repositório de volta a privado, com chave de deploy para o
+        servidor; Postgres aceitando só os IPs da Grid; a API das planilhas pedindo login também
+        para ler. É o passo mais barato da lista e o de maior risco se ficar para depois.</span></li>
+      <li><b>Rede de proteção no deploy.</b> <span>O automático já existe; falta o que protege.
+        A suíte rodar ANTES de o servidor puxar — hoje um commit quebrado vai direto para produção.
+        Voltar ao commit anterior se o <code>/healthz</code> não responder. E subir o processo novo
+        antes de derrubar o velho, porque hoje cada push deixa a plataforma até 2 min fora do ar.
+        É o plano de 22/07, com o <code>/versao</code> que existe desde hoje.</span></li>
+      <li><b>Coleta única, pela fonte que mais dói.</b> <span>Começar pela SunOp (cota e limite de
+        taxa): um coletor busca, grava no banco, e a plataforma e o gêmeo passam a ler de lá. Depois
+        API PV, depois o resto. Uma fonte por vez, comparando valor a valor com o caminho antigo
+        antes de desligá-lo.</span></li>
+      <li><b>A planilha deixa de ser mestra, aba por aba.</b> <span>O mecanismo já existe e está
+        desligado (<code>ABAS_DO_APP</code> no sincronizador): a aba migrada passa a ser escrita no
+        banco, e o Excel só lê. Sem virada de chave geral — a aba que der problema volta sozinha.</span></li>
+      <li><b>Portal com registro de aplicações.</b> <span>Quando o PCM chegar: um proxy só, e o modo
+        de identidade que repassa quem é a pessoa, assinado — detalhado no documento do portal.</span></li>
+      <li><b>Máquinas pessoais fora do caminho crítico.</b> <span>Gêmeo, OS Creator web e coletor
+        como serviços no servidor. A ronda é o caso difícil: a sessão do WhatsApp presa a um chip só
+        sai com a API oficial do WhatsApp, que tem custo por conversa — decisão de negócio, não
+        técnica.</span></li>
+    </ol>
+  </div>
+
+  <!-- ══════════ 5 ══════════ -->
+  <h2><span class="n">5</span>O que não muda</h2>
+  <div class="grid3">
+    <div class="card"><h3>As réguas e as telas</h3>
+      <p>Tudo que foi calibrado com caso real — parado de tracker, strings, ETM, cascata, gerencial —
+      continua igual. A arquitetura mexe no encanamento, não na régua.</p></div>
+    <div class="card"><h3>Um repositório por dono</h3>
+      <p>Plataforma, OS Creator e o que vier seguem separados. O que centraliza é o portal e o banco,
+      não o <code>git</code>.</p></div>
+    <div class="card"><h3>O 5080 fora do portal</h3>
+      <p>O painel do cliente continua isolado, no Railway, lendo a API. Produto de cliente não deve
+      cair junto com a ferramenta interna — e vice-versa.</p></div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -304,7 +304,7 @@
       <h2><a href="/tempo-real">Operação em tempo real</a></h2>
       <p class="desc">Strings, estações e trackers de todas as fontes, com a leitura mais recente de cada usina. O que caiu, o que parou, o que ficou sem comunicação.</p>
       <p class="quem">Para quem está <b>de plantão</b>.</p>
-      <div class="links"><a class="lnk prim" href="/monitoramento">Monitoramento</a><span class="lnk" style="cursor:default;color:var(--n500)">Strings · ETM · Trackers</span></div>
+      <div class="links"><a class="lnk prim" href="/tempo-real">Monitoramento</a><span class="lnk" style="cursor:default;color:var(--n500)">Strings · ETM · Trackers</span></div>
     </article>
   </div></div></div>
 
@@ -435,7 +435,10 @@
       var fr = document.getElementById("us-frame");
       var qs0 = new URLSearchParams(location.search), fundo = "";
       ["usina", "inversor", "dia"].forEach(function (k) { if (qs0.get(k)) fundo += "&" + k + "=" + encodeURIComponent(qs0.get(k)); });
-      fr.src = "/monitoramento?fonte=" + encodeURIComponent(fonteSel) + "&embed=1&view=" + viewSel + fundo;
+      // /monitor, e NAO /monitoramento (22/09/2026): no servidor o Caddy tem rota propria para
+      // /monitoramento e devolve 502 vazio sem repassar — foi por isso que as strings do tempo
+      // real nao carregavam em nenhuma fonte. Mesma tela, outro caminho (ver a rota no app.py).
+      fr.src = "/monitor?fonte=" + encodeURIComponent(fonteSel) + "&embed=1&view=" + viewSel + fundo;
       fr.hidden = false;
       window.addEventListener("message", function (ev) {
         var d = ev.data || {};
@@ -475,7 +478,7 @@
       var fr = document.getElementById("us-frame");
       // o iframe ainda carregando perderia a mensagem: nesse caso troca o src, que ja nasce na aba certa
       if (frPronto) { try { fr.contentWindow.postMessage({ gc: "view", id: id, prob: false }, "*"); } catch (e) { } }
-      else fr.src = "/monitoramento?fonte=" + encodeURIComponent(fonteSel) + "&embed=1&view=" + id;
+      else fr.src = "/monitor?fonte=" + encodeURIComponent(fonteSel) + "&embed=1&view=" + id;
       try { history.replaceState(null, "", location.pathname + "?view=" + id); } catch (e) { }
     }
     function fechaTroca() {
@@ -646,7 +649,7 @@
       if (lf.length) fora.innerHTML = "ETMs com IPOA/GHI zerado no mês em usinas <b>sem fonte ao vivo</b> (só no BD_Performance): " + lf.map(function (f) { return "<b>" + f.cliente + "</b> " + fmt(f.n) + (f.com_os ? " (" + fmt(f.com_os) + " com OS)" : ""); }).join(" · ") + ".";
       if (!d.grupos.length) { grade.innerHTML = "<div class='vazio'>Nenhuma fonte respondeu ainda. Esta tela atualiza sozinha.</div>"; return; }
       grade.innerHTML = d.grupos.map(function (g, i) {
-        var idF = g.fonte_id || FONTE_ID[g.fonte] || "", alvo = idF ? "/tempo-real/" + idF : "/monitoramento";
+        var idF = g.fonte_id || FONTE_ID[g.fonte] || "", alvo = idF ? "/tempo-real/" + idF : "/tempo-real";
         var cls = function (n, ruim) { return n > 0 ? (ruim ? " ruim" : " aviso") : ""; };
         var strings = noite
           ? "<div class='m'><div class='rot'>Strings</div><div class='val mudo'>sem sol</div><div class='sub'>volta ao amanhecer</div></div>"

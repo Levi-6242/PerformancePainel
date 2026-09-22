@@ -3042,8 +3042,17 @@ def index(fonte_id=None):
 
 
 @app.route("/monitoramento")
+@app.route("/monitor")
 def monitoramento():
     """Monitoramento — novo design (JS puro). Foi a raiz de 20/07 a 05/09/2026; agora mora aqui.
+
+    DOIS CAMINHOS, e o de uso é `/monitor` (22/09/2026). No servidor, o Caddy — que hospeda vários
+    apps no mesmo domínio, cada um num caminho — tem uma rota própria para `/monitoramento` e
+    `/monitoramento/*` apontando para um serviço que não está de pé, e responde 502 sozinho, sem
+    repassar (medido: `Server: Caddy` e nenhum `Via`, contra `Server: waitress`/`Via: 1.1 Caddy` nas
+    rotas que passam). Foi por isso que o tempo real deixou de carregar as strings em todas as
+    fontes. Todo link interno aponta para `/monitor` ou direto para `/tempo-real`; `/monitoramento`
+    segue aqui para a máquina local, os favoritos e o dia em que a rota do Caddy for tirada.
 
     SEM `fonte` nem `embed`, redireciona para o Tempo real (Levi, 21/09/2026). Ele clicou no atalho
     "Monitoramento" do cabeçalho do /painel e achou que tinha caído numa "visão antiga que não usamos
