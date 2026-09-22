@@ -144,6 +144,19 @@
   .volta{display:inline-flex;align-items:center;gap:6px;color:var(--n400);text-decoration:none;font-size:13px;font-weight:600;margin-bottom:14px}
   .volta:hover{color:var(--accent)}
   .tr-meta{font-family:var(--f-data);font-size:12px;color:var(--n500);text-align:right}
+  /* Versao da plataforma (Levi, 22/09/2026): "um card mostrando a versao ... e quando eu passo o
+     mouse ... a data da ultima atualizacao". Fica ACIMA do "atualizado HH:MM:SS", que e onde o olho
+     ja para para saber se a tela esta fresca. Discreto de proposito: e identidade, nao metrica —
+     se competir de cor com os numeros dos cards, rouba a leitura que importa. */
+  .tr-versao{display:inline-flex;align-items:center;gap:6px;margin:0 0 7px;padding:3px 9px;
+    border:1px solid var(--divider);border-radius:999px;background:var(--surface-2);
+    color:var(--n400);font:600 11px var(--f-data);letter-spacing:.02em;cursor:help;
+    transition:border-color .2s,color .2s}
+  .tr-versao:hover{border-color:var(--accent);color:var(--n200)}
+  .tr-versao i{width:5px;height:5px;border-radius:50%;background:var(--accent);flex:none}
+  /* falta reiniciar: ambar, o mesmo do aviso dos cards — e atencao, nao falha: o codigo chegou */
+  .tr-versao.pend{border-color:var(--amber);color:var(--amber)}
+  .tr-versao.pend i{background:var(--amber)}
   .tr-meta .prox{color:var(--n500)}
   .tr-meta button.atualiza{margin-top:8px;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--divider);background:var(--surface-2);color:var(--n300);font:600 12px var(--f-ui);padding:6px 12px;border-radius:8px;cursor:pointer;transition:border-color .2s,color .2s}
   .tr-meta button.atualiza:hover{border-color:var(--accent);color:var(--accent)}
@@ -524,6 +537,38 @@
     }
     // ── cabecalho: atualizado HH:MM:SS · proxima HH:MM + botao Atualizar (a construcao e a cada 30 min desde 06/09)
     var atualizando = false;
+    /* ini versao */
+    // Icone de versao (Levi, 22/09/2026): diz se o commit chegou. Tres estados, porque um deploy por
+    // `git pull` engana de dois jeitos: o disco pode estar mais novo que o processo (baixou, nao
+    // reiniciou), e este HTML — relido do disco sem restart — pode ser novo enquanto o Python e velho.
+    // Nos dois casos quem olha concluiria "o commit nao subiu"; o certo e "subiu, falta reiniciar".
+    function escAttr(t) {
+      return String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+    function versaoHtml(d) {
+      d = d || {};
+      var txt, dica, pend = false;
+      if (!d.versao) {
+        // So acontece com HTML novo e processo anterior ao icone: o HTML e relido do disco quando
+        // muda, entao ele ser novo prova o `git pull`; o payload sem versao prova que nao reiniciou.
+        pend = true;
+        txt = "versão anterior · falta reiniciar";
+        dica = "O código novo já está no servidor (esta tela é relida do disco), mas o processo que " +
+               "responde é anterior ao indicador de versão. Reinicie a plataforma para valer.";
+      } else if (d.versao_pendente) {
+        pend = true;
+        txt = "versão " + d.versao + " · falta reiniciar";
+        dica = "O servidor já baixou o commit " + (d.versao_disco || "novo") + ", mas este processo " +
+               "ainda roda o anterior. " + (d.versao_detalhe || "") + ". Reinicie para valer.";
+      } else {
+        txt = "versão " + d.versao;
+        dica = d.versao_detalhe || "";
+      }
+      return "<div><span class='tr-versao" + (pend ? " pend" : "") + "' title='" + escAttr(dica) +
+             "'><i></i>" + escAttr(txt) + "</span></div>";
+    }
+    /* fim versao */
     function hhmm(epoch) { var x = new Date(epoch * 1000); return ("0" + x.getHours()).slice(-2) + ":" + ("0" + x.getMinutes()).slice(-2); }
     function metaHtml(d) {
       var s = "atualizado " + (d.cache_ts || "—");
@@ -565,7 +610,7 @@
       document.title = g.cliente + " · Tempo real · Grid Co.";
       tit.firstChild.nodeValue = g.cliente + " ";
       kick.innerHTML = "<i></i>Agora · " + g.fonte + " · " + (FONTE_ROT[g.fonte] || "");
-      met.innerHTML = fmt(g.n_usinas) + " usina" + (g.n_usinas === 1 ? "" : "s") + "<br>" + metaHtml(d);
+      met.innerHTML = versaoHtml(d) + fmt(g.n_usinas) + " usina" + (g.n_usinas === 1 ? "" : "s") + "<br>" + metaHtml(d);
       nt.hidden = false; nt.className = "tr-nota" + (noite ? " noite" : "");
       nt.textContent = g.sem_leitura
         ? "Esta fonte não entregou leitura de nenhuma usina. O card existe para ela não sumir da vista; quando a fonte voltar, os números aparecem aqui."
@@ -595,7 +640,7 @@
       nota.textContent = noite
         ? "Sem sol agora. Strings em zero e trackers estacionados são o normal da noite, então esses dois não contam: o que vale até o amanhecer é comunicação. As ETMs são o diagnóstico do mês."
         : "Strings faltando e trackers parados são a leitura mais recente de cada fonte. As ETMs com problema são o diagnóstico do mês, com quantas já têm OS.";
-      meta.innerHTML = metaHtml(d) + "<br>" + fmt(d.grupos.length) + " grupos";
+      meta.innerHTML = versaoHtml(d) + metaHtml(d) + "<br>" + fmt(d.grupos.length) + " grupos";
       var fora = document.getElementById("tr-fora"), lf = d.etm_fora || [];
       fora.hidden = !lf.length;
       if (lf.length) fora.innerHTML = "ETMs com IPOA/GHI zerado no mês em usinas <b>sem fonte ao vivo</b> (só no BD_Performance): " + lf.map(function (f) { return "<b>" + f.cliente + "</b> " + fmt(f.n) + (f.com_os ? " (" + fmt(f.com_os) + " com OS)" : ""); }).join(" · ") + ".";

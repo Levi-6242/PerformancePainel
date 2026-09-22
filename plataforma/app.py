@@ -345,6 +345,10 @@ def _auth_gate():
     p = flask_request.path
     if p == "/login" or p == "/healthz" or p.startswith("/static/") or p == "/auth/login" or p == "/auth/callback":
         return
+    # /versao: qual commit está no ar, sem login — para conferir deploy de qualquer lugar. Só ela;
+    # a rota devolve uma lista fechada de campos (ver `versao_publica`).
+    if p == "/versao":
+        return
     # Renovação do token da Plataforma (trackers): o bookmarklet roda na origem
     # plataforma.pvoperation.com (cross-origin, SEM sessão do dashboard) → precisa passar pelo gate.
     # Seguro: o handler só aceita um JWT válido (3 partes) e grava só o token da fonte de trackers.
@@ -3545,15 +3549,132 @@ def _entrada_tr_strings_ao_vivo(data: dict, epoch) -> dict:
     return out
 
 
+# ── Versão da plataforma (Levi, 22/09/2026) ───────────────────────────────────
+#   O pedido: "um card mostrando a versão da plataforma e quando eu passo o mouse ... a data da
+#   última atualização de versão". O porquê: o servidor lê a plataforma do GitHub, "cada commit em
+#   tese é para atualizar", e ele quer VER se é verdade.
+#
+#   A versão sai do GIT, não de um VERSION="1.4.2" escrito à mão: o número à mão depende de alguém
+#   lembrar de mexer, e no dia em que esquecerem a tela mente com confiança. AAAA.MM.DD porque a
+#   pergunta é "de quando é isto que estou vendo"; o hash vai no hover.
+#
+#   DUAS leituras, e é a diferença entre elas que dá valor ao ícone:
+#     - o PROCESSO: o commit que estava no disco quando ele subiu. Lido uma vez e guardado.
+#     - o DISCO: o commit que está lá AGORA. Muda com `git pull`, sem restart nenhum.
+#   Um `git pull` sem restart deixa as duas diferentes — e como o Entrada.html é relido do disco
+#   (`_serve_html_cru`), a tela nova passa a conversar com o Python velho. Sem este aviso quem olha
+#   conclui "o commit não subiu", que é o diagnóstico errado: subiu, falta reiniciar.
+#
+#   As datas saem SEMPRE em Brasília, pelo relógio explícito e não pelo fuso do processo: o incidente
+#   de 22/09 foi justamente um servidor em UTC, e um indicador de deploy que erra a hora em 3 h é o
+#   último lugar onde isso pode acontecer.
+_BRT = timezone(timedelta(hours=FUSO_ESPERADO_H))
+_PROCESSO_NO_AR = datetime.now(_BRT)        # import = boot; é a hora que responde "reiniciaram depois?"
+_VERSAO_CACHE = {"d": None}
+_VERSAO_DISCO = {"ts": 0.0, "h": ""}
+_VERSAO_DISCO_TTL = 60                      # s — o disco muda a qualquer hora, mas não a cada request
+
+
+def _git(*args, timeout=10) -> str:
+    """Saída de um comando git na raiz do repositório, ou "" — nunca levanta."""
+    try:
+        r = subprocess.run(["git", *args], cwd=str(_RAIZ), capture_output=True, text=True, timeout=timeout)
+        if getattr(r, "returncode", 1) == 0:
+            return (getattr(r, "stdout", "") or "").strip()
+    except Exception:
+        pass                                 # git ausente, timeout, pasta sem repo — tudo igual
+    return ""
+
+
+def _versao_plataforma(force: bool = False) -> dict:
+    """A versão que ESTE PROCESSO está rodando. Lida uma vez: o processo não muda de versão enquanto
+    está de pé, e subprocesso a cada request de uma tela que se redesenha sozinha seria desperdício.
+
+    Sem `.git` (o oem-app.zip da T.I. não leva) cai na data do próprio arquivo, que ainda responde
+    "de quando é". Nunca levanta: é enfeite de cabeçalho, não pode derrubar a tela."""
+    if _VERSAO_CACHE["d"] and not force:
+        return _VERSAO_CACHE["d"]
+    no_ar = _PROCESSO_NO_AR.strftime("%d/%m %H:%M")
+    partes = _git("log", "-1", "--format=%cI%n%h%n%H").splitlines()
+    if len(partes) >= 3 and partes[0][:4].isdigit():
+        dt = datetime.fromisoformat(partes[0].strip()).astimezone(_BRT)
+        curto, completo = partes[1].strip(), partes[2].strip()
+        d = {"versao": dt.strftime("%Y.%m.%d"), "commit": curto, "commit_completo": completo,
+             "commit_em": dt.strftime("%d/%m/%Y %H:%M"), "no_ar_desde": no_ar,
+             "detalhe": f"Atualizada em {dt.strftime('%d/%m/%Y às %H:%M')} · commit {curto}"
+                        f" · no ar desde {no_ar}"}
+    else:
+        try:
+            dt = datetime.fromtimestamp(os.path.getmtime(__file__), _BRT)
+        except Exception:
+            dt = datetime.now(_BRT)
+        d = {"versao": dt.strftime("%Y.%m.%d"), "commit": "", "commit_completo": "",
+             "commit_em": dt.strftime("%d/%m/%Y %H:%M"), "no_ar_desde": no_ar,
+             "detalhe": f"Atualizada em {dt.strftime('%d/%m/%Y às %H:%M')} · data do arquivo (sem git)"
+                        f" · no ar desde {no_ar}"}
+    _VERSAO_CACHE["d"] = d
+    return d
+
+
+def _versao_em_disco() -> str:
+    """Hash COMPLETO do commit que está no disco agora ("" se não der para saber). Cache de um minuto:
+    vivo o bastante para pegar um `git pull` recém-feito, barato o bastante para não virar subprocesso
+    por request."""
+    agora = time.time()
+    if agora - _VERSAO_DISCO["ts"] < _VERSAO_DISCO_TTL:
+        return _VERSAO_DISCO["h"]
+    h = _git("rev-parse", "HEAD", timeout=5)
+    _VERSAO_DISCO.update(ts=agora, h=h)
+    return h
+
+
+def _versao_kv() -> dict:
+    """Os campos da versão, prontos para ir de carona no payload que a tela JÁ busca — um request a
+    mais por ciclo, em várias abas, não se paga por um texto que muda uma vez por deploy.
+
+    `versao_pendente` só é True com as DUAS pontas conhecidas e diferentes. Disco desconhecido (deploy
+    por zip) não é "falta reiniciar": seria alarme falso permanente, o tipo que ensina a ignorar o
+    ícone. Nunca levanta — se levantasse, derrubava a tela inteira por um enfeite."""
+    try:
+        v = _versao_plataforma()
+        disco = _versao_em_disco()
+        pend = bool(disco and v.get("commit_completo") and disco != v["commit_completo"])
+        kv = {"versao": v["versao"], "versao_detalhe": v["detalhe"], "versao_pendente": pend}
+        if pend:
+            kv["versao_disco"] = disco[:7]
+        return kv
+    except Exception as e:                    # noqa: BLE001
+        return {"versao": "?", "versao_detalhe": f"versão indisponível ({type(e).__name__})",
+                "versao_pendente": False}
+
+
+@app.route("/versao")
+def versao_publica():
+    """Qual commit este processo roda — PÚBLICA, sem login (exceção no `_auth_gate`).
+
+    Existe para conferir um deploy de qualquer lugar: `curl https://app.gridco.com.br/versao`. Foi o
+    que faltou em 22/09, quando a pergunta "o commit subiu?" teve de ser respondida por impressão
+    digital (um caminho que dá 401 no código antigo e 404 no novo). O repositório é público, então o
+    commit não revela nada que já não esteja lá. Lista FECHADA de campos: nada de caminho de disco,
+    nome de máquina ou ambiente — qualquer um na internet lê esta rota."""
+    v = _versao_plataforma()
+    disco = _versao_em_disco()
+    return jsonify({"versao": v["versao"], "commit": v["commit"] or None, "commit_em": v["commit_em"],
+                    "no_ar_desde": v["no_ar_desde"], "commit_no_disco": (disco[:7] or None),
+                    "reiniciar_pendente": bool(disco and v["commit_completo"] and disco != v["commit_completo"])})
+
+
 def _entrada_tr_payload() -> dict:
     """O que a tela recebe: o ultimo publicado + idade, TTL (para dizer a hora da proxima) e se ha construcao em curso."""
     c = _ENTRADA_TR_CACHE
     agora = time.time()
     if c["data"] is None:
-        return {"aquecendo": True, "grupos": [], "cache_ts": None, "ttl_s": _ENTRADA_TR_TTL, "renovando": c["building"]}
+        return dict({"aquecendo": True, "grupos": [], "cache_ts": None, "ttl_s": _ENTRADA_TR_TTL,
+                     "renovando": c["building"]}, **_versao_kv())
     ttl = _entrada_tr_ttl()
     return dict(_entrada_tr_strings_ao_vivo(c["data"], c["ts"]), stale=(agora - c["ts"]) > ttl, ttl_s=ttl,
-                cache_epoch=int(c["ts"]), idade_s=int(agora - c["ts"]), renovando=c["building"])
+                cache_epoch=int(c["ts"]), idade_s=int(agora - c["ts"]), renovando=c["building"],
+                **_versao_kv())
 
 
 @app.route("/api/entrada/tempo-real")

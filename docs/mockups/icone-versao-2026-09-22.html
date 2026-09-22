@@ -1,0 +1,309 @@
+<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Prova do ícone de versão</title>
+<style>
+  :root{
+    --bg:#090d18; --surface:#161d30; --surface-2:#1b2338; --text:#e9eef6;
+    --n300:#c3cad7; --n400:#96a0b4; --n500:#767d92; --n900:#0e1626;
+    --divider:rgba(255,255,255,.09);
+    --accent:#a3d900; --accent-300:#c4e755; --accent-800:#495f06;
+    --deficit:#b3261e;
+    --f-ui:'Inter',system-ui,-apple-system,sans-serif; --f-data:'IBM Plex Mono',Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none !important}
+  html,body{margin:0;min-height:100%}
+  body{background:var(--bg);color:var(--text);font-family:var(--f-ui);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;
+       background-image:radial-gradient(900px 420px at 50% -120px, rgba(163,217,0,.10), transparent 70%)}
+  ::selection{background:rgba(163,217,0,.3)}
+  a{color:inherit}
+
+  /* ── cabecalho ───────────────────────────────────────────────────────── */
+  .topo{max-width:1480px;margin:0 auto;padding:26px 28px 0;display:flex;align-items:center;justify-content:space-between;gap:16px}
+  body.largo .topo,body.largo .pe{max-width:1640px}
+  .marca{display:flex;align-items:center;gap:14px;text-decoration:none}
+  .marca img{height:26px;display:block}
+  .marca span{font-size:12px;color:var(--n400);border-left:1px solid var(--divider);padding-left:14px;letter-spacing:.02em}
+  .vivo{display:flex;align-items:center;gap:9px;font-family:var(--f-data);font-size:12.5px;color:var(--n400);white-space:nowrap}
+  .vivo .data{color:var(--n500)}
+  .vivo .pt{width:7px;height:7px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 0 rgba(163,217,0,.6);animation:pulsa 2.4s ease-out infinite}
+  @keyframes pulsa{0%{box-shadow:0 0 0 0 rgba(163,217,0,.55)}70%{box-shadow:0 0 0 9px rgba(163,217,0,0)}100%{box-shadow:0 0 0 0 rgba(163,217,0,0)}}
+
+  /* ── abertura ────────────────────────────────────────────────────────── */
+  .abre{max-width:1180px;margin:0 auto;padding:64px 28px 8px;text-align:center}
+  .abre h1{font-size:36px;font-weight:800;letter-spacing:-.025em;line-height:1.1;margin:0 0 12px}
+  .abre p{margin:0;color:var(--n400);font-size:15.5px}
+  .abre p b{color:var(--n300);font-weight:600}
+
+  /* ── as tres altitudes ──────────────────────────────────────────────── */
+  /* 12/09/2026: quatro colunas — as tres leituras e a ACAO que sai delas (Criar OS, o OS Creator dentro da plataforma). */
+  .altitudes{max-width:1480px;margin:0 auto;padding:44px 28px 40px;display:grid;grid-template-columns:repeat(4,1fr);gap:22px;align-items:stretch}
+  @media (max-width:1240px) and (min-width:981px){.altitudes{grid-template-columns:repeat(2,1fr)}}
+  /* Abertura: a escadinha (o segundo no chao, o mes no alto) e o primeiro quadro; os cards sobem e param
+     paralelos. Pedido do Levi (05/09): "de escadinha para paralelo sempre que atualizar". */
+  .col:nth-child(1) .entra{--degrau:72px;animation-delay:.05s}
+  .col:nth-child(2) .entra{--degrau:36px;animation-delay:.15s}
+  .col:nth-child(3) .entra{--degrau:0px;animation-delay:.25s}
+  .col:nth-child(4) .entra{--degrau:0px;animation-delay:.35s}
+  .entra{height:100%;opacity:0;transform:translateY(calc(var(--degrau) + 16px));animation:escada 1.9s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes escada{
+    0%  {opacity:0;transform:translateY(calc(var(--degrau) + 16px))}
+    28% {opacity:1;transform:translateY(var(--degrau))}
+    52% {opacity:1;transform:translateY(var(--degrau))}
+    100%{opacity:1;transform:translateY(0)}
+  }
+  .flutua{height:100%;animation:flutua 7.5s ease-in-out infinite}
+  .col:nth-child(1) .flutua{animation-delay:-1.1s}
+  .col:nth-child(2) .flutua{animation-delay:-3.6s}
+  .col:nth-child(3) .flutua{animation-delay:-5.9s}
+  .col:nth-child(4) .flutua{animation-delay:-2.3s}
+  @keyframes flutua{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+
+  .card{position:relative;height:100%;display:flex;flex-direction:column;gap:14px;padding:24px 24px 22px;border-radius:14px;cursor:pointer;
+        background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--divider);
+        box-shadow:0 18px 44px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.05);
+        transition:transform .38s cubic-bezier(.2,.7,.2,1), box-shadow .38s ease, border-color .38s ease}
+  .card:hover,.card:focus-within{transform:translateY(-9px) scale(1.012);border-color:rgba(163,217,0,.45);
+        box-shadow:0 36px 72px rgba(0,0,0,.6), 0 18px 60px rgba(163,217,0,.11), inset 0 1px 0 rgba(255,255,255,.07)}
+  .card:focus-within{outline:2px solid var(--accent);outline-offset:3px}
+  .kicker{font-size:10.5px;text-transform:uppercase;letter-spacing:.16em;font-weight:700;color:var(--n500);display:flex;align-items:center;gap:10px}
+  .kicker i{display:inline-block;width:22px;height:1px;background:var(--n500);opacity:.7}
+  .card:hover .kicker,.card:focus-within .kicker{color:var(--accent)}
+  .card:hover .kicker i,.card:focus-within .kicker i{background:var(--accent);opacity:1}
+
+  /* A caixa comeca em -64 porque o ARCO do 1o card sobe ate y=-58 (semicirculo de raio 120 sobre a corda 30..270):
+     com a caixa antiga (0 0 300 110) ele estourava 2,7 px acima da borda do card e aparecia cortado (Levi, 08/09/2026).
+     Os tres desenhos usam a MESMA caixa e a mesma linha de chao (y=92), entao os cards crescem juntos e continuam alinhados. */
+  .instr{display:block;width:100%;height:auto;margin:2px 0 4px;overflow:visible}
+  .instr .fino{stroke:var(--n500);stroke-width:1;fill:none;opacity:.7}
+  .instr .verde{stroke:var(--accent);stroke-width:1.6;fill:none;stroke-linecap:round;stroke-linejoin:round}
+  .instr .chao{stroke:var(--divider);stroke-width:1}
+
+  h2{margin:0;font-size:23px;font-weight:800;letter-spacing:-.02em;line-height:1.15}
+  h2 a{text-decoration:none;color:var(--text);transition:color .25s}
+  .card:hover h2 a,.card:focus-within h2 a{color:#fff}
+  h2 a:focus{outline:none}
+  .desc{margin:0;color:var(--n300);font-size:14px;line-height:1.55}
+  .quem{margin:2px 0 0;color:var(--n400);font-size:13px}
+  .quem b{color:var(--n300);font-weight:600}
+
+  .links{display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:auto;padding-top:14px;border-top:1px solid var(--divider)}
+  .lnk{font-size:13px;font-weight:600;text-decoration:none;color:var(--n300);display:inline-flex;align-items:center;gap:4px;
+       transition:color .2s,transform .2s}
+  a.lnk::after{content:"›";color:var(--n500);transition:transform .2s,color .2s}
+  .lnk:hover{color:var(--accent)}
+  a.lnk:hover::after{transform:translateX(3px);color:var(--accent)}
+  a.lnk:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:4px}
+  .lnk.prim{color:var(--accent)}
+  .lnk.prim::after{color:var(--accent)}
+
+  /* instrumento 1: trackers seguindo o sol ------------------------------ */
+  .m1 .painel{transform-box:fill-box;transform-origin:center;transform:rotate(-24deg);transition:transform 1.1s cubic-bezier(.3,.7,.2,1)}
+  .card:hover .m1 .painel,.card:focus-within .m1 .painel{transform:rotate(18deg)}
+  .m1 .sol{transition:transform 1.1s cubic-bezier(.3,.7,.2,1);fill:var(--accent)}
+  .card:hover .m1 .sol,.card:focus-within .m1 .sol{transform:translateX(112px) translateY(-2px)}
+  /* instrumento 2: o modelo acha o buraco -------------------------------- */
+  .m2 .esperado{stroke-dasharray:5 4;stroke:var(--n400);opacity:.9}
+  .m2 .deficit{fill:var(--deficit);opacity:.16;transition:opacity .5s}
+  .card:hover .m2 .deficit,.card:focus-within .m2 .deficit{opacity:.38}
+  .m2 .cursor{stroke:var(--n300);stroke-dasharray:3 3;opacity:0}
+  .card:hover .m2 .cursor,.card:focus-within .m2 .cursor{animation:varre 1.7s linear .05s forwards}
+  @keyframes varre{0%{opacity:.9;transform:translateX(0)}92%{opacity:.9}100%{opacity:0;transform:translateX(250px)}}
+  /* instrumento 3: usinas contra a meta ---------------------------------- */
+  .m3 .barra{transform-box:fill-box;transform-origin:bottom;transition:transform .7s cubic-bezier(.2,.7,.2,1);fill:var(--n500);opacity:.55}
+  .m3 .barra.ok{fill:var(--accent);opacity:.9}
+  .card:hover .m3 .barra,.card:focus-within .m3 .barra{animation:sobe .75s cubic-bezier(.2,.7,.2,1) both}
+  .m3 .barra:nth-child(2){animation-delay:.05s}.m3 .barra:nth-child(3){animation-delay:.1s}.m3 .barra:nth-child(4){animation-delay:.15s}
+  .m3 .barra:nth-child(5){animation-delay:.2s}.m3 .barra:nth-child(6){animation-delay:.25s}.m3 .barra:nth-child(7){animation-delay:.3s}.m3 .barra:nth-child(8){animation-delay:.35s}
+  @keyframes sobe{from{transform:scaleY(.18)}to{transform:scaleY(1)}}
+  .m3 .meta{stroke:var(--accent);stroke-dasharray:4 4;stroke-width:1.2}
+  /* instrumento 4: a ordem de servico ganha o 'feito' ----------------------- */
+  .m4 .folha{fill:rgba(255,255,255,.02)}
+  .m4 .check{stroke-dasharray:40;stroke-dashoffset:40;transition:stroke-dashoffset .7s cubic-bezier(.2,.7,.2,1) .1s}
+  .card:hover .m4 .check,.card:focus-within .m4 .check{stroke-dashoffset:0}
+  .m4 .selo{transform-box:fill-box;transform-origin:center;transform:scale(.85);opacity:.7;transition:transform .5s,opacity .5s}
+  .card:hover .m4 .selo,.card:focus-within .m4 .selo{transform:scale(1);opacity:1}
+  .lnk.cadeado{margin-left:auto;font-family:var(--f-data);font-size:10.5px;color:#f5a623;border:1px solid rgba(245,166,35,.45);border-radius:999px;padding:1px 8px;cursor:default}
+
+  /* ── nivel 2: operacao em tempo real, por cliente x fonte ─────────────── */
+  :root{--amber:#f5a623;--red:#f2555a;--ok:#a3d900}   /* --gc-amber / --gc-red do Monitoramento */
+  .tr{max-width:1640px;margin:0 auto;padding:44px 28px 24px}
+  .tr .topo-largo{max-width:none}
+  .tr-topo{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;margin-bottom:8px}
+  .tr-topo h1{font-size:30px;font-weight:800;letter-spacing:-.025em;line-height:1.1;margin:6px 0 0}
+  .volta{display:inline-flex;align-items:center;gap:6px;color:var(--n400);text-decoration:none;font-size:13px;font-weight:600;margin-bottom:14px}
+  .volta:hover{color:var(--accent)}
+  .tr-meta{font-family:var(--f-data);font-size:12px;color:var(--n500);text-align:right}
+  /* Versao da plataforma (Levi, 22/09/2026): "um card mostrando a versao ... e quando eu passo o
+     mouse ... a data da ultima atualizacao". Fica ACIMA do "atualizado HH:MM:SS", que e onde o olho
+     ja para para saber se a tela esta fresca. Discreto de proposito: e identidade, nao metrica —
+     se competir de cor com os numeros dos cards, rouba a leitura que importa. */
+  .tr-versao{display:inline-flex;align-items:center;gap:6px;margin:0 0 7px;padding:3px 9px;
+    border:1px solid var(--divider);border-radius:999px;background:var(--surface-2);
+    color:var(--n400);font:600 11px var(--f-data);letter-spacing:.02em;cursor:help;
+    transition:border-color .2s,color .2s}
+  .tr-versao:hover{border-color:var(--accent);color:var(--n200)}
+  .tr-versao i{width:5px;height:5px;border-radius:50%;background:var(--accent);flex:none}
+  /* falta reiniciar: ambar, o mesmo do aviso dos cards — e atencao, nao falha: o codigo chegou */
+  .tr-versao.pend{border-color:var(--amber);color:var(--amber)}
+  .tr-versao.pend i{background:var(--amber)}
+  .tr-meta .prox{color:var(--n500)}
+  .tr-meta button.atualiza{margin-top:8px;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--divider);background:var(--surface-2);color:var(--n300);font:600 12px var(--f-ui);padding:6px 12px;border-radius:8px;cursor:pointer;transition:border-color .2s,color .2s}
+  .tr-meta button.atualiza:hover{border-color:var(--accent);color:var(--accent)}
+  .tr-meta button.atualiza[disabled]{opacity:.6;cursor:progress}
+  .m .val .de{font-size:15px;color:var(--n500);font-weight:400;margin-left:1px}
+  .tr-nota{margin:14px 0 0;padding:12px 16px;border:1px solid var(--divider);border-left:3px solid var(--n500);border-radius:10px;color:var(--n300);font-size:13.5px;background:rgba(255,255,255,.02)}
+  .tr-nota.noite{border-left-color:var(--amber)}
+  .tr-grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(310px,1fr));gap:18px;margin-top:26px}
+  @media (min-width:1400px){.tr-grade{grid-template-columns:repeat(4,1fr)}}   /* 4 por linha, pedido do Levi (05/09) */
+  .g{display:flex;flex-direction:column;gap:12px;padding:20px 20px 18px;border-radius:14px;cursor:pointer;text-decoration:none;color:inherit;
+     background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--divider);
+     box-shadow:0 14px 34px rgba(0,0,0,.4), inset 0 1px 0 rgba(255,255,255,.05);
+     transition:transform .3s cubic-bezier(.2,.7,.2,1),box-shadow .3s ease,border-color .3s ease;
+     opacity:0;transform:translateY(14px);animation:entra-g .55s cubic-bezier(.2,.7,.2,1) forwards}
+  @keyframes entra-g{to{opacity:1;transform:none}}
+  .g:hover,.g:focus-visible{transform:translateY(-6px);border-color:rgba(163,217,0,.4);box-shadow:0 26px 54px rgba(0,0,0,.55),0 12px 40px rgba(163,217,0,.08);outline:none}
+  .g-cab{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+  .g-cab h3{margin:0;font-size:19px;font-weight:800;letter-spacing:-.015em}
+  .g-cab .n{font-family:var(--f-data);font-size:12px;color:var(--n400);white-space:nowrap}
+  .g-fonte{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--n500)}
+  .g-fonte i{width:6px;height:6px;border-radius:50%;background:var(--n500)}
+  .g-mostr{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding-top:12px;border-top:1px solid var(--divider)}
+  .g-mostr .m{min-width:0}
+  .m{display:flex;flex-direction:column;gap:3px;min-width:0}
+  .m .rot{font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;font-weight:700;color:var(--n500)}
+  .m .val{font-family:var(--f-data);font-size:24px;font-weight:500;line-height:1.05;color:var(--text)}
+  .m .val.mudo{color:var(--n500);font-size:15px;font-weight:400;padding-top:5px}
+  .m .val.aviso{color:var(--amber)}.m .val.ruim{color:var(--red)}.m .val.bom{color:var(--ok)}
+  .m .sub{font-size:12px;color:var(--n400);line-height:1.35}
+  .m .sub b{color:var(--n300);font-weight:600}
+  .g-pe{display:flex;justify-content:space-between;gap:10px;font-family:var(--f-data);font-size:11.5px;color:var(--n500);padding-top:10px;border-top:1px solid var(--divider)}
+  .g-pe .ruim{color:var(--red)}
+  .tr-fora{margin:22px 0 0;color:var(--n500);font-size:12.5px;line-height:1.6}
+  .tr-fora b{color:var(--n400);font-weight:600}
+  /* ── nivel 3: um cliente x fonte, usina a usina ───────────────────────── */
+  .g.vazio-dado{opacity:.62}
+  .g.vazio-dado:hover{opacity:1}
+  .u-resumo{display:grid;grid-template-columns:repeat(4,1fr) minmax(110px,.55fr);gap:14px;margin-top:22px}
+  .u-resumo .m{position:relative;padding:16px 18px;border-radius:12px;background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--divider);text-align:left;color:inherit;font:inherit}
+  /* Strings, ETM e Trackers SAO os botoes de aba do Monitoramento embutido (pedido do Levi, 05/09): menos cards, mais funcao */
+  .u-resumo .m.aba{cursor:pointer;transition:border-color .2s,transform .2s,box-shadow .2s;user-select:none}
+  .u-resumo .m.aba:hover{border-color:rgba(163,217,0,.4);transform:translateY(-2px)}
+  .u-resumo .m.aba:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+  .u-resumo .m.mais.aberto{transform:none;border-color:rgba(163,217,0,.4)}
+  .u-resumo .m.on{border-color:var(--accent);box-shadow:0 0 0 1px rgba(163,217,0,.35), 0 14px 34px rgba(163,217,0,.10)}
+  .u-resumo .m.on .rot{color:var(--accent)}
+  .u-resumo .m.on::after{content:"";position:absolute;left:18px;right:18px;bottom:-1px;height:2px;background:var(--accent);border-radius:2px}
+  .u-resumo .m.mais{display:flex;flex-direction:column;justify-content:center;align-items:center;gap:6px}
+  .u-resumo .m.mais .val{font-size:26px;letter-spacing:.1em;line-height:1}
+  .u-resumo .m.mais .sub{font-size:11.5px;text-align:center}
+  .mais-lista{position:absolute;right:0;top:calc(100% + 8px);z-index:30;min-width:210px;padding:6px;border-radius:12px;background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--divider);box-shadow:0 26px 54px rgba(0,0,0,.55)}
+  .mais-lista button{display:block;width:100%;text-align:left;padding:9px 12px;border:0;border-radius:8px;background:none;color:var(--n300);font:600 13px var(--f-ui);cursor:pointer}
+  .mais-lista button:hover,.mais-lista button.on{background:rgba(163,217,0,.10);color:var(--text)}
+  /* seta no titulo: trocar de cliente/fonte sem voltar */
+  .troca{position:relative;display:inline-block}
+  .troca > button{display:inline-flex;align-items:center;gap:10px;background:none;border:0;padding:0;color:var(--text);font:800 30px/1.1 var(--f-ui);letter-spacing:-.025em;cursor:pointer;margin:6px 0 0}
+  .troca > button svg{width:22px;height:22px;color:var(--n500);transition:transform .2s,color .2s;flex:none}
+  .troca > button:hover svg{color:var(--accent)}
+  .troca.aberto > button svg{transform:rotate(180deg);color:var(--accent)}
+  .troca-lista{position:absolute;left:0;top:calc(100% + 10px);z-index:40;min-width:320px;padding:6px;border-radius:12px;background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--divider);box-shadow:0 26px 54px rgba(0,0,0,.55)}
+  .troca-lista a{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:9px 12px;border-radius:8px;text-decoration:none;color:var(--n300);font-size:13.5px}
+  .troca-lista a:hover{background:rgba(163,217,0,.10);color:var(--text)}
+  .troca-lista a.on{color:var(--text);background:rgba(255,255,255,.04)}
+  .troca-lista a b{font-weight:700}.troca-lista a small{color:var(--n500);font-family:var(--f-data);font-size:11.5px;white-space:nowrap}
+  .troca-lista a .f{display:block;font-size:11.5px;color:var(--n500);font-weight:500}
+  @media (max-width:980px){.u-resumo{grid-template-columns:repeat(2,1fr)}.troca-lista{min-width:260px}}
+  .u-lista{margin-top:22px;border:1px solid var(--divider);border-radius:14px;overflow:hidden;background:var(--surface)}
+  .u-lista table{width:100%;border-collapse:collapse;font-size:13.5px}
+  .u-lista th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;font-weight:700;color:var(--n500);padding:12px 14px;border-bottom:1px solid var(--divider);background:rgba(255,255,255,.02)}
+  .u-lista td{padding:11px 14px;border-bottom:1px solid var(--divider);vertical-align:middle}
+  .u-lista tr:last-child td{border-bottom:0}
+  .u-lista tr.lk{cursor:pointer;transition:background .15s}
+  .u-lista tr.lk:hover td{background:rgba(163,217,0,.05)}
+  .u-lista .nome{font-weight:700;color:var(--text)}
+  .u-lista .nome small{display:block;font-weight:500;color:var(--n500);font-size:11.5px;margin-top:2px}
+  .u-lista .num{font-family:var(--f-data);text-align:right;white-space:nowrap}
+  .u-lista .r{text-align:right}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border:1px solid var(--divider);color:var(--n300)}
+  .pill::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--n500)}
+  .pill.ok{color:var(--ok)}.pill.ok::before{background:var(--ok)}
+  .pill.critico{color:var(--red)}.pill.critico::before{background:var(--red)}
+  .pill.sem_comm{color:var(--red);border-color:rgba(242,85,90,.35)}.pill.sem_comm::before{background:var(--red)}
+  .pill.atencao{color:var(--amber)}.pill.atencao::before{background:var(--amber)}
+  .pill.noite{color:var(--n400)}
+  .etm-tag{display:inline-flex;align-items:center;gap:5px;font-family:var(--f-data);font-size:12px;color:var(--amber)}
+  .etm-tag.os{color:var(--ok)}
+  .etm-tag i{font-style:normal;font-size:10px;padding:1px 5px;border-radius:4px;border:1px solid currentColor;opacity:.8}
+  .mudo{color:var(--n500)}
+  @media (max-width:980px){.u-resumo{grid-template-columns:repeat(2,1fr)}.u-lista{overflow-x:auto}}
+  .esq{height:196px;border-radius:14px;border:1px solid var(--divider);background:linear-gradient(90deg,var(--surface) 25%,var(--surface-2) 50%,var(--surface) 75%);background-size:200% 100%;animation:esq 1.4s linear infinite}
+  @keyframes esq{to{background-position:-200% 0}}
+  .vazio{grid-column:1/-1;padding:40px;text-align:center;color:var(--n400);border:1px dashed var(--divider);border-radius:14px}
+  @media (prefers-reduced-motion:reduce){.g{animation:none;opacity:1;transform:none}.esq{animation:none}}
+
+  .pe{max-width:1180px;margin:0 auto;padding:8px 28px 40px;display:flex;justify-content:space-between;color:var(--n500);font-size:12px}
+  .pe span{font-family:var(--f-data)}
+
+  @media (max-width:980px){
+    .altitudes{grid-template-columns:1fr;gap:18px;padding-top:28px}
+    .col:nth-child(n) .entra{--degrau:0px}
+    .abre{padding-top:40px}.abre h1{font-size:28px}
+    .topo{padding-top:18px}
+    .marca span{display:none}
+    .vivo .data{display:none}
+  }
+  @media (prefers-reduced-motion:reduce){
+    .entra{animation:none;opacity:1;transform:none}
+    .flutua,.vivo .pt{animation:none}
+    .card,.m1 .painel,.m1 .sol,.m3 .barra{transition:none}
+    .card:hover .m2 .cursor,.card:hover .m3 .barra{animation:none}
+  }
+
+  body{padding-bottom:40px} .rot{font:600 11px var(--f-data);color:var(--n500);letter-spacing:.08em;text-transform:uppercase;margin:34px 28px 0}
+</style></head><body>
+<header class="topo"><a class="marca" href="#"><span style="font-weight:800;color:#fff">Grid Co.</span><span>Plataforma de Performance</span></a>
+<div style="display:flex;align-items:center;gap:14px"><div class="vivo"><span class="pt"></span><span class="data">terça, 22 set</span><span>13:52:48</span></div></div></header>
+<div id="casos"></div>
+<script>/* ini versao */
+    // Icone de versao (Levi, 22/09/2026): diz se o commit chegou. Tres estados, porque um deploy por
+    // `git pull` engana de dois jeitos: o disco pode estar mais novo que o processo (baixou, nao
+    // reiniciou), e este HTML — relido do disco sem restart — pode ser novo enquanto o Python e velho.
+    // Nos dois casos quem olha concluiria "o commit nao subiu"; o certo e "subiu, falta reiniciar".
+    function escAttr(t) {
+      return String(t == null ? "" : t).replace(/&/g, "&amp;").replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+    }
+    function versaoHtml(d) {
+      d = d || {};
+      var txt, dica, pend = false;
+      if (!d.versao) {
+        // So acontece com HTML novo e processo anterior ao icone: o HTML e relido do disco quando
+        // muda, entao ele ser novo prova o `git pull`; o payload sem versao prova que nao reiniciou.
+        pend = true;
+        txt = "versão anterior · falta reiniciar";
+        dica = "O código novo já está no servidor (esta tela é relida do disco), mas o processo que " +
+               "responde é anterior ao indicador de versão. Reinicie a plataforma para valer.";
+      } else if (d.versao_pendente) {
+        pend = true;
+        txt = "versão " + d.versao + " · falta reiniciar";
+        dica = "O servidor já baixou o commit " + (d.versao_disco || "novo") + ", mas este processo " +
+               "ainda roda o anterior. " + (d.versao_detalhe || "") + ". Reinicie para valer.";
+      } else {
+        txt = "versão " + d.versao;
+        dica = d.versao_detalhe || "";
+      }
+      return "<div><span class='tr-versao" + (pend ? " pend" : "") + "' title='" + escAttr(dica) +
+             "'><i></i>" + escAttr(txt) + "</span></div>";
+    }
+    
+var meta = "atualizado 13:49:59<span class='prox'> · próxima 14:19</span><br><button type='button' class='atualiza'>Atualizar</button><br>8 grupos";
+var casos = [
+  ["1 · normal — disco e processo no mesmo commit",
+   {versao:"2026.09.22", versao_detalhe:"Atualizada em 22/09/2026 às 14:05 · commit 9f3a1c2 · no ar desde 22/09 14:11", versao_pendente:false}],
+  ["2 · baixou o commit, mas não reiniciou",
+   {versao:"2026.09.22", versao_detalhe:"Atualizada em 22/09/2026 às 11:47 · commit 2c75fb8 · no ar desde 22/09 13:10", versao_pendente:true, versao_disco:"9f3a1c2"}],
+  ["3 · tela nova, processo anterior ao ícone",
+   {grupos:[], cache_ts:"13:49:59"}]
+];
+document.getElementById("casos").innerHTML = casos.map(function(c){
+  return "<p class='rot'>" + c[0] + "</p><main class='tr' style='padding-top:10px;padding-bottom:0'><div class='tr-topo'><div><div class='kicker'><i></i>Agora · por cliente e fonte</div><h1>Operação em tempo real</h1></div><div class='tr-meta'>" + versaoHtml(c[1]) + meta + "</div></div></main>";
+}).join("");
+</script></body></html>

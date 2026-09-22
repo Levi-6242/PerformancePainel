@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arquitetura do portal Grid</title>
+<style>
+  :root{
+    --bg:#090d18; --panel:#161d30; --txt:#e9eef6; --mut:#94a3b8; --faint:#64748b;
+    --brand:#a3d900; --blue:#5BC8E8; --amber:#F0B53D; --red:#FF5C4D;
+    --linha:#243049;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--txt);
+       font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:40px 20px 80px}
+  h1{font-size:30px;margin:0 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--mut);margin:0 0 6px;font-size:16px}
+  .data{color:var(--faint);font-size:13px;margin:0 0 36px}
+  h2{font-size:20px;margin:44px 0 4px;letter-spacing:-.01em}
+  h2 .n{color:var(--brand);font-variant-numeric:tabular-nums;margin-right:10px}
+  .lead{color:var(--mut);margin:0 0 20px;max-width:78ch}
+  .card{background:var(--panel);border:1px solid var(--linha);border-radius:12px;padding:20px 22px;margin:14px 0}
+  .card h3{margin:0 0 10px;font-size:16px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--linha);vertical-align:top}
+  th{color:var(--faint);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+  tr:last-child td{border-bottom:0}
+  code{background:#0d1425;border:1px solid var(--linha);border-radius:4px;padding:1px 6px;
+       font:13px/1.5 ui-monospace,"Cascadia Code",Consolas,monospace;color:var(--blue)}
+  .mono{font:13px/1.6 ui-monospace,"Cascadia Code",Consolas,monospace}
+  .tag{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;
+       text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+  .t-ok{background:rgba(163,217,0,.13);color:var(--brand);border:1px solid rgba(163,217,0,.32)}
+  .t-av{background:rgba(240,181,61,.13);color:var(--amber);border:1px solid rgba(240,181,61,.32)}
+  .t-no{background:rgba(255,92,77,.13);color:var(--red);border:1px solid rgba(255,92,77,.32)}
+  .t-inf{background:rgba(91,200,232,.12);color:var(--blue);border:1px solid rgba(91,200,232,.30)}
+  .grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+  .nota{border-left:3px solid var(--brand);padding:12px 0 12px 16px;margin:18px 0;color:var(--mut)}
+  .nota strong{color:var(--txt)}
+  .alerta{border-left-color:var(--amber)}
+  svg{display:block;width:100%;height:auto}
+  .leg{display:flex;gap:18px;flex-wrap:wrap;margin-top:12px;font-size:12px;color:var(--mut)}
+  .leg i{display:inline-block;width:22px;height:0;border-top-width:2px;border-top-style:solid;
+         vertical-align:middle;margin-right:7px}
+  ol{padding-left:22px}  ol li{margin:10px 0}
+  .passo{color:var(--brand);font-weight:700}
+  @media (max-width:640px){ .wrap{padding:24px 16px 60px} h1{font-size:24px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Arquitetura do portal Grid</h1>
+  <p class="sub">Plataforma, OS Creator web e a terceira aplicação</p>
+  <p class="data">22/09/2026 &middot; proposta &middot; baseada no que já roda em produção</p>
+
+  <div class="nota">
+    <strong>A pergunta por trás da pergunta.</strong> "Um canto centralizado da Grid" é sobre
+    <strong>endereço e login</strong>, não sobre repositório. O portal já existe e já engoliu duas
+    aplicações — uma delas de outro repositório. O que falta não é juntar código: é parar de
+    escrever o encanamento à mão a cada aplicação nova.
+  </div>
+
+  <!-- ══════════ 1 ══════════ -->
+  <h2><span class="n">1</span>O que roda hoje</h2>
+  <p class="lead">Três serviços Flask, três portas, um domínio só. Para quem usa, é um lugar.</p>
+
+  <div class="card">
+    <svg viewBox="0 0 1040 300" role="img" aria-label="Diagrama do estado atual">
+      <defs>
+        <marker id="s1" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+          <path d="M0,0 L9,4.5 L0,9 z" fill="#94a3b8"/></marker>
+        <marker id="s2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+          <path d="M0,0 L9,4.5 L0,9 z" fill="#a3d900"/></marker>
+      </defs>
+
+      <rect x="18" y="116" width="150" height="62" rx="9" fill="#0d1425" stroke="#243049"/>
+      <text x="93" y="142" fill="#e9eef6" font-size="14" text-anchor="middle" font-weight="600">Navegador</text>
+      <text x="93" y="161" fill="#64748b" font-size="11" text-anchor="middle">app.gridco.com.br</text>
+
+      <path d="M168 147 H236" stroke="#94a3b8" stroke-width="2" fill="none" marker-end="url(#s1)"/>
+
+      <rect x="240" y="60" width="210" height="176" rx="11" fill="#161d30" stroke="#a3d900" stroke-width="1.6"/>
+      <text x="345" y="88" fill="#a3d900" font-size="14" text-anchor="middle" font-weight="700">PLATAFORMA :5050</text>
+      <text x="345" y="110" fill="#94a3b8" font-size="11.5" text-anchor="middle">login + _auth_gate</text>
+      <rect x="258" y="124" width="174" height="30" rx="6" fill="#0d1425" stroke="#243049"/>
+      <text x="345" y="143" fill="#5BC8E8" font-size="11.5" text-anchor="middle" font-family="monospace">gemeo_proxy()</text>
+      <rect x="258" y="160" width="174" height="30" rx="6" fill="#0d1425" stroke="#243049"/>
+      <text x="345" y="179" fill="#5BC8E8" font-size="11.5" text-anchor="middle" font-family="monospace">os_web_proxy()</text>
+      <text x="345" y="212" fill="#64748b" font-size="11" text-anchor="middle">tudo o mais: réguas, telas, APIs</text>
+
+      <path d="M450 139 H556" stroke="#a3d900" stroke-width="2" fill="none" marker-end="url(#s2)"/>
+      <text x="503" y="131" fill="#64748b" font-size="10.5" text-anchor="middle" font-family="monospace">/gemeo/*</text>
+      <path d="M450 175 H556" stroke="#a3d900" stroke-width="2" fill="none" marker-end="url(#s2)"/>
+      <text x="503" y="195" fill="#64748b" font-size="10.5" text-anchor="middle" font-family="monospace">/os/*</text>
+
+      <rect x="560" y="104" width="200" height="66" rx="9" fill="#0d1425" stroke="#243049"/>
+      <text x="660" y="130" fill="#e9eef6" font-size="13.5" text-anchor="middle" font-weight="600">Gêmeo :5075</text>
+      <text x="660" y="150" fill="#64748b" font-size="11" text-anchor="middle">repo: gemeo/ (aqui)</text>
+
+      <rect x="560" y="182" width="200" height="66" rx="9" fill="#0d1425" stroke="#243049"/>
+      <text x="660" y="208" fill="#e9eef6" font-size="13.5" text-anchor="middle" font-weight="600">OS Creator web :5090</text>
+      <text x="660" y="228" fill="#64748b" font-size="11" text-anchor="middle">repo: Grid-Co-CODE/oem</text>
+
+      <rect x="790" y="104" width="232" height="66" rx="9" fill="#0d1425" stroke="#243049" stroke-dasharray="4 4"/>
+      <text x="906" y="130" fill="#94a3b8" font-size="12.5" text-anchor="middle">segredo compartilhado</text>
+      <text x="906" y="150" fill="#64748b" font-size="11" text-anchor="middle" font-family="monospace">X-Gemeo-Senha</text>
+
+      <rect x="790" y="182" width="232" height="66" rx="9" fill="#0d1425" stroke="#243049" stroke-dasharray="4 4"/>
+      <text x="906" y="208" fill="#94a3b8" font-size="12.5" text-anchor="middle">sessão própria por pessoa</text>
+      <text x="906" y="228" fill="#64748b" font-size="11" text-anchor="middle" font-family="monospace">cookie os_sessao (Fracttal)</text>
+
+      <path d="M760 137 H786" stroke="#243049" stroke-width="1.5" fill="none"/>
+      <path d="M760 215 H786" stroke="#243049" stroke-width="1.5" fill="none"/>
+    </svg>
+    <div class="leg">
+      <span><i style="border-color:#a3d900"></i>proxy HTTP — sem import entre projetos</span>
+      <span><i style="border-color:#94a3b8"></i>tráfego do usuário</span>
+    </div>
+  </div>
+
+  <p class="lead">Repare na coluna da direita: <strong>as duas aplicações resolvem identidade de
+  jeitos diferentes</strong>. Não é descuido — é que elas precisam de coisas diferentes.</p>
+
+  <div class="card">
+    <table>
+      <tr><th>Aplicação</th><th>Precisa saber quem é a pessoa?</th><th>Por quê</th><th>Como resolve hoje</th></tr>
+      <tr>
+        <td><strong>Gêmeo</strong></td>
+        <td><span class="tag t-inf">Não</span></td>
+        <td>Só exibe dados. A resposta é a mesma para todo mundo.</td>
+        <td>Segredo compartilhado. O serviço confia que quem chegou já passou pelo login.</td>
+      </tr>
+      <tr>
+        <td><strong>OS Creator web</strong></td>
+        <td><span class="tag t-av">Sim</span></td>
+        <td>Cria OS <em>em nome da pessoa</em> no Fracttal. O nome dela vai na ordem.</td>
+        <td>Sessão própria: cada um loga no Fracttal e o serviço guarda num cookie seu.</td>
+      </tr>
+    </table>
+  </div>
+
+  <!-- ══════════ 2 ══════════ -->
+  <h2><span class="n">2</span>O que quebra na terceira</h2>
+  <p class="lead">Nada disso dói com duas aplicações. Com a terceira, três coisas passam a doer —
+  e nenhuma delas é o repositório.</p>
+
+  <div class="grid3">
+    <div class="card">
+      <h3>O proxy é copiado à mão</h3>
+      <p style="color:var(--mut);margin:0">
+        <code>gemeo_proxy</code> e <code>os_web_proxy</code> são quase idênticos: ~20 linhas cada,
+        com diferenças reais espalhadas no meio (timeout de 30 contra 180 s, quais cabeçalhos
+        voltam, repassar cookie ou não). A terceira vira uma terceira cópia — e a correção de um
+        bug precisa ser lembrada em três lugares.
+      </p>
+    </div>
+    <div class="card">
+      <h3>Cada aplicação refaz o login</h3>
+      <p style="color:var(--mut);margin:0">
+        A pessoa já entrou no portal. Se a terceira também precisa saber quem ela é, ou ela loga
+        de novo, ou ganha mais um segredo compartilhado — e aí o serviço não sabe quem fez o quê.
+        Com seis aplicações, são seis logins ou seis segredos.
+      </p>
+    </div>
+    <div class="card">
+      <h3>O portão vira uma lista de exceções</h3>
+      <p style="color:var(--mut);margin:0">
+        O <code>_auth_gate</code> já tem seis exceções, cada uma com "gate próprio no handler":
+        <span class="mono">/api/campo/</span> por chave, <span class="mono">/api/tickets/</span>
+        por JWT do Fracttal, <span class="mono">/api/gemeo/</span> pelo segredo. Cada integração
+        nova acrescenta uma linha e uma regra que mora longe dali.
+      </p>
+    </div>
+  </div>
+
+  <!-- ══════════ 3 ══════════ -->
+  <h2><span class="n">3</span>A arquitetura proposta</h2>
+  <p class="lead">Uma mudança pequena com três consequências: um proxy só, dirigido por um
+  <strong>registro de aplicações</strong>, onde o modo de identidade é declarado — não codificado.</p>
+
+  <div class="card">
+    <svg viewBox="0 0 1040 340" role="img" aria-label="Diagrama da arquitetura proposta">
+      <defs>
+        <marker id="p1" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+          <path d="M0,0 L9,4.5 L0,9 z" fill="#94a3b8"/></marker>
+        <marker id="p2" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+          <path d="M0,0 L9,4.5 L0,9 z" fill="#a3d900"/></marker>
+      </defs>
+
+      <rect x="18" y="136" width="146" height="62" rx="9" fill="#0d1425" stroke="#243049"/>
+      <text x="91" y="162" fill="#e9eef6" font-size="14" text-anchor="middle" font-weight="600">Navegador</text>
+      <text x="91" y="181" fill="#64748b" font-size="11" text-anchor="middle">um login só</text>
+      <path d="M164 167 H232" stroke="#94a3b8" stroke-width="2" fill="none" marker-end="url(#p1)"/>
+
+      <rect x="236" y="54" width="226" height="230" rx="11" fill="#161d30" stroke="#a3d900" stroke-width="1.6"/>
+      <text x="349" y="82" fill="#a3d900" font-size="14" text-anchor="middle" font-weight="700">PLATAFORMA :5050</text>
+      <text x="349" y="103" fill="#94a3b8" font-size="11.5" text-anchor="middle">login Microsoft (Entra)</text>
+
+      <rect x="254" y="118" width="190" height="44" rx="7" fill="#0d1425" stroke="#a3d900" stroke-opacity=".45"/>
+      <text x="349" y="137" fill="#5BC8E8" font-size="12" text-anchor="middle" font-family="monospace">APPS = {...}</text>
+      <text x="349" y="153" fill="#64748b" font-size="10.5" text-anchor="middle">registro de aplicações</text>
+
+      <rect x="254" y="170" width="190" height="44" rx="7" fill="#0d1425" stroke="#a3d900" stroke-opacity=".45"/>
+      <text x="349" y="189" fill="#5BC8E8" font-size="12" text-anchor="middle" font-family="monospace">_proxy(app, sub)</text>
+      <text x="349" y="205" fill="#64748b" font-size="10.5" text-anchor="middle">UMA função, para todas</text>
+
+      <rect x="254" y="222" width="190" height="42" rx="7" fill="#0d1425" stroke="#243049"/>
+      <text x="349" y="241" fill="#94a3b8" font-size="11.5" text-anchor="middle">Entrada = índice</text>
+      <text x="349" y="256" fill="#64748b" font-size="10.5" text-anchor="middle">mostra o que a pessoa pode abrir</text>
+
+      <path d="M462 110 H566" stroke="#a3d900" stroke-width="2" fill="none" marker-end="url(#p2)"/>
+      <path d="M462 186 H566" stroke="#a3d900" stroke-width="2" fill="none" marker-end="url(#p2)"/>
+      <path d="M462 262 H566" stroke="#a3d900" stroke-width="2" fill="none" marker-end="url(#p2)"/>
+
+      <rect x="570" y="80" width="196" height="62" rx="9" fill="#0d1425" stroke="#243049"/>
+      <text x="668" y="105" fill="#e9eef6" font-size="13" text-anchor="middle" font-weight="600">Gêmeo :5075</text>
+      <text x="668" y="124" fill="#64748b" font-size="10.5" text-anchor="middle" font-family="monospace">/gemeo/*</text>
+
+      <rect x="570" y="156" width="196" height="62" rx="9" fill="#0d1425" stroke="#243049"/>
+      <text x="668" y="181" fill="#e9eef6" font-size="13" text-anchor="middle" font-weight="600">OS Creator :5090</text>
+      <text x="668" y="200" fill="#64748b" font-size="10.5" text-anchor="middle" font-family="monospace">/os/*</text>
+
+      <rect x="570" y="232" width="196" height="62" rx="9" fill="#0d1425" stroke="#a3d900" stroke-dasharray="5 4"/>
+      <text x="668" y="257" fill="#a3d900" font-size="13" text-anchor="middle" font-weight="600">PCM :5095</text>
+      <text x="668" y="276" fill="#64748b" font-size="10.5" text-anchor="middle" font-family="monospace">/pcm/*</text>
+
+      <text x="900" y="76" fill="#64748b" font-size="11" text-anchor="middle" font-weight="700">MODO DE IDENTIDADE</text>
+      <rect x="792" y="88" width="216" height="46" rx="7" fill="#0d1425" stroke="#243049"/>
+      <text x="900" y="106" fill="#5BC8E8" font-size="11.5" text-anchor="middle" font-family="monospace">confianca</text>
+      <text x="900" y="123" fill="#64748b" font-size="10" text-anchor="middle">não precisa saber quem é</text>
+
+      <rect x="792" y="164" width="216" height="46" rx="7" fill="#0d1425" stroke="#243049"/>
+      <text x="900" y="182" fill="#F0B53D" font-size="11.5" text-anchor="middle" font-family="monospace">sessao_propria</text>
+      <text x="900" y="199" fill="#64748b" font-size="10" text-anchor="middle">credencial de OUTRO sistema</text>
+
+      <rect x="792" y="240" width="216" height="46" rx="7" fill="#0d1425" stroke="#a3d900" stroke-opacity=".5"/>
+      <text x="900" y="258" fill="#a3d900" font-size="11.5" text-anchor="middle" font-family="monospace">identidade</text>
+      <text x="900" y="275" fill="#64748b" font-size="10" text-anchor="middle">recebe QUEM, assinado</text>
+
+      <path d="M766 111 H788" stroke="#243049" stroke-width="1.5"/>
+      <path d="M766 187 H788" stroke="#243049" stroke-width="1.5"/>
+      <path d="M766 263 H788" stroke="#243049" stroke-width="1.5"/>
+    </svg>
+  </div>
+
+  <h3 style="margin:28px 0 8px;font-size:17px">Os três modos, e quando usar cada um</h3>
+  <div class="card">
+    <table>
+      <tr><th style="width:150px">Modo</th><th>Quando</th><th>O serviço recebe</th><th>Exemplo</th></tr>
+      <tr>
+        <td><span class="tag t-inf">confianca</span></td>
+        <td>A resposta é igual para todo mundo. Basta saber que passou pelo login.</td>
+        <td>Um segredo compartilhado no cabeçalho.</td>
+        <td>Gêmeo — hoje já é assim, não muda nada.</td>
+      </tr>
+      <tr>
+        <td><span class="tag t-av">sessao_propria</span></td>
+        <td>O serviço age em <em>outro sistema</em> com a credencial da pessoa lá.</td>
+        <td>O cookie dele, repassado nos dois sentidos.</td>
+        <td>OS Creator — a sessão é do Fracttal, não nossa. Continua como está.</td>
+      </tr>
+      <tr>
+        <td><span class="tag t-ok">identidade</span></td>
+        <td><strong>O padrão para o que vier.</strong> O serviço precisa saber quem fez, e a
+            identidade é a do portal.</td>
+        <td>Quem é a pessoa, num cabeçalho assinado pela plataforma — que já sabe, pelo login
+            Microsoft.</td>
+        <td>PCM: registra quem lançou cada apontamento sem pedir senha de novo.</td>
+      </tr>
+    </table>
+  </div>
+
+  <div class="nota">
+    <strong>Por que o terceiro modo é o que destrava a escala.</strong> A plataforma já autenticou
+    a pessoa. Em vez de a aplicação nova refazer o login ou ganhar mais um segredo anônimo, ela
+    recebe <em>quem é</em> — assinado, para não dar para forjar. A aplicação não precisa de tela de
+    login, não guarda senha, e ainda assim sabe de quem é cada registro. É o mesmo desenho que faz
+    o <span class="mono">/api/campo/</span> e o <span class="mono">/api/tickets/</span> existirem
+    hoje, só que uma vez, com nome, em vez de uma exceção por integração.
+  </div>
+
+  <!-- ══════════ 4 ══════════ -->
+  <h2><span class="n">4</span>Um repositório por dono, um endereço para todos</h2>
+  <p class="lead">A parte que não muda — e que vale deixar escrita, porque a pergunta volta.</p>
+
+  <div class="card">
+    <table>
+      <tr><th>Aplicação</th><th>Repositório</th><th>Visibilidade</th><th>Quem publica</th></tr>
+      <tr><td>Plataforma</td><td class="mono">Levi-6242/PerformancePainel</td>
+          <td><span class="tag t-av">público</span></td><td>Performance</td></tr>
+      <tr><td>Gêmeo</td><td class="mono">…/PerformancePainel — gemeo/</td>
+          <td><span class="tag t-av">público</span></td><td>Performance</td></tr>
+      <tr><td>OS Creator</td><td class="mono">Grid-Co-CODE/oem</td>
+          <td><span class="tag t-ok">privado</span></td><td>Engenharia</td></tr>
+      <tr><td>PCM</td><td class="mono">Grid-Co-CODE/… (novo)</td>
+          <td><span class="tag t-ok">privado</span></td><td>PCM</td></tr>
+    </table>
+  </div>
+
+  <div class="nota alerta">
+    <strong>Juntar os repositórios andaria para trás por dois motivos.</strong>
+    O primeiro: este repositório é público desde a subida no servidor — trazer o OS Creator para
+    cá publica a integração com o Fracttal e o fluxo de chamados. O segundo é o motivo de ele ter
+    saído em 28/08: o código estava numa conta pessoal e só uma pessoa conseguia publicar versão.
+    Cada área com o seu repositório é o que tira você do caminho crítico de todo mundo.
+  </div>
+
+  <!-- ══════════ 5 ══════════ -->
+  <h2><span class="n">5</span>Como chegar lá sem parar nada</h2>
+  <p class="lead">Nenhum passo exige o seguinte. Dá para parar em qualquer ponto e o que já foi
+  feito continua valendo.</p>
+
+  <div class="card">
+    <ol>
+      <li><span class="passo">Agora, junto com o PCM.</span> Unificar os dois proxies numa função
+        dirigida pelo registro. As diferenças que hoje estão no meio do código (timeout, cabeçalhos
+        de volta, repassar cookie) viram campos declarados por aplicação. É refatoração pura, com
+        os testes que já existem cobrindo. O PCM entra como a primeira linha nova do registro, sem
+        escrever proxy nenhum.</li>
+
+      <li><span class="passo">Quando o PCM precisar saber quem é a pessoa.</span> O modo
+        <span class="mono">identidade</span>: a plataforma assina quem está logado e manda no
+        cabeçalho. O gêmeo e o OS Creator não mudam — ficam nos modos que já usam.</li>
+
+      <li><span class="passo">Quando a terceira aplicação estiver de pé.</span> A Entrada vira
+        índice de verdade: mostra o que existe e o que cada pessoa pode abrir. Hoje ela é a tela do
+        time de Performance com um card de OS.</li>
+
+      <li><span class="passo">Quando começar a incomodar.</span> Recolher as seis exceções do
+        <code>_auth_gate</code> para o mesmo registro. É higiene, não urgência — só que cada
+        integração nova acrescenta mais uma, então quanto antes, menos tem para recolher.</li>
+    </ol>
+  </div>
+
+  <div class="nota">
+    <strong>O que fazer hoje:</strong> nada de arquitetura. O servidor precisa do
+    <span class="mono">git pull</span> e do restart, e o <span class="mono">oem</span> precisa
+    que o servidor consiga cloná-lo (é privado — deploy key ou token de leitura) e subir o
+    <span class="mono">os_web</span> como segundo serviço. O passo 1 vale a pena quando o PCM
+    chegar, porque aí ele paga a si mesmo: em vez de uma terceira cópia do proxy, uma linha no
+    registro.
+  </div>
+
+</div>
+</body>
+</html>
