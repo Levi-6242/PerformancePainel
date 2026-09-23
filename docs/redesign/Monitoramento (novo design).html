@@ -156,7 +156,8 @@ tr.gc-alerta:hover{background:linear-gradient(90deg, color-mix(in srgb, var(--gc
 .gc-tkc-f .btn{height:38px}
 .btn-alerta{border-color:color-mix(in srgb,var(--gc-red) 60%,transparent);color:#ff9a9d}
 .btn-alerta:hover{background:color-mix(in srgb,var(--gc-red) 12%,transparent)}
-.btn[disabled]{opacity:.55;cursor:wait}
+.btn[disabled]{opacity:.55;cursor:not-allowed}
+.btn.gravando{cursor:progress}
 .gc-tkc-m{display:flex;align-items:flex-start;gap:7px;font-size:12.5px;margin-top:10px}
 .gc-tkc-n{font-size:11.5px;color:var(--color-neutral-500);margin-top:10px;line-height:1.5}
 .gc-tkok{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:var(--radius-md);margin-bottom:14px;background:color-mix(in srgb,#3fb950 10%,transparent);border:1px solid color-mix(in srgb,#3fb950 35%,transparent)}
@@ -1353,11 +1354,12 @@ function _tkCardHtml(t,est,f,naUsina,o){   // f = o formulário deste ticket (st
   const fase=(f&&f.fase)||'', ocup=fase==='gravando', conf=fase==='confirmar', arg=`${t.linha},${naUsina?1:0}`;
   const semCausa=!esc.causa, travaFim=(ocup||semCausa)?' disabled':'';
   const sug=!(f&&f.fim)&&o&&o.ok&&o.sugere_fim?o.sugere_fim:'';
-  const btnSalvar=`<button class="btn btn-secondary"${(ocup||!esc.muda)?' disabled':''} onclick="tkStrSalvar(${arg})"><i class="ph ph-floppy-disk"></i>Salvar</button>`;
+  const salvando=ocup&&f.acao==='salvar', fechando=ocup&&f.acao!=='salvar';
+  const btnSalvar=`<button class="btn btn-secondary${salvando?' gravando':''}"${(ocup||!esc.muda)?' disabled':''} onclick="tkStrSalvar(${arg})"><i class="ph ph-floppy-disk"></i>${salvando?'Salvando…':'Salvar'}</button>`;
   const btnFim=est.k==='morta'&&!ocup
     ?(conf?`<button class="btn btn-alerta"${travaFim} onclick="tkStrFinalizar(${arg})"><i class="ph ph-check-square"></i>Sim, finalizar</button><button class="btn btn-secondary" onclick="tkStrCancelar(${t.linha})">Cancelar</button>`
           :`<button class="btn btn-alerta"${travaFim} onclick="tkStrConfirmar(${t.linha})"><i class="ph ph-check-square"></i>Finalizar mesmo assim</button>`)
-    :`<button class="btn btn-primary"${travaFim} onclick="tkStrFinalizar(${arg})"><i class="ph ph-check-square"></i>${ocup?'Gravando…':'Finalizar ticket'}</button>`;
+    :`<button class="btn btn-primary${fechando?' gravando':''}"${travaFim} onclick="tkStrFinalizar(${arg})"><i class="ph ph-check-square"></i>${fechando?'Gravando…':'Finalizar ticket'}</button>`;
   const dicas=[];
   if(semCausa) dicas.push('<span style="color:#f5c877">Escolha a causa raiz para finalizar: a plataforma não finaliza ticket sem causa.</span>');
   if(sug&&o.os) dicas.push(`Fim sugerido pela conclusão da OS ${_he(o.os.folio)}.`);
@@ -1377,7 +1379,7 @@ function _tkCardHtml(t,est,f,naUsina,o){   // f = o formulário deste ticket (st
   </div>`;
 }
 function _tkOkHtml(x){
-  return `<div class="gc-tkok" onclick="event.stopPropagation()"><i class="ph ph-check-circle"></i><div><b>Ticket da linha ${x.linha} finalizado</b><br><span class="text-muted" style="font-size:12.5px">Fim da ocorrência ${_he(x.fimTxt)} · por ${_he(x.quem)} · gravado na planilha de tickets e no diário do OS Creator${x.aviso?' · '+_he(x.aviso):''}</span></div></div>`;
+  return `<div class="gc-tkok" onclick="event.stopPropagation()"><i class="ph ph-check-circle"></i><div><b>Ticket da linha ${x.linha} finalizado</b><br><span class="text-muted" style="font-size:12.5px">Fim da ocorrência ${_he(x.fimTxt)}${x.causa?' · causa '+_he(x.causa):''}${x.status?' · status '+_he(x.status):''} · por ${_he(x.quem)} · gravado na planilha de tickets e no diário do OS Creator${x.aviso?' · '+_he(x.aviso):''}</span></div></div>`;
 }
 /* fim _tkCard */
 function _tkOsDe(t,usina){   // a última OS de recomposição do inversor do ticket: buscada uma vez por ticket, na hora de mostrar
@@ -1435,7 +1437,7 @@ async function _tkGravar(linha,naUsina,finalizar){
   if(esc.causa!==(a.t.causa||'')) corpo.causa=esc.causa;
   if(esc.status!==(a.t.status_ticket||'')) corpo.status=esc.status;
   if(finalizar) corpo.fim=fim;
-  Object.assign(st,{fase:'gravando',msg:'Relendo a linha na base de tickets e gravando…',fim}); render();
+  Object.assign(st,{fase:'gravando',acao:finalizar?'finalizar':'salvar',msg:'Relendo a linha na base de tickets e gravando…',fim}); render();
   try{
     const r=await fetch('/api/strings/tickets/'+linha+'/'+(finalizar?'finalizar':'salvar'),{method:'POST',credentials:'same-origin',
       headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(corpo)});
@@ -1451,6 +1453,7 @@ async function _tkGravar(linha,naUsina,finalizar){
     }
     const fd=String(d.fim||fim).replace('T',' ');
     (state._tkFeito||(state._tkFeito={}))[linha]={linha,pid:String(a.r.plant_id),inv:(naUsina||a.t.usina_inteira)?null:a.t.inv,quem,aviso:d.aviso||'',
+      causa:a.t.causa||'',status:v['Status do ticket']||'',
       fimTxt:`${fd.slice(8,10)}/${fd.slice(5,7)}/${fd.slice(0,4)} ${fd.slice(11,16)}`};
     delete state._tkF[linha];
     _tkStrSemLinha(RD.pv&&RD.pv.rows,linha);

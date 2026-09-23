@@ -856,3 +856,35 @@ def test_relato_do_tecnico_aparece_no_card():
     o = _o_concluida()
     o["os"]["relato"] = "O PROBLEMA ESTA NAS ENTRADAS 03 E 04 DO INVESOR"
     assert "Relato do técnico" in _card(T312, {"k": "morta", "txt": "x"}, None, False, o)
+
+
+def test_botao_travado_nao_mostra_cursor_de_carregando():
+    """Levi, 23/09: sem causa raiz (e depois de salvar), o mouse em cima do Salvar mostrava o cursor de carregando,
+    "dando a falsa sensação de que algo está carregando". Travado é travado; carregando só enquanto grava."""
+    import re as _re
+    regra = _re.search(r"\.btn\[disabled\]\{([^}]*)\}", MON).group(1)
+    assert "cursor:not-allowed" in regra and "wait" not in regra and "progress" not in regra
+    assert _re.search(r"\.btn\.gravando\{[^}]*cursor:progress", MON)
+
+
+def test_so_o_botao_clicado_diz_que_esta_gravando():
+    html = _card(dict(T312, causa="Furto"), {"k": "voltou", "txt": "x"}, {"fase": "gravando", "acao": "salvar", "causa": "Garantia"})
+    assert "Salvando…" in html and "Gravando…" not in html
+    i = html.index("tkStrSalvar(312,0)")
+    assert "gravando" in html[html.rindex("<button", 0, i):i]
+    html = _card(dict(T312, causa="Furto"), {"k": "voltou", "txt": "x"}, {"fase": "gravando", "acao": "finalizar"})
+    assert "Gravando…" in html and "Salvando…" not in html
+
+
+def test_o_aviso_de_finalizado_diz_a_causa_e_o_status():
+    """Levi, 23/09: "quando eu clicar em finalizar o status automaticamente atualiza para finalizado". Atualiza: o
+    registro do diário foi com "Concluído" (o status final do OS Creator). O aviso passa a dizer isso."""
+    if not NODE:
+        pytest.skip("node não instalado")
+    js = "\n".join([_trecho("const _he=", "\n"), _trecho("function _tkOkHtml(", "\n}"),
+                    "process.stdout.write(JSON.stringify(_tkOkHtml({linha:312,fimTxt:'18/09/2026 15:34',quem:'Levi',"
+                    "causa:'Falha no equipamento',status:'Concluído'})));"])
+    p = subprocess.run([NODE, "-e", js], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert p.returncode == 0, p.stderr
+    html = json.loads(p.stdout)
+    assert "causa Falha no equipamento" in html and "status Concluído" in html and "18/09/2026 15:34" in html
