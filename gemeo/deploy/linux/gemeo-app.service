@@ -1,0 +1,21 @@
+# Gêmeo Digital — telas e API, em 127.0.0.1:5075 (o público chega por /gemeo/ na plataforma).
+# Equivale à tarefa "Gemeo App" do Windows: sempre ligado, volta sozinho se cair.
+# AJUSTE antes de instalar (três valores): User= (o mesmo usuário da plataforma),
+# WorkingDirectory= (a pasta gemeo/ do clone) e o python do venv no ExecStart=.
+# No systemd, comentário só vale no COMEÇO da linha — nunca escreva comentário depois de um valor.
+[Unit]
+Description=Gemeo Digital Grid Co - app (127.0.0.1:5075)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gridco
+WorkingDirectory=/srv/PerformancePainel/gemeo
+EnvironmentFile=/etc/gridco/gemeo/servico.env
+ExecStart=/srv/venvs/gemeo/bin/python -m gemeo.cli app
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

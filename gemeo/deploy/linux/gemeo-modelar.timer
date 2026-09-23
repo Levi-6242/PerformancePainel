@@ -1,0 +1,12 @@
+# Dispara a modelagem a cada 15 min. Se uma volta ainda estiver rodando, o systemd não abre outra
+# por cima (mesmo efeito do "IgnoreNew" da tarefa do Windows).
+[Unit]
+Description=Gemeo Digital Grid Co - modelagem a cada 15 min
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

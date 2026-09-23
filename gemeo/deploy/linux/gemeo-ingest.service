@@ -1,0 +1,22 @@
+# Gêmeo Digital — coleta contínua das fontes (SunOp, API PV, Postgres, cadastro).
+# Equivale à tarefa "Gemeo Ingest" do Windows: sempre ligado, volta sozinho se cair.
+# ATENÇÃO: só UMA coleta pode existir. Com esta ligada, desligue a da máquina Windows (ver README).
+# AJUSTE antes de instalar (três valores): User= (o mesmo usuário da plataforma),
+# WorkingDirectory= (a pasta gemeo/ do clone) e o python do venv no ExecStart=.
+# No systemd, comentário só vale no COMEÇO da linha — nunca escreva comentário depois de um valor.
+[Unit]
+Description=Gemeo Digital Grid Co - coleta
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gridco
+WorkingDirectory=/srv/PerformancePainel/gemeo
+EnvironmentFile=/etc/gridco/gemeo/servico.env
+ExecStart=/srv/venvs/gemeo/bin/python -m gemeo.cli ingest
+Restart=always
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

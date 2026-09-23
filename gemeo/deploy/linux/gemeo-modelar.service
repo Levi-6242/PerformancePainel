@@ -1,0 +1,17 @@
+# Gêmeo Digital — modelagem (esperado, cascata, assinaturas). Roda e termina; quem dispara é o
+# gemeo-modelar.timer, a cada 15 min. Equivale à tarefa "Gemeo Modelar" do Windows, que tinha teto
+# de 14 min por execução — mantido aqui para uma volta travada não encavalar na seguinte.
+# AJUSTE antes de instalar (três valores): User= (o mesmo usuário da plataforma),
+# WorkingDirectory= (a pasta gemeo/ do clone) e o python do venv no ExecStart=.
+# No systemd, comentário só vale no COMEÇO da linha — nunca escreva comentário depois de um valor.
+[Unit]
+Description=Gemeo Digital Grid Co - modelagem (uma volta)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=gridco
+WorkingDirectory=/srv/PerformancePainel/gemeo
+EnvironmentFile=/etc/gridco/gemeo/servico.env
+ExecStart=/srv/venvs/gemeo/bin/python -m gemeo.cli modelar
+TimeoutStartSec=14min
