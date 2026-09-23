@@ -3906,7 +3906,7 @@ def _build_semp_payload():
 @app.route("/api/semp/data")
 def api_semp_data():
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_swr(_semp_cache, _build_semp_payload, force))
+    return jsonify(_servir_com_sol(_swr(_semp_cache, _build_semp_payload, force), _sem_geracao_api_pv))
 
 
 # A Tucano TEM estação meteorológica (day_meteo devolve POA, GHI, albedo, temp. de módulo e vento),
@@ -3960,7 +3960,7 @@ def _build_alveslima_etm_analise_payload():
 @app.route("/api/alveslima/data")
 def api_alveslima_data():
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_swr(_alveslima_cache, _build_alveslima_payload, force))
+    return jsonify(_servir_com_sol(_swr(_alveslima_cache, _build_alveslima_payload, force), _sem_geracao_api_pv))
 
 
 @app.route("/api/alveslima/etm")
@@ -3999,7 +3999,7 @@ def _build_2capi_etm_analise_payload():
 @app.route("/api/2capi/data")
 def api_2capi_data():
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_swr(_2capi_cache, _build_2capi_payload, force))
+    return jsonify(_servir_com_sol(_swr(_2capi_cache, _build_2capi_payload, force), _sem_geracao_api_pv))
 
 
 @app.route("/api/2capi/etm")
@@ -4032,7 +4032,7 @@ def api_data():
         # o payload em cache é do worker e não pode ser mexido no caminho da requisição.
         out["rows"] = [dict(r, inv_padrao=_inv_padrao_resumo(r.get("plant_id"))) if r.get("plant_id") in INV_PADRAO_PLANTAS else r
                        for r in (out.get("rows") or [])]
-        return jsonify(out)
+        return jsonify(_servir_com_sol(out, _sem_geracao_api_pv))
     # 1ª carga, cache ainda vazio → resposta leve "carregando" (frontend re-tenta)
     return jsonify({"rows": [], "alertas_comm_list": [], "alertas_strings_list": [],
                     "alertas_temp_list": [],
@@ -5341,7 +5341,8 @@ def _build_sunop_payload(inst: str = "gridco"):
 def api_sunop_data():
     inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_swr(_si(inst)["cache"], lambda: _build_sunop_payload(inst), force))
+    return jsonify(_servir_com_sol(_swr(_si(inst)["cache"], lambda: _build_sunop_payload(inst), force),
+                                   _sem_geracao_padrao))
 
 
 # ── SunOp: drill-down inversores (SWR por usina: serve cache na hora, atualiza em fundo) ─
@@ -10727,7 +10728,7 @@ def _build_se_payload():
 @app.route("/api/solaredge/data")
 def api_solaredge_data():
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_swr(_se_cache, _build_se_payload, force))
+    return jsonify(_servir_com_sol(_swr(_se_cache, _build_se_payload, force), _sem_geracao_padrao))
 
 
 def _inv_eday_do_pr(invs: list, pr_invs: list) -> int:
@@ -11272,7 +11273,7 @@ def api_pg_data():
     except Exception as e:
         return jsonify({"error": str(e), "rows": [], "summary": {}}), 500
     rows_com = [r for r in rows if not r.get("sem_dados")]
-    return jsonify({
+    return jsonify(_servir_com_sol({
         "rows": rows,
         "summary": {
             "total_usinas":    len(rows),
@@ -11282,7 +11283,7 @@ def api_pg_data():
             "alertas_comm":    sum(1 for r in rows if r.get("sem_dados")),
         },
         "cache_ts": datetime.now().strftime("%H:%M:%S"),
-    })
+    }, _sem_geracao_padrao))
 
 
 # ══ VISÃO MACRO DO PORTFÓLIO ("o que tá ruim") — Painel 1 ════════════════════════
@@ -11712,6 +11713,66 @@ def _macro_eh_dia(r) -> bool:
     (PV); dado velho não gera pot_med → não vira 'sem produção'."""
     agora = datetime.now()
     return 7 <= agora.hour < 18 and not _macro_sol_baixo(r, agora)
+
+
+# ── SEM SOL NA TABELA DE STRINGS (22/09/2026) ─────────────────────────────────────────────────────
+# Print das 21:58 da aba Athon: cada usina "Sem geração" em vermelho, com a diferença inteira cobrada
+# (MAB100: −599) e a linha pulsando como déficit, e o Levi perguntando por que os inversores desligados
+# "ainda estão aparecendo como esperadas". Às 22h todo inversor está desligado: não há sol. A régua de
+# inversor desligado é só de dia, de propósito; a TABELA é que não sabia o que é noite. O `temD` dela
+# quer dizer "tem dados", não "tem dia".
+
+def _sem_geracao_padrao(r) -> bool:
+    """Critério do card "Sem geração" da SunOp, da Axis, da SolarEdge e do banco: usina com dado e
+    nenhuma string ativa. É o mesmo `sum(...)` dos builders de cada uma."""
+    return not r.get("sem_dados") and r.get("strings_ativas") == 0
+
+
+def _sem_geracao_api_pv(r) -> bool:
+    """O da API PV (`_build_data_payload`, e por ele SEMP, Alves Lima e 2C · API PV): foto histórica
+    e usina sem visão por string não entram no card."""
+    return _sem_geracao_padrao(r) and not r.get("dado_historico") and not r.get("sem_visao")
+
+
+def _sem_geracao_2c_email(r) -> bool:
+    """O do e-mail da 2C: ali o card conta DÉFICIT de string, não string zerada."""
+    d = r.get("diferenca")
+    return isinstance(d, (int, float)) and d < 0
+
+
+def _servir_com_sol(payload, conta, agora=None):
+    """Marca na HORA DE SERVIR as linhas com o sol baixo no estado da usina (`sol_baixo`): a tabela de
+    strings do Tempo Real deixa de cobrar esperadas, diferença e disponibilidade à noite e diz "Sem sol".
+
+    A régua é a do macro e do sino (`_macro_sol_baixo`): fora de 07–18h ninguém é julgado ao vivo;
+    dentro, conta o sol abaixo de 8° no estado da usina. É também a janela da régua de inversor
+    desligado (`_macro_eh_dia`). Com duas réguas, às 18:20 de dezembro o inversor desligado voltaria
+    à conta e viraria string faltando.
+
+    Na saída, e não no build: o worker monta o payload a cada ciclo (medido em 22/09: até 15 min por
+    volta). Marcada lá, a usina montada às 17:55 seguiria "de dia" até a volta seguinte. E o payload
+    em cache é do worker: aqui só se mexe em CÓPIAS, a mesma regra do `inv_padrao` no /api/data.
+
+    `conta(r)` é o critério do card "Sem geração" DA FONTE (cada builder tem o seu). Só quem ele tinha
+    contado e está sem sol sai do card. Sem ninguém sem sol, o resumo sai idêntico ao do builder."""
+    rows = payload.get("rows") if isinstance(payload, dict) else None
+    if not rows:
+        return payload
+    agora = agora or datetime.now()
+    marcadas = [dict(r, sol_baixo=_macro_sol_baixo(r, agora)) for r in rows]
+    out = dict(payload, rows=marcadas)
+    sem_sol = [r for r in marcadas if r["sol_baixo"]]
+    if not sem_sol:
+        return out
+    sm = dict(out.get("summary") or {})
+    sm["sem_sol"] = len(sem_sol)
+    if isinstance(sm.get("alertas_strings"), (int, float)):
+        sm["alertas_strings"] = max(0, sm["alertas_strings"] - sum(1 for r in sem_sol if conta(r)))
+    out["summary"] = sm
+    if isinstance(out.get("alertas_strings_list"), list):     # só a API PV manda a lista; card e lista não podem discordar
+        fora = {r.get("usina") for r in sem_sol}
+        out["alertas_strings_list"] = [u for u in out["alertas_strings_list"] if u not in fora]
+    return out
 
 
 def _macro_dif(r):
@@ -16624,11 +16685,11 @@ def _2c_unifica_rows(rows_email, api_rows):
 def api_owen_strings_data():
     rows = _2c_unifica_rows(_owen_strings_rows(flask_request.args.get("force") == "1"),
                             (_2capi_cache.get("payload") or {}).get("rows"))
-    return jsonify({"rows": rows, "summary": {
+    return jsonify(_servir_com_sol({"rows": rows, "summary": {
         "total_usinas": len(rows),
         "total_strings": sum(r["strings_ativas"] for r in rows if r.get("strings_ativas")),
         "alertas_strings": sum(1 for r in rows if r.get("diferenca") is not None and r["diferenca"] < 0)},
-        "cache_ts": datetime.now().strftime("%H:%M:%S")})
+        "cache_ts": datetime.now().strftime("%H:%M:%S")}, _sem_geracao_2c_email))
 
 
 @app.route("/api/owen/strings/plant/<plant_id>")

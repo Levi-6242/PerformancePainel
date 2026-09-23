@@ -190,6 +190,15 @@ cadastro cai na janela fixa antiga** — cadastrar o estado é o que liga a rég
 `_macro_status`/`_notif_ciclo` com usina real precisa de `freeze_now` em horário de sol, senão passa de dia
 e falha à noite.
 
+**A tabela de strings do Tempo Real também (22/09/2026).** Antes ela não tinha noção de noite: às 22h a Athon
+inteira aparecia "Sem geração" em vermelho, cobrando todas as esperadas. Agora `_servir_com_sol` marca
+`sol_baixo` em cada linha **na saída** das 9 rotas de strings, com a mesma `_macro_sol_baixo`, e tira do card
+"Sem geração" quem está sem sol, pelo critério de cada fonte (`_sem_geracao_*`). Na tela (`_strStatus`), sem
+sol a linha diz "Sem sol", com esperadas, diferença e disponibilidade em "—". Comunicação e o D-1 do padrão por
+inversor continuam valendo. A marca é feita na saída e não no build porque o ciclo do worker chega a 15 min, e o
+payload em cache é do worker (só se mexe em cópia). **Rota de strings nova precisa passar por
+`_servir_com_sol`**: o teste lê o mapa `strings:{...}` do HTML e falha se faltar uma.
+
 ## Tokens
 
 **Dois arquivos, dois donos.** O `tokens.txt` (raiz) é **semente**, formato `CHAVE=VALOR`, editado
