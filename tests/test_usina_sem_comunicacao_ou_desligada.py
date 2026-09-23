@@ -10,6 +10,10 @@ dado parado, esses números são um retrato velho. O que dá para afirmar é só
     sobre o carimbo mais novo da usina) ou de 2 h (`velho`, régua da tela de 22/07). Vem antes de tudo, e ativas,
     diferença e disponibilidade não são julgadas;
   - USINA DESLIGADA: dado fresco, de dia, nenhuma string com corrente. Era o "Sem geração".
+
+O card "Strings faltando" da Entrada segue a mesma régua (*"agora tem que atualizar o valor do card também"*): a usina
+sem comunicação sai da conta, e o subtítulo diz quantas ficaram de fora. A conta do backend está em
+test_entrada_tempo_real.py.
 """
 import json
 import pathlib
@@ -23,6 +27,7 @@ import app
 
 RAIZ = pathlib.Path(app.__file__).resolve().parents[1]
 MON = (RAIZ / "docs" / "redesign" / "Monitoramento (novo design).html").read_text(encoding="utf-8")
+ENT = (RAIZ / "docs" / "redesign" / "Entrada.html").read_text(encoding="utf-8")
 NODE = shutil.which("node")
 
 
@@ -93,3 +98,43 @@ def test_os_cards_contam_o_que_a_tabela_mostra():
     real = MON[MON.index("pvReal=true"):]
     assert "label:'Usinas desligadas'" in real and "label:'Usinas sem comunicação'" in real
     assert "_stCount['Usina desligada']" in real and "_stCount['Usina sem comunicação']" in real
+
+
+def _str_sub(g, compacto=False):
+    """Subtítulo do card "Strings faltando" da Entrada, rodado no node com o `fmt` da própria página."""
+    if not NODE:
+        pytest.skip("node não instalado")
+    i = ENT.index("function fmt(n)")
+    j = ENT.index("function strSub(")
+    js = "\n".join([
+        ENT[i:ENT.index("\n", i)], ENT[j:ENT.index("function strCls(", j)],
+        "process.stdout.write(JSON.stringify(strSub(%s, ' · ', %s)));" % (json.dumps(g), json.dumps(compacto)),
+    ])
+    p = subprocess.run([NODE, "-e", js], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert p.returncode == 0, p.stderr
+    return json.loads(p.stdout)
+
+
+def test_card_da_entrada_diz_que_a_usina_sem_comunicacao_ficou_fora_da_conta():
+    """O card da Athon em 23/09: "246/270 · ... · 248 em usinas sem comunicação (última leitura)". As 248 do CPP100
+    saem da conta no backend; o subtítulo diz QUANTAS usinas ficaram de fora e não repete o número da leitura parada."""
+    s = _str_sub({"strings_faltando": 22, "strings_nao_rec": 0, "usinas_critico": 2, "usinas_sem_comm": 1})
+    assert "fora da conta: 1 usina sem comunicação" in s and "última leitura" not in s
+    s = _str_sub({"strings_faltando": 22, "strings_nao_rec": 5, "usinas_critico": 1, "usinas_sem_comm": 3})
+    assert s.startswith("não reconhecidas / total") and s.endswith("fora da conta: 3 usinas sem comunicação")
+
+
+def test_nenhuma_faltando_com_usina_calada_diz_que_ela_ficou_fora():
+    """Com a usina sem comunicação fora da conta, "nenhuma faltando" sozinho leria como tudo bem."""
+    s = _str_sub({"strings_faltando": 0, "strings_nao_rec": 0, "usinas_critico": 0, "usinas_sem_comm": 2})
+    assert s.startswith("nenhuma faltando") and s.endswith("fora da conta: 2 usinas sem comunicação")
+
+
+def test_sem_usina_calada_ou_no_card_estreito_nao_ha_nota():
+    """O card estreito da grade já tem "N sem comunicação" no rodapé; lá a nota não cabe."""
+    assert "fora da conta" not in _str_sub({"strings_faltando": 22, "strings_nao_rec": 5, "usinas_critico": 1,
+                                             "usinas_sem_comm": 0})
+    assert "fora da conta" not in _str_sub({"strings_faltando": 22, "strings_nao_rec": 5, "usinas_critico": 1,
+                                             "usinas_sem_comm": 1}, compacto=True)
+    assert "fora da conta" not in _str_sub({"strings_faltando": 22, "strings_nao_rec": 0, "usinas_critico": 1,
+                                             "usinas_sem_comm": 1}, compacto=True)

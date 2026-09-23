@@ -620,10 +620,14 @@
       var crit = "<b>" + fmt(g.usinas_critico) + "</b> usina" + (g.usinas_critico === 1 ? "" : "s") + " crítica" + (g.usinas_critico === 1 ? "" : "s");
       var tot = g.strings_faltando || 0, nr = g.strings_nao_rec;
       if (nr == null) return crit;
-      if (!tot) return "nenhuma faltando" + sep + crit;
-      var ac = Math.max(0, tot - nr), sc = g.strings_faltando_sem_comm || 0;
-      // usina sem comunicação entra com a última leitura (é o número em vermelho da tabela) e fica dito aqui (08/09)
-      var nota = sc > 0 ? sep + fmt(sc) + " em usina" + (g.usinas_sem_comm === 1 ? "" : "s") + " sem comunicação (última leitura)" : "";
+      // Usina sem comunicação fica FORA da conta desde 23/09/2026, como na tabela ("Usina sem comunicação", diferença em
+      // "—"). Antes entrava com a última leitura: a Athon mostrava 246/270 com as 248 do CPP100, caladas desde a véspera.
+      // A nota diz quantas ficaram de fora; sem ela, "nenhuma faltando" leria como tudo bem com usina calada. No card
+      // estreito da grade não cabe, e o rodapé dele já diz "N sem comunicação".
+      var sc = g.usinas_sem_comm || 0;
+      var nota = sc > 0 && !compacto ? sep + "fora da conta: " + fmt(sc) + " usina" + (sc === 1 ? "" : "s") + " sem comunicação" : "";
+      if (!tot) return "nenhuma faltando" + sep + crit + nota;
+      var ac = Math.max(0, tot - nr);
       if (!nr) return "todas as " + fmt(tot) + " em acompanhamento" + sep + crit + nota;
       if (compacto) return "não reconhecidas de <b>" + fmt(tot) + "</b>" + sep + crit;
       return "não reconhecidas / total" + sep + crit + (ac > 0 ? " · " + fmt(ac) + " em acompanhamento" : "") + nota;

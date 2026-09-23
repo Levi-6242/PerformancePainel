@@ -3552,14 +3552,18 @@ _ENTRADA_TR_VIVO_S = 15
 
 
 def _entrada_tr_strings_de(r: dict) -> dict:
-    """Campos de strings de uma usina a partir da linha do rollup. Usina SEM COMUNICAÇÃO entra com a ÚLTIMA leitura
-    (é o que a tabela do Monitoramento mostra em vermelho); usina parada e String Box sem visão seguem em zero, como
-    no macro. Sem `diferenca` (linha antiga) vale o `strings_faltando` que vier."""
+    """Campos de strings de uma usina a partir da linha do rollup. Usina SEM COMUNICAÇÃO, usina parada e String Box
+    sem visão ficam em zero, como no macro. Sem `diferenca` (linha antiga) vale o `strings_faltando` que vier.
+
+    A sem comunicação entrou com a ÚLTIMA leitura de 08/09 a 23/09/2026, porque a tabela do Monitoramento mostrava o
+    déficit dela em vermelho. Desde 23/09 a tabela diz "Usina sem comunicação" com "—" na diferença, e o card precisou
+    acompanhar (Levi: "agora tem que atualizar o valor do card também"): a Athon mostrava 246/270 com as 248 strings
+    do CPP100, que não mandava leitura desde a véspera às 18:26."""
     dif = r.get("diferenca")
     ult = max(0, -int(dif)) if isinstance(dif, (int, float)) else int(r.get("strings_faltando") or 0)
     st = r.get("status")
-    falt = 0 if (st == "sem_producao" or r.get("sem_visao")) else ult
-    return {"status": st, "causa": r.get("causa"), "strings_faltando": falt, "strings_sem_comm": st == "sem_comm",
+    falt = 0 if (st in ("sem_producao", "sem_comm") or r.get("sem_visao")) else ult
+    return {"status": st, "causa": r.get("causa"), "strings_faltando": falt,
             "str_esp": r.get("str_esp"), "strings_ativas": r.get("strings_ativas"), "ultima_leitura": r.get("ultima_leitura")}
 
 
@@ -3570,8 +3574,8 @@ def _entrada_tr_strings_ao_vivo(data: dict, epoch) -> dict:
 
     Por quê (Levi, 08/09/2026): o card da Athon dizia "65/153" quando a tabela, lida na mesma hora, só tinha a SMP100
     com 28 sem acompanhamento — o build de 30 min tinha congelado o rollup de 40 min antes (rampa da manhã: 65 strings
-    "faltando" às 08h40 viraram 28 às 09h06) e o acompanhamento que ele acabara de marcar. E o Thopen dizia "2/28"
-    com a Ipixuna 1 mostrando −15 na tabela: o macro zera as faltantes de usina sem comunicação; a tabela, não."""
+    "faltando" às 08h40 viraram 28 às 09h06) e o acompanhamento que ele acabara de marcar. A usina sem comunicação
+    segue a tabela: desde 23/09 as duas a deixam fora da conta (ver _entrada_tr_strings_de)."""
     m = _ENTRADA_TR_VIVO
     if m["data"] is not None and m["epoch"] == epoch and (time.time() - m["ts"]) < _ENTRADA_TR_VIVO_S:
         return m["data"]
@@ -3618,7 +3622,6 @@ def _entrada_tr_strings_ao_vivo(data: dict, epoch) -> dict:
         x["usinas"], x["n_usinas"], x["sem_leitura"] = usinas, len(usinas), not usinas
         x["strings_faltando"] = sum(int(u.get("strings_faltando") or 0) for u in usinas)
         x["strings_nao_rec"] = sum(int(u.get("strings_nao_rec") or 0) for u in usinas)
-        x["strings_faltando_sem_comm"] = sum(int(u.get("strings_faltando") or 0) for u in usinas if u.get("strings_sem_comm"))
         x["usinas_critico"] = sum(1 for u in usinas if u.get("status") == "critico")
         x["usinas_sem_comm"] = sum(1 for u in usinas if u.get("status") == "sem_comm")
         x["usinas_ok"] = sum(1 for u in usinas if u.get("status") == "ok")

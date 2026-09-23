@@ -190,10 +190,14 @@ def test_strings_nao_reconhecidas_descontam_o_acompanhamento(entrada, monkeypatc
     assert pv["strings_faltando"] == 5 and pv["strings_nao_rec"] == 0          # acompanha mais do que falta: nada pendente
 
 
-def test_strings_do_card_sao_ao_vivo_e_contam_usina_sem_comunicacao(monkeypatch):
-    """O card lia o rollup congelado no build de 30 min (SMP100: 65 as 08h40, 28 as 09h06 na tabela) e zerava a usina
-    sem comunicacao (Ipixuna 1: -15 na tabela, 0 no card). Agora a parte de strings e recalculada a cada leitura sobre
-    os mesmos caches da tabela, com o acompanhamento vigente; sem comunicacao entra com a ultima leitura, a parte."""
+def test_strings_do_card_sao_ao_vivo_e_deixam_fora_usina_sem_comunicacao(monkeypatch):
+    """O card lia o rollup congelado no build de 30 min (SMP100: 65 as 08h40, 28 as 09h06 na tabela). Agora a parte de
+    strings e recalculada a cada leitura sobre os mesmos caches da tabela, com o acompanhamento vigente.
+
+    Usina SEM COMUNICACAO fica FORA da conta (Levi, 23/09/2026: "agora tem que atualizar o valor do card tambem"). De
+    08/09 a 23/09 ela entrava com a ultima leitura, porque a tabela mostrava o deficit dela em vermelho (Ipixuna 1: -15).
+    Desde 23/09 a tabela diz "Usina sem comunicacao" com "—" na diferenca, e o card da Athon seguia em 246/270 com as
+    248 strings do CPP100, paradas desde a vespera as 18:26."""
     cache = {"ts": time.time(), "building": False, "data": {"cache_ts": "09:07:11", "fontes_pendentes": [], "grupos": [
         {"cliente": "Athon", "fonte": "Athon", "fonte_id": "athon", "strings_faltando": 153, "strings_nao_rec": 65,
          "usinas_critico": 4, "usinas_sem_comm": 0, "usinas_ok": 0, "usinas": [
@@ -224,9 +228,11 @@ def test_strings_do_card_sao_ao_vivo_e_contam_usina_sem_comunicacao(monkeypatch)
     smp = [u for u in athon["usinas"] if u["usina"] == "SMP100"][0]
     assert smp["strings_faltando"] == 28 and smp["trk_parados"] == 3              # strings ao vivo; trackers seguem do cache
     th = [g for g in d["grupos"] if g["fonte_id"] == "thopen-db"][0]
-    assert (th["strings_faltando"], th["strings_nao_rec"], th["strings_faltando_sem_comm"]) == (36, 15, 15)
+    assert (th["strings_faltando"], th["strings_nao_rec"]) == (21, 0)      # so Santarem 2, toda acompanhada; Ipixuna 1 fora
     por = {u["usina"]: u for u in th["usinas"]}
-    assert por["Ipixuna 1"]["strings_faltando"] == 15 and por["Ipixuna 1"]["strings_sem_comm"] is True
+    assert (por["Ipixuna 1"]["strings_faltando"], por["Ipixuna 1"]["strings_nao_rec"]) == (0, 0)
+    assert por["Ipixuna 1"]["status"] == "sem_comm"                          # a usina continua no card, so nao na conta
+    assert "strings_faltando_sem_comm" not in th, "o numero da ultima leitura saiu tambem do subtitulo do card"
     assert por["Santarem 2"]["strings_nao_rec"] == 0 and th["n_usinas"] == 2 and th["usinas_sem_comm"] == 1   # usina nova entra
     assert cache["data"]["grupos"][0]["strings_nao_rec"] == 65 and d["strings_ts"]   # o cache em si nao foi mexido
     # rollup fora do ar: o cache e servido como esta (memo zerado para nao devolver a copia viva anterior)
