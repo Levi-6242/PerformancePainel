@@ -3689,6 +3689,13 @@ def _versao_plataforma(force: bool = False) -> dict:
     return d
 
 
+# Lida NO BOOT, e não na primeira visita. Lida na primeira visita, um `git pull` feito entre o boot e
+# essa visita passava a valer como a versão DO PROCESSO: o chip mostrava o commit novo sobre código velho,
+# e o "falta reiniciar", que é a razão de ele existir, sumia. Pego em 22/09 na plataforma local: no ar
+# desde 21:55, dizendo rodar o ae8a5a7, commitado às 22:42.
+_versao_plataforma()
+
+
 def _versao_em_disco() -> str:
     """Hash COMPLETO do commit que está no disco agora ("" se não der para saber). Cache de um minuto:
     vivo o bastante para pegar um `git pull` recém-feito, barato o bastante para não virar subprocesso

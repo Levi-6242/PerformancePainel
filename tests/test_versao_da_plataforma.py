@@ -54,6 +54,20 @@ def test_o_hover_diz_de_quando_e_o_commit_E_desde_quando_o_processo_esta_no_ar()
     assert "commit" in d and "no ar desde" in d, d
 
 
+def test_a_versao_do_processo_e_lida_no_BOOT_e_nao_na_primeira_visita():
+    """Pego em 22/09 na plataforma local: processo no ar desde 21:55, e a /versao dizendo que ele rodava
+    o ae8a5a7, commitado às 22:42. A leitura era feita na PRIMEIRA VISITA, não no boot, e ninguém
+    tinha aberto a tela entre um e outro. Um `git pull` nesse intervalo passava a valer como a versão
+    do processo: o chip mostrava o commit novo sobre código velho, e o "falta reiniciar", que é a razão
+    de ele existir, sumia. Processo novo, sem visita nenhuma: a versão já tem de estar lida."""
+    p = subprocess.run([__import__("sys").executable, "-c",
+                        "import app; print('LIDA' if app._VERSAO_CACHE['d'] else 'VAZIA')"],
+                       cwd=str(RAIZ / "plataforma"), capture_output=True, text=True, encoding="utf-8",
+                       errors="replace", timeout=300, env=dict(__import__("os").environ, GRIDCO_SOLO="1"))
+    assert p.returncode == 0, p.stderr[-2000:]
+    assert p.stdout.strip().splitlines()[-1] == "LIDA", "a versão só é lida quando alguém abre a tela"
+
+
 def test_a_leitura_do_processo_e_CACHEADA(monkeypatch):
     """O processo não muda de versão enquanto está de pé; ler o git a cada request de uma tela que se
     redesenha sozinha, em várias abas, seria desperdício."""
