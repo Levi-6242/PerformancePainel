@@ -19011,6 +19011,51 @@ def _prewarm_paralelo(tarefas, workers=4):
 
 
 PREWARM_CICLOS_PESADO = 3     # de quantos em quantos ciclos as fontes caras são reaquecidas
+PV_TRK_LOOP_S = 60            # s entre conferências do laço de trackers; só reconstrói quando o overview venceu
+PV_TRK_ESPERA_BOOT_S = 30 * 60   # teto da espera pela 1ª aba principal: prewarm morto não pode parar os trackers
+# Sai do _prewarm_loop logo depois da ETAPA 2, dê ela certo ou não. Diz "já pode", não "deu certo".
+_ABA_PRINCIPAL_SAIU = threading.Event()
+
+
+def _pv_trk_loop():
+    """Varredura de trackers da API PV num laço PRÓPRIO do worker, fora do ciclo do prewarm (22/09/2026).
+
+    Medido em 22/09, com processo novo e uma tarefa por vez: a varredura levou 897 s. Todas as outras
+    tarefas do ciclo, somadas, levaram uns 3 min (a aba principal, sozinha, 116 s). A API PV só entrega
+    o dia INTEIRO de tracker, de 8,8 a 13,8 MB por usina (ver TRK_DIA_TTL). No ciclo, ela ocupava uma
+    das três vagas da ETAPA 3, que só acaba quando a última tarefa acaba, e todo o resto esperava: SunOp,
+    banco, ETM e a aba principal eram refeitos a cada ~16 min em vez de 5. Na tela do Levi, às 17:49, o
+    topo dizia "atualizado 17:48:25" sobre usinas com leitura de 16:20, 16:54 e 17:10.
+
+    Aqui ela anda no próprio passo, e ninguém espera por ela. A validade do dado não muda: o overview é
+    refeito quando passa do CACHE_TTL (`_prewarm_um_cache`), e o dia de cada usina, a cada TRK_DIA_TTL.
+
+    RÉGUA ÚNICA: o worker publica a classificação com a curva COMPLETA (fetch_curvas=True). Antes o
+    prewarm usava a build LIGHT, que classifica com as curvas que por acaso já estavam em cache — os
+    demais trackers caíam na régua instantânea. Mesma função, entrada de completude diferente, e a
+    tabela discordava do detalhe e do gráfico: 04/08, Coração 2 deu 22 parados no overview, 0 no
+    detalhe e 1 no gráfico. Foto parcial não vira número. O custo (baixar as curvas que faltam) fica no
+    WORKER, fora do caminho da requisição: a web só lê o snapshot.
+
+    O que muda de carga: a varredura pode coincidir com a ETAPA 2, a aba principal, que roda sozinha de
+    propósito (em 25/07, tudo em paralelo quadruplicou o tempo dela, CPU sob o GIL). Aqui são 8 buscas
+    de tracker quase só esperando rede, e a ETAPA 3 já as rodava ao lado de outras fontes da API PV.
+
+    NO BOOT, porém, a 1ª volta espera a 1ª aba principal sair. A largada do worker é a hora mais
+    disputada: ~25 laços começam juntos e dividem a mesma CPU. Medido em 22/09, boot + ETAPA 1 + aba
+    principal custam ~3,6 min sozinhos e levaram 23 min no servidor (26 aqui) do boot até a publicação.
+    A varredura sempre veio depois da aba principal. Largando junto, ela afastaria ainda mais o 1º dado
+    fresco depois de cada deploy."""
+    _ABA_PRINCIPAL_SAIU.wait(timeout=PV_TRK_ESPERA_BOOT_S)
+    build = lambda: _build_pv_trk_payload(fetch_curvas=True)      # noqa: E731
+    while True:
+        t0 = time.time()
+        try:
+            if _prewarm_um_cache(_pv_trk_cache, build):
+                print(f"[prewarm] PV trackers aquecido em {time.time() - t0:.0f}s (laço próprio)")
+        except Exception as e:           # noqa: BLE001 — uma volta ruim não pode parar os trackers até o restart
+            print(f"[prewarm] PV trackers falhou: {e}")
+        time.sleep(PV_TRK_LOOP_S)
 
 _TOK_RT_MTIME = {"v": 0.0}
 
@@ -19109,16 +19154,8 @@ def _prewarm_loop():
             ("2C API PV ETM anál.", _2capi_etm_analise_cache, _build_2capi_etm_analise_payload),
             ("PV PR",          _pv_pr_cache,         _build_pv_pr_payload),
         ]
-        if True:      # (era `if _plat_token()` — a fonte agora é a API PV fixa)
-            # RÉGUA ÚNICA: o worker publica a classificação com a curva COMPLETA (fetch_curvas=True).
-            # Antes o prewarm usava a build LIGHT, que classifica com as curvas que por acaso já
-            # estavam em cache — os demais trackers caíam na régua instantânea. Mesma função, entrada
-            # de completude diferente, e a tabela discordava do detalhe e do gráfico: 04/08, Coração 2
-            # deu 22 parados no overview, 0 no detalhe e 1 no gráfico. Foto parcial não vira número.
-            # O custo (baixar as curvas que faltam) fica NO WORKER, fora do caminho da requisição —
-            # a web só lê o snapshot, então ninguém espera por isso ao abrir a aba.
-            outros.append(("PV trackers", _pv_trk_cache,
-                           lambda: _build_pv_trk_payload(fetch_curvas=True)))
+        # "PV trackers" NÃO entra aqui desde 22/09/2026: tem laço próprio (`_pv_trk_loop`). Levava 15 min
+        # e o ciclo inteiro esperava por ela — ver o porquê lá.
 
         # Eventos de string do SunOp/Axis — alimentam "Perdas → Strings zeradas" (~1 min a frio).
         _hoje_ev = datetime.now().strftime("%Y-%m-%d")
@@ -19143,6 +19180,7 @@ def _prewarm_loop():
             print(f"[prewarm] /api/data aquecido em {_t.time()-t1:.0f}s")
         except Exception as e:
             print(f"[prewarm] /api/data falhou: {e}")
+        _ABA_PRINCIPAL_SAIU.set()             # libera a 1ª varredura de trackers (ver _pv_trk_loop)
 
         # ETAPA 3 — fontes LEVES (segundos cada) e as telas de uso diário.
         # "SunOp ETM anál" entrou aqui em 26/08: ela baixa a curva do DIA INTEIRO (POA/GHI/POA-RI)
@@ -19704,6 +19742,7 @@ def _iniciar_loops_de_fundo():
                  _owen_loop,
                  _sunop_keepalive_loop,     # renova tokens (escreve *_token.txt)
                  _prewarm_loop,
+                 _pv_trk_loop,              # trackers da API PV: 15 min por varredura, fora do ciclo do prewarm
                  _persist_loop,             # ÚNICO escritor do cache_snapshot.json
                  _trk_parada_loop,
                  _trk_ev_hoje_loop,

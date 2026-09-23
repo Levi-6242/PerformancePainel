@@ -91,6 +91,15 @@ reconciliar correção que a SunOp faça atrás. ~76% menos payload; a contagem 
 o teste que importa é o de EQUIVALÊNCIA — fusão errada não dá erro, ela deforma a curva, que é o
 insumo de "parado por amplitude".
 
+**Trackers da API PV têm laço próprio (`_pv_trk_loop`, 22/09/2026) — fora do ciclo do prewarm.** A varredura
+baixa o dia inteiro de cada usina (8,8–13,8 MB) e levou **897 s** medida sozinha, contra ~3 min de todo o resto
+do ciclo. Dentro da ETAPA 3, que só acaba quando a última tarefa acaba, ela fazia o ciclo inteiro durar ~16 min
+em vez de 5 — era o "atualizado 17:48 sobre leitura de 16:54" que o Levi via. No boot, a 1ª volta do laço
+espera a 1ª aba principal sair (`_ABA_PRINCIPAL_SAIU`, com teto): a **largada do worker é a hora mais
+disputada** — ~25 laços começam juntos sob o mesmo GIL, e boot + ETAPA 1 + aba principal, que custam ~3,6 min
+sozinhos, levaram **23 min** no servidor (26 aqui) do boot até a publicação. Consequência prática: cada deploy
+deixa a tela com dado velho por uns 20+ min. Não recoloque "PV trackers" no `outros` do ciclo.
+
 ⚠️ **Armadilha ao mexer no `_prewarm_um_cache`.** Para caches de TTL próprio a margem é o
 **período do ciclo**, não 30s fixos, e isso não é preciosismo: com margem fixa, um cache cujo TTL é
 MAIOR que o ciclo é pulado numa volta e refeito só na seguinte — o período efetivo vira **2× o
