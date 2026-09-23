@@ -47,7 +47,28 @@ USINAS = [("Altair", "THPN-ALT100", None, "Thopen", "Sao Paulo", "OPERAÇÃO", "
           ("Embu Guaçu", "THPN-EBG100 ", None, "Thopen", "Sao Paulo", "OPERAÇÃO", "Danuth Fernandes")]
 
 
-def _planilha() -> io.BytesIO:
+COLS_DIARIO = ["quando", "quem", "aba", "linha", "impressao", "Causa raiz", "Responsabilidade da Grid Co.?",
+               "Início da ocorrência", "Início do chamado pela Grid Co.", "Fim da ocorrência", "Comentários gerais", "OS",
+               "Ativo", "Status do ticket"]
+
+
+def _reg(linha, impressao, quando="2026-09-20 10:00:00", **campos):
+    """Um registro do diário do OS Creator ("Edicoes do app v3"). Campo que não vem fica vazio (= não registrado)."""
+    return [quando, "Levi Maia", "Strings", linha, impressao] + [campos.get(c, "") for c in COLS_DIARIO[5:]]
+
+
+def _data(v, reais):
+    """Como o espelho grava (bd_api._valor): texto ISO vira DATA de verdade no .xlsx, e a coluna chega ao pandas como
+    datetime, com a célula vazia em NaT (não NaN). 23/09/2026: o leitor novo tratava o NaT como texto "NaT", dava TODO
+    ticket por fechado e a bancada leu 0 abertos de 82. A fixture em texto não pegava."""
+    import datetime as _d
+    import re as _re
+    if not reais or not isinstance(v, str) or not _re.match(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", v.strip()):
+        return v
+    return _d.datetime.strptime(v.strip()[:16], "%Y-%m-%d %H:%M")
+
+
+def _planilha(diario=None, datas_reais=False, diario_com_cabecalho=False) -> io.BytesIO:
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Strings indisp"
@@ -55,6 +76,7 @@ def _planilha() -> io.BytesIO:
         ws.append(["rascunho"])            # cabeçalho na linha 4, como na real (header=3)
     ws.append(COLS_STR)
     for u, inv, n_inv, afet, causa, ini, fim, com in LINHAS_STR:
+        ini, fim = _data(ini, datas_reais), _data(fim, datas_reais)
         ws.append(["", u, 0, "", "", "", "", inv, n_inv, afet, causa, None, ini, ini, fim, None, None, "", com])
     wu = wb.create_sheet("Base de dados - Usinas")
     for _ in range(3):
@@ -62,19 +84,34 @@ def _planilha() -> io.BytesIO:
     wu.append(COLS_USINAS)
     for linha in USINAS:
         wu.append([""] + list(linha))
+    if diario is not None:
+        # Como o ESPELHO real materializa a aba que o OS Creator criou pela API (medido em 23/09/2026): a API declara o
+        # cabeçalho na linha 1 e devolve o 1º registro TAMBÉM com row_number 1. O bd_api grava cada linha na sua
+        # posição e só escreve o cabeçalho se a linha dele estiver livre — então a aba chega SEM cabeçalho, com o 1º
+        # registro na linha 1. Ler com header=0 fazia desse registro o cabeçalho, e nenhum campo casava.
+        wd = wb.create_sheet("Edicoes do app v3")
+        if diario_com_cabecalho:
+            wd.append(COLS_DIARIO)
+        for r in diario:
+            wd.append([_data(v, datas_reais) if i >= 5 else v for i, v in enumerate(r)])
     b = io.BytesIO()
     wb.save(b)
     b.seek(0)
     return b
 
 
-@pytest.fixture
-def tickets(monkeypatch):
-    monkeypatch.setattr(app, "_bd_readable", lambda chave=None, fallback=None: _planilha())
+def _carregar(monkeypatch, diario=None, datas_reais=False, diario_com_cabecalho=False):
+    monkeypatch.setattr(app, "_bd_readable",
+                        lambda chave=None, fallback=None: _planilha(diario, datas_reais, diario_com_cabecalho))
     monkeypatch.setattr(app, "_tickets_marca", lambda: 1.0)
     monkeypatch.setattr(app, "TICKETS_STR", {})
     app.load_tickets_strings()
     return app.TICKETS_STR
+
+
+@pytest.fixture
+def tickets(monkeypatch):
+    return _carregar(monkeypatch)
 
 
 # ── o leitor ──────────────────────────────────────────────────────────────────
@@ -110,6 +147,129 @@ def test_usina_que_a_tabela_nao_tem_continua_no_indice(tickets):
     """Demerval Lobão tem ticket aberto e nenhuma aba de strings a mostra. O índice guarda assim mesmo:
     quem decide se ela aparece é a linha da tabela, não o leitor."""
     assert "demerval lobao" in tickets
+
+
+# ── o diário do OS Creator por cima (23/09/2026) ──────────────────────────────
+# A aba "Edicoes do app v3" é onde moram a OS vinculada e o Status do ticket (a planilha não tem coluna para os dois),
+# e é o que mantém fechado o ticket finalizado pelo app ou por esta tela quando um sync do Excel (replace=true) o reabre.
+# A linha 5 do Excel é o 1º ticket da fixture (ALT100, Inversor 1.7); a 7 é o da Crateús.
+
+def test_diario_fecha_o_ticket_que_a_planilha_ainda_mostra_aberto(monkeypatch):
+    t = _carregar(monkeypatch, [_reg(5, "alt100|inversor 1.7", **{"Fim da ocorrência": "2026-09-22 10:00:00"})])
+    assert "altair" not in t, "a coluna tem de concordar com a tela de Tickets do OS Creator"
+
+
+def test_diario_traz_a_os_e_o_status_do_ticket(monkeypatch):
+    t = _carregar(monkeypatch, [_reg(7, "crateus|inversor 1.1", OS="13000", **{"Status do ticket": "OS Programada"})])
+    assert (t["crateus"][0]["os"], t["crateus"][0]["status_ticket"]) == ("13000", "OS Programada")
+
+
+def test_registro_do_diario_de_outra_ocorrencia_nao_fecha_nada(monkeypatch):
+    """Linha apagada no Excel desce as de baixo: o registro da linha 5 era de outro inversor e não se aplica."""
+    t = _carregar(monkeypatch, [_reg(5, "alt100|inversor 9.9", **{"Fim da ocorrência": "2026-09-22 10:00:00"})])
+    assert [x["inversor"] for x in t["altair"]] == ["Inversor 1.7"]
+
+
+def test_datas_de_verdade_no_espelho_nao_fecham_os_abertos(monkeypatch, tickets):
+    """O espelho real tem data de verdade nas colunas de data, e a célula vazia chega como NaT."""
+    em_texto = {k: [t["linha"] for t in v] for k, v in tickets.items()}
+    reais = _carregar(monkeypatch, datas_reais=True)
+    assert {k: [t["linha"] for t in v] for k, v in reais.items()} == em_texto
+    assert reais["altair"][0]["inicio"] == "2026-09-01 06:00:00" and reais["altair"][0]["desde"] == "01/09/2026"
+
+
+def test_diario_com_datas_de_verdade(monkeypatch):
+    """No diário a coluna Fim também vira data: o registro sem Fim chega como NaT e não pode fechar o ticket."""
+    diario = [_reg(7, "crateus|inversor 1.1", OS="13000"),
+              _reg(9, "santarém 1|inversor 1.1", **{"Fim da ocorrência": "2026-09-22 10:00"})]
+    t = _carregar(monkeypatch, diario, datas_reais=True)
+    assert t["crateus"][0]["os"] == "13000", "registro sem Fim não fecha"
+    assert [x["inversor"] for x in t.get("santarem 1", [])] == [], "registro com Fim fecha"
+
+
+def test_o_primeiro_registro_do_diario_tambem_vale(monkeypatch):
+    """Sem cabeçalho no espelho, o 1º registro está na linha 1. Ele não pode sumir nem virar nome de coluna."""
+    t = _carregar(monkeypatch, [_reg(7, "crateus|inversor 1.1", OS="13000"), _reg(10, "x|y", OS="1")])
+    assert t["crateus"][0]["os"] == "13000"
+
+
+def test_diario_com_cabecalho_tambem_funciona(monkeypatch):
+    """Se um dia o espelho passar a escrever o cabeçalho, a linha dele não pode virar registro nem atrapalhar."""
+    t = _carregar(monkeypatch, [_reg(7, "crateus|inversor 1.1", OS="13000")], diario_com_cabecalho=True)
+    assert t["crateus"][0]["os"] == "13000"
+
+
+def test_sem_a_aba_do_diario_o_leitor_segue_como_antes(tickets):
+    assert (tickets["altair"][0]["os"], tickets["altair"][0]["status_ticket"]) == ("", "")
+
+
+def test_o_card_recebe_o_inicio_com_hora(tickets):
+    t = tickets["altair"][0]
+    assert (t["inicio"], t["desde"]) == ("2026-09-01 06:00:00", "01/09/2026")
+
+
+def test_lista_de_strings_no_plural():
+    """BES100, linha 309 em 23/09: "Strings 16, 17, 18, 21, 22, 23, 25, 26 e 27 com corrente nula". O marcador colado
+    ao número não pega o plural, e o ticket aparecia como "não diz quais"."""
+    assert app._tk_str_ids("Strings 16, 17, 18, 21, 22, 23, 25, 26 e 27 com corrente nula, verificar e normalizar "
+                           "— em 16/09/2026 09:00") == [16, 17, 18, 21, 22, 23, 25, 26, 27]
+    assert app._tk_str_ids("Após rompimento de alguns cabo cc dos inversores 5, 6 e 7 houve princípio de incêndio") == [], \
+        "Petrolina 2: número de INVERSOR não é string"
+    assert app._tk_str_ids("Strings Ipv10, Ipv11 e Ipv12 com corrente nula") == [10, 11, 12]
+    assert app._tk_str_ids("String 4 com corrente nula") == [4]
+    assert app._tk_str_ids("3 strings sem corrente") == []
+
+
+# ── "para fechar": 0 faltando com ticket aberto (23/09/2026) ─────────────────
+# Levi: "Se tem 0 strings inativas e tem 1 ticket aberto, então sei que devo fechar a string".
+
+def _row(nome, **kw):
+    return dict({"usina": nome, "plant_id": 1, "str_esp": 100, "strings_ativas": 100, "diferenca": 0,
+                 "sol_baixo": False, "falha_comunicacao": False}, **kw)
+
+
+def _ts(*rows):
+    return [r.get("tickets_str") for r in app._com_tickets_str({"rows": list(rows), "summary": {}})["rows"]]
+
+
+def test_zero_faltando_com_ticket_aberto_e_para_fechar(tickets):
+    ts, = _ts(_row("Altair"))
+    assert ts["para_fechar"] == 1 and ts["lista"][0]["normalizado"] is True
+
+
+def test_com_string_faltando_nada_e_para_fechar(tickets):
+    ts, = _ts(_row("Altair", strings_ativas=98, diferenca=-2))
+    assert ts["para_fechar"] == 0 and ts["lista"][0]["normalizado"] is False
+
+
+@pytest.mark.parametrize("kw,motivo", [({"sol_baixo": True}, "sem sol"),
+                                       ({"falha_comunicacao": True}, "sem comunicação"),
+                                       ({"str_esp": 0, "strings_ativas": 0}, "sem strings esperadas"),
+                                       ({"rampa": True}, "irradiância baixa"),
+                                       ({"sem_visao": True}, "sem visão")])
+def test_sem_como_julgar_nao_diz_que_voltou(tickets, kw, motivo):
+    """Altair 5 em 23/09: "0 faltando" com 0 de 0, porque a usina não tem strings esperadas cadastradas."""
+    ts, = _ts(_row("Altair", **kw))
+    assert ts["para_fechar"] == 0 and motivo in ts["motivo"]
+
+
+def test_ticket_no_inversor_desligado_fora_da_conta_nao_e_para_fechar(tickets):
+    """Athon (22/09): o inversor desligado sai das esperadas, e a usina dá 0 faltando com as strings dele paradas."""
+    ts, = _ts(_row("Altair", inv_desligados=1, strings_fora=20, inv_desligados_nomes=["Inversor 1.7"]))
+    assert ts["para_fechar"] == 0
+    ts, = _ts(_row("Altair", inv_desligados=1, strings_fora=20, inv_desligados_nomes=["Inversor 3.1"]))
+    assert ts["para_fechar"] == 1, "o desligado é outro inversor"
+    ts, = _ts(_row("Altair", inv_desligados=1, strings_fora=20))
+    assert ts["para_fechar"] == 0 and "inversor desligado" in ts["motivo"], "sem saber qual, não arrisca"
+
+
+def test_ticket_da_usina_inteira_so_e_para_fechar_com_todas_as_partes_normais(tickets):
+    """Brodowski em 23/09: Skid 2 com 195 de 195 e a Skid 1 sem leitura de strings. O ticket 'Todos' é da usina."""
+    s2 = _row("Brodowski - Skid 2 (86)", plant_id=2, str_esp=105, strings_ativas=105)
+    s1 = _row("Brodowski - Skid 1 (86)", str_esp=None, strings_ativas=None, diferenca=None)
+    assert [t["para_fechar"] for t in _ts(s1, s2)] == [0, 0]
+    s1 = _row("Brodowski - Skid 1 (86)", str_esp=104, strings_ativas=104)
+    assert [t["para_fechar"] for t in _ts(s1, s2)] == [1, 1]
 
 
 # ── o cruzamento com a linha da tabela ────────────────────────────────────────
@@ -221,9 +381,29 @@ def test_sem_ticket_e_sem_deficit_e_traco():
     assert "—" in _js("_tkStrCel(%s,false)" % _linha_js(None, 0))
 
 
-def test_a_noite_mostra_so_o_total_sem_julgar_o_deficit():
+def test_a_noite_mostra_o_ticket_sem_julgar_o_deficit():
+    """Sem sol a coluna não cobra o déficit: mostra quantos tickets estão abertos, neutro (era o total em azul)."""
     html = _js("_tkStrCel(%s,true)" % _linha_js(12, -599))
-    assert ">12<" in html and "/599" not in html and "#ff5b6e" not in html
+    assert "2 abertos" in html and "12 strings" in html and "/599" not in html and "#ff5b6e" not in html
+    assert "para fechar" not in html
+
+
+def _cel_zero(para_fechar, motivo=""):
+    return json.dumps({"diferenca": 0, "tickets_str": {"strings": 1, "tickets": 1, "para_fechar": para_fechar,
+                       "motivo": motivo, "lista": [{"inversor": "Inversor 1.6", "strings": [15], "desde": "17/09/2026",
+                                                    "normalizado": bool(para_fechar), "usina_inteira": False}]}})
+
+
+def test_zero_faltando_com_ticket_normalizado_diz_para_fechar():
+    """MTS200 em 23/09: 400 de 400 strings e o ticket da PV15 (desde 17/09) ainda aberto. É o sinal para fechar."""
+    html = _js("_tkStrCel(%s,false)" % _cel_zero(1))
+    assert "1 para fechar" in html and "gc-tkfechar" in html and "Inversor 1.6 · PV15, desde 17/09" in html
+
+
+def test_zero_faltando_sem_como_julgar_mostra_o_ticket_neutro():
+    """Altair 5 em 23/09: "0 faltando" com 0 de 0 strings. Mostra o ticket e diz por que não dá para julgar."""
+    html = _js("_tkStrCel(%s,false)" % _cel_zero(0, "usina sem strings esperadas cadastradas"))
+    assert "1 aberto" in html and "sem strings esperadas cadastradas" in html and "para fechar" not in html
 
 
 def test_ticket_casa_com_o_inversor_pelo_numero():
@@ -262,13 +442,29 @@ def test_inversor_com_mais_zeradas_que_o_ticket_cobre():
     assert _js("_tkStrCobertura(%s,%s)" % (json.dumps(nomeado), json.dumps(mortas))) == {"cobreTudo": False, "semTicket": 3}
 
 
-# ── fechar o ticket pela tela de strings (conferência na plataforma) ──────────
-# A GRAVAÇÃO é do OS Creator web (rota de Salvar: relê, confere conflito, linha inteira no PUT, diário). A plataforma
-# só CONFERE no banco que o Fim está lá e então tira o ticket da coluna, sem esperar o espelho (até 30 min).
+# ── finalizar pela tela de strings: a PLATAFORMA grava (23/09/2026) ─────────────
+# O Levi escolheu a gravação direta, pelo relay que já grava os tickets do OS Creator de mesa. As regras (relê, confere,
+# linha inteira, diário) estão em tickets_str_fechar.py e nos testes dele; aqui é o encaixe no Flask.
 
-def _linha_api(n, fim):
-    return {"row_number": n, "headers": ["", "Usina", "Inversor", "Início da ocorrência", "Fim da ocorrência"],
-            "values": ["", "ALT100", "Inversor 1.7", "2026-09-01 06:00:00", fim]}
+class _BancoFalso:
+    """A aba 128 com a linha do ALT100 (Inversor 1.7) e o diário vazio. O PUT troca a linha inteira, como a API."""
+
+    def __init__(self, n, recusa=None):
+        self.linha = {"row_number": n, "headers": list(COLS_STR), "values": [
+            "", "ALT100", 0, "", "", "", "", "Inversor 1.7", 20, None, None, None, "2026-09-01 06:00:00",
+            "2026-09-01 06:00:00", None, None, None, "", "Ipv11 e Ipv12 com corrente nula em 01/09/2026 06:00"]}
+        self.recusa, self.chamadas = recusa, []
+
+    def ler(self, sid):
+        return [dict(self.linha)] if sid == 128 else []
+
+    def encaminhar(self, metodo, sid, row, corpo, quem, token, **kw):
+        self.chamadas.append((metodo, sid, row, quem, token))
+        if self.recusa:
+            return self.recusa, '{"error":"recusado"}'
+        if metodo == "PUT":
+            self.linha = {"row_number": row, "headers": corpo["headers"], "values": corpo["values"]}
+        return 200, "{}"
 
 
 @pytest.fixture
@@ -284,38 +480,48 @@ def _linha_do_altair():
     return app.TICKETS_STR["altair"][0]["linha"]
 
 
-def test_so_esconde_depois_de_ver_o_fim_no_banco(cliente, monkeypatch):
-    n = _linha_do_altair()
-    monkeypatch.setattr(app, "_tk_str_linhas_api", lambda: [_linha_api(n, "2026-09-23 08:00:00")])
-    r = cliente.post("/api/strings/tickets/fechado", json={"linha": n})
-    assert r.status_code == 200 and r.get_json()["ok"] is True
-    p = app._com_tickets_str(_pay("Altair"))
-    assert "tickets_str" not in p["rows"][0], "o ticket fechado e conferido sai da coluna na hora"
+def _finalizar(cliente, monkeypatch, banco, linha=None, token="tok", **corpo):
+    monkeypatch.setattr(app, "_tkf_ler_aba", banco.ler)
+    monkeypatch.setattr(app._relay, "encaminhar", banco.encaminhar)
+    monkeypatch.setattr(app._estado_backup, "_token", lambda: token)
+    body = dict({"fim": "2026-09-23T10:00", "quem": "Levi Maia", "usina_planilha": "ALT100",
+                 "inversor": "Inversor 1.7", "desde": "01/09/2026"}, **corpo)
+    return cliente.post("/api/strings/tickets/%s/finalizar" % (linha or _linha_do_altair()), json=body)
 
 
-def test_banco_sem_o_fim_nao_esconde_nada(cliente, monkeypatch):
-    """Se a gravação não chegou ao banco, a coluna tem de continuar mostrando o ticket aberto."""
-    n = _linha_do_altair()
-    monkeypatch.setattr(app, "_tk_str_linhas_api", lambda: [_linha_api(n, None)])
-    r = cliente.post("/api/strings/tickets/fechado", json={"linha": n})
-    assert r.status_code == 409 and r.get_json()["ok"] is False
-    assert app._com_tickets_str(_pay("Altair"))["rows"][0]["tickets_str"]["tickets"] == 1
+def test_finalizar_pela_tela_grava_na_base_e_tira_da_coluna(cliente, monkeypatch):
+    b = _BancoFalso(_linha_do_altair())
+    r = _finalizar(cliente, monkeypatch, b)
+    assert r.status_code == 200 and r.get_json()["ok"] is True and r.get_json()["confirmado"] is True
+    assert [(m, s) for m, s, *_ in b.chamadas] == [("PUT", 128), ("POST", 399)]
+    assert b.chamadas[0][3] == ("senha compartilhada", "Levi Maia (plataforma)") and b.chamadas[0][4] == "tok"
+    assert dict(zip(COLS_STR, b.linha["values"]))["Fim da ocorrência"] == "2026-09-23 10:00:00"
+    assert "tickets_str" not in app._com_tickets_str(_pay("Altair"))["rows"][0], "sai da coluna sem esperar o espelho"
 
 
 def test_linha_que_nao_e_ticket_aberto_de_strings_e_recusada(cliente, monkeypatch):
-    monkeypatch.setattr(app, "_tk_str_linhas_api", lambda: [])
-    assert cliente.post("/api/strings/tickets/fechado", json={"linha": 99999}).status_code == 404
-    assert cliente.post("/api/strings/tickets/fechado", json={"linha": "x"}).status_code == 400
+    b = _BancoFalso(99999)
+    assert _finalizar(cliente, monkeypatch, b, linha=99999).status_code == 404 and not b.chamadas
 
 
-def test_banco_fora_do_ar_nao_esconde(cliente, monkeypatch):
-    n = _linha_do_altair()
+def test_sem_o_token_de_escrita_nada_e_gravado(cliente, monkeypatch):
+    b = _BancoFalso(_linha_do_altair())
+    r = _finalizar(cliente, monkeypatch, b, token="")
+    assert r.status_code == 503 and not b.chamadas and "Nada foi gravado" in r.get_json()["erro"]
 
-    def _cai():
-        raise OSError("sem rede")
-    monkeypatch.setattr(app, "_tk_str_linhas_api", _cai)
-    r = cliente.post("/api/strings/tickets/fechado", json={"linha": n})
-    assert r.status_code == 502
+
+def test_a_recusa_do_gravador_volta_para_a_tela_e_o_ticket_fica(cliente, monkeypatch):
+    """A tela viu ALT100, e a linha agora é de outra usina: 409, nada gravado, o ticket continua na coluna."""
+    b = _BancoFalso(_linha_do_altair())
+    r = _finalizar(cliente, monkeypatch, b, usina_planilha="MTS200")
+    assert r.status_code == 409 and not b.chamadas and "Nada foi gravado" in r.get_json()["erro"]
+    assert app._com_tickets_str(_pay("Altair"))["rows"][0]["tickets_str"]["tickets"] == 1
+
+
+def test_base_que_recusa_o_put_nao_esconde(cliente, monkeypatch):
+    b = _BancoFalso(_linha_do_altair(), recusa=500)
+    r = _finalizar(cliente, monkeypatch, b)
+    assert r.status_code == 502 and [c[0] for c in b.chamadas] == ["PUT"]
     assert app._com_tickets_str(_pay("Altair"))["rows"][0]["tickets_str"]["tickets"] == 1
 
 
@@ -324,13 +530,6 @@ def test_o_esconder_expira(cliente, monkeypatch):
     n = _linha_do_altair()
     monkeypatch.setitem(app._TICKETS_STR_FECHADOS, n, app.time.time() - app._TICKETS_STR_FECHADOS_TTL - 1)
     assert app._com_tickets_str(_pay("Altair"))["rows"][0]["tickets_str"]["tickets"] == 1
-
-
-def test_a_tela_so_mostra_o_botao_com_a_chave_de_teste():
-    """Combinado com o Levi (23/09): o botão de fechar só vale para todos depois de testado numa linha."""
-    assert "get('fechar')==='1'" in MON
-    i = MON.index("function _tkStrTag(")
-    assert "TK_FECHAR" in MON[i:MON.index("\n}", i)]
 
 
 def test_ticket_fechado_sai_da_copia_da_tela_na_hora():
@@ -343,3 +542,98 @@ def test_ticket_fechado_sai_da_copia_da_tela_na_hora():
     assert r[0]["tickets_str"] == {"strings": 1, "tickets": 1, "lista": [{"linha": 11, "qtd_na_linha": 1}]}
     r = _js("_tkStrSemLinha(%s,12)" % json.dumps(rows))
     assert "tickets_str" not in r[1], "usina sem ticket nenhum volta ao '—'"
+
+
+# ── o card do ticket no inversor aberto (23/09/2026) ──────────────────────────
+# Strings REAIS do drill às 13:16: MTS200 Inversor 1.6 (PV15 de volta a 12,7 A, 8 trancadas) e MAB100 Inversor 3.9
+# (PV3 e PV4 em 0,0 A, ticket de 2 strings que não diz quais).
+
+def _chips(*lst):
+    return [{"name": n, "st": st, "amp": "%.2f" % a, "dead": st == "sem_corrente", "trancada": st == "trancada"}
+            for n, st, a in lst]
+
+
+MTS200_16 = _chips(("I_PV1", "ativa", 12.7), ("I_PV3", "trancada", 0.1), ("I_PV14", "trancada", 0.0),
+                   ("I_PV15", "ativa", 12.7), ("I_PV17", "ativa", 12.7))
+MAB100_39 = _chips(("I_PV1", "ativa", 8.15), ("I_PV3", "sem_corrente", 0.0), ("I_PV4", "sem_corrente", 0.0),
+                   ("I_PV5", "ativa", 8.07))
+
+
+def _estado(t, inv):
+    return _js("_tkEstado(%s,%s)" % (json.dumps(t), json.dumps(inv)))
+
+
+def test_ticket_que_diz_a_string_e_julgado_por_ela():
+    t = {"strings": [15], "usina_inteira": False}
+    e = _estado(t, {"strings": MTS200_16, "diff": 0})
+    assert e["k"] == "voltou" and "PV15 12,70 A" in e["txt"]
+    morta = _chips(("I_PV15", "sem_corrente", 0.0), ("I_PV1", "ativa", 12.7))
+    assert _estado(t, {"strings": morta, "diff": -1})["k"] == "morta"
+    assert _estado({"strings": [14]}, {"strings": MTS200_16, "diff": 0})["k"] == "mudo",         "string trancada é MPPT sem string: não dá para dizer que voltou"
+
+
+def test_ticket_que_nao_diz_a_string_e_julgado_pelo_inversor():
+    e = _estado({"strings": []}, {"strings": MAB100_39, "diff": -2})
+    assert e["k"] == "morta" and "PV3 0,00 A" in e["txt"] and "PV4 0,00 A" in e["txt"]
+    assert _estado({"strings": []}, {"strings": MTS200_16, "diff": 0})["k"] == "voltou"
+
+
+def test_sem_sol_ou_sem_comunicacao_o_inversor_nao_julga():
+    assert _estado({"strings": [15]}, {"strings": MTS200_16, "diff": 0, "semSolU": True})["k"] == "mudo"
+    assert _estado({"strings": [15]}, {"strings": MTS200_16, "diff": 0, "semComU": True})["k"] == "mudo"
+
+
+def _card(t, est, f=None, na_usina=False):
+    if not NODE:
+        pytest.skip("node não instalado")
+    js = "\n".join([
+        "const state={}; const localStorage={getItem:()=>'Levi Maia',setItem(){}};",
+        _trecho("const _he=", "\n"), _trecho("function _snum(", "\n"),
+        _trecho("function _tkInvChave(", "/* fim _tkStr */"), _trecho("function _tkIsoAgora(", "/* fim _tkCard */"),
+        "process.stdout.write(JSON.stringify(_tkCardHtml(%s,%s,%s,%s)));" % (
+            json.dumps(t), json.dumps(est), json.dumps(f), json.dumps(na_usina)),
+    ])
+    p = subprocess.run([NODE, "-e", js], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert p.returncode == 0, p.stderr
+    return json.loads(p.stdout)
+
+
+T312 = {"linha": 312, "inversor": "Inversor 1.6", "strings": [15], "qtd": 1, "qtd_na_linha": 1, "desde": "17/09/2026",
+        "inicio": "2026-09-17 06:00:02", "causa": "", "os": "13762", "status_ticket": "OS Programada",
+        "usina_planilha": "MTS200", "comentario": "PV15 com corrente nula em 17/09/2026 06:00", "usina_inteira": False}
+
+
+def test_o_card_mostra_o_que_a_planilha_e_o_diario_sabem_do_ticket():
+    html = _card(T312, {"k": "voltou", "txt": "Produzindo agora · PV15 12,70 A"})
+    for trecho in ("linha 312 da planilha de tickets", "PV15", "17/09/2026 06:00", "OS 13762", "OS Programada",
+                   "MTS200", "PV15 com corrente nula", "Finalizar ticket", "Quem está fechando", "Levi Maia",
+                   "gc-tkc voltou"):
+        assert trecho in html, trecho
+    assert "Finalizar mesmo assim" not in html
+
+
+def test_string_ainda_morta_pede_confirmacao_antes_de_finalizar():
+    est = {"k": "morta", "txt": "Ainda sem corrente · PV3 0,00 A"}
+    html = _card(T312, est)
+    assert "Finalizar mesmo assim" in html and "tkStrConfirmar(312)" in html and "tkStrFinalizar" not in html
+    html = _card(T312, est, {"fase": "confirmar"})
+    assert "Sim, finalizar" in html and "tkStrFinalizar(312,0)" in html and "Cancelar" in html
+
+
+def test_a_recusa_da_plataforma_aparece_no_card():
+    html = _card(T312, {"k": "voltou", "txt": "x"}, {"fase": "erro", "msg": "A linha 312 agora é de \"MTS100\"."})
+    assert "A linha 312 agora é de &quot;MTS100&quot;." in html
+
+
+def test_a_tela_grava_pela_rota_da_plataforma_e_manda_o_que_viu():
+    i = MON.index("window.tkStrFinalizar=")
+    corpo = MON[i:MON.index("\n};", i)]
+    assert "'/api/strings/tickets/'+linha+'/finalizar'" in corpo
+    assert "usina_planilha:a.t.usina_planilha" in corpo and "inversor:a.t.inversor" in corpo and "desde:a.t.desde" in corpo
+    assert "/os/api/tickets" not in MON and "TK_FECHAR" not in MON, "o caminho pelo OS Creator web saiu"
+
+
+def test_o_card_entra_no_inversor_aberto_e_os_da_usina_no_alto():
+    i = MON.index("function renderInversor(")
+    assert "${_tkCards(inv)}" in MON[i:MON.index("\nfunction ", i + 10)]
+    assert "_tkCardsUsina(u)" in MON

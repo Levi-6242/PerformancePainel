@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tickets de strings — fechar pela plataforma (mockup)</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<style>
+/* Tokens copiados de docs/redesign/Monitoramento (novo design).html — o mockup não pode mentir sobre o resultado */
+:root{
+  --color-bg:#090d18; --color-surface:#161d30;
+  --color-neutral-900:#0e1626; --color-neutral-800:#1b2438; --color-neutral-500:#767d92; --color-neutral-400:#96a0b4;
+  --color-neutral-300:#c3cad7; --color-neutral-200:#e2e7f0; --color-text:#e9eef6;
+  --color-divider:rgba(255,255,255,.09);
+  --radius-sm:6px; --radius-md:10px;
+  --color-accent:#a3d900; --color-accent-200:#ddf094; --color-accent-300:#c4e755; --color-accent-900:#2b3707;
+  --gc-blue:#5b9dff; --gc-red:#f2555a; --gc-amber:#f5a623; --gc-violet:#a78bfa; --gc-green:#3fb950;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--color-bg);color:var(--color-text);font-family:'Inter',system-ui,sans-serif;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:32px 24px 64px}
+.text-muted{color:var(--color-neutral-400)}
+.kicker{font-size:10px;text-transform:uppercase;letter-spacing:.14em;font-weight:700;color:var(--color-neutral-500)}
+h1{font-size:22px;font-weight:800;letter-spacing:-.01em;margin:6px 0 4px}
+h2{font-size:16px;font-weight:700;margin:0}
+.sec{margin-top:34px}
+.sec-h{display:flex;align-items:baseline;gap:12px;margin-bottom:12px}
+.sec-h .n{display:inline-grid;place-items:center;width:24px;height:24px;border-radius:50%;background:color-mix(in srgb,var(--color-accent) 16%,transparent);color:var(--color-accent);font-size:12px;font-weight:800;flex:none;transform:translateY(-2px)}
+.sec-h p{margin:0;color:var(--color-neutral-400);font-size:13px}
+.card{background:var(--color-surface);border:1px solid var(--color-divider);border-radius:var(--radius-md)}
+.novo{display:inline-flex;align-items:center;padding:1px 7px;border-radius:5px;font-size:9.5px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent);border:1px solid color-mix(in srgb,var(--color-accent) 50%,transparent);margin-left:8px;vertical-align:2px}
+
+/* tabela */
+.table{width:100%;border-collapse:collapse;font-size:14px}
+.table thead th{text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--color-neutral-500);padding:12px 14px;border-bottom:1px solid var(--color-divider);white-space:nowrap}
+.table tbody td{padding:13px 14px;border-bottom:1px solid var(--color-divider);white-space:nowrap}
+.table tbody tr:last-child td{border-bottom:0}
+.r{text-align:right}.c{text-align:center}
+.pill{display:inline-flex;align-items:center;padding:3px 10px;border-radius:7px;font-size:11.5px;font-weight:600}
+.st-falha{background:color-mix(in srgb,var(--gc-red) 16%,transparent);color:#ff9a9d;border:1px solid color-mix(in srgb,var(--gc-red) 35%,transparent)}
+.st-ok{background:color-mix(in srgb,var(--color-accent) 14%,transparent);color:var(--color-accent-200);border:1px solid color-mix(in srgb,var(--color-accent) 35%,transparent)}
+.acomp{display:inline-block;width:58px;text-align:center;padding:5px 6px;font-size:12.5px;border:1px solid var(--color-divider);border-radius:6px;background:var(--color-neutral-900);color:var(--color-text)}
+.tk{display:inline-flex;align-items:center;gap:6px;justify-content:center}
+.bar{width:44px;height:6px;border-radius:3px;background:var(--color-neutral-800);overflow:hidden;display:inline-block}
+.bar i{display:block;height:100%}
+.tk-fechar{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;color:var(--gc-green);
+  background:color-mix(in srgb,var(--gc-green) 14%,transparent);border:1px solid color-mix(in srgb,var(--gc-green) 45%,transparent);cursor:pointer}
+.tk-fechar i{font-size:13px}
+.tk-mudo{display:inline-flex;align-items:center;gap:5px;font-weight:600;color:var(--color-neutral-400)}
+.tip{position:relative;display:inline-block}
+.tip .bolha{position:absolute;right:calc(100% + 14px);top:50%;transform:translateY(-50%);width:300px;padding:10px 12px;border-radius:10px;
+  background:#0b1120;border:1px solid color-mix(in srgb,var(--gc-green) 40%,transparent);box-shadow:0 18px 40px rgba(0,0,0,.5);
+  font-size:12px;line-height:1.45;color:var(--color-neutral-200);white-space:normal;text-align:left;font-weight:500}
+.tip .bolha::after{content:"";position:absolute;right:-6px;top:50%;width:10px;height:10px;background:#0b1120;
+  border-right:1px solid color-mix(in srgb,var(--gc-green) 40%,transparent);border-top:1px solid color-mix(in srgb,var(--gc-green) 40%,transparent);transform:translateY(-50%) rotate(45deg)}
+tr.destaque{background:linear-gradient(90deg,color-mix(in srgb,var(--gc-green) 12%,transparent),transparent 55%);box-shadow:inset 3px 0 0 var(--gc-green)}
+
+/* legenda da coluna */
+.leg{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}
+.leg .it{padding:14px 16px;border-radius:var(--radius-md);background:var(--color-neutral-900);border:1px solid var(--color-divider);min-width:0}
+.leg .it .v{height:26px;display:flex;align-items:center}
+.leg .it b{display:block;font-size:12.5px;margin:10px 0 3px}
+.leg .it span{display:block;font-size:12px;color:var(--color-neutral-400);line-height:1.45}
+
+/* inversor do drill */
+.drill{padding:14px 16px 18px}
+.drill-h{display:flex;align-items:center;gap:10px;margin-bottom:12px;font-size:13px}
+.inv{border-radius:var(--radius-md);background:color-mix(in srgb,var(--color-surface) 60%,transparent);border:1px solid var(--color-divider)}
+.inv-h{display:flex;align-items:center;gap:14px;padding:12px 16px;border-bottom:1px solid var(--color-divider)}
+.inv-h .nome{font-weight:600;font-size:14px}
+.tag{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:600;background:var(--color-neutral-900);color:var(--color-neutral-300)}
+.etq{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:9px;font-size:11px;font-weight:700;letter-spacing:.02em}
+.etq-verde{background:color-mix(in srgb,var(--gc-green) 18%,transparent);border:1px solid color-mix(in srgb,var(--gc-green) 45%,transparent);color:var(--gc-green)}
+.etq-azul{background:color-mix(in srgb,var(--gc-blue) 18%,transparent);border:1px solid color-mix(in srgb,var(--gc-blue) 45%,transparent);color:var(--gc-blue)}
+.inv-h .dir{margin-left:auto;display:flex;align-items:center;gap:22px;font-size:13px}
+.inv-h .dir b{color:var(--color-neutral-200)}
+.inv-b{padding:16px 18px 20px}
+
+/* o card do ticket */
+.tkc{border-radius:var(--radius-md);background:var(--color-neutral-900);border:1px solid var(--color-divider);border-left:3px solid var(--gc-green);padding:16px 18px;margin-bottom:18px}
+.tkc.vermelho{border-left-color:var(--gc-red)}
+.tkc-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.tkc-h .t{font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px}
+.tkc-h .t i{color:var(--gc-blue);font-size:16px}
+.tkc-h .linha{color:var(--color-neutral-500);font-size:12px;font-weight:500}
+.estado{margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:12px;font-weight:700}
+.estado.voltou{color:var(--gc-green);background:color-mix(in srgb,var(--gc-green) 14%,transparent);border:1px solid color-mix(in srgb,var(--gc-green) 40%,transparent)}
+.estado.morta{color:#ff9a9d;background:color-mix(in srgb,var(--gc-red) 14%,transparent);border:1px solid color-mix(in srgb,var(--gc-red) 40%,transparent)}
+.campos{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:14px}
+.campo{min-width:0}
+.campo .k{font-size:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:700;color:var(--color-neutral-500)}
+.campo .v{font-size:13.5px;font-weight:600;color:var(--color-neutral-200);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.campo .v.vazio{color:var(--color-neutral-500);font-weight:500}
+.coment{margin-top:12px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,.025);border:1px solid var(--color-divider);font-size:12.5px;color:var(--color-neutral-300)}
+.coment .k{font-size:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:700;color:var(--color-neutral-500);display:block;margin-bottom:3px}
+.form{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--color-divider)}
+.form label{display:flex;flex-direction:column;gap:5px}
+.form label span{font-size:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:700;color:var(--color-neutral-500)}
+.inp{background:var(--color-bg);border:1px solid var(--color-divider);border-radius:8px;color:var(--color-text);font:inherit;font-size:13px;padding:8px 11px;height:38px}
+.inp.data{width:210px}.inp.nome{width:220px}
+.btn{display:inline-flex;align-items:center;gap:7px;height:38px;padding:0 16px;border-radius:var(--radius-md);font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;background:transparent;white-space:nowrap}
+.btn i{font-size:15px}
+.btn-primary{border:1px solid var(--color-accent);color:var(--color-accent)}
+.btn-primary:hover{background:color-mix(in srgb,var(--color-accent) 14%,transparent)}
+.btn-alerta{border:1px solid color-mix(in srgb,var(--gc-red) 60%,transparent);color:#ff9a9d}
+.nota{font-size:11.5px;color:var(--color-neutral-500);margin-top:10px;line-height:1.5}
+.aviso{display:flex;align-items:flex-start;gap:8px;margin-top:12px;font-size:12.5px;color:#ffb3b5}
+.aviso i{font-size:15px;margin-top:1px}
+
+/* strings */
+.grade{display:grid;grid-template-columns:repeat(auto-fill,minmax(60px,1fr));gap:6px}
+.chip{padding:6px 8px;border-radius:var(--radius-sm)}
+.chip .l1{display:flex;align-items:center;justify-content:space-between;margin-bottom:2px}
+.chip .nm{font-size:10.5px;font-weight:600;display:inline-flex;align-items:center;gap:3px}
+.chip .a{font-size:10px;color:var(--color-neutral-400)}
+
+/* depois de finalizar */
+.feito{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:var(--radius-md);background:color-mix(in srgb,var(--gc-green) 10%,transparent);border:1px solid color-mix(in srgb,var(--gc-green) 35%,transparent)}
+.feito i{font-size:22px;color:var(--gc-green)}
+.feito b{font-size:13.5px}
+.feito span{font-size:12.5px;color:var(--color-neutral-300)}
+.erros{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-top:12px}
+.erros .it{padding:12px 14px;border-radius:var(--radius-md);background:var(--color-neutral-900);border:1px solid var(--color-divider);border-left:3px solid var(--gc-red);font-size:12.5px;min-width:0}
+.erros .it b{display:block;font-size:12.5px;margin-bottom:3px}
+.erros .it span{color:var(--color-neutral-400)}
+.grava{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-top:4px}
+.grava .p{padding:12px 14px;border-radius:var(--radius-md);background:var(--color-neutral-900);border:1px solid var(--color-divider);min-width:0}
+.grava .p .k{font-size:10px;letter-spacing:.12em;text-transform:uppercase;font-weight:800;color:var(--color-accent)}
+.grava .p b{display:block;font-size:12.5px;margin:6px 0 3px}
+.grava .p span{display:block;font-size:12px;color:var(--color-neutral-400);line-height:1.45}
+@media (max-width:900px){.leg,.campos,.erros,.grava{grid-template-columns:repeat(2,minmax(0,1fr))}.tip .bolha{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">Mockup · Monitoramento › Strings · dados reais do servidor às 13:16 de 23/09/2026</div>
+  <h1>Tickets de strings: ver e finalizar pela plataforma</h1>
+  <div class="text-muted" style="font-size:13.5px">Dois pedidos: o ticket aparece mesmo com 0 strings faltando (é o sinal para fechar), e o inversor aberto mostra o ticket com o botão de finalizar, gravando na planilha de tickets.</div>
+
+  <!-- 1. COLUNA TICKETS -->
+  <div class="sec">
+    <div class="sec-h"><span class="n">1</span><div><h2>Coluna Tickets: 0 faltando com ticket aberto vira "para fechar"</h2><p>Aba Athon. O MTS200 voltou a 400 de 400 strings, mas o ticket da PV15 (desde 17/09) segue aberto na planilha.</p></div></div>
+    <div class="card" style="overflow:visible">
+      <table class="table">
+        <thead><tr><th>Usina</th><th class="r">Ativas</th><th class="r">Esperadas</th><th class="r">Diferença</th><th class="r">Disponib.</th><th class="c">Acomp.</th><th class="c">Tickets</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td style="font-weight:600">MTS100</td><td class="r">500</td><td class="r">507</td><td class="r" style="color:#ff5b6e;font-weight:600">-7</td><td class="r">98,6%</td><td class="c"><span class="acomp">7</span></td>
+            <td class="c"><span class="tk"><span class="bar"><i style="width:14%;background:#ff5b6e"></i></span><b style="color:#ff5b6e">1</b><span style="color:var(--color-neutral-500)">/7</span></span></td><td><span class="pill st-falha">Falha de string</span></td></tr>
+          <tr><td style="font-weight:600">MAB100</td><td class="r">585</td><td class="r">587</td><td class="r" style="color:#ff5b6e;font-weight:600">-2</td><td class="r">99,7%</td><td class="c"><span class="acomp">2</span></td>
+            <td class="c"><span class="tk"><span class="bar"><i style="width:100%;background:var(--gc-green)"></i></span><b style="color:var(--gc-green)">2</b><span style="color:var(--color-neutral-500)">/2</span></span></td><td><span class="pill st-falha">Falha de string</span></td></tr>
+          <tr class="destaque"><td style="font-weight:600">MTS200<span class="novo">novo</span></td><td class="r">400</td><td class="r">400</td><td class="r" style="font-weight:600;color:var(--color-neutral-300)">0</td><td class="r">100,0%</td><td class="c"><span class="acomp" style="color:var(--color-neutral-500)">—</span></td>
+            <td class="c"><span class="tip"><span class="tk-fechar"><i class="ph ph-check-circle"></i>1 para fechar</span>
+              <span class="bolha"><b style="color:var(--gc-green)">0 strings faltando e 1 ticket aberto.</b><br>Inversor 1.6 · PV15, desde 17/09. A string voltou: abra a usina e finalize o ticket no inversor.</span></span></td>
+            <td><span class="pill st-ok">Normal</span></td></tr>
+          <tr><td style="font-weight:600">JCD100</td><td class="r">356</td><td class="r">356</td><td class="r" style="font-weight:600;color:var(--color-neutral-300)">0</td><td class="r">100,0%</td><td class="c"><span class="acomp" style="color:var(--color-neutral-500)">—</span></td>
+            <td class="c"><span style="color:var(--color-neutral-500)">—</span></td><td><span class="pill st-ok">Normal</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="leg">
+      <div class="it"><div class="v"><span class="tk"><span class="bar"><i style="width:100%;background:var(--gc-green)"></i></span><b style="color:var(--gc-green)">2</b><span style="color:var(--color-neutral-500)">/2</span></span></div>
+        <b>Faltando, todas com ticket</b><span>Como hoje. Strings com ticket / faltando agora.</span></div>
+      <div class="it"><div class="v"><span class="tk"><span class="bar"><i style="width:14%;background:#ff5b6e"></i></span><b style="color:#ff5b6e">1</b><span style="color:var(--color-neutral-500)">/7</span></span></div>
+        <b>Faltando sem ticket</b><span>Como hoje. Vermelho enquanto houver string faltando sem ticket.</span></div>
+      <div class="it" style="border-color:color-mix(in srgb,var(--gc-green) 40%,transparent)"><div class="v"><span class="tk-fechar"><i class="ph ph-check-circle"></i>1 para fechar</span></div>
+        <b>0 faltando, ticket aberto<span class="novo">novo</span></b><span>Todas as esperadas produzindo e ticket aberto: a string voltou, é para finalizar.</span></div>
+      <div class="it"><div class="v"><span class="tk-mudo"><i class="ph ph-clipboard-text" style="color:var(--gc-blue)"></i>1 aberto</span></div>
+        <b>Ticket aberto, sem como julgar<span class="novo">novo</span></b><span>Noite, sem comunicação, inversor desligado fora da conta ou usina sem strings esperadas (Altair 5: 0 de 0). Mostra o ticket, não diz que voltou.</span></div>
+    </div>
+  </div>
+
+  <!-- 2. INVERSOR ABERTO -->
+  <div class="sec">
+    <div class="sec-h"><span class="n">2</span><div><h2>Ao abrir o inversor: o ticket inteiro e o botão Finalizar</h2><p>O clique no inversor continua abrindo as strings. Se ele tem ticket aberto, o ticket vem em cima, com o que a planilha sabe dele.</p></div></div>
+
+    <div class="card drill">
+      <div class="drill-h"><i class="ph ph-caret-down" style="color:var(--color-neutral-500);font-size:11px"></i><b>MTS200</b><span class="text-muted">· Athon · 40 inversores · 400 de 400 strings</span></div>
+      <div class="inv">
+        <div class="inv-h">
+          <i class="ph ph-caret-right" style="font-size:11px;color:var(--color-neutral-500);transform:rotate(90deg)"></i>
+          <span class="nome">Inversor 1.6</span><span class="tag">cabine 1</span><span class="text-muted" style="font-size:12px">546,4 kWh</span>
+          <span class="dir"><span class="etq etq-verde"><i class="ph ph-check"></i>voltou · para fechar</span>
+            <span class="text-muted">ativas <b>10/18</b></span><span class="text-muted">esp <b>10</b></span><span class="text-muted">dif <b style="color:var(--color-neutral-300)">0</b></span><span class="text-muted" style="font-size:12px">13:16</span></span>
+        </div>
+        <div class="inv-b">
+          <div class="tkc">
+            <div class="tkc-h"><span class="t"><i class="ph ph-clipboard-text"></i>Ticket aberto</span><span class="linha">linha 312 da planilha de tickets · aba Strings indisp</span>
+              <span class="estado voltou"><i class="ph ph-check-circle"></i>PV15 produzindo agora · 12,7 A</span></div>
+            <div class="campos">
+              <div class="campo"><div class="k">Strings do ticket</div><div class="v">PV15</div></div>
+              <div class="campo"><div class="k">Quantidade</div><div class="v">1 string</div></div>
+              <div class="campo"><div class="k">Início da ocorrência</div><div class="v">17/09/2026</div></div>
+              <div class="campo"><div class="k">Aberto há</div><div class="v">6 dias</div></div>
+              <div class="campo"><div class="k">Causa raiz</div><div class="v vazio">não preenchida</div></div>
+              <div class="campo"><div class="k">OS vinculada</div><div class="v vazio">nenhuma</div></div>
+              <div class="campo"><div class="k">Status do ticket</div><div class="v vazio">não preenchido</div></div>
+              <div class="campo"><div class="k">Usina na planilha</div><div class="v">MTS200</div></div>
+            </div>
+            <div class="coment"><span class="k">Comentários gerais</span>PV15 com corrente nula em 17/09/2026 06:00</div>
+            <div class="form">
+              <label><span>Fim da ocorrência</span><input class="inp data" type="datetime-local" value="2026-09-23T13:20"></label>
+              <label><span>Quem está fechando</span><input class="inp nome" type="text" value="Levi Maia" placeholder="seu nome"></label>
+              <button class="btn btn-primary"><i class="ph ph-check-square"></i>Finalizar ticket</button>
+            </div>
+            <div class="nota">Grava na planilha de tickets e no diário do OS Creator. Antes relê a linha e confere que ela ainda é deste ticket (usina, inversor e início). Se alguém mexeu nela, nada é gravado.</div>
+          </div>
+          <div class="kicker" style="color:var(--color-neutral-400);margin-bottom:10px">Strings (18)</div>
+          <div class="grade" id="g-mts200"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card drill" style="margin-top:14px">
+      <div class="drill-h"><i class="ph ph-caret-down" style="color:var(--color-neutral-500);font-size:11px"></i><b>MAB100</b><span class="text-muted">· o mesmo card quando a string ainda não voltou</span></div>
+      <div class="inv">
+        <div class="inv-h">
+          <i class="ph ph-caret-right" style="font-size:11px;color:var(--color-neutral-500);transform:rotate(90deg)"></i>
+          <span class="nome">Inversor 3.9</span><span class="tag">cabine 3</span><span class="text-muted" style="font-size:12px">414,8 kWh</span>
+          <span style="flex:1;text-align:center;font-size:14.4px;color:#a1a39d">Strings I_PV3 e I_PV4 com corrente nula</span>
+          <span class="dir"><span class="etq etq-azul"><i class="ph ph-clipboard-text"></i>ticket · 2 strings</span>
+            <span class="text-muted">ativas <b>10/12</b></span><span class="text-muted">esp <b>12</b></span><span class="text-muted">dif <b style="color:var(--gc-red)">-2</b></span><span class="text-muted" style="font-size:12px">13:16</span></span>
+        </div>
+        <div class="inv-b">
+          <div class="tkc vermelho">
+            <div class="tkc-h"><span class="t"><i class="ph ph-clipboard-text"></i>Ticket aberto</span><span class="linha">linha 289 da planilha de tickets · aba Strings indisp</span>
+              <span class="estado morta"><i class="ph ph-warning-circle"></i>Ainda sem corrente · PV3 e PV4 em 0,0 A</span></div>
+            <div class="campos">
+              <div class="campo"><div class="k">Strings do ticket</div><div class="v">não diz quais</div></div>
+              <div class="campo"><div class="k">Quantidade</div><div class="v">2 strings</div></div>
+              <div class="campo"><div class="k">Início da ocorrência</div><div class="v">04/09/2026</div></div>
+              <div class="campo"><div class="k">Aberto há</div><div class="v">19 dias</div></div>
+              <div class="campo"><div class="k">Causa raiz</div><div class="v">Problema no MPPT</div></div>
+              <div class="campo"><div class="k">OS vinculada</div><div class="v vazio">nenhuma no diário</div></div>
+              <div class="campo"><div class="k">Status do ticket</div><div class="v vazio">não preenchido</div></div>
+              <div class="campo"><div class="k">Usina na planilha</div><div class="v">MAB100</div></div>
+            </div>
+            <div class="coment"><span class="k">Comentários gerais</span>OS 13005 · 09/09: Informado pelo técnico por meio da OS que a entrada do MPP do inversor está com defeito e, dessa forma, duas PV estão desconectadas</div>
+            <div class="form">
+              <label><span>Fim da ocorrência</span><input class="inp data" type="datetime-local" value="2026-09-23T13:20"></label>
+              <label><span>Quem está fechando</span><input class="inp nome" type="text" value="Levi Maia"></label>
+              <button class="btn btn-alerta"><i class="ph ph-check-square"></i>Finalizar mesmo assim</button>
+            </div>
+            <div class="aviso"><i class="ph ph-warning"></i><span>As 2 strings deste inversor seguem sem corrente. Finalize só se o problema foi resolvido de outro jeito. O botão pede confirmação.</span></div>
+          </div>
+          <div class="kicker" style="color:var(--color-neutral-400);margin-bottom:10px">Strings (12)</div>
+          <div class="grade" id="g-mab100"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. DEPOIS -->
+  <div class="sec">
+    <div class="sec-h"><span class="n">3</span><div><h2>Depois de finalizar</h2><p>O card vira a confirmação, a etiqueta sai do inversor e a coluna Tickets do MTS200 volta a "—".</p></div></div>
+    <div class="feito"><i class="ph ph-check-circle"></i><div><b>Ticket da linha 312 finalizado</b><br><span>Fim da ocorrência 23/09/2026 13:20 · por Levi Maia · gravado na planilha de tickets e no diário do OS Creator</span></div></div>
+    <div class="erros">
+      <div class="it"><b>Alguém mexeu no ticket</b><span>Outra pessoa alterou a linha depois que o card abriu. Nada é gravado; o card relê e mostra o valor novo.</span></div>
+      <div class="it"><b>A linha virou outro ticket</b><span>Uma linha apagada no Excel desce as de baixo. Se a 312 não for mais MTS200 · Inversor 1.6 · 17/09, nada é gravado.</span></div>
+      <div class="it"><b>Já tem Fim</b><span>Alguém finalizou antes, pelo OS Creator ou pelo Excel. Nada é gravado; o ticket sai da tela.</span></div>
+    </div>
+  </div>
+
+  <!-- 4. COMO GRAVA -->
+  <div class="sec">
+    <div class="sec-h"><span class="n">4</span><div><h2>Como a gravação chega na base de tickets</h2><p>As mesmas regras do Salvar do OS Creator, para os dois lados verem o mesmo ticket.</p></div></div>
+    <div class="grava">
+      <div class="p"><div class="k">1 · relê</div><b>A linha na hora</b><span>Direto na API, não no espelho de 30 min.</span></div>
+      <div class="p"><div class="k">2 · confere</div><b>É o mesmo ticket?</b><span>Usina, inversor e início batem, e o Fim está vazio.</span></div>
+      <div class="p"><div class="k">3 · grava</div><b>A linha inteira</b><span>O PUT da API troca a linha toda; mandar só o Fim apagaria o resto.</span></div>
+      <div class="p"><div class="k">4 · registra</div><b>No diário (v3)</b><span>É o que impede o sync do Excel de reabrir o ticket.</span></div>
+      <div class="p"><div class="k">5 · confirma</div><b>Relê de novo</b><span>Só tira o ticket da tela com o Fim lido no banco.</span></div>
+    </div>
+  </div>
+</div>
+<script>
+// strings reais do drill às 13:16 (GET /api/sunop/plant/MTS200 e /MAB100)
+const SCHIP={sem_corrente:['#ff9a9d','color-mix(in srgb, var(--gc-red) 14%, transparent)','color-mix(in srgb, var(--gc-red) 45%, transparent)'],
+  trancada:['var(--gc-blue)','color-mix(in srgb, var(--gc-blue) 12%, transparent)','color-mix(in srgb, var(--gc-blue) 45%, transparent)'],
+  ativa:['var(--color-accent-200)','color-mix(in srgb, var(--color-accent) 10%, transparent)','color-mix(in srgb, var(--color-accent) 40%, transparent)']};
+const MTS=[['I_PV1','ativa',12.7],['I_PV2','ativa',12.9],['I_PV3','trancada',0.1],['I_PV4','ativa',12.3],['I_PV5','ativa',13.0],['I_PV6','trancada',0.0],['I_PV7','trancada',0.1],['I_PV8','ativa',12.1],['I_PV9','ativa',12.8],['I_PV10','trancada',0.0],['I_PV11','ativa',12.8],['I_PV12','trancada',0.0],['I_PV13','ativa',12.8],['I_PV14','trancada',0.0],['I_PV15','ativa',12.7,'voltou'],['I_PV16','trancada',0.3],['I_PV17','ativa',12.7],['I_PV18','trancada',0.2]];
+const MAB=[['I_PV1','ativa',8.15],['I_PV2','ativa',8.06],['I_PV3','sem_corrente',0.0,'coberta'],['I_PV4','sem_corrente',0.0,'coberta'],['I_PV5','ativa',8.07],['I_PV6','ativa',8.22],['I_PV7','ativa',8.19],['I_PV8','ativa',7.99],['I_PV9','ativa',7.9],['I_PV10','ativa',8.16],['I_PV11','ativa',8.3],['I_PV12','ativa',7.9]];
+function chips(el,lista){
+  document.getElementById(el).innerHTML=lista.map(([n,st,a,tk])=>{const c=SCHIP[st];
+    const ic=tk==='voltou'?'<i class="ph ph-check" style="font-size:10px;color:var(--gc-green)"></i>':tk==='coberta'?'<i class="ph ph-clipboard-text" style="font-size:10px;color:var(--gc-blue);opacity:.55"></i>':'';
+    const lock=`<i class="ph ${st==='trancada'?'ph-lock-simple':'ph-lock-simple-open'}" style="font-size:12px;color:${st==='trancada'?'var(--gc-blue)':'var(--color-neutral-500)'}"></i>`;
+    const halo=tk==='voltou'?'outline:1.5px solid var(--gc-green);outline-offset:-1px;':'';
+    return `<div class="chip" style="background:${c[1]};border:1px solid ${c[2]};${halo}"><div class="l1"><span class="nm" style="color:${c[0]}">${n}${ic}</span>${lock}</div><div class="a">${a.toFixed(2)} A</div></div>`;}).join('');
+}
+chips('g-mts200',MTS); chips('g-mab100',MAB);
+</script>
+</body>
+</html>

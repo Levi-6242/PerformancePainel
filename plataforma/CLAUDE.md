@@ -156,7 +156,21 @@ inversor ganha a etiqueta azul "ticket", a vermelha "N sem ticket" ou a verde "v
 - "X 1 e 2" vai para a parte certa pelo 1º número do inversor. Um ticket sem inversor ("Todos") é da usina inteira e,
   em cada parte, conta até as esperadas dela (Brodowski: um ticket de 209 em duas linhas).
 - a posição da linha no espelho `bases/` **é** o `row_number` da API (o `bd_api` grava cada linha na posição
-  original; conferido em 82 de 82). É esse número que o "Fechar ticket" usa.
+  original; conferido em 82 de 82). É esse número que o "Finalizar ticket" usa.
+
+**Finalizar pela tela (23/09/2026).** Ao abrir o inversor, cada ticket dele vira um card (o da usina inteira e o de
+inversor que a fonte não mostra ficam no alto da usina) com "Finalizar ticket", que grava o Fim na base de tickets.
+Quem grava é a **plataforma**, pelo relay (`tickets_relay.encaminhar`: token daqui, abas liberadas, log), com as regras
+do Salvar do OS Creator web em `tickets_str_fechar.py` (puro, com teste): relê a linha na API, confere usina + inversor
++ início, manda a LINHA INTEIRA no PUT e registra o retrato no **diário v3** (sheet 399) — é o diário que segura o
+ticket fechado se alguém subir o Excel, e é onde moram a OS e o Status do ticket. O contrato do diário é do oem; o
+teste `test_contrato_do_diario_bate_com_o_oem` compara os dois onde o clone existe. O leitor aplica o diário por cima
+(mesma régua do OS Creator), e a coluna mostra **"N para fechar"** quando a linha tem todas as esperadas produzindo e
+ainda há ticket aberto (`normalizado`, em `_com_tickets_str`). Duas armadilhas que só o dado real mostrou:
+- a aba do diário chega ao espelho **sem cabeçalho** (a API devolve o 1º registro com row_number 1, a linha do
+  cabeçalho, e o `bd_api` só escreve cabeçalho em linha livre): ler por posição com `_tkf.COLUNAS`;
+- coluna de data do espelho é data de verdade, e a célula vazia chega como **NaT** — `str(NaT)` é "NaT", que o `_tk_s`
+  não trata como vazio. Use `_tk_vazio`. Sem isso o leitor deu os 82 abertos por fechados.
 
 ## ETM: o que alarma
 

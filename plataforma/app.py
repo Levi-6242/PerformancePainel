@@ -7639,6 +7639,20 @@ def _tk_s(v):
     return "" if s.lower() == "nan" else s
 
 
+def _tk_vazio(v) -> bool:
+    """Célula vazia: None, '' e também o NaN/NaT que o pandas põe no lugar do vazio. NaT é o vazio de coluna de DATA —
+    o espelho grava data de verdade (bd_api._valor) — e str(NaT) é 'NaT', que o _tk_s não reconhece. 23/09/2026: sem
+    isto o leitor dos tickets de strings deu os 82 abertos por fechados (a fixture de teste tinha data em texto)."""
+    if v is None:
+        return True
+    try:
+        if pd.isna(v):
+            return True
+    except (TypeError, ValueError):
+        pass
+    return _tk_s(v) == ""
+
+
 def _tk_os_num(v):
     """Nº de OS/solicitação → string limpa (ou None). Tira o '.0' que o Excel deixa em número."""
     s = _tk_s(v)
@@ -8038,6 +8052,12 @@ TICKETS_STR = {}      # chave de usina (_usina_key) → [ticket aberto, na ordem
 # COLADO ao número, "string" antes de "str" (senão "String 4" casa "str" e falha) e sem fronteira à esquerda, porque
 # o nome real vem grudado ("Ipv10": o marcador é o "pv" do meio). "Strings Ipv10, Ipv11" não conta a palavra solta.
 _RX_TK_STR = re.compile(r"(?:string|str|pv)\s*[-_.]?\s*(\d+)", re.I)
+# Lista no PLURAL, sem o marcador em cada número: "Strings 16, 17, 18, 21, 22, 23, 25, 26 e 27 com corrente nula" (BES100,
+# linha 309, 23/09/2026 — é a frase do OS Creator quando a OS pega várias strings). A régua acima não pega o plural, e o
+# ticket aparecia como "não diz quais". A palavra "strings" tem de vir colada à lista: "inversores 5, 6 e 7" (Petrolina 2)
+# é número de INVERSOR e fica de fora.
+_RX_TK_STR_LISTA = re.compile(r"\bstrings?\s+(\d+(?:\s*(?:,|\be\b)\s*\d+)+)", re.I)
+import tickets_str_fechar as _tkf       # finalizar ticket de strings pela tela (gravador + contrato do diário)
 
 
 def _tk_inv_chave(s) -> str:
@@ -8048,7 +8068,13 @@ def _tk_inv_chave(s) -> str:
 
 def _tk_str_ids(*textos) -> list:
     """Números das strings citadas nos comentários do ticket ([] = o ticket não diz quais)."""
-    return sorted({int(n) for t in textos for n in _RX_TK_STR.findall(str(t or ""))})
+    ids = set()
+    for t in textos:
+        s = str(t or "")
+        ids.update(int(n) for n in _RX_TK_STR.findall(s))
+        for lista in _RX_TK_STR_LISTA.findall(s):
+            ids.update(int(n) for n in re.findall(r"\d+", lista))
+    return sorted(ids)
 
 
 def load_tickets_strings():
@@ -8092,29 +8118,53 @@ def load_tickets_strings():
         c_afe = next((c for c in df.columns if "quantidade" in low[c] and "afetad" in low[c]), None)
         c_cau = next((c for c in df.columns if "causa" in low[c]), None)
         c_coms = [c for c in df.columns if low[c].startswith("coment")]
+        # DIÁRIO do OS Creator por cima (23/09/2026). É nele que moram a OS vinculada e o Status do ticket (a planilha
+        # não tem coluna para os dois), e é ele que mantém fechado o ticket finalizado pelo app ou pela tela de strings
+        # quando um sync do Excel (replace=true) reabre a linha. Mesma régua da tela de Tickets do OS Creator
+        # (tickets_str_fechar.aplicar_diario): o registro mais novo da linha, só se usina+inversor baterem. O espelho
+        # traz a aba porque o bd_api materializa o workbook inteiro.
+        # A aba chega ao espelho SEM cabeçalho: a API devolve o 1º registro com row_number 1, a mesma linha do cabeçalho
+        # declarado, e o bd_api só escreve o cabeçalho em linha livre. Então: sem cabeçalho, colunas pela ORDEM do
+        # contrato (_tkf.COLUNAS, a mesma do OS Creator), e a 1ª linha só sai se ela FOR o cabeçalho.
+        regs = []
+        if _tkf.NOME_DIARIO in xl.sheet_names:
+            try:
+                dd = xl.parse(_tkf.NOME_DIARIO, header=None)
+                if len(dd) and _tk_s(dd.iat[0, 0]).lower() == "quando":
+                    dd = dd.iloc[1:]
+                dd = dd.iloc[:, :len(_tkf.COLUNAS)]
+                dd.columns = _tkf.COLUNAS[:dd.shape[1]]
+                regs = [{k: ("" if _tk_vazio(v) else v) for k, v in rec.items()} for rec in dd.to_dict("records")]
+            except Exception as e:                   # noqa: BLE001 — sem diário, vale a planilha (como antes de 23/09)
+                print(f"[AVISO] Tickets/Strings: diário do OS Creator não lido: {e}")
         m = {}
         for i, row in df.iterrows():
-            u_pl = _tk_s(row[c_us])
-            if not u_pl or pd.notna(row[c_fim]) and _tk_s(row[c_fim]) not in ("", "-"):
+            oc = {c: (None if _tk_vazio(v) else v) for c, v in row.items()}
+            oc["_row"] = int(i) + 5                   # linha no Excel (cabeçalho na 4) = row_number da API
+            oc = _tkf.aplicar_diario(oc, regs)
+            u_pl = _tk_s(oc.get(c_us))
+            if not u_pl or _tk_s(oc.get(c_fim)) not in ("", "-"):
                 continue                              # sem usina, ou FECHADO (Fim preenchido): não cobre nada
-            ids = _tk_str_ids(*(row[c] for c in c_coms))
+            ids = _tk_str_ids(*(oc.get(c) for c in c_coms))
             try:
-                afet = int(float(row[c_afe])) if c_afe is not None and pd.notna(row[c_afe]) else 0
+                afet = int(float(oc.get(c_afe))) if c_afe is not None and _tk_s(oc.get(c_afe)) else 0
             except (TypeError, ValueError):
                 afet = 0
-            inv_txt = _tk_s(row[c_inv])
+            inv_txt = _tk_s(oc.get(c_inv))
             chave_inv = _tk_inv_chave(inv_txt)
             nome = codigo.get(_usina_key(u_pl), u_pl)
-            com = " · ".join(_tk_s(row[c]) for c in c_coms if _tk_s(row[c]))
+            com = " · ".join(_tk_s(oc.get(c)) for c in c_coms if _tk_s(oc.get(c)))
             m.setdefault(_usina_key(nome), []).append({
                 "usina": nome, "usina_planilha": u_pl, "inversor": inv_txt, "inv": chave_inv,
                 "inv_bloco": int(chave_inv.split(".")[0]) if re.fullmatch(r"\d+\.\d+", chave_inv) else None,
                 # sem quantidade na planilha vale o que o comentário cita; ticket que nasce da OS grava "1" fixo
                 # mesmo citando várias (tickets_nasce.montar_linha), então o maior dos dois
                 "qtd": max(afet, len(ids)) or 1, "strings": ids,
-                "desde": _tk_data(row[c_ini]) if c_ini is not None else "",
-                "causa": _tk_s(row[c_cau]) if c_cau is not None else "",
-                "comentario": com[:240], "linha": int(i) + 5,          # linha no Excel (cabeçalho na 4)
+                "desde": _tk_data(oc.get(c_ini)) if c_ini is not None else "",
+                "inicio": _tkf.para_iso(oc.get(c_ini)) if c_ini is not None else "",
+                "causa": _tk_s(oc.get(c_cau)) if c_cau is not None else "",
+                "os": _tk_os_num(oc.get("OS")) or "", "status_ticket": _tk_s(oc.get("Status do ticket")),
+                "comentario": com[:600], "linha": oc["_row"],
             })
         # "X 1 e 2" → "X 1" e "X 2", cada uma com os tickets do seu bloco (o 1º número do inversor). Inversor sem o par
         # N.M ('Geral') não tem como ser atribuído e vai para as duas — cobrir vale mais que calar.
@@ -8155,21 +8205,53 @@ def _tk_str_da_usina_inteira(t) -> bool:
     return t["inv_bloco"] is None and not re.fullmatch(r"\d+\.\d+", t["inv"])
 
 
+def _tk_str_julgamento(r) -> tuple:
+    """(normal, motivo) de uma linha da tabela, para os tickets dela. `normal` = todas as strings esperadas produzindo
+    agora, com dado que dá para julgar. `motivo` diz por que não dá para julgar (vai no tooltip da coluna); vazio quando
+    o que falta é só string faltando, que a coluna já mostra com a barra."""
+    if r.get("sol_baixo"):
+        return False, "sem sol agora"
+    if r.get("falha_comunicacao") or r.get("sem_dados"):
+        return False, "usina sem comunicação"
+    if r.get("rampa"):
+        return False, "irradiância baixa"
+    if r.get("sem_visao"):
+        return False, "usina sem visão por string"
+    esp, atv, dif = r.get("str_esp"), r.get("strings_ativas"), r.get("diferenca")
+    if not (isinstance(esp, (int, float)) and esp > 0) or not isinstance(atv, (int, float)):
+        return False, "usina sem strings esperadas cadastradas"     # Altair 5 em 23/09: "0 faltando" com 0 de 0
+    if not isinstance(dif, (int, float)) or dif < 0:
+        return False, ""
+    return True, ""
+
+
 def _com_tickets_str(payload):
-    """Anexa `tickets_str` ({strings, tickets, lista}) às linhas com ticket aberto, na hora de servir e em CÓPIA
-    (o payload em cache é do worker). Linha sem ticket não ganha campo.
+    """Anexa `tickets_str` ({strings, tickets, lista, para_fechar, motivo}) às linhas com ticket aberto, na hora de
+    servir e em CÓPIA (o payload em cache é do worker). Linha sem ticket não ganha campo.
 
     Ticket da usina inteira conta, em cada linha, até as esperadas DELA. Brodowski, 23/09: um ticket 'Todos' de 209
     strings (furto de cabos) para uma usina que na API PV são duas linhas, Skid 1 e Skid 2. Com a quantidade crua,
-    as duas mostravam 209, e quem somasse lia 418."""
+    as duas mostravam 209, e quem somasse lia 418.
+
+    PARA FECHAR (Levi, 23/09/2026: "Se tem 0 strings inativas e tem 1 ticket aberto, então sei que devo fechar a
+    string"). Um ticket é `normalizado` quando a linha dele está com TODAS as esperadas produzindo e dá para julgar
+    (_tk_str_julgamento). Duas exceções que o 0 da diferença esconde: o inversor desligado fora da conta (Athon, 22/09:
+    ele sai das esperadas, então a usina dá 0 com as strings dele paradas) e o ticket da usina inteira, que só vale com
+    TODAS as partes normais (Brodowski: Skid 2 com 195 de 195 e a Skid 1 sem leitura de strings). A régua fina, por
+    string, fica no drill, que tem as strings de cada inversor."""
     rows = payload.get("rows") if isinstance(payload, dict) else None
     if not rows or not TICKETS_STR:
         return payload
-    novas, mudou = [], False
+    novas, mudou, inteira = [], False, {}      # inteira: linha do ticket da usina inteira → [normal de cada parte]
     for r in rows:
         lst = [t for t in _tickets_str_da_linha(r.get("usina")) if not _tk_str_fechado_aqui(t["linha"])]
         if lst:
             esp = r.get("str_esp")
+            normal, motivo = _tk_str_julgamento(r)
+            desl = {_tk_inv_chave(n) for n in (r.get("inv_desligados_nomes") or [])}
+            fora = isinstance(r.get("strings_fora"), (int, float)) and r.get("strings_fora") > 0
+            if normal and fora and not desl:
+                motivo = "inversor desligado fora da conta"                # sem saber qual, não arrisca
             lista = []
             for t in lst:
                 t = dict(t, usina_inteira=_tk_str_da_usina_inteira(t))
@@ -8177,11 +8259,24 @@ def _com_tickets_str(payload):
                     t["qtd_na_linha"] = min(t["qtd"], int(esp))
                 else:
                     t["qtd_na_linha"] = t["qtd"]
+                if t["usina_inteira"]:
+                    t["normalizado"] = normal and not fora
+                    inteira.setdefault(t["linha"], []).append(t["normalizado"])
+                else:
+                    t["normalizado"] = normal and t["inv"] not in desl and not (fora and not desl)
                 lista.append(t)
             r = dict(r, tickets_str={"strings": sum(t["qtd_na_linha"] for t in lista), "tickets": len(lista),
-                                     "lista": lista})
+                                     "lista": lista, "motivo": motivo})
             mudou = True
         novas.append(r)
+    for r in novas:
+        ts = r.get("tickets_str")
+        if not ts:
+            continue
+        for t in ts["lista"]:
+            if t["usina_inteira"]:
+                t["normalizado"] = all(inteira.get(t["linha"]) or [False])
+        ts["para_fechar"] = sum(1 for t in ts["lista"] if t["normalizado"])
     return dict(payload, rows=novas) if mudou else payload
 
 
@@ -8190,20 +8285,23 @@ def _servir_tabela_strings(payload, conta):
     return _com_tickets_str(_servir_com_sol(payload, conta))
 
 
-# ── Fechar ticket de strings pela tela (23/09/2026) ──────────────────────────────────────────────────────────────────
-#   Quem GRAVA é o OS Creator web, pela mesma rota de Salvar da tela de Tickets dele (/os/api/tickets/Strings/<linha>/
-#   salvar): relê a linha, recusa se alguém mexeu (409), manda a linha INTEIRA no PUT e registra no diário (aba 387) para
-#   o sync do Excel não reabrir. Um segundo gravador aqui seria um segundo lugar para errar essas quatro regras.
-#   A plataforma só CONFERE no banco que o Fim está lá e então tira o ticket da coluna, sem esperar o espelho da planilha
-#   (o bd_api atualiza em até 30 min). Sem o Fim no banco, nada some da tela.
+# ── Finalizar ticket de strings pela tela (Levi, 23/09/2026) ─────────────────────────────────────────────────────────
+#   "ao clicar no inversor ver as informações do ticket e conseguir finalizar ele pela plataforma (...) de forma que o
+#   que mudar na plataforma também muda na base de dados de tickets". Quem GRAVA é a própria plataforma, pelo relay que
+#   já grava os tickets do OS Creator de mesa (token só nesta máquina, lista de abas, log em logs/tickets_relay.log). As
+#   regras (relê, confere que é o mesmo ticket, linha INTEIRA no PUT, diário v3) são as do Salvar do OS Creator web e
+#   moram em tickets_str_fechar.py. Até esta data o botão passava pelo OS Creator web, que não está instalado no
+#   servidor: respondia 503 e nada gravava.
+#   Depois de gravar, o ticket sai da coluna na hora, sem esperar o espelho da planilha (o bd_api refaz em até 30 min),
+#   mas só com o Fim RELIDO no banco.
 _TICKETS_STR_FECHADOS = {}              # linha (row_number da API) → quando a plataforma CONFERIU o Fim gravado no banco
 _TICKETS_STR_FECHADOS_TTL = 2 * 3600    # cobre o atraso do espelho sem virar "fechado para sempre" na tela
 
 
-def _tk_str_linhas_api() -> list:
-    """Linhas cruas da aba Strings indisp (sheet 128), DIRETO na API: leitura aberta, sem token."""
+def _tkf_ler_aba(sheet_id) -> list:
+    """Linhas cruas de uma aba, DIRETO na API (leitura aberta, sem token): 128 = Strings indisp, 399 = o diário."""
     import bd_api
-    return bd_api.linhas_da_aba(128)
+    return bd_api.linhas_da_aba(sheet_id)
 
 
 def _tk_str_fechado_aqui(linha) -> bool:
@@ -8211,30 +8309,38 @@ def _tk_str_fechado_aqui(linha) -> bool:
     return bool(ts) and (time.time() - ts) < _TICKETS_STR_FECHADOS_TTL
 
 
-@app.route("/api/strings/tickets/fechado", methods=["POST"])
-def api_tickets_str_fechado():
-    """A tela fechou um ticket de strings pelo OS Creator web. Relê a linha no banco e, só com o Fim gravado, tira o
-    ticket da coluna. Nada é gravado aqui."""
+@app.route("/api/strings/tickets/<int:linha>/finalizar", methods=["POST"])
+def api_tickets_str_finalizar(linha):
+    """Grava o Fim da ocorrência do ticket de strings da `linha` na base de tickets. O corpo traz o que a TELA viu
+    (usina da planilha, inversor, início), que é contra o que a linha relida é conferida, mais o Fim e quem fecha.
+
+    Quem fecha é DIGITADO: no login por senha a plataforma não sabe quem é, e o diário guarda o autor de cada edição.
+    Vai como "Nome (plataforma)", para o histórico do OS Creator dizer de onde veio."""
     corpo = flask_request.get_json(silent=True) or {}
-    try:
-        linha = int(corpo.get("linha"))
-    except (TypeError, ValueError):
-        return jsonify({"ok": False, "erro": "linha inválida"}), 400
     if not any(t["linha"] == linha for v in TICKETS_STR.values() for t in v):
-        return jsonify({"ok": False, "erro": f"a linha {linha} não é um ticket aberto de strings"}), 404
+        return jsonify({"ok": False, "erro": f"A linha {linha} não é um ticket aberto de strings. Nada foi gravado."}), 404
+    tok = _estado_backup._token()
+    if not tok:
+        return jsonify({"ok": False, "erro": "A plataforma está sem o GRIDCO_SQL_TOKEN. Nada foi gravado."}), 503
+    nome = " ".join(str(corpo.get("quem") or "").split())[:60]
+    quem = f"{nome} (plataforma)" if nome else ""
+    email = session.get("user") if session.get("auth_kind") == "ms" else "senha compartilhada"
+
+    def _gravar(metodo, sheet_id, row, dados):
+        return _relay.encaminhar(metodo, sheet_id, row, dados, (email, quem), tok)
+
+    esperado = {k: corpo.get(k) for k in ("usina_planilha", "inversor", "desde")}
     try:
-        fim = None
-        for ln in _tk_str_linhas_api():
-            if ln.get("row_number") == linha:
-                m = {str(h).strip(): v for h, v in zip(ln.get("headers") or [], ln.get("values") or []) if h}
-                fim = _tk_s(m.get("Fim da ocorrência"))
-                break
-    except Exception as e:                    # noqa: BLE001 — sem conferir, não esconde
-        return jsonify({"ok": False, "erro": f"não consegui reler a linha {linha} no banco: {e}"}), 502
-    if not fim:
-        return jsonify({"ok": False, "erro": f"o banco ainda não mostra o Fim da ocorrência na linha {linha}"}), 409
-    _TICKETS_STR_FECHADOS[linha] = time.time()
-    return jsonify({"ok": True, "linha": linha, "fim": fim})
+        r = _tkf.finalizar(linha, esperado, corpo.get("fim"), quem, ler_aba=_tkf_ler_aba, gravar=_gravar,
+                           agora=_tkf.agora_brasilia())
+    except _tkf.Recusa as e:
+        return jsonify({"ok": False, "erro": str(e)}), e.status
+    except (requests.RequestException, _relay.AbaForaDaLista) as e:
+        return jsonify({"ok": False, "erro": f"A base de tickets não respondeu ({str(e)[:160]}). Confira na tela de "
+                                             f"Tickets do OS Creator se o Fim foi gravado."}), 502
+    if r["confirmado"]:
+        _TICKETS_STR_FECHADOS[linha] = time.time()
+    return jsonify(r)
 
 
 load_tickets_trackers()   # carga inicial
