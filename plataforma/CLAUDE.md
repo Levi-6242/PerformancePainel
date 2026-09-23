@@ -142,6 +142,22 @@ strings como faltantes — a régua por string deixava passar o ruído de corren
 `os_atribuida`. À noite nada é zerado (Pac ~0 é a noite). O `gerencial.html` é tema escuro por padrão só por
 tokens (`:root[data-theme="dark"]`); é Jinja — mudança nele exige restart do web.
 
+## Tickets de strings na tabela (23/09/2026)
+
+A tabela de strings tem a coluna **Tickets**: strings com ticket ABERTO na aba **"Strings indisp"** (sheet 128) da
+planilha de tickets, a mesma que a tela de Tickets do OS Creator lê e grava, contra as que faltam agora. No drill, o
+inversor ganha a etiqueta azul "ticket", a vermelha "N sem ticket" ou a verde "voltou", e o chip da string ganha um
+ícone. `load_tickets_strings` → `TICKETS_STR`, anexado na saída das 9 rotas por `_com_tickets_str`, dentro de
+`_servir_tabela_strings`. A aba é diferente da de trackers, e cada regra vem disso:
+- **uma linha por ticket de INVERSOR, com a quantidade**. QUAL string só aparece nos comentários ("Ipv11 e Ipv12 com
+  corrente nula", texto do ticket que nasce de OS). Em 23/09, 19 dos 82 abertos diziam quais. Ticket que não diz a
+  string só marca as zeradas do inversor como cobertas quando a quantidade dele alcança todas.
+- a coluna Usina mistura nome e **código** (ALT100). O de-para é a própria planilha, aba "Base de dados - Usinas".
+- "X 1 e 2" vai para a parte certa pelo 1º número do inversor. Um ticket sem inversor ("Todos") é da usina inteira e,
+  em cada parte, conta até as esperadas dela (Brodowski: um ticket de 209 em duas linhas).
+- a posição da linha no espelho `bases/` **é** o `row_number` da API (o `bd_api` grava cada linha na posição
+  original; conferido em 82 de 82). É esse número que o "Fechar ticket" usa.
+
 ## ETM: o que alarma
 
 Régua do Levi (10/09/2026): **só IPOA (POA) e GHI medidos em zero com sol alarmam** — hoje (`_diagnostico_etm`,

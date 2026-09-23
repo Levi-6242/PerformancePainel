@@ -2065,6 +2065,7 @@ def maybe_reload_tickets():
             return
         print("[Tickets] planilha alterada -> recarregando ocorrências...")
         load_tickets_trackers()
+        load_tickets_strings()
         load_tickets_os()
 
 
@@ -3913,7 +3914,7 @@ def _build_semp_payload():
 @app.route("/api/semp/data")
 def api_semp_data():
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_servir_com_sol(_swr(_semp_cache, _build_semp_payload, force), _sem_geracao_api_pv))
+    return jsonify(_servir_tabela_strings(_swr(_semp_cache, _build_semp_payload, force), _sem_geracao_api_pv))
 
 
 # A Tucano TEM estação meteorológica (day_meteo devolve POA, GHI, albedo, temp. de módulo e vento),
@@ -3967,7 +3968,7 @@ def _build_alveslima_etm_analise_payload():
 @app.route("/api/alveslima/data")
 def api_alveslima_data():
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_servir_com_sol(_swr(_alveslima_cache, _build_alveslima_payload, force), _sem_geracao_api_pv))
+    return jsonify(_servir_tabela_strings(_swr(_alveslima_cache, _build_alveslima_payload, force), _sem_geracao_api_pv))
 
 
 @app.route("/api/alveslima/etm")
@@ -4006,7 +4007,7 @@ def _build_2capi_etm_analise_payload():
 @app.route("/api/2capi/data")
 def api_2capi_data():
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_servir_com_sol(_swr(_2capi_cache, _build_2capi_payload, force), _sem_geracao_api_pv))
+    return jsonify(_servir_tabela_strings(_swr(_2capi_cache, _build_2capi_payload, force), _sem_geracao_api_pv))
 
 
 @app.route("/api/2capi/etm")
@@ -4039,7 +4040,7 @@ def api_data():
         # o payload em cache é do worker e não pode ser mexido no caminho da requisição.
         out["rows"] = [dict(r, inv_padrao=_inv_padrao_resumo(r.get("plant_id"))) if r.get("plant_id") in INV_PADRAO_PLANTAS else r
                        for r in (out.get("rows") or [])]
-        return jsonify(_servir_com_sol(out, _sem_geracao_api_pv))
+        return jsonify(_servir_tabela_strings(out, _sem_geracao_api_pv))
     # 1ª carga, cache ainda vazio → resposta leve "carregando" (frontend re-tenta)
     return jsonify({"rows": [], "alertas_comm_list": [], "alertas_strings_list": [],
                     "alertas_temp_list": [],
@@ -5348,7 +5349,7 @@ def _build_sunop_payload(inst: str = "gridco"):
 def api_sunop_data():
     inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_servir_com_sol(_swr(_si(inst)["cache"], lambda: _build_sunop_payload(inst), force),
+    return jsonify(_servir_tabela_strings(_swr(_si(inst)["cache"], lambda: _build_sunop_payload(inst), force),
                                    _sem_geracao_padrao))
 
 
@@ -8011,7 +8012,176 @@ def _trk_cruza_tickets(nome, lst, skid=None) -> dict:
             "normalizados": normalizados, "parados_com": par_com, "parados_sem": par_sem, "ticket_usina": tu}
 
 
+# ── Tickets de STRINGS (aba "Strings indisp", sheet 128 da planilha de tickets) — Levi, 23/09/2026 ──────────
+#   "mostrasse o total de strings com ticket aberto por usina, e quando abre a usina mostra qual string que está
+#   com esse ticket". A aba é a mesma que a tela de Tickets do OS Creator lê e grava, e a estrutura é outra que a
+#   de trackers:
+#     - uma linha por ticket de INVERSOR, com a QUANTIDADE de strings afetadas; aberto = "Fim da ocorrência" vazio;
+#     - QUAL string só está no texto dos comentários, quando o ticket nasce de OS do OS Creator ("Ipv11 e Ipv12 com
+#       corrente nula em 01/09/2026"): em 23/09, 19 dos 82 abertos. Nos outros, a string zerada do inversor fica
+#       coberta pelo ticket do inversor;
+#     - a coluna Usina mistura nome e CÓDIGO (ALT100, ADS100, EBG100). O de-para é a própria planilha, aba
+#       "Base de dados - Usinas" (THPN-ALT100 = Altair);
+#     - "X 1 e 2" é uma linha para duas usinas da plataforma, e o 1º número do inversor diz de qual é.
+TICKETS_STR = {}      # chave de usina (_usina_key) → [ticket aberto, na ordem da planilha]
+# Mesma régua do `tickets_nasce.contar_strings` do OS Creator (repo oem), que é quem escreve estes textos: marcador
+# COLADO ao número, "string" antes de "str" (senão "String 4" casa "str" e falha) e sem fronteira à esquerda, porque
+# o nome real vem grudado ("Ipv10": o marcador é o "pv" do meio). "Strings Ipv10, Ipv11" não conta a palavra solta.
+_RX_TK_STR = re.compile(r"(?:string|str|pv)\s*[-_.]?\s*(\d+)", re.I)
+
+
+def _tk_inv_chave(s) -> str:
+    """'Inversor 1.2', 'INV 1.2' e 'Inversor 01.02' → '1.2'. Sem o par N.M, o texto normalizado ('geral')."""
+    m = re.search(r"(\d+)\s*[.,]\s*(\d+)", str(s or ""))
+    return f"{int(m.group(1))}.{int(m.group(2))}" if m else _usina_key(s or "")
+
+
+def _tk_str_ids(*textos) -> list:
+    """Números das strings citadas nos comentários do ticket ([] = o ticket não diz quais)."""
+    return sorted({int(n) for t in textos for n in _RX_TK_STR.findall(str(t or ""))})
+
+
+def load_tickets_strings():
+    """(Re)carrega os tickets ABERTOS de strings, indexados pela chave da usina (código já traduzido)."""
+    global TICKETS_STR
+    src = _bd_readable("tickets_performance", _tickets_path)
+    if src is None:
+        return
+    try:
+        if isinstance(src, str):                      # arquivo: o Excel/OneDrive trava a leitura direta (ver Trackers)
+            import shutil, tempfile
+            _tmp = os.path.join(tempfile.gettempdir(), "_gridco_tickets_str.xlsx")
+            try:
+                shutil.copy2(src, _tmp)
+                src = _tmp
+            except Exception:
+                pass
+        xl = pd.ExcelFile(src)
+        codigo = {}                                   # "alt100" / "thpn-alt100" → "Altair"
+        if "Base de dados - Usinas" in xl.sheet_names:
+            du = xl.parse("Base de dados - Usinas", header=3)
+            du.columns = [str(c).strip() for c in du.columns]
+            c_u = next((c for c in du.columns if c.lower() == "usina"), None)
+            c_cods = [c for c in du.columns if c.lower().startswith("código") or c.lower().startswith("codigo")]
+            for _, r in du.iterrows():
+                nome = _tk_s(r.get(c_u)) if c_u else ""
+                if not nome:
+                    continue
+                for c in c_cods:
+                    cod = _tk_s(r.get(c))
+                    if cod and cod != "0":
+                        codigo[_usina_key(cod)] = nome
+                        codigo[_usina_key(cod.split("-")[-1])] = nome     # THPN-ALT100 → ALT100
+        df = xl.parse("Strings indisp", header=3)
+        df.columns = [str(c).strip() for c in df.columns]
+        low = {c: c.lower() for c in df.columns}
+        c_us = next(c for c in df.columns if low[c] == "usina")
+        c_inv = next(c for c in df.columns if low[c] == "inversor")
+        c_fim = next(c for c in df.columns if "fim" in low[c] and "ocorr" in low[c])
+        c_ini = next((c for c in df.columns if "ocorr" in low[c] and low[c].startswith("in")), None)
+        c_afe = next((c for c in df.columns if "quantidade" in low[c] and "afetad" in low[c]), None)
+        c_cau = next((c for c in df.columns if "causa" in low[c]), None)
+        c_coms = [c for c in df.columns if low[c].startswith("coment")]
+        m = {}
+        for i, row in df.iterrows():
+            u_pl = _tk_s(row[c_us])
+            if not u_pl or pd.notna(row[c_fim]) and _tk_s(row[c_fim]) not in ("", "-"):
+                continue                              # sem usina, ou FECHADO (Fim preenchido): não cobre nada
+            ids = _tk_str_ids(*(row[c] for c in c_coms))
+            try:
+                afet = int(float(row[c_afe])) if c_afe is not None and pd.notna(row[c_afe]) else 0
+            except (TypeError, ValueError):
+                afet = 0
+            inv_txt = _tk_s(row[c_inv])
+            chave_inv = _tk_inv_chave(inv_txt)
+            nome = codigo.get(_usina_key(u_pl), u_pl)
+            com = " · ".join(_tk_s(row[c]) for c in c_coms if _tk_s(row[c]))
+            m.setdefault(_usina_key(nome), []).append({
+                "usina": nome, "usina_planilha": u_pl, "inversor": inv_txt, "inv": chave_inv,
+                "inv_bloco": int(chave_inv.split(".")[0]) if re.fullmatch(r"\d+\.\d+", chave_inv) else None,
+                # sem quantidade na planilha vale o que o comentário cita; ticket que nasce da OS grava "1" fixo
+                # mesmo citando várias (tickets_nasce.montar_linha), então o maior dos dois
+                "qtd": max(afet, len(ids)) or 1, "strings": ids,
+                "desde": _tk_data(row[c_ini]) if c_ini is not None else "",
+                "causa": _tk_s(row[c_cau]) if c_cau is not None else "",
+                "comentario": com[:240], "linha": int(i) + 5,          # linha no Excel (cabeçalho na 4)
+            })
+        # "X 1 e 2" → "X 1" e "X 2", cada uma com os tickets do seu bloco (o 1º número do inversor). Inversor sem o par
+        # N.M ('Geral') não tem como ser atribuído e vai para as duas — cobrir vale mais que calar.
+        for k in list(m):
+            mm = re.fullmatch(r"(.+?)\s+(\d+)\s+e\s+(\d+)", k)
+            if mm:
+                for n in (mm.group(2), mm.group(3)):
+                    m.setdefault(f"{mm.group(1)} {n}", []).extend(
+                        t for t in m[k] if t["inv_bloco"] in (None, int(n)))
+        TICKETS_STR = m
+        print(f"[OK] Tickets/Strings: {sum(len(v) for k, v in m.items() if not re.search(r' e \d+$', k))} abertos "
+              f"em {len(m)} chaves de usina ({len(codigo)} códigos traduzidos)")
+    except Exception as e:
+        print(f"[AVISO] Tickets/Strings não carregado: {e}")
+
+
+def _tickets_str_da_linha(nome) -> list:
+    """Tickets abertos de UMA linha da tabela de strings. Nome cru primeiro — ele carrega o nº da sub-usina que o
+    canônico perde ('Sitio dos Nogueiras 1 (35)' e '2 (36)' têm o mesmo canônico, e o ticket do 'Inversor 2.3' é
+    só da 2). Depois o canônico do macro ('UFV Tucano 1' → 'Tucano 1'). Sem par, lista vazia."""
+    if not TICKETS_STR or not nome:
+        return []
+    limpo = re.sub(r"\s*-\s*skid\s*", " ", str(nome), flags=re.I)        # "Brodowski - Skid 2 (86)" → "Brodowski 2 (86)"
+    for nm in (limpo, _macro_usina_nome(nome) or ""):
+        k = _usina_key(nm)
+        if not k:
+            continue
+        if k in TICKETS_STR:
+            return TICKETS_STR[k]
+        mm = re.fullmatch(r"(.+?)\s+(\d+)(?:\.\d+)?", k)                 # "sitio dos nogueiras 1" → bloco 1
+        if mm and mm.group(1) in TICKETS_STR:
+            return [t for t in TICKETS_STR[mm.group(1)] if t["inv_bloco"] in (None, int(mm.group(2)))]
+    return []
+
+
+def _tk_str_da_usina_inteira(t) -> bool:
+    """Ticket sem inversor ('Todos', 'Geral', 'UFV'): cobre a usina — ou a parte dela que a linha é — inteira."""
+    return t["inv_bloco"] is None and not re.fullmatch(r"\d+\.\d+", t["inv"])
+
+
+def _com_tickets_str(payload):
+    """Anexa `tickets_str` ({strings, tickets, lista}) às linhas com ticket aberto, na hora de servir e em CÓPIA
+    (o payload em cache é do worker). Linha sem ticket não ganha campo.
+
+    Ticket da usina inteira conta, em cada linha, até as esperadas DELA. Brodowski, 23/09: um ticket 'Todos' de 209
+    strings (furto de cabos) para uma usina que na API PV são duas linhas, Skid 1 e Skid 2. Com a quantidade crua,
+    as duas mostravam 209, e quem somasse lia 418."""
+    rows = payload.get("rows") if isinstance(payload, dict) else None
+    if not rows or not TICKETS_STR:
+        return payload
+    novas, mudou = [], False
+    for r in rows:
+        lst = _tickets_str_da_linha(r.get("usina"))
+        if lst:
+            esp = r.get("str_esp")
+            lista = []
+            for t in lst:
+                t = dict(t, usina_inteira=_tk_str_da_usina_inteira(t))
+                if t["usina_inteira"] and isinstance(esp, (int, float)) and esp > 0:
+                    t["qtd_na_linha"] = min(t["qtd"], int(esp))
+                else:
+                    t["qtd_na_linha"] = t["qtd"]
+                lista.append(t)
+            r = dict(r, tickets_str={"strings": sum(t["qtd_na_linha"] for t in lista), "tickets": len(lista),
+                                     "lista": lista})
+            mudou = True
+        novas.append(r)
+    return dict(payload, rows=novas) if mudou else payload
+
+
+def _servir_tabela_strings(payload, conta):
+    """O que as 9 rotas da tabela de strings fazem na saída: a marca de sol e os tickets abertos."""
+    return _com_tickets_str(_servir_com_sol(payload, conta))
+
+
 load_tickets_trackers()   # carga inicial
+load_tickets_strings()    # tickets abertos de strings (aba Strings indisp) — coluna "Tickets" da tabela de strings
 load_usina_codigos()      # de-para nome↔Código Fractal (Info Geral) — resolve usina do dashboard
 load_tickets_os()         # OSs de Performance (planilha de Tickets) → comentário automático
 
@@ -10735,7 +10905,7 @@ def _build_se_payload():
 @app.route("/api/solaredge/data")
 def api_solaredge_data():
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_servir_com_sol(_swr(_se_cache, _build_se_payload, force), _sem_geracao_padrao))
+    return jsonify(_servir_tabela_strings(_swr(_se_cache, _build_se_payload, force), _sem_geracao_padrao))
 
 
 def _inv_eday_do_pr(invs: list, pr_invs: list) -> int:
@@ -11280,7 +11450,7 @@ def api_pg_data():
     except Exception as e:
         return jsonify({"error": str(e), "rows": [], "summary": {}}), 500
     rows_com = [r for r in rows if not r.get("sem_dados")]
-    return jsonify(_servir_com_sol({
+    return jsonify(_servir_tabela_strings({
         "rows": rows,
         "summary": {
             "total_usinas":    len(rows),
@@ -16692,7 +16862,7 @@ def _2c_unifica_rows(rows_email, api_rows):
 def api_owen_strings_data():
     rows = _2c_unifica_rows(_owen_strings_rows(flask_request.args.get("force") == "1"),
                             (_2capi_cache.get("payload") or {}).get("rows"))
-    return jsonify(_servir_com_sol({"rows": rows, "summary": {
+    return jsonify(_servir_tabela_strings({"rows": rows, "summary": {
         "total_usinas": len(rows),
         "total_strings": sum(r["strings_ativas"] for r in rows if r.get("strings_ativas")),
         "alertas_strings": sum(1 for r in rows if r.get("diferenca") is not None and r["diferenca"] < 0)},

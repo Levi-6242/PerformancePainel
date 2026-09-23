@@ -581,15 +581,17 @@ function buildInversores(pid){
   if(SKEY[state.source]==='pv'&&_urow&&(_urow.sem_visao||_urow.inv_padrao)&&_pd[pid]===undefined){   // pela FONTE (SKEY→'pv'): a fonte chama-se 'thopen-pv', e comparar com 'pv' nunca buscava o padrão (13/09/2026) _pd[pid]=null;
     fetchJSON('/api/pv/inv-padrao/'+encodeURIComponent(pid)).then(d=>{ _pd[pid]=(d&&d.na_regua)?d:false; render(); }).catch(()=>{ _pd[pid]=false; }); }
   const _pdInv=(_pd[pid]&&_pd[pid].inversores)||[], _pdDia=(_pd[pid]&&_pd[pid].dia)||null;
+  const _tkl=(_urow&&_urow.tickets_str&&_urow.tickets_str.lista)||[], _semSolU=!!(_urow&&_urow.sol_baixo);   // tickets de strings (23/09/2026)
   return invs.map(inv=>{
     const iid=pid+'-'+inv.id, expanded=state.expandedInversor===iid, cab=String(inv.nome||'').match(/(\d+)\.\d+/);
+    const tks=_tkStrInv(_tkl,inv.nome), cob=_tkStrCobertura(tks,inv.strings);
     const strings=(inv.strings||[]).map(sx=>{ const trc=!!sx.trancada, st=trc?'trancada':(sx.status||(sx.ativa?'ativa':'inativa')), c=_SCHIP[st]||_SCHIP.inativa;
-      return { name:sx.id, id:sx.id, trancada:trc, low:(st==='baixa_perf'), dead:(st==='sem_corrente'), amp:(sx.corrente!=null?Number(sx.corrente).toFixed(2):'—'), nameColor:c[0], uuid:sx.uuid, unidade:sx.unidade,
+      return { tk:_tkStrMarca(tks,{name:sx.id,dead:(st==='sem_corrente')},(st==='ativa'||st==='baixa_perf'),cob.cobreTudo), name:sx.id, id:sx.id, trancada:trc, low:(st==='baixa_perf'), dead:(st==='sem_corrente'), amp:(sx.corrente!=null?Number(sx.corrente).toFixed(2):'—'), nameColor:c[0], uuid:sx.uuid, unidade:sx.unidade,
         style:`padding:6px 8px;border-radius:var(--radius-sm);background:${c[1]};border:1px solid ${c[2]};` }; });
     const semList=(inv.strings||[]).filter(sx=>!sx.trancada&&(sx.status||'')==='sem_corrente').map(sx=>sx.id), nSem=semList.length;
     const temBaixa=(inv.strings||[]).some(sx=>!sx.trancada&&(sx.status||'')==='baixa_perf');
     const nTrc=(inv.strings||[]).filter(sx=>sx.trancada).length;   // p/ o botão de destrancar em lote
-    return { id:iid, pid, usina:_un, invId:inv.id, nSem, semList, temBaixa, nTrc, semVisao:!!inv.sem_visao, rampa:!!inv.rampa,
+    return { id:iid, pid, usina:_un, invId:inv.id, nSem, semList, tks, tkSemN:(_semSolU?0:cob.semTicket), temBaixa, nTrc, semVisao:!!inv.sem_visao, rampa:!!inv.rampa,
       /* rampa (correntes reais porém baixas, amanhecer/anoitecer) NÃO é "sem geração": as strings existem e aparecem, só não entram na contagem */
       semGer:(!inv.sem_visao&&!inv.rampa&&Number(inv.strings_ativas)===0), atrib:(RD.osAtrib||{})[pid+'|'+inv.id]||null, name:inv.nome, cabine:cab?('cabine '+cab[1]):'', kwh:(inv.eday!=null?inv.eday:'—'),
       active:((inv.sem_visao||inv.rampa)?'—':(inv.strings_ativas+'/'+inv.total_strings)), esp:(inv.str_esp!=null?inv.str_esp:'—'), diff:(inv.diferenca!=null?inv.diferenca:'—'),
@@ -1140,6 +1142,73 @@ function _strStatus(r,velho){
 }
 /* fim _strStatus */
 
+// TICKETS DE STRINGS (aba "Strings indisp" da planilha de tickets, 23/09/2026). O backend anexa na linha da usina
+// `tickets_str` = {strings, tickets, lista:[{inv:'1.7', strings:[11,12], usina_inteira, qtd_na_linha, desde, causa, ...}]}
+// (_com_tickets_str). Levi: "mostrasse o total de strings com ticket aberto por usina, e quando abre a usina mostra
+// qual string que está com esse ticket". Mesma linguagem dos trackers: azul = ticket, vermelho = sem ticket, verde = voltou.
+function _tkInvChave(nome){   // 'Inversor 1.7' / 'INV 01.07' → '1.7' (mesma régua do _tk_inv_chave do backend)
+  const s=String(nome==null?'':nome), m=s.match(/(\d+)\s*[.,]\s*(\d+)/);
+  return m?(parseInt(m[1],10)+'.'+parseInt(m[2],10)):s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
+}
+function _tkStrInv(lista,invNome){   // tickets de UM inversor: os dele e os da usina inteira
+  const k=_tkInvChave(invNome);
+  return (lista||[]).filter(t=>t.usina_inteira||t.inv===k);
+}
+function _tkStrMarca(tks,st,ativa,cobreTudo){   // 'ticket' | 'voltou' | 'coberta' | null
+  const n=_snum(st&&st.name);
+  if((tks||[]).some(t=>(t.strings||[]).includes(n))) return ativa?'voltou':'ticket';   // voltou = ticket aberto e a string produzindo
+  // Ticket que não diz a string cobre as zeradas do inversor — mas só quando a quantidade dele alcança TODAS. Ticket de 2
+  // strings e 5 zeradas: não dá para dizer quais 2 são, e marcar as 5 como cobertas esconderia as 3 sem ticket.
+  if(cobreTudo&&st&&st.dead&&(tks||[]).some(t=>!(t.strings||[]).length)) return 'coberta';
+  return null;
+}
+function _tkStrCobertura(tks,strings){   // {cobreTudo, semTicket}: zeradas do inversor que nenhum ticket alcança
+  const nomeados=new Set((tks||[]).flatMap(t=>t.strings||[]));
+  const soInv=(tks||[]).filter(t=>!(t.strings||[]).length).reduce((a,t)=>a+(t.qtd_na_linha||t.qtd||1),0);
+  const fora=(strings||[]).filter(sx=>!sx.trancada&&(sx.status||'')==='sem_corrente'&&!nomeados.has(_snum(sx.id))).length;
+  return {cobreTudo:soInv>=fora, semTicket:Math.max(0,fora-soInv)};
+}
+function _tkStrCel(r,naoJulga){   // coluna "Tickets": strings com ticket aberto / faltando agora (sem sol ou rampa: só o total)
+  const ts=r.tickets_str||{}, tk=ts.strings||0, n=ts.tickets||0, dif=r.diferenca;
+  const falt=(!naoJulga&&typeof dif==='number'&&dif<0)?-dif:0;
+  if(!tk&&!falt) return '<span style="color:var(--color-neutral-500)">—</span>';
+  const sem=Math.max(0,falt-tk), cor=falt?(sem>0?'#ff5b6e':'#3fb950'):'var(--gc-blue)';
+  const pct=falt?Math.max(0,Math.min(100,Math.round(Math.min(tk,falt)/falt*100))):0;
+  const tip=(tk?`${tk} string${tk===1?'':'s'} com ticket aberto (${n} ticket${n===1?'':'s'})`:'nenhum ticket aberto na planilha')
+    +(falt?` · ${falt} faltando agora · `+(sem?`${sem} sem ticket`:'todas com ticket'):'')
+    +(!falt&&tk&&!naoJulga?' · sem déficit agora: confira no drill se já dá para fechar':'')
+    +(naoJulga?' · sem sol ou irradiância baixa: o déficit não é julgado agora':'');
+  const bar=falt?`<span style="width:44px;height:6px;border-radius:3px;background:var(--color-neutral-800);overflow:hidden;display:inline-block"><span style="display:block;height:100%;width:${pct}%;background:${cor}"></span></span>`:'';
+  return `<span title="${_he(tip)}" style="display:inline-flex;align-items:center;gap:6px;justify-content:center">${bar}<span style="font-weight:600;color:${cor}">${tk}</span>${falt?`<span style="color:var(--color-neutral-500)">/${falt}</span>`:''}</span>`;
+}
+/* fim _tkStr */
+function _tkStrTip(t){   // uma linha de tooltip por ticket
+  const ss=(t.strings||[]).length?' ('+t.strings.map(x=>'Ipv'+x).join(', ')+')':' (o ticket não diz quais)';
+  return `${t.usina_inteira?'Usina inteira':t.inversor||'?'} · ${t.qtd_na_linha||t.qtd||1} string${(t.qtd_na_linha||t.qtd)===1?'':'s'}${t.usina_inteira?'':ss}`
+    +`${t.desde?' · desde '+t.desde:''}${t.causa?' · '+t.causa:''}${t.comentario?' — '+t.comentario:''}`;
+}
+function _tkStrTag(inv){   // etiqueta do inversor no drill
+  const _tag=(txt,cor,ic,tip)=>`<span title="${_he(tip)}" onclick="event.stopPropagation()" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:9px;font-size:11px;font-weight:700;letter-spacing:.02em;background:color-mix(in srgb, ${cor} 18%, transparent);border:1px solid color-mix(in srgb, ${cor} 45%, transparent);color:${cor}"><i class="ph ${ic}" style="font-size:11px"></i>${txt}</span>`;
+  const tks=inv.tks||[], semN=inv.tkSemN||0;
+  const semTag=semN?_tag(`${semN} sem ticket`,'#ff5b6e','ph-warning',`${semN} string${semN===1?'':'s'} sem corrente que nenhum ticket aberto da planilha alcança neste inversor`):'';
+  if(tks.length){
+    const tip=tks.map(_tkStrTip).join('\n');
+    const pend=(inv.strings||[]).some(s=>s.tk==='ticket'||s.tk==='coberta'), volt=(inv.strings||[]).some(s=>s.tk==='voltou');
+    if(volt&&!pend&&!semN) return _tag('voltou','#3fb950','ph-check',tip+'\n\nAs strings do ticket estão produzindo: candidato a fechar.');
+    const q=tks.reduce((a,t)=>a+(t.qtd_na_linha||t.qtd||1),0);
+    return (tks.every(t=>t.usina_inteira)?_tag('ticket da usina','var(--gc-blue)','ph-clipboard-text',tip)
+      :_tag(`ticket · ${q} string${q===1?'':'s'}`,'var(--gc-blue)','ph-clipboard-text',tip))+semTag;
+  }
+  return semTag;
+}
+function _tkStrOrfaos(u){   // tickets da usina cujo inversor não aparece nesta tela — ficam à vista, não somem
+  if(!Array.isArray(u.inversores)||!(u.tkLista||[]).length) return '';
+  const ks=new Set(u.inversores.map(inv=>_tkInvChave(inv.name)));
+  const orf=u.tkLista.filter(t=>!t.usina_inteira&&!ks.has(t.inv));
+  if(!orf.length) return '';
+  return `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:9px 14px;margin-bottom:12px;border-radius:var(--radius-md);background:color-mix(in srgb, var(--gc-blue) 8%, transparent);border:1px solid color-mix(in srgb, var(--gc-blue) 30%, transparent);font-size:12.5px"><i class="ph ph-clipboard-text" style="color:var(--gc-blue)"></i><span class="text-muted">Ticket aberto em inversor que esta fonte não mostra:</span>${orf.map(t=>`<span title="${_he(_tkStrTip(t))}" style="color:var(--color-neutral-200);font-weight:600">${_he(t.inversor||'?')} · ${t.qtd_na_linha||t.qtd||1}</span>`).join('<span class="text-muted">·</span>')}</div>`;
+}
+
 function computeVals(){
   const s=state;
   const srcDefs=[{id:'thopen-pv',icon:'ph ph-broadcast',name:'Thopen',sub:'API PV Operation'},{id:'thopen-db',icon:'ph ph-database',name:'Thopen',sub:'Banco de Dados'},{id:'athon',icon:'ph ph-lightning',name:'Athon',sub:'API SunOp'},{id:'axis',icon:'ph ph-sun',name:'Axis',sub:'PE III / Ponto Belo'},{id:'renogrid',icon:'ph ph-diamond',name:'RenoGrid',sub:'API SolarEdge'},{id:'2c',icon:'ph ph-envelope-simple',name:'2C',sub:'Email'},{id:'semp',icon:'ph ph-plug',name:'SEMP',sub:'API PV Operation'},{id:'alveslima',icon:'ph ph-buildings',name:'Alves Lima',sub:'API PV Operation'}];   // NÃO recriar o chip "2C · API PV": saiu do seletor em 11/09/2026 a pedido do Levi ("eu quero no tempo real, tudo junto"). A fonte `2c` MISTURA as usinas da API PV com as do e-mail — quem precisa de ETM/tracker da API para ARA/STL/TUP é ela, não uma aba nova (test_2c_tempo_real_unificado)
@@ -1209,7 +1278,7 @@ function computeVals(){
         diffTit:_ip?(`Proporcionalidade de ${_ip.dia||'D-1'}: cada inversor vs. o que ele gera em relação à mediana da usina nos 30 dias anteriores. `+(_ipAl.length?_ipAl.map(a=>`${a.inv} ${Number(a.razao).toFixed(0)}% do padrão de ${Number(a.base).toFixed(0)}% (${_ipFmt(a.delta)})`).join(' · '):'todos dentro do padrão')+((_ip.cronicos||[]).length?` · crônicos: ${_ip.cronicos.join(', ')}`:'')):'',
         avail:_ip?((_ip.cronicos||[]).length?`${_ip.cronicos.length} crônico${_ip.cronicos.length===1?'':'s'}`:'—'):((r.str_esp&&r.strings_ativas!=null&&!r.rampa&&!r.sem_visao&&!semSol)?(r.strings_ativas/r.str_esp*100).toFixed(1)+'%':'—'),
         availColor:_ip?'var(--color-neutral-400)':((!r.rampa&&!r.sem_visao&&!semSol&&temD&&r.strings_ativas===0)?'#ff9a9d':'var(--color-neutral-300)'),
-        acomp:(tCount!=null?tCount:''),_dif:(dif==null?null:dif),_grp,pulse:(_grp===0),lastRead:leit,staleRead:_velho,
+        acomp:(tCount!=null?tCount:''),tkStr:_tkStrCel(r,semSol||!!r.rampa||!!r.sem_visao),tkLista:(r.tickets_str&&r.tickets_str.lista)||[],_dif:(dif==null?null:dif),_grp,pulse:(_grp===0),lastRead:leit,staleRead:_velho,
         staleTit:(_velho?`Sem leitura nova há ${Math.floor(_idadeMin/60)}h${String(Math.round(_idadeMin%60)).padStart(2,'0')}`:''),
         status:stt,statusStyle:ps,hasFlag:cCount>0,flagCount:cCount,hasOS:oCount>0,osCount:oCount,vkey,caretDeg:expanded?90:0,diffColor2:0,expanded,id:pid,inversores:expanded?buildInversores(pid):[]};
     }).sort((a,b)=>(a._grp-b._grp)||((a._dif||0)-(b._dif||0)));   // não-batendo no topo; dentro do grupo, maior déficit primeiro
@@ -1494,7 +1563,7 @@ function _stCor(st){
 // Filtro que não sobra linha: diz POR QUE a tabela está vazia e como voltar (nada de tabela em branco).
 function _semLinhas(){
   const cond=[_fSt?`status "${_he(_fSt)}"`:'', _q?`nome casando "${_he(_q)}"`:''].filter(Boolean).join(' e ');
-  return `<tr><td colspan="9" style="padding:30px;text-align:center;color:var(--color-neutral-500);font-size:13px">
+  return `<tr><td colspan="10" style="padding:30px;text-align:center;color:var(--color-neutral-500);font-size:13px">
     Nenhuma usina com ${cond||'os filtros atuais'}.${_fSt?` <span onclick="onStatusFiltro('${_fSt}')" style="cursor:pointer;color:var(--color-accent);font-weight:600">mostrar todas</span>`:''}</td></tr>`;
 }
 function _chipsStatus(){
@@ -1531,12 +1600,17 @@ function _strChipHtml(st, inv, _ab){   // chip de string; no modo OS, as sem_cor
   const onclick=osSelable?`onclick="osToggle('${inv.pid}','${inv.invId}','${sid}','${usina}','${invn}')"`
     :(seOptOn?`onclick="event.stopPropagation();seOpt('${inv.pid}','${inv.invId}','${esc(st.uuid).replace(/['"\\]/g,'')}')"`:'');
   const nameColor=abaixo?'#f59e0b':st.nameColor;
+  // ticket de string (23/09/2026): azul = no ticket; verde = ticket aberto e a string já produz (candidata a fechar);
+  // azul apagado = coberta pelo ticket do inversor, que não diz quais strings
+  const tkIc=st.tk==='ticket'?`<i class="ph ph-clipboard-text" title="No ticket aberto da planilha" style="font-size:10px;color:var(--gc-blue)"></i>`
+    :st.tk==='voltou'?`<i class="ph ph-check" title="Ticket aberto e a string já produz: candidata a fechar" style="font-size:10px;color:#3fb950"></i>`
+    :st.tk==='coberta'?`<i class="ph ph-clipboard-text" title="Coberta pelo ticket do inversor (o ticket não diz quais strings)" style="font-size:10px;color:var(--gc-blue);opacity:.55"></i>`:'';
   const lock=st.id
     ?`<i class="ph ${st.trancada?'ph-lock-simple':'ph-lock-simple-open'} gc-lock" onclick="event.stopPropagation();trancarString('${inv.pid}','${inv.invId}','${sid}',${st.trancada?'false':'true'})" title="${st.trancada?'Destrancar string (voltar a contar)':'Trancar string (ignorar na contagem)'}" style="font-size:12px;cursor:pointer;color:${st.trancada?'var(--gc-blue)':'var(--color-neutral-500)'}"></i>`
     :`<i class="ph ph-lock-simple" style="font-size:9px;color:var(--color-neutral-500)"></i>`;
   const _optExp=seOptOn&&state.expandedOpt===(inv.pid+'|'+inv.invId+'|'+st.uuid);
   const _cue=seOptOn?`<i class="ph ph-caret-${_optExp?'down':'right'}" style="font-size:8px;color:var(--color-neutral-500)"></i>`:'';
-  return `<div onmouseenter="_hlCurva('${nm}',1)" onmouseleave="_hlCurva('${nm}',0)" ${onclick} style="${sty}"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px"><span style="font-size:10.5px;font-weight:600;color:${nameColor}">${st.name}</span>${lock}</div><div class="text-muted" style="font-size:10px;display:flex;align-items:center;justify-content:space-between;gap:4px">${st.amp} ${st.unidade||'A'}${_cue}</div></div>`;
+  return `<div onmouseenter="_hlCurva('${nm}',1)" onmouseleave="_hlCurva('${nm}',0)" ${onclick} style="${sty}"><div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:2px"><span style="display:inline-flex;align-items:center;gap:3px"><span style="font-size:10.5px;font-weight:600;color:${nameColor}">${st.name}</span>${tkIc}</span>${lock}</div><div class="text-muted" style="font-size:10px;display:flex;align-items:center;justify-content:space-between;gap:4px">${st.amp} ${st.unidade||'A'}${_cue}</div></div>`;
 }
 function renderInversor(inv,chart){
   const difRed=(typeof inv.diff==='number'&&inv.diff<0);
@@ -1560,7 +1634,7 @@ function renderInversor(inv,chart){
       <i class="ph ph-caret-right" style="font-size:11px;color:var(--color-neutral-500);transform:rotate(${inv.caretDeg}deg)"></i>
       <span style="font-weight:600;font-size:14px">${inv.name}</span>${inv.cabine?`<span class="tag tag-neutral">${inv.cabine}</span>`:''}<span class="text-muted" style="font-size:12px">${inv.kwh} kWh</span>${semTxt?`<span style="flex:1;text-align:center;font-size:14.4px;color:#a1a39d">${semTxt}</span>`:''}
       <span style="margin-left:auto;display:flex;align-items:center;gap:22px;font-size:13px">
-        ${_osBtn}${(inv.padrao||inv.padraoPend)&&inv.semVisao!==undefined&&(inv.semVisao||inv.padrao)?_padraoSpans(inv):`<span class="text-muted">ativas <b style="color:var(--color-neutral-200)">${inv.active}</b></span><span class="text-muted" title="Strings esperadas deste inversor (aba Equipamentos)">esp <b style="color:var(--color-neutral-200)">${inv.esp}</b></span><span class="text-muted">dif <b style="color:${difRed?'var(--gc-red)':'var(--color-neutral-300)'}">${inv.diff}</b></span>`}
+        ${_tkStrTag(inv)}${_osBtn}${(inv.padrao||inv.padraoPend)&&inv.semVisao!==undefined&&(inv.semVisao||inv.padrao)?_padraoSpans(inv):`<span class="text-muted">ativas <b style="color:var(--color-neutral-200)">${inv.active}</b></span><span class="text-muted" title="Strings esperadas deste inversor (aba Equipamentos)">esp <b style="color:var(--color-neutral-200)">${inv.esp}</b></span><span class="text-muted">dif <b style="color:${difRed?'var(--gc-red)':'var(--color-neutral-300)'}">${inv.diff}</b></span>`}
         <span class="text-muted" style="font-size:12px">${inv.lastRead}</span>
       </span>
     </div>
@@ -1727,18 +1801,18 @@ function renderStrings(v){
       <div style="display:flex;align-items:center;gap:10px">${_osBtn()}${_histBtn()}</div>
     </div>
     ${v.loading?'':_chipsStatus()}
-    <div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th style="text-align:center">Inv.</th><th style="text-align:right">Ativas</th><th style="text-align:right">Esperadas</th><th style="text-align:right">Diferença</th><th style="text-align:right">Disponib.</th><th style="text-align:center">Acomp.</th><th style="text-align:right">Última leitura</th><th style="text-align:center;padding-right:22px">Status</th></tr></thead>
-    <tbody>${v.loading?`<tr><td colspan="9" style="padding:44px;text-align:center" class="text-muted"><i class="ph ph-circle-notch gc-spin"></i> Coletando dados da fonte…</td></tr>`:(!v.usinas.length?_semLinhas():v.usinas.map(u=>`
+    <div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th style="text-align:center">Inv.</th><th style="text-align:right">Ativas</th><th style="text-align:right">Esperadas</th><th style="text-align:right">Diferença</th><th style="text-align:right">Disponib.</th><th style="text-align:center">Acomp.</th><th style="text-align:center" title="Strings com ticket aberto na planilha de tickets (aba Strings indisp) / strings faltando agora">Tickets</th><th style="text-align:right">Última leitura</th><th style="text-align:center;padding-right:22px">Status</th></tr></thead>
+    <tbody>${v.loading?`<tr><td colspan="10" style="padding:44px;text-align:center" class="text-muted"><i class="ph ph-circle-notch gc-spin"></i> Coletando dados da fonte…</td></tr>`:(!v.usinas.length?_semLinhas():v.usinas.map(u=>`
       <tr class="gc-urow${(u.pulse&&!u.expanded)?' gc-alerta':''}" onclick="toggleUsina('${u.id}')" style="cursor:pointer;${u.expanded?'background:linear-gradient(90deg, color-mix(in srgb, #0a4f52 70%, transparent), color-mix(in srgb, #0a4f52 28%, transparent) 34%, transparent 58%);':''}">
         <td style="padding-left:22px"><span style="display:inline-flex;align-items:center;gap:9px"><i class="ph ph-caret-right" style="font-size:12px;color:var(--color-neutral-500);transition:transform .15s;transform:rotate(${u.caretDeg}deg)"></i><span style="font-weight:600">${u.name}</span>${u.hasOS?`<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="OS de performance — abrir" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:6px;background:color-mix(in srgb, var(--gc-amber) 16%, transparent);color:var(--gc-amber);font-size:11px;font-weight:600"><i class="ph ph-wrench"></i>${u.osCount}</span>`:''}<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="Comentários dos analistas" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:6px;${u.hasFlag?'background:#1D5FB5;color:#0e2a4d;font-weight:700;':'color:var(--color-neutral-600);'}font-size:11px"><i class="${u.hasFlag?'ph-fill ph-chat-circle':'ph ph-chat-circle'}" style="font-size:13px"></i>${u.hasFlag?u.flagCount:''}</span></span></td>
         <td style="text-align:center;color:var(--color-neutral-400)">${u.inv}</td><td style="text-align:right;color:var(--color-neutral-300)">${u.active}</td><td style="text-align:right;color:var(--color-neutral-300)"${u.expTit?` title="${_he(u.expTit)}"`:''}>${u.expected}${u.expNote?`<span class="gc-desl" title="${u.expNote.nomes?u.expNote.nomes+': ':''}potência zero de dia, com a usina gerando. As ${u.expNote.fora} strings dele${u.expNote.n>1?'s':''} ficam fora da conta: inversor desligado é falha de inversor, não de string.">${u.expNote.n} inv. desligado${u.expNote.n>1?'s':''} · ${u.expNote.fora} strings fora da conta</span>`:''}</td>
-        <td style="text-align:right;font-weight:600;color:${u.diffColor}"${u.diffTit?` title="${_he(u.diffTit)}"`:''}>${u.diff}</td><td style="text-align:right;color:${u.availColor}">${u.avail}</td><td style="text-align:center" onclick="event.stopPropagation()"><input type="number" min="0" value="${u.acomp}" placeholder="—" title="Strings que você está acompanhando" class="gc-numin" onclick="event.stopPropagation()" onchange="setTracking('${u.vkey||''}',this.value)" style="width:58px;text-align:center;padding:5px 6px;font-size:12.5px;font-family:inherit;border:1px solid var(--color-divider);border-radius:6px;background:var(--color-neutral-900);color:var(--color-text)"></td>
+        <td style="text-align:right;font-weight:600;color:${u.diffColor}"${u.diffTit?` title="${_he(u.diffTit)}"`:''}>${u.diff}</td><td style="text-align:right;color:${u.availColor}">${u.avail}</td><td style="text-align:center" onclick="event.stopPropagation()"><input type="number" min="0" value="${u.acomp}" placeholder="—" title="Strings que você está acompanhando" class="gc-numin" onclick="event.stopPropagation()" onchange="setTracking('${u.vkey||''}',this.value)" style="width:58px;text-align:center;padding:5px 6px;font-size:12.5px;font-family:inherit;border:1px solid var(--color-divider);border-radius:6px;background:var(--color-neutral-900);color:var(--color-text)"></td><td style="text-align:center">${u.tkStr}</td>
         <td title="${u.staleTit||''}" style="text-align:right;font-size:12.5px;${u.staleRead?'color:#c9b6ff;font-weight:600':'color:var(--color-neutral-500)'}">${u.lastRead}</td><td style="text-align:center;padding-right:22px"><span style="${u.statusStyle}">${u.status}</span></td>
       </tr>
-      ${u.expanded?`<tr><td colspan="9" style="padding:0;border:0"><div style="background:color-mix(in srgb, var(--color-neutral-900) 55%, transparent);padding:18px 22px 22px">
+      ${u.expanded?`<tr><td colspan="10" style="padding:0;border:0"><div style="background:color-mix(in srgb, var(--color-neutral-900) 55%, transparent);padding:18px 22px 22px">
         ${RD.pv?'':`<div style="display:flex;flex-wrap:wrap;gap:22px;padding:12px 16px;margin-bottom:16px;border-radius:var(--radius-md);background:color-mix(in srgb, var(--gc-blue) 10%, transparent);font-size:13px">
           <span><b>0</b> <span class="text-muted">strings abaixo</span></span><span><b>0</b> <span class="text-muted">inversores abaixo dos pares</span></span><span><b style="color:var(--gc-amber)">1</b> <span class="text-muted">trackers parados</span></span><span><b>0</b> <span class="text-muted">correlação tracker→inversor</span></span>
-        </div>`}${RD.pv?_ddBarra(u):''}${u.inversores==='loading'?`<div class="text-muted" style="padding:14px 4px;font-size:13px">carregando inversores…</div>`:(state.invView==='geracao'?_gerBlock(u):(u.inversores||[]).map(inv=>renderInversor(inv,v.chart)).join(''))}</div></td></tr>`:''}
+        </div>`}${RD.pv?_ddBarra(u):''}${RD.pv?_tkStrOrfaos(u):''}${u.inversores==='loading'?`<div class="text-muted" style="padding:14px 4px;font-size:13px">carregando inversores…</div>`:(state.invView==='geracao'?_gerBlock(u):(u.inversores||[]).map(inv=>renderInversor(inv,v.chart)).join(''))}</div></td></tr>`:''}
     `).join(''))}</tbody></table></div>
   </div>
   <div class="text-muted" style="text-align:center;margin-top:18px;font-size:12.5px">${v.usinas.length} usinas</div>`;
