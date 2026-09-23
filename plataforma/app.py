@@ -440,6 +440,12 @@ GEMEO_URL = os.environ.get("GEMEO_URL", "http://127.0.0.1:5075").rstrip("/")
 GEMEO_SENHA = os.environ.get("GEMEO_SENHA", "").strip()
 
 
+def _gemeo_guia(nome_so: str) -> str:
+    """Roteiro de instalação do gêmeo para o sistema desta máquina. Até 23/09/2026 a página de 503 apontava sempre o de
+    Windows (Tarefas Agendadas), e o servidor é Linux (systemd): quem seguisse a mensagem ia pelo caminho errado."""
+    return "gemeo/deploy/README.md" if nome_so == "nt" else "gemeo/deploy/linux/README.md"
+
+
 @app.route("/gemeo/", defaults={"sub": ""}, methods=["GET", "POST"])
 @app.route("/gemeo/<path:sub>", methods=["GET", "POST"])
 def gemeo_proxy(sub):
@@ -451,7 +457,8 @@ def gemeo_proxy(sub):
         r = requests.request(flask_request.method, f"{GEMEO_URL}/gemeo/{sub}", params=flask_request.args.to_dict(flat=False),
                              data=flask_request.get_data(), headers=cab, timeout=30, allow_redirects=False)
     except requests.RequestException as e:
-        return Response(f"Gêmeo Digital fora do ar ({type(e).__name__}). Ver gemeo/deploy/README.md.",
+        return Response(f"Gêmeo Digital fora do ar ({type(e).__name__}): o serviço dele não está atendendo nesta "
+                        f"máquina ({GEMEO_URL}). Roteiro de instalação: {_gemeo_guia(os.name)}.",
                         status=503, mimetype="text/plain; charset=utf-8")
     resp = Response(r.content, status=r.status_code, content_type=r.headers.get("Content-Type", "text/html; charset=utf-8"))
     for k, v in r.headers.items():

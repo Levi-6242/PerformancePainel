@@ -56,3 +56,24 @@ def test_status_e_location_do_gemeo_sao_preservados(cli, monkeypatch):
                         lambda m, u, **kw: _Resp(status=302, content=b"", extra={"Location": "/gemeo/login?next=/gemeo/"}))
     r = cli.get("/gemeo/")
     assert r.status_code == 302 and r.headers["Location"] == "/gemeo/login?next=/gemeo/"
+
+
+def test_fora_do_ar_aponta_o_roteiro_do_sistema_certo():
+    """23/09/2026: no servidor (Linux) a página de 503 mandava ler gemeo/deploy/README.md — o roteiro do servidor
+    WINDOWS (Tarefas Agendadas, pythonw.exe). Quem seguisse a mensagem ia pelo caminho errado. O roteiro do Linux é
+    gemeo/deploy/linux/README.md (systemd). E o arquivo apontado tem de existir: link para roteiro inexistente é o
+    mesmo erro com outra cara."""
+    import pathlib
+    raiz = pathlib.Path(plataforma.__file__).resolve().parents[1]
+    assert plataforma._gemeo_guia("posix") == "gemeo/deploy/linux/README.md"
+    assert plataforma._gemeo_guia("nt") == "gemeo/deploy/README.md"
+    for so in ("posix", "nt"):
+        assert (raiz / plataforma._gemeo_guia(so)).is_file()
+
+
+def test_a_pagina_de_503_leva_o_roteiro_desta_maquina(cli, monkeypatch):
+    def fora(*a, **kw):
+        raise requests.ConnectionError("recusada")
+    monkeypatch.setattr(plataforma.requests, "request", fora)
+    txt = cli.get("/gemeo/").get_data(as_text=True)
+    assert plataforma._gemeo_guia(plataforma.os.name) in txt and "5075" in txt

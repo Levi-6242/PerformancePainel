@@ -1,6 +1,9 @@
 <!-- gemeo/deploy/README.md -->
 # Deploy do Gêmeo Digital (servidor Windows da T.I.)
 
+> **Servidor Linux** (o da plataforma, `app.gridco.com.br`): o roteiro é outro, [`linux/README.md`](linux/README.md),
+> com serviços systemd no lugar das Tarefas Agendadas. Este aqui vale só para Windows.
+
 O gêmeo é um serviço separado da plataforma: pasta própria, **banco próprio em um arquivo SQLite** (sem servidor,
 sem DBA), três tarefas agendadas, porta **5075** em `127.0.0.1`. Quem usa chega por **`/gemeo/` na plataforma**
 (proxy no `app.py` dela, mesmo túnel e mesmo login).
