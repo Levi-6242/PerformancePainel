@@ -41,6 +41,7 @@ LINHAS_STR = [
     ("Sitio dos Nogueiras", "Geral", 18, 1, None, "2026-09-12 08:00", None, "a verificar"),
     ("Demerval Lobao", "Inversor 1.2", 10, 3, None, "2026-08-01 06:00", None, ""),   # usina fora da plataforma
     ("Brodowski", "Todos", 209, 209, "Furto de Cabos", "2026-09-02 06:00", None, "UFV off após furto de cabos"),
+    ("Embu Guaçu", "Inversor 1.1", 20, 1, None, "2026-09-15 06:00", None, "String 3 com corrente nula"),  # NOME, não código
 ]
 COLS_USINAS = ["", "Usina", "Código da usina", "Código curto da usina", "Cliente", "UF", "Status", "Supervisor(a)"]
 USINAS = [("Altair", "THPN-ALT100", None, "Thopen", "Sao Paulo", "OPERAÇÃO", "Camila Viana"),
@@ -484,9 +485,34 @@ def _finalizar(cliente, monkeypatch, banco, linha=None, token="tok", **corpo):
     monkeypatch.setattr(app, "_tkf_ler_aba", banco.ler)
     monkeypatch.setattr(app._relay, "encaminhar", banco.encaminhar)
     monkeypatch.setattr(app._estado_backup, "_token", lambda: token)
-    body = dict({"fim": "2026-09-23T10:00", "quem": "Levi Maia", "usina_planilha": "ALT100",
+    body = dict({"fim": "2026-09-23T10:00", "quem": "Levi Maia", "usina_planilha": "ALT100", "causa": "Falha no equipamento",
                  "inversor": "Inversor 1.7", "desde": "01/09/2026"}, **corpo)
-    return cliente.post("/api/strings/tickets/%s/finalizar" % (linha or _linha_do_altair()), json=body)
+    acao = body.pop("_acao", "finalizar")
+    return cliente.post("/api/strings/tickets/%s/%s" % (linha or _linha_do_altair(), acao), json=body)
+
+
+def test_finalizar_sem_causa_raiz_e_recusado(cliente, monkeypatch):
+    """Levi, 23/09: "nunca finalizar um ticket com causa raiz nula pela plataforma"."""
+    b = _BancoFalso(_linha_do_altair())
+    r = _finalizar(cliente, monkeypatch, b, causa="")
+    assert r.status_code == 400 and not b.chamadas and "causa raiz" in r.get_json()["erro"]
+
+
+def test_salvar_o_status_pelo_card_vai_ao_diario_e_aparece_na_hora(cliente, monkeypatch):
+    b = _BancoFalso(_linha_do_altair())
+    r = _finalizar(cliente, monkeypatch, b, _acao="salvar", causa="", status="Aguardando Garantia", fim=None)
+    assert r.status_code == 200 and r.get_json()["confirmado"] is True
+    assert [(m, s) for m, s, *_ in b.chamadas] == [("POST", 399)], "status não tem coluna: só o diário"
+    t = app._com_tickets_str(_pay("Altair"))["rows"][0]["tickets_str"]["lista"][0]
+    assert t["status_ticket"] == "Aguardando Garantia", "o card mostra o gravado sem esperar o espelho"
+    assert dict(zip(COLS_STR, b.linha["values"]))["Fim da ocorrência"] is None, "salvar não fecha"
+
+
+def test_salvar_a_causa_pelo_card(cliente, monkeypatch):
+    b = _BancoFalso(_linha_do_altair())
+    r = _finalizar(cliente, monkeypatch, b, _acao="salvar", causa="Furto", fim=None, originais={"causa": ""})
+    assert r.status_code == 200 and [(m, s) for m, s, *_ in b.chamadas] == [("PUT", 128), ("POST", 399)]
+    assert app._com_tickets_str(_pay("Altair"))["rows"][0]["tickets_str"]["lista"][0]["causa"] == "Furto"
 
 
 def test_finalizar_pela_tela_grava_na_base_e_tira_da_coluna(cliente, monkeypatch):
@@ -583,15 +609,15 @@ def test_sem_sol_ou_sem_comunicacao_o_inversor_nao_julga():
     assert _estado({"strings": [15]}, {"strings": MTS200_16, "diff": 0, "semComU": True})["k"] == "mudo"
 
 
-def _card(t, est, f=None, na_usina=False):
+def _card(t, est, f=None, na_usina=False, os_=None):
     if not NODE:
         pytest.skip("node não instalado")
     js = "\n".join([
         "const state={}; const localStorage={getItem:()=>'Levi Maia',setItem(){}};",
         _trecho("const _he=", "\n"), _trecho("function _snum(", "\n"),
-        _trecho("function _tkInvChave(", "/* fim _tkStr */"), _trecho("function _tkIsoAgora(", "/* fim _tkCard */"),
-        "process.stdout.write(JSON.stringify(_tkCardHtml(%s,%s,%s,%s)));" % (
-            json.dumps(t), json.dumps(est), json.dumps(f), json.dumps(na_usina)),
+        _trecho("function _tkInvChave(", "/* fim _tkStr */"), _trecho("const TK_CAUSAS=", "/* fim _tkCard */"),
+        "process.stdout.write(JSON.stringify(_tkCardHtml(%s,%s,%s,%s,%s)));" % (
+            json.dumps(t), json.dumps(est), json.dumps(f), json.dumps(na_usina), json.dumps(os_)),
     ])
     p = subprocess.run([NODE, "-e", js], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert p.returncode == 0, p.stderr
@@ -626,9 +652,9 @@ def test_a_recusa_da_plataforma_aparece_no_card():
 
 
 def test_a_tela_grava_pela_rota_da_plataforma_e_manda_o_que_viu():
-    i = MON.index("window.tkStrFinalizar=")
-    corpo = MON[i:MON.index("\n};", i)]
-    assert "'/api/strings/tickets/'+linha+'/finalizar'" in corpo
+    i = MON.index("async function _tkGravar(")
+    corpo = MON[i:MON.index("\n}", i)]
+    assert "'/api/strings/tickets/'+linha+'/'+(finalizar?'finalizar':'salvar')" in corpo
     assert "usina_planilha:a.t.usina_planilha" in corpo and "inversor:a.t.inversor" in corpo and "desde:a.t.desde" in corpo
     assert "/os/api/tickets" not in MON and "TK_FECHAR" not in MON, "o caminho pelo OS Creator web saiu"
 
@@ -637,3 +663,196 @@ def test_o_card_entra_no_inversor_aberto_e_os_da_usina_no_alto():
     i = MON.index("function renderInversor(")
     assert "${_tkCards(inv)}" in MON[i:MON.index("\nfunction ", i + 10)]
     assert "_tkCardsUsina(u)" in MON
+
+
+# ── a última OS de RECOMPOSIÇÃO do inversor, do Fracttal (23/09/2026) ─────────
+# Levi, sobre o card: "mostrasse os dados da última OS de recomposição para esse inversor ao invés de só comentário (...)
+# A data de conclusão seria quando o técnico fechou a OS, quando ele fez a tarefa! e o fim da ocorrência já fica
+# sugerido como essa data". As linhas abaixo são as REAIS de work_orders/?id_item= em 23/09 (uma por TAREFA, UTC).
+
+W13762 = {"wo_folio": "13762", "description": "[Inversor 1.6] - Recomposição de String", "tasks_log_task_type_main": "Corretiva",
+          "id_status_work_order": 2, "done": True, "creation_date": "2026-09-17T14:00:34.404671+00:00",
+          "event_date": "2026-09-17T09:00:02.245+00:00", "initial_date": "2026-09-18T16:58:23.972+00:00",
+          "final_date": "2026-09-18T18:34:56.742572+00:00", "wo_final_date": None, "personnel_description": "Francisco  Santos",
+          "note": "String I_PV15 com corrente nula, verificar e normalizar",
+          "task_note": "String I_PV15 com corrente nula, verificar e normalizar"}
+W7051 = {"wo_folio": "7051", "description": "[Inversor 6][MTS200] Verificação de tracker parado ou sombreamento",
+         "tasks_log_task_type_main": "Corretiva", "id_status_work_order": 3, "done": True,
+         "creation_date": "2026-05-25T20:15:54.978801+00:00", "final_date": "2026-05-26T16:35:30.886574+00:00",
+         "wo_final_date": "2026-06-16T13:31:59.419552+00:00", "personnel_description": "Francisco  Santos"}
+W2138 = {"wo_folio": "2138", "description": "Manutenção Preventiva Mensal GRID CO. – Inversores",
+         "tasks_log_task_type_main": "Preventiva", "id_status_work_order": 4, "done": False,
+         "creation_date": "2026-01-26T12:11:36.603275+00:00", "final_date": None}
+W13005 = {"wo_folio": "13005", "description": "[Inversor 3.9] - Recomposição de String", "tasks_log_task_type_main": "Corretiva",
+          "id_status_work_order": 2, "done": True, "creation_date": "2026-09-04T13:50:25.895332+00:00",
+          "final_date": "2026-09-04T18:43:49.91102+00:00", "personnel_description": "James Chaves ",
+          "note": "O PROBLEMA ESTA NAS ENTRADAS 03 E 04 DO INVESOR, AS STRINGS ESTÃO NORMAL.",
+          "task_note": "Strings I_PV3 e I_PV4 com corrente nula, verificar e normalizar"}
+W14326 = {"wo_folio": "14326", "description": "[Inversor 3.5] - Recomposição de String", "tasks_log_task_type_main": "Corretiva",
+          "id_status_work_order": 1, "done": False, "creation_date": "2026-09-22T13:49:29.096332+00:00", "final_date": None,
+          "personnel_description": "Luiz  Silva", "note": "String I_PV7 com corrente nula", "task_note": "String I_PV7 com corrente nula"}
+
+
+def test_ultima_recomposicao_e_a_mais_nova_e_a_conclusao_e_a_da_tarefa():
+    """MTS200 Inversor 1.6: a 13762 foi executada em 18/09 18:34 UTC = 15:34 aqui. A OS de tracker (7051) e a
+    preventiva cancelada (2138) do mesmo ativo não são de recomposição."""
+    o = app._tk_str_ultima_recomposicao([W7051, W13762, W2138])
+    assert (o["folio"], o["conclusao"], o["concluida"], o["tecnico"]) == \
+        ("13762", "2026-09-18 15:34:56", True, "Francisco Santos")
+    assert o["status"] == "Concluída" and o["descricao"] == "[Inversor 1.6] - Recomposição de String"
+
+
+def test_os_em_andamento_nao_tem_data_de_conclusao():
+    o = app._tk_str_ultima_recomposicao([W14326])
+    assert (o["folio"], o["concluida"], o["conclusao"], o["status"]) == ("14326", False, "", "Em andamento")
+
+
+def test_relato_do_tecnico_vem_quando_difere_da_instrucao():
+    """MAB100 3.9 (OS 13005): o técnico escreveu o que achou, e é isso que ajuda a decidir o fechamento."""
+    assert app._tk_str_ultima_recomposicao([W13005])["relato"].startswith("O PROBLEMA ESTA NAS ENTRADAS 03 E 04")
+    assert app._tk_str_ultima_recomposicao([W13762])["relato"] == "", "nota igual à instrução não é relato"
+
+
+def test_recomposicao_cancelada_fica_fora():
+    cancelada = dict(W13762, wo_folio="14000", id_status_work_order=4, creation_date="2026-09-20T10:00:00+00:00")
+    assert app._tk_str_ultima_recomposicao([W13762, cancelada])["folio"] == "13762"
+
+
+def test_os_com_duas_tarefas_conclui_na_ultima():
+    """work_orders/?id_item= volta UMA LINHA POR TAREFA; a OS termina quando a última tarefa termina."""
+    segunda = dict(W13762, final_date="2026-09-19T12:00:00+00:00")
+    assert app._tk_str_ultima_recomposicao([W13762, segunda])["conclusao"] == "2026-09-19 09:00:00"
+
+
+def test_sem_os_de_recomposicao():
+    assert app._tk_str_ultima_recomposicao([W7051, W2138]) is None
+
+
+def _rota_os(cliente, monkeypatch, rows, linha=None, on=True, usina="Altair"):
+    monkeypatch.setattr(app, "FRACTTAL_ON", on)
+    monkeypatch.setattr(app, "_frac_ativo", lambda code: {"id": 7, "desc": "Inversor 1.7"})
+    monkeypatch.setattr(app, "_frac_wos_raw", lambda iid: rows)
+    return cliente.get("/api/strings/tickets/%s/os" % (linha or _linha_do_altair()), query_string={"usina": usina})
+
+
+def test_rota_sugere_o_fim_pela_conclusao_da_os(cliente, monkeypatch):
+    """O ticket do Altair começa em 01/09 06:00; a OS foi executada depois, então o Fim já vem sugerido."""
+    d = _rota_os(cliente, monkeypatch, [W13762]).get_json()
+    assert d["ok"] is True and d["os"]["folio"] == "13762" and d["sugere_fim"] == "2026-09-18T15:34"
+
+
+def test_os_anterior_ao_ticket_nao_sugere_o_fim(cliente, monkeypatch):
+    velha = dict(W13762, creation_date="2026-08-10T10:00:00+00:00", final_date="2026-08-12T12:00:00+00:00")
+    d = _rota_os(cliente, monkeypatch, [velha]).get_json()
+    assert d["ok"] is True and d["os"]["anterior"] is True and d["sugere_fim"] is None
+
+
+def test_ticket_da_usina_inteira_nao_procura_os(cliente, monkeypatch):
+    n = app.TICKETS_STR["brodowski"][0]["linha"]
+    d = _rota_os(cliente, monkeypatch, [W13762], linha=n).get_json()
+    assert d["ok"] is False and "usina inteira" in d["motivo"]
+
+
+def test_ticket_escrito_com_o_nome_da_usina_acha_o_codigo_pela_planilha(tickets):
+    """Boa Esperança do Sul, linha 241 em 23/09: a planilha escreve o NOME ("... 1 e 2") e o Fracttal só se acha pelo
+    código (BES100). O de-para é o mesmo da aba "Base de dados - Usinas", ao contrário."""
+    assert tickets["embu guacu"][0]["cod"] == "EBG100" and tickets["altair"][0]["cod"] == "ALT100"
+
+
+def test_rota_da_os_procura_o_inversor_pelo_codigo_da_usina(cliente, monkeypatch):
+    n = app.TICKETS_STR["embu guacu"][0]["linha"]
+    d = _rota_os(cliente, monkeypatch, [W13762], linha=n, usina="Embu Guaçu 1").get_json()
+    assert d["ok"] is True and d["code"] == "EBG100-INVR1.1"
+
+
+def test_rota_da_os_recusa_linha_que_nao_e_ticket_e_sem_credencial(cliente, monkeypatch):
+    assert _rota_os(cliente, monkeypatch, [W13762], linha=99999).status_code == 404
+    d = _rota_os(cliente, monkeypatch, [W13762], on=False).get_json()
+    assert d["ok"] is False and "Fracttal" in d["motivo"]
+
+
+def _o_concluida():
+    return {"ok": True, "sugere_fim": "2026-09-18T15:34", "os": {
+        "folio": "13762", "descricao": "[Inversor 1.6] - Recomposição de String", "status": "Concluída", "concluida": True,
+        "conclusao": "2026-09-18 15:34:56", "tecnico": "Francisco Santos", "relato": "", "anterior": False}}
+
+
+def test_o_card_mostra_a_observacao_e_a_data_de_conclusao():
+    html = _card(T312, {"k": "voltou", "txt": "x"}, None, False, _o_concluida())
+    for trecho in ("Observação", "PV15 com corrente nula", "Data de conclusão", "18/09/2026 15:34",
+                   "OS 13762 · Recomposição de String · Concluída · Francisco Santos", 'value="2026-09-18T15:34"',
+                   "sugerido pela conclusão da OS 13762"):
+        assert trecho in html, trecho
+    assert "Comentários" not in html
+
+
+def test_o_fim_digitado_vence_a_sugestao():
+    html = _card(T312, {"k": "voltou", "txt": "x"}, {"fim": "2026-09-20T08:00"}, False, _o_concluida())
+    assert 'value="2026-09-20T08:00"' in html and "sugerido pela conclusão" not in html
+
+
+def test_os_em_andamento_e_carregando_no_card():
+    anda = {"ok": True, "sugere_fim": None, "os": {"folio": "14326", "descricao": "[Inversor 3.5] - Recomposição de String",
+            "status": "Em andamento", "concluida": False, "conclusao": "", "tecnico": "Luiz Silva", "relato": "",
+            "anterior": False}}
+    assert "OS 14326 em andamento" in _card(T312, {"k": "morta", "txt": "x"}, None, False, anda)
+    assert "buscando a OS no Fracttal" in _card(T312, {"k": "voltou", "txt": "x"}, None, False, "loading")
+    sem = {"ok": True, "sugere_fim": None, "os": None}
+    assert "nenhuma OS de recomposição" in _card(T312, {"k": "voltou", "txt": "x"}, None, False, sem)
+
+
+def test_causa_e_status_sao_escolhas_da_lista_do_levi():
+    html = _card(T312, {"k": "voltou", "txt": "x"})
+    for op in ("Falha no equipamento", "Furto", "Garantia", "OS Programada", "Aguardando Material",
+               "Aguardando Garantia", "Aguardando Cliente"):
+        assert "<option>%s</option>" % op in html or "<option selected>%s</option>" % op in html, op
+    assert 'id="gc-tkcausa-312"' in html and 'id="gc-tkstatus-312"' in html
+
+
+def test_sem_causa_raiz_o_finalizar_fica_travado():
+    """Levi, 23/09: "nunca finalizar um ticket com causa raiz nula pela plataforma"."""
+    html = _card(T312, {"k": "voltou", "txt": "x"})
+    i = html.index("tkStrFinalizar(312,0)")
+    assert " disabled" in html[html.rindex("<button", 0, i):i] and "Escolha a causa raiz para finalizar" in html
+    html = _card(T312, {"k": "voltou", "txt": "x"}, {"causa": "Furto"})
+    i = html.index("tkStrFinalizar(312,0)")
+    assert " disabled" not in html[html.rindex("<button", 0, i):i] and "Escolha a causa raiz" not in html
+
+
+def test_causa_antiga_escrita_a_mao_continua_escolhida():
+    html = _card(dict(T312, causa="Problema no MPPT"), {"k": "morta", "txt": "x"})
+    assert "<option selected>Problema no MPPT</option>" in html and "Escolha a causa raiz" not in html
+
+
+def test_os_aberta_sugere_os_programada_no_status():
+    anda = {"ok": True, "sugere_fim": None, "os": {"folio": "14326", "descricao": "[Inversor 3.5] - Recomposição de String",
+            "status": "Em andamento", "concluida": False, "aberta": True, "conclusao": "", "tecnico": "Luiz Silva",
+            "relato": "", "anterior": False}}
+    html = _card(dict(T312, status_ticket=""), {"k": "morta", "txt": "x"}, None, False, anda)
+    assert "<option selected>OS Programada</option>" in html
+    assert "tkStrSalvar(312,0)" in html and " disabled" not in html[html.rindex("<button", 0, html.index("tkStrSalvar")):
+                                                                     html.index("tkStrSalvar")], "a sugestão é mudança"
+    html = _card(dict(T312, status_ticket=""), {"k": "morta", "txt": "x"}, {"status": "OS Programada"}, False, _o_concluida())
+    assert "A OS 13762 de recomposição já foi concluída" in html, "MTS200 em 23/09: status OS Programada com a OS fechada"
+    sem = {"ok": True, "sugere_fim": None, "os": None}
+    html = _card(dict(T312, status_ticket=""), {"k": "morta", "txt": "x"}, {"status": "OS Programada"}, False, sem)
+    assert "Nenhuma OS de recomposição aberta" in html
+
+
+def test_salvar_so_liga_quando_algo_muda():
+    html = _card(T312, {"k": "voltou", "txt": "x"})
+    j = html.index("tkStrSalvar(312,0)")
+    assert " disabled" in html[html.rindex("<button", 0, j):j]
+
+
+def test_a_tela_salva_e_finaliza_pelas_rotas_da_plataforma():
+    i = MON.index("async function _tkGravar(")
+    corpo = MON[i:MON.index("\n}", i)]
+    assert "(finalizar?'finalizar':'salvar')" in corpo and "originais:{causa:" in corpo and "corpo.causa=" in corpo
+    assert "window.tkStrSalvar=" in MON and "window.tkStrFinalizar=" in MON
+
+
+def test_relato_do_tecnico_aparece_no_card():
+    o = _o_concluida()
+    o["os"]["relato"] = "O PROBLEMA ESTA NAS ENTRADAS 03 E 04 DO INVESOR"
+    assert "Relato do técnico" in _card(T312, {"k": "morta", "txt": "x"}, None, False, o)

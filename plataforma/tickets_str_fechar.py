@@ -40,6 +40,16 @@ CAMPOS = ["Causa raiz", "Responsabilidade da Grid Co.?", "Início da ocorrência
           "Ativo", "Status do ticket"]
 COLUNAS = ["quando", "quem", "aba", "linha", "impressao"] + CAMPOS
 DATAS = ("Início da ocorrência", "Início do chamado pela Grid Co.", "Fim da ocorrência")
+CAUSA = "Causa raiz"
+STATUS_T = "Status do ticket"                # só existe no diário: a planilha não tem coluna para ele
+# O que o card deixa escolher (Levi, 23/09/2026: "Causas raiz possíveis de responder: Falha no equipamento, Furto,
+# Garantia" e "OS Programada (quando já tem OS aberta para esse ativo de recomposição de string), Aguardando material,
+# Aguardando garantia, Aguardando cliente"). "Aguardando Cliente" e "OS Programada" com a grafia da lista do OS Creator
+# (os_web/tickets_web.py::STATUS), que compara o texto; "Aguardando Material" e "Aguardando Garantia" ainda não estão lá.
+CAUSAS = ("Falha no equipamento", "Furto", "Garantia")
+STATUS = ("OS Programada", "Aguardando Material", "Aguardando Garantia", "Aguardando Cliente")
+# Ticket finalizado vai com o status final da lista do OS Creator, para não ficar "OS Programada" depois de fechado.
+STATUS_FIM = "Concluído"
 # Fim até 10 min à frente do relógio do servidor passa: o relógio do navegador de quem clica pode estar adiantado.
 TOLERANCIA_FUTURO = _dt.timedelta(minutes=10)
 # O Brasil não tem horário de verão desde 2019, e o servidor Linux roda em UTC (22/09/2026).
@@ -172,20 +182,20 @@ def validar_fim(fim, atual: dict, agora: _dt.datetime) -> str:
     return d.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def corpo_da_linha(ln: dict, atual: dict, fim_iso: str) -> dict:
-    """A LINHA INTEIRA para o PUT, na ordem do cabeçalho da própria aba, com o Fim por cima.
+def corpo_da_linha(ln: dict, atual: dict, mudou: dict) -> dict:
+    """A LINHA INTEIRA para o PUT, na ordem do cabeçalho da própria aba, com o que mudou por cima.
 
     As colunas nomeadas saem de `atual` (a linha relida com o diário por cima, como no os_web: o que o sync desfez
     volta para a planilha junto). A coluna sem nome da frente sai como está. None vira "" (o `para_valores` do OS
-    Creator: None chega em alguns caminhos como o texto 'None')."""
+    Creator: None chega em alguns caminhos como o texto 'None'). Campo que só existe no diário não entra."""
     headers = list(ln.get("headers") or [])
-    if FIM not in headers:
+    if FIM in mudou and FIM not in headers:
         raise Recusa("A aba de tickets não tem a coluna \"%s\". Nada foi gravado." % FIM, 502)
     crus = list(ln.get("values") or [])
     values = []
     for i, h in enumerate(headers):
-        if h == FIM:
-            v = fim_iso
+        if h in mudou:
+            v = mudou[h]
         elif str(h or "").strip():
             v = atual.get(h)
         else:
@@ -194,34 +204,55 @@ def corpo_da_linha(ln: dict, atual: dict, fim_iso: str) -> dict:
     return {"values": values, "headers": headers}
 
 
-def retrato(atual: dict, fim_iso: str) -> dict:
+def retrato(atual: dict, mudou: dict) -> dict:
     """Todos os CAMPOS como ficam (o `retrato_para_diario` do os_web): datas em ISO, o resto aparado."""
     out = {}
     for c in CAMPOS:
         v = atual.get(c)
         v = "" if v is None else str(v).strip()
         out[c] = para_iso(v) if (c in DATAS and v) else v
-    out[FIM] = fim_iso
+    out.update(mudou)
     return out
 
 
-def corpo_do_diario(atual: dict, fim_iso: str, quem: str, agora: _dt.datetime) -> dict:
+def corpo_do_diario(atual: dict, mudou: dict, quem: str, agora: _dt.datetime) -> dict:
     """O registro do diário, nas COLUNAS do OS Creator. O relay troca o `quem` pelo nome que ele carimba."""
     dados = {"quando": agora.strftime("%Y-%m-%d %H:%M:%S"), "quem": quem, "aba": ABA, "linha": atual.get("_row"),
              "impressao": impressao(atual)}
-    dados.update(retrato(atual, fim_iso))
+    dados.update(retrato(atual, mudou))
     return {"values": ["" if dados.get(c) is None else dados.get(c) for c in COLUNAS], "headers": list(COLUNAS)}
+
+
+def validar_valores(valores: dict, atual: dict) -> dict:
+    """O que a pessoa escolheu no card → só o que MUDOU, validado. Causa e status só da lista do Levi — exceto o valor
+    que a linha JÁ tem: causa antiga escrita à mão ("Problema no MPPT") continua valendo enquanto ninguém trocar."""
+    listas = {CAUSA: CAUSAS, STATUS_T: STATUS}
+    mudou = {}
+    for c, v in (valores or {}).items():
+        if c not in listas:
+            raise Recusa("Campo que esta tela não edita: %s. Nada foi gravado." % c, 400)
+        v = " ".join(str(v or "").split())
+        if _norm(v) == _norm(atual.get(c)):
+            continue
+        if v not in listas[c]:
+            raise Recusa("\"%s\" não é uma opção de %s (%s). Nada foi gravado."
+                         % (v or "vazio", c.lower(), ", ".join(listas[c])), 400)
+        mudou[c] = v
+    return mudou
 
 
 def _achar(linhas: list, n: int):
     return next((ln for ln in linhas or [] if ln.get("row_number") == n), None)
 
 
-def finalizar(linha: int, esperado: dict, fim, quem: str, *, ler_aba, gravar, agora: _dt.datetime) -> dict:
-    """Grava o Fim da ocorrência do ticket da `linha`. → {ok, linha, fim, confirmado, aviso}. Recusa = nada gravado.
+def salvar(linha: int, esperado: dict, valores: dict, quem: str, *, ler_aba, gravar, agora: _dt.datetime,
+           originais: dict = None, fim=None) -> dict:
+    """Grava o que o card mudou no ticket da `linha`: Causa raiz e Status do ticket (`valores`) e, com `fim`, também o
+    Fim da ocorrência — é o Finalizar. → {ok, linha, campos, valores, fim, confirmado, aviso}. Recusa = nada gravado.
 
-    `ler_aba(sheet_id)` devolve as linhas cruas da API; `gravar(metodo, sheet_id, row, corpo)` devolve
-    (status HTTP, texto). `confirmado` só é True com o Fim RELIDO no banco depois de gravar."""
+    `ler_aba(sheet_id)` devolve as linhas cruas da API; `gravar(metodo, sheet_id, row, corpo)` devolve (status, texto).
+    `originais` = o que o card MOSTRAVA dos campos editados: se o banco tem outro valor agora, outra pessoa mexeu
+    nesse meio-tempo e nada é gravado (409), como no os_web. `confirmado` só é True com o que mudou RELIDO no banco."""
     quem = " ".join(str(quem or "").split())
     if not quem:
         raise Recusa("Diga quem está fechando: o diário guarda o autor de cada edição. Nada foi gravado.", 400)
@@ -238,24 +269,57 @@ def finalizar(linha: int, esperado: dict, fim, quem: str, *, ler_aba, gravar, ag
                      "vinculada. Nada foi gravado." % e, 502)
     atual = aplicar_diario(linha_dict(ln), regs)
     conferir(atual, esperado)
-    fim_iso = validar_fim(fim, atual, agora)
+    mudou = validar_valores(valores, atual)
+    brigam = [c for c in mudou if originais and c in originais and _norm(atual.get(c)) != _norm(originais.get(c))]
+    if brigam:
+        raise Recusa("Outra pessoa alterou %s neste ticket depois que o card abriu (agora: %s). Nada foi gravado. "
+                     "Atualize a tela." % (", ".join(c.lower() for c in brigam),
+                                           "; ".join(str(atual.get(c) or "vazio") for c in brigam)))
+    fim_iso = ""
+    if fim is not None:
+        fim_iso = validar_fim(fim, atual, agora)
+        if not _norm(mudou.get(CAUSA, atual.get(CAUSA))):
+            raise Recusa("Escolha a causa raiz antes de finalizar: a plataforma não finaliza ticket sem causa. "
+                         "Nada foi gravado.", 400)
+        mudou[FIM] = fim_iso
+        mudou[STATUS_T] = STATUS_FIM
+    if not mudou:
+        raise Recusa("Nada mudou neste ticket.", 400)
 
-    status, texto = gravar("PUT", SHEET_STRINGS, linha, corpo_da_linha(ln, atual, fim_iso))
-    if not 200 <= int(status) < 300:
-        raise Recusa("A base de tickets recusou a gravação (HTTP %s: %s). Nada foi gravado."
-                     % (status, str(texto or "")[:200]), 502)
-    aviso = ""
+    headers = set(ln.get("headers") or [])
+    na_planilha = [c for c in mudou if c in headers]            # Status do ticket não é coluna: vai só ao diário
+    if na_planilha:
+        status, texto = gravar("PUT", SHEET_STRINGS, linha, corpo_da_linha(ln, atual, mudou))
+        if not 200 <= int(status) < 300:
+            raise Recusa("A base de tickets recusou a gravação (HTTP %s: %s). Nada foi gravado."
+                         % (status, str(texto or "")[:200]), 502)
+    aviso, diario_ok = "", False
     try:
-        st, tx = gravar("POST", SHEET_DIARIO, None, corpo_do_diario(atual, fim_iso, quem, agora))
-        if not 200 <= int(st) < 300:
-            aviso = ("Gravado na planilha, mas o diário recusou o registro (HTTP %s). Se alguém subir o Excel, o "
-                     "ticket pode reabrir." % st)
-    except Exception as e:                                      # noqa: BLE001 — a planilha já foi gravada
-        aviso = ("Gravado na planilha, mas não consegui registrar no diário (%s). Se alguém subir o Excel, o ticket "
-                 "pode reabrir." % e)
-    try:
-        relida = _achar(ler_aba(SHEET_STRINGS), linha)
-        lido = para_iso(linha_dict(relida).get(FIM)) if relida else ""
-    except Exception:                                           # noqa: BLE001 — sem conferir, não confirma
-        lido = ""
-    return {"ok": True, "linha": linha, "fim": fim_iso, "confirmado": lido[:16] == fim_iso[:16], "aviso": aviso}
+        st, tx = gravar("POST", SHEET_DIARIO, None, corpo_do_diario(atual, mudou, quem, agora))
+        diario_ok = 200 <= int(st) < 300
+        if not diario_ok:
+            aviso = "o diário recusou o registro (HTTP %s)" % st
+    except Exception as e:                                      # noqa: BLE001 — a planilha já pode ter sido gravada
+        aviso = "não consegui registrar no diário (%s)" % e
+    if aviso:
+        if not na_planilha:                                     # só o diário ia mudar: não gravou nada
+            raise Recusa("O status não foi gravado: %s. Nada foi gravado." % aviso, 502)
+        aviso = "Gravado na planilha, mas %s. Se alguém subir o Excel, a edição pode voltar atrás." % aviso
+    if na_planilha:
+        try:
+            relida = linha_dict(_achar(ler_aba(SHEET_STRINGS), linha) or {})
+        except Exception:                                       # noqa: BLE001 — sem conferir, não confirma
+            relida = {}
+        confirmado = all((para_iso(relida.get(c))[:16] == mudou[c][:16]) if c == FIM
+                         else _norm(relida.get(c)) == _norm(mudou[c]) for c in na_planilha)
+    else:
+        confirmado = diario_ok
+    return {"ok": True, "linha": linha, "campos": sorted(mudou), "valores": {c: mudou[c] for c in mudou},
+            "fim": fim_iso, "confirmado": confirmado, "aviso": aviso}
+
+
+def finalizar(linha: int, esperado: dict, fim, quem: str, *, ler_aba, gravar, agora: _dt.datetime,
+              valores: dict = None, originais: dict = None) -> dict:
+    """O Finalizar: `salvar` com o Fim. A causa raiz tem de existir (na linha ou escolhida agora)."""
+    return salvar(linha, esperado, valores or {}, quem, ler_aba=ler_aba, gravar=gravar, agora=agora,
+                  originais=originais, fim=fim)

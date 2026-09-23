@@ -83,7 +83,7 @@ def test_o_put_leva_a_linha_inteira_so_com_o_fim_mudado():
     """O PUT da API troca a linha INTEIRA: coluna que não vai volta vazia (22/09). Ordem, tipos e a coluna sem nome da
     frente seguem como estão; só o Fim muda."""
     ln = _ln(241, V241)
-    corpo = tkf.corpo_da_linha(ln, tkf.linha_dict(ln), "2026-09-23 13:20:00")
+    corpo = tkf.corpo_da_linha(ln, tkf.linha_dict(ln), {tkf.FIM: "2026-09-23 13:20:00"})
     assert corpo["headers"] == HEADERS
     esperado = ["" if v is None else v for v in V241]
     esperado[HEADERS.index("Fim da ocorrência")] = "2026-09-23 13:20:00"
@@ -95,7 +95,7 @@ def test_o_diario_grava_o_retrato_inteiro_e_nao_perde_a_os():
     """Dos registros de uma linha só o mais novo vale. Um registro só com o Fim faria a OS 13762 sumir da tela do OS
     Creator, porque a OS só existe no diário."""
     atual = tkf.aplicar_diario(tkf.linha_dict(_ln(312, V312)), tkf.registros(_diario(D119)))
-    corpo = tkf.corpo_do_diario(atual, "2026-09-23 13:20:00", "Levi Maia (plataforma)", AGORA)
+    corpo = tkf.corpo_do_diario(atual, {tkf.FIM: "2026-09-23 13:20:00"}, "Levi Maia (plataforma)", AGORA)
     assert corpo["headers"] == DH == tkf.COLUNAS
     reg = dict(zip(corpo["headers"], corpo["values"]))
     assert (reg["quando"], reg["quem"], reg["aba"], reg["linha"], reg["impressao"]) == \
@@ -159,16 +159,23 @@ class _Banco:
 
 
 def _fin(banco, **kw):
-    args = dict(linha=312, esperado=ESPERADO_312, fim="2026-09-23T13:20", quem="Levi Maia (plataforma)")
+    args = dict(linha=312, esperado=ESPERADO_312, fim="2026-09-23T13:20", quem="Levi Maia (plataforma)",
+                valores={"Causa raiz": "Falha no equipamento"}, originais=None)
     args.update(kw)
-    return tkf.finalizar(args["linha"], args["esperado"], args["fim"], args["quem"],
-                         ler_aba=banco.ler, gravar=banco.gravar, agora=AGORA)
+    return tkf.finalizar(args["linha"], args["esperado"], args["fim"], args["quem"], valores=args["valores"],
+                         originais=args["originais"], ler_aba=banco.ler, gravar=banco.gravar, agora=AGORA)
+
+
+def _salvar(banco, valores, **kw):
+    return tkf.salvar(kw.get("linha", 312), kw.get("esperado", ESPERADO_312), valores, "Levi Maia (plataforma)", ler_aba=banco.ler,
+                      gravar=banco.gravar, agora=AGORA, originais=kw.get("originais"))
 
 
 def test_finalizar_grava_a_linha_e_o_diario_nesta_ordem():
     b = _Banco([_ln(312, V312)], _diario(D119))
     r = _fin(b)
-    assert r == {"ok": True, "linha": 312, "fim": "2026-09-23 13:20:00", "confirmado": True, "aviso": ""}
+    assert (r["ok"], r["linha"], r["fim"], r["confirmado"], r["aviso"]) == (True, 312, "2026-09-23 13:20:00", True, "")
+    assert r["campos"] == ["Causa raiz", "Fim da ocorrência", "Status do ticket"]
     assert [(m, s, row) for m, s, row, _ in b.chamadas] == [("PUT", 128, 312), ("POST", 399, None)], \
         "planilha antes do diário: registrar antes de saber se gravou criaria um restaurado de algo que não existe"
     gravada = dict(zip(HEADERS, b.abas[128][312]["values"]))
@@ -228,6 +235,92 @@ def test_hora_de_brasilia_mesmo_com_o_servidor_em_utc():
     fora de ordem com os do OS Creator, que grava em Brasília."""
     utc = dt.datetime.now(dt.timezone.utc).replace(tzinfo=None)
     assert abs((utc - dt.timedelta(hours=3)) - tkf.agora_brasilia()) < dt.timedelta(seconds=5)
+
+
+# ── causa raiz e status pelo card (Levi, 23/09/2026) ──────────────────────────
+# "Gostaria também que desse para editar a causa raiz, nunca finalizar um ticket com causa raiz nula pela plataforma".
+# Causas: Falha no equipamento, Furto, Garantia. Status: OS Programada, Aguardando Material/Garantia/Cliente.
+
+def _registro_gravado(b):
+    """O último registro que foi ao diário, como dict."""
+    corpo = [c for m, s, _, c in b.chamadas if m == "POST" and s == 399][-1]
+    return dict(zip(corpo["headers"], corpo["values"]))
+
+
+def test_nao_finaliza_sem_causa_raiz():
+    b = _Banco([_ln(312, V312)], _diario(D119))
+    with pytest.raises(tkf.Recusa) as e:
+        _fin(b, valores={})
+    assert e.value.status == 400 and "causa raiz" in str(e.value) and not b.chamadas
+
+
+def test_finaliza_com_a_causa_que_a_linha_ja_tem():
+    """A 241 tem causa escrita à mão ("Solicitada uma investigação..."): finalizar sem trocar vale."""
+    b = _Banco([_ln(241, V241)], [])
+    r = _fin(b, linha=241, valores={}, fim="2026-09-23T10:00",
+             esperado={"usina_planilha": "Boa Esperança do Sul 1 e 2", "inversor": "Inversor 1.10", "desde": "25/08/2026"})
+    assert r["ok"] and r["confirmado"] and "Causa raiz" not in r["campos"]
+
+
+def test_finalizar_grava_a_causa_e_o_status_concluido_no_diario():
+    b = _Banco([_ln(312, V312)], _diario(D119))
+    _fin(b)
+    linha = dict(zip(HEADERS, b.abas[128][312]["values"]))
+    assert (linha["Causa raiz"], linha["Fim da ocorrência"]) == ("Falha no equipamento", "2026-09-23 13:20:00")
+    reg = _registro_gravado(b)
+    assert (reg["Status do ticket"], reg["Causa raiz"], reg["OS"]) == ("Concluído", "Falha no equipamento", "13762")
+
+
+def test_salvar_so_o_status_vai_so_ao_diario():
+    """Status do ticket não tem coluna na planilha: nenhum PUT, só o registro no diário."""
+    b = _Banco([_ln(312, V312)], _diario(D119))
+    r = _salvar(b, {"Status do ticket": "Aguardando Material"})
+    assert [(m, s) for m, s, *_ in b.chamadas] == [("POST", 399)] and r["confirmado"]
+    assert _registro_gravado(b)["Status do ticket"] == "Aguardando Material"
+    assert _registro_gravado(b)["Fim da ocorrência"] == "", "salvar não fecha o ticket"
+
+
+def test_salvar_a_causa_grava_a_linha_e_o_diario_sem_fechar():
+    b = _Banco([_ln(312, V312)], _diario(D119))
+    r = _salvar(b, {"Causa raiz": "Furto"})
+    assert [(m, s) for m, s, *_ in b.chamadas] == [("PUT", 128), ("POST", 399)] and r["confirmado"]
+    linha = dict(zip(HEADERS, b.abas[128][312]["values"]))
+    assert (linha["Causa raiz"], linha["Fim da ocorrência"]) == ("Furto", "")
+
+
+def test_causa_ou_status_fora_da_lista_e_recusado():
+    b = _Banco([_ln(312, V312)], _diario(D119))
+    for valores in ({"Causa raiz": "Qualquer coisa"}, {"Status do ticket": "Triagem"}, {"Responsabilidade": "Sim"}):
+        with pytest.raises(tkf.Recusa) as e:
+            _salvar(b, valores)
+        assert e.value.status == 400
+    assert not b.chamadas
+
+
+def test_causa_antiga_mantida_nao_e_mudanca():
+    b = _Banco([_ln(241, V241)], [])
+    with pytest.raises(tkf.Recusa) as e:
+        _salvar(b, {"Causa raiz": "Solicitada uma investigação do time de campo"}, linha=241,
+                esperado={"usina_planilha": "Boa Esperança do Sul 1 e 2", "inversor": "Inversor 1.10", "desde": "25/08/2026"})
+    assert e.value.status == 400 and "Nada mudou" in str(e.value)
+
+
+def test_outra_pessoa_mudou_a_causa_nesse_meio_tempo():
+    """O card abriu com a causa vazia; alguém gravou "Furto" antes deste clique. Gravar "Garantia" por cima apagaria a
+    edição do outro em silêncio."""
+    v = list(V312)
+    v[HEADERS.index("Causa raiz")] = "Furto"
+    b = _Banco([_ln(312, v)], _diario(D119))
+    with pytest.raises(tkf.Recusa) as e:
+        _salvar(b, {"Causa raiz": "Garantia"}, originais={"Causa raiz": ""})
+    assert e.value.status == 409 and "Outra pessoa" in str(e.value) and not b.chamadas
+
+
+def test_status_sem_diario_nao_grava_nada():
+    b = _Banco([_ln(312, V312)], _diario(D119), falha={("POST", 399): 500})
+    with pytest.raises(tkf.Recusa) as e:
+        _salvar(b, {"Status do ticket": "Aguardando Cliente"})
+    assert e.value.status == 502
 
 
 # ── o contrato do diário é do OS Creator ───────────────────────────────────────

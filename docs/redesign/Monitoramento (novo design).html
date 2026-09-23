@@ -134,8 +134,20 @@ tr.gc-alerta:hover{background:linear-gradient(90deg, color-mix(in srgb, var(--gc
 .gc-tkc-g .k{font-size:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:700;color:var(--color-neutral-500)}
 .gc-tkc-g .v{font-size:13.5px;font-weight:600;color:var(--color-neutral-200);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .gc-tkc-g .v.vz{color:var(--color-neutral-500);font-weight:500}
-.gc-tkc-c{margin-top:12px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,.025);border:1px solid var(--color-divider);font-size:12.5px;color:var(--color-neutral-300);max-height:96px;overflow:auto;white-space:pre-line}
-.gc-tkc-c .k{font-size:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:700;color:var(--color-neutral-500);display:block;margin-bottom:3px;white-space:normal}
+.gc-tkc-g select{width:100%;margin-top:3px;background:var(--color-bg);border:1px solid var(--color-divider);border-radius:8px;color:var(--color-neutral-200);font:inherit;font-size:13px;font-weight:600;padding:5px 8px;height:32px;cursor:pointer}
+.gc-tkc-g select:focus{outline:none;border-color:var(--color-accent)}
+.gc-tkc-g select.falta{border-color:color-mix(in srgb,var(--gc-amber) 65%,transparent);color:#f5c877}
+.gc-tkc-o{margin-top:12px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,.025);border:1px solid var(--color-divider)}
+.gc-tkc-o .lin{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}
+.gc-tkc-o .k{font-size:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:700;color:var(--color-neutral-500);display:block;margin-bottom:3px}
+.gc-tkc-o .txt{font-size:12.5px;color:var(--color-neutral-300);white-space:pre-line;max-height:72px;overflow:auto;min-width:0}
+.gc-tkc-o .conc{flex:none;text-align:right;min-width:150px}
+.gc-tkc-o .conc b{font-size:13.5px;color:var(--color-neutral-200)}
+.gc-tkc-o .conc .mudo{font-size:12.5px;color:var(--color-neutral-500)}
+.gc-tkc-o .conc .anda{font-size:12.5px;font-weight:700;color:#f5c877}
+.gc-tkc-o .meta{margin-top:8px;font-size:11.5px;color:var(--color-neutral-400)}
+.gc-tkc-o .relato{margin-top:6px;font-size:12px;color:var(--color-neutral-200)}
+.gc-tkc-o .relato b{font-size:10px;text-transform:uppercase;letter-spacing:.12em;color:var(--color-neutral-500);margin-right:6px}
 .gc-tkc-f{display:flex;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-top:14px;padding-top:12px;border-top:1px solid var(--color-divider)}
 .gc-tkc-f label{display:flex;flex-direction:column;gap:5px}
 .gc-tkc-f label span{font-size:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:700;color:var(--color-neutral-500)}
@@ -1294,42 +1306,94 @@ function _tkStrTag(inv){   // etiqueta do inversor no drill; o clique nela abre 
 // ainda é ESTE ticket, manda a linha INTEIRA e registra no diário do OS Creator, para o sync do Excel não reabrir. A tela
 // manda o que VIU (usina da planilha, inversor, início) para essa conferência. Até 23/09 passava pelo OS Creator web, que
 // não está no servidor.
+// Causa raiz e status que o card deixa escolher (Levi, 23/09/2026) — as MESMAS listas de tickets_str_fechar.py, que
+// recusa qualquer outro valor. "Aguardando Cliente" e "OS Programada" com a grafia do OS Creator.
+const TK_CAUSAS=['Falha no equipamento','Furto','Garantia'];
+const TK_STATUS=['OS Programada','Aguardando Material','Aguardando Garantia','Aguardando Cliente'];
 function _tkIsoAgora(){ const d=new Date(), p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
 function _tkDias(ini){ const d=Date.parse(String(ini||'').replace(' ','T')); return isFinite(d)?Math.max(0,Math.floor((Date.now()-d)/864e5)):null; }
 function _tkQuem(){   // quem fecha: digitado uma vez e lembrado NESTE navegador (no login por senha a plataforma não sabe quem é)
   if(state._tkQuemV==null){ try{ state._tkQuemV=localStorage.getItem('gc_tk_quem')||''; }catch(e){ state._tkQuemV=''; } }
   return state._tkQuemV;
 }
-function _tkCardHtml(t,est,f,naUsina){   // f = o formulário deste ticket (state._tkF[linha]); naUsina = card no alto da usina
+function _tkDtTxt(iso){ const s=String(iso||''); return s.length>=16?`${s.slice(8,10)}/${s.slice(5,7)}/${s.slice(0,4)} ${s.slice(11,16)}`:''; }
+// O que o card vai gravar: o escolhido agora ou, sem escolha, o que o ticket já tem. Sem status e com OS de recomposição
+// ABERTA no Fracttal, sugere "OS Programada" (Levi: "quando já tem OS aberta para esse ativo de recomposição de string").
+function _tkEscolha(t,f,o){
+  const osAb=!!(o&&o.ok&&o.os&&o.os.aberta);
+  const causa=(f&&f.causa!==undefined)?f.causa:(t.causa||'');
+  const status=(f&&f.status!==undefined)?f.status:(t.status_ticket||(osAb?'OS Programada':''));
+  return {causa,status,osAb,muda:(causa!==(t.causa||''))||(status!==(t.status_ticket||''))};
+}
+// A OBSERVAÇÃO do ticket e a última OS de recomposição do inversor (o = resposta de /api/strings/tickets/<linha>/os).
+function _tkObsHtml(t,o){
+  const conc=(o===undefined||o==='loading')?'<span class="mudo">buscando a OS no Fracttal…</span>'
+    :(!o||!o.ok)?`<span class="mudo">${_he((o&&o.motivo)||'sem OS no Fracttal')}</span>`
+    :!o.os?'<span class="mudo">nenhuma OS de recomposição</span>'
+    :o.os.concluida?`<b>${_he(_tkDtTxt(o.os.conclusao))}</b>${o.os.anterior?'<div class="mudo">OS anterior a este ticket</div>':''}`
+    :o.os.aberta?`<span class="anda">OS ${_he(o.os.folio)} em andamento</span>`:`<span class="mudo">OS ${_he(o.os.folio)} ${_he(String(o.os.status||'').toLowerCase())}</span>`;
+  const os_=(o&&o.ok&&o.os)?o.os:null;
+  const meta=os_?`<div class="meta">OS ${_he(os_.folio)} · ${_he(String(os_.descricao||'').replace(/^\[[^\]]*\]\s*-\s*/,''))} · ${_he(os_.status)}${os_.tecnico?' · '+_he(os_.tecnico):''}</div>`:'';
+  const relato=os_&&os_.relato?`<div class="relato"><b>Relato do técnico</b>${_he(os_.relato)}</div>`:'';
+  return `<div class="gc-tkc-o"><div class="lin"><div style="min-width:0"><span class="k">Observação</span><div class="txt">${_he(t.comentario||'sem observação no ticket')}</div></div>
+    <div class="conc"><span class="k">Data de conclusão</span>${conc}</div></div>${meta}${relato}</div>`;
+}
+function _tkCardHtml(t,est,f,naUsina,o){   // f = o formulário deste ticket (state._tkF[linha]); o = a OS de recomposição
   const q=t.qtd_na_linha||t.qtd||1, dias=_tkDias(t.inicio), ini=String(t.inicio||'');
-  const iniTxt=ini.length>=16?`${ini.slice(8,10)}/${ini.slice(5,7)}/${ini.slice(0,4)} ${ini.slice(11,16)}`:(t.desde||'');
+  const iniTxt=_tkDtTxt(ini)||(t.desde||'');
   const ss=(t.strings||[]).length?t.strings.map(x=>'PV'+x).join(', '):'não diz quais';
   const campo=(k,v,vz)=>`<div><div class="k">${k}</div><div class="v${vz?' vz':''}" title="${_he(v)}">${_he(v)}</div></div>`;
+  const esc=_tkEscolha(t,f,o);
+  const sel=(k,campoId,valor,lista,vazio)=>{
+    const ops=(valor&&!lista.includes(valor)?[valor]:[]).concat(lista);   // valor antigo escrito à mão continua na lista
+    return `<div><div class="k">${k}</div><select id="gc-tk${campoId}-${t.linha}" class="${valor?'':'falta'}" onchange="tkStrCampo(${t.linha},'${campoId}',this.value)">`
+      +`<option value=""${valor?'':' selected'}>${vazio}</option>`+ops.map(x=>`<option${x===valor?' selected':''}>${_he(x)}</option>`).join('')+'</select></div>';
+  };
   const ic={voltou:'ph-check-circle',morta:'ph-warning-circle',mudo:'ph-info'}[est.k]||'ph-info';
   const fase=(f&&f.fase)||'', ocup=fase==='gravando', conf=fase==='confirmar', arg=`${t.linha},${naUsina?1:0}`;
-  const btn=est.k==='morta'&&!ocup
-    ?(conf?`<button class="btn btn-alerta" onclick="tkStrFinalizar(${arg})"><i class="ph ph-check-square"></i>Sim, finalizar</button><button class="btn btn-secondary" onclick="tkStrCancelar(${t.linha})">Cancelar</button>`
-          :`<button class="btn btn-alerta" onclick="tkStrConfirmar(${t.linha})"><i class="ph ph-check-square"></i>Finalizar mesmo assim</button>`)
-    :`<button class="btn btn-primary" ${ocup?'disabled':''} onclick="tkStrFinalizar(${arg})"><i class="ph ph-check-square"></i>${ocup?'Gravando…':'Finalizar ticket'}</button>`;
+  const semCausa=!esc.causa, travaFim=(ocup||semCausa)?' disabled':'';
+  const sug=!(f&&f.fim)&&o&&o.ok&&o.sugere_fim?o.sugere_fim:'';
+  const btnSalvar=`<button class="btn btn-secondary"${(ocup||!esc.muda)?' disabled':''} onclick="tkStrSalvar(${arg})"><i class="ph ph-floppy-disk"></i>Salvar</button>`;
+  const btnFim=est.k==='morta'&&!ocup
+    ?(conf?`<button class="btn btn-alerta"${travaFim} onclick="tkStrFinalizar(${arg})"><i class="ph ph-check-square"></i>Sim, finalizar</button><button class="btn btn-secondary" onclick="tkStrCancelar(${t.linha})">Cancelar</button>`
+          :`<button class="btn btn-alerta"${travaFim} onclick="tkStrConfirmar(${t.linha})"><i class="ph ph-check-square"></i>Finalizar mesmo assim</button>`)
+    :`<button class="btn btn-primary"${travaFim} onclick="tkStrFinalizar(${arg})"><i class="ph ph-check-square"></i>${ocup?'Gravando…':'Finalizar ticket'}</button>`;
+  const dicas=[];
+  if(semCausa) dicas.push('<span style="color:#f5c877">Escolha a causa raiz para finalizar: a plataforma não finaliza ticket sem causa.</span>');
+  if(sug&&o.os) dicas.push(`Fim sugerido pela conclusão da OS ${_he(o.os.folio)}.`);
+  if(esc.status==='OS Programada'&&o&&o.ok&&!esc.osAb) dicas.push('<span style="color:#f5c877">'+(o.os&&o.os.concluida
+    ?`A OS ${_he(o.os.folio)} de recomposição já foi concluída: o status OS Programada ficou desatualizado.`
+    :'Nenhuma OS de recomposição aberta para este inversor no Fracttal.')+'</span>');
   const aviso=est.k==='morta'&&!ocup?`<div class="gc-tkc-m" style="color:#ffb3b5"><i class="ph ph-warning" style="font-size:15px"></i><span>${conf?'As strings seguem sem corrente. Confirma o fim da ocorrência?':'As strings deste ticket seguem sem corrente. Finalize só se o problema foi resolvido de outro jeito.'}</span></div>`:'';
-  const msg=f&&f.msg?`<div class="gc-tkc-m" style="color:${fase==='erro'?'#ff9a9d':'var(--color-neutral-400)'}">${fase==='erro'?'<i class="ph ph-x-circle" style="font-size:15px"></i>':''}<span>${_he(f.msg)}</span></div>`:'';
+  const cor={erro:'#ff9a9d',salvo:'#3fb950'}[fase]||'var(--color-neutral-400)';
+  const msg=f&&f.msg?`<div class="gc-tkc-m" style="color:${cor}">${fase==='erro'?'<i class="ph ph-x-circle" style="font-size:15px"></i>':fase==='salvo'?'<i class="ph ph-check-circle" style="font-size:15px"></i>':''}<span>${_he(f.msg)}</span></div>`:'';
   return `<div class="gc-tkc ${est.k}" onclick="event.stopPropagation()">
     <div class="gc-tkc-h"><span class="t"><i class="ph ph-clipboard-text"></i>${t.usina_inteira?'Ticket da usina inteira':(naUsina?'Ticket do '+_he(t.inversor||'inversor'):'Ticket aberto')}</span><span class="l">linha ${t.linha} da planilha de tickets · aba Strings indisp</span><span class="gc-tkc-e ${est.k}"><i class="ph ${ic}"></i>${_he(est.txt)}</span></div>
-    <div class="gc-tkc-g">${campo('Strings do ticket',ss,!(t.strings||[]).length)}${campo('Quantidade',q+' string'+(q===1?'':'s'))}${campo('Início da ocorrência',iniTxt||'—',!iniTxt)}${campo('Aberto há',dias==null?'—':(dias===0?'menos de 1 dia':dias+' dia'+(dias===1?'':'s')),dias==null)}${campo('Causa raiz',t.causa||'não preenchida',!t.causa)}${campo('OS vinculada',t.os?'OS '+t.os:'nenhuma',!t.os)}${campo('Status do ticket',t.status_ticket||'não preenchido',!t.status_ticket)}${campo('Usina na planilha',t.usina_planilha||'—')}</div>
-    ${t.comentario?`<div class="gc-tkc-c"><span class="k">Comentários</span>${_he(t.comentario)}</div>`:''}
-    <div class="gc-tkc-f"><label><span>Fim da ocorrência</span><input type="datetime-local" id="gc-tkfim-${t.linha}" value="${_he((f&&f.fim)||_tkIsoAgora())}" max="${_tkIsoAgora()}" onchange="tkStrFim(${t.linha},this.value)" style="width:210px"></label><label><span>Quem está fechando</span><input type="text" id="gc-tkquem-${t.linha}" value="${_he(_tkQuem())}" placeholder="seu nome" maxlength="60" onchange="tkStrQuem(this.value)" style="width:220px"></label>${btn}</div>
-    ${aviso}${msg}
-    <div class="gc-tkc-n">Grava na planilha de tickets e no diário do OS Creator. Antes relê a linha e confere que ela ainda é deste ticket (usina, inversor e início); se alguém mexeu nela, nada é gravado.</div>
+    <div class="gc-tkc-g">${campo('Strings do ticket',ss,!(t.strings||[]).length)}${campo('Quantidade',q+' string'+(q===1?'':'s'))}${campo('Início da ocorrência',iniTxt||'—',!iniTxt)}${campo('Aberto há',dias==null?'—':(dias===0?'menos de 1 dia':dias+' dia'+(dias===1?'':'s')),dias==null)}${sel('Causa raiz','causa',esc.causa,TK_CAUSAS,'escolha a causa')}${campo('OS vinculada',t.os?'OS '+t.os:'nenhuma',!t.os)}${sel('Status do ticket','status',esc.status,TK_STATUS,'sem status')}${campo('Usina na planilha',t.usina_planilha||'—')}</div>
+    ${_tkObsHtml(t,o)}
+    <div class="gc-tkc-f"><label><span>Fim da ocorrência</span><input type="datetime-local" id="gc-tkfim-${t.linha}" value="${_he((f&&f.fim)||sug||_tkIsoAgora())}" max="${_tkIsoAgora()}" onchange="tkStrFim(${t.linha},this.value)" style="width:210px"></label><label><span>Quem está fechando</span><input type="text" id="gc-tkquem-${t.linha}" value="${_he(_tkQuem())}" placeholder="seu nome" maxlength="60" onchange="tkStrQuem(this.value)" style="width:220px"></label>${btnSalvar}${btnFim}</div>
+    ${dicas.length?`<div class="gc-tkc-m" style="color:var(--color-neutral-400)"><i class="ph ph-info" style="font-size:15px"></i><span>${dicas.join(' ')}</span></div>`:''}${aviso}${msg}
+    <div class="gc-tkc-n">Grava na planilha de tickets e no diário do OS Creator. Antes relê a linha e confere que ela ainda é deste ticket (usina, inversor e início); se alguém mexeu nela, nada é gravado. Ao finalizar, o status vai para Concluído.</div>
   </div>`;
 }
 function _tkOkHtml(x){
   return `<div class="gc-tkok" onclick="event.stopPropagation()"><i class="ph ph-check-circle"></i><div><b>Ticket da linha ${x.linha} finalizado</b><br><span class="text-muted" style="font-size:12.5px">Fim da ocorrência ${_he(x.fimTxt)} · por ${_he(x.quem)} · gravado na planilha de tickets e no diário do OS Creator${x.aviso?' · '+_he(x.aviso):''}</span></div></div>`;
 }
 /* fim _tkCard */
+function _tkOsDe(t,usina){   // a última OS de recomposição do inversor do ticket: buscada uma vez por ticket, na hora de mostrar
+  const m=RD.tkOs||(RD.tkOs={});
+  if(m[t.linha]===undefined){
+    m[t.linha]='loading';
+    fetchJSON('/api/strings/tickets/'+t.linha+'/os?usina='+encodeURIComponent(usina||''))
+      .then(d=>{ m[t.linha]=d||{ok:false,motivo:'o Fracttal não respondeu'}; render(); })
+      .catch(()=>{ m[t.linha]={ok:false,motivo:'o Fracttal não respondeu'}; render(); });
+  }
+  return m[t.linha];
+}
 function _tkCards(inv){   // no inversor aberto: os tickets DELE (os da usina inteira ficam no alto da usina, uma vez só)
   const k=_tkInvChave(inv.name), tkf=state._tkF||{};
   const feitos=Object.values(state._tkFeito||{}).filter(x=>x.pid===String(inv.pid)&&x.inv===k).map(_tkOkHtml).join('');
-  return feitos+(inv.tks||[]).filter(t=>!t.usina_inteira).map(t=>_tkCardHtml(t,_tkEstado(t,inv),tkf[t.linha],false)).join('');
+  return feitos+(inv.tks||[]).filter(t=>!t.usina_inteira).map(t=>_tkCardHtml(t,_tkEstado(t,inv),tkf[t.linha],false,_tkOsDe(t,inv.usina))).join('');
 }
 function _tkEstadoUsina(t,u,ks){   // ticket da usina inteira, ou de inversor que esta fonte não mostra
   if(!t.usina_inteira&&!ks.has(t.inv)) return {k:'mudo',txt:'O inversor deste ticket não aparece nesta fonte'};
@@ -1343,40 +1407,58 @@ function _tkCardsUsina(u){   // no alto do drill: tickets da usina inteira e os 
   if(!Array.isArray(u.inversores)) return feitos;
   const ks=new Set(u.inversores.map(inv=>_tkInvChave(inv.name))), tkf=state._tkF||{};
   const sobram=(u.tkLista||[]).filter(t=>t.usina_inteira||!ks.has(t.inv));
-  return feitos+sobram.map(t=>_tkCardHtml(t,_tkEstadoUsina(t,u,ks),tkf[t.linha],true)).join('');
+  return feitos+sobram.map(t=>_tkCardHtml(t,_tkEstadoUsina(t,u,ks),tkf[t.linha],true,t.usina_inteira?{ok:false,motivo:'ticket da usina inteira'}:_tkOsDe(t,u.name))).join('');
 }
 function _tkForm(linha){ const f=state._tkF||(state._tkF={}); return f[linha]||(f[linha]={}); }
 window.tkStrQuem=v=>{ state._tkQuemV=String(v||'').trim(); try{ localStorage.setItem('gc_tk_quem',state._tkQuemV); }catch(e){} };
 window.tkStrFim=(linha,v)=>{ _tkForm(linha).fim=v; };
+window.tkStrCampo=(linha,campo,v)=>{ const f=_tkForm(linha); f[campo]=v; if(f.fase==='salvo'||f.fase==='erro'){ f.fase=''; f.msg=''; } render(); };
 window.tkStrConfirmar=linha=>{ Object.assign(_tkForm(linha),{fase:'confirmar',msg:''}); render(); };
 window.tkStrCancelar=linha=>{ Object.assign(_tkForm(linha),{fase:'',msg:''}); render(); };
 function _tkAchar(linha){
   for(const r of ((RD.pv&&RD.pv.rows)||[])){ const t=((r.tickets_str&&r.tickets_str.lista)||[]).find(x=>x.linha===linha); if(t) return {r,t}; }
   return null;
 }
-window.tkStrFinalizar=async(linha,naUsina)=>{
+// Salvar e Finalizar mandam o mesmo corpo: o que a tela VIU (para a conferência), o que mudou e os originais (quem mexeu
+// nesse meio-tempo → 409). Finalizar sem causa raiz, a tela nem deixa; o servidor recusa de novo se chegar.
+async function _tkGravar(linha,naUsina,finalizar){
   const st=_tkForm(linha); if(st.fase==='gravando') return;
   const a=_tkAchar(linha); if(!a) return;
   const fimEl=document.getElementById('gc-tkfim-'+linha), quemEl=document.getElementById('gc-tkquem-'+linha);
   const fim=(fimEl&&fimEl.value)||st.fim||_tkIsoAgora(), quem=String((quemEl&&quemEl.value)||_tkQuem()).trim();
+  const esc=_tkEscolha(a.t,st,(RD.tkOs||{})[linha]);
   if(!quem){ Object.assign(st,{fase:'erro',msg:'Diga quem está fechando: o diário do OS Creator guarda o autor de cada edição. Nada foi gravado.'}); render(); return; }
+  if(finalizar&&!esc.causa){ Object.assign(st,{fase:'erro',msg:'Escolha a causa raiz antes de finalizar. Nada foi gravado.'}); render(); return; }
   tkStrQuem(quem);
+  const corpo={quem,usina_planilha:a.t.usina_planilha,inversor:a.t.inversor,desde:a.t.desde,
+    originais:{causa:a.t.causa||'',status:a.t.status_ticket||''}};
+  if(esc.causa!==(a.t.causa||'')) corpo.causa=esc.causa;
+  if(esc.status!==(a.t.status_ticket||'')) corpo.status=esc.status;
+  if(finalizar) corpo.fim=fim;
   Object.assign(st,{fase:'gravando',msg:'Relendo a linha na base de tickets e gravando…',fim}); render();
   try{
-    const r=await fetch('/api/strings/tickets/'+linha+'/finalizar',{method:'POST',credentials:'same-origin',
-      headers:{'Content-Type':'application/json','Accept':'application/json'},
-      body:JSON.stringify({fim,quem,usina_planilha:a.t.usina_planilha,inversor:a.t.inversor,desde:a.t.desde})});
+    const r=await fetch('/api/strings/tickets/'+linha+'/'+(finalizar?'finalizar':'salvar'),{method:'POST',credentials:'same-origin',
+      headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify(corpo)});
     const d=await r.json().catch(()=>({}));
     if(!r.ok||!d.ok){ Object.assign(st,{fase:'erro',msg:d.erro||`A plataforma recusou (${r.status}). Nada foi gravado.`}); render(); return; }
-    if(!d.confirmado){ Object.assign(st,{fase:'erro',msg:'A base respondeu que gravou, mas a releitura ainda não mostra o Fim. Confira na tela de Tickets do OS Creator em alguns minutos.'+(d.aviso?' '+d.aviso:'')}); render(); return; }
+    if(!d.confirmado){ Object.assign(st,{fase:'erro',msg:'A base respondeu que gravou, mas a releitura ainda não mostra a mudança. Confira na tela de Tickets do OS Creator em alguns minutos.'+(d.aviso?' '+d.aviso:'')}); render(); return; }
+    const v=d.valores||{};
+    if(v['Causa raiz']!==undefined) a.t.causa=v['Causa raiz'];
+    if(v['Status do ticket']!==undefined) a.t.status_ticket=v['Status do ticket'];
+    if(!finalizar){
+      delete st.causa; delete st.status;
+      Object.assign(st,{fase:'salvo',msg:'Salvo na planilha de tickets e no diário do OS Creator.'+(d.aviso?' '+d.aviso:'')}); render(); return;
+    }
     const fd=String(d.fim||fim).replace('T',' ');
     (state._tkFeito||(state._tkFeito={}))[linha]={linha,pid:String(a.r.plant_id),inv:(naUsina||a.t.usina_inteira)?null:a.t.inv,quem,aviso:d.aviso||'',
       fimTxt:`${fd.slice(8,10)}/${fd.slice(5,7)}/${fd.slice(0,4)} ${fd.slice(11,16)}`};
     delete state._tkF[linha];
     _tkStrSemLinha(RD.pv&&RD.pv.rows,linha);
     render();
-  }catch(e){ Object.assign(st,{fase:'erro',msg:'Falha de rede ('+(e&&e.message||e)+'). Confira na tela de Tickets do OS Creator se o Fim foi gravado.'}); render(); }
-};
+  }catch(e){ Object.assign(st,{fase:'erro',msg:'Falha de rede ('+(e&&e.message||e)+'). Confira na tela de Tickets do OS Creator se gravou.'}); render(); }
+}
+window.tkStrSalvar=(linha,naUsina)=>_tkGravar(linha,naUsina,false);
+window.tkStrFinalizar=(linha,naUsina)=>_tkGravar(linha,naUsina,true);
 
 function computeVals(){
   const s=state;

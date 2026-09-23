@@ -8094,6 +8094,7 @@ def load_tickets_strings():
                 pass
         xl = pd.ExcelFile(src)
         codigo = {}                                   # "alt100" / "thpn-alt100" → "Altair"
+        cod_de = {}                                   # o contrário: "altair" → "ALT100" (o Fracttal só se acha pelo código)
         if "Base de dados - Usinas" in xl.sheet_names:
             du = xl.parse("Base de dados - Usinas", header=3)
             du.columns = [str(c).strip() for c in du.columns]
@@ -8108,6 +8109,9 @@ def load_tickets_strings():
                     if cod and cod != "0":
                         codigo[_usina_key(cod)] = nome
                         codigo[_usina_key(cod.split("-")[-1])] = nome     # THPN-ALT100 → ALT100
+                        curto = cod.split("-")[-1].strip().upper()
+                        if re.fullmatch(r"[A-Z]{3}\d{3}", curto):
+                            cod_de.setdefault(_usina_key(nome), curto)
         df = xl.parse("Strings indisp", header=3)
         df.columns = [str(c).strip() for c in df.columns]
         low = {c: c.lower() for c in df.columns}
@@ -8156,6 +8160,10 @@ def load_tickets_strings():
             com = " · ".join(_tk_s(oc.get(c)) for c in c_coms if _tk_s(oc.get(c)))
             m.setdefault(_usina_key(nome), []).append({
                 "usina": nome, "usina_planilha": u_pl, "inversor": inv_txt, "inv": chave_inv,
+                # código da usina (ALT100): o que a planilha escreveu, ou o da aba de usinas quando ela escreveu o NOME
+                # (Boa Esperança do Sul, linha 241). É por ele que o card acha o inversor no Fracttal.
+                "cod": (u_pl.upper() if re.fullmatch(r"[A-Za-z]{3}\d{3}", u_pl)
+                        else cod_de.get(_usina_key(nome)) or cod_de.get(_usina_key(u_pl)) or ""),
                 "inv_bloco": int(chave_inv.split(".")[0]) if re.fullmatch(r"\d+\.\d+", chave_inv) else None,
                 # sem quantidade na planilha vale o que o comentário cita; ticket que nasce da OS grava "1" fixo
                 # mesmo citando várias (tickets_nasce.montar_linha), então o maior dos dois
@@ -8309,15 +8317,21 @@ def _tk_str_fechado_aqui(linha) -> bool:
     return bool(ts) and (time.time() - ts) < _TICKETS_STR_FECHADOS_TTL
 
 
-@app.route("/api/strings/tickets/<int:linha>/finalizar", methods=["POST"])
-def api_tickets_str_finalizar(linha):
-    """Grava o Fim da ocorrência do ticket de strings da `linha` na base de tickets. O corpo traz o que a TELA viu
-    (usina da planilha, inversor, início), que é contra o que a linha relida é conferida, mais o Fim e quem fecha.
+def _tk_str_do_ticket(linha):
+    """O ticket aberto de strings da `linha` (a entrada de TICKETS_STR), ou None."""
+    return next((t for v in TICKETS_STR.values() for t in v if t["linha"] == linha), None)
+
+
+def _tk_str_gravar(linha, finalizar):
+    """Salvar (causa raiz e status do ticket) e Finalizar (o mesmo + o Fim) do card. O corpo traz o que a TELA viu
+    (usina da planilha, inversor, início e os valores originais dos campos editados), que é contra o que a linha
+    relida é conferida, mais o que mudou e quem fecha.
 
     Quem fecha é DIGITADO: no login por senha a plataforma não sabe quem é, e o diário guarda o autor de cada edição.
     Vai como "Nome (plataforma)", para o histórico do OS Creator dizer de onde veio."""
     corpo = flask_request.get_json(silent=True) or {}
-    if not any(t["linha"] == linha for v in TICKETS_STR.values() for t in v):
+    t = _tk_str_do_ticket(linha)
+    if t is None:
         return jsonify({"ok": False, "erro": f"A linha {linha} não é um ticket aberto de strings. Nada foi gravado."}), 404
     tok = _estado_backup._token()
     if not tok:
@@ -8330,17 +8344,111 @@ def api_tickets_str_finalizar(linha):
         return _relay.encaminhar(metodo, sheet_id, row, dados, (email, quem), tok)
 
     esperado = {k: corpo.get(k) for k in ("usina_planilha", "inversor", "desde")}
+    valores = {c: corpo[k] for k, c in (("causa", _tkf.CAUSA), ("status", _tkf.STATUS_T))
+               if corpo.get(k) not in (None, "")}
+    originais = {c: corpo.get("originais", {}).get(k) for k, c in (("causa", _tkf.CAUSA), ("status", _tkf.STATUS_T))
+                 if isinstance(corpo.get("originais"), dict) and k in corpo["originais"]}
     try:
-        r = _tkf.finalizar(linha, esperado, corpo.get("fim"), quem, ler_aba=_tkf_ler_aba, gravar=_gravar,
-                           agora=_tkf.agora_brasilia())
+        r = _tkf.salvar(linha, esperado, valores, quem, ler_aba=_tkf_ler_aba, gravar=_gravar,
+                        agora=_tkf.agora_brasilia(), originais=originais, fim=corpo.get("fim") if finalizar else None)
     except _tkf.Recusa as e:
         return jsonify({"ok": False, "erro": str(e)}), e.status
     except (requests.RequestException, _relay.AbaForaDaLista) as e:
         return jsonify({"ok": False, "erro": f"A base de tickets não respondeu ({str(e)[:160]}). Confira na tela de "
-                                             f"Tickets do OS Creator se o Fim foi gravado."}), 502
+                                             f"Tickets do OS Creator se gravou."}), 502
     if r["confirmado"]:
-        _TICKETS_STR_FECHADOS[linha] = time.time()
+        if finalizar:
+            _TICKETS_STR_FECHADOS[linha] = time.time()
+        # a coluna e o card mostram o que foi gravado sem esperar o espelho (até 30 min); na próxima leitura da
+        # planilha o diário traz o mesmo valor
+        if _tkf.CAUSA in r["valores"]:
+            t["causa"] = r["valores"][_tkf.CAUSA]
+        if _tkf.STATUS_T in r["valores"]:
+            t["status_ticket"] = r["valores"][_tkf.STATUS_T]
     return jsonify(r)
+
+
+@app.route("/api/strings/tickets/<int:linha>/finalizar", methods=["POST"])
+def api_tickets_str_finalizar(linha):
+    """Finaliza o ticket: grava o Fim da ocorrência (e a causa e o status escolhidos no card). Sem causa raiz, recusa."""
+    return _tk_str_gravar(linha, finalizar=True)
+
+
+@app.route("/api/strings/tickets/<int:linha>/salvar", methods=["POST"])
+def api_tickets_str_salvar(linha):
+    """Grava a causa raiz e o status do ticket escolhidos no card, sem fechar."""
+    return _tk_str_gravar(linha, finalizar=False)
+
+
+# ── A última OS de RECOMPOSIÇÃO do inversor do ticket, no Fracttal (Levi, 23/09/2026) ─────────────────────────────
+#   "mostrasse os dados da última OS de recomposição para esse inversor ao invés de só comentário (...) A data de
+#   conclusão seria quando o técnico fechou a OS, quando ele fez a tarefa! e o fim da ocorrência já fica sugerido como
+#   essa data". As OS de string nascem no OS Creator como "[Inversor N.M] - Recomposição de String" (Corretiva).
+_RX_TK_RECOMP = re.compile(r"recomposi|\bstrings?\b", re.I)
+
+
+def _tk_str_ultima_recomposicao(rows):
+    """A OS de recomposição mais recente de um ativo, das linhas de work_orders/?id_item= (UMA POR TAREFA). None se não
+    houver. A conclusão é o `final_date` da tarefa (quando o técnico executou), a maior entre as tarefas da OS — não o
+    `wo_final_date`, que é carimbo administrativo (a revisão em massa de 25/08 re-carimbou dezenas). Datas em UTC,
+    convertidas para o relógio daqui. Cancelada fica fora. `relato` = a nota da OS quando ela difere da instrução."""
+    por = {}
+    for w in rows or []:
+        desc = str(w.get("description") or "")
+        if not _RX_TK_RECOMP.search(desc) or w.get("id_status_work_order") == 4:
+            continue
+        o = por.setdefault(w.get("wo_folio"), {"w": w, "fins": []})
+        f = _frac_dt_local(w.get("final_date"))
+        if f is not None:
+            o["fins"].append(f)
+    if not por:
+        return None
+    o = max(por.values(), key=lambda x: str(x["w"].get("creation_date") or ""))
+    w, st = o["w"], o["w"].get("id_status_work_order")
+    concluida = st in (2, 3)
+    fim = max(o["fins"]) if o["fins"] else (_frac_dt_local(w.get("wo_final_date")) if concluida else None)
+    nota, instr = " ".join(str(w.get("note") or "").split()), " ".join(str(w.get("task_note") or "").split())
+    return {"folio": str(w.get("wo_folio") or ""), "descricao": str(w.get("description") or "").strip(),
+            "status": FRAC_WO_STATUS.get(st, "—"), "concluida": concluida, "aberta": st in (0, 1, 5, 6),
+            "conclusao": fim.strftime("%Y-%m-%d %H:%M:%S") if (concluida and fim) else "",
+            "tecnico": " ".join(str(w.get("personnel_description") or w.get("user_assigned") or "").split()),
+            "relato": nota if (nota and nota.lower() != instr.lower()) else "",
+            "criada": (_frac_dt_local(w.get("creation_date")) or datetime.min).strftime("%Y-%m-%d %H:%M:%S")}
+
+
+@app.route("/api/strings/tickets/<int:linha>/os")
+def api_tickets_str_os(linha):
+    """A última OS de recomposição do inversor do ticket e o Fim sugerido por ela. ?usina= é o nome da LINHA da tabela
+    (a planilha escreve "Boa Esperança do Sul 1 e 2" ou o código BES100; o Fracttal se acha pelo nome da usina)."""
+    t = _tk_str_do_ticket(linha)
+    if t is None:
+        return jsonify({"ok": False, "motivo": f"a linha {linha} não é um ticket aberto de strings"}), 404
+    if not FRACTTAL_ON:
+        return jsonify({"ok": False, "motivo": "sem a credencial do Fracttal nesta máquina"})
+    if _tk_str_da_usina_inteira(t):
+        return jsonify({"ok": False, "motivo": "ticket da usina inteira: não há um inversor para procurar a OS"})
+    try:
+        ativo = code = None
+        for nome in (t.get("cod"), t.get("usina_planilha"), flask_request.args.get("usina"), t.get("usina")):
+            code = _frac_inv_code(nome, t.get("inversor")) if nome else None
+            ativo = _frac_ativo(code) if code else None
+            if ativo:
+                break
+        if not ativo:
+            return jsonify({"ok": False, "motivo": "o inversor não foi achado no Fracttal", "code": code})
+        o = _tk_str_ultima_recomposicao(_frac_wos_raw(ativo["id"]))
+    except Exception as e:                                       # noqa: BLE001 — o card mostra sem a OS
+        return jsonify({"ok": False, "motivo": f"o Fracttal não respondeu ({str(e)[:120]})"})
+    sugere = None
+    if o:
+        ini = _tkf.para_dt(t.get("inicio")) or _tkf.para_dt(t.get("desde"))
+        conc = _tkf.para_dt(o["conclusao"])
+        criada = _tkf.para_dt(o["criada"])
+        # OS de antes do ticket não é a que resolveu ESTE ticket: aparece, mas não sugere o Fim
+        o["anterior"] = bool(ini and criada and criada.date() < ini.date() and (conc is None or conc < ini))
+        if conc and not o["anterior"] and (ini is None or conc >= ini):
+            sugere = conc.strftime("%Y-%m-%dT%H:%M")
+    return jsonify({"ok": True, "code": code, "os": o, "sugere_fim": sugere})
 
 
 load_tickets_trackers()   # carga inicial

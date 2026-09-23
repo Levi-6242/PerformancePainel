@@ -172,6 +172,16 @@ ainda há ticket aberto (`normalizado`, em `_com_tickets_str`). Duas armadilhas 
 - coluna de data do espelho é data de verdade, e a célula vazia chega como **NaT** — `str(NaT)` é "NaT", que o `_tk_s`
   não trata como vazio. Use `_tk_vazio`. Sem isso o leitor deu os 82 abertos por fechados.
 
+**Causa, status e a OS de recomposição no card (23/09/2026, pedidos do Levi).** Causa raiz e Status do ticket são
+escolhas de lista (`tickets_str_fechar.CAUSAS`/`STATUS`, as mesmas `TK_CAUSAS`/`TK_STATUS` da tela; o gravador recusa
+outro valor, menos o que a linha já tem) e há **Salvar** sem fechar. **Nunca finaliza sem causa raiz** (tela trava,
+servidor recusa). Finalizar grava o status "Concluído". Status do ticket não tem coluna: salvar só ele vai só ao
+diário. O bloco **Observação** mostra a última OS de recomposição do inversor (`GET /api/strings/tickets/<linha>/os`
+→ `_tk_str_ultima_recomposicao`: descrição com "recomposi"/"string", sem cancelada, conclusão = maior `final_date`
+das tarefas em hora local, relato = `note` quando difere da `task_note`), e o Fim já vem sugerido por ela — só se a
+OS não for anterior ao ticket. O inversor se acha no Fracttal pelo **código** da usina (`t["cod"]`): o que a planilha
+escreveu (MTS200) ou, quando ela escreveu o nome ("Boa Esperança do Sul 1 e 2"), o da aba "Base de dados - Usinas".
+
 ## ETM: o que alarma
 
 Régua do Levi (10/09/2026): **só IPOA (POA) e GHI medidos em zero com sol alarmam** — hoje (`_diagnostico_etm`,
