@@ -8157,7 +8157,7 @@ def _com_tickets_str(payload):
         return payload
     novas, mudou = [], False
     for r in rows:
-        lst = _tickets_str_da_linha(r.get("usina"))
+        lst = [t for t in _tickets_str_da_linha(r.get("usina")) if not _tk_str_fechado_aqui(t["linha"])]
         if lst:
             esp = r.get("str_esp")
             lista = []
@@ -8178,6 +8178,53 @@ def _com_tickets_str(payload):
 def _servir_tabela_strings(payload, conta):
     """O que as 9 rotas da tabela de strings fazem na saída: a marca de sol e os tickets abertos."""
     return _com_tickets_str(_servir_com_sol(payload, conta))
+
+
+# ── Fechar ticket de strings pela tela (23/09/2026) ──────────────────────────────────────────────────────────────────
+#   Quem GRAVA é o OS Creator web, pela mesma rota de Salvar da tela de Tickets dele (/os/api/tickets/Strings/<linha>/
+#   salvar): relê a linha, recusa se alguém mexeu (409), manda a linha INTEIRA no PUT e registra no diário (aba 387) para
+#   o sync do Excel não reabrir. Um segundo gravador aqui seria um segundo lugar para errar essas quatro regras.
+#   A plataforma só CONFERE no banco que o Fim está lá e então tira o ticket da coluna, sem esperar o espelho da planilha
+#   (o bd_api atualiza em até 30 min). Sem o Fim no banco, nada some da tela.
+_TICKETS_STR_FECHADOS = {}              # linha (row_number da API) → quando a plataforma CONFERIU o Fim gravado no banco
+_TICKETS_STR_FECHADOS_TTL = 2 * 3600    # cobre o atraso do espelho sem virar "fechado para sempre" na tela
+
+
+def _tk_str_linhas_api() -> list:
+    """Linhas cruas da aba Strings indisp (sheet 128), DIRETO na API: leitura aberta, sem token."""
+    import bd_api
+    return bd_api.linhas_da_aba(128)
+
+
+def _tk_str_fechado_aqui(linha) -> bool:
+    ts = _TICKETS_STR_FECHADOS.get(linha)
+    return bool(ts) and (time.time() - ts) < _TICKETS_STR_FECHADOS_TTL
+
+
+@app.route("/api/strings/tickets/fechado", methods=["POST"])
+def api_tickets_str_fechado():
+    """A tela fechou um ticket de strings pelo OS Creator web. Relê a linha no banco e, só com o Fim gravado, tira o
+    ticket da coluna. Nada é gravado aqui."""
+    corpo = flask_request.get_json(silent=True) or {}
+    try:
+        linha = int(corpo.get("linha"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "erro": "linha inválida"}), 400
+    if not any(t["linha"] == linha for v in TICKETS_STR.values() for t in v):
+        return jsonify({"ok": False, "erro": f"a linha {linha} não é um ticket aberto de strings"}), 404
+    try:
+        fim = None
+        for ln in _tk_str_linhas_api():
+            if ln.get("row_number") == linha:
+                m = {str(h).strip(): v for h, v in zip(ln.get("headers") or [], ln.get("values") or []) if h}
+                fim = _tk_s(m.get("Fim da ocorrência"))
+                break
+    except Exception as e:                    # noqa: BLE001 — sem conferir, não esconde
+        return jsonify({"ok": False, "erro": f"não consegui reler a linha {linha} no banco: {e}"}), 502
+    if not fim:
+        return jsonify({"ok": False, "erro": f"o banco ainda não mostra o Fim da ocorrência na linha {linha}"}), 409
+    _TICKETS_STR_FECHADOS[linha] = time.time()
+    return jsonify({"ok": True, "linha": linha, "fim": fim})
 
 
 load_tickets_trackers()   # carga inicial

@@ -260,3 +260,86 @@ def test_inversor_com_mais_zeradas_que_o_ticket_cobre():
     assert r == {"cobreTudo": True, "semTicket": 0}
     nomeado = [{"inv": "2.2", "strings": [1, 2], "usina_inteira": False, "qtd_na_linha": 2}]
     assert _js("_tkStrCobertura(%s,%s)" % (json.dumps(nomeado), json.dumps(mortas))) == {"cobreTudo": False, "semTicket": 3}
+
+
+# ── fechar o ticket pela tela de strings (conferência na plataforma) ──────────
+# A GRAVAÇÃO é do OS Creator web (rota de Salvar: relê, confere conflito, linha inteira no PUT, diário). A plataforma
+# só CONFERE no banco que o Fim está lá e então tira o ticket da coluna, sem esperar o espelho (até 30 min).
+
+def _linha_api(n, fim):
+    return {"row_number": n, "headers": ["", "Usina", "Inversor", "Início da ocorrência", "Fim da ocorrência"],
+            "values": ["", "ALT100", "Inversor 1.7", "2026-09-01 06:00:00", fim]}
+
+
+@pytest.fixture
+def cliente(tickets, monkeypatch):
+    monkeypatch.setattr(app, "DASH_PASSWORD", "", raising=False)
+    monkeypatch.setattr(app, "_TICKETS_STR_FECHADOS", {})
+    app.app.config["TESTING"] = True
+    with app.app.test_client() as c:
+        yield c
+
+
+def _linha_do_altair():
+    return app.TICKETS_STR["altair"][0]["linha"]
+
+
+def test_so_esconde_depois_de_ver_o_fim_no_banco(cliente, monkeypatch):
+    n = _linha_do_altair()
+    monkeypatch.setattr(app, "_tk_str_linhas_api", lambda: [_linha_api(n, "2026-09-23 08:00:00")])
+    r = cliente.post("/api/strings/tickets/fechado", json={"linha": n})
+    assert r.status_code == 200 and r.get_json()["ok"] is True
+    p = app._com_tickets_str(_pay("Altair"))
+    assert "tickets_str" not in p["rows"][0], "o ticket fechado e conferido sai da coluna na hora"
+
+
+def test_banco_sem_o_fim_nao_esconde_nada(cliente, monkeypatch):
+    """Se a gravação não chegou ao banco, a coluna tem de continuar mostrando o ticket aberto."""
+    n = _linha_do_altair()
+    monkeypatch.setattr(app, "_tk_str_linhas_api", lambda: [_linha_api(n, None)])
+    r = cliente.post("/api/strings/tickets/fechado", json={"linha": n})
+    assert r.status_code == 409 and r.get_json()["ok"] is False
+    assert app._com_tickets_str(_pay("Altair"))["rows"][0]["tickets_str"]["tickets"] == 1
+
+
+def test_linha_que_nao_e_ticket_aberto_de_strings_e_recusada(cliente, monkeypatch):
+    monkeypatch.setattr(app, "_tk_str_linhas_api", lambda: [])
+    assert cliente.post("/api/strings/tickets/fechado", json={"linha": 99999}).status_code == 404
+    assert cliente.post("/api/strings/tickets/fechado", json={"linha": "x"}).status_code == 400
+
+
+def test_banco_fora_do_ar_nao_esconde(cliente, monkeypatch):
+    n = _linha_do_altair()
+
+    def _cai():
+        raise OSError("sem rede")
+    monkeypatch.setattr(app, "_tk_str_linhas_api", _cai)
+    r = cliente.post("/api/strings/tickets/fechado", json={"linha": n})
+    assert r.status_code == 502
+    assert app._com_tickets_str(_pay("Altair"))["rows"][0]["tickets_str"]["tickets"] == 1
+
+
+def test_o_esconder_expira(cliente, monkeypatch):
+    """Esconder é provisório: cobre o atraso do espelho, não pode virar 'fechado para sempre' na tela."""
+    n = _linha_do_altair()
+    monkeypatch.setitem(app._TICKETS_STR_FECHADOS, n, app.time.time() - app._TICKETS_STR_FECHADOS_TTL - 1)
+    assert app._com_tickets_str(_pay("Altair"))["rows"][0]["tickets_str"]["tickets"] == 1
+
+
+def test_a_tela_so_mostra_o_botao_com_a_chave_de_teste():
+    """Combinado com o Levi (23/09): o botão de fechar só vale para todos depois de testado numa linha."""
+    assert "get('fechar')==='1'" in MON
+    i = MON.index("function _tkStrTag(")
+    assert "TK_FECHAR" in MON[i:MON.index("\n}", i)]
+
+
+def test_ticket_fechado_sai_da_copia_da_tela_na_hora():
+    """Depois de fechar, a tela tira o ticket da própria cópia (sem ir ao servidor: o botão Atualizar da página manda
+    force=1, e isso reconstruiria a aba inteira no processo web)."""
+    rows = [{"usina": "Altair 2 (74)", "tickets_str": {"strings": 3, "tickets": 2, "lista": [
+                {"linha": 10, "qtd_na_linha": 2}, {"linha": 11, "qtd_na_linha": 1}]}},
+            {"usina": "Crateus", "tickets_str": {"strings": 9, "tickets": 1, "lista": [{"linha": 12, "qtd_na_linha": 9}]}}]
+    r = _js("_tkStrSemLinha(%s,10)" % json.dumps(rows))
+    assert r[0]["tickets_str"] == {"strings": 1, "tickets": 1, "lista": [{"linha": 11, "qtd_na_linha": 1}]}
+    r = _js("_tkStrSemLinha(%s,12)" % json.dumps(rows))
+    assert "tickets_str" not in r[1], "usina sem ticket nenhum volta ao '—'"

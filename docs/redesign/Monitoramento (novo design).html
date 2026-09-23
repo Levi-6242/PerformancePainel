@@ -128,6 +128,8 @@ tr.gc-alerta:hover{background:linear-gradient(90deg, color-mix(in srgb, var(--gc
 // ?embed=1: a tela do cliente da Entrada (/tempo-real/<fonte>) embute este Monitoramento com a fonte travada e sem
 // cabecalho/hero/barra de fontes — as tabelas continuam as mesmas. A altura vai ao pai por postMessage (sem rolagem dupla).
 const EMBED=new URLSearchParams(location.search).get('embed')==='1';
+// Fechar ticket de strings pela tela (23/09/2026): só com ?fechar=1 até o Levi testar numa linha — combinado com ele.
+const TK_FECHAR=new URLSearchParams(location.search).get('fechar')==='1';
 function _embedAltura(){ try{ parent.postMessage({gc:'altura',h:document.documentElement.scrollHeight},'*'); }catch(e){} }
 if(EMBED){ document.documentElement.classList.add('embed'); new ResizeObserver(function(){ _embedAltura(); }).observe(document.documentElement);
   window.addEventListener('message',function(ev){ var d=ev.data||{}; if(d.gc==='view'&&_VIEWS_URL.includes(d.id)&&window.setView){ if(d.id==='etm') state.etmProb=!!d.prob; setView(d.id); } }); }
@@ -1181,6 +1183,13 @@ function _tkStrCel(r,naoJulga){   // coluna "Tickets": strings com ticket aberto
   const bar=falt?`<span style="width:44px;height:6px;border-radius:3px;background:var(--color-neutral-800);overflow:hidden;display:inline-block"><span style="display:block;height:100%;width:${pct}%;background:${cor}"></span></span>`:'';
   return `<span title="${_he(tip)}" style="display:inline-flex;align-items:center;gap:6px;justify-content:center">${bar}<span style="font-weight:600;color:${cor}">${tk}</span>${falt?`<span style="color:var(--color-neutral-500)">/${falt}</span>`:''}</span>`;
 }
+function _tkStrSemLinha(rows,linha){   // ticket fechado sai da cópia da tela, sem ir ao servidor
+  (rows||[]).forEach(r=>{ const ts=r.tickets_str; if(!ts) return;
+    const lista=(ts.lista||[]).filter(t=>t.linha!==linha);
+    if(!lista.length){ delete r.tickets_str; return; }
+    r.tickets_str={strings:lista.reduce((a,t)=>a+(t.qtd_na_linha||t.qtd||1),0), tickets:lista.length, lista}; });
+  return rows;
+}
 /* fim _tkStr */
 function _tkStrTip(t){   // uma linha de tooltip por ticket
   const ss=(t.strings||[]).length?' ('+t.strings.map(x=>'Ipv'+x).join(', ')+')':' (o ticket não diz quais)';
@@ -1194,10 +1203,11 @@ function _tkStrTag(inv){   // etiqueta do inversor no drill
   if(tks.length){
     const tip=tks.map(_tkStrTip).join('\n');
     const pend=(inv.strings||[]).some(s=>s.tk==='ticket'||s.tk==='coberta'), volt=(inv.strings||[]).some(s=>s.tk==='voltou');
-    if(volt&&!pend&&!semN) return _tag('voltou','#3fb950','ph-check',tip+'\n\nAs strings do ticket estão produzindo: candidato a fechar.');
     const q=tks.reduce((a,t)=>a+(t.qtd_na_linha||t.qtd||1),0);
+    const btF=TK_FECHAR?`<button onclick="event.stopPropagation();tkStrAbrir('${_jsq(inv.pid)}','${_jsq(inv.invId)}')" title="Fechar ticket deste inversor (grava pelo OS Creator web)" style="display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:9px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;background:transparent;border:1px solid color-mix(in srgb, var(--gc-blue) 55%, transparent);color:var(--gc-blue)"><i class="ph ph-check-square" style="font-size:11px"></i>Fechar</button>`:'';
+    if(volt&&!pend&&!semN) return _tag('voltou','#3fb950','ph-check',tip+'\n\nAs strings do ticket estão produzindo: candidato a fechar.')+btF;
     return (tks.every(t=>t.usina_inteira)?_tag('ticket da usina','var(--gc-blue)','ph-clipboard-text',tip)
-      :_tag(`ticket · ${q} string${q===1?'':'s'}`,'var(--gc-blue)','ph-clipboard-text',tip))+semTag;
+      :_tag(`ticket · ${q} string${q===1?'':'s'}`,'var(--gc-blue)','ph-clipboard-text',tip))+btF+semTag;
   }
   return semTag;
 }
@@ -1208,6 +1218,74 @@ function _tkStrOrfaos(u){   // tickets da usina cujo inversor não aparece nesta
   if(!orf.length) return '';
   return `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:9px 14px;margin-bottom:12px;border-radius:var(--radius-md);background:color-mix(in srgb, var(--gc-blue) 8%, transparent);border:1px solid color-mix(in srgb, var(--gc-blue) 30%, transparent);font-size:12.5px"><i class="ph ph-clipboard-text" style="color:var(--gc-blue)"></i><span class="text-muted">Ticket aberto em inversor que esta fonte não mostra:</span>${orf.map(t=>`<span title="${_he(_tkStrTip(t))}" style="color:var(--color-neutral-200);font-weight:600">${_he(t.inversor||'?')} · ${t.qtd_na_linha||t.qtd||1}</span>`).join('<span class="text-muted">·</span>')}</div>`;
 }
+// ── Fechar ticket de strings (23/09/2026) ─────────────────────────────────────────────────────────────────────────
+// Quem GRAVA é o OS Creator web, pela mesma rota de Salvar da tela de Tickets dele: relê a linha, recusa se alguém mexeu
+// (409), manda a linha INTEIRA no PUT e registra no diário para o sync do Excel não reabrir. Aqui só: 1) relemos o
+// ticket nele e conferimos que a linha ainda é ESTE (mesma usina, mesmo início); 2) mandamos só o Fim, com os valores que
+// o painel viu; 3) a plataforma relê no banco e só então tira o ticket da coluna.
+function _tkNrm(s){ return String(s==null?'':s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim(); }
+function _tkIsoAgora(){ const d=new Date(), p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
+window.tkStrAbrir=(pid,invId)=>{
+  const u=(RD.pv&&RD.pv.rows||[]).find(r=>String(r.plant_id)===String(pid));
+  const inv=((RD.plants[state.source+'|'+pid])||[]).find(x=>String(x.id)===String(invId));
+  if(!u||!inv) return;
+  state._tkM={pid,invId,usina:u.usina,inv:inv.nome,tks:_tkStrInv((u.tickets_str&&u.tickets_str.lista)||[],inv.nome),msg:{},ocupado:null};
+  _renderTkModal();
+};
+window.tkStrFecharModal=()=>{ state._tkM=null; const m=document.getElementById('gc-tkmodal'); if(m)m.remove(); };
+function _renderTkModal(){
+  const st=state._tkM; if(!st) return;
+  let m=document.getElementById('gc-tkmodal');
+  if(!m){ m=document.createElement('div'); m.id='gc-tkmodal'; document.body.appendChild(m); }
+  const cor={erro:'#ff5b6e',ok:'#3fb950',info:'var(--color-neutral-400)'};
+  const cards=st.tks.map(t=>{ const msg=st.msg[t.linha]||null, fechado=(msg&&msg.tipo==='ok');
+    const ss=(t.strings||[]).length?t.strings.map(x=>'Ipv'+x).join(', '):'o ticket não diz quais';
+    return `<div style="padding:12px 14px;border-radius:10px;background:var(--color-neutral-900);border:1px solid var(--color-divider);margin-bottom:10px">
+      <div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px"><b style="font-size:13.5px">${_he(t.usina_inteira?'Usina inteira':t.inversor)} · ${t.qtd_na_linha||t.qtd||1} string${(t.qtd_na_linha||t.qtd)===1?'':'s'}</b><span class="text-muted" style="font-size:11.5px">linha ${t.linha} da planilha</span></div>
+      <div class="text-muted" style="font-size:12px;margin:3px 0 6px">${_he(t.usina_inteira?'':ss)}${t.desde?' · desde '+_he(t.desde):''}${t.causa?' · '+_he(t.causa):''}</div>
+      ${t.comentario?`<div style="font-size:12px;color:var(--color-neutral-300);margin-bottom:8px;max-height:52px;overflow:auto">${_he(t.comentario)}</div>`:''}
+      ${fechado?'':`<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px"><span class="text-muted" style="font-size:12px">Fim da ocorrência</span><input type="datetime-local" id="gc-tkfim-${t.linha}" value="${_tkIsoAgora()}" style="background:var(--color-neutral-900);border:1px solid var(--color-divider);border-radius:8px;color:var(--color-text);font-family:inherit;font-size:12.5px;padding:5px 8px"><button class="btn btn-primary" ${st.ocupado?'disabled':''} onclick="tkStrFechar(${t.linha})"><i class="ph ph-check-square"></i> ${st.ocupado===t.linha?'Fechando…':'Fechar ticket'}</button></div>`}
+      ${msg?`<div style="font-size:12.5px;margin-top:8px;color:${cor[msg.tipo]||cor.info}">${_he(msg.txt)}${msg.link?` <a href="${msg.link}" target="_blank" rel="noopener" style="color:var(--gc-blue)">abrir o OS Creator</a>`:''}</div>`:''}
+    </div>`; }).join('');
+  m.innerHTML=`<div onclick="tkStrFecharModal()" class="gc-overlay" style="position:fixed;inset:0;z-index:200;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:60px 16px;overflow-y:auto"><div onclick="event.stopPropagation()" class="card" style="width:min(560px,100%);padding:18px 20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px"><div><div style="font-family:var(--font-heading);font-size:16px">Tickets de strings · ${_he(st.inv)}</div><div class="text-muted" style="font-size:12px">${_he(st.usina)}</div></div><i class="ph ph-x" onclick="tkStrFecharModal()" style="cursor:pointer;font-size:16px;color:var(--color-neutral-400)"></i></div>
+    ${cards||'<div class="text-muted" style="font-size:12.5px">Nenhum ticket aberto neste inversor.</div>'}
+    <div class="text-muted" style="font-size:11.5px;margin-top:6px">Grava pelo OS Creator web (pede o login do Fracttal): relê a linha, recusa se alguém mexeu nela e registra no diário, para o sync da planilha não reabrir.</div>
+  </div></div>`;
+  _prendeOverlays();
+}
+window.tkStrFechar=async(linha)=>{
+  const st=state._tkM; if(!st||st.ocupado) return;
+  const t=st.tks.find(x=>x.linha===linha); if(!t) return;
+  const inp=document.getElementById('gc-tkfim-'+linha), fim=(inp&&inp.value)||_tkIsoAgora();
+  const diz=(tipo,txt,link)=>{ st.msg[linha]={tipo,txt,link}; st.ocupado=null; _renderTkModal(); };
+  st.ocupado=linha; st.msg[linha]={tipo:'info',txt:'Relendo o ticket no OS Creator…'}; _renderTkModal();
+  try{
+    let r=await fetch('/os/api/tickets/Strings/'+linha,{credentials:'same-origin',headers:{'Accept':'application/json'}});
+    if(r.status===401) return diz('erro','Entre no OS Creator (login do Fracttal) para fechar ticket. Nada foi gravado.','/os/');
+    if(r.status>=500) return diz('erro',`O OS Creator web não respondeu (${r.status}). Nada foi gravado.`);
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok) return diz('erro',(d.erro||('erro '+r.status))+' Nada foi gravado.');
+    if(!d.pode_gravar) return diz('erro','O OS Creator está só em leitura (sem credencial de escrita). Nada foi gravado.');
+    const campo=n=>((d.campos||[]).find(c=>c.campo===n)||{}).valor||'';
+    // a linha ainda é ESTE ticket? A planilha pode ter mudado desde a leitura da plataforma (linha apagada desloca as de baixo)
+    if(_tkNrm(d.usina)!==_tkNrm(t.usina_planilha)) return diz('erro',`A linha ${linha} agora é de "${d.usina}", não de "${t.usina_planilha}". Nada foi gravado. Atualize a tela.`);
+    const ini=t.desde?t.desde.split('/').reverse().join('-'):'';
+    if(ini&&!String(campo('Início da ocorrência')).includes(ini)) return diz('erro',`O início da linha ${linha} não bate com o deste ticket (${t.desde}). Nada foi gravado. Atualize a tela.`);
+    if(campo('Fim da ocorrência')) return diz('erro','Este ticket já tem Fim da ocorrência no OS Creator. Nada foi gravado.');
+    const originais=Object.fromEntries((d.campos||[]).map(c=>[c.campo,c.valor]));
+    st.msg[linha]={tipo:'info',txt:'Gravando pelo OS Creator…'}; _renderTkModal();
+    r=await fetch('/os/api/tickets/Strings/'+linha+'/salvar',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json','Accept':'application/json'},body:JSON.stringify({valores:{'Fim da ocorrência':fim},originais})});
+    const g=await r.json().catch(()=>({}));
+    if(r.status===409) return diz('erro',g.erro||'Outra pessoa mexeu neste ticket depois que ele foi lido. Nada foi gravado.');
+    if(!r.ok||!g.ok) return diz('erro',(g.erro||('O OS Creator recusou ('+r.status+').'))+' Nada foi gravado.');
+    // gravou: a plataforma confere no banco e tira da coluna; a tela tira da própria cópia na hora
+    const c=await fetchJSON('/api/strings/tickets/fechado',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({linha})}).catch(()=>({}));
+    _tkStrSemLinha(RD.pv&&RD.pv.rows,linha);
+    diz('ok',`Ticket fechado, Fim ${fim.replace('T',' ')}.`+(g.aviso?' '+g.aviso:'')+(c&&c.ok?'':' A coluna de outras telas atualiza quando o espelho da planilha sincronizar (até 30 min).'));
+    render();
+  }catch(e){ diz('erro','Falha: '+(e&&e.message||e)+'. Confira no OS Creator se gravou.'); }
+};
 
 function computeVals(){
   const s=state;
