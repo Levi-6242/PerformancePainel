@@ -237,8 +237,8 @@ def test_a_noite_deficit_nao_vira_falha_de_string():
 
 def test_a_noite_falha_de_comunicacao_continua_valendo():
     """À noite, comunicação é o que importa — a Entrada diz isso desde o início."""
-    assert _status(_linha("MAB100", sol_baixo=True, falha_comunicacao=True)) == "Falha comunicação"
-    assert _status(_linha("MAB100", sol_baixo=True), velho=True) == "Falha comunicação"
+    assert _status(_linha("MAB100", sol_baixo=True, falha_comunicacao=True)) == "Usina sem comunicação"
+    assert _status(_linha("MAB100", sol_baixo=True), velho=True) == "Usina sem comunicação"
     assert _status(_linha("MAB100", sol_baixo=True, sem_dados=True)) == "Sem dados"
 
 
@@ -248,7 +248,7 @@ def test_a_noite_o_padrao_do_dia_anterior_continua_valendo():
 
 
 def test_de_dia_nada_muda():
-    assert _status(_linha("MAB100", sol_baixo=False)) == "Sem geração"
+    assert _status(_linha("MAB100", sol_baixo=False)) == "Usina desligada"   # era "Sem geração" (23/09/2026)
     assert _status(_linha("MAB100", sol_baixo=False, strings_ativas=500, diferenca=-99)) == "Falha de string"
     assert _status(_linha("MAB100", sol_baixo=False, strings_ativas=514, diferenca=0, inv_desligados=5)) == "Inversor desligado"
     assert _status(_linha("MAB100", sol_baixo=False, strings_ativas=599, diferenca=0)) == "Normal"
@@ -260,7 +260,7 @@ def test_a_noite_as_colunas_nao_cobram():
     (`dif`) é anulado na origem, e é dele que saem a cor, a ordem e o pulso."""
     m = MON[MON.index("usinas=pv.rows.filter("):]
     m = m[:m.index("}).sort(")]
-    assert re.search(r"dif=semSol\?null:r\.diferenca", m), "o déficit da noite tem de ser anulado na origem"
+    assert re.search(r"dif=\(semSol\|\|semCom\)\?null:r\.diferenca", m), "o déficit da noite tem de ser anulado na origem"
     assert re.search(r"expected:_ip\?[^\n]*semSol", m), "esperadas sem sol devem sair em '—'"
     assert re.search(r"avail:_ip\?[^\n]*semSol", m), "disponibilidade sem sol deve sair em '—'"
 
@@ -268,7 +268,7 @@ def test_a_noite_as_colunas_nao_cobram():
 def test_a_noite_o_card_sem_geracao_diz_sem_sol():
     """Com a fonte inteira sem sol, o card não mostra um '0' que parece 'tudo gerando'."""
     real = MON[MON.index("pvReal=true"):]            # o card de verdade, não o de demonstração do topo
-    i = real.index("label:'Sem geração'")
+    i = real.index("label:'Usinas desligadas'")          # o card "Sem geração" virou "Usinas desligadas" em 23/09
     card = real[real.rindex("{icon:", 0, i):real.index("}", i)]
     assert "_semSolTodas?'sem sol'" in card, f"o card da noite não diz 'sem sol': {card}"
     assert re.search(r"const _semSolTodas=sm\.sem_sol>0&&sm\.sem_sol>=pv\.rows\.length", real), \

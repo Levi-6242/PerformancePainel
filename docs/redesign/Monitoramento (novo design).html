@@ -1110,9 +1110,16 @@ async function _ensureEtmGrupos(){ if(RD.etmGrupos!==undefined) return; RD.etmGr
 // COMM_STALE_MIN. `sol_baixo` = sol abaixo de 8° no estado da usina (ou fora de 07–18h), marcado pelo backend na
 // hora de servir; linha sem a marca é de dia (snapshot antigo, rota que ainda não marca).
 function _strStatus(r,velho){
-  const semSol=r.sol_baixo===true, temD=!r.sem_dados, dif=semSol?null:r.diferenca, difN=dif!=null&&dif<0;
+  const semSol=r.sol_baixo===true, semCom=velho||!!r.falha_comunicacao, temD=!r.sem_dados;
+  const dif=(semSol||semCom)?null:r.diferenca, difN=dif!=null&&dif<0;
   let stt,ps;
-  if(velho){stt='Falha comunicação';ps=pill('color-mix(in srgb, var(--gc-violet) 20%, transparent)','#c9b6ff');}
+  // USINA SEM COMUNICAÇÃO vem antes de tudo (Levi, 23/09/2026: "Usinas sem comunicação ou desligadas tem que aparecer
+  // como Usina Desligada ou Usina sem comunicação"). Vale para o dado parado há mais de 2 h (`velho`, régua de 22/07) e
+  // para a usina cuja leitura MAIS NOVA passou de 30 min (`falha_comunicacao`, do backend). Com o dado parado, déficit,
+  // disponibilidade e status sairiam de um retrato velho: o CPP100 de 23/09 mostrava −248 e 0,0% em vermelho, pulsando,
+  // com a última leitura na véspera às 18:26. Antes o `falha_comunicacao` ficava no fim da lista e perdia para
+  // "Falha de string", julgada justamente sobre esse dado parado.
+  if(semCom){stt='Usina sem comunicação';ps=pill('color-mix(in srgb, var(--gc-violet) 20%, transparent)','#c9b6ff');}
   // Rampa vem ANTES de "Sem geração": as strings estão comunicando corrente (pouca), então a usina
   // não está parada — está com irradiância baixa (início/fim de dia). Âmbar, não vermelho.
   else if(r.rampa){stt='Baixa irradiância';ps=pillAmber;}
@@ -1125,19 +1132,18 @@ function _strStatus(r,velho){
   else if(r.sem_visao){stt='Sem visão de strings';ps=pill('var(--color-neutral-900)','var(--color-neutral-400)');}
   // SEM SOL (22/09/2026): antes daqui a tabela julgava a noite como o dia — às 22h a Athon inteira em "Sem geração",
   // vermelha. Sem sol, zero é o normal; o que ainda vale é comunicação, como a Entrada já dizia.
-  else if(semSol){
-    if(r.falha_comunicacao){stt='Falha comunicação';ps=pill('color-mix(in srgb, var(--gc-violet) 20%, transparent)','#c9b6ff');}
-    else if(r.sem_dados){stt='Sem dados';ps=pill('var(--color-neutral-900)','var(--color-neutral-400)');}
+  else if(semSol){   // a falha de comunicação da noite já caiu no primeiro ramo
+    if(r.sem_dados){stt='Sem dados';ps=pill('var(--color-neutral-900)','var(--color-neutral-400)');}
     else {stt='Sem sol';ps=pill('var(--color-neutral-900)','var(--color-neutral-400)');}
   }
-  else if(temD&&r.strings_ativas===0){stt='Sem geração';ps=semGer;}
+  // USINA DESLIGADA: dado fresco, de dia, nenhuma string com corrente. Era "Sem geração" até 23/09/2026.
+  else if(temD&&r.strings_ativas===0){stt='Usina desligada';ps=semGer;}
   else if(difN){stt='Falha de string';ps=pillRed;}
   // Sem déficit de string mas com inversor DESLIGADO de dia (fora das esperadas desde 22/09/2026): a usina não
   // está normal. A MRO100 de 22/09 tinha todo o seu −85 em 5 inversores parados — sem esta linha, viraria
   // 'Normal' justamente quando perdia 20% da usina.
   else if(r.inv_desligados>0){stt='Inversor desligado';ps=pillAmber;}
   else if(temD&&r.temp_media!=null&&r.temp_media>=65){stt='Temp elevada';ps=pillAmber;}
-  else if(r.falha_comunicacao){stt='Falha comunicação';ps=pill('color-mix(in srgb, var(--gc-violet) 20%, transparent)','#c9b6ff');}
   else if(r.sem_dados){stt='Sem dados';ps=pill('var(--color-neutral-900)','var(--color-neutral-400)');}
   else {stt='Normal';ps=pillOk;}
   return [stt,ps];
@@ -1313,9 +1319,9 @@ function computeVals(){
     cards=[
       {icon:'ph ph-factory',value:sm.total_usinas??'—',label:'Usinas',accent:'var(--gc-blue)',numColor:'var(--gc-blue)'},
       {icon:'ph ph-lightning',value:(sm.total_strings||0).toLocaleString('pt-BR'),label:'Strings ativas',accent:'var(--color-accent)',numColor:'var(--color-accent)'},
-      {icon:'ph ph-warning',value:_semSolTodas?'sem sol':(sm.alertas_strings??'—'),label:'Sem geração',accent:_semSolTodas?'var(--color-neutral-600)':'var(--gc-red)',numColor:_semSolTodas?'var(--color-neutral-400)':'var(--gc-red)'},
+      {icon:'ph ph-warning',value:_semSolTodas?'sem sol':(sm.alertas_strings??'—'),label:'Usinas desligadas',accent:_semSolTodas?'var(--color-neutral-600)':'var(--gc-red)',numColor:_semSolTodas?'var(--color-neutral-400)':'var(--gc-red)'},
       {icon:'ph ph-thermometer-hot',value:sm.alertas_temp??0,label:'Temp ≥ 65 °C',accent:'var(--gc-amber)',numColor:'var(--color-neutral-200)'},
-      {icon:'ph ph-wifi-slash',value:sm.alertas_comm??'—',label:'Falha comunicação',accent:'var(--gc-violet)',numColor:'var(--gc-violet)'},
+      {icon:'ph ph-wifi-slash',value:sm.alertas_comm??'—',label:'Usinas sem comunicação',accent:'var(--gc-violet)',numColor:'var(--gc-violet)'},
     ];
     usinas=pv.rows.filter(r=>!_q||String(r.usina||'').toLowerCase().includes(_q.toLowerCase())).map(r=>{
       const pid=String(r.plant_id), expanded=s.expandedUsina===pid, temD=!r.sem_dados;
@@ -1330,7 +1336,8 @@ function computeVals(){
       // SEM SOL (22/09/2026): o backend marca `sol_baixo` na hora de servir (`_servir_com_sol`, a régua de sol do macro).
       // O déficit é anulado NA ORIGEM porque é dele que saem a cor, a ordem e o pulso da linha: às 21:58 a MAB100 pulsava
       // com −599, 0 de 599 strings, sem sol nenhum. Esperadas e disponibilidade também saem em '—' (mais abaixo).
-      const semSol=r.sol_baixo===true, dif=semSol?null:r.diferenca, difN=dif!=null&&dif<0;
+      // Sem comunicação (23/09/2026): mesma coisa — com o dado parado, ativas, diferença e disponibilidade saem em '—'.
+      const semSol=r.sol_baixo===true, semCom=_velho||!!r.falha_comunicacao, dif=(semSol||semCom)?null:r.diferenca, difN=dif!=null&&dif<0;
       const [stt,ps]=_strStatus(r,_velho);
       const leit=r.ultima_leitura?String(r.ultima_leitura).replace('T',' ').slice(0,16):'—';
       // "Bate com o acompanhamento" = o déficit é exatamente o que você já está acompanhando (dif === -acomp).
@@ -1344,25 +1351,31 @@ function computeVals(){
       const _ipPior=_ipAl[0]||null, _ipFmt=v=>(v>0?'+':'')+Number(v).toLocaleString('pt-BR',{maximumFractionDigits:1})+' pp';
       const _ipCor=_ip?(_ip.status==='critico'?'var(--gc-red)':_ip.status==='atencao'?'var(--gc-amber)':'var(--color-accent-300)'):null;
       return {name:r.usina,inv:(r.qtd_inversores!=null?(r.inv_esp!=null?r.qtd_inversores+'/'+r.inv_esp:''+r.qtd_inversores):'—'),
-        active:_ip?`${Math.max(0,_ipQ-_ipAl.length)}/${_ipQ} inv.`:((r.rampa||r.sem_visao)?'—':(r.strings_ativas??'—')),
+        active:_ip?`${Math.max(0,_ipQ-_ipAl.length)}/${_ipQ} inv.`:((r.rampa||r.sem_visao||semCom)?'—':(r.strings_ativas??'—')),
         expected:_ip?`padrão ${_ip.n_dias_base||30}d`:((r.rampa||r.sem_visao||semSol)?'—':(r.str_esp??'—')),
         expTit:(semSol&&!_ip&&r.str_esp!=null)?`${r.str_esp} strings no cadastro. Sem sol na usina, nenhuma é esperada agora: voltam a contar quando o sol passar de 8° no estado dela.`:'',
         // Inversor DESLIGADO (potência ~0 com sol e a usina gerando) saiu das esperadas no backend (22/09/2026).
         // O aviso fica aqui, na célula que ficou menor, para ninguém achar que as strings sumiram do cadastro.
-        expNote:(r.inv_desligados>0&&!_ip&&!r.rampa&&!r.sem_visao&&!semSol)?{n:r.inv_desligados,fora:r.strings_fora||0,
+        expNote:(r.inv_desligados>0&&!_ip&&!r.rampa&&!r.sem_visao&&!semSol&&!semCom)?{n:r.inv_desligados,fora:r.strings_fora||0,
           nomes:(r.inv_desligados_nomes||[]).join(', ')}:null,
         diff:_ip?(_ipPior?`${_ipPior.inv} ${_ipFmt(_ipPior.delta)}`:'no padrão'):((r.rampa||r.sem_visao)?'—':(dif==null?'—':(dif>0?'+'+dif:''+dif))),
         diffColor:_ip?_ipCor:(bate?'var(--gc-blue)':(difN?'var(--gc-red)':'var(--color-neutral-400)')),
         diffTit:_ip?(`Proporcionalidade de ${_ip.dia||'D-1'}: cada inversor vs. o que ele gera em relação à mediana da usina nos 30 dias anteriores. `+(_ipAl.length?_ipAl.map(a=>`${a.inv} ${Number(a.razao).toFixed(0)}% do padrão de ${Number(a.base).toFixed(0)}% (${_ipFmt(a.delta)})`).join(' · '):'todos dentro do padrão')+((_ip.cronicos||[]).length?` · crônicos: ${_ip.cronicos.join(', ')}`:'')):'',
-        avail:_ip?((_ip.cronicos||[]).length?`${_ip.cronicos.length} crônico${_ip.cronicos.length===1?'':'s'}`:'—'):((r.str_esp&&r.strings_ativas!=null&&!r.rampa&&!r.sem_visao&&!semSol)?(r.strings_ativas/r.str_esp*100).toFixed(1)+'%':'—'),
-        availColor:_ip?'var(--color-neutral-400)':((!r.rampa&&!r.sem_visao&&!semSol&&temD&&r.strings_ativas===0)?'#ff9a9d':'var(--color-neutral-300)'),
-        acomp:(tCount!=null?tCount:''),tkStr:_tkStrCel(r,semSol||!!r.rampa||!!r.sem_visao),tkLista:(r.tickets_str&&r.tickets_str.lista)||[],_dif:(dif==null?null:dif),_grp,pulse:(_grp===0),lastRead:leit,staleRead:_velho,
+        avail:_ip?((_ip.cronicos||[]).length?`${_ip.cronicos.length} crônico${_ip.cronicos.length===1?'':'s'}`:'—'):((r.str_esp&&r.strings_ativas!=null&&!r.rampa&&!r.sem_visao&&!semSol&&!semCom)?(r.strings_ativas/r.str_esp*100).toFixed(1)+'%':'—'),
+        availColor:_ip?'var(--color-neutral-400)':((!r.rampa&&!r.sem_visao&&!semSol&&!semCom&&temD&&r.strings_ativas===0)?'#ff9a9d':'var(--color-neutral-300)'),
+        acomp:(tCount!=null?tCount:''),tkStr:_tkStrCel(r,semSol||semCom||!!r.rampa||!!r.sem_visao),tkLista:(r.tickets_str&&r.tickets_str.lista)||[],_dif:(dif==null?null:dif),_grp,pulse:(_grp===0),lastRead:leit,staleRead:_velho,
         staleTit:(_velho?`Sem leitura nova há ${Math.floor(_idadeMin/60)}h${String(Math.round(_idadeMin%60)).padStart(2,'0')}`:''),
         status:stt,statusStyle:ps,hasFlag:cCount>0,flagCount:cCount,hasOS:oCount>0,osCount:oCount,vkey,caretDeg:expanded?90:0,diffColor2:0,expanded,id:pid,inversores:expanded?buildInversores(pid):[]};
     }).sort((a,b)=>(a._grp-b._grp)||((a._dif||0)-(b._dif||0)));   // não-batendo no topo; dentro do grupo, maior déficit primeiro
     // Conta ANTES de filtrar (o número do chip não muda quando você clica nele) e respeita a busca por usina.
     _stCount={}; _stTotal=usinas.length;
     usinas.forEach(u=>{ _stCount[u.status]=(_stCount[u.status]||0)+1; });
+    // Os dois cards contam o que a TABELA mostra (23/09/2026). O número do backend (strings zeradas / carimbo velho)
+    // contava como desligada a usina que só parou de comunicar, e a tela dizia duas coisas diferentes sobre ela.
+    cards.forEach(c=>{
+      if(c.label==='Usinas desligadas'&&c.value!=='sem sol') c.value=_stCount['Usina desligada']||0;
+      if(c.label==='Usinas sem comunicação') c.value=_stCount['Usina sem comunicação']||0;
+    });
     if(_fSt) usinas=usinas.filter(u=>u.status===_fSt);
   } else if(RD.loading&&s.view==='strings'){
     usinas=[]; cards=cardsByView.strings.map(c=>Object.assign({},c,{value:'…'}));
@@ -1632,9 +1645,9 @@ function renderViewTabs(v){ return `<div style="display:flex;flex-wrap:wrap;alig
 // Barra de STATUS da tabela de strings: conta e filtra. Cor pela mesma régua de severidade do resto
 // (vermelho falha · âmbar atenção · violeta comunicação · verde normal). Clicar de novo tira o filtro.
 function _stCor(st){
-  if(st==='Falha de string'||st==='Sem geração') return 'var(--gc-red)';
+  if(st==='Falha de string'||st==='Usina desligada') return 'var(--gc-red)';
   if(st==='Baixa irradiância'||st==='Temp elevada') return 'var(--gc-amber)';
-  if(st==='Falha comunicação') return 'var(--gc-violet)';
+  if(st==='Usina sem comunicação') return 'var(--gc-violet)';
   if(st==='Normal') return 'var(--color-accent)';
   return 'var(--color-neutral-500)';
 }
@@ -1647,7 +1660,7 @@ function _semLinhas(){
 function _chipsStatus(){
   if(!_stTotal) return '';
   const chip=(lbl,n,c,on,val)=>`<button onclick="event.stopPropagation();onStatusFiltro('${val}')" title="${on?'Clique para tirar o filtro':'Mostrar só: '+lbl}" style="display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:20px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:600;border:1px solid ${on?c:'var(--color-divider)'};background:${on?`color-mix(in srgb, ${c} 18%, transparent)`:'var(--color-neutral-900)'};color:${on?c:'var(--color-neutral-300)'}"><span style="width:7px;height:7px;border-radius:50%;background:${c};flex-shrink:0"></span>${lbl}<span style="font-variant-numeric:tabular-nums;color:${on?c:'var(--color-neutral-400)'}">${n}</span></button>`;
-  const ordem=['Falha de string','Sem geração','Baixa irradiância','Temp elevada','Falha comunicação','Sem visão de strings','Sem dados','Normal'];
+  const ordem=['Usina sem comunicação','Usina desligada','Falha de string','Inversor desligado','Baixa irradiância','Temp elevada','Sem visão de strings','Sem dados','Sem sol','Normal'];
   const lst=ordem.filter(st=>_stCount[st]);
   Object.keys(_stCount).forEach(st=>{ if(ordem.indexOf(st)<0) lst.push(st); });   // status novo não some
   return `<div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:12px 22px;border-bottom:1px solid var(--color-divider)">
