@@ -128,6 +128,11 @@ tarefa, segurou a Athon de novo. `_prewarm_paralelo` espera no máximo `PREWARM_
 fundo e a volta seguinte não começa outra igual (`_PREWARM_EM_VOO`). E o web não reconstrói mais a tabela do Banco
 vencida (`_MODO_WEB` em `_pg_get_snapshot`, como o `_swr`). Consulta órfã no banco se vê em `pg_stat_activity`
 (`client_addr` do servidor, `query_start` antes do restart) e sai com `pg_cancel_backend` — é leitura, nada muda.
+A consulta em si foi trocada no mesmo dia: em vez de ordenar 30 dias de leituras inteiras, cada dispositivo do cadastro
+(`tb_devices`) busca a sua mais nova pelo índice `(device_id, timestamp DESC)` com `LIMIT 1` — 7,8 s contra 875 s
+da antiga com o banco carregado, e 6.020 linhas iguais na MESMA foto do banco (`REPEATABLE READ`, o jeito de comparar
+duas consultas enquanto o dado chega). Não volte ao `DISTINCT ON` em janela longa: o banco comprime o que passa de 7
+dias, segmentado por `device_id`.
 
 ## Padrão por inversor (usinas sem visão por string)
 

@@ -11936,14 +11936,25 @@ def _pg_build_snapshot():
     # view perdia. Janela de 30 dias (não 2h/48h) DE PROPÓSITO: usina muda há dias precisa
     # continuar aparecendo com a leitura velha, senão ela some da aba em vez de acender o
     # alerta de falha de comunicação.
+    # 24/09/2026 — de ~3 s para 83 s. O banco passou a COMPRIMIR os dias com mais de 7 dias (TimescaleDB, segmentado por
+    # device_id), e o DISTINCT ON acima ordenava 30 dias de leituras INTEIRAS (json_data descomprimido) só para ficar com
+    # a mais nova de cada inversor. Com cópias dela no web, no worker e na plataforma local, nenhuma terminava e a tabela
+    # do Banco parou em 14:35. Agora: para cada dispositivo do cadastro (tb_devices), a leitura mais nova pelo índice
+    # (device_id, timestamp DESC), LIMIT 1. Medido com o banco carregado às 16:50: 7,8 s contra 875 s da antiga (83 s
+    # sozinha), e o resultado conferido valor a valor na MESMA foto do banco (REPEATABLE READ): 6.020 linhas iguais,
+    # zero diferença, 22 usinas, 215 inversores. A janela continua 30 dias, pelo motivo acima.
     sql = """
       WITH ult AS (
-        SELECT DISTINCT ON (r.power_plant_id, r.device_id)
-               r.power_plant_id, r.device_id, r.json_data,
-               (r.timestamp AT TIME ZONE 'America/Sao_Paulo') AS ts
-        FROM public.raw_inverter r
-        WHERE r.timestamp > now() - interval '30 days'
-        ORDER BY r.power_plant_id, r.device_id, r.timestamp DESC
+        SELECT u.power_plant_id, dv.id AS device_id, u.json_data,
+               (u.timestamp AT TIME ZONE 'America/Sao_Paulo') AS ts
+        FROM public.tb_devices dv
+        CROSS JOIN LATERAL (
+          SELECT r.power_plant_id, r.json_data, r.timestamp
+          FROM public.raw_inverter r
+          WHERE r.device_id = dv.id AND r.timestamp > now() - interval '30 days'
+          ORDER BY r.timestamp DESC
+          LIMIT 1
+        ) u
       )
       SELECT u.power_plant_id, p.name AS pname, u.device_id, d.device_name,
              substring(kv.key from 'string_([0-9]+)_current')::int AS string_number,

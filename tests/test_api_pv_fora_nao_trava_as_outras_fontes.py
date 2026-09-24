@@ -181,6 +181,17 @@ def test_tarefa_que_ainda_roda_nao_comeca_de_novo(monkeypatch):
     assert inicios == [1, 2], "terminada a primeira, a volta seguinte roda normal"
 
 
+def test_a_consulta_da_tabela_do_banco_busca_a_ultima_leitura_pelo_indice():
+    """83 s → menos de 1 s (24/09/2026). Com os dias antigos comprimidos, ordenar 30 dias de leituras INTEIRAS
+    (DISTINCT ON) para achar a mais nova de cada inversor custava 83 s sozinha. A nova parte do cadastro (tb_devices) e
+    busca, para cada dispositivo, a leitura mais nova pelo índice (device_id, timestamp DESC) com LIMIT 1 — 7,8 s contra
+    875 s da antiga com o banco carregado, e 6.020 linhas iguais na MESMA foto do banco (REPEATABLE READ)."""
+    src = inspect.getsource(app._pg_build_snapshot)
+    assert "FROM public.tb_devices dv" in src and "CROSS JOIN LATERAL (" in src and "LIMIT 1" in src
+    assert "SELECT DISTINCT ON (r.power_plant_id, r.device_id)" not in src, "voltou a ordenar 30 dias de leituras"
+    assert "interval '30 days'" in src, "usina muda há dias continua aparecendo com a leitura velha"
+
+
 def test_no_web_a_tabela_do_banco_vencida_nao_reconstroi(monkeypatch):
     """O web serve o que o worker publica (cache_snapshot.json) — como o _swr já fazia com as outras abas."""
     chamadas = []
