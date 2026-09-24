@@ -8077,6 +8077,18 @@ def _tk_str_ids(*textos) -> list:
     return sorted(ids)
 
 
+def _tk_str_qtd(planilha, ids) -> int:
+    """Quantas strings o ticket cobre: a coluna "Quantidade de strings no afetadas" quando preenchida; vazia, as strings
+    citadas no texto; nada, 1 (o ticket existe, então há pelo menos uma).
+
+    A coluna é o número oficial: é o que o OS Creator mostra e o que o card edita (Levi, 23/09/2026: "quero um contador
+    de quantidade de strings afetadas para eu poder editar também"). Até 23/09 valia o MAIOR dos dois, porque o OS
+    Creator gravava 1 fixo citando várias; desde 10/09 ele conta as strings da observação (tickets_nasce.montar_linha), e
+    em 23/09 os 18 abertos que citam strings tinham a coluna igual à contagem. Com o maior dos dois, baixar a
+    quantidade pelo card para menos que as strings citadas não mudaria nada na tela."""
+    return planilha if planilha and planilha > 0 else (len(ids) or 1)
+
+
 def load_tickets_strings():
     """(Re)carrega os tickets ABERTOS de strings, indexados pela chave da usina (código já traduzido)."""
     global TICKETS_STR
@@ -8151,9 +8163,9 @@ def load_tickets_strings():
                 continue                              # sem usina, ou FECHADO (Fim preenchido): não cobre nada
             ids = _tk_str_ids(*(oc.get(c) for c in c_coms))
             try:
-                afet = int(float(oc.get(c_afe))) if c_afe is not None and _tk_s(oc.get(c_afe)) else 0
+                afet = int(float(oc.get(c_afe))) if c_afe is not None and _tk_s(oc.get(c_afe)) else None
             except (TypeError, ValueError):
-                afet = 0
+                afet = None
             inv_txt = _tk_s(oc.get(c_inv))
             chave_inv = _tk_inv_chave(inv_txt)
             nome = codigo.get(_usina_key(u_pl), u_pl)
@@ -8165,9 +8177,9 @@ def load_tickets_strings():
                 "cod": (u_pl.upper() if re.fullmatch(r"[A-Za-z]{3}\d{3}", u_pl)
                         else cod_de.get(_usina_key(nome)) or cod_de.get(_usina_key(u_pl)) or ""),
                 "inv_bloco": int(chave_inv.split(".")[0]) if re.fullmatch(r"\d+\.\d+", chave_inv) else None,
-                # sem quantidade na planilha vale o que o comentário cita; ticket que nasce da OS grava "1" fixo
-                # mesmo citando várias (tickets_nasce.montar_linha), então o maior dos dois
-                "qtd": max(afet, len(ids)) or 1, "strings": ids,
+                # a coluna vale; vazia, o que o comentário cita (_tk_str_qtd). `qtd_planilha` é o valor CRU da coluna,
+                # que o card manda de volta ao salvar para o servidor ver se outra pessoa mexeu nela
+                "qtd": _tk_str_qtd(afet, ids), "qtd_planilha": afet, "strings": ids,
                 "desde": _tk_data(oc.get(c_ini)) if c_ini is not None else "",
                 "inicio": _tkf.para_iso(oc.get(c_ini)) if c_ini is not None else "",
                 "causa": _tk_s(oc.get(c_cau)) if c_cau is not None else "",
@@ -8323,7 +8335,8 @@ def _tk_str_do_ticket(linha):
 
 
 def _tk_str_gravar(linha, finalizar):
-    """Salvar (causa raiz e status do ticket) e Finalizar (o mesmo + o Fim) do card. O corpo traz o que a TELA viu
+    """Salvar (causa raiz, status do ticket e quantidade de strings afetadas) e Finalizar (o mesmo + o Fim) do card.
+    A resposta leva `qtd` e `qtd_planilha` como ficaram, para a tela recontar a coluna e o drill. O corpo traz o que a TELA viu
     (usina da planilha, inversor, início e os valores originais dos campos editados), que é contra o que a linha
     relida é conferida, mais o que mudou e quem fecha.
 
@@ -8344,9 +8357,9 @@ def _tk_str_gravar(linha, finalizar):
         return _relay.encaminhar(metodo, sheet_id, row, dados, (email, quem), tok)
 
     esperado = {k: corpo.get(k) for k in ("usina_planilha", "inversor", "desde")}
-    valores = {c: corpo[k] for k, c in (("causa", _tkf.CAUSA), ("status", _tkf.STATUS_T))
-               if corpo.get(k) not in (None, "")}
-    originais = {c: corpo.get("originais", {}).get(k) for k, c in (("causa", _tkf.CAUSA), ("status", _tkf.STATUS_T))
+    editaveis = (("causa", _tkf.CAUSA), ("status", _tkf.STATUS_T), ("qtd", _tkf.QTD))
+    valores = {c: corpo[k] for k, c in editaveis if corpo.get(k) not in (None, "")}
+    originais = {c: corpo.get("originais", {}).get(k) for k, c in editaveis
                  if isinstance(corpo.get("originais"), dict) and k in corpo["originais"]}
     try:
         r = _tkf.salvar(linha, esperado, valores, quem, ler_aba=_tkf_ler_aba, gravar=_gravar,
@@ -8365,6 +8378,10 @@ def _tk_str_gravar(linha, finalizar):
             t["causa"] = r["valores"][_tkf.CAUSA]
         if _tkf.STATUS_T in r["valores"]:
             t["status_ticket"] = r["valores"][_tkf.STATUS_T]
+        if _tkf.QTD in r["valores"]:
+            t["qtd_planilha"] = r["valores"][_tkf.QTD]
+            t["qtd"] = _tk_str_qtd(t["qtd_planilha"], t.get("strings") or [])
+        r = dict(r, qtd=t.get("qtd"), qtd_planilha=t.get("qtd_planilha"))
     return jsonify(r)
 
 

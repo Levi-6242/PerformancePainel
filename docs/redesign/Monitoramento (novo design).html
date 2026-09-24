@@ -120,8 +120,7 @@ tr.gc-alerta:hover{background:linear-gradient(90deg, color-mix(in srgb, var(--gc
 /* Ticket de strings no drill (23/09/2026): o que a planilha sabe do ticket e o Finalizar, que grava na base de tickets.
    A borda esquerda diz o estado do ticket contra as strings AGORA: verde voltou, vermelho ainda sem corrente, azul sem
    como julgar. É a mesma cor do chip de estado no alto do card. */
-.gc-tkc{border-radius:var(--radius-md);background:var(--color-neutral-900);border:1px solid var(--color-divider);border-left:3px solid var(--gc-blue);padding:14px 16px;margin-bottom:14px}
-.gc-tkc.voltou{border-left-color:#3fb950}.gc-tkc.morta{border-left-color:var(--gc-red)}
+.gc-tkc{border-radius:var(--radius-md);background:var(--color-neutral-900);border:1px solid var(--color-divider);padding:14px 16px;margin-bottom:14px}
 .gc-tkc-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .gc-tkc-h .t{font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px}
 .gc-tkc-h .t i{color:var(--gc-blue);font-size:16px}
@@ -137,6 +136,16 @@ tr.gc-alerta:hover{background:linear-gradient(90deg, color-mix(in srgb, var(--gc
 .gc-tkc-g select{width:100%;margin-top:3px;background:var(--color-bg);border:1px solid var(--color-divider);border-radius:8px;color:var(--color-neutral-200);font:inherit;font-size:13px;font-weight:600;padding:5px 8px;height:32px;cursor:pointer}
 .gc-tkc-g select:focus{outline:none;border-color:var(--color-accent)}
 .gc-tkc-g select.falta{border-color:color-mix(in srgb,var(--gc-amber) 65%,transparent);color:#f5c877}
+.gc-tkc-qt{display:flex;align-items:center;gap:8px;margin-top:3px}
+.gc-tkc-qt .cx{display:inline-flex;height:32px;border:1px solid var(--color-divider);border-radius:8px;background:var(--color-bg);overflow:hidden}
+.gc-tkc-qt .cx:focus-within{border-color:var(--color-accent)}
+.gc-tkc-qt button{width:30px;padding:0;border:0;background:transparent;color:var(--color-neutral-300);display:inline-flex;align-items:center;justify-content:center;font-size:13px;cursor:pointer}
+.gc-tkc-qt button:hover:not([disabled]){background:rgba(255,255,255,.06);color:var(--color-text)}
+.gc-tkc-qt button:focus-visible{outline:2px solid var(--color-accent);outline-offset:-2px}
+.gc-tkc-qt button[disabled]{opacity:.35;cursor:not-allowed}
+.gc-tkc-qt input{width:42px;padding:0;border:0;border-left:1px solid var(--color-divider);border-right:1px solid var(--color-divider);background:transparent;color:var(--color-neutral-200);font:inherit;font-size:13.5px;font-weight:600;text-align:center;font-variant-numeric:tabular-nums}
+.gc-tkc-qt input:focus{outline:none}
+.gc-tkc-qt .u{font-size:12.5px;color:var(--color-neutral-400)}
 .gc-tkc-o{margin-top:12px;padding:10px 12px;border-radius:8px;background:rgba(255,255,255,.025);border:1px solid var(--color-divider)}
 .gc-tkc-o .lin{display:flex;align-items:flex-start;justify-content:space-between;gap:18px}
 .gc-tkc-o .k{font-size:10px;text-transform:uppercase;letter-spacing:.12em;font-weight:700;color:var(--color-neutral-500);display:block;margin-bottom:3px}
@@ -159,7 +168,14 @@ tr.gc-alerta:hover{background:linear-gradient(90deg, color-mix(in srgb, var(--gc
 .btn[disabled]{opacity:.55;cursor:not-allowed}
 .btn.gravando{cursor:progress}
 .gc-tkc-m{display:flex;align-items:flex-start;gap:7px;font-size:12.5px;margin-top:10px}
-.gc-tkc-n{font-size:11.5px;color:var(--color-neutral-500);margin-top:10px;line-height:1.5}
+.gc-tkc-tip{position:relative;display:inline-flex}
+.gc-tkc-tip>.bx{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);z-index:30;width:max-content;max-width:300px;padding:8px 11px;border-radius:8px;background:var(--color-surface);border:1px solid rgba(255,255,255,.14);box-shadow:0 10px 28px rgba(0,0,0,.5);color:var(--color-neutral-200);font-size:12px;font-weight:500;line-height:1.45;letter-spacing:normal;text-transform:none;text-align:left;white-space:normal;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .12s ease,visibility .12s}
+.gc-tkc-tip:hover>.bx,.gc-tkc-tip:focus-within>.bx{opacity:1;visibility:visible}
+.gc-tkc-tip>.bx.dir{left:auto;right:0;transform:none}
+@media (prefers-reduced-motion:reduce){.gc-tkc-tip>.bx{transition:none}}
+.gc-tkc-ajuda{margin-left:auto;align-self:flex-end;margin-bottom:4px}
+.gc-tkc-ajuda .q{width:30px;height:30px;padding:0;border:0;border-radius:999px;background:transparent;color:var(--color-neutral-500);display:inline-flex;align-items:center;justify-content:center;font-size:19px;cursor:help}
+.gc-tkc-ajuda .q:hover,.gc-tkc-ajuda .q:focus-visible{color:var(--color-neutral-200);background:rgba(255,255,255,.05);outline:none}
 .gc-tkok{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:var(--radius-md);margin-bottom:14px;background:color-mix(in srgb,#3fb950 10%,transparent);border:1px solid color-mix(in srgb,#3fb950 35%,transparent)}
 .gc-tkok i{font-size:20px;color:#3fb950}
 .gc-tkfechar{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:700;white-space:nowrap;color:#3fb950;background:color-mix(in srgb,#3fb950 14%,transparent);border:1px solid color-mix(in srgb,#3fb950 45%,transparent)}
@@ -271,10 +287,10 @@ function _abaixoMeta(iv){   // conjunto (por NÚMERO) de strings "abaixo": .sub 
 }
 function _invIso(){ return state.invData||_todayISO(); }                 // data do drill de corrente por string (default = hoje)
 function _ckey(pid,invId){ return state.source+'|'+pid+'|'+invId+'|'+_invIso(); }   // chave da curva do drill (inclui a data)
-async function loadCurva(pid,invId,nome){   // curva corrente-por-string do inversor (endpoint+data variam por fonte)
+async function loadCurva(pid,invId,nome,refazer){   // curva corrente-por-string do inversor (endpoint+data variam por fonte); refazer = busca de novo com a atual na tela
   const src=state.source, sk=SKEY[src], iso=_invIso(), key=_ckey(pid,invId);
-  if(RD.curva[key]!==undefined) return;
-  RD.curva[key]=null; render();
+  if(RD.curva[key]!==undefined&&!refazer) return;
+  if(!refazer){ RD.curva[key]=null; render(); }
   const br=iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4);
   let url=null;
   if(_ehApiPv(sk,pid)) url='/api/spv/usina/'+encodeURIComponent(pid)+'?full=1&data='+br;    // PV e SEMP: mesma API PV (id global) — o SEMP não tinha ramo NENHUM e a curva ficava eternamente "sem corrente" (Tucano, 06/08)
@@ -294,9 +310,18 @@ async function loadCurva(pid,invId,nome){   // curva corrente-por-string do inve
     }
     RD.curva[key]=(iv&&iv.curva)||{};
     RD.curvaMeta[key]=_abaixoMeta(iv);   // conjunto "abaixo" (sub por energia + último<60% mediana) + mediana
-  }catch(e){ RD.curva[key]={}; RD.curvaMeta[key]={abaixo:new Set(),erro:1}; }   // erro MARCADO: "nao consegui buscar" != "nao houve dado"
+  }catch(e){ if(!refazer){ RD.curva[key]={}; RD.curvaMeta[key]={abaixo:new Set(),erro:1}; } }   // erro MARCADO: "nao consegui buscar" != "nao houve dado"; refazendo, fica a que já estava
   render();
 }
+// Destrancou (Levi, 23/09/2026): a curva guardada veio do servidor SEM a string, porque ele tira as trancadas da curva
+// (_pv_curva, _sunop_curva, PG). Esquece a do inversor nas outras datas e busca a do dia de novo — o servidor já limpou o
+// cache dele no POST da trava —, com a atual na tela até a nova chegar.
+function _curvaRecarrega(pid,invId,nome){
+  const pre=state.source+'|'+pid+'|'+invId+'|', key=_ckey(pid,invId), aberta=RD.curva[key]!==undefined;
+  Object.keys(RD.curva).forEach(k=>{ if(k.startsWith(pre)&&k!==key){ delete RD.curva[k]; delete RD.curvaMeta[k]; } });
+  if(aberta) loadCurva(pid,invId,nome,true);
+}
+/* fim _curvaRecarrega */
 function curvaSVG(curva, smap, red){
   const names=Object.keys(curva||{}); if(!names.length) return '';
   let mx=0; names.forEach(n=>(curva[n].y||[]).forEach(v=>{ if(v!=null&&v>mx)mx=v; }));
@@ -436,6 +461,25 @@ async function loadPlant(pid){
   catch(e){ RD.plants[key]=[]; }
   render();
 }
+// DESTRANCAR precisa do status real da string, e o servidor não manda: para a trancada, o status vem "trancada"
+// (_classifica_strings). Destrancar só pela trava deixava o chip azul até recarregar a página (Levi, 23/09/2026: "quando
+// eu vou destrancar uma string pelo ícone de cadeado não destranca imediatamente (...) porém quando eu tranco já aparece
+// trancado"). Trancar não precisa de conta: "trancada" vale qualquer que seja o status. A régua é a do _classifica_strings
+// (mediana das que produzem e não estão trancadas; 0,1 A; 60%; inversor parado abaixo de 0,5 A), mais o "desligado" que o
+// servidor pinta na linha inteira do inversor parado de dia. Limites iguais aos do app.py: test_strings_destrancar_tela.
+const STR_SEM_CORRENTE_A=0.1, STR_BAIXA_PERF_FRAC=0.60, STR_INV_MIN_MED_A=0.5;
+function _strReclassifica(inv,ids){   // ids = as strings que acabaram de ser destrancadas (trancada já false)
+  const alvo=new Set((ids||[]).map(String)), sts=inv.strings||[], livres=sts.filter(s=>!s.trancada);
+  const desl=livres.some(s=>!alvo.has(String(s.id))&&s.status==='desligado');
+  const prod=livres.map(s=>s.corrente).filter(c=>typeof c==='number'&&c>STR_SEM_CORRENTE_A).sort((a,b)=>a-b);
+  const med=prod.length?prod[Math.floor(prod.length/2)]:0;
+  sts.forEach(s=>{ if(!alvo.has(String(s.id))||s.trancada) return;
+    const c=typeof s.corrente==='number'?s.corrente:0;
+    s.status=desl?'desligado':(med<STR_INV_MIN_MED_A?'inativa':(c<=STR_SEM_CORRENTE_A?'sem_corrente':(c<STR_BAIXA_PERF_FRAC*med?'baixa_perf':'ativa')));
+    s.ativa=s.status==='ativa'||s.status==='baixa_perf'; });
+  return inv;
+}
+/* fim _strReclassifica */
 window.trancarInativas=async(pid,invId)=>{   // trava OTIMISTA (instantâneo) + persiste em background — sem re-buscar a usina inteira na API lenta (SunOp)
   const invs=RD.plants[state.source+'|'+pid]||[]; const inv=invs.find(x=>String(x.id)===String(invId));
   if(!inv){ _toast('Inversor não encontrado nos dados carregados — recarregue a usina.','ruim'); return; }
@@ -458,12 +502,15 @@ window.destrancarTodas=async(pid,invId)=>{
   const ids=(inv.strings||[]).filter(s=>s.trancada).map(s=>s.id);
   if(!ids.length){ _toast('Nenhuma string trancada neste inversor.'); return; }
   const idset=new Set(ids.map(String));
-  (inv.strings||[]).forEach(s=>{ if(idset.has(String(s.id))) s.trancada=false; }); render();
+  const antes=(inv.strings||[]).filter(s=>idset.has(String(s.id))).map(s=>[s,{trancada:s.trancada,status:s.status,ativa:s.ativa}]);
+  (inv.strings||[]).forEach(s=>{ if(idset.has(String(s.id))) s.trancada=false; });
+  _strReclassifica(inv,ids); render();
   try{
     const r=await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({plant_id:pid,inv_id:invId,strings:ids,trancada:false})});
     if(!r.ok) throw new Error('HTTP '+r.status);
     _toast(ids.length+' string(s) destrancada(s) — voltam a contar.');
-  }catch(e){ (inv.strings||[]).forEach(s=>{ if(idset.has(String(s.id))) s.trancada=true; }); render();
+    _curvaRecarrega(pid,invId,inv.nome);
+  }catch(e){ antes.forEach(([s,a])=>Object.assign(s,a)); render();
     _toast('Não consegui destrancar as '+ids.length+' strings: '+e.message,'ruim'); }
 };
 window.trancarString=async(pid,invId,sid,trancar)=>{   // cadeado por string: tranca/destranca UMA — OTIMISTA (instantâneo)
@@ -477,15 +524,18 @@ window.trancarString=async(pid,invId,sid,trancar)=>{   // cadeado por string: tr
     _toast('Não consegui identificar a string '+sid+' neste inversor — recarregue a usina e tente de novo.','ruim');
     return;   // escrita silenciosa é pior que não escrever
   }
-  const antes=!!st.trancada;
-  st.trancada=!!trancar; render();
+  const antes={trancada:!!st.trancada,status:st.status,ativa:st.ativa};
+  st.trancada=!!trancar;
+  if(!trancar) _strReclassifica(inv,[sid]);   // sem isto, o chip ficava azul ("trancada" no status) até recarregar
+  render();
   try{
     const r=await fetch('/api/state/string-trancada',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({plant_id:pid,inv_id:invId,strings:[sid],trancada:!!trancar})});
     const j=await r.json().catch(()=>({}));
     if(!r.ok||j.ok===false) throw new Error(j.error||('HTTP '+r.status));
+    if(!trancar) _curvaRecarrega(pid,invId,inv.nome);
   }catch(e){
-    st.trancada=antes; render();
+    Object.assign(st,antes); render();
     _toast((trancar?'Não consegui trancar ':'Não consegui destrancar ')+sid+': '+e.message,'ruim');
   }
 };
@@ -1284,6 +1334,15 @@ function _tkStrSemLinha(rows,linha){   // ticket fechado sai da cópia da tela, 
     r.tickets_str={strings:lista.reduce((a,t)=>a+(t.qtd_na_linha||t.qtd||1),0), tickets:lista.length, lista}; });
   return rows;
 }
+// Quantidade salva no card: o ticket em cada linha da tela e a soma de cada uma, sem ir ao servidor. Ticket da usina
+// inteira conta, em cada parte, até as esperadas dela — a mesma régua do _com_tickets_str no servidor.
+function _tkStrQtdNova(rows,linha,qtd,planilha){
+  (rows||[]).forEach(r=>{ const ts=r.tickets_str; if(!ts) return; let achou=false;
+    (ts.lista||[]).forEach(t=>{ if(t.linha!==linha) return; achou=true; t.qtd=qtd; t.qtd_planilha=planilha;
+      t.qtd_na_linha=(t.usina_inteira&&typeof r.str_esp==='number'&&r.str_esp>0)?Math.min(qtd,Math.trunc(r.str_esp)):qtd; });
+    if(achou) ts.strings=(ts.lista||[]).reduce((a,t)=>a+(t.qtd_na_linha||t.qtd||1),0); });
+  return rows;
+}
 /* fim _tkStr */
 function _tkStrTip(t){   // uma linha de tooltip por ticket
   const ss=(t.strings||[]).length?' ('+t.strings.map(x=>'Ipv'+x).join(', ')+')':' (o ticket não diz quais)';
@@ -1311,6 +1370,7 @@ function _tkStrTag(inv){   // etiqueta do inversor no drill; o clique nela abre 
 // recusa qualquer outro valor. "Aguardando Cliente" e "OS Programada" com a grafia do OS Creator.
 const TK_CAUSAS=['Falha no equipamento','Furto','Garantia'];
 const TK_STATUS=['OS Programada','Aguardando Material','Aguardando Garantia','Aguardando Cliente'];
+const TK_QTD_MAX=999;   // teto da quantidade de strings afetadas: o mesmo de tickets_str_fechar.QTD_MAX
 function _tkIsoAgora(){ const d=new Date(), p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`; }
 function _tkDias(ini){ const d=Date.parse(String(ini||'').replace(' ','T')); return isFinite(d)?Math.max(0,Math.floor((Date.now()-d)/864e5)):null; }
 function _tkQuem(){   // quem fecha: digitado uma vez e lembrado NESTE navegador (no login por senha a plataforma não sabe quem é)
@@ -1320,11 +1380,14 @@ function _tkQuem(){   // quem fecha: digitado uma vez e lembrado NESTE navegador
 function _tkDtTxt(iso){ const s=String(iso||''); return s.length>=16?`${s.slice(8,10)}/${s.slice(5,7)}/${s.slice(0,4)} ${s.slice(11,16)}`:''; }
 // O que o card vai gravar: o escolhido agora ou, sem escolha, o que o ticket já tem. Sem status e com OS de recomposição
 // ABERTA no Fracttal, sugere "OS Programada" (Levi: "quando já tem OS aberta para esse ativo de recomposição de string").
+// A quantidade é o TOTAL do ticket (qtd), nunca a parte da usina que a linha mostra (qtd_na_linha): Brodowski tem um
+// ticket de 209 strings e a Skid 1 mostra 104 — gravar a partir das 104 apagaria as outras da planilha.
 function _tkEscolha(t,f,o){
   const osAb=!!(o&&o.ok&&o.os&&o.os.aberta);
   const causa=(f&&f.causa!==undefined)?f.causa:(t.causa||'');
   const status=(f&&f.status!==undefined)?f.status:(t.status_ticket||(osAb?'OS Programada':''));
-  return {causa,status,osAb,muda:(causa!==(t.causa||''))||(status!==(t.status_ticket||''))};
+  const qtd=(f&&f.qtd!==undefined)?f.qtd:(t.qtd||1);
+  return {causa,status,qtd,osAb,muda:(causa!==(t.causa||''))||(status!==(t.status_ticket||''))||(qtd!==(t.qtd||1))};
 }
 // A OBSERVAÇÃO do ticket e a última OS de recomposição do inversor (o = resposta de /api/strings/tickets/<linha>/os).
 function _tkObsHtml(t,o){
@@ -1340,7 +1403,7 @@ function _tkObsHtml(t,o){
     <div class="conc"><span class="k">Data de conclusão</span>${conc}</div></div>${meta}${relato}</div>`;
 }
 function _tkCardHtml(t,est,f,naUsina,o){   // f = o formulário deste ticket (state._tkF[linha]); o = a OS de recomposição
-  const q=t.qtd_na_linha||t.qtd||1, dias=_tkDias(t.inicio), ini=String(t.inicio||'');
+  const dias=_tkDias(t.inicio), ini=String(t.inicio||'');
   const iniTxt=_tkDtTxt(ini)||(t.desde||'');
   const ss=(t.strings||[]).length?t.strings.map(x=>'PV'+x).join(', '):'não diz quais';
   const campo=(k,v,vz)=>`<div><div class="k">${k}</div><div class="v${vz?' vz':''}" title="${_he(v)}">${_he(v)}</div></div>`;
@@ -1355,27 +1418,39 @@ function _tkCardHtml(t,est,f,naUsina,o){   // f = o formulário deste ticket (st
   const semCausa=!esc.causa, travaFim=(ocup||semCausa)?' disabled':'';
   const sug=!(f&&f.fim)&&o&&o.ok&&o.sugere_fim?o.sugere_fim:'';
   const salvando=ocup&&f.acao==='salvar', fechando=ocup&&f.acao!=='salvar';
-  const btnSalvar=`<button class="btn btn-secondary${salvando?' gravando':''}"${(ocup||!esc.muda)?' disabled':''} onclick="tkStrSalvar(${arg})"><i class="ph ph-floppy-disk"></i>${salvando?'Salvando…':'Salvar'}</button>`;
+  // Contador da quantidade de strings afetadas (Levi, 23/09/2026: "quero um contador de quantidade de strings afetadas
+  // para eu poder editar também"). − e + redesenham na hora; digitado, o campo não redesenha (ver tkStrQtdDig).
+  const qv=esc.qtd, parte=(t.usina_inteira&&t.qtd_na_linha&&t.qtd_na_linha<qv)?t.qtd_na_linha:0;
+  const qtdCampo=`<div><div class="k">Quantidade</div><div class="gc-tkc-qt"${parte?` title="${_he('Total do ticket. Nesta parte da usina: '+parte)}"`:''}><div class="cx">`
+    +`<button type="button" id="gc-tkqtdm-${t.linha}" aria-label="Diminuir a quantidade"${(ocup||qv<=1)?' disabled':''} onclick="tkStrQtd(${t.linha},-1)"><i class="ph ph-minus"></i></button>`
+    +`<input type="text" inputmode="numeric" maxlength="3" id="gc-tkqtd-${t.linha}" value="${qv}" aria-label="Quantidade de strings afetadas"${ocup?' disabled':''} oninput="tkStrQtdDig(${t.linha},this.value)" onchange="tkStrQtdSai(${t.linha},this)">`
+    +`<button type="button" id="gc-tkqtdp-${t.linha}" aria-label="Aumentar a quantidade"${(ocup||qv>=TK_QTD_MAX)?' disabled':''} onclick="tkStrQtd(${t.linha},1)"><i class="ph ph-plus"></i></button>`
+    +`</div><span class="u" id="gc-tkqtdu-${t.linha}">${qv===1?'string':'strings'}</span></div></div>`;
+  const btnSalvar=`<button class="btn btn-secondary${salvando?' gravando':''}" id="gc-tksalvar-${t.linha}"${(ocup||!esc.muda)?' disabled':''} onclick="tkStrSalvar(${arg})"><i class="ph ph-floppy-disk"></i>${salvando?'Salvando…':'Salvar'}</button>`;
+  // Sem causa, o porquê do Finalizar travado aparece ao passar o mouse nele (Levi, 23/09: "não precisa ficar ocupando
+  // espaço no ticket"). A dica mora num invólucro, porque botão travado não recebe o mouse em todo navegador.
+  const tipFim=semCausa&&!ocup?'<span class="bx" role="tooltip">Escolha a causa raiz para finalizar: a plataforma não finaliza ticket sem causa.</span>':'';
+  const comDica=b=>tipFim?`<span class="gc-tkc-tip">${b}${tipFim}</span>`:b;
   const btnFim=est.k==='morta'&&!ocup
-    ?(conf?`<button class="btn btn-alerta"${travaFim} onclick="tkStrFinalizar(${arg})"><i class="ph ph-check-square"></i>Sim, finalizar</button><button class="btn btn-secondary" onclick="tkStrCancelar(${t.linha})">Cancelar</button>`
-          :`<button class="btn btn-alerta"${travaFim} onclick="tkStrConfirmar(${t.linha})"><i class="ph ph-check-square"></i>Finalizar mesmo assim</button>`)
-    :`<button class="btn btn-primary${fechando?' gravando':''}"${travaFim} onclick="tkStrFinalizar(${arg})"><i class="ph ph-check-square"></i>${fechando?'Gravando…':'Finalizar ticket'}</button>`;
+    ?(conf?comDica(`<button class="btn btn-alerta"${travaFim} onclick="tkStrFinalizar(${arg})"><i class="ph ph-check-square"></i>Sim, finalizar</button>`)+`<button class="btn btn-secondary" onclick="tkStrCancelar(${t.linha})">Cancelar</button>`
+          :comDica(`<button class="btn btn-alerta"${travaFim} onclick="tkStrConfirmar(${t.linha})"><i class="ph ph-check-square"></i>Finalizar mesmo assim</button>`))
+    :comDica(`<button class="btn btn-primary${fechando?' gravando':''}"${travaFim} onclick="tkStrFinalizar(${arg})"><i class="ph ph-check-square"></i>${fechando?'Gravando…':'Finalizar ticket'}</button>`);
+  // Como a gravação funciona: no "?" do canto de baixo, à direita (Levi, 23/09: "pode ficar em um símbolo de
+  // interrogação no canto inferior direito que quando passa o mouse aparece a mensagem").
+  const ajuda=`<span class="gc-tkc-tip gc-tkc-ajuda"><button type="button" class="q" aria-label="Como a gravação funciona"><i class="ph ph-question"></i></button><span class="bx dir" role="tooltip">Grava na planilha de tickets e no diário do OS Creator. Antes relê a linha e confere que ela ainda é deste ticket (usina, inversor e início); se alguém mexeu nela, nada é gravado. Ao finalizar, o status vai para Concluído.</span></span>`;
   const dicas=[];
-  if(semCausa) dicas.push('<span style="color:#f5c877">Escolha a causa raiz para finalizar: a plataforma não finaliza ticket sem causa.</span>');
   if(sug&&o.os) dicas.push(`Fim sugerido pela conclusão da OS ${_he(o.os.folio)}.`);
   if(esc.status==='OS Programada'&&o&&o.ok&&!esc.osAb) dicas.push('<span style="color:#f5c877">'+(o.os&&o.os.concluida
     ?`A OS ${_he(o.os.folio)} de recomposição já foi concluída: o status OS Programada ficou desatualizado.`
     :'Nenhuma OS de recomposição aberta para este inversor no Fracttal.')+'</span>');
-  const aviso=est.k==='morta'&&!ocup?`<div class="gc-tkc-m" style="color:#ffb3b5"><i class="ph ph-warning" style="font-size:15px"></i><span>${conf?'As strings seguem sem corrente. Confirma o fim da ocorrência?':'As strings deste ticket seguem sem corrente. Finalize só se o problema foi resolvido de outro jeito.'}</span></div>`:'';
   const cor={erro:'#ff9a9d',salvo:'#3fb950'}[fase]||'var(--color-neutral-400)';
   const msg=f&&f.msg?`<div class="gc-tkc-m" style="color:${cor}">${fase==='erro'?'<i class="ph ph-x-circle" style="font-size:15px"></i>':fase==='salvo'?'<i class="ph ph-check-circle" style="font-size:15px"></i>':''}<span>${_he(f.msg)}</span></div>`:'';
-  return `<div class="gc-tkc ${est.k}" onclick="event.stopPropagation()">
+  return `<div class="gc-tkc" onclick="event.stopPropagation()">
     <div class="gc-tkc-h"><span class="t"><i class="ph ph-clipboard-text"></i>${t.usina_inteira?'Ticket da usina inteira':(naUsina?'Ticket do '+_he(t.inversor||'inversor'):'Ticket aberto')}</span><span class="l">linha ${t.linha} da planilha de tickets · aba Strings indisp</span><span class="gc-tkc-e ${est.k}"><i class="ph ${ic}"></i>${_he(est.txt)}</span></div>
-    <div class="gc-tkc-g">${campo('Strings do ticket',ss,!(t.strings||[]).length)}${campo('Quantidade',q+' string'+(q===1?'':'s'))}${campo('Início da ocorrência',iniTxt||'—',!iniTxt)}${campo('Aberto há',dias==null?'—':(dias===0?'menos de 1 dia':dias+' dia'+(dias===1?'':'s')),dias==null)}${sel('Causa raiz','causa',esc.causa,TK_CAUSAS,'escolha a causa')}${campo('OS vinculada',t.os?'OS '+t.os:'nenhuma',!t.os)}${sel('Status do ticket','status',esc.status,TK_STATUS,'sem status')}${campo('Usina na planilha',t.usina_planilha||'—')}</div>
+    <div class="gc-tkc-g">${campo('Strings do ticket',ss,!(t.strings||[]).length)}${qtdCampo}${campo('Início da ocorrência',iniTxt||'—',!iniTxt)}${campo('Aberto há',dias==null?'—':(dias===0?'menos de 1 dia':dias+' dia'+(dias===1?'':'s')),dias==null)}${sel('Causa raiz','causa',esc.causa,TK_CAUSAS,'escolha a causa')}${campo('OS vinculada',t.os?'OS '+t.os:'nenhuma',!t.os)}${sel('Status do ticket','status',esc.status,TK_STATUS,'sem status')}${campo('Usina na planilha',t.usina_planilha||'—')}</div>
     ${_tkObsHtml(t,o)}
-    <div class="gc-tkc-f"><label><span>Fim da ocorrência</span><input type="datetime-local" id="gc-tkfim-${t.linha}" value="${_he((f&&f.fim)||sug||_tkIsoAgora())}" max="${_tkIsoAgora()}" onchange="tkStrFim(${t.linha},this.value)" style="width:210px"></label><label><span>Quem está fechando</span><input type="text" id="gc-tkquem-${t.linha}" value="${_he(_tkQuem())}" placeholder="seu nome" maxlength="60" onchange="tkStrQuem(this.value)" style="width:220px"></label>${btnSalvar}${btnFim}</div>
-    ${dicas.length?`<div class="gc-tkc-m" style="color:var(--color-neutral-400)"><i class="ph ph-info" style="font-size:15px"></i><span>${dicas.join(' ')}</span></div>`:''}${aviso}${msg}
-    <div class="gc-tkc-n">Grava na planilha de tickets e no diário do OS Creator. Antes relê a linha e confere que ela ainda é deste ticket (usina, inversor e início); se alguém mexeu nela, nada é gravado. Ao finalizar, o status vai para Concluído.</div>
+    <div class="gc-tkc-f"><label><span>Fim da ocorrência</span><input type="datetime-local" id="gc-tkfim-${t.linha}" value="${_he((f&&f.fim)||sug||_tkIsoAgora())}" max="${_tkIsoAgora()}" onchange="tkStrFim(${t.linha},this.value)" style="width:210px"></label><label><span>Quem está fechando</span><input type="text" id="gc-tkquem-${t.linha}" value="${_he(_tkQuem())}" placeholder="seu nome" maxlength="60" onchange="tkStrQuem(this.value)" style="width:220px"></label>${btnSalvar}${btnFim}${ajuda}</div>
+    ${dicas.length?`<div class="gc-tkc-m" style="color:var(--color-neutral-400)"><i class="ph ph-info" style="font-size:15px"></i><span>${dicas.join(' ')}</span></div>`:''}${msg}
   </div>`;
 }
 function _tkOkHtml(x){
@@ -1415,6 +1490,23 @@ function _tkForm(linha){ const f=state._tkF||(state._tkF={}); return f[linha]||(
 window.tkStrQuem=v=>{ state._tkQuemV=String(v||'').trim(); try{ localStorage.setItem('gc_tk_quem',state._tkQuemV); }catch(e){} };
 window.tkStrFim=(linha,v)=>{ _tkForm(linha).fim=v; };
 window.tkStrCampo=(linha,campo,v)=>{ const f=_tkForm(linha); f[campo]=v; if(f.fase==='salvo'||f.fase==='erro'){ f.fase=''; f.msg=''; } render(); };
+// − e + contam a partir do que o card mostra; mínimo 1 e teto TK_QTD_MAX, os mesmos que o servidor confere
+window.tkStrQtd=(linha,d)=>{ const a=_tkAchar(linha); if(!a) return; const f=_tkForm(linha);
+  const atual=(f.qtd!==undefined)?f.qtd:(a.t.qtd||1); tkStrCampo(linha,'qtd',Math.max(1,Math.min(TK_QTD_MAX,atual+d))); };
+// Digitada, a quantidade NÃO redesenha o card: o render troca o card inteiro, e o clique no Salvar logo depois (o campo
+// perde o foco no mousedown, e o change dispara ali) cairia no botão velho e se perderia. Liga o Salvar, o −, o + e a
+// unidade no próprio lugar.
+window.tkStrQtdDig=(linha,v)=>{
+  const s=String(v||'').trim(), n=/^\d{1,3}$/.test(s)?parseInt(s,10):0, a=_tkAchar(linha);
+  if(!a||n<1||n>TK_QTD_MAX) return;
+  const f=_tkForm(linha), el=p=>document.getElementById(p+linha); f.qtd=n;
+  const b=el('gc-tksalvar-'); if(b&&f.fase!=='gravando') b.disabled=!_tkEscolha(a.t,f,(RD.tkOs||{})[linha]).muda;
+  const m=el('gc-tkqtdm-'); if(m) m.disabled=n<=1;
+  const p=el('gc-tkqtdp-'); if(p) p.disabled=n>=TK_QTD_MAX;
+  const u=el('gc-tkqtdu-'); if(u) u.textContent=n===1?'string':'strings';
+};
+// ao sair do campo, o que ficou digitado de inválido ("", "0", "abc") volta ao último número bom
+window.tkStrQtdSai=(linha,inp)=>{ const a=_tkAchar(linha), f=_tkForm(linha); inp.value=String((f.qtd!==undefined)?f.qtd:((a&&a.t.qtd)||1)); };
 window.tkStrConfirmar=linha=>{ Object.assign(_tkForm(linha),{fase:'confirmar',msg:''}); render(); };
 window.tkStrCancelar=linha=>{ Object.assign(_tkForm(linha),{fase:'',msg:''}); render(); };
 function _tkAchar(linha){
@@ -1433,9 +1525,10 @@ async function _tkGravar(linha,naUsina,finalizar){
   if(finalizar&&!esc.causa){ Object.assign(st,{fase:'erro',msg:'Escolha a causa raiz antes de finalizar. Nada foi gravado.'}); render(); return; }
   tkStrQuem(quem);
   const corpo={quem,usina_planilha:a.t.usina_planilha,inversor:a.t.inversor,desde:a.t.desde,
-    originais:{causa:a.t.causa||'',status:a.t.status_ticket||''}};
+    originais:{causa:a.t.causa||'',status:a.t.status_ticket||'',qtd:(a.t.qtd_planilha==null?'':a.t.qtd_planilha)}};
   if(esc.causa!==(a.t.causa||'')) corpo.causa=esc.causa;
   if(esc.status!==(a.t.status_ticket||'')) corpo.status=esc.status;
+  if(esc.qtd!==(a.t.qtd||1)) corpo.qtd=esc.qtd;
   if(finalizar) corpo.fim=fim;
   Object.assign(st,{fase:'gravando',acao:finalizar?'finalizar':'salvar',msg:'Relendo a linha na base de tickets e gravando…',fim}); render();
   try{
@@ -1447,8 +1540,10 @@ async function _tkGravar(linha,naUsina,finalizar){
     const v=d.valores||{};
     if(v['Causa raiz']!==undefined) a.t.causa=v['Causa raiz'];
     if(v['Status do ticket']!==undefined) a.t.status_ticket=v['Status do ticket'];
+    // a coluna Tickets, a etiqueta do inversor e o "sem ticket" do drill contam a quantidade nova já
+    if(d.qtd!=null) _tkStrQtdNova(RD.pv&&RD.pv.rows,linha,d.qtd,d.qtd_planilha);
     if(!finalizar){
-      delete st.causa; delete st.status;
+      delete st.causa; delete st.status; delete st.qtd;
       Object.assign(st,{fase:'salvo',msg:'Salvo na planilha de tickets e no diário do OS Creator.'+(d.aviso?' '+d.aviso:'')}); render(); return;
     }
     const fd=String(d.fim||fim).replace('T',' ');

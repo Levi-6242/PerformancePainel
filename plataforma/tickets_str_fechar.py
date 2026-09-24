@@ -50,6 +50,14 @@ CAUSAS = ("Falha no equipamento", "Furto", "Garantia")
 STATUS = ("OS Programada", "Aguardando Material", "Aguardando Garantia", "Aguardando Cliente")
 # Ticket finalizado vai com o status final da lista do OS Creator, para não ficar "OS Programada" depois de fechado.
 STATUS_FIM = "Concluído"
+# Quantidade de strings afetadas, editável no card (Levi, 23/09/2026: "quero um contador de quantidade de strings
+# afetadas para eu poder editar também" — o ticket da ADT100, linha 292, dizia 1 string com 2 sem corrente). O nome é o
+# REAL da coluna na API, com o "no" que sobrou (conferido em 23/09). Não tem campo no diário do OS Creator: vai só para a
+# planilha. Mínimo 1, como o card de quantidade do OS Creator ("zero não pode ir para a planilha"); acima de 999 é erro
+# de digitação (a maior da aba em 23/09 era 209, o furto de cabos de Brodowski).
+QTD = "Quantidade de strings no afetadas"
+QTD_MAX = 999
+_ROTULO = {QTD: "quantidade de strings afetadas"}
 # Fim até 10 min à frente do relógio do servidor passa: o relógio do navegador de quem clica pode estar adiantado.
 TOLERANCIA_FUTURO = _dt.timedelta(minutes=10)
 # O Brasil não tem horário de verão desde 2019, e o servidor Linux roda em UTC (22/09/2026).
@@ -72,6 +80,40 @@ def agora_brasilia() -> _dt.datetime:
 
 def _norm(v) -> str:
     return " ".join(str(v or "").split()).strip().lower()
+
+
+def _qtd(v):
+    """A quantidade como número, do jeito que a aba guarda: 1 (vinda do Excel) ou "1" (criada pelo app). None se vazia
+    ou ilegível. É para COMPARAR; o que a pessoa digitou passa pelo `_qtd_valida`, que é estrito. Não usa o `_norm`: ele
+    trata o 0 numérico como vazio, e o "0" em texto não."""
+    if v is None or isinstance(v, bool):
+        return None
+    try:
+        return int(float(str(v).strip().replace(",", ".")))
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _qtd_valida(v) -> int:
+    """A quantidade escolhida no card → int de 1 a QTD_MAX. Recusa (400) o resto, sem arredondar: "2,5" não vira 2."""
+    n = None
+    if isinstance(v, bool):
+        n = None                                              # True é int no Python e não é quantidade
+    elif isinstance(v, int):
+        n = v
+    elif isinstance(v, float) and v.is_integer():
+        n = int(v)
+    elif isinstance(v, str) and v.strip().isdigit():
+        n = int(v.strip())
+    if n is None or not 1 <= n <= QTD_MAX:
+        raise Recusa("Quantidade de strings afetadas inválida (%r): tem de ser um número inteiro de 1 a %d. Nada foi "
+                     "gravado." % (v, QTD_MAX), 400)
+    return n
+
+
+def _igual(campo, a, b) -> bool:
+    """O valor do banco e o da tela são o mesmo? Quantidade compara o número (1 e "1"); o resto, o texto."""
+    return _qtd(a) == _qtd(b) if campo == QTD else _norm(a) == _norm(b)
 
 
 def para_dt(v):
@@ -225,10 +267,16 @@ def corpo_do_diario(atual: dict, mudou: dict, quem: str, agora: _dt.datetime) ->
 
 def validar_valores(valores: dict, atual: dict) -> dict:
     """O que a pessoa escolheu no card → só o que MUDOU, validado. Causa e status só da lista do Levi — exceto o valor
-    que a linha JÁ tem: causa antiga escrita à mão ("Problema no MPPT") continua valendo enquanto ninguém trocar."""
+    que a linha JÁ tem: causa antiga escrita à mão ("Problema no MPPT") continua valendo enquanto ninguém trocar. A
+    quantidade, inteira de 1 a QTD_MAX, e igual ao que a linha tem ("1" ou 1) não é mudança."""
     listas = {CAUSA: CAUSAS, STATUS_T: STATUS}
     mudou = {}
     for c, v in (valores or {}).items():
+        if c == QTD:
+            n = _qtd_valida(v)
+            if n != _qtd(atual.get(QTD)):
+                mudou[QTD] = n
+            continue
         if c not in listas:
             raise Recusa("Campo que esta tela não edita: %s. Nada foi gravado." % c, 400)
         v = " ".join(str(v or "").split())
@@ -247,8 +295,9 @@ def _achar(linhas: list, n: int):
 
 def salvar(linha: int, esperado: dict, valores: dict, quem: str, *, ler_aba, gravar, agora: _dt.datetime,
            originais: dict = None, fim=None) -> dict:
-    """Grava o que o card mudou no ticket da `linha`: Causa raiz e Status do ticket (`valores`) e, com `fim`, também o
-    Fim da ocorrência — é o Finalizar. → {ok, linha, campos, valores, fim, confirmado, aviso}. Recusa = nada gravado.
+    """Grava o que o card mudou no ticket da `linha`: Causa raiz, Status do ticket e quantidade de strings afetadas
+    (`valores`) e, com `fim`, também o Fim da ocorrência — é o Finalizar. → {ok, linha, campos, valores, fim,
+    confirmado, aviso}. Recusa = nada gravado.
 
     `ler_aba(sheet_id)` devolve as linhas cruas da API; `gravar(metodo, sheet_id, row, corpo)` devolve (status, texto).
     `originais` = o que o card MOSTRAVA dos campos editados: se o banco tem outro valor agora, outra pessoa mexeu
@@ -270,10 +319,10 @@ def salvar(linha: int, esperado: dict, valores: dict, quem: str, *, ler_aba, gra
     atual = aplicar_diario(linha_dict(ln), regs)
     conferir(atual, esperado)
     mudou = validar_valores(valores, atual)
-    brigam = [c for c in mudou if originais and c in originais and _norm(atual.get(c)) != _norm(originais.get(c))]
+    brigam = [c for c in mudou if originais and c in originais and not _igual(c, atual.get(c), originais.get(c))]
     if brigam:
         raise Recusa("Outra pessoa alterou %s neste ticket depois que o card abriu (agora: %s). Nada foi gravado. "
-                     "Atualize a tela." % (", ".join(c.lower() for c in brigam),
+                     "Atualize a tela." % (", ".join(_ROTULO.get(c, c.lower()) for c in brigam),
                                            "; ".join(str(atual.get(c) or "vazio") for c in brigam)))
     fim_iso = ""
     if fim is not None:
@@ -287,6 +336,11 @@ def salvar(linha: int, esperado: dict, valores: dict, quem: str, *, ler_aba, gra
         raise Recusa("Nada mudou neste ticket.", 400)
 
     headers = set(ln.get("headers") or [])
+    # Fim e quantidade só existem na planilha: sem a coluna (renomeada no Excel), iriam só ao diário — que não tem a
+    # quantidade — e o card diria "salvo" sem nada ter mudado.
+    sem_coluna = [c for c in (FIM, QTD) if c in mudou and c not in headers]
+    if sem_coluna:
+        raise Recusa("A aba de tickets não tem a coluna \"%s\". Nada foi gravado." % sem_coluna[0], 502)
     na_planilha = [c for c in mudou if c in headers]            # Status do ticket não é coluna: vai só ao diário
     if na_planilha:
         status, texto = gravar("PUT", SHEET_STRINGS, linha, corpo_da_linha(ln, atual, mudou))
@@ -311,7 +365,7 @@ def salvar(linha: int, esperado: dict, valores: dict, quem: str, *, ler_aba, gra
         except Exception:                                       # noqa: BLE001 — sem conferir, não confirma
             relida = {}
         confirmado = all((para_iso(relida.get(c))[:16] == mudou[c][:16]) if c == FIM
-                         else _norm(relida.get(c)) == _norm(mudou[c]) for c in na_planilha)
+                         else _igual(c, relida.get(c), mudou[c]) for c in na_planilha)
     else:
         confirmado = diario_ok
     return {"ok": True, "linha": linha, "campos": sorted(mudou), "valores": {c: mudou[c] for c in mudou},

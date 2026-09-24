@@ -182,6 +182,21 @@ das tarefas em hora local, relato = `note` quando difere da `task_note`), e o Fi
 OS não for anterior ao ticket. O inversor se acha no Fracttal pelo **código** da usina (`t["cod"]`): o que a planilha
 escreveu (MTS200) ou, quando ela escreveu o nome ("Boa Esperança do Sul 1 e 2"), o da aba "Base de dados - Usinas".
 
+**Quantidade e o card enxuto (23/09/2026, pedidos do Levi).** A quantidade de strings afetadas é um contador no card
+(mínimo 1, teto 999, os mesmos do OS Creator). O nome real da coluna é **"Quantidade de strings no afetadas"**, com o
+"no" que sobrou (`tickets_str_fechar.QTD`). Ela vai **só para a planilha**: o diário do OS Creator não tem esse campo,
+então um sync do Excel pode desfazê-la. A coluna vale sobre o texto (`_tk_str_qtd`); as strings citadas só contam
+com ela vazia. Até 23/09 valia o maior dos dois, e o card não conseguiria baixar a quantidade. O contador edita o
+TOTAL do ticket (`qtd`), nunca a parte da usina (`qtd_na_linha`). O card não tem borda lateral colorida nem linha de
+aviso: o porquê do Finalizar travado é dica no mouse, e o "como grava" fica no "?" do canto.
+
+**Cadeado de string (23/09/2026).** Para a string trancada o servidor manda status "trancada" (`_classifica_strings`)
+e o status real some do payload. Por isso **destrancar recalcula na tela** com a mesma régua (`_strReclassifica`:
+mediana das que produzem, 0,1 A, 60%, inversor parado abaixo de 0,5 A, e "desligado" se a linha do inversor está
+desligada) e busca a curva de novo (`_curvaRecarrega`), porque o servidor serve a curva sem as trancadas. Os limites
+estão repetidos na página e travados contra o `app.py` em `tests/test_strings_destrancar_tela.py` (paridade Python ×
+JS nas mesmas correntes). Trancar não precisa de conta: "trancada" vale qualquer que seja o status.
+
 ## ETM: o que alarma
 
 Régua do Levi (10/09/2026): **só IPOA (POA) e GHI medidos em zero com sol alarmam** — hoje (`_diagnostico_etm`,

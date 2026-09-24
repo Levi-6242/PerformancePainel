@@ -323,6 +323,93 @@ def test_status_sem_diario_nao_grava_nada():
     assert e.value.status == 502
 
 
+# ── quantidade de strings afetadas pelo card (Levi, 23/09/2026) ───────────────
+# "quero um contador de quantidade de strings afetadas para eu poder editar também". O ticket da ADT100 (linha 292) dizia
+# 1 string e o inversor tinha 2 sem corrente. A coluna não tem campo no diário do OS Creator: vai só para a planilha.
+QTD = "Quantidade de strings no afetadas"
+
+
+def test_quantidade_editada_vai_na_linha_inteira_e_so_ela_muda():
+    b = _Banco([_ln(312, V312)], _diario(D119))
+    r = _salvar(b, {tkf.QTD: 2}, originais={tkf.QTD: "1"})
+    assert tkf.QTD == QTD, "o nome REAL da coluna na API, com o 'no' que sobrou (conferido em 23/09)"
+    assert [(m, s) for m, s, *_ in b.chamadas] == [("PUT", 128), ("POST", 399)] and r["confirmado"]
+    antes, depois = dict(zip(HEADERS, V312)), dict(zip(HEADERS, b.abas[128][312]["values"]))
+    assert depois[QTD] == 2, "número vai como número"
+    assert {c for c in HEADERS if antes[c] != depois[c]} == {QTD}, "o PUT troca a linha inteira: o resto volta igual"
+    assert r["valores"] == {QTD: 2} and r["campos"] == [QTD]
+    assert _registro_gravado(b)["OS"] == "13762", "o registro do diário não perde a OS vinculada"
+
+
+def test_quantidade_do_os_creator_vem_como_texto_e_e_o_mesmo_numero():
+    """A 312 foi criada pelo app, que grava a quantidade como TEXTO ("1"): 1 e "1" são o mesmo número."""
+    b = _Banco([_ln(312, V312)], _diario(D119))
+    with pytest.raises(tkf.Recusa) as e:
+        _salvar(b, {tkf.QTD: 1})
+    assert e.value.status == 400 and "Nada mudou" in str(e.value) and not b.chamadas
+    r = _salvar(b, {tkf.QTD: " 3 "})
+    assert dict(zip(HEADERS, b.abas[128][312]["values"]))[QTD] == 3 and r["confirmado"]
+
+
+@pytest.mark.parametrize("valor", [0, -1, "abc", "", None, 2.5, "2,5", 1000, True])
+def test_quantidade_invalida_nao_grava(valor):
+    """Mínimo 1, como o card de quantidade do OS Creator ("zero não pode ir para a planilha"): se o ticket está aberto,
+    há pelo menos uma string. Acima de 999 é erro de digitação (a maior da aba em 23/09 é 209, Brodowski)."""
+    b = _Banco([_ln(312, V312)], _diario(D119))
+    with pytest.raises(tkf.Recusa) as e:
+        _salvar(b, {tkf.QTD: valor})
+    assert e.value.status == 400 and not b.chamadas
+
+
+def test_quantidade_zero_como_numero_ou_texto_e_o_mesmo_numero():
+    """0 vindo do Excel (número) e "0" vindo do app (texto) são o mesmo valor; vazio e ilegível não são número. Sem isso,
+    uma linha com 0 dava "outra pessoa alterou" com a tela mostrando o mesmo que o banco."""
+    assert tkf._qtd(0) == tkf._qtd("0") == tkf._qtd(0.0) == 0
+    assert tkf._qtd(None) is tkf._qtd("") is tkf._qtd("  ") is tkf._qtd("abc") is tkf._qtd(float("nan")) is None
+    assert tkf._qtd(True) is None, "True é int no Python e não é quantidade"
+
+
+def test_outra_pessoa_mudou_a_quantidade_nesse_meio_tempo():
+    v = list(V312)
+    v[HEADERS.index(QTD)] = 4
+    b = _Banco([_ln(312, v)], _diario(D119))
+    with pytest.raises(tkf.Recusa) as e:
+        _salvar(b, {tkf.QTD: 2}, originais={tkf.QTD: "1"})
+    assert e.value.status == 409 and "quantidade de strings afetadas" in str(e.value) and not b.chamadas
+    assert _salvar(b, {tkf.QTD: 2}, originais={tkf.QTD: "4"})["confirmado"], "4 na planilha e \"4\" na tela não brigam"
+
+
+def test_quantidade_sem_a_coluna_na_aba_nao_grava():
+    """Sem a coluna, a quantidade não iria a lugar nenhum (o diário não tem esse campo) e o card diria "salvo"."""
+    h = [c for c in HEADERS if c != QTD]
+    v = [x for x, c in zip(V312, HEADERS) if c != QTD]
+    b = _Banco([_ln(312, v, h)], _diario(D119))
+    with pytest.raises(tkf.Recusa) as e:
+        _salvar(b, {tkf.QTD: 2})
+    assert e.value.status == 502 and QTD in str(e.value) and not b.chamadas
+
+
+def test_releitura_sem_a_quantidade_nova_nao_confirma():
+    b = _Banco([_ln(312, V312)], _diario(D119))
+    antigo = b.gravar
+
+    def _engole(metodo, sid, row, corpo):
+        if metodo == "PUT":
+            b.chamadas.append((metodo, sid, row, corpo))
+            return 200, "{}"
+        return antigo(metodo, sid, row, corpo)
+    b.gravar = _engole
+    assert _salvar(b, {tkf.QTD: 2})["confirmado"] is False
+
+
+def test_finalizar_junto_com_a_quantidade():
+    b = _Banco([_ln(312, V312)], _diario(D119))
+    r = _fin(b, valores={"Causa raiz": "Furto", tkf.QTD: 2})
+    linha = dict(zip(HEADERS, b.abas[128][312]["values"]))
+    assert (linha[QTD], linha["Causa raiz"], linha["Fim da ocorrência"]) == (2, "Furto", "2026-09-23 13:20:00")
+    assert r["confirmado"] and QTD in r["campos"]
+
+
 # ── o contrato do diário é do OS Creator ───────────────────────────────────────
 OEM = pathlib.Path(r"C:\GridcoBuild\oem\os_creator")
 

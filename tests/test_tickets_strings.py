@@ -633,7 +633,7 @@ def test_o_card_mostra_o_que_a_planilha_e_o_diario_sabem_do_ticket():
     html = _card(T312, {"k": "voltou", "txt": "Produzindo agora · PV15 12,70 A"})
     for trecho in ("linha 312 da planilha de tickets", "PV15", "17/09/2026 06:00", "OS 13762", "OS Programada",
                    "MTS200", "PV15 com corrente nula", "Finalizar ticket", "Quem está fechando", "Levi Maia",
-                   "gc-tkc voltou"):
+                   "gc-tkc-e voltou"):
         assert trecho in html, trecho
     assert "Finalizar mesmo assim" not in html
 
@@ -888,3 +888,140 @@ def test_o_aviso_de_finalizado_diz_a_causa_e_o_status():
     assert p.returncode == 0, p.stderr
     html = json.loads(p.stdout)
     assert "causa Falha no equipamento" in html and "status Concluído" in html and "18/09/2026 15:34" in html
+
+
+# ── quantidade de strings afetadas: contador no card (Levi, 23/09/2026) ───────
+# "quero um contador de quantidade de strings afetadas para eu poder editar também". ADT100, linha 292: o ticket dizia
+# 1 string e o Inversor 1.1 tinha a 13 e a 14 sem corrente, então o drill marcava "1 sem ticket".
+
+def test_a_quantidade_da_planilha_vale_mesmo_abaixo_das_strings_citadas(monkeypatch):
+    """A coluna é o número oficial (o que o OS Creator mostra e o que o card edita); o texto só conta quando ela está
+    vazia. Antes valia o MAIOR dos dois, porque o OS Creator gravava 1 fixo; desde 10/09 ele conta as strings da
+    observação, e em 23/09 os 18 abertos que citam strings têm a coluna igual à contagem. Com o maior dos dois, baixar a
+    quantidade pelo card para menos que as strings citadas não mudaria nada na tela."""
+    import sys
+    monkeypatch.setattr(sys.modules[__name__], "LINHAS_STR", [
+        ("ALT100", "Inversor 1.7", 20, 1, None, "2026-09-01 06:00", None, "Ipv11 e Ipv12 com corrente nula"),
+        ("ALT100", "Inversor 1.8", 20, None, None, "2026-09-01 06:00", None, "Ipv3 e Ipv4 com corrente nula"),
+        ("ALT100", "Inversor 1.9", 20, "3", None, "2026-09-01 06:00", None, "a verificar"),
+    ])
+    t = {x["inversor"]: x for x in _carregar(monkeypatch)["altair"]}
+    assert (t["Inversor 1.7"]["qtd"], t["Inversor 1.7"]["qtd_planilha"]) == (1, 1)
+    assert (t["Inversor 1.8"]["qtd"], t["Inversor 1.8"]["qtd_planilha"]) == (2, None), "vazia: conta o texto"
+    assert (t["Inversor 1.9"]["qtd"], t["Inversor 1.9"]["qtd_planilha"]) == (3, 3), "o app grava como texto"
+
+
+def test_salvar_a_quantidade_pelo_card_grava_na_planilha_e_aparece_na_hora(cliente, monkeypatch):
+    b = _BancoFalso(_linha_do_altair())
+    r = _finalizar(cliente, monkeypatch, b, _acao="salvar", causa="", fim=None, qtd=3, originais={"qtd": None})
+    d = r.get_json()
+    assert r.status_code == 200 and d["confirmado"] is True and (d["qtd"], d["qtd_planilha"]) == (3, 3)
+    assert [(m, s) for m, s, *_ in b.chamadas] == [("PUT", 128), ("POST", 399)]
+    assert dict(zip(COLS_STR, b.linha["values"]))["Quantidade de strings no afetadas"] == 3
+    ts = app._com_tickets_str(_pay("Altair"))["rows"][0]["tickets_str"]
+    assert ts["strings"] == 3 and (ts["lista"][0]["qtd"], ts["lista"][0]["qtd_planilha"]) == (3, 3), \
+        "a coluna e o drill contam a quantidade nova sem esperar o espelho"
+
+
+def test_quantidade_invalida_pelo_card_e_recusada(cliente, monkeypatch):
+    b = _BancoFalso(_linha_do_altair())
+    r = _finalizar(cliente, monkeypatch, b, _acao="salvar", causa="", fim=None, qtd=0)
+    assert r.status_code == 400 and not b.chamadas and "Quantidade" in r.get_json()["erro"]
+
+
+def _tag(html, marca):
+    """A tag inteira do elemento que tem `marca` (o id ou o onclick dele)."""
+    i = html.index(marca)
+    return html[html.rindex("<", 0, i):html.index(">", i) + 1]
+
+
+def test_o_card_tem_contador_de_quantidade():
+    html = _card(T312, {"k": "voltou", "txt": "x"})
+    assert 'value="1"' in _tag(html, 'id="gc-tkqtd-312"')
+    assert " disabled" in _tag(html, "tkStrQtd(312,-1)"), "mínimo 1, como no OS Creator"
+    assert " disabled" not in _tag(html, "tkStrQtd(312,1)")
+    assert ">string<" in html and " disabled" in _tag(html, 'id="gc-tksalvar-312"')
+    html = _card(T312, {"k": "voltou", "txt": "x"}, {"qtd": 2})
+    assert 'value="2"' in _tag(html, 'id="gc-tkqtd-312"') and " disabled" not in _tag(html, "tkStrQtd(312,-1)")
+    assert ">strings<" in html and " disabled" not in _tag(html, 'id="gc-tksalvar-312"'), "mudou a quantidade: salva"
+
+
+def test_contador_da_usina_inteira_edita_o_total_do_ticket():
+    """Brodowski: o ticket 'Todos' tem 209 strings e a Skid 1 mostra 104. O contador edita o TOTAL — mostrar 104 e
+    gravar 105 apagaria as outras 104 da planilha."""
+    t = dict(T312, usina_inteira=True, strings=[], qtd=209, qtd_na_linha=104, qtd_planilha=209)
+    html = _card(t, {"k": "mudo", "txt": "x"}, None, True)
+    assert 'value="209"' in _tag(html, 'id="gc-tkqtd-312"') and "Nesta parte da usina: 104" in html
+
+
+def test_a_tela_manda_a_quantidade_e_a_original():
+    i = MON.index("async function _tkGravar(")
+    corpo = MON[i:MON.index("\n}", i)]
+    assert "corpo.qtd=esc.qtd" in corpo and "qtd:(a.t.qtd_planilha==null?'':a.t.qtd_planilha)" in corpo
+    assert "_tkStrQtdNova(" in corpo and "delete st.qtd" in corpo
+    assert "window.tkStrQtd=" in MON and "window.tkStrQtdDig=" in MON
+
+
+def test_quantidade_salva_atualiza_a_copia_da_tela_na_hora():
+    """A coluna Tickets, a etiqueta do inversor e o "sem ticket" do drill contam a quantidade nova sem ir ao servidor.
+    Ticket da usina inteira conta, em cada parte, até as esperadas dela (o mesmo do _com_tickets_str)."""
+    rows = [{"usina": "ADT100", "str_esp": 190, "tickets_str": {"strings": 3, "tickets": 2, "lista": [
+                {"linha": 292, "qtd": 1, "qtd_na_linha": 1}, {"linha": 293, "qtd": 2, "qtd_na_linha": 2}]}},
+            {"usina": "Brodowski - Skid 1 (86)", "str_esp": 104, "tickets_str": {"strings": 104, "tickets": 1, "lista": [
+                {"linha": 50, "qtd": 209, "qtd_na_linha": 104, "usina_inteira": True}]}}]
+    r = _js("_tkStrQtdNova(%s,292,2,2)" % json.dumps(rows))
+    assert r[0]["tickets_str"]["strings"] == 4
+    assert r[0]["tickets_str"]["lista"][0] == {"linha": 292, "qtd": 2, "qtd_na_linha": 2, "qtd_planilha": 2}
+    r = _js("_tkStrQtdNova(%s,50,300,300)" % json.dumps(rows))
+    assert r[1]["tickets_str"]["strings"] == 104 and r[1]["tickets_str"]["lista"][0]["qtd"] == 300
+    r = _js("_tkStrQtdNova(%s,50,60,60)" % json.dumps(rows))
+    assert r[1]["tickets_str"]["strings"] == 60
+
+
+# ── o card mais enxuto (Levi, 23/09/2026, sobre o print da ADT100) ────────────
+
+def test_card_sem_a_borda_lateral_colorida():
+    """"tire essa borda lateral vermelha". O estado já está na etiqueta do canto (Ainda sem corrente / Produzindo)."""
+    import re as _re
+    regra = _re.search(r"\.gc-tkc\{([^}]*)\}", MON).group(1)
+    assert "border-left" not in regra and ".gc-tkc.morta" not in MON and ".gc-tkc.voltou" not in MON
+    html = _card(T312, {"k": "morta", "txt": "Ainda sem corrente · PV15 0,00 A"})
+    assert '<div class="gc-tkc" ' in html and "gc-tkc-e morta" in html
+
+
+def test_sem_causa_o_aviso_aparece_ao_passar_o_mouse_no_finalizar():
+    """"Escolha a causa raiz para finalizar (...) não precisa ficar ocupando espaço no ticket, pode aparecer ao passar o
+    mouse em finalizar". O botão travado fica dentro de um invólucro com a dica, porque botão travado não recebe o mouse
+    em todo navegador."""
+    for est in ({"k": "voltou", "txt": "x"}, {"k": "morta", "txt": "x"}):
+        html = _card(T312, est)
+        i = html.index("Escolha a causa raiz para finalizar")
+        w = html.rindex('<span class="gc-tkc-tip">', 0, i)
+        assert ("tkStrFinalizar(312,0)" in html[w:i]) or ("tkStrConfirmar(312)" in html[w:i])
+        assert 'class="gc-tkc-m"' not in html, "nenhuma linha de aviso ocupando o card"
+    html = _card(T312, {"k": "voltou", "txt": "x"}, {"causa": "Furto"})
+    assert "Escolha a causa raiz" not in html and "gc-tkc-tip\"><button class=\"btn btn-primary" not in html
+
+
+def test_sem_o_aviso_redundante_de_string_sem_corrente():
+    """"As strings deste ticket seguem sem corrente (...) essa informação é redundante": a etiqueta do canto já diz."""
+    est = {"k": "morta", "txt": "Ainda sem corrente · PV15 0,00 A"}
+    for f in (None, {"fase": "confirmar", "causa": "Furto"}):
+        assert "seguem sem corrente" not in _card(T312, est, f)
+    assert "Sim, finalizar" in _card(T312, est, {"fase": "confirmar", "causa": "Furto"}), "a confirmação continua"
+
+
+def test_como_grava_fica_no_ponto_de_interrogacao():
+    """"pode ficar em um símbolo de interrogação no canto inferior direito que quando passa o mouse aparece a
+    mensagem". Fica no fim da linha do Fim/Quem/botões, que é o canto de baixo do card, sem linha própria."""
+    html = _card(T312, {"k": "voltou", "txt": "x"})
+    f, a = html.index('class="gc-tkc-f"'), html.index("gc-tkc-ajuda")
+    i = html.index("Grava na planilha de tickets e no diário do OS Creator")
+    assert f < a < i and "ph-question" in html[a:i] and "gc-tkc-n" not in MON
+
+
+def test_dica_abre_no_mouse_e_no_teclado_e_sem_animacao_obrigatoria():
+    """O Windows do Levi roda sem animação (prefers-reduced-motion): a dica tem de aparecer do mesmo jeito."""
+    import re as _re
+    assert _re.search(r"\.gc-tkc-tip:hover>\.bx,\.gc-tkc-tip:focus-within>\.bx\{[^}]*visibility:visible", MON)
+    assert _re.search(r"prefers-reduced-motion:reduce\)\{\.gc-tkc-tip>\.bx\{transition:none\}", MON)
