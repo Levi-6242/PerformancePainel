@@ -2633,6 +2633,12 @@ def severidade(r) -> int:
 
 
 # ── Busca todos ────────────────────────────────────────────────────────────────
+# Quanto a 1ª passada espera por usina. 24/09/2026: a API PV respondia em ~48 s por usina (o normal é 1–3 s) e a 1ª
+# passada desistia em 45 s — quase toda usina caía na 3ª, SEQUENCIAL (até 60 s cada): 115 usinas ≈ 2 h de ciclo, e a aba
+# Thopen API PV ficou com o dado das 09:08 até depois do meio-dia. A concorrência continua 8; só se espera mais.
+PV_TIMEOUT_1A_PASSADA = 90
+
+
 def fetch_all(fonte: str = None) -> list:
     token     = get_token()
     all_plants = get_plants(token)
@@ -2646,7 +2652,7 @@ def fetch_all(fonte: str = None) -> list:
     # Concorrência moderada: um único token sob 20 requisições pesadas paralelas
     # faz a API throttlar as maiores (ex.: Saturnino, 2 MB) → vinham vazias/sem_dados.
     with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = {ex.submit(process_plant, token, p): p for p in plants}
+        futures = {ex.submit(process_plant, token, p, PV_TIMEOUT_1A_PASSADA): p for p in plants}
         for f in as_completed(futures):
             # UMA usina explodindo não pode derrubar o payload INTEIRO: o f.result() cru propagava
             # a exceção, o _refresh_data_cache abortava e a aba Strings ficava presa no stale — foi
@@ -8328,7 +8334,32 @@ def _tk_str_achados(rows) -> list:
             if orfaos:
                 achados[i] += orfaos
                 vistos.update(t["linha"] for t in orfaos)
+    # Código de VÁRIAS linhas = as partes de uma usina (Cipó-Guaçu 1, 2 e 3 são CGU100 no Info Geral): o órfão vai para
+    # a parte do 1º número do inversor, como no "X 1 e 2" pelo nome (Levi, 24/09/2026: "É a Cipó Guaçu" — o ticket 315,
+    # CGU100 · Inversor 1.1, é da Cipó-Guaçu 1). Parte que o nome da linha não diz não recebe nada.
+    for c, n in conta.items():
+        if n < 2:
+            continue
+        partes = {}
+        for i, ci in enumerate(cods):
+            if ci == c and _tk_str_parte(rows[i].get("usina")) is not None:
+                partes.setdefault(_tk_str_parte(rows[i].get("usina")), []).append(i)
+        for t in TICKETS_STR_COD.get(c, []):
+            alvo = partes.get(t.get("inv_bloco")) if t["linha"] not in vistos else None
+            if alvo and len(alvo) == 1:
+                achados[alvo[0]].append(t)
+                vistos.add(t["linha"])
     return achados
+
+
+def _tk_str_parte(nome):
+    """O número da PARTE que o nome da linha diz: 'Cipó-Guaçu 3 (108)' → 3, 'Brodowski - Skid 2 (86)' → 2. None quando o
+    fim do nome não é um inteiro sozinho — 'Ceilandia 1.2 (90)' não diz qual parte, e adivinhar espalharia o ticket."""
+    s = re.sub(r"\s*\(\d+\)\s*$", "", str(nome or "")).strip()
+    if re.search(r"\d[.,]\d+$", s):
+        return None
+    m = re.search(r"(?:^|[\s-])(\d+)$", s)
+    return int(m.group(1)) if m else None
 
 
 def _tk_str_da_usina_inteira(t) -> bool:

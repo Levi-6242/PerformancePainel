@@ -223,6 +223,14 @@ Petrolina 2 (nome que não está no Info Geral nem na aba de usinas; a Axis cham
   99% dos pares" / "abaixo dos pares · 84% (com 2 de 12 paradas seria ~83%)". Antes, o ticket de um inversor sem
   visão numa usina com as outras normais era dado por fechado pela conta das outras. Em 24/09 eram 10 linhas inteiras
   sem visão e nenhuma com ticket. A Altair é String Box e TEM visão de dia; o "sem visão" dela era da madrugada.
+- Usina inteira **fecha por parte** (Levi: "Brodowski fecha por parte"): cada linha julga pelas strings dela, e o
+  ticket leva `outras_partes` para o card avisar a parte que ainda não está — finalizar fecha a linha única da planilha.
+- Código de **várias** linhas (as partes: Cipó-Guaçu 1/2/3 = CGU100 no Info Geral) manda o órfão para a parte do 1º
+  número do inversor (`_tk_str_parte`; "Ceilandia 1.2" não diz a parte e não recebe nada). O ticket 315 (CGU100 ·
+  Inversor 1.1) é da Cipó-Guaçu 1 — o Levi achou que era a Cidade Gaúcha (CGH100); o Info Geral e o ativo da OS diziam
+  Cipó Guaçu, e ele confirmou. A Cipó-Guaçu não tem nome de inversor no cadastro (o drill mostra "INV-368336").
+- **API PV lenta congela a tabela**: com a API a ~48 s por usina (24/09) a 1ª passada do `fetch_all` desistia em 45 s e
+  tudo caía na 3ª, sequencial — ciclo de ~2 h. `PV_TIMEOUT_1A_PASSADA = 90`.
 
 ## ETM: o que alarma
 

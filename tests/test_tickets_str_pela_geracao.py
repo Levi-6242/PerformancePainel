@@ -223,3 +223,19 @@ def test_card_do_inversor_sem_visao_diz_o_que_a_geracao_mostra():
 def test_coluna_mostra_para_fechar_mesmo_em_usina_sem_visao():
     """A coluna escondia o "para fechar" de toda usina sem visão; quem julga agora é o backend, pela geração."""
     assert "tkStr:_tkStrCel(r,semSol||semCom||!!r.rampa)," in MON
+
+
+# ── a tabela da API PV não congela com a API lenta (24/09/2026) ────────────────
+def test_primeira_passada_espera_90s_por_usina(monkeypatch):
+    """24/09: a API PV respondia em ~48 s por usina e a 1ª passada desistia em 45 s — tudo caía na 3ª, SEQUENCIAL (até
+    60 s cada, 115 usinas ≈ 2 h de ciclo), e a aba ficou com o dado das 09:08 até depois do meio-dia."""
+    vistos = []
+
+    def falso(token, plant, timeout=45):
+        vistos.append(timeout)
+        return {"usina": plant["nome"], "plant_id": plant["id"], "sem_dados": False}
+    monkeypatch.setattr(app, "get_token", lambda: "tok")
+    monkeypatch.setattr(app, "get_plants", lambda token: [{"id": i, "nome": "U%d" % i} for i in range(3)])
+    monkeypatch.setattr(app, "_pv_plantas_da_fonte", lambda plantas, fonte: plantas)
+    monkeypatch.setattr(app, "process_plant", falso)
+    assert len(app.fetch_all()) == 3 and vistos == [90, 90, 90]

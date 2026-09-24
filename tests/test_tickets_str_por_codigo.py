@@ -29,11 +29,12 @@ LINHAS = [   # (usina como a planilha escreve, inversor, afetadas, comentário)
     ("ALT100", "Inversor 9.1", 1, "String 5 com corrente nula"),            # linha 8: bloco que nenhuma parte tem
     ("Canarana 2", "Inversor 2.1", 1, "a verificar"),                       # linha 9: casa pelo nome
     ("CNN200", "Inversor 2.4", 1, "String 1 com corrente nula"),            # linha 10: órfão da Canarana 2 (código)
+    ("CGU100", "Inversor 1.1", 1, "String 12 com corrente nula em 09/09/2026 08:00"),   # linha 11: Cipó Guaçu, em 3 partes
 ]
 USINAS = [("Araçoiaba da Serra IA", "THPN-ADS100"), ("Altair", "THPN-ALT100"), ("Canarana 1", "0"), ("Canarana 2", "0")]
 INFO_GERAL = [("Canarana 1", "Thopen", "CNN100", "UFV Canarana 1"), ("Canarana 2", "Thopen", "CNN200", "UFV Canarana 2"),
               ("Araçoiaba da Serra 1", "Thopen", "ADS100", "UFV Araçoiaba IA"), ("Altair 1", "Thopen", "ALT100", "UFV Altair"),
-              ("Altair 2", "Thopen", "ALT100", "UFV Altair")]
+              ("Altair 2", "Thopen", "ALT100", "UFV Altair"), ("Cipó Guaçu", "Thopen", "CGU100", "UFV Cipó Guaçu")]
 
 
 def _tickets_xlsx():
@@ -131,3 +132,23 @@ def test_ticket_que_o_nome_ja_achou_nao_volta_pelo_codigo(base):
     """Ticket casado pelo nome em uma linha não é órfão: não pode aparecer de novo em outra pelo código."""
     ts = _linhas("CNN100", "Canarana 1")
     assert [t["linha"] for t in ts["CNN100"]["lista"]] == [5] and ts["Canarana 1"] is None
+
+
+def test_codigo_de_usina_em_partes_vai_para_a_parte_do_inversor(base):
+    """CGU100 (ticket 315 em 24/09, "String 12 com corrente nula"): o Info Geral diz Cipó Guaçu, e a API PV mostra três
+    partes, Cipó-Guaçu 1, 2 e 3. O código é das três, então a reserva pelo código único não servia; o 1º número do
+    inversor diz a parte — o Inversor 1.1 é da Cipó-Guaçu 1. Confirmado pelo Levi: "É a Cipó Guaçu"."""
+    ts = _linhas("Cipó-Guaçu 1 (106)", "Cipó-Guaçu 2 (107)", "Cipó-Guaçu 3 (108)")
+    assert [t["linha"] for t in ts["Cipó-Guaçu 1 (106)"]["lista"]] == [11]
+    assert ts["Cipó-Guaçu 2 (107)"] is None and ts["Cipó-Guaçu 3 (108)"] is None
+
+
+def test_hifen_no_nome_da_linha_nao_esconde_o_codigo(base):
+    """A API PV escreve "Cipó-Guaçu", o Info Geral "Cipó Guaçu"."""
+    assert app._tk_str_cod_da_linha("Cipó-Guaçu 2 (107)") == "CGU100"
+
+
+def test_parte_com_numero_composto_nao_adivinha(base):
+    """"Ceilandia 1.2 (90)": o fim do nome não é o número de uma parte. Sem dizer qual parte, não cai em nenhuma."""
+    assert app._tk_str_parte("Ceilandia 1.2 (90)") is None and app._tk_str_parte("Cipó-Guaçu 3 (108)") == 3
+    assert app._tk_str_parte("Brodowski - Skid 2 (86)") == 2 and app._tk_str_parte("Canarana") is None
