@@ -17,7 +17,8 @@ célula das esperadas ("1 inv. desligado · 13 strings fora da conta"). Na Thope
    SEMPRE strings; a proporcionalidade vai para o aviso da célula das esperadas, o mesmo lugar do aviso da Athon. Ouro
    Branco, que TEM visão por string, estava com as strings escondidas atrás do texto (Ouro Branco 4: 68 de 119, −51).
 
-Fica de fora, por falta de dado: SolarEdge (Renogrid) e a 2C do e-mail não têm potência por inversor.
+SolarEdge (Renogrid) e a 2C do e-mail não têm potência por inversor: usam a soma da medida das strings dele (fim do
+arquivo).
 """
 import json
 import pathlib
@@ -269,3 +270,85 @@ def test_sem_visao_o_padrao_continua_sendo_o_julgamento():
     assert _status(bt) == "Inversor abaixo do padrão"
     assert _status(dict(bt, sol_baixo=True)) == "Inversor abaixo do padrão", "compara o D-1: vale à noite"
     assert _status(dict(bt, inv_padrao={"status": "ok"})) == "Sem visão de strings"
+
+
+# ── as duas que faltavam (Levi, 24/09/2026: "todas as fontes tem essa legenda em laranja...?") ───────────────────
+# Nenhuma das duas tem a potência do inversor pronta; as duas têm a medida das strings DELE. RenoGrid (SolarEdge): a
+# potência de cada string, em W — somada, é a potência DC do inversor. 2C do e-mail (Ipixuna do Pará): a corrente de
+# cada string — somada, zera quando o inversor desliga. A régua é a mesma da Athon (_inv_desligados_por_potencia).
+
+@pytest.fixture
+def cliente(monkeypatch):
+    monkeypatch.setattr(app, "DASH_PASSWORD", "")
+    return app.app.test_client()
+
+
+@pytest.fixture
+def site_se(monkeypatch):
+    nome = "UFV Teste SE Padrao Athon"
+    devs = [{"deviceType": "INVERTER", "deviceSerial": f"I{i}", "deviceName": f"Inverter {i}"} for i in (1, 2, 3)]
+    devs += [{"deviceType": "STRING", "deviceSerial": f"S{i}.{s}", "deviceName": f"String {i}.{s}", "partOfSerial": f"I{i}"}
+             for i in (1, 2, 3) for s in (1, 2, 3, 4)]
+    pw = {f"S{i}.{s}": (2500.0 if i != 3 else 0.0) for i in (1, 2, 3) for s in (1, 2, 3, 4)}   # o 3 parado
+    site = {"id": 777001, "nome": nome, "timezone": "America/Sao_Paulo", "inv": 3}
+    monkeypatch.setattr(app, "se_devices", lambda sid: devs)
+    monkeypatch.setattr(app, "se_string_power", lambda sid, uuids, tz: (pw, "2026-09-24T15:00:00Z", 0))
+    monkeypatch.setattr(app, "se_sites", lambda: [site])
+    monkeypatch.setattr(app, "_se_pr_get", lambda dia, force=False: ([], {}))
+    monkeypatch.setitem(app.ESPERADO_INV, nome, {"Inverter 1": 4, "Inverter 2": 4, "Inverter 3": 4})
+    monkeypatch.setitem(app.EQUIP_NAMES, nome, {"Inverter 1": "Inversor 1", "Inverter 2": "Inversor 2", "Inverter 3": "Inversor 3"})
+    monkeypatch.setattr(app, "_macro_eh_dia", lambda r: True)
+    return site
+
+
+def test_renogrid_tira_o_desligado_da_conta_como_a_athon(site_se):
+    r = app.process_site_solaredge(site_se)
+    assert r["str_esp"] == 8 and r["strings_ativas"] == 8 and r["diferenca"] == 0
+    assert r["inv_desligados"] == 1 and r["strings_fora"] == 4 and r["inv_desligados_nomes"] == ["Inversor 3"]
+
+
+def test_renogrid_drill_lista_o_desligado_fora_da_conta(site_se):
+    invs = {i["nome"]: i for i in app._se_plant_inversores(site_se["id"])}
+    assert invs["Inversor 3"]["desligado"] is True and invs["Inversor 3"]["fora_da_conta"] is True
+    assert invs["Inversor 3"]["diferenca"] is None
+    assert invs["Inversor 1"]["fora_da_conta"] is False and invs["Inversor 1"]["diferenca"] == 0
+
+
+def test_renogrid_sem_sol_nada_muda(site_se, monkeypatch):
+    monkeypatch.setattr(app, "_macro_eh_dia", lambda r: False)
+    r = app.process_site_solaredge(site_se)
+    assert r["str_esp"] == 12 and r["inv_desligados"] == 0 and r["strings_fora"] == 0
+
+
+@pytest.fixture
+def ufv_2c(monkeypatch):
+    u, ts = "TSTPA", datetime(2026, 9, 24, 12, 0)
+    corrente = {"1.1": 8.0, "1.2": 7.9, "1.3": 0.0}                                                 # o 1.3 parado
+    data = {u: {inv: {str(s): (ts, c) for s in range(1, 5)} for inv, c in corrente.items()}}
+    monkeypatch.setattr(app, "_owen_strings_build", lambda force=False: data)
+    monkeypatch.setattr(app, "OWEN_UFVS", {u: "Usina 2C Teste"})
+    monkeypatch.setitem(app.ESPERADO_INV, u, {app._owen_inv_tag(u, i): 4 for i in corrente})
+    monkeypatch.setitem(app.EQUIP_NAMES, u, {app._owen_inv_tag(u, i): f"Inversor {i}" for i in corrente})
+    monkeypatch.setattr(app, "_macro_eh_dia", lambda r: True)
+    return u
+
+
+def test_2c_email_tira_o_desligado_da_conta_como_a_athon(ufv_2c):
+    r = next(x for x in app._owen_strings_rows() if x["plant_id"] == ufv_2c)
+    assert r["str_esp"] == 8 and r["strings_ativas"] == 8 and r["diferenca"] == 0
+    assert r["inv_desligados"] == 1 and r["strings_fora"] == 4 and r["inv_desligados_nomes"] == ["Inversor 1.3"]
+
+
+def test_2c_email_drill_lista_o_desligado_fora_da_conta(ufv_2c, cliente):
+    invs = {i["nome"]: i for i in cliente.get(f"/api/owen/strings/plant/{ufv_2c}").get_json()["inversores"]}
+    assert invs["Inversor 1.3"]["fora_da_conta"] is True and invs["Inversor 1.3"]["diferenca"] is None
+    assert all(s["status"] == "desligado" for s in invs["Inversor 1.3"]["strings"])
+    assert invs["Inversor 1.1"]["fora_da_conta"] is False and invs["Inversor 1.1"]["diferenca"] == 0
+
+
+def test_2c_email_usina_inteira_parada_nao_esconde_as_strings(ufv_2c, monkeypatch):
+    ts = datetime(2026, 9, 24, 12, 0)
+    monkeypatch.setattr(app, "_owen_strings_build", lambda force=False: {
+        ufv_2c: {inv: {str(s): (ts, 0.0) for s in range(1, 5)} for inv in ("1.1", "1.2", "1.3")}})
+    r = next(x for x in app._owen_strings_rows() if x["plant_id"] == ufv_2c)
+    assert r["inv_desligados"] == 0 and r["str_esp"] == 12 and r["strings_ativas"] == 0

@@ -144,6 +144,54 @@ def test_o_laco_usa_o_teto():
     assert "_prewarm_aba_principal()" in src and "_refresh_data_cache()" not in src
 
 
+# ── teto em TODA etapa, e nada em dobro (24/09/2026, 15:51) ───────────────────
+# Uma hora depois do conserto da API PV, o mesmo defeito com outra fonte: o banco da Thopen passou a comprimir os dados
+# antigos e a consulta da tabela do Banco foi de ~3 s para 83 s sozinha. Com duas cópias no servidor (web e worker), uma
+# da plataforma local e as órfãs de cada restart, nenhuma terminava — e a ETAPA 3, que só acaba quando a ÚLTIMA tarefa
+# acaba, segurou a Athon de novo (parada em 15:22). O teto passa a valer para toda etapa do ciclo.
+
+def test_etapa_com_tarefa_lenta_nao_segura_o_ciclo(monkeypatch):
+    monkeypatch.setattr(app, "_PREWARM_EM_VOO", set())
+    solta, feitas = threading.Event(), []
+    t0 = time.time()
+    app._prewarm_paralelo([("PG snapshot", lambda: solta.wait(10)), ("SunOp", lambda: feitas.append("SunOp"))],
+                          workers=3, espera_max=0.3)
+    assert time.time() - t0 < 1.5, "a etapa tem de seguir sem a tarefa lenta"
+    assert feitas == ["SunOp"]
+    solta.set()
+
+
+def test_tarefa_que_ainda_roda_nao_comeca_de_novo(monkeypatch):
+    """A volta seguinte não põe uma segunda consulta pesada por cima da que ainda está no banco."""
+    monkeypatch.setattr(app, "_PREWARM_EM_VOO", set())
+    solta, inicios = threading.Event(), []
+
+    def _lenta():
+        inicios.append(1)
+        solta.wait(10)
+    app._prewarm_paralelo([("PG snapshot", _lenta)], workers=2, espera_max=0.2)
+    app._prewarm_paralelo([("PG snapshot", _lenta)], workers=2, espera_max=0.2)
+    assert inicios == [1], "começou outra igual com a primeira ainda rodando"
+    solta.set()
+    for _ in range(50):
+        if not app._PREWARM_EM_VOO:
+            break
+        time.sleep(0.05)
+    app._prewarm_paralelo([("PG snapshot", lambda: inicios.append(2))], workers=2, espera_max=2)
+    assert inicios == [1, 2], "terminada a primeira, a volta seguinte roda normal"
+
+
+def test_no_web_a_tabela_do_banco_vencida_nao_reconstroi(monkeypatch):
+    """O web serve o que o worker publica (cache_snapshot.json) — como o _swr já fazia com as outras abas."""
+    chamadas = []
+    monkeypatch.setattr(app, "_MODO_WEB", True)
+    monkeypatch.setattr(app, "_pg_build_snapshot", lambda: chamadas.append(1) or ([], {}))
+    monkeypatch.setattr(app, "_pg_cache", {"summary": [{"usina": "X"}], "detail": {}, "ts": time.time() - 3600})
+    rows, _ = app._pg_get_snapshot()
+    time.sleep(0.2)
+    assert rows == [{"usina": "X"}] and chamadas == []
+
+
 # ── a ordem da ETAPA 3 ────────────────────────────────────────────────────────
 
 def test_quem_depende_da_api_pv_vai_por_ultimo():

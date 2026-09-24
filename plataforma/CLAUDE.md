@@ -120,6 +120,15 @@ quem depende da API PV vai por último (`PREWARM_DEPENDEM_API_PV` — tarefa nov
 um teste confere que os nomes existem no laço). Não troque o disjuntor por timeout menor: a API LENTA (48 s por
 usina às 12h do mesmo dia) responde, e é por isso que a 1ª passada espera 90 s (`PV_TIMEOUT_1A_PASSADA`).
 
+**Teto em TODA etapa, e nada em dobro (24/09/2026, 15:51).** Uma hora depois, o mesmo defeito com o banco da Thopen:
+ele passou a comprimir os dados antigos (TimescaleDB) e a consulta da tabela do Banco (`_pg_build_snapshot`, 30 dias
+com `DISTINCT ON`) foi de ~3 s para **83 s sozinha**. Com cópias dela no web e no worker, na plataforma local do PC do
+Levi e as órfãs que cada restart deixa rodando no banco, nenhuma terminava — e a ETAPA 3, que só acabava com a última
+tarefa, segurou a Athon de novo. `_prewarm_paralelo` espera no máximo `PREWARM_ETAPA_MAX_S`; quem passa segue em
+fundo e a volta seguinte não começa outra igual (`_PREWARM_EM_VOO`). E o web não reconstrói mais a tabela do Banco
+vencida (`_MODO_WEB` em `_pg_get_snapshot`, como o `_swr`). Consulta órfã no banco se vê em `pg_stat_activity`
+(`client_addr` do servidor, `query_start` antes do restart) e sai com `pg_cancel_backend` — é leitura, nada muda.
+
 ## Padrão por inversor (usinas sem visão por string)
 
 Ceilândia 1, Céu Azul e Ouro Branco (String Box com combiner não exposta) e Barretos (sem esperado no
@@ -156,8 +165,9 @@ continua listado, marcado `desligado` e `fora_da_conta`, com `diferenca` None. U
 ninguém (é "Usina desligada"). De 11/09 a 24/09 a API PV e o Banco faziam o contrário (todas as strings do
 desligado contavam como faltantes). **OS atribuída** (`os_atribuidas`, chave `plant_id|idefinversor`) e OS aberta
 no Fracttal em inversor desligado continuam tirando o inversor da conta pela OS (`inv_com_os`/`strings_com_os`),
-sem virar o aviso de desligado (11/09: "se está desligado e tem OS então está tudo OK"). Sem potência por
-inversor, ficam de fora: SolarEdge (Renogrid) e a 2C do e-mail.
+sem virar o aviso de desligado (11/09: "se está desligado e tem OS então está tudo OK"). As duas fontes SEM
+potência por inversor usam a medida das strings dele, somada: RenoGrid/SolarEdge (`_se_fora_da_conta`: potência DC
+= soma dos W das strings) e a 2C do e-mail (`_owen_fora_da_conta`: soma das correntes, que zera quando ele desliga).
 
 **Colunas de strings são sempre strings.** As 13 usinas da régua de padrão (`inv_padrao`) punham "18/20 inv.",
 "padrão 30d", "no padrão" e "2 crônicos" nas colunas; desde 24/09 ativas/esperadas/diferença/disponibilidade

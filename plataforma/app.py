@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import concurrent.futures
 import random
 import requests
 import pandas as pd
@@ -11410,6 +11411,43 @@ def api_solaredge_optimizers(site_id, string_uuid):
 
 
 # ── SolarEdge: processa uma usina (visão geral) ────────────────────────────────
+def _se_por_inversor(strings):
+    """{serial do inversor: [strings dele]} — a SolarEdge liga a string ao inversor por partOfSerial/pluggedTo."""
+    por_inv = {}
+    for st in strings:
+        por_inv.setdefault(st.get("partOfSerial") or st.get("pluggedTo") or "—", []).append(st)
+    return por_inv
+
+
+def _se_fora_da_conta(por_inv, power, nome_disp) -> dict:
+    """{serial: True/False} — desligado pela régua da Athon, com a potência de cada inversor = soma da potência (W)
+    das strings dele, em kW. Inversor sem nenhuma string lida fica None (sem leitura não é desligado)."""
+    series = list(por_inv)
+    pw = []
+    for ser in series:
+        vals = [power.get(st["deviceSerial"]) for st in por_inv[ser]]
+        vals = [v for v in vals if isinstance(v, (int, float))]
+        pw.append(sum(vals) / 1000.0 if vals else None)
+    return dict(zip(series, _inv_desligados_por_potencia(pw, _macro_eh_dia({"usina": nome_disp}))))
+
+
+def _se_desligados(nome, strings, invs, power, nome_disp):
+    """Linha da usina: → (nomes dos desligados, esperadas deles, ativas deles)."""
+    por_inv = _se_por_inversor(strings)
+    fora = _se_fora_da_conta(por_inv, power, nome_disp)
+    inv_nome = {d["deviceSerial"]: d.get("deviceName", d["deviceSerial"]) for d in invs}
+    esp_map, eq = ESPERADO_INV.get(nome, {}), EQUIP_NAMES.get(nome, {})
+    nomes, esp_fora, at_fora = [], 0, 0
+    for ser, sl in por_inv.items():
+        if not fora.get(ser):
+            continue
+        n_api = inv_nome.get(ser, ser)
+        nomes.append(eq.get(n_api, n_api))
+        esp_fora += esp_map.get(n_api, len(sl)) if esp_map else len(sl)
+        at_fora += sum(1 for st in sl if (power.get(st["deviceSerial"]) or 0) > SE_STRING_MIN_W)
+    return nomes, esp_fora, at_fora
+
+
 def process_site_solaredge(site: dict) -> dict:
     sid  = site["id"]
     nome = site["nome"]                              # supervisório (chave p/ ESPERADO_INV)
@@ -11443,6 +11481,13 @@ def process_site_solaredge(site: dict) -> dict:
     # Esperadas vêm do BD_Performance (ESPERADO_INV); fallback = total físico
     esp_map = ESPERADO_INV.get(nome, {})
     str_esp = sum(esp_map.values()) if esp_map else total
+    # Inversor DESLIGADO sai da conta — ativas e esperadas —, a régua da Athon (Levi, 24/09/2026: "todas as fontes tem
+    # essa legenda em laranja...?"). A SolarEdge não dá a potência do inversor aqui, mas dá a de cada string DELE:
+    # somada, é a potência DC do inversor, e é ela que entra na régua (_se_desligados).
+    desl, strings_fora, fora_ativas = _se_desligados(nome, strings, invs, power, nome_disp)
+    if desl:
+        ativas -= fora_ativas
+        str_esp = max(0, str_esp - strings_fora)
     return {
         "usina": nome_disp, "plant_id": sid,
         "qtd_inversores": len(invs),
@@ -11450,6 +11495,7 @@ def process_site_solaredge(site: dict) -> dict:
         "inv_esp": site.get("inv"),
         "str_esp": str_esp,
         "diferenca": ativas - str_esp,
+        "inv_desligados": len(desl), "strings_fora": strings_fora, "inv_desligados_nomes": sorted(desl),
         "temp_media": None,
         "ultima_leitura": ts_max or None,
         "sem_dados": False,
@@ -11541,10 +11587,9 @@ def _se_plant_inversores(site_id: int) -> list:
     power, _ts_pw, lotes_falhos = se_string_power(site_id, uuids, tzname)
 
     # Agrupa strings por inversor (partOfSerial / pluggedTo)
-    por_inv = {}
-    for s in strings:
-        parent = s.get("partOfSerial") or s.get("pluggedTo") or "—"
-        por_inv.setdefault(parent, []).append(s)
+    por_inv = _se_por_inversor(strings)
+    # fora da conta = a régua da linha da usina e da Athon (24/09/2026): desligado com sol e com a usina gerando
+    _fora = _se_fora_da_conta(por_inv, power, USINA_DISPLAY.get(site_nome, site_nome) if site_nome else "")
 
     def _str_num(name):
         # "String 25.3" → (25, 3) para ordenar
@@ -11578,11 +11623,13 @@ def _se_plant_inversores(site_id: int) -> list:
         if str_esp_inv is None:
             str_esp_inv = total                            # fallback = total físico
         nome_disp = equip_disp_map.get(nome_inv, nome_inv) # nome de exibição (BD_Performance)
+        _fo = bool(_fora.get(parent))
         inversores.append({
             "id": parent, "nome": nome_disp, "nome_api": nome_inv,
-            "ultima_leitura": None, "falha_comunicacao": _sem_leitura, "desligado": desligado,
+            "ultima_leitura": None, "falha_comunicacao": _sem_leitura, "desligado": desligado or _fo,
+            "fora_da_conta": _fo,
             "strings_ativas": ativas, "total_strings": total,
-            "str_esp": str_esp_inv, "diferenca": ativas - str_esp_inv,
+            "str_esp": str_esp_inv, "diferenca": None if _fo else ativas - str_esp_inv,
             "temp": None, "eday": None, "strings": chips,
         })
     def _inv_num(name):
@@ -12020,7 +12067,9 @@ def _pg_get_snapshot(force=False):
                 _pg_cache.update({"summary": summary, "detail": detail, "ts": time.time()})
                 _persist_mark()
         return _pg_cache["summary"], _pg_cache["detail"]
-    if (agora - _pg_cache["ts"]) >= CACHE_TTL:
+    # No web, vencido NÃO reconstrói (24/09/2026): serve o que o worker publica, como o _swr faz com as outras abas. A
+    # consulta leva 83 s com o banco comprimido; web e worker rodando juntos eram duas cópias dela no banco.
+    if (agora - _pg_cache["ts"]) >= CACHE_TTL and not _MODO_WEB:
         def _bg():
             if not _pg_lock.acquire(blocking=False):
                 return
@@ -16598,6 +16647,15 @@ def _owen_inv_tag(code, inv):
 
 
 
+def _owen_fora_da_conta(nome, invs) -> dict:
+    """{inversor: True/False} — desligado pela régua da Athon (_inv_desligados_por_potencia), com a 'potência' do
+    inversor = soma das correntes (A) das strings dele: o e-mail da 2C não traz potência, e a soma zera quando ele desliga.
+    O piso da régua (MACRO_POT_INV_MIN = 2) fica em ampère aqui — 2 A somados é o ruído de um inversor parado."""
+    ordem = list(invs)
+    soma = [sum(v for _t, v in invs[inv].values() if isinstance(v, (int, float))) if invs[inv] else None for inv in ordem]
+    return dict(zip(ordem, _inv_desligados_por_potencia(soma, _macro_eh_dia({"usina": nome}))))
+
+
 def _owen_strings_rows(force=False):
     """Linhas por usina do 2C (mesmo formato do rollup/macro). Reusado pelo endpoint e por
     _portfolio_rollup. Lê os arquivos locais do 2C (barato/cacheado), sem rede."""
@@ -16613,17 +16671,31 @@ def _owen_strings_rows(force=False):
                          "falha_comunicacao": False})
             continue
         ativas, ts_max = 0, None
+        at_de = {}
         for inv, strs in invs.items():
             ids = list(strs.keys()); correntes = [strs[s][1] for s in ids]
-            ativas += _str_ativas(_classifica_strings(u, inv, ids, correntes))   # desconta trancadas
+            at_de[inv] = _str_ativas(_classifica_strings(u, inv, ids, correntes))   # desconta trancadas
+            ativas += at_de[inv]
             tmax = max((t for t, _ in strs.values()), default=None)
             if tmax and (ts_max is None or tmax > ts_max):
                 ts_max = tmax
         esp_map = ESPERADO_INV.get(u, {})                  # esperado vem SÓ do BD_Performance
         str_esp = sum(esp_map.values()) if esp_map else None
+        # Inversor DESLIGADO sai da conta — ativas e esperadas —, a régua da Athon (Levi, 24/09/2026). O e-mail não traz
+        # potência: a do inversor é a SOMA DAS CORRENTES das strings dele, que zera quando ele desliga (_owen_fora_da_conta).
+        fora = _owen_fora_da_conta(nome, invs)
+        desl = [inv for inv in invs if fora.get(inv)]
+        strings_fora = sum(esp_map.get(_owen_inv_tag(u, inv), len(invs[inv])) for inv in desl)
+        if desl:
+            ativas -= sum(at_de[inv] for inv in desl)
+            if str_esp is not None:
+                str_esp = max(0, str_esp - strings_fora)
         rows.append({"usina": nome, "plant_id": u, "qtd_inversores": len(invs),
                      "strings_ativas": ativas, "str_esp": str_esp,
                      "diferenca": (ativas - str_esp) if str_esp is not None else None,
+                     "inv_desligados": len(desl), "strings_fora": strings_fora,
+                     "inv_desligados_nomes": sorted(EQUIP_NAMES.get(u, {}).get(_owen_inv_tag(u, inv), f"Inversor {inv}")
+                                                    for inv in desl),
                      "temp_media": None,
                      "ultima_leitura": ts_max.strftime("%Y-%m-%d %H:%M") if ts_max else None,
                      "sem_dados": False, "falha_comunicacao": False})
@@ -17477,6 +17549,7 @@ def api_owen_strings_plant(plant_id):
     data = _owen_strings_build()
     nome = _owen_nome(plant_id)
     invs = data.get(plant_id, {})
+    _fora = _owen_fora_da_conta(nome, invs)       # a mesma régua da linha da usina (24/09/2026)
     inversores = []
     for inv in sorted(invs, key=lambda x: [int(p) for p in x.split(".")]):
         strs = invs[inv]
@@ -17492,11 +17565,17 @@ def api_owen_strings_plant(plant_id):
         esp = ESPERADO_INV.get(plant_id, {}).get(tag)          # SÓ do BD_Performance (None se não cadastrado)
         nome_inv = EQUIP_NAMES.get(plant_id, {}).get(tag, f"Inversor {inv}")
         ts_inv = max((t for t, _ in strs.values()), default=None)
+        _fo = bool(_fora.get(inv))
+        if _fo:                                   # fora da conta: as strings dele em "desligado", como na Athon
+            for c in chips:
+                if c["status"] != "trancada":
+                    c["status"], c["ativa"] = "desligado", False
         inversores.append({"id": inv, "nome": nome_inv, "nome_api": tag,
                            "ultima_leitura": ts_inv.strftime("%Y-%m-%d %H:%M") if ts_inv else None,
-                           "falha_comunicacao": False, "desligado": ativas == 0,
+                           "falha_comunicacao": False, "desligado": ativas == 0 or _fo, "fora_da_conta": _fo,
                            "strings_ativas": ativas, "total_strings": len(strs),
-                           "str_esp": esp, "diferenca": (ativas - esp) if esp is not None else None,
+                           "str_esp": esp,
+                           "diferenca": None if _fo else ((ativas - esp) if esp is not None else None),
                            "temp": None, "eday": None, "strings": chips})
     # Inversor que está no CADASTRO mas NÃO veio na leitura entra como "não reportou", em vez de sumir.
     # Sem isto, uma cabine inteira que para de comunicar EVAPORA da tela e o déficit da linha-pai fica
@@ -19760,13 +19839,28 @@ def _prewarm_um_cache(cache, build) -> bool:
         lock.release()
 
 
-def _prewarm_paralelo(tarefas, workers=4):
+# TETO de cada etapa do ciclo (24/09/2026, 15:51). Uma hora depois do disjuntor da API PV, o mesmo defeito com outra
+# fonte: o banco da Thopen passou a comprimir os dados antigos e a consulta da tabela do Banco foi de ~3 s para 83 s
+# sozinha; com cópias dela no servidor, na plataforma local e as órfãs de cada restart, nenhuma terminava, e a etapa —
+# que só acabava quando a ÚLTIMA tarefa acabava — segurou a Athon de novo (parada em 15:22). Passado o teto, a tarefa
+# segue em fundo (thread não se mata) e a etapa acaba; a volta seguinte NÃO começa outra igual enquanto ela roda.
+PREWARM_ETAPA_MAX_S = 300
+_PREWARM_EM_VOO = set()               # nomes das tarefas do prewarm rodando agora (de qualquer volta)
+_PREWARM_EM_VOO_LOCK = threading.Lock()
+
+
+def _prewarm_paralelo(tarefas, workers=4, espera_max=None):
     """tarefas = [(nome, callable)]. A callable devolve False quando pulou (já fresco).
     São fontes INDEPENDENTES (APIs diferentes, banco, planilha) e o trabalho é dominado por
     espera de rede/IO, então rodar junto encurta muito o ciclo. Mantido em 4 de propósito:
-    com mais, a API PV já nos bloqueou por excesso de chamadas simultâneas."""
+    com mais, a API PV já nos bloqueou por excesso de chamadas simultâneas.
+    Espera no máximo `espera_max` (padrão PREWARM_ETAPA_MAX_S) — ver o teto acima."""
     def _um(t):
         nome, fn = t
+        with _PREWARM_EM_VOO_LOCK:
+            if nome in _PREWARM_EM_VOO:
+                return None                   # a da volta anterior ainda está rodando: não empilha outra
+            _PREWARM_EM_VOO.add(nome)
         t1 = time.time()
         try:
             if fn() is False:
@@ -19775,8 +19869,17 @@ def _prewarm_paralelo(tarefas, workers=4):
         except Exception as e:
             print(f"[prewarm] {nome} falhou: {e}")
             return None
-    with ThreadPoolExecutor(max_workers=workers) as ex:
-        feitos = [r for r in ex.map(_um, list(tarefas)) if r]
+        finally:
+            with _PREWARM_EM_VOO_LOCK:
+                _PREWARM_EM_VOO.discard(nome)
+    lista = list(tarefas)
+    ex = ThreadPoolExecutor(max_workers=workers)
+    futs = {ex.submit(_um, t): t[0] for t in lista}
+    prontos, pendentes = concurrent.futures.wait(futs, timeout=PREWARM_ETAPA_MAX_S if espera_max is None else espera_max)
+    ex.shutdown(wait=False, cancel_futures=True)   # quem nem começou fica para a próxima volta; quem roda, segue em fundo
+    if pendentes:
+        print(f"[prewarm] passaram do teto e seguem em fundo: {', '.join(sorted(futs[f] for f in pendentes))}")
+    feitos = [f.result() for f in prontos if not f.cancelled() and f.result()]
     for nome, seg in sorted(feitos, key=lambda x: -x[1]):
         if seg >= 1:
             print(f"[prewarm] {nome} aquecido em {seg:.0f}s")
