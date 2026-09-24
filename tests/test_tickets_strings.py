@@ -264,13 +264,19 @@ def test_ticket_no_inversor_desligado_fora_da_conta_nao_e_para_fechar(tickets):
     assert ts["para_fechar"] == 0 and "inversor desligado" in ts["motivo"], "sem saber qual, não arrisca"
 
 
-def test_ticket_da_usina_inteira_so_e_para_fechar_com_todas_as_partes_normais(tickets):
-    """Brodowski em 23/09: Skid 2 com 195 de 195 e a Skid 1 sem leitura de strings. O ticket 'Todos' é da usina."""
+def test_ticket_da_usina_inteira_fecha_por_parte(tickets):
+    """Brodowski: um ticket 'Todos' (209 strings, furto) para uma usina que na tabela são duas linhas. Levi, 24/09/2026:
+    "Brodowski fecha por parte" — cada parte diz "para fechar" pelas strings DELA (antes, só com as duas normais). E o
+    ticket leva o estado das outras partes, porque finalizar fecha a linha da planilha, que é da usina inteira."""
     s2 = _row("Brodowski - Skid 2 (86)", plant_id=2, str_esp=105, strings_ativas=105)
     s1 = _row("Brodowski - Skid 1 (86)", str_esp=None, strings_ativas=None, diferenca=None)
-    assert [t["para_fechar"] for t in _ts(s1, s2)] == [0, 0]
+    t1, t2 = _ts(s1, s2)
+    assert [t1["para_fechar"], t2["para_fechar"]] == [0, 1]
+    assert t2["lista"][0]["outras_partes"] == [{"usina": "Brodowski - Skid 1 (86)", "normal": False,
+                                                "motivo": "usina sem strings esperadas cadastradas"}]
     s1 = _row("Brodowski - Skid 1 (86)", str_esp=104, strings_ativas=104)
-    assert [t["para_fechar"] for t in _ts(s1, s2)] == [1, 1]
+    t1, t2 = _ts(s1, s2)
+    assert [t1["para_fechar"], t2["para_fechar"]] == [1, 1] and t2["lista"][0]["outras_partes"][0]["normal"] is True
 
 
 # ── o cruzamento com a linha da tabela ────────────────────────────────────────
@@ -1018,6 +1024,26 @@ def test_como_grava_fica_no_ponto_de_interrogacao():
     f, a = html.index('class="gc-tkc-f"'), html.index("gc-tkc-ajuda")
     i = html.index("Grava na planilha de tickets e no diário do OS Creator")
     assert f < a < i and "ph-question" in html[a:i] and "gc-tkc-n" not in MON
+
+
+def test_card_da_usina_inteira_fecha_por_parte_e_diz_as_outras():
+    """"Brodowski fecha por parte": no card, a parte normal diz "voltou" e avisa qual outra parte ainda não está —
+    finalizar fecha a linha da planilha, que é da usina inteira."""
+    if not NODE:
+        pytest.skip("node não instalado")
+    casos = [
+        {"normalizado": True, "outras_partes": [{"usina": "Brodowski - Skid 1 (86)", "normal": False}]},
+        {"normalizado": True, "outras_partes": [{"usina": "Brodowski - Skid 1 (86)", "normal": True}]},
+        {"normalizado": True, "outras_partes": []},
+    ]
+    js = "\n".join([_trecho("function _tkEstadoUsina(", "\n}"),
+                    "process.stdout.write(JSON.stringify(%s.map(t=>_tkEstadoUsina(Object.assign({usina_inteira:true},t),"
+                    "{},new Set()))));" % json.dumps(casos)])
+    p = subprocess.run([NODE, "-e", js], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert p.returncode == 0, p.stderr
+    a, b, c = json.loads(p.stdout)
+    assert a == {"k": "voltou", "txt": "Esta parte com as esperadas produzindo · Skid 1 ainda não"}
+    assert b["txt"] == "Esta parte com as esperadas produzindo" and c["txt"] == "Usina com as esperadas produzindo"
 
 
 def test_dica_abre_no_mouse_e_no_teclado_e_sem_animacao_obrigatoria():

@@ -8405,7 +8405,7 @@ def _com_tickets_str(payload):
     rows = payload.get("rows") if isinstance(payload, dict) else None
     if not rows or not TICKETS_STR:
         return payload
-    novas, mudou, inteira = [], False, {}      # inteira: linha do ticket da usina inteira → [normal de cada parte]
+    novas, mudou, inteira = [], False, {}      # inteira: linha do ticket da usina inteira → [cada parte: usina, normal]
     for r, achado in zip(rows, _tk_str_achados(rows)):
         lst = [t for t in achado if not _tk_str_fechado_aqui(t["linha"])]
         if lst:
@@ -8428,7 +8428,8 @@ def _com_tickets_str(payload):
                     t["qtd_na_linha"] = t["qtd"]
                 if t["usina_inteira"]:
                     t["normalizado"] = normal and not fora
-                    inteira.setdefault(t["linha"], []).append(t["normalizado"])
+                    inteira.setdefault(t["linha"], []).append({"usina": r.get("usina"), "normal": t["normalizado"],
+                                                              "motivo": motivo})
                 elif not bloq and (r.get("sem_visao") or t["inv"] in sv):
                     ng, mg = _tk_str_pela_geracao(ger.get(t["inv"]), t["qtd"])
                     t["pela_geracao"] = dict(ger.get(t["inv"]) or {}, normal=ng, motivo=mg)
@@ -8444,9 +8445,12 @@ def _com_tickets_str(payload):
         ts = r.get("tickets_str")
         if not ts:
             continue
+        # Ticket da usina inteira FECHA POR PARTE (Levi, 24/09/2026: "Brodowski fecha por parte"): cada linha diz
+        # "para fechar" pelas strings dela. Antes, só com todas as partes normais. Leva o estado das outras partes,
+        # porque finalizar fecha a linha da planilha, que é uma só para a usina inteira.
         for t in ts["lista"]:
             if t["usina_inteira"]:
-                t["normalizado"] = all(inteira.get(t["linha"]) or [False])
+                t["outras_partes"] = [p for p in inteira.get(t["linha"], []) if p["usina"] != r.get("usina")]
         ts["para_fechar"] = sum(1 for t in ts["lista"] if t["normalizado"])
     return dict(payload, rows=novas) if mudou else payload
 

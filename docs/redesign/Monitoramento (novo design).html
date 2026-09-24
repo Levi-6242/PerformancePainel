@@ -1487,7 +1487,13 @@ function _tkCards(inv){   // no inversor aberto: os tickets DELE (os da usina in
 }
 function _tkEstadoUsina(t,u,ks){   // ticket da usina inteira, ou de inversor que esta fonte não mostra
   if(!t.usina_inteira&&!ks.has(t.inv)) return {k:'mudo',txt:'O inversor deste ticket não aparece nesta fonte'};
-  if(t.normalizado) return {k:'voltou',txt:'Todas as partes da usina com as esperadas produzindo'};
+  // Fecha POR PARTE (Levi, 24/09/2026: "Brodowski fecha por parte"): esta linha normal já diz "voltou", e o card conta
+  // qual outra parte ainda não está — finalizar fecha a linha da planilha, que é uma só para a usina inteira.
+  if(t.normalizado){
+    const outras=t.outras_partes||[], nm=s=>{ const x=String(s||'').replace(/\s*\(\d+\)\s*$/,''), i=x.lastIndexOf(' - '); return i>=0?x.slice(i+3):x; };
+    const ruins=outras.filter(p=>!p.normal).map(p=>nm(p.usina));
+    return {k:'voltou',txt:(outras.length?'Esta parte':'Usina')+' com as esperadas produzindo'+(ruins.length?' · '+ruins.join(', ')+' ainda não':'')};
+  }
   if(u.tkNaoJulga||u.tkMotivo){ const m=u.tkMotivo||'sem como julgar agora'; return {k:'mudo',txt:m.charAt(0).toUpperCase()+m.slice(1)}; }
   if(typeof u._dif==='number'&&u._dif<0) return {k:'morta',txt:`A usina ainda tem ${-u._dif} string${u._dif===-1?'':'s'} faltando`};
   return {k:'mudo',txt:'Parte da usina sem leitura de strings'};
