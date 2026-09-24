@@ -7690,8 +7690,21 @@ def load_usina_codigos():
     dashboard (nome amigável, código ou descrição) → código, p/ casar as OS da planilha sem erro."""
     global USINA_COD
     try:
-        dg = pd.read_excel(_bd_readable(), sheet_name="Info Geral", header=0)
-        dg.columns = [str(c).strip() for c in dg.columns]
+        # ACHA a linha do cabeçalho, como o leitor de metas. Desde 30/07 há uma linha acima dele, e ler a 1ª deixou este
+        # de-para VAZIO em silêncio até 24/09/2026: sem "Código Fractal" nas colunas a função saía sem avisar, e com ela o
+        # casamento por código das OS da planilha, da ronda do WhatsApp e dos tickets de strings (142 códigos com o
+        # cabeçalho certo, 0 sem).
+        bruto = pd.read_excel(_bd_readable(), sheet_name="Info Geral", header=None)
+        _eh_cod = lambda v: "fractal" in str(v).lower() and ("cod" in str(v).lower() or "cód" in str(v).lower())
+        h = next((i for i in range(min(8, len(bruto)))
+                  if any(str(v).strip().lower() == "usina" for v in bruto.iloc[i].values)
+                  and any(_eh_cod(v) for v in bruto.iloc[i].values)), None)
+        if h is None:
+            print("[AVISO] de-para Código Fractal: a aba 'Info Geral' não tem 'Usina' e 'Código Fractal' nas 8 primeiras "
+                  "linhas — confira se inseriram ou removeram linhas no topo")
+            return
+        dg = bruto.iloc[h + 1:].reset_index(drop=True)
+        dg.columns = [str(c).strip() for c in bruto.iloc[h].values]
         low = {c: c.lower() for c in dg.columns}
         c_cod = next((c for c in dg.columns if "fractal" in low[c] and ("cod" in low[c] or "cód" in low[c])), None)
         c_us  = next((c for c in dg.columns if low[c] == "usina"), None)
@@ -8048,6 +8061,7 @@ def _trk_cruza_tickets(nome, lst, skid=None) -> dict:
 #       "Base de dados - Usinas" (THPN-ALT100 = Altair);
 #     - "X 1 e 2" é uma linha para duas usinas da plataforma, e o 1º número do inversor diz de qual é.
 TICKETS_STR = {}      # chave de usina (_usina_key) → [ticket aberto, na ordem da planilha]
+TICKETS_STR_COD = {}  # código-base da usina (CNN100) → [ticket aberto]: a reserva do _com_tickets_str quando o nome não acha
 # Mesma régua do `tickets_nasce.contar_strings` do OS Creator (repo oem), que é quem escreve estes textos: marcador
 # COLADO ao número, "string" antes de "str" (senão "String 4" casa "str" e falha) e sem fronteira à esquerda, porque
 # o nome real vem grudado ("Ipv10": o marcador é o "pv" do meio). "Strings Ipv10, Ipv11" não conta a palavra solta.
@@ -8091,7 +8105,7 @@ def _tk_str_qtd(planilha, ids) -> int:
 
 def load_tickets_strings():
     """(Re)carrega os tickets ABERTOS de strings, indexados pela chave da usina (código já traduzido)."""
-    global TICKETS_STR
+    global TICKETS_STR, TICKETS_STR_COD
     src = _bd_readable("tickets_performance", _tickets_path)
     if src is None:
         return
@@ -8194,7 +8208,13 @@ def load_tickets_strings():
                 for n in (mm.group(2), mm.group(3)):
                     m.setdefault(f"{mm.group(1)} {n}", []).extend(
                         t for t in m[k] if t["inv_bloco"] in (None, int(n)))
-        TICKETS_STR = m
+        mc, _uma = {}, set()                          # pelo código, cada ticket uma vez (o "X 1 e 2" o repete)
+        for v in m.values():
+            for t in v:
+                if t["cod"] and t["linha"] not in _uma:
+                    _uma.add(t["linha"])
+                    mc.setdefault(t["cod"].upper(), []).append(t)
+        TICKETS_STR, TICKETS_STR_COD = m, mc
         print(f"[OK] Tickets/Strings: {sum(len(v) for k, v in m.items() if not re.search(r' e \d+$', k))} abertos "
               f"em {len(m)} chaves de usina ({len(codigo)} códigos traduzidos)")
     except Exception as e:
@@ -8218,6 +8238,47 @@ def _tickets_str_da_linha(nome) -> list:
         if mm and mm.group(1) in TICKETS_STR:
             return [t for t in TICKETS_STR[mm.group(1)] if t["inv_bloco"] in (None, int(mm.group(2)))]
     return []
+
+
+def _tk_str_cod_da_linha(nome) -> str:
+    """Código-base (CNN100) da usina de uma linha da tabela de strings, pelo de-para mestre (aba "Info Geral" do
+    BD_Performance, USINA_COD): o nome cru, sem o " - Skid", e o do macro. A linha da Athon já é o código (MTS100).
+    O código da Info Geral pode vir com a parte ("ADT100-1"): vale a base, porque é a base que o ticket guarda."""
+    s = str(nome or "").strip()
+    if re.fullmatch(r"[A-Za-z]{3}\d{3}", s):
+        return s.upper()
+    for nm in (s, re.sub(r"\s*-\s*skid\s*", " ", s, flags=re.I), _macro_usina_nome(s) or ""):
+        cod = USINA_COD.get(_usina_key(nm)) if nm else None
+        m = re.search(r"[A-Za-z]{3}\d{3}", str(cod or ""))
+        if m:
+            return m.group(0).upper()
+    return ""
+
+
+def _tk_str_achados(rows) -> list:
+    """Os tickets abertos de cada linha da tabela: pelo NOME (_tickets_str_da_linha) e, de reserva, pelo CÓDIGO.
+
+    Reserva (Levi, 24/09/2026: "implemente para os demais"): o ticket que nenhuma linha achou pelo nome vai para a linha
+    cujo código é SÓ DELA nesta tabela. Em 24/09 eram 3 fora de todas as fontes por isso: CNN100 (a aba de usinas tem a
+    Canarana com código 0) e ADS100 ("Araçoiaba da Serra IA" lá, "Araçoiaba da Serra 1" aqui). Código repetido não
+    serve: Altair 1 a 5 dividem ALT100, e o ticket de uma parte cairia nas cinco — lá vale o nome + o 1º número do
+    inversor. Ticket que o nome já pôs numa linha não volta por aqui."""
+    achados = [list(_tickets_str_da_linha(r.get("usina"))) for r in rows]
+    if not TICKETS_STR_COD:
+        return achados
+    vistos = {t["linha"] for lst in achados for t in lst}
+    cods = [_tk_str_cod_da_linha(r.get("usina")) for r in rows]
+    conta = {}
+    for c in cods:
+        if c:
+            conta[c] = conta.get(c, 0) + 1
+    for i, c in enumerate(cods):
+        if c and conta[c] == 1:
+            orfaos = [t for t in TICKETS_STR_COD.get(c, []) if t["linha"] not in vistos]
+            if orfaos:
+                achados[i] += orfaos
+                vistos.update(t["linha"] for t in orfaos)
+    return achados
 
 
 def _tk_str_da_usina_inteira(t) -> bool:
@@ -8263,8 +8324,8 @@ def _com_tickets_str(payload):
     if not rows or not TICKETS_STR:
         return payload
     novas, mudou, inteira = [], False, {}      # inteira: linha do ticket da usina inteira → [normal de cada parte]
-    for r in rows:
-        lst = [t for t in _tickets_str_da_linha(r.get("usina")) if not _tk_str_fechado_aqui(t["linha"])]
+    for r, achado in zip(rows, _tk_str_achados(rows)):
+        lst = [t for t in achado if not _tk_str_fechado_aqui(t["linha"])]
         if lst:
             esp = r.get("str_esp")
             normal, motivo = _tk_str_julgamento(r)

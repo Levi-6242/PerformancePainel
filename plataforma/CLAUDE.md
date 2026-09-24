@@ -197,6 +197,18 @@ desligada) e busca a curva de novo (`_curvaRecarrega`), porque o servidor serve 
 estão repetidos na página e travados contra o `app.py` em `tests/test_strings_destrancar_tela.py` (paridade Python ×
 JS nas mesmas correntes). Trancar não precisa de conta: "trancada" vale qualquer que seja o status.
 
+**Todas as fontes (24/09/2026, "implemente para os demais").** Coluna, card, OS de recomposição, quantidade e cadeado
+já são o mesmo código nas 9 fontes: medido nas que tinham ticket (Thopen API PV, Thopen Banco, Athon, RenoGrid), todo
+ticket de inversor casou com um inversor do drill e a OS se achou no Fracttal. O que faltava era casar a USINA: o
+ticket que nenhuma linha acha pelo nome vai pelo **código** (`_tk_str_achados` + `TICKETS_STR_COD`), só para a linha
+cujo código é **único** na tabela — Altair 1 a 5 dividem ALT100 e ali vale o nome + o 1º número do inversor. O código
+da linha vem do de-para mestre, a aba "Info Geral" do BD_Performance (`USINA_COD`), que estava **vazio desde 30/07**:
+uma linha inserida acima do cabeçalho, e o `load_usina_codigos` lia a 1ª linha e saía calado. Agora ele acha o
+cabeçalho (142 códigos). Antiga × nova em 24/09: só Canarana 1 (+2, CNN100) e Araçoiaba da Serra 1 (+1, ADS100)
+mudaram; as OS da planilha por usina não mudaram em nenhuma; a análise da ronda do WhatsApp volta a reconhecer usina
+por código e descrição (142 → +332 nomes). Fora, e por quê: Castelo do Piauí (GreenYellow, sem fonte de strings),
+Petrolina 2 (nome que não está no Info Geral nem na aba de usinas; a Axis chama de PEII/PEIII) e o TESTE100.
+
 ## ETM: o que alarma
 
 Régua do Levi (10/09/2026): **só IPOA (POA) e GHI medidos em zero com sol alarmam** — hoje (`_diagnostico_etm`,
