@@ -209,6 +209,21 @@ mudaram; as OS da planilha por usina não mudaram em nenhuma; a análise da rond
 por código e descrição (142 → +332 nomes). Fora, e por quê: Castelo do Piauí (GreenYellow, sem fonte de strings),
 Petrolina 2 (nome que não está no Info Geral nem na aba de usinas; a Axis chama de PEII/PEIII) e o TESTE100.
 
+**Thopen API PV: Fracttal flexível e julgamento pela geração (24/09/2026, respostas do Levi à lista de dificuldades).**
+- O code do inversor no Fracttal às vezes leva o prefixo do cliente e às vezes não: ALT100-INVR1.8, CTS100-INVR1.1 e
+  MTS100-INVR6.2 existem sem; THPN-CNN100-INVR1.1, THPN-APR100-INVR1.10 e THPN-EBG100-INVR2.2 só com (conferido lá).
+  `_frac_ativo` tenta o code como veio e, se não existir, com o prefixo da usina (`USINA_PREFIXO_FRAC`, da aba de
+  usinas da planilha de tickets) e o da Thopen; o achado fica no cache do code sem prefixo. Vale para todo mundo que
+  resolve ativo (card do ticket, OS no drill, ETM). A PV Operation divide por cabine usinas que no Fracttal são uma
+  só (Embu Guaçu 1 e 2 = EBG100, "Inversor 2.2" = inversor 2 da cabine 2; Altair também).
+- Inversor **sem visão por string** (a usina toda ou só ele) tem o ticket julgado pela **geração**: a linha da API PV
+  (`build_summary`) leva `inv_sem_visao` e `ger_inv` = potência por string esperada ÷ mediana dos pares
+  (`_pv_ger_relativa`), e `_tk_str_pela_geracao` decide: com N de S strings paradas ele geraria ~(S−N)/S; voltou é
+  passar do meio. Perda < 6% (1 em 17+) não dá para ver, e a régua diz isso. O card mostra "Geração normal agora ·
+  99% dos pares" / "abaixo dos pares · 84% (com 2 de 12 paradas seria ~83%)". Antes, o ticket de um inversor sem
+  visão numa usina com as outras normais era dado por fechado pela conta das outras. Em 24/09 eram 10 linhas inteiras
+  sem visão e nenhuma com ticket. A Altair é String Box e TEM visão de dia; o "sem visão" dela era da madrugada.
+
 ## ETM: o que alarma
 
 Régua do Levi (10/09/2026): **só IPOA (POA) e GHI medidos em zero com sol alarmam** — hoje (`_diagnostico_etm`,

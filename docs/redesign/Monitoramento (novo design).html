@@ -1281,7 +1281,8 @@ function _tkStrCel(r,naoJulga){   // coluna "Tickets": strings com ticket aberto
   // Quem decide é o backend (`normalizado` em _com_tickets_str): todas as esperadas produzindo e dado que dá para julgar.
   if(!falt&&pf>0&&!naoJulga){
     const qs=(ts.lista||[]).filter(t=>t.normalizado).map(t=>(t.usina_inteira?'Usina inteira':(t.inversor||'?'))
-      +((t.strings||[]).length?' · '+t.strings.map(x=>'PV'+x).join(', '):'')+(t.desde?', desde '+t.desde.slice(0,5):''));
+      +((t.strings||[]).length?' · '+t.strings.map(x=>'PV'+x).join(', '):'')+(t.desde?', desde '+t.desde.slice(0,5):'')
+      +(t.pela_geracao&&typeof t.pela_geracao.r==='number'?' · pela geração, '+Math.round(t.pela_geracao.r*100)+'% dos pares':''));
     const tip=`0 strings faltando e ${pf} ticket${pf===1?'':'s'} aberto${pf===1?'':'s'}: ${qs.join('; ')}. A string voltou: abra a usina e finalize o ticket no inversor.`;
     return `<span title="${_he(tip)}" class="gc-tkfechar"><i class="ph ph-check-circle"></i>${pf} para fechar</span>`;
   }
@@ -1289,8 +1290,11 @@ function _tkStrCel(r,naoJulga){   // coluna "Tickets": strings com ticket aberto
   // mostra o ticket e não diz que voltou.
   if(!falt){
     const mot=ts.motivo||(naoJulga?'sem sol, sem comunicação ou irradiância baixa':'');
+    const pg=(ts.lista||[]).filter(t=>t.pela_geracao);   // sem visão por string: o que a geração do inversor mostrou
     const tip=`${n} ticket${n===1?'':'s'} aberto${n===1?'':'s'} na planilha (${tk} string${tk===1?'':'s'})`
-      +(mot?` · ${mot}: não dá para dizer se voltou`:' · confira no inversor');
+      +(pg.length&&!naoJulga?' · sem visão por string, pela geração: '+pg.map(t=>(t.inversor||'?')+(typeof t.pela_geracao.r==='number'
+          ?' a '+Math.round(t.pela_geracao.r*100)+'% dos pares':' ('+(t.pela_geracao.motivo||'sem geração para comparar')+')')).join('; ')
+        :(mot?` · ${mot}: não dá para dizer se voltou`:' · confira no inversor'));
     return `<span title="${_he(tip)}" style="display:inline-flex;align-items:center;gap:5px;font-weight:600;color:var(--color-neutral-400);white-space:nowrap"><i class="ph ph-clipboard-text" style="color:var(--gc-blue)"></i>${n} aberto${n===1?'':'s'}</span>`;
   }
   const sem=Math.max(0,falt-tk), cor=sem>0?'#ff5b6e':'#3fb950';
@@ -1306,7 +1310,16 @@ function _tkStrCel(r,naoJulga){   // coluna "Tickets": strings com ticket aberto
 function _tkEstado(t,inv){
   if(inv.semSolU) return {k:'mudo',txt:'Sem sol agora: não dá para dizer se voltou'};
   if(inv.semComU) return {k:'mudo',txt:'Usina sem comunicação: não dá para dizer se voltou'};
-  if(inv.semVisao) return {k:'mudo',txt:'Inversor sem visão por string'};
+  // Sem visão por string: vale a GERAÇÃO do inversor contra os pares, medida no backend (_tk_str_pela_geracao) — Levi,
+  // 24/09/2026: "nesse caso vamos nos basear pela geração". A conta fica lá; a tela só diz o que ela achou.
+  if(inv.semVisao){
+    const g=t.pela_geracao, pc=v=>Math.round(v*100)+'%';
+    if(g&&typeof g.r==='number'&&g.normal===true) return {k:'voltou',txt:`Geração normal agora · ${pc(g.r)} dos pares`};
+    if(g&&typeof g.r==='number'&&g.normal===false) return {k:'morta',txt:`Geração abaixo dos pares · ${pc(g.r)}`
+      +(g.esp?` (com ${t.qtd||1} de ${g.esp} strings paradas seria ~${pc(1-(t.qtd||1)/g.esp)})`:'')};
+    const m=(g&&g.motivo)||'';
+    return {k:'mudo',txt:m?m.charAt(0).toUpperCase()+m.slice(1):'Inversor sem visão por string'};
+  }
   if(inv.rampa) return {k:'mudo',txt:'Irradiância baixa: não dá para dizer se voltou'};
   if(inv.semGer) return {k:'morta',txt:'Inversor sem geração agora'};
   const sts=inv.strings||[], viva=x=>x.st==='ativa'||x.st==='baixa_perf';
@@ -1628,7 +1641,7 @@ function computeVals(){
         diffTit:_ip?(`Proporcionalidade de ${_ip.dia||'D-1'}: cada inversor vs. o que ele gera em relação à mediana da usina nos 30 dias anteriores. `+(_ipAl.length?_ipAl.map(a=>`${a.inv} ${Number(a.razao).toFixed(0)}% do padrão de ${Number(a.base).toFixed(0)}% (${_ipFmt(a.delta)})`).join(' · '):'todos dentro do padrão')+((_ip.cronicos||[]).length?` · crônicos: ${_ip.cronicos.join(', ')}`:'')):'',
         avail:_ip?((_ip.cronicos||[]).length?`${_ip.cronicos.length} crônico${_ip.cronicos.length===1?'':'s'}`:'—'):((r.str_esp&&r.strings_ativas!=null&&!r.rampa&&!r.sem_visao&&!semSol&&!semCom)?(r.strings_ativas/r.str_esp*100).toFixed(1)+'%':'—'),
         availColor:_ip?'var(--color-neutral-400)':((!r.rampa&&!r.sem_visao&&!semSol&&!semCom&&temD&&r.strings_ativas===0)?'#ff9a9d':'var(--color-neutral-300)'),
-        acomp:(tCount!=null?tCount:''),tkStr:_tkStrCel(r,semSol||semCom||!!r.rampa||!!r.sem_visao),tkLista:(r.tickets_str&&r.tickets_str.lista)||[],tkMotivo:(r.tickets_str&&r.tickets_str.motivo)||'',tkNaoJulga:(semSol||semCom||!!r.rampa||!!r.sem_visao),_dif:(dif==null?null:dif),_grp,pulse:(_grp===0),lastRead:leit,staleRead:_velho,
+        acomp:(tCount!=null?tCount:''),tkStr:_tkStrCel(r,semSol||semCom||!!r.rampa),tkLista:(r.tickets_str&&r.tickets_str.lista)||[],tkMotivo:(r.tickets_str&&r.tickets_str.motivo)||'',tkNaoJulga:(semSol||semCom||!!r.rampa||!!r.sem_visao),_dif:(dif==null?null:dif),_grp,pulse:(_grp===0),lastRead:leit,staleRead:_velho,
         staleTit:(_velho?`Sem leitura nova há ${Math.floor(_idadeMin/60)}h${String(Math.round(_idadeMin%60)).padStart(2,'0')}`:''),
         status:stt,statusStyle:ps,hasFlag:cCount>0,flagCount:cCount,hasOS:oCount>0,osCount:oCount,vkey,caretDeg:expanded?90:0,diffColor2:0,expanded,id:pid,inversores:expanded?buildInversores(pid):[]};
     }).sort((a,b)=>(a._grp-b._grp)||((a._dif||0)-(b._dif||0)));   // não-batendo no topo; dentro do grupo, maior déficit primeiro

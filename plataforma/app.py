@@ -2373,6 +2373,36 @@ def _str_ativas(statuses) -> int:
 
 
 # ── Monta resumo de usina a partir dos registros brutos ───────────────────────
+def _pv_ger_relativa(nome_sup, pac_de, alvos, dev_names) -> dict:
+    """A geração de cada inversor SEM visão de strings contra os PARES da mesma usina (Levi, 24/09/2026: "sei que tem
+    usinas e inversores que não temos nenhuma visão de strings, nesse caso vamos nos basear pela geração").
+
+    → {chave do inversor ('1.3'): {"r": potência ÷ mediana dos pares, "esp": strings esperadas | None, "pac": kW}}.
+    Por string esperada quando o cadastro tem a de todos os que geram — inversores de tamanhos diferentes na mesma
+    usina —; senão, a potência crua. Par = outro inversor da usina gerando (≥ MACRO_POT_INV_MIN); com menos de 2, não
+    há com quem comparar. Quem chama só chama com a usina gerando (sol e mediana acima do piso)."""
+    esp_cad, equip = ESPERADO_INV.get(nome_sup) or {}, EQUIP_NAMES.get(nome_sup) or {}
+    esp = {i: esp_cad.get(dev_names.get(i)) for i in pac_de}
+    gerando = {i: p for i, p in pac_de.items() if isinstance(p, (int, float)) and p >= MACRO_POT_INV_MIN}
+    por_string = bool(gerando) and all(isinstance(esp.get(i), (int, float)) and esp[i] > 0 for i in gerando)
+    out = {}
+    for i in alvos:
+        p = pac_de.get(i)
+        if not isinstance(p, (int, float)) or (por_string and not esp.get(i)):
+            continue
+        pares = sorted((q / esp[j] if por_string else q) for j, q in gerando.items() if j != i)
+        if len(pares) < 2:
+            continue
+        n = len(pares)
+        med = pares[n // 2] if n % 2 else (pares[n // 2 - 1] + pares[n // 2]) / 2
+        if med <= 0:
+            continue
+        nome = _equip_lookup(equip, dev_names.get(i)) or dev_names.get(i) or str(i)
+        out[_tk_inv_chave(nome)] = {"r": round((p / esp[i] if por_string else p) / med, 3),
+                                    "esp": esp[i] if por_string else None, "pac": round(p, 1)}
+    return out
+
+
 def build_summary(plant: dict, records: list) -> dict:
     pid  = plant["id"]
     nome = nome_usina(pid, plant["nome"])
@@ -2403,6 +2433,7 @@ def build_summary(plant: dict, records: list) -> dict:
     sem_visao = 0                             # inversores String Box SEM combiner exposta na Plataforma
     em_rampa  = 0                             # inversores com corrente REAL, baixa demais p/ classificar
     neutros_ids = []                          # ids dos neutros (sem_visao/rampa) → desconto EXATO do esperado
+    sv_ids = []                               # só os SEM VISÃO (não a rampa): os tickets deles vão pela geração
     for inv_id, rec in latest.items():
         cj = parse_cj(rec.get("conteudojson"))
         ipv_keys  = [k for k in cj if k.startswith("Ipv") and isinstance(cj[k], (int, float))]
@@ -2443,6 +2474,7 @@ def build_summary(plant: dict, records: list) -> dict:
                 # não tem combiner (Pharma III/IV) fica exatamente como estava, sem contagem inventada.
                 sem_visao += 1
                 neutros_ids.append(inv_id)
+                sv_ids.append(inv_id)
                 ipv_keys = []
         correntes = [cj[k] for k in ipv_keys]
         # exclui trancadas e aplica a régua relativa à mediana do inversor
@@ -2457,6 +2489,7 @@ def build_summary(plant: dict, records: list) -> dict:
                 em_rampa += 1
             else:
                 sem_visao += 1
+                sv_ids.append(inv_id)
             neutros_ids.append(inv_id)
         strings_ativas += _at
         ativas_inv.append(_at)
@@ -2495,6 +2528,15 @@ def build_summary(plant: dict, records: list) -> dict:
     ativas_de = dict(zip(inv_ids, ativas_inv))
     _gerando = (not _macro_sol_baixo({"usina": nome})) and isinstance(pot_med, (int, float)) and pot_med >= MACRO_POT_INV_MIN
     off_ids = {i for i, pr in zip(inv_ids, prod) if pr is False and i not in neutros_ids} if _gerando else set()
+    # Tickets de strings julgados PELA GERAÇÃO onde não há visão por string (Levi, 24/09/2026): a potência de cada
+    # inversor sem visão contra a dos pares. Vai na linha para o _com_tickets_str ("para fechar") e para o card.
+    sv_chaves, ger_inv = [], {}
+    if sv_ids:
+        _dn_g = _pv_dev_names(pid, _pv_token_for(pid)) or {}
+        _eq_g = EQUIP_NAMES.get(plant["nome"].strip()) or {}
+        sv_chaves = sorted({_tk_inv_chave(_equip_lookup(_eq_g, _dn_g.get(i)) or _dn_g.get(i) or str(i)) for i in sv_ids})
+        if _gerando:
+            ger_inv = _pv_ger_relativa(plant["nome"].strip(), dict(zip(inv_ids, pacs)), sv_ids, _dn_g)
     for i in off_ids:
         strings_ativas -= ativas_de.get(i) or 0
     # ── OS atribuída ao inversor (os_atribuidas, chave plant_id|idefinversor): ele sai INTEIRO da conta — ativas
@@ -2546,6 +2588,7 @@ def build_summary(plant: dict, records: list) -> dict:
         # os inversores (ex.: Céu Azul, Ouro Branco 23/07). NÃO é "Sem geração" (a usina gera): o front
         # mostra "Sem visão de strings" (neutro). Sem isto, ativas=0 caía em "Sem geração" falso.
         "sem_visao": bool(sem_visao and strings_ativas == 0 and not em_rampa and (pot_med or prod)),
+        "inv_sem_visao": sv_chaves, "ger_inv": ger_inv,     # tickets de strings pela geração (_com_tickets_str)
     }
 
 
@@ -8062,6 +8105,7 @@ def _trk_cruza_tickets(nome, lst, skid=None) -> dict:
 #     - "X 1 e 2" é uma linha para duas usinas da plataforma, e o 1º número do inversor diz de qual é.
 TICKETS_STR = {}      # chave de usina (_usina_key) → [ticket aberto, na ordem da planilha]
 TICKETS_STR_COD = {}  # código-base da usina (CNN100) → [ticket aberto]: a reserva do _com_tickets_str quando o nome não acha
+USINA_PREFIXO_FRAC = {}  # código-base (EBG100) → prefixo do cliente (THPN), da aba de usinas: o _frac_ativo tenta com ele
 # Mesma régua do `tickets_nasce.contar_strings` do OS Creator (repo oem), que é quem escreve estes textos: marcador
 # COLADO ao número, "string" antes de "str" (senão "String 4" casa "str" e falha) e sem fronteira à esquerda, porque
 # o nome real vem grudado ("Ipv10": o marcador é o "pv" do meio). "Strings Ipv10, Ipv11" não conta a palavra solta.
@@ -8105,7 +8149,7 @@ def _tk_str_qtd(planilha, ids) -> int:
 
 def load_tickets_strings():
     """(Re)carrega os tickets ABERTOS de strings, indexados pela chave da usina (código já traduzido)."""
-    global TICKETS_STR, TICKETS_STR_COD
+    global TICKETS_STR, TICKETS_STR_COD, USINA_PREFIXO_FRAC
     src = _bd_readable("tickets_performance", _tickets_path)
     if src is None:
         return
@@ -8121,6 +8165,7 @@ def load_tickets_strings():
         xl = pd.ExcelFile(src)
         codigo = {}                                   # "alt100" / "thpn-alt100" → "Altair"
         cod_de = {}                                   # o contrário: "altair" → "ALT100" (o Fracttal só se acha pelo código)
+        pref_de = {}                                  # "EBG100" → "THPN": o prefixo do cliente no code do Fracttal
         if "Base de dados - Usinas" in xl.sheet_names:
             du = xl.parse("Base de dados - Usinas", header=3)
             du.columns = [str(c).strip() for c in du.columns]
@@ -8138,6 +8183,9 @@ def load_tickets_strings():
                         curto = cod.split("-")[-1].strip().upper()
                         if re.fullmatch(r"[A-Z]{3}\d{3}", curto):
                             cod_de.setdefault(_usina_key(nome), curto)
+                            _pref = cod.strip().upper().split("-")[0]
+                            if _pref != curto and _pref.isalpha():         # THPN-EBG100 → EBG100: THPN
+                                pref_de.setdefault(curto, _pref)
         df = xl.parse("Strings indisp", header=3)
         df.columns = [str(c).strip() for c in df.columns]
         low = {c: c.lower() for c in df.columns}
@@ -8215,6 +8263,8 @@ def load_tickets_strings():
                     _uma.add(t["linha"])
                     mc.setdefault(t["cod"].upper(), []).append(t)
         TICKETS_STR, TICKETS_STR_COD = m, mc
+        if pref_de:
+            USINA_PREFIXO_FRAC = pref_de
         print(f"[OK] Tickets/Strings: {sum(len(v) for k, v in m.items() if not re.search(r' e \d+$', k))} abertos "
               f"em {len(m)} chaves de usina ({len(codigo)} códigos traduzidos)")
     except Exception as e:
@@ -8286,16 +8336,48 @@ def _tk_str_da_usina_inteira(t) -> bool:
     return t["inv_bloco"] is None and not re.fullmatch(r"\d+\.\d+", t["inv"])
 
 
+def _tk_str_bloqueio(r) -> str:
+    """Por que a linha não dá para julgar AGORA, nem pelas strings nem pela geração. '' quando dá."""
+    if r.get("sol_baixo"):
+        return "sem sol agora"
+    if r.get("falha_comunicacao") or r.get("sem_dados"):
+        return "usina sem comunicação"
+    if r.get("rampa"):
+        return "irradiância baixa"
+    return ""
+
+
+# Julgar pela GERAÇÃO o ticket do inversor sem visão por string (Levi, 24/09/2026: "nesse caso vamos nos basear pela
+# geração"). Com N das S strings do inversor paradas, ele gera ~(S−N)/S dos pares; voltou é estar mais perto de 100%
+# do que disso (o limiar é o meio). Perda menor que 6% — 1 string em 17 ou mais — some na diferença normal entre
+# inversores da mesma usina: não dá para dizer, e a régua diz isso em vez de chutar.
+TK_GER_PERDA_MIN = 0.06
+TK_GER_LIMIAR_SEM_ESP = 0.97     # sem o esperado do inversor no cadastro: só "gera como os pares"
+
+
+def _tk_str_pela_geracao(g, n) -> tuple:
+    """(normal: True/False/None, motivo) do ticket de `n` strings num inversor cuja geração relativa é `g` ({r, esp},
+    do _pv_ger_relativa). None = não dá para dizer pela geração, e o motivo diz por quê."""
+    if not g or not isinstance(g.get("r"), (int, float)):
+        return None, "inversor sem visão por string e sem geração dos pares para comparar"
+    esp = g.get("esp")
+    if isinstance(esp, (int, float)) and esp > 0:
+        perda = min(1.0, (n or 1) / esp)
+        if perda < TK_GER_PERDA_MIN:
+            return None, "%d string%s em %d: a perda fica dentro da variação normal da geração" % (
+                n or 1, "" if (n or 1) == 1 else "s", esp)
+        return g["r"] >= 1 - perda / 2, ""
+    return g["r"] >= TK_GER_LIMIAR_SEM_ESP, ""
+
+
 def _tk_str_julgamento(r) -> tuple:
     """(normal, motivo) de uma linha da tabela, para os tickets dela. `normal` = todas as strings esperadas produzindo
     agora, com dado que dá para julgar. `motivo` diz por que não dá para julgar (vai no tooltip da coluna); vazio quando
-    o que falta é só string faltando, que a coluna já mostra com a barra."""
-    if r.get("sol_baixo"):
-        return False, "sem sol agora"
-    if r.get("falha_comunicacao") or r.get("sem_dados"):
-        return False, "usina sem comunicação"
-    if r.get("rampa"):
-        return False, "irradiância baixa"
+    o que falta é só string faltando, que a coluna já mostra com a barra. O ticket de inversor SEM VISÃO não usa este:
+    vai pela geração (_tk_str_pela_geracao), no _com_tickets_str."""
+    bloq = _tk_str_bloqueio(r)
+    if bloq:
+        return False, bloq
     if r.get("sem_visao"):
         return False, "usina sem visão por string"
     esp, atv, dif = r.get("str_esp"), r.get("strings_ativas"), r.get("diferenca")
@@ -8333,6 +8415,10 @@ def _com_tickets_str(payload):
             fora = isinstance(r.get("strings_fora"), (int, float)) and r.get("strings_fora") > 0
             if normal and fora and not desl:
                 motivo = "inversor desligado fora da conta"                # sem saber qual, não arrisca
+            # inversor SEM VISÃO por string (a usina inteira ou só ele): o ticket vai pela GERAÇÃO dele contra os pares
+            # (Levi, 24/09/2026). Antes, numa usina com as outras strings normais, ele era dado por fechado pela conta
+            # das OUTRAS; e na usina toda sem visão, nunca.
+            bloq, sv, ger = _tk_str_bloqueio(r), set(r.get("inv_sem_visao") or []), r.get("ger_inv") or {}
             lista = []
             for t in lst:
                 t = dict(t, usina_inteira=_tk_str_da_usina_inteira(t))
@@ -8343,6 +8429,10 @@ def _com_tickets_str(payload):
                 if t["usina_inteira"]:
                     t["normalizado"] = normal and not fora
                     inteira.setdefault(t["linha"], []).append(t["normalizado"])
+                elif not bloq and (r.get("sem_visao") or t["inv"] in sv):
+                    ng, mg = _tk_str_pela_geracao(ger.get(t["inv"]), t["qtd"])
+                    t["pela_geracao"] = dict(ger.get(t["inv"]) or {}, normal=ng, motivo=mg)
+                    t["normalizado"] = ng is True and t["inv"] not in desl
                 else:
                     t["normalizado"] = normal and t["inv"] not in desl and not (fora and not desl)
                 lista.append(t)
@@ -8526,7 +8616,7 @@ def api_tickets_str_os(linha):
         o["anterior"] = bool(ini and criada and criada.date() < ini.date() and (conc is None or conc < ini))
         if conc and not o["anterior"] and (ini is None or conc >= ini):
             sugere = conc.strftime("%Y-%m-%dT%H:%M")
-    return jsonify({"ok": True, "code": code, "os": o, "sugere_fim": sugere})
+    return jsonify({"ok": True, "code": ativo.get("code") or code, "os": o, "sugere_fim": sugere})
 
 
 load_tickets_trackers()   # carga inicial
@@ -20679,16 +20769,36 @@ def _frac_inv_code(usina, inv_disp):
     return f"{base}-INVR{m.group(0)}" if (m and base) else None
 
 
-def _frac_ativo(code):
-    """Resolve um code Fracttal → {id, desc} via items/{code} (cacheado). None se não existir."""
+def _frac_ativo_exato(code):
+    """items/{code} → {id, desc, code} (cacheado, falta também). None se o code não existir exatamente assim."""
     ent = _frac_code_cache.get(code)
     if ent and (time.time() - ent["ts"]) < FRAC_CODE_TTL:
         return ent["ativo"]
     d = _frac_get(f"items/{code}")
     data = (d.get("data") if isinstance(d, dict) else d) or []
     it = data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) and data else None)
-    ativo = {"id": it.get("id"), "desc": str(it.get("description") or "").split("  ")[0].strip()} if it else None
+    ativo = ({"id": it.get("id"), "desc": str(it.get("description") or "").split("  ")[0].strip(), "code": code}
+             if it else None)
     _frac_code_cache[code] = {"ts": time.time(), "ativo": ativo}
+    return ativo
+
+
+def _frac_ativo(code):
+    """Resolve um code Fracttal → {id, desc, code} (cacheado). None se não existir.
+
+    O code do inversor às vezes leva o PREFIXO do cliente e às vezes não (Levi, 24/09/2026: "o inversor de canarana 1
+    existe: THPN-CNN100-INVR1.1 (...) flexibilize melhor"). Conferido no Fracttal: ALT100-INVR1.8, CTS100-INVR1.1 e
+    MTS100-INVR6.2 existem sem ele; THPN-CNN100-INVR1.1, THPN-APR100-INVR1.10 e THPN-EBG100-INVR2.2 só com ele. Então:
+    o code como veio e, se não existir, com o prefixo da usina (aba de usinas da planilha de tickets) e o da Thopen.
+    O achado fica no cache do code sem prefixo: a próxima busca sai direto. `code` no retorno é o que existe lá."""
+    ativo = _frac_ativo_exato(code)
+    m = re.match(r"([A-Z]{3}\d{3})-", str(code or ""))
+    if ativo is None and m:
+        for pref in dict.fromkeys(p for p in (USINA_PREFIXO_FRAC.get(m.group(1)), "THPN") if p):
+            ativo = _frac_ativo_exato(f"{pref}-{code}")
+            if ativo:
+                _frac_code_cache[code] = {"ts": time.time(), "ativo": ativo}
+                break
     return ativo
 
 
