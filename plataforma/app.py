@@ -8172,15 +8172,21 @@ def load_tickets_strings():
         codigo = {}                                   # "alt100" / "thpn-alt100" → "Altair"
         cod_de = {}                                   # o contrário: "altair" → "ALT100" (o Fracttal só se acha pelo código)
         pref_de = {}                                  # "EBG100" → "THPN": o prefixo do cliente no code do Fracttal
+        # O MESMO código em dois clientes (24/09/2026: IPX100 é a Thopen "Ipixuna 1 e 2" e a 2C "Ipixuna do Pará"; no Fracttal
+        # "IPX100-INVR…" e "2C-IPX100-INVR…"). Levi: "agrupa por cliente para conseguir diferenciar" — o cliente do ticket
+        # escolhe a usina; sem ele, o código de dois clientes não cai em usina nenhuma (errar a usina é pior que não mostrar).
+        clis_de, nome_cli, pref_cli = {}, {}, {}      # "IPX100" → {"thopen","2c"}; ("IPX100","2c") → nome / prefixo
         if "Base de dados - Usinas" in xl.sheet_names:
             du = xl.parse("Base de dados - Usinas", header=3)
             du.columns = [str(c).strip() for c in du.columns]
             c_u = next((c for c in du.columns if c.lower() == "usina"), None)
             c_cods = [c for c in du.columns if c.lower().startswith("código") or c.lower().startswith("codigo")]
+            c_cli_u = next((c for c in du.columns if c.lower() == "cliente"), None)
             for _, r in du.iterrows():
                 nome = _tk_s(r.get(c_u)) if c_u else ""
                 if not nome:
                     continue
+                cli_u = _usina_key(_tk_s(r.get(c_cli_u))) if c_cli_u else ""
                 for c in c_cods:
                     cod = _tk_s(r.get(c))
                     if cod and cod != "0":
@@ -8190,8 +8196,12 @@ def load_tickets_strings():
                         if re.fullmatch(r"[A-Z]{3}\d{3}", curto):
                             cod_de.setdefault(_usina_key(nome), curto)
                             _pref = cod.strip().upper().split("-")[0]
-                            if _pref != curto and _pref.isalpha():         # THPN-EBG100 → EBG100: THPN
+                            _pref = _pref if (_pref != curto and re.fullmatch(r"[A-Z0-9]{2,5}", _pref)) else ""
+                            if _pref:                                      # THPN-EBG100 → EBG100: THPN (e 2C-IPX100: 2C)
                                 pref_de.setdefault(curto, _pref)
+                            clis_de.setdefault(curto, set()).add(cli_u)
+                            nome_cli.setdefault((curto, cli_u), nome)
+                            pref_cli.setdefault((curto, cli_u), _pref)
         df = xl.parse("Strings indisp", header=3)
         df.columns = [str(c).strip() for c in df.columns]
         low = {c: c.lower() for c in df.columns}
@@ -8201,6 +8211,7 @@ def load_tickets_strings():
         c_ini = next((c for c in df.columns if "ocorr" in low[c] and low[c].startswith("in")), None)
         c_afe = next((c for c in df.columns if "quantidade" in low[c] and "afetad" in low[c]), None)
         c_cau = next((c for c in df.columns if "causa" in low[c]), None)
+        c_cli = next((c for c in df.columns if low[c] == "cliente"), None)
         c_coms = [c for c in df.columns if low[c].startswith("coment")]
         # DIÁRIO do OS Creator por cima (23/09/2026). É nele que moram a OS vinculada e o Status do ticket (a planilha
         # não tem coluna para os dois), e é ele que mantém fechado o ticket finalizado pelo app ou pela tela de strings
@@ -8236,7 +8247,19 @@ def load_tickets_strings():
                 afet = None
             inv_txt = _tk_s(oc.get(c_inv))
             chave_inv = _tk_inv_chave(inv_txt)
-            nome = codigo.get(_usina_key(u_pl), u_pl)
+            # o cliente: o que o ticket diz, ou o único que o código tem (o OS Creator não preenche: em 24/09, 21 dos 22
+            # abertos escritos com código vinham com o Cliente vazio)
+            curto_t = u_pl.upper() if re.fullmatch(r"[A-Za-z]{3}\d{3}", u_pl) else ""
+            clis_t = clis_de.get(curto_t) or set()
+            ambiguo = len(clis_t) > 1
+            cli_t = _usina_key(_tk_s(oc.get(c_cli))) if c_cli is not None else ""
+            cli_t = cli_t or (next(iter(clis_t)) if len(clis_t) == 1 else "")
+            if curto_t and (curto_t, cli_t) in nome_cli:
+                nome = nome_cli[(curto_t, cli_t)]
+            elif ambiguo:
+                nome = u_pl                           # código de dois clientes sem o cliente: não adivinha
+            else:
+                nome = codigo.get(_usina_key(u_pl), u_pl)
             com = " · ".join(_tk_s(oc.get(c)) for c in c_coms if _tk_s(oc.get(c)))
             m.setdefault(_usina_key(nome), []).append({
                 "usina": nome, "usina_planilha": u_pl, "inversor": inv_txt, "inv": chave_inv,
@@ -8252,6 +8275,9 @@ def load_tickets_strings():
                 "inicio": _tkf.para_iso(oc.get(c_ini)) if c_ini is not None else "",
                 "causa": _tk_s(oc.get(c_cau)) if c_cau is not None else "",
                 "os": _tk_os_num(oc.get("OS")) or "", "status_ticket": _tk_s(oc.get("Status do ticket")),
+                # código de dois clientes: não entra pela reserva do código (só pelo nome, que o cliente já escolheu), e a
+                # OS procura primeiro o ativo com o prefixo desse cliente (2C-IPX100-INVR…)
+                "cod_ambiguo": ambiguo, "pref_os": pref_cli.get((curto_t, cli_t), "") if ambiguo else "",
                 "comentario": com[:600], "linha": oc["_row"],
             })
         # "X 1 e 2" → "X 1" e "X 2", cada uma com os tickets do seu bloco (o 1º número do inversor). Inversor sem o par
@@ -8330,7 +8356,7 @@ def _tk_str_achados(rows) -> list:
             conta[c] = conta.get(c, 0) + 1
     for i, c in enumerate(cods):
         if c and conta[c] == 1:
-            orfaos = [t for t in TICKETS_STR_COD.get(c, []) if t["linha"] not in vistos]
+            orfaos = [t for t in TICKETS_STR_COD.get(c, []) if t["linha"] not in vistos and not t.get("cod_ambiguo")]
             if orfaos:
                 achados[i] += orfaos
                 vistos.update(t["linha"] for t in orfaos)
@@ -8345,7 +8371,7 @@ def _tk_str_achados(rows) -> list:
             if ci == c and _tk_str_parte(rows[i].get("usina")) is not None:
                 partes.setdefault(_tk_str_parte(rows[i].get("usina")), []).append(i)
         for t in TICKETS_STR_COD.get(c, []):
-            alvo = partes.get(t.get("inv_bloco")) if t["linha"] not in vistos else None
+            alvo = partes.get(t.get("inv_bloco")) if (t["linha"] not in vistos and not t.get("cod_ambiguo")) else None
             if alvo and len(alvo) == 1:
                 achados[alvo[0]].append(t)
                 vistos.add(t["linha"])
@@ -8634,6 +8660,12 @@ def api_tickets_str_os(linha):
         ativo = code = None
         for nome in (t.get("cod"), t.get("usina_planilha"), flask_request.args.get("usina"), t.get("usina")):
             code = _frac_inv_code(nome, t.get("inversor")) if nome else None
+            # código de dois clientes (IPX100): primeiro o ativo com o prefixo do cliente do ticket — o sem prefixo existe,
+            # mas é o do outro cliente (IPX100-INVR1.1 é a Thopen; 2C-IPX100-INVR1.1, a 2C)
+            if code and t.get("pref_os") and nome == t.get("cod"):
+                ativo = _frac_ativo_exato(f"{t['pref_os']}-{code}")
+                if ativo:
+                    break
             ativo = _frac_ativo(code) if code else None
             if ativo:
                 break

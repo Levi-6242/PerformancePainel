@@ -20,7 +20,7 @@ import pytest
 
 import app
 
-COLS = ["", "Usina", "Inversor", "Quantidade de strings no afetadas", "Causa raiz", "Início da ocorrência",
+COLS = ["", "Usina", "Cliente", "Inversor", "Quantidade de strings no afetadas", "Causa raiz", "Início da ocorrência",
         "Fim da ocorrência", "Comentários gerais"]
 LINHAS = [   # (usina como a planilha escreve, inversor, afetadas, comentário)
     ("CNN100", "Inversor 1.2", 2, "Strings 3 e 4 com corrente nula"),       # linha 5: código sem de-para na aba de usinas
@@ -30,11 +30,17 @@ LINHAS = [   # (usina como a planilha escreve, inversor, afetadas, comentário)
     ("Canarana 2", "Inversor 2.1", 1, "a verificar"),                       # linha 9: casa pelo nome
     ("CNN200", "Inversor 2.4", 1, "String 1 com corrente nula"),            # linha 10: órfão da Canarana 2 (código)
     ("CGU100", "Inversor 1.1", 1, "String 12 com corrente nula em 09/09/2026 08:00"),   # linha 11: Cipó Guaçu, em 3 partes
+    ("IPX100", "Inversor 1.1", 1, "String 3 com corrente nula", "2C"),      # linha 12: a Ipixuna do Pará (2C)
+    ("IPX100", "Inversor 2.1", 1, "String 4 com corrente nula"),            # linha 13: IPX100 sem cliente — de quem?
+    ("IPX100", "Inversor 1.2", 1, "String 5 com corrente nula", "Thopen"),  # linha 14: a Ipixuna 1 e 2 (Thopen)
 ]
-USINAS = [("Araçoiaba da Serra IA", "THPN-ADS100"), ("Altair", "THPN-ALT100"), ("Canarana 1", "0"), ("Canarana 2", "0")]
+USINAS = [("Araçoiaba da Serra IA", "THPN-ADS100", "Thopen"), ("Altair", "THPN-ALT100", "Thopen"), ("Canarana 1", "0", "Thopen"),
+          ("Canarana 2", "0", "Thopen"), ("Ipixuna do Pará", "2C-IPX100", "2C"), ("Ipixuna 1 e 2", "THPN-IPX100", "Thopen")]
 INFO_GERAL = [("Canarana 1", "Thopen", "CNN100", "UFV Canarana 1"), ("Canarana 2", "Thopen", "CNN200", "UFV Canarana 2"),
               ("Araçoiaba da Serra 1", "Thopen", "ADS100", "UFV Araçoiaba IA"), ("Altair 1", "Thopen", "ALT100", "UFV Altair"),
-              ("Altair 2", "Thopen", "ALT100", "UFV Altair"), ("Cipó Guaçu", "Thopen", "CGU100", "UFV Cipó Guaçu")]
+              ("Altair 2", "Thopen", "ALT100", "UFV Altair"), ("Cipó Guaçu", "Thopen", "CGU100", "UFV Cipó Guaçu"),
+              ("Ipixuna 1", "Thopen", "IPX100", "UFV Ipixuna"), ("Ipixuna 2", "Thopen", "IPX100", "UFV Ipixuna"),
+              ("Ipixuna do Pará", "2C", "2CIPX100", "UFV Ipixuna do Pará")]
 
 
 def _tickets_xlsx():
@@ -44,14 +50,14 @@ def _tickets_xlsx():
     for _ in range(3):
         ws.append(["rascunho"])
     ws.append(COLS)
-    for u, inv, q, com in LINHAS:
-        ws.append(["", u, inv, q, None, "2026-09-20 06:00", None, com])
+    for u, inv, q, com, *cli in LINHAS:
+        ws.append(["", u, (cli or [""])[0], inv, q, None, "2026-09-20 06:00", None, com])
     wu = wb.create_sheet("Base de dados - Usinas")
     for _ in range(3):
         wu.append(["rascunho"])
-    wu.append(["", "Usina", "Código da usina"])
-    for n, c in USINAS:
-        wu.append(["", n, c])
+    wu.append(["", "Usina", "Código da usina", "Cliente"])
+    for n, c, cli in USINAS:
+        wu.append(["", n, c, cli])
     b = io.BytesIO()
     wb.save(b)
     b.seek(0)
@@ -152,3 +158,37 @@ def test_parte_com_numero_composto_nao_adivinha(base):
     """"Ceilandia 1.2 (90)": o fim do nome não é o número de uma parte. Sem dizer qual parte, não cai em nenhuma."""
     assert app._tk_str_parte("Ceilandia 1.2 (90)") is None and app._tk_str_parte("Cipó-Guaçu 3 (108)") == 3
     assert app._tk_str_parte("Brodowski - Skid 2 (86)") == 2 and app._tk_str_parte("Canarana") is None
+
+
+# ── o mesmo código em dois clientes: IPX100 (Levi, 24/09/2026: "agrupa por cliente para conseguir diferenciar") ──
+# No Fracttal, "IPX100-INVR…" é a Thopen Ipixuna 1 e 2 (Sungrow) e "2C-IPX100-INVR…" a 2C Ipixuna do Pará (Huawei). O OS
+# Creator grava a Usina do ticket SEM o prefixo, e em 24/09 21 dos 22 tickets abertos escritos com código vinham com o
+# Cliente vazio. O cliente separa; sem ele, o código de dois clientes não cai em usina nenhuma — errar a usina é pior.
+
+def test_mesmo_codigo_em_dois_clientes_vai_pelo_cliente_do_ticket(base):
+    ts = _linhas("Ipixuna do Pará", "Ipixuna 1", "Ipixuna 2")
+    assert [t["linha"] for t in ts["Ipixuna do Pará"]["lista"]] == [12], "o da 2C na Ipixuna do Pará"
+    assert [t["linha"] for t in ts["Ipixuna 1"]["lista"]] == [14], "o da Thopen na Ipixuna 1 (Inversor 1.2)"
+    assert ts["Ipixuna 2"] is None
+
+
+def test_codigo_de_dois_clientes_sem_cliente_nao_adivinha(base):
+    ts = _linhas("Ipixuna do Pará", "Ipixuna 1", "Ipixuna 2")
+    assert 13 not in [t["linha"] for v in ts.values() if v for t in v["lista"]]
+
+
+def test_os_do_ticket_da_2c_procura_o_ativo_com_o_prefixo_dela(base, monkeypatch):
+    """Com o cliente 2C, a busca tenta 2C-IPX100-INVR1.1 ANTES do IPX100-INVR1.1 — que existe, mas é o da Thopen."""
+    monkeypatch.setattr(app, "DASH_PASSWORD", "", raising=False)
+    monkeypatch.setattr(app, "FRACTTAL_ON", True)
+    monkeypatch.setattr(app, "_frac_code_cache", {})
+    existem = {"IPX100-INVR1.1": 1, "2C-IPX100-INVR1.1": 2}
+    monkeypatch.setattr(app, "_frac_get", lambda caminho, **kw: {"data": [{"id": existem[caminho.split("/", 1)[1]],
+                        "description": "x"}]} if caminho.split("/", 1)[1] in existem else {"data": []})
+    monkeypatch.setattr(app, "_frac_wos_raw", lambda iid: [])
+    app.app.config["TESTING"] = True
+    with app.app.test_client() as c:
+        d = c.get("/api/strings/tickets/12/os", query_string={"usina": "Ipixuna do Pará"}).get_json()
+        assert d["ok"] is True and d["code"] == "2C-IPX100-INVR1.1"
+        d = c.get("/api/strings/tickets/14/os", query_string={"usina": "Ipixuna 1"}).get_json()
+        assert d["code"] == "IPX100-INVR1.2" or d.get("motivo"), "o da Thopen continua pelo code sem prefixo"
