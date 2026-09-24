@@ -1026,6 +1026,54 @@ def test_como_grava_fica_no_ponto_de_interrogacao():
     assert f < a < i and "ph-question" in html[a:i] and "gc-tkc-n" not in MON
 
 
+def test_os_concluida_com_a_string_morta_nao_sugere_o_fim():
+    """Santarém 1, 24/09: a OS 9420 foi concluída em 14/07 e a string 1 do Inversor 1.5 segue sem corrente. O card
+    preenchia o Fim com 14/07 — confirmado o "Finalizar mesmo assim", o ticket fecharia em julho com a string morta.
+    Levi: "faça o item 2". Morta não sugere o Fim, e o card diz que a OS foi concluída mas a string não voltou."""
+    morta = {"k": "morta", "txt": "Ainda sem corrente · PV15 0,00 A"}
+    html = _card(T312, morta, None, False, _o_concluida())
+    assert 'value="2026-09-18T15:34"' not in html and "sugerido pela conclusão" not in html
+    assert "18/09/2026 15:34" in html and "a string não voltou" in html, "a data da OS continua lá, com o aviso"
+    html = _card(T312, {"k": "voltou", "txt": "x"}, None, False, _o_concluida())
+    assert 'value="2026-09-18T15:34"' in html and "não voltou" not in html
+    ger = dict(T312, pela_geracao={"r": 0.84, "esp": 12, "normal": False, "motivo": ""})
+    assert "a geração não voltou" in _card(ger, {"k": "morta", "txt": "x"}, None, False, _o_concluida())
+
+
+def _qtd_sug(t, inv):
+    if not NODE:
+        pytest.skip("node não instalado")
+    js = "\n".join([_trecho("const TK_CAUSAS=", "/* fim _tkCard */"),
+                    "process.stdout.write(JSON.stringify(_tkQtdSug(%s,%s)));" % (json.dumps(t), json.dumps(inv))])
+    p = subprocess.run([NODE, "-e", "const state={};\n" + _trecho("const _he=", "\n") + "\n" + js],
+                       capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert p.returncode == 0, p.stderr
+    return json.loads(p.stdout)
+
+
+def test_quantidade_sugerida_sao_as_zeradas_que_nenhum_ticket_cobre():
+    """ADT100, linha 292: ticket de 1 string que não diz quais, e o Inversor 1.1 com a 13 e a 14 sem corrente — o drill
+    marca "1 sem ticket". Levi: "faça o item 3". A sugestão é o que o ticket tem + as zeradas sem ticket."""
+    assert _qtd_sug({"qtd": 1, "strings": []}, {"tkSemN": 1}) == 2
+    assert _qtd_sug({"qtd": 1, "strings": []}, {"tkSemN": 0}) is None, "tudo coberto: nada a sugerir"
+    assert _qtd_sug({"qtd": 1, "strings": [15]}, {"tkSemN": 2}) is None, \
+        "ticket que diz as strings: as zeradas a mais são outro problema, não mais strings deste"
+
+
+def test_card_oferece_usar_as_zeradas_num_clique():
+    est = {"k": "morta", "txt": "Ainda sem corrente · 13 0,00 A, 14 0,00 A", "qtdSug": 2}
+    t = dict(T312, strings=[], qtd=1)
+    html = _card(t, est)
+    assert "tkStrCampo(312,'qtd',2)" in html and "usar 2" in html
+    assert "tkStrCampo(312,'qtd',2)" not in _card(t, est, {"qtd": 2}), "já está com 2: some"
+    assert "usar " not in _card(t, dict(est, qtdSug=None))
+    import re as _re
+    regra = _re.search(r"\.gc-tkc-qt\{([^}]*)\}", MON).group(1)
+    assert "flex-wrap:wrap" in regra and _re.search(r"\.gc-tkc-qt>\*\{flex:none\}", MON),         "na célula estreita o 'usar N' encolhia a palavra 'string' e ficava por cima dela (foto de 24/09)"
+    assert ".gc-tkc-qt .cx button{" in MON and ".gc-tkc-qt button{" not in MON, \
+        "a regra do − e do + (30 px, centralizado) pegava o 'usar N' e jogava o texto por cima de 'string'"
+
+
 def test_card_da_usina_inteira_fecha_por_parte_e_diz_as_outras():
     """"Brodowski fecha por parte": no card, a parte normal diz "voltou" e avisa qual outra parte ainda não está —
     finalizar fecha a linha da planilha, que é da usina inteira."""

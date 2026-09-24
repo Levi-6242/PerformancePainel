@@ -232,6 +232,17 @@ Petrolina 2 (nome que não está no Info Geral nem na aba de usinas; a Axis cham
 - **API PV lenta congela a tabela**: com a API a ~48 s por usina (24/09) a 1ª passada do `fetch_all` desistia em 45 s e
   tudo caía na 3ª, sequencial — ciclo de ~2 h. `PV_TIMEOUT_1A_PASSADA = 90`.
 
+**Thopen Banco de Dados (24/09/2026, itens 2 e 3 do Levi).** A aba lê do banco e o drill responde na hora; os 9 tickets
+acharam o inversor e 8 a OS. Duas regras novas no card, que valem em toda aba:
+- **OS concluída com a string ainda morta não sugere o Fim** (estado 'morta'): na Santarém 1 a OS 9420 foi concluída
+  em 14/07 e a string 1 segue sem corrente — o card punha 14/07 no Fim. Agora fica a hora atual, e o bloco da OS diz
+  "mas a string não voltou" (ou "a geração", no inversor sem visão).
+- **"usar N · zeradas agora"** ao lado do contador (`_tkQtdSug`): quantidade do ticket + as zeradas do inversor que
+  nenhum ticket cobre (o `tkSemN` do drill). Só em ticket que não diz as strings. Armadilha de CSS que a foto pegou:
+  a regra dos botões − e + tem de ser `.gc-tkc-qt .cx button` — sem o `.cx`, ela dava 30 px ao "usar N" e o texto
+  centralizado ficava por cima de "string".
+Os tickets repetidos da Santarém 1 (166/171, 213/214, 168/170) a equipe fecha na planilha.
+
 ## ETM: o que alarma
 
 Régua do Levi (10/09/2026): **só IPOA (POA) e GHI medidos em zero com sol alarmam** — hoje (`_diagnostico_etm`,
