@@ -1,12 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Inversor DESLIGADO conta todas as strings como faltantes; OS atribuída tira o inversor da conta (Levi, 11/09/2026).
+"""Inversor DESLIGADO na linha da usina da API PV; OS atribuída tira o inversor da conta (Levi, 11/09/2026).
 
 "Sempre tem um ruído de corrente, porém dá para saber se está desligado ou não": um inversor com Pac ~0 de dia e
 strings lendo 0,8–1 A de corrente reversa passava na régua por string (mediana ≥ 0,5 A = 'produzindo') e suas
 strings contavam como ATIVAS — o déficit da usina ficava menor do que é. A régua de potência que o drill já usava
 (_macro_prod: Pac abaixo do piso ou muito abaixo da mediana dos pares, com a usina gerando) passa a valer também
-na linha da usina (build_summary): inversor desligado = 0 strings ativas. E quando o analista atribui uma OS ao
-inversor (estado os_atribuidas, chave plant_id|idefinversor), as esperadas dele saem da conta: alguém já cuida."""
+na linha da usina (build_summary). E quando o analista atribui uma OS ao inversor (estado os_atribuidas, chave
+plant_id|idefinversor), as esperadas dele saem da conta: alguém já cuida.
+
+24/09/2026 — o desligado passou a sair da conta INTEIRO, ativas e esperadas, a régua da Athon ("quero todos no padrão
+Athon"; ver tests/test_padrao_athon_todas_as_abas.py). Até então ele contava todas as strings como faltantes. O ruído
+de corrente reversa continua sem virar string ativa."""
 import json
 
 import app
@@ -37,12 +41,13 @@ def _arma(monkeypatch, os_map=None):
     return {"id": PID, "nome": NOME}
 
 
-def test_inversor_desligado_com_ruido_conta_todas_as_strings_como_faltantes(monkeypatch, freeze_now):
+def test_inversor_desligado_com_ruido_sai_da_conta_inteiro(monkeypatch, freeze_now):
     freeze_now("2026-09-11 12:05:00")
     r = app.build_summary(_arma(monkeypatch), _registros())
     assert r["inv_off"] == 1
     assert r["strings_ativas"] == 30, "as 10 strings do inversor desligado (0,9 A de ruído) não podem contar como ativas"
-    assert r["str_esp"] == 40 and r["diferenca"] == -10
+    assert r["str_esp"] == 30 and r["diferenca"] == 0, "as esperadas dele saem junto (24/09: era −10, todas faltando)"
+    assert r["inv_desligados"] == 1 and r["strings_fora"] == 10, "sem nomes no cadastro, o desconto é a média"
     assert r["inv_com_os"] == 0 and r["strings_com_os"] == 0
 
 

@@ -837,6 +837,59 @@ _etm_cache    = {"payload": None, "ts": 0.0}
 # TCP/TLS corta o handshake de cada uma e reduz o throttling da API PV.
 _http_local = threading.local()
 
+# ── DISJUNTOR da API PV (24/09/2026) — o mesmo padrão do disjuntor da SunOp ───────────────────────────────────────
+# A API PV parou de responder às 09:10 de 24/09 (às 14:35 o /authenticate não respondia nem em 150 s). O worker tem
+# UM ciclo em série (_prewarm_loop): a aba da API PV primeiro, depois Athon, Axis, SEMP, Alves Lima, 2C, ETMs e o
+# banco. Cada chamada à API PV fora do ar esperava o timeout inteiro (30–90 s), e as três passadas do fetch_all — 8
+# threads, depois 4, depois UMA por vez — somavam horas: o ciclo não chegava nas outras fontes. Às 14:42 o banco da
+# Thopen tinha leitura das 14:40 e a plataforma mostrava a das 13:50; a Athon parou em 13:54. O dado chegava, o worker
+# é que não ia buscar — e o Levi viu TODAS as fontes "sem comunicação".
+# Com o disjuntor: PV_DISJ_FALHAS falhas de REDE seguidas (timeout, conexão) → toda chamada à API PV falha NA HORA por
+# PV_DISJ_ABERTO_S, sem tocar a rede. Quem chama já segura o último dado bom (process_plant vira 'sem_dados' e o
+# _build_data_payload põe o último conhecido no lugar; o drill devolve 504). Passado o tempo, a próxima chamada vai à
+# rede: respondeu, fecha; falhou, reabre na primeira. Resposta HTTP, mesmo de erro (401, 500), NÃO conta: a API está
+# viva. Um processo, um disjuntor (o web e o worker têm cada um o seu).
+PV_DISJ_FALHAS = 6
+PV_DISJ_ABERTO_S = 120
+_pv_disj = {"falhas": 0, "ate": 0.0, "desde": 0.0}
+_pv_disj_lock = threading.Lock()
+
+
+class PVForaDoAr(requests.exceptions.ConnectionError):
+    """A API PV não está respondendo: o disjuntor abriu e a chamada nem foi à rede."""
+
+
+def _pv_disj_aberto() -> bool:
+    return time.time() < _pv_disj["ate"]
+
+
+class _PvDisjuntor(requests.adapters.HTTPAdapter):
+    """Adaptador do host da API PV no _http(): conta as falhas de rede seguidas e abre o disjuntor."""
+
+    def send(self, request, **kw):
+        if _pv_disj_aberto():
+            raise PVForaDoAr("API PV sem resposta desde %s — disjuntor aberto até %s" % (
+                time.strftime("%H:%M", time.localtime(_pv_disj["desde"] or time.time())),
+                time.strftime("%H:%M:%S", time.localtime(_pv_disj["ate"]))), request=request)
+        try:
+            r = super().send(request, **kw)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+            with _pv_disj_lock:
+                _pv_disj["falhas"] += 1
+                if _pv_disj["falhas"] >= PV_DISJ_FALHAS:
+                    if not _pv_disj["desde"]:
+                        _pv_disj["desde"] = time.time()
+                        print(f"[api-pv] DISJUNTOR ABERTO: {_pv_disj['falhas']} falhas de rede seguidas — chamadas à "
+                              f"API PV falham na hora por {PV_DISJ_ABERTO_S}s, e o ciclo segue para as outras fontes")
+                    _pv_disj["ate"] = time.time() + PV_DISJ_ABERTO_S
+            raise
+        if _pv_disj["falhas"]:
+            with _pv_disj_lock:
+                if _pv_disj["desde"]:
+                    print(f"[api-pv] voltou: disjuntor fechado depois de {(time.time() - _pv_disj['desde']) / 60:.0f} min")
+                _pv_disj.update(falhas=0, ate=0.0, desde=0.0)
+        return r
+
 
 def _http() -> requests.Session:
     s = getattr(_http_local, "s", None)
@@ -845,6 +898,8 @@ def _http() -> requests.Session:
         ad = requests.adapters.HTTPAdapter(pool_connections=8, pool_maxsize=32)
         s.mount("https://", ad)
         s.mount("http://", ad)
+        # o prefixo mais longo ganha: só as chamadas à API PV passam pelo disjuntor (Plataforma, SunOp e Fracttal não)
+        s.mount(BASE_URL.split("/api/")[0] + "/", _PvDisjuntor(pool_connections=8, pool_maxsize=32))
         _http_local.s = s
     return s
 
@@ -2519,15 +2574,17 @@ def build_summary(plant: dict, records: list) -> dict:
     # potência ativa → parada por inversor; deficit operante = tira os inversores parados.
     # (sem nome de inversor aqui p/ o esperado individual → estima pela média str_esp/qtd)
     prod, pot_med, n_off = _macro_prod(pacs)
-    # ── Inversor DESLIGADO de dia conta TODAS as strings como faltantes (Levi, 11/09/2026) ──────────────
-    # A régua por string (mediana do próprio inversor) deixava passar o ruído: inversor com Pac ~0 e strings a
-    # 0,8–1 A de corrente reversa passava por "produzindo" e suas strings contavam como ATIVAS — o déficit da
-    # usina saía menor do que é. Vale a mesma régua de potência do drill (_macro_prod: abaixo do piso ou muito
-    # abaixo da mediana dos pares), SÓ de dia e com a usina gerando — à noite Pac ~0 é a noite, não um trip.
+    # ── Inversor DESLIGADO de dia SAI DA CONTA — ativas E esperadas —, a régua da Athon (Levi, 24/09/2026: "quero todos
+    # no padrão Athon"). De 11/09 a 24/09 a API PV fazia o contrário: contava TODAS as strings dele como faltantes, e a
+    # mesma situação lia "−24, Falha de string" aqui e "1 inv. desligado · 24 strings fora da conta" na Athon. Desligado
+    # é falha de INVERSOR, que tem alarme próprio. O sinal é a potência (Pac), com os três portões de
+    # _inv_desligados_por_potencia: com sol, com a usina gerando e com leitura. O ruído de 0,8–1 A de corrente reversa
+    # que motivou a régua de 11/09 continua sem virar string ativa: o inversor sai da conta inteiro.
     inv_ids = list(latest.keys())
     ativas_de = dict(zip(inv_ids, ativas_inv))
-    _gerando = (not _macro_sol_baixo({"usina": nome})) and isinstance(pot_med, (int, float)) and pot_med >= MACRO_POT_INV_MIN
-    off_ids = {i for i, pr in zip(inv_ids, prod) if pr is False and i not in neutros_ids} if _gerando else set()
+    _com_sol = _macro_eh_dia({"usina": nome})
+    _gerando = _com_sol and isinstance(pot_med, (int, float)) and pot_med >= MACRO_POT_INV_MIN
+    off_ids = {i for i, o in zip(inv_ids, _inv_desligados_por_potencia(pacs, _com_sol)) if o and i not in neutros_ids}
     # Tickets de strings julgados PELA GERAÇÃO onde não há visão por string (Levi, 24/09/2026): a potência de cada
     # inversor sem visão contra a dos pares. Vai na linha para o _com_tickets_str ("para fechar") e para o card.
     sv_chaves, ger_inv = [], {}
@@ -2537,8 +2594,6 @@ def build_summary(plant: dict, records: list) -> dict:
         sv_chaves = sorted({_tk_inv_chave(_equip_lookup(_eq_g, _dn_g.get(i)) or _dn_g.get(i) or str(i)) for i in sv_ids})
         if _gerando:
             ger_inv = _pv_ger_relativa(plant["nome"].strip(), dict(zip(inv_ids, pacs)), sv_ids, _dn_g)
-    for i in off_ids:
-        strings_ativas -= ativas_de.get(i) or 0
     # ── OS atribuída ao inversor (os_atribuidas, chave plant_id|idefinversor): ele sai INTEIRO da conta — ativas
     # e esperadas — porque alguém já está cuidando; o déficit dele deixa de ser "faltante" (Levi, 11/09/2026).
     _os_map = _os_atribuidas_map()
@@ -2553,27 +2608,39 @@ def build_summary(plant: dict, records: list) -> dict:
         except Exception as e:                                                # noqa: BLE001 — sem nomes, sem OS: conta normal
             print(f"[os-fracttal] {nome}: {e}")
     os_ids = [i for i in inv_ids if (f"{pid}|{i}" in _os_map or i in _fr_ids) and i not in neutros_ids]
-    strings_com_os = 0
-    if os_ids and isinstance(str_esp, (int, float)) and latest:
+    # Desligado COM OS sai da conta pela OS e não vira o aviso de "inversor desligado": alguém já cuida (11/09, acima).
+    desl_ids = [i for i in inv_ids if i in off_ids and i not in os_ids]
+    strings_com_os = strings_fora = 0
+    for i in set(os_ids) | set(desl_ids):
+        strings_ativas -= ativas_de.get(i) or 0
+    _dn_n = (_pv_dev_names(pid, _pv_token_for(pid)) or {}) if (os_ids or desl_ids) else {}
+    if (os_ids or desl_ids) and isinstance(str_esp, (int, float)) and latest:
+        # as esperadas DE CADA inversor no cadastro; sem o nome dele, a média da usina
         _esp_inv = ESPERADO_INV.get(plant["nome"].strip()) or {}
-        _dn = _pv_dev_names(pid, _pv_token_for(pid)) if _esp_inv else {}
         _media = (esp.get("str_esp") or str_esp) / len(latest)
-        strings_com_os = round(sum(_esp_inv.get(_dn.get(i), _media) if _dn else _media for i in os_ids))
-        str_esp = max(0, str_esp - strings_com_os)
-        for i in os_ids:
-            if i not in off_ids:
-                strings_ativas -= ativas_de.get(i) or 0
+
+        def _esp_de(i):
+            v = _equip_lookup(_esp_inv, _dn_n.get(i)) if (_esp_inv and _dn_n.get(i)) else None
+            return v if isinstance(v, (int, float)) else _media
+        strings_com_os = round(sum(_esp_de(i) for i in os_ids))
+        strings_fora = round(sum(_esp_de(i) for i in desl_ids))
+        str_esp = max(0, str_esp - strings_com_os - strings_fora)
+    _eq_n = EQUIP_NAMES.get(plant["nome"].strip()) or {}
+    desl_nomes = sorted(_equip_lookup(_eq_n, _dn_n.get(i)) or _dn_n.get(i) or str(i) for i in desl_ids)
     diferenca = (strings_ativas - str_esp) if (str_esp is not None) else None
     dif_operante = diferenca
-    if (isinstance(diferenca, (int, float)) and n_off and str_esp and latest):
+    _n_off_na_conta = max(0, n_off - len(off_ids))   # parados que seguem na conta: usina inteira parada, sem sol
+    if (isinstance(diferenca, (int, float)) and _n_off_na_conta and str_esp and latest):
         esp_por_inv = str_esp / len(latest)
-        dif_operante = min(0, round(diferenca + n_off * esp_por_inv))   # adiciona de volta o deficit dos parados
+        dif_operante = min(0, round(diferenca + _n_off_na_conta * esp_por_inv))   # adiciona de volta o deficit dos parados
 
     return {
         "usina": nome, "plant_id": pid,
         "qtd_inversores": len(latest),
         "strings_ativas": strings_ativas,
         "inv_com_os": len(os_ids), "strings_com_os": strings_com_os,   # inversores com OS atribuída: fora da conta
+        # inversor desligado fora da conta — os mesmos campos da Athon (process_plant_sunop), que a tela e os tickets leem
+        "inv_desligados": len(desl_ids), "strings_fora": strings_fora, "inv_desligados_nomes": desl_nomes,
         "pot_med": pot_med, "inv_off": n_off, "diferenca_operante": dif_operante,
         "inv_esp": inv_esp, "str_esp": str_esp, "diferenca": diferenca,
         "temp_media": round(sum(temps) / len(temps), 1) if temps else None,
@@ -2978,9 +3045,15 @@ def _pv_plant_inversores(plant_id, force=False):
     _prod, _potmed, _ = _macro_prod([inv.get("active_power") for inv in inversores])
     _tem_pac = any(isinstance(inv.get("active_power"), (int, float)) for inv in inversores)
     _plant_prod = len([inv for inv in inversores if (inv.get("strings_ativas") or 0) > 0]) >= 2
+    # FORA DA CONTA = a régua da linha da usina (build_summary) e da Athon (24/09/2026): desligado com sol e com a usina
+    # gerando. O desligado da usina inteira parada, ou sem Pac, segue devendo todas as esperadas, como a linha conta.
+    _fora = (_inv_desligados_por_potencia(
+        [inv.get("active_power") if isinstance(inv.get("active_power"), (int, float)) else None for inv in inversores],
+        _macro_eh_dia({"usina": nome_usina(plant_id, plant_nome_api)})) if _tem_pac else [False] * len(inversores))
     _os_map = _os_atribuidas_map()
-    for inv, pr in zip(inversores, _prod):
+    for inv, pr, fo in zip(inversores, _prod, _fora):
         inv["os_atribuida"] = f"{plant_id}|{inv.get('id')}" in _os_map    # o analista já grudou uma OS nele
+        inv["fora_da_conta"] = bool(fo and not inv.get("sem_visao") and not inv.get("rampa"))
         if _tem_pac:
             _off = pr is False and _dia
         else:                                     # fallback sem Pac: só se a usina está gerando
@@ -2996,6 +3069,8 @@ def _pv_plant_inversores(plant_id, force=False):
             inv["strings_ativas"] = 0
             if isinstance(inv.get("str_esp"), (int, float)):
                 inv["diferenca"] = -inv["str_esp"]
+        if inv["fora_da_conta"]:
+            inv["diferenca"] = None       # fora da conta não deve nada — como na linha da usina e no drill da Athon
     with _pv_plant_memo_lock:
         _PV_PLANT_MEMO[plant_id] = (time.time(), inversores)
     return _PV_PLANT_MEMO[plant_id][1]
@@ -11888,8 +11963,19 @@ def _pg_build_snapshot():
         # potência ativa → produzindo por inversor; deficit de strings SÓ dos que produzem
         prod, pot_med, n_off = _macro_prod(powers)
         _dia = 7 <= datetime.now().hour < 18       # de dia inversor parado é problema (à noite é normal)
-        for iv, pr in zip(inv_list, prod):
+        # Inversor DESLIGADO sai da conta — ativas E esperadas —, a régua da Athon (Levi, 24/09/2026: "quero todos no
+        # padrão Athon"). Até aqui o Banco contava todas as strings dele como faltando. Mesmos portões da Athon
+        # (_inv_desligados_por_potencia): com sol, com a usina gerando e com leitura de potência.
+        _fora = _inv_desligados_por_potencia(powers, _macro_eh_dia({"usina": USINA_DISPLAY.get(sup, sup)}))
+        desl_nomes, strings_fora = [], 0
+        for iv, pr, fo in zip(inv_list, prod, _fora):
             iv["produzindo"] = pr
+            iv["fora_da_conta"] = bool(fo)
+            if fo:
+                tot_ativas -= iv["strings_ativas"]; tot_esp -= iv["str_esp"]
+                strings_fora += iv["str_esp"]
+                iv["diferenca"] = None
+                desl_nomes.append(iv["nome"])
             # inversor PARADO (potência ~0) de dia → strings deixam de ser "inativa" VERDE e viram
             # "desligado" (vermelho-escuro): não faz sentido inversor desligado com string 0A "OK".
             _off = (pr is False) if pr is not None else (iv["strings_ativas"] == 0)
@@ -11898,7 +11984,8 @@ def _pg_build_snapshot():
                 for s in iv["strings"]:      # inversor OFF: linha inteira = desligado (a corrente reversa residual não é produção)
                     if s["status"] != "trancada":
                         s["status"] = "desligado"; s["ativa"] = False
-        dif_oper = sum(min(0, iv["diferenca"]) for iv, pr in zip(inv_list, prod) if pr is not False)
+        dif_oper = sum(min(0, iv["diferenca"]) for iv, pr in zip(inv_list, prod)
+                       if pr is not False and iv["diferenca"] is not None)
         detail[pid] = inv_list
         summary.append({
             "usina": USINA_DISPLAY.get(sup, sup), "plant_id": pid,
@@ -11907,6 +11994,8 @@ def _pg_build_snapshot():
             "diferenca": tot_ativas - tot_esp,             # = soma das diferenças dos inversores
             "diferenca_operante": dif_oper,                # deficit só de inversores PRODUZINDO
             "pot_med": pot_med, "inv_off": n_off,          # potência mediana + nº parados (Pac ~0)
+            "inv_desligados": len(desl_nomes), "strings_fora": strings_fora,    # fora da conta, os campos da Athon
+            "inv_desligados_nomes": sorted(desl_nomes),
             "temp_media": None,
             "ultima_leitura": p["ts"].strftime("%Y-%m-%d %H:%M") if p["ts"] else None,
             # FRESCOR do dado. Isto vinha CRAVADO em False: usina que parou de reportar ontem às 17:30
@@ -19694,6 +19783,30 @@ def _prewarm_paralelo(tarefas, workers=4):
 
 
 PREWARM_CICLOS_PESADO = 3     # de quantos em quantos ciclos as fontes caras são reaquecidas
+# TETO da ETAPA 2 (24/09/2026): o ciclo espera a aba da API PV no máximo isto; passou, ela segue em FUNDO e as outras
+# fontes não esperam. Com a API saudável a aba sai em ~2 min (medido 22/09: 116 s) e nada muda — continua primeiro e
+# sozinha. Com a API lenta (48 s por usina às 12h de 24/09) ou fora do ar, era ela que segurava o ciclo inteiro.
+PREWARM_ABA_PRINCIPAL_MAX_S = 300
+# Na ETAPA 3, quem depende da API PV vai POR ÚLTIMO (24/09/2026): lentas ou fora do ar, essas tarefas ocupavam as 3
+# vagas e a Athon, a Axis e o banco esperavam na fila. A ordem entre as outras não muda.
+PREWARM_DEPENDEM_API_PV = frozenset({"ETM", "ETM análise", "SEMP strings", "SEMP ETM", "SEMP ETM anál.",
+                                     "Alves Lima", "Alves Lima ETM", "Alves Lima ETM anál.",
+                                     "2C API PV", "2C API PV ETM", "2C API PV ETM anál."})
+
+
+def _prewarm_aba_principal(espera_max=None) -> bool:
+    """ETAPA 2 do _prewarm_loop: a aba da API PV (/api/data) primeiro e sozinha, COM TETO. → True se terminou dentro
+    dele. Se não terminou, a thread segue e publica quando acabar; o `_data_refreshing` do _refresh_data_cache impede
+    que a volta seguinte comece uma segunda por cima."""
+    def _roda():
+        try:
+            _refresh_data_cache()
+        except Exception as e:                   # noqa: BLE001 — ele já se protege; isto é o cinto, fora do laço
+            print(f"[prewarm] /api/data falhou: {e}")
+    th = threading.Thread(target=_roda, name="prewarm-aba-principal", daemon=True)
+    th.start()
+    th.join(PREWARM_ABA_PRINCIPAL_MAX_S if espera_max is None else espera_max)
+    return not th.is_alive()
 PV_TRK_LOOP_S = 60            # s entre conferências do laço de trackers; só reconstrói quando o overview venceu
 PV_TRK_ESPERA_BOOT_S = 30 * 60   # teto da espera pela 1ª aba principal: prewarm morto não pode parar os trackers
 # Sai do _prewarm_loop logo depois da ETAPA 2, dê ela certo ou não. Diz "já pode", não "deu certo".
@@ -19859,8 +19972,11 @@ def _prewarm_loop():
         # disputar CPU com o resto foi exatamente o que a medição reprovou.
         t1 = _t.time()
         try:
-            _refresh_data_cache()
-            print(f"[prewarm] /api/data aquecido em {_t.time()-t1:.0f}s")
+            if _prewarm_aba_principal():
+                print(f"[prewarm] /api/data aquecido em {_t.time()-t1:.0f}s")
+            else:
+                print(f"[prewarm] /api/data passou de {PREWARM_ABA_PRINCIPAL_MAX_S}s (API PV lenta ou fora do ar) — "
+                      f"segue em fundo; as outras fontes não esperam")
         except Exception as e:
             print(f"[prewarm] /api/data falhou: {e}")
         _ABA_PRINCIPAL_SAIU.set()             # libera a 1ª varredura de trackers (ver _pv_trk_loop)
@@ -19883,6 +19999,7 @@ def _prewarm_loop():
             # /painel depende dele; sem prewarm o web construía inline (varredura do xlsx)
             ("ETM problemas", _etm_prob_warm),
         ]
+        leves.sort(key=lambda t: t[0] in PREWARM_DEPENDEM_API_PV)     # estável: a API PV por último, o resto na ordem
         _prewarm_paralelo(_prewarm_filtra_noturno(leves), workers=3)
 
         # ETAPA 4 — as CARAS, só de tempos em tempos. São telas de consulta ocasional

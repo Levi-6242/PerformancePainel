@@ -244,7 +244,8 @@ def test_a_noite_falha_de_comunicacao_continua_valendo():
 
 def test_a_noite_o_padrao_do_dia_anterior_continua_valendo():
     """A régua de padrão por inversor compara o D-1: não depende do sol de agora."""
-    assert _status(_linha("Barretos", sol_baixo=True, inv_padrao={"status": "critico"})) == "Inversor fora do padrão"
+    assert _status(_linha("Barretos", sol_baixo=True, sem_visao=True, inv_padrao={"status": "critico"})) \
+        == "Inversor fora do padrão"
 
 
 def test_de_dia_nada_muda():
@@ -261,8 +262,8 @@ def test_a_noite_as_colunas_nao_cobram():
     m = MON[MON.index("usinas=pv.rows.filter("):]
     m = m[:m.index("}).sort(")]
     assert re.search(r"dif=\(semSol\|\|semCom\)\?null:r\.diferenca", m), "o déficit da noite tem de ser anulado na origem"
-    assert re.search(r"expected:_ip\?[^\n]*semSol", m), "esperadas sem sol devem sair em '—'"
-    assert re.search(r"avail:_ip\?[^\n]*semSol", m), "disponibilidade sem sol deve sair em '—'"
+    assert re.search(r"expected:\(r\.rampa\|\|r\.sem_visao\|\|semSol\)\?'—'", m), "esperadas sem sol devem sair em '—'"
+    assert re.search(r"avail:\([^\n]*semSol[^\n]*\)\?[^\n]*:'—'", m), "disponibilidade sem sol deve sair em '—'"
 
 
 def test_a_noite_o_card_sem_geracao_diz_sem_sol():

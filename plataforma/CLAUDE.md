@@ -107,6 +107,19 @@ ciclo** (TTL 600 com ciclo de 8,8 min dá 17,7 min, o dobro do que se pediu). A 
 "já venceu?", é "aguenta até eu passar aqui de novo?". Essa regra vale **só** para quem tem `_ttl`:
 aplicá-la aos demais os faria reconstruir mais cedo em ciclo curto, ou seja, MAIS requisições.
 
+**API PV fora do ar não pode travar as outras fontes (24/09/2026).** O ciclo é UM só, em série: ETAPA 2 = aba da
+API PV, ETAPA 3 = Athon, Axis, SEMP, Alves Lima, 2C, ETMs e banco, ETAPA 4 = as caras (PR e parados da API PV
+entre elas). Em 24/09 a API PV parou de responder às 09:10 (às 14:35 o `/authenticate` não respondia em 150 s):
+cada chamada esperava o timeout inteiro, as três passadas do `fetch_all` somavam horas, e às 14:42 o banco da
+Thopen tinha leitura das 14:40 enquanto a plataforma mostrava a das 13:50 — o Levi viu TODAS as fontes "sem
+comunicação". Três travas: (1) **disjuntor da API PV** (`_PvDisjuntor`, montado no `_http()` só para o host
+dela): `PV_DISJ_FALHAS` falhas de REDE seguidas → toda chamada falha na hora (`PVForaDoAr`, subclasse de
+`ConnectionError`) por `PV_DISJ_ABERTO_S`; resposta HTTP de erro não conta, a API está viva; (2) **teto na
+ETAPA 2** (`_prewarm_aba_principal`, `PREWARM_ABA_PRINCIPAL_MAX_S`): passou, a aba segue em fundo; (3) na ETAPA 3
+quem depende da API PV vai por último (`PREWARM_DEPENDEM_API_PV` — tarefa nova da API PV entra nesse conjunto;
+um teste confere que os nomes existem no laço). Não troque o disjuntor por timeout menor: a API LENTA (48 s por
+usina às 12h do mesmo dia) responde, e é por isso que a 1ª passada espera 90 s (`PV_TIMEOUT_1A_PASSADA`).
+
 ## Padrão por inversor (usinas sem visão por string)
 
 Ceilândia 1, Céu Azul e Ouro Branco (String Box com combiner não exposta) e Barretos (sem esperado no
@@ -131,16 +144,27 @@ historico/<pid>?usina=&mes=` (BD_Thopen p/ cliente Thopen, BD_Performance p/ o r
 conta (`_gerAgrega`, `_gerFaixa`) roda no node em `tests/test_monitoramento_geracao_logica.py` com o código
 extraído do HTML: mudou a régua, mude o teste. Régua: até −5 % normal, −10 observar, −20 crítico.
 
-## Strings: inversor desligado e OS atribuída
+## Strings: inversor desligado e OS atribuída — o padrão Athon em todas as abas (24/09/2026)
 
-Desde 11/09/2026, na linha da usina (`build_summary`) o inversor **desligado de dia** (régua de potência do
-`_macro_prod`: Pac abaixo do piso ou < 5 % da mediana dos pares, com sol e a usina gerando) conta **todas** as
-strings como faltantes — a régua por string deixava passar o ruído de corrente reversa (0,8–1 A). E inversor com
-**OS atribuída** (`os_atribuidas`, chave `plant_id|idefinversor`, lida por `_os_atribuidas_map()` com cache de
-30 s) sai inteiro da conta (ativas e esperadas): a linha leva `inv_com_os`/`strings_com_os`. O drill
-(`_pv_plant_inversores`) aplica o mesmo: desligado = 0 ativas, `diferenca = −esperadas`, e cada inversor leva
-`os_atribuida`. À noite nada é zerado (Pac ~0 é a noite). O `gerencial.html` é tema escuro por padrão só por
-tokens (`:root[data-theme="dark"]`); é Jinja — mudança nele exige restart do web.
+Inversor **desligado de dia** sai da conta **inteiro — ativas e esperadas** — em toda fonte que tem potência por
+inversor: Athon/Axis (desde 22/09), API PV (`build_summary`: Thopen, SEMP, Alves Lima, 2C-API) e Banco
+(`_pg_build_snapshot`), desde 24/09 ("quero todos no padrão Athon"). Régua única: `_inv_desligados_por_potencia`
+(potência < max(piso, 5 % da mediana dos pares), com sol, com a usina gerando, com leitura). A linha leva
+`inv_desligados` / `strings_fora` / `inv_desligados_nomes` (a tela mostra "N inv. desligado · M strings fora da
+conta" na célula das esperadas e o status "Inversor desligado"; os tickets leem os nomes). No drill, o inversor
+continua listado, marcado `desligado` e `fora_da_conta`, com `diferenca` None. Usina inteira parada NÃO tira
+ninguém (é "Usina desligada"). De 11/09 a 24/09 a API PV e o Banco faziam o contrário (todas as strings do
+desligado contavam como faltantes). **OS atribuída** (`os_atribuidas`, chave `plant_id|idefinversor`) e OS aberta
+no Fracttal em inversor desligado continuam tirando o inversor da conta pela OS (`inv_com_os`/`strings_com_os`),
+sem virar o aviso de desligado (11/09: "se está desligado e tem OS então está tudo OK"). Sem potência por
+inversor, ficam de fora: SolarEdge (Renogrid) e a 2C do e-mail.
+
+**Colunas de strings são sempre strings.** As 13 usinas da régua de padrão (`inv_padrao`) punham "18/20 inv.",
+"padrão 30d", "no padrão" e "2 crônicos" nas colunas; desde 24/09 ativas/esperadas/diferença/disponibilidade
+saem em '—' sem visão por string, e a proporcionalidade vai para o aviso da célula das esperadas
+(`_strNotaPadrao`, roda no node). Com visão (Ouro Branco), valem as strings, e o padrão de ontem só vira status
+quando as strings de agora não têm nada a dizer. O `gerencial.html` é tema escuro por padrão só por tokens
+(`:root[data-theme="dark"]`); é Jinja — mudança nele exige restart do web.
 
 ## Tickets de strings na tabela (23/09/2026)
 
