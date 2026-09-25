@@ -22174,13 +22174,11 @@ _falhas_wb = {"ts": 0.0, "marca": None}
 
 
 def _falhas_workbook_ligado():
-    """Só o servidor grava o workbook. As cópias Windows (a ponte local do OS Creator, o PC dedicado) não: duas
-    plataformas subindo com replace=true deixariam o workbook trocando de versão a cada hora. FALHAS_WORKBOOK=1/0
-    força um lado ou o outro."""
-    v = os.environ.get("FALHAS_WORKBOOK", "").strip()
-    if v in ("0", "1"):
-        return v == "1"
-    return os.name == "posix"
+    """Só grava com FALHAS_WORKBOOK=1 (no tokens.txt de UMA plataforma). Em 25/09, 00:36, o registro de strings do
+    servidor só tinha 22–24/09 (a plataforma foi para lá em 22/09): o replace=true trocaria a carga de setembro
+    inteiro (7.419 linhas, feitas do registro do PC) por 566 episódios. E duas plataformas gravando deixariam o
+    workbook trocando de versão a cada hora. Ligar só onde o histórico do mês estiver completo."""
+    return os.environ.get("FALHAS_WORKBOOK", "").strip() == "1"
 
 
 def _falhas_publicar_workbook(meses):

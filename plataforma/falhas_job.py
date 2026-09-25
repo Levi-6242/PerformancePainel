@@ -229,6 +229,9 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
 
     # ══ STRINGS ══════════════════════════════════════════════════════════════════════════════
     dias = [x for x in sorted(str_store) if ini <= x <= fim]
+    # "em aberto" conta pelo último dia COM dado, não pela data de hoje: logo depois da meia-noite o período já vai
+    # até um dia vazio, e tudo que estava aberto ontem fechava (25/09, 00:33 no servidor: 0 trackers em aberto)
+    ult_str = max((x for x in dias if any((str_store[x] or {}).values())), default=fim)
     str_q = Counter()
     parcial, massa = set(), {}
     registro = defaultdict(set)          # (fonte, pid) → dias com a usina no store (varrida e com queda)
@@ -474,7 +477,7 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
         prox = _prox(d_ant)
         pr = prox_registro(fonte, pid, d_ant)            # pode ser dia depois do período: só diz se voltou
         if pr is None:
-            fecha_str(ep, None, "em aberto", None if d_ant >= fim else f"sem registro desde {d_ant[8:10]}/{d_ant[5:7]}")
+            fecha_str(ep, None, "em aberto", None if d_ant >= ult_str else f"sem registro desde {d_ant[8:10]}/{d_ant[5:7]}")
             return
         if pr > fim and (ep["key"], pr) in wake_depois:
             fecha_str(ep, None, "em aberto")             # seguia zerada na varredura seguinte, já fora do período
@@ -554,6 +557,7 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
 
     # ══ TRACKERS ═════════════════════════════════════════════════════════════════════════════
     dias_t = [x for x in sorted(trk_store) if ini <= x <= fim]
+    ult_trk = max((x for x in dias_t if any((e or {}).get("cobertura") for e in (trk_store[x] or {}).values())), default=fim)
     trk_q = Counter()
     serie, nomes = defaultdict(dict), {}
     for dia in dias_t:
@@ -721,7 +725,7 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                     trk_q["fechado: voltou a girar"] += 1
                     fecha(ep, dia, y, None)
         if aberto is not None:
-            if aberto["dias"][-1][0] == fim:
+            if aberto["dias"][-1][0] >= ult_trk:
                 trk_q["em aberto no fim do período"] += 1
                 fecha(aberto, None, None, "em aberto")
             else:

@@ -37,7 +37,11 @@ def episodios(p, string="Ipv1"):
 
 
 def test_string_que_termina_o_dia_zerada_e_some_do_registro_segue_em_aberto():
-    (e,) = episodios(monta(store(d01=[ev("Ipv1", "08:00")])))
+    st = store(d01=[ev("Ipv1", "08:00")])
+    # o registro seguiu nos dias 02 e 03 (outra usina), mas esta não apareceu mais
+    for d in ("2026-09-02", "2026-09-03"):
+        st[d] = {"pv": {"999": {"usina": "Outra", "ts": 0, "eventos": [ev("Ipv9", "10:00", "13:00")]}}}
+    (e,) = episodios(monta(st))
     assert e["fim"] is None and e["fim_motivo"] == "em aberto"
     assert "sem registro desde 01/09" in e["flags"]
 
@@ -80,6 +84,18 @@ def test_tracker_parado_que_vira_atraso_severo_sai_da_visao():
     (r,) = monta({}, trk(d01=("parado", 35.0), d02=("severo", None)))["trackers"]["rows"]
     assert r["fim"] is not None and r["fim"].startswith("2026-09-01 ")
     assert "saiu: severo" in r["flags"]
+
+
+def test_depois_da_meia_noite_o_parado_de_ontem_segue_em_aberto():
+    # 25/09, 00:33 no servidor: o período já ia até "hoje" (25/09, ainda sem dado) e todo tracker parado em 24/09
+    # fechou como "sem dado depois" — 0 em aberto. O em aberto conta pelo último dia COM dado.
+    (r,) = monta({}, trk(d01=("parado", 35.0), d02=("parado", 35.0)), fim="2026-09-03")["trackers"]["rows"]
+    assert r["fim"] is None and "em aberto" in r["flags"]
+
+
+def test_depois_da_meia_noite_a_string_zerada_de_ontem_segue_em_aberto_sem_aviso_de_sumico():
+    (e,) = episodios(monta(store(d01=[ev("Ipv1", "08:00")], d02=[ev("Ipv1", "06:10")]), fim="2026-09-03"))
+    assert e["fim"] is None and not any(f.startswith("sem registro desde") for f in e["flags"])
 
 
 def test_tracker_parado_no_alvo_o_episodio_todo_nao_e_falha():
@@ -142,16 +158,16 @@ def worker_wb(monkeypatch, tmp_path):
     return chamadas
 
 
-def test_so_o_servidor_grava_o_workbook(monkeypatch):
-    # duas plataformas com replace=true deixariam o workbook trocando de versão a cada hora (a ponte local do
-    # OS Creator roda no Windows do Levi; o servidor é Linux)
+def test_workbook_so_grava_com_a_chave_ligada(monkeypatch):
+    # 25/09, 00:36: o registro de strings do SERVIDOR só tinha 22–24/09 (a plataforma foi para lá em 22/09) e o
+    # replace=true trocaria a carga de setembro inteiro (7.419 linhas, do registro do PC) por 566 episódios. Até o
+    # servidor ter o histórico, ninguém grava sozinho; e duas plataformas gravando trocariam de versão a cada hora.
     monkeypatch.delenv("FALHAS_WORKBOOK", raising=False)
-    monkeypatch.setattr(app.os, "name", "nt")
-    assert app._falhas_workbook_ligado() is False
-    monkeypatch.setattr(app.os, "name", "posix")
+    for nome in ("nt", "posix"):
+        monkeypatch.setattr(app.os, "name", nome)
+        assert app._falhas_workbook_ligado() is False
+    monkeypatch.setenv("FALHAS_WORKBOOK", "1")
     assert app._falhas_workbook_ligado() is True
-    monkeypatch.setenv("FALHAS_WORKBOOK", "0")
-    assert app._falhas_workbook_ligado() is False
 
 
 def test_workbook_sobe_uma_vez_por_hora_e_so_quando_o_dado_muda(monkeypatch, worker_wb):
