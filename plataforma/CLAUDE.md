@@ -155,6 +155,22 @@ Armadilhas: o dia julgado **não** ensina o próprio baseline; dia com a usina a
 trabalha por id que reportou energia e traduz pelo cadastro.
 
 
+## Curva das strings da RenoGrid (SolarEdge, 25/09/2026)
+
+Até 25/09 a RenoGrid não tinha curva: o drill nem pedia ("solaredge: sem curva") e dizia "a usina pode não ter
+reportado"; a aba "Curva das strings" dava a fonte por indisponível. O caminho que o Levi mostrou (Análise > gráfico
+personalizado do portal) é o `generate-chart` — o MESMO que a tabela já chamava em `se_string_power`, com o login
+automático daqui (Cognito, `se_credentials.txt`); nenhum token colado. A tabela fica com o último ponto de cada string;
+`se_string_series` guarda o dia. `GET /api/solaredge/curva/<site>?data=&inv=<serial>` devolve o formato da Athon
+(`_se_strings_curva`: inversor com o nome do cadastro, string com o nome do chip do drill), em **W**: a SolarEdge dá
+potência por string, não corrente (corrente só por otimizador). Um inversor = 1 pedido (~1,3 s medido); a usina
+inteira, 1 a cada 50 strings. Dia passado vale (o intervalo é o dia NO FUSO DA USINA — Cuiabá é UTC−4). Conferido em
+25/09: o último ponto de cada curva bate com o valor da tabela nas 39 strings testadas, em 6 usinas. **O quarto de
+hora em andamento chega parcial** (o das 12:00, recém-aberto, com 0,6–2,7 kW em strings de 13,6 kW; 20 min depois o
+das 11:45 subiu de 10,5–13,5 para 13,3–14,9 kW) e sai da curva de hoje. A tabela segue usando o último ponto: medido
+nas 1.017 strings com leitura, isso deu 0 inativas falsas (o parcial não vem zerado), só 51 chips com valor abaixo.
+Na tela, `curvaSVG(..., unit)` recebe 'W' na RenoGrid e 'A' nas outras.
+
 ## Visão Geração no drill-down do Monitoramento
 
 Desde 13/09/2026 a usina expandida na aba Strings tem o seletor **Strings | Geração** (`state.invView`, vale de
@@ -181,8 +197,28 @@ sem virar o aviso de desligado (11/09: "se está desligado e tem OS então está
 potência por inversor usam a medida das strings dele, somada: RenoGrid/SolarEdge (`_se_fora_da_conta`: potência DC
 = soma dos W das strings) e a 2C do e-mail (`_owen_fora_da_conta`: soma das correntes, que zera quando ele desliga).
 
+**Inversor SEM LEITURA HOJE também é desligado (25/09/2026)**, com os outros da usina gerando e com sol — Levi: "o
+inversor 1.3 de Colorado 2 está desligado, a plataforma não conta como desligado". O 3º portão da régua ("sem leitura
+não é desligado") tem uma exceção, o `sem_leitura` de `_inv_desligados_por_potencia`, e cada fonte diz o que é "nada
+hoje": API PV = inversor do cadastro fora do `day_inverter`, só se a conta fecha pelo nome (`build_summary`); SunOp =
+nenhuma corrente numérica, ou só de outro dia, e a potência de outro dia não vale (`_sunop_regua_hoje`, a mesma na linha
+e no drill); Banco = última leitura de outro dia (a tabela guarda 30 dias); SolarEdge = todas as strings dele
+**devolvidas sem potência** — string AUSENTE da resposta é throttling (200 vazio) ou lote falho e não vale; 2C do e-mail
+= inversor do cadastro fora do e-mail do dia, só se a conta fecha (`_owen_ausentes`). Usina inteira sem leitura continua
+sendo "sem comunicação" da usina (TIM100 em 25/09: os 50 com a última leitura de 24/09 06:23 — ninguém vira desligado).
+Medido em 25/09 com os mesmos dados, antiga × nova: RenoGrid mudou 3 de 7 (Crateus 75/362 −287 → 75/75, 40 desligados
+das cabines 1 a 4; Xavantina 2 −13 → +3, porque o cadastro diz 6 e 7 esperadas nos inversores 3.4 e 3.5, que têm 8
+strings ativas; Elias Fausto −6 → 0), Banco 0 de 22, 2C do e-mail 0 de 4, Athon 0 de 10. O drill do Banco
+recalculava a diferença de todo inversor e devolvia "−4" ao que estava fora da conta — agora fica None.
+
+**Colunas da tabela de strings (25/09/2026, pedidos do Levi).** Abre pelo **Status**, antes da Usina ("quero a coluna
+de STATUS antes do nome da USINA"), e **não tem mais a Disponib.** ("pode tirar a coluna de disponibilidade das strings
+em tempo real"): era ativas ÷ esperadas em %, a Diferença dita de outro jeito, e passava de 100% com o cadastro errado.
+É um componente só para as 9 fontes; as linhas de largura toda têm 9 colunas. Teste:
+`tests/test_strings_sem_coluna_disponibilidade.py`. A Disponibilidade da tabela de TRACKERS é outra (por tempo) e fica.
+
 **Colunas de strings são sempre strings.** As 13 usinas da régua de padrão (`inv_padrao`) punham "18/20 inv.",
-"padrão 30d", "no padrão" e "2 crônicos" nas colunas; desde 24/09 ativas/esperadas/diferença/disponibilidade
+"padrão 30d", "no padrão" e "2 crônicos" nas colunas; desde 24/09 ativas/esperadas/diferença
 saem em '—' sem visão por string, e a proporcionalidade vai para o aviso da célula das esperadas
 (`_strNotaPadrao`, roda no node). Com visão (Ouro Branco), valem as strings, e o padrão de ontem só vira status
 quando as strings de agora não têm nada a dizer. O `gerencial.html` é tema escuro por padrão só por tokens
@@ -350,7 +386,7 @@ e falha à noite.
 inteira aparecia "Sem geração" em vermelho, cobrando todas as esperadas. Agora `_servir_com_sol` marca
 `sol_baixo` em cada linha **na saída** das 9 rotas de strings, com a mesma `_macro_sol_baixo`, e tira do card
 "Sem geração" quem está sem sol, pelo critério de cada fonte (`_sem_geracao_*`). Na tela (`_strStatus`), sem
-sol a linha diz "Sem sol", com esperadas, diferença e disponibilidade em "—". Comunicação e o D-1 do padrão por
+sol a linha diz "Sem sol", com esperadas e diferença em "—". Comunicação e o D-1 do padrão por
 inversor continuam valendo. A marca é feita na saída e não no build porque o ciclo do worker chega a 15 min, e o
 payload em cache é do worker (só se mexe em cópia). **Rota de strings nova precisa passar por
 `_servir_com_sol`**: o teste lê o mapa `strings:{...}` do HTML e falha se faltar uma.

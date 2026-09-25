@@ -257,13 +257,13 @@ def test_de_dia_nada_muda():
 
 
 def test_a_noite_as_colunas_nao_cobram():
-    """Esperadas, diferença e disponibilidade saem em '—' sem sol, e a linha não pulsa: o déficit
-    (`dif`) é anulado na origem, e é dele que saem a cor, a ordem e o pulso."""
+    """Esperadas e diferença saem em '—' sem sol, e a linha não pulsa: o déficit (`dif`) é anulado na origem, e é dele
+    que saem a cor, a ordem e o pulso. (A coluna de disponibilidade saiu da tabela em 25/09/2026 —
+    tests/test_strings_sem_coluna_disponibilidade.py.)"""
     m = MON[MON.index("usinas=pv.rows.filter("):]
     m = m[:m.index("}).sort(")]
     assert re.search(r"dif=\(semSol\|\|semCom\)\?null:r\.diferenca", m), "o déficit da noite tem de ser anulado na origem"
     assert re.search(r"expected:\(r\.rampa\|\|r\.sem_visao\|\|semSol\)\?'—'", m), "esperadas sem sol devem sair em '—'"
-    assert re.search(r"avail:\([^\n]*semSol[^\n]*\)\?[^\n]*:'—'", m), "disponibilidade sem sol deve sair em '—'"
 
 
 def test_a_noite_o_card_sem_geracao_diz_sem_sol():

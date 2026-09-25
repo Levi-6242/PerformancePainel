@@ -84,14 +84,13 @@ def test_os_nomes_antigos_sairam_da_tela():
 
 
 def test_sem_comunicacao_nao_julga_as_colunas():
-    """Diferença, ativas e disponibilidade saem em '—' e a linha não pulsa: o déficit (`dif`) é anulado na origem,
-    como na noite."""
+    """Diferença e ativas saem em '—' e a linha não pulsa: o déficit (`dif`) é anulado na origem, como na noite. (A
+    coluna de disponibilidade saiu da tabela em 25/09/2026 — tests/test_strings_sem_coluna_disponibilidade.py.)"""
     m = MON[MON.index("usinas=pv.rows.filter("):]
     m = m[:m.index("}).sort(")]
     assert re.search(r"semCom=_velho\|\|!!r\.falha_comunicacao", m)
     assert re.search(r"dif=\(semSol\|\|semCom\)\?null:r\.diferenca", m)
     assert re.search(r"active:\(r\.rampa\|\|r\.sem_visao\|\|semCom\)\?'—'", m)
-    assert re.search(r"avail:\([^\n]*semCom[^\n]*\)\?[^\n]*:'—'", m)
     assert re.search(r"_tkStrCel\(r,[^)]*semCom", m), "a coluna Tickets também não julga déficit sem comunicação"
 
 

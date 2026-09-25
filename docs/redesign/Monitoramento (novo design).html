@@ -301,7 +301,8 @@ async function loadCurva(pid,invId,nome,refazer){   // curva corrente-por-string
   else if(sk==='pg') url='/api/pg/curva/'+encodeURIComponent(pid)+'?data='+iso;
   else if(sk==='sunop'||sk==='axis') url='/api/'+sk+'/curva/'+encodeURIComponent(pid)+'?inv='+encodeURIComponent(invId)+'&data='+iso;
   else if(sk==='owen') url='/api/2c/'+iso+'/strings/'+encodeURIComponent(pid);                       // 2C: curva de corrente por string (5 min) do banco-por-dia (hoje = pastas ao vivo)
-  if(!url){ RD.curva[key]={}; render(); return; }                                                   // solaredge: sem curva
+  else if(sk==='solaredge') url='/api/solaredge/curva/'+encodeURIComponent(pid)+'?inv='+encodeURIComponent(invId)+'&data='+iso;   // RenoGrid: POTÊNCIA (W) por string, o generate-chart do portal (25/09/2026)
+  if(!url){ RD.curva[key]={}; render(); return; }
   try{
     const d=await fetchJSON(url); const list=d.inversores||[];
     let iv;
@@ -326,7 +327,7 @@ function _curvaRecarrega(pid,invId,nome){
   if(aberta) loadCurva(pid,invId,nome,true);
 }
 /* fim _curvaRecarrega */
-function curvaSVG(curva, smap, red){
+function curvaSVG(curva, smap, red, unit){   // unit: 'A' (padrão) ou 'W' (RenoGrid — a SolarEdge dá potência por string)
   const names=Object.keys(curva||{}); if(!names.length) return '';
   let mx=0; names.forEach(n=>(curva[n].y||[]).forEach(v=>{ if(v!=null&&v>mx)mx=v; }));
   const maxY=Math.max(4,Math.ceil(mx/4)*4);   // teto "redondo" (múltiplo de 4) → rótulos inteiros, sem repetir
@@ -340,10 +341,11 @@ function curvaSVG(curva, smap, red){
     return `<polyline data-s="${_snum(n)}" data-name="${esc(n)}" data-base="${col}" data-basew="${w}" data-baseo="${op}" points="${pts}" fill="none" stroke="${col}" stroke-width="${w}" stroke-opacity="${op}" stroke-linejoin="round"></polyline>`; }).join('');
   const grid=[0,.25,.5,.75,1].map(f=>{ const y=yB-(yB-yT)*f; return `<line x1="46" y1="${y}" x2="890" y2="${y}" stroke="#292b31"></line><text x="40" y="${y+3}" text-anchor="end" fill="#75798c" font-size="8.5">${(maxY*f).toFixed(0)}</text>`; }).join('');
   const xt=(red?['06:00','09:00','12:00','15:00','18:00']:['00:00','06:00','12:00','18:00','23:59']).map(t=>`<text x="${tX(t)}" y="134" text-anchor="middle" fill="#75798c" font-size="8.5">${t}</text>`).join('');
-  return `<svg viewBox="0 0 900 150" preserveAspectRatio="xMidYMid meet" style="width:100%;height:230px;display:block" data-x0="46" data-x1="890" data-yt="12" data-yb="118" data-xmin="${XMIN}" data-xmax="${XMAX}" data-ymin="0" data-ymax="${maxY}" data-unit="A" onmousemove="_chartTip(event,this)" onmouseleave="_chartTipHide(this)"><line x1="46" y1="12" x2="46" y2="118" stroke="#595d6c"></line><line x1="46" y1="118" x2="890" y2="118" stroke="#595d6c"></line>${grid}${xt}${polys}</svg>`;
+  return `<svg viewBox="0 0 900 150" preserveAspectRatio="xMidYMid meet" style="width:100%;height:230px;display:block" data-x0="46" data-x1="890" data-yt="12" data-yb="118" data-xmin="${XMIN}" data-xmax="${XMAX}" data-ymin="0" data-ymax="${maxY}" data-unit="${unit||'A'}" onmousemove="_chartTip(event,this)" onmouseleave="_chartTipHide(this)"><line x1="46" y1="12" x2="46" y2="118" stroke="#595d6c"></line><line x1="46" y1="118" x2="890" y2="118" stroke="#595d6c"></line>${grid}${xt}${polys}</svg>`;
 }
 function _curvaBlock(inv){
   const key=_ckey(inv.pid,inv.invId), craw=RD.curva[key];
+  const _W=SKEY[state.source]==='solaredge', _grand=_W?'potência':'corrente';   // RenoGrid: potência (W) por string
   const box=body=>`<div style="padding:18px;border-radius:var(--radius-md);background:color-mix(in srgb, var(--color-neutral-900) 60%, transparent);margin-bottom:18px">${body}</div>`;
   if(craw===undefined||craw===null) return box(`<span class="text-muted"><i class="ph ph-circle-notch gc-spin"></i> Carregando curva…</span>`);
   const _tr=new Set((inv.strings||[]).filter(s=>s.trancada).map(s=>_snum(s.name)));   // strings TRANCADAS (cadeado) NÃO entram no gráfico
@@ -365,8 +367,8 @@ function _curvaBlock(inv){
     // não há série para desenhar. A mensagem tem de dizer isso, não culpar a comunicação.
     const _rowU=((RD.pv&&RD.pv.rows)||[]).find(x=>String(x.plant_id)===String(inv.pid));
     if(_rowU&&_rowU.stringbox) return box(`<span class="text-muted">Esta usina lê as strings pela <b>String Box</b>, que entrega só o valor <b>instantâneo</b> — por isso não há curva do dia. Os valores nos chips acima são reais e atuais (última leitura: <b>${_he(inv.lastRead||'—')}</b>); o histórico do inversor não guarda corrente por string aqui.</span>`);
-    if(_ehHoje) return box(`<span class="text-muted">Ainda sem corrente por string <b>hoje</b> — a usina pode não ter reportado. Última leitura: <b>${_he(inv.lastRead||'—')}</b>.</span>`);
-    return box(`<span class="text-muted">Sem corrente por string em <b>${_brdate(_dSel)}</b> — a fonte não guardou curva de strings nessa data.</span>`);
+    if(_ehHoje) return box(`<span class="text-muted">Ainda sem ${_grand} por string <b>hoje</b> — a usina pode não ter reportado. Última leitura: <b>${_he(inv.lastRead||'—')}</b>.</span>`);
+    return box(`<span class="text-muted">Sem ${_grand} por string em <b>${_brdate(_dSel)}</b> — a fonte não guardou curva de strings nessa data.</span>`);
   }
   const meta=RD.curvaMeta[key]||{}, abaixo=meta.abaixo||new Set();
   const smap={}; (inv.strings||[]).forEach(s=>{ if(s.dead)smap[s.name]='dead'; else if(s.low)smap[s.name]='low'; });
@@ -382,9 +384,9 @@ function _curvaBlock(inv){
   // números ao lado, e quem lê acha que é tudo do mesmo dia (Levi 07/08).
   const _dtNote=(_invIso()!==_todayISO())?`<div style="padding:8px 11px;border-radius:8px;background:color-mix(in srgb, var(--gc-blue) 10%, transparent);border:1px solid color-mix(in srgb, var(--gc-blue) 32%, transparent);color:var(--gc-blue);font-size:12px;margin-bottom:12px;line-height:1.45">Só o <b>gráfico</b> é de ${_brdate(_invIso())}. As correntes nos chips, o <b>ativas</b> e a última leitura acima são de <b>hoje</b> — a fonte não guarda a foto instantânea de dias anteriores.</div>`:'';
   const _dt=` · <span style="color:var(--color-neutral-400)"><i class="ph ph-calendar-blank" style="font-size:10.5px;margin-right:3px"></i>${_brdate(_invIso())}</span>`;   // data da curva sempre no título
-  const _tit=(inv.semVisao?`${inv.name} — corrente agregada do inversor (A)`:`${inv.name} — corrente por string (A)${medTit}${subTit}`)+_dt;
+  const _tit=(inv.semVisao?`${inv.name} — corrente agregada do inversor (A)`:`${inv.name} — ${_W?'potência por string (W)':'corrente por string (A)'}${medTit}${subTit}`)+_dt;
   const _redBtn=`<button onclick="event.stopPropagation();setCurvaRed()" title="Dia inteiro (00–24h) ⇄ Visão reduzida (06–18h)" style="border:1px solid ${state.curvaRed?'var(--color-accent)':'var(--color-divider)'};background:${state.curvaRed?'color-mix(in srgb,var(--color-accent) 16%,transparent)':'var(--color-neutral-900)'};color:${state.curvaRed?'var(--color-accent)':'var(--color-neutral-300)'};font-family:inherit;font-size:11.5px;font-weight:600;padding:5px 11px;border-radius:7px;cursor:pointer;white-space:nowrap">${state.curvaRed?'Visão reduzida (06–18h)':'Dia inteiro (00–24h)'}</button>`;
-  return box(`${_dtNote}${svNote}${rpNote}<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px"><span class="text-muted" style="font-size:12.5px">${_tit}</span>${_redBtn}</div>${curvaSVG(c, smap, state.curvaRed)}`);
+  return box(`${_dtNote}${svNote}${rpNote}<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px"><span class="text-muted" style="font-size:12.5px">${_tit}</span>${_redBtn}</div>${curvaSVG(c, smap, state.curvaRed, _W?'W':'A')}`);
 }
 async function loadCurrent(force){
   const view=state.view, src=state.source, url=_urlFor(view,src), key=view+'|'+src;
@@ -1653,7 +1655,7 @@ function computeVals(){
       {icon:'ph ph-wifi-slash',value:sm.alertas_comm??'—',label:'Usinas sem comunicação',accent:'var(--gc-violet)',numColor:'var(--gc-violet)'},
     ];
     usinas=pv.rows.filter(r=>!_q||String(r.usina||'').toLowerCase().includes(_q.toLowerCase())).map(r=>{
-      const pid=String(r.plant_id), expanded=s.expandedUsina===pid, temD=!r.sem_dados;
+      const pid=String(r.plant_id), expanded=s.expandedUsina===pid;
       const vkey=(VKEY[s.source]||'pv')+':'+r.plant_id, cCount=((RD.comments||{})[vkey]||[]).length, oCount=(RD.os||{})[r.usina]||0, tCount=(RD.tracking||{})[vkey];
       // DADO VELHO vem ANTES DE TUDO (régua do Levi 22/07: passou de 2h sem atualizar, é falha de
       // comunicação). Sem isto o sintoma escondia a causa: Ipixuna 1 e 2 com última leitura de ONTEM
@@ -1664,8 +1666,9 @@ function computeVals(){
       const _velho=(_idadeMin!=null&&_idadeMin>COMM_STALE_MIN);
       // SEM SOL (22/09/2026): o backend marca `sol_baixo` na hora de servir (`_servir_com_sol`, a régua de sol do macro).
       // O déficit é anulado NA ORIGEM porque é dele que saem a cor, a ordem e o pulso da linha: às 21:58 a MAB100 pulsava
-      // com −599, 0 de 599 strings, sem sol nenhum. Esperadas e disponibilidade também saem em '—' (mais abaixo).
-      // Sem comunicação (23/09/2026): mesma coisa — com o dado parado, ativas, diferença e disponibilidade saem em '—'.
+      // com −599, 0 de 599 strings, sem sol nenhum. Esperadas também saem em '—' (mais abaixo).
+      // Sem comunicação (23/09/2026): mesma coisa — com o dado parado, ativas e diferença saem em '—'. (A coluna de
+      // disponibilidade, ativas ÷ esperadas em %, saiu da tabela em 25/09/2026, a pedido do Levi.)
       const semSol=r.sol_baixo===true, semCom=_velho||!!r.falha_comunicacao, dif=(semSol||semCom)?null:r.diferenca, difN=dif!=null&&dif<0;
       const [stt,ps]=_strStatus(r,_velho);
       const leit=r.ultima_leitura?String(r.ultima_leitura).replace('T',' ').slice(0,16):'—';
@@ -1674,7 +1677,7 @@ function computeVals(){
       const bate=(dif!=null&&tCount!=null&&dif===-tCount);
       // 0 = déficit NÃO acompanhado (pede ação, pulsa) · 1 = déficit já batendo · 2 = sem déficit · 3 = sem dado
       const _grp=(dif==null?3:(difN?(bate?1:0):2));
-      // PADRÃO ATHON (Levi, 24/09/2026: "quero todos no padrão Athon"): ativas, esperadas, diferença e disponibilidade são
+      // PADRÃO ATHON (Levi, 24/09/2026: "quero todos no padrão Athon"): ativas, esperadas e diferença são
       // SEMPRE strings, em toda aba. Sem visão por string saem em '—', e a proporcionalidade dos inversores (que desde 11/09
       // ocupava essas colunas: "18/20 inv.", "padrão 30d", "no padrão") vai para o aviso da célula das esperadas.
       return {name:r.usina,inv:(r.qtd_inversores!=null?(r.inv_esp!=null?r.qtd_inversores+'/'+r.inv_esp:''+r.qtd_inversores):'—'),
@@ -1689,8 +1692,6 @@ function computeVals(){
         diff:(r.rampa||r.sem_visao)?'—':(dif==null?'—':(dif>0?'+'+dif:''+dif)),
         diffColor:bate?'var(--gc-blue)':(difN?'var(--gc-red)':'var(--color-neutral-400)'),
         diffTit:'',
-        avail:(r.str_esp&&r.strings_ativas!=null&&!r.rampa&&!r.sem_visao&&!semSol&&!semCom)?(r.strings_ativas/r.str_esp*100).toFixed(1)+'%':'—',
-        availColor:(!r.rampa&&!r.sem_visao&&!semSol&&!semCom&&temD&&r.strings_ativas===0)?'#ff9a9d':'var(--color-neutral-300)',
         acomp:(tCount!=null?tCount:''),tkStr:_tkStrCel(r,semSol||semCom||!!r.rampa),tkLista:(r.tickets_str&&r.tickets_str.lista)||[],tkMotivo:(r.tickets_str&&r.tickets_str.motivo)||'',tkNaoJulga:(semSol||semCom||!!r.rampa||!!r.sem_visao),_dif:(dif==null?null:dif),_grp,pulse:(_grp===0),lastRead:leit,staleRead:_velho,
         staleTit:(_velho?`Sem leitura nova há ${Math.floor(_idadeMin/60)}h${String(Math.round(_idadeMin%60)).padStart(2,'0')}`:''),
         status:stt,statusStyle:ps,hasFlag:cCount>0,flagCount:cCount,hasOS:oCount>0,osCount:oCount,vkey,caretDeg:expanded?90:0,diffColor2:0,expanded,id:pid,inversores:expanded?buildInversores(pid):[]};
@@ -1715,7 +1716,7 @@ function computeVals(){
       {id:'cg',name:'Cidade Gaúcha',inv:'20/20',expected:208,flag:1,os:0},
     ];
     usinas=uDefs.map(u=>{const expanded=s.expandedUsina===u.id, noExp=u.expected===0;
-      return {name:u.name,inv:u.inv,active:0,expected:u.expected,diff:noExp?'0':'-'+u.expected,avail:noExp?'—':'0.0%',acomp:'',lastRead:'14/07 21:3'+(3+(u.name.length%5)),status:'Sem geração',hasFlag:u.flag>0,flagCount:u.flag,hasOS:u.os>0,osCount:u.os,vkey:'ex:'+u.id,caretDeg:expanded?90:0,diffColor:noExp?'var(--color-neutral-400)':'var(--gc-red)',availColor:noExp?'var(--color-neutral-500)':'#ff9a9d',expanded,statusStyle:semGer,id:u.id,inversores:expanded?buildInversores():[]};});
+      return {name:u.name,inv:u.inv,active:0,expected:u.expected,diff:noExp?'0':'-'+u.expected,acomp:'',lastRead:'14/07 21:3'+(3+(u.name.length%5)),status:'Sem geração',hasFlag:u.flag>0,flagCount:u.flag,hasOS:u.os>0,osCount:u.os,vkey:'ex:'+u.id,caretDeg:expanded?90:0,diffColor:noExp?'var(--color-neutral-400)':'var(--gc-red)',expanded,statusStyle:semGer,id:u.id,inversores:expanded?buildInversores():[]};});
   }
   const etmRows=[
     {name:'Alto Paraná 1',poa:'5.82',ghi:'5.21',poari:'5.64',chuva:'0.0',lastRead:'21:36',st:'ok'},{name:'Alto Paraná 2',poa:'5.76',ghi:'5.18',poari:'5.59',chuva:'0.0',lastRead:'21:36',st:'ok'},
@@ -1982,7 +1983,7 @@ function _stCor(st){
 // Filtro que não sobra linha: diz POR QUE a tabela está vazia e como voltar (nada de tabela em branco).
 function _semLinhas(){
   const cond=[_fSt?`status "${_he(_fSt)}"`:'', _q?`nome casando "${_he(_q)}"`:''].filter(Boolean).join(' e ');
-  return `<tr><td colspan="10" style="padding:30px;text-align:center;color:var(--color-neutral-500);font-size:13px">
+  return `<tr><td colspan="9" style="padding:30px;text-align:center;color:var(--color-neutral-500);font-size:13px">
     Nenhuma usina com ${cond||'os filtros atuais'}.${_fSt?` <span onclick="onStatusFiltro('${_fSt}')" style="cursor:pointer;color:var(--color-accent);font-weight:600">mostrar todas</span>`:''}</td></tr>`;
 }
 function _chipsStatus(){
@@ -2220,15 +2221,15 @@ function renderStrings(v){
       <div style="display:flex;align-items:center;gap:10px">${_osBtn()}${_histBtn()}</div>
     </div>
     ${v.loading?'':_chipsStatus()}
-    <div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th style="text-align:center">Inv.</th><th style="text-align:right">Ativas</th><th style="text-align:right">Esperadas</th><th style="text-align:right">Diferença</th><th style="text-align:right">Disponib.</th><th style="text-align:center">Acomp.</th><th style="text-align:center" title="Strings com ticket aberto na planilha de tickets (aba Strings indisp) / strings faltando agora">Tickets</th><th style="text-align:right">Última leitura</th><th style="text-align:center;padding-right:22px">Status</th></tr></thead>
-    <tbody>${v.loading?`<tr><td colspan="10" style="padding:44px;text-align:center" class="text-muted"><i class="ph ph-circle-notch gc-spin"></i> Coletando dados da fonte…</td></tr>`:(!v.usinas.length?_semLinhas():v.usinas.map(u=>`
+    <div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px;width:1%;white-space:nowrap">Status</th><th>Usina</th><th style="text-align:center">Inv.</th><th style="text-align:right">Ativas</th><th style="text-align:right">Esperadas</th><th style="text-align:right">Diferença</th><th style="text-align:center">Acomp.</th><th style="text-align:center" title="Strings com ticket aberto na planilha de tickets (aba Strings indisp) / strings faltando agora">Tickets</th><th style="text-align:right;padding-right:22px">Última leitura</th></tr></thead>
+    <tbody>${v.loading?`<tr><td colspan="9" style="padding:44px;text-align:center" class="text-muted"><i class="ph ph-circle-notch gc-spin"></i> Coletando dados da fonte…</td></tr>`:(!v.usinas.length?_semLinhas():v.usinas.map(u=>`
       <tr class="gc-urow${(u.pulse&&!u.expanded)?' gc-alerta':''}" onclick="toggleUsina('${u.id}')" style="cursor:pointer;${u.expanded?'background:linear-gradient(90deg, color-mix(in srgb, #0a4f52 70%, transparent), color-mix(in srgb, #0a4f52 28%, transparent) 34%, transparent 58%);':''}">
-        <td style="padding-left:22px"><span style="display:inline-flex;align-items:center;gap:9px"><i class="ph ph-caret-right" style="font-size:12px;color:var(--color-neutral-500);transition:transform .15s;transform:rotate(${u.caretDeg}deg)"></i><span style="font-weight:600">${u.name}</span>${u.hasOS?`<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="OS de performance — abrir" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:6px;background:color-mix(in srgb, var(--gc-amber) 16%, transparent);color:var(--gc-amber);font-size:11px;font-weight:600"><i class="ph ph-wrench"></i>${u.osCount}</span>`:''}<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="Comentários dos analistas" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:6px;${u.hasFlag?'background:#1D5FB5;color:#0e2a4d;font-weight:700;':'color:var(--color-neutral-600);'}font-size:11px"><i class="${u.hasFlag?'ph-fill ph-chat-circle':'ph ph-chat-circle'}" style="font-size:13px"></i>${u.hasFlag?u.flagCount:''}</span></span></td>
+        <td style="padding-left:22px;white-space:nowrap"><span style="${u.statusStyle}">${u.status}</span></td><td><span style="display:inline-flex;align-items:center;gap:9px"><i class="ph ph-caret-right" style="font-size:12px;color:var(--color-neutral-500);transition:transform .15s;transform:rotate(${u.caretDeg}deg)"></i><span style="font-weight:600">${u.name}</span>${u.hasOS?`<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="OS de performance — abrir" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:6px;background:color-mix(in srgb, var(--gc-amber) 16%, transparent);color:var(--gc-amber);font-size:11px;font-weight:600"><i class="ph ph-wrench"></i>${u.osCount}</span>`:''}<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="Comentários dos analistas" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:6px;${u.hasFlag?'background:#1D5FB5;color:#0e2a4d;font-weight:700;':'color:var(--color-neutral-600);'}font-size:11px"><i class="${u.hasFlag?'ph-fill ph-chat-circle':'ph ph-chat-circle'}" style="font-size:13px"></i>${u.hasFlag?u.flagCount:''}</span></span></td>
         <td style="text-align:center;color:var(--color-neutral-400)">${u.inv}</td><td style="text-align:right;color:var(--color-neutral-300)">${u.active}</td><td style="text-align:right;color:var(--color-neutral-300)"${u.expTit?` title="${_he(u.expTit)}"`:''}>${u.expected}${u.expNote?`<span class="gc-desl" title="${u.expNote.nomes?u.expNote.nomes+': ':''}potência zero de dia, com a usina gerando. As ${u.expNote.fora} strings dele${u.expNote.n>1?'s':''} ficam fora da conta: inversor desligado é falha de inversor, não de string.">${u.expNote.n} inv. desligado${u.expNote.n>1?'s':''} · ${u.expNote.fora} strings fora da conta</span>`:''}${u.padNote?`<span class="gc-desl" style="color:${u.padNote.cor}" title="${_he(u.padNote.tit)}">${_he(u.padNote.txt)}</span>`:''}</td>
-        <td style="text-align:right;font-weight:600;color:${u.diffColor}"${u.diffTit?` title="${_he(u.diffTit)}"`:''}>${u.diff}</td><td style="text-align:right;color:${u.availColor}">${u.avail}</td><td style="text-align:center" onclick="event.stopPropagation()"><input type="number" min="0" value="${u.acomp}" placeholder="—" title="Strings que você está acompanhando" class="gc-numin" onclick="event.stopPropagation()" onchange="setTracking('${u.vkey||''}',this.value)" style="width:58px;text-align:center;padding:5px 6px;font-size:12.5px;font-family:inherit;border:1px solid var(--color-divider);border-radius:6px;background:var(--color-neutral-900);color:var(--color-text)"></td><td style="text-align:center">${u.tkStr}</td>
-        <td title="${u.staleTit||''}" style="text-align:right;font-size:12.5px;${u.staleRead?'color:#c9b6ff;font-weight:600':'color:var(--color-neutral-500)'}">${u.lastRead}</td><td style="text-align:center;padding-right:22px"><span style="${u.statusStyle}">${u.status}</span></td>
+        <td style="text-align:right;font-weight:600;color:${u.diffColor}"${u.diffTit?` title="${_he(u.diffTit)}"`:''}>${u.diff}</td><td style="text-align:center" onclick="event.stopPropagation()"><input type="number" min="0" value="${u.acomp}" placeholder="—" title="Strings que você está acompanhando" class="gc-numin" onclick="event.stopPropagation()" onchange="setTracking('${u.vkey||''}',this.value)" style="width:58px;text-align:center;padding:5px 6px;font-size:12.5px;font-family:inherit;border:1px solid var(--color-divider);border-radius:6px;background:var(--color-neutral-900);color:var(--color-text)"></td><td style="text-align:center">${u.tkStr}</td>
+        <td title="${u.staleTit||''}" style="text-align:right;padding-right:22px;font-size:12.5px;${u.staleRead?'color:#c9b6ff;font-weight:600':'color:var(--color-neutral-500)'}">${u.lastRead}</td>
       </tr>
-      ${u.expanded?`<tr><td colspan="10" style="padding:0;border:0"><div style="background:color-mix(in srgb, var(--color-neutral-900) 55%, transparent);padding:18px 22px 22px">
+      ${u.expanded?`<tr><td colspan="9" style="padding:0;border:0"><div style="background:color-mix(in srgb, var(--color-neutral-900) 55%, transparent);padding:18px 22px 22px">
         ${RD.pv?'':`<div style="display:flex;flex-wrap:wrap;gap:22px;padding:12px 16px;margin-bottom:16px;border-radius:var(--radius-md);background:color-mix(in srgb, var(--gc-blue) 10%, transparent);font-size:13px">
           <span><b>0</b> <span class="text-muted">strings abaixo</span></span><span><b>0</b> <span class="text-muted">inversores abaixo dos pares</span></span><span><b style="color:var(--gc-amber)">1</b> <span class="text-muted">trackers parados</span></span><span><b>0</b> <span class="text-muted">correlação tracker→inversor</span></span>
         </div>`}${RD.pv?_ddBarra(u):''}${RD.pv?_tkCardsUsina(u):''}${u.inversores==='loading'?`<div class="text-muted" style="padding:14px 4px;font-size:13px">carregando inversores…</div>`:(state.invView==='geracao'?_gerBlock(u):(u.inversores||[]).map(inv=>renderInversor(inv,v.chart)).join(''))}</div></td></tr>`:''}
@@ -2333,9 +2334,9 @@ function renderCurva(v){
   const pdf=(state.curvaPid&&['pv','pg','sunop'].includes(f))?`<a href="${f==='pv'?'/api/spv/pdf?data='+_brData(dia)+'&usinas='+encodeURIComponent(state.curvaPid):'/api/'+f+'/pdf?data='+dia+'&usinas='+encodeURIComponent(state.curvaPid)}" target="_blank" class="btn btn-secondary" style="text-decoration:none"><i class="ph ph-file-pdf"></i> PDF</a>`:'';
   const csv=state.curvaPid?`<a href="/api/${f}/strings/curva.csv?usina=${encodeURIComponent(state.curvaPid)}&data=${dia}" class="btn btn-secondary" style="text-decoration:none" title="Baixa a curva crua (corrente por string, formato longo) p/ análise"><i class="ph ph-file-csv"></i> CSV</a>`:'';
   const _redBtnC=`<button onclick="setCurvaRed()" title="Dia inteiro (00–24h) ⇄ Visão reduzida (06–18h)" style="border:1px solid ${state.curvaRed?'var(--color-accent)':'var(--color-divider)'};background:${state.curvaRed?'color-mix(in srgb,var(--color-accent) 16%,transparent)':'var(--color-neutral-900)'};color:${state.curvaRed?'var(--color-accent)':'var(--color-neutral-300)'};font-family:inherit;font-size:12px;font-weight:600;padding:7px 12px;border-radius:8px;cursor:pointer;white-space:nowrap">${state.curvaRed?'Visão reduzida (06–18h)':'Dia inteiro (00–24h)'}</button>`;
-  const header=`<div class="card" style="padding:16px 20px;margin-bottom:16px"><div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px"><span style="font-family:var(--font-heading);font-size:17px;margin-right:4px">Curva das strings</span>${sel}<span class="text-muted" style="font-size:12.5px">Dia</span>${dInput}${pdf}${csv}${_redBtnC}<span class="text-muted" style="font-size:11.5px;margin-left:auto;display:inline-flex;align-items:center;gap:14px"><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:16px;height:2.5px;background:#ff9a9d;border-radius:2px"></span>sem corrente</span><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:16px;height:2.5px;background:#f59e0b;border-radius:2px"></span>abaixo da mediana</span></span></div></div>`;
+  const header=`<div class="card" style="padding:16px 20px;margin-bottom:16px"><div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px"><span style="font-family:var(--font-heading);font-size:17px;margin-right:4px">Curva das strings</span>${sel}<span class="text-muted" style="font-size:12.5px">Dia</span>${dInput}${pdf}${csv}${_redBtnC}<span class="text-muted" style="font-size:11.5px;margin-left:auto;display:inline-flex;align-items:center;gap:14px"><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:16px;height:2.5px;background:#ff9a9d;border-radius:2px"></span>${f==='solaredge'?'sem potência':'sem corrente'}</span><span style="display:inline-flex;align-items:center;gap:5px"><span style="width:16px;height:2.5px;background:#f59e0b;border-radius:2px"></span>abaixo da mediana</span></span></div></div>`;
   if(RD.loading) return header+_loadingPanel();
-  if(!state.curvaPid) return header+_subMsg('Selecione uma usina para ver a curva de corrente por string de cada inversor.');
+  if(!state.curvaPid) return header+_subMsg('Selecione uma usina para ver a curva de '+(f==='solaredge'?'potência':'corrente')+' por string de cada inversor.');
   const list=RD.curvaView[f+'|'+state.curvaPid+'|'+dia];
   if(list===undefined||list===null) return header+_subLoad('Carregando curvas…'+((f==='sunop'||f==='axis')?' (Athon pode levar ~1 min)':''));
   if(!list.length) return header+_subMsg(list.erro
@@ -2344,7 +2345,7 @@ function renderCurva(v){
   const body=list.map(iv=>{ const smap={}; Object.keys(iv.curva).forEach(nm=>{ if(iv.meta&&iv.meta.abaixo&&iv.meta.abaixo.has(_snum(nm))) smap[nm]='abaixo'; });
     const ab=(iv.meta&&iv.meta.abaixo)?iv.meta.abaixo.size:(iv.abaixo||0);
     const abTxt=ab?`<span style="color:#f59e0b;font-weight:600">${ab} abaixo</span>`:'<span style="color:var(--color-accent-200)">todas OK</span>';
-    return `<div class="card" style="padding:16px 20px;margin-bottom:14px"><div style="display:flex;align-items:baseline;gap:10px;margin-bottom:2px"><span style="font-weight:600;font-size:14px">${_he(iv.nome)}</span><span class="text-muted" style="font-size:12px">${Object.keys(iv.curva).length} strings · ${abTxt}${iv.mediana!=null?` · med ${iv.mediana} (índice)`:''}</span></div>${curvaSVG(iv.curva,smap,state.curvaRed)}</div>`;
+    return `<div class="card" style="padding:16px 20px;margin-bottom:14px"><div style="display:flex;align-items:baseline;gap:10px;margin-bottom:2px"><span style="font-weight:600;font-size:14px">${_he(iv.nome)}</span><span class="text-muted" style="font-size:12px">${Object.keys(iv.curva).length} strings · ${abTxt}${iv.mediana!=null?` · med ${iv.mediana} (índice)`:''}</span></div>${curvaSVG(iv.curva,smap,state.curvaRed,f==='solaredge'?'W':'A')}</div>`;
   }).join('');
   return header+`<div class="text-muted" style="font-size:12.5px;margin-bottom:10px">${list.length} inversores · ${_he((rows.find(r=>String(r.plant_id)===state.curvaPid)||{}).usina||'')}</div>`+body;
 }
@@ -2383,7 +2384,7 @@ window.setEvMonth=(ym)=>{ if(!ym)return; const t=_todayISO(), ini=ym+'-01'; if(i
   state.evIni=ini; state.evFim=fim; render(); _evReload(); };
 window.setEvMode=(m)=>{ state.evMode=m; if(m==='mes'){ setEvMonth((state.evIni||_ontemISO()).slice(0,7)); } else render(); };   // toggle Intervalo/Mês — 1 controle por vez
 // ── Bloco C — vista "Curva das strings": escolhe usina → curva de corrente por string de cada inversor (reusa curvaSVG/_abaixoMeta; pv/pg/sunop/axis/owen num fetch só) ──
-const _CURVA_FONTES=['pv','pg','sunop','axis','owen','semp','2capi'];
+const _CURVA_FONTES=['pv','pg','sunop','axis','owen','semp','2capi','solaredge'];
 function _brData(iso){ return iso.slice(8,10)+'/'+iso.slice(5,7)+'/'+iso.slice(0,4); }
 async function loadCurvaView(pid,force){ const f=_fonte(), dia=state.curvaData||_todayISO(), key=f+'|'+pid+'|'+dia;
   if(!force&&RD.curvaView[key]!==undefined) return;
@@ -2393,6 +2394,7 @@ async function loadCurvaView(pid,force){ const f=_fonte(), dia=state.curvaData||
   else if(f==='pg') url='/api/pg/curva/'+encodeURIComponent(pid)+'?data='+dia;
   else if(f==='sunop'||f==='axis') url='/api/'+f+'/curva/'+encodeURIComponent(pid)+'?data='+dia;
   else if(f==='owen') url='/api/2c/'+dia+'/strings/'+encodeURIComponent(pid);
+  else if(f==='solaredge') url='/api/solaredge/curva/'+encodeURIComponent(pid)+'?data='+dia;          // RenoGrid: potência (W) por string
   if(!url){ RD.curvaView[key]=[]; render(); return; }
   try{ const d=await fetchJSON(url); let list=d.inversores||[];
     if(f==='owen') list=list.map(raw=>{ const curva={}; (raw.strings||[]).forEach(s=>{curva[String(s.id)]={x:raw.labels||[],y:s.y||[]};});

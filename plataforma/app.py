@@ -5324,6 +5324,29 @@ def ensure_sunop_meta(inst: str = "gridco"):
 
 
 # ── SunOp: processa uma planta ────────────────────────────────────────────────
+def _sunop_regua_hoje(by_path, str_paths, p_path, hoje: str) -> tuple:
+    """(potência que vale, sem leitura hoje) de um inversor na foto do last_values — a MESMA na linha da usina e no
+    drill, e é o que entra em _inv_desligados_por_potencia.
+
+    O last_values devolve o ÚLTIMO valor de cada pathname, de quando for. Corrente de OUTRO dia não é leitura de hoje
+    (a API PV, que só enxerga o dia, nem a teria), e a potência dela também não vale. Sem corrente nenhuma, vale a
+    potência se for de hoje. Sem nada de hoje, o inversor é "sem leitura": com os outros gerando, desligado (a Colorado
+    2, 25/09/2026). Até aqui ele era pulado das ativas e as esperadas dele seguiam na conta como strings faltando."""
+    ts_num, n = "", 0
+    for p in str_paths:
+        d = by_path.get(p) or {}
+        if isinstance(d.get("value"), (int, float)):
+            n += 1
+            ts_num = max(ts_num, str(d.get("timestamp") or ""))
+    dp = (by_path.get(p_path) or {}) if p_path else {}
+    pv = dp.get("value") if isinstance(dp.get("value"), (int, float)) else None
+    if n and (not ts_num or ts_num[:10] >= hoje):
+        return pv, False                        # leitura de hoje: julga pela potência, como sempre
+    if not n and pv is not None and str(dp.get("timestamp") or "")[:10] >= hoje:
+        return pv, False                        # sem corrente, com a potência de hoje: julga por ela
+    return None, True
+
+
 def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
     base = {
         "usina": USINA_DISPLAY.get(plant_name, plant_name), "plant_id": plant_name,
@@ -5396,9 +5419,12 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
     total_str   = 0
     total_ativas = 0
     qtd_inv_com_dados = 0
-    por_inv     = []     # (inversor, strings ativas, potência ativa kW) — p/ a régua de desligado
+    por_inv     = []     # (inversor, strings ativas) dos que têm corrente
+    regua       = []     # (inversor, potência que vale, sem leitura hoje) de TODOS da metadata — _sunop_regua_hoje
+    _hoje       = datetime.now().strftime("%Y-%m-%d")
 
     for inv_name, str_paths in meta["inv_strings"].items():
+        regua.append((inv_name, *_sunop_regua_hoje(by_path, str_paths, meta["inv_other"].get(inv_name, {}).get("P"), _hoje)))
         correntes, ids = [], []
         for p in sorted(str_paths,
                         key=lambda x: int(x.rsplit("I_PV", 1)[-1]) if x.rsplit("I_PV", 1)[-1].isdigit() else 999):
@@ -5418,9 +5444,7 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
         ativas = _str_ativas(_classifica_strings(plant_name, inv_name, ids, correntes))
         total_str   += len(correntes)
         total_ativas += ativas
-        _p_path = meta["inv_other"].get(inv_name, {}).get("P")
-        _p_val = by_path[_p_path].get("value") if (_p_path and _p_path in by_path) else None
-        por_inv.append((inv_name, ativas, _p_val if isinstance(_p_val, (int, float)) else None))
+        por_inv.append((inv_name, ativas))
 
         # Temperatura do inversor
         temp_path = meta["inv_other"].get(inv_name, {}).get("TEMP_INT")
@@ -5438,11 +5462,13 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
     # Inversor DESLIGADO (potência ~0 com sol e a usina gerando) sai da conta — ativas E esperadas (Levi,
     # 22/09/2026). Desligado é falha de INVERSOR, que tem alarme próprio; contado como string faltando,
     # inflava o déficit de strings. Ele não some: a linha leva inv_desligados/strings_fora e a tela avisa.
-    _off = _inv_desligados_por_potencia([pw for _i, _a, pw in por_inv],
-                                        _macro_eh_dia({"usina": USINA_DISPLAY.get(plant_name, plant_name)}))
-    desligados = [inv for (inv, _a, _pw), o in zip(por_inv, _off) if o]
+    # Desde 25/09 entra também quem não mandou nada hoje (sem corrente, ou só de outro dia) — _sunop_regua_hoje.
+    _off = _inv_desligados_por_potencia([pw for _i, pw, _s in regua],
+                                        _macro_eh_dia({"usina": USINA_DISPLAY.get(plant_name, plant_name)}),
+                                        [sm for _i, _pw, sm in regua])
+    desligados = [inv for (inv, _pw, _s), o in zip(regua, _off) if o]
     if desligados:
-        total_ativas = sum(a for (_inv, a, _pw), o in zip(por_inv, _off) if not o)
+        total_ativas = sum(a for inv, a in por_inv if inv not in desligados)
     esp_vals = [esp_inv[inv] for inv in meta["inv_strings"] if inv in esp_inv and inv not in desligados]
     str_esp  = sum(esp_vals) if esp_vals else None
     strings_fora = sum(esp_inv.get(inv, 0) for inv in desligados)
@@ -5594,8 +5620,10 @@ def _sunop_plant_build(plant_name, inst: str = "gridco"):
     by_path = {v["pathname"]: v for v in all_vals}
 
     inversores = []
+    _regua, _hoje = [], datetime.now().strftime("%Y-%m-%d")    # (potência que vale, sem leitura hoje), igual à linha
     for inv_name in sorted(meta["inv_strings"].keys(), key=_sunop_invnum):
         str_paths = meta["inv_strings"][inv_name]
+        _regua.append(_sunop_regua_hoje(by_path, str_paths, meta["inv_other"].get(inv_name, {}).get("P"), _hoje))
         ids, correntes = [], []
         ts_inv = ""
         n_real = 0      # quantas strings vieram com leitura numérica real (não o fallback 0 A)
@@ -5655,10 +5683,12 @@ def _sunop_plant_build(plant_name, inst: str = "gridco"):
             "strings": strings,
         })
 
-    # Mesma régua da linha da usina (22/09/2026): desligado de dia, com a usina gerando, sai da conta.
-    # Continua listado — marcado, com as strings em "desligado" e sem diferença.
-    _pw = [iv["active_power"] if isinstance(iv["active_power"], (int, float)) else None for iv in inversores]
-    _off = _inv_desligados_por_potencia(_pw, _macro_eh_dia({"usina": USINA_DISPLAY.get(plant_name, plant_name)}))
+    # Mesma régua da linha da usina (22/09/2026): desligado de dia, com a usina gerando, sai da conta — e, desde
+    # 25/09, o que não mandou nada hoje (_sunop_regua_hoje). Continua listado — marcado, com as strings em
+    # "desligado" e sem diferença.
+    _off = _inv_desligados_por_potencia([pw for pw, _s in _regua],
+                                        _macro_eh_dia({"usina": USINA_DISPLAY.get(plant_name, plant_name)}),
+                                        [sm for _pw, sm in _regua])
     for iv, o in zip(inversores, _off):
         iv["fora_da_conta"] = bool(o)
         if o:
@@ -11455,6 +11485,147 @@ def se_string_power(site_id, uuids, tzname):
     return out, ts_max, lotes_falhos
 
 
+# ── SolarEdge: CURVA do dia por string (Levi, 25/09/2026: "é dessa forma que eu gero a curva das strings na
+#   plataforma da RenoGrid ... veja se consegue identificar o caminho para que possamos ver as strings") ──────────
+#   O caminho é o generate-chart do portal (Análise > gráfico personalizado) — o MESMO que a tabela chama em
+#   se_string_power, com o login automático daqui (Cognito). A tabela fica com o ÚLTIMO ponto de cada string; aqui
+#   vem o dia inteiro. É POTÊNCIA (W) por string, de 15 em 15 min: a SolarEdge não dá corrente por string, só por
+#   otimizador. Dia passado vale — o portal pede qualquer dia (no print: 04:00Z até 03:59:59.999Z, o dia de Cuiabá).
+def _se_tz(tzname):
+    if ZoneInfo and tzname:
+        try:
+            return ZoneInfo(tzname)
+        except Exception:
+            pass
+    return timezone.utc
+
+
+def _se_range_do_dia(tzname, dia: str):
+    """(from, to) em ISO-Z do dia `dia` (YYYY-MM-DD) NO FUSO DA USINA: da meia-noite local até 23:59:59.999 — ou até
+    agora, se o dia é hoje (sem pedir o futuro)."""
+    tz = _se_tz(tzname)
+    d = datetime.strptime(dia, "%Y-%m-%d")
+    ini = datetime(d.year, d.month, d.day, tzinfo=tz)
+    fim = ini + timedelta(days=1) - timedelta(milliseconds=1)
+    agora = datetime.now(timezone.utc).astimezone(tz)
+    if fim > agora:
+        fim = agora
+    return (ini.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            fim.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.999Z"))
+
+
+def _se_ts_utc(ts):
+    """Instante do generate-chart (ISO-Z; ms por garantia) → datetime em UTC, ou None."""
+    try:
+        if isinstance(ts, (int, float)):
+            return datetime.fromtimestamp(ts / 1000, timezone.utc)
+        dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+def se_string_series(site_id, uuids, tzname, dia: str):
+    """generate-chart em lotes de 50 → ({uuid: [(HH:MM local, potência W)]}, lotes_falhos). O payload é o da tabela
+    (se_string_power) com o intervalo do dia pedido. Ponto sem potência fica de fora; uuid que não voltou fica
+    AUSENTE do mapa — é leitura que não veio, não string morta (a regra do lote falho, 09/09).
+
+    O quarto de hora EM ANDAMENTO também fica de fora: ele chega parcial. Medido na Xavantina 2 em 25/09: o das 12:00,
+    recém-aberto, com 0,6–2,7 kW em strings de 13,6 kW; 20 min depois, o das 11:45 tinha ido de 10,5–13,5 para
+    13,3–14,9 kW, e os outros 27 pontos não mudaram. Desenhado, ele parece a usina inteira caindo agora."""
+    frm, to = _se_range_do_dia(tzname, dia)
+    tz = _se_tz(tzname)
+    fechado_ate = datetime.now(timezone.utc).astimezone(timezone.utc) - timedelta(minutes=15)
+    out, lotes_falhos = {}, 0
+    H = _se_headers()
+    for i in range(0, len(uuids), 50):
+        batch = uuids[i:i + 50]
+        payload = {
+            "reportPeriod": {"from": frm, "to": to},
+            "datasources": [{
+                "metrics": [
+                    {"metricType": "calculation", "calculationCategoryUri": "optimizer_calculations",
+                     "periodType": "FIVE_MINUTES", "calculationMetricUri": "energy"},
+                    {"metricType": "calculation", "calculationCategoryUri": "optimizer_calculations",
+                     "periodType": "FIVE_MINUTES", "calculationMetricUri": "power"},
+                ],
+                "datasourcePopulation": {"populationType": "deviceList", "siteId": int(site_id),
+                                          "deviceType": "STRING", "deviceSerials": batch},
+                "alignmentGranularity": "QUARTER_HOUR",
+            }],
+        }
+        try:
+            r = _http().post(
+                f"{SE_BASE}/services/cni/ui-api/pages/site/analysis/custom/site/{site_id}/generate-chart",
+                headers=H, json=payload, timeout=40)
+            if r.status_code != 200:
+                lotes_falhos += 1
+                continue
+            d = r.json()
+        except Exception:
+            lotes_falhos += 1
+            continue
+        metas = d.get("meta", {}).get("datasetsMeta", [])
+        data = d.get("data", [])
+        for j, meta in enumerate(metas):
+            uuid = meta.get("reportObject", {}).get("entityId")
+            if j >= len(data):
+                continue
+            serie = []
+            for row in data[j]:                    # row = [ts, energia_Wh, potencia_W]
+                if len(row) > 2 and isinstance(row[2], (int, float)):
+                    t = _se_ts_utc(row[0])
+                    if t is not None and t <= fechado_ate:
+                        serie.append((t.astimezone(tz).strftime("%H:%M"), float(row[2])))
+            out[uuid] = serie
+    return out, lotes_falhos
+
+
+def _se_ordem_par(nome):
+    """Ordem de gente: "String 25.3" → (25, 3) e "Inversor 5.10" → (5, 10), que vem depois do 5.9."""
+    m = re.search(r"(\d+)\.(\d+)", str(nome or ""))
+    if m:
+        return (int(m.group(1)), int(m.group(2)))
+    n = re.search(r"(\d+)", str(nome or ""))
+    return (int(n.group(1)), 0) if n else (9999, 0)
+
+
+def _se_strings_curva(site_id: int, dia: str, inv=None) -> dict:
+    """Curva do dia por string de uma usina da SolarEdge (ou de UM inversor, pelo serial) — no formato da Athon
+    ({inversores: [{id, nome, nome_api, curva: {string: {x, y}}, strings}]}), que a tela já desenha. A string tem o
+    MESMO nome do chip do drill ("41.1") e o inversor o do cadastro, como em _se_plant_inversores."""
+    site = next((x for x in se_sites() if int(x["id"]) == int(site_id)), None)
+    tzname = site.get("timezone") if site else None
+    site_nome = site.get("nome") if site else None
+    devs = se_devices(site_id)
+    strings = [x for x in devs if x.get("deviceType") == "STRING"]
+    inv_nome = {x["deviceSerial"]: x.get("deviceName", x["deviceSerial"]) for x in devs if x.get("deviceType") == "INVERTER"}
+    por_inv = _se_por_inversor(strings)
+    if inv:
+        por_inv = {k: v for k, v in por_inv.items() if str(k) == str(inv)}
+    uuids = [st["deviceSerial"] for sl in por_inv.values() for st in sl]
+    series, lotes_falhos = se_string_series(site_id, uuids, tzname, dia) if uuids else ({}, 0)
+    eq = EQUIP_NAMES.get(site_nome, {}) if site_nome else {}
+    out = []
+    for parent, sl in por_inv.items():
+        curva, strs = {}, []
+        for st in sorted(sl, key=lambda x: _se_ordem_par(x.get("deviceName"))):
+            lbl = str(st.get("deviceName") or "").replace("String", "").strip() or st["deviceSerial"]
+            serie = series.get(st["deviceSerial"]) or []
+            if not serie:
+                continue
+            curva[lbl] = {"x": [t for t, _v in serie], "y": [round(v, 1) for _t, v in serie]}
+            strs.append({"nome": lbl, "ativa": any(v > SE_STRING_MIN_W for _t, v in serie), "sub": False,
+                         "energia": round(sum(max(0.0, v) for _t, v in serie) * 0.25, 1)})   # Wh, pontos de 15 min
+        if not curva:
+            continue
+        n_api = inv_nome.get(parent, parent)
+        out.append({"id": parent, "nome": eq.get(n_api, n_api), "nome_api": n_api, "curva": curva,
+                    "mediana": None, "abaixo": 0, "strings": strs})
+    out.sort(key=lambda x: _se_ordem_par(x["nome"]))
+    return {"plant_id": site_id, "data": dia, "unidade": "W", "inversores": out, "lotes_falhos": lotes_falhos}
+
+
 # ── SolarEdge: OTIMIZADORES de uma string (lazy — só ao expandir a string no drill) ────────────
 #   Mesma API `analysis` das strings, mesmo auto-login. Cada string tem N otimizadores (varia).
 def se_optimizers_of_string(site_id, string_uuid):
@@ -11546,16 +11717,23 @@ def _se_por_inversor(strings):
     return por_inv
 
 
-def _se_fora_da_conta(por_inv, power, nome_disp) -> dict:
+def _se_fora_da_conta(por_inv, power, nome_disp, sem_leitura_vale: bool = True) -> dict:
     """{serial: True/False} — desligado pela régua da Athon, com a potência de cada inversor = soma da potência (W)
-    das strings dele, em kW. Inversor sem nenhuma string lida fica None (sem leitura não é desligado)."""
+    das strings dele, em kW.
+
+    O inversor com TODAS as strings devolvidas SEM potência hoje também é desligado, com os outros gerando (Crateus,
+    25/09/2026: as cabines 1 a 4, 40 de 50 inversores, com as 286 strings na resposta sem valor, espalhadas pelos 8
+    lotes, e 0 kWh no dia no render-chart — a linha cobrava −287 como strings faltando e o drill já dizia "desligado").
+    String AUSENTE da resposta é outra coisa: é leitura que não veio — o throttling da SolarEdge responde 200 vazio —
+    e não vira desligado; com lote falho, nem a presente (`sem_leitura_vale=False`, o drill)."""
     series = list(por_inv)
-    pw = []
+    pw, sem = [], []
     for ser in series:
         vals = [power.get(st["deviceSerial"]) for st in por_inv[ser]]
         vals = [v for v in vals if isinstance(v, (int, float))]
         pw.append(sum(vals) / 1000.0 if vals else None)
-    return dict(zip(series, _inv_desligados_por_potencia(pw, _macro_eh_dia({"usina": nome_disp}))))
+        sem.append(sem_leitura_vale and not vals and all(st["deviceSerial"] in power for st in por_inv[ser]))
+    return dict(zip(series, _inv_desligados_por_potencia(pw, _macro_eh_dia({"usina": nome_disp}), sem)))
 
 
 def _se_desligados(nome, strings, invs, power, nome_disp):
@@ -11716,7 +11894,8 @@ def _se_plant_inversores(site_id: int) -> list:
     # Agrupa strings por inversor (partOfSerial / pluggedTo)
     por_inv = _se_por_inversor(strings)
     # fora da conta = a régua da linha da usina e da Athon (24/09/2026): desligado com sol e com a usina gerando
-    _fora = _se_fora_da_conta(por_inv, power, USINA_DISPLAY.get(site_nome, site_nome) if site_nome else "")
+    _fora = _se_fora_da_conta(por_inv, power, USINA_DISPLAY.get(site_nome, site_nome) if site_nome else "",
+                              sem_leitura_vale=not lotes_falhos)
 
     def _str_num(name):
         # "String 25.3" → (25, 3) para ordenar
@@ -11775,6 +11954,37 @@ def _se_plant_inversores(site_id: int) -> list:
 @app.route("/api/solaredge/plant/<int:site_id>")
 def api_solaredge_plant(site_id):
     return jsonify({"plant_id": site_id, "inversores": _se_plant_inversores(site_id)})
+
+
+_se_curva_cache = {}   # (site_id, dia, inv) -> {"ts", "payload"} — curva do dia por string (drill e aba Curva)
+
+
+@app.route("/api/solaredge/curva/<int:site_id>")
+def api_solaredge_curva(site_id):
+    """Curva do dia por string da RenoGrid, em W (?data=YYYY-MM-DD, ?inv=<serial do inversor>). Um inversor = 1
+    pedido à SolarEdge; a usina inteira, 1 a cada 50 strings (a Crateus, 8). Hoje fica 5 min no cache; dia passado,
+    6 h. Curva com lote falho ou vazia não fica: o vazio de uma falha grudaria no cache (a lição da Athon)."""
+    dia = (flask_request.args.get("data") or datetime.now().strftime("%Y-%m-%d")).strip()
+    if re.match(r"^\d{2}/\d{2}/\d{4}$", dia):
+        dia = datetime.strptime(dia, "%d/%m/%Y").strftime("%Y-%m-%d")
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", dia):
+        return jsonify({"error": "data inválida (use YYYY-MM-DD)", "inversores": []}), 400
+    inv = (flask_request.args.get("inv") or "").strip() or None
+    key = (site_id, dia, inv)
+    ttl = CACHE_TTL if dia >= datetime.now().strftime("%Y-%m-%d") else 6 * 3600
+    ent = _se_curva_cache.get(key)
+    if ent and flask_request.args.get("force") != "1" and (time.time() - ent["ts"]) < ttl:
+        return jsonify(ent["payload"])
+    try:
+        payload = _se_strings_curva(site_id, dia, inv)
+    except Exception as e:                                                    # noqa: BLE001
+        return jsonify({"error": str(e), "inversores": []}), 500
+    if payload.get("inversores") and not payload.get("lotes_falhos"):
+        agora = time.time()
+        for k in [k for k, v in _se_curva_cache.items() if agora - v["ts"] > 6 * 3600]:
+            _se_curva_cache.pop(k, None)
+        _se_curva_cache[key] = {"ts": agora, "payload": payload}
+    return jsonify(payload)
 
 
 # ── SolarEdge: PR por inversor (render-chart MONTH) ────────────────────────────
@@ -12116,11 +12326,12 @@ def _pg_build_snapshot():
             if p["ts"]   is None or ts > p["ts"]:   p["ts"]   = ts
 
     summary, detail = [], {}
+    _hoje = datetime.now().date()
     for pid, p in plants.items():
         sup        = p["sup"]
         esp_map    = ESPERADO_INV.get(sup, {})
         equip_disp = EQUIP_NAMES.get(sup, {})
-        inv_list, tot_ativas, tot_esp, powers = [], 0, 0, []
+        inv_list, tot_ativas, tot_esp, powers, sem_leit = [], 0, 0, [], []
         for dev_id in sorted(p["invs"]):
             inv = p["invs"][dev_id]
             inv["strings"].sort(key=lambda s: int(s["id"]) if s["id"].isdigit() else 999)
@@ -12135,7 +12346,13 @@ def _pg_build_snapshot():
             total  = len(inv["strings"])
             str_esp = esp_map.get(inv["dev"], total)     # esperadas da planilha; fallback = total
             tot_ativas += ativas; tot_esp += str_esp
-            powers.append(_pow.get((pid, dev_id)))
+            # A tabela guarda a última leitura de 30 dias (de propósito: a usina muda precisa alarmar). O inversor que
+            # parou ontem ficava com as correntes velhas — a zero, de fim de tarde — e, sem potência (a analógica é de
+            # 6 h), as strings dele contavam como faltando. Sem leitura HOJE, com os outros gerando, é desligado (a
+            # Colorado 2 da API PV, 25/09/2026); e a potência de outro dia não vale.
+            _velho = bool(inv["ts"]) and inv["ts"].date() < _hoje
+            sem_leit.append(_velho)
+            powers.append(None if _velho else _pow.get((pid, dev_id)))
             inv_list.append({
                 "id": dev_id, "nome": equip_disp.get(inv["dev"], inv["dev"]), "nome_api": inv["dev"],
                 "ultima_leitura": inv["ts"].strftime("%Y-%m-%d %H:%M") if inv["ts"] else None,
@@ -12151,7 +12368,7 @@ def _pg_build_snapshot():
         # Inversor DESLIGADO sai da conta — ativas E esperadas —, a régua da Athon (Levi, 24/09/2026: "quero todos no
         # padrão Athon"). Até aqui o Banco contava todas as strings dele como faltando. Mesmos portões da Athon
         # (_inv_desligados_por_potencia): com sol, com a usina gerando e com leitura de potência.
-        _fora = _inv_desligados_por_potencia(powers, _macro_eh_dia({"usina": USINA_DISPLAY.get(sup, sup)}))
+        _fora = _inv_desligados_por_potencia(powers, _macro_eh_dia({"usina": USINA_DISPLAY.get(sup, sup)}), sem_leit)
         desl_nomes, strings_fora = [], 0
         for iv, pr, fo in zip(inv_list, prod, _fora):
             iv["produzindo"] = pr
@@ -12162,9 +12379,10 @@ def _pg_build_snapshot():
                 iv["diferenca"] = None
                 desl_nomes.append(iv["nome"])
             # inversor PARADO (potência ~0) de dia → strings deixam de ser "inativa" VERDE e viram
-            # "desligado" (vermelho-escuro): não faz sentido inversor desligado com string 0A "OK".
+            # "desligado" (vermelho-escuro): não faz sentido inversor desligado com string 0A "OK". O fora da conta
+            # também — o sem leitura hoje traz as correntes de ontem, que podem ser de meio-dia.
             _off = (pr is False) if pr is not None else (iv["strings_ativas"] == 0)
-            if _off and _dia:
+            if fo or (_off and _dia):
                 iv["desligado"] = True
                 for s in iv["strings"]:      # inversor OFF: linha inteira = desligado (a corrente reversa residual não é produção)
                     if s["status"] != "trancada":
@@ -12596,7 +12814,7 @@ def api_inv_padrao_usina(pid):
                     "tipico_kwh": d1.get("tipico_kwh"), "inversores": invs, "ts": _inv_padrao_cache.get("ts")})
 
 
-def _inv_desligados_por_potencia(powers, com_sol: bool) -> list:
+def _inv_desligados_por_potencia(powers, com_sol: bool, sem_leitura=None) -> list:
     """Quais inversores estão DESLIGADOS de verdade — e por isso saem das strings esperadas (22/09/2026).
 
     Pedido do Levi: inversor desligado não conta nas esperadas da linha da usina. O sinal é a POTÊNCIA
@@ -12607,13 +12825,19 @@ def _inv_desligados_por_potencia(powers, com_sol: bool) -> list:
     A mesma régua do `_macro_prod` (abaixo de max(piso, 5% da mediana dos vizinhos)), com três portões:
     SEM SOL ninguém é desligado (é a noite); USINA INTEIRA A ZERO também não (usina parada é outra
     ocorrência — tirar tudo da conta esconderia a usina morta atrás de "0 strings faltando"); e SEM
-    LEITURA de potência não é desligado, é sem comunicação."""
+    LEITURA de potência não é desligado, é sem comunicação.
+
+    `sem_leitura` (alinhada, opcional) é a exceção do 3º portão: o inversor que não mandou NADA hoje — nem corrente
+    nem potência — enquanto os outros da usina geram é desligado, e não "sem comunicação" (Levi, 25/09/2026: "o
+    inversor 1.3 de Colorado 2 está desligado, a plataforma não conta como desligado"). O que é "nada hoje" quem diz
+    é a fonte (ver quem chama); os dois primeiros portões valem para ele também."""
     if not com_sol:
         return [False] * len(powers)
     prod, _med, _n = _macro_prod(powers)
     if not any(x is True for x in prod):
         return [False] * len(powers)
-    return [x is False for x in prod]
+    sl = list(sem_leitura) if sem_leitura is not None else [False] * len(powers)
+    return [x is False or (x is None and bool(sm)) for x, sm in zip(prod, sl)]
 
 
 def _macro_prod(powers):
@@ -15304,14 +15528,17 @@ def api_pg_plant(plant_id):
         inv["strings_ativas"] = _str_ativas(st)
         # inversor PARADO (potência ~0, do snapshot) de dia → strings "inativa" viram "desligado"
         # (vermelho-escuro): não faz sentido inversor desligado com string 0A pintada verde "OK".
+        _fo = bool(inv.get("fora_da_conta"))
         _off = (inv.get("produzindo") is False) if inv.get("produzindo") is not None else (inv["strings_ativas"] == 0)
-        if _off and _dia:
+        if _fo or (_off and _dia):
             inv["desligado"] = True
             for s in inv["strings"]:      # inversor OFF: linha inteira = desligado (corrente reversa residual ≠ produção)
                 if s["status"] != "trancada":
                     s["status"] = "desligado"; s["ativa"] = False
         if inv.get("str_esp") is not None:
-            inv["diferenca"] = inv["strings_ativas"] - inv["str_esp"]
+            # fora da conta não tem diferença — a linha da usina e as outras abas dizem '—'. Recalcular aqui a devolvia
+            # (25/09/2026: o desligado aparecia com −4 no drill do Banco).
+            inv["diferenca"] = None if _fo else inv["strings_ativas"] - inv["str_esp"]
     # energia de HOJE por inversor: o snapshot não a tem, o cache de PR do dia (mesmo banco, TTL 5 min) tem
     try:
         _, _prd = _pg_pr_get(datetime.now().date().isoformat())
@@ -16785,13 +17012,29 @@ def _owen_inv_tag(code, inv):
 
 
 
-def _owen_fora_da_conta(nome, invs) -> dict:
+def _owen_ausentes(u, invs) -> dict:
+    """{inversor: tag do cadastro} dos inversores do CADASTRO (ESPERADO_INV) que não vieram no e-mail do dia. Só quando
+    a conta fecha — faltam exatamente cadastro − os que vieram: nome fora do formato do cadastro (_owen_inv_tag)
+    deixaria todo mundo de fora, e aí ninguém é dado por ausente (a mesma trava da API PV, 25/09/2026)."""
+    esp_map = ESPERADO_INV.get(u) or {}
+    vieram = {_owen_inv_tag(u, inv) for inv in invs}
+    faltam = [t for t in esp_map if t not in vieram]
+    if not invs or not faltam or len(faltam) != len(esp_map) - len(invs):
+        return {}
+    pref = _owen_inv_tag(u, "")
+    return {(t[len(pref):] if t.startswith(pref) else t): t for t in faltam}
+
+
+def _owen_fora_da_conta(nome, invs, ausentes=()) -> dict:
     """{inversor: True/False} — desligado pela régua da Athon (_inv_desligados_por_potencia), com a 'potência' do
     inversor = soma das correntes (A) das strings dele: o e-mail da 2C não traz potência, e a soma zera quando ele desliga.
-    O piso da régua (MACRO_POT_INV_MIN = 2) fica em ampère aqui — 2 A somados é o ruído de um inversor parado."""
-    ordem = list(invs)
-    soma = [sum(v for _t, v in invs[inv].values() if isinstance(v, (int, float))) if invs[inv] else None for inv in ordem]
-    return dict(zip(ordem, _inv_desligados_por_potencia(soma, _macro_eh_dia({"usina": nome}))))
+    O piso da régua (MACRO_POT_INV_MIN = 2) fica em ampère aqui — 2 A somados é o ruído de um inversor parado.
+    `ausentes` (_owen_ausentes) não mandaram nada hoje: com os outros gerando, desligados (a Colorado 2, 25/09/2026)."""
+    ordem = list(invs) + [a for a in ausentes if a not in invs]
+    soma = [sum(v for _t, v in invs[inv].values() if isinstance(v, (int, float))) if invs[inv] else None for inv in invs]
+    soma += [None] * (len(ordem) - len(invs))
+    sem = [False] * len(invs) + [True] * (len(ordem) - len(invs))
+    return dict(zip(ordem, _inv_desligados_por_potencia(soma, _macro_eh_dia({"usina": nome}), sem)))
 
 
 def _owen_strings_rows(force=False):
@@ -16821,18 +17064,24 @@ def _owen_strings_rows(force=False):
         str_esp = sum(esp_map.values()) if esp_map else None
         # Inversor DESLIGADO sai da conta — ativas e esperadas —, a régua da Athon (Levi, 24/09/2026). O e-mail não traz
         # potência: a do inversor é a SOMA DAS CORRENTES das strings dele, que zera quando ele desliga (_owen_fora_da_conta).
-        fora = _owen_fora_da_conta(nome, invs)
-        desl = [inv for inv in invs if fora.get(inv)]
-        strings_fora = sum(esp_map.get(_owen_inv_tag(u, inv), len(invs[inv])) for inv in desl)
+        # Desde 25/09 entra também o inversor do cadastro que não veio no e-mail do dia (_owen_ausentes): as esperadas
+        # dele contavam todas como faltando.
+        aus = _owen_ausentes(u, invs)
+        fora = _owen_fora_da_conta(nome, invs, list(aus))
+        desl = [inv for inv in list(invs) + list(aus) if fora.get(inv)]
+
+        def _tag(inv):
+            return aus.get(inv) or _owen_inv_tag(u, inv)
+        strings_fora = sum(esp_map.get(_tag(inv), len(invs.get(inv) or {})) for inv in desl)
         if desl:
-            ativas -= sum(at_de[inv] for inv in desl)
+            ativas -= sum(at_de.get(inv, 0) for inv in desl)
             if str_esp is not None:
                 str_esp = max(0, str_esp - strings_fora)
         rows.append({"usina": nome, "plant_id": u, "qtd_inversores": len(invs),
                      "strings_ativas": ativas, "str_esp": str_esp,
                      "diferenca": (ativas - str_esp) if str_esp is not None else None,
                      "inv_desligados": len(desl), "strings_fora": strings_fora,
-                     "inv_desligados_nomes": sorted(EQUIP_NAMES.get(u, {}).get(_owen_inv_tag(u, inv), f"Inversor {inv}")
+                     "inv_desligados_nomes": sorted(EQUIP_NAMES.get(u, {}).get(_tag(inv), f"Inversor {inv}")
                                                     for inv in desl),
                      "temp_media": None,
                      "ultima_leitura": ts_max.strftime("%Y-%m-%d %H:%M") if ts_max else None,
@@ -17258,6 +17507,12 @@ def _strings_curva_longo(fonte, usina, data_iso):
                 for hhmm, v in sorted(curvas[inv][st]):   # day_inverter vem fora de ordem → ordena por hora
                     rows.append((inv, st, hhmm, round(float(v), 2)))
         return rows, unidade
+    if fonte == "solaredge":                       # RenoGrid: potência (W) por string (25/09/2026)
+        for iv in _se_strings_curva(int(usina), data_iso).get("inversores", []):
+            for st, cur in iv.get("curva", {}).items():
+                for hhmm, v in zip(cur.get("x", []), cur.get("y", [])):
+                    rows.append((iv.get("nome") or iv.get("nome_api"), st, hhmm, v))
+        return rows, "potencia_W"
     if fonte in ("sunop", "axis"):
         payload = _sunop_strings_curva(usina, data_iso, None, "axis" if fonte == "axis" else "gridco")
     elif fonte == "pg":
@@ -17293,7 +17548,7 @@ def api_strings_curva_csv(fonte):
     Trancadas já excluídas (mesmos builders da tela). Vale p/ pv/semp/pg/sunop/axis/owen."""
     import csv as _csv
     import io as _io
-    if fonte not in ("pv", "semp", "alveslima", "2capi", "pg", "sunop", "axis", "owen"):
+    if fonte not in ("pv", "semp", "alveslima", "2capi", "pg", "sunop", "axis", "owen", "solaredge"):
         return jsonify({"error": "fonte sem curva de strings"}), 404
     usina = (flask_request.args.get("usina") or "").strip()
     data_iso = (flask_request.args.get("data") or datetime.now().strftime("%Y-%m-%d")).strip()
@@ -17690,7 +17945,9 @@ def api_owen_strings_plant(plant_id):
     data = _owen_strings_build()
     nome = _owen_nome(plant_id)
     invs = data.get(plant_id, {})
-    _fora = _owen_fora_da_conta(nome, invs)       # a mesma régua da linha da usina (24/09/2026)
+    _aus = _owen_ausentes(plant_id, invs)          # a mesma régua da linha da usina (24/09 e 25/09/2026)
+    _fora = _owen_fora_da_conta(nome, invs, list(_aus))
+    _fora_tag = {t: bool(_fora.get(k)) for k, t in _aus.items()}
     inversores = []
     for inv in sorted(invs, key=lambda x: [int(p) for p in x.split(".")]):
         strs = invs[inv]
@@ -17722,14 +17979,16 @@ def api_owen_strings_plant(plant_id):
     # Sem isto, uma cabine inteira que para de comunicar EVAPORA da tela e o déficit da linha-pai fica
     # órfão: Ipixuna do Pará 22/07 mostrava −138 com todos os 12 inversores visíveis em dif 0, porque os
     # 8 da cabine 1 (138 strings) simplesmente não eram listados. Ausência tem que APARECER.
+    # Desde 25/09 ele segue listado, mas com os outros gerando é desligado e fora da conta, como na linha (_owen_ausentes).
     _vistos = {i.get("nome_api") for i in inversores}
     for tag, esp in (ESPERADO_INV.get(plant_id) or {}).items():
         if tag in _vistos:
             continue
+        _fo = _fora_tag.get(tag, False)
         inversores.append({"id": tag, "nome": EQUIP_NAMES.get(plant_id, {}).get(tag, tag), "nome_api": tag,
-                           "ultima_leitura": None, "falha_comunicacao": True, "desligado": False,
+                           "ultima_leitura": None, "falha_comunicacao": not _fo, "desligado": _fo, "fora_da_conta": _fo,
                            "sem_dados": True, "strings_ativas": 0, "total_strings": 0,
-                           "str_esp": esp, "diferenca": (0 - esp) if esp is not None else None,
+                           "str_esp": esp, "diferenca": None if _fo else ((0 - esp) if esp is not None else None),
                            "temp": None, "eday": None, "strings": []})
     def _ord(i):                                  # 1.1 antes de 2.1 (e o "não reportou" no lugar certo)
         ns = re.findall(r"\d+", str(i.get("nome") or ""))
