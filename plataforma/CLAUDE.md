@@ -499,5 +499,12 @@ resposta e a rota `/api/painel/falhas?mes=` só devolve os bytes. De `FALHAS_INI
   `strings_episodios`, `trackers_episodios` e `atualizacao` (`falhas_publicar.py`, o caminho do gêmeo: xlsx +
   `sync-xlsx?replace=true`). O worker sobe de hora em hora e só quando o dado muda (`_falhas_publicar_workbook`) — a
   API guarda histórico por linha, por isso as linhas vão pela data de início e o "gerado em" mora na `atualizacao`.
-  **Só o servidor grava** (Linux; `FALHAS_WORKBOOK=1/0` força): a ponte local do OS Creator, se rodar este código,
-  deixaria o workbook trocando de versão a cada hora. A API não apaga workbook nem aba.
+  **Só grava com `FALHAS_WORKBOOK=1`** (hoje, em nenhuma): o registro de strings do SERVIDOR só tem 22/09 em diante
+  (01–21/09 só existem no do PC) e, ligado, ele trocou a carga completa pela parcial em 25/09 00:45. Ligar numa
+  plataforma só, depois que o histórico do mês estiver completo nela. A API não apaga workbook nem aba.
+- **Fim de episódio de tracker sem hora (Levi, 25/09):** o registro de trackers só guarda a CLASSE do dia. Tracker que
+  some das classes num dia em que a usina leu, ou que vira severo/médio/leve, voltou NESSE dia — `fim` = só a data
+  ("hora não registrada" na tela), nunca o fim do último dia parado. MAB200 Tracker 103: a tela dizia "voltou 08/09
+  17:38"; na curva, voltou em 09/09 entre 16:45 e 17:00. Usina sem leitura depois = segue em aberto.
+- **Nome de inversor sempre pelo `_nrm`** ao casar trava: Indaiatuba 21480|378276|Ipv18 escapava porque o
+  plant_devices diz "INVERSOR 1.10" e a queda "Inversor 1.10". Episódio aberto HOJE termina em "agora", não às 18:00.

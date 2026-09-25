@@ -90,6 +90,14 @@ def test_tracker_parado_hoje_conta_ate_agora_e_nao_ate_as_18h():
     assert r["fim"] is None and r["h_sol"] == pytest.approx(3.33, abs=0.1)
 
 
+def test_episodio_leva_o_id_da_usina_na_fonte():
+    # Guatambu 1 a 4 são quatro cadastros na API PV com um TRK1 cada, e todos aparecem como "Guatambu": contando
+    # por usina + tracker, a tela dizia "306 seguem parados agora" com 354 episódios em aberto (25/09)
+    (e,) = episodios(monta(store(d01=[ev("Ipv1", "08:00", "12:00")])))
+    (r,) = monta({}, trk(d01=("parado", 35.0), d02=("severo", None)))["trackers"]["rows"]
+    assert e["plant_id"] == PID and r["plant_id"] == PID
+
+
 def test_amanheceu_zerada_continua_o_mesmo_episodio():
     (e,) = episodios(monta(store(d01=[ev("Ipv1", "10:00")], d02=[ev("Ipv1", "06:10", "11:00")])))
     assert (e["inicio"], e["fim"], e["dias"]) == ("2026-09-01 10:00", "2026-09-02 11:00", 2)
@@ -125,9 +133,31 @@ def trk(**por_dia):
 
 
 def test_tracker_parado_que_vira_atraso_severo_sai_da_visao():
+    # saiu do parado no dia 02, em hora que o registro não guarda: o "voltou" é o DIA 02, sem hora inventada
     (r,) = monta({}, trk(d01=("parado", 35.0), d02=("severo", None)))["trackers"]["rows"]
-    assert r["fim"] is not None and r["fim"].startswith("2026-09-01 ")
+    assert r["fim"] == "2026-09-02"
     assert "saiu: severo" in r["flags"]
+
+
+def test_tracker_que_some_das_classes_com_a_usina_lendo_voltou_nesse_dia():
+    # MAB200 Tracker 103 (Levi, 25/09): parado de 05 a 08/09; em 09/09 a usina lia e o tracker não estava em
+    # classe nenhuma — a régua não o viu parado. A tela dizia "voltou 08/09 17:38 · gap fechado no fim do dia";
+    # na curva ele voltou em 09/09 entre 16:45 e 17:00. Voltou no dia 09; a hora o registro não guarda.
+    t = trk(d01=("parado", 35.0), d02=("parado", 35.0))
+    t["2026-09-03"] = {PID: {"nome": "Inhapi", "cobertura": 1.0, "classes": {"TRK2": {"status": "leve"}}, "eventos": []}}
+    (r,) = [x for x in monta({}, t)["trackers"]["rows"] if x["tracker"] == "TRK1"]
+    assert r["fim"] == "2026-09-03"
+    assert "voltou em 03/09 (hora não registrada)" in r["flags"]
+    assert not any("gap" in f for f in r["flags"])
+
+
+def test_tracker_sem_dado_da_usina_depois_segue_em_aberto():
+    # sem notícia da usina depois do último dia parado: segue em aberto (a mesma regra das strings)
+    t = trk(d01=("parado", 35.0))
+    t["2026-09-03"] = {"999": {"nome": "Outra", "cobertura": 1.0, "classes": {}, "eventos": []}}
+    (r,) = [x for x in monta({}, t)["trackers"]["rows"] if x["tracker"] == "TRK1"]
+    assert r["fim"] is None
+    assert "sem dado da usina desde 01/09" in r["flags"]
 
 
 def test_depois_da_meia_noite_o_parado_de_ontem_segue_em_aberto():

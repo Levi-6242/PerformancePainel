@@ -47,11 +47,14 @@ def _v(x):
 def _situacao_tracker(r):
     if not r.get("fim"):
         return "em aberto"
-    saiu = next((f for f in r.get("flags") or [] if str(f).startswith("saiu:")), None)
+    fl = [str(f) for f in r.get("flags") or []]
+    saiu = next((f for f in fl if f.startswith("saiu:")), None)
     if saiu:
         return saiu
-    if "gap fechado no fim do dia" in (r.get("flags") or []):
-        return "sem dado depois"
+    if any("parou de novo" in f for f in fl):
+        return "voltou e parou de novo"
+    if any("hora não registrada" in f for f in fl):
+        return "voltou (hora não registrada)"
     return "voltou a girar"
 
 

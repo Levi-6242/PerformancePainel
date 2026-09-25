@@ -24,7 +24,7 @@
   *{box-sizing:border-box;margin:0;padding:0}
   [hidden]{display:none!important}
   html{color-scheme:light}
-  body{background:var(--paper);color:var(--graphite);font:400 13.5px/1.55 var(--font);padding:0 0 64px}
+  body{background:var(--paper);color:var(--graphite);font:400 13.5px/1.55 var(--font);padding:0 0 64px;zoom:1.2}
   :focus-visible{outline:2px solid var(--moss2);outline-offset:2px}
   .wrap{max-width:1440px;margin:0 auto;padding:0 28px}
   /* barra da marca: a do site, escura, com o logotipo horizontal branco */
@@ -182,7 +182,7 @@
   <div class="kpis">
     <div class="kpi hero destaque"><div class="lbl" id="k1-l">Perda estimada</div><div class="val" id="k1"></div><div class="note" id="k1-n"></div></div>
     <div class="kpi"><div class="lbl" id="k2-l">Linhas</div><div class="val" id="k2"></div><div class="note" id="k2-n"></div></div>
-    <div class="kpi"><div class="lbl" id="k3-l">Horas solares perdidas</div><div class="val" id="k3"></div><div class="note" id="k3-n"></div></div>
+    <div class="kpi"><div class="lbl" id="k3-l">Strings paradas</div><div class="val" id="k3"></div><div class="note" id="k3-n"></div></div>
     <div class="kpi"><div class="lbl">Usinas afetadas</div><div class="val" id="k4"></div><div class="note" id="k4-n"></div></div>
   </div>
 
@@ -242,8 +242,8 @@
   function opcoes(sel, vals, rot) {
     sel.innerHTML = '<option value="">' + rot + '</option>' + vals.map(v => `<option value="${esc(v)}">${esc(FONTE[v] || v)}</option>`).join('');
   }
-  function linhas(semCron) {
-    const rows = base();
+  function linhas(semCron) { return filtra(base(), semCron); }
+  function filtra(rows, semCron) {
     return rows.filter(r => (!S.cli || r.cliente === S.cli) && (!S.fonte || r.fonte === S.fonte)
       && (!S.usina || r.usina === S.usina)
       && (!S.q || (r.usina + ' ' + (r.inversor || '') + ' ' + (r.tracker || '') + ' ' + (r.string || '')).toLowerCase().includes(S.q))
@@ -279,7 +279,7 @@
   // ── kpis + barras ───────────────────────────────────────────────────────────────────
   function kpis(rows) {
     const trk = S.aba === 'trk', ep = !trk && S.vis === 'ep';
-    const kwh = rows.reduce((a, r) => a + r.perda_kwh, 0), h = rows.reduce((a, r) => a + r.h_sol, 0);
+    const kwh = rows.reduce((a, r) => a + r.perda_kwh, 0);
     const us = new Set(rows.map(r => r.usina)).size;
     $('k1-l').textContent = trk ? 'Perda estimada · trackers' : 'Perda estimada · strings';
     $('k1').textContent = fmtKwh(kwh);
@@ -287,11 +287,18 @@
     // quanto da perda de strings vem de dia em que a API PV não varreu a usina (zerada dos dois lados, estimada)
     const inf = ep ? rows.reduce((a, r) => a + (r.perda_inferida_kwh || 0), 0) : rows.reduce((a, r) => a + (r.flags.includes('dias sem varredura estimados') ? r.perda_kwh : 0), 0);
     $('k1-n').innerHTML = trk ? `pelo cosseno do desvio ao alvo × kWp do tracker × geração real do dia` : `pela geração real do dia (kWh/kWp) × kWp da string · nominal seria <b>${fmtKwh(nom)}</b>` + (inf > 0 ? ` · <b>${fmtKwh(inf)}</b> inferidos em dias sem varredura` : '');
-    $('k2-l').textContent = trk ? 'Episódios' : ep ? 'Episódios de string' : 'Inversor × dia'; $('k3-l').textContent = trk ? 'Horas solares paradas' : 'Horas × strings zeradas';
+    $('k2-l').textContent = trk ? 'Episódios' : ep ? 'Episódios de string' : 'Inversor × dia'; $('k3-l').textContent = trk ? 'Trackers parados' : 'Strings paradas';
     $('k2').textContent = nf.format(rows.length);
     $('k2-n').innerHTML = trk ? `<b>${nf.format(rows.filter(r => !r.fim).length)}</b> ainda em aberto · <b>${nf.format(rows.filter(r => r.cronico).length)}</b> crônicos no recorte` :
       ep ? `<b>${nf.format(rows.filter(r => r.fim_motivo === 'em aberto').length)}</b> em aberto · <b>${nf.format(rows.filter(r => r.dias > 1).length)}</b> atravessam mais de um dia · <b>${nf.format(rows.filter(r => r.flags.some(f => f.startsWith('sem registro desde'))).length)}</b> sem notícia desde a última varredura` : `<b>${nf.format(rows.reduce((a, r) => a + r.qtd, 0))}</b> strings-dia zeradas`;
-    $('k3').textContent = fmtH(h); $('k3-n').textContent = trk ? 'só dentro da janela solar (06–18h e sol ≥ 8°)' : 'soma de horas × strings sem corrente, 06–18h, com o inversor gerando';
+    // quantos EQUIPAMENTOS diferentes pararam no recorte, e quantos seguem parados agora (episódio sem fim)
+    // conta pelo cadastro na FONTE (plant_id): Guatambu 1 a 4 têm um TRK1 cada e todos aparecem como "Guatambu"
+    const epsR = trk || ep ? rows : filtra(D.strings.episodios);
+    const chave = r => r.fonte + '|' + (r.plant_id || r.usina) + '|' + (trk ? r.tracker : r.inversor + '|' + r.string);
+    const eqs = new Set(epsR.map(chave));
+    const agora = new Set(epsR.filter(r => !r.fim).map(chave));
+    $('k3').textContent = nf.format(eqs.size);
+    $('k3-n').innerHTML = `<b>${nf.format(agora.size)}</b> ${trk ? 'seguem parados' : 'seguem sem corrente'} agora`;
     $('k4').textContent = nf.format(us); $('k4-n').textContent = `${nf.format(new Set(rows.map(r => r.cliente)).size)} clientes`;
   }
   function barras(rows) {
@@ -322,17 +329,17 @@
   const COLS = {
     str: [['dia', 'Dia', r => r.dia.slice(8) + '/' + r.dia.slice(5, 7), 'fraco'], ['cliente', 'Cliente', r => r.cliente, 'fraco'], ['usina', 'Usina', r => r.usina, 'forte'],
           ['inversor', 'Inversor', r => r.inversor], ['qtd', 'Qtd', r => r.qtd, 'n'], ['strings', 'Strings', r => r.strings, 'strs'],
-          ['perda_kwh', 'Perda est.', r => nf.format(Math.round(r.perda_kwh)) + ' kWh', 'n forte'], ['h_sol', 'Horas × strings', r => fmtH(r.h_sol), 'n'], ['flags', 'Avisos', r => r.flags.map(f => `<span class="tag t-flag">${esc(f)}</span>`).join('')]],
+          ['perda_kwh', 'Perda est.', r => nf.format(Math.round(r.perda_kwh)) + ' kWh', 'n forte'], ['flags', 'Avisos', r => r.flags.map(f => `<span class="tag t-flag">${esc(f)}</span>`).join('')]],
     ep: [['cliente', 'Cliente', r => r.cliente, 'fraco'], ['usina', 'Usina', r => r.usina, 'forte'], ['inversor', 'Inversor', r => r.inversor], ['string', 'String', r => r.string],
          ['inicio', 'Saiu', r => fDH(r.inicio)],
          ['fim', 'Voltou', r => !r.fim ? `<span class="tag ${r.fim_motivo === 'em aberto' ? 't-ab' : 't-flag'}">${esc(r.fim_motivo)}</span>` : r.fim_motivo === 'voltou' ? fDH(r.fim) : r.fim_motivo === 'voltou de madrugada' ? fDH(r.fim) + ' <span class="tag t-f">de madrugada</span>' : 'até ' + fDH(r.fim) + ' <span class="tag t-f">entre varreduras</span>'],
-         ['dias', 'Dias', r => r.dias, 'n'], ['perda_kwh', 'Perda est.', r => nf.format(Math.round(r.perda_kwh)) + ' kWh', 'n forte'], ['h_sol', 'H solares', r => fmtH(r.h_sol), 'n'],
+         ['dias', 'Dias', r => r.dias, 'n'], ['perda_kwh', 'Perda est.', r => nf.format(Math.round(r.perda_kwh)) + ' kWh', 'n forte'],
          ['flags', 'Avisos', r => r.flags.map(f => `<span class="tag t-flag">${esc(f)}</span>`).join('')]],
     trk: [['cliente', 'Cliente', r => r.cliente, 'fraco'], ['usina', 'Usina', r => r.usina, 'forte'], ['tracker', 'Tracker', r => r.tracker], ['inversor', 'Inversor', r => r.inversor || '—', 'fraco'],
-          ['inicio', 'Parou', r => fDH(r.inicio)], ['fim', 'Voltou', r => r.fim ? fDH(r.fim) : '<span class="tag t-ab">em aberto</span>'],
+          ['inicio', 'Parou', r => fDH(r.inicio)], ['fim', 'Voltou', r => !r.fim ? '<span class="tag t-ab">em aberto</span>' : r.fim.length === 10 ? `${r.fim.slice(8, 10)}/${r.fim.slice(5, 7)} <span class="tag t-f" title="A régua da plataforma não viu o tracker parado neste dia, mas o registro não guarda a hora em que ele voltou. A perda vai até o fim do último dia em que estava parado.">hora não registrada</span>` : fDH(r.fim)],
           ['perda_kwh', 'Perda est.', r => nf.format(Math.round(r.perda_kwh)) + ' kWh', 'n forte'],
-          ['h_sol', 'H solares', r => fmtH(r.h_sol), 'n'], ['desvio_pico', 'Desvio', r => r.desvio_pico != null ? nf1.format(r.desvio_pico) + '°' : '—', 'n fraco'],
-          ['flags', 'Avisos', r => (r.cronico ? '<span class="tag t-cron">crônico</span>' : '') + r.flags.map(f => `<span class="tag ${f.startsWith('saiu') || f.startsWith('gap') || f === 'em aberto' ? 't-f' : 't-flag'}">${esc(f)}</span>`).join('')]],
+          ['desvio_pico', 'Desvio', r => r.desvio_pico != null ? nf1.format(r.desvio_pico) + '°' : '—', 'n fraco'],
+          ['flags', 'Avisos', r => (r.cronico ? '<span class="tag t-cron">crônico</span>' : '') + r.flags.filter(f => f !== 'sem inversor no BD_Trackers' && f !== 'em aberto' && !/^voltou em .* \(hora não registrada\)$/.test(f)).map(f => `<span class="tag ${/^(saiu|voltou|sem dado da usina)/.test(f) ? 't-f' : 't-flag'}">${esc(f)}</span>`).join('')]],
   };
   function tabela(rows) {
     const trk = S.aba === 'trk', ep = !trk && S.vis === 'ep', cols = COLS[trk ? 'trk' : ep ? 'ep' : 'str'];
@@ -340,8 +347,8 @@
     const v = r => { const x = r[ord[0]]; return x == null ? -Infinity : (typeof x === 'number' ? x : String(x)); };
     const sorted = rows.slice().sort((a, b) => { const x = v(a), y = v(b); return (x < y ? -1 : x > y ? 1 : 0) * ord[1]; });
     $('tab-h').textContent = trk ? 'Episódios de tracker parado' : ep ? 'Episódios por string: saiu / voltou' : 'Strings sem corrente por inversor e dia';
-    $('tab-d').textContent = trk ? 'Parou / voltou pela curva da própria fonte; o episódio fecha na primeira vez que o tracker se mexe — mesmo que vire desvio severo.' :
-      ep ? 'Uma linha por string, do primeiro instante zerada com o inversor produzindo até a volta; horas e perda contam das 06h às 18h, só com o inversor gerando. Amanheceu zerada (caiu até 07:30) continua o episódio da véspera — a régua do "zerada desde" da plataforma. "De madrugada" = na varredura seguinte a string não amanheceu zerada: voltou entre o pôr e o nascer do sol. "Até dd/mm" = a usina ficou dias fora do store e a string não amanheceu zerada quando voltou ao store.' : 'Quantidade e quais strings ficaram 2 h seguidas sem corrente com o inversor gerando (06–18h). Perda = kWp da string × kWh/kWp real da usina no dia × fração da energia do dia dentro do episódio (ponderada pela altura do sol).';
+    $('tab-d').textContent = trk ? 'Parou / voltou pela curva da própria fonte; o episódio fecha na primeira vez que o tracker se mexe — mesmo que vire desvio severo. "Hora não registrada": no dia da volta a régua da plataforma já não o viu parado, mas o registro não guarda a hora; a perda vai até o fim do último dia parado. Sem dado da usina depois, segue em aberto.' :
+      ep ? 'Uma linha por string, do primeiro instante zerada com o inversor produzindo até a volta; a perda conta das 06h às 18h, só com o inversor gerando. Amanheceu zerada (caiu até 07:30) continua o episódio da véspera — a régua do "zerada desde" da plataforma. "De madrugada" = na varredura seguinte a string não amanheceu zerada: voltou entre o pôr e o nascer do sol. "Até dd/mm" = a usina ficou dias fora do store e a string não amanheceu zerada quando voltou ao store.' : 'Quantidade e quais strings ficaram 2 h seguidas sem corrente com o inversor gerando (06–18h). Perda = kWp da string × kWh/kWp real da usina no dia × fração da energia do dia dentro do episódio (ponderada pela altura do sol).';
     $('tab').innerHTML = `<thead><tr>${cols.map(c => `<th data-k="${c[0]}" class="${(c[3] || '').includes('n') ? 'n' : ''}${ord[0] === c[0] ? ' on' : ''}">${c[1]}${ord[0] === c[0] ? (ord[1] < 0 ? ' ▾' : ' ▴') : ''}</th>`).join('')}</tr></thead><tbody>${
       sorted.slice(0, S.lim).map(r => `<tr>${cols.map(c => `<td class="${c[3] || ''}">${c[2](r)}</td>`).join('')}</tr>`).join('')}</tbody>`;
     $('mais').innerHTML = sorted.length > S.lim ? `<span>mostrando ${S.lim} de ${nf.format(sorted.length)}</span><button id="btn-mais">mostrar mais 100</button>` : `<span>${nf.format(sorted.length)} linhas</span>`;
