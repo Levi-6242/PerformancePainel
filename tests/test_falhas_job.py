@@ -27,9 +27,9 @@ def store(**por_dia):
     return {f"2026-09-{k[1:]}": {"pv": {PID: {"usina": "Inhapi", "ts": 0, "eventos": evs}}} for k, evs in por_dia.items()}
 
 
-def monta(str_store, trk_store=None, fim="2026-09-03"):
+def monta(str_store, trk_store=None, fim="2026-09-03", pv_dev=None, agora=None):
     return falhas_job.montar(app, sol, "2026-09-01", fim, geracao={}, str_store=str_store, trk_store=trk_store or {},
-                             book={}, hist_2c=lambda dia: {}, log=lambda m: None)
+                             book={}, hist_2c=lambda dia: {}, pv_dev=pv_dev, agora=agora, log=lambda m: None)
 
 
 def episodios(p, string="Ipv1"):
@@ -44,6 +44,50 @@ def test_string_que_termina_o_dia_zerada_e_some_do_registro_segue_em_aberto():
     (e,) = episodios(monta(st))
     assert e["fim"] is None and e["fim_motivo"] == "em aberto"
     assert "sem registro desde 01/09" in e["flags"]
+
+
+def test_string_trancada_sai_mesmo_com_o_nome_do_dispositivo_em_outra_caixa(monkeypatch):
+    # Indaiatuba, 25/09: trava 21480|378276|Ipv18; o plant_devices chama o 378276 de "INVERSOR 1.10" e a queda gravada
+    # diz "Inversor 1.10". Comparando o nome exato, a trava não era conferida e 16 episódios da string trancada
+    # apareciam na aba (o Levi viu). O nome vale normalizado, como no resto da plataforma.
+    monkeypatch.setattr(app, "_trancadas", {f"{PID}|378276|Ipv1"})
+    monkeypatch.setattr(app, "_TRANC_INV", {("378276", "Ipv1")})
+    dev = {PID: {"names": {"378276": "INVERSOR 3.3"}, "nome_api": None, "usina": "Inhapi"}}
+    p = monta(store(d01=[ev("Ipv1", "08:00", "12:00"), ev("Ipv2", "08:00", "12:00")]), pv_dev=dev)
+    assert [e["string"] for e in p["strings"]["episodios"]] == ["Ipv2"]
+    assert p["strings"]["qualidade"]["trancada: fora"] == 1
+
+
+def test_trava_que_nao_da_para_conferir_fica_avisada_na_linha(monkeypatch):
+    monkeypatch.setattr(app, "_trancadas", {f"{PID}|999|Ipv1"})
+    (e,) = episodios(monta(store(d01=[ev("Ipv1", "08:00", "12:00")]), pv_dev={}))      # sem de-para da usina
+    assert "trava não conferida (sem de-para)" in e["flags"]
+
+
+def test_athon_inversor_sem_trava_nao_fica_como_trava_nao_conferida(monkeypatch):
+    # MAB100 Inv 3.9, 25/09: a usina tem uma trava (no Inversor 2.3) e por isso toda queda dela ficava "trava não
+    # conferida". Na Athon o nome da trava sai da mesma função que nomeia a queda: fora do mapa = sem trava.
+    monkeypatch.setattr(app, "_trancadas", {"TIM100|INV_35|I_PV2"})
+    st = {"2026-09-01": {"sunop": {"TIM100": {"usina": "TIM100", "ts": 0,
+                                                "eventos": [ev("ST 01", "08:00", "12:00", inv="Inversor 3.5")]}}}}
+    (e,) = monta(st)["strings"]["episodios"]
+    assert not any("trava" in f for f in e["flags"])
+
+
+def test_string_aberta_hoje_conta_ate_agora_e_nao_ate_as_18h():
+    from datetime import datetime
+    # às 10:00 de hoje, a string que caiu às 08:00 e não voltou soma 2 h — não as 10 h até as 18:00
+    (e,) = episodios(monta(store(d03=[ev("Ipv1", "08:00")]), agora=datetime(2026, 9, 3, 10, 0)))
+    assert e["fim"] is None and e["h_sol"] == pytest.approx(2.0, abs=0.2)
+
+
+def test_tracker_parado_hoje_conta_ate_agora_e_nao_ate_as_18h():
+    from datetime import datetime
+    # 25/09, 10:21: os 405 trackers parados desde a manhã contavam até as 18:00 (~11 h cada) — 45 MWh a mais no dia
+    t = trk(d03=("parado", 40.0))
+    t["2026-09-03"][PID]["eventos"][0]["parada"] = "07:00"
+    (r,) = monta({}, t, agora=datetime(2026, 9, 3, 10, 20))["trackers"]["rows"]
+    assert r["fim"] is None and r["h_sol"] == pytest.approx(3.33, abs=0.1)
 
 
 def test_amanheceu_zerada_continua_o_mesmo_episodio():

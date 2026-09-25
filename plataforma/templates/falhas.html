@@ -236,7 +236,7 @@
   const MES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
   const rotMes = m => `${MES[+m.slice(5, 7) - 1]} de ${m.slice(0, 4)}`;
   const base = () => S.aba === 'trk' ? D.trackers.rows : S.vis === 'ep' ? D.strings.episodios : D.strings.rows;
-  const CONF_STR = ['captura parcial', 'retorno em massa (buraco de telemetria)', 'sem kWp', 'dias sem varredura estimados'], CONF_TRK = ['sem kWp', 'sem ângulo (fator 25%)'];
+  const CONF_STR = ['captura parcial', 'retorno em massa (buraco de telemetria)', 'sem kWp', 'dias sem varredura estimados', 'trava não conferida (sem de-para)'], CONF_TRK = ['sem kWp', 'sem ângulo (fator 25%)'];
 
   // ── filtros ─────────────────────────────────────────────────────────────────────────
   function opcoes(sel, vals, rot) {

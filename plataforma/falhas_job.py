@@ -63,12 +63,20 @@ def _dias_entre(a, z):
 
 
 def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_store=None, trk_store=None,
-           book=None, hist_2c=None, log=print):
+           book=None, hist_2c=None, agora=None, log=print):
     """Pacote {periodo, gerado_em, strings, trackers, regua} de [ini, fim] (AAAA-MM-DD, fim incluso).
     hist_2c(dia) → {"strings": {cod: {inv: {string: serie}}}} (padrão: app._hist_build, o 2C_historico em disco)."""
     import pandas as pd
 
     t0 = time.time()
+    # episódio aberto de HOJE termina em "agora", não às 18:00: às 10:21 de 25/09 os 405 trackers parados desde a manhã
+    # contavam até as 18:00 (~11 h cada, em vez de ~3 h) — 45 MWh a mais só no dia corrente
+    agora = agora or datetime.now()
+    hoje, agora_min = agora.strftime("%Y-%m-%d"), agora.hour * 60 + agora.minute
+
+    def fim_janela(dia):
+        return min(JAN_FIM, agora_min) if dia == hoje else JAN_FIM
+
     pv_dev = pv_dev or {}
     mortas_curva = mortas_curva or {}
     if str_store is None:
@@ -304,11 +312,15 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
     # sunop/axis plant|INV_n|I_PVn; owen cod|inv|n.
     TRANC = app._trancadas
     str_q["strings trancadas no estado (ufv_state.json)"] = len(TRANC)
+    # nome de inversor comparado NORMALIZADO (sem espaço, minúsculo — o _nrm da plataforma): em 25/09 o plant_devices
+    # chamava o 378276 de Indaiatuba de "INVERSOR 1.10" e a queda gravada dizia "Inversor 1.10"; pelo nome exato a
+    # trava 21480|378276|Ipv18 não era conferida e 16 episódios da string trancada apareciam na aba
     SUNOP_INV_KEY = {}
+    TEM_TRAVA = {k.split("|")[0] for k in TRANC}
     for k in TRANC:
         p = k.split("|")
         if len(p) == 3 and "I_PV" in p[2]:
-            SUNOP_INV_KEY[(p[0], app._sunop_inv_display(p[0], p[1]))] = p[1]
+            SUNOP_INV_KEY[(p[0], nrm(app._sunop_inv_display(p[0], p[1])))] = p[1]
     PV_INV_ID, PV_INV_NOME = {}, {}
     for pid, ent in pv_dev.items():
         nome_api = ent.get("nome_api")
@@ -317,20 +329,25 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
             disp = app.EQUIP_NAMES.get(nome_api, {}).get(dev_name) if nome_api else None
             if disp is None:
                 disp = next((eq for (u, eq), c in CAD_INV_DISP.items() if u == usn and nrm(c["sup"]) == nrm(dev_name)), dev_name)
-            PV_INV_ID[(str(pid), disp)] = str(inv_id)
+            for nome in (disp, dev_name):
+                PV_INV_ID.setdefault((str(pid), nrm(nome)), str(inv_id))
             PV_INV_NOME[(str(pid), str(inv_id))] = disp
 
     def trancada(fonte, pid, inv_raw, string):
         """True = trancada; False = livre; None = sem de-para (não dá para conferir)."""
         if fonte == "pv":
             m = re.fullmatch(r"(?:INV-)?(\d{4,})", str(inv_raw))       # o próprio id no lugar do nome
-            inv_id = m.group(1) if m else PV_INV_ID.get((str(pid), str(inv_raw)))
-            return None if inv_id is None else app._str_trancada(str(pid), inv_id, str(string))
+            inv_id = m.group(1) if m else PV_INV_ID.get((str(pid), nrm(inv_raw)))
+            if inv_id is None:          # sem de-para: só é dúvida se a usina tem alguma trava
+                return None if str(pid) in TEM_TRAVA else False
+            return app._str_trancada(str(pid), inv_id, str(string))
         if fonte in ("sunop", "axis"):
-            key = SUNOP_INV_KEY.get((str(pid), str(inv_raw)))
+            key = SUNOP_INV_KEY.get((str(pid), nrm(inv_raw)))
             m = re.search(r"\d+", str(string))
             if key is None or not m:
-                return None if any(k.startswith(f"{pid}|") for k in TRANC) else False
+                # o nome da trava sai da mesma função que nomeia a queda: inversor fora do mapa não tem trava (MAB100
+                # Inv 3.9, 25/09: a usina tem UMA trava, no 2.3, e toda queda dela ficava "trava não conferida")
+                return False if key is None else None
             return app._str_key(pid, key, f"I_PV{int(m.group())}") in TRANC
         if fonte == "owen":
             return app._str_key(pid, inv_raw, string) in TRANC
@@ -340,7 +357,7 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
     segs = defaultdict(list)          # (fonte, pid, usina, inversor, string) → [segmento]
 
     def add_seg(fonte, pid, usina, dia, inv_raw, string, a, voltou, metodo):
-        b = voltou if voltou is not None else JAN_FIM
+        b = voltou if voltou is not None else fim_janela(dia)
         x, y, mins, sem_estado = intersec(a, b, usina, dia)
         if sem_estado:
             str_q["usina sem estado (janela fixa)"] += 1
@@ -354,10 +371,11 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
         if tv:
             str_q["trancada: fora"] += 1
             return
-        if tv is None:
-            str_q["trava não conferida (sem de-para)"] += 1
         inv = inv_nome(inv_disp)
         flags = set()
+        if tv is None:                # a usina tem trava e o de-para não diz qual inversor é: fica, mas avisada
+            str_q["trava não conferida (sem de-para)"] += 1
+            flags.add("trava não conferida (sem de-para)")
         if metodo == "store" and (dia, fonte) in parcial and voltou is None:
             flags.add("captura parcial")          # a queda "aberta" pode ser só a foto que parou
         if metodo == "store" and voltou is not None and massa.get((dia, fonte)) == _fmt(voltou):
@@ -396,7 +414,6 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
     # 2C: a curva mora em disco (2C_historico) — régua nova em todos os dias. Dia fechado não muda: guarda o achado
     # (com a marca das travas, que podem mudar) e o ciclo seguinte do worker não relê 24 dias de arquivo.
     marca = hash(frozenset(TRANC))
-    hoje = datetime.now().strftime("%Y-%m-%d")
     for dia in _dias_entre(ini, fim):
         ach = _CACHE_2C.get(dia)
         if ach is None or ach[0] != marca or dia >= hoje:
@@ -434,7 +451,7 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
 
     def seg_inferido(key, g):
         fonte, pid, usina, inv, string = key
-        x, y, mins, _ = intersec(JAN_INI, JAN_FIM, usina, g)
+        x, y, mins, _ = intersec(JAN_INI, fim_janela(g), usina, g)
         flags = {"dias sem varredura estimados"}
         kwp_str, y_, perda, perda_nom = perda_seg(usina, inv, g, x, y, flags)
         return {"dia": g, "a": x, "voltou": None, "x": x, "y": y, "mins": mins, "kwp_str": kwp_str, "yield": y_,
@@ -703,7 +720,7 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                 if aberto is not None:
                     # episódio vindo de trás: a parada da manhã (≤ 09:00) é continuação; se voltou hoje, fecha no retorno
                     if a <= 9 * 60 and b is None:
-                        x, y, _m, _ = intersec(a, JAN_FIM, usina_c, dia)
+                        x, y, _m, _ = intersec(a, fim_janela(dia), usina_c, dia)
                         aberto["dias"].append((dia, x, y))
                         aberto["desvios"].append(ev.get("desvio"))
                         continue
@@ -717,7 +734,7 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                         continue
                     fecha(aberto, aberto["dias"][-1][0], aberto["dias"][-1][2], "gap fechado no fim do dia")
                     aberto = None
-                x, y, _m, _ = intersec(a, b if b is not None else JAN_FIM, usina_c, dia)
+                x, y, _m, _ = intersec(a, b if b is not None else fim_janela(dia), usina_c, dia)
                 ep = {"ini_dia": dia, "ini_min": x, "dias": [(dia, x, y)], "desvios": [ev.get("desvio")]}
                 if b is None:
                     aberto = ep
@@ -742,7 +759,7 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
             a["h"] += r["h_sol"]
         return sorted(({"k": k, **v} for k, v in agg.items()), key=lambda x: -x["kwh"])
 
-    return {"periodo": [ini, fim], "gerado_em": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    return {"periodo": [ini, fim], "gerado_em": agora.strftime("%Y-%m-%d %H:%M"),
             "strings": {"rows": str_rows, "episodios": str_ep, "qualidade": dict(str_q),
                         "por_cliente": resumo(str_rows, "cliente")[:12], "por_usina": resumo(str_rows, "usina")[:25],
                         "parcial": sorted(list(x) for x in parcial), "massa": {f"{d_}|{f_}": v for (d_, f_), v in massa.items()}},
