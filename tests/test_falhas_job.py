@@ -125,3 +125,47 @@ def test_mes_publicado_pelo_worker_e_servido_como_esta(cliente):
 def test_mes_invalido_e_recusado(cliente):
     c, _ = cliente
     assert c.get("/api/painel/falhas?mes=../../etc").status_code == 400
+
+
+# ── o workbook falhas_performance: só o servidor grava, de hora em hora, e só quando o dado mudou ──────
+import falhas_publicar
+
+
+@pytest.fixture
+def worker_wb(monkeypatch, tmp_path):
+    monkeypatch.setattr(app, "_falhas_arquivo", lambda mes: str(tmp_path / f"falhas_{mes}.json"))
+    monkeypatch.setattr(app, "_falhas_wb", {"ts": 0.0, "marca": None})
+    monkeypatch.setenv("GRIDCO_SQL_TOKEN", "tok-teste")
+    chamadas = []
+    monkeypatch.setattr(falhas_publicar, "sincronizar", lambda conteudo, **kw: chamadas.append(kw) or {"sheets": 4})
+    app._falhas_publicar("2026-09", monta(store(d01=[ev("Ipv1", "08:00")])), ["2026-09"])
+    return chamadas
+
+
+def test_so_o_servidor_grava_o_workbook(monkeypatch):
+    # duas plataformas com replace=true deixariam o workbook trocando de versão a cada hora (a ponte local do
+    # OS Creator roda no Windows do Levi; o servidor é Linux)
+    monkeypatch.delenv("FALHAS_WORKBOOK", raising=False)
+    monkeypatch.setattr(app.os, "name", "nt")
+    assert app._falhas_workbook_ligado() is False
+    monkeypatch.setattr(app.os, "name", "posix")
+    assert app._falhas_workbook_ligado() is True
+    monkeypatch.setenv("FALHAS_WORKBOOK", "0")
+    assert app._falhas_workbook_ligado() is False
+
+
+def test_workbook_sobe_uma_vez_por_hora_e_so_quando_o_dado_muda(monkeypatch, worker_wb):
+    monkeypatch.setenv("FALHAS_WORKBOOK", "1")
+    app._falhas_publicar_workbook(["2026-09"])
+    assert len(worker_wb) == 1 and worker_wb[0]["token"] == "tok-teste"
+    app._falhas_publicar_workbook(["2026-09"])                  # mesma hora: não sobe de novo
+    assert len(worker_wb) == 1
+    app._falhas_wb["ts"] = 0.0                                   # passou a hora, mas o dado é o mesmo
+    app._falhas_publicar_workbook(["2026-09"])
+    assert len(worker_wb) == 1
+
+
+def test_workbook_desligado_nao_sobe(monkeypatch, worker_wb):
+    monkeypatch.setenv("FALHAS_WORKBOOK", "0")
+    app._falhas_publicar_workbook(["2026-09"])
+    assert worker_wb == []

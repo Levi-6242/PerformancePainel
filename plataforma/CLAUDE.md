@@ -449,3 +449,9 @@ resposta e a rota `/api/painel/falhas?mes=` só devolve os bytes. De `FALHAS_INI
   "vistos no store" inflava ~10×: o store só lista tracker com anomalia).
 - Geração: a que a Disponibilidade acabou de buscar (`_DISP_GER_ULTIMA`) ou `_disp_geracao(..., com_pg=False)` —
   nunca uma 2ª consulta do mês ao banco da Thopen.
+- **Workbook `falhas_performance` (Gridco API, id 39, criado em 25/09):** abas `strings_inversor_dia`,
+  `strings_episodios`, `trackers_episodios` e `atualizacao` (`falhas_publicar.py`, o caminho do gêmeo: xlsx +
+  `sync-xlsx?replace=true`). O worker sobe de hora em hora e só quando o dado muda (`_falhas_publicar_workbook`) — a
+  API guarda histórico por linha, por isso as linhas vão pela data de início e o "gerado em" mora na `atualizacao`.
+  **Só o servidor grava** (Linux; `FALHAS_WORKBOOK=1/0` força): a ponte local do OS Creator, se rodar este código,
+  deixaria o workbook trocando de versão a cada hora. A API não apaga workbook nem aba.

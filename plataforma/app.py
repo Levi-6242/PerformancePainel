@@ -22155,12 +22155,55 @@ def _falhas_recalcular():
         _falhas_publicar(mes, pacote, meses)
         print(f"[falhas] {mes} publicado: {len(pacote['strings']['episodios'])} episódios de string, "
               f"{len(pacote['trackers']['rows'])} de tracker ({time.time()-t0:.0f}s)")
+    try:
+        _falhas_publicar_workbook(meses)
+    except Exception as e:
+        print(f"[falhas] workbook não subiu (tenta de novo em 1 h): {e}")
 
 
 def _falhas_publicar(mes, pacote, meses=None):
     """Grava o pacote do mês JÁ no formato da resposta da API (quente, mês, meses): o web serve os bytes."""
     pacote.update({"quente": True, "mes": mes, "meses": meses or _falhas_meses()})
     _falhas_gravar(_falhas_arquivo(mes), pacote)
+
+
+# Workbook `falhas_performance` da Gridco API (Levi, 25/09: "pode criar o workbook"): as mesmas tabelas da aba, para
+# o BI e o histórico. De hora em hora e só quando o dado mudou — a API guarda histórico por linha.
+FALHAS_WB_TTL = 60 * 60
+_falhas_wb = {"ts": 0.0, "marca": None}
+
+
+def _falhas_workbook_ligado():
+    """Só o servidor grava o workbook. As cópias Windows (a ponte local do OS Creator, o PC dedicado) não: duas
+    plataformas subindo com replace=true deixariam o workbook trocando de versão a cada hora. FALHAS_WORKBOOK=1/0
+    força um lado ou o outro."""
+    v = os.environ.get("FALHAS_WORKBOOK", "").strip()
+    if v in ("0", "1"):
+        return v == "1"
+    return os.name == "posix"
+
+
+def _falhas_publicar_workbook(meses):
+    """WORKER: sobe todos os meses publicados (o replace troca a aba inteira) para o workbook falhas_performance."""
+    tok = os.environ.get("GRIDCO_SQL_TOKEN", "").strip()
+    if not _falhas_workbook_ligado() or not tok or time.time() - _falhas_wb["ts"] < FALHAS_WB_TTL:
+        return
+    import hashlib
+    import bd_api
+    import falhas_publicar as _fp
+    pacotes = [p for p in (_falhas_ler(_falhas_arquivo(m)) for m in meses) if p]
+    if not pacotes:
+        return
+    tabs = _fp.tabelas(pacotes)
+    # a aba `atualizacao` carrega o "gerado em", que muda a toda volta: fora da marca, senão todo ciclo subiria
+    marca = hashlib.sha1(json.dumps({k: v for k, v in tabs.items() if k != "atualizacao"}, ensure_ascii=False,
+                                    default=str).encode("utf-8")).hexdigest()
+    _falhas_wb["ts"] = time.time()
+    if marca == _falhas_wb["marca"]:
+        return
+    res = _fp.sincronizar(_fp.xlsx_bytes(tabs), base=bd_api.API_BASE, token=tok)
+    _falhas_wb["marca"] = marca
+    print(f"[falhas] workbook {_fp.WORKBOOK}: {res}")
 
 
 def _falhas_loop():
