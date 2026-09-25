@@ -12,10 +12,10 @@ import pathlib
 import app
 
 RAIZ = pathlib.Path(app.__file__).resolve().parents[1]
-IDS = {18771898, 18771901, 18750925}
+IDS = {18771898, 18771901, 18750925, 18772125}     # + a União, em 25/09/2026 ("adicione a usina União em 2C!")
 
 
-def test_fonte_2capi_tem_as_tres_usinas_e_e_conta_oem():
+def test_fonte_2capi_tem_as_quatro_usinas_e_e_conta_oem():
     assert app.PV_FONTES["2capi"] == IDS
     assert all(app._pv_fonte_de(i) == "2capi" and app._pv_is_oem(i) for i in IDS)
     assert app._pv_fonte_de(18748888) is None                      # Colorado 2 segue na principal (Thopen)

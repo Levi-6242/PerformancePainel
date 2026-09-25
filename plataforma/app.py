@@ -1337,7 +1337,9 @@ def _nrm(s) -> str:
 # A API PV escreve alguns nomes diferente do cadastro (coluna "Usina Supervisório" do Equipamentos), e o cadastro é a
 # chave de tudo: esperadas, nomes de inversor, Full O&M, display, aba do BD. "Sete Lagoa" (API) é "Sete Lagoas" no
 # cadastro (Levi cadastrou no plural, 11/09/2026) — sem esta ponte a usina entrava sem esperadas e sem nomes.
-PV_NOME_API_ALIAS = {"Sete Lagoa": "Sete Lagoas"}
+# "União" (API, com espaço no fim) é "União 1 e 2" no cadastro (Info Geral: cliente 2C, Piauí) — 25/09/2026, quando
+# ela entrou na 2C. Sem a ponte ela não achava o cliente e o card da 2C na Entrada a descartava.
+PV_NOME_API_ALIAS = {"Sete Lagoa": "Sete Lagoas", "União": "União 1 e 2"}
 
 
 def _aplica_alias_api_cadastro():
@@ -2206,7 +2208,11 @@ PV_FONTES = {
     # Sete Lagoa 59, Tupi 100, iguais ao BD_Trackers. Mesmo assim seguem pelo e-mail (fonte `owen`), para não
     # duplicar a mesma ocorrência em duas fontes; migrar é decisão do Levi (a API é ~2h45 mais fresca que o
     # e-mail). Ver PV_TRK_OUTRA_FONTE. A Ipixuna do Pará não está na API.
-    "2capi":     {18771898, 18771901, 18750925},    # Araputanga, "Sete Lagoa" (singular na API), Tupi Paulista
+    # União (Levi, 25/09/2026: "adicione a usina União em 2C!"): na mesma conta oem@, id 18772125, 2.162 kWp, instalada
+    # em 22/09/2026 — 6 inversores com 28 Ipv (18 com corrente). O cadastro diz "União 1 e 2" com 12 inversores e 4,46
+    # MWp: a API tem, por ora, metade. O Equipamentos ainda não tem os inversores dela (sem esperadas nem nomes).
+    "2capi":     {18771898, 18771901, 18750925,     # Araputanga, "Sete Lagoa" (singular na API), Tupi Paulista
+                  18772125},                        # União ("União 1 e 2" no cadastro — PV_NOME_API_ALIAS)
 }
 # PV_NOME_API_ALIAS ("Sete Lagoa" → "Sete Lagoas") está definido antes do load_equipamentos, que o aplica ao cadastro.
 # Conta oem@ não devolve NOME de inversor (só idefinversor) e as abas da 2C não têm linha no Equipamentos. Este
@@ -3276,10 +3282,12 @@ def entrada_teste(nivel=None):
 # ── Entrada: drill-down "Operacao em tempo real" ─────────────────────────────
 # (cliente, fonte como o rollup rotula, id da fonte no Monitoramento) — na ordem em que os cards aparecem
 # SÓ estes cards, nesta ordem (Levi, 25/09/2026: "quero que apareça apenas o que eu quero que apareça! Thopen, Athon,
-# Axis, 2C e RenoGrid!"). SEMP e Alves Lima saíram, e NENHUM card nasce fora desta lista — ver o filtro no fim do
-# _entrada_tempo_real_build: usina ou tracker sem cliente no cadastro não vira mais um "Sem cliente".
+# Axis, 2C e RenoGrid!"). NENHUM card nasce fora desta lista — ver o filtro no fim do _entrada_tempo_real_build: usina
+# ou tracker sem cliente no cadastro não vira mais um "Sem cliente". Alves Lima saiu; a SEMP saiu junto e voltou na
+# mesma tarde, no lugar de antes ("sumiu as usinas da SEMP, pode botar de volta no tempo real").
 _ENTRADA_GRUPOS = [("Thopen", "API PV", "thopen-pv"), ("Thopen", "Thopen", "thopen-db"), ("Athon", "Athon", "athon"),
-                   ("Axis", "Axis", "axis"), ("Renogrid", "RenoGrid", "renogrid"), ("2C", "2C", "2c")]
+                   ("Axis", "Axis", "axis"), ("Renogrid", "RenoGrid", "renogrid"), ("2C", "2C", "2c"),
+                   ("SEMP", "SEMP", "semp")]
 # A 2C e' UM card: as tres da API PV e a Ipixuna do e-mail entram juntas em "2C" (Levi, 11/09/2026) — a fonte `2capi`
 # existe como aba do Monitoramento, nao como card.
 _ENTRADA_FONTE_ID = {f: fid for _c, f, fid in _ENTRADA_GRUPOS}
@@ -11438,9 +11446,15 @@ def se_string_power(site_id, uuids, tzname):
 
     O 3º valor é o que separa "string sem potência" de "leitura que não veio": um lote de 50 que falha
     tira 50 uuids do mapa, e quem consome conta uuid ausente como string morta. Mesma armadilha que o
-    SunOp levou em 31/07 (248 alarmes falsos com sem_dados=false) — ver `process_plant_sunop`."""
+    SunOp levou em 31/07 (248 alarmes falsos com sem_dados=false) — ver `process_plant_sunop`.
+
+    O valor é o do último quarto de hora FECHADO (25/09/2026). O quarto em andamento chega parcial (o das 12:00,
+    recém-aberto, com 0,6–2,7 kW em strings de 13,6 kW) e, com a régua de inversor desligado da Athon (potência < 5%
+    da mediana, desde 24/09), virava alarme falso: às 14:48, 3 min depois de abrir o quarto, a Colíder 1 tinha 21
+    inversores "desligados" e a Colíder 2, 8 — contra 0 e 0 com o quarto fechado. A última leitura fica ~15 min atrás."""
     frm, to = _se_day_range(tzname)
     out, ts_max, lotes_falhos = {}, "", 0
+    fechado_ate = datetime.now(timezone.utc).astimezone(timezone.utc) - timedelta(minutes=15)
     H = _se_headers()
     for i in range(0, len(uuids), 50):
         batch = uuids[i:i + 50]
@@ -11478,6 +11492,9 @@ def se_string_power(site_id, uuids, tzname):
             last_p = None
             for row in data[j]:        # row = [ts, energia_Wh, potencia_W]
                 if row[2] is not None:
+                    t = _se_ts_utc(row[0])
+                    if t is not None and t > fechado_ate:
+                        continue       # quarto de hora em andamento: parcial (ver acima)
                     last_p = row[2]
                     if row[0] > ts_max:
                         ts_max = row[0]

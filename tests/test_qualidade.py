@@ -158,7 +158,7 @@ def test_recorte_2c_e_clipping_nao_e_perda():
         FULL_OM e passa a olhar só as três da 2C que estão na API PV."""
     import app
     assert app.QUALIDADE_PLANTAS == set(app.PV_FONTES["2capi"]), "o recorte é a fonte 2capi"
-    assert len(app.QUALIDADE_PLANTAS) == 3
+    assert len(app.QUALIDADE_PLANTAS) == 4          # as três de 17/09 + a União (25/09/2026)
     import pathlib
     APP = (pathlib.Path(__file__).resolve().parents[1] / "plataforma" / "app.py").read_text(encoding="utf-8")
     assert '"clipping_e_perda": False' in APP, "o payload tem de dizer que clipping não é perda"

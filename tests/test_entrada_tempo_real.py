@@ -68,7 +68,7 @@ def test_fonte_lenta_nao_segura_a_tela(entrada, monkeypatch):
     d = app._entrada_tempo_real_build()
     gasto = time.time() - t0
     assert gasto < 5, f"o build esperou a fonte lenta ({gasto:.1f}s) em vez de publicar sem ela"
-    assert len(d["grupos"]) == 6       # os 6 cards existem sempre (a 2C e' UM card; SEMP e Alves Lima sairam em 25/09/2026)
+    assert len(d["grupos"]) == 7       # os 7 cards existem sempre (a 2C e' UM card; Alves Lima saiu em 25/09/2026 e a SEMP voltou)
     lento = _grupo(d, "Thopen", "Thopen")
     assert lento["trk_fonte_ok"] is False and lento["trk_parados"] == 0   # a tela escreve "fonte nao respondeu"
     assert d["fontes_pendentes"] == ["Thopen"]                            # e o cache sabe que deve tentar de novo em 5 min

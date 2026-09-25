@@ -167,8 +167,10 @@ potência por string, não corrente (corrente só por otimizador). Um inversor =
 inteira, 1 a cada 50 strings. Dia passado vale (o intervalo é o dia NO FUSO DA USINA — Cuiabá é UTC−4). Conferido em
 25/09: o último ponto de cada curva bate com o valor da tabela nas 39 strings testadas, em 6 usinas. **O quarto de
 hora em andamento chega parcial** (o das 12:00, recém-aberto, com 0,6–2,7 kW em strings de 13,6 kW; 20 min depois o
-das 11:45 subiu de 10,5–13,5 para 13,3–14,9 kW) e sai da curva de hoje. A tabela segue usando o último ponto: medido
-nas 1.017 strings com leitura, isso deu 0 inativas falsas (o parcial não vem zerado), só 51 chips com valor abaixo.
+das 11:45 subiu de 10,5–13,5 para 13,3–14,9 kW) e sai da curva de hoje. **A tabela também** (`se_string_power`, desde
+a tarde de 25/09): o parcial não zerava string nenhuma (0 inativas falsas em 1.017), mas a régua de inversor desligado
+(potência < 5% da mediana) caía nele — às 14:48, 3 min depois de abrir o quarto, 21 inversores "desligados" na Colíder
+1 e 8 na Colíder 2, contra 0 e 0 com o quarto fechado. A última leitura da RenoGrid fica ~15 min atrás, e é de propósito.
 Na tela, `curvaSVG(..., unit)` recebe 'W' na RenoGrid e 'A' nas outras.
 
 ## Visão Geração no drill-down do Monitoramento
@@ -368,6 +370,14 @@ por falta de permissão: desde 15/09/2026 a PV Plataforma devolve as três (ARA 
 BD_Trackers) — é para não ter a MESMA ocorrência em duas fontes. Quem decide migrar é o Levi; a API é ~2h45
 mais fresca. A trava está em `PV_TRK_OUTRA_FONTE` (ver "Trackers das usinas da conta OEM" abaixo). A conta principal responde "Invalid id" para as três:
 qualquer chamada delas tem de ir por `_pv_token_for`. Teste: `tests/test_fonte_2capi.py`.
+
+**A União entrou em 25/09/2026** ("adicione a usina União em 2C!"): conta oem@, id 18772125, "União " na API (com
+espaço), 2.162 kWp, instalada em 22/09 — 6 inversores com 28 Ipv (18 com corrente). No cadastro é "União 1 e 2" (Info
+Geral: cliente 2C, Piauí, 12 inversores, 4,46 MWp — a API tem metade, por ora), e o `PV_NOME_API_ALIAS` faz a ponte;
+sem ela o card da 2C da Entrada a descartava por falta de cliente. O Equipamentos ainda não tem os inversores dela:
+sem esperadas a linha mostra as 108 strings sem julgar déficit, e o drill mostra o inversor pelo id — o de-para de nome
+só vale fechado por valor (`PV_INV_NOMES`). Os trackers dela seguem o caminho das outras três (aba 2C, pela API).
+Teste: `tests/test_2c_uniao.py`.
 
 ## Sol por estado (macro e sino)
 

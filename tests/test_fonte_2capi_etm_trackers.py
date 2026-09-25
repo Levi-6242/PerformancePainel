@@ -48,10 +48,11 @@ def test_payload_da_fonte_constroi_so_as_usinas_dela(monkeypatch):
     monkeypatch.setattr(app, "_plat_token", lambda: "x")
     app._pv_trk_fonte_cache.pop("2capi", None)
     out = app._pv_trk_payload_da_fonte("2capi")
-    assert sorted(vistos) == sorted(app.PV_FONTES["2capi"]), "tem de varrer as três da fonte"
-    assert out["summary"]["usinas"] == 3
-    assert out["summary"]["trackers"] == 177          # 59 × 3
-    assert out["summary"]["severos"] == 3
+    n = len(app.PV_FONTES["2capi"])                   # 4 desde 25/09/2026, com a União
+    assert sorted(vistos) == sorted(app.PV_FONTES["2capi"]), "tem de varrer todas as da fonte"
+    assert out["summary"]["usinas"] == n
+    assert out["summary"]["trackers"] == 59 * n
+    assert out["summary"]["severos"] == n
 
 
 def test_linha_leva_o_NOME_da_usina_nao_o_id(monkeypatch):
@@ -61,7 +62,7 @@ def test_linha_leva_o_NOME_da_usina_nao_o_id(monkeypatch):
     monkeypatch.setattr(app, "get_token", lambda *a, **k: "t")
     monkeypatch.setattr(app, "get_plants", lambda *a, **k: [
         {"id": 18771898, "nome": "Araputanga"}, {"id": 18771901, "nome": "Sete Lagoa"},
-        {"id": 18750925, "nome": "Tupi Paulista"}])
+        {"id": 18750925, "nome": "Tupi Paulista"}, {"id": 18772125, "nome": "União "}])
     monkeypatch.setattr(app, "_pv_trackers_analise",
                         lambda idusina, nome, **kw: {"plant_id": idusina, "usina": nome,
                                                      "tem_trackers": True, "total": 1})
