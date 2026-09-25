@@ -7537,13 +7537,16 @@ def _pv_comb_parse(rows, devs, agora=None, max_idade_h=_PV_COMB_MAX_IDADE_H) -> 
         ag_dt = datetime.strptime(str(ag)[:19], "%Y-%m-%d %H:%M:%S")
     except Exception:
         ag_dt = datetime.now()
-    por_esn = {}                                   # esn base → inversor
+    # esn base → TODOS os inversores com ele (25/09/2026). O mesmo inversor pode estar cadastrado duas vezes na API, com o
+    # mesmo número de série: na Tanabi 2, 369742 "INVERSOR02 Novo" (é ele que reporta) e 365433 "INVERSOR02 No" (esn com
+    # sufixo @). Guardando só o último da lista, a combiner caía no 365433 e o 2.2 da tela ficava "sem visão".
+    por_esn = {}
     for d in devs:
         if str(d.get("device_type") or "").upper() != "INVERTER":
             continue
         esn = str(d.get("device_esn") or "").split("@")[0].strip()
         if esn:
-            por_esn[esn] = d
+            por_esn.setdefault(esn, []).append(d)
     ult = {}                                       # idcombiner → (ts, conteudojson)
     for e in rows:
         cj = e.get("conteudojson") or {}
@@ -7557,8 +7560,8 @@ def _pv_comb_parse(rows, devs, agora=None, max_idade_h=_PV_COMB_MAX_IDADE_H) -> 
     for k, (ts, cj) in ult.items():
         sn = str(cj.get("sn") or "")
         esn = sn[3:] if sn[:3].upper() == "CMB" else sn
-        inv = por_esn.get(esn)
-        if not inv:
+        invs = por_esn.get(esn)
+        if not invs:
             continue                               # combiner sem inversor no cadastro da API
         try:                                       # leitura congelada não passa por leitura de agora
             if (ag_dt - datetime.strptime(ts[:19], "%Y-%m-%d %H:%M:%S")).total_seconds() > max_idade_h * 3600:
@@ -7569,7 +7572,8 @@ def _pv_comb_parse(rows, devs, agora=None, max_idade_h=_PV_COMB_MAX_IDADE_H) -> 
                           if a.startswith("Ipv") and isinstance(b, (int, float))),
                          key=lambda t: _pv_trk_num(t[0]))     # Ipv10 DEPOIS de Ipv9, não entre 1 e 2
         if strings:
-            out[inv["device_id"]] = {"strings": strings, "ts": ts, "idcombiner": k}
+            for inv in invs:
+                out[inv["device_id"]] = {"strings": strings, "ts": ts, "idcombiner": k}
     return out
 
 
@@ -7578,6 +7582,16 @@ def _pv_comb_parse(rows, devs, agora=None, max_idade_h=_PV_COMB_MAX_IDADE_H) -> 
 # seguidas na Santana do Ipanema, todas 429, cada uma gastando mais do limite da API PV.
 PV_COMB_ESPERA_FALHA_S = 60
 _pv_comb_falhou = {}          # plant_id → time.time() da última falha
+# Validade da combiner: 15 min de dia, 1 h fora de 06–19h (25/09/2026). A API PV passou a ter COTA DIÁRIA de consultas
+# históricas ("Você atingiu o limite diário de consultas históricas. Tente novamente amanhã", Tanabi 1 às 09:05), e a
+# combiner sai do custom_query, que devolve o dia inteiro. Pedida a cada 5 min — de noite também, e em dobro com a
+# plataforma local —, a cota acabava de manhã e as String Box ficavam "sem visão" o resto do dia.
+PV_COMB_TTL_DIA_S = 900
+PV_COMB_TTL_NOITE_S = 3600
+
+
+def _pv_comb_ttl() -> int:
+    return PV_COMB_TTL_DIA_S if 6 <= datetime.now().hour < 19 else PV_COMB_TTL_NOITE_S
 
 
 def _pv_combiner_usina(plant_id, force=False) -> dict:
@@ -7586,7 +7600,7 @@ def _pv_combiner_usina(plant_id, force=False) -> dict:
     Cacheado por usina (CACHE_TTL). Falha devolve o último bom, nunca envenena com {} — senão a
     String Box PISCA para "sem visão", o mesmo cuidado que a fonte antiga já tinha."""
     ent = _pv_comb_cache.get(plant_id)
-    if ent and not force and (time.time() - ent["ts"]) < CACHE_TTL:
+    if ent and not force and (time.time() - ent["ts"]) < _pv_comb_ttl():
         return ent["por_inv"]
     prev = (ent or {}).get("por_inv") or {}
     if not force and (time.time() - _pv_comb_falhou.get(plant_id, 0.0)) < PV_COMB_ESPERA_FALHA_S:

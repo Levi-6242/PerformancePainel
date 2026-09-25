@@ -91,3 +91,63 @@ def test_formato_igual_ao_da_fonte_antiga():
     d = app._pv_comb_parse(rows, DEVS, agora="2026-09-16 14:25:00")[50215]
     assert set(d) >= {"strings", "ts"}
     assert dict(d["strings"]) == {"Ipv1": 8.80, "Ipv2": 8.64}
+
+
+def test_inversor_cadastrado_duas_vezes_recebe_a_combiner_nos_dois_ids():
+    """Tanabi 2, 25/09/2026 (Levi: "tem vários inversores que a plataforma escondeu a string"). O INVERSOR02 está
+    cadastrado DUAS vezes na API com o mesmo número de série — 369742 "INVERSOR02 Novo" (é ele que reporta no
+    day_inverter) e 365433 "INVERSOR02 No" (esn com sufixo @). O de-para guardava só o ÚLTIMO da lista: a combiner caía
+    no 365433, que não aparece, e o 2.2 da tela ficava "sem visão" com a combiner dele chegando a cada 2 min."""
+    devs = [{"device_id": 369742, "device_name": "INVERSOR02 Novo", "device_type": "INVERTER", "device_esn": "A2151700567"},
+            {"device_id": 365433, "device_name": "INVERSOR02 No", "device_type": "INVERTER",
+             "device_esn": "A2151700567@1779972254"}]
+    rows = [_linha(933, "CMBA2151700567", "2026-09-25 09:04:24", [1.5, 1.8, 1.64])]
+    out = app._pv_comb_parse(rows, devs, agora="2026-09-25 09:06:00")
+    assert set(out) == {369742, 365433}, "a combiner tem de chegar no id que a tela mostra, qualquer que seja"
+    assert out[369742]["strings"] == [("Ipv1", 1.5), ("Ipv2", 1.8), ("Ipv3", 1.64)]
+
+
+# ── a cota diária da API PV (25/09/2026) ─────────────────────────────────────
+# "Você atingiu o limite diário de consultas históricas. Tente novamente amanhã" — a Tanabi 1 às 09:05. A combiner sai do
+# custom_query, que devolve o DIA INTEIRO e conta nessa cota; a plataforma pedia de novo a cada 5 min, noite inclusive.
+
+def _conta_idas(monkeypatch):
+    idas = []
+
+    class _R:
+        status_code = 200
+
+        def json(self):
+            return []
+
+    class _H:
+        def post(self, url, **k):
+            idas.append(url)
+            return _R()
+    monkeypatch.setattr(app, "_http", lambda: _H())
+    monkeypatch.setattr(app, "_pv_token_for", lambda pid: "")
+    monkeypatch.setattr(app, "_pv_plant_devices", lambda pid: [])
+    monkeypatch.setattr(app, "_pv_comb_falhou", {})
+    return idas
+
+
+def test_de_dia_a_combiner_vale_15_min(monkeypatch, freeze_now):
+    freeze_now("2026-09-25 12:00:00")
+    idas = _conta_idas(monkeypatch)
+    monkeypatch.setattr(app, "_pv_comb_cache", {1: {"ts": app.time.time() - 10 * 60, "por_inv": {}}})
+    app._pv_combiner_usina(1)
+    assert idas == [], "com 10 min de idade ainda vale: não gasta a cota"
+    monkeypatch.setattr(app, "_pv_comb_cache", {1: {"ts": app.time.time() - 16 * 60, "por_inv": {}}})
+    app._pv_combiner_usina(1)
+    assert len(idas) == 1
+
+
+def test_a_noite_a_combiner_vale_1_hora(monkeypatch, freeze_now):
+    freeze_now("2026-09-25 23:00:00")
+    idas = _conta_idas(monkeypatch)
+    monkeypatch.setattr(app, "_pv_comb_cache", {1: {"ts": app.time.time() - 40 * 60, "por_inv": {}}})
+    app._pv_combiner_usina(1)
+    assert idas == []
+    monkeypatch.setattr(app, "_pv_comb_cache", {1: {"ts": app.time.time() - 61 * 60, "por_inv": {}}})
+    app._pv_combiner_usina(1)
+    assert len(idas) == 1
