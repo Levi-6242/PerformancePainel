@@ -2493,12 +2493,18 @@ def build_summary(plant: dict, records: list) -> dict:
     _esp_cad = ESPERADO_INV.get(plant["nome"].strip()) or {}
     _nomes_cad: dict = {}
 
+    def _nomes_dispositivos() -> dict:
+        """id → nome do plant_devices (cache de 30 min do _pv_plant_devices, que só guarda resposta boa)."""
+        if not _nomes_cad:
+            _nomes_cad.update({d["device_id"]: str(d.get("device_name", "")).strip()
+                               for d in _pv_plant_devices(pid) if isinstance(d, dict) and "device_id" in d})
+        return _nomes_cad
+
     def _esp_cadastro(inv_id) -> float:
         """Strings esperadas do inversor no cadastro (pelo nome do plant_devices, cache de 30 min); sem o nome
         dele, a média da usina; sem cadastro, 0."""
-        if _esp_cad and not _nomes_cad:
-            _nomes_cad.update({d["device_id"]: str(d.get("device_name", "")).strip()
-                               for d in _pv_plant_devices(pid) if isinstance(d, dict) and "device_id" in d})
+        if _esp_cad:
+            _nomes_dispositivos()
         v = _equip_lookup(_esp_cad, _nomes_cad.get(inv_id)) if _nomes_cad.get(inv_id) else None
         if isinstance(v, (int, float)):
             return v
@@ -2644,6 +2650,23 @@ def build_summary(plant: dict, records: list) -> dict:
         str_esp = max(0, str_esp - strings_com_os - strings_fora)
     _eq_n = EQUIP_NAMES.get(plant["nome"].strip()) or {}
     desl_nomes = sorted(_equip_lookup(_eq_n, _dn_n.get(i)) or _dn_n.get(i) or str(i) for i in desl_ids)
+    # Inversor do cadastro SEM LEITURA HOJE, com sol e os outros gerando (Levi, 25/09/2026: "o inversor 1.3 de Colorado 2
+    # está desligado, a plataforma não conta como desligado"): o day_inverter nem traz o inversor, e as 22 esperadas dele
+    # viravam strings faltando (−30 com 3/4 inversores). Sai da conta como o de potência zero, com o mesmo aviso. Só
+    # casando pelo nome do cadastro, e só se a conta fecha (faltam exatamente inv_esp − os que reportam): nome que não
+    # casa não vira "desligado" por engano.
+    n_sem_leitura = 0
+    if (_com_sol and any(x is True for x in prod) and isinstance(inv_esp, (int, float)) and inv_esp > len(latest)
+            and isinstance(str_esp, (int, float))):
+        _esp_todos = ESPERADO_INV.get(plant["nome"].strip()) or {}
+        _nomes_rep = {_equip_key(n) for n in (_nomes_dispositivos().get(i) for i in inv_ids) if n}
+        _faltam = [n for n in _esp_todos if _equip_key(n) not in _nomes_rep]
+        if _faltam and len(_faltam) == int(inv_esp) - len(latest):
+            _esp_faltam = sum(v for n, v in _esp_todos.items() if n in _faltam and isinstance(v, (int, float)))
+            str_esp = max(0, str_esp - _esp_faltam)
+            strings_fora += round(_esp_faltam)
+            n_sem_leitura = len(_faltam)
+            desl_nomes = sorted(desl_nomes + [_equip_lookup(_eq_n, n) or n for n in _faltam])
     diferenca = (strings_ativas - str_esp) if (str_esp is not None) else None
     dif_operante = diferenca
     _n_off_na_conta = max(0, n_off - len(off_ids))   # parados que seguem na conta: usina inteira parada, sem sol
@@ -2657,7 +2680,7 @@ def build_summary(plant: dict, records: list) -> dict:
         "strings_ativas": strings_ativas,
         "inv_com_os": len(os_ids), "strings_com_os": strings_com_os,   # inversores com OS atribuída: fora da conta
         # inversor desligado fora da conta — os mesmos campos da Athon (process_plant_sunop), que a tela e os tickets leem
-        "inv_desligados": len(desl_ids), "strings_fora": strings_fora, "inv_desligados_nomes": desl_nomes,
+        "inv_desligados": len(desl_ids) + n_sem_leitura, "strings_fora": strings_fora, "inv_desligados_nomes": desl_nomes,
         "pot_med": pot_med, "inv_off": n_off, "diferenca_operante": dif_operante,
         "inv_esp": inv_esp, "str_esp": str_esp, "diferenca": diferenca,
         "temp_media": round(sum(temps) / len(temps), 1) if temps else None,
