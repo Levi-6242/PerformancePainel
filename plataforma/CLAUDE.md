@@ -134,6 +134,13 @@ da antiga com o banco carregado, e 6.020 linhas iguais na MESMA foto do banco (`
 duas consultas enquanto o dado chega). Não volte ao `DISTINCT ON` em janela longa: o banco comprime o que passa de 7
 dias, segmentado por `device_id`.
 
+**Abrir usina da API PV (drill, `_pv_plant_inversores`, 24/09/2026).** Com a API PV lenta, abrir a Santana do Ipanema
+(24 inversores) levava 1–2 min: `day_inverter`, lista de usinas e `plant_devices` iam uma depois da outra (18,5 + 10 +
+10,6 s), e à noite a combiner de CADA inversor era consultada (24 chamadas, todas 429). Agora as três vão em paralelo,
+os dispositivos vêm do cache de 30 min do `_pv_plant_devices` (só guarda resposta boa — o `_pv_dev_names` guarda até a
+falha), a combiner só é consultada em usina String Box do cadastro ou inversor gerando (a porta do `build_summary`), e
+combiner que falhou espera `PV_COMB_ESPERA_FALHA_S`. Medido na mesma hora: 34,8 → 11,0 s, resultado idêntico.
+
 ## Padrão por inversor (usinas sem visão por string)
 
 Ceilândia 1, Céu Azul e Ouro Branco (String Box com combiner não exposta) e Barretos (sem esperado no

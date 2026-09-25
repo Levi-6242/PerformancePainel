@@ -28,6 +28,6 @@ def test_sete_lagoas_do_email_entra_no_card_da_2c_e_nao_cria_sem_cliente(monkeyp
     monkeypatch.setattr(app, "_owen_parados_rows", lambda *a, **k: [{"usina": app._owen_nome("STL")}, {"usina": app._owen_nome("STL")}])
     d = app._entrada_tempo_real_build()
     assert not [g for g in d["grupos"] if g["cliente"] == "Sem cliente"], "a Sete Lagoas do e-mail virou um card 'Sem cliente'"
-    assert len(d["grupos"]) == 8                                             # só os 8 pares fixos
+    assert len(d["grupos"]) == 6                                             # só os 6 cards da lista (25/09/2026)
     por = {g["fonte"]: g for g in d["grupos"]}
     assert por["2C"]["trk_parados"] == 2                                     # os trackers dela contam no card da 2C

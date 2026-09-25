@@ -2821,36 +2821,34 @@ def _pv_plant_inversores(plant_id, force=False):
         if ent and (time.time() - ent[0]) < _PV_PLANT_MEMO_S:
             return ent[1]
     token = _pv_token_for(plant_id)
-    records = _http().post(f"{BASE_URL}/day_inverter",
-                            headers={"x-access-token": token},
+
+    def _leituras():
+        return _http().post(f"{BASE_URL}/day_inverter", headers={"x-access-token": token},
                             json={"id": plant_id}, timeout=60).json() or []
-    if isinstance(records, dict):      # erro da API vem como dict → trata como "sem leitura"
-        records = []
 
-    # Busca nome da usina (para lookup no ESPERADO_INV) — SEMPRE (mesmo sem leitura hoje)
-    plant_nome_api = ""
-    try:
-        plants = get_plants(token)
-        plant_nome_api = next((p["nome"].strip() for p in plants if p["id"] == plant_id), "")
-    except Exception:
-        pass
+    def _nome_api():
+        # nome da usina (para lookup no ESPERADO_INV) — SEMPRE (mesmo sem leitura hoje)
+        try:
+            return next((p["nome"].strip() for p in get_plants(token) if p["id"] == plant_id), "")
+        except Exception:
+            return ""
 
-    # Busca nomes dos dispositivos
-    dev_names = {}
-    try:
-        devs_raw = _http().get(f"{BASE_URL}/plant_devices",
-                                headers={"x-access-token": token},
-                                json={"id": plant_id}, timeout=20).json()
-        devs = devs_raw
-        if isinstance(devs_raw, list) and devs_raw and "plant_devices" in devs_raw[0]:
-            devs = devs_raw[0]["plant_devices"]
-        elif isinstance(devs_raw, dict):
-            devs = devs_raw.get("plant_devices", [])
+    def _nomes_dispositivos():
         # .strip(): a API às vezes retorna o nome com espaço no fim (ex.: "INVERSOR 04 "),
         # o que quebrava o match com a planilha (nome/esperada caíam no cru). Normaliza aqui.
-        dev_names = {d["device_id"]: str(d.get("device_name", "")).strip() for d in devs}
-    except Exception:
-        pass
+        return {d["device_id"]: str(d.get("device_name", "")).strip()
+                for d in _pv_plant_devices(plant_id) if isinstance(d, dict) and "device_id" in d}
+
+    # As três chamadas em PARALELO (Levi, 24/09/2026: "pra mim sem cache está demorando uns 2 minutos"). Medido na
+    # Santana do Ipanema às 22h, com a API PV lenta: day_inverter 18,5 s, lista de usinas 10 s e plant_devices 10,6 s,
+    # uma depois da outra. Juntas, a espera é a da mais lenta. Os dispositivos vêm do cache de 30 min do
+    # _pv_plant_devices, que só guarda resposta boa (falha de rede devolve a última lista, não uma vazia).
+    with ThreadPoolExecutor(max_workers=3) as _ex:
+        _f_rec, _f_nome, _f_devs = _ex.submit(_leituras), _ex.submit(_nome_api), _ex.submit(_nomes_dispositivos)
+        records = _f_rec.result()          # erro de rede aqui sobe, como antes (a rota devolve 504)
+        plant_nome_api, dev_names = _f_nome.result(), _f_devs.result()
+    if isinstance(records, dict):      # erro da API vem como dict → trata como "sem leitura"
+        records = []
 
     # Usina TODA sem leitura hoje (ex.: 0 geração de madrugada) NÃO pode sumir com os inversores no
     # expand: monta a lista pelo plant_devices, tudo 'desligado' (o loop trata rec=None). Só devolve
@@ -2942,7 +2940,13 @@ def _pv_plant_inversores(plant_id, force=False):
             # ≤1 string com corrente DE VERDADE (contar chaves, incl. zeros, deixava a combiner de fora).
             _ipv_reais = sum(1 for k in ipv_keys
                              if isinstance(scj.get(k), (int, float)) and scj[k] > STRING_SEM_CORRENTE_A)
-            if _ipv_reais <= 1:
+            # Só onde PODE haver combiner (24/09/2026): usina String Box no cadastro, ou inversor GERANDO sem corrente
+            # por string (a assinatura do String Box fora do cadastro, Sarandi 05/08) — a mesma porta do build_summary.
+            # À noite tudo está a zero e o drill consultava a combiner de CADA inversor: 24 na Santana do Ipanema, todas
+            # respondidas 429 pela API PV, gastando o limite de requisições dela à toa.
+            _pac_ult = cj.get("Pac")
+            _gera = isinstance(_pac_ult, (int, float)) and _pac_ult >= MACRO_POT_INV_MIN
+            if _ipv_reais <= 1 and (plant_nome_api in STRING_BOX or _gera):
                 cmb = _combiner_strings(plant_id, inv_id)   # API PV primeiro, Plataforma de reserva
                 if cmb:
                     scj = dict(scj)                       # não polui o cj original (Temp/Eday ficam)
@@ -3231,9 +3235,11 @@ def entrada_teste(nivel=None):
 
 # ── Entrada: drill-down "Operacao em tempo real" ─────────────────────────────
 # (cliente, fonte como o rollup rotula, id da fonte no Monitoramento) — na ordem em que os cards aparecem
+# SÓ estes cards, nesta ordem (Levi, 25/09/2026: "quero que apareça apenas o que eu quero que apareça! Thopen, Athon,
+# Axis, 2C e RenoGrid!"). SEMP e Alves Lima saíram, e NENHUM card nasce fora desta lista — ver o filtro no fim do
+# _entrada_tempo_real_build: usina ou tracker sem cliente no cadastro não vira mais um "Sem cliente".
 _ENTRADA_GRUPOS = [("Thopen", "API PV", "thopen-pv"), ("Thopen", "Thopen", "thopen-db"), ("Athon", "Athon", "athon"),
-                   ("Axis", "Axis", "axis"), ("Renogrid", "RenoGrid", "renogrid"), ("2C", "2C", "2c"),
-                   ("SEMP", "SEMP", "semp"), ("Alves Lima", "Alves Lima", "alveslima")]
+                   ("Axis", "Axis", "axis"), ("Renogrid", "RenoGrid", "renogrid"), ("2C", "2C", "2c")]
 # A 2C e' UM card: as tres da API PV e a Ipixuna do e-mail entram juntas em "2C" (Levi, 11/09/2026) — a fonte `2capi`
 # existe como aba do Monitoramento, nao como card.
 _ENTRADA_FONTE_ID = {f: fid for _c, f, fid in _ENTRADA_GRUPOS}
@@ -3337,10 +3343,13 @@ def _entrada_tempo_real_build() -> dict:
     rows = [dict(u) for u in ((_macro_cache.get("data") or {}).get("usinas") or [])]
     _trk_geo_annotate(rows)
     chave_de: dict = {}
+    chave_pid: dict = {}       # plant_id → card: o nome muda de uma rota para outra ("Sete Lagoa" x "Sete Lagoas"), o id não
     for u in rows:
         x = g(u.get("cliente"), u.get("fonte"))
         nome = u.get("usina") or ""
         chave_de[_nrm(_macro_usina_nome(nome))] = (x["cliente"], x["fonte"])
+        if u.get("plant_id") not in (None, ""):
+            chave_pid[str(u.get("plant_id"))] = (x["cliente"], x["fonte"])
         falt = int(u.get("strings_faltando") or 0)
         ac = acomp_de.get(f"{_ENTRADA_VKEY.get(x['fonte_id'], 'pv')}:{u.get('plant_id')}")
         ac = int(ac) if isinstance(ac, (int, float)) and ac > 0 else 0
@@ -3464,7 +3473,10 @@ def _entrada_tempo_real_build() -> dict:
                 x["trk_lido_em"] = _lido_hm
         for r in trows:
             nome_n = _nrm(_macro_usina_nome(r.get("usina") or ""))
-            chave = chave_de.get(nome_n) or (r.get("cliente"), fonte)
+            # Pelo nome e, se não casar, pelo plant_id (25/09/2026): os trackers parados da API PV chamam a Sete Lagoas da
+            # 2C de "Sete Lagoa"; sem casar, os 2 trackers dela viravam um card "Sem cliente" com o link da Thopen PV.
+            _pid = str(r.get("plant_id")) if r.get("plant_id") not in (None, "") else ""
+            chave = chave_de.get(nome_n) or chave_pid.get(_pid) or (r.get("cliente"), fonte)
             x = g(*chave)
             x["trk_fonte_ok"] = True
             x.setdefault("trk_lido_em", _lido_hm)
@@ -3472,7 +3484,7 @@ def _entrada_tempo_real_build() -> dict:
             if r.get("ticket_status"):
                 x["trk_com_os"] += 1
             for uu in x["usinas"].values():
-                if _nrm(_macro_usina_nome(uu["usina"])) == nome_n:
+                if _nrm(_macro_usina_nome(uu["usina"])) == nome_n or (_pid and str(uu.get("plant_id")) == _pid):
                     uu["trk_parados"] += 1
                     if r.get("ticket_status"):
                         uu["trk_com_os"] += 1
@@ -3480,6 +3492,12 @@ def _entrada_tempo_real_build() -> dict:
     _sev = {"sem_comm": 0, "critico": 1, "atencao": 2, "ok": 3}
     saida = []
     for x in sorted(grupos.values(), key=lambda x: (ordem_fixa.get((x["cliente"], x["fonte"]), 99), x["cliente"], x["fonte"])):
+        if (x["cliente"], x["fonte"]) not in ordem_fixa:
+            # Card fora da lista não sai (25/09/2026). Fica no log, para o que ficar sem dono não sumir calado.
+            if x["usinas"] or x["trk_parados"] or x["etm_problema"]:
+                print(f"[ENTRADA] fora dos cards: {x['cliente']} / {x['fonte']} — {len(x['usinas'])} usina(s), "
+                      f"{x['trk_parados']} tracker(s) parado(s), {x['etm_problema']} ETM")
+            continue
         us = list(x.pop("usinas").values())
         us.sort(key=lambda u: (_sev.get(u["status"], 9), -u["strings_faltando"], u["usina"]))
         x["usinas"] = us
@@ -3492,7 +3510,8 @@ def _entrada_tempo_real_build() -> dict:
         print(f"[ENTRADA] nao gravei a ultima leitura de trackers: {e}")
     return {"cache_ts": datetime.now().strftime("%H:%M:%S"), "grupos": saida,
             "fontes_pendentes": [f for f in fontes_trk if f not in colhido],
-            "etm_fora": sorted(fora.values(), key=lambda f: (-f["n"], f["cliente"])),
+            "etm_fora": sorted((f for f in fora.values() if f["cliente"] in {c for c, _f, _i in _ENTRADA_GRUPOS}),
+                               key=lambda f: (-f["n"], f["cliente"])),
             "etm_mes": ((_etm_prob_cache.get("data") or {}).get("mes"))}
 
 
@@ -7554,6 +7573,13 @@ def _pv_comb_parse(rows, devs, agora=None, max_idade_h=_PV_COMB_MAX_IDADE_H) -> 
     return out
 
 
+# Combiner que falhou (429, 5xx, rede) não é perguntado de novo por este tempo (24/09/2026): a falha não entra no cache
+# (senão a String Box pisca para "sem visão"), então cada inversor da mesma abertura perguntava de novo — 24 consultas
+# seguidas na Santana do Ipanema, todas 429, cada uma gastando mais do limite da API PV.
+PV_COMB_ESPERA_FALHA_S = 60
+_pv_comb_falhou = {}          # plant_id → time.time() da última falha
+
+
 def _pv_combiner_usina(plant_id, force=False) -> dict:
     """Combiner de TODA a usina em UMA chamada. → {idinversor: {"strings", "ts", "idcombiner"}}.
 
@@ -7563,6 +7589,8 @@ def _pv_combiner_usina(plant_id, force=False) -> dict:
     if ent and not force and (time.time() - ent["ts"]) < CACHE_TTL:
         return ent["por_inv"]
     prev = (ent or {}).get("por_inv") or {}
+    if not force and (time.time() - _pv_comb_falhou.get(plant_id, 0.0)) < PV_COMB_ESPERA_FALHA_S:
+        return prev                        # falhou agora há pouco: não insiste (ver PV_COMB_ESPERA_FALHA_S)
     try:
         tok = _pv_token_for(plant_id)
         h = {"x-access-token": tok, "Content-Type": "application/json"}
@@ -7572,6 +7600,7 @@ def _pv_combiner_usina(plant_id, force=False) -> dict:
                                "period": agora.strftime("%Y%m"), "day": agora.day}, timeout=90)
         if r.status_code != 200:
             print(f"[combiner/apipv] usina {plant_id}: HTTP {r.status_code} — mantém o cache anterior")
+            _pv_comb_falhou[plant_id] = time.time()
             return prev
         devs = _pv_plant_devices(plant_id)
         por_inv = _pv_comb_parse(r.json() or [], devs)
@@ -7579,6 +7608,7 @@ def _pv_combiner_usina(plant_id, force=False) -> dict:
         return por_inv
     except Exception as e:
         print(f"[combiner/apipv] usina {plant_id}: {e} — mantém o cache anterior")
+        _pv_comb_falhou[plant_id] = time.time()
         return prev
 
 
