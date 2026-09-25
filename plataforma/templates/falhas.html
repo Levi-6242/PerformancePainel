@@ -1,0 +1,434 @@
+<!doctype html>
+{% raw %}
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Falhas de strings e trackers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&family=Raleway:wght@800&display=swap">
+<style>
+  /* Falhas de strings e trackers — aba do Diagnóstico de performance (24/09/2026). Identidade do site
+     gridco.com.br (pedido do Levi): fundo claro, barra #191528, verde #A9DB21 só em superfície, Poppins no texto,
+     Raleway extra-bold nos títulos, eyebrow em caixa alta no chip verde. Dado: /api/painel/falhas (o worker monta). */
+  :root{
+    --paper:#FCFCFC; --mist:#F4F5F8; --mist2:#E9EBF0; --hair:#E3E5EA; --hair2:#CFD3DB;
+    --ink:#191528; --graphite:#46425A; --stone:#8F8B96;
+    --green:#A9DB21; --green-tint:rgba(169,219,33,.16); --moss:#5E6F0E; --moss2:#7C9015;
+    --magenta:#CC3366; --magenta-ink:#A3244D; --magenta-tint:rgba(204,51,102,.11);
+    --cyan-ink:#1B6B8A; --cyan-tint:rgba(110,193,228,.2);
+    --amber-ink:#7E5300; --amber-tint:rgba(240,168,0,.16);
+    --display:'Raleway',sans-serif; --font:'Poppins',sans-serif; --mono:ui-monospace,Consolas,'Cascadia Mono',monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  [hidden]{display:none!important}
+  html{color-scheme:light}
+  body{background:var(--paper);color:var(--graphite);font:400 13.5px/1.55 var(--font);padding:0 0 64px}
+  :focus-visible{outline:2px solid var(--moss2);outline-offset:2px}
+  .wrap{max-width:1440px;margin:0 auto;padding:0 28px}
+  /* barra da marca: a do site, escura, com o logotipo horizontal branco */
+  .brandbar{background:var(--ink);color:#fff}
+  .brandbar .wrap{display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:64px;flex-wrap:wrap;padding-top:10px;padding-bottom:10px}
+  .logo img{height:30px;display:block}
+  .migalha{font-size:12.5px;color:rgba(255,255,255,.55);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .migalha a{color:rgba(255,255,255,.72);text-decoration:none}
+  .migalha a:hover{color:#fff;text-decoration:underline;text-underline-offset:3px}
+  .migalha b{color:#fff;font-weight:500}
+  .fonte{margin-top:12px;font-size:12px;font-weight:300;color:var(--stone)}
+  .fonte b{color:var(--graphite);font-weight:500}
+  .aviso-frio{background:var(--mist);border-left:3px solid var(--green);padding:18px 20px;margin:10px 0 24px;font-size:13.5px;color:var(--graphite)}
+  .aviso-frio b{color:var(--ink)}
+  /* título: eyebrow no chip verde, Raleway 800 com a frase-chave em verde, o arco do símbolo ao fundo */
+  .head{position:relative;overflow:hidden;padding:44px 0 26px;border-bottom:1px solid var(--hair)}
+  .head > div{position:relative;max-width:820px}
+  .eyebrow{display:inline-block;font:500 11.5px/1 var(--font);letter-spacing:.14em;text-transform:uppercase;color:var(--moss);background:var(--green-tint);padding:9px 12px;margin-bottom:18px}
+  .head h1{font:800 40px/1.12 var(--display);color:var(--ink);letter-spacing:-.005em}
+  .head h1 span{color:var(--moss2)}
+  .head .sub{margin-top:14px;color:var(--graphite);font-weight:300;font-size:15px;max-width:760px}
+  /* abas: a navegação do site — texto com sublinhado verde no ativo */
+  .abas{display:flex;gap:30px;border-bottom:1px solid var(--hair);margin-bottom:18px;overflow-x:auto}
+  .abas button{background:none;border:0;border-bottom:3px solid transparent;margin-bottom:-1px;padding:14px 0 11px;color:var(--graphite);font:500 14px var(--font);cursor:pointer;white-space:nowrap}
+  .abas button:hover{color:var(--ink)}
+  .abas button.on{color:var(--ink);border-bottom-color:var(--green)}
+  /* filtros: uma linha, campos sublinhados, sem caixas */
+  .filtros{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-end;margin-bottom:22px}
+  .flbl{font:500 10.5px/1 var(--font);letter-spacing:.12em;text-transform:uppercase;color:var(--stone);margin-right:-8px;padding-bottom:9px}
+  select,input[type=search]{background:transparent;border:0;border-bottom:1.5px solid var(--hair2);border-radius:0;color:var(--ink);font:500 13px var(--font);padding:6px 2px;min-width:150px}
+  input[type=search]{min-width:230px;font-weight:400}
+  select:focus,input:focus{outline:none;border-bottom-color:var(--moss2)}
+  .sep{width:1px;height:26px;background:var(--hair2);margin:0 2px 4px}
+  .chk{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--graphite);cursor:pointer;padding-bottom:8px}
+  .chk input{accent-color:var(--moss2);width:15px;height:15px}
+  .limpar{background:none;border:0;color:var(--moss);font:500 12.5px var(--font);cursor:pointer;margin-left:auto;padding:0 0 9px;text-decoration:underline;text-underline-offset:3px}
+  .limpar:hover{color:var(--ink)}
+  /* números do mês: a faixa "Números que comprovam" do site — grandes, rótulo em cima, separados por um fio */
+  .kpis{display:grid;grid-template-columns:1.25fr 1fr 1fr 1fr;background:var(--mist);padding:26px 30px;margin-bottom:26px}
+  .kpi{padding:0 26px 0 24px;border-left:1px solid var(--hair2);min-width:0}
+  .kpi:first-child{padding-left:0;border-left:0}
+  .kpi .lbl{font:500 10.5px/1 var(--font);letter-spacing:.14em;text-transform:uppercase;color:var(--stone);margin-bottom:12px}
+  .kpi .val{font:800 38px/1 var(--display);color:var(--ink);letter-spacing:-.01em;font-variant-numeric:tabular-nums}
+  .kpi.destaque .val{color:var(--moss2)}
+  .kpi .note{margin-top:10px;font-size:12px;line-height:1.5;color:var(--stone)}
+  .kpi .note b{color:var(--graphite);font-weight:600}
+  /* seções: sem caixa; título Poppins 600, descrição leve, fio em cima */
+  .card{padding:22px 0 26px;border-top:1px solid var(--hair);min-width:0}
+  #painel-dados .card:first-child{border-top:0;padding-top:0}
+  .card-h{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;margin-bottom:16px}
+  .card h2{font:600 15px/1.3 var(--font);color:var(--ink);margin-bottom:4px}
+  .card .desc{font-size:12.5px;font-weight:300;color:var(--stone);max-width:900px}
+  .desc code,.notas code{font:12px var(--mono);background:var(--mist2);padding:1px 5px;border-radius:2px;color:var(--ink)}
+  .row{display:block}
+  @media (max-width:900px){.barras{grid-template-columns:1fr}.kpis{grid-template-columns:1fr 1fr;row-gap:22px}.kpi:nth-child(3){padding-left:0;border-left:0}}
+  @media (max-width:560px){.wrap{padding:0 16px}.kpis{grid-template-columns:1fr}.kpi{padding-left:0;border-left:0}.head h1{font-size:28px}.migalha{display:none}}
+  /* parados em aberto: contador grande (é o que está parado agora, vermelho da marca) + duas tabelas curtas */
+  .abertos{display:grid;grid-template-columns:250px 1fr 1.5fr;gap:14px 40px;align-items:start}
+  .abertos .lbl{font:500 10.5px/1 var(--font);letter-spacing:.14em;text-transform:uppercase;color:var(--stone);margin-bottom:12px}
+  .abertos .val{font:800 46px/1 var(--display);color:var(--magenta-ink);letter-spacing:-.01em}
+  .abertos .note{margin-top:10px;font-size:12px;line-height:1.5;color:var(--stone)}
+  .abertos .note b{color:var(--graphite);font-weight:600}
+  .abertos table.t th{cursor:default}
+  .abertos table.t td{padding:7px 8px}
+  .abertos tr.lk{cursor:pointer}
+  .abertos tr.lk.sel td{background:var(--green-tint)}
+  @media (max-width:900px){.abertos{grid-template-columns:1fr}}
+  /* barras: uma série só, o verde da marca sobre a névoa */
+  .barras{display:grid;grid-template-columns:1fr 1fr;gap:6px 44px}
+  .b-l{display:grid;grid-template-columns:180px 1fr 122px;gap:14px;align-items:center;font-size:12.5px;cursor:pointer;padding:3px 6px;margin:0 -6px}
+  .b-l:hover{background:var(--mist)}
+  .b-l.sel{background:var(--green-tint)}
+  .b-l .u{color:var(--graphite);font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .b-l.sel .u{color:var(--moss)}
+  .trilho{height:10px;background:var(--mist2);position:relative;overflow:hidden}
+  .trilho i{position:absolute;left:0;top:0;bottom:0;background:var(--green);min-width:2px}
+  .b-l .v{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:var(--ink);white-space:nowrap}
+  .b-l .v small{font-weight:400;color:var(--stone);margin-left:6px;font-size:11px}
+  /* tabela: fio escuro forte no cabeçalho, fio fino nas linhas, sem zebra */
+  table.t{width:100%;border-collapse:collapse;font-size:12.5px}
+  table.t th{font:600 10.5px var(--font);letter-spacing:.1em;text-transform:uppercase;color:var(--stone);text-align:left;padding:0 10px 10px;border-bottom:2px solid var(--ink);white-space:nowrap;cursor:pointer;user-select:none}
+  table.t th:hover{color:var(--ink)}
+  table.t th.on{color:var(--moss)}
+  table.t td{padding:9px 10px;border-bottom:1px solid var(--hair);vertical-align:top;color:var(--graphite)}
+  table.t td:last-child{min-width:150px}
+  table.t tbody tr:hover td{background:var(--mist)}
+  table.t td.n,table.t th.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  table.t td.forte{font-weight:600;color:var(--ink)}
+  table.t td.fraco{color:var(--stone)}
+  table.t td.strs{max-width:560px;color:var(--graphite);font-variant-numeric:tabular-nums}
+  .t-wrap{max-height:680px;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--hair2) transparent}
+  .mais{font-size:12px;color:var(--stone);margin-top:12px;display:flex;gap:14px;align-items:center}
+  .mais button{background:var(--ink);border:0;color:#fff;padding:7px 14px;font:500 12px var(--font);cursor:pointer}
+  .mais button:hover{background:var(--green);color:var(--ink)}
+  .seg{display:inline-flex;border:1.5px solid var(--hair2);flex-shrink:0}
+  .seg button{background:none;border:0;border-right:1.5px solid var(--hair2);color:var(--graphite);font:500 12px var(--font);padding:7px 13px;cursor:pointer}
+  .seg button:last-child{border-right:0}
+  .seg button.on{background:var(--green);color:var(--ink)}
+  /* etiquetas: o chip do site (verde translúcido) para o neutro; semáforo para estado */
+  .tag{display:inline-block;font:600 10px/1.4 var(--font);letter-spacing:.06em;text-transform:uppercase;border-radius:2px;padding:2px 7px;margin:1px 4px 1px 0;white-space:nowrap}
+  .t-flag{background:var(--amber-tint);color:var(--amber-ink)}
+  .t-cron{background:var(--mist2);color:var(--graphite)}
+  .t-ab{background:var(--magenta-tint);color:var(--magenta-ink)}
+  .t-ok{background:var(--green-tint);color:var(--moss)}
+  .t-f{background:var(--cyan-tint);color:var(--cyan-ink)}
+  .estado{background:var(--mist);border-left:3px solid var(--green);padding:12px 16px;margin-bottom:14px;font-size:12.5px;color:var(--graphite)}
+  .estado b{color:var(--ink)}
+  ul.notas{list-style:none;display:grid;grid-template-columns:1fr 1fr;gap:14px 34px}
+  @media (max-width:900px){ul.notas{grid-template-columns:1fr}}
+  ul.notas li{padding-left:14px;border-left:3px solid var(--green);font-size:13px;line-height:1.55;color:var(--graphite)}
+  ul.notas li.alerta{border-left-color:var(--magenta)}
+  ul.notas li b{color:var(--ink);font-weight:600}
+  pre{background:var(--ink);color:#D7D4E0;padding:18px 20px;font:12px/1.6 var(--mono);overflow:auto}
+  pre b{color:var(--green);font-weight:600}
+  .q{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+  .q div{background:var(--mist);padding:14px 16px;font-size:12px;color:var(--graphite);line-height:1.4}
+  .q div b{display:block;font:800 24px/1.1 var(--display);color:var(--ink);margin-bottom:6px;font-variant-numeric:tabular-nums}
+  .rodape{margin-top:30px;padding-top:14px;border-top:1px solid var(--hair);font-size:12px;font-weight:300;color:var(--stone);max-width:1000px}
+  #tip{position:fixed;pointer-events:none;background:#fff;border:1px solid var(--hair2);padding:8px 11px;font-size:12px;color:var(--ink);display:none;z-index:9;max-width:340px;line-height:1.45;box-shadow:0 8px 24px rgba(25,21,40,.14)}
+</style>
+</head>
+<body>
+<header class="brandbar"><div class="wrap"><a class="logo" href="/" aria-label="Grid Co — Início"><img src="/static/logos/grid-h-branco.png" alt="Grid Co"></a><nav class="migalha" aria-label="Caminho"><a href="/">Início</a><span>/</span><a href="/painel">Diagnóstico de performance</a><span>/</span><b>Falhas de strings e trackers</b></nav></div></header>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <div class="eyebrow" id="eyebrow">Diagnóstico de performance</div>
+      <h1>Falhas de strings e trackers, <span>com a perda em kWh</span>.</h1>
+      <div class="sub">Cada string sem corrente e cada tracker parado no mês, de quando saiu a quando voltou, e quanto deixou de gerar — por usina e por cliente.</div>
+      <div class="fonte" id="fonte"></div>
+    </div>
+  </div>
+
+  <div class="abas" id="abas">
+    <button data-aba="str" class="on">Strings</button>
+    <button data-aba="trk">Trackers</button>
+    <button data-aba="qual">Qualidade do dado</button>
+  </div>
+
+  <div class="filtros" id="filtros">
+    <span class="flbl">Mês</span><select id="f-mes"></select>
+    <span class="flbl">Cliente</span><select id="f-cli"></select>
+    <span class="flbl">Fonte</span><select id="f-fonte"></select>
+    <span class="flbl">Usina</span><select id="f-us"></select>
+    <input type="search" id="f-usina" placeholder="usina, inversor ou tracker">
+    <span class="sep"></span>
+    <label class="chk" title="Tira linhas com captura parcial no store ou sem kWp no cadastro"><input type="checkbox" id="f-conf"> Só linhas confiáveis</label>
+    <label class="chk" title="Episódio sem fim no último dia com dado: o que está parado ou zerado agora. Inclui os crônicos."><input type="checkbox" id="f-ab"> Só em aberto agora</label>
+    <label class="chk" id="l-cron" title="Tracker que já estava parado antes do mês (o book o registra desde julho)"><input type="checkbox" id="f-cron" checked> Esconder crônicos (parados desde antes do mês)</label>
+    <button class="limpar" id="limpar">limpar filtros</button>
+  </div>
+
+  <div class="aviso-frio" id="frio" hidden></div>
+
+  <div class="kpis">
+    <div class="kpi hero destaque"><div class="lbl" id="k1-l">Perda estimada</div><div class="val" id="k1"></div><div class="note" id="k1-n"></div></div>
+    <div class="kpi"><div class="lbl" id="k2-l">Linhas</div><div class="val" id="k2"></div><div class="note" id="k2-n"></div></div>
+    <div class="kpi"><div class="lbl" id="k3-l">Horas solares perdidas</div><div class="val" id="k3"></div><div class="note" id="k3-n"></div></div>
+    <div class="kpi"><div class="lbl">Usinas afetadas</div><div class="val" id="k4"></div><div class="note" id="k4-n"></div></div>
+  </div>
+
+  <div id="painel-dados">
+    <div class="card" id="abertos" hidden>
+      <div class="card-h"><div><h2>Parados em aberto</h2><div class="desc">Trackers cujo episódio não fechou até o último dia com dado — o que está parado agora, por cliente e por usina. Segue os filtros de cliente, fonte e usina; os crônicos entram aqui mesmo escondidos da tabela.</div></div></div>
+      <div class="abertos">
+        <div><div class="lbl">Trackers em aberto</div><div class="val" id="ab-n"></div><div class="note" id="ab-nn"></div></div>
+        <div><div class="lbl">Por cliente</div><table class="t" id="ab-cli"></table></div>
+        <div><div class="lbl">Por usina</div><div class="t-wrap" style="max-height:380px"><table class="t" id="ab-us"></table></div></div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="card">
+        <div class="card-h"><div><h2>Perda por usina</h2><div class="desc">kWh estimados no recorte. Clique para filtrar a tabela.</div></div></div>
+        <div class="barras" id="barras"></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><div><h2 id="tab-h"></h2><div class="desc" id="tab-d"></div></div><div class="seg" id="vis"><button data-vis="inv" class="on">Por inversor e dia</button><button data-vis="ep">Por string · saiu / voltou</button></div></div>
+        <div class="t-wrap"><table class="t" id="tab"></table></div>
+        <div class="mais" id="mais"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="painel-qual" hidden>
+    <div class="card"><div class="card-h"><div><h2>Strings — o que o store tem e o que a régua tirou</h2><div class="desc">Contagens sobre o período inteiro, antes dos filtros.</div></div></div><div class="q" id="q-str"></div></div>
+    <div class="card"><div class="card-h"><div><h2>Trackers — como os episódios fecharam</h2><div class="desc">Cada episódio termina por um motivo; o motivo diz o que a régua fez.</div></div></div><div class="q" id="q-trk"></div></div>
+    <div class="card"><div class="card-h"><div><h2>Avisos por linha</h2><div class="desc">Quantas linhas carregam cada aviso (uma linha pode ter vários).</div></div></div><div class="q" id="q-flags"></div></div>
+    <div class="card"><h2 style="margin-bottom:10px">Como a conta é feita</h2><ul class="notas" id="notas"></ul></div>
+  </div>
+
+  <div class="rodape" id="rodape"></div>
+</div>
+<div id="tip"></div>
+
+<script>
+(() => {
+  let D = null;
+  const nf = new Intl.NumberFormat('pt-BR'), nf1 = new Intl.NumberFormat('pt-BR', {maximumFractionDigits: 1});
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
+  const FONTE = {pv: 'Thopen · API PV', pg: 'Thopen · Banco', sunop: 'Athon', axis: 'Axis', owen: '2C · e-mail'};
+  const fmtKwh = v => v >= 10000 ? nf1.format(v / 1000) + ' MWh' : nf.format(Math.round(v)) + ' kWh';
+  const fmtH = h => { const m = Math.round(h * 60); return m >= 6000 ? nf.format(Math.round(m / 60)) + ' h' : m >= 60 ? `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}` : `${m} min`; };
+  const fDH = s => s ? s.slice(8, 10) + '/' + s.slice(5, 7) + ' ' + s.slice(11, 16) : '—';
+  // #trk / #qual / #prop no endereço abrem direto naquela aba (para mandar o link de uma aba)
+  const H = location.hash.slice(1), Q = new URLSearchParams(location.search);
+  const S = {aba: ['str', 'trk', 'qual', 'prop'].includes(H) ? H : H === 'aberto' ? 'trk' : 'str', vis: H === 'ep' ? 'ep' : 'inv',
+             cli: '', fonte: '', q: '', conf: false, cron: true, aberto: H === 'aberto', usina: null, ord: null, lim: 60};
+  const MES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+  const rotMes = m => `${MES[+m.slice(5, 7) - 1]} de ${m.slice(0, 4)}`;
+  const base = () => S.aba === 'trk' ? D.trackers.rows : S.vis === 'ep' ? D.strings.episodios : D.strings.rows;
+  const CONF_STR = ['captura parcial', 'retorno em massa (buraco de telemetria)', 'sem kWp', 'dias sem varredura estimados'], CONF_TRK = ['sem kWp', 'sem ângulo (fator 25%)'];
+
+  // ── filtros ─────────────────────────────────────────────────────────────────────────
+  function opcoes(sel, vals, rot) {
+    sel.innerHTML = '<option value="">' + rot + '</option>' + vals.map(v => `<option value="${esc(v)}">${esc(FONTE[v] || v)}</option>`).join('');
+  }
+  function linhas(semCron) {
+    const rows = base();
+    return rows.filter(r => (!S.cli || r.cliente === S.cli) && (!S.fonte || r.fonte === S.fonte)
+      && (!S.usina || r.usina === S.usina)
+      && (!S.q || (r.usina + ' ' + (r.inversor || '') + ' ' + (r.tracker || '') + ' ' + (r.string || '')).toLowerCase().includes(S.q))
+      && (!S.conf || !r.flags.some(f => (S.aba === 'trk' ? CONF_TRK : CONF_STR).includes(f)))
+      && (!S.aberto || (S.aba === 'trk' ? !r.fim : r.fim_motivo === 'em aberto'))
+      && (S.aba !== 'trk' || semCron || S.aberto || !S.cron || !r.cronico));
+  }
+  function fixaFiltros() {
+    const rows = base();
+    const cli = [...new Set(rows.map(r => r.cliente).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    const fon = [...new Set(rows.map(r => r.fonte))].sort();
+    opcoes($('f-cli'), cli, 'Todos os clientes'); opcoes($('f-fonte'), fon, 'Todas as fontes');
+    $('f-cli').value = cli.includes(S.cli) ? S.cli : ''; $('f-fonte').value = fon.includes(S.fonte) ? S.fonte : '';
+    // usinas do recorte de cliente/fonte; a barra clicada e o seletor mexem no mesmo S.usina
+    const usn = [...new Set(rows.filter(r => (!S.cli || r.cliente === S.cli) && (!S.fonte || r.fonte === S.fonte)).map(r => r.usina).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
+    opcoes($('f-us'), usn, 'Todas as usinas');
+    if (S.usina && !usn.includes(S.usina)) S.usina = null;
+    $('f-us').value = S.usina || '';
+    $('l-cron').hidden = S.aba !== 'trk';
+  }
+  $('f-cli').addEventListener('change', e => { S.cli = e.target.value; S.usina = null; desenha(); });
+  $('f-fonte').addEventListener('change', e => { S.fonte = e.target.value; S.usina = null; desenha(); });
+  $('f-us').addEventListener('change', e => { S.usina = e.target.value || null; desenha(); });
+  $('f-usina').addEventListener('input', e => { S.q = e.target.value.trim().toLowerCase(); desenha(); });
+  $('f-conf').addEventListener('change', e => { S.conf = e.target.checked; desenha(); });
+  // a visão por inversor e dia não tem 'aberto': ligar o filtro nela pula para a visão por string
+  $('f-ab').addEventListener('change', e => { S.aberto = e.target.checked; if (S.aberto && S.aba === 'str' && S.vis === 'inv') S.vis = 'ep'; S.lim = 60; desenha(); });
+  $('f-cron').addEventListener('change', e => { S.cron = e.target.checked; desenha(); });
+  $('limpar').addEventListener('click', () => { Object.assign(S, {cli: '', fonte: '', q: '', conf: false, cron: true, aberto: false, usina: null, lim: 60}); $('f-usina').value = ''; $('f-conf').checked = false; $('f-ab').checked = false; $('f-cron').checked = true; desenha(); });
+  $('vis').addEventListener('click', e => { const b = e.target.closest('button[data-vis]'); if (!b) return; S.vis = b.dataset.vis; S.ord = null; S.lim = 60; if (S.vis === 'inv' && S.aberto) { S.aberto = false; $('f-ab').checked = false; } desenha(); });
+  $('abas').addEventListener('click', e => { const b = e.target.closest('button[data-aba]'); if (!b) return; S.aba = b.dataset.aba; S.usina = null; S.ord = null; S.lim = 60; desenha(); });
+
+  // ── kpis + barras ───────────────────────────────────────────────────────────────────
+  function kpis(rows) {
+    const trk = S.aba === 'trk', ep = !trk && S.vis === 'ep';
+    const kwh = rows.reduce((a, r) => a + r.perda_kwh, 0), h = rows.reduce((a, r) => a + r.h_sol, 0);
+    const us = new Set(rows.map(r => r.usina)).size;
+    $('k1-l').textContent = trk ? 'Perda estimada · trackers' : 'Perda estimada · strings';
+    $('k1').textContent = fmtKwh(kwh);
+    const nom = rows.reduce((a, r) => a + (r.perda_nominal_kwh || 0), 0);
+    // quanto da perda de strings vem de dia em que a API PV não varreu a usina (zerada dos dois lados, estimada)
+    const inf = ep ? rows.reduce((a, r) => a + (r.perda_inferida_kwh || 0), 0) : rows.reduce((a, r) => a + (r.flags.includes('dias sem varredura estimados') ? r.perda_kwh : 0), 0);
+    $('k1-n').innerHTML = trk ? `pelo cosseno do desvio ao alvo × kWp do tracker × geração real do dia` : `pela geração real do dia (kWh/kWp) × kWp da string · nominal seria <b>${fmtKwh(nom)}</b>` + (inf > 0 ? ` · <b>${fmtKwh(inf)}</b> inferidos em dias sem varredura` : '');
+    $('k2-l').textContent = trk ? 'Episódios' : ep ? 'Episódios de string' : 'Inversor × dia'; $('k3-l').textContent = trk ? 'Horas solares paradas' : 'Horas × strings zeradas';
+    $('k2').textContent = nf.format(rows.length);
+    $('k2-n').innerHTML = trk ? `<b>${nf.format(rows.filter(r => !r.fim).length)}</b> ainda em aberto · <b>${nf.format(rows.filter(r => r.cronico).length)}</b> crônicos no recorte` :
+      ep ? `<b>${nf.format(rows.filter(r => r.fim_motivo === 'em aberto').length)}</b> em aberto · <b>${nf.format(rows.filter(r => r.dias > 1).length)}</b> atravessam mais de um dia · <b>${nf.format(rows.filter(r => r.flags.some(f => f.startsWith('sem registro desde'))).length)}</b> sem notícia desde a última varredura` : `<b>${nf.format(rows.reduce((a, r) => a + r.qtd, 0))}</b> strings-dia zeradas`;
+    $('k3').textContent = fmtH(h); $('k3-n').textContent = trk ? 'só dentro da janela solar (06–18h e sol ≥ 8°)' : 'soma de horas × strings sem corrente, 06–18h, com o inversor gerando';
+    $('k4').textContent = nf.format(us); $('k4-n').textContent = `${nf.format(new Set(rows.map(r => r.cliente)).size)} clientes`;
+  }
+  function barras(rows) {
+    const agg = {};
+    rows.forEach(r => { const a = agg[r.usina] || (agg[r.usina] = {kwh: 0, n: 0, cron: 0}); a.kwh += r.perda_kwh; a.n++; if (r.cronico) a.cron += r.perda_kwh; });
+    const lst = Object.entries(agg).sort((a, b) => b[1].kwh - a[1].kwh).slice(0, 18);
+    const mx = Math.max(1, ...lst.map(x => x[1].kwh));
+    $('barras').innerHTML = lst.map(([u, a]) => `<div class="b-l${S.usina === u ? ' sel' : ''}" data-u="${esc(u)}"><div class="u" title="${esc(u)}">${esc(u)}</div>
+      <div class="trilho"><i style="width:${(a.kwh / mx * 100).toFixed(1)}%"></i></div><div class="v">${fmtKwh(a.kwh)}<small>${a.n}</small></div></div>`).join('') || '<div class="desc">Nada no recorte.</div>';
+  }
+  $('barras').addEventListener('click', e => { const l = e.target.closest('.b-l'); if (!l) return; S.usina = S.usina === l.dataset.u ? null : l.dataset.u; desenha(); });
+
+  // ── trackers parados em aberto: episódio sem fim no último dia com dado, por cliente e por usina ────
+  function abertos(rowsAll) {
+    const ab = rowsAll.filter(r => !r.fim), cron = ab.filter(r => r.cronico).length;
+    $('ab-n').textContent = nf.format(ab.length);
+    $('ab-nn').innerHTML = `em <b>${nf.format(new Set(ab.map(r => r.usina)).size)}</b> usinas de <b>${nf.format(new Set(ab.map(r => r.cliente)).size)}</b> clientes · <b>${nf.format(cron)}</b> parados desde antes do mês · <b>${fmtKwh(ab.reduce((a, r) => a + r.perda_kwh, 0))}</b> perdidos até aqui`;
+    const porCli = {}; ab.forEach(r => { const a = porCli[r.cliente] || (porCli[r.cliente] = {n: 0, us: new Set(), kwh: 0}); a.n++; a.us.add(r.usina); a.kwh += r.perda_kwh; });
+    $('ab-cli').innerHTML = `<thead><tr><th>Cliente</th><th class="n">Trackers</th><th class="n">Usinas</th><th class="n">Perda até aqui</th></tr></thead><tbody>${
+      Object.entries(porCli).sort((a, b) => b[1].n - a[1].n).map(([c, a]) => `<tr><td class="forte">${esc(c)}</td><td class="n forte">${nf.format(a.n)}</td><td class="n">${a.us.size}</td><td class="n">${fmtKwh(a.kwh)}</td></tr>`).join('') || '<tr><td colspan="4" class="fraco">Nenhum tracker em aberto no recorte.</td></tr>'}</tbody>`;
+    const porUs = {}; ab.forEach(r => { const a = porUs[r.usina] || (porUs[r.usina] = {cli: r.cliente, n: 0, kwh: 0, desde: r.inicio}); a.n++; a.kwh += r.perda_kwh; if (r.inicio < a.desde) a.desde = r.inicio; });
+    $('ab-us').innerHTML = `<thead><tr><th>Usina</th><th>Cliente</th><th class="n">Trackers</th><th>Parado há mais tempo</th><th class="n">Perda até aqui</th></tr></thead><tbody>${
+      Object.entries(porUs).sort((a, b) => b[1].n - a[1].n).map(([u, a]) => `<tr class="lk${S.usina === u ? ' sel' : ''}" data-u="${esc(u)}"><td class="forte">${esc(u)}</td><td class="fraco">${esc(a.cli)}</td><td class="n forte">${nf.format(a.n)}</td><td class="fraco">desde ${fDH(a.desde)}</td><td class="n">${fmtKwh(a.kwh)}</td></tr>`).join('') || '<tr><td colspan="5" class="fraco">Nenhum tracker em aberto no recorte.</td></tr>'}</tbody>`;
+  }
+  $('ab-us').addEventListener('click', e => { const tr = e.target.closest('tr[data-u]'); if (!tr) return; S.usina = S.usina === tr.dataset.u ? null : tr.dataset.u; desenha(); });
+
+  // ── tabelas ─────────────────────────────────────────────────────────────────────────
+  const COLS = {
+    str: [['dia', 'Dia', r => r.dia.slice(8) + '/' + r.dia.slice(5, 7), 'fraco'], ['cliente', 'Cliente', r => r.cliente, 'fraco'], ['usina', 'Usina', r => r.usina, 'forte'],
+          ['inversor', 'Inversor', r => r.inversor], ['qtd', 'Qtd', r => r.qtd, 'n'], ['strings', 'Strings', r => r.strings, 'strs'],
+          ['perda_kwh', 'Perda est.', r => nf.format(Math.round(r.perda_kwh)) + ' kWh', 'n forte'], ['h_sol', 'Horas × strings', r => fmtH(r.h_sol), 'n'], ['flags', 'Avisos', r => r.flags.map(f => `<span class="tag t-flag">${esc(f)}</span>`).join('')]],
+    ep: [['cliente', 'Cliente', r => r.cliente, 'fraco'], ['usina', 'Usina', r => r.usina, 'forte'], ['inversor', 'Inversor', r => r.inversor], ['string', 'String', r => r.string],
+         ['inicio', 'Saiu', r => fDH(r.inicio)],
+         ['fim', 'Voltou', r => !r.fim ? `<span class="tag ${r.fim_motivo === 'em aberto' ? 't-ab' : 't-flag'}">${esc(r.fim_motivo)}</span>` : r.fim_motivo === 'voltou' ? fDH(r.fim) : r.fim_motivo === 'voltou de madrugada' ? fDH(r.fim) + ' <span class="tag t-f">de madrugada</span>' : 'até ' + fDH(r.fim) + ' <span class="tag t-f">entre varreduras</span>'],
+         ['dias', 'Dias', r => r.dias, 'n'], ['perda_kwh', 'Perda est.', r => nf.format(Math.round(r.perda_kwh)) + ' kWh', 'n forte'], ['h_sol', 'H solares', r => fmtH(r.h_sol), 'n'],
+         ['flags', 'Avisos', r => r.flags.map(f => `<span class="tag t-flag">${esc(f)}</span>`).join('')]],
+    trk: [['cliente', 'Cliente', r => r.cliente, 'fraco'], ['usina', 'Usina', r => r.usina, 'forte'], ['tracker', 'Tracker', r => r.tracker], ['inversor', 'Inversor', r => r.inversor || '—', 'fraco'],
+          ['inicio', 'Parou', r => fDH(r.inicio)], ['fim', 'Voltou', r => r.fim ? fDH(r.fim) : '<span class="tag t-ab">em aberto</span>'],
+          ['perda_kwh', 'Perda est.', r => nf.format(Math.round(r.perda_kwh)) + ' kWh', 'n forte'],
+          ['h_sol', 'H solares', r => fmtH(r.h_sol), 'n'], ['desvio_pico', 'Desvio', r => r.desvio_pico != null ? nf1.format(r.desvio_pico) + '°' : '—', 'n fraco'],
+          ['flags', 'Avisos', r => (r.cronico ? '<span class="tag t-cron">crônico</span>' : '') + r.flags.map(f => `<span class="tag ${f.startsWith('saiu') || f.startsWith('gap') || f === 'em aberto' ? 't-f' : 't-flag'}">${esc(f)}</span>`).join('')]],
+  };
+  function tabela(rows) {
+    const trk = S.aba === 'trk', ep = !trk && S.vis === 'ep', cols = COLS[trk ? 'trk' : ep ? 'ep' : 'str'];
+    const ord = S.ord || (S.aberto ? ['inicio', 1] : ['perda_kwh', -1]);
+    const v = r => { const x = r[ord[0]]; return x == null ? -Infinity : (typeof x === 'number' ? x : String(x)); };
+    const sorted = rows.slice().sort((a, b) => { const x = v(a), y = v(b); return (x < y ? -1 : x > y ? 1 : 0) * ord[1]; });
+    $('tab-h').textContent = trk ? 'Episódios de tracker parado' : ep ? 'Episódios por string: saiu / voltou' : 'Strings sem corrente por inversor e dia';
+    $('tab-d').textContent = trk ? 'Parou / voltou pela curva da própria fonte; o episódio fecha na primeira vez que o tracker se mexe — mesmo que vire desvio severo.' :
+      ep ? 'Uma linha por string, do primeiro instante zerada com o inversor produzindo até a volta; horas e perda contam das 06h às 18h, só com o inversor gerando. Amanheceu zerada (caiu até 07:30) continua o episódio da véspera — a régua do "zerada desde" da plataforma. "De madrugada" = na varredura seguinte a string não amanheceu zerada: voltou entre o pôr e o nascer do sol. "Até dd/mm" = a usina ficou dias fora do store e a string não amanheceu zerada quando voltou ao store.' : 'Quantidade e quais strings ficaram 2 h seguidas sem corrente com o inversor gerando (06–18h). Perda = kWp da string × kWh/kWp real da usina no dia × fração da energia do dia dentro do episódio (ponderada pela altura do sol).';
+    $('tab').innerHTML = `<thead><tr>${cols.map(c => `<th data-k="${c[0]}" class="${(c[3] || '').includes('n') ? 'n' : ''}${ord[0] === c[0] ? ' on' : ''}">${c[1]}${ord[0] === c[0] ? (ord[1] < 0 ? ' ▾' : ' ▴') : ''}</th>`).join('')}</tr></thead><tbody>${
+      sorted.slice(0, S.lim).map(r => `<tr>${cols.map(c => `<td class="${c[3] || ''}">${c[2](r)}</td>`).join('')}</tr>`).join('')}</tbody>`;
+    $('mais').innerHTML = sorted.length > S.lim ? `<span>mostrando ${S.lim} de ${nf.format(sorted.length)}</span><button id="btn-mais">mostrar mais 100</button>` : `<span>${nf.format(sorted.length)} linhas</span>`;
+    const bm = $('btn-mais'); if (bm) bm.onclick = () => { S.lim += 100; desenha(); };
+  }
+  $('tab').addEventListener('click', e => { const th = e.target.closest('th[data-k]'); if (!th) return; const k = th.dataset.k; S.ord = S.ord && S.ord[0] === k ? [k, -S.ord[1]] : [k, k === 'perda_kwh' || k === 'h_sol' || k === 'qtd' || k === 'dias' ? -1 : 1]; desenha(); });
+
+  // ── qualidade + proposta ────────────────────────────────────────────────────────────
+  function quadros(el, obj) { el.innerHTML = Object.entries(obj).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<div><b>${nf.format(v)}</b>${esc(k)}</div>`).join('') || '<div>—</div>'; }
+  function qualidade() {
+    quadros($('q-str'), D.strings.qualidade); quadros($('q-trk'), D.trackers.qualidade);
+    const fl = {};
+    D.strings.rows.forEach(r => r.flags.forEach(f => { fl['strings: ' + f] = (fl['strings: ' + f] || 0) + 1; }));
+    D.trackers.rows.forEach(r => r.flags.forEach(f => { fl['trackers: ' + f] = (fl['trackers: ' + f] || 0) + 1; }));
+    D.trackers.rows.filter(r => r.cronico).length && (fl['trackers: crônico (parado desde antes do mês)'] = D.trackers.rows.filter(r => r.cronico).length);
+    quadros($('q-flags'), fl);
+    const qs = D.strings.qualidade, eps = D.strings.episodios, met = {};
+    eps.forEach(e => { met[e.metodo] = (met[e.metodo] || 0) + 1; });
+    const inf = eps.reduce((a, e) => a + (e.perda_inferida_kwh || 0), 0);
+    const notas = [
+      `<b>Strings — a régua:</b> das 06h às 18h, a string entra quando fica <b>2 horas seguidas</b> sem corrente com o inversor gerando de verdade (≥ 12% do próprio pico — o sol baixo do amanhecer e do fim da tarde não conta). Sem corrente = corrente ≤ 0,1 A, sem leitura, ou abaixo de 10% da mediana das outras strings vivas do inversor (string morta que lê ruído). Queda curta, sombra e nuvem ficam de fora: ${nf.format(qs['descartado: menos de 2 h seguidas sem corrente'] || 0)} quedas deste mês não chegaram a 2 h.`,
+      `<b>De onde vem cada queda:</b> ${nf.format(met['curva'] || 0)} episódios pela régua sobre a curva (o 2C todos os dias; API PV e Athon a partir de 24/09) e ${nf.format(met['quedas gravadas'] || 0)} pelas quedas que a plataforma gravou antes disso (corrente ≤ 0,1 A por 30 min, depois filtradas pelas 2 h). A coluna Avisos diz quando é o caso.`,
+      `<b>Saiu / voltou:</b> a string que amanhece zerada (caiu até 07:30) continua o episódio da véspera. Sem notícia depois, o episódio segue <b>em aberto</b> — o dia acabou com a string nula, a informação vem no dia seguinte. "De madrugada" = na varredura seguinte ela não amanheceu zerada; "até dd/mm" = a usina ficou dias sem aparecer e voltou sem a string zerada.`,
+      `${inf > 0 ? '!' : ''}<b>Dias sem varredura:</b> quando a usina some do registro entre dois dias com a string zerada, os dias do meio contam como zerados e a perda deles é estimada (${fmtKwh(inf)} neste mês). O filtro "Só linhas confiáveis" tira essas linhas.`,
+      `<b>Strings trancadas não entram:</b> ${nf.format(qs['strings trancadas no estado (ufv_state.json)'] || 0)} strings marcadas à mão na plataforma (MPPT sem string); a trava de hoje vale para o mês inteiro (${nf.format(qs['trancada: fora'] || 0)} quedas saíram por ela).`,
+      `<b>Trackers — a régua:</b> a de parado da plataforma. Parado que no dia seguinte a plataforma classifica como severo, médio ou leve saiu da visão (ele se mexeu); parado com desvio abaixo de 2° do alvo o episódio todo não é falha. Episódio mínimo de 30 min dentro de 06–18h com sol ≥ ${D.regua.sol_min_graus}°.`,
+      `<b>Perda:</b> kWp do equipamento × kWh/kWp que a usina fez no dia × fração do dia no episódio (strings: pela altura do sol; trackers: pelas horas solares × 1 − cos do desvio de pico). kWp da string = kWp do inversor ÷ strings ativas; do tracker = kWp do inversor ÷ trackers dele no BD_Trackers, ou o tracker típico da carteira (${nf.format(D.regua.kwp_trk_tipico)} kWp) sem essa contagem. Dia sem geração conhecida vale ${nf.format(D.regua.yield_padrao)} kWh/kWp e leva aviso.`,
+      '!<b>Sem tarifa, sem R$:</b> nenhuma base tem o preço da energia. A conta para em kWh.',
+    ];
+    $('notas').innerHTML = notas.map(t => `<li class="${t.startsWith('!') ? 'alerta' : ''}">${t.replace(/^!/, '')}</li>`).join('');
+  }
+
+  function desenha() {
+    document.querySelectorAll('#abas button').forEach(b => b.classList.toggle('on', b.dataset.aba === S.aba));
+    document.querySelectorAll('#vis button').forEach(b => b.classList.toggle('on', b.dataset.vis === S.vis));
+    $('vis').hidden = S.aba !== 'str';
+    const dados = S.aba === 'str' || S.aba === 'trk';
+    $('painel-dados').hidden = !dados; $('filtros').hidden = !dados; document.querySelector('.kpis').hidden = !dados;
+    $('painel-qual').hidden = S.aba !== 'qual';
+    if (!D) { $('painel-dados').hidden = $('painel-qual').hidden = true; document.querySelector('.kpis').hidden = true; return; }
+    if (!dados) return;
+    fixaFiltros();
+    const rows = linhas();
+    kpis(rows); barras(rows); tabela(rows);
+    $('abertos').hidden = S.aba !== 'trk';
+    $('f-cron').disabled = S.aberto; $('l-cron').style.opacity = S.aberto ? .45 : 1;   // em aberto inclui os crônicos: a caixa deles não manda
+    if (S.aba === 'trk') abertos(linhas(true));
+  }
+  $('f-ab').checked = S.aberto;
+  function meses(lst, atual) {
+    $('f-mes').innerHTML = (lst || [atual]).slice().reverse().map(m => `<option value="${m}">${rotMes(m)}</option>`).join('');
+    $('f-mes').value = atual;
+  }
+  async function carrega(mes) {
+    $('fonte').textContent = 'Carregando o mês…';
+    let j;
+    try {
+      const r = await fetch('/api/painel/falhas' + (mes ? '?mes=' + encodeURIComponent(mes) : ''), {credentials: 'same-origin'});
+      j = await r.json();
+    } catch (e) {
+      $('fonte').textContent = 'Não consegui ler o pacote do mês. Recarregue a página em instantes.';
+      return;
+    }
+    const m = j.mes || mes;
+    meses(j.meses, m);
+    if (!j.quente) {
+      D = null;
+      $('frio').hidden = false;
+      $('frio').innerHTML = `<b>${rotMes(m)} ainda está sendo montado.</b> O worker junta as quedas de strings, os trackers parados e a geração do mês a cada 30 min; a primeira volta depois de reiniciar leva alguns minutos. Recarregue em seguida.`;
+      $('fonte').textContent = '';
+      desenha();
+      return;
+    }
+    D = j;
+    $('frio').hidden = true;
+    $('eyebrow').textContent = `Diagnóstico de performance · ${rotMes(m)} · ${D.periodo[0].slice(8)}/${D.periodo[0].slice(5, 7)} a ${D.periodo[1].slice(8)}/${D.periodo[1].slice(5, 7)}`;
+    $('fonte').innerHTML = `Atualizado em <b>${D.gerado_em.slice(8, 10)}/${D.gerado_em.slice(5, 7)} às ${D.gerado_em.slice(11, 16)}</b> · refeito a cada 30 min sobre as quedas de string, os episódios de tracker, o cadastro e a geração do mês`;
+    $('rodape').innerHTML = `Dado da plataforma, só leitura. Strings: ${D.regua.janela_strings}. Trackers: ${D.regua.janela} (sol.py), episódio mínimo de 30 min. Sem geração no dia, vale ${D.regua.yield_padrao} kWh/kWp (marcado). Tracker: ${D.regua.fator_tracker}.`;
+    qualidade(); desenha();
+  }
+  $('f-mes').addEventListener('change', e => {
+    const u = new URL(location.href); u.searchParams.set('mes', e.target.value); history.replaceState(null, '', u);
+    Object.assign(S, {usina: null, lim: 60}); carrega(e.target.value);
+  });
+  carrega(Q.get('mes'));
+})();
+</script>
+</body>
+</html>
+{% endraw %}

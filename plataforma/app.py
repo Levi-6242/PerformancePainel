@@ -17218,6 +17218,8 @@ def _pv_strings_eventos(date_iso, force=False):
             curvas = _pv_curvas_strings(pid, p["nome"].strip(), token)
             evs = _str_eventos_calc(_macro_usina_nome(nome_usina(pid, p["nome"])) or nome_usina(pid, p["nome"]),
                                     curvas) if curvas else []
+            if curvas:   # régua nova da aba Falhas sobre a MESMA curva (sem chamada nova à API)
+                _falhas_registra("pv", date_iso, pid, _macro_usina_nome(nome_usina(pid, p["nome"])) or nome_usina(pid, p["nome"]), curvas)
         for e in evs:
             e["plant_id"] = pid
         return evs
@@ -17292,6 +17294,7 @@ def _sunop_strings_eventos(date_iso, inst="gridco", force=False):
             return [], False       # sem curva = falha momentânea OU usina idle → não conta como "ok"
         usina = _macro_usina_nome(pn) or pn
         evs = _str_eventos_calc(usina, curvas)
+        _falhas_registra("sunop" if inst == "gridco" else inst, date_iso, pn, usina, curvas)   # régua nova, mesma curva
         for e in evs:
             e["plant_id"] = pn
         return evs, True
@@ -20670,6 +20673,7 @@ def _iniciar_loops_de_fundo():
                  _frac_osperf_loop,
                  _frac_disp_loop,           # disponibilidade por OS (Gerencial) — varre + calcula
                  _frac_mtta_loop,           # Acompanhamento COS: tempo do evento até a OS (base acumulada)
+                 _falhas_loop,              # Falhas de strings e trackers do mês, com a perda em kWh (Diagnóstico)
                  _tranc_watch_loop,         # strings trancadas: o web grava, o worker tem de reler
                  _janitor_loop):            # impede o processo de dias inchar sem teto
         threading.Thread(target=alvo, daemon=True).start()
@@ -21484,6 +21488,7 @@ import disponibilidade as _disp_mod
 
 _FRAC_DISP_FILE = _p_cache("frac_disp_index.json")   # o worker varre e calcula; reconstroi em ~3 min
 FRAC_DISP_TTL = 30 * 60
+_DISP_GER_ULTIMA = {}     # "AAAA-MM" → {ts, ger}: a geração do mês que a Disponibilidade acabou de buscar (worker)
 FRAC_DISP_MARGEM_D = 45          # OS criada até 45d antes do mês anterior ainda entra na varredura
 _frac_disp_mem = {"mtime": 0.0, "dados": {}}
 _DISP_CAMPOS_TASK = ("tasks_log_task_type_main", "id_status_work_order", "event_date",
@@ -21553,12 +21558,14 @@ def _frac_disp_sweep(limite_dt):
     return wos
 
 
-def _disp_geracao(per_ini, per_fim, equip):
+def _disp_geracao(per_ini, per_fim, equip, com_pg=True):
     """Geração diária por usina do BD (PostgreSQL) → {usina_bd: {'YYYY-MM-DD': kWh}}.
     Serve de JUIZ contra parada-fantasma: OS longa fechada com atraso dizia a usina parada
     enquanto ela gerava (caso Parelhas, 30/08). SÓ no worker — é SQL do mês inteiro.
     O PG nomeia '(289) Nome' e o BD 'Nome (152)': casa pelo nome sem o número.
-    Leitura com confiavel=False é DESCARTADA — exonerar parada por dado ruim seria pior."""
+    Leitura com confiavel=False é DESCARTADA — exonerar parada por dado ruim seria pior.
+    com_pg=False pula o banco da Thopen (a aba Falhas, quando não há a geração que a Disponibilidade
+    acabou de buscar: em 24/09 a consulta do mês ficou 45 min presa no banco saturado)."""
     def _chave(s):
         s = re.sub(r"\(\s*\d+\s*\)", " ", str(s or ""))        # tira "(289)" de qualquer posição
         return _disp_mod.norm(s)
@@ -21594,8 +21601,8 @@ def _disp_geracao(per_ini, per_fim, equip):
     out, orfas = {}, set()
     # (1) PostgreSQL — o mais fresco, mas cobre só as usinas do banco
     try:
-        linhas = _pg_geracao_periodo(per_ini.strftime("%Y-%m-%d"),
-                                     (per_fim - timedelta(days=1)).strftime("%Y-%m-%d")) or []
+        linhas = (_pg_geracao_periodo(per_ini.strftime("%Y-%m-%d"),
+                                      (per_fim - timedelta(days=1)).strftime("%Y-%m-%d")) or []) if com_pg else []
         for r in linhas:
             if not r.get("confiavel"):
                 continue
@@ -21711,6 +21718,7 @@ def _frac_disp_recalcular():
     for rot, ini, fim in meses:
         try:
             ger = _disp_geracao(ini, fim, equip)
+            _DISP_GER_ULTIMA[rot] = {"ts": time.time(), "ger": ger}     # a aba Falhas reusa: sem 2ª consulta ao banco
             dados["meses"][rot] = _disp_mod.calcular(wos, equip, ini, fim, geracao=ger)
         except Exception as e:
             print(f"[disp] cálculo de {rot} falhou: {e}")
@@ -21979,6 +21987,198 @@ def api_cos_mtta():
     if not d.get("os"):
         return jsonify({"quente": False})
     return jsonify({"quente": True, **d})
+
+
+# ══ Falhas de strings e trackers (aba do Diagnóstico de performance, 24/09/2026) ═══════════════
+# Cada string sem corrente e cada tracker parado do mês, de quando saiu a quando voltou, com a perda em kWh
+# (pedido do Levi). A conta mora em falhas.py (régua, pura) e falhas_job.py (montagem, a mesma do estudo de
+# 24/09). O worker monta o pacote de cada mês desde FALHAS_INI e grava; a tela só lê.
+#
+# Régua nova de strings: roda sobre a MESMA curva que as ocorrências acabaram de baixar (_falhas_registra, nos
+# detectores da API PV e da SunOp) — nenhuma chamada nova à API. Dia de antes dela usa as quedas gravadas.
+import falhas as _falhas_mod
+
+FALHAS_INI = "2026-09-01"              # "quero do mês de setembro para frente" (Levi, 24/09)
+FALHAS_TTL = 30 * 60
+_FALHAS_STR_PATH = _p_dado("falhas_strings.json")     # régua nova sobre a curva: {dia: {fonte: {pid: {usina, ts, mortas}}}}
+_FALHAS_PV_DEV = _p_cache("falhas_pv_dev.json")       # de-para nome → idefinversor da API PV (travas de string)
+_FALHAS_MORTAS = {}                    # (fonte, dia) → {pid: {usina, ts, mortas}} — em memória, deste processo
+_falhas_mortas_lock = threading.Lock()
+_falhas_mem = {}                       # mês → {"mtime", "dados"} (web)
+
+
+def _falhas_arquivo(mes):
+    return _p_cache(f"falhas_{mes}.json")
+
+
+def _falhas_registra(fonte, dia, pid, usina, curvas):
+    """Régua nova de strings sobre a curva do dia. Guarda em memória; só o worker persiste. Nunca derruba o
+    detector que a chamou (as ocorrências seguem iguais)."""
+    try:
+        mortas = _falhas_mod.strings_sem_corrente(curvas, zero=STRING_SEM_CORRENTE_A, piso_inv=STR_EV_INV_MIN_MED)
+        with _falhas_mortas_lock:
+            _FALHAS_MORTAS.setdefault((fonte, dia), {})[str(pid)] = {"usina": usina, "ts": time.time(), "mortas": mortas}
+            if len(_FALHAS_MORTAS) > 12:       # o web também passa aqui (ocorrências sob demanda): memória com teto
+                for k in sorted(_FALHAS_MORTAS, key=lambda k: k[1])[:-12]:
+                    _FALHAS_MORTAS.pop(k, None)
+    except Exception as e:
+        print(f"[falhas] régua nova em {fonte}/{pid} {dia}: {e}")
+
+
+def _falhas_ler(caminho):
+    try:
+        with open(caminho, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None
+
+
+def _falhas_gravar(caminho, dados):
+    tmp = caminho + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(dados, f, ensure_ascii=False)
+    _replace_atomico(tmp, caminho)
+
+
+def _falhas_persistir_mortas():
+    """WORKER: junta ao arquivo o que a régua nova achou nas curvas deste processo. → o arquivo inteiro."""
+    base = _falhas_ler(_FALHAS_STR_PATH) or {}
+    with _falhas_mortas_lock:
+        novos = {k: dict(v) for k, v in _FALHAS_MORTAS.items()}
+    mudou = False
+    for (fonte, dia), usinas in novos.items():
+        if dia >= FALHAS_INI:
+            base.setdefault(dia, {}).setdefault(fonte, {}).update(usinas)
+            mudou = True
+    if mudou:
+        _falhas_gravar(_FALHAS_STR_PATH, base)
+    return base
+
+
+def _falhas_pv_dev(store):
+    """De-para da API PV (plant_devices) das usinas do store — renovado a cada 7 dias, no máximo 20 por ciclo, com
+    pausa: é o que casa o nome de exibição com a trava de string (plant|idefinversor|IpvN)."""
+    base = _falhas_ler(_FALHAS_PV_DEV) or {}
+    usina_de = {pid: ent.get("usina") for dia, fs in store.items() if dia >= FALHAS_INI
+                for pid, ent in (fs.get("pv") or {}).items()}
+    velhos = [p for p in sorted(usina_de) if time.time() - float((base.get(p) or {}).get("ts") or 0) > 7 * 86400][:20]
+    if not velhos:
+        return base
+    try:
+        tok = get_token()
+        nomes = {str(p["id"]): str(p["nome"]).strip() for p in get_plants(tok)}
+        for pid in velhos:
+            names = _pv_dev_names(pid, tok) or {}
+            if names:
+                base[pid] = {"ts": time.time(), "names": {str(a): b for a, b in names.items()},
+                             "nome_api": nomes.get(pid), "usina": usina_de.get(pid)}
+            time.sleep(0.5)
+        _falhas_gravar(_FALHAS_PV_DEV, base)
+    except Exception as e:
+        print(f"[falhas] de-para da API PV (mantido o anterior): {e}")
+    return base
+
+
+def _falhas_meses():
+    """Meses de FALHAS_INI até o corrente, 'AAAA-MM'."""
+    a, hoje = datetime.strptime(FALHAS_INI[:7] + "-01", "%Y-%m-%d").date(), datetime.now().date()
+    out = []
+    while a <= hoje:
+        out.append(a.strftime("%Y-%m"))
+        a = (a.replace(day=28) + timedelta(days=4)).replace(day=1)
+    return out
+
+
+def _falhas_geracao(mes, ini, fim):
+    """Geração do mês: a que a Disponibilidade acabou de buscar (até 3 h) ou, sem ela, BD_Thopen + BD_Performance."""
+    c = _DISP_GER_ULTIMA.get(mes)
+    if c and time.time() - c["ts"] < 3 * 3600:
+        return c["ger"]
+    return _disp_geracao(datetime.strptime(ini, "%Y-%m-%d"), datetime.strptime(fim, "%Y-%m-%d") + timedelta(days=1),
+                         _disp_equip_linhas(), com_pg=False)
+
+
+def _falhas_recalcular():
+    """WORKER: publica o pacote de cada mês desde FALHAS_INI — o corrente a cada ciclo, o anterior até o dia 2 (fecha
+    o mês), os mais velhos só se o arquivo sumiu."""
+    import falhas_job
+    import sol as _sol
+    t0 = time.time()
+    with _perdas_str_lock:
+        store = json.loads(json.dumps(_perdas_str))       # cópia: o backfill mexe no original
+    trk = _falhas_ler(_TRK_EV_PATH) or {}
+    book = _falhas_ler(_PARADAS_PATH) or {}
+    mortas = _falhas_persistir_mortas()
+    pv_dev = _falhas_pv_dev(store)
+    hoje = datetime.now().date()
+    meses = _falhas_meses()
+    for mes in meses:
+        arq = _falhas_arquivo(mes)
+        corrente = mes == hoje.strftime("%Y-%m")
+        if os.path.exists(arq) and not corrente and not (hoje.day <= 2 and mes == meses[-2:][0]):
+            continue
+        ini = max(FALHAS_INI, f"{mes}-01")
+        prox = (datetime.strptime(f"{mes}-28", "%Y-%m-%d") + timedelta(days=4)).replace(day=1).date()
+        fim = min(prox - timedelta(days=1), hoje).isoformat()
+        pacote = falhas_job.montar(_sys.modules[__name__], _sol, ini, fim, geracao=_falhas_geracao(mes, ini, fim),
+                                   pv_dev=pv_dev, mortas_curva=mortas, str_store=store, trk_store=trk, book=book)
+        _falhas_publicar(mes, pacote, meses)
+        print(f"[falhas] {mes} publicado: {len(pacote['strings']['episodios'])} episódios de string, "
+              f"{len(pacote['trackers']['rows'])} de tracker ({time.time()-t0:.0f}s)")
+
+
+def _falhas_publicar(mes, pacote, meses=None):
+    """Grava o pacote do mês JÁ no formato da resposta da API (quente, mês, meses): o web serve os bytes."""
+    pacote.update({"quente": True, "mes": mes, "meses": meses or _falhas_meses()})
+    _falhas_gravar(_falhas_arquivo(mes), pacote)
+
+
+def _falhas_loop():
+    """Worker, a cada 30 min. Espera o boot (o backfill das strings e a Disponibilidade assentam primeiro)."""
+    time.sleep(420)
+    while True:
+        try:
+            _falhas_recalcular()
+        except Exception as e:
+            print(f"[falhas] ciclo falhou (pacote anterior mantido): {e}")
+        time.sleep(FALHAS_TTL)
+
+
+def _falhas_bytes(mes):
+    """WEB: os bytes do pacote do mês publicado pelo worker (relê só quando o mtime muda). Nunca calcula nem
+    reconverte: são ~3 MB de JSON por mês, e parsear/serializar isso a cada acesso seria trabalho pesado no web."""
+    arq = _falhas_arquivo(mes)
+    try:
+        mt = os.path.getmtime(arq)
+    except OSError:
+        return None
+    ent = _falhas_mem.get(mes)
+    if not ent or mt > ent["mtime"]:
+        try:
+            with open(arq, "rb") as f:
+                ent = _falhas_mem[mes] = {"mtime": mt, "bytes": f.read()}
+        except OSError:
+            return (ent or {}).get("bytes")
+    return ent["bytes"]
+
+
+@app.route("/painel/falhas")
+def painel_falhas():
+    # debaixo do /painel de propósito: o Caddy de app.gridco.com.br tem rota própria para alguns primeiros
+    # segmentos (ver a nota da rota /monitor) e o /painel já passa por ele
+    return render_template("falhas.html")
+
+
+@app.route("/api/painel/falhas")
+def api_painel_falhas():
+    """Pacote do mês (?mes=AAAA-MM; padrão o corrente). Frio (worker ainda não publicou) → quente:false."""
+    mes = flask_request.args.get("mes") or datetime.now().strftime("%Y-%m")
+    if not re.fullmatch(r"\d{4}-\d{2}", mes):
+        return jsonify({"quente": False, "erro": "mês inválido"}), 400
+    b = _falhas_bytes(mes)
+    if not b:
+        return jsonify({"quente": False, "mes": mes, "meses": _falhas_meses()})
+    return app.response_class(b, mimetype="application/json")
 
 
 @app.route("/api/fracttal/inversor")

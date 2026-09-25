@@ -28,7 +28,8 @@ import app
 RAIZ = pathlib.Path(app.__file__).resolve().parents[1]
 TELAS = [RAIZ / "docs" / "redesign" / "Monitoramento (novo design).html",
          RAIZ / "docs" / "redesign" / "Entrada.html",
-         RAIZ / "plataforma" / "templates" / "cos.html"]
+         RAIZ / "plataforma" / "templates" / "cos.html",
+         RAIZ / "plataforma" / "templates" / "falhas.html"]
 NODE = shutil.which("node")
 
 _ID = r"_[A-Za-z][A-Za-z0-9_]*"

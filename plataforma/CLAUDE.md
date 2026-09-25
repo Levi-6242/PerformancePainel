@@ -420,3 +420,25 @@ Coração 2 (3), Altair 1 (1), Tupi Paulista (8 de 20, cravados em 250,24 kW des
 evitáveis nem valorar em R$) e o recorte é **só a 2C** (`QUALIDADE_PLANTAS = PV_FONTES["2capi"]`;
 a Ipixuna fica fora por não estar na API). Ciclo caiu de 80 s para ~11 s. O nome do inversor vem do
 `PV_INV_NOMES` porque a conta oem@ não pode chamar `/plant_devices`.
+
+## Falhas de strings e trackers (aba do Diagnóstico, 24/09/2026)
+
+`/painel/falhas` (debaixo do `/painel` por causa do Caddy): cada string sem corrente e cada tracker parado do mês,
+de quando saiu a quando voltou, com a perda em kWh. Link no card "Diagnóstico de performance" da Entrada.
+`falhas.py` (régua, pura, `tests/test_falhas_strings.py`) + `falhas_job.py` (montagem do mês, a mesma do estudo de
+24/09, `tests/test_falhas_job.py`); o worker (`_falhas_loop`, 30 min) publica `falhas_AAAA-MM.json` já no formato da
+resposta e a rota `/api/painel/falhas?mes=` só devolve os bytes. De `FALHAS_INI` (01/09) para frente.
+- **Régua de strings (Levi):** 06–18h, **2 h seguidas** sem corrente com o inversor gerando (mediana das strings
+  VIVAS >= 0,5 A e >= 12% do pico do dia). Sem corrente = <= 0,1 A, sem leitura, ou < 10% da mediana das outras
+  vivas (string morta que lê ruído — Athon, 24/09: 43 a mais que a régua antiga). Somar o dia não serve (sombra do
+  amanhecer + do fim da tarde); mediana de todas não serve (metade das strings mortas zera a mediana).
+- Roda sobre a MESMA curva que as ocorrências baixam (`_falhas_registra` em `_pv_strings_eventos` e
+  `_sunop_strings_eventos`), sem chamada nova à API; o worker persiste em `falhas_strings.json`. Curva do passado
+  só existe no 2C (2C_historico); API PV e Athon usam as quedas gravadas (`perdas_strings.json`) antes de 24/09.
+- Sem notícia depois, o episódio segue **em aberto** (pedido do Levi). Trava de string vale para o mês todo; a da
+  API PV precisa do de-para nome → idefinversor (`falhas_pv_dev.json`, `plant_devices`, 7 dias).
+- Trackers: régua de parado da plataforma; parado que vira severo/médio/leve sai; desvio < 2° o episódio todo não é
+  falha; kWp do tracker = inversor ÷ trackers dele, ou o típico medido no cadastro (dividir a UFV pelos trackers
+  "vistos no store" inflava ~10×: o store só lista tracker com anomalia).
+- Geração: a que a Disponibilidade acabou de buscar (`_DISP_GER_ULTIMA`) ou `_disp_geracao(..., com_pg=False)` —
+  nunca uma 2ª consulta do mês ao banco da Thopen.
