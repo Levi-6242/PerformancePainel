@@ -74,6 +74,7 @@ def api(monkeypatch, freeze_now):
     monkeypatch.setattr(app, "_pv_devs_cache", {})
     monkeypatch.setattr(app, "_pv_comb_cache", {})
     monkeypatch.setattr(app, "_pv_comb_falhou", {})
+    monkeypatch.setattr(app, "_pv_cota", {"dia": None, "hora": None, "ts": 0.0, "zerada_ate": 0.0})
     monkeypatch.setattr(app, "_plat_combiner_strings", lambda idinv: None)
     monkeypatch.setitem(app.EQUIP_NAMES, NOME, {"INVERSOR 01": "Inversor 1.1", "INVERSOR 02": "Inversor 1.2"})
     monkeypatch.setitem(app.ESPERADO_INV, NOME, {"INVERSOR 01": 4, "INVERSOR 02": 4})
@@ -122,5 +123,6 @@ def test_combiner_que_falhou_nao_e_perguntado_de_novo_logo_em_seguida(api):
     assert api["idas"]["combiner"] == 1, "o 2º inversor perguntou de novo, com a 1ª resposta 429 de agora há pouco"
     api["comb_status"] = 200
     app._pv_comb_falhou[PID] = time.time() - app.PV_COMB_ESPERA_FALHA_S - 1
+    app._pv_cota["zerada_ate"] = 0.0                      # e a espera do 429 também passou
     app._pv_plant_inversores(PID, force=True)
     assert api["idas"]["combiner"] == 2, "passado o tempo, pergunta de novo"

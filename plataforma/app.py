@@ -2490,6 +2490,20 @@ def build_summary(plant: dict, records: list) -> dict:
     em_rampa  = 0                             # inversores com corrente REAL, baixa demais p/ classificar
     neutros_ids = []                          # ids dos neutros (sem_visao/rampa) → desconto EXATO do esperado
     sv_ids = []                               # só os SEM VISÃO (não a rampa): os tickets deles vão pela geração
+    _esp_cad = ESPERADO_INV.get(plant["nome"].strip()) or {}
+    _nomes_cad: dict = {}
+
+    def _esp_cadastro(inv_id) -> float:
+        """Strings esperadas do inversor no cadastro (pelo nome do plant_devices, cache de 30 min); sem o nome
+        dele, a média da usina; sem cadastro, 0."""
+        if _esp_cad and not _nomes_cad:
+            _nomes_cad.update({d["device_id"]: str(d.get("device_name", "")).strip()
+                               for d in _pv_plant_devices(pid) if isinstance(d, dict) and "device_id" in d})
+        v = _equip_lookup(_esp_cad, _nomes_cad.get(inv_id)) if _nomes_cad.get(inv_id) else None
+        if isinstance(v, (int, float)):
+            return v
+        _e = ESPERADO.get(plant["nome"].strip()) or {}
+        return (_e.get("str_esp") or 0) / max(1, _e.get("inv_esp") or 1)
     for inv_id, rec in latest.items():
         cj = parse_cj(rec.get("conteudojson"))
         ipv_keys  = [k for k in cj if k.startswith("Ipv") and isinstance(cj[k], (int, float))]
@@ -2524,10 +2538,12 @@ def build_summary(plant: dict, records: list) -> dict:
                 cj = dict(cj); cj.update(dict(cmb["strings"]))
                 ipv_keys = [k for k, _ in cmb["strings"]]
                 eh_combiner = True
-            elif sb:
+            elif sb or (_gera and _esp_cadastro(inv_id) > 1):
                 # Sem combiner exposta → "sem visão": não conta a string fantasma nem o esperado desse
-                # inversor. Vale só para quem o CADASTRO diz ser String Box — usina de fora que também
-                # não tem combiner (Pharma III/IV) fica exatamente como estava, sem contagem inventada.
+                # inversor. Vale para quem o CADASTRO diz ser String Box e (25/09/2026) para o inversor GERANDO
+                # com uma corrente só quando o cadastro espera MAIS de 1 string: sem combiner (a cota histórica da
+                # API PV zerou de manhã), a Cambé, a Assis, a Tanabi e a Ouro Branco 4 — não marcadas — liam "1 de
+                # 11" e davam −191. Usina de 1 string por inversor no cadastro (Pharma III/IV) segue contando.
                 sem_visao += 1
                 neutros_ids.append(inv_id)
                 sv_ids.append(inv_id)
@@ -2953,8 +2969,9 @@ def _pv_plant_inversores(plant_id, force=False):
                     scj.update(dict(cmb["strings"]))
                     ipv_keys = [k for k, _ in cmb["strings"]]
                     eh_combiner = True
-                elif plant_nome_api in STRING_BOX:
-                    sem_visao = True
+                elif plant_nome_api in STRING_BOX or (
+                        _gera and (_equip_lookup(ESPERADO_INV.get(plant_nome_api), inv_nome_api) or 0) > 1):
+                    sem_visao = True               # a mesma régua da linha da usina (25/09/2026)
             correntes = [scj[k] for k in ipv_keys]
             stt       = _classifica_strings(plant_id, inv_id, ipv_keys, correntes)
             strings   = [{"id": k, "corrente": c, "status": s,
@@ -7586,12 +7603,52 @@ _pv_comb_falhou = {}          # plant_id → time.time() da última falha
 # históricas ("Você atingiu o limite diário de consultas históricas. Tente novamente amanhã", Tanabi 1 às 09:05), e a
 # combiner sai do custom_query, que devolve o dia inteiro. Pedida a cada 5 min — de noite também, e em dobro com a
 # plataforma local —, a cota acabava de manhã e as String Box ficavam "sem visão" o resto do dia.
-PV_COMB_TTL_DIA_S = 900
-PV_COMB_TTL_NOITE_S = 3600
+# 2ª rodada no mesmo dia, com a regra exata que a API devolve nos cabeçalhos: a cota é da CONTA, 800 consultas
+# históricas por DIA e 200 por HORA (X-RateLimit-Limit-Day/-Hour, X-RateLimit-Remaining-*, Retry-After até a meia-noite).
+# ~35 usinas a cada 15 min ainda passavam de 200/h. Agora: 1 pedido por usina por HORA de dia, nenhum à noite (strings a
+# zero, a tabela não julga sem sol), e a combiner PARA quando a cota do dia chega na reserva — o coletor das 22:30 e o
+# fechamento das 23:30 buscam a geração do dia pela MESMA cota.
+PV_COMB_TTL_DIA_S = 3600
+PV_COMB_TTL_NOITE_S = 12 * 3600
+PV_COTA_RESERVA_DIA = 300          # abaixo disto no dia, a combiner não pede mais (é o que a coleta da noite precisa)
+PV_COTA_RESERVA_HORA = 20
+_pv_cota = {"dia": None, "hora": None, "ts": 0.0, "zerada_ate": 0.0}
 
 
 def _pv_comb_ttl() -> int:
     return PV_COMB_TTL_DIA_S if 6 <= datetime.now().hour < 19 else PV_COMB_TTL_NOITE_S
+
+
+def _pv_cota_le(r) -> None:
+    """Guarda o que a API PV diz da cota histórica nos cabeçalhos da resposta (e o Retry-After de um 429)."""
+    try:
+        h = getattr(r, "headers", None) or {}
+        d, hr = h.get("X-RateLimit-Remaining-Day"), h.get("X-RateLimit-Remaining-Hour")
+        if d is not None:
+            _pv_cota["dia"] = int(d)
+        if hr is not None:
+            _pv_cota["hora"] = int(hr)
+        _pv_cota["ts"] = time.time()
+        if getattr(r, "status_code", 200) == 429:
+            ra = str(h.get("Retry-After") or "")
+            _pv_cota["zerada_ate"] = time.time() + (int(ra) if ra.isdigit() else 300)   # sem Retry-After: 5 min
+            print(f"[cota api-pv] 429 — cota histórica zerada; combiner parada por {int(_pv_cota['zerada_ate'] - time.time())} s")
+    except Exception:                                  # noqa: BLE001 — cabeçalho estranho não derruba a coleta
+        pass
+
+
+def _pv_cota_permite() -> bool:
+    """Ainda dá para gastar a cota histórica com a combiner? Leitura da cota com mais de 1 h não vale (a volta
+    seguinte pergunta de novo e lê a cota atual — é assim que se vê a virada da meia-noite)."""
+    agora = time.time()
+    if agora < _pv_cota["zerada_ate"]:
+        return False
+    if _pv_cota["ts"] and agora - _pv_cota["ts"] < 3600:
+        if _pv_cota["dia"] is not None and _pv_cota["dia"] < PV_COTA_RESERVA_DIA:
+            return False
+        if _pv_cota["hora"] is not None and _pv_cota["hora"] < PV_COTA_RESERVA_HORA:
+            return False
+    return True
 
 
 def _pv_combiner_usina(plant_id, force=False) -> dict:
@@ -7605,6 +7662,8 @@ def _pv_combiner_usina(plant_id, force=False) -> dict:
     prev = (ent or {}).get("por_inv") or {}
     if not force and (time.time() - _pv_comb_falhou.get(plant_id, 0.0)) < PV_COMB_ESPERA_FALHA_S:
         return prev                        # falhou agora há pouco: não insiste (ver PV_COMB_ESPERA_FALHA_S)
+    if not force and not _pv_cota_permite():
+        return prev                        # cota histórica na reserva ou zerada (ver PV_COTA_RESERVA_DIA)
     try:
         tok = _pv_token_for(plant_id)
         h = {"x-access-token": tok, "Content-Type": "application/json"}
@@ -7612,6 +7671,7 @@ def _pv_combiner_usina(plant_id, force=False) -> dict:
         r = _http().post(f"{PV_V2_BASE}/custom_query", headers=h,
                          json={"id": plant_id, "data_type": "combiner",
                                "period": agora.strftime("%Y%m"), "day": agora.day}, timeout=90)
+        _pv_cota_le(r)
         if r.status_code != 200:
             print(f"[combiner/apipv] usina {plant_id}: HTTP {r.status_code} — mantém o cache anterior")
             _pv_comb_falhou[plant_id] = time.time()
@@ -22105,7 +22165,8 @@ def _falhas_pv_dev(store):
     base = _falhas_ler(_FALHAS_PV_DEV) or {}
     usina_de = {pid: ent.get("usina") for dia, fs in store.items() if dia >= FALHAS_INI
                 for pid, ent in (fs.get("pv") or {}).items()}
-    velhos = [p for p in sorted(usina_de) if time.time() - float((base.get(p) or {}).get("ts") or 0) > 7 * 86400][:20]
+    # 60 por volta: com 20, as 58 usinas da API PV levavam 3 voltas (1h30) e, nesse meio, a trava não era conferida
+    velhos = [p for p in sorted(usina_de) if time.time() - float((base.get(p) or {}).get("ts") or 0) > 7 * 86400][:60]
     if not velhos:
         return base
     try:
@@ -22116,7 +22177,7 @@ def _falhas_pv_dev(store):
             if names:
                 base[pid] = {"ts": time.time(), "names": {str(a): b for a, b in names.items()},
                              "nome_api": nomes.get(pid), "usina": usina_de.get(pid)}
-            time.sleep(0.5)
+            time.sleep(0.3)
         _falhas_gravar(_FALHAS_PV_DEV, base)
     except Exception as e:
         print(f"[falhas] de-para da API PV (mantido o anterior): {e}")

@@ -130,24 +130,4 @@ def _conta_idas(monkeypatch):
     monkeypatch.setattr(app, "_pv_comb_falhou", {})
     return idas
 
-
-def test_de_dia_a_combiner_vale_15_min(monkeypatch, freeze_now):
-    freeze_now("2026-09-25 12:00:00")
-    idas = _conta_idas(monkeypatch)
-    monkeypatch.setattr(app, "_pv_comb_cache", {1: {"ts": app.time.time() - 10 * 60, "por_inv": {}}})
-    app._pv_combiner_usina(1)
-    assert idas == [], "com 10 min de idade ainda vale: não gasta a cota"
-    monkeypatch.setattr(app, "_pv_comb_cache", {1: {"ts": app.time.time() - 16 * 60, "por_inv": {}}})
-    app._pv_combiner_usina(1)
-    assert len(idas) == 1
-
-
-def test_a_noite_a_combiner_vale_1_hora(monkeypatch, freeze_now):
-    freeze_now("2026-09-25 23:00:00")
-    idas = _conta_idas(monkeypatch)
-    monkeypatch.setattr(app, "_pv_comb_cache", {1: {"ts": app.time.time() - 40 * 60, "por_inv": {}}})
-    app._pv_combiner_usina(1)
-    assert idas == []
-    monkeypatch.setattr(app, "_pv_comb_cache", {1: {"ts": app.time.time() - 61 * 60, "por_inv": {}}})
-    app._pv_combiner_usina(1)
-    assert len(idas) == 1
+# (os testes de validade da combiner foram para tests/test_combiner_cota_e_sem_visao.py: 1 h de dia, sem renovar à noite)
