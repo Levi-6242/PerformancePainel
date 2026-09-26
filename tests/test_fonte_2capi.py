@@ -59,8 +59,7 @@ def test_strings_problema_conhece_a_fonte(monkeypatch):
     monkeypatch.setattr(app, "get_plants", lambda tok, force=False: [])
     monkeypatch.setattr(app, "get_token", lambda force=False: "t")
     monkeypatch.setattr(app, "DASH_PASSWORD", "")
-    assert app._strings_problema_rows("2capi", force=True) == []
-    assert app.app.test_client().get("/api/2capi/strings/problema").get_json().get("indisponivel") is not True
+    assert app._strings_problema_rows("2capi", force=True) == []      # a rota da sub-aba saiu em 25/09; o motor fica
 
 
 def test_fronts_conhecem_a_fonte():

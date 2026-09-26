@@ -17221,54 +17221,9 @@ def _strings_problema_rows(fonte, force=False):
     return _trk_geo_annotate(rows)
 
 
-@app.route("/api/<fonte>/strings/problema")
-def api_strings_problema(fonte):
-    if fonte not in ("pv", "semp", "alveslima", "2capi", "pg", "owen", "sunop", "axis"):
-        return jsonify({"rows": [], "total": 0, "indisponivel": True,
-                        "cache_ts": datetime.now().strftime("%H:%M:%S")})
-    rows = _strings_problema_rows(fonte, force=flask_request.args.get("force") == "1")
-    return jsonify({"rows": rows, "total": len(rows), "cache_ts": datetime.now().strftime("%H:%M:%S")})
-
-
-@app.route("/api/<fonte>/strings/problema/export.xlsx")
-def api_strings_problema_xlsx(fonte):
-    """Strings com problema (agora) em Excel estilizado (mesma cara do export de trackers)."""
-    import openpyxl
-    from openpyxl.styles import Font, PatternFill
-    from openpyxl.utils import get_column_letter
-    if fonte not in ("pv", "semp", "alveslima", "2capi", "pg", "owen", "sunop", "axis"):
-        return jsonify({"error": "fonte sem strings por-string"}), 404
-    qf = (flask_request.args.get("usina") or "").strip().lower()
-    rows = _strings_problema_rows(fonte)
-    if qf:
-        rows = [r for r in rows if qf in (r.get("usina") or "").lower()]
-    label = _TRK_FONTE_LABEL.get(fonte, fonte)
-    NAVY = "1A1B2E"
-    hdr_fill = PatternFill("solid", fgColor=NAVY); hdr_font = Font(color="FFFFFF", bold=True)
-    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Strings sem corrente"
-    ro = 1
-    ws.cell(row=ro, column=1, value=f"Strings sem corrente agora · {label} · {datetime.now().strftime('%d/%m/%Y %H:%M')}").font = Font(bold=True, size=14, color=NAVY)
-    ro += 1
-    ws.cell(row=ro, column=1, value=f"{len(rows)} string(s) em {len({r.get('usina') for r in rows})} usina(s)").font = Font(color="6B7280")
-    ro += 2
-    headers = ["Usina", "Inversor", "String", "Corrente (A)", "Desde", "Cliente"]   # espelho da tela
-    hr = ro
-    for j, h in enumerate(headers, start=1):
-        c = ws.cell(row=hr, column=j, value=h); c.fill = hdr_fill; c.font = hdr_font
-    ro += 1
-    for r in rows:
-        cur = r.get("corrente")
-        vals = [r.get("usina"), r.get("inversor") or "—", r.get("string"),
-                round(float(cur), 2) if isinstance(cur, (int, float)) else "—",
-                r.get("desde") or "—", r.get("cliente") or "—"]
-        for j, val in enumerate(vals, start=1):
-            ws.cell(row=ro, column=j, value=val)
-        ws.cell(row=ro, column=4).font = Font(bold=True, color="DC2626")
-        ro += 1
-    for j, w in enumerate([24, 16, 8, 13, 9, 12], start=1):
-        ws.column_dimensions[get_column_letter(j)].width = w
-    ws.freeze_panes = ws.cell(row=hr + 1, column=1)
-    return _xlsx_resp(wb, f"strings_problema_{fonte}_{datetime.now().strftime('%Y-%m-%d_%H%M')}.xlsx")
+# (As rotas /api/<fonte>/strings/problema e .../export.xlsx saíram em 25/09/2026 com a sub-aba "Strings sem corrente"
+#  — Levi: "remover os botões e o código relacionado a eles". O _strings_problema_rows fica: alimenta o sino, a aba
+#  Perdas ("Strings · Zeradas"), a cascata e o relatório.)
 
 
 # ══ Ocorrências de strings (caiu → voltou) — string que zerou e voltou no dia ════════════════════
@@ -17734,21 +17689,6 @@ def _strings_eventos_rows(fonte, date_iso, force=False):
     return []
 
 
-STR_EV_MAX_DIAS = 7   # teto do intervalo De/Até das ocorrências de strings (cada dia frio ~1min)
-
-def _str_ev_range(args):
-    """Normaliza ?ini=&fim= (ISO) → (di, dfim, ini, fim) com teto STR_EV_MAX_DIAS (mantém o fim, recua o ini)."""
-    hoje = datetime.now().strftime("%Y-%m-%d")
-    ini = (args.get("ini") or hoje).strip()
-    fim = (args.get("fim") or ini).strip()
-    if not re.match(r"^\d{4}-\d{2}-\d{2}$", ini): ini = hoje
-    if not re.match(r"^\d{4}-\d{2}-\d{2}$", fim): fim = ini
-    if fim < ini: ini, fim = fim, ini
-    di, dfim = datetime.strptime(ini, "%Y-%m-%d"), datetime.strptime(fim, "%Y-%m-%d")
-    if (dfim - di).days > STR_EV_MAX_DIAS - 1:
-        di = dfim - timedelta(days=STR_EV_MAX_DIAS - 1); ini = di.strftime("%Y-%m-%d")
-    return di, dfim, ini, fim
-
 def _str_ev_rows_stored(fonte, dia):
     """Ocorrências de string do dia RECONSTRUÍDAS do store persistido (perdas_strings.json), capturado
     quando o dia era 'hoje' (corrente) — fonte de verdade p/ dia FECHADO, sem depender do recompute frágil
@@ -17811,58 +17751,9 @@ def _str_ev_rows_range(fonte, di, dfim, force=False):
     rows.sort(key=lambda r: r.get("data_iso", ""), reverse=True)   # estável → recente no topo, resto asc
     return rows
 
-@app.route("/api/<fonte>/strings/eventos")
-def api_strings_eventos(fonte):
-    if fonte not in _STR_EV_FONTES:
-        return jsonify({"rows": [], "total": 0, "indisponivel": True, "ini": "", "fim": "",
-                        "cache_ts": datetime.now().strftime("%H:%M:%S")})
-    di, dfim, ini, fim = _str_ev_range(flask_request.args)
-    rows = _str_ev_rows_range(fonte, di, dfim, force=flask_request.args.get("force") == "1")
-    return jsonify({"rows": rows, "total": len(rows), "ini": ini, "fim": fim,
-                    "cache_ts": datetime.now().strftime("%H:%M:%S")})
-
-
-@app.route("/api/<fonte>/strings/eventos/export.xlsx")
-def api_strings_eventos_xlsx(fonte):
-    import openpyxl
-    from openpyxl.styles import Font, PatternFill
-    from openpyxl.utils import get_column_letter
-    if fonte not in _STR_EV_FONTES:
-        return jsonify({"error": "fonte sem ocorrências de strings (PG é snapshot)"}), 404
-    di, dfim, ini, fim = _str_ev_range(flask_request.args)
-    qf = (flask_request.args.get("usina") or "").strip().lower()
-    rows = _str_ev_rows_range(fonte, di, dfim)
-    if qf:
-        rows = [r for r in rows if qf in (r.get("usina") or "").lower()]
-    label = _TRK_FONTE_LABEL.get(fonte, fonte)
-    NAVY = "1A1B2E"
-    hdr_fill = PatternFill("solid", fgColor=NAVY); hdr_font = Font(color="FFFFFF", bold=True)
-    per = di.strftime("%d/%m/%Y") + (f" a {dfim.strftime('%d/%m/%Y')}" if fim != ini else "")
-    wb = openpyxl.Workbook(); ws = wb.active; ws.title = "Ocorrências strings"
-    ro = 1
-    ws.cell(row=ro, column=1, value=f"Ocorrências de strings (caiu → voltou) · {label} · {per}").font = Font(bold=True, size=14, color=NAVY)
-    ro += 2
-    headers = ["Dia", "Usina", "Inversor", "String", "Caiu", "Voltou", "Duração", "Região", "Cliente"]
-    hr = ro
-    for j, h in enumerate(headers, start=1):
-        c = ws.cell(row=hr, column=j, value=h); c.fill = hdr_fill; c.font = hdr_font
-    ro += 1
-    for r in rows:
-        dur = int(r.get("dur_min") or 0)
-        dbr = r.get("data") or ""
-        ret = f"{dbr} {r['voltou']}" if r.get("voltou") else "não voltou no dia"
-        vals = [dbr, r.get("usina"), r.get("inversor") or "—", r.get("string"),
-                f"{dbr} {r.get('caiu','')}", ret, f"{dur // 60}h{dur % 60:02d}",
-                r.get("regiao") or "—", r.get("cliente") or "—"]
-        for j, val in enumerate(vals, start=1):
-            ws.cell(row=ro, column=j, value=val)
-        if not r.get("voltou"):
-            ws.cell(row=ro, column=6).font = Font(color="B91C1C")
-        ro += 1
-    for j, w in enumerate([9, 24, 16, 8, 14, 16, 10, 14, 12], start=1):
-        ws.column_dimensions[get_column_letter(j)].width = w
-    ws.freeze_panes = ws.cell(row=hr + 1, column=1)
-    return _xlsx_resp(wb, f"ocorrencias_strings_{fonte}_{ini}_a_{fim}.xlsx")
+# (As rotas /api/<fonte>/strings/eventos e .../export.xlsx saíram em 25/09/2026 com a sub-aba "Ocorrências (caiu →
+#  voltou)". O motor acima fica: _str_ev_rows_range serve a aba Perdas; os construtores registram os episódios da aba
+#  Falhas (_falhas_registra) e gravam o perdas_strings.json.)
 
 
 # código da usina no CSV do e-mail (rodar_2c.MAP / OWEN_UFVS) → id na API PV. Casar por NOME não serve: depois do cadastro
@@ -22831,6 +22722,78 @@ def api_fracttal_os():
     tot = len(out["usina_os"]) + sum(len(v["os"]) for v in out["por_inversor"].values())
     out["total"] = tot
     return jsonify(out)
+
+
+# ── ÚLTIMA OS do inversor, no drill (Levi, 25/09/2026: "Última OS de performance com filtro para último religamento,
+#    último chamado (se tiver) mostrando a OS") ──────────────────────────────────────────────────────────────────────
+#    Três fichas, pelas marcas que o Fracttal já dá em cada OS (o REST que esta plataforma usa, conferido em 25/09):
+#    PERFORMANCE = etiqueta "PERFORMANCE", que o OS Creator põe em toda OS de performance (Santarém 1, Inversor 1.1:
+#    #12097 "[Inversor 1.1] - Recomposição de String"); RELIGAMENTO = tipo Religamento/Religamento Remoto, que costuma
+#    estar no ativo da USINA (a cabine desarma) — vale a mais nova entre a do inversor e a da usina, dizendo de qual veio;
+#    CHAMADO = etiqueta "CHAMADOS" (o chamado de garantia nasce no mesmo ativo, com a OS de origem como pai). Cancelada
+#    (status 4) nunca conta. O nº abre a OS no OS Creator web, pelo proxy /os da plataforma.
+FRAC_ETQ_PERFORMANCE = "PERFORMANCE"
+FRAC_ETQ_CHAMADO = "CHAMADOS"
+FRAC_TIPOS_RELIGAMENTO = {"religamento", "religamento remoto"}
+
+
+def _frac_etiquetas(w) -> set:
+    return {str((e or {}).get("description") or "").strip().upper() for e in (w.get("labels") or []) if isinstance(e, dict)}
+
+
+def _frac_os_ficha(w, escopo: str) -> dict:
+    st = w.get("id_status_work_order")
+    ev = _frac_dt_local(w.get("event_date") or w.get("creation_date"))
+    return {"folio": str(w.get("wo_folio") or ""), "descricao": str(w.get("description") or "").strip(),
+            "tipo": str(w.get("tasks_log_task_type_main") or "").strip(), "status": FRAC_WO_STATUS.get(st, "—"),
+            "aberta": st in (0, 1, 5, 6), "evento": ev.strftime("%Y-%m-%d %H:%M") if ev else "",
+            "escopo": escopo, "link": f"/os/os/folio/{w.get('wo_folio')}"}
+
+
+def _frac_ultimas_os(wos_inv, wos_site) -> dict:
+    """{performance, religamento, chamado}: a OS mais recente (pelo evento, senão pela criação) de cada marca, ou None.
+    wos_inv = OS brutas do ativo do inversor; wos_site = as do ativo da usina (só o religamento olha para elas)."""
+    def _quando(w):
+        return str(_frac_dt_local(w.get("event_date") or w.get("creation_date")) or "")
+
+    def _mais_nova(cands):
+        cands = [(w, esc) for w, esc in cands if w.get("id_status_work_order") != 4 and w.get("wo_folio")]
+        if not cands:
+            return None
+        w, esc = max(cands, key=lambda c: _quando(c[0]))
+        return _frac_os_ficha(w, esc)
+
+    inv, site = list(wos_inv or []), list(wos_site or [])
+    return {
+        "performance": _mais_nova((w, "inversor") for w in inv if FRAC_ETQ_PERFORMANCE in _frac_etiquetas(w)),
+        "religamento": _mais_nova([(w, "inversor") for w in inv
+                                   if str(w.get("tasks_log_task_type_main") or "").strip().lower() in FRAC_TIPOS_RELIGAMENTO]
+                                  + [(w, "usina") for w in site
+                                     if str(w.get("tasks_log_task_type_main") or "").strip().lower() in FRAC_TIPOS_RELIGAMENTO]),
+        "chamado": _mais_nova((w, "inversor") for w in inv if FRAC_ETQ_CHAMADO in _frac_etiquetas(w)),
+    }
+
+
+@app.route("/api/fracttal/ultima-os")
+def api_fracttal_ultima_os():
+    """Última OS de performance, de religamento e de chamado de UM inversor (?usina=<nome da linha>&inv=<Inversor N.M>).
+    OS do ativo e da usina com o cache de 10 min do _frac_wos_raw — abrir o mesmo inversor de novo não gasta cota."""
+    if not FRACTTAL_ON:
+        return jsonify({"ok": False, "sem_credencial": True})
+    usina = (flask_request.args.get("usina") or "").strip()
+    inv = (flask_request.args.get("inv") or "").strip()
+    try:
+        code = _frac_inv_code(usina, inv)
+        ativo = _frac_ativo(code) if code else None
+        if not ativo:
+            return jsonify({"ok": False, "sem_ativo": True, "code": code})
+        wos_site = []
+        ent = _frac_usina_ent(usina)
+        if ent and ent.get("site"):
+            wos_site = _frac_wos_raw(ent["site"])
+        return jsonify({"ok": True, "code": ativo.get("code") or code, **_frac_ultimas_os(_frac_wos_raw(ativo["id"]), wos_site)})
+    except Exception as e:                                                    # noqa: BLE001
+        return jsonify({"ok": False, "erro": f"{type(e).__name__}: {e}"})
 
 
 # ══ RONDA AUTOMÁTICA VIA WHATSAPP — 5 grupos (1 por região), 2 envios/dia ════════════════════════

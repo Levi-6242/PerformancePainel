@@ -215,7 +215,7 @@ function _prendeOverlays(){ const v=_faixaVisivel(); if(!v) return;
 if(EMBED){ try{ parent.addEventListener('scroll',_prendeOverlays,{passive:true}); parent.addEventListener('resize',_prendeOverlays); }catch(e){} }
 // ?fonte=<id> vem dos cards da Entrada (/teste/tempo-real): o card de um cliente abre o Monitoramento ja na fonte dele (05/09/2026)
 const _VIEWS_URL=['strings','etm','geracao','trackers','pr','curva','perdas'];
-const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'), subfilter:'geral', invView:'strings', invGer:{modo:'mes',ini:null,fim:null}, trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, perdaSub:'trk-par', perdaDia:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, etmMode:'cards', etmProb:false   /* Levi 21/09: nasce DESMARCADO. O ?etmprob=1 vinha da Entrada por causa da contagem do MÊS, e prendia a tela num filtro que o usuário não pediu */, gerIni:null, gerFim:null, gerModo:'usinas' };
+const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'),  invView:'strings', invGer:{modo:'mes',ini:null,fim:null}, trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, perdaSub:'trk-par', perdaDia:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, etmMode:'cards', etmProb:false   /* Levi 21/09: nasce DESMARCADO. O ?etmprob=1 vinha da Entrada por causa da contagem do MÊS, e prendia a tela num filtro que o usuário não pediu */, gerIni:null, gerFim:null, gerModo:'usinas' };
 function setState(patch){ Object.assign(state, patch); render(); }
 /* ═══ DADO REAL — por VISTA e por FONTE. Cada uma devolve {rows,summary}; muda só o endpoint. ═══ */
 // 2C tudo junto (11/09/2026): linha da 2C com id NUMÉRICO veio da API PV (conta oem@) → curva e ETM pelo caminho da API PV
@@ -232,7 +232,7 @@ const EP={
 // escolhe sozinho o token da conta que a enxerga (_pv_token_for). Só o recorte da LISTA muda.
 const PLANT={pv:'/api/plant/',pg:'/api/pg/plant/',sunop:'/api/sunop/plant/',axis:'/api/axis/plant/',solaredge:'/api/solaredge/plant/',owen:'/api/owen/strings/plant/',semp:'/api/plant/',alveslima:'/api/plant/','2capi':'/api/plant/'};
 function _urlFor(view,srcChip){ const base=(EP[view]||{})[SKEY[srcChip]]; if(!base) return null; return view==='pr'?base+'?date='+_todayISO():base; }   // data LOCAL: com toISOString(), das 21h em diante o BR pedia o dia SEGUINTE e a tabela voltava vazia
-const RD={pv:null,loading:false,na:false,erro:null,cache:{},plants:{},curva:{},curvaMeta:{},trk:{},depara:{},trkChart:{},os:{},comments:{},tracking:{},strProb:{},strEv:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},invHist:{},perdas:{},osAtrib:{},_osList:null};
+const RD={pv:null,loading:false,na:false,erro:null,cache:{},plants:{},curva:{},curvaMeta:{},trk:{},depara:{},trkChart:{},os:{},comments:{},tracking:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},invHist:{},perdas:{},osAtrib:{},_osList:null};
 
 /* ══ BUSCA COM ESPERA LIMITADA ══════════════════════════════════════════════
    01/09/2026: o Levi abriu as strings da Santana do Ipanema e a tela girou até ele desistir. A
@@ -327,6 +327,37 @@ function _curvaRecarrega(pid,invId,nome){
   if(aberta) loadCurva(pid,invId,nome,true);
 }
 /* fim _curvaRecarrega */
+/* ── ÚLTIMA OS do inversor (Levi, 25/09/2026: "Última OS de performance com filtro para último religamento, último
+   chamado (se tiver) mostrando a OS"). Três fichas pelas marcas do Fracttal (/api/fracttal/ultima-os): etiqueta
+   PERFORMANCE; tipo Religamento/Religamento Remoto (a do inversor ou a da usina, a mais nova); etiqueta CHAMADOS.
+   O nº abre a OS no OS Creator. A aba escolhida vale para todo inversor que se abrir depois. ── */
+const _ULTOS_ABAS=[['performance','Performance'],['religamento','Religamento'],['chamado','Chamado']];
+async function loadUltimaOs(pid,invId,nome){
+  RD.ultOs=RD.ultOs||{}; const key=pid+'|'+invId;
+  if(RD.ultOs[key]!==undefined) return;
+  RD.ultOs[key]=null; render();
+  const _row=((RD.pv&&RD.pv.rows)||[]).find(r=>String(r.plant_id)===String(pid)), usina=(_row&&_row.usina)||String(pid);
+  try{ RD.ultOs[key]=await fetchJSON('/api/fracttal/ultima-os?usina='+encodeURIComponent(usina)+'&inv='+encodeURIComponent(nome||'')); }
+  catch(e){ RD.ultOs[key]={ok:false,erro:1}; }
+  render();
+}
+window.setUltOsAba=a=>{ state.ultOsAba=a; render(); };
+function _ultOsBlock(inv){
+  if(!inv.isReal) return '';
+  const d=(RD.ultOs||{})[inv.pid+'|'+inv.invId], aba=state.ultOsAba||'performance';
+  const nomeAba=(_ULTOS_ABAS.find(x=>x[0]===aba)||_ULTOS_ABAS[0])[1];
+  const tabs=_ULTOS_ABAS.map(([k,l])=>{ const on=k===aba; return `<button onclick="event.stopPropagation();setUltOsAba('${k}')" style="border:1px solid ${on?'var(--color-accent)':'var(--color-divider)'};background:${on?'color-mix(in srgb,var(--color-accent) 16%,transparent)':'transparent'};color:${on?'var(--color-accent)':'var(--color-neutral-300)'};font-family:inherit;font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:7px;cursor:pointer">${l}</button>`; }).join('');
+  let corpo;
+  if(d===undefined||d===null) corpo=`<span class="text-muted"><i class="ph ph-circle-notch gc-spin"></i> Buscando no Fracttal…</span>`;
+  else if(!d.ok) corpo=`<span class="text-muted">${d.sem_ativo?`Inversor sem ativo no Fracttal${d.code?` (${_he(d.code)})`:''}.`:(d.sem_credencial?'Fracttal não configurado na plataforma.':'O Fracttal não respondeu — tente de novo em instantes.')}</span>`;
+  else{ const o=d[aba];
+    if(!o) corpo=`<span class="text-muted">${aba==='chamado'?'Nenhum chamado neste inversor.':`Nenhuma OS de ${nomeAba.toLowerCase()} neste inversor${aba==='religamento'?' nem na usina':''}.`}</span>`;
+    else{ const cor=o.aberta?'var(--gc-amber)':(/Conclu/.test(o.status)?'var(--color-accent)':'var(--color-neutral-400)');
+      const ev=o.evento?(o.evento.slice(8,10)+'/'+o.evento.slice(5,7)+'/'+o.evento.slice(0,4)+o.evento.slice(10)):'';
+      corpo=`<a href="${o.link}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Abrir a OS no OS Creator" style="font-weight:700;color:var(--color-accent);text-decoration:none">#${_he(o.folio)}</a><span style="color:var(--color-neutral-200)">${_he(o.descricao)}</span><span style="font-weight:600;color:${cor}">${_he(o.status)}</span><span class="text-muted">${_he(ev)}${o.escopo==='usina'?' · OS da usina':''}</span>`; } }
+  return `<div onclick="event.stopPropagation()" style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 12px;margin-bottom:14px;border:1px solid var(--color-divider);border-radius:var(--radius-md);background:color-mix(in srgb, var(--color-neutral-900) 45%, transparent)"><span class="card-kicker" style="color:var(--color-neutral-400);margin:0">Última OS</span><span style="display:inline-flex;gap:4px">${tabs}</span><span style="flex:1;min-width:220px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:12.5px">${corpo}</span></div>`;
+}
+/* fim _ultOsBlock */
 function curvaSVG(curva, smap, red, unit){   // unit: 'A' (padrão) ou 'W' (RenoGrid — a SolarEdge dá potência por string)
   const names=Object.keys(curva||{}); if(!names.length) return '';
   let mx=0; names.forEach(n=>(curva[n].y||[]).forEach(v=>{ if(v!=null&&v>mx)mx=v; }));
@@ -1630,8 +1661,6 @@ function computeVals(){
   const sources=srcDefs.map(d=>{const on=s.source===d.id; return {icon:d.icon,name:d.name,sub:d.sub,id:d.id,iconBg:on?'color-mix(in srgb, var(--color-accent) 22%, transparent)':'var(--color-neutral-900)',iconColor:on?'var(--color-accent)':'var(--color-neutral-300)',nameColor:on?'var(--color-text)':'var(--color-neutral-300)',style:`display:flex;align-items:center;gap:11px;padding:10px 14px;border-radius:var(--radius-md);cursor:pointer;font-family:inherit;flex-shrink:0;background:var(--color-surface);border:1px solid ${on?'var(--color-accent)':'var(--color-divider)'};`};});
   const viewDefs=[{id:'strings',label:'Strings'},{id:'etm',label:'ETM'},{id:'geracao',label:'Geração'},{id:'trackers',label:'Trackers'},{id:'pr',label:'PR Inversores'},{id:'curva',label:'Curva das strings'},{id:'perdas',label:'Perdas'}];
   const views=viewDefs.map(v=>{const on=s.view===v.id; return {label:v.label,id:v.id,style:`padding:8px 15px;border-radius:var(--radius-md);cursor:pointer;font-family:var(--font-heading);font-size:13.5px;font-weight:500;background:${on?'var(--color-accent)':'transparent'};color:${on?'#161826':'var(--color-neutral-300)'};border:1px solid ${on?'var(--color-accent)':'var(--color-divider)'};`};});
-  const subDefs=[{id:'geral',label:'Visão geral'},{id:'sem',label:'Strings sem corrente'},{id:'ocor',label:'Ocorrências (caiu → voltou)'}];
-  const subfilters=subDefs.map(f=>{const on=s.subfilter===f.id; return {label:f.label,id:f.id,style:`padding:7px 14px;border-radius:var(--radius-md);cursor:pointer;font-family:var(--font-body);font-size:13px;font-weight:500;background:${on?'var(--color-accent-900)':'transparent'};color:${on?'var(--color-accent-200)':'var(--color-neutral-400)'};border:1px solid ${on?'var(--color-accent-700)':'var(--color-divider)'};`};});
   const cardsByView={
     strings:[{icon:'ph ph-factory',value:76,label:'Usinas',accent:'var(--gc-blue)',numColor:'var(--gc-blue)'},{icon:'ph ph-lightning',value:505,label:'Strings ativas',accent:'var(--color-accent)',numColor:'var(--color-accent)'},{icon:'ph ph-warning',value:67,label:'Sem geração',accent:'var(--gc-red)',numColor:'var(--gc-red)'},{icon:'ph ph-thermometer-hot',value:0,label:'Temp ≥ 65 °C',accent:'var(--gc-amber)',numColor:'var(--color-neutral-200)'},{icon:'ph ph-wifi-slash',value:6,label:'Falha comunicação',accent:'var(--gc-violet)',numColor:'var(--gc-violet)'}],
     etm:[{icon:'ph ph-cloud-sun',value:42,label:'Usinas c/ ETM',accent:'var(--gc-blue)',numColor:'var(--gc-blue)'},{icon:'ph ph-check-circle',value:34,label:'Normal',accent:'var(--color-accent)',numColor:'var(--color-accent)'},{icon:'ph ph-warning',value:5,label:'Parcial',accent:'var(--gc-amber)',numColor:'var(--gc-amber)'},{icon:'ph ph-prohibit',value:3,label:'Sem dados',accent:'var(--gc-red)',numColor:'var(--gc-red)'}],
@@ -1877,7 +1906,7 @@ function computeVals(){
   const _etmProbN=new Set((etmCardsUse||[]).filter(c=>c.prob).map(c=>c.pid||c.usina)).size;
   const _etmProbCards=(etmCardsUse||[]).filter(c=>c.prob).length;
   const _cts=RD.pv&&(RD.pv.cache_ts||(RD.pv.summary||{}).cache_ts);
-  return {lastUpdate:(_cts?String(_cts).slice(0,5):_horaAgora()),today:_dataHojeExt(),sources,views,subfilters,cards,usinas,loading:RD.loading,na:RD.na,chart:getChart(),showStrings:s.view==='strings',showEtm:s.view==='etm',showTrackers:s.view==='trackers',showPr:s.view==='pr',showCurva:s.view==='curva',showGeracao:s.view==='geracao',showPerdas:s.view==='perdas',etmRows:etmRowsUse,trackerRows:trackerRowsUse,prRows:prRowsUse,curvaStrings,etmCards:etmCardsUse,etmModeCards:s.etmMode==='cards',etmModeTable:s.etmMode==='tabela',etmTabCards:segStyle(s.etmMode==='cards'),etmTabTable:segStyle(s.etmMode==='tabela'),etmProbOn:s.etmProb,etmProbN:_etmProbN,etmProbCards:_etmProbCards,etmTabProb:segStyleRed(s.etmProb),curvaLabel:'Alto Paraná 2 · Inversor 1.1 — corrente por string · 14/07/2026'};
+  return {lastUpdate:(_cts?String(_cts).slice(0,5):_horaAgora()),today:_dataHojeExt(),sources,views,cards,usinas,loading:RD.loading,na:RD.na,chart:getChart(),showStrings:s.view==='strings',showEtm:s.view==='etm',showTrackers:s.view==='trackers',showPr:s.view==='pr',showCurva:s.view==='curva',showGeracao:s.view==='geracao',showPerdas:s.view==='perdas',etmRows:etmRowsUse,trackerRows:trackerRowsUse,prRows:prRowsUse,curvaStrings,etmCards:etmCardsUse,etmModeCards:s.etmMode==='cards',etmModeTable:s.etmMode==='tabela',etmTabCards:segStyle(s.etmMode==='cards'),etmTabTable:segStyle(s.etmMode==='tabela'),etmProbOn:s.etmProb,etmProbN:_etmProbN,etmProbCards:_etmProbCards,etmTabProb:segStyleRed(s.etmProb),curvaLabel:'Alto Paraná 2 · Inversor 1.1 — corrente por string · 14/07/2026'};
 }
 
 /* ── handlers globais ── */
@@ -1902,9 +1931,8 @@ window._hlTrk=(n,on)=>{   // hover no card do tracker → destaca a linha dele n
     if(on){ if(d===alvo){ p.style.strokeWidth='3'; p.style.strokeOpacity='1'; } else p.style.strokeOpacity='0.1'; }
     else { p.style.strokeWidth=''; p.style.strokeOpacity=''; } });
 };
-window.setSub=id=>{ state.subfilter=id; render(); if(id==='sem')loadStrProblema(); else if(id==='ocor')loadStrEventos(); };
 window.toggleUsina=id=>{ const abrir=state.expandedUsina!==id; setState({expandedUsina:abrir?id:null,expandedInversor:null}); if(abrir&&RD.pv) loadPlant(id); };
-window.toggleInversor=(id,ev,pid,invId,nome)=>{ if(ev&&ev.stopPropagation)ev.stopPropagation(); const abrir=state.expandedInversor!==id; setState({expandedInversor:abrir?id:null}); if(abrir&&pid&&SKEY[state.source]) loadCurva(pid,invId,nome); };
+window.toggleInversor=(id,ev,pid,invId,nome)=>{ if(ev&&ev.stopPropagation)ev.stopPropagation(); const abrir=state.expandedInversor!==id; setState({expandedInversor:abrir?id:null}); if(abrir&&pid&&SKEY[state.source]){ loadCurva(pid,invId,nome); loadUltimaOs(pid,invId,nome); } };
 window.setInvData=(v,pid,invId,nome)=>{ state.invData=v||null; render(); if(pid&&SKEY[state.source]) loadCurva(pid,invId,nome); };   // data do drill de corrente por string
 async function loadTrk(pid){   // trackers individuais de UMA usina (drill): /api/{src}/trackers/{pid}
   const base=(EP.trackers||{})[SKEY[state.source]]; if(!base) return;
@@ -2058,7 +2086,7 @@ function renderInversor(inv,chart){
         <span class="text-muted" style="font-size:12px">${inv.lastRead}</span>
       </span>
     </div>
-    ${inv.expanded?`<div style="padding:4px 18px 20px">${_tkCards(inv)}
+    ${inv.expanded?`<div style="padding:4px 18px 20px">${_ultOsBlock(inv)}${_tkCards(inv)}
       ${inv.trackers&&inv.trackers.length?`<div class="card-kicker" style="color:var(--color-neutral-400);margin:6px 0 10px">Trackers do inversor</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px">${inv.trackers.map(t=>`<span style="display:inline-flex;align-items:center;gap:8px;padding:8px 13px;border-radius:var(--radius-md);background:var(--color-accent-900);border:1px solid var(--color-accent-700)"><span style="font-weight:600;font-size:13px;color:var(--color-accent-100)">${t.name}</span><span style="font-size:11.5px;color:var(--color-accent-300)">Δ ${t.delta}°</span><span style="width:7px;height:7px;border-radius:50%;background:var(--color-accent)"></span></span>`).join('')}</div>`:''}
       <div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:16px"><button class="btn btn-primary"><i class="ph ph-chart-line"></i> Curva do dia</button><button class="btn btn-secondary" ${inv.isReal?`onclick="event.stopPropagation();trancarInativas('${inv.pid}','${inv.invId}')"`:''}><i class="ph ph-lock-simple"></i> Trancar strings inativas${inv.isReal&&inv.nSem?` (${inv.nSem})`:''}</button>${(inv.isReal&&inv.nTrc)?`<button class="btn btn-secondary" onclick="event.stopPropagation();destrancarTodas('${inv.pid}','${inv.invId}')" title="Destranca de uma vez as ${inv.nTrc} string(s) trancadas deste inversor — volta a contar todas"><i class="ph ph-lock-simple-open"></i> Destrancar todas (${inv.nTrc})</button>`:''}<span class="text-muted" style="font-size:13px;margin-left:4px">Data</span><input type="date" value="${_invIso()}" max="${_todayISO()}" onchange="setInvData(this.value,'${inv.pid}','${inv.invId}','${(inv.name||'').replace(/['"\\]/g,'')}')" title="Escolha o dia da curva de corrente por string" style="background:var(--color-neutral-900);border:1px solid var(--color-divider);border-radius:8px;color:var(--color-text);font-family:inherit;font-size:12.5px;padding:6px 9px">${inv.isReal&&_CURVA_FONTES.includes(_fonte())?`<a href="/api/${_fonte()}/strings/curva.csv?usina=${encodeURIComponent(inv.pid)}&data=${_invIso()}" class="btn btn-secondary" style="text-decoration:none;margin-left:6px" title="Baixa a corrente por string da USINA inteira no dia escolhido (todas as strings, formato longo p/ análise/régua)"><i class="ph ph-file-csv"></i> CSV da usina</a>`:''}</div>
@@ -2210,11 +2238,9 @@ function _gerBlock(u){
   return box(resumo+cab+rows+leg);
 }
 function renderStrings(v){
-  const f=_fonte(), subOk=_STR_SUB_FONTES.includes(f);
-  const bar=subOk?`<div style="display:flex;gap:8px;margin-bottom:24px">${v.subfilters.map(x=>`<button onclick="setSub('${x.id}')" style="${x.style}">${x.label}</button>`).join('')}</div>`:'';
-  if(subOk&&state.subfilter==='sem') return bar+renderStrProblema();
-  if(subOk&&state.subfilter==='ocor') return bar+renderStrEventos();
-  return bar+`
+  // As sub-abas "Strings sem corrente" e "Ocorrências (caiu → voltou)" saíram em 25/09/2026 (Levi: "remover os botões e o
+  // código relacionado a eles"). O motor delas fica no servidor: alimenta Falhas, Perdas, o sino e a cascata.
+  return `
   <div class="card" style="padding:0;overflow:hidden">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 22px;border-bottom:1px solid var(--color-divider)">
       <div style="display:flex;align-items:baseline;gap:12px"><span style="font-family:var(--font-heading);font-size:17px">${_srcNome()} — Detalhamento por Usina</span><span class="text-muted" style="font-size:12.5px">${state.osMode?'modo OS: clique nas strings sem corrente':'clique na linha para expandir'}</span></div>
@@ -2350,17 +2376,10 @@ function renderCurva(v){
   return header+`<div class="text-muted" style="font-size:12.5px;margin-bottom:10px">${list.length} inversores · ${_he((rows.find(r=>String(r.plant_id)===state.curvaPid)||{}).usina||'')}</div>`+body;
 }
 
-/* ══ Bloco B — subabas de Strings (sem corrente / ocorrências) e Trackers (parados / ocorrências) ══ */
+/* ══ Bloco B — subabas de Trackers (parados / ocorrências). As de Strings saíram em 25/09/2026 (Levi). ══ */
 function _fonte(){ return SKEY[state.source]; }                                    // pv|pg|sunop|axis|solaredge|owen
-const _STR_SUB_FONTES=['pv','pg','owen','sunop','axis','semp','alveslima','2capi'];   // semp/alveslima: sem-corrente sim, ocorrências ainda não (o backend responde indisponivel)                           // fontes com detalhe por-string
 const _TRK_SUB_FONTES=['pv','pg','sunop','axis','owen'];                           // fontes com endpoints de trackers parados/eventos
 // ── loaders (cacheados por fonte / fonte|dia; force ignora o cache) ──
-async function loadStrProblema(force){ const f=_fonte(); if(!force&&RD.strProb[f]!==undefined)return; RD.strProb[f]=null; render();
-  try{ RD.strProb[f]=await fetchJSON('/api/'+f+'/strings/problema'+(force?'?force=1':'')); }catch(e){ RD.strProb[f]={rows:[],erro:1}; } render(); }
-async function loadStrEventos(force){ const f=_fonte(), rg=_evR(), k=f+'|'+rg.ini+'|'+rg.fim;
-  if(f==='pg'){ RD.strEv[k]={rows:[],snapshot:true}; render(); return; }
-  if(!force&&RD.strEv[k]!==undefined)return; RD.strEv[k]=null; render();
-  try{ RD.strEv[k]=await fetchJSON('/api/'+f+'/strings/eventos?ini='+rg.ini+'&fim='+rg.fim+(force?'&force=1':'')); }catch(e){ RD.strEv[k]={rows:[],erro:1}; } render(); }
 async function loadTrkParados(force){ const f=_fonte(); if(!force&&RD.trkPar[f]!==undefined)return; RD.trkPar[f]=null; render();
   try{ RD.trkPar[f]=await fetchJSON('/api/'+f+'/trackers/parados'+(force?'?force=1':'')); }catch(e){ RD.trkPar[f]={rows:[],erro:1}; } render(); }
 async function loadTrkEventos(force){ const f=_fonte(), rg=_evR(), k=f+'|'+rg.ini+'|'+rg.fim; if(!force&&RD.trkEv[k]!==undefined)return; RD.trkEv[k]=null; render();
@@ -2368,15 +2387,14 @@ async function loadTrkEventos(force){ const f=_fonte(), rg=_evR(), k=f+'|'+rg.in
       fetchJSON('/api/'+f+'/trackers/parados').catch(()=>({rows:[]})) ]);
     RD.trkEv[k]={rows:d.rows||[],disp:d.disp||{},parSet:new Set((par.rows||[]).map(r=>String(r.usina)+'|'+String(r.tracker)))};
   }catch(e){ RD.trkEv[k]={rows:[],disp:{},parSet:new Set(),erro:1}; } render(); }
-function _loadSub(){ if(state.view==='strings'){ if(state.subfilter==='sem')loadStrProblema(); else if(state.subfilter==='ocor')loadStrEventos(); }
-  else if(state.view==='trackers'){ if(state.trkSub!=='live')loadTrkProblemas(); } }
+function _loadSub(){ if(state.view==='trackers'){ if(state.trkSub!=='live')loadTrkProblemas(); } }
 window.setTrkSub=id=>{ state.trkSub=id; render(); if(id!=='live')loadTrkProblemas(); };
 const EV_MAX_DIAS=7;   // teto do intervalo De/Até das ocorrências
 function _isoAdd(iso,n){ const d=new Date(iso+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
 function _ontemISO(){ return _isoAdd(_todayISO(), -1); }   // base de perdas = D-1 (dia FECHADO; gráficos seguem ao vivo)
 function _evR(){ const t=_ontemISO(), ini=state.evIni||t, fim=state.evFim||ini; return {ini, fim:(fim<ini?ini:fim)}; }
 function _isoDiff(a,b){ return Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/86400000); }
-function _evReload(){ if(state.view==='strings'&&state.subfilter==='ocor')loadStrEventos(); if(state.view==='trackers'&&state.trkSub!=='live')loadTrkEventos(); }
+function _evReload(){ if(state.view==='trackers'&&state.trkSub!=='live')loadTrkEventos(); }
 window.setEvIni=v=>{ state.evIni=v; if(!state.evFim||state.evFim<v)state.evFim=v; else if(_isoDiff(v,state.evFim)>EV_MAX_DIAS-1)state.evFim=_isoAdd(v,EV_MAX_DIAS-1); render(); _evReload(); };
 window.setEvFim=v=>{ state.evFim=v; if(!state.evIni||v<state.evIni)state.evIni=v; else if(_isoDiff(state.evIni,v)>EV_MAX_DIAS-1)state.evIni=_isoAdd(v,-(EV_MAX_DIAS-1)); render(); _evReload(); };
 window.setEvMonth=(ym)=>{ if(!ym)return; const t=_todayISO(), ini=ym+'-01'; if(ini>t)return;   // mês inteiro (só trackers; ignora a trava EV_MAX_DIAS)
@@ -2469,29 +2487,6 @@ function _evRangeInput(){ const r=_evR(), t=_todayISO(), css='background:var(--c
   return toggle+`<span class="text-muted" style="font-size:12.5px">De</span><input type="date" value="${r.ini}" max="${t}" onchange="setEvIni(this.value)" style="${css}"><span class="text-muted" style="font-size:12.5px">até</span><input type="date" value="${r.fim}" max="${t}" onchange="setEvFim(this.value)" style="${css}">`; }
 function _durTxt(m){ m=m||0; return m>=60?(Math.floor(m/60)+'h'+String(m%60).padStart(2,'0')):m+'min'; }
 function _subBtns(defs,cur,fn){ return `<div style="display:flex;gap:8px;margin-bottom:20px;flex-wrap:wrap">${defs.map(d=>{const on=cur===d.id;return `<button onclick="${fn}('${d.id}')" style="padding:7px 14px;border-radius:var(--radius-md);cursor:pointer;font-family:var(--font-body);font-size:13px;font-weight:500;background:${on?'var(--color-accent-900)':'transparent'};color:${on?'var(--color-accent-200)':'var(--color-neutral-400)'};border:1px solid ${on?'var(--color-accent-700)':'var(--color-divider)'}">${d.lb}</button>`;}).join('')}</div>`; }
-// ── Strings · "sem corrente (agora)" ──
-function renderStrProblema(){ const f=_fonte(), d=RD.strProb[f];
-  const rows=((d&&d.rows)||[]).filter(r=>_matchQ(r.usina));
-  const cnt=(d&&d.rows)?`${rows.length} strings${rows.length?` em ${new Set(rows.map(r=>r.usina)).size} usinas`:''}`:'';
-  const bar=_subBar('Strings sem corrente (agora)',cnt,_expBtn('/api/'+f+'/strings/problema/export.xlsx')+_atualBtn('loadStrProblema'));
-  if(d===undefined||d===null) return bar+_subLoad('Consultando strings…');
-  if(d.indisponivel) return bar+_subMsg('Lista de strings sem corrente não disponível nesta fonte.');
-  if(!rows.length) return bar+_subMsg(_q?`Nenhuma usina casa "${_he(_q)}".`:'Nenhuma string sem corrente no momento.');
-  const body=rows.map(r=>`<tr><td style="${_stTd('severo','font-weight:600')}">${_he(r.usina||'')}</td><td style="color:var(--color-neutral-300)">${_he(r.inversor||'—')}</td><td style="color:var(--color-neutral-300)">${_he(r.string||'')}</td><td style="text-align:right;color:#ff9a9d;${_tnum()}">${r.corrente==null?'—':Number(r.corrente).toFixed(1)+' A'}</td><td style="color:var(--color-neutral-400);padding-right:22px;${_tnum()}">${_desdeFlex(r.desde)}</td></tr>`).join('');
-  return bar+`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th>Inversor</th><th>String</th><th style="text-align:right">Corrente</th><th style="padding-right:22px">Desde</th></tr></thead><tbody>${body}</tbody></table></div></div>`; }
-// ── Strings · "ocorrências (caiu → voltou)" ──
-function renderStrEventos(){ const f=_fonte(), rg=_evR(), d=RD.strEv[f+'|'+rg.ini+'|'+rg.fim];
-  const rows=((d&&d.rows)||[]).filter(r=>_matchQ(r.usina));
-  const cnt=(d&&d.rows&&!d.snapshot)?`${rows.length} ocorrências · ${rows.filter(r=>r.voltou).length} voltaram`:'';
-  const bar=_subBar('Ocorrências de strings (caiu → voltou)',cnt,_evRangeInput()+_expBtn('/api/'+f+'/strings/eventos/export.xlsx?ini='+rg.ini+'&fim='+rg.fim)+_atualBtn('loadStrEventos'));
-  if(f==='pg'||(d&&d.snapshot)) return bar+_subMsg('O dado de string do Banco de Dados é snapshot (1 leitura/dia, sem curva) — caiu→voltou não dá para detectar nesta fonte.');
-  if(d===undefined||d===null) return bar+_subLoad('Processando as curvas de string do período… (~1 min por dia)');
-  if(d.indisponivel) return bar+_subMsg('Ocorrências de strings não disponíveis nesta fonte.');
-  if(!rows.length) return bar+_subMsg(_q?`Nenhuma usina casa "${_he(_q)}".`:'Nenhuma ocorrência de string no período.');
-  const mx=Math.max(1,...rows.map(r=>r.dur_min||0));
-  const body=rows.map(r=>{ const lv=(r.dur_min||0)<60;
-    return `<tr><td class="mono" style="${_stTd(r.voltou&&lv?'leve':'severo')};${_tnum()}">${_he(r.data||'—')}</td><td style="font-weight:600">${_he(r.usina||'')}</td><td style="color:var(--color-neutral-300)">${_he(r.inversor||'—')}</td><td style="color:var(--color-neutral-300)">${_he(r.string||'')}</td><td style="${_tnum()}">${_he(r.caiu||'—')}</td><td style="${_tnum()}">${r.voltou?_he(r.voltou):'<span style="color:#ff9a9d">não voltou</span>'}</td><td style="text-align:right;padding-right:22px">${r.dur_min!=null?_durCell(_durTxt(r.dur_min),r.dur_min,mx,lv):'<span style="color:var(--color-neutral-400)">—</span>'}</td></tr>`; }).join('');
-  return bar+`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Dia</th><th>Usina</th><th>Inversor</th><th>String</th><th>Caiu</th><th>Voltou</th><th style="text-align:right;padding-right:22px">Duração</th></tr></thead><tbody>${body}</tbody></table></div></div>`; }
 // ── Trackers · "parados (agora)" ──
 function renderTrkParados(){ const f=_fonte(), d=RD.trkPar[f];
   const rows=((d&&d.rows)||[]).filter(r=>_matchQ(r.usina));
@@ -2581,7 +2576,6 @@ function _stTd(sev,extra){ return `padding-left:22px;box-shadow:inset 3px 0 0 ${
 function _dtBR(s){ if(!s) return '—'; const t=String(s).replace('T',' '); const m=t.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}:\d{2})/); return m?`${m[3]}/${m[2]} ${m[4]}`:_he(t.slice(0,16)); }
 function _isHoje(iso){ return !!iso && String(iso).slice(0,10)===_todayISO(); }
 function _hojeBR(){ const t=_todayISO(); return t.slice(8,10)+'/'+t.slice(5,7); }
-function _desdeFlex(s){ if(!s) return '—'; s=String(s); if(/^\d{1,2}:\d{2}$/.test(s)) return _hojeBR()+' '+s; if(s.includes('-')) return _dtBR(s); return _he(s); }
 function _hv(r){ return r.horas_solares!=null?r.horas_solares:((r.dur_min||0)/60); }
 function _durBar(val,mx,leve){ const w=Math.max(4,Math.round(78*(val||0)/(mx||1))); const bg=leve?'#ffd83d':'linear-gradient(90deg,#ff8f3c,#ff5b6e)'; return `<span style="display:inline-block;height:5px;border-radius:3px;flex:none;width:${w}px;background:${bg};opacity:.9"></span>`; }
 function _durCell(fmt,val,mx,leve){ return `<div style="display:flex;align-items:center;gap:9px;justify-content:flex-end">${_durBar(val,mx,leve)}<span style="min-width:52px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600">${_he(fmt||'—')}</span></div>`; }
