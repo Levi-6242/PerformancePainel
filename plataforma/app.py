@@ -652,7 +652,7 @@ def pagina_tokens():
 # Tokens que dá para colar pela tela. Os demais (SolarEdge, API PV) fazem login com
 # usuário e senha e se curam sozinhos — não há o que colar.
 _TOKENS_COLAVEIS = {
-    "plat":  ("Plataforma (curva de strings dos dias anteriores)", "plataforma.pvoperation.com"),
+    "plat":  ("Plataforma (reserva da curva de strings dos dias anteriores)", "plataforma.pvoperation.com"),
     "sunop": ("SunOp / Athon",                    "gridco.sunop.net"),
     "axis":  ("Axis SunOp",                       "axis.sunop.net"),
 }
@@ -2609,6 +2609,7 @@ def build_summary(plant: dict, records: list) -> dict:
     sv_ids = []                               # só os SEM VISÃO (não a rampa): os tickets deles vão pela geração
     _esp_cad = ESPERADO_INV.get(plant["nome"].strip()) or {}
     _nomes_cad: dict = {}
+    _usou_cmb = False                         # alguma string veio da combiner: a régua da aba de falhas usa a curva dela
 
     def _nomes_dispositivos() -> dict:
         """id → nome do plant_devices (cache de 30 min do _pv_plant_devices, que só guarda resposta boa)."""
@@ -2660,7 +2661,7 @@ def build_summary(plant: dict, records: list) -> dict:
             if cmb:
                 cj = dict(cj); cj.update(dict(cmb["strings"]))
                 ipv_keys = [k for k, _ in cmb["strings"]]
-                eh_combiner = True
+                eh_combiner = _usou_cmb = True
             elif sb or (_gera and _esp_cadastro(inv_id) > 1):
                 # Sem combiner exposta → "sem visão": não conta a string fantasma nem o esperado desse
                 # inversor. Vale para quem o CADASTRO diz ser String Box e (25/09/2026) para o inversor GERANDO
@@ -2786,6 +2787,11 @@ def build_summary(plant: dict, records: list) -> dict:
             desl_nomes = sorted(desl_nomes + [_equip_lookup(_eq_n, n) or n for n in _faltam])
     diferenca = (strings_ativas - str_esp) if (str_esp is not None) else None
     dif_operante = diferenca
+    if _usou_cmb:
+        try:
+            _falhas_combiner(plant)
+        except Exception as e:                       # noqa: BLE001 — a régua da aba de falhas nunca derruba a tabela
+            print(f"[falhas] String Box {pid}: {e}")
     _n_off_na_conta = max(0, n_off - len(off_ids))   # parados que seguem na conta: usina inteira parada, sem sol
     if (isinstance(diferenca, (int, float)) and _n_off_na_conta and str_esp and latest):
         esp_por_inv = str_esp / len(latest)
@@ -7772,6 +7778,45 @@ def _pv_comb_parse(rows, devs, agora=None, max_idade_h=_PV_COMB_MAX_IDADE_H) -> 
     return out
 
 
+def _pv_comb_curvas(rows, devs, dia) -> dict:
+    """A MESMA resposta do custom_query da combiner, o dia inteiro → {idinversor: {IpvN: [(HH:MM, A)]}} em ordem de hora.
+
+    A v2 manda uma leitura a cada ~2 min, da mais nova para a mais velha, e o `_pv_comb_parse` fica só com a última. Esta
+    curva alimenta a régua da aba de falhas nas String Box (27/09/2026: a Altair teve 8 OS de recomposição em setembro e
+    a aba não viu nenhuma — a régua lia o Ipv do inversor, que numa String Box fica perto de zero). Só leitura do `dia`
+    pedido; o de-para combiner → inversor é o mesmo do `_pv_comb_parse` (sn = "CMB" + device_esn)."""
+    if not rows or not devs:
+        return {}
+    por_esn = {}
+    for d in devs:
+        if str(d.get("device_type") or "").upper() != "INVERTER":
+            continue
+        esn = str(d.get("device_esn") or "").split("@")[0].strip()
+        if esn:
+            por_esn.setdefault(esn, []).append(d)
+    por_comb = {}
+    for e in rows:
+        cj = e.get("conteudojson") or {}
+        if not isinstance(cj, dict):
+            continue
+        ts = str(cj.get("tsleitura") or e.get("tsleitura") or "")
+        if len(ts) < 16 or ts[:10] != dia:
+            continue
+        sn = str(cj.get("sn") or "")
+        esn = sn[3:] if sn[:3].upper() == "CMB" else sn
+        if esn not in por_esn:
+            continue
+        for a, b in cj.items():
+            if a.startswith("Ipv") and isinstance(b, (int, float)):
+                por_comb.setdefault(esn, {}).setdefault(a, []).append((ts[11:16], float(b)))
+    out = {}
+    for esn, strs in por_comb.items():
+        curv = {k: sorted(v) for k, v in strs.items()}
+        for inv in por_esn[esn]:
+            out[inv["device_id"]] = curv
+    return out
+
+
 # Combiner que falhou (429, 5xx, rede) não é perguntado de novo por este tempo (24/09/2026): a falha não entra no cache
 # (senão a String Box pisca para "sem visão"), então cada inversor da mesma abertura perguntava de novo — 24 consultas
 # seguidas na Santana do Ipanema, todas 429, cada uma gastando mais do limite da API PV.
@@ -7855,8 +7900,11 @@ def _pv_combiner_usina(plant_id, force=False) -> dict:
             _pv_comb_falhou[plant_id] = time.time()
             return prev
         devs = _pv_plant_devices(plant_id)
-        por_inv = _pv_comb_parse(r.json() or [], devs)
-        _pv_comb_cache[plant_id] = {"ts": time.time(), "por_inv": por_inv}
+        rows = r.json() or []
+        por_inv = _pv_comb_parse(rows, devs)
+        dia = agora.strftime("%Y-%m-%d")        # a curva do dia vai para a régua da aba de falhas (_falhas_combiner)
+        _pv_comb_cache[plant_id] = {"ts": time.time(), "por_inv": por_inv, "curvas": _pv_comb_curvas(rows, devs, dia),
+                                    "dia": dia}
         return por_inv
     except Exception as e:
         print(f"[combiner/apipv] usina {plant_id}: {e} — mantém o cache anterior")
@@ -11709,6 +11757,9 @@ def _se_day_range(tzname):
     return frm, to
 
 
+_se_serie_ultima = {}          # site_id → {uuid: [(HH:MM, W)]} do dia, da última busca da tabela (aba de falhas)
+
+
 def se_string_power(site_id, uuids, tzname):
     """generate-chart em lotes → ({uuid: ultima_potencia_W ou None}, timestamp máx, lotes_falhos).
 
@@ -11719,8 +11770,12 @@ def se_string_power(site_id, uuids, tzname):
     O valor é o do último quarto de hora FECHADO (25/09/2026). O quarto em andamento chega parcial (o das 12:00,
     recém-aberto, com 0,6–2,7 kW em strings de 13,6 kW) e, com a régua de inversor desligado da Athon (potência < 5%
     da mediana, desde 24/09), virava alarme falso: às 14:48, 3 min depois de abrir o quarto, a Colíder 1 tinha 21
-    inversores "desligados" e a Colíder 2, 8 — contra 0 e 0 com o quarto fechado. A última leitura fica ~15 min atrás."""
+    inversores "desligados" e a Colíder 2, 8 — contra 0 e 0 com o quarto fechado. A última leitura fica ~15 min atrás.
+
+    A resposta já traz o dia inteiro: a série de cada string (só os quartos fechados, na hora da usina) fica em
+    `_se_serie_ultima[site_id]` para a régua da aba de falhas (_falhas_solaredge) — sem pedido novo."""
     frm, to = _se_day_range(tzname)
+    tz_usina, series = _se_tz(tzname), {}
     out, ts_max, lotes_falhos = {}, "", 0
     fechado_ate = datetime.now(timezone.utc).astimezone(timezone.utc) - timedelta(minutes=15)
     H = _se_headers()
@@ -11766,7 +11821,10 @@ def se_string_power(site_id, uuids, tzname):
                     last_p = row[2]
                     if row[0] > ts_max:
                         ts_max = row[0]
+                    if t is not None:
+                        series.setdefault(uuid, []).append((t.astimezone(tz_usina).strftime("%H:%M"), float(row[2])))
             out[uuid] = last_p
+    _se_serie_ultima[site_id] = series
     return out, ts_max, lotes_falhos
 
 
@@ -12058,6 +12116,7 @@ def process_site_solaredge(site: dict) -> dict:
         return base
     uuids = [s["deviceSerial"] for s in strings]
     power, ts_max, lotes_falhos = se_string_power(sid, uuids, site.get("timezone"))
+    series = _se_serie_ultima.pop(sid, None) or {}  # o dia inteiro, que a mesma resposta já traz (aba de falhas)
     if not power:
         return base
     if lotes_falhos:
@@ -12066,6 +12125,10 @@ def process_site_solaredge(site: dict) -> dict:
         # de rede viraria 50 alarmes falsos com sem_dados=false. Uuid que não voltou é DESCONHECIDO.
         print(f"[SE] {nome}: {lotes_falhos} lote(s) de strings falharam — usina marcada SEM DADOS")
         return base
+    try:
+        _falhas_solaredge(site, devs, series)
+    except Exception as e:                           # noqa: BLE001 — a régua da aba nunca derruba a tabela
+        print(f"[falhas] RenoGrid {nome}: {e}")
     ativas = sum(1 for u in uuids if (power.get(u) is not None and power[u] > SE_STRING_MIN_W))
     total  = len(strings)
     # Esperadas vêm do BD_Performance (ESPERADO_INV); fallback = total físico
@@ -19852,9 +19915,10 @@ def _spv_usina_historico(idusina, token, data: str, full: bool) -> dict:
 
 @app.route("/api/spv/usina/<int:idusina>")
 def api_spv_usina(idusina):
-    """Inversores da usina + análise de strings. HOJE: corrente (day_inverter, Ipv). DIAS
-    ANTERIORES: potência por string (PV Plataforma · trygenerate) — a API PV não recupera
-    corrente histórica de string. unidade='corrente' (hoje) / 'potencia' (histórico)."""
+    """Inversores da usina + análise de strings. HOJE: corrente (day_inverter, Ipv). DIAS ANTERIORES: corrente pela
+    API PV (custom_query v2) quando ela tem o histórico, e potência por string (PV Plataforma · trygenerate) no inversor
+    ou na usina que não tiver. unidade='corrente' | 'potencia' | 'misto' (e `unidade` em cada inversor);
+    `historico`='api_pv' quando a corrente veio da API PV; `motivo_api` diz por que ela não veio."""
     data = (flask_request.args.get("data") or datetime.now().strftime("%d/%m/%Y")).strip()
     force = flask_request.args.get("force", "0") == "1"
     full = flask_request.args.get("full", "0") == "1"   # inclui strings inativas na curva
@@ -21347,6 +21411,7 @@ def _iniciar_loops_de_fundo():
                  _frac_disp_loop,           # disponibilidade por OS (Gerencial) — varre + calcula
                  _frac_mtta_loop,           # Acompanhamento COS: tempo do evento até a OS (base acumulada)
                  _falhas_loop,              # Falhas de strings e trackers do mês, com a perda em kWh (Diagnóstico)
+                 _falhas_backfill_sunop_loop,   # curva de strings da SunOp dos dias passados → registro da aba
                  _tranc_watch_loop,         # strings trancadas: o web grava, o worker tem de reler
                  _janitor_loop):            # impede o processo de dias inchar sem teto
         threading.Thread(target=alvo, daemon=True).start()
@@ -22685,18 +22750,387 @@ def _falhas_arquivo(mes):
     return _p_cache(f"falhas_{mes}.json")
 
 
-def _falhas_registra(fonte, dia, pid, usina, curvas):
+_FALHAS_MORTAS_TETO = 60               # (fonte, dia) em memória: 7 fontes × uns 8 dias
+
+
+def _falhas_entrada(usina, curvas, zero=None, piso=None, ids=None, **grade):
+    """A entrada do registro para uma usina-dia: as mortas, as vivas por inversor e os ids da trava."""
+    res = _falhas_mod.avaliar_dia(curvas, zero=STRING_SEM_CORRENTE_A if zero is None else zero,
+                                  piso_inv=STR_EV_INV_MIN_MED if piso is None else piso, **grade)
+    ent = {"usina": usina, "ts": time.time(), "mortas": res["mortas"], "vivas": res["vivas"]}
+    if ids:
+        ent["ids"] = {str(k): str(v) for k, v in ids.items()}
+    return ent
+
+
+def _falhas_registra(fonte, dia, pid, usina, curvas, zero=None, piso=None, ids=None, **grade):
     """Régua nova de strings sobre a curva do dia. Guarda em memória; só o worker persiste. Nunca derruba o
-    detector que a chamou (as ocorrências seguem iguais)."""
+    detector que a chamou (as ocorrências seguem iguais).
+
+    Guarda também quantas strings de cada inversor estavam vivas e se a morta leu zero o dia todo — é o que o mês usa
+    para separar a entrada vazia da string morta (27/09/2026: Ipv29 a Ipv32 eram 55% do kWh de setembro). `zero`/`piso`
+    na unidade da curva (padrão: ampères; a RenoGrid manda W). `ids` = {inversor: id na fonte}, para a trava.
+    `grade` passa passo/tolerancia para curva de 15 min."""
     try:
-        mortas = _falhas_mod.strings_sem_corrente(curvas, zero=STRING_SEM_CORRENTE_A, piso_inv=STR_EV_INV_MIN_MED)
+        ent = _falhas_entrada(usina, curvas, zero=zero, piso=piso, ids=ids, **grade)
         with _falhas_mortas_lock:
-            _FALHAS_MORTAS.setdefault((fonte, dia), {})[str(pid)] = {"usina": usina, "ts": time.time(), "mortas": mortas}
-            if len(_FALHAS_MORTAS) > 12:       # o web também passa aqui (ocorrências sob demanda): memória com teto
-                for k in sorted(_FALHAS_MORTAS, key=lambda k: k[1])[:-12]:
+            _FALHAS_MORTAS.setdefault((fonte, dia), {})[str(pid)] = ent
+            if len(_FALHAS_MORTAS) > _FALHAS_MORTAS_TETO:   # o web também passa aqui (ocorrências sob demanda)
+                for k in sorted(_FALHAS_MORTAS, key=lambda k: k[1])[:-_FALHAS_MORTAS_TETO]:
                     _FALHAS_MORTAS.pop(k, None)
     except Exception as e:
         print(f"[falhas] régua nova em {fonte}/{pid} {dia}: {e}")
+
+
+_falhas_comb_reg = {}                  # plant_id → ts da leitura da combiner já registrada
+
+
+def _falhas_combiner(plant):
+    """String Box: a régua nova sobre a curva da combiner — a mesma resposta que a tabela já baixa, com o dia inteiro.
+    Chave "pvsb" à parte: a API PV registra a mesma usina pelo Ipv do inversor (≈0 numa String Box) a cada hora, e na
+    mesma chave um registro apagaria o outro. Só registra quando a combiner trouxe leitura nova (ela muda de hora em
+    hora; o build_summary passa aqui a cada volta do worker). String trancada fica de fora, como na curva da API PV."""
+    pid = plant["id"]
+    ent = _pv_comb_cache.get(pid) or {}
+    curvas_id, dia = ent.get("curvas"), ent.get("dia")
+    if not curvas_id or not dia or _falhas_comb_reg.get(pid) == ent.get("ts"):
+        return
+    nome_api = str(plant.get("nome") or "").strip()
+    nomes = {d["device_id"]: str(d.get("device_name", "")).strip()
+             for d in _pv_plant_devices(pid) if isinstance(d, dict) and "device_id" in d}
+    eq = EQUIP_NAMES.get(nome_api, {})
+    curvas, ids = {}, {}
+    for inv_id, strs in curvas_id.items():
+        inv_api = nomes.get(inv_id) or f"INV-{inv_id}"
+        disp = eq.get(inv_api, inv_api)
+        livres = {k: v for k, v in strs.items() if not _str_trancada(pid, inv_id, k)}
+        if livres:
+            curvas[disp], ids[disp] = livres, inv_id
+    usina = _macro_usina_nome(nome_usina(pid, nome_api)) or nome_usina(pid, nome_api)
+    _falhas_registra("pvsb", dia, pid, usina, curvas, ids=ids)
+    _falhas_comb_reg[pid] = ent.get("ts")
+
+
+def _falhas_solaredge(site, devs, series):
+    """RenoGrid: a régua nova sobre a potência por string do dia — a MESMA resposta do generate-chart que a tabela já
+    baixa (ela fica com o último quarto de hora fechado). Em W e de 15 em 15 min: zero/piso em W e grade de 15 min
+    (na de 10, só 4 de 6 células por hora teriam leitura e 2 h reais contariam como 80 min). Dia = o da usina."""
+    sid, site_nome = site["id"], site.get("nome")
+    strings = [x for x in devs if x.get("deviceType") == "STRING"]
+    inv_nome = {x["deviceSerial"]: x.get("deviceName", x["deviceSerial"]) for x in devs if x.get("deviceType") == "INVERTER"}
+    eq = EQUIP_NAMES.get(site_nome, {}) if site_nome else {}
+    curvas, ids = {}, {}
+    for parent, sl in _se_por_inversor(strings).items():
+        curva = {}
+        for st in sl:
+            lbl = str(st.get("deviceName") or "").replace("String", "").strip() or st["deviceSerial"]
+            if series.get(st["deviceSerial"]):
+                curva[lbl] = series[st["deviceSerial"]]
+        if curva:
+            n_api = inv_nome.get(parent, parent)
+            disp = eq.get(n_api, n_api)
+            curvas[disp], ids[disp] = curva, parent
+    dia = datetime.now(timezone.utc).astimezone(_se_tz(site.get("timezone"))).strftime("%Y-%m-%d")
+    disp_usina = USINA_DISPLAY.get(site_nome, site_nome)
+    _falhas_registra("solaredge", dia, sid, _macro_usina_nome(disp_usina) or disp_usina, curvas,
+                     zero=STR_EV_POT_ZERO_W, piso=STR_EV_POT_INV_MED, ids=ids, passo=15, tolerancia=30)
+
+
+# Banco de Dados da Thopen: uma consulta da curva do dia por usina (~1–2,5 s, 22 usinas). De 2 em 2 h entre 07h e 18:30
+# e uma última depois das 18:30, que fecha o dia — de hora em hora seria carga à toa num banco que já travou a
+# plataforma (24/09: a consulta da tabela foi de 3 s para 83 s com o banco comprimindo).
+FALHAS_PG_A_CADA_S = 2 * 3600
+_falhas_pg_ult = {"em": None, "final": None}
+
+
+def _falhas_pg_consulta(plant_id, dia):
+    """As leituras de corrente por string do dia (a mesma consulta da curva da tela, sem o 2º passe da mediana)."""
+    sql = """
+      SELECT rc.device_id, d.device_name, p.name AS pname, rc.string_number, rc.ts, rc.string_current
+      FROM (""" + _PG_STR_RAW_CTE + """) rc
+      JOIN public.tb_devices d ON d.id = rc.device_id
+      LEFT JOIN public.tb_power_plants p ON p.id = rc.power_plant_id
+      WHERE rc.string_current IS NOT NULL
+      ORDER BY rc.device_id, rc.string_number, rc.ts
+    """
+    conn = _pg_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute(sql, {"pid": plant_id, "dia": dia})
+        return cur.fetchall()
+    finally:
+        conn.close()
+
+
+def _falhas_pg_monta(recs, plant_id):
+    """Linhas da consulta (device_id, device_name, usina, string, ts, corrente) → (curvas, ids) no formato da régua:
+    {inversor (nome do cadastro): {"ST NN": [(HH:MM, A)]}}. Trancada fica fora — chave pid|dev_id|N, a da tabela."""
+    sup, invs = "", {}
+    for dev_id, dev_name, pname, snum, ts, curr in recs:
+        sup = sup or (pname or "").strip()
+        if _str_key(plant_id, dev_id, str(snum)) in _trancadas:
+            continue
+        inv = invs.setdefault(dev_id, {"nome_api": (dev_name or f"INV {dev_id}").strip(), "strings": {}})
+        lbl = f"ST {int(snum):02d}" if str(snum).isdigit() else f"ST {snum}"
+        hhmm = ts.strftime("%H:%M") if hasattr(ts, "strftime") else str(ts)[11:16]
+        inv["strings"].setdefault(lbl, []).append((hhmm, float(curr) if curr is not None else 0.0))
+    eq = EQUIP_NAMES.get(sup, {}) or {}
+    curvas, ids = {}, {}
+    for dev_id, inv in invs.items():
+        disp = eq.get(inv["nome_api"], inv["nome_api"])
+        curvas[disp] = {k: sorted(v) for k, v in inv["strings"].items()}
+        ids[disp] = dev_id
+    return curvas, ids
+
+
+def _falhas_pg_varre(agora=None):
+    """WORKER: régua nova nas usinas do Banco da Thopen (ver FALHAS_PG_A_CADA_S). As usinas vêm do snapshot da tabela
+    do Banco — o que ele não lista, a varredura não pergunta. Consulta vazia não registra: sem leitura não é usina sem
+    falha (registrar fecharia os episódios abertos dela como se as strings tivessem voltado)."""
+    agora = agora or datetime.now()
+    h, dia = agora.hour + agora.minute / 60.0, agora.strftime("%Y-%m-%d")
+    ult = _falhas_pg_ult["em"]
+    final = h >= 18.5 and _falhas_pg_ult["final"] != dia
+    de_dia = 7 <= h < 18.5 and (ult is None or (agora - ult).total_seconds() >= FALHAS_PG_A_CADA_S)
+    if not (final or de_dia):
+        return 0
+    usinas = list(_pg_cache.get("summary") or [])
+    if not usinas:
+        return 0                                         # snapshot do Banco ainda não saiu (boot): tenta na volta seguinte
+    _falhas_pg_ult["em"] = agora
+    if final:
+        _falhas_pg_ult["final"] = dia
+    n = 0
+    for row in usinas:
+        pid, usina = row.get("plant_id"), row.get("usina")
+        if pid is None or row.get("sem_dados"):
+            continue
+        try:
+            recs = _falhas_pg_consulta(pid, dia)
+        except Exception as e:                           # noqa: BLE001 — uma usina não derruba a varredura
+            print(f"[falhas] Banco {usina}: {e}")
+            continue
+        n += 1
+        if recs:
+            curvas, ids = _falhas_pg_monta(recs, pid)
+            _falhas_registra("pg", dia, pid, _macro_usina_nome(usina) or usina, curvas, ids=ids)
+    return n
+
+
+# Histórico de strings do PC para o servidor (27/09/2026, passo 6). O servidor só gravou strings desde 22/09 (Athon) e
+# 24/09 (API PV); para 01–21/09 a varredura dele achou nada e gravou a fonte VAZIA. Não há acesso ao disco de lá e o
+# backup plataforma_series só restaura quando o arquivo some (e o PC e o servidor sobrescrevem o mesmo backup). Então a
+# carga vem pela própria plataforma: o PC manda (POST com login), o web só guarda, e o worker — dono do registro —
+# junta só o dia-fonte que ele não tem, antes de hoje. Onde o servidor gravou alguma coisa, vale o que ele gravou.
+_FALHAS_IMPORTA_PATH = _p_dado("falhas_importar_perdas.json")
+_RX_DIA = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _falhas_carga_valida(carga):
+    """{dia: {fonte: {pid: {"eventos": [...]}}}} — o formato do perdas_strings.json. → (dias, usinas) ou None."""
+    if not isinstance(carga, dict) or not carga:
+        return None
+    usinas = 0
+    for dia, fontes in carga.items():
+        if not _RX_DIA.fullmatch(str(dia)) or not isinstance(fontes, dict):
+            return None
+        for fonte, porp in fontes.items():
+            if fonte not in _STR_EV_FONTES or not isinstance(porp, dict):
+                return None
+            for ent in porp.values():
+                if not isinstance(ent, dict) or not isinstance(ent.get("eventos", []), list):
+                    return None
+                usinas += 1
+    return len(carga), usinas
+
+
+@app.route("/api/painel/falhas/historico", methods=["POST"])
+def api_painel_falhas_historico():
+    """Recebe o histórico de quedas de string de outra plataforma (ver _FALHAS_IMPORTA_PATH). Só guarda: quem junta é o
+    worker, na volta seguinte da aba de falhas (até 30 min)."""
+    carga = flask_request.get_json(silent=True)
+    ok = _falhas_carga_valida(carga)
+    if ok is None:
+        return jsonify({"ok": False, "erro": "carga fora do formato {dia: {fonte: {plant_id: {eventos: [...]}}}}"}), 400
+    atual = _falhas_ler(_FALHAS_IMPORTA_PATH) or {}
+    for dia, fontes in carga.items():
+        for fonte, porp in fontes.items():
+            atual.setdefault(dia, {})[fonte] = porp
+    _falhas_gravar(_FALHAS_IMPORTA_PATH, atual)
+    return jsonify({"ok": True, "dias": ok[0], "usinas": ok[1], "pendente": "o worker junta na próxima volta (até 30 min)"})
+
+
+def _falhas_importa_historico():
+    """WORKER: junta a carga recebida no registro de strings — só o dia-fonte vazio ou ausente aqui, antes de hoje. A
+    carga sai do disco depois de aplicada. → quantos dias-fonte entraram."""
+    carga = _falhas_ler(_FALHAS_IMPORTA_PATH)
+    if not carga:
+        return 0
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    n, usinas = 0, 0
+    with _perdas_str_lock:
+        for dia, fontes in carga.items():
+            if dia >= hoje or not isinstance(fontes, dict):
+                continue
+            for fonte, porp in fontes.items():
+                if not porp or (_perdas_str.get(dia) or {}).get(fonte):
+                    continue
+                _perdas_str.setdefault(dia, {})[fonte] = porp
+                n += 1
+                usinas += len(porp)
+    if n:
+        _perdas_str_save()
+    try:
+        os.replace(_FALHAS_IMPORTA_PATH, _FALHAS_IMPORTA_PATH + f".aplicado-{datetime.now():%Y%m%d-%H%M%S}")
+    except OSError:
+        os.remove(_FALHAS_IMPORTA_PATH)
+    print(f"[falhas] histórico importado: {n} dias-fonte, {usinas} usinas-dia")
+    return n
+
+
+# Trava com OS aberta (27/09/2026, passo 5). Trancar tira a string da conta e da aba de falhas no mês inteiro; com OS de
+# recomposição ou ticket aberto, a trava esconde uma perda que o campo ainda vai resolver. No cruzamento com o Fracttal a
+# Guatambu tinha a Ipv18 trancada (Guatambu 1, INVERSOR03) e a OS 11016 de recomposição da Ipv18 aberta desde 11/08 no
+# INVR3.2 — mas o nome dos inversores da Guatambu mudou entre agosto e hoje e não dá para afirmar que é a mesma string: é o
+# caso que o aviso pega na hora de trancar. Trancar é para entrada sem string ligada. O worker guarda
+# as OS de recomposição ABERTAS (4 consultas por status — a API não aceita lista —, a cada 6 h); a tela pergunta antes
+# de trancar string com OS ou ticket aberto, e a aba lista as trancadas que têm OS aberta.
+_FALHAS_OS_PATH = _p_cache("falhas_os_abertas.json")
+FALHAS_OS_TTL = 6 * 3600
+_RX_OS_CIT = re.compile(r"(?:\bipv|\bi_pv|\bst|\bpv|\bstrings?)\s*(?:n[º°o]\.?\s*)?"
+                        r"(\d{1,2}(?:\s*(?:,|\be\b|/|;|&)\s*(?:ipv|i_pv|st|pv)?\s*\d{1,2})*)", re.I)
+
+
+def _falhas_os_citadas(texto):
+    """Números das strings que o texto da OS cita ("Strings Ipv11 e Ipv12", "I_PV15, I_PV16 e I_PV17", "String 12")."""
+    out = set()
+    for m in _RX_OS_CIT.finditer(str(texto or "")):
+        for n in re.findall(r"\d{1,2}", m.group(1)):
+            out.add(int(n))
+    return sorted(out)
+
+
+def _falhas_os_abertas(forcar=False):
+    """WORKER: índice das OS de recomposição de string ABERTAS no Fracttal (pendente, em andamento, aguardando,
+    pausada). → {"ts", "os": [{folio, code, cb, inv, cit, status, criada, descricao, tecnico}]}."""
+    base = _falhas_ler(_FALHAS_OS_PATH) or {}
+    if not FRACTTAL_ON or (not forcar and time.time() - float(base.get("ts") or 0) < FALHAS_OS_TTL):
+        return base
+    por = {}
+    for st in (0, 1, 5, 6):
+        start, total = 0, None
+        while True:
+            d = _frac_get("work_orders/", id_status_work_order=st, start=start, limit=200)
+            if d is None:
+                raise RuntimeError(f"o Fracttal não respondeu (status {st}, a partir de {start})")
+            rows = (d.get("data") if isinstance(d, dict) else d) or []
+            if total is None and isinstance(d, dict):
+                total = d.get("total")
+            for w in rows:
+                desc = " ".join(str(w.get("description") or "").split())
+                if "recomposi" not in desc.lower():
+                    continue
+                f = str(w.get("wo_folio") or "")
+                cri = _frac_dt_local(w.get("creation_date"))
+                o = por.setdefault(f, {"folio": f, "code": str(w.get("code") or ""), "descricao": desc[:160],
+                                       "status": FRAC_WO_STATUS.get(w.get("id_status_work_order"), "—"),
+                                       "criada": cri.strftime("%d/%m/%Y") if cri else "",
+                                       "tecnico": " ".join(str(w.get("personnel_description") or "").split()),
+                                       "textos": []})
+                o["textos"].append(" | ".join(str(w.get(k) or "") for k in ("description", "task_note", "note")))
+            start += len(rows)
+            if not rows or (total is not None and start >= total):
+                break
+            time.sleep(0.5)                               # a cota do Fracttal é da EMPRESA inteira (200/min)
+    out = []
+    for o in por.values():
+        m = re.search(r"([A-Z]{3}\d{3})-INVR(\d+(?:\.\d+)?)$", o["code"])
+        mb = re.search(r"([A-Z]{3}\d{3})", o["code"])
+        md = re.search(r"invers[oa]r(?:es)?\s*(\d+\.\d+)", o["descricao"], re.I)
+        out.append({"folio": o["folio"], "code": o["code"], "cb": m.group(1) if m else (mb.group(1) if mb else None),
+                    "inv": m.group(2) if m else (md.group(1) if md else None),
+                    "cit": _falhas_os_citadas(" | ".join(o["textos"])), "status": o["status"], "criada": o["criada"],
+                    "descricao": o["descricao"], "tecnico": o["tecnico"]})
+    out.sort(key=lambda o: o["folio"])
+    base = {"ts": time.time(), "os": out}
+    _falhas_gravar(_FALHAS_OS_PATH, base)
+    return base
+
+
+def _falhas_travas_com_os(idx, pv_dev):
+    """Strings TRANCADAS que uma OS de recomposição aberta cita. Casa pela chave da trava: API PV
+    plant|idefinversor|IpvN (o de-para nome → id do falhas_pv_dev, o mesmo que confere a trava na aba) e Athon
+    plant|INV_n|I_PVn (o código da usina é o próprio plant)."""
+    cod_de = {}
+    for pid, ent in (pv_dev or {}).items():
+        cb = USINA_COD.get(_usina_key(ent.get("usina") or ""))
+        if cb:
+            cod_de.setdefault(cb, []).append((str(pid), ent))
+    sunop = [k.split("|") for k in _trancadas if k.count("|") == 2 and k.split("|")[2].startswith("I_PV")]
+    out = []
+    for o in (idx or {}).get("os") or []:
+        cb, inv_n, cit = o.get("cb"), o.get("inv"), set(o.get("cit") or [])
+        if not (cb and inv_n and cit):
+            continue
+        ficha = {"os": o.get("folio"), "status": o.get("status"), "criada": o.get("criada"), "descricao": o.get("descricao")}
+        for pid, ent in cod_de.get(cb, []):
+            eq = EQUIP_NAMES.get(ent.get("nome_api") or "", {})
+            for inv_id, dev in (ent.get("names") or {}).items():
+                disp = eq.get(dev, dev)
+                m = re.search(r"\d+\.\d+", str(disp))
+                if not m or m.group(0) != inv_n:
+                    continue
+                for n in sorted(cit):
+                    if _str_key(pid, inv_id, f"Ipv{n}") in _trancadas:
+                        out.append({"fonte": "pv", "plant_id": pid, "usina": ent.get("usina"), "inversor": disp,
+                                    "string": f"Ipv{n}", **ficha})
+        for plant, key, ipv in sunop:
+            if plant != cb:
+                continue
+            disp = _sunop_inv_display(plant, key)
+            m = re.search(r"\d+\.\d+", str(disp))
+            n = int(ipv[4:]) if ipv[4:].isdigit() else None
+            if m and m.group(0) == inv_n and n in cit:
+                out.append({"fonte": "sunop", "plant_id": plant, "usina": plant, "inversor": disp, "string": f"ST {n:02d}",
+                            **ficha})
+    return out
+
+
+def _falhas_anexa_travas(pacote, idx, pv_dev):
+    pacote.setdefault("strings", {})["travas_com_os"] = _falhas_travas_com_os(idx, pv_dev)
+
+
+@app.route("/api/strings/trava-aviso")
+def api_strings_trava_aviso():
+    """Antes de trancar: OS de recomposição e ticket de strings ABERTOS do inversor que citam essas strings (ou não citam
+    string nenhuma). ?usina=<nome da linha>&inv=<Inversor N.M>&strings=Ipv18,Ipv19. Lê o índice do worker e os tickets
+    já carregados — nenhuma chamada ao Fracttal no clique."""
+    usina = (flask_request.args.get("usina") or "").strip()
+    inv = (flask_request.args.get("inv") or "").strip()
+    nums = set()
+    for s in (flask_request.args.get("strings") or "").split(","):
+        d = re.findall(r"\d+", s)
+        if d:
+            nums.add(int(d[-1]))
+    mi = re.search(r"\d+\.\d+", inv)
+    inv_n = mi.group(0) if mi else None
+    cb = USINA_COD.get(_usina_key(usina)) or (usina.upper() if re.fullmatch(r"[A-Za-z]{3}\d{3}", usina) else None)
+    idx = _falhas_ler(_FALHAS_OS_PATH) or {}
+    oss = []
+    if cb and inv_n:
+        for o in idx.get("os") or []:
+            if o.get("cb") == cb and o.get("inv") == inv_n and (not o.get("cit") or nums & set(o["cit"])):
+                oss.append({"folio": o.get("folio"), "status": o.get("status"), "criada": o.get("criada"),
+                            "descricao": o.get("descricao"), "cita": o.get("cit") or [], "tecnico": o.get("tecnico")})
+    tks = []
+    for t in _tickets_str_da_linha(usina) or []:
+        if inv_n and str(t.get("inv") or "") != inv_n:
+            continue
+        sts = t.get("strings") or []
+        if sts and not (nums & set(sts)):
+            continue
+        tks.append({"linha": t.get("linha"), "desde": t.get("desde"), "strings": sts, "qtd": t.get("qtd")})
+    return jsonify({"os": oss, "tickets": tks, "indice_em": idx.get("ts")})
 
 
 def _falhas_ler(caminho):
@@ -22714,19 +23148,161 @@ def _falhas_gravar(caminho, dados):
     _replace_atomico(tmp, caminho)
 
 
+_falhas_persist_lock = threading.Lock()   # o laço do mês e o backfill da SunOp gravam o mesmo arquivo
+
+
 def _falhas_persistir_mortas():
     """WORKER: junta ao arquivo o que a régua nova achou nas curvas deste processo. → o arquivo inteiro."""
-    base = _falhas_ler(_FALHAS_STR_PATH) or {}
-    with _falhas_mortas_lock:
-        novos = {k: dict(v) for k, v in _FALHAS_MORTAS.items()}
-    mudou = False
-    for (fonte, dia), usinas in novos.items():
-        if dia >= FALHAS_INI:
-            base.setdefault(dia, {}).setdefault(fonte, {}).update(usinas)
-            mudou = True
-    if mudou:
-        _falhas_gravar(_FALHAS_STR_PATH, base)
-    return base
+    with _falhas_persist_lock:
+        base = _falhas_ler(_FALHAS_STR_PATH) or {}
+        with _falhas_mortas_lock:
+            novos = {k: dict(v) for k, v in _FALHAS_MORTAS.items()}
+        mudou = False
+        for (fonte, dia), usinas in novos.items():
+            if dia >= FALHAS_INI:
+                base.setdefault(dia, {}).setdefault(fonte, {}).update(usinas)
+                mudou = True
+        if mudou:
+            _falhas_gravar(_FALHAS_STR_PATH, base)
+        return base
+
+
+# Backfill da curva de strings da SunOp (28/09/2026, Levi: "faça o backfill da curva da SunOp"). O registro da régua
+# nova só nasce da curva do dia corrente; antes dele o Athon tinha só as quedas gravadas, que acham a string morta "viva"
+# com pouca luz: a MTS100 4.2 ST13 passou o 23/09 inteiro sem uma leitura acima de 0,5 A e a queda só foi marcada às
+# 12:30, partindo o episódio em dois. A curva do dia passado existe na SunOp — mas NÃO pelo acervo do gêmeo: ele devolve
+# UTC (+00:00) e a plataforma lê a hora como da usina (a string que saiu 06:30 apareceria saindo 09:30; conferido em
+# 28/09, MTS100 e MAB100, mesmo pathname nos dois caminhos). Vai direto na API (use_plant_timezone), um lote por vez e
+# um dia por minuto: rajada de ~45 pedidos derruba a conta inteira na borda (403 do CloudFront). Custo: ~13 POSTs por
+# dia (Athon + Axis), US$ 0,0005 cada acima da cota. Refaz também a usina-dia que ficou pela metade (plataforma caiu à
+# tarde, deploy) e a de antes das vivas (27/09) — a que está completa não é tocada.
+FALHAS_BF_ESTADO = _p_cache("falhas_backfill_sunop.json")  # {inst: {dia: ts}} — dia já baixado não volta à SunOp
+FALHAS_BF_PAUSA_LOTE_S = 5
+FALHAS_BF_PAUSA_DIA_S = 60
+FALHAS_BF_ESPERA_BOOT_S = 15 * 60      # a largada do worker é a hora mais disputada da SunOp
+FALHAS_BF_DIA_COMPLETO_H = 18          # avaliada antes das 18h, a usina-dia ficou pela metade
+_falhas_bf_status = {}                 # inst → {ts, n, dias, completo, parou_em}
+
+
+def _falhas_bf_limite(dia):
+    """Epoch de DIA às 18h de Brasília (o servidor pode estar em UTC)."""
+    d = datetime.strptime(dia, "%Y-%m-%d").replace(hour=FALHAS_BF_DIA_COMPLETO_H)
+    try:
+        return d.replace(tzinfo=ZoneInfo("America/Sao_Paulo")).timestamp()
+    except Exception:                  # noqa: BLE001 — sem base de fusos, vale a hora do processo
+        return d.timestamp()
+
+
+def _falhas_bf_falta(ent, dia):
+    """A usina-dia precisa da curva? Sem registro, registro de antes das vivas ou avaliado antes das 18h."""
+    return not ent or "vivas" not in ent or float(ent.get("ts") or 0) < _falhas_bf_limite(dia)
+
+
+def _falhas_sunop_hist_api(pathnames, dia, inst):
+    """{pathname: [(ts, valor)]} do dia na hora da usina, direto na API da SunOp, um lote por vez. → (séries, ok):
+    ok=False se algum lote falhou — dia pela metade não entra no registro."""
+    headers = _sunop_data_headers(inst)
+    params = {"fill_missing": "false", "source": "Historical", "start_time": f"{dia}T00:00:00",
+              "end_time": f"{dia}T23:59:59", "use_plant_timezone": "true"}
+    out = {}
+    for i in range(0, len(pathnames), SUNOP_LOTE_PATHNAMES):
+        r = _sunop_req("POST", f"{_si(inst)['data']}/v2/analog_values", inst, headers=headers, params=params,
+                       json={"pathnames": pathnames[i:i + SUNOP_LOTE_PATHNAMES]}, timeout=120)
+        try:
+            recs = r.json() if (r is not None and r.status_code == 200) else None
+        except ValueError:
+            recs = None
+        if not isinstance(recs, list):
+            return out, False
+        for rec in recs:
+            v = rec.get("value")
+            if isinstance(v, (int, float)):
+                out.setdefault(rec["pathname"], []).append((rec["timestamp"], v))
+        if FALHAS_BF_PAUSA_LOTE_S:
+            time.sleep(FALHAS_BF_PAUSA_LOTE_S)
+    for serie in out.values():
+        serie.sort()
+    return out, True
+
+
+def _falhas_backfill_sunop(inst, hoje=None):
+    """Uma passada numa instância da SunOp: cada dia de FALHAS_INI até ontem, o mais recente primeiro. → quantas
+    usinas-dia entraram. Para no primeiro lote que falha (borda bloqueada): a próxima passada retoma dali."""
+    fonte = "sunop" if inst == "gridco" else inst
+    hoje = hoje or datetime.now().date()
+    ensure_sunop_meta(inst)
+    plantas = {p: [x for v in ((m or {}).get("inv_strings") or {}).values() for x in v]
+               for p, m in (_si(inst).get("meta") or {}).items()}
+    plantas = {p: ps for p, ps in plantas.items() if ps}
+    if not plantas:
+        return 0
+    reg = _falhas_persistir_mortas()       # a memória vai ao arquivo antes de decidir o que falta
+    est = _falhas_ler(FALHAS_BF_ESTADO) or {}
+    feitos = est.setdefault(inst, {})
+    dias, d = [], datetime.strptime(FALHAS_INI, "%Y-%m-%d").date()
+    while d < hoje:
+        iso = d.isoformat()
+        ja = (reg.get(iso) or {}).get(fonte) or {}
+        falta = [p for p in plantas if _falhas_bf_falta(ja.get(p), iso)]
+        if falta and iso not in feitos:
+            dias.append((iso, falta))
+        d += timedelta(days=1)
+    n, parou = 0, None
+    for i, (iso, falta) in enumerate(sorted(dias, reverse=True)):
+        if i and FALHAS_BF_PAUSA_DIA_S:
+            time.sleep(FALHAS_BF_PAUSA_DIA_S)
+        hist, ok = _falhas_sunop_hist_api([x for p in falta for x in plantas[p]], iso, inst)
+        if not ok:
+            parou = iso
+            print(f"[falhas] backfill SunOp:{inst} parou em {iso} (lote falhou) — retoma na próxima passada")
+            break
+        novos = {}
+        for p in falta:
+            h = {x: hist[x] for x in plantas[p] if x in hist}
+            if not h:
+                continue                   # sem leitura no dia: registro vazio apagaria as quedas gravadas dela
+            try:
+                pay = _sunop_strings_curva(p, iso, None, inst, hist=h)
+                curvas = {iv["nome"]: {st: list(zip(c["x"], c["y"])) for st, c in (iv.get("curva") or {}).items()}
+                          for iv in (pay.get("inversores") or [])}
+                ent = _falhas_entrada(_macro_usina_nome(p) or p, curvas) if curvas else None
+            except Exception as e:         # noqa: BLE001 — uma usina ruim não para o dia
+                print(f"[falhas] backfill SunOp:{inst} {p} {iso}: {e}")
+                ent = None
+            finally:
+                _si(inst)["str_med_cache"].pop((p, iso), None)   # dia passado não fica em memória
+            if ent:
+                ent["origem"] = "backfill"
+                novos[p] = ent
+        if novos:
+            with _falhas_mortas_lock:
+                _FALHAS_MORTAS.setdefault((fonte, iso), {}).update(novos)
+            _falhas_persistir_mortas()
+        feitos[iso] = round(time.time())
+        _falhas_gravar(FALHAS_BF_ESTADO, est)
+        n += len(novos)
+    _falhas_bf_status[inst] = {"ts": time.time(), "n": n, "dias": len(dias), "completo": parou is None,
+                               "parou_em": parou}
+    if dias:
+        print(f"[falhas] backfill SunOp:{inst}: {n} usinas-dia em {len(dias)} dias"
+              + (f" (parou em {parou})" if parou else ""))
+    return n
+
+
+def _falhas_backfill_sunop_loop():
+    """WORKER: depois da largada, uma passada na Athon e na Axis; de 6 em 6 h pega a usina-dia que a plataforma perdeu
+    (caiu à tarde, deploy). Passada interrompida tenta de novo em 30 min."""
+    time.sleep(FALHAS_BF_ESPERA_BOOT_S)
+    while True:
+        completo = True
+        for inst in ("gridco", "axis"):
+            try:
+                _falhas_backfill_sunop(inst)
+                completo = completo and (_falhas_bf_status.get(inst) or {}).get("completo", True)
+            except Exception as e:         # noqa: BLE001 — o laço não morre
+                completo = False
+                print(f"[falhas] backfill SunOp:{inst} falhou: {e}")
+        time.sleep(6 * 3600 if completo else 1800)
 
 
 def _falhas_pv_dev(store):
@@ -22754,14 +23330,38 @@ def _falhas_pv_dev(store):
     return base
 
 
-def _falhas_meses():
+def _falhas_meses(hoje=None):
     """Meses de FALHAS_INI até o corrente, 'AAAA-MM'."""
-    a, hoje = datetime.strptime(FALHAS_INI[:7] + "-01", "%Y-%m-%d").date(), datetime.now().date()
+    a, hoje = datetime.strptime(FALHAS_INI[:7] + "-01", "%Y-%m-%d").date(), hoje or datetime.now().date()
     out = []
     while a <= hoje:
         out.append(a.strftime("%Y-%m"))
         a = (a.replace(day=28) + timedelta(days=4)).replace(day=1)
     return out
+
+
+def _falhas_meses_a_montar(hoje, meses, existe):
+    """Quais meses remontar nesta volta: o corrente sempre; o anterior até o dia 2 (fecha o mês — a madrugada do dia 1 e
+    o fechamento noturno ainda mexem nele); os mais velhos só se o arquivo sumiu."""
+    out = []
+    for mes in meses:
+        corrente = mes == hoje.strftime("%Y-%m")
+        anterior = len(meses) >= 2 and mes == meses[-2] and hoje.day <= 2
+        if corrente or anterior or not existe(mes):
+            out.append(mes)
+    return out
+
+
+def _falhas_abertos(pacote):
+    """Episódios em aberto no fim de um pacote → {"strings": {(fonte, pid, inv, string): início}, "trackers": {...}} —
+    o "desde" de quem atravessa a virada do mês."""
+    if not pacote:
+        return None
+    s = {(e["fonte"], str(e["plant_id"]), e["inversor"], e["string"]): e.get("desde") or e["inicio"]
+         for e in (pacote.get("strings") or {}).get("episodios") or [] if not e.get("fim")}
+    t = {(r["fonte"], str(r["plant_id"]), str(r["tracker"])): r.get("desde") or r["inicio"]
+         for r in (pacote.get("trackers") or {}).get("rows") or [] if not r.get("fim")}
+    return {"strings": s, "trackers": t}
 
 
 def _falhas_geracao(mes, ini, fim):
@@ -22779,24 +23379,38 @@ def _falhas_recalcular():
     import falhas_job
     import sol as _sol
     t0 = time.time()
+    try:
+        _falhas_importa_historico()
+    except Exception as e:                                # noqa: BLE001 — a carga fica para a próxima volta
+        print(f"[falhas] importação do histórico falhou: {e}")
     with _perdas_str_lock:
         store = json.loads(json.dumps(_perdas_str))       # cópia: o backfill mexe no original
     trk = _falhas_ler(_TRK_EV_PATH) or {}
     book = _falhas_ler(_PARADAS_PATH) or {}
+    try:
+        _falhas_pg_varre()
+    except Exception as e:                                # noqa: BLE001 — sem o Banco, o resto do mês sai igual
+        print(f"[falhas] varredura do Banco falhou: {e}")
     mortas = _falhas_persistir_mortas()
     pv_dev = _falhas_pv_dev(store)
     hoje = datetime.now().date()
-    meses = _falhas_meses()
-    for mes in meses:
-        arq = _falhas_arquivo(mes)
-        corrente = mes == hoje.strftime("%Y-%m")
-        if os.path.exists(arq) and not corrente and not (hoje.day <= 2 and mes == meses[-2:][0]):
-            continue
+    meses = _falhas_meses(hoje)
+    for mes in _falhas_meses_a_montar(hoje, meses, lambda m: os.path.exists(_falhas_arquivo(m))):
+        i_mes = meses.index(mes)
+        antes = _falhas_abertos(_falhas_ler(_falhas_arquivo(meses[i_mes - 1]))) if i_mes else None
         ini = max(FALHAS_INI, f"{mes}-01")
         prox = (datetime.strptime(f"{mes}-28", "%Y-%m-%d") + timedelta(days=4)).replace(day=1).date()
         fim = min(prox - timedelta(days=1), hoje).isoformat()
         pacote = falhas_job.montar(_sys.modules[__name__], _sol, ini, fim, geracao=_falhas_geracao(mes, ini, fim),
-                                   pv_dev=pv_dev, mortas_curva=mortas, str_store=store, trk_store=trk, book=book)
+                                   pv_dev=pv_dev, mortas_curva=mortas, str_store=store, trk_store=trk, book=book,
+                                   abertos_antes=antes)
+        if mes == hoje.strftime("%Y-%m"):                  # a auditoria de travas é de agora: vai no mês corrente
+            try:
+                idx = _falhas_os_abertas()
+            except Exception as e:                        # noqa: BLE001 — sem o Fracttal, vale o índice anterior
+                print(f"[falhas] OS abertas do Fracttal (mantido o índice anterior): {e}")
+                idx = _falhas_ler(_FALHAS_OS_PATH) or {}
+            _falhas_anexa_travas(pacote, idx, pv_dev)
         _falhas_publicar(mes, pacote, meses)
         print(f"[falhas] {mes} publicado: {len(pacote['strings']['episodios'])} episódios de string, "
               f"{len(pacote['trackers']['rows'])} de tracker ({time.time()-t0:.0f}s)")
@@ -22819,11 +23433,27 @@ _falhas_wb = {"ts": 0.0, "marca": None}
 
 
 def _falhas_workbook_ligado():
-    """Só grava com FALHAS_WORKBOOK=1 (no tokens.txt de UMA plataforma). Em 25/09, 00:36, o registro de strings do
-    servidor só tinha 22–24/09 (a plataforma foi para lá em 22/09): o replace=true trocaria a carga de setembro
-    inteiro (7.419 linhas, feitas do registro do PC) por 566 episódios. E duas plataformas gravando deixariam o
-    workbook trocando de versão a cada hora. Ligar só onde o histórico do mês estiver completo."""
-    return os.environ.get("FALHAS_WORKBOOK", "").strip() == "1"
+    """Quem grava o workbook é o SERVIDOR (Linux) — as cópias Windows (a ponte local do OS Creator, o PC dedicado) não:
+    duas plataformas gravando deixariam o workbook trocando de versão a cada hora. FALHAS_WORKBOOK=1/0 no tokens.txt
+    força nos dois sentidos. Em 25/09, 00:36, o registro do servidor só tinha 22–24/09 e o replace=true trocou setembro
+    inteiro pela parte dele — por isso a trava de cobertura em _falhas_publicar_workbook (27/09, com o histórico do PC
+    importado no servidor pela rota /api/painel/falhas/historico)."""
+    v = os.environ.get("FALHAS_WORKBOOK", "").strip()
+    if v in ("0", "1"):
+        return v == "1"
+    return os.name == "posix"
+
+
+def _falhas_cobertura_ok(pacote):
+    """O registro de strings do mês começa até o 4º dia? Senão o replace=true trocaria o mês inteiro pela parte que
+    esta plataforma viu (a de 25/09 começava em 22/09). E o mês tem de ter pelo menos um dia de curva avaliada com as
+    vivas — sem ela a entrada vazia ainda não foi separada, e o servidor subiria Ipv29–32 inflado logo depois do deploy
+    (as vivas só começam a ser gravadas na curva do dia seguinte)."""
+    dias = (pacote.get("strings") or {}).get("dias_registrados") or []
+    ini = (pacote.get("periodo") or [None])[0]
+    if not dias or not ini or not (pacote.get("strings") or {}).get("dias_com_vivas"):
+        return False
+    return (datetime.strptime(dias[0], "%Y-%m-%d") - datetime.strptime(ini, "%Y-%m-%d")).days <= 3
 
 
 def _falhas_publicar_workbook(meses):
@@ -22836,6 +23466,12 @@ def _falhas_publicar_workbook(meses):
     import falhas_publicar as _fp
     pacotes = [p for p in (_falhas_ler(_falhas_arquivo(m)) for m in meses) if p]
     if not pacotes:
+        return
+    curtos = [p.get("mes") for p in pacotes if not _falhas_cobertura_ok(p)]
+    if curtos:
+        _falhas_wb["ts"] = time.time()
+        print(f"[falhas] workbook adiado: o registro de strings de {', '.join(map(str, curtos))} não cobre o começo do mês "
+              "ou ainda não tem curva avaliada com as vivas")
         return
     tabs = _fp.tabelas(pacotes)
     # a aba `atualizacao` carrega o "gerado em", que muda a toda volta: fora da marca, senão todo ciclo subiria

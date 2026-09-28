@@ -143,3 +143,61 @@ def test_sombra_de_sol_baixo_no_amanhecer_e_no_fim_da_tarde_nao_e_falha():
     # somando o dia dava mais de 2 h "sem corrente" e virava falha. São dois trechos, e nenhum tem 2 h seguidas.
     teste = troca(troca(sino(8.0), "06:00", "08:00", 0.0), "16:00", "18:01", 0.0)
     assert achadas(inversor(teste)) == {}
+
+
+# ── entrada vazia × string morta (27/09/2026) ────────────────────────────────────────────────────────────────────
+# Cruzamento com as OS: Ipv29 a Ipv32 davam 41% dos episódios e 55% do kWh de setembro, e são entradas SEM string
+# ligada — 0 A cravado o dia inteiro (Santana do Ipanema 1.13, Guatambu 4.6). A régua do dia passa a dizer duas
+# coisas a mais para o mês separar uma da outra: se a string leu ZERO o tempo todo (a assinatura da entrada vazia;
+# string morta costuma ler ruído) e quantas strings do inversor estavam vivas (para comparar com o cadastro).
+
+def avaliado(curvas):
+    return falhas.avaliar_dia(curvas, zero=0.1, piso_inv=0.5)
+
+
+def test_avaliar_dia_conta_as_strings_vivas_do_inversor():
+    r = avaliado(inversor([(h, 0.0) for h, _ in sino(8.0)]))
+    assert r["vivas"] == {"Inversor 1.1": 4}
+
+
+def test_entrada_que_le_zero_o_dia_todo_sai_marcada_como_sempre_zero():
+    r = avaliado(inversor([(h, 0.0) for h, _ in sino(8.0)]))
+    (m,) = r["mortas"]
+    assert m["string"] == "ST 05" and m["sempre_zero"] is True
+
+
+def test_string_morta_com_ruido_nao_e_sempre_zero_nem_conta_como_viva():
+    # 0,3 A de ruído: é string morta (a régua aponta), mas leu alguma coisa — não é a assinatura da entrada vazia
+    r = avaliado(inversor([(h, 0.3) for h, _ in sino(8.0)]))
+    (m,) = r["mortas"]
+    assert m["sempre_zero"] is False
+    assert r["vivas"] == {"Inversor 1.1": 4}
+
+
+def test_string_que_morreu_no_meio_do_dia_nao_e_sempre_zero_e_conta_como_viva():
+    r = avaliado(inversor(troca(sino(8.0), "10:00", "12:10", 0.0)))
+    (m,) = r["mortas"]
+    assert m["sempre_zero"] is False
+    assert r["vivas"] == {"Inversor 1.1": 5}
+
+
+def test_inversor_que_gerou_menos_de_duas_horas_nao_prova_nada():
+    # dia de nuvem forte: nem as vivas nem a entrada zerada dizem alguma coisa
+    curto = {f"ST 0{i}": sino(8.0, ini=11 * 60, fim=12 * 60 + 30) for i in range(1, 5)}
+    curto["ST 05"] = [(h, 0.0) for h, _ in sino(8.0, ini=11 * 60, fim=12 * 60 + 30)]
+    assert avaliado({"Inversor 1.1": curto})["vivas"] == {}
+
+
+def test_inversor_parado_fica_fora_das_vivas():
+    curvas = {"Inversor 1.1": {f"ST 0{i}": [(h, 0.0) for h, _ in sino(8.0)] for i in range(1, 6)}}
+    assert avaliado(curvas) == {"mortas": [], "vivas": {}}
+
+
+def test_morta_leva_a_hora_em_que_o_inversor_comecou_a_gerar():
+    # para a montagem saber se a "volta" da manhã durou pouco (a volta falsa com pouca luz)
+    (m,) = avaliado(inversor([(h, 0.0) for h, _ in sino(8.0)]))["mortas"]
+    assert m["ini_producao"] == "06:30"
+
+
+def test_strings_sem_corrente_segue_devolvendo_so_as_mortas():
+    assert achadas(inversor([(h, 0.0) for h, _ in sino(8.0)])).keys() == {("Inversor 1.1", "ST 05")}

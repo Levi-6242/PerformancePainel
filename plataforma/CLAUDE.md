@@ -572,12 +572,82 @@ resposta e a rota `/api/painel/falhas?mes=` só devolve os bytes. De `FALHAS_INI
   `strings_episodios`, `trackers_episodios` e `atualizacao` (`falhas_publicar.py`, o caminho do gêmeo: xlsx +
   `sync-xlsx?replace=true`). O worker sobe de hora em hora e só quando o dado muda (`_falhas_publicar_workbook`) — a
   API guarda histórico por linha, por isso as linhas vão pela data de início e o "gerado em" mora na `atualizacao`.
-  **Só grava com `FALHAS_WORKBOOK=1`** (hoje, em nenhuma): o registro de strings do SERVIDOR só tem 22/09 em diante
-  (01–21/09 só existem no do PC) e, ligado, ele trocou a carga completa pela parcial em 25/09 00:45. Ligar numa
-  plataforma só, depois que o histórico do mês estiver completo nela. A API não apaga workbook nem aba.
+  De 25 a 27/09 só gravava com `FALHAS_WORKBOOK=1` (em nenhuma): o registro do SERVIDOR só tinha 22/09 em diante e,
+  ligado, ele trocou a carga completa pela parcial em 25/09 00:45. Desde 27/09 o servidor grava sozinho, com a trava de
+  cobertura (ver abaixo). A API não apaga workbook nem aba.
 - **Fim de episódio de tracker sem hora (Levi, 25/09):** o registro de trackers só guarda a CLASSE do dia. Tracker que
   some das classes num dia em que a usina leu, ou que vira severo/médio/leve, voltou NESSE dia — `fim` = só a data
   ("hora não registrada" na tela), nunca o fim do último dia parado. MAB200 Tracker 103: a tela dizia "voltou 08/09
   17:38"; na curva, voltou em 09/09 entre 16:45 e 17:00. Usina sem leitura depois = segue em aberto.
 - **Nome de inversor sempre pelo `_nrm`** ao casar trava: Indaiatuba 21480|378276|Ipv18 escapava porque o
   plant_devices diz "INVERSOR 1.10" e a queda "Inversor 1.10". Episódio aberto HOJE termina em "agora", não às 18:00.
+
+**27/09/2026 — o cruzamento com as OS do Fracttal e as correções que saíram dele** (`docs/mockups/falhas-strings-x-os-2026-09-27.html`):
+- **Entrada vazia não é falha.** Ipv29–Ipv32 eram 41% dos episódios e 55% do kWh de setembro: entradas sem string ligada
+  (0 A cravado o dia inteiro), nunca citadas em OS. `falhas.avaliar_dia` devolve, além das mortas, `vivas` por inversor
+  (gerando ≥ 50% das vizinhas com o inversor a 30% do pico) e `sempre_zero` em cada morta; `_falhas_registra` guarda os
+  dois. Na montagem, entrada vazia = nenhuma volta de verdade no histórico gravado (retorno em massa não conta; "queda no
+  meio do dia" também não: aparece em 172 entradas vazias por buraco de captura) + zero em toda curva + o inversor já
+  com as vivas do cadastro. Sai do mês inteiro e vai para `strings.entradas_vazias`. **Não corte pelo número de strings
+  do cadastro**: SMP100 5.2 tem 17 no cadastro e ST19–25 são reais (OS 13297).
+- **Inversor com o mesmo nome em todo lugar**: id (`INV-367159`, quando o plant_devices falha — Santana do Ipanema, 27/09
+  23:41), nome do plant_devices ("INVERSOR 3.3") e o da queda ("Inversor 3.3") viram o do cadastro (`inv_canon` +
+  `inv_cadastro` no falhas_job). Sem isso a entrada vazia não casava com o cadastro.
+- **Fontes novas**: String Box pela curva da combiner (`_pv_comb_curvas`, a MESMA resposta do custom_query, que já traz o
+  dia inteiro; chave "pvsb", porque a API PV registra a mesma usina pelo Ipv≈0 e um apagaria o outro); RenoGrid pela
+  série que o generate-chart da tabela já devolve (`_se_serie_ultima`, em W, grade de 15 min — a assinatura de
+  `se_string_power` não mudou porque os testes da tabela a trocam por uma função de 3 argumentos); Banco da Thopen por
+  `_falhas_pg_varre` (1 consulta por usina, de 2 em 2 h e uma depois das 18:30, sem o 2º passe da mediana; consulta vazia
+  não registra). A trava vale pelo `ids` que a curva registra (pvsb e pg).
+- **Volta falsa da manhã**: volta que morre de novo antes do meio-dia é o mesmo episódio — antes das 9h com até 2h30 viva
+  (pouca luz) ou a qualquer hora com até 1 h viva (pisca: a ST15 voltou 08:20–09:10 e 09:40–10:00). Só junta episódio que
+  JÁ tem 2 h seguidas: somar pedaços curtos é a régua recusada. SMP100 5.2 ST15 (um defeito, OS 13297) ia de 11 episódios
+  para 3; os que sobram são volta de 2h40 ou dia sem dado. Na régua nova usa `ini_producao` da morta.
+- **Trava com OS aberta**: `_falhas_os_abertas` (4 consultas por status ao Fracttal — a API não aceita lista —, a cada 6 h,
+  só "recomposi"), `/api/strings/trava-aviso` (o Monitoramento pergunta antes de trancar, `_travaOk`) e
+  `strings.travas_com_os` na aba. Casa pela chave da trava com o nome de inversor de HOJE: a Guatambu tem a Ipv18 trancada
+  na Guatambu 1 INVERSOR03 e a OS 11016 aberta no INVR3.2 (Guatambu 3), mas em julho/agosto a Guatambu 1 gravava quedas
+  no "Inversor 3.2" — o nome mudou no caminho e a ligação não está provada.
+- **Histórico do PC no servidor**: `POST /api/painel/falhas/historico` (login) guarda a carga; o worker junta só o
+  dia-fonte vazio ou ausente, antes de hoje (`_falhas_importa_historico`). Não há acesso ao disco do servidor e o backup
+  `plataforma_series` só restaura quando o arquivo some — e PC e servidor sobrescrevem o mesmo backup.
+- **Workbook**: grava sozinho só no Linux (o servidor); `FALHAS_WORKBOOK=1/0` força. E só sobe mês cujo registro de strings
+  começa até o 4º dia e que já tem um dia de curva avaliada com as vivas (`_falhas_cobertura_ok`; `strings.dias_registrados`,
+  `strings.dias_com_vivas`) — logo depois do deploy o servidor ainda não separou as entradas vazias.
+- **Virada de mês**: `_falhas_meses_a_montar` (o anterior é refeito até o dia 2); quem estava em aberto no fim do mês e
+  amanhece igual no dia 1 leva `desde` e o aviso "vem do mês anterior" (`abertos_antes`).
+
+**28/09/2026 — volta só com prova, filtros e os trackers em aberto contra o tempo real:**
+- **String "voltou de madrugada" sem ter voltado** (MAB100 3.9 ST03/ST04, sem corrente desde 04/09, partida em 25/09
+  06:38): a queda do dia seguinte que começa depois das 07:30 continua o episódio se a string está morta desde que o
+  inversor começou a gerar (`ini_producao` + 20 min) ou, sem essa hora, se caiu até as 10:30; e registro de madrugada sem
+  nada gerando não conta como "a usina apareceu" (Assis 5.1). 262 voltas falsas no mesmo dia em setembro → 28.
+  E a volta de até 1 h que morre de novo no mesmo dia junta a QUALQUER hora (antes, só até o meio-dia): MTS100 3.7 ST11
+  passou o 23/09 sem uma leitura acima de 0,5 A na curva, e as quedas "voltavam" 30 min às 12:40 e às 14:30. O que
+  sobra desse tipo em setembro é 1 caso (MTS100 4.2 ST13, 23/09): a régua das quedas só marcou a queda às 12:30 —
+  sem a curva daquele dia gravada, não há como provar; a curva da SunOp de dia passado existe e resolveria.
+- **Filtro por inversor e por string/tracker** na aba (`f-inv`, `f-str`; ordem natural, 3.1 ≠ 3.10; na visão por inversor
+  e dia vale a string da lista). Rótulo e seletor ficam no mesmo `.fpar` para quebrarem de linha juntos.
+- **Trackers em aberto × tempo real** (Levi: "batem com o tempo real?"): às 15:44 batiam 359 dos 738 parados. Três causas,
+  todas no `falhas_job`: (1) o descarte "no alvo (desvio < 2°)" usa o desvio do registro, medido contra a MEDIANA DA
+  FROTA — com metade ou mais da frota parada (`FRAC_FROTA_PARADA`, frota = cadastro ou a vista no mês) ele dá ~0 e sumia
+  justo com a usina inteira parada: 1.671 dos 1.692 descartes de setembro (Brodowski 52/52 a 0,6° desde 24/09,
+  Santa Bárbara I 52/52 em 0,0° desde pelo menos 19/09 — a mesma que motivou a regra em 24/09, lida errado). Dia assim não
+  descarta e o desvio dele não entra na perda (sem outro, fator 25%), com o aviso "maioria da frota parada"; (2) dia que o
+  registro leu mas não classificou (`classes` None: cobertura < 0,5 — MAB100 0,43, CPP100 0,34) fechava tudo "voltou
+  (hora não registrada)": agora atravessa, e o em aberto leva "leitura incompleta da usina desde"; (3) dia de classe
+  "parado" com o último evento "voltando" (leitura que teleporta, Barretos 2: 172° e 8·10¹¹°) fechava "voltou a girar":
+  a classe do dia vence. Medido na mesma foto: 334 → 619 dos 622 do tempo real. O que sobra na aba e não no tempo real é
+  usina sem dado ou sem classificação hoje (com aviso) e o atraso do registro (30 min) + pacote (30 min).
+- **Backfill da curva da SunOp** (`_falhas_backfill_sunop_loop`, no worker, 15 min depois da largada e de 6 em 6 h):
+  cada usina-dia da Athon e da Axis, de `FALHAS_INI` a ontem, sem registro da régua nova, com registro pela metade
+  (avaliado antes das 18h: a plataforma caiu, deploy) ou de antes das vivas ganha a curva de strings direto na API da
+  SunOp, na hora da usina — um lote por vez, um dia por minuto (rajada derruba a conta na borda). Dia baixado fica em
+  `falhas_backfill_sunop.json`; lote que falha para a passada sem gravar o dia pela metade; usina sem leitura no dia
+  não ganha registro (vazio apagaria as quedas gravadas dela). Equivalência em 27/09: 14 de 14 strings mortas iguais,
+  mesma hora, mesmas vivas nas 10 usinas da Athon. ~13 POSTs por dia, US$ 0,0005 cada acima da cota. **Não pelo acervo
+  do gêmeo**: ele devolve UTC (+00:00) e o `_sunop_strings_curva` lê a hora como da usina — conferido no mesmo
+  pathname; o drill "Curva das strings" de dia passado servido por ele mostra as horas 3 h adiantadas (não corrigido).
+- **O tempo real também erra**: Guaratinguetá V às 15:44 tinha 48 "parados" com 40 min de curva (15:10–15:50, os trackers
+  indo de 46° a 55°) — a v2 não tem piso de cobertura e o `dia_coberto` (4 h) só vale na pré-classificação. A aba não o
+  pegou porque o registro não classifica dia com cobertura < 0,5.

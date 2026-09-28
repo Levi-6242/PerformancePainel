@@ -21,6 +21,12 @@ FRAC_VIZINHAS = 0.10         # abaixo de 10% da mediana das vizinhas = sem corre
 FRAC_PICO = 0.12             # período útil: inversor a >= 12% do próprio pico do dia (a régua de potência da plataforma)
 MIN_TRECHO = 120             # "mais que 2 horas" SEGUIDAS de string morta no período útil
 TOLERANCIA = 20              # leitura boa isolada no meio da queda (até 20 min) não parte a queda em duas
+# String VIVA (para contar contra o cadastro): gerando pelo menos metade das vizinhas, em 2+ células com o inversor a
+# 30% do pico. Mais estrito que o "não morta" de propósito: string morta que lê 0,3 A de ruído passa dos 10% das
+# vizinhas na borda do dia, e contá-la como viva inflaria a conta que decide o que é entrada vazia.
+FRAC_PICO_VIVA = 0.30
+FRAC_VIZINHAS_VIVA = 0.50
+CELULAS_VIVA = 2
 
 
 def _min(ts):
@@ -56,9 +62,14 @@ def _grade(serie, janela, passo):
     return g
 
 
-def strings_sem_corrente(curvas_inv, *, zero, piso_inv, frac_vizinhas=FRAC_VIZINHAS, janela=JANELA, passo=PASSO,
-                         min_trecho=MIN_TRECHO, tolerancia=TOLERANCIA, frac_pico=FRAC_PICO):
-    """Strings sem corrente do dia pela régua de 24/09.
+def strings_sem_corrente(curvas_inv, **kw):
+    """Strings sem corrente do dia pela régua de 24/09 — só a lista (ver avaliar_dia)."""
+    return avaliar_dia(curvas_inv, **kw)["mortas"]
+
+
+def avaliar_dia(curvas_inv, *, zero, piso_inv, frac_vizinhas=FRAC_VIZINHAS, janela=JANELA, passo=PASSO,
+                min_trecho=MIN_TRECHO, tolerancia=TOLERANCIA, frac_pico=FRAC_PICO):
+    """Régua do dia: as strings sem corrente e quantas estavam vivas em cada inversor.
 
     curvas_inv = {inversor: {string: [(ts|hhmm, valor)]}} — corrente (A) ou potência (W); `zero` e `piso_inv`
     vão na mesma unidade. Uma célula conta como morta só com o inversor GERANDO (mediana das strings vivas >=
@@ -66,11 +77,14 @@ def strings_sem_corrente(curvas_inv, *, zero, piso_inv, frac_vizinhas=FRAC_VIZIN
     <= zero, não lê nada, ou lê menos que frac_vizinhas da mediana das OUTRAS strings vivas do inversor. Trechos
     mortos se juntam através de leitura boa curta (tolerancia); só entra o trecho com min_trecho de morte seguida.
 
-    Devolve [{inversor, string, saiu, voltou, min_morta, trechos, criterio, fim_producao}] — `voltou` None =
-    ficou morta até o inversor parar de gerar (o episódio continua no dia seguinte se ela amanhecer morta)."""
+    → {"mortas": [{inversor, string, saiu, voltou, min_morta, trechos, criterio, ini_producao, fim_producao,
+    sempre_zero}], "vivas": {inversor: n}}. `voltou` None = ficou morta até o inversor parar de gerar (o episódio
+    continua no dia seguinte se ela amanhecer morta). `sempre_zero` = leu zero (ou nada) em toda a produção do dia:
+    a assinatura da entrada sem string. `vivas` só tem o inversor que gerou min_trecho no dia — com menos, a conta
+    não prova nada."""
     ini = janela[0]
     n = (janela[1] - janela[0]) // passo + 1
-    out = []
+    out, vivas_inv = [], {}
     for inv, strings in (curvas_inv or {}).items():
         grades = {sid: _grade(s, janela, passo) for sid, s in (strings or {}).items()}
         grades = {sid: g for sid, g in grades.items() if any(v is not None for v in g)}   # sem leitura: não afirma
@@ -86,9 +100,13 @@ def strings_sem_corrente(curvas_inv, *, zero, piso_inv, frac_vizinhas=FRAC_VIZIN
         prod = [m is not None and m >= piso for m in meds]
         if not any(prod):
             continue                                   # inversor não gerou: o problema é dele, não das strings
+        pri_prod = min(i for i in range(n) if prod[i])
         ult_prod = max(i for i in range(n) if prod[i])
+        forte = [m is not None and prod[i] and m >= pico * FRAC_PICO_VIVA for i, m in enumerate(meds)]
+        n_vivas = 0
         for sid, g in grades.items():
             morta, crit = [None] * n, [None] * n
+            celulas_vivas = 0
             for i in range(n):
                 if not prod[i]:
                     continue
@@ -101,6 +119,11 @@ def strings_sem_corrente(curvas_inv, *, zero, piso_inv, frac_vizinhas=FRAC_VIZIN
                     morta[i], crit[i] = True, "abaixo_das_vizinhas"
                 else:
                     morta[i] = False
+                if forte[i] and viz is not None and v >= FRAC_VIZINHAS_VIVA * viz:
+                    celulas_vivas += 1
+            if celulas_vivas >= CELULAS_VIVA:
+                n_vivas += 1
+            sempre_zero = all(crit[i] == "zerada" for i in range(n) if prod[i])
             # trechos: célula sem produção do inversor é neutra (nuvem forte não parte nem estende a queda)
             trechos, cur, folga = [], None, 0
             for i in range(n):
@@ -135,5 +158,8 @@ def strings_sem_corrente(curvas_inv, *, zero, piso_inv, frac_vizinhas=FRAC_VIZIN
                         "min_morta": mins, "trechos": spans,
                         "criterio": {"zerada": sum(1 for i in cells if crit[i] == "zerada") * passo,
                                      "abaixo_das_vizinhas": sum(1 for i in cells if crit[i] == "abaixo_das_vizinhas") * passo},
-                        "fim_producao": _hhmm(ini + ult_prod * passo)})
-    return out
+                        "ini_producao": _hhmm(ini + pri_prod * passo), "fim_producao": _hhmm(ini + ult_prod * passo),
+                        "sempre_zero": sempre_zero})
+        if sum(prod) * passo >= min_trecho:
+            vivas_inv[inv] = n_vivas
+    return {"mortas": out, "vivas": vivas_inv}

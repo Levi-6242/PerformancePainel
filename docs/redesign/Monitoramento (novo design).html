@@ -567,11 +567,37 @@ function _strReclassifica(inv,ids){   // ids = as strings que acabaram de ser de
   return inv;
 }
 /* fim _strReclassifica */
+// Trava com OS ou ticket aberto (27/09/2026). Trancar tira a string da conta — e da aba de falhas no mês inteiro. Com OS de
+// recomposição ou ticket aberto, a trava esconde uma perda que o campo ainda vai resolver. Antes de trancar, a tela
+// pergunta se há OS ou ticket aberto dessas strings (o índice de OS abertas vem do worker; nada vai ao Fracttal no clique).
+async function _travaOk(pid,inv,ids){
+  const fonte=RD[state.source], rows=(fonte&&fonte.rows)||((RD.pv&&RD.pv.rows)||[]);
+  const _row=rows.find(r=>String(r.plant_id)===String(pid)), usina=(_row&&_row.usina)||String(pid);
+  let av=null;
+  try{ av=await fetchJSON('/api/strings/trava-aviso?usina='+encodeURIComponent(usina)+'&inv='+encodeURIComponent(inv.nome||'')+'&strings='+encodeURIComponent(ids.join(','))); }
+  catch(e){ return true; }                    // sem resposta, não segura o clique: o aviso é ajuda, não porteiro
+  const os=(av&&av.os)||[], tk=(av&&av.tickets)||[];
+  if(!os.length&&!tk.length) return true;
+  return await _confirmaTrava(os,tk,ids.length);
+}
+function _confirmaTrava(os,tk,n){
+  return new Promise(res=>{
+    let m=document.getElementById('gc-travamodal');
+    if(!m){ m=document.createElement('div'); m.id='gc-travamodal'; document.body.appendChild(m); }
+    window._gcTravaFim=ok=>{ m.remove(); res(!!ok); };
+    const li=x=>`<li style="margin:7px 0;color:var(--color-neutral-300);font-size:12.5px;line-height:1.45">${x}</li>`;
+    const itens=os.map(o=>li(`OS <b style="color:var(--gc-blue)">${_he(o.folio)}</b> · ${_he(o.status||'')}${o.criada?' desde '+_he(o.criada):''} — ${_he(o.descricao||'')}${o.cita&&o.cita.length?' (cita '+_he(o.cita.join(', '))+')':''}`))
+      .concat(tk.map(t=>li(`Ticket de strings aberto${t.desde?' desde '+_he(t.desde):''}${t.strings&&t.strings.length?' (strings '+_he(t.strings.join(', '))+')':''}`))).join('');
+    m.innerHTML=`<div onclick="_gcTravaFim(false)" class="gc-overlay" style="position:fixed;inset:0;z-index:220;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:80px 16px;overflow-y:auto"><div onclick="event.stopPropagation()" style="max-width:560px;width:100%;background:var(--color-surface);border:1px solid var(--color-divider);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.45)"><div style="padding:18px 20px 8px"><div style="font-family:var(--font-heading);font-size:15px;font-weight:600;color:var(--color-neutral-100)">${n>1?'Estas strings têm':'Esta string tem'} manutenção aberta</div><div class="text-muted" style="font-size:12.5px;margin-top:6px;line-height:1.5">Trancar tira a string da conta e da aba de falhas no mês inteiro. Tranque só entrada sem string ligada: string morta com OS ou ticket aberto é perda que precisa aparecer.</div><ul style="margin:10px 0 6px 18px;padding:0">${itens}</ul></div><div style="display:flex;justify-content:flex-end;gap:10px;padding:13px 20px;border-top:1px solid var(--color-divider)"><button onclick="_gcTravaFim(false)" style="${segStyle(true)}">Cancelar</button><button onclick="_gcTravaFim(true)" style="${segStyleRed(true)}">Trancar mesmo assim</button></div></div></div>`;
+    _prendeOverlays();
+  });
+}
 window.trancarInativas=async(pid,invId)=>{   // trava OTIMISTA (instantâneo) + persiste em background — sem re-buscar a usina inteira na API lenta (SunOp)
   const invs=RD.plants[state.source+'|'+pid]||[]; const inv=invs.find(x=>String(x.id)===String(invId));
   if(!inv){ _toast('Inversor não encontrado nos dados carregados — recarregue a usina.','ruim'); return; }
   const ids=(inv.strings||[]).filter(s=>!s.trancada&&(s.status||'')==='sem_corrente').map(s=>s.id);
   if(!ids.length){ _toast('Nenhuma string sem corrente para trancar neste inversor.'); return; }
+  if(!(await _travaOk(pid,inv,ids))) return;
   const idset=new Set(ids.map(String));
   (inv.strings||[]).forEach(s=>{ if(idset.has(String(s.id))) s.trancada=true; }); render();   // reflete na hora
   try{
@@ -611,6 +637,7 @@ window.trancarString=async(pid,invId,sid,trancar)=>{   // cadeado por string: tr
     _toast('Não consegui identificar a string '+sid+' neste inversor — recarregue a usina e tente de novo.','ruim');
     return;   // escrita silenciosa é pior que não escrever
   }
+  if(trancar&&!(await _travaOk(pid,inv,[sid]))) return;
   const antes={trancada:!!st.trancada,status:st.status,ativa:st.ativa};
   st.trancada=!!trancar;
   if(!trancar) _strReclassifica(inv,[sid]);   // sem isto, o chip ficava azul ("trancada" no status) até recarregar

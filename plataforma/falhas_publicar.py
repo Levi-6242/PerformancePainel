@@ -19,7 +19,8 @@ import io
 WORKBOOK = "falhas_performance"
 NOME = "Falhas de strings e trackers"
 MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-FONTE_ROT = {"pv": "Thopen · API PV", "pg": "Thopen · Banco", "sunop": "Athon", "axis": "Axis", "owen": "2C · e-mail"}
+FONTE_ROT = {"pv": "Thopen · API PV", "pvsb": "Thopen · API PV · String Box", "pg": "Thopen · Banco", "sunop": "Athon",
+             "axis": "Axis", "owen": "2C · e-mail", "solaredge": "RenoGrid"}
 
 CABECALHOS = {
     "strings_inversor_dia": ["mes", "dia", "fonte", "cliente", "usina", "inversor", "qtd_strings", "strings",
