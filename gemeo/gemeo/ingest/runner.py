@@ -99,9 +99,18 @@ def laco(rotulo: str, ingestor, minutos: float, parar: threading.Event, fabrica_
         parar.wait(minutos * 60)
 
 
+def _fabrica_pg(cfg):
+    """Fábrica da conexão com o PostgreSQL do Thopen: o IngestorPG abre QUANDO precisa e reabre quando cai.
+    Abrir na partida derrubava a coleta inteira — SunOp e API PV juntas — quando o banco não respondia, e deixava a
+    coleta do banco morta para sempre quando o servidor fechava a sessão (27–28/09/2026). O keepalive faz a conexão
+    que morreu calada no meio do caminho aparecer como erro, em vez de pendurar o ciclo."""
+    import psycopg2
+    return lambda: psycopg2.connect(cfg.powerplants_dsn, connect_timeout=15, keepalives=1, keepalives_idle=60,
+                                    keepalives_interval=15, keepalives_count=4)
+
+
 def rodar() -> int:
     from gemeo.core.config import carregar
-    import psycopg2
     cfg = carregar()
     conn = db.conectar(cfg.db_caminho)
     novas = garantir_usinas(conn, cfg)
@@ -109,8 +118,8 @@ def rodar() -> int:
         print(f"usinas do piloto criadas a partir do config: {novas}", flush=True)
     usinas = usinas_do_piloto(conn, cfg.usinas_piloto)
     exigir_credenciais_apipv(cfg, usinas)
-    # PostgreSQL do Thopen so quando ha usina de fonte pg no piloto (e o unico lugar em que psycopg2 continua)
-    conn_fonte = psycopg2.connect(cfg.powerplants_dsn) if any(u.fonte == "pg" for u in usinas) else None
+    # PostgreSQL do Thopen so quando ha usina de fonte pg no piloto — a FABRICA, nao a conexao (ver _fabrica_pg)
+    conn_fonte = _fabrica_pg(cfg) if any(u.fonte == "pg" for u in usinas) else None
     if not usinas:
         print("nenhuma usina do piloto em `usina` — rode o cadastro primeiro (gemeo ingest cria as linhas base a partir do config)")
     parar = threading.Event()

@@ -39,8 +39,10 @@ Preencha o `gemeo.env`. **Obrigatórias** — sem elas o gêmeo nem sobe, e diz 
 - `GRIDCO_SQL_TOKEN` — o mesmo do `tokens.txt`;
 - `GEMEO_SENHA` — **igual** à `GEMEO_SENHA` do `tokens.txt`. É com ela que a plataforma entra no gêmeo.
 
-Exigidas pelo piloto atual: `POWERPLANTS_DSN` (usinas do Postgres da Thopen — o IP do servidor precisa
-estar liberado no banco) e `PV_OEM_USERNAME`/`PV_OEM_PASSWORD` (as três usinas da 2C).
+Exigidas pelo piloto atual: `POWERPLANTS_DSN` (usinas do Postgres da Thopen) e `PV_OEM_USERNAME`/`PV_OEM_PASSWORD`
+(as três usinas da 2C). O `POWERPLANTS_DSN` é o MESMO acesso que a plataforma usa (`PG_HOST`, `PG_USER` e a senha do
+`plataforma/pg_password.txt`) — e o IP do servidor já está liberado no banco, porque a plataforma já lê de lá
+(conferido em 28/09/2026).
 
 No `servico.env`, confira `GEMEO_CONFIG` (o `config.toml` do clone) e `GEMEO_DB_CAMINHO`. O banco **tem de**
 ter caminho no Linux: o padrão do código é `%LOCALAPPDATA%`, que só existe no Windows. O `TZ` já vem
@@ -50,13 +52,21 @@ O usuário do serviço precisa escrever em `gemeo/cache/` dentro do clone (é on
 
 ## 3. O banco
 
-**Com histórico** (recomendado — o gêmeo guarda 90 dias):
+**Com histórico** (recomendado — o gêmeo guarda 90 dias; reserve **15 GB**: em 28/09/2026 o banco tinha 3,0 GB e
+cresce ~110 MB/dia até completar os 90 dias, ~10 GB no fim de novembro, quando a limpeza diária da coleta o estabiliza):
 
 1. Na máquina do Levi, **pare o gêmeo** — as três tarefas "Gemeo App", "Gemeo Ingest" e "Gemeo
-   Modelar" (Agendador de Tarefas → Desabilitar). Copiar o banco com ele gravando dá arquivo pela metade.
-2. Copie `C:\GridcoAuto\gemeo\gemeo.sqlite` (≈ 2,2 GB) para `/var/lib/gridco/gemeo/gemeo.sqlite`.
-   Se existirem, copie junto `gemeo.sqlite-wal` e `gemeo.sqlite-shm`.
-3. `sudo chown gridco: /var/lib/gridco/gemeo/*`
+   Modelar" (Agendador de Tarefas → Desabilitar) — e encerre o `pythonw` do gêmeo que sobrar (ele não morre com a
+   tarefa). Copiar o banco com ele gravando dá arquivo pela metade.
+2. Junte o diário no arquivo principal, para só um arquivo precisar ir (resposta esperada: `(0, 0, 0)`):
+   `python -c "import sqlite3; c=sqlite3.connect(r'C:\GridcoAuto\gemeo\gemeo.sqlite'); print(c.execute('PRAGMA wal_checkpoint(TRUNCATE)').fetchone())"`
+3. Copie **só** `C:\GridcoAuto\gemeo\gemeo.sqlite` para `/var/lib/gridco/gemeo/gemeo.sqlite`. **Não** copie o
+   `gemeo_pre0003_20260917_1406.sqlite` da mesma pasta: é uma cópia de segurança antiga (1,8 GB), de antes da migração
+   de 17/09.
+4. `sudo chown gridco: /var/lib/gridco/gemeo/*` e confira a integridade antes de ligar (espere `('ok',)`):
+   `sudo -u gridco /srv/venvs/gemeo/bin/python -c "import sqlite3; print(sqlite3.connect('/var/lib/gridco/gemeo/gemeo.sqlite').execute('PRAGMA quick_check').fetchone())"`
+
+O roteiro em PDF, para mandar à T.I., fica fora do repositório: `C:\GridcoBuild\deploy-gemeo\`.
 
 **Sem histórico:** pule a cópia e crie as tabelas vazias:
 

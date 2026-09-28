@@ -76,7 +76,27 @@ class IngestorPG(Ingestor):
 
     def __init__(self, cfg, conn, usinas: list[UsinaRef], conn_fonte):
         super().__init__(cfg, conn, usinas)
-        self.fonte_conn = conn_fonte
+        # `conn_fonte` é uma FÁBRICA de conexão (o `rodar`) ou a conexão já aberta (testes) — ver `fonte_conn`
+        self._fabrica_fonte = conn_fonte if callable(conn_fonte) else None
+        self._fonte = None if self._fabrica_fonte else conn_fonte
+
+    @property
+    def fonte_conn(self):
+        """A conexão com o PostgreSQL do Thopen, viva. De 27/09 13:50 UTC até 28/09 a coleta das 18 usinas do banco
+        morreu em `connection already closed`: a conexão nascia uma vez na partida, nunca fechava a transação (a
+        sessão ficava "ociosa em transação" por dias, segurando a limpeza do banco do Thopen) e, quando o servidor a
+        derrubou, ninguém abriu outra. Agora abre quando precisa, em autocommit — é só leitura, nenhuma transação
+        atravessa um ciclo — e reabre se estiver fechada (`closed` 1 = fechada, 2 = quebrou no meio de uma consulta)."""
+        c = self._fonte
+        if self._fabrica_fonte is not None and (c is None or getattr(c, "closed", 0)):
+            c = self._fabrica_fonte()
+            c.autocommit = True
+            self._fonte = c
+        return c
+
+    @fonte_conn.setter
+    def fonte_conn(self, c):
+        self._fonte = c
 
     def _mapa(self, usina: UsinaRef) -> dict:
         with self.conn.cursor() as cur:
