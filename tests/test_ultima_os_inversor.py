@@ -13,13 +13,14 @@ Cancelada (status 4) nunca conta. O nº abre a OS no OS Creator web (/os/os/foli
 import app
 
 
-def _wo(folio, tipo, st, ev, labels=(), desc="x"):
+def _wo(folio, tipo, st, ev, labels=(), desc="x", note=None):
     return {"wo_folio": folio, "tasks_log_task_type_main": tipo, "id_status_work_order": st,
-            "event_date": ev, "creation_date": ev, "description": desc,
+            "event_date": ev, "creation_date": ev, "description": desc, "note": note,
             "labels": [{"id": 1, "description": etq} for etq in labels]}
 
 
-INV = [_wo("12097", "Corretiva", 2, "2026-08-24T18:00:00+00:00", ["PERFORMANCE"], "[Inversor 1.1] - Recomposição de String"),
+INV = [_wo("12097", "Corretiva", 2, "2026-08-24T18:00:00+00:00", ["PERFORMANCE"], "[Inversor 1.1] - Recomposição de String",
+           note="Strings 13 e 14 com corrente nula,\n  verificar e normalizar"),
        _wo("9876", "Corretiva", 2, "2026-07-22T18:00:00+00:00", ["PERFORMANCE"]),
        _wo("12500", "Corretiva", 1, "2026-09-01T12:00:00+00:00", ["CHAMADOS"], "[Ticket 77][Santarém 1][Inversor 1.1] - TCU"),
        _wo("13000", "Preventiva", 2, "2026-09-10T12:00:00+00:00")]
@@ -34,6 +35,14 @@ def test_cada_ficha_pega_a_mais_recente_da_sua_marca():
     assert p["descricao"] == "[Inversor 1.1] - Recomposição de String" and p["link"] == "/os/os/folio/12097"
     assert r["folio"] == "13400" and r["escopo"] == "usina" and r["tipo"] == "Religamento Remoto"
     assert c["folio"] == "12500" and c["aberta"] is True and c["status"] == "Em andamento"
+
+
+def test_ficha_leva_a_observacao_da_os():
+    """Levi, 28/09/2026: "deve ter mais uma linha mostrando a nota da OS com o nome de Observação da OS". É o `note` do
+    REST do Fracttal — o mesmo campo que o card do ticket de strings já lê — com os espaços e quebras juntados."""
+    u = app._frac_ultimas_os(INV, SITE)
+    assert u["performance"]["observacao"] == "Strings 13 e 14 com corrente nula, verificar e normalizar"
+    assert u["religamento"]["observacao"] == "", "OS sem nota: vazio, e a tela diz que não há observação"
 
 
 def test_religamento_do_proprio_inversor_ganha_quando_e_o_mais_novo():
@@ -101,22 +110,27 @@ def _func(nome, fim="\n}\n"):
     return _MON[i:_MON.index(fim, i) + len(fim)]
 
 
-def test_abrir_o_inversor_busca_a_ultima_os():
+def test_o_bloco_vem_recolhido_e_so_busca_quando_abre():
+    """Levi, 28/09/2026: "essa visão deve vir recolhida como padrão e abre caso eu clique para abrir". Recolhido, o
+    inversor aberto não pergunta nada ao Fracttal — a cota é de 200/min para a EMPRESA inteira; quem abre o bloco é que
+    busca."""
     tog = _MON[_MON.index("window.toggleInversor="):]
-    assert "loadUltimaOs(" in tog[:tog.index("\n")]
+    assert "loadUltimaOs(" not in tog[:tog.index("\n")], "abrir o inversor não busca mais a OS"
+    abre = _MON[_MON.index("window.toggleUltOs="):]
+    assert "loadUltimaOs(" in abre[:abre.index("\n};\n")]
     assert "/api/fracttal/ultima-os?usina=" in _func("loadUltimaOs")
     assert "${_ultOsBlock(inv)}" in _MON, "o bloco entra no inversor aberto"
 
 
-def _render(dado, aba):
+def _render(dado, aba, aberto=True):
     node = _sh.which("node")
     if not node:
         _pt.skip("node não instalado")
-    js = (_func("_ultOsBlock") + "const _he=s=>String(s==null?'':s);"
+    js = (_func("_ultOsBlock") + "const _he=s=>String(s==null?'':s);const _jsq=s=>String(s==null?'':s);"
           "const _ULTOS_ABAS=[['performance','Performance'],['religamento','Religamento'],['chamado','Chamado']];"
           "const RD={ultOs:{'10|11':" + _json.dumps(dado, ensure_ascii=False) + "}};"
-          "const state={ultOsAba:" + _json.dumps(aba) + "};"
-          "process.stdout.write(JSON.stringify(_ultOsBlock({isReal:true,pid:'10',invId:'11'})));")
+          "const state={ultOsAba:" + _json.dumps(aba) + ",ultOsAberto:" + ("{'10|11':true}" if aberto else "{}") + "};"
+          "process.stdout.write(JSON.stringify(_ultOsBlock({isReal:true,pid:'10',invId:'11',name:'Inversor 1.1'})));")
     p = _sp.run([node, "-e", js], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert p.returncode == 0, p.stderr
     return _json.loads(p.stdout)
@@ -128,6 +142,21 @@ def test_a_ficha_mostra_o_numero_que_abre_a_os():
     assert 'href="/os/os/folio/12097"' in h and "Recomposição de String" in h and "Concluída" in h
     h = _render(d, "religamento")
     assert "13400" in h and "OS da usina" in h
+
+
+def test_aberto_mostra_a_linha_observacao_da_os():
+    d = {"ok": True, **app._frac_ultimas_os(INV, SITE)}
+    h = _render(d, "performance")
+    assert "Observação da OS" in h and "Strings 13 e 14 com corrente nula, verificar e normalizar" in h
+    assert "sem observação na OS" in _render(d, "religamento")
+
+
+def test_recolhido_mostra_so_o_cabecalho():
+    d = {"ok": True, **app._frac_ultimas_os(INV, SITE)}
+    h = _render(d, "performance", aberto=False)
+    assert "Última OS" in h and "clique para abrir" in h
+    assert "#12097" not in h and "Observação da OS" not in h and "Buscando no Fracttal" not in h
+    assert "toggleUltOs(" in h
 
 
 def test_sem_os_da_marca_diz_isso():

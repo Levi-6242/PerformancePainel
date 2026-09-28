@@ -2465,6 +2465,110 @@ def _pv_ger_relativa(nome_sup, pac_de, alvos, dev_names) -> dict:
     return out
 
 
+# ── Relógio do registrador em outro fuso (Levi, 28/09/2026: "Diamantino 1 e 2 (...) está comunicando normalmente,
+# corrija") ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+# A API PV devolve o carimbo DO REGISTRADOR (tsleitura), sem hora de recebimento — `dataleitura` é só a data, meia-noite.
+# O da Diamantino 1 e 2 está no horário de Cuiabá (UTC−4): em 28/09 o dado chegava minuto a minuto, sempre 62–63 min
+# "atrás" (08:44 às 09:46, 08:52 às 09:54, 09:03 às 10:05, com ~250 kW por inversor), e a régua dos 30 min dizia "sem
+# comunicação" o dia inteiro. Das 153 usinas da conta, só essas duas. O fuso é do REGISTRADOR, não do estado: a Canarana,
+# também no MT, manda a estação no horário de Brasília — por isso a plataforma APRENDE o atraso de cada usina em vez de
+# seguir uma tabela por UF.
+# Como aprende: defasagem de horas cheias (± 12 min, a folga normal da entrega da API) que se repete com o carimbo
+# ANDANDO entre duas leituras. Usina que parou há uma hora também passa por "60 min atrás", mas o carimbo dela não anda,
+# e sem andar não confirma. Defasagem de até 15 min = relógio certo, e zera na hora (alguém acertou o registrador). A
+# correção nunca esconde parada: com o dado parado, a leitura corrigida envelhece como qualquer outra.
+PV_RELOGIO_PATH = _p_dado("pv_relogio.json")
+PV_RELOGIO_FRESCO_MIN = 15
+PV_RELOGIO_FOLGA_MIN = 12
+PV_RELOGIO_MAX_H = 3
+_pv_relogio = {}                  # str(pid) → {"h": horas confirmadas, "cand": horas candidatas, "n": vezes, "ts": carimbo cru}
+_pv_relogio_lock = threading.Lock()
+
+
+def _pv_relogio_load():
+    """Só o confirmado vai para o disco: depois de um restart a usina não passa duas leituras "sem comunicação"."""
+    try:
+        with open(PV_RELOGIO_PATH, encoding="utf-8") as f:
+            d = json.load(f) or {}
+    except FileNotFoundError:
+        return
+    except Exception as e:                                       # noqa: BLE001 — arquivo ruim = reaprende
+        print(f"[relogio] {os.path.basename(PV_RELOGIO_PATH)} ilegível: {e}")
+        return
+    with _pv_relogio_lock:
+        for k, v in d.items():
+            if isinstance(v, dict) and v.get("h"):
+                _pv_relogio[str(k)] = {"h": int(v["h"]), "cand": int(v["h"]), "n": 2, "ts": None}
+
+
+def _pv_relogio_save():
+    try:
+        with _pv_relogio_lock:
+            snap = {k: {"h": v["h"]} for k, v in _pv_relogio.items() if v.get("h")}
+        tmp = PV_RELOGIO_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(snap, f)
+        _replace_atomico(tmp, PV_RELOGIO_PATH)
+    except Exception as e:                                       # noqa: BLE001 — sem disco, segue aprendendo em memória
+        print(f"[relogio] falha ao salvar: {e}")
+
+
+def _pv_relogio_h(pid) -> int:
+    """Horas que o registrador da usina está atrás de Brasília (0 = certo ou ainda não aprendido)."""
+    return int((_pv_relogio.get(str(pid)) or {}).get("h") or 0)
+
+
+def _pv_relogio_corrige(pid, ts_raw, agora=None):
+    """O carimbo `ts_raw` ('YYYY-MM-DD HH:MM:SS', relógio do registrador) no horário de Brasília — e aprende o atraso."""
+    if not ts_raw:
+        return ts_raw
+    try:
+        t = datetime.strptime(str(ts_raw)[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return ts_raw
+    agora = agora or datetime.now()
+    lag = (agora - t).total_seconds() / 60
+    h = int(round(lag / 60))
+    mudou = False
+    with _pv_relogio_lock:
+        e = _pv_relogio.setdefault(str(pid), {"h": 0, "cand": 0, "n": 0, "ts": None})
+        if abs(lag) <= PV_RELOGIO_FRESCO_MIN:
+            mudou = bool(e["h"])
+            e.update(h=0, cand=0, n=0)
+        elif h and abs(h) <= PV_RELOGIO_MAX_H and abs(lag - 60 * h) <= PV_RELOGIO_FOLGA_MIN:
+            if e["cand"] != h:
+                e.update(cand=h, n=1)
+            elif e["ts"] is not None and str(ts_raw)[:19] > e["ts"]:
+                e["n"] += 1                                  # o carimbo ANDOU com a mesma defasagem
+            if e["n"] >= 2 and e["h"] != h:
+                e["h"], mudou = h, True
+        else:
+            e.update(cand=0, n=0)                            # fora do padrão: some o candidato (o confirmado fica)
+        e["ts"] = str(ts_raw)[:19]
+        hc = e["h"]
+        out = ts_raw
+        if hc:
+            tc = t + timedelta(hours=hc)
+            if tc > agora + timedelta(minutes=PV_RELOGIO_FRESCO_MIN):
+                e.update(h=0, cand=0, n=0)                   # corrigido cairia no futuro: o relógio foi acertado
+                mudou = True
+            else:
+                out = tc.strftime("%Y-%m-%d %H:%M:%S")
+    if mudou:
+        print(f"[relogio] usina {pid}: registrador {abs(hc)} h {'atrás' if hc > 0 else 'à frente'} de Brasília, corrigindo"
+              if hc and out != ts_raw else f"[relogio] usina {pid}: relógio do registrador em dia")
+        _pv_relogio_save()
+    return out
+
+
+def _pv_relogio_serie(pid, serie):
+    """A série (t, ...) de uma usina no horário de Brasília — a estação mora no mesmo registrador dos inversores."""
+    h = _pv_relogio_h(pid)
+    if not h or not serie:
+        return serie
+    return [(s[0] + timedelta(hours=h),) + tuple(s[1:]) if s and s[0] is not None else s for s in serie]
+
+
 def build_summary(plant: dict, records: list) -> dict:
     pid  = plant["id"]
     nome = nome_usina(pid, plant["nome"])
@@ -2479,6 +2583,7 @@ def build_summary(plant: dict, records: list) -> dict:
             latest[inv_id] = rec
 
     ts_max = max((r.get("tsleitura_new", "") for r in latest.values()), default="")
+    ts_max = _pv_relogio_corrige(pid, ts_max) if ts_max else ts_max   # registrador em outro fuso (Diamantino, 28/09)
 
     falha = False
     if ts_max:
@@ -3370,7 +3475,7 @@ def _entrada_tempo_real_build() -> dict:
         if k not in grupos:
             grupos[k] = {"cliente": k[0], "fonte": k[1], "fonte_id": _ENTRADA_FONTE_ID.get(k[1], ""), "usinas": {},
                          "strings_faltando": 0, "strings_nao_rec": 0, "usinas_critico": 0, "usinas_sem_comm": 0,
-                         "usinas_ok": 0, "ultima_leitura": None, "etm_problema": 0, "etm_atencao": 0, "etm_com_os": 0, "trk_parados": 0,
+                         "usinas_desligadas": 0, "usinas_ok": 0, "ultima_leitura": None, "etm_problema": 0, "etm_atencao": 0, "etm_com_os": 0, "trk_parados": 0,
                          "trk_com_os": 0, "trk_fonte_ok": False}
         return grupos[k]
 
@@ -3415,6 +3520,8 @@ def _entrada_tempo_real_build() -> dict:
             x["usinas_critico"] += 1
         elif st == "sem_comm":
             x["usinas_sem_comm"] += 1
+        elif st == "desligada":
+            x["usinas_desligadas"] += 1
         elif st == "ok":
             x["usinas_ok"] += 1
         ul = u.get("ultima_leitura")
@@ -3537,7 +3644,7 @@ def _entrada_tempo_real_build() -> dict:
                     if r.get("ticket_status"):
                         uu["trk_com_os"] += 1
     ordem_fixa = {(c, f): i for i, (c, f, _fid) in enumerate(_ENTRADA_GRUPOS)}
-    _sev = {"sem_comm": 0, "critico": 1, "atencao": 2, "ok": 3}
+    _sev = {"sem_comm": 0, "critico": 1, "atencao": 2, "desligada": 3, "ok": 4}
     saida = []
     for x in sorted(grupos.values(), key=lambda x: (ordem_fixa.get((x["cliente"], x["fonte"]), 99), x["cliente"], x["fonte"])):
         if (x["cliente"], x["fonte"]) not in ordem_fixa:
@@ -3754,7 +3861,7 @@ def _entrada_tr_strings_de(r: dict) -> dict:
     dif = r.get("diferenca")
     ult = max(0, -int(dif)) if isinstance(dif, (int, float)) else int(r.get("strings_faltando") or 0)
     st = r.get("status")
-    falt = 0 if (st in ("sem_producao", "sem_comm") or r.get("sem_visao")) else ult
+    falt = 0 if (st in ("sem_producao", "sem_comm", "desligada") or r.get("sem_visao")) else ult
     return {"status": st, "causa": r.get("causa"), "strings_faltando": falt,
             "str_esp": r.get("str_esp"), "strings_ativas": r.get("strings_ativas"), "ultima_leitura": r.get("ultima_leitura")}
 
@@ -3780,7 +3887,7 @@ def _entrada_tr_strings_ao_vivo(data: dict, epoch) -> dict:
         print(f"[entrada] strings ao vivo: {e}")
         return data
     vivo = {(r.get("cliente") or "Sem cliente", r.get("fonte") or "Sem fonte", str(r.get("plant_id"))): r for r in rows}
-    _sev = {"sem_comm": 0, "critico": 1, "atencao": 2, "ok": 3}
+    _sev = {"sem_comm": 0, "critico": 1, "atencao": 2, "desligada": 3, "ok": 4}
 
     def _ac(pref, pid):
         v = tracking.get(f"{pref}:{pid}")
@@ -3816,6 +3923,7 @@ def _entrada_tr_strings_ao_vivo(data: dict, epoch) -> dict:
         x["strings_nao_rec"] = sum(int(u.get("strings_nao_rec") or 0) for u in usinas)
         x["usinas_critico"] = sum(1 for u in usinas if u.get("status") == "critico")
         x["usinas_sem_comm"] = sum(1 for u in usinas if u.get("status") == "sem_comm")
+        x["usinas_desligadas"] = sum(1 for u in usinas if u.get("status") == "desligada")
         x["usinas_ok"] = sum(1 for u in usinas if u.get("status") == "ok")
         uls = [u.get("ultima_leitura") for u in usinas if u.get("ultima_leitura")]
         x["ultima_leitura"] = max(uls) if uls else x.get("ultima_leitura")
@@ -4635,6 +4743,9 @@ def _analisa_etm_plant(token: str, plant: dict) -> dict:
         series.append((t, _etm_clamp(_pick_irr(cj, "IrPOA", "piraPOA1", "Ir", "Ir1")),
                           _etm_clamp(_pick_irr(cj, "IrGHI", "piraGHI1"))))
         poari_serie.append((t, _etm_clamp(_pick_irr(cj, "IrPOA_RI", "piraPOA_RI1", "RadPoaRI"))))
+    # a estação está no MESMO registrador dos inversores: o relógio aprendido lá vale aqui (a da Diamantino vinha
+    # "Sem comunicação · última há 65 min" pelo mesmo motivo, 28/09/2026)
+    series, poari_serie = _pv_relogio_serie(pid, series), _pv_relogio_serie(pid, poari_serie)
     diag = _diagnostico_etm(series, poari=poari_serie)
     if diag["ultima_leitura"] is None:
         return base
@@ -8638,6 +8749,8 @@ def _tk_str_bloqueio(r) -> str:
     """Por que a linha não dá para julgar AGORA, nem pelas strings nem pela geração. '' quando dá."""
     if r.get("sol_baixo"):
         return "sem sol agora"
+    if r.get("desligada"):
+        return "usina desligada"
     if r.get("falha_comunicacao") or r.get("sem_dados"):
         return "usina sem comunicação"
     if r.get("rampa"):
@@ -8753,9 +8866,158 @@ def _com_tickets_str(payload):
     return dict(payload, rows=novas) if mudou else payload
 
 
+# ── Usina calada: DESLIGADA ou SEM COMUNICAÇÃO (Levi, 28/09/2026) ─────────────────────────────────────────────────────
+#   "Ceilândia 1.1, 1.2 e 1.3 está desligada. Assis 1, Brodowski 1 e Ribeirão também está desligada, tem que ter essa
+#   observação, da mesma forma que observa os inversores tem que observar a usina. (...) Canarana 1 e Mandaguaçu e Santo
+#   Anastácio está desligado."
+# A API não diz se a usina está desligada: calada é calada. A Ceilândia 1.1 gerava 1,4 MW às 08:10 de 28/09 e o dado
+# parou ali — desligamento e queda de comunicação ficam idênticos no dado. A plataforma passa a dizer "desligada" quando
+# há MOTIVO, na ordem:
+#   1. a marcação do analista, com a observação (Mandaguaçu, Santo Anastácio, Ribeirão: nada no dado, nada no Fracttal
+#      — três delas nem têm o ativo da usina cadastrado lá);
+#   2. OS de Religamento ABERTA na USINA INTEIRA no Fracttal (índice de disponibilidade): Ceilândia 1 #14711, Assis
+#      #14715, Brodowski #12693. De cabine ou de inversor não desliga a usina. Só vale para quem está calado: a
+#      Ceilândia 2 tinha a #14710 aberta e estava gerando;
+#   3. a estação comunicando e os inversores calados há mais de 2 h — o site está no ar e a usina não (Canarana 1:
+#      estação às 09:48, inversores desde 23/09). Menos que isso pode ser o barramento dos inversores, e aí é
+#      comunicação mesmo.
+# Sem motivo, continua "sem comunicação". A marcação some sozinha quando a usina volta a gerar: marca velha faria a
+# próxima queda de comunicação parecer desligamento.
+USINA_DESL_ETM_VIVA_MIN = 30      # leitura da estação até aqui = o site está no ar
+USINA_DESL_ETM_CALADA_MIN = 120   # inversores calados há pelo menos isto, com a estação viva
+USINA_DESL_VELHA_MIN = 120        # a régua da tela para dado velho (COMM_STALE_MIN do Monitoramento)
+_usinas_desl_cache = {"ts": 0.0, "map": {}}
+_USINAS_DESL_TTL = 10
+
+
+def _usinas_desligadas_marcas() -> dict:
+    """{plant_id: rec} das usinas marcadas como desligadas — estado com cache curto (a tabela pergunta a cada saída)."""
+    agora = time.time()
+    if agora - _usinas_desl_cache["ts"] > _USINAS_DESL_TTL:
+        try:
+            with _state_lock:
+                m = dict(_load_state().get("usinas_desligadas", {}) or {})
+        except Exception:                                   # noqa: BLE001 — sem estado, ninguém está marcado
+            m = {}
+        _usinas_desl_cache["map"] = {str(k): v for k, v in m.items() if isinstance(v, dict)}
+        _usinas_desl_cache["ts"] = agora
+    return _usinas_desl_cache["map"]
+
+
+def _usina_desligada_liberar(pid, usina=None):
+    """A usina voltou a gerar: tira a marcação (e diz no log de quem era)."""
+    with _state_lock:
+        d = _load_state()
+        rec = (d.get("usinas_desligadas") or {}).pop(str(pid), None)
+        if rec is None:
+            return
+        _save_state(d)
+    _usinas_desl_cache["ts"] = 0
+    print(f"[usina desligada] {usina or pid} voltou a gerar: sai a marcação de {rec.get('nick')} ({rec.get('texto')!r})")
+
+
+def _religamentos_abertos_usina() -> dict:
+    """{nrm(usina do macro): {folio, ini, desc}} das OS ABERTAS de Religamento na USINA INTEIRA, do índice de
+    disponibilidade que o worker publica (todos os meses dele; a mais nova vence)."""
+    out = {}
+    try:
+        meses = (_frac_disp_dados() or {}).get("meses") or {}
+    except Exception:                                       # noqa: BLE001 — sem índice, sem OS
+        return out
+    for mes in meses.values():
+        for o in (mes or {}).get("oss") or []:
+            if not o.get("aberta") or not any("religamento" in str(t).lower() for t in (o.get("tipos") or [])):
+                continue
+            for e in o.get("escopo") or []:
+                if str(e.get("nivel")) != "usina" or not e.get("usina"):
+                    continue
+                k = _nrm(e["usina"])
+                if k not in out or str(o.get("ini") or "") > str(out[k].get("ini") or ""):
+                    out[k] = {"folio": o.get("folio"), "ini": o.get("ini"), "desc": o.get("desc")}
+    return out
+
+
+def _etm_leitura_por_pid() -> dict:
+    """{plant_id: leitura mais nova da ESTAÇÃO} das análises de ETM em cache — nenhuma chamada nova."""
+    out = {}
+    for nome in ("_etm_analise_cache", "_semp_etm_analise_cache", "_alveslima_etm_analise_cache",
+                 "_2capi_etm_analise_cache", "_pg_etm_analise_cache", "_sunop_etm_analise_cache", "_axis_etm_analise_cache"):
+        c = globals().get(nome)
+        for r in ((c or {}).get("payload") or {}).get("rows") or [] if isinstance(c, dict) else []:
+            ul = r.get("ultima_leitura")
+            if ul and not r.get("sem_dados") and r.get("plant_id") not in (None, ""):
+                k = str(r["plant_id"])
+                if k not in out or str(ul) > out[k]:
+                    out[k] = str(ul)
+    return out
+
+
+def _usina_idade_min(ts, agora=None):
+    """Minutos desde o carimbo 'YYYY-MM-DD HH:MM[:SS]' (ou ISO com T); None sem carimbo legível."""
+    if not ts:
+        return None
+    try:
+        t = datetime.fromisoformat(str(ts).replace(" ", "T")[:19])
+    except ValueError:
+        return None
+    return ((agora or datetime.now()) - t).total_seconds() / 60
+
+
+def _usina_calada(r, agora=None) -> bool:
+    if r.get("sem_dados") or r.get("falha_comunicacao"):
+        return True
+    idade = _usina_idade_min(r.get("ultima_leitura"), agora)
+    return idade is not None and idade > USINA_DESL_VELHA_MIN
+
+
+def _usina_gerando(r, agora=None) -> bool:
+    """Dado fresco, de dia e produzindo — é o que tira a marcação de desligada."""
+    if r.get("sol_baixo") or _usina_calada(r, agora):
+        return False
+    pot = r.get("pot_med")
+    return (r.get("strings_ativas") or 0) > 0 or (isinstance(pot, (int, float)) and pot >= MACRO_POT_INV_MIN)
+
+
+def _usina_desligada_de(r, marcas, rel, etm, agora=None):
+    """Por que esta usina está DESLIGADA — {por, texto, desde, ...} — ou None (ver o bloco acima)."""
+    pid = str(r.get("plant_id"))
+    m = marcas.get(pid)
+    if m and not _usina_gerando(r, agora):
+        return {"por": "manual", "texto": m.get("texto") or "", "desde": m.get("desde"), "nick": m.get("nick"),
+                "ts": m.get("ts")}
+    if not _usina_calada(r, agora):
+        return None
+    o = rel.get(_nrm(_macro_usina_nome(r.get("usina") or "") or ""))
+    if o:
+        return {"por": "os", "folio": o.get("folio"), "desde": o.get("ini"), "desc": o.get("desc"),
+                "texto": f"OS {o.get('folio')} de religamento aberta"}
+    e = etm.get(pid)
+    idade_inv = _usina_idade_min(r.get("ultima_leitura"), agora)
+    if e and (r.get("sem_dados") or (idade_inv is not None and idade_inv >= USINA_DESL_ETM_CALADA_MIN)):
+        ie = _usina_idade_min(e, agora)                    # já no horário de Brasília: _analisa_etm_plant corrige a série
+        if ie is not None and ie <= USINA_DESL_ETM_VIVA_MIN:
+            return {"por": "etm", "desde": r.get("ultima_leitura"), "etm": e,
+                    "texto": "a estação comunica e os inversores não"}
+    return None
+
+
+def _com_usina_desligada(payload):
+    """Cópia do payload com `desligada` nas linhas das usinas desligadas; tira a marcação de quem voltou a gerar."""
+    if not isinstance(payload, dict) or not payload.get("rows"):
+        return payload
+    marcas, rel, etm, agora = _usinas_desligadas_marcas(), _religamentos_abertos_usina(), _etm_leitura_por_pid(), datetime.now()
+    rows = []
+    for r in payload["rows"]:
+        if str(r.get("plant_id")) in marcas and _usina_gerando(r, agora):
+            _usina_desligada_liberar(r.get("plant_id"), r.get("usina"))
+        d = _usina_desligada_de(r, marcas, rel, etm, agora)
+        rows.append(dict(r, desligada=d) if d else r)
+    return dict(payload, rows=rows)
+
+
 def _servir_tabela_strings(payload, conta):
-    """O que as 9 rotas da tabela de strings fazem na saída: a marca de sol e os tickets abertos."""
-    return _com_tickets_str(_servir_com_sol(payload, conta))
+    """O que as 9 rotas da tabela de strings fazem na saída: a marca de sol, a usina desligada e os tickets abertos."""
+    return _com_tickets_str(_com_usina_desligada(_servir_com_sol(payload, conta)))
 
 
 # ── Finalizar ticket de strings pela tela (Levi, 23/09/2026) ─────────────────────────────────────────────────────────
@@ -12997,6 +13259,8 @@ def _macro_status(r) -> str:
     contagem real (Tanabi 216/218, Ceilândia II 108/108). O corte antigo escondia déficit de verdade:
     Altair 1 -8, Altair 2 -13, Fernandópolis 1 -10, Brodowski Skid 1 -6 (medido 05/08). Sem visão
     (combiner não exposta: Céu Azul, Ouro Branco, Ceilândia 1.x) segue silenciada — ali 0 É esperado."""
+    if r.get("desligada"):
+        return "desligada"                             # usina desligada, com motivo (28/09/2026): não é falha de comunicação
     if r.get("sem_dados") or r.get("falha_comunicacao"):
         return "sem_comm"
     _ipst = _inv_padrao_status_de(r)                   # padrão por inversor: a única régua de quem não vê string
@@ -13018,6 +13282,9 @@ def _macro_status(r) -> str:
 
 
 def _macro_causa(r, status: str) -> str:
+    if status == "desligada":
+        d = r.get("desligada") or {}
+        return "Usina desligada" + (f" · {d['texto']}" if d.get("texto") else "")
     if status == "sem_comm":
         return "Sem comunicação"
     if _macro_sol_baixo(r):                            # sem sol só o D-1 do padrão fala; inversor parado é a noite
@@ -13042,12 +13309,12 @@ def _macro_causa(r, status: str) -> str:
 
 def _macro_item(fonte: str, r: dict) -> dict:
     status = _macro_status(r)
-    sev = 0 if status == "sem_producao" else severidade(r)   # parada é crítica no ranking
+    sev = 0 if status == "sem_producao" else (2 if status == "desligada" else severidade(r))   # parada é crítica no ranking; desligada tem motivo
     if status == _inv_padrao_status_de(r):
         sev = 1 if status == "critico" else 2                # inversor fora do padrão = degrau da falha de string
     dif = _macro_dif(r)
     faltando = max(0, -dif) if isinstance(dif, (int, float)) else 0
-    if status in ("sem_producao", "sem_comm") or r.get("sem_visao") or _macro_sol_baixo(r):
+    if status in ("sem_producao", "sem_comm", "desligada") or r.get("sem_visao") or _macro_sol_baixo(r):
         faltando = 0                                   # sai do ranking de "strings abaixo" (sem sol, string a zero é o normal)
     return {
         "fonte": fonte, "usina": r.get("usina"), "plant_id": r.get("plant_id"),
@@ -13189,8 +13456,14 @@ def _portfolio_rollup() -> list:
     PG↔API PV cai naturalmente nessa chave, e a soma acontece só DENTRO de uma fonte."""
     por_usina = {}                            # nrm('Usina') -> item (mantém o pior)
     partes = {}                               # nrm('Usina') -> {fonte: [itens]} — as fatias da mesma usina
+    # usina calada com motivo é DESLIGADA, como na tabela (28/09/2026) — só leitura aqui: quem tira a marca de quem
+    # voltou a gerar é a saída da tabela (_com_usina_desligada)
+    _dl = (_usinas_desligadas_marcas(), _religamentos_abertos_usina(), _etm_leitura_por_pid(), datetime.now())
 
     def add(fonte, r):
+        _d = _usina_desligada_de(r, *_dl)
+        if _d:
+            r = dict(r, desligada=_d)
         item = _macro_item(fonte, r)
         nome = _macro_usina_nome(item.get("usina"))
         if not nome:
@@ -13269,7 +13542,7 @@ def _portfolio_rollup() -> list:
         for u, a in zip(usinas, idades):
             # usina PARADA (potência ~0) fica como 'sem produção' mesmo com leitura velha — ela parou de
             # enviar PORQUE está desligada; só reclassifica p/ comm quem NÃO é sem_producao.
-            if a is not None and a > 2 and u["status"] not in ("sem_comm", "sem_producao"):
+            if a is not None and a > 2 and u["status"] not in ("sem_comm", "sem_producao", "desligada"):
                 u["status"] = "sem_comm"
                 u["sev"] = 3
                 u["causa"] = f"Telemetria parada (última leitura {u.get('ultima_leitura')})"
@@ -13334,7 +13607,7 @@ def _macro_payload():
     for u in us:
         u["trend"] = _macro_trend_serie(u.get("usina"))
     resumo = {"total": len(us)}
-    for st in ("critico", "atencao", "sem_comm", "ok"):
+    for st in ("critico", "atencao", "sem_comm", "desligada", "ok"):
         resumo[st] = sum(1 for u in us if u["status"] == st)
     resumo["strings_faltando"] = sum(u.get("strings_faltando", 0) for u in us)
     resumo["com_diagnostico"] = sum(1 for u in us if u.get("diag"))
@@ -16467,6 +16740,7 @@ def _load_state() -> dict:
     d.setdefault("strings_trancadas", [])  # chaves "plant_id|inv_id|Ipv" de strings trancadas (MPPT sem string)
     d.setdefault("etm_tickets", {})   # {usina_nrm: {usina, comentario, feito, ts}} — visão ETM da Frota
     d.setdefault("os_atribuidas", {})  # {"plant_id|inv_id": {usina,usina_nrm,inv,folio,ativo,desc,criada,evento,status,nick,ts}} — OS do Fracttal grudada num inversor sem geração
+    d.setdefault("usinas_desligadas", {})  # {plant_id: {usina,fonte,texto,desde,nick,ts}} — usina calada que o analista diz estar desligada (28/09/2026)
     return d
 
 
@@ -16642,6 +16916,41 @@ def api_state_os_atribuir():
         d.setdefault("os_atribuidas", {})[key] = rec
         _save_state(d)
     return jsonify({"ok": True, "key": key, "rec": rec})
+
+
+@app.route("/api/state/usina-desligada", methods=["POST"])
+def api_state_usina_desligada():
+    """Marca uma usina como DESLIGADA, com a observação de quem sabe (Levi, 28/09/2026: "tem que ter essa observação").
+    Chave = plant_id — a mesma usina aparece em duas abas às vezes (2C pela API e 2C geral), e a marca vale nas duas.
+    Some sozinha quando a usina volta a gerar (_com_usina_desligada)."""
+    body = flask_request.get_json(force=True, silent=True) or {}
+    pid, usina = str(body.get("pid", "")).strip(), str(body.get("usina", "")).strip()
+    texto = str(body.get("texto", "")).strip()[:300]
+    if not (pid and usina and texto):
+        return jsonify({"error": "pid, usina e a observação são obrigatórios"}), 400
+    rec = {"usina": usina, "fonte": str(body.get("fonte", "")).strip()[:20], "texto": texto,
+           "desde": (str(body.get("desde", "")).strip().replace("T", " ")[:16] or None),
+           "nick": str(body.get("nick", "")).strip()[:40] or "—", "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
+    with _state_lock:
+        d = _load_state()
+        d.setdefault("usinas_desligadas", {})[pid] = rec
+        _save_state(d)
+    _usinas_desl_cache["ts"] = 0
+    return jsonify({"ok": True, "pid": pid, "rec": rec})
+
+
+@app.route("/api/state/usina-religada", methods=["POST"])
+def api_state_usina_religada():
+    """Tira a marcação de desligada (a usina voltou, ou foi marcada por engano)."""
+    pid = str((flask_request.get_json(force=True, silent=True) or {}).get("pid", "")).strip()
+    if not pid:
+        return jsonify({"error": "pid obrigatório"}), 400
+    with _state_lock:
+        d = _load_state()
+        d.get("usinas_desligadas", {}).pop(pid, None)
+        _save_state(d)
+    _usinas_desl_cache["ts"] = 0
+    return jsonify({"ok": True})
 
 
 @app.route("/api/state/os-desatribuir", methods=["POST"])
@@ -20989,6 +21298,7 @@ def _iniciar_loops_de_fundo():
 def _carregar_estado_do_disco():
     """Estado persistido que os dois processos leem no boot."""
     _cache_load()
+    _pv_relogio_load()        # relógio aprendido dos registradores em outro fuso (Diamantino, 28/09/2026)
     _trk_ev_load()
     _perdas_str_load()
     _paradas_book_load()      # book de paradas persistido (abertas + ENCERRADAS do mês)
@@ -22747,6 +23057,9 @@ def _frac_os_ficha(w, escopo: str) -> dict:
     return {"folio": str(w.get("wo_folio") or ""), "descricao": str(w.get("description") or "").strip(),
             "tipo": str(w.get("tasks_log_task_type_main") or "").strip(), "status": FRAC_WO_STATUS.get(st, "—"),
             "aberta": st in (0, 1, 5, 6), "evento": ev.strftime("%Y-%m-%d %H:%M") if ev else "",
+            # a NOTA da OS (Levi, 28/09/2026: "mais uma linha mostrando a nota da OS com o nome de Observação da OS") —
+            # o `note` do REST, o mesmo que o card do ticket de strings lê, com espaços e quebras juntados
+            "observacao": " ".join(str(w.get("note") or "").split()),
             "escopo": escopo, "link": f"/os/os/folio/{w.get('wo_folio')}"}
 
 
@@ -23021,6 +23334,41 @@ def api_trackers_depara():
 def api_trackers_depara_resumo():
     d = _trk_depara_carregar()
     return jsonify({"arquivo": d.get("arquivo"), "atualizado": d.get("mtime"), "n": d["n"], "usinas": d["resumo"], "pendencias": d["pendencias"]})
+
+
+@app.route("/api/trackers/parado-desde")
+def api_trackers_parado_desde():
+    """?fonte=&plant_id=&trackers=TRK1,TRK2 → {tracker: 'YYYY-MM-DDTHH:MM' | None}: desde quando cada um está parado.
+
+    É a DATA DO INCIDENTE da OS de tracker que a plataforma cria (Levi, 25/09/2026: "a data do incidente será a data
+    que o tracker parou"). Mesmo motor da lista de parados — a varredura da curva dia a dia (`_trk_parado_desde_hist`)
+    com o livro de ocorrências como reserva só na API PV, igual ao `_pv_parados_rows` — para a OS nascer com a mesma
+    hora que a plataforma mostra. Pedida só para os trackers marcados, então não recalcula a frota: a lista de parados
+    da Athon, por exemplo, baixa a curva de todas as usinas (~1 min) e aqui bastam os poucos marcados.
+    `plant_id` é o do payload do drill (a chave que a fonte usa no histórico). None = sem hora registrada: a tela avisa
+    e deixa a pessoa pôr a hora à mão. `origem` diz de onde veio cada hora — "curva" (a parada vista na curva) ou
+    "livro" (a DETECÇÃO do tracker_watch, que pode ser bem depois da parada: em 26/09, numa máquina sem a curva da
+    Embu Guaçu 2, dois trackers parados havia dias saíram "desde 23:28" de hoje, a hora em que o livro os reabriu)."""
+    fonte = (flask_request.args.get("fonte") or "").strip().lower()
+    pid = (flask_request.args.get("plant_id") or "").strip()
+    trks = [t.strip() for t in (flask_request.args.get("trackers") or "").split(",") if t.strip()][:300]
+    if not pid or not trks:
+        return jsonify({"erro": "informe ?plant_id= e ?trackers="}), 400
+    livro = {}
+    if fonte == "pv" and _TRACKER_WATCH_OK:
+        try:
+            livro = (_tw.get_issues_json() or {}).get("active", {})
+        except Exception:                                   # noqa: BLE001 — sem livro, fica só a varredura
+            livro = {}
+    out, origem = {}, {}
+    for t in trks:
+        bruto, de = _trk_parado_desde_hist(pid, t, parado_agora=True), "curva"
+        if not bruto:
+            bruto, de = (livro.get(f"{pid}|{t}") or {}).get("data_deteccao"), "livro"
+        d = _dt_iso(bruto) if bruto else None
+        out[t] = d.strftime("%Y-%m-%dT%H:%M") if d else None
+        origem[t] = de if d else None
+    return jsonify({"plant_id": pid, "desde": out, "origem": origem})
 
 
 def _trk_garantia_map():

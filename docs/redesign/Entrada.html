@@ -624,8 +624,13 @@
       // "—"). Antes entrava com a última leitura: a Athon mostrava 246/270 com as 248 do CPP100, caladas desde a véspera.
       // A nota diz quantas ficaram de fora; sem ela, "nenhuma faltando" leria como tudo bem com usina calada. No card
       // estreito da grade não cabe, e o rodapé dele já diz "N sem comunicação".
-      var sc = g.usinas_sem_comm || 0;
-      var nota = sc > 0 && !compacto ? sep + "fora da conta: " + fmt(sc) + " usina" + (sc === 1 ? "" : "s") + " sem comunicação" : "";
+      // A usina DESLIGADA (com motivo: OS de religamento, estação viva com inversores calados, ou a marcação do analista)
+      // tem contagem própria desde 28/09/2026 e também fica fora — não é mais "sem comunicação".
+      var sc = g.usinas_sem_comm || 0, dl = g.usinas_desligadas || 0;
+      var partes = [];
+      if (sc > 0) partes.push(fmt(sc) + " usina" + (sc === 1 ? "" : "s") + " sem comunicação");
+      if (dl > 0) partes.push(sc > 0 ? fmt(dl) + " desligada" + (dl === 1 ? "" : "s") : fmt(dl) + " usina" + (dl === 1 ? "" : "s") + " desligada" + (dl === 1 ? "" : "s"));
+      var nota = partes.length && !compacto ? sep + "fora da conta: " + partes.join(" e ") : "";
       if (!tot) return "nenhuma faltando" + sep + crit + nota;
       var ac = Math.max(0, tot - nr);
       if (!nr) return "todas as " + fmt(tot) + " em acompanhamento" + sep + crit + nota;
@@ -722,7 +727,7 @@
         return "<" + tag + " class='m" + (view ? " aba" : "") + "'" + extra + "><div class='rot'>" + rot + "</div><div class='val" + (cls || "") + "'>" + val + "</div><div class='sub'>" + sub + "</div></" + tag + ">";
       };
       var maisAberto = !!(document.getElementById("us-mais-lista") && !document.getElementById("us-mais-lista").hidden);
-      res.innerHTML = mostr("Sem comunicação", fmt(g.usinas_sem_comm), "usinas sem reportar", g.usinas_sem_comm > 0 ? " ruim" : " bom")   // primeiro: vale a qualquer hora
+      res.innerHTML = mostr("Sem comunicação", fmt(g.usinas_sem_comm), "usinas sem reportar" + (g.usinas_desligadas > 0 ? " · " + fmt(g.usinas_desligadas) + " desligada" + (g.usinas_desligadas === 1 ? "" : "s") : ""), g.usinas_sem_comm > 0 ? " ruim" : " bom")   // primeiro: vale a qualquer hora
         + (noite ? mostr("Strings", "sem sol", "volta ao amanhecer", " mudo", "strings") : mostr("Strings faltando", strVal(g), strSub(g, " · "), strCls(g), "strings"))
         // ETM: o número são ALARMES do mês (IPOA/GHI medido em zero no BD_Performance); avisos (sensor travado, GHI que
         // não reporta, PR anômalo) ficam no subtítulo — régua de 10/09 (Levi: "alarmar apenas GHI e IPOA zerados").

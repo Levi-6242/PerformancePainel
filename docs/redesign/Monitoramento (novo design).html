@@ -211,11 +211,11 @@ function _faixaVisivel(){ if(!EMBED) return null;
     return (vb-vt>120)?{top:vt,h:vb-vt}:{top:vt,h:Math.min(ph,r.height)}; }catch(e){ return null; } }
 function _prendeOverlays(){ const v=_faixaVisivel(); if(!v) return;
   document.querySelectorAll('.gc-overlay').forEach(o=>{ o.style.top=v.top+'px'; o.style.height=v.h+'px'; o.style.bottom='auto'; });
-  const bar=document.getElementById('gc-osbar'); if(bar&&bar.style.display!=='none'){ bar.style.bottom='auto'; bar.style.top=(v.top+v.h-bar.offsetHeight)+'px'; } }
+  ['gc-osbar','gc-trkosbar'].forEach(id=>{ const bar=document.getElementById(id); if(bar&&bar.style.display!=='none'){ bar.style.bottom='auto'; bar.style.top=(v.top+v.h-bar.offsetHeight)+'px'; } }); }
 if(EMBED){ try{ parent.addEventListener('scroll',_prendeOverlays,{passive:true}); parent.addEventListener('resize',_prendeOverlays); }catch(e){} }
 // ?fonte=<id> vem dos cards da Entrada (/teste/tempo-real): o card de um cliente abre o Monitoramento ja na fonte dele (05/09/2026)
 const _VIEWS_URL=['strings','etm','geracao','trackers','pr','curva','perdas'];
-const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'),  invView:'strings', invGer:{modo:'mes',ini:null,fim:null}, trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, perdaSub:'trk-par', perdaDia:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, etmMode:'cards', etmProb:false   /* Levi 21/09: nasce DESMARCADO. O ?etmprob=1 vinha da Entrada por causa da contagem do MÊS, e prendia a tela num filtro que o usuário não pediu */, gerIni:null, gerFim:null, gerModo:'usinas' };
+const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'),  invView:'strings', invGer:{modo:'mes',ini:null,fim:null}, trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, perdaSub:'trk-par', perdaDia:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, trkOsMode:false, etmMode:'cards', etmProb:false   /* Levi 21/09: nasce DESMARCADO. O ?etmprob=1 vinha da Entrada por causa da contagem do MÊS, e prendia a tela num filtro que o usuário não pediu */, gerIni:null, gerFim:null, gerModo:'usinas' };
 function setState(patch){ Object.assign(state, patch); render(); }
 /* ═══ DADO REAL — por VISTA e por FONTE. Cada uma devolve {rows,summary}; muda só o endpoint. ═══ */
 // 2C tudo junto (11/09/2026): linha da 2C com id NUMÉRICO veio da API PV (conta oem@) → curva e ETM pelo caminho da API PV
@@ -232,7 +232,7 @@ const EP={
 // escolhe sozinho o token da conta que a enxerga (_pv_token_for). Só o recorte da LISTA muda.
 const PLANT={pv:'/api/plant/',pg:'/api/pg/plant/',sunop:'/api/sunop/plant/',axis:'/api/axis/plant/',solaredge:'/api/solaredge/plant/',owen:'/api/owen/strings/plant/',semp:'/api/plant/',alveslima:'/api/plant/','2capi':'/api/plant/'};
 function _urlFor(view,srcChip){ const base=(EP[view]||{})[SKEY[srcChip]]; if(!base) return null; return view==='pr'?base+'?date='+_todayISO():base; }   // data LOCAL: com toISOString(), das 21h em diante o BR pedia o dia SEGUINTE e a tabela voltava vazia
-const RD={pv:null,loading:false,na:false,erro:null,cache:{},plants:{},curva:{},curvaMeta:{},trk:{},depara:{},trkChart:{},os:{},comments:{},tracking:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},invHist:{},perdas:{},osAtrib:{},_osList:null};
+const RD={pv:null,loading:false,na:false,erro:null,cache:{},plants:{},curva:{},curvaMeta:{},trk:{},trkMeta:{},trkOsFeitas:{},depara:{},trkChart:{},os:{},comments:{},tracking:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},invHist:{},perdas:{},osAtrib:{},_osList:null};
 
 /* ══ BUSCA COM ESPERA LIMITADA ══════════════════════════════════════════════
    01/09/2026: o Levi abriu as strings da Santana do Ipanema e a tela girou até ele desistir. A
@@ -342,20 +342,33 @@ async function loadUltimaOs(pid,invId,nome){
   render();
 }
 window.setUltOsAba=a=>{ state.ultOsAba=a; render(); };
+// Recolhido por padrão (Levi, 28/09/2026: "essa visão deve vir recolhida como padrão e abre caso eu clique para abrir").
+// E só busca no Fracttal quando abre: antes, todo inversor aberto fazia a pergunta — e a cota é de 200/min para a
+// empresa inteira, dividida com o App de Campo e o OS Creator.
+window.toggleUltOs=(pid,invId,nome)=>{
+  state.ultOsAberto=state.ultOsAberto||{}; const k=pid+'|'+invId, abrir=!state.ultOsAberto[k];
+  if(abrir) state.ultOsAberto[k]=true; else delete state.ultOsAberto[k];
+  render(); if(abrir) loadUltimaOs(pid,invId,nome);
+};
 function _ultOsBlock(inv){
   if(!inv.isReal) return '';
+  const aberto=!!((state.ultOsAberto||{})[inv.pid+'|'+inv.invId]);
+  const tgl=`onclick="event.stopPropagation();toggleUltOs('${_jsq(inv.pid)}','${_jsq(inv.invId)}','${_jsq(inv.name||'')}')"`;
+  const caixa='margin-bottom:14px;border:1px solid var(--color-divider);border-radius:var(--radius-md);background:color-mix(in srgb, var(--color-neutral-900) 45%, transparent)';
+  if(!aberto) return `<div ${tgl} title="Abrir a última OS de performance, religamento e chamado" style="${caixa};display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer"><i class="ph ph-caret-right" style="font-size:12px;color:var(--color-neutral-500)"></i><span class="card-kicker" style="color:var(--color-neutral-400);margin:0">Última OS</span><span class="text-muted" style="font-size:12px">performance · religamento · chamado — clique para abrir</span></div>`;
   const d=(RD.ultOs||{})[inv.pid+'|'+inv.invId], aba=state.ultOsAba||'performance';
   const nomeAba=(_ULTOS_ABAS.find(x=>x[0]===aba)||_ULTOS_ABAS[0])[1];
   const tabs=_ULTOS_ABAS.map(([k,l])=>{ const on=k===aba; return `<button onclick="event.stopPropagation();setUltOsAba('${k}')" style="border:1px solid ${on?'var(--color-accent)':'var(--color-divider)'};background:${on?'color-mix(in srgb,var(--color-accent) 16%,transparent)':'transparent'};color:${on?'var(--color-accent)':'var(--color-neutral-300)'};font-family:inherit;font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:7px;cursor:pointer">${l}</button>`; }).join('');
-  let corpo;
+  let corpo, obs='';
   if(d===undefined||d===null) corpo=`<span class="text-muted"><i class="ph ph-circle-notch gc-spin"></i> Buscando no Fracttal…</span>`;
   else if(!d.ok) corpo=`<span class="text-muted">${d.sem_ativo?`Inversor sem ativo no Fracttal${d.code?` (${_he(d.code)})`:''}.`:(d.sem_credencial?'Fracttal não configurado na plataforma.':'O Fracttal não respondeu — tente de novo em instantes.')}</span>`;
   else{ const o=d[aba];
     if(!o) corpo=`<span class="text-muted">${aba==='chamado'?'Nenhum chamado neste inversor.':`Nenhuma OS de ${nomeAba.toLowerCase()} neste inversor${aba==='religamento'?' nem na usina':''}.`}</span>`;
     else{ const cor=o.aberta?'var(--gc-amber)':(/Conclu/.test(o.status)?'var(--color-accent)':'var(--color-neutral-400)');
       const ev=o.evento?(o.evento.slice(8,10)+'/'+o.evento.slice(5,7)+'/'+o.evento.slice(0,4)+o.evento.slice(10)):'';
-      corpo=`<a href="${o.link}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Abrir a OS no OS Creator" style="font-weight:700;color:var(--color-accent);text-decoration:none">#${_he(o.folio)}</a><span style="color:var(--color-neutral-200)">${_he(o.descricao)}</span><span style="font-weight:600;color:${cor}">${_he(o.status)}</span><span class="text-muted">${_he(ev)}${o.escopo==='usina'?' · OS da usina':''}</span>`; } }
-  return `<div onclick="event.stopPropagation()" style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 12px;margin-bottom:14px;border:1px solid var(--color-divider);border-radius:var(--radius-md);background:color-mix(in srgb, var(--color-neutral-900) 45%, transparent)"><span class="card-kicker" style="color:var(--color-neutral-400);margin:0">Última OS</span><span style="display:inline-flex;gap:4px">${tabs}</span><span style="flex:1;min-width:220px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:12.5px">${corpo}</span></div>`;
+      corpo=`<a href="${o.link}" target="_blank" rel="noopener" onclick="event.stopPropagation()" title="Abrir a OS no OS Creator" style="font-weight:700;color:var(--color-accent);text-decoration:none">#${_he(o.folio)}</a><span style="color:var(--color-neutral-200)">${_he(o.descricao)}</span><span style="font-weight:600;color:${cor}">${_he(o.status)}</span><span class="text-muted">${_he(ev)}${o.escopo==='usina'?' · OS da usina':''}</span>`;
+      obs=`<div style="display:flex;gap:10px;align-items:baseline;padding:8px 12px 10px 34px;border-top:1px solid var(--color-divider);font-size:12.5px"><span class="card-kicker" style="color:var(--color-neutral-500);margin:0;white-space:nowrap">Observação da OS</span>${o.observacao?`<span style="color:var(--color-neutral-200);white-space:pre-line">${_he(o.observacao)}</span>`:'<span class="text-muted">sem observação na OS</span>'}</div>`; } }
+  return `<div onclick="event.stopPropagation()" style="${caixa}"><div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 12px"><i ${tgl} class="ph ph-caret-down" title="Recolher" style="font-size:12px;color:var(--color-neutral-500);cursor:pointer"></i><span ${tgl} class="card-kicker" style="color:var(--color-neutral-400);margin:0;cursor:pointer">Última OS</span><span style="display:inline-flex;gap:4px">${tabs}</span><span style="flex:1;min-width:220px;display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:12.5px">${corpo}</span></div>${obs}</div>`;
 }
 /* fim _ultOsBlock */
 function curvaSVG(curva, smap, red, unit){   // unit: 'A' (padrão) ou 'W' (RenoGrid — a SolarEdge dá potência por string)
@@ -1243,6 +1256,74 @@ async function _ensureEtmGrupos(){ if(RD.etmGrupos!==undefined) return; RD.etmGr
 // (tests/test_strings_sem_sol_a_noite.py), no mesmo arranjo do _etmEstado. velho = sem leitura nova há mais de
 // COMM_STALE_MIN. `sol_baixo` = sol abaixo de 8° no estado da usina (ou fora de 07–18h), marcado pelo backend na
 // hora de servir; linha sem a marca é de dia (snapshot antigo, rota que ainda não marca).
+/* ── Usina desligada: a observação e a marcação do analista (Levi, 28/09/2026) ──
+   A tabela diz "Usina desligada" (em vez de "sem comunicação") quando a usina calada tem MOTIVO: OS de religamento
+   aberta na usina inteira no Fracttal, a estação comunicando com os inversores calados há mais de 2 h, ou a marcação
+   daqui — quem sabe que ela está desligada (concessionária, furto, transformador) registra com a observação. A marca
+   vale para todo mundo, some sozinha quando a usina volta a gerar e sai da conta de "sem comunicação" da Entrada. */
+function _deslData(s){ const m=String(s||'').replace('T',' ').match(/(\d{4})-(\d{2})-(\d{2})(?:\s+(\d{2}:\d{2}))?/); return m?`${m[3]}/${m[2]}${m[4]?' '+m[4]:''}`:''; }
+function _deslTxt(d){
+  if(!d) return '';
+  if(d.por==='manual') return (d.texto||'desligada')+(d.nick?' · '+d.nick:'')+(d.ts?' em '+_deslData(d.ts).slice(0,5):'');
+  if(d.por==='os') return `OS ${d.folio} de religamento aberta${d.desde?' desde '+_deslData(d.desde):''}`;
+  if(d.por==='etm') return `estação comunicando, inversores sem leitura${d.desde?' desde '+_deslData(d.desde):''}`;
+  return d.texto||'desligada';
+}
+function _deslTit(d){
+  if(!d) return '';
+  if(d.por==='manual') return `Marcada como desligada${d.nick?' por '+d.nick:''}${d.ts?' em '+_deslData(d.ts):''}${d.desde?', desligada desde '+_deslData(d.desde):''}: ${d.texto||''}. A marca sai sozinha quando a usina voltar a gerar.`;
+  if(d.por==='os') return `OS ${d.folio} de Religamento aberta na usina inteira no Fracttal${d.desc?' ('+d.desc+')':''}, e a usina sem leitura: a plataforma lê como desligada, não como falha de comunicação.`;
+  if(d.por==='etm') return 'A estação meteorológica segue mandando leitura e os inversores estão calados há mais de 2 h: o site está no ar e a usina, desligada.';
+  return '';
+}
+function _deslBarra(u){
+  const d=u.desl, box='display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 14px;margin-bottom:14px;border-radius:var(--radius-md);font-size:12.5px;';
+  if(d&&d.por==='manual') return `<div style="${box}background:color-mix(in srgb, var(--gc-red) 9%, transparent);border:1px solid color-mix(in srgb, var(--gc-red) 30%, transparent)"><i class="ph ph-power" style="color:#ff9a9d;font-size:15px"></i><span style="flex:1;min-width:220px;color:var(--color-neutral-200)"><b>Usina desligada</b> · ${_he(d.texto||'')}<span class="text-muted">${d.nick?' · marcada por '+_he(d.nick):''}${d.ts?' em '+_he(_deslData(d.ts)):''}${d.desde?' · desligada desde '+_he(_deslData(d.desde)):''} · a marca sai sozinha quando ela voltar a gerar</span></span><button class="btn btn-secondary" style="padding:5px 11px;font-size:12px" onclick="event.stopPropagation();gcUsinaReligada('${_jsq(u.id)}')">Desmarcar</button></div>`;
+  if(d) return `<div style="${box}background:color-mix(in srgb, var(--gc-red) 9%, transparent);border:1px solid color-mix(in srgb, var(--gc-red) 30%, transparent)"><i class="ph ph-power" style="color:#ff9a9d;font-size:15px"></i><span style="flex:1;min-width:220px;color:var(--color-neutral-200)"><b>Usina desligada</b> · ${_he(_deslTxt(d))}<span class="text-muted"> · ${_he(_deslTit(d))}</span></span></div>`;
+  if(!u.calada) return '';
+  return `<div style="${box}background:color-mix(in srgb, var(--gc-violet) 10%, transparent);border:1px solid color-mix(in srgb, var(--gc-violet) 30%, transparent)"><i class="ph ph-wifi-slash" style="color:#c9b6ff;font-size:15px"></i><span style="flex:1;min-width:220px;color:var(--color-neutral-300)">Usina sem leitura${u.lastRaw?' desde '+_he(_deslData(u.lastRaw)):''}. Se você sabe que ela está <b>desligada</b>, registre com a observação: a tabela passa a dizer isso e a Entrada tira a usina da conta de sem comunicação.</span><button class="btn btn-secondary" style="padding:5px 11px;font-size:12px" onclick="event.stopPropagation();gcUsinaDesligada('${_jsq(u.id)}')"><i class="ph ph-power"></i> Marcar como desligada</button></div>`;
+}
+function _deslRow(pid){ return ((RD.pv&&RD.pv.rows)||[]).find(r=>String(r.plant_id)===String(pid))||null; }
+window.gcUsinaDesligada=pid=>{
+  const r=_deslRow(pid); if(!r) return;
+  let nick=''; try{ nick=(localStorage.getItem('gcNick')||'').trim(); }catch(e){}
+  const desde=r.ultima_leitura?String(r.ultima_leitura).replace(' ','T').slice(0,16):'';
+  let el=document.getElementById('gc-deslmodal'); if(!el){ el=document.createElement('div'); el.id='gc-deslmodal'; document.body.appendChild(el); }
+  const inp='width:100%;box-sizing:border-box;background:var(--color-neutral-900);border:1px solid var(--color-divider);border-radius:8px;color:var(--color-text);font-family:inherit;font-size:13px;padding:8px 10px';
+  const lab='display:block;font-size:11px;color:var(--color-neutral-500);text-transform:uppercase;letter-spacing:.4px;margin:12px 0 5px';
+  el.innerHTML=`<div onclick="if(event.target===this)gcDeslFechar()" class="gc-overlay" style="position:fixed;inset:0;z-index:500;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:70px 16px;overflow-y:auto"><div class="card" style="width:520px;max-width:100%;padding:18px 20px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px"><span style="font-family:var(--font-heading);font-size:16px">Marcar ${_he(r.usina)} como desligada</span><i class="ph ph-x" onclick="gcDeslFechar()" style="cursor:pointer;font-size:18px;color:var(--color-neutral-400)"></i></div>
+    <div class="text-muted" style="font-size:12px;margin-top:4px">A tabela passa a dizer "Usina desligada" com esta observação, para todo mundo. A marca sai sozinha quando a usina voltar a gerar.</div>
+    <label style="${lab}">Observação</label><textarea id="gc-desl-txt" rows="3" maxlength="300" placeholder="Ex.: desligada pela concessionária; furto, em recomposição; avaria no transformador" style="${inp};resize:vertical"></textarea>
+    <div style="display:flex;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:180px"><label style="${lab}">Desligada desde</label><input id="gc-desl-desde" type="datetime-local" value="${_he(desde)}" style="${inp}"></div>
+    <div style="flex:1;min-width:180px"><label style="${lab}">Seu nome</label><input id="gc-desl-nick" type="text" maxlength="40" value="${_he(nick)}" style="${inp}"></div></div>
+    <div id="gc-desl-erro" style="font-size:12px;color:#ff9a9d;margin-top:10px;min-height:16px"></div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:6px"><button class="btn btn-secondary" onclick="gcDeslFechar()">Cancelar</button><button class="btn btn-primary" onclick="gcDeslConfirmar('${_jsq(pid)}')"><i class="ph ph-power"></i> Marcar desligada</button></div>
+  </div></div>`;
+  _prendeOverlays();
+  setTimeout(()=>{ const t=document.getElementById('gc-desl-txt'); if(t) t.focus(); },30);
+};
+window.gcDeslFechar=()=>{ const el=document.getElementById('gc-deslmodal'); if(el) el.remove(); };
+window.gcDeslConfirmar=async pid=>{
+  const r=_deslRow(pid); if(!r) return;
+  const txt=(document.getElementById('gc-desl-txt')||{}).value||'', nick=((document.getElementById('gc-desl-nick')||{}).value||'').trim(),
+        desde=(document.getElementById('gc-desl-desde')||{}).value||'', err=document.getElementById('gc-desl-erro');
+  if(!txt.trim()){ if(err) err.textContent='Escreva a observação: é ela que diz por que a usina está desligada.'; return; }
+  try{
+    const resp=await fetch('/api/state/usina-desligada',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({pid:String(pid),usina:r.usina,fonte:SKEY[state.source]||'',texto:txt.trim(),desde,nick})});
+    const j=await resp.json().catch(()=>({}));
+    if(!resp.ok||!j.ok){ if(err) err.textContent='Não gravou: '+((j&&j.error)||('resposta '+resp.status)); return; }
+    try{ if(nick) localStorage.setItem('gcNick',nick); }catch(e){}
+    r.desligada=Object.assign({por:'manual'},j.rec);            // na hora; a próxima leitura já vem do servidor assim
+    gcDeslFechar(); render();
+  }catch(e){ if(err) err.textContent='Não consegui falar com a plataforma. Tente de novo.'; }
+};
+window.gcUsinaReligada=async pid=>{
+  try{ await fetch('/api/state/usina-religada',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pid:String(pid)})}); }catch(e){}
+  const r=_deslRow(pid); if(r&&r.desligada&&r.desligada.por==='manual') delete r.desligada;
+  render();
+};
 function _strStatus(r,velho){
   const semSol=r.sol_baixo===true, semCom=velho||!!r.falha_comunicacao, temD=!r.sem_dados;
   const dif=(semSol||semCom)?null:r.diferenca, difN=dif!=null&&dif<0;
@@ -1253,7 +1334,12 @@ function _strStatus(r,velho){
   // disponibilidade e status sairiam de um retrato velho: o CPP100 de 23/09 mostrava −248 e 0,0% em vermelho, pulsando,
   // com a última leitura na véspera às 18:26. Antes o `falha_comunicacao` ficava no fim da lista e perdia para
   // "Falha de string", julgada justamente sobre esse dado parado.
-  if(semCom){stt='Usina sem comunicação';ps=pill('color-mix(in srgb, var(--gc-violet) 20%, transparent)','#c9b6ff');}
+  // USINA DESLIGADA COM MOTIVO (Levi, 28/09/2026: "tem que ter essa observação, da mesma forma que observa os
+  // inversores tem que observar a usina"). O backend (_com_usina_desligada) só põe `desligada` na usina calada que tem
+  // motivo — OS de religamento aberta na usina inteira, a estação comunicando com os inversores calados há mais de 2 h,
+  // ou a marcação do analista com a observação. Sem motivo, segue "Usina sem comunicação", logo abaixo.
+  if(r.desligada){stt='Usina desligada';ps=semGer;}
+  else if(semCom){stt='Usina sem comunicação';ps=pill('color-mix(in srgb, var(--gc-violet) 20%, transparent)','#c9b6ff');}
   // Rampa vem ANTES de "Sem geração": as strings estão comunicando corrente (pouca), então a usina
   // não está parada — está com irradiância baixa (início/fim de dia). Âmbar, não vermelho.
   else if(r.rampa){stt='Baixa irradiância';ps=pillAmber;}
@@ -1698,7 +1784,7 @@ function computeVals(){
       // com −599, 0 de 599 strings, sem sol nenhum. Esperadas também saem em '—' (mais abaixo).
       // Sem comunicação (23/09/2026): mesma coisa — com o dado parado, ativas e diferença saem em '—'. (A coluna de
       // disponibilidade, ativas ÷ esperadas em %, saiu da tabela em 25/09/2026, a pedido do Levi.)
-      const semSol=r.sol_baixo===true, semCom=_velho||!!r.falha_comunicacao, dif=(semSol||semCom)?null:r.diferenca, difN=dif!=null&&dif<0;
+      const semSol=r.sol_baixo===true, semCom=_velho||!!r.falha_comunicacao||!!r.desligada, dif=(semSol||semCom)?null:r.diferenca, difN=dif!=null&&dif<0;
       const [stt,ps]=_strStatus(r,_velho);
       const leit=r.ultima_leitura?String(r.ultima_leitura).replace('T',' ').slice(0,16):'—';
       // "Bate com o acompanhamento" = o déficit é exatamente o que você já está acompanhando (dif === -acomp).
@@ -1718,6 +1804,9 @@ function computeVals(){
         expNote:(r.inv_desligados>0&&!r.rampa&&!r.sem_visao&&!semSol&&!semCom)?{n:r.inv_desligados,fora:r.strings_fora||0,
           nomes:(r.inv_desligados_nomes||[]).join(', ')}:null,
         padNote:semCom?null:_strNotaPadrao(r),
+        // a OBSERVAÇÃO da usina desligada (28/09/2026), no mesmo lugar do aviso do inversor desligado
+        deslNote:r.desligada?{txt:_deslTxt(r.desligada),tit:_deslTit(r.desligada)}:null,
+        desl:r.desligada||null,calada:(_velho||!!r.falha_comunicacao||!!r.sem_dados),lastRaw:r.ultima_leitura||null,
         diff:(r.rampa||r.sem_visao)?'—':(dif==null?'—':(dif>0?'+'+dif:''+dif)),
         diffColor:bate?'var(--gc-blue)':(difN?'var(--gc-red)':'var(--color-neutral-400)'),
         diffTit:'',
@@ -1910,8 +1999,8 @@ function computeVals(){
 }
 
 /* ── handlers globais ── */
-window.setSource=id=>{ state.source=id; state.expandedUsina=null; state.expandedInversor=null; state.expandedTrk=null; state.trkGraf=null; state.curvaPid=null; state.osMode=false; _fUfv=''; _fSt=''; _osSel.clear(); _osBar(); loadCurrent(); _loadSub(); };   // troca de fonte zera os filtros (usina de outra fonte esconderia tudo)
-window.setView=id=>{ state.view=id; state.expandedUsina=null; state.expandedInversor=null; state.expandedTrk=null; state.trkGraf=null; state.osMode=false; _osSel.clear(); _osBar(); loadCurrent(); _loadSub(); };
+window.setSource=id=>{ state.source=id; state.expandedUsina=null; state.expandedInversor=null; state.expandedTrk=null; state.trkGraf=null; state.curvaPid=null; state.osMode=false; state.trkOsMode=false; _fUfv=''; _fSt=''; _osSel.clear(); _osBar(); _trkOsSel.clear(); _trkOsBar(); loadCurrent(); _loadSub(); };   // troca de fonte zera os filtros (usina de outra fonte esconderia tudo)
+window.setView=id=>{ state.view=id; state.expandedUsina=null; state.expandedInversor=null; state.expandedTrk=null; state.trkGraf=null; state.osMode=false; _osSel.clear(); _osBar(); state.trkOsMode=false; _trkOsSel.clear(); _trkOsBar(); loadCurrent(); _loadSub(); };
 window.setTracking=(key,value)=>{   // strings em acompanhamento por usina → /api/state/tracking (mesmo estado da plataforma original)
   const n=parseInt(value,10);
   if(!value||isNaN(n)||n<=0){ if(RD.tracking)delete RD.tracking[key]; } else { RD.tracking=RD.tracking||{}; RD.tracking[key]=n; }
@@ -1932,7 +2021,7 @@ window._hlTrk=(n,on)=>{   // hover no card do tracker → destaca a linha dele n
     else { p.style.strokeWidth=''; p.style.strokeOpacity=''; } });
 };
 window.toggleUsina=id=>{ const abrir=state.expandedUsina!==id; setState({expandedUsina:abrir?id:null,expandedInversor:null}); if(abrir&&RD.pv) loadPlant(id); };
-window.toggleInversor=(id,ev,pid,invId,nome)=>{ if(ev&&ev.stopPropagation)ev.stopPropagation(); const abrir=state.expandedInversor!==id; setState({expandedInversor:abrir?id:null}); if(abrir&&pid&&SKEY[state.source]){ loadCurva(pid,invId,nome); loadUltimaOs(pid,invId,nome); } };
+window.toggleInversor=(id,ev,pid,invId,nome)=>{ if(ev&&ev.stopPropagation)ev.stopPropagation(); const abrir=state.expandedInversor!==id; setState({expandedInversor:abrir?id:null}); if(abrir&&pid&&SKEY[state.source]){ loadCurva(pid,invId,nome); } };
 window.setInvData=(v,pid,invId,nome)=>{ state.invData=v||null; render(); if(pid&&SKEY[state.source]) loadCurva(pid,invId,nome); };   // data do drill de corrente por string
 async function loadTrk(pid){   // trackers individuais de UMA usina (drill): /api/{src}/trackers/{pid}
   const base=(EP.trackers||{})[SKEY[state.source]]; if(!base) return;
@@ -1940,7 +2029,7 @@ async function loadTrk(pid){   // trackers individuais de UMA usina (drill): /ap
   if(RD.trk[key]!==undefined) return;
   RD.trk[key]=null; render();
   let nome=null;
-  try{ const d=await fetchJSON(base+'/'+encodeURIComponent(pid)); RD.trk[key]=(d&&d.trackers)||[]; nome=d&&d.usina; }
+  try{ const d=await fetchJSON(base+'/'+encodeURIComponent(pid)); RD.trk[key]=(d&&d.trackers)||[]; nome=d&&d.usina; RD.trkMeta[key]={plant_id:d&&d.plant_id, usina:d&&d.usina}; }
   catch(e){ RD.trk[key]=[]; }
   render();
   _loadDepara(key, nome||pid);
@@ -2250,7 +2339,7 @@ function renderStrings(v){
     <div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px;width:1%;white-space:nowrap">Status</th><th>Usina</th><th style="text-align:center">Inv.</th><th style="text-align:right">Ativas</th><th style="text-align:right">Esperadas</th><th style="text-align:right">Diferença</th><th style="text-align:center">Acomp.</th><th style="text-align:center" title="Strings com ticket aberto na planilha de tickets (aba Strings indisp) / strings faltando agora">Tickets</th><th style="text-align:right;padding-right:22px">Última leitura</th></tr></thead>
     <tbody>${v.loading?`<tr><td colspan="9" style="padding:44px;text-align:center" class="text-muted"><i class="ph ph-circle-notch gc-spin"></i> Coletando dados da fonte…</td></tr>`:(!v.usinas.length?_semLinhas():v.usinas.map(u=>`
       <tr class="gc-urow${(u.pulse&&!u.expanded)?' gc-alerta':''}" onclick="toggleUsina('${u.id}')" style="cursor:pointer;${u.expanded?'background:linear-gradient(90deg, color-mix(in srgb, #0a4f52 70%, transparent), color-mix(in srgb, #0a4f52 28%, transparent) 34%, transparent 58%);':''}">
-        <td style="padding-left:22px;white-space:nowrap"><span style="${u.statusStyle}">${u.status}</span></td><td><span style="display:inline-flex;align-items:center;gap:9px"><i class="ph ph-caret-right" style="font-size:12px;color:var(--color-neutral-500);transition:transform .15s;transform:rotate(${u.caretDeg}deg)"></i><span style="font-weight:600">${u.name}</span>${u.hasOS?`<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="OS de performance — abrir" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:6px;background:color-mix(in srgb, var(--gc-amber) 16%, transparent);color:var(--gc-amber);font-size:11px;font-weight:600"><i class="ph ph-wrench"></i>${u.osCount}</span>`:''}<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="Comentários dos analistas" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:6px;${u.hasFlag?'background:#1D5FB5;color:#0e2a4d;font-weight:700;':'color:var(--color-neutral-600);'}font-size:11px"><i class="${u.hasFlag?'ph-fill ph-chat-circle':'ph ph-chat-circle'}" style="font-size:13px"></i>${u.hasFlag?u.flagCount:''}</span></span></td>
+        <td style="padding-left:22px;white-space:nowrap"><span style="${u.statusStyle}">${u.status}</span></td><td><span style="display:inline-flex;align-items:center;gap:9px"><i class="ph ph-caret-right" style="font-size:12px;color:var(--color-neutral-500);transition:transform .15s;transform:rotate(${u.caretDeg}deg)"></i><span style="display:inline-flex;flex-direction:column"><span style="font-weight:600">${u.name}</span>${u.deslNote?`<span class="gc-desl" style="color:var(--color-neutral-400);max-width:340px;overflow:hidden;text-overflow:ellipsis" title="${_he(u.deslNote.tit)}">${_he(u.deslNote.txt)}</span>`:''}</span>${u.hasOS?`<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="OS de performance — abrir" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:6px;background:color-mix(in srgb, var(--gc-amber) 16%, transparent);color:var(--gc-amber);font-size:11px;font-weight:600"><i class="ph ph-wrench"></i>${u.osCount}</span>`:''}<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="Comentários dos analistas" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:6px;${u.hasFlag?'background:#1D5FB5;color:#0e2a4d;font-weight:700;':'color:var(--color-neutral-600);'}font-size:11px"><i class="${u.hasFlag?'ph-fill ph-chat-circle':'ph ph-chat-circle'}" style="font-size:13px"></i>${u.hasFlag?u.flagCount:''}</span></span></td>
         <td style="text-align:center;color:var(--color-neutral-400)">${u.inv}</td><td style="text-align:right;color:var(--color-neutral-300)">${u.active}</td><td style="text-align:right;color:var(--color-neutral-300)"${u.expTit?` title="${_he(u.expTit)}"`:''}>${u.expected}${u.expNote?`<span class="gc-desl" title="${u.expNote.nomes?u.expNote.nomes+': ':''}potência zero de dia, com a usina gerando. As ${u.expNote.fora} strings dele${u.expNote.n>1?'s':''} ficam fora da conta: inversor desligado é falha de inversor, não de string.">${u.expNote.n} inv. desligado${u.expNote.n>1?'s':''} · ${u.expNote.fora} strings fora da conta</span>`:''}${u.padNote?`<span class="gc-desl" style="color:${u.padNote.cor}" title="${_he(u.padNote.tit)}">${_he(u.padNote.txt)}</span>`:''}</td>
         <td style="text-align:right;font-weight:600;color:${u.diffColor}"${u.diffTit?` title="${_he(u.diffTit)}"`:''}>${u.diff}</td><td style="text-align:center" onclick="event.stopPropagation()"><input type="number" min="0" value="${u.acomp}" placeholder="—" title="Strings que você está acompanhando" class="gc-numin" onclick="event.stopPropagation()" onchange="setTracking('${u.vkey||''}',this.value)" style="width:58px;text-align:center;padding:5px 6px;font-size:12.5px;font-family:inherit;border:1px solid var(--color-divider);border-radius:6px;background:var(--color-neutral-900);color:var(--color-text)"></td><td style="text-align:center">${u.tkStr}</td>
         <td title="${u.staleTit||''}" style="text-align:right;padding-right:22px;font-size:12.5px;${u.staleRead?'color:#c9b6ff;font-weight:600':'color:var(--color-neutral-500)'}">${u.lastRead}</td>
@@ -2258,7 +2347,7 @@ function renderStrings(v){
       ${u.expanded?`<tr><td colspan="9" style="padding:0;border:0"><div style="background:color-mix(in srgb, var(--color-neutral-900) 55%, transparent);padding:18px 22px 22px">
         ${RD.pv?'':`<div style="display:flex;flex-wrap:wrap;gap:22px;padding:12px 16px;margin-bottom:16px;border-radius:var(--radius-md);background:color-mix(in srgb, var(--gc-blue) 10%, transparent);font-size:13px">
           <span><b>0</b> <span class="text-muted">strings abaixo</span></span><span><b>0</b> <span class="text-muted">inversores abaixo dos pares</span></span><span><b style="color:var(--gc-amber)">1</b> <span class="text-muted">trackers parados</span></span><span><b>0</b> <span class="text-muted">correlação tracker→inversor</span></span>
-        </div>`}${RD.pv?_ddBarra(u):''}${RD.pv?_tkCardsUsina(u):''}${u.inversores==='loading'?`<div class="text-muted" style="padding:14px 4px;font-size:13px">carregando inversores…</div>`:(state.invView==='geracao'?_gerBlock(u):(u.inversores||[]).map(inv=>renderInversor(inv,v.chart)).join(''))}</div></td></tr>`:''}
+        </div>`}${RD.pv?_deslBarra(u):''}${RD.pv?_ddBarra(u):''}${RD.pv?_tkCardsUsina(u):''}${u.inversores==='loading'?`<div class="text-muted" style="padding:14px 4px;font-size:13px">carregando inversores…</div>`:(state.invView==='geracao'?_gerBlock(u):(u.inversores||[]).map(inv=>renderInversor(inv,v.chart)).join(''))}</div></td></tr>`:''}
     `).join(''))}</tbody></table></div>
   </div>
   <div class="text-muted" style="text-align:center;margin-top:18px;font-size:12.5px">${v.usinas.length} usinas</div>`;
@@ -2286,7 +2375,7 @@ function renderTrackers(v){
   const bar='';   // "Parados & ocorrências" REMOVIDA dos Trackers (foco em Perdas) — só Tempo real
   if(v.loading) return bar+_loadingPanel();
   const trows=(v.trackerRows||[]).filter(r=>_matchQ(r.name));
-  return bar+`<div class="card" style="padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 22px;border-bottom:1px solid var(--color-divider)"><div style="display:flex;align-items:baseline;gap:12px"><span style="font-family:var(--font-heading);font-size:17px">Trackers — Seguidores solares</span><span class="text-muted" style="font-size:12.5px">clique na usina para ver os trackers</span></div>${_histBtn()}</div>
+  return bar+`<div class="card" style="padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 22px;border-bottom:1px solid var(--color-divider)"><div style="display:flex;align-items:baseline;gap:12px"><span style="font-family:var(--font-heading);font-size:17px">Trackers — Seguidores solares</span><span class="text-muted" style="font-size:12.5px">${state.trkOsMode?'modo OS: abra a usina e clique nos trackers':'clique na usina para ver os trackers'}</span></div><div style="display:flex;align-items:center;gap:8px">${_trkOsBtn()}${_histBtn()}</div></div>
   <div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th style="text-align:center">Trackers</th><th style="text-align:center">Parado</th><th style="text-align:center">Severo</th><th style="text-align:center">Médio</th><th style="text-align:center">Leve</th><th style="text-align:right">Disponibilidade</th><th style="text-align:center" title="parados com ticket aberto na planilha de Tickets ÷ parados">Tickets</th><th style="text-align:center" title="ticket aberto na planilha, mas o tracker voltou a acompanhar o alvo: candidato a fechar">Normaliz.</th><th style="text-align:right">Desvio médio</th><th style="text-align:right">Última leitura</th><th style="text-align:center;padding-right:22px">Status</th></tr></thead>
   <tbody>${(!trows.length&&_q)?`<tr><td colspan="12" style="text-align:center;padding:28px;color:var(--color-neutral-500)">Nenhuma usina casa "${_he(_q)}".</td></tr>`:''}${trows.map(r=>`<tr ${r.pid!=null?`onclick="toggleTrk('${esc(r.pid).replace(/['"\\]/g,'')}')" style="cursor:pointer;${r.expanded?'background:color-mix(in srgb, var(--gc-amber) 7%, transparent);':''}"`:''}><td style="padding-left:22px;font-weight:600">${r.pid!=null?`<i class="ph ph-caret-right" style="font-size:11px;color:var(--color-neutral-500);margin-right:8px;transition:transform .15s;transform:rotate(${r.caretDeg}deg)"></i>`:''}${r.name}</td><td style="text-align:center;color:var(--color-neutral-400)">${r.total}</td><td style="text-align:center;font-weight:600;color:${r.paradosColor}">${r.parados}</td><td style="text-align:center;color:${r.severo>0?'var(--gc-amber)':'var(--color-neutral-300)'}">${r.severo}</td><td style="text-align:center;font-weight:${r.medio>0?600:400};color:${r.medio>0?'#ffb43d':'var(--color-neutral-300)'}">${r.medio}</td><td style="text-align:center;color:var(--color-neutral-300)">${r.leve}</td><td>${_trkBar(r.dispPct,r.dispTempo)}</td><td style="text-align:center">${_tkCel(r)}</td><td style="text-align:center;color:${r.normalizados>0?'#3fb950':'var(--color-neutral-400)'};font-weight:${r.normalizados>0?600:400}">${r.normalizados}</td><td style="text-align:right;color:var(--color-neutral-400)">${r.desvioMed}</td><td title="${r.staleTit||''}" style="text-align:right;font-size:12.5px;${r.staleRead?'color:#c9b6ff;font-weight:600':'color:var(--color-neutral-500)'}">${r.lastRead}</td><td style="text-align:center;padding-right:22px"><span style="${r.statusStyle}" title="${_he(r.frotaTit||'')}">${r.status}</span></td></tr>${r.expanded?`<tr><td colspan="12" style="padding:0;border:0"><div style="background:color-mix(in srgb, var(--color-neutral-900) 55%, transparent);padding:16px 22px 20px">${_trkDrill(r.pid)}</div></td></tr>`:''}`).join('')}</tbody></table></div></div>`;
 }
@@ -2300,10 +2389,12 @@ function _trkDrill(pid){
   const dp=RD.depara[state.source+'|'+pid]||null;
   const dpTxt=dp&&dp.n?` · <span title="de-para supervisório ↔ Fracttal (plataforma/trackers_depara.xlsx)">Fracttal: <b style="color:var(--color-neutral-200)">${dp.casados+dp.a_confirmar}</b> com par${dp.a_confirmar?` (<span style="color:var(--gc-amber)">${dp.a_confirmar} a confirmar</span>)`:''}${dp.sem_par?`, <span style="color:var(--gc-red)">${dp.sem_par} sem par</span>`:''}</span>`:'';
   const grafOn=String(state.trkGraf)===String(pid);
+  const osOn=!!state.trkOsMode, semTk=osOn?arr.filter(t=>t.status==='parado'&&!t.na_planilha&&!t.ticket_usina).length:0;
+  const osHint=osOn?`<div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:10px;font-size:12.5px;color:var(--color-neutral-300)"><i class="ph ph-wrench" style="color:var(--color-accent)"></i>Modo OS: clique nos trackers para marcar.${semTk?`<button class="btn btn-secondary" style="padding:4px 10px;font-size:12px" onclick="event.stopPropagation();trkOsMarcarSemTicket('${_trkOsAttr(pid)}')">Marcar os ${semTk} parados sem ticket</button>`:''}</div>`:'';
   return `<div style="margin-bottom:13px"><button class="btn ${grafOn?'btn-primary':'btn-secondary'}" onclick="event.stopPropagation();abrirTrkChart('${esc(pid).replace(/['"\\]/g,'')}')"><i class="ph ${grafOn?'ph-caret-up':'ph-chart-line'}"></i> Gráfico</button></div>
     ${grafOn?_trkChartInline(pid):''}
     <div class="card-kicker" style="color:var(--color-neutral-400);margin-bottom:10px">Trackers (${arr.length})${ruins?` · <span style="color:var(--gc-amber)">${ruins} fora do alvo</span>`:''}${tkTxt}${dpTxt}</div>
-    <div style="display:flex;flex-wrap:wrap;gap:7px">${arr.map(t=>_trkChip(t,dp)).join('')}</div>`;
+    ${osHint}<div style="display:flex;flex-wrap:wrap;gap:7px">${arr.map(t=>_trkChip(t,dp,pid)).join('')}</div>`;
 }
 // Coluna "Tickets" da tabela: parados com ticket aberto ÷ parados. Verde = todos cobertos; vermelho = há parado sem
 // ticket (o que pede ação); "—" quando não há parado ou a fonte não cruza com a planilha.
@@ -2315,7 +2406,7 @@ function _tkCel(r){
   const cor=sem>0?'#ff5b6e':'#3fb950';
   return `<span title="${com} de ${par} parados com ticket aberto${sem?` · ${sem} sem ticket`:''}${r.tkUsina?' · há ticket da usina inteira':''}" style="display:inline-flex;align-items:center;gap:7px;justify-content:center"><span style="width:44px;height:6px;border-radius:3px;background:var(--color-neutral-800);overflow:hidden;display:inline-block"><span style="display:block;height:100%;width:${pct}%;background:${cor}"></span></span><span style="font-weight:600;color:${cor}">${com}/${par}</span>${r.tkUsina?'<i class="ph ph-clipboard-text" title="ticket da usina inteira" style="font-size:11px;color:var(--gc-blue)"></i>':''}</span>`;
 }
-function _trkChip(t,dp){
+function _trkChip(t,dp,pid){
   // SEM COMUNICAÇÃO manda na cor. O backend guarda isso num campo À PARTE do status, então um
   // tracker mudo podia vir com status 'normal' e pintar de VERDE — foi o TRK44 (04/08): único
   // "normal" da usina, sem leitura nenhuma, chip verde e nenhuma curva verde no gráfico para
@@ -2323,16 +2414,21 @@ function _trkChip(t,dp){
   const st=(t.sem_comunicacao?'sem_comunicacao':(t.status||'normal')), c=_trkCor(st);
   const disp=(t.disparidade!=null?(t.disparidade>0?'+':'')+Number(t.disparidade).toFixed(0)+'°':'—');
   const n=_snum(t.id), hid=!!(state.trkHide&&state.trkHide[String(n)]);   // clicado = oculto no gráfico
+  // Modo "Criar OS" (25/09/2026): o MESMO clique passa a marcar o tracker para a OS — o anel verde diz quem está
+  // marcado; "OS nº" é a que acabou de nascer daqui, nesta sessão.
+  const osOn=!!state.trkOsMode, osK=_trkOsKey(SKEY[state.source],pid,t.id), osSel=osOn&&_trkOsSel.has(osK), osFeita=RD.trkOsFeitas[osK];
+  const clk=osOn?`trkOsToggle('${_trkOsAttr(pid)}','${_trkOsAttr(t.id)}')`:`toggleTrkHide(${n})`;
   const fr=(dp&&dp.por_num&&n!=null)?dp.por_num[String(n)]:null;   // par no Fracttal (de-para)
   // Ticket (planilha de Tickets, só ocorrência ABERTA): parado com ticket = "ticket"; parado sem = "sem ticket" em
   // vermelho (é o que o Levi quer enxergar); ticket aberto mas tracker normal = "voltou" (candidato a fechar).
   const _tkTxt=t.na_planilha?`ticket ${t.ticket_status||''}${t.ticket_desde?' desde '+t.ticket_desde:''}`:(t.ticket_usina?'coberto por ticket da usina inteira':(t.status==='parado'?'parado SEM ticket na planilha':''));
-  const tip=`${st} · alvo ${t.alvo!=null?Number(t.alvo).toFixed(0)+'°':'—'} · atual ${t.atual!=null?Number(t.atual).toFixed(0)+'°':'—'} · desvio ${disp}${fr?` · Fracttal ${fr.fracttal||''} ${fr.code||''}${fr.situacao==='a_confirmar'?' (a confirmar)':fr.situacao==='sem_par'?' (sem par: '+(fr.obs||'')+')':''}`:''}${_tkTxt?' · '+_tkTxt:''} · clique p/ ${hid?'mostrar':'ocultar'} no gráfico`;
+  const tip=`${st} · alvo ${t.alvo!=null?Number(t.alvo).toFixed(0)+'°':'—'} · atual ${t.atual!=null?Number(t.atual).toFixed(0)+'°':'—'} · desvio ${disp}${fr?` · Fracttal ${fr.fracttal||''} ${fr.code||''}${fr.situacao==='a_confirmar'?' (a confirmar)':fr.situacao==='sem_par'?' (sem par: '+(fr.obs||'')+')':''}`:''}${_tkTxt?' · '+_tkTxt:''} · clique p/ ${osOn?(osSel?'desmarcar da OS':'marcar para a OS'):(hid?'mostrar':'ocultar')+' no gráfico'}`;
   const _tag=(txt,cor,ic)=>`<span style="display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:9px;font-size:10px;font-weight:700;letter-spacing:.02em;background:color-mix(in srgb, ${cor} 18%, transparent);border:1px solid color-mix(in srgb, ${cor} 45%, transparent);color:${cor}">${ic?`<i class="ph ${ic}" style="font-size:10px"></i>`:''}${txt}</span>`;
   const tk=t.normalizado?_tag('voltou','#3fb950','ph-check'):t.na_planilha?_tag('ticket','var(--gc-blue)','ph-clipboard-text'):(t.ticket_usina&&t.status==='parado')?_tag('ticket da usina','var(--gc-blue)','ph-clipboard-text'):(t.status==='parado')?_tag('sem ticket','#ff5b6e','ph-warning'):'';
   // Fracttal: só o ícone (o code inteiro atropelava o card; fica no tooltip). Cinza = casado, âmbar = a confirmar, vermelho = sem par.
   const frIc=(fr&&fr.code)?`<i class="ph ${fr.situacao==='sem_par'?'ph-link-break':'ph-link'}" title="Fracttal ${esc(fr.code)}${fr.situacao==='a_confirmar'?' (a confirmar)':fr.situacao==='sem_par'?' (sem par)':''}" style="font-size:12px;color:${fr.situacao==='casado'?'var(--color-neutral-400)':fr.situacao==='a_confirmar'?'var(--gc-amber)':'var(--gc-red)'}"></i>`:'';
-  return `<span title="${esc(tip)}" onclick="event.stopPropagation();toggleTrkHide(${n})" onmouseenter="_hlTrk(${n},1)" onmouseleave="_hlTrk(${n},0)" style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:var(--radius-sm);background:${c[1]};border:1px solid ${c[2]};font-size:11.5px;cursor:pointer;transition:opacity .12s,border-color .12s;opacity:${hid?'.38':'1'}"><span style="font-weight:600;color:${c[0]}">${esc(t.id)}</span><span class="text-muted" style="font-size:11px">${disp}</span>${frIc}${tk}</span>`;
+  const osTag=osFeita?_tag('OS '+osFeita,'var(--color-accent)','ph-wrench'):'';
+  return `<span title="${esc(tip)}" onclick="event.stopPropagation();${clk}" onmouseenter="_hlTrk(${n},1)" onmouseleave="_hlTrk(${n},0)" style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:var(--radius-sm);background:${c[1]};border:1px solid ${c[2]};font-size:11.5px;cursor:pointer;transition:opacity .12s,border-color .12s,box-shadow .12s;opacity:${(!osOn&&hid)?'.38':'1'};${osSel?'box-shadow:0 0 0 2px var(--color-accent);':''}">${osSel?'<i class="ph ph-check-circle" style="font-size:13px;color:var(--color-accent)"></i>':''}<span style="font-weight:600;color:${c[0]}">${esc(t.id)}</span><span class="text-muted" style="font-size:11px">${disp}</span>${frIc}${tk}${osTag}</span>`;
 }
 function _trkCor(st){   // semáforo por HUE distinto → contraste máximo entre os níveis (vermelho→laranja→amarelo→verde)
   if(st==='parado') return ['#ff5b6e','color-mix(in srgb, #ff5b6e 16%, transparent)','color-mix(in srgb, #ff5b6e 48%, transparent)'];
@@ -2341,6 +2437,331 @@ function _trkCor(st){   // semáforo por HUE distinto → contraste máximo entr
   if(st==='leve'||st==='atraso') return ['#ffd83d','color-mix(in srgb, #ffd83d 14%, transparent)','color-mix(in srgb, #ffd83d 44%, transparent)'];      // amarelo (bem separado do laranja)
   if(st==='sem_comunicacao') return ['#c9b6ff','color-mix(in srgb, var(--gc-violet) 14%, transparent)','color-mix(in srgb, var(--gc-violet) 40%, transparent)'];
   return ['#4ade80','color-mix(in srgb, #4ade80 13%, transparent)','color-mix(in srgb, #4ade80 36%, transparent)'];   // verde frio/emerald (normal) — sai do limão pra não colar no amarelo
+}
+
+/* ══ Criar OS de TRACKER direto da plataforma (Levi, 25/09/2026 — item 4 da lista) ══════════════════════════════════
+   "Clico no botão, vou clicando nos trackers e aí preencho responsável; a data do incidente será a data que o tracker
+   parou e data programada sempre um dia para frente." Diferente das strings — que abrem o OS Creator numa aba por
+   inversor —, aqui a OS nasce DAQUI: a tela chama a API do OS Creator web pelo proxy /os/ da plataforma, com a sessão
+   do Fracttal de quem está logado (cookie os_sessao, o mesmo do card do OS Creator). A OS sai no nome dessa pessoa,
+   com o plano "Verificação de Tracker Parado" da Estrutura Trackers (subtarefas copiadas, linkar=false) e a linha na
+   aba Trackers da planilha de Tickets — o MESMO POST que a tela /os/performance/criar faz (perf.js), então título,
+   etiqueta PERFORMANCE e ticket continuam decididos num lugar só: o OS Creator.
+   · o ativo do Fracttal vem do de-para (Code Fracttal de plataforma/trackers_depara.xlsx), e a pessoa pode trocar;
+   · a data do incidente é o "parado desde" da plataforma (/api/trackers/parado-desde), editável;
+   · tracker que JÁ tem ticket aberto na planilha ganha a OS sem ticket novo — senão a planilha teria a mesma parada
+     duas vezes. A caixa "Gerar ticket" do OS Creator vale para o pedido inteiro, então isso separa o pedido;
+   · no máximo TRK_OS_LOTE_MAX OS por pedido: o proxy desiste em 180 s e o OS Creator cria uma por vez no Fracttal.
+     Pedido que morre no meio deixa a dúvida "criou ou não?" — e a dúvida vira OS duplicada na segunda tentativa. */
+const TRK_OS_FRASE='verificacao de tracker parado';
+const TRK_OS_OBS='Tracker parado, verificar e normalizar.';
+const TRK_OS_LOTE_MAX=5;
+const _trkOsSel=new Map();   // "fonte|pid|tracker" → registro do tracker marcado (_trkOsReg)
+function _trkOsKey(f,pid,tid){ return f+'|'+pid+'|'+tid; }
+function _trkOsAttr(s){ return String(s==null?'':s).replace(/['"\\<>]/g,''); }   // vai dentro de onclick='...'
+// ── regras puras (testadas no node: tests/test_trackers_os_plataforma.py) ──
+function _trkOsNorm(s){
+  return String(s==null?'':s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/\s*-\s*/g,' - ').replace(/\s+/g,' ').trim();
+}
+function _trkOsUsinaMatch(cands,lista){
+  // O OS Creator só lista os trackers da usina pelo nome EXATO que ele conhece (ativos_da_usina compara com ==). Cada
+  // candidato (de-para → BD_Performance → nome da plataforma) casa por igualdade normalizada — o de-para tem "1- SP" e
+  // espaço duplo — e, só se não houver, por "contém" com resposta ÚNICA: 'Colorado' cabe em Colorado 1 e 2, então
+  // não chuta e a pessoa escolhe na lista.
+  const L=(lista||[]).map(u=>[u,_trkOsNorm(u)]);
+  for(const c of (cands||[])){
+    const n=_trkOsNorm(c); if(!n) continue;
+    const ig=L.find(x=>x[1]===n); if(ig) return ig[0];
+    if(n.length<5) continue;
+    const cont=L.filter(x=>x[1].includes(n)||n.includes(x[1]));
+    if(cont.length===1) return cont[0][0];
+  }
+  return null;
+}
+function _trkOsAlvoPorCode(code,alvos){
+  const c=String(code||'').trim().toLowerCase(); if(!c) return null;
+  return (alvos||[]).find(a=>String(a.code||'').trim().toLowerCase()===c)||null;
+}
+function _trkOsLocalISO(d){
+  const p=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes());
+}
+function _trkOsProgPadrao(agora){
+  // "Data programada sempre um dia para frente" — de AGORA, como a Tradicional do OS Creator (tradicional.js): um
+  // tracker parado há 10 dias não pode nascer com a programação no passado.
+  const d=new Date((agora||new Date()).getTime()); d.setDate(d.getDate()+1);
+  return _trkOsLocalISO(d);
+}
+function _trkOsLotes(itens,max){
+  // O OS Creator aceita UMA data de incidente e UMA caixa "Gerar ticket" por pedido (montar_itens): um lote por
+  // usina × hora da parada × ticket, na ordem em que aparecem; `max` corta o lote em pedidos menores.
+  const m=new Map();
+  (itens||[]).forEach(it=>{ const k=[it.usinaFr,it.evento,it.gerar?1:0].join('|'); if(!m.has(k)) m.set(k,[]); m.get(k).push(it); });
+  const out=[];
+  m.forEach(lista=>{ const t=max||lista.length;
+    for(let i=0;i<lista.length;i+=t){ const p=lista[i];
+      out.push({usinaFr:p.usinaFr, cliente:p.cliente||'', base:p.base||'', evento:p.evento, gerar:!!p.gerar, itens:lista.slice(i,i+t)}); } });
+  return out;
+}
+function _trkOsCorpo(lote,resp,prog){
+  // Espelho do POST do perf.js (tela /os/performance/criar): mesmos campos e o ativo ENXUTO — o OS Creator completa o
+  // registro pelo id no catálogo dele. Tracker é sempre 1 por OS (qtd_ticket), como o próprio OS Creator conta.
+  return {frase:TRK_OS_FRASE, base:lote.base, modo:'geracao', evento:lote.evento, programada:prog, gerar_ticket:!!lote.gerar,
+    responsavel:{id_personnel:resp.id_personnel, name:resp.name},
+    itens:lote.itens.map(it=>({asset:{id:it.alvo.id, code:it.alvo.code, label:it.alvo.label, tipo:it.alvo.tipo, usina:lote.usinaFr, cliente:lote.cliente},
+      plano_id_task:it.alvo.plano_id_task, plano_id_item:it.alvo.plano_id_item, linkar:!!it.alvo.linkar,
+      note:String(it.obs||'').trim(), os_pai:'', imagens:[], qtd_ticket:1}))};
+}
+// ── seleção ──
+function _trkOsBtn(){ if(!(EP.trackers||{})[SKEY[state.source]]) return ''; const on=state.trkOsMode;
+  return `<button onclick="trkOsModo()" class="btn ${on?'btn-primary':'btn-secondary'}" title="Marque os trackers e crie as OS no Fracttal daqui mesmo"><i class="ph ph-wrench"></i> ${on?'Sair do modo OS':'Criar OS'}</button>`; }
+window.trkOsModo=()=>{ const on=!state.trkOsMode; if(!on)_trkOsSel.clear(); setState({trkOsMode:on}); _trkOsBar(); };
+function _trkOsReg(f,pid,t){
+  const key=state.source+'|'+pid, meta=RD.trkMeta[key]||{}, dp=RD.depara[key]||null, n=_snum(t.id);
+  const fr=(dp&&dp.por_num&&n!=null)?dp.por_num[String(n)]:null;   // o mesmo par que o chip mostra
+  return {k:_trkOsKey(f,pid,t.id), fonte:f, pid:String(pid), plantId:String(meta.plant_id!=null?meta.plant_id:pid), usina:meta.usina||String(pid),
+    tid:String(t.id), status:(t.sem_comunicacao?'sem_comunicacao':(t.status||'normal')), code:(fr&&fr.code)||'', situacao:(fr&&fr.situacao)||'',
+    usinaFr:(dp&&dp.usina_fracttal)||'',
+    ticket:t.na_planilha?('ticket '+(t.ticket_status||'aberto')+(t.ticket_desde?' desde '+t.ticket_desde:'')):(t.ticket_usina?'ticket da usina inteira':'')};
+}
+window.trkOsToggle=(pid,tid)=>{
+  const f=SKEY[state.source], k=_trkOsKey(f,pid,tid);
+  if(_trkOsSel.has(k)) _trkOsSel.delete(k);
+  else { const t=(RD.trk[state.source+'|'+pid]||[]).find(x=>String(x.id)===String(tid)); if(!t) return; _trkOsSel.set(k,_trkOsReg(f,pid,t)); }
+  render(); _trkOsBar();
+};
+window.trkOsMarcarSemTicket=pid=>{
+  const f=SKEY[state.source];
+  (RD.trk[state.source+'|'+pid]||[]).filter(t=>t.status==='parado'&&!t.na_planilha&&!t.ticket_usina)
+    .forEach(t=>{ const k=_trkOsKey(f,pid,t.id); if(!_trkOsSel.has(k)) _trkOsSel.set(k,_trkOsReg(f,pid,t)); });
+  render(); _trkOsBar();
+};
+window.trkOsLimpar=()=>{ _trkOsSel.clear(); render(); _trkOsBar(); };
+function _trkOsBar(){ let bar=document.getElementById('gc-trkosbar'); if(!bar){ bar=document.createElement('div'); bar.id='gc-trkosbar'; document.body.appendChild(bar); }
+  const n=_trkOsSel.size, us=new Set([..._trkOsSel.values()].map(v=>v.fonte+'|'+v.pid)).size, on=state.view==='trackers'&&state.trkOsMode&&n>0;
+  bar.style.cssText=`position:fixed;left:0;right:0;bottom:0;z-index:400;align-items:center;gap:14px;background:var(--color-surface);color:var(--color-text);border-top:2px solid var(--color-accent);padding:12px 28px;font-size:13px;box-shadow:0 -6px 24px rgba(0,0,0,.4);display:${on?'flex':'none'}`;
+  bar.innerHTML=`<span style="flex:1;color:var(--color-neutral-300)">${n} tracker(s) marcado(s)${us>1?` em ${us} usinas`:''} — ${n} OS, uma por tracker.</span><button onclick="trkOsLimpar()" style="background:transparent;color:var(--color-neutral-400);text-decoration:underline;border:0;cursor:pointer;font-size:12px">limpar</button><button onclick="trkOsAbrir()" style="background:var(--color-accent);color:#161826;font-weight:700;border:0;border-radius:8px;padding:8px 16px;font-size:12.5px;cursor:pointer"><i class="ph ph-wrench" style="margin-right:5px"></i>Criar OS(s)</button>`;
+  _prendeOverlays();
+}
+// ── API do OS Creator (proxy /os/): devolve o STATUS junto — 401 {login:true} = entrar no Fracttal ──
+async function _osApi(url,opts){
+  const o=Object.assign({},opts||{}), tmoMs=o.timeout||90000; delete o.timeout;
+  const ctrl=new AbortController(), tmo=setTimeout(()=>ctrl.abort(),tmoMs);
+  try{ const r=await fetch(url,Object.assign({credentials:'same-origin'},o,{signal:ctrl.signal}));
+    let j=null; try{ j=await r.json(); }catch(e){ j=null; }
+    return {ok:r.ok, status:r.status, j}; }
+  catch(e){ return {ok:false, status:0, j:null, erro:(e&&e.name==='AbortError')?'o OS Creator não respondeu a tempo':'não consegui falar com o OS Creator'}; }
+  finally{ clearTimeout(tmo); }
+}
+async function _trkOsFractallMap(usinas){   // nome da plataforma → "Usina Fractall" do BD_Performance (o mesmo do Criar OS das strings)
+  try{ const r=await fetch('/api/os-creator/fractall-usinas',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usinas})});
+    if(r.ok) return (((await r.json())||{}).map)||{}; }catch(e){}
+  return {};
+}
+// ── a janela ──
+window.trkOsAbrir=()=>{
+  if(!_trkOsSel.size) return;
+  // refaz cada marcado com o que a tela sabe AGORA: o de-para chega depois do drill (_loadDepara), e um tracker
+  // clicado nesse meio-tempo ficaria sem o code do Fracttal; o ticket também pode ter mudado no refresh
+  _trkOsSel.forEach((v,k)=>{ const t=(RD.trk[state.source+'|'+v.pid]||[]).find(x=>String(x.id)===v.tid); if(t) _trkOsSel.set(k,_trkOsReg(v.fonte,v.pid,t)); });
+  const gs=new Map();
+  _trkOsSel.forEach(v=>{ const k=v.fonte+'|'+v.pid;
+    if(!gs.has(k)) gs.set(k,{fonte:v.fonte, pid:v.pid, plantId:v.plantId, usina:v.usina, usinaFr0:v.usinaFr, usinaFr:'', alvos:null, base:'', cliente:'', erroAlvos:'', itens:[]});
+    gs.get(k).itens.push(Object.assign({},v,{desde:'', desdeReg:false, alvoId:'', alvoDepara:''})); });
+  let resp=''; try{ resp=localStorage.getItem('gcTrkOsResp')||''; }catch(e){}
+  const m={fase:'carregando', erro:'', pessoas:null, resp, prog:_trkOsProgPadrao(new Date()), obs:TRK_OS_OBS, gerar:true,
+    usinasFr:null, grupos:[...gs.values()], resultado:[], promAlvos:{}};
+  m.grupos.forEach(g=>g.itens.sort((a,b)=>(_snum(a.tid)||0)-(_snum(b.tid)||0)));
+  state._trkOs=m; _trkOsRender(); _trkOsCarregar(m);
+};
+async function _trkOsCarregar(m){
+  const rp=await _osApi('/os/api/responsaveis');
+  if(state._trkOs!==m) return;
+  if(rp.status===401){ m.fase='login'; _trkOsRender(); _trkOsEsperaLogin(m); return; }
+  if(!rp.ok){ m.fase='erro'; m.erro=(rp.j&&rp.j.erro)||rp.erro||('o OS Creator respondeu '+rp.status); _trkOsRender(); return; }
+  m.pessoas=(rp.j&&rp.j.pessoas)||[];
+  if(m.resp&&!m.pessoas.some(p=>String(p.id_personnel)===String(m.resp))) m.resp='';
+  const [ru,fm]=await Promise.all([_osApi('/os/api/performance/usinas'), _trkOsFractallMap(m.grupos.map(g=>g.usina)), ...m.grupos.map(g=>_trkOsDesde(g))]);
+  if(state._trkOs!==m) return;
+  if(ru.status===401){ m.fase='login'; _trkOsRender(); _trkOsEsperaLogin(m); return; }
+  m.usinasFr=(ru.j&&ru.j.usinas)||[];
+  m.grupos.forEach(g=>{ g.usinaFr=_trkOsUsinaMatch([g.usinaFr0, fm[g.usina], g.usina], m.usinasFr)||''; });
+  m.fase='pronto'; _trkOsRender();
+  await Promise.all(m.grupos.map(g=>_trkOsAlvos(m,g)));
+  if(state._trkOs===m) _trkOsRender();
+}
+async function _trkOsDesde(g){
+  let d={};
+  try{ d=(await fetchJSON('/api/trackers/parado-desde?fonte='+encodeURIComponent(g.fonte)+'&plant_id='+encodeURIComponent(g.plantId)+'&trackers='+encodeURIComponent(g.itens.map(i=>i.tid).join(',')),{timeout:30000}))||{}; }catch(e){ d={}; }
+  // origem "curva" = a parada vista na curva; "livro" = a DETECÇÃO (tracker_watch), que pode vir bem depois da parada
+  const ds=d.desde||{}, og=d.origem||{}, agora=_trkOsLocalISO(new Date());
+  g.itens.forEach(it=>{ const x=ds[it.tid]; it.desde=x||agora; it.desdeOrigem=x?(og[it.tid]||'curva'):null; it.desdeReg=it.desdeOrigem==='curva'; });
+}
+async function _trkOsAlvos(m,g){
+  g.alvos=null; g.erroAlvos='';
+  if(!g.usinaFr){ g.alvos=[]; g.erroAlvos='Sem par no Fracttal: escolha a usina na lista.'; return; }
+  const u=g.usinaFr;
+  if(!m.promAlvos[u]) m.promAlvos[u]=_osApi('/os/api/performance/alvos?usina='+encodeURIComponent(u)+'&frase='+encodeURIComponent(TRK_OS_FRASE));
+  const r=await m.promAlvos[u];
+  if(!r.ok) delete m.promAlvos[u];                 // falha não fica guardada: trocar a usina e voltar tenta de novo
+  if(state._trkOs!==m||g.usinaFr!==u) return;
+  if(r.status===401){ m.fase='login'; _trkOsRender(); _trkOsEsperaLogin(m); return; }
+  const j=r.j||{};
+  g.alvos=r.ok?(j.ativos||[]):[]; g.base=j.base||''; g.cliente=j.cliente||'';
+  g.erroAlvos=r.ok?(j.erro||''):(j.erro||r.erro||('o OS Creator respondeu '+r.status));
+  g.itens.forEach(it=>{ const a=_trkOsAlvoPorCode(it.code,g.alvos); it.alvoDepara=a?String(a.id):'';
+    if(!it.alvoId||!g.alvos.some(x=>String(x.id)===String(it.alvoId))) it.alvoId=it.alvoDepara; });
+}
+function _trkOsEsperaLogin(m){
+  // A pessoa entra no Fracttal na aba que abriu; esta janela pergunta de 4 em 4 s e segue sozinha quando a sessão
+  // existir (até 10 min). Sem sessão o OS Creator responde 401 na hora, sem ir ao Fracttal — pergunta barata.
+  if(m._esperando) return; m._esperando=true;
+  const t0=Date.now();
+  const passo=async()=>{
+    if(state._trkOs!==m||m.fase!=='login'||Date.now()-t0>600000){ m._esperando=false; return; }
+    const r=await _osApi('/os/api/responsaveis',{timeout:20000});
+    if(state._trkOs!==m||m.fase!=='login'){ m._esperando=false; return; }
+    if(r.ok){ m._esperando=false; m.fase='carregando'; _trkOsRender(); _trkOsCarregar(m); return; }
+    setTimeout(passo,4000);
+  };
+  setTimeout(passo,4000);
+}
+window.trkOsRecarregar=()=>{ const m=state._trkOs; if(!m) return; m.fase='carregando'; m.erro=''; _trkOsRender(); _trkOsCarregar(m); };
+window.trkOsFechar=()=>{ const m=state._trkOs; if(m&&m.fase==='criando') return; state._trkOs=null; _trkOsRender(); };
+window.trkOsCampo=(c,v,semRender)=>{ const m=state._trkOs; if(!m) return; m[c]=v; if(!semRender) _trkOsRender(); };
+window.trkOsItem=(gi,ii,c,v)=>{ const m=state._trkOs, it=m&&m.grupos[gi]&&m.grupos[gi].itens[ii]; if(!it) return; it[c]=v; if(c==='desde') it.desdeReg=true; _trkOsRender(); };
+window.trkOsUsina=async(gi,v)=>{ const m=state._trkOs, g=m&&m.grupos[gi]; if(!g) return; g.usinaFr=v; g.alvos=null; _trkOsRender(); await _trkOsAlvos(m,g); if(state._trkOs===m) _trkOsRender(); };
+window.trkOsTirar=(gi,ii)=>{ const m=state._trkOs, g=m&&m.grupos[gi]; if(!g) return;
+  const it=g.itens.splice(ii,1)[0]; if(it) _trkOsSel.delete(it.k);
+  if(!g.itens.length) m.grupos.splice(gi,1);
+  if(!m.grupos.length) state._trkOs=null;
+  _trkOsRender(); render(); _trkOsBar(); };
+function _trkOsValida(m){
+  const RE=/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/;
+  if(!m.resp) return {erro:'Escolha o responsável.'};
+  if(!RE.test(m.prog||'')) return {erro:'Data programada inválida.'};
+  const agora=_trkOsLocalISO(new Date()), itens=[], usados={};
+  for(const g of m.grupos){
+    if(!g.usinaFr) return {erro:g.usina+': escolha a usina no Fracttal.'};
+    if(g.alvos===null) return {erro:'Buscando os trackers no Fracttal…', espera:true};
+    for(const it of g.itens){
+      const a=(g.alvos||[]).find(x=>String(x.id)===String(it.alvoId));
+      if(!a) return {erro:g.usina+' · '+it.tid+': escolha o ativo do Fracttal.'};
+      if(usados[a.id]) return {erro:'O ativo '+a.label+' do Fracttal está em dois trackers ('+usados[a.id]+' e '+it.tid+').'};
+      usados[a.id]=it.tid;
+      if(!RE.test(it.desde||'')) return {erro:it.tid+': data do incidente inválida.'};
+      if(it.desde>agora) return {erro:it.tid+': a data do incidente está no futuro.'};
+      // par do de-para confirmado e mantido = a OS fala só do ativo; senão ela diz qual tracker do supervisório a
+      // motivou, para o campo desfazer um de-para errado em vez de fechar a OS como "normal" no tracker vizinho
+      const conf=it.situacao==='casado'&&String(it.alvoId)===String(it.alvoDepara);
+      itens.push({k:it.k, usinaFr:g.usinaFr, cliente:g.cliente, base:g.base, evento:it.desde, gerar:!!m.gerar&&!it.ticket, alvo:a,
+        obs:(String(m.obs||'').trim()+(conf?'':' (supervisório: '+it.tid+')')).trim()});
+    }
+  }
+  if(!itens.length) return {erro:'Nenhum tracker marcado.'};
+  return {itens, lotes:_trkOsLotes(itens,TRK_OS_LOTE_MAX).length};
+}
+function _trkOsFalhou(j,it){   // o OS Creator devolve os nº das criadas e, na mensagem, "• <ativo>: <erro>" das que falharam
+  if(!j||!(j.ok>0)) return true;
+  if(!j.falhas) return false;
+  const msg=String(j.mensagem||''), i=msg.indexOf('falharam:');
+  return (i>=0?msg.slice(i):msg).toLowerCase().includes(String((it.alvo||{}).code||'').toLowerCase());
+}
+window.trkOsCriar=async()=>{
+  const m=state._trkOs; if(!m||m.fase!=='pronto') return;
+  const v=_trkOsValida(m); if(v.erro){ _trkOsRender(); return; }
+  const resp=(m.pessoas||[]).find(p=>String(p.id_personnel)===String(m.resp)); if(!resp) return;
+  try{ localStorage.setItem('gcTrkOsResp',String(m.resp)); }catch(e){}
+  m.fase='criando'; m.resultado=[]; _trkOsRender();
+  for(const l of _trkOsLotes(v.itens,TRK_OS_LOTE_MAX)){
+    const r=await _osApi('/os/api/performance/criar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(_trkOsCorpo(l,resp,m.prog)),timeout:185000});
+    const res={lote:l, status:r.status, j:r.j||{}};
+    if(r.status===401){ res.j={erro:'A sessão do Fracttal caiu antes deste pedido: nada foi criado nele nem nos seguintes. Entre de novo e crie o que faltou.'}; m.resultado.push(res); break; }
+    if(r.status===0||r.j===null){
+      // sem resposta legível (tempo esgotado, proxy fora): o OS Creator pode ter criado. Sai da seleção de propósito —
+      // a segunda tentativa, no escuro, duplicaria OS e ticket.
+      res.incerto=true; l.itens.forEach(it=>_trkOsSel.delete(it.k));
+    } else if(r.ok){
+      const j=r.j, tudo=!j.falhas&&j.ok>0;
+      l.itens.forEach((it,i)=>{ if(!_trkOsFalhou(j,it)){ _trkOsSel.delete(it.k); if(tudo&&j.folios&&j.folios[i]!=null) RD.trkOsFeitas[it.k]=String(j.folios[i]); } });
+    }
+    m.resultado.push(res); _trkOsRender();
+  }
+  m.fase='feito'; _trkOsRender(); render(); _trkOsBar();
+};
+function _trkOsAlvoOpts(alvos,sel){
+  // Trackers individuais primeiro, em ordem natural; o generalizado e as controladoras (NCU) no fim — a OS de conjunto
+  // existe no OS Creator, mas aqui cada tracker marcado é um tracker.
+  const ind=[], conj=[];
+  (alvos||[]).forEach(a=>(/^tracker\b/i.test(String(a.label||''))?ind:conj).push(a));
+  const ord=(x,y)=>String(x.label||'').localeCompare(String(y.label||''),'pt-BR',{numeric:true});
+  const op=a=>`<option value="${_he(a.id)}"${String(a.id)===String(sel)?' selected':''}>${_he(a.label||a.code)} · ${_he(a.code||'')}</option>`;
+  return ind.sort(ord).map(op).join('')+(conj.length?`<optgroup label="Conjuntos">${conj.sort(ord).map(op).join('')}</optgroup>`:'');
+}
+function _trkOsGrupoHTML(m,g,gi,ro,inp){
+  const us=(m.usinasFr||[]).map(u=>`<option value="${_he(u)}"${u===g.usinaFr?' selected':''}>${_he(u)}</option>`).join('');
+  const cab=`<div style="display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:14px 20px 8px"><span style="font-weight:600;font-size:13.5px">${_he(g.usina)}</span><i class="ph ph-arrow-right" style="color:var(--color-neutral-500)"></i><select ${ro?'disabled':''} onchange="trkOsUsina(${gi},this.value)" style="${inp};max-width:420px;${g.usinaFr?'':'border-color:var(--gc-red)'}"><option value="">— escolha a usina no Fracttal —</option>${us}</select>${(g.alvos===null&&g.usinaFr)?'<span class="text-muted" style="font-size:12px"><i class="ph ph-circle-notch gc-spin"></i> trackers do Fracttal…</span>':''}${g.erroAlvos?`<span style="font-size:12px;color:#ff9a9d">${_he(g.erroAlvos)}</span>`:''}</div>`;
+  const th='padding:7px 8px;text-align:left;font-size:11px;font-weight:500;color:var(--color-neutral-500);text-transform:uppercase;letter-spacing:.4px;white-space:nowrap';
+  const max=_trkOsLocalISO(new Date());
+  const linhas=g.itens.map((it,ii)=>{
+    const c=_trkCor(it.status);
+    const sel=`<select ${(ro||!g.alvos)?'disabled':''} onchange="trkOsItem(${gi},${ii},'alvoId',this.value)" style="${inp};max-width:320px;${it.alvoId?'':'border-color:var(--gc-red)'}"><option value="">— ativo do Fracttal —</option>${_trkOsAlvoOpts(g.alvos,it.alvoId)}</select>`;
+    const dp=!g.alvos?'':(it.situacao==='a_confirmar'&&String(it.alvoId)===String(it.alvoDepara))?'<div style="font-size:10.5px;color:var(--gc-amber);margin-top:3px" title="de-para casado por ordem/bloco: alguém precisa validar em campo">de-para a confirmar</div>'
+      :(it.code&&!it.alvoDepara)?`<div style="font-size:10.5px;color:#ff9a9d;margin-top:3px">o code ${_he(it.code)} do de-para não está nesta usina</div>`
+      :(!it.code?'<div style="font-size:10.5px;color:var(--color-neutral-500);margin-top:3px">sem de-para: escolha o ativo</div>':'');
+    const hr=`<input type="datetime-local" ${ro?'disabled':''} value="${_he(it.desde||'')}" max="${max}" onchange="trkOsItem(${gi},${ii},'desde',this.value)" style="${inp}">${it.desdeReg?'':`<div style="font-size:10.5px;color:var(--gc-amber);margin-top:3px">${it.desdeOrigem==='livro'?'hora da detecção, não da parada: confira':'sem hora de parada registrada: confira'}</div>`}`;
+    const tk=it.ticket?`<span style="font-size:11.5px;color:var(--gc-blue)" title="já existe ocorrência aberta na planilha de Tickets: a OS sai sem ticket novo">já tem ${_he(it.ticket)} — sem ticket novo</span>`
+      :(m.gerar?'<span style="font-size:11.5px;color:var(--color-neutral-300)">novo, na aba Trackers</span>':'<span style="font-size:11.5px;color:var(--color-neutral-500)">sem ticket</span>');
+    return `<tr style="border-top:1px solid var(--color-divider)"><td style="padding:9px 8px 9px 20px;white-space:nowrap;vertical-align:top"><span style="display:inline-flex;align-items:center;gap:7px;margin-top:7px"><span style="width:8px;height:8px;border-radius:50%;background:${c[0]}"></span><b style="color:${c[0]}">${_he(it.tid)}</b></span></td><td style="padding:9px 8px;vertical-align:top">${sel}${dp}</td><td style="padding:9px 8px;vertical-align:top">${hr}</td><td style="padding:9px 8px;vertical-align:top"><div style="margin-top:7px">${tk}</div></td><td style="padding:9px 20px 9px 8px;text-align:right;vertical-align:top">${ro?'':`<i class="ph ph-x" title="tirar da seleção" onclick="trkOsTirar(${gi},${ii})" style="cursor:pointer;color:var(--color-neutral-500);margin-top:9px;display:inline-block"></i>`}</td></tr>`;
+  }).join('');
+  return cab+`<table style="width:100%;border-collapse:collapse;font-size:12.5px"><thead><tr><th style="${th};padding-left:20px">Tracker</th><th style="${th}">Ativo no Fracttal</th><th style="${th}">Parou em (incidente)</th><th style="${th}">Ticket</th><th style="${th}"></th></tr></thead><tbody>${linhas}</tbody></table>`;
+}
+function _trkOsResultadoHTML(m){
+  return `<div style="padding:12px 20px;border-top:1px solid var(--color-divider);display:flex;flex-direction:column;gap:9px">${m.resultado.map(r=>{
+    const j=r.j||{}, bom=!r.incerto&&r.status>=200&&r.status<300&&j.ok>0&&!j.falhas;
+    const cor=bom?'var(--color-accent)':(r.incerto||(j.ok>0))?'var(--gc-amber)':'#ff9a9d';
+    const links=(j.folios||[]).map(f=>`<a href="/os/os/folio/${encodeURIComponent(f)}" target="_blank" rel="noopener" style="color:var(--gc-blue);font-weight:600">${_he(f)}</a>`).join(', ');
+    const txt=r.incerto?'O OS Creator não respondeu a tempo: as OS deste pedido podem ter sido criadas. Confira no Histórico do OS Creator antes de tentar de novo — estes trackers saíram da seleção.'
+      :(j.mensagem||j.erro||('falhou (resposta '+r.status+')'));
+    const det=(j.detalhes||[]).filter(Boolean).map(d=>`<div style="color:var(--gc-amber);font-size:11.5px">${_he(d)}</div>`).join('');
+    return `<div style="font-size:12.5px;border-left:3px solid ${cor};padding:3px 10px"><div style="color:var(--color-neutral-400);font-size:11.5px">${_he(r.lote.usinaFr)} · incidente ${_he(_dtBR(r.lote.evento))} · ${r.lote.itens.length} tracker(s)${r.lote.gerar?'':' · sem ticket'}</div><div style="white-space:pre-line;color:var(--color-neutral-200)">${_he(txt)}</div>${links?`<div style="margin-top:3px">Abrir OS: ${links}</div>`:''}${det}</div>`;
+  }).join('')}</div>`;
+}
+function _trkOsForm(m){
+  const ro=m.fase!=='pronto';
+  const inp='background:var(--color-neutral-900);border:1px solid var(--color-divider);border-radius:8px;color:var(--color-text);font-family:inherit;font-size:12.5px;padding:7px 10px';
+  const lab='display:flex;flex-direction:column;gap:5px;font-size:11px;color:var(--color-neutral-500);text-transform:uppercase;letter-spacing:.4px';
+  const pessoas=(m.pessoas||[]).map(p=>`<option value="${_he(p.id_personnel)}"${String(p.id_personnel)===String(m.resp)?' selected':''}>${_he(p.name)}</option>`).join('');
+  const topo=`<div style="display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end;padding:16px 20px;border-bottom:1px solid var(--color-divider)">
+    <label style="${lab}">Responsável<select ${ro?'disabled':''} onchange="trkOsCampo('resp',this.value)" style="${inp};min-width:240px;${m.resp?'':'border-color:var(--gc-amber)'}"><option value="">— selecione —</option>${pessoas}</select></label>
+    <label style="${lab}">Data programada<input type="datetime-local" ${ro?'disabled':''} value="${_he(m.prog)}" onchange="trkOsCampo('prog',this.value)" style="${inp}"></label>
+    <label style="${lab};flex:1;min-width:260px">Observação (vai na OS e no ticket)<input type="text" ${ro?'disabled':''} value="${_he(m.obs)}" oninput="trkOsCampo('obs',this.value,1)" style="${inp}"></label>
+    <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--color-neutral-300);padding-bottom:8px;cursor:pointer"><input type="checkbox" ${ro?'disabled':''} ${m.gerar?'checked':''} onchange="trkOsCampo('gerar',this.checked)"> Gerar ticket na aba Trackers</label></div>`;
+  const grupos=m.grupos.map((g,gi)=>_trkOsGrupoHTML(m,g,gi,ro,inp)).join('');
+  const v=m.fase==='pronto'?_trkOsValida(m):null, n=(v&&v.itens)?v.itens.length:0, pode=m.fase==='pronto'&&v&&!v.erro;
+  const msg=m.fase==='criando'?'<i class="ph ph-circle-notch gc-spin"></i> Criando no Fracttal… não feche esta janela.'
+    :m.fase==='feito'?'Pronto. Os trackers com OS criada saíram da seleção.'
+    :(v.erro?_he(v.erro):`${n} OS em ${v.lotes} pedido(s) ao OS Creator · programada para ${_he(_dtBR(m.prog))}.`);
+  const btn=m.fase==='feito'?'<button class="btn btn-secondary" onclick="trkOsFechar()">Fechar</button>'
+    :`<button onclick="${pode?'trkOsCriar()':''}" style="display:inline-flex;align-items:center;gap:7px;background:${pode?'var(--color-accent)':'var(--color-neutral-900)'};color:${pode?'#161826':'var(--color-neutral-500)'};border:none;border-radius:8px;padding:9px 16px;font-size:12.5px;font-weight:700;cursor:${pode?'pointer':'default'};font-family:inherit"><i class="ph ph-wrench"></i>Criar ${n||''} OS</button>`;
+  const pe=`<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 20px;border-top:1px solid var(--color-divider)"><span style="font-size:12px;color:${(v&&v.erro&&!v.espera)?'#ff9a9d':'var(--color-neutral-400)'}">${msg}</span>${btn}</div>`;
+  return topo+`<div style="max-height:50vh;overflow:auto">${grupos}</div>`+(m.resultado.length?_trkOsResultadoHTML(m):'')+pe;
+}
+function _trkOsRender(){
+  let el=document.getElementById('gc-trkosmodal');
+  const m=state._trkOs;
+  if(!m){ if(el) el.remove(); return; }
+  if(!el){ el=document.createElement('div'); el.id='gc-trkosmodal'; document.body.appendChild(el); }
+  const nSel=m.grupos.reduce((t,g)=>t+g.itens.length,0);
+  const caixa=h=>`<div style="padding:34px 24px;text-align:center;font-size:13px;color:var(--color-neutral-300);line-height:1.6">${h}</div>`;
+  let corpo;
+  if(m.fase==='carregando') corpo=caixa('<i class="ph ph-circle-notch gc-spin"></i> Conferindo a sessão do Fracttal e buscando os trackers…');
+  else if(m.fase==='login') corpo=caixa(`Para criar a OS no seu nome, entre no Fracttal pelo OS Creator.<div style="margin:14px 0"><a href="/os/login?next=%2Fos%2F" target="_blank" rel="noopener" class="btn btn-primary" style="text-decoration:none"><i class="ph ph-sign-in"></i> Entrar no Fracttal</a> <button class="btn btn-secondary" onclick="trkOsRecarregar()">Já entrei</button></div><span class="text-muted" style="font-size:12px"><i class="ph ph-circle-notch gc-spin"></i> Esta janela segue sozinha assim que a sessão existir.</span>`);
+  else if(m.fase==='erro') corpo=caixa(`Não consegui falar com o OS Creator: ${_he(m.erro)}<div style="margin-top:14px"><button class="btn btn-secondary" onclick="trkOsRecarregar()">Tentar de novo</button></div>`);
+  else corpo=_trkOsForm(m);
+  const fecha=m.fase==='criando'?'':'<i class="ph ph-x" onclick="trkOsFechar()" style="cursor:pointer;font-size:18px;color:var(--color-neutral-400)"></i>';
+  el.innerHTML=`<div onclick="if(event.target===this)trkOsFechar()" class="gc-overlay" style="position:fixed;inset:0;z-index:500;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:flex-start;justify-content:center;padding:48px 16px;overflow-y:auto"><div class="card" style="width:1080px;max-width:100%;padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 20px;border-bottom:1px solid var(--color-divider)"><div style="display:flex;flex-direction:column;gap:2px"><span style="font-family:var(--font-heading);font-size:16px">Criar OS de trackers</span><span class="text-muted" style="font-size:12px">${nSel} tracker(s) · uma OS por tracker · plano Verificação de Tracker Parado · sai no seu nome no Fracttal</span></div>${fecha}</div>${corpo}</div></div>`;
+  _prendeOverlays();
 }
 function renderPR(v){
   if(v.na) return _naPanel('PR');

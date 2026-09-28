@@ -226,6 +226,38 @@ saem em '—' sem visão por string, e a proporcionalidade vai para o aviso da c
 quando as strings de agora não têm nada a dizer. O `gerencial.html` é tema escuro por padrão só por tokens
 (`:root[data-theme="dark"]`); é Jinja — mudança nele exige restart do web.
 
+## Usina calada: desligada ou sem comunicação, e o relógio do registrador (28/09/2026)
+
+**A API não diz se a usina está desligada**, e calada é calada: a Ceilândia 1.1 gerava 1,4 MW às 08:10 de 28/09 e o
+dado parou ali. A usina calada (sem dado, `falha_comunicacao` ou leitura com mais de 2 h) só vira **"Usina
+desligada"** com MOTIVO, nesta ordem (`_usina_desligada_de`):
+
+1. a **marcação do analista**, com a observação (drill da usina → "Marcar como desligada"; estado
+   `usinas_desligadas`, chave = plant_id, rotas `/api/state/usina-desligada` e `/usina-religada`). Some sozinha quando
+   a usina volta a gerar (`_usina_gerando`) — marca velha faria a próxima queda de comunicação parecer desligamento;
+2. **OS de Religamento aberta na usina inteira** no índice de disponibilidade (`_religamentos_abertos_usina`, casa pelo
+   `_macro_usina_nome`). De cabine ou inversor não desliga a usina; e só vale para quem está calado — a Ceilândia 2
+   tinha a #14710 aberta e gerava;
+3. **estação comunicando com os inversores calados há mais de 2 h** (`_etm_leitura_por_pid`, das análises de ETM em
+   cache). Menos que isso pode ser o barramento dos inversores.
+
+Sem motivo, segue "sem comunicação". Aplicado na saída das 9 tabelas de strings (`_com_usina_desligada`, dentro do
+`_servir_tabela_strings`) e no rollup (`_portfolio_rollup` → status `desligada`), então a Entrada conta
+`usinas_desligadas` à parte e tira as strings delas da conta. A tela mostra a observação embaixo do nome, como o aviso
+do inversor desligado.
+
+**Relógio do registrador em outro fuso.** A API devolve o carimbo do REGISTRADOR (`dataleitura` é só a data). O da
+Diamantino 1 e 2 está no horário de Cuiabá: dado minuto a minuto sempre 62–63 min "atrás", e a régua dos 30 min dizia
+"sem comunicação" o dia inteiro — as únicas 2 das 153 (medido em 28/09). O fuso é do registrador, não do estado (a
+Canarana, também no MT, manda em horário de Brasília), então `_pv_relogio_corrige` **aprende** por usina: defasagem de
+horas cheias (± 12 min) repetida com o carimbo ANDANDO = relógio; usina parada não anda e não confirma; até 15 min de
+defasagem zera. O confirmado persiste em `pv_relogio.json` (estado, `_p_dado`). Vale para a linha (`build_summary`) e
+para a série da estação (`_analisa_etm_plant`). As curvas do drill ainda saem no horário do registrador.
+
+**Ainda aberto:** a régua de dado fresco ("nenhuma string com corrente" = desligada, de 23/09) chama de desligada a
+usina que gera pouco — Coração 1 em 28/09, 10:31: 10,6 kW por inversor, nenhum parado, 0 de 258 strings acima do limiar.
+O inversor é julgado pela potência; a usina, ainda pelas strings. Testes: `tests/test_usina_desligada_e_relogio.py`.
+
 ## Tickets de strings na tabela (23/09/2026)
 
 A tabela de strings tem a coluna **Tickets**: strings com ticket ABERTO na aba **"Strings indisp"** (sheet 128) da
@@ -443,6 +475,40 @@ no repositório Grid-Co-CODE/oem (clone em `C:\GridcoBuild\oem`), waitress em 12
 cada pessoa, não há senha compartilhada. O `_auth_gate` cobre `/os/*`: primeiro o login da plataforma, depois o do
 Fracttal. Serviço fora do ar → 503 com texto. Testes: `tests/test_os_web_proxy.py`. Detalhes: `docs/os-creator-web.md`
 no repositório oem.
+
+### Última OS no drill do inversor (25/09/2026; recolhida e com a observação desde 28/09)
+
+Bloco "Última OS" no inversor aberto, com três abas pelas marcas que o Fracttal já dá: **Performance** (etiqueta
+PERFORMANCE), **Religamento** (tipo Religamento/Religamento Remoto, a mais nova entre a do inversor e a da usina) e
+**Chamado** (etiqueta CHAMADOS); cancelada nunca conta (`_frac_ultimas_os`, rota `GET /api/fracttal/ultima-os`). A
+linha **"Observação da OS"** é o `note` do REST — o mesmo campo que o card do ticket de strings lê. O bloco nasce
+**recolhido** (Levi: "vir recolhida como padrão e abre caso eu clique") e só pergunta ao Fracttal quando abre
+(`toggleUltOs`): antes todo inversor aberto fazia a pergunta, e a cota é de 200/min para a empresa inteira. Testes:
+`tests/test_ultima_os_inversor.py`.
+
+### OS de tracker criada direto da plataforma (25/09/2026)
+
+Botão **Criar OS** no cabeçalho da aba Trackers (toda fonte com drill de trackers). No modo OS o clique no chip
+**marca** o tracker (fora dele, segue ocultando no gráfico); o drill oferece "Marcar os N parados sem ticket". A janela
+pede responsável, programada (padrão: **agora + 1 dia**, como a Tradicional do OS Creator), observação e "Gerar
+ticket", e cria **pela API do OS Creator** via proxy (`POST /os/api/performance/criar`, o mesmo corpo do `perf.js`),
+com a sessão do Fracttal de quem clicou — a OS sai no nome dessa pessoa. Plano "Verificação de Tracker Parado" (o da
+Estrutura Trackers, `linkar=false`), uma OS por tracker. Regras que o código segura:
+
+- **Incidente = "parado desde"** da plataforma: `GET /api/trackers/parado-desde?fonte=&plant_id=&trackers=`, a mesma
+  varredura da curva da lista de parados (`_trk_parado_desde_hist`), com o livro do tracker_watch como reserva só na
+  API PV. A rota devolve a **origem** de cada hora: "livro" é a hora da DETECÇÃO e a janela avisa "confira" — numa
+  máquina sem a curva, a Embu Guaçu 2 deu "desde 23:28" de hoje para trackers parados havia dias.
+- **Ativo do Fracttal pelo de-para** (`Code Fracttal` de `trackers_depara.xlsx`) casado contra
+  `/os/api/performance/alvos`; a usina, contra `/os/api/performance/usinas` (o OS Creator exige o nome EXATO). Sem par,
+  a pessoa escolhe na lista. De-para não "casado" (ou trocado à mão) põe "(supervisório: TRKnn)" na observação.
+- **Tracker com ticket aberto** (ou ticket da usina inteira) recebe a OS **sem** ticket novo — senão a planilha teria a
+  mesma parada duas vezes. Como a caixa do OS Creator é uma por pedido, os pedidos saem por usina × hora da parada ×
+  ticket, com no máximo 5 OS cada (o proxy desiste em 180 s).
+- Resposta ilegível (tempo esgotado, proxy fora) = **pode ter criado**: os trackers saem da seleção e a janela manda
+  conferir no Histórico antes de tentar de novo. Sem sessão do Fracttal (401) a janela oferece o login e segue sozinha.
+
+Testes: `tests/test_trackers_os_plataforma.py` (rota + regras puras no node).
 
 ## Qualidade de dado: clipping e valor travado (pvanalytics, 17/09/2026)
 
