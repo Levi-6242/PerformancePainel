@@ -582,13 +582,13 @@ def _tokens_status():
     os de login automático (API PV, SolarEdge) renovam sozinhos e só aparecem como info."""
     agora = time.time()
 
-    def _row(nome, fonte, exp, tipo, dica=""):
+    def _row(nome, fonte, exp, tipo, dica="", aviso_dias=3):
         dias = (exp - agora) / 86400.0 if exp else None
         if not exp:
             st = "desconhecido"
         elif exp <= agora:
             st = "vencido"
-        elif tipo == "manual" and dias < 3:
+        elif tipo == "manual" and dias < aviso_dias:
             st = "atencao"
         else:
             st = "ok"   # auto-renova (SunOp/Axis): renova sozinho pelo keepalive → só alerta se VENCIDO
@@ -607,11 +607,17 @@ def _tokens_status():
     # e era irrelevante, e todo mundo aprendeu a ignorá-la; quando o de API faltou de verdade, no
     # servidor novo, a Athon subiu muda sem UM aviso que apontasse para a causa.
     # O de API é o que alarma de fato: sem ele não há dado. O web fica como informação.
+    # A PLATAFORMA VOLTOU A ALARMAR EM 28/09/2026. Em 22/09 ela virou "reserva" porque os trackers e o
+    # combiner passaram a vir da API PV — certo para eles, mas a CURVA DE STRINGS DOS DIAS ANTERIORES
+    # (drill do inversor e "Curva das strings", via trygenerate) só existe na PV Plataforma e depende dele.
+    # Vencido em silêncio (servidor: 28/09 10:43), a tela passou a dizer "a fonte não guardou curva" de um
+    # dia que a fonte tinha (Assis Chateaubriand Skid 5). Aviso só no último dia: o token vale 7.
     rows = [
-        _row("Plataforma — reserva (trackers/combiner)", "plat", _jwt_exp(_plat_token()), "info",
-             "REBAIXADO EM 22/09/2026: os trackers passaram a vir da API PV fixa, que faz login "
-             "sozinho. Esta linha é reserva — vencida, os trackers continuam vindo. Se quiser "
-             "renovar mesmo assim, é o bookmarklet de 1 clique (logado em plataforma.pvoperation.com)."),
+        _row("Plataforma — curva de strings dos dias anteriores", "plat", _jwt_exp(_plat_token()), "manual",
+             "É ESTE que traz a curva de strings de DIAS ANTERIORES da API PV (drill do inversor e aba "
+             "Curva das strings). Vencido, o histórico some e a tela avisa. Trackers e combiner já não "
+             "dependem dele (vêm da API PV). Vale 7 dias: renove pelo bookmarklet de 1 clique (logado em "
+             "plataforma.pvoperation.com) ou cole abaixo.", aviso_dias=1),
         _row("SunOp / Athon — API (dados)", "sunop_api", _jwt_exp(_sunop_api_token("gridco")), "manual",
              "É ESTE que libera strings/ETM/trackers. Gerado na interface do SunOp, vale meses; "
              "guarde como SUNOP_API_TOKEN no tokens.txt."),
@@ -646,7 +652,7 @@ def pagina_tokens():
 # Tokens que dá para colar pela tela. Os demais (SolarEdge, API PV) fazem login com
 # usuário e senha e se curam sozinhos — não há o que colar.
 _TOKENS_COLAVEIS = {
-    "plat":  ("Plataforma (trackers e combiner)", "plataforma.pvoperation.com"),
+    "plat":  ("Plataforma (curva de strings dos dias anteriores)", "plataforma.pvoperation.com"),
     "sunop": ("SunOp / Athon",                    "gridco.sunop.net"),
     "axis":  ("Axis SunOp",                       "axis.sunop.net"),
 }
@@ -19575,19 +19581,43 @@ def api_spv_usinas():
 #   Plataforma devolve, por inversor, energia/dia + curva de potência por string. O idInversor
 #   da Plataforma == idefinversor da API PV (confirmado). type=9 (potência), status=2.
 #   HOJE continua na corrente (day_inverter, Ipv); só o histórico usa potência.
-def _spv_trygenerate(idinv, data: str) -> dict:
-    """Relatório de strings de UM inversor numa data: dados_energia_dia (kWh/string) +
-    dados_potencia_string ([{potencia, tsleitura}] por string). {} em qualquer falha."""
+def _spv_trygenerate_st(idinv, data: str):
+    """(relatório, motivo) de UM inversor numa data — o motivo diz POR QUE veio vazio.
+
+    Até 28/09/2026 qualquer falha virava {} e a tela lia "a fonte não guardou curva de strings nessa data".
+    Na Assis Chateaubriand Skid 5 (Inversor 5.1, 26/09) a PV Plataforma TINHA a curva (o Levi abriu na
+    própria PV Plataforma): quem faltava era o token dela, vencido às 10:43 daquele dia no servidor (no
+    notebook, desde 23/09). Alarme falso culpando a fonte — "alarme falso não pode passar batido!".
+    motivo: None (respondeu) · "sem_token" · "token_vencido" (pelo exp do JWT, ou HTTP 401/403) ·
+    "http_<n>" · "erro_rede" · "resposta_invalida". Token já vencido nem chama: seria uma recusa por inversor."""
+    tok = _plat_token()
+    if not tok:
+        return {}, "sem_token"
+    exp = _jwt_exp(tok)
+    if exp and exp <= time.time():
+        return {}, "token_vencido"
     try:
         r = _http().get(f"{PLAT_BASE}/v2/relatorios/trygenerate",
                         params={"idInversor": idinv, "data": data, "type": 9, "status": 2},
                         headers=_plat_headers(), timeout=45)
-        if r.status_code != 200:
-            return {}
-        j = r.json()
-        return j if isinstance(j, dict) else {}
     except Exception:
-        return {}
+        return {}, "erro_rede"
+    if r.status_code in (401, 403):
+        return {}, "token_vencido"
+    if r.status_code != 200:
+        return {}, f"http_{r.status_code}"
+    try:
+        j = r.json()
+    except ValueError:
+        return {}, "resposta_invalida"
+    return (j, None) if isinstance(j, dict) else ({}, "resposta_invalida")
+
+
+def _spv_trygenerate(idinv, data: str) -> dict:
+    """Relatório de strings de UM inversor numa data: dados_energia_dia (kWh/string) +
+    dados_potencia_string ([{potencia, tsleitura}] por string). {} em qualquer falha — quem precisa
+    dizer POR QUE veio vazio (a curva do drill) usa _spv_trygenerate_st."""
+    return _spv_trygenerate_st(idinv, data)[0]
 
 
 def _pv_devices_map(idusina, token) -> dict:
@@ -19689,11 +19719,13 @@ def _spv_inversores_hist(idusina, token, plant_nome_api: str) -> list:
     return out
 
 
-def _spv_analise_inv_potencia(idinv, nome, data, notas, full=False, plant_id=None) -> dict:
+def _spv_analise_inv_potencia(idinv, nome, data, notas, full=False, plant_id=None, j=None) -> dict:
     """Igual a _spv_analise_inversor, mas dos DIAS ANTERIORES via trygenerate (potência).
     dados_energia_dia → energia/string (mediana + subperformance); dados_potencia_string → curva (W).
-    Retorna None se não há visão de strings p/ o inversor/data."""
-    j = _spv_trygenerate(idinv, data)
+    Retorna None se não há visão de strings p/ o inversor/data. `j` = relatório já buscado (quem precisa
+    do motivo da falha busca antes, com _spv_trygenerate_st)."""
+    if j is None:
+        j = _spv_trygenerate(idinv, data)
     energia_dia = (j or {}).get("dados_energia_dia") or {}
     pot = (j or {}).get("dados_potencia_string") or {}
     if not energia_dia:
@@ -19745,9 +19777,31 @@ def _spv_analise_inv_potencia(idinv, nome, data, notas, full=False, plant_id=Non
             "strings": strings, "curva": curva_fmt, "nota": nota, "unidade": "potencia"}
 
 
+_SPV_MOTIVO_MSG = {
+    "token_vencido": "O token da PV Plataforma venceu — é ele que traz a curva de strings dos dias anteriores. "
+                     "Renove na tela Tokens.",
+    "sem_token": "Sem token da PV Plataforma — é ele que traz a curva de strings dos dias anteriores. "
+                 "Cole um na tela Tokens.",
+    "erro_fonte": "A PV Plataforma não respondeu para esta data. Tente de novo em instantes.",
+    "sem_curva_na_fonte": "A PV Plataforma respondeu, mas sem curva de strings ativa nesta data.",
+    "sem_inversores": "Não consegui listar os inversores desta usina (API PV).",
+}
+
+
 def _spv_usina_historico(idusina, token, data: str, full: bool) -> dict:
     """Monta o payload da usina p/ DIAS ANTERIORES: potência por string (trygenerate), um
-    inversor por vez (paralelo). Mesma estrutura do payload de hoje + unidade='potencia'."""
+    inversor por vez (paralelo). Mesma estrutura do payload de hoje + unidade='potencia'.
+
+    Quando falta curva, o payload diz POR QUÊ (`motivo`, e `faltando` por inversor): a tela só pode
+    afirmar que "a fonte não tem" quando a fonte respondeu vazio. Token vencido, fonte fora do ar e
+    fonte sem dado eram a MESMA frase, e ela culpava a fonte (Assis Chateaubriand Skid 5, 28/09/2026)."""
+    tok_plat = _plat_token()
+    exp_plat = _jwt_exp(tok_plat) if tok_plat else 0.0
+    if not tok_plat or (exp_plat and exp_plat <= time.time()):
+        motivo = "token_vencido" if tok_plat else "sem_token"
+        venc = datetime.fromtimestamp(exp_plat).strftime("%d/%m/%Y %H:%M") if exp_plat else None
+        return {"idusina": idusina, "data": data, "inversores": [], "unidade": "potencia",
+                "motivo": motivo, "token_exp": venc, "msg": _SPV_MOTIVO_MSG[motivo]}
     plant_nome_api = ""
     try:
         plant_nome_api = next((p["nome"].strip() for p in get_plants(token) if p["id"] == idusina), "")
@@ -19755,31 +19809,44 @@ def _spv_usina_historico(idusina, token, data: str, full: bool) -> dict:
         pass
     invs = _spv_inversores_hist(idusina, token, plant_nome_api)
     if not invs:
-        return {"idusina": idusina, "data": data, "inversores": [],
-                "msg": "Não consegui listar os inversores desta usina (API PV)."}
+        return {"idusina": idusina, "data": data, "inversores": [], "motivo": "sem_inversores",
+                "msg": _SPV_MOTIVO_MSG["sem_inversores"]}
     notas = _spv_load_notas()
-    results = {}
+
+    def _um(dev_id, nome):
+        j, motivo = _spv_trygenerate_st(dev_id, data)
+        if motivo:
+            return None, {"id": dev_id, "nome": nome, "motivo": motivo}
+        rr = _spv_analise_inv_potencia(dev_id, nome, data, notas, full, idusina, j=j)
+        return rr, (None if rr else {"id": dev_id, "nome": nome, "motivo": "sem_curva_na_fonte"})
+
+    results, faltando = {}, []
     with ThreadPoolExecutor(max_workers=6) as ex:
-        futs = {ex.submit(_spv_analise_inv_potencia, dev_id, nome, data, notas, full, idusina): dev_id
-                for dev_id, nome in invs}
+        futs = {ex.submit(_um, dev_id, nome): (dev_id, nome) for dev_id, nome in invs}
         for f in as_completed(futs):
             try:
-                rr = f.result()
-                if rr:
-                    results[rr["id"]] = rr
-            except Exception:
-                pass
+                rr, falta = f.result()
+            except Exception as e:                      # noqa: BLE001 — um inversor não derruba a usina
+                dev_id, nome = futs[f]
+                rr, falta = None, {"id": dev_id, "nome": nome, "motivo": "erro_fonte"}
+                print(f"[spv] histórico {idusina} {nome} {data}: {type(e).__name__}: {e}")
+            if rr:
+                results[rr["id"]] = rr
+            if falta:
+                faltando.append(falta)
     if not results:
+        motivos = {x["motivo"] for x in faltando}
+        motivo = ("token_vencido" if "token_vencido" in motivos else
+                  "sem_curva_na_fonte" if motivos == {"sem_curva_na_fonte"} else "erro_fonte")
         return {"idusina": idusina, "data": data, "inversores": [], "unidade": "potencia",
-                "msg": "Sem dados de strings para esta data na PV Plataforma "
-                       "(pode ser token da Plataforma vencido — renove pelo bookmarklet)."}
+                "motivo": motivo, "faltando": faltando, "msg": _SPV_MOTIVO_MSG[motivo]}
     ordem = sorted(results.values(),
                    key=lambda x: [int(p) for p in re.findall(r"\d+", x["nome"])] or [9999])
     _marca_inv_sub(ordem)
     med_usina = _spv_med_usina(ordem)
     return {"idusina": idusina, "data": data, "inversores": ordem,
             "total_abaixo": sum(i["abaixo"] for i in ordem),
-            "mediana_usina": med_usina, "unidade": "potencia",
+            "mediana_usina": med_usina, "unidade": "potencia", "faltando": faltando,
             "cache_ts": datetime.now().strftime("%H:%M:%S")}
 
 
@@ -19812,7 +19879,10 @@ def api_spv_usina(idusina):
     # cacheia p/ sempre quando vier com inversores; vazio (token?) não cacheia → retenta depois.
     if data != hoje:
         payload = _spv_usina_historico(idusina, token, data, full)
-        if payload.get("inversores"):
+        # "para sempre" só quando NENHUM inversor faltou por falha de busca: um que veio vazio por token
+        # vencido ou fonte fora ficaria vazio no cache mesmo depois de renovar o token (28/09/2026)
+        falhou = [x for x in payload.get("faltando") or [] if x.get("motivo") != "sem_curva_na_fonte"]
+        if payload.get("inversores") and not falhou:
             _spv_cache[key] = {"ts": agora, "payload": payload}
         return jsonify(payload)
     # HOJE → corrente via day_inverter (inalterado)

@@ -179,17 +179,17 @@ def test_dia_vazio_vira_j_vazio_e_a_analise_devolve_a_base():
 
 # ── a tela de tokens ──────────────────────────────────────────────────────────
 
-def test_o_PLAT_TOKEN_vencido_nao_alarma_mais(monkeypatch):
-    """Consequência da troca, e o motivo de ela ter sido pedida: o token da Plataforma vence a cada
-    7 dias e só se renova com alguém colando pelo bookmarklet. Num servidor sem ninguém na frente da
-    tela isso alarmava para sempre. Agora ele é reserva — vencido, os trackers continuam vindo.
-
-    Alarme que não se pode atender é alarme que se aprende a ignorar; foi assim que o SunOp gritou
-    'VENCIDO' por semanas até a Athon subir muda sem ninguém olhar."""
+def test_o_PLAT_TOKEN_alarma_pela_curva_historica_nao_pelos_trackers(monkeypatch):
+    """Em 22/09 a troca rebaixou o token da Plataforma a "reserva" — vencido, os trackers continuam vindo, e isso
+    segue verdade (a dica diz). A premissa de que NADA mais dependia dele estava errada: a curva de strings dos DIAS
+    ANTERIORES da API PV (drill do inversor e "Curva das strings", via trygenerate) só existe na PV Plataforma. Vencido
+    em silêncio no servidor (28/09 10:43), a tela passou a dizer "a fonte não guardou curva" de um dia que a fonte
+    tinha (Assis Chateaubriand Skid 5). Voltou a alarmar em 28/09/2026 — ver tests/test_curva_strings_motivo.py."""
     monkeypatch.setattr(app, "_plat_token", lambda: "", raising=False)
     linha = next(r for r in app._tokens_status()["tokens"] if r["fonte"] == "plat")
-    assert linha["status"] != "vencido", "PLAT vencido voltou a alarmar"
-    assert "reserva" in linha["dica"].lower() or "reserva" in linha["nome"].lower()
+    assert linha["tipo"] == "manual", "é ele que traz a curva de strings dos dias anteriores"
+    assert "dias anteriores" in linha["nome"].lower()
+    assert "trackers e combiner já não" in linha["dica"].lower(), "a dica não pode sugerir que os trackers dependem dele"
 
 
 def test_o_token_de_API_do_sunop_continua_alarmando(monkeypatch):

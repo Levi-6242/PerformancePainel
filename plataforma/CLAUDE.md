@@ -444,10 +444,17 @@ porque várias threads renovam tokens diferentes ao mesmo tempo e agora todos mo
 Os antigos `*_token.txt`/`se_cookie.txt` foram migrados sozinhos e renomeados para `.migrado` — não
 adianta colar token neles.
 
-O token da Plataforma (trackers + combiner box) é **manual**: tem CAPTCHA e MFA, não auto-renova.
-Vale **7 dias** (medido no `exp` do próprio JWT — o mesmo token serve trackers e combiner).
-Quando vence, o combiner recebe `HTTP 401`; existe um disjuntor que abre no primeiro 401 e para
-de tentar, em vez de repetir ~280 chamadas condenadas por ciclo. Status em `/api/tokens`.
+O token da Plataforma é **manual**: tem CAPTCHA e MFA, não auto-renova. Vale **7 dias** (medido no
+`exp` do próprio JWT). **Hoje só uma coisa depende dele de verdade: a curva de strings dos DIAS
+ANTERIORES da API PV** (drill do inversor e "Curva das strings", via `/v2/relatorios/trygenerate`);
+trackers e combiner vêm da API PV desde 22/09/2026 e o usam só como reserva. Nesse dia ele foi
+rebaixado a "reserva" e parou de alarmar — venceu em silêncio (servidor, 28/09 10:43) e a tela passou
+a dizer "a fonte não guardou curva de strings nessa data" de um dia que a PV Plataforma tinha (Assis
+Chateaubriand Skid 5, Inversor 5.1). Desde 28/09: a rota diz o `motivo` do vazio (e `faltando`, por
+inversor — `_spv_trygenerate_st`), a tela escreve "o token da PV Plataforma venceu em …" em âmbar
+com link para Tokens, e `/api/tokens` volta a alarmar (aviso só no último dia). Só `sem_curva_na_fonte`
+pode dizer que a fonte não tem — foi ela que respondeu vazio. Quando o token vence, o combiner de
+reserva recebe `HTTP 401`; um disjuntor abre no primeiro 401 e para de tentar.
 
 **Como renovar:** bookmarklet de 1 clique, ou `POST /api/pv/trackers/token` com `{"token": "..."}`.
 O `tokens_runtime.json` é relido a cada uso, então vale na hora, sem reiniciar. `_plat_token()` escolhe
