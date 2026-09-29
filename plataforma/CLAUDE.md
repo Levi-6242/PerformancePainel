@@ -217,7 +217,10 @@ strings cobre: o inversor que gera fica na conta, e a OS vai na linha (`os_na_co
 **diferença da usina é a soma das FALTAS de cada inversor** (`_dif_por_inversor`, nas cinco fontes com esperadas por
 inversor no cadastro): a sobra de um inversor (cadastro que conta a menos) não paga a falta de outro; esperada que
 nenhum inversor na conta explica segue como falta; sem as esperadas de cada um, vale a conta pelo total. A sobra vai
-em `strings_acima_cadastro`. Teste: `tests/test_diferenca_por_inversor.py`. As duas fontes SEM
+em `strings_acima_cadastro`. Teste: `tests/test_diferenca_por_inversor.py`. **O macro e a Entrada usam o mesmo número**
+(29/09 à tarde): `_macro_dif` lê a `diferenca` da linha (ativas − esperadas só sem ela) — a Poconé 1 tinha −6 na tabela e
+"ok" no macro —, e a Entrada lê o `strings_faltando` já silenciado do macro, não a diferença crua, que contava a usina em
+pouca luz ou sem sol (medido no PC às 12:38: 580 strings "faltando" no card da API PV contra 177). As duas fontes SEM
 potência por inversor usam a medida das strings dele, somada: RenoGrid/SolarEdge (`_se_fora_da_conta`: potência DC
 = soma dos W das strings) e a 2C do e-mail (`_owen_fora_da_conta`: soma das correntes, que zera quando ele desliga).
 
@@ -445,9 +448,11 @@ completa, curva, Diagnóstico v2. É o padrão SEMP/Alves Lima (`PV_FONTES` + bl
 fonte explícita filtra por **id**, não pelo `FULL_OM` (`_pv_plantas_da_fonte` — o FULL_OM é por nome de supervisório
 e "Sete Lagoa" não está lá); `PV_NOME_API_ALIAS` traduz o nome da API para o do cadastro em `nome_usina`; e
 `PV_INV_NOMES` dá o nome do inversor (a conta oem@ não devolve nome e as abas da 2C não têm linha no Equipamentos) —
-de-para fechado **por valor** contra o kWh diário do BD, nunca pela ordem dos ids. No rollup do macro a fonte entra
-**antes** do e-mail (`owen`): em empate de severidade fica quem entrou primeiro, e um estado pior no e-mail continua
-vencendo. **Trackers seguem pelo e-mail** (fonte `owen`), junto com a Ipixuna do Pará, que não está na API. Não é mais
+de-para fechado **por valor** contra o kWh diário do BD, nunca pela ordem dos ids. No rollup do macro a 2C entra pela
+**mesma linha por usina da tabela** (`_2c_unifica_rows`: a da API onde ela vê, a do e-mail no resto), desde 29/09/2026.
+Antes as duas disputavam ("o pior vence") e, sendo da mesma fonte, viravam fatias somadas: no servidor, sem e-mail, a
+linha sem dado vencia e a Entrada dizia "4 sem comunicação" com as três lendo pela API; no PC, Araputanga saía com 472
+ativas de 236 (`tests/test_macro_segue_a_tabela.py`). **Trackers seguem pelo e-mail** (fonte `owen`), junto com a Ipixuna do Pará, que não está na API. Não é mais
 por falta de permissão: desde 15/09/2026 a PV Plataforma devolve as três (ARA 59, STL 59, TUP 100, iguais ao
 BD_Trackers) — é para não ter a MESMA ocorrência em duas fontes. Quem decide migrar é o Levi; a API é ~2h45
 mais fresca. A trava está em `PV_TRK_OUTRA_FONTE` (ver "Trackers das usinas da conta OEM" abaixo). A conta principal responde "Invalid id" para as três:

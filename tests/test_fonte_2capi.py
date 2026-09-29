@@ -96,12 +96,14 @@ def test_no_rollup_a_api_vence_o_email_em_empate(monkeypatch):
     assert u["fonte"] == "2C" and u["plant_id"] == 18771898 and u["sub_fonte"] == "api"   # mesmo card, linha da API
 
 
-def test_no_rollup_um_estado_pior_no_email_ainda_prevalece(monkeypatch):
-    """A régua do Painel é 'o pior vence': se o e-mail vê 36 strings faltando e a API não, o card fica com o e-mail."""
+def test_no_rollup_vale_a_linha_da_tabela_nao_o_pior(monkeypatch):
+    """Até 29/09/2026 a régua era 'o pior vence' também aqui: o e-mail com 36 faltando levava o card, com a API — e a
+    tabela 2C — dizendo que não faltava nada. O e-mail chega em janelas de 3 h; a linha da usina que a API vê é a da API,
+    no card como na tabela (`_2c_unifica_rows`). Ver tests/test_macro_segue_a_tabela.py."""
     ok = {"usina": "Araputanga", "strings_ativas": 236, "str_esp": 236, "ultima_leitura": "2026-09-11 10:00"}
     pior = dict(ok, strings_ativas=200, plant_id="ARA")
     u = _rollup_so_com(monkeypatch, [pior], [dict(ok, plant_id=18771898)])
-    assert u["fonte"] == "2C" and u["strings_faltando"] == 36 and u["plant_id"] == "ARA" and not u.get("sub_fonte")
+    assert u["fonte"] == "2C" and u["strings_faltando"] == 0 and u["plant_id"] == 18771898 and u["sub_fonte"] == "api"
 
 
 def test_alias_da_api_vale_em_todos_os_mapas_do_cadastro(monkeypatch):

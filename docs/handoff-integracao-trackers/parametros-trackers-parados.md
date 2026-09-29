@@ -1,4 +1,6 @@
 # Régua de detecção de trackers parados — parâmetros e lógica
+> **Defasado para o tempo real (29/09/2026).** Apresenta a régua legada como definitiva; a que roda é a v2. A referência atual é [Tempo real](../tempo-real.md); este texto fica como histórico.
+
 
 Handoff de integração. Este documento descreve **todos os parâmetros e a lógica** que a
 Plataforma de Performance usa para classificar o estado de um tracker (parado / desvio /

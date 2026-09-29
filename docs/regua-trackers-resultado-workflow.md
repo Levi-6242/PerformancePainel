@@ -1,4 +1,6 @@
 # Régua de trackers — resultado do workflow (17/07/2026)
+> **Defasado para o tempo real (29/09/2026).** Histórico da construção da régua v2; cita funções que não existem mais. A referência atual é [Tempo real](tempo-real.md); este texto fica como histórico.
+
 
 Workflow multi-agente (TDD) que traduziu a metodologia do PDF (`docs/metodologia-analise-trackers.md`) em
 `_trk_analise_dia(grafico)` e validou contra as 16 fixtures (`tests/fixtures/trackers/*.raw.json`+`.gab.json`).

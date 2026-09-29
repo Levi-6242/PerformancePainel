@@ -1,4 +1,6 @@
 # Dashboard em Tempo Real — Blueprint (Histórico do BD + Vivo da API)
+> **Defasado para o tempo real (29/09/2026).** Este é o blueprint do PR ao vivo (junho); não descreve o Monitoramento. A referência atual é [Tempo real](tempo-real.md); este texto fica como histórico.
+
 
 > Objetivo: replicar o dashboard de **PR por usina/inversor** do Power BI
 > (`BD_Performance`) numa visão **em tempo real** dentro do próprio dashboard web

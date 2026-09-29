@@ -1,4 +1,6 @@
 # Arquitetura & Operação — Dashboard O&M Grid Co.
+> **Defasado para o tempo real (29/09/2026).** Fala em 6 fontes e não tem o worker, o snapshot nem o ciclo de hoje. A referência atual é [Tempo real](tempo-real.md); este texto fica como histórico.
+
 
 > Documento de handover para um dev (ou IA) assumir o projeto do zero.
 > Última atualização: 2026-06-10. Escrito em PT-BR (idioma do projeto).

@@ -1,4 +1,6 @@
 # Detecção de trackers — spec (rascunho)
+> **Defasado para o tempo real (29/09/2026).** Rascunho de julho (régua por curso), superado pela régua v2. A referência atual é [Tempo real](tempo-real.md); este texto fica como histórico.
+
 
 > Fonte única das **regras** de classificação de trackers. Os casos rotulados em
 > `tests/fixtures/trackers/` são a **verdade de campo** que a detecção tem que reproduzir

@@ -1,4 +1,6 @@
 # Regras de Negócio & Detalhes Funcionais — Dashboard O&M
+> **Defasado para o tempo real (29/09/2026).** As seções de string ativa (§5), ETM (§6) e trackers (§7) estão defasadas. A referência atual é [Tempo real](tempo-real.md); este texto fica como histórico.
+
 > Detalhamento das regras de análise (string ativa, ETM, trackers), planilha Check e estado
 > compartilhado. Última atualização: 2026-06-08.
 >

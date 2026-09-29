@@ -11,10 +11,11 @@ frota travada.
 import app
 
 
-# ── _macro_dif: o déficit é ativas − esperadas, igual em todas as fontes ────────────────────────────
+# ── _macro_dif: o déficit é o da coluna Diferença, igual em todas as fontes ───────────────────────────
 def test_macro_dif_e_igual_em_todas_as_fontes():
     """Antes preferia 'diferenca_operante' (só inversores produzindo), campo que só API PV/PG calculam — o
-    mesmo tracker de régua dava número diferente por fonte. Hoje é sempre ativas − esperadas."""
+    mesmo tracker de régua dava número diferente por fonte. Hoje é a `diferenca` da tabela (soma das faltas por
+    inversor, 29/09/2026 — ver tests/test_macro_segue_a_tabela.py); sem ela, ativas − esperadas."""
     assert app._macro_dif({"strings_ativas": 210, "str_esp": 216}) == -6
     assert app._macro_dif({"strings_ativas": 216, "str_esp": 216}) == 0
     assert app._macro_dif({"strings_ativas": 210, "str_esp": 216, "diferenca_operante": 0}) == -6

@@ -3965,14 +3965,17 @@ _ENTRADA_TR_VIVO_S = 15
 
 def _entrada_tr_strings_de(r: dict) -> dict:
     """Campos de strings de uma usina a partir da linha do rollup. Usina SEM COMUNICAÇÃO, usina parada e String Box
-    sem visão ficam em zero, como no macro. Sem `diferenca` (linha antiga) vale o `strings_faltando` que vier.
+    sem visão ficam em zero, como no macro.
 
     A sem comunicação entrou com a ÚLTIMA leitura de 08/09 a 23/09/2026, porque a tabela do Monitoramento mostrava o
     déficit dela em vermelho. Desde 23/09 a tabela diz "Usina sem comunicação" com "—" na diferença, e o card precisou
     acompanhar (Levi: "agora tem que atualizar o valor do card também"): a Athon mostrava 246/270 com as 248 strings
-    do CPP100, que não mandava leitura desde a véspera às 18:26."""
-    dif = r.get("diferenca")
-    ult = max(0, -int(dif)) if isinstance(dif, (int, float)) else int(r.get("strings_faltando") or 0)
+    do CPP100, que não mandava leitura desde a véspera às 18:26.
+
+    Desde 29/09/2026 a conta é o `strings_faltando` do macro, o campo JÁ silenciado (`_macro_item`) — o mesmo do /painel.
+    A `diferenca` crua contava o que a tabela deixa neutro: a usina em pouca luz (Diamantino às 08:42, 0 de 57, "Baixa
+    irradiância" na tabela) e a sem sol entre o sol baixar de 8° no estado e as 19 h, quando a Entrada vira noite."""
+    ult = int(r.get("strings_faltando") or 0)
     st = r.get("status")
     falt = 0 if (st in ("sem_producao", "sem_comm", "desligada") or r.get("sem_visao")) else ult
     return {"status": st, "causa": r.get("causa"), "strings_faltando": falt,
@@ -13739,16 +13742,20 @@ def _servir_com_sol(payload, conta, agora=None):
 
 
 def _macro_dif(r):
-    """Déficit de strings AGORA = ativas − esperadas, IGUAL em todas as fontes (o mesmo número
-    que aparece na coluna Diferença do detalhamento de cada fonte). Antes preferia
-    'diferenca_operante' (só inversores PRODUZINDO), campo que só API PV/PG calculam e que zera
-    quando os inversores param → deixava a régua inconsistente (Athon/Axis mostravam o total cru,
-    API PV/PG mostravam 0). String Box não tem visão por string → sem str_esp → sem déficit."""
+    """Déficit de strings AGORA = o número da coluna Diferença da tabela de cada fonte (`diferenca`), IGUAL em todas
+    as fontes. Desde 29/09/2026 ele é a soma das FALTAS de cada inversor (`_dif_por_inversor`): a sobra de um inversor
+    não paga a falta de outro. O macro seguia recontando ativas − esperadas, e a Poconé 1 (servidor, 11:39 de 29/09)
+    ficava "ok · Normal" com 202/202 enquanto a tabela dizia −6 — 6 strings paradas num inversor e 6 a mais no cadastro
+    de outro. Sem `diferenca` (linha antiga), vale ativas − esperadas. Antes de 05/08 preferia 'diferenca_operante'
+    (só inversores PRODUZINDO), que só API PV/PG calculam e que zera quando os inversores param. String Box sem visão
+    por string não tem str_esp → sem déficit."""
+    d = r.get("diferenca")
+    if isinstance(d, (int, float)) and not isinstance(d, bool):
+        return d
     a, e = r.get("strings_ativas"), r.get("str_esp")
     if isinstance(a, (int, float)) and isinstance(e, (int, float)):
         return a - e
-    d = r.get("diferenca")
-    return d if isinstance(d, (int, float)) else None
+    return None
 
 
 def _macro_status(r) -> str:
@@ -13816,6 +13823,13 @@ def _macro_causa(r, status: str) -> str:
 def _macro_item(fonte: str, r: dict) -> dict:
     status = _macro_status(r)
     sev = 0 if status == "sem_producao" else (2 if status == "desligada" else severidade(r))   # parada é crítica no ranking; desligada tem motivo
+    if status in ("ok", "critico", "atencao") and (r.get("sem_visao") or r.get("rampa") or _macro_sol_baixo(r)):
+        # A régua de strings cala aqui (sem visão por string, pouca luz, sem sol): 0 ativas é o normal da linha, e a
+        # severidade dela ("sem geração" com 0 ativas) não vale. Com ela, a fatia sem visão vencia a disputa da usina física
+        # e escondia a fatia com problema — às 12:40 de 29/09 a Ceilândia 1 estava "ok · Sem visão por string" com a 1.1 e
+        # a 1.3 críticas, e a Céu Azul "ok" com a III crítica; Poconé 1 e Diamantino, em pouca luz, entre as 8 primeiras do
+        # NOC com a pílula verde. O que sobra é o degrau do status (inversor desligado de verdade = o da falha de string).
+        sev = {"critico": 1, "atencao": 2}.get(status) or severidade(dict(r, strings_ativas=None, diferenca=None))
     if status == _inv_padrao_status_de(r):
         sev = 1 if status == "critico" else 2                # inversor fora do padrão = degrau da falha de string
     dif = _macro_dif(r)
@@ -13942,7 +13956,7 @@ def _somar_partes_da_usina(item, irmas):
     # recalcular por Σativas − Σesperadas ressuscitaria o déficit da fatia que a régua tinha calado.
     falt = sum(int(x.get("strings_faltando") or 0) for x in irmas)
     item["strings_faltando"] = falt
-    item["diferenca"] = -falt if falt else item.get("diferenca")
+    item["diferenca"] = -falt                 # o já silenciado; 0 quando nenhuma fatia conta
     ult = [x.get("ultima_leitura") for x in irmas if x.get("ultima_leitura")]
     if ult:
         item["ultima_leitura"] = max(ult)
@@ -13950,10 +13964,14 @@ def _somar_partes_da_usina(item, irmas):
     # _macro_dif cair no `diferenca` acima (o já silenciado) e não recontar o que foi calado.
     # `inv_padrao` viaja junto: sem ele a causa de Barretos voltava a "Normal" com o status em atenção
     # (10/09, primeiro ciclo da régua de padrão no ar — a fatia vencedora tinha o alerta, o resumo não).
-    item["causa"] = _macro_causa({"inv_off": item["inv_off"], "qtd_inversores": item["qtd_inversores"],
-                                  "diferenca": item["diferenca"], "sem_visao": item.get("sem_visao"),
-                                  "inv_padrao": item.get("inv_padrao")},
-                                 item["status"])
+    # Somas sem nada a dizer (nenhuma string contada, nenhum inversor parado, sem padrão) deixam a causa da fatia
+    # vencedora ("Baixa irradiância", "Sem visão por string", "Sem sol…"): até 29/09 a diferença crua da fatia calada
+    # ficava aqui e a Diamantino, com uma fatia em pouca luz, saía "ok" com "204 string(s) abaixo do esperado".
+    if falt or item["inv_off"] or _inv_padrao_status_de(item):
+        item["causa"] = _macro_causa({"inv_off": item["inv_off"], "qtd_inversores": item["qtd_inversores"],
+                                      "diferenca": item["diferenca"], "sem_visao": item.get("sem_visao"),
+                                      "inv_padrao": item.get("inv_padrao")},
+                                     item["status"])
 
 
 def _portfolio_rollup() -> list:
@@ -14013,20 +14031,22 @@ def _portfolio_rollup() -> list:
             add("Axis", r)
     except Exception as e:
         print(f"[macro] Axis indisponível: {e}")
-    # UM card "2C" misturando API PV e e-mail (Levi, 11/09/2026: "as que não têm na PV ficam por e-mail"). A API entra
-    # ANTES: em empate de severidade o `add` fica com quem entrou primeiro, e a API é a fonte viva das três (strings ao
-    # vivo, ETM completa); o e-mail cobre o que ela não vê (Ipixuna, trackers) e um estado PIOR no e-mail continua
-    # vencendo, como em toda fonte. `sub_fonte` diz de onde veio a linha vencedora.
-    try:                                      # 2C pela API PV (conta oem@) — Araputanga, Sete Lagoas, Tupi
-        for r in (_2capi_cache.get("payload") or {}).get("rows", []):
-            add("2C", dict(r, sub_fonte="api"))
-    except Exception as e:
-        print(f"[macro] 2C API PV indisponível: {e}")
-    try:                                      # 2C / Owen (arquivos locais, barato/cacheado)
-        for r in _owen_strings_rows():
-            add("2C", r)
+    # UM card "2C" com a MESMA linha por usina da tabela 2C (`_2c_unifica_rows`; Levi, 11/09/2026: "as que não têm na PV
+    # ficam por e-mail"): a da API PV onde ela vê (Araputanga, Sete Lagoas, Tupi, União — a linha viva), a do e-mail no
+    # resto (Ipixuna do Pará). Até 29/09 as duas entravam e disputavam, e sendo da mesma fonte "2C" viravam FATIAS da
+    # mesma usina: no servidor, onde o e-mail não chega, a linha do e-mail sem dado vencia e a Entrada dizia "4 sem
+    # comunicação" com as três lendo às 11:29 pela API; no PC, as duas se SOMAVAM (Araputanga 472 ativas de 236, Tupi
+    # Paulista 800 de 400). O e-mail de 3 h atrás não desmente a API de agora. `sub_fonte` diz de onde veio a linha.
+    try:                                      # 2C / Owen (arquivos locais, barato/cacheado); quebrado, fica a API
+        _rows_email = _owen_strings_rows()
     except Exception as e:
         print(f"[macro] 2C/Owen indisponível: {e}")
+        _rows_email = []
+    try:
+        for r in _2c_unifica_rows(_rows_email, (_2capi_cache.get("payload") or {}).get("rows")):
+            add("2C", r)
+    except Exception as e:
+        print(f"[macro] 2C indisponível: {e}")
     # As duas fontes abaixo ficavam FORA do rollup e as usinas delas não existiam no Painel
     # (auditoria 07/08: 8 usinas invisíveis — as 7 do RenoGrid + Tucano 1). Mesmo padrão: só
     # cache prewarmed, nenhum fetch novo aqui.

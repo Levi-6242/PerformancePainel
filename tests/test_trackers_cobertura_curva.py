@@ -108,9 +108,13 @@ def _curvas_reais(nome, ate):
 
 
 def _analise_pg(monkeypatch, nome, pid, ate):
-    """O motor do Banco (`_pg_trackers_analise`) inteiro, com a consulta ao banco trocada pela foto."""
+    """O motor do Banco (`_pg_trackers_analise`) inteiro, com a consulta ao banco trocada pela foto — e SEM histórico:
+    a regra do dia anterior lê o índice real do worker (`trk_parados_fim_dia.json`), que muda sozinho. Em 29/09, às
+    12:28, ele passou a ter a Boa Esperança do Sul 1 parada em 22/09 e a regra manteve os 49 parados das 08:00 — estes
+    testes são do piso; a regra tem os dela (tests/test_trackers_piso_dia_anterior.py)."""
     trks = _curvas_reais(nome, ate)
     monkeypatch.setattr(app, "_pg_trk_plant_curvas", lambda plant_id, date, date_fim=None: trks)
+    monkeypatch.setattr(app, "_trk_parados_antes", lambda pid, dia=None: set())
     return app._pg_trackers_analise(pid, "2026-09-28"), trks
 
 

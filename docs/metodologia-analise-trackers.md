@@ -1,4 +1,6 @@
 # Metodologia de análise de trackers (a régua definitiva)
+> **Defasado para o tempo real (29/09/2026).** Especificação de julho; a régua que roda hoje é a v2 (`plataforma/trk_regua_v2.py`). A referência atual é [Tempo real](tempo-real.md); este texto fica como histórico.
+
 
 Spec da classificação de trackers, gerada pelo Sonnet 5 a partir do caso **MAB200 16/07/2026** (150 trackers)
 e adotada pelo Levi como a régua a implementar. Objetivo: classificação **auditável e reprodutível** →
