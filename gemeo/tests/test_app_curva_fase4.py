@@ -14,8 +14,11 @@ dedicado; `GEMEO_URL` já é configurável e o proxy `/gemeo/*` já existe. Ler 
 funcionaria hoje e quebraria na segunda.
 """
 import datetime as dt
+import sys
+from pathlib import Path
 
-from gemeo.app import consultas as c
+sys.path.insert(0, str(Path(__file__).parent))
+from gemeo.app import consultas as c  # noqa: E402
 
 UTC = dt.timezone.utc
 
@@ -66,3 +69,34 @@ def test_a_rota_por_pathname_existe():
     cfg = types.SimpleNamespace(senha_app="x", db_dsn="", porta_app=5075, sunop_token="", teto_sunop_dia=600)
     app = server.criar_app(cfg, conectar=lambda: None)
     assert "/gemeo/api/curva/pathnames" in {str(r.rule) for r in app.url_map.iter_rules()}
+
+
+def test_rota_por_pathname_respeita_janela_com_fuso_e_devolve_utc(conn):
+    """O contrato de que a plataforma depende (28/09/2026, `_sunop_do_gemeo` em plataforma/app.py): ela manda a
+    janela do dia da usina JÁ em UTC, com +00:00, e desfaz o carimbo — que volta em UTC — pelo fuso da usina.
+    Até 28/09 ela mandava a janela na hora da usina e lia o +00:00 como hora da usina: 3 h de deslocamento no
+    drill, na ETM e nos trackers. Se esta rota passar a devolver hora local (o "conserto" óbvio do lado de cá),
+    a plataforma converte duas vezes — este teste existe para esse dia."""
+    import types
+    from gemeo.app import server
+    from gemeo.core import db
+    from semear import limpar_tudo
+    limpar_tudo(conn)
+    with conn.cursor() as cur:
+        cur.execute("INSERT INTO usina (codigo, nome, fonte, fonte_ref, tz) VALUES (%s,%s,%s,%s,%s) RETURNING id",
+                    ("MRO100", "MRO100", "sunop", "MRO100", "America/Belem"))
+        uid = cur.fetchone()[0]
+        cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte) VALUES (%s,%s,%s) RETURNING id",
+                    (uid, "tracker", "TRK_1"))
+        eid = cur.fetchone()[0]
+    conn.commit()
+    db.upsert_leituras(conn, [(eid, "angulo", dt.datetime(2026, 9, 22, 2, 30, tzinfo=UTC), 1.0),   # 23:30 de 21/09 em Belém
+                              (eid, "angulo", dt.datetime(2026, 9, 22, 9, 0, tzinfo=UTC), 2.0)])   # 06:00 de 22/09
+    cfg = types.SimpleNamespace(senha_app="x", db_dsn="", porta_app=5075, sunop_token="", teto_sunop_dia=600)
+    cli = server.criar_app(cfg, conectar=lambda: conn).test_client()
+
+    r = cli.post("/gemeo/api/curva/pathnames", headers={"X-Gemeo-Senha": "x"},
+                 json={"pathnames": ["MRO100.TRK_1.MEDIDAS.POSAT"],        # o dia 22/09 de Belém, em UTC
+                       "ini": "2026-09-22T03:00:00+00:00", "fim": "2026-09-23T02:59:59+00:00"})
+
+    assert r.get_json()["series"] == {"MRO100.TRK_1.MEDIDAS.POSAT": [["2026-09-22T09:00:00+00:00", 2.0]]}

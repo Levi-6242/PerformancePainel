@@ -41,6 +41,18 @@ _NOMES = {
     "riograndedosul": "RS", "rondonia": "RO", "roraima": "RR", "santacatarina": "SC", "saopaulo": "SP",
     "sergipe": "SE", "tocantins": "TO",
 }
+# Fuso (IANA) de cada UF, pela capital. NÃO é a hora das réguas — essa segue sendo a de Brasília
+# (FUSO_BRASILIA_H). Existe para desfazer a conversão de quem guardou a leitura em UTC: o acervo do gêmeo
+# grava a SunOp em UTC, e a plataforma lê a SunOp na hora da usina (28/09/2026, `_sunop_fuso_usina`).
+FUSO_UF = {
+    "AC": "America/Rio_Branco", "AL": "America/Maceio", "AP": "America/Belem", "AM": "America/Manaus",
+    "BA": "America/Bahia", "CE": "America/Fortaleza", "DF": "America/Sao_Paulo", "ES": "America/Sao_Paulo",
+    "GO": "America/Sao_Paulo", "MA": "America/Fortaleza", "MT": "America/Cuiaba", "MS": "America/Campo_Grande",
+    "MG": "America/Sao_Paulo", "PA": "America/Belem", "PB": "America/Fortaleza", "PR": "America/Sao_Paulo",
+    "PE": "America/Recife", "PI": "America/Fortaleza", "RJ": "America/Sao_Paulo", "RN": "America/Fortaleza",
+    "RS": "America/Sao_Paulo", "RO": "America/Porto_Velho", "RR": "America/Boa_Vista", "SC": "America/Sao_Paulo",
+    "SP": "America/Sao_Paulo", "SE": "America/Maceio", "TO": "America/Araguaina",
+}
 
 
 def _nrm(s) -> str:
@@ -49,15 +61,24 @@ def _nrm(s) -> str:
     return "".join(s.split()).lower()
 
 
-def coordenadas(estado):
-    """(lat, lon) da UF a partir do nome ou da sigla; None se não reconhecer."""
+def _uf(estado):
+    """Sigla da UF a partir do nome ou da sigla; None se não reconhecer."""
     k = _nrm(estado)
     if not k:
         return None
-    if k.upper() in UF:
-        return UF[k.upper()]
-    uf = _NOMES.get(k)
+    return k.upper() if k.upper() in UF else _NOMES.get(k)
+
+
+def coordenadas(estado):
+    """(lat, lon) da UF a partir do nome ou da sigla; None se não reconhecer."""
+    uf = _uf(estado)
     return UF.get(uf) if uf else None
+
+
+def fuso(estado):
+    """Nome IANA do fuso da UF (pelo nome ou pela sigla); None se não reconhecer."""
+    uf = _uf(estado)
+    return FUSO_UF.get(uf) if uf else None
 
 
 def elevacao_solar(lat: float, lon: float, quando_utc: datetime) -> float:

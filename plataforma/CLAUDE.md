@@ -91,6 +91,18 @@ reconciliar correção que a SunOp faça atrás. ~76% menos payload; a contagem 
 o teste que importa é o de EQUIVALÊNCIA — fusão errada não dá erro, ela deforma a curva, que é o
 insumo de "parado por amplitude".
 
+**Curva da SunOp pelo acervo do gêmeo (FASE 4, `_sunop_analog_history`).** O gêmeo guarda em UTC; a plataforma lê a
+SunOp na hora da usina. Desde 28/09 a janela vai ao gêmeo em UTC e o carimbo volta na hora da usina, no texto da SunOp,
+pelo fuso de CADA usina (`_sunop_fuso_usina`: estado da Info Geral → `sol.fuso`, reserva Brasília). Antes o drill de dia
+passado saía 3 h adiantado, a pré-análise de ETM da Athon parava (TypeError: carimbo com e sem fuso no mesmo diagnóstico,
+parada desde as 08:50 de 28/09) e o PR pegava o EPD da véspera (MRO100 21/09: 1.902 kWh por inversor em vez de 1.198).
+Dois testes travam os dois lados: `tests/test_fase4_fuso_da_usina.py` (inclui o fuso do `gemeo/config.toml` igual ao da
+plataforma) e o contrato em `gemeo/tests/test_app_curva_fase4.py` — a rota devolve UTC; se o gêmeo passar a devolver hora
+local, a plataforma converte duas vezes. O acervo tem strings e trackers pela metade (30–43 dos 48 quartos de hora de
+06–18 h por dia, marca d'água da ingestão) e strings a 15 min contra 5 da SunOp: dia passado pelo gêmeo pode vir com
+buraco. E o gêmeo que serve só PARTE de uma chamada não economiza pedido — a SunOp recebe o POST do mesmo jeito (190 de
+5.036 chamadas de 22 a 28/09: pré-análise de ETM e drill de strings).
+
 **Trackers da API PV têm laço próprio (`_pv_trk_loop`, 22/09/2026) — fora do ciclo do prewarm.** A varredura
 baixa o dia inteiro de cada usina (8,8–13,8 MB) e levou **897 s** medida sozinha, contra ~3 min de todo o resto
 do ciclo. Dentro da ETAPA 3, que só acaba quando a última tarefa acaba, ela fazia o ciclo inteiro durar ~16 min
@@ -433,6 +445,26 @@ inversor continuam valendo. A marca é feita na saída e não no build porque o 
 payload em cache é do worker (só se mexe em cópia). **Rota de strings nova precisa passar por
 `_servir_com_sol`**: o teste lê o mapa `strings:{...}` do HTML e falha se faltar uma.
 
+## Trackers: curva curta não é parado, e o dia anterior (28–29/09/2026)
+
+**Piso de cobertura** (`_trk_curva_curta` + `_trk_piso_cobertura`, na SAÍDA dos dois dispatchers, curso e perdas, nas
+duas réguas, antes do `_trk_promove_semcom`): o "parado" de quem tem curva curta vira "normal". Curta = tem leitura na
+janela, cobre menos que `TRK_COBERTURA_MIN_H` (4 h), a frota não girou mais que `TRK_ALVO_MOVE_MIN` no intervalo DELE
+e ele não emudeceu (última leitura contra a MEDIANA da frota). Caso real: a Guaratinguetá V às 15:44 de 28/09 tinha 48
+"parados" com 40 min de curva — a v2 chama de parado quem tem amplitude < 10° sem perguntar quanto a curva cobre, e a
+guarda de 4 h só existia na pré-classificação dos motores, que o `_trk_status_from_curva` sobrescreve.
+
+**Regra do dia anterior** (`_trk_parados_antes`, argumento `manter` dos dispatchers): de manhã toda curva é curta, e o
+piso sozinho adiava para ~10 h as paradas de frota travada havia dias — a ronda das 08:25 deixaria de citá-las. Quem
+estava parado no último dia CLASSIFICADO do registro (até `TRK_MANTER_DIAS` atrás) não é rebaixado. Todos os pontos que
+classificam passam a usina: motores da SunOp, Banco e 2C, refino da API PV, os 4 gráficos, o registro do dia e a
+reserva das Ocorrências. O web carrega o `trk_eventos.json` (26 MB) só no boot, então o worker grava junto, no
+`_trk_ev_save`, um índice pequeno do fim de cada dia (`trk_parados_fim_dia.json`) que o web relê pelo mtime.
+Medido às 08:36 de 29/09, nas mesmas curvas (régua de produção sem piso / só o piso / piso + dia anterior): API PV 451 /
+146 / 363 (Brodowski, Guatambu 4 e Primavera voltam inteiros; Córrego do Sapucaia 26 / 0 / 0 e São Bento do Una 52 / 0 /
+11 — os falsos da manhã continuam fora); Banco 284 / 94 / 161 (Aparecida 3 66 / 17 / 64); Athon 72 nas três.
+Testes: `tests/test_trackers_cobertura_curva.py` e `tests/test_trackers_piso_dia_anterior.py` (as duas réguas).
+
 ## Tokens
 
 **Dois arquivos, dois donos.** O `tokens.txt` (raiz) é **semente**, formato `CHAVE=VALOR`, editado
@@ -646,8 +678,8 @@ resposta e a rota `/api/painel/falhas?mes=` só devolve os bytes. De `FALHAS_INI
   `falhas_backfill_sunop.json`; lote que falha para a passada sem gravar o dia pela metade; usina sem leitura no dia
   não ganha registro (vazio apagaria as quedas gravadas dela). Equivalência em 27/09: 14 de 14 strings mortas iguais,
   mesma hora, mesmas vivas nas 10 usinas da Athon. ~13 POSTs por dia, US$ 0,0005 cada acima da cota. **Não pelo acervo
-  do gêmeo**: ele devolve UTC (+00:00) e o `_sunop_strings_curva` lê a hora como da usina — conferido no mesmo
-  pathname; o drill "Curva das strings" de dia passado servido por ele mostra as horas 3 h adiantadas (não corrigido).
+  do gêmeo**: até 28/09 ele vinha em UTC lido como hora da usina (corrigido, ver "Curva da SunOp pelo acervo do gêmeo"),
+  e continua direto na API porque o acervo tem strings pela metade — o backfill precisa do dia inteiro.
 - **O tempo real também erra**: Guaratinguetá V às 15:44 tinha 48 "parados" com 40 min de curva (15:10–15:50, os trackers
   indo de 46° a 55°) — a v2 não tem piso de cobertura e o `dia_coberto` (4 h) só vale na pré-classificação. A aba não o
   pegou porque o registro não classifica dia com cobertura < 0,5.

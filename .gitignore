@@ -167,5 +167,6 @@ falhas_pv_dev.json
 falhas_os_abertas.json
 falhas_importar_perdas.json*
 falhas_backfill_sunop.json
+trk_parados_fim_dia.json
 frac_mtta_index.json
 frac_mtta_linhas.json

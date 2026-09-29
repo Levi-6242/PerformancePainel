@@ -6570,7 +6570,7 @@ def _sunop_trackers_plant_curva(plant_name: str, inst: str = "gridco", data: str
                     "max_disp":    round(max_disp, 1) if max_disp is not None else None,
                     "amplitude":   round(amp, 1)  if amp  is not None else None,
                     "status": status})
-    parados, sev, med, lev = _trk_status_from_curva(lst, g)   # STATUS pela régua freeze-based definitiva (Levi 10/07)
+    parados, sev, med, lev = _trk_status_from_curva(lst, g, manter=_trk_parados_antes(plant_name, _dia))   # régua freeze-based (Levi 10/07)
     pior = max((t["max_disp"] for t in lst if t["max_disp"] is not None), default=None)
     tk = _trk_cruza_tickets(base["usina"], lst)   # planilha de Tickets: só ocorrências abertas (motor único das 5 fontes)
     # métricas p/ o OVERVIEW (mesmo motor de curva, sem depender do snapshot):
@@ -6737,6 +6737,16 @@ def api_sunop_trackers_plant(plant_name):
 # USINA (use_plant_timezone) e o gemeo grava em UTC — 3 h de deslocamento viram 66 graus num
 # tracker; o gemeo grava tracker com period=15m e a SunOp devolve 10m por padrao; e a resposta da
 # SunOp e PLANA (um item por ponto, com pathname), nao aninhada por serie.
+#
+# O primeiro engano nao ficou so na comparacao: ate 28/09 o proprio codigo o cometia. A janela ia
+# ao gemeo na hora da usina, ele a lia como UTC, e o carimbo voltava com +00:00 para quem le a
+# hora pelo texto (`str(t)[11:16]`, `ts[11:13]`). No mesmo pathname (MTS100 INV_1 I_PV1, 22/09):
+# corrente acima de 0,5 A das 11:30 as 20:00 pelo gemeo, das 06:10 as 17:10 pela API. E nao era
+# so o drill: a pre-analise de ETM da Athon parou de publicar as 08:50 de 28/09 (carimbo com e
+# sem fuso no mesmo diagnostico e TypeError), a curva de tracker de hoje continuava de um ponto
+# "no futuro" (janela das 19:15 pedida as 17:27) e o EPD maximo do dia pegava o total da vespera.
+# Agora a janela vai em UTC e o carimbo volta na hora da usina, no texto da SunOp, pelo fuso DE
+# CADA USINA (`_sunop_fuso_usina`) — e so aqui, para todos os consumidores de uma vez.
 GEMEO_CURVA_ATIVO = os.environ.get("GEMEO_CURVA", "1") != "0"   # interruptor p/ o dia do deploy
 _GEMEO_CURVA_S = 25                                             # o gemeo e local; se demorar, nao serve
 
@@ -6756,30 +6766,89 @@ def _gemeo_curva(pathnames: list, ini: str, fim: str) -> dict | None:
     return d if isinstance(d, dict) and "series" in d else None
 
 
-def _iso_utc(t: str) -> str:
-    """'2026-09-20 00:00:00' (hora da usina, como a SunOp recebe) -> ISO. O gemeo guarda UTC; quem
-    chama aqui ja passa a janela na mesma referencia que manda para a SunOp."""
-    return str(t).replace(" ", "T")
+def _sunop_fuso_usina(plant: str):
+    """Fuso da usina da SunOp: o do estado dela no cadastro (Info Geral) e, sem estado, o de Brasília.
+
+    Serve para desfazer a conversão do acervo do gêmeo, e a volta só é exata com o MESMO fuso da ida: o
+    gêmeo converte a hora da usina em UTC pelo `tz` do config dele. Em 28/09 as quatro usinas da SunOp no
+    acervo (MRO100, MAB100 e CPP100 no Pará, MTS100 no Maranhão) estão todas em UTC−3, e há teste que
+    compara os dois lados. A SunOp não diz o fuso no metadata; Brasília é a reserva porque é a hora em que a
+    plataforma já lê a SunOp — o `_conferir_fuso` mantém o processo em −3."""
+    nome = _sol.fuso(_estado_da_usina(plant)) or "America/Sao_Paulo"
+    try:
+        return ZoneInfo(nome)
+    except Exception:                          # noqa: BLE001 — sem base de fusos no sistema
+        return timezone(timedelta(hours=FUSO_ESPERADO_H))
+
+
+def _gemeo_janela_utc(t: str, fuso) -> str:
+    """'2026-09-22T00:00:00' na hora da usina (como a SunOp recebe) → '2026-09-22T03:00:00+00:00'. Sem o
+    fuso no texto o gêmeo lê a janela como UTC — era metade do defeito de 28/09."""
+    d = datetime.fromisoformat(str(t).replace(" ", "T"))
+    return (d if d.tzinfo else d.replace(tzinfo=fuso)).astimezone(timezone.utc).isoformat()
+
+
+def _gemeo_na_hora_da_usina(serie, fuso, memo: dict) -> list:
+    """[[ts em UTC, valor], ...] do gêmeo → [(ts na hora da usina, valor)], no MESMO texto que a SunOp devolve
+    ('2026-09-22T06:10:00', sem fuso). Carimbo sem fuso é UTC: no gêmeo, naive é erro. É a outra metade do
+    defeito de 28/09 — o `+00:00` que ia para quem lê a hora pelo texto.
+
+    `memo` guarda a conversão de cada carimbo (um por fuso): as 560 strings de uma usina dividem os mesmos ~96
+    carimbos do dia, e converter um a um custava 96 ms por usina-dia (26 mil pontos, medido em 28/09)."""
+    out = []
+    for ts, v in serie:
+        t = memo.get(ts)
+        if t is None:
+            d = datetime.fromisoformat(str(ts))
+            d = d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+            t = memo[ts] = d.astimezone(fuso).strftime("%Y-%m-%dT%H:%M:%S")
+        out.append((t, v))
+    return out
+
+
+def _sunop_do_gemeo(pathnames: list, start: str, end: str) -> dict:
+    """{pathname: [(ts na hora da usina, valor)]} do que o acervo do gêmeo atende; o resto fica de fora.
+
+    Cada usina vai na janela do fuso DELA, e usinas no mesmo fuso vão num pedido só — hoje as da SunOp
+    estão todas em UTC−3, então continua sendo um pedido por chamada, como antes."""
+    fuso, janela, grupos = {}, {}, {}
+    try:
+        for p in pathnames:
+            u = str(p).split(".")[0]
+            if u not in janela:
+                fuso[u] = _sunop_fuso_usina(u)
+                janela[u] = (_gemeo_janela_utc(start, fuso[u]), _gemeo_janela_utc(end, fuso[u]))
+            grupos.setdefault(janela[u], []).append(p)
+    except Exception:                          # noqa: BLE001 — janela ilegível: a SunOp atende tudo
+        return {}
+    out, memo = {}, {}
+    for (ini, fim), pns in grupos.items():
+        try:
+            series = (_gemeo_curva(pns, ini, fim) or {}).get("series") or {}
+            convertidas = {}
+            for p, s in series.items():
+                fz = fuso[str(p).split(".")[0]]
+                convertidas[p] = _gemeo_na_hora_da_usina(s, fz, memo.setdefault(fz, {}))
+        except Exception:                      # noqa: BLE001 — gemeo fora (ou resposta ilegivel) nao derruba a curva
+            convertidas = {}
+        out.update({p: s for p, s in convertidas.items() if s})
+    return out
 
 
 def _sunop_analog_history(pathnames: list, start: str, end: str, inst: str = "gridco",
                           period: str = None) -> dict:
     """Curva por pathname. Tenta o acervo do gemeo primeiro (ver FASE 4 acima) e pede a SunOp
-    apenas o que ele nao atendeu — e o que reduz a CONTAGEM de requisicoes, nao so o payload."""
+    apenas o que ele nao atendeu — e o que reduz a CONTAGEM de requisicoes, nao so o payload.
+    Pelos dois caminhos o carimbo sai igual: hora da usina, no texto da SunOp."""
     if GEMEO_CURVA_ATIVO and pathnames:
-        try:
-            g = _gemeo_curva(pathnames, _iso_utc(start), _iso_utc(end))
-        except Exception:                      # noqa: BLE001 — gemeo fora nao pode derrubar a curva
-            g = None
-        if g:
-            servidas = {k: [tuple(x) for x in v] for k, v in (g.get("series") or {}).items()}
-            faltam = [p for p in pathnames if p not in servidas]
-            if servidas:
-                _log_arquivo("fase4.log", f"gemeo serviu {len(servidas)}/{len(pathnames)} pathnames "
-                                          f"({start} a {end}); a SunOp recebeu {len(faltam)}")
-            if not faltam:
-                return servidas
-            return {**servidas, **_sunop_analog_history_api(faltam, start, end, inst, period)}
+        servidas = _sunop_do_gemeo(pathnames, start, end)
+        faltam = [p for p in pathnames if p not in servidas]
+        if servidas:
+            _log_arquivo("fase4.log", f"gemeo serviu {len(servidas)}/{len(pathnames)} pathnames "
+                                      f"({start} a {end}); a SunOp recebeu {len(faltam)}")
+        if not faltam:
+            return servidas
+        return {**servidas, **_sunop_analog_history_api(faltam, start, end, inst, period)}
     return _sunop_analog_history_api(pathnames, start, end, inst, period)
 
 
@@ -7307,7 +7376,7 @@ def api_sunop_trackers_chart(plant_name):
     g_full = {n.replace("TRK_", "Tracker "): [{"x": t, "y": v} for t, v in posat.get(n, [])]
               for n in trk if posat.get(n)}                # chaves = ids da resposta
     _alvos = {n.replace("TRK_", "Tracker "): posal[n][-1][1] for n in trk if posal.get(n)}
-    _trk_chart_aplica_status(trackers, g_full, payload, _alvos)   # MESMA régua dos cards (ver a função)
+    _trk_chart_aplica_status(trackers, g_full, payload, _alvos, pid=plant_name)   # MESMA régua dos cards (ver a função)
     return jsonify(payload)
 
 
@@ -9586,11 +9655,144 @@ def _trk_janela_curva(g: dict, jini: int, jfim: int) -> dict:
             for nome, pts in (g or {}).items()}
 
 
-def _trk_classifica_curso(g, jini=6 * 60, jfim=18 * 60, usina=None):
+def _trk_curva_curta(g, jini=6 * 60, jfim=18 * 60):
+    """Trackers cuja curva do dia cobre pouco para sustentar um "parado" (28/09/2026).
+
+    Às 15:44 de 28/09 a Guaratinguetá V (Banco, plant_id 26), que só começou a reportar às 15:10, saiu com os 48
+    trackers parados: a frota encostava no batente oeste (mediana 50,7° → 55,3°), a amplitude ia de 0,0° a 8,8°, e a
+    v2 chama de parado ('cronico_travado') quem tem amplitude < 10° — regra das "triviais 24h", que pressupõe um dia de
+    curva. A guarda de TRK_COBERTURA_MIN_H existia, mas só na pré-classificação dos motores, que o
+    `_trk_status_from_curva` sobrescreve.
+
+    Curta = tem leitura na janela, cobre menos que TRK_COBERTURA_MIN_H nela e nada mais prova o parado. Fica FORA:
+      • quem a FROTA prova: ela girou mais que TRK_ALVO_MOVE_MIN no intervalo em que ELE foi visto (a régua "a usina
+        acordou", Levi 07/07, medida no intervalo dele — quem entrou no ar às 15:10 não herda os 100° que a frota
+        girou desde as 6h). Às 17:05 do mesmo dia o Tracker 33 estava congelado em 39,95° com a frota voltando de
+        55,3° para 19° (36° no intervalo): parado de verdade, e segue parado. É o que pega o travado cedo, de manhã;
+      • quem EMUDECEU com a frota reportando (última leitura mais velha que a mediana da frota por mais de
+        TRK_STALE_MIN), e quem não tem NENHUMA leitura na janela: aí não falta cobertura, falta comunicação — e
+        usina calada tem de continuar gritando. A Santo Inácio XII, no mesmo dia, não tinha ponto entre 01:34 e
+        12:37; tratada como curta, os 41 virariam normais, e ela sumiria da lista de parados, da ronda e do
+        alarme de frota. Esses seguem como estavam, e a regra de 08/09 (`_trk_promove_semcom`) vale para eles."""
+    series, ult = {}, {}
+    for n, pts in (g or {}).items():
+        s = [(m, p.get("y")) for p in (pts or []) for m in (_trk_mins(p.get("x")),)
+             if m is not None and isinstance(p.get("y"), (int, float))]
+        if s:
+            ult[n] = max(m for m, _ in s)
+            series[n] = [(m, v) for m, v in s if jini <= m <= jfim]
+    if not ult:
+        return set()
+    _o = sorted(ult.values())
+    frota_ult = _o[len(_o) // 2]            # mediana: um ponto tardio não declara a frota inteira emudecida
+    giro = {}                               # intervalo em células de 10 min → quanto a frota girou nele
+    curta = set()
+    for n, s in series.items():
+        if not s or frota_ult - ult[n] > TRK_STALE_MIN:
+            continue
+        a, b = min(m for m, _ in s), max(m for m, _ in s)
+        if (b - a) / 60.0 >= TRK_COBERTURA_MIN_H:
+            continue
+        # células de 10 min: com leitura de minuto a minuto (API PV) ou escalonada (SunOp) cada tracker começa
+        # num minuto, e medir a frota para cada um custaria N² de manhã, quando todo mundo é curto
+        k = (a // 10 * 10, -(-b // 10) * 10)
+        if k not in giro:
+            amps = sorted(x for x in (_amp_robusta([v for m, v in ss if k[0] <= m <= k[1]])
+                                      for ss in series.values()) if x is not None)
+            giro[k] = amps[len(amps) // 2] if amps else None
+        if giro[k] is None or giro[k] <= TRK_ALVO_MOVE_MIN:
+            curta.add(n)
+    return curta
+
+
+# Regra do dia anterior (29/09/2026, Levi: subir o piso "com a regra do dia anterior"). De manhã toda curva é curta: na
+# foto de 28/09, às 07:00 o piso adiava 218 paradas verdadeiras da API PV (Guatambu 4, Primavera 1 e 2, Brodowski — a
+# frota travada havia dias) e 40 da Aparecida 3 no Banco até ~10 h, e a ronda das 08:25 deixaria de citá-las. Quem
+# estava parado no último dia CLASSIFICADO do registro não é rebaixado: a curva curta não prova que ele voltou. O web
+# carrega o registro (26 MB) só no boot; o worker grava junto um índice pequeno do fim de cada dia, que o web relê.
+TRK_MANTER_DIAS = 7
+_TRK_FIM_DIA_PATH = _p_cache("trk_parados_fim_dia.json")   # {pid: {dia: [trackers parados]}}
+_trk_fim_dia_mem = {"mtime": None, "dados": {}}
+
+
+def _trk_dia_iso(dia):
+    """'AAAA-MM-DD' de 'AAAA-MM-DD…' ou 'DD/MM/AAAA' (o registro usa as duas); sem data, hoje."""
+    s = str(dia or "")
+    if re.fullmatch(r"\d{2}/\d{2}/\d{4}", s):
+        return f"{s[6:10]}-{s[3:5]}-{s[0:2]}"
+    return s[:10] if re.match(r"\d{4}-\d{2}-\d{2}", s) else datetime.now().strftime("%Y-%m-%d")
+
+
+def _trk_fim_dia_indice(eventos, hoje, dias=TRK_MANTER_DIAS):
+    """{pid: {dia: [parados]}} dos dias CLASSIFICADOS de hoje−dias até ontem."""
+    lim = (datetime.strptime(hoje, "%Y-%m-%d") - timedelta(days=dias)).strftime("%Y-%m-%d")
+    out = {}
+    for d, ents in (eventos or {}).items():
+        if lim <= d < hoje:
+            for pid, e in (ents or {}).items():
+                cls = (e or {}).get("classes")
+                if cls is not None:
+                    out.setdefault(str(pid), {})[d] = sorted(t for t, c in cls.items()
+                                                             if (c or {}).get("status") == "parado")
+    return out
+
+
+def _trk_parados_antes(pid, dia=None):
+    """Trackers com classe "parado" no último dia CLASSIFICADO antes de `dia` (até TRK_MANTER_DIAS atrás) na usina.
+    O índice do worker vence a memória (no web ela é do boot); dia mais velho que o índice vem da memória."""
+    if pid is None:
+        return set()
+    pid, iso = str(pid), _trk_dia_iso(dia)
+    lim = (datetime.strptime(iso, "%Y-%m-%d") - timedelta(days=TRK_MANTER_DIAS)).strftime("%Y-%m-%d")
+    try:
+        mt = os.path.getmtime(_TRK_FIM_DIA_PATH)
+        if mt != _trk_fim_dia_mem["mtime"]:
+            with open(_TRK_FIM_DIA_PATH, encoding="utf-8") as f:
+                _trk_fim_dia_mem.update({"mtime": mt, "dados": json.load(f) or {}})
+    except (OSError, ValueError):
+        pass
+    por_dia = dict((_trk_fim_dia_mem["dados"] or {}).get(pid) or {})
+    with _trk_eventos_lock:
+        for d in [d for d in _trk_eventos if lim <= d < iso and d not in por_dia]:
+            cls = ((_trk_eventos.get(d) or {}).get(pid) or {}).get("classes")
+            if cls is not None:
+                por_dia[d] = [t for t, c in cls.items() if (c or {}).get("status") == "parado"]
+    dias = sorted(d for d in por_dia if lim <= d < iso)
+    return set(por_dia[dias[-1]]) if dias else set()
+
+
+def _trk_piso_cobertura(g, cls, jini=6 * 60, jfim=18 * 60, manter=None):
+    """O "parado" de quem tem curva curta (`_trk_curva_curta`) vira "normal" — nos DOIS contratos, curso (string) e
+    perdas (dict), e depois de qualquer régua (v2 ou legacy). Só o veredito DELE muda: a v2 continua analisando a
+    usina como sempre.
+
+    Rebaixar, e não deixar a análise contra a frota decidir: com a frota imóvel ela também erra. Às 08:00 de 28/09
+    a Boa Esperança do Sul 1 tinha os 49 trackers parados em −0,2° desde a madrugada (a frota só saiu às ~10:15);
+    pulando só a regra de amplitude, a análise de congelamento ainda dava 30 parados — e 15 deles giraram normalmente
+    depois. Curva curta com a frota parada não diz quem está travado; diz que ainda não dá para saber.
+    Tem de rodar ANTES da `_trk_promove_semcom`: o sensor morto (0,00°) de uma usina que acabou de voltar é parado
+    pela regra de 08/09, e a promoção é quem o recupera."""
+    if not cls or not any((v.get("status") if isinstance(v, dict) else v) == "parado" for v in cls.values()):
+        return cls
+    for n in _trk_curva_curta(g, jini, jfim):
+        if n in (manter or ()):
+            continue                           # parado no último dia classificado: curva curta não prova a volta
+        v = cls.get(n)
+        if isinstance(v, dict):
+            if v.get("status") == "parado":
+                cls[n] = {"status": "normal", "dur_min": None, "ini_min": None, "fim_min": None}
+        elif v == "parado":
+            cls[n] = "normal"
+    return cls
+
+
+def _trk_classifica_curso(g, jini=6 * 60, jfim=18 * 60, usina=None, manter=None):
     """Dispatcher (rótulo por tracker): régua v2 sob flag, senão a legacy freeze-based. Mesma saída
     {tracker: parado|desvio_severo|desvio_leve|normal}. v2 só na janela padrão 06–18h.
     `usina` calibra o teto do MÉDIO por cliente — TEM que ser o mesmo do _trk_classifica_curso_perdas,
-    senão overview e detalhe divergem (invariante 'overview == detalhe == disponibilidade')."""
+    senão overview e detalhe divergem (invariante 'overview == detalhe == disponibilidade').
+    Curva curta não dá "parado" (`_trk_piso_cobertura`, 28/09/2026) — nas duas réguas, antes da promoção do
+    sem comunicação."""
     if TRK_REGUA_V2 and jini == 6 * 60 and jfim == 18 * 60:
         try:
             # JANELA APLICADA EM 22/09/2026. A assinatura promete 06–18 h e a legacy cumpre (recebe
@@ -9611,10 +9813,11 @@ def _trk_classifica_curso(g, jini=6 * 60, jfim=18 * 60, usina=None):
                 if cl in ("normal", "leve") and tid in med:     # + detecção DIRETA do médio 8–10° nas transições
                     cl = "medio"
                 out[tid] = _REGUA_STATUS_MAP.get(cl, "normal")
-            return _trk_promove_semcom(g or {}, out, jini, jfim)
+            return _trk_promove_semcom(g or {}, _trk_piso_cobertura(g or {}, out, jini, jfim, manter), jini, jfim)
         except Exception as e:
             print(f"[regua_v2] curso caiu p/ legacy ({e})")
-    return _trk_promove_semcom(g or {}, _trk_classifica_curso_legacy(g, jini, jfim), jini, jfim)
+    return _trk_promove_semcom(g or {}, _trk_piso_cobertura(g or {}, _trk_classifica_curso_legacy(g, jini, jfim),
+                                                            jini, jfim, manter), jini, jfim)
 
 
 def _trk_classifica_curso_legacy(g, jini=6 * 60, jfim=18 * 60):
@@ -9750,11 +9953,12 @@ def _trk_promove_semcom(g, cls, jini=6 * 60, jfim=18 * 60):
     return cls
 
 
-def _trk_classifica_curso_perdas(g, jini=6 * 60, jfim=18 * 60, usina=None):
+def _trk_classifica_curso_perdas(g, jini=6 * 60, jfim=18 * 60, usina=None, manter=None):
     """Dispatcher (perdas): régua v2 sob flag, senão legacy. Saída {tracker: {status,dur_min,ini_min,
     fim_min}} — status parado|severo|leve|normal (MESMO vocabulário da classe da v2). Pega a ocorrência
     mais longa p/ o intervalo. Qualquer erro cai p/ legacy.
-    `usina` calibra o teto do MÉDIO por cliente (Thopen = 15,5°; resto = 10°) — ver _medio_dev_max."""
+    `usina` calibra o teto do MÉDIO por cliente (Thopen = 15,5°; resto = 10°) — ver _medio_dev_max.
+    O MESMO piso de cobertura do _trk_classifica_curso (`_trk_piso_cobertura`), senão a disponibilidade diverge."""
     _dmax = _medio_dev_max(usina)
     if TRK_REGUA_V2 and jini == 6 * 60 and jfim == 18 * 60:
         try:
@@ -9785,10 +9989,11 @@ def _trk_classifica_curso_perdas(g, jini=6 * 60, jfim=18 * 60, usina=None):
                                 "ini_min": o.get("ini"), "fim_min": o.get("fim")}
                 else:
                     out[tid] = {"status": cl, "dur_min": None, "ini_min": None, "fim_min": None}
-            return _trk_promove_semcom(g or {}, out, jini, jfim)
+            return _trk_promove_semcom(g or {}, _trk_piso_cobertura(g or {}, out, jini, jfim, manter), jini, jfim)
         except Exception as e:
             print(f"[regua_v2] perdas caiu p/ legacy ({e})")
-    return _trk_promove_semcom(g or {}, _trk_classifica_curso_perdas_legacy(g, jini, jfim), jini, jfim)
+    return _trk_promove_semcom(g or {}, _trk_piso_cobertura(g or {}, _trk_classifica_curso_perdas_legacy(g, jini, jfim),
+                                                            jini, jfim, manter), jini, jfim)
 
 
 def _trk_classifica_curso_perdas_legacy(g, jini=6 * 60, jfim=18 * 60):
@@ -9969,11 +10174,11 @@ def _trk_marca_mov_recente(lst, g):
             t["_mov_rec"], t["_mov_frota"] = round(movs[n], 2), round(frota, 2)
 
 
-def _trk_status_from_curva(lst, g):
+def _trk_status_from_curva(lst, g, manter=None):
     """Aplica a régua FREEZE-BASED (`_trk_classifica_curso`, Levi 10/07) à lista de trackers de UMA usina,
     dado o grafico g = {tracker:[{x,y}]}. Sobrescreve t['status'] (parado/severo/medio/leve/normal) e devolve
     (parados, severos, medios, leves). Usado por TODAS as fontes p/ classificar igual."""
-    cls = _trk_classifica_curso(g or {}, usina=_lst_usina(lst))
+    cls = _trk_classifica_curso(g or {}, usina=_lst_usina(lst), manter=manter)
     _trk_marca_mov_recente(lst, g)                   # prova de movimento p/ a exoneração "em cima do alvo"
     sc = _trk_semcom_set(g or {})                    # comm-morta (sem comunicação) — subconjunto dos parados
     _M = {"desvio_severo": "severo", "desvio_leve": "leve", "desvio_medio": "medio"}
@@ -10021,7 +10226,7 @@ def _trk_g_ultimo_dia(g):
     return {n: [p for p in (pts or []) if _trk_daykey(p.get("x")) == ult] for n, pts in (g or {}).items()}
 
 
-def _trk_chart_aplica_status(trackers, g_full, payload, alvos=None):
+def _trk_chart_aplica_status(trackers, g_full, payload, alvos=None, pid=None):
     """Anexa a cada tracker do /chart o status do DIA VISTO + as contagens no payload, pela MESMA CADEIA QUE
     OS CARDS usam: `_trk_status_from_curva` (freeze-based + comm-morta + prova de movimento) e depois
     `_trk_alvo_mediana` (alvo = mediana da frota, disparidade contra ele e a exoneração definitiva do
@@ -10041,7 +10246,8 @@ def _trk_chart_aplica_status(trackers, g_full, payload, alvos=None):
         pts = [p for p in (gd.get(t["id"]) or []) if isinstance(p.get("y"), (int, float))]
         lst.append({"id": t["id"], "atual": pts[-1]["y"] if pts else None,
                     "alvo": (alvos or {}).get(t["id"]), "status": "normal"})
-    _trk_status_from_curva(lst, gd)
+    _trk_status_from_curva(lst, gd, manter=_trk_parados_antes(pid, payload.get("fim") or payload.get("date"))
+                           if pid is not None else None)
     # `sem_comunicacao` no nível da USINA = curva vazia (nenhum ponto): é o gatilho do traço no _trk_alvo_mediana
     base = {"trackers": lst, "parados": 0, "sem_comunicacao": not any(gd.get(t["id"]) for t in trackers)}
     _trk_alvo_mediana(base)
@@ -10076,7 +10282,8 @@ def _pv_trk_refina_curva(idusina, lst, date, fetch=False):
     g = _pv_trk_grafico(idusina, date or datetime.now().strftime("%d/%m/%Y"), fetch=fetch)
     if not g:
         return
-    cls = _trk_classifica_curso(g, usina=_lst_usina(lst))   # STATUS pela régua FREEZE-BASED definitiva (Levi 10/07)
+    cls = _trk_classifica_curso(g, usina=_lst_usina(lst),    # STATUS pela régua FREEZE-BASED definitiva (Levi 10/07)
+                                manter=_trk_parados_antes(idusina, date))
     sc = _trk_semcom_set(g)                           # comm-morta (sem comunicação) — p/ a ronda rotular
     # Trackers que SÓ existem na curva (o snapshot /usinas/trackers veio sem eles) ENTRAM na lista —
     # senão o drill e a linha sub-reportam a frota: Brodowski Skid 2 (07/08) tinha 52 no gráfico e
@@ -10663,6 +10870,12 @@ def _trk_ev_save():
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(snap)
         _replace_atomico(tmp, _TRK_EV_PATH)
+        if not _MODO_WEB:                  # o índice do fim do dia (regra do dia anterior do piso) é do worker
+            with _trk_eventos_lock:
+                idx = _trk_fim_dia_indice(_trk_eventos, datetime.now().strftime("%Y-%m-%d"))
+            with open(_TRK_FIM_DIA_PATH + ".tmp", "w", encoding="utf-8") as f:
+                json.dump(idx, f, ensure_ascii=False)
+            _replace_atomico(_TRK_FIM_DIA_PATH + ".tmp", _TRK_FIM_DIA_PATH)
     except Exception as e:
         print(f"[trk_ev] falha ao salvar: {e}")
 
@@ -10933,7 +11146,8 @@ def _trk_eventos_do_dia(idusina, nome, data_br, curve=None):
     # Guarda só o que NÃO é normal (o store é um JSON único — 67 usinas × 60 trackers × 21 dias infla à toa).
     # {} = classificado, nada anormal (≠ None = não classificado / falhou) — a diferença é o que dá a cobertura.
     try:
-        classes = {t: c for t, c in (_trk_classifica_curso_perdas(g, usina=nome) or {}).items()
+        classes = {t: c for t, c in (_trk_classifica_curso_perdas(g, usina=nome,
+                                                                  manter=_trk_parados_antes(idusina, data_br)) or {}).items()
                    if (c or {}).get("status") not in (None, "normal")}
     except Exception as e:
         print(f"[trk_ev] classificação falhou ({idusina} {data_br}): {e}")
@@ -11520,7 +11734,7 @@ def api_pv_trackers_chart(idusina):
                                for p in s]})
     payload = {"plant": idusina, "date": datetime.strptime(ini_iso, "%Y-%m-%d").strftime("%d/%m/%Y"),
                "ini": ini_iso, "fim": fim_iso, "ndias": ndias, "trackers": trackers, "alvo": None}
-    _trk_chart_aplica_status(trackers, g, payload)   # MESMA régua dos cards (a API PV não manda alvo por tracker)
+    _trk_chart_aplica_status(trackers, g, payload, pid=idusina)   # MESMA régua dos cards (a API PV não manda alvo por tracker)
     if ndias == 1:
         _pv_trk_chart_cache[(idusina, payload["date"])] = {"ts": agora, "payload": payload}
     return jsonify(payload)
@@ -18357,7 +18571,7 @@ def _owen_trackers_analise(plant_id, date=None):
                     "max_disp": round(mx, 1) if mx is not None else None,
                     "amplitude": round(amp, 1) if amp is not None else None, "status": st})
     lst.sort(key=lambda x: [int(p) for p in x["id"].replace("Tracker ", "").split(".")])
-    par, sev, med, lev = _trk_status_from_curva(lst, g)   # STATUS pela regua freeze-based definitiva (Levi 10/07)
+    par, sev, med, lev = _trk_status_from_curva(lst, g, manter=_trk_parados_antes(plant_id, date))   # régua freeze-based (Levi 10/07)
     pior = max((t["max_disp"] for t in lst if t["max_disp"] is not None), default=None)
     _atuais = [r["atual"] for r in raw if r["atual"] is not None]
     media_ang = (sum(_atuais) / len(_atuais)) if _atuais else None
@@ -18470,7 +18684,7 @@ def api_owen_trackers_chart(plant_id):
     g_full = {f"Tracker {n}": [{"x": t.strftime("%Y-%m-%dT%H:%M:%S"), "y": v} for t, v in (merged[n]["atual"] or [])]
               for n in merged if merged[n].get("atual")}      # chaves = ids da resposta
     _alvos = {f"Tracker {n}": merged[n]["alvo"][-1][1] for n in merged if merged[n].get("alvo")}
-    _trk_chart_aplica_status(out, g_full, payload, _alvos)    # MESMA régua dos cards (ver a função)
+    _trk_chart_aplica_status(out, g_full, payload, _alvos, pid=plant_id)    # MESMA régua dos cards (ver a função)
     return jsonify(payload)
 
 
@@ -18989,7 +19203,7 @@ def _pg_trackers_analise(plant_id: str, date: str = None) -> dict:
                     "max_disp":    round(mx, 1)   if mx   is not None else None,
                     "amplitude":   round(amp, 1)  if amp  is not None else None, "status": st})
     lst.sort(key=lambda x: _pg_trk_num(x["id"]))
-    par, sev, med, lev = _trk_status_from_curva(lst, g)   # STATUS pela regua freeze-based definitiva (Levi 10/07)
+    par, sev, med, lev = _trk_status_from_curva(lst, g, manter=_trk_parados_antes(plant_id, date))   # régua freeze-based (Levi 10/07)
     pior = max((t["max_disp"] for t in lst if t["max_disp"] is not None), default=None)
     _atuais = [r["atual"] for r in raw if r["atual"] is not None]
     media_ang = (sum(_atuais) / len(_atuais)) if _atuais else None
@@ -19048,7 +19262,7 @@ def api_pg_trackers_chart(plant_id):
     g_full = {n: [{"x": t.strftime("%Y-%m-%dT%H:%M:%S"), "y": v} for t, v in (trks[n]["atual"] or [])]
               for n in trks if trks[n].get("atual")}         # chaves = ids da resposta
     _alvos = {n: trks[n]["alvo"][-1][1] for n in trks if trks[n].get("alvo")}
-    _trk_chart_aplica_status(out, g_full, payload, _alvos)   # MESMA régua dos cards (ver a função)
+    _trk_chart_aplica_status(out, g_full, payload, _alvos, pid=plant_id)   # MESMA régua dos cards (ver a função)
     return jsonify(payload)
 
 
@@ -26800,7 +27014,8 @@ def _perdas_trk_ocor_build(fonte, dia):
         _ja = {p for p, _n, _c, _d in itens}
         for pid, nome, g in _trk_ocor_curva_list(fonte, dia):
             if pid not in _ja:
-                itens.append((pid, nome, _trk_classifica_curso_perdas(g, usina=nome), {}))   # curva não traz disparidade
+                itens.append((pid, nome, _trk_classifica_curso_perdas(g, usina=nome, manter=_trk_parados_antes(pid, dia)),
+                              {}))   # curva não traz disparidade
         if len(itens) > _vis:
             origem = "store+curva" if _vis else "curva"
     _sto = max(_sto, len(itens))
