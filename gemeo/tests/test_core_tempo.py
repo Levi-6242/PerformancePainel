@@ -37,6 +37,16 @@ def test_janela_reconciliar_volta_24h():
     assert ini == agora - dt.timedelta(hours=24)
 
 
+def test_janela_reconciliar_nunca_encolhe():
+    """Reconciliar e para buscar MAIS (correcao la atras), nunca menos. Marca de 30 h atras (fim de semana com o PC
+    desligado: 20/09 e 26/09 nao tem corrida da SunOp) com reconciliar=True voltava so 24 h, e as 6 primeiras horas
+    do buraco ficavam de fora para sempre. Usina sem marca nenhuma segue com os dias iniciais."""
+    agora = dt.datetime(2026, 9, 29, 11, 15, tzinfo=UTC)
+    marca = agora - dt.timedelta(hours=30)
+    assert tempo.janela(agora, marca, sobreposicao_min=30, reconciliar=True) == (marca - dt.timedelta(minutes=30), agora)
+    assert tempo.janela(agora, None, sobreposicao_min=30, reconciliar=True, dias_iniciais=3)[0] == agora - dt.timedelta(days=3)
+
+
 def test_dia_local_usa_o_fuso_da_usina():
     # 02:30 UTC de 04/09 ainda e 23:30 de 03/09 em Belem (UTC-3)
     assert tempo.dia_local(dt.datetime(2026, 9, 4, 2, 30, tzinfo=UTC), "America/Belem") == dt.date(2026, 9, 3)

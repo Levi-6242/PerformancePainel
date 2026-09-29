@@ -54,10 +54,14 @@ def equipamentos_de(metadata: list[dict]) -> list[tuple[str, str, dict]]:
 
 
 def pedacos_de_um_dia(ini: dt.datetime, fim: dt.datetime) -> list[tuple[dt.datetime, dt.datetime]]:
-    """[ini, fim) em pedacos de ate 24 h — uma requisicao por pedaco e lote."""
+    """[ini, fim) em pedacos de ate 24 h — uma requisicao por pedaco e lote. Sobra de ate 15 min vai no ultimo pedaco:
+    a janela comeca no quarto de hora (ver `ciclo`), o que estica as 24 h da reconciliacao em ate 15 min, e isso nao
+    vale um pedido a mais por lote (12 em vez de 6 no lento, na cota que e da plataforma tambem)."""
     out, a = [], ini
     while a < fim:
         b = min(fim, a + dt.timedelta(hours=24))
+        if fim - b <= dt.timedelta(minutes=15):
+            b = fim
         out.append((a, b))
         a = b
     return out
@@ -72,6 +76,8 @@ def ts_utc(texto: str, tz: str) -> dt.datetime:
 
 
 class IngestorSunOp(Ingestor):
+    _reconciliado_em: dt.date | None = None      # dia local da ultima reconciliacao de 24 h que voltou com dado
+
     def __init__(self, cfg, conn, usinas: list[UsinaRef], grupo: str = "fino", http=None):
         super().__init__(cfg, conn, usinas)
         self.grupo, self.http = grupo, http or requests.Session()
@@ -170,9 +176,19 @@ class IngestorSunOp(Ingestor):
             out[u.id] = Busca(leituras=ls, n_requisicoes=n if u is usinas[0] else 0)
         return out
 
+    def _marca(self, usina: UsinaRef) -> dt.datetime | None:
+        """Marca d'agua dos equipamentos DESTE grupo. Com a da usina inteira (ate 29/09/2026) o fino, de 15 em 15 min,
+        empurrava a do lento: cada corrida de tracker/string buscava so ~40 min, o quarto de hora :30 e o :45 ficavam
+        gravados pela metade e, depois de um reinicio, a manha nao voltava mais (28/09: acervo comeca 08:45 de Belem).
+
+        Grupo que nunca gravou nada fica com a marca da usina, e nao com None: None e "primeiro ciclo, 3 dias", e a
+        janela e comum a todas as usinas — uma usina com o grupo mudo faria as quatro pedirem 3 dias a cada hora."""
+        return (self._db.marca_dagua(self.conn, usina.id, tipos=tuple(sorted(GRUPOS[self.grupo])))
+                or self._db.marca_dagua(self.conn, usina.id))
+
     def ciclo(self, agora: dt.datetime | None = None, reconciliar: bool = False) -> list[int]:
         """Sobrescreve o ciclo base: UMA baixa para todas as usinas do grupo (lotes atravessam usinas),
-        janela comum = a mais antiga entre as marcas d'agua. Fora da janela solar, nao busca."""
+        janela comum = a mais antiga entre as marcas d'agua do grupo. Fora da janela solar, nao busca."""
         agora = agora or dt.datetime.now(dt.timezone.utc)
         ids = []
         ativas = [u for u in self.usinas if tempo.dentro_janela_solar(agora, u.tz, self.cfg.janela_solar)]
@@ -182,8 +198,16 @@ class IngestorSunOp(Ingestor):
             return ids
         if self.disjuntor.aberto():
             return ids + [self._db.registrar_ingest_run(self.conn, fonte=self.fonte, usina_id=u.id, ini=agora, fim=agora, status="falha", cobertura=0.0, erro=f"disjuntor aberto: {self.disjuntor.motivo}") for u in ativas]
-        janelas = [tempo.janela(agora, self._db.marca_dagua(self.conn, u.id), self.cfg.sobreposicao_min, reconciliar=reconciliar) for u in ativas]
-        ini, fim = min(j[0] for j in janelas), agora
+        # A reconciliacao do runner chega as 03 UTC, meia-noite em Belem — fora da janela solar, onde este ciclo volta
+        # acima sem buscar, e o runner a da por feita. De 03/09 a 29/09/2026, nenhuma janela de 24 h nos 4.359
+        # registros de ingest_run da SunOp. A do dia vai na primeira corrida dentro da janela, e so conta como feita
+        # se voltou com dado.
+        dia = tempo.dia_local(agora, ativas[0].tz)
+        reconciliar = reconciliar or self._reconciliado_em != dia
+        janelas = [tempo.janela(agora, self._marca(u), self.cfg.sobreposicao_min, reconciliar=reconciliar) for u in ativas]
+        # Comeco no quarto de hora: com period=15m a SunOp agrega so o que cai DENTRO da janela, e o balde que comeca no
+        # meio volta parcial — gravado por cima, estragaria o inteiro que ja estava no acervo.
+        ini, fim = tempo.piso_grade(min(j[0] for j in janelas), 15), agora
         t0 = time.time()
         try:
             buscas = self._buscar_varias(ativas, ini, fim)
@@ -198,4 +222,8 @@ class IngestorSunOp(Ingestor):
             # corrigida e as fontes passaram a medir saude de jeitos diferentes sem ninguem ver.
             status, cob = avaliar(b.leituras, fim, self.atraso_ok_min)
             ids.append(self._db.registrar_ingest_run(self.conn, fonte=self.fonte, usina_id=u.id, ini=ini, fim=fim, status=status, n_linhas=n, n_requisicoes=b.n_requisicoes, duracao_s=time.time() - t0, cobertura=cob))
+        # So depois de GRAVAR: com 'database is locked' no upsert (29/09, a fonte pg segurando o SQLite) o dia ficava
+        # dado por reconciliado sem nada no banco.
+        if reconciliar and any(buscas[u.id].leituras for u in ativas):
+            self._reconciliado_em = dia
         return ids

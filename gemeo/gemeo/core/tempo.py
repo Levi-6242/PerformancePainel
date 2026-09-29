@@ -21,14 +21,19 @@ def janela(agora: dt.datetime, marca: dt.datetime | None, sobreposicao_min: int,
            reconciliar: bool = False, dias_iniciais: int = 3) -> tuple[dt.datetime, dt.datetime]:
     """Inicio da busca: sem marca d'agua = `dias_iniciais` para tras (primeiro ciclo de uma usina);
     com marca = marca menos a sobreposicao (a ingestao das fontes atrasa); reconciliar = 24h inteiras,
-    uma vez por dia, para pegar correcao feita la atras."""
+    uma vez por dia, para pegar correcao feita la atras.
+
+    Reconciliar so ALARGA. Ate 29/09/2026 ela trocava a janela por 24 h fixas, e com a marca mais velha que
+    isso (PC desligado no fim de semana: 20/09 e 26/09 sem corrida da SunOp) o comeco do buraco nunca vinha."""
     _exige_aware(agora)
-    if reconciliar:
-        return agora - dt.timedelta(hours=24), agora
     if marca is None:
-        return agora - dt.timedelta(days=dias_iniciais), agora
-    _exige_aware(marca)
-    return marca - dt.timedelta(minutes=sobreposicao_min), agora
+        ini = agora - dt.timedelta(days=dias_iniciais)
+    else:
+        _exige_aware(marca)
+        ini = marca - dt.timedelta(minutes=sobreposicao_min)
+    if reconciliar:
+        ini = min(ini, agora - dt.timedelta(hours=24))
+    return ini, agora
 
 
 def dia_local(ts: dt.datetime, tz: str) -> dt.date:
