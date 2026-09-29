@@ -90,8 +90,11 @@ As contas de base:
   `trk_eventos.json` — inclusive as que já voltaram. Não precisa de coleta nova.
 - `perda de tracker = possível × horas solares paradas ÷ (12 × dias × frota) × 20%`. Os 20% são o ganho do
   rastreamento sobre a estrutura fixa (`TRK_GANHO_RASTREIO`, premissa calibrável).
-- A frota vem de `_trk_frota_total` — **ver os [pontos de atenção](#7-pontos-de-atenção)**: hoje essa função devolve 0
-  e o motor cai numa reserva menor.
+- A frota vem de `_trk_frota_total(fonte, usina, sel)`: por usina da fonte, o `total` do overview de trackers que o
+  worker publica (o da tabela de Trackers; na 2C do e-mail, o acervo do dia); a usina que a fonte não lista hoje vem do
+  cadastro (aba BD_Trackers); e nunca menos que os trackers que pararam nela. Só lê o publicado — no processo web,
+  reconstruir o overview seria a varredura de até 15 min da API PV. Até 29/09/2026 ela devolvia 0 fora do Banco e o
+  motor dividia pelos trackers que PARARAM (ver os [pontos de atenção](#7-pontos-de-atenção)).
 
 ### 3.3 PR por inversor
 
@@ -208,10 +211,13 @@ Com o Fracttal, não medi — ele faz consultas por usina e por inversor, por m�
 
 ## 7. Pontos de atenção
 
-1. **A frota de trackers está quebrada.** `_trk_frota_total` chama uma função que não existe desde agosto
-   (`_pv_trackers_overview`); o erro é engolido e ela devolve 0. Nas fontes `sunop`, `axis` e `owen` ela também
-   devolve 0 (só conhece `pv` e `pg`). O motor cai então no número de trackers que **tiveram parada** no período, não
-   na frota, e a perda de tracker sai **inflada**. Há uma tarefa sugerida para medir e corrigir.
+1. **Horas de tracker parado fora do período (em aberto).** No relatório de período PASSADO, a parada aberta no fim do
+   período conta horas até agora (`_trk_paradas_hist`): um agosto gerado em 29/09 tinha de 28% (API PV) a 43% (Athon)
+   das horas vindas de setembro. Na cascata do Diagnóstico (`_cascata_usina`) é pior: ela soma no mês o book inteiro,
+   desde 01/07 — em setembro, 582 mil h contra 181 mil h do período (3,2×). Há uma tarefa sugerida para cada um.
+   A FROTA (o denominador) foi corrigida em 29/09/2026: `_trk_frota_total` chamava `_pv_trackers_overview`, nome que
+   nunca existiu, e devolvia 0 fora do Banco. Medido antes × depois no relatório de setembro: 27 de 52 usinas mudaram,
+   perda de tracker 1.226,4 → 546,5 MWh (MAB100 111,1 → 9,6).
 2. **Roda no processo web, na hora do pedido.** Um relatório por vez funciona. Gerar em lote (todas as usinas, toda
    segunda) no processo web travaria os outros usuários — é a regra do `plataforma/CLAUDE.md`: trabalho pesado vai
    para o worker.

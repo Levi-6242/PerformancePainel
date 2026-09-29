@@ -27184,7 +27184,7 @@ def _cascata_usina(cliente, usina, ano, mes):
     perda_ipoa = round(max(0.0, poa_prev * pot * prm - possivel), 1)
     # 2) tracker: o parado NÃO zera a fatia — perde o GANHO do rastreamento no tempo em que ficou parado
     fonte = _fonte_da_usina(usina)
-    h_trk, n_trk, n_frota = 0.0, 0, 0
+    h_trk, n_trk, n_frota, sel = 0.0, 0, 0, []
     if fonte:
         try:
             rows = (_paradas_book_get(fonte).get("rows") or [])
@@ -27195,7 +27195,7 @@ def _cascata_usina(cliente, usina, ano, mes):
             n_frota = len({(r.get("usina"), r.get("tracker")) for r in sel})
         except Exception as e:
             print(f"[cascata] tracker {usina}: {e}")
-    trk_tot = _trk_frota_total(fonte, usina) or n_frota
+    trk_tot = _trk_frota_total(fonte, usina, sel)
     frac = (h_trk / (12.0 * n * trk_tot)) if (trk_tot and n) else 0.0
     perda_trk = round(possivel * min(1.0, frac) * TRK_GANHO_RASTREIO, 1)
     # 3) DESLIGAMENTO — o conceito da '1 - TFalhas Fracttal' do BI antigo (Indisponibilidade em horas ÷
@@ -27282,22 +27282,50 @@ def _fonte_da_usina(usina):
     return None
 
 
-def _trk_frota_total(fonte, usina):
-    """Nº de trackers da usina (denominador do tempo-solar da frota)."""
+def _trk_frota_linhas(fonte):
+    """Linhas {usina, total} do overview de trackers que a FONTE publica — o `total` da tabela de Trackers.
+
+    Só LÊ o que o worker publicou. A cascata e o relatório rodam no processo web, e `_swr` com cache VAZIO
+    constrói na hora: o overview da API PV é a varredura de até 15 min do `_pv_trk_loop`, e o da Axis nem
+    entra no snapshot (no web, está sempre vazio) — construir seria requisição da SunOp dentro da página."""
+    if fonte == "owen":
+        # a 2C do e-mail não publica overview (a aba monta na hora): a frota é o acervo do dia. Sem o
+        # _owen_lock de propósito: o refresh o segura enquanto lê os CSVs da pasta.
+        return [{"usina": _owen_nome(c), "total": len(t or {})}
+                for c, t in list((_owen_accum.get("trackers") or {}).items())]
+    cache = {"pv": _pv_trk_cache, "pg": _pg_trk_cache,
+             "sunop": _sunop_trk_cache, "axis": _axis_trk_cache}.get(fonte) or {}
+    return (cache.get("payload") or {}).get("rows") or []
+
+
+def _trk_frota_total(fonte, usina, sel=()):
+    """Nº de trackers da usina — o denominador do tempo-solar da frota na cascata e no relatório.
+
+    Por usina da fonte, a frota que a própria fonte publica; a que ela não lista hoje vem do cadastro (aba
+    BD_Trackers). E nunca menos que os trackers que pararam naquela usina (`sel`, as paradas do numerador):
+    em 29/09 o overview da Guatambu 3 dava 18 com 19 parados em setembro, e o cadastro da Vertentes, 26 com 44.
+
+    Até 29/09/2026 a API PV apontava para `_pv_trackers_overview`, nome que nunca existiu (o NameError
+    morria no `except`), e SunOp, Axis e 2C nem estavam aqui: dava 0, e os chamadores dividiam pelos
+    trackers que PARARAM. O relatório de setembro da MAB100 dividia pelos 13 que pararam, numa frota de 150."""
     if not fonte:
         return 0
-    try:
-        ov = {"pv": lambda: (_swr(_pv_trk_cache, _pv_trackers_overview, False).get("rows") or []),
-              "pg": lambda: (_swr(_pg_trk_cache, _pg_trackers_overview, False).get("rows") or [])}.get(fonte)
-        alvo = _nrm(usina)
-        tot = 0
-        for r in (ov() if ov else []):
-            u = _nrm(r.get("usina"))
-            if alvo in u or u in alvo:
-                tot += int(r.get("total") or 0)
-        return tot
-    except Exception:
-        return 0
+    alvo = _nrm(usina)
+    publicada, casadas = {}, set()
+    for r in _trk_frota_linhas(fonte):
+        nome, tot = r.get("usina"), r.get("total")
+        if not nome or not isinstance(tot, (int, float)):
+            continue
+        k = _nome_base(nome)
+        publicada[k] = publicada.get(k, 0) + int(tot)
+        u = _nrm(re.sub(r"^\s*\(\d+\)\s*", "", str(nome)))   # "(307) Ibaté 2" do Banco = "Ibaté 2" das paradas
+        if alvo in u or u in alvo:                             # a MESMA régua de nome do numerador
+            casadas.add(k)
+    parados = {}
+    for r in sel or ():
+        parados.setdefault(_nome_base(r.get("usina")), set()).add(r.get("tracker"))
+    return sum(max(publicada.get(k) or len(BD_TRK_INV.get(k) or {}), len(parados.get(k) or ()))
+               for k in casadas | set(parados))
 
 
 @app.route("/api/cascata")
@@ -27422,7 +27450,7 @@ def _relatorio_build(usina, ini, fim):
             n_frota = len({(r.get("usina"), r.get("tracker")) for r in sel})
         except Exception as e:
             print(f"[relatorio] tracker {usina}: {e}")
-    trk_tot = _trk_frota_total(fonte, usina) or n_frota
+    trk_tot = _trk_frota_total(fonte, usina, sel)
     frac = (h_trk / (12.0 * n * trk_tot)) if (trk_tot and n) else 0.0
     perda_trk = round(possivel * min(1.0, frac) * TRK_GANHO_RASTREIO, 1)
     # 3) PR por inversor no período (api_g_inversores já é period-aware) — ANTES das OS, pois a quebra
