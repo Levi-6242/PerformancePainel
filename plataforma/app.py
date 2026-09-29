@@ -22040,6 +22040,7 @@ def _iniciar_loops_de_fundo():
                  _frac_mtta_loop,           # Acompanhamento COS: tempo do evento até a OS (base acumulada)
                  _falhas_loop,              # Falhas de strings e trackers do mês, com a perda em kWh (Diagnóstico)
                  _falhas_backfill_sunop_loop,   # curva de strings da SunOp dos dias passados → registro da aba
+                 _falhas_backfill_pv_loop,      # idem da API PV, pela corrente (só no servidor: a cota é da conta)
                  _tranc_watch_loop,         # strings trancadas: o web grava, o worker tem de reler
                  _janitor_loop):            # impede o processo de dias inchar sem teto
         threading.Thread(target=alvo, daemon=True).start()
@@ -24091,6 +24092,121 @@ def _falhas_backfill_sunop_loop():
                 completo = False
                 print(f"[falhas] backfill SunOp:{inst} falhou: {e}")
         time.sleep(6 * 3600 if completo else 1800)
+
+
+# Backfill da curva de strings da API PV (29/09/2026, Levi, com print da Rodrigues 2.1: "veja se ocorre com mais usinas da
+# Thopen e resolva"). A aba deixou de contar a queda da API PV gravada depois do fim do dia (a potência da PV Plataforma,
+# ver falhas_job.FONTE_POTENCIA_DEPOIS_DO_DIA): a usina-dia de antes de 24/09 ficaria sem nada. Aqui ela ganha a régua da
+# aba sobre a CORRENTE do dia, pela API PV (custom_query v2 — o mesmo Ipv de hoje). Primeiro a usina-dia que tinha queda
+# gravada (a Tanabi 2 tem só uma corrente por inversor e a queda gravada de 24/09 inventava 23 strings mortas em cada
+# um; a régua sobre a curva exige duas strings vivas para comparar), do dia mais recente para trás; depois o resto.
+# Custo: 1 consulta histórica por usina-dia, da cota da CONTA (800/dia e 200/h, a mesma da combiner e da coleta da noite
+# — ver PV_COTA_RESERVA_DIA). Por isso só o servidor roda (FALHAS_BF_PV=1/0 força), para com a cota do dia abaixo de
+# FALHAS_BF_PV_RESERVA_DIA e não refaz o dia da régua anterior (FALHAS_REGUA_VER): isso gastaria a cota inteira.
+FALHAS_BF_PV_ESTADO = _p_cache("falhas_backfill_pv.json")   # {dia: {plant_id: ts}} — usina-dia pedida não volta à API
+FALHAS_BF_PV_PAUSA_S = 30              # 120/h no máximo: a cota da hora é 200 e a combiner pede de hora em hora
+FALHAS_BF_PV_RESERVA_DIA = 450         # a coleta da noite precisa de 300 (PV_COTA_RESERVA_DIA); o resto fica para a combiner
+FALHAS_BF_PV_RESERVA_HORA = 60
+FALHAS_BF_PV_MAX_PASSADA = 120         # usinas-dia por passada (1 h)
+_falhas_bf_pv_status = {}
+
+
+def _falhas_bf_pv_ligado():
+    """Só uma plataforma gasta a cota da API PV com o backfill: o servidor (Linux). FALHAS_BF_PV=1/0 força."""
+    v = os.environ.get("FALHAS_BF_PV", "").strip()
+    if v in ("0", "1"):
+        return v == "1"
+    return os.name == "posix"
+
+
+def _falhas_bf_pv_falta(ent, dia):
+    """A usina-dia da API PV precisa da curva? Sem registro, registro de antes das vivas ou avaliado antes das 18h."""
+    return not ent or "vivas" not in ent or float(ent.get("ts") or 0) < _falhas_bf_limite(dia)
+
+
+def _falhas_bf_pv_cota_ok():
+    """Ainda há cota da conta para o backfill? A leitura da cota vem dos cabeçalhos da última resposta da API PV."""
+    agora = time.time()
+    if agora < _pv_cota["zerada_ate"]:
+        return False
+    if _pv_cota["ts"] and agora - _pv_cota["ts"] < 3600:
+        if _pv_cota["dia"] is not None and _pv_cota["dia"] < FALHAS_BF_PV_RESERVA_DIA:
+            return False
+        if _pv_cota["hora"] is not None and _pv_cota["hora"] < FALHAS_BF_PV_RESERVA_HORA:
+            return False
+    return True
+
+
+def _falhas_backfill_pv(hoje=None, maximo=None):
+    """Uma passada: usinas-dia da API PV de FALHAS_INI até ontem sem a régua sobre a curva → a curva de corrente do dia e
+    a régua da aba. → quantas usinas-dia entraram no registro. Para na cota ou na rede (a próxima passada retoma)."""
+    hoje = hoje or datetime.now().date()
+    maximo = FALHAS_BF_PV_MAX_PASSADA if maximo is None else maximo
+    tok = get_token()
+    plantas = {str(p["id"]): p for p in get_plants(tok) if (not FULL_OM or p["nome"].strip() in FULL_OM)}
+    if not plantas:
+        return 0
+    reg = _falhas_persistir_mortas()       # a memória vai ao arquivo antes de decidir o que falta
+    est = _falhas_ler(FALHAS_BF_PV_ESTADO) or {}
+    with _perdas_str_lock:
+        gravada = {(dia, str(pid)) for dia, fs in _perdas_str.items()
+                   for pid, ent in ((fs or {}).get("pv") or {}).items() if (ent or {}).get("eventos")}
+    fila, d = [], datetime.strptime(FALHAS_INI, "%Y-%m-%d").date()
+    while d < hoje:
+        iso = d.isoformat()
+        ja, feitos = (reg.get(iso) or {}).get("pv") or {}, est.get(iso) or {}
+        fila += [(iso, pid) for pid in plantas if pid not in feitos and _falhas_bf_pv_falta(ja.get(pid), iso)]
+        d += timedelta(days=1)
+    fila.sort(reverse=True)                              # o dia mais recente primeiro...
+    fila.sort(key=lambda x: x not in gravada)            # ...e antes a usina-dia que tinha queda gravada
+    n, parou = 0, None
+    for i, (iso, pid) in enumerate(fila[:maximo]):
+        if not _falhas_bf_pv_cota_ok():
+            parou = "cota"
+            break
+        if i and FALHAS_BF_PV_PAUSA_S:
+            time.sleep(FALHAS_BF_PV_PAUSA_S)
+        p = plantas[pid]
+        data_br = datetime.strptime(iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+        tok_p = _pv_token_for(p["id"])
+        recs, mot = _spv_day_records_hist(p["id"], tok_p, data_br)
+        _spv_hist_recs.pop((int(p["id"]), data_br), None)          # dia passado não fica em memória
+        if mot in ("cota_api", "erro_rede") or str(mot).startswith("http_5"):
+            parou = mot
+            break
+        ent = None
+        if recs:
+            try:
+                curvas = _pv_curvas_strings_de(recs, p["id"], p["nome"].strip(), tok_p)
+                usina = _macro_usina_nome(nome_usina(p["id"], p["nome"])) or nome_usina(p["id"], p["nome"])
+                ent = _falhas_entrada(usina, curvas) if curvas else None
+            except Exception as e:                 # noqa: BLE001 — uma usina ruim não para a passada
+                print(f"[falhas] backfill API PV {pid} {iso}: {e}")
+        if ent:
+            ent["origem"] = "backfill"
+            with _falhas_mortas_lock:
+                _FALHAS_MORTAS.setdefault(("pv", iso), {})[pid] = ent
+            _falhas_persistir_mortas()             # já no arquivo: a memória tem teto e o live apara o dia antigo
+            n += 1
+        est.setdefault(iso, {})[pid] = round(time.time())   # sem leitura na API: não volta a pedir
+        _falhas_gravar(FALHAS_BF_PV_ESTADO, est)
+    _falhas_bf_pv_status.update({"ts": time.time(), "n": n, "fila": len(fila), "parou": parou})
+    if fila:
+        print(f"[falhas] backfill API PV: {n} usinas-dia de {len(fila)} na fila" + (f" (parou: {parou})" if parou else ""))
+    return n
+
+
+def _falhas_backfill_pv_loop():
+    """WORKER: 20 min depois da largada e de hora em hora, enquanto houver usina-dia da API PV sem a régua sobre a
+    curva. Só no servidor (_falhas_bf_pv_ligado)."""
+    time.sleep(FALHAS_BF_ESPERA_BOOT_S + 5 * 60)
+    while True:
+        if _falhas_bf_pv_ligado():
+            try:
+                _falhas_backfill_pv()
+            except Exception as e:                 # noqa: BLE001 — o laço não morre
+                print(f"[falhas] backfill API PV falhou: {e}")
+        time.sleep(3600)
 
 
 def _falhas_pv_dev(store):

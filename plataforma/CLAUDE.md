@@ -749,4 +749,24 @@ normalmente" no Fusion):
 - Na montagem, `strings.sombras` lista o que saiu, para conferir. Sombra que termina o dia morta e amanhece morta volta a
   ser falha, com o aviso "começou devagar" (`sombra_amanheceu`).
 - O registro guarda a versão da régua (`regua` = `FALHAS_REGUA_VER`) e o backfill da SunOp refaz o dia avaliado com a
-  anterior (~13 POSTs por dia do mês). API PV, Banco e RenoGrid não têm backfill: dia passado fica como foi avaliado.
+  anterior (~13 POSTs por dia do mês). Banco e RenoGrid não têm backfill: dia passado fica como foi avaliado (a API PV
+  tem, ver abaixo, mas não refaz a régua anterior).
+
+**29/09/2026 — a queda gravada da API PV de dia passado não vale** (Levi, com print da Rodrigues 2.1 Inversor 1.1: "As
+strings citadas estão trancadas"). Não eram trava — as trancadas eram as Ipv4/5/9/10/14/15/19/20/24:
+- O motor de ocorrências grava o dia que passou pela POTÊNCIA por string da PV Plataforma (trygenerate;
+  `_perdas_str_backfill`, depois da meia-noite). Na corrente da API PV do mesmo dia (custom_query v2) ela errava a
+  string: Rodrigues 2.1, 10/09, Ipv13/16/17/18/21/22/23 "zeradas" nos 8 inversores e gerando 9–14 A ao meio-dia; Ouro
+  Branco, 15/09, 432 acusadas e nenhuma morta; Ipv29–32 num inversor de 28 entradas (Sorocaba, Guatambu 4). Das 1.151
+  quedas gravadas da API PV na aba em 29/09 (107 MWh), ~95% eram string gerando.
+- `falhas_job.FONTE_POTENCIA_DEPOIS_DO_DIA`: a queda da API PV gravada depois do fim do dia (ts ≥ meia-noite de
+  Brasília) sai do store antes de tudo — nem episódio, nem dia visto, nem "voltou"; `strings.pv_potencia_fora` conta as
+  usinas-dia. A gravada no próprio dia (corrente de hoje) segue valendo onde a usina-dia não tem a régua sobre a curva.
+- A corrente de hoje também inventa string no detector antigo: a Tanabi 2 só reporta uma corrente por inversor (Ipv1) e
+  ele acusava Ipv2 a Ipv24 (460 episódios em 24/09). A régua sobre a curva exige duas strings vivas e não acusa.
+- **Backfill da curva da API PV** (`_falhas_backfill_pv_loop`, só no servidor; `FALHAS_BF_PV=1/0` força): a usina-dia
+  sem a régua sobre a curva ganha a corrente do dia pela API PV — primeiro a que tinha queda gravada, do dia mais recente
+  para trás. 1 consulta histórica por usina-dia, da cota da CONTA (800/dia e 200/h, a mesma da combiner e da coleta da
+  noite): para com a cota do dia abaixo de `FALHAS_BF_PV_RESERVA_DIA` (450) ou da hora abaixo de 60, 30 s entre pedidos,
+  120 por passada (de hora em hora). Não refaz a régua anterior. `falhas_backfill_pv.json` guarda a usina-dia pedida:
+  sem leitura na API, não volta a pedir.

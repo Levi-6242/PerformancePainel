@@ -68,6 +68,26 @@ FLAG_MANHA = "volta curta ignorada (morreu de novo no mesmo dia)"
 # buraco de dado, e a rampa já os deixa nas mortas. Fica como rede.
 FLAG_DEVAGAR = "começou devagar (a queda levou 40 min ou mais)"
 FONTE_VARRE_TUDO = {"sunop", "axis", "owen"}
+# Queda gravada da API PV DEPOIS do fim do dia não vale (29/09/2026, Levi, com print da Rodrigues 2.1: "As strings
+# citadas estão trancadas, veja se ocorre com mais usinas da Thopen e resolva"). Não era trava: o motor de ocorrências
+# avalia o dia passado da API PV pela POTÊNCIA por string da PV Plataforma (trygenerate), não pela corrente, e é ele que
+# grava o dia que a plataforma não viu (_perdas_str_backfill, depois da meia-noite). Na corrente da API PV do mesmo dia
+# (custom_query v2), essa potência errava a string: Rodrigues 2.1, 10/09, Ipv13/16/17/18/21/22/23 "zeradas" o dia todo
+# nos 8 inversores, gerando 9 a 14 A ao meio-dia; Ouro Branco, 15/09, 432 strings acusadas e nenhuma morta; Sorocaba e
+# Guatambu 4, Ipv29 a Ipv32 num inversor de 28 entradas. Das 1.151 quedas gravadas da API PV na aba em 29/09 (107 MWh),
+# ~95% eram string gerando. A gravada NO dia (corrente de hoje) segue valendo onde a usina-dia não tem a régua sobre a
+# curva — e o backfill da curva da API PV (app._falhas_backfill_pv) dá a curva a quem ficou sem.
+FONTE_POTENCIA_DEPOIS_DO_DIA = {"pv"}
+
+
+def _fim_do_dia(dia):
+    """Epoch da meia-noite que fecha DIA, em Brasília (o servidor roda em UTC)."""
+    d = datetime.strptime(dia, "%Y-%m-%d") + timedelta(days=1)
+    try:
+        from zoneinfo import ZoneInfo
+        return d.replace(tzinfo=ZoneInfo("America/Sao_Paulo")).timestamp()
+    except Exception:                  # noqa: BLE001 — sem base de fusos, vale a hora do processo
+        return d.timestamp()
 FONTE_ROT = {"pv": "API PV", "pvsb": "API PV · String Box", "pg": "Banco", "sunop": "Athon", "axis": "Axis", "owen": "2C",
              "solaredge": "RenoGrid"}
 _CACHE_2C = {}                # dia fechado → (marca das travas, [(cod, usina, strings sem corrente)])
@@ -269,11 +289,31 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
         return None
 
     # ══ STRINGS ══════════════════════════════════════════════════════════════════════════════
+    # a queda da API PV gravada depois do fim do dia veio da potência da PV Plataforma (FONTE_POTENCIA_DEPOIS_DO_DIA):
+    # sai do store aqui, antes de tudo — nem episódio, nem dia visto, nem "voltou" para a entrada vazia
+    pot_fora, fim_dia, filtrado = Counter(), {}, {}
+    for dia_s, fontes_s in str_store.items():
+        for fonte_s, usinas_s in (fontes_s or {}).items():
+            if fonte_s in FONTE_POTENCIA_DEPOIS_DO_DIA and usinas_s:
+                fim_dia.setdefault(dia_s, _fim_do_dia(dia_s))
+                ficam = {}
+                for pid_s, ent_s in usinas_s.items():
+                    if float((ent_s or {}).get("ts") or 0) >= fim_dia[dia_s]:
+                        if ini <= dia_s <= fim:
+                            pot_fora["usinas-dia"] += 1
+                            pot_fora["quedas"] += len(ent_s.get("eventos") or [])
+                        continue
+                    ficam[pid_s] = ent_s
+                usinas_s = ficam
+            filtrado.setdefault(dia_s, {})[fonte_s] = usinas_s
+    str_store = filtrado
     dias = [x for x in sorted(str_store) if ini <= x <= fim]
     # "em aberto" conta pelo último dia COM dado, não pela data de hoje: logo depois da meia-noite o período já vai
     # até um dia vazio, e tudo que estava aberto ontem fechava (25/09, 00:33 no servidor: 0 trackers em aberto)
     ult_str = max((x for x in dias if any((str_store[x] or {}).values())), default=fim)
     str_q = Counter()
+    if pot_fora:
+        str_q["API PV: queda gravada depois do dia (potência da PV Plataforma): fora"] = pot_fora["quedas"]
     parcial, massa = set(), {}
     registro = defaultdict(set)          # (fonte, pid) → dias com a usina no store (varrida e com queda)
     dias_fonte = defaultdict(set)        # fonte → dias em que ela gravou
@@ -1053,6 +1093,7 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
         str_q["sombra (entrou ou saiu em rampa): fora"] = len(sombras_info)
     return {"periodo": [ini, fim], "gerado_em": agora.strftime("%Y-%m-%d %H:%M"),
             "strings": {"rows": str_rows, "episodios": str_ep, "qualidade": dict(str_q), "entradas_vazias": vazias_info,
+                        "pv_potencia_fora": pot_fora["usinas-dia"],
                         "sombras": sombras_info,
                         "por_cliente": resumo(str_rows, "cliente")[:12], "por_usina": resumo(str_rows, "usina")[:25],
                         "parcial": sorted(list(x) for x in parcial), "massa": {f"{d_}|{f_}": v for (d_, f_), v in massa.items()},

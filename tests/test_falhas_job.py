@@ -758,3 +758,46 @@ def test_sombra_que_volta_no_mesmo_dia_nao_vira_falha_nem_com_queda_no_dia_segui
     c.update(curva("02", [morta("Ipv7", saiu="06:30", ini="06:30")], vivas=24))
     (e,) = episodios(monta({}, mortas=c, fim="2026-09-02"), "Ipv7")
     assert e["inicio"].startswith("2026-09-02")          # só a queda do dia 02
+
+
+# ── queda gravada da API PV depois do fim do dia (29/09/2026) ─────────────────────────────────────────────────────
+# Levi, com print da Rodrigues 2.1 Inversor 1.1: "As strings citadas estão trancadas". Não eram: o dia passado da API PV
+# é gravado pela POTÊNCIA da PV Plataforma, depois da meia-noite, e ela as dava zeradas — a corrente da API PV do mesmo
+# dia (10/09) tinha as Ipv13 a Ipv23 com 9 a 14 A ao meio-dia. A gravada no próprio dia (corrente de hoje) segue valendo.
+def _ts_br(dia, hhmm):
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.strptime(f"{dia} {hhmm}", "%Y-%m-%d %H:%M").replace(tzinfo=ZoneInfo("America/Sao_Paulo")).timestamp()
+
+
+def test_queda_da_api_pv_gravada_depois_do_dia_nao_vira_episodio():
+    st = store(d01=[ev("Ipv1", "06:00")], d02=[ev("Ipv1", "06:00")])
+    st["2026-09-01"]["pv"][PID]["ts"] = _ts_br("2026-09-02", "00:18")
+    st["2026-09-02"]["pv"][PID]["ts"] = _ts_br("2026-09-03", "00:29")
+    p = monta(st)
+    assert episodios(p) == []
+    assert p["strings"]["qualidade"]["API PV: queda gravada depois do dia (potência da PV Plataforma): fora"] == 2
+    assert p["strings"]["pv_potencia_fora"] == 2
+
+
+def test_queda_da_api_pv_gravada_no_proprio_dia_continua_valendo():
+    st = store(d01=[ev("Ipv1", "08:00", "12:00")])
+    st["2026-09-01"]["pv"][PID]["ts"] = _ts_br("2026-09-01", "23:50")
+    (e,) = episodios(monta(st))
+    assert e["inicio"] == "2026-09-01 08:00" and monta(st)["strings"]["pv_potencia_fora"] == 0
+
+
+def test_dia_da_api_pv_gravado_depois_nao_conta_como_dia_visto():
+    # a potência errada também não "vê" a usina: a string morta na curva do dia 01 não fecha num dia 02 que só a
+    # potência gravou (com outra string)
+    st = store(d02=[ev("Ipv9", "06:00")])
+    st["2026-09-02"]["pv"][PID]["ts"] = _ts_br("2026-09-03", "00:18")
+    (e,) = episodios(monta(st, mortas=curva("01", [morta("Ipv1", sempre_zero=False)]), fim="2026-09-02"))
+    assert e["fim"] is None
+
+
+def test_queda_gravada_depois_do_dia_de_outra_fonte_continua():
+    # só a API PV grava dia passado pela potência; a da SunOp vem da série de corrente dela
+    st = {"2026-09-01": {"sunop": {"TIM100": {"usina": "TIM100", "ts": _ts_br("2026-09-02", "00:18"),
+                                              "eventos": [ev("ST 01", "08:00", "12:00", inv="Inversor 3.5")]}}}}
+    assert len(monta(st)["strings"]["episodios"]) == 1
