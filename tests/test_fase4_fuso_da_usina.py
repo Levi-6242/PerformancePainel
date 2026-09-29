@@ -220,3 +220,95 @@ def test_fuso_de_cada_usina_da_sunop_no_acervo_e_o_mesmo_do_gemeo():
         if do_gemeo != da_plataforma:
             divergentes[cod] = (str(do_gemeo), str(da_plataforma))
     assert not divergentes, f"fuso do gêmeo × plataforma: {divergentes}"
+
+
+# ── A régua enxerga a tarde da usina (28/09/2026) ────────────────────────────────────────────────────────────
+# O achado que abriu esta correção veio do chart.csv da MAB100 ("Tracker 1,2026-09-28T11:45:00+00:00") e o custo
+# estava na régua, que lê a hora do texto: nas três usinas atendidas pelo gêmeo (MAB100, CPP100, MRO100) a janela
+# 06–18 h virava 03–15 h de Belém. Estes testes travam o caminho inteiro até o status do tracker.
+
+def _frota(n, congela_de_h=None):
+    """n trackers da MRO100 varrendo de −50° (06:00) a +50° (17:45) na hora da usina, a cada 15 min (48 pontos),
+    gravados em UTC como o gêmeo grava (Belém = UTC−3). O último congela a partir de `congela_de_h` da usina."""
+    out = {}
+    for i in range(1, n + 1):
+        pts, preso = [], None
+        for k, t in enumerate(_passos("2026-09-28 09:00", "2026-09-28 20:45", 15)):
+            v = round(-50 + 100 * k / 47, 2)
+            if i == n and congela_de_h is not None and (t - dt.timedelta(hours=3)).hour >= congela_de_h:
+                preso = v if preso is None else preso
+                v = preso
+            pts.append((t, v))
+        out[f"MRO100.TRK_{i}.MEDIDAS.POSAT"] = pts
+    return out
+
+
+def _trackers(n):
+    return {"MRO100": {"trackers": {f"TRK_{i}": {"atual": f"MRO100.TRK_{i}.MEDIDAS.POSAT"} for i in range(1, n + 1)}}}
+
+
+@pytest.fixture
+def sem_registro(monkeypatch, tmp_path):
+    """A regra do dia anterior lê o registro de trackers do disco; aqui ele fica vazio, para o status não
+    depender da máquina que roda a suíte."""
+    monkeypatch.setattr(app, "_trk_eventos", {})
+    monkeypatch.setattr(app, "_TRK_FIM_DIA_PATH", str(tmp_path / "trk_parados_fim_dia.json"), raising=False)
+    monkeypatch.setattr(app, "_trk_fim_dia_mem", {"mtime": None, "dados": {}}, raising=False)
+
+
+@pytest.mark.parametrize("v2", [False, True], ids=["regua_legada", "regua_v2"])
+def test_regua_de_trackers_ve_a_tarde_da_usina(fase4, freeze_now, sem_registro, monkeypatch, v2):
+    """O Tracker 10 congela das 15:00 às 17:45 de Belém com a frota girando. Lido em UTC, esse trecho tinha
+    carimbo 18:00–20:45 e caía FORA da janela 06–18 h: o tracker saía "normal" e a amplitude de todos parava em
+    74,5° (a janela acabava às 14:59 da usina). A régua não muda — muda o carimbo que chega a ela."""
+    if v2 and not app._regua_v2:
+        pytest.skip("trk_regua_v2 indisponível")
+    monkeypatch.setattr(app, "TRK_REGUA_V2", v2)
+    freeze_now("2026-09-28 18:30:00")
+    fase4(_trackers(10), _AcervoFalso(_frota(10, congela_de_h=15)))
+
+    r = app._sunop_trackers_plant_curva("MRO100", "gridco", data="2026-09-28")
+
+    st = {t["id"]: t for t in r["trackers"]}
+    assert r["ultima_leitura"] == "2026-09-28T17:45:00"
+    assert st["Tracker 1"]["amplitude"] == pytest.approx(100.0, abs=0.1)     # 06:00–17:45 inteiro na janela
+    assert st["Tracker 1"]["status"] == "normal"
+    assert st["Tracker 10"]["status"] in ("parado", "severo"), st["Tracker 10"]
+
+
+def test_busca_incremental_pelo_gemeo_fica_igual_a_busca_cheia(fase4, freeze_now):
+    """A curva de hoje é incremental (último ponto − 30 min, fundida por carimbo): a janela incremental sai da hora
+    da usina e o carimbo do gêmeo volta a ela. A fusão tem de dar a MESMA curva da busca cheia — fusão errada não
+    dá erro, ela encolhe ou deforma a curva, que é o insumo de "parado por amplitude"."""
+    frota = _frota(2)
+
+    def _ate(hh_mm_usina):                       # o que o gêmeo já tinha gravado até essa hora da usina
+        corte = _u(f"2026-09-28 {hh_mm_usina}") + dt.timedelta(hours=3)
+        return _AcervoFalso({p: [(t, v) for t, v in s if t <= corte] for p, s in frota.items()})
+
+    freeze_now("2026-09-28 16:05:00")
+    fase4(_trackers(2), _ate("16:00"))
+    app._sunop_trk_curvas("MRO100", "2026-09-28", "gridco")               # cheia (cache frio)
+    app._sunop_trk_hist[("MRO100", "2026-09-28")]["ts"] = 0.0            # TTL vencido, mesma hora: incremental
+    freeze_now("2026-09-28 16:40:00")
+    fase4(_trackers(2), _ate("16:30"))
+    incremental = app._sunop_trk_curvas("MRO100", "2026-09-28", "gridco")
+
+    app._sunop_trk_hist.clear()
+    cheia = app._sunop_trk_curvas("MRO100", "2026-09-28", "gridco")      # cache frio às 16:40
+    assert incremental["posat"] == cheia["posat"]
+    assert cheia["posat"]["TRK_1"][0] == ("2026-09-28T06:00:00", -50.0)
+    assert cheia["posat"]["TRK_1"][-1] == ("2026-09-28T16:30:00", 39.36)
+
+
+def test_resposta_ilegivel_do_gemeo_vai_para_a_sunop(fase4, monkeypatch):
+    """O gêmeo é opcional no caminho: nem ele fora do ar nem um carimbo que não se converte derrubam a curva — o
+    pedido volta para a SunOp, como se o gêmeo não tivesse atendido."""
+    pn = "MRO100.TRK_1.MEDIDAS.POSAT"
+    sunop = fase4(_trackers(1), _AcervoFalso({}), _SunOpFalsa({pn: [("2026-09-28T08:45:00", 1.0)]}))
+    monkeypatch.setattr(app, "_gemeo_curva",
+                        lambda pns, ini, fim: {"series": {pn: [["ontem de tarde", 5.0]]}, "nao_atendidos": []})
+
+    r = app._sunop_analog_history([pn], "2026-09-28T00:00:00", "2026-09-28T23:59:59", "gridco")
+
+    assert r == {pn: [("2026-09-28T08:45:00", 1.0)]}

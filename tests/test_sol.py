@@ -54,3 +54,31 @@ def test_estado_desconhecido_nao_e_sol_baixo():
     assert sol.elevacao_estado(None, datetime(2026, 9, 10, 18, 10)) is None
     assert sol.sol_baixo(None, datetime(2026, 9, 10, 18, 10)) is False
     assert sol.sol_baixo("Atlântida", datetime(2026, 9, 10, 18, 10)) is False
+
+
+
+def _offset_h(tz, quando=datetime(2026, 9, 28, 12, 0)):
+    from zoneinfo import ZoneInfo
+    return quando.replace(tzinfo=ZoneInfo(tz)).utcoffset().total_seconds() / 3600
+
+
+def test_fuso_pelo_estado_nao_e_menos_3_para_todo_mundo():
+    """O acervo do gêmeo devolve carimbo em UTC e a plataforma desfaz a conversão pelo fuso do estado da usina
+    (28/09/2026). A Athon inteira é UTC−3 (Pará e Maranhão), mas MT e MS são −4 e o Acre −5."""
+    assert _offset_h(sol.fuso("Para")) == -3                  # MAB100, CPP100, MRO100
+    assert _offset_h(sol.fuso("Maranhao")) == -3              # MTS100, TIM100
+    assert _offset_h(sol.fuso("Mato Grosso")) == -4           # Cuiabá
+    assert _offset_h(sol.fuso("Mato Grosso do Sul")) == -4
+    assert _offset_h(sol.fuso("Amazonas")) == -4
+    assert _offset_h(sol.fuso("Acre")) == -5
+    assert _offset_h(sol.fuso("São Paulo")) == -3
+    assert sol.fuso("MT") == sol.fuso("Mato Grosso") == sol.fuso(" mato grosso ")
+
+
+def test_todo_estado_tem_fuso_carregavel_e_desconhecido_e_none():
+    """Nome de fuso com erro de digitação só apareceria no dia em que uma usina daquele estado chegasse ao gêmeo."""
+    for uf in sol.UF:
+        assert _offset_h(sol.fuso(uf)) in (-5, -4, -3), uf
+    assert sol.fuso(None) is None
+    assert sol.fuso("") is None
+    assert sol.fuso("Atlântida") is None
