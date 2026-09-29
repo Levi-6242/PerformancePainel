@@ -74,8 +74,18 @@ GET https://app.fracttal.com/api/<ep>
 ```
 
 - **Base**: `FRACTTAL_BASE` = `https://app.fracttal.com` (env `FRACTTAL_BASE_URL`).
-- **Robustez**: até 3 tentativas. `401` → invalida o token e re-autentica; `406` (rate limit,
-  **200 req/min**) → dorme o `ratelimit-reset` do header e retenta. Qualquer outra falha → `None`.
+- **Robustez**: até 3 tentativas. `401` → invalida o token e re-autentica; `406` (o limite antigo,
+  por IP) → dorme o `ratelimit-reset` do header e retenta. Qualquer outra falha → `None`, na hora
+  — inclusive o **429**, o limite de hoje: **200 req/min para a EMPRESA inteira** (desde 24/09/2026),
+  dividido com o App de Campo, os robôs do PCM, o OS Creator e as duas plataformas. O `_motivo`
+  opcional diz por que veio `None` (status, reset). As rotas do web ficam assim de propósito:
+  esperar o reset prenderia uma linha do waitress.
+- **Varredura do worker**: `_frac_get_paciente` (desde 28/09/2026). No 429, espera o
+  `RateLimit-Reset`/`Retry-After` que o Fracttal informa, mais 1 s, e repete o **mesmo** pedido.
+  Rede caída, 5xx ou token recusado: repete até 4 vezes (5, 15, 45 s). O teto é
+  `FRAC_DISP_ESPERA_MAX_S` (20 min) de espera somada na varredura. Se desistir, levanta erro,
+  **nunca `None`**. Esperar 60 s fixo não funciona: a sonda de 28/09 fez isso, entrou em fase com a
+  janela da cota e levou 8 recusas seguidas.
 
 ### 3.3 A varredura das OS
 
@@ -87,11 +97,19 @@ GET /api/work_orders/?start=<n>&limit=200
 
 - Pagina com `start` (incrementado por `len(rows)`) e `limit=200`, na ordem **decrescente por data
   de criação** (padrão do endpoint). Para quando a `creation_date` da última linha fica **antes do
-  limite**, ou quando não vêm mais linhas, ou no teto de 40.000 registros.
+  limite**. Só a varredura **inteira** vale: qualquer outro jeito de acabar é erro, e o índice
+  anterior fica no ar. Isso cobre página que não volta, página vazia antes do `total` (o maior
+  visto), teto de 40.000 linhas sem chegar ao limite e página fora da ordem decrescente. A única
+  página vazia aceita é a com `start >= total`, que é o fim real da base.
+- **Por quê (28/09/2026):** até então o `None` do 429 era lido como "acabaram as OS" e o pedaço
+  lido virava o índice. O servidor servia 51 OS de setembro, e o notebook 573, contra 991 da
+  varredura inteira. A #12693 (Religamento aberto na Brodowski desde 02/09) não estava em nenhum
+  dos dois.
 - **Não filtra por tipo, status nem data na API.** Puxa o fluxo recente inteiro e filtra **localmente**
   (na função `calcular`). Os únicos parâmetros enviados são `start` e `limit`.
 - **Limite da varredura**: `menor mês-alvo − 45 dias` (`FRAC_DISP_MARGEM_D`). A margem existe porque
-  uma OS **criada** semanas antes pode ter o **evento** dentro do mês. São ~140 páginas para 2 meses.
+  uma OS **criada** semanas antes pode ter o **evento** dentro do mês. São ~175 páginas para 2 meses
+  (17.499 tarefas em 28/09). Cada volta de cada worker gasta isso da cota da empresa.
 - De cada work order o sweep guarda só os campos que a conta usa, agrupados por `wo_folio`
   (`_DISP_CAMPOS_TASK`, `app.py`):
 

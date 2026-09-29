@@ -24,9 +24,11 @@ Design aprovado a partir do mockup de 26/08
 
 - Autenticação OAuth2 `client_credentials` (`FRACTTAL_CLIENT_ID`/`FRACTTAL_CLIENT_SECRET` no
   `tokens.txt`); endpoint `GET /api/work_orders/` paginado (`start`/`limit=200`, listagem
-  decrescente por criação; rate limit 200 req/min, HTTP 406 = espera).
+  decrescente por criação). O limite é 200 req/min para a EMPRESA inteira. No 429, a varredura
+  do worker espera o reset informado e repete a página (`_frac_get_paciente`, desde 28/09/2026).
 - A varredura cobre **mês corrente + mês anterior + 45 dias de margem** (OS antiga que
-  atravessa o mês entra). ~140 páginas por ciclo.
+  atravessa o mês entra). ~175 páginas por ciclo. Só a varredura inteira vira índice; ver
+  `calculo-disponibilidade-gerencial.md` §3.3.
 - Cada linha da API é uma **tarefa**; a OS (`wo_folio`, numérico) agrega 1+ tarefas.
 - Campos usados por tarefa: `tasks_log_task_type_main` (tipo), `id_status_work_order`
   (0 pendente / 1 em andamento / 2–3 concluída / 4 cancelada / 5–6 aguardando-pausada),
@@ -185,7 +187,8 @@ absorve os demais; senão soma capada no kWp da usina).
 |---|---|
 | `plataforma/disponibilidade.py` | módulo PURO com todas as réguas (sem Flask/rede/arquivo) |
 | `plataforma/app.py`, bloco "Disponibilidade por OS" | varredura (`_frac_disp_sweep`), recálculo e publicação (`_frac_disp_recalcular`), loop de 30 min no worker (`_frac_disp_loop`), leitura no web (`_frac_disp_dados`, por mtime), rotas e export |
-| `plataforma/frac_disp_index.json` | índice publicado (payloads prontos do mês corrente + anterior); escrita atômica; varredura vazia não sobrescreve |
+| `plataforma/frac_disp_index.json` | índice publicado (payloads prontos do mês corrente + anterior, e `varredura`: até onde leu); escrita atômica; só varredura INTEIRA com os dois meses calculados sobrescreve |
+| `plataforma/frac_disp_status.json` | a última tentativa do worker (`ok`, `erro`, `varredura`), que a rota devolve em `ultima_tentativa`; a falha também vai para `plataforma/logs/fracttal.log` |
 | `plataforma/templates/disponibilidade.html` | painel (fetch da API; card do dia; export) |
 | `plataforma/templates/gerencial.html` | coluna Disponibilidade (match de nome com romanos, SEM herdar valor da usina-mãe quando a granularidade difere — mostra "—") |
 

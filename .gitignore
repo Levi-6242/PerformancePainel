@@ -45,6 +45,7 @@ trk_eventos.json.FALHO
 fracttal_index.json
 frac_osperf_index.json
 frac_disp_index.json
+frac_disp_status.json*
 perdas_strings.json
 # Sufixo composto escapa do padrao exato: o backup `whats_ronda.json.bak_20260916_143840`
 # NAO era ignorado e carrega o token do servico, o telefone e os ids dos grupos. Mesmo

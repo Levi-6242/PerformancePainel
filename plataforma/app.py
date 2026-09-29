@@ -22104,23 +22104,94 @@ def get_fracttal_token() -> str:
         return _frac_token["token"]
 
 
-def _frac_get(ep, **params):
-    """GET autenticado na Fracttal; trata 401 (re-auth) e 406 (rate limit). None se falhar."""
+def _frac_get(ep, *, _motivo=None, **params):
+    """GET autenticado na Fracttal; trata 401 (re-auth) e 406 (rate limit). None se falhar.
+
+    `_motivo` (dict, opcional, só pelo nome) recebe o porquê do None — {"status": 429, "reset": "24", "erro": ...}, ou
+    status None na falha de rede — para quem decide se vale esperar e pedir de novo (o _frac_get_paciente das
+    varreduras do worker). O 429 continua voltando None NA HORA: nas rotas do web, esperar o reset prenderia uma linha
+    do waitress."""
     url = f"{FRACTTAL_BASE}/api/{ep.lstrip('/')}"
+    mot = _motivo if _motivo is not None else {}
     for _ in range(3):
         h = {"Authorization": f"Bearer {get_fracttal_token()}", "Accept": "application/json"}
         try:
             r = _http().get(url, headers=h, params=params, timeout=30)
-        except Exception:
+        except Exception as e:
+            mot.update(status=None, reset=None, erro=f"{type(e).__name__}: {str(e)[:160]}")
             return None
+        mot.update(status=r.status_code, erro=None,
+                   reset=r.headers.get("ratelimit-reset") or r.headers.get("retry-after"))
         if r.status_code == 401:
             _frac_token["token"] = ""          # token venceu → força re-auth
             continue
         if r.status_code == 406:               # rate limit (200/min)
             time.sleep(int(r.headers.get("ratelimit-reset", 5)) or 5)
             continue
-        return r.json() if r.status_code == 200 else None
+        if r.status_code == 200:
+            return r.json()
+        mot["erro"] = r.text[:160]
+        return None
     return None
+
+
+# A cota do Fracttal é de 200 pedidos/min para a EMPRESA inteira (por IP até 24/09/2026), dividida com o App de Campo, os
+# robôs do PCM, o OS Creator e as duas plataformas — e vive esgotada. Sonda de 28/09 (18:09–18:33 UTC, a varredura do
+# índice de disponibilidade inteira): 20 respostas 429 em 198 pedidos, a 1ª no primeiro pedido, todas com
+# RateLimit-Remaining 0 e reset entre 1 e 49 s. Esperar o reset informado e pedir de novo resolve, porque a cota volta
+# cheia no começo da janela. Esperar 1 minuto fixo não resolve: a sonda fez isso e, em fase com a janela, caiu 8 vezes
+# seguidas no fim dela (reset 16, 15, 14 ... 7 s), quando os outros consumidores já tinham gastado os 200.
+FRAC_COTA_STATUS = (406, 429)          # 406 = o limite antigo, por IP; 429 = o de hoje, por empresa
+FRAC_DISP_ESPERA_MAX_S = 20 * 60       # quanto a varredura do índice aceita esperar, somando todas as páginas
+FRAC_FALHAS_SEGUIDAS_MAX = 4           # queda de rede / 5xx seguidos no MESMO pedido antes de desistir (a sonda teve 2)
+
+
+def _frac_motivo_txt(mot):
+    """'HTTP 429' / 'HTTP 503: <corpo>' / 'ConnectionError: ...' — o porquê de uma falha do _frac_get, para o registro."""
+    st, erro = mot.get("status"), (mot.get("erro") or "").strip()
+    if st is None:
+        return erro or "sem resposta"
+    return f"HTTP {st}: {erro}" if erro else f"HTTP {st}"
+
+
+def _frac_get_paciente(ep, orcamento, **params):
+    """_frac_get para as varreduras do WORKER. 429/406 = espera o reset que o Fracttal informa (+1 s) e repete o MESMO
+    pedido; rede caída, 5xx ou exceção dentro do _frac_get (a renovação do token, que também leva 429 quando a cota da
+    empresa acaba) = repete até FRAC_FALHAS_SEGUIDAS_MAX vezes, com 5, 15 e 45 s — somados, passam de uma janela de
+    60 s da cota. Nunca devolve None: numa varredura, None era lido como "acabaram as OS" (índice de disponibilidade de
+    28/09). Desistiu → RuntimeError com o motivo.
+    `orcamento` = {"espera_s": segundos que a varredura inteira ainda pode esperar, "esperas": quantas já fez}."""
+    seguidas = 0
+    while True:
+        mot = {}
+        try:
+            d = _frac_get(ep, _motivo=mot, **params)
+        except Exception as e:                               # noqa: BLE001 — token/JSON: passageiro como a rede
+            d, mot = None, {"status": None, "erro": f"{type(e).__name__}: {e}"}
+        if d is not None:
+            return d
+        st = mot.get("status")
+        if not mot:
+            raise RuntimeError(f"o Fracttal não respondeu em {ep} {params}")
+        if st in FRAC_COTA_STATUS:
+            try:                                             # reset "0" repetido não vira um pedido por segundo
+                espera = min(max(int(float(mot.get("reset") or 60)), 1), 60) + 1
+            except ValueError:
+                espera = 61
+        elif st is None or st >= 500:
+            seguidas += 1
+            if seguidas >= FRAC_FALHAS_SEGUIDAS_MAX:
+                raise RuntimeError(f"{_frac_motivo_txt(mot)} em {ep} {params}, {seguidas} vezes seguidas")
+            espera = 5 * 3 ** (seguidas - 1)
+        else:
+            raise RuntimeError(f"{_frac_motivo_txt(mot)} em {ep} {params}")
+        if espera > orcamento["espera_s"]:
+            raise RuntimeError(f"{_frac_motivo_txt(mot)} em {ep} {params}: "
+                               + ("a cota do Fracttal não voltou" if st in FRAC_COTA_STATUS else "acabou o tempo de espera")
+                               + f" ({orcamento.get('esperas', 0)} esperas nesta varredura)")
+        time.sleep(espera)
+        orcamento["espera_s"] -= espera
+        orcamento["esperas"] = orcamento.get("esperas", 0) + 1
 
 
 _frac_bd_map   = {}; _frac_bd_ts = 0.0     # {nome.lower → "Usina Fractall"} do BD
@@ -22676,10 +22747,12 @@ def _frac_osperf_loop():
 # publica em frac_disp_index.json; o WEB relê o arquivo por mtime e serve — NUNCA calcula.
 import disponibilidade as _disp_mod
 
-_FRAC_DISP_FILE = _p_cache("frac_disp_index.json")   # o worker varre e calcula; reconstroi em ~3 min
+_FRAC_DISP_FILE = _p_cache("frac_disp_index.json")   # o worker varre e calcula; ~3 min, mais a fila da cota do Fracttal
+_FRAC_DISP_STATUS = _p_cache("frac_disp_status.json")  # a última TENTATIVA (o índice só muda com varredura inteira)
 FRAC_DISP_TTL = 30 * 60
 _DISP_GER_ULTIMA = {}     # "AAAA-MM" → {ts, ger}: a geração do mês que a Disponibilidade acabou de buscar (worker)
 FRAC_DISP_MARGEM_D = 45          # OS criada até 45d antes do mês anterior ainda entra na varredura
+FRAC_DISP_TETO_LINHAS = 40000    # tarefas lidas sem chegar ao limite = algo errado (em 28/09 o limite veio em 17.499)
 _frac_disp_mem = {"mtime": 0.0, "dados": {}}
 _DISP_CAMPOS_TASK = ("tasks_log_task_type_main", "id_status_work_order", "event_date",
                      "date_maintenance", "final_date", "wo_final_date", "code",
@@ -22726,25 +22799,52 @@ def _disp_meses_alvo(hoje=None):
     return [(f"{ini_cor:%Y-%m}", ini_cor, fim_cor), (f"{ini_ant:%Y-%m}", ini_ant, ini_cor)]
 
 
-def _frac_disp_sweep(limite_dt):
+def _frac_disp_sweep(limite_dt, resumo=None):
     """Varre work_orders (DESC por criação) até criação < limite → {folio: [tasks reduzidas]}.
-    ~140 páginas p/ 2 meses + margem; roda SÓ no worker, a cada FRAC_DISP_TTL."""
-    wos, start = {}, 0
+    ~175 páginas p/ 2 meses + margem (sonda de 28/09); roda SÓ no worker, a cada FRAC_DISP_TTL.
+
+    Só devolve a varredura INTEIRA. Página que não volta (cota que não passa, rede, erro HTTP) ou que volta vazia antes
+    do limite = RuntimeError, nunca o pedaço lido até ali. Até 28/09/2026 o None do _frac_get era lido como fim das OS
+    e o pedaço virava o índice: o servidor servia 51 OS de setembro e o notebook 573, e a #12693 (Religamento aberto na
+    Brodowski desde 02/09) não estava em nenhum dos dois — a Brodowski calada não aparecia como "Usina desligada".
+    `resumo` (dict) recebe até onde a varredura foi — também quando ela falha —, para o índice e o registro dizerem."""
+    wos, start, paginas, linhas, total, ultima = {}, 0, 0, 0, None, ""
     limite = limite_dt.strftime("%Y-%m-%d")
-    while start < 40000:
-        d = _frac_get("work_orders/", start=start, limit=200)
-        rows = (d.get("data") if isinstance(d, dict) else d) or []
-        if not rows:
-            break
-        ultima = ""
-        for w in rows:
-            ultima = str(w.get("creation_date") or "")[:10]
-            fol = w.get("wo_folio")
-            if fol is not None:
-                wos.setdefault(str(fol), []).append({k: w.get(k) for k in _DISP_CAMPOS_TASK})
-        start += len(rows)
-        if ultima and ultima < limite:
-            break
+    orc = {"espera_s": FRAC_DISP_ESPERA_MAX_S, "esperas": 0}
+    try:
+        while True:
+            if start >= FRAC_DISP_TETO_LINHAS:
+                raise RuntimeError(f"passou de {start} linhas sem chegar a {limite} (última criação lida: {ultima})")
+            d = _frac_get_paciente("work_orders/", orc, start=start, limit=200)
+            rows = (d.get("data") if isinstance(d, dict) else d) or []
+            if isinstance(d, dict) and isinstance(d.get("total"), int):
+                total = max(total or 0, d["total"])        # o maior visto: uma resposta vazia dizendo 0 não encolhe a base
+            if not rows:
+                if total is not None and start >= total:
+                    break                                  # a base acabou antes do limite: é a base inteira
+                raise RuntimeError(f"página vazia em start={start} (total={total}) antes de chegar a {limite}; "
+                                   f"última criação lida: {ultima or 'nenhuma'}")
+            # O limite só funciona com a lista DESC por criação (sonda de 28/09: 0 inversões em 175 páginas). Se o
+            # Fracttal passar a devolver em ordem crescente, a 1ª página — as OS mais velhas — já "passaria do limite"
+            # e umas 100 linhas virariam o índice.
+            cs = [str(w.get("creation_date") or "") for w in rows]
+            if sum(1 for i in range(1, len(cs)) if cs[i] > cs[i - 1]) * 2 > len(cs) - 1 > 0:
+                raise RuntimeError(f"a página start={start} não veio em ordem decrescente de criação "
+                                   f"({cs[0][:10]} … {cs[-1][:10]})")
+            for w in rows:
+                ultima = str(w.get("creation_date") or "")[:10]
+                fol = w.get("wo_folio")
+                if fol is not None:
+                    wos.setdefault(str(fol), []).append({k: w.get(k) for k in _DISP_CAMPOS_TASK})
+            start += len(rows)
+            paginas += 1
+            linhas += len(rows)
+            if ultima and ultima < limite:
+                break
+    finally:
+        if resumo is not None:
+            resumo.update(paginas=paginas, linhas=linhas, oss=len(wos), total=total, ate=ultima, limite=limite,
+                          esperas=orc["esperas"], espera_s=FRAC_DISP_ESPERA_MAX_S - orc["espera_s"])
     return wos
 
 
@@ -22889,36 +22989,81 @@ def _disp_geracao(per_ini, per_fim, equip, com_pg=True):
     return out
 
 
+def _frac_disp_registrar(ok, msg, resumo=None):
+    """Registra a tentativa do worker. Na falha o índice anterior fica no ar e a falha aparece EM VOZ ALTA: no log do
+    worker, em logs/fracttal.log (o print do pythonw morre sem console) e na rota, em `ultima_tentativa`."""
+    if not ok:
+        ant = _frac_disp_dados()
+        msg += (" — índice anterior mantido (de %s)" % datetime.fromtimestamp(ant["ts"]).strftime("%d/%m %H:%M")
+                if ant.get("ts") else " — ainda não há índice publicado")
+    linha = f"[disp] {msg}"
+    print(linha, flush=True)
+    _log_arquivo("fracttal.log", linha)
+    st = {"ok": bool(ok), "ts": time.time(), "erro": None if ok else msg}
+    if resumo:
+        st["varredura"] = resumo
+    try:
+        tmp = _FRAC_DISP_STATUS + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(st, f, ensure_ascii=False)
+        os.replace(tmp, _FRAC_DISP_STATUS)
+    except Exception as e:                                   # noqa: BLE001 — registrar não derruba o laço
+        print(f"[disp] não gravei o status da varredura: {e}")
+        _log_arquivo("fracttal.log", f"[disp] não gravei o status da varredura: {type(e).__name__}: {e}")
+
+
+def _frac_disp_status():
+    """WEB: a última tentativa do worker ({ok, ts, erro, varredura}); {} enquanto não houver nenhuma."""
+    try:
+        with open(_FRAC_DISP_STATUS, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
 def _frac_disp_recalcular():
-    """WORKER: varre + calcula os 2 meses + persiste (atômico). Varredura vazia não sobrescreve
-    índice bom (mesma proteção do _frac_osperf_index)."""
+    """WORKER: varre + calcula os 2 meses + persiste (atômico). Só publica o índice INTEIRO — varredura completa e os
+    dois meses calculados. O resto (falha no meio, varredura vazia, mês que não calcula) deixa o índice anterior no ar,
+    intocado, e avisa (_frac_disp_registrar). Um mês a menos também é parcial: o _religamentos_abertos_usina perderia
+    as OS dele, e o _os_fracttal_inv_abertas leria o mês anterior como se fosse o corrente."""
     if not FRACTTAL_ON:
         return
     meses = _disp_meses_alvo()
     limite = min(m[1] for m in meses) - timedelta(days=FRAC_DISP_MARGEM_D)
-    wos = _frac_disp_sweep(limite)
+    t0, resumo = time.time(), {}
+    try:
+        wos = _frac_disp_sweep(limite, resumo=resumo)
+    except Exception as e:                                   # noqa: BLE001 — vira aviso; o índice bom fica
+        _frac_disp_registrar(False, f"varredura do Fracttal incompleta, nada publicado: {type(e).__name__}: {e}",
+                             resumo)
+        return
     if not wos:
-        print("[disp] varredura do Fracttal voltou VAZIA — índice anterior mantido")
+        _frac_disp_registrar(False, "varredura do Fracttal voltou VAZIA", resumo)
         return
     equip = _disp_equip_linhas()
     if not equip:
-        print("[disp] sem aba Equipamentos — índice não recalculado")
+        _frac_disp_registrar(False, "sem aba Equipamentos — índice não recalculado", resumo)
         return
-    dados = {"ts": time.time(), "meses": {}}
+    resumo["s"] = round(time.time() - t0)
+    dados = {"ts": time.time(), "meses": {}, "varredura": resumo}
+    falhas = []
     for rot, ini, fim in meses:
         try:
             ger = _disp_geracao(ini, fim, equip)
             _DISP_GER_ULTIMA[rot] = {"ts": time.time(), "ger": ger}     # a aba Falhas reusa: sem 2ª consulta ao banco
             dados["meses"][rot] = _disp_mod.calcular(wos, equip, ini, fim, geracao=ger)
         except Exception as e:
-            print(f"[disp] cálculo de {rot} falhou: {e}")
-    if not dados["meses"]:
+            falhas.append(f"cálculo de {rot} falhou: {type(e).__name__}: {e}")
+    if falhas:
+        _frac_disp_registrar(False, "; ".join(falhas) + ", nada publicado", resumo)
         return
     tmp = _FRAC_DISP_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(dados, f, ensure_ascii=False)
     os.replace(tmp, _FRAC_DISP_FILE)
-    print(f"[disp] índice publicado ({', '.join(dados['meses'])}; {len(wos)} OSs varridas)")
+    _frac_disp_registrar(True, f"índice publicado ({', '.join(dados['meses'])}; {len(wos)} OSs varridas em "
+                               f"{resumo['paginas']} páginas, até {resumo['ate']}; {resumo['esperas']} esperas "
+                               f"(cota ou rede), {resumo['espera_s']} s)", resumo)
 
 
 def _frac_disp_dados():
@@ -22942,8 +23087,11 @@ def _frac_disp_loop():
     while True:
         try:
             _frac_disp_recalcular()
-        except Exception as e:
-            print(f"[disp] loop: {e}")
+        except Exception as e:                               # ex.: o arquivo trancado na hora de gravar o índice
+            try:                                             # o status não pode seguir dizendo o "ok" da volta anterior
+                _frac_disp_registrar(False, f"laço: {type(e).__name__}: {e}")
+            except Exception:                                # noqa: BLE001
+                print(f"[disp] loop: {e}")
         time.sleep(FRAC_DISP_TTL)
 
 
@@ -22956,15 +23104,18 @@ def gerencial_disponibilidade():
 @app.route("/api/gerencial/disponibilidade")
 def api_gerencial_disponibilidade():
     """Payload pronto do mês (?mes=YYYY-MM; padrão = corrente). ?cliente=X filtra usinas/diário.
-    Servido do índice do worker — se frio (boot recém-feito), devolve quente:false sem calcular."""
+    Servido do índice do worker — se frio (boot recém-feito), devolve quente:false sem calcular.
+    `varredura` = até onde foi a varredura que gerou o índice servido; `ultima_tentativa` = a última volta do worker,
+    que pode ter falhado (aí o índice servido é o anterior, e o `erro` diz por quê)."""
     dados = _frac_disp_dados()
     meses = dados.get("meses") or {}
+    tentativa = _frac_disp_status()
     if not meses:
-        return jsonify({"quente": False, "meses": []})
+        return jsonify({"quente": False, "meses": [], "ultima_tentativa": tentativa})
     mes = (flask_request.args.get("mes") or "").strip() or max(meses)
     p = meses.get(mes)
     if not p:
-        return jsonify({"quente": False, "meses": sorted(meses)})
+        return jsonify({"quente": False, "meses": sorted(meses), "ultima_tentativa": tentativa})
     cliente = (flask_request.args.get("cliente") or "").strip()
     if cliente:
         usinas = [u for u in p["usinas"] if (u.get("cliente") or "").strip().lower() == cliente.lower()]
@@ -22973,8 +23124,8 @@ def api_gerencial_disponibilidade():
              "diario": {u: d for u, d in p["diario"].items() if u in nomes},
              "oss": [o for o in p["oss"] if set(o.get("usinas") or []) & nomes],
              "cenario_abertas": [c for c in p["cenario_abertas"] if set(c.get("usinas") or []) & nomes]}
-    return jsonify({"quente": True, "mes": mes, "meses": sorted(meses),
-                    "atualizado": dados.get("ts"), **p})
+    return jsonify({"quente": True, "mes": mes, "meses": sorted(meses), "atualizado": dados.get("ts"),
+                    "varredura": dados.get("varredura"), "ultima_tentativa": tentativa, **p})
 
 
 @app.route("/api/gerencial/disponibilidade/export")
@@ -23070,8 +23221,8 @@ _frac_mtta_mem = {"mtime": 0.0, "dados": {}}
 def _frac_mtta_sweep(limite_dt=None, pausa=0.0):
     """work_orders/ DESC por criação até passar de `limite_dt` (None = base inteira) → tarefas
     reduzidas. Página que não volta INTERROMPE com erro: a varredura pela metade não pode virar
-    base, senão o histórico some da tela até a cheia seguinte (o _frac_disp_sweep aceita parar,
-    porque recalcula tudo a cada ciclo; aqui a base é acumulada)."""
+    base, senão o histórico some da tela até a cheia seguinte (desde 28/09 o _frac_disp_sweep
+    também não aceita parar: o pedaço dele virava o índice de disponibilidade)."""
     linhas, vistos, start, total = [], set(), 0, None
     limite = limite_dt.strftime("%Y-%m-%d") if limite_dt else None
     while start < 200000:
