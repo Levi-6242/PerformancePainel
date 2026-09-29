@@ -262,7 +262,7 @@ def test_a_noite_as_colunas_nao_cobram():
     tests/test_strings_sem_coluna_disponibilidade.py.)"""
     m = MON[MON.index("usinas=pv.rows.filter("):]
     m = m[:m.index("}).sort(")]
-    assert re.search(r"dif=\(semSol\|\|semCom\)\?null:r\.diferenca", m), "o déficit da noite tem de ser anulado na origem"
+    assert re.search(r"dif=\(semSol\|\|semCom(\|\|[\w.!]+)*\)\?null:r\.diferenca", m), "o déficit da noite tem de ser anulado na origem"
     assert re.search(r"expected:\(r\.rampa\|\|r\.sem_visao\|\|semSol\)\?'—'", m), "esperadas sem sol devem sair em '—'"
 
 

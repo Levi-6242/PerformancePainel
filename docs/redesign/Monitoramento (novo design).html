@@ -476,7 +476,7 @@ function _curvaBlock(inv){
   const svNote=inv.semVisao?`<div style="padding:8px 11px;border-radius:8px;background:color-mix(in srgb, var(--gc-amber) 12%, transparent);border:1px solid color-mix(in srgb, var(--gc-amber) 38%, transparent);color:var(--gc-amber);font-size:12px;margin-bottom:12px;line-height:1.45"><b>Sem visão por string</b> neste inversor — a combiner não está exposta na Plataforma (inversor recadastrado). O gráfico abaixo é só a <b>corrente agregada</b> do inversor, não as strings individuais.</div>`:'';
   // Rampa: correntes REAIS mas baixas demais p/ classificar (amanhecer/anoitecer). As strings aparecem
   // normalmente; o aviso só explica por que a contagem de ativas está neutra ("—") em vez de 0/12.
-  const rpNote=(!inv.semVisao&&inv.rampa)?`<div style="padding:8px 11px;border-radius:8px;background:color-mix(in srgb, var(--gc-amber) 10%, transparent);border:1px solid color-mix(in srgb, var(--gc-amber) 30%, transparent);color:var(--gc-amber);font-size:12px;margin-bottom:12px;line-height:1.45"><b>Início/fim de dia</b> — o inversor já está gerando, mas as correntes por string ainda estão baixas demais para classificar ativa/inativa. As correntes abaixo são <b>reais</b>; a contagem fica neutra até a rampa subir.</div>`:'';
+  const rpNote=(!inv.semVisao&&inv.rampa)?`<div style="padding:8px 11px;border-radius:8px;background:color-mix(in srgb, var(--gc-amber) 10%, transparent);border:1px solid color-mix(in srgb, var(--gc-amber) 30%, transparent);color:var(--gc-amber);font-size:12px;margin-bottom:12px;line-height:1.45"><b>Pouca luz</b> — o inversor está gerando, mas as correntes por string estão baixas demais para classificar ativa/inativa (início ou fim de dia, céu fechado). As correntes abaixo são <b>reais</b>; a contagem fica neutra até a luz voltar.</div>`:'';
   // DIA PASSADO = TELA MISTA: só a CURVA muda de data. Os chips de corrente, o "ativas x/y" e a
   // "última leitura" do cabeçalho vêm do drill, que é sempre de HOJE (a fonte não guarda o
   // instantâneo de dias anteriores). Sem dizer isso, a tela mostra 06/08 no seletor e 07/08 nos
@@ -1424,7 +1424,9 @@ function _strStatus(r,velho){
   else if(semCom){stt='Usina sem comunicação';ps=pill('color-mix(in srgb, var(--gc-violet) 20%, transparent)','#c9b6ff');}
   // Rampa vem ANTES de "Sem geração": as strings estão comunicando corrente (pouca), então a usina
   // não está parada — está com irradiância baixa (início/fim de dia). Âmbar, não vermelho.
-  else if(r.rampa){stt='Baixa irradiância';ps=pillAmber;}
+  // Pouca luz com um inversor desligado DE VERDADE (0 kW com os vizinhos gerando): a pouca luz não pode escondê-lo —
+  // Guatambu 3, 29/09/2026 08:50, o 3.1 parado no meio dos outros a 3,4–3,9 kW. A macro também diz crítico.
+  else if(r.rampa){stt=r.inv_desligados>0?'Inversor desligado':'Baixa irradiância';ps=pillAmber;}
   // String Box PRODUZINDO mas sem combiner exposta (sem visão por string) → NÃO é "Sem geração"
   // Usina sem visão por string com a régua de PADRÃO por inversor (10/09): um inversor que caiu 10 pp ou mais do
   // que sempre gerou em relação aos pares (D-1) tira a usina do "sem visão" eterno — vermelho a 20 pp, âmbar a 10.
@@ -1866,7 +1868,8 @@ function computeVals(){
       // com −599, 0 de 599 strings, sem sol nenhum. Esperadas também saem em '—' (mais abaixo).
       // Sem comunicação (23/09/2026): mesma coisa — com o dado parado, ativas e diferença saem em '—'. (A coluna de
       // disponibilidade, ativas ÷ esperadas em %, saiu da tabela em 25/09/2026, a pedido do Levi.)
-      const semSol=r.sol_baixo===true, semCom=_velho||!!r.falha_comunicacao||!!r.desligada, dif=(semSol||semCom)?null:r.diferenca, difN=dif!=null&&dif<0;
+      // Pouca luz (29/09/2026) também: a coluna já dizia '—', mas o −80 de base seguia pintando a linha de vermelho e pulsando.
+      const semSol=r.sol_baixo===true, semCom=_velho||!!r.falha_comunicacao||!!r.desligada, dif=(semSol||semCom||r.rampa)?null:r.diferenca, difN=dif!=null&&dif<0;
       const [stt,ps]=_strStatus(r,_velho);
       const leit=r.ultima_leitura?String(r.ultima_leitura).replace('T',' ').slice(0,16):'—';
       // "Bate com o acompanhamento" = o déficit é exatamente o que você já está acompanhando (dif === -acomp).
@@ -1883,15 +1886,20 @@ function computeVals(){
         expTit:(semSol&&!r.sem_visao&&r.str_esp!=null)?`${r.str_esp} strings no cadastro. Sem sol na usina, nenhuma é esperada agora: voltam a contar quando o sol passar de 8° no estado dela.`:'',
         // Inversor DESLIGADO (potência ~0 com sol e a usina gerando) saiu das esperadas no backend (22/09/2026).
         // O aviso fica aqui, na célula que ficou menor, para ninguém achar que as strings sumiram do cadastro.
-        expNote:(r.inv_desligados>0&&!r.rampa&&!r.sem_visao&&!semSol&&!semCom)?{n:r.inv_desligados,fora:r.strings_fora||0,
+        expNote:(r.inv_desligados>0&&!r.sem_visao&&!semSol&&!semCom)?{n:r.inv_desligados,fora:r.strings_fora||0,
           nomes:(r.inv_desligados_nomes||[]).join(', ')}:null,
         padNote:semCom?null:_strNotaPadrao(r),
         // a OBSERVAÇÃO da usina desligada (28/09/2026), no mesmo lugar do aviso do inversor desligado
-        deslNote:r.desligada?{txt:_deslTxt(r.desligada),tit:_deslTit(r.desligada)}:null,
+        // pouca luz (29/09/2026): a mesma linha de baixo diz a prova de que a usina gera — "estação a 3,5 W/m²"
+        deslNote:r.desligada?{txt:_deslTxt(r.desligada),tit:_deslTit(r.desligada)}
+          :(r.rampa&&r.pouca_luz&&r.pouca_luz.texto)?{txt:r.pouca_luz.texto,tit:'Nenhuma string passou da régua de corrente, mas a usina está gerando: é pouca luz (manhã, fim de tarde, céu fechado), não usina desligada. Ativas e esperadas ficam neutras até a luz voltar.'}:null,
         desl:r.desligada||null,calada:(_velho||!!r.falha_comunicacao||!!r.sem_dados),lastRaw:r.ultima_leitura||null,
         diff:(r.rampa||r.sem_visao)?'—':(dif==null?'—':(dif>0?'+'+dif:''+dif)),
         diffColor:bate?'var(--gc-blue)':(difN?'var(--gc-red)':'var(--color-neutral-400)'),
-        diffTit:'',
+        // a diferença é a soma das FALTAS de cada inversor (29/09/2026, Rodrigues 2.1): com 43/43 e −1 a tela diz por quê
+        diffTit:dif==null?'':[(r.strings_acima_cadastro>0)?`Soma das faltas de cada inversor. ${r.strings_acima_cadastro} string${r.strings_acima_cadastro>1?'s':''} acima do cadastro em outro inversor não compensa${r.strings_acima_cadastro>1?'m':''} a falta.`:'',
+          // OS atribuída a inversor que gera fica na conta (29/09/2026): a falta aparece e o título diz que alguém está nele
+          (r.os_na_conta&&r.os_na_conta.length)?`OS ${r.os_na_conta.join(', ')} atribuída ao inversor: a falta segue na conta até a string voltar.`:''].filter(Boolean).join(' '),
         acomp:(tCount!=null?tCount:''),tkStr:_tkStrCel(r,semSol||semCom||!!r.rampa),tkLista:(r.tickets_str&&r.tickets_str.lista)||[],tkMotivo:(r.tickets_str&&r.tickets_str.motivo)||'',tkNaoJulga:(semSol||semCom||!!r.rampa||!!r.sem_visao),_dif:(dif==null?null:dif),_grp,pulse:(_grp===0),lastRead:leit,staleRead:_velho,
         staleTit:(_velho?`Sem leitura nova há ${Math.floor(_idadeMin/60)}h${String(Math.round(_idadeMin%60)).padStart(2,'0')}`:''),
         status:stt,statusStyle:ps,hasFlag:cCount>0,flagCount:cCount,hasOS:oCount>0,osCount:oCount,vkey,caretDeg:expanded?90:0,diffColor2:0,expanded,id:pid,inversores:expanded?buildInversores(pid):[]};

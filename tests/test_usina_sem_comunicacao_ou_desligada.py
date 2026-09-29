@@ -89,7 +89,7 @@ def test_sem_comunicacao_nao_julga_as_colunas():
     m = MON[MON.index("usinas=pv.rows.filter("):]
     m = m[:m.index("}).sort(")]
     assert re.search(r"semCom=_velho\|\|!!r\.falha_comunicacao", m)
-    assert re.search(r"dif=\(semSol\|\|semCom\)\?null:r\.diferenca", m)
+    assert re.search(r"dif=\(semSol\|\|semCom(\|\|[\w.!]+)*\)\?null:r\.diferenca", m)
     assert re.search(r"active:\(r\.rampa\|\|r\.sem_visao\|\|semCom\)\?'—'", m)
     assert re.search(r"_tkStrCel\(r,[^)]*semCom", m), "a coluna Tickets também não julga déficit sem comunicação"
 

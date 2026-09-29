@@ -200,14 +200,24 @@ extraído do HTML: mudou a régua, mude o teste. Régua: até −5 % normal, −
 Inversor **desligado de dia** sai da conta **inteiro — ativas e esperadas** — em toda fonte que tem potência por
 inversor: Athon/Axis (desde 22/09), API PV (`build_summary`: Thopen, SEMP, Alves Lima, 2C-API) e Banco
 (`_pg_build_snapshot`), desde 24/09 ("quero todos no padrão Athon"). Régua única: `_inv_desligados_por_potencia`
-(potência < max(piso, 5 % da mediana dos pares), com sol, com a usina gerando, com leitura). A linha leva
+(potência < max(piso, 5 % da mediana dos pares), com sol, com a usina gerando, com leitura). O piso (2 kW) fica limitado a
+25 % da mediana quando ela passa dele (`_macro_prod`, 29/09/2026): com céu fechado, o inversor a 1,98 kW com os vizinhos a
+3,5–4 kW contava como desligado (Guatambu 4); com sol normal nada muda. A linha leva
 `inv_desligados` / `strings_fora` / `inv_desligados_nomes` (a tela mostra "N inv. desligado · M strings fora da
 conta" na célula das esperadas e o status "Inversor desligado"; os tickets leem os nomes). No drill, o inversor
 continua listado, marcado `desligado` e `fora_da_conta`, com `diferenca` None. Usina inteira parada NÃO tira
 ninguém (é "Usina desligada"). De 11/09 a 24/09 a API PV e o Banco faziam o contrário (todas as strings do
 desligado contavam como faltantes). **OS atribuída** (`os_atribuidas`, chave `plant_id|idefinversor`) e OS aberta
 no Fracttal em inversor desligado continuam tirando o inversor da conta pela OS (`inv_com_os`/`strings_com_os`),
-sem virar o aviso de desligado (11/09: "se está desligado e tem OS então está tudo OK"). As duas fontes SEM
+sem virar o aviso de desligado (11/09: "se está desligado e tem OS então está tudo OK"). **Só o desligado, desde
+29/09/2026** (Levi: "String PV10 em vermelho ... diferença -1 no inversor e mesmo assim não acusou na linha principal da
+usina! É INADMISSÍVEL"): a OS 12093, de recomposição, atribuída ao INVERSOR02 da Rodrigues 2.1 em 25/08, tirava da
+linha o inversor INTEIRO, gerando, e a Ipv10 parada nele sumia (43/43, "Normal"; o drill dizia −1). A OS não diz quais
+strings cobre: o inversor que gera fica na conta, e a OS vai na linha (`os_na_conta`, no título da diferença). E a
+**diferença da usina é a soma das FALTAS de cada inversor** (`_dif_por_inversor`, nas cinco fontes com esperadas por
+inversor no cadastro): a sobra de um inversor (cadastro que conta a menos) não paga a falta de outro; esperada que
+nenhum inversor na conta explica segue como falta; sem as esperadas de cada um, vale a conta pelo total. A sobra vai
+em `strings_acima_cadastro`. Teste: `tests/test_diferenca_por_inversor.py`. As duas fontes SEM
 potência por inversor usam a medida das strings dele, somada: RenoGrid/SolarEdge (`_se_fora_da_conta`: potência DC
 = soma dos W das strings) e a 2C do e-mail (`_owen_fora_da_conta`: soma das correntes, que zera quando ele desliga).
 
@@ -266,9 +276,22 @@ horas cheias (± 12 min) repetida com o carimbo ANDANDO = relógio; usina parada
 defasagem zera. O confirmado persiste em `pv_relogio.json` (estado, `_p_dado`). Vale para a linha (`build_summary`) e
 para a série da estação (`_analisa_etm_plant`). As curvas do drill ainda saem no horário do registrador.
 
-**Ainda aberto:** a régua de dado fresco ("nenhuma string com corrente" = desligada, de 23/09) chama de desligada a
-usina que gera pouco — Coração 1 em 28/09, 10:31: 10,6 kW por inversor, nenhum parado, 0 de 258 strings acima do limiar.
-O inversor é julgado pela potência; a usina, ainda pelas strings. Testes: `tests/test_usina_desligada_e_relogio.py`.
+Testes: `tests/test_usina_desligada_e_relogio.py`.
+
+**Pouca luz não é usina desligada (29/09/2026**, Levi: "0 strings ativas, usina desligada!"). A régua de dado fresco
+("nenhuma string com corrente" = desligada, de 23/09) chamava de desligada a usina que gera pouco: às 08:42, Diamantino 1 e
+2 com a estação a 3,5–16 W/m² e os inversores a 0,4–0,9 kW; Guatambu 2, 3 e 4 a 2–4,4 kW por inversor, strings a
+0,2–0,49 A. A régua de string põe o inversor com mediana abaixo de 0,5 A como "inativo" ("noite/nublado"), e a rampa (corrente
+real, baixa) só existia para String Box. Agora `_pouca_luz_de`: nenhuma string ativa **e** uma prova de que a usina gera —
+a mediana dos inversores ≥ 2 kW (`potencia`) ou a estação da usina, fresca (90 min, carimbo cru), abaixo de 100 W/m²
+(`estacao`, de `_poa_atual_por_pid`, das tabelas de ETM em cache) — marca `rampa` e `pouca_luz` ({por, texto}) na saída
+(`_com_pouca_luz`, dentro do `_servir_tabela_strings`, tirando a linha do card "Sem geração") e no rollup, antes da
+macro. Sem prova continua "Usina desligada": inversor desligado pode mostrar 0,3 kW com 0,9 A de ruído, então potência
+baixa sozinha não prova. Na tela: "Baixa irradiância" com a prova embaixo do nome, colunas neutras, sem pulsar; com um
+inversor desligado de verdade, "Inversor desligado" com o aviso (a macro diz crítico). A macro não chama a linha de
+`sem_producao`. No drill da API PV, com a usina em pouca luz, o inversor só é desligado pela régua da linha e os outros
+ficam neutros (antes os 10 da Diamantino saíam desligados). A SunOp leva `pot_inv_med` (o `pot_med` dela é o total).
+SolarEdge e 2C do e-mail não têm potência na linha e ficam como estavam. Teste: `tests/test_pouca_luz_nao_e_desligada.py`.
 
 ## Tickets de strings na tabela (23/09/2026)
 

@@ -2495,6 +2495,25 @@ def _str_ativas(statuses) -> int:
     return sum(1 for s in statuses if s in ("ativa", "baixa_perf"))
 
 
+def _dif_por_inversor(pares, str_esp_total):
+    """Diferença da USINA = soma das FALTAS de cada inversor → (diferença ≤ 0, strings acima do cadastro ≥ 0).
+
+    Levi, 29/09/2026, sobre a Rodrigues 2.1 (233): "String PV10 em vermelho, corrente nula ... diferença -1 no inversor e
+    mesmo assim não acusou na linha principal da usina! É INADMISSÍVEL". O Inversor 1.2 tinha 13 de 14 e outro inversor
+    1 string ACIMA do cadastro; pela conta do TOTAL a linha dizia 43/43, diferença 0, "Normal". Sobra é cadastro que conta a
+    menos, falta é string parada — uma não paga a outra.
+
+    `pares` = [(ativas, esperadas)] dos inversores NA CONTA (sem os desligados, os com OS e os neutros); `str_esp_total`
+    = as esperadas da linha. O que elas têm a mais que a soma dos pares (inversor do cadastro que não reportou e não saiu
+    da conta) continua sendo falta. None se algum inversor não tiver as esperadas no cadastro: aí vale a conta de antes."""
+    if not pares or any(not isinstance(e, (int, float)) for _a, e in pares) or not isinstance(str_esp_total, (int, float)):
+        return None
+    faltas = sum(min(0, (a or 0) - e) for a, e in pares)
+    sobras = sum(max(0, (a or 0) - e) for a, e in pares)
+    faltas -= max(0, str_esp_total - sum(e for _a, e in pares))
+    return int(round(faltas)), int(round(sobras))
+
+
 # ── Monta resumo de usina a partir dos registros brutos ───────────────────────
 def _pv_ger_relativa(nome_sup, pac_de, alvos, dev_names) -> dict:
     """A geração de cada inversor SEM visão de strings contra os PARES da mesma usina (Levi, 24/09/2026: "sei que tem
@@ -2803,7 +2822,14 @@ def build_summary(plant: dict, records: list) -> dict:
                                            EQUIP_NAMES.get(plant["nome"].strip()) or {}, _rot)
         except Exception as e:                                                # noqa: BLE001 — sem nomes, sem OS: conta normal
             print(f"[os-fracttal] {nome}: {e}")
-    os_ids = [i for i in inv_ids if (f"{pid}|{i}" in _os_map or i in _fr_ids) and i not in neutros_ids]
+    # ...mas só o DESLIGADO (29/09/2026, Levi: "String PV10 em vermelho, corrente nula ... diferença -1 no inversor e mesmo
+    # assim não acusou na linha principal da usina! É INADMISSÍVEL"). A OS 12093 (recomposição, em andamento desde 24/08),
+    # atribuída ao INVERSOR02 da Rodrigues 2.1 em 25/08, tirava da linha o inversor INTEIRO, gerando — e a Ipv10 parada
+    # nele sumia (43/43, "Normal"). A OS não diz quais strings cobre: o inversor que gera fica na conta, e a OS vai na
+    # linha (`os_na_conta`) para a tela dizer que alguém está nele.
+    os_ids = [i for i in inv_ids if i in off_ids and (f"{pid}|{i}" in _os_map or i in _fr_ids) and i not in neutros_ids]
+    os_na_conta = sorted({str((_os_map.get(f"{pid}|{i}") or {}).get("folio") or "") for i in inv_ids
+                          if i not in off_ids and f"{pid}|{i}" in _os_map and i not in neutros_ids} - {""})
     # Desligado COM OS sai da conta pela OS e não vira o aviso de "inversor desligado": alguém já cuida (11/09, acima).
     desl_ids = [i for i in inv_ids if i in off_ids and i not in os_ids]
     strings_com_os = strings_fora = 0
@@ -2841,6 +2867,15 @@ def build_summary(plant: dict, records: list) -> dict:
             n_sem_leitura = len(_faltam)
             desl_nomes = sorted(desl_nomes + [_equip_lookup(_eq_n, n) or n for n in _faltam])
     diferenca = (strings_ativas - str_esp) if (str_esp is not None) else None
+    # Pela soma das faltas de cada inversor, quando o cadastro tem as esperadas de cada um (_dif_por_inversor): a sobra de
+    # um inversor não paga a falta de outro (Rodrigues 2.1, 29/09/2026). Os neutros, os com OS e os desligados já saíram.
+    _em_conta = [i for i in inv_ids if i not in neutros_ids and i not in os_ids and i not in desl_ids]
+    _nm_cad = _nomes_dispositivos() if (_esp_cad and _em_conta) else {}
+    _dpi = _dif_por_inversor([(ativas_de.get(i) or 0, _equip_lookup(_esp_cad, _nm_cad[i]) if _nm_cad.get(i) else None)
+                              for i in _em_conta], str_esp) if _nm_cad else None
+    acima_cadastro = 0
+    if _dpi is not None:
+        diferenca, acima_cadastro = _dpi
     dif_operante = diferenca
     if _usou_cmb:
         try:
@@ -2856,11 +2891,13 @@ def build_summary(plant: dict, records: list) -> dict:
         "usina": nome, "plant_id": pid,
         "qtd_inversores": len(latest),
         "strings_ativas": strings_ativas,
-        "inv_com_os": len(os_ids), "strings_com_os": strings_com_os,   # inversores com OS atribuída: fora da conta
+        "inv_com_os": len(os_ids), "strings_com_os": strings_com_os,   # desligados com OS: fora da conta
+        "os_na_conta": os_na_conta,                     # OS atribuída a inversor que GERA: fica na conta (29/09/2026)
         # inversor desligado fora da conta — os mesmos campos da Athon (process_plant_sunop), que a tela e os tickets leem
         "inv_desligados": len(desl_ids) + n_sem_leitura, "strings_fora": strings_fora, "inv_desligados_nomes": desl_nomes,
         "pot_med": pot_med, "inv_off": n_off, "diferenca_operante": dif_operante,
         "inv_esp": inv_esp, "str_esp": str_esp, "diferenca": diferenca,
+        "strings_acima_cadastro": acima_cadastro,       # sobra que não paga falta (a tela explica no título da diferença)
         "temp_media": round(sum(temps) / len(temps), 1) if temps else None,
         "ultima_leitura": ts_max or None,
         "sem_dados": False,
@@ -3275,11 +3312,17 @@ def _pv_plant_inversores(plant_id, force=False):
         [inv.get("active_power") if isinstance(inv.get("active_power"), (int, float)) else None for inv in inversores],
         _macro_eh_dia({"usina": nome_usina(plant_id, plant_nome_api)})) if _tem_pac else [False] * len(inversores))
     _os_map = _os_atribuidas_map()
+    # POUCA LUZ (29/09/2026): nenhuma string ativa na usina e a prova de que ela gera — a MESMA régua da linha
+    # (_pouca_luz_de). Aí o inversor só é desligado pela régua da linha (_fora: 0 kW com os pares gerando), e os outros
+    # ficam neutros. Antes, com todos abaixo de 2 kW, o piso punha os 10 da Diamantino como desligados às 08:45.
+    _sem_ativas = not any((inv.get("strings_ativas") or 0) > 0 for inv in inversores if not inv.get("sem_visao"))
+    _luz = bool(_tem_pac and _sem_ativas and _pouca_luz_de(
+        {"plant_id": plant_id, "strings_ativas": 0, "pot_med": _potmed}, _poa_atual_por_pid()))
     for inv, pr, fo in zip(inversores, _prod, _fora):
         inv["os_atribuida"] = f"{plant_id}|{inv.get('id')}" in _os_map    # o analista já grudou uma OS nele
         inv["fora_da_conta"] = bool(fo and not inv.get("sem_visao") and not inv.get("rampa"))
         if _tem_pac:
-            _off = pr is False and _dia
+            _off = (fo if _luz else pr is False) and _dia
         else:                                     # fallback sem Pac: só se a usina está gerando
             _off = _plant_prod and (inv.get("strings_ativas") or 0) == 0
         if _off and any(s["status"] != "trancada" for s in inv["strings"]):
@@ -3293,6 +3336,8 @@ def _pv_plant_inversores(plant_id, force=False):
             inv["strings_ativas"] = 0
             if isinstance(inv.get("str_esp"), (int, float)):
                 inv["diferenca"] = -inv["str_esp"]
+        elif _luz and not inv.get("sem_visao") and inv.get("strings_ativas") == 0:
+            inv["rampa"], inv["strings_ativas"], inv["diferenca"] = True, None, None   # neutro, como a rampa da String Box
         if inv["fora_da_conta"]:
             inv["diferenca"] = None       # fora da conta não deve nada — como na linha da usina e no drill da Athon
     with _pv_plant_memo_lock:
@@ -5661,6 +5706,14 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
     strings_fora = sum(esp_inv.get(inv, 0) for inv in desligados)
     inv_esp  = len(meta["inv_strings"])
     diferenca = (total_ativas - str_esp) if str_esp is not None else None
+    # pela soma das faltas de cada inversor (_dif_por_inversor, Rodrigues 2.1, 29/09/2026): os MESMOS inversores do
+    # str_esp — o que não mandou nada entra com 0 ativas e falta inteiro
+    _at_inv = dict(por_inv)
+    _dpi = _dif_por_inversor([(_at_inv.get(inv, 0), esp_inv[inv]) for inv in meta["inv_strings"]
+                              if inv in esp_inv and inv not in desligados], str_esp)
+    acima_cadastro = 0
+    if _dpi is not None:
+        diferenca, acima_cadastro = _dpi
 
     def _pval(key):
         path = meta["plant_paths"].get(key)
@@ -5702,8 +5755,10 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
         "strings_ativas": total_ativas,
         "inv_esp": inv_esp,
         "str_esp": str_esp,
-        "diferenca": diferenca,
+        "diferenca": diferenca, "strings_acima_cadastro": acima_cadastro,
         "pot_med": pot_med, "inv_off": inv_off,
+        # a mediana POR INVERSOR (o pot_med daqui é o total da usina): é a prova de pouca luz de _pouca_luz_de
+        "pot_inv_med": _median([pw for _i, pw, _s in regua if isinstance(pw, (int, float))]) if regua else None,
         "inv_desligados": len(desligados), "strings_fora": strings_fora,
         "inv_desligados_nomes": [_sunop_inv_display(plant_name, inv) for inv in desligados],
         "temp_media": round(sum(temps) / len(temps), 1) if temps else None,
@@ -9194,9 +9249,85 @@ def _com_usina_desligada(payload):
     return dict(payload, rows=rows)
 
 
+def _poa_atual_por_pid() -> dict:
+    """{plant_id: (POA W/m², carimbo cru)} da leitura mais nova de cada estação, das tabelas de ETM em cache — nenhuma
+    chamada nova."""
+    out = {}
+    for nome in ("_etm_cache", "_semp_etm_cache", "_alveslima_etm_cache", "_2capi_etm_cache", "_pg_etm_cache",
+                 "_sunop_etm_cache", "_axis_etm_cache"):
+        c = globals().get(nome)
+        for r in ((c or {}).get("payload") or {}).get("rows") or [] if isinstance(c, dict) else []:
+            poa, ul = r.get("poa"), r.get("ultima_leitura")
+            if isinstance(poa, (int, float)) and ul and not r.get("sem_dados") and r.get("plant_id") not in (None, ""):
+                k = str(r["plant_id"])
+                if k not in out or str(ul) > out[k][1]:
+                    out[k] = (float(poa), str(ul))
+    return out
+
+
+def _num_br(v, casas=1) -> str:
+    return f"{v:.{casas}f}".replace(".", ",")
+
+
+def _pouca_luz_de(r, poa, agora=None):
+    """Por que a linha com NENHUMA string ativa é pouca luz, e não usina desligada — {por, texto} — ou None.
+
+    Levi, 29/09/2026, sobre o print das 08:42: "0 strings ativas, usina desligada!". Diamantino 1 e 2 e Guatambu 2, 3 e 4
+    como "Usina desligada", com todos os inversores comunicando. Na mesma hora a estação da Diamantino marcava 3,5–16
+    W/m² (os inversores a 0,4–0,9 kW, as strings a 0,1–0,34 A) e a Guatambu gerava 2–4,4 kW por inversor com as strings
+    a 0,2–0,49 A: a régua de string chama de "inativo" o inversor com a mediana abaixo de 0,5 A ("noite/nublado"), e
+    sem nenhuma ativa a tela dizia desligada. Duas provas de que a usina gera (ver POUCA_LUZ_POA_WM2):
+      - `potencia`: a mediana dos inversores está produzindo pela régua do projeto (≥ MACRO_POT_INV_MIN);
+      - `estacao`: a estação da usina, com leitura fresca, abaixo de POUCA_LUZ_POA_WM2 — com essa luz nada se julga.
+    Sem uma delas continua "Usina desligada". Vale para as fontes com potência na linha (API PV, SunOp/Axis, Banco)."""
+    if (r.get("strings_ativas") != 0 or r.get("sem_visao") or r.get("sem_dados") or r.get("falha_comunicacao")
+            or r.get("dado_historico") or r.get("sol_baixo") or r.get("desligada")):
+        return None
+    pm = r.get("pot_inv_med", r.get("pot_med"))          # a SunOp manda a mediana à parte: o pot_med dela é o total
+    if isinstance(pm, (int, float)) and pm >= MACRO_POT_INV_MIN:
+        return {"por": "potencia",
+                "texto": f"inversores gerando {_num_br(pm)} kW (mediana), com as correntes baixas demais para contar"}
+    e = (poa or {}).get(str(r.get("plant_id")))
+    if e:
+        idade = _usina_idade_min(e[1], agora)
+        if idade is not None and idade <= POUCA_LUZ_POA_IDADE_MAX_MIN and e[0] < POUCA_LUZ_POA_WM2:
+            return {"por": "estacao", "texto": f"estação a {_num_br(e[0])} W/m²"}
+    return None
+
+
+def _com_pouca_luz(payload, conta):
+    """Cópia do payload com `rampa` (a "Baixa irradiância" da tela) e `pouca_luz` nas linhas sem string ativa que geram
+    (_pouca_luz_de). Quem o card "Sem geração" da fonte (`conta`) tinha contado sai dele, como no `_servir_com_sol`."""
+    rows = payload.get("rows") if isinstance(payload, dict) else None
+    if not rows:
+        return payload
+    poa, agora = _poa_atual_por_pid(), datetime.now()
+    marcadas, contadas, nomes, n = [], 0, set(), 0
+    for r in rows:
+        p = None if r.get("rampa") else _pouca_luz_de(r, poa, agora)
+        if p:
+            contadas += 1 if conta(r) else 0
+            nomes.add(r.get("usina"))
+            n += 1
+            r = dict(r, rampa=True, pouca_luz=p)
+        marcadas.append(r)
+    if not n:
+        return payload
+    out = dict(payload, rows=marcadas)
+    sm = dict(out.get("summary") or {})
+    sm["pouca_luz"] = n
+    if isinstance(sm.get("alertas_strings"), (int, float)):
+        sm["alertas_strings"] = max(0, sm["alertas_strings"] - contadas)
+    out["summary"] = sm
+    if isinstance(out.get("alertas_strings_list"), list):
+        out["alertas_strings_list"] = [u for u in out["alertas_strings_list"] if u not in nomes]
+    return out
+
+
 def _servir_tabela_strings(payload, conta):
-    """O que as 9 rotas da tabela de strings fazem na saída: a marca de sol, a usina desligada e os tickets abertos."""
-    return _com_tickets_str(_com_usina_desligada(_servir_com_sol(payload, conta)))
+    """O que as 9 rotas da tabela de strings fazem na saída: a marca de sol, a pouca luz, a usina desligada e os tickets
+    abertos."""
+    return _com_tickets_str(_com_usina_desligada(_com_pouca_luz(_servir_com_sol(payload, conta), conta)))
 
 
 # ── Finalizar ticket de strings pela tela (Levi, 23/09/2026) ─────────────────────────────────────────────────────────
@@ -12411,13 +12542,26 @@ def process_site_solaredge(site: dict) -> dict:
     if desl:
         ativas -= fora_ativas
         str_esp = max(0, str_esp - strings_fora)
+    diferenca, acima_cadastro = ativas - str_esp, 0
+    if esp_map:
+        # pela soma das faltas de cada inversor (_dif_por_inversor, Rodrigues 2.1, 29/09/2026)
+        _nome_inv = {d["deviceSerial"]: d.get("deviceName", d["deviceSerial"]) for d in invs}
+        _eq_se = EQUIP_NAMES.get(nome, {})
+        _desl = set(desl)
+        _pares = [(sum(1 for st in sl if (power.get(st["deviceSerial"]) or 0) > SE_STRING_MIN_W),
+                   esp_map.get(_nome_inv.get(ser, ser)))
+                  for ser, sl in _se_por_inversor(strings).items()
+                  if _eq_se.get(_nome_inv.get(ser, ser), _nome_inv.get(ser, ser)) not in _desl]
+        _dpi = _dif_por_inversor(_pares, str_esp)
+        if _dpi is not None:
+            diferenca, acima_cadastro = _dpi
     return {
         "usina": nome_disp, "plant_id": sid,
         "qtd_inversores": len(invs),
         "strings_ativas": ativas,
         "inv_esp": site.get("inv"),
         "str_esp": str_esp,
-        "diferenca": ativas - str_esp,
+        "diferenca": diferenca, "strings_acima_cadastro": acima_cadastro,
         "inv_desligados": len(desl), "strings_fora": strings_fora, "inv_desligados_nomes": sorted(desl),
         "temp_media": None,
         "ultima_leitura": ts_max or None,
@@ -13007,12 +13151,16 @@ def _pg_build_snapshot():
                         s["status"] = "desligado"; s["ativa"] = False
         dif_oper = sum(min(0, iv["diferenca"]) for iv, pr in zip(inv_list, prod)
                        if pr is not False and iv["diferenca"] is not None)
+        # a soma das FALTAS dos inversores na conta, não a das diferenças: a sobra de um não paga a falta de outro
+        # (_dif_por_inversor, Rodrigues 2.1, 29/09/2026)
+        _dpi = _dif_por_inversor([(iv["strings_ativas"], iv["str_esp"]) for iv in inv_list if not iv["fora_da_conta"]],
+                                 tot_esp) or (tot_ativas - tot_esp, 0)
         detail[pid] = inv_list
         summary.append({
             "usina": USINA_DISPLAY.get(sup, sup), "plant_id": pid,
             "qtd_inversores": len(p["invs"]), "inv_esp": len(p["invs"]),
             "strings_ativas": tot_ativas, "str_esp": tot_esp,
-            "diferenca": tot_ativas - tot_esp,             # = soma das diferenças dos inversores
+            "diferenca": _dpi[0], "strings_acima_cadastro": _dpi[1],
             "diferenca_operante": dif_oper,                # deficit só de inversores PRODUZINDO
             "pot_med": pot_med, "inv_off": n_off,          # potência mediana + nº parados (Pac ~0)
             "inv_desligados": len(desl_nomes), "strings_fora": strings_fora,    # fora da conta, os campos da Athon
@@ -13091,6 +13239,16 @@ def api_pg_data():
 # Separa PARADO (Pac/active_power ~0) de baixa-performance de strings, p/ o painel focar no que é
 # operante. Só de DIA e com telemetria fresca (senão é noite / falha de comunicação, não parada).
 MACRO_POT_INV_MIN = 2.0     # potência ativa por inversor abaixo disto = NÃO produzindo (mesma base do R-06)
+# ...mas o piso nunca passa de 25% da mediana dos pares quando ela está acima dele (29/09/2026). Com sol normal os 2 kW
+# são ≤ 5% da mediana e nada muda; com céu fechado viram a maior parte do que todos geram: Guatambu 4 às 08:50, mediana
+# ~3,5 kW, um inversor a 1,98 kW contava como parado ("2 inv. desligados · 24 strings fora da conta") gerando com os outros.
+MACRO_POT_INV_MIN_FRAC = 0.25
+# POUCA LUZ (29/09/2026, Levi: "0 strings ativas, usina desligada!"): a usina com NENHUMA string ativa só é "Usina
+# desligada" sem prova de que gera. Prova = a mediana dos inversores produzindo (≥ MACRO_POT_INV_MIN) ou a estação da
+# usina, fresca, abaixo de POUCA_LUZ_POA_WM2. A potência baixa sozinha não prova: inversor desligado mostra 0,3 kW com
+# 0,9 A de ruído de corrente reversa (tests/test_padrao_athon_todas_as_abas.py). Ver _pouca_luz_de.
+POUCA_LUZ_POA_WM2 = 100.0
+POUCA_LUZ_POA_IDADE_MAX_MIN = 90    # carimbo CRU da estação: o registrador da Diamantino fica 1 h atrás (Cuiabá)
 
 
 # ── PADRÃO DE PROPORCIONALIDADE POR INVERSOR — usinas SEM visão por string ─────────────────────
@@ -13465,7 +13623,11 @@ def _macro_prod(powers):
     if not vals:
         return [None] * len(powers), None, 0
     med = _median(vals)
-    lim = max(MACRO_POT_INV_MIN, (med or 0) * DIAG_TRIP_FRAC)
+    # abaixo de 2 kW de mediana ninguém está "gerando" pela régua (manhã, céu fechado) e o piso fica inteiro; acima, ele é
+    # limitado pela mediana (ver MACRO_POT_INV_MIN_FRAC)
+    piso = (MACRO_POT_INV_MIN if (med or 0) < MACRO_POT_INV_MIN
+            else min(MACRO_POT_INV_MIN, med * MACRO_POT_INV_MIN_FRAC))
+    lim = max(piso, (med or 0) * DIAG_TRIP_FRAC)
     prod = [None if not isinstance(p, (int, float)) else (p >= lim) for p in powers]
     return prod, med, sum(1 for x in prod if x is False)
 
@@ -13605,6 +13767,8 @@ def _macro_status(r) -> str:
     _ipst = _inv_padrao_status_de(r)                   # padrão por inversor: a única régua de quem não vê string
     if _macro_sol_baixo(r):
         return _ipst or "ok"                           # sem sol nada se julga ao vivo; o D-1 do padrão continua valendo
+    if r.get("rampa"):                                 # pouca luz (29/09/2026): não é usina parada nem inversor parado
+        return _ipst or ("critico" if (r.get("inv_desligados") or 0) > 0 else "ok")   # pelo piso de 2 kW; o desligado vale
     if _macro_sem_producao(r):
         return "sem_producao"                          # usina parada (potência ~0) → alerta próprio
     if _ipst:
@@ -13631,6 +13795,9 @@ def _macro_causa(r, status: str) -> str:
             "Sem sol na usina (fora da janela solar) — nada a julgar ao vivo"
     if r.get("sem_visao") and not _inv_padrao_status_de(r):
         return "Sem visão por string (combiner não exposta)"
+    if r.get("rampa") and not _inv_padrao_status_de(r):   # pouca luz: o inv_off dela é o piso de 2 kW, não parada
+        n = r.get("inv_desligados") or 0
+        return "Baixa irradiância" + (f" · {n} inversor(es) desligado(s)" if n else "")
     if status == "sem_producao":
         off, tot = r.get("inv_off"), r.get("qtd_inversores")
         if isinstance(off, int) and off and isinstance(tot, int):
@@ -13653,8 +13820,9 @@ def _macro_item(fonte: str, r: dict) -> dict:
         sev = 1 if status == "critico" else 2                # inversor fora do padrão = degrau da falha de string
     dif = _macro_dif(r)
     faltando = max(0, -dif) if isinstance(dif, (int, float)) else 0
-    if status in ("sem_producao", "sem_comm", "desligada") or r.get("sem_visao") or _macro_sol_baixo(r):
-        faltando = 0                                   # sai do ranking de "strings abaixo" (sem sol, string a zero é o normal)
+    if (status in ("sem_producao", "sem_comm", "desligada") or r.get("sem_visao") or r.get("rampa")
+            or _macro_sol_baixo(r)):
+        faltando = 0                                   # sai do ranking de "strings abaixo" (sem sol ou pouca luz, zero é o normal)
     return {
         "fonte": fonte, "usina": r.get("usina"), "plant_id": r.get("plant_id"),
         "status": status, "sev": sev, "causa": _macro_causa(r, status),
@@ -13798,11 +13966,16 @@ def _portfolio_rollup() -> list:
     # usina calada com motivo é DESLIGADA, como na tabela (28/09/2026) — só leitura aqui: quem tira a marca de quem
     # voltou a gerar é a saída da tabela (_com_usina_desligada)
     _dl = (_usinas_desligadas_marcas(), _religamentos_abertos_usina(), _etm_leitura_por_pid(), datetime.now())
+    _poa = _poa_atual_por_pid()                # pouca luz não é usina parada, como na tabela (29/09/2026)
 
     def add(fonte, r):
         _d = _usina_desligada_de(r, *_dl)
         if _d:
             r = dict(r, desligada=_d)
+        elif not r.get("rampa"):
+            _p = _pouca_luz_de(r, _poa, _dl[3])
+            if _p:
+                r = dict(r, rampa=True, pouca_luz=_p)
         item = _macro_item(fonte, r)
         nome = _macro_usina_nome(item.get("usina"))
         if not nome:
@@ -17817,9 +17990,13 @@ def _owen_strings_rows(force=False):
             ativas -= sum(at_de.get(inv, 0) for inv in desl)
             if str_esp is not None:
                 str_esp = max(0, str_esp - strings_fora)
+        # pela soma das faltas de cada inversor (_dif_por_inversor, Rodrigues 2.1, 29/09/2026)
+        _dpi = (_dif_por_inversor([(at_de.get(inv, 0), esp_map.get(_tag(inv))) for inv in invs if inv not in desl], str_esp)
+                if esp_map else None)
         rows.append({"usina": nome, "plant_id": u, "qtd_inversores": len(invs),
                      "strings_ativas": ativas, "str_esp": str_esp,
-                     "diferenca": (ativas - str_esp) if str_esp is not None else None,
+                     "diferenca": _dpi[0] if _dpi else ((ativas - str_esp) if str_esp is not None else None),
+                     "strings_acima_cadastro": _dpi[1] if _dpi else 0,
                      "inv_desligados": len(desl), "strings_fora": strings_fora,
                      "inv_desligados_nomes": sorted(EQUIP_NAMES.get(u, {}).get(_tag(inv), f"Inversor {inv}")
                                                     for inv in desl),
