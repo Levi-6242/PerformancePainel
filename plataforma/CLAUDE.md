@@ -399,6 +399,21 @@ pela geração ficam só no Gerencial) com as OS já carregadas do Fracttal (`OS
 entrega ETM intradiária do dia atual (dia passado → `sem_historico`) — o drill-down diz isso em vez de esconder.
 Na aba Curvas, de madrugada o card recua UMA vez para ontem quando hoje ainda não tem curva (`_icRecuou`).
 
+## Seletor do Histórico PR (Painel NOC, 28/09/2026)
+
+Ana: "córrego de sapucaia não aparece na parte do painel - histórico". O seletor do Thopen mostrava só Full O&M, casando o
+nome da carteira do banco com o do cadastro pelo `_nrm` (não tira acento): 38 das 116 sumiam sem aviso, 6 delas Full O&M
+por grafia (Córrego × Corrego, Marajoara 1 × Marajoara I, Piracicaba 1 × I, Santo Antonio da × do Platina, Primavera e
+Nova Londrina = as partes 1 e 2). Agora `_usina_chave_solta` (sem acento, romano como número, sem da/do/de/e) e
+`_g_th_usinas_grupos` devolvem (Full O&M, outras com o motivo); `/api/g/usinas?grupos=1` alimenta dois `<optgroup>` — "Full
+O&M" e "Sem Full O&M no cadastro", o motivo no título —, e a lista simples, sem `grupos`, traz todas. Usina dividida no
+cadastro só é Full O&M se todas as partes forem, e parte se acha pelo nome de EXIBIÇÃO (a chave do supervisório traz o
+id: "Primavera 1 (115)"). Cliente de fora do banco: as da Info Geral sem aba no BD_Performance entram como "Sem aba no
+BD_Performance". **Gráfico vazio diz o porquê** (`motivo` do `/api/g/mensal`, em âmbar no subtítulo): 16 das 116 não têm
+PR — 15 sem um dia no BD_Thopen (Delmiro Gouvea 1 a 4…) e a Guatambu, com geração desde julho e IPOA 0,0 em todos os dias.
+Lyon e Pharma II a IV têm meta de PR 0 em setembro (cadastro vazio gravado como zero). Teste:
+`tests/test_hist_seletor_e_uniao.py`.
+
 ## Fonte `2capi`: as três usinas da 2C pela API PV
 
 Desde 11/09/2026 Araputanga (18771898), "Sete Lagoa" (18771901 — singular na API, "Sete Lagoas" no cadastro) e Tupi
@@ -418,10 +433,20 @@ qualquer chamada delas tem de ir por `_pv_token_for`. Teste: `tests/test_fonte_2
 **A União entrou em 25/09/2026** ("adicione a usina União em 2C!"): conta oem@, id 18772125, "União " na API (com
 espaço), 2.162 kWp, instalada em 22/09 — 6 inversores com 28 Ipv (18 com corrente). No cadastro é "União 1 e 2" (Info
 Geral: cliente 2C, Piauí, 12 inversores, 4,46 MWp — a API tem metade, por ora), e o `PV_NOME_API_ALIAS` faz a ponte;
-sem ela o card da 2C da Entrada a descartava por falta de cliente. O Equipamentos ainda não tem os inversores dela:
-sem esperadas a linha mostra as 108 strings sem julgar déficit, e o drill mostra o inversor pelo id — o de-para de nome
-só vale fechado por valor (`PV_INV_NOMES`). Os trackers dela seguem o caminho das outras três (aba 2C, pela API).
-Teste: `tests/test_2c_uniao.py`.
+sem ela o card da 2C da Entrada a descartava por falta de cliente. Os trackers dela seguem o caminho das outras três
+(aba 2C, pela API). Teste: `tests/test_2c_uniao.py`.
+
+**Cadastro da União (28/09/2026**, Levi: "já está na aba equipamentos porém não apareceu na plataforma"). O Equipamentos
+a preencheu sob o supervisório **"UNI"** (UNI_Inv_1.1 a 2.6, 12 inversores de 18 strings), não sob "União 1 e 2" —
+`PV_ALIAS_CODIGO` faz a cópia do alias procurar também o código. E a API tem só a **UG 01**: `PV_ALIAS_PARCIAL` copia os
+inversores 1.1 a 1.6 (6 × 360,36 kWp = os 2.162 kWp da API — é a conferência que fecha), com o esperado da usina somado
+deles: 108, não 216, que seriam 108 strings "faltando" que não existem. Na potência o filtro compara pelo `_nrm` do
+supervisório e do nome de exibição, que é como o `POWER_INV` é chaveado. Os nomes vêm de `PV_INV_NOMES` **pela ordem dos
+ids** (401313 → UNI_Inv_1.1 … 401318 → 1.6) — provisório, a única exceção à regra do valor: a conta oem@ não lista
+dispositivos, o e-mail da 2C não manda a União e o ativo do Fracttal não tem nº de série. Confirmar na PV Plataforma.
+Drill, curva do dia, curva de dia passado e CSV nomeiam pelo mesmo `_pv_nome_2c`, que vem **antes** da ordem do cadastro:
+a ordem é de texto ("1.10" antes de "1.2") e rotularia errado a usina de 10+ inversores que ganhasse cadastro. Até 28/09
+a curva de hoje das três da 2C saía "INV-400771" e o drill desenhava a do 1º inversor em todos.
 
 ## Sol por estado (macro e sino)
 
@@ -477,16 +502,18 @@ Os antigos `*_token.txt`/`se_cookie.txt` foram migrados sozinhos e renomeados pa
 adianta colar token neles.
 
 O token da Plataforma é **manual**: tem CAPTCHA e MFA, não auto-renova. Vale **7 dias** (medido no
-`exp` do próprio JWT). **Hoje só uma coisa depende dele de verdade: a curva de strings dos DIAS
-ANTERIORES da API PV** (drill do inversor e "Curva das strings", via `/v2/relatorios/trygenerate`);
-trackers e combiner vêm da API PV desde 22/09/2026 e o usam só como reserva. Nesse dia ele foi
-rebaixado a "reserva" e parou de alarmar — venceu em silêncio (servidor, 28/09 10:43) e a tela passou
-a dizer "a fonte não guardou curva de strings nessa data" de um dia que a PV Plataforma tinha (Assis
-Chateaubriand Skid 5, Inversor 5.1). Desde 28/09: a rota diz o `motivo` do vazio (e `faltando`, por
-inversor — `_spv_trygenerate_st`), a tela escreve "o token da PV Plataforma venceu em …" em âmbar
-com link para Tokens, e `/api/tokens` volta a alarmar (aviso só no último dia). Só `sem_curva_na_fonte`
-pode dizer que a fonte não tem — foi ela que respondeu vazio. Quando o token vence, o combiner de
-reserva recebe `HTTP 401`; um disjuntor abre no primeiro 401 e para de tentar.
+`exp` do próprio JWT). **Hoje ele é só reserva de tudo:** trackers e combiner vêm da API PV desde
+22/09/2026, e a curva de strings dos DIAS ANTERIORES vem em **corrente pela API PV** desde 28/09
+(`_spv_day_records_hist` → `custom_query` v2 com `period`+`day`: a usina inteira, um registro por minuto,
+~5 s — 1 consulta da cota histórica, com a mesma reserva da combiner). Ele só entra, em **potência**
+(`/v2/relatorios/trygenerate`), no inversor ou na usina que a API PV não tiver em corrente (Levi: "se
+tiver histórico de corrente, deixa corrente, se não tiver pega potência"). O histórico de corrente foi
+dado por impossível em 15/06 por um teste feito na Matão 1, que parara de reportar em 12/06 — não
+provava nada. No mesmo 28/09 a tela deixou de culpar a fonte: a rota diz o `motivo` do vazio (e
+`faltando`, por inversor; `motivo_api` quando a API PV não trouxe a corrente) e a unidade de cada
+inversor (`unidade`: A ou W — antes a potência saía com eixo de corrente). Só `sem_curva_na_fonte`
+diz que a fonte não tem. `/api/tokens` mostra este token como reserva, alarmando só nesta tela.
+Quando ele vence, o combiner de reserva recebe `HTTP 401`; um disjuntor abre no primeiro 401.
 
 **Como renovar:** bookmarklet de 1 clique, ou `POST /api/pv/trackers/token` com `{"token": "..."}`.
 O `tokens_runtime.json` é relido a cada uso, então vale na hora, sem reiniciar. `_plat_token()` escolhe

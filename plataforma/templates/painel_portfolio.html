@@ -1333,9 +1333,21 @@ async function gInit(){
   await gLoadUsinas();
 }
 async function gLoadUsinas(){
-  const us=await gGET('/api/g/usinas?cliente='+encodeURIComponent(document.getElementById('gCli').value));
-  document.getElementById('gUsi').innerHTML=us.map(u=>`<option>${u}</option>`).join('');
+  // ?grupos=1: Full O&M primeiro e as outras num grupo à parte, cada uma com o motivo no título (28/09/2026: a Córrego
+  // do Sapucaia sumia por acento e as sem Full O&M sumiam sem explicação — "vejo quais usinas também não aparecem e
+  // faça aparecer!")
+  const r=await gGET('/api/g/usinas?grupos=1&cliente='+encodeURIComponent(document.getElementById('gCli').value));
+  document.getElementById('gUsi').innerHTML=gUsiOpcoes(r);
   gRenderAll();
+}
+function gUsiOpcoes(r){
+  const gEsc=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  if(Array.isArray(r)) return r.map(u=>`<option>${gEsc(u)}</option>`).join('');
+  const rot=(r&&r.rotulos)||['Full O&M','Outras'];
+  const a=((r&&r.full_om)||[]).map(u=>`<option>${gEsc(u)}</option>`).join('');
+  const b=((r&&r.outras)||[]).map(o=>`<option title="${gEsc(o.motivo)}">${gEsc(o.usina)}</option>`).join('');
+  if(!b) return a;
+  return (a?`<optgroup label="${gEsc(rot[0])}">${a}</optgroup>`:'')+`<optgroup label="${gEsc(rot[1])}">${b}</optgroup>`;
 }
 async function gRenderAll(){
   const c=gCtx(); const g=++gGen;
@@ -1495,12 +1507,20 @@ function _gRenderOsEv(diaFiltro){
 }
 window._gRenderOsEv=_gRenderOsEv;
 window.gAbrirOsDia=(dia)=>{ if((gOsEv[dia]||[]).length) _gRenderOsEv(dia); };
+// Gráfico vazio diz o porquê, com a frase da rota (28/09/2026: o seletor passou a listar todas as usinas, e a Guatambu,
+// por exemplo, tem geração desde julho com IPOA 0,0 — sem irradiação não há PR). Com PR, volta o texto de sempre.
+let gMensalSub0=null;
+function gMensalSubTxt(d,padrao){
+  return (d&&d.motivo)?('Sem PR para mostrar: '+d.motivo):padrao;
+}
 async function gMensal(c,g){
   const d=await gGET(`/api/g/mensal?cliente=${encodeURIComponent(c.cliente)}&usina=${encodeURIComponent(c.usina)}`);
   if(g!==gGen) return;
   const MES=['','jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
   const tk=cssv('--muted'), grid=document.body.classList.contains('dark')?'rgba(255,255,255,.06)':'rgba(0,0,0,.06)';
   const pts=d.pontos||[];
+  const sub=document.getElementById('gMensalSub'); if(gMensalSub0==null) gMensalSub0=sub.textContent;
+  sub.textContent=gMensalSubTxt(d,gMensalSub0); sub.style.color=d.motivo?cssv('--amber'):'';
   const labels=pts.map(p=>MES[p.mes]+'/'+String(p.ano).slice(2));
   if(gChM)gChM.destroy();
   gChM=new Chart(document.getElementById('gChMensal'),{data:{labels,datasets:[

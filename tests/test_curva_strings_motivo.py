@@ -153,6 +153,7 @@ def test_dia_passado_com_inversor_faltando_nao_fica_no_cache_para_sempre(monkeyp
     monkeypatch.setattr(app, "DASH_PASSWORD", "")
     monkeypatch.setattr(app, "_spv_cache", {})
     monkeypatch.setattr(app, "_pv_token_for", lambda idusina: "tok")
+    monkeypatch.setattr(app, "_spv_day_records_hist", lambda idusina, token, data: ([], "sem_dados_api"))
     chamadas = []
 
     def _hist(idusina, token, data, full):
@@ -210,6 +211,7 @@ def _node(js):
     if not node:
         _pt.skip("node não instalado")
     base = (_func("_curvaDoInversor") + _func("_curvaMotivo") + _func("_curvaMotivoTxt") + _linha("_curvaMotivoCor")
+            + _func("_curvaMotivoApiTxt") + _linha("_curvaUnidade")
             + "const _he=s=>String(s==null?'':s);")
     p = _sp.run([node, "-e", base + js], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert p.returncode == 0, p.stderr
@@ -218,7 +220,7 @@ def _node(js):
 
 def test_a_frase_do_token_vencido_culpa_o_acesso_nao_a_fonte():
     t = _node("process.stdout.write(JSON.stringify(_curvaMotivoTxt('token_vencido','26/09/2026','28/09/2026 10:43','inversor')))")
-    assert "venceu em 28/09/2026 10:43" in t and "token da PV Plataforma" in t and 'href="/tokens"' in t
+    assert "vencido desde 28/09/2026 10:43" in t and "PV Plataforma" in t and 'href="/tokens"' in t
     assert "não guardou" not in t
     cor = _node("process.stdout.write(JSON.stringify(_curvaMotivoCor('token_vencido')))")
     assert cor == "#f59e0b", "dá para agir: âmbar"
@@ -227,7 +229,7 @@ def test_a_frase_do_token_vencido_culpa_o_acesso_nao_a_fonte():
 def test_so_a_fonte_que_respondeu_vazio_diz_que_a_fonte_nao_tem():
     t = _node("process.stdout.write(JSON.stringify([_curvaMotivoTxt('sem_curva_na_fonte','26/09/2026',null,'inversor'),"
               "_curvaMotivoTxt('http_502','26/09/2026',null,'inversor'), _curvaMotivoTxt(null,'26/09/2026',null,'inversor')]))")
-    assert "respondeu, mas sem curva" in t[0]
+    assert "respondeu, mas sem curva" in t[0] and t[0].startswith("A PV Plataforma")
     assert "não respondeu" in t[1] and "HTTP 502" in t[1]
     assert t[2] is None, "sem motivo, a tela usa as frases de sempre (fontes que não mandam motivo)"
 
@@ -249,7 +251,7 @@ def test_o_motivo_do_inversor_vem_do_faltando():
               "_curvaMotivo({},[{nome:'Inversor 5.2',curva:{a:1}}],null,'Inversor 5.1'),"
               "_curvaMotivo({motivo:'token_vencido'},[],{curva:{a:{x:[],y:[]}}},'Inversor 5.1')]))")
     assert r[0]["motivo"] == "http_500"
-    assert r[1] == {"motivo": "token_vencido", "token_exp": "28/09/2026 10:43"}
+    assert r[1] == {"motivo": "token_vencido", "token_exp": "28/09/2026 10:43", "motivo_api": None}
     assert r[2]["motivo"] == "inversor_ausente"
     assert r[3] == {}, "com curva, não há motivo de vazio"
 
@@ -258,7 +260,8 @@ def _bloco(curva, meta, strings=(), hoje="2026-09-28", dia="2026-09-26"):
     node = _sh.which("node")
     if not node:
         _pt.skip("node não instalado")
-    js = (_func("_curvaMotivoTxt") + _linha("_curvaMotivoCor") + _func("_curvaBlock")
+    js = (_func("_curvaMotivoTxt") + _linha("_curvaMotivoCor") + _func("_curvaMotivoApiTxt") + _linha("_curvaUnidade")
+          + _func("_curvaBlock")
           + "const _he=s=>String(s==null?'':s);"
           "function _snum(s){ const d=String(s==null?'':s).replace(/\\D/g,''); return d?parseInt(d,10):null; }"
           "const state={source:'thopen-pv',invData:" + _json.dumps(dia) + "}; const SKEY={'thopen-pv':'pv'};"
@@ -275,7 +278,7 @@ def _bloco(curva, meta, strings=(), hoje="2026-09-28", dia="2026-09-26"):
 def test_o_drill_do_inversor_diz_token_vencido_em_vez_de_culpar_a_fonte():
     """O caso do print: Assis Chateaubriand Skid 5, Inversor 5.1, 26/09."""
     h = _bloco({}, {"motivo": "token_vencido", "token_exp": "28/09/2026 10:43"})
-    assert "venceu em 28/09/2026 10:43" in h and "26/09/2026" in h
+    assert "vencido desde 28/09/2026 10:43" in h and "26/09/2026" in h
     assert "não guardou" not in h
 
 

@@ -608,16 +608,17 @@ def _tokens_status():
     # servidor novo, a Athon subiu muda sem UM aviso que apontasse para a causa.
     # O de API é o que alarma de fato: sem ele não há dado. O web fica como informação.
     # A PLATAFORMA VOLTOU A ALARMAR EM 28/09/2026. Em 22/09 ela virou "reserva" porque os trackers e o
-    # combiner passaram a vir da API PV — certo para eles, mas a CURVA DE STRINGS DOS DIAS ANTERIORES
-    # (drill do inversor e "Curva das strings", via trygenerate) só existe na PV Plataforma e depende dele.
-    # Vencido em silêncio (servidor: 28/09 10:43), a tela passou a dizer "a fonte não guardou curva" de um
-    # dia que a fonte tinha (Assis Chateaubriand Skid 5). Aviso só no último dia: o token vale 7.
+    # combiner passaram a vir da API PV — certo para eles, mas a curva de strings dos dias anteriores ainda
+    # dependia dela e, vencida em silêncio (servidor: 28/09 10:43), a tela passou a dizer "a fonte não guardou
+    # curva" de um dia que a fonte tinha (Assis Chateaubriand Skid 5). No mesmo dia a curva histórica passou a
+    # vir em CORRENTE pela API PV; a Plataforma ficou como reserva em POTÊNCIA, para o inversor ou a usina sem
+    # corrente. Continua alarmando aqui (só nesta tela), com aviso no último dia: o token vale 7.
     rows = [
-        _row("Plataforma — curva de strings dos dias anteriores", "plat", _jwt_exp(_plat_token()), "manual",
-             "É ESTE que traz a curva de strings de DIAS ANTERIORES da API PV (drill do inversor e aba "
-             "Curva das strings). Vencido, o histórico some e a tela avisa. Trackers e combiner já não "
-             "dependem dele (vêm da API PV). Vale 7 dias: renove pelo bookmarklet de 1 clique (logado em "
-             "plataforma.pvoperation.com) ou cole abaixo.", aviso_dias=1),
+        _row("Plataforma — curva de strings dos dias anteriores (reserva)", "plat", _jwt_exp(_plat_token()), "manual",
+             "Reserva da curva de strings de DIAS ANTERIORES: a curva vem em CORRENTE pela API PV e, no inversor "
+             "ou na usina sem esse histórico, em POTÊNCIA por este token. Vencido, o drill do inversor avisa. "
+             "Trackers e combiner já não dependem dele (vêm da API PV). Vale 7 dias: renove pelo bookmarklet de "
+             "1 clique (logado em plataforma.pvoperation.com) ou cole abaixo.", aviso_dias=1),
         _row("SunOp / Athon — API (dados)", "sunop_api", _jwt_exp(_sunop_api_token("gridco")), "manual",
              "É ESTE que libera strings/ETM/trackers. Gerado na interface do SunOp, vale meses; "
              "guarde como SUNOP_API_TOKEN no tokens.txt."),
@@ -1328,6 +1329,8 @@ FULL_OM       = set()
 STRING_BOX    = set()   # {usina_sup}  usinas com coluna "String Box"=Sim (sem visão por string)
 POWER_INV     = {}   # {usina_sup: {alias_norm: potencia_kwp}}  alias = equip_sup e display
 POWER_UFV     = {}   # {usina_sup: potencia_kwp}  linha Equipamento="UFV" (potência da USINA inteira)
+FULL_OM_DISP_NOMES = set()   # os mesmos nomes de EXIBIÇÃO Full O&M, COMO ESTÃO ESCRITOS (o _nrm tira os espaços e
+                             # o "I" de "Marajoara I" deixa de ser reconhecível) — ver _usina_chave_solta
 FULL_OM_DISP  = set()   # {nrm(usina EXIBIÇÃO)} Full O&M — o FULL_OM é por supervisório, e usina Thopen
                         # costuma ter esse campo VAZIO (some do set). Este casa pelo nome de exibição.
 POWER_INV_DISP = {}     # {nrm(usina EXIBIÇÃO): {nrm(equipamento): kwp}} — mesmo motivo do FULL_OM_DISP.
@@ -1346,17 +1349,46 @@ def _nrm(s) -> str:
 # "União" (API, com espaço no fim) é "União 1 e 2" no cadastro (Info Geral: cliente 2C, Piauí) — 25/09/2026, quando
 # ela entrou na 2C. Sem a ponte ela não achava o cliente e o card da 2C na Entrada a descartava.
 PV_NOME_API_ALIAS = {"Sete Lagoa": "Sete Lagoas", "União": "União 1 e 2"}
+# O cadastro da usina pode estar sob o CÓDIGO do supervisório, não sob o nome: o Equipamentos da União foi preenchido
+# em 28/09/2026 com Usina Supervisório "UNI" e inversores "UNI_Inv_1.1"… (Levi: "já está na aba equipamentos porém não
+# apareceu na plataforma"). Sem isto a cópia do alias procurava "União 1 e 2", não achava, e a União seguia sem nomes
+# e sem esperadas.
+PV_ALIAS_CODIGO = {"União": "UNI"}
+# Usina da API que é só PARTE da usina do cadastro: a "União" da API (18772125, 2.162 kWp) é a UG 01 (Inversor 1.1 a
+# 1.6); a UG 02 (2.1 a 2.6) não está nela. Copiar o cadastro inteiro cobraria 216 strings de 6 inversores — 108
+# "faltando" que não existem. Fica só o que a API tem, e o esperado da usina sai da soma desses.
+PV_ALIAS_PARCIAL = {"União": {f"UNI_Inv_1.{i}" for i in range(1, 7)}}
 
 
 def _aplica_alias_api_cadastro():
     """Faz os mapas do cadastro responderem também pelo nome que a API escreve (ver PV_NOME_API_ALIAS): copia a entrada
-    do nome do cadastro para o nome da API, só onde o cadastro tem a usina. Chamado no fim do load_equipamentos."""
+    do nome do cadastro — ou do código do supervisório (PV_ALIAS_CODIGO) — para o nome da API, só onde o cadastro tem a
+    usina; na usina parcial (PV_ALIAS_PARCIAL), só os inversores que a API tem. Chamado no fim do load_equipamentos."""
     for api, cad in PV_NOME_API_ALIAS.items():
-        for m in (ESPERADO_INV, EQUIP_NAMES, ESPERADO, POWER_INV, USINA_DISPLAY):
-            if cad in m and api not in m:
-                m[api] = m[cad]
+        fontes = [cad] + ([PV_ALIAS_CODIGO[api]] if api in PV_ALIAS_CODIGO else [])
+        so = PV_ALIAS_PARCIAL.get(api)
+        if so:
+            # o POWER_INV é chaveado pelo _nrm do supervisório E do nome de exibição ("uni_inv_1.1", "inversor1.1"):
+            # filtrado pelo nome cru, a União ficava sem o kWp de inversor nenhum
+            nomes = next((EQUIP_NAMES[f] for f in fontes if f in EQUIP_NAMES), {})
+            so = set(so) | {_nrm(x) for x in so} | {_nrm(nomes[x]) for x in so if x in nomes}
+        for m in (ESPERADO_INV, EQUIP_NAMES, POWER_INV):
+            src = next((f for f in fontes if f in m), None)
+            if src is not None and api not in m:
+                m[api] = {k: v for k, v in m[src].items() if k in so} if so else m[src]
+        if api not in ESPERADO:
+            if so and ESPERADO_INV.get(api):
+                ESPERADO[api] = {"inv_esp": len(ESPERADO_INV[api]),
+                                 "str_esp": sum(v for v in ESPERADO_INV[api].values() if isinstance(v, (int, float)))}
+            else:
+                src = next((f for f in fontes if f in ESPERADO), None)
+                if src is not None:
+                    ESPERADO[api] = ESPERADO[src]
+        src = next((f for f in fontes if f in USINA_DISPLAY), None)
+        if src is not None and api not in USINA_DISPLAY:
+            USINA_DISPLAY[api] = USINA_DISPLAY[src]
         for conj in (FULL_OM, STRING_BOX):
-            if cad in conj:
+            if any(f in conj for f in fontes):
                 conj.add(api)
 
 
@@ -1365,6 +1397,7 @@ def load_equipamentos():
     esperadas (Strings Ativas), nomes de exibição, Full O&M e potência por inversor.
     Chamada na init e sempre que o arquivo muda (mtime). Uma só leitura alimenta tudo."""
     global ESPERADO_INV, EQUIP_NAMES, USINA_DISPLAY, USINA_GRUPO, ESPERADO, FULL_OM, STRING_BOX, POWER_INV, POWER_UFV, FULL_OM_DISP, POWER_INV_DISP, _bd_mtime
+    global FULL_OM_DISP_NOMES
     try:
         path = _bd_perf_path()
         df = pd.read_excel(_bd_readable(), sheet_name="Equipamentos", header=2)
@@ -1397,6 +1430,7 @@ def load_equipamentos():
         esperado_inv, equip_names, usina_display, power_inv = {}, {}, {}, {}
         power_ufv = {}                       # potência da USINA (linha Equipamento = "UFV")
         full_om_disp = set()                 # Full O&M pelo nome de EXIBIÇÃO (pega usina sem supervisório)
+        full_om_disp_nomes = set()           # idem, o nome como está escrito (ver FULL_OM_DISP_NOMES)
         power_inv_disp = {}                  # potência por inversor pelo nome de EXIBIÇÃO (idem)
         full_om, string_box = set(), set()
         for _, row in df.iterrows():
@@ -1408,6 +1442,7 @@ def load_equipamentos():
             # muita usina Thopen tem o supervisório vazio e sumiria do FULL_OM.
             if c_full and str(row[c_full]).strip().lower() == "sim" and pd.notna(row[c_usd]):
                 full_om_disp.add(_nrm(row[c_usd]))
+                full_om_disp_nomes.add(str(row[c_usd]).strip())
             # Potência por INVERSOR pelo nome de exibição — habilita o PR por inversor da Thopen.
             if (pd.notna(row[c_usd]) and pd.notna(row[c_eq])
                     and str(row[c_eq]).strip().lower().startswith("inversor")):
@@ -1502,6 +1537,7 @@ def load_equipamentos():
         USINA_GRUPO = usina_grupo
         ESPERADO, FULL_OM, STRING_BOX, POWER_INV = esperado, full_om, string_box, power_inv
         POWER_UFV, FULL_OM_DISP, POWER_INV_DISP = power_ufv, full_om_disp, power_inv_disp
+        FULL_OM_DISP_NOMES = full_om_disp_nomes
         _aplica_alias_api_cadastro()             # "Sete Lagoa" (API) responde pelo cadastro "Sete Lagoas"
         # CADASTRO VAZIO NÃO CARIMBA O MTIME. No reboot de 26/08 o app subiu às 07:54, antes de
         # o OneDrive hidratar os arquivos: a leitura "deu certo" com ZERO usinas, o mtime foi
@@ -2230,7 +2266,26 @@ PV_INV_NOMES = {
     18771901: {400784 + i: f"Inversor 1.{i + 1}" for i in range(10)},                        # Sete Lagoa(s)
     18750925: {**{367506 + i: f"Inversor 1.{i + 1}" for i in range(10)},                     # Tupi Paulista
                **{367516 + i: f"Inversor 2.{i + 1}" for i in range(10)}},
+    # União (28/09/2026) — PROVISÓRIO, PELA ORDEM DOS IDS: é a exceção à regra acima, e por falta de régua, não de
+    # vontade. A conta oem@ nega o plant_devices ("Invalid permission"), o e-mail da 2C não manda a União e o ativo no
+    # Fracttal não tem nº de série para casar com o `esn` da API. Nas outras três a ordem dos ids BATEU com o valor.
+    # Os nomes são os do supervisório no cadastro (Usina Supervisório "UNI"), que o EQUIP_NAMES traduz para
+    # "Inversor 1.x". Confirmar na PV Plataforma (o nome de cada id) e trocar se algum estiver fora de ordem.
+    18772125: {401313 + i: f"UNI_Inv_1.{i + 1}" for i in range(6)},                          # União (UG 01)
 }
+
+
+def _pv_nome_2c(idusina, idinv):
+    """Nome do inversor da conta oem@ pelo de-para em código (PV_INV_NOMES) — o MESMO que o drill usa. A curva do
+    dia, a de dia passado e o CSV nomeavam por plant_devices (negado a essa conta) ou pela ordem do cadastro (vazio),
+    e saíam "INV-400771": o drill pedia "Inversor 1.1", não achava e desenhava a curva do PRIMEIRO inversor da usina
+    em todos os outros (Araputanga, Sete Lagoas e Tupi, até 28/09/2026)."""
+    try:
+        return (PV_INV_NOMES.get(int(idusina)) or {}).get(int(idinv))
+    except (TypeError, ValueError):
+        return None
+
+
 PV_OEM_PLANTS   = set().union(*PV_FONTES.values()) if PV_FONTES else set()
 # TRACKERS: até 15/09/2026 a varredura excluía TODA usina da conta OEM, porque a apiplataforma
 # respondia "Usuário não possui permissão" com o PLAT_TOKEN do usuário gridco — 1 chamada condenada
@@ -3069,8 +3124,9 @@ def _pv_plant_inversores(plant_id, force=False):
 
     inversores = []
     for inv_id in all_ids:
-        inv_nome_api = (dev_names.get(inv_id) or _pos_map.get(inv_id)
-                        or PV_INV_NOMES.get(plant_id, {}).get(inv_id)      # 2C pela API PV: de-para por valor
+        # o de-para em código (2C pela API PV, por valor) vem ANTES da ordem do cadastro: a ordem é de texto — "1.10"
+        # antes de "1.2" — e, com a usina ganhando cadastro (a União ganhou em 28/09/2026), o 2º id virava o 1.10
+        inv_nome_api = (dev_names.get(inv_id) or _pv_nome_2c(plant_id, inv_id) or _pos_map.get(inv_id)
                         or f"INV-{inv_id}")
         # Traduz para o nome da planilha (Equipamento), mantém API name como fallback
         inv_nome = _equip_lookup(EQUIP_NAMES.get(plant_nome_api), inv_nome_api) or inv_nome_api
@@ -14838,15 +14894,60 @@ def _g_th_usinas(carteira):
     """Usinas da carteira. Na PLATAFORMA, "Thopen" é o CLIENTE inteiro (104 usinas das 4 carteiras) —
     Copel/Matrix/Polaris são recorte do dashboard 5080, não clientes daqui (Levi 22/07; a Info Geral,
     que é o cadastro, dá Thopen=104 e não conhece essas três)."""
+    return _g_th_usinas_grupos(carteira)[0]
+
+
+_ROMANO_NUM = {"i": "1", "ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6", "vii": "7", "viii": "8", "ix": "9", "x": "10"}
+_LIGACOES = {"da", "do", "de", "dos", "das", "e"}
+
+
+def _usina_chave_solta(nome) -> str:
+    """Chave tolerante para casar o nome da usina entre o banco do Thopen (carteiras) e o cadastro (Equipamentos): sem
+    acento, sem pontuação, romano como número e sem as ligações da/do/de. Casos de 28/09/2026, que sumiam do seletor do
+    Histórico sendo Full O&M: "Córrego do Sapucaia" × "Corrego do Sapucaia" (Ana: "córrego de sapucaia não aparece na
+    parte do painel - histórico"), "Marajoara 1" × "Marajoara I", "Piracicaba 1" × "Piracicaba I", "Santo Antonio da
+    Platina" × "Santo Antonio do Platina". "Vargem Grande 1" × "Vargem Grande IB" NÃO casa, de propósito: não é certo."""
+    toks = re.findall(r"[a-z]+|\d+", _unaccent(str(nome or "")).lower())
+    return "".join(_ROMANO_NUM.get(t, t) for t in toks if t not in _LIGACOES)
+
+
+def _g_th_usinas_grupos(carteira):
+    """(full_om, outras) do seletor do Histórico PR. Só Full O&M era a regra (Levi 22/07: "usina sem O&M nosso não é
+    performance que a gente responde"), mas o casamento pelo nome escondia usina Full O&M por acento, romano ou
+    "da/do" — e as que não são Full O&M sumiam sem explicação (Levi, 28/09/2026: "vejo quais usinas também não
+    aparecem e faça aparecer!"). Agora: Full O&M primeiro, pela chave solta — também quando o cadastro divide a usina
+    ("Primavera" = "Primavera 1" e "Primavera 2", todas Full O&M) —, e as outras depois, cada uma com o motivo.
+    Cadastro sem a coluna preenchida: todas contam como Full O&M (melhor mostrar demais que esconder por cadastro)."""
     import dashboard_thopen as _dth
     us = (sorted(_dth._CARTEIRA_DE.keys()) if str(carteira).strip().lower() == "thopen"
           else sorted(u for u, c in _dth._CARTEIRA_DE.items() if c == carteira))
-    # Só FULL O&M no seletor de PR (Levi 22/07): usina sem O&M nosso não é performance que a gente
-    # responde. Se o cadastro não tiver a coluna preenchida, NÃO filtra (melhor mostrar demais que
-    # esconder tudo por cadastro incompleto).
-    if FULL_OM_DISP:
-        us = [u for u in us if _nrm(u) in FULL_OM_DISP]
-    return us
+    if not FULL_OM_DISP_NOMES:
+        return us, []
+    sim = {_usina_chave_solta(n) for n in FULL_OM_DISP_NOMES}
+    # irmãs só pelo nome de exibição: a chave do supervisório traz o id ("Primavera 1 (115)" → "primavera1115") e
+    # virava uma irmã que nunca é Full O&M — a Primavera inteira caía para "outras"
+    disp = {_usina_chave_solta(n) for n in USINA_DISPLAY.values()}
+    cad = disp | {_usina_chave_solta(n) for n in USINA_DISPLAY.keys()}
+    # irmã = chave + só dígitos ("primavera" → "primavera1"). Índice por prefixo em vez de uma regex por par: 116 × ~300
+    # regex custavam 38 ms por chamada no processo web (medido em 28/09/2026); o índice dá o mesmo casamento
+    por_prefixo = {}
+    for x in disp:
+        j = len(x)
+        while j > 0 and x[j - 1].isdigit():
+            j -= 1
+        for i in range(j, len(x)):
+            por_prefixo.setdefault(x[:i], []).append(x)
+    full, outras = [], []
+    for u in us:
+        k = _usina_chave_solta(u)
+        irmas = por_prefixo.get(k, []) if k else []
+        if k in sim or (irmas and all(x in sim for x in irmas)):
+            full.append(u)
+        elif k in cad or irmas:
+            outras.append({"usina": u, "motivo": "Full O&M = Não no cadastro (aba Equipamentos)"})
+        else:
+            outras.append({"usina": u, "motivo": "fora da aba Equipamentos"})
+    return full, outras
 
 
 def _g_th_pot(usina):
@@ -14884,11 +14985,25 @@ def api_g_clientes():
 
 @app.route("/api/g/usinas")
 def api_g_usinas():
+    """Usinas do cliente para o seletor do Histórico PR. Lista simples (todas, Full O&M primeiro) ou, com ?grupos=1,
+    {"full_om": [...], "outras": [{usina, motivo}]} — nada some calado (Levi, 28/09/2026: "vejo quais usinas também
+    não aparecem e faça aparecer!"). Nos clientes de fora do banco do Thopen, "outras" são as do cadastro (Info Geral)
+    sem aba no BD_Performance — sem aba não há histórico diário, e a tela diz isso em vez de esconder a usina."""
     cli = flask_request.args.get("cliente", "")
     if cli in _g_th_carteiras():                     # carteira do banco (prioridade — pedido do Levi)
-        return jsonify(_g_th_usinas(cli))
-    _, cls = _g_registry()
-    return jsonify(cls.get(cli, []))
+        full, outras = _g_th_usinas_grupos(cli)
+        rotulos = ("Full O&M", "Sem Full O&M no cadastro")
+    else:
+        _, cls = _g_registry()
+        full = list(cls.get(cli, []))
+        ja = {_g_n2(u) for u in full}
+        outras = [{"usina": v.get("usina") or k, "motivo": "sem aba no BD_Performance (sem histórico diário)"}
+                  for k, v in sorted(INFO_GERAL.items(), key=lambda kv: str(kv[1].get("usina") or kv[0]))
+                  if (v.get("cliente") or "").strip() == cli and _g_n2(v.get("usina") or k) not in ja]
+        rotulos = ("Com histórico", "Sem aba no BD_Performance")
+    if flask_request.args.get("grupos") == "1":
+        return jsonify({"full_om": full, "outras": outras, "rotulos": list(rotulos)})
+    return jsonify(full + [o["usina"] for o in outras])
 
 
 @app.route("/api/g/mensal")
@@ -14905,7 +15020,22 @@ def api_g_mensal():
         pts = [{"ano": a, "mes": m,
                 "realizado": (g / 1000.0 / (ip * pot)) if (pot and ip) else None,
                 "meta": _g_th_meta(u, a, m)} for (a, m), (g, ip) in sorted(por.items())]
-        return jsonify({"usina": u, "fonte": "bd_thopen", "pontos": pts})
+        # Gráfico vazio diz o porquê. Desde 28/09/2026 o seletor mostra todas as usinas, e 16 das 116 do Thopen não têm
+        # PR calculável: 15 sem um dia no BD_Thopen (Delmiro Gouvea 1 a 4…) e a Guatambu, com geração desde julho e
+        # IPOA 0,0 em todos os dias. Só se consulta com o gráfico vazio: é uma usina, não as 116.
+        motivo = None
+        if not pts:
+            import dashboard_thopen as _dth
+            dias = _dth._daily_records(u)
+            com_ger = any(r.get("ger") for r in dias)
+            com_ipoa = any((r.get("ipoa") or 0) > 0.3 for r in dias)
+            motivo = ("sem dia no BD_Thopen para esta usina" if not dias
+                      else "IPOA zerado no BD_Thopen (há geração, mas sem irradiação não há PR)" if com_ger and not com_ipoa
+                      else "sem geração no BD_Thopen nos dias com IPOA" if com_ipoa
+                      else "sem geração nem IPOA no BD_Thopen")
+        elif not pot:
+            motivo = "sem a potência (MWp) da usina no cadastro (T_Usinas e Info Geral)"
+        return jsonify({"usina": u, "fonte": "bd_thopen", "pontos": pts, "motivo": motivo})
     _, dia = _g_get(cli)
     disp = (INFO_GERAL.get(_nrm(u), {}) or {}).get("usina", u)
     out = []
@@ -14915,7 +15045,8 @@ def api_g_mensal():
             out.append({"ano": int(ano), "mes": int(mes), "realizado": _g_pr_pond(grp, disp),
                         "meta": (rec or {}).get("pr_previsto")})
         out.sort(key=lambda x: (x["ano"], x["mes"]))
-    return jsonify({"usina": disp, "fonte": "bd_perf", "pontos": out})
+    return jsonify({"usina": disp, "fonte": "bd_perf", "pontos": out,
+                    "motivo": None if out else "sem dia no BD_Performance para esta usina (sem aba diária)"})
 
 
 @app.route("/api/g/diario")
@@ -18001,7 +18132,13 @@ def _pv_curvas_strings(pid, nome_api, token):
                             json={"id": pid}, timeout=45).json()
     except Exception:
         return {}
-    if not recs:
+    return _pv_curvas_strings_de(recs, pid, nome_api, token)
+
+
+def _pv_curvas_strings_de(recs, pid, nome_api, token):
+    """{inv_display: {IpvN: [(hhmm, A)]}} a partir dos registros do inversor — os de hoje (day_inverter) e os de dia
+    passado (custom_query v2, mesmo formato; 28/09/2026). Trancadas ficam de fora."""
+    if not recs or not isinstance(recs, list):
         return {}
     dev_names = _pv_dev_names(pid, token)
     curvas = {}
@@ -18012,7 +18149,7 @@ def _pv_curvas_strings(pid, nome_api, token):
             continue
         hhmm = ts[11:16]
         cj = parse_cj(rec.get("conteudojson"))
-        inv_api  = dev_names.get(inv_id, f"INV-{inv_id}")
+        inv_api  = dev_names.get(inv_id) or _pv_nome_2c(pid, inv_id) or f"INV-{inv_id}"   # 2C: o nome do drill
         inv_disp = EQUIP_NAMES.get(nome_api, {}).get(inv_api, inv_api)
         for k, v in cj.items():
             if k.startswith("Ipv") and isinstance(v, (int, float)) \
@@ -18064,8 +18201,13 @@ def _strings_curva_longo(fonte, usina, data_iso):
         if data_iso == hoje:
             curvas, unidade = _pv_curvas_strings(pid, nome_api, token), "corrente_A"
         else:
+            # dia passado: CORRENTE pela API PV quando ela tem o histórico; senão POTÊNCIA pela PV Plataforma — a mesma
+            # regra da tela (Levi, 28/09/2026), e os mesmos registros que o drill acabou de buscar (sem 2ª consulta)
             data_br = datetime.strptime(data_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
-            curvas, unidade = _pv_curvas_strings_hist(pid, nome_api, data_br, token), "potencia_W"
+            recs, _motivo = _spv_day_records_hist(pid, token, data_br)
+            curvas, unidade = (_pv_curvas_strings_de(recs, pid, nome_api, token), "corrente_A") if recs else ({}, "")
+            if not curvas:
+                curvas, unidade = _pv_curvas_strings_hist(pid, nome_api, data_br, token), "potencia_W"
         for inv in sorted(curvas):
             for st in sorted(curvas[inv], key=_spv_stnum):
                 for hhmm, v in sorted(curvas[inv][st]):   # day_inverter vem fora de ordem → ordena por hora
@@ -19719,13 +19861,62 @@ def _spv_day_records(idusina, token, data: str) -> list:
         recs = _http().post(f"{BASE_URL}/day_inverter", headers=H,
                             json={"id": idusina}, timeout=60).json() or []
         return recs if isinstance(recs, list) else []
+    recs, _motivo = _spv_day_records_hist(idusina, token, data)
+    return recs
+
+
+# HISTÓRICO DE CORRENTE por string pela API PV (Levi, 28/09/2026: "se tiver histórico de corrente, deixa corrente, se
+# não tiver pega potência"). Até aqui a curva de dia passado ia só para a PV Plataforma (potência, token manual de 7
+# dias), porque um teste de 15/06 com o custom_query voltou "Sem dados" — feito na Matão 1, que PARARA de reportar em
+# 12/06: não provava nada. Medido em 28/09 na Assis Chateaubriand Skid 5, dia 26/09: o custom_query v2 com o dia
+# devolve a usina inteira em 5,3 s — 4 inversores × 1.440 leituras (uma por minuto), as Ipv no conteudojson como no
+# day_inverter, e as 6 strings zeradas do Inversor 5.1 iguais às da tela. Os outros dois caminhos da documentação não
+# servem: o v1 com `idinverter` deu 502 em 191 s e o device_period voltou vazio.
+# Custa 1 consulta da cota histórica da CONTA (800/dia, 200/h, dividida com a combiner e o coletor da noite): respeita a
+# mesma reserva da combiner, e o dia inteiro fica guardado (dia passado não muda) para o drill e o CSV não pagarem 2x.
+_spv_hist_recs = {}           # (idusina, "DD/MM/AAAA") → registros do dia inteiro
+_SPV_HIST_RECS_MAX = 3        # ~6 MB cada (usina de 4 inversores); cobre "abri o drill e baixei o CSV"
+
+
+def _spv_day_records_hist(idusina, token, data: str):
+    """(registros, motivo) do DIA PASSADO pela API PV (custom_query v2) — a corrente por string, igual à de hoje.
+    motivo: None · "cota_api" (reserva da cota ou 429) · "http_<n>" · "erro_rede" · "resposta_invalida" ·
+    "sem_dados_api" (respondeu sem registro do dia) · "data_invalida"."""
+    k = (int(idusina), data)
+    if k in _spv_hist_recs:
+        return _spv_hist_recs[k], None
     try:
         d = datetime.strptime(data, "%d/%m/%Y")
-        body = {"id": idusina, "data_type": "inverter", "period": d.strftime("%Y-%m"), "day": d.day}
-        recs = _http().post(f"{BASE_URL}/custom_query", headers=H, json=body, timeout=120).json() or []
-        return recs if isinstance(recs, list) else []
+    except ValueError:
+        return [], "data_invalida"
+    if not _pv_cota_permite():
+        return [], "cota_api"
+    try:
+        r = _http().post(f"{PV_V2_BASE}/custom_query",
+                         headers={"x-access-token": token, "Content-Type": "application/json"},
+                         json={"id": idusina, "data_type": "inverter", "period": d.strftime("%Y%m"), "day": d.day},
+                         timeout=120)
     except Exception:
-        return []
+        return [], "erro_rede"
+    _pv_cota_le(r)
+    if r.status_code == 429:
+        return [], "cota_api"
+    if r.status_code != 200:
+        return [], f"http_{r.status_code}"
+    try:
+        recs = r.json()
+    except ValueError:
+        return [], "resposta_invalida"
+    if not isinstance(recs, list):            # erro da API vem como dict (conta sem permissão, limite do dia)
+        return [], "resposta_invalida"
+    iso = d.strftime("%Y-%m-%d")
+    recs = [x for x in recs if str(x.get("tsleitura_new") or "").startswith(iso)]
+    if not recs:
+        return [], "sem_dados_api"
+    if len(_spv_hist_recs) >= _SPV_HIST_RECS_MAX:
+        _spv_hist_recs.pop(next(iter(_spv_hist_recs)))
+    _spv_hist_recs[k] = recs
+    return recs, None
 
 
 def _spv_analise_inversor(idinv, nome, recs, data, notas, full=False, plant_id=None) -> dict:
@@ -19970,7 +20161,8 @@ def _spv_inversores_hist(idusina, token, plant_nome_api: str) -> list:
         # que `_pv_nomes_por_ordem` usa por dentro, e depender da ordem de quem chama é frágil.
         ids = sorted(_pv_ids_do_dia(idusina, token), key=lambda x: (len(str(x)), str(x)))
         if ids:
-            nomes = _pv_nomes_por_ordem(plant_nome_api, ids)
+            # 2C (conta oem@): o de-para em código vem ANTES da ordem do cadastro — é o que o drill usa (_pv_nome_2c)
+            nomes = {i: n for i in ids if (n := _pv_nome_2c(idusina, i))} or _pv_nomes_por_ordem(plant_nome_api, ids)
             mapa_oem = EQUIP_NAMES.get(plant_nome_api, {})
             out = [(i, mapa_oem.get(nomes.get(i, ""), nomes.get(i) or str(i))) for i in ids]
             _spv_inv_hist_cache[idusina] = out
@@ -20054,10 +20246,10 @@ def _spv_analise_inv_potencia(idinv, nome, data, notas, full=False, plant_id=Non
             "strings": strings, "curva": curva_fmt, "nota": nota, "unidade": "potencia"}
 
 
-_SPV_MOTIVO_MSG = {
-    "token_vencido": "O token da PV Plataforma venceu — é ele que traz a curva de strings dos dias anteriores. "
-                     "Renove na tela Tokens.",
-    "sem_token": "Sem token da PV Plataforma — é ele que traz a curva de strings dos dias anteriores. "
+_SPV_MOTIVO_MSG = {       # a PV Plataforma é a RESERVA em potência: só entra quando a API PV não tem a corrente do dia
+    "token_vencido": "Sem corrente da API PV para esta data, e o token da PV Plataforma (a reserva em potência) "
+                     "venceu. Renove na tela Tokens.",
+    "sem_token": "Sem corrente da API PV para esta data, e sem token da PV Plataforma (a reserva em potência). "
                  "Cole um na tela Tokens.",
     "erro_fonte": "A PV Plataforma não respondeu para esta data. Tente de novo em instantes.",
     "sem_curva_na_fonte": "A PV Plataforma respondeu, mas sem curva de strings ativa nesta data.",
@@ -20153,10 +20345,23 @@ def api_spv_usina(idusina):
     except Exception as e:
         return jsonify({"idusina": idusina, "data": data, "inversores": [],
                         "msg": f"API PV indisponível: {e}"})
-    # DIAS ANTERIORES → potência por string (PV Plataforma · trygenerate). Histórico é imutável:
-    # cacheia p/ sempre quando vier com inversores; vazio (token?) não cacheia → retenta depois.
+    # DIAS ANTERIORES → CORRENTE pela API PV (custom_query v2) quando ela tem o histórico; POTÊNCIA pela PV Plataforma
+    # (trygenerate) no inversor, ou na usina, que não tiver (Levi, 28/09/2026). Histórico é imutável: cacheia p/ sempre
+    # quando vier completo; vazio por falha de busca (token? fonte fora?) não cacheia → retenta depois.
     if data != hoje:
+        recs, motivo_api = _spv_day_records_hist(idusina, token, data)
+        corrente = _spv_payload_corrente(idusina, token, data, recs, full) if recs else None
+        if corrente and corrente.get("inversores"):
+            _spv_completa_com_potencia(corrente, corrente.pop("_sem_corrente", []), idusina, data, full)
+            corrente["historico"] = "api_pv"
+            falhou = [x for x in corrente.get("faltando") or [] if x.get("motivo") != "sem_curva_na_fonte"]
+            if not falhou:
+                _spv_cache[key] = {"ts": agora, "payload": corrente}
+            return jsonify(corrente)
+        if corrente is not None and not motivo_api:
+            motivo_api = "sem_strings_api"          # veio registro do dia, mas nenhum inversor com Ipv (String Box)
         payload = _spv_usina_historico(idusina, token, data, full)
+        payload["motivo_api"] = motivo_api
         # "para sempre" só quando NENHUM inversor faltou por falha de busca: um que veio vazio por token
         # vencido ou fonte fora ficaria vazio no cache mesmo depois de renovar o token (28/09/2026)
         falhou = [x for x in payload.get("faltando") or [] if x.get("motivo") != "sem_curva_na_fonte"]
@@ -20172,9 +20377,17 @@ def api_spv_usina(idusina):
     if not records:
         payload = {"idusina": idusina, "data": data, "inversores": [],
                    "msg": "Sem dados de inversores para esta usina/data (API PV)."}
-        if data != hoje:        # histórico vazio/timeout do custom_query → cacheia (TTL) p/ não re-esperar ~120s
-            _spv_cache[key] = {"ts": agora, "payload": payload}
         return jsonify(payload)
+    payload = _spv_payload_corrente(idusina, token, data, records, full)
+    payload.pop("_sem_corrente", None)
+    _spv_cache[key] = {"ts": agora, "payload": payload}
+    return jsonify(payload)
+
+
+def _spv_payload_corrente(idusina, token, data: str, records: list, full: bool) -> dict:
+    """Payload de CORRENTE por string (Ipv) a partir dos registros do inversor — os de HOJE (day_inverter) e, desde
+    28/09/2026, os de DIA PASSADO (custom_query v2), que vêm no mesmo formato. A chave interna `_sem_corrente` lista
+    os inversores que vieram SEM corrente por string, para o dia passado buscar a potência deles."""
     # Nome da usina (p/ EQUIP_NAMES) + nomes dos dispositivos (idefinversor → nome).
     # get_plants SEMPRE com o token PRINCIPAL: o catálogo é global (inclui as usinas OEM), e o
     # cache de get_plants é único — renová-lo com o token OEM gravaria a lista da OEM (1 usina)
@@ -20212,23 +20425,27 @@ def api_spv_usina(idusina):
     # MESMO fallback do drill (_pv_plant_inversores): casa por ORDEM com o cadastro quando a
     # QUANTIDADE bate exatamente; se divergir, mantém o id cru — sem isto os inversores saíam
     # "INV-378xxx" e o front, que casa a curva pelo NOME vindo do drill, caía no primeiro da lista.
+    if not dev_names:                           # conta oem@ (2C): o de-para em código, o MESMO do drill (_pv_nome_2c)
+        dev_names = {i: n for i in by_inv if (n := _pv_nome_2c(idusina, i))}
     if not dev_names and by_inv:
         _cad = sorted((EQUIP_NAMES.get(plant_nome_api) or {}).keys())
         _ids = sorted(by_inv.keys(), key=lambda x: (len(str(x)), str(x)))
         if _cad and len(_cad) == len(_ids):
             dev_names = dict(zip(_ids, _cad))
     notas = _spv_load_notas()
-    results = {}
+    results, nomes = {}, {}
     with ThreadPoolExecutor(max_workers=6) as ex:
         futs = {}
         for idinv, recs in by_inv.items():
             nome_api = dev_names.get(idinv, f"INV-{idinv}")
             nome = EQUIP_NAMES.get(plant_nome_api, {}).get(nome_api, nome_api)
+            nomes[idinv] = nome
             futs[ex.submit(_spv_analise_inversor, idinv, nome, recs, data, notas, full, idusina)] = idinv
         for f in as_completed(futs):
             try:
                 rr = f.result()
                 if rr:
+                    rr["unidade"] = "corrente"
                     results[rr["id"]] = rr
             except Exception:
                 pass
@@ -20236,12 +20453,32 @@ def api_spv_usina(idusina):
                    key=lambda x: [int(p) for p in re.findall(r"\d+", x["nome"])] or [9999])
     _marca_inv_sub(ordem)   # sinaliza inversores abaixo da mediana dos pares da usina
     med_usina = _spv_med_usina(ordem)   # pct/sub de cada string vs a USINA inteira (cross-inversor)
-    payload = {"idusina": idusina, "data": data, "inversores": ordem,
-               "total_abaixo": sum(i["abaixo"] for i in ordem),
-               "mediana_usina": med_usina, "unidade": "corrente",
-               "cache_ts": datetime.now().strftime("%H:%M:%S")}
-    _spv_cache[key] = {"ts": agora, "payload": payload}
-    return jsonify(payload)
+    return {"idusina": idusina, "data": data, "inversores": ordem,
+            "total_abaixo": sum(i["abaixo"] for i in ordem),
+            "mediana_usina": med_usina, "unidade": "corrente",
+            "cache_ts": datetime.now().strftime("%H:%M:%S"),
+            "_sem_corrente": [(i, nomes[i]) for i in by_inv if i not in results]}
+
+
+def _spv_completa_com_potencia(payload: dict, sem_corrente, idusina, data: str, full: bool) -> None:
+    """Dia passado: inversor que a API PV trouxe SEM corrente por string (String Box, combiner fora) cai na POTÊNCIA da
+    PV Plataforma — a regra do Levi vale por inversor ("se tiver histórico de corrente, deixa corrente, se não tiver
+    pega potência"). Quem nem potência tem vai para `faltando`, com o motivo. A comparação entre inversores (mediana
+    da usina, "abaixo dos pares") fica só nos de corrente: A e W não se comparam."""
+    notas = _spv_load_notas()
+    falt = payload.setdefault("faltando", [])
+    for idinv, nome in sem_corrente:
+        j, motivo = _spv_trygenerate_st(idinv, data)
+        rr = None if motivo else _spv_analise_inv_potencia(idinv, nome, data, notas, full, idusina, j=j)
+        if rr:
+            rr["unidade"] = "potencia"
+            payload["inversores"].append(rr)
+            payload["total_abaixo"] = payload.get("total_abaixo", 0) + rr.get("abaixo", 0)
+        else:
+            falt.append({"id": idinv, "nome": nome, "motivo": motivo or "sem_curva_na_fonte"})
+    payload["inversores"].sort(key=lambda x: [int(p) for p in re.findall(r"\d+", x["nome"])] or [9999])
+    if any(i.get("unidade") == "potencia" for i in payload["inversores"]):
+        payload["unidade"] = "misto"
 
 
 @app.route("/api/spv/nota", methods=["POST"])

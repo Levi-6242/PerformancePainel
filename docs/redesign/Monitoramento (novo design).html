@@ -302,20 +302,38 @@ function _curvaDoInversor(list,porNome,nome,invId,nFaltando){
 function _curvaMotivo(d,list,iv,nome){
   if(iv&&iv.curva&&Object.keys(iv.curva).length) return {};
   const f=((d&&d.faltando)||[]).find(x=>(x.nome||'')===nome);
-  return {motivo:(f&&f.motivo)||(d&&d.motivo)||((list||[]).length&&!iv?'inversor_ausente':null), token_exp:(d&&d.token_exp)||null};
+  return {motivo:(f&&f.motivo)||(d&&d.motivo)||((list||[]).length&&!iv?'inversor_ausente':null), token_exp:(d&&d.token_exp)||null,
+          motivo_api:(d&&d.motivo_api)||((f&&d&&d.historico==='api_pv')?'sem_strings_inv':null)};
+}
+// Unidade da curva: RenoGrid é sempre potência (W); na API PV, dia passado é CORRENTE quando ela tem o histórico e
+// POTÊNCIA (PV Plataforma, reserva) no inversor que não tem (28/09/2026) — e a unidade vem na resposta. Antes a potência
+// da reserva era desenhada com o título e o eixo de corrente (A).
+function _curvaUnidade(sk,unidade){ return (sk==='solaredge'||unidade==='potencia')?'W':'A'; }
+// Por que a API PV não trouxe a CORRENTE do dia passado (payload.motivo_api), em palavras.
+function _curvaMotivoApiTxt(ma){
+  const m=String(ma||'');
+  if(!m) return '';
+  if(m==='cota_api') return 'a cota diária de consultas históricas da API PV acabou';
+  if(m==='sem_dados_api') return 'a API PV não tem a corrente desse dia';
+  if(m==='sem_strings_api') return 'a API PV não tem corrente por string desta usina';
+  if(m==='sem_strings_inv') return 'a API PV não tem corrente por string deste inversor';
+  if(m.indexOf('http_')===0) return 'a API PV não respondeu (HTTP '+_he(m.slice(5))+')';
+  return 'a API PV não respondeu';
 }
 // A frase de cada motivo. Antes, token da PV Plataforma vencido virava "a fonte não guardou curva de strings nessa
 // data" — e a Assis Chateaubriand Skid 5 TINHA a curva de 26/09 na PV Plataforma (Levi, 28/09/2026: "alarme falso
 // não pode passar batido!"). Só "sem_curva_na_fonte" pode dizer que a fonte não tem: foi ela que respondeu vazio.
-function _curvaMotivoTxt(motivo,dBr,tokenExp,alvo){
+// Desde o mesmo dia a curva de dia passado vem em CORRENTE pela API PV; a PV Plataforma é a reserva em potência.
+function _curvaMotivoTxt(motivo,dBr,tokenExp,alvo,motivoApi){
   const m=String(motivo||''), de=alvo==='usina'?'desta usina':'deste inversor';
+  const api=_curvaMotivoApiTxt(motivoApi), antes=api?api.charAt(0).toUpperCase()+api.slice(1)+', e ':'';
   if(m==='token_vencido'||m==='sem_token')
-    return `Não consegui buscar a curva de <b>${dBr}</b>: ${m==='sem_token'?'não há token da PV Plataforma':'o token da PV Plataforma <b>venceu'+(tokenExp?' em '+_he(tokenExp):'')+'</b>'} — é ele que traz a curva de strings dos dias anteriores. A falta é do acesso, não da fonte: renove na tela <a href="/tokens" style="color:inherit;text-decoration:underline">Tokens</a> e abra de novo.`;
+    return `Não consegui buscar a curva de <b>${dBr}</b>. ${antes}${api?'a reserva em potência, a PV Plataforma, ':'a PV Plataforma '}${m==='sem_token'?'está sem token':'está com o token <b>vencido'+(tokenExp?' desde '+_he(tokenExp):'')+'</b>'}. A falta é do acesso, não da fonte: renove na tela <a href="/tokens" style="color:inherit;text-decoration:underline">Tokens</a> e abra de novo.`;
   if(m==='erro_fonte'||m==='erro_rede'||m==='resposta_invalida'||m.indexOf('http_')===0)
-    return `Não consegui buscar a curva de <b>${dBr}</b> — a PV Plataforma não respondeu${m.indexOf('http_')===0?' (HTTP '+_he(m.slice(5))+')':''}. Tente de novo em instantes.`;
+    return `Não consegui buscar a curva de <b>${dBr}</b>. ${antes}a PV Plataforma não respondeu${m.indexOf('http_')===0?' (HTTP '+_he(m.slice(5))+')':''}. Tente de novo em instantes.`;
   if(m==='sem_inversores') return `Não consegui listar os inversores desta usina na API PV para <b>${dBr}</b>. Tente de novo em instantes.`;
   if(m==='inversor_ausente') return `A resposta de <b>${dBr}</b> veio sem este inversor — não dá para dizer que ele não tem curva. Tente de novo.`;
-  if(m==='sem_curva_na_fonte') return `A PV Plataforma respondeu, mas sem curva de strings ativa ${de} em <b>${dBr}</b> (sem geração ou sem visão de strings nesse dia).`;
+  if(m==='sem_curva_na_fonte') return `${antes}a PV Plataforma respondeu, mas sem curva de strings ativa ${de} em <b>${dBr}</b> (sem geração ou sem visão de strings nesse dia).`.replace(/^a /,'A ');
   return null;
 }
 function _curvaMotivoCor(motivo){ return (motivo==='token_vencido'||motivo==='sem_token')?'#f59e0b':'var(--color-neutral-300)'; }   // token = âmbar (dá para agir); resto = neutro
@@ -344,7 +362,7 @@ async function loadCurva(pid,invId,nome,refazer){   // curva corrente-por-string
       iv=_curvaDoInversor(list,_ehApiPv(sk,pid),nome,invId,((d&&d.faltando)||[]).length);
     }
     RD.curva[key]=(iv&&iv.curva)||{};
-    RD.curvaMeta[key]=Object.assign(_abaixoMeta(iv),_curvaMotivo(d,list,iv,nome));   // "abaixo" + mediana, e POR QUE veio vazia
+    RD.curvaMeta[key]=Object.assign(_abaixoMeta(iv),_curvaMotivo(d,list,iv,nome),{unidade:(iv&&iv.unidade)||(d&&d.unidade)||null});   // "abaixo" + mediana, POR QUE veio vazia, e a unidade (A|W)
   }catch(e){ if(!refazer){ RD.curva[key]={}; RD.curvaMeta[key]={abaixo:new Set(),erro:1}; } }   // erro MARCADO: "nao consegui buscar" != "nao houve dado"; refazendo, fica a que já estava
   render();
 }
@@ -419,7 +437,7 @@ function curvaSVG(curva, smap, red, unit){   // unit: 'A' (padrão) ou 'W' (Reno
 }
 function _curvaBlock(inv){
   const key=_ckey(inv.pid,inv.invId), craw=RD.curva[key];
-  const _W=SKEY[state.source]==='solaredge', _grand=_W?'potência':'corrente';   // RenoGrid: potência (W) por string
+  const _W=_curvaUnidade(SKEY[state.source],(RD.curvaMeta[key]||{}).unidade)==='W', _grand=_W?'potência':'corrente';   // RenoGrid, e a reserva em potência da API PV (28/09/2026)
   const box=body=>`<div style="padding:18px;border-radius:var(--radius-md);background:color-mix(in srgb, var(--color-neutral-900) 60%, transparent);margin-bottom:18px">${body}</div>`;
   if(craw===undefined||craw===null) return box(`<span class="text-muted"><i class="ph ph-circle-notch gc-spin"></i> Carregando curva…</span>`);
   const _tr=new Set((inv.strings||[]).filter(s=>s.trancada).map(s=>_snum(s.name)));   // strings TRANCADAS (cadeado) NÃO entram no gráfico
@@ -435,7 +453,7 @@ function _curvaBlock(inv){
     if(_m0.erro) return box(`<span class="text-muted">Não consegui buscar a curva de <b>${_brdate(_dSel)}</b> — a fonte não respondeu. Tente de novo em instantes.</span>`);
     // O MOTIVO que o backend mandou (28/09/2026). Falha de BUSCA (token vencido, fonte fora) vale sempre, antes de
     // qualquer outra explicação; "a fonte respondeu vazio" só depois das explicações da String Box e do hoje.
-    const _mBusca=(_m0.motivo&&_m0.motivo!=='sem_curva_na_fonte')?_curvaMotivoTxt(_m0.motivo,_brdate(_dSel),_m0.token_exp,'inversor'):null;
+    const _mBusca=(_m0.motivo&&_m0.motivo!=='sem_curva_na_fonte')?_curvaMotivoTxt(_m0.motivo,_brdate(_dSel),_m0.token_exp,'inversor',_m0.motivo_api):null;
     if(_mBusca) return box(`<span style="color:${_curvaMotivoCor(_m0.motivo)}">${_mBusca}</span>`);
     // curva veio, mas TODA de strings trancadas (cadeado): dizer "a fonte não guardou" seria falso de novo
     if(craw&&Object.keys(craw).length) return box(`<span class="text-muted">A curva de <b>${_brdate(_dSel)}</b> veio, mas todas as strings dela estão <b>trancadas</b> (cadeado) — destranque para ver.</span>`);
@@ -448,7 +466,7 @@ function _curvaBlock(inv){
     const _rowU=((RD.pv&&RD.pv.rows)||[]).find(x=>String(x.plant_id)===String(inv.pid));
     if(_rowU&&_rowU.stringbox) return box(`<span class="text-muted">Esta usina lê as strings pela <b>String Box</b>, que entrega só o valor <b>instantâneo</b> — por isso não há curva do dia. Os valores nos chips acima são reais e atuais (última leitura: <b>${_he(inv.lastRead||'—')}</b>); o histórico do inversor não guarda corrente por string aqui.</span>`);
     if(_ehHoje) return box(`<span class="text-muted">Ainda sem ${_grand} por string <b>hoje</b> — a usina pode não ter reportado. Última leitura: <b>${_he(inv.lastRead||'—')}</b>.</span>`);
-    if(_m0.motivo==='sem_curva_na_fonte') return box(`<span class="text-muted">${_curvaMotivoTxt('sem_curva_na_fonte',_brdate(_dSel),null,'inversor')}</span>`);
+    if(_m0.motivo==='sem_curva_na_fonte') return box(`<span class="text-muted">${_curvaMotivoTxt('sem_curva_na_fonte',_brdate(_dSel),null,'inversor',_m0.motivo_api)}</span>`);
     return box(`<span class="text-muted">Sem ${_grand} por string em <b>${_brdate(_dSel)}</b> — a fonte não guardou curva de strings nessa data.</span>`);
   }
   const meta=RD.curvaMeta[key]||{}, abaixo=meta.abaixo||new Set();
@@ -2852,18 +2870,18 @@ function renderCurva(v){
   if(list===undefined||list===null) return header+_subLoad('Carregando curvas…'+((f==='sunop'||f==='axis')?' (Athon pode levar ~1 min)':''));
   if(!list.length){
     if(list.erro) return header+_subMsg('Não consegui buscar a curva de '+_brData(dia)+' — a fonte não respondeu. Tente de novo em instantes.');
-    const _mt=_curvaMotivoTxt(list.motivo,_brData(dia),list.token_exp,'usina');       // o motivo da API PV (28/09/2026)
+    const _mt=_curvaMotivoTxt(list.motivo,_brData(dia),list.token_exp,'usina',list.motivo_api);   // o motivo da API PV (28/09/2026)
     if(_mt) return header+_subMsg(`<span style="color:${_curvaMotivoCor(list.motivo)}">${_mt}</span>`);
     return header+_subMsg('Sem curva de strings para esta usina em '+_brData(dia)+'.');
   }
   const body=list.map(iv=>{ const smap={}; Object.keys(iv.curva).forEach(nm=>{ if(iv.meta&&iv.meta.abaixo&&iv.meta.abaixo.has(_snum(nm))) smap[nm]='abaixo'; });
     const ab=(iv.meta&&iv.meta.abaixo)?iv.meta.abaixo.size:(iv.abaixo||0);
     const abTxt=ab?`<span style="color:#f59e0b;font-weight:600">${ab} abaixo</span>`:'<span style="color:var(--color-accent-200)">todas OK</span>';
-    return `<div class="card" style="padding:16px 20px;margin-bottom:14px"><div style="display:flex;align-items:baseline;gap:10px;margin-bottom:2px"><span style="font-weight:600;font-size:14px">${_he(iv.nome)}</span><span class="text-muted" style="font-size:12px">${Object.keys(iv.curva).length} strings · ${abTxt}${iv.mediana!=null?` · med ${iv.mediana} (índice)`:''}</span></div>${curvaSVG(iv.curva,smap,state.curvaRed,f==='solaredge'?'W':'A')}</div>`;
+    return `<div class="card" style="padding:16px 20px;margin-bottom:14px"><div style="display:flex;align-items:baseline;gap:10px;margin-bottom:2px"><span style="font-weight:600;font-size:14px">${_he(iv.nome)}</span><span class="text-muted" style="font-size:12px">${Object.keys(iv.curva).length} strings · ${abTxt}${iv.mediana!=null?` · med ${iv.mediana} (índice)`:''}</span></div>${curvaSVG(iv.curva,smap,state.curvaRed,_curvaUnidade(f,iv.unidade))}</div>`;
   }).join('');
   // inversor que NÃO veio por falha de busca não some calado: a lista acima estaria "completa" sem estar (28/09/2026)
   const _falt=list.faltando||[];
-  const _aviso=_falt.length?`<div class="card" style="padding:12px 16px;margin-bottom:12px;font-size:12.5px;color:${_curvaMotivoCor(_falt[0].motivo)}">${_falt.length} inversor${_falt.length===1?'':'es'} não vie${_falt.length===1?'o':'ram'} de ${_brData(dia)}: ${_falt.map(x=>_he(x.nome||x.id)).join(', ')} — ${_curvaMotivoTxt(_falt[0].motivo,_brData(dia),list.token_exp,'inversor')||'a busca falhou; tente de novo.'}</div>`:'';
+  const _aviso=_falt.length?`<div class="card" style="padding:12px 16px;margin-bottom:12px;font-size:12.5px;color:${_curvaMotivoCor(_falt[0].motivo)}">${_falt.length} inversor${_falt.length===1?'':'es'} não vie${_falt.length===1?'o':'ram'} de ${_brData(dia)}: ${_falt.map(x=>_he(x.nome||x.id)).join(', ')} — ${_curvaMotivoTxt(_falt[0].motivo,_brData(dia),list.token_exp,'inversor',list.motivo_api||'sem_strings_inv')||'a busca falhou; tente de novo.'}</div>`:'';
   return header+`<div class="text-muted" style="font-size:12.5px;margin-bottom:10px">${list.length} inversores · ${_he((rows.find(r=>String(r.plant_id)===state.curvaPid)||{}).usina||'')}</div>`+_aviso+body;
 }
 
@@ -2909,9 +2927,9 @@ async function loadCurvaView(pid,force){ const f=_fonte(), dia=state.curvaData||
     if(f==='owen') list=list.map(raw=>{ const curva={}; (raw.strings||[]).forEach(s=>{curva[String(s.id)]={x:raw.labels||[],y:s.y||[]};});
       const strings=(raw.strings||[]).map(s=>({nome:String(s.id),sub:false,ativa:(s.y||[]).some(v=>v!=null&&v>0.5)}));
       return {nome:'Inversor '+raw.inv, curva, meta:_abaixoMeta({curva,strings}), abaixo:null, strings}; });
-    else list=list.map(iv=>({nome:iv.nome||('Inversor '+iv.id), curva:iv.curva||{}, meta:_abaixoMeta(iv), abaixo:iv.abaixo, mediana:iv.mediana, strings:iv.strings||[]}));
+    else list=list.map(iv=>({nome:iv.nome||('Inversor '+iv.id), curva:iv.curva||{}, meta:_abaixoMeta(iv), abaixo:iv.abaixo, mediana:iv.mediana, strings:iv.strings||[], unidade:iv.unidade||d.unidade||null}));
     const _l=list.filter(iv=>iv.curva&&Object.keys(iv.curva).length);
-    _l.motivo=d.motivo||null; _l.token_exp=d.token_exp||null;                            // POR QUE veio vazia (API PV, 28/09/2026)
+    _l.motivo=d.motivo||null; _l.token_exp=d.token_exp||null; _l.motivo_api=d.motivo_api||null;   // POR QUE veio vazia (API PV, 28/09/2026)
     _l.faltando=(d.faltando||[]).filter(x=>x.motivo!=='sem_curva_na_fonte');            // os que faltaram por FALHA de busca
     RD.curvaView[key]=_l;
   }catch(e){ const _v=[]; _v.erro=1; RD.curvaView[key]=_v; }   // erro MARCADO (nao acusar a fonte por falha nossa)
