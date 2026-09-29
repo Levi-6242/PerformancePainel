@@ -78,6 +78,12 @@ FONTE_VARRE_TUDO = {"sunop", "axis", "owen"}
 # ~95% eram string gerando. A gravada NO dia (corrente de hoje) segue valendo onde a usina-dia não tem a régua sobre a
 # curva — e o backfill da curva da API PV (app._falhas_backfill_pv) dá a curva a quem ficou sem.
 FONTE_POTENCIA_DEPOIS_DO_DIA = {"pv"}
+# O dia que o backfill da API PV registrou não prova nem desmente entrada vazia (29/09/2026, 14h): a curva de dia
+# passado pelo custom_query nem traz a entrada fantasma (Sorocaba Ipv29-32 num inversor de 28 entradas), e o dia
+# passava por "dia de curva em que ela gerou" — no servidor, as entradas vazias caíram de 656 para 377 em uma hora e
+# 279 fantasmas viraram falha com dias estimados (+70 MWh). Fica fora dos dias E das vivas da prova: só os dias, e uma
+# string real que gerava nos dias do backfill e morreu no dia ao vivo levaria as vivas cheias de lá e passaria por vazia.
+FONTE_BACKFILL_FORA_DA_VAZIA = {"pv"}
 
 
 def _fim_do_dia(dia):
@@ -529,9 +535,11 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
     for dia_h, fontes_h in mortas_curva.items():
         for fonte_h, usinas_h in fontes_h.items():
             for pid_h, ent_h in usinas_h.items():
-                le_curva(fonte_h, pid_h, ent_h.get("usina") or pid_h, ent_h)
                 if ent_h.get("vivas"):
                     dias_vivas.add(dia_h)
+                if fonte_h in FONTE_BACKFILL_FORA_DA_VAZIA and ent_h.get("origem") == "backfill":
+                    continue                     # ver FONTE_BACKFILL_FORA_DA_VAZIA
+                le_curva(fonte_h, pid_h, ent_h.get("usina") or pid_h, ent_h)
     for dia_h, lst in dias_2c.items():
         for u, usina, res in lst:
             le_curva("owen", u, usina, res)       # o 2C sempre tem as vivas (a curva vem do disco): não conta nos dias

@@ -801,3 +801,27 @@ def test_queda_gravada_depois_do_dia_de_outra_fonte_continua():
     st = {"2026-09-01": {"sunop": {"TIM100": {"usina": "TIM100", "ts": _ts_br("2026-09-02", "00:18"),
                                               "eventos": [ev("ST 01", "08:00", "12:00", inv="Inversor 3.5")]}}}}
     assert len(monta(st)["strings"]["episodios"]) == 1
+
+
+# ── o dia do backfill da API PV não entra na prova de entrada vazia (29/09/2026, 14h) ─────────────────────────────
+# A curva de dia passado pelo custom_query nem traz a entrada fantasma: no servidor, 279 entradas vazias viraram falha
+# em uma hora (Sorocaba, Canarana 2, Nova Londrina 1 — Ipv29 a Ipv32).
+def _backfill(d, mortas, vivas):
+    c = curva(d, mortas, vivas=vivas)
+    c[f"2026-09-{d}"]["pv"][PID]["origem"] = "backfill"
+    return c
+
+
+def test_dia_do_backfill_da_api_pv_nao_desfaz_a_entrada_vazia():
+    mortas = {**curva("02", [morta("Ipv29")], vivas=24), **_backfill("03", [], 24)}
+    p = monta(store(d01=[ev("Ipv29", "07:00")]), mortas=mortas)
+    assert [v["string"] for v in p["strings"]["entradas_vazias"]] == ["Ipv29"]
+
+
+def test_string_real_que_morre_depois_do_backfill_continua_falha():
+    # gerava nos dias do backfill (24 vivas) e morreu no dia ao vivo (23 vivas): fora da prova vão os dias E as vivas
+    # do backfill — levando só os dias, as 24 vivas de lá a fariam passar por entrada vazia
+    mortas = {**_backfill("02", [], 24), **curva("03", [morta("Ipv5")], vivas=23)}
+    p = monta(store(), mortas=mortas, fim="2026-09-03")
+    assert p["strings"]["entradas_vazias"] == []
+    assert {e["string"] for e in p["strings"]["episodios"]} == {"Ipv5"}
