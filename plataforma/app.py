@@ -3586,8 +3586,31 @@ def _entrada_trk_fonte(fonte: str):
     def _fn():
         if SUNOP_COLETA != "completa":
             raise RuntimeError(f"coleta da SunOp em modo {SUNOP_COLETA} neste processo")
-        return _sunop_parados_rows(inst)
+        rows = _entrada_trk_do_resumo(inst)
+        return rows if rows is not None else _sunop_parados_rows(inst)
     return _fn
+
+
+ENTRADA_TRK_RESUMO_MAX_S = 1800
+
+
+def _entrada_trk_do_resumo(inst: str):
+    """Os parados da Athon/Axis a partir do RESUMO de trackers que o worker já publicou (`_sunop_trk_cache`): uma
+    linha por tracker parado, com ticket nos `parados_com` primeiros — a Entrada só conta. O processo web montava as
+    curvas de tracker de novo a cada 30 min (o cache de curva dele nasce vazio) só para contar o que o worker já
+    contou. Conferido no servidor em 29/09/2026: parados iguais nas 9 usinas (97); "com ticket" difere em 1 (MAB200,
+    10 × 9), e o resumo é o que a coluna Tickets da aba Trackers mostra. None se o resumo não existe ou passou de 30 min
+    — aí busca como antes."""
+    c = _si(inst)["trk_cache"]
+    pl = c.get("payload") or {}
+    if not pl.get("rows") or (time.time() - float(c.get("ts") or 0)) > ENTRADA_TRK_RESUMO_MAX_S:
+        return None
+    out = []
+    for r in pl["rows"]:
+        n, com = int(r.get("parados") or 0), int(r.get("parados_com") or 0)
+        out.extend({"usina": r.get("usina"), "plant_id": r.get("plant_id"),
+                    "ticket_status": "ticket" if i < com else ""} for i in range(n))
+    return out
 
 
 def _entrada_tempo_real_build() -> dict:
@@ -5288,12 +5311,28 @@ def _sunop_uso_hoje() -> dict:
     return dict(_SUNOP_USO.get(datetime.now().date().isoformat(), {}))
 
 
-def _sunop_uso_chave(url: str) -> str:
+def _sunop_uso_tipo(pathnames) -> str:
+    """De quem é o pedido, pelos pathnames: `trk` (curva de tracker), `str` (corrente de string), `etm` (estação).
+    É o que diz qual corte vale a pena — o endpoint sozinho não separa a curva de tracker da de string."""
+    amostra = " ".join(str(p) for p in (pathnames or [])[:5])
+    if not amostra:
+        return ""
+    if ".TRK_" in amostra or "POSAT" in amostra or "POSAL" in amostra:
+        return "trk"
+    if "I_PV" in amostra:
+        return "str"
+    if "IRAD" in amostra or "ESTM" in amostra or "METEOST" in amostra or "AIML" in amostra:
+        return "etm"
+    return "outro"
+
+
+def _sunop_uso_chave(url: str, pathnames=None) -> str:
     """Endpoint com o serviço e a conta: `last_values` (dados, gridco = a NOSSA cota), `cfg:check_token` (configuração,
-    gridco) e `axis:...` (a Axis é outra conta da SunOp)."""
+    gridco) e `axis:...` (a Axis é outra conta da SunOp); com os pathnames, o tipo (`analog_values:trk`)."""
     host, _, caminho = str(url).partition("://")[2].partition("/")
+    tipo = _sunop_uso_tipo(pathnames)
     return (("axis:" if host.startswith("axis") else "") + ("cfg:" if caminho.startswith("api/") else "")
-            + _sunop_uso_endpoint(url))
+            + _sunop_uso_endpoint(url) + (f":{tipo}" if tipo else ""))
 
 
 def _sunop_uso_herda() -> None:
@@ -5314,13 +5353,13 @@ def _sunop_uso_herda() -> None:
                 pass
 
 
-def _sunop_uso_conta(url: str) -> None:
+def _sunop_uso_conta(url: str, pathnames=None) -> None:
     """Incrementa e, de tempos em tempos, grava. NUNCA levanta — ver `_log_arquivo`."""
     global _sunop_uso_n
     dia = datetime.now().date().isoformat()
     with _sunop_uso_lock:
         _SUNOP_USO.setdefault(dia, {})
-        ep = _sunop_uso_chave(url)
+        ep = _sunop_uso_chave(url, pathnames)
         _SUNOP_USO[dia][ep] = _SUNOP_USO[dia].get(ep, 0) + 1
         _sunop_uso_n += 1
         despeja = _sunop_uso_n >= _SUNOP_USO_FLUSH
@@ -5385,7 +5424,7 @@ def _sunop_req(metodo: str, url: str, inst: str = "gridco", **kw):
         return None                             # não tocou a rede: não conta na cota
     kw.setdefault("headers", _sunop_data_headers(inst))
     try:
-        _sunop_uso_conta(url)
+        _sunop_uso_conta(url, (kw.get("json") or {}).get("pathnames") if isinstance(kw.get("json"), dict) else None)
     except Exception:                           # noqa: BLE001 — o contador é acessório
         pass
     try:
@@ -6607,47 +6646,39 @@ def _trk_accum_parados(pid):
 
 
 
-def _sunop_trk_curvas(plant_name: str, date: str, inst: str = "gridco") -> dict:
-    """Busca (e cacheia) as curvas do dia POSAT/POSAL de todos os trackers da planta."""
-    cache = _si(inst)["trk_hist"]
-    key = (plant_name, date)
-    ent = cache.get(key)
-    if ent and time.time() - ent["ts"] < _sunop_trk_ttl():
-        return ent
+def _sunop_trk_paths(plant_name: str, inst: str = "gridco") -> tuple:
+    """({tracker: pathname POSAT}, {tracker: pathname POSAL}) da planta."""
     trk = (_si(inst)["meta"].get(plant_name, {}) or {}).get("trackers") or {}
-    posat = {n: d["atual"] for n, d in trk.items() if d.get("atual")}
-    posal = {n: d["alvo"]  for n, d in trk.items() if d.get("alvo")}
+    return ({n: d["atual"] for n, d in trk.items() if d.get("atual")},
+            {n: d["alvo"] for n, d in trk.items() if d.get("alvo")})
 
-    # BUSCA INCREMENTAL (26/08). Re-baixar 00:00→23:59 a cada volta significa, às 17h, re-transferir
-    # 11h de curva já conhecida para ~1000 trackers × 2 séries. NÃO muda a CONTAGEM de requisições
-    # (o lote é de PATHNAMES: 1h ou 24h dão o mesmo nº de POSTs) — o que cai é payload, latência e
-    # o parse de JSON, que é CPU sob o GIL e é justamente o que alonga o ciclo do prewarm.
-    #
-    # Três regras que a tornam segura:
-    #  1. Só para HOJE. Dia fechado não cresce mais; incremental ali seria risco sem ganho.
-    #  2. SOBREPOSIÇÃO de TRK_CURVA_SOBREPOSICAO_MIN antes do último ponto conhecido, porque a
-    #     ingestão da SunOp atrasa e um corte exato no último ts perderia o que chegou depois.
-    #  3. Uma busca CHEIA por hora (`cheio_h`): a sobreposição pega ingestão atrasada, mas não pega
-    #     correção que a SunOp faça lá atrás no dia. A volta cheia reconcilia.
+
+def _sunop_trk_janela(plant_name: str, date: str, inst: str = "gridco") -> tuple:
+    """→ (cheio, ini_ts, hora) da curva de tracker de UMA usina — as regras da busca incremental de _sunop_trk_curvas.
+    Separada porque dois caminhos precisam dela, a busca de uma usina e a de todas juntas (_sunop_trk_curvas_varias),
+    como a _sunop_str_janela das strings: duas cópias da regra divergiriam na primeira manutenção."""
+    ent = _si(inst)["trk_hist"].get((plant_name, date))
     agora = datetime.now()
-    ini_ts = f"{date}T00:00:00"
     cheio = not (ent and date == agora.strftime("%Y-%m-%d") and ent.get("cheio_h") == agora.hour)
     if not cheio:
         ultimo = max((s[-1][0] for s in ent["posat"].values() if s), default=None)
-        if ultimo:
-            try:
-                ini_ts = (datetime.fromisoformat(ultimo)
-                          - timedelta(minutes=TRK_CURVA_SOBREPOSICAO_MIN)).strftime("%Y-%m-%dT%H:%M:%S")
-            except Exception:
-                cheio = True          # timestamp ilegível → não arrisca, busca o dia inteiro
-        else:
-            cheio = True              # cache sem ponto nenhum: não há de onde continuar
-    if cheio:
-        ini_ts = f"{date}T00:00:00"
+        if not ultimo:
+            return True, f"{date}T00:00:00", agora.hour      # cache sem ponto nenhum: não há de onde continuar
+        try:
+            return False, (datetime.fromisoformat(ultimo)
+                           - timedelta(minutes=TRK_CURVA_SOBREPOSICAO_MIN)).strftime("%Y-%m-%dT%H:%M:%S"), agora.hour
+        except Exception:
+            return True, f"{date}T00:00:00", agora.hour      # timestamp ilegível → não arrisca, busca o dia inteiro
+    return True, f"{date}T00:00:00", agora.hour
 
-    hist = _sunop_analog_history(list(posat.values()) + list(posal.values()),
-                                 ini_ts, f"{date}T23:59:59", inst,
-                                 period=TRK_CURVA_PERIODO)
+
+def _sunop_trk_funde(plant_name: str, date: str, hist: dict, cheio: bool, hora: int, inst: str = "gridco") -> dict:
+    """Funde o que veio (`hist`, {pathname: série}) no cache da planta e grava — a regra de sempre, só separada:
+    união por timestamp com o valor NOVO vencendo, e a guarda anti-encolhimento."""
+    cache = _si(inst)["trk_hist"]
+    key = (plant_name, date)
+    ent = cache.get(key)
+    posat, posal = _sunop_trk_paths(plant_name, inst)
 
     def _series(mapa, chave):
         """Séries do resultado para `chave` ("posat"/"posal"). No incremental FUNDE com o que já
@@ -6664,7 +6695,7 @@ def _sunop_trk_curvas(plant_name: str, date: str, inst: str = "gridco") -> dict:
         return out
 
     novo = {"ts": time.time(),
-            "cheio_h": agora.hour if cheio else ent.get("cheio_h"),
+            "cheio_h": hora if cheio else ent.get("cheio_h"),
             "posat": _series(posat, "posat"),
             "posal": _series(posal, "posal")}
     # GUARDA anti-encolhimento: a curva do MESMO dia só CRESCE (pontos acumulam). Resposta com
@@ -6678,6 +6709,72 @@ def _sunop_trk_curvas(plant_name: str, date: str, inst: str = "gridco") -> dict:
             return ent
     cache[key] = novo
     return novo
+
+
+def _sunop_trk_curvas_varias(plantas: list, date: str, inst: str = "gridco") -> None:
+    """Pré-carrega, NUMA baixa, a curva de tracker das usinas cujo cache venceu (29/09/2026, cota da SunOp). Até aqui
+    cada usina ia sozinha: 9 usinas, 9 chamadas ao histórico, cada uma desperdiçando a borda do próprio lote de
+    SUNOP_LOTE_PATHNAMES (a CPP100 tem 126 pathnames num lote de 600). Juntas, as 2.010 cabem em 4 POSTs. Mesmo método
+    das strings (_sunop_str_hist_varias, 02/09): a busca CHEIA vai junto em 00:00, e as incrementais dividem a MENOR das
+    janelas — pedir alguns minutos a mais para uma usina é barato, todas leem a mesma ingestão. Quem chama depois
+    (_sunop_trk_curvas, por usina) acha o cache fresco. É otimização: se falhar, cada usina busca a sua, como antes."""
+    try:
+        _sunop_trk_curvas_varias_(plantas, date, inst)
+    except Exception as e:                               # noqa: BLE001 — pré-carga não derruba quem ia buscar sozinho
+        print(f"[SUNOP:{inst}] pré-carga das curvas de tracker falhou ({type(e).__name__}: {e}) — segue usina a usina")
+
+
+def _sunop_trk_curvas_varias_(plantas: list, date: str, inst: str = "gridco") -> None:
+    cache = _si(inst)["trk_hist"]
+    plano = {}                                             # usina -> (pathnames, cheio, ini, hora)
+    for p in plantas:
+        ent = cache.get((p, date))
+        if ent and time.time() - ent["ts"] < _sunop_trk_ttl():
+            continue
+        posat, posal = _sunop_trk_paths(p, inst)
+        paths = list(posat.values()) + list(posal.values())
+        if paths:
+            plano[p] = (paths, *_sunop_trk_janela(p, date, inst))
+    if not plano:
+        return
+    ini_incr = min((ini for _ps, cheio, ini, _h in plano.values() if not cheio), default=None)
+    grupos = {}
+    for p, (_ps, cheio, _ini, _h) in plano.items():
+        grupos.setdefault(f"{date}T00:00:00" if cheio else ini_incr, []).append(p)
+    for ini, ps in grupos.items():
+        bruto = _sunop_analog_history([x for p in ps for x in plano[p][0]], ini, f"{date}T23:59:59", inst,
+                                      period=TRK_CURVA_PERIODO)
+        for p in ps:
+            paths, cheio, _ini, hora = plano[p]
+            _sunop_trk_funde(p, date, {x: bruto[x] for x in paths if x in bruto}, cheio, hora, inst)
+
+
+def _sunop_trk_curvas(plant_name: str, date: str, inst: str = "gridco") -> dict:
+    """Busca (e cacheia) as curvas do dia POSAT/POSAL de todos os trackers da planta."""
+    cache = _si(inst)["trk_hist"]
+    key = (plant_name, date)
+    ent = cache.get(key)
+    if ent and time.time() - ent["ts"] < _sunop_trk_ttl():
+        return ent
+    posat, posal = _sunop_trk_paths(plant_name, inst)
+
+    # BUSCA INCREMENTAL (26/08). Re-baixar 00:00→23:59 a cada volta significa, às 17h, re-transferir
+    # 11h de curva já conhecida para ~1000 trackers × 2 séries. NÃO muda a CONTAGEM de requisições
+    # (o lote é de PATHNAMES: 1h ou 24h dão o mesmo nº de POSTs) — o que cai é payload, latência e
+    # o parse de JSON, que é CPU sob o GIL e é justamente o que alonga o ciclo do prewarm.
+    #
+    # Três regras que a tornam segura:
+    #  1. Só para HOJE. Dia fechado não cresce mais; incremental ali seria risco sem ganho.
+    #  2. SOBREPOSIÇÃO de TRK_CURVA_SOBREPOSICAO_MIN antes do último ponto conhecido, porque a
+    #     ingestão da SunOp atrasa e um corte exato no último ts perderia o que chegou depois.
+    #  3. Uma busca CHEIA por hora (`cheio_h`): a sobreposição pega ingestão atrasada, mas não pega
+    #     correção que a SunOp faça lá atrás no dia. A volta cheia reconcilia.
+    # (as regras moram em _sunop_trk_janela e _sunop_trk_funde, que a baixa conjunta também usa)
+    cheio, ini_ts, hora = _sunop_trk_janela(plant_name, date, inst)
+    hist = _sunop_analog_history(list(posat.values()) + list(posal.values()),
+                                 ini_ts, f"{date}T23:59:59", inst,
+                                 period=TRK_CURVA_PERIODO)
+    return _sunop_trk_funde(plant_name, date, hist, cheio, hora, inst)
 
 
 TRK_CURVA_SOBREPOSICAO_MIN = 30   # min re-buscados antes do último ponto (ingestão da SunOp atrasa)
@@ -6937,6 +7034,7 @@ def _trk_severidade(r) -> int:
 def _build_sunop_trk_payload(inst: str = "gridco"):
     ensure_sunop_meta(inst)
     plantas = [p for p, m in _si(inst)["meta"].items() if m.get("trackers")]
+    _sunop_trk_curvas_varias(plantas, datetime.now().strftime("%Y-%m-%d"), inst)   # as vencidas numa baixa só
     rows = []
     with ThreadPoolExecutor(max_workers=2) as ex:
         # MESMO motor de curva das sub-abas Parados/Ocorrências (régua absoluta amp<15°+≥4h),
@@ -7700,6 +7798,7 @@ def _sunop_parados_rows(inst, force=False):
     if force:
         _si(inst)["trk_hist"].clear()          # busta as curvas do dia → recomputa o status do zero
     plantas = [p for p, m in _si(inst)["meta"].items() if m.get("trackers")]
+    _sunop_trk_curvas_varias(plantas, datetime.now().strftime("%Y-%m-%d"), inst)   # as vencidas numa baixa só
     rows = []
     with ThreadPoolExecutor(max_workers=6) as ex:
         futs = {ex.submit(_sunop_trackers_plant_curva, p, inst): p for p in plantas}
@@ -7769,6 +7868,7 @@ def _sunop_eventos_calc(inst, date_iso):
         # no ciclo anterior. Mesma regra do `_sunop_guarda_vazio` e da "foto vazia" do
         # `_sunop_str_med_ent`: leitura que não veio é DESCONHECIDA, não é zero.
         return {"ts": 0.0, "rows": [], "disp": {}, "disp_pid": {}}
+    _sunop_trk_curvas_varias(plantas, date_iso, inst)     # as vencidas numa baixa só (cota da SunOp, 29/09)
 
     def _um(p):
         un = USINA_DISPLAY.get(p, p)

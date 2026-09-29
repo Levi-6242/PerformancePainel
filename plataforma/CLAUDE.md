@@ -106,7 +106,17 @@ token de API; o `/usage/*` não é cobrável e o dia deles é em UTC, consolidad
   servidor. Em modo ronda fica só o que a ronda usa — "SunOp trackers" e "SunOp disponibilidade", com a curva refeita de
   hora em hora (`SUNOP_TRK_TTL_RONDA`; a ronda busca o dia inteiro com `force` na hora de sair e o dia anterior vem do
   fechamento das 01:30). Sem tabela, ETM, strings, Axis, backfill da Falhas nem a Athon na Entrada do PC — quem olha é o
-  servidor.
+  servidor. Os testes rodam em `completa` por padrão (trava no `conftest.py`): o modo vem do tokens.txt da máquina.
+- **Curva de tracker das usinas numa baixa só** (`_sunop_trk_curvas_varias`, mesmo método das strings de 02/09:
+  cheia junto em 00:00, incrementais na menor janela; regras em `_sunop_trk_janela`/`_sunop_trk_funde`), chamada antes
+  do laço no resumo, na disponibilidade e nos parados: 9 POSTs viraram 3. Nova × antiga real: 80.338 pontos, diferença
+  só no quarto de hora ainda aberto (a média dele anda entre as buscas).
+- **A Entrada conta os parados da Athon pelo resumo do worker** (`_entrada_trk_do_resumo`, resumo de até 30 min): o
+  processo web refazia as curvas de tracker a cada 30 min só para contar. Parados iguais nas 9 usinas (97); "com
+  ticket" pelo `parados_com`, o da coluna Tickets.
+- **O contador diz de quem é a curva**: `analog_values:trk`, `:str`, `:etm` (pelos pathnames do pedido).
+- **O gêmeo do servidor está vazio** (29/09: `/gemeo/healthz` 503 "modelar nunca rodou", 0 usinas): no servidor a
+  curva nunca vem do acervo e vai toda à SunOp. O gêmeo com dado é o do PC.
 
 **Curva da SunOp pelo acervo do gêmeo (FASE 4, `_sunop_analog_history`).** O gêmeo guarda em UTC; a plataforma lê a
 SunOp na hora da usina. Desde 28/09 a janela vai ao gêmeo em UTC e o carimbo volta na hora da usina, no texto da SunOp,

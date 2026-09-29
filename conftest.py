@@ -88,3 +88,13 @@ def _fase4_desligada_por_padrao(monkeypatch):
     `_gemeo_curva`; todo o resto da suíte segue offline e determinístico.
     """
     monkeypatch.setattr(app, "GEMEO_CURVA_ATIVO", False, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _sunop_coleta_completa_por_padrao(monkeypatch):
+    """`SUNOP_COLETA` vem do tokens.txt da MÁQUINA (o PC do Levi roda em `ronda` desde 29/09/2026). Sem esta trava, a
+    suíte testaria o modo da máquina de quem roda — foi assim que os testes do ciclo noturno e da Entrada quebraram no
+    PC. Quem testa o modo ronda liga explicitamente (`monkeypatch.setattr(app, "SUNOP_COLETA", "ronda")`)."""
+    monkeypatch.setattr(app, "SUNOP_COLETA", "completa", raising=False)
+    if isinstance(getattr(app, "_sunop_trk_cache", None), dict):
+        monkeypatch.setitem(app._sunop_trk_cache, "_ttl", app.SUNOP_TTL)

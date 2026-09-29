@@ -182,8 +182,10 @@ recebe requisição, então sem isso nunca relia o cadastro (19/08: "98 contra 8
 
 A conta tem **100 mil requisições por mês** (US$ 0,0005 por requisição acima disso). Em 01–29/09 foram 323.816 (extrato
 oficial, `/data/v2/usage/me`), ~22 mil/dia desde 24/09, para um teto de ~3.300/dia. Desde 29/09: status e ETM em lotes
-que atravessam usinas (29 POSTs por leitura viraram 8), `check_token` com validade de 15 min, contador completo em
-`/api/sunop/uso` e o PC em `SUNOP_COLETA=ronda` (só as curvas de tracker que a ronda usa, de hora em hora). Detalhe e
+que atravessam usinas (29 POSTs por leitura viraram 8), curva de tracker das usinas numa baixa só (9 viraram 3), a
+Entrada contando os parados pelo resumo do worker, `check_token` com validade de 15 min, contador completo em
+`/api/sunop/uso` (separa tracker, string e ETM) e o PC em `SUNOP_COLETA=ronda` (só as curvas de tracker que a ronda
+usa, de hora em hora). No servidor o gêmeo está vazio, então a curva nunca vem do acervo dele. Detalhe e
 testes no `plataforma/CLAUDE.md` ("Cota da SunOp"). **Olhar a tela não gasta nada** — o web serve o que o worker
 coletou; gastam o botão Atualizar (busca sem cache), o drill de uma usina da Athon (cache de 5 min por usina,
 compartilhado) e a curva de um inversor (10 min, com o gêmeo respondendo primeiro).

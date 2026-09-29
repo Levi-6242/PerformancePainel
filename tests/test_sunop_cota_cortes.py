@@ -280,3 +280,116 @@ def test_no_modo_ronda_a_entrada_nao_busca_a_athon(monkeypatch):
         with pytest.raises(RuntimeError):
             app._entrada_trk_fonte(fonte)()
     assert chamou == []
+
+
+# ── 5. curva de tracker das usinas numa baixa só ─────────────────────────────────────────────────────────────────
+def _meta_trk(pref, n):
+    return {"trackers": {f"TRK_{i}": {"atual": f"{pref}.TRK_{i}.MEDIDAS.POSAT", "alvo": f"{pref}.TRK_{i}.MEDIDAS.POSAL"}
+                         for i in range(1, n + 1)}}
+
+
+@pytest.fixture
+def curva_falsa(monkeypatch, freeze_now):
+    """Histórico de mentira: cada pathname volta com pontos de 15 em 15 min desde `start`. Registra as chamadas."""
+    freeze_now("2026-09-29 11:07:00")
+    chamadas = []
+    monkeypatch.setattr(app, "_sunop_meta", {"AAA100": _meta_trk("AAA100", 3), "BBB100": _meta_trk("BBB100", 2),
+                                             "CCC100": _meta_trk("CCC100", 4)})
+    monkeypatch.setattr(app, "_sunop_trk_hist", {})
+    monkeypatch.setattr(app, "SUNOP_COLETA", "completa")
+
+    def _hist(pathnames, start, end, inst="gridco", period=None):
+        chamadas.append((list(pathnames), start))
+        h0 = int(start[11:13]); m0 = int(start[14:16])
+        out = {}
+        for p in pathnames:
+            pts, t = [], h0 * 60 + m0
+            while t <= 11 * 60:
+                pts.append((f"2026-09-29T{t // 60:02d}:{t % 60:02d}:00", float(t % 50)))
+                t += 15
+            out[p] = pts
+        return out
+
+    monkeypatch.setattr(app, "_sunop_analog_history", _hist)
+    return chamadas
+
+
+def test_as_usinas_vencidas_vao_numa_baixa_so(curva_falsa):
+    app._sunop_trk_curvas_varias(["AAA100", "BBB100", "CCC100"], "2026-09-29")
+    assert len(curva_falsa) == 1 and len(curva_falsa[0][0]) == 18 and curva_falsa[0][1] == "2026-09-29T00:00:00"
+    for p in ("AAA100", "BBB100", "CCC100"):                  # depois, cada usina acha o cache fresco
+        app._sunop_trk_curvas(p, "2026-09-29")
+    assert len(curva_falsa) == 1
+
+
+def test_a_curva_da_baixa_junta_e_a_mesma_da_baixa_por_usina(curva_falsa, monkeypatch):
+    app._sunop_trk_curvas_varias(["AAA100", "BBB100"], "2026-09-29")
+    juntas = {p: app._si()["trk_hist"][(p, "2026-09-29")] for p in ("AAA100", "BBB100")}
+    monkeypatch.setattr(app, "_sunop_trk_hist", {})
+    sozinhas = {p: app._sunop_trk_curvas(p, "2026-09-29") for p in ("AAA100", "BBB100")}
+    for p in juntas:
+        assert {k: v for k, v in juntas[p].items() if k != "ts"} == {k: v for k, v in sozinhas[p].items() if k != "ts"}
+
+
+def test_incrementais_dividem_a_menor_janela_e_a_cheia_vai_a_parte(curva_falsa):
+    hist = app._si()["trk_hist"]
+    for p, ultimo in (("AAA100", "10:30"), ("BBB100", "10:45")):     # cache desta hora, com o último ponto
+        nomes = [f"TRK_{i}" for i in range(1, (3 if p == "AAA100" else 2) + 1)]
+        serie = [("2026-09-29T09:00:00", 1.0), (f"2026-09-29T{ultimo}:00", 2.0)]
+        hist[(p, "2026-09-29")] = {"ts": 0.0, "cheio_h": 11, "posat": {n: list(serie) for n in nomes},
+                                   "posal": {n: list(serie) for n in nomes}}
+    app._sunop_trk_curvas_varias(["AAA100", "BBB100", "CCC100"], "2026-09-29")   # CCC100 sem cache: cheia
+    inicios = sorted(s for _, s in curva_falsa)
+    assert inicios == ["2026-09-29T00:00:00", "2026-09-29T10:00:00"]       # 10:30 − 30 min, a menor das duas
+    b = hist[("BBB100", "2026-09-29")]["posat"]["TRK_1"]
+    assert b[0] == ("2026-09-29T09:00:00", 1.0) and b[-1][0] == "2026-09-29T11:00:00"   # fundiu sem perder o antigo
+
+
+def test_os_tres_chamadores_pre_carregam_as_usinas_juntas(monkeypatch):
+    vistos = []
+    monkeypatch.setattr(app, "_sunop_trk_curvas_varias", lambda ps, d, inst="gridco": vistos.append(sorted(ps)))
+    monkeypatch.setattr(app, "ensure_sunop_meta", lambda inst="gridco": None)
+    monkeypatch.setattr(app, "_sunop_meta", {"AAA100": _meta_trk("AAA100", 1), "BBB100": _meta_trk("BBB100", 1)})
+    monkeypatch.setattr(app, "_sunop_trackers_plant_curva", lambda p, inst="gridco", data=None: {
+        "plant_id": p, "usina": p, "trackers": [], "total": 1})
+    monkeypatch.setattr(app, "_sunop_disp_hoje", lambda inst: {})
+    monkeypatch.setattr(app, "_trk_eventos_do_dia", lambda *a, **k: {"eventos": [], "classes": {}})
+    monkeypatch.setattr(app, "_sunop_ev_cache", {"gridco": {}, "axis": {}})
+    app._build_sunop_trk_payload("gridco")
+    app._sunop_parados_rows("gridco")
+    app._sunop_eventos_calc("gridco", app.datetime.now().strftime("%Y-%m-%d"))
+    assert vistos == [["AAA100", "BBB100"]] * 3
+
+
+# ── 6. a Entrada do servidor usa o resumo que o worker publicou ─────────────────────────────────────────────────────
+def test_a_entrada_conta_os_parados_pelo_resumo_do_worker(monkeypatch):
+    monkeypatch.setattr(app, "SUNOP_COLETA", "completa")
+    monkeypatch.setattr(app, "_sunop_trk_cache", {"ts": app.time.time() - 60, "payload": {"rows": [
+        {"usina": "TIM100", "plant_id": "TIM100", "parados": 3, "parados_com": 2},
+        {"usina": "JCD100", "plant_id": "JCD100", "parados": 0, "parados_com": 0}]}})
+    monkeypatch.setattr(app, "_sunop_parados_rows", lambda inst, force=False: pytest.fail("não podia buscar"))
+    rows = app._entrada_trk_fonte("Athon")()
+    assert len(rows) == 3 and sum(1 for r in rows if r["ticket_status"]) == 2 and {r["plant_id"] for r in rows} == {"TIM100"}
+
+
+def test_resumo_velho_ou_ausente_busca_como_antes(monkeypatch):
+    monkeypatch.setattr(app, "SUNOP_COLETA", "completa")
+    buscou = []
+    monkeypatch.setattr(app, "_sunop_parados_rows", lambda inst, force=False: buscou.append(inst) or [])
+    monkeypatch.setattr(app, "_sunop_trk_cache", {"ts": app.time.time() - 2 * 3600, "payload": {"rows": [{"parados": 1}]}})
+    app._entrada_trk_fonte("Athon")()
+    monkeypatch.setattr(app, "_sunop_trk_cache", {"ts": 0.0, "payload": None})
+    app._entrada_trk_fonte("Athon")()
+    assert buscou == ["gridco", "gridco"]
+
+
+# ── 7. o contador diz de quem é a curva ─────────────────────────────────────────────────────────────────────────
+def test_o_contador_separa_tracker_string_e_etm(monkeypatch):
+    app._sunop_uso_zerar()
+    monkeypatch.setattr(app, "_SUNOP_USO_FLUSH", 10 ** 9)
+    base = "https://gridco-api.sunop.net/data/v2"
+    app._sunop_uso_conta(f"{base}/analog_values", ["MAB100.TRK_1.MEDIDAS.POSAT", "MAB100.TRK_1.MEDIDAS.POSAL"])
+    app._sunop_uso_conta(f"{base}/analog_values", ["MAB100.INV_1.MEDIDAS.STR.I_PV1"])
+    app._sunop_uso_conta(f"{base}/last_values", ["MAB100.ESTM.POA.IRAD"])
+    app._sunop_uso_conta(f"{base}/metadata/MAB100")
+    assert app._sunop_uso_hoje() == {"analog_values:trk": 1, "analog_values:str": 1, "last_values:etm": 1, "metadata": 1}
