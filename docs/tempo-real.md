@@ -178,6 +178,16 @@ recebe requisição, então sem isso nunca relia o cadastro (19/08: "98 contra 8
 | `_ronda_whats_loop` | 30 s | dispara a ronda nos horários |
 | `_whats_watchdog_loop` | 180 s | reergue o serviço do WhatsApp travado |
 
+### 3.5.1 Cota da SunOp
+
+A conta tem **100 mil requisições por mês** (US$ 0,0005 por requisição acima disso). Em 01–29/09 foram 323.816 (extrato
+oficial, `/data/v2/usage/me`), ~22 mil/dia desde 24/09, para um teto de ~3.300/dia. Desde 29/09: status e ETM em lotes
+que atravessam usinas (29 POSTs por leitura viraram 8), `check_token` com validade de 15 min, contador completo em
+`/api/sunop/uso` e o PC em `SUNOP_COLETA=ronda` (só as curvas de tracker que a ronda usa, de hora em hora). Detalhe e
+testes no `plataforma/CLAUDE.md` ("Cota da SunOp"). **Olhar a tela não gasta nada** — o web serve o que o worker
+coletou; gastam o botão Atualizar (busca sem cache), o drill de uma usina da Athon (cache de 5 min por usina,
+compartilhado) e a curva de um inversor (10 min, com o gêmeo respondendo primeiro).
+
 ### 3.6 Amortecedores
 
 - **Disjuntor da API PV** (`_PvDisjuntor`): 6 falhas **de rede** seguidas abrem o disjuntor por 120 s; nesse tempo toda
@@ -235,7 +245,8 @@ de comunicação da RenoGrid e da 2C e-mail na tabela.
 - **`pg`** — o schema `dbt` da Thopen congela; tudo vem das tabelas cruas `public.raw_*`. A linha pega a leitura mais
   nova de cada dispositivo **em 30 dias** (usina parada há dias precisa continuar aparecendo); potência de outro dia
   não vale e vira "sem leitura hoje".
-- **`sunop`/`axis`** — `last_values` em lotes de 500 pathnames; o `pot_med` da linha é o total da usina, então a prova de
+- **`sunop`/`axis`** — `last_values` em lotes de 1.000 pathnames que atravessam usinas (desde 29/09; eram 500 por usina);
+  o `pot_med` da linha é o total da usina, então a prova de
   pouca luz usa a mediana por inversor (`pot_inv_med`). Não usa o `InvsFalhaComunicacao` do supervisório: falha parcial
   de inversor é déficit, não usina sem comunicação (CPP100, 05/07). Cota da SunOp: 100 mil requisições por mês. **A Axis
   está com 0 linhas**: não há token de API da Axis gerado.
@@ -782,6 +793,9 @@ Em aberto. Cada um foi conferido no código e, quando dá, no dado do servidor d
    ETM da Alves Lima em 7,4 s. Depois ficam `stale` até alguém forçar.
 7. **A ronda não avisa quando cai.** A sessão do WhatsApp caiu e nada na plataforma chamou atenção: o vigia só reinicia
    o serviço (e gera outro QR). Usina sem região na Info Geral também nunca sai na ronda.
+8. **O Monitor da Ronda não vê os envios do worker.** `/api/ronda/whats/status` é servida pelo web, que lê
+   `whats_enviados.json` e o log só no boot; quem envia (e relê o arquivo) é o laço do worker. Medido em 29/09: a das
+   13:00 saiu nas cinco regiões (gravada às 13:08) e o status continuava dizendo que nada tinha saído hoje.
 
 ### 15.2 Riscos lidos no código, a conferir
 

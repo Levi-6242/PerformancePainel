@@ -87,9 +87,26 @@ para dentro da busca — há teste travando isso.
 **Curva de tracker é INCREMENTAL no dia corrente** (`_sunop_trk_curvas`): busca a partir do último
 ponto menos 30 min e funde por timestamp (valor novo vence), com uma busca CHEIA por hora para
 reconciliar correção que a SunOp faça atrás. ~76% menos payload; a contagem de requisições NÃO muda
-(o lote é de 40 pathnames). Dia passado e cache sem `cheio_h` sempre buscam cheio. Ao mexer nisso,
-o teste que importa é o de EQUIVALÊNCIA — fusão errada não dá erro, ela deforma a curva, que é o
+(o lote do `analog_values` é de 600 pathnames, `SUNOP_LOTE_PATHNAMES`). Dia passado e cache sem `cheio_h` sempre buscam
+cheio. Ao mexer nisso, o teste que importa é o de EQUIVALÊNCIA — fusão errada não dá erro, ela deforma a curva, que é o
 insumo de "parado por amplitude".
+
+**Cota da SunOp: 100 mil requisições por mês (29/09/2026).** O extrato oficial (`GET {SUNOP_DATA}/v2/usage/me`, com o
+token de API; o `/usage/*` não é cobrável e o dia deles é em UTC, consolidado em lotes) deu **323.816 de 01 a 29/09** e
+~22 mil/dia desde 24/09, para um teto de ~3.300/dia. Cortes, todos em `tests/test_sunop_cota_cortes.py`:
+- **Status em lotes que atravessam usinas** (`_sunop_last_values_multi`, `SUNOP_LV_LOTE = 1000`): a tabela ia em 19 POSTs
+  por leitura (500 por usina) e vai em 7; a ETM ia em 10 (1 por usina) e vai em 1. Nova × antiga com a SunOp de verdade:
+  7.002 pathnames, nenhum valor diferente com o mesmo carimbo. Lote que falha deixa sem dados só quem estava nele.
+- **`check_token` com validade de 15 min** (`SUNOP_TOKEN_VALIDO_S`): `get_sunop_token` validava na rede a cada chamada e
+  `ensure_sunop_meta` (no começo de ~20 montadores) montava o cabeçalho antes do teste de cache. A validade cai quando o
+  `/plants` recusa o token (as sessões web já foram derrubadas no servidor em 03/09).
+- **Contador completo** (`/api/sunop/uso`): conta o serviço de configuração (`cfg:`), separa a Axis (`axis:`, outra
+  conta) e soma ao arquivo do processo anterior — antes cada restart regravava o dia por cima. `_total` é a nossa cota.
+- **`SUNOP_COLETA=ronda` no PC** (tokens.txt dele; o padrão, `completa`, é o do servidor): o PC fazia a MESMA coleta do
+  servidor. Em modo ronda fica só o que a ronda usa — "SunOp trackers" e "SunOp disponibilidade", com a curva refeita de
+  hora em hora (`SUNOP_TRK_TTL_RONDA`; a ronda busca o dia inteiro com `force` na hora de sair e o dia anterior vem do
+  fechamento das 01:30). Sem tabela, ETM, strings, Axis, backfill da Falhas nem a Athon na Entrada do PC — quem olha é o
+  servidor.
 
 **Curva da SunOp pelo acervo do gêmeo (FASE 4, `_sunop_analog_history`).** O gêmeo guarda em UTC; a plataforma lê a
 SunOp na hora da usina. Desde 28/09 a janela vai ao gêmeo em UTC e o carimbo volta na hora da usina, no texto da SunOp,

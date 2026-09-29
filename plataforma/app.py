@@ -3577,6 +3577,19 @@ def _entrada_trk_anterior(anterior: dict, cliente, fonte):
                        for u, v in (e.get("usinas") or {}).items()]}
 
 
+def _entrada_trk_fonte(fonte: str):
+    """Quem busca os trackers parados da Athon/Axis para a Entrada. No PC em modo ronda (SUNOP_COLETA) não busca: a
+    Entrada montava as curvas de tracker da Athon a cada 30 min no processo web, com ou sem alguém olhando. A fonte
+    que não responde fica com a última contagem boa, marcada "de tal hora" (29/09/2026, cota da SunOp)."""
+    inst = "axis" if fonte == "Axis" else "gridco"
+
+    def _fn():
+        if SUNOP_COLETA != "completa":
+            raise RuntimeError(f"coleta da SunOp em modo {SUNOP_COLETA} neste processo")
+        return _sunop_parados_rows(inst)
+    return _fn
+
+
 def _entrada_tempo_real_build() -> dict:
     """Por cliente x fonte, o que o plantao olha: strings faltando e usinas sem comunicacao (rollup do macro),
     ETMs com problema no mes (etm/problemas, com ticket) e trackers parados agora (as rotas de parados de cada
@@ -3683,7 +3696,7 @@ def _entrada_tempo_real_build() -> dict:
     # arquivo já diz: _TRK_FONTE_LABEL["owen"]="2C", o rollup faz add("2C", r) e _ENTRADA_VKEY["2c"]="owen".
     # Registrado sob "RenoGrid", o card do 2C NUNCA era marcado como lido (ficava "fonte não respondeu" para
     # sempre) e o da RenoGrid — que não tem leitura de trackers — se dizia lido. Varredura de 09/09/2026.
-    fontes_trk = {"Athon": lambda: _sunop_parados_rows("gridco"), "Axis": lambda: _sunop_parados_rows("axis"),
+    fontes_trk = {"Athon": _entrada_trk_fonte("Athon"), "Axis": _entrada_trk_fonte("Axis"),
                   "API PV": _pv, "2C": lambda: _owen_parados_rows(), "Thopen": lambda: _pg_parados_rows()}
     # As cinco correm em PARALELO e com PRAZO. Sequencial e sem prazo, bastava uma consulta lenta para a entrada nunca
     # ficar pronta (05/09: o PG passou de 15 min e a tela ficou eternamente "coletando as fontes pela primeira vez").
@@ -4943,7 +4956,12 @@ def _sunop_try_refresh(headers, inst: str = "gridco") -> str:
     e persiste no arquivo da instância (p/ sobreviver a reinícios)."""
     S = _si(inst)
     try:
-        r = _http().get(f"{S['config']}/refresh_token", headers=headers, timeout=10)
+        url = f"{S['config']}/refresh_token"
+        try:
+            _sunop_uso_conta(url)
+        except Exception:                        # noqa: BLE001 — o contador é acessório
+            pass
+        r = _http().get(url, headers=headers, timeout=10)
         if r.status_code == 200:
             nt = r.json()
             if isinstance(nt, str):
@@ -4957,6 +4975,16 @@ def _sunop_try_refresh(headers, inst: str = "gridco") -> str:
     return ""
 
 
+# Validade da checagem do token WEB (29/09/2026, cota da SunOp). `get_sunop_token` batia um `check_token` na rede a CADA
+# chamada, e ela é chamada no começo de ~20 montadores — ~2 mil requisições por dia por worker, contra um teto de ~3.300
+# para a conta inteira. O token é o mesmo por dias; validar a cada 15 min basta. A validade CAI na hora em que o serviço
+# de configuração recusa o token (ensure_sunop_meta): em 03/09 a SunOp derrubou as sessões web no servidor com o `exp`
+# no futuro, e é o check_token que percebe isso — ele continua acontecendo, só não 20 vezes por ciclo.
+SUNOP_TOKEN_VALIDO_S = 900
+_sunop_token_ok: dict = {}              # inst -> (token, quando) da última validação com 200
+_sunop_relogio = time.time              # (os testes trocam; o resto do módulo segue no time.time)
+
+
 def get_sunop_token(inst: str = "gridco") -> str:
     S   = _si(inst)
     tok = S["token"]["token"]
@@ -4968,12 +4996,22 @@ def get_sunop_token(inst: str = "gridco") -> str:
         nt = _sunop_try_refresh(H, inst)
         if nt:
             return nt
+    ok = _sunop_token_ok.get(inst)
+    if ok and ok[0] == tok and (_sunop_relogio() - ok[1]) < SUNOP_TOKEN_VALIDO_S:
+        return tok                               # o MESMO token, validado há menos de 15 min
     # Caminho normal: valida; se inválido, tenta refresh (best-effort — pode falhar se já expirou).
     try:
-        if _http().get(f"{S['config']}/check_token", headers=H, timeout=8).status_code == 200:
+        url = f"{S['config']}/check_token"
+        try:
+            _sunop_uso_conta(url)
+        except Exception:                        # noqa: BLE001 — o contador é acessório
+            pass
+        if _http().get(url, headers=H, timeout=8).status_code == 200:
+            _sunop_token_ok[inst] = (tok, _sunop_relogio())
             return tok
     except Exception:
         pass
+    _sunop_token_ok.pop(inst, None)
     nt = _sunop_try_refresh(H, inst)
     if nt:
         return nt
@@ -5130,6 +5168,22 @@ _SUNOP_TAREFAS_CURVA = frozenset({
     "SunOp ETM anál",                                  # curva POA/GHI/POA-RI do dia
     "strings SunOp", "strings Axis",                   # curva I_PV por inversor
 })
+_SUNOP_TAREFAS_TODAS = _SUNOP_TAREFAS_CURVA | {"SunOp", "Axis", "SunOp ETM"}
+
+
+# Quanto da SunOp este processo coleta (29/09/2026, cota da SunOp). O servidor e o PC faziam a MESMA coleta inteira —
+# duas vezes a conta, com um teto de ~3.300 requisições por dia. `completa` (o padrão, o servidor) coleta tudo;
+# `ronda` (o PC, `SUNOP_COLETA=ronda` no tokens.txt dele) coleta só o que a ronda do WhatsApp usa: as curvas de tracker
+# da Athon e o registro do dia (a ronda das 08:25 depende do dia anterior dele — _trk_parados_antes). Tabela, ETM,
+# análise, strings, Axis e o backfill da aba Falhas ficam só no servidor, que é onde a equipe olha.
+_SUNOP_TAREFAS_RONDA = frozenset({"SunOp trackers", "SunOp disponibilidade"})
+
+
+def _sunop_coleta_de(valor) -> str:
+    return "ronda" if str(valor or "").strip().lower() == "ronda" else "completa"
+
+
+SUNOP_COLETA = _sunop_coleta_de(os.environ.get("SUNOP_COLETA"))
 
 
 def _sunop_dados_ts(cache: dict, rows: list):
@@ -5193,10 +5247,18 @@ def _sunop_edge_trip():
 # Conta por endpoint e por dia, em memória, e despeja em `logs/sunop_uso_<papel>.json` a cada
 # `_SUNOP_USO_FLUSH` incrementos. Um arquivo por PAPEL (web/worker) de propósito: são dois
 # processos e um arquivo só daria corrida de escrita. Quem lê soma os dois.
+#
+# Desde 29/09/2026 conta TUDO e não zera no reinício. Contava só o serviço de dados (o `check_token` do serviço de
+# configuração, feito a cada montador, passava por fora), somava a Axis — outra conta da SunOp, que não gasta a nossa
+# cota — e cada processo novo regravava o arquivo do dia por cima: com 9 deploys num dia, o extrato de 29/09 dizia 325
+# requisições no servidor enquanto o `/usage/me` passava de 20 mil. Agora a chave diz o serviço e a conta
+# (`last_values`, `cfg:check_token`, `axis:last_values`) e o processo soma ao que o anterior deixou no arquivo.
 _SUNOP_USO: dict = {}
 _SUNOP_USO_FLUSH = 25
 _sunop_uso_n = 0
 _sunop_uso_lock = threading.Lock()
+_SUNOP_USO_BASE: dict = {}             # o que o processo ANTERIOR (mesmo papel) deixou no arquivo, lido no 1º despejo
+_sunop_uso_herdado = {"ok": False}
 
 
 def _sunop_uso_papel() -> str:
@@ -5217,11 +5279,39 @@ def _sunop_uso_zerar() -> None:
     global _sunop_uso_n
     with _sunop_uso_lock:
         _SUNOP_USO.clear()
+        _SUNOP_USO_BASE.clear()
         _sunop_uso_n = 0
+        _sunop_uso_herdado["ok"] = False
 
 
 def _sunop_uso_hoje() -> dict:
     return dict(_SUNOP_USO.get(datetime.now().date().isoformat(), {}))
+
+
+def _sunop_uso_chave(url: str) -> str:
+    """Endpoint com o serviço e a conta: `last_values` (dados, gridco = a NOSSA cota), `cfg:check_token` (configuração,
+    gridco) e `axis:...` (a Axis é outra conta da SunOp)."""
+    host, _, caminho = str(url).partition("://")[2].partition("/")
+    return (("axis:" if host.startswith("axis") else "") + ("cfg:" if caminho.startswith("api/") else "")
+            + _sunop_uso_endpoint(url))
+
+
+def _sunop_uso_herda() -> None:
+    """Guarda o que o processo ANTERIOR (mesmo papel) deixou no arquivo, para os despejos somarem a ele. Lido UMA vez,
+    no 1º despejo: depois disso o arquivo já tem o deste processo, e relê-lo contaria em dobro. Chamado com o lock."""
+    _sunop_uso_herdado["ok"] = True
+    try:
+        with open(os.path.join(_AQUI, "logs", f"sunop_uso_{_sunop_uso_papel()}.json"), encoding="utf-8") as f:
+            antes = json.load(f) or {}
+    except Exception:                            # noqa: BLE001 — arquivo que ainda não existe é o normal
+        return
+    for dia, eps in antes.items():
+        alvo = _SUNOP_USO_BASE.setdefault(dia, {})
+        for ep, n in (eps or {}).items():
+            try:
+                alvo[ep] = alvo.get(ep, 0) + int(n)
+            except (TypeError, ValueError):
+                pass
 
 
 def _sunop_uso_conta(url: str) -> None:
@@ -5230,13 +5320,20 @@ def _sunop_uso_conta(url: str) -> None:
     dia = datetime.now().date().isoformat()
     with _sunop_uso_lock:
         _SUNOP_USO.setdefault(dia, {})
-        ep = _sunop_uso_endpoint(url)
+        ep = _sunop_uso_chave(url)
         _SUNOP_USO[dia][ep] = _SUNOP_USO[dia].get(ep, 0) + 1
         _sunop_uso_n += 1
         despeja = _sunop_uso_n >= _SUNOP_USO_FLUSH
         if despeja:
             _sunop_uso_n = 0
-            foto = {d: dict(v) for d, v in _SUNOP_USO.items()}
+            if not _sunop_uso_herdado["ok"]:
+                _sunop_uso_herda()
+            foto = {}
+            for fonte in (_SUNOP_USO_BASE, _SUNOP_USO):      # o do processo anterior + o deste
+                for d, v in fonte.items():
+                    alvo = foto.setdefault(d, {})
+                    for k, n in v.items():
+                        alvo[k] = alvo.get(k, 0) + n
     if despeja:
         try:
             d = os.path.join(_AQUI, "logs")
@@ -5270,7 +5367,8 @@ def _sunop_uso_relatorio() -> dict:
             for ep, n in (eps or {}).items():
                 alvo[ep] = alvo.get(ep, 0) + int(n)
     for dia, eps in total.items():
-        eps["_total"] = sum(v for k, v in eps.items() if k != "_total")
+        eps["_total_axis"] = sum(v for k, v in eps.items() if k.startswith("axis:"))    # outra conta da SunOp
+        eps["_total"] = sum(v for k, v in eps.items() if not k.startswith(("_", "axis:")))   # a NOSSA cota
     return {"dias": dict(sorted(total.items())), "cota_mes": SUNOP_COTA_MES,
             "teto_diario_para_caber": round(SUNOP_COTA_MES / 30)}
 
@@ -5514,24 +5612,29 @@ def ensure_sunop_meta(inst: str = "gridco"):
     de 10 usinas por horas, sem nenhum alarme, porque as outras 5 nem existiam no payload).
     Agora completa o que falta a cada chamada, e só desiste quando não falta ninguém."""
     S = _si(inst)
-    H = _sunop_headers(inst)
     # Lista de usinas: cacheada por 10 min (é do serviço de CONFIG, que segue de pé mesmo
     # quando o de DADOS recusa — foi assim o dia todo em 31/07 e 03/08).
     _pl = _sunop_plants_lista.get(inst) or {}
     if _pl.get("nomes") and (time.time() - _pl.get("ts", 0)) < 600:
         nomes = _pl["nomes"]
         if all(n in S["meta"] for n in nomes):
-            return
-        plants = [{"name": n} for n in nomes]
+            return               # tudo em cache: nenhuma chamada. Até 29/09 o cabeçalho era montado ANTES deste teste,
+        plants = [{"name": n} for n in nomes]   # e montá-lo valida o token na rede (get_sunop_token)
     else:
         try:
-            plants = _http().get(f"{S['config']}/plants", headers=H, timeout=15).json()
+            url = f"{S['config']}/plants"
+            try:
+                _sunop_uso_conta(url)
+            except Exception:                    # noqa: BLE001 — o contador é acessório
+                pass
+            plants = _http().get(url, headers=_sunop_headers(inst), timeout=15).json()
         except Exception as e:
             print(f"[SUNOP:{inst}] Erro plants: {e}")
             plants = None
     # Blindagem: se o token expirou, /api/plants devolve um dict de erro (ex.:
     # {"detail":"Token has expired."}) em vez da lista → não crashar.
     if not isinstance(plants, list) or not all(isinstance(p, dict) and "name" in p for p in plants):
+        _sunop_token_ok.pop(inst, None)          # o config recusou: a validade de 15 min do token não vale mais
         print(f"[SUNOP:{inst}] /plants não retornou lista de plantas (token expirado?): {str(plants)[:120]}")
         de_dados = _sunop_plants_do_dados(inst)
         if not de_dados:
@@ -5582,7 +5685,58 @@ def _sunop_regua_hoje(by_path, str_paths, p_path, hoje: str) -> tuple:
     return None, True
 
 
-def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
+# Lote do /v2/last_values ATRAVESSANDO usinas (29/09/2026, cota da SunOp). A tabela da Athon pedia o status em lotes de
+# 500 POR USINA: 6.966 pathnames em 19 POSTs por leitura, a cada 10 min, em dois coletores. Medido no mesmo dia: 1.000
+# pathnames de duas usinas num pedido só voltaram inteiros (1.002 valores, 1,06 s) — são 7 POSTs. A ETM ia em 1 POST por
+# usina e vai em 1. A regra de 31/07 continua: lote que falha deixa SEM DADOS toda usina que tinha pathname nele.
+SUNOP_LV_LOTE = 1000
+
+
+def _sunop_paths_tabela(meta: dict) -> list:
+    """Os pathnames que a linha da usina lê no last_values: correntes, métricas do inversor e as da planta."""
+    ps = []
+    for paths in (meta.get("inv_strings") or {}).values():
+        ps.extend(paths)
+    for others in (meta.get("inv_other") or {}).values():
+        ps.extend(others.values())
+    for key in ("LOGGER.EPD", "LOGGER.TOT.P", "InvsProduzindo", "InvsParados", "InvsFalhaComunicacao"):
+        if key in (meta.get("plant_paths") or {}):
+            ps.append(meta["plant_paths"][key])
+    return ps
+
+
+def _sunop_last_values_multi(pedidos: dict, inst: str = "gridco", timeout: int = 30) -> dict:
+    """{usina: [pathnames]} → {usina: (valores, lotes_falhos)}, em lotes de SUNOP_LV_LOTE que atravessam usinas.
+
+    Cada usina recebe só os valores dos pathnames que ELA pediu. Lote que falha conta para toda usina que tinha pathname
+    nele — foto incompleta não vira número (31/07)."""
+    ordem = [(u, p) for u, ps in pedidos.items() for p in ps]
+    vals = {u: [] for u in pedidos}
+    falhos = {u: 0 for u in pedidos}
+    url = f"{_si(inst)['data']}/v2/last_values?use_plant_timezone=true"
+    for i in range(0, len(ordem), SUNOP_LV_LOTE):
+        lote = ordem[i:i + SUNOP_LV_LOTE]
+        r = _sunop_req("POST", url, inst, json={"pathnames": [p for _, p in lote]}, timeout=timeout)
+        voltou = None
+        try:
+            if r is not None and r.status_code == 200:
+                voltou = r.json() or []
+        except Exception:                                   # noqa: BLE001 — resposta ilegível = lote falho
+            voltou = None
+        if voltou is None:
+            for u in {u for u, _ in lote}:
+                falhos[u] += 1
+            continue
+        por_path = {v.get("pathname"): v for v in voltou if isinstance(v, dict)}
+        for u, p in lote:
+            if p in por_path:
+                vals[u].append(por_path[p])
+    return {u: (vals[u], falhos[u]) for u in pedidos}
+
+
+def process_plant_sunop(plant_name: str, inst: str = "gridco", _lv=None) -> dict:
+    """A linha da usina. `_lv` = (valores, lotes_falhos) já buscados em lote com as outras usinas (fetch_all_sunop); sem
+    ele, busca só os desta usina."""
     base = {
         "usina": USINA_DISPLAY.get(plant_name, plant_name), "plant_id": plant_name,
         "qtd_inversores": None, "strings_ativas": None,
@@ -5596,41 +5750,16 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco") -> dict:
     if not meta:
         return base
 
-    # Monta lista de pathnames a buscar
-    pathnames = []
-    for inv, paths in meta["inv_strings"].items():
-        pathnames.extend(paths)
-    for inv, others in meta["inv_other"].items():
-        pathnames.extend(others.values())
-    # Métricas de planta
-    for key in ("LOGGER.EPD", "LOGGER.TOT.P", "InvsProduzindo",
-                "InvsParados", "InvsFalhaComunicacao"):
-        if key in meta["plant_paths"]:
-            pathnames.append(meta["plant_paths"][key])
-
+    pathnames = _sunop_paths_tabela(meta)
     if not pathnames:
         return base
 
-    # Busca em lotes de 500 (limite seguro da API)
-    # (havia aqui um `H = _sunop_headers(inst)` NUNCA USADO — o POST abaixo passa
-    #  `_sunop_data_headers`. Não era grátis: `_sunop_headers` chama `get_sunop_token`, que bate um
-    #  `check_token` na rede. Rodando em leque de 5 sobre 10 usinas, eram ~10 requisições por ciclo
-    #  jogadas fora, ajudando a estourar o rate limit da borda. Mesma remoção em
+    # (havia aqui um `H = _sunop_headers(inst)` NUNCA USADO — o POST passa `_sunop_data_headers`. Não era grátis:
+    #  `_sunop_headers` chama `get_sunop_token`, que bate um `check_token` na rede. Mesma remoção em
     #  `_sunop_plant_build` e `fetch_sunop_etm_plant`.)
-    data_url = _si(inst)["data"]
-    all_vals = []
-    lotes_falhos = 0
-    for i in range(0, len(pathnames), 500):
-        batch = pathnames[i:i+500]
-        r = _sunop_req("POST", f"{data_url}/v2/last_values?use_plant_timezone=true", inst,
-                       json={"pathnames": batch}, timeout=30)
-        try:
-            if r is not None and r.status_code == 200:
-                all_vals.extend(r.json())
-            else:
-                lotes_falhos += 1
-        except Exception:
-            lotes_falhos += 1
+    if _lv is None:
+        _lv = _sunop_last_values_multi({plant_name: pathnames}, inst).get(plant_name) or ([], 1)
+    all_vals, lotes_falhos = _lv
 
     if not all_vals:
         return base
@@ -5776,14 +5905,11 @@ def fetch_all_sunop(inst: str = "gridco") -> list:
     # Percorre a LISTA DE USINAS, não as que têm meta: usina sem metadata tem que virar linha
     # "sem dados" (que acende alarme de comunicação), e não sumir da tabela em silêncio.
     _nomes = (_sunop_plants_lista.get(inst) or {}).get("nomes") or list(_si(inst)["meta"])
-    rows = []
-    # 2, não 5: os leques de 5 somados (strings+ETM+trackers no MESMO ciclo do worker) eram a
-    # rajada que estourava a borda do CloudFront (403 p/ a conta inteira, ver _sunop_edge_block)
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        futures = {ex.submit(process_plant_sunop, pname, inst): pname
-                   for pname in _nomes}
-        for f in as_completed(futures):
-            rows.append(f.result())
+    # o status de TODAS as usinas em lotes que atravessam usinas (SUNOP_LV_LOTE): 19 POSTs por leitura viraram 7
+    meta = _si(inst)["meta"]
+    pedidos = {p: _sunop_paths_tabela(meta[p]) for p in _nomes if meta.get(p)}
+    lv = _sunop_last_values_multi({p: ps for p, ps in pedidos.items() if ps}, inst)
+    rows = [process_plant_sunop(pname, inst, _lv=lv.get(pname) or ([], 0)) for pname in _nomes]
     return sorted(rows, key=lambda x: (severidade(x), x["usina"]))
 
 
@@ -6005,14 +6131,20 @@ def _etm_label(station: str) -> str:
     return "" if station == "ESTM" else station.replace("_", " ")
 
 
-def fetch_sunop_etm_plant(plant_name: str, inst: str = "gridco") -> list:
-    """Retorna UMA linha por estação meteorológica da planta (ESTM, ESTM_1, ESTM_2…)."""
-    meta     = _si(inst)["meta"].get(plant_name, {})
-    stations = meta.get("etm_stations") or {"ESTM": {
+def _sunop_etm_estacoes_da_usina(plant_name: str, inst: str = "gridco") -> dict:
+    """{estação: {poa, ghi, poari: pathname}} da planta; sem estação na metadata, a ESTM padrão."""
+    meta = _si(inst)["meta"].get(plant_name, {})
+    return meta.get("etm_stations") or {"ESTM": {
         "poa":   f"{plant_name}.ESTM.POA.IRAD",
         "ghi":   f"{plant_name}.ESTM.GHI.IRAD",
         "poari": f"{plant_name}.ESTM.POA_R.IRAD",
     }}
+
+
+def fetch_sunop_etm_plant(plant_name: str, inst: str = "gridco", _by_path=None) -> list:
+    """Retorna UMA linha por estação meteorológica da planta (ESTM, ESTM_1, ESTM_2…). `_by_path` = o last_values já
+    buscado junto com as outras usinas (_build_sunop_etm_payload); sem ele, busca só os desta."""
+    stations = _sunop_etm_estacoes_da_usina(plant_name, inst)
 
     def _base(station):
         return {
@@ -6029,7 +6161,9 @@ def fetch_sunop_etm_plant(plant_name: str, inst: str = "gridco") -> list:
         all_paths.extend(paths.values())
 
     by_path = {}                        # (H web removido: não era usado e custava um check_token)
-    if all_paths:
+    if _by_path is not None:
+        by_path = _by_path
+    elif all_paths:
         r = _sunop_req("POST", f"{_si(inst)['data']}/v2/last_values?use_plant_timezone=true", inst,
                        json={"pathnames": all_paths}, timeout=15)
         try:
@@ -6075,11 +6209,15 @@ def fetch_sunop_etm_plant(plant_name: str, inst: str = "gridco") -> list:
 
 def _build_sunop_etm_payload(inst: str = "gridco"):
     ensure_sunop_meta(inst)
+    # as estações de TODAS as usinas num pedido só (SUNOP_LV_LOTE): era 1 POST por usina
+    plantas = list(_si(inst)["meta"])
+    pedidos = {p: [x for paths in _sunop_etm_estacoes_da_usina(p, inst).values() for x in paths.values()] for p in plantas}
+    lv = _sunop_last_values_multi({p: ps for p, ps in pedidos.items() if ps}, inst, timeout=15)
     rows = []
-    with ThreadPoolExecutor(max_workers=2) as ex:
-        futures = {ex.submit(fetch_sunop_etm_plant, pname, inst): pname for pname in _si(inst)["meta"]}
-        for f in as_completed(futures):
-            rows.extend(f.result())   # uma ou mais linhas por planta (uma por estação)
+    for pname in plantas:
+        vals, falhos = lv.get(pname) or ([], 0)
+        by_path = {} if falhos else {v["pathname"]: v for v in vals}
+        rows.extend(fetch_sunop_etm_plant(pname, inst, _by_path=by_path))   # uma linha por estação
     rows.sort(key=lambda x: (etm_severidade(x), x["usina"], x.get("etm", "")))
     # Aqui o vazio é ainda mais fácil de produzir que na visão geral: o leque acima percorre
     # `_si(inst)["meta"]`, então metadata que não carregou (a borda bloqueia o /data, e é por ele
@@ -6331,7 +6469,17 @@ def _frota_acordou(amps, dia_coberto=False, data_ref=None):
     return datetime.now().hour >= TRK_FROTA_ACORDA_HORA
 
 
-_sunop_trk_cache = {"payload": None, "ts": 0.0, "_ttl": SUNOP_TTL}
+# No PC em modo ronda (SUNOP_COLETA) a curva de tracker da Athon é refeita de hora em hora, não a cada 10 min: a ronda
+# busca o dia inteiro na hora de sair (force=True) e o registro do dia anterior vem do fechamento das 01:30. A cada 10
+# min, o PC repetia a mesma busca que o servidor já fazia (29/09/2026, cota da SunOp).
+SUNOP_TRK_TTL_RONDA = 3600
+
+
+def _sunop_trk_ttl() -> int:
+    return SUNOP_TRK_TTL_RONDA if SUNOP_COLETA == "ronda" else SUNOP_TTL
+
+
+_sunop_trk_cache = {"payload": None, "ts": 0.0, "_ttl": _sunop_trk_ttl()}
 _sunop_trk_hist  = {}    # cache {(plant,date): {ts, posat:{name:serie}, posal:{name:serie}}}
 _sunop_str_hist  = {}    # cache {(plant,dia): {ts, cheio_h, hist:{pathname:serie}}} — curva CRUA
 #   de corrente por string, insumo de _sunop_strings_curva. Existe para a busca ser INCREMENTAL
@@ -6464,7 +6612,7 @@ def _sunop_trk_curvas(plant_name: str, date: str, inst: str = "gridco") -> dict:
     cache = _si(inst)["trk_hist"]
     key = (plant_name, date)
     ent = cache.get(key)
-    if ent and time.time() - ent["ts"] < SUNOP_TTL:
+    if ent and time.time() - ent["ts"] < _sunop_trk_ttl():
         return ent
     trk = (_si(inst)["meta"].get(plant_name, {}) or {}).get("trackers") or {}
     posat = {n: d["atual"] for n, d in trk.items() if d.get("atual")}
@@ -21194,6 +21342,8 @@ def _prewarm_filtra_noturno(tarefas):
     NÃO fica em silêncio: imprime o que pulou. Prewarm que some sem dizer nada é como o cadastro
     vazio de 25/08 — a tela segue servindo o último dado bom e ninguém descobre por que ele parou
     de andar."""
+    if SUNOP_COLETA == "ronda":                  # o PC: só os trackers da Athon, que a ronda usa (ver SUNOP_COLETA)
+        tarefas = [t for t in tarefas if t[0] not in _SUNOP_TAREFAS_TODAS or t[0] in _SUNOP_TAREFAS_RONDA]
     if _sunop_janela_curva():
         return tarefas
     fica = [t for t in tarefas if t[0] not in _SUNOP_TAREFAS_CURVA]
@@ -24100,7 +24250,11 @@ def _falhas_backfill_sunop(inst, hoje=None):
 
 def _falhas_backfill_sunop_loop():
     """WORKER: depois da largada, uma passada na Athon e na Axis; de 6 em 6 h pega a usina-dia que a plataforma perdeu
-    (caiu à tarde, deploy). Passada interrompida tenta de novo em 30 min."""
+    (caiu à tarde, deploy). Passada interrompida tenta de novo em 30 min. Só na coleta completa: o PC em modo ronda
+    refazia os mesmos dias que o servidor (SUNOP_COLETA, 29/09/2026)."""
+    if SUNOP_COLETA != "completa":
+        print(f"[falhas] backfill SunOp desligado neste processo (SUNOP_COLETA={SUNOP_COLETA})")
+        return
     time.sleep(FALHAS_BF_ESPERA_BOOT_S)
     while True:
         completo = True
