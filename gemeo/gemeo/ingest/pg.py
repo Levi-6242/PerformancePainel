@@ -108,44 +108,62 @@ class IngestorPG(Ingestor):
         (de onde as da SunOp tiram o kWp), mas o proprio PostgreSQL tem `capacity` e lat/lon — e sem kWp o modelo nao
         tem esperado nenhum, sem lat/lon a posicao do sol sai errada. So preenche o que ainda esta vazio: o cadastro
         do time de Performance, quando existir, continua mandando."""
-        with self.fonte_conn.cursor() as src, self.conn.cursor() as cur:
+        with self.fonte_conn.cursor() as src:
             src.execute("SELECT capacity, location_lat, location_long FROM public.tb_power_plants WHERE id=%s", (int(usina.fonte_ref),))
             r = src.fetchone()
-            if not r:
-                return
-            kwp, lat, lon = (float(x) if x is not None else None for x in r)
-            cur.execute("UPDATE usina SET kwp_dc=coalesce(kwp_dc, %s), lat=coalesce(lat, %s), lon=coalesce(lon, %s) WHERE id=%s",
-                        (kwp, lat, lon, usina.id))
-        self.conn.commit()
+        if not r:
+            return
+        kwp, lat, lon = (float(x) if x is not None else None for x in r)
+
+        def _grava():
+            with self.conn.cursor() as cur:
+                cur.execute("UPDATE usina SET kwp_dc=coalesce(kwp_dc, %s), lat=coalesce(lat, %s), lon=coalesce(lon, %s) WHERE id=%s",
+                            (kwp, lat, lon, usina.id))
+            self.conn.commit()
+        self._db.com_retentativa_de_lock(self.conn, _grava)
 
     def descobrir(self, usina: UsinaRef) -> None:
         """Equipamento novo na fonte vira linha em `equipamento` com atributos.numero; o cadastro
-        enriquece depois. Strings nascem das chaves string_N_current do ultimo registro do inversor."""
+        enriquece depois. Strings nascem das chaves string_N_current do ultimo registro do inversor.
+
+        O Postgres responde TUDO antes do primeiro INSERT. Ate 29/09/2026 o INSERT do primeiro equipamento abria a
+        escrita do SQLite (transacao implicita do sqlite3) e o laco seguia consultando o Postgres ate o commit do fim;
+        com o banco do Thopen lento, a sessao do gemeo passou 21+ min em `SELECT DISTINCT device_id FROM public.raw_tracker`
+        segurando o arquivo, e sunop, apipv, plat, cadastro e modelar morreram em 'database is locked' (251 no log)."""
         self._cadastro_da_usina(usina)
         pid = int(usina.fonte_ref)
-        descobertos: list[int] = []
-        with self.fonte_conn.cursor() as src, self.conn.cursor() as cur:
-            for tabela, tipo in TIPO.items():
+        devs: dict[str, list] = {}
+        ultimo: dict = {}                       # device_id do inversor -> json_data do ultimo registro dele
+        with self.fonte_conn.cursor() as src:
+            for tabela in TIPO:
                 src.execute(f"SELECT DISTINCT device_id FROM public.{tabela} WHERE power_plant_id=%s AND timestamp >= now() - interval '7 days'", (pid,))
-                for (dev,) in src.fetchall():
-                    descobertos.append(int(dev))
-                    cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte, atributos) VALUES (%s,%s,%s,%s) "
-                                "ON CONFLICT (usina_id, tipo, codigo_fonte) DO NOTHING RETURNING id",
-                                (usina.id, tipo, str(dev), '{"numero": %d}' % int(dev)))
-                    if tabela != "raw_inverter":
-                        continue
-                    src.execute("SELECT json_data FROM public.raw_inverter WHERE power_plant_id=%s AND device_id=%s ORDER BY timestamp DESC LIMIT 1", (pid, dev))
-                    r = src.fetchone()
-                    cur.execute("SELECT id FROM equipamento WHERE usina_id=%s AND tipo='inversor' AND codigo_fonte=%s", (usina.id, str(dev)))
-                    inv_id = cur.fetchone()[0]
-                    for chave in (r[0] if r else {}):
-                        m = _STR.match(chave)
-                        if m:
-                            cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte, pai_id, atributos) VALUES (%s,'string',%s,%s,%s) "
-                                        "ON CONFLICT (usina_id, tipo, codigo_fonte) DO NOTHING",
-                                        (usina.id, f"{dev}.string_{m.group(1)}", inv_id, '{"numero": %d}' % int(m.group(1))))
-        self.conn.commit()
-        self._nomes_legiveis(usina, descobertos)
+                devs[tabela] = [dev for (dev,) in src.fetchall()]
+            for dev in devs["raw_inverter"]:
+                src.execute("SELECT json_data FROM public.raw_inverter WHERE power_plant_id=%s AND device_id=%s ORDER BY timestamp DESC LIMIT 1", (pid, dev))
+                r = src.fetchone()
+                ultimo[dev] = r[0] if r else {}
+
+        def _grava():
+            with self.conn.cursor() as cur:
+                for tabela, tipo in TIPO.items():
+                    for dev in devs[tabela]:
+                        cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte, atributos) VALUES (%s,%s,%s,%s) "
+                                    "ON CONFLICT (usina_id, tipo, codigo_fonte) DO NOTHING RETURNING id",
+                                    (usina.id, tipo, str(dev), '{"numero": %d}' % int(dev)))
+                        if tabela != "raw_inverter":
+                            continue
+                        cur.execute("SELECT id FROM equipamento WHERE usina_id=%s AND tipo='inversor' AND codigo_fonte=%s", (usina.id, str(dev)))
+                        inv_id = cur.fetchone()[0]
+                        for chave in ultimo[dev]:
+                            m = _STR.match(chave)
+                            if m:
+                                cur.execute("INSERT INTO equipamento (usina_id, tipo, codigo_fonte, pai_id, atributos) VALUES (%s,'string',%s,%s,%s) "
+                                            "ON CONFLICT (usina_id, tipo, codigo_fonte) DO NOTHING",
+                                            (usina.id, f"{dev}.string_{m.group(1)}", inv_id, '{"numero": %d}' % int(m.group(1))))
+            self.conn.commit()
+        # a retentativa refaz so o SQLite: voltar ao Postgres custaria outros 20 min num dia como o 29/09
+        self._db.com_retentativa_de_lock(self.conn, _grava)
+        self._nomes_legiveis(usina, [int(dev) for tabela in TIPO for dev in devs[tabela]])
 
     def _nomes_legiveis(self, usina: UsinaRef, devs: list[int]) -> None:
         """tb_devices.device_name ('Inversor 1.1') vira nome_exibicao. Sem isto o gemeo mostrava os inversores do Thopen
@@ -154,13 +172,17 @@ class IngestorPG(Ingestor):
         if not devs:
             return
         try:
-            with self.fonte_conn.cursor() as src, self.conn.cursor() as cur:
+            with self.fonte_conn.cursor() as src:
                 src.execute("SELECT id, device_name FROM public.tb_devices WHERE id = ANY(%s)", (devs,))
-                for dev, nome in src.fetchall():
-                    if nome and str(nome).strip():
+                nomes = [(str(nome).strip(), str(dev)) for dev, nome in src.fetchall() if nome and str(nome).strip()]
+
+            def _grava():
+                with self.conn.cursor() as cur:
+                    for nome, dev in nomes:
                         cur.execute("UPDATE equipamento SET nome_exibicao=%s WHERE usina_id=%s AND codigo_fonte=%s "
-                                    "AND (nome_exibicao IS NULL OR nome_exibicao='')", (str(nome).strip(), usina.id, str(dev)))
-            self.conn.commit()
+                                    "AND (nome_exibicao IS NULL OR nome_exibicao='')", (nome, usina.id, dev))
+                self.conn.commit()
+            self._db.com_retentativa_de_lock(self.conn, _grava)
         except Exception as e:                                   # noqa: BLE001 — nome bonito nao pode parar o ingest
             self.conn.rollback()
             print(f"[pg] nomes de equipamento nao vieram ({e}); sigo com codigo_fonte")

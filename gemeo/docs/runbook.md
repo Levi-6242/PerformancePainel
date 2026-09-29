@@ -119,3 +119,13 @@ tarefas agendadas não aplicam migração.
 ## Medida nova? Leia o CHECK antes
 
 `leitura.medida` e `evento.tipo` tem CHECK fechado na migracao 0001. Uma medida fora da lista (13/09/2026: `alarme_com`) derruba a fonte inteira a cada ciclo com IntegrityError, e o ciclo que falha deixava a transacao aberta e travava o banco para as outras threads e para o modelar (`database is locked` em serie). Hoje o laco desfaz a transacao ao falhar, mas a regra fica: estado que nao e serie (alarme, ultimo status) vai para `equipamento.atributos` (json_patch); serie nova exige migracao do CHECK — e `leitura` tem mais de 1 GB, recriar a tabela nao e opcao. Para `evento.tipo`, a 0002 mostra o caminho.
+
+## `database is locked` em série
+
+Uma conexão com a escrita aberta trava o arquivo para todas as outras: as outras threads do ingest, o modelar e o app.
+Em 29/09/2026 foi a descoberta do pg, que abria a escrita no primeiro INSERT e seguia consultando o PostgreSQL do Thopen,
+lento naquele dia, até o commit: 21+ min parada em `SELECT DISTINCT device_id FROM public.raw_tracker ...` e nenhuma
+corrida da SunOp nem da API PV depois das 15:01Z. Para achar quem segura: `ingest_run` por fonte (abra o SQLite com
+`?mode=ro`) mostra quem parou de gravar; `pg_stat_activity` do usuário da `POWERPLANTS_DSN` mostra a consulta pendurada.
+Reiniciar o `gemeo.cli ingest` solta o arquivo na hora. A regra para fonte nova: tudo o que vem da fonte chega antes do
+primeiro INSERT; o SQLite grava numa transação curta sob `db.com_retentativa_de_lock`, e a retentativa não volta à fonte.
