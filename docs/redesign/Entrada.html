@@ -841,14 +841,25 @@
     if (larga.addEventListener) larga.addEventListener("change", aplica); else larga.addListener(aplica);
     aplica();
   })();
-  // o card inteiro leva ao destino principal; os links de dentro seguem cada um o seu.
-  // ctrl/cmd e botao do meio abrem em nova aba, como faria um link de verdade.
+  // O card inteiro leva ao destino principal; os links de dentro seguem cada um o seu. Tudo numa aba AO LADO, sem
+  // trocar a Entrada (Levi, 29/09/2026: "quando clicar em algum desses cards deve abrir uma aba ao lado, não mudar a
+  // atual"). A aba tem nome por destino, a convenção do menu do Monitoramento (target="gridco-painel"): clicar de novo
+  // no mesmo card volta para a aba já aberta, em vez de empilhar abas.
+  function _abaDe(href) {
+    var p = String(href || "").split(/[?#]/)[0].replace(/^\/+|\/+$/g, "");
+    return "gridco-" + (p ? p.replace(/\//g, "-") : "inicio");
+  }
+  function abreAoLado(alvo) {
+    var a = document.createElement("a");
+    a.href = alvo; a.target = _abaDe(alvo); a.rel = "noopener";
+    document.body.appendChild(a); a.click(); a.remove();
+  }
   document.querySelectorAll(".card[data-href]").forEach(function (c) {
     var alvo = c.getAttribute("data-href");
+    c.querySelectorAll("a[href]").forEach(function (a) { a.target = _abaDe(a.getAttribute("href")); a.rel = "noopener"; });
     function vai(e) {
-      if (e.target.closest("a")) return;
-      if (e.ctrlKey || e.metaKey || e.button === 1) { window.open(alvo, "_blank", "noopener"); return; }
-      window.location.href = alvo;
+      if (e.target.closest("a")) return;          // o link de dentro já abre ao lado sozinho (target acima)
+      abreAoLado(alvo);
     }
     c.addEventListener("click", vai);
     c.addEventListener("auxclick", function (e) { if (e.button === 1) { e.preventDefault(); vai(e); } });
