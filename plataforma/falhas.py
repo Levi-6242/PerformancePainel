@@ -27,6 +27,20 @@ TOLERANCIA = 20              # leitura boa isolada no meio da queda (até 20 min
 FRAC_PICO_VIVA = 0.30
 FRAC_VIZINHAS_VIVA = 0.50
 CELULAS_VIVA = 2
+# Sombra não é falha (29/09/2026, Levi: "alarme falsos nessas strings ... o Fusion mostra essas strings funcionando
+# normalmente"). MAB100 Inversor 4.2 ST07 (02/09) e 5.1 ST07 (12/09), e MTS200 2.15 ST04 (19/09): com o inversor a
+# 95-100% do pico, a string sai de 50% da mediana das vizinhas e desce em RAMPA — uns 4 pontos a cada 10 min, sem
+# voltar e sem zerar — até ficar abaixo de 10% (0,64/0,44 A com as vizinhas a 7,5 A): sombra crescendo. String que
+# abre (fusível, conector, MPPT) cai num degrau, de uma leitura para a outra. O trecho morto que ENTRA por uma rampa
+# (da última leitura a >= 50% das vizinhas até o começo dele) ou SAI por uma (do fim dele até a 1ª leitura de novo a
+# >= 50%) de QUEDA_GRADUAL_MIN ou mais é sombra: vai para `sombras`, não para `mortas`. Rampa é célula a célula: o
+# inversor forte (>= 30% do pico — sombra precisa de sol direto) e a razão para as vizinhas andando num sentido só,
+# com RAMPA_FOLGA de ruído. Medir só o relógio desde a última leitura boa chamava de sombra o que era falha: buraco
+# de dado no meio da "queda" (MTS100 3.7 ST11-13 em 22/09 e SMP100 6.1 em 18/09 — amanheceram mortas) e dia no
+# patamar de 20% do pico (CPP100 4.1, 14/09) não têm sol forte; a string que pisca entre 0 e 0,4 A (SMP100 3.1 ST03)
+# não anda num sentido só. Morta desde a partida do inversor que volta em degrau (ou não volta) continua falha.
+QUEDA_GRADUAL_MIN = 40
+RAMPA_FOLGA = 0.05
 
 
 def _min(ts):
@@ -62,6 +76,20 @@ def _grade(serie, janela, passo):
     return g
 
 
+def _rampa(razao, forte, de, ate, desce):
+    """As células entre `de` e `ate` (exclusive) desenham a rampa de uma sombra? Em todas, o inversor forte e a razão
+    para as vizinhas andando num sentido só — caindo (desce) ou subindo, com RAMPA_FOLGA de ruído; a string que zera
+    no meio e volta quebra o sentido. Janela vazia (degrau) passa: quem decide aí é a duração."""
+    ant = None
+    for i in range(de + 1, ate):
+        if not forte[i] or razao[i] is None:
+            return False
+        if ant is not None and (razao[i] > ant + RAMPA_FOLGA if desce else razao[i] < ant - RAMPA_FOLGA):
+            return False
+        ant = razao[i]
+    return True
+
+
 def strings_sem_corrente(curvas_inv, **kw):
     """Strings sem corrente do dia pela régua de 24/09 — só a lista (ver avaliar_dia)."""
     return avaliar_dia(curvas_inv, **kw)["mortas"]
@@ -78,13 +106,15 @@ def avaliar_dia(curvas_inv, *, zero, piso_inv, frac_vizinhas=FRAC_VIZINHAS, jane
     mortos se juntam através de leitura boa curta (tolerancia); só entra o trecho com min_trecho de morte seguida.
 
     → {"mortas": [{inversor, string, saiu, voltou, min_morta, trechos, criterio, ini_producao, fim_producao,
-    sempre_zero}], "vivas": {inversor: n}}. `voltou` None = ficou morta até o inversor parar de gerar (o episódio
-    continua no dia seguinte se ela amanhecer morta). `sempre_zero` = leu zero (ou nada) em toda a produção do dia:
-    a assinatura da entrada sem string. `vivas` só tem o inversor que gerou min_trecho no dia — com menos, a conta
-    não prova nada."""
+    sempre_zero}], "vivas": {inversor: n}, "sombras": [{inversor, string, saiu, voltou, min, entrada_min,
+    saida_min}]} — sombra = trecho que entrou ou saiu por uma rampa de QUEDA_GRADUAL_MIN ou mais, fora das mortas
+    (entrada_min/saida_min None = não houve rampa daquele lado). `voltou` None = ficou morta até o inversor parar de
+    gerar (o episódio continua no dia seguinte se ela amanhecer morta). `sempre_zero` = leu zero (ou nada) em toda a
+    produção do dia: a assinatura da entrada sem string. `vivas` só tem o inversor que gerou min_trecho no dia — com
+    menos, a conta não prova nada."""
     ini = janela[0]
     n = (janela[1] - janela[0]) // passo + 1
-    out, vivas_inv = [], {}
+    out, vivas_inv, sombras = [], {}, []
     for inv, strings in (curvas_inv or {}).items():
         grades = {sid: _grade(s, janela, passo) for sid, s in (strings or {}).items()}
         grades = {sid: g for sid, g in grades.items() if any(v is not None for v in g)}   # sem leitura: não afirma
@@ -105,16 +135,17 @@ def avaliar_dia(curvas_inv, *, zero, piso_inv, frac_vizinhas=FRAC_VIZINHAS, jane
         forte = [m is not None and prod[i] and m >= pico * FRAC_PICO_VIVA for i, m in enumerate(meds)]
         n_vivas = 0
         for sid, g in grades.items():
-            morta, crit = [None] * n, [None] * n
+            morta, crit, razao = [None] * n, [None] * n, [None] * n
             celulas_vivas = 0
             for i in range(n):
                 if not prod[i]:
                     continue
                 v = g[i]
                 if v is None or v <= zero:
-                    morta[i], crit[i] = True, "zerada"
+                    morta[i], crit[i], razao[i] = True, "zerada", 0.0
                     continue
                 viz = _mediana([grades[o][i] for o in grades if o != sid and grades[o][i] is not None and grades[o][i] > zero])
+                razao[i] = (v / viz) if viz else None
                 if viz is not None and v < frac_vizinhas * viz:
                     morta[i], crit[i] = True, "abaixo_das_vizinhas"
                 else:
@@ -145,6 +176,24 @@ def avaliar_dia(curvas_inv, *, zero, piso_inv, frac_vizinhas=FRAC_VIZINHAS, jane
             if cur is not None:
                 trechos.append(cur)
             trechos = [t for t in trechos if len(t["cells"]) * passo >= min_trecho]
+            reais = []
+            for t in trechos:
+                a, b = t["cells"][0], t["cells"][-1]
+                # a leitura boa de referência vale com qualquer luz (a string acompanhar as vizinhas no nublado prova que
+                # ela está inteira); o sol forte é exigido na janela entre ela e o trecho, que é onde a sombra se desenha
+                ok_antes = [i for i in range(a) if prod[i] and razao[i] is not None and razao[i] >= FRAC_VIZINHAS_VIVA]
+                ok_depois = [i for i in range(b + 1, n) if prod[i] and razao[i] is not None and razao[i] >= FRAC_VIZINHAS_VIVA]
+                entrada = ((a - ok_antes[-1]) * passo if ok_antes and _rampa(razao, forte, ok_antes[-1], a, True)
+                           else None)
+                saida = ((ok_depois[0] - b) * passo if ok_depois and _rampa(razao, forte, b, ok_depois[0], False)
+                         else None)
+                if (entrada or 0) >= QUEDA_GRADUAL_MIN or (saida or 0) >= QUEDA_GRADUAL_MIN:
+                    sombras.append({"inversor": inv, "string": sid, "saiu": _hhmm(ini + a * passo),
+                                    "voltou": _hhmm(ini + ok_depois[0] * passo) if ok_depois else None,
+                                    "min": len(t["cells"]) * passo, "entrada_min": entrada, "saida_min": saida})
+                else:
+                    reais.append(t)
+            trechos = reais
             if not trechos:
                 continue
             mins = sum(len(t["cells"]) for t in trechos) * passo
@@ -162,4 +211,4 @@ def avaliar_dia(curvas_inv, *, zero, piso_inv, frac_vizinhas=FRAC_VIZINHAS, jane
                         "sempre_zero": sempre_zero})
         if sum(prod) * passo >= min_trecho:
             vivas_inv[inv] = n_vivas
-    return {"mortas": out, "vivas": vivas_inv}
+    return {"mortas": out, "vivas": vivas_inv, "sombras": sombras}

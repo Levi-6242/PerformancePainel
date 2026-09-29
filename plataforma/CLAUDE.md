@@ -733,3 +733,20 @@ resposta e a rota `/api/painel/falhas?mes=` só devolve os bytes. De `FALHAS_INI
 - **O tempo real também erra**: Guaratinguetá V às 15:44 tinha 48 "parados" com 40 min de curva (15:10–15:50, os trackers
   indo de 46° a 55°) — a v2 não tem piso de cobertura e o `dia_coberto` (4 h) só vale na pré-classificação. A aba não o
   pegou porque o registro não classifica dia com cobertura < 0,5.
+
+**29/09/2026 — sombra não é falha** (Levi, com print da aba: MAB100 4.2 ST07 em 02/09 e 5.1 ST07 em 12/09, "funcionando
+normalmente" no Fusion):
+- A string sai de 50% das vizinhas e desce em **rampa** — uns 4 pontos a cada 10 min, com o inversor a 95–100% do pico —
+  até ficar abaixo de 10%: sombra crescendo. String que abre cai num degrau. `falhas.avaliar_dia` põe o trecho que entra
+  ou sai por uma rampa de `QUEDA_GRADUAL_MIN` (40 min) ou mais em `sombras`, fora das `mortas`. Rampa: em toda célula
+  entre a última leitura a ≥ 50% das vizinhas (com qualquer luz: no nublado a sombra some) e o trecho, o inversor forte
+  (≥ 30% do pico) e a razão num sentido só (`RAMPA_FOLGA`, 0,05).
+- **Não meça só o relógio** desde a última leitura boa (a 1ª versão, que não subiu): chamava de sombra 23 trechos em 9
+  inversor-dias sem rampa nenhuma — buraco de dado no meio (MTS100 3.7 ST11–13 em 22/09, SMP100 6.1 em 18/09:
+  amanheceram mortas), dia no patamar de 20% do pico (CPP100 4.1, 14/09) e string piscando (SMP100 3.1 ST03). Dos 28
+  episódios de entrada lenta na varredura de setembro (curva do 1º dia de 632 episódios de curva), só 3 são rampa: os
+  dois da MAB100 e a MTS200 2.15 ST04 (19/09).
+- Na montagem, `strings.sombras` lista o que saiu, para conferir. Sombra que termina o dia morta e amanhece morta volta a
+  ser falha, com o aviso "começou devagar" (`sombra_amanheceu`).
+- O registro guarda a versão da régua (`regua` = `FALHAS_REGUA_VER`) e o backfill da SunOp refaz o dia avaliado com a
+  anterior (~13 POSTs por dia do mês). API PV, Banco e RenoGrid não têm backfill: dia passado fica como foi avaliado.

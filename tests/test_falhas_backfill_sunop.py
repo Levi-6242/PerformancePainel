@@ -89,7 +89,7 @@ def test_backfill_grava_os_dias_que_faltam_na_hora_da_usina(sunop):
 
 def test_backfill_nao_pisa_no_registro_completo_do_dia(sunop):
     _grava(sunop, {"2026-09-03": {"sunop": {P1: {"usina": P1, "ts": _ts("2026-09-03", "23:50"), "mortas": [],
-                                                 "vivas": {"Inversor 1": 3}}}}})
+                                                 "vivas": {"Inversor 1": 3}, "regua": app.FALHAS_REGUA_VER}}}})
     app._falhas_backfill_sunop("gridco", hoje=date(2026, 9, 4))
     reg = _reg(sunop)
     assert reg["2026-09-03"]["sunop"][P1]["ts"] == _ts("2026-09-03", "23:50")
@@ -167,3 +167,15 @@ def test_axis_grava_na_chave_da_axis(sunop, monkeypatch):
 def test_o_laco_do_backfill_roda_no_worker():
     # pelo nome que o código carrega, não pelo texto: linha comentada não conta
     assert "_falhas_backfill_sunop_loop" in app._iniciar_loops_de_fundo.__code__.co_names
+
+
+def test_backfill_refaz_o_dia_avaliado_com_a_regua_anterior(sunop):
+    # 29/09: a régua passou a separar a sombra que cresce devagar (MAB100 ST07) — o dia avaliado antes disso é refeito,
+    # mesmo já tendo sido baixado pela versão anterior do backfill
+    _grava(sunop, {"2026-09-03": {"sunop": {P1: {"usina": P1, "ts": _ts("2026-09-03", "23:50"), "mortas": [],
+                                                 "vivas": {"Inversor 1": 3}}}}})
+    import json as _j
+    open(app.FALHAS_BF_ESTADO, "w", encoding="utf-8").write(_j.dumps({"gridco": {"2026-09-03": 1}}))
+    app._falhas_backfill_sunop("gridco", hoje=date(2026, 9, 4))
+    ent = _reg(sunop)["2026-09-03"]["sunop"][P1]
+    assert ent["origem"] == "backfill" and ent["regua"] == app.FALHAS_REGUA_VER and "sombras" in ent

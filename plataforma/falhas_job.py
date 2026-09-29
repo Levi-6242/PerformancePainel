@@ -62,6 +62,11 @@ PISCA_VIVA_MAX = 60
 MORTA_DESDE_PRODUCAO = 20
 MANHA_SEM_HORA_ATE = 10 * 60 + 30
 FLAG_MANHA = "volta curta ignorada (morreu de novo no mesmo dia)"
+# sombra (29/09/2026, falhas.avaliar_dia): o trecho que entrou em rampa e terminou o dia morto vira falha se a string
+# amanhece morta no dia registrado seguinte — sombra de verdade não atravessa a noite. Na 1ª versão da régua (só o
+# relógio) MTS100 3.7 ST11 a ST13 (22/09) e SMP100 6.1 (18/09) passavam por sombra e só esta volta os salvava; eram
+# buraco de dado, e a rampa já os deixa nas mortas. Fica como rede.
+FLAG_DEVAGAR = "começou devagar (a queda levou 40 min ou mais)"
 FONTE_VARRE_TUDO = {"sunop", "axis", "owen"}
 FONTE_ROT = {"pv": "API PV", "pvsb": "API PV · String Box", "pg": "Banco", "sunop": "Athon", "axis": "Axis", "owen": "2C",
              "solaredge": "RenoGrid"}
@@ -506,7 +511,7 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
     # 1) SEGMENTOS de dia por string — da régua nova (curva) quando a usina-dia tem, senão das quedas gravadas
     segs = defaultdict(list)          # (fonte, pid, usina, inversor, string) → [segmento]
 
-    def add_seg(fonte, pid, usina, dia, inv_raw, string, a, voltou, metodo, ini_prod=None):
+    def add_seg(fonte, pid, usina, dia, inv_raw, string, a, voltou, metodo, ini_prod=None, flag=None):
         b = voltou if voltou is not None else fim_janela(dia)
         x, y, mins, sem_estado = intersec(a, b, usina, dia)
         if sem_estado:
@@ -525,7 +530,7 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
         if chave_ch(fonte, pid, inv, string) in VAZIAS:
             str_q["entrada vazia: fora"] += 1
             return
-        flags = set()
+        flags = {flag} if flag else set()
         if tv is None:                # a usina tem trava e o de-para não diz qual inversor é: fica, mas avisada
             str_q["trava não conferida (sem de-para)"] += 1
             flags.add("trava não conferida (sem de-para)")
@@ -554,6 +559,20 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                         continue
                     add_seg(fonte, pid, usina, dia, e.get("inversor"), e.get("string"), a,
                             _hm(e.get("voltou")) if e.get("voltou") else None, "store")
+    def sombra_amanheceu(fonte, pid, dia, x):
+        """A sombra que terminou o dia morta (voltou None) e cuja string amanhece morta no dia registrado seguinte."""
+        if x.get("voltou") is not None:
+            return False
+        pr = min((d for d in registro[(fonte, pid)] if d > dia), default=None)
+        nx = ((mortas_curva.get(pr) or {}).get(fonte) or {}).get(pid) if pr else None
+        for m in (nx or {}).get("mortas") or []:
+            if m.get("inversor") == x.get("inversor") and m.get("string") == x.get("string"):
+                a, ip = _hm(m.get("saiu")), _hm(m.get("ini_producao"))
+                if a is not None and (a <= DESPERTAR or (ip is not None and a - ip <= MORTA_DESDE_PRODUCAO)):
+                    return True
+        return False
+
+    sombra_falha = set()
     for dia, fontes in mortas_curva.items():
         if not (ini <= dia <= fim):
             continue
@@ -564,6 +583,12 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                         str_q["trechos da régua nova (curva)"] += 1
                         add_seg(fonte, pid, ent.get("usina") or pid, dia, r["inversor"], r["string"], _hm(sa),
                                 _hm(sv) if sv else None, "curva", ini_prod=_hm(r.get("ini_producao")))
+                for x in ent.get("sombras") or []:
+                    if sombra_amanheceu(fonte, pid, dia, x):
+                        str_q["sombra que amanheceu morta: é falha"] += 1
+                        sombra_falha.add((fonte, str(pid), dia, x.get("inversor"), x.get("string"), x.get("saiu")))
+                        add_seg(fonte, pid, ent.get("usina") or pid, dia, x["inversor"], x["string"], _hm(x["saiu"]),
+                                None, "curva", flag=FLAG_DEVAGAR)
     # 2C: a régua nova já rodou acima (dias_2c), com a curva do 2C_historico
     for dia, lst in dias_2c.items():
         for u, usina, res in lst:
@@ -1008,8 +1033,27 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
             a["h"] += r["h_sol"]
         return sorted(({"k": k, **v} for k, v in agg.items()), key=lambda x: -x["kwh"])
 
+    # SOMBRA (29/09/2026): o trecho que entrou ou saiu em rampa não é falha (falhas.avaliar_dia, MAB100 ST07 em 02 e
+    # 12/09, o Fusion mostrava a string boa) — fica listado para quem quiser conferir, fora dos episódios e do kWh
+    sombras_info = []
+    for dia_s, fontes_s in sorted(mortas_curva.items()):
+        if ini <= dia_s <= fim:
+            for fonte_s, usinas_s in fontes_s.items():
+                for pid_s, ent_s in usinas_s.items():
+                    for x in ent_s.get("sombras") or []:
+                        if (fonte_s, str(pid_s), dia_s, x.get("inversor"), x.get("string"), x.get("saiu")) in sombra_falha:
+                            continue
+                        sombras_info.append({"fonte": fonte_s, "plant_id": pid_s, "usina": canon(ent_s.get("usina") or pid_s),
+                                             "dia": dia_s, **x})
+    for dia_s, lst_s in sorted(dias_2c.items()):
+        for u_s, usina_s, res_s in lst_s:
+            for x in res_s.get("sombras") or []:
+                sombras_info.append({"fonte": "owen", "plant_id": u_s, "usina": canon(usina_s), "dia": dia_s, **x})
+    if sombras_info:
+        str_q["sombra (entrou ou saiu em rampa): fora"] = len(sombras_info)
     return {"periodo": [ini, fim], "gerado_em": agora.strftime("%Y-%m-%d %H:%M"),
             "strings": {"rows": str_rows, "episodios": str_ep, "qualidade": dict(str_q), "entradas_vazias": vazias_info,
+                        "sombras": sombras_info,
                         "por_cliente": resumo(str_rows, "cliente")[:12], "por_usina": resumo(str_rows, "usina")[:25],
                         "parcial": sorted(list(x) for x in parcial), "massa": {f"{d_}|{f_}": v for (d_, f_), v in massa.items()},
                         "dias_registrados": sorted(d_ for d_ in set().union(*dias_fonte.values()) if ini <= d_ <= fim)

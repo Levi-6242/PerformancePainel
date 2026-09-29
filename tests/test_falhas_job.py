@@ -721,3 +721,40 @@ def test_registro_da_madrugada_sem_producao_nao_fecha_o_episodio():
     mortas = curva("02", [], vivas=None)
     (e,) = episodios(monta(store(d01=[ev("Ipv1", "07:00")]), mortas=mortas))
     assert e["fim"] is None and e["fim_motivo"] == "em aberto"
+
+
+def test_sombra_do_registro_nao_vira_episodio_e_fica_listada():
+    # 29/09: a régua sobre a curva separa a sombra que cresce devagar (MAB100 ST07) — ela vem em `sombras`, não em
+    # `mortas`, e a montagem só lista
+    c = curva("02", [], vivas=24)
+    c["2026-09-02"]["pv"][PID]["sombras"] = [{"inversor": "Inversor 3.3", "string": "Ipv7", "saiu": "14:20",
+                                               "voltou": None, "min": 140, "entrada_min": 110, "saida_min": None}]
+    p = monta({}, mortas=c, fim="2026-09-02")
+    assert episodios(p, "Ipv7") == []
+    (s,) = p["strings"]["sombras"]
+    assert (s["dia"], s["string"], s["entrada_min"]) == ("2026-09-02", "Ipv7", 110)
+    assert p["strings"]["qualidade"]["sombra (entrou ou saiu em rampa): fora"] == 1
+
+
+def _sombra(st, saiu="14:20", voltou=None, inv="Inversor 3.3"):
+    return {"inversor": inv, "string": st, "saiu": saiu, "voltou": voltou, "min": 140, "entrada_min": 110,
+            "saida_min": None}
+
+
+def test_sombra_que_amanhece_morta_e_falha_que_comecou_devagar():
+    # MTS100 3.7 ST11 a ST13: caíram devagar em 22/09 à tarde e passaram o 23 inteiro sem corrente
+    c = curva("01", [], vivas=24)
+    c["2026-09-01"]["pv"][PID]["sombras"] = [_sombra("Ipv7")]
+    c.update(curva("02", [morta("Ipv7", saiu="06:30", ini="06:30")], vivas=24))
+    (e,) = episodios(monta({}, mortas=c, fim="2026-09-02"), "Ipv7")
+    assert e["inicio"] == "2026-09-01 14:20" and e["fim"] is None
+    assert falhas_job.FLAG_DEVAGAR in e["flags"]
+    assert monta({}, mortas=c, fim="2026-09-02")["strings"]["sombras"] == []
+
+
+def test_sombra_que_volta_no_mesmo_dia_nao_vira_falha_nem_com_queda_no_dia_seguinte():
+    c = curva("01", [], vivas=24)
+    c["2026-09-01"]["pv"][PID]["sombras"] = [_sombra("Ipv7", voltou="16:40")]
+    c.update(curva("02", [morta("Ipv7", saiu="06:30", ini="06:30")], vivas=24))
+    (e,) = episodios(monta({}, mortas=c, fim="2026-09-02"), "Ipv7")
+    assert e["inicio"].startswith("2026-09-02")          # só a queda do dia 02

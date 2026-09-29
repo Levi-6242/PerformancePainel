@@ -190,7 +190,7 @@ def test_inversor_que_gerou_menos_de_duas_horas_nao_prova_nada():
 
 def test_inversor_parado_fica_fora_das_vivas():
     curvas = {"Inversor 1.1": {f"ST 0{i}": [(h, 0.0) for h, _ in sino(8.0)] for i in range(1, 6)}}
-    assert avaliado(curvas) == {"mortas": [], "vivas": {}}
+    assert avaliado(curvas) == {"mortas": [], "vivas": {}, "sombras": []}
 
 
 def test_morta_leva_a_hora_em_que_o_inversor_comecou_a_gerar():
@@ -201,3 +201,132 @@ def test_morta_leva_a_hora_em_que_o_inversor_comecou_a_gerar():
 
 def test_strings_sem_corrente_segue_devolvendo_so_as_mortas():
     assert achadas(inversor([(h, 0.0) for h, _ in sino(8.0)])).keys() == {("Inversor 1.1", "ST 05")}
+
+
+# ── sombra não é falha (29/09/2026) ──────────────────────────────────────────────────────────────────────────
+# Levi, com print da aba: "alarme falsos nessas strings, verifiquei tanto na plataforma quanto em um supervisório
+# auxiliar do Fusion e mostra essas strings funcionando normalmente". MAB100 Inversor 4.2 ST07 em 02/09 e Inversor 5.1
+# ST07 em 12/09: de manhã a string acompanha as vizinhas; depois ela CAI EM RAMPA — 89% da mediana às 10:00, 51% às
+# 12:30, 8% às 14:30, uns 4 pontos a cada 10 min com o inversor a 95-100% do pico — e fica em 0,64/0,44 A até o fim do
+# dia, com as vizinhas a 7,5 A. É sombra crescendo, não string que abriu: falha de string é degrau (cai em uma leitura).
+# A régua pedia só "abaixo de 10% das vizinhas por 2 h". Na varredura de setembro a mesma rampa só apareceu mais uma
+# vez (MTS200 2.15 ST04, 19/09); os outros 14 inversor-dias de "queda lenta" não tinham rampa — ver os testes do fim.
+import json as _json
+import os as _os
+
+_FIX = _os.path.join(_os.path.dirname(__file__), "fixtures", "falhas_sombra")
+
+
+def _real(nome):
+    d = _json.load(open(_os.path.join(_FIX, nome), encoding="utf-8"))
+    return {d["inversor"]: {st: [tuple(p) for p in s] for st, s in d["strings"].items()}}
+
+
+def _sunop(curvas):
+    return falhas.avaliar_dia(curvas, zero=0.1, piso_inv=0.5)
+
+
+def test_sombra_que_cresce_a_tarde_na_mab100_e_na_mts200_nao_e_falha():
+    for nome, st in (("sunop__mab100__2026-09-02__inversor-4.2.json", "ST 07"),
+                     ("sunop__mab100__2026-09-12__inversor-5.1.json", "ST 07"),
+                     ("sunop__mts200__2026-09-19__inversor-2.15.json", "ST 04")):
+        res = _sunop(_real(nome))
+        assert [m["string"] for m in res["mortas"]] == [], (nome, res["mortas"])
+        (s,) = res["sombras"]
+        assert s["string"] == st and s["entrada_min"] >= 60, s
+
+
+def _fracao(serie, pontos):
+    """A curva multiplicada por uma fração que varia no dia: pontos = [(hh:mm, fração)], interpolação linear."""
+    xs = [(int(h[:2]) * 60 + int(h[3:]), f) for h, f in pontos]
+    out = []
+    for hhmm, v in serie:
+        m = int(hhmm[:2]) * 60 + int(hhmm[3:])
+        if m <= xs[0][0]:
+            f = xs[0][1]
+        elif m >= xs[-1][0]:
+            f = xs[-1][1]
+        else:
+            (a, fa), (b, fb) = next(((a, fa), (b, fb)) for (a, fa), (b, fb) in zip(xs, xs[1:]) if a <= m <= b)
+            f = fa + (fb - fa) * (m - a) / (b - a)
+        out.append((hhmm, v * f))
+    return out
+
+
+def test_sombra_sintetica_a_tarde_nao_e_falha():
+    r = _sunop(inversor(_fracao(sino(8.0), [("11:00", 1.0), ("14:00", 0.05), ("18:00", 0.05)])))
+    assert r["mortas"] == [] and r["sombras"][0]["string"] == "ST 05"
+
+
+def test_degrau_a_tarde_continua_falha():
+    # a mesma hora e a mesma corrente final da sombra, mas caindo de uma leitura para a outra
+    r = _sunop(inversor(_fracao(sino(8.0), [("13:50", 1.0), ("14:00", 0.05), ("18:00", 0.05)])))
+    (m,) = r["mortas"]
+    assert m["string"] == "ST 05" and not r["sombras"]
+
+
+def test_sombra_da_manha_que_sai_devagar_nao_e_falha():
+    r = _sunop(inversor(_fracao(sino(8.0), [("06:00", 0.03), ("09:00", 0.03), ("12:00", 1.0)])))
+    assert r["mortas"] == [] and r["sombras"][0]["saida_min"] >= 60
+
+
+def test_morta_desde_o_amanhecer_com_volta_em_degrau_continua_falha():
+    r = _sunop(inversor(troca(sino(8.0), "06:00", "13:00", 0.0)))
+    (m,) = r["mortas"]
+    assert m["voltou"] == "13:00" and not r["sombras"]
+
+
+def test_zerada_o_dia_todo_continua_falha_e_nao_e_sombra():
+    r = _sunop(inversor(troca(sino(8.0), "06:00", "18:01", 0.0)))
+    assert [m["string"] for m in r["mortas"]] == ["ST 05"] and not r["sombras"]
+
+
+def test_string_morta_que_le_resto_de_corrente_com_pouca_luz_continua_falha():
+    # SMP100 5.2 ST15 (MPPT em curto, OS 13297): lê ~0,4 A fixo; de manhã as vizinhas também estão fracas e ela parece
+    # "viva", depois as vizinhas sobem e a razão cai devagar — não é sombra, a corrente dela nunca caiu
+    r = _sunop(inversor([(h, 0.4 if v > 0.1 else 0.0) for h, v in sino(8.0)]))
+    assert [m["string"] for m in r["mortas"]] == ["ST 05"] and not r["sombras"]
+
+
+def test_resto_de_corrente_que_passa_de_50_por_cento_na_partida_continua_falha():
+    # com 0,6 A fixos a string morta lê mais que metade das vizinhas na partida do inversor; depois a razão "cai em
+    # rampa" sozinha, porque as vizinhas sobem com o sol. Só o sol forte exigido na janela separa isso da sombra
+    r = _sunop(inversor([(h, 0.6 if v > 0.1 else 0.0) for h, v in sino(8.0)]))
+    assert [m["string"] for m in r["mortas"]] == ["ST 05"] and not r["sombras"]
+
+
+def test_nuvem_no_meio_da_rampa_nao_desfaz_a_sombra():
+    # na nuvem não há sol direto e a sombra some: por uma leitura a string sombreada volta a ler como as vizinhas (a
+    # leitura boa de referência vale com qualquer luz) e a rampa segue depois dela, com sol forte
+    ref = dict(sino(8.0))
+    strs = {f"ST 0{i}": sino(8.0) for i in range(1, 5)}
+    strs["ST 05"] = _fracao(sino(8.0), [("11:00", 1.0), ("14:00", 0.05), ("18:00", 0.05)])
+    strs = {st: [(h, ref[h] * 0.2 if h == "12:30" else v) for h, v in serie] for st, serie in strs.items()}
+    r = _sunop({"Inversor 1.1": strs})
+    assert r["mortas"] == [] and [x["string"] for x in r["sombras"]] == ["ST 05"]
+
+
+# ── o que parecia "queda lenta" e não era sombra (varredura de setembro, 29/09) ─────────────────────────────────
+# Medir só o relógio desde a última leitura boa (a 1ª versão da régua da sombra) chamava de sombra 23 trechos, em 9
+# inversor-dias, sem rampa nenhuma. A rampa pede, em toda célula entre a leitura boa e o trecho, sol forte e a razão
+# para as vizinhas num sentido só.
+
+def test_queda_que_atravessa_buraco_de_dado_nao_e_sombra():
+    # MTS100 Inversor 3.7, 22/09: ST11-13 a 100% das vizinhas às 12:20, 2 h SEM LEITURA do inversor e zeradas às
+    # 14:20 — o relógio via 120 min de "queda". Amanheceram mortas no dia 23: falha.
+    res = _sunop(_real("sunop__mts100__2026-09-22__inversor-3.7.json"))
+    assert sorted(m["string"] for m in res["mortas"]) == ["ST 11", "ST 12", "ST 13"] and res["sombras"] == []
+
+
+def test_dia_no_patamar_de_20_por_cento_do_pico_nao_desenha_sombra():
+    # CPP100 Inversor 4.1, 14/09: o inversor passa o dia a ~20% do pico, com picos curtos de sol. A última leitura boa
+    # com sol forte ficava horas antes do trecho (ST05 com "saída" de 240 min) — sem sol forte não há sombra
+    res = _sunop(_real("sunop__cpp100__2026-09-14__inversor-4.1.json"))
+    assert sorted(m["string"] for m in res["mortas"]) == ["ST 02", "ST 05", "ST 10", "ST 17"] and res["sombras"] == []
+
+
+def test_string_que_pisca_nao_e_sombra():
+    # SMP100 Inversor 3.1, 22/09: a ST03 pisca entre 0 e 0,4 A o dia todo com o inversor forte; na "volta" das 14 h
+    # ela vai a 36% e 43% das vizinhas e cai para 16% antes de passar de 50% — não é rampa
+    res = _sunop(_real("sunop__smp100__2026-09-22__inversor-3.1.json"))
+    assert "ST 03" in {m["string"] for m in res["mortas"]} and res["sombras"] == []

@@ -23532,11 +23532,18 @@ def _falhas_arquivo(mes):
 _FALHAS_MORTAS_TETO = 60               # (fonte, dia) em memória: 7 fontes × uns 8 dias
 
 
+# Versão da régua de strings no registro. Mudou a régua a ponto de o dia avaliado com a anterior estar errado, muda a
+# versão: o backfill da SunOp refaz esses dias. 29/09/2026: a sombra que desce em rampa (MAB100 ST07) saiu das mortas.
+FALHAS_REGUA_VER = "2026-09-29-sombra"
+
+
 def _falhas_entrada(usina, curvas, zero=None, piso=None, ids=None, **grade):
-    """A entrada do registro para uma usina-dia: as mortas, as vivas por inversor e os ids da trava."""
+    """A entrada do registro para uma usina-dia: as mortas, as vivas por inversor, as sombras (trecho que entrou ou saiu
+    em rampa — não é falha, fica para conferir) e os ids da trava."""
     res = _falhas_mod.avaliar_dia(curvas, zero=STRING_SEM_CORRENTE_A if zero is None else zero,
                                   piso_inv=STR_EV_INV_MIN_MED if piso is None else piso, **grade)
-    ent = {"usina": usina, "ts": time.time(), "mortas": res["mortas"], "vivas": res["vivas"]}
+    ent = {"usina": usina, "ts": time.time(), "mortas": res["mortas"], "vivas": res["vivas"],
+           "sombras": res.get("sombras") or [], "regua": FALHAS_REGUA_VER}
     if ids:
         ent["ids"] = {str(k): str(v) for k, v in ids.items()}
     return ent
@@ -23973,8 +23980,10 @@ def _falhas_bf_limite(dia):
 
 
 def _falhas_bf_falta(ent, dia):
-    """A usina-dia precisa da curva? Sem registro, registro de antes das vivas ou avaliado antes das 18h."""
-    return not ent or "vivas" not in ent or float(ent.get("ts") or 0) < _falhas_bf_limite(dia)
+    """A usina-dia precisa da curva? Sem registro, registro de antes das vivas, avaliado antes das 18h ou com uma
+    régua anterior (FALHAS_REGUA_VER)."""
+    return (not ent or "vivas" not in ent or float(ent.get("ts") or 0) < _falhas_bf_limite(dia)
+            or ent.get("regua") != FALHAS_REGUA_VER)
 
 
 def _falhas_sunop_hist_api(pathnames, dia, inst):
@@ -24017,7 +24026,7 @@ def _falhas_backfill_sunop(inst, hoje=None):
         return 0
     reg = _falhas_persistir_mortas()       # a memória vai ao arquivo antes de decidir o que falta
     est = _falhas_ler(FALHAS_BF_ESTADO) or {}
-    feitos = est.setdefault(inst, {})
+    feitos = est.setdefault(f"{inst}|{FALHAS_REGUA_VER}", {})   # régua nova refaz os dias da anterior
     dias, d = [], datetime.strptime(FALHAS_INI, "%Y-%m-%d").date()
     while d < hoje:
         iso = d.isoformat()
