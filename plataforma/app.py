@@ -19008,6 +19008,57 @@ def _2c_trk_da_api(pid, trk):
 
 
 _2c_trk_api_memo = {}   # date_iso -> (ts, trackers)
+_2c_trk_vazio = {}      # (pid, data_br) -> quando o dia veio vazio pela última vez
+_2C_TRK_LOOP_S = 60
+
+
+def _2c_trk_vence(pid, data_br):
+    """Faz o dia da planta vencer SEM apagá-lo: o _pv_trk_dia busca de novo e, se a API falhar, devolve o dia que já
+    tinha. Apagar (o `pop` de antes) trocava o dia bom por um vazio quando a busca falhava — e vazio aqui é "usina sem
+    tracker"."""
+    ent = _pv_trk_dia_cache.get((pid, data_br))
+    if ent:
+        ent["ts"] = 0.0
+
+
+def _2c_trk_renova_dias(agora=None) -> list:
+    """Uma volta do _2c_trk_loop: renova o dia de hoje de cada planta da 2C que falta ou vence nas próximas duas voltas.
+    Devolve as plantas renovadas."""
+    agora = agora or datetime.now()
+    hoje_br = agora.strftime("%d/%m/%Y")
+    renovadas = []
+    for pid in sorted({f[4] for f in _2C_TRK_FAIXAS}):
+        ent = _pv_trk_dia_cache.get((pid, hoje_br))
+        if ent and time.time() - ent["ts"] < TRK_DIA_TTL - 2 * _2C_TRK_LOOP_S:
+            continue
+        # dia ainda sem leitura (madrugada) ou API fora: o _pv_trk_dia não guarda vazio, e sem esta espera o laço
+        # pediria o dia das 6 plantas a cada minuto
+        if not ent and time.time() - _2c_trk_vazio.get((pid, hoje_br), 0.0) < 5 * 60:
+            continue
+        _2c_trk_vence(pid, hoje_br)
+        if not (_pv_trk_dia(pid, hoje_br, fetch=True) or {}).get("curva"):
+            _2c_trk_vazio[(pid, hoje_br)] = time.time()
+        renovadas.append(pid)
+    return renovadas
+
+
+def _2c_trk_loop():
+    """Mantém quente o dia de trackers da 2C pela API (30/09/2026). Frio, os parados da 2C levam 51 s (o dia inteiro de
+    6 plantas, de 8 a 64 MB cada); quente, 5 s. A Entrada dá 30 s a cada fonte e o dia da API vence de 30 em 30 min,
+    no mesmo passo dela: sem este laço, a 1ª tentativa de cada ciclo estourava e o card da 2C ficava "de tal hora"
+    (medido às 08:54 de 30/09, logo depois do deploy). Aqui quem paga a busca é o fundo, 2 min antes de vencer; a
+    Entrada e a ronda acham o dia pronto. Só de dia: de noite o tracker está em repouso e o dia não muda."""
+    _ABA_PRINCIPAL_SAIU.wait(timeout=PV_TRK_ESPERA_BOOT_S)
+    while True:
+        agora = datetime.now()
+        if 6 <= agora.hour < 19:
+            try:
+                ren = _2c_trk_renova_dias(agora)
+                if ren:
+                    print(f"[2c/trackers] dia renovado pela API: {ren}")
+            except Exception as e:                           # noqa: BLE001 — uma volta ruim não para o laço
+                print(f"[2c/trackers] aquecimento falhou: {e}")
+        time.sleep(_2C_TRK_LOOP_S)
 
 
 def _2c_trk_build_api(date_iso, force=False):
@@ -19023,7 +19074,7 @@ def _2c_trk_build_api(date_iso, force=False):
     out = {}
     for pid in sorted({f[4] for f in _2C_TRK_FAIXAS}):
         if force and data_br == datetime.now().strftime("%d/%m/%Y"):
-            _pv_trk_dia_cache.pop((pid, data_br), None)            # a ronda quer a leitura de agora
+            _2c_trk_vence(pid, data_br)                             # a ronda quer a leitura de agora
         d = _pv_trk_dia(pid, data_br, fetch=True)
         alvo = d.get("alvo") or {}
         for trk, pts in (d.get("curva") or {}).items():
@@ -22414,6 +22465,7 @@ def _iniciar_loops_de_fundo():
                  _sunop_keepalive_loop,     # renova tokens (escreve *_token.txt)
                  _prewarm_loop,
                  _pv_trk_loop,              # trackers da API PV: 15 min por varredura, fora do ciclo do prewarm
+                 _2c_trk_loop,              # dia de trackers da 2C pela API sempre quente (Entrada e ronda: 5 s, não 51)
                  _persist_loop,             # ÚNICO escritor do cache_snapshot.json
                  _trk_parada_loop,
                  _trk_ev_hoje_loop,

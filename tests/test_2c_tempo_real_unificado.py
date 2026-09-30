@@ -229,3 +229,50 @@ def test_parados_da_api_pv_nao_listam_as_usinas_da_2c(monkeypatch):
     monkeypatch.setattr(app, "_bd_trk_lookup", lambda *a, **k: "")
     monkeypatch.setattr(app, "_trk_geo_annotate", lambda rows: rows)
     assert [r["plant_id"] for r in app._pv_parados_rows()] == [111]
+
+
+# ── o dia de tracker da 2C fica quente no worker (_2c_trk_loop, 30/09/2026) ───────────────────────────────────────
+def test_o_laco_renova_o_dia_antes_de_vencer(monkeypatch):
+    """Frio, os parados da 2C levavam 51 s e a Entrada dá 30 s a cada fonte: o laço renova 2 min antes de vencer."""
+    import time as _t
+    from datetime import datetime as _dt
+    agora = _dt(2026, 9, 30, 10, 0)
+    br = "30/09/2026"
+    cache = {(SC1, br): {"ts": _t.time(), "d": {"curva": {"TRK1": []}}},
+             (SC2, br): {"ts": _t.time() - (app.TRK_DIA_TTL - 60), "d": {"curva": {"TRK1": []}}}}
+    monkeypatch.setattr(app, "_pv_trk_dia_cache", cache)
+    monkeypatch.setattr(app, "_2c_trk_vazio", {})
+    pedidos = []
+    monkeypatch.setattr(app, "_pv_trk_dia", lambda pid, data, fetch=True: pedidos.append(pid) or {"curva": {"TRK1": []}})
+    ren = app._2c_trk_renova_dias(agora)
+    assert SC1 not in ren and SC2 in ren and SC3 in ren and 18771898 in ren          # a fresca fica, as outras renovam
+    assert cache[(SC2, br)]["ts"] == 0.0                                             # venceu sem ser apagada
+    assert sorted(ren) == sorted(pedidos)
+
+
+def test_renovar_nao_troca_o_dia_bom_por_vazio_quando_a_api_falha(monkeypatch):
+    import time as _t
+    from datetime import datetime as _dt
+    hoje = _dt.now().strftime("%d/%m/%Y")
+    bom = {"curva": {"TRK1": [{"x": "10:00", "y": 12.0}]}, "ultima": {}, "ultima_ts": None}
+    monkeypatch.setattr(app, "_pv_trk_dia_cache", {(SC1, hoje): {"ts": _t.time(), "d": bom}})
+
+    class _Fora:
+        def post(self, *a, **k):
+            raise ConnectionError("API PV fora")
+    monkeypatch.setattr(app, "_http", lambda: _Fora())
+    monkeypatch.setattr(app, "_pv_token_for", lambda pid: "t")
+    app._2c_trk_vence(SC1, hoje)
+    assert app._pv_trk_dia(SC1, hoje, fetch=True) is bom                            # a busca falhou: fica o de antes
+
+
+def test_dia_ainda_vazio_nao_e_pedido_a_cada_minuto(monkeypatch):
+    from datetime import datetime as _dt
+    monkeypatch.setattr(app, "_pv_trk_dia_cache", {})
+    monkeypatch.setattr(app, "_2c_trk_vazio", {})
+    pedidos = []
+    monkeypatch.setattr(app, "_pv_trk_dia", lambda pid, data, fetch=True: pedidos.append(pid) or {"curva": {}})
+    agora = _dt(2026, 9, 30, 6, 5)
+    primeira = app._2c_trk_renova_dias(agora)
+    assert len(primeira) == 6 and len(pedidos) == 6
+    assert app._2c_trk_renova_dias(agora) == [] and len(pedidos) == 6                # vazio: espera 5 min
