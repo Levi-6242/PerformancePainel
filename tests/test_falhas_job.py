@@ -9,6 +9,8 @@ Cada teste trava uma regra que o Levi pediu ao ver o estudo:
 - tracker que começa parado e vira atraso severo sai da visão; "parado" no alvo o episódio todo não é falha.
 A usina é a Inhapi de verdade (cadastro local), para a perda sair com kWp e estado do sol reais.
 """
+from datetime import datetime
+
 import pytest
 
 import app
@@ -625,11 +627,19 @@ def test_setembro_ainda_e_refeito_nos_dias_1_e_2_e_depois_congela():
     assert app._falhas_meses_a_montar(date(2026, 10, 3), meses, lambda m: m != "2026-09") == ["2026-09", "2026-10"]
 
 
+# Os três abaixo rodam com o relógio FIXO em 01/10 ao meio-dia, com o worker refazendo setembro e montando outubro.
+# A montagem trata o dia de HOJE como dia em andamento (o episódio aberto termina em "agora"), e com o relógio de
+# verdade o cenário dependia da hora da execução: em 30/09 até as 11:59, a queda das 10:00 de 30/09 ficava com menos
+# de 2 h e o episódio de setembro sumia (a suíte quebrou assim em 30/09); em 01/10 até as 06:59, a parada das 06:30
+# ficava com menos de 30 min na janela e o tracker saía.
+VIRADA = datetime(2026, 10, 1, 12, 0)
+
+
 def test_string_zerada_no_fim_de_setembro_fica_em_aberto_no_pacote_de_setembro():
     # o pacote de setembro, refeito em 01/10, termina em 30/09: a string que seguia zerada em 01/10 fica em aberto
     ent = lambda evs: {"pv": {PID: {"usina": "Inhapi", "ts": 0, "eventos": evs}}}
     st = {"2026-09-30": ent([ev("Ipv1", "10:00")]), "2026-10-01": ent([ev("Ipv1", "06:10")])}
-    (e,) = episodios(monta(st, fim="2026-09-30"))
+    (e,) = episodios(monta(st, fim="2026-09-30", agora=VIRADA))
     assert e["fim"] is None and not any(f.startswith("sem registro") for f in e["flags"])
 
 
@@ -639,7 +649,7 @@ def test_episodio_que_vem_de_setembro_diz_desde_quando_no_pacote_de_outubro():
     st = {"2026-10-01": ent([ev("Ipv1", "06:10", "11:00"), ev("Ipv2", "09:00", "12:00")])}
     antes = {"strings": {("pv", PID, "Inversor 3.3", "Ipv1"): "2026-09-20 10:40"}, "trackers": {}}
     p = falhas_job.montar(app, sol, "2026-10-01", "2026-10-01", geracao={}, str_store=st, trk_store={}, book={},
-                          hist_2c=lambda dia: {}, abertos_antes=antes, log=lambda m: None)
+                          hist_2c=lambda dia: {}, abertos_antes=antes, agora=VIRADA, log=lambda m: None)
     e1 = next(e for e in p["strings"]["episodios"] if e["string"] == "Ipv1")
     e2 = next(e for e in p["strings"]["episodios"] if e["string"] == "Ipv2")
     assert e1["desde"] == "2026-09-20 10:40" and "vem do mês anterior (desde 20/09 10:40)" in e1["flags"]
@@ -651,7 +661,7 @@ def test_tracker_parado_que_vem_de_setembro_diz_desde_quando():
                               "eventos": [{"tracker": "TRK1", "parada": "06:30", "retorno": None, "desvio": 35.0}]}}}
     antes = {"strings": {}, "trackers": {("pv", PID, "TRK1"): "2026-09-25 14:00"}}
     p = falhas_job.montar(app, sol, "2026-10-01", "2026-10-01", geracao={}, str_store={}, trk_store=t, book={},
-                          hist_2c=lambda dia: {}, abertos_antes=antes, log=lambda m: None)
+                          hist_2c=lambda dia: {}, abertos_antes=antes, agora=VIRADA, log=lambda m: None)
     (r,) = p["trackers"]["rows"]
     assert r["desde"] == "2026-09-25 14:00"
 
