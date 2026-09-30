@@ -209,7 +209,29 @@ def test_quem_depende_da_api_pv_vai_por_ultimo():
     src = inspect.getsource(app._prewarm_loop)
     for nome in app.PREWARM_DEPENDEM_API_PV:
         assert f'("{nome}",' in src, f"{nome!r} não existe mais no _prewarm_loop — a lista ficou velha"
-    assert "key=lambda t: t[0] in PREWARM_DEPENDEM_API_PV" in src
+    assert "_prewarm_ordem_etapa3(leves)" in src
     tarefas = [("ETM", 1), ("SunOp", 2), ("SEMP strings", 3), ("PG snapshot", 4), ("2C API PV", 5), ("Axis", 6)]
-    ordem = [n for n, _ in sorted(tarefas, key=lambda t: t[0] in app.PREWARM_DEPENDEM_API_PV)]
+    app._PREWARM_FICARAM.clear()
+    ordem = [n for n, _ in app._prewarm_ordem_etapa3(tarefas)]
     assert ordem == ["SunOp", "PG snapshot", "Axis", "ETM", "SEMP strings", "2C API PV"]
+
+
+def test_quem_o_teto_deixou_sem_comecar_vai_na_frente_na_volta_seguinte(monkeypatch):
+    """30/09/2026: com a API PV lenta à tarde, as tarefas do fim da fila nunca começavam — o teto cancela quem não
+    começou, e na volta seguinte a fila era a mesma. No servidor, a tabela de strings da 2C ficou em 13:46 e a análise de
+    ETM dela em 12:32 enquanto SEMP e Alves Lima, antes delas na fila, eram refeitas às 15:56."""
+    monkeypatch.setattr(app, "_PREWARM_EM_VOO", set())
+    monkeypatch.setattr(app, "_PREWARM_FICARAM", set())
+    solta = threading.Event()
+    app._prewarm_paralelo([("ETM", lambda: solta.wait(10)), ("SEMP strings", lambda: None), ("2C API PV", lambda: None)],
+                          workers=1, espera_max=0.3)
+    assert app._PREWARM_FICARAM == {"SEMP strings", "2C API PV"}
+    tarefas = [("ETM", 1), ("SunOp", 2), ("SEMP strings", 3), ("2C API PV", 4), ("Axis", 5)]
+    assert [n for n, _ in app._prewarm_ordem_etapa3(tarefas)] == ["SunOp", "Axis", "SEMP strings", "2C API PV", "ETM"]
+    solta.set()
+    for _ in range(50):
+        if not app._PREWARM_EM_VOO:
+            break
+        time.sleep(0.05)
+    app._prewarm_paralelo([("SEMP strings", lambda: None), ("2C API PV", lambda: None)], workers=2, espera_max=2)
+    assert app._PREWARM_FICARAM == set(), "rodaram: saem da frente"

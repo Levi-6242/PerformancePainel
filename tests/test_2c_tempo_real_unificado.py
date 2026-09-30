@@ -75,6 +75,20 @@ def test_tabela_de_strings_so_le_a_api(cli, monkeypatch):
     assert d["summary"]["total_usinas"] == 3 and d["summary"]["total_strings"] == 136 + 105 + 236
 
 
+def test_tabela_de_strings_da_2c_diz_a_hora_do_pacote_e_se_venceu(cli, monkeypatch):
+    """30/09/2026, 16:20 no servidor: a tabela mostrava as leituras de 13:40 com `cache_ts` de agora e sem `stale` — a
+    rota lê o pacote da 2capi desde 29/09 e continuava dizendo a hora da requisição."""
+    import time as _t
+    monkeypatch.setattr(app, "_2capi_cache", {"payload": {"rows": [_api("Araputanga", 18771898)],
+                                                          "cache_ts": "13:46:15"}, "ts": _t.time() - 3600})
+    d = cli.get("/api/owen/strings/data").get_json()
+    assert d["cache_ts"] == "13:46:15" and d["stale"] is True
+    monkeypatch.setattr(app, "_2capi_cache", {"payload": {"rows": [_api("Araputanga", 18771898)],
+                                                          "cache_ts": "16:19:00"}, "ts": _t.time() - 60})
+    d = cli.get("/api/owen/strings/data").get_json()
+    assert d["cache_ts"] == "16:19:00" and d["stale"] is False
+
+
 def test_sem_cache_da_api_a_tabela_fica_vazia_e_nao_cai_no_email(cli, monkeypatch):
     monkeypatch.setattr(app, "_owen_strings_rows", _email_proibido)
     monkeypatch.setattr(app, "_2capi_cache", {"payload": None, "ts": 0.0})

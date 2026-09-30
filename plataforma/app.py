@@ -19165,11 +19165,15 @@ def api_owen_strings_data():
     _pl = (_swr(_2capi_cache, _build_2capi_payload, True) if flask_request.args.get("force") == "1"
            else _2capi_cache.get("payload"))
     rows = _2c_linhas_api((_pl or {}).get("rows"))
+    # a hora e a validade são as do pacote da 2capi, de onde as linhas saem desde 29/09/2026: com a hora da requisição,
+    # às 16:20 de 30/09 o servidor mostrava as leituras de 13:40 como se fossem de agora, e sem `stale`
+    _venceu = (time.time() - float(_2capi_cache.get("ts") or 0.0)) >= _2capi_cache.get("_ttl", CACHE_TTL)
     return jsonify(_servir_tabela_strings({"rows": rows, "summary": {
         "total_usinas": len(rows),
         "total_strings": sum(r["strings_ativas"] for r in rows if r.get("strings_ativas")),
         "alertas_strings": sum(1 for r in rows if r.get("diferenca") is not None and r["diferenca"] < 0)},
-        "cache_ts": datetime.now().strftime("%H:%M:%S")}, _sem_geracao_api_pv))
+        "cache_ts": (_pl or {}).get("cache_ts") or datetime.now().strftime("%H:%M:%S"),
+        "stale": bool(_pl) and _venceu}, _sem_geracao_api_pv))
 
 
 @app.route("/api/owen/strings/plant/<plant_id>")
@@ -21744,6 +21748,11 @@ def _prewarm_um_cache(cache, build) -> bool:
 PREWARM_ETAPA_MAX_S = 300
 _PREWARM_EM_VOO = set()               # nomes das tarefas do prewarm rodando agora (de qualquer volta)
 _PREWARM_EM_VOO_LOCK = threading.Lock()
+# Quem o teto deixou SEM COMEÇAR na última volta (cancelada na fila). Vai na frente do seu grupo na volta seguinte
+# (_prewarm_ordem_etapa3): com a fila sempre na mesma ordem, o fim dela nunca rodava quando a API PV ficava lenta — em
+# 30/09/2026 a tabela de strings da 2C parou em 13:46 no servidor e a análise de ETM dela em 12:32, enquanto SEMP e
+# Alves Lima, antes delas na fila, eram refeitas às 15:56.
+_PREWARM_FICARAM = set()
 
 
 def _prewarm_paralelo(tarefas, workers=4, espera_max=None):
@@ -21774,8 +21783,15 @@ def _prewarm_paralelo(tarefas, workers=4, espera_max=None):
     futs = {ex.submit(_um, t): t[0] for t in lista}
     prontos, pendentes = concurrent.futures.wait(futs, timeout=PREWARM_ETAPA_MAX_S if espera_max is None else espera_max)
     ex.shutdown(wait=False, cancel_futures=True)   # quem nem começou fica para a próxima volta; quem roda, segue em fundo
-    if pendentes:
-        print(f"[prewarm] passaram do teto e seguem em fundo: {', '.join(sorted(futs[f] for f in pendentes))}")
+    ficaram = {futs[f] for f in futs if f.cancelled()}
+    with _PREWARM_EM_VOO_LOCK:
+        _PREWARM_FICARAM.difference_update(set(futs.values()) - ficaram)
+        _PREWARM_FICARAM.update(ficaram)
+    rodando = sorted(futs[f] for f in pendentes if not f.cancelled())
+    if rodando:
+        print(f"[prewarm] passaram do teto e seguem em fundo: {', '.join(rodando)}")
+    if ficaram:
+        print(f"[prewarm] o teto deixou sem começar (vão na frente na próxima volta): {', '.join(sorted(ficaram))}")
     feitos = [f.result() for f in prontos if not f.cancelled() and f.result()]
     for nome, seg in sorted(feitos, key=lambda x: -x[1]):
         if seg >= 1:
@@ -21792,6 +21808,13 @@ PREWARM_ABA_PRINCIPAL_MAX_S = 300
 PREWARM_DEPENDEM_API_PV = frozenset({"ETM", "ETM análise", "SEMP strings", "SEMP ETM", "SEMP ETM anál.",
                                      "Alves Lima", "Alves Lima ETM", "Alves Lima ETM anál.",
                                      "2C API PV", "2C API PV ETM", "2C API PV ETM anál."})
+
+
+def _prewarm_ordem_etapa3(tarefas):
+    """A ordem da ETAPA 3: quem depende da API PV por último (24/09/2026) e, dentro de cada grupo, quem o teto deixou
+    sem começar na volta anterior na frente (_PREWARM_FICARAM, 30/09/2026). No resto, a ordem da lista (sort estável).
+    Não muda quantas rodam juntas na API PV, só quem entra primeiro."""
+    return sorted(tarefas, key=lambda t: (t[0] in PREWARM_DEPENDEM_API_PV, t[0] not in _PREWARM_FICARAM))
 
 
 def _prewarm_aba_principal(espera_max=None) -> bool:
@@ -21999,7 +22022,7 @@ def _prewarm_loop():
             # /painel depende dele; sem prewarm o web construía inline (varredura do xlsx)
             ("ETM problemas", _etm_prob_warm),
         ]
-        leves.sort(key=lambda t: t[0] in PREWARM_DEPENDEM_API_PV)     # estável: a API PV por último, o resto na ordem
+        leves = _prewarm_ordem_etapa3(leves)      # a API PV por último; quem o teto deixou para trás, na frente
         _prewarm_paralelo(_prewarm_filtra_noturno(leves), workers=3)
 
         # ETAPA 4 — as CARAS, só de tempos em tempos. São telas de consulta ocasional

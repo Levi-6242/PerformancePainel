@@ -144,7 +144,9 @@ recebe requisição, então sem isso nunca relia o cadastro (19/08: "98 contra 8
   (22/09) e ~3 min para o resto.
 - **Por quê de cada regra:** a etapa 2 sozinha porque em paralelo a `/api/data` foi de 129 s para 484 s (25/07); o teto
   por etapa porque, em 24/09, a consulta do Banco foi de ~3 s para 83 s e a etapa só acabava quando a última tarefa
-  acabava; a API PV por último porque ocupava as 3 vagas e deixava Athon, Axis e Banco na fila.
+  acabava; a API PV por último porque ocupava as 3 vagas e deixava Athon, Axis e Banco na fila. Quem o teto cancelou
+  sem começar vai na frente do seu grupo na volta seguinte (`_PREWARM_FICARAM`, 30/09): sem isso o fim da fila — as
+  três da 2C — não rodava à tarde, com a API PV lenta (strings da 2C em 13:46 às 16:20 no servidor).
 - **Pausa noturna da SunOp (Athon e Axis):** fora de 05:40–18:20 saem do ciclo as seis tarefas de curva
   (`_SUNOP_TAREFAS_CURVA`); ficam as baratas (`last_values`), que mantêm a "sem comunicação" viva de madrugada.
   Decisão do Levi em 26/08. O portão vale só para o reaquecimento de hoje — **nunca movê-lo para dentro da busca**,

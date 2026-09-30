@@ -158,7 +158,10 @@ dela): `PV_DISJ_FALHAS` falhas de REDE seguidas → toda chamada falha na hora (
 `ConnectionError`) por `PV_DISJ_ABERTO_S`; resposta HTTP de erro não conta, a API está viva; (2) **teto na
 ETAPA 2** (`_prewarm_aba_principal`, `PREWARM_ABA_PRINCIPAL_MAX_S`): passou, a aba segue em fundo; (3) na ETAPA 3
 quem depende da API PV vai por último (`PREWARM_DEPENDEM_API_PV` — tarefa nova da API PV entra nesse conjunto;
-um teste confere que os nomes existem no laço). Não troque o disjuntor por timeout menor: a API LENTA (48 s por
+um teste confere que os nomes existem no laço), e **quem o teto deixou sem começar vai na frente do seu grupo na
+volta seguinte** (`_PREWARM_FICARAM`, `_prewarm_ordem_etapa3`, 30/09/2026): com a fila sempre igual, o fim dela nunca
+rodava com a API PV lenta — a tabela de strings da 2C parou em 13:46 no servidor e a análise de ETM dela em 12:32,
+enquanto SEMP e Alves Lima, antes na fila, eram refeitas às 15:56. Não muda quantas rodam juntas, só quem entra. Não troque o disjuntor por timeout menor: a API LENTA (48 s por
 usina às 12h do mesmo dia) responde, e é por isso que a 1ª passada espera 90 s (`PV_TIMEOUT_1A_PASSADA`).
 
 **Teto em TODA etapa, e nada em dobro (24/09/2026, 15:51).** Uma hora depois, o mesmo defeito com o banco da Thopen:
@@ -521,7 +524,9 @@ de hoje, com até 30 min): a régua de parado sobre o dia inteiro da API leva de
 servidor) e o card da 2C na Entrada ficou "de 14:48" a tarde inteira. Conferido valor a valor com dado real: os mesmos
 9 parados, campo a campo, em 0,01 s contra 58,6 s. A ronda (`force`) refaz com a leitura de agora. **A Curva das
 strings da 2C é a da API PV** quando o id é numérico (`_ehApiPv` no `loadCurvaView`, e o CSV em `_strings_curva_longo`):
-a rota do e-mail só conhece ARA/STL/TUP/IPX e dava "Sem curva de strings" nas 7 usinas; a SEMP nem tinha ramo. A trava de ocorrência em dobro está em `PV_TRK_OUTRA_FONTE`, e desde 29/09 o `_pv_parados_rows` também
+a rota do e-mail só conhece ARA/STL/TUP/IPX e dava "Sem curva de strings" nas 7 usinas; a SEMP nem tinha ramo.
+A tabela de strings da 2C diz a hora e a validade do **pacote da `2capi`** (`cache_ts`, `stale`), não a da
+requisição: às 16:20 de 30/09 o servidor mostrava as leituras de 13:40 como se fossem de agora. A trava de ocorrência em dobro está em `PV_TRK_OUTRA_FONTE`, e desde 29/09 o `_pv_parados_rows` também
 pula essas usinas (quando a aba de trackers da 2C tinha sido aberta no web, o mesmo tracker entrava duas vezes). A conta principal responde "Invalid id" para
 as usinas da 2C: qualquer chamada delas tem de ir por `_pv_token_for`. Teste: `tests/test_fonte_2capi.py`.
 
