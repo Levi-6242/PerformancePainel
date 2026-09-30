@@ -120,7 +120,11 @@ próprio ciclo.
   (`_pv_trk_fonte_cache`); o cache da Entrada. No web, esses são montados na primeira requisição e depois ficam `stale`
   — **medido** em 29/09: a aba Trackers da 2C levou 36,7 s e a da SEMP 11,5 s para responder. A da 2C entrou no snapshot
   em 30/09: com os trackers pela API, montá-la no web levava o dia de 6 plantas (51 s frio) e às 14:42 a tela desistiu
-  aos 90 s; agora o worker a monta (`_build_2c_trk_payload`, no `_2c_trk_loop`) com o drill de cada usina junto.
+  aos 90 s; agora o worker a monta (`_build_2c_trk_payload`, no `_2c_trk_loop`) com o drill de cada usina junto. O web
+  não a monta nunca: sem pacote responde `carregando` (às 15:07, antes do 1º pacote, montou sozinho em 104 s e saiu
+  zerada). Os parados da 2C sem `force` — Entrada, subaba, frota parada, Perdas — contam em cima do `por_codigo` do
+  pacote (`_2c_trk_analises_publicadas`, hoje e até 30 min), como Athon e Axis contam em cima do resumo: refazer a
+  régua sobre o dia da API custa de 25 a 45 s e a Entrada dá 30 s por fonte.
 - O web carrega `trk_eventos.json`, `paradas_book.json` e `perdas_strings.json` **só no boot**. O que atravessa depois é o
   snapshot e o índice `trk_parados_fim_dia.json` (por data do arquivo).
 
@@ -266,7 +270,8 @@ de comunicação da RenoGrid e da 2C e-mail na tabela.
   registro), e o dado é o da API pelo de-para de tracker fechado pela curva (`_2C_TRK_FAIXAS`, `_2c_trk_build_api`):
   aba, parados da Entrada e da ronda, frota parada, ocorrências, disponibilidade, App de Campo e a curva que o gêmeo
   lê. Dia anterior a 30/09 segue o histórico do e-mail. Seguem pelo acervo do e-mail só Perdas e relatório (strings) e
-  a correlação.
+  a correlação. A Curva das strings (tela e CSV) de usina com id numérico vai à API PV (`/api/spv/usina/<id>`), como
+  o drill; o código do e-mail (ARA, IPX…) segue no histórico dele.
 - **`semp`, `alveslima`, `2capi`** — conta oem@ da API PV, escolhida por `_pv_token_for`. A oem@ nega o `plant_devices`,
   então não há nome de inversor pela API: a 2C usa o de-para `PV_INV_NOMES`, fechado **pelo kWh diário** (nunca pela
   ordem dos ids), com uma exceção provisória, a União, que está pela ordem; SEMP e Alves Lima nomeiam por posição. As

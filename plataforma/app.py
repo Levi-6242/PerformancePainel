@@ -18656,7 +18656,9 @@ def _strings_curva_longo(fonte, usina, data_iso):
     """→ (linhas[(inversor, string, hora, valor)], rótulo_da_coluna_valor). data_iso = YYYY-MM-DD.
     A unidade varia: API PV hoje = corrente (A); API PV dia passado = potência (W); demais = corrente (A)."""
     rows = []
-    if fonte in ("pv", "semp", "alveslima", "2capi"):
+    # a 2C com id numérico é usina da API PV (o tempo real dela saiu do e-mail em 30/09/2026): o acervo do e-mail só
+    # conhece ARA/STL/TUP/IPX e o CSV de Santa Cecilia 1 (18771915) saía só com o cabeçalho
+    if fonte in ("pv", "semp", "alveslima", "2capi") or (fonte == "owen" and str(usina).strip().isdigit()):
         pid = int(usina)
         # SEMP (conta OEM) precisa do token DELA no day_inverter; p/ as demais _pv_token_for devolve
         # o principal. O catálogo continua no token principal (é global e o cache é único).
@@ -19101,7 +19103,10 @@ def _2c_trk_build_api(date_iso, force=False):
                         continue
                 return s
             out.setdefault(code, {})[n] = {"atual": _serie(pts), "alvo": _serie(alvo.get(trk))}
-    _2c_trk_api_memo[date_iso] = (time.time(), out)
+    # vazio não entra no memo: a API sem resposta devolve o dia vazio e, guardado, os 4 códigos da aba saíam zerados
+    # no mesmo minuto (30/09/2026, 15:07 no servidor: ARA, IPX, STL e TUP com 0 trackers)
+    if out:
+        _2c_trk_api_memo[date_iso] = (time.time(), out)
     return out
 
 
@@ -19394,12 +19399,41 @@ def _build_2c_trk_payload():
         "parados": sum(_n(r, "parados") for r in rows),
         "medios": sum(_n(r, "medios") for r in rows),
         "atrasos": sum(_n(r, "atrasos") for r in rows)},
-        "cache_ts": datetime.now().strftime("%H:%M:%S"), "por_codigo": por_codigo}
+        "cache_ts": datetime.now().strftime("%H:%M:%S"), "dia": datetime.now().strftime("%Y-%m-%d"),
+        "por_codigo": por_codigo}
+
+
+def _2c_trk_analises_publicadas():
+    """{código: análise} que o worker publicou na aba de trackers da 2C (`por_codigo`), ou None se não há pacote, se ele
+    passou de 30 min ou se é de outro dia — aí quem pede refaz a análise, como antes.
+
+    A régua de parado sobre o dia inteiro da API (leitura a cada minuto, 340 trackers) leva de 25 a 45 s por chamada
+    (medido em 30/09/2026: 39,5 s e 44,6 s seguidas no servidor), e a Entrada dá 30 s a cada fonte: o card da 2C ficou
+    "de 14:48" a tarde inteira. O worker já faz essa conta para a aba, de 5 em 5 min; a Entrada e a subaba de parados
+    contam em cima dela, como a Athon e a Axis contam em cima do resumo (_entrada_trk_do_resumo)."""
+    c = _2c_trk_cache
+    pl = c.get("payload") or {}
+    if (not pl.get("por_codigo") or pl.get("dia") != datetime.now().strftime("%Y-%m-%d")
+            or (time.time() - float(c.get("ts") or 0.0)) > ENTRADA_TRK_RESUMO_MAX_S):
+        return None
+    return pl["por_codigo"]
 
 
 @app.route("/api/owen/trackers")
 def api_owen_trackers():
-    pl = _swr(_2c_trk_cache, _build_2c_trk_payload, flask_request.args.get("force") == "1")
+    force = flask_request.args.get("force") == "1"
+    if _MODO_WEB:
+        # No servidor quem monta a aba é o worker (_2c_trk_loop). Montar aqui custa de 40 s a 3 min por pedido: às 15:07
+        # de 30/09/2026, logo depois do deploy e antes do 1º pacote do worker, o web montou sozinho em 104 s e publicou
+        # ARA, IPX, STL e TUP com 0 trackers, que ficaram na tela até um force às 15:20. Sem pacote responde
+        # "carregando" (a tela repete em 6 s) e o Atualizar serve o último pacote: o dia da API é o que o worker já tem.
+        c = _2c_trk_cache
+        pl = c.get("payload")
+        if pl is None:
+            return jsonify({"rows": [], "summary": {}, "carregando": True})
+        return jsonify(dict({k: v for k, v in pl.items() if k != "por_codigo"},
+                            stale=(time.time() - float(c.get("ts") or 0.0)) >= CACHE_TTL))
+    pl = _swr(_2c_trk_cache, _build_2c_trk_payload, force)
     return jsonify({k: v for k, v in pl.items() if k != "por_codigo"})
 
 
@@ -19496,10 +19530,13 @@ def _owen_parados_rows(force=False, errout=None):
                 _owen_refresh(force=True)          # recarrega o acervo do dia → recomputa o status
         except Exception:
             pass
+    # sem force, a análise é a que o worker publicou na aba (a régua sobre o dia da API leva de 25 a 45 s); a ronda
+    # (force) refaz com a leitura de agora
+    analises = None if force else _2c_trk_analises_publicadas()
     rows, com_dado = [], 0
     for code in OWEN_UFVS:
         try:
-            a = _owen_trackers_analise(code)
+            a = analises[code] if analises is not None else _owen_trackers_analise(code)
         except Exception:
             continue
         com_dado += bool(a.get("total"))

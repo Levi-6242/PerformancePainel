@@ -310,3 +310,145 @@ def test_disponibilidade_da_2c_no_maximo_a_cada_30_min(monkeypatch):
     a = app._build_2c_trk_payload()
     b = app._build_2c_trk_payload()
     assert len(chamadas) == 1 and a["rows"][0]["disponibilidade_tempo"] == b["rows"][0]["disponibilidade_tempo"] == 98.0
+
+
+# ── a curva das strings da 2C pela API PV (30/09/2026, Levi: "as UFVs da 2C não carregam a curva em curva das strings") ──
+def _node_curva(js):
+    import json as _json
+    import shutil as _sh
+    import subprocess as _sp
+    node = _sh.which("node")
+    if not node:
+        pytest.skip("node não instalado")
+    mon = (RAIZ / "docs/redesign/Monitoramento (novo design).html").read_text(encoding="utf-8")
+
+    def _linha(nome):
+        i = mon.index(f"function {nome}(")
+        return mon[i:mon.index("\n", i) + 1]
+    i = mon.index("async function loadCurvaView(")
+    base = (_linha("_ehApiPv") + _linha("_brData") + mon[i:mon.index("\n}\n", i) + 3]
+            + "const state={curvaData:'2026-09-30'}; const RD={curvaView:{}}; let _f='owen'; const _fonte=()=>_f;"
+              "const render=()=>{}; const _todayISO=()=>'2026-09-30'; const _abaixoMeta=()=>({abaixo:new Set()});"
+              "const urls=[]; async function fetchJSON(u){ urls.push(u);"
+              " if(u.startsWith('/api/spv/')) return {inversores:[{id:400840,nome:'INVERSOR0 1.1',"
+              "curva:{'ST 01':{x:['10:00'],y:[5]}},strings:[]}]};"
+              " return {inversores:[{inv:'1.1',labels:['10:00'],strings:[{id:'1',y:[5]}]}]}; }")
+    p = _sp.run([node, "-e", base + js], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert p.returncode == 0, p.stderr
+    return _json.loads(p.stdout)
+
+
+def test_curva_das_strings_da_2c_com_id_da_api_vem_da_api_pv():
+    """Desde 30/09 as usinas da 2C chegam à Curva das strings com o id da API (Santa Cecilia 1 = 18771915); a rota do
+    e-mail só conhece ARA/STL/TUP/IPX e devolvia 0 inversores — "Sem curva de strings para esta usina"."""
+    r = _node_curva("(async()=>{ await loadCurvaView('18771915'); await loadCurvaView('ARA'); _f='semp';"
+                    " await loadCurvaView('18750001');"
+                    " process.stdout.write(JSON.stringify({urls,"
+                    " sc1:RD.curvaView['owen|18771915|2026-09-30'].map(i=>[i.nome,Object.keys(i.curva)]),"
+                    " ara:RD.curvaView['owen|ARA|2026-09-30'].map(i=>i.nome)})); })();")
+    assert r["urls"] == ["/api/spv/usina/18771915?full=1&data=30/09/2026",
+                         "/api/2c/2026-09-30/strings/ARA",                    # código do e-mail: o histórico de sempre
+                         "/api/spv/usina/18750001?full=1&data=30/09/2026"]    # a SEMP nem tinha ramo
+    assert r["sc1"] == [["INVERSOR0 1.1", ["ST 01"]]]
+    assert r["ara"] == ["Inversor 1.1"]
+
+
+def test_csv_da_curva_da_2c_com_id_da_api(monkeypatch):
+    hoje = app.datetime.now().strftime("%Y-%m-%d")
+    monkeypatch.setattr(app, "_hist_build", _email_proibido)
+    monkeypatch.setattr(app, "_pv_token_for", lambda pid: "t")
+    monkeypatch.setattr(app, "get_token", lambda *a, **k: "t")
+    monkeypatch.setattr(app, "get_plants", lambda *a, **k: [{"id": SC1, "nome": "Santa Cecilia 1"}])
+    monkeypatch.setattr(app, "_pv_curvas_strings", lambda pid, nome, tok: {"INVERSOR0 1.1": {"Ipv1": [("10:00", 5.0)]}})
+    rows, unidade = app._strings_curva_longo("owen", str(SC1), hoje)
+    assert rows == [("INVERSOR0 1.1", "Ipv1", "10:00", 5.0)] and unidade == "corrente_A"
+
+
+# ── os parados da 2C saem do pacote do worker (30/09/2026: a Entrada ficou "de 14:48" a tarde inteira) ─────────────
+# A régua de parado sobre o dia inteiro da API (leitura a cada minuto, 340 trackers) leva de 25 a 45 s por chamada; a
+# Entrada dá 30 s a cada fonte. O worker já faz essa conta para a aba (_build_2c_trk_payload) e publica a análise.
+def _pacote(monkeypatch, dia="2026-09-30", idade_s=60):
+    import time as _t
+    ipx = {"usina": "Ipixuna do Pará", "plant_id": "IPX", "total": 122, "ultima_leitura": "2026-09-30 10:58",
+           "trackers": [{"id": "Tracker 2.73", "status": "parado", "na_planilha": True, "ticket_status": "Parado"},
+                        {"id": "Tracker 1.1", "status": "normal"}]}
+    monkeypatch.setattr(app, "_2c_trk_cache", {"ts": _t.time() - idade_s, "payload": {
+        "rows": [dict(ipx, trackers=None)], "summary": {}, "cache_ts": "10:59:00", "dia": dia,
+        "por_codigo": {"IPX": ipx}}})
+    monkeypatch.setattr(app, "OWEN_UFVS", {"IPX": "Ipixuna do Pará"})
+    monkeypatch.setattr(app, "_trk_parado_desde_hist", lambda *a, **k: None)
+    monkeypatch.setattr(app, "_trk_geo_annotate", lambda rows: rows)
+
+
+def test_parados_da_2c_saem_do_pacote_do_worker(cli, monkeypatch, freeze_now):
+    freeze_now("2026-09-30 11:00:00")
+    _pacote(monkeypatch)
+    monkeypatch.setattr(app, "_owen_trackers_analise", _email_proibido)      # não refaz a régua
+    err = {}
+    rows = app._owen_parados_rows(errout=err)
+    assert [(r["tracker"], r["ticket_status"], r["na_planilha"]) for r in rows] == [("Tracker 2.73", "Parado", True)]
+    assert not err
+    d = cli.get("/api/owen/trackers/parados").get_json()
+    assert d["total"] == 1 and d["rows"][0]["tracker"] == "Tracker 2.73"
+
+
+def test_pacote_velho_ou_de_outro_dia_refaz_a_analise(monkeypatch, freeze_now):
+    freeze_now("2026-09-30 11:00:00")
+    feitas = []
+    for kw in ({"idade_s": 31 * 60}, {"dia": "2026-09-29"}):
+        _pacote(monkeypatch, **kw)
+        monkeypatch.setattr(app, "_owen_trackers_analise", lambda code, date=None: feitas.append(code) or {
+            "usina": "Ipixuna do Pará", "plant_id": code, "total": 1, "trackers": []})
+        assert app._owen_parados_rows() == []
+    assert feitas == ["IPX", "IPX"]
+
+
+def test_ronda_com_force_refaz_a_analise_mesmo_com_pacote(monkeypatch, freeze_now):
+    freeze_now("2026-09-30 11:00:00")
+    _pacote(monkeypatch)
+    feitas = []
+    monkeypatch.setattr(app, "_2c_trk_build_api", lambda date_iso, force=False: {})
+    monkeypatch.setattr(app, "_owen_trackers_analise", lambda code, date=None: feitas.append(code) or {
+        "usina": "Ipixuna do Pará", "plant_id": code, "total": 1, "trackers": []})
+    app._owen_parados_rows(force=True)
+    assert feitas == ["IPX"], "a ronda quer a leitura de agora"
+
+
+def test_pacote_da_aba_diz_o_dia(monkeypatch, freeze_now):
+    freeze_now("2026-09-30 11:00:00")
+    monkeypatch.setattr(app, "OWEN_UFVS", {})
+    monkeypatch.setattr(app, "_2c_disp_memo", {"ts": 9e18, "disp": {}})
+    monkeypatch.setattr(app, "PV_FONTES", dict(app.PV_FONTES, **{"2capi": {f[4] for f in app._2C_TRK_FAIXAS}}))
+    assert app._build_2c_trk_payload()["dia"] == "2026-09-30"
+
+
+# ── o web não monta a aba da 2C (30/09/2026, 15:07: montou sozinho em 104 s e publicou tudo zerado) ──────────────────
+def test_web_sem_pacote_da_aba_da_2c_responde_carregando(cli, monkeypatch):
+    monkeypatch.setattr(app, "_MODO_WEB", True)
+    monkeypatch.setattr(app, "_2c_trk_cache", {"payload": None, "ts": 0.0})
+    monkeypatch.setattr(app, "_build_2c_trk_payload", _email_proibido)
+    for url in ("/api/owen/trackers", "/api/owen/trackers?force=1"):
+        d = cli.get(url).get_json()
+        assert d["carregando"] is True and d["rows"] == []
+    assert app._2c_trk_cache["payload"] is None, "o carregando não vira pacote"
+
+
+def test_web_com_pacote_serve_o_pacote_mesmo_no_atualizar(cli, monkeypatch):
+    import time as _t
+    monkeypatch.setattr(app, "_MODO_WEB", True)
+    monkeypatch.setattr(app, "_build_2c_trk_payload", _email_proibido)
+    monkeypatch.setattr(app, "_2c_trk_cache", {"ts": _t.time() - 400, "payload": {
+        "rows": [{"plant_id": "IPX", "total": 122}], "summary": {"trackers": 122}, "cache_ts": "10:00:00",
+        "por_codigo": {"IPX": {}}}})
+    d = cli.get("/api/owen/trackers?force=1").get_json()
+    assert d["summary"]["trackers"] == 122 and d["stale"] is True and "por_codigo" not in d
+
+
+def test_dia_vazio_da_api_nao_fica_no_memo(monkeypatch, freeze_now):
+    """A API sem resposta devolve o dia vazio; guardado no memo, os 4 códigos da aba saíam zerados no mesmo minuto."""
+    freeze_now("2026-09-30 11:00:00")
+    monkeypatch.setattr(app, "_2c_trk_api_memo", {})
+    dias = iter([{}] * 6 + [{"curva": {"TRK1": [{"x": "2026-09-30 10:00", "y": 12.0}]}}] * 6)
+    monkeypatch.setattr(app, "_pv_trk_dia", lambda pid, data, fetch=True: next(dias))
+    assert app._2c_trk_build_api("2026-09-30") == {}
+    assert app._2c_trk_build_api("2026-09-30")["ARA"]["1.1"]["atual"][0][1] == 12.0

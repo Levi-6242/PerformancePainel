@@ -513,7 +513,15 @@ trackers da 2C é montada no worker** (`_build_2c_trk_payload` → `_2c_trk_cach
 cada usina em `por_codigo`): às 14:42 de 30/09 a Entrada abriu a aba e a tela desistiu aos 90 s — no web o dia estava frio
 e a União montava as 7 plantas da `2capi` para usar uma (agora só ela, `_pv_trackers_analise`). A disponibilidade da aba
 é recalculada no máximo a cada 30 min (`_2C_DISP_A_CADA_S`): recalcular refaz as ocorrências e grava o `trk_eventos.json`
-inteiro (26 MB, no OneDrive). A trava de ocorrência em dobro está em `PV_TRK_OUTRA_FONTE`, e desde 29/09 o `_pv_parados_rows` também
+inteiro (26 MB, no OneDrive). **No web a aba nunca é montada** (`api_owen_trackers`): sem pacote responde `carregando`
+(a tela repete em 6 s) e o Atualizar serve o último pacote — às 15:07 de 30/09, antes do 1º pacote do worker, o web
+montou sozinho em 104 s e publicou ARA, IPX, STL e TUP com 0 trackers; dia vazio da API também não entra mais no memo
+do `_2c_trk_build_api`. **Os parados da 2C sem `force` saem do pacote** (`_2c_trk_analises_publicadas`: o `por_codigo`
+de hoje, com até 30 min): a régua de parado sobre o dia inteiro da API leva de 25 a 45 s (39,5 s e 44,6 s seguidas no
+servidor) e o card da 2C na Entrada ficou "de 14:48" a tarde inteira. Conferido valor a valor com dado real: os mesmos
+9 parados, campo a campo, em 0,01 s contra 58,6 s. A ronda (`force`) refaz com a leitura de agora. **A Curva das
+strings da 2C é a da API PV** quando o id é numérico (`_ehApiPv` no `loadCurvaView`, e o CSV em `_strings_curva_longo`):
+a rota do e-mail só conhece ARA/STL/TUP/IPX e dava "Sem curva de strings" nas 7 usinas; a SEMP nem tinha ramo. A trava de ocorrência em dobro está em `PV_TRK_OUTRA_FONTE`, e desde 29/09 o `_pv_parados_rows` também
 pula essas usinas (quando a aba de trackers da 2C tinha sido aberta no web, o mesmo tracker entrava duas vezes). A conta principal responde "Invalid id" para
 as usinas da 2C: qualquer chamada delas tem de ir por `_pv_token_for`. Teste: `tests/test_fonte_2capi.py`.
 
