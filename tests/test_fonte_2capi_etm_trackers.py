@@ -94,10 +94,15 @@ def test_trackers_da_fonte_2c_vem_todos_da_api(monkeypatch):
                                          "severos": 1, "leves": 0, "ultima_leitura": "2026-09-30 14:54", "trackers": []})
     monkeypatch.setattr(app, "_owen_disp_hoje", lambda: {})
     monkeypatch.setattr(app, "_trk_eventos_disp_by_id", lambda ini, fim: {})
-    monkeypatch.setattr(app, "_pv_trk_payload_da_fonte", lambda *a, **k: {"rows": [
-        {"usina": "União 1 e 2", "plant_id": 18772125, "total": 12, "parados": 0, "severos": 0, "leves": 0},
-        {"usina": "Araputanga", "plant_id": 18771898, "total": 59, "parados": 0, "severos": 1, "leves": 0}]})
+    monkeypatch.setattr(app, "_2c_trk_cache", {"payload": None, "ts": 0.0})
+    monkeypatch.setattr(app, "_2c_disp_memo", {"ts": 0.0, "disp": {}})
+    monkeypatch.setattr(app, "get_token", lambda *a, **k: "t")
+    monkeypatch.setattr(app, "get_plants", lambda *a, **k: [{"id": 18772125, "nome": "União "}])
+    analisadas = []
+    monkeypatch.setattr(app, "_pv_trackers_analise", lambda pid, nome, **kw: analisadas.append(pid) or {
+        "usina": nome, "plant_id": pid, "total": 12, "parados": 0, "severos": 0, "leves": 0, "tem_trackers": True})
     d = app.app.test_client().get("/api/owen/trackers").get_json()
+    assert analisadas == [18772125]                                # só a que está fora do de-para
     por = {r["plant_id"]: r for r in d["rows"]}
     assert set(por) == {"ARA", "IPX", "STL", "TUP", 18772125}      # a Araputanga da API não entra de novo
     assert all(r["sub_fonte"] == "api" for r in d["rows"])

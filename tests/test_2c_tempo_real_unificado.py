@@ -161,9 +161,13 @@ def test_aba_de_trackers_da_2c_pela_api(cli, monkeypatch, freeze_now):
     monkeypatch.setattr(app, "_owen_disp_hoje", lambda: {"IPX": 99.0})     # não grava o registro de verdade
     gira = [(f"{h:02d}:{m:02d}", -40.0 + (h - 6) * 7 + m / 10) for h in range(6, 11) for m in (0, 30)]
     _dia_api(monkeypatch, {SC1: {"TRK1": gira, "TRK2": gira}, SC2: {"TRK1": gira}})
-    monkeypatch.setattr(app, "_pv_trk_payload_da_fonte", lambda fonte, force=False: {"rows": [
-        {"plant_id": 18772125, "usina": "União 1 e 2", "total": 12, "parados": 0, "trackers": [{"id": "TRK1"}]},
-        {"plant_id": SC1, "usina": "Santa Cecilia 1", "total": 49, "parados": 0}]})
+    monkeypatch.setattr(app, "_2c_trk_cache", {"payload": None, "ts": 0.0})
+    monkeypatch.setattr(app, "_2c_disp_memo", {"ts": 0.0, "disp": {}})
+    monkeypatch.setattr(app, "get_token", lambda *a, **k: "t")
+    monkeypatch.setattr(app, "get_plants", lambda *a, **k: [{"id": 18772125, "nome": "União "}])
+    monkeypatch.setattr(app, "_pv_trackers_analise", lambda pid, nome, **kw: {
+        "plant_id": pid, "usina": nome, "total": 12, "parados": 0, "tem_trackers": True, "trackers": [{"id": "TRK1"}]})
+    monkeypatch.setattr(app, "_pv_trk_payload_da_fonte", _email_proibido)   # não monta a 2capi inteira p/ usar a União
     monkeypatch.setattr(app, "_trk_eventos_disp_by_id", lambda ini, fim: {})
     d = cli.get("/api/owen/trackers").get_json()
     por = {r["plant_id"]: r for r in d["rows"]}
@@ -276,3 +280,33 @@ def test_dia_ainda_vazio_nao_e_pedido_a_cada_minuto(monkeypatch):
     primeira = app._2c_trk_renova_dias(agora)
     assert len(primeira) == 6 and len(pedidos) == 6
     assert app._2c_trk_renova_dias(agora) == [] and len(pedidos) == 6                # vazio: espera 5 min
+
+
+# ── a aba de trackers da 2C é montada no worker e servida pronta (30/09/2026, 14:42: a tela desistia aos 90 s) ─────
+def test_a_aba_da_2c_e_servida_pronta_pelo_web(cli, monkeypatch):
+    import time as _t
+    monkeypatch.setattr(app, "_owen_trackers_analise", _email_proibido)       # o web não monta
+    monkeypatch.setattr(app, "_2c_trk_build_api", _email_proibido)
+    ipx = {"usina": "Ipixuna do Pará", "plant_id": "IPX", "total": 122, "parados": 5,
+           "trackers": [{"id": "Tracker 2.73", "status": "parado"}]}
+    monkeypatch.setattr(app, "_2c_trk_cache", {"ts": _t.time(), "payload": {
+        "rows": [dict(ipx, trackers=None)], "summary": {"trackers": 122, "parados": 5}, "cache_ts": "14:40:00",
+        "por_codigo": {"IPX": ipx}}})
+    d = cli.get("/api/owen/trackers").get_json()
+    assert "por_codigo" not in d and d["summary"]["parados"] == 5 and d["stale"] is False
+    drill = cli.get("/api/owen/trackers/IPX").get_json()
+    assert drill["trackers"][0]["id"] == "Tracker 2.73"
+
+
+def test_disponibilidade_da_2c_no_maximo_a_cada_30_min(monkeypatch):
+    """Recalcular a disponibilidade refaz as ocorrências do dia e grava o trk_eventos.json (26 MB, no OneDrive)."""
+    chamadas = []
+    monkeypatch.setattr(app, "_2c_disp_memo", {"ts": 0.0, "disp": {}})
+    monkeypatch.setattr(app, "OWEN_UFVS", {"IPX": "Ipixuna do Pará"})
+    monkeypatch.setattr(app, "_owen_trackers_analise", lambda code, date=None: {"usina": "Ipixuna do Pará", "plant_id": code,
+                                                                                "total": 1, "trackers": []})
+    monkeypatch.setattr(app, "_owen_disp_hoje", lambda: chamadas.append(1) or {"IPX": 98.0})
+    monkeypatch.setattr(app, "PV_FONTES", dict(app.PV_FONTES, **{"2capi": {f[4] for f in app._2C_TRK_FAIXAS}}))
+    a = app._build_2c_trk_payload()
+    b = app._build_2c_trk_payload()
+    assert len(chamadas) == 1 and a["rows"][0]["disponibilidade_tempo"] == b["rows"][0]["disponibilidade_tempo"] == 98.0

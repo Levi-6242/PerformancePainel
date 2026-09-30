@@ -508,7 +508,12 @@ duas. Os parados passaram a levar o `ticket_status` (antes a linha ia com `na_pl
 e a correlação. **O dia fica quente no worker** (`_2c_trk_loop`, de 6 h às 19 h): frio, os parados da 2C levam 51 s (o dia
 inteiro de 6 plantas, 8 a 64 MB cada) e quente 5 s, e a Entrada dá 30 s por fonte — o dia vence de 30 em 30 min, no passo
 dela, e logo depois do deploy o card saiu "de tal hora". O laço renova 2 min antes de vencer, sem apagar o dia
-(`_2c_trk_vence`: se a busca falha, fica o de antes), e dia ainda vazio espera 5 min antes de pedir de novo. A trava de ocorrência em dobro está em `PV_TRK_OUTRA_FONTE`, e desde 29/09 o `_pv_parados_rows` também
+(`_2c_trk_vence`: se a busca falha, fica o de antes), e dia ainda vazio espera 5 min antes de pedir de novo. **A aba de
+trackers da 2C é montada no worker** (`_build_2c_trk_payload` → `_2c_trk_cache`, no snapshot como `2c_trk`, com o drill de
+cada usina em `por_codigo`): às 14:42 de 30/09 a Entrada abriu a aba e a tela desistiu aos 90 s — no web o dia estava frio
+e a União montava as 7 plantas da `2capi` para usar uma (agora só ela, `_pv_trackers_analise`). A disponibilidade da aba
+é recalculada no máximo a cada 30 min (`_2C_DISP_A_CADA_S`): recalcular refaz as ocorrências e grava o `trk_eventos.json`
+inteiro (26 MB, no OneDrive). A trava de ocorrência em dobro está em `PV_TRK_OUTRA_FONTE`, e desde 29/09 o `_pv_parados_rows` também
 pula essas usinas (quando a aba de trackers da 2C tinha sido aberta no web, o mesmo tracker entrava duas vezes). A conta principal responde "Invalid id" para
 as usinas da 2C: qualquer chamada delas tem de ir por `_pv_token_for`. Teste: `tests/test_fonte_2capi.py`.
 

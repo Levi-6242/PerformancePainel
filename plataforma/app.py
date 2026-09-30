@@ -19048,7 +19048,8 @@ def _2c_trk_loop():
     no mesmo passo dela: sem este laço, a 1ª tentativa de cada ciclo estourava e o card da 2C ficava "de tal hora"
     (medido às 08:54 de 30/09, logo depois do deploy). Aqui quem paga a busca é o fundo, 2 min antes de vencer; a
     Entrada e a ronda acham o dia pronto. Só de dia: de noite o tracker está em repouso e o dia não muda."""
-    _ABA_PRINCIPAL_SAIU.wait(timeout=PV_TRK_ESPERA_BOOT_S)
+    # teto de 5 min, não os 30 do laço da API PV: sem este laço o web monta a aba da 2C na requisição (51 s frio)
+    _ABA_PRINCIPAL_SAIU.wait(timeout=5 * 60)
     while True:
         agora = datetime.now()
         if 6 <= agora.hour < 19:
@@ -19058,6 +19059,12 @@ def _2c_trk_loop():
                     print(f"[2c/trackers] dia renovado pela API: {ren}")
             except Exception as e:                           # noqa: BLE001 — uma volta ruim não para o laço
                 print(f"[2c/trackers] aquecimento falhou: {e}")
+        # a aba (e o drill) que o web serve: refeita quando vence, também de noite (o 1º boot precisa dela)
+        try:
+            if _prewarm_um_cache(_2c_trk_cache, _build_2c_trk_payload):
+                print(f"[2c/trackers] aba publicada em {time.time() - agora.timestamp():.0f}s")
+        except Exception as e:                               # noqa: BLE001
+            print(f"[2c/trackers] aba falhou: {e}")
         time.sleep(_2C_TRK_LOOP_S)
 
 
@@ -19324,46 +19331,76 @@ def _owen_trackers_analise(plant_id, date=None):
     return _trk_alvo_mediana(base)
 
 
-@app.route("/api/owen/trackers")
-def api_owen_trackers():
+# Aba de trackers da 2C: montada no WORKER e publicada no snapshot (30/09/2026). Com o dado vindo da API, montar na
+# requisição do web custava o dia inteiro de 6 plantas (51 s frio) e mais as 7 da `2capi` para usar só a União: às 14:42
+# a Entrada abriu a aba e a tela desistiu aos 90 s ("a fonte não respondeu"). O web serve o pacote pronto, como as
+# outras abas; o drill de cada usina sai do mesmo pacote (`por_codigo`).
+_2c_trk_cache = {"payload": None, "ts": 0.0}
+_2c_disp_memo = {"ts": 0.0, "disp": {}}
+_2C_DISP_A_CADA_S = 30 * 60
+
+
+def _build_2c_trk_payload():
     # Os trackers da 2C vêm da API PV (desde 16/09 as três primeiras; desde 30/09/2026 todas, com o de-para de tracker):
     # uma linha por usina de NEGÓCIO — a Ipixuna do Pará é UMA, com os 122 trackers de Santa Cecilia 1, 2 e 3 — e o
     # nome do tracker é o do e-mail e dos tickets ("Tracker 2.10"), pela análise de sempre (_owen_trackers_analise), que
     # agora lê a API (_2c_trk_build_api). A União não está no e-mail nem no de-para: segue pela API com os nomes dela.
-    rows = []
+    rows, por_codigo = [], {}
     for u in OWEN_UFVS:
         try:
-            r = dict(_owen_trackers_analise(u), sub_fonte="api")
+            a = dict(_owen_trackers_analise(u), sub_fonte="api")
         except Exception as e:                               # noqa: BLE001 — uma usina fora não derruba a aba
             print(f"[owen/trackers] {u}: {e}")
             continue
+        por_codigo[u] = a
+        r = dict(a)
         r.pop("trackers", None)
         rows.append(r)
-    disp_pid = _owen_disp_hoje()                   # disponibilidade por TEMPO (janela 06:00–18:00), pelo código
+    # Disponibilidade por TEMPO (janela 06:00–18:00), pelo código. Recalcular é refazer as ocorrências do dia e gravar o
+    # trk_eventos.json inteiro (26 MB, dentro do OneDrive): com a aba refeita a cada 5 min seriam 12 gravações por hora.
+    # De 30 em 30 min, o passo das ocorrências da API PV (_trk_ev_hoje_loop).
+    if time.time() - _2c_disp_memo["ts"] > _2C_DISP_A_CADA_S:
+        _2c_disp_memo.update(ts=time.time(), disp=_owen_disp_hoje())
+    disp_pid = _2c_disp_memo["disp"]
     for r in rows:
         r["disponibilidade_tempo"] = disp_pid.get(r["plant_id"])
-    no_de_para = {f[4] for f in _2C_TRK_FAIXAS}
-    if set(PV_FONTES.get("2capi") or ()) - no_de_para:
+    fora = sorted(set(PV_FONTES.get("2capi") or ()) - {f[4] for f in _2C_TRK_FAIXAS})
+    if fora:                                       # só elas: montar a 2capi inteira refazia as 6 do de-para à toa
         try:
-            hoje_iso = datetime.now().strftime("%Y-%m-%d")
-            disp_id = _trk_eventos_disp_by_id(hoje_iso, hoje_iso)
-            for r in _2c_linhas_api(_pv_trk_payload_da_fonte("2capi").get("rows")):
-                if r.get("plant_id") in no_de_para:
-                    continue
-                r.pop("trackers", None)
-                r["disponibilidade_tempo"] = disp_id.get(str(r.get("plant_id")))
-                rows.append(r)
+            nomes_api = {p["id"]: p["nome"] for p in get_plants(get_token())}
         except Exception as e:                               # noqa: BLE001
-            print(f"[owen/trackers] API PV indisponível para a União ({e})")
+            print(f"[owen/trackers] sem lista de plantas p/ nomear ({e})")
+            nomes_api = {}
+        hoje_iso = datetime.now().strftime("%Y-%m-%d")
+        disp_id = _trk_eventos_disp_by_id(hoje_iso, hoje_iso)
+        for pid in fora:
+            try:
+                a = _pv_trackers_analise(pid, nome_usina(pid, nomes_api.get(pid) or str(pid)), curva=True)
+            except Exception as e:                           # noqa: BLE001
+                print(f"[owen/trackers] API PV indisponível para {pid} ({e})")
+                continue
+            if not a.get("tem_trackers"):
+                continue
+            _pv_trk_plant[a["plant_id"]] = {"ts": time.time(), "payload": a}   # o drill dela (api_pv_trackers_plant)
+            r = dict(a, sub_fonte="api")
+            r.pop("trackers", None)
+            r["disponibilidade_tempo"] = disp_id.get(str(pid))
+            rows.append(r)
     rows.sort(key=lambda x: (_trk_severidade2(x), x["usina"]))
     _n = lambda r, k: (r.get(k) or 0)
-    return jsonify({"rows": rows, "summary": {
+    return {"rows": rows, "summary": {
         "usinas": sum(1 for r in rows if _n(r, "total")),
         "trackers": sum(_n(r, "total") for r in rows),
         "parados": sum(_n(r, "parados") for r in rows),
         "medios": sum(_n(r, "medios") for r in rows),
         "atrasos": sum(_n(r, "atrasos") for r in rows)},
-        "cache_ts": datetime.now().strftime("%H:%M:%S")})
+        "cache_ts": datetime.now().strftime("%H:%M:%S"), "por_codigo": por_codigo}
+
+
+@app.route("/api/owen/trackers")
+def api_owen_trackers():
+    pl = _swr(_2c_trk_cache, _build_2c_trk_payload, flask_request.args.get("force") == "1")
+    return jsonify({k: v for k, v in pl.items() if k != "por_codigo"})
 
 
 def _owen_id_da_api_pv(plant_id):
@@ -19387,6 +19424,10 @@ def api_owen_trackers_plant(plant_id):
     if pid is not None:
         return api_pv_trackers_plant(pid)
     date = (flask_request.args.get("date") or "").strip()
+    if not date:                                   # hoje: a análise que o worker publicou (ver _2c_trk_cache)
+        pronta = ((_2c_trk_cache.get("payload") or {}).get("por_codigo") or {}).get(plant_id)
+        if pronta and time.time() - _2c_trk_cache.get("ts", 0.0) < 15 * 60:
+            return jsonify(pronta)
     return jsonify(_owen_trackers_analise(plant_id, date=date or None))
 
 
@@ -21989,6 +22030,7 @@ def _persist_registry():
         "2capi":         _2capi_cache,
         "2capi_etm":     _2capi_etm_cache,
         "2capi_analise": _2capi_etm_analise_cache,
+        "2c_trk":        _2c_trk_cache,       # aba de trackers da 2C: o web não monta (30/09/2026, _build_2c_trk_payload)
         "semp_etm":      _semp_etm_cache,
         "semp_analise":  _semp_etm_analise_cache,
     }

@@ -112,13 +112,15 @@ próprio ciclo.
 - `_cache_save` grava num `.tmp` e troca atômica; chaves que começam com `_` (lock, TTL) ficam fora.
 - `_cache_load` só aplica um cache se o salvo for **mais novo** que o da memória — em 31/07 um snapshot vazio das 09:34
   engoliu o dado bom das 09:35.
-- `_persist_registry` lista **21 caches**: strings de pv, sunop, axis, solaredge (`se`), semp, alveslima, 2capi; ETM e
-  análise de ETM de pv, sunop, semp, 2capi e pg; trackers de pv, sunop e pg; PR da API PV. O snapshot do Banco (`pg`)
+- `_persist_registry` lista **22 caches**: strings de pv, sunop, axis, solaredge (`se`), semp, alveslima, 2capi; ETM e
+  análise de ETM de pv, sunop, semp, 2capi e pg; trackers de pv, sunop, pg e da 2C (`2c_trk`, desde 30/09); PR da API PV. O snapshot do Banco (`pg`)
   vai à parte, no nível de cima. Mais extras: `macro`, `ger`, `etm_prob`, `inv_padrao`, `qualidade`, `pv_trk_plant` e
   outros.
-- **Fora do snapshot:** ETM e análise da Alves Lima; ETM, análise e trackers da Axis; trackers da SEMP e da 2C pela API
+- **Fora do snapshot:** ETM e análise da Alves Lima; ETM, análise e trackers da Axis; trackers da SEMP pela API
   (`_pv_trk_fonte_cache`); o cache da Entrada. No web, esses são montados na primeira requisição e depois ficam `stale`
-  — **medido** hoje: a aba Trackers da 2C levou 36,7 s e a da SEMP 11,5 s para responder.
+  — **medido** em 29/09: a aba Trackers da 2C levou 36,7 s e a da SEMP 11,5 s para responder. A da 2C entrou no snapshot
+  em 30/09: com os trackers pela API, montá-la no web levava o dia de 6 plantas (51 s frio) e às 14:42 a tela desistiu
+  aos 90 s; agora o worker a monta (`_build_2c_trk_payload`, no `_2c_trk_loop`) com o drill de cada usina junto.
 - O web carrega `trk_eventos.json`, `paradas_book.json` e `perdas_strings.json` **só no boot**. O que atravessa depois é o
   snapshot e o índice `trk_parados_fim_dia.json` (por data do arquivo).
 
