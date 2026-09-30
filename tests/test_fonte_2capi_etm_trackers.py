@@ -62,7 +62,9 @@ def test_linha_leva_o_NOME_da_usina_nao_o_id(monkeypatch):
     monkeypatch.setattr(app, "get_token", lambda *a, **k: "t")
     monkeypatch.setattr(app, "get_plants", lambda *a, **k: [
         {"id": 18771898, "nome": "Araputanga"}, {"id": 18771901, "nome": "Sete Lagoa"},
-        {"id": 18750925, "nome": "Tupi Paulista"}, {"id": 18772125, "nome": "União "}])
+        {"id": 18750925, "nome": "Tupi Paulista"}, {"id": 18772125, "nome": "União "},
+        {"id": 18771915, "nome": "Santa Cecilia 1"}, {"id": 18771929, "nome": "Santa Cecilia 2"},
+        {"id": 18771930, "nome": "Santa Cecilia 3"}])
     monkeypatch.setattr(app, "_pv_trackers_analise",
                         lambda idusina, nome, **kw: {"plant_id": idusina, "usina": nome,
                                                      "tem_trackers": True, "total": 1})
@@ -79,33 +81,26 @@ def test_2c_da_api_segue_fora_da_varredura_da_conta_principal():
         assert app._pv_trk_fora(pid) is True
 
 
-def test_trackers_da_fonte_2c_usam_a_api_para_quem_esta_nela(monkeypatch):
-    """O CONSERTO CERTO. A aba separada "2C · API PV" saiu do seletor em 11/09 a pedido do Levi
+def test_trackers_da_fonte_2c_vem_todos_da_api(monkeypatch):
+    """O CONSERTO CERTO (16/09). A aba separada "2C · API PV" saiu do seletor em 11/09 a pedido do Levi
     ("eu quero no tempo real, tudo junto") — então quem tem de mostrar o tracker da PV é a fonte
-    `2c` UNIFICADA, não um chip novo. O ETM dela já unificava (`_2c_unifica_rows` na
-    `/api/owen/etm/analise`); os trackers não, e por isso as três apareciam com a leitura do e-mail
-    (11:59) enquanto a PV Plataforma já tinha a das 14:56. A Ipixuna, que não está na API,
-    continua vindo do e-mail."""
+    `2c`, não um chip novo. Até 16/09 as três apareciam com a leitura do e-mail (11:59) enquanto a PV
+    Plataforma já tinha a das 14:56. Desde 30/09/2026 a análise de cada usina (a do e-mail, com os nomes
+    do e-mail) lê a API pelo de-para de tracker, e a União, que o e-mail não tem, vem da API direto.
+    O dado da análise está em tests/test_2c_tempo_real_unificado.py."""
     monkeypatch.setattr(app, "DASH_PASSWORD", "")
     monkeypatch.setattr(app, "_owen_trackers_analise",
-                        lambda u, **kw: {"usina": app._owen_nome(u), "plant_id": u, "total": 10,
-                                         "parados": 0, "severos": 0, "leves": 0, "medios": 0,
-                                         "ultima_leitura": "2026-09-16 11:59", "trackers": []})
+                        lambda u, **kw: {"usina": app._owen_nome(u), "plant_id": u, "total": 59, "parados": 0,
+                                         "severos": 1, "leves": 0, "ultima_leitura": "2026-09-30 14:54", "trackers": []})
     monkeypatch.setattr(app, "_owen_disp_hoje", lambda: {})
+    monkeypatch.setattr(app, "_trk_eventos_disp_by_id", lambda ini, fim: {})
     monkeypatch.setattr(app, "_pv_trk_payload_da_fonte", lambda *a, **k: {"rows": [
-        {"usina": "Araputanga", "plant_id": 18771898, "total": 59, "parados": 0, "severos": 1,
-         "leves": 0, "ultima_leitura": "2026-09-16 14:54"},
-        {"usina": "Sete Lagoas", "plant_id": 18771901, "total": 59, "parados": 0, "severos": 2,
-         "leves": 0, "ultima_leitura": "2026-09-16 14:53"},
-        {"usina": "Tupi Paulista", "plant_id": 18750925, "total": 100, "parados": 0, "severos": 2,
-         "leves": 0, "ultima_leitura": "2026-09-16 14:56"}]})
+        {"usina": "União 1 e 2", "plant_id": 18772125, "total": 12, "parados": 0, "severos": 0, "leves": 0},
+        {"usina": "Araputanga", "plant_id": 18771898, "total": 59, "parados": 0, "severos": 1, "leves": 0}]})
     d = app.app.test_client().get("/api/owen/trackers").get_json()
-    por = {r["usina"]: r for r in d["rows"]}
-    assert set(por) == {"Araputanga", "Sete Lagoas", "Tupi Paulista", "Ipixuna do Pará"}
-    for u, n in (("Araputanga", 59), ("Sete Lagoas", 59), ("Tupi Paulista", 100)):
-        assert por[u]["sub_fonte"] == "api", f"{u} tem de vir da API PV"
-        assert por[u]["total"] == n and por[u]["ultima_leitura"].endswith(("14:53", "14:54", "14:56"))
-    assert por["Ipixuna do Pará"]["sub_fonte"] == "email"    # não está na API — segue pelo e-mail
+    por = {r["plant_id"]: r for r in d["rows"]}
+    assert set(por) == {"ARA", "IPX", "STL", "TUP", 18772125}      # a Araputanga da API não entra de novo
+    assert all(r["sub_fonte"] == "api" for r in d["rows"])
 
 
 def test_nao_recriar_a_aba_separada_da_2c():

@@ -43,8 +43,8 @@ na [seção 16](#16-documentos-que-esta-referência-substitui).
 - **Frescor.** O worker dá uma volta a cada ~5 min (`CACHE_TTL` = 300 s; SunOp e Axis, 600 s). A página do Monitoramento
   **não se atualiza sozinha**: carrega ao abrir, ao trocar de fonte ou de aba e no botão **Atualizar**. A Entrada relê a
   cada 60 s.
-- **Nove fontes, oito chips:** Thopen pela API PV e pelo Banco, Athon, Axis, RenoGrid, 2C (e-mail e API PV juntos),
-  SEMP e Alves Lima. A chave `2capi` existe só por trás do chip 2C.
+- **Nove fontes, oito chips:** Thopen pela API PV e pelo Banco, Athon, Axis, RenoGrid, 2C (API PV; até 29/09 também o
+  e-mail), SEMP e Alves Lima. A chave `2capi` existe só por trás do chip 2C.
 - **Régua de string instantânea e relativa:** cada string é comparada com a mediana das strings do **próprio inversor**
   naquele instante (≤ 0,1 A = sem corrente; < 60% da mediana = baixa performance). Inversor com mediana < 0,5 A não está
   gerando, e suas strings não são falha.
@@ -228,7 +228,7 @@ passar por essa cadeia** — o teste `test_strings_sem_sol_a_noite.py` lê o map
 | `sunop` | Athon | Athon, SunOp `gridco` | `process_plant_sunop` | > 30 min do carimbo das correntes | `P` do inversor; `pot_med` é o **total** da usina | `last_values` / curva | curva POSAT/POSAL de 15 min |
 | `axis` | Axis | Axis, SunOp `axis` | idem | idem | idem | idem, fora do ciclo | idem, fora do ciclo |
 | `solaredge` | RenoGrid | RenoGrid, portal SolarEdge (`generate-chart`) | `process_site_solaredge` | **nenhuma** | soma dos W das strings | não tem | não tem |
-| `owen` | 2C | 2C, CSV por e-mail + API PV | `_owen_strings_rows` + `_2c_unifica_rows` | **nenhuma** | soma das correntes (A) | e-mail (+ API nas da API) | e-mail (+ API) |
+| `owen` | 2C | 2C, API PV (oem@) desde 29/09 — antes CSV por e-mail + API PV | a tabela da `2capi` (`_2c_linhas_api`) | como `pv` | `Pac` | `day_meteo` da `2capi` | API PV com os nomes do e-mail (`_2c_trk_build_api`, 30/09) |
 | `semp` | SEMP | SEMP, API PV (conta oem@) | `build_summary` | como `pv` | `Pac` | `day_meteo` | API PV, sob demanda |
 | `alveslima` | Alves Lima | Alves Lima, API PV (oem@) | `build_summary` | como `pv` | `Pac` | `day_meteo`, fora do snapshot | não tem seguidor |
 | `2capi` | (dentro do 2C) | 2C, API PV (oem@) | `build_summary` | como `pv` | `Pac` | `day_meteo` | API PV, sob demanda |
@@ -257,11 +257,18 @@ de comunicação da RenoGrid e da 2C e-mail na tabela.
   Colíder 1 mostrava 21 inversores "desligados"). String que não voltou na resposta é limitação da API, não string morta.
   O carimbo vem em UTC (`…Z`).
 - **`owen`** — o SCADA da 2C manda CSV por e-mail em janelas de ~3 h; um baixador externo grava as pastas e o
-  `_owen_loop` junta no acervo do dia. A tabela é **unificada**: Araputanga, Sete Lagoas, Tupi Paulista e União vêm da
-  API PV; Ipixuna do Pará, do e-mail. Os parados, as ocorrências e o livro de trackers seguem pelo e-mail.
+  `_owen_loop` junta no acervo do dia. **Desde 29/09/2026 a tabela de strings, a ETM, a aba de trackers, o macro e o sino
+  da 2C leem só a API PV** (`_2c_linhas_api`): a Ipixuna do Pará entrou na conta oem@ como Santa Cecilia 1, 2 e 3 (uma
+  planta por UG; o USINA_GRUPO as junta no macro) e o Levi mandou "matar de vez o e-mail no tempo real". **Desde 30/09
+  os trackers também**: a análise da 2C é a de sempre, com os nomes do e-mail ("Tracker 2.10", os dos tickets e do
+  registro), e o dado é o da API pelo de-para de tracker fechado pela curva (`_2C_TRK_FAIXAS`, `_2c_trk_build_api`):
+  aba, parados da Entrada e da ronda, frota parada, ocorrências, disponibilidade, App de Campo e a curva que o gêmeo
+  lê. Dia anterior a 30/09 segue o histórico do e-mail. Seguem pelo acervo do e-mail só Perdas e relatório (strings) e
+  a correlação.
 - **`semp`, `alveslima`, `2capi`** — conta oem@ da API PV, escolhida por `_pv_token_for`. A oem@ nega o `plant_devices`,
   então não há nome de inversor pela API: a 2C usa o de-para `PV_INV_NOMES`, fechado **pelo kWh diário** (nunca pela
-  ordem dos ids), com uma exceção provisória, a União, que está pela ordem; SEMP e Alves Lima nomeiam por posição.
+  ordem dos ids), com uma exceção provisória, a União, que está pela ordem; SEMP e Alves Lima nomeiam por posição. As
+  Santa Cecilia (Ipixuna) bateram 20 de 20 ao centésimo de kWh em 26–28/09; a UG 01 pula os ids 400841 e 400842.
 
 **Cadastro.** A aba **Equipamentos** do BD_Performance (cabeçalho na linha 3), chave "Usina Supervisório":
 `ESPERADO_INV[usina][inversor]` = strings esperadas, `ESPERADO[usina]` = inversores e strings, `STRING_BOX`, nomes de
@@ -569,7 +576,7 @@ usina gerando. Cache de 15 min.
 | Athon | curva POSAT/POSAL de 15 min, **incremental** (último ponto − 30 min) e cheia uma vez por hora; primeiro o acervo do gêmeo, depois a SunOp | ciclo do worker, TTL 600 s, pausa fora de 05:40–18:20 |
 | Axis | idem | **só sob demanda** (fora do ciclo e do snapshot) |
 | Banco | `public.raw_tracker` | ciclo do worker, 300 s |
-| 2C | e-mail para Ipixuna do Pará; API PV para Araputanga, Sete Lagoas, Tupi e União | e-mail a cada 10 min; API sob demanda |
+| 2C | API PV desde 30/09 (Ipixuna = Santa Cecilia 1–3), com o nome do e-mail pelo de-para de tracker; a União, só pela API | o dia de cada planta a cada 30 min (`TRK_DIA_TTL`) |
 | SEMP | API PV (conta oem@) | sob demanda |
 
 As usinas da 2C pela API ficam **fora** da varredura geral da API PV (`PV_TRK_OUTRA_FONTE`) para a mesma ocorrência não
@@ -653,7 +660,8 @@ abrir duas vezes no livro. A PV Plataforma é só reserva.
 
 - Junta as fontes (Banco, API PV, Athon, Axis, 2C, RenoGrid, SEMP), uma entrada por usina de exibição (sub-usinas da
   mesma fonte somadas: Altair 1 a 5 viram "Altair"). Na disputa da usina, **vence a pior** (menor severidade).
-- **A 2C entra com a linha da tabela** (`_2c_unifica_rows`): a da API onde ela vê, a do e-mail no resto (29/09).
+- **A 2C entra com a linha da tabela, só a da API** (`_2c_linhas_api`, 29/09): a Ipixuna do Pará são três plantas
+  (Santa Cecilia 1, 2 e 3) somadas como fatias. Sem a tabela da API no cache, a 2C fica fora — o e-mail não é reserva.
 - **O déficit é o da tabela:** `_macro_dif` lê a `diferenca` da linha (a soma das faltas por inversor); ativas −
   esperadas só vale sem ela (29/09).
 - **Severidade de quem a régua de strings cala** (sem visão, pouca luz, sem sol): não vem das strings, que dizem "sem
@@ -679,10 +687,9 @@ abrir duas vezes no livro. A PV Plataforma é só reserva.
 
 | Fonte | Entra no sino |
 |---|---|
-| API PV, SEMP, Alves Lima, 2C API | string zerada durante **toda** a janela de geração do inversor (≥ 30 min); **quem gerou e caiu no meio do dia não entra** |
+| API PV, SEMP, Alves Lima, 2C (só a API desde 29/09; até ali o e-mail também avisava, e ARA/STL/TUP em dobro) | string zerada durante **toda** a janela de geração do inversor (≥ 30 min); **quem gerou e caiu no meio do dia não entra** |
 | Athon, Axis | ocorrência aberta hoje: caiu, não voltou, inversor gerando, ≥ 30 min |
 | Banco | foto instantânea |
-| 2C e-mail | último valor do e-mail |
 
 - O padrão por inversor também gera aviso (uma vez por inversor por dia).
 
@@ -774,6 +781,19 @@ e replay no dado real do PC às 12:38 (mesmo snapshot pelas duas regras: 13 de 1
   primeiras do NOC eram usinas "ok". Agora as duas são críticas e o topo do NOC só tem problema.
 - **Usina fatiada com uma fatia calada** dizia "204 string(s) abaixo do esperado" com o status "ok" (Diamantino).
 
+À noite, com a Ipixuna do Pará entrando na API PV (`tests/test_2c_tempo_real_unificado.py`):
+
+- **A 2C do tempo real sem e-mail**: tabela de strings, ETM, aba de trackers, macro e sino leem só a API PV (as 7 plantas
+  da conta oem@: Araputanga, Sete Lagoa, Tupi, União e Santa Cecilia 1–3). O de-para dos 20 inversores da Ipixuna foi
+  fechado pelo kWh (26–28/09, ao centésimo), igual ao do coletor.
+- **O sino avisava ARA/STL/TUP em dobro** (fontes `owen` e `2capi` ao mesmo tempo): ficou só a da API, com o nome "2C".
+- **Trackers parados da 2C entravam duas vezes na Entrada** quando a aba de trackers da 2C tinha sido aberta no web
+  (`_pv_parados_rows` listava as usinas dela): a API PV não as lista mais — os parados delas são da fonte 2C.
+- **Trackers da 2C pela API, com o nome do e-mail** (30/09, de madrugada): de-para fechado pela curva em 28/09 (340 de
+  340, parados no mesmo ângulo) e a mesma análise com as duas fontes cortada às 12:00 deu os mesmos parados nas quatro
+  usinas. Os parados da 2C passaram a levar o ticket que a análise já cruzava (a linha ia com `na_planilha=False`, e a
+  Entrada dizia 0 "com OS" na 2C). E a API fora de dia vira "fonte não respondeu", não zero parados.
+
 ### 15.1 Defeitos confirmados
 
 Em aberto. Cada um foi conferido no código e, quando dá, no dado do servidor de hoje.
@@ -815,8 +835,6 @@ Em aberto. Cada um foi conferido no código e, quando dá, no dado do servidor d
 - **Drill em cache no navegador:** os inversores de uma usina ficam na memória da página até recarregar; o Atualizar só
   renova a tabela.
 - **O web não relê** `trk_eventos.json`, `paradas_book.json` e `perdas_strings.json` depois do boot.
-- **Trackers parados da 2C podem entrar duas vezes na Entrada** se a aba de trackers da 2C foi aberta no web (linhas da
-  API PV e do e-mail somadas).
 - **Estado gravado pelos dois processos:** `ufv_state.json` tem trava só dentro de cada processo.
 
 ### 15.3 Textos defasados no código e nos documentos

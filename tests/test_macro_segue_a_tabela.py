@@ -7,8 +7,9 @@ chega à tabela e não chega ao macro:
 1. **A diferença.** Desde 29/09 a coluna Diferença é a soma das FALTAS de cada inversor (`_dif_por_inversor`), e o
    macro seguia recontando ativas − esperadas: a Poconé 1, com 202/202 e −6 na tabela (6 strings paradas num inversor, 6
    a mais no cadastro de outro), ficava "ok · Normal" no macro, com 0 faltando.
-2. **A 2C.** A tabela 2C tem UMA linha por usina (`_2c_unifica_rows`: a da API PV onde ela vê, a do e-mail no resto). O
-   rollup punha as duas e deixava disputar: no servidor, onde o e-mail não chega, a linha do e-mail sem dado vencia e a
+2. **A 2C.** A tabela 2C tem UMA linha por usina — desde 29/09 à noite, só a da API PV (`_2c_linhas_api`; a Ipixuna
+   entrou na API como Santa Cecilia 1/2/3 e o e-mail saiu do tempo real). Com o e-mail no meio, o rollup punha as duas e
+   deixava disputar: no servidor, onde o e-mail não chega, a linha do e-mail sem dado vencia e a
    Entrada dizia "4 sem comunicação" com Araputanga, Sete Lagoas e Tupi Paulista lendo às 11:29 pela API; no PC, as duas
    eram SOMADAS como fatias da mesma usina (Araputanga 472 ativas de 236, Tupi Paulista 800 de 400).
 
@@ -71,7 +72,11 @@ def test_entrada_nao_conta_a_usina_sem_sol(freeze_now, monkeypatch):
 
 
 # ── 2. a 2C do macro é a da tabela ─────────────────────────────────────────────────────────────────────────────────
-def _rollup_2c(monkeypatch, email, api):
+def _email_proibido(*a, **k):
+    raise AssertionError("o macro leu o acervo do e-mail da 2C")
+
+
+def _rollup_2c(monkeypatch, api, grupo=None):
     vazio = {"payload": {"rows": []}}
     for nome in ("_cache", "_sunop_cache", "_axis_cache", "_se_cache", "_semp_cache"):
         monkeypatch.setattr(app, nome, dict(vazio))
@@ -81,45 +86,45 @@ def _rollup_2c(monkeypatch, email, api):
     monkeypatch.setattr(app, "_religamentos_abertos_usina", lambda: {})
     monkeypatch.setattr(app, "_etm_leitura_por_pid", lambda: {})
     monkeypatch.setattr(app, "_poa_atual_por_pid", lambda: {})
-    monkeypatch.setattr(app, "_owen_strings_rows", lambda: email)
+    monkeypatch.setattr(app, "_owen_strings_rows", _email_proibido)       # 29/09/2026: o e-mail saiu do tempo real
     monkeypatch.setattr(app, "_2capi_cache", {"payload": {"rows": api}})
+    if grupo is not None:
+        monkeypatch.setattr(app, "USINA_GRUPO", grupo)
     return {u["usina"]: u for u in app._portfolio_rollup()}
 
 
 ARA_API = {"usina": "Araputanga", "plant_id": 18771898, "strings_ativas": 236, "str_esp": 236, "diferenca": 0,
            "qtd_inversores": 10, "inv_esp": 10, "pot_med": 180.0, "ultima_leitura": "2026-09-29 11:29:00"}
-ARA_EMAIL = {"usina": "Araputanga", "plant_id": "ARA", "strings_ativas": 236, "str_esp": None, "diferenca": None,
-             "qtd_inversores": 10, "ultima_leitura": "2026-09-29 08:59"}
 
 
-def test_email_sem_dado_nao_derruba_a_usina_que_a_api_ve(monkeypatch, freeze_now):
+def test_a_2c_do_macro_e_a_linha_da_api(monkeypatch, freeze_now):
     freeze_now("2026-09-29 11:39:00")
-    us = _rollup_2c(monkeypatch, [{"usina": "Araputanga", "plant_id": "ARA", "sem_dados": True,
-                                   "strings_ativas": None, "str_esp": None, "qtd_inversores": 0}], [ARA_API])
-    u = us["Araputanga"]
+    u = _rollup_2c(monkeypatch, [ARA_API])["Araputanga"]
     assert u["status"] == "ok" and u["sub_fonte"] == "api" and u["plant_id"] == 18771898
+    assert (u["strings_ativas"], u["str_esp"], u["qtd_inversores"]) == (236, 236, 10) and not u.get("n_partes")
 
 
-def test_email_e_api_da_mesma_usina_nao_se_somam(monkeypatch, freeze_now):
+def test_ipixuna_e_a_soma_das_tres_ugs(monkeypatch, freeze_now):
+    """A Ipixuna do Pará chega em três plantas da API (Santa Cecilia 1, 2 e 3, uma por UG) e o cadastro liga as três à
+    mesma usina: o card mostra UMA Ipixuna, somada, e a falta de uma UG aparece nela."""
     freeze_now("2026-09-29 12:18:00")
-    u = _rollup_2c(monkeypatch, [ARA_EMAIL], [ARA_API])["Araputanga"]
-    assert (u["strings_ativas"], u["str_esp"], u["qtd_inversores"]) == (236, 236, 10)
-    assert not u.get("n_partes")
+    ug = lambda n, pid, inv, esp, **kw: dict({"usina": f"Santa Cecilia {n}", "plant_id": pid, "strings_ativas": esp,
+                                              "str_esp": esp, "diferenca": 0, "qtd_inversores": inv, "inv_esp": inv,
+                                              "pot_med": 250.0, "ultima_leitura": "2026-09-29 12:10:00"}, **kw)
+    grupo = {"Santa Cecilia 1": "Ipixuna do Pará", "Santa Cecilia 2": "Ipixuna do Pará", "Santa Cecilia 3": "Ipixuna do Pará"}
+    us = _rollup_2c(monkeypatch, [ug(1, 18771915, 8, 138), ug(2, 18771929, 6, 105, strings_ativas=102, diferenca=-3),
+                                  ug(3, 18771930, 6, 105)], grupo)
+    assert "Santa Cecilia 1" not in us
+    u = us["Ipixuna do Pará"]
+    assert u["n_partes"] == 3 and u["qtd_inversores"] == 20 and u["str_esp"] == 348 and u["strings_ativas"] == 345
+    assert u["strings_faltando"] == 3 and u["status"] == "atencao" and u["sub_fonte"] == "api"
 
 
-def test_usina_que_so_o_email_ve_segue_pelo_email(monkeypatch, freeze_now):
+def test_sem_a_api_a_2c_fica_fora_do_macro(monkeypatch, freeze_now):
+    """Sem a tabela da API (worker frio), a 2C não entra: o e-mail de 3 h atrás não é reserva do agora."""
     freeze_now("2026-09-29 12:18:00")
-    ipx = {"usina": "Ipixuna do Pará", "plant_id": "IPX", "strings_ativas": 348, "str_esp": 348, "diferenca": 0,
-           "qtd_inversores": 20, "ultima_leitura": "2026-09-29 11:59"}
-    us = _rollup_2c(monkeypatch, [ARA_EMAIL, ipx], [ARA_API])
-    assert us["Ipixuna do Pará"]["sub_fonte"] == "email" and us["Ipixuna do Pará"]["status"] == "ok"
-    assert us["Araputanga"]["sub_fonte"] == "api"
-
-
-def test_sem_a_api_a_2c_segue_inteira_pelo_email(monkeypatch, freeze_now):
-    freeze_now("2026-09-29 12:18:00")
-    u = _rollup_2c(monkeypatch, [dict(ARA_EMAIL, str_esp=236, diferenca=0)], [])["Araputanga"]
-    assert u["plant_id"] == "ARA" and u["sub_fonte"] == "email" and u["status"] == "ok"
+    us = _rollup_2c(monkeypatch, [])
+    assert not any(u.get("fonte") == "2C" for u in us.values())
 
 
 # ── 3. quem a régua de strings cala não entra no ranking como "sem geração" ────────────────────────────────────────
@@ -181,24 +186,3 @@ def test_usina_fatiada_em_pouca_luz_nao_diz_strings_abaixo(monkeypatch, freeze_n
     u = us["Diamantino"]
     assert u["status"] == "ok" and u["strings_faltando"] == 0 and u["diferenca"] == 0
     assert "abaixo do esperado" not in u["causa"]
-
-
-def test_email_quebrado_nao_derruba_a_api(monkeypatch, freeze_now):
-    freeze_now("2026-09-29 12:18:00")
-
-    def _quebra():
-        raise OSError("pasta do e-mail fora")
-
-    vazio = {"payload": {"rows": []}}
-    for nome in ("_cache", "_sunop_cache", "_axis_cache", "_se_cache", "_semp_cache"):
-        monkeypatch.setattr(app, nome, dict(vazio))
-    monkeypatch.setattr(app, "_pg_get_snapshot", lambda force=False: ([], None))
-    monkeypatch.setattr(app, "_macro_sol_baixo", lambda r, agora=None: False)
-    monkeypatch.setattr(app, "_usinas_desligadas_marcas", lambda: {})
-    monkeypatch.setattr(app, "_religamentos_abertos_usina", lambda: {})
-    monkeypatch.setattr(app, "_etm_leitura_por_pid", lambda: {})
-    monkeypatch.setattr(app, "_poa_atual_por_pid", lambda: {})
-    monkeypatch.setattr(app, "_owen_strings_rows", _quebra)
-    monkeypatch.setattr(app, "_2capi_cache", {"payload": {"rows": [ARA_API]}})
-    us = {u["usina"]: u for u in app._portfolio_rollup()}
-    assert us["Araputanga"]["sub_fonte"] == "api" and us["Araputanga"]["status"] == "ok"

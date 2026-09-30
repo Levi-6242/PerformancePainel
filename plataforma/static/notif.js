@@ -9,7 +9,8 @@
 (function () {
   if (document.documentElement.classList.contains("embed")) return;   // dentro da tela do cliente, o sino e o do pai
   var CHAVE = "gc.notif.visto", ULT = "gc.notif.ultimo", VISTOS = "gc.notif.vistos";
-  var FONTE_ID = { pv: "thopen-pv", pg: "thopen-db", sunop: "athon", axis: "axis", owen: "2c", semp: "semp", alveslima: "alveslima", "2capi": "2capi" };
+  // "2capi" abre a aba 2C: a aba separada saiu do seletor em 11/09/2026 e, desde 29/09, o sino da 2C é só o da API
+  var FONTE_ID = { pv: "thopen-pv", pg: "thopen-db", sunop: "athon", axis: "axis", owen: "2c", semp: "semp", alveslima: "alveslima", "2capi": "2c" };
   var visto = "", ultimo = "", vistos = {}, grupos = [], aberto = false, meta = {};
   try {
     visto = localStorage.getItem(CHAVE) || ""; ultimo = localStorage.getItem(ULT) || "";

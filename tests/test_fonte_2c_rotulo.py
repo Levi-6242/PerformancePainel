@@ -39,9 +39,12 @@ def test_os_trackers_do_2c_marcam_o_card_do_2c(monkeypatch):
 
 
 def test_o_sino_rotula_e_linka_o_2c_como_2c():
-    assert ("owen", "2C") in app._NOTIF_FONTES, "o sino voltou a chamar o 2C de RenoGrid"
+    # desde 29/09/2026 a 2C do sino é só a da API PV (`2capi`), com o nome "2C"; o e-mail saiu do tempo real
+    assert ("2capi", "2C") in app._NOTIF_FONTES, "o sino voltou a chamar o 2C de outra coisa"
+    assert not any(f == "owen" for f, _r in app._NOTIF_FONTES), "o sino voltou a ler o e-mail da 2C"
     js = (RAIZ / "plataforma" / "static" / "notif.js").read_text(encoding="utf-8")
     assert 'owen: "2c"' in js, "o deep link do sino manda o 2C para a aba do SolarEdge"
+    assert '"2capi": "2c"' in js, "o deep link da 2C tem de abrir a aba 2C (a 2capi saiu do seletor)"
     assert 'owen: "renogrid"' not in js
 
 

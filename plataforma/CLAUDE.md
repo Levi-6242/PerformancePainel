@@ -477,15 +477,37 @@ completa, curva, Diagnóstico v2. É o padrão SEMP/Alves Lima (`PV_FONTES` + bl
 fonte explícita filtra por **id**, não pelo `FULL_OM` (`_pv_plantas_da_fonte` — o FULL_OM é por nome de supervisório
 e "Sete Lagoa" não está lá); `PV_NOME_API_ALIAS` traduz o nome da API para o do cadastro em `nome_usina`; e
 `PV_INV_NOMES` dá o nome do inversor (a conta oem@ não devolve nome e as abas da 2C não têm linha no Equipamentos) —
-de-para fechado **por valor** contra o kWh diário do BD, nunca pela ordem dos ids. No rollup do macro a 2C entra pela
-**mesma linha por usina da tabela** (`_2c_unifica_rows`: a da API onde ela vê, a do e-mail no resto), desde 29/09/2026.
-Antes as duas disputavam ("o pior vence") e, sendo da mesma fonte, viravam fatias somadas: no servidor, sem e-mail, a
-linha sem dado vencia e a Entrada dizia "4 sem comunicação" com as três lendo pela API; no PC, Araputanga saía com 472
-ativas de 236 (`tests/test_macro_segue_a_tabela.py`). **Trackers seguem pelo e-mail** (fonte `owen`), junto com a Ipixuna do Pará, que não está na API. Não é mais
-por falta de permissão: desde 15/09/2026 a PV Plataforma devolve as três (ARA 59, STL 59, TUP 100, iguais ao
-BD_Trackers) — é para não ter a MESMA ocorrência em duas fontes. Quem decide migrar é o Levi; a API é ~2h45
-mais fresca. A trava está em `PV_TRK_OUTRA_FONTE` (ver "Trackers das usinas da conta OEM" abaixo). A conta principal responde "Invalid id" para as três:
-qualquer chamada delas tem de ir por `_pv_token_for`. Teste: `tests/test_fonte_2capi.py`.
+de-para fechado **por valor** contra o kWh diário do BD, nunca pela ordem dos ids.
+
+**O e-mail saiu do Tempo Real (29/09/2026, à noite**, Levi: "Ipixuna do Pará passar a puxar da API PV matando de vez o
+e-mail no tempo real!"). A Ipixuna do Pará entrou na conta oem@ como **três plantas, uma por UG** — Santa Cecilia 1
+(18771915, UG 01, 8 inversores), 2 (18771929) e 3 (18771930), 6 cada, 6.918 kWp somadas, o total do cadastro. O
+Equipamentos já as liga à "Ipixuna do Pará" pela Usina Supervisório (nomes "INVERSOR0 1.1"… na UG 01, "INVERSOR01"… nas
+outras), e o `USINA_GRUPO` as junta no macro como fatias somadas. De-para dos 20 inversores **por valor**: Eday × coluna
+do BD em 26, 27 e 28/09, ao centésimo de kWh; a UG 01 pula os ids 400841 e 400842 (o coletor, em outra sessão, fechou o
+mesmo em 6 dias). A estação é UMA, repetida nas três plantas: POA em −1 (o piranômetro inclinado não mede, como no
+e-mail) e GHI no `piraGHI1`. Tabela de strings, ETM, aba de trackers, macro e sino da 2C leem **só a API**
+(`_2c_linhas_api`); sem o cache da API a aba fica vazia, sem reserva do e-mail. O sino lia as duas portas e avisava
+ARA/STL/TUP em dobro. Teste: `tests/test_2c_tempo_real_unificado.py` (inclui um que confere o de-para contra a grafia
+do cadastro — se o Equipamentos mudar "INVERSOR0 1.1", o inversor perde nome e esperada sem erro nenhum).
+
+**Trackers da 2C pela API com o nome do e-mail (30/09/2026).** O e-mail, os tickets e o registro (`trk_eventos`,
+chaveado por ARA/STL/TUP/IPX) chamam o tracker de "Tracker 2.10"; a API, de "TRK10" da planta da UG. O de-para foi
+fechado **pela curva** em 28/09 (posição de cada tracker do e-mail × cada um da API, minuto a minuto): os 340 pares da
+regra `_2C_TRK_FAIXAS` com diferença média ≤ 0,5° e os PARADOS no mesmo ângulo, a prova que falta a eles (curva reta casa
+com qualquer reta — os cinco da Ipixuna caíam todos no TRK24). O prefixo não é a UG: na Ipixuna o grupo 2 atravessa a UG
+02 e a UG 03. `_owen_trackers_build` passa a montar o dia pela API (`_2c_trk_build_api`, com o alvo da 2C, `com_alvo` do
+`_pv_trk_parse_dia` — o alvo dela é o do e-mail; o da Thopen é furado e não é guardado), e tudo que lia o e-mail segue
+com as mesmas chaves: aba (a Ipixuna é UMA usina, 122 trackers), parados da Entrada e da ronda, frota parada,
+ocorrências, disponibilidade, App de Campo e a curva que o gêmeo lê. Dia anterior a `_2C_TRK_API_DESDE` (30/09) segue o
+histórico do e-mail. A União não está no e-mail nem no de-para: segue pela API com os nomes dela. Equivalência com as
+duas fontes na mesma análise, 28/09 cortado às 12:00: os mesmos parados nas quatro usinas; o dia inteiro dá 61 × 6 na
+Ipixuna porque o e-mail repete o último valor de 17:19 a 17:59 e a API para às 17:17 — os 6 são os travados em 0° nas
+duas. Os parados passaram a levar o `ticket_status` (antes a linha ia com `na_planilha=False`), e a API fora de dia vira
+`errout` (a Entrada mostra "de tal hora"), não zero parados. Pelo acervo do e-mail ficam só Perdas e relatório de strings
+e a correlação. A trava de ocorrência em dobro está em `PV_TRK_OUTRA_FONTE`, e desde 29/09 o `_pv_parados_rows` também
+pula essas usinas (quando a aba de trackers da 2C tinha sido aberta no web, o mesmo tracker entrava duas vezes). A conta principal responde "Invalid id" para
+as usinas da 2C: qualquer chamada delas tem de ir por `_pv_token_for`. Teste: `tests/test_fonte_2capi.py`.
 
 **A União entrou em 25/09/2026** ("adicione a usina União em 2C!"): conta oem@, id 18772125, "União " na API (com
 espaço), 2.162 kWp, instalada em 22/09 — 6 inversores com 28 Ipv (18 com corrente). No cadastro é "União 1 e 2" (Info
@@ -660,7 +682,7 @@ Coração 2 (3), Altair 1 (1), Tupi Paulista (8 de 20, cravados em 250,24 kW des
 **Decisões de 17/09 (tarde):** **clipping NÃO conta como perda** (é de projeto, não de operação —
 `QUALIDADE_CLIPPING_E_PERDA=False` e `regua.clipping_e_perda` no payload; não somar às perdas
 evitáveis nem valorar em R$) e o recorte é **só a 2C** (`QUALIDADE_PLANTAS = PV_FONTES["2capi"]`;
-a Ipixuna fica fora por não estar na API). Ciclo caiu de 80 s para ~11 s. O nome do inversor vem do
+desde 29/09/2026 inclui a Ipixuna, pelas Santa Cecilia). Ciclo caiu de 80 s para ~11 s. O nome do inversor vem do
 `PV_INV_NOMES` porque a conta oem@ não pode chamar `/plant_devices`.
 
 ## Falhas de strings e trackers (aba do Diagnóstico, 24/09/2026)

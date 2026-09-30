@@ -12,10 +12,11 @@ import pathlib
 import app
 
 RAIZ = pathlib.Path(app.__file__).resolve().parents[1]
-IDS = {18771898, 18771901, 18750925, 18772125}     # + a União, em 25/09/2026 ("adicione a usina União em 2C!")
+IDS = {18771898, 18771901, 18750925, 18772125,     # + a União, em 25/09/2026 ("adicione a usina União em 2C!")
+       18771915, 18771929, 18771930}              # + a Ipixuna do Pará (Santa Cecilia 1, 2 e 3), em 29/09/2026
 
 
-def test_fonte_2capi_tem_as_quatro_usinas_e_e_conta_oem():
+def test_fonte_2capi_tem_as_usinas_da_2c_e_e_conta_oem():
     assert app.PV_FONTES["2capi"] == IDS
     assert all(app._pv_fonte_de(i) == "2capi" and app._pv_is_oem(i) for i in IDS)
     assert app._pv_fonte_de(18748888) is None                      # Colorado 2 segue na principal (Thopen)
@@ -50,7 +51,7 @@ def test_rotas_entrada_notificacao_e_snapshot():
     assert {"/api/2capi/data", "/api/2capi/etm", "/api/2capi/etm/analise"} <= regras
     assert not any(fid == "2capi" for _c, _f, fid in app._ENTRADA_GRUPOS)   # UM card "2C" (Levi): a API entra nele
     assert app._ENTRADA_VKEY["2capi"] == "c2"
-    assert ("2capi", "2C · API PV") in app._NOTIF_FONTES
+    assert ("2capi", "2C") in app._NOTIF_FONTES                             # a 2C do sino é a da API (29/09/2026)
     assert {"2capi", "2capi_etm", "2capi_analise"} <= set(app._persist_registry())   # o worker publica, o web instala
 
 
@@ -71,39 +72,31 @@ def test_fronts_conhecem_a_fonte():
     por = (RAIZ / "plataforma/templates/painel_portfolio.html").read_text(encoding="utf-8")
     assert "'2C · API PV':'2capi'" in por and "'/api/2capi/etm/analise'" in por
     nj = (RAIZ / "plataforma/static/notif.js").read_text(encoding="utf-8")
-    assert '"2capi": "2capi"' in nj
+    assert '"2capi": "2c"' in nj                                         # o sino abre a aba 2C (29/09/2026)
     v2 = (RAIZ / "plataforma/templates/painel_usina_v2.html").read_text(encoding="utf-8")
     assert v2.count("FONTE==='2capi'") == 2
 
 
-def _rollup_so_com(monkeypatch, owen_rows, api_rows):
+def _rollup_so_com(monkeypatch, api_rows):
+    def _email_proibido(*a, **k):
+        raise AssertionError("o macro leu o e-mail da 2C")
     vazio = {"payload": {"rows": []}}
     for nome in ("_cache", "_sunop_cache", "_axis_cache", "_se_cache", "_semp_cache"):
         monkeypatch.setattr(app, nome, dict(vazio))
     monkeypatch.setattr(app, "_pg_get_snapshot", lambda force=False: ([], None))
     monkeypatch.setattr(app, "_macro_sol_baixo", lambda r: False)          # de dia: string a zero conta
-    monkeypatch.setattr(app, "_owen_strings_rows", lambda: owen_rows)
+    monkeypatch.setattr(app, "_owen_strings_rows", _email_proibido)
     monkeypatch.setattr(app, "_2capi_cache", {"payload": {"rows": api_rows}})
     us = {u["usina"]: u for u in app._portfolio_rollup()}
     return us["Araputanga"]
 
 
-def test_no_rollup_a_api_vence_o_email_em_empate(monkeypatch):
-    """A mesma usina entra pelo e-mail ("2C") e pela API ("2C · API PV"). Em empate de severidade fica quem entrou
-    primeiro — e a API entra primeiro: é a fonte viva (strings ao vivo, ETM completa); o e-mail só cobre o que ela não vê."""
+def test_no_rollup_a_2c_e_a_linha_da_api(monkeypatch):
+    """Até 29/09/2026 a mesma usina entrava pelo e-mail e pela API e a linha da API vencia no card; desde então o
+    macro nem lê o e-mail (`_2c_linhas_api`). Ver tests/test_macro_segue_a_tabela.py."""
     ok = {"usina": "Araputanga", "strings_ativas": 236, "str_esp": 236, "ultima_leitura": "2026-09-11 10:00"}
-    u = _rollup_so_com(monkeypatch, [dict(ok, plant_id="ARA")], [dict(ok, plant_id=18771898)])
-    assert u["fonte"] == "2C" and u["plant_id"] == 18771898 and u["sub_fonte"] == "api"   # mesmo card, linha da API
-
-
-def test_no_rollup_vale_a_linha_da_tabela_nao_o_pior(monkeypatch):
-    """Até 29/09/2026 a régua era 'o pior vence' também aqui: o e-mail com 36 faltando levava o card, com a API — e a
-    tabela 2C — dizendo que não faltava nada. O e-mail chega em janelas de 3 h; a linha da usina que a API vê é a da API,
-    no card como na tabela (`_2c_unifica_rows`). Ver tests/test_macro_segue_a_tabela.py."""
-    ok = {"usina": "Araputanga", "strings_ativas": 236, "str_esp": 236, "ultima_leitura": "2026-09-11 10:00"}
-    pior = dict(ok, strings_ativas=200, plant_id="ARA")
-    u = _rollup_so_com(monkeypatch, [pior], [dict(ok, plant_id=18771898)])
-    assert u["fonte"] == "2C" and u["strings_faltando"] == 0 and u["plant_id"] == 18771898 and u["sub_fonte"] == "api"
+    u = _rollup_so_com(monkeypatch, [dict(ok, plant_id=18771898)])
+    assert u["fonte"] == "2C" and u["plant_id"] == 18771898 and u["sub_fonte"] == "api" and u["strings_faltando"] == 0
 
 
 def test_alias_da_api_vale_em_todos_os_mapas_do_cadastro(monkeypatch):

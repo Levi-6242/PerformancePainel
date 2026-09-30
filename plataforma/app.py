@@ -2247,14 +2247,19 @@ PV_FONTES = {
     # 2C pela API PV (Levi, 11/09/2026: "quero que rode na plataforma primeiro"). As três estão na conta oem@ com
     # strings (28 Ipv por inversor), ETM completa e curva — a conta principal responde "Invalid id" para elas.
     # Trackers: a PV Plataforma DEIXOU de negar (token de 15/09/2026) e devolve as três — Araputanga 59,
-    # Sete Lagoa 59, Tupi 100, iguais ao BD_Trackers. Mesmo assim seguem pelo e-mail (fonte `owen`), para não
-    # duplicar a mesma ocorrência em duas fontes; migrar é decisão do Levi (a API é ~2h45 mais fresca que o
-    # e-mail). Ver PV_TRK_OUTRA_FONTE. A Ipixuna do Pará não está na API.
+    # Sete Lagoa 59, Tupi 100, iguais ao BD_Trackers. Desde 30/09/2026 os trackers da 2C inteira (aba, parados da
+    # Entrada e da ronda, ocorrências) vêm daqui com os nomes do e-mail ("Tracker 2.10"), pelo de-para de tracker
+    # fechado pela curva (_2C_TRK_FAIXAS, _2c_trk_build_api). Ver PV_TRK_OUTRA_FONTE.
     # União (Levi, 25/09/2026: "adicione a usina União em 2C!"): na mesma conta oem@, id 18772125, 2.162 kWp, instalada
     # em 22/09/2026 — 6 inversores com 28 Ipv (18 com corrente). O cadastro diz "União 1 e 2" com 12 inversores e 4,46
     # MWp: a API tem, por ora, metade. O Equipamentos ainda não tem os inversores dela (sem esperadas nem nomes).
+    # Ipixuna do Pará (Levi, 29/09/2026: "passar a puxar da API PV matando de vez o e-mail no tempo real"): na conta oem@
+    # ela é TRÊS plantas, uma por UG — Santa Cecilia 1 (UG 01, 8 inversores), 2 e 3 (UG 02 e 03, 6 cada), 6.918 kWp
+    # somadas, o mesmo total do cadastro. O Equipamentos já as liga à "Ipixuna do Pará" pela Usina Supervisório, e o
+    # USINA_GRUPO junta as três no macro e na Entrada, como as fatias da Indaiatuba.
     "2capi":     {18771898, 18771901, 18750925,     # Araputanga, "Sete Lagoa" (singular na API), Tupi Paulista
-                  18772125},                        # União ("União 1 e 2" no cadastro — PV_NOME_API_ALIAS)
+                  18772125,                         # União ("União 1 e 2" no cadastro — PV_NOME_API_ALIAS)
+                  18771915, 18771929, 18771930},    # Santa Cecilia 1, 2 e 3 = Ipixuna do Pará (UG 01 a 03)
 }
 # PV_NOME_API_ALIAS ("Sete Lagoa" → "Sete Lagoas") está definido antes do load_equipamentos, que o aplica ao cadastro.
 # Conta oem@ não devolve NOME de inversor (só idefinversor) e as abas da 2C não têm linha no Equipamentos. Este
@@ -2272,6 +2277,14 @@ PV_INV_NOMES = {
     # Os nomes são os do supervisório no cadastro (Usina Supervisório "UNI"), que o EQUIP_NAMES traduz para
     # "Inversor 1.x". Confirmar na PV Plataforma (o nome de cada id) e trocar se algum estiver fora de ordem.
     18772125: {401313 + i: f"UNI_Inv_1.{i + 1}" for i in range(6)},                          # União (UG 01)
+    # Ipixuna do Pará (29/09/2026) — POR VALOR, como as três primeiras: o Eday de cada id bateu com a coluna do BD ao
+    # centésimo de kWh em 26, 27 e 28/09 (20 de 20; o coletor fechou o mesmo de-para em 6 dias). Os ids crescem na ordem
+    # das colunas, mas a Santa Cecilia 1 PULA 400841 e 400842. Os nomes são os do supervisório no Equipamentos, que o
+    # EQUIP_NAMES traduz para "Inversor 1.1"… e que chaveiam as esperadas — escritos como estão lá ("INVERSOR0 1.1" na
+    # UG 01): se o cadastro mudar a grafia, o teste de cadastro em test_2c_tempo_real_unificado.py avisa.
+    18771915: {400840: "INVERSOR0 1.1", **{400843 + i: f"INVERSOR0 1.{i + 2}" for i in range(7)}},  # Santa Cecilia 1
+    18771929: {400882 + i: f"INVERSOR0{i + 1}" for i in range(6)},                               # Santa Cecilia 2
+    18771930: {400888 + i: f"INVERSOR0{i + 1}" for i in range(6)},                               # Santa Cecilia 3
 }
 
 
@@ -2292,9 +2305,11 @@ PV_OEM_PLANTS   = set().union(*PV_FONTES.values()) if PV_FONTES else set()
 # por ciclo. Com o token renovado nesse dia (usuarioid 8540) a negativa acabou: conferido ao vivo,
 # Tucano 1 e Tucano 2 devolvem 40 trackers cada, leitura do minuto (Levi: "SEMP não tá puxando ainda
 # os trackers via PV, já tem os dados lá no sistema da PV"). A exclusão deixou de ser "é da conta
-# OEM" e passou a ser "o tracker JÁ VEM DE OUTRA FONTE" — hoje só as três da 2C, que chegam pelo
-# e-mail (fonte `owen`, rótulo "2C"). Duas fontes para o MESMO tracker duplicariam a ocorrência no
-# livro (tracker_watch) e o "parado" da Entrada. A Morada Nova fica DE FORA desta lista de propósito:
+# OEM" e passou a ser "o tracker JÁ VEM DE OUTRA FONTE" — hoje as usinas da 2C, que têm fonte própria
+# (`owen`, rótulo "2C": a análise de sempre, com os nomes do e-mail e, desde 30/09/2026, o dado da API
+# pelo _2c_trk_build_api). Duas fontes para o MESMO tracker duplicariam a ocorrência no
+# livro (tracker_watch) e o "parado" da Entrada — por isso os parados da API PV também não as listam
+# (_pv_parados_rows, 29/09/2026). A Morada Nova fica DE FORA desta lista de propósito:
 # ela responde 200 com zero trackers (ausência honesta), e no dia em que ganhar seguidor aparece só.
 PV_TRK_OUTRA_FONTE = set(PV_FONTES.get("2capi") or ())
 _pv_oem_token   = {"token": None, "exp": 0.0}
@@ -3715,12 +3730,20 @@ def _entrada_tempo_real_build() -> dict:
             raise RuntimeError(err["erro"])
         return rows_pv
 
+    def _2c():
+        # idem na 2C desde que os trackers dela vêm da API PV (30/09/2026)
+        err: dict = {}
+        rows_2c = _owen_parados_rows(errout=err)
+        if err.get("erro"):
+            raise RuntimeError(err["erro"])
+        return rows_2c
+
     # `owen` E o 2C (OWEN_UFVS = Araputanga, Ipixuna do Pará, Sete Lagoas, Tupi Paulista), como o resto do
     # arquivo já diz: _TRK_FONTE_LABEL["owen"]="2C", o rollup faz add("2C", r) e _ENTRADA_VKEY["2c"]="owen".
     # Registrado sob "RenoGrid", o card do 2C NUNCA era marcado como lido (ficava "fonte não respondeu" para
     # sempre) e o da RenoGrid — que não tem leitura de trackers — se dizia lido. Varredura de 09/09/2026.
     fontes_trk = {"Athon": _entrada_trk_fonte("Athon"), "Axis": _entrada_trk_fonte("Axis"),
-                  "API PV": _pv, "2C": lambda: _owen_parados_rows(), "Thopen": lambda: _pg_parados_rows()}
+                  "API PV": _pv, "2C": _2c, "Thopen": lambda: _pg_parados_rows()}
     # As cinco correm em PARALELO e com PRAZO. Sequencial e sem prazo, bastava uma consulta lenta para a entrada nunca
     # ficar pronta (05/09: o PG passou de 15 min e a tela ficou eternamente "coletando as fontes pela primeira vez").
     # Excecao nao cobria o caso: consulta lenta nao levanta, so nao volta. A thread que estourou o prazo continua viva
@@ -3826,9 +3849,9 @@ def _entrada_tempo_real_build() -> dict:
 # a noite toda string esta em zero e nao e queda. A 1a leitura de cada dia so estabelece a base — senao o
 # amanhecer avisaria todas as strings que ja estavam mortas de vespera. Estado no JSON compartilhado (`notif`).
 _NOTIF_FONTES = (("pv", "Thopen · API PV"), ("pg", "Thopen · Banco de dados"), ("sunop", "Athon"),
-                 ("axis", "Axis"), ("owen", "2C"), ("semp", "SEMP"), ("alveslima", "Alves Lima"),
-                 ("2capi", "2C · API PV"))
-# 2C fica de fora de proposito: a string do 2C vem por e-mail (banco-por-dia), nao ha leitura ao vivo para comparar.
+                 ("axis", "Axis"), ("semp", "SEMP"), ("alveslima", "Alves Lima"), ("2capi", "2C"))
+# A 2C entra só pela API PV (29/09/2026, "matando de vez o e-mail no tempo real"): até ali o sino lia as duas portas, e
+# Araputanga, Sete Lagoas e Tupi avisavam em dobro — pelo e-mail de 3 h atrás e pela API de agora.
 _NOTIF_REBASE_H = 3               # leitura anterior mais velha que isto (PC suspenso, processo fora) → vira base, nao avisa
 _NOTIF_INTERVALO_S = 30 * 60
 _NOTIF_MAX = 300
@@ -4448,7 +4471,8 @@ def api_alveslima_etm_analise():
 # ── Fonte 2C · API PV (mesma credencial OEM; cliente 2C) ─────────────────────
 # 11/09/2026: Araputanga, "Sete Lagoa" e Tupi Paulista vinham só pelo e-mail da 2C (fonte `owen`: strings como último
 # valor, ETM em janelas de 3 h, sem curva). Pela conta oem@ da API PV elas têm strings ao vivo, ETM completa e curva.
-# Trackers e Ipixuna do Pará continuam pelo e-mail. Ver PV_FONTES.
+# Desde 29/09/2026 a Ipixuna do Pará também (Santa Cecilia 1/2/3) e o Tempo Real da 2C lê só daqui — os trackers
+# desde 30/09, pelo de-para de tracker (_2C_TRK_FAIXAS). Ver PV_FONTES e _2c_linhas_api.
 _2capi_cache             = {"payload": None, "ts": 0.0}
 _2capi_etm_cache         = {"payload": None, "ts": 0.0}
 _2capi_etm_analise_cache = {"payload": None, "ts": 0.0}
@@ -9793,15 +9817,20 @@ _pv_trk_dia_locks = {}       # (idusina, data) -> Lock: DEDUP (a busca é cara; 
 _pv_trk_dia_guard = threading.Lock()
 
 
-def _pv_trk_parse_dia(payload) -> dict:
+def _pv_trk_parse_dia(payload, com_alvo: bool = False) -> dict:
     """Dia cru da API PV → {"curva": {trk: [{x,y}]}, "ultima": {trk: {...}}, "ultima_ts": str|None}.
 
     Puro de propósito (sem rede): é aqui que a troca de fonte pode errar em silêncio, então é o que
     os testes prendem. Leitura torta é PULADA, não levanta — uma usina com um registro defeituoso
-    não pode derrubar a varredura das outras 115."""
-    curva, ultima, ultima_ts = {}, {}, None
+    não pode derrubar a varredura das outras 115.
+
+    `com_alvo` junta "alvo": {trk: [{x,y}]} (posAl). Só as usinas da 2C pedem (30/09/2026): a análise delas é a do
+    e-mail, que compara posição e alvo ao longo do dia, e o alvo delas é o mesmo do e-mail (28/09: 0,01° de diferença
+    mediana na Tupi, 0,13° na Ipixuna, 0,77° na Araputanga). Nas outras o alvo da API é furado e a curva dobraria de
+    tamanho no cache à toa."""
+    curva, alvo, ultima, ultima_ts = {}, {}, {}, None
     if not isinstance(payload, list):        # erro da API vem como dict; dia sem leitura vem vazio
-        return {"curva": {}, "ultima": {}, "ultima_ts": None}
+        return dict({"curva": {}, "ultima": {}, "ultima_ts": None}, **({"alvo": {}} if com_alvo else {}))
     # ORDENA: a API devolve fora de ordem (medido: o 1º registro era 05:11 num dia que começa 00:00).
     # A régua de amplitude/freeze lê isto como série temporal — desordenado, tracker saudável vira
     # "salto de recuperação".
@@ -9829,6 +9858,9 @@ def _pv_trk_parse_dia(payload) -> dict:
             # posição ausente entra como None, NUNCA 0.0: zero é um ângulo real (meio-dia), e
             # inventá-lo apaga justamente o sintoma de comunicação morta que a régua procura.
             curva.setdefault(nome, []).append({"x": hhmm, "y": float(pos) if isinstance(pos, (int, float)) else None})
+            if com_alvo:
+                pal = v.get("posAl")
+                alvo.setdefault(nome, []).append({"x": hhmm, "y": float(pal) if isinstance(pal, (int, float)) else None})
             ultima[nome] = v
     if ultima_ts:                            # o instantâneo é a leitura MAIS NOVA, não a primeira
         ultima = {}
@@ -9840,7 +9872,7 @@ def _pv_trk_parse_dia(payload) -> dict:
                     nome, v = next(iter(item.items()))
                     if isinstance(v, dict):
                         ultima[nome] = v
-    return {"curva": curva, "ultima": ultima, "ultima_ts": ultima_ts}
+    return dict({"curva": curva, "ultima": ultima, "ultima_ts": ultima_ts}, **({"alvo": alvo} if com_alvo else {}))
 
 
 def _pv_trk_j_da_api(d: dict) -> dict:
@@ -9885,7 +9917,7 @@ def _pv_trk_dia(idusina, data: str, fetch: bool = True) -> dict:
                              headers={"x-access-token": _pv_token_for(idusina),
                                       "Content-Type": "application/json"},
                              json={"idusina": idusina, "date": data}, timeout=180)
-            d = _pv_trk_parse_dia(r.json() if r.status_code == 200 else None)
+            d = _pv_trk_parse_dia(r.json() if r.status_code == 200 else None, com_alvo=_pv_trk_fora(idusina))
         except Exception as e:
             print(f"[trackers/apipv] usina {idusina} {data}: {e}")
             d = {"curva": {}, "ultima": {}, "ultima_ts": None}
@@ -10910,8 +10942,8 @@ def _build_pv_trk_payload(fetch_curvas=False):
     plants = get_plants(get_token())
     agora = time.time()
     alvo_plants = [p for p in plants if (not FULL_OM or p["nome"].strip() in FULL_OM)]
-    # Fica fora só quem já tem tracker por OUTRA fonte (as três da 2C, pelo e-mail) — ver
-    # PV_TRK_OUTRA_FONTE. Era "toda usina da conta OEM", e isso tirava a Tucano junto.
+    # Fica fora só quem já tem tracker por OUTRA fonte (as usinas da 2C: aba pela fonte 2C, parados pelo
+    # e-mail) — ver PV_TRK_OUTRA_FONTE. Era "toda usina da conta OEM", e isso tirava a Tucano junto.
     alvo_plants = [p for p in alvo_plants if not _pv_trk_fora(p["id"])]
     rows = []
     parados_livro, cobertas = [], set()          # alimenta o livro de ocorrências (tracker_watch)
@@ -11058,8 +11090,8 @@ def api_semp_trackers():
 @app.route("/api/2capi/trackers")
 def api_2capi_trackers():
     """Trackers das três da 2C que estão na PV Operation — Araputanga 59, Sete Lagoa 59,
-    Tupi Paulista 100 (Levi, 16/09/2026). Elas também chegam pelo e-mail (fonte `owen`), mas ali o
-    dado é de horas antes; aqui é a leitura do minuto. Continuam FORA da varredura da conta
+    Tupi Paulista 100 (Levi, 16/09/2026). A fonte da 2C (`owen`) lê o mesmo dado desde 30/09/2026,
+    com os nomes do e-mail (_2c_trk_build_api). Continuam FORA da varredura da conta
     principal (`PV_TRK_OUTRA_FONTE`), para a mesma ocorrência não nascer duas vezes no livro."""
     # PORTÃO REMOVIDO em 22/09/2026: abortava aqui quando o PLAT_TOKEN faltava. A fonte passou a
     # ser a API PV fixa (ver `_pv_trk_dia`), que faz login sozinha — desistir por causa do token da
@@ -11164,6 +11196,11 @@ def _pv_parados_rows(force=False, errout=None):
     for pid, ent in list(_pv_trk_plant.items()):
         pl = ent.get("payload") or {}
         if not pl.get("tem_trackers"):
+            continue
+        # As usinas da 2C (PV_TRK_OUTRA_FONTE) entram no _pv_trk_plant quando alguém abre a aba de trackers da 2C, e os
+        # parados delas já chegam pela fonte 2C: listá-las aqui contava o mesmo tracker duas vezes na Entrada e na ronda
+        # (risco anotado em docs/tempo-real.md, 15.2; 29/09/2026, com a Ipixuna entrando na API).
+        if _pv_trk_fora(pid):
             continue
         nome_raw = nome_raw_by_pid.get(pid) or pl.get("usina") or ""
         usina = _macro_usina_nome(nome_raw) or pl.get("usina") or str(pid)
@@ -13677,9 +13714,9 @@ def _inv_padrao_loop():
 # plataforma lia isso como perda.
 QUALIDADE_INTERVALO_S = 3600
 # RECORTE (Levi, 17/09/2026: "vamos focar apenas nas usinas 2C por ora"). Eram 40 usinas da FULL_OM
-# por ciclo; agora são as três da 2C que existem na API PV — Araputanga, Sete Lagoa e Tupi Paulista.
-# A Ipixuna do Pará fica de fora porque não está na API (só chega pelo e-mail, fonte `owen`), e sem
-# série intradiária de Pac nenhuma das duas réguas tem o que ler.
+# por ciclo; agora são as usinas da 2C na API PV — Araputanga, Sete Lagoa, Tupi Paulista, União e, desde
+# 29/09/2026, a Ipixuna do Pará (Santa Cecilia 1, 2 e 3), que até ali só chegava pelo e-mail, sem série
+# intradiária de Pac para as duas réguas lerem.
 QUALIDADE_PLANTAS = set(PV_FONTES.get("2capi") or ())
 # CLIPPING NÃO É PERDA (decisão do Levi no mesmo dia). É perda de PROJETO, não de operação: ninguém
 # vai consertar um inversor que está no limite do que foi dimensionado. Somá-lo com string morta e
@@ -14279,19 +14316,13 @@ def _portfolio_rollup() -> list:
             add("Axis", r)
     except Exception as e:
         print(f"[macro] Axis indisponível: {e}")
-    # UM card "2C" com a MESMA linha por usina da tabela 2C (`_2c_unifica_rows`; Levi, 11/09/2026: "as que não têm na PV
-    # ficam por e-mail"): a da API PV onde ela vê (Araputanga, Sete Lagoas, Tupi, União — a linha viva), a do e-mail no
-    # resto (Ipixuna do Pará). Até 29/09 as duas entravam e disputavam, e sendo da mesma fonte "2C" viravam FATIAS da
-    # mesma usina: no servidor, onde o e-mail não chega, a linha do e-mail sem dado vencia e a Entrada dizia "4 sem
-    # comunicação" com as três lendo às 11:29 pela API; no PC, as duas se SOMAVAM (Araputanga 472 ativas de 236, Tupi
-    # Paulista 800 de 400). O e-mail de 3 h atrás não desmente a API de agora. `sub_fonte` diz de onde veio a linha.
-    try:                                      # 2C / Owen (arquivos locais, barato/cacheado); quebrado, fica a API
-        _rows_email = _owen_strings_rows()
-    except Exception as e:
-        print(f"[macro] 2C/Owen indisponível: {e}")
-        _rows_email = []
+    # UM card "2C" com a MESMA linha por usina da tabela 2C: desde 29/09/2026, só a da API PV (`_2c_linhas_api`; Levi:
+    # "matando de vez o e-mail no tempo real"). A Ipixuna do Pará chega em três plantas (Santa Cecilia 1, 2 e 3) que o
+    # USINA_GRUPO junta como fatias da mesma usina, somadas (_somar_partes_da_usina). Antes, com o e-mail no meio, as
+    # duas linhas da mesma usina disputavam e se somavam: no servidor, onde o e-mail não chega, a do e-mail sem dado
+    # vencia e a Entrada dizia "4 sem comunicação"; no PC, Araputanga saía com 472 ativas de 236.
     try:
-        for r in _2c_unifica_rows(_rows_email, (_2capi_cache.get("payload") or {}).get("rows")):
+        for r in _2c_linhas_api((_2capi_cache.get("payload") or {}).get("rows")):
             add("2C", r)
     except Exception as e:
         print(f"[macro] 2C indisponível: {e}")
@@ -18134,21 +18165,13 @@ def _owen_etm_series(ufv_data):
 
 @app.route("/api/owen/etm/analise")
 def api_owen_etm_analise():
-    data = _owen_etm_build(flask_request.args.get("force") == "1")
-    rows = []
-    for u in OWEN_UFVS:
-        nome = _owen_nome(u)
-        merged = _owen_etm_series(data.get(u, {}))
-        if not merged:
-            rows.append({"usina": nome, "plant_id": u, "flags": [], "severidade": 3,
-                         "spark": {"labels": [], "poa": [], "ghi": []}, "sem_curva": False,
-                         "ultima_leitura": None, "sem_dados": True})
-            continue
-        diag = _diagnostico_etm(merged)
-        rows.append({"usina": nome, "plant_id": u, "sem_dados": False, "sem_curva": False, **diag})
-    # as três da API PV: a estação delas vem da API (a do e-mail é janela de 3 h); o resto segue pelo e-mail (11/09/2026)
-    rows = _2c_unifica_rows(rows, (_2capi_etm_analise_cache.get("payload") or {}).get("rows"))
-    rows.sort(key=lambda x: (x["severidade"], x["usina"]))
+    # a estação de cada usina da 2C vem da API PV (29/09/2026, _2c_linhas_api) — a do e-mail era janela de 3 h.
+    # A Ipixuna do Pará tem UMA estação, que a API repete nas três plantas (Santa Cecilia 1, 2 e 3): POA em -1 (o
+    # piranômetro inclinado não mede, igual ao e-mail) e GHI no piraGHI1.
+    _pl = (_swr(_2capi_etm_analise_cache, _build_2capi_etm_analise_payload, True)
+           if flask_request.args.get("force") == "1" else _2capi_etm_analise_cache.get("payload"))
+    rows = _2c_linhas_api((_pl or {}).get("rows"))
+    rows.sort(key=lambda x: (x.get("severidade", 3), x["usina"]))
     return jsonify({"rows": rows, "summary": {
         "total": len(rows),
         "criticos": sum(1 for r in rows if r["severidade"] == 0),
@@ -18941,6 +18964,89 @@ _2C_EMAIL_PARA_API = {"ARA": 18771898, "STL": 18771901, "TUP": 18750925}
 _2C_API_PARA_EMAIL = {v: k for k, v in _2C_EMAIL_PARA_API.items()}
 
 
+# ── Trackers da 2C: o nome do e-mail × a planta/TRK da API PV (30/09/2026) ─────────────────────────────────────
+# O e-mail (e os tickets, e o registro de ocorrências) chamam o tracker de "Tracker 2.10"; a API, de "TRK10" da planta
+# da UG. De-para fechado PELA CURVA em 28/09 (e 27/09 na Araputanga e na Sete Lagoas): posição atual de cada tracker do
+# e-mail contra cada um da API, minuto a minuto — os 340 pares da regra abaixo com diferença média ≤ 0,5° (Tupi
+# ~0,01°, ela e o e-mail são o mesmo dado), e os PARADOS no mesmo ângulo (diferença 0,0°), que é a prova que falta a
+# eles: curva reta casa com qualquer reta, e os cinco da Ipixuna (1.6, 1.24, 2.10, 2.63, 2.73) caíam todos no TRK24.
+# O prefixo não é a UG: na Ipixuna o grupo 2 atravessa a UG 02 e a UG 03 (o ticket do 2.73 é do inversor 3.06).
+# (código, grupo, primeiro N, último N, planta da API, k = N + deslocamento)
+_2C_TRK_FAIXAS = (
+    ("ARA", 1, 1, 59, 18771898, 0),
+    ("STL", 1, 1, 59, 18771901, 0),
+    ("TUP", 1, 1, 30, 18750925, 0), ("TUP", 2, 1, 30, 18750925, 30), ("TUP", 3, 1, 40, 18750925, 60),
+    ("IPX", 1, 1, 49, 18771915, 0),                                    # Santa Cecilia 1 (UG 01)
+    ("IPX", 2, 1, 35, 18771929, 0), ("IPX", 2, 36, 73, 18771930, -35),  # Santa Cecilia 2 e 3
+)
+# primeiro dia dos trackers da 2C pela API: antes dele, o registro e os dias passados são os do e-mail (2C_historico)
+_2C_TRK_API_DESDE = "2026-09-30"
+
+
+def _2c_trk_para_api(code, nome):
+    """("IPX", "Tracker 2.40") → (18771930, 5); fora das faixas, None."""
+    m = re.search(r"(\d+)\.(\d+)\s*$", str(nome or ""))
+    if not m:
+        return None
+    g, n = int(m.group(1)), int(m.group(2))
+    for c, fg, ini, fim, pid, desl in _2C_TRK_FAIXAS:
+        if c == code and fg == g and ini <= n <= fim:
+            return pid, n + desl
+    return None
+
+
+def _2c_trk_da_api(pid, trk):
+    """(18771930, "TRK5") → ("IPX", "2.40"); fora das faixas, None."""
+    try:
+        k = int(re.sub(r"\D", "", str(trk)))
+    except ValueError:
+        return None
+    for c, fg, ini, fim, p, desl in _2C_TRK_FAIXAS:
+        if p == pid and ini <= k - desl <= fim:
+            return c, f"{fg}.{k - desl}"
+    return None
+
+
+_2c_trk_api_memo = {}   # date_iso -> (ts, trackers)
+
+
+def _2c_trk_build_api(date_iso, force=False):
+    """Os trackers da 2C do dia pela API PV, no formato do acervo do e-mail — {código: {"U.N": {"atual": [(dt, v)],
+    "alvo": [(dt, v)]}}} —, com o nome do e-mail pelo de-para. Tudo que lia o e-mail (a análise da aba, os parados da
+    Entrada e da ronda, as ocorrências e a disponibilidade, o App de Campo, a curva que o gêmeo lê) continua com as
+    mesmas chaves e os mesmos nomes, e o dado passa a ser o da API: o e-mail chegava em janelas de ~3 h e o servidor nem
+    o recebe. O dia de cada planta vem do cache do `_pv_trk_dia` (30 min); o memo de 60 s evita remontar a cada código."""
+    ent = _2c_trk_api_memo.get(date_iso)
+    if ent and not force and time.time() - ent[0] < 60:
+        return ent[1]
+    data_br = datetime.strptime(date_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+    out = {}
+    for pid in sorted({f[4] for f in _2C_TRK_FAIXAS}):
+        if force and data_br == datetime.now().strftime("%d/%m/%Y"):
+            _pv_trk_dia_cache.pop((pid, data_br), None)            # a ronda quer a leitura de agora
+        d = _pv_trk_dia(pid, data_br, fetch=True)
+        alvo = d.get("alvo") or {}
+        for trk, pts in (d.get("curva") or {}).items():
+            par = _2c_trk_da_api(pid, trk)
+            if par is None:
+                continue                                            # tracker novo na API: sem de-para, não inventa nome
+            code, n = par
+
+            def _serie(lst):
+                s = []
+                for p in lst or []:
+                    if p.get("y") is None:
+                        continue
+                    try:
+                        s.append((datetime.strptime(str(p["x"])[:16], "%Y-%m-%d %H:%M"), float(p["y"])))
+                    except (TypeError, ValueError):
+                        continue
+                return s
+            out.setdefault(code, {})[n] = {"atual": _serie(pts), "alvo": _serie(alvo.get(trk))}
+    _2c_trk_api_memo[date_iso] = (time.time(), out)
+    return out
+
+
 # ── Trackers da 2C para o GÊMEO DIGITAL (21/09/2026) ────────────────────────────────────────────
 # Por que existe: o gêmeo mantinha token PRÓPRIO da apiplataforma para as três usinas da 2C, e a
 # apiplataforma NEGA essas usinas para a conta gridco — responde HTTP 200 com "Usuário não possui
@@ -18978,45 +19084,29 @@ def api_gemeo_trackers_chart(ref):
     return api_owen_trackers_chart(cod)
 
 
-def _2c_par_api(r, por_id, por_nome):
-    """A linha da API correspondente a uma linha do e-mail: pelo código (ARA/STL/TUP) e, na falta, pelo nome."""
-    pid_api = _2C_EMAIL_PARA_API.get(str(r.get("plant_id") or ""))
-    if pid_api is not None and pid_api in por_id:
-        return por_id[pid_api]
-    return por_nome.get(_nrm(_macro_usina_nome(r.get("usina") or "")))
+def _2c_linhas_api(api_rows):
+    """As linhas da 2C no Tempo Real: só as da API PV (conta oem@), marcadas `sub_fonte="api"`.
 
-
-def _2c_unifica_rows(rows_email, api_rows):
-    """UMA linha por usina para a aba 2C do Tempo Real (Levi, 11/09/2026: "eu quero no tempo real, tudo junto"): a da
-    API PV quando a usina está na conta oem@ (linha viva — strings ao vivo, ETM completa), a do e-mail para as demais
-    (Ipixuna do Pará não está na API). `sub_fonte` diz de onde veio. Sem cache da API (worker frio) a aba segue
-    inteira pelo e-mail, como antes."""
-    api_rows = [r for r in (api_rows or []) if r.get("usina")]
-    por_id = {r.get("plant_id"): r for r in api_rows}
-    por_nome = {_nrm(_macro_usina_nome(r["usina"])): r for r in api_rows}
-    out, usados = [], set()
-    for r in rows_email:
-        a = _2c_par_api(r, por_id, por_nome)
-        if a is not None:
-            out.append(dict(a, sub_fonte="api"))
-            usados.add(id(a))
-        else:
-            out.append(dict(r, sub_fonte="email"))
-    for a in api_rows:                                # usina da API que o e-mail não lista entra também
-        if id(a) not in usados:
-            out.append(dict(a, sub_fonte="api"))
-    return out
+    De 11/09 a 29/09/2026 a aba misturava a API com o e-mail (`_2c_unifica_rows`: a da API onde ela via, a do e-mail no
+    resto), porque a Ipixuna do Pará não estava na API. Em 29/09 ela entrou como Santa Cecilia 1, 2 e 3 (uma planta por
+    UG) e o Levi mandou "matar de vez o e-mail no tempo real": tabela de strings, ETM, macro e sino leem só daqui (os
+    trackers, pela análise do e-mail com o dado da API: _2c_trk_build_api). Sem cache da API (worker frio) a aba fica
+    vazia — o e-mail de 3 h atrás não é reserva do agora."""
+    return [dict(r, sub_fonte="api") for r in (api_rows or []) if r.get("usina")]
 
 
 @app.route("/api/owen/strings/data")
 def api_owen_strings_data():
-    rows = _2c_unifica_rows(_owen_strings_rows(flask_request.args.get("force") == "1"),
-                            (_2capi_cache.get("payload") or {}).get("rows"))
+    # só a API PV desde 29/09/2026 (_2c_linhas_api); "sem geração" pela régua da API PV, a mesma do /api/2capi/data.
+    # O Atualizar (force=1) refaz a tabela da API, como o /api/2capi/data?force=1 — antes ele relia o acervo do e-mail.
+    _pl = (_swr(_2capi_cache, _build_2capi_payload, True) if flask_request.args.get("force") == "1"
+           else _2capi_cache.get("payload"))
+    rows = _2c_linhas_api((_pl or {}).get("rows"))
     return jsonify(_servir_tabela_strings({"rows": rows, "summary": {
         "total_usinas": len(rows),
         "total_strings": sum(r["strings_ativas"] for r in rows if r.get("strings_ativas")),
         "alertas_strings": sum(1 for r in rows if r.get("diferenca") is not None and r["diferenca"] < 0)},
-        "cache_ts": datetime.now().strftime("%H:%M:%S")}, _sem_geracao_2c_email))
+        "cache_ts": datetime.now().strftime("%H:%M:%S")}, _sem_geracao_api_pv))
 
 
 @app.route("/api/owen/strings/plant/<plant_id>")
@@ -19086,8 +19176,14 @@ def api_owen_strings_plant(plant_id):
 
 # ── Owen: Trackers (alvo/atual por UFV, análise por curva) ─────────────────────
 def _owen_trackers_build(force=False, date=None):
+    # Desde _2C_TRK_API_DESDE (30/09/2026) o dia vem da API PV com os nomes do e-mail (_2c_trk_build_api) — o e-mail
+    # saiu do tempo real também nos trackers. Dia anterior a ela: o banco-por-dia do e-mail (2C_historico), que é o
+    # que o registro guardou; sem isso, refazer um dia antigo trocaria a fonte do histórico.
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    if (date or hoje) >= _2C_TRK_API_DESDE:
+        return _2c_trk_build_api(date or hoje, force=force)
     # date=YYYY-MM-DD passado → lê o banco-por-dia (2C_historico); hoje/None → acumulador ao vivo.
-    if date and date != datetime.now().strftime("%Y-%m-%d"):
+    if date and date != hoje:
         return _hist_build(date).get("trackers", {})
     _owen_refresh(force)
     with _owen_lock:
@@ -19179,26 +19275,35 @@ def _owen_trackers_analise(plant_id, date=None):
 
 @app.route("/api/owen/trackers")
 def api_owen_trackers():
+    # Os trackers da 2C vêm da API PV (desde 16/09 as três primeiras; desde 30/09/2026 todas, com o de-para de tracker):
+    # uma linha por usina de NEGÓCIO — a Ipixuna do Pará é UMA, com os 122 trackers de Santa Cecilia 1, 2 e 3 — e o
+    # nome do tracker é o do e-mail e dos tickets ("Tracker 2.10"), pela análise de sempre (_owen_trackers_analise), que
+    # agora lê a API (_2c_trk_build_api). A União não está no e-mail nem no de-para: segue pela API com os nomes dela.
     rows = []
     for u in OWEN_UFVS:
-        r = _owen_trackers_analise(u)
+        try:
+            r = dict(_owen_trackers_analise(u), sub_fonte="api")
+        except Exception as e:                               # noqa: BLE001 — uma usina fora não derruba a aba
+            print(f"[owen/trackers] {u}: {e}")
+            continue
         r.pop("trackers", None)
         rows.append(r)
-    disp_pid = _owen_disp_hoje()                   # disponibilidade por TEMPO (janela 06:00–18:00)
+    disp_pid = _owen_disp_hoje()                   # disponibilidade por TEMPO (janela 06:00–18:00), pelo código
     for r in rows:
         r["disponibilidade_tempo"] = disp_pid.get(r["plant_id"])
-    # As três que a API PV enxerga vêm DELA, como a ETM e as strings desta mesma aba já faziam
-    # (Levi, 11/09: "eu quero no tempo real, tudo junto" — a aba separada saiu do seletor). Antes
-    # disto o tracker das três era o do e-mail: leitura de 11:59 enquanto a PV Plataforma já tinha
-    # a das 14:56. A Ipixuna do Pará não está na API e segue pelo e-mail (16/09/2026).
-    try:
-        api_rows = [dict(r) for r in (_pv_trk_payload_da_fonte("2capi") or {}).get("rows") or []]
-        for r in api_rows:
-            r.pop("trackers", None)
-        if api_rows:
-            rows = _2c_unifica_rows(rows, api_rows)
-    except Exception as e:
-        print(f"[owen/trackers] API PV indisponível ({e}) — aba segue inteira pelo e-mail")
+    no_de_para = {f[4] for f in _2C_TRK_FAIXAS}
+    if set(PV_FONTES.get("2capi") or ()) - no_de_para:
+        try:
+            hoje_iso = datetime.now().strftime("%Y-%m-%d")
+            disp_id = _trk_eventos_disp_by_id(hoje_iso, hoje_iso)
+            for r in _2c_linhas_api(_pv_trk_payload_da_fonte("2capi").get("rows")):
+                if r.get("plant_id") in no_de_para:
+                    continue
+                r.pop("trackers", None)
+                r["disponibilidade_tempo"] = disp_id.get(str(r.get("plant_id")))
+                rows.append(r)
+        except Exception as e:                               # noqa: BLE001
+            print(f"[owen/trackers] API PV indisponível para a União ({e})")
     rows.sort(key=lambda x: (_trk_severidade2(x), x["usina"]))
     _n = lambda r, k: (r.get(k) or 0)
     return jsonify({"rows": rows, "summary": {
@@ -19288,18 +19393,24 @@ def _owen_curve_for(code, data_br):
             for n, d in trks.items() if d.get("atual")}
 
 
-def _owen_parados_rows(force=False):
+def _owen_parados_rows(force=False, errout=None):
+    agora = datetime.now()
+    pela_api = agora.strftime("%Y-%m-%d") >= _2C_TRK_API_DESDE
     if force:
         try:
-            _owen_refresh(force=True)          # recarrega o acervo do dia → recomputa o status
+            if pela_api:
+                _2c_trk_build_api(agora.strftime("%Y-%m-%d"), force=True)   # a ronda quer a leitura de agora
+            else:
+                _owen_refresh(force=True)          # recarrega o acervo do dia → recomputa o status
         except Exception:
             pass
-    rows = []
+    rows, com_dado = [], 0
     for code in OWEN_UFVS:
         try:
             a = _owen_trackers_analise(code)
         except Exception:
             continue
+        com_dado += bool(a.get("total"))
         for t in a.get("trackers", []):
             if t.get("status") == "parado":
                 desde = _trk_parado_desde_hist(code, t["id"], parado_agora=True)       # agora funciona: o 2C persiste eventos
@@ -19310,13 +19421,21 @@ def _owen_parados_rows(force=False):
                         hrs, dias = round(_sec / 3600, 1), int(_sec // 86400)
                     except Exception:
                         pass
+                # o ticket que a análise já cruzou (_trk_cruza_tickets, pelo nome "U.N" da planilha) viaja na linha,
+                # como na API PV: até 30/09/2026 a linha ia com na_planilha=False e a Entrada dizia 0 "com OS" na 2C
                 rows.append({"plant_id": code, "usina": a["usina"], "tracker": t["id"],
                              "inversor": "", "atual": t.get("atual"), "alvo": t.get("alvo"),
                              "sem_comunicacao": bool(t.get("sem_comunicacao")),
                              "disparidade": t.get("disparidade"), "amplitude": t.get("amplitude"),
-                             "na_planilha": False, "parado_desde": desde,
+                             "na_planilha": bool(t.get("na_planilha")), "ticket_status": t.get("ticket_status"),
+                             "parado_desde": desde,
                              "horas_parado": hrs, "dias_parado": dias,
                              "ultima_leitura": a.get("ultima_leitura")})
+    # A API fora (o disjuntor abre, 23:55 de 29/09) devolve o dia vazio, e vazio aqui se lê "nenhum tracker parado". De
+    # dia, nenhuma usina com tracker é falha da fonte: vai no `errout`, como no _pv_parados_rows, e a Entrada mostra a
+    # última contagem boa "de tal hora" em vez de zero.
+    if pela_api and not com_dado and 7 <= agora.hour < 18 and errout is not None:
+        errout["erro"] = "API PV sem os trackers da 2C agora"
     rows.sort(key=lambda r: (r["usina"], _pv_trk_num(r["tracker"])))
     return _trk_geo_annotate(rows)
 
