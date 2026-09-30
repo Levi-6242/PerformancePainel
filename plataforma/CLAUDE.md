@@ -33,7 +33,9 @@ Qualquer `.py` ou os demais templates precisam.
 **A ronda depende do guardião.** `ronda_guardian.py` roda pela Tarefa Agendada do Windows
 "GridCo Ronda Guardian" e sobe o servidor se ele cair, para a ronda das 08:25/13:15 disparar.
 A tarefa aponta para o caminho **desta pasta** — se mover o arquivo, atualize a tarefa, senão
-a ronda morre em silêncio.
+a ronda morre em silêncio. **O guardião só reconhece o `app.py`/`worker.py` DESTA pasta** (`_eh_da_plataforma`, 29/09/2026):
+antes, qualquer python com "app.py" na linha de comando contava — o do Nexus (temp/Nexus/app.py) também —, e depois do
+reinício das 17:43 a 5050 ficou fechada 20 min com o guardião rodando de 5 em 5. Teste: `tests/test_ronda_guardian.py`.
 
 ## Armadilhas que já custaram caro
 

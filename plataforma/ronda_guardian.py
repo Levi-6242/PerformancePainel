@@ -6,6 +6,7 @@
 # app.py so le e serve. A ronda vive no WORKER - se so o app.py estiver de pe, o dashboard
 # funciona mas a ronda NAO dispara. Por isso o guardiao vigia os dois.
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -25,18 +26,40 @@ def porta_aberta(port):
         s.close()
 
 
+def _linhas_de_comando_python():
+    """Linha de comando de cada python vivo (pythonw.exe E python.exe: diagnostico as vezes roda com console)."""
+    ps = ("Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'python*' } | "
+          "ForEach-Object { [string]$_.CommandLine }")
+    out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+                         capture_output=True, text=True, timeout=15, encoding="utf-8", errors="replace",
+                         creationflags=subprocess.CREATE_NO_WINDOW)
+    if out.returncode != 0:
+        raise RuntimeError(f"powershell saiu com {out.returncode}")
+    return [l for l in out.stdout.splitlines() if l.strip()]
+
+
+def _eh_da_plataforma(cmd, script):
+    """True se a linha de comando roda o `script` DESTA pasta: pelo nome solto (como `sobe` o chama, com cwd aqui)
+    ou pelo caminho completo dela. Ate 29/09/2026 bastava ter o texto do script em qualquer lugar da linha: o Nexus
+    (outro projeto, `python -u "...\\temp\\Nexus\\app.py"`) contava como a plataforma, e depois do reinicio das 17:43
+    a 5050 ficou fechada 20 minutos — o guardiao rodava de 5 em 5 e nunca subia o app.py."""
+    for m in re.finditer(r'"([^"]*)"|(\S+)', cmd or ""):
+        tok = m.group(1) if m.group(1) is not None else m.group(2)
+        pasta, nome = os.path.split(tok.replace("/", os.sep))
+        if nome.lower() != script.lower():
+            continue
+        if not pasta or os.path.normcase(os.path.abspath(pasta)) == os.path.normcase(DIR):
+            return True
+    return False
+
+
 def ja_roda(script):
     """True se JA existe um python rodando esse script - mesmo que ainda BOOTANDO (o boot leva
     1-3min). Sem esta checagem o guardiao (a cada 5min) podia subir uma 2a instancia enquanto a
     1a carregava, e no Windows 2 processos co-escutam a 5050 = 2 loops de ronda = RONDA DOBRADA
-    (Levi 20/07). Olha pythonw.exe E python.exe (diagnostico as vezes roda com console)."""
+    (Levi 20/07). So conta o script DESTA pasta (ver _eh_da_plataforma)."""
     try:
-        ps = ("@(Get-CimInstance Win32_Process | Where-Object { $_.Name -like 'python*' -and "
-              "$_.CommandLine -like '*" + script + "*' }).Count")
-        out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
-                             capture_output=True, text=True, timeout=15,
-                             creationflags=subprocess.CREATE_NO_WINDOW).stdout.strip()
-        return int(out or "0") > 0
+        return any(_eh_da_plataforma(c, script) for c in _linhas_de_comando_python())
     except Exception:
         return True   # na duvida, NAO sobe (duplicar a ronda e pior que ficar fora um ciclo)
 
@@ -64,14 +87,15 @@ def sobe(script, motivo):
         registra(f"FALHA ao subir {script}: {e}")
 
 
-# GRIDCO_SOLO=1 = modo antigo (um processo so faz tudo). Ai o worker NAO deve subir, senao a
-# ronda roda em dobro.
-solo = os.environ.get("GRIDCO_SOLO", "") == "1"
+if __name__ == "__main__":
+    # GRIDCO_SOLO=1 = modo antigo (um processo so faz tudo). Ai o worker NAO deve subir, senao a
+    # ronda roda em dobro.
+    solo = os.environ.get("GRIDCO_SOLO", "") == "1"
 
-if not solo and not ja_roda("worker.py"):
-    sobe("worker.py", "worker fora - sem ele nao ha ronda nem reaquecimento")
+    if not solo and not ja_roda("worker.py"):
+        sobe("worker.py", "worker fora - sem ele nao ha ronda nem reaquecimento")
 
-if not porta_aberta(5050) and not ja_roda("app.py"):
-    sobe("app.py", "porta 5050 fechada")
+    if not porta_aberta(5050) and not ja_roda("app.py"):
+        sobe("app.py", "porta 5050 fechada")
 
-sys.exit(0)
+    sys.exit(0)
