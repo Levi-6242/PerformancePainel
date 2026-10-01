@@ -259,9 +259,10 @@ def com_fim_da_tarefa(linhas):
 
 def os_executadas(linhas, sites, ini, fim):
     """Corretivas e preventivas POR TAREFA (Levi, 30/09/2026: "quero que conte por tarefa"), com evento no período: a
-    preventiva de 12 tarefas conta 12. Finalizada = a tarefa tem data de fim; na base de antes do fim da tarefa, a OS
-    concluída. Cancelada não conta. Em 21–27/09, na Thopen, por OS davam 41 de 67 corretivas e 1 de 6 preventivas."""
-    com_fim = com_fim_da_tarefa(linhas)
+    preventiva de 12 tarefas conta 12. Finalizada = a tarefa tem data de fim; na linha de antes do fim da tarefa (sem a
+    chave), a OS concluída. É por LINHA: logo depois do deploy só as tarefas criadas nos últimos 10 dias voltam com o
+    fim, e a régua da base inteira deu 0 de 78 preventivas no servidor (30/09, 21:40) — as da semana eram mais antigas.
+    Cancelada não conta. Em 21–27/09, na Thopen, por OS davam 41 de 67 corretivas e 1 de 6 preventivas."""
     out = {"corretivas": {"concluidas": 0, "total": 0}, "preventivas": {"realizadas": 0, "planejadas": 0}}
     vistas = set()
     for x in linhas or []:
@@ -274,7 +275,7 @@ def os_executadas(linhas, sites, ini, fim):
         if k in vistas:
             continue
         vistas.add(k)
-        feita = bool(x.get("final_date")) if com_fim else x.get("id_status_work_order") in CONCLUIDA
+        feita = bool(x.get("final_date")) if "final_date" in x else x.get("id_status_work_order") in CONCLUIDA
         tipo = x.get("tasks_log_task_type_main")
         if tipo in CORRETIVAS:
             out["corretivas"]["total"] += 1

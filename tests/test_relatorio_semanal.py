@@ -189,6 +189,15 @@ def test_corretivas_e_preventivas_contam_por_tarefa_e_finalizada_e_a_tarefa_com_
     assert r["preventivas"] == {"realizadas": 1, "planejadas": 3}
 
 
+def test_linha_sem_o_fim_da_tarefa_usa_a_os_concluida_mesmo_com_outras_que_tem():
+    # logo depois do deploy a base mistura linhas novas (com final_date) e antigas (sem a chave): 0 de 78 no servidor
+    ls = [linha(1, "Preventiva", 3, "2026-09-22T12:00:00+00:00", tarefa=11, sem_fim=True),                 # antiga, OS feita
+          linha(2, "Preventiva", 1, "2026-09-22T12:00:00+00:00", tarefa=21, sem_fim=True),                 # antiga, aberta
+          linha(3, "Preventiva", 1, "2026-09-22T12:00:00+00:00", tarefa=31, fim="2026-09-22T15:00:00+00:00")]
+    assert rs.os_executadas(ls, {SITE}, date(2026, 9, 21), date(2026, 9, 27))["preventivas"] == {"realizadas": 2,
+                                                                                                 "planejadas": 3}
+
+
 def test_base_de_antes_do_fim_da_tarefa_usa_a_os_concluida():
     ls = [linha(1, "Corretiva", 3, "2026-09-22T12:00:00+00:00", tarefa=11, sem_fim=True),
           linha(2, "Corretiva", 1, "2026-09-22T12:00:00+00:00", tarefa=21, sem_fim=True)]
