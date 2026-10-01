@@ -7932,7 +7932,8 @@ def _sunop_eventos_calc(inst, date_iso):
                 _trk_eventos.setdefault(date_iso, {})[str(p)] = {
                     "nome": un, "ts": time.time(),
                     "cobertura": res.get("cobertura", 0), "eventos": res["eventos"],
-                    "classes": res.get("classes"), "regua": REGUA_VER}        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
+                    "classes": res.get("classes"), "regua": REGUA_VER,
+                    "sem_comunicacao": res.get("sem_comunicacao")}        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
         rws = [{"data_iso": date_iso, "data": f"{dd[2]}/{dd[1]}", "usina": un, "tracker": ev["tracker"],
                 "inversor": "", "parada": ev["parada"], "retorno": ev.get("retorno"), "dur_min": ev.get("dur_min"),
                 "desvio": ev.get("desvio")}
@@ -11667,9 +11668,14 @@ def _trk_eventos_do_dia(idusina, nome, data_br, curve=None):
         disponibilidade = round(max(0.0, 1.0 - _imp / _tot_trk) * 100, 1)
     else:
         disponibilidade = None
+    # Quem estava SEM COMUNICAÇÃO no dia — a régua da etiqueta roxa do tempo real (_trk_semcom_set). Desde 08/09 ele
+    # conta como parado (_trk_promove_semcom) e o registro só guardava "parado": a aba de falhas o punha no relatório
+    # (Levi, 01/10/2026: "alguns trackers estão como 'parados' porém ficaram sem comunicação, não quero esses trackers
+    # no relatório"). Setembro no PC: 3.755 tracker-dias parados de 369 trackers eram isso (225 dos 583 MWh da aba).
     return {"cobertura": round(cob_usina, 2), "eventos": eventos,
             "disponibilidade": disponibilidade, "disp_tempo": disp_tempo,
-            "classes": classes}   # classes: {} = ok/limpo, None = falhou
+            "classes": classes,   # classes: {} = ok/limpo, None = falhou
+            "sem_comunicacao": sorted(_trk_semcom_set(g))}
 
 
 def _trk_ev_dias(ini_iso, fim_iso):
@@ -11725,7 +11731,8 @@ def _trk_ev_backfill(ini_iso, fim_iso, force=False):
                         "nome": pnome, "ts": time.time(),
                         "cobertura": res["cobertura"], "eventos": res["eventos"],
                         "disponibilidade": res.get("disponibilidade"),
-                        "classes": res.get("classes"), "regua": REGUA_VER}   # classificação da curva fresca (Perdas LÊ daqui)
+                        "classes": res.get("classes"), "regua": REGUA_VER,
+                        "sem_comunicacao": res.get("sem_comunicacao")}   # classificação da curva fresca (Perdas LÊ daqui)
             except Exception:
                 pass
             time.sleep(0.3)                   # throttle leve
@@ -18617,37 +18624,68 @@ def _pv_dev_names(pid, token):
     return names
 
 
-def _pv_curvas_strings(pid, nome_api, token):
+def _pv_curvas_strings(pid, nome_api, token, entradas=None):
     """Curva de corrente por string do DIA (day_inverter/Ipv) → {inv_display: {IpvN: [(hhmm, A)]}}.
-    nome_api = nome da usina NA API (chave do EQUIP_NAMES); trancadas ficam de fora."""
+    nome_api = nome da usina NA API (chave do EQUIP_NAMES); trancadas ficam de fora. `entradas`: ver _pv_curvas_strings_de."""
     try:
         recs = _http().post(f"{BASE_URL}/day_inverter", headers={"x-access-token": token},
                             json={"id": pid}, timeout=45).json()
     except Exception:
         return {}
-    return _pv_curvas_strings_de(recs, pid, nome_api, token)
+    if entradas is None:
+        return _pv_curvas_strings_de(recs, pid, nome_api, token)
+    return _pv_curvas_strings_de(recs, pid, nome_api, token, entradas=entradas)
 
 
-def _pv_curvas_strings_de(recs, pid, nome_api, token):
+# Entrada que só vem em registro solto não existe (Levi, 01/10/2026, com print da aba de falhas: "pra mim fazenda limão
+# não aparece essas strings 29 a 32"). Em 30/09 o INVERSOR06 da Fazenda Limão mandou 1.437 registros com Ipv1 a Ipv28 e
+# UM, às 09:00, com 92 campos — Ipv29 a Ipv32 = 0, Upv29, Pac1 a Pac3, Ri, TempDis. Na curva, as quatro ganhavam uma
+# leitura de 0 A e nenhuma outra; a régua da aba lê célula sem leitura como sem corrente, e a entrada que o inversor
+# nem tem "morria" o dia inteiro (~82 kWh por string, em Fazenda Limão, Poconé 1, Belo Jardim, Colorado 1, São Bento do
+# Una, Nova Londrina 2...). O drill, que lê o último registro, mostrava as 28. Entrada que não vem em pelo menos
+# PV_ENTRADA_MIN_FRAC dos registros do inversor com corrente fica fora da curva — a fração deixa passar o inversor que
+# alterna pacotes (metade das entradas em cada um).
+PV_ENTRADA_MIN_FRAC = 0.25
+
+
+def _pv_curvas_strings_de(recs, pid, nome_api, token, entradas=None):
     """{inv_display: {IpvN: [(hhmm, A)]}} a partir dos registros do inversor — os de hoje (day_inverter) e os de dia
-    passado (custom_query v2, mesmo formato; 28/09/2026). Trancadas ficam de fora."""
+    passado (custom_query v2, mesmo formato; 28/09/2026). Trancadas e entradas de registro solto ficam de fora.
+    `entradas` (dict, opcional) recebe {inv_display: maior N de IpvN que o inversor manda}, contando a trancada: é o que
+    a aba de falhas usa para tirar dos dias já gravados a entrada que o inversor não tem."""
+    from collections import Counter, defaultdict
     if not recs or not isinstance(recs, list):
         return {}
     dev_names = _pv_dev_names(pid, token)
-    curvas = {}
+    lidos, n_regs, n_campo, nomes = [], Counter(), defaultdict(Counter), {}
     for rec in recs:
         inv_id = rec.get("idefinversor")
         ts = rec.get("tsleitura_new", "")
         if len(ts) < 16:
             continue
-        hhmm = ts[11:16]
         cj = parse_cj(rec.get("conteudojson"))
-        inv_api  = dev_names.get(inv_id) or _pv_nome_2c(pid, inv_id) or f"INV-{inv_id}"   # 2C: o nome do drill
-        inv_disp = EQUIP_NAMES.get(nome_api, {}).get(inv_api, inv_api)
-        for k, v in cj.items():
-            if k.startswith("Ipv") and isinstance(v, (int, float)) \
-                    and not _str_trancada(pid, inv_id, k):
-                curvas.setdefault(inv_disp, {}).setdefault(k, []).append((hhmm, v))
+        chaves = [k for k in cj if k.startswith("Ipv")]
+        if not chaves:
+            continue
+        # a presença conta pelo CAMPO, não pelo valor: a string que a API manda como null na maior parte do dia está no
+        # pacote do inversor e fica como antes (só as leituras numéricas vão para a curva)
+        n_regs[inv_id] += 1
+        n_campo[inv_id].update(chaves)
+        lidos.append((inv_id, ts[11:16], [(k, cj[k]) for k in chaves if isinstance(cj[k], (int, float))]))
+        if inv_id not in nomes:
+            inv_api = dev_names.get(inv_id) or _pv_nome_2c(pid, inv_id) or f"INV-{inv_id}"   # 2C: o nome do drill
+            nomes[inv_id] = EQUIP_NAMES.get(nome_api, {}).get(inv_api, inv_api)
+    regulares = {i: {k for k, c in cnt.items() if c >= PV_ENTRADA_MIN_FRAC * n_regs[i]} for i, cnt in n_campo.items()}
+    curvas = {}
+    for inv_id, hhmm, ipv in lidos:
+        for k, v in ipv:
+            if k in regulares[inv_id] and not _str_trancada(pid, inv_id, k):
+                curvas.setdefault(nomes[inv_id], {}).setdefault(k, []).append((hhmm, v))
+    if entradas is not None:
+        for inv_id, ks in regulares.items():
+            nums = [int(k[3:]) for k in ks if k[3:].isdigit()]
+            if nums:
+                entradas[nomes[inv_id]] = max(nums)
     return curvas
 
 
@@ -18798,11 +18836,13 @@ def _pv_strings_eventos(date_iso, force=False):
                                     curvas, zero_thr=STR_EV_POT_ZERO_W, inv_min=STR_EV_POT_INV_MED,
                                     inv_min_frac=STR_EV_POT_INV_FRAC) if curvas else []
         else:            # hoje → corrente (A) via day_inverter
-            curvas = _pv_curvas_strings(pid, p["nome"].strip(), token)
+            entradas = {}
+            curvas = _pv_curvas_strings(pid, p["nome"].strip(), token, entradas=entradas)
             evs = _str_eventos_calc(_macro_usina_nome(nome_usina(pid, p["nome"])) or nome_usina(pid, p["nome"]),
                                     curvas) if curvas else []
             if curvas:   # régua nova da aba Falhas sobre a MESMA curva (sem chamada nova à API)
-                _falhas_registra("pv", date_iso, pid, _macro_usina_nome(nome_usina(pid, p["nome"])) or nome_usina(pid, p["nome"]), curvas)
+                _falhas_registra("pv", date_iso, pid, _macro_usina_nome(nome_usina(pid, p["nome"])) or nome_usina(pid, p["nome"]),
+                                 curvas, entradas=entradas)
         for e in evs:
             e["plant_id"] = pid
         return evs
@@ -19629,7 +19669,8 @@ def _owen_eventos_calc(date_iso):
                 _trk_eventos.setdefault(date_iso, {})[str(code)] = {
                     "nome": un, "ts": time.time(),
                     "cobertura": res.get("cobertura", 0), "eventos": res["eventos"],
-                    "classes": res.get("classes"), "regua": REGUA_VER}        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
+                    "classes": res.get("classes"), "regua": REGUA_VER,
+                    "sem_comunicacao": res.get("sem_comunicacao")}        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
         if res.get("disponibilidade") is not None:
             disp[un] = res["disponibilidade"]
             disp_pid[code] = res["disponibilidade"]
@@ -20244,7 +20285,8 @@ def _pg_eventos_calc(date_iso, ov_rows=None):
                 _trk_eventos.setdefault(date_iso, {})[str(pid)] = {
                     "nome": un, "ts": time.time(),
                     "cobertura": res.get("cobertura", 0), "eventos": res["eventos"],
-                    "classes": res.get("classes"), "regua": REGUA_VER}        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
+                    "classes": res.get("classes"), "regua": REGUA_VER,
+                    "sem_comunicacao": res.get("sem_comunicacao")}        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
         rws = [{"data_iso": date_iso, "data": f"{dd[2]}/{dd[1]}", "usina": un,
                 "tracker": ev["tracker"], "inversor": "",
                 "parada": ev["parada"], "retorno": ev.get("retorno"), "dur_min": ev.get("dur_min"),
@@ -24103,22 +24145,28 @@ _FALHAS_MORTAS_TETO = 60               # (fonte, dia) em memória: 7 fontes × u
 
 # Versão da régua de strings no registro. Mudou a régua a ponto de o dia avaliado com a anterior estar errado, muda a
 # versão: o backfill da SunOp refaz esses dias. 29/09/2026: a sombra que desce em rampa (MAB100 ST07) saiu das mortas.
-FALHAS_REGUA_VER = "2026-09-29-sombra"
+# 30/09/2026: a volta do fim da tarde com pouca luz deixou de fechar o episódio (MTS100 6.3 ST06, 13/09 16:50).
+FALHAS_REGUA_VER = "2026-09-30-volta-com-prova"
 
 
-def _falhas_entrada(usina, curvas, zero=None, piso=None, ids=None, **grade):
+def _falhas_entrada(usina, curvas, zero=None, piso=None, ids=None, entradas=None, **grade):
     """A entrada do registro para uma usina-dia: as mortas, as vivas por inversor, as sombras (trecho que entrou ou saiu
-    em rampa — não é falha, fica para conferir) e os ids da trava."""
+    em rampa — não é falha, fica para conferir), os ids da trava e quantas entradas cada inversor manda (`entradas`, da
+    API PV — ver PV_ENTRADA_MIN_FRAC). As entradas só valem do inversor que gerou o dia (`vivas`): de madrugada ele tem
+    meia dúzia de registros, e um solto pesaria na conta."""
     res = _falhas_mod.avaliar_dia(curvas, zero=STRING_SEM_CORRENTE_A if zero is None else zero,
                                   piso_inv=STR_EV_INV_MIN_MED if piso is None else piso, **grade)
     ent = {"usina": usina, "ts": time.time(), "mortas": res["mortas"], "vivas": res["vivas"],
            "sombras": res.get("sombras") or [], "regua": FALHAS_REGUA_VER}
     if ids:
         ent["ids"] = {str(k): str(v) for k, v in ids.items()}
+    ent_inv = {str(k): int(v) for k, v in (entradas or {}).items() if k in res["vivas"]}
+    if ent_inv:
+        ent["entradas"] = ent_inv
     return ent
 
 
-def _falhas_registra(fonte, dia, pid, usina, curvas, zero=None, piso=None, ids=None, **grade):
+def _falhas_registra(fonte, dia, pid, usina, curvas, zero=None, piso=None, ids=None, entradas=None, **grade):
     """Régua nova de strings sobre a curva do dia. Guarda em memória; só o worker persiste. Nunca derruba o
     detector que a chamou (as ocorrências seguem iguais).
 
@@ -24127,7 +24175,7 @@ def _falhas_registra(fonte, dia, pid, usina, curvas, zero=None, piso=None, ids=N
     na unidade da curva (padrão: ampères; a RenoGrid manda W). `ids` = {inversor: id na fonte}, para a trava.
     `grade` passa passo/tolerancia para curva de 15 min."""
     try:
-        ent = _falhas_entrada(usina, curvas, zero=zero, piso=piso, ids=ids, **grade)
+        ent = _falhas_entrada(usina, curvas, zero=zero, piso=piso, ids=ids, entradas=entradas, **grade)
         with _falhas_mortas_lock:
             _FALHAS_MORTAS.setdefault((fonte, dia), {})[str(pid)] = ent
             if len(_FALHAS_MORTAS) > _FALHAS_MORTAS_TETO:   # o web também passa aqui (ocorrências sob demanda)
@@ -24313,6 +24361,62 @@ def api_painel_falhas_historico():
             atual.setdefault(dia, {})[fonte] = porp
     _falhas_gravar(_FALHAS_IMPORTA_PATH, atual)
     return jsonify({"ok": True, "dias": ok[0], "usinas": ok[1], "pendente": "o worker junta na próxima volta (até 30 min)"})
+
+
+# Tracker sem comunicação nos dias de ANTES da marca no registro (01/10/2026). O registro do dia (_trk_eventos_do_dia) só
+# passou a guardar quem estava sem comunicação em 01/10; para setembro a marca vem das fotos da ronda
+# (trackers_parados_hist.jsonl: o `sc` de cada parado, a mesma régua da etiqueta roxa). Por dia, vale a última foto que
+# listou o tracker; a ronda junta as partes da usina física ("Guatambu" = Guatambu 1 a 4, com um TRK1 em cada), então
+# rótulo repetido só vale se TODOS os iguais estão sem comunicação — na dúvida, o tracker fica no relatório. O servidor
+# não faz a ronda do WhatsApp: a do PC chega pela rota abaixo e mora em _FALHAS_TRK_SEMCOM_PATH.
+_FALHAS_TRK_SEMCOM_PATH = _p_dado("falhas_trk_semcom.json")   # {dia: [chave_semcom]} recebido de outra plataforma
+
+
+def _falhas_trk_semcom_hist():
+    """{dia: {falhas_job.chave_semcom(usina, tracker)}} — as fotos da ronda desta máquina + a marca recebida."""
+    from collections import defaultdict
+    import falhas_job
+    estado = {}                                    # dia → {chave: sem comunicação na última foto que o listou}
+    try:
+        with open(_TRK_HIST_PATH, encoding="utf-8") as f:
+            linhas = f.readlines()
+    except OSError:
+        linhas = []
+    for ln in linhas:
+        try:
+            foto = json.loads(ln)
+        except ValueError:
+            continue
+        dia = str(foto.get("ts") or "")[:10]
+        if not _RX_DIA.fullmatch(dia):
+            continue
+        nesta = defaultdict(list)
+        for x in foto.get("parados") or []:
+            nesta[falhas_job.chave_semcom(x.get("u"), x.get("t"))].append(bool(x.get("sc")))
+        for ch, scs in nesta.items():
+            estado.setdefault(dia, {})[ch] = all(scs)
+    out = {dia: {ch for ch, sc in chs.items() if sc} for dia, chs in estado.items()}
+    for dia, chs in (_falhas_ler(_FALHAS_TRK_SEMCOM_PATH) or {}).items():
+        out.setdefault(dia, set()).update(chs or [])
+    return {dia: chs for dia, chs in out.items() if chs}
+
+
+@app.route("/api/painel/falhas/trk-semcom", methods=["POST"])
+def api_painel_falhas_trk_semcom():
+    """Recebe a marca de tracker sem comunicação das rondas de outra plataforma ({dia: [chave_semcom]}) e junta à que
+    já está aqui. Quem usa é a montagem da aba de falhas, na volta seguinte do worker."""
+    carga = flask_request.get_json(silent=True)
+    ok = isinstance(carga, dict) and bool(carga) and all(
+        _RX_DIA.fullmatch(str(d)) and isinstance(chs, list) and all(isinstance(c, str) and "|" in c for c in chs)
+        for d, chs in carga.items())
+    if not ok:
+        return jsonify({"ok": False, "erro": "carga fora do formato {AAAA-MM-DD: [\"usina|tracker\", ...]}"}), 400
+    with _falhas_desc_lock:
+        atual = _falhas_ler(_FALHAS_TRK_SEMCOM_PATH) or {}
+        for d, chs in carga.items():
+            atual[d] = sorted(set(atual.get(d) or []) | set(chs))
+        _falhas_gravar(_FALHAS_TRK_SEMCOM_PATH, atual)
+    return jsonify({"ok": True, "dias": len(carga), "chaves": sum(len(v) for v in carga.values())})
 
 
 def _falhas_importa_historico():
@@ -24879,7 +24983,8 @@ def _falhas_recalcular():
         fim = min(prox - timedelta(days=1), hoje).isoformat()
         pacote = falhas_job.montar(_sys.modules[__name__], _sol, ini, fim, geracao=_falhas_geracao(mes, ini, fim),
                                    pv_dev=pv_dev, mortas_curva=mortas, str_store=store, trk_store=trk, book=book,
-                                   abertos_antes=antes)
+                                   abertos_antes=antes, desconsideradas=_falhas_desc_chaves(),
+                                   trk_semcom=_falhas_trk_semcom_hist())
         if mes == hoje.strftime("%Y-%m"):                  # a auditoria de travas é de agora: vai no mês corrente
             try:
                 idx = _falhas_os_abertas()
@@ -24962,14 +25067,91 @@ def _falhas_publicar_workbook(meses):
 
 
 def _falhas_loop():
-    """Worker, a cada 30 min. Espera o boot (o backfill das strings e a Disponibilidade assentam primeiro)."""
+    """Worker, a cada 30 min. Espera o boot (o backfill das strings e a Disponibilidade assentam primeiro). Ocorrência
+    desconsiderada (ou devolvida) na tela antecipa a volta: a tela some com a linha na hora, mas a visão por inversor ×
+    dia e os totais só mudam com o pacote novo."""
     time.sleep(420)
     while True:
         try:
             _falhas_recalcular()
         except Exception as e:
             print(f"[falhas] ciclo falhou (pacote anterior mantido): {e}")
-        time.sleep(FALHAS_TTL)
+        t0, mt0 = time.time(), _falhas_desc_mtime()
+        while time.time() - t0 < FALHAS_TTL:
+            time.sleep(20)
+            if _falhas_desc_mtime() != mt0:
+                time.sleep(40)                          # junta os cliques de quem está desmarcando várias seguidas
+                break
+
+
+# ── Ocorrência desconsiderada pelo analista (Levi, 30/09/2026) ─────────────────────────────────────────────────────────
+# "Nesses casos as strings ficaram muito abaixo por falha de trackers parados, não chegaram nem a 1A porém depois voltaram
+# ao normal" (MAB200, 22/09 07:10–09:40): a régua não tem como saber que a culpa era do tracker. O checkbox da aba tira a
+# ocorrência da conta e da tela; fica guardada aqui, com quem e quando, para poder voltar. Só o web escreve; o worker lê a
+# cada montagem. Fora do backup de estado, como o falhas_strings.json.
+FALHAS_DESC_PATH = _p_dado("falhas_desconsideradas.json")
+_falhas_desc_lock = threading.Lock()
+
+
+def _falhas_desc_mtime():
+    try:
+        return os.path.getmtime(FALHAS_DESC_PATH)
+    except OSError:
+        return 0.0
+
+
+def _falhas_desc_ler():
+    """{"strings": {chave: info}, "trackers": {chave: info}}. Ausente = vazio; ilegível = erro (regravar apagaria)."""
+    try:
+        with open(FALHAS_DESC_PATH, encoding="utf-8") as f:
+            d = json.load(f)
+    except FileNotFoundError:
+        d = {}
+    return {"strings": dict(d.get("strings") or {}), "trackers": dict(d.get("trackers") or {})}
+
+
+def _falhas_desc_chaves():
+    try:
+        d = _falhas_desc_ler()
+    except Exception as e:                                   # noqa: BLE001 — sem o arquivo, monta tudo e avisa
+        print(f"[falhas] desconsideradas ilegíveis, montando sem elas: {e}")
+        return {}
+    return {"strings": set(d["strings"]), "trackers": set(d["trackers"])}
+
+
+@app.route("/api/painel/falhas/desconsideradas")
+def api_painel_falhas_desconsideradas():
+    try:
+        return jsonify({"ok": True, **_falhas_desc_ler()})
+    except Exception as e:                                   # noqa: BLE001 — a tela mostra o motivo
+        return jsonify({"ok": False, "motivo": f"{type(e).__name__}: {e}"}), 500
+
+
+@app.route("/api/painel/falhas/desconsiderar", methods=["POST"])
+def api_painel_falhas_desconsiderar():
+    """{tipo: strings|trackers, chave, desconsiderar: bool, resumo: {usina, inversor, string|tracker, inicio, perda_kwh}}"""
+    b = flask_request.get_json(silent=True) or {}
+    tipo, chave = b.get("tipo"), str(b.get("chave") or "").strip()
+    if tipo not in ("strings", "trackers") or not chave or len(chave) > 300 or chave.count("|") != (4 if tipo == "strings" else 3):
+        return jsonify({"ok": False, "motivo": "tipo strings|trackers e a chave da ocorrência"}), 400
+    resumo = {k: v for k, v in (b.get("resumo") or {}).items()
+              if k in ("usina", "cliente", "inversor", "string", "tracker", "inicio", "fim", "perda_kwh")
+              and isinstance(v, (str, int, float)) and len(str(v)) <= 120}
+    try:
+        with _falhas_desc_lock:
+            d = _falhas_desc_ler()
+            if b.get("desconsiderar", True):
+                d[tipo][chave] = {**resumo, "por": session.get("user") if session.get("auth_kind") == "ms"
+                                  else "senha compartilhada", "em": datetime.now().strftime("%Y-%m-%d %H:%M")}
+            else:
+                d[tipo].pop(chave, None)
+            tmp = FALHAS_DESC_PATH + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(d, f, ensure_ascii=False, indent=1)
+            _replace_atomico(tmp, FALHAS_DESC_PATH)
+    except Exception as e:                                   # noqa: BLE001 — a tela diz que não gravou
+        return jsonify({"ok": False, "motivo": f"não gravou — {type(e).__name__}: {e}"}), 500
+    return jsonify({"ok": True, "n": len(d[tipo])})
 
 
 def _falhas_bytes(mes):

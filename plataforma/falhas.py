@@ -198,9 +198,16 @@ def avaliar_dia(curvas_inv, *, zero, piso_inv, frac_vizinhas=FRAC_VIZINHAS, jane
                 continue
             mins = sum(len(t["cells"]) for t in trechos) * passo
             spans = []
-            for t in trechos:
+            for k, t in enumerate(trechos):
                 ult = t["cells"][-1]
-                volta = next((i for i in range(ult + 1, n) if morta[i] is False), None)
+                # A volta do DIA (a do último trecho) precisa de prova: sol forte, ou a string acompanhando as vizinhas
+                # (≥ FRAC_VIZINHAS_VIVA). No fim da tarde a string morta lê 0,1–0,3 A de fuga e passa dos 10% das
+                # vizinhas, que também caíram: a MTS100 6.3 ST06 "voltou" às 16:50 de 13/09, amanheceu morta no dia 14 e
+                # o episódio de 11 a 15/09 virou dois (Levi, 30/09/2026). Sem prova, ela ficou morta até o inversor parar,
+                # e o episódio segue no dia seguinte se ela amanhecer morta.
+                ultimo = k == len(trechos) - 1
+                volta = next((i for i in range(ult + 1, n) if morta[i] is False
+                              and (not ultimo or forte[i] or (razao[i] or 0) >= FRAC_VIZINHAS_VIVA)), None)
                 spans.append([_hhmm(ini + t["cells"][0] * passo), _hhmm(ini + volta * passo) if volta is not None else None])
             cells = [i for t in trechos for i in t["cells"]]
             out.append({"inversor": inv, "string": sid, "saiu": spans[0][0], "voltou": spans[-1][1],

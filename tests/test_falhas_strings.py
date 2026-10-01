@@ -330,3 +330,39 @@ def test_string_que_pisca_nao_e_sombra():
     # ela vai a 36% e 43% das vizinhas e cai para 16% antes de passar de 50% — não é rampa
     res = _sunop(_real("sunop__smp100__2026-09-22__inversor-3.1.json"))
     assert "ST 03" in {m["string"] for m in res["mortas"]} and res["sombras"] == []
+
+
+# ── a volta do fim da tarde precisa de prova (Levi, 30/09/2026) ────────────────────────────────────────────────────────
+# MTS100 6.3 ST06: sem corrente de 11 a 15/09, a aba mostrava dois episódios — "voltou 13/09 16:50" e de novo "saiu 14/09".
+# No fim da tarde as vizinhas caem para 1–2 A e a string morta lê 0,1–0,35 A de fuga: passa dos 10% das vizinhas e
+# contava como volta. A volta do dia agora precisa de sol forte ou de a string acompanhar as vizinhas (>= 50%).
+def _ate_o_fim(serie, de, valor):
+    a = int(de[:2]) * 60 + int(de[3:])
+    return [(h, valor if int(h[:2]) * 60 + int(h[3:]) >= a else v) for h, v in serie]
+
+
+def test_volta_falsa_do_fim_da_tarde_na_mts100_nao_fecha_o_episodio():
+    r = _sunop(_real("sunop__mts100__2026-09-14__inversor-6.3.json"))
+    (m,) = [x for x in r["mortas"] if x["string"] == "ST 06"]
+    assert m["saiu"] == "08:40" and m["voltou"] is None          # antes: "voltou" às 17:00 lendo 0,2 A com as vizinhas a 1–2 A
+
+
+def test_string_morta_que_le_fuga_com_pouca_luz_nao_voltou():
+    st = _ate_o_fim(troca(sino(8.0), "10:00", "18:01", 0.05), "17:00", 0.25)    # 12% das vizinhas, com o sol baixo
+    (m,) = _sunop(inversor(st))["mortas"]
+    assert m["voltou"] is None
+
+
+def test_volta_de_verdade_no_fim_da_tarde_continua_valendo():
+    s = sino(8.0)
+    st = [(h, 0.05 if "10:00" <= h < "16:50" else v) for h, v in s]               # volta junto com as vizinhas
+    (m,) = _sunop(inversor(st))["mortas"]
+    assert m["voltou"] == "16:50"
+
+
+def test_volta_parcial_com_sol_forte_continua_valendo():
+    s = sino(8.0)
+    st = [(h, 0.05 if "10:00" <= h < "12:00" else (0.15 * v if h >= "12:00" else v)) for h, v in s]
+    (m,) = _sunop(inversor(st))["mortas"]
+    assert m["voltou"] == "12:00"                                                  # 15% das vizinhas, meio-dia: régua de antes
+

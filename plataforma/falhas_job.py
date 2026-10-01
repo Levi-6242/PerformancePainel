@@ -84,6 +84,9 @@ FONTE_POTENCIA_DEPOIS_DO_DIA = {"pv"}
 # 279 fantasmas viraram falha com dias estimados (+70 MWh). Fica fora dos dias E das vivas da prova: só os dias, e uma
 # string real que gerava nos dias do backfill e morreu no dia ao vivo levaria as vivas cheias de lá e passaria por vazia.
 FONTE_BACKFILL_FORA_DA_VAZIA = {"pv"}
+# Fontes cujo registro do dia ao vivo diz quantas entradas cada inversor manda (`entradas`, da curva da API PV — ver
+# app.PV_ENTRADA_MIN_FRAC): string de número acima disso é entrada que o inversor não tem (Fazenda Limão, 01/10/2026).
+FONTE_ENTRADAS_DO_REGISTRO = {"pv"}
 
 
 def _fim_do_dia(dia):
@@ -121,10 +124,41 @@ def _dias_entre(a, z):
         a = _prox(a)
 
 
+def chave_str(fonte, pid, inversor, string, dia):
+    """A ocorrência de string que o analista desconsidera: fonte, usina, inversor, string e o DIA em que saiu. O dia, não
+    a hora: o backfill refaz o dia e a hora da saída pode andar alguns minutos (07:10 → 07:20) sem ser outra ocorrência."""
+    return f"{fonte}|{pid}|{inversor}|{string}|{dia}"
+
+
+def chave_trk(fonte, pid, tracker, dia):
+    return f"{fonte}|{pid}|{tracker}|{dia}"
+
+
+def _nrm_semcom(s):
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode().lower()
+    s = re.sub(r"\s*\(\d+\)\s*$", "", s.strip())           # "Barretos 1 (83)": o id da API que o registro carrega
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def chave_semcom(usina, tracker):
+    """Chave do tracker na marca de sem comunicação das rondas (trackers_parados_hist.jsonl, app._falhas_trk_semcom_hist):
+    a usina como a ronda escreve e o rótulo do tracker, sem acento, caixa e o "(id)" da API."""
+    return f"{_nrm_semcom(usina)}|{_nrm_semcom(tracker)}"
+
+
 def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_store=None, trk_store=None,
-           book=None, hist_2c=None, agora=None, abertos_antes=None, log=print):
+           book=None, hist_2c=None, agora=None, abertos_antes=None, desconsideradas=None, trk_semcom=None, log=print):
     """Pacote {periodo, gerado_em, strings, trackers, regua} de [ini, fim] (AAAA-MM-DD, fim incluso).
-    hist_2c(dia) → {"strings": {cod: {inv: {string: serie}}}} (padrão: app._hist_build, o 2C_historico em disco)."""
+    hist_2c(dia) → {"strings": {cod: {inv: {string: serie}}}} (padrão: app._hist_build, o 2C_historico em disco).
+    desconsideradas = {"strings": {chave_str}, "trackers": {chave_trk}}: ocorrência que o analista tirou da conta
+    (Levi, 30/09/2026 — strings da MAB200 que caíram com os trackers parados): sai dos episódios, da visão por inversor
+    × dia e dos totais, e vai para `desconsideradas`, para a tela poder devolver.
+    trk_semcom = {dia: {chave_semcom(usina, tracker)}}: tracker sem comunicação pela ronda, para o dia cujo registro
+    ainda não traz a marca `sem_comunicacao` (antes de 01/10/2026)."""
+    desc = desconsideradas or {}
+    desc_str, desc_trk = set(desc.get("strings") or ()), set(desc.get("trackers") or ())
+    str_desc, trk_desc = [], []
     import pandas as pd
 
     t0 = time.time()
@@ -502,6 +536,31 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
     def chave_ch(fonte, pid, inv, string):
         return (fonte, str(pid), nrm(inv), nrm(string))
 
+    # ENTRADA QUE O INVERSOR NÃO MANDA (01/10/2026, Levi: "pra mim fazenda limão não aparece essas strings 29 a 32").
+    # Em 30/09 o INVERSOR06 da Fazenda Limão mandou Ipv1 a Ipv28 em 1.436 registros e Ipv29 a Ipv32 = 0 num registro
+    # solto das 09:00; a régua leu célula sem leitura como sem corrente e a entrada que ele nem tem "morreu" o dia
+    # inteiro. A curva da API PV já não deixa o solto entrar, mas os dias gravados antes disso e as quedas do detector
+    # das ocorrências têm a fantasma — e a prova da entrada vazia (abaixo) não a pegava: no dia em que o solto não vem,
+    # ela nem está na curva, e esse dia contava como dia em que ela gerou (9 dos 19 inversores da Fazenda Limão ficavam
+    # como falha). O registro do dia AO VIVO guarda quantas entradas cada inversor manda; string de número acima do maior
+    # visto não existe e sai do mês inteiro. A curva de dia passado (backfill, custom_query) não é o pacote do inversor
+    # e não ensina; na dúvida entre dias, vale o maior número (a string fica).
+    N_ENT, inexist = {}, {}
+    for dia_h, fontes_h in mortas_curva.items():
+        for fonte_h in FONTE_ENTRADAS_DO_REGISTRO:
+            for pid_h, ent_h in ((fontes_h or {}).get(fonte_h) or {}).items():
+                if ent_h.get("origem") == "backfill":
+                    continue
+                for inv_h, n_h in (ent_h.get("entradas") or {}).items():
+                    k_ = (fonte_h, str(pid_h), nrm(inv_canon(fonte_h, pid_h, inv_h, ent_h.get("usina") or pid_h)))
+                    N_ENT[k_] = max(N_ENT.get(k_, 0), int(n_h))
+
+    def inexistente(fonte, pid, inv, string):
+        """O número da string passa das entradas que o inversor manda (inv = o nome do cadastro)."""
+        n_ = N_ENT.get((fonte, str(pid), nrm(inv)))
+        m_ = re.search(r"\d+", str(string))
+        return bool(n_ and m_ and int(m_.group()) > n_)
+
     vida, massa_hist = set(), {}
     for dia_h, fontes_h in str_store.items():
         for fonte_h, usinas_h in fontes_h.items():
@@ -548,6 +607,8 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
         ci = curva_inv.get(k[:3])
         if not ci or n_zero < ci["dias"] or k in vida:
             continue
+        if inexistente(k[0], k[1], ci["inv"], nome_ch.get(k, k[3])):
+            continue                             # vai para as inexistentes (add_seg): uma lista só
         esp = cad_inv(ci["usina"], ci["inv"])[1]
         if esp and ci["vivas"] >= esp:
             VAZIAS.add(k)
@@ -575,6 +636,12 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
             str_q["trancada: fora"] += 1
             return
         inv = inv_cadastro(usina, inv_nome(inv_disp))
+        if fonte in FONTE_ENTRADAS_DO_REGISTRO and inexistente(fonte, pid, inv, string):
+            str_q["entrada que o inversor não manda: fora"] += 1
+            inexist.setdefault(chave_ch(fonte, pid, inv, string), {
+                "fonte": fonte, "plant_id": str(pid), "usina": canon(usina), "inversor": inv, "string": str(string),
+                "entradas": N_ENT.get((fonte, str(pid), nrm(inv)))})
+            return
         if chave_ch(fonte, pid, inv, string) in VAZIAS:
             str_q["entrada vazia: fora"] += 1
             return
@@ -682,7 +749,10 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
         s0 = ep["segs"][0]
         inf = [s_ for s_ in ep["segs"] if s_.get("inferido")]
         metodos = {s_["metodo"] for s_ in ep["segs"] if s_["metodo"] != "inferido"}
-        str_ep.append({"fonte": fonte, "plant_id": pid, "cliente": cliente(usina), "usina": usina, "inversor": inv, "string": string,
+        chave = chave_str(fonte, pid, inv, string, s0["dia"])
+        destino = str_desc if chave in desc_str else str_ep
+        destino.append({"chave": chave, "fonte": fonte, "plant_id": pid, "cliente": cliente(usina), "usina": usina,
+                       "inversor": inv, "string": string,
                        "inicio": f"{s0['dia']} {_fmt(s0['a'])}", "fim": fim_txt, "fim_motivo": motivo,
                        "d0": s0["dia"], "d1": ep["segs"][-1]["dia"], "dias": len(ep["segs"]), "dias_inferidos": len(inf),
                        "h_sol": round(mins / 60, 2),
@@ -692,6 +762,9 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                        "kwp_string": round(next((s_["kwp_str"] for s_ in ep["segs"] if s_["kwp_str"]), 0) or 0, 2),
                        "metodo": "curva" if metodos == {"curva"} else ("quedas gravadas" if metodos == {"store"} else "misto"),
                        "flags": sorted(flags)})
+        if destino is str_desc:
+            str_q["desconsiderada pelo analista"] += 1
+            return                                   # fora da visão por inversor × dia e dos totais
         aceitos.append(ep)
 
     def encerra_str(ep):
@@ -837,9 +910,29 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                   default=fim)
     trk_q = Counter()
     serie, nomes = defaultdict(dict), {}
+    # SEM COMUNICAÇÃO não é parado (Levi, 01/10/2026: "alguns trackers estão como 'parados' porém ficaram sem
+    # comunicação, não quero esses trackers no relatório"). Desde 08/09 o tempo real conta o tracker sem comunicação
+    # travado num ângulo como parado (app._trk_promove_semcom) e o registro só guardava "parado". Setembro no PC: 3.755
+    # tracker-dias parados de 369 trackers eram sem comunicação (Santa Bárbara I 1.300, TIM100 830, Boa Esperança do
+    # Sul 1 381) — 225 dos 583 MWh. No dia em que ele está sem comunicação o registro não sabe dele: não é parado nem
+    # volta — atravessa, como a usina que não leu. A marca vem do registro (`sem_comunicacao`, de 01/10 em diante) ou,
+    # antes disso, das fotos da ronda (trk_semcom; ver app._falhas_trk_semcom_hist).
+    SC, sc_fora = {}, {}
+
+    def sem_com(dia, pid, ent):
+        if ent.get("sem_comunicacao") is not None:
+            return {str(t) for t in ent["sem_comunicacao"]}
+        hist = (trk_semcom or {}).get(dia)
+        if not hist:
+            return set()
+        us_ = {ent.get("nome") or pid, canon(ent.get("nome") or pid)}
+        cand = set(ent.get("classes") or {}) | {str(e.get("tracker")) for e in ent.get("eventos") or []}
+        return {t for t in cand if any(chave_semcom(u, t) in hist for u in us_)}
+
     for dia in dias_t:
         for pid, ent in trk_store[dia].items():
             nomes[pid] = ent.get("nome") or pid
+            SC[(pid, dia)] = sem_com(dia, pid, ent)
             cls = ent.get("classes") or {}
             evs = defaultdict(list)
             for ev in ent.get("eventos") or []:
@@ -911,7 +1004,8 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
     coletiva = set()
     for dia in dias_t:
         for pid, ent in trk_store[dia].items():
-            n_par = sum(1 for c in (ent.get("classes") or {}).values() if (c or {}).get("status") == "parado")
+            n_par = sum(1 for t_, c in (ent.get("classes") or {}).items()
+                        if (c or {}).get("status") == "parado" and t_ not in SC.get((pid, dia), ()))   # sem comunicação não
             if n_par and n_par >= FRAC_FROTA_PARADA * max(trk_cadastro(nomes.get(pid, "")), len(frota_store.get(pid) or ())):
                 coletiva.add((pid, dia))
 
@@ -956,6 +1050,8 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                 flags.add("sem inversor no BD_Trackers")
             if ep.get("coletiva"):
                 flags.add("maioria da frota parada (sem referência de ângulo)")
+            if ep.get("sc_meio") or ep.get("sc_desde"):
+                flags.add("sem comunicação em parte do episódio")       # esses dias não contam perda
             for dd, x, y in ep["dias"]:
                 mins = max(0, y - x)
                 hs += mins / 60
@@ -968,7 +1064,12 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
             if hs * 60 < 30:
                 trk_q["descartado: < 30 min na janela solar"] += 1
                 return
-            trk_rows.append({"fonte": fonte, "plant_id": pid, "cliente": cliente(usina_c), "usina": usina_c, "tracker": trk,
+            chave = chave_trk(fonte, pid, trk, ep["ini_dia"])
+            if chave in desc_trk:
+                trk_q["desconsiderado pelo analista"] += 1
+            (trk_desc if chave in desc_trk else trk_rows).append({
+                             "chave": chave, "fonte": fonte, "plant_id": pid, "cliente": cliente(usina_c), "usina": usina_c,
+                             "tracker": trk,
                              "inversor": inversor or "", "inicio": f"{ep['ini_dia']} {_fmt(ep['ini_min'])}",
                              "fim": fim_txt or (f"{fim_dia} {_fmt(fim_min)}" if fim_min is not None else None),
                              "h_sol": round(hs, 2), "desvio_pico": desv, "fator": round(fator, 3),
@@ -986,6 +1087,16 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                 # registrada)" com 9 parados no tempo real
                 continue
             info = por_dia.get(dia)
+            if trk in SC.get((pid, dia), ()):
+                if info is not None and info["cls"] == "parado":
+                    trk_q["sem comunicação no dia: fora"] += 1
+                    a_ = sc_fora.setdefault((fonte, pid, trk), {"fonte": fonte, "plant_id": pid, "usina": usina_c,
+                                                                 "tracker": trk, "dias": 0, "de": dia, "ate": dia})
+                    a_["dias"] += 1
+                    a_["ate"] = dia
+                if aberto is not None and not aberto.get("sc_desde"):
+                    aberto["sc_desde"] = dia
+                continue
             col = (pid, dia) in coletiva
             if info is None:
                 # a usina tem leitura no dia e o tracker não entrou em classe nenhuma: a régua não o viu parado — ele
@@ -1030,12 +1141,16 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                         aberto["dias"].append((dia, x, y))
                         aberto["desvios"].append(dv)
                         aberto["coletiva"] = aberto.get("coletiva") or col
+                        if aberto.pop("sc_desde", None):         # voltou a comunicar parado: o meio não conta
+                            aberto["sc_meio"] = True
                         continue
                     if a <= 9 * 60 and b is not None:
                         x, y, _m, _ = intersec(a, b, usina_c, dia)
                         aberto["dias"].append((dia, x, y))
                         aberto["desvios"].append(dv)
                         aberto["coletiva"] = aberto.get("coletiva") or col
+                        if aberto.pop("sc_desde", None):         # voltou a comunicar parado: o meio não conta
+                            aberto["sc_meio"] = True
                         trk_q["fechado: voltou a girar"] += 1
                         fecha(aberto, dia, y, None)
                         aberto = None
@@ -1052,7 +1167,13 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                     trk_q["fechado: voltou a girar"] += 1
                     fecha(ep, dia, y, None)
         if aberto is not None:
-            if aberto["dias"][-1][0] >= ult_trk:
+            sc_d = aberto.pop("sc_desde", None)
+            if sc_d:
+                # parado de verdade até ficar sem comunicação: segue em aberto (sem notícia, a regra das strings), e a
+                # perda é só a dos dias em que ele comunicava
+                trk_q["em aberto: sem comunicação do tracker depois"] += 1
+                fecha(aberto, None, None, "em aberto", extra=f"sem comunicação do tracker desde {ddmm(sc_d)}")
+            elif aberto["dias"][-1][0] >= ult_trk:
                 trk_q["em aberto no fim do período"] += 1
                 fecha(aberto, None, None, "em aberto")
             else:
@@ -1100,7 +1221,10 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
     if sombras_info:
         str_q["sombra (entrou ou saiu em rampa): fora"] = len(sombras_info)
     return {"periodo": [ini, fim], "gerado_em": agora.strftime("%Y-%m-%d %H:%M"),
-            "strings": {"rows": str_rows, "episodios": str_ep, "qualidade": dict(str_q), "entradas_vazias": vazias_info,
+            "strings": {"rows": str_rows, "episodios": str_ep, "desconsideradas": str_desc, "qualidade": dict(str_q),
+                        "entradas_vazias": vazias_info,
+                        "entradas_inexistentes": sorted(inexist.values(),
+                                                        key=lambda v: (v["usina"], v["inversor"], v["string"])),
                         "pv_potencia_fora": pot_fora["usinas-dia"],
                         "sombras": sombras_info,
                         "por_cliente": resumo(str_rows, "cliente")[:12], "por_usina": resumo(str_rows, "usina")[:25],
@@ -1108,7 +1232,9 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                         "dias_registrados": sorted(d_ for d_ in set().union(*dias_fonte.values()) if ini <= d_ <= fim)
                         if dias_fonte else [],
                         "dias_com_vivas": sorted(d_ for d_ in dias_vivas if ini <= d_ <= fim)},
-            "trackers": {"rows": trk_rows, "qualidade": dict(trk_q), "por_cliente": resumo(trk_rows, "cliente")[:12],
+            "trackers": {"rows": trk_rows, "desconsideradas": trk_desc, "qualidade": dict(trk_q),
+                         "sem_comunicacao": sorted(sc_fora.values(), key=lambda v: (v["usina"], str(v["tracker"]))),
+                         "por_cliente": resumo(trk_rows, "cliente")[:12],
                          "por_usina": resumo(trk_rows, "usina")[:25]},
             "regua": {"sol_min_graus": SOL_MIN, "janela": "06–18h ∩ sol ≥ 8° no estado",
                       "janela_strings": "06–18h, 2 h seguidas sem corrente com o inversor gerando (≥ 12% do pico); "

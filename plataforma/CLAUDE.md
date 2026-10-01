@@ -856,3 +856,41 @@ strings citadas estão trancadas"). Não eram trava — as trancadas eram as Ipv
   noite): para com a cota do dia abaixo de `FALHAS_BF_PV_RESERVA_DIA` (450) ou da hora abaixo de 60, 30 s entre pedidos,
   120 por passada (de hora em hora). Não refaz a régua anterior. `falhas_backfill_pv.json` guarda a usina-dia pedida:
   sem leitura na API, não volta a pedir.
+
+**30/09–01/10/2026 — desconsiderar, volta com prova e a entrada que o inversor não manda** (pedidos do Levi com print):
+- **Desconsiderar ocorrência** (MAB200, 22/09 07:10–09:40: strings abaixo de 1 A com os trackers parados): checkbox na
+  linha do episódio e do tracker; `POST /api/painel/falhas/desconsiderar` grava em `falhas_desconsideradas.json` (estado,
+  com quem e quando), o worker lê na montagem (`desconsideradas=`) e a chave é `falhas_job.chave_str`/`chave_trk`. Sai dos
+  episódios, da visão por inversor × dia e dos totais; "desconsideradas (N)" na barra devolve. O laço do worker acorda
+  ~1 min depois da gravação (mtime do arquivo). Teste: `tests/test_falhas_desconsiderar.py`.
+- **A volta do fim da tarde precisa de prova** (MTS100 6.3 ST06, 13/09 16:50): a string morta lê 0,1–0,35 A de fuga, passa
+  dos 10% das vizinhas que também caíram e "voltava" — o episódio de 11 a 15/09 virou dois. A volta do ÚLTIMO trecho do
+  dia só vale com sol forte ou a string a ≥ 50% das vizinhas (`falhas.avaliar_dia`); régua `2026-09-30-volta-com-prova`.
+- **Entrada que o inversor não manda** (Fazenda Limão: "pra mim fazenda limão não aparece essas strings 29 a 32"). Em
+  30/09 o INVERSOR06 mandou 1.437 registros com Ipv1 a Ipv28 e UM, às 09:00, com 92 campos (Ipv29 a Ipv32 = 0, Upv29,
+  Pac1–3, Ri). A régua lê célula sem leitura como sem corrente: a fantasma "morria" o dia inteiro. No servidor, em 30/09,
+  Ipv29+ eram 328 dos 433 episódios da API PV e 43 dos 82 MWh (Fazenda Limão, Guatambu, Nova Londrina 2, Poconé 1,
+  Colorado 1, Belo Jardim, Canarana 1, São Bento do Una — todos inversores de 28 entradas). A prova da entrada vazia não
+  pegava porque pede zero em TODO dia de curva, e no dia sem o registro solto a fantasma nem está na curva (conta como
+  dia em que ela gerou). Duas travas: (1) `_pv_curvas_strings_de` tira a entrada que vem em menos de
+  `PV_ENTRADA_MIN_FRAC` (25%) dos registros do inversor — vale para ocorrências, régua, drill e CSV; (2) o registro do dia
+  AO VIVO guarda `entradas` (maior IpvN regular, contando a trancada, só do inversor que gerou) e o `falhas_job` tira do
+  mês inteiro a string acima do maior número visto (`entradas_inexistentes`, "entrada que o inversor não manda: fora").
+  Backfill não ensina (a curva do custom_query não é o pacote do inversor). Antiga × nova no dia real: só as 4 séries
+  fantasmas mudam (1 ponto cada), 232.398 pontos iguais. Testes: `tests/test_falhas_entrada_fantasma.py` e os de
+  `test_falhas_job.py`. **Só limpa o mês depois que a usina tem um dia ao vivo registrado com o código novo** — e o mês
+  anterior só é remontado até o dia 2.
+- **Tracker sem comunicação não entra** ("alguns trackers estão como 'parados' porém ficaram sem comunicação, não quero
+  esses trackers no relatório"). Desde 08/09 o tempo real conta como parado o sem comunicação travado num ângulo
+  (`_trk_promove_semcom`) e o registro só guardava "parado". O registro do dia passa a guardar `sem_comunicacao` (lista,
+  `_trk_semcom_set` — a etiqueta roxa) nos 4 pontos que gravam o `_trk_eventos`; no `falhas_job` o dia sem comunicação
+  atravessa (não é parado nem volta), não entra na conta da frota parada e vai para `trackers.sem_comunicacao`; o parado
+  de verdade que perde a comunicação segue em aberto, com a perda só dos dias em que comunicava. **Antes de 01/10 a marca
+  vem das fotos da ronda** (`trackers_parados_hist.jsonl`, `_falhas_trk_semcom_hist`): vale a última foto do dia que
+  listou o tracker, e rótulo repetido (a ronda junta Guatambu 1 a 4 como "Guatambu", com um TRK1 em cada) só vale com
+  todos sem comunicação. O servidor não faz a ronda: a do PC vai por `POST /api/painel/falhas/trk-semcom` (login).
+  Setembro no PC: 3.755 tracker-dias de 369 trackers saíram (Santa Bárbara I 1.300, TIM100 830, Boa Esperança do Sul
+  1 381), 583 → 358 MWh. Teste: `tests/test_falhas_trk_semcom.py`.
+- **"Trackers que pararam"** (card da aba de trackers): os trackers diferentes do recorte, quantos começaram no período,
+  quantos já vinham parados (`cronico` ou `desde`) e quantos seguem parados agora; com "Esconder crônicos" ligado, o card
+  diz que os de antes estão escondidos.

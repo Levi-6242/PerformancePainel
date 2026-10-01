@@ -144,6 +144,11 @@
   .q div{background:var(--mist);padding:14px 16px;font-size:12px;color:var(--graphite);line-height:1.4}
   .q div b{display:block;font:800 24px/1.1 var(--display);color:var(--ink);margin-bottom:6px;font-variant-numeric:tabular-nums}
   .rodape{margin-top:30px;padding-top:14px;border-top:1px solid var(--hair);font-size:12px;font-weight:300;color:var(--stone);max-width:1000px}
+  /* desconsiderar ocorrência (30/09/2026): checkbox na linha e a lista para voltar */
+  .chk-col{width:34px;text-align:center}
+  .chk-col input{width:15px;height:15px;cursor:pointer;accent-color:var(--ink)}
+  .desc-lista td .voltar{background:none;border:1.5px solid var(--hair2);color:var(--ink);font:500 11.5px var(--font);padding:4px 10px;cursor:pointer}
+  .desc-lista td .voltar:hover{border-color:var(--ink)}
   #tip{position:fixed;pointer-events:none;background:#fff;border:1px solid var(--hair2);padding:8px 11px;font-size:12px;color:var(--ink);display:none;z-index:9;max-width:340px;line-height:1.45;box-shadow:0 8px 24px rgba(25,21,40,.14)}
 </style>
 </head>
@@ -178,6 +183,7 @@
     <label class="chk" title="Episódio sem fim no último dia com dado: o que está parado ou zerado agora. Inclui os crônicos."><input type="checkbox" id="f-ab"> Só em aberto agora</label>
     <label class="chk" id="l-cron" title="Tracker que já estava parado antes do mês (o book o registra desde julho)"><input type="checkbox" id="f-cron" checked> Esconder crônicos (parados desde antes do mês)</label>
     <button class="limpar" id="limpar">limpar filtros</button>
+    <button class="limpar" id="b-desc" title="Ocorrências tiradas da conta pelo checkbox da tabela">desconsideradas (0)</button>
   </div>
 
   <div class="aviso-frio" id="frio" hidden></div>
@@ -190,6 +196,11 @@
   </div>
 
   <div id="painel-dados">
+    <div class="estado" id="desc-msg" hidden></div>
+    <div class="card" id="desc-painel" hidden>
+      <div class="card-h"><div><h2>Ocorrências desconsideradas</h2><div class="desc">Tiradas da conta e da tela pelo checkbox da tabela — a string que caiu porque o tracker parou, por exemplo. Ficam guardadas aqui, com quem desconsiderou; "voltar para a conta" desfaz.</div></div></div>
+      <div class="t-wrap"><table class="t desc-lista" id="desc-tab"></table></div>
+    </div>
     <div class="card" id="abertos" hidden>
       <div class="card-h"><div><h2>Parados em aberto</h2><div class="desc">Trackers cujo episódio não fechou até o último dia com dado — o que está parado agora, por cliente e por usina. Segue os filtros de cliente, fonte e usina; os crônicos entram aqui mesmo escondidos da tabela.</div></div></div>
       <div class="abertos">
@@ -216,7 +227,8 @@
     <div class="card"><div class="card-h"><div><h2>Trackers — como os episódios fecharam</h2><div class="desc">Cada episódio termina por um motivo; o motivo diz o que a régua fez.</div></div></div><div class="q" id="q-trk"></div></div>
     <div class="card"><div class="card-h"><div><h2>Avisos por linha</h2><div class="desc">Quantas linhas carregam cada aviso (uma linha pode ter vários).</div></div></div><div class="q" id="q-flags"></div></div>
     <div class="card"><div class="card-h"><div><h2>Trancadas com OS de recomposição aberta</h2><div class="desc">String trancada sai da conta e desta aba no mês inteiro. Com OS de recomposição aberta citando a string, ela é perda que o campo ainda vai resolver: destranque para ela voltar a aparecer.</div></div></div><div class="t-wrap"><table class="t" id="t-trv"></table></div></div>
-    <div class="card"><div class="card-h"><div><h2>Entradas sem string, fora da conta</h2><div class="desc">Entrada que nunca teve corrente (nenhuma volta no histórico gravado e zero em todas as curvas do dia) num inversor que já tem, vivas, as strings do cadastro. Sai do mês inteiro, como a trava. Se alguma for string de verdade, o cadastro está com menos strings do que o inversor tem.</div></div></div><div class="t-wrap"><table class="t" id="t-vaz"></table></div></div>
+    <div class="card"><div class="card-h"><div><h2>Entradas sem string, fora da conta</h2><div class="desc">Entrada que o inversor nem manda (veio só num registro solto da API PV, em 0 A — a Ipv29 a Ipv32 num inversor de 28 entradas) ou que nunca teve corrente (nenhuma volta no histórico gravado e zero em todas as curvas do dia) num inversor que já tem, vivas, as strings do cadastro. Sai do mês inteiro, como a trava. Se alguma for string de verdade, o cadastro está com menos strings do que o inversor tem.</div></div></div><div class="t-wrap"><table class="t" id="t-vaz"></table></div></div>
+    <div class="card"><div class="card-h"><div><h2>Trackers sem comunicação, fora da conta</h2><div class="desc">Tracker que a plataforma marca como sem comunicação (sensor em 0,00° o dia todo ou parou de reportar com a frota seguindo — a etiqueta roxa do tempo real). O tempo real o conta como parado; aqui o dia sem comunicação não entra: não se sabe se ele girou. Parado de verdade que perdeu a comunicação segue em aberto, com a perda só dos dias em que comunicava.</div></div></div><div class="t-wrap"><table class="t" id="t-sc"></table></div></div>
     <div class="card"><h2 style="margin-bottom:10px">Como a conta é feita</h2><ul class="notas" id="notas"></ul></div>
   </div>
 
@@ -324,7 +336,17 @@
     const eqs = new Set(epsR.map(chave));
     const agora = new Set(epsR.filter(r => !r.fim).map(chave));
     $('k3').textContent = nf.format(eqs.size);
-    $('k3-n').innerHTML = `<b>${nf.format(agora.size)}</b> ${trk ? 'seguem parados' : 'seguem sem corrente'} agora`;
+    if (trk) {
+      // quem COMEÇOU a parar no período × quem já vinha parado de antes (o book da plataforma ou o mês anterior)
+      const antes = new Set(epsR.filter(r => r.cronico || r.desde).map(chave));
+      const cronFora = S.cron && !S.aberto;          // "Esconder crônicos" ligado: os que já vinham parados saíram do recorte
+      $('k3-l').textContent = 'Trackers que pararam';
+      $('k3-n').innerHTML = `<b>${nf.format(eqs.size - antes.size)}</b> começaram no período · ` +
+        (cronFora && !antes.size ? 'os que já vinham parados estão escondidos (filtro de crônicos)' : `<b>${nf.format(antes.size)}</b> já vinham parados`) +
+        ` · <b>${nf.format(agora.size)}</b> seguem parados agora`;
+    } else {
+      $('k3-n').innerHTML = `<b>${nf.format(agora.size)}</b> seguem sem corrente agora`;
+    }
     $('k4').textContent = nf.format(us); $('k4-n').textContent = `${nf.format(new Set(rows.map(r => r.cliente)).size)} clientes`;
   }
   function barras(rows) {
@@ -351,17 +373,64 @@
   }
   $('ab-us').addEventListener('click', e => { const tr = e.target.closest('tr[data-u]'); if (!tr) return; S.usina = S.usina === tr.dataset.u ? null : tr.dataset.u; desenha(); });
 
+  // ── desconsiderar ocorrência (Levi, 30/09/2026) ───────────────────────────────────────
+  // a string que caiu com o tracker parado (MAB200, 22/09 07:10–09:40) não é falha de string: o checkbox tira a ocorrência
+  // da conta e da tela na hora; a visão por inversor e dia e o pacote mudam na montagem seguinte do worker (até ~2 min)
+  let DESC = {strings: {}, trackers: {}};
+  const REMOV = {};                                    // chave → {tipo, r}: a linha tirada nesta visita, para voltar na hora
+  function chkDesc(r) {
+    return r.chave ? `<input type="checkbox" class="desc-chk" data-chave="${esc(r.chave)}" title="Desconsiderar ocorrência: sai da conta e da tela (fica na lista de desconsideradas)">` : '';
+  }
+  function aplicaDesc() {
+    for (const [tipo, arr] of [['strings', D.strings.episodios], ['trackers', D.trackers.rows]]) {
+      for (let i = arr.length - 1; i >= 0; i--) {
+        if (DESC[tipo][arr[i].chave]) { REMOV[arr[i].chave] = {tipo, r: arr[i]}; arr.splice(i, 1); }
+      }
+    }
+  }
+  function descMsg(t) { $('desc-msg').hidden = !t; $('desc-msg').innerHTML = t || ''; }
+  const fEm = v => (v ? String(v).slice(8, 10) + '/' + String(v).slice(5, 7) + ' ' + String(v).slice(11, 16) : '');
+  function descPainel() {
+    const itens = [...Object.entries(DESC.strings).map(([k, v]) => ['strings', k, v]), ...Object.entries(DESC.trackers).map(([k, v]) => ['trackers', k, v])]
+      .sort((a, b) => String(b[2].em || '').localeCompare(String(a[2].em || '')));
+    $('b-desc').textContent = `desconsideradas (${itens.length})`;
+    $('desc-tab').innerHTML = `<thead><tr><th>Tipo</th><th>Usina</th><th>Inversor</th><th>String / tracker</th><th>Saiu</th><th class="n">Perda est.</th><th>Desconsiderada por</th><th></th></tr></thead><tbody>${
+      itens.map(([tipo, k, v]) => `<tr><td class="fraco">${tipo === 'strings' ? 'String' : 'Tracker'}</td><td class="forte">${esc(v.usina || k.split('|')[1])}</td><td>${esc(v.inversor || '—')}</td><td class="forte">${esc(v.string || v.tracker || k.split('|')[tipo === 'strings' ? 3 : 2])}</td><td>${fDH(v.inicio || '')}</td><td class="n">${v.perda_kwh != null ? nf.format(Math.round(v.perda_kwh)) + ' kWh' : '—'}</td><td class="fraco">${esc(v.por || '')} · ${esc(fEm(v.em))}</td><td><button class="voltar" data-tipo="${tipo}" data-chave="${esc(k)}">voltar para a conta</button></td></tr>`).join('')
+      || '<tr><td colspan="8" class="fraco">Nenhuma ocorrência desconsiderada.</td></tr>'}</tbody>`;
+  }
+  async function descGrava(tipo, chave, desconsiderar, resumo) {
+    try {
+      const r = await fetch('/api/painel/falhas/desconsiderar', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({tipo, chave, desconsiderar, resumo})});
+      const j = await r.json();
+      if (!j.ok) { descMsg('Não gravou: ' + esc(j.motivo || r.status)); return false; }
+      return true;
+    } catch (e) { descMsg('Não gravou: ' + esc(e)); return false; }
+  }
+  $('b-desc').addEventListener('click', () => { $('desc-painel').hidden = !$('desc-painel').hidden; descPainel(); });
+  $('desc-tab').addEventListener('click', async e => {
+    const b = e.target.closest('button.voltar'); if (!b) return;
+    b.disabled = true;
+    const {tipo, chave} = b.dataset;
+    if (!(await descGrava(tipo, chave, false))) { b.disabled = false; return; }
+    delete DESC[tipo][chave];
+    const rm = REMOV[chave];
+    if (rm) { (rm.tipo === 'trackers' ? D.trackers.rows : D.strings.episodios).push(rm.r); delete REMOV[chave]; }
+    descMsg(rm ? 'Ocorrência de volta na conta.' : 'Ocorrência de volta na conta. Ela reaparece na tabela na próxima montagem do pacote (até ~2 min).');
+    descPainel(); desenha();
+  });
+
   // ── tabelas ─────────────────────────────────────────────────────────────────────────
   const COLS = {
     str: [['dia', 'Dia', r => r.dia.slice(8) + '/' + r.dia.slice(5, 7), 'fraco'], ['cliente', 'Cliente', r => r.cliente, 'fraco'], ['usina', 'Usina', r => r.usina, 'forte'],
           ['inversor', 'Inversor', r => r.inversor], ['qtd', 'Qtd', r => r.qtd, 'n'], ['strings', 'Strings', r => r.strings, 'strs'],
           ['perda_kwh', 'Perda est.', r => nf.format(Math.round(r.perda_kwh)) + ' kWh', 'n forte'], ['flags', 'Avisos', r => r.flags.map(f => `<span class="tag t-flag">${esc(f)}</span>`).join('')]],
-    ep: [['cliente', 'Cliente', r => r.cliente, 'fraco'], ['usina', 'Usina', r => r.usina, 'forte'], ['inversor', 'Inversor', r => r.inversor], ['string', 'String', r => r.string],
+    ep: [['_desc', '', chkDesc, 'chk-col'], ['cliente', 'Cliente', r => r.cliente, 'fraco'], ['usina', 'Usina', r => r.usina, 'forte'], ['inversor', 'Inversor', r => r.inversor], ['string', 'String', r => r.string],
          ['inicio', 'Saiu', r => fDH(r.inicio)],
          ['fim', 'Voltou', r => !r.fim ? `<span class="tag ${r.fim_motivo === 'em aberto' ? 't-ab' : 't-flag'}">${esc(r.fim_motivo)}</span>` : r.fim_motivo === 'voltou' ? fDH(r.fim) : r.fim_motivo === 'voltou de madrugada' ? fDH(r.fim) + ' <span class="tag t-f">de madrugada</span>' : 'até ' + fDH(r.fim) + ' <span class="tag t-f">entre varreduras</span>'],
          ['dias', 'Dias', r => r.dias, 'n'], ['perda_kwh', 'Perda est.', r => nf.format(Math.round(r.perda_kwh)) + ' kWh', 'n forte'],
          ['flags', 'Avisos', r => r.flags.map(f => `<span class="tag t-flag">${esc(f)}</span>`).join('')]],
-    trk: [['cliente', 'Cliente', r => r.cliente, 'fraco'], ['usina', 'Usina', r => r.usina, 'forte'], ['tracker', 'Tracker', r => r.tracker], ['inversor', 'Inversor', r => r.inversor || '—', 'fraco'],
+    trk: [['_desc', '', chkDesc, 'chk-col'], ['cliente', 'Cliente', r => r.cliente, 'fraco'], ['usina', 'Usina', r => r.usina, 'forte'], ['tracker', 'Tracker', r => r.tracker], ['inversor', 'Inversor', r => r.inversor || '—', 'fraco'],
           ['inicio', 'Parou', r => fDH(r.inicio)], ['fim', 'Voltou', r => !r.fim ? '<span class="tag t-ab">em aberto</span>' : r.fim.length === 10 ? `${r.fim.slice(8, 10)}/${r.fim.slice(5, 7)} <span class="tag t-f" title="A régua da plataforma não viu o tracker parado neste dia, mas o registro não guarda a hora em que ele voltou. A perda vai até o fim do último dia em que estava parado.">hora não registrada</span>` : fDH(r.fim)],
           ['perda_kwh', 'Perda est.', r => nf.format(Math.round(r.perda_kwh)) + ' kWh', 'n forte'],
           ['desvio_pico', 'Desvio', r => r.desvio_pico != null ? nf1.format(r.desvio_pico) + '°' : '—', 'n fraco'],
@@ -375,11 +444,25 @@
     $('tab-h').textContent = trk ? 'Episódios de tracker parado' : ep ? 'Episódios por string: saiu / voltou' : 'Strings sem corrente por inversor e dia';
     $('tab-d').textContent = trk ? 'Parou / voltou pela curva da própria fonte; o episódio fecha na primeira vez que o tracker se mexe — mesmo que vire desvio severo. "Hora não registrada": no dia da volta a régua da plataforma já não o viu parado, mas o registro não guarda a hora; a perda vai até o fim do último dia parado. Sem dado da usina depois, segue em aberto.' :
       ep ? 'Uma linha por string, do primeiro instante zerada com o inversor produzindo até a volta; a perda conta das 06h às 18h, só com o inversor gerando. Amanheceu zerada (caiu até 07:30) continua o episódio da véspera — a régua do "zerada desde" da plataforma. "De madrugada" = na varredura seguinte a string não amanheceu zerada: voltou entre o pôr e o nascer do sol. "Até dd/mm" = a usina ficou dias fora do store e a string não amanheceu zerada quando voltou ao store.' : 'Quantidade e quais strings ficaram 2 h seguidas sem corrente com o inversor gerando (06–18h). Perda = kWp da string × kWh/kWp real da usina no dia × fração da energia do dia dentro do episódio (ponderada pela altura do sol).';
-    $('tab').innerHTML = `<thead><tr>${cols.map(c => `<th data-k="${c[0]}" class="${(c[3] || '').includes('n') ? 'n' : ''}${ord[0] === c[0] ? ' on' : ''}">${c[1]}${ord[0] === c[0] ? (ord[1] < 0 ? ' ▾' : ' ▴') : ''}</th>`).join('')}</tr></thead><tbody>${
+    $('tab').innerHTML = `<thead><tr>${cols.map(c => c[0][0] === '_' ? `<th class="chk-col" title="Desconsiderar ocorrência">—</th>` : `<th data-k="${c[0]}" class="${(c[3] || '').includes('n') ? 'n' : ''}${ord[0] === c[0] ? ' on' : ''}">${c[1]}${ord[0] === c[0] ? (ord[1] < 0 ? ' ▾' : ' ▴') : ''}</th>`).join('')}</tr></thead><tbody>${
       sorted.slice(0, S.lim).map(r => `<tr>${cols.map(c => `<td class="${c[3] || ''}">${c[2](r)}</td>`).join('')}</tr>`).join('')}</tbody>`;
     $('mais').innerHTML = sorted.length > S.lim ? `<span>mostrando ${S.lim} de ${nf.format(sorted.length)}</span><button id="btn-mais">mostrar mais 100</button>` : `<span>${nf.format(sorted.length)} linhas</span>`;
     const bm = $('btn-mais'); if (bm) bm.onclick = () => { S.lim += 100; desenha(); };
   }
+  $('tab').addEventListener('change', async e => {
+    const c = e.target.closest('input.desc-chk'); if (!c) return;
+    const tipo = S.aba === 'trk' ? 'trackers' : 'strings', arr = tipo === 'trackers' ? D.trackers.rows : D.strings.episodios;
+    const r = arr.find(x => x.chave === c.dataset.chave); if (!r) return;
+    c.disabled = true;
+    const resumo = {usina: r.usina, cliente: r.cliente, inversor: r.inversor || '', inicio: r.inicio, fim: r.fim || '', perda_kwh: r.perda_kwh};
+    if (tipo === 'trackers') resumo.tracker = String(r.tracker); else resumo.string = r.string;
+    if (!(await descGrava(tipo, r.chave, true, resumo))) { c.checked = false; c.disabled = false; return; }
+    const d = new Date(), p2 = n => String(n).padStart(2, '0');
+    DESC[tipo][r.chave] = {...resumo, por: 'você', em: `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`};
+    REMOV[r.chave] = {tipo, r}; arr.splice(arr.indexOf(r), 1);
+    descMsg(`Ocorrência desconsiderada: <b>${esc(r.usina)} · ${esc(tipo === 'trackers' ? 'tracker ' + r.tracker : r.inversor + ' ' + r.string)}</b> · saiu ${fDH(r.inicio)}. Já saiu desta tabela e dos totais dela; a visão por inversor e dia muda na próxima montagem do pacote (até ~2 min). Para desfazer: "desconsideradas", na barra de filtros.`);
+    descPainel(); desenha();
+  });
   $('tab').addEventListener('click', e => { const th = e.target.closest('th[data-k]'); if (!th) return; const k = th.dataset.k; S.ord = S.ord && S.ord[0] === k ? [k, -S.ord[1]] : [k, k === 'perda_kwh' || k === 'h_sol' || k === 'qtd' || k === 'dias' ? -1 : 1]; desenha(); });
 
   // ── qualidade + proposta ────────────────────────────────────────────────────────────
@@ -391,13 +474,18 @@
     D.trackers.rows.forEach(r => r.flags.forEach(f => { fl['trackers: ' + f] = (fl['trackers: ' + f] || 0) + 1; }));
     D.trackers.rows.filter(r => r.cronico).length && (fl['trackers: crônico (parado desde antes do mês)'] = D.trackers.rows.filter(r => r.cronico).length);
     quadros($('q-flags'), fl);
-    const trv = D.strings.travas_com_os || [], vaz = D.strings.entradas_vazias || [];
+    const trv = D.strings.travas_com_os || [], vaz = D.strings.entradas_vazias || [], inx = D.strings.entradas_inexistentes || [];
     $('t-trv').innerHTML = `<thead><tr><th>Fonte</th><th>Usina</th><th>Inversor</th><th>String</th><th>OS</th><th>Situação</th><th>Criada</th><th>Descrição</th></tr></thead><tbody>${
       trv.map(t => `<tr><td>${esc(FONTE[t.fonte] || t.fonte)}</td><td class="forte">${esc(t.usina)}</td><td>${esc(t.inversor)}</td><td class="forte">${esc(t.string)}</td><td class="n">${esc(t.os)}</td><td>${esc(t.status)}</td><td class="n">${esc(t.criada)}</td><td class="fraco">${esc(t.descricao)}</td></tr>`).join('')
       || '<tr><td colspan="8" class="fraco">Nenhuma string trancada com OS de recomposição aberta.</td></tr>'}</tbody>`;
-    $('t-vaz').innerHTML = `<thead><tr><th>Fonte</th><th>Usina</th><th>Inversor</th><th>Entrada</th><th class="n">Strings no cadastro</th><th class="n">Vivas</th><th class="n">Dias de curva</th></tr></thead><tbody>${
-      vaz.map(v => `<tr><td>${esc(FONTE[v.fonte] || v.fonte)}</td><td class="forte">${esc(v.usina)}</td><td>${esc(v.inversor)}</td><td class="forte">${esc(v.string)}</td><td class="n">${nf.format(v.esperadas)}</td><td class="n">${nf.format(v.vivas)}</td><td class="n">${nf.format(v.dias_curva)}</td></tr>`).join('')
-      || '<tr><td colspan="7" class="fraco">Nenhuma entrada vazia neste mês.</td></tr>'}</tbody>`;
+    $('t-vaz').innerHTML = `<thead><tr><th>Fonte</th><th>Usina</th><th>Inversor</th><th>Entrada</th><th>Por quê</th><th class="n">Strings no cadastro</th><th class="n">Vivas</th><th class="n">Dias de curva</th></tr></thead><tbody>${
+      [...inx.map(v => `<tr><td>${esc(FONTE[v.fonte] || v.fonte)}</td><td class="forte">${esc(v.usina)}</td><td>${esc(v.inversor)}</td><td class="forte">${esc(v.string)}</td><td>o inversor manda ${nf.format(v.entradas)} entradas</td><td class="n fraco">—</td><td class="n fraco">—</td><td class="n fraco">—</td></tr>`),
+       ...vaz.map(v => `<tr><td>${esc(FONTE[v.fonte] || v.fonte)}</td><td class="forte">${esc(v.usina)}</td><td>${esc(v.inversor)}</td><td class="forte">${esc(v.string)}</td><td>nunca teve corrente</td><td class="n">${nf.format(v.esperadas)}</td><td class="n">${nf.format(v.vivas)}</td><td class="n">${nf.format(v.dias_curva)}</td></tr>`)].join('')
+      || '<tr><td colspan="8" class="fraco">Nenhuma entrada vazia neste mês.</td></tr>'}</tbody>`;
+    const sc = D.trackers.sem_comunicacao || [];
+    $('t-sc').innerHTML = `<thead><tr><th>Fonte</th><th>Usina</th><th>Tracker</th><th class="n">Dias parado sem comunicação</th><th>De</th><th>Até</th></tr></thead><tbody>${
+      sc.map(v => `<tr><td>${esc(FONTE[v.fonte] || v.fonte)}</td><td class="forte">${esc(v.usina)}</td><td class="forte">${esc(v.tracker)}</td><td class="n">${nf.format(v.dias)}</td><td class="n">${esc(String(v.de).slice(8, 10) + '/' + String(v.de).slice(5, 7))}</td><td class="n">${esc(String(v.ate).slice(8, 10) + '/' + String(v.ate).slice(5, 7))}</td></tr>`).join('')
+      || '<tr><td colspan="6" class="fraco">Nenhum tracker sem comunicação contado como parado neste mês.</td></tr>'}</tbody>`;
     const qs = D.strings.qualidade, eps = D.strings.episodios, met = {};
     eps.forEach(e => { met[e.metodo] = (met[e.metodo] || 0) + 1; });
     const inf = eps.reduce((a, e) => a + (e.perda_inferida_kwh || 0), 0);
@@ -409,9 +497,11 @@
       `${inf > 0 ? '!' : ''}<b>Dias sem varredura:</b> quando a usina some do registro entre dois dias com a string zerada, os dias do meio contam como zerados e a perda deles é estimada (${fmtKwh(inf)} neste mês). O filtro "Só linhas confiáveis" tira essas linhas.`,
       `<b>Strings trancadas não entram:</b> ${nf.format(qs['strings trancadas no estado (ufv_state.json)'] || 0)} strings marcadas à mão na plataforma (MPPT sem string); a trava de hoje vale para o mês inteiro (${nf.format(qs['trancada: fora'] || 0)} quedas saíram por ela).`,
       `<b>Entrada sem string não é falha:</b> ${nf.format(vaz.length)} entradas deste mês nunca tiveram corrente num inversor que já tem, vivas, as strings do cadastro (${nf.format(qs['entrada vazia: fora'] || 0)} quedas saíram por isso). No cruzamento com as OS de setembro, Ipv29 a Ipv32 eram 41% dos episódios e nenhuma OS citava essas entradas. A lista está acima.`,
+      `<b>Entrada que o inversor não manda:</b> a API PV às vezes manda um registro solto com mais entradas do que o inversor tem — na Fazenda Limão, em 30/09, um registro de 1.437 trouxe Ipv29 a Ipv32 = 0 num inversor de 28 entradas, e a entrada que ele nem tem parecia morta o dia inteiro (o drill, que lê o último registro, mostra as 28). A curva deixa o registro solto de fora, e o mês tira a string de número acima do que o inversor manda: ${nf.format(inx.length)} entradas, ${nf.format(qs['entrada que o inversor não manda: fora'] || 0)} quedas.`,
       `<b>Sombra não é falha:</b> a string que cai em rampa — de metade das vizinhas para menos de 10% em 40 min ou mais, com sol forte — está sombreada, não aberta (MAB100 ST07 em 02 e 12/09: o Fusion mostrava a string boa). Falha de string cai de uma leitura para a outra. ${nf.format(qs['sombra (entrou ou saiu em rampa): fora'] || 0)} trechos deste mês saíram por isso; a sombra que amanhece morta no dia seguinte volta a ser falha, com o aviso "começou devagar".`,
       `<b>Volta falsa da manhã:</b> com pouca luz, a string com defeito lê um pouco de corrente e parecia voltar. Volta antes das 9h que morre de novo antes do meio-dia (viva até 2h30) é o mesmo episódio e leva o aviso — a OS 13297 da SMP100 5.2 era um defeito só e aparecia como 11 episódios.`,
       `<b>Virada de mês:</b> cada mês conta a sua perda. Quem já estava em aberto no fim do mês anterior e amanhece igual no dia 1 leva o aviso "vem do mês anterior" com a data em que começou.`,
+      `<b>Tracker sem comunicação não entra:</b> o tempo real conta como parado o tracker sem comunicação travado num ângulo; aqui o dia sem comunicação fica fora — ${nf.format((D.trackers.qualidade || {})['sem comunicação no dia: fora'] || 0)} tracker-dias parados deste mês saíram por isso (${nf.format(sc.length)} trackers, lista acima). A marca vem do registro do dia e, antes de 01/10, das fotos da ronda.`,
       `<b>Trackers — a régua:</b> a de parado da plataforma. Parado que no dia seguinte a plataforma classifica como severo, médio ou leve saiu da visão (ele se mexeu); parado com desvio abaixo de 2° do alvo o episódio todo não é falha. Episódio mínimo de 30 min dentro de 06–18h com sol ≥ ${D.regua.sol_min_graus}°.`,
       `<b>Perda:</b> kWp do equipamento × kWh/kWp que a usina fez no dia × fração do dia no episódio (strings: pela altura do sol; trackers: pelas horas solares × 1 − cos do desvio de pico). kWp da string = kWp do inversor ÷ strings ativas; do tracker = kWp do inversor ÷ trackers dele no BD_Trackers, ou o tracker típico da carteira (${nf.format(D.regua.kwp_trk_tipico)} kWp) sem essa contagem. Dia sem geração conhecida vale ${nf.format(D.regua.yield_padrao)} kWh/kWp e leva aviso.`,
       '!<b>Sem tarifa, sem R$:</b> nenhuma base tem o preço da energia. A conta para em kWh.',
@@ -461,6 +551,11 @@
       return;
     }
     D = j;
+    try {
+      const rd = await fetch('/api/painel/falhas/desconsideradas', {credentials: 'same-origin'}).then(x => x.json());
+      if (rd.ok) DESC = {strings: rd.strings || {}, trackers: rd.trackers || {}};
+    } catch (e) { /* sem a lista, a tela mostra o pacote como veio */ }
+    aplicaDesc(); descPainel();
     $('frio').hidden = true;
     $('eyebrow').textContent = `Diagnóstico de performance · ${rotMes(m)} · ${D.periodo[0].slice(8)}/${D.periodo[0].slice(5, 7)} a ${D.periodo[1].slice(8)}/${D.periodo[1].slice(5, 7)}`;
     $('fonte').innerHTML = `Atualizado em <b>${D.gerado_em.slice(8, 10)}/${D.gerado_em.slice(5, 7)} às ${D.gerado_em.slice(11, 16)}</b> · refeito a cada 30 min sobre as quedas de string, os episódios de tracker, o cadastro e a geração do mês`;

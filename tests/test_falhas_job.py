@@ -29,10 +29,10 @@ def store(**por_dia):
     return {f"2026-09-{k[1:]}": {"pv": {PID: {"usina": "Inhapi", "ts": 0, "eventos": evs}}} for k, evs in por_dia.items()}
 
 
-def monta(str_store, trk_store=None, fim="2026-09-03", pv_dev=None, agora=None, mortas=None):
+def monta(str_store, trk_store=None, fim="2026-09-03", pv_dev=None, agora=None, mortas=None, desc=None):
     return falhas_job.montar(app, sol, "2026-09-01", fim, geracao={}, str_store=str_store, trk_store=trk_store or {},
                              book={}, hist_2c=lambda dia: {}, pv_dev=pv_dev, agora=agora, mortas_curva=mortas,
-                             log=lambda m: None)
+                             desconsideradas=desc, log=lambda m: None)
 
 
 def morta(st, saiu="07:00", voltou=None, sempre_zero=True, inv="Inversor 3.3", ini="07:00"):
@@ -310,6 +310,70 @@ def test_retorno_em_massa_nao_conta_como_sinal_de_vida():
     massa = [ev(f"Ipv{s}", "07:00", "14:40", inv=f"Inversor 1.{k}") for k in range(1, 7) for s in range(1, 21)]
     p = monta(store(d01=[ev("Ipv29", "07:00", "14:40")] + massa), mortas=curva("02", [morta("Ipv29")], vivas=24))
     assert [v["string"] for v in p["strings"]["entradas_vazias"]] == ["Ipv29"]
+
+
+# ── entrada que o inversor não manda (01/10/2026) ────────────────────────────────────────────────────────────────
+# Fazenda Limão, 30/09: o INVERSOR06 mandou Ipv1 a Ipv28 em 1.436 registros e Ipv29 a Ipv32 = 0 num registro solto das
+# 09:00. No dia em que o solto não vem, a fantasma nem está na curva — e esse dia contava contra a prova da entrada
+# vazia (zero em TODO dia de curva): ela ficava como falha em 9 dos 19 inversores da usina. O registro da régua guarda
+# quantas entradas cada inversor manda (`entradas`, do dia ao vivo); string acima disso não existe e sai do mês inteiro.
+
+def _com_entradas(dia, n, mortas=(), vivas=24, origem=None, inv="Inversor 3.3"):
+    c = curva(dia, list(mortas), vivas=vivas, inv=inv)
+    ent = c[f"2026-09-{dia}"]["pv"][PID]
+    ent["entradas"] = {inv: n}
+    if origem:
+        ent["origem"] = origem
+    return c
+
+
+def test_entrada_que_o_inversor_nao_manda_sai_do_mes_inteiro():
+    st = store(d01=[ev("Ipv29", "07:00"), ev("Ipv5", "08:00", "12:00")])
+    p = monta(st, mortas={**curva("02", [morta("Ipv29")], vivas=24), **_com_entradas("03", 28)})
+    assert [e["string"] for e in p["strings"]["episodios"]] == ["Ipv5"]   # nem o dia 01 (quedas) nem o 02 (curva)
+    assert p["strings"]["qualidade"]["entrada que o inversor não manda: fora"] == 2
+    (v,) = p["strings"]["entradas_inexistentes"]
+    assert (v["usina"], v["inversor"], v["string"], v["entradas"]) == ("Inhapi", "Inversor 3.3", "Ipv29", 28)
+    assert p["strings"]["entradas_vazias"] == []
+
+
+def test_entrada_inexistente_zerada_em_todo_dia_aparece_uma_vez_so():
+    # zerada em todas as curvas, ela também passaria pela prova da entrada vazia: vai para uma lista só
+    p = monta(store(d01=[ev("Ipv29", "07:00")]), mortas=_com_entradas("02", 28, [morta("Ipv29")]))
+    assert [v["string"] for v in p["strings"]["entradas_inexistentes"]] == ["Ipv29"]
+    assert p["strings"]["entradas_vazias"] == []
+
+
+def test_string_dentro_das_entradas_do_inversor_continua_falha():
+    p = monta(store(d01=[ev("Ipv20", "07:00")]), mortas={**curva("02", [morta("Ipv20")], vivas=21),
+                                                          **_com_entradas("03", 28, vivas=21)})
+    assert {e["string"] for e in p["strings"]["episodios"]} == {"Ipv20"}
+    assert p["strings"]["entradas_inexistentes"] == []
+
+
+def test_dia_do_backfill_nao_ensina_as_entradas_do_inversor():
+    # a curva de dia passado pelo custom_query não é o pacote do dia ao vivo: o número de entradas vem só do ao vivo
+    p = monta(store(d01=[ev("Ipv29", "07:00")]), mortas={**curva("02", [morta("Ipv29")], vivas=21),
+                                                          **_com_entradas("03", 28, vivas=21, origem="backfill")})
+    assert {e["string"] for e in p["strings"]["episodios"]} == {"Ipv29"}
+    assert p["strings"]["entradas_inexistentes"] == []
+
+
+def test_vale_o_maior_numero_de_entradas_visto():
+    # na dúvida, a string fica: um dia com 32 entradas regulares desfaz a prova dos dias com 28
+    mortas = {**curva("02", [morta("Ipv29")], vivas=21), **_com_entradas("03", 28, vivas=21),
+              **_com_entradas("04", 32, vivas=21)}
+    p = monta(store(d01=[ev("Ipv29", "07:00")]), mortas=mortas, fim="2026-09-04")
+    assert {e["string"] for e in p["strings"]["episodios"]} == {"Ipv29"}
+
+
+def test_entradas_gravadas_pelo_id_do_inversor_usam_o_de_para():
+    # 29/09 no PC: o plant_devices falhou e a Fazenda Limão gravou os inversores como "INV-357480"
+    dev = {PID: {"names": {"378276": "INVERSOR 3.3"}, "nome_api": None, "usina": "Inhapi"}}
+    p = monta(store(d01=[ev("Ipv29", "07:00")]), pv_dev=dev,
+              mortas={**curva("02", [morta("Ipv29")], vivas=21), **_com_entradas("03", 28, vivas=21, inv="INV-378276")})
+    assert p["strings"]["episodios"] == []
+    assert [v["inversor"] for v in p["strings"]["entradas_inexistentes"]] == ["Inversor 3.3"]
 
 
 def trk(**por_dia):
@@ -835,3 +899,27 @@ def test_string_real_que_morre_depois_do_backfill_continua_falha():
     p = monta(store(), mortas=mortas, fim="2026-09-03")
     assert p["strings"]["entradas_vazias"] == []
     assert {e["string"] for e in p["strings"]["episodios"]} == {"Ipv5"}
+
+
+# ── ocorrência desconsiderada pelo analista (Levi, 30/09/2026) ───────────────────────────────────────────────────────
+# MAB200 22/09 07:10–09:40: cinco strings abaixo de 1 A com os trackers parados de manhã, normais depois. Não é falha de
+# string; o analista marca "desconsiderar" e a ocorrência sai da conta e da tela, mas fica guardada para poder voltar.
+def test_string_desconsiderada_sai_dos_episodios_da_visao_por_inversor_e_dos_totais():
+    st = store(d01=[ev("Ipv1", "08:00", "11:00"), ev("Ipv2", "08:00", "11:00")])
+    livre = monta(st)
+    (e1,) = episodios(livre, "Ipv1")
+    assert e1["chave"] == falhas_job.chave_str("pv", PID, e1["inversor"], "Ipv1", "2026-09-01")
+    p = monta(st, desc={"strings": {e1["chave"]}})
+    assert episodios(p, "Ipv1") == [] and len(episodios(p, "Ipv2")) == 1
+    assert [e["string"] for e in p["strings"]["desconsideradas"]] == ["Ipv1"]
+    kwh = lambda q: sum(r["perda_kwh"] for r in q["strings"]["rows"])
+    assert kwh(p) == pytest.approx(kwh(livre) - e1["perda_kwh"], abs=0.2)
+    assert p["strings"]["qualidade"]["desconsiderada pelo analista"] == 1
+
+
+def test_tracker_desconsiderado_sai_dos_episodios():
+    t = trk(d03=("parado", 40.0))
+    (r,) = monta({}, t)["trackers"]["rows"]
+    p = monta({}, t, desc={"trackers": {r["chave"]}})
+    assert p["trackers"]["rows"] == [] and [x["tracker"] for x in p["trackers"]["desconsideradas"]] == ["TRK1"]
+
