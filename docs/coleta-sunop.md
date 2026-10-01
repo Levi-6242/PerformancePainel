@@ -93,7 +93,9 @@ e `meta["etm_stations"][ESTM][poa|ghi|poari]`. Use `app.ensure_sunop_meta()` e
 
 - Config base: `https://gridco-api.sunop.net/api` · Dados: `.../data`
 - O app guarda o token em `_sunop_token` (env `SUNOP_TOKEN` como semente) e renova sozinho:
-  `get_sunop_token()` chama `GET /api/check_token` e, se inválido, `GET /api/refresh_token`.
+  `get_sunop_token()` chama `GET /api/check_token` e, se inválido, `GET /api/refresh_token`. Desde 29/09/2026 o
+  `check_token` vale 15 min (`SUNOP_TOKEN_VALIDO_S`) — antes ia à rede a cada chamada, fora da conta da cota.
+  Cota e cortes: `docs/sunop-economia-requisicoes.md`.
 - Header pronto: **`app._sunop_headers()`** → `{"Authorization": "JWT <token>", ...}`.
 - ⚠️ O token expira; se a coleta for agendada, garantir que o refresh funcione (ou semear
   `SUNOP_TOKEN` atualizado). Pelo `iat/exp` do JWT, validade é de alguns dias.

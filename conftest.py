@@ -19,16 +19,42 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "pla
 import app  # noqa: E402  (carga pesada única; roda as cargas do BD_Performance local)
 
 
+# Arquivos que a plataforma GRAVA (01/10/2026). Às 09:51 de 01/10 o test_os_tres_chamadores_pre_carregam_as_usinas_juntas
+# chamou o _sunop_eventos_calc de verdade, e ele salva o acervo: o trk_eventos.json do PC (11,7 MB, 93 dias de
+# eventos de tracker de todas as fontes) virou 388 bytes com as duas usinas falsas do teste, até o worker regravar da
+# memória 4 min depois — um reinício nessa janela apagava o histórico. Num reinício de 30/09 o worker já tinha
+# carregado o arquivo com a AAA100 e a BBB100 do teste. Cada teste grava agora num diretório só dele; a lista é
+# conferida contra o app.py (tests/test_isolamento_estado.py), para arquivo novo não ficar de fora.
+ARQUIVOS_DE_ESTADO = (
+    # _p_dado / _p_cache
+    "PV_RELOGIO_PATH", "_TRK_FIM_DIA_PATH", "_TRK_EV_PATH", "STATE_PATH", "OWEN_ACCUM_PATH", "SPV_NOTAS_PATH",
+    "_PERSIST_PATH", "_FRAC_INDEX_FILE", "_FRAC_OSPERF_FILE", "_FRAC_DISP_FILE", "_FRAC_DISP_STATUS", "_FRAC_MTTA_FILE",
+    "_FRAC_MTTA_BASE", "_FALHAS_STR_PATH", "_FALHAS_PV_DEV", "_FALHAS_IMPORTA_PATH", "_FALHAS_TRK_SEMCOM_PATH",
+    "_FALHAS_OS_PATH", "FALHAS_BF_ESTADO", "FALHAS_BF_PV_ESTADO", "FALHAS_DESC_PATH", "_WHATS_CFG_PATH",
+    "_TRK_GARANTIA_PATH", "_TRK_GARANTIA_LOCAL", "_TRK_DEPARA_LOCAL", "_TRK_HIST_PATH", "_NOTAS_TRK_PATH",
+    "_NOTAS_TRK_LOCAL", "_PERDAS_STR_PATH", "_PARADAS_PATH", "_REL_SEM_PATH",
+    # gravados direto em plataforma/
+    "_TOKENS_RT_PATH", "_ENTRADA_TRK_ULTIMO", "_SUNOP_PLANTS_ARQ", "_TUNNEL_URL_FILE", "_WHATS_SENT_PATH",
+    "_WHATS_LOG_PATH",
+)
+
+
 @pytest.fixture(autouse=True)
 def _estado_de_runtime_isolado(tmp_path, monkeypatch):
-    """Nenhum teste grava estado de runtime DE VERDADE em plataforma/ (22/09/2026).
+    """Nenhum teste grava estado de runtime DE VERDADE em plataforma/ (22/09/2026; todos os arquivos desde 01/10/2026).
 
     A montagem do tempo real passou a guardar a última contagem boa de trackers em
     `plataforma/entrada_trk_ultimo.json`, para sobreviver ao restart do deploy. Na primeira rodada, os
     testes da montagem — com fontes SIMULADAS — gravaram zeros falsos no arquivo real, e o teste seguinte,
     que espera "sem leitura anterior", achou o arquivo e reaproveitou a contagem. Além de vazar estado
-    entre testes, sujava a plataforma local com dado inventado. Cada teste agora tem o seu arquivo."""
-    monkeypatch.setattr(app, "_ENTRADA_TRK_ULTIMO", str(tmp_path / "entrada_trk_ultimo.json"), raising=False)
+    entre testes, sujava a plataforma local com dado inventado. Cada teste agora tem os seus arquivos — e o
+    contador da SunOp não despeja (o padrão, 25 chamadas, gravava no `logs/sunop_uso_worker.json` do PC, o
+    contador que mede a cota); quem testa o despejo liga e aponta o `_AQUI` para o tmp_path."""
+    for nome in ARQUIVOS_DE_ESTADO:
+        atual = getattr(app, nome, None)
+        if isinstance(atual, str):
+            monkeypatch.setattr(app, nome, str(tmp_path / os.path.basename(atual)))
+    monkeypatch.setattr(app, "_SUNOP_USO_FLUSH", 10 ** 9, raising=False)
 
 
 @pytest.fixture

@@ -27250,11 +27250,12 @@ def _trk_ocor_classes_list(fonte, dia):
 
 
 def _trk_ev_sem_curva(e) -> bool:
-    """Entrada do store de uma usina que NÃO teve curva no dia — o _trk_eventos_do_dia saiu cedo (nenhuma leitura, ou
-    cobertura abaixo de TRK_EV_COBERTURA). Não é classificação que falhou: não havia o que classificar, e buscar a
-    curva de novo não muda nada."""
-    return (e.get("classes") is None and not e.get("eventos")
-            and (e.get("cobertura") or 0) < TRK_EV_COBERTURA)
+    """Entrada do store de uma usina SEM CURVA NENHUMA no dia (cobertura 0: a fonte não devolveu ponto) — o
+    _trk_eventos_do_dia saiu cedo e não havia o que classificar; a curva de reserva também não acha nada (a MTS100 em
+    todos os dias desde 01/07). A de cobertura PARCIAL (com pontos, mas abaixo de TRK_EV_COBERTURA) continua contando:
+    a curva de reserva a classifica e as ocorrências dela aparecem na aba, como sempre — tirá-la também sumia com 168
+    ocorrências de 01/07 a 30/09 (TIM100 em 31/07: 38), medido contra a régua antiga em 01/10/2026."""
+    return e.get("classes") is None and not e.get("eventos") and not (e.get("cobertura") or 0)
 
 
 def _perdas_trk_ocor_cached(fonte, dia):
@@ -28773,6 +28774,9 @@ def _perdas_trk_ocor_build(fonte, dia):
                               {}))   # curva não traz disparidade
         if len(itens) > _vis:
             origem = "store+curva" if _vis else "curva"
+        # quem a curva classificou conta como vista (01/10/2026, cota da SunOp): sem isto o dia com uma usina de
+        # cobertura parcial nunca fechava, nunca ia para o cache, e a curva da Athon do dia era rebaixada de hora em hora
+        _vis = len(itens)
     _sto = max(_sto, len(itens))
     _tot = _tot or len(itens)
     _PERDAS_OCOR_COB[(fonte, dia)] = {"vistas": _vis, "store": _sto, "total": _tot, "origem": origem}

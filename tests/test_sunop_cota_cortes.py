@@ -393,3 +393,83 @@ def test_o_contador_separa_tracker_string_e_etm(monkeypatch):
     app._sunop_uso_conta(f"{base}/last_values", ["MAB100.ESTM.POA.IRAD"])
     app._sunop_uso_conta(f"{base}/metadata/MAB100")
     assert app._sunop_uso_hoje() == {"analog_values:trk": 1, "analog_values:str": 1, "last_values:etm": 1, "metadata": 1}
+
+
+# ── 5. Perdas → Ocorrências não rebaixa o mês inteiro toda hora (01/10/2026) ─────────────────────────────────────────
+# Extrato oficial de 30/09 (1º dia inteiro depois dos cortes): 19.477 requisições, para um teto de ~3.300. O contador
+# da plataforma: 8.707 curvas de tracker no servidor e 9.331 no PC (em modo ronda). A SunOp devolve curva VAZIA para os
+# trackers da MTS100, e o _sunop_eventos_calc grava a usina no store assim mesmo (eventos [], cobertura 0,
+# classes None). O dia virava "parcial" (classificadas < no store) em TODOS os 92 dias desde 01/07: o
+# _perdas_trk_ocor_cached não guardava nenhum, e o _perdas_ocor_warm_loop rebaixava, de hora em hora, a curva de cada
+# usina da Athon de cada um desses dias — uma por uma.
+def _store_dia(monkeypatch, dia, ents, total=3):
+    monkeypatch.setattr(app, "_trk_eventos", {dia: ents})
+    monkeypatch.setattr(app, "_trk_ev_pids", lambda fonte: set(ents))
+    monkeypatch.setattr(app, "_trk_ev_fonte_total", lambda fonte: total)
+    monkeypatch.setattr(app, "_perdas_parados_pares", lambda fonte: [])
+    monkeypatch.setattr(app, "_PERDAS_OCOR_CACHE", {})
+    monkeypatch.setattr(app, "_PERDAS_OCOR_COB", {})
+
+
+def _ent(classes, eventos=(), cobertura=0.9):
+    return {"nome": "x", "classes": classes, "eventos": list(eventos), "cobertura": cobertura, "regua": app.REGUA_VER}
+
+
+def test_usina_sem_curva_no_dia_nao_deixa_o_dia_parcial(monkeypatch, freeze_now):
+    freeze_now("2026-10-01 10:00:00")
+    _store_dia(monkeypatch, "2026-09-29", {"MRO100": _ent({}), "CPP100": _ent({}),
+                                           "MTS100": _ent(None, cobertura=0.0)})        # o caso da MTS100
+    monkeypatch.setattr(app, "_trk_ocor_curva_list", lambda *a, **k: (_ for _ in ()).throw(
+        AssertionError("rebaixou a curva da Athon por causa de uma usina sem curva")))
+    app._perdas_trk_ocor_cached("sunop", "2026-09-29")
+    assert ("sunop", "2026-09-29") in app._PERDAS_OCOR_CACHE, "o dia fechado ficou fora do cache: volta toda hora"
+
+
+def test_usina_com_curva_que_nao_classificou_ainda_e_parcial(monkeypatch, freeze_now):
+    """A regra antiga continua para o que ela existe: curva no dia e classificação que falhou → busca a curva."""
+    freeze_now("2026-10-01 10:00:00")
+    _store_dia(monkeypatch, "2026-09-29", {"MRO100": _ent({}), "CPP100": _ent(None, cobertura=0.9)})
+    pedidos = []
+    monkeypatch.setattr(app, "_trk_ocor_curva_list", lambda fonte, dia: pedidos.append(dia) or [])
+    app._perdas_trk_ocor_cached("sunop", "2026-09-29")
+    assert pedidos == ["2026-09-29"] and ("sunop", "2026-09-29") not in app._PERDAS_OCOR_CACHE
+
+
+def test_usina_de_curva_parcial_segue_pela_curva_e_o_dia_fecha(monkeypatch, freeze_now):
+    """As ocorrências dela continuam na aba (a régua antiga as dava pela curva de reserva — 168 de 01/07 a 30/09), e o
+    dia, classificado, vai para o cache: não volta à SunOp de hora em hora."""
+    freeze_now("2026-10-01 10:00:00")
+    _store_dia(monkeypatch, "2026-07-31", {"MRO100": _ent({}), "TIM100": _ent(None, cobertura=0.19),
+                                           "MTS100": _ent(None, cobertura=0.0)})
+    sev = {"Tracker 15": {"status": "severo", "dur_min": 105, "ini_min": 885, "fim_min": 990}}
+    pedidos = []
+    monkeypatch.setattr(app, "_trk_ocor_curva_list", lambda fonte, dia: pedidos.append(dia) or [("TIM100", "TIM100", {"g": 1})])
+    monkeypatch.setattr(app, "_trk_classifica_curso_perdas", lambda g, usina=None, manter=None: dict(sev))
+    monkeypatch.setattr(app, "_trk_parados_antes", lambda pid, dia: set())
+    rows = app._perdas_trk_ocor_cached("sunop", "2026-07-31")
+    assert [(r["usina"], r["tracker"], r["parou"], r["voltou"]) for r in rows] == [("TIM100", "Tracker 15", "14:45", "16:30")]
+    assert pedidos == ["2026-07-31"] and ("sunop", "2026-07-31") in app._PERDAS_OCOR_CACHE
+    app._perdas_trk_ocor_cached("sunop", "2026-07-31")
+    assert pedidos == ["2026-07-31"], "o dia fechado voltou à curva"
+
+
+def test_a_curva_da_athon_de_um_dia_vem_numa_baixa_so(monkeypatch):
+    """A reserva das Ocorrências baixava a curva usina por usina (≈10 POSTs por dia); junta, como no ee70830 (≈4)."""
+    monkeypatch.setattr(app, "_sunop_meta", {"MRO100": {"trackers": {"TRK_1": {}}},
+                                             "CPP100": {"trackers": {"TRK_1": {}}}, "SEMTRK": {"trackers": {}}})
+    juntas = []
+    monkeypatch.setattr(app, "_sunop_trk_curvas_varias", lambda plantas, date, inst="gridco": juntas.append(
+        (sorted(plantas), date, inst)))
+    monkeypatch.setattr(app, "_sunop_curve_for", lambda p, data_br, inst: {"Tracker 1": [{"x": "10:00", "y": 1.0}]})
+    res = app._trk_ocor_curva_list("sunop", "2026-09-29")
+    assert juntas == [(["CPP100", "MRO100"], "2026-09-29", "gridco")]
+    assert sorted(p for p, _n, _g in res) == ["CPP100", "MRO100"]
+
+
+def test_pc_em_modo_ronda_nao_aquece_as_ocorrencias_da_athon(monkeypatch):
+    """Quem olha a aba Perdas é o servidor; o PC em ronda (SUNOP_COLETA) só coleta o que a ronda usa."""
+    monkeypatch.setattr(app, "SUNOP_COLETA", "ronda")
+    assert "sunop" not in app._perdas_ocor_warm_fontes() and "axis" not in app._perdas_ocor_warm_fontes()
+    assert "pg" in app._perdas_ocor_warm_fontes()
+    monkeypatch.setattr(app, "SUNOP_COLETA", "completa")
+    assert app._perdas_ocor_warm_fontes() == ("pg", "owen", "sunop", "axis", "pv")

@@ -119,6 +119,19 @@ token de API; o `/usage/*` não é cobrável e o dia deles é em UTC, consolidad
 - **O contador diz de quem é a curva**: `analog_values:trk`, `:str`, `:etm` (pelos pathnames do pedido).
 - **O gêmeo do servidor está vazio** (29/09: `/gemeo/healthz` 503 "modelar nunca rodou", 0 usinas): no servidor a
   curva nunca vem do acervo e vai toda à SunOp. O gêmeo com dado é o do PC.
+- **Os cortes de 29/09 tiraram só ~15%** (oficial de 30/09: 19.477). A curva de tracker era 86% do resto (8.707 no
+  servidor, 9.331 no PC em ronda). **Vazamento (01/10):** a SunOp devolve curva vazia para os trackers da MTS100, o
+  `_sunop_eventos_calc` grava a usina assim mesmo (`eventos []`, `cobertura 0`, `classes None`), o dia das
+  Ocorrências de Perdas ficava "parcial" nos 92 dias desde 01/07 e o `_perdas_ocor_warm_loop` rebaixava, de hora em
+  hora, a curva de cada usina da Athon de cada dia, uma por uma. Agora usina com cobertura 0 não deixa o dia parcial
+  (`_trk_ev_sem_curva`), quem a curva de reserva classificou conta como visto (o dia fecha e vai para o cache), a
+  reserva vem numa baixa só e o PC em ronda não aquece Athon/Axis (`_perdas_ocor_warm_fontes`). Régua antiga × nova
+  com dado real: 0 ocorrências diferentes nos 23 dias de curva parcial — tirar também a de cobertura parcial (1ª
+  versão, no ar por engano às 10:10 de 01/10 no 1302d77 de outra sessão) sumia com 168. Detalhe e medição:
+  `docs/sunop-economia-requisicoes.md`.
+- **Teste não grava arquivo de estado** (`conftest.ARQUIVOS_DE_ESTADO`, conferido por `tests/test_isolamento_estado.py`):
+  um teste da cota chamava o `_sunop_eventos_calc` de verdade e às 09:51 de 01/10 o `trk_eventos.json` do PC (11,7 MB)
+  virou 388 bytes, até o worker regravar da memória. Arquivo de estado novo (`_p_dado`/`_p_cache`) entra na lista.
 
 **Curva da SunOp pelo acervo do gêmeo (FASE 4, `_sunop_analog_history`).** O gêmeo guarda em UTC; a plataforma lê a
 SunOp na hora da usina. Desde 28/09 a janela vai ao gêmeo em UTC e o carimbo volta na hora da usina, no texto da SunOp,

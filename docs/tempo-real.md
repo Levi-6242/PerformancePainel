@@ -198,6 +198,11 @@ testes no `plataforma/CLAUDE.md` ("Cota da SunOp"). **Olhar a tela não gasta na
 coletou; gastam o botão Atualizar (busca sem cache), o drill de uma usina da Athon (cache de 5 min por usina,
 compartilhado) e a curva de um inversor (10 min, com o gêmeo respondendo primeiro).
 
+Os cortes de 29/09 tiraram só ~15% (oficial de 30/09: 19.477). O resto era quase todo curva de tracker rebaixada
+pelas Ocorrências de Perdas: a MTS100 não tem curva na SunOp, o dia ficava "parcial" e o aquecimento horário refazia
+os 92 dias desde 01/07, usina por usina — corrigido em 01/10 sem mudar nenhuma ocorrência da aba. Histórico, números
+e como medir: `docs/sunop-economia-requisicoes.md`.
+
 ### 3.6 Amortecedores
 
 - **Disjuntor da API PV** (`_PvDisjuntor`): 6 falhas **de rede** seguidas abrem o disjuntor por 120 s; nesse tempo toda
