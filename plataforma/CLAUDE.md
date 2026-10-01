@@ -190,7 +190,9 @@ também), e reabrir não tentava de novo — o `RD.plants` só se esvazia recarr
 `RD.plantErro` com o motivo e "Tentar de novo" e não fica guardada; aos 10 s a linha diz que está esperando
 (`RD.plantLento`); vazio de verdade diz "A fonte não devolveu inversores". No servidor, uma busca por usina de cada
 vez (`_pv_plant_em_voo`): quem chega no meio espera a que está correndo e leva o memo de 90 s dela, em vez de abrir
-uma segunda igual na API que já está lenta. Testes: `test_drill_usina_falha_visivel.py`, `test_drill_api_pv_rapido.py`.
+uma segunda igual na API que já está lenta; se ela falhou, quem esperou leva a mesma falha (`_pv_plant_falha`) — às
+21:48 a Guatambu 4 deu 504 aos 60 s e a abertura que esperava fez outra busca, 504 aos 120 s. Quem chega depois da
+falha tenta de novo. Testes: `test_drill_usina_falha_visivel.py`, `test_drill_api_pv_rapido.py`.
 
 ## Padrão por inversor (usinas sem visão por string)
 

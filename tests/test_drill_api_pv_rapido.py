@@ -143,3 +143,44 @@ def test_quem_chega_durante_a_busca_espera_por_ela_e_nao_busca_de_novo(api, monk
         th.join(5)
     assert len(res) == 2 and res[0] == res[1] and len(res[0]) == 2
     assert api["idas"]["day_inverter"] == 1, "a segunda pergunta foi à API PV com a primeira ainda correndo"
+
+
+def test_quem_esperou_uma_busca_que_falhou_recebe_a_mesma_falha(api, monkeypatch):
+    """Medido no servidor às 21:48 de 30/09 (Guatambu 4): a 1ª abertura deu 504 aos 60 s (o day_inverter estourou) e a
+    2ª, que esperava por ela, fez a própria busca e deu 504 aos 120 s — além dos 90 s da tela. Quem esperou leva a falha
+    da busca que esperou; quem chega depois tenta de novo."""
+    import requests as _rq
+    monkeypatch.setattr(app, "_PV_PLANT_MEMO", {})
+    monkeypatch.setattr(app, "_pv_plant_em_voo", {})
+    monkeypatch.setattr(app, "_pv_plant_falha", {})
+    lento = {"n": 0}
+
+    class _Fora:
+        def post(self, url, **k):
+            lento["n"] += 1
+            time.sleep(0.5)
+            raise _rq.exceptions.ReadTimeout("day_inverter estourou")
+
+        def get(self, url, **k):
+            return _Resp([{"device_id": i, "device_name": f"INVERSOR 0{i}"} for i in (1, 2)])
+    monkeypatch.setattr(app, "_http", lambda: _Fora())
+    erros = []
+
+    def _abre():
+        try:
+            app._pv_plant_inversores(PID)
+        except Exception as e:                       # noqa: BLE001
+            erros.append((type(e).__name__, time.time()))
+    t0 = time.time()
+    ths = [threading.Thread(target=_abre) for _ in range(2)]
+    for th in ths:
+        th.start()
+        time.sleep(0.1)
+    for th in ths:
+        th.join(5)
+    assert [n for n, _ in erros] == ["ReadTimeout", "ReadTimeout"]
+    assert lento["n"] == 1, "quem esperava foi perguntar de novo à API PV"
+    assert max(t for _, t in erros) - t0 < 0.9, "a 2ª esperou a 1ª e mais uma busca inteira"
+    with pytest.raises(_rq.exceptions.ReadTimeout):
+        app._pv_plant_inversores(PID)                # chegou depois da falha: tenta de novo
+    assert lento["n"] == 2

@@ -3074,17 +3074,28 @@ _pv_plant_memo_lock = threading.Lock()
 
 
 _pv_plant_em_voo: dict = {}          # plant_id -> Lock: uma busca do drill por usina de cada vez (ver abaixo)
+_pv_plant_falha: dict = {}           # plant_id -> (ts, exceção) da última busca do drill que falhou
 
 
 def _pv_plant_inversores(plant_id, force=False):
     """Uma busca por usina de cada vez (30/09/2026, Guatambu 2): com a API PV lenta a tela desistiu aos 90 s, e o
     "Tentar de novo" abria uma SEGUNDA busca igual por cima da primeira, que seguia rodando no servidor — o dobro de
     chamadas na API que já estava lenta, e a segunda esperando tanto quanto a primeira. Quem chega durante a busca espera
-    por ela e leva o memo de 90 s que ela deixa (_PV_PLANT_MEMO_S)."""
+    por ela e leva o memo de 90 s que ela deixa (_PV_PLANT_MEMO_S). Se ela FALHOU, quem esperou leva a mesma falha: às
+    21:48 do mesmo dia a Guatambu 4 deu 504 aos 60 s e a abertura que esperava fez a própria busca, 504 aos 120 s. Quem
+    chega depois da falha tenta de novo."""
+    chegou = time.time()
     with _pv_plant_memo_lock:
         trava = _pv_plant_em_voo.setdefault(plant_id, threading.Lock())
     with trava:
-        return _pv_plant_inversores_busca(plant_id, force=force)
+        falha = _pv_plant_falha.get(plant_id)
+        if falha and falha[0] >= chegou:
+            raise falha[1]
+        try:
+            return _pv_plant_inversores_busca(plant_id, force=force)
+        except Exception as e:
+            _pv_plant_falha[plant_id] = (time.time(), e)
+            raise
 
 
 def _pv_plant_inversores_busca(plant_id, force=False):
