@@ -28215,6 +28215,256 @@ def api_relatorio_usinas():
     return jsonify({"usinas": out})
 
 
+# ═══════════════ RELATÓRIO SEMANAL — THOPEN (29/09/2026) ═══════════════
+# Pedido da Ana Patrícia e do Levi (reunião de 28/09, mockup R00): o relatório da carteira Thopen para o CLIENTE, toda
+# segunda até as 12h, do período que o analista escolher. As contas moram em relatorio_semanal.py (puro, com teste);
+# aqui só a coleta, e SEM consulta nova a Fracttal ou supervisório: o BD_Thopen (em memória depois da 1ª carga), o
+# índice de disponibilidade e as linhas de OS que o worker publica, e o pacote da aba de falhas. Desenho:
+# docs/superpowers/specs/2026-09-29-relatorio-semanal-thopen-design.md.
+import relatorio_semanal as _rsem
+
+# "Vargem Grande IB" (cadastro) é a aba "Vargem Grande 1" do BD_Thopen: não é grafia, e a chave solta não casa de
+# propósito (Levi, 14/09/2026 — o mesmo de-para do Gerencial).
+_REL_SEM_ALIAS = {"Vargem Grande IB": "Vargem Grande 1"}
+_rel_sem_os = {"mtime": 0.0, "linhas": [], "cheia_ts": None}
+
+
+def _rel_sem_linhas_os():
+    """As OS por tarefa que o laço do MTTA acumula (frac_mtta_linhas.json, ~17 MB, só o worker escreve), relidas só
+    quando o arquivo muda: o web não pode reler 17 MB a cada relatório. → (linhas, carimbo da última varredura cheia)."""
+    try:
+        mt = os.path.getmtime(_FRAC_MTTA_BASE)
+    except OSError:
+        return [], None
+    if mt > _rel_sem_os["mtime"]:
+        try:
+            with open(_FRAC_MTTA_BASE, encoding="utf-8") as f:
+                d = json.load(f)
+            _rel_sem_os.update(mtime=mt, linhas=d.get("linhas") or [], cheia_ts=d.get("cheia_ts"))
+        except Exception as e:                             # noqa: BLE001 — vale o que já estava em memória
+            print(f"[rel semanal] linhas de OS: {e}")
+    return _rel_sem_os["linhas"], _rel_sem_os["cheia_ts"]
+
+
+# Rondas do App de Campo (Levi, 30/09/2026: "Inseri dados de ronda no workbook"): o workbook `rondas_app_campo` da
+# Gridco API, que o App de Campo regrava aos :50. Relido a cada 30 min; falhou, o bloco 03 sai sem a linha e a tela avisa.
+_REL_SEM_RONDAS_WB = "rondas_app_campo"
+_rel_sem_rondas = {"ts": 0.0, "linhas": None, "erro": None, "carimbo": None}
+
+
+def _rel_sem_rondas_linhas():
+    """→ (linhas como dicts, erro ou None, carimbo da leitura)."""
+    if time.time() - _rel_sem_rondas["ts"] < 1800:
+        return _rel_sem_rondas["linhas"], _rel_sem_rondas["erro"], _rel_sem_rondas["carimbo"]
+    try:
+        import bd_api                                        # como nos outros leitores: import no uso
+        aba = next((x for x in bd_api.sheets() if x.get("workbook_key") == _REL_SEM_RONDAS_WB), None)
+        if aba is None:
+            raise RuntimeError(f"workbook {_REL_SEM_RONDAS_WB} não está na API")
+        linhas = [dict(zip(r.get("headers") or [], r.get("values") or [])) for r in bd_api.linhas_da_aba(aba["id"])]
+        _rel_sem_rondas.update(ts=time.time(), linhas=linhas, erro=None, carimbo=time.time())
+    except Exception as e:                                   # noqa: BLE001 — fica o que já tinha; tenta de novo em 5 min
+        _rel_sem_rondas.update(ts=time.time() - 1500, erro=f"{type(e).__name__}: {e}")
+    return _rel_sem_rondas["linhas"], _rel_sem_rondas["erro"], _rel_sem_rondas["carimbo"]
+
+
+class _RelSemLeitores:
+    """Os leitores reais do relatório semanal — os testes trocam por stubs."""
+
+    def __init__(self, ini, fim):
+        import dashboard_thopen as _dth
+        self._dth = _dth
+        dados = _frac_disp_dados()
+        meses = dados.get("meses") or {}
+        self.meses_idx, self.idx_ts = sorted(meses), dados.get("ts")
+        self._diario, self._oss, vistos, self.usinas_idx = {}, [], set(), {}
+        for _mes, p in sorted(meses.items()):                 # o mês mais novo vence
+            for u, dd in (p.get("diario") or {}).items():
+                self._diario.setdefault(u, {}).update(dd)
+            for u in p.get("usinas") or []:
+                self.usinas_idx[u["usina"]] = u
+            for o in p.get("oss") or []:
+                if o.get("excl") or o.get("folio") in vistos:   # cancelada ou fora de escopo; a OS dos dois meses é uma
+                    continue
+                vistos.add(o.get("folio"))
+                self._oss.append(o)
+        self._linhas, self.os_ts = _rel_sem_linhas_os()
+        self._rondas, self.rondas_erro, self.rondas_ts = _rel_sem_rondas_linhas()
+        self._falhas, self.falhas_gerado = {"strings": [], "trackers": []}, []
+        d = ini.replace(day=1)
+        while d <= fim:
+            pac = _falhas_ler(_falhas_arquivo(d.strftime("%Y-%m"))) or {}
+            self._falhas["strings"] += (pac.get("strings") or {}).get("episodios") or []
+            self._falhas["trackers"] += (pac.get("trackers") or {}).get("rows") or []
+            if pac.get("gerado_em"):
+                self.falhas_gerado.append(pac["gerado_em"])
+            d = (d.replace(day=28) + timedelta(days=4)).replace(day=1)
+
+    def diario(self, aba):
+        return self._dth._daily_records(aba)
+
+    def pot(self, aba):
+        return _g_th_pot(aba)
+
+    def metas(self, aba):
+        return self._dth._meta2026(aba)
+
+    def disp_diario(self, usina):
+        return self._diario.get(usina) or {}
+
+    def oss(self):
+        return self._oss
+
+    def linhas_os(self):
+        return self._linhas
+
+    def falhas(self):
+        return self._falhas
+
+    def rondas(self):
+        return self._rondas or []
+
+
+def _rel_sem_build(ini, fim, leitores=None):
+    """O relatório do período: as usinas Full O&M da Thopen do índice de disponibilidade, casadas com o BD_Thopen."""
+    import dashboard_thopen as _dth
+    L = leitores or _RelSemLeitores(ini, fim)
+    idx = sorted((u for u in L.usinas_idx.values() if (u.get("cliente") or "").strip().lower() == "thopen"
+                  and str(u.get("full_om") or "Sim").strip().lower() not in ("não", "nao")), key=lambda u: u["usina"])
+    unids, avisos = _rsem.unidades(idx, set(_dth._CARTEIRA_DE.keys()), _usina_chave_solta, _GER_GRUPOS, _REL_SEM_ALIAS)
+    p = _rsem.montar(ini, fim, unids, L)
+    fontes = []
+    if not L.meses_idx:
+        avisos.append("índice de disponibilidade frio no worker — sem desligamentos nos blocos 04 e 05")
+    elif ini.strftime("%Y-%m") not in L.meses_idx:
+        avisos.append(f"o índice de disponibilidade só cobre {', '.join(L.meses_idx)} — a parte do período antes disso "
+                      "sai sem desligamentos")
+    if L.idx_ts:
+        fontes.append(f"disponibilidade de {datetime.fromtimestamp(L.idx_ts):%d/%m %H:%M}")
+    if L.os_ts:
+        fontes.append(f"OS do Fracttal de {datetime.fromtimestamp(L.os_ts):%d/%m %H:%M}")
+    if L.falhas_gerado:
+        fontes.append(f"aba de falhas de {max(L.falhas_gerado)}")
+    if getattr(L, "rondas_erro", None):
+        avisos.append(f"rondas do App de Campo indisponíveis ({L.rondas_erro}) — o bloco 03 sai sem a linha de rondas")
+    elif getattr(L, "rondas_ts", None):
+        fontes.append(f"rondas do App de Campo de {datetime.fromtimestamp(L.rondas_ts):%d/%m %H:%M}")
+    p["avisos"] = avisos + p["avisos"]
+    p["fontes"] = fontes
+    return p
+
+
+@app.route("/relatorio/semanal")
+def page_relatorio_semanal():
+    """Relatório Semanal Thopen — página de impressão (período → relatório → direcionamentos → Emitir PDF)."""
+    return render_template("relatorio_semanal.html")
+
+
+# Direcionamentos e emissões, por período (spec, seção 5). Só o processo web escreve; o lock é para dois analistas no
+# mesmo período — o autosave de um não pode apagar o do outro. Fora do backup de estado (estado_backup.py), como o
+# falhas_strings.json: cada máquina tem o seu.
+_REL_SEM_PATH = _p_dado("relatorio_semanal.json")
+_rel_sem_lock = threading.Lock()
+
+
+def _rel_sem_datas(ini_s, fim_s):
+    """(ini, fim) do pedido; período errado → _rsem.Recusado com o motivo."""
+    try:
+        ini = datetime.strptime(ini_s or "", "%Y-%m-%d").date()
+        fim = datetime.strptime(fim_s or "", "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        raise _rsem.Recusado("ini e fim no formato AAAA-MM-DD") from None
+    if ini > fim or (fim - ini).days > 62:
+        raise _rsem.Recusado("período inválido: ini até fim, no máximo 63 dias")
+    return ini, fim
+
+
+def _rel_sem_ler():
+    """O arquivo inteiro. Ausente = {}; ilegível = erro, e nada se grava por cima — regravar apagaria o que os analistas
+    já escreveram."""
+    try:
+        with open(_REL_SEM_PATH, encoding="utf-8") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+
+
+def _rel_sem_gravar(estado):
+    tmp = _REL_SEM_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(estado, f, ensure_ascii=False, indent=1)
+    _replace_atomico(tmp, _REL_SEM_PATH)
+
+
+def _rel_sem_quem():
+    return session.get("user") if session.get("auth_kind") == "ms" else "senha compartilhada"
+
+
+@app.route("/api/relatorio/semanal")
+def api_relatorio_semanal():
+    """O relatório do período (?ini=AAAA-MM-DD&fim=AAAA-MM-DD), com o que o analista já escreveu nele."""
+    try:
+        ini, fim = _rel_sem_datas(flask_request.args.get("ini"), flask_request.args.get("fim"))
+    except _rsem.Recusado as e:
+        return jsonify({"ok": False, "motivo": str(e)}), 400
+    try:
+        p = _rel_sem_build(ini, fim)
+    except Exception as e:                                   # noqa: BLE001 — a tela mostra o motivo
+        return jsonify({"ok": False, "motivo": f"{type(e).__name__}: {e}"}), 500
+    try:
+        p["direcionamentos"] = _rsem.direcionamentos(_rel_sem_ler(), ini, fim)
+    except Exception as e:                                   # noqa: BLE001 — o relatório sai; a tela avisa
+        p["direcionamentos"] = None
+        p["avisos"] = [f"direcionamentos ilegíveis em {_REL_SEM_PATH} ({type(e).__name__}: {e}) — nada será salvo "
+                       "até alguém consertar o arquivo"] + list(p.get("avisos") or [])
+    p["sem_ofensor"] = _rsem.SEM_OFENSOR
+    return jsonify({"ok": True, **p})
+
+
+@app.route("/api/relatorio/semanal/direcionamento", methods=["POST"])
+def api_relatorio_semanal_direcionamento():
+    """Um campo do analista (o autosave da página): {ini, fim, campo, valor, usina?}. Causa, ação e previsão vão com a
+    usina; leitura, responsável e contato, sem."""
+    b = flask_request.get_json(silent=True) or {}
+    em = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    try:
+        ini, fim = _rel_sem_datas(b.get("ini"), b.get("fim"))
+        with _rel_sem_lock:
+            estado = _rel_sem_ler()
+            v = _rsem.grava_campo(estado, ini, fim, b.get("campo"), b.get("valor"), usina=b.get("usina"), em=em,
+                                  por=_rel_sem_quem())
+            _rel_sem_gravar(estado)
+    except _rsem.Recusado as e:
+        return jsonify({"ok": False, "motivo": str(e)}), 400
+    except Exception as e:                                   # noqa: BLE001 — a tela diz que não salvou
+        return jsonify({"ok": False, "motivo": f"não salvou — {type(e).__name__}: {e}"}), 500
+    return jsonify({"ok": True, "valor": v, "em": em})
+
+
+@app.route("/api/relatorio/semanal/emitir", methods=["POST"])
+def api_relatorio_semanal_emitir():
+    """Registra a emissão do período (R00, R01…) com o que vai no PDF: os campos do analista e os números da página.
+    Incompleta → 422 com a lista do que falta, e a página marca os campos."""
+    b = flask_request.get_json(silent=True) or {}
+    try:
+        ini, fim = _rel_sem_datas(b.get("ini"), b.get("fim"))
+    except _rsem.Recusado as e:
+        return jsonify({"ok": False, "motivo": str(e)}), 400
+    falta = _rsem.faltando(b)
+    if falta:
+        return jsonify({"ok": False, "faltando": falta,
+                        "motivo": "falta " + ", ".join(x["texto"] for x in falta)}), 422
+    em, por = datetime.now().strftime("%Y-%m-%dT%H:%M"), _rel_sem_quem()
+    try:
+        with _rel_sem_lock:
+            estado = _rel_sem_ler()
+            v = _rsem.registra_emissao(estado, ini, fim, b, em, por)
+            _rel_sem_gravar(estado)
+    except Exception as e:                                   # noqa: BLE001 — sem registro, sem PDF
+        return jsonify({"ok": False, "motivo": f"a emissão não foi registrada — {type(e).__name__}: {e}"}), 500
+    return jsonify({"ok": True, "versao": v, "em": em, "por": por})
+
+
 @app.route("/api/perdas/fechamento")
 def api_perdas_fechamento():
     """Status do fechamento diário do D-1 (e ?dia=YYYY-MM-DD&run=1 força a consolidação de um dia)."""

@@ -36,10 +36,12 @@ ROTULO = {"religamento remoto": "Religamento Remoto", "religamento": "Religament
 ORDEM_TIPOS = ["Religamento Remoto", "Religamento", "Corretiva Emergencial"]
 
 # O que a varredura guarda de cada tarefa. O resto da linha do work_orders/ não serve à régua e
-# multiplicaria a base em disco (a linha inteira tem ~80 chaves).
+# multiplicaria a base em disco (a linha inteira tem ~80 chaves). O `final_date` (fim da TAREFA) não
+# serve ao MTTA: é do Relatório Semanal (30/09/2026, Levi) — tempo de religamento = criação da OS até
+# o fim da tarefa de religamento, e corretivas e preventivas contadas por tarefa.
 CAMPOS = ("wo_folio", "id_work_orders_tasks", "id_task", "creation_date", "event_date",
           "id_status_work_order", "tasks_log_task_type_main", "created_by", "code",
-          "groups_1_description", "parent_description", "items_log_description")
+          "groups_1_description", "parent_description", "items_log_description", "final_date")
 
 CARIMBO_S = 10            # evento até 10 s antes da criação = carimbo do app (o real vai de 0,1 a 5 s)
 STATUS_CANCELADA = 4
