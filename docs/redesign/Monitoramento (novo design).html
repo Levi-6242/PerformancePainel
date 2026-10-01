@@ -232,7 +232,7 @@ const EP={
 // escolhe sozinho o token da conta que a enxerga (_pv_token_for). Só o recorte da LISTA muda.
 const PLANT={pv:'/api/plant/',pg:'/api/pg/plant/',sunop:'/api/sunop/plant/',axis:'/api/axis/plant/',solaredge:'/api/solaredge/plant/',owen:'/api/owen/strings/plant/',semp:'/api/plant/',alveslima:'/api/plant/','2capi':'/api/plant/'};
 function _urlFor(view,srcChip){ const base=(EP[view]||{})[SKEY[srcChip]]; if(!base) return null; return view==='pr'?base+'?date='+_todayISO():base; }   // data LOCAL: com toISOString(), das 21h em diante o BR pedia o dia SEGUINTE e a tabela voltava vazia
-const RD={pv:null,loading:false,na:false,erro:null,cache:{},plants:{},curva:{},curvaMeta:{},trk:{},trkMeta:{},trkOsFeitas:{},depara:{},trkChart:{},os:{},comments:{},tracking:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},invHist:{},perdas:{},osAtrib:{},_osList:null};
+const RD={pv:null,loading:false,na:false,erro:null,cache:{},plants:{},plantErro:{},plantLento:{},curva:{},curvaMeta:{},trk:{},trkMeta:{},trkOsFeitas:{},depara:{},trkChart:{},os:{},comments:{},tracking:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},invHist:{},perdas:{},osAtrib:{},_osList:null};
 
 /* ══ BUSCA COM ESPERA LIMITADA ══════════════════════════════════════════════
    01/09/2026: o Levi abriu as strings da Santana do Ipanema e a tela girou até ele desistir. A
@@ -558,13 +558,38 @@ async function loadMeta(d){   // badges por usina: OS (Fracttal, por nome) + com
   }
   render();
 }
+// Abrir a usina e a fonte não responder NÃO é "usina sem inversores" (Levi, 30/09/2026, Guatambu 2 na API PV: "fica
+// 'carregando inversores...' (...) do nada o nome some e não carrega nada!"). A busca passou dos 90 s com a API PV lenta, o
+// catch guardava [] calado (a rota que devolve 504 {error} também virava []) e reabrir não tentava de novo: o RD.plants só
+// se esvazia recarregando a página. Agora a falha fica em RD.plantErro, com o motivo e "Tentar de novo", e não é guardada;
+// aos 10 s a linha diz que está esperando. O servidor termina a busca mesmo depois que a tela desiste e a guarda por 90 s,
+// e quem chega no meio espera por ela (_pv_plant_inversores): o "Tentar de novo" costuma voltar na hora.
 async function loadPlant(pid){
   const cfg=PLANT[SKEY[state.source]]||'/api/plant/', key=state.source+'|'+pid;
-  if(RD.plants[key]!==undefined) return;
+  if(RD.plants[key]!==undefined&&!RD.plantErro[key]) return;
+  delete RD.plantErro[key]; delete RD.plantLento[key];
   RD.plants[key]=null; render();
-  try{ const d=await fetchJSON(cfg+encodeURIComponent(pid)); RD.plants[key]=d.inversores||[]; }
-  catch(e){ RD.plants[key]=[]; }
+  try{ const d=await fetchJSON(cfg+encodeURIComponent(pid),{onLento:()=>{ if(RD.plants[key]===null){ RD.plantLento[key]=1; render(); } }});
+    if(d&&d.error&&!d.inversores) throw new Error('a fonte respondeu com erro ('+String(d.detalhe||d.error).slice(0,160)+')');
+    RD.plants[key]=(d&&d.inversores)||[]; }
+  catch(e){ RD.plants[key]=[]; RD.plantErro[key]=(e&&e.message)||'a fonte não respondeu'; }
+  delete RD.plantLento[key];
   render();
+}
+function _invCarregando(pid){
+  const lento=RD.plantLento[state.source+'|'+pid];
+  return `<div class="text-muted" style="padding:14px 4px;font-size:13px">carregando inversores…${lento?' a fonte está demorando; espero até 90 s antes de desistir.':''}</div>`;
+}
+function _invErro(pid){
+  const err=RD.plantErro[state.source+'|'+pid];
+  if(!err) return '';
+  return `<div class="card" style="padding:16px 20px;margin-top:4px;border-left:3px solid var(--gc-amber)">`
+    +`<div style="font-weight:600;margin-bottom:6px">Não consegui carregar os inversores</div>`
+    +`<div class="text-muted" style="font-size:13px;margin-bottom:12px">${_he(err)}. A fonte externa não respondeu a tempo — o dado da usina pode estar normal.</div>`
+    +`<button class="btn btn-secondary" onclick="event.stopPropagation();loadPlant('${_he(String(pid))}')"><i class="ph ph-arrow-clockwise"></i> Tentar de novo</button></div>`;
+}
+function _invVazio(){
+  return `<div class="text-muted" style="padding:14px 4px;font-size:13px">A fonte não devolveu inversores desta usina.</div>`;
 }
 // DESTRANCAR precisa do status real da string, e o servidor não manda: para a trancada, o status vem "trancada"
 // (_classifica_strings). Destrancar só pela trava deixava o chip azul até recarregar a página (Levi, 23/09/2026: "quando
@@ -2437,7 +2462,7 @@ function renderStrings(v){
       ${u.expanded?`<tr><td colspan="9" style="padding:0;border:0"><div style="background:color-mix(in srgb, var(--color-neutral-900) 55%, transparent);padding:18px 22px 22px">
         ${RD.pv?'':`<div style="display:flex;flex-wrap:wrap;gap:22px;padding:12px 16px;margin-bottom:16px;border-radius:var(--radius-md);background:color-mix(in srgb, var(--gc-blue) 10%, transparent);font-size:13px">
           <span><b>0</b> <span class="text-muted">strings abaixo</span></span><span><b>0</b> <span class="text-muted">inversores abaixo dos pares</span></span><span><b style="color:var(--gc-amber)">1</b> <span class="text-muted">trackers parados</span></span><span><b>0</b> <span class="text-muted">correlação tracker→inversor</span></span>
-        </div>`}${RD.pv?_deslBarra(u):''}${RD.pv?_ddBarra(u):''}${RD.pv?_tkCardsUsina(u):''}${u.inversores==='loading'?`<div class="text-muted" style="padding:14px 4px;font-size:13px">carregando inversores…</div>`:(state.invView==='geracao'?_gerBlock(u):(u.inversores||[]).map(inv=>renderInversor(inv,v.chart)).join(''))}</div></td></tr>`:''}
+        </div>`}${RD.pv?_deslBarra(u):''}${RD.pv?_ddBarra(u):''}${RD.pv?_tkCardsUsina(u):''}${u.inversores==='loading'?_invCarregando(u.id):(_invErro(u.id)||(state.invView==='geracao'?_gerBlock(u):((u.inversores||[]).length?u.inversores.map(inv=>renderInversor(inv,v.chart)).join(''):_invVazio())))}</div></td></tr>`:''}
     `).join(''))}</tbody></table></div>
   </div>
   <div class="text-muted" style="text-align:center;margin-top:18px;font-size:12.5px">${v.usinas.length} usinas</div>`;

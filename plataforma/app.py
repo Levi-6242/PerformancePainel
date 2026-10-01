@@ -3073,7 +3073,21 @@ _PV_PLANT_MEMO_S = 90              # s: cobre a abertura da tela (as duas pernas
 _pv_plant_memo_lock = threading.Lock()
 
 
+_pv_plant_em_voo: dict = {}          # plant_id -> Lock: uma busca do drill por usina de cada vez (ver abaixo)
+
+
 def _pv_plant_inversores(plant_id, force=False):
+    """Uma busca por usina de cada vez (30/09/2026, Guatambu 2): com a API PV lenta a tela desistiu aos 90 s, e o
+    "Tentar de novo" abria uma SEGUNDA busca igual por cima da primeira, que seguia rodando no servidor — o dobro de
+    chamadas na API que já estava lenta, e a segunda esperando tanto quanto a primeira. Quem chega durante a busca espera
+    por ela e leva o memo de 90 s que ela deixa (_PV_PLANT_MEMO_S)."""
+    with _pv_plant_memo_lock:
+        trava = _pv_plant_em_voo.setdefault(plant_id, threading.Lock())
+    with trava:
+        return _pv_plant_inversores_busca(plant_id, force=force)
+
+
+def _pv_plant_inversores_busca(plant_id, force=False):
     """Inversores da usina (API PV) com strings classificadas. Reusado pelo endpoint /api/plant
     e pelo motor de diagnóstico (R-10). Levanta exceção em erro de rede.
 

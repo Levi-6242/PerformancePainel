@@ -126,3 +126,20 @@ def test_combiner_que_falhou_nao_e_perguntado_de_novo_logo_em_seguida(api):
     app._pv_cota["zerada_ate"] = 0.0                      # e a espera do 429 também passou
     app._pv_plant_inversores(PID, force=True)
     assert api["idas"]["combiner"] == 2, "passado o tempo, pergunta de novo"
+
+
+def test_quem_chega_durante_a_busca_espera_por_ela_e_nao_busca_de_novo(api, monkeypatch):
+    """30/09/2026 (Guatambu 2): a tela desiste aos 90 s com a API PV lenta, e o "Tentar de novo" abria uma SEGUNDA
+    busca igual por cima da primeira, que seguia rodando no servidor. Quem chega durante a busca espera por ela."""
+    monkeypatch.setattr(app, "_PV_PLANT_MEMO", {})
+    monkeypatch.setattr(app, "_pv_plant_em_voo", {})
+    api["espera"] = 0.5
+    res = []
+    ths = [threading.Thread(target=lambda: res.append(app._pv_plant_inversores(PID))) for _ in range(2)]
+    for th in ths:
+        th.start()
+        time.sleep(0.1)
+    for th in ths:
+        th.join(5)
+    assert len(res) == 2 and res[0] == res[1] and len(res[0]) == 2
+    assert api["idas"]["day_inverter"] == 1, "a segunda pergunta foi à API PV com a primeira ainda correndo"

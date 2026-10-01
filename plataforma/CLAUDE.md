@@ -184,6 +184,13 @@ dias, segmentado por `device_id`.
 os dispositivos vêm do cache de 30 min do `_pv_plant_devices` (só guarda resposta boa — o `_pv_dev_names` guarda até a
 falha), a combiner só é consultada em usina String Box do cadastro ou inversor gerando (a porta do `build_summary`), e
 combiner que falhou espera `PV_COMB_ESPERA_FALHA_S`. Medido na mesma hora: 34,8 → 11,0 s, resultado idêntico.
+**Falha no drill não é usina vazia (30/09/2026, Guatambu 2: "fica 'carregando inversores...' (...) do nada o nome
+some").** Passados os 90 s da tela com a API PV lenta, o `loadPlant` guardava `[]` calado (e o 504 `{error}` da rota
+também), e reabrir não tentava de novo — o `RD.plants` só se esvazia recarregando a página. Agora a falha vai para
+`RD.plantErro` com o motivo e "Tentar de novo" e não fica guardada; aos 10 s a linha diz que está esperando
+(`RD.plantLento`); vazio de verdade diz "A fonte não devolveu inversores". No servidor, uma busca por usina de cada
+vez (`_pv_plant_em_voo`): quem chega no meio espera a que está correndo e leva o memo de 90 s dela, em vez de abrir
+uma segunda igual na API que já está lenta. Testes: `test_drill_usina_falha_visivel.py`, `test_drill_api_pv_rapido.py`.
 
 ## Padrão por inversor (usinas sem visão por string)
 

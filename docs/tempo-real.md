@@ -626,7 +626,9 @@ abrir duas vezes no livro. A PV Plataforma é só reserva.
 - **Sequência:** clicar na usina carrega os inversores (`/api/plant/<id>` na família API PV; `/api/pg/plant/<id>`,
   `/api/sunop|axis/plant/<nome>`, `/api/solaredge/plant/<id>`, `/api/owen/strings/plant/<id>`); clicar no inversor
   carrega a curva do dia. Uma usina e um inversor abertos por vez. O drill da API PV guarda 90 s e faz as três chamadas
-  em paralelo (24/09: de 34,8 para 11,0 s).
+  em paralelo (24/09: de 34,8 para 11,0 s). Falha ao abrir (90 s da tela ou 504 da rota) mostra o motivo com "Tentar de
+  novo" e não fica guardada; aos 10 s a linha diz que está esperando; no servidor, uma busca por usina de cada vez
+  (30/09).
 - **Linha do inversor:** ativas/total, esperadas, diferença. Fundo vermelho com 0 ativas (`semGer`), âmbar com baixa
   performance. Inversor desligado: strings cinza e diferença "—" se está fora da conta. Sem visão: mostra o padrão de 30
   dias no lugar das strings. Rampa: "Pouca luz". Etiqueta "N sem ticket" em vermelho.
