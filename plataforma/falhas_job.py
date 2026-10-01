@@ -912,9 +912,9 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
     serie, nomes = defaultdict(dict), {}
     # SEM COMUNICAÇÃO não é parado (Levi, 01/10/2026: "alguns trackers estão como 'parados' porém ficaram sem
     # comunicação, não quero esses trackers no relatório"). Desde 08/09 o tempo real conta o tracker sem comunicação
-    # travado num ângulo como parado (app._trk_promove_semcom) e o registro só guardava "parado". Setembro no PC: 3.755
-    # tracker-dias parados de 369 trackers eram sem comunicação (Santa Bárbara I 1.300, TIM100 830, Boa Esperança do
-    # Sul 1 381) — 225 dos 583 MWh. No dia em que ele está sem comunicação o registro não sabe dele: não é parado nem
+    # travado num ângulo como parado (app._trk_promove_semcom) e o registro só guardava "parado". Setembro no PC: 5.597
+    # tracker-dias parados de 559 trackers eram sem comunicação (Santa Bárbara I 1.456, TIM100 901, Barretos 710) —
+    # 1.065 → 738 MWh. No dia em que ele está sem comunicação o registro não sabe dele: não é parado nem
     # volta — atravessa, como a usina que não leu. A marca vem do registro (`sem_comunicacao`, de 01/10 em diante) ou,
     # antes disso, das fotos da ronda (trk_semcom; ver app._falhas_trk_semcom_hist).
     SC, sc_fora = {}, {}
@@ -1075,6 +1075,7 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                              "h_sol": round(hs, 2), "desvio_pico": desv, "fator": round(fator, 3),
                              "kwp_tracker": round(kwp_t or 0, 2), "perda_kwh": round(perda, 1),
                              "cronico": (usina_c, trk) in antes and ep["ini_dia"] <= ini,
+                             "visto_ate": ep["dias"][-1][0], "sem_com_desde": ep.get("sc_fim"),
                              "flags": sorted(flags)})
 
         def ddmm(d):
@@ -1169,9 +1170,12 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
         if aberto is not None:
             sc_d = aberto.pop("sc_desde", None)
             if sc_d:
-                # parado de verdade até ficar sem comunicação: segue em aberto (sem notícia, a regra das strings), e a
-                # perda é só a dos dias em que ele comunicava
+                # parado de verdade até ficar sem comunicação: não voltou (não há notícia) e também não "segue parado" —
+                # ninguém sabe; a perda é só a dos dias em que ele comunicava. Sai das contas de em aberto (aba e
+                # semanal) pelo `sem_com_desde`; o `visto_ate` é o último dia em que o viram parado (Santa Bárbara I,
+                # 21–27/09: 52 trackers sem comunicação a semana toda contavam como parados no relatório semanal)
                 trk_q["em aberto: sem comunicação do tracker depois"] += 1
+                aberto["sc_fim"] = sc_d
                 fecha(aberto, None, None, "em aberto", extra=f"sem comunicação do tracker desde {ddmm(sc_d)}")
             elif aberto["dias"][-1][0] >= ult_trk:
                 trk_q["em aberto no fim do período"] += 1

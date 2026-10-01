@@ -291,6 +291,69 @@ def test_strings_que_voltaram_sao_os_episodios_que_terminaram_no_periodo():
     assert rs.strings_voltaram(eps, date(2026, 9, 21), date(2026, 9, 27), None) == 2
 
 
+# ── bloco 04: trackers que pararam no período (Levi, 01/10/2026: "distintos viu, por quantidade") ───────────────────
+def _trk(pid, t, inicio, fim=None, desde=None, fonte="pv"):
+    e = {"fonte": fonte, "plant_id": pid, "tracker": t, "inicio": inicio, "fim": fim}
+    if desde:
+        e["desde"] = desde
+    return e
+
+
+def test_trackers_que_pararam_sao_distintos_e_vem_por_quantidade():
+    ini, fim = date(2026, 9, 21), date(2026, 9, 27)
+    por = {
+        # o mesmo tracker parou duas vezes na semana: conta um; Guatambu 1 e 2 têm um TRK1 cada: são dois
+        "Guatambu": [_trk("1", "TRK1", "2026-09-21 08:00", "2026-09-22"), _trk("1", "TRK1", "2026-09-24 09:00"),
+                     _trk("2", "TRK1", "2026-09-23 07:40", "2026-09-25 10:00")],
+        # parado desde antes da semana e ainda parado no fim dela
+        "Altair": [_trk("9", "TRK5", "2026-09-10 08:00"), _trk("9", "TRK6", "2026-09-22 08:00"),
+                   _trk("9", "TRK7", "2026-09-22 08:00", "2026-09-29 11:00")],
+    }
+    t = rs.trackers_pararam(por, ini, fim)
+    assert (t["total"], t["comecaram"], t["ja_vinham"], t["seguem"]) == (5, 4, 1, 4)
+    assert t["por_usina"] == [{"nome": "Altair", "n": 3, "seguem": 3}, {"nome": "Guatambu", "n": 2, "seguem": 1}]
+
+
+def test_tracker_que_vem_do_mes_anterior_ja_vinha_parado():
+    # o pacote de outubro começa o episódio no dia 1 e guarda em `desde` o começo de verdade
+    t = rs.trackers_pararam({"Altair": [_trk("9", "TRK5", "2026-10-01 06:30", desde="2026-09-25 08:00")]},
+                            date(2026, 10, 1), date(2026, 10, 7))
+    assert (t["total"], t["comecaram"], t["ja_vinham"]) == (1, 0, 1)
+
+
+def test_tracker_que_ficou_sem_comunicacao_vale_so_ate_o_ultimo_dia_visto_parado():
+    # Santa Bárbara I, 21–27/09: parados desde 07/09 e sem comunicação desde 20/09 contavam a semana toda como parados
+    ini, fim = date(2026, 9, 21), date(2026, 9, 27)
+    fora = {**_trk("5", "Tracker 48", "2026-09-07 06:52"), "sem_com_desde": "2026-09-20", "visto_ate": "2026-09-19"}
+    dentro = {**_trk("5", "Tracker 49", "2026-09-07 06:52"), "sem_com_desde": "2026-09-24", "visto_ate": "2026-09-23"}
+    t = rs.trackers_pararam({"Santa Bárbara I": [e for e in (fora, dentro) if rs._cruza(e, ini, fim)]}, ini, fim)
+    assert (t["total"], t["seguem"]) == (1, 0)                              # o 49 foi visto parado na semana
+
+
+def test_montagem_traz_os_trackers_que_pararam_no_bloco_de_disponibilidade():
+    class ComTrk(L):
+        def falhas(self):
+            return {"strings": [], "trackers": [
+                {**_trk("9", "TRK5", "2026-09-22 08:00"), "usina": "Altair", "perda_kwh": 100.0},
+                {**_trk("22855", "TRK1", "2026-09-23 08:00", "2026-09-24"), "usina": "Nova Londrina 2",
+                 "perda_kwh": 50.0},
+                {**_trk("9", "TRK8", "2026-09-01 08:00", "2026-09-05"), "usina": "Altair", "perda_kwh": 9.0}]}
+    us = [{"nome": "Altair", "bd": ["Altair"], "disp": ["Altair"], "sites": [SITE], "kwp": 6898.0},
+          {"nome": "Nova Londrina", "bd": ["Nova Londrina"], "disp": ["Nova Londrina 1", "Nova Londrina 2"],
+           "sites": [], "kwp": 4000.0}]
+    t = rs.montar(date(2026, 9, 21), date(2026, 9, 27), us, ComTrk())["disponibilidade"]["trackers"]
+    assert (t["total"], t["seguem"]) == (2, 1)                             # o TRK8 voltou antes da semana
+    assert [x["nome"] for x in t["por_usina"]] == ["Altair", "Nova Londrina"]
+
+
+def test_pagina_mostra_os_trackers_que_pararam(monkeypatch):
+    import app
+    monkeypatch.setattr(app, "DASH_PASSWORD", "", raising=False)
+    with app.app.test_client() as c:
+        html = c.get("/relatorio/semanal").get_data(as_text=True)
+    assert "Trackers que pararam" in html and "di.trackers" in html
+
+
 # ── bloco 05: ofensores medidos e causa sugerida ────────────────────────────────────────────────────────────────
 def test_ofensores_vem_do_maior_para_o_menor_em_energia():
     desl = {"queda": {"n": 2, "h": 9.5}, "equip": {"n": 0, "h": 0.0}}

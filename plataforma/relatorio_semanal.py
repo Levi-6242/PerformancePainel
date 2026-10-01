@@ -362,6 +362,34 @@ def strings_voltaram(episodios, ini, fim, usinas=None):
     return len(vistos)
 
 
+def trackers_pararam(por_unidade, ini, fim):
+    """Trackers DISTINTOS que ficaram parados em algum momento do período (Levi, 01/10/2026: "no relatório semanal da
+    Thopen também gostaria que aparecesse os trackers que pararam no período" — "distintos viu, por quantidade"), pelos
+    episódios da aba de falhas, que já tiram o tracker sem comunicação e o que o analista desconsiderou. Distinto pela
+    fonte + id da usina na fonte + tracker: Guatambu 1 a 4 têm um TRK1 cada. Já vinha parado = episódio que começou
+    antes do período (`desde` é o começo de quem vem do mês anterior); segue parado = sem fim até o fim do período.
+    por_unidade = {usina do relatório: [episódios que cruzam o período]}. → {total, comecaram, ja_vinham, seguem,
+    por_usina: [{nome, n, seguem}] da maior quantidade para a menor}."""
+    todos, antes, seguem, por = set(), set(), set(), []
+    for nome, eps in (por_unidade or {}).items():
+        ks, sg = set(), set()
+        for e in eps or []:
+            k = (e.get("fonte"), str(e.get("plant_id") or nome), str(e.get("tracker")))
+            ks.add(k)
+            d0, d1 = _data(e.get("desde") or e.get("inicio")), _data(e.get("fim"))
+            if d0 is not None and d0 < ini:
+                antes.add(k)
+            if (d1 is None and not e.get("sem_com_desde")) or (d1 is not None and d1 > fim):
+                sg.add(k)                          # sem comunicação no fim: não se sabe se segue parado
+        if ks:
+            por.append({"nome": nome, "n": len(ks), "seguem": len(sg)})
+        todos |= ks
+        seguem |= sg
+    por.sort(key=lambda x: (-x["n"], x["nome"]))
+    return {"total": len(todos), "comecaram": len(todos - antes), "ja_vinham": len(antes), "seguem": len(seguem),
+            "por_usina": por}
+
+
 # ── aviso: a geração do dia tem de casar com a disponibilidade do dia ─────────────────────────────────────────────
 # Levi, 30/09/2026: "tem que casar com a disponibilidade, se a disponibilidade for 0 então a geração também será 0 e assim
 # por diante". Disponibilidade do dia = 1 − h_eq/12 do índice (dia fora dele = 100%).
@@ -431,10 +459,19 @@ def _n1(x):
     return f"{x:.1f}".replace(".", ",")
 
 
+def _fim_ef(e, fim):
+    """O último dia do episódio que conta: o fim, ou o fim do período para o aberto. O tracker que estava parado e ficou
+    sem comunicação (`sem_com_desde`, aba de falhas) vale só até o último dia em que o viram parado (`visto_ate`):
+    Santa Bárbara I, 21–27/09 — 52 trackers sem comunicação a semana toda contavam como parados."""
+    if e.get("sem_com_desde"):
+        return _data(e.get("visto_ate")) or _data(e.get("inicio"))
+    return _data(e.get("d1") or e.get("fim")) or fim
+
+
 def _kwh_no_periodo(e, ini, fim):
     """A perda do episódio que cai no período, pelos dias: um episódio de 14 dias com 7 no período conta metade."""
     d0 = _data(e.get("d0") or e.get("inicio"))
-    d1 = _data(e.get("d1") or e.get("fim")) or fim
+    d1 = _fim_ef(e, fim)
     if d0 is None or d1 < ini or d0 > fim:
         return 0.0
     tot = e.get("dias") or ((d1 - d0).days + 1)
@@ -525,8 +562,8 @@ def unidades(indice, bd_nomes, chave, grupos, alias):
 
 def _cruza(e, ini, fim):
     d0 = _data(e.get("d0") or e.get("inicio"))
-    d1 = _data(e.get("d1") or e.get("fim")) or fim
-    return d0 is not None and d0 <= fim and d1 >= ini
+    d1 = _fim_ef(e, fim)
+    return d0 is not None and d1 is not None and d0 <= fim and d1 >= ini
 
 
 ABERTA = {0, 1, 5, 6}
@@ -569,7 +606,7 @@ def montar(ini, fim, unids, L):
     """O relatório inteiro do período. `L` são os leitores (o app passa os reais; o teste, stubs): diario(aba),
     pot(aba), metas(aba), disp_diario(usina do índice), oss(), linhas_os(), falhas() → {strings, trackers} e, se tiver,
     rondas() → linhas do workbook de rondas."""
-    avisos, linhas, partes_port, disp_itens, avisos_disp = [], [], [], [], []
+    avisos, linhas, partes_port, disp_itens, avisos_disp, trk_unid = [], [], [], [], [], {}
     oss, los, fal = L.oss() or [], L.linhas_os() or [], L.falhas() or {}
     series = []
     for u in unids:
@@ -607,6 +644,7 @@ def montar(ini, fim, unids, L):
         desl = desligamentos(oss, ini, fim, set(u["disp"]))
         nomes = {u["nome"], *u["disp"]}
         trk = [e for e in fal.get("trackers") or [] if e.get("usina") in nomes and _cruza(e, ini, fim)]
+        trk_unid[u["nome"]] = trk
         strs = [e for e in fal.get("strings") or [] if e.get("usina") in nomes and _cruza(e, ini, fim)]
         ln = {"nome": u["nome"], "pr": pr["pr"] if pr else None, "pr_meta": pr["pr_meta"] if pr else None,
               "disp": dp["disp"], "kwp": u["kwp"], "desligamentos": desl, "fora": False,
@@ -654,6 +692,7 @@ def montar(ini, fim, unids, L):
         "disponibilidade": {"disp": dport["disp"], "meta": DISP_META, "queda": desl_port["queda"],
                             "equip": desl_port["equip"], "indisp_grid": dport["indisp_grid"],
                             "indisp_ext": dport["indisp_ext"],
+                            "trackers": trackers_pararam(trk_unid, ini, fim),
                             "abaixo": sorted(({"nome": l["nome"], "disp": l["disp"]} for l in linhas
                                               if l["disp"] is not None and l["disp"] < DISP_META),
                                              key=lambda x: x["disp"])},

@@ -884,13 +884,20 @@ strings citadas estão trancadas"). Não eram trava — as trancadas eram as Ipv
   esses trackers no relatório"). Desde 08/09 o tempo real conta como parado o sem comunicação travado num ângulo
   (`_trk_promove_semcom`) e o registro só guardava "parado". O registro do dia passa a guardar `sem_comunicacao` (lista,
   `_trk_semcom_set` — a etiqueta roxa) nos 4 pontos que gravam o `_trk_eventos`; no `falhas_job` o dia sem comunicação
-  atravessa (não é parado nem volta), não entra na conta da frota parada e vai para `trackers.sem_comunicacao`; o parado
-  de verdade que perde a comunicação segue em aberto, com a perda só dos dias em que comunicava. **Antes de 01/10 a marca
-  vem das fotos da ronda** (`trackers_parados_hist.jsonl`, `_falhas_trk_semcom_hist`): vale a última foto do dia que
-  listou o tracker, e rótulo repetido (a ronda junta Guatambu 1 a 4 como "Guatambu", com um TRK1 em cada) só vale com
-  todos sem comunicação. O servidor não faz a ronda: a do PC vai por `POST /api/painel/falhas/trk-semcom` (login).
-  Setembro no PC: 3.755 tracker-dias de 369 trackers saíram (Santa Bárbara I 1.300, TIM100 830, Boa Esperança do Sul
-  1 381), 583 → 358 MWh. Teste: `tests/test_falhas_trk_semcom.py`.
+  atravessa (não é parado nem volta), não entra na conta da frota parada e vai para `trackers.sem_comunicacao`. O parado
+  de verdade que perde a comunicação fica sem fim e com `sem_com_desde` + `visto_ate` (o último dia em que o viram
+  parado): a perda é só dos dias em que comunicava, e ele sai de toda conta de "em aberto" (`trkAberto` na aba, `_fim_ef`
+  no semanal) — não se sabe se voltou; na coluna Voltou, "sem comunicação desde dd/mm". **Antes de 01/10 a marca vem das
+  fotos da ronda** (`trackers_parados_hist.jsonl`, `_falhas_trk_semcom_hist`): vale a última foto do dia que listou o
+  tracker; rótulo repetido (a ronda junta Guatambu 1 a 4 como "Guatambu", com um TRK1 em cada) só vale com todos sem
+  comunicação; e o dia SEM FOTO nenhuma (ronda que não rodou), até `TRK_SEMCOM_LACUNA_MAX_DIAS` (4) seguidos, é sem
+  comunicação se o tracker estava assim na foto de antes e na de depois (Santa Bárbara I Tracker 48: sem comunicação em
+  toda foto de 15 a 30/09 e "parado" em 20 e 26/09, sem ronda). O servidor não faz a ronda: a do PC vai por
+  `POST /api/painel/falhas/trk-semcom` (login; `scratchpad/envia_trk_semcom_servidor.py`). Setembro no PC: 5.597
+  tracker-dias de 559 trackers saíram, 1.065 → 738 MWh. Teste: `tests/test_falhas_trk_semcom.py`.
 - **"Trackers que pararam"** (card da aba de trackers): os trackers diferentes do recorte, quantos começaram no período,
   quantos já vinham parados (`cronico` ou `desde`) e quantos seguem parados agora; com "Esconder crônicos" ligado, o card
-  diz que os de antes estão escondidos.
+  diz que os de antes estão escondidos. **No relatório semanal** (bloco 04, `relatorio_semanal.trackers_pararam`): os
+  DISTINTOS (fonte + id da usina na fonte + tracker) parados em algum momento da semana, por quantidade — total, quantos
+  começaram na semana, quantos seguiam parados no fim e as usinas com mais trackers (Levi: "distintos viu, por
+  quantidade"). 21–27/09 no PC: 770 (301 começaram, 500 seguiam parados; Barretos 106, Brodowski 102).

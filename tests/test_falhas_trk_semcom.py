@@ -3,8 +3,8 @@
 ficaram sem comunicação, não quero esses trackers no relatório").
 
 Desde 08/09 o tracker sem comunicação travado num ângulo conta como parado no tempo real (_trk_promove_semcom) e o
-registro do dia guardava só "parado", sem a marca: setembro no PC tinha 3.755 tracker-dias parados de 369 trackers sem
-comunicação (Santa Bárbara I, TIM100, Boa Esperança do Sul 1...), 225 dos 583 MWh. O registro passa a guardar quem estava
+registro do dia guardava só "parado", sem a marca: setembro no PC tinha 5.597 tracker-dias parados de 559 trackers sem
+comunicação (Santa Bárbara I, TIM100, Barretos...), 1.065 → 738 MWh. O registro passa a guardar quem estava
 sem comunicação (a régua da etiqueta roxa do tempo real, _trk_semcom_set); para os dias de antes vale a marca das rondas
 (trackers_parados_hist).
 """
@@ -72,7 +72,10 @@ def test_parado_que_perde_a_comunicacao_segue_em_aberto_sem_contar_os_dias_sem_d
     (r,) = monta(t)["trackers"]["rows"]
     assert r["inicio"].startswith("2026-09-01") and r["fim"] is None
     assert "sem comunicação do tracker desde 02/09" in r["flags"]
+    # não "segue parado": a aba e o semanal tiram das contas de em aberto pelo sem_com_desde
+    assert (r["sem_com_desde"], r["visto_ate"]) == ("2026-09-02", "2026-09-01")
     so_dia_01 = monta(_dia("01", {"TRK1": P}, [ev("TRK1")], sc=[]), fim="2026-09-01")["trackers"]["rows"][0]
+    assert so_dia_01["sem_com_desde"] is None and so_dia_01["visto_ate"] == "2026-09-01"
     assert r["perda_kwh"] == so_dia_01["perda_kwh"]
 
 
@@ -132,6 +135,24 @@ def test_historico_da_ronda_vale_a_ultima_foto_do_dia_e_o_rotulo_repetido_so_com
     h = app._falhas_trk_semcom_hist()
     ch = falhas_job.chave_semcom
     assert h == {"2026-09-10": {ch("Aparecida 3", "Tracker 02"), ch("Guatambu", "TRK2")}}
+
+
+def test_dia_sem_ronda_entre_dois_dias_sem_comunicacao_tambem_e_sem_comunicacao(tmp_path, monkeypatch):
+    # Santa Bárbara I Tracker 48: sem comunicação em todas as fotos de 15 a 30/09; nos dias sem ronda (20 e 26/09) o
+    # registro o dava por parado e o episódio seguia aberto pela semana
+    def foto(ts, *pars):
+        return {"ts": ts, "parados": [{"u": "Santa Bárbara I", "t": t, "sc": sc} for t, sc in pars]}
+    snaps = [foto("2026-09-25 13:04", ("Tracker 48", True), ("Tracker 49", True), ("Tracker 50", False)),
+             foto("2026-09-28 09:25", ("Tracker 48", True), ("Tracker 50", True)),
+             foto("2026-09-29 08:28", ("Tracker 51", True)),
+             foto("2026-10-05 08:30", ("Tracker 51", True))]          # 5 dias sem foto: lacuna longa, não preenche
+    monkeypatch.setattr(app, "_TRK_HIST_PATH", _hist(tmp_path, snaps))
+    monkeypatch.setattr(app, "_FALHAS_TRK_SEMCOM_PATH", str(tmp_path / "importado.json"))
+    h = app._falhas_trk_semcom_hist()
+    ch = falhas_job.chave_semcom
+    for d in ("2026-09-26", "2026-09-27"):
+        assert h[d] == {ch("Santa Bárbara I", "Tracker 48")}               # o 49 não estava na foto de 28/09
+    assert "2026-10-01" not in h and "2026-10-04" not in h
 
 
 @pytest.fixture

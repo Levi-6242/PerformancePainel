@@ -11671,7 +11671,7 @@ def _trk_eventos_do_dia(idusina, nome, data_br, curve=None):
     # Quem estava SEM COMUNICAÇÃO no dia — a régua da etiqueta roxa do tempo real (_trk_semcom_set). Desde 08/09 ele
     # conta como parado (_trk_promove_semcom) e o registro só guardava "parado": a aba de falhas o punha no relatório
     # (Levi, 01/10/2026: "alguns trackers estão como 'parados' porém ficaram sem comunicação, não quero esses trackers
-    # no relatório"). Setembro no PC: 3.755 tracker-dias parados de 369 trackers eram isso (225 dos 583 MWh da aba).
+    # no relatório"). Setembro no PC: 5.597 tracker-dias parados de 559 trackers eram isso (1.065 → 738 MWh na aba).
     return {"cobertura": round(cob_usina, 2), "eventos": eventos,
             "disponibilidade": disponibilidade, "disp_tempo": disp_tempo,
             "classes": classes,   # classes: {} = ok/limpo, None = falhou
@@ -24370,6 +24370,7 @@ def api_painel_falhas_historico():
 # rótulo repetido só vale se TODOS os iguais estão sem comunicação — na dúvida, o tracker fica no relatório. O servidor
 # não faz a ronda do WhatsApp: a do PC chega pela rota abaixo e mora em _FALHAS_TRK_SEMCOM_PATH.
 _FALHAS_TRK_SEMCOM_PATH = _p_dado("falhas_trk_semcom.json")   # {dia: [chave_semcom]} recebido de outra plataforma
+TRK_SEMCOM_LACUNA_MAX_DIAS = 4         # dias seguidos sem foto da ronda que o "sem comunicação dos dois lados" cobre
 
 
 def _falhas_trk_semcom_hist():
@@ -24393,9 +24394,24 @@ def _falhas_trk_semcom_hist():
         nesta = defaultdict(list)
         for x in foto.get("parados") or []:
             nesta[falhas_job.chave_semcom(x.get("u"), x.get("t"))].append(bool(x.get("sc")))
+        estado.setdefault(dia, {})
         for ch, scs in nesta.items():
-            estado.setdefault(dia, {})[ch] = all(scs)
+            estado[dia][ch] = all(scs)
     out = {dia: {ch for ch, sc in chs.items() if sc} for dia, chs in estado.items()}
+    # Dia SEM FOTO NENHUMA (a ronda não rodou: fim de semana, falha) entre dois dias com o tracker sem comunicação também
+    # é sem comunicação: Santa Bárbara I Tracker 48 estava sem comunicação em todas as fotos de 15 a 30/09 e, nos dias sem
+    # ronda (20 e 26/09), o registro o dava por parado — o episódio seguia aberto pela semana inteira. Dia com foto que não
+    # o lista não é preenchido (a ronda olhou e ele não estava parado), nem lacuna longa.
+    dias_foto = sorted(estado)
+    for a, b in zip(dias_foto, dias_foto[1:]):
+        da, db = datetime.strptime(a, "%Y-%m-%d").date(), datetime.strptime(b, "%Y-%m-%d").date()
+        if not 1 < (db - da).days <= TRK_SEMCOM_LACUNA_MAX_DIAS + 1:
+            continue
+        ambos = out[a] & out[b]
+        d = da + timedelta(days=1)
+        while d < db and ambos:
+            out.setdefault(d.isoformat(), set()).update(ambos)
+            d += timedelta(days=1)
     for dia, chs in (_falhas_ler(_FALHAS_TRK_SEMCOM_PATH) or {}).items():
         out.setdefault(dia, set()).update(chs or [])
     return {dia: chs for dia, chs in out.items() if chs}
@@ -27130,6 +27146,9 @@ def _trk_ocor_curva_list(fonte, dia):
             plantas = [p for p, m in _si(inst)["meta"].items() if m.get("trackers")]
         except Exception:
             plantas = []
+        # numa baixa só (01/10/2026, cota): usina por usina eram ≈10 POSTs por dia; juntas, ≈4 (o ee70830 nas outras telas)
+        _sunop_trk_curvas_varias(plantas, dia, inst)
+
         def _one(p):
             try:
                 return p, _sunop_curve_for(p, data_br, inst)
@@ -27221,7 +27240,21 @@ def _trk_ocor_classes_list(fonte, dia):
     # (itens, classificadas, NO STORE no dia, esperadas da fonte). "no store" é o denominador REAL da
     # classificação (usina sem curva nenhuma no dia nunca entra no store); "esperadas" é o da cobertura
     # de DADO — as duas contam histórias diferentes e a API devolve as duas.
-    return itens, len(itens), len(dd), (_trk_ev_fonte_total(fonte) or len(pids) or 0)
+    # Usina SEM CURVA no dia não entra no "no store" (01/10/2026, cota da SunOp): o _sunop_eventos_calc grava a usina
+    # mesmo quando o _trk_eventos_do_dia sai cedo (eventos [], cobertura abaixo de TRK_EV_COBERTURA, classes None).
+    # A SunOp devolve curva vazia para os trackers da MTS100 e ela entrava assim em TODOS os dias desde 01/07: o dia
+    # nunca fechava, nunca ia para o cache, e o _perdas_ocor_warm_loop rebaixava a curva de cada usina da Athon de
+    # cada dia, de hora em hora — 8.707 curvas de tracker no servidor e 9.331 no PC em 30/09.
+    no_store = sum(1 for e in dd.values() if not _trk_ev_sem_curva(e))
+    return itens, len(itens), no_store, (_trk_ev_fonte_total(fonte) or len(pids) or 0)
+
+
+def _trk_ev_sem_curva(e) -> bool:
+    """Entrada do store de uma usina que NÃO teve curva no dia — o _trk_eventos_do_dia saiu cedo (nenhuma leitura, ou
+    cobertura abaixo de TRK_EV_COBERTURA). Não é classificação que falhou: não havia o que classificar, e buscar a
+    curva de novo não muda nada."""
+    return (e.get("classes") is None and not e.get("eventos")
+            and (e.get("cobertura") or 0) < TRK_EV_COBERTURA)
 
 
 def _perdas_trk_ocor_cached(fonte, dia):
@@ -29378,6 +29411,14 @@ def _perdas_pv_warm_dm1_loop():
         print(f"[perdas_pv_warm] falhou: {e}")
 
 
+def _perdas_ocor_warm_fontes():
+    """Fontes que o _perdas_ocor_warm_loop aquece. No PC em modo ronda (SUNOP_COLETA) sem a Athon e a Axis: quem abre a
+    aba Perdas é o servidor, e a ronda não usa as ocorrências (01/10/2026, cota da SunOp)."""
+    if SUNOP_COLETA == "ronda":
+        return ("pg", "owen", "pv")
+    return ("pg", "owen", "sunop", "axis", "pv")
+
+
 def _perdas_ocor_warm_loop():
     """Pré-aquece a cache de ocorrências de tracker do MÊS (base→D-1) pra 'Perdas → Trackers · Ocorrências'
     abrir na hora — senão a 1ª carga do mês custa ~1–4 min por fonte (pg ~240s). Dia fechado é imutável.
@@ -29389,7 +29430,7 @@ def _perdas_ocor_warm_loop():
         try:
             di = _perdas_ini_dt().date()
             df = (datetime.now() - timedelta(days=1)).date()
-            for fonte in ("pg", "owen", "sunop", "axis", "pv"):
+            for fonte in _perdas_ocor_warm_fontes():
                 d = di
                 while d <= df:
                     if (fonte, d.isoformat()) not in _PERDAS_OCOR_CACHE:

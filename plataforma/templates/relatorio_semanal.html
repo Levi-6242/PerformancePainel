@@ -416,6 +416,9 @@ function render(d) {
       </div>
     </section>`;
   const abx = di.abaixo || [];
+  // trackers DISTINTOS parados em algum momento da semana, por quantidade (Levi, 01/10/2026), sem os sem comunicação
+  const tp = di.trackers, tpU = (tp && tp.por_usina) || [];
+  const tpLinha = tp ? `<div class="li"><span>Trackers que pararam na semana<span class="nomes">${nf0.format(tp.comecaram)} começaram na semana · ${nf0.format(tp.seguem)} seguiam parados no fim${tpU.length ? ' · ' + esc(tpU.slice(0, 4).map((x) => `${x.nome} ${x.n}`).join(', ')) + (tpU.length > 4 ? ` e mais ${tpU.length - 4} usinas` : '') : ''}</span></span><span class="v">${nf0.format(tp.total)}</span></div>` : '';
   const s04 = `
     <section class="sec">
       <div class="sec-t"><span class="n">04</span><h2>Disponibilidade e desligamentos</h2></div>
@@ -425,6 +428,7 @@ function render(d) {
         <div class="li">Indisponibilidade atribuível à Grid<span class="v">${di.indisp_grid == null ? '—' : nf1.format(di.indisp_grid) + '%'}</span></div>
         <div class="li">Indisponibilidade externa (rede, cliente)<span class="v">${di.indisp_ext == null ? '—' : nf1.format(di.indisp_ext) + '%'}</span></div>
         <div class="li"><span>Usinas com disponibilidade &lt; ${nf0.format(di.meta)}%${abx.length ? `<span class="nomes">${esc(abx.slice(0, 5).map((x) => x.nome).join(', '))}${abx.length > 5 ? ` e mais ${abx.length - 5}` : ''}</span>` : ''}</span><span class="v">${abx.length}</span></div>
+        ${tpLinha}
       </div>
     </section>`;
   const linhas = (d.fora_da_meta || []).map((u) => `
