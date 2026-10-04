@@ -320,35 +320,3 @@ def test_renogrid_sem_sol_nada_muda(site_se, monkeypatch):
     assert r["str_esp"] == 12 and r["inv_desligados"] == 0 and r["strings_fora"] == 0
 
 
-@pytest.fixture
-def ufv_2c(monkeypatch):
-    u, ts = "TSTPA", datetime(2026, 9, 24, 12, 0)
-    corrente = {"1.1": 8.0, "1.2": 7.9, "1.3": 0.0}                                                 # o 1.3 parado
-    data = {u: {inv: {str(s): (ts, c) for s in range(1, 5)} for inv, c in corrente.items()}}
-    monkeypatch.setattr(app, "_owen_strings_build", lambda force=False: data)
-    monkeypatch.setattr(app, "OWEN_UFVS", {u: "Usina 2C Teste"})
-    monkeypatch.setitem(app.ESPERADO_INV, u, {app._owen_inv_tag(u, i): 4 for i in corrente})
-    monkeypatch.setitem(app.EQUIP_NAMES, u, {app._owen_inv_tag(u, i): f"Inversor {i}" for i in corrente})
-    monkeypatch.setattr(app, "_macro_eh_dia", lambda r: True)
-    return u
-
-
-def test_2c_email_tira_o_desligado_da_conta_como_a_athon(ufv_2c):
-    r = next(x for x in app._owen_strings_rows() if x["plant_id"] == ufv_2c)
-    assert r["str_esp"] == 8 and r["strings_ativas"] == 8 and r["diferenca"] == 0
-    assert r["inv_desligados"] == 1 and r["strings_fora"] == 4 and r["inv_desligados_nomes"] == ["Inversor 1.3"]
-
-
-def test_2c_email_drill_lista_o_desligado_fora_da_conta(ufv_2c, cliente):
-    invs = {i["nome"]: i for i in cliente.get(f"/api/owen/strings/plant/{ufv_2c}").get_json()["inversores"]}
-    assert invs["Inversor 1.3"]["fora_da_conta"] is True and invs["Inversor 1.3"]["diferenca"] is None
-    assert all(s["status"] == "desligado" for s in invs["Inversor 1.3"]["strings"])
-    assert invs["Inversor 1.1"]["fora_da_conta"] is False and invs["Inversor 1.1"]["diferenca"] == 0
-
-
-def test_2c_email_usina_inteira_parada_nao_esconde_as_strings(ufv_2c, monkeypatch):
-    ts = datetime(2026, 9, 24, 12, 0)
-    monkeypatch.setattr(app, "_owen_strings_build", lambda force=False: {
-        ufv_2c: {inv: {str(s): (ts, 0.0) for s in range(1, 5)} for inv in ("1.1", "1.2", "1.3")}})
-    r = next(x for x in app._owen_strings_rows() if x["plant_id"] == ufv_2c)
-    assert r["inv_desligados"] == 0 and r["str_esp"] == 12 and r["strings_ativas"] == 0

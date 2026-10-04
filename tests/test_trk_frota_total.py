@@ -49,7 +49,7 @@ def overview(monkeypatch):
         monkeypatch.setitem(c, "payload", None)
         monkeypatch.setitem(c, "ts", 0.0)
     monkeypatch.setattr(app, "BD_TRK_INV", {})
-    monkeypatch.setattr(app, "_owen_accum", {"date": None, "etm": {}, "strings": {}, "trackers": {}})
+    monkeypatch.setattr(app, "_2c_trk_cache", {"payload": None, "ts": 0.0})
 
     def _publica(fonte, linhas):
         monkeypatch.setitem(caches[fonte], "payload", {"rows": linhas, "summary": {}, "cache_ts": "08:27:13"})
@@ -68,12 +68,11 @@ def test_frota_vem_do_overview_que_a_fonte_publica(overview, fonte, usina, total
     assert app._trk_frota_total(fonte, usina) == total
 
 
-def test_frota_da_2c_vem_do_acervo_do_dia(overview, monkeypatch):
-    """A 2C do e-mail não publica overview (a aba monta na hora): a frota é o que o acervo do dia tem. A
-    Ipixuna do Pará não está na aba BD_Trackers — sem o acervo, só sobraria o nº de parados."""
-    trk = lambda n: {str(i): {"alvo": [], "atual": []} for i in range(1, n + 1)}
-    monkeypatch.setattr(app, "_owen_accum", {"date": "2026-09-28", "etm": {}, "strings": {},
-                                             "trackers": {"IPX": trk(122), "TUP": trk(100)}})
+def test_frota_da_2c_vem_da_aba_que_o_worker_publica(overview, monkeypatch):
+    """A frota da 2C é a da aba de trackers (_2c_trk_cache, pela API PV desde 30/09/2026; até 03/10 era o acervo do
+    e-mail). A Ipixuna do Pará não está na aba BD_Trackers — sem a aba, só sobraria o nº de parados."""
+    monkeypatch.setattr(app, "_2c_trk_cache", {"ts": 0.0, "payload": {"rows": [
+        {"usina": app._owen_nome("IPX"), "total": 122}, {"usina": app._owen_nome("TUP"), "total": 100}]}})
     assert app._trk_frota_total("owen", app._owen_nome("IPX")) == 122
 
 

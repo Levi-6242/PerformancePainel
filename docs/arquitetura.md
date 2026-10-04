@@ -108,7 +108,9 @@ C:\Users\Levi Maia\OneDrive - GRID CO\Grid Co_ - 4. O&M\6.Gerencial\4. Gestão �
 C:\Users\Levi Maia\GRID CO\Grid Co. - 17. Acesso Externo Thopen\1. Registro usinas Thopen\BD_Thopen.xlsx
 ```
 
-### Coletor de e-mail 2C (projeto SEPARADO)
+### Coletor de e-mail 2C (projeto SEPARADO) — fora de uso desde 03/10/2026
+A plataforma não lê mais esses CSVs: a 2C vem toda da API PV (ver 4.6). O coletor e as tarefas agendadas do PC podem ser
+desligados.
 ```
 C:\Users\Levi Maia\Desktop\Projetos e-mail\
 ├── 1 - Automatizador\
@@ -194,7 +196,9 @@ C:\Users\Levi Maia\.claude\projects\C--Users-Levi-Maia\memory\
   login **Cognito** com `se_credentials.txt`. API interna (não a oficial).
 - Só tem visão de **strings** (sem ETM/trackers). Corrente "ativa" = potência > 0.
 
-### 4.6 2C / E-mail (Owen) — `owen` (cliente: 2C, 4 UFVs)
+### 4.6 2C — `owen` (cliente: 2C, 4 UFVs + União)
+- **Desde 03/10/2026 tudo pela API PV** (conta oem@): tempo real, trackers e o que lia o acervo do e-mail (falhas, Perdas →
+  strings, correlação) — `_2c_strings_dia_api`, com as chaves do antigo acervo. O que segue abaixo é o histórico do e-mail.
 - **UFVs:** `OWEN_UFVS = {ARA: Araputanga, IPX: Ipixuna do Pará, STL: Sete Lagoas, TUP: Tupi Paulista}` — nomes do cadastro (Info Geral); no Fracttal a STL chama-se "Sete Lagoas 2".
 - **Origem:** SCADA envia CSVs por e-mail em 4 janelas/dia (9/12/15/18h). O `app_gridco.py`
   (Gmail OAuth) baixa para `Desktop\Projetos e-mail\{ETM,Strings,Trackers}\`.

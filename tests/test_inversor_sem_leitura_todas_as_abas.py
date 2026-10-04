@@ -272,42 +272,4 @@ def test_banco_sem_sol_nada_muda(banco, monkeypatch):
     assert r["inv_desligados"] == 0 and r["str_esp"] == 12
 
 
-# ── 2C do e-mail ──────────────────────────────────────────────────────────────
 
-@pytest.fixture
-def ufv_2c(monkeypatch):
-    u, ts = "TSTSL", datetime(2026, 9, 25, 11, 0)
-    data = {u: {inv: {str(s): (ts, 8.0) for s in range(1, 5)} for inv in ("1.1", "1.2")}}      # o 1.3 não veio
-    monkeypatch.setattr(app, "_owen_strings_build", lambda force=False: data)
-    monkeypatch.setattr(app, "OWEN_UFVS", {u: "Usina 2C Sem Leitura"})
-    monkeypatch.setitem(app.ESPERADO_INV, u, {app._owen_inv_tag(u, i): 4 for i in ("1.1", "1.2", "1.3")})
-    monkeypatch.setitem(app.EQUIP_NAMES, u, {app._owen_inv_tag(u, i): f"Inversor {i}" for i in ("1.1", "1.2", "1.3")})
-    monkeypatch.setattr(app, "_macro_eh_dia", lambda r: True)
-    monkeypatch.setattr(app, "DASH_PASSWORD", "")
-    return u
-
-
-def test_2c_email_inversor_do_cadastro_que_nao_veio_sai_da_conta(ufv_2c):
-    r = next(x for x in app._owen_strings_rows() if x["plant_id"] == ufv_2c)
-    assert r["inv_desligados"] == 1 and r["strings_fora"] == 4 and r["inv_desligados_nomes"] == ["Inversor 1.3"]
-    assert r["str_esp"] == 8 and r["strings_ativas"] == 8 and r["diferenca"] == 0, "era −4"
-
-
-def test_2c_email_drill_continua_listando_o_que_nao_reportou_fora_da_conta(ufv_2c):
-    """A ausência continua aparecendo (Ipixuna, 22/07), agora como na linha: fora da conta, sem diferença."""
-    invs = {i["nome"]: i for i in app.app.test_client().get(f"/api/owen/strings/plant/{ufv_2c}").get_json()["inversores"]}
-    assert invs["Inversor 1.3"]["fora_da_conta"] is True and invs["Inversor 1.3"]["diferenca"] is None
-    assert invs["Inversor 1.3"]["desligado"] is True
-
-
-def test_2c_email_nome_que_nao_casa_nao_vira_desligado(ufv_2c, monkeypatch):
-    """Cadastro com outra grafia: a conta não fecha (faltariam 3, só 1 não veio) e ninguém é dado por desligado."""
-    monkeypatch.setitem(app.ESPERADO_INV, ufv_2c, {f"{ufv_2c}-INV{i}": 4 for i in (1, 2, 3)})
-    r = next(x for x in app._owen_strings_rows() if x["plant_id"] == ufv_2c)
-    assert r["inv_desligados"] == 0 and r["str_esp"] == 12
-
-
-def test_2c_email_sem_sol_nada_muda(ufv_2c, monkeypatch):
-    monkeypatch.setattr(app, "_macro_eh_dia", lambda r: False)
-    r = next(x for x in app._owen_strings_rows() if x["plant_id"] == ufv_2c)
-    assert r["inv_desligados"] == 0 and r["str_esp"] == 12

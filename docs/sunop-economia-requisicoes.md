@@ -1,14 +1,15 @@
 # Economia de requisições na API da SunOp
 
 Como a plataforma passou a caber (ou tenta caber) na cota da SunOp, o que foi cortado, por quê e o que foi medido
-antes e depois. Atualizado em 01/10/2026.
+antes e depois. Atualizado em 04/10/2026.
 
 ## A cota
 
 - **100.000 requisições por mês** na conta da Athon (plano `settings-default`). Acima disso, **US$ 0,0005 por
   requisição**.
 - Para caber, o teto é de **~3.300 por dia** (~140 por hora), somando o servidor e o PC do Levi.
-- A Axis é outra conta da SunOp e não gasta esta cota.
+- A Axis é outra conta da SunOp e não gasta esta cota. Mas, por decisão do Levi (04/10), ela entra no teto de
+  3.000 por dia da plataforma (ver abaixo).
 
 ### Onde medir
 
@@ -90,10 +91,28 @@ Os cortes tiraram ~15%. A curva de tracker sozinha era ~86% do que sobrou, e o P
   01/07 a 30/09 (TIM100 em 31/07: 38). Ela entrou no ar por engano às 10:10 de 01/10, num commit de outra sessão
   (1302d77). Foi trocada por esta antes de qualquer decisão sobre o que a aba mostra.
 
-**Esperado depois do deploy:** a curva de tracker volta ao que o ciclo pede. São ~4 POSTs por volta: no servidor a
-cada 10 min (~600 por dia); no PC uma vez por hora (~100 por dia). Cada reinício soma uma carga única de ~370
-(92 dias × ~4) até o cache das Ocorrências encher. **Medir no extrato de 02/10 (UTC) e no `/api/sunop/uso` das
-duas máquinas.**
+**Medido depois do deploy (2a492b1, no ar 10:41 de 01/10, contador da plataforma):**
+
+| | Curva de tracker, 30/09 | Curva de tracker, 10:41–12:02 | Nossa cota, 12:03–12:18 |
+|---|---|---|---|
+| Servidor | ~363/h | 62/h (~24/h depois da 1ª passada do aquecimento) | **156/h** |
+| PC (ronda) | ~389/h | 7/h | **48/h** (10:41–12:02) |
+
+Juntos dão ~4,9 mil por dia nesse ritmo, contra ~22,6 mil antes (−78%). Ainda fica acima do teto de ~3,3 mil.
+Falta confirmar no extrato oficial de 02/10 (UTC).
+
+O que sobra no servidor (12:03–12:18, por hora):
+
+| Tipo | Por hora |
+|---|---|
+| Curva de string (`analog_values:str`) | 96 |
+| Status de string (`last_values:str`) | 28 |
+| Curva de tracker | 16 |
+| Configuração (`cfg:*`) | 12 |
+| ETM (`last_values:etm`) | 4 |
+
+A Axis (outra conta) gastou mais 144/h, quase tudo renovando o token: `refresh_token` e `check_token` 48/h cada.
+O `/plants` da Axis responde "Invalid credentials".
 
 ### Achado no caminho: um teste gravava no acervo do PC
 
@@ -107,14 +126,71 @@ Desde 01/10 o `conftest.py` isola todos os arquivos de estado que a plataforma g
 desliga o despejo do contador da SunOp nos testes. `tests/test_isolamento_estado.py` confere a lista contra o
 `app.py`.
 
+## Teto de 3.000 por dia e domingo sem SunOp (04/10/2026)
+
+Levi: "temos como limitar em 3000 requisições por dia e domingo não faz requisições?". Respostas dele: domingo, só a
+ronda busca; a Axis entra no teto; passou do teto, só a ronda.
+
+- **Domingo**: nenhuma requisição à SunOp, Athon e Axis. A ronda do WhatsApp (08:25 e 13:00) busca.
+- **Teto do dia, por máquina**: 2.700 no servidor e 300 no PC (`SUNOP_TETO_DIA`; o padrão sai do `SUNOP_COLETA`).
+  Cada máquina só enxerga o próprio contador, então a divisão é fixa. O dia é o de Brasília. O extrato oficial conta em
+  UTC (o dia começa às 21:00), então um dia deles não bate exato com o nosso.
+- **Passou do teto**: só a ronda busca até a meia-noite.
+- **O que conta**: tudo o que o `/api/sunop/uso` conta na máquina (os dois processos e o processo anterior ao último
+  reinício), com a Axis e o serviço de configuração.
+- **Como a pausa age**: `_sunop_pausa()` diz `None`, `"domingo"` ou `"teto"`. Ela fecha o `_sunop_req` (todo o serviço
+  de dados), a validação do token, o `/plants` e o livro de trackers (que vai só pelo banco). O prewarm nem monta as
+  abas da SunOp. A ronda abre uma janela (`_sunop_libera_ronda`) enquanto coleta, e a retentativa do mesmo horário
+  reaproveita a coleta por 10 min.
+- **A pausa não apaga dado**: a tela segura o último dado bom sem prazo (`_sunop_guarda_vazio`), e o topo do
+  Monitoramento troca o "ao vivo" por "SunOp pausada · domingo · dado de HH:MM". A Entrada fica com a última contagem.
+- **Desligar**: `SUNOP_PAUSA=0` no ambiente. Trocar o teto: `SUNOP_TETO_DIA`.
+- **Consequência conhecida**: o registro de trackers de domingo da Athon só tem o que a ronda viu. Os backfills da aba
+  de falhas pegam o domingo na segunda.
+
+### Token vencido fora da rede
+
+Medido no `/api/sunop/uso` de 03/10, o servidor gastou 3.011 da Athon e 2.315 da Axis. Da Axis, tudo era recusa:
+
+| Chave (servidor, 03/10) | Requisições | Por quê |
+|---|---|---|
+| `axis:cfg:check_token` + `axis:cfg:refresh_token` | 1.545 | Token web da Axis vencido desde 17/07 |
+| `axis:cfg:plants` + `axis:metadata` | 770 | `/plants` e o catálogo recusados, a cada chamada |
+| `cfg:check_token` + `cfg:refresh_token` + `cfg:plants` (Athon) | 542 | Token web da Athon vencido desde 23/07 |
+
+Com o `exp` no passado, o check, o refresh e o `/plants` recusam sempre. Agora `get_sunop_token` não vai à rede: só
+adota um token colado pela tela. O `/plants` vai direto à lista do serviço de dados (em disco, 24 h). E a Axis, sem
+token de API e com o web vencido, não chama o serviço de dados.
+
+O token de 24 h da Axis renovava a cada chamada, porque "vence em menos de 2 dias" era sempre verdade. Agora ele
+renova na metade da vida. Isso só vale quando alguém colar um token novo da Axis.
+
+**A Axis não traz dado desde julho.** Ela não tem token de API e o web venceu. Para voltar, é preciso gerar o token
+de API na interface da Axis e guardar como `AXIS_API_TOKEN` no `tokens.txt` (a tela `/tokens` diz o mesmo).
+
+## Para não repetir
+
+1. **Dia fechado sem dado na fonte é resultado, não pendência.** Usina sem curva num dia passado não pode deixar o
+   dia "incompleto". Dia incompleto volta a ser buscado, e o que não existe na fonte nunca chega. Foi o caso da MTS100.
+2. **Laço que refaz dia passado tem teto.** Toda volta que reprocessa dias antigos precisa de um limite de tentativas
+   por dia e de um registro do que pulou. Tentar de novo na próxima hora, para sempre, é vazamento.
+3. **Curva da SunOp vai em lote, nunca usina por usina dentro de um laço de dias.** Usar `_sunop_trk_curvas_varias`
+   (trackers) e `_sunop_str_hist_varias` (strings).
+4. **Medir depois de cada mudança que toca a SunOp.** Olhar o `/api/sunop/uso` das duas máquinas por 1 h, contra o
+   teto de ~140/h. Em 29/09 o corte foi dado por bom pela estimativa, e o extrato de 30/09 mostrou que não era.
+5. **Teste não grava arquivo de estado.** O `conftest.py` isola todos (`ARQUIVOS_DE_ESTADO`).
+6. **Credencial vencida não vai à rede.** Token com `exp` no passado é recusa certa. Bater nele a cada ciclo
+   custou ~2.850 requisições por dia de 17/07 a 04/10 sem trazer nada.
+
 ## O que ainda gasta e os próximos cortes
 
 | Onde | Situação | Corte possível |
 |---|---|---|
-| **Ronda do WhatsApp com o serviço fora** | Em 01/10, a ronda das 08:25 ficou "aguardando QR". O laço tentou de novo 24 vezes em 2 h, e cada tentativa refaz a ronda com `force` (rebaixa as curvas: ~4 POSTs por vez) | Na retentativa, aproveitar a ronda já calculada, em vez de `force` |
+| **Ronda do WhatsApp com o serviço fora** | Feito em 04/10: a retentativa do mesmo horário reaproveita a coleta por 10 min | — |
 | **Reinícios e deploys** | Cada reinício busca a curva cheia do dia e recarrega as Ocorrências do mês até o cache encher | Guardar o cache das Ocorrências (dias fechados) no snapshot |
 | **Gêmeo do servidor vazio** | No servidor a curva nunca vem do acervo do gêmeo (FASE 4): tudo vai à SunOp | Pôr o gêmeo do servidor para ingerir (o do PC foi desligado em 30/09 para o corte) |
-| **Strings no servidor** | ~1.500 por dia (`last_values:str` + `analog_values:str`) em 30/09 | Medir depois do corte de 01/10 antes de mexer |
+| **Curva de string no servidor** | 96/h (~2,3 mil por dia) em 01/10 12:03–12:18, o maior item que sobrou | Achar quem pede (strings da tabela, curva do dia, backfill da Falhas) e juntar ou espaçar |
+| **Token da Axis** | Feito em 04/10: token vencido fora da rede. A Axis está sem dado desde julho | Gerar o token de API da Axis |
 
 ## Como conferir
 

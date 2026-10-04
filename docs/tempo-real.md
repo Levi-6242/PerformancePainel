@@ -179,7 +179,6 @@ recebe requisição, então sem isso nunca relia o cadastro (19/08: "98 contra 8
 | `_inv_padrao_loop` | 1 h | padrão por inversor |
 | `_qualidade_loop` | 1 h | clipping e valor travado |
 | `_tranc_watch_loop` | 20 s | relê as strings trancadas |
-| `_owen_loop` | 10 min | junta os CSVs da 2C no acervo do dia |
 | `_bd_api_loop` | 30 min | espelho das planilhas (cadastro, tickets) |
 | `_frac_disp_loop` | 30 min | índice de OS do Fracttal (religamento, OS em inversor) |
 | `_sunop_keepalive_loop` | 6 h | renova os tokens web da SunOp |
@@ -269,16 +268,16 @@ de comunicação da RenoGrid e da 2C e-mail na tabela.
   andamento é descartado**, então a última leitura fica ~15 min atrás de propósito (25/09: com o quarto aberto, a
   Colíder 1 mostrava 21 inversores "desligados"). String que não voltou na resposta é limitação da API, não string morta.
   O carimbo vem em UTC (`…Z`).
-- **`owen`** — o SCADA da 2C manda CSV por e-mail em janelas de ~3 h; um baixador externo grava as pastas e o
-  `_owen_loop` junta no acervo do dia. **Desde 29/09/2026 a tabela de strings, a ETM, a aba de trackers, o macro e o sino
+- **`owen`** — a 2C. Até 29/09/2026 o SCADA mandava CSV por e-mail em janelas de ~3 h (um baixador do Gmail gravava
+  as pastas e o `_owen_loop` juntava no acervo do dia); **o e-mail saiu do código em 03/10/2026**. **Desde 29/09/2026 a tabela de strings, a ETM, a aba de trackers, o macro e o sino
   da 2C leem só a API PV** (`_2c_linhas_api`): a Ipixuna do Pará entrou na conta oem@ como Santa Cecilia 1, 2 e 3 (uma
   planta por UG; o USINA_GRUPO as junta no macro) e o Levi mandou "matar de vez o e-mail no tempo real". **Desde 30/09
   os trackers também**: a análise da 2C é a de sempre, com os nomes do e-mail ("Tracker 2.10", os dos tickets e do
   registro), e o dado é o da API pelo de-para de tracker fechado pela curva (`_2C_TRK_FAIXAS`, `_2c_trk_build_api`):
   aba, parados da Entrada e da ronda, frota parada, ocorrências, disponibilidade, App de Campo e a curva que o gêmeo
-  lê. Dia anterior a 30/09 segue o histórico do e-mail. Seguem pelo acervo do e-mail só Perdas e relatório (strings) e
-  a correlação. A Curva das strings (tela e CSV) de usina com id numérico vai à API PV (`/api/spv/usina/<id>`), como
-  o drill; o código do e-mail (ARA, IPX…) segue no histórico dele.
+  lê — desde 03/10 também os dias anteriores a 30/09. A aba de falhas, Perdas → strings e a correlação leem a API pelo
+  `_2c_strings_dia_api`, com as chaves do antigo acervo (código, "U.N", string k). A Curva das strings (tela e CSV) de
+  usina com id numérico vai à API PV (`/api/spv/usina/<id>`), como o drill; o código do e-mail não tem mais curva.
 - **`semp`, `alveslima`, `2capi`** — conta oem@ da API PV, escolhida por `_pv_token_for`. A oem@ nega o `plant_devices`,
   então não há nome de inversor pela API: a 2C usa o de-para `PV_INV_NOMES`, fechado **pelo kWh diário** (nunca pela
   ordem dos ids), com uma exceção provisória, a União, que está pela ordem; SEMP e Alves Lima nomeiam por posição. As

@@ -85,7 +85,6 @@ def _rollup_so_com(monkeypatch, api_rows):
         monkeypatch.setattr(app, nome, dict(vazio))
     monkeypatch.setattr(app, "_pg_get_snapshot", lambda force=False: ([], None))
     monkeypatch.setattr(app, "_macro_sol_baixo", lambda r: False)          # de dia: string a zero conta
-    monkeypatch.setattr(app, "_owen_strings_rows", _email_proibido)
     monkeypatch.setattr(app, "_2capi_cache", {"payload": {"rows": api_rows}})
     us = {u["usina"]: u for u in app._portfolio_rollup()}
     return us["Araputanga"]

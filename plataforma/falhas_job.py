@@ -7,7 +7,7 @@ o estudo e a aba usarem a MESMA conta. O worker chama `montar()` e grava o pacot
 Entradas (o chamador entrega; aqui nada vai à rede):
 - quedas de string gravadas (`perdas_strings.json`) e, onde houver, a régua nova sobre a curva (`falhas_strings.json`,
   de 24/09 em diante) — por usina-dia, a régua nova vence;
-- curva do 2C (2C_historico, em disco) com a régua nova para todos os dias;
+- curva do 2C (API PV pelo app._2c_hist_api; até 03/10/2026, o 2C_historico do e-mail) com a régua nova para todos os dias;
 - episódios de tracker (`trk_eventos.json`) e o book de paradas (crônicos);
 - cadastro: Equipamentos e Info Geral (kWp, strings ativas, cliente), BD_Trackers (tracker → inversor);
 - travas de string (ufv_state), o de-para de inversor da API PV e a geração diária do mês (o juiz do kWh/kWp).
@@ -21,6 +21,7 @@ Réguas (pedidos do Levi, 24/09):
 - perda: kWp do equipamento × kWh/kWp real do dia × fração da energia do dia no episódio (strings, pela altura do
   sol) ou das horas solares (trackers, × 1 − cos do desvio de pico).
 """
+import hashlib
 import json
 import math
 import os
@@ -100,6 +101,50 @@ def _fim_do_dia(dia):
 FONTE_ROT = {"pv": "API PV", "pvsb": "API PV · String Box", "pg": "Banco", "sunop": "Athon", "axis": "Axis", "owen": "2C",
              "solaredge": "RenoGrid"}
 _CACHE_2C = {}                # dia fechado → (marca das travas, [(cod, usina, strings sem corrente)])
+_CACHE_2C_ARQ = {"path": None}  # de qual arquivo (app._FALHAS_2C_PATH) o _CACHE_2C foi carregado
+CACHE_2C_DIAS = 70              # o mês e o anterior (remontado até o dia 2), com folga
+
+
+def _marca_trancadas(tranc) -> str:
+    """Marca das travas que vale entre processos: o hash() de um frozenset muda a cada processo (PYTHONHASHSEED)."""
+    return hashlib.sha1("\n".join(sorted(map(str, tranc))).encode("utf-8")).hexdigest()
+
+
+def _cache_2c_carrega(app):
+    """O achado dos dias fechados da 2C sai do disco (04/10/2026). Desde que o e-mail saiu do código, o dia passado da 2C
+    é ~25 consultas da cota histórica da API PV (1 por planta, 20 só da Tupi Paulista) e o cache vivia na memória do
+    worker: cada reinício — cada deploy — pediria o mês inteiro de novo (no fim do mês, ~750, contra 800 por dia)."""
+    path = getattr(app, "_FALHAS_2C_PATH", None)
+    if not path or _CACHE_2C_ARQ["path"] == path:
+        return
+    _CACHE_2C_ARQ["path"] = path
+    try:
+        with open(path, encoding="utf-8") as f:
+            disco = json.load(f) or {}
+    except Exception:                  # noqa: BLE001 — sem arquivo: o normal na primeira vez
+        disco = {}
+    _CACHE_2C.clear()
+    for dia, ent in disco.items():
+        try:
+            marca, lst = ent
+            _CACHE_2C[dia] = (marca, [tuple(x) for x in lst])
+        except (TypeError, ValueError):
+            continue
+
+
+def _cache_2c_grava(app, log=print):
+    path = getattr(app, "_FALHAS_2C_PATH", None)
+    if not path:
+        return
+    for dia in sorted(_CACHE_2C)[:-CACHE_2C_DIAS]:
+        _CACHE_2C.pop(dia, None)
+    try:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({d: [m, lst] for d, (m, lst) in _CACHE_2C.items()}, f, ensure_ascii=False)
+        os.replace(tmp, path)
+    except Exception as e:             # noqa: BLE001 — sem gravar, o dia volta a ser pedido no próximo reinício
+        log(f"[falhas] 2C: não gravei o achado dos dias fechados ({type(e).__name__}: {e})")
 
 
 def _hm(s):
@@ -150,7 +195,8 @@ def chave_semcom(usina, tracker):
 def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_store=None, trk_store=None,
            book=None, hist_2c=None, agora=None, abertos_antes=None, desconsideradas=None, trk_semcom=None, log=print):
     """Pacote {periodo, gerado_em, strings, trackers, regua} de [ini, fim] (AAAA-MM-DD, fim incluso).
-    hist_2c(dia) → {"strings": {cod: {inv: {string: serie}}}} (padrão: app._hist_build, o 2C_historico em disco).
+    hist_2c(dia) → {"strings": {cod: {inv: {string: serie}}}} (padrão: app._2c_hist_api, a API PV com as chaves do
+    antigo acervo do e-mail — o e-mail da 2C saiu do código em 03/10/2026).
     desconsideradas = {"strings": {chave_str}, "trackers": {chave_trk}}: ocorrência que o analista tirou da conta
     (Levi, 30/09/2026 — strings da MAB200 que caíram com os trackers parados): sai dos episódios, da visão por inversor
     × dia e dos totais, e vai para `desconsideradas`, para a tela poder devolver.
@@ -482,15 +528,17 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
             return app._str_key(pid, inv_raw, string) in TRANC
         return False
 
-    # 2C: a curva mora em disco (2C_historico) — régua nova em todos os dias. Dia fechado não muda: guarda o achado
-    # (com a marca das travas, que podem mudar) e o ciclo seguinte do worker não relê 24 dias de arquivo.
-    marca = hash(frozenset(TRANC))
-    dias_2c = {}
+    # 2C: a curva vem da API PV (app._2c_hist_api, as chaves do antigo e-mail) — régua nova em todos os dias. Dia
+    # fechado não muda: guarda o achado (com a marca das travas, que podem mudar) e o ciclo seguinte do worker não
+    # pede o mês de novo. API fora levanta: o dia não é guardado e volta no ciclo seguinte.
+    _cache_2c_carrega(app)
+    marca = _marca_trancadas(TRANC)
+    dias_2c, novos_2c = {}, False
     for dia in _dias_entre(ini, fim):
         ach = _CACHE_2C.get(dia)
         if ach is None or ach[0] != marca or dia >= hoje:
             try:
-                data = (hist_2c or app._hist_build)(dia).get("strings", {})
+                data = (hist_2c or app._2c_hist_api)(dia).get("strings", {})
             except Exception as e:
                 log(f"[falhas] 2C {dia}: {e}")
                 continue
@@ -505,7 +553,10 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
             ach = (marca, lst)
             if dia < hoje:
                 _CACHE_2C[dia] = ach
+                novos_2c = True
         dias_2c[dia] = ach[1]
+    if novos_2c:
+        _cache_2c_grava(app, log)
 
     # ENTRADA VAZIA (27/09/2026). O cruzamento com as OS mostrou que Ipv29 a Ipv32 eram 41% dos episódios e 55% do kWh
     # de setembro: entradas sem string ligada (0 A cravado o dia inteiro: Santana do Ipanema 1.13, Guatambu 4.6),
@@ -601,7 +652,7 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                 le_curva(fonte_h, pid_h, ent_h.get("usina") or pid_h, ent_h)
     for dia_h, lst in dias_2c.items():
         for u, usina, res in lst:
-            le_curva("owen", u, usina, res)       # o 2C sempre tem as vivas (a curva vem do disco): não conta nos dias
+            le_curva("owen", u, usina, res)       # o 2C sempre tem as vivas (a curva do dia inteiro): não conta nos dias
     VAZIAS, vazias_info = set(), []
     for k, n_zero in zero_dias.items():
         ci = curva_inv.get(k[:3])
@@ -704,7 +755,7 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                         sombra_falha.add((fonte, str(pid), dia, x.get("inversor"), x.get("string"), x.get("saiu")))
                         add_seg(fonte, pid, ent.get("usina") or pid, dia, x["inversor"], x["string"], _hm(x["saiu"]),
                                 None, "curva", flag=FLAG_DEVAGAR)
-    # 2C: a régua nova já rodou acima (dias_2c), com a curva do 2C_historico
+    # 2C: a régua nova já rodou acima (dias_2c), com a curva da API PV
     for dia, lst in dias_2c.items():
         for u, usina, res in lst:
             dias_fonte["owen"].add(dia)

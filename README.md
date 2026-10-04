@@ -65,7 +65,7 @@ Copie `.env.example` → `.env` e preencha. **Tudo é opcional**: cada integraç
 | `SE_COGNITO_CLIENT` / `SE_COGNITO_POOL` | IDs do pool Cognito do SolarEdge. **Têm default no código** (só sobrescrever se mudarem). | Não | SolarEdge | Raro |
 | `FRACTTAL_CLIENT_ID` / `FRACTTAL_CLIENT_SECRET` | OAuth2 client_credentials do Fracttal (CMMS / OS). | Sim | Painel Fracttal | Estática |
 | `SUNOP_SAMPLE_INTERVAL` | (opcional) intervalo do amostrador ETM SunOp (s). Default 300. | Não | — | — |
-| `BD_PERF_PATH` / `BD_THOPEN_PATH` / `TICKETS_PATH` / `OWEN_ROOT` | (opcional) overrides de caminho local p/ as planilhas e a raiz dos CSVs 2C. | Não | — | — |
+| `BD_PERF_PATH` / `BD_THOPEN_PATH` / `TICKETS_PATH` | (opcional) overrides de caminho local p/ as planilhas. | Não | — | — |
 | `FRACTTAL_BASE_URL` / `FRACTTAL_ID_*` / `FRACTTAL_TOKEN` / `FRACTTAL_LOGIN_JWT` | (opcional) overrides do Fracttal; têm default no código. | Parcial | — | — |
 
 ## Como rodar (resumo)
@@ -94,7 +94,7 @@ python app.py
 | **SunOp Athon** (gridco, 10 GD) | `https://gridco-api.sunop.net/api` + `/data` | `Authorization: JWT <token>` | token funcional tem claim `sub` numérico + `is_admin` (sub="Levi" é rejeitado/401) |
 | **SunOp Axis** (2ª instância: PE III, Ponto Belo) | `https://axis.sunop.net` | `Authorization: JWT <token>` (~24h) | mesma API do Athon, conta separada |
 | **SolarEdge** (RenoGrid, 7 UFVs) | `https://monitoring.solaredge.com` | **AWS Cognito** (pool `eu-central-1_fVUTz39em`) → cookie em `tokens_runtime.json` (`se_cookie`) | API interna (não a oficial); só strings |
-| **2C / Email** (Owen, 4 UFVs) | — (sem API) | — | lê CSVs de `OWEN_ROOT` (baixados por projeto Gmail separado) → `owen_accum.json` |
+| **2C** (ARA, IPX, STL, TUP + União) | API PV (conta oem@) | a mesma da API PV (`_pv_token_for`) | tudo pela API desde 03/10/2026; o e-mail (CSVs do Gmail) saiu do código |
 | **Fracttal** (CMMS / OS) | `https://app.fracttal.com` | **OAuth2 client_credentials** (`FRACTTAL_CLIENT_ID/SECRET`) | leitura REST de work_orders; rate limit ~200/min (cacheado) |
 
 > **NÃO há integração Microsoft Graph / SharePoint API.** As planilhas Excel (`BD_Performance.xlsx`, `Check Diário`, `BD_Thopen.xlsx`) chegam por **sincronização de arquivo do OneDrive/SharePoint** (cliente desktop), não por API. O app só lê os arquivos do disco.
@@ -103,7 +103,6 @@ python app.py
 Iniciadas no `__main__` (só com `python app.py`). Todas são **falha-silenciosa** (try/except + `continue`; logam em stdout, nunca derrubam o servidor):
 | Thread | O que faz | Frequência |
 |---|---|---|
-| `_owen_loop` | Mescla os CSVs 2C no acervo do dia (`owen_accum.json`) antes do próximo e-mail sobrescrever | **10 min** |
 | `_sunop_keepalive_loop` | Renova os tokens SunOp gridco/axis (`/refresh_token`) — nunca precisa colar token manual com o server de pé | **6 h** |
 | `_prewarm_loop` | Reaquece `/api/data` + todos os caches por fonte antes de expirarem (rede de segurança do SWR) | **~4,5 min** (`CACHE_TTL`−30) |
 | `_persist_loop` | Salva `cache_snapshot.json` quando algo mudou (dirty flag) | **1 min** |

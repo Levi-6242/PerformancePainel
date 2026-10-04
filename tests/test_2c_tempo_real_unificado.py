@@ -65,8 +65,6 @@ def test_de_para_casa_com_a_grafia_do_cadastro():
 
 
 def test_tabela_de_strings_so_le_a_api(cli, monkeypatch):
-    monkeypatch.setattr(app, "_owen_strings_rows", _email_proibido)
-    monkeypatch.setattr(app, "_owen_strings_build", _email_proibido)
     monkeypatch.setattr(app, "_2capi_cache", {"payload": {"rows": [
         _api("Santa Cecilia 1", SC1), _api("Santa Cecilia 2", SC2, qtd_inversores=6, strings_ativas=105, str_esp=105),
         _api("Araputanga", 18771898, qtd_inversores=10, strings_ativas=236, str_esp=236)]}, "ts": 0.0})
@@ -90,7 +88,6 @@ def test_tabela_de_strings_da_2c_diz_a_hora_do_pacote_e_se_venceu(cli, monkeypat
 
 
 def test_sem_cache_da_api_a_tabela_fica_vazia_e_nao_cai_no_email(cli, monkeypatch):
-    monkeypatch.setattr(app, "_owen_strings_rows", _email_proibido)
     monkeypatch.setattr(app, "_2capi_cache", {"payload": None, "ts": 0.0})
     d = cli.get("/api/owen/strings/data").get_json()
     assert d["rows"] == [] and d["summary"]["total_usinas"] == 0
@@ -104,7 +101,6 @@ def test_drill_de_usina_da_api_delega_ao_motor_da_api_pv(cli, monkeypatch):
 
 
 def test_etm_so_da_estacao_da_api(cli, monkeypatch):
-    monkeypatch.setattr(app, "_owen_etm_build", _email_proibido)
     linha = lambda u, pid, sev: {"usina": u, "plant_id": pid, "severidade": sev, "flags": [], "sensores": {},
                                  "spark": {"labels": [], "poa": [], "ghi": []}, "sem_dados": False, "sem_curva": False}
     monkeypatch.setattr(app, "_2capi_etm_analise_cache", {"payload": {"rows": [
@@ -123,11 +119,6 @@ def _dia_api(monkeypatch, curvas, alvos=None):
         return {"curva": pts(curvas), "alvo": pts(alvos or {}), "ultima": {}, "ultima_ts": None}
     monkeypatch.setattr(app, "_pv_trk_dia", falso)
     app._2c_trk_api_memo.clear()
-
-
-def _email_de_tracker_proibido(monkeypatch):
-    monkeypatch.setattr(app, "_owen_refresh", _email_proibido)       # o acervo do dia (CSV do e-mail)
-    monkeypatch.setattr(app, "_hist_build", _email_proibido)         # o banco-por-dia do e-mail (2C_historico)
 
 
 def test_de_para_de_tracker_fechado_pela_curva():
@@ -150,7 +141,6 @@ def test_de_para_de_tracker_fechado_pela_curva():
 
 def test_trackers_de_hoje_vem_da_api_com_o_nome_do_email(monkeypatch, freeze_now):
     freeze_now("2026-09-30 11:00:00")
-    _email_de_tracker_proibido(monkeypatch)
     _dia_api(monkeypatch, {SC3: {"TRK38": [("10:00", 12.0), ("10:05", 12.0)], "TRK1": [("10:00", 30.5)]},
                            18750925: {"TRK49": [("10:00", 28.0)]}, SC1: {"TRK50": [("10:00", 1.0)]}},
              alvos={SC3: {"TRK38": [("10:00", 31.0), ("10:05", 32.5)]}})
@@ -161,17 +151,8 @@ def test_trackers_de_hoje_vem_da_api_com_o_nome_do_email(monkeypatch, freeze_now
     assert t["IPX"]["2.36"]["alvo"] == []                                  # sem alvo na leitura: lista vazia, não inventa
 
 
-def test_dia_antes_da_troca_segue_o_historico_do_email(monkeypatch, freeze_now):
-    """O registro dos dias até 29/09 é o do e-mail: refazer um dia antigo não pode trocar a fonte do histórico."""
-    freeze_now("2026-09-30 11:00:00")
-    monkeypatch.setattr(app, "_pv_trk_dia", _email_proibido)
-    monkeypatch.setattr(app, "_hist_build", lambda date: {"trackers": {"ARA": {"1.5": {"atual": [], "alvo": []}}}})
-    assert app._owen_trackers_build(date="2026-09-28") == {"ARA": {"1.5": {"atual": [], "alvo": []}}}
-
-
 def test_aba_de_trackers_da_2c_pela_api(cli, monkeypatch, freeze_now):
     freeze_now("2026-09-30 11:00:00")
-    _email_de_tracker_proibido(monkeypatch)
     monkeypatch.setattr(app, "_owen_disp_hoje", lambda: {"IPX": 99.0})     # não grava o registro de verdade
     gira = [(f"{h:02d}:{m:02d}", -40.0 + (h - 6) * 7 + m / 10) for h in range(6, 11) for m in (0, 30)]
     _dia_api(monkeypatch, {SC1: {"TRK1": gira, "TRK2": gira}, SC2: {"TRK1": gira}})
@@ -361,15 +342,14 @@ def test_curva_das_strings_da_2c_com_id_da_api_vem_da_api_pv():
                     " sc1:RD.curvaView['owen|18771915|2026-09-30'].map(i=>[i.nome,Object.keys(i.curva)]),"
                     " ara:RD.curvaView['owen|ARA|2026-09-30'].map(i=>i.nome)})); })();")
     assert r["urls"] == ["/api/spv/usina/18771915?full=1&data=30/09/2026",
-                         "/api/2c/2026-09-30/strings/ARA",                    # código do e-mail: o histórico de sempre
                          "/api/spv/usina/18750001?full=1&data=30/09/2026"]    # a SEMP nem tinha ramo
+    # o código do e-mail (ARA) não tem mais curva: o e-mail da 2C saiu do código em 03/10/2026
     assert r["sc1"] == [["INVERSOR0 1.1", ["ST 01"]]]
-    assert r["ara"] == ["Inversor 1.1"]
+    assert r["ara"] == []
 
 
 def test_csv_da_curva_da_2c_com_id_da_api(monkeypatch):
     hoje = app.datetime.now().strftime("%Y-%m-%d")
-    monkeypatch.setattr(app, "_hist_build", _email_proibido)
     monkeypatch.setattr(app, "_pv_token_for", lambda pid: "t")
     monkeypatch.setattr(app, "get_token", lambda *a, **k: "t")
     monkeypatch.setattr(app, "get_plants", lambda *a, **k: [{"id": SC1, "nome": "Santa Cecilia 1"}])

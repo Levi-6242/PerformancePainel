@@ -174,7 +174,6 @@ def servidor(monkeypatch):
               app._si("gridco")["cache"], app._si("axis")["cache"]):
         fresco(c)
     monkeypatch.setattr(app, "_pg_get_snapshot", lambda force=False: ([_linha("MAB100"), _linha("MRO100")], {}))
-    monkeypatch.setattr(app, "_owen_strings_rows", lambda force=False: [_linha("MAB100"), _linha("MRO100")])
     app.app.config["TESTING"] = True
     with app.app.test_client() as c:
         yield c

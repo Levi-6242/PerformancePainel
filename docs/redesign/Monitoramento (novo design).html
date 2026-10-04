@@ -348,19 +348,12 @@ async function loadCurva(pid,invId,nome,refazer){   // curva corrente-por-string
   if(_ehApiPv(sk,pid)) url='/api/spv/usina/'+encodeURIComponent(pid)+'?full=1&data='+br;    // PV e SEMP: mesma API PV (id global) — o SEMP não tinha ramo NENHUM e a curva ficava eternamente "sem corrente" (Tucano, 06/08)
   else if(sk==='pg') url='/api/pg/curva/'+encodeURIComponent(pid)+'?data='+iso;
   else if(sk==='sunop'||sk==='axis') url='/api/'+sk+'/curva/'+encodeURIComponent(pid)+'?inv='+encodeURIComponent(invId)+'&data='+iso;
-  else if(sk==='owen') url='/api/2c/'+iso+'/strings/'+encodeURIComponent(pid);                       // 2C: curva de corrente por string (5 min) do banco-por-dia (hoje = pastas ao vivo)
   else if(sk==='solaredge') url='/api/solaredge/curva/'+encodeURIComponent(pid)+'?inv='+encodeURIComponent(invId)+'&data='+iso;   // RenoGrid: POTÊNCIA (W) por string, o generate-chart do portal (25/09/2026)
   if(!url){ RD.curva[key]={}; render(); return; }
   try{
     const d=await fetchJSON(url); const list=d.inversores||[];
     let iv;
-    if(sk==='owen'&&!_ehApiPv(sk,pid)){                                                                                 // 2C vem como {inv,labels,strings:[{id,y}]} → normaliza p/ {curva,strings} igual às outras fontes
-      const raw=list.find(x=>String(x.inv)===String(invId))||list[0]||{};
-      const curva={}; (raw.strings||[]).forEach(s=>{ curva[String(s.id)]={x:raw.labels||[],y:s.y||[]}; });
-      iv={curva, mediana:null, strings:(raw.strings||[]).map(s=>({nome:String(s.id),sub:false,ativa:(s.y||[]).some(v=>v!=null&&v>0.5)}))};
-    }else{
-      iv=_curvaDoInversor(list,_ehApiPv(sk,pid),nome,invId,((d&&d.faltando)||[]).length);
-    }
+    iv=_curvaDoInversor(list,_ehApiPv(sk,pid),nome,invId,((d&&d.faltando)||[]).length);
     RD.curva[key]=(iv&&iv.curva)||{};
     RD.curvaMeta[key]=Object.assign(_abaixoMeta(iv),_curvaMotivo(d,list,iv,nome),{unidade:(iv&&iv.unidade)||(d&&d.unidade)||null});   // "abaixo" + mediana, POR QUE veio vazia, e a unidade (A|W)
   }catch(e){ if(!refazer){ RD.curva[key]={}; RD.curvaMeta[key]={abaixo:new Set(),erro:1}; } }   // erro MARCADO: "nao consegui buscar" != "nao houve dado"; refazendo, fica a que já estava
@@ -891,7 +884,7 @@ function _hojeBR(){ const d=_todayISO(); return d.slice(8,10)+' / '+d.slice(5,7)
 function _horaAgora(){ const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 function _dataHojeExt(){ const M=['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro']; const d=new Date(); return d.getDate()+' de '+M[d.getMonth()]+' de '+d.getFullYear(); }
 /* ── Botão "Histórico": abre a página do dia (só fontes que têm — API PV e 2C; some nas outras) ── */
-function _histLink(){ const sk=SKEY[state.source]; if(sk==='pv')return{href:'/historico-plataforma',tab:'gridco-hist-pv'}; if(sk==='owen')return{href:'/historico2c',tab:'gridco-hist2c'}; return null; }
+function _histLink(){ const sk=SKEY[state.source]; if(sk==='pv')return{href:'/historico-plataforma',tab:'gridco-hist-pv'}; return null; }
 function _histBtn(){ const h=_histLink(); return h?`<a href="${h.href}" target="${h.tab}" rel="noopener" class="btn btn-secondary" style="text-decoration:none"><i class="ph ph-clock-counter-clockwise"></i> Histórico</a>`:''; }
 function _srcNome(){ return ({'thopen-pv':'API PV Operation','thopen-db':'Banco de Dados','athon':'Athon (SunOp)','axis':'Axis','renogrid':'RenoGrid (SolarEdge)','2c':'2C (API PV Operation)','semp':'SEMP (API PV Operation)','alveslima':'Alves Lima (API PV Operation)','2capi':'2C (API PV Operation)'})[state.source]||'Fonte'; }
 /* ── Modo "Criar OS": seleciona strings SEM CORRENTE → abre o OS Creator WEB em /os/ (1 OS por inversor). Barra fixa no rodapé; some fora do modo. ── */
@@ -1046,7 +1039,6 @@ function _etmChartUrl(pid,usina,date){ const s=state.source;
   if(s==='thopen-db') return pid!=null?('/api/pg/etm/chart?plant_id='+encodeURIComponent(pid)+'&date='+date):null;
   if(s==='athon') return '/api/sunop/etm/chart?plant='+encodeURIComponent(usina)+'&date='+date;
   if(s==='axis') return '/api/axis/etm/chart?plant='+encodeURIComponent(usina)+'&date='+date;
-  if(s==='2c') return '/api/owen/etm/chart?plant='+encodeURIComponent(usina)+'&date='+date;
   return null; }   // RenoGrid: SolarEdge não expõe curva de irradiância por usina
 /* ── OS de ESTAÇÃO METEOROLÓGICA nos cards do ETM (Levi 26/08) ─────────────────────────────────
    RD.etmOS[fonte] = {usina: {cadastrada, os:[...]}} — 1 POST /api/etm/os por fonte, disparado pelo
@@ -2110,7 +2102,9 @@ function computeVals(){
   const _etmProbN=new Set((etmCardsUse||[]).filter(c=>c.prob).map(c=>c.pid||c.usina)).size;
   const _etmProbCards=(etmCardsUse||[]).filter(c=>c.prob).length;
   const _cts=RD.pv&&(RD.pv.cache_ts||(RD.pv.summary||{}).cache_ts);
-  return {lastUpdate:(_cts?String(_cts).slice(0,5):_horaAgora()),today:_dataHojeExt(),sources,views,cards,usinas,loading:RD.loading,na:RD.na,chart:getChart(),showStrings:s.view==='strings',showEtm:s.view==='etm',showTrackers:s.view==='trackers',showPr:s.view==='pr',showCurva:s.view==='curva',showGeracao:s.view==='geracao',showPerdas:s.view==='perdas',etmRows:etmRowsUse,trackerRows:trackerRowsUse,prRows:prRowsUse,curvaStrings,etmCards:etmCardsUse,etmModeCards:s.etmMode==='cards',etmModeTable:s.etmMode==='tabela',etmTabCards:segStyle(s.etmMode==='cards'),etmTabTable:segStyle(s.etmMode==='tabela'),etmProbOn:s.etmProb,etmProbN:_etmProbN,etmProbCards:_etmProbCards,etmTabProb:segStyleRed(s.etmProb),curvaLabel:'Alto Paraná 2 · Inversor 1.1 — corrente por string · 14/07/2026'};
+  // SunOp pausada (domingo / teto do dia, 04/10/2026): o dado da Athon/Axis fica parado de propósito
+  const _sp=RD.pv&&RD.pv.sunop_pausa, _spTxt={domingo:'domingo',teto:'teto do dia'}[_sp]||'';
+  return {sunopPausa:_spTxt,lastUpdate:(_cts?String(_cts).slice(0,5):_horaAgora()),today:_dataHojeExt(),sources,views,cards,usinas,loading:RD.loading,na:RD.na,chart:getChart(),showStrings:s.view==='strings',showEtm:s.view==='etm',showTrackers:s.view==='trackers',showPr:s.view==='pr',showCurva:s.view==='curva',showGeracao:s.view==='geracao',showPerdas:s.view==='perdas',etmRows:etmRowsUse,trackerRows:trackerRowsUse,prRows:prRowsUse,curvaStrings,etmCards:etmCardsUse,etmModeCards:s.etmMode==='cards',etmModeTable:s.etmMode==='tabela',etmTabCards:segStyle(s.etmMode==='cards'),etmTabTable:segStyle(s.etmMode==='tabela'),etmProbOn:s.etmProb,etmProbN:_etmProbN,etmProbCards:_etmProbCards,etmTabProb:segStyleRed(s.etmProb),curvaLabel:'Alto Paraná 2 · Inversor 1.1 — corrente por string · 14/07/2026'};
 }
 
 /* ── handlers globais ── */
@@ -2955,14 +2949,10 @@ async function loadCurvaView(pid,force){ const f=_fonte(), dia=state.curvaData||
   if(_ehApiPv(f,pid)) url='/api/spv/usina/'+encodeURIComponent(pid)+'?full=1&data='+_brData(dia);
   else if(f==='pg') url='/api/pg/curva/'+encodeURIComponent(pid)+'?data='+dia;
   else if(f==='sunop'||f==='axis') url='/api/'+f+'/curva/'+encodeURIComponent(pid)+'?data='+dia;
-  else if(f==='owen') url='/api/2c/'+dia+'/strings/'+encodeURIComponent(pid);
   else if(f==='solaredge') url='/api/solaredge/curva/'+encodeURIComponent(pid)+'?data='+dia;          // RenoGrid: potência (W) por string
   if(!url){ RD.curvaView[key]=[]; render(); return; }
   try{ const d=await fetchJSON(url); let list=d.inversores||[];
-    if(f==='owen'&&!_ehApiPv(f,pid)) list=list.map(raw=>{ const curva={}; (raw.strings||[]).forEach(s=>{curva[String(s.id)]={x:raw.labels||[],y:s.y||[]};});
-      const strings=(raw.strings||[]).map(s=>({nome:String(s.id),sub:false,ativa:(s.y||[]).some(v=>v!=null&&v>0.5)}));
-      return {nome:'Inversor '+raw.inv, curva, meta:_abaixoMeta({curva,strings}), abaixo:null, strings}; });
-    else list=list.map(iv=>({nome:iv.nome||('Inversor '+iv.id), curva:iv.curva||{}, meta:_abaixoMeta(iv), abaixo:iv.abaixo, mediana:iv.mediana, strings:iv.strings||[], unidade:iv.unidade||d.unidade||null}));
+    list=list.map(iv=>({nome:iv.nome||('Inversor '+iv.id), curva:iv.curva||{}, meta:_abaixoMeta(iv), abaixo:iv.abaixo, mediana:iv.mediana, strings:iv.strings||[], unidade:iv.unidade||d.unidade||null}));
     const _l=list.filter(iv=>iv.curva&&Object.keys(iv.curva).length);
     _l.motivo=d.motivo||null; _l.token_exp=d.token_exp||null; _l.motivo_api=d.motivo_api||null;   // POR QUE veio vazia (API PV, 28/09/2026)
     _l.faltando=(d.faltando||[]).filter(x=>x.motivo!=='sem_curva_na_fonte');            // os que faltaram por FALHA de busca
@@ -3264,7 +3254,7 @@ function render(){
         <a href="/">Início</a><a href="#" aria-current="page">Monitoramento</a><a href="#">Ronda de Trackers</a><a href="/painel" target="gridco-painel" rel="noopener">Painel</a><a href="/gerencial" target="gridco-gerencial" rel="noopener">Gerencial</a><a href="/relatorio" target="gridco-relatorio" rel="noopener">Criador de Relatório</a><a href="/tokens" target="gridco-tokens" rel="noopener" id="nav-tokens">Tokens</a><a href="/gemeo/" target="gridco-gemeo" rel="noopener" id="nav-gemeo">Gêmeo Digital</a>
         <span style="margin-left:auto;display:flex;align-items:center;gap:20px">
           <span id="gc-sino"></span>
-          <span style="display:flex;align-items:center;gap:7px;font-size:12.5px" class="text-muted"><span style="width:7px;height:7px;border-radius:50%;background:var(--color-accent);animation:gc-pulse 2.2s ease-in-out infinite"></span><span style="color:var(--color-text);font-weight:500">ao vivo</span><span>· ${v.lastUpdate}</span></span>
+          ${v.sunopPausa?`<span style="display:flex;align-items:center;gap:7px;font-size:12.5px" class="text-muted" title="Domingo e depois do teto de requisições do dia, a SunOp não é consultada (só a ronda do WhatsApp). A tela mostra o último dado bom."><span style="width:7px;height:7px;border-radius:50%;background:var(--gc-amber)"></span><span style="color:var(--gc-amber);font-weight:500">SunOp pausada · ${v.sunopPausa}</span><span>· dado de ${v.lastUpdate}</span></span>`:`<span style="display:flex;align-items:center;gap:7px;font-size:12.5px" class="text-muted"><span style="width:7px;height:7px;border-radius:50%;background:var(--color-accent);animation:gc-pulse 2.2s ease-in-out infinite"></span><span style="color:var(--color-text);font-weight:500">ao vivo</span><span>· ${v.lastUpdate}</span></span>`}
           <button class="btn btn-primary" onclick="refreshApp()"><i class="ph ph-arrows-clockwise"></i> Atualizar</button>
         </span>
       </nav>

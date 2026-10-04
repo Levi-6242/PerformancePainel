@@ -19,6 +19,7 @@ try:
     import psycopg2
 except Exception:
     psycopg2 = None
+from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote
@@ -3627,7 +3628,12 @@ def _entrada_trk_fonte(fonte: str):
         if SUNOP_COLETA != "completa":
             raise RuntimeError(f"coleta da SunOp em modo {SUNOP_COLETA} neste processo")
         rows = _entrada_trk_do_resumo(inst)
-        return rows if rows is not None else _sunop_parados_rows(inst)
+        if rows is not None:
+            return rows
+        pausa = _sunop_pausa()                   # domingo / teto do dia: fica a última contagem, "de tal hora"
+        if pausa:
+            raise RuntimeError(f"SunOp pausada ({_SUNOP_PAUSA_TXT[pausa]})")
+        return _sunop_parados_rows(inst)
     return _fn
 
 
@@ -4312,12 +4318,6 @@ def painel_usina(plant_id):
     antigo = flask_request.args.get("antigo") == "1" or (_PAINEL_USINA_PADRAO == "antigo" and flask_request.args.get("novo") != "1")
     return render_template("painel_usina.html" if antigo else "painel_usina_v2.html", plant_id=plant_id,
                            today=datetime.now().strftime("%d/%m/%Y"))
-
-
-@app.route("/historico2c")
-def historico2c():
-    # Navega o banco-por-dia do 2C (2C_historico) com curvas. Consome /api/2c/*.
-    return render_template("historico2c.html")
 
 
 @app.route("/historico-plataforma")
@@ -5057,14 +5057,39 @@ _sunop_token_ok: dict = {}              # inst -> (token, quando) da última val
 _sunop_relogio = time.time              # (os testes trocam; o resto do módulo segue no time.time)
 
 
+def _jwt_iat(tok: str) -> float:
+    """iat (epoch) de um JWT, sem validar assinatura. 0 se não der p/ ler."""
+    try:
+        import base64
+        pl = tok.split(".")[1]; pl += "=" * (-len(pl) % 4)
+        return float(json.loads(base64.urlsafe_b64decode(pl)).get("iat", 0) or 0)
+    except Exception:
+        return 0.0
+
+
+def _sunop_web_vencido(inst: str = "gridco") -> bool:
+    """O token WEB já passou do `exp`: o check_token, o refresh_token (só aceita token válido) e o /plants recusam
+    sempre. Até 04/10/2026 a plataforma batia os três a cada ciclo assim mesmo — no servidor o da Athon venceu em 23/07
+    e o da Axis em 17/07: ~540 + ~1.900 requisições por dia, todas recusadas."""
+    exp = _jwt_exp(_si(inst)["token"]["token"])
+    return bool(exp) and exp <= time.time()
+
+
 def get_sunop_token(inst: str = "gridco") -> str:
     S   = _si(inst)
     tok = S["token"]["token"]
     H   = {"Authorization": f"JWT {tok}", "Content-Type": "application/json"}
-    # Renova PROATIVAMENTE enquanto o token ainda é válido (vence em < 2 dias). O /refresh_token
-    # só aceita token válido — não dá p/ esperar expirar. O keepalive (6h) garante essa janela.
     exp = _jwt_exp(tok)
-    if exp and 0 < (exp - time.time()) < 2 * 86400:
+    if exp and exp <= time.time():
+        return _sunop_token_colado(S, tok, inst)    # vencido: a rede recusaria; só um token colado pela tela salva
+    if _sunop_pausa():
+        return tok                               # domingo / teto do dia: sem validar na rede (ver _sunop_pausa)
+    # Renova PROATIVAMENTE enquanto o token ainda é válido. O /refresh_token só aceita token válido — não dá p/
+    # esperar expirar. O keepalive (6h) garante essa janela. Renova a < 2 dias do fim OU na metade da vida, o que vier
+    # depois: o da Axis vive 24 h, "vence em < 2 dias" era verdade sempre e CADA chamada renovava (04/10/2026).
+    iat = _jwt_iat(tok)
+    limite = min(2 * 86400, (exp - iat) / 2) if exp and iat and exp > iat else 2 * 86400
+    if exp and 0 < (exp - time.time()) < limite:
         nt = _sunop_try_refresh(H, inst)
         if nt:
             return nt
@@ -5087,7 +5112,11 @@ def get_sunop_token(inst: str = "gridco") -> str:
     nt = _sunop_try_refresh(H, inst)
     if nt:
         return nt
-    # Memória vencida E refresh falhou. Alguém pode ter COLADO um token novo pela tela: o
+    return _sunop_token_colado(S, tok, inst)
+
+
+def _sunop_token_colado(S: dict, tok: str, inst: str) -> str:
+    # Token vencido, ou memória vencida E refresh falhou. Alguém pode ter COLADO um token novo pela tela: o
     # POST /api/tokens/<fonte> grava só o tokens_runtime.json e get_sunop_token nunca relê o
     # arquivo — sem isto o token colado só valeria após reiniciar (foi o que travou o Athon em
     # 03/08: web/worker subiram 18:08, a colagem entrou 18:12, e os dois seguiram no token morto).
@@ -5290,12 +5319,14 @@ def _sunop_guarda_vazio(cache: dict, rows: list, inst: str, aba: str):
     if not any(not r.get("sem_dados") for r in (ant.get("rows") or [])):
         return None
     idade = time.time() - (ant.get("dados_ts") or 0)
-    if idade >= SUNOP_RETENCAO_MAX_S:
+    pausa = _sunop_pausa()                       # domingo / teto do dia: não é queda, segura sem prazo (04/10/2026)
+    if idade >= SUNOP_RETENCAO_MAX_S and not pausa:
         return None
-    print(f"[SUNOP:{inst}] {aba}: {len(rows)} linha(s) e nenhuma com leitura "
-          f"({'borda bloqueada' if _sunop_edge_aberto() else 'falha no /data'}) — "
+    motivo = (f"SunOp pausada, {_SUNOP_PAUSA_TXT[pausa]}" if pausa
+              else "borda bloqueada" if _sunop_edge_aberto() else "falha no /data")
+    print(f"[SUNOP:{inst}] {aba}: {len(rows)} linha(s) e nenhuma com leitura ({motivo}) — "
           f"mantendo o último bom, de {idade / 60:.0f} min atrás")
-    return dict(ant, retido=True)
+    return dict(ant, retido=True, pausa=pausa)
 
 
 def _sunop_edge_aberto() -> bool:
@@ -5463,14 +5494,105 @@ def _sunop_uso_relatorio() -> dict:
 
 @app.route("/api/sunop/uso")
 def api_sunop_uso():
-    return jsonify(_sunop_uso_relatorio())
+    return jsonify(dict(_sunop_uso_relatorio(), pausa=_sunop_pausa(), teto_dia=SUNOP_TETO_DIA,
+                        gasto_hoje=_sunop_gasto_hoje()))
+
+
+# ── Teto do dia e domingo sem SunOp (04/10/2026) ──────────────────────────────
+# Levi: "temos como limitar em 3000 requisições por dia e domingo não faz requisições?" — e, perguntado, "só a ronda
+# poderá", com a Axis dentro do teto. Domingo, nenhuma requisição; passou do teto do dia, idem; nos dois casos a ronda do
+# WhatsApp (`_ronda_whats_disparo`, 08:25 e 13:00) busca, porque é ela que manda os parados para os grupos.
+# O teto é por MÁQUINA, porque cada uma só enxerga o próprio contador: 2.700 no servidor (coleta completa) e 300 no PC
+# (só a ronda; em 03/10 ele gastou 295 + 230 da Axis, ~215 sem o token vencido batendo na rede) = 3.000 na conta. O dia
+# é o de Brasília, o do contador; o extrato oficial conta em UTC, então um dia não bate exato com o deles.
+# A pausa não apaga dado: quem chama `_sunop_req` já trata None como "não veio leitura" (é o disjuntor da borda), a
+# retenção segura o último dado bom sem prazo (`_sunop_guarda_vazio`), o prewarm nem monta as abas da SunOp, a Entrada
+# fica com a última contagem e o livro de trackers atualiza só pelo banco. `SUNOP_PAUSA=0` desliga; `SUNOP_TETO_DIA`
+# troca o teto da máquina.
+SUNOP_PAUSA_LIGADA = os.environ.get("SUNOP_PAUSA", "1").strip() != "0"
+SUNOP_RONDA_JANELA_S = 900       # a ronda coleta em ~1-3 min e a janela fecha no fim dela; isto é só o teto
+
+
+def _sunop_teto_de(coleta: str, valor) -> int:
+    try:
+        return int(str(valor).strip())
+    except (TypeError, ValueError):
+        return 300 if coleta == "ronda" else 2700
+
+
+SUNOP_TETO_DIA = _sunop_teto_de(SUNOP_COLETA, os.environ.get("SUNOP_TETO_DIA"))
+_sunop_ronda = {"ate": 0.0}
+_sunop_uso_outro = {"t": 0.0, "dia": None, "n": 0}     # o outro processo da máquina (web/worker), relido a cada 60 s
+_sunop_pausa_aviso = {"motivo": None}
+_SUNOP_PAUSA_TXT = {"domingo": "domingo, só a ronda busca", "teto": "teto do dia atingido, só a ronda busca"}
+
+
+@contextmanager
+def _sunop_libera_ronda(seg: float = SUNOP_RONDA_JANELA_S):
+    """Abre a SunOp para a ronda do WhatsApp enquanto ela coleta. É uma janela de TEMPO, e não uma marca da thread,
+    porque a ronda coleta as fontes em paralelo (`_ronda_parados_all`), cada uma na sua thread."""
+    _sunop_ronda["ate"] = time.time() + seg
+    try:
+        yield
+    finally:
+        _sunop_ronda["ate"] = 0.0
+
+
+def _sunop_soma(eps) -> int:
+    return sum(int(v) for k, v in (eps or {}).items() if not str(k).startswith("_") and isinstance(v, (int, float)))
+
+
+def _sunop_gasto_hoje() -> int:
+    """Requisições de hoje NESTA máquina, Athon e Axis: este processo + o anterior do mesmo papel (o que o reinício
+    deixou no arquivo) + o outro processo (web/worker), pelo arquivo dele."""
+    dia = datetime.now().date().isoformat()
+    with _sunop_uso_lock:
+        if not _sunop_uso_herdado["ok"]:
+            _sunop_uso_herda()
+        n = _sunop_soma(_SUNOP_USO.get(dia)) + _sunop_soma(_SUNOP_USO_BASE.get(dia))
+    o = _sunop_uso_outro
+    if o["dia"] != dia or time.time() - o["t"] > 60:
+        outro = "worker" if _sunop_uso_papel() == "web" else "web"
+        try:
+            with open(os.path.join(_AQUI, "logs", f"sunop_uso_{outro}.json"), encoding="utf-8") as f:
+                o["n"] = _sunop_soma((json.load(f) or {}).get(dia))
+        except Exception:                        # noqa: BLE001 — sem arquivo, o outro processo não gastou
+            o["n"] = 0
+        o.update(t=time.time(), dia=dia)
+    return n + o["n"]
+
+
+def _sunop_pausa(considera_ronda: bool = True):
+    """None = pode buscar; "domingo" ou "teto" = SunOp pausada. Com a ronda coletando, None. `considera_ronda=False` é
+    para quem não pode aproveitar a janela dela: o prewarm, que seguiria buscando depois que ela fechasse."""
+    if not SUNOP_PAUSA_LIGADA or (considera_ronda and time.time() < _sunop_ronda["ate"]):
+        return None
+    motivo = ("domingo" if datetime.now().weekday() == 6
+              else "teto" if _sunop_gasto_hoje() >= SUNOP_TETO_DIA else None)
+    if motivo != _sunop_pausa_aviso["motivo"]:
+        _sunop_pausa_aviso["motivo"] = motivo
+        print(f"[SUNOP] {'pausada: ' + _SUNOP_PAUSA_TXT[motivo] if motivo else 'liberada'} "
+              f"(teto {SUNOP_TETO_DIA}/dia nesta máquina)")
+    return motivo
+
+
+def _sunop_sem_rede(inst: str = "gridco"):
+    """Por que esta chamada ao serviço de DADOS não deve sair, ou None. Além da pausa: sem token de API e com o web
+    vencido, o serviço recusa de certeza — é a Axis desde 17/07 (não tem token de API), e até 04/10 ela pedia o
+    catálogo a cada ciclo assim mesmo (`axis:metadata`, ~380 por dia, todas recusadas)."""
+    p = _sunop_pausa()
+    if p:
+        return p
+    if not _sunop_api_token(inst) and _sunop_web_vencido(inst):
+        return "sem credencial"
+    return None
 
 
 def _sunop_req(metodo: str, url: str, inst: str = "gridco", **kw):
     """GET/POST ao serviço de DADOS do SunOp, com disjuntor. → Response, ou None quando o
     disjuntor está aberto ou a chamada falhou. Chamador trata None como 'não veio leitura'."""
-    if _sunop_edge_aberto():
-        return None                             # não tocou a rede: não conta na cota
+    if _sunop_edge_aberto() or _sunop_sem_rede(inst):
+        return None                             # não tocou a rede: não conta na cota (borda, pausa, sem credencial)
     kw.setdefault("headers", _sunop_data_headers(inst))
     try:
         _sunop_uso_conta(url, (kw.get("json") or {}).get("pathnames") if isinstance(kw.get("json"), dict) else None)
@@ -5519,8 +5641,8 @@ def _load_sunop_plant_meta(plant_name: str, inst: str = "gridco") -> dict:
     items = None
     _tent = len(_SUNOP_BACKOFF) + 1
     for tentativa in range(_tent):
-        if _sunop_edge_aberto():
-            break            # disjuntor aberto: insistir só alimenta o bloqueio; volta no próximo ciclo
+        if _sunop_edge_aberto() or _sunop_sem_rede(inst):
+            break            # disjuntor aberto / pausa: insistir só alimenta o bloqueio (ou dorme 70 s à toa)
         r = _sunop_req("GET", f"{_si(inst)['data']}/v2/metadata", inst,
                        params={"plant": plant_name, "size": 6000}, timeout=30)
         if r is not None and r.status_code == 200:
@@ -5703,11 +5825,15 @@ def ensure_sunop_meta(inst: str = "gridco"):
     # Lista de usinas: cacheada por 10 min (é do serviço de CONFIG, que segue de pé mesmo
     # quando o de DADOS recusa — foi assim o dia todo em 31/07 e 03/08).
     _pl = _sunop_plants_lista.get(inst) or {}
-    if _pl.get("nomes") and (time.time() - _pl.get("ts", 0)) < 600:
+    sem_rede = None
+    if _pl.get("nomes") and ((time.time() - _pl.get("ts", 0)) < 600 or _sunop_pausa()):
         nomes = _pl["nomes"]
         if all(n in S["meta"] for n in nomes):
             return               # tudo em cache: nenhuma chamada. Até 29/09 o cabeçalho era montado ANTES deste teste,
         plants = [{"name": n} for n in nomes]   # e montá-lo valida o token na rede (get_sunop_token)
+    elif _sunop_web_vencido(inst) or _sunop_pausa():
+        sem_rede = True          # /plants com o token web vencido é recusa certa (04/10/2026); na pausa, nem tenta
+        plants = None
     else:
         try:
             url = f"{S['config']}/plants"
@@ -5722,12 +5848,14 @@ def ensure_sunop_meta(inst: str = "gridco"):
     # Blindagem: se o token expirou, /api/plants devolve um dict de erro (ex.:
     # {"detail":"Token has expired."}) em vez da lista → não crashar.
     if not isinstance(plants, list) or not all(isinstance(p, dict) and "name" in p for p in plants):
-        _sunop_token_ok.pop(inst, None)          # o config recusou: a validade de 15 min do token não vale mais
-        print(f"[SUNOP:{inst}] /plants não retornou lista de plantas (token expirado?): {str(plants)[:120]}")
+        if not sem_rede:
+            _sunop_token_ok.pop(inst, None)      # o config recusou: a validade de 15 min do token não vale mais
+            print(f"[SUNOP:{inst}] /plants não retornou lista de plantas (token expirado?): {str(plants)[:120]}")
         de_dados = _sunop_plants_do_dados(inst)
         if not de_dados:
             return
-        print(f"[SUNOP:{inst}] lista veio do serviço de DADOS: {len(de_dados)} usinas")
+        if not sem_rede:
+            print(f"[SUNOP:{inst}] lista veio do serviço de DADOS: {len(de_dados)} usinas")
         plants = [{"name": n} for n in de_dados]
     nomes = [p["name"] for p in plants]
     _sunop_plants_lista[inst] = {"nomes": nomes, "ts": time.time()}
@@ -6028,8 +6156,14 @@ def _build_sunop_payload(inst: str = "gridco"):
 def api_sunop_data():
     inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_servir_tabela_strings(_swr(_si(inst)["cache"], lambda: _build_sunop_payload(inst), force),
-                                   _sem_geracao_padrao))
+    return jsonify(_com_sunop_pausa(_servir_tabela_strings(
+        _swr(_si(inst)["cache"], lambda: _build_sunop_payload(inst), force), _sem_geracao_padrao)))
+
+
+def _com_sunop_pausa(d):
+    """`sunop_pausa` (None, "domingo" ou "teto") na saída das abas da Athon/Axis: a tela troca o "ao vivo" do topo por
+    "SunOp pausada", que é o que explica o dado parado (04/10/2026)."""
+    return dict(d, sunop_pausa=_sunop_pausa()) if isinstance(d, dict) else d
 
 
 # ── SunOp: drill-down inversores (SWR por usina: serve cache na hora, atualiza em fundo) ─
@@ -6323,7 +6457,7 @@ def _build_sunop_etm_payload(inst: str = "gridco"):
 def api_sunop_etm():
     inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_swr(_si(inst)["etm_cache"], lambda: _build_sunop_etm_payload(inst), force))
+    return jsonify(_com_sunop_pausa(_swr(_si(inst)["etm_cache"], lambda: _build_sunop_etm_payload(inst), force)))
 
 
 # ── SunOp: pré-análise ETM (CURVA REAL via /data/v2/analog_values) ─────────────
@@ -6411,7 +6545,8 @@ def _build_sunop_analise_payload(inst: str = "gridco"):
 def api_sunop_etm_analise():
     inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_swr(_si(inst)["analise_cache"], lambda: _build_sunop_analise_payload(inst), force))
+    return jsonify(_com_sunop_pausa(_swr(_si(inst)["analise_cache"], lambda: _build_sunop_analise_payload(inst),
+                                         force)))
 
 
 @app.route("/api/sunop/etm/chart")
@@ -7116,7 +7251,7 @@ def _build_sunop_trk_payload(inst: str = "gridco"):
 def api_sunop_trackers():
     inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     force = flask_request.args.get("force", "0") == "1"
-    return jsonify(_swr(_si(inst)["trk_cache"], lambda: _build_sunop_trk_payload(inst), force))
+    return jsonify(_com_sunop_pausa(_swr(_si(inst)["trk_cache"], lambda: _build_sunop_trk_payload(inst), force)))
 
 
 @app.route("/api/sunop/trackers/<plant_name>")
@@ -12376,7 +12511,8 @@ def api_tracker_watch_update():
     if not _TRACKER_WATCH_OK:
         return jsonify({"error": "tracker_watch não disponível"}), 500
     try:
-        stats = _tw.atualizar(verbose=False, fonte="ambas")
+        # domingo / teto do dia (04/10/2026): o tracker_watch chama a SunOp direto, por fora do _sunop_req
+        stats = _tw.atualizar(verbose=False, fonte="pg" if _sunop_pausa() else "ambas")
         return jsonify({"ok": True, "stats": stats, "data": _tw.get_issues_json()})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
@@ -16637,7 +16773,10 @@ def _sunop_series_inversores(plant_name, inst):
 
 
 def _owen_series_inversores(u):
-    data = _hist_build(datetime.now().strftime("%Y-%m-%d")).get("strings", {}).get(u, {})
+    try:
+        data = _2c_strings_dia_api(datetime.now().strftime("%Y-%m-%d")).get(u, {})
+    except Exception:                                    # noqa: BLE001 — API PV fora: sem correlação agora
+        data = {}
     strings_por_inv = {inv: {sid: serie for sid, serie in strs.items()
                              if _str_key(u, inv, sid) not in _trancadas}
                       for inv, strs in data.items()}
@@ -17988,32 +18127,10 @@ def api_state_comment_del():
     return jsonify({"ok": True, "thread": thread})
 
 
-# ══ FONTE E-MAIL (Owen) — CSVs SCADA via Gmail (ARA/IPX/STL/TUP) ═══════════════
-#   Formato longo: Point name,Time,Value,Rendered,Annotation (latin-1).
-#   Point name codifica UFV + dispositivo + medida. Acumula os CSVs das pastas.
-# Pasta dos CSVs do 2C — resolve entre candidatos (o Desktop fica DENTRO do OneDrive,
-# então a pasta real é a "irmã" do projeto em ...\temp\Projetos e-mail).
-#
-# O PC DEDICADO NÃO MONTA ONEDRIVE (requisito de 02/09/2026), então duas regras aqui:
-#   1. `GRIDCO_DADOS_DIR/Projetos e-mail` entra na fila logo depois da env var, para a pasta
-#      viajar junto com o resto do dado quando a plataforma mudar de máquina;
-#   2. o último recurso é uma pasta LOCAL, nunca a do OneDrive. Antes, não achando nenhuma,
-#      o `OWEN_ROOT` apontava para um caminho de nuvem inexistente — e como ele também é a
-#      base do `2C_historico`, a fonte Owen e o histórico do 2C sumiam juntos, em silêncio.
-_OWEN_LOCAL = os.path.join(_DADOS_DIR, "Projetos e-mail")
-_OWEN_CANDS = [p for p in [
-    os.environ.get("OWEN_ROOT"),
-    _OWEN_LOCAL,
-    os.path.join(os.path.dirname(_RAIZ), "Projetos e-mail"),
-    os.path.join(os.path.expanduser("~"), "Desktop", "Projetos e-mail"),
-    os.path.join(os.path.expanduser("~"), "OneDrive - GRID CO", "Área de Trabalho", "temp", "Projetos e-mail"),
-] if p]
-OWEN_ROOT = next((p for p in _OWEN_CANDS if os.path.isdir(p)), _OWEN_LOCAL)
-# Resolveu num candidato REAL? Se não, a fonte Owen está fora do ar e é melhor dizer no log do
-# que descobrir por um gráfico vazio (o print morre no pythonw; ver `_log_arquivo`).
-OWEN_OK = any(os.path.isdir(p) for p in _OWEN_CANDS)
-_log_arquivo("fontes.log", "OWEN_ROOT = %s%s" % (OWEN_ROOT, "" if OWEN_OK else
-             "   [NENHUM CANDIDATO EXISTE — fonte 2C/Owen indisponível; defina OWEN_ROOT]"))
+# ══ 2C (ARA/IPX/STL/TUP + União) — tudo pela API PV desde 03/10/2026 ════════════════════════════════════════════
+#   Até 29/09/2026 a 2C chegava por e-mail (CSVs SCADA baixados do Gmail para `Projetos e-mail`), lidos aqui por
+#   `_owen_refresh`/`_hist_build`. Saiu do código em 03/10/2026 (Levi: "agora está tudo via API do PV Operation"):
+#   o tempo real, os trackers e o que lia o acervo do e-mail vêm da API PV (conta oem@) — ver `_2c_strings_dia_api`.
 # Fallback (código→nome) com o nome do CADASTRO (Info Geral), não o do Fracttal: a STL era "Sete Lagoas 2" (Fracttal) e
 # não casava com "Sete Lagoas" da Info Geral/API PV — a linha do e-mail ficava sem cliente e virava um 9º card "Sem
 # cliente" no /tempo-real, cópia da antiga visão da 2C, com os 2 trackers parados dela (Levi, 13/09/2026). O par
@@ -18026,173 +18143,88 @@ def _owen_nome(code):
     """Nome de exibição da UFV: vem do BD_Performance (USINA_DISPLAY: Usina Supervisório→Usina),
     igual às outras abas; cai no fallback fixo se não estiver cadastrado."""
     return USINA_DISPLAY.get(code) or OWEN_UFVS.get(code) or code
-# Acumulador persistente: como os e-mails são INCREMENTAIS (cada janela traz só o pedaço
-# novo) e o baixador sobrescreve o arquivo, mesclamos cada leitura no acervo do DIA em disco.
-OWEN_ACCUM_PATH = _p_dado("owen_accum.json")   # acervo do dia; os e-mails sao INCREMENTAIS e ja' foram consumidos
-OWEN_TS_FMT = "%Y-%m-%d %H:%M:%S"
-_owen_accum = {"date": None, "etm": {}, "strings": {}, "trackers": {}}
-_owen_lock = threading.Lock()
-_owen_refresh_ts = 0.0
 
 
-def _owen_num(s):
-    s = str(s).strip().lstrip("'").replace(",", ".")
-    try:    return float(s)
-    except ValueError: return None
+# ── A 2C pela API PV, no formato do antigo acervo do e-mail (03/10/2026) ─────────────────────────────────────────────
+# Quem lia o acervo do e-mail — a aba de falhas, Perdas → strings, a correlação, a curva por código — lê isto: as MESMAS
+# chaves (código da UFV, inversor "U.N", string "k") e a mesma série [(datetime, A)], então o que já foi gravado com elas
+# continua casando. De-para: o inversor "U.N" do e-mail é o "Inversor U.N" do cadastro da planta (na Ipixuna a UG diz a
+# planta: 1 = Santa Cecilia 1, 2 = 2, 3 = 3 — fechado por kWh em 29/09/2026) e a string k é a Ipvk da API.
+_2C_STR_PLANTAS = {"ARA": (18771898,), "STL": (18771901,), "TUP": (18750925,), "IPX": (18771915, 18771929, 18771930)}
+_2C_NOME_API = {18771898: "Araputanga", 18771901: "Sete Lagoa", 18750925: "Tupi Paulista",
+                18771915: "Santa Cecilia 1", 18771929: "Santa Cecilia 2", 18771930: "Santa Cecilia 3"}   # chave do EQUIP_NAMES
+_2c_str_dia_cache: dict = {}            # date_iso -> (ts, {código: {inv: {k: [(datetime, A)]}}})
+_2C_STR_DIA_TTL = 600                   # hoje: 10 min; dia fechado: até sair do cache
+_2C_STR_DIA_MAX = 3                     # o dia inteiro de ~1.600 strings pesa: guarda no máximo 3 (o do e-mail guardava 2)
 
 
-def _owen_rows(folder):
-    """Itera (point_name, datetime, value) de todos os CSVs da subpasta (latin-1)."""
-    d = os.path.join(OWEN_ROOT, folder)
-    if not os.path.isdir(d):
-        return
-    for fn in sorted(os.listdir(d)):
-        if not fn.lower().endswith(".csv"):
-            continue
-        try:
-            with open(os.path.join(d, fn), encoding="latin-1", newline="") as fh:
-                for row in csv.reader(fh):
-                    if len(row) < 3 or row[0] == "Point name":
+def _2c_strings_dia_api(date_iso, force=False):
+    """{código: {"U.N": {"k": [(datetime, A)]}}} — as strings da 2C num dia pela API PV, com as chaves do antigo acervo
+    do e-mail. Hoje: day_inverter; dia passado: o histórico da API (custom_query). Levanta RuntimeError quando a API não
+    respondeu por alguma planta (rede, cota, HTTP): a aba de falhas guarda o dia fechado e não pode guardar um buraco.
+    Planta que a API respondeu sem dado no dia ("sem_dados_api") só fica de fora."""
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    ent = _2c_str_dia_cache.get(date_iso)
+    if ent and not force and (date_iso != hoje or time.time() - ent[0] < _2C_STR_DIA_TTL):
+        return ent[1]
+    data_br = datetime.strptime(date_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
+    out, falhas = {}, []
+    for code, pids in _2C_STR_PLANTAS.items():
+        for pid in pids:
+            try:
+                tok = _pv_token_for(pid)
+                if date_iso == hoje:
+                    cur = _pv_curvas_strings(pid, _2C_NOME_API[pid], tok)
+                else:
+                    recs, motivo = _spv_day_records_hist(pid, tok, data_br)
+                    if not recs and motivo not in (None, "sem_dados_api"):
+                        falhas.append(f"{pid} {motivo}")
                         continue
-                    v = _owen_num(row[2])
-                    if v is None:
+                    cur = _pv_curvas_strings_de(recs, pid, _2C_NOME_API[pid], tok) if recs else {}
+            except Exception as e:                       # noqa: BLE001
+                falhas.append(f"{pid} {type(e).__name__}")
+                continue
+            for inv_nome, strs in (cur or {}).items():
+                m = re.search(r"(\d+\.\d+)\s*$", str(inv_nome))
+                if not m:
+                    continue
+                for ipv, serie in strs.items():
+                    k = str(ipv)[3:]
+                    if not (str(ipv).startswith("Ipv") and k.isdigit()):
                         continue
-                    try:
-                        t = datetime.strptime(row[1].strip(), "%Y/%m/%d %H:%M:%S")
-                    except Exception:
-                        continue
-                    yield row[0], t, v
-        except Exception:
-            continue
+                    pts = []
+                    for hhmm, v in serie:
+                        try:
+                            pts.append((datetime.strptime(f"{date_iso} {hhmm}", "%Y-%m-%d %H:%M"), float(v)))
+                        except (TypeError, ValueError):
+                            continue
+                    if pts:
+                        out.setdefault(code, {}).setdefault(m.group(1), {})[str(int(k))] = sorted(pts)
+    if falhas:
+        raise RuntimeError("API PV sem as strings da 2C em " + date_iso + ": " + ", ".join(falhas))
+    _2c_str_dia_cache[date_iso] = (time.time(), out)
+    while len(_2c_str_dia_cache) > _2C_STR_DIA_MAX:
+        velho = min(_2c_str_dia_cache, key=lambda d: _2c_str_dia_cache[d][0])
+        _2c_str_dia_cache.pop(velho, None)
+    return out
 
 
-def _owen_load():
-    global _owen_accum
+def _2c_strings_ultimos(force=False):
+    """{código: {inv: {k: (datetime, A)}}} — a última leitura de cada string da 2C hoje (o que o acumulador do e-mail
+    dava para a tabela de strings com problema). API fora: vazio."""
     try:
-        with open(OWEN_ACCUM_PATH, encoding="utf-8") as f:
-            _owen_accum = json.load(f)
-    except Exception:
-        _owen_accum = {"date": None, "etm": {}, "strings": {}, "trackers": {}}
-    for k in ("etm", "strings", "trackers"):
-        _owen_accum.setdefault(k, {})
+        dia = _2c_strings_dia_api(datetime.now().strftime("%Y-%m-%d"), force=force)
+    except Exception:                                    # noqa: BLE001
+        return {}
+    return {u: {inv: {k: s[-1] for k, s in strs.items() if s} for inv, strs in invs.items()} for u, invs in dia.items()}
 
 
-def _owen_save():
-    try:
-        tmp = OWEN_ACCUM_PATH + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(_owen_accum, f)
-        _replace_atomico(tmp, OWEN_ACCUM_PATH)
-    except Exception as e:
-        print(f"[OWEN] erro salvando acumulador: {e}")
+def _2c_hist_api(date_iso):
+    """O formato que a aba de falhas recebia do 2C_historico (falhas_job.montar, `hist_2c`)."""
+    return {"strings": _2c_strings_dia_api(date_iso)}
 
 
-def _owen_prune_today(hoje):
-    """Remove do acervo qualquer ponto que NÃO seja do dia 'hoje' (YYYY-MM-DD).
-    Defesa contra sobras de CSV de dias anteriores que ainda estejam na pasta."""
-    pref = hoje + " "
-    for meds in _owen_accum.get("etm", {}).values():
-        for series in meds.values():
-            for ts in [k for k in series if not k.startswith(pref)]:
-                del series[ts]
-    for invs in _owen_accum.get("strings", {}).values():
-        for strs in invs.values():
-            for sn in [k for k, v in strs.items() if not str(v[0]).startswith(pref)]:
-                del strs[sn]
-    for trks in _owen_accum.get("trackers", {}).values():
-        for node in trks.values():
-            for key in ("alvo", "atual"):
-                serie = node.get(key, {})
-                for ts in [k for k in serie if not k.startswith(pref)]:
-                    del serie[ts]
-
-
-def _owen_refresh(force=False):
-    """Mescla os CSVs atuais da pasta no acervo do dia (dedupe por ponto+timestamp)."""
-    global _owen_refresh_ts
-    with _owen_lock:
-        if not force and _owen_accum.get("date") and (time.time() - _owen_refresh_ts) < CACHE_TTL:
-            return
-        hoje = datetime.now().strftime("%Y-%m-%d")
-        # Dia de REFERÊNCIA = o mais recente presente nas pastas flat (não "hoje" fixo). Early morning,
-        # antes da coleta das 9:10, as flat ainda têm ONTEM → mostra ontem + última leitura em vez de
-        # "Sem dados". Após a coleta de hoje (que limpa as flat), vira hoje sozinho.
-        _datas = {t.strftime("%Y-%m-%d") for _p, t, _v in _owen_rows("ETM")}
-        if not _datas:
-            _datas = {t.strftime("%Y-%m-%d") for _p, t, _v in _owen_rows("Strings")}
-        data_ref = max(_datas) if _datas else hoje
-        if _owen_accum.get("date") != data_ref:           # mudou o dia de referência → zera
-            _owen_accum.update({"date": data_ref, "etm": {}, "strings": {}, "trackers": {}})
-        else:
-            _owen_prune_today(data_ref)                    # limpa sobras de outros dias
-        rxs = re.compile(r"_Inv_([\d.]+)_STR_Corrente PV(\d+)")
-        rxt = re.compile(r"_TRK_([\d.]+)_MED_(.+?) \(graus\)")
-        # ETM
-        for pn, t, v in _owen_rows("ETM"):
-            if t.strftime("%Y-%m-%d") != data_ref:        # só do dia de referência
-                continue
-            u = pn.split("_", 1)[0]
-            if u not in OWEN_UFVS:
-                continue
-            med = "ghi" if "GHI" in pn else ("poa" if "POA" in pn else None)
-            if med:
-                _owen_accum["etm"].setdefault(u, {}).setdefault(med, {})[t.strftime(OWEN_TS_FMT)] = _etm_clamp(v)
-        # Strings (mantém o valor mais recente por string)
-        for pn, t, v in _owen_rows("Strings"):
-            if t.strftime("%Y-%m-%d") != data_ref:
-                continue
-            u = pn.split("_", 1)[0]
-            if u not in OWEN_UFVS:
-                continue
-            m = rxs.search(pn)
-            if not m:
-                continue
-            ts = t.strftime(OWEN_TS_FMT)
-            d = _owen_accum["strings"].setdefault(u, {}).setdefault(m.group(1), {})
-            sn = str(int(m.group(2)))
-            if sn not in d or ts > d[sn][0]:
-                d[sn] = [ts, v]
-        # Trackers (curva alvo/atual)
-        for pn, t, v in _owen_rows("Trackers"):
-            if t.strftime("%Y-%m-%d") != data_ref:
-                continue
-            u = pn.split("_", 1)[0]
-            if u not in OWEN_UFVS:
-                continue
-            m = rxt.search(pn)
-            if not m:
-                continue
-            key = "alvo" if "Alvo" in m.group(2) else ("atual" if "Atual" in m.group(2) else None)
-            if key:
-                node = _owen_accum["trackers"].setdefault(u, {}).setdefault(m.group(1), {"alvo": {}, "atual": {}})
-                node[key][t.strftime(OWEN_TS_FMT)] = v
-        _owen_save()
-        _owen_refresh_ts = time.time()
-
-
-def _owen_pts(d):
-    """{ts_str: v} → [(datetime, v)] ordenado."""
-    return sorted((datetime.strptime(ts, OWEN_TS_FMT), v) for ts, v in d.items())
-
-
-_owen_load()   # carrega o acervo do dia (persistido) na inicialização
-
-
-# ── Owen: ETM (POA/GHI por UFV) ────────────────────────────────────────────────
-def _owen_etm_build(force=False):
-    _owen_refresh(force)
-    with _owen_lock:
-        return {u: {m: _owen_pts(s) for m, s in d.items()}
-                for u, d in _owen_accum.get("etm", {}).items()}
-
-
-def _owen_etm_series(ufv_data):
-    """Junta poa/ghi por timestamp → série [(dt, poa, ghi, _)] p/ diagnóstico/chart."""
-    byts = {}
-    for m in ("poa", "ghi"):
-        for t, v in ufv_data.get(m, []):
-            byts.setdefault(t, {})[m] = v
-    return [(t, d.get("poa"), d.get("ghi")) for t, d in sorted(byts.items())]
+# ── 2C: ETM (POA/GHI por UFV) — a estação da API PV ─────────────────────────────
 
 
 @app.route("/api/owen/etm/analise")
@@ -18212,128 +18244,10 @@ def api_owen_etm_analise():
         "cache_ts": datetime.now().strftime("%H:%M:%S")})
 
 
-@app.route("/api/owen/etm/chart")
-def api_owen_etm_chart():
-    u = (flask_request.args.get("plant") or "").strip()
-    # O acumulador da 2C é chaveado pelo CÓDIGO da UFV (ARA, IPX, STL, TUP), mas a tela manda o
-    # nome de exibição ("Araputanga") — é o que o /analise mostra na coluna usina. Sem resolver,
-    # o data.get(u) errava sempre e a resposta saía com HTTP 200 e série VAZIA: falha silenciosa,
-    # que no front virava o gráfico de exemplo. Aceita os dois.
-    if u and u not in OWEN_UFVS:
-        _alvo = _nrm(u)
-        u = next((c for c in OWEN_UFVS if _nrm(_owen_nome(c)) == _alvo), u)
-    date = (flask_request.args.get("date") or "").strip()
-    if date and date != datetime.now().strftime("%Y-%m-%d"):
-        merged = _owen_etm_series(_hist_build(date).get("etm", {}).get(u, {}))   # dia passado: 2C_historico
-    else:
-        merged = _owen_etm_series(_owen_etm_build().get(u, {}))                   # hoje: acumulador
-    return jsonify({"labels": [t.strftime("%H:%M") for t, _, _ in merged],
-                    "poa": [p for _, p, _ in merged],
-                    "ghi": [g for _, _, g in merged], "poari": []})
-
-
-# ── Owen: Strings (corrente por string/inversor, último valor do dia) ──────────
-def _owen_strings_build(force=False):
-    _owen_refresh(force)
-    with _owen_lock:
-        out = {}   # ufv → inv → strnum → (datetime, valor)
-        for u, invs in _owen_accum.get("strings", {}).items():
-            out[u] = {inv: {sn: (datetime.strptime(ts, OWEN_TS_FMT), v) for sn, (ts, v) in strs.items()}
-                      for inv, strs in invs.items()}
-        return out
-
-
-def _owen_inv_tag(code, inv):
-    return f"{code}_Inv_{inv}"   # nomenclatura supervisório (igual ao que está no BD_Performance)
-
-
-
-def _owen_ausentes(u, invs) -> dict:
-    """{inversor: tag do cadastro} dos inversores do CADASTRO (ESPERADO_INV) que não vieram no e-mail do dia. Só quando
-    a conta fecha — faltam exatamente cadastro − os que vieram: nome fora do formato do cadastro (_owen_inv_tag)
-    deixaria todo mundo de fora, e aí ninguém é dado por ausente (a mesma trava da API PV, 25/09/2026)."""
-    esp_map = ESPERADO_INV.get(u) or {}
-    vieram = {_owen_inv_tag(u, inv) for inv in invs}
-    faltam = [t for t in esp_map if t not in vieram]
-    if not invs or not faltam or len(faltam) != len(esp_map) - len(invs):
-        return {}
-    pref = _owen_inv_tag(u, "")
-    return {(t[len(pref):] if t.startswith(pref) else t): t for t in faltam}
-
-
-def _owen_fora_da_conta(nome, invs, ausentes=()) -> dict:
-    """{inversor: True/False} — desligado pela régua da Athon (_inv_desligados_por_potencia), com a 'potência' do
-    inversor = soma das correntes (A) das strings dele: o e-mail da 2C não traz potência, e a soma zera quando ele desliga.
-    O piso da régua (MACRO_POT_INV_MIN = 2) fica em ampère aqui — 2 A somados é o ruído de um inversor parado.
-    `ausentes` (_owen_ausentes) não mandaram nada hoje: com os outros gerando, desligados (a Colorado 2, 25/09/2026)."""
-    ordem = list(invs) + [a for a in ausentes if a not in invs]
-    soma = [sum(v for _t, v in invs[inv].values() if isinstance(v, (int, float))) if invs[inv] else None for inv in invs]
-    soma += [None] * (len(ordem) - len(invs))
-    sem = [False] * len(invs) + [True] * (len(ordem) - len(invs))
-    return dict(zip(ordem, _inv_desligados_por_potencia(soma, _macro_eh_dia({"usina": nome}), sem)))
-
-
-def _owen_strings_rows(force=False):
-    """Linhas por usina do 2C (mesmo formato do rollup/macro). Reusado pelo endpoint e por
-    _portfolio_rollup. Lê os arquivos locais do 2C (barato/cacheado), sem rede."""
-    data = _owen_strings_build(force)
-    rows = []
-    for u in OWEN_UFVS:
-        nome = _owen_nome(u)
-        invs = data.get(u, {})
-        if not invs:
-            rows.append({"usina": nome, "plant_id": u, "qtd_inversores": 0,
-                         "strings_ativas": None, "str_esp": None, "diferenca": None,
-                         "temp_media": None, "ultima_leitura": None, "sem_dados": True,
-                         "falha_comunicacao": False})
-            continue
-        ativas, ts_max = 0, None
-        at_de = {}
-        for inv, strs in invs.items():
-            ids = list(strs.keys()); correntes = [strs[s][1] for s in ids]
-            at_de[inv] = _str_ativas(_classifica_strings(u, inv, ids, correntes))   # desconta trancadas
-            ativas += at_de[inv]
-            tmax = max((t for t, _ in strs.values()), default=None)
-            if tmax and (ts_max is None or tmax > ts_max):
-                ts_max = tmax
-        esp_map = ESPERADO_INV.get(u, {})                  # esperado vem SÓ do BD_Performance
-        str_esp = sum(esp_map.values()) if esp_map else None
-        # Inversor DESLIGADO sai da conta — ativas e esperadas —, a régua da Athon (Levi, 24/09/2026). O e-mail não traz
-        # potência: a do inversor é a SOMA DAS CORRENTES das strings dele, que zera quando ele desliga (_owen_fora_da_conta).
-        # Desde 25/09 entra também o inversor do cadastro que não veio no e-mail do dia (_owen_ausentes): as esperadas
-        # dele contavam todas como faltando.
-        aus = _owen_ausentes(u, invs)
-        fora = _owen_fora_da_conta(nome, invs, list(aus))
-        desl = [inv for inv in list(invs) + list(aus) if fora.get(inv)]
-
-        def _tag(inv):
-            return aus.get(inv) or _owen_inv_tag(u, inv)
-        strings_fora = sum(esp_map.get(_tag(inv), len(invs.get(inv) or {})) for inv in desl)
-        if desl:
-            ativas -= sum(at_de.get(inv, 0) for inv in desl)
-            if str_esp is not None:
-                str_esp = max(0, str_esp - strings_fora)
-        # pela soma das faltas de cada inversor (_dif_por_inversor, Rodrigues 2.1, 29/09/2026)
-        _dpi = (_dif_por_inversor([(at_de.get(inv, 0), esp_map.get(_tag(inv))) for inv in invs if inv not in desl], str_esp)
-                if esp_map else None)
-        rows.append({"usina": nome, "plant_id": u, "qtd_inversores": len(invs),
-                     "strings_ativas": ativas, "str_esp": str_esp,
-                     "diferenca": _dpi[0] if _dpi else ((ativas - str_esp) if str_esp is not None else None),
-                     "strings_acima_cadastro": _dpi[1] if _dpi else 0,
-                     "inv_desligados": len(desl), "strings_fora": strings_fora,
-                     "inv_desligados_nomes": sorted(EQUIP_NAMES.get(u, {}).get(_tag(inv), f"Inversor {inv}")
-                                                    for inv in desl),
-                     "temp_media": None,
-                     "ultima_leitura": ts_max.strftime("%Y-%m-%d %H:%M") if ts_max else None,
-                     "sem_dados": False, "falha_comunicacao": False})
-    rows.sort(key=lambda x: (severidade(x), x["usina"]))
-    return rows
-
-
 # ══ Strings SEM CORRENTE (agora) — espelho de "Trackers parados (agora)" ═════════════════════════
 #   Régua do Levi (02/07): SÓ string sem corrente. Fontes com CURVA (API PV) usam a janela correta —
 #   da 1ª string do inversor que INICIA até a última ZERAR; zerada a janela toda = sem corrente
-#   (quem caiu no meio é OCORRÊNCIA). PG (snapshot 1 ts/dia) e 2C (só última leitura no acumulador)
+#   (quem caiu no meio é OCORRÊNCIA). PG (snapshot 1 ts/dia) e 2C (a última leitura do dia pela API, _2c_strings_ultimos)
 #   ficam na régua instantânea: ≤0.1 A com o inversor produzindo.
 _STR_PROB   = ("sem_corrente",)
 _STR_LABEL  = {"sem_corrente": "sem corrente"}
@@ -18418,7 +18332,7 @@ def _strings_problema_rows(fonte, force=False):
             ent["rows"] = [dict(r) for r in rows]
             ent["ts"] = time.time()
     elif fonte == "owen":
-        data = _owen_strings_build(force)
+        data = _2c_strings_ultimos(force)
         for u, invs in data.items():
             usina = _macro_usina_nome(_owen_nome(u)) or _owen_nome(u)
             for inv, strs in invs.items():
@@ -18757,7 +18671,7 @@ def _strings_curva_longo(fonte, usina, data_iso):
     elif fonte == "pg":
         payload = _pg_strings_curva(int(usina), data_iso, None)
     elif fonte == "owen":
-        invs = _hist_build(data_iso)["strings"].get(usina, {})
+        invs = _2c_strings_dia_api(data_iso).get(usina, {})
         for inv in sorted(invs, key=_inv_key):
             for sn in sorted(invs[inv], key=lambda x: int(x) if str(x).isdigit() else 999):
                 if _str_key(usina, inv, sn) in _trancadas:      # trancadas fora (igual pv/pg/sunop; chave = _owen_series_inversores)
@@ -18858,9 +18772,13 @@ def _pv_strings_eventos(date_iso, force=False):
 
 
 def _owen_strings_eventos(date_iso, force=False):
-    """Ocorrências de strings do 2C (caiu→voltou) — curvas 5 min do banco-por-dia (_hist_build:
-    hoje = pastas flat com cache 120s; dia passado = 2C_historico permanente)."""
-    data = _hist_build(date_iso).get("strings", {})
+    """Ocorrências de strings da 2C (caiu→voltou) — a curva do dia pela API PV, com as chaves do antigo acervo do e-mail
+    (_2c_strings_dia_api). API fora: nenhuma linha, e o backfill de Perdas tenta o dia de novo depois."""
+    try:
+        data = _2c_strings_dia_api(date_iso, force=force)
+    except Exception as e:                               # noqa: BLE001
+        print(f"[2C] strings de {date_iso} pela API: {e}")
+        return []
     rows = []
     for u, invs in data.items():
         usina = _macro_usina_nome(_owen_nome(u)) or _owen_nome(u)
@@ -19046,8 +18964,6 @@ _2C_TRK_FAIXAS = (
     ("IPX", 1, 1, 49, 18771915, 0),                                    # Santa Cecilia 1 (UG 01)
     ("IPX", 2, 1, 35, 18771929, 0), ("IPX", 2, 36, 73, 18771930, -35),  # Santa Cecilia 2 e 3
 )
-# primeiro dia dos trackers da 2C pela API: antes dele, o registro e os dias passados são os do e-mail (2C_historico)
-_2C_TRK_API_DESDE = "2026-09-30"
 
 
 def _2c_trk_para_api(code, nome):
@@ -19251,77 +19167,15 @@ def api_owen_strings_plant(plant_id):
         except Exception as e:                                                # noqa: BLE001
             return jsonify({"error": "falha", "detalhe": f"{type(e).__name__}: {e}"}), 504
         return jsonify({"plant_id": int(plant_id), "inversores": invs, "sub_fonte": "api"})
-    data = _owen_strings_build()
-    nome = _owen_nome(plant_id)
-    invs = data.get(plant_id, {})
-    _aus = _owen_ausentes(plant_id, invs)          # a mesma régua da linha da usina (24/09 e 25/09/2026)
-    _fora = _owen_fora_da_conta(nome, invs, list(_aus))
-    _fora_tag = {t: bool(_fora.get(k)) for k, t in _aus.items()}
-    inversores = []
-    for inv in sorted(invs, key=lambda x: [int(p) for p in x.split(".")]):
-        strs = invs[inv]
-        ids = sorted(strs, key=lambda x: int(x))
-        correntes = [strs[s][1] for s in ids]
-        # mesma régua do SunOp/API PV: status + trancada (string aberta sai da contagem)
-        stt = _classifica_strings(plant_id, inv, ids, correntes)
-        chips = [{"id": s, "corrente": c, "status": st,
-                  "ativa": st in ("ativa", "baixa_perf"), "trancada": st == "trancada"}
-                 for s, c, st in zip(ids, correntes, stt)]
-        ativas = _str_ativas(stt)
-        tag = _owen_inv_tag(plant_id, inv)
-        esp = ESPERADO_INV.get(plant_id, {}).get(tag)          # SÓ do BD_Performance (None se não cadastrado)
-        nome_inv = EQUIP_NAMES.get(plant_id, {}).get(tag, f"Inversor {inv}")
-        ts_inv = max((t for t, _ in strs.values()), default=None)
-        _fo = bool(_fora.get(inv))
-        if _fo:                                   # fora da conta: as strings dele em "desligado", como na Athon
-            for c in chips:
-                if c["status"] != "trancada":
-                    c["status"], c["ativa"] = "desligado", False
-        inversores.append({"id": inv, "nome": nome_inv, "nome_api": tag,
-                           "ultima_leitura": ts_inv.strftime("%Y-%m-%d %H:%M") if ts_inv else None,
-                           "falha_comunicacao": False, "desligado": ativas == 0 or _fo, "fora_da_conta": _fo,
-                           "strings_ativas": ativas, "total_strings": len(strs),
-                           "str_esp": esp,
-                           "diferenca": None if _fo else ((ativas - esp) if esp is not None else None),
-                           "temp": None, "eday": None, "strings": chips})
-    # Inversor que está no CADASTRO mas NÃO veio na leitura entra como "não reportou", em vez de sumir.
-    # Sem isto, uma cabine inteira que para de comunicar EVAPORA da tela e o déficit da linha-pai fica
-    # órfão: Ipixuna do Pará 22/07 mostrava −138 com todos os 12 inversores visíveis em dif 0, porque os
-    # 8 da cabine 1 (138 strings) simplesmente não eram listados. Ausência tem que APARECER.
-    # Desde 25/09 ele segue listado, mas com os outros gerando é desligado e fora da conta, como na linha (_owen_ausentes).
-    _vistos = {i.get("nome_api") for i in inversores}
-    for tag, esp in (ESPERADO_INV.get(plant_id) or {}).items():
-        if tag in _vistos:
-            continue
-        _fo = _fora_tag.get(tag, False)
-        inversores.append({"id": tag, "nome": EQUIP_NAMES.get(plant_id, {}).get(tag, tag), "nome_api": tag,
-                           "ultima_leitura": None, "falha_comunicacao": not _fo, "desligado": _fo, "fora_da_conta": _fo,
-                           "sem_dados": True, "strings_ativas": 0, "total_strings": 0,
-                           "str_esp": esp, "diferenca": None if _fo else ((0 - esp) if esp is not None else None),
-                           "temp": None, "eday": None, "strings": []})
-    def _ord(i):                                  # 1.1 antes de 2.1 (e o "não reportou" no lugar certo)
-        ns = re.findall(r"\d+", str(i.get("nome") or ""))
-        return [int(x) for x in ns] or [9999]
-    inversores.sort(key=_ord)
-    return jsonify({"plant_id": plant_id, "inversores": inversores})
+    # o código do e-mail (ARA, IPX…) não tem mais drill: a 2C inteira vem da API PV pelo id (03/10/2026)
+    return jsonify({"plant_id": plant_id, "inversores": [], "error": "usina da 2C sem id da API PV"}), 404
 
 
 # ── Owen: Trackers (alvo/atual por UFV, análise por curva) ─────────────────────
 def _owen_trackers_build(force=False, date=None):
-    # Desde _2C_TRK_API_DESDE (30/09/2026) o dia vem da API PV com os nomes do e-mail (_2c_trk_build_api) — o e-mail
-    # saiu do tempo real também nos trackers. Dia anterior a ela: o banco-por-dia do e-mail (2C_historico), que é o
-    # que o registro guardou; sem isso, refazer um dia antigo trocaria a fonte do histórico.
-    hoje = datetime.now().strftime("%Y-%m-%d")
-    if (date or hoje) >= _2C_TRK_API_DESDE:
-        return _2c_trk_build_api(date or hoje, force=force)
-    # date=YYYY-MM-DD passado → lê o banco-por-dia (2C_historico); hoje/None → acumulador ao vivo.
-    if date and date != hoje:
-        return _hist_build(date).get("trackers", {})
-    _owen_refresh(force)
-    with _owen_lock:
-        return {u: {n: {"alvo": _owen_pts(d["alvo"]), "atual": _owen_pts(d["atual"])}
-                    for n, d in trks.items()}
-                for u, trks in _owen_accum.get("trackers", {}).items()}
+    # O dia vem da API PV com os nomes do e-mail (_2c_trk_build_api) — desde 03/10/2026 também os dias anteriores a
+    # 30/09: o e-mail saiu do código. O registro desses dias já está gravado (trk_eventos.json) e não é refeito.
+    return _2c_trk_build_api(date or datetime.now().strftime("%Y-%m-%d"), force=force)
 
 
 def _owen_trackers_analise(plant_id, date=None):
@@ -19590,13 +19444,9 @@ def _owen_curve_for(code, data_br):
 
 def _owen_parados_rows(force=False, errout=None):
     agora = datetime.now()
-    pela_api = agora.strftime("%Y-%m-%d") >= _2C_TRK_API_DESDE
     if force:
         try:
-            if pela_api:
-                _2c_trk_build_api(agora.strftime("%Y-%m-%d"), force=True)   # a ronda quer a leitura de agora
-            else:
-                _owen_refresh(force=True)          # recarrega o acervo do dia → recomputa o status
+            _2c_trk_build_api(agora.strftime("%Y-%m-%d"), force=True)   # a ronda quer a leitura de agora
         except Exception:
             pass
     # sem force, a análise é a que o worker publicou na aba (a régua sobre o dia da API leva de 25 a 45 s); a ronda
@@ -19632,7 +19482,7 @@ def _owen_parados_rows(force=False, errout=None):
     # A API fora (o disjuntor abre, 23:55 de 29/09) devolve o dia vazio, e vazio aqui se lê "nenhum tracker parado". De
     # dia, nenhuma usina com tracker é falha da fonte: vai no `errout`, como no _pv_parados_rows, e a Entrada mostra a
     # última contagem boa "de tal hora" em vez de zero.
-    if pela_api and not com_dado and 7 <= agora.hour < 18 and errout is not None:
+    if not com_dado and 7 <= agora.hour < 18 and errout is not None:
         errout["erro"] = "API PV sem os trackers da 2C agora"
     rows.sort(key=lambda r: (r["usina"], _pv_trk_num(r["tracker"])))
     return _trk_geo_annotate(rows)
@@ -19718,195 +19568,9 @@ def _trk_severidade2(r) -> int:
     return 3
 
 
-# ══ HISTÓRICO 2C — navega o banco-por-dia (2C_historico/<data>) com curvas ══════
-#   O coletor arquiva cada dia em OWEN_ROOT/2C_historico/AAAA-MM-DD/{ETM,Strings,Trackers}.
-#   Aqui lemos uma DATA específica e montamos as séries COMPLETAS (5 min) p/ gráfico —
-#   diferente do _owen_refresh (só dia atual + colapsa string no último valor).
-_HIST_ROOT        = os.path.join(OWEN_ROOT, "2C_historico")
-_hist_cache       = {}            # data → {etm, strings, trackers} (séries completas)
-_hist_cache_order = []            # LRU
-_HIST_CACHE_MAX   = 2
-_hist_lock        = threading.Lock()
-
-
-def _hist_rows(dirpath):
-    """Itera (point_name, datetime, value) dos CSVs de um diretório (latin-1)."""
-    if not os.path.isdir(dirpath):
-        return
-    for fn in sorted(os.listdir(dirpath)):
-        if not fn.lower().endswith(".csv"):
-            continue
-        try:
-            with open(os.path.join(dirpath, fn), encoding="latin-1", newline="") as fh:
-                for row in csv.reader(fh):
-                    if len(row) < 3 or row[0] == "Point name":
-                        continue
-                    v = _owen_num(row[2])
-                    if v is None:
-                        continue
-                    try:
-                        t = datetime.strptime(row[1].strip(), "%Y/%m/%d %H:%M:%S")
-                    except Exception:
-                        continue
-                    yield row[0], t, v
-        except Exception:
-            continue
-
-
-def _hist_days():
-    """Datas disponíveis no arquivo (AAAA-MM-DD), mais recente primeiro."""
-    if not os.path.isdir(_HIST_ROOT):
-        return []
-    ds = [d for d in os.listdir(_HIST_ROOT)
-          if re.fullmatch(r"\d{4}-\d{2}-\d{2}", d) and os.path.isdir(os.path.join(_HIST_ROOT, d))]
-    return sorted(ds, reverse=True)
-
-
-def _hist_build(date):
-    """Séries completas (5 min) de um dia. Dia PASSADO: lê 2C_historico (cache permanente).
-    HOJE: lê as pastas flat (OWEN_ROOT), sempre atuais, com cache curto (o arquivo do dia ainda enche)."""
-    hoje = datetime.now().strftime("%Y-%m-%d")
-    is_today = (date == hoje)
-    with _hist_lock:
-        ent = _hist_cache.get(date)
-        if ent and (not is_today or (time.time() - ent["ts"]) < 120):
-            try: _hist_cache_order.remove(date)
-            except ValueError: pass
-            _hist_cache_order.append(date)
-            return ent["data"]
-    base = OWEN_ROOT if is_today else os.path.join(_HIST_ROOT, date)
-    rxs = re.compile(r"_Inv_([\d.]+)_STR_Corrente PV(\d+)")
-    rxt = re.compile(r"_TRK_([\d.]+)_MED_(.+?) \(graus\)")
-    etm, strings, trackers = {}, {}, {}
-    for pn, t, v in _hist_rows(os.path.join(base, "ETM")):
-        if is_today and t.strftime("%Y-%m-%d") != hoje: continue   # flat pode ter sobra de outro dia
-        u = pn.split("_", 1)[0]
-        if u not in OWEN_UFVS:
-            continue
-        med = "ghi" if "GHI" in pn else ("poa" if "POA" in pn else None)
-        if med:
-            etm.setdefault(u, {}).setdefault(med, []).append((t, _etm_clamp(v)))
-    for pn, t, v in _hist_rows(os.path.join(base, "Strings")):
-        if is_today and t.strftime("%Y-%m-%d") != hoje: continue
-        u = pn.split("_", 1)[0]
-        if u not in OWEN_UFVS:
-            continue
-        m = rxs.search(pn)
-        if not m:
-            continue
-        strings.setdefault(u, {}).setdefault(m.group(1), {}).setdefault(str(int(m.group(2))), []).append((t, v))
-    for pn, t, v in _hist_rows(os.path.join(base, "Trackers")):
-        if is_today and t.strftime("%Y-%m-%d") != hoje: continue
-        u = pn.split("_", 1)[0]
-        if u not in OWEN_UFVS:
-            continue
-        m = rxt.search(pn)
-        if not m:
-            continue
-        key = "alvo" if "Alvo" in m.group(2) else ("atual" if "Atual" in m.group(2) else None)
-        if key:
-            trackers.setdefault(u, {}).setdefault(m.group(1), {"alvo": [], "atual": []})[key].append((t, v))
-    for d in etm.values():
-        for s in d.values(): s.sort()
-    for invs in strings.values():
-        for strs in invs.values():
-            for s in strs.values(): s.sort()
-    for trks in trackers.values():
-        for node in trks.values():
-            node["alvo"].sort(); node["atual"].sort()
-    built = {"etm": etm, "strings": strings, "trackers": trackers}
-    with _hist_lock:
-        _hist_cache[date] = {"ts": time.time(), "data": built}
-        _hist_cache_order.append(date)
-        while len(_hist_cache_order) > _HIST_CACHE_MAX:
-            old = _hist_cache_order.pop(0)
-            if old != date: _hist_cache.pop(old, None)
-    return built
-
-
 def _inv_key(x):
     try:    return [int(p) for p in x.split(".")]
     except Exception: return [9999]
-
-
-@app.route("/api/2c/dias")
-def api_2c_dias():
-    return jsonify({"dias": _hist_days(),
-                    "usinas": [{"id": u, "nome": _owen_nome(u)} for u in OWEN_UFVS]})
-
-
-@app.route("/api/2c/<date>")
-def api_2c_overview(date):
-    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date or ""):
-        return jsonify({"erro": "data inválida"}), 400
-    b = _hist_build(date)
-    out = []
-    for u in OWEN_UFVS:
-        invs = b["strings"].get(u, {})
-        etm  = b["etm"].get(u, {})
-        out.append({"id": u, "nome": _owen_nome(u),
-                    "inversores": len(invs),
-                    "strings": sum(len(s) for s in invs.values()),
-                    "trackers": len(b["trackers"].get(u, {})),
-                    "etm": bool(etm.get("ghi") or etm.get("poa")),
-                    "tem_dados": bool(invs or b["trackers"].get(u) or etm)})
-    return jsonify({"date": date, "usinas": out})
-
-
-@app.route("/api/2c/<date>/etm/<usina>")
-def api_2c_etm(date, usina):
-    d = _hist_build(date)["etm"].get(usina, {})
-    byts = {}
-    for med in ("poa", "ghi"):
-        for t, v in d.get(med, []):
-            byts.setdefault(t, {})[med] = v
-    ts = sorted(byts)
-    return jsonify({"usina": _owen_nome(usina), "date": date,
-                    "labels": [t.strftime("%H:%M") for t in ts],
-                    "poa": [byts[t].get("poa") for t in ts],
-                    "ghi": [byts[t].get("ghi") for t in ts]})
-
-
-@app.route("/api/2c/<date>/strings/<usina>")
-def api_2c_strings(date, usina):
-    invs = _hist_build(date)["strings"].get(usina, {})
-    out = []
-    for inv in sorted(invs, key=_inv_key):
-        strs = invs[inv]
-        # Eixo por MINUTO (HH:MM), não pelo timestamp com segundos: alguns inversores (ex.: ARA 1.3/1.10)
-        # reportam em segundos diferentes a cada leva, o que duplicava os minutos no eixo (288 pts) e
-        # deixava cada string com None alternado → linha invisível. Agrupar por minuto resolve.
-        allmin = sorted({t.strftime("%H:%M") for sn in strs for t, _ in strs[sn]})
-        idx = {hm: i for i, hm in enumerate(allmin)}
-        series = []
-        for sn in sorted(strs, key=lambda x: int(x)):
-            if _str_key(usina, inv, sn) in _trancadas:      # string trancada (🔒) fora do gráfico (igual pv/pg/sunop)
-                continue
-            y = [None] * len(allmin)
-            for t, v in strs[sn]:
-                y[idx[t.strftime("%H:%M")]] = round(v, 2)   # última leitura do minuto
-            series.append({"id": sn, "y": y})
-        out.append({"inv": inv, "labels": allmin, "strings": series})
-    return jsonify({"usina": _owen_nome(usina), "date": date, "inversores": out})
-
-
-@app.route("/api/2c/<date>/trackers/<usina>")
-def api_2c_trackers(date, usina):
-    trks = _hist_build(date)["trackers"].get(usina, {})
-    def _down(s, m=220): return s[::max(1, len(s) // m)] if len(s) > m else s
-    out, alvo = [], None
-    for n in sorted(trks, key=_inv_key):
-        s = _down(trks[n]["atual"])
-        if s:
-            out.append({"id": f"Tracker {n}",
-                        "x": [t.strftime("%H:%M") for t, _ in s],
-                        "y": [round(v, 2) for _, v in s]})
-    for n in sorted(trks, key=_inv_key):
-        if trks[n]["alvo"]:
-            s = _down(trks[n]["alvo"])
-            alvo = {"x": [t.strftime("%H:%M") for t, _ in s], "y": [round(v, 2) for _, v in s]}
-            break
-    return jsonify({"usina": _owen_nome(usina), "date": date, "trackers": out, "alvo": alvo})
 
 
 # ── PG: Trackers (espelho do Athon/SunOp, dados do PostgreSQL) ─────────────────
@@ -20665,14 +20329,19 @@ def _spv_day_records_hist(idusina, token, data: str):
     _pv_cota_le(r)
     if r.status_code == 429:
         return [], "cota_api"
-    if r.status_code != 200:
-        return [], f"http_{r.status_code}"
-    try:
-        recs = r.json()
-    except ValueError:
-        return [], "resposta_invalida"
-    if not isinstance(recs, list):            # erro da API vem como dict (conta sem permissão, limite do dia)
-        return [], "resposta_invalida"
+    if r.status_code == 400 and "grande demais" in str(getattr(r, "text", "") or "").lower():
+        recs, motivo = _spv_day_records_por_inversor(idusina, token, d)
+        if motivo:
+            return [], motivo
+    else:
+        if r.status_code != 200:
+            return [], f"http_{r.status_code}"
+        try:
+            recs = r.json()
+        except ValueError:
+            return [], "resposta_invalida"
+        if not isinstance(recs, list):        # erro da API vem como dict (conta sem permissão, limite do dia)
+            return [], "resposta_invalida"
     iso = d.strftime("%Y-%m-%d")
     recs = [x for x in recs if str(x.get("tsleitura_new") or "").startswith(iso)]
     if not recs:
@@ -20680,6 +20349,55 @@ def _spv_day_records_hist(idusina, token, data: str):
     if len(_spv_hist_recs) >= _SPV_HIST_RECS_MAX:
         _spv_hist_recs.pop(next(iter(_spv_hist_recs)))
     _spv_hist_recs[k] = recs
+    return recs, None
+
+
+def _spv_day_records_por_inversor(idusina, token, d):
+    """(registros, motivo) do dia de uma usina grande demais para uma consulta só, um inversor por vez. A Tupi Paulista
+    (20 inversores) dava `400 {"error": "Resposta grande demais", ... "um único dispositivo (idinverter ou device_id)"}`
+    em todo dia passado (04/10/2026, na conferência da 2C sem o e-mail); por inversor, 1.440 registros cada. Os ids vêm
+    do de-para da 2C (`PV_INV_NOMES`: a conta oem@ não lista dispositivos) ou do `plant_devices`. O registro por inversor
+    vem sem o `idefinversor` e é carimbado aqui. Custa 1 consulta da cota histórica por inversor, e um inversor que
+    falha derruba o dia: dia pela metade não vale."""
+    ids = list((PV_INV_NOMES.get(int(idusina)) or {}).keys())
+    if not ids:
+        try:
+            ids = list((_pv_dev_names(idusina, token) or {}).keys())
+        except Exception:                        # noqa: BLE001
+            ids = []
+    if not ids:
+        return [], "http_400"
+    recs = []
+    for inv in ids:
+        try:
+            inv = int(inv)
+        except (TypeError, ValueError):
+            continue
+        if not _pv_cota_permite():
+            return [], "cota_api"
+        try:
+            r = _http().post(f"{PV_V2_BASE}/custom_query",
+                             headers={"x-access-token": token, "Content-Type": "application/json"},
+                             json={"id": idusina, "data_type": "inverter", "period": d.strftime("%Y%m"), "day": d.day,
+                                   "idinverter": inv},
+                             timeout=120)
+        except Exception:
+            return [], "erro_rede"
+        _pv_cota_le(r)
+        if r.status_code == 429:
+            return [], "cota_api"
+        if r.status_code != 200:
+            return [], f"http_{r.status_code}"
+        try:
+            lote = r.json()
+        except ValueError:
+            return [], "resposta_invalida"
+        if not isinstance(lote, list):
+            return [], "resposta_invalida"
+        for x in lote:
+            if isinstance(x, dict) and x.get("idefinversor") is None:
+                x["idefinversor"] = inv
+        recs.extend(x for x in lote if isinstance(x, dict))
     return recs, None
 
 
@@ -21718,18 +21436,6 @@ def api_check_reload_status():
         return jsonify(dict(_cadastro_reload))
 
 
-def _owen_loop():
-    """Mescla os CSVs no acervo do dia periodicamente — captura cada janela (3h) antes do
-    próximo e-mail sobrescrever o arquivo, mesmo sem ninguém abrir a aba."""
-    print("[2C/Owen] acumulador iniciado (refresh a cada 10 min)")
-    while True:
-        try:
-            _owen_refresh(force=True)
-        except Exception as e:
-            print(f"[2C/Owen] loop erro: {e}")
-        time.sleep(600)
-
-
 def _sunop_keepalive_loop():
     """Mantém os tokens SunOp (gridco/axis) sempre vivos: chama get_sunop_token(inst) (valida e,
     se preciso, renova via /refresh_token) a cada 6 h — bem dentro da janela de ~7 dias.
@@ -21761,6 +21467,12 @@ def _prewarm_filtra_noturno(tarefas):
     NÃO fica em silêncio: imprime o que pulou. Prewarm que some sem dizer nada é como o cadastro
     vazio de 25/08 — a tela segue servindo o último dado bom e ninguém descobre por que ele parou
     de andar."""
+    pausa = _sunop_pausa(considera_ronda=False)  # domingo / teto do dia (04/10/2026): nenhuma tarefa da SunOp
+    if pausa:
+        pulou = [t[0] for t in tarefas if t[0] in _SUNOP_TAREFAS_TODAS]
+        if pulou:
+            print(f"[prewarm] SunOp pausada ({_SUNOP_PAUSA_TXT[pausa]}): {', '.join(pulou)}")
+        return [t for t in tarefas if t[0] not in _SUNOP_TAREFAS_TODAS]
     if SUNOP_COLETA == "ronda":                  # o PC: só os trackers da Athon, que a ronda usa (ver SUNOP_COLETA)
         tarefas = [t for t in tarefas if t[0] not in _SUNOP_TAREFAS_TODAS or t[0] in _SUNOP_TAREFAS_RONDA]
     if _sunop_janela_curva():
@@ -22630,7 +22342,6 @@ def _iniciar_loops_de_fundo():
                  _perdas_str_backfill_loop,
                  _ronda_whats_loop,         # RONDA — só pode existir em UM processo
                  _whats_watchdog_loop,      # reergue o wa_service se travar
-                 _owen_loop,
                  _sunop_keepalive_loop,     # renova tokens (escreve *_token.txt)
                  _prewarm_loop,
                  _pv_trk_loop,              # trackers da API PV: 15 min por varredura, fora do ciclo do prewarm
@@ -24129,6 +23840,7 @@ import falhas as _falhas_mod
 
 FALHAS_INI = "2026-09-01"              # "quero do mês de setembro para frente" (Levi, 24/09)
 FALHAS_TTL = 30 * 60
+_FALHAS_2C_PATH = _p_dado("falhas_2c_dias.json")      # achado da 2C por dia fechado (falhas_job._CACHE_2C, 04/10/2026)
 _FALHAS_STR_PATH = _p_dado("falhas_strings.json")     # régua nova sobre a curva: {dia: {fonte: {pid: {usina, ts, mortas}}}}
 _FALHAS_PV_DEV = _p_cache("falhas_pv_dev.json")       # de-para nome → idefinversor da API PV (travas de string)
 _FALHAS_MORTAS = {}                    # (fonte, dia) → {pid: {usina, ts, mortas}} — em memória, deste processo
@@ -26229,6 +25941,25 @@ def _whats_send(cfg, grupo_id, texto):
     return ok, (r.text or "")[:200]
 
 
+RONDA_COLETA_REUSO_S = 600
+_ronda_coleta: dict = {}         # {"chave": (dia, horário), "t": datetime, "res": (rows, falhas, acomp)}
+
+
+def _ronda_coleta_do_slot(slot_label):
+    """Parados de todas as fontes para a ronda, com a SunOp liberada (domingo e teto do dia, 04/10/2026: "só a ronda
+    poderá"). A retentativa do MESMO horário reaproveita a coleta por até 10 min: com o WhatsApp fora (01/10,
+    "aguardando_qr") o laço retenta a cada 30 s por até 2 h, e cada volta recoletava tudo com force=True — liberada da
+    pausa, a ronda gastaria a SunOp inteira a cada 30 s."""
+    agora = datetime.now()
+    chave = (agora.date().isoformat(), slot_label)
+    if _ronda_coleta.get("chave") == chave and (agora - _ronda_coleta["t"]).total_seconds() < RONDA_COLETA_REUSO_S:
+        return _ronda_coleta["res"]
+    with _sunop_libera_ronda():
+        res = _ronda_parados_all(force=True)
+    _ronda_coleta.update(chave=chave, t=agora, res=res)
+    return res
+
+
 def _ronda_whats_disparo(slot_label, so_regiao=None, destino=None, pular_regioes=None, confirmar=True):
     """destino: override do id de envio (ex.: número do Levi p/ testar o FORMATO sem incomodar o grupo
     real; None = grupos do config). pular_regioes: regiões JÁ enviadas com sucesso neste slot — NÃO
@@ -26238,7 +25969,7 @@ def _ronda_whats_disparo(slot_label, so_regiao=None, destino=None, pular_regioes
     if not grupos:
         return {"ok": False, "erro": "sem grupos no whats_ronda.json"}
     pular = set(pular_regioes or ())
-    rows, falhas, acomp = _ronda_parados_all(force=True)
+    rows, falhas, acomp = _ronda_coleta_do_slot(slot_label)
     quando = datetime.now().strftime("%d/%m/%Y %H:%M")
     alerta = ("ATENÇÃO: ronda incompleta — sem resposta de " + ", ".join(falhas)) if falhas else ""
     por_reg, acomp_reg = {}, {}
@@ -28057,10 +27788,9 @@ def _trk_frota_linhas(fonte):
     constrói na hora: o overview da API PV é a varredura de até 15 min do `_pv_trk_loop`, e o da Axis nem
     entra no snapshot (no web, está sempre vazio) — construir seria requisição da SunOp dentro da página."""
     if fonte == "owen":
-        # a 2C do e-mail não publica overview (a aba monta na hora): a frota é o acervo do dia. Sem o
-        # _owen_lock de propósito: o refresh o segura enquanto lê os CSVs da pasta.
-        return [{"usina": _owen_nome(c), "total": len(t or {})}
-                for c, t in list((_owen_accum.get("trackers") or {}).items())]
+        # a frota da 2C é a da aba de trackers que o worker publica (_2c_trk_cache) — o acervo do e-mail saiu em 03/10/2026
+        return [{"usina": r.get("usina"), "total": r.get("total") or 0}
+                for r in ((_2c_trk_cache.get("payload") or {}).get("rows") or [])]
     cache = {"pv": _pv_trk_cache, "pg": _pg_trk_cache,
              "sunop": _sunop_trk_cache, "axis": _axis_trk_cache}.get(fonte) or {}
     return (cache.get("payload") or {}).get("rows") or []

@@ -86,7 +86,6 @@ def _rollup_2c(monkeypatch, api, grupo=None):
     monkeypatch.setattr(app, "_religamentos_abertos_usina", lambda: {})
     monkeypatch.setattr(app, "_etm_leitura_por_pid", lambda: {})
     monkeypatch.setattr(app, "_poa_atual_por_pid", lambda: {})
-    monkeypatch.setattr(app, "_owen_strings_rows", _email_proibido)       # 29/09/2026: o e-mail saiu do tempo real
     monkeypatch.setattr(app, "_2capi_cache", {"payload": {"rows": api}})
     if grupo is not None:
         monkeypatch.setattr(app, "USINA_GRUPO", grupo)
@@ -136,7 +135,6 @@ def _rollup_pv(monkeypatch, rows, grupo):
     monkeypatch.setattr(app, "INV_PADRAO_PLANTAS", set())
     monkeypatch.setattr(app, "USINA_GRUPO", grupo)
     monkeypatch.setattr(app, "_pg_get_snapshot", lambda force=False: ([], None))
-    monkeypatch.setattr(app, "_owen_strings_rows", lambda: [])
     monkeypatch.setattr(app, "_usinas_desligadas_marcas", lambda: {})
     monkeypatch.setattr(app, "_religamentos_abertos_usina", lambda: {})
     monkeypatch.setattr(app, "_etm_leitura_por_pid", lambda: {})

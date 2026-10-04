@@ -50,8 +50,8 @@ reinício das 17:43 a 5050 ficou fechada 20 min com o guardião rodando de 5 em 
   removidos dos resolvedores de propósito** — não os recoloque "por garantia": as duas fontes
   divergem de formas silenciosas (cache de fórmula, lock, sync sobrescrevendo). Emergência = env
   `BD_PERF_PATH`/`TICKETS_PATH`/`BD_THOPEN_PATH`. O espelho NÃO tem tabelas nomeadas (a API não
-  as expõe): os leitores resolvem por aba + assinatura de colunas. Ainda fora da API: os CSVs do
-  2C (e-mail) e o Budget/Comentários da Polaris (só o 5080 usa).
+  as expõe): os leitores resolvem por aba + assinatura de colunas. Ainda fora da API: o
+  Budget/Comentários da Polaris (só o 5080 usa). Os CSVs da 2C (e-mail) saíram do código em 03/10/2026.
 - **O schema `dbt` do banco congela.** É um pipeline da Thopen, não nosso. Quando congela, puxe das
   tabelas cruas `public.raw_*` (`raw_inverter`, `raw_tracker`, `raw_weather_station`): mesmo dado em
   `json_data`, hypertable indexada, ordens de grandeza mais rápido. Já foi feito para trackers, ETM,
@@ -132,6 +132,19 @@ token de API; o `/usage/*` não é cobrável e o dia deles é em UTC, consolidad
 - **Teste não grava arquivo de estado** (`conftest.ARQUIVOS_DE_ESTADO`, conferido por `tests/test_isolamento_estado.py`):
   um teste da cota chamava o `_sunop_eventos_calc` de verdade e às 09:51 de 01/10 o `trk_eventos.json` do PC (11,7 MB)
   virou 388 bytes, até o worker regravar da memória. Arquivo de estado novo (`_p_dado`/`_p_cache`) entra na lista.
+- **Teto de 3.000 por dia e domingo sem SunOp (04/10/2026**, Levi: "domingo não faz requisições"; "só a ronda
+  poderá"). `_sunop_pausa()` → `None`/`"domingo"`/`"teto"`; teto por máquina (`SUNOP_TETO_DIA`: 2.700 servidor, 300 PC),
+  contando a Axis e o serviço de configuração. Fecha `_sunop_req`, validação do token, `/plants` e o livro de trackers (só
+  banco); o prewarm tira as tarefas da SunOp. A ronda abre a janela (`_sunop_libera_ronda`, em `_ronda_coleta_do_slot`) e
+  a retentativa do mesmo horário reaproveita a coleta por 10 min. A retenção segura o último dado bom sem prazo e o topo
+  da tela diz "SunOp pausada". O `conftest` desliga a pausa (`SUNOP_PAUSA_LIGADA`); `SUNOP_PAUSA=0` desliga em produção.
+  **Token web vencido não vai à rede** (`_sunop_web_vencido`): o da Athon (23/07) e o da Axis (17/07) custavam ~2.850
+  recusas por dia no servidor. A Axis está sem dado desde julho: falta o `AXIS_API_TOKEN`. Teste:
+  `tests/test_sunop_teto_domingo.py`.
+- **Para não repetir (cota da SunOp):** dia fechado sem dado na fonte é resultado, não pendência; laço que refaz
+  dia passado tem teto de tentativas; curva da SunOp vai em lote, nunca usina por usina num laço de dias; credencial
+  vencida não vai à rede; depois de cada mudança que toca a SunOp, medir o `/api/sunop/uso` das duas máquinas por 1 h
+  contra o teto de ~140/h.
 
 **Curva da SunOp pelo acervo do gêmeo (FASE 4, `_sunop_analog_history`).** O gêmeo guarda em UTC; a plataforma lê a
 SunOp na hora da usina. Desde 28/09 a janela vai ao gêmeo em UTC e o carimbo volta na hora da usina, no texto da SunOp,
@@ -276,7 +289,7 @@ em `strings_acima_cadastro`. Teste: `tests/test_diferenca_por_inversor.py`. **O 
 "ok" no macro —, e a Entrada lê o `strings_faltando` já silenciado do macro, não a diferença crua, que contava a usina em
 pouca luz ou sem sol (medido no PC às 12:38: 580 strings "faltando" no card da API PV contra 177). As duas fontes SEM
 potência por inversor usam a medida das strings dele, somada: RenoGrid/SolarEdge (`_se_fora_da_conta`: potência DC
-= soma dos W das strings) e a 2C do e-mail (`_owen_fora_da_conta`: soma das correntes, que zera quando ele desliga).
+= soma dos W das strings). A 2C do e-mail fazia o mesmo pela soma das correntes até 03/10/2026; hoje a 2C é API PV.
 
 **Inversor SEM LEITURA HOJE também é desligado (25/09/2026)**, com os outros da usina gerando e com sol — Levi: "o
 inversor 1.3 de Colorado 2 está desligado, a plataforma não conta como desligado". O 3º portão da régua ("sem leitura
@@ -284,8 +297,8 @@ não é desligado") tem uma exceção, o `sem_leitura` de `_inv_desligados_por_p
 hoje": API PV = inversor do cadastro fora do `day_inverter`, só se a conta fecha pelo nome (`build_summary`); SunOp =
 nenhuma corrente numérica, ou só de outro dia, e a potência de outro dia não vale (`_sunop_regua_hoje`, a mesma na linha
 e no drill); Banco = última leitura de outro dia (a tabela guarda 30 dias); SolarEdge = todas as strings dele
-**devolvidas sem potência** — string AUSENTE da resposta é throttling (200 vazio) ou lote falho e não vale; 2C do e-mail
-= inversor do cadastro fora do e-mail do dia, só se a conta fecha (`_owen_ausentes`). Usina inteira sem leitura continua
+**devolvidas sem potência** — string AUSENTE da resposta é throttling (200 vazio) ou lote falho e não vale; a 2C do e-mail
+(até 03/10/2026) usava o inversor do cadastro fora do e-mail do dia. Usina inteira sem leitura continua
 sendo "sem comunicação" da usina (TIM100 em 25/09: os 50 com a última leitura de 24/09 06:23 — ninguém vira desligado).
 Medido em 25/09 com os mesmos dados, antiga × nova: RenoGrid mudou 3 de 7 (Crateus 75/362 −287 → 75/75, 40 desligados
 das cabines 1 a 4; Xavantina 2 −13 → +3, porque o cadastro diz 6 e 7 esperadas nos inversores 3.4 e 3.5, que têm 8
@@ -348,7 +361,7 @@ baixa sozinha não prova. Na tela: "Baixa irradiância" com a prova embaixo do n
 inversor desligado de verdade, "Inversor desligado" com o aviso (a macro diz crítico). A macro não chama a linha de
 `sem_producao`. No drill da API PV, com a usina em pouca luz, o inversor só é desligado pela régua da linha e os outros
 ficam neutros (antes os 10 da Diamantino saíam desligados). A SunOp leva `pot_inv_med` (o `pot_med` dela é o total).
-SolarEdge e 2C do e-mail não têm potência na linha e ficam como estavam. Teste: `tests/test_pouca_luz_nao_e_desligada.py`.
+SolarEdge não tem potência na linha e fica como estava (a 2C do e-mail também não tinha; saiu em 03/10/2026). Teste: `tests/test_pouca_luz_nao_e_desligada.py`.
 
 ## Tickets de strings na tabela (23/09/2026)
 
@@ -529,8 +542,24 @@ histórico do e-mail. A União não está no e-mail nem no de-para: segue pela A
 duas fontes na mesma análise, 28/09 cortado às 12:00: os mesmos parados nas quatro usinas; o dia inteiro dá 61 × 6 na
 Ipixuna porque o e-mail repete o último valor de 17:19 a 17:59 e a API para às 17:17 — os 6 são os travados em 0° nas
 duas. Os parados passaram a levar o `ticket_status` (antes a linha ia com `na_planilha=False`), e a API fora de dia vira
-`errout` (a Entrada mostra "de tal hora"), não zero parados. Pelo acervo do e-mail ficam só Perdas e relatório de strings
-e a correlação. **O dia fica quente no worker** (`_2c_trk_loop`, de 6 h às 19 h): frio, os parados da 2C levam 51 s (o dia
+`errout` (a Entrada mostra "de tal hora"), não zero parados. **Desde 03/10/2026 o e-mail saiu do código** (Levi: "agora
+está tudo via API do PV Operation"): a aba de falhas, Perdas → strings, a correlação e a curva por código leem a API PV
+pelo `_2c_strings_dia_api`, com as chaves do antigo acervo (código, inversor "U.N", string k = Ipvk) — o que já foi
+gravado com elas continua casando; API fora levanta erro (dia com buraco não é guardado). Saíram o `_owen_loop`, o
+acumulador (`owen_accum.json`), o `_hist_build`, a página Histórico 2C e as rotas `/api/2c/*`; os trackers de dia
+anterior a 30/09 também vêm da API. O coletor do Gmail (`Projetos e-mail`, tarefas agendadas do PC) fica fora do repo.
+**Conferido com o e-mail em 04/10**: em 02/10, as mesmas strings mortas e vivas nas 4 usinas (régua
+da aba de falhas: 0 × 0 mortas, vivas por inversor 60 de 60); o valor do e-mail é a média dos 5 min anteriores da API
+(erro mediano 0,7% Araputanga, 1,2% Tupi, 1,7% Sete Lagoa; Ipixuna 4,2%, o e-mail dela carimba 3 min depois, :03/:08).
+As 208 séries "só no e-mail" eram trancadas (o leitor da API já as tira; as da Ipixuna estão só com a chave IPX| e a
+régua tira depois). Em 22/09 o e-mail dava 17 strings do inversor 2.2 da Tupi mortas das 08:20 às 10:20 — 0,0 A cravado
+no inversor inteiro, buraco do SCADA; a API tem 1–3 A subindo com a manhã. **A Tupi Paulista vai por inversor no dia
+passado**: o `custom_query` da usina inteira (20 inversores) responde `400 "Resposta grande demais"`, e o
+`_spv_day_records_por_inversor` pede um por vez (ids do `PV_INV_NOMES`, `idefinversor` carimbado: o registro por inversor
+vem sem ele). Custa ~25 consultas da cota histórica por dia passado da 2C, por isso o achado de cada dia fechado da aba de
+falhas fica em disco (`_FALHAS_2C_PATH`, `falhas_job._cache_2c_*`, marca das travas por sha1 — o `hash()` muda a cada
+processo): antes vivia na memória do worker e cada deploy pediria o mês inteiro de novo. Teste:
+`tests/test_2c_dia_passado_custo.py`. **O dia fica quente no worker** (`_2c_trk_loop`, de 6 h às 19 h): frio, os parados da 2C levam 51 s (o dia
 inteiro de 6 plantas, 8 a 64 MB cada) e quente 5 s, e a Entrada dá 30 s por fonte — o dia vence de 30 em 30 min, no passo
 dela, e logo depois do deploy o card saiu "de tal hora". O laço renova 2 min antes de vencer, sem apagar o dia
 (`_2c_trk_vence`: se a busca falha, fica o de antes), e dia ainda vazio espera 5 min antes de pedir de novo. **A aba de
@@ -741,7 +770,8 @@ resposta e a rota `/api/painel/falhas?mes=` só devolve os bytes. De `FALHAS_INI
   amanhecer + do fim da tarde); mediana de todas não serve (metade das strings mortas zera a mediana).
 - Roda sobre a MESMA curva que as ocorrências baixam (`_falhas_registra` em `_pv_strings_eventos` e
   `_sunop_strings_eventos`), sem chamada nova à API; o worker persiste em `falhas_strings.json`. Curva do passado
-  só existe no 2C (2C_historico); API PV e Athon usam as quedas gravadas (`perdas_strings.json`) antes de 24/09.
+  da 2C vem da API PV (`_2c_hist_api`; até 03/10/2026, o 2C_historico do e-mail); API PV e Athon usam as quedas
+  gravadas (`perdas_strings.json`) antes de 24/09.
 - Sem notícia depois, o episódio segue **em aberto** (pedido do Levi). Trava de string vale para o mês todo; a da
   API PV precisa do de-para nome → idefinversor (`falhas_pv_dev.json`, `plant_devices`, 7 dias).
 - Trackers: régua de parado da plataforma; parado que vira severo/médio/leve sai; desvio < 2° o episódio todo não é

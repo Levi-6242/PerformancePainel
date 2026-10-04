@@ -27,10 +27,10 @@ import app  # noqa: E402  (carga pesada única; roda as cargas do BD_Performance
 # conferida contra o app.py (tests/test_isolamento_estado.py), para arquivo novo não ficar de fora.
 ARQUIVOS_DE_ESTADO = (
     # _p_dado / _p_cache
-    "PV_RELOGIO_PATH", "_TRK_FIM_DIA_PATH", "_TRK_EV_PATH", "STATE_PATH", "OWEN_ACCUM_PATH", "SPV_NOTAS_PATH",
+    "PV_RELOGIO_PATH", "_TRK_FIM_DIA_PATH", "_TRK_EV_PATH", "STATE_PATH", "SPV_NOTAS_PATH",
     "_PERSIST_PATH", "_FRAC_INDEX_FILE", "_FRAC_OSPERF_FILE", "_FRAC_DISP_FILE", "_FRAC_DISP_STATUS", "_FRAC_MTTA_FILE",
     "_FRAC_MTTA_BASE", "_FALHAS_STR_PATH", "_FALHAS_PV_DEV", "_FALHAS_IMPORTA_PATH", "_FALHAS_TRK_SEMCOM_PATH",
-    "_FALHAS_OS_PATH", "FALHAS_BF_ESTADO", "FALHAS_BF_PV_ESTADO", "FALHAS_DESC_PATH", "_WHATS_CFG_PATH",
+    "_FALHAS_OS_PATH", "_FALHAS_2C_PATH", "FALHAS_BF_ESTADO", "FALHAS_BF_PV_ESTADO", "FALHAS_DESC_PATH", "_WHATS_CFG_PATH",
     "_TRK_GARANTIA_PATH", "_TRK_GARANTIA_LOCAL", "_TRK_DEPARA_LOCAL", "_TRK_HIST_PATH", "_NOTAS_TRK_PATH",
     "_NOTAS_TRK_LOCAL", "_PERDAS_STR_PATH", "_PARADAS_PATH", "_REL_SEM_PATH",
     # gravados direto em plataforma/
@@ -55,6 +55,13 @@ def _estado_de_runtime_isolado(tmp_path, monkeypatch):
         if isinstance(atual, str):
             monkeypatch.setattr(app, nome, str(tmp_path / os.path.basename(atual)))
     monkeypatch.setattr(app, "_SUNOP_USO_FLUSH", 10 ** 9, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _sunop_sem_pausa_por_padrao(monkeypatch):
+    """A pausa da SunOp (domingo e teto do dia, 04/10/2026) depende do dia e do contador: rodada num domingo, a suíte
+    inteira veria a SunOp fechada. Desligada por padrão; tests/test_sunop_teto_domingo.py liga."""
+    monkeypatch.setattr(app, "SUNOP_PAUSA_LIGADA", False, raising=False)
 
 
 @pytest.fixture
