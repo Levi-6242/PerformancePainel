@@ -249,6 +249,10 @@ if(window.EventSource){var _E=window.EventSource;window.EventSource=function(u,o
 document.addEventListener('DOMContentLoaded',function(){
 document.querySelectorAll('a[href^="/"],form[action^="/"]').forEach(function(el){
 var a=el.tagName==='A'?'href':'action';el.setAttribute(a,fix(el.getAttribute(a)));});});
+function noClique(e){var a=e.target&&e.target.closest?e.target.closest('a[href^="/"]'):null;
+if(a)a.setAttribute('href',fix(a.getAttribute('href')));}
+document.addEventListener('click',noClique,true);document.addEventListener('auxclick',noClique,true);
+var _wo=window.open;window.open=function(u){arguments[0]=fix(u);return _wo.apply(window,arguments);};
 })();</script>"""
 
 
@@ -262,6 +266,15 @@ def _injeta_prefixo(resp):
         if not (resp.content_type or "").startswith("text/html"):
             return resp
         html = resp.get_data(as_text=True)
+        # Atributos absolutos escritos no HTML (04/10/2026): o <script src="/static/notif.js">, o logo e os links da
+        # Entrada pediam a raiz do domínio. Debaixo da ponte do Nexus a raiz é o Nexus, e o sino nem carregava. O
+        # calço só pega o que roda depois; isto pega o que já vem escrito. `(?!/)` deixa o "//host" em paz e o
+        # lookahead do prefixo impede a dobra (inclusive o href que já é o prefixo cru, sem barra no fim, como o
+        # `u===p` do calço). O `data-href` entra de propósito: é o destino do card da Entrada, que o JS abre numa aba
+        # com nome tirado dele (`_abaDe`); sem o prefixo ali o card e o link de dentro dele abririam em abas diferentes.
+        ja = re.escape(pref.lstrip("/"))
+        html = re.sub(r"""(\s(?:data-)?(?:src|href|action)=)(["'])/(?!/|""" + ja + r"""(?:/|\2))""",
+                      lambda m: m.group(1) + m.group(2) + pref + "/", html)
         shim = _SHIM_PREFIXO % json.dumps(pref)
         # Antes de qualquer script da página: logo após <head>, ou no início do corpo.
         i = html.lower().find("<head>")
