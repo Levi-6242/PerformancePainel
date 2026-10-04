@@ -14,6 +14,14 @@ def test_paginas_do_tempo_real_passam():
     assert not ln.permitido("GET", "/painel")
 
 
+def test_estaticos_passam():
+    # já são públicos sem a chave; a ponte manda a chave em todo pedido, inclusive o notif.js e os estilos
+    assert ln.permitido("GET", "/static/notif.js")
+    assert ln.permitido("HEAD", "/static/logos/grid.png")
+    assert not ln.permitido("POST", "/static/notif.js")
+    assert not ln.permitido("GET", "/staticx/notif.js")       # prefixo sem barra não vaza para rota vizinha
+
+
 def test_leitura_das_fontes_passa():
     for f in ln.FONTES_API:
         assert ln.permitido("GET", f"/api/{f}/trackers/parados"), f
@@ -68,6 +76,11 @@ def cli(monkeypatch):
 
 def test_chave_certa_le(cli):
     r = cli.get("/api/state", headers={"X-Nexus-Leitura": CHAVE})
+    assert r.status_code == 200
+
+
+def test_chave_certa_le_os_estaticos(cli):
+    r = cli.get("/static/notif.js", headers={"X-Nexus-Leitura": CHAVE})
     assert r.status_code == 200
 
 
