@@ -277,6 +277,10 @@ def _injeta_prefixo(resp):
 # reinícios sem precisar de outra variável.
 import hashlib, secrets, base64
 DASH_PASSWORD = os.environ.get("DASH_PASSWORD", "").strip()
+# Chave só de leitura do Nexus (04/10/2026). O Nexus mostra a Entrada e o Monitoramento por uma ponte que manda
+# `X-Nexus-Leitura`; com a chave certa passa só o que `leitura_nexus.permitido` aceita, e gravação é 403. Vazia =
+# desligada (o cabeçalho é ignorado). Mora no .env/tokens.txt, nunca no git — os dois repositórios são públicos.
+NEXUS_LEITURA_TOKEN = os.environ.get("NEXUS_LEITURA_TOKEN", "").strip()
 app.secret_key = os.environ.get("SECRET_KEY") or hashlib.sha256(
     ("gridco-dash-" + DASH_PASSWORD).encode()).hexdigest()
 app.permanent_session_lifetime = timedelta(days=30)
@@ -342,6 +346,18 @@ button:hover{filter:brightness(1.07)}
 
 @app.before_request
 def _auth_gate():
+    # Chave do Nexus ANTES do "app aberto": a plataforma aberta (uso local) também precisa recusar gravação por ela.
+    # Passa só o que `leitura_nexus.permitido` aceita (método, caminho e NOMES dos parâmetros de query: `?force=1`
+    # transforma o GET em trabalho pesado); o resto é 403. Cabeçalho ausente, ou chave não configurada, segue o fluxo
+    # de sempre (sessão / senha).
+    chave_nexus = flask_request.headers.get("X-Nexus-Leitura")
+    if chave_nexus is not None and NEXUS_LEITURA_TOKEN:
+        import leitura_nexus
+        if not secrets.compare_digest(chave_nexus.encode(), NEXUS_LEITURA_TOKEN.encode()):
+            return jsonify({"error": "chave de leitura recusada"}), 401
+        if leitura_nexus.permitido(flask_request.method, flask_request.path, list(flask_request.args.keys())):
+            return
+        return jsonify({"error": "somente leitura (Nexus)"}), 403
     if not DASH_PASSWORD:                       # sem senha → app aberto (dev local)
         return
     p = flask_request.path

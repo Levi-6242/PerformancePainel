@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """A chave de leitura do Nexus (04/10/2026): o Nexus mostra a Entrada e o Monitoramento da plataforma por uma ponte, só
 leitura. Esta lista diz o que a chave alcança; todo o resto, com ela, é 403."""
+import pytest
+
+import app
 import leitura_nexus as ln
 
 
@@ -50,3 +53,51 @@ def test_parametros_perigosos_negam():
     # parâmetro seguro passa (se a rota é permitida)
     assert ln.permitido("GET", "/api/pv/trackers/parados", ["data"])
     assert ln.permitido("POST", "/api/etm/os", ["usinas"])
+
+
+# ── o portão (`_auth_gate`) aceita a chave ────────────────────────────────────────────────────────────────────────
+CHAVE = "chave-de-teste-nexus"
+
+
+@pytest.fixture
+def cli(monkeypatch):
+    monkeypatch.setattr(app, "DASH_PASSWORD", "senha-qualquer")
+    monkeypatch.setattr(app, "NEXUS_LEITURA_TOKEN", CHAVE)
+    return app.app.test_client()
+
+
+def test_chave_certa_le(cli):
+    r = cli.get("/api/state", headers={"X-Nexus-Leitura": CHAVE})
+    assert r.status_code == 200
+
+
+def test_chave_certa_nao_grava(cli):
+    r = cli.post("/api/state/tracking", json={"key": "pv:1", "value": 3}, headers={"X-Nexus-Leitura": CHAVE})
+    assert r.status_code == 403 and r.get_json()["error"] == "somente leitura (Nexus)"
+
+
+def test_chave_certa_nao_sai_da_lista(cli):
+    assert cli.get("/api/tokens", headers={"X-Nexus-Leitura": CHAVE}).status_code == 403
+
+
+def test_chave_certa_com_parametro_que_dispara_trabalho_e_403(cli):
+    # `?force=1` faz o GET virar rebuild/coleta: a lista fechada recusa mesmo com a chave certa
+    r = cli.get("/api/state?force=1", headers={"X-Nexus-Leitura": CHAVE})
+    assert r.status_code == 403
+
+
+def test_chave_errada_e_recusada(cli):
+    r = cli.get("/api/state", headers={"X-Nexus-Leitura": "outra"})
+    assert r.status_code == 401 and "chave" in r.get_json()["error"]
+
+
+def test_sem_chave_configurada_o_cabecalho_nao_abre_nada(cli, monkeypatch):
+    monkeypatch.setattr(app, "NEXUS_LEITURA_TOKEN", "")
+    assert cli.get("/api/state", headers={"X-Nexus-Leitura": ""}).status_code == 401   # sem sessão: como hoje
+
+
+def test_plataforma_aberta_tambem_recusa_gravacao_pela_chave(cli, monkeypatch):
+    # DASH_PASSWORD vazia = plataforma aberta (uso local); mesmo assim, quem chega pela chave do Nexus só lê
+    monkeypatch.setattr(app, "DASH_PASSWORD", "")
+    r = cli.post("/api/state/tracking", json={}, headers={"X-Nexus-Leitura": CHAVE})
+    assert r.status_code == 403
