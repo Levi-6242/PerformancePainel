@@ -33,3 +33,20 @@ def test_o_que_nao_e_do_tempo_real_fica_fora():
     assert not ln.permitido("DELETE", "/api/state")
     assert not ln.permitido("PUT", "/api/state")
     assert not ln.permitido("GET", "/api/datax")      # prefixo sem barra não vaza para rota vizinha
+
+
+def test_fechamento_de_perdas_e_negado():
+    # rota inteira é negada, independentemente de parâmetros (dispara trabalho indetectável)
+    assert not ln.permitido("GET", "/api/perdas/fechamento")
+    assert not ln.permitido("GET", "/api/perdas/fechamento", ["run", "dia"])
+
+
+def test_parametros_perigosos_negam():
+    # todos os parâmetros perigosos negam, em qualquer método
+    for param in ["force", "forcar", "run", "backfill"]:
+        assert not ln.permitido("GET", "/api/pv/trackers/parados", [param]), f"GET com {param}"
+        assert not ln.permitido("POST", "/api/etm/os", [param]), f"POST com {param}"
+
+    # parâmetro seguro passa (se a rota é permitida)
+    assert ln.permitido("GET", "/api/pv/trackers/parados", ["data"])
+    assert ln.permitido("POST", "/api/etm/os", ["usinas"])

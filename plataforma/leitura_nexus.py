@@ -31,14 +31,32 @@ GRAVACOES = (
     "/api/strings/tickets/", "/api/entrada/tempo-real/atualizar", "/api/notificacoes/ler-agora",
 )
 
+# parâmetros de query que disparam trabalho pesado (rebuild/coleta/backfill): a ponte do Nexus os remove,
+# e a chave recusa como segunda camada de defesa — com eles, mesmo GET passa a ser operação cara
+PARAMETROS_QUE_DISPARAM = frozenset({"force", "forcar", "run", "backfill"})
+
+# rotas que são sempre negadas, mesmo sem parâmetros perigosos (ex: o fechamento de perdas dispara trabalho
+# indetectável por parâmetro, então veta a rota inteira)
+_NEGADOS = ("/api/perdas/fechamento",)
+
 
 def _casa(caminho: str, base: str) -> bool:
     return caminho == base or caminho.startswith(base + "/")
 
 
-def permitido(metodo: str, caminho: str) -> bool:
+def permitido(metodo: str, caminho: str, parametros=()) -> bool:
     m = (metodo or "").upper()
     c = (caminho or "").split("?", 1)[0].rstrip("/") or "/"
+    p = parametros or ()
+
+    # parâmetros perigosos negam a requisição em qualquer método
+    if any(param in PARAMETROS_QUE_DISPARAM for param in p):
+        return False
+
+    # rotas totalmente negadas
+    if any(_casa(c, neg) for neg in _NEGADOS):
+        return False
+
     if m == "POST":
         return c in POSTS_DE_CONSULTA
     if m not in ("GET", "HEAD"):
