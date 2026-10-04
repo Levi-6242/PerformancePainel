@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 """A chave de leitura do Nexus (04/10/2026): o Nexus mostra a Entrada e o Monitoramento da plataforma por uma ponte, só
 leitura. Esta lista diz o que a chave alcança; todo o resto, com ela, é 403."""
+import pathlib
+import re
+
 import pytest
 
 import app
@@ -114,3 +117,27 @@ def test_plataforma_aberta_tambem_recusa_gravacao_pela_chave(cli, monkeypatch):
     monkeypatch.setattr(app, "DASH_PASSWORD", "")
     r = cli.post("/api/state/tracking", json={}, headers={"X-Nexus-Leitura": CHAVE})
     assert r.status_code == 403
+
+
+# ── a lista cobre as rotas que as páginas chamam ──────────────────────────────────────────────────────────────────
+RAIZ = pathlib.Path(app.__file__).resolve().parents[1]
+PAGINAS = [RAIZ / "docs" / "redesign" / "Entrada.html", RAIZ / "docs" / "redesign" / "Monitoramento (novo design).html",
+           RAIZ / "plataforma" / "static" / "notif.js"]
+
+
+def test_a_lista_cobre_as_rotas_das_paginas():
+    """Rota nova numa página do tempo real precisa ser classificada aqui: leitura (entra na lista), consulta por POST
+    ou gravação. Sem isso, a aba do Nexus quebra calada."""
+    soltas = set()
+    for p in PAGINAS:
+        # o lookbehind descarta `/os/api/...` (proxy do OS Creator, que a chave já recusa e não é rota desta plataforma)
+        for rota in re.findall(r"(?<![\w])/api/[A-Za-z0-9_\-/]+", p.read_text(encoding="utf-8")):
+            rota = rota.rstrip("/")
+            if rota == "/api":
+                continue                                     # '/api/'+f+... : coberto pelas FONTES_API
+            if ln.permitido("GET", rota) or ln.permitido("POST", rota):
+                continue
+            if any(rota == g.rstrip("/") or rota.startswith(g) for g in ln.GRAVACOES):
+                continue
+            soltas.add(rota)
+    assert not soltas, f"rotas das páginas fora da lista do Nexus: {sorted(soltas)}"
