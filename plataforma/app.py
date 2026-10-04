@@ -19430,7 +19430,7 @@ def api_owen_trackers_chart(plant_id):
 
 
 # ── Owen (2C): Trackers parados (agora) + Ocorrências (travou→voltou) — espelho das sub-abas API PV ──
-#   Curva: acumulador (hoje) / 2C_historico (passado). Só 4 UFVs → on-demand direto (sem pool/job).
+#   Curva: o dia pela API PV (_2c_trk_build_api, com os nomes do antigo e-mail), hoje e dias passados.
 def _owen_curve_for(code, data_br):
     """Curva ATUAL por tracker no formato do motor de eventos: {tracker: [{x,y}]}."""
     try:
@@ -19550,7 +19550,7 @@ def _owen_disp_hoje():
 
 @app.route("/api/owen/trackers/eventos")
 def api_owen_trackers_eventos():
-    """Ocorrências travou→voltou do 2C, ON-DEMAND por dia (acumulador hoje / 2C_historico passado)."""
+    """Ocorrências travou→voltou do 2C, ON-DEMAND por dia (a curva do dia pela API PV)."""
     ini = (flask_request.args.get("ini") or datetime.now().strftime("%Y-%m-%d")).strip()
     date_iso = ini if re.match(r"^\d{4}-\d{2}-\d{2}$", ini) else datetime.now().strftime("%Y-%m-%d")
     fim = (flask_request.args.get("fim") or date_iso).strip()

@@ -547,7 +547,8 @@ está tudo via API do PV Operation"): a aba de falhas, Perdas → strings, a cor
 pelo `_2c_strings_dia_api`, com as chaves do antigo acervo (código, inversor "U.N", string k = Ipvk) — o que já foi
 gravado com elas continua casando; API fora levanta erro (dia com buraco não é guardado). Saíram o `_owen_loop`, o
 acumulador (`owen_accum.json`), o `_hist_build`, a página Histórico 2C e as rotas `/api/2c/*`; os trackers de dia
-anterior a 30/09 também vêm da API. O coletor do Gmail (`Projetos e-mail`, tarefas agendadas do PC) fica fora do repo.
+anterior a 30/09 também vêm da API. Em 04/10 saiu o resto: a tarefa do Gmail no PC ("2C - Baixar E-mails
+GridCo") foi desligada e o coletor de geração (`coleta API PV`) não usa mais o e-mail nem de reserva.
 **Conferido com o e-mail em 04/10**: em 02/10, as mesmas strings mortas e vivas nas 4 usinas (régua
 da aba de falhas: 0 × 0 mortas, vivas por inversor 60 de 60); o valor do e-mail é a média dos 5 min anteriores da API
 (erro mediano 0,7% Araputanga, 1,2% Tupi, 1,7% Sete Lagoa; Ipixuna 4,2%, o e-mail dela carimba 3 min depois, :03/:08).
