@@ -516,9 +516,19 @@
     }
     tic(); setInterval(tic, 1000);
   })();
+  // Os segmentos do caminho SEM o prefixo de sub-caminho (04/10/2026): debaixo da ponte do Nexus (e do sub-caminho da
+  // T.I.) o caminho é "/t/performance/plataforma/tempo-real/athon", e o nível 2 e o 3 não abriam porque o 1º segmento
+  // era "t". window.APP_PREFIX vem do calço da plataforma (vazio na raiz).
+  function _partesDoCaminho(caminho, pfx) {
+    var c = String(caminho || "/");
+    if (pfx && c.indexOf(pfx + "/") === 0) c = c.slice(pfx.length);
+    return c.replace(/\/+$/, "").split("/").filter(Boolean);
+  }
+  /* fim _partesDoCaminho */
+  var _pfxUrl = window.__pfx || function (u) { return u; };
   // ── niveis 2 e 3: /tempo-real e /tempo-real/<fonte> ───────────────────────────────────────────
   (function () {
-    var partes = location.pathname.replace(/\/+$/, "").split("/").filter(Boolean);   // ["tempo-real"] ou ["tempo-real", "athon"]
+    var partes = _partesDoCaminho(location.pathname, window.APP_PREFIX || "");   // ["tempo-real"] ou ["tempo-real", "athon"]
     if (partes[0] !== "tempo-real") return;
     var fonteSel = partes[1] || null;
     var VIEWS = ["strings", "etm", "geracao", "trackers", "pr", "curva", "perdas"];
@@ -533,7 +543,7 @@
       // /monitor, e NAO /monitoramento (22/09/2026): no servidor o Caddy tem rota propria para
       // /monitoramento e devolve 502 vazio sem repassar — foi por isso que as strings do tempo
       // real nao carregavam em nenhuma fonte. Mesma tela, outro caminho (ver a rota no app.py).
-      fr.src = "/monitor?fonte=" + encodeURIComponent(fonteSel) + "&embed=1&view=" + viewSel + fundo;
+      fr.src = _pfxUrl("/monitor?fonte=" + encodeURIComponent(fonteSel) + "&embed=1&view=" + viewSel + fundo);
       fr.hidden = false;
       window.addEventListener("message", function (ev) {
         var d = ev.data || {};
@@ -573,7 +583,7 @@
       var fr = document.getElementById("us-frame");
       // o iframe ainda carregando perderia a mensagem: nesse caso troca o src, que ja nasce na aba certa
       if (frPronto) { try { fr.contentWindow.postMessage({ gc: "view", id: id, prob: false }, "*"); } catch (e) { } }
-      else fr.src = "/monitor?fonte=" + encodeURIComponent(fonteSel) + "&embed=1&view=" + id;
+      else fr.src = _pfxUrl("/monitor?fonte=" + encodeURIComponent(fonteSel) + "&embed=1&view=" + id);
       try { history.replaceState(null, "", location.pathname + "?view=" + id); } catch (e) { }
     }
     function fechaTroca() {

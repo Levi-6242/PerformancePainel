@@ -5,6 +5,11 @@
 Até aqui o calço (`_SHIM_PREFIXO`) corrigia fetch, XHR e os <a> presentes na carga. Ficavam de fora o
 <script src="/static/notif.js">, o logo e os links escritos no HTML (a raiz do domínio, debaixo do Nexus, é o
 Nexus), o link que o JavaScript cria depois da carga e o window.open."""
+import json
+import pathlib
+import shutil
+import subprocess
+
 import pytest
 
 import app
@@ -27,7 +32,9 @@ def test_atributos_absolutos_ganham_o_prefixo(cli):
 
 def test_sem_prefixo_o_html_sai_como_hoje(cli):
     html = cli.get("/tempo-real").get_data(as_text=True)
-    assert 'src="/static/notif.js"' in html and "window.__pfx" not in html
+    # "window.__pfx=fix" é a atribuição DO CALÇO; a própria Entrada cita `window.__pfx` ao ler a função (Task 5), então
+    # o nome sozinho não prova mais que o calço ficou de fora.
+    assert 'src="/static/notif.js"' in html and "window.__pfx=fix" not in html
 
 
 def test_calco_corrige_link_no_clique_e_window_open(cli):
@@ -75,3 +82,30 @@ def test_aspas_simples_action_e_raiz_tambem_ganham_o_prefixo():
 def test_prefixo_com_caractere_de_regex_nao_quebra_a_substituicao():
     html = _passa_pelo_filtro('<head></head><a href="/x">x</a><a href="/a.b/y">y</a>', prefixo="/a.b")
     assert 'href="/a.b/x"' in html and 'href="/a.b/y"' in html and "/a.b/a.b" not in html
+
+
+ENTRADA = (pathlib.Path(app.__file__).resolve().parents[1] / "docs" / "redesign" / "Entrada.html").read_text(
+    encoding="utf-8")
+
+
+def _roda_js(expr):
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node não instalado")
+    i = ENTRADA.index("function _partesDoCaminho(")
+    fim = "/* fim _partesDoCaminho */"
+    js = ENTRADA[i:ENTRADA.index(fim, i) + len(fim)] + "\nprocess.stdout.write(JSON.stringify(" + expr + "));"
+    r = subprocess.run([node, "-e", js], capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert r.returncode == 0, r.stderr
+    return json.loads(r.stdout)
+
+
+def test_entrada_le_o_nivel_sem_o_prefixo():
+    assert _roda_js(f"_partesDoCaminho('{P}/tempo-real/athon/', '{P}')") == ["tempo-real", "athon"]
+    assert _roda_js("_partesDoCaminho('/tempo-real', '')") == ["tempo-real"]
+    assert _roda_js(f"_partesDoCaminho('/tempo-real', '{P}')") == ["tempo-real"]     # sem o prefixo no caminho
+
+
+def test_moldura_do_monitoramento_passa_pelo_calco():
+    assert ENTRADA.count('fr.src = "/monitor?') == 0
+    assert ENTRADA.count('_pfxUrl("/monitor?') == 2
