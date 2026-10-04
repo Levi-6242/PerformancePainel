@@ -227,7 +227,10 @@ uma ponte, só leitura (Levi: "tudo da plataforma, só leitura", "em paralelo po
 100% no Nexus). A ponte manda `X-Nexus-Leitura` (= `NEXUS_LEITURA_TOKEN`, no `.env`/tokens.txt, nunca no git) e
 `X-Forwarded-Prefix: /t/performance/plataforma`. Com a chave, o `_auth_gate` deixa passar só o que
 `leitura_nexus.permitido` aceita (páginas do tempo real, leituras das fontes e 3 POSTs de consulta); gravação é 403,
-mesmo com a plataforma aberta. **Rota nova numa página do tempo real precisa entrar na lista** —
+mesmo com a plataforma aberta. Toda resposta que o portão deixou passar pela chave leva `X-Nexus-Leitura-Ok: 1`
+(`_nexus_confirma_a_chave`; nunca em 401/403 nem em pedido sem a chave): a ponte do Nexus só mostra resposta que o traga,
+porque uma plataforma sem `NEXUS_LEITURA_TOKEN` ignora a chave e responderia a tudo, inclusive gravação. **Rota nova numa
+página do tempo real precisa entrar na lista** —
 `test_a_lista_cobre_as_rotas_das_paginas` quebra se não entrar. O modo sub-caminho passou a pôr o prefixo nos
 atributos `src`/`href`/`action` do HTML, nos links criados depois da carga e no `window.open`; a Entrada lê o nível
 pelo caminho sem o prefixo (`_partesDoCaminho`). Sem chave e sem prefixo, nada muda.

@@ -23,6 +23,7 @@ _GET = tuple(f"/api/{f}" for f in FONTES_API) + (
 )
 
 # POSTs que só consultam (corpo com a lista de usinas): contagem de OS, de-para do Fracttal, OS da ETM
+# ESPELHADA no Nexus (`nexus/performance/ponte.py`): mudou aqui, muda lá; divergência falha fechada (403 da plataforma).
 POSTS_DE_CONSULTA = frozenset({"/api/os-performance/counts", "/api/os-creator/fractall-usinas", "/api/etm/os"})
 
 # o que as páginas gravam (documentação e teste): com a chave, tudo isto é 403
@@ -34,6 +35,7 @@ GRAVACOES = (
 
 # parâmetros de query que disparam trabalho pesado (rebuild/coleta/backfill): a ponte do Nexus os remove,
 # e a chave recusa como segunda camada de defesa — com eles, mesmo GET passa a ser operação cara
+# ESPELHADA no Nexus (`nexus/performance/ponte.py`): mudou aqui, muda lá; divergência falha fechada (403 da plataforma).
 PARAMETROS_QUE_DISPARAM = frozenset({"force", "forcar", "run", "backfill"})
 
 # rotas que são sempre negadas, mesmo sem parâmetros perigosos (ex: o fechamento de perdas dispara trabalho

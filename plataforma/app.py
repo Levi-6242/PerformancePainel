@@ -28,7 +28,7 @@ try:
 except Exception:
     ZoneInfo = None
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from flask import Flask, render_template, jsonify, request as flask_request, send_file, session, redirect
+from flask import Flask, render_template, jsonify, request as flask_request, send_file, session, redirect, g as flask_g
 from flask_compress import Compress
 
 # ── Onde as coisas moram (o app.py vive em plataforma/, um nivel abaixo da raiz) ──────────────
@@ -369,6 +369,9 @@ def _auth_gate():
         if not secrets.compare_digest(chave_nexus.encode(), NEXUS_LEITURA_TOKEN.encode()):
             return jsonify({"error": "chave de leitura recusada"}), 401
         if leitura_nexus.permitido(flask_request.method, flask_request.path, list(flask_request.args.keys())):
+            # Marca que ESTE pedido passou pela chave: o `_nexus_confirma_a_chave` devolve `X-Nexus-Leitura-Ok` e a ponte
+            # do Nexus só mostra resposta que o traga. Só aqui: recusa (401/403) e pedido sem a chave nunca confirmam.
+            flask_g.nexus_leitura_ok = True
             return
         return jsonify({"error": "somente leitura (Nexus)"}), 403
     if not DASH_PASSWORD:                       # sem senha → app aberto (dev local)
@@ -404,6 +407,18 @@ def _auth_gate():
     # abre /ronda/monitor — sem isto o login jogava sempre na raiz e o app "virava" o dashboard).
     # Com prefixo, "/login" cru mandaria o navegador pra RAIZ do domínio (fora da app).
     return redirect(_prefixo() + "/login?next=" + quote(p))
+
+
+@app.after_request
+def _nexus_confirma_a_chave(resp):
+    """`X-Nexus-Leitura-Ok: 1` só nas respostas que o portão deixou passar pela chave de leitura do Nexus.
+
+    Plataforma sem `NEXUS_LEITURA_TOKEN` (aberta) ignora o cabeçalho `X-Nexus-Leitura` e responde a tudo, inclusive a
+    gravação; o Nexus não tem como distinguir isso de uma plataforma que cumpre a chave. Com a confirmação, a ponte
+    recusa (falha fechada) a resposta que vier sem ela."""
+    if getattr(flask_g, "nexus_leitura_ok", False):
+        resp.headers["X-Nexus-Leitura-Ok"] = "1"
+    return resp
 
 
 @app.after_request
