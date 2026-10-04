@@ -220,6 +220,24 @@ uma segunda igual na API que já está lenta; se ela falhou, quem esperou leva a
 21:48 a Guatambu 4 deu 504 aos 60 s e a abertura que esperava fez outra busca, 504 aos 120 s. Quem chega depois da
 falha tenta de novo. Testes: `test_drill_usina_falha_visivel.py`, `test_drill_api_pv_rapido.py`.
 
+## Ponte do Nexus: chave só de leitura e sub-caminho (04/10/2026)
+
+O Nexus (`Grid-Co-CODE/nexus`, torre Performance → Tempo real) mostra a Entrada e o Monitoramento desta plataforma por
+uma ponte, só leitura (Levi: "tudo da plataforma, só leitura", "em paralelo por enquanto"; a meta é a plataforma morar
+100% no Nexus). A ponte manda `X-Nexus-Leitura` (= `NEXUS_LEITURA_TOKEN`, no `.env`/tokens.txt, nunca no git) e
+`X-Forwarded-Prefix: /t/performance/plataforma`. Com a chave, o `_auth_gate` deixa passar só o que
+`leitura_nexus.permitido` aceita (páginas do tempo real, leituras das fontes e 3 POSTs de consulta); gravação é 403,
+mesmo com a plataforma aberta. **Rota nova numa página do tempo real precisa entrar na lista** —
+`test_a_lista_cobre_as_rotas_das_paginas` quebra se não entrar. O modo sub-caminho passou a pôr o prefixo nos
+atributos `src`/`href`/`action` do HTML, nos links criados depois da carga e no `window.open`; a Entrada lê o nível
+pelo caminho sem o prefixo (`_partesDoCaminho`). Sem chave e sem prefixo, nada muda.
+
+**A chave também recusa os parâmetros que disparam trabalho** (`PARAMETROS_QUE_DISPARAM`: `force`, `forcar`, `run`, `backfill`) e o `/api/perdas/fechamento`, mesmo em GET; `/static` passa (já é público).
+
+**O que o calço do sub-caminho NÃO cobre:** atribuição direta de `.src`/`location.href` com caminho absoluto no JavaScript (use `window.__pfx(...)`, como a Entrada faz com a moldura do Monitoramento), `url()` em CSS, `srcset`, `<meta refresh>`, e "Abrir em nova guia"/copiar link de `<a>` criado depois da carga (o clique e o clique do meio são corrigidos na hora).
+
+Testes: `tests/test_leitura_nexus.py`, `tests/test_prefixo_subcaminho.py`.
+
 ## Padrão por inversor (usinas sem visão por string)
 
 Ceilândia 1, Céu Azul e Ouro Branco (String Box com combiner não exposta) e Barretos (sem esperado no

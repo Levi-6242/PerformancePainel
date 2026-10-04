@@ -82,6 +82,7 @@ na [seção 16](#16-documentos-que-esta-referência-substitui).
 | Relógio do registrador | `plataforma/pv_relogio.json` | Atraso aprendido por usina (Diamantino 1 e 2 hoje). |
 | Ronda | `plataforma/whats_ronda.json`, `whats_enviados.json`; serviço `C:\GridcoWhats\wa_service.js` | Horários, grupos, envios do dia; o serviço Node fala com o WhatsApp. |
 | Cadastro | espelho em `plataforma/bases/` (BD_Performance, BD_Thopen, Tickets) | Esperadas, String Box, nomes, cliente, estado, região. |
+| Chave de leitura do Nexus | `plataforma/leitura_nexus.py` | O que a ponte do Nexus pode ler; gravação com a chave é 403 (ver `plataforma/CLAUDE.md`). |
 
 **O que precisa de restart:** mudança só no HTML, não. Mudança no `app.py` precisa reiniciar **os dois** processos: a
 régua roda no worker, e a saída das rotas (sol, pouca luz, usina desligada, tickets) roda no web. No servidor, o push na
