@@ -28,10 +28,23 @@ def test_estaticos_passam():
 def test_leitura_das_fontes_passa():
     for f in ln.FONTES_API:
         assert ln.permitido("GET", f"/api/{f}/trackers/parados"), f
-    for c in ("/api/state", "/api/entrada/tempo-real", "/api/spv/usina/123", "/api/etm/chart", "/api/notificacoes",
-              "/api/strings/tickets/12/os", "/api/plant/MAB100", "/api/os-performance", "/api/data"):
+    for c in ("/api/state", "/api/entrada/tempo-real", "/api/notificacoes", "/api/strings/tickets/12/os",
+              "/api/os-performance", "/api/data", "/api/spv/usinas", "/api/etm", "/api/pv/trackers"):
         assert ln.permitido("GET", c), c
     assert ln.permitido("HEAD", "/api/state")
+
+
+def test_o_que_abre_a_usina_na_api_pv_fica_fora():
+    """Levi, 05/10/2026: "por hora não puxa nada da API da thopen". O drill que vai à API PV na hora é negado pela chave;
+    o que a plataforma já tem guardado (tabela, lista de trackers, acervo) passa. Prova de rede: test_nexus_sem_api_pv."""
+    for c in ("/api/plant/297410", "/api/pv/grupo/297410", "/api/pv/pr/297410", "/api/pv/trackers/297410",
+              "/api/pv/trackers/297410/chart", "/api/semp/trackers/1/chart.csv", "/api/2capi/trackers",
+              "/api/semp/trackers", "/api/alveslima/trackers", "/api/spv/usina/123", "/api/spv/pdf", "/api/etm/chart",
+              "/api/etm/export", "/api/owen/strings/plant/9"):
+        assert not ln.permitido("GET", c), c
+    for c in ("/api/pv/trackers", "/api/pv/trackers/parados", "/api/pv/trackers/eventos", "/api/sunop/trackers/12",
+              "/api/pg/trackers", "/api/pvx/trackers/1"):
+        assert ln.permitido("GET", c) == (c != "/api/pvx/trackers/1"), c
 
 
 def test_so_os_tres_posts_de_consulta_passam():
@@ -192,5 +205,7 @@ def test_a_lista_cobre_as_rotas_das_paginas():
                 continue
             if any(rota == g.rstrip("/") or rota.startswith(g) for g in ln.GRAVACOES):
                 continue
+            if any(r.match(rota) for r in ln.NEGADOS_API_PV):
+                continue                                     # fora de propósito: abre a usina na API PV (05/10/2026)
             soltas.add(rota)
     assert not soltas, f"rotas das páginas fora da lista do Nexus: {sorted(soltas)}"

@@ -957,6 +957,12 @@ def _http() -> requests.Session:
     return s
 
 
+# Pedido que entrou pela chave do Nexus não fala com a API PV, nem nas threads e tarefas que abrir (Levi, 05/10/2026:
+# "por hora não puxa nada da API da thopen ... tenho medo que duplique as chamadas"). Ver leitura_nexus.
+import leitura_nexus as _ln
+_ln.instalar_trava_api_pv(PVForaDoAr)
+
+
 # ── Persistência: marca os caches como "sujos" p/ o loop salvar em disco ───────
 _persist_flag = {"dirty": False}
 
@@ -980,6 +986,9 @@ def _swr(cache: dict, build, force: bool = False) -> dict:
     payload = cache.get("payload")
     fresh = payload is not None and (agora - cache.get("ts", 0.0)) < cache.get("_ttl", CACHE_TTL)
     lock = cache.setdefault("_lock", threading.Lock())
+    if _ln.pedido_do_nexus():
+        # o Nexus só lê: montar aqui iria às fontes, e com a API PV travada guardaria para todo mundo um cache sem ela
+        return dict(payload, stale=not fresh) if payload is not None else {"stale": True, "aquecendo": True}
     if payload is None or force:
         with lock:
             # outro pedido pode ter acabado de construir enquanto esperávamos o lock
@@ -4068,7 +4077,7 @@ def _entrada_tr_disparar(forcar: bool = False) -> bool:
     mas respeita _ENTRADA_TR_MIN_FORCA_S desde a ultima construcao — clique repetido nao vira rajada nas fontes."""
     c = _ENTRADA_TR_CACHE
     agora = time.time()
-    if c["building"]:
+    if c["building"] or _ln.pedido_do_nexus():      # o Nexus só lê o que já está montado (ver _swr)
         return False
     vencido = c["data"] is None or (agora - c["ts"]) > _entrada_tr_ttl()
     if not vencido and not (forcar and (agora - c["ts"]) >= _ENTRADA_TR_MIN_FORCA_S):
@@ -13682,6 +13691,9 @@ def _pg_get_snapshot(force=False):
     """SWR: serve o snapshot atual na hora; quando expira, atualiza em fundo.
     force=1 e a 1ª carga continuam síncronos."""
     agora = time.time()
+    if _ln.pedido_do_nexus():
+        # o Nexus só lê (ver _swr): com o cache frio, montar aqui era a consulta de até 83 s no banco da Thopen
+        return _pg_cache["summary"] or [], _pg_cache["detail"] or {}
     if force or _pg_cache["summary"] is None:
         with _pg_lock:
             if _pg_cache["summary"] is None or _pg_cache["ts"] < agora:

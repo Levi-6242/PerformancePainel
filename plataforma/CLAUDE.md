@@ -237,6 +237,21 @@ pelo caminho sem o prefixo (`_partesDoCaminho`). Sem chave e sem prefixo, nada m
 
 **A chave também recusa os parâmetros que disparam trabalho** (`PARAMETROS_QUE_DISPARAM`: `force`, `forcar`, `run`, `backfill`) e o `/api/perdas/fechamento`, mesmo em GET; `/static` passa (já é público).
 
+**Pedido do Nexus não fala com a API PV (05/10/2026**, Levi: "por hora não puxa nada da API da thopen, estou tentando
+economizar requests e tenho medo que duplique as chamadas"). A API PV (`*.pvoperation.com*`) atende Thopen, SEMP, Alves
+Lima e 2C-API. Pelo Nexus vale só o que a plataforma já tem. Três travas, todas em `leitura_nexus.py`:
+- `NEGADOS_API_PV`: o drill que abre a usina na API PV na hora é 403 pela chave (rodaria, falharia e poderia guardar a
+  falha no cache de todo mundo). Lista espelhada na ponte do Nexus (`nexus/performance/ponte.py`).
+- `instalar_trava_api_pv` (chamada logo depois do `_http()`): em pedido do Nexus o `requests` recusa o host da API PV
+  com `PVForaDoAr` (não conta no disjuntor), e a marca segue para a thread e para a TAREFA de pool que o pedido abrir —
+  o operário do pool é de todo mundo, por isso a marca vai no `submit`, não na thread.
+- O pedido do Nexus não monta cache: `_swr` serve o que tem (ou `aquecendo`), a Entrada não dispara o build e a tabela
+  do Banco (`_pg_get_snapshot`) não é consultada com o cache frio — era a consulta de até 83 s no banco da Thopen, achada
+  pelo mesmo teste na suíte inteira. Montar com a API PV travada guardaria para todo mundo um cache sem ela.
+Medido com a rede cortada antes da trava: 10 rotas da chave chamavam a API PV (no pedido, nos operários do pool da SEMP e
+da 2C e no build da Entrada); depois, nenhuma. `tests/test_nexus_sem_api_pv.py` chama TODA rota GET que a chave alcança
+com a rede cortada e falha se alguma falar com a API PV; rota nova que vá à API PV na hora entra em `NEGADOS_API_PV`.
+
 **O que o calço do sub-caminho NÃO cobre:** atribuição direta de `.src`/`location.href` com caminho absoluto no JavaScript (use `window.__pfx(...)`, como a Entrada faz com a moldura do Monitoramento), `url()` em CSS, `srcset`, `<meta refresh>`, e "Abrir em nova guia"/copiar link de `<a>` criado depois da carga (o clique e o clique do meio são corrigidos na hora).
 
 Testes: `tests/test_leitura_nexus.py`, `tests/test_prefixo_subcaminho.py`.

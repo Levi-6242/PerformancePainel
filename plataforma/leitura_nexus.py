@@ -8,6 +8,8 @@ alcança `/api/tokens`, a ronda, a coleta nem nada que dispare trabalho pesado. 
 `test_a_lista_cobre_as_rotas_das_paginas` confere esta lista contra as rotas citadas nas duas páginas: rota nova numa
 página quebra o teste, em vez de a aba do Nexus ficar em branco calada.
 """
+import re
+import threading
 
 # as fontes do Monitoramento (o `/api/'+f+'/...` dinâmico das páginas)
 FONTES_API = ("pv", "pg", "sunop", "axis", "solaredge", "owen", "2capi", "semp", "alveslima")
@@ -42,9 +44,86 @@ PARAMETROS_QUE_DISPARAM = frozenset({"force", "forcar", "run", "backfill"})
 # indetectável por parâmetro, então veta a rota inteira)
 _NEGADOS = ("/api/perdas/fechamento",)
 
+# ── A API PV fica de fora do Nexus (Levi, 05/10/2026: "por hora não puxa nada da API da thopen, estou tentando
+# economizar requests e tenho medo que duplique as chamadas") ─────────────────────────────────────────────────────
+# A API PV (`*.pvoperation.com*`) atende a Thopen e também a SEMP, a Alves Lima e a 2C-API. Pelo Nexus vale só o que a
+# plataforma já tem guardado. Duas travas:
+# 1) estas rotas, que abrem a usina na API PV na hora (medido com a rede cortada em tests/test_nexus_sem_api_pv.py),
+#    são negadas pela chave: rodariam, falhariam e poderiam guardar a falha no cache de todo mundo;
+# 2) `instalar_trava_api_pv`: o pedido que entrou pela chave não fala com a API PV, nem nas threads e tarefas que ele
+#    abrir — é a garantia para o que a lista não previu.
+HOSTS_API_PV = ("pvoperation.com",)          # apipv.pvoperation.com.br e apiplataforma.pvoperation.com
+_FONTES_API_PV = "pv|2capi|semp|alveslima"
+NEGADOS_API_PV = tuple(re.compile(r) for r in (
+    r"^/api/plant/",                                        # inversores da usina (_pv_plant_inversores)
+    r"^/api/pv/grupo/",
+    r"^/api/pv/pr/",                                        # PR de uma usina, coletado na hora
+    rf"^/api/({_FONTES_API_PV})/trackers/\d+",              # drill, curva e CSV de trackers de uma usina
+    r"^/api/(2capi|semp|alveslima)/trackers$",              # a lista dessas três monta usina por usina na hora
+    r"^/api/spv/(usina/|pdf)",                              # strings de uma usina, na hora (a lista /usinas é cache)
+    r"^/api/etm/(chart|export)",                            # curva da estação, na hora
+    r"^/api/owen/strings/plant/",
+))
+_marca = threading.local()
+
 
 def _casa(caminho: str, base: str) -> bool:
     return caminho == base or caminho.startswith(base + "/")
+
+
+def pedido_do_nexus() -> bool:
+    """Este código roda por causa de um pedido que entrou pela chave do Nexus: no próprio pedido ou numa thread ou tarefa
+    que ele abriu."""
+    if getattr(_marca, "nexus", False):
+        return True
+    from flask import g, has_request_context
+    return has_request_context() and bool(getattr(g, "nexus_leitura_ok", False))
+
+
+def _marcado(fn):
+    def corre(*a, **k):
+        antes = getattr(_marca, "nexus", False)
+        _marca.nexus = True
+        try:
+            return fn(*a, **k)
+        finally:
+            _marca.nexus = antes
+    return corre
+
+
+def instalar_trava_api_pv(excecao) -> None:
+    """Pedido do Nexus não fala com a API PV: `requests` recusa o host com `excecao` (a `PVForaDoAr` da plataforma, que
+    quem chama já trata como API fora), e a marca do pedido segue para a thread e para a tarefa de pool que ele abrir.
+    Sem pedido do Nexus no caminho, tudo segue como antes. Idempotente."""
+    import requests
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import thread as _cft
+
+    if getattr(requests.Session.send, "_trava_nexus", False):
+        return
+    enviar = requests.Session.send
+
+    def send(self, request, **kw):
+        if pedido_do_nexus() and any(h in (request.url or "") for h in HOSTS_API_PV):
+            raise excecao("pedido do Nexus: a API PV fica de fora (vale só o que a plataforma já tem)", request=request)
+        return enviar(self, request, **kw)
+    send._trava_nexus = True
+    requests.Session.send = send
+
+    iniciar = threading.Thread.start
+
+    def start(self):
+        # o operário de um pool é reaproveitado por pedidos de todo mundo: quem leva a marca é a TAREFA (submit)
+        if pedido_do_nexus() and getattr(self, "_target", None) is not _cft._worker:
+            self.run = _marcado(self.run)
+        return iniciar(self)
+    threading.Thread.start = start
+
+    submeter = ThreadPoolExecutor.submit
+
+    def submit(self, fn, /, *a, **k):
+        return submeter(self, _marcado(fn) if pedido_do_nexus() else fn, *a, **k)
+    ThreadPoolExecutor.submit = submit
 
 
 def permitido(metodo: str, caminho: str, parametros=()) -> bool:
@@ -58,6 +137,8 @@ def permitido(metodo: str, caminho: str, parametros=()) -> bool:
 
     # rotas totalmente negadas
     if any(_casa(c, neg) for neg in _NEGADOS):
+        return False
+    if any(r.match(c) for r in NEGADOS_API_PV):
         return False
 
     if m == "POST":
