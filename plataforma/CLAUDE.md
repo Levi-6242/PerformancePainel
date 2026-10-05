@@ -981,3 +981,30 @@ strings citadas estão trancadas"). Não eram trava — as trancadas eram as Ipv
   DISTINTOS (fonte + id da usina na fonte + tracker) parados em algum momento da semana, por quantidade — total, quantos
   começaram na semana, quantos seguiam parados no fim e as usinas com mais trackers (Levi: "distintos viu, por
   quantidade"). 21–27/09 no PC: 770 (301 começaram, 500 seguiam parados; Barretos 106, Brodowski 102).
+
+## Relatório Semanal Thopen (`/relatorio/semanal`, 29/09/2026)
+
+Relatório para o CLIENTE Thopen, toda segunda até as 12h (Ana Patrícia e Levi, reunião de 28/09; spec em
+`docs/superpowers/specs/2026-09-29-relatorio-semanal-thopen-design.md`). As contas moram em `relatorio_semanal.py`
+(puro, sem rede: `tests/test_relatorio_semanal*.py`); o `app.py` só junta os leitores (`_RelSemLeitores`: BD_Thopen,
+índice de disponibilidade, OS do worker, aba de falhas, rondas). Os campos do analista (leitura, responsável, causa,
+ação, previsão) gravam em `relatorio_semanal.json`; "Emitir PDF" registra a versão (R00, R01…) com o que foi ao cliente.
+
+**Considerações do Levi em 05/10/2026** (`tests/test_relatorio_semanal_verificacao.py`):
+- **Usina sem IPOA medido entra no PR, com asterisco, em tudo** (resumo, bloco 05, curva de evolução): no dia com
+  geração e IPOA vazio ou zero, o PR usa a irradiação de referência do cliente (meta de IPOA do mês ÷ dias do mês)
+  **corrigida pelo sol do dia** (`fator_sol`: a MEDIANA de IPOA medida ÷ referência das usinas que mediram — mediana
+  porque uma ETM ruim puxaria o dia de todos). IPOA medido abaixo de 0,3 kWh/m² segue fora, como no Histórico PR.
+  28/09–04/10: 18 usinas; PR do portfólio 78,1% só medido → 72,9% com a referência pura (semana a 81% da referência)
+  → **75,5% com a correção** (decisão do Levi).
+- **Bloco 06 "Pontos em verificação pela Grid"** no fim, em texto para o cliente (sem nome de planilha): geração ×
+  disponibilidade incoerente, ETM medindo alto ou baixo e as usinas pela referência (numa linha só). O dia que a coleta
+  ainda não gravou para a maioria das usinas fica fora (`COLETA_MIN_FRAC`): a coleta das 22:30 grava o dia ANTERIOR, e na
+  segunda de manhã o domingo não está no BD_Thopen — em 28/09–04/10 eram 51 dos 65 avisos.
+- **Card de geração, 2ª linha**: "Atingimento de geração pela meta do IPOA" = geração dos dias com IPOA medido ÷ (meta
+  de geração desses dias × IPOA real ÷ IPOA de referência).
+- **Causa principal pega a ETM**: em 30 dias, geração ≥ 100% da meta e IPOA medida 10 pontos ou mais acima da geração →
+  "Irradiância acima do esperado (sensor)". A Vertentes gerou 107% da meta com a IPOA a 132% e o bloco 05 dizia
+  "Trackers parados". PR acima de 130% em 3+ dias dos últimos 30 = ETM medindo baixo, só no bloco 06.
+- **Campos editáveis** com `contenteditable="true"` (não "plaintext-only", que navegador antigo não conhece) e colar
+  como texto puro. A edição é na página, antes de emitir: o PDF não é editável.

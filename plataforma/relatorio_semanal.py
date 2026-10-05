@@ -21,6 +21,26 @@ PR_TETO_DIA = 1.30
 # Janela solar do índice de disponibilidade (módulo disponibilidade): 06–18h, 12 h por dia.
 JANELA = (6, 18)
 JANELA_H = 12.0
+# A usina que ficou "fora do PR" por não ter IPOA medido (Levi, 05/10/2026: "para o cálculo de PR podemos considerar o
+# IPOA meta como referência (...) sempre colocando em asterisco"): no dia sem medição — vazio ou zero —, o PR usa a
+# irradiação de referência do cliente (a meta de IPOA do mês ÷ dias do mês). IPOA medido abaixo de IPOA_MIN é medição de
+# dia muito fechado e segue fora, como no Histórico PR.
+ASTERISCO = "*"
+# ETM medindo ALTO (Levi, 05/10/2026: "usina de Vertentes tem operado acima da meta de geração do cliente - possível
+# necessidade de verificação na ETM"). Em 30 dias (04/09 a 03/10) a Vertentes gerou 106% da meta com a IPOA medida em 131%
+# da referência: o PR de 61% contra 82% era o sensor, e o bloco 05 dizia "Trackers parados". Janela de 30 dias porque uma
+# semana de sol forte explica IPOA alta; um mês inteiro 25 pontos acima do que a geração acompanhou, não. Com geração e
+# IPOA andando juntas (Ouro Branco: 122% e 117%) é só sol.
+ETM_JANELA_DIAS = 30
+ETM_GER_MIN = 1.00           # gerou pelo menos a meta do cliente
+ETM_FOLGA = 0.10             # e a IPOA medida passou da geração em 10 pontos ou mais
+# ETM medindo BAIXO: PR acima de PR_TETO_DIA em pelo menos 3 dias dos últimos 30 (Córrego do Sapucaia 28/09–04/10: PR de
+# 176% na semana). Não muda a conta (a régua do Histórico PR é a mesma); vai para os pontos em verificação.
+ETM_PR_ALTO_DIAS = 3
+# Dia que a coleta ainda não gravou: a coleta das 22:30 grava o dia ANTERIOR, então na segunda de manhã o domingo não
+# está no BD_Thopen para quase ninguém (28/09–04/10: 51 dos 65 avisos de geração × disponibilidade eram o 04/10). Dia
+# em que menos da metade das usinas tem geração não é falta da usina — é o dia que ainda não entrou.
+COLETA_MIN_FRAC = 0.5
 # Assunção dos ativos pela Grid (bloco 02). Levi, 30/09/2026: "começa por 01/01/2026 e aí tem usinas que entraram depois
 # disso, elas vão entrando no cálculo" — a usina entra no mês em que passa a ter dia válido no BD_Thopen.
 ASSUNCAO = date(2026, 1, 1)
@@ -41,7 +61,7 @@ def _frac(pr):
 def _vazio():
     return {"ger_kwh": 0.0, "den_mwh": 0.0, "num_meta": 0.0, "den_meta": 0.0, "ger_total_kwh": 0.0,
             "meta_kwh": 0.0, "ipoa_pot": 0.0, "ipoa_meta_pot": 0.0, "pot_mwp": 0.0, "dias_validos": 0,
-            "dias_sem_ipoa": 0, "dias_pr_alto": 0, "dias": 0}
+            "dias_sem_ipoa": 0, "dias_pr_alto": 0, "dias": 0, "dias_ipoa_meta": 0, "ger_ipoa_ok": 0.0, "esp_ipoa": 0.0}
 
 
 def _fecha(r):
@@ -51,10 +71,13 @@ def _fecha(r):
     pot = r["pot_mwp"] or None
     r["ipoa"] = (r["ipoa_pot"] / pot) if pot else None
     r["ipoa_meta"] = (r["ipoa_meta_pot"] / pot) if pot else None
+    # atingimento de geração pela meta do IPOA: a geração dos dias com IPOA medido contra a meta de geração desses dias
+    # corrigida pelo sol que veio (meta × IPOA real ÷ IPOA da referência)
+    r["ger_x_meta_ipoa"] = (r["ger_ipoa_ok"] / r["esp_ipoa"]) if r.get("esp_ipoa") else None
     return r
 
 
-def pr_unidade(diario, pot_mwp, metas, ini, fim):
+def pr_unidade(diario, pot_mwp, metas, ini, fim, fator=None):
     """PR, meta e produção de uma usina (uma aba do BD_Thopen) no período.
 
     diario = [{data: date, ger: kWh, ipoa: kWh/m²}] (dashboard_thopen._daily_records); pot_mwp = potência da usina;
@@ -64,7 +87,10 @@ def pr_unidade(diario, pot_mwp, metas, ini, fim):
     - meta de PR = a meta do mês ponderada pelo denominador do dia — a semana de 28/09 a 04/10 pesa setembro e outubro
       pelo sol que cada dia teve, não pela contagem de dias;
     - meta de geração = a mensal ÷ dias do mês, nos dias com geração registrada; a de irradiação, nos dias com IPOA
-      medida (o dia sem leitura não pode derrubar o "IPOA real × meta").
+      medida (o dia sem leitura não pode derrubar o "IPOA real × meta");
+    - dia com geração e IPOA vazio ou zero entra no PR com a irradiação de referência do cliente corrigida pelo sol do
+      dia (`fator` = fator_sol; `dias_ipoa_meta`, o asterisco do relatório — Levi, 05/10/2026). Ele não entra no "IPOA
+      real × meta" nem na régua de PR acima de 130%.
     """
     r = _vazio()
     ok = set(dias(ini, fim))
@@ -82,29 +108,66 @@ def pr_unidade(diario, pot_mwp, metas, ini, fim):
             if mt.get("meta"):
                 r["meta_kwh"] += mt["meta"] / nd
         valido = g is not None and g > 0 and i is not None and i > IPOA_MIN and pot_mwp
-        if not valido:
+        pela_ref = (not valido and g is not None and g > 0 and (i is None or i <= 0) and pot_mwp
+                    and mt.get("metairr"))
+        if not valido and not pela_ref:
             if g is not None and g > 0:
                 r["dias_sem_ipoa"] += 1
             continue
-        den = i * pot_mwp                                    # MWh por unidade de PR
+        if pela_ref:
+            r["dias_sem_ipoa"] += 1
+            r["dias_ipoa_meta"] += 1
+            f = (fator or {}).get(d, 1.0)
+            den = mt["metairr"] / nd * f * pot_mwp           # a irradiação de referência do dia, com o sol dele
+        else:
+            den = i * pot_mwp                                # MWh por unidade de PR
         r["ger_kwh"] += g
         r["den_mwh"] += den
-        r["dias_validos"] += 1
-        r["ipoa_pot"] += i * pot_mwp
-        if mt.get("metairr"):
-            r["ipoa_meta_pot"] += mt["metairr"] / nd * pot_mwp
         prm = _frac(mt.get("pr"))
         if prm is not None:
             r["num_meta"] += prm * den
             r["den_meta"] += den
+        if pela_ref:
+            continue
+        r["dias_validos"] += 1
+        r["ipoa_pot"] += i * pot_mwp
+        if mt.get("metairr"):
+            r["ipoa_meta_pot"] += mt["metairr"] / nd * pot_mwp
+            if mt.get("meta"):
+                r["esp_ipoa"] += mt["meta"] * i / mt["metairr"]
+                r["ger_ipoa_ok"] += g
         if g / 1000.0 / den > PR_TETO_DIA:
             r["dias_pr_alto"] += 1
     r["pot_mwp"] = pot_mwp or 0.0
     return _fecha(r)
 
 
+def fator_sol(series):
+    """{dia: IPOA medida ÷ irradiação de referência} das usinas que MEDIRAM no dia — a mediana delas. É o sol que veio:
+    numa semana nublada (28/09–04/10: 81% da referência) a referência pura punha ~20% de sol a mais na usina sem
+    sensor, e o PR dela saía baixo por causa do tempo (Brodowski 27,6%). Mediana, e não média, porque uma ETM ruim
+    puxaria o dia de todo mundo (Junco 14% da referência; Vertentes 132%). series = [(diario, pot_mwp, metas)]."""
+    razoes = {}
+    for diario, pot, metas in series or []:
+        if not pot:
+            continue
+        for x in diario or []:
+            d, g, i = x.get("data"), x.get("ger"), x.get("ipoa")
+            mt = (metas or {}).get(d.month) if d else None
+            if not (mt and mt.get("metairr") and g is not None and g > 0 and i is not None and i > IPOA_MIN):
+                continue
+            razoes.setdefault(d, []).append(i / (mt["metairr"] / calendar.monthrange(d.year, d.month)[1]))
+    return {d: _mediana_lista(v) for d, v in razoes.items()}
+
+
+def _mediana_lista(v):
+    v = sorted(v)
+    n = len(v)
+    return v[n // 2] if n % 2 else (v[n // 2 - 1] + v[n // 2]) / 2
+
+
 _SOMAVEIS = ("ger_kwh", "den_mwh", "num_meta", "den_meta", "ger_total_kwh", "meta_kwh", "ipoa_pot", "ipoa_meta_pot",
-             "pot_mwp", "dias_validos", "dias_sem_ipoa", "dias_pr_alto")
+             "pot_mwp", "dias_validos", "dias_sem_ipoa", "dias_pr_alto", "dias_ipoa_meta", "ger_ipoa_ok", "esp_ipoa")
 
 
 def soma(partes):
@@ -139,17 +202,18 @@ def meses_desde(inicio, fim):
     return out
 
 
-def pr_mensal(unidades, meses):
+def pr_mensal(unidades, meses, fator=None):
     """PR e meta do portfólio mês a mês (bloco 02). unidades = [(diario, pot_mwp, metas)]; meses = [(ano, mês)]. A usina
     que ainda não existia no mês não tem dia válido nele e não pesa — entra quando o BD_Thopen passa a ter dia dela."""
     out = []
     for ano, m in meses:
         ini = date(ano, m, 1)
         fim = date(ano, m, calendar.monthrange(ano, m)[1])
-        partes = [pr_unidade(d, p, mt, ini, fim) for d, p, mt in unidades]
+        partes = [pr_unidade(d, p, mt, ini, fim, fator=fator) for d, p, mt in unidades]
         t = soma(partes)
         out.append({"ano": ano, "mes": m, "pr": t["pr"], "pr_meta": t["pr_meta"], "dias_validos": t["dias_validos"],
-                    "usinas": sum(1 for x in partes if x["dias_validos"])})
+                    "usinas": sum(1 for x in partes if x["dias_validos"] or x["dias_ipoa_meta"]),
+                    "ipoa_meta": any(x["dias_ipoa_meta"] for x in partes)})
     return out
 
 
@@ -425,10 +489,9 @@ def _faixa(vs):
     return f"{a:.0%}" if round(a, 2) == round(b, 2) else f"{a:.0%} a {b:.0%}"
 
 
-def geracao_x_disponibilidade(nome, ger_dia, disp_dia, ini, fim):
-    """ger_dia = {date: kWh} (a soma das abas da unidade; dia sem linha fica fora); disp_dia = {date: fração 0–1}.
-    → avisos de conferência, um por usina e por tipo: dia sem geração com a usina disponível, e dia gerando com a
-    usina indisponível pelas OS. Em 21–27/09 foram 36 dias em 17 usinas — um por dia enchia a caixa."""
+def _ger_disp_achados(ger_dia, disp_dia, ini, fim, pular=()):
+    """(sem, gerou): [(dia, disp)] sem geração com a usina disponível e [(dia, disp, geração ÷ típico)] gerando com a
+    usina indisponível pelas OS. `pular` = os dias que a coleta ainda não gravou (ver COLETA_MIN_FRAC)."""
     base = [ger_dia[d] for d in dias(fim - timedelta(days=TIPICO_DIAS - 1), fim)
             if (ger_dia.get(d) or 0) > 0 and disp_dia.get(d, 1.0) >= 0.999]
     tipico = _p75(base)
@@ -436,11 +499,39 @@ def geracao_x_disponibilidade(nome, ger_dia, disp_dia, ini, fim):
     # antes da 1ª linha no BD a usina ainda não existia (entrou depois): não é dia faltando
     desde = max([ini] + [min(ger_dia)] if ger_dia else [ini])
     for d in dias(desde, fim):
+        if d in pular:
+            continue
         g, disp = ger_dia.get(d), disp_dia.get(d, 1.0)
         if (g is None or g <= 0 or (tipico and g < 0.05 * tipico)) and disp >= AVISO_DISP_MIN:
             sem.append((d, disp))
         elif tipico and g and disp <= AVISO_DISP_MAX and g / tipico >= disp + AVISO_GER_FOLGA:
             gerou.append((d, disp, g / tipico))
+    return sem, gerou
+
+
+def ger_disp_cliente(nome, sem, gerou):
+    """Os mesmos achados no texto que vai ao cliente, no bloco 06 (Levi, 05/10/2026: "Thopen gosta de ver que está no
+    nosso radar") — sem nome de planilha nem jargão interno."""
+    out = []
+    if sem:
+        out.append({"usina": nome, "tipo": "geracao_disponibilidade",
+                    "texto": f"{nome}: geração não registrada em {_dias_txt([d for d, _ in sem])}, com a usina "
+                             f"disponível ({_faixa([x for _, x in sem])} pelas ocorrências) — conferindo a medição e "
+                             "o registro de ocorrências"})
+    if gerou:
+        out.append({"usina": nome, "tipo": "geracao_disponibilidade",
+                    "texto": f"{nome}: geração de {_faixa([r for _, _, r in gerou])} do típico em "
+                             f"{_dias_txt([d for d, _, _ in gerou])}, acima do que as ocorrências registradas indicam "
+                             f"({_faixa([x for _, x, _ in gerou])} de disponibilidade) — conferindo o registro das "
+                             "ocorrências"})
+    return out
+
+
+def geracao_x_disponibilidade(nome, ger_dia, disp_dia, ini, fim, pular=()):
+    """ger_dia = {date: kWh} (a soma das abas da unidade; dia sem linha fica fora); disp_dia = {date: fração 0–1}.
+    → avisos de conferência, um por usina e por tipo: dia sem geração com a usina disponível, e dia gerando com a
+    usina indisponível pelas OS. Em 21–27/09 foram 36 dias em 17 usinas — um por dia enchia a caixa."""
+    sem, gerou = _ger_disp_achados(ger_dia, disp_dia, ini, fim, pular)
     out = []
     if sem:
         out.append(f"{nome}: sem geração no BD_Thopen em {_dias_txt([d for d, _ in sem])}, com "
@@ -479,14 +570,23 @@ def _kwh_no_periodo(e, ini, fim):
     return (e.get("perda_kwh") or 0.0) * max(0, dentro) / max(1, tot)
 
 
-def ofensores(desl, trk, strs, pr, kwh_indisp, ini, fim):
+def ofensores(desl, trk, strs, pr, kwh_indisp, ini, fim, etm=None):
     """O pré-diagnóstico da usina fora da meta, com número: [{tipo, texto, kwh}], o de maior energia primeiro. A
-    irradiância não confiável vem antes de tudo — com o sensor sem medir, o PR da semana não se sustenta."""
+    irradiância não confiável vem antes de tudo — com o sensor sem medir, o PR da semana não se sustenta. `etm` = o
+    teste de 30 dias da estação (etm_suspeita): IPOA medida muito acima do que a geração acompanhou."""
     out = []
     dv, ds = pr.get("dias_validos") or 0, pr.get("dias_sem_ipoa") or 0
-    if ds > dv:
+    if ds > dv and pr.get("dias_ipoa_meta"):
+        out.append({"tipo": "ipoa", "kwh": None,
+                    "texto": f"Sem medição de irradiância em {ds} de {ds + dv} dias (PR pela irradiação de referência "
+                             f"do cliente corrigida pelo sol do dia{ASTERISCO})"})
+    elif ds > dv:
         out.append({"tipo": "ipoa", "kwh": None,
                     "texto": f"Irradiância não confiável (sensor): {ds} de {ds + dv} dias sem medição"})
+    elif etm and etm.get("alta"):
+        out.append({"tipo": "ipoa", "kwh": None,
+                    "texto": f"Irradiância acima do esperado (sensor): em {ETM_JANELA_DIAS} dias, IPOA "
+                             f"{etm['ipoa_x_meta']:.0%} da referência com a geração em {etm['ger_x_meta']:.0%} da meta"})
     elif pr.get("dias_pr_alto"):
         k = pr["dias_pr_alto"]
         out.append({"tipo": "ipoa", "kwh": None,
@@ -515,6 +615,49 @@ def ofensores(desl, trk, strs, pr, kwh_indisp, ini, fim):
 
 def causa_sugerida(ofs):
     return ofs[0]["texto"] if ofs else SEM_OFENSOR
+
+
+def etm_suspeita(r30):
+    """O teste da estação nos últimos ETM_JANELA_DIAS dias (r30 = pr_unidade/soma da janela). → {alta, baixa,
+    ger_x_meta, ipoa_x_meta, dias_pr_alto}: alta = gerou pelo menos a meta com a IPOA medida ETM_FOLGA acima da geração;
+    baixa = PR acima de 130% em ETM_PR_ALTO_DIAS dias ou mais."""
+    if not r30:
+        return {"alta": False, "baixa": False}
+    gm = (r30["ger_total_kwh"] / r30["meta_kwh"]) if r30.get("meta_kwh") else None
+    im = (r30["ipoa"] / r30["ipoa_meta"]) if r30.get("ipoa") and r30.get("ipoa_meta") else None
+    alta = gm is not None and im is not None and gm >= ETM_GER_MIN and im >= gm + ETM_FOLGA
+    k = r30.get("dias_pr_alto") or 0
+    return {"alta": alta, "baixa": k >= ETM_PR_ALTO_DIAS, "ger_x_meta": gm, "ipoa_x_meta": im, "dias_pr_alto": k}
+
+
+def verificacao_etm(nome, etm):
+    """Os pontos em verificação da estação, no texto que vai ao cliente (bloco 06)."""
+    out = []
+    if etm.get("alta"):
+        out.append({"usina": nome, "tipo": "etm_alta",
+                    "texto": f"{nome}: em {ETM_JANELA_DIAS} dias, irradiância medida em {etm['ipoa_x_meta']:.0%} da "
+                             f"referência com a geração em {etm['ger_x_meta']:.0%} da meta — sensor da estação "
+                             "meteorológica (ETM) em verificação; o PR da usina tende a estar subestimado"})
+    if etm.get("baixa"):
+        out.append({"usina": nome, "tipo": "etm_baixa",
+                    "texto": f"{nome}: PR acima de 130% em {etm['dias_pr_alto']} dias nos últimos {ETM_JANELA_DIAS} — "
+                             "irradiância medida abaixo do esperado; sensor da estação meteorológica (ETM) em "
+                             "verificação"})
+    return out
+
+
+def verificacao_ipoa_meta(nomes):
+    """As usinas com o PR pela irradiação de referência numa linha só do bloco 06 — uma por usina repetia a nota do
+    asterisco (28/09–04/10: 18 linhas)."""
+    if not nomes:
+        return []
+    return [{"usina": ", ".join(nomes), "tipo": "ipoa_meta",
+             "texto": f"Sem medição de irradiância no período ({len(nomes)} usina{'s' if len(nomes) > 1 else ''}, estação "
+                      f"meteorológica em verificação): {', '.join(nomes)} — PR calculado com a irradiação de referência "
+                      f"do cliente corrigida pelo sol do dia{ASTERISCO}"}]
+
+
+_ORDEM_VERIF = {"etm_alta": 0, "etm_baixa": 1, "geracao_disponibilidade": 2, "ipoa_meta": 3}
 
 
 # ── unidades e montagem ─────────────────────────────────────────────────────────────────────────────────────────
@@ -607,15 +750,33 @@ def montar(ini, fim, unids, L):
     pot(aba), metas(aba), disp_diario(usina do índice), oss(), linhas_os(), falhas() → {strings, trackers} e, se tiver,
     rondas() → linhas do workbook de rondas."""
     avisos, linhas, partes_port, disp_itens, avisos_disp, trk_unid = [], [], [], [], [], {}
+    verif, ipoa_meta_us = [], []
     oss, los, fal = L.oss() or [], L.linhas_os() or [], L.falhas() or {}
     series = []
+    ger_por_u = {}
     for u in unids:
-        partes = []
         ger_dia = {}
         for aba in u["bd"]:
+            pot_, metas_ = L.pot(aba), L.metas(aba)
+            if pot_ and metas_:
+                series.append((L.diario(aba), pot_, metas_))
             for x in L.diario(aba) or []:
                 if x.get("data") is not None and x.get("ger") is not None:
                     ger_dia[x["data"]] = ger_dia.get(x["data"], 0.0) + x["ger"]
+        ger_por_u[u["nome"]] = ger_dia
+    # o dia que a coleta ainda não gravou para a maioria (ver COLETA_MIN_FRAC) não é falta de nenhuma usina
+    com_dado = [g for g in ger_por_u.values() if any((g.get(d) or 0) > 0 for d in dias(ini, fim))]
+    sem_coleta = {d for d in dias(ini, fim)
+                  if com_dado and sum(1 for g in com_dado if (g.get(d) or 0) > 0) < COLETA_MIN_FRAC * len(com_dado)}
+    if sem_coleta:
+        um = len(sem_coleta) == 1
+        avisos.append(f"{_dias_txt(sorted(sem_coleta))}: a coleta ainda não gravou {'esse dia' if um else 'esses dias'} "
+                      "no BD_Thopen para a maioria das usinas (a coleta das 22:30 grava o dia anterior) — o PR e a "
+                      f"geração da semana saem sem {'ele' if um else 'eles'}")
+    fator = fator_sol(series)                    # o sol de cada dia, para quem não mediu
+    for u in unids:
+        partes, partes30 = [], []
+        ger_dia = ger_por_u[u["nome"]]
         for aba in u["bd"]:
             pot, metas = L.pot(aba), L.metas(aba)
             if not pot:
@@ -625,14 +786,17 @@ def montar(ini, fim, unids, L):
                 avisos.append(f"{aba}: sem meta do cliente — fora do PR")
                 continue
             diario = L.diario(aba)
-            series.append((diario, pot, metas))
-            partes.append(pr_unidade(diario, pot, metas, ini, fim))
+            partes.append(pr_unidade(diario, pot, metas, ini, fim, fator=fator))
+            partes30.append(pr_unidade(diario, pot, metas, fim - timedelta(days=ETM_JANELA_DIAS - 1), fim, fator=fator))
         pr = soma(partes) if partes else None
+        etm = etm_suspeita(soma(partes30) if partes30 else None)
         dd = [(disponibilidade(L.disp_diario(x), ini, fim), (u.get("disp_kwp") or {}).get(x) or 0.0) for x in u["disp"]]
         disp_itens += dd
         dp = disponibilidade_portfolio(dd)
         if u["disp"] and ger_dia:
-            avisos_disp += geracao_x_disponibilidade(u["nome"], ger_dia, _disp_por_dia(L, u, ini, fim), ini, fim)
+            dd_dia = _disp_por_dia(L, u, ini, fim)
+            avisos_disp += geracao_x_disponibilidade(u["nome"], ger_dia, dd_dia, ini, fim, pular=sem_coleta)
+            verif += ger_disp_cliente(u["nome"], *_ger_disp_achados(ger_dia, dd_dia, ini, fim, pular=sem_coleta))
         # a perda do desligamento na régua dos outros ofensores: horas equivalentes de usina inteira parada × a geração
         # média da usina por hora de sol no período. O kWh do índice é potência nominal × horas e inflava o desligamento
         # contra trackers e strings, que já vêm na irradiância real (Altair 21–27/09: 1,6 h de queda na frente de 56
@@ -648,24 +812,33 @@ def montar(ini, fim, unids, L):
         strs = [e for e in fal.get("strings") or [] if e.get("usina") in nomes and _cruza(e, ini, fim)]
         ln = {"nome": u["nome"], "pr": pr["pr"] if pr else None, "pr_meta": pr["pr_meta"] if pr else None,
               "disp": dp["disp"], "kwp": u["kwp"], "desligamentos": desl, "fora": False,
-              "dias_sem_ipoa": pr["dias_sem_ipoa"] if pr else None}
+              "dias_sem_ipoa": pr["dias_sem_ipoa"] if pr else None,
+              "ipoa_meta_dias": pr["dias_ipoa_meta"] if pr else 0}
+        verif += verificacao_etm(u["nome"], etm)
         if pr and pr["pr"] is not None:
             partes_port.append(pr)
-            if pr["dias_sem_ipoa"]:
-                avisos.append(f"{u['nome']}: {pr['dias_sem_ipoa']} dia(s) sem IPOA, fora do PR")
+            if pr["dias_ipoa_meta"]:
+                ipoa_meta_us.append(u["nome"])
+                avisos.append(f"{u['nome']}: {pr['dias_ipoa_meta']} dia(s) sem IPOA — PR pela irradiação de referência "
+                              f"do cliente corrigida pelo sol do dia{ASTERISCO}")
+            resto = pr["dias_sem_ipoa"] - pr["dias_ipoa_meta"]
+            if resto:
+                avisos.append(f"{u['nome']}: {resto} dia(s) com IPOA abaixo de {_n1(IPOA_MIN)} kWh/m² ou sem referência, "
+                              "fora do PR")
         elif pr:                                         # sem geração nenhuma não é falta de IPOA (Ribeirão Cascalheiras)
             avisos.append(f"{u['nome']}: " + ("nenhum dia com IPOA no período" if pr["ger_total_kwh"] else
                                               "sem geração no BD_Thopen no período") + " — fora do PR")
         if pr and fora_da_meta(pr):
-            ofs = ofensores(desl, trk, strs, pr, kwh_indisp, ini, fim)
+            ofs = ofensores(desl, trk, strs, pr, kwh_indisp, ini, fim, etm=etm)
             ln.update(fora=True, perda_mwh=perda_estimada_mwh(pr), ofensores=ofs, causa_sugerida=causa_sugerida(ofs),
                       acao_sugerida=acao_sugerida(los, set(u["sites"]), ini, fim))
         linhas.append(ln)
+    verif += verificacao_ipoa_meta(sorted(ipoa_meta_us))
     port, dport = soma(partes_port), disponibilidade_portfolio(disp_itens)
     fora = sorted((l for l in linhas if l["fora"]), key=lambda l: -l["perda_mwh"])
     todos = {n for u in unids for n in u["disp"]}
     desl_port = desligamentos(oss, ini, fim, todos)
-    ev = pr_mensal(series, meses_desde(ASSUNCAO, fim))
+    ev = pr_mensal(series, meses_desde(ASSUNCAO, fim), fator=fator)
     comp = [m for m in ev if m["pr"] is not None]
     sites = {s for u in unids for s in u["sites"]}
     executado = os_executadas(los, sites, ini, fim)
@@ -680,10 +853,12 @@ def montar(ini, fim, unids, L):
     avisos += avisos_disp
     return {
         "periodo": {"ini": ini.isoformat(), "fim": fim.isoformat(), "dias": len(dias(ini, fim)),
-                    "semana": ini.isocalendar()[1]},
+                    "semana": ini.isocalendar()[1], "dias_sem_coleta": [d.isoformat() for d in sorted(sem_coleta)]},
         "resumo": {"pr": port["pr"], "pr_meta": port["pr_meta"], "disp": dport["disp"], "disp_meta": DISP_META,
                    "ger_x_meta": (port["ger_total_kwh"] / port["meta_kwh"]) if port["meta_kwh"] else None,
                    "ipoa_x_meta": (port["ipoa"] / port["ipoa_meta"]) if port["ipoa_meta"] else None,
+                   "ger_x_meta_ipoa": port["ger_x_meta_ipoa"],
+                   "ipoa_meta_usinas": sorted(ipoa_meta_us),
                    "fora": len(fora), "total": len(partes_port), "tol": TOL_META},
         "evolucao": {"meses": ev, "desde": ASSUNCAO.isoformat()[:7],
                      "pr_primeiro": comp[0]["pr"] if comp else None, "pr_atual": comp[-1]["pr"] if comp else None,
@@ -698,6 +873,7 @@ def montar(ini, fim, unids, L):
                                              key=lambda x: x["disp"])},
         "fora_da_meta": fora,
         "usinas": linhas,
+        "verificacao": sorted(verif, key=lambda v: (_ORDEM_VERIF.get(v["tipo"], 9), v["usina"])),
         "avisos": avisos,
     }
 
@@ -810,7 +986,10 @@ def registra_emissao(estado, ini, fim, snap, em, por):
     for c, x in gerais.items():
         _padrao(estado, c, x)
     resumo = {k: x for k, x in (snap.get("resumo") or {}).items() if _numero(x)}
-    emis.append({"versao": v, "em": em, "por": por, **gerais, "linhas": linhas, "resumo": resumo})
+    # os pontos em verificação (bloco 06) também foram ao cliente: entram na versão como texto
+    verif = [_txt(x)[:TAM_MAX] for x in (snap.get("verificacao") or []) if _txt(x)][:200]
+    emis.append({"versao": v, "em": em, "por": por, **gerais, "linhas": linhas, "resumo": resumo,
+                 "verificacao": verif})
     p["em"] = em
     return v
 

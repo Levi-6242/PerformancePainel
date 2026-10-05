@@ -97,6 +97,16 @@ table.fora tr { break-inside: avoid; }
 /* campos do analista: editáveis na tela, texto no PDF */
 [contenteditable] { outline: none; border-bottom: 1px dashed #b9b3cc; white-space: pre-line; }
 [contenteditable]:empty::before { content: attr(data-vazio); color: #9a94ad; }
+/* vazio, o campo inline não tem largura: no Firefox o clique não põe o cursor nele (Levi, 05/10/2026: "as partes
+   editáveis, que estão tracejadas, tem que ser possível digitar") */
+[contenteditable]:empty { display: inline-block; min-width: 6em; cursor: text; }
+[contenteditable]:focus { background: #f6f3fb; }
+.nota-ast { margin-top: 9px; font-size: 11.5px; color: var(--mudo); }
+sup.ast { font-size: .55em; margin-left: 1px; vertical-align: super; }
+ul.verif { margin: 0; padding: 6px 18px 6px 34px; border: 1px solid var(--borda); border-radius: 8px; font-size: 13px;
+  line-height: 1.5; }
+ul.verif li { padding: 7px 0; border-bottom: 1px solid var(--fio); }
+ul.verif li:last-child { border-bottom: 0; }
 [contenteditable].falta { background: #fdf3e1; border-bottom: 2px solid var(--aten); }
 .carregando { width: 960px; margin: 60px auto; text-align: center; color: var(--mudo); font-size: 14px; }
 /* Ctrl+P sem "Emitir PDF" imprime, mas avisa no papel: versão sem registro não vai ao cliente */
@@ -109,6 +119,8 @@ table.fora tr { break-inside: avoid; }
   .doc { margin: 0; box-shadow: none; zoom: .74; }
   [contenteditable], [contenteditable].falta { border-bottom: 0; background: none; }
   [contenteditable]:empty::before { content: ""; }
+  [contenteditable]:empty { min-width: 0; }
+  [contenteditable]:focus { background: none; }
   .duvidas.sem-contato { display: none; }
   body.previa .aviso-previa { display: block !important; }
   /* Cabeçalho e rodapé de página próprios. Com caixa de margem definida em cima e embaixo, o Chrome deixa de imprimir
@@ -190,7 +202,9 @@ function faltando(s, semOfensor) {
   return f;
 }
 
-const ed = (campo, usina) => `contenteditable="plaintext-only" data-campo="${campo}"${usina == null ? '' : ` data-usina="${esc(usina)}"`}`;
+// contenteditable="true", não "plaintext-only": navegador que não conhece esse valor deixa o campo tracejado e sem
+// digitação. O texto puro fica garantido pelo colar (ligarCampos) e pelo innerText na hora de salvar.
+const ed = (campo, usina) => `contenteditable="true" spellcheck="true" data-campo="${campo}"${usina == null ? '' : ` data-usina="${esc(usina)}"`}`;
 // o salvo no período; responsável e contato sem nada salvo vêm da última vez que alguém preencheu
 const geral = (c) => (DIR && DIR[c] != null ? DIR[c] : (DIR && DIR.padrao && DIR.padrao[c]) || '');
 // o salvo na linha vence a sugestão — inclusive vazio: o analista apagou de propósito
@@ -244,6 +258,12 @@ function ligarCampos() {
       pendentes.set(el, setTimeout(() => salvar(el), 800));
     });
     el.addEventListener('blur', () => { if (pendentes.has(el)) salvar(el); });
+    // colar entra como texto puro: negrito, cor e tabela de outro lugar não vão para o relatório do cliente
+    el.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const t = (e.clipboardData || window.clipboardData).getData('text/plain');
+      document.execCommand('insertText', false, el.dataset.campo === 'leitura' ? t : t.replace(/\s*\n\s*/g, ' '));
+    });
     // só a leitura tem mais de uma linha; nos outros, Enter confirma
     if (el.dataset.campo !== 'leitura') el.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); el.blur(); } });
   });
@@ -253,6 +273,7 @@ function retrato() {
   const v = (el) => (el ? el.innerText : '');
   return {
     leitura: v(campoEl('leitura')), responsavel: v(campoEl('responsavel')), contato: v(campoEl('contato')),
+    verificacao: (D.verificacao || []).map((v) => v.texto),
     linhas: (D.fora_da_meta || []).map((u) => ({
       usina: u.nome, pr: u.pr, pr_meta: u.pr_meta, perda_mwh: u.perda_mwh,
       causa: v(campoEl('causa', u.nome)), acao: v(campoEl('acao', u.nome)), previsao: v(campoEl('previsao', u.nome)) })),
@@ -366,6 +387,9 @@ function render(d) {
   const dDisp = r.disp != null ? r.disp - r.disp_meta : null;
   const sinal = (x) => (x == null ? '' : `<span class="${x >= 0 ? 'pos' : 'neg'}">${pp(x)}</span>`);
   const ganho = ev.ganho_pp;
+  // usina sem IPOA medido entra no PR pela irradiação de referência do cliente, sempre com asterisco (Levi, 05/10/2026)
+  const ast = (n) => (n ? '<sup class="ast">*</sup>' : '');
+  const astUs = r.ipoa_meta_usinas || [];
   const cab = `
     <div class="cab">
       <div>
@@ -384,11 +408,12 @@ function render(d) {
     <section class="sec">
       <div class="sec-t"><span class="n">01</span><h2>Resumo da semana</h2><span class="d">PR corrigido por irradiância no plano (POA) · meta do cliente</span></div>
       <div class="kpis">
-        ${kpi('PR real (POA)', pct(r.pr), `meta ${pct(r.pr_meta)} · ${sinal(dPr)}`)}
+        ${kpi('PR real (POA)', pct(r.pr) + ast(astUs.length), `meta ${pct(r.pr_meta)} · ${sinal(dPr)}`)}
         ${kpi('Disponibilidade', r.disp == null ? '—' : nf1.format(r.disp) + '%', `meta ${nf1.format(r.disp_meta)}% · ${sinal(dDisp)}`)}
-        ${kpi('Geração real × meta', pct(r.ger_x_meta), `IPOA real × meta: ${pct(r.ipoa_x_meta)}`)}
+        ${kpi('Geração real × meta', pct(r.ger_x_meta), `IPOA real × meta: ${pct(r.ipoa_x_meta)}<br><span title="Geração dos dias com IPOA medido contra a meta de geração desses dias corrigida pelo IPOA real (meta × IPOA real ÷ IPOA de referência)">Atingimento de geração pela meta do IPOA: ${pct(r.ger_x_meta_ipoa)}</span>`)}
         ${kpi('Usinas fora da meta de PR', `${r.fora}<small>de ${r.total}</small>`, `tolerância: PR ≥ ${nf0.format(r.tol * 100)}% da meta`)}
       </div>
+      ${astUs.length ? `<div class="nota-ast">* PR calculado com a irradiação de referência do cliente corrigida pelo sol do dia, nos dias sem medição de IPOA — ${astUs.length === 1 ? '1 usina' : astUs.length + ' usinas'}: ${esc(astUs.join(', '))}.</div>` : ''}
       <div class="leitura"><b>Leitura da semana.</b> <span ${ed('leitura')} id="leitura" data-vazio="2 a 3 linhas: o que explica o resultado do portfólio, o que a Grid fez e o que muda até o próximo envio. Sem jargão interno.">${esc(geral('leitura'))}</span></div>
     </section>`;
   const s02 = `
@@ -398,9 +423,10 @@ function render(d) {
         ${grafico(ev)}
         <div class="tri">
           <div><div class="l">PR em ${mesAno(ev.meses.find((m) => m.pr != null), true)}</div><div class="v">${pct(ev.pr_primeiro)}</div></div>
-          <div><div class="l">PR no mês corrente</div><div class="v">${pct(ev.pr_atual)}</div></div>
+          <div><div class="l">PR no mês corrente</div><div class="v">${pct(ev.pr_atual)}${ast((ev.meses.filter((m) => m.pr != null).at(-1) || {}).ipoa_meta)}</div></div>
           <div><div class="l">Ganho acumulado</div><div class="v ${ganho == null ? '' : ganho >= 0 ? 'pos' : 'neg'}">${pp(ganho)}</div></div>
         </div>
+        ${ev.meses.some((m) => m.ipoa_meta) ? '<div class="nota-ast">* Meses com usinas sem medição de IPOA: o PR delas usa a irradiação de referência do cliente corrigida pelo sol do dia.</div>' : ''}
       </div>
     </section>`;
   const relig = ex.religamento_mediano_min, ron = ex.rondas;
@@ -434,7 +460,7 @@ function render(d) {
   const linhas = (d.fora_da_meta || []).map((u) => `
       <tr>
         <td class="u">${esc(u.nome)}</td>
-        <td class="m">${pct(u.pr)} /<br>${pct(u.pr_meta)}</td>
+        <td class="m">${pct(u.pr)}${ast(u.ipoa_meta_dias)} /<br>${pct(u.pr_meta)}</td>
         <td class="m">${nf0.format(u.perda_mwh)}<br>MWh</td>
         <td><span ${ed('causa', u.nome)} data-vazio="causa principal">${esc(daLinha(u.nome, 'causa', u.causa_sugerida))}</span>
             <span class="ofens so-tela">medido: ${esc((u.ofensores || []).map((o) => o.texto).join(' · ') || 'nenhum ofensor')}</span></td>
@@ -447,13 +473,22 @@ function render(d) {
       ${linhas ? `<table class="fora"><thead><tr><th>Usina</th><th>PR real /<br>meta</th><th>Perda<br>est.</th><th>Causa principal</th><th>Ação da Grid · status</th><th>Previsão</th></tr></thead><tbody>${linhas}</tbody></table>`
                : '<div class="vazio">Nenhuma usina abaixo da tolerância no período.</div>'}
     </section>`;
+  // 06: o que a Grid está conferindo (Levi, 05/10/2026: geração × disponibilidade incoerente "sinalizar ao final do
+  // relatório necessidade de verificação — Thopen gosta de ver que está no nosso radar"), mais a estação medindo
+  // fora do esperado e as usinas com o PR pela referência
+  const vf = d.verificacao || [];
+  const s06 = vf.length ? `
+    <section class="sec">
+      <div class="sec-t"><span class="n">06</span><h2>Pontos em verificação pela Grid</h2><span class="d">Inconsistências de dado que a Grid está conferindo · não mudam os números acima</span></div>
+      <ul class="verif">${vf.map((v) => `<li>${esc(v.texto)}</li>`).join('')}</ul>
+    </section>` : '';
   const rod = `
     <div class="rod">
-      <div><b>Fontes:</b> BD_Thopen (geração, IPOA e meta de PR do cliente) · Fracttal (OS, desligamentos) · Plataforma de Performance GRID (strings e trackers). PR corrigido pela IPOA medida; dias sem medição de IPOA ficam fora do PR.</div>
+      <div><b>Fontes:</b> BD_Thopen (geração, IPOA e meta de PR do cliente) · Fracttal (OS, desligamentos) · Plataforma de Performance GRID (strings e trackers). PR corrigido pela IPOA medida; nos dias sem medição de IPOA, pela irradiação de referência do cliente corrigida pelo sol do dia (a mediana das usinas que mediram; marcado com *).</div>
       <div><b>Envio:</b> toda segunda-feira até 12h, por e-mail, independentemente da reunião.<span class="duvidas"> Dúvidas: <span ${ed('contato')} id="contato" data-vazio="[responsável] · [e-mail]">${esc(geral('contato'))}</span></span></div>
     </div>`;
   $('saida').className = '';
-  $('saida').innerHTML = `<div class="doc"><div class="aviso-previa">PRÉVIA — emissão não registrada. Para o cliente, use "Emitir PDF".</div>${cab}<div class="corpo">${s01}${s02}<div class="duas">${s03}${s04}</div>${s05}</div>${rod}</div>`;
+  $('saida').innerHTML = `<div class="doc"><div class="aviso-previa">PRÉVIA — emissão não registrada. Para o cliente, use "Emitir PDF".</div>${cab}<div class="corpo">${s01}${s02}<div class="duas">${s03}${s04}</div>${s05}${s06}</div>${rod}</div>`;
   document.title = `Relatório Semanal Thopen — ${br(per.ini)} a ${br(per.fim)}`;
   ligarCampos();
   prepararImpressao();

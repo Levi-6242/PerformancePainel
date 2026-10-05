@@ -480,10 +480,13 @@ def test_montagem_devolve_os_cinco_blocos_e_a_usina_fora_da_meta_com_o_pre_diagn
     assert [m["mes"] for m in p["evolucao"]["meses"]] == list(range(1, 10))
 
 
-def test_usina_sem_nenhum_dia_com_ipoa_vira_aviso():
+def test_usina_sem_nenhum_dia_com_ipoa_entra_pela_referencia_e_vira_aviso():
+    # até 05/10/2026 ficava fora do PR; agora o PR usa a irradiação de referência do cliente, com asterisco
+    # (tests/test_relatorio_semanal_verificacao.py)
     class SemIpoa(L):
         def diario(self, aba):
             return [dia(date(2026, 9, 21 + i), 10_000.0, 0.0) for i in range(7)]
     us = [{"nome": "Guatambu", "bd": ["Altair"], "disp": ["Guatambu"], "sites": [], "kwp": 1000.0}]
     p = rs.montar(date(2026, 9, 21), date(2026, 9, 27), us, SemIpoa())
-    assert p["resumo"]["total"] == 0 and any("Guatambu" in a and "IPOA" in a for a in p["avisos"])
+    assert p["resumo"]["total"] == 1 and p["resumo"]["ipoa_meta_usinas"] == ["Guatambu"]
+    assert any("Guatambu" in a and "IPOA" in a and "referência" in a for a in p["avisos"])
