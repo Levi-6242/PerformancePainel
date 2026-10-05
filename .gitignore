@@ -168,6 +168,8 @@ falhas_pv_dev.json
 falhas_os_abertas.json
 falhas_importar_perdas.json*
 falhas_backfill_sunop.json
+# achado de cada dia fechado da 2C pela API PV (_FALHAS_2C_PATH, 03/10/2026): ~25 consultas da cota histórica por dia
+falhas_2c_dias.json
 trk_parados_fim_dia.json
 pv_relogio.json
 frac_mtta_index.json
