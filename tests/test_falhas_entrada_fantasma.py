@@ -54,7 +54,7 @@ def test_entrada_presente_em_boa_parte_dos_registros_fica():
     # inversor que alterna dois formatos de pacote (metade com Ipv1-2, metade com Ipv3-4): todas as entradas são reais
     a = {"idefinversor": 1, "conteudojson": {"Ipv1": 8.0, "Ipv2": 8.1}}
     b = {"idefinversor": 1, "conteudojson": {"Ipv3": 7.9, "Ipv4": 8.2}}
-    recs = [{**(a if i % 2 else b), "tsleitura_new": f"2026-10-01 {10 + i // 60:02d}:{i % 60:02d}:00"} for i in range(40)]
+    recs = [{**(a if i % 2 else b), "tsleitura_new": f"2026-10-01 {10 + i // 60:02d}:{i % 60:02d}:00"} for i in range(80)]
     entradas = {}
     curvas = app._pv_curvas_strings_de(recs, 1, None, "tok", entradas=entradas)
     assert sorted(curvas["INV-1"]) == ["Ipv1", "Ipv2", "Ipv3", "Ipv4"] and entradas == {"INV-1": 4}
@@ -69,13 +69,24 @@ def test_string_que_vem_como_null_quase_o_dia_todo_continua_na_curva():
     assert len(curvas["INV-1"]["Ipv4"]) == 4 and len(curvas["INV-1"]["Ipv1"]) == 40
 
 
-def test_registro_da_regua_guarda_as_entradas_so_do_inversor_que_gerou(monkeypatch):
-    # de madrugada o inversor tem meia dúzia de registros e um solto pesaria demais: só vale quem gerou 2 h no dia
+def test_entradas_so_do_inversor_com_registros_suficientes_no_dia_mesmo_desligado():
+    # de madrugada o inversor tem meia dúzia de registros e um solto pesaria demais; o desligado que reporta o dia todo
+    # ensina (Fazenda Limão Inversor 1.4, 01/10: 0 A às 11h, 673 registros, e as Ipv29-32 fantasmas não saíam)
+    def regs(inv_id, n, campos):
+        return [{"idefinversor": inv_id, "tsleitura_new": f"2026-10-01 {i // 60:02d}:{i % 60:02d}:00",
+                 "conteudojson": {f"Ipv{k}": 0.0 for k in range(1, campos + 1)}} for i in range(n)]
+    recs = regs(1, app.PV_ENTRADA_MIN_REGISTROS, 28) + regs(2, app.PV_ENTRADA_MIN_REGISTROS - 1, 28)
+    entradas = {}
+    app._pv_curvas_strings_de(recs, 1, None, "tok", entradas=entradas)
+    assert entradas == {"INV-1": 28}
+
+
+def test_registro_da_regua_guarda_as_entradas_que_a_curva_mandou(monkeypatch):
     monkeypatch.setattr(app, "_FALHAS_MORTAS", {})
     serie = [(f"{h:02d}:{m:02d}", 8.0) for h in range(7, 17) for m in (0, 10, 20, 30, 40, 50)]
     curvas = {"Inversor 3.3": {f"Ipv{i}": serie for i in range(1, 5)}}
     app._falhas_registra("pv", "2026-10-01", "1", "Inhapi", curvas, entradas={"Inversor 3.3": 4, "Inversor 9.9": 28})
-    assert app._FALHAS_MORTAS[("pv", "2026-10-01")]["1"]["entradas"] == {"Inversor 3.3": 4}
+    assert app._FALHAS_MORTAS[("pv", "2026-10-01")]["1"]["entradas"] == {"Inversor 3.3": 4, "Inversor 9.9": 28}
 
 
 def test_aba_lista_a_entrada_que_o_inversor_nao_manda(monkeypatch):

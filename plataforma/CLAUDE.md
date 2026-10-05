@@ -941,8 +941,19 @@ strings citadas estão trancadas"). Não eram trava — as trancadas eram as Ipv
 - **Desconsiderar ocorrência** (MAB200, 22/09 07:10–09:40: strings abaixo de 1 A com os trackers parados): checkbox na
   linha do episódio e do tracker; `POST /api/painel/falhas/desconsiderar` grava em `falhas_desconsideradas.json` (estado,
   com quem e quando), o worker lê na montagem (`desconsideradas=`) e a chave é `falhas_job.chave_str`/`chave_trk`. Sai dos
-  episódios, da visão por inversor × dia e dos totais; "desconsideradas (N)" na barra devolve. O laço do worker acorda
-  ~1 min depois da gravação (mtime do arquivo). Teste: `tests/test_falhas_desconsiderar.py`.
+  episódios, da visão por inversor × dia e dos totais; o laço do worker acorda ~1 min depois da gravação (mtime do
+  arquivo). **O checkbox marca E desmarca** (05/10, "o CheckBox só marca e não desmarca"): marcada na visita, a linha
+  fica na tabela apagada (`DESC_VIS`, `tr.desc-on`) e fora das contas, e desmarcar devolve; a tela muda na hora e volta
+  atrás se o servidor não gravar — a caixa não trava esperando a resposta (Inhapi TRK13/TRK52 gravaram às 12:15 e as
+  caixas ficaram marcadas e cinzas). Na visita seguinte a desconsiderada some da tabela e fica em "desconsideradas
+  (N)", de onde volta. Teste: `tests/test_falhas_desconsiderar.py`.
+- **Duração na visão por inversor e dia** (05/10): o `h_sol` da linha SOMA as strings (20 strings × 10,9 h = 218 h na
+  Guaratinguetá V 1.4); `dur_h`/`dur_min_h` são a maior e a menor duração de uma string no dia e `janela` o
+  "HH:MM–HH:MM" (no título). É de RELÓGIO entre 06 e 18 h (`dur_relogio`): string fora o dia todo = **12 h**, o
+  período solar (Levi: "pode colocar duração 12 hrs, que é o período solar (6 as 18)"); amanheceu morta (desde a
+  partida do inversor, ou caiu até 07:30 sem essa hora) conta das 06:00, sem volta vai até as 18:00 (hoje, até agora).
+  A perda segue pesada pelo sol. Outubro no PC: 390 de 539 linhas com 12 h. Pacote montado antes da coluna (setembro,
+  que não remonta mais) mostra "≈" a média por string em horas de sol.
 - **A volta do fim da tarde precisa de prova** (MTS100 6.3 ST06, 13/09 16:50): a string morta lê 0,1–0,35 A de fuga, passa
   dos 10% das vizinhas que também caíram e "voltava" — o episódio de 11 a 15/09 virou dois. A volta do ÚLTIMO trecho do
   dia só vale com sol forte ou a string a ≥ 50% das vizinhas (`falhas.avaliar_dia`); régua `2026-09-30-volta-com-prova`.

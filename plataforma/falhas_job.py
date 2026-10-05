@@ -913,8 +913,21 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
             encerra_str(aberto)
 
     # 3) visão por INVERSOR × DIA (quantidade + strings em texto) — dos mesmos episódios: as duas somam o mesmo kWh
+    # A DURAÇÃO (Levi, 05/10/2026: "em strings quando for por inversor e dia quero uma coluna para a duração") é a de cada
+    # string, não o h_sol da linha, que soma todas (14 strings × 10 h = 140 h): a maior, a menor e a janela do dia. E é de
+    # RELÓGIO entre 06 e 18 h ("quando strings fiquem fora o dia todo pode colocar duração 12 hrs, que é o período solar"):
+    # amanheceu morta (desde a partida do inversor, ou caiu até 07:30 sem essa hora) conta das 06:00; sem volta, até as
+    # 18:00 (hoje, até agora). A perda segue pesada pelo sol.
+    def dur_relogio(s_):
+        a, ip = s_.get("a"), s_.get("ini_prod")
+        amanheceu = a is None or (a - ip <= MORTA_DESDE_PRODUCAO if ip is not None else a <= DESPERTAR)
+        i_ = JAN_INI if amanheceu else min(max(a, JAN_INI), JAN_FIM)
+        f_ = s_["voltou"] if s_.get("voltou") is not None else fim_janela(s_["dia"])
+        f_ = min(max(f_, JAN_INI), JAN_FIM)
+        return i_, f_, max(0, f_ - i_)
+
     por_inv = defaultdict(lambda: {"strings": set(), "min": 0, "perda": 0.0, "perda_nom": 0.0, "flags": set(),
-                                   "kwp_str": None, "yield": None})
+                                   "kwp_str": None, "yield": None, "min_str": defaultdict(int), "x": None, "y": None})
     for ep in aceitos:
         fonte, pid, usina, inv, string = ep["key"]
         for s_ in ep["segs"]:
@@ -923,6 +936,10 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
             r = por_inv[(s_["dia"], fonte, usina, inv)]
             r["strings"].add(string)
             r["min"] += s_["mins"]
+            i_, f_, d_ = dur_relogio(s_)
+            r["min_str"][string] += d_
+            r["x"] = i_ if r["x"] is None else min(r["x"], i_)
+            r["y"] = f_ if r["y"] is None else max(r["y"], f_)
             r["perda"] += s_["perda"]
             r["perda_nom"] += s_["perda_nom"]
             r["flags"] |= s_["flags"]
@@ -938,6 +955,9 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
         strs = sorted(r["strings"], key=_ord)
         str_rows.append({"dia": dia, "fonte": fonte, "cliente": cliente(usina), "usina": usina, "inversor": inv,
                          "qtd": len(strs), "strings": ", ".join(strs), "h_sol": round(r["min"] / 60, 2),
+                         "dur_h": round(max(r["min_str"].values()) / 60, 2),
+                         "dur_min_h": round(min(r["min_str"].values()) / 60, 2),
+                         "janela": f"{_fmt(r['x'])}–{_fmt(r['y'])}" if r["x"] is not None else None,
                          "perda_kwh": round(r["perda"], 1), "perda_nominal_kwh": round(r["perda_nom"], 1),
                          "kwp_string": round(r.get("kwp_str") or 0, 2), "yield": round(r.get("yield") or 0, 2),
                          "flags": sorted(r["flags"])})

@@ -18616,6 +18616,10 @@ def _pv_curvas_strings(pid, nome_api, token, entradas=None):
 # PV_ENTRADA_MIN_FRAC dos registros do inversor com corrente fica fora da curva — a fração deixa passar o inversor que
 # alterna pacotes (metade das entradas em cada um).
 PV_ENTRADA_MIN_FRAC = 0.25
+# Quantas entradas o inversor manda só se afirma com registros bastantes no dia (1 h, um por minuto): de madrugada um
+# solto pesaria na conta. Vale também para o inversor DESLIGADO que reporta o dia todo — Fazenda Limão Inversor 1.4,
+# 01/10: 0 A às 11h com os vizinhos a 6,5 A, 673 registros, e as Ipv29-32 fantasmas dele não saíam do mês.
+PV_ENTRADA_MIN_REGISTROS = 60
 
 
 def _pv_curvas_strings_de(recs, pid, nome_api, token, entradas=None):
@@ -18654,7 +18658,7 @@ def _pv_curvas_strings_de(recs, pid, nome_api, token, entradas=None):
     if entradas is not None:
         for inv_id, ks in regulares.items():
             nums = [int(k[3:]) for k in ks if k[3:].isdigit()]
-            if nums:
+            if nums and n_regs[inv_id] >= PV_ENTRADA_MIN_REGISTROS:
                 entradas[nomes[inv_id]] = max(nums)
     return curvas
 
@@ -23920,15 +23924,14 @@ FALHAS_REGUA_VER = "2026-09-30-volta-com-prova"
 def _falhas_entrada(usina, curvas, zero=None, piso=None, ids=None, entradas=None, **grade):
     """A entrada do registro para uma usina-dia: as mortas, as vivas por inversor, as sombras (trecho que entrou ou saiu
     em rampa — não é falha, fica para conferir), os ids da trava e quantas entradas cada inversor manda (`entradas`, da
-    API PV — ver PV_ENTRADA_MIN_FRAC). As entradas só valem do inversor que gerou o dia (`vivas`): de madrugada ele tem
-    meia dúzia de registros, e um solto pesaria na conta."""
+    API PV — ver PV_ENTRADA_MIN_FRAC e PV_ENTRADA_MIN_REGISTROS, que já filtra o inversor com poucos registros)."""
     res = _falhas_mod.avaliar_dia(curvas, zero=STRING_SEM_CORRENTE_A if zero is None else zero,
                                   piso_inv=STR_EV_INV_MIN_MED if piso is None else piso, **grade)
     ent = {"usina": usina, "ts": time.time(), "mortas": res["mortas"], "vivas": res["vivas"],
            "sombras": res.get("sombras") or [], "regua": FALHAS_REGUA_VER}
     if ids:
         ent["ids"] = {str(k): str(v) for k, v in ids.items()}
-    ent_inv = {str(k): int(v) for k, v in (entradas or {}).items() if k in res["vivas"]}
+    ent_inv = {str(k): int(v) for k, v in (entradas or {}).items()}
     if ent_inv:
         ent["entradas"] = ent_inv
     return ent

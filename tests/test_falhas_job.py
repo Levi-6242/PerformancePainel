@@ -202,6 +202,30 @@ def test_queda_de_menos_de_duas_horas_seguidas_nao_entra():
     assert p["strings"]["qualidade"]["descartado: menos de 2 h seguidas sem corrente"] == 1
 
 
+def test_visao_por_inversor_e_dia_tem_a_duracao_de_cada_string_e_a_janela():
+    # Levi, 05/10/2026: "em strings quando for por inversor e dia quero uma coluna para a duração". O h_sol da linha é a
+    # SOMA das strings (14 strings × 10 h = 140 h); a duração é a de cada string — a maior, a menor e a janela do dia
+    st = store(d01=[ev("Ipv1", "08:00", "12:00"), ev("Ipv2", "09:00", "11:00")])
+    (r,) = monta(st, fim="2026-09-01")["strings"]["rows"]
+    assert r["qtd"] == 2 and r["dur_h"] == pytest.approx(4.0, abs=0.2) and r["dur_min_h"] == pytest.approx(2.0, abs=0.2)
+    assert r["janela"] == "08:00–12:00"
+    assert r["h_sol"] == pytest.approx(r["dur_h"] + r["dur_min_h"], abs=0.05)
+
+
+def test_string_fora_o_dia_todo_dura_12_horas_o_periodo_solar():
+    # Levi, 05/10/2026: "quando strings fiquem fora o dia todo pode colocar duração 12 hrs, que é o período solar (6 as
+    # 18)". A duração é de relógio entre 06 e 18 h; a perda segue pesada pelo sol (h_sol menor que 12)
+    (r,) = monta(store(d01=[ev("Ipv1", "06:10")]), fim="2026-09-01")["strings"]["rows"]
+    assert (r["dur_h"], r["janela"]) == (12.0, "06:00–18:00") and r["h_sol"] < 12
+
+
+def test_morta_desde_a_partida_do_inversor_tambem_conta_das_6h():
+    # pela curva: saiu 06:40 com o inversor gerando desde 06:30 — amanheceu morta; sem volta, até as 18:00
+    p = monta({}, mortas=curva("02", [morta("Ipv1", saiu="06:40", ini="06:30")], vivas=21), fim="2026-09-02")
+    (r,) = p["strings"]["rows"]
+    assert (r["dur_h"], r["janela"]) == (12.0, "06:00–18:00")
+
+
 def test_as_duas_visoes_de_strings_somam_o_mesmo_kwh():
     p = monta(store(d01=[ev("Ipv1", "10:00"), ev("Ipv2", "09:00", "13:00")], d02=[ev("Ipv1", "06:10", "11:00")]))
     kwh_ep = sum(e["perda_kwh"] for e in p["strings"]["episodios"])

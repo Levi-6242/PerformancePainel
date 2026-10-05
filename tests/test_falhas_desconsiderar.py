@@ -50,6 +50,16 @@ def test_tipo_ou_chave_errada_e_recusada(cli, corpo):
     assert r.status_code == 400 and not Path(app.FALHAS_DESC_PATH).exists()
 
 
+def test_aba_deixa_desmarcar_o_que_marcou_e_tem_a_duracao_por_inversor_e_dia(cli):
+    # Levi, 05/10/2026: "O CheckBox só marca e não desmarca" — no servidor, Inhapi TRK13 e TRK52 gravaram (12:15) e as
+    # linhas ficaram com a caixa marcada e travada esperando a resposta. A linha marcada fica na tabela, apagada e fora
+    # das contas, desmarcar devolve, e a caixa não trava; "em strings por inversor e dia quero uma coluna para a duração"
+    html = cli.get("/painel/falhas").get_data(as_text=True)
+    assert "DESC_VIS" in html and "desmarque para voltar" in html
+    assert "c.disabled = true" not in html
+    assert "['dur_h', 'Duração'" in html
+
+
 def test_arquivo_ilegivel_nao_e_regravado(cli):
     Path(app.FALHAS_DESC_PATH).write_text('{"strings": {"a|b|c|d|e": ', encoding="utf-8")
     r = cli.post("/api/painel/falhas/desconsiderar", json={"tipo": "strings", "chave": CH_STR})
