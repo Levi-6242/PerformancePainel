@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Relatório Semanal Thopen · pendências</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root { --bg:#090d18; --panel:#161d30; --panel2:#1c2640; --line:rgba(255,255,255,.09); --line2:rgba(255,255,255,.15);
+  --txt:#e9eef6; --muted:#94a3b8; --faint:#64748b; --brand:#a3d900; --r:#ff5b6e; --a:#f0b53d; --b:#5bc8e8; --ok:#4ade80;
+  --sans:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace; }
+* { box-sizing:border-box; }
+html,body { margin:0; background:var(--bg); color:var(--txt); font:14px/1.5 var(--sans); }
+.wrap { max-width:1500px; margin:0 auto; padding:26px 20px 48px; }
+header h1 { font-size:23px; font-weight:600; margin:0; letter-spacing:.1px; }
+header h1 small { font:500 12.5px var(--mono); color:var(--brand); margin-left:10px; letter-spacing:.3px; }
+header p { color:var(--muted); margin:6px 0 0; max-width:1000px; }
+.faixa { display:grid; grid-template-columns:1.25fr repeat(3,1fr) 1.4fr; gap:12px; margin:20px 0 22px; }
+.fx { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:13px 15px; border-top:3px solid var(--line2); }
+.fx .l { font-size:11.5px; text-transform:uppercase; letter-spacing:1px; color:var(--muted); }
+.fx .v { font:600 26px/1.15 var(--mono); margin:4px 0 2px; }
+.fx .d { color:var(--muted); font-size:12.5px; }
+.fx.ok { border-top-color:var(--ok); } .fx.r { border-top-color:var(--r); } .fx.r .v { color:var(--r); }
+.fx.a { border-top-color:var(--a); } .fx.a .v { color:var(--a); } .fx.b { border-top-color:var(--b); } .fx.b .v { color:var(--b); }
+.fx ul { margin:6px 0 0; padding-left:17px; color:var(--txt); font-size:12.5px; }
+.tl { display:flex; flex-direction:column; gap:7px; margin-top:6px; }
+.tl div { display:flex; gap:10px; align-items:baseline; font-size:12.5px; }
+.tl b { font:600 12.5px var(--mono); color:var(--brand); min-width:44px; }
+.tl span { color:var(--muted); }
+.grade { display:grid; grid-template-columns:minmax(0,680px) minmax(0,1fr); gap:22px; align-items:start; }
+.painel { position:sticky; top:14px; height:calc(100vh - 28px); overflow:auto; background:#eceaf2; border-radius:10px;
+  border:1px solid var(--line2); }
+.painel .rot { position:sticky; top:0; z-index:3; background:#181528; color:#cfcbdd; font-size:12px; padding:8px 14px;
+  display:flex; justify-content:space-between; gap:10px; }
+.painel .rot b { color:#fff; font-weight:600; }
+h2 { font-size:13px; text-transform:uppercase; letter-spacing:1.3px; color:var(--brand); margin:0 0 10px; font-weight:600; }
+h2 span { color:var(--faint); text-transform:none; letter-spacing:.2px; font-weight:500; margin-left:8px; }
+.lista { display:grid; gap:10px; margin-bottom:26px; }
+.pend { background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--line2); border-radius:9px;
+  padding:12px 15px 11px; cursor:pointer; }
+.pend.c-r { border-left-color:var(--r); } .pend.c-a { border-left-color:var(--a); }
+.pend:hover { background:var(--panel2); }
+.pend.foco { outline:2px solid var(--txt); outline-offset:2px; }
+.pend-h { display:flex; gap:11px; align-items:flex-start; }
+.pend .onde { font:500 11px var(--mono); color:var(--faint); text-transform:uppercase; letter-spacing:.8px; }
+.pend h3 { margin:1px 0 0; font-size:15px; font-weight:600; }
+.pend p { margin:7px 0 0; color:#c8d2e2; font-size:13px; }
+.pend p b { color:var(--muted); font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:.8px; margin-right:6px; }
+.dono { margin-top:8px; font-size:12px; color:var(--faint); }
+.dono span { color:var(--txt); font-weight:600; }
+.bola { flex:none; width:24px; height:24px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center;
+  font:600 12px var(--mono); }
+.b-r { background:var(--r); color:#1a0508; } .b-a { background:var(--a); color:#1a1300; } .b-b { background:var(--b); color:#04131a; }
+.tec { list-style:none; margin:0; padding:0; background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--b);
+  border-radius:9px; }
+.tec li { display:flex; gap:11px; padding:11px 15px; border-bottom:1px solid var(--line); }
+.tec li:last-child { border-bottom:0; }
+.tec li b { font-size:14px; font-weight:600; }
+.tec .dono-i { font-size:12px; color:var(--faint); margin-left:8px; }
+.tec p { margin:3px 0 0; color:#c8d2e2; font-size:13px; }
+.leg { display:flex; flex-wrap:wrap; gap:14px; color:var(--muted); font-size:12.5px; margin:0 0 12px; }
+.leg i { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px; vertical-align:0; }
+footer { color:var(--faint); font-size:12px; margin-top:30px; border-top:1px solid var(--line); padding-top:12px; }
+footer code { font:500 12px var(--mono); color:#cfe3a0; }
+@media (max-width:1180px) { .grade { grid-template-columns:1fr; } .painel { position:relative; top:0; height:70vh; }
+  .faixa { grid-template-columns:1fr 1fr; } }
+@media (max-width:640px) { .faixa { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <h1>Relatório Semanal Thopen · o que falta para ir ao cliente <small>29/09/2026 · relatório de 21–27/09 com o dado real</small></h1>
+  <p>À esquerda, a página que o cliente vai receber, com cada ponto em aberto marcado. À direita, o que é, o que falta
+  e de quem depende. Clique no número (na página ou na lista) para ir ao outro lado.</p>
+</header>
+
+<section class="faixa">
+  <div class="fx ok"><div class="l">Já funciona</div>
+    <ul><li>Gera com o dado real (PR, meta, disponibilidade, OS)</li><li>Salva causa, ação e leitura sozinho</li>
+    <li>Emite o PDF com versão (R00, R01…)</li><li>Ctrl+P sem emitir sai como PRÉVIA</li></ul></div>
+  <div class="fx r"><div class="l">Pode sair errado no PDF</div><div class="v">7</div><div class="d">número sem régua validada ou com dado com defeito</div></div>
+  <div class="fx a"><div class="l">Decisão de formato</div><div class="v">3</div><div class="d">o que entra e como</div></div>
+  <div class="fx b"><div class="l">Antes do 1º envio</div><div class="v">6</div><div class="d">publicar, conferir, regras de uso</div></div>
+  <div class="fx"><div class="l">Datas</div>
+    <div class="tl"><div><b>29/09</b><span>hoje: nada commitado</span></div><div><b>30/09</b><span>entrega à Ana</span></div>
+    <div><b>05/10</b><span>1º envio ao cliente, segunda até 12h</span></div></div></div>
+</section>
+
+<div class="grade">
+  <div class="painel" id="painel">
+    <div class="rot"><span><b>Página do cliente</b> · Semana 39 · 21 a 27/09/2026</span><span>como sai hoje, sem direcionamentos</span></div>
+    <div id="relatorio"></div>
+  </div>
+  <div>
+    <div class="leg"><span><i style="background:var(--r)"></i>pode sair errado no PDF</span>
+      <span><i style="background:var(--a)"></i>decisão de formato</span><span><i style="background:var(--b)"></i>antes do 1º envio</span></div>
+    <h2>Números que ainda não garanto <span>o cliente lê</span></h2>
+    <div class="lista"><article class="pend c-r" id="p1" data-n="1"><div class="pend-h"><span class="bola b-r">1</span><div><div class="onde">Bloco 03</div><h3>Tempo de religamento: 199 min</h3></div></div><p><b>Hoje</b> Mediana da duração da OS de religamento no Fracttal (abertura até conclusão), 79 OS na semana; só 18 fecharam em até 60 min. Mede quanto a OS ficou aberta, não quanto a usina ficou parada. O mockup tinha 40 min.</p><p><b>Falta</b> Definir a régua: a OS ou a volta da geração na curva. Até lá, esse número não vai ao cliente.</p><div class="dono">Dono: <span>Ana</span></div></article><article class="pend c-r" id="p2" data-n="2"><div class="pend-h"><span class="bola b-r">2</span><div><div class="onde">Bloco 04</div><h3>Quedas de energia: 91 · 744,9 h</h3></div></div><p><b>Hoje</b> Conta OS, não eventos, e soma a duração crua de cada uma. 389,5 h (52%) caem em dias que a geração desmente (OS fechada com atraso), e 11 das 91 são "verificação de comunicação". A disponibilidade de 95,6% já tira esses dias; esta linha não.</p><p><b>Falta</b> Horas pela mesma régua da disponibilidade (Claude). A Ana diz se verificação de comunicação conta como queda.</p><div class="dono">Dono: <span>Claude + Ana</span></div></article><article class="pend c-r" id="p3" data-n="3"><div class="pend-h"><span class="bola b-r">3</span><div><div class="onde">Bloco 04</div><h3>Indisponibilidade: Grid 0,1% × externa 4,3%</h3></div></div><p><b>Hoje</b> A separação sai da origem da OS no índice: queda de rede = externa, equipamento = Grid.</p><p><b>Falta</b> Validar a classificação antes do 1º envio: é o número mais sensível do contrato.</p><div class="dono">Dono: <span>Ana</span></div></article><article class="pend c-r" id="p4" data-n="4"><div class="pend-h"><span class="bola b-r">4</span><div><div class="onde">Bloco 03</div><h3>Corretivas 41/67 e preventivas 1/6</h3></div></div><p><b>Hoje</b> OS com evento na semana, pelo status de hoje. Preventiva "planejada" = preventiva com evento na semana.</p><p><b>Falta</b> Planejada pela data programada do PCM (programação semanal). Confirmar o que conta como corretiva aberta.</p><div class="dono">Dono: <span>Ana + PCM</span></div></article><article class="pend c-r" id="p5" data-n="5"><div class="pend-h"><span class="bola b-r">5</span><div><div class="onde">Bloco 01</div><h3>"35 de 68": 13 usinas fora do PR sem aviso</h3></div></div><p><b>Hoje</b> Sem IPOA na semana: Alto Paraná 2, Assis, Bernardino de Campos, Brodowski, Colorado 2, Céu Azul, Guatambu, Indaiatuba, Ipixuna 1 e 2, Paranavaí, Ribeirão Cascalheiras e Vargem Grande IB. Mais 5 com 1 a 3 dias fora (Junco, Primavera, Rodrigues 2, Santarém 1 e 2). O PDF não diz ao cliente.</p><p><b>Falta</b> Escolher: avisar no PDF, ou usar irradiância de satélite ou da usina vizinha.</p><div class="dono">Dono: <span>Levi / Ana decidem · Claude faz</span></div></article><article class="pend c-r" id="p6" data-n="6"><div class="pend-h"><span class="bola b-r">6</span><div><div class="onde">Bloco 01</div><h3>Dia sem geração no BD_Thopen passa calado</h3></div></div><p><b>Hoje</b> O relatório só avisa dia sem IPOA. Se a coleta falhar num dia (os buracos de setembro), a usina entra com um dia a menos e ninguém vê.</p><p><b>Falta</b> Aviso na tela antes de emitir: "usina X sem geração em dd/mm".</p><div class="dono">Dono: <span>Claude</span></div></article><article class="pend c-r" id="p7" data-n="7"><div class="pend-h"><span class="bola b-r">7</span><div><div class="onde">Blocos 03 e 05</div><h3>Strings: 119 voltaram, e as causas</h3></div></div><p><b>Hoje</b> Vêm da aba de falhas, que ainda tem resíduo: 236 episódios de entradas vazias (Ipv29–32, 66,6 MWh) no servidor e a régua de sombra sendo refeita. Exemplo na tabela: Nova Londrina, "Strings indisponíveis (43)".</p><p><b>Falta</b> Conferir a aba de falhas da semana antes de cada envio e fechar o resíduo.</p><div class="dono">Dono: <span>Claude</span></div></article></div>
+    <h2>Decisões de formato <span>Levi e Ana</span></h2>
+    <div class="lista"><article class="pend c-a" id="p8" data-n="8"><div class="pend-h"><span class="bola b-a">8</span><div><div class="onde">Bloco 05</div><h3>Tabela com 35 linhas (mockup: 5)</h3></div></div><p><b>Hoje</b> Toda usina abaixo de 97% da meta entra. 20 linhas sem OS aberta pedem a ação digitada toda semana; 5 com "sem ofensor medido". As 10 maiores somam 60% da perda (393,7 de 653,6 MWh).</p><p><b>Falta</b> Decidir se limita às N maiores, com "e mais X usinas".</p><div class="dono">Dono: <span>Levi / Ana</span></div></article><article class="pend c-a" id="p9" data-n="9"><div class="pend-h"><span class="bola b-a">9</span><div><div class="onde">Bloco 03</div><h3>Rondas e roçadas</h3></div></div><p><b>Hoje</b> Não entram no bloco.</p><p><b>Falta</b> A estrutura que o Levi está montando.</p><div class="dono">Dono: <span>Levi</span></div></article><article class="pend c-a" id="p10" data-n="10"><div class="pend-h"><span class="bola b-a">10</span><div><div class="onde">Bloco 02</div><h3>Data da assunção: jan/2026</h3></div></div><p><b>Hoje</b> Provisória. Define o gráfico e o "ganho acumulado +5,4 p.p.".</p><p><b>Falta</b> A data certa.</p><div class="dono">Dono: <span>Levi / Ana</span></div></article></div>
+    <h2>Antes do 1º envio <span>não aparece na página</span></h2>
+    <ul class="tec"><li id="p11"><span class="bola b-b">11</span><div><b>Commit só do bloco do semanal, e push</b><span class="dono-i">Claude, com OK do Levi</span><p>O app.py tem trabalho de outra sessão junto. O push reinicia o servidor: ~20 min de dado velho.</p></div></li><li id="p12"><span class="bola b-b">12</span><div><b>Rodar no servidor com o dado de lá</b><span class="dono-i">Claude</span><p>Só rodei com os arquivos do PC: índice de disponibilidade, OS do Fracttal e pacote de falhas.</p></div></li><li id="p13"><span class="bola b-b">13</span><div><b>Histórico de emissões no backup</b><span class="dono-i">Claude</span><p>relatorio_semanal.json está fora do backup de estado. Perdeu o arquivo, some o registro do que foi enviado.</p></div></li><li id="p14"><span class="bola b-b">14</span><div><b>Regras de uso</b><span class="dono-i">Ana</span><p>Emitir sempre pelo servidor (cada máquina tem o seu arquivo), com login Microsoft (senão fica "senha compartilhada") e no Chrome ou Edge (no Firefox o rodapé do navegador, com a URL, volta).</p></div></li><li id="p15"><span class="bola b-b">15</span><div><b>Link no Criador de Relatório e documentação</b><span class="dono-i">Claude</span><p>Botão na barra do /relatorio e os docs (criador-de-relatorio.md, CLAUDE.md da plataforma).</p></div></li><li id="p16"><span class="bola b-b">16</span><div><b>Conferência antes do 1º envio</b><span class="dono-i">Ana</span><p>Emitir 21–27/09 e comparar com o que ela faria à mão, antes de segunda, 05/10.</p></div></li></ul>
+  </div>
+</div>
+
+<footer>A página da esquerda é o <code>/relatorio/semanal</code> montado com o dado real de 21–27/09 na bancada local
+(índice de disponibilidade de 29/09 11:50, OS do Fracttal de 29/09 00:43, aba de falhas de 29/09 12:17). As horas de
+queda em dias que a geração desmente e as 11 verificações de comunicação saíram do índice de disponibilidade do PC.
+Nada disto está no ar: o semanal não foi commitado.</footer>
+</div>
+
+<template id="t-rel">
+<style>
+/* Tokens medidos no PDF do mockup (Mockup_Relatorio_Semanal_Thopen_R00.pdf, 29/09/2026): Chromium a 960 px de largura,
+   pt × 4/3 = px. Não aproximar no olho — o Levi compara lado a lado. */
+:host {
+  --faixa: #181528; --verde: #a9db21; --texto: #191528; --mudo: #504c63; --claro: #cfcbdd;
+  --borda: #ddd9e7; --painel: #f4f2f7; --fio: #edecf4; --pos: #2e7d32; --aten: #b7791f; --fundo: #ffffff;
+  --sans: "IBM Plex Sans", system-ui, sans-serif; --mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+* { box-sizing: border-box; }
+.papel { margin: 0; background: #eceaf2; color: var(--texto); font-family: var(--sans); }
+.papel { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+/* barra de trabalho (só na tela) */
+.barra { position: sticky; top: 0; z-index: 5; background: #fff; border-bottom: 1px solid var(--borda);
+  display: flex; gap: 10px; align-items: center; padding: 10px 16px; flex-wrap: wrap; font-size: 13px; }
+.barra label { color: var(--mudo); display: flex; gap: 6px; align-items: center; }
+.barra input { font: inherit; padding: 5px 8px; border: 1px solid var(--borda); border-radius: 6px; color: var(--texto); }
+.barra button { font: inherit; font-weight: 600; padding: 6px 14px; border-radius: 6px; border: 1px solid var(--borda);
+  background: #fff; color: var(--texto); cursor: pointer; }
+.barra button.prim { background: var(--faixa); color: #fff; border-color: var(--faixa); }
+.barra button:disabled { opacity: .45; cursor: default; }
+.barra .sep { flex: 1; }
+.barra .st { color: var(--mudo); }
+.barra .st.aten { color: var(--aten); font-weight: 600; }
+.avisos { width: 960px; margin: 16px auto 0; background: #fff8ec; border: 1px solid #f0d9a8; border-radius: 8px;
+  padding: 10px 16px; font-size: 12.5px; color: #6b4e12; }
+.avisos b { color: #4a360c; }
+.avisos ul { margin: 6px 0 0 18px; padding: 0; }
+
+/* documento */
+.doc { width: 960px; margin: 16px auto 40px; background: var(--fundo); box-shadow: 0 2px 16px rgba(24, 21, 40, .12); }
+.cab { background: var(--faixa); color: #fff; height: 147px; padding: 0 56px; display: flex; align-items: center;
+  justify-content: space-between; }
+.cab .marca { font-size: 12px; letter-spacing: .32em; color: var(--verde); font-weight: 600; margin-bottom: 8px; }
+.cab h1 { margin: 0; font-size: 30px; font-weight: 600; letter-spacing: -.01em; }
+.cab .sub { margin-top: 8px; font-size: 16px; color: var(--claro); }
+.cab .meta { text-align: right; font-size: 12px; color: var(--claro); line-height: 1.95; }
+.cab .meta b { color: #fff; font-weight: 600; }
+.corpo { padding: 12px 56px 28px; }
+.sec { margin-top: 34px; break-inside: avoid; }
+.sec-t { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+.sec-t .n { font-family: var(--mono); font-weight: 600; font-size: 12px; color: var(--verde); }
+.sec-t h2 { margin: 0; font-size: 18px; font-weight: 600; }
+.sec-t .d { font-size: 12px; color: var(--mudo); }
+
+.kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; }
+.kpi { border: 1px solid var(--borda); border-radius: 8px; padding: 16px 18px; min-height: 121px; }
+.kpi .l { font-size: 12px; color: var(--mudo); }
+.kpi .v { font-family: var(--mono); font-weight: 600; font-size: 30px; margin: 10px 0 8px; letter-spacing: -.01em; }
+.kpi .v small { font-size: 16px; font-weight: 500; color: var(--mudo); margin-left: 6px; }
+.kpi .f { font-size: 12px; color: var(--mudo); }
+.pos { color: var(--pos); font-weight: 600; }
+.neg { color: var(--aten); font-weight: 600; }
+.leitura { margin-top: 13px; background: var(--painel); border-radius: 8px; padding: 14px 18px; font-size: 13px;
+  line-height: 1.55; min-height: 67px; }
+.leitura b { font-weight: 600; }
+
+.graf { border: 1px solid var(--borda); border-radius: 8px; padding: 18px 20px 16px; }
+.graf svg { display: block; width: 100%; height: 250px; }
+.graf .tri { display: grid; grid-template-columns: repeat(3, 1fr); margin-top: 18px; }
+.graf .tri .l { font-size: 12px; color: var(--mudo); }
+.graf .tri .v { font-family: var(--mono); font-weight: 600; font-size: 18px; margin-top: 6px; }
+
+.duas { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; margin-top: 34px; }
+.duas .sec { margin-top: 0; }
+.lista { border: 1px solid var(--borda); border-radius: 8px; padding: 4px 18px; }
+.lista .li { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 13px 0;
+  border-bottom: 1px solid var(--fio); font-size: 13px; }
+.lista .li:last-child { border-bottom: 0; }
+.lista .li .v { font-family: var(--mono); font-weight: 600; white-space: nowrap; }
+.lista .li .v span { color: var(--mudo); font-weight: 500; }
+.lista .li .nomes { display: block; margin-top: 3px; font-size: 11px; color: var(--mudo); }
+
+table.fora { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.fora th { background: var(--painel); color: var(--mudo); font-weight: 500; font-size: 12px; text-align: left;
+  padding: 12px 12px; border-bottom: 1px solid var(--borda); vertical-align: bottom; }
+table.fora td { padding: 12px; border-bottom: 1px solid var(--fio); vertical-align: middle; }
+table.fora td.u { font-weight: 600; }
+table.fora td.m { font-family: var(--mono); font-weight: 500; white-space: nowrap; }
+table.fora tr { break-inside: avoid; }
+.ofens { display: block; margin-top: 4px; font-size: 11px; color: var(--mudo); }
+.vazio { color: var(--mudo); font-size: 13px; padding: 14px 0; }
+
+.rod { border-top: 1px solid var(--borda); margin-top: 30px; padding: 18px 56px 26px; font-size: 12px; color: var(--mudo);
+  line-height: 1.6; }
+.rod b { color: var(--texto); font-weight: 600; }
+
+/* campos do analista: editáveis na tela, texto no PDF */
+[contenteditable] { outline: none; border-bottom: 1px dashed #b9b3cc; white-space: pre-line; }
+[contenteditable]:empty::before { content: attr(data-vazio); color: #9a94ad; }
+[contenteditable].falta { background: #fdf3e1; border-bottom: 2px solid var(--aten); }
+.carregando { width: 960px; margin: 60px auto; text-align: center; color: var(--mudo); font-size: 14px; }
+/* Ctrl+P sem "Emitir PDF" imprime, mas avisa no papel: versão sem registro não vai ao cliente */
+.aviso-previa { display: none; border: 1.5px solid var(--aten); color: var(--aten); font-weight: 600; font-size: 13px;
+  text-align: center; padding: 8px; margin-bottom: 10px; }
+
+
+.papel { background:#eceaf2; padding:18px 0 30px; }
+.papel .doc { zoom:.68; margin:0 auto; }
+.alvo { position:relative; outline:2px solid var(--cor); outline-offset:3px; border-radius:6px; }
+.alvo.foco { outline-width:4px; }
+.pm { position:absolute; z-index:2; width:34px; height:34px; border-radius:50%; display:flex; align-items:center;
+  justify-content:center; font:600 18px var(--mono); cursor:pointer; box-shadow:0 0 0 3px #fff; }
+.pm.r { background:#d93a46; color:#fff; } .pm.a { background:#f0b53d; color:#1a1300; }
+.li.alvo { padding-left:48px; }
+.li > .pm { left:4px; top:50%; transform:translateY(-50%); }
+.kpi > .pm { right:-14px; top:-14px; }
+.sec-t > .pm { left:-46px; top:50%; transform:translateY(-50%); }
+td > .pm { left:-14px; top:50%; transform:translateY(-50%); width:28px; height:28px; font-size:15px; }
+</style>
+<div class="papel"><div class="doc"><div class="aviso-previa">PRÉVIA — emissão não registrada. Para o cliente, use "Emitir PDF".</div>
+    <div class="cab">
+      <div>
+        <div class="marca">GRID CO. · O&amp;M</div>
+        <h1>Relatório Semanal de Performance</h1>
+        <div class="sub">Cliente: Thopen · Semana 39 · 21/09 a 27/09/2026</div>
+      </div>
+      <div class="meta">
+        <div>Emitido em: <b id="emitido">terça-feira, 29/09/2026</b></div>
+        <div>Responsável: <b contenteditable="false" data-campo="responsavel" id="resp" data-vazio="[nome do responsável]"></b></div>
+        <div>Próximo envio: <b id="proximo">05/10/2026</b></div>
+        <div>Versão: <b id="versao">R00</b></div>
+      </div>
+    </div><div class="corpo">
+    <section class="sec">
+      <div class="sec-t"><span class="n">01</span><h2>Resumo da semana</h2><span class="d">PR corrigido por irradiância no plano (POA) · meta do cliente</span></div>
+      <div class="kpis">
+        <div class="kpi"><div class="l">PR real (POA)</div><div class="v">75,7%</div><div class="f">meta 79,3% · <span class="neg">−3,6 p.p.</span></div></div>
+        <div class="kpi"><div class="l">Disponibilidade</div><div class="v">95,6%</div><div class="f">meta 97,0% · <span class="neg">−1,4 p.p.</span></div></div>
+        <div class="kpi"><div class="l">Geração real × meta</div><div class="v">98,7%</div><div class="f">IPOA real × meta: 94,4%</div></div>
+        <div class="kpi"><div class="l">Usinas fora da meta de PR</div><div class="v">35<small>de 68</small></div><div class="f">tolerância: PR ≥ 97% da meta</div></div>
+      </div>
+      <div class="leitura"><b>Leitura da semana.</b> <span contenteditable="false" data-campo="leitura" id="leitura" data-vazio="2 a 3 linhas: o que explica o resultado do portfólio, o que a Grid fez e o que muda até o próximo envio. Sem jargão interno."></span></div>
+    </section>
+    <section class="sec">
+      <div class="sec-t"><span class="n">02</span><h2>Evolução desde a assunção dos ativos pela Grid</h2><span class="d">PR mensal do portfólio Thopen × meta · jan/2026 a set/2026</span></div>
+      <div class="graf">
+        <svg viewBox="0 0 848 250" preserveAspectRatio="none"><text x="34" y="220" text-anchor="end" font-size="11" fill="#504c63">70%</text><text x="34" y="170.5" text-anchor="end" font-size="11" fill="#504c63">75%</text><text x="34" y="121" text-anchor="end" font-size="11" fill="#504c63">80%</text><text x="34" y="71.5" text-anchor="end" font-size="11" fill="#504c63">85%</text><text x="34" y="22" text-anchor="end" font-size="11" fill="#504c63">90%</text><line x1="46" y1="216" x2="782" y2="216" stroke="#ddd9e7"></line><line x1="46" y1="18" x2="46" y2="216" stroke="#ddd9e7"></line><polyline fill="none" stroke="#181528" stroke-width="1.2" stroke-dasharray="5 4" points="76,139.3567464239392 160.5,128.29534840515876 245,132.929794720707 329.5,108.16207450857381 414,92.34716733686348 498.5,90.6327750351976 583,79.72718065821655 667.5,93.65760691361929 752,123.94290341155707"></polyline><text x="764" y="127.94290341155707" font-size="11" fill="#504c63">meta 79,3%</text><polyline fill="none" stroke="#181528" stroke-width="2.5" points="76,185.22799215534667 160.5,154.24418101132903 245,142.95379875159242 329.5,126.93984685942986 414,119.62508932710873 498.5,109.81955500408695 583,110.3373656236513 667.5,129.2453025512596 752,131.34626501181333"></polyline><circle cx="76" cy="185.22799215534667" r="4" fill="#181528"></circle><text x="76" y="173.22799215534667" text-anchor="middle" font-size="11" font-weight="600" fill="#191528" font-family="IBM Plex Mono" paint-order="stroke" stroke="#fff" stroke-width="4">73,1%</text><text x="76" y="236" text-anchor="middle" font-size="11" fill="#504c63" font-weight="400">jan/26</text><circle cx="160.5" cy="154.24418101132903" r="4" fill="#181528"></circle><text x="160.5" y="236" text-anchor="middle" font-size="11" fill="#504c63" font-weight="400">fev/26</text><circle cx="245" cy="142.95379875159242" r="4" fill="#181528"></circle><text x="245" y="236" text-anchor="middle" font-size="11" fill="#504c63" font-weight="400">mar/26</text><circle cx="329.5" cy="126.93984685942986" r="4" fill="#181528"></circle><text x="329.5" y="236" text-anchor="middle" font-size="11" fill="#504c63" font-weight="400">abr/26</text><circle cx="414" cy="119.62508932710873" r="4" fill="#181528"></circle><text x="414" y="236" text-anchor="middle" font-size="11" fill="#504c63" font-weight="400">mai/26</text><circle cx="498.5" cy="109.81955500408695" r="4" fill="#181528"></circle><text x="498.5" y="236" text-anchor="middle" font-size="11" fill="#504c63" font-weight="400">jun/26</text><circle cx="583" cy="110.3373656236513" r="4" fill="#181528"></circle><text x="583" y="236" text-anchor="middle" font-size="11" fill="#504c63" font-weight="400">jul/26</text><circle cx="667.5" cy="129.2453025512596" r="4" fill="#181528"></circle><text x="667.5" y="236" text-anchor="middle" font-size="11" fill="#504c63" font-weight="400">ago/26</text><circle cx="752" cy="131.34626501181333" r="6" fill="#a8da20" stroke="#181528" stroke-width="1.5"></circle><text x="742" y="119.34626501181333" text-anchor="end" font-size="11" font-weight="600" fill="#191528" font-family="IBM Plex Mono" paint-order="stroke" stroke="#fff" stroke-width="4">78,6%</text><text x="752" y="236" text-anchor="middle" font-size="11" fill="#191528" font-weight="600">set/26</text></svg>
+        <div class="tri">
+          <div><div class="l">PR em jan/26</div><div class="v">73,1%</div></div>
+          <div><div class="l">PR no mês corrente</div><div class="v">78,6%</div></div>
+          <div><div class="l">Ganho acumulado</div><div class="v pos">+5,4 p.p.</div></div>
+        </div>
+      </div>
+    </section><div class="duas">
+    <section class="sec">
+      <div class="sec-t"><span class="n">03</span><h2>O que a Grid executou na semana</h2></div>
+      <div class="lista">
+        <div class="li">OS corretivas finalizadas<span class="v">41 <span>/ 67 abertas</span></span></div>
+        <div class="li">Preventivas realizadas × planejadas<span class="v">1 <span>/ 6</span></span></div>
+        <div class="li">Strings que voltaram a gerar<span class="v">119</span></div>
+        <div class="li">Tempo mediano de religamento após queda<span class="v">199 min</span></div>
+      </div>
+    </section>
+    <section class="sec">
+      <div class="sec-t"><span class="n">04</span><h2>Disponibilidade e desligamentos</h2></div>
+      <div class="lista">
+        <div class="li">Quedas de energia (rede / concessionária)<span class="v">91 · 744,9 h</span></div>
+        <div class="li">Desligamentos por equipamento (escopo Grid)<span class="v">10 · 131,7 h</span></div>
+        <div class="li">Indisponibilidade atribuível à Grid<span class="v">0,1%</span></div>
+        <div class="li">Indisponibilidade externa (rede, cliente)<span class="v">4,3%</span></div>
+        <div class="li"><span>Usinas com disponibilidade &lt; 97%<span class="nomes">Rodrigues 1, Mandaguaçu, Matão 2, Assis, Alvares Machado e mais 19</span></span><span class="v">24</span></div>
+      </div>
+    </section></div>
+    <section class="sec">
+      <div class="sec-t"><span class="n">05</span><h2>Usinas fora da meta — causa e ação da Grid</h2><span class="d">Somente usinas com PR abaixo de 97% da meta · uma linha por usina</span></div>
+      <table class="fora"><thead><tr><th>Usina</th><th>PR real /<br>meta</th><th>Perda<br>est.</th><th>Causa principal</th><th>Ação da Grid · status</th><th>Previsão</th></tr></thead><tbody>
+      <tr>
+        <td class="u">Sarandi</td>
+        <td class="m">66,2% /<br>85,8%</td>
+        <td class="m">57<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Sarandi" data-vazio="causa principal">Desligamentos: 1 queda de rede (30,0 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 1 queda de rede (30,0 h) · Trackers parados (9)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Sarandi" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Sarandi" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Mandaguaçu</td>
+        <td class="m">54,1% /<br>75,6%</td>
+        <td class="m">55<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Mandaguaçu" data-vazio="causa principal">Desligamentos: 4 quedas de rede (27,9 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 4 quedas de rede (27,9 h) · Trackers parados (42) · Strings indisponíveis (13)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Mandaguaçu" data-vazio="ação da Grid · status">OS 14331 · Corretiva · aberta desde 22/09</span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Mandaguaçu" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Altair</td>
+        <td class="m">63,8% /<br>78,4%</td>
+        <td class="m">44<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Altair" data-vazio="causa principal">Trackers parados (56)</span>
+            <span class="ofens so-tela">medido: Trackers parados (56) · Desligamentos: 1 queda de rede (1,6 h) · Strings indisponíveis (6)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Altair" data-vazio="ação da Grid · status">OS 13653 · Corretiva · aberta desde 15/09</span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Altair" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Santa Bárbara I</td>
+        <td class="m">56,5% /<br>78,7%</td>
+        <td class="m">41<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Santa Bárbara I" data-vazio="causa principal">Trackers parados (52)</span>
+            <span class="ofens so-tela">medido: Trackers parados (52) · Desligamentos: 1 queda de rede (3,0 h)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Santa Bárbara I" data-vazio="ação da Grid · status">OS 14334 · Corretiva · aberta desde 22/09</span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Santa Bárbara I" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Barretos</td>
+        <td class="m">68,1% /<br>80,0%</td>
+        <td class="m">36<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Barretos" data-vazio="causa principal">Trackers parados (63)</span>
+            <span class="ofens so-tela">medido: Trackers parados (63)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Barretos" data-vazio="ação da Grid · status">OS 14330 · Corretiva · aberta desde 22/09</span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Barretos" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Vertentes</td>
+        <td class="m">63,9% /<br>82,4%</td>
+        <td class="m">35<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Vertentes" data-vazio="causa principal">Trackers parados (32)</span>
+            <span class="ofens so-tela">medido: Trackers parados (32) · Desligamentos: 1 queda de rede (84,0 h)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Vertentes" data-vazio="ação da Grid · status">OS 14345 · Corretiva · aberta desde 22/09</span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Vertentes" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Matão 2</td>
+        <td class="m">58,1% /<br>82,0%</td>
+        <td class="m">34<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Matão 2" data-vazio="causa principal">Desligamentos: 3 quedas de rede (43,4 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 3 quedas de rede (43,4 h)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Matão 2" data-vazio="ação da Grid · status">OS 9723 · Corretiva · aberta desde 20/07</span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Matão 2" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Santarém 2</td>
+        <td class="m">49,6% /<br>77,5%</td>
+        <td class="m">34<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Santarém 2" data-vazio="causa principal">Trackers parados (1)</span>
+            <span class="ofens so-tela">medido: Trackers parados (1) · Desligamentos: 1 queda de rede (0,1 h)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Santarém 2" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Santarém 2" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Santarém 1</td>
+        <td class="m">52,4% /<br>77,8%</td>
+        <td class="m">31<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Santarém 1" data-vazio="causa principal">Strings indisponíveis (4)</span>
+            <span class="ofens so-tela">medido: Strings indisponíveis (4) · Desligamentos: 1 queda de rede (0,1 h)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Santarém 1" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Santarém 1" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Santo Antonio da Platina</td>
+        <td class="m">73,6% /<br>83,4%</td>
+        <td class="m">26<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Santo Antonio da Platina" data-vazio="causa principal">Desligamentos: 1 desligamento por equipamento (57,8 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 1 desligamento por equipamento (57,8 h) · Trackers parados (4)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Santo Antonio da Platina" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Santo Antonio da Platina" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Alvares Machado</td>
+        <td class="m">59,5% /<br>76,4%</td>
+        <td class="m">24<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Alvares Machado" data-vazio="causa principal">Desligamentos: 2 quedas de rede (22,4 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 2 quedas de rede (22,4 h)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Alvares Machado" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Alvares Machado" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Corrego do Sapucaia</td>
+        <td class="m">61,6% /<br>76,1%</td>
+        <td class="m">22<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Corrego do Sapucaia" data-vazio="causa principal">Sem ofensor medido — verificar sujidade, vegetação ou limitação</span>
+            <span class="ofens so-tela">medido: nenhum ofensor</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Corrego do Sapucaia" data-vazio="ação da Grid · status">OS 14310 · Corretiva · aberta desde 21/09</span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Corrego do Sapucaia" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Sitio dos Nogueiras</td>
+        <td class="m">76,0% /<br>84,1%</td>
+        <td class="m">21<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Sitio dos Nogueiras" data-vazio="causa principal">Desligamentos: 1 queda de rede (2,5 h) e 1 desligamento por equipamento (4,9 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 1 queda de rede (2,5 h) e 1 desligamento por equipamento (4,9 h) · Trackers parados (9)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Sitio dos Nogueiras" data-vazio="ação da Grid · status">OS 14348 · Corretiva · aberta desde 22/09</span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Sitio dos Nogueiras" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Belo Jardim</td>
+        <td class="m">70,2% /<br>80,8%</td>
+        <td class="m">16<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Belo Jardim" data-vazio="causa principal">Desligamentos: 3 quedas de rede (56,6 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 3 quedas de rede (56,6 h) · Strings indisponíveis (20) · Trackers parados (2)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Belo Jardim" data-vazio="ação da Grid · status">OS 14347 · Corretiva · aberta desde 22/09</span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Belo Jardim" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">São Bento do Una</td>
+        <td class="m">72,3% /<br>80,9%</td>
+        <td class="m">16<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="São Bento do Una" data-vazio="causa principal">Trackers parados (20)</span>
+            <span class="ofens so-tela">medido: Trackers parados (20) · Strings indisponíveis (8) · Desligamentos: 2 quedas de rede (14,5 h)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="São Bento do Una" data-vazio="ação da Grid · status">OS 14340 · Corretiva · aberta desde 22/09</span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="São Bento do Una" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Ceilândia 1</td>
+        <td class="m">69,7% /<br>74,6%</td>
+        <td class="m">15<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Ceilândia 1" data-vazio="causa principal">Desligamentos: 1 queda de rede (14,5 h) e 2 desligamentos por equipamento (10,3 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 1 queda de rede (14,5 h) e 2 desligamentos por equipamento (10,3 h) · Trackers parados (1)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Ceilândia 1" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Ceilândia 1" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Ibaté 1</td>
+        <td class="m">68,4% /<br>78,9%</td>
+        <td class="m">15<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Ibaté 1" data-vazio="causa principal">Desligamentos: 1 queda de rede (1,0 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 1 queda de rede (1,0 h) · Trackers parados (1)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Ibaté 1" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Ibaté 1" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Matão 1</td>
+        <td class="m">71,6% /<br>82,2%</td>
+        <td class="m">14<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Matão 1" data-vazio="causa principal">Trackers parados (1)</span>
+            <span class="ofens so-tela">medido: Trackers parados (1)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Matão 1" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Matão 1" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Itajá</td>
+        <td class="m">75,5% /<br>84,5%</td>
+        <td class="m">12<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Itajá" data-vazio="causa principal">Sem ofensor medido — verificar sujidade, vegetação ou limitação</span>
+            <span class="ofens so-tela">medido: nenhum ofensor</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Itajá" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Itajá" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Alto Paraná 1</td>
+        <td class="m">67,8% /<br>76,2%</td>
+        <td class="m">11<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Alto Paraná 1" data-vazio="causa principal">Desligamentos: 2 quedas de rede (2,0 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 2 quedas de rede (2,0 h) · Trackers parados (2)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Alto Paraná 1" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Alto Paraná 1" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Nova Londrina</td>
+        <td class="m">77,1% /<br>81,6%</td>
+        <td class="m">11<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Nova Londrina" data-vazio="causa principal">Strings indisponíveis (43)</span>
+            <span class="ofens so-tela">medido: Strings indisponíveis (43) · Desligamentos: 2 quedas de rede (1,4 h) e 1 desligamento por equipamento (2,2 h) · Trackers parados (1)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Nova Londrina" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Nova Londrina" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Santo Anastacio</td>
+        <td class="m">69,3% /<br>76,6%</td>
+        <td class="m">10<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Santo Anastacio" data-vazio="causa principal">Desligamentos: 3 quedas de rede (17,4 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 3 quedas de rede (17,4 h)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Santo Anastacio" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Santo Anastacio" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Fazenda Limão</td>
+        <td class="m">76,5% /<br>84,2%</td>
+        <td class="m">10<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Fazenda Limão" data-vazio="causa principal">Desligamentos: 4 quedas de rede (12,6 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 4 quedas de rede (12,6 h) · Trackers parados (45) · Strings indisponíveis (28)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Fazenda Limão" data-vazio="ação da Grid · status">OS 14328 · Corretiva · aberta desde 22/09</span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Fazenda Limão" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Colorado 1</td>
+        <td class="m">72,1% /<br>77,5%</td>
+        <td class="m">8<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Colorado 1" data-vazio="causa principal">Desligamentos: 3 quedas de rede (18,0 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 3 quedas de rede (18,0 h) · Strings indisponíveis (8)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Colorado 1" data-vazio="ação da Grid · status">OS 13852 · Corretiva · aberta desde 18/09</span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Colorado 1" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Cipó Guaçu</td>
+        <td class="m">73,7% /<br>81,7%</td>
+        <td class="m">8<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Cipó Guaçu" data-vazio="causa principal">Desligamentos: 7 quedas de rede (14,5 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 7 quedas de rede (14,5 h)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Cipó Guaçu" data-vazio="ação da Grid · status">OS 14426 · Corretiva · aberta desde 23/09</span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Cipó Guaçu" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Jucurutu</td>
+        <td class="m">72,0% /<br>79,7%</td>
+        <td class="m">7<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Jucurutu" data-vazio="causa principal">Sem ofensor medido — verificar sujidade, vegetação ou limitação</span>
+            <span class="ofens so-tela">medido: nenhum ofensor</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Jucurutu" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Jucurutu" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Parelhas</td>
+        <td class="m">73,9% /<br>78,3%</td>
+        <td class="m">6<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Parelhas" data-vazio="causa principal">Sem ofensor medido — verificar sujidade, vegetação ou limitação</span>
+            <span class="ofens so-tela">medido: nenhum ofensor</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Parelhas" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Parelhas" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Ouro Branco</td>
+        <td class="m">75,2% /<br>78,2%</td>
+        <td class="m">6<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Ouro Branco" data-vazio="causa principal">Strings indisponíveis (14)</span>
+            <span class="ofens so-tela">medido: Strings indisponíveis (14)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Ouro Branco" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Ouro Branco" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Rodrigues 2</td>
+        <td class="m">71,4% /<br>78,0%</td>
+        <td class="m">6<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Rodrigues 2" data-vazio="causa principal">Desligamentos: 3 quedas de rede (74,4 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 3 quedas de rede (74,4 h) · Strings indisponíveis (1)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Rodrigues 2" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Rodrigues 2" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Rodrigues 1</td>
+        <td class="m">72,7% /<br>81,6%</td>
+        <td class="m">6<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Rodrigues 1" data-vazio="causa principal">Desligamentos: 3 quedas de rede (77,5 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 3 quedas de rede (77,5 h)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Rodrigues 1" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Rodrigues 1" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Taguaí</td>
+        <td class="m">81,8% /<br>87,8%</td>
+        <td class="m">4<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Taguaí" data-vazio="causa principal">Sem ofensor medido — verificar sujidade, vegetação ou limitação</span>
+            <span class="ofens so-tela">medido: nenhum ofensor</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Taguaí" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Taguaí" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Caicó</td>
+        <td class="m">76,9% /<br>80,2%</td>
+        <td class="m">3<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Caicó" data-vazio="causa principal">Desligamentos: 2 quedas de rede (4,1 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 2 quedas de rede (4,1 h) · Strings indisponíveis (5)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Caicó" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Caicó" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Marajoara I</td>
+        <td class="m">81,5% /<br>84,0%</td>
+        <td class="m">3<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Marajoara I" data-vazio="causa principal">Trackers parados (1)</span>
+            <span class="ofens so-tela">medido: Trackers parados (1)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Marajoara I" data-vazio="ação da Grid · status"></span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Marajoara I" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Piracicaba I</td>
+        <td class="m">73,6% /<br>79,3%</td>
+        <td class="m">2<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Piracicaba I" data-vazio="causa principal">Trackers parados (3)</span>
+            <span class="ofens so-tela">medido: Trackers parados (3) · Desligamentos: 1 queda de rede (1,4 h)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Piracicaba I" data-vazio="ação da Grid · status">OS 11358 · Corretiva · aberta desde 17/08</span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Piracicaba I" data-vazio="—"></span></td>
+      </tr>
+      <tr>
+        <td class="u">Canarana 1</td>
+        <td class="m">77,9% /<br>81,4%</td>
+        <td class="m">2<br>MWh</td>
+        <td><span contenteditable="false" data-campo="causa" data-usina="Canarana 1" data-vazio="causa principal">Desligamentos: 3 quedas de rede (0,2 h)</span>
+            <span class="ofens so-tela">medido: Desligamentos: 3 quedas de rede (0,2 h)</span></td>
+        <td><span contenteditable="false" data-campo="acao" data-usina="Canarana 1" data-vazio="ação da Grid · status">OS 14679 · Corretiva · aberta desde 25/09</span></td>
+        <td class="m"><span contenteditable="false" data-campo="previsao" data-usina="Canarana 1" data-vazio="—"></span></td>
+      </tr></tbody></table>
+    </section></div>
+    <div class="rod">
+      <div><b>Fontes:</b> BD_Thopen (geração, IPOA e meta de PR do cliente) · Fracttal (OS, desligamentos) · Plataforma de Performance GRID (strings e trackers). PR corrigido pela IPOA medida; dias sem medição de IPOA ficam fora do PR.</div>
+      <div><b>Envio:</b> toda segunda-feira até 12h, por e-mail, independentemente da reunião.<span class="duvidas sem-contato"> Dúvidas: <span contenteditable="false" data-campo="contato" id="contato" data-vazio="[responsável] · [e-mail]"></span></span></div>
+    </div></div></div>
+</template>
+
+<script>
+const ALVOS = [[1, ".li", "Tempo mediano de religamento"], [2, ".li", "Quedas de energia"], [2, ".li", "Desligamentos por equipamento"], [3, ".li", "Indisponibilidade atribuível"], [3, ".li", "Indisponibilidade externa"], [4, ".li", "OS corretivas finalizadas"], [4, ".li", "Preventivas realizadas"], [5, ".kpi", "Usinas fora da meta"], [5, ".kpi", "PR real (POA)"], [6, ".kpi", "Geração real × meta"], [7, ".li", "Strings que voltaram"], [7, "td", "Strings indisponíveis (43)"], [8, ".sec-t", "causa e ação da Grid"], [9, ".sec-t", "O que a Grid executou"], [10, ".sec-t", "Evolução desde a assunção"]];
+const COR = {"1": "r", "2": "r", "3": "r", "4": "r", "5": "r", "6": "r", "7": "r", "8": "a", "9": "a", "10": "a"};
+const HEX = { r: '#d93a46', a: '#f0b53d' };
+const host = document.getElementById('relatorio');
+const raiz = host.attachShadow({ mode: 'open' });
+raiz.appendChild(document.getElementById('t-rel').content.cloneNode(true));
+const marcados = {};
+for (const [n, sel, txt] of ALVOS) {
+  const el = [...raiz.querySelectorAll(sel)].find((e) => e.textContent.includes(txt));
+  if (!el) { console.warn('alvo não achado', n, txt); continue; }
+  el.classList.add('alvo'); el.style.setProperty('--cor', HEX[COR[n]]);
+  const b = document.createElement('span');
+  b.className = 'pm ' + COR[n]; b.textContent = n; b.dataset.n = n; b.title = 'ver a pendência ' + n;
+  b.onclick = () => focar(n, 'lista');
+  el.appendChild(b);
+  (marcados[n] = marcados[n] || []).push(el);
+}
+function focar(n, onde) {
+  document.querySelectorAll('.pend.foco').forEach((e) => e.classList.remove('foco'));
+  raiz.querySelectorAll('.alvo.foco').forEach((e) => e.classList.remove('foco'));
+  const c = document.getElementById('p' + n);
+  if (c) c.classList.add('foco');
+  (marcados[n] || []).forEach((e) => e.classList.add('foco'));
+  if (onde === 'lista' && c) c.scrollIntoView({ block: 'center' });
+  if (onde === 'pagina' && marcados[n]) marcados[n][0].scrollIntoView({ block: 'center' });
+}
+document.querySelectorAll('.pend').forEach((c) => c.addEventListener('click', () => focar(+c.dataset.n, 'pagina')));
+</script>
+</body>
+</html>

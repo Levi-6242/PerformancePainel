@@ -1,5 +1,9 @@
 # Coletor automatizado de dados
 
+> **O coletor que roda de verdade não mora aqui.** O coletor (22:30), o fechamento noturno (23:30), o Painel e o widget
+> ficam em `C:\Users\Levi Maia\OneDrive - GRID CO\Área de Trabalho\temp\coleta API PV`. As regras e o mapa estão no
+> `CLAUDE.md` de lá (29/09/2026). Estes scripts são os antigos.
+
 Scripts que puxam geração e irradiância das APIs e gravam nas planilhas-base
 (`BD_Performance.xlsx`, `BD_Thopen.xlsx`). Ver o `CLAUDE.md` da raiz para as convenções gerais.
 

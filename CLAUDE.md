@@ -6,11 +6,16 @@ com o que é específico dela — leia o da pasta em que estiver trabalhando.
 | Pasta | Projeto | O que é |
 |---|---|---|
 | `plataforma/` | Plataforma de Performance + ronda de trackers | Flask na porta **5050**, uso interno. É o maior (`app.py`, ~17 mil linhas) |
-| `coletor/` | Coletor automatizado de dados | Scripts de coleta que alimentam as planilhas |
+| `coletor/` | Coletor automatizado de dados | Scripts **antigos**. O coletor que roda de verdade (22:30, fechamento das 23:30, Painel e widget) mora em `C:\Users\Levi Maia\OneDrive - GRID CO\Área de Trabalho\temp\coleta API PV`. **Antes de mexer em coleta, no BD_Thopen, no BD_Performance ou no fechamento, leia o `CLAUDE.md` de lá** e acrescente nele cada regra nova que aprender |
 | ~~`os_creator/`~~ | OS Creator | **Migrado em 28/08/2026** para [Grid-Co-CODE/oem](https://github.com/Grid-Co-CODE/oem) — ver `os_creator/MOVIDO.md` |
 | `thopen/` | Dashboard BD_Thopen | Flask na porta **5080**, produto para o **cliente**, publicado no Railway |
 
 Documentação de arquitetura e regras de negócio: `README.md` e `docs/`.
+
+**REGRA (Levi, 03/10/2026): um `.md` por área, sempre em dia.** Toda alteração em qualquer área atualiza o
+`CLAUDE.md` da pasta dela no mesmo trabalho; área sem um ganha um. O Claude lê esse `.md` antes de mexer, em vez de
+varrer o código. Escreva o que o código não diz (para que serve, de onde vem o dado, a regra e o caso que a criou, como
+provar); regra que mudou se **corrige**, não se empilha. Vale também para o coletor e para o Nexus.
 
 ## O que fica na raiz, e por quê
 
