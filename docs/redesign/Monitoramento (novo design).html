@@ -1145,8 +1145,13 @@ async function _loadTrkChart(pid){
   if(RD.trkChart[key]!==undefined) return;
   RD.trkChart[key]=null; render();
   const base=(EP.trackers||{})[SKEY[state.source]]; let d=null;
-  if(base){ try{ d=await fetchJSON(base+'/'+encodeURIComponent(pid)+'/chart?ini='+ini+'&fim='+fim); }catch(e){} }
+  // fonte que não respondeu NÃO é "sem curva" (06/10/2026, Sete Lagoas 01–05/10: a tela esperou 90 s e disse que a
+  // fonte não reportou ângulos). A falha fica marcada, a tela diz o motivo e oferece Tentar de novo.
+  if(base){ try{ d=await fetchJSON(base+'/'+encodeURIComponent(pid)+'/chart?ini='+ini+'&fim='+fim); }
+            catch(e){ RD.trkChart[key]={erro:(e&&e.motivo)||'rede', msg:(e&&e.message)||''}; render(); return; } }
   RD.trkChart[key]=d||{}; render(); }
+window.retryTrkChart=(pid)=>{ const ini=state.trkGrafIni||_todayISO(), fim=state.trkGrafFim||ini;
+  delete RD.trkChart[state.source+'|'+pid+'|'+ini+'|'+fim]; _loadTrkChart(pid); };
 window.setTrkGrafIni=(pid,val)=>{ if(!val)return; state.trkGrafIni=val; if(state.trkGrafFim<val)state.trkGrafFim=val; if(_trkDias(state.trkGrafIni,state.trkGrafFim)>5)state.trkGrafFim=_addDias(state.trkGrafIni,4); render(); _loadTrkChart(pid); };
 window.setTrkGrafFim=(pid,val)=>{ if(!val)return; state.trkGrafFim=val; if(val<state.trkGrafIni)state.trkGrafIni=val; if(_trkDias(state.trkGrafIni,state.trkGrafFim)>5)state.trkGrafIni=_addDias(state.trkGrafFim,-4); render(); _loadTrkChart(pid); };
 window.setTrkGrafRed=(pid)=>{ state.trkGrafRed=!state.trkGrafRed; render(); };
@@ -1264,6 +1269,7 @@ function _trkChartInline(pid){
         _dias.push({date:lbl,series:sd}); }
     }
     chartHtml=_gchartDias(_dias,opts);   // UM gráfico contínuo: eixo Y compartilhado, dias como seções lado a lado
+  } else if(ex && d && d.erro){ chartHtml=`<div class="text-muted" style="min-height:190px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;font-size:13px;text-align:center;padding:20px"><i class="ph ph-clock-countdown" style="font-size:26px;color:var(--gc-amber)"></i><div style="color:var(--color-neutral-200)">A fonte não respondeu a tempo para <b>${_dlbl}</b>${d.msg?` (${esc(d.msg)})`:''}.</div><div style="font-size:12px">Não é falta de curva: a busca demorou. Tente de novo ou escolha um intervalo menor.</div><button class="btn" onclick="event.stopPropagation();retryTrkChart('${pe}')" style="margin-top:4px">Tentar de novo</button></div>`;
   } else if(ex){ chartHtml=`<div class="text-muted" style="min-height:190px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;font-size:13px;text-align:center;padding:20px"><i class="ph ph-wave-sine" style="font-size:26px;opacity:.45"></i><div>Sem curva de trackers para <b style="color:var(--color-neutral-200)">${_dlbl}</b>.</div><div style="font-size:12px">Esta fonte não reportou ângulos de tracker nesta data — escolha outra data acima.</div></div>`; }
   else chartHtml=_gchart(series,opts);
   const _dateChip=`<span class="tag tag-outline" style="border-color:var(--color-divider);color:var(--color-neutral-200);font-weight:600"><i class="ph ph-calendar-blank" style="margin-right:5px;font-size:11px"></i>${_dlbl}</span>`;

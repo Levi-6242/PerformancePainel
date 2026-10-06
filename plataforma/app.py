@@ -7016,6 +7016,10 @@ def _sunop_trk_curvas(plant_name: str, date: str, inst: str = "gridco") -> dict:
 
 TRK_CURVA_SOBREPOSICAO_MIN = 30   # min re-buscados antes do último ponto (ingestão da SunOp atrasa)
 TRK_CHART_MAX_DIAS = 5    # janela máxima do gráfico De/Até (pedido Levi 07/07)
+# Os dias do intervalo vão em paralelo (06/10/2026): cada dia de usina é um POST à API PV de 8 a 64 MB, ~41 s medido na
+# Sete Lagoa, e em série os 5 dias passavam dos 90 s da tela — que então dizia "sem curva". O cache por (usina, dia) e
+# o lock de cada chave no `_pv_trk_dia` seguram a busca em dobro.
+TRK_CHART_PARALELO = TRK_CHART_MAX_DIAS
 
 
 def _trk_chart_range():
@@ -12409,11 +12413,13 @@ def api_pv_trackers_chart(idusina):
         if ent and ((data != hoje and ent["payload"].get("trackers")) or (agora - ent["ts"]) < CACHE_TTL):
             return jsonify(ent["payload"])
         g = _pv_trk_grafico(idusina, data)           # cru + cacheado (compartilhado com o detalhe)
-    else:                                            # intervalo: concatena a curva de cada dia
+    else:                                            # intervalo: concatena a curva de cada dia, buscada em paralelo
         g = {}
-        for d in _trk_ev_dias(ini_iso, fim_iso):
-            data_br = d.strftime("%d/%m/%Y")
-            for nome, pts in (_pv_trk_grafico(idusina, data_br) or {}).items():
+        dias_ = [d.strftime("%d/%m/%Y") for d in _trk_ev_dias(ini_iso, fim_iso)]
+        with ThreadPoolExecutor(max_workers=max(1, min(TRK_CHART_PARALELO, len(dias_)))) as ex:
+            por_dia = list(ex.map(lambda db: _pv_trk_grafico(idusina, db), dias_))
+        for gd in por_dia:
+            for nome, pts in (gd or {}).items():
                 g.setdefault(nome, []).extend(pts or [])
 
     _alvo_max = _trk_chart_down_alvo(ndias)
@@ -19111,18 +19117,22 @@ def _2c_trk_loop():
         time.sleep(_2C_TRK_LOOP_S)
 
 
-def _2c_trk_build_api(date_iso, force=False):
+def _2c_trk_build_api(date_iso, force=False, codigos=None):
     """Os trackers da 2C do dia pela API PV, no formato do acervo do e-mail — {código: {"U.N": {"atual": [(dt, v)],
     "alvo": [(dt, v)]}}} —, com o nome do e-mail pelo de-para. Tudo que lia o e-mail (a análise da aba, os parados da
     Entrada e da ronda, as ocorrências e a disponibilidade, o App de Campo, a curva que o gêmeo lê) continua com as
     mesmas chaves e os mesmos nomes, e o dado passa a ser o da API: o e-mail chegava em janelas de ~3 h e o servidor nem
-    o recebe. O dia de cada planta vem do cache do `_pv_trk_dia` (30 min); o memo de 60 s evita remontar a cada código."""
+    o recebe. O dia de cada planta vem do cache do `_pv_trk_dia` (30 min); o memo de 60 s evita remontar a cada código.
+
+    `codigos` = só as plantas dessas usinas (06/10/2026): o gráfico da Sete Lagoas baixava o dia inteiro das SEIS
+    plantas da 2C (8 a 64 MB cada) para desenhar uma — um dia passou de 600 s no servidor. O pedaço não entra no memo,
+    que é o dia inteiro que a aba, os parados e a ronda leem."""
     ent = _2c_trk_api_memo.get(date_iso)
     if ent and not force and time.time() - ent[0] < 60:
-        return ent[1]
+        return ent[1] if codigos is None else {c: v for c, v in ent[1].items() if c in codigos}
     data_br = datetime.strptime(date_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
     out = {}
-    for pid in sorted({f[4] for f in _2C_TRK_FAIXAS}):
+    for pid in sorted({f[4] for f in _2C_TRK_FAIXAS if codigos is None or f[0] in codigos}):
         if force and data_br == datetime.now().strftime("%d/%m/%Y"):
             _2c_trk_vence(pid, data_br)                             # a ronda quer a leitura de agora
         d = _pv_trk_dia(pid, data_br, fetch=True)
@@ -19146,7 +19156,7 @@ def _2c_trk_build_api(date_iso, force=False):
             out.setdefault(code, {})[n] = {"atual": _serie(pts), "alvo": _serie(alvo.get(trk))}
     # vazio não entra no memo: a API sem resposta devolve o dia vazio e, guardado, os 4 códigos da aba saíam zerados
     # no mesmo minuto (30/09/2026, 15:07 no servidor: ARA, IPX, STL e TUP com 0 trackers)
-    if out:
+    if out and codigos is None:
         _2c_trk_api_memo[date_iso] = (time.time(), out)
     return out
 
@@ -19232,15 +19242,16 @@ def api_owen_strings_plant(plant_id):
 
 
 # ── Owen: Trackers (alvo/atual por UFV, análise por curva) ─────────────────────
-def _owen_trackers_build(force=False, date=None):
+def _owen_trackers_build(force=False, date=None, codigos=None):
     # O dia vem da API PV com os nomes do e-mail (_2c_trk_build_api) — desde 03/10/2026 também os dias anteriores a
     # 30/09: o e-mail saiu do código. O registro desses dias já está gravado (trk_eventos.json) e não é refeito.
-    return _2c_trk_build_api(date or datetime.now().strftime("%Y-%m-%d"), force=force)
+    return _2c_trk_build_api(date or datetime.now().strftime("%Y-%m-%d"), force=force, codigos=codigos)
 
 
 def _owen_trackers_analise(plant_id, date=None):
     nome = _owen_nome(plant_id)
-    trks = _owen_trackers_build(date=date).get(plant_id, {})
+    # dia passado: só a planta da usina (hoje vem do memo do dia inteiro, que o worker mantém quente)
+    trks = _owen_trackers_build(date=date, codigos={plant_id} if date else None).get(plant_id, {})
     base = {"usina": nome, "plant_id": plant_id, "total": 0, "parados": 0,
             "desvios": 0, "atrasos": 0, "sem_alvo": False, "pior_disparidade": None,
             "ultima_leitura": None, "trackers": [], "tem_trackers": bool(trks)}
@@ -19455,11 +19466,17 @@ def api_owen_trackers_chart(plant_id):
         return api_pv_trackers_chart(pid)
     ini, fim, ndias = _trk_chart_range()
     hoje = datetime.now().strftime("%Y-%m-%d")
-    # concatena dia a dia (o acervo do 2C é por dia): {tracker: {'atual':[(dt,v)], 'alvo':[...]}}
-    merged = {}
-    for d in _trk_ev_dias(ini, fim):
+
+    def _um_dia(d):
         d_iso = d.strftime("%Y-%m-%d")
-        day = _owen_trackers_build(date=(None if d_iso == hoje else d_iso)).get(plant_id, {})
+        return _owen_trackers_build(date=(None if d_iso == hoje else d_iso), codigos={plant_id}).get(plant_id, {})
+    # concatena dia a dia: {tracker: {'atual':[(dt,v)], 'alvo':[...]}}. Só a planta da usina e os dias em paralelo
+    # (06/10/2026): um dia da Sete Lagoas passava de 600 s baixando as seis plantas da 2C, e o intervalo ia em série.
+    dias_ = list(_trk_ev_dias(ini, fim))
+    with ThreadPoolExecutor(max_workers=max(1, min(TRK_CHART_PARALELO, len(dias_)))) as ex:
+        por_dia = list(ex.map(_um_dia, dias_))
+    merged = {}
+    for day in por_dia:
         for n, dd in day.items():
             m = merged.setdefault(n, {"atual": [], "alvo": []})
             m["atual"].extend(dd.get("atual") or [])
@@ -19497,7 +19514,8 @@ def _owen_curve_for(code, data_br):
         date_iso = datetime.strptime(data_br, "%d/%m/%Y").strftime("%Y-%m-%d")
     except Exception:
         date_iso = data_br
-    trks = _owen_trackers_build(date=date_iso).get(code, {})
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    trks = _owen_trackers_build(date=date_iso, codigos=None if date_iso == hoje else {code}).get(code, {})
     return {f"Tracker {n}": [{"x": t.strftime("%Y-%m-%dT%H:%M:%SZ"), "y": v} for t, v in d["atual"]]
             for n, d in trks.items() if d.get("atual")}
 

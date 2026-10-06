@@ -113,7 +113,8 @@ def test_frota_de_trackers_da_2c_vem_da_aba_publicada(monkeypatch):
 
 def test_trackers_de_dia_antigo_tambem_pela_api(monkeypatch):
     pedidos = []
-    monkeypatch.setattr(app, "_2c_trk_build_api", lambda date_iso, force=False: pedidos.append(date_iso) or {"ARA": {}})
+    monkeypatch.setattr(app, "_2c_trk_build_api",
+                        lambda date_iso, force=False, codigos=None: pedidos.append(date_iso) or {"ARA": {}})
     assert app._owen_trackers_build(date="2026-09-15") == {"ARA": {}} and pedidos == ["2026-09-15"]
 
 

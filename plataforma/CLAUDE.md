@@ -618,6 +618,15 @@ requisição: às 16:20 de 30/09 o servidor mostrava as leituras de 13:40 como s
 pula essas usinas (quando a aba de trackers da 2C tinha sido aberta no web, o mesmo tracker entrava duas vezes). A conta principal responde "Invalid id" para
 as usinas da 2C: qualquer chamada delas tem de ir por `_pv_token_for`. Teste: `tests/test_fonte_2capi.py`.
 
+**Gráfico de trackers da 2C: só a planta da usina, dias em paralelo (06/10/2026**, Levi: "As curvas de trackers na 2C
+estão demorando muito — carrega carrega e no final dá erro", Sete Lagoas de 01 a 05/10). O gráfico pelo código (STL, o
+que a aba usa) baixava, para cada dia, o dia inteiro das SEIS plantas da 2C pelo `_2c_trk_build_api` (8 a 64 MB cada),
+e os dias iam em série — no servidor, UM dia passou de 600 s; pelo id da API PV, 41 s. Agora `codigos=` busca só as
+plantas da usina (o pedaço não entra no memo do dia inteiro, que a aba, os parados e a ronda leem), e os dias do
+intervalo vão em paralelo (`TRK_CHART_PARALELO`, também no gráfico da API PV). Medido: 5 dias da Sete Lagoas em 44,6 s
+frio e 15,3 s quente. Fonte que não respondeu a tempo não é mais "Sem curva (...) não reportou ângulos": a tela diz que
+a busca demorou e oferece "Tentar de novo" (`retryTrkChart`). Teste: `tests/test_2c_trk_grafico_rapido.py`.
+
 **A União entrou em 25/09/2026** ("adicione a usina União em 2C!"): conta oem@, id 18772125, "União " na API (com
 espaço), 2.162 kWp, instalada em 22/09 — 6 inversores com 28 Ipv (18 com corrente). No cadastro é "União 1 e 2" (Info
 Geral: cliente 2C, Piauí, 12 inversores, 4,46 MWp — a API tem metade, por ora), e o `PV_NOME_API_ALIAS` faz a ponte;
