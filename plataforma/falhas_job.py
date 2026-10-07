@@ -99,7 +99,7 @@ def _fim_do_dia(dia):
     except Exception:                  # noqa: BLE001 — sem base de fusos, vale a hora do processo
         return d.timestamp()
 FONTE_ROT = {"pv": "API PV", "pvsb": "API PV · String Box", "pg": "Banco", "sunop": "Athon", "axis": "Axis", "owen": "2C",
-             "solaredge": "RenoGrid"}
+             "solaredge": "RenoGrid", "greenyellow": "GreenYellow", "salenergia": "Sal Energia"}
 _CACHE_2C = {}                # dia fechado → (marca das travas, [(cod, usina, strings sem corrente)])
 _CACHE_2C_ARQ = {"path": None}  # de qual arquivo (app._FALHAS_2C_PATH) o _CACHE_2C foi carregado
 CACHE_2C_DIAS = 70              # o mês e o anterior (remontado até o dia 2), com folga

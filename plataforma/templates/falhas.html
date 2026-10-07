@@ -244,7 +244,7 @@
   const $ = id => document.getElementById(id);
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
   const FONTE = {pv: 'Thopen · API PV', pvsb: 'Thopen · API PV · String Box', pg: 'Thopen · Banco', sunop: 'Athon', axis: 'Axis',
-                 owen: '2C · e-mail', solaredge: 'RenoGrid'};
+                 owen: '2C · e-mail', solaredge: 'RenoGrid', greenyellow: 'GreenYellow', salenergia: 'Sal Energia'};
   const fmtKwh = v => v >= 10000 ? nf1.format(v / 1000) + ' MWh' : nf.format(Math.round(v)) + ' kWh';
   const fmtH = h => { const m = Math.round(h * 60); return m >= 6000 ? nf.format(Math.round(m / 60)) + ' h' : m >= 60 ? `${Math.floor(m / 60)}h${String(m % 60).padStart(2, '0')}` : `${m} min`; };
   const fDH = s => s ? s.slice(8, 10) + '/' + s.slice(5, 7) + ' ' + s.slice(11, 16) : '—';

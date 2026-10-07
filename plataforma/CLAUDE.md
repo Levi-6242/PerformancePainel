@@ -288,6 +288,42 @@ a tarde de 25/09): o parcial não zerava string nenhuma (0 inativas falsas em 1.
 1 e 8 na Colíder 2, contra 0 e 0 com o quarto fechado. A última leitura da RenoGrid fica ~15 min atrás, e é de propósito.
 Na tela, `curvaSVG(..., unit)` recebe 'W' na RenoGrid e 'A' nas outras.
 
+## GreenYellow e Sal Energia pelo scadaGridco (06/10/2026)
+
+Levi: "OS para tempo real e histórico das UFVs da Green Yellow", "separe green yellow e sal energia", tempo real "igual
+às outras fontes", histórico "só até 45 dias" (é o que a API guarda). A fonte é o supervisório da Automação Grid Co.
+(`https://app.gridco.com.br/supervisorio`, documento "API do scadaGridco — como puxar os dados"): só GET, cabeçalho
+`X-API-Key`, token em `SCADAGRIDCO_URL`/`SCADAGRIDCO_TOKEN` no tokens.txt (nunca no código nem em print; vazou, pedir
+troca à Automação). Sem token ou com token errado a API responde **302 para o login**. Tudo da API mora em
+`scadagridco.py` (puro, menos o `get()`); o `app.py` tem a linha, o drill e a curva no bloco "scadaGridco".
+
+- **Duas fontes, dois cards na Entrada** (`greenyellow`, `salenergia`; cliente da Info Geral "Greenyellow" e "Sal
+  Energia"). Tabela, drill, Curva das strings (hoje e até 45 dias), CSV, rollup do macro e a aba de Falhas. Sem ETM nem
+  trackers (as usinas não mandam), sem sino e sem Ocorrências (como a RenoGrid).
+- **GreenYellow = gateway MQTT**: tabela/drill por `/api/mqtt/<usina>` (1 pedido, 0,1 s); curva por `/api/telemetria`
+  **um inversor por pedido** (`indice=N`: 2,5 MB e 0,5 s; a usina inteira de uma vez são 19 MB e 22 s), 1 ponto por
+  minuto. A de hoje vem aos pedaços (`apos_ts`, `CurvasDoDia`), a de dia passado fica 6 h. Só a Demerval Lobão e a
+  Irecê 2 estão no scadaGridco; Balsas 1, Castelo do Piauí, Cedro 1/2, Icó 2 e Macaíba 1 não. Em 06/10 apareceu uma
+  `cedro` (20 inversores, offline, sem dado) — entra quando tiver leitura e de-para.
+- **Sal Energia = Modbus**: `/api/inversores/<usina>` e `/api/dados/string` (5 min). Em 06/10/2026 as cinco estavam com
+  `read_error: TimeoutError` e 0 kW desde pelo menos 17/09 (o supervisório não lê os inversores; o BD_Performance tem
+  geração delas): na tela, **sem comunicação**, que é o que elas estão para a fonte. Campos Modbus conferidos na Boa
+  Esperança do Sul (`string_NN_i`, `active_power_w`, `daily_energy_kwh`).
+- **De-para dos inversores POR VALOR** (`scadagridco.FONTES`): energia do dia do scadaGridco × kWh diário da aba do
+  BD_Performance, 27 a 30/09. **Na Irecê 2 a ordem não é a do cadastro** (equipamento 4 = Inversor 1.8, 7 = 1.4…). A
+  Demerval Lobão tem só a UG 01 (12 de 20, 1 a 12 = 1.1 a 1.12): a linha conta as esperadas dos 12, não as 280. **Sal
+  Energia vai pela ORDEM do cadastro, provisório** — fechar por valor quando o supervisório voltar a ler.
+- **Esperadas pelo nome de exibição** (`ESPERADO_INV_DISP`, no `load_equipamentos`): essas usinas não têm "Equipamento
+  Supervisório" no cadastro, e o `ESPERADO_INV` é por ele. 14 strings por inversor nas duas da GreenYellow; o Huawei manda
+  28 entradas, e string acima das esperadas só entra se tiver corrente.
+- Regras da Automação que o código segura: **uma chamada por vez** (`scadagridco._LOCK`: o mesmo servidor opera as
+  usinas), busca incremental, `communication_fault` 192 = leitura boa (lacuna é sem comunicação, nulo não é zero).
+  `data_hora` é hora local (UTC−3), `ts` é epoch. O contador `total_daily_energy` pode amanhecer com o valor da véspera.
+- **Aba de Falhas**: `_falhas_sg_varre` (dentro do `_falhas_loop`, de 07h a 18:30 e uma depois) registra a régua nova
+  sobre a curva de hoje de cada inversor; usina sem leitura não é perguntada.
+- Inversor lendo e sem string ativa (noite) é "desligado" no drill, sem diferença — como na RenoGrid e na Athon.
+- Testes: `tests/test_scadagridco.py`, `tests/test_fonte_greenyellow_sal.py`.
+
 ## Visão Geração no drill-down do Monitoramento
 
 Desde 13/09/2026 a usina expandida na aba Strings tem o seletor **Strings | Geração** (`state.invView`, vale de
@@ -344,7 +380,7 @@ recalculava a diferença de todo inversor e devolvia "−4" ao que estava fora d
 **Colunas da tabela de strings (25/09/2026, pedidos do Levi).** Abre pelo **Status**, antes da Usina ("quero a coluna
 de STATUS antes do nome da USINA"), e **não tem mais a Disponib.** ("pode tirar a coluna de disponibilidade das strings
 em tempo real"): era ativas ÷ esperadas em %, a Diferença dita de outro jeito, e passava de 100% com o cadastro errado.
-É um componente só para as 9 fontes; as linhas de largura toda têm 9 colunas. Teste:
+É um componente só para as 11 fontes; as linhas de largura toda têm 9 colunas. Teste:
 `tests/test_strings_sem_coluna_disponibilidade.py`. A Disponibilidade da tabela de TRACKERS é outra (por tempo) e fica.
 
 **Colunas de strings são sempre strings.** As 13 usinas da régua de padrão (`inv_padrao`) punham "18/20 inv.",
@@ -369,7 +405,7 @@ desligada"** com MOTIVO, nesta ordem (`_usina_desligada_de`):
 3. **estação comunicando com os inversores calados há mais de 2 h** (`_etm_leitura_por_pid`, das análises de ETM em
    cache). Menos que isso pode ser o barramento dos inversores.
 
-Sem motivo, segue "sem comunicação". Aplicado na saída das 9 tabelas de strings (`_com_usina_desligada`, dentro do
+Sem motivo, segue "sem comunicação". Aplicado na saída das 11 tabelas de strings (`_com_usina_desligada`, dentro do
 `_servir_tabela_strings`) e no rollup (`_portfolio_rollup` → status `desligada`), então a Entrada conta
 `usinas_desligadas` à parte e tira as strings delas da conta. A tela mostra a observação embaixo do nome, como o aviso
 do inversor desligado.
@@ -404,7 +440,7 @@ SolarEdge não tem potência na linha e fica como estava (a 2C do e-mail também
 A tabela de strings tem a coluna **Tickets**: strings com ticket ABERTO na aba **"Strings indisp"** (sheet 128) da
 planilha de tickets, a mesma que a tela de Tickets do OS Creator lê e grava, contra as que faltam agora. No drill, o
 inversor ganha a etiqueta azul "ticket", a vermelha "N sem ticket" ou a verde "voltou", e o chip da string ganha um
-ícone. `load_tickets_strings` → `TICKETS_STR`, anexado na saída das 9 rotas por `_com_tickets_str`, dentro de
+ícone. `load_tickets_strings` → `TICKETS_STR`, anexado na saída das 11 rotas por `_com_tickets_str`, dentro de
 `_servir_tabela_strings`. A aba é diferente da de trackers, e cada regra vem disso:
 - **uma linha por ticket de INVERSOR, com a quantidade**. QUAL string só aparece nos comentários ("Ipv11 e Ipv12 com
   corrente nula", texto do ticket que nasce de OS). Em 23/09, 19 dos 82 abertos diziam quais. Ticket que não diz a
@@ -660,7 +696,7 @@ e falha à noite.
 
 **A tabela de strings do Tempo Real também (22/09/2026).** Antes ela não tinha noção de noite: às 22h a Athon
 inteira aparecia "Sem geração" em vermelho, cobrando todas as esperadas. Agora `_servir_com_sol` marca
-`sol_baixo` em cada linha **na saída** das 9 rotas de strings, com a mesma `_macro_sol_baixo`, e tira do card
+`sol_baixo` em cada linha **na saída** das 11 rotas de strings, com a mesma `_macro_sol_baixo`, e tira do card
 "Sem geração" quem está sem sol, pelo critério de cada fonte (`_sem_geracao_*`). Na tela (`_strStatus`), sem
 sol a linha diz "Sem sol", com esperadas e diferença em "—". Comunicação e o D-1 do padrão por
 inversor continuam valendo. A marca é feita na saída e não no build porque o ciclo do worker chega a 15 min, e o

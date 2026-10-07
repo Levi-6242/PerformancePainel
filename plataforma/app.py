@@ -1389,6 +1389,9 @@ FULL_OM_DISP  = set()   # {nrm(usina EXIBIÇÃO)} Full O&M — o FULL_OM é por 
                         # costuma ter esse campo VAZIO (some do set). Este casa pelo nome de exibição.
 POWER_INV_DISP = {}     # {nrm(usina EXIBIÇÃO): {nrm(equipamento): kwp}} — mesmo motivo do FULL_OM_DISP.
                         # É o que permite o PR por inversor da Thopen (aba do BD_Thopen × potência daqui).
+ESPERADO_INV_DISP = {}  # {nrm(usina EXIBIÇÃO): {"Inversor 1.1": strings esperadas}} — o ESPERADO_INV é por
+                        # "Equipamento Supervisório", e a GreenYellow e a Sal Energia não o têm (06/10/2026): é por aqui
+                        # que o scadaGridco acha as esperadas, pelo nome do inversor como está no cadastro.
 _bd_mtime     = 0.0
 _bd_lock      = threading.Lock()
 
@@ -1451,7 +1454,7 @@ def load_equipamentos():
     esperadas (Strings Ativas), nomes de exibição, Full O&M e potência por inversor.
     Chamada na init e sempre que o arquivo muda (mtime). Uma só leitura alimenta tudo."""
     global ESPERADO_INV, EQUIP_NAMES, USINA_DISPLAY, USINA_GRUPO, ESPERADO, FULL_OM, STRING_BOX, POWER_INV, POWER_UFV, FULL_OM_DISP, POWER_INV_DISP, _bd_mtime
-    global FULL_OM_DISP_NOMES
+    global FULL_OM_DISP_NOMES, ESPERADO_INV_DISP
     try:
         path = _bd_perf_path()
         df = pd.read_excel(_bd_readable(), sheet_name="Equipamentos", header=2)
@@ -1486,6 +1489,7 @@ def load_equipamentos():
         full_om_disp = set()                 # Full O&M pelo nome de EXIBIÇÃO (pega usina sem supervisório)
         full_om_disp_nomes = set()           # idem, o nome como está escrito (ver FULL_OM_DISP_NOMES)
         power_inv_disp = {}                  # potência por inversor pelo nome de EXIBIÇÃO (idem)
+        esperado_inv_disp = {}               # esperadas por inversor pelo nome de exibição (ver ESPERADO_INV_DISP)
         full_om, string_box = set(), set()
         for _, row in df.iterrows():
             # Potência da USINA INTEIRA (linha Equipamento = "UFV") — p/ estimar perda de geração em
@@ -1506,6 +1510,11 @@ def load_equipamentos():
                     _pki = None
                 if _pki and _pki > 0:
                     power_inv_disp.setdefault(_nrm(row[c_usd]), {})[_nrm(row[c_eq])] = _pki
+                if c_sa is not None and pd.notna(row[c_sa]):
+                    try:
+                        esperado_inv_disp.setdefault(_nrm(row[c_usd]), {})[str(row[c_eq]).strip()] =                             int(round(float(row[c_sa])))
+                    except (TypeError, ValueError):
+                        pass
             _eq0 = row[c_eq]
             if pd.notna(_eq0) and str(_eq0).strip().upper() == "UFV":
                 try:
@@ -1592,6 +1601,7 @@ def load_equipamentos():
         ESPERADO, FULL_OM, STRING_BOX, POWER_INV = esperado, full_om, string_box, power_inv
         POWER_UFV, FULL_OM_DISP, POWER_INV_DISP = power_ufv, full_om_disp, power_inv_disp
         FULL_OM_DISP_NOMES = full_om_disp_nomes
+        ESPERADO_INV_DISP = esperado_inv_disp
         _aplica_alias_api_cadastro()             # "Sete Lagoa" (API) responde pelo cadastro "Sete Lagoas"
         # CADASTRO VAZIO NÃO CARIMBA O MTIME. No reboot de 26/08 o app subiu às 07:54, antes de
         # o OneDrive hidratar os arquivos: a leitura "deu certo" com ZERO usinas, o mtime foi
@@ -3599,13 +3609,16 @@ def entrada_teste(nivel=None):
 # mesma tarde, no lugar de antes ("sumiu as usinas da SEMP, pode botar de volta no tempo real").
 _ENTRADA_GRUPOS = [("Thopen", "API PV", "thopen-pv"), ("Thopen", "Thopen", "thopen-db"), ("Athon", "Athon", "athon"),
                    ("Axis", "Axis", "axis"), ("Renogrid", "RenoGrid", "renogrid"), ("2C", "2C", "2c"),
-                   ("SEMP", "SEMP", "semp")]
+                   ("SEMP", "SEMP", "semp"),
+                   # pelo scadaGridco (06/10/2026, Levi: "separe green yellow e sal energia"). O cliente é o da Info
+                   # Geral, escrito como lá ("Greenyellow").
+                   ("Greenyellow", "GreenYellow", "greenyellow"), ("Sal Energia", "Sal Energia", "salenergia")]
 # A 2C e' UM card: as tres da API PV e a Ipixuna do e-mail entram juntas em "2C" (Levi, 11/09/2026) — a fonte `2capi`
 # existe como aba do Monitoramento, nao como card.
 _ENTRADA_FONTE_ID = {f: fid for _c, f, fid in _ENTRADA_GRUPOS}
 # prefixo da chave do acompanhamento de strings (/api/state tracking, "<prefixo>:<plant_id>") — o VKEY do Monitoramento
 _ENTRADA_VKEY = {"thopen-pv": "pv", "thopen-db": "pg", "athon": "so", "axis": "ax", "renogrid": "se", "2c": "owen",
-                 "semp": "semp", "alveslima": "al", "2capi": "c2"}
+                 "semp": "semp", "alveslima": "al", "2capi": "c2", "greenyellow": "gy", "salenergia": "sal"}
 _ENTRADA_TR_CACHE = {"ts": 0.0, "data": None, "building": False}
 _ENTRADA_TR_TTL = 1800         # 30 min (Levi, 06/09): cada construcao bate nas 5 fontes de trackers; era 2 min e
                                # custava cota da SunOp sem o plantao precisar. Urgencia = botao Atualizar.
@@ -13264,6 +13277,232 @@ def api_solaredge_curva(site_id):
     return jsonify(payload)
 
 
+# ── scadaGridco: GreenYellow e Sal Energia (06/10/2026) ─────────────────────────────────────────────────────────────
+#   Levi: "OS para tempo real e histórico das UFVs da Green Yellow"; "separe green yellow e sal energia"; tempo real
+#   "Igual às outras fontes"; histórico "só até 45 dias tá bom" (é o que a API guarda). A API, as regras da Automação e
+#   o de-para dos inversores estão em scadagridco.py. Aqui: a linha da tabela, o drill e a curva, no formato da
+#   RenoGrid/Athon que a tela já desenha. Sem ETM nem trackers: essas usinas não mandam.
+import scadagridco as _sg
+
+_gy_cache  = {"payload": None, "ts": 0.0}
+_sal_cache = {"payload": None, "ts": 0.0}
+_SG_CACHE  = {"greenyellow": _gy_cache, "salenergia": _sal_cache}
+_sg_curvas = _sg.CurvasDoDia()           # curva de cada inversor: hoje aos pedaços (apos_ts), dia passado por 6 h
+SG_HIST_DIAS = 45                        # a API guarda 45 dias; antes disso a curva diz que não há, sem ir à rede
+
+
+def _sg_cadastro(usina) -> dict:
+    """{"Inversor 1.1": esperadas} da usina, pelo nome de exibição (a GreenYellow e a Sal Energia não têm
+    "Equipamento Supervisório" no cadastro, e o ESPERADO_INV é por ele)."""
+    return ESPERADO_INV_DISP.get(_nrm(usina), {})
+
+
+def _sg_leu_hoje(x) -> bool:
+    ts = x.get("ts")
+    return bool(ts) and _sg.ts_local(ts)[:10] == _sg.hoje()
+
+
+def _sg_avalia(fonte, cfg, leit):
+    """Leitura atual da usina → (linha da tabela, inversores do drill). As mesmas réguas das outras fontes: string ativa
+    pelo `_classifica_strings` (com as trancadas), inversor desligado pelo `_inv_desligados_por_potencia` (o que não leu
+    nada hoje, com os outros gerando, também) e a diferença pela soma das faltas de cada inversor.
+
+    Só entram os inversores que a fonte tem: a Demerval Lobão tem a UG 01 (12 de 20) no scadaGridco, e as esperadas da
+    linha são as desses 12 — as 8 da UG 02 seriam 112 strings "faltando" que a fonte não tem como mostrar. String acima
+    das esperadas do cadastro só aparece se tiver corrente: o Huawei manda 28 entradas e só 14 têm string ligada."""
+    pid, usina = cfg["id"], cfg["usina"]
+    cad = _sg_cadastro(usina)
+    base = {"usina": usina, "plant_id": pid, "qtd_inversores": None, "strings_ativas": None,
+            "inv_esp": None, "str_esp": None, "diferenca": None, "temp_media": None, "ultima_leitura": None,
+            "sem_dados": True, "falha_comunicacao": False}
+    itens = []
+    for x in leit:
+        nome = _sg.nome_inversor(cfg, x["equip"], list(cad))
+        if nome is None and cfg.get("inversores"):
+            continue                                 # equipamento fora do de-para: não é inversor desta usina
+        itens.append((nome or f"INV {x['equip']}", x))
+    itens.sort(key=lambda it: _sg.ordem_par(it[0]))
+    if not itens:
+        return base, []
+    com_sol = _macro_eh_dia({"usina": usina})
+    pots = [x["pot_kw"] if x["ok"] else None for _n, x in itens]
+    sem = [not x["ok"] and not _sg_leu_hoje(x) for _n, x in itens]
+    desl = _inv_desligados_por_potencia(pots, com_sol, sem)
+    invs, pares, ativas_t, temps, ts_ok = [], [], 0, [], []
+    esp_total, esp_fora, todas_esp = 0, 0, True
+    for (nome, x), fora in zip(itens, desl):
+        esp = cad.get(nome)
+        cs = x["strings"]
+        com_corr = [k for k, v in cs.items() if isinstance(v, (int, float)) and v > STRING_SEM_CORRENTE_A]
+        n = max([esp or 0] + com_corr) if (esp or com_corr) else len(cs)
+        keys = list(range(1, n + 1))
+        correntes = [cs.get(k) for k in keys]
+        status = _classifica_strings(pid, x["equip"], [str(k) for k in keys], correntes) if x["ok"] else []
+        ativas = _str_ativas(status)
+        e = esp if isinstance(esp, (int, float)) else (len(com_corr) if x["ok"] else 0)
+        todas_esp = todas_esp and isinstance(esp, (int, float))
+        esp_total += e
+        if fora:
+            esp_fora += e
+        else:
+            ativas_t += ativas
+            pares.append((ativas, esp))
+        if x["ok"]:
+            ts_ok.append(x["ts"])
+            if x["temp"] is not None:
+                temps.append(x["temp"])
+        # inversor lendo e sem string ativa (a noite, ou parado) é "desligado" no drill, sem diferença — como na
+        # RenoGrid e na Athon; quem sai da conta da LINHA é só o `fora` (régua de potência, com sol)
+        parado = x["ok"] and ativas == 0
+        invs.append({"id": x["equip"], "nome": nome, "nome_api": f"INV {x['equip']}",
+                     "ultima_leitura": _sg.ts_local(x["ts"]), "falha_comunicacao": not x["ok"] and not fora,
+                     "desligado": bool(fora) or parado, "fora_da_conta": bool(fora),
+                     "strings_ativas": ativas if x["ok"] else None, "total_strings": len(keys), "str_esp": esp,
+                     "diferenca": (ativas - esp) if (x["ok"] and not fora and not parado
+                                                     and isinstance(esp, (int, float))) else None,
+                     "temp": x["temp"], "eday": x["eday"], "pot_kw": x["pot_kw"], "serial": x.get("serial"),
+                     "strings": [{"id": str(k), "corrente": c if c is not None else 0, "unidade": "A",
+                                  "ativa": st in ("ativa", "baixa_perf"), "status": st}
+                                 for k, c, st in zip(keys, correntes, status)]})
+    linha = dict(base, qtd_inversores=len(itens), inv_esp=len(itens), str_esp=esp_total)
+    ts_max = max((x["ts"] for _n, x in itens if x["ts"]), default=None)
+    if not ts_ok:                                    # nenhum inversor leu: a usina está sem comunicação para a fonte
+        linha.update(falha_comunicacao=True, ultima_leitura=_sg.ts_local(ts_max))
+        return linha, invs
+    nomes_fora = [nome for (nome, _x), f in zip(itens, desl) if f]
+    str_esp = max(0, esp_total - esp_fora)
+    dif, acima = ativas_t - str_esp, 0
+    if todas_esp:
+        dpi = _dif_por_inversor(pares, str_esp)
+        if dpi is not None:
+            dif, acima = dpi
+    pk = sorted(p for p in pots if p is not None)
+    linha.update(strings_ativas=ativas_t, str_esp=str_esp, diferenca=dif, strings_acima_cadastro=acima,
+                 inv_desligados=len(nomes_fora), strings_fora=esp_fora, inv_desligados_nomes=nomes_fora,
+                 temp_media=round(sum(temps) / len(temps), 1) if temps else None,
+                 pot_med=pk[len(pk) // 2] if pk else None, pot_inv_med=pk[len(pk) // 2] if pk else None,
+                 ultima_leitura=_sg.ts_local(max(ts_ok)), sem_dados=False)
+    return linha, invs
+
+
+def _sg_build(fonte):
+    """A tabela de strings da fonte: uma usina por vez (regra da Automação), um pedido por usina. Sem token não
+    insiste nas outras: as linhas saem sem dado e o `aviso` diz por quê."""
+    rows, aviso = [], None
+    for cfg in _sg.FONTES[fonte]["usinas"]:
+        leit = []
+        if aviso is None:
+            try:
+                leit = _sg.leituras(fonte, cfg["id"])
+            except _sg.SemAcesso as e:
+                aviso = str(e)
+            except Exception as e:                   # noqa: BLE001 — uma usina não derruba a tabela
+                print(f"[scadaGridco] {cfg['id']}: {e}")
+        rows.append(_sg_avalia(fonte, cfg, leit)[0])
+    rows.sort(key=lambda x: (severidade(x), x["usina"]))
+    com = [r for r in rows if not r.get("sem_dados")]
+    out = {"rows": rows,
+           "summary": {"total_usinas": len(rows), "total_strings": sum(r["strings_ativas"] for r in com),
+                       "alertas_strings": sum(1 for r in com if r["strings_ativas"] == 0), "alertas_temp": 0,
+                       "alertas_comm": sum(1 for r in rows if r.get("sem_dados") or r.get("falha_comunicacao"))},
+           "cache_ts": datetime.now().strftime("%H:%M:%S")}
+    if aviso:
+        out["aviso"] = aviso
+    return out
+
+
+def _build_gy_payload():
+    return _sg_build("greenyellow")
+
+
+def _build_sal_payload():
+    return _sg_build("salenergia")
+
+
+@app.route("/api/<any(greenyellow, salenergia):fonte>/data")
+def api_sg_data(fonte):
+    force = flask_request.args.get("force", "0") == "1"
+    return jsonify(_servir_tabela_strings(_swr(_SG_CACHE[fonte], lambda: _sg_build(fonte), force),
+                                          _sem_geracao_padrao))
+
+
+@app.route("/api/<any(greenyellow, salenergia):fonte>/plant/<pid>")
+def api_sg_plant(fonte, pid):
+    """Drill da usina: a leitura de agora de cada inversor (1 pedido)."""
+    cfg = _sg.usina_cfg(fonte, pid)
+    if not cfg:
+        return jsonify({"error": "usina desconhecida", "inversores": []}), 404
+    try:
+        leit = _sg.leituras(fonte, pid)
+    except _sg.SemAcesso as e:
+        return jsonify({"error": str(e), "inversores": []}), 503
+    except Exception as e:                           # noqa: BLE001
+        return jsonify({"error": f"o scadaGridco não respondeu ({e})", "inversores": []}), 502
+    return jsonify({"plant_id": pid, "inversores": _sg_avalia(fonte, cfg, leit)[1]})
+
+
+def _sg_equips(fonte, cfg):
+    """Os equipamentos da usina no scadaGridco: os do de-para, ou (Sal Energia, pela ordem) um por inversor do
+    cadastro."""
+    if cfg.get("inversores"):
+        return sorted(cfg["inversores"], key=lambda e: _sg.ordem_par(cfg["inversores"][e]))
+    return [str(i) for i in range(1, len(_sg_cadastro(cfg["usina"])) + 1)]
+
+
+def _sg_curva_inversor(fonte, cfg, equip, dia):
+    """Um inversor no formato da Athon. Só as strings ligadas (até as esperadas, ou com corrente no dia) e sem as
+    trancadas, como as outras fontes servem a curva."""
+    pid = cfg["id"]
+    nome = _sg.nome_inversor(cfg, equip, list(_sg_cadastro(cfg["usina"]))) or f"INV {equip}"
+    esp = _sg_cadastro(cfg["usina"]).get(nome)
+    c = _sg_curvas.curva(fonte, pid, equip, dia)
+    curva, strs = {}, []
+    for k in sorted(c.get("strings") or {}):
+        pts = c["strings"][k]
+        viva = any(v > STRING_SEM_CORRENTE_A for _t, v in pts)
+        if not (viva or (isinstance(esp, (int, float)) and k <= esp)) or _str_trancada(pid, equip, str(k)):
+            continue
+        curva[str(k)] = {"x": [t for t, _v in pts], "y": [round(v, 2) for _t, v in pts]}
+        strs.append({"nome": str(k), "ativa": viva, "sub": False, "energia": None})
+    return {"id": str(equip), "nome": nome, "nome_api": f"INV {equip}", "curva": curva, "mediana": None,
+            "abaixo": 0, "strings": strs}
+
+
+@app.route("/api/<any(greenyellow, salenergia):fonte>/curva/<pid>")
+def api_sg_curva(fonte, pid):
+    """Curva do dia por string em ampères (?data=AAAA-MM-DD, ?inv=<equipamento>). Um inversor = 1 pedido (0,5 s);
+    a usina inteira, um por inversor, em série. Até 45 dias atrás."""
+    cfg = _sg.usina_cfg(fonte, pid)
+    if not cfg:
+        return jsonify({"error": "usina desconhecida", "inversores": []}), 404
+    dia = (flask_request.args.get("data") or _sg.hoje()).strip()
+    if re.match(r"^\d{2}/\d{2}/\d{4}$", dia):
+        dia = datetime.strptime(dia, "%d/%m/%Y").strftime("%Y-%m-%d")
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", dia):
+        return jsonify({"error": "data inválida (use AAAA-MM-DD)", "inversores": []}), 400
+    out = {"plant_id": pid, "data": dia, "unidade": "A", "inversores": []}
+    hoje = _sg.hoje()
+    if dia > hoje or (datetime.strptime(hoje, "%Y-%m-%d") - datetime.strptime(dia, "%Y-%m-%d")).days > SG_HIST_DIAS:
+        return jsonify(dict(out, motivo="fora_do_historico"))
+    inv = (flask_request.args.get("inv") or "").strip()
+    faltando = []
+    for equip in ([inv] if inv else _sg_equips(fonte, cfg)):
+        try:
+            iv = _sg_curva_inversor(fonte, cfg, equip, dia)
+        except _sg.SemAcesso as e:
+            return jsonify(dict(out, error=str(e))), 503
+        except Exception as e:                       # noqa: BLE001 — um inversor que falhou não apaga os outros
+            faltando.append({"id": str(equip), "motivo": "erro_fonte"})
+            print(f"[scadaGridco] curva {pid}/{equip} {dia}: {e}")
+            continue
+        if iv["curva"]:
+            out["inversores"].append(iv)
+    out["inversores"].sort(key=lambda x: _sg.ordem_par(x["nome"]))
+    if faltando:
+        out["faltando"] = faltando
+    return jsonify(out)
+
+
 # ── SolarEdge: PR por inversor (render-chart MONTH) ────────────────────────────
 #   UM render-chart por site já traz, junto, a energia diária de cada inversor (Wh)
 #   E a série "Global Irradiance" (W/m²) — sem precisar do generate-chart (que 500a
@@ -14569,6 +14808,12 @@ def _portfolio_rollup() -> list:
             add("SEMP", r)
     except Exception as e:
         print(f"[macro] SEMP indisponível: {e}")
+    for _rot, _c in (("GreenYellow", _gy_cache), ("Sal Energia", _sal_cache)):   # scadaGridco (06/10/2026) — SÓ cache
+        try:
+            for r in (_c.get("payload") or {}).get("rows", []):
+                add(_rot, r)
+        except Exception as e:
+            print(f"[macro] {_rot} indisponível: {e}")
 
     for _k, _it in por_usina.items():         # soma as fatias da MESMA fonte do vencedor (antes do guard
         _somar_partes_da_usina(_it, (partes.get(_k) or {}).get(_it["fonte"]) or [])   # de telemetria, que zera)
@@ -18732,6 +18977,16 @@ def _strings_curva_longo(fonte, usina, data_iso):
                 for hhmm, v in zip(cur.get("x", []), cur.get("y", [])):
                     rows.append((iv.get("nome") or iv.get("nome_api"), st, hhmm, v))
         return rows, "potencia_W"
+    if fonte in ("greenyellow", "salenergia"):     # scadaGridco (06/10/2026): corrente (A), um inversor por pedido
+        cfg = _sg.usina_cfg(fonte, usina)
+        if not cfg:
+            raise ValueError(f"usina {usina} não é da {fonte}")
+        for equip in _sg_equips(fonte, cfg):
+            iv = _sg_curva_inversor(fonte, cfg, equip, data_iso)
+            for st, cur in iv["curva"].items():
+                for hhmm, v in zip(cur["x"], cur["y"]):
+                    rows.append((iv["nome"], st, hhmm, v))
+        return rows, "corrente_A"
     if fonte in ("sunop", "axis"):
         payload = _sunop_strings_curva(usina, data_iso, None, "axis" if fonte == "axis" else "gridco")
     elif fonte == "pg":
@@ -18767,7 +19022,8 @@ def api_strings_curva_csv(fonte):
     Trancadas já excluídas (mesmos builders da tela). Vale p/ pv/semp/pg/sunop/axis/owen."""
     import csv as _csv
     import io as _io
-    if fonte not in ("pv", "semp", "alveslima", "2capi", "pg", "sunop", "axis", "owen", "solaredge"):
+    if fonte not in ("pv", "semp", "alveslima", "2capi", "pg", "sunop", "axis", "owen", "solaredge", "greenyellow",
+                     "salenergia"):
         return jsonify({"error": "fonte sem curva de strings"}), 404
     usina = (flask_request.args.get("usina") or "").strip()
     data_iso = (flask_request.args.get("data") or datetime.now().strftime("%Y-%m-%d")).strip()
@@ -21816,6 +22072,8 @@ def _prewarm_loop():
             ("SunOp ETM anál", _sunop_analise_cache, _build_sunop_analise_payload),
             ("SunOp trackers", _sunop_trk_cache,     _build_sunop_trk_payload),
             ("SolarEdge",      _se_cache,            _build_se_payload),
+            ("GreenYellow",    _gy_cache,            _build_gy_payload),      # scadaGridco: 1 pedido por usina
+            ("Sal Energia",    _sal_cache,           _build_sal_payload),
             ("PG ETM",         _pg_etm_cache,        _build_pg_etm_payload),
             ("PG ETM análise", _pg_analise_cache,    _build_pg_analise_payload),
             ("PG trackers",    _pg_trk_cache,        _pg_trackers_overview),
@@ -21938,6 +22196,8 @@ def _persist_registry():
         "sunop_trk":     _sunop_trk_cache,
         "pv_trk":        _pv_trk_cache,
         "se":            _se_cache,
+        "gy":            _gy_cache,
+        "sal":           _sal_cache,
         "pg_etm":        _pg_etm_cache,
         "pg_analise":    _pg_analise_cache,
         "pg_trk":        _pg_trk_cache,
@@ -23930,7 +24190,7 @@ def _falhas_arquivo(mes):
     return _p_cache(f"falhas_{mes}.json")
 
 
-_FALHAS_MORTAS_TETO = 60               # (fonte, dia) em memória: 7 fontes × uns 8 dias
+_FALHAS_MORTAS_TETO = 80               # (fonte, dia) em memória: 9 fontes × uns 8 dias
 
 
 # Versão da régua de strings no registro. Mudou a régua a ponto de o dia avaliado com a anterior estar errado, muda a
@@ -24107,6 +24367,45 @@ def _falhas_pg_varre(agora=None):
             curvas, ids = _falhas_pg_monta(recs, pid)
             _falhas_registra("pg", dia, pid, _macro_usina_nome(usina) or usina, curvas, ids=ids)
     return n
+
+
+def _falhas_sg_varre(agora=None):
+    """WORKER: régua nova nas usinas do scadaGridco (GreenYellow e Sal Energia, 06/10/2026), a cada volta do
+    `_falhas_loop` (30 min) entre 07h e 18:30 e uma depois, que fecha o dia. A curva de hoje de cada inversor vem aos
+    pedaços (`_sg_curvas`, apos_ts): só a 1ª busca do dia traz o dia inteiro. Usina sem leitura na tabela não é
+    perguntada, e usina que não trouxe curva não registra (fecharia os episódios abertos dela como se tivessem voltado)."""
+    agora = agora or datetime.now()
+    h, dia = agora.hour + agora.minute / 60.0, _sg.hoje()
+    final = h >= 18.5 and _falhas_sg_ult.get("final") != dia
+    if not (7 <= h < 18.5 or final):
+        return 0
+    if final:
+        _falhas_sg_ult["final"] = dia
+    n = 0
+    for fonte, cache in _SG_CACHE.items():
+        linhas = {str(r.get("plant_id")): r for r in ((cache.get("payload") or {}).get("rows") or [])}
+        for cfg in _sg.FONTES[fonte]["usinas"]:
+            r = linhas.get(cfg["id"])
+            if not r or r.get("sem_dados"):
+                continue
+            curvas, ids = {}, {}
+            for equip in _sg_equips(fonte, cfg):
+                try:
+                    iv = _sg_curva_inversor(fonte, cfg, equip, dia)
+                except Exception as e:                   # noqa: BLE001 — um inversor não derruba a varredura
+                    print(f"[falhas] scadaGridco {cfg['id']}/{equip}: {e}")
+                    continue
+                if iv["curva"]:
+                    curvas[iv["nome"]] = {k: list(zip(c["x"], c["y"])) for k, c in iv["curva"].items()}
+                    ids[iv["nome"]] = str(equip)
+            if curvas:
+                n += 1
+                _falhas_registra(fonte, dia, cfg["id"], _macro_usina_nome(cfg["usina"]) or cfg["usina"], curvas,
+                                 ids=ids)
+    return n
+
+
+_falhas_sg_ult = {"final": None}
 
 
 # Histórico de strings do PC para o servidor (27/09/2026, passo 6). O servidor só gravou strings desde 22/09 (Athon) e
@@ -24776,6 +25075,10 @@ def _falhas_recalcular():
         _falhas_pg_varre()
     except Exception as e:                                # noqa: BLE001 — sem o Banco, o resto do mês sai igual
         print(f"[falhas] varredura do Banco falhou: {e}")
+    try:
+        _falhas_sg_varre()
+    except Exception as e:                                # noqa: BLE001 — sem o scadaGridco, o resto do mês sai igual
+        print(f"[falhas] varredura do scadaGridco falhou: {e}")
     mortas = _falhas_persistir_mortas()
     pv_dev = _falhas_pv_dev(store)
     hoje = datetime.now().date()

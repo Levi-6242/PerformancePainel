@@ -12,7 +12,7 @@ import re
 import threading
 
 # as fontes do Monitoramento (o `/api/'+f+'/...` dinâmico das páginas)
-FONTES_API = ("pv", "pg", "sunop", "axis", "solaredge", "owen", "2capi", "semp", "alveslima")
+FONTES_API = ("pv", "pg", "sunop", "axis", "solaredge", "owen", "2capi", "semp", "alveslima", "greenyellow", "salenergia")
 
 # páginas: o nível 2 e 3 da Entrada e o Monitoramento embutido; "/static" (notif.js, fontes, logos) já é público sem
 # a chave, e a ponte manda a chave em todo pedido — sem isto as páginas chegariam ao Nexus sem script nem estilo
