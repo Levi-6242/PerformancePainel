@@ -595,8 +595,9 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
     # ela nem está na curva, e esse dia contava como dia em que ela gerou (9 dos 19 inversores da Fazenda Limão ficavam
     # como falha). O registro do dia AO VIVO guarda quantas entradas cada inversor manda; string de número acima do maior
     # visto não existe e sai do mês inteiro. A curva de dia passado (backfill, custom_query) não é o pacote do inversor
-    # e não ensina; na dúvida entre dias, vale o maior número (a string fica).
-    N_ENT, inexist = {}, {}
+    # e não ensina; na dúvida entre dias, vale o maior número (a string fica) — salvo a prova pelo dia (INEXIST_DIA,
+    # abaixo), que precisa do número de CADA dia ao vivo (ENT_DIA).
+    N_ENT, ENT_DIA, inexist = {}, defaultdict(dict), {}
     for dia_h, fontes_h in mortas_curva.items():
         for fonte_h in FONTE_ENTRADAS_DO_REGISTRO:
             for pid_h, ent_h in ((fontes_h or {}).get(fonte_h) or {}).items():
@@ -605,9 +606,14 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                 for inv_h, n_h in (ent_h.get("entradas") or {}).items():
                     k_ = (fonte_h, str(pid_h), nrm(inv_canon(fonte_h, pid_h, inv_h, ent_h.get("usina") or pid_h)))
                     N_ENT[k_] = max(N_ENT.get(k_, 0), int(n_h))
+                    ENT_DIA[k_][dia_h] = max(ENT_DIA[k_].get(dia_h, 0), int(n_h))
+
+    INEXIST_DIA = {}                     # canal → entradas do dia em que o pacote não o trouxe (preenchido abaixo)
 
     def inexistente(fonte, pid, inv, string):
         """O número da string passa das entradas que o inversor manda (inv = o nome do cadastro)."""
+        if chave_ch(fonte, pid, inv, string) in INEXIST_DIA:
+            return True
         n_ = N_ENT.get((fonte, str(pid), nrm(inv)))
         m_ = re.search(r"\d+", str(string))
         return bool(n_ and m_ and int(m_.group()) > n_)
@@ -626,18 +632,23 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                         vida.add(chave_ch(fonte_h, pid_h, inv_canon(fonte_h, pid_h, e.get("inversor"), ent_h.get("usina") or pid_h),
                                           e.get("string")))
     curva_inv, zero_dias, nome_ch = {}, Counter(), {}   # (fonte, pid, inv) → {dias de curva, máx de vivas}; canal → dias zerado
+    zero_em = defaultdict(set)                           # canal → os dias em que ficou zerado
 
-    def le_curva(fonte, pid, usina, res):
+    def le_curva(fonte, pid, usina, res, dia=None):
         for inv, n in (res.get("vivas") or {}).items():
             inv = inv_canon(fonte, pid, inv, usina)
-            c_ = curva_inv.setdefault((fonte, str(pid), nrm(inv)), {"dias": 0, "vivas": 0, "usina": usina, "inv": inv})
+            c_ = curva_inv.setdefault((fonte, str(pid), nrm(inv)), {"dias": 0, "vivas": 0, "usina": usina, "inv": inv,
+                                                                     "dias_curva": set(), "vivas_dia": {}})
             c_["dias"] += 1
+            c_["dias_curva"].add(dia)
             c_["vivas"] = max(c_["vivas"], n)
+            c_["vivas_dia"][dia] = max(c_["vivas_dia"].get(dia, 0), n)
         for r in res.get("mortas") or []:
             k = chave_ch(fonte, pid, inv_canon(fonte, pid, r["inversor"], usina), r["string"])
             nome_ch.setdefault(k, str(r["string"]))
             if r.get("sempre_zero") is True:
                 zero_dias[k] += 1
+                zero_em[k].add(dia)
             elif r.get("sempre_zero") is False:
                 vida.add(k)                      # leu alguma coisa: é string (morta, talvez), não entrada vazia
 
@@ -649,10 +660,37 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                     dias_vivas.add(dia_h)
                 if fonte_h in FONTE_BACKFILL_FORA_DA_VAZIA and ent_h.get("origem") == "backfill":
                     continue                     # ver FONTE_BACKFILL_FORA_DA_VAZIA
-                le_curva(fonte_h, pid_h, ent_h.get("usina") or pid_h, ent_h)
+                le_curva(fonte_h, pid_h, ent_h.get("usina") or pid_h, ent_h, dia_h)
     for dia_h, lst in dias_2c.items():
         for u, usina, res in lst:
             le_curva("owen", u, usina, res)       # o 2C sempre tem as vivas (a curva do dia inteiro): não conta nos dias
+
+    # ENTRADA QUE O PACOTE TRAZ SÓ EM ALGUNS DIAS (08/10/2026, Levi, com print da aba: "está puxando strings que não
+    # existem no PV Operation"). Fazenda Limão 1, 02 a 05/10: cinco inversores de 28 entradas (o drill mostra Ipv1 a
+    # Ipv28) mandaram Ipv29 a Ipv32 = 0 em mais de 25% dos registros — o registro do dia diz 32 — e nos outros dias não
+    # mandaram (28). O 32 desfazia a inexistente (vale o maior) e a vazia também não fechava: o dia em que a entrada nem
+    # veio contava como dia em que ela gerou, e os dias de antes do `entradas` (28 a 30/09) também. Prova pelo dia: num
+    # dia ao vivo em que o inversor gerou, a entrada veio em menos de PV_ENTRADA_MIN_FRAC dos registros (o número do dia
+    # fica abaixo dela), e em todo dia ao vivo em que ela veio ficou zerada; sem volta no histórico, de número acima das
+    # strings do cadastro e com o inversor com as vivas do cadastro NOS DIAS COM O NÚMERO. Dia sem o número gravado não
+    # decide — e por isso não entra nas vivas da guarda: a revisão de 08/10 mostrou a string real que gerou num dia de
+    # antes do `entradas`, morreu de madrugada e sumiria com um dia de pacote degenerado (a Ceilândia 2 grava 1 e 24).
+    # Outubro no PC, antiga × nova no mesmo dado: 44 linhas (inversor × dia) a menos — 21 da Fazenda Limão e 23 de São
+    # Bento do Una, Primavera 1 e 2 e Córrego do Sapucaia, ~8,5 MWh —, só Ipv29 a Ipv32 mudam, nada entra, trackers iguais.
+    for k, dias_z in zero_em.items():
+        por_dia, ci = ENT_DIA.get(k[:3]), curva_inv.get(k[:3])
+        m_ = re.search(r"\d+", str(nome_ch.get(k, k[3])))
+        if not (por_dia and ci and m_) or k in vida:
+            continue
+        n_ = int(m_.group())
+        esp = cad_inv(ci["usina"], ci["inv"])[1]
+        gerou = [d for d in ci["dias_curva"] if d in por_dia]
+        fora = Counter(por_dia[d] for d in gerou if n_ > por_dia[d])
+        veio_viva = {d for d in gerou if n_ <= por_dia[d]} - dias_z
+        vivas_ao_vivo = max((ci["vivas_dia"].get(d, 0) for d in gerou), default=0)
+        if fora and not veio_viva and esp and n_ > esp and vivas_ao_vivo >= esp:
+            INEXIST_DIA[k] = fora.most_common(1)[0][0]    # o número de entradas que mais se repete, não o pior dia
+
     VAZIAS, vazias_info = set(), []
     for k, n_zero in zero_dias.items():
         ci = curva_inv.get(k[:3])
@@ -691,7 +729,7 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
             str_q["entrada que o inversor não manda: fora"] += 1
             inexist.setdefault(chave_ch(fonte, pid, inv, string), {
                 "fonte": fonte, "plant_id": str(pid), "usina": canon(usina), "inversor": inv, "string": str(string),
-                "entradas": N_ENT.get((fonte, str(pid), nrm(inv)))})
+                "entradas": INEXIST_DIA.get(chave_ch(fonte, pid, inv, string)) or N_ENT.get((fonte, str(pid), nrm(inv)))})
             return
         if chave_ch(fonte, pid, inv, string) in VAZIAS:
             str_q["entrada vazia: fora"] += 1

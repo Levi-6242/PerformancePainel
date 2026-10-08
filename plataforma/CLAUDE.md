@@ -1016,6 +1016,20 @@ strings citadas estão trancadas"). Não eram trava — as trancadas eram as Ipv
   fantasmas mudam (1 ponto cada), 232.398 pontos iguais. Testes: `tests/test_falhas_entrada_fantasma.py` e os de
   `test_falhas_job.py`. **Só limpa o mês depois que a usina tem um dia ao vivo registrado com o código novo** — e o mês
   anterior só é remontado até o dia 2.
+- **A fantasma que vem em MAIS de 25% dos registros** (08/10, Levi: "está puxando strings que não existem no PV
+  Operation"). De 02 a 05/10 cinco inversores da Fazenda Limão 1 mandaram Ipv29–32 = 0 em boa parte dos registros (o
+  registro do dia diz 32) e nos outros dias não mandaram (28). O "maior número visto" (32) desfazia a inexistente, e a
+  vazia não fechava porque o dia sem a entrada no pacote — e os de antes do `entradas`, 28–30/09 — contavam como dias
+  em que ela gerou. Prova pelo dia (`INEXIST_DIA` no `falhas_job`): num dia ao vivo em que o inversor gerou, a entrada
+  veio em menos de 25% dos registros (o número do dia fica abaixo dela), e em TODO dia ao vivo em que ela veio ficou
+  zerada; sem volta no histórico, número acima das strings do cadastro e o inversor com as vivas do cadastro **nos dias
+  com o número** — dia sem o número (antes de 01/10, backfill) não decide nem conta nas vivas: a revisão adversarial
+  mostrou a string real que gerou num dia desses, morreu de madrugada e sumiria com um dia de pacote degenerado (a
+  Ceilândia 2 grava 1 e 24). Vai para `entradas_inexistentes` com o número que mais se repete ("o inversor manda 28
+  entradas"). Antiga × nova no dado do PC: outubro 44 linhas a menos (Fazenda Limão 21; São Bento do Una, Primavera 1 e
+  2, Córrego do Sapucaia 23; ~8,5 MWh), só Ipv29–32, nada entra, trackers iguais. **Setembro ficou com as fantasmas da
+  Fazenda Limão no pacote fechado em 02/10** (444 strings-dia, ~18 MWh no PC): ele só remonta se o arquivo sumir, e
+  remontar hoje traria também a deriva do dado desde 02/10 — decisão à parte.
 - **Tracker sem comunicação não entra** ("alguns trackers estão como 'parados' porém ficaram sem comunicação, não quero
   esses trackers no relatório"). Desde 08/09 o tempo real conta como parado o sem comunicação travado num ângulo
   (`_trk_promove_semcom`) e o registro só guardava "parado". O registro do dia passa a guardar `sem_comunicacao` (lista,

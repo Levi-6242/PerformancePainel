@@ -391,6 +391,83 @@ def test_vale_o_maior_numero_de_entradas_visto():
     assert {e["string"] for e in p["strings"]["episodios"]} == {"Ipv29"}
 
 
+# Fazenda Limão 1, 02 a 05/10/2026 (Levi, 08/10, com print da aba: "está puxando strings que não existem no PV
+# Operation"): cinco inversores de 28 entradas mandaram Ipv29 a Ipv32 = 0 em mais de 25% dos registros desses dias
+# (entradas = 32 no registro) e nos outros dias não mandaram (28). O maior número visto (32) desfazia a inexistente, e
+# a vazia não fechava: o dia em que a entrada nem veio — e os de antes do `entradas` (28 a 30/09) — contavam como dias
+# em que ela gerou.
+
+def test_entrada_que_o_pacote_traz_so_em_alguns_dias_e_sempre_zerada_nao_existe():
+    st = store(d01=[ev("Ipv29", "07:00")])       # quedas gravadas do detector: saem também
+    mortas = {**curva("01", [], vivas=24),       # dia de antes do `entradas`: a Ipv29 nem está na curva — não decide
+              **_com_entradas("02", 32, [morta("Ipv29")]), **_com_entradas("03", 28)}
+    p = monta(st, mortas=mortas)
+    assert p["strings"]["episodios"] == []
+    (v,) = p["strings"]["entradas_inexistentes"]
+    assert (v["inversor"], v["string"], v["entradas"]) == ("Inversor 3.3", "Ipv29", 28)
+    assert p["strings"]["entradas_vazias"] == []
+
+
+def test_entrada_que_veio_no_pacote_e_gerou_num_dia_continua_falha():
+    # no dia 03 o pacote trouxe a Ipv29 (32 entradas) e ela não está nas mortas: gerou — é string, e morreu no 02
+    mortas = {**_com_entradas("02", 32, [morta("Ipv29")]), **_com_entradas("03", 32), **_com_entradas("04", 28)}
+    p = monta(store(), mortas=mortas, fim="2026-09-04")
+    assert p["strings"]["entradas_inexistentes"] == []
+    assert {e["string"] for e in p["strings"]["episodios"]} == {"Ipv29"}
+
+
+def test_entrada_que_o_pacote_traz_so_as_vezes_com_o_inversor_abaixo_do_cadastro_continua_falha():
+    # 21 vivas de 24 no cadastro: faltam strings de verdade, e a Ipv29 pode ser uma delas (a guarda da entrada vazia)
+    mortas = {**_com_entradas("02", 32, [morta("Ipv29")], vivas=21), **_com_entradas("03", 28, vivas=21)}
+    p = monta(store(), mortas=mortas)
+    assert p["strings"]["entradas_inexistentes"] == []
+    assert {e["string"] for e in p["strings"]["episodios"]} == {"Ipv29"}
+
+
+def test_entrada_que_o_pacote_traz_so_as_vezes_e_ja_voltou_no_historico_continua_falha():
+    mortas = {**_com_entradas("02", 32, [morta("Ipv29")]), **_com_entradas("03", 28)}
+    p = monta(store(d01=[ev("Ipv29", "08:00", "12:30")]), mortas=mortas)
+    assert p["strings"]["entradas_inexistentes"] == []
+
+
+# Os cenários da revisão adversarial (08/10): string REAL que gerou num dia de antes do `entradas` (dia 01, sem número
+# gravado — não prova nada sobre o pacote) e morreu de madrugada. A prova pelo dia não pode escondê-la: as vivas da
+# guarda saem só dos dias com o número, o dia "sem a entrada" tem de ser dia em que o inversor gerou, e o número da
+# string tem de passar das strings do cadastro.
+
+def test_string_real_que_gerou_antes_do_registro_de_entradas_e_dia_de_pacote_degenerado_continua_falha():
+    # o dia 04 veio com só a Ipv1 regular (a Ceilândia 2 grava 1 e 24 em outubro) e o inversor não gerou nele
+    mortas = {**curva("01", [], vivas=24), **_com_entradas("02", 24, [morta("Ipv20")], vivas=23),
+              **_com_entradas("03", 24, [morta("Ipv20")], vivas=23), **_com_entradas("04", 1, [], vivas=None)}
+    p = monta(store(), mortas=mortas, fim="2026-09-04")
+    assert {e["string"] for e in p["strings"]["episodios"]} == {"Ipv20"}
+    assert p["strings"]["entradas_inexistentes"] == []
+
+
+def test_string_29_real_que_gerou_antes_do_registro_de_entradas_continua_falha():
+    mortas = {**curva("01", [], vivas=24), **_com_entradas("02", 32, [morta("Ipv29")], vivas=23),
+              **_com_entradas("03", 28, [], vivas=23)}
+    p = monta(store(), mortas=mortas)
+    assert {e["string"] for e in p["strings"]["episodios"]} == {"Ipv29"}
+
+
+def test_vida_gravada_pelo_id_novo_do_inversor_nao_some_com_a_string():
+    # troca de idefinversor (Fazenda Limão 1.4: 357482 → 402269 em 06/10): o dia 03 veio pelo id novo, sem de-para,
+    # e a Ipv29 gerou nele — a vida fica noutra chave; quem segura é a guarda das vivas dos dias com o número
+    dev = {PID: {"names": {"378276": "INVERSOR 3.3"}, "nome_api": None, "usina": "Inhapi"}}
+    mortas = {**curva("01", [], vivas=24), **_com_entradas("02", 32, [morta("Ipv29")], vivas=23),
+              **_com_entradas("03", 32, [], vivas=24, inv="INV-999001"), **_com_entradas("04", 28, [], vivas=23)}
+    p = monta(store(), mortas=mortas, pv_dev=dev, fim="2026-09-04")
+    assert ("Inversor 3.3", "Ipv29") in {(e["inversor"], e["string"]) for e in p["strings"]["episodios"]}
+
+
+def test_numero_exibido_e_o_mais_comum_dos_dias_sem_a_entrada_e_nao_o_pior():
+    mortas = {**_com_entradas("02", 32, [morta("Ipv29")]), **_com_entradas("03", 28), **_com_entradas("04", 28),
+              **_com_entradas("05", 27)}
+    p = monta(store(), mortas=mortas, fim="2026-09-05")
+    assert {v["entradas"] for v in p["strings"]["entradas_inexistentes"]} == {28}
+
+
 def test_entradas_gravadas_pelo_id_do_inversor_usam_o_de_para():
     # 29/09 no PC: o plant_devices falhou e a Fazenda Limão gravou os inversores como "INV-357480"
     dev = {PID: {"names": {"378276": "INVERSOR 3.3"}, "nome_api": None, "usina": "Inhapi"}}
