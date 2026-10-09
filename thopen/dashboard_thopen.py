@@ -803,19 +803,46 @@ def _registro():
     return out
 
 
+# De-para do nome da PRODUÇÃO dos anos anteriores na aba `Historico` (Levi, 09/10/2026: "O dado de Produzida 2025
+# sumiu do dash do cliente"). A aba guarda alguns anos com outro nome que o resto da usina (metas, FC, PR e os outros
+# anos): a Nova Londrina tem 2025 como "Nova Londrina 1", e o 5080, que procura o nome exato, perdia o ano calado.
+# Explícito de propósito, como o `_META_NOME`: uma regra automática ("ignore o 1") juntaria a Nova Londrina 2 ou a
+# Primavera 1 com a usina inteira. Cada linha conferida pelos números em 09/10. Um ano lido pelo nome do 5080 VENCE o
+# mesmo ano por um nome daqui — nunca soma os dois (seria o ano em dobro).
+_HIST_NOME = {
+    # nome no 5080            nome(s) onde a produção daquele ano está
+    "Nova Londrina":          ("Nova Londrina 1",),                 # 2025 = 98% da meta 2025 da usina (jan a mai)
+    "Rondonópolis":           ("Rondonopolis",),                    # 2025 = 98% da meta 2025
+    "Monte Aprazível":        ("Monte Aprazivel", "Monte APrazivel"),   # 2024 e 2023
+    "Poconé 1":               ("Poconé",),                          # 2025
+    "Vargem Grande 1":        ("Vargem Grande",),                   # 2025
+    # Levi, 09/10: A = Araçoiaba da Serra 1 (THPN-ADS100), B = 2 (THPN-ADS200) — os números não decidem sozinhos
+    "Araçoiaba da Serra 1":   ("Araçoiaba da Serra A",),
+    "Araçoiaba da Serra 2":   ("Araçoiaba da Serra B",),
+}
+
+
+def _nomes_hist(usina):
+    """O nome do 5080 primeiro, depois os do `_HIST_NOME` — a ordem é a preferência."""
+    return (usina,) + _HIST_NOME.get(usina, ())
+
+
 def _produzida_mensal(usina, ano):
-    """{mes: kWh} de 'Produzida (<ano>)' (linhas COM mês) — para o comparativo mensal."""
+    """{mes: kWh} de 'Produzida (<ano>)' (linhas COM mês) — para o comparativo mensal. O ano vem do primeiro nome da
+    usina (`_nomes_hist`) que o tem."""
     hdr, rows = _table("Historico")
-    out = {}
     if not hdr:
-        return out
+        return {}
     iU = _ci(hdr, "usina")
     iMes = _ci(hdr, "mês")
     iTipo = _ci(hdr, "tipo")
     iVal = _ci(hdr, "valor")
     alvo = str(ano)
+    nomes = _nomes_hist(usina)
+    por_nome = {}
     for r in rows:
-        if iU is None or str(r[iU]).strip() != usina:
+        nome = str(r[iU]).strip() if iU is not None else ""
+        if nome not in nomes:
             continue
         tipo = str(r[iTipo]).strip().lower() if iTipo is not None else ""
         if "produzida" not in tipo or alvo not in tipo:
@@ -824,8 +851,9 @@ def _produzida_mensal(usina, ano):
         if isinstance(mv, (dt.datetime, dt.date)):
             v = _num(r[iVal]) if iVal is not None else None
             if v is not None:
+                out = por_nome.setdefault(nome, {})
                 out[mv.month] = out.get(mv.month, 0.0) + v
-    return out
+    return next((por_nome[n] for n in nomes if por_nome.get(n)), {})
 
 
 def _produzida_anual(usina):
@@ -840,9 +868,11 @@ def _produzida_anual(usina):
     iMes = _ci(hdr, "mês")
     iTipo = _ci(hdr, "tipo")
     iVal = _ci(hdr, "valor")
-    total, mensal = {}, {}
+    nomes = _nomes_hist(usina)
+    total, mensal = {n: {} for n in nomes}, {n: {} for n in nomes}
     for r in rows:
-        if iU is None or str(r[iU]).strip() != usina:
+        nome = str(r[iU]).strip() if iU is not None else ""
+        if nome not in nomes:
             continue
         tipo = str(r[iTipo]).strip().lower() if iTipo is not None else ""
         if not tipo.startswith("produzida"):
@@ -853,10 +883,15 @@ def _produzida_anual(usina):
         ano = str(r[iAno]).strip() if iAno is not None else ""
         mv = r[iMes] if iMes is not None else None
         if isinstance(mv, (dt.datetime, dt.date)):
-            mensal[ano] = mensal.get(ano, 0.0) + v
+            mensal[nome][ano] = mensal[nome].get(ano, 0.0) + v
         else:
-            total[ano] = total.get(ano, 0.0) + v
-    return {a: (total[a] if a in total else mensal.get(a)) for a in (set(total) | set(mensal))}
+            total[nome][ano] = total[nome].get(ano, 0.0) + v
+    out = {}
+    for n in nomes:                       # o ano fica com o primeiro nome que o tem (_HIST_NOME): nunca soma os dois
+        for a in set(total[n]) | set(mensal[n]):
+            if a not in out:
+                out[a] = total[n][a] if a in total[n] else mensal[n].get(a)
+    return out
 
 
 def _prod_mensal_ano(usina, ano):

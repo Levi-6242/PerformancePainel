@@ -36,6 +36,12 @@ leitores continuam sendo código de worksheet.
 - Ler `.xlsx` sempre por cópia (`_open_wb`): o Excel/OneDrive tranca o arquivo aberto.
 - Trocar a fonte é a mudança mais arriscada que existe aqui. Prove com número: `_snap_dash.py`
   fotografa as ~1.300 respostas dos endpoints e `_diff_snap.py` compara antes/depois.
+- **Nome da usina na aba `Historico`**: o 5080 procura o nome EXATO. Quando um ano está gravado com outro nome, ele
+  some da tela calado (Levi, 09/10/2026: "O dado de Produzida 2025 sumiu" — a Nova Londrina tinha 2025 como "Nova
+  Londrina 1"). Os de-paras são explícitos, nunca regra automática: `_META_NOME` para a meta e `_HIST_NOME` para a
+  produção dos anos anteriores (Nova Londrina, Rondonópolis, Monte Aprazível, Poconé 1, Vargem Grande 1, Araçoiaba da
+  Serra 1/2 = "A"/"B" pela palavra do Levi). O ano no nome do 5080 vence o mesmo ano no outro nome — nunca soma.
+  Para achar o próximo caso: nomes de `Produzida (...)` da `Historico` que não estão em `/api/t/usinas`.
 
 ## Acoplamento com a plataforma
 
