@@ -258,6 +258,22 @@ def test_sem_PLAT_TOKEN_a_rota_nao_desiste(cliente, monkeypatch, rota):
     """Não afirma que virá dado (depende da rede) — afirma que a rota não desiste ANTES de tentar."""
     monkeypatch.setattr(app, "_build_pv_trk_payload", lambda *a, **k: {"rows": [], "summary": {}}, raising=False)
     monkeypatch.setattr(app, "_pv_trk_dia", lambda *a, **k: {"curva": {}, "ultima": {}, "ultima_ts": None}, raising=False)
+    # Sem estes, a rota ia à rede de verdade (10/10/2026): login na API PV com a credencial do .env, a lista de usinas
+    # e, com o dia vazio, a reserva da PV Plataforma (GET /v2/usinas/trackers) sem token. Tudo pago. A rota percorre o
+    # mesmo caminho: login e lista dublados, e a reserva responde o que respondia sem o PLAT_TOKEN — 401.
+    monkeypatch.setattr(app, "get_token", lambda *a, **k: "t", raising=False)
+    monkeypatch.setattr(app, "get_plants", lambda *a, **k: [], raising=False)
+
+    class _SemToken:
+        status_code = 401
+
+        def json(self):
+            return {"message": "token ausente"}
+
+    class _Http:
+        def get(self, url, **k):
+            return _SemToken()
+    monkeypatch.setattr(app, "_http", lambda: _Http())
     r = cliente.get(rota)
     assert r.status_code == 200
     assert not (r.get_json() or {}).get("sem_token"), f"{rota} ainda aborta por falta do PLAT_TOKEN"

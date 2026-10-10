@@ -20,6 +20,11 @@ import leitura_nexus as ln
 CHAVE = "chave-de-teste-nexus"
 _SLEEP = time.sleep
 
+# Este arquivo CONTA as tentativas de falar com a API PV na resolução do nome (`rede_cortada`). A trava das fontes pagas
+# do conftest.py recusa antes disso, e a contagem daria zero sempre — o teste da trava do Nexus passaria sem provar
+# nada. Com a marca, o pedido segue até a resolução, que aqui está cortada; sem ela trocada, a trava recusa igual.
+pytestmark = pytest.mark.rede_cortada_pelo_teste
+
 
 def _e_api_pv(host: str) -> bool:
     return "pvoperation.com" in host

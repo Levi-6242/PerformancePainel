@@ -31,6 +31,15 @@ run_tests.bat -v         REM verboso, lista cada teste
 - **Globais isolados** — `app._trancadas` e `app._trk_accum` são mutáveis a nível de
   módulo; os fixtures `set_trancadas` / `trk_accum` usam `monkeypatch` e revertem ao
   fim de cada teste, então a ordem não importa.
+- **Fonte paga é recusada (10/10/2026)** — o `conftest.py` da raiz recusa com `ConnectionError` todo pedido
+  `requests`/`urllib` a host com `sunop.net` ou `pvoperation.com` (API PV, PV Plataforma, SunOp) e **quebra o teste
+  que tentou**, listando método e URL (sem a query); o fim da rodada imprime `fonte paga (SunOp/PV Operation): N
+  chamada(s)` — tem de ser 0. Motivo: em 10/10 cada rodada fazia 9 chamadas reais (a SunOp estourou a cota em
+  setembro, a API PV é paga) e os testes passavam, porque o código engole a falha de rede. Teste novo que passa por
+  essas fontes **dubla a função** (`_pv_dev_names`, `get_token`, `_sunop_trk_curvas`…), nunca a trava. Exceção:
+  `@pytest.mark.rede_cortada_pelo_teste`, para quem conta tentativas cortando o `socket.getaddrinfo`
+  (`test_nexus_sem_api_pv.py`) — só vale enquanto a resolução estiver trocada. A trava se prova em
+  `test_trava_fontes_pagas.py`.
 - **`import app` não é limpo** — no topo do módulo ele roda
   `load_equipamentos()` / `load_metas()` / `load_tickets_trackers()`, que leem
   `BD_Performance.xlsx`. **Local funciona** (o xlsx está na raiz). Para rodar em

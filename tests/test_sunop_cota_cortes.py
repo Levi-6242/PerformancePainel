@@ -348,6 +348,10 @@ def test_incrementais_dividem_a_menor_janela_e_a_cheia_vai_a_parte(curva_falsa):
 def test_os_tres_chamadores_pre_carregam_as_usinas_juntas(monkeypatch):
     vistos = []
     monkeypatch.setattr(app, "_sunop_trk_curvas_varias", lambda ps, d, inst="gridco": vistos.append(sorted(ps)))
+    # depois da pré-carga, cada usina lê a SUA curva no cache que ela encheu; com a pré-carga dublada o cache ficava
+    # vazio e as Ocorrências iam à SunOp de verdade (check_token + POST analog_values por usina, na cota que já
+    # estourou — 10/10/2026). Cache vazio = curva vazia, que é o que a SunOp devolvia para as usinas fictícias.
+    monkeypatch.setattr(app, "_sunop_trk_curvas", lambda p, d, inst="gridco": {})
     monkeypatch.setattr(app, "ensure_sunop_meta", lambda inst="gridco": None)
     monkeypatch.setattr(app, "_sunop_meta", {"AAA100": _meta_trk("AAA100", 1), "BBB100": _meta_trk("BBB100", 1)})
     monkeypatch.setattr(app, "_sunop_trackers_plant_curva", lambda p, inst="gridco", data=None: {

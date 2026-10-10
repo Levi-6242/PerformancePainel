@@ -8,15 +8,132 @@
 # que leem BD_Performance.xlsx. Local funciona (o xlsx está na pasta). Para CI seria
 # preciso esconder essas cargas atrás de função ou commitar um xlsx-fixture pequeno.
 import os
+import socket
 import sys
+import threading
+import urllib.error
+import urllib.request
 from datetime import datetime as _real_datetime
+from urllib.parse import urlsplit
 
 import pytest
+import requests
 
 # o código da plataforma vive em plataforma/ desde a separação por projeto
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "plataforma"))
 
+
+# ── Trava das fontes PAGAS (10/10/2026) ──────────────────────────────────────────────────────────────────────────────
+# Medido em 10/10 com um plugin que recusava a rede: cada rodada da suíte fazia 9 chamadas REAIS — 7 à API PV (que é
+# paga; uma delas o /authenticate com a credencial do .env) e 2 POST à SunOp, cuja cota já estourou (323 mil pedidos em
+# setembro, para 100 mil/mês) — e os testes passavam mesmo assim, porque o código engole a falha de rede e cai no
+# padrão. Ninguém via. Daqui em diante todo pedido de `requests` ou `urllib` a host da SunOp ou da PV Operation
+# (apipv.pvoperation.com.br, apiplataforma.pvoperation.com…) é recusado com ConnectionError ANTES de sair da máquina,
+# fica anotado com o teste que tentou, e esse teste QUEBRA no fim — a recusa sozinha não basta, foi justamente o
+# código engolindo a falha que escondeu as 9.
+#
+# Fica no `HTTPAdapter.send` (e no `do_open` do urllib), não no `socket.getaddrinfo`: o adaptador vê a URL inteira,
+# então pega também o pedido por proxy e a conexão reaproveitada do pool, que nunca passam pela resolução do nome. É o
+# fundo de todo `requests`: a `Session.send` (onde está a trava do pedido do Nexus, leitura_nexus) e o disjuntor da API
+# PV (`_PvDisjuntor.send`, via super()) chegam todos aqui. Instalada ANTES do `import app`, vale também para o que a
+# importação fizer.
+HOSTS_PAGOS = ("sunop.net", "pvoperation.com")
+MARCA_REDE_CORTADA = "rede_cortada_pelo_teste"
+FONTE_PAGA_TENTATIVAS = []                  # {"teste", "metodo", "url" (sem a query: pode levar chave), "thread"}
+_fonte_paga = {"teste": "(importação/coleta, fora de teste)", "liberado": False}
+_GETADDRINFO_REAL = socket.getaddrinfo
+
+
+class FontePagaNoTeste(requests.exceptions.ConnectionError, ConnectionError):
+    """Pedido a fonte paga barrado pela trava dos testes. É ConnectionError do `requests` E do Python: quem chama
+    trata como trataria a rede fora, que é o que a suíte já simulava sem saber."""
+
+
+class FontePagaNoTesteUrllib(urllib.error.URLError, ConnectionError):
+    """O mesmo para o `urllib`, que só conhece URLError."""
+
+
+def _host_pago(url) -> str:
+    # só o HOST decide: a mesma palavra num parâmetro da query (um ?volta=…pvoperation.com) não é pedido à fonte
+    h = (urlsplit(str(url or "")).hostname or "").lower()
+    return h if any(p in h for p in HOSTS_PAGOS) else ""
+
+
+def _liberado() -> bool:
+    """tests/test_nexus_sem_api_pv.py CONTA as tentativas de falar com a API PV trocando o `socket.getaddrinfo`; com a
+    trava na frente, o pedido morria antes de chegar à contagem, e o teste da trava do Nexus passaria sem provar nada
+    (nenhuma tentativa vista = "nenhuma rota fala com a API PV"). O teste com a marca segue até a resolução do nome —
+    mas só se a resolução estiver de fato trocada: com a marca e a rede real, recusa do mesmo jeito."""
+    return _fonte_paga["liberado"] and socket.getaddrinfo is not _GETADDRINFO_REAL
+
+
+def _anota(metodo, url):
+    p = urlsplit(str(url))
+    FONTE_PAGA_TENTATIVAS.append({"teste": _fonte_paga["teste"], "metodo": (metodo or "?").upper(),
+                                  "url": f"{p.scheme}://{p.hostname}{p.path}", "thread": threading.current_thread().name})
+
+
+_send_real = requests.adapters.HTTPAdapter.send
+
+
+def _send_travado(self, request, *a, **kw):
+    host = _host_pago(request.url)
+    if host and not _liberado():
+        _anota(request.method, request.url)
+        raise FontePagaNoTeste(f"trava dos testes: {host} é fonte paga — dubla a chamada no teste", request=request)
+    return _send_real(self, request, *a, **kw)
+
+
+_do_open_real = urllib.request.AbstractHTTPHandler.do_open
+
+
+def _do_open_travado(self, http_class, req, **kw):
+    host = _host_pago(req.full_url)
+    if host and not _liberado():
+        _anota(req.get_method(), req.full_url)
+        raise FontePagaNoTesteUrllib(f"trava dos testes: {host} é fonte paga — dubla a chamada no teste")
+    return _do_open_real(self, http_class, req, **kw)
+
+
+requests.adapters.HTTPAdapter.send = _send_travado
+urllib.request.AbstractHTTPHandler.do_open = _do_open_travado
+
+
 import app  # noqa: E402  (carga pesada única; roda as cargas do BD_Performance local)
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers", f"{MARCA_REDE_CORTADA}: o teste corta a rede no socket.getaddrinfo para CONTAR as tentativas; a trava "
+                   "das fontes pagas deixa o pedido seguir até lá (e só enquanto a resolução estiver trocada)")
+
+
+@pytest.fixture(autouse=True)
+def _fonte_paga_travada(request):
+    """Quem tentou falar com a SunOp ou a PV Operation quebra, com a lista do que tentou (ver a trava acima)."""
+    antes = len(FONTE_PAGA_TENTATIVAS)
+    _fonte_paga.update(teste=request.node.nodeid, liberado=request.node.get_closest_marker(MARCA_REDE_CORTADA) is not None)
+    try:
+        yield
+    finally:
+        _fonte_paga.update(teste="(entre testes: thread que sobrou de um teste anterior)", liberado=False)
+    tentou = FONTE_PAGA_TENTATIVAS[antes:]
+    if tentou:
+        # a recusa é ConnectionError e o disjuntor da API PV a conta como falha de rede: seis seguidas o abririam
+        # por 2 min e os testes seguintes veriam "API PV fora" sem ter feito nada
+        if isinstance(getattr(app, "_pv_disj", None), dict):
+            app._pv_disj.update(falhas=0, ate=0.0, desde=0.0)
+        pytest.fail("chamou fonte paga (recusada pela trava do conftest.py) — dubla a chamada no teste:\n" + "\n".join(
+            f"  {t['metodo']} {t['url']}  (thread {t['thread']})" for t in tentou), pytrace=False)
+
+
+def pytest_terminal_summary(terminalreporter):
+    """A contagem que o Levi pediu (10/10/2026): quantas chamadas a fonte paga a rodada tentou. Tem de ser 0."""
+    n = len(FONTE_PAGA_TENTATIVAS)
+    terminalreporter.write_line(f"fonte paga (SunOp/PV Operation): {n} chamada(s) tentada(s) e recusada(s)",
+                                red=bool(n), green=not n)
+    for t in FONTE_PAGA_TENTATIVAS:
+        terminalreporter.write_line(f"  {t['teste']}: {t['metodo']} {t['url']} (thread {t['thread']})")
 
 
 # Arquivos que a plataforma GRAVA (01/10/2026). Às 09:51 de 01/10 o test_os_tres_chamadores_pre_carregam_as_usinas_juntas

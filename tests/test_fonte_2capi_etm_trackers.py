@@ -46,6 +46,10 @@ def test_payload_da_fonte_constroi_so_as_usinas_dela(monkeypatch):
 
     monkeypatch.setattr(app, "_pv_trackers_analise", _falso)
     monkeypatch.setattr(app, "_plat_token", lambda: "x")
+    # a lista de nomes vinha da API PV de verdade: login com a credencial do .env + /plants a cada rodada da suíte
+    # (paga; 10/10/2026). O nome não entra na conta deste teste — o de baixo é que confere o nome.
+    monkeypatch.setattr(app, "get_token", lambda *a, **k: "t")
+    monkeypatch.setattr(app, "get_plants", lambda *a, **k: [])
     app._pv_trk_fonte_cache.pop("2capi", None)
     out = app._pv_trk_payload_da_fonte("2capi")
     n = len(app.PV_FONTES["2capi"])                   # 4 desde 25/09/2026, com a União

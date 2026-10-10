@@ -98,6 +98,10 @@ def test_primitiva_de_busca_NAO_e_bloqueada_a_noite(freeze_now, monkeypatch):
         return _R()
 
     monkeypatch.setattr(app, "_sunop_req", _fake_req)
+    # o cabeçalho é montado ANTES do pedido e valida o token na SunOp de verdade (check_token, e o refresh quando a
+    # validação falha) — na cota que já estourou. Escondido até 10/10/2026 pelo token em cache que um teste anterior
+    # validava na rede; a trava das fontes pagas (conftest.py) expôs.
+    monkeypatch.setattr(app, "_sunop_data_headers", lambda inst="gridco": {})
     out = app._sunop_analog_history(["P.TRK_1.POSAT"], "2026-08-25T00:00:00", "2026-08-25T23:59:59")
     assert chamou["n"] == 1, "a busca do dia PASSADO tem de continuar livre de madrugada"
     assert out["P.TRK_1.POSAT"] == [("2026-08-25T09:00:00", 12.0)]

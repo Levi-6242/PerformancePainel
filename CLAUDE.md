@@ -83,4 +83,6 @@ Este projeto trata **confiabilidade de dado como prioridade 1**. Antes de dar al
 - Mudou desempenho? Meça antes e depois, e diga o número.
 - Se o teste falhou ou você não conseguiu validar, **diga isso** em vez de afirmar que funcionou.
 
-Testes: `python -m pytest -q` a partir da raiz (o `conftest.py` põe `plataforma/` no path).
+Testes: `python -m pytest -q` a partir da raiz (o `conftest.py` põe `plataforma/` no path). O `conftest.py` também
+**recusa toda chamada à SunOp e à PV Operation** (fontes pagas) e quebra o teste que tentou; a rodada termina com
+`fonte paga (SunOp/PV Operation): 0 chamada(s)`. Teste que passa por elas dubla a função — ver `tests/README.md`.

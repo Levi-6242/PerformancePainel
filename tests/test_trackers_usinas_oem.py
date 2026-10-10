@@ -76,6 +76,11 @@ def test_recorte_da_fonte_filtra_pelas_usinas_dela(monkeypatch):
         return porta[idusina]
 
     monkeypatch.setattr(app, "_pv_trackers_analise", _falso)
+    # a lista de nomes ia à API PV de verdade (login com a credencial do .env + /plants). Escondido até 10/10/2026 pelo
+    # token em cache que outro teste obtinha na rede; a trava das fontes pagas (conftest.py) expôs. O nome não entra
+    # nesta conta: o fallback é o próprio id, e o teste confere ids e somas.
+    monkeypatch.setattr(app, "get_token", lambda *a, **k: "t")
+    monkeypatch.setattr(app, "get_plants", lambda *a, **k: [])
     app._pv_trk_fonte_cache.pop("semp", None)
     out = app._pv_trk_payload_da_fonte("semp")
     assert sorted(chamadas) == [18758732, 18768694], "só as usinas da fonte são varridas"

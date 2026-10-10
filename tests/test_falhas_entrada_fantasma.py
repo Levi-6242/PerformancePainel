@@ -19,6 +19,14 @@ PID = 18746249
 FANTASMAS = {"Ipv29", "Ipv30", "Ipv31", "Ipv32"}
 
 
+@pytest.fixture(autouse=True)
+def _nomes_sem_api_pv(monkeypatch):
+    """A curva pede o nome dos inversores ao /plant_devices da API PV (paga). Os testes com inversor fictício (id 1) iam
+    à API de verdade com o token "tok" e recebiam nada — o nome cai no "INV-1", que é o que eles conferem. Dublado com
+    o mesmo nada; o `regs` troca pelo nome real do INVERSOR06 (10/10/2026, trava das fontes pagas no conftest.py)."""
+    monkeypatch.setattr(app, "_pv_dev_names", lambda pid, tok: {})
+
+
 @pytest.fixture
 def regs(monkeypatch):
     monkeypatch.setattr(app, "_pv_dev_names", lambda pid, tok: {357484: "INVERSOR06", "357484": "INVERSOR06"})

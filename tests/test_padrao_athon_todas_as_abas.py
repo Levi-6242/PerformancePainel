@@ -59,6 +59,10 @@ def usina_pv(monkeypatch, freeze_now):
     monkeypatch.setitem(app.ESPERADO_INV, NOME, {"INVERSOR 01": 10, "INVERSOR 02": 10, "INVERSOR 03": 10, "INVERSOR 04": 12})
     monkeypatch.setitem(app.EQUIP_NAMES, NOME, {f"INVERSOR 0{i}": f"Inversor 1.{i}" for i in (1, 2, 3, 4)})
     monkeypatch.setattr(app, "_pv_dev_names", lambda pid, token: {i: f"INVERSOR 0{i}" for i in (1, 2, 3, 4)})
+    # as esperadas de cada inversor no cadastro saem pelo nome do /plant_devices (_pv_plant_devices): sem dublar, a
+    # linha ia à API PV de verdade (paga) com token vazio pela usina fictícia (10/10/2026). Os mesmos nomes do de cima.
+    monkeypatch.setattr(app, "_pv_plant_devices",
+                        lambda pid: [{"device_id": i, "device_name": f"INVERSOR 0{i}"} for i in (1, 2, 3, 4)])
     monkeypatch.setattr(app, "_pv_token_for", lambda pid: "")
     monkeypatch.setattr(app, "_os_atribuidas_map", lambda: {})
     monkeypatch.setattr(app, "_os_fracttal_inv_abertas", lambda: {})
