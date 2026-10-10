@@ -26,6 +26,18 @@ Ritual, sempre nesta ordem:
 Para diagnosticar, suba com `python.exe -u` e `-RedirectStandardOutput` num `.log`: o prewarm
 imprime o tempo de cada etapa, que é a forma mais rápida de achar lentidão.
 
+**Cópia de prova noutra porta (porta única com o Nexus, 09/10/2026).** Para provar mudança sem tocar na 5050 (a ponte do
+OS Creator), suba a worktree com `python plataforma/subir_copia_de_prova.py --porta 5150` (o `__main__` do `app.py` fixa a
+5050). É o boot do modo WEB, sem `worker.py`: nada de prewarm, coleta, ronda, fechamento nem backfill; nenhum pedido sai
+para SunOp ou API PV, e nada que não seja GET/HEAD/OPTIONS sai da máquina (Fracttal, API db_performace, Graph); o estado vai
+para uma pasta no TEMP (`GRIDCO_CACHE_DIR`/`GRIDCO_DADOS_DIR`), nunca para o da plataforma de verdade. Com
+`--copiar-estado-de "<pasta plataforma/ principal>" --acompanhar` ela mostra os números da principal (copia o snapshot e
+o estado, só lendo a origem, e recopia o snapshot quando o worker publica outro). O import ainda LÊ o cadastro da API
+db_performace (GET, ~1 min). Credenciais: `.env` e `tokens.txt` da raiz e `plataforma/tokens_runtime.json`, copiados à
+mão (gitignorados). Cookie é por host, não por porta: a cópia em 127.0.0.1 divide o `session` com a 5050 e com o Nexus
+local, então use um perfil de navegador só da prova. Moldura, cookies e `postMessage` (mesma origem, como no servidor) se
+provam pela `ferramentas/porta_local.py` do Nexus, com as duas cópias atrás dela.
+
 **Não precisa de restart:** `docs/redesign/Monitoramento (novo design).html` (a página `/`),
 `templates/relatorio.html`, `whats_ronda.json` e `tokens_runtime.json` — todos relidos a cada uso.
 Qualquer `.py` ou os demais templates precisam.
