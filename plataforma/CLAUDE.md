@@ -289,7 +289,7 @@ mesma origem (`app.gridco.com.br/nexus` e a raiz). Código: `porta_nexus.py` (pu
 | `NEXUS_SSO_CHAVE` | chave do passe, a MESMA do `.env` do Nexus; 32+ caracteres aleatórios (`secrets.token_urlsafe(32)`); menor = desligada, com aviso no log |
 | `PLATAFORMA_ANALISTAS` | e-mails (vírgula) ou `*`: entram como analista (tudo o que a senha faz). Decisão do Levi: começa com `*` |
 | `PLATAFORMA_GESTORES` | e-mails ou `*`: gestor, só leitura. O e-mail escrito vence o `*`; escrito nas duas (ou `*` nas duas), vale gestor |
-| `NEXUS_PORTA_PRINCIPAL` | **fase 3, desligada vazia**: com `/nexus/` (ou `http://127.0.0.1:5070/` no PC), o `/` leva ao Nexus (logado ou não; nunca dentro de moldura) e o login oferece "Entrar pelo Nexus", com a senha virando reserva |
+| `NEXUS_PORTA_PRINCIPAL` | **fase 3, desligada vazia**: com `/nexus/` (ou `http://127.0.0.1:5070/` no PC), o `/` leva ao Nexus (logado ou não; nunca dentro de moldura) e o login oferece "Entrar pelo Nexus", com a senha virando reserva. Na fase 4 (o Caddy manda o `/` ao Nexus, que mora na raiz) use o endereço completo `https://app.gridco.com.br/`: o `/` sozinho mandaria o `/` ao próprio `/`, em laço, para quem chegasse direto ao waitress |
 
 **O passe (contrato com o Nexus).** A página da tela no Nexus faz um POST (formulário escondido, `target` = a moldura;
 sem JavaScript, um botão "Abrir") para `/painel/nexus/entrar` com o campo `passe` = `base64url(json) + "." +
