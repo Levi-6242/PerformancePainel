@@ -48,6 +48,15 @@ Não é acidente: a planilha é genuinamente compartilhada. Extrair um módulo c
 que, num repositório único, não se paga. **Se um dia os projetos virarem repositórios separados,
 essa extração passa a ser obrigatória.**
 
+## Acoplamento conhecido: Nexus → plataforma (porta única, 09/10/2026)
+
+O Nexus (outro repositório, `Grid-Co-CODE/nexus`) abre as telas da plataforma numa moldura com um passe assinado
+(`NEXUS_SSO_CHAVE`, a mesma nos dois). O contrato mora em `plataforma/porta_nexus.py`: o **mapa das telas** é CÓPIA do
+mapa do Nexus (o dono), e os dois lados conferem a mesma assinatura do texto canônico; o formato do passe e o Sair por
+`/painel/nexus/sair`. Mudou o mapa ou o passe num lado, muda no outro no mesmo trabalho (o teste cruzado do Nexus roda
+contra esta pasta com `PLATAFORMA_REPO`). Tudo fica inerte sem a chave. Regras, variáveis e prova: `plataforma/CLAUDE.md`,
+seção "Porta única com o Nexus".
+
 ## Convenções (valem para os quatro)
 
 - **Sempre pt-BR**, inclusive comentários de código.

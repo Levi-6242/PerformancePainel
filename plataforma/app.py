@@ -298,6 +298,93 @@ app.secret_key = os.environ.get("SECRET_KEY") or hashlib.sha256(
     ("gridco-dash-" + DASH_PASSWORD).encode()).hexdigest()
 app.permanent_session_lifetime = timedelta(days=30)
 
+# ── Porta única com o Nexus (09/10/2026) ──────────────────────────────────────
+# Levi, 09/10/2026: "a partir de segunda quero o Nexus como link principal; o Nexus será o centro de tudo". O Nexus é a
+# porta (menu, login, endereço); esta plataforma segue o motor e desenha as telas dentro de uma moldura dele. Regras e
+# mapa em porta_nexus.py; spec 2026-10-09-performance-no-nexus-design.md no repositório do Nexus.
+# TUDO aqui fica INERTE sem as variáveis: a plataforma sobe por push na main (deploy automático) e não pode mudar para
+# ninguém antes de a T.I. pôr as chaves no servidor.
+#   NEXUS_SSO_CHAVE        chave do passe (a MESMA no .env do Nexus; 32+ caracteres aleatórios). Sem ela, /painel/nexus/*
+#                          é 404 e nada muda (nem modo Nexus, nem frame-ancestors, nem perfis).
+#   PLATAFORMA_ANALISTAS   e-mails (vírgula) ou * que entram pelo passe como analista (tudo o que a senha faz)
+#   PLATAFORMA_GESTORES    e-mails (vírgula) ou * que entram pelo passe como gestor (só leitura)
+#   NEXUS_PORTA_PRINCIPAL  fase 3, DESLIGADA por padrão: com ela (ex.: /nexus/), o "/" leva ao Nexus e o login oferece
+#                          "Entrar pelo Nexus". O Levi liga quando quiser; sem ela o "/" segue sendo a Entrada.
+import porta_nexus as _pn
+
+
+def _chave_do_passe_valida(v: str) -> str:
+    """NEXUS_SSO_CHAVE curta se adivinha: desligada, com o motivo no log (nunca o valor)."""
+    v = (v or "").strip()
+    if v and len(v) < _pn.CHAVE_MINIMA:
+        print(f"[porta Nexus] NEXUS_SSO_CHAVE com menos de {_pn.CHAVE_MINIMA} caracteres: a porta do Nexus fica desligada")
+        return ""
+    return v
+
+
+NEXUS_SSO_CHAVE = _chave_do_passe_valida(os.environ.get("NEXUS_SSO_CHAVE", ""))
+PLATAFORMA_ANALISTAS = _pn.ler_lista(os.environ.get("PLATAFORMA_ANALISTAS", ""))
+PLATAFORMA_GESTORES = _pn.ler_lista(os.environ.get("PLATAFORMA_GESTORES", ""))
+SESSAO_DO_PASSE_S = 12 * 3600          # a sessão aberta pelo passe vale 12 h, como a do Nexus (não os 30 dias da senha)
+
+
+def _porta_principal_valida(v: str) -> str:
+    """NEXUS_PORTA_PRINCIPAL: caminho local (/nexus/) ou endereço http(s) completo (no PC, o Nexus noutra porta). Fora
+    disso (aspas, espaço, `//host`), desligada com aviso no log: o valor vai num link da tela de login."""
+    v = (v or "").strip()
+    if not v:
+        return ""
+    ok = (v.startswith("/") and not v.startswith("//")) or re.match(r"^https?://[^/\s]", v)
+    if not ok or re.search(r"[\s\"'<>`\\]", v):
+        print("[porta Nexus] NEXUS_PORTA_PRINCIPAL inválida (use /nexus/ ou https://...): fase 3 desligada")
+        return ""
+    return v
+
+
+NEXUS_PORTA_PRINCIPAL = _porta_principal_valida(os.environ.get("NEXUS_PORTA_PRINCIPAL", ""))
+_PASSES_USADOS = _pn.NumerosUsados()
+
+from flask.sessions import SecureCookieSessionInterface as _InterfaceDaSessao
+
+
+class _SessaoDaPlataforma(_InterfaceDaSessao):
+    """O cookie `session` com SameSite=Lax (e Secure quando o pedido chegou por https) SÓ com a NEXUS_SSO_CHAVE.
+
+    Revisão de 10/10/2026: o cookie saía sem SameSite (`session=...; HttpOnly; Path=/`). Firefox e Safari o mandam em
+    POST vindo de outro site, e o Chrome também nos 2 primeiros minutos; com a porta, todo clique no menu do Nexus abre
+    sessão nova e quem tem sessão passa a ser todo usuário do Nexus, então um formulário de qualquer site gravaria em
+    nome do analista. Lax não atrapalha a moldura (mesma origem) nem o bookmarklet da Plataforma (rota pública, sem
+    cookie). O https vem do X-Forwarded-Proto do Caddy (o waitress não lê proxy): forjá-lo só deixa Secure o cookie de
+    quem forjou. Sem a chave, o cookie é o de sempre: a plataforma sobe por push e não muda para ninguém antes da T.I."""
+
+    def get_cookie_samesite(self, app):
+        return "Lax" if NEXUS_SSO_CHAVE else super().get_cookie_samesite(app)
+
+    def get_cookie_secure(self, app):
+        if NEXUS_SSO_CHAVE:
+            try:
+                proto = (flask_request.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
+                if flask_request.is_secure or proto == "https":
+                    return True
+            except RuntimeError:                    # fora de um pedido
+                pass
+        return super().get_cookie_secure(app)
+
+
+app.session_interface = _SessaoDaPlataforma()
+
+
+def _waitress_atras_do_caddy() -> dict:
+    """Os parâmetros do waitress para ele saber que o pedido chegou por https, SÓ com a NEXUS_SSO_CHAVE.
+
+    O waitress 3 apaga os cabeçalhos de proxy que não vêm de um proxy confiável (clear_untrusted_proxy_headers): sem
+    isto o X-Forwarded-Proto do Caddy nunca chegava ao app e o `Secure` acima nunca saía no servidor (provado na cópia
+    de 10/10/2026). Confia só no 127.0.0.1 (o Caddy na mesma máquina) e só no esquema: o IP de quem pede e o Host seguem
+    os de sempre. Sem a chave, o waitress de sempre (a plataforma sobe por push; nada muda antes da T.I.)."""
+    if not NEXUS_SSO_CHAVE:
+        return {}
+    return {"trusted_proxy": "127.0.0.1", "trusted_proxy_headers": {"x-forwarded-proto"}}
+
 # ── Login Microsoft (Entra ID / OAuth) — OPCIONAL, além da senha ──────────────
 # Se as 4 variáveis do Entra estiverem no ambiente (tokens.txt), aparece "Entrar com
 # Microsoft" no login e SÓ e-mails @AZURE_ALLOWED_DOMAIN entram. A senha DASH_PASSWORD
@@ -341,6 +428,8 @@ button:hover{filter:brightness(1.07)}
 .err{color:var(--red);font-size:13px;margin-top:12px;min-height:16px;text-align:center}
 .msbtn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:11px;border-radius:9px;background:#fff;color:#1f2733;font-weight:600;font-size:14px;text-decoration:none;border:1px solid #d0d7e2}
 .msbtn:hover{background:#eef1f5}
+.nexbtn{display:flex;align-items:center;justify-content:center;width:100%;padding:11px;border-radius:9px;background:var(--accent);color:#0b0e16;font-weight:700;font-size:14.5px;text-decoration:none}
+.nexbtn:hover{filter:brightness(1.07)}
 .ordiv{display:flex;align-items:center;gap:10px;margin:16px 0 14px;color:var(--n500);font-size:12px}
 .ordiv span{flex:1;height:1px;background:var(--divider)}
 .pe{font-family:'IBM Plex Mono',Consolas,monospace;font-size:11.5px;color:var(--n500)}
@@ -374,39 +463,297 @@ def _auth_gate():
             flask_g.nexus_leitura_ok = True
             return
         return jsonify({"error": "somente leitura (Nexus)"}), 403
-    if not DASH_PASSWORD:                       # sem senha → app aberto (dev local)
-        return
     p = flask_request.path
-    if p == "/login" or p == "/healthz" or p.startswith("/static/") or p == "/auth/login" or p == "/auth/callback":
+    # ── Porta única com o Nexus (09/10/2026). Tudo neste bloco é inerte sem as variáveis novas. ──
+    # /painel/nexus/* (o passe e o Sair) tem portão próprio. Sem a NEXUS_SSO_CHAVE é 404, como se não existisse (spec
+    # 5.2). Mora debaixo do /painel porque o Caddy do servidor responde sozinho em alguns primeiros segmentos (/auth,
+    # /monitoramento; ver a rota /monitor), e o /painel já passa por ele.
+    if p.startswith("/painel/nexus/"):
+        if not NEXUS_SSO_CHAVE:
+            from flask import abort
+            abort(404)
         return
-    # /versao: qual commit está no ar, sem login — para conferir deploy de qualquer lugar. Só ela;
-    # a rota devolve uma lista fechada de campos (ver `versao_publica`).
-    if p == "/versao":
+    # Fase 3 (desligada sem NEXUS_PORTA_PRINCIPAL): o "/" (a Entrada) leva ao Nexus, logado ou não, que vira o link
+    # principal (Levi, 09/10: "a partir de segunda quero o Nexus como link principal"). Dentro de uma moldura nunca:
+    # seria o Nexus dentro do Nexus; ali o "/" vira o Tempo real (rota `index`).
+    if NEXUS_PORTA_PRINCIPAL and p == "/" and flask_request.method in ("GET", "HEAD") and not _em_moldura():
+        return redirect(NEXUS_PORTA_PRINCIPAL)
+    if _rota_publica(p):                        # antes só valia com senha; sem senha tudo passava do mesmo jeito
         return
-    # Renovação do token da Plataforma (trackers): o bookmarklet roda na origem
-    # plataforma.pvoperation.com (cross-origin, SEM sessão do dashboard) → precisa passar pelo gate.
-    # Seguro: o handler só aceita um JWT válido (3 partes) e grava só o token da fonte de trackers.
-    if p == "/api/pv/trackers/token":
-        return
-    # API de campo (integração externa): gate próprio por x-api-key no handler, fora da sessão humana.
-    if p.startswith("/api/campo/"):
-        return
-    # Relay de escrita dos tickets (OS Creator, app de desktop, sem sessão humana daqui): gate
-    # próprio no handler pelo JWT do login do Fracttal — ver tickets_relay.py.
-    if p.startswith("/api/tickets/"):
-        return
-    # Gêmeo Digital lendo os trackers da 2C: gate próprio no handler, pelo MESMO segredo que esta
-    # plataforma já manda a ele em X-Gemeo-Senha. Não é sessão humana, e não abre /api/owen/* inteiro.
-    if p.startswith("/api/gemeo/"):
+    # Sessão aberta pelo passe: validade (12 h, a chave de hoje), admin e perfil. ANTES do "app aberto": o gestor só lê
+    # mesmo numa plataforma sem senha. Sem chave e sem senha (dev local) nem olha a sessão: ali nada muda.
+    if (NEXUS_SSO_CHAVE or DASH_PASSWORD) and session.get("auth_kind") == "nexus":
+        recusa = _portao_da_sessao_do_passe(p)
+        if recusa is not None:
+            return recusa
+    if not DASH_PASSWORD:                       # sem senha → app aberto (dev local)
         return
     if session.get("auth"):
         return
     if p.startswith("/api/"):
         return jsonify({"error": "não autenticado"}), 401
+    # Na moldura do Nexus sem sessão (a de 12 h venceu, ou o cookie sumiu): a senha dentro do Nexus confundiria. A página
+    # manda abrir de novo pelo menu, que gera um passe novo; a senha fica num link, para a reserva.
+    if NEXUS_SSO_CHAVE and _em_moldura():
+        return _pagina_da_porta("Abra de novo pelo Nexus",
+                                "A sessão da Plataforma de Performance não está aberta neste navegador, ou venceu (vale "
+                                "12 h). Clique de novo no item do menu do Nexus.", senha=True), 401
     # preserva o destino: depois do login volta pra página pedida (ex.: o app do Monitor da Ronda
     # abre /ronda/monitor — sem isto o login jogava sempre na raiz e o app "virava" o dashboard).
     # Com prefixo, "/login" cru mandaria o navegador pra RAIZ do domínio (fora da app).
     return redirect(_prefixo() + "/login?next=" + quote(p))
+
+
+def _quem_na_sessao() -> str:
+    """Quem grava, para o diário: o e-mail de quem entrou pelo Microsoft ou pelo passe do Nexus (09/10/2026: a sessão do
+    passe guarda o e-mail da pessoa, spec 8); a senha é compartilhada e não diz quem."""
+    return session.get("user") if session.get("auth_kind") in ("ms", "nexus") else "senha compartilhada"
+
+
+def _rota_publica(p: str) -> bool:
+    """Caminhos que passam pelo portão sem sessão (cada um com gate próprio, ou sem dado). Saiu do `_auth_gate` em
+    09/10/2026 para a sessão do passe usar a mesma lista; o comportamento é o de antes."""
+    if p == "/login" or p == "/healthz" or p.startswith("/static/") or p == "/auth/login" or p == "/auth/callback":
+        return True
+    # /versao: qual commit está no ar, sem login — para conferir deploy de qualquer lugar. Só ela;
+    # a rota devolve uma lista fechada de campos (ver `versao_publica`).
+    if p == "/versao":
+        return True
+    # Renovação do token da Plataforma (trackers): o bookmarklet roda na origem
+    # plataforma.pvoperation.com (cross-origin, SEM sessão do dashboard) → precisa passar pelo gate.
+    # Seguro: o handler só aceita um JWT válido (3 partes) e grava só o token da fonte de trackers.
+    if p == "/api/pv/trackers/token":
+        return True
+    # API de campo (integração externa): gate próprio por x-api-key no handler, fora da sessão humana.
+    if p.startswith("/api/campo/"):
+        return True
+    # Relay de escrita dos tickets (OS Creator, app de desktop, sem sessão humana daqui): gate
+    # próprio no handler pelo JWT do login do Fracttal — ver tickets_relay.py.
+    if p.startswith("/api/tickets/"):
+        return True
+    # Gêmeo Digital lendo os trackers da 2C: gate próprio no handler, pelo MESMO segredo que esta
+    # plataforma já manda a ele em X-Gemeo-Senha. Não é sessão humana, e não abre /api/owen/* inteiro.
+    if p.startswith("/api/gemeo/"):
+        return True
+    return False
+
+
+# ── Porta única com o Nexus: o passe, os perfis e o modo Nexus (09/10/2026) ──────────────────────────────────────────
+# Levi, 09/10/2026: "o Nexus será o centro de tudo, precisamos trazer o tempo real de performance painel para o Nexus".
+# O Nexus abre cada tela da plataforma numa moldura: a página dele faz um POST escondido para /painel/nexus/entrar com o
+# passe (porta_nexus.py), a plataforma abre a sessão DELA e responde 303 para a tela. Spec 5.2 a 5.4.
+
+def _em_moldura() -> bool:
+    """O navegador diz que esta página abre dentro de uma moldura (iframe). Navegador que não manda o cabeçalho mostra a
+    tela com a navegação da plataforma: funciona igual, só com dois menus (spec 5.4)."""
+    return (flask_request.headers.get("Sec-Fetch-Dest") or "").lower() in ("iframe", "frame")
+
+
+def _modo_nexus() -> bool:
+    """Página aberta pelo passe dentro da moldura do Nexus: sai com `class="modo-nexus"` (sem a navegação da
+    plataforma) e avisa a moldura do caminho. Só com a chave, só com a sessão do passe e só dentro de moldura."""
+    return bool(NEXUS_SSO_CHAVE) and session.get("auth_kind") == "nexus" and bool(session.get("auth")) and _em_moldura()
+
+
+def _de_outra_origem() -> bool:
+    """O pedido NÃO veio de uma página deste mesmo endereço (esquema, host e porta). Vale para o passe e o Sair do Nexus
+    (um site qualquer não pode entregar um passe alheio ao navegador de alguém, login trocado, nem tirá-lo da sessão) e
+    para toda gravação da sessão do passe. Revisão de 10/10/2026: antes só 'cross-site' era recusado.
+
+    - Sec-Fetch-Site (todo navegador atual manda): só 'same-origin' e 'none' (a pessoa digitou ou abriu um favorito)
+      passam. 'same-site' não: no servidor, qualquer subdomínio de gridco.com.br é 'same-site', e a moldura do Nexus é
+      sempre da mesma origem (frame-ancestors 'self');
+    - sem ele (navegador antigo), o Origin tem de ser deste endereço; 'null' (moldura isolada, salto entre origens) não;
+    - sem nenhum dos dois não é navegador (curl, script, teste): não há cookie de vítima para usar, passa."""
+    sfs = (flask_request.headers.get("Sec-Fetch-Site") or "").strip().lower()
+    if sfs:
+        return sfs not in ("same-origin", "none")
+    origem = flask_request.headers.get("Origin")
+    if origem is None:
+        return False
+    from urllib.parse import urlsplit
+    try:
+        de = urlsplit(origem.strip()).netloc.lower()
+    except ValueError:
+        return True
+    hosts = {(flask_request.host or "").lower()}
+    encaminhado = (flask_request.headers.get("X-Forwarded-Host") or "").split(",")[0].strip().lower()
+    if encaminhado:
+        hosts.add(encaminhado)
+    return not de or de not in hosts
+
+
+def _pagina_da_porta(titulo: str, texto: str, motivo: str = "", senha: bool = False):
+    """Página curta da porta do Nexus (passe recusado, sem acesso, só leitura), no tema da plataforma. Aparece dentro da
+    moldura do Nexus. Texto fixo; o que vem de fora (motivo, e-mail) passa pelo escape do Jinja."""
+    return render_template("nexus_aviso.html", titulo=titulo, texto=texto, motivo=motivo,
+                           senha_href=(_prefixo() + "/login") if senha and DASH_PASSWORD else "")
+
+
+def _recusa_da_porta(p: str, status: int, erro_api: str, titulo: str, texto: str):
+    if p.startswith("/api/"):
+        return jsonify({"error": erro_api}), status
+    return _pagina_da_porta(titulo, texto), status
+
+
+def _portao_da_sessao_do_passe(p: str):
+    """Confere a sessão aberta pelo passe a cada pedido. Devolve a recusa, ou None para seguir o portão.
+
+    - venceu (12 h) ou a NEXUS_SSO_CHAVE mudou (ou saiu): a sessão é apagada e o pedido segue como de quem não entrou
+      (spec 8: trocar a chave derruba as sessões do passe, não as da senha);
+    - gravação (método fora de GET/HEAD/OPTIONS) só de página da mesma origem (`_de_outra_origem`);
+    - o perfil é refeito pelas listas de hoje (restringir é uma linha no .env, valendo no reinício, sem esperar 12 h);
+    - administração (`porta_nexus.ROTAS_SO_ADMIN`: /tokens, /api/tokens, /api/admin e o envio e o reinício do
+      WhatsApp da ronda) só para admin do Nexus, em qualquer perfil (spec 5.3);
+    - gestor: só o que `leitura_nexus.permitido_gestor` aceita, e o pedido leva a trava da API PV (`nexus_so_leitura`)."""
+    agora = time.time()
+    try:
+        ate = float(session.get("nexus_ate") or 0)
+    except (TypeError, ValueError):
+        ate = 0
+    if not NEXUS_SSO_CHAVE or session.get("nexus_chave") != _pn.marca_da_chave(NEXUS_SSO_CHAVE) or agora > ate:
+        session.clear()
+        return None
+    if _rota_publica(p) or p == "/logout":
+        return None
+    # Revisão de 10/10/2026: um <form enctype="text/plain"> de outro site gravava em nome do analista (o cookie ia junto,
+    # nenhuma rota conferia a origem, e 18 rotas leem o corpo com get_json(force=True)). A sessão do passe só grava
+    # pedido da mesma origem; leitura segue igual. As rotas públicas (o bookmarklet da Plataforma) já saíram acima.
+    if flask_request.method not in ("GET", "HEAD", "OPTIONS") and _de_outra_origem():
+        return _recusa_da_porta(p, 403, "pedido de outro site", "Pedido recusado",
+                                "Este pedido veio de outro site: a Performance só grava o que sai das telas dela.")
+    perfil = _pn.perfil_de(session.get("user"), PLATAFORMA_ANALISTAS, PLATAFORMA_GESTORES)
+    if perfil is None:
+        return _recusa_da_porta(p, 403, "sem acesso à Performance", "Sem acesso à Performance", _TEXTO_SEM_ACESSO)
+    if session.get("perfil") != perfil:
+        session["perfil"] = perfil
+    if _pn.so_admin(p) and not session.get("admin_nexus"):
+        return _recusa_da_porta(p, 403, "só administradores do Nexus", "Só administradores do Nexus",
+                                "Esta parte é administração da plataforma (as chaves das fontes, as bases e o envio da "
+                                "ronda pelo WhatsApp): abre só para quem é administrador do Nexus.")
+    if perfil == _pn.GESTOR:
+        import leitura_nexus
+        if not leitura_nexus.permitido_gestor(flask_request.method, p, list(flask_request.args.keys())):
+            return _recusa_da_porta(p, 403, "somente leitura (perfil gestor)", "Somente leitura",
+                                    "O seu perfil na Performance é de gestor: as telas abrem para leitura, sem gravar "
+                                    "nem disparar coleta.")
+        flask_g.nexus_so_leitura = True
+    return None
+
+
+def _encerra_sessao_do_passe() -> None:
+    """Apaga a sessão aberta pelo passe; a da senha (e a do Microsoft) fica."""
+    if session.get("auth_kind") == "nexus":
+        session.clear()
+
+
+_TEXTO_SEM_ACESSO = ("O seu login do Nexus não está na lista de quem usa a Plataforma de Performance. Peça acesso ao "
+                     "administrador da plataforma (listas PLATAFORMA_ANALISTAS e PLATAFORMA_GESTORES).")
+
+
+@app.route("/painel/nexus/entrar", methods=["POST"])
+def nexus_entrar():
+    """O passe do Nexus abre a sessão DESTA plataforma e leva à tela (303). Spec 5.2: assinatura, 60 s, uso único,
+    destino só do mapa. Recusa: "Abra de novo pelo Nexus" com o motivo, 403, nenhuma sessão aberta."""
+    if not NEXUS_SSO_CHAVE:                     # o portão já devolve 404; aqui é a segunda trava
+        from flask import abort
+        abort(404)
+    if _de_outra_origem():
+        return _pagina_da_porta("Abra de novo pelo Nexus", "Este pedido veio de outro site.",
+                                motivo="o passe só vale pelo próprio Nexus"), 403
+    # Passe recusado ou pessoa fora das listas: a sessão de PASSE que já estivesse aberta neste navegador cai junto. Provado
+    # na cópia de 10/10: depois de um gestor, um login fora das listas via "Sem acesso" na moldura e seguia com a sessão
+    # do gestor na plataforma; no navegador de uso comum, quem entrou no Nexus agora não pode herdar a sessão de outro.
+    # A da senha fica (é de quem a digitou, e o passe não diz nada sobre ela).
+    try:
+        d = _pn.ler_passe(flask_request.form.get("passe"), NEXUS_SSO_CHAVE, time.time(), _PASSES_USADOS)
+    except _pn.PasseRecusado as e:
+        print(f"[porta Nexus] passe recusado: {e.motivo}")          # sem o passe e sem o e-mail
+        _encerra_sessao_do_passe()
+        return _pagina_da_porta("Abra de novo pelo Nexus", "O Nexus não conseguiu abrir esta tela da Performance. "
+                                "Clique de novo no item do menu.", motivo=e.motivo), 403
+    perfil = _pn.perfil_de(d["email"], PLATAFORMA_ANALISTAS, PLATAFORMA_GESTORES)
+    if perfil is None:
+        print("[porta Nexus] login fora das listas PLATAFORMA_ANALISTAS/PLATAFORMA_GESTORES")
+        _encerra_sessao_do_passe()
+        return _pagina_da_porta("Sem acesso à Performance", _TEXTO_SEM_ACESSO), 403
+    # A sessão anterior (senha, ou outra pessoa no mesmo navegador) dá lugar a esta: quem abriu pelo Nexus agora é quem
+    # está na plataforma. Não permanente: o cookie some ao fechar o navegador, e as 12 h valem pelo `nexus_ate`.
+    session.clear()
+    session.permanent = False
+    session.update({"auth": True, "auth_kind": "nexus", "user": d["email"], "nome": d["nome"], "perfil": perfil,
+                    "admin_nexus": d["admin"], "nexus_ate": int(time.time()) + SESSAO_DO_PASSE_S,
+                    "nexus_chave": _pn.marca_da_chave(NEXUS_SSO_CHAVE)})
+    print(f"[porta Nexus] sessão aberta pelo passe: {perfil}, {d['destino'].split('?', 1)[0]}")
+    return redirect(_prefixo() + d["destino"], code=303)
+
+
+@app.route("/painel/nexus/sair", methods=["POST"])
+def nexus_sair():
+    """O Sair do Nexus passa por aqui: encerra a sessão aberta pelo passe (a da senha fica) e volta para `volta`, se for
+    um caminho deste endereço (o Nexus manda o entrar dele). Sem `volta`, uma página curta."""
+    if not NEXUS_SSO_CHAVE:
+        from flask import abort
+        abort(404)
+    if _de_outra_origem():
+        return _pagina_da_porta("Pedido recusado", "Este pedido veio de outro site."), 403
+    _encerra_sessao_do_passe()
+    volta = (flask_request.form.get("volta") or "").strip()
+    if volta.startswith("/") and not volta.startswith("//") and not re.search(r"[\x00-\x20\x7f\\]", volta):
+        return redirect(volta, code=303)
+    return _pagina_da_porta("Você saiu da Performance", "A sessão aberta pelo Nexus foi encerrada neste navegador.")
+
+
+_CALCO_MODO_NEXUS = """<style>html.modo-nexus [data-casca]{display:none!important}</style><script>(function(){
+if(window.parent===window||window.parent!==window.top)return;
+function rota(){var p=window.APP_PREFIX||'',c=location.pathname;if(p&&c.indexOf(p)===0)c=c.slice(p.length)||'/';
+return c+location.search;}
+function avisa(){try{window.parent.postMessage({tipo:'nexus:rota',caminho:rota()},location.origin);}catch(e){}}
+['pushState','replaceState'].forEach(function(n){var o=history[n];if(!o)return;
+history[n]=function(){var r=o.apply(this,arguments);avisa();return r;};});
+window.addEventListener('popstate',avisa);
+if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',avisa);else avisa();
+})();</script>"""
+
+
+@app.after_request
+def _porta_do_nexus_na_resposta(resp):
+    """Com a NEXUS_SSO_CHAVE (spec 5.4; sem ela, nada muda):
+    - `Content-Security-Policy: frame-ancestors 'self'` em TODA resposta HTML: só o próprio endereço emoldura a
+      plataforma (hoje ninguém de fora a emoldura; a Entrada embute o /monitor na mesma origem, e a ponte do Nexus
+      busca no servidor e não repassa este cabeçalho);
+    - modo Nexus (`_modo_nexus`): `class="modo-nexus"` no <html>, posta pelo servidor (sem piscar), o CSS que esconde o
+      que cada template marcou com `data-casca` (a marca, o "‹ Entrada", o "← Início") e o aviso `nexus:rota` à
+      moldura a cada troca de caminho, para o Nexus acompanhar o endereço (`?p=`) e acender o item do menu. Só a página
+      de cima da moldura avisa: o /monitor que o Tempo real embute é uma moldura dentro dela."""
+    if not NEXUS_SSO_CHAVE or not (resp.content_type or "").startswith("text/html"):
+        return resp
+    csp = resp.headers.get("Content-Security-Policy")
+    if not csp:
+        resp.headers["Content-Security-Policy"] = "frame-ancestors 'self'"
+    elif "frame-ancestors" not in csp:
+        resp.headers["Content-Security-Policy"] = csp.rstrip("; ") + "; frame-ancestors 'self'"
+    resp.vary.add("Sec-Fetch-Dest")
+    try:
+        if resp.status_code != 200 or resp.direct_passthrough or not _modo_nexus():
+            return resp
+        html = resp.get_data(as_text=True)
+        m = re.search(r"<html\b[^>]*>", html, re.I)
+        if not m:                                   # fragmento (sem <html>): não é página
+            return resp
+        tag = m.group(0)
+        mc = re.search(r"""\bclass\s*=\s*(["'])(.*?)\1""", tag, re.I)
+        if mc:
+            tag = tag[:mc.start(2)] + (mc.group(2) + " modo-nexus").strip() + tag[mc.end(2):]
+        else:
+            tag = tag[:-1].rstrip("/").rstrip() + ' class="modo-nexus">'
+        html = html[:m.start()] + tag + html[m.end():]
+        h = re.search(r"<head\b[^>]*>", html, re.I)
+        pos = h.end() if h else m.start() + len(tag)
+        resp.set_data(html[:pos] + _CALCO_MODO_NEXUS + html[pos:])
+    except Exception as e:
+        print(f"[porta Nexus] não consegui pôr o modo Nexus na página: {e}")
+    return resp
 
 
 @app.after_request
@@ -438,15 +785,24 @@ def _login_next():
 
 def _render_login(erro=""):
     """Página de login. Injeta o botão 'Entrar com Microsoft' (preservando o next) quando o SSO do
-    Entra está configurado; a senha de admin continua sempre visível."""
-    ms = ""
+    Entra está configurado; a senha de admin continua sempre visível. Com a fase 3 ligada (NEXUS_PORTA_PRINCIPAL,
+    09/10/2026), 'Entrar pelo Nexus' vem primeiro: o Nexus é o link principal e a senha vira a reserva de admin."""
+    botoes = []
+    if NEXUS_PORTA_PRINCIPAL:
+        import html as _html                     # o valor já foi conferido (`_porta_principal_valida`); escape mesmo assim
+        # o botão da senha vira secundário: dois botões verdes iguais não dizem qual é o caminho principal
+        botoes.append(f'<a href="{_html.escape(NEXUS_PORTA_PRINCIPAL, quote=True)}" class="nexbtn">Entrar pelo Nexus</a>'
+                      '<style>.card button[type=submit]{background:transparent;color:var(--text);'
+                      'border:1px solid var(--divider)}</style>')
     if MS_SSO_ON:
         nxt = (flask_request.args.get("next") or "").strip()
         href = "/auth/login" + ("?next=" + quote(nxt) if (nxt.startswith("/") and not nxt.startswith("//")) else "")
-        ms = (f'<a href="{href}" class="msbtn"><svg width="18" height="18" viewBox="0 0 21 21" style="flex:none">'
+        botoes.append(f'<a href="{href}" class="msbtn"><svg width="18" height="18" viewBox="0 0 21 21" style="flex:none">'
               '<rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/>'
               '<rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/>'
-              '</svg>Entrar com Microsoft</a><div class="ordiv"><span></span>ou senha de admin<span></span></div>')
+              '</svg>Entrar com Microsoft</a>')
+    ms = ('<div style="height:10px"></div>'.join(botoes)
+          + '<div class="ordiv"><span></span>ou senha de admin<span></span></div>') if botoes else ""
     return _LOGIN_HTML.replace("{{erro}}", erro).replace("{{ms}}", ms)
 
 
@@ -3543,6 +3899,10 @@ def index(fonte_id=None):
     # 05/09/2026: a ENTRADA por perfil (tempo real / diagnostico / gestao) vira a pagina principal; o Monitoramento
     # desce para /monitoramento (decisao do Levi). /tempo-real e o drill-down do 1o card: o MESMO html decide o nivel
     # pelo caminho (JS), a URL fica linkavel e o botao voltar funciona. A versao antiga (Jinja) segue em /antigo.
+    # Porta unica (09/10/2026, spec 5.4): dentro da moldura do Nexus quem faz o papel da Entrada e o menu dele, entao o
+    # "/" (a marca, um link antigo) leva ao Tempo real em vez de mostrar os cards que levam a Painel, Gerencial etc.
+    if flask_request.path == "/" and _modo_nexus():
+        return redirect(_prefixo() + "/tempo-real")
     return _serve_html_cru("Entrada.html")
 
 
@@ -9882,7 +10242,7 @@ def _tk_str_gravar(linha, finalizar):
         return jsonify({"ok": False, "erro": "A plataforma está sem o GRIDCO_SQL_TOKEN. Nada foi gravado."}), 503
     nome = " ".join(str(corpo.get("quem") or "").split())[:60]
     quem = f"{nome} (plataforma)" if nome else ""
-    email = session.get("user") if session.get("auth_kind") == "ms" else "senha compartilhada"
+    email = _quem_na_sessao()
 
     def _gravar(metodo, sheet_id, row, dados):
         return _relay.encaminhar(metodo, sheet_id, row, dados, (email, quem), tok)
@@ -25249,8 +25609,7 @@ def api_painel_falhas_desconsiderar():
         with _falhas_desc_lock:
             d = _falhas_desc_ler()
             if b.get("desconsiderar", True):
-                d[tipo][chave] = {**resumo, "por": session.get("user") if session.get("auth_kind") == "ms"
-                                  else "senha compartilhada", "em": datetime.now().strftime("%Y-%m-%d %H:%M")}
+                d[tipo][chave] = {**resumo, "por": _quem_na_sessao(), "em": datetime.now().strftime("%Y-%m-%d %H:%M")}
             else:
                 d[tipo].pop(chave, None)
             tmp = FALHAS_DESC_PATH + ".tmp"
@@ -28748,7 +29107,7 @@ def _rel_sem_gravar(estado):
 
 
 def _rel_sem_quem():
-    return session.get("user") if session.get("auth_kind") == "ms" else "senha compartilhada"
+    return _quem_na_sessao()
 
 
 @app.route("/api/relatorio/semanal")
@@ -29726,7 +30085,7 @@ if __name__ == "__main__":
     try:
         from waitress import serve
         print("[server] waitress em http://0.0.0.0:5050 (threads=16)")
-        serve(app, host="0.0.0.0", port=5050, threads=16)
+        serve(app, host="0.0.0.0", port=5050, threads=16, **_waitress_atras_do_caddy())   # https do Caddy: Secure
     except ImportError:
         print("[server] waitress não instalado — usando o servidor de dev do Flask")
         app.run(debug=False, port=5050, threaded=True)
