@@ -38,7 +38,8 @@ run_tests.bat -v         REM verboso, lista cada teste
   setembro, a API PV é paga) e os testes passavam, porque o código engole a falha de rede. Teste novo que passa por
   essas fontes **dubla a função** (`_pv_dev_names`, `get_token`, `_sunop_trk_curvas`…), nunca a trava. Exceção:
   `@pytest.mark.rede_cortada_pelo_teste`, para quem conta tentativas cortando o `socket.getaddrinfo`
-  (`test_nexus_sem_api_pv.py`) — só vale enquanto a resolução estiver trocada. A trava se prova em
+  (`test_nexus_sem_api_pv.py`, `test_porta_nexus_gestor_sem_api_pv.py`) — só vale enquanto a resolução estiver
+  trocada. A trava se prova em
   `test_trava_fontes_pagas.py`.
 - **`import app` não é limpo** — no topo do módulo ele roda
   `load_equipamentos()` / `load_metas()` / `load_tickets_trackers()`, que leem

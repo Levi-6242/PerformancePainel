@@ -21,6 +21,11 @@ import porta_nexus as pn
 CHAVE = "chave-de-teste-do-passe-" + "x" * 20
 _SLEEP = time.sleep
 
+# Como o test_nexus_sem_api_pv.py, este arquivo CONTA as tentativas de falar com a API PV na resolução do nome
+# (`rede_cortada`). A trava das fontes pagas do conftest.py recusaria antes, e a contagem daria zero sempre: o teste
+# passaria sem provar nada. Com a marca, o pedido segue até a resolução, que aqui está cortada.
+pytestmark = pytest.mark.rede_cortada_pelo_teste
+
 
 def _e_api_pv(host: str) -> bool:
     return "pvoperation.com" in host
