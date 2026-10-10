@@ -650,3 +650,14 @@ def test_cookie_da_sessao_com_a_chave_sai_samesite_lax_e_secure_atras_de_https(c
     r = cli.post("/login", data={"senha": SENHA}, headers={"X-Forwarded-Proto": "https"})
     assert r.status_code == 302
     assert "SameSite" not in r.headers["Set-Cookie"] and "Secure" not in r.headers["Set-Cookie"]     # como hoje
+
+
+def test_destino_com_ponto_ponto_codificado_e_recusado():
+    """Revisão de 10/10: '/gemeo/%2e%2e/tokens' casava com /gemeo/<path:resto> e o navegador resolve o %2e%2e como '..'
+    (vai a /tokens): o destino saía do mapa. Recusado o segmento que, decodificado, é '.' ou '..' ou traz barra."""
+    for ruim in ("/gemeo/%2e%2e/tokens", "/gemeo/%2E%2E/%2e%2e/nexus/sair", "/gemeo/.%2e/tokens", "/gemeo/%2e/x",
+                 "/gemeo/./x", "/gemeo/%2e%2e%2ftokens", "/gemeo/x%5c..%5ctokens", "/painel/usina/%2e%2e"):
+        assert pn.destino_permitido(ruim) is None, ruim
+    for bom in ("/gemeo/usina/12", "/painel/usina/S%C3%A3o%20Bento?hist=1&nome=S%C3%A3o", "/painel/usina/a.b",
+                "/gemeo/usina/12?d=..", "/monitor?fonte=pv&embed=1"):
+        assert pn.destino_permitido(bom) == bom, bom
