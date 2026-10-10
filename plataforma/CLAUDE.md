@@ -296,22 +296,36 @@ sem JavaScript, um botão "Abrir") para `/painel/nexus/entrar` com o campo `pass
 base64url(HMAC-SHA256(json))`, sem `=` (aceito com ou sem). A assinatura é sobre os BYTES do JSON do primeiro segmento.
 JSON: `{"v": 1, "email", "nome", "admin": true|false (NEXUS_ADMINS), "destino": "/tela?query", "vence": epoch em s (no
 máximo 60 s à frente; mais que 65 s é recusado), "numero": 16 a 128 de [A-Za-z0-9_-]}`. A plataforma confere formato,
-assinatura (`compare_digest`), versão, vencimento, e-mail, destino (só tela do mapa, caminho local; nada de redirecionamento
-aberto) e, por último, o número (uso único; guarda os dos últimos 2 min, em memória: o web é um processo só). Passou:
+assinatura (`compare_digest`), versão, vencimento (número finito: o JSON sem `NaN`/`Infinity`, que deixavam o passe sem
+vencer), e-mail, destino (só tela do mapa, caminho local; nada de redirecionamento aberto; nenhum segmento que,
+decodificado, seja `.`/`..` ou traga barra: `/gemeo/%2e%2e/tokens` o navegador resolve como `/tokens`) e, por último, o número (uso único; guarda os dos últimos 2 min, em memória: o web é um processo só). Passou:
 `session.clear()` e abre a sessão DELA (`auth`, `auth_kind="nexus"`, `user`=e-mail, `nome`, `perfil`, `admin_nexus`,
 `nexus_ate` = agora + 12 h, `nexus_chave` = HMAC da chave), não permanente (o cookie some ao fechar o navegador) e 303 para
 o destino. Recusa: página "Abra de novo pelo Nexus" com o motivo, 403, sessão nenhuma. Fora das listas: "Sem acesso à
 Performance", 403. Nos dois casos a sessão de PASSE que já estivesse aberta no navegador cai junto (a da senha fica):
-na cópia de 10/10, depois de um gestor, um login fora das listas via "Sem acesso" e seguia com a sessão do gestor. POST com `Sec-Fetch-Site: cross-site` é recusado (login trocado por outro site). POST, nunca na URL:
+na cópia de 10/10, depois de um gestor, um login fora das listas via "Sem acesso" e seguia com a sessão do gestor. O passe
+e o Sair só valem da MESMA origem (`_de_outra_origem`: `Sec-Fetch-Site` só `same-origin`/`none`; sem ele, `Origin` deste
+endereço; `null` não): `same-site` também é recusado, porque no servidor qualquer subdomínio de gridco.com.br é
+`same-site` e uma página ali entregaria o passe do atacante (login trocado) ou forçaria o Sair. POST, nunca na URL:
 o passe leva o e-mail. O Sair do Nexus faz POST (`target=_top`) em `/painel/nexus/sair` com `volta` = o caminho para onde
 seguir (só caminho deste endereço); encerra só a sessão do passe (a da senha fica).
 
 **A cada pedido da sessão do passe** (`_portao_da_sessao_do_passe`): vencida (12 h) ou chave trocada/retirada → sessão
 apagada, segue como quem não entrou (spec 8: trocar a chave derruba o passe, não a senha); perfil refeito pelas listas
-de hoje; `/tokens` e `/api/tokens*` só com `admin_nexus`, em qualquer perfil (403 página/JSON); gestor só passa no
+de hoje; gravação (método fora de GET/HEAD/OPTIONS) só da mesma origem (403 "pedido de outro site": antes, um
+`<form enctype=text/plain>` de qualquer site gravava em nome do analista); administração só com `admin_nexus`, em
+qualquer perfil (`porta_nexus.ROTAS_SO_ADMIN`: `/tokens`, `/api/tokens*`, `/api/admin/*` (as bases do espelho e os
+caminhos do servidor), `/api/ronda/whats/testar`, `/reiniciar` e `/grupos` (o envio pelo chip, a qualquer número, e o
+serviço do WhatsApp); 403 página/JSON. Efeito: o botão "Reiniciar serviço" do Monitor da ronda é só de admin para
+quem entra pelo Nexus; a senha segue como hoje); gestor só passa no
 `permitido_gestor` (403 "somente leitura (perfil gestor)") e o pedido dele leva `g.nexus_so_leitura`, que faz o
 `pedido_do_nexus()` valer: a API PV fica travada (a mesma trava da ponte) e o pedido não monta cache. Quem grava pelo passe
 fica no diário com o e-mail (`_quem_na_sessao`, no lugar de "senha compartilhada").
+
+**O cookie** (`_SessaoDaPlataforma`, só com a chave): `SameSite=Lax`, e `Secure` quando o pedido chegou por https
+(`X-Forwarded-Proto` do Caddy; o waitress não lê proxy). Sem a chave, o `session=...; HttpOnly; Path=/` de sempre. Lax não
+atrapalha a moldura (mesma origem) nem o bookmarklet da Plataforma (rota pública, sem cookie). Revisão adversarial de
+10/10/2026, com os testes no fim de `tests/test_porta_nexus.py`.
 
 **Gestor** (`leitura_nexus.permitido_gestor`): as páginas de toda tela do mapa, as leituras da ponte mais `_GET_GESTOR`
 (as das outras telas), `POSTS_DE_CONSULTA_GESTOR` (os 3 da ponte + `/api/fracttal/os`), sem `force/forcar/run/backfill`,
@@ -869,6 +883,11 @@ diz que a fonte não tem. `/api/tokens` mostra este token como reserva, alarmand
 Quando ele vence, o combiner de reserva recebe `HTTP 401`; um disjuntor abre no primeiro 401.
 
 **Como renovar:** bookmarklet de 1 clique, ou `POST /api/pv/trackers/token` com `{"token": "..."}`.
+**Pendente (revisão de 10/10/2026, decisão do Levi):** a rota é pública (o bookmarklet roda na origem da Plataforma,
+sem sessão daqui) e só confere o formato do JWT e o `exp`, não a assinatura: qualquer um, sem login, grava um token de
+mentira e zera o `_pv_trk_cache` (a próxima leitura de trackers vai à API PV na hora). Reproduzido no test client em
+10/10 (200 sem sessão). Corrigir pede escolher: um segredo no bookmarklet (todo mundo troca o favorito) ou validar o
+token na fonte antes de gravar (uma chamada à Plataforma por renovação). Não é da porta única; fica para outra tarefa.
 O `tokens_runtime.json` é relido a cada uso, então vale na hora, sem reiniciar. `_plat_token()` escolhe
 entre o `PLAT_TOKEN` do ambiente e o arquivo **pela validade maior** — o ambiente é só semente de
 boot. Não inverta essa ordem: com "ambiente primeiro", uma semente velha no `tokens.txt` sequestra
