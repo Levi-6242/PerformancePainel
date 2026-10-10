@@ -72,12 +72,13 @@ def _casa(caminho: str, base: str) -> bool:
 
 
 def pedido_do_nexus() -> bool:
-    """Este código roda por causa de um pedido que entrou pela chave do Nexus: no próprio pedido ou numa thread ou tarefa
-    que ele abriu."""
+    """Este código roda por causa de um pedido só de leitura vindo do Nexus: pela chave da ponte (`nexus_leitura_ok`) ou
+    pela sessão de GESTOR aberta pelo passe (`nexus_so_leitura`, porta única de 09/10/2026: "sem abrir a API PV na
+    hora", spec 5.3) — no próprio pedido ou numa thread ou tarefa que ele abriu."""
     if getattr(_marca, "nexus", False):
         return True
     from flask import g, has_request_context
-    return has_request_context() and bool(getattr(g, "nexus_leitura_ok", False))
+    return has_request_context() and bool(getattr(g, "nexus_leitura_ok", False) or getattr(g, "nexus_so_leitura", False))
 
 
 def _marcado(fn):
@@ -146,3 +147,64 @@ def permitido(metodo: str, caminho: str, parametros=()) -> bool:
     if m not in ("GET", "HEAD"):
         return False
     return any(_casa(c, b) for b in _PAGINAS + _GET)
+
+
+# ── O perfil GESTOR da porta única (09/10/2026) ──────────────────────────────────────────────────────────────────────
+# Levi, 09/10: "uma porta, dois motores", para "tanto os gestores olharem quanto o analista fazer tudo pelo nexus". Quem
+# entra pelo passe do Nexus como gestor (PLATAFORMA_GESTORES) só lê, pela MESMA lista da ponte acima, ampliada para as
+# rotas de TODAS as telas do mapa (porta_nexus.MAPA, spec 5.3): sem gravação, sem os parâmetros que disparam coleta e
+# sem abrir a API PV na hora (o pedido do gestor leva `nexus_so_leitura`, e o `pedido_do_nexus` trava a API PV para
+# ele como para a ponte). A ponte segue com a lista dela (`permitido`), sem mudança: a chave X-Nexus-Leitura sai na
+# fase 3 e esta lista fica, para o gestor. `test_porta_nexus.py::test_a_lista_do_gestor_cobre_as_rotas_das_telas` lê
+# os templates das telas do mapa: rota nova numa tela entra aqui (leitura ou consulta) ou em GRAVACOES_GESTOR.
+
+# leituras (GET/HEAD) das telas do mapa que a ponte não alcançava; "x" casa "x" e "x/..."
+_GET_GESTOR = (
+    "/api/cos/mtta",                                          # Acompanhamento COS
+    "/api/gerencial",                                         # Visão gerencial, grupos e Disponibilidade (e o Excel)
+    "/api/cascata", "/api/macro", "/api/g", "/api/inv/pr-mes",  # Painel NOC e Diagnóstico
+    "/api/diagnostico", "/api/painel/correlacao",             # Diagnóstico (o lado API PV fica de fora, abaixo)
+    "/api/painel/falhas",                                     # Strings e trackers (o desconsiderar é POST: fora)
+    "/api/relatorio",                                         # Criador de relatório e Relatório semanal
+    "/api/ronda/recorrentes", "/api/ronda/analise", "/api/ronda/book", "/api/ronda/obs",
+    "/api/ronda/whats/status", "/api/ronda/whats/qr",         # Monitor da ronda (só as leituras dele)
+    "/api/tokens",                                            # Chaves das fontes: a validade (e só para admin)
+)
+
+# POSTs que só consultam: os da ponte e as OS do Fracttal da usina (corpo com usina e inversores)
+POSTS_DE_CONSULTA_GESTOR = POSTS_DE_CONSULTA | {"/api/fracttal/os"}
+
+# o que as telas do mapa gravam além do que a ponte já listava (documentação e teste): para o gestor, tudo é 403
+GRAVACOES_GESTOR = GRAVACOES + (
+    "/api/state/comment", "/api/painel/falhas/desconsiderar", "/api/etm/ticket", "/api/ronda/obs",
+    "/api/ronda/whats/reiniciar", "/api/relatorio/semanal/direcionamento", "/api/relatorio/semanal/emitir",
+    "/api/tokens/",
+)
+
+# o lado API PV do Diagnóstico abre a usina na API PV na hora (_pv_plant_inversores, _pv_series_inversores): fora
+NEGADOS_API_PV_GESTOR = NEGADOS_API_PV + tuple(re.compile(r) for r in (
+    r"^/api/diagnostico/pv/",
+    rf"^/api/painel/correlacao/({_FONTES_API_PV})/",
+))
+
+# fora das telas: "/" (na moldura vira o Tempo real), o /logout e os estáticos
+_PAGINAS_GESTOR = ("/static", "/logout")
+
+
+def permitido_gestor(metodo: str, caminho: str, parametros=()) -> bool:
+    """O que a sessão de GESTOR (passe do Nexus) alcança. Mesmas negações da ponte; páginas = toda tela do mapa."""
+    import porta_nexus
+
+    m = (metodo or "").upper()
+    c = (caminho or "").split("?", 1)[0].rstrip("/") or "/"
+    if any(param in PARAMETROS_QUE_DISPARAM for param in (parametros or ())):
+        return False
+    if any(_casa(c, neg) for neg in _NEGADOS) or any(r.match(c) for r in NEGADOS_API_PV_GESTOR):
+        return False
+    if m == "POST":
+        return c in POSTS_DE_CONSULTA_GESTOR
+    if m not in ("GET", "HEAD"):
+        return False
+    if c == "/" or porta_nexus.tela_do_caminho(c) or porta_nexus.tela_do_caminho(c + "/"):
+        return True
+    return any(_casa(c, b) for b in _PAGINAS + _GET + _PAGINAS_GESTOR + _GET_GESTOR)
