@@ -219,3 +219,18 @@ def test_entrar_pelo_nexus_e_o_login_usam_a_mesma_regua(cli, monkeypatch):
         assert app._caminho_deste_endereco(n), n
     for n in ("", "painel", "//x", "/\t/x", "/\n/x", "/\r/x", "/\x00", "/\x7f", "/\\x", None, 12):
         assert not app._caminho_deste_endereco(n), repr(n)
+
+
+def test_o_portao_leva_a_consulta_do_favorito_ao_login(cli, monkeypatch):
+    """Prova da porta única (10/10/2026): o favorito do Diagnóstico voltava do login sem a consulta e abria com o nome
+    trocado pelo id e a fonte no padrão "pv". Agora a consulta vai no next, e o "Entrar pelo Nexus" a leva até a moldura."""
+    monkeypatch.setattr(app, "NEXUS_PORTA_PRINCIPAL", "https://app.exemplo.com/")
+    favorito = "/painel/usina/18749270?fonte=thopen&nome=Alto%20Paran%C3%A1%201"
+    r = cli.get(favorito)
+    assert r.status_code == 302
+    nxt = parse_qs(urlsplit(r.headers["Location"]).query)["next"][0]
+    assert nxt == "/painel/usina/18749270?fonte=thopen&nome=Alto%20Paran%C3%A1%201"
+    botao = _botao(cli, "?next=" + quote(nxt, safe="/"))
+    assert parse_qs(urlsplit(botao).query)["p"][0] == nxt
+    # sem consulta, o next segue como sempre
+    assert cli.get("/painel").headers["Location"].endswith("/login?next=/painel")

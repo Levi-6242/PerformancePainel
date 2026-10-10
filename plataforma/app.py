@@ -501,7 +501,11 @@ def _auth_gate():
     # preserva o destino: depois do login volta pra página pedida (ex.: o app do Monitor da Ronda
     # abre /ronda/monitor — sem isto o login jogava sempre na raiz e o app "virava" o dashboard).
     # Com prefixo, "/login" cru mandaria o navegador pra RAIZ do domínio (fora da app).
-    return redirect(_prefixo() + "/login?next=" + quote(p))
+    # A consulta vai junto (prova da porta única, 10/10/2026): o favorito do Diagnóstico
+    # (/painel/usina/<id>?fonte=...&nome=...) voltava do login sem ela, com o nome trocado pelo id e a fonte no padrão
+    # "pv" — fonte errada para uma usina da Thopen, Athon, Axis ou 2C. O next é conferido no /login como antes.
+    qs = flask_request.query_string.decode("utf-8", "replace")
+    return redirect(_prefixo() + "/login?next=" + quote(p + ("?" + qs if qs else ""), safe="/"))
 
 
 def _quem_na_sessao() -> str:
