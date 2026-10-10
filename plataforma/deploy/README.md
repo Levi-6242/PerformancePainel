@@ -299,8 +299,10 @@ como "sem comunicação" e as strings como falha — alarme falso em tudo, porqu
 Como renovar (vale na hora, **sem reiniciar** — o `tokens_runtime.json` é relido a cada uso):
 
 ```
-POST /api/pv/trackers/token     {"token": "<colado>"}
+POST /api/pv/trackers/token     {"token": "<colado>"}     cabeçalho X-Gridco-Chave: <chave de /tokens>
 ```
+
+Sem a chave (desde 10/10/2026) a rota responde 401 e não grava: o mais simples é colar o token em `/tokens`, logado.
 
 Como saber que está perto de vencer: `GET /api/tokens` devolve `dias` restantes por fonte.
 **Vale a pena um alerta** quando `plat` ficar com menos de 1 dia — é o único ponto do sistema em

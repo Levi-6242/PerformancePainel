@@ -519,9 +519,10 @@ def _rota_publica(p: str) -> bool:
     # a rota devolve uma lista fechada de campos (ver `versao_publica`).
     if p == "/versao":
         return True
-    # Renovação do token da Plataforma (trackers): o bookmarklet roda na origem
+    # Renovação do token da Plataforma (trackers): o userscript roda na origem
     # plataforma.pvoperation.com (cross-origin, SEM sessão do dashboard) → precisa passar pelo gate.
-    # Seguro: o handler só aceita um JWT válido (3 partes) e grava só o token da fonte de trackers.
+    # Gate próprio no handler: a chave `X-Gridco-Chave`, que sai de /tokens. Até 10/10/2026 o handler só
+    # conferia o formato do JWT e qualquer um na internet trocava o token e zerava o cache de trackers.
     if p == "/api/pv/trackers/token":
         return True
     # API de campo (integração externa): gate próprio por x-api-key no handler, fora da sessão humana.
@@ -1060,12 +1061,34 @@ _TOKENS_COLAVEIS = {
 }
 
 
+def _plat_chave() -> str:
+    """Chave que o userscript manda ao `POST /api/pv/trackers/token` (10/10/2026) — gerada aqui, na 1ª vez que alguém
+    LOGADO pede, e guardada no tokens_runtime.json (fora do Git; nada para a T.I. configurar). Só esta função gera: a
+    rota pública apenas compara, então um pedido de fora não cria chave. Para trocar (vazou): apagar a chave
+    `plat_chave` do tokens_runtime.json; a próxima visita a /tokens gera outra, e o userscript recebe a nova."""
+    with _tokens_rt_lock:
+        dados = _tokens_rt_load()
+        chave = (dados.get(PLAT_CHAVE_RT_KEY) or "").strip()
+        if not chave:
+            chave = secrets.token_urlsafe(32)
+            dados[PLAT_CHAVE_RT_KEY] = chave
+            dados["_atualizado"] = datetime.now().isoformat(timespec="seconds")
+            _tokens_rt_write(dados)
+    return chave
+
+
+@app.route("/api/tokens/plat/chave")
+def api_tokens_plat_chave():
+    """A chave do userscript, para a tela /tokens. Atrás do portão (é /api/): só com login."""
+    return jsonify({"chave": _plat_chave()})
+
+
 @app.route("/api/tokens/<fonte>", methods=["POST"])
 def api_tokens_colar(fonte):
     """Recebe um token colado na tela e o publica no tokens_runtime.json.
 
-    Fica atrás do gate de senha (é /api/), ao contrário do /api/pv/trackers/token, que é
-    aberto de propósito porque o bookmarklet roda na origem da PV Plataforma.
+    Fica atrás do gate de senha (é /api/), ao contrário do /api/pv/trackers/token, que passa
+    pelo portão porque o userscript roda na origem da PV Plataforma — e por isso exige a chave.
 
     Recusa token VENCIDO: colar um expirado deixaria a plataforma pior do que estava, e o
     erro é fácil de cometer copiando do F12 uma aba antiga."""
@@ -8624,6 +8647,7 @@ def api_sunop_trackers_eventos():
 #   troca liberta o caminho crítico: vence a cada 7 dias e precisa de gente colando na tela.
 PLAT_BASE        = "https://apiplataforma.pvoperation.com"
 PLAT_RT_KEY      = "plat"      # chave no tokens_runtime.json (era plat_token.txt)
+PLAT_CHAVE_RT_KEY = "plat_chave"   # segredo que o userscript manda ao POST /api/pv/trackers/token (10/10/2026)
 _pv_trk_cache    = {"payload": None, "ts": 0.0}
 _pv_trk_plant    = {}   # idusina → {ts, payload}  (análise por usina, reusada no drill-down)
 
@@ -12886,14 +12910,31 @@ def api_2capi_trackers_chart_csv(idusina):
 
 @app.route("/api/pv/trackers/token", methods=["POST", "OPTIONS"])
 def api_pv_trackers_token():
-    """Salva o token da PV Plataforma (usado pelo bookmarklet de 1 clique).
-    CORS liberado: o bookmarklet roda na origem plataforma.pvoperation.com."""
+    """Salva o token da PV Plataforma (usado pelo userscript `plat_token_autocapture.user.js`).
+    CORS liberado: o userscript/bookmarklet roda na origem plataforma.pvoperation.com, sem a sessão daqui.
+
+    Só grava com a CHAVE em `X-Gridco-Chave` (10/10/2026). Até então a rota aceitava qualquer coisa com cara de JWT
+    (achado da revisão adversarial da "porta única"): como não há como conferir a assinatura da PV, qualquer um na
+    internet trocava o token — um forjado com `exp` em 2099 vence o verdadeiro em `_plat_token()`, a reserva da curva
+    de strings para e /tokens passa a dizer "ok" — e zerava o cache de trackers, fazendo o próximo /api/pv/trackers
+    reconstruir tudo na API PV na hora, quantas vezes quisesse. A chave sai de /tokens, atrás do login
+    (`_plat_chave`); quem tem login já cola token por /api/tokens/plat, então ela não abre nada a mais."""
     if flask_request.method == "OPTIONS":      # preflight do navegador
         resp = app.make_response(("", 204))
         resp.headers["Access-Control-Allow-Origin"] = "*"
         resp.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
-        resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        resp.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Gridco-Chave"
         return resp
+    # Sem DASH_PASSWORD o app inteiro é aberto (dev local) e /api/tokens/plat grava sem nada: exigir a chave só aqui
+    # não protegeria coisa alguma e quebraria o destino localhost do userscript.
+    if DASH_PASSWORD:
+        esperada = _tokens_rt_get(PLAT_CHAVE_RT_KEY)
+        recebida = (flask_request.headers.get("X-Gridco-Chave") or "").strip()
+        # chave ainda não gerada (ninguém abriu /tokens) recusa tudo: "" não pode casar com cabeçalho vazio
+        if not esperada or not secrets.compare_digest(recebida.encode(), esperada.encode()):
+            r = jsonify({"ok": False, "error": "chave recusada: copie a chave do userscript em /tokens"})
+            r.headers["Access-Control-Allow-Origin"] = "*"
+            return r, 401
     body = flask_request.get_json(force=True, silent=True) or {}
     tok = (body.get("token") or "").strip()
     # Validação FORTE (o endpoint é público p/ o bookmarklet): exige um JWT de verdade — payload

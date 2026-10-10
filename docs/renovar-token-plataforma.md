@@ -15,7 +15,11 @@ pega o header `x-auth-token-update` que o próprio site já usa e o envia para o
 1. Instale a extensão **Tampermonkey** no Chrome/Edge (loja de extensões — grátis).
 2. Abra o painel do Tampermonkey → **Criar novo script** → apague o conteúdo padrão.
 3. Cole o conteúdo de **`plat_token_autocapture.user.js`** (raiz do projeto) → **Salvar** (Ctrl+S).
-4. Abra/atualize `https://plataforma.pvoperation.com` e faça login normalmente.
+4. **Chave (desde 10/10/2026):** abra `/tokens` no dashboard (logado), clique em **Mostrar chave** → **Copiar** e cole
+   no campo `chave` do destino desse endereço, em `DESTINOS`, no topo do script → **Salvar**. Sem ela o servidor
+   responde 401 e o aviso diz "chave recusada". A chave fica só na cópia do Tampermonkey — **nunca** commite o
+   arquivo com ela preenchida (o repositório é público). Instalação local sem senha não pede chave.
+5. Abra/atualize `https://plataforma.pvoperation.com` e faça login normalmente.
    - No canto inferior direito aparece um aviso discreto: **"GridCo: token enviado ao dashboard"**.
    - A partir daí, toda vez que a Plataforma estiver aberta o token é reenviado sozinho (sem clique).
 
@@ -32,8 +36,9 @@ pega o header `x-auth-token-update` que o próprio site já usa e o envia para o
 
 - Status do token: `GET http://localhost:5050/api/tokens` → procure a linha **"plat"** (status `ok` + validade).
 - Se a aba Trackers zerar (0 usinas / 0 parados), o token venceu → abra a Plataforma e relogue.
-- Outra máquina? Troque `DASH_URL` no topo do userscript pela URL do túnel Cloudflare
-  (`tunnel_url.txt`). O padrão `localhost:5050` vale quando a Plataforma roda na máquina do dashboard.
+- Outra máquina? Acrescente um destino em `DESTINOS`, no topo do userscript, com a URL e a chave do `/tokens`
+  daquele endereço (cada instalação tem a sua chave).
+- "chave recusada" no aviso: a chave do script não é a do servidor (ou foi trocada) — copie de novo em `/tokens`.
 
 ## Plano B (manual, se a extensão não estiver disponível)
 

@@ -80,6 +80,21 @@
 <div class="wrap">
   <div class="resumo" id="resumo"></div>
   <div id="manuais"></div>
+  <!-- Chave do userscript (10/10/2026): sem ela o POST /api/pv/trackers/token é recusado. Até então qualquer um na
+       internet trocava o token da Plataforma por essa rota. Só aparece no clique, para não ficar em print de tela. -->
+  <h2>Renovação automática (userscript)</h2>
+  <div class="cartao">
+    <div class="cab"><span class="nome">Chave do userscript da Plataforma</span></div>
+    <p class="dica">O userscript do Tampermonkey (<code>plat_token_autocapture.user.js</code>) só consegue entregar o
+      token com esta chave. Cole-a no campo <code>chave</code> do destino deste endereço, no topo do script. Ela não
+      muda sozinha.</p>
+    <div class="acoes">
+      <button class="sec" id="chave-ver" onclick="verChave()">Mostrar chave</button>
+      <button class="sec" id="chave-copiar" onclick="copiarChave()" disabled>Copiar</button>
+      <span class="msg" id="msg-chave"></span>
+    </div>
+    <textarea id="chave" readonly hidden style="min-height:0;margin-top:9px"></textarea>
+  </div>
   <div id="autos"></div>
   <p class="rodape">
     O token entra em uso na hora, sem reiniciar o servidor. Quem tem validade maior vence:
@@ -200,6 +215,29 @@ async function salvar(fonte){
   }catch(e){
     msg.className = "msg ruim"; msg.textContent = "falhou: " + e;
   }
+}
+
+async function verChave(){
+  const msg = document.getElementById("msg-chave");
+  try{
+    const r = await fetch("/api/tokens/plat/chave", {cache:"no-store"});
+    const j = await r.json();
+    if(!r.ok || !j.chave) throw new Error(j.error || ("HTTP " + r.status));
+    const ta = document.getElementById("chave");
+    ta.value = j.chave; ta.hidden = false;
+    document.getElementById("chave-copiar").disabled = false;
+    msg.className = "msg"; msg.textContent = "";
+  }catch(e){
+    msg.className = "msg ruim"; msg.textContent = "não consegui ler a chave: " + e.message;
+  }
+}
+
+async function copiarChave(){
+  const ta  = document.getElementById("chave");
+  const msg = document.getElementById("msg-chave");
+  try{ await navigator.clipboard.writeText(ta.value); }
+  catch(e){ ta.select(); document.execCommand("copy"); }
+  msg.className = "msg bom"; msg.textContent = "copiada";
 }
 
 carregar();

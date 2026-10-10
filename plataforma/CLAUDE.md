@@ -900,13 +900,17 @@ inversor (`unidade`: A ou W — antes a potência saía com eixo de corrente). S
 diz que a fonte não tem. `/api/tokens` mostra este token como reserva, alarmando só nesta tela.
 Quando ele vence, o combiner de reserva recebe `HTTP 401`; um disjuntor abre no primeiro 401.
 
-**Como renovar:** bookmarklet de 1 clique, ou `POST /api/pv/trackers/token` com `{"token": "..."}`.
-**Pendente (revisão de 10/10/2026, decisão do Levi):** a rota é pública (o bookmarklet roda na origem da Plataforma,
-sem sessão daqui) e só confere o formato do JWT e o `exp`, não a assinatura: qualquer um, sem login, grava um token de
-mentira e zera o `_pv_trk_cache` (a próxima leitura de trackers vai à API PV na hora). Reproduzido no test client em
-10/10 (200 sem sessão). Corrigir pede escolher: um segredo no bookmarklet (todo mundo troca o favorito) ou validar o
-token na fonte antes de gravar (uma chamada à Plataforma por renovação). Não é da porta única; fica para outra tarefa.
-O `tokens_runtime.json` é relido a cada uso, então vale na hora, sem reiniciar. `_plat_token()` escolhe
+**Como renovar:** colar em `/tokens`, ou o userscript do Tampermonkey (`plat_token_autocapture.user.js`), que posta
+em `POST /api/pv/trackers/token` com `{"token": "..."}` **e a chave no cabeçalho `X-Gridco-Chave`**. A rota passa pelo
+portão (o userscript roda na origem da PV, sem a sessão daqui) e, até 10/10/2026, gravava qualquer coisa com cara de
+JWT: a revisão adversarial da "porta única" mostrou que qualquer um na internet trocava o token (um forjado com `exp`
+em 2099 vence o verdadeiro pela regra da validade maior e a tela /tokens passa a dizer "ok") e zerava o cache de
+trackers a cada pedido. Agora, com `DASH_PASSWORD` (servidor), sem a chave é 401 e nada muda. A chave é gerada por
+`_plat_chave()` na 1ª visita logada a /tokens ("Mostrar chave"), mora no `tokens_runtime.json` (`plat_chave`) e não muda
+sozinha; vazou, apague essa entrada e a próxima visita gera outra. Pedido de fora nunca gera chave, e chave não gerada
+recusa tudo. Sem `DASH_PASSWORD` (dev local) a rota segue aberta, como o resto do app. Não dá para validar o JWT na fonte
+em vez disso: a Plataforma é frágil (502 por 15 min a ~3,4 req/s em 26/06) e cada POST de fora viraria um pedido nela.
+Teste: `tests/test_plat_token_chave.py`. O `tokens_runtime.json` é relido a cada uso, então vale na hora, sem reiniciar. `_plat_token()` escolhe
 entre o `PLAT_TOKEN` do ambiente e o arquivo **pela validade maior** — o ambiente é só semente de
 boot. Não inverta essa ordem: com "ambiente primeiro", uma semente velha no `tokens.txt` sequestra
 a renovação e colar token novo não muda nada (aconteceu em 25/07).

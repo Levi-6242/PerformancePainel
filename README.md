@@ -144,7 +144,7 @@ Obs.: existe `_sunop_accum_loop` (amostrador ETM → `sunop_etm_accum.json`, int
 ## Comandos úteis de operação
 - **Forçar atualização de tudo:** botão "↻ Atualizar" na UI, ou `GET /api/data?force=1` (zera caches e refaz as fontes).
 - **Recarregar planilhas (Check/Equipamentos):** automático no `mtime`; ou o force acima.
-- **Trocar token expirado:** o da Plataforma vai pelo bookmarklet (`POST /api/pv/trackers/token`, vale na hora); os demais, editar `tokens.txt`/`.env` (`SUNOP_TOKEN`/`AXIS_TOKEN`) e reiniciar.
+- **Trocar token expirado:** o da Plataforma vai por `/tokens` ou pelo userscript (`POST /api/pv/trackers/token` com a chave de `/tokens` em `X-Gridco-Chave`, vale na hora); os demais, editar `tokens.txt`/`.env` (`SUNOP_TOKEN`/`AXIS_TOKEN`) e reiniciar.
 - **Limpar cache em disco:** parar o app, apagar `cache_snapshot.json`, subir (reconstrói; use se o snapshot ficar corrompido). **Não** apague `ufv_state.json`/`string_notas.json` (não regeneráveis).
 - **Healthcheck/monitor:** `curl http://localhost:5050/healthz`.
 - **Testes:** `run_tests.bat` (ou `pytest`).

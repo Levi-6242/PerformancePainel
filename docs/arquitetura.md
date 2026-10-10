@@ -309,8 +309,8 @@ O grande desafio do projeto: cada API nomeia usinas/inversores diferente. A "col
 
 - **Subir:** `Iniciar Dashboard.bat` (ou `python app.py` na pasta) → http://localhost:5050.
 - **Atualizar dados:** botão "↻ Atualizar" (zera cache, refaz todas as fontes).
-- **Trocar token expirado:** o da Plataforma vai pelo bookmarklet (`POST /api/pv/trackers/token`,
-  grava no `tokens_runtime.json` e vale na hora); os demais, editar o `tokens.txt`/`.env`
+- **Trocar token expirado:** o da Plataforma vai por `/tokens` ou pelo userscript (`POST /api/pv/trackers/token`
+  com a chave de `/tokens` em `X-Gridco-Chave`; grava no `tokens_runtime.json` e vale na hora); os demais, editar o `tokens.txt`/`.env`
   (`SUNOP_TOKEN`/`AXIS_TOKEN`) e reiniciar.
 - **Reautenticar Gmail (2C):** `python "...\app_gridco.py" --auto` num console → abrir a URL
   impressa no navegador → login Google → token salvo.

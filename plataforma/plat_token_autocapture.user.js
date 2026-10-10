@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         GridCo - Auto-token PV Plataforma -> Dashboard
 // @namespace    gridco.pv.trackers
-// @version      1.2
+// @version      1.3
 // @description  Captura o JWT (x-auth-token-update) da PV Plataforma e o envia sozinho ao(s) dashboard(s) — servidor e local —, renovando o token dos Trackers/Curva sem copiar e colar. Dispara quando a Plataforma esta aberta.
 // @author       GridCo Performance
 // @match        https://plataforma.pvoperation.com/*
@@ -27,10 +27,16 @@
   //
   // Por que uma LISTA e nao uma troca: enquanto existir a instalacao local (desenvolvimento) e a
   // do servidor, as duas precisam do token, e quem renova e uma pessoa clicando uma vez. Falha num
-  // destino nao impede o outro; o POST e idempotente e o backend recusa token vencido.
-  var DASH_URLS = [
-    'https://app.gridco.com.br/api/pv/trackers/token',   // servidor (producao)
-    'http://localhost:5050/api/pv/trackers/token'        // instalacao local, quando houver
+  // destino nao impede o outro; o POST e idempotente.
+  //
+  // CHAVE (10/10/2026): o servidor so grava o token com a chave dele no cabecalho X-Gridco-Chave.
+  // Ate entao a rota aceitava qualquer coisa com cara de JWT, e qualquer um na internet podia
+  // trocar o token e zerar o cache de trackers. Copie a chave em <endereco>/tokens (logado) e cole
+  // abaixo, entre as aspas. NUNCA commite este arquivo com a chave preenchida (o repositorio e
+  // publico): a chave fica so na copia do Tampermonkey. Instalacao local sem senha nao pede chave.
+  var DESTINOS = [
+    {url: 'https://app.gridco.com.br/api/pv/trackers/token', chave: ''},   // servidor (producao)
+    {url: 'http://localhost:5050/api/pv/trackers/token',     chave: ''}    // instalacao local, quando houver
   ];
   var SCAN_MS  = 5 * 60 * 1000;   // varredura de seguranca a cada 5 min
   // ----------------------------------------------------------------------------
@@ -54,27 +60,35 @@
     if (!tok || tok === ultimoEnviado) return;     // dedup: so reenvia se mudou
     if (!jwtExp(tok)) return;                       // ignora valores que nao sao JWT
     ultimoEnviado = tok;
-    var pendentes = DASH_URLS.length, okAlgum = false;
-    DASH_URLS.forEach(function (url) {
+    var pendentes = DESTINOS.length, okAlgum = false, semChave = [];
+    DESTINOS.forEach(function (d) {
+      var cab = { 'Content-Type': 'application/json' };
+      if (d.chave) cab['X-Gridco-Chave'] = d.chave;
       GM_xmlhttpRequest({
         method: 'POST',
-        url: url,
-        headers: { 'Content-Type': 'application/json' },
+        url: d.url,
+        headers: cab,
         data: JSON.stringify({ token: tok }),
         timeout: 12000,
-        onload: function (r) { if (r.status === 200) okAlgum = true; fim(url, r.status === 200 ? 'ok' : 'HTTP ' + r.status); },
-        onerror: function () { fim(url, 'offline'); },
-        ontimeout: function () { fim(url, 'sem resposta'); }
+        onload: function (r) {
+          if (r.status === 200) okAlgum = true;
+          fim(d.url, r.status === 200 ? 'ok' : r.status === 401 ? 'chave recusada' : 'HTTP ' + r.status);
+        },
+        onerror: function () { fim(d.url, 'offline'); },
+        ontimeout: function () { fim(d.url, 'sem resposta'); }
       });
     });
     function fim(url, estado) {
       var host = String(url).split('/')[2];
       if (estado !== 'ok') { try { console.warn('[gridco] token nao entrou em ' + host + ': ' + estado); } catch (e) {} }
+      if (estado === 'chave recusada') semChave.push(host);
       if (--pendentes > 0) return;
       // So limpa o dedup se NINGUEM aceitou — assim a proxima varredura tenta de novo em vez de
       // achar que ja enviou. Se um destino aceitou, o token esta onde precisa estar.
       if (!okAlgum) ultimoEnviado = '';
-      toast(okAlgum ? 'token enviado ao dashboard' : 'nenhum dashboard aceitou o token');
+      // chave recusada tem conserto do lado de quem usa: o aviso diz onde buscar a chave certa
+      if (semChave.length) toast('chave recusada em ' + semChave.join(', ') + ': copie a chave em /tokens');
+      else toast(okAlgum ? 'token enviado ao dashboard' : 'nenhum dashboard aceitou o token');
     }
   }
 
