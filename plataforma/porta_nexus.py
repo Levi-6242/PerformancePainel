@@ -29,6 +29,7 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import re
 import threading
 from collections import namedtuple
@@ -220,6 +221,10 @@ class NumerosUsados:
             return True
 
 
+def _constante_fora_do_json(nome):
+    raise ValueError(f"{nome} não é JSON")
+
+
 def ler_passe(passe, chave: str, agora: float, usados: NumerosUsados) -> dict:
     """Confere o passe e devolve {email, nome, admin, destino}. PasseRecusado com o motivo em qualquer falha.
 
@@ -240,13 +245,16 @@ def ler_passe(passe, chave: str, agora: float, usados: NumerosUsados) -> dict:
         raise PasseRecusado("a assinatura do passe não confere: passe alterado no caminho, ou a chave do Nexus e a "
                             "da plataforma são diferentes")
     try:
-        dados = json.loads(corpo.decode("utf-8"))
+        # NaN e Infinity não são JSON (o json do Python os aceita por padrão): com "vence": NaN as duas comparações de
+        # vencimento davam falso e o passe não vencia nunca (revisão de 10/10/2026). Só quem tem a chave monta um assim
+        # (o Nexus escreve um inteiro): defesa em profundidade.
+        dados = json.loads(corpo.decode("utf-8"), parse_constant=_constante_fora_do_json)
     except (ValueError, UnicodeDecodeError):
         raise PasseRecusado("o passe está fora do formato") from None
     if not isinstance(dados, dict) or dados.get("v") != 1:
         raise PasseRecusado("versão do passe desconhecida")
     vence = dados.get("vence")
-    if isinstance(vence, bool) or not isinstance(vence, (int, float)):
+    if isinstance(vence, bool) or not isinstance(vence, (int, float)) or not math.isfinite(vence):
         raise PasseRecusado("o passe não diz quando vence")
     if agora > vence:
         raise PasseRecusado(f"o passe venceu (vale {VALIDADE_S} s)")

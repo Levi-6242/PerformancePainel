@@ -661,3 +661,15 @@ def test_destino_com_ponto_ponto_codificado_e_recusado():
     for bom in ("/gemeo/usina/12", "/painel/usina/S%C3%A3o%20Bento?hist=1&nome=S%C3%A3o", "/painel/usina/a.b",
                 "/gemeo/usina/12?d=..", "/monitor?fonte=pv&embed=1"):
         assert pn.destino_permitido(bom) == bom, bom
+
+
+@pytest.mark.parametrize("vence", ["NaN", "Infinity", "-Infinity"])
+def test_passe_com_vence_nao_numerico_e_recusado(vence):
+    """Revisão de 10/10: json.loads aceita NaN e Infinity; com "vence": NaN as duas comparações de vencimento davam
+    falso e o passe não vencia nunca (repetível depois dos 2 min da lista). Só quem tem a chave monta um assim: defesa
+    em profundidade."""
+    corpo = ('{"v":1,"email":"analista@exemplo.com","nome":"x","admin":false,"destino":"/painel",'
+             f'"vence":{vence},"numero":"numero-nao-numerico-01"}}').encode()
+    p = pn._b64(corpo) + "." + pn._b64(pn._assinatura(corpo, CHAVE))
+    with pytest.raises(pn.PasseRecusado):
+        _ler(p)
