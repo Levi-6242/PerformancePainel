@@ -163,11 +163,22 @@ function render(d){
     "lido às " + new Date().toLocaleTimeString("pt-BR", {hour:"2-digit", minute:"2-digit"});
 }
 
+// Só resposta OK vira estado (10/10/2026, porta única): o 401 {"error"} da sessão vencida desta releitura de 60 s não
+// tinha `tokens` e a tela dizia "Precisam de você: 0", em verde, e apagava os cartões. Agora a leitura que falha não
+// troca nada e o "lido às" diz desde quando.
+let TOKENS_LIDOS = "";
 async function carregar(){
   try{
-    const d = await fetch("/api/tokens", {cache:"no-store"}).then(r => r.json());
+    const r = await fetch("/api/tokens", {cache:"no-store"});
+    if (!r.ok) throw new Error(r.status === 401 ? "sessão vencida" : "HTTP " + r.status);
+    const d = await r.json();
     render(d);
+    TOKENS_LIDOS = document.getElementById("atualizado").textContent;
   }catch(e){
+    if (TOKENS_LIDOS){
+      document.getElementById("atualizado").textContent = "não atualizou (" + e.message + ") · " + TOKENS_LIDOS;
+      return;
+    }
     document.getElementById("resumo").innerHTML =
       "<div class='kpi'><div class='r'>Erro</div><div class='v' style='font-size:15px'>não consegui ler o estado</div></div>";
   }

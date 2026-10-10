@@ -704,7 +704,10 @@ def nexus_sair():
     return _pagina_da_porta("Você saiu da Performance", "A sessão aberta pelo Nexus foi encerrada neste navegador.")
 
 
+# `window.gcModoNexus`: a marca de que esta página está em modo Nexus, para o aviso de sessão vencida (aviso_de_sessao.js)
+# saber que fala com a moldura, sem repetir a régua do servidor.
 _CALCO_MODO_NEXUS = """<style>html.modo-nexus [data-casca]{display:none!important}</style><script>(function(){
+window.gcModoNexus=true;
 if(window.parent===window||window.parent!==window.top)return;
 function rota(){var p=window.APP_PREFIX||'',c=location.pathname;if(p&&c.indexOf(p)===0)c=c.slice(p.length)||'/';
 return c+location.search;}
@@ -756,6 +759,45 @@ def _porta_do_nexus_na_resposta(resp):
     return resp
 
 
+# ── A sessão venceu no meio da tela (10/10/2026) ──────────────────────────────────────────────────────────────────────
+# A sessão do passe vale 12 h; depois o /api/ dá 401 e o Painel NOC, que relê a cada 60 s, desenhava o erro como
+# "Energia perdida 0,0 MWh" (auditoria A5 da porta única). `aviso_de_sessao.js` liga a faixa de sessão vencida (e, na
+# moldura, pede ao Nexus para reabrir a tela) e dá às telas a faixa de "não atualizou". Vai inline, não por /static/: com
+# o Nexus na raiz o Caddy manda /static/* ao Nexus (menos fonts, logos e notif.js). Vale com e sem a NEXUS_SSO_CHAVE: é
+# correção de dado (a sessão da senha também vence, em 30 dias); o que é só da porta (o aviso à moldura, o "peça a um
+# administrador") só acontece com a sessão do passe.
+with open(os.path.join(_AQUI, "aviso_de_sessao.js"), encoding="utf-8") as _f:
+    # o cabeçalho (o porquê, para quem lê o arquivo) não precisa ir em toda página
+    _AVISO_DE_SESSAO_JS = re.sub(r"^\s*/\*.*?\*/\s*", "", _f.read(), count=1, flags=re.S)
+
+
+def _recebe_o_aviso_de_sessao(p: str) -> bool:
+    """As páginas da própria plataforma. O login não (não há sessão a vencer), nem o que é de outro serviço pelo proxy:
+    o gêmeo e o OS Creator Web têm sessão e telas próprias, e um 401 deles não é a sessão daqui."""
+    return p != "/login" and not p.startswith(("/gemeo/", "/os/", "/auth/", "/painel/nexus/"))
+
+
+@app.after_request
+def _aviso_de_sessao_na_resposta(resp):
+    """Põe o `aviso_de_sessao.js` logo depois do <head> de toda página da plataforma (registrado depois do modo Nexus:
+    roda antes dele, e o calço do prefixo e o do modo Nexus ficam na frente na página). Fragmento sem <head> fica igual."""
+    if resp.status_code != 200 or resp.direct_passthrough or not (resp.content_type or "").startswith("text/html"):
+        return resp
+    try:
+        if not _recebe_o_aviso_de_sessao(flask_request.path):
+            return resp
+        html = resp.get_data(as_text=True)
+        h = re.search(r"<head\b[^>]*>", html, re.I)
+        if not h:
+            return resp
+        sem_admin = bool(NEXUS_SSO_CHAVE) and session.get("auth_kind") == "nexus" and not session.get("admin_nexus")
+        js = _AVISO_DE_SESSAO_JS.replace("/*SEM_ADMIN*/false", "true" if sem_admin else "false")
+        resp.set_data(html[:h.end()] + "<script>" + js + "</script>" + html[h.end():])
+    except Exception as e:
+        print(f"[sessão] não consegui pôr o aviso de sessão na página: {e}")
+    return resp
+
+
 @app.after_request
 def _nexus_confirma_a_chave(resp):
     """`X-Nexus-Leitura-Ok: 1` só nas respostas que o portão deixou passar pela chave de leitura do Nexus.
@@ -783,15 +825,39 @@ def _login_next():
     return n if (n.startswith("/") and not n.startswith("//")) else "/"
 
 
+def _entrar_pelo_nexus_href() -> str:
+    """Para onde o "Entrar pelo Nexus" do /login leva (fase 3): a MESMA tela que a pessoa pediu, dentro do Nexus.
+
+    Auditoria B6 (10/10/2026): abrir uma tela pelo Nexus troca a sessão de 30 dias da senha pela do passe (12 h, que some
+    ao fechar o navegador). No dia seguinte o favorito (/painel, /painel/falhas...) cai no /login?next=..., e o botão
+    ignorava o next e levava ao Início do Nexus: a pessoa perdia o lugar. Agora, com o next sendo uma tela do mapa, leva a
+    <NEXUS_PORTA_PRINCIPAL>/t/<torre>/<tela>?p=<next> (o Nexus abre a moldura nela, como no F5); fora do mapa, ao Início.
+
+    O next passa pela mesma régua do `_login_next` (só caminho deste endereço, sem `//`) e mais: nada de caractere de
+    controle nem barra invertida, e o destino tem de valer como destino de passe (`porta_nexus.destino_permitido`: tela
+    do mapa, sem segmento de ponto), porque é isso que o Nexus vai pedir à plataforma com ele."""
+    base = NEXUS_PORTA_PRINCIPAL
+    n = (flask_request.args.get("next") or "").strip()
+    if not n.startswith("/") or n.startswith("//") or re.search(r"[\x00-\x1f\x7f\\]", n):
+        return base
+    # o next chega decodificado (o portão monta `quote(caminho)`); o ?p= leva o caminho como o navegador o escreve
+    caminho = quote(n, safe="/?&=")
+    if _pn.destino_permitido(caminho) is None:
+        return base
+    t = _pn.tela_do_caminho(caminho)
+    return f"{base.rstrip('/')}/t/{t.torre}/{t.tela}?p={quote(caminho, safe='')}"
+
+
 def _render_login(erro=""):
     """Página de login. Injeta o botão 'Entrar com Microsoft' (preservando o next) quando o SSO do
     Entra está configurado; a senha de admin continua sempre visível. Com a fase 3 ligada (NEXUS_PORTA_PRINCIPAL,
-    09/10/2026), 'Entrar pelo Nexus' vem primeiro: o Nexus é o link principal e a senha vira a reserva de admin."""
+    09/10/2026), 'Entrar pelo Nexus' vem primeiro: o Nexus é o link principal e a senha vira a reserva de admin; desde
+    10/10/2026 ele leva à tela do next (`_entrar_pelo_nexus_href`)."""
     botoes = []
     if NEXUS_PORTA_PRINCIPAL:
         import html as _html                     # o valor já foi conferido (`_porta_principal_valida`); escape mesmo assim
         # o botão da senha vira secundário: dois botões verdes iguais não dizem qual é o caminho principal
-        botoes.append(f'<a href="{_html.escape(NEXUS_PORTA_PRINCIPAL, quote=True)}" class="nexbtn">Entrar pelo Nexus</a>'
+        botoes.append(f'<a href="{_html.escape(_entrar_pelo_nexus_href(), quote=True)}" class="nexbtn">Entrar pelo Nexus</a>'
                       '<style>.card button[type=submit]{background:transparent;color:var(--text);'
                       'border:1px solid var(--divider)}</style>')
     if MS_SSO_ON:

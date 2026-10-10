@@ -318,13 +318,17 @@ const _ROMD = {I:'1',II:'2',III:'3',IV:'4',V:'5',VI:'6',VII:'7',VIII:'8',IX:'9',
 const _nrmD = s => String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toUpperCase()
   .replace(/\s*\(.*?\)\s*/g,' ').trim().split(/\s+/).map(t=>_ROMD[t]||t).join(' ');
 async function loadDisp(mes){
+  const antes = DISP_MES;
   DISP_MES = mes || '';
   try{
-    const j = await fetch('/api/gerencial/disponibilidade'+(mes?`?mes=${mes}`:''),{cache:'no-store'}).then(r=>r.json());
+    const r = await fetch('/api/gerencial/disponibilidade'+(mes?`?mes=${mes}`:''),{cache:'no-store'});
+    // 10/10/2026: o 401 da sessão do Nexus vencida (12 h) esvaziava a coluna calado; do mesmo mês, a anterior fica
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
     DISP_MAP = {};
     if (j.quente && (!mes || j.mes === mes))
       for (const u of (j.usinas||[])) DISP_MAP[_nrmD(u.usina)] = u.disp;
-  }catch(e){ DISP_MAP = {}; }
+  }catch(e){ if (DISP_MAP === null || antes !== DISP_MES) DISP_MAP = {}; }
   if (VISTA === 'geracao') renderVista();      // repinta a coluna quando o payload chegar
 }
 function _dispCell(u){
@@ -522,13 +526,24 @@ async function load(ano,mes){
     const q=(ano&&mes)?`?ano=${ano}&mes=${mes}`:'';
     if(q) cov.textContent=`Calculando ${String(mes).padStart(2,'0')}/${ano}… (mês passado lê as planilhas inteiras — pode levar ~1 min na 1ª vez)`;
     const r=await fetch('/api/gerencial'+q,{cache:'no-store'});
-    RAW=await r.json();
+    // Só resposta OK vira número (10/10/2026, porta única): o 401 da sessão do Nexus vencida (12 h) e o 500 do
+    // /api/gerencial ({"erro", "usinas": []}) viravam a tela de um mês sem usina nenhuma, com os totais em zero.
+    if(!r.ok){ const e=new Error(r.status===401?'sessão vencida':'HTTP '+r.status); e.status=r.status; throw e; }
+    const j=await r.json();
+    RAW=j;
     const fm=document.getElementById('fMes');
     if(fm&&RAW&&RAW.ano) fm.value=`${RAW.ano}-${String(RAW.mes_num).padStart(2,'0')}`;
     _fillCli(RAW); _aplica();
     // a coluna Disponibilidade segue o MESMO mês do filtro (só existe p/ corrente e anterior)
     loadDisp(RAW&&RAW.ano?`${RAW.ano}-${String(RAW.mes_num).padStart(2,'0')}`:'');
-  }catch(e){ cov.textContent='Falha ao carregar (/api/gerencial).'; }
+  }catch(e){
+    const motivo=e&&e.status?e.message:'sem resposta';
+    if(RAW&&RAW.ano){                        // o mês que já estava na tela fica, e o filtro volta para ele
+      const fm=document.getElementById('fMes');
+      if(fm) fm.value=`${RAW.ano}-${String(RAW.mes_num).padStart(2,'0')}`;
+      cov.textContent=`Não consegui ler o mês pedido (${motivo}): a tela segue com ${String(RAW.mes_num).padStart(2,'0')}/${RAW.ano}.`;
+    } else cov.textContent=`Falha ao carregar (/api/gerencial): ${motivo}.`;
+  }
 }
 load();
 </script>

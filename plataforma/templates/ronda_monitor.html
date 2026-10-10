@@ -219,7 +219,16 @@ td{padding:7px 9px;border-bottom:1px solid var(--line);font-size:12.5px;vertical
 <script>
 async function reiniciarServico(bt){
   bt.dataset.busy='1'; bt.disabled=true; bt.textContent='Reiniciando… (~1 min)';
-  try{ await fetch('/api/ronda/whats/reiniciar',{method:'POST'}); }catch(e){}
+  let r=null;
+  try{ r=await fetch('/api/ronda/whats/reiniciar',{method:'POST'}); }catch(e){}
+  // Recusa na hora (auditoria B12, 10/10/2026): quem entrou pelo Nexus sem ser administrador leva 403 aqui, e o botão
+  // engolia a recusa e girava ~80 s esperando um reinício que nunca foi pedido. Agora diz o motivo e para.
+  if(r&&!r.ok){
+    bt.disabled=false; bt.dataset.busy='';
+    bt.textContent=r.status===403?'Só administradores reiniciam o serviço: peça a um administrador'
+      :r.status===401?'Sessão vencida: entre de novo para reiniciar':'Não reiniciou (HTTP '+r.status+'): tente de novo';
+    return;
+  }
   // o node volta em ~30-60s; vai atualizando até o status mudar (código aparece no card)
   let n=0; const iv=setInterval(async()=>{ n++; await load();
     const t=document.getElementById('svcTit').textContent||'';
@@ -346,19 +355,39 @@ function hist(d){
   tb.innerHTML=h;
 }
 
+// Só resposta OK vira estado (10/10/2026, porta única). A sessão aberta pelo Nexus vale 12 h; depois o 401 {"error"} desta
+// releitura de 30 s era desenhado como estado: "A ronda automática está DESLIGADA", "Serviço do WhatsApp FORA DO AR",
+// "Sem horários configurados" e "Nenhum envio registrado" — tudo falso. Agora a leitura que falha não troca nada: fica
+// o último estado, com a hora dele, e a faixa diz por quê. Sem nada lido ainda, o "Dashboard inacessível" de sempre.
+let RONDA_LIDA='';
 async function load(){
   document.getElementById('upd').textContent='atualizando…';
+  let d;
   try{
-    const d=await fetch('/api/ronda/whats/status').then(r=>r.json());
-    document.getElementById('offBanner').style.display=d.enabled?'none':'block';
-    svcBadge(d); slotCards(d); hist(d);
-    document.getElementById('upd').textContent='atualizado '+(d.agora||'').slice(11,19);
+    const r=await fetch('/api/ronda/whats/status');
+    if(!r.ok){ const e=new Error(r.status===401?'sessão vencida':'HTTP '+r.status); e.status=r.status; throw e; }
+    d=await r.json();
   }catch(e){
+    const motivo=e&&e.status===401?'sessão vencida':(e&&e.status?'HTTP '+e.status:'sem resposta');
+    const S=window.gcSessaoDaPlataforma;
+    if(S&&!(e&&e.status===401)) S.falhou(motivo, RONDA_LIDA?'de '+RONDA_LIDA:'');
+    if(RONDA_LIDA){
+      document.getElementById('upd').textContent='não atualizou ('+motivo+') · estado de '+RONDA_LIDA;
+      return;
+    }
     document.getElementById('svcTit').textContent='Dashboard inacessível';
     document.getElementById('svcSub').textContent=String(e);
     document.getElementById('svcDot').className='pulse bad';
     document.getElementById('upd').textContent='erro';
+    return;
   }
+  try{
+    document.getElementById('offBanner').style.display=d.enabled?'none':'block';
+    svcBadge(d); slotCards(d); hist(d);
+    RONDA_LIDA=(d.agora||'').slice(11,19)||RONDA_LIDA||'—';
+    document.getElementById('upd').textContent='atualizado '+(d.agora||'').slice(11,19);
+    if(window.gcSessaoDaPlataforma) window.gcSessaoDaPlataforma.voltou();
+  }catch(e){ document.getElementById('upd').textContent='erro ao desenhar: '+e; }
 }
 load();
 setInterval(load, 30*1000);

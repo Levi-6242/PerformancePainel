@@ -405,14 +405,36 @@ const NOME={ok:'Normal',atencao:'Atenção',critico:'Crítico',sem_comm:'Sem com
 
 let MACRO=null, GER=null, MAP={}, curWF='all', curFF='all', builtHist=false;
 
+/* Só resposta OK vira número (10/10/2026, porta única com o Nexus). A sessão que o Nexus abre aqui vale 12 h; depois o
+   /api/macro dá 401 e este painel, que relê a cada 60 s, desenhava o erro como dado: "Energia perdida 0,0 MWh" numa
+   tela de NOC (auditoria A5). Valia também para a rede caindo (o catch virava null, e null virava zero), para o 500 do
+   /api/gerencial ({"erro", "usinas": []}) e para o "carregando" do web que subiu antes do 1º snapshot (usinas [], total
+   0). Agora a leitura que não veio não troca nada: fica o último número, com a hora dele, e a faixa diz por quê. */
+function _lerOk(url){
+  return fetch(url).then(r=>{
+    if(!r.ok){ const e=new Error(r.status===401?'sessão vencida':'HTTP '+r.status); e.status=r.status; throw e; }
+    return r.json();
+  });
+}
+function _hhmm(){ const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
 async function boot(){
   try{
     const [m,g]=await Promise.all([
-      fetch('/api/macro').then(r=>r.json()).catch(()=>null),
-      fetch('/api/gerencial').then(r=>r.json()).catch(()=>null)
+      _lerOk('/api/macro').catch(e=>e),
+      _lerOk('/api/gerencial').catch(e=>e)
     ]);
-    MACRO=m; GER=g; merge();
-    renderKpis(); fillWallCli(); renderWall(); renderFeed(); renderRegion(); stamp();   // a tabela "Usinas que exigem ação" saiu daqui (Levi, 08/09): o mosaico por meta já diz isso; ela segue no Histórico
+    const montando=!(m instanceof Error)&&m&&m.carregando&&!(m.usinas||[]).length;   // web antes do 1º snapshot
+    const mOk=!(m instanceof Error)&&!montando, gOk=!(g instanceof Error);
+    if(mOk) MACRO=m;
+    if(gOk) GER=g;
+    const falha=(m instanceof Error?m:null)||(g instanceof Error?g:null)
+      ||(montando?new Error('o servidor ainda está montando o ao vivo'):null);
+    if(!MACRO&&!GER){                       // nunca leu nada: não há número a guardar, e zero seria mentira
+      document.getElementById('wall').innerHTML='<div class="empty">Falha ao carregar: '+(falha?falha.message:'sem dado')+'. Tento de novo sozinho.</div>';
+      stamp(falha); return;
+    }
+    if(mOk||gOk){ merge(); renderKpis(); fillWallCli(); renderWall(); renderFeed(); renderRegion(); }   // a tabela "Usinas que exigem ação" saiu daqui (Levi, 08/09): o mosaico por meta já diz isso; ela segue no Histórico
+    stamp(falha);
   }catch(e){ document.getElementById('wall').innerHTML='<div class="empty">Falha ao carregar: '+e+'</div>'; }
 }
 
@@ -477,17 +499,24 @@ function aplicaGrupos(){
   });
 }
 
-function stamp(){
+// A hora de cada número é a do dado (cache_ts); quando a releitura falha, diz desde quando a tela não atualiza e por quê.
+function stamp(falha){
   const mt=(MACRO&&MACRO.cache_ts)||'—', gt=(GER&&GER.cache_ts)||'—';
-  document.getElementById('upd').innerHTML='Ao vivo (API PV) <b>'+mt+'</b><br>Mês/PG <b>'+gt+'</b>';
-  document.getElementById('footsrc').textContent='atualizado '+mt+' (live) · '+gt+' (mês)';
+  const nao=falha?' · não atualizou às '+_hhmm()+' ('+falha.message+')':'';
+  document.getElementById('upd').innerHTML='Ao vivo (API PV) <b>'+mt+'</b><br>Mês/PG <b>'+gt+'</b>'
+    +(falha?'<br><span style="color:var(--amber)">não atualizou às '+_hhmm()+'</span>':'');
+  document.getElementById('footsrc').textContent='atualizado '+mt+' (live) · '+gt+' (mês)'+nao;
+  const S=window.gcSessaoDaPlataforma;
+  const qd=[MACRO&&MACRO.cache_ts?MACRO.cache_ts+' (ao vivo)':'',GER&&GER.cache_ts?GER.cache_ts+' (mês)':''].filter(Boolean).join(' e ');
+  if(S){ if(falha) S.falhou(falha.message,qd?'de '+qd:''); else S.voltou(); }
 }
 
 /* ====== KPIs ====== */
 function renderKpis(){
+  // Sem leitura (MACRO/GER nulos), "—": soma de lista vazia dava 0 MWp e "Energia perdida 0,0 MWh" (10/10/2026)
   const r=(MACRO&&MACRO.resumo)||{}, pf=(GER&&GER.portfolio)||{};
-  const potMWp=(GER&&GER.usinas||[]).reduce((s,u)=>s+(u.pot_mwp||0),0);
-  const perda=(GER&&GER.usinas||[]).reduce((s,u)=>s+(u.p50&&u.prod!=null?Math.max(0,u.p50-u.prod):0),0);
+  const potMWp=GER?(GER.usinas||[]).reduce((s,u)=>s+(u.pot_mwp||0),0):null;
+  const perda=GER?(GER.usinas||[]).reduce((s,u)=>s+(u.p50&&u.prod!=null?Math.max(0,u.p50-u.prod):0),0):null;
   const k=document.getElementById('kpis');
   k.innerHTML=
    `<div class="kpi"><div class="l">Usinas monitoradas</div><div class="v num">${nf(r.total)}</div><div class="d">${nf(potMWp,0)} MWp</div></div>`+
@@ -1261,8 +1290,9 @@ function rxRender(){
 let chLost=null, chDist=null;
 function renderKpisHist(){
   const pf=(GER&&GER.portfolio)||{}, us=(GER&&GER.usinas||[]);
-  const perda=us.reduce((s,u)=>s+(u.p50&&u.prod!=null?Math.max(0,u.p50-u.prod):0),0);
-  const abaixo=us.filter(u=>u.atingimento!=null&&u.atingimento<95).length;
+  // sem leitura do /api/gerencial, "—" (a soma de lista vazia dizia "Energia perdida 0,0 MWh"; 10/10/2026)
+  const perda=GER?us.reduce((s,u)=>s+(u.p50&&u.prod!=null?Math.max(0,u.p50-u.prod):0),0):null;
+  const abaixo=GER?us.filter(u=>u.atingimento!=null&&u.atingimento<95).length:null;
   document.getElementById('kpisHist').innerHTML=
    `<div class="kpi"><div class="l">Atingimento da frota</div><div class="v num">${pf.atingimento!=null?nf(pf.atingimento,1)+'%':'—'}</div><div class="d">mês ${(GER&&GER.mes)||''}</div></div>`+
    `<div class="kpi"><div class="l">PR ponderado</div><div class="v num">${pf.pr!=null?nf(pf.pr,1)+'%':'—'}</div></div>`+
