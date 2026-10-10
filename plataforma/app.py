@@ -543,15 +543,10 @@ def _modo_nexus() -> bool:
     return bool(NEXUS_SSO_CHAVE) and session.get("auth_kind") == "nexus" and bool(session.get("auth")) and _em_moldura()
 
 
-def _de_outro_site() -> bool:
-    """POST que veio de OUTRO site (Sec-Fetch-Site: cross-site): um site qualquer não pode entregar um passe alheio ao
-    navegador de alguém (login trocado) nem tirá-lo da sessão. Mesma origem e mesmo site (o PC, com portas diferentes)
-    passam; navegador que não manda o cabeçalho também."""
-    return (flask_request.headers.get("Sec-Fetch-Site") or "").lower() == "cross-site"
-
-
 def _de_outra_origem() -> bool:
-    """O pedido NÃO veio de uma página deste mesmo endereço (esquema, host e porta). Revisão de 10/10/2026.
+    """O pedido NÃO veio de uma página deste mesmo endereço (esquema, host e porta). Vale para o passe e o Sair do Nexus
+    (um site qualquer não pode entregar um passe alheio ao navegador de alguém, login trocado, nem tirá-lo da sessão) e
+    para toda gravação da sessão do passe. Revisão de 10/10/2026: antes só 'cross-site' era recusado.
 
     - Sec-Fetch-Site (todo navegador atual manda): só 'same-origin' e 'none' (a pessoa digitou ou abriu um favorito)
       passam. 'same-site' não: no servidor, qualquer subdomínio de gridco.com.br é 'same-site', e a moldura do Nexus é
@@ -651,7 +646,7 @@ def nexus_entrar():
     if not NEXUS_SSO_CHAVE:                     # o portão já devolve 404; aqui é a segunda trava
         from flask import abort
         abort(404)
-    if _de_outro_site():
+    if _de_outra_origem():
         return _pagina_da_porta("Abra de novo pelo Nexus", "Este pedido veio de outro site.",
                                 motivo="o passe só vale pelo próprio Nexus"), 403
     # Passe recusado ou pessoa fora das listas: a sessão de PASSE que já estivesse aberta neste navegador cai junto. Provado
@@ -688,7 +683,7 @@ def nexus_sair():
     if not NEXUS_SSO_CHAVE:
         from flask import abort
         abort(404)
-    if _de_outro_site():
+    if _de_outra_origem():
         return _pagina_da_porta("Pedido recusado", "Este pedido veio de outro site."), 403
     _encerra_sessao_do_passe()
     volta = (flask_request.form.get("volta") or "").strip()

@@ -673,3 +673,19 @@ def test_passe_com_vence_nao_numerico_e_recusado(vence):
     p = pn._b64(corpo) + "." + pn._b64(pn._assinatura(corpo, CHAVE))
     with pytest.raises(pn.PasseRecusado):
         _ler(p)
+
+
+@pytest.mark.parametrize("cab", [{"Sec-Fetch-Site": "same-site"}, {"Origin": "https://outro.gridco.example"},
+                                 {"Origin": "null"}])
+def test_passe_e_sair_so_da_mesma_origem(cli, cab):
+    """Revisão de 10/10: só 'cross-site' era recusado. No servidor, qualquer subdomínio de gridco.com.br é 'same-site':
+    uma página ali entregava um passe do atacante ao navegador da vítima (login trocado; o diário perdia quem é quem) ou
+    forçava o Sair. A moldura é sempre da mesma origem (frame-ancestors 'self')."""
+    r = cli.post("/painel/nexus/entrar", data={"passe": passe()}, headers=cab)
+    assert r.status_code == 403 and cli.get("/api/state").status_code == 401
+    entrar(cli)
+    assert cli.post("/painel/nexus/sair", data={"volta": "/nexus/entrar"}, headers=cab).status_code == 403
+    assert cli.get("/api/state").status_code == 200                              # o Sair de fora não derrubou
+    r = cli.post("/painel/nexus/entrar", data={"passe": passe()}, headers={"Origin": "http://localhost"})
+    assert r.status_code == 303                                                   # Origin deste endereço passa
+
