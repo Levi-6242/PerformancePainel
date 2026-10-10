@@ -421,7 +421,14 @@ async function boot(){
   try{
     const [m,g]=await Promise.all([
       _lerOk('/api/macro').catch(e=>e),
-      _lerOk('/api/gerencial').catch(e=>e)
+      // O mês com `erro` também não é mês (revisão adversarial de 10/10/2026). Com o PG fora, o /api/gerencial
+      // respondia 200 {"erro", "usinas": [], "cache_ts": <agora>}, e este painel trocava o mês bom pelo vazio:
+      // "Energia perdida 0,0 MWh", "0 MWp" e "Mês/PG <agora>", como se fosse fresco. O servidor agora responde 503;
+      // esta é a régua da tela, para o corpo de erro não virar número venha com o status que vier.
+      _lerOk('/api/gerencial').then(j=>{
+        if(j&&j.erro){ const e=new Error('leitura do PG falhou'); e.status=200; throw e; }
+        return j;
+      }).catch(e=>e)
     ]);
     const montando=!(m instanceof Error)&&m&&m.carregando&&!(m.usinas||[]).length;   // web antes do 1º snapshot
     const mOk=!(m instanceof Error)&&!montando, gOk=!(g instanceof Error);

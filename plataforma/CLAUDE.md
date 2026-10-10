@@ -425,7 +425,12 @@ diz por quê.** Peças:
   `rows` a tela desenhava os EXEMPLOS do protótipo — 76 usinas, 505 strings — e os cards de exemplo somem com erro na
   tela), Disponibilidade ("Calculando a primeira varredura…"), Monitor da ronda ("DESLIGADA", "FORA DO AR"), Strings e
   trackers e Gerencial (mês apagado; o seletor volta ao mês da tela), Chaves das fontes ("Precisam de você: 0" em verde),
-  Acompanhamento COS ("Montando o índice"). Conferidas e já certas: Histórico da plataforma (`getJSON` confere `r.ok`),
+  Acompanhamento COS ("Montando o índice"). O mês com `erro` também não é mês: o `/api/gerencial` com a leitura do PG
+  falhando (mês passado, ou o corrente sem snapshot: web que subiu sem ele, plataforma local depois do TTL de 300 s)
+  responde **503** `{"erro", "usinas": []}`, nunca 200; com 200 o Painel NOC trocava o mês bom pelo vazio ("Energia
+  perdida 0,0 MWh", "0 MWp", "Mês/PG <agora>" como se fosse fresco; revisão adversarial de 10/10/2026, provado com o PG
+  simulado fora), e o seletor de usinas do Nexus não dizia que o Gerencial faltou. O Painel NOC (`boot`) e o Gerencial
+  (`load`) também recusam corpo com `erro`, venha com o status que vier. Conferidas e já certas: Histórico da plataforma (`getJSON` confere `r.ok`),
   Criador de relatório e Relatório semanal (conferem `d.ok`, não releem sozinhos), Diagnóstico (`v2GET` confere `r.ok`; a
   carga antiga do `boot()` lê uma vez ao abrir, e o 401 dali liga a faixa).
 Prova no navegador (Chromium, 1440 px), app da worktree na 5151 com a rede cortada, dados falsos e sessão de 15 s, atrás
@@ -437,10 +442,23 @@ aviso para cima, cobria a explicação com "Não atualizou"), corrigidos.
 **"Entrar pelo Nexus" volta à tela pedida (10/10/2026, auditoria B6).** Abrir uma tela pelo Nexus troca a sessão de
 30 dias da senha pela do passe (12 h, que some ao fechar o navegador); no dia seguinte o favorito cai no
 `/login?next=/painel` e o botão levava ao Início do Nexus. `_entrar_pelo_nexus_href`: o `next` passa pela régua do
-`_login_next` (caminho deste endereço, sem `//`) e mais (sem controle nem barra invertida; `destino_permitido` do
-passe, porque é o que o Nexus vai pedir com ele) e vira `<NEXUS_PORTA_PRINCIPAL sem a barra final>/t/<torre>/<tela>?p=`
-com o caminho como o navegador o escreve (`/painel/usina/S%C3%A3o%20Bento`); fora do mapa, o Início. Inerte sem a
-fase 3.
+`_login_next` e pelo `destino_permitido` do passe (é o que o Nexus vai pedir com ele) e vira
+`<NEXUS_PORTA_PRINCIPAL sem a barra final>/t/<torre>/<tela>?p=` com o caminho como o navegador o escreve; fora do mapa,
+o Início. Inerte sem a fase 3. O `next` chega de dois jeitos, e o `?p=` tem de sair igual nos dois: o do portão vem
+DECODIFICADO (`/painel/usina/São Bento`, ele monta `quote(caminho)`) e o da faixa "Sessão vencida: entre de novo" vem JÁ
+codificado (`encodeURIComponent(location.pathname+search)`). Até a revisão adversarial de 10/10/2026 o botão codificava
+de novo o segundo (`S%25C3%25A3o`) e o Diagnóstico abria com o nome `S%C3%A3o%20Bento`: leituras pelo nome vazias, falso
+"sem OS/sem meta". Regra: o escape que já existe fica (`%` a salvo; `%` solto, sem dois hexadecimais, vira `%25`), os
+sinais que o navegador deixa crus ficam crus (`+` na query é espaço) e só acento, espaço, aspas e `#` são codificados.
+Decodificar e codificar de novo não serve: o `%26` de um nome (`A%26B`) viraria `&`.
+
+**O next do login não sai deste endereço (revisão adversarial de 10/10/2026).** Uma régua só,
+`_caminho_deste_endereco`, para o `_login_next` (senha), o `oauth_next` e o botão do login Microsoft e o "Entrar pelo
+Nexus": começa com uma barra, não com duas, e sem caractere de controle (`\x00-\x1f`, `\x7f`) nem barra invertida. Antes,
+com sessão aberta, `/login?next=/%09/mal.exemplo.com/entrar` respondia 302 para `//mal.exemplo.com/entrar`: o navegador
+(regra de URL do WHATWG) e o Werkzeug tiram TAB/LF/CR e leem a barra invertida como barra, e sobra o endereço de outro
+site. O espaço passa de propósito (o next do portão vem decodificado, e espaço no meio do caminho não muda de endereço).
+O `volta` do `/painel/nexus/sair` segue com a régua dele, mais estrita (recusa também o espaço: vem do Nexus, codificado).
 
 **Avisos para quem não é admin (10/10/2026, auditoria B12).** `gcSessaoDaPlataforma.semAdmin` (o app.py marca quem
 entrou pelo passe sem `admin_nexus`): a curva das strings com o token da PV Plataforma vencido diz "peça a um
@@ -454,8 +472,10 @@ nada muda; troca de chave e 12 h derrubam a sessão; frame-ancestors em todo HTM
 `/` na moldura; fase 3 desligada e ligada), `tests/test_porta_nexus_gestor_sem_api_pv.py` (toda rota GET do gestor com a
 rede cortada: nenhuma fala com a API PV; tirando a marca `nexus_so_leitura`, o `/api/entrada/tempo-real` falava),
 `tests/test_sessao_vencida_sem_numero_falso.py` (o aviso no node: moldura, 60 s, só `/api/` deste endereço, fora do
-Nexus, embutido; a injeção; e cada tela com 401/500 rodando o código da própria página) e
-`tests/test_porta_nexus_destino_e_avisos.py` (o "Entrar pelo Nexus" com destino e os avisos de B12).
+Nexus, embutido; a injeção; cada tela com 401/500 rodando o código da própria página; o `/api/gerencial` com o PG fora
+dá 503 e o Painel NOC/Gerencial não zeram com `erro`; o link "Entrar" da faixa encadeado pelo `/login` até o `?p=` que
+o Nexus lê, igual a `location.pathname+search`) e `tests/test_porta_nexus_destino_e_avisos.py` (o "Entrar pelo Nexus"
+com destino, os avisos de B12 e o next com `%09`/`%0a`/`%0d`/`%5C` na senha, no GET com sessão e no login Microsoft).
 
 ## Padrão por inversor (usinas sem visão por string)
 

@@ -530,6 +530,10 @@ async function load(ano,mes){
     // /api/gerencial ({"erro", "usinas": []}) viravam a tela de um mês sem usina nenhuma, com os totais em zero.
     if(!r.ok){ const e=new Error(r.status===401?'sessão vencida':'HTTP '+r.status); e.status=r.status; throw e; }
     const j=await r.json();
+    // O corpo com `erro` também não é mês (revisão adversarial de 10/10/2026): com o PG fora, o /api/gerencial respondia
+    // 200 {"erro", "usinas": []} e um mês passado (ou o corrente sem snapshot) virava um mês sem usina, totais em zero.
+    // O servidor agora responde 503; esta é a régua da tela, venha com o status que vier.
+    if(j&&j.erro){ const e=new Error('leitura do PG falhou'); e.status=200; throw e; }
     RAW=j;
     const fm=document.getElementById('fMes');
     if(fm&&RAW&&RAW.ano) fm.value=`${RAW.ano}-${String(RAW.mes_num).padStart(2,'0')}`;

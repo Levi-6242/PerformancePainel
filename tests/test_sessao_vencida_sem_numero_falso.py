@@ -472,3 +472,124 @@ def test_acompanhamento_cos_401_nao_diz_montando_o_indice(tmp_path):
           + "\n(async () => { await espera(); await espera(); out({est: E('estado').innerHTML, timers}); })();")
     r = _node(js, tmp_path)
     assert "Sessão vencida" in r["est"] and "Montando o índice" not in r["est"] and r["timers"] == [60000]
+
+
+# ── 4. o /api/gerencial com o PG fora do ar (revisão adversarial de 10/10/2026) ─────────────────────────────────────
+# Provado com a rede cortada e o _pg_geracao_periodo levantando exceção: GET /api/gerencial?ano=2026&mes=9 dava 200
+# {"erro": ..., "usinas": [], "portfolio": {}, "cache_ts": <agora>}. O mês corrente sem snapshot (web que subiu sem ele,
+# ou a plataforma local depois do TTL de 300 s) dava o mesmo 200. As telas só olhavam o r.ok: o Painel NOC trocava o
+# mês bom pelo vazio e mostrava "Energia perdida 0,0 MWh" e "0 MWp" com "Mês/PG <agora>", como se fosse fresco.
+def _pg_fora(*a, **k):
+    raise RuntimeError("PG fora do ar (simulado)")
+
+
+def test_gerencial_com_o_pg_fora_responde_503_e_nao_um_mes_vazio(monkeypatch):
+    import time
+    monkeypatch.setattr(app, "DASH_PASSWORD", "")
+    monkeypatch.setattr(app, "NEXUS_SSO_CHAVE", "")
+    monkeypatch.setattr(app, "_MODO_WEB", True)
+    monkeypatch.setattr(app, "_pg_geracao_periodo", _pg_fora)
+    monkeypatch.setattr(app, "_GER_HIST_CACHE", {})
+    monkeypatch.setattr(app, "_ger_cache", {"ts": 0.0, "data": None})
+    c = app.app.test_client()
+    for q in ("?ano=2020&mes=1", ""):                     # mês passado; mês corrente sem snapshot
+        r = c.get("/api/gerencial" + q)
+        assert r.status_code == 503, (q, r.status_code)
+        j = r.get_json()
+        assert "PG fora do ar" in j["erro"] and j["usinas"] == []
+    assert app._ger_cache["data"] is None and app._GER_HIST_CACHE == {}, "a falha não pode virar o cache do mês"
+    # com o snapshot do mês na memória, o PG fora não muda nada: segue o último publicado, com a hora dele
+    bom = {"usinas": [{"usina": "A", "p50": 100, "prod": 90, "pot_mwp": 5}], "portfolio": {"pr": 80}, "cache_ts": "14:30:00"}
+    monkeypatch.setattr(app, "_ger_cache", {"ts": time.time(), "data": bom})
+    r = c.get("/api/gerencial")
+    assert r.status_code == 200 and r.get_json()["cache_ts"] == "14:30:00"
+
+
+_GER_ERRO = '[200, {erro: "PG fora do ar (simulado)", usinas: [], clientes: [], portfolio: {}, cache_ts: "14:41:44"}]'
+
+
+def test_painel_noc_gerencial_com_erro_nao_zera_a_perda(tmp_path):
+    """Nem o 503 nem um 200 com `erro` (plataforma de antes da correção) trocam o mês que está na tela."""
+    h = _ler("painel_portfolio.html")
+    js = (_RESPOSTAS + _trecho(h, "const nf=", "\n")
+          + "const COR={ok:()=>'g',atencao:()=>'a',critico:()=>'r',sem_comm:()=>'o'};"
+            "function merge(){} function fillWallCli(){} function renderWall(){} function renderFeed(){} function renderRegion(){}"
+            "let MACRO=null, GER=null, MAP={};\n"
+          + _func(h, "_lerOk") + _func(h, "_hhmm") + _func(h, "boot") + _func(h, "stamp") + _func(h, "renderKpis")
+          + """(async () => {
+  R = {"/api/macro": [200, {resumo: {total: 80, ok: 70}, cache_ts: "14:32"}],
+       "/api/gerencial": [200, {usinas: [{usina: "A", p50: 100, prod: 90, pot_mwp: 5}], portfolio: {pr: 80}, cache_ts: "14:30"}]};
+  await boot(); const antes = E("kpis").innerHTML;
+  const res = [];
+  for (const g of [%(erro)s, [503, {erro: "PG fora do ar (simulado)", usinas: [], portfolio: {}}]]) {
+    R = {"/api/macro": [200, {resumo: {total: 81, ok: 71}, cache_ts: "14:41"}], "/api/gerencial": g};
+    await boot(); res.push({kpis: E("kpis").innerHTML, upd: E("upd").innerHTML});
+  }
+  out({antes, res, avisos});
+})();""" % {"erro": _GER_ERRO})
+    r = _node(js, tmp_path)
+    perda = re.compile(r"Energia perdida \(mês\)</div><div class=\"v num\">([^<]*)<")
+    assert perda.search(r["antes"]).group(1).strip() == "10,0"
+    for x in r["res"]:
+        assert perda.search(x["kpis"]).group(1).strip() == "10,0", "o mês vazio do PG fora virou 'Energia perdida 0,0'"
+        assert ">81<" in x["kpis"] and "5 MWp" in x["kpis"], "o ao vivo, que veio, tem de entrar"
+        assert "14:41:44" not in x["upd"] and "Mês/PG <b>14:30</b>" in x["upd"], "a hora do mês vazio passou por fresca"
+        assert "não atualizou" in x["upd"]
+    assert sum(1 for a in r["avisos"] if a[0] == "falhou") == 2
+
+
+def test_gerencial_200_com_erro_nao_vira_mes_sem_usina(tmp_path):
+    h = _ler("gerencial.html")
+    js = (_RESPOSTAS + "let RAW={ano:2026, mes_num:10, usinas:[{usina:'A'}]}; const r0=RAW; const aplicou=[];"
+          "function _fillCli(){} function _aplica(){ aplicou.push(1); } function loadDisp(){}\n" + _func(h, "load")
+          + """(async () => { R = {"/api/gerencial": %(erro)s}; await load(2026, 9);
+  const c1 = E("cov").textContent;
+  R = {"/api/gerencial": [503, {erro: "PG fora do ar (simulado)", usinas: []}]}; await load(2026, 9);
+  out({mesmo: RAW === r0, aplicou, c1, cov: E("cov").textContent, mes: E("fMes").value}); })();""" % {"erro": _GER_ERRO})
+    r = _node(js, tmp_path)
+    assert r["mesmo"] and r["aplicou"] == [], "o PG fora virou um mês sem usina, totais em zero"
+    assert "10/2026" in r["c1"] and "PG" in r["c1"] and r["mes"] == "2026-10"
+    assert "HTTP 503" in r["cov"]
+
+
+# ── 5. o "Entrar" da faixa, encadeado até o Nexus (revisão adversarial de 10/10/2026) ───────────────────────────────
+# A faixa "Sessão vencida: entre de novo" manda /login?next=<encodeURIComponent(caminho como o navegador o escreve)>:
+# o next chega JÁ codificado (S%C3%A3o%20Bento). O "Entrar pelo Nexus" codificava de novo (S%25C3%25A3o...) e o
+# Diagnóstico abria com NOME='S%C3%A3o%20Bento': todas as leituras pelo nome vinham vazias (falso "sem OS/sem meta").
+# No hist=1 o próprio id do caminho ficava errado. O next do portão (decodificado, "São Bento") segue valendo.
+_TELAS_DA_FAIXA = (
+    ("/painel/usina/12345678", "?fonte=pv&nome=S%C3%A3o%20Bento%20do%20Una&ts=2026-10-10%2014%3A32"),
+    ("/painel/usina/S%C3%A3o%20Bento", "?hist=1&cliente=Cliente%20Exemplo&nome=S%C3%A3o%20Bento"),
+    ("/painel/usina/42", "?fonte=pv&nome=A%26B+(1)%2C%20Lote%3A2"),          # %26 não pode virar &; + segue +
+    ("/painel/falhas", ""),
+)
+
+
+def test_o_entrar_da_faixa_reabre_a_mesma_tela_pelo_nexus(cli, monkeypatch, tmp_path):
+    from urllib.parse import parse_qs, urlsplit
+    monkeypatch.setattr(app, "NEXUS_PORTA_PRINCIPAL", "https://app.exemplo.com/")
+    botao = re.compile(r'<a href="([^"]*)" class="nexbtn">Entrar pelo Nexus</a>')
+    for caminho, busca in _TELAS_DA_FAIXA:
+        r = _aviso({"pathname": caminho, "search": busca, "prefixo": ""}, 'await fetch("/api/macro"); out({ f: faixa() });',
+                   tmp_path)
+        login = re.search(r'href="([^"]*)" target="_top"', r["f"]["html"]).group(1).replace("&amp;", "&")
+        assert login.startswith("/login?next=%2F"), login
+        cli.get("/logout")
+        m = botao.search(cli.get(login).get_data(as_text=True))
+        assert m, login
+        p = parse_qs(urlsplit(m.group(1).replace("&amp;", "&")).query)["p"][0]     # o que o Nexus lê de ?p=
+        assert p == caminho + busca, (caminho + busca, p)
+        assert pn.destino_permitido(p) == p
+        # pela senha o mesmo link já voltava certo; segue igual
+        s = cli.post(login, data={"senha": SENHA})
+        assert s.headers["Location"] == caminho + busca, (caminho + busca, s.headers["Location"])
+
+
+def test_o_next_do_portao_com_porcento_solto_vira_porcento_codificado(cli, monkeypatch):
+    """O next do portão chega decodificado: um '%' que não abre escape (/painel/usina/100%) é o próprio caractere, e o
+    ?p= leva '%25'; sem isso o Nexus pediria um caminho com escape quebrado."""
+    from urllib.parse import parse_qs, quote, urlsplit
+    monkeypatch.setattr(app, "NEXUS_PORTA_PRINCIPAL", "https://app.exemplo.com/")
+    html = cli.get("/login?next=" + quote("/painel/usina/100%", safe="")).get_data(as_text=True)
+    href = re.search(r'<a href="([^"]*)" class="nexbtn">', html).group(1).replace("&amp;", "&")
+    assert parse_qs(urlsplit(href).query)["p"][0] == "/painel/usina/100%25"

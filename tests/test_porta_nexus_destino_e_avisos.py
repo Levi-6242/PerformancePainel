@@ -160,3 +160,62 @@ const document = {getElementById: () => ({textContent: ""})};
     assert "Só administradores" in r["t403"] and r["d403"] is False
     assert "HTTP 500" in r["t500"]
     assert r["i200"] == 1 and r["busy"] == "1", "o reinício de verdade segue acompanhando o serviço voltar"
+
+
+# ── o next do /login não sai deste endereço (revisão adversarial de 10/10/2026) ──────────────────────────────────────
+# Provado com o test_client: com sessão aberta (senha ou passe), GET /login?next=/%09/mal.exemplo.com/entrar respondia
+# 302 para "//mal.exemplo.com/entrar". O _login_next só olhava a barra do começo; o TAB passava, o Werkzeug (e o
+# navegador, pela regra de URL do WHATWG) o tiram e sobra um endereço relativo ao protocolo: outro site. A faixa
+# "Sessão vencida: entre de novo" ensina a pessoa a entrar pelo /login?next=, o que deixaria crível um link de phishing.
+_NEXT_RUINS = ("/%09/mal.exemplo.com/entrar", "/%0a/mal.exemplo.com/entrar", "/%0d/mal.exemplo.com/entrar",
+               "/%0d%0a/mal.exemplo.com", "/%00/mal.exemplo.com", "/%7f/mal.exemplo.com", "/%5C/mal.exemplo.com",
+               "/%5Cmal.exemplo.com", "//mal.exemplo.com", "https://mal.exemplo.com/", "%09//mal.exemplo.com")
+
+
+def test_next_com_controle_ou_barra_invertida_volta_ao_inicio_com_sessao(cli):
+    assert cli.post("/login", data={"senha": SENHA}).status_code == 302
+    for nxt in _NEXT_RUINS:
+        r = cli.get("/login?next=" + nxt)
+        assert r.status_code == 302 and r.headers["Location"] == "/", (nxt, r.headers.get("Location"))
+    # o que é caminho deste endereço segue valendo: o next do portão (decodificado, com espaço e acento) e o da faixa
+    # de sessão vencida (já codificado, com a query)
+    for nxt, esperado in (("/painel", "/painel"),
+                          (quote("/painel/usina/São Bento", safe=""), "/painel/usina/S%C3%A3o%20Bento"),
+                          (quote("/painel/usina/12345678?fonte=pv&nome=S%C3%A3o%20Bento", safe=""),
+                           "/painel/usina/12345678?fonte=pv&nome=S%C3%A3o%20Bento")):
+        r = cli.get("/login?next=" + nxt)
+        assert r.headers["Location"] == esperado, (nxt, r.headers["Location"])
+
+
+def test_next_com_controle_ou_barra_invertida_no_post_da_senha(cli):
+    for nxt in _NEXT_RUINS:
+        cli.get("/logout")
+        r = cli.post("/login?next=" + nxt, data={"senha": SENHA})
+        assert r.status_code == 302 and r.headers["Location"] == "/", (nxt, r.headers["Location"])
+
+
+def test_next_do_login_microsoft_tem_a_mesma_regua(cli, monkeypatch):
+    monkeypatch.setattr(app, "MS_SSO_ON", True)
+    monkeypatch.setattr(app, "AZURE_CLIENT_ID", "cliente-de-teste")
+    monkeypatch.setattr(app, "AZURE_REDIRECT_URI", "https://app.exemplo.com/auth/callback")
+    for nxt, esperado in [(n, "/") for n in _NEXT_RUINS] + [("/painel", "/painel")]:
+        r = cli.get("/auth/login?next=" + nxt)
+        assert r.status_code == 302 and r.headers["Location"].startswith("https://login.microsoftonline.com/")
+        with cli.session_transaction() as s:
+            assert s["oauth_next"] == esperado, (nxt, s["oauth_next"])
+    # o botão "Entrar com Microsoft" do /login também não leva o next ruim adiante
+    for nxt in _NEXT_RUINS:
+        html = cli.get("/login?next=" + nxt).get_data(as_text=True)
+        assert 'href="/auth/login"' in html, nxt
+
+
+def test_entrar_pelo_nexus_e_o_login_usam_a_mesma_regua(cli, monkeypatch):
+    """A docstring do _entrar_pelo_nexus_href dizia que ele usava a régua do _login_next, e não era verdade: agora é uma
+    função só (`_caminho_deste_endereco`) para o login da senha, o da Microsoft e o "Entrar pelo Nexus"."""
+    monkeypatch.setattr(app, "NEXUS_PORTA_PRINCIPAL", "https://app.exemplo.com/")
+    for nxt in _NEXT_RUINS:
+        assert _botao(cli, "?next=" + nxt) == "https://app.exemplo.com/", nxt
+    for n in ("/painel", "/painel/usina/São Bento", "/monitor?fonte=pv&embed=1"):
+        assert app._caminho_deste_endereco(n), n
+    for n in ("", "painel", "//x", "/\t/x", "/\n/x", "/\r/x", "/\x00", "/\x7f", "/\\x", None, 12):
+        assert not app._caminho_deste_endereco(n), repr(n)

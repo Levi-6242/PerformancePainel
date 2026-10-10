@@ -819,10 +819,29 @@ def _no_cache_html(resp):
     return resp
 
 
+# Caractere de controle e barra invertida não entram num destino de redirecionamento. O navegador TIRA o TAB, o LF e o
+# CR do endereço e lê a barra invertida como barra (regra de URL do WHATWG; o Werkzeug também tira o TAB ao montar o
+# Location): "/\t/outro.site" e "/\\outro.site" viram "//outro.site", um endereço de OUTRO site. O espaço fica de fora
+# de propósito: o next do portão chega decodificado ("/painel/usina/São Bento"), e espaço no meio do caminho não muda
+# de endereço (o navegador o codifica).
+_RX_FORA_DO_CAMINHO = re.compile(r"[\x00-\x1f\x7f\\]")
+
+
+def _caminho_deste_endereco(n) -> bool:
+    """O destino é um caminho DESTE endereço (barra única, sem controle nem barra invertida)? A régua única do next do
+    login da senha (`_login_next`), do login da Microsoft (`oauth_next`) e do "Entrar pelo Nexus".
+
+    Revisão adversarial de 10/10/2026: com sessão aberta (da senha ou do passe), /login?next=/%09/mal.exemplo.com/entrar
+    respondia 302 para "//mal.exemplo.com/entrar": a régua de antes só olhava a barra do começo. A faixa "Sessão vencida:
+    entre de novo" ensina a pessoa a entrar pelo /login?next=, e um link desses levava a uma falsa tela de login."""
+    return (isinstance(n, str) and n.startswith("/") and not n.startswith("//")
+            and not _RX_FORA_DO_CAMINHO.search(n))
+
+
 def _login_next():
-    """Destino pós-login: só caminho LOCAL (barra única) — nada de open redirect."""
+    """Destino pós-login: só caminho deste endereço (`_caminho_deste_endereco`); nada de redirecionamento aberto."""
     n = (flask_request.args.get("next") or "").strip()
-    return n if (n.startswith("/") and not n.startswith("//")) else "/"
+    return n if _caminho_deste_endereco(n) else "/"
 
 
 def _entrar_pelo_nexus_href() -> str:
@@ -833,15 +852,24 @@ def _entrar_pelo_nexus_href() -> str:
     ignorava o next e levava ao Início do Nexus: a pessoa perdia o lugar. Agora, com o next sendo uma tela do mapa, leva a
     <NEXUS_PORTA_PRINCIPAL>/t/<torre>/<tela>?p=<next> (o Nexus abre a moldura nela, como no F5); fora do mapa, ao Início.
 
-    O next passa pela mesma régua do `_login_next` (só caminho deste endereço, sem `//`) e mais: nada de caractere de
-    controle nem barra invertida, e o destino tem de valer como destino de passe (`porta_nexus.destino_permitido`: tela
-    do mapa, sem segmento de ponto), porque é isso que o Nexus vai pedir à plataforma com ele."""
+    O next passa pela mesma régua do `_login_next` (`_caminho_deste_endereco`: só caminho deste endereço, sem `//`, sem
+    caractere de controle nem barra invertida), e o destino tem de valer como destino de passe
+    (`porta_nexus.destino_permitido`: tela do mapa, sem segmento de ponto), porque é isso que o Nexus vai pedir à
+    plataforma com ele."""
     base = NEXUS_PORTA_PRINCIPAL
     n = (flask_request.args.get("next") or "").strip()
-    if not n.startswith("/") or n.startswith("//") or re.search(r"[\x00-\x1f\x7f\\]", n):
+    if not _caminho_deste_endereco(n):
         return base
-    # o next chega decodificado (o portão monta `quote(caminho)`); o ?p= leva o caminho como o navegador o escreve
-    caminho = quote(n, safe="/?&=")
+    # O ?p= leva o caminho como o navegador o escreve, e o next chega de dois jeitos. O do portão vem DECODIFICADO (ele
+    # monta `quote(caminho)`: "/painel/usina/São Bento"). O da faixa de sessão vencida vem JÁ codificado
+    # (encodeURIComponent de location.pathname+search: "...?nome=S%C3%A3o%20Bento"). Revisão adversarial de 10/10/2026:
+    # codificar de novo o segundo dava S%25C3%25A3o, e o Diagnóstico abria com o nome 'S%C3%A3o%20Bento' (as leituras
+    # pelo nome vinham vazias: falso "sem OS/sem meta"; no hist=1 o próprio id do caminho ficava errado). Por isso o
+    # escape que já existe fica como está ('%' a salvo; o '%' solto, sem dois hexadecimais depois, é o caractere e vira
+    # %25), e os sinais que o navegador deixa crus na URL ficam crus ('+' na query é espaço: codificá-lo mudaria o
+    # valor). Só o que o navegador nunca deixa cru (acento, espaço, aspas, '#') é codificado. Decodificar e codificar de
+    # novo não serve: o %26 de um nome (A%26B) viraria '&' e partiria o parâmetro.
+    caminho = quote(re.sub(r"%(?![0-9A-Fa-f]{2})", "%25", n), safe="/?&=%+!$()*,;:@")
     if _pn.destino_permitido(caminho) is None:
         return base
     t = _pn.tela_do_caminho(caminho)
@@ -862,7 +890,7 @@ def _render_login(erro=""):
                       'border:1px solid var(--divider)}</style>')
     if MS_SSO_ON:
         nxt = (flask_request.args.get("next") or "").strip()
-        href = "/auth/login" + ("?next=" + quote(nxt) if (nxt.startswith("/") and not nxt.startswith("//")) else "")
+        href = "/auth/login" + ("?next=" + quote(nxt) if _caminho_deste_endereco(nxt) else "")
         botoes.append(f'<a href="{href}" class="msbtn"><svg width="18" height="18" viewBox="0 0 21 21" style="flex:none">'
               '<rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/>'
               '<rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/>'
@@ -989,7 +1017,7 @@ def auth_login():
     state = secrets.token_urlsafe(24)
     session["oauth_state"] = state
     nxt = (flask_request.args.get("next") or "").strip()
-    session["oauth_next"] = nxt if (nxt.startswith("/") and not nxt.startswith("//")) else "/"
+    session["oauth_next"] = nxt if _caminho_deste_endereco(nxt) else "/"      # a mesma régua do login da senha
     q = urlencode({"client_id": AZURE_CLIENT_ID, "response_type": "code",
                    "redirect_uri": AZURE_REDIRECT_URI, "response_mode": "query",
                    "scope": "openid email profile", "state": state,
@@ -17140,10 +17168,18 @@ def api_gerencial():
     try:
         _a = flask_request.args.get("ano")
         _m = flask_request.args.get("mes")
-        return jsonify(_gerencial_payload(force=flask_request.args.get("force") == "1",
-                                          ano=int(_a) if _a else None, mes=int(_m) if _m else None))
+        g = _gerencial_payload(force=flask_request.args.get("force") == "1",
+                               ano=int(_a) if _a else None, mes=int(_m) if _m else None)
     except Exception as e:
         return jsonify({"erro": str(e), "usinas": [], "clientes": [], "portfolio": {}}), 500
+    # O _gerencial_payload devolve {"erro", "usinas": [], "cache_ts": <agora>} quando a leitura do PG falha (mês passado,
+    # ou o corrente sem snapshot: web que subiu sem ele, plataforma local depois do TTL). Com 200, as telas o tomavam
+    # por dado: o Painel NOC trocava o mês bom pelo vazio e mostrava "Energia perdida 0,0 MWh" e "0 MWp", com a hora de
+    # agora em "Mês/PG", como se fosse fresco (revisão adversarial de 10/10/2026, provado com o PG simulado fora). 503 =
+    # "não veio": as telas guardam o último valor, e o seletor de usinas do Nexus diz que o Gerencial não respondeu.
+    if g.get("erro"):
+        return jsonify(g), 503
+    return jsonify(g)
 
 
 # ══ MOTOR DE DIAGNÓSTICO (Painel 2) — v0, Thopen-first, PEER-RELATIVO ═════════════
