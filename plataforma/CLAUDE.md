@@ -383,6 +383,22 @@ camada de reescrita da T.I. junto; e raiz, a fase 4), Chrome sem janela a 1440 p
 - abrir pela moldura custa ~100 ms a mais que direto (a página do Nexus, o POST do passe e o 303). O gêmeo deu 503 (não
   está de pé no PC). A `porta_local.py` do Nexus guardava cookies entre clientes até 10/10/2026 (corrigido lá).
 
+**Revisão adversarial, provada de novo no PC (10/10/2026, de madrugada)**, as mesmas cópias e o mesmo proxy, modos
+prefixo e raiz:
+- o passe e o Sair só da mesma origem: `same-site`, `Origin` de outro host, `Origin: null` e `cross-site` dão 403 sem
+  abrir sessão; `same-origin` e `Origin` deste endereço abrem; passe com `"vence": NaN` e com destino
+  `/gemeo/%2e%2e/tokens` dão 403;
+- com sessão de analista, o POST `text/plain` de outro site (e o `same-site`, e o `Origin` de fora sem
+  `Sec-Fetch-Site`) leva 403 "pedido de outro site" e nada é gravado; o da mesma origem grava (na cópia; a pasta
+  principal não mudou);
+- analista sem admin leva 403 em `/api/admin/bases` e no POST `/api/admin/base/...`; o admin lê (o envio e o
+  reinício do WhatsApp só nos testes, para não tocar no serviço real do PC);
+- o cookie sai `SameSite=Lax`; atrás de https sai `Secure` também, mas só depois de o `serve()` confiar no Caddy para o
+  esquema (`_waitress_atras_do_caddy`): a primeira rodada mostrou que o waitress 3 apagava o `X-Forwarded-Proto`;
+- a página do Entrar do Nexus encerra a sessão do passe (`/api/state` 200 -> 401); as 13 telas, o analista que grava,
+  o gestor e o Sair seguem como na prova da véspera; sem a chave, 404 em `/painel/nexus/*`, nenhuma CSP e o cookie da
+  senha sem `SameSite`, como hoje.
+
 **Antes de alguém depender no servidor:** sondar `POST /painel/nexus/entrar` — tem de responder `Server: waitress` com
 `Via: 1.1 Caddy` (404 sem a chave), nunca 502 vazio do Caddy.
 
