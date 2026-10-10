@@ -591,3 +591,32 @@ def test_fase3_valor_invalido_desliga():
     assert v("http://127.0.0.1:5070/") == "http://127.0.0.1:5070/"
     for ruim in ("//outro.site", "javascript:alert(1)", '/nexus/"><script>', "nexus", " / nexus", "ftp://x"):
         assert v(ruim) == "", ruim
+
+
+# ── revisão adversarial da porta (10/10/2026) ───────────────────────────────────────────────────────────────────────
+# Cada teste abaixo falhava no código de 09/10 e passa com a correção (o caso que o motivou está no nome).
+_ADMINISTRACAO = (("POST", "/api/admin/base/bd_performance"), ("GET", "/api/admin/bases"),
+                  ("POST", "/api/ronda/whats/testar"), ("POST", "/api/ronda/whats/reiniciar"),
+                  ("GET", "/api/ronda/whats/grupos"))
+
+
+def test_administracao_da_plataforma_so_para_admin_do_nexus(cli):
+    """Revisão de 10/10: só /tokens era "só admin". Com PLATAFORMA_ANALISTAS=* qualquer conta do Fracttal trocava o
+    BD_Performance do espelho do servidor (/api/admin/base), lia os caminhos do servidor (/api/admin/bases), mandava a
+    ronda pelo chip da empresa a qualquer número (/api/ronda/whats/testar) ou derrubava o serviço do WhatsApp
+    (/api/ronda/whats/reiniciar). Spec 5.3: administração é só do admin do Nexus. O portão recusa ANTES do handler:
+    nada é gravado nem enviado neste teste."""
+    for metodo, c in _ADMINISTRACAO:
+        assert pn.so_admin(c), c
+    assert not pn.so_admin("/api/ronda/whats/status") and not pn.so_admin("/api/ronda/whats/qr")   # o Monitor lê
+    assert not pn.so_admin("/api/administrativo")                                  # prefixo é por segmento
+    entrar(cli, "analista@exemplo.com", admin=False)
+    for metodo, c in _ADMINISTRACAO:
+        r = cli.open(c, method=metodo, data=b"x" * 2048)
+        assert r.status_code == 403 and r.get_json()["error"] == "só administradores do Nexus", (metodo, c)
+    cli.get("/logout")
+    entrar(cli, "admin@exemplo.com", admin=True)
+    assert cli.get("/api/admin/bases").status_code == 200                           # o admin do Nexus passa
+    cli.get("/logout")
+    entrar_com_senha(cli)
+    assert cli.get("/api/admin/bases").status_code == 200                           # a senha segue como hoje

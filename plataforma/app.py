@@ -540,7 +540,8 @@ def _portao_da_sessao_do_passe(p: str):
     - venceu (12 h) ou a NEXUS_SSO_CHAVE mudou (ou saiu): a sessão é apagada e o pedido segue como de quem não entrou
       (spec 8: trocar a chave derruba as sessões do passe, não as da senha);
     - o perfil é refeito pelas listas de hoje (restringir é uma linha no .env, valendo no reinício, sem esperar 12 h);
-    - /tokens e /api/tokens só para admin do Nexus, em qualquer perfil (spec 5.3);
+    - administração (`porta_nexus.ROTAS_SO_ADMIN`: /tokens, /api/tokens, /api/admin e o envio e o reinício do
+      WhatsApp da ronda) só para admin do Nexus, em qualquer perfil (spec 5.3);
     - gestor: só o que `leitura_nexus.permitido_gestor` aceita, e o pedido leva a trava da API PV (`nexus_so_leitura`)."""
     agora = time.time()
     try:
@@ -559,8 +560,8 @@ def _portao_da_sessao_do_passe(p: str):
         session["perfil"] = perfil
     if _pn.so_admin(p) and not session.get("admin_nexus"):
         return _recusa_da_porta(p, 403, "só administradores do Nexus", "Só administradores do Nexus",
-                                "As chaves das fontes (SunOp, Axis e Plataforma) são administração: abrem só para quem "
-                                "é administrador do Nexus.")
+                                "Esta parte é administração da plataforma (as chaves das fontes, as bases e o envio da "
+                                "ronda pelo WhatsApp): abre só para quem é administrador do Nexus.")
     if perfil == _pn.GESTOR:
         import leitura_nexus
         if not leitura_nexus.permitido_gestor(flask_request.method, p, list(flask_request.args.keys())):

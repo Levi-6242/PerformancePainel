@@ -107,8 +107,17 @@ def tela_do_caminho(caminho: str):
     return None
 
 
-# Só admin do Nexus, em qualquer perfil (spec 5.3): as páginas `so_admin` do mapa e a API delas (a validade e o colar).
-ROTAS_SO_ADMIN = tuple(t.caminho for t in MAPA if t.so_admin) + ("/api/tokens",)
+# Só admin do Nexus, em qualquer perfil (spec 5.3: "administração só admin_nexus"): as páginas `so_admin` do mapa e a
+# API delas (a validade e o colar), e a administração da plataforma que não tem tela no mapa. Revisão de 10/10/2026: só
+# o /tokens estava aqui, e com PLATAFORMA_ANALISTAS=* qualquer conta do Fracttal podia:
+# - trocar o BD_Performance, o BD_Thopen ou os Tickets do espelho que o servidor sem OneDrive lê (/api/admin/base/...)
+#   e ver os caminhos do servidor (/api/admin/bases);
+# - mandar a ronda NA HORA pelo chip da empresa, aos grupos do COS ou a QUALQUER número (/api/ronda/whats/testar; a
+#   conta já foi restringida por spam), listar os grupos do chip (/grupos) e derrubar o serviço do WhatsApp
+#   (/reiniciar, o botão do Monitor da ronda quando o chip cai).
+# A sessão da senha não passa por aqui: segue como hoje.
+ROTAS_SO_ADMIN = tuple(t.caminho for t in MAPA if t.so_admin) + (
+    "/api/tokens", "/api/admin", "/api/ronda/whats/testar", "/api/ronda/whats/reiniciar", "/api/ronda/whats/grupos")
 
 
 def so_admin(caminho: str) -> bool:
