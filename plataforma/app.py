@@ -373,6 +373,18 @@ class _SessaoDaPlataforma(_InterfaceDaSessao):
 
 app.session_interface = _SessaoDaPlataforma()
 
+
+def _waitress_atras_do_caddy() -> dict:
+    """Os parâmetros do waitress para ele saber que o pedido chegou por https, SÓ com a NEXUS_SSO_CHAVE.
+
+    O waitress 3 apaga os cabeçalhos de proxy que não vêm de um proxy confiável (clear_untrusted_proxy_headers): sem
+    isto o X-Forwarded-Proto do Caddy nunca chegava ao app e o `Secure` acima nunca saía no servidor (provado na cópia
+    de 10/10/2026). Confia só no 127.0.0.1 (o Caddy na mesma máquina) e só no esquema: o IP de quem pede e o Host seguem
+    os de sempre. Sem a chave, o waitress de sempre (a plataforma sobe por push; nada muda antes da T.I.)."""
+    if not NEXUS_SSO_CHAVE:
+        return {}
+    return {"trusted_proxy": "127.0.0.1", "trusted_proxy_headers": {"x-forwarded-proto"}}
+
 # ── Login Microsoft (Entra ID / OAuth) — OPCIONAL, além da senha ──────────────
 # Se as 4 variáveis do Entra estiverem no ambiente (tokens.txt), aparece "Entrar com
 # Microsoft" no login e SÓ e-mails @AZURE_ALLOWED_DOMAIN entram. A senha DASH_PASSWORD
@@ -30073,7 +30085,7 @@ if __name__ == "__main__":
     try:
         from waitress import serve
         print("[server] waitress em http://0.0.0.0:5050 (threads=16)")
-        serve(app, host="0.0.0.0", port=5050, threads=16)
+        serve(app, host="0.0.0.0", port=5050, threads=16, **_waitress_atras_do_caddy())   # https do Caddy: Secure
     except ImportError:
         print("[server] waitress não instalado — usando o servidor de dev do Flask")
         app.run(debug=False, port=5050, threaded=True)

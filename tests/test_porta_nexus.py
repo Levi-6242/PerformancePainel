@@ -689,3 +689,26 @@ def test_passe_e_sair_so_da_mesma_origem(cli, cab):
     r = cli.post("/painel/nexus/entrar", data={"passe": passe()}, headers={"Origin": "http://localhost"})
     assert r.status_code == 303                                                   # Origin deste endereço passa
 
+
+
+def test_atras_do_caddy_o_waitress_deixa_o_https_chegar_e_o_cookie_sai_secure(cli, monkeypatch):
+    """Prova na cópia de 10/10/2026: o waitress 3 apaga os cabeçalhos de proxy que não vêm de um proxy confiável, e o
+    X-Forwarded-Proto do Caddy nunca chegava: o Secure do teste acima não saía no servidor. Com a chave, o serve() confia
+    no 127.0.0.1 só para o esquema; sem ela, o waitress de sempre. Aqui o app roda atrás do MESMO middleware do waitress."""
+    from waitress.proxy_headers import proxy_headers_middleware
+    from werkzeug.test import Client
+
+    def pela_pilha_do_waitress(**kw):
+        wsgi = proxy_headers_middleware(app.app.wsgi_app, trusted_proxy=kw.get("trusted_proxy"),
+                                        trusted_proxy_headers=kw.get("trusted_proxy_headers"), clear_untrusted=True)
+        c = Client(wsgi)
+        r = c.post("/painel/nexus/entrar", data={"passe": passe()}, headers={**NA_MOLDURA, "X-Forwarded-Proto": "https"},
+                   environ_base={"REMOTE_ADDR": "127.0.0.1"})
+        assert r.status_code == 303, r.get_data(as_text=True)[:200]
+        return r.headers["Set-Cookie"]
+
+    assert app._waitress_atras_do_caddy() == {"trusted_proxy": "127.0.0.1", "trusted_proxy_headers": {"x-forwarded-proto"}}
+    assert "Secure" in pela_pilha_do_waitress(**app._waitress_atras_do_caddy())
+    assert "Secure" not in pela_pilha_do_waitress()                  # sem confiar: o waitress apaga o cabeçalho
+    monkeypatch.setattr(app, "NEXUS_SSO_CHAVE", "")
+    assert app._waitress_atras_do_caddy() == {}                       # sem a chave, o serve() de sempre

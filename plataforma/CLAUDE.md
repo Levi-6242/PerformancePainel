@@ -323,7 +323,9 @@ quem entra pelo Nexus; a senha segue como hoje); gestor só passa no
 fica no diário com o e-mail (`_quem_na_sessao`, no lugar de "senha compartilhada").
 
 **O cookie** (`_SessaoDaPlataforma`, só com a chave): `SameSite=Lax`, e `Secure` quando o pedido chegou por https
-(`X-Forwarded-Proto` do Caddy; o waitress não lê proxy). Sem a chave, o `session=...; HttpOnly; Path=/` de sempre. Lax não
+(o waitress 3 apaga cabeçalho de proxy não confiável: com a chave, o `serve()` confia no 127.0.0.1, o Caddy, só
+para o esquema, `_waitress_atras_do_caddy`; o IP e o Host seguem os de sempre). Sem a chave, o
+`session=...; HttpOnly; Path=/` e o waitress de sempre. Lax não
 atrapalha a moldura (mesma origem) nem o bookmarklet da Plataforma (rota pública, sem cookie). Revisão adversarial de
 10/10/2026, com os testes no fim de `tests/test_porta_nexus.py`.
 

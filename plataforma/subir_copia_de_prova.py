@@ -148,7 +148,7 @@ def main() -> None:
         threading.Thread(target=acompanhar_snapshot, args=(args.copiar_estado_de, estado), daemon=True).start()
     from waitress import serve
     print(f"Plataforma (cópia de prova) em http://127.0.0.1:{args.porta}  estado: {estado}", flush=True)
-    serve(plataforma.app, listen=f"127.0.0.1:{args.porta}", threads=16)
+    serve(plataforma.app, listen=f"127.0.0.1:{args.porta}", threads=16, **plataforma._waitress_atras_do_caddy())
 
 
 if __name__ == "__main__":
