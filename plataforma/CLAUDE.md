@@ -268,6 +268,102 @@ com a rede cortada e falha se alguma falar com a API PV; rota nova que vá à AP
 
 Testes: `tests/test_leitura_nexus.py`, `tests/test_prefixo_subcaminho.py`.
 
+A ponte FICA no código até a Operação em tempo real (visão "Pelo banco") entrar no Nexus; no menu do Nexus quem abre o
+Tempo real passa a ser a moldura da porta única (seção abaixo). A chave `X-Nexus-Leitura` sai na fase 3; a lista dela
+(`permitido`) não mudou com o gestor, que tem a sua (`permitido_gestor`).
+
+## Porta única com o Nexus: passe, perfis e modo Nexus (09/10/2026)
+
+Levi, 09/10/2026: "a partir de segunda quero o Nexus como link principal; o Nexus será o centro de tudo, precisamos trazer
+o tempo real de performance painel para o Nexus". Desenho aprovado: "uma porta, dois motores"
+(`docs/superpowers/specs/2026-10-09-performance-no-nexus-design.md`, no repositório do Nexus). O Nexus é a porta (menu,
+login, endereço); a plataforma continua o motor e desenha as próprias telas DENTRO de uma moldura (iframe) do Nexus, na
+mesma origem (`app.gridco.com.br/nexus` e a raiz). Código: `porta_nexus.py` (puro: mapa, passe, perfis), o bloco "Porta
+única" no `_auth_gate` e logo abaixo dele no `app.py`, `leitura_nexus.permitido_gestor`.
+
+**Inerte sem as variáveis** (a plataforma sobe por push na main; nada pode mudar antes de a T.I. pôr as chaves). Sem
+`NEXUS_SSO_CHAVE`: `/painel/nexus/*` é 404 e nenhuma resposta muda (nem modo Nexus, nem CSP, nem perfis).
+
+| Variável (`.env`/`tokens.txt`) | Para quê |
+|---|---|
+| `NEXUS_SSO_CHAVE` | chave do passe, a MESMA do `.env` do Nexus; 32+ caracteres aleatórios (`secrets.token_urlsafe(32)`); menor = desligada, com aviso no log |
+| `PLATAFORMA_ANALISTAS` | e-mails (vírgula) ou `*`: entram como analista (tudo o que a senha faz). Decisão do Levi: começa com `*` |
+| `PLATAFORMA_GESTORES` | e-mails ou `*`: gestor, só leitura. O e-mail escrito vence o `*`; escrito nas duas (ou `*` nas duas), vale gestor |
+| `NEXUS_PORTA_PRINCIPAL` | **fase 3, desligada vazia**: com `/nexus/` (ou `http://127.0.0.1:5070/` no PC), o `/` leva ao Nexus (logado ou não; nunca dentro de moldura) e o login oferece "Entrar pelo Nexus", com a senha virando reserva |
+
+**O passe (contrato com o Nexus).** A página da tela no Nexus faz um POST (formulário escondido, `target` = a moldura;
+sem JavaScript, um botão "Abrir") para `/painel/nexus/entrar` com o campo `passe` = `base64url(json) + "." +
+base64url(HMAC-SHA256(json))`, sem `=` (aceito com ou sem). A assinatura é sobre os BYTES do JSON do primeiro segmento.
+JSON: `{"v": 1, "email", "nome", "admin": true|false (NEXUS_ADMINS), "destino": "/tela?query", "vence": epoch em s (no
+máximo 60 s à frente; mais que 65 s é recusado), "numero": 16 a 128 de [A-Za-z0-9_-]}`. A plataforma confere formato,
+assinatura (`compare_digest`), versão, vencimento, e-mail, destino (só tela do mapa, caminho local; nada de redirecionamento
+aberto) e, por último, o número (uso único; guarda os dos últimos 2 min, em memória: o web é um processo só). Passou:
+`session.clear()` e abre a sessão DELA (`auth`, `auth_kind="nexus"`, `user`=e-mail, `nome`, `perfil`, `admin_nexus`,
+`nexus_ate` = agora + 12 h, `nexus_chave` = HMAC da chave), não permanente (o cookie some ao fechar o navegador) e 303 para
+o destino. Recusa: página "Abra de novo pelo Nexus" com o motivo, 403, sessão nenhuma. Fora das listas: "Sem acesso à
+Performance", 403. Nos dois casos a sessão de PASSE que já estivesse aberta no navegador cai junto (a da senha fica):
+na cópia de 10/10, depois de um gestor, um login fora das listas via "Sem acesso" e seguia com a sessão do gestor. POST com `Sec-Fetch-Site: cross-site` é recusado (login trocado por outro site). POST, nunca na URL:
+o passe leva o e-mail. O Sair do Nexus faz POST (`target=_top`) em `/painel/nexus/sair` com `volta` = o caminho para onde
+seguir (só caminho deste endereço); encerra só a sessão do passe (a da senha fica).
+
+**A cada pedido da sessão do passe** (`_portao_da_sessao_do_passe`): vencida (12 h) ou chave trocada/retirada → sessão
+apagada, segue como quem não entrou (spec 8: trocar a chave derruba o passe, não a senha); perfil refeito pelas listas
+de hoje; `/tokens` e `/api/tokens*` só com `admin_nexus`, em qualquer perfil (403 página/JSON); gestor só passa no
+`permitido_gestor` (403 "somente leitura (perfil gestor)") e o pedido dele leva `g.nexus_so_leitura`, que faz o
+`pedido_do_nexus()` valer: a API PV fica travada (a mesma trava da ponte) e o pedido não monta cache. Quem grava pelo passe
+fica no diário com o e-mail (`_quem_na_sessao`, no lugar de "senha compartilhada").
+
+**Gestor** (`leitura_nexus.permitido_gestor`): as páginas de toda tela do mapa, as leituras da ponte mais `_GET_GESTOR`
+(as das outras telas), `POSTS_DE_CONSULTA_GESTOR` (os 3 da ponte + `/api/fracttal/os`), sem `force/forcar/run/backfill`,
+sem `/api/perdas/fechamento`, sem `NEGADOS_API_PV_GESTOR` (o lado API PV do Diagnóstico: `/api/diagnostico/pv/`,
+`/api/painel/correlacao/pv/`, `/api/plant/`, `/api/spv/usina/`...). Para o gestor a tela de uma usina da Thopen abre sem o
+que vem da API PV na hora: é o combinado ("sem abrir a API PV na hora"). Rota nova numa tela entra em `_GET_GESTOR`,
+`POSTS_DE_CONSULTA_GESTOR` ou `GRAVACOES_GESTOR` — `test_a_lista_do_gestor_cobre_as_rotas_das_telas` lê os templates.
+
+**Modo Nexus.** Página com sessão do passe E `Sec-Fetch-Dest: iframe` sai com `class="modo-nexus"` no `<html>` (posta pelo
+servidor, `_porta_do_nexus_na_resposta`), o CSS `html.modo-nexus [data-casca]{display:none}` e um calço que avisa a
+moldura `postMessage({tipo: "nexus:rota", caminho}, location.origin)` na carga e a cada `pushState`/`replaceState`/
+`popstate`; `caminho` = `pathname + search`, sem o prefixo. Só a página de cima da moldura avisa (o `/monitor?embed=1`
+que o Tempo real embute é moldura dentro da moldura). Cada template marca com `data-casca` o que é navegação da
+plataforma (a marca, "← Início", "‹ Entrada", "Monitoramento", a barra do Monitoramento); contexto da tela ("←
+Portfólio", "Relatório semanal Thopen", "Disponibilidade") fica. `test_toda_pagina_com_link_para_a_entrada_o_marca_como_casca`
+quebra se um `<a href="/">` novo ficar sem a marca. `/` na moldura leva a `/tempo-real` (o menu do Nexus faz o papel da
+Entrada). Na moldura SEM sessão (venceu), em vez do login por senha dentro do Nexus: "Abra de novo pelo Nexus", 401, com
+a senha num link `target=_top` de reserva. Navegador sem `Sec-Fetch-Dest`: a tela com os dois menus, funcionando.
+
+**`Content-Security-Policy: frame-ancestors 'self'`** em toda resposta HTML, só com a chave (spec, fase 1: "desligados
+sem a chave"); junta-se a uma CSP que já exista. Investigado em 09/10 antes de ligar: ninguém de fora emoldura a
+plataforma. A Entrada embute o `/monitor` na mesma origem; o casco `/os/` do OS Creator Web embute as próprias abas na
+mesma origem; a ponte do Nexus busca no servidor e não repassa este cabeçalho; o supervisório da Engenharia emoldurado no
+OS Creator é de outro endereço e não é a plataforma; o Thopen (Railway) e o App de Campo não emolduram nada daqui. No PC,
+porta diferente é OUTRA origem: a moldura só abre atrás da `ferramentas/porta_local.py` do Nexus (como no servidor).
+
+**O mapa** (`porta_nexus.MAPA`, spec 5.6) é a CÓPIA do mapa do Nexus (o dono): 13 telas, ids do Nexus (`tempo-real`,
+`noc`, `diagnostico`, `strings-trackers`, `gerencial`, `disponibilidade`, `relatorio`, `relatorio-semanal`, `gemeo`,
+`historico-plataforma`, `monitor-ronda`; COS `acompanhamento`; Base `chaves-fontes`, só admin). Os dois lados conferem o
+mesmo texto canônico (`texto_canonico_do_mapa`, uma linha `torre|tela|caminho|tambem|admin` por tela) pela assinatura
+`b80243d6133920c6` (`test_o_mapa_e_a_copia_do_nexus`): mudou lá, muda aqui. Rota de página nova entra no `MAPA` ou no
+`FORA_DO_MAPA` com o porquê (`test_toda_rota_de_pagina_tem_lugar_no_mapa`).
+
+**Provado no PC (10/10/2026)**, cópia de prova com a chave + um mini-Nexus de prova (só no scratchpad, fazendo o lado do
+Nexus: menu, moldura, formulário com passe novo, escuta do `nexus:rota`) atrás da `porta_local.py`: as 12 telas abrem na
+moldura com `modo-nexus`, nenhum `data-casca` visível e o `?p=` acompanhando (inclusive `/tempo-real/athon`, e o
+`/monitor` embutido não avisa); o `/` na moldura vira `/tempo-real`; o gestor lê e leva 403 ao gravar, no `?force=1`, no
+`/api/plant/` e no `/tokens`; fora das listas derruba a sessão; o Sair encerra; moldura sem sessão mostra "Abra de novo";
+direto (fora da moldura) as telas saem com a navegação da plataforma; e `localhost:5191` emoldurando `127.0.0.1:5191` é
+bloqueado pelo `frame-ancestors`. O gêmeo deu 503 (não está de pé no PC). Cuidado com a `porta_local.py` do Nexus: ela usa
+um `requests.Session` com pote de cookies, que guarda o `session` de uma resposta e o devolve a quem chega SEM cookie
+(curl, outra aba) — para provar sessão, rode uma cópia dela com o pote desligado.
+
+**Antes de alguém depender no servidor:** sondar `POST /painel/nexus/entrar` — tem de responder `Server: waitress` com
+`Via: 1.1 Caddy` (404 sem a chave), nunca 502 vazio do Caddy.
+
+Testes: `tests/test_porta_nexus.py` (passe válido, vencido, adulterado, repetido, na URL, de outro site; destino fora do
+mapa; fora das listas; analista grava; gestor 403 ao gravar e lê cada tela do mapa; `/tokens` só admin; sem chave, 404 e
+nada muda; troca de chave e 12 h derrubam a sessão; frame-ancestors em todo HTML; modo Nexus só com o passe na moldura;
+`/` na moldura; fase 3 desligada e ligada) e `tests/test_porta_nexus_gestor_sem_api_pv.py` (toda rota GET do gestor com a
+rede cortada: nenhuma fala com a API PV; tirando a marca `nexus_so_leitura`, o `/api/entrada/tempo-real` falava).
+
 ## Padrão por inversor (usinas sem visão por string)
 
 Ceilândia 1, Céu Azul e Ouro Branco (String Box com combiner não exposta) e Barretos (sem esperado no
