@@ -620,3 +620,33 @@ def test_administracao_da_plataforma_so_para_admin_do_nexus(cli):
     cli.get("/logout")
     entrar_com_senha(cli)
     assert cli.get("/api/admin/bases").status_code == 200                           # a senha segue como hoje
+
+
+def test_gravacao_de_outro_site_e_recusada_na_sessao_do_passe(cli):
+    """Revisão de 10/10: um <form enctype=text/plain> de outro site gravava em nome do analista (comentário, usina
+    desligada...), porque o cookie ia junto e nenhuma rota conferia a origem. Agora a sessão do passe só grava pedido da
+    mesma origem: Sec-Fetch-Site same-origin, ou, sem ele, um Origin deste endereço (ou nenhum: não é navegador)."""
+    entrar(cli)
+    corpo = '{"key":"pv:1","value":3,"pad=":""}'
+    for cab in ({"Sec-Fetch-Site": "cross-site"}, {"Sec-Fetch-Site": "same-site"},
+                {"Origin": "https://outro.example"}, {"Origin": "null"}):
+        r = cli.post("/api/state/tracking", data=corpo, headers={"Content-Type": "text/plain", **cab})
+        assert r.status_code == 403 and r.get_json()["error"] == "pedido de outro site", cab
+    for cab in ({"Sec-Fetch-Site": "same-origin"}, {"Origin": "http://localhost"}, {}):
+        r = cli.post("/api/state/tracking", json={"key": "pv:1", "value": 3}, headers=cab)
+        assert r.status_code == 200, (cab, r.get_data(as_text=True)[:200])
+    assert cli.get("/api/state", headers={"Sec-Fetch-Site": "cross-site"}).status_code == 200   # leitura não muda
+
+
+def test_cookie_da_sessao_com_a_chave_sai_samesite_lax_e_secure_atras_de_https(cli, monkeypatch):
+    """Revisão de 10/10: o cookie saía sem SameSite (Firefox e Safari o mandam em POST de outro site). Com a chave: Lax,
+    e Secure quando o pedido chegou por https (o Caddy diz em X-Forwarded-Proto). Sem a chave, o cookie de sempre."""
+    r = entrar(cli)
+    ck = r.headers.get("Set-Cookie", "")
+    assert "SameSite=Lax" in ck and "Secure" not in ck
+    r = cli.post("/painel/nexus/entrar", data={"passe": passe()}, headers={**NA_MOLDURA, "X-Forwarded-Proto": "https"})
+    assert r.status_code == 303 and "SameSite=Lax" in r.headers["Set-Cookie"] and "Secure" in r.headers["Set-Cookie"]
+    monkeypatch.setattr(app, "NEXUS_SSO_CHAVE", "")
+    r = cli.post("/login", data={"senha": SENHA}, headers={"X-Forwarded-Proto": "https"})
+    assert r.status_code == 302
+    assert "SameSite" not in r.headers["Set-Cookie"] and "Secure" not in r.headers["Set-Cookie"]     # como hoje

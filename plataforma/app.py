@@ -344,6 +344,35 @@ def _porta_principal_valida(v: str) -> str:
 NEXUS_PORTA_PRINCIPAL = _porta_principal_valida(os.environ.get("NEXUS_PORTA_PRINCIPAL", ""))
 _PASSES_USADOS = _pn.NumerosUsados()
 
+from flask.sessions import SecureCookieSessionInterface as _InterfaceDaSessao
+
+
+class _SessaoDaPlataforma(_InterfaceDaSessao):
+    """O cookie `session` com SameSite=Lax (e Secure quando o pedido chegou por https) SÓ com a NEXUS_SSO_CHAVE.
+
+    Revisão de 10/10/2026: o cookie saía sem SameSite (`session=...; HttpOnly; Path=/`). Firefox e Safari o mandam em
+    POST vindo de outro site, e o Chrome também nos 2 primeiros minutos; com a porta, todo clique no menu do Nexus abre
+    sessão nova e quem tem sessão passa a ser todo usuário do Nexus, então um formulário de qualquer site gravaria em
+    nome do analista. Lax não atrapalha a moldura (mesma origem) nem o bookmarklet da Plataforma (rota pública, sem
+    cookie). O https vem do X-Forwarded-Proto do Caddy (o waitress não lê proxy): forjá-lo só deixa Secure o cookie de
+    quem forjou. Sem a chave, o cookie é o de sempre: a plataforma sobe por push e não muda para ninguém antes da T.I."""
+
+    def get_cookie_samesite(self, app):
+        return "Lax" if NEXUS_SSO_CHAVE else super().get_cookie_samesite(app)
+
+    def get_cookie_secure(self, app):
+        if NEXUS_SSO_CHAVE:
+            try:
+                proto = (flask_request.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
+                if flask_request.is_secure or proto == "https":
+                    return True
+            except RuntimeError:                    # fora de um pedido
+                pass
+        return super().get_cookie_secure(app)
+
+
+app.session_interface = _SessaoDaPlataforma()
+
 # ── Login Microsoft (Entra ID / OAuth) — OPCIONAL, além da senha ──────────────
 # Se as 4 variáveis do Entra estiverem no ambiente (tokens.txt), aparece "Entrar com
 # Microsoft" no login e SÓ e-mails @AZURE_ALLOWED_DOMAIN entram. A senha DASH_PASSWORD
@@ -521,6 +550,32 @@ def _de_outro_site() -> bool:
     return (flask_request.headers.get("Sec-Fetch-Site") or "").lower() == "cross-site"
 
 
+def _de_outra_origem() -> bool:
+    """O pedido NÃO veio de uma página deste mesmo endereço (esquema, host e porta). Revisão de 10/10/2026.
+
+    - Sec-Fetch-Site (todo navegador atual manda): só 'same-origin' e 'none' (a pessoa digitou ou abriu um favorito)
+      passam. 'same-site' não: no servidor, qualquer subdomínio de gridco.com.br é 'same-site', e a moldura do Nexus é
+      sempre da mesma origem (frame-ancestors 'self');
+    - sem ele (navegador antigo), o Origin tem de ser deste endereço; 'null' (moldura isolada, salto entre origens) não;
+    - sem nenhum dos dois não é navegador (curl, script, teste): não há cookie de vítima para usar, passa."""
+    sfs = (flask_request.headers.get("Sec-Fetch-Site") or "").strip().lower()
+    if sfs:
+        return sfs not in ("same-origin", "none")
+    origem = flask_request.headers.get("Origin")
+    if origem is None:
+        return False
+    from urllib.parse import urlsplit
+    try:
+        de = urlsplit(origem.strip()).netloc.lower()
+    except ValueError:
+        return True
+    hosts = {(flask_request.host or "").lower()}
+    encaminhado = (flask_request.headers.get("X-Forwarded-Host") or "").split(",")[0].strip().lower()
+    if encaminhado:
+        hosts.add(encaminhado)
+    return not de or de not in hosts
+
+
 def _pagina_da_porta(titulo: str, texto: str, motivo: str = "", senha: bool = False):
     """Página curta da porta do Nexus (passe recusado, sem acesso, só leitura), no tema da plataforma. Aparece dentro da
     moldura do Nexus. Texto fixo; o que vem de fora (motivo, e-mail) passa pelo escape do Jinja."""
@@ -539,6 +594,7 @@ def _portao_da_sessao_do_passe(p: str):
 
     - venceu (12 h) ou a NEXUS_SSO_CHAVE mudou (ou saiu): a sessão é apagada e o pedido segue como de quem não entrou
       (spec 8: trocar a chave derruba as sessões do passe, não as da senha);
+    - gravação (método fora de GET/HEAD/OPTIONS) só de página da mesma origem (`_de_outra_origem`);
     - o perfil é refeito pelas listas de hoje (restringir é uma linha no .env, valendo no reinício, sem esperar 12 h);
     - administração (`porta_nexus.ROTAS_SO_ADMIN`: /tokens, /api/tokens, /api/admin e o envio e o reinício do
       WhatsApp da ronda) só para admin do Nexus, em qualquer perfil (spec 5.3);
@@ -553,6 +609,12 @@ def _portao_da_sessao_do_passe(p: str):
         return None
     if _rota_publica(p) or p == "/logout":
         return None
+    # Revisão de 10/10/2026: um <form enctype="text/plain"> de outro site gravava em nome do analista (o cookie ia junto,
+    # nenhuma rota conferia a origem, e 18 rotas leem o corpo com get_json(force=True)). A sessão do passe só grava
+    # pedido da mesma origem; leitura segue igual. As rotas públicas (o bookmarklet da Plataforma) já saíram acima.
+    if flask_request.method not in ("GET", "HEAD", "OPTIONS") and _de_outra_origem():
+        return _recusa_da_porta(p, 403, "pedido de outro site", "Pedido recusado",
+                                "Este pedido veio de outro site: a Performance só grava o que sai das telas dela.")
     perfil = _pn.perfil_de(session.get("user"), PLATAFORMA_ANALISTAS, PLATAFORMA_GESTORES)
     if perfil is None:
         return _recusa_da_porta(p, 403, "sem acesso à Performance", "Sem acesso à Performance", _TEXTO_SEM_ACESSO)
