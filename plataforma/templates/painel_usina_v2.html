@@ -1911,7 +1911,8 @@ function _hdDesenha(k,dia,cur,etm){
   if(_hdCharts.ch){ try{ _hdCharts.ch.destroy(); }catch(e){} _hdCharts.ch=null; }
   if(chips) chips.hidden=(vista!=='corr');
   if(cur&&cur._erro){ sub.textContent='curva: '+cur._erro; setRead(''); return; }
-  if(!inv||!series.length){ sub.textContent=(cur&&cur.msg)||'a fonte não devolveu a curva das strings deste inversor neste dia'; setRead(''); return; }
+  // o msg do servidor manda "Renove na tela Tokens"; quem entrou pelo Nexus sem ser admin não abre o /tokens (B12, 10/10/2026)
+  if(!inv||!series.length){ const S=window.gcSessaoDaPlataforma, m=cur&&cur.msg; sub.textContent=(m&&S?S.tokens(m):m)||'a fonte não devolveu a curva das strings deste inversor neste dia'; setRead(''); return; }
   const L=_HD_GRID, gS=series.map(([,s])=>_hdGrade(s.x,s.y)), med=L.map((_,c)=>_median(gS.map(g=>g[c])));
   const medE=inv.mediana||_median((inv.strings||[]).map(s=>s.energia));
   if(vista==='str'){

@@ -740,7 +740,12 @@ function iniciar(D) {
 (function carrega(tentativa) {
   const est = document.getElementById('estado');
   document.body.classList.add('frio');
-  fetch('/api/cos/mtta', {cache: 'no-store'}).then(r => r.json()).then(d => {
+  // Só resposta OK conta (10/10/2026, porta única): o 401 {"error"} da sessão vencida não tinha `quente` e a tela dizia
+  // "Montando o índice pela primeira vez", que não era verdade, tentando de novo a cada 20 s para sempre.
+  fetch('/api/cos/mtta', {cache: 'no-store'}).then(r => {
+    if (!r.ok) { const e = new Error('HTTP ' + r.status); e.status = r.status; throw e; }
+    return r.json();
+  }).then(d => {
     if (!d.quente) {
       est.innerHTML = '<b>Montando o índice pela primeira vez.</b> A plataforma está lendo o histórico de OSs do Fracttal ' +
         '(uns 10 minutos depois de uma atualização). Esta página tenta de novo sozinha.';
@@ -748,9 +753,11 @@ function iniciar(D) {
       return;
     }
     iniciar(d);
-  }).catch(() => {
-    est.innerHTML = '<b>Sem resposta da plataforma.</b> Tentando de novo…';
-    setTimeout(() => carrega(tentativa + 1), 15000);
+  }).catch(e => {
+    const sessao = e && e.status === 401;
+    est.innerHTML = sessao ? '<b>Sessão vencida.</b> Entre de novo (pelo Nexus, a tela abre de novo sozinha).'
+      : '<b>Sem resposta da plataforma' + (e && e.status ? ' (HTTP ' + e.status + ')' : '') + '.</b> Tentando de novo…';
+    setTimeout(() => carrega(tentativa + 1), sessao ? 60000 : 15000);
   });
 })(0);
 </script>

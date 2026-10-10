@@ -326,11 +326,30 @@ function mesLabel(m){
   return `${nomes[+n - 1]}/${a}`;
 }
 
+// Só resposta OK vira número (10/10/2026, porta única). A sessão aberta pelo Nexus vale 12 h; depois o 401 {"error"} desta
+// releitura de 5 min não tinha `quente` e a tela trocava os números por "Calculando a primeira varredura…", que não era
+// verdade. Agora a leitura que falha não troca nada: os números ficam, com a hora da varredura, e a faixa diz por quê.
+function naoLeu(e){
+  const quando = DADOS && DADOS.atualizado ? new Date(DADOS.atualizado * 1000).toLocaleString('pt-BR') : '';
+  const S = window.gcSessaoDaPlataforma;
+  if (S && !e.sessao) S.falhou(e.message, quando ? 'da varredura de ' + quando : '');
+  if (DADOS) return;                               // números na tela: ficam
+  $('frio').hidden = false; $('conteudo').hidden = true;
+  $('frio').innerHTML = '<p style="font-size:16px;font-weight:600;margin-bottom:8px">Não consegui ler a disponibilidade</p>'
+    + '<p style="font-size:13px">' + (e.sessao ? 'A sessão venceu.' : 'A plataforma não respondeu (' + String(e.message).replace(/[<>&]/g, '') + ').')
+    + ' Tento de novo sozinho.</p>';
+}
 async function carregar(){
   const cli = $('selCliente').value, mes = $('selMes').value;
   if (cli !== HEAT.cli){ HEAT.cli = cli; HEAT.pag = 0; }       // mudou o cliente: o mapa volta à primeira página
   const q = new URLSearchParams(); if (mes) q.set('mes', mes); if (cli) q.set('cliente', cli);
-  const j = await (await fetch('/api/gerencial/disponibilidade?' + q)).json();
+  let j;
+  try{
+    const r = await fetch('/api/gerencial/disponibilidade?' + q);
+    if (!r.ok){ const e = new Error(r.status === 401 ? 'sessão vencida' : 'HTTP ' + r.status); e.status = r.status; e.sessao = r.status === 401; throw e; }
+    j = await r.json();
+  }catch(e){ naoLeu(e); return; }
+  if (window.gcSessaoDaPlataforma) window.gcSessaoDaPlataforma.voltou();
   if (!j.quente){ $('frio').hidden = false; $('conteudo').hidden = true; return; }
   DADOS = j;
   $('frio').hidden = true; $('conteudo').hidden = false;

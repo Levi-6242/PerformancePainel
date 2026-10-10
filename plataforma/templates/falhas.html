@@ -562,9 +562,18 @@
     let j;
     try {
       const r = await fetch('/api/painel/falhas' + (mes ? '?mes=' + encodeURIComponent(mes) : ''), {credentials: 'same-origin'});
+      // Só resposta OK vira pacote (10/10/2026, porta única): o 401 {"error"} da sessão do Nexus vencida (12 h) não tinha
+      // `quente` e a tela dizia "ainda está sendo montado", apagando o mês que estava na tela.
+      if (!r.ok) { const e = new Error(r.status === 401 ? 'sessão vencida' : 'HTTP ' + r.status); e.status = r.status; throw e; }
       j = await r.json();
     } catch (e) {
-      $('fonte').textContent = 'Não consegui ler o pacote do mês. Recarregue a página em instantes.';
+      const motivo = e && e.status === 401 ? 'sessão vencida' : (e && e.status ? 'HTTP ' + e.status : 'sem resposta');
+      if (D) {                                    // o mês que já estava na tela fica, e o seletor volta para ele
+        if (D.mes) $('f-mes').value = D.mes;
+        $('fonte').textContent = `Não consegui ler o mês pedido (${motivo}): a tela segue com ${D.mes ? rotMes(D.mes) : 'o mês anterior'}, atualizado em ${D.gerado_em.slice(8, 10)}/${D.gerado_em.slice(5, 7)} às ${D.gerado_em.slice(11, 16)}.`;
+      } else {
+        $('fonte').textContent = `Não consegui ler o pacote do mês (${motivo}). Recarregue a página em instantes.`;
+      }
       return;
     }
     const m = j.mes || mes;

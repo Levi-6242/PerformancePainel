@@ -501,7 +501,11 @@ def _auth_gate():
     # preserva o destino: depois do login volta pra página pedida (ex.: o app do Monitor da Ronda
     # abre /ronda/monitor — sem isto o login jogava sempre na raiz e o app "virava" o dashboard).
     # Com prefixo, "/login" cru mandaria o navegador pra RAIZ do domínio (fora da app).
-    return redirect(_prefixo() + "/login?next=" + quote(p))
+    # A consulta vai junto (prova da porta única, 10/10/2026): o favorito do Diagnóstico
+    # (/painel/usina/<id>?fonte=...&nome=...) voltava do login sem ela, com o nome trocado pelo id e a fonte no padrão
+    # "pv" — fonte errada para uma usina da Thopen, Athon, Axis ou 2C. O next é conferido no /login como antes.
+    qs = flask_request.query_string.decode("utf-8", "replace")
+    return redirect(_prefixo() + "/login?next=" + quote(p + ("?" + qs if qs else ""), safe="/"))
 
 
 def _quem_na_sessao() -> str:
@@ -705,7 +709,10 @@ def nexus_sair():
     return _pagina_da_porta("Você saiu da Performance", "A sessão aberta pelo Nexus foi encerrada neste navegador.")
 
 
+# `window.gcModoNexus`: a marca de que esta página está em modo Nexus, para o aviso de sessão vencida (aviso_de_sessao.js)
+# saber que fala com a moldura, sem repetir a régua do servidor.
 _CALCO_MODO_NEXUS = """<style>html.modo-nexus [data-casca]{display:none!important}</style><script>(function(){
+window.gcModoNexus=true;
 if(window.parent===window||window.parent!==window.top)return;
 function rota(){var p=window.APP_PREFIX||'',c=location.pathname;if(p&&c.indexOf(p)===0)c=c.slice(p.length)||'/';
 return c+location.search;}
@@ -757,6 +764,45 @@ def _porta_do_nexus_na_resposta(resp):
     return resp
 
 
+# ── A sessão venceu no meio da tela (10/10/2026) ──────────────────────────────────────────────────────────────────────
+# A sessão do passe vale 12 h; depois o /api/ dá 401 e o Painel NOC, que relê a cada 60 s, desenhava o erro como
+# "Energia perdida 0,0 MWh" (auditoria A5 da porta única). `aviso_de_sessao.js` liga a faixa de sessão vencida (e, na
+# moldura, pede ao Nexus para reabrir a tela) e dá às telas a faixa de "não atualizou". Vai inline, não por /static/: com
+# o Nexus na raiz o Caddy manda /static/* ao Nexus (menos fonts, logos e notif.js). Vale com e sem a NEXUS_SSO_CHAVE: é
+# correção de dado (a sessão da senha também vence, em 30 dias); o que é só da porta (o aviso à moldura, o "peça a um
+# administrador") só acontece com a sessão do passe.
+with open(os.path.join(_AQUI, "aviso_de_sessao.js"), encoding="utf-8") as _f:
+    # o cabeçalho (o porquê, para quem lê o arquivo) não precisa ir em toda página
+    _AVISO_DE_SESSAO_JS = re.sub(r"^\s*/\*.*?\*/\s*", "", _f.read(), count=1, flags=re.S)
+
+
+def _recebe_o_aviso_de_sessao(p: str) -> bool:
+    """As páginas da própria plataforma. O login não (não há sessão a vencer), nem o que é de outro serviço pelo proxy:
+    o gêmeo e o OS Creator Web têm sessão e telas próprias, e um 401 deles não é a sessão daqui."""
+    return p != "/login" and not p.startswith(("/gemeo/", "/os/", "/auth/", "/painel/nexus/"))
+
+
+@app.after_request
+def _aviso_de_sessao_na_resposta(resp):
+    """Põe o `aviso_de_sessao.js` logo depois do <head> de toda página da plataforma (registrado depois do modo Nexus:
+    roda antes dele, e o calço do prefixo e o do modo Nexus ficam na frente na página). Fragmento sem <head> fica igual."""
+    if resp.status_code != 200 or resp.direct_passthrough or not (resp.content_type or "").startswith("text/html"):
+        return resp
+    try:
+        if not _recebe_o_aviso_de_sessao(flask_request.path):
+            return resp
+        html = resp.get_data(as_text=True)
+        h = re.search(r"<head\b[^>]*>", html, re.I)
+        if not h:
+            return resp
+        sem_admin = bool(NEXUS_SSO_CHAVE) and session.get("auth_kind") == "nexus" and not session.get("admin_nexus")
+        js = _AVISO_DE_SESSAO_JS.replace("/*SEM_ADMIN*/false", "true" if sem_admin else "false")
+        resp.set_data(html[:h.end()] + "<script>" + js + "</script>" + html[h.end():])
+    except Exception as e:
+        print(f"[sessão] não consegui pôr o aviso de sessão na página: {e}")
+    return resp
+
+
 @app.after_request
 def _nexus_confirma_a_chave(resp):
     """`X-Nexus-Leitura-Ok: 1` só nas respostas que o portão deixou passar pela chave de leitura do Nexus.
@@ -778,26 +824,78 @@ def _no_cache_html(resp):
     return resp
 
 
+# Caractere de controle e barra invertida não entram num destino de redirecionamento. O navegador TIRA o TAB, o LF e o
+# CR do endereço e lê a barra invertida como barra (regra de URL do WHATWG; o Werkzeug também tira o TAB ao montar o
+# Location): "/\t/outro.site" e "/\\outro.site" viram "//outro.site", um endereço de OUTRO site. O espaço fica de fora
+# de propósito: o next do portão chega decodificado ("/painel/usina/São Bento"), e espaço no meio do caminho não muda
+# de endereço (o navegador o codifica).
+_RX_FORA_DO_CAMINHO = re.compile(r"[\x00-\x1f\x7f\\]")
+
+
+def _caminho_deste_endereco(n) -> bool:
+    """O destino é um caminho DESTE endereço (barra única, sem controle nem barra invertida)? A régua única do next do
+    login da senha (`_login_next`), do login da Microsoft (`oauth_next`) e do "Entrar pelo Nexus".
+
+    Revisão adversarial de 10/10/2026: com sessão aberta (da senha ou do passe), /login?next=/%09/mal.exemplo.com/entrar
+    respondia 302 para "//mal.exemplo.com/entrar": a régua de antes só olhava a barra do começo. A faixa "Sessão vencida:
+    entre de novo" ensina a pessoa a entrar pelo /login?next=, e um link desses levava a uma falsa tela de login."""
+    return (isinstance(n, str) and n.startswith("/") and not n.startswith("//")
+            and not _RX_FORA_DO_CAMINHO.search(n))
+
+
 def _login_next():
-    """Destino pós-login: só caminho LOCAL (barra única) — nada de open redirect."""
+    """Destino pós-login: só caminho deste endereço (`_caminho_deste_endereco`); nada de redirecionamento aberto."""
     n = (flask_request.args.get("next") or "").strip()
-    return n if (n.startswith("/") and not n.startswith("//")) else "/"
+    return n if _caminho_deste_endereco(n) else "/"
+
+
+def _entrar_pelo_nexus_href() -> str:
+    """Para onde o "Entrar pelo Nexus" do /login leva (fase 3): a MESMA tela que a pessoa pediu, dentro do Nexus.
+
+    Auditoria B6 (10/10/2026): abrir uma tela pelo Nexus troca a sessão de 30 dias da senha pela do passe (12 h, que some
+    ao fechar o navegador). No dia seguinte o favorito (/painel, /painel/falhas...) cai no /login?next=..., e o botão
+    ignorava o next e levava ao Início do Nexus: a pessoa perdia o lugar. Agora, com o next sendo uma tela do mapa, leva a
+    <NEXUS_PORTA_PRINCIPAL>/t/<torre>/<tela>?p=<next> (o Nexus abre a moldura nela, como no F5); fora do mapa, ao Início.
+
+    O next passa pela mesma régua do `_login_next` (`_caminho_deste_endereco`: só caminho deste endereço, sem `//`, sem
+    caractere de controle nem barra invertida), e o destino tem de valer como destino de passe
+    (`porta_nexus.destino_permitido`: tela do mapa, sem segmento de ponto), porque é isso que o Nexus vai pedir à
+    plataforma com ele."""
+    base = NEXUS_PORTA_PRINCIPAL
+    n = (flask_request.args.get("next") or "").strip()
+    if not _caminho_deste_endereco(n):
+        return base
+    # O ?p= leva o caminho como o navegador o escreve, e o next chega de dois jeitos. O do portão vem DECODIFICADO (ele
+    # monta `quote(caminho)`: "/painel/usina/São Bento"). O da faixa de sessão vencida vem JÁ codificado
+    # (encodeURIComponent de location.pathname+search: "...?nome=S%C3%A3o%20Bento"). Revisão adversarial de 10/10/2026:
+    # codificar de novo o segundo dava S%25C3%25A3o, e o Diagnóstico abria com o nome 'S%C3%A3o%20Bento' (as leituras
+    # pelo nome vinham vazias: falso "sem OS/sem meta"; no hist=1 o próprio id do caminho ficava errado). Por isso o
+    # escape que já existe fica como está ('%' a salvo; o '%' solto, sem dois hexadecimais depois, é o caractere e vira
+    # %25), e os sinais que o navegador deixa crus na URL ficam crus ('+' na query é espaço: codificá-lo mudaria o
+    # valor). Só o que o navegador nunca deixa cru (acento, espaço, aspas, '#') é codificado. Decodificar e codificar de
+    # novo não serve: o %26 de um nome (A%26B) viraria '&' e partiria o parâmetro.
+    caminho = quote(re.sub(r"%(?![0-9A-Fa-f]{2})", "%25", n), safe="/?&=%+!$()*,;:@")
+    if _pn.destino_permitido(caminho) is None:
+        return base
+    t = _pn.tela_do_caminho(caminho)
+    return f"{base.rstrip('/')}/t/{t.torre}/{t.tela}?p={quote(caminho, safe='')}"
 
 
 def _render_login(erro=""):
     """Página de login. Injeta o botão 'Entrar com Microsoft' (preservando o next) quando o SSO do
     Entra está configurado; a senha de admin continua sempre visível. Com a fase 3 ligada (NEXUS_PORTA_PRINCIPAL,
-    09/10/2026), 'Entrar pelo Nexus' vem primeiro: o Nexus é o link principal e a senha vira a reserva de admin."""
+    09/10/2026), 'Entrar pelo Nexus' vem primeiro: o Nexus é o link principal e a senha vira a reserva de admin; desde
+    10/10/2026 ele leva à tela do next (`_entrar_pelo_nexus_href`)."""
     botoes = []
     if NEXUS_PORTA_PRINCIPAL:
         import html as _html                     # o valor já foi conferido (`_porta_principal_valida`); escape mesmo assim
         # o botão da senha vira secundário: dois botões verdes iguais não dizem qual é o caminho principal
-        botoes.append(f'<a href="{_html.escape(NEXUS_PORTA_PRINCIPAL, quote=True)}" class="nexbtn">Entrar pelo Nexus</a>'
+        botoes.append(f'<a href="{_html.escape(_entrar_pelo_nexus_href(), quote=True)}" class="nexbtn">Entrar pelo Nexus</a>'
                       '<style>.card button[type=submit]{background:transparent;color:var(--text);'
                       'border:1px solid var(--divider)}</style>')
     if MS_SSO_ON:
         nxt = (flask_request.args.get("next") or "").strip()
-        href = "/auth/login" + ("?next=" + quote(nxt) if (nxt.startswith("/") and not nxt.startswith("//")) else "")
+        href = "/auth/login" + ("?next=" + quote(nxt) if _caminho_deste_endereco(nxt) else "")
         botoes.append(f'<a href="{href}" class="msbtn"><svg width="18" height="18" viewBox="0 0 21 21" style="flex:none">'
               '<rect x="1" y="1" width="9" height="9" fill="#f25022"/><rect x="11" y="1" width="9" height="9" fill="#7fba00"/>'
               '<rect x="1" y="11" width="9" height="9" fill="#00a4ef"/><rect x="11" y="11" width="9" height="9" fill="#ffb900"/>'
@@ -924,7 +1022,7 @@ def auth_login():
     state = secrets.token_urlsafe(24)
     session["oauth_state"] = state
     nxt = (flask_request.args.get("next") or "").strip()
-    session["oauth_next"] = nxt if (nxt.startswith("/") and not nxt.startswith("//")) else "/"
+    session["oauth_next"] = nxt if _caminho_deste_endereco(nxt) else "/"      # a mesma régua do login da senha
     q = urlencode({"client_id": AZURE_CLIENT_ID, "response_type": "code",
                    "redirect_uri": AZURE_REDIRECT_URI, "response_mode": "query",
                    "scope": "openid email profile", "state": state,
@@ -17115,10 +17213,18 @@ def api_gerencial():
     try:
         _a = flask_request.args.get("ano")
         _m = flask_request.args.get("mes")
-        return jsonify(_gerencial_payload(force=flask_request.args.get("force") == "1",
-                                          ano=int(_a) if _a else None, mes=int(_m) if _m else None))
+        g = _gerencial_payload(force=flask_request.args.get("force") == "1",
+                               ano=int(_a) if _a else None, mes=int(_m) if _m else None)
     except Exception as e:
         return jsonify({"erro": str(e), "usinas": [], "clientes": [], "portfolio": {}}), 500
+    # O _gerencial_payload devolve {"erro", "usinas": [], "cache_ts": <agora>} quando a leitura do PG falha (mês passado,
+    # ou o corrente sem snapshot: web que subiu sem ele, plataforma local depois do TTL). Com 200, as telas o tomavam
+    # por dado: o Painel NOC trocava o mês bom pelo vazio e mostrava "Energia perdida 0,0 MWh" e "0 MWp", com a hora de
+    # agora em "Mês/PG", como se fosse fresco (revisão adversarial de 10/10/2026, provado com o PG simulado fora). 503 =
+    # "não veio": as telas guardam o último valor, e o seletor de usinas do Nexus diz que o Gerencial não respondeu.
+    if g.get("erro"):
+        return jsonify(g), 503
+    return jsonify(g)
 
 
 # ══ MOTOR DE DIAGNÓSTICO (Painel 2) — v0, Thopen-first, PEER-RELATIVO ═════════════

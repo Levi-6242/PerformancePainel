@@ -289,7 +289,7 @@ mesma origem (`app.gridco.com.br/nexus` e a raiz). Código: `porta_nexus.py` (pu
 | `NEXUS_SSO_CHAVE` | chave do passe, a MESMA do `.env` do Nexus; 32+ caracteres aleatórios (`secrets.token_urlsafe(32)`); menor = desligada, com aviso no log |
 | `PLATAFORMA_ANALISTAS` | e-mails (vírgula) ou `*`: entram como analista (tudo o que a senha faz). Decisão do Levi: começa com `*` |
 | `PLATAFORMA_GESTORES` | e-mails ou `*`: gestor, só leitura. O e-mail escrito vence o `*`; escrito nas duas (ou `*` nas duas), vale gestor |
-| `NEXUS_PORTA_PRINCIPAL` | **fase 3, desligada vazia**: com `/nexus/` (ou `http://127.0.0.1:5070/` no PC), o `/` leva ao Nexus (logado ou não; nunca dentro de moldura) e o login oferece "Entrar pelo Nexus", com a senha virando reserva. Na fase 4 (o Caddy manda o `/` ao Nexus, que mora na raiz) use o endereço completo `https://app.gridco.com.br/`: o `/` sozinho mandaria o `/` ao próprio `/`, em laço, para quem chegasse direto ao waitress |
+| `NEXUS_PORTA_PRINCIPAL` | **fase 3, desligada vazia**: com `/nexus/` (ou `http://127.0.0.1:5070/` no PC), o `/` leva ao Nexus (logado ou não; nunca dentro de moldura) e o login oferece "Entrar pelo Nexus", com a senha virando reserva. O botão leva à tela do `next` (`<valor sem a barra final>/t/<torre>/<tela>?p=<next>`, `_entrar_pelo_nexus_href`) quando ela é do mapa, e ao Início quando não é (auditoria B6, mais abaixo). Na fase 4 (o Caddy manda o `/` ao Nexus, que mora na raiz) use o endereço completo `https://app.gridco.com.br/`: o `/` sozinho mandaria o `/` ao próprio `/`, em laço, para quem chegasse direto ao waitress |
 
 **O passe (contrato com o Nexus).** A página da tela no Nexus faz um POST (formulário escondido, `target` = a moldura;
 sem JavaScript, um botão "Abrir") para `/painel/nexus/entrar` com o campo `passe` = `base64url(json) + "." +
@@ -402,11 +402,80 @@ prefixo e raiz:
 **Antes de alguém depender no servidor:** sondar `POST /painel/nexus/entrar` — tem de responder `Server: waitress` com
 `Via: 1.1 Caddy` (404 sem a chave), nunca 502 vazio do Caddy.
 
+**A sessão venceu no meio da tela: número que não veio não vira zero (10/10/2026, auditoria A5).** A sessão do passe
+vale 12 h fixas; depois todo `/api/` dá 401 `{"error": "não autenticado"}`, e as telas que releem sozinhas desenhavam o
+erro como dado: o Painel NOC (`/api/macro` a cada 60 s) mostrava "Energia perdida 0,0 MWh" numa tela de NOC (provado no
+código de antes: 10,0 → 0,0 MWh). Regra, que vale para TODA tela, com e sem a chave (a sessão da senha também vence, em 30
+dias): **só resposta 2xx vira número; a leitura que falha não troca nada, fica o último valor com a hora dele, e a faixa
+diz por quê.** Peças:
+- `aviso_de_sessao.js` (`gcSessaoDaPlataforma`), injetado INLINE logo depois do `<head>` de toda página da plataforma
+  (`_aviso_de_sessao_na_resposta`; não no `/login` nem no que é de outro serviço pelo proxy: `/gemeo/`, `/os/`). Não vai
+  por `/static/`: com o Nexus na raiz o Caddy manda `/static/*` ao Nexus, menos fonts, logos e notif.js. Embrulha o
+  `fetch`: 401 de uma rota `/api/` deste endereço = sessão vencida. Na moldura (o calço do modo Nexus marca
+  `window.gcModoNexus`; só a página logo abaixo do topo) mostra "Sessão vencida: abrindo de novo pelo Nexus" e manda
+  `postMessage({tipo: 'nexus:sessao-vencida', caminho}, location.origin)` (o caminho sem o prefixo, como o `nexus:rota`),
+  no máximo 1 vez a cada 60 s; aos 15 s sem reabrir, acrescenta "clique de novo no item do menu". **Contrato com o
+  Nexus**: a moldura, ao receber, pede um passe novo e reabre o mesmo `?p=`, também no máximo 1 vez a cada 60 s, e
+  renova sozinha antes das 12 h. Fora do Nexus: "Sessão vencida: entre de novo", com o link do login que volta à tela. O
+  `/monitor?embed=1` que o Tempo real embute passa o aviso para a página de cima (quem a moldura conhece) e só se lembra
+  dele. `falhou(motivo, quando)`/`voltou()`: a faixa "Não atualizou (...): os números na tela são de ..." para rede/500;
+- cada tela guarda o último valor: Painel NOC (`_lerOk`; o "carregando" do web recém-subido também não vira 0 usinas;
+  sem nenhuma leitura, "—", nunca 0,0 MWh), Tempo real/Entrada (o 401 virava "Fonte desconhecida" no nível 3 e martelava a
+  cada 8 s; agora 60 s), Monitoramento (`fetchJSON` dá erro no 401 sempre e, com `exigeOk`, em qualquer não-2xx; sem
+  `rows` a tela desenhava os EXEMPLOS do protótipo — 76 usinas, 505 strings — e os cards de exemplo somem com erro na
+  tela), Disponibilidade ("Calculando a primeira varredura…"), Monitor da ronda ("DESLIGADA", "FORA DO AR"), Strings e
+  trackers e Gerencial (mês apagado; o seletor volta ao mês da tela), Chaves das fontes ("Precisam de você: 0" em verde),
+  Acompanhamento COS ("Montando o índice"). O mês com `erro` também não é mês: o `/api/gerencial` com a leitura do PG
+  falhando (mês passado, ou o corrente sem snapshot: web que subiu sem ele, plataforma local depois do TTL de 300 s)
+  responde **503** `{"erro", "usinas": []}`, nunca 200; com 200 o Painel NOC trocava o mês bom pelo vazio ("Energia
+  perdida 0,0 MWh", "0 MWp", "Mês/PG <agora>" como se fosse fresco; revisão adversarial de 10/10/2026, provado com o PG
+  simulado fora), e o seletor de usinas do Nexus não dizia que o Gerencial faltou. O Painel NOC (`boot`) e o Gerencial
+  (`load`) também recusam corpo com `erro`, venha com o status que vier. Conferidas e já certas: Histórico da plataforma (`getJSON` confere `r.ok`),
+  Criador de relatório e Relatório semanal (conferem `d.ok`, não releem sozinhos), Diagnóstico (`v2GET` confere `r.ok`; a
+  carga antiga do `boot()` lê uma vez ao abrir, e o 401 dali liga a faixa).
+Prova no navegador (Chromium, 1440 px), app da worktree na 5151 com a rede cortada, dados falsos e sessão de 15 s, atrás
+de uma moldura de teste: a moldura recebeu `nexus:sessao-vencida` com `/painel` (e `/tempo-real/athon` quando o 401 veio
+do `/monitor` embutido), uma vez só em 60 s; os números ficaram (12,5 MWh) e a faixa apareceu centrada. Essa prova achou
+dois erros que o node não via (a faixa com `left:50%` encolhia para metade da tela; a tela embutida, depois de passar o
+aviso para cima, cobria a explicação com "Não atualizou"), corrigidos.
+
+**"Entrar pelo Nexus" volta à tela pedida (10/10/2026, auditoria B6).** Abrir uma tela pelo Nexus troca a sessão de
+30 dias da senha pela do passe (12 h, que some ao fechar o navegador); no dia seguinte o favorito cai no
+`/login?next=/painel` e o botão levava ao Início do Nexus. `_entrar_pelo_nexus_href`: o `next` passa pela régua do
+`_login_next` e pelo `destino_permitido` do passe (é o que o Nexus vai pedir com ele) e vira
+`<NEXUS_PORTA_PRINCIPAL sem a barra final>/t/<torre>/<tela>?p=` com o caminho como o navegador o escreve; fora do mapa,
+o Início. Inerte sem a fase 3. O `next` chega de dois jeitos, e o `?p=` tem de sair igual nos dois: o do portão vem
+DECODIFICADO (`/painel/usina/São Bento`, ele monta `quote(caminho)`) e o da faixa "Sessão vencida: entre de novo" vem JÁ
+codificado (`encodeURIComponent(location.pathname+search)`). Até a revisão adversarial de 10/10/2026 o botão codificava
+de novo o segundo (`S%25C3%25A3o`) e o Diagnóstico abria com o nome `S%C3%A3o%20Bento`: leituras pelo nome vazias, falso
+"sem OS/sem meta". Regra: o escape que já existe fica (`%` a salvo; `%` solto, sem dois hexadecimais, vira `%25`), os
+sinais que o navegador deixa crus ficam crus (`+` na query é espaço) e só acento, espaço, aspas e `#` são codificados.
+Decodificar e codificar de novo não serve: o `%26` de um nome (`A%26B`) viraria `&`.
+
+**O next do login não sai deste endereço (revisão adversarial de 10/10/2026).** Uma régua só,
+`_caminho_deste_endereco`, para o `_login_next` (senha), o `oauth_next` e o botão do login Microsoft e o "Entrar pelo
+Nexus": começa com uma barra, não com duas, e sem caractere de controle (`\x00-\x1f`, `\x7f`) nem barra invertida. Antes,
+com sessão aberta, `/login?next=/%09/mal.exemplo.com/entrar` respondia 302 para `//mal.exemplo.com/entrar`: o navegador
+(regra de URL do WHATWG) e o Werkzeug tiram TAB/LF/CR e leem a barra invertida como barra, e sobra o endereço de outro
+site. O espaço passa de propósito (o next do portão vem decodificado, e espaço no meio do caminho não muda de endereço).
+O `volta` do `/painel/nexus/sair` segue com a régua dele, mais estrita (recusa também o espaço: vem do Nexus, codificado).
+
+**Avisos para quem não é admin (10/10/2026, auditoria B12).** `gcSessaoDaPlataforma.semAdmin` (o app.py marca quem
+entrou pelo passe sem `admin_nexus`): a curva das strings com o token da PV Plataforma vencido diz "peça a um
+administrador do Nexus" em vez de mandar à tela Tokens (`_curvaMotivoTxt` no Monitoramento, pelo `globalThis`: os testes da curva rodam a função sozinha no node; `tokens(msg)` no Diagnóstico,
+que troca o "Renove/Cole um na tela Tokens." do `_SPV_MOTIVO_MSG`). O "Reiniciar serviço" do Monitor da ronda mostra o
+403 na hora ("Só administradores reiniciam o serviço") em vez de girar ~80 s.
+
 Testes: `tests/test_porta_nexus.py` (passe válido, vencido, adulterado, repetido, na URL, de outro site; destino fora do
 mapa; fora das listas; analista grava; gestor 403 ao gravar e lê cada tela do mapa; `/tokens` só admin; sem chave, 404 e
 nada muda; troca de chave e 12 h derrubam a sessão; frame-ancestors em todo HTML; modo Nexus só com o passe na moldura;
-`/` na moldura; fase 3 desligada e ligada) e `tests/test_porta_nexus_gestor_sem_api_pv.py` (toda rota GET do gestor com a
-rede cortada: nenhuma fala com a API PV; tirando a marca `nexus_so_leitura`, o `/api/entrada/tempo-real` falava).
+`/` na moldura; fase 3 desligada e ligada), `tests/test_porta_nexus_gestor_sem_api_pv.py` (toda rota GET do gestor com a
+rede cortada: nenhuma fala com a API PV; tirando a marca `nexus_so_leitura`, o `/api/entrada/tempo-real` falava),
+`tests/test_sessao_vencida_sem_numero_falso.py` (o aviso no node: moldura, 60 s, só `/api/` deste endereço, fora do
+Nexus, embutido; a injeção; cada tela com 401/500 rodando o código da própria página; o `/api/gerencial` com o PG fora
+dá 503 e o Painel NOC/Gerencial não zeram com `erro`; o link "Entrar" da faixa encadeado pelo `/login` até o `?p=` que
+o Nexus lê, igual a `location.pathname+search`) e `tests/test_porta_nexus_destino_e_avisos.py` (o "Entrar pelo Nexus"
+com destino, os avisos de B12 e o next com `%09`/`%0a`/`%0d`/`%5C` na senha, no GET com sessão e no login Microsoft).
 
 ## Padrão por inversor (usinas sem visão por string)
 

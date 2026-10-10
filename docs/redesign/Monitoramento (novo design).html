@@ -246,9 +246,20 @@ const FETCH_TMO_MS   = 90000;  // 90s. NÃO baixar: a curva histórica de string
                                // LEGÍTIMOS na Tucano (01/09) — cortar em 45s mataria busca boa.
 const FETCH_LENTO_MS = 10000;  // aos 10s a tela avisa que está demorando, em vez de ficar muda
 
+// Resposta que não é dado (10/10/2026, porta única com o Nexus): a sessão aberta pelo Nexus vale 12 h e, depois, o 401
+// {"error": "não autenticado"} voltava daqui como se fosse o payload. Sem `rows`, a tela desenhava os EXEMPLOS do
+// protótipo (76 usinas, 505 strings ativas...) como se fossem a fonte. Agora 401 é sempre erro (`sessao`), e com
+// `exigeOk` (as vistas principais) qualquer resposta fora de 2xx também é (`http`). Sem `exigeOk` o resto segue igual: as
+// rotas que respondem 504 {"error", "detalhe"} já são tratadas por quem chama (loadPlant).
+function _erroHttp(status, corpo){
+  const det=corpo&&(corpo.detalhe||corpo.error||corpo.erro);
+  const err=new Error(status===401?'a sessão venceu':'a plataforma respondeu '+status+(det?' ('+String(det).slice(0,160)+')':''));
+  err.http=status; err.sessao=status===401;
+  return err;
+}
 async function fetchJSON(url, opts){
-  const o=opts||{}, onLento=o.onLento, tmoMs=o.timeout||FETCH_TMO_MS;
-  const init=Object.assign({},o); delete init.onLento; delete init.timeout;
+  const o=opts||{}, onLento=o.onLento, tmoMs=o.timeout||FETCH_TMO_MS, exigeOk=!!o.exigeOk;
+  const init=Object.assign({},o); delete init.onLento; delete init.timeout; delete init.exigeOk;
   const ctrl=new AbortController();
   // O aviso de "está demorando" é amarrado ao limite, nunca fixo: com um `timeout` menor que
   // FETCH_LENTO_MS o aviso seria agendado DEPOIS do abort e não apareceria nunca — falha muda,
@@ -258,8 +269,10 @@ async function fetchJSON(url, opts){
   const tmo=setTimeout(function(){ ctrl.abort(); },tmoMs);
   try{
     const r=await fetch(url,Object.assign({},init,{signal:ctrl.signal}));
+    if(r.status===401||(exigeOk&&!r.ok)){ let corpo=null; try{ corpo=await r.json(); }catch(_e){} throw _erroHttp(r.status,corpo); }
     return await r.json();
   }catch(e){
+    if(e&&e.http) throw e;                  // a plataforma respondeu: não é "fonte fora"
     // `fonteFora` separa "ninguém respondeu" de "respondeu vazio". Sem a marca a tela diz
     // "sem dado" e manda investigar a USINA quando o problema é a FONTE.
     const err=new Error(e&&e.name==='AbortError'
@@ -272,6 +285,14 @@ async function fetchJSON(url, opts){
 
 function fonteForaHTML(e,oQue){
   const det=(e&&e.message)?e.message:'a fonte não respondeu';
+  // a plataforma respondeu, mas não com dado (10/10/2026): não é a fonte externa, e o número não vira exemplo
+  if(e&&e.sessao) return '<div class="card" style="padding:22px;border-left:3px solid var(--color-warning,#f59e0b)">'
+       + '<div style="font-weight:600;margin-bottom:6px">Sessão vencida: '+(oQue||'os dados')+' não foram carregados</div>'
+       + '<div class="text-muted" style="font-size:13px">A sessão desta plataforma venceu. Pelo Nexus, a tela abre de novo '
+       + 'sozinha; fora dele, entre de novo. Nada foi trocado por zero.</div></div>';
+  if(e&&e.http) return '<div class="card" style="padding:22px;border-left:3px solid var(--color-warning,#f59e0b)">'
+       + '<div style="font-weight:600;margin-bottom:6px">Não foi possível carregar '+(oQue||'os dados')+'</div>'
+       + '<div class="text-muted" style="font-size:13px">'+_he(det)+'. Tente <b>Atualizar</b> em instantes.</div></div>';
   return '<div class="card" style="padding:22px;border-left:3px solid var(--color-warning,#f59e0b)">'
        + '<div style="font-weight:600;margin-bottom:6px">Não foi possível carregar '+(oQue||'os dados')+'</div>'
        + '<div class="text-muted" style="font-size:13px">'+det+'. A fonte externa não respondeu — '
@@ -327,8 +348,14 @@ function _curvaMotivoApiTxt(ma){
 function _curvaMotivoTxt(motivo,dBr,tokenExp,alvo,motivoApi){
   const m=String(motivo||''), de=alvo==='usina'?'desta usina':'deste inversor';
   const api=_curvaMotivoApiTxt(motivoApi), antes=api?api.charAt(0).toUpperCase()+api.slice(1)+', e ':'';
-  if(m==='token_vencido'||m==='sem_token')
-    return `Não consegui buscar a curva de <b>${dBr}</b>. ${antes}${api?'a reserva em potência, a PV Plataforma, ':'a PV Plataforma '}${m==='sem_token'?'está sem token':'está com o token <b>vencido'+(tokenExp?' desde '+_he(tokenExp):'')+'</b>'}. A falta é do acesso, não da fonte: renove na tela <a href="/tokens" style="color:inherit;text-decoration:underline">Tokens</a> e abra de novo.`;
+  if(m==='token_vencido'||m==='sem_token'){
+    // Quem entrou pelo Nexus sem ser administrador leva "Só administradores" no /tokens (auditoria B12, 10/10/2026): para
+    // ela o caminho é pedir a um administrador. A marca vem do servidor (aviso_de_sessao.js, gcSessaoDaPlataforma.semAdmin).
+    const S=globalThis.gcSessaoDaPlataforma, acao=(S&&S.semAdmin)
+      ? 'peça a um administrador do Nexus para renovar o token (Chaves das fontes) e abra de novo.'
+      : 'renove na tela <a href="/tokens" style="color:inherit;text-decoration:underline">Tokens</a> e abra de novo.';
+    return `Não consegui buscar a curva de <b>${dBr}</b>. ${antes}${api?'a reserva em potência, a PV Plataforma, ':'a PV Plataforma '}${m==='sem_token'?'está sem token':'está com o token <b>vencido'+(tokenExp?' desde '+_he(tokenExp):'')+'</b>'}. A falta é do acesso, não da fonte: ${acao}`;
+  }
   if(m==='erro_fonte'||m==='erro_rede'||m==='resposta_invalida'||m.indexOf('http_')===0)
     return `Não consegui buscar a curva de <b>${dBr}</b>. ${antes}a PV Plataforma não respondeu${m.indexOf('http_')===0?' (HTTP '+_he(m.slice(5))+')':''}. Tente de novo em instantes.`;
   if(m==='sem_inversores') return `Não consegui listar os inversores desta usina na API PV para <b>${dBr}</b>. Tente de novo em instantes.`;
@@ -489,8 +516,8 @@ async function loadCurrent(force){
     RD.na=false; const ck='strings|'+src;
     if(!force&&RD.cache[ck]){ RD.pv=RD.cache[ck]; RD.loading=false; render(); return; }
     RD.loading=true; RD.pv=null; RD.erro=null; render();
-    try{ const d=await fetchJSON(su); if(state.view!=='curva'||state.source!==src)return; RD.cache[ck]=d; RD.pv=d; RD.loading=false; render(); }
-    catch(e){ RD.loading=false; render(); }
+    try{ const d=_exigeLinhas(await fetchJSON(su,{exigeOk:true})); if(state.view!=='curva'||state.source!==src)return; RD.cache[ck]=d; RD.pv=d; RD.loading=false; render(); }
+    catch(e){ RD.loading=false; if(state.view!=='curva'||state.source!==src) return; _guardaUltimo(e,ck); render(); }   // antes: RD.pv nulo e a curva de EXEMPLO na tela
     return;
   }
   if(view==='geracao'){ RD.na=false; RD.loading=false; loadGeracao(force); return; }     // Geração: pivô por inversor (o backend calcula o período dos últimos 7 dias)
@@ -500,23 +527,44 @@ async function loadCurrent(force){
   if(!force&&RD.cache[key]){ RD.pv=RD.cache[key]; RD.loading=false; render(); if(view==='strings'&&RD.pv&&RD.pv.rows) loadMeta(RD.pv); return; }   // do cache, mas SEMPRE reconta OS/comentários ao entrar na aba
   RD.loading=true; RD.pv=null; RD.erro=null; render();
   try{
-    const d=await fetchJSON(url+(force?(url.includes('?')?'&':'?')+'force=1':''),
+    const d=_exigeLinhas(await fetchJSON(url+(force?(url.includes('?')?'&':'?')+'force=1':''),
       // aos 10s a tela para de girar calada e diz que está esperando (Santana do Ipanema, 01/09)
-      {onLento:()=>{ if(state.view===view&&state.source===src){ RD.lento=true; render(); } }});
+      {exigeOk:true, onLento:()=>{ if(state.view===view&&state.source===src){ RD.lento=true; render(); } }}));
     RD.lento=false;
     if(state.view!==view||state.source!==src) return;                                    // trocou de vista/fonte -> ignora resposta velha
     if(d&&d.carregando){ setTimeout(()=>loadCurrent(force),6000); return; }
     RD.cache[key]=d; RD.pv=d; RD.loading=false; render();
+    if(window.gcSessaoDaPlataforma) window.gcSessaoDaPlataforma.voltou();
     if(view==='strings'&&d&&d.rows) loadMeta(d);
     // stale-while-revalidate: o servidor serviu o cache ANTIGO e revalida em background (~60s). Sem
     // isto, "Atualizar" mostrava o dado velho e "não mudava nada" (Embu Guaçu 3 23/07 acusava −39 já
     // resolvido, mas o refresh servia o cache). Re-busca em SILÊNCIO até vir fresco.
     if(d&&d.stale&&!RD._polling){ RD._polling=true; _pollFresco(url,key,view,src).finally(()=>{RD._polling=false;}); }
   }catch(e){ RD.loading=false; RD.lento=false;
-             // fonte fora vira AVISO; qualquer outra falha mantém o comportamento antigo
-             // (preview estático sem sessão cai aqui e deve seguir mostrando o exemplo).
-             if(e&&e.fonteFora) RD.erro=e;
+             if(state.view!==view||state.source!==src) return;                                 // erro da vista que já saiu da tela
+             // fonte fora vira AVISO; a plataforma respondendo sem dado (sessão vencida, 500) também (10/10/2026).
+             // Qualquer outra falha mantém o comportamento antigo (preview estático sem sessão segue mostrando o exemplo).
+             _guardaUltimo(e,key);
              render(); }
+}
+// A leitura que falhou não apaga a anterior (10/10/2026, porta única): com a vista já lida (RD.cache), a tela volta a
+// ela, e a faixa (aviso_de_sessao.js) diz por quê e de quando são os números; sem nada lido, o painel vira o aviso,
+// nunca os exemplos do protótipo.
+function _guardaUltimo(e,key){
+  const S=window.gcSessaoDaPlataforma;
+  if(e&&(e.sessao||e.http)&&RD.cache[key]){
+    RD.pv=RD.cache[key]; RD.erro=null;
+    const ts=RD.pv&&(RD.pv.cache_ts||(RD.pv.summary||{}).cache_ts);
+    if(S&&!e.sessao) S.falhou(e.message, ts?'da leitura de '+ts:'');
+    return;
+  }
+  if(e&&(e.fonteFora||e.sessao||e.http)) RD.erro=e;
+}
+// 200 com {"error"} e sem `rows` também não é dado: o render cairia nos exemplos do protótipo.
+function _exigeLinhas(d){
+  if(!d) throw _erroHttp(200,{error:'resposta vazia'});
+  if(!d.carregando&&!Array.isArray(d.rows)&&(d.error||d.erro)) throw _erroHttp(200,d);
+  return d;
 }
 // Poll silencioso do stale-while-revalidate: re-busca até o servidor entregar dado FRESCO (não-stale),
 // aí atualiza a tela uma vez. Sem spinner, bounded (10×8s ≈ 80s), para se o usuário trocar de vista.
@@ -524,7 +572,8 @@ async function _pollFresco(url,key,view,src){
   for(let n=0;n<10;n++){
     await new Promise(r=>setTimeout(r,8000));
     if(state.view!==view||state.source!==src) return;
-    let f; try{ f=await fetchJSON(url); }catch(e){ return; }
+    // antes: o 401 de uma sessão que venceu no meio do poll virava o payload (sem `rows`: os exemplos na tela)
+    let f; try{ f=_exigeLinhas(await fetchJSON(url,{exigeOk:true})); }catch(e){ return; }
     if(state.view!==view||state.source!==src) return;
     if(f&&!f.stale&&!f.carregando){ RD.cache[key]=f; RD.pv=f; render(); if(view==='strings'&&f.rows) loadMeta(f); return; }
   }
@@ -3249,7 +3298,8 @@ function render(){
   // A fonte não respondeu: o painel vira aviso. Fica DEPOIS do cálculo normal de propósito — as
   // abas, os chips de fonte e o botão Atualizar continuam desenhados, então dá para trocar de
   // fonte ou tentar de novo sem recarregar a página.
-  if(RD.erro&&RD.erro.fonteFora) panel=fonteForaHTML(RD.erro,'os dados desta fonte');
+  // 10/10/2026: a plataforma respondendo sem dado (sessão vencida, 500) também vira aviso, nunca os exemplos.
+  if(RD.erro&&(RD.erro.fonteFora||RD.erro.sessao||RD.erro.http)) panel=fonteForaHTML(RD.erro,'os dados desta fonte');
   else if(RD.lento&&RD.loading) panel='<div class="card" style="padding:22px"><div style="font-weight:600;margin-bottom:6px">'
       +'<i class="ph ph-circle-notch gc-spin" style="margin-right:8px"></i>Ainda esperando a fonte responder…</div>'
       +'<div class="text-muted" style="font-size:13px">Passou de 10s. Continuo tentando até 90s — depois disso aviso aqui.</div></div>';
@@ -3271,7 +3321,7 @@ function render(){
       ${EMBED?'':`<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:28px"><div><div class="card-kicker" style="margin-bottom:8px">Monitoramento O&amp;M</div><h2 style="margin:0;font-size:30px">Strings, ETM &amp; Trackers</h2></div><div class="text-muted" style="font-size:13px">${v.today}</div></div>`}
       ${EMBED?'':renderSources(v)}
       ${renderViewTabs(v)}
-      ${(EMBED||v.showCurva||v.showGeracao||v.showPerdas)?'':renderKPIs(v)}
+      ${(EMBED||v.showCurva||v.showGeracao||v.showPerdas||(RD.erro&&!RD.pv))?'':renderKPIs(v)}
       ${panel}
     </div>
   </div>`;

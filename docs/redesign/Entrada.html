@@ -695,20 +695,31 @@
       s += "<br><button type='button' class='atualiza' data-atualizar" + (ocupado ? " disabled" : "") + ">" + (ocupado ? "atualizando…" : "Atualizar") + "</button>";
       return s;
     }
+    // Só resposta OK vira número (10/10/2026, porta única). A sessão aberta pelo Nexus vale 12 h; depois o 401
+    // {"error"} era desenhado como dado: no nível 3 (/tempo-real/<fonte>) o título virava "Fonte desconhecida" e a
+    // releitura insistia a cada 8 s. O que não veio é erro, com a hora do último dado na tela.
+    function lerOk(r) {
+      if (!r.ok) { var e = new Error(r.status === 401 ? "sessão vencida" : "HTTP " + r.status); e.status = r.status; throw e; }
+      return r.json();
+    }
+    function liberaAtualizar() {
+      atualizando = false;
+      document.querySelectorAll("button.atualiza").forEach(function (b) { b.disabled = false; b.textContent = "Atualizar"; });
+    }
     function atualizar() {
       if (atualizando) return;
       atualizando = true;
       document.querySelectorAll("button.atualiza").forEach(function (b) { b.disabled = true; b.textContent = "atualizando…"; });
-      fetch("/api/entrada/tempo-real/atualizar", { method: "POST" }).then(function (r) { return r.json(); }).then(function (r) {
+      fetch("/api/entrada/tempo-real/atualizar", { method: "POST" }).then(lerOk).then(function (r) {
         var antes = r.cache_ts, tenta = 0;
         (function espera() {           // redesenha quando o cache_ts mudar; 2 min sem mudar = fonte lenta, segue em fundo
-          fetch("/api/entrada/tempo-real", { cache: "no-store" }).then(function (x) { return x.json(); }).then(function (d) {
+          fetch("/api/entrada/tempo-real", { cache: "no-store" }).then(lerOk).then(function (d) {
             var pronto = !d.aquecendo && d.cache_ts && d.cache_ts !== antes;
-            if (pronto || ++tenta > 40) { atualizando = false; if (!d.aquecendo) desenha(d); return; }
+            if (pronto || ++tenta > 40) { atualizando = false; if (!d.aquecendo && Array.isArray(d.grupos)) { desenha(d); ultimoTs = d.cache_ts || ultimoTs; } return; }
             setTimeout(espera, 3000);
-          }).catch(function () { atualizando = false; });
+          }).catch(liberaAtualizar);
         })();
-      }).catch(function () { atualizando = false; document.querySelectorAll("button.atualiza").forEach(function (b) { b.disabled = false; b.textContent = "Atualizar"; }); });
+      }).catch(liberaAtualizar);
     }
     document.addEventListener("click", function (ev) { if (ev.target.closest("[data-atualizar]")) { ev.preventDefault(); atualizar(); } });
     function desenhaCliente(d) {
@@ -788,22 +799,35 @@
     // e o silencio assustava (05/09: 15 min de esqueleto sem explicacao, com o banco pendurado). Diz ha quanto tempo,
     // e diz TAMBEM na tela do cliente, onde o texto ia para um elemento do nivel 2, que esta escondido.
     var esperando = 0;
+    var ultimoTs = "";                 // cache_ts do último dado desenhado: o aviso de falha diz de quando são os números
     function aviso(txt) {
       meta.textContent = txt;
       var av = document.getElementById("us-lista");
       if (fonteSel && av) av.innerHTML = "<div class='vazio' style='border-style:solid'>" + txt + "</div>";
     }
     function carrega() {
-      fetch("/api/entrada/tempo-real", { cache: "no-store" }).then(function (r) { return r.json(); }).then(function (d) {
+      fetch("/api/entrada/tempo-real", { cache: "no-store" }).then(lerOk).then(function (d) {
         if (d.aquecendo) {
+          // com número na tela, o aquecimento (o web reiniciou) não apaga nada: segue o último, como numa falha
+          if (ultimoTs) throw new Error("o servidor está montando de novo");
           esqueleto(); esperando += 5;
           aviso(esperando <= 60 ? "coletando as fontes pela primeira vez…" : "ainda coletando há " + esperando + "s · alguma fonte está lenta; a tela abre assim que der");
           setTimeout(carrega, 5000); return;
         }
+        if (!d || !Array.isArray(d.grupos)) throw new Error("resposta sem os grupos");
         esperando = 0;
         desenha(d);
+        ultimoTs = d.cache_ts || "";
+        if (window.gcSessaoDaPlataforma) window.gcSessaoDaPlataforma.voltou();
         setTimeout(carrega, 60000);
-      }).catch(function () { aviso("sem resposta da plataforma · tentando de novo"); setTimeout(carrega, 8000); });
+      }).catch(function (e) {
+        var sessao = !!(e && e.status === 401);
+        var motivo = sessao ? "sessão vencida" : (e && e.status) ? "a plataforma respondeu " + e.status
+          : (e && e.name !== "TypeError" && e.message) || "sem resposta da plataforma";   // TypeError = a rede caiu
+        aviso(motivo + (ultimoTs ? " · números de " + ultimoTs : "") + " · tentando de novo");
+        if (window.gcSessaoDaPlataforma && !sessao) window.gcSessaoDaPlataforma.falhou(motivo, ultimoTs ? "de " + ultimoTs : "");
+        setTimeout(carrega, sessao ? 60000 : 8000);   // sessão vencida não volta em 8 s: não martela o servidor
+      });
     }
     esqueleto(); carrega();
   })();
