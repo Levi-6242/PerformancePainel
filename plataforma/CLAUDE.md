@@ -345,15 +345,27 @@ mesmo texto canônico (`texto_canonico_do_mapa`, uma linha `torre|tela|caminho|t
 `b80243d6133920c6` (`test_o_mapa_e_a_copia_do_nexus`): mudou lá, muda aqui. Rota de página nova entra no `MAPA` ou no
 `FORA_DO_MAPA` com o porquê (`test_toda_rota_de_pagina_tem_lugar_no_mapa`).
 
-**Provado no PC (10/10/2026)**, cópia de prova com a chave + um mini-Nexus de prova (só no scratchpad, fazendo o lado do
-Nexus: menu, moldura, formulário com passe novo, escuta do `nexus:rota`) atrás da `porta_local.py`: as 12 telas abrem na
-moldura com `modo-nexus`, nenhum `data-casca` visível e o `?p=` acompanhando (inclusive `/tempo-real/athon`, e o
-`/monitor` embutido não avisa); o `/` na moldura vira `/tempo-real`; o gestor lê e leva 403 ao gravar, no `?force=1`, no
-`/api/plant/` e no `/tokens`; fora das listas derruba a sessão; o Sair encerra; moldura sem sessão mostra "Abra de novo";
-direto (fora da moldura) as telas saem com a navegação da plataforma; e `localhost:5191` emoldurando `127.0.0.1:5191` é
-bloqueado pelo `frame-ancestors`. O gêmeo deu 503 (não está de pé no PC). Cuidado com a `porta_local.py` do Nexus: ela usa
-um `requests.Session` com pote de cookies, que guarda o `session` de uma resposta e o devolve a quem chega SEM cookie
-(curl, outra aba) — para provar sessão, rode uma cópia dela com o pote desligado.
+**Provado de ponta a ponta no PC (10/10/2026)**, esta cópia de prova com a chave e a cópia do Nexus da branch da porta
+única, atrás de um proxy que imita o Caddy nos dois modos (prefixo `/nexus` cortado, o servidor de hoje, também com a
+camada de reescrita da T.I. junto; e raiz, a fase 4), Chrome sem janela a 1440 px:
+- as 13 telas abrem na moldura com `modo-nexus` e nenhum `data-casca` visível; o número da moldura é o MESMO da tela
+  direta no mesmo minuto (Tempo real, Painel NOC, Strings e trackers, Gerencial, Disponibilidade, Monitor da ronda,
+  Acompanhamento COS, de 47 a 4.310 números por tela); o `?p=` acompanha o clique dentro da tela (Tempo real -> fonte,
+  "investigar" do Painel NOC -> Diagnóstico, "Visão Gerencial" da Disponibilidade -> Gerencial) e o F5 volta ao lugar;
+- a sessão `session` desta plataforma e a `nexus_sessao` do Nexus vivem juntas (entrar numa não derruba a outra);
+- analista grava (um comentário na `ufv_state.json` da cópia, apagado em seguida; a da pasta principal não mudou); o
+  gestor lê as 11 telas e leva 403 ao gravar, no `?force=1`, no `/tokens` e no lado API PV (o gráfico do Histórico da
+  plataforma fica vazio para ele: é o combinado); fora das listas, "Sem acesso" e a sessão de passe cai;
+- os passes repetido, adulterado (admin, destino ou assinatura), vencido (62 s), com destino fora do mapa, na URL (405) e
+  de outro site são recusados, com o motivo, e nenhuma sessão abre; o Sair do Nexus apaga a sessão do passe;
+- moldura sem sessão (a de 12 h venceu): "Abra de novo pelo Nexus", 401, e o item do menu reabre com passe novo; outra
+  origem (`localhost` emoldurando `127.0.0.1`) é bloqueada pelo `frame-ancestors`, a mesma origem abre;
+- sem a chave: `/painel/nexus/*` = 404, nenhuma CSP, nenhum modo Nexus, e o Tempo real do Nexus segue pela ponte;
+- fase 3 ligada: o `/` leva ao `/nexus/` (logado ou não), o login oferece "Entrar pelo Nexus" e, na moldura, o `/` vira o
+  `/tempo-real`. No Git Bash o valor `/nexus/` vira caminho do Windows (use `MSYS_NO_PATHCONV=1`): a fase 3 fica
+  desligada, com o aviso no log;
+- abrir pela moldura custa ~100 ms a mais que direto (a página do Nexus, o POST do passe e o 303). O gêmeo deu 503 (não
+  está de pé no PC). A `porta_local.py` do Nexus guardava cookies entre clientes até 10/10/2026 (corrigido lá).
 
 **Antes de alguém depender no servidor:** sondar `POST /painel/nexus/entrar` — tem de responder `Server: waitress` com
 `Via: 1.1 Caddy` (404 sem a chave), nunca 502 vazio do Caddy.
