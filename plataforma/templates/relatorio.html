@@ -54,7 +54,7 @@
 </head>
 <body>
 <div class="toolbar">
-  <span class="brand">Grid<b> Co.</b> · Criador de Relatório</span>
+  <span class="brand" data-casca>Grid<b> Co.</b> · Criador de Relatório</span>
   <label>Usina</label><select id="selUsina"><option>carregando…</option></select>
   <label>De</label><input type="date" id="ini">
   <label>Até</label><input type="date" id="fim">
@@ -62,7 +62,7 @@
   <button class="btn-pdf" onclick="window.print()">Salvar como PDF</button>
   <span class="sp"></span>
   <a class="back" href="/relatorio/semanal" style="margin-right:8px">Relatório semanal Thopen</a>
-  <a class="back" href="/">← Início</a> <a class="back" href="/tempo-real" style="margin-left:8px">Monitoramento</a>
+  <a class="back" href="/" data-casca>← Início</a> <a class="back" href="/tempo-real" style="margin-left:8px" data-casca>Monitoramento</a>
 </div>
 <div class="doc"><div class="page" id="rel"><div class="empty">Escolha a usina e o período e clique <b>Gerar</b>.</div></div></div>
 <script>
