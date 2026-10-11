@@ -6688,7 +6688,10 @@ def ensure_sunop_meta(inst: str = "gridco"):
     sem_rede = None
     if _pl.get("nomes") and ((time.time() - _pl.get("ts", 0)) < 600 or _sunop_pausa()):
         nomes = _pl["nomes"]
-        if all(n in S["meta"] for n in nomes):
+        # Fontes do tempo real: a lista em cache (sempre, na pausa de domingo/teto) também registra o inventário e só as
+        # incluídas pedem metadado — sem isto a volta antecipada pulava o filtro
+        _incluidas = _cob_filtra(_sunop_fonte(inst), nomes, str, lambda n: USINA_DISPLAY.get(n, n))
+        if all(n in S["meta"] for n in _incluidas):
             return               # tudo em cache: nenhuma chamada. Até 29/09 o cabeçalho era montado ANTES deste teste,
         plants = [{"name": n} for n in nomes]   # e montá-lo valida o token na rede (get_sunop_token)
     elif _sunop_web_vencido(inst) or _sunop_pausa():
@@ -6718,9 +6721,10 @@ def ensure_sunop_meta(inst: str = "gridco"):
             print(f"[SUNOP:{inst}] lista veio do serviço de DADOS: {len(de_dados)} usinas")
         plants = [{"name": n} for n in de_dados]
     nomes = [p["name"] for p in plants]
-    # Fontes do tempo real (11/10/2026): a usina tirada na tela não entra na lista nem ganha metadado (não é coletada)
+    _sunop_plants_lista[inst] = {"nomes": nomes, "ts": time.time()}     # a lista inteira: é o inventário da fonte
+    # Fontes do tempo real (11/10/2026): a usina tirada na tela não ganha metadado (não é coletada); quem lê a lista
+    # filtra também (fetch_all_sunop), porque ela fica inteira
     nomes = _cob_filtra(_sunop_fonte(inst), nomes, str, lambda n: USINA_DISPLAY.get(n, n))
-    _sunop_plants_lista[inst] = {"nomes": nomes, "ts": time.time()}
     faltam = [n for n in nomes if n not in S["meta"]]
     if not faltam:
         return
@@ -6999,6 +7003,7 @@ def fetch_all_sunop(inst: str = "gridco") -> list:
     # Percorre a LISTA DE USINAS, não as que têm meta: usina sem metadata tem que virar linha
     # "sem dados" (que acende alarme de comunicação), e não sumir da tabela em silêncio.
     _nomes = (_sunop_plants_lista.get(inst) or {}).get("nomes") or list(_sunop_meta_monitorada(inst))
+    _nomes = [n for n in _nomes if _cob_entra(_sunop_fonte(inst), n)]      # Fontes do tempo real
     # o status de TODAS as usinas em lotes que atravessam usinas (SUNOP_LV_LOTE): 19 POSTs por leitura viraram 7
     meta = _si(inst)["meta"]
     pedidos = {p: _sunop_paths_tabela(meta[p]) for p in _nomes if meta.get(p)}

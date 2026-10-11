@@ -272,3 +272,14 @@ def test_trackers_da_api_pv_e_o_rollup_seguem_a_decisao(ligado, monkeypatch):
     assert app._rollup_cob_fonte("API PV", 11) == "pv" and app._rollup_cob_fonte("API PV", 18758732) == "semp"
     assert app._rollup_cob_fonte("Thopen", 5) == "pg" and app._rollup_cob_fonte("RenoGrid", 9) == "solaredge"
     assert app._cob_entra("pv", 12) is False and app._cob_entra("pg", 99) is True        # pg não governada
+
+
+def test_sunop_lista_em_cache_tambem_registra_o_inventario(ligado, monkeypatch):
+    """Na pausa de domingo/teto (e com a lista de 10 min em cache) o ensure_sunop_meta volta antes da rede: o inventário
+    da Athon tem de sair dali também, senão a foto de hoje da Athon nunca teria o que fotografar num domingo."""
+    import time as _t
+    S = {"meta": {"MRO100": {}, "MAB100": {}}}
+    monkeypatch.setattr(app, "_si", lambda inst="gridco": S)
+    monkeypatch.setitem(app._sunop_plants_lista, "gridco", {"nomes": ["MRO100", "MAB100"], "ts": _t.time()})
+    app.ensure_sunop_meta("gridco")
+    assert sorted(app._COB_INV.ler()["fontes"]["sunop"]) == ["MAB100", "MRO100"]
