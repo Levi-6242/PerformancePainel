@@ -646,6 +646,12 @@ coletada** (os dias fora ficam sem dado).
   último payload bom quando nenhuma linha tem dado (`_sunop_guarda_vazio`, até 30 min e sem prazo na pausa de domingo/teto).
   Na SolarEdge, Xavantina 2 e Colider 2 usam a irradiância da 1 (`SE_IRR_MIRROR`): tirar a 1 deixa a 2 sem PR. O livro de
   ocorrências do tracker_watch não fecha as abertas de quem saiu.
+- **Estado (11/10/2026)**: foto de hoje gravada às 09:24 pelo servidor em 8 fontes — pv (115 incluídas, 31 fora: as sem
+  Full O&M), pg 22, solaredge 7, semp 2, alveslima 1, 2capi 7, greenyellow 2, salenergia 5 (192 linhas no livro). Prova
+  valor a valor, antes × depois da recoleta: as 10 tabelas de strings, o Painel NOC (115) e os cards da Entrada com as
+  MESMAS usinas (0 diferença). A Athon fica para a ronda do PC (domingo a SunOp só lê na ronda); a Axis, sem token, segue
+  na regra de antes. Armadilha achada no caminho: com a lista da SunOp em cache (e sempre na pausa) o `ensure_sunop_meta`
+  voltava antes do filtro — corrigido (a lista fica inteira como inventário e o filtro vale também na volta antecipada).
 - **Desligar**: `TEMPO_REAL_COBERTURA=0` numa máquina (nada é filtrado). Banco ilegível sem cópia em disco: nada é filtrado.
   Os testes rodam com o filtro desligado (`conftest._cobertura_desligada_por_padrao`). Testes: `tests/test_cobertura_tempo_real.py`.
 
