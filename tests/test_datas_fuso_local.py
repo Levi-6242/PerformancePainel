@@ -34,21 +34,21 @@ def _wo(folio, criada_utc, status=3):
 def test_os_criada_a_noite_no_ultimo_dia_do_mes_fica_no_mes_certo(monkeypatch):
     """22:30 de 31/08 no Brasil = 01:30Z de 01/09. Cortando a string crua, a OS sumia de agosto (e não
     aparecia em setembro, porque em setembro ela é 'concluída fora do mês' também)."""
-    monkeypatch.setattr(app, "_frac_wos_raw", lambda i: [_wo("OS-1", "2026-09-01T01:30:00+00:00")])
+    monkeypatch.setattr(app, "_frac_wos_raw", lambda i, falhas=None: [_wo("OS-1", "2026-09-01T01:30:00+00:00")])
     ago = app._frac_os_filtradas("X", "2026-08")
     assert [o["folio"] for o in ago] == ["OS-1"], "a OS da noite do dia 31 sumiu do mês em que foi criada"
 
 
 def test_os_do_mes_seguinte_continua_fora(monkeypatch):
     """Controle: 01/09 às 10:00 local é setembro nos dois relógios e não pode vazar para agosto."""
-    monkeypatch.setattr(app, "_frac_wos_raw", lambda i: [_wo("OS-2", "2026-09-01T13:00:00+00:00")])
+    monkeypatch.setattr(app, "_frac_wos_raw", lambda i, falhas=None: [_wo("OS-2", "2026-09-01T13:00:00+00:00")])
     assert app._frac_os_filtradas("X", "2026-08") == []
     assert [o["folio"] for o in app._frac_os_filtradas("X", "2026-09")] == ["OS-2"]
 
 
 def test_os_aberta_ignora_o_mes(monkeypatch):
     """Régua intacta: OS não encerrada aparece sempre, seja qual for a data."""
-    monkeypatch.setattr(app, "_frac_wos_raw", lambda i: [_wo("OS-3", "2026-01-05T12:00:00+00:00", status=1)])
+    monkeypatch.setattr(app, "_frac_wos_raw", lambda i, falhas=None: [_wo("OS-3", "2026-01-05T12:00:00+00:00", status=1)])
     assert [o["folio"] for o in app._frac_os_filtradas("X", "2026-08")] == ["OS-3"]
 
 

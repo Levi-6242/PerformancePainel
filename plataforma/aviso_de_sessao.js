@@ -17,8 +17,10 @@
    - fora do Nexus, a faixa "Sessão vencida: entre de novo", com o link do login que volta a esta tela;
    - o /monitor?embed=1 que o Tempo real embute não fala sozinho: passa o aviso à página de cima, que é quem a moldura
      conhece (e o caminho que importa é o dela);
-   - gcSessaoDaPlataforma.falhou(motivo, quando) / voltou(): a faixa "não atualizou, os números na tela são de ..." que
-     as telas que releem sozinhas mostram quando a leitura falha por outro motivo (rede, 500);
+   - gcSessaoDaPlataforma.falhou(motivo, quando[, fim]) / voltou(): a faixa "não atualizou, os números na tela são de ..."
+     que as telas que releem sozinhas mostram quando a leitura falha por outro motivo (rede, 500). `fim` (texto) troca o
+     resto da frase, para a tela que lê uma vez e não tem número velho a mostrar nem vai tentar de novo sozinha: o
+     Diagnóstico (10/10/2026) diz "o que depende dessas leituras está com — (sem leitura): não é usina parada.";
    - gcSessaoDaPlataforma.semAdmin: quem entrou pelo Nexus sem ser administrador (o /tokens responde "Só
      administradores" para ela), e tokens(texto), que troca o "Renove na tela Tokens" pelo caminho que ela tem.
 
@@ -63,6 +65,8 @@
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
     });
   }
+  var fechado = "", atual = "";            // o último aviso fechado no "×" e o que está na tela (o texto como foi
+                                          // montado: o innerHTML que o navegador devolve vem normalizado)
   function mostra(html, tipo) {
     estado = tipo;
     if (!faixa) {
@@ -72,15 +76,25 @@
       faixa.setAttribute("aria-live", "polite");
       // tema navy da plataforma; âmbar = dá para agir (a cor diz a severidade, sem ícone). Centrada por left/right 0 e
       // margin auto: com left:50% a caixa encolhia para metade da tela (provado no navegador, 10/10/2026)
-      faixa.style.cssText = "position:fixed;top:10px;left:0;right:0;margin:0 auto;width:fit-content;box-sizing:border-box;" +
+      // EMBAIXO (prova do Diagnóstico, 11/10/2026): no topo, com cinco fontes fora, ela tinha 77 px e cobria o seletor de
+      // dia e o "← Portfólio" — não dava para trocar o dia enquanto a fonte estava fora. E tem o "×" para fechar.
+      faixa.style.cssText = "position:fixed;bottom:12px;left:0;right:0;margin:0 auto;width:fit-content;box-sizing:border-box;" +
         "z-index:2147483000;max-width:min(760px,calc(100vw - 24px));padding:9px 16px;border-radius:10px;" +
         "background:#161d30;color:#e9eef6;" +
         "border:1px solid rgba(245,166,35,.45);border-left:3px solid #f5a623;box-shadow:0 14px 34px rgba(0,0,0,.5);" +
         "font:500 13px/1.45 'Inter',system-ui,-apple-system,sans-serif;text-align:left";
+      // o "×" fecha só ESTE aviso: o mesmo texto não volta sozinho; um aviso diferente (outra fonte, sessão vencida) volta
+      faixa.onclick = function (ev) {
+        var alvo = ev && ev.target;
+        if (alvo && alvo.getAttribute && alvo.getAttribute("data-fechar") !== null) { fechado = atual; faixa.hidden = true; }
+      };
       (document.body || document.documentElement).appendChild(faixa);
     }
-    faixa.innerHTML = html;
-    faixa.hidden = false;
+    var completo = html + ' <button type="button" data-fechar aria-label="Fechar o aviso" title="Fechar o aviso" ' +
+      'style="margin-left:10px;background:none;border:0;color:#e9eef6;font:600 15px/1 inherit;cursor:pointer;padding:0 2px">×</button>';
+    atual = completo;
+    faixa.innerHTML = completo;
+    faixa.hidden = completo === fechado;
   }
   function textoVencida() {
     if (naMoldura()) {
@@ -105,13 +119,16 @@
     setTimeout(function () { if (estado === "vencida") { dicaMenu = true; mostra(textoVencida(), "vencida"); } }, DICA_MS);
   }
   // A leitura falhou por outro motivo (rede, 500): a tela segue com o último número, e a faixa diz desde quando.
-  function falhou(motivo, quando) {
+  // `fim`: a tela diz o resto da frase (o Diagnóstico lê uma vez: não tem "última leitura" nem tenta de novo sozinho).
+  function falhou(motivo, quando, fim) {
     if (estado === "vencida") return;   // a sessão explica tudo; não troca a faixa dela
-    mostra("<b>Não atualizou</b>" + (motivo ? " (" + esc(motivo) + ")" : "") + (quando ? ": os números na tela são " +
-      esc(quando) + "." : ": a tela segue com a última leitura.") + " Tento de novo sozinho.", "falha");
+    mostra("<b>Não atualizou</b>" + (motivo ? " (" + esc(motivo) + ")" : "") + (fim ? ": " + esc(fim) :
+      (quando ? ": os números na tela são " + esc(quando) + "." : ": a tela segue com a última leitura.") +
+      " Tento de novo sozinho."), "falha");
   }
   function voltou() {
     if (faixa && estado) { faixa.hidden = true; faixa.innerHTML = ""; }
+    fechado = "";
     estado = ""; dicaMenu = false;
   }
   // B12 (10/10/2026): "Renove na tela Tokens" para quem leva "Só administradores" ao abrir o /tokens.

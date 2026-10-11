@@ -613,7 +613,11 @@ async function loadPlant(pid){
   delete RD.plantErro[key]; delete RD.plantLento[key];
   RD.plants[key]=null; render();
   try{ const d=await fetchJSON(cfg+encodeURIComponent(pid),{onLento:()=>{ if(RD.plants[key]===null){ RD.plantLento[key]=1; render(); } }});
-    if(d&&d.error&&!d.inversores) throw new Error('a fonte respondeu com erro ('+String(d.detalhe||d.error).slice(0,160)+')');
+    // A rota que diz que a fonte falhou manda o corpo no formato de sempre, com `inversores: []` (SunOp, SolarEdge, PG:
+    // 502/503 com fonte_ok false desde 10-11/10/2026): o `!d.inversores` não pegava, e a linha dizia "A fonte não devolveu
+    // inversores desta usina" com a fonte fora. Erro com a lista vazia, ou fonte_ok false, é falha.
+    if(d&&((d.error&&!(d.inversores||[]).length)||d.fonte_ok===false))
+      throw new Error('a fonte respondeu com erro ('+String(d.erro||d.detalhe||d.error).slice(0,160)+')');
     RD.plants[key]=(d&&d.inversores)||[]; }
   catch(e){ RD.plants[key]=[]; RD.plantErro[key]=(e&&e.message)||'a fonte não respondeu'; }
   delete RD.plantLento[key];

@@ -38,6 +38,10 @@ html,body{margin:0;background:var(--bg);color:var(--txt);font-family:var(--font)
 .bc .l{font-size:11px;color:var(--muted);}.bc .v{font-size:30px;font-weight:700;letter-spacing:-.02em;line-height:1.1;margin-top:3px;}
 .bc .v small{font-size:14px;color:var(--faint);font-weight:500;}.bc .s{font-size:11px;color:var(--faint);margin-top:2px;}
 .bc.crit .v{color:var(--red);}.bc.warn .v{color:var(--amber);}
+/* Leitura que não veio (10/10/2026): faixa cinza = sem número (não é "ok" nem alarme da usina); o selo em âmbar diz
+   qual fonte não respondeu, com que código e a que horas. A cor diz a severidade, sem ícone. */
+.bc.sem::before{background:var(--off);}
+.selo{color:var(--amber);}
 /* diagnóstico mais largo, coluna dos inversores enxuta (Levi 22/07: aproveitar o espaço vazio do heatmap) */
 .cols{display:grid;grid-template-columns:1.75fr 1fr;gap:14px;align-items:start;}
 .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px 16px;box-shadow:var(--shadow);}
@@ -162,7 +166,7 @@ table.v2t td{padding:7px 8px;border-top:1px solid var(--line);vertical-align:mid
 .v2n{font-family:var(--mono,'IBM Plex Mono',Consolas,monospace);text-align:center;white-space:nowrap}.v2c{text-align:center}
 .v2chip{font-size:10px;font-weight:700;padding:2px 7px;border-radius:12px;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;display:inline-block}
 .v2chip.ok{background:rgba(111,160,30,.16);color:var(--ok)}.v2chip.abaixo,.v2chip.atencao,.v2chip.medio,.v2chip.leve,.v2chip.atraso,.v2chip.fora_media{background:rgba(240,181,61,.16);color:var(--amber)}
-.v2chip.parado,.v2chip.severo,.v2chip.desvio{background:rgba(255,92,77,.16);color:var(--red)}.v2chip.sem_com,.v2chip.sem_comunicacao{background:rgba(201,182,255,.16);color:#c9b6ff}.v2chip.rampa,.v2chip.mudo,.v2chip.normal{background:var(--raise);color:var(--muted)}
+.v2chip.parado,.v2chip.severo,.v2chip.desvio{background:rgba(255,92,77,.16);color:var(--red)}.v2chip.sem_com,.v2chip.sem_comunicacao{background:rgba(201,182,255,.16);color:#c9b6ff}.v2chip.rampa,.v2chip.mudo,.v2chip.normal,.v2chip.sem_pr{background:var(--raise);color:var(--muted)}
 .v2barra{position:relative;height:8px;background:var(--raise);border-radius:5px;overflow:hidden;min-width:90px}.v2barra i{position:absolute;left:0;top:0;bottom:0;border-radius:5px}.v2barra em{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--txt);opacity:.5}
 .v2tag{font:500 10.5px var(--mono,'IBM Plex Mono',Consolas,monospace);padding:1px 6px;border-radius:5px;border:1px solid var(--line-2);color:var(--muted);white-space:nowrap;display:inline-block;margin:1px 2px 1px 0}
 .v2tag.sem{background:rgba(242,85,90,.16);color:#ff9a9d;border-color:rgba(242,85,90,.45);font-weight:700}
@@ -469,27 +473,120 @@ async function excluirComentario(ts){
 function _safe(nome,fn){ try{ fn(); }catch(e){ console.error('[painel] '+nome+' falhou:',e);
   const map={diags:'diags',heat:'heatmap',trk:'trackers'}[nome];
   if(map){ const el=document.getElementById(map); if(el&&/Carregando|^—$/.test(el.textContent.trim())) el.innerHTML='<div class="empty">Falha ao montar ('+nome+') — ver console.</div>'; } } }
+
+/* ── Leitura que não veio não vira zero (10/10/2026, prova da porta única com o Nexus) ─────────────────────────────────
+   Com a API PV respondendo 504, esta tela mostrava "Inversores 0 · 0 sem produção · 0 sem com.", "Strings 0 / 0 ativas",
+   "Hoje 0 kWh · PR mediana 0%" e "A fonte não devolveu inversores para esta usina": a tela de uma usina parada. Cada carga
+   fazia fetch(...).then(r=>r.json()) e desenhava o corpo do erro ({"error": "falha", ...}) como dado. A régua é a do
+   Painel NOC (_lerOk, f769aa1): só resposta 2xx com dado vira número. 401 = sessão vencida (o aviso_de_sessao.js liga a
+   faixa dele sozinho); outro não-2xx = a rota disse que a fonte falhou (as rotas do Diagnóstico respondem 502/503/504 com
+   {erro, fonte} desde esta data, em vez de 200 com vazio); rede caída ou prazo estourado = não respondeu; 2xx com
+   fonte_ok:false, ou com erro no lugar da lista que a leitura promete = a rota engoliu a falha.
+   Cada leitura falha por conta própria (FALHA[k]): o cartão e a aba dela mostram "—" e o selo "Fonte X não respondeu
+   (HTTP 504) às HH:MM: sem leitura", e o resto segue com o número dele — inclusive o zero de verdade (a fonte respondeu,
+   e é zero: de madrugada, ou a usina sem tracker). A faixa do topo é a mesma das outras telas (gcSessaoDaPlataforma). */
+const FALHA={};                       // leitura -> {fonte, motivo, hora, sessao, det, velho?, semFaixa?}
+let _dgFaixaLigada=false;
+function _dgHora(){ const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+function _dgErroDe(status, corpo){
+  const det=corpo&&typeof corpo==='object'?(corpo.erro||corpo.detalhe||corpo.error||corpo.motivo):null;
+  const e=new Error(status===401?'sessão vencida':(status===200?(det?String(det):'resposta sem dado'):'HTTP '+status));
+  e.status=status; e.sessao=status===401; e.corpo=corpo; e.det=det?String(det).slice(0,240):'';
+  return e;
+}
+// fetch que só devolve DADO. opc: {ms: prazo, exige: chave da lista que a leitura promete, post: corpo JSON}
+function _dgLer(url, opc){
+  const o=opc||{}, c=new AbortController(), t=o.ms?setTimeout(()=>c.abort(),o.ms):null;
+  const init={signal:c.signal};
+  if(o.post!==undefined){ init.method='POST'; init.headers={'Content-Type':'application/json'}; init.body=JSON.stringify(o.post); }
+  return fetch(url,init).then(async r=>{
+    let d=null; try{ d=await r.json(); }catch(e){}
+    if(!r.ok) throw _dgErroDe(r.status,d);
+    if(!d||typeof d!=='object') throw _dgErroDe(r.status,{erro:'resposta vazia'});
+    if(d.fonte_ok===false||(o.exige&&!Array.isArray(d[o.exige])&&(d.erro||d.error))) throw _dgErroDe(r.status,d);
+    return d;
+  },e=>{ const ab=e&&e.name==='AbortError';
+    const x=new Error(ab?'sem resposta em '+Math.round((o.ms||0)/1000)+' s':'sem conexão com a plataforma');
+    x.rede=true; x.abortou=ab; throw x; })
+  .finally(()=>{ if(t) clearTimeout(t); });
+}
+function _dgMotivo(e){ if(!e) return 'falha'; if(e.sessao) return 'sessão vencida'; if(e.status&&e.status!==200) return 'HTTP '+e.status; return e.message||'falha'; }
+function _dgFalhou(k, fonte, e, extra){
+  FALHA[k]=Object.assign({fonte:fonte, motivo:_dgMotivo(e), hora:_dgHora(), sessao:!!(e&&e.sessao), det:(e&&e.det)||''}, extra||{});
+  _dgFaixa();
+}
+function _dgVoltou(k){ if(k in FALHA){ delete FALHA[k]; _dgFaixa(); } }
+// O texto do selo. `velho` = a releitura falhou e a tela ficou com a leitura boa anterior do MESMO dado (com a hora dela).
+function _dgTxt(f, oQue){
+  if(!f) return '';
+  if(f.sessao) return 'Sem leitura (sessão vencida) às '+f.hora+(oQue?' — '+oQue:'');
+  if(f.velho) return f.fonte+' não atualizou ('+f.motivo+') às '+f.hora+': números da leitura das '+f.velho;
+  return f.fonte+' não respondeu ('+f.motivo+') às '+f.hora+': sem leitura'+(oQue?' — '+oQue:'');
+}
+function _dgSelo(k, oQue){ const f=FALHA[k]; return f?`<span class="selo"${f.det?` title="${v2esc(f.det)}"`:''}>${v2esc(_dgTxt(f,oQue))}</span>`:''; }
+// A faixa do topo (aviso_de_sessao.js): uma linha com todas as fontes que não responderam. O 401 é da faixa de sessão, que
+// liga sozinha e tem prioridade; o "voltou" só apaga a faixa que esta tela acendeu, e nunca a da sessão.
+function _dgFaixa(){
+  const S=window.gcSessaoDaPlataforma; if(!S||typeof S.falhou!=='function') return;
+  const fs=Object.values(FALHA).filter(f=>!f.sessao&&!f.semFaixa);
+  if(fs.length){
+    // só o nome das fontes (11/10/2026): com motivo e hora de cada uma a faixa passava de duas linhas; eles estão no selo
+    // de cada cartão
+    const m=[...new Set(fs.map(f=>f.fonte.replace(/^Fonte /,'')))].join(', ');
+    S.falhou(m,'','o que depende dessas leituras está com — (sem leitura): não é usina parada.'); _dgFaixaLigada=true;
+  } else if(_dgFaixaLigada&&!Object.values(FALHA).some(f=>f.sessao)){ S.voltou(); _dgFaixaLigada=false; }
+}
+const _TRK_BOM={};                    // dia (YYYY-MM-DD) -> {d, hora}: a última leitura boa de trackers de cada dia
+/* Os inversores vieram, mas uma parte da leitura não (revisão de 11/10/2026):
+   - `eday_ok: false` (Thopen/PG e RenoGrid tiram a energia do dia do PR do dia, que não tem reserva velha): com o PG fora e o
+     snapshot ainda servido, TODO eday vinha None e às 10:00 a tela dizia "30 sem produção" e "Hoje 0 kWh". FALHA.eday: o
+     cartão Hoje fica "—" e o eday nulo deixa de ser prova de inversor parado (v2Status);
+   - o snapshot do PG velho (`snapshot_velho`, o web serve o que o worker publicou, sem limite de idade) e o drill da SunOp
+     retido (`retido`, a releitura falhou e ficou o último drill bom): os números ficam, com a hora deles no selo. */
+function _dgPlantParcial(p){
+  if(p&&p.eday_ok===false) _dgFalhou('eday','Energia do dia ('+CFG.label+')',null,{motivo:'o PR do dia não veio',det:String(p.eday_erro||'').slice(0,240)});
+  else if(p) _dgVoltou('eday');
+  const hh=p&&p.cache_ts?fmtHora(p.cache_ts):'';
+  if(p&&hh&&p.snapshot_velho) _dgFalhou('plantVelho','Fonte '+CFG.label,null,{motivo:'snapshot de '+Math.round((p.snapshot_idade_s||0)/60)+' min',velho:hh,semFaixa:true});
+  else if(p&&hh&&p.retido) _dgFalhou('plantVelho','Fonte '+CFG.label,null,{motivo:String(p.erro_releitura||'a releitura falhou').slice(0,120),velho:hh,semFaixa:true,det:String(p.erro_releitura||'')});
+  else if(p) _dgVoltou('plantVelho');
+}
+
 async function boot(){
   if(HIST){ return bootHist(); }   // usina SEM fonte ao vivo → tela histórica (Levi 14/09); nada do caminho ao vivo roda
   loadComentarios();
-  const pTrk=CFG.trk?fetch(CFG.trk).then(r=>r.json()).catch(()=>null):Promise.resolve({trackers:[],sem_fonte:true});   // dispara já, mas NÃO bloqueia; fonte sem trackers (RenoGrid) responde vazio na hora
+  // dispara já, mas NÃO bloqueia; fonte sem trackers (RenoGrid) responde vazio na hora
+  const pTrk=CFG.trk?_dgLer(CFG.trk,{exige:'trackers'}).then(d=>({d}),e=>({e}))
+    :Promise.resolve({d:{trackers:[],sem_fonte:true}});
   // A tabela de inversores esperava a MAIS LENTA das duas pernas: o diagnóstico da API PV leva 6-9 s e
   // segurava a tela mesmo com o /api/plant já respondido (Levi, 08/09). Agora cada perna pinta o que é dela
   // quando chega — o `_safe` de cada render já é blindado e `renderDiags` sabe desenhar sem DIAG.
-  const pDiag=CFG.diag?fetch(CFG.diag).then(r=>r.json()).catch(()=>null):Promise.resolve(null);
-  const plant=await fetch(CFG.plant).then(r=>r.json()).catch(()=>null);
+  const pDiag=CFG.diag?_dgLer(CFG.diag,{exige:'diagnosticos'})
+      .then(d=>{ _dgVoltou('diag'); return d; },e=>{ _dgFalhou('diag','Motor de diagnóstico ('+CFG.label+')',e); return null; })
+    :Promise.resolve(null);
+  let plant=null;
+  try{ plant=await _dgLer(CFG.plant,{exige:'inversores'}); _dgVoltou('plant'); }
+  catch(e){ _dgFalhou('plant','Fonte '+CFG.label,e); }
   PLANT=plant;
+  _dgPlantParcial(plant);
   pDiag.then(dg=>{ DIAG=dg; _safe('diags',renderDiags); _safe('below',renderBelow); try{ v2Render(); }catch(e){} });
   const dg=null;
   const ts=(dg&&dg.cache_ts)||(plant&&plant.cache_ts)||'—';
   document.getElementById('uMeta').innerHTML=` · ${CFG.label}${TS?' · última leitura '+fmtTs(TS):''}`;
-  document.getElementById('upd').textContent='atualizado '+ts;
-  document.getElementById('footsrc').textContent=CFG.label+' · '+ts;
+  const _sl=FALHA.plant?_dgTxt(FALHA.plant):FALHA.plantVelho?_dgTxt(FALHA.plantVelho):'';
+  document.getElementById('upd').textContent=_sl||('atualizado '+ts);
+  document.getElementById('footsrc').textContent=CFG.label+' · '+(_sl||ts);
   _safe('below',renderBelow); _safe('diags',renderDiags); _safe('heat',()=>renderHeat(plant));
   _safe('invalerta',renderInvAlerta);
   loadFracttalOS(); loadCascata();
   // trackers vêm por último, quando resolverem — a fonte lenta não segura o resto
-  pTrk.then(trk=>{ TRK=trk; _safe('trk',()=>renderTrackers(trk)); });
+  // (só se a tela ainda está em hoje: com ?dia= no link, quem lê os trackers é o v2CarregaDia daquele dia, e os de hoje
+  // chegando depois trocavam o dia escolhido pelo de hoje sob o mesmo rótulo)
+  pTrk.then(({d,e})=>{
+    if(!v2DiaHoje()) return;
+    if(d){ if(CFG.trk) _TRK_BOM[v2HojeISO()]={d,hora:_dgHora()}; _dgVoltou('trk'); TRK=d; }
+    else { _dgFalhou('trk','Fonte '+CFG.label,e); TRK=null; }
+    _safe('trk',()=>renderTrackers(TRK)); });
   completarIrmas();          // junta os inversores das plantas irmãs (Nova Londrina 1 + 2)
   // ?inv=Inversor N.M (vindo do Histórico PR do Painel NOC) → já abre a curva desse inversor
   const qinv=Q.get('inv');
@@ -549,13 +646,19 @@ async function bootHist(){
   const _d1=`${_ya}-${String(_mo).padStart(2,'0')}-01`;
   const _d2=`${_ya}-${String(_mo).padStart(2,'0')}-${String(new Date(_ya,_mo,0).getDate()).padStart(2,'0')}`;
   const qim=`${qi}&ini=${_d1}&fim=${_d2}`;
+  // Cada leitura do mês fechado passa pelo _dgLer (10/10/2026): o corpo do 500 lido como dado virava "ainda não tem
+  // quebra por inversor", "todos no alvo" e "fora do Fracttal". Falhou, o bloco dela diz que não respondeu (FALHA.h*).
+  const _hl=(k,u,fonte,exige)=>_dgLer(u,exige?{exige}:undefined).then(d=>{ _dgVoltou(k); return d; },
+    e=>{ _dgFalhou(k,fonte,e); return null; });
   const [inv, disp, men, tk, dia] = await Promise.all([
-    fetch('/api/g/inversores?'+qim).then(r=>r.json()).catch(()=>null),
-    fetch(`/api/gerencial/disponibilidade?mes=${mes}&cliente=${encodeURIComponent(CLIENTE)}`).then(r=>r.json()).catch(()=>null),
-    fetch('/api/g/mensal?'+qi).then(r=>r.json()).catch(()=>null),
-    fetch('/api/g/tickets-trackers?usina='+encodeURIComponent(NOME)).then(r=>r.json()).catch(()=>null),
-    fetch(`/api/g/diario?${qi}&ano=${_ya}&mes=${_mo}`).then(r=>r.json()).catch(()=>null)   // gerado x esperado POR DIA
+    _hl('hInv','/api/g/inversores?'+qim,'Fonte BD_Performance (inversores do mês)','inversores'),
+    _hl('hDisp',`/api/gerencial/disponibilidade?mes=${mes}&cliente=${encodeURIComponent(CLIENTE)}`,'Disponibilidade (Fracttal)'),
+    _hl('hMen','/api/g/mensal?'+qi,'Fonte BD_Performance (PR do mês)','pontos'),
+    _hl('hTk','/api/g/tickets-trackers?usina='+encodeURIComponent(NOME),'Planilha de Tickets'),
+    _hl('hDia',`/api/g/diario?${qi}&ano=${_ya}&mes=${_mo}`,'Fonte BD_Performance (diário)','pontos')   // gerado x esperado POR DIA
   ]);
+  // índice de disponibilidade ainda não montado (boot do worker): não é "usina fora do Fracttal"
+  if(disp&&disp.quente===false) _dgFalhou('hDisp','Disponibilidade (Fracttal)',null,{motivo:'índice ainda não montado',semFaixa:true});
   const rows=((inv&&inv.inversores)||[]).slice();
   const alvo=inv&&inv.alvo;
   const du=(disp&&(disp.usinas||[]).find(x=>v2nrm(x.usina)===v2nrm(NOME)))||null;
@@ -564,6 +667,7 @@ async function bootHist(){
   // OS desta usina (as que descontaram disponibilidade) → detalhe no tooltip do % disp
   HISTOS=_histOsTip(((disp&&disp.oss)||[]).filter(o=>
     ((o.usinas||[]).some(u=>v2nrm(u)===v2nrm(NOME))) || v2nrm(o.g1||'').indexOf(v2nrm(NOME))>=0));
+  if(FALHA.hDisp) HISTOS=_dgTxt(FALHA.hDisp);   // não leu ≠ "Sem OS no mês — disponibilidade cheia"
   HISTST={rows: rows, alvo: alvo, dispInv: dispInv};
   // "todos / só com problema" redesenha a tabela histórica — o v2Render ao vivo está barrado no HIST
   window.v2FInv=v=>{ V2.fInv=v;
@@ -601,22 +705,27 @@ function _histKpis(men, du, rows){
   const _esp=(_espD!=null&&_nd)?_espD*_nd:null;
   const _pctE=(_ger&&_esp)?(_ger/_esp*100):null;
   // #below já é um grid de 5 colunas — os cards entram direto como células (sem wrapper, senão espremem numa coluna só)
+  // a leitura que não respondeu: "—" e o selo dela no lugar do texto de baixo (10/10/2026)
+  const sl=(k,oQue)=>_dgSelo(k,oQue);
   el.innerHTML=
-    card('PR do mês', _hpct(real), meta!=null?'vs meta '+_hpct(meta):'', (real!=null&&meta!=null)?(real>=meta?'var(--ok)':'var(--red)'):'')+
-    card('Disponibilidade', disp!=null?nf(disp,1)+'%':'—', du?('equip '+nf(du.disp_equip,1)+'% · queda '+nf(du.disp_queda,1)+'%'):'',
+    card('PR do mês', _hpct(real), FALHA.hMen?sl('hMen','não é PR zero'):meta!=null?'vs meta '+_hpct(meta):'', (real!=null&&meta!=null)?(real>=meta?'var(--ok)':'var(--red)'):'')+
+    card('Disponibilidade', disp!=null?nf(disp,1)+'%':'—', FALHA.hDisp?sl('hDisp'):du?('equip '+nf(du.disp_equip,1)+'% · queda '+nf(du.disp_queda,1)+'%'):'',
          _hcol(disp!=null?disp/100:null,0.98,0.95), HISTOS)+
     card('Geração do mês', _ger?nf(_ger,1)+' MWh':'—',
-         _esp!=null?('esperado '+nf(_esp,1)+' MWh'+(_pctE!=null?' · '+nf(_pctE,0)+'%':'')):'sem diário no mês',
+         FALHA.hDia?sl('hDia','não é geração zero'):_esp!=null?('esperado '+nf(_esp,1)+' MWh'+(_pctE!=null?' · '+nf(_pctE,0)+'%':'')):'sem diário no mês',
          _pctE!=null?(_pctE>=95?'var(--ok)':_pctE>=85?'var(--amber)':'var(--red)'):'',
          _esp!=null?`Gerado ${nf(_ger,1)} MWh em ${_nd} dia(s) com dado · esperado ${nf(_espD,2)} MWh/dia × ${_nd} = ${nf(_esp,1)} MWh`:'')+
-    card('Δ vs meta', _hdpp(dpp), 'atingimento do mês', dpp!=null?(dpp>=0?'var(--ok)':'var(--red)'):'')+
-    card('Inversores', rows.length||'—', abaixo?abaixo+' abaixo da meta':'todos no alvo', abaixo?'var(--amber)':'var(--ok)');
+    card('Δ vs meta', _hdpp(dpp), FALHA.hMen?sl('hMen'):'atingimento do mês', dpp!=null?(dpp>=0?'var(--ok)':'var(--red)'):'')+
+    // sem linha nenhuma, "todos no alvo" afirmava o que ninguém leu
+    card('Inversores', rows.length||'—', FALHA.hInv?sl('hInv','não é usina sem inversor'):!rows.length?'sem quebra por inversor':abaixo?abaixo+' abaixo da meta':'todos no alvo',
+         FALHA.hInv||!rows.length?'':abaixo?'var(--amber)':'var(--ok)');
 }
 
 function _histInv(rows, alvo, dispInv){
   const body=document.getElementById('v2InvBody'); if(!body) return;
   const sub=document.getElementById('v2InvSub'); if(sub) sub.innerHTML='mês fechado · PR do inversor ÷ alvo da usina · % disp pela régua do Gerencial (usina › cabine › inversor)';
-  if(!rows.length){ body.innerHTML='<div class="v2-nota">Esta usina ainda não tem quebra por inversor no BD_Performance (poucos dias no banco). A geração do mês está na aba Mês.</div>'; return; }
+  if(!rows.length){ body.innerHTML=FALHA.hInv?`<div class="v2-nota">${_dgSelo('hInv','não é usina sem quebra por inversor')}.</div>`
+    :'<div class="v2-nota">Esta usina ainda não tem quebra por inversor no BD_Performance (poucos dias no banco). A geração do mês está na aba Mês.</div>'; return; }
   const rs=rows.slice().sort((a,b)=>((a.pr==null)-(b.pr==null))||((a.pr||0)-(b.pr||0)));
   const _al=r=>r.alvo!=null?r.alvo:alvo;
   // "só com problema" no histórico = PR abaixo do alvo (sinal principal) OU disponibilidade baixa.
@@ -631,7 +740,9 @@ function _histInv(rows, alvo, dispInv){
     const dcol=_hcol(di&&di.disp!=null?di.disp/100:null,0.98,0.95);
     const prcol=(r.pr!=null&&_al(r)!=null)?((r.pr>=_al(r))?'var(--ok)':'var(--red)'):'var(--faint)';
     const dif=r.dif!=null?((r.dif>=0?'+':'−')+nf(Math.abs(r.dif)*100,1)):'—';
-    const occ=(di&&di.h_perdidas>0)?('OS: '+nf(di.h_perdidas,1)+' h em horas solares'):'<span style="color:var(--faint)">sem OS no mês</span>';
+    const occ=(di&&di.h_perdidas>0)?('OS: '+nf(di.h_perdidas,1)+' h em horas solares')
+      :FALHA.hDisp?`<span style="color:var(--faint)" title="${_hattr(_dgTxt(FALHA.hDisp))}">—</span>`   // não leu ≠ sem OS
+      :'<span style="color:var(--faint)">sem OS no mês</span>';
     // GERADO x ESPERADO do inversor (Levi, 15/09): esperado = o que o alvo de PR daria com a
     // irradiância que de fato veio (Σ IPOA × potência do inversor × alvo). Comparável direto.
     const _g=(typeof r.ger_mwh==='number')?r.ger_mwh:null, _e=(typeof r.esp_mwh==='number')?r.esp_mwh:null;
@@ -674,11 +785,12 @@ function _histRenderMes(rows, alvo, du){
       `<span style="font-family:monospace;font-size:9.5px;color:var(--muted)">${r.pr!=null?nf(r.pr*100,0):'—'}</span>`+
       `<div style="width:100%;max-width:32px;height:${Math.max(2,Math.min(100,pr))}%;background:${col};border-radius:4px 4px 0 0"></div>`+
       `<span style="font-size:10px;color:var(--faint);margin-top:4px">${lbl}</span></div>`;
-  }).join('') || '<div class="v2-nota">Sem quebra por inversor no BD_Performance ainda.</div>';
+  }).join('') || (FALHA.hInv?`<div class="v2-nota">${_dgSelo('hInv','não é usina sem quebra por inversor')}.</div>`
+    :'<div class="v2-nota">Sem quebra por inversor no BD_Performance ainda.</div>');
   // GERADO x ESPERADO POR DIA (Levi, 15/09): barra por dia, cor contra a meta do dia, detalhe no mouse
   const _pd=(HISTDIA&&HISTDIA.pontos)||[];
   const _espD=(HISTDIA&&HISTDIA.meta_ger)||null;
-  let ddia='';
+  let ddia=FALHA.hDia?`<div style="margin:20px 2px 8px;font-size:11.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted)">Gerado x esperado por dia</div><div class="card"><div class="v2-nota">${_dgSelo('hDia','não é dia sem geração')}.</div></div>`:'';
   if(_pd.length){
     const _mx=Math.max(_espD||0, ..._pd.map(p=>typeof p.geracao==='number'?p.geracao:0))||1;
     const dbars=_pd.map(p=>{
@@ -712,7 +824,8 @@ function _histRenderMes(rows, alvo, du){
     _hdcell('OS no mês', du.n_os!=null?du.n_os:'—', 'religamento/corretiva', '', HISTOS)+
     _hdcell('kWh perdidos', du.kwh!=null?nf(du.kwh,0):'—', 'no mês', '', HISTOS)+
     `</div></div>`
-  ) : '<div class="v2-nota" style="margin-top:14px">Disponibilidade do mês ainda não disponível para esta usina (fora do Fracttal ou não Full O&amp;M).</div>';
+  ) : FALHA.hDisp ? `<div class="v2-nota" style="margin-top:14px">${_dgSelo('hDisp','não é disponibilidade cheia nem vazia')}.</div>`   // não leu ≠ fora do Fracttal
+    : '<div class="v2-nota" style="margin-top:14px">Disponibilidade do mês ainda não disponível para esta usina (fora do Fracttal ou não Full O&amp;M).</div>';
   // rótulo da seção: no modo histórico não há abas, os blocos vêm empilhados e precisam se identificar
   pane.innerHTML=`<div style="margin:20px 2px 8px;font-size:11.5px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted)">Mês · gerencial</div>`+
     `<div class="card"><h3 style="margin:0 0 4px">Acumulado do mês por inversor</h3>`+
@@ -746,21 +859,30 @@ function _histTrk(tk){
    responde, em vez de segurar tudo esperando a fonte mais lenta. */
 async function completarIrmas(){
   if(FONTE!=='pv') return;
-  let g; try{ g=await fetch('/api/pv/grupo/'+ID).then(r=>r.json()); }catch(e){ return; }
+  let g; try{ g=await _dgLer('/api/pv/grupo/'+ID); }catch(e){ return; }   // sem a lista: segue como planta única, como antes
   const membros=(g&&g.membros)||[];
   const outras=membros.filter(m=>String(m.id)!==String(PLANT_ID));
   if(!outras.length) return;                       // usina de planta única: nada a fazer
   const vindos=await Promise.all(outras.map(m=>
-    fetch('/api/plant/'+m.id).then(r=>r.json()).then(p=>({m,p})).catch(()=>null)));
+    _dgLer('/api/plant/'+m.id,{exige:'inversores'}).then(p=>({m,p}),e=>({m,e}))));
+  // A irmã que não respondeu deixava a tela com os inversores de uma planta só, como se a usina inteira fosse aquela
+  // (10/10/2026): os cartões da usina ficam "—" com o nome dela, e a tabela mostra o que veio, com o aviso.
+  const caiu=vindos.filter(v=>v.e);
+  if(caiu.length) _dgFalhou('irma','Fonte '+CFG.label+' (planta '+caiu.map(v=>v.m.nome||v.m.id).join(', ')+')',caiu[0].e);
+  else _dgVoltou('irma');
+  _osPintaLista();                  // a lista de OS já desenhada passa a dizer que as OS dos inversores da irmã não vieram
+  // a planta principal não respondeu: não monta a usina só com a irmã (seria outra usina menor, com o nome desta)
+  if(FALHA.plant||!PLANT){ _safe('below',renderBelow); try{ v2Render(); }catch(e){} return; }
   let n=0;
-  vindos.filter(Boolean).forEach(({p})=>{
+  vindos.filter(v=>v.p).forEach(({p})=>{
     const invs=(p&&p.inversores)||[];
     if(!invs.length) return;
-    PLANT=PLANT||{inversores:[]};
     PLANT.inversores=(PLANT.inversores||[]).concat(invs);
     n+=invs.length;
   });
-  if(!n) return;
+  if(!n){ if(caiu.length){ _safe('below',renderBelow); try{ v2Render(); }catch(e){} } return; }
+  // as OS foram pedidas no boot só com os inversores da planta clicada: as dos inversores da irmã nunca vinham
+  loadFracttalOS();
   _safe('heat',()=>renderHeat(PLANT)); _safe('below',renderBelow); _safe('invalerta',renderInvAlerta);
   // Sem dizer isso, "18 inversores" numa usina que todos conhecem como de 8 parece erro de dado.
   const sub=document.getElementById('hmSub');
@@ -801,21 +923,23 @@ function osLinha(o){
 // flutuantes ligando P50 → real, categorias embaixo no eixo. Âncoras (P50/Possível/Real) do zero;
 // perdas flutuam do running. SVG (controle fino de flutuante + eixo X, funciona no tema escuro).
 function _cascWaterfall(d){
-  const t=d.trk||{}, os=d.os||{};
+  // Fracttal fora: os dois degraus de OS sem leitura; livro de paradas fora: o do tracker (10/10/2026). O degrau sem
+  // leitura mostra "—" no lugar do "−0" (a barra fica no zero, que é o que a rota somou, mas o número não é dado).
+  const t=d.trk||{}, os=d.os||{}, frf=d.fracttal_ok===false, trf=d.trk_ok===false;
   const steps=[
     {lab:['Geração','sem perdas'], val:d.p50, kind:'anchor', c:'#5b6b8c',
      sub:`P50 · ${d.dias}d · ${nf(d.pot,2)}MWp`},
     {lab:['− Baixo','IPOA'], val:-d.perda_ipoa, kind:'loss', c:'#8b93a8',
      sub:`externo · POA ${nf(d.poa,0)}/${nf(d.poa_prev,0)}`},
     {lab:['= Possível','com sol'], val:d.possivel, kind:'anchor', c:'#3d4a68', sub:'recurso do mês'},
-    {lab:['− Tracker','parado'], val:-d.perda_trk, kind:'loss', c:'#a3d900',
-     sub:t.horas_solares?`${nf(t.horas_solares,0)}h · ${t.paradas} par.`:'—'},
-    {lab:['− Queda','energia'], val:-(d.perda_rede||0), kind:'loss', c:'#8fbf00',
-     sub:(os.rede&&os.rede.qtd)?`${os.rede.qtd} relig.`:'—'},
-    {lab:['− Equip./','manut.'], val:-(d.perda_equip||0), kind:'loss', c:'#7ba80e',
-     sub:(os.equip&&os.equip.qtd)?`${os.equip.qtd} corret.`:'—'},
+    {lab:['− Tracker','parado'], val:-d.perda_trk, kind:'loss', c:'#a3d900', sem:trf,
+     sub:trf?'sem leitura':t.horas_solares?`${nf(t.horas_solares,0)}h · ${t.paradas} par.`:'—'},
+    {lab:['− Queda','energia'], val:-(d.perda_rede||0), kind:'loss', c:'#8fbf00', sem:frf,
+     sub:frf?'sem leitura':(os.rede&&os.rede.qtd)?`${os.rede.qtd} relig.`:'—'},
+    {lab:['− Equip./','manut.'], val:-(d.perda_equip||0), kind:'loss', c:'#7ba80e', sem:frf,
+     sub:frf?'sem leitura':(os.equip&&os.equip.qtd)?`${os.equip.qtd} corret.`:'—'},
     {lab:['− Não','explicado'], val:-d.nao_explicado, kind:'loss', c:'#6b7386',
-     sub:'falta modelar'},
+     sub:(frf||trf)?'inclui o sem leitura':'falta modelar'},
     {lab:['= Geração','real'], val:d.geracao, kind:'anchor', c:'#a3d900',
      sub:`PR ${d.pr_real!=null?nf(d.pr_real*100,0)+'%':'—'}`}
   ];
@@ -841,7 +965,7 @@ function _cascWaterfall(d){
     svg+=`<rect x="${x0.toFixed(1)}" y="${yTop.toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}" rx="3" fill="${s.c}"/>`;
     // valor acima da barra
     const forte=s.kind==='anchor';
-    svg+=`<text x="${cx.toFixed(1)}" y="${(yTop-5).toFixed(1)}" text-anchor="middle" fill="${forte?'#e9eef6':'#aeb6c6'}" font-size="${forte?11:10}" font-weight="${forte?700:600}">${s.val<0?'−':''}${nf(Math.abs(s.val),0)}</text>`;
+    svg+=`<text x="${cx.toFixed(1)}" y="${(yTop-5).toFixed(1)}" text-anchor="middle" fill="${forte?'#e9eef6':'#aeb6c6'}" font-size="${forte?11:10}" font-weight="${forte?700:600}">${s.sem?'—':(s.val<0?'−':'')+nf(Math.abs(s.val),0)}</text>`;
     // rótulo no eixo X (2 linhas) + sub
     const ly=H-padB+13;
     svg+=`<text x="${cx.toFixed(1)}" y="${ly}" text-anchor="middle" fill="${forte?'#cfd6e0':'#9aa1ad'}" font-size="9.5" font-weight="${forte?600:400}">${s.lab[0]}</text>`+
@@ -868,10 +992,11 @@ function _cascPR(d){
   const pp=v=>v/(d.poa*d.pot)*100;                 // MWh → pontos de PR (%)
   const real=(d.pr_real||0)*100, meta=(d.pr_meta||0)*100;
   const pot=real+pp(d.perda_trk||0)+pp(d.perda_deslig||0);   // PR sem as perdas recuperáveis
+  const trf=d.trk_ok===false, frf=d.fracttal_ok===false;    // degrau sem leitura: "—", não "−0,00" (10/10/2026)
   const steps=[
     {lab:['PR','sem perdas'],val:pot,kind:'anchor',c:'#5b6b8c'},
-    {lab:['− Tracker'],val:-pp(d.perda_trk||0),kind:'loss',c:'#a3d900'},
-    {lab:['− Desligamento'],val:-pp(d.perda_deslig||0),kind:'loss',c:'#8fbf00'},
+    {lab:trf?['− Tracker','sem leitura']:['− Tracker'],val:-pp(d.perda_trk||0),kind:'loss',c:'#a3d900',sem:trf},
+    {lab:frf?['− Desligamento','sem leitura']:['− Desligamento'],val:-pp(d.perda_deslig||0),kind:'loss',c:'#8fbf00',sem:frf},
     {lab:['PR','realizado'],val:real,kind:'anchor',c:'#a3d900'}
   ];
   const W=560,H=210,padT=26,padB=42,padL=6;
@@ -885,7 +1010,7 @@ function _cascPR(d){
     if(s.kind==='anchor'){top=s.val;bot=0;run=s.val;}else{top=run;bot=run+s.val;run=bot;}
     const yT=y(Math.max(top,bot)),hh=Math.max(2,y(Math.min(top,bot))-yT), forte=s.kind==='anchor';
     svg+=`<rect x="${x0.toFixed(1)}" y="${yT.toFixed(1)}" width="${bw.toFixed(1)}" height="${hh.toFixed(1)}" rx="3" fill="${s.c}"/>`
-      +`<text x="${cx.toFixed(1)}" y="${(yT-5).toFixed(1)}" text-anchor="middle" fill="${forte?'#e9eef6':'#aeb6c6'}" font-size="${forte?11:10}" font-weight="${forte?700:600}">${s.val<0?'−':''}${nf(Math.abs(s.val),forte?1:2)}${forte?'%':''}</text>`
+      +`<text x="${cx.toFixed(1)}" y="${(yT-5).toFixed(1)}" text-anchor="middle" fill="${forte?'#e9eef6':'#aeb6c6'}" font-size="${forte?11:10}" font-weight="${forte?700:600}">${s.sem?'—':(s.val<0?'−':'')+nf(Math.abs(s.val),forte?1:2)+(forte?'%':'')}</text>`
       +s.lab.map((l,k)=>`<text x="${cx.toFixed(1)}" y="${H-padB+13+k*11}" text-anchor="middle" fill="${forte?'#cfd6e0':'#9aa1ad'}" font-size="9.5" font-weight="${forte?600:400}">${l}</text>`).join('');
     // conector tracejado ao nível do total corrente → próxima barra (staircase do waterfall)
     if(i<steps.length-1){ const nx=padL+slot*(i+1)+slot/2-bw/2, yr=y(run);
@@ -899,6 +1024,8 @@ function _cascLeitura(d){
   const ofens=[['Tracker',d.perda_trk||0],['Queda de energia',(d.os&&d.os.rede)?d.perda_rede:0],['Equipamento/manutenção',d.perda_equip||0]]
     .filter(o=>o[1]>0).sort((a,b)=>b[1]-a[1]);
   const maior=ofens[0], omTot=d.om||0;
+  // o degrau sem leitura (Fracttal ou livro de paradas fora) não entra na soma do evitável: a frase diz que falta ele
+  const semL=[d.trk_ok===false?'tracker':'', d.fracttal_ok===false?'queda de energia e equipamento':''].filter(Boolean).join(', ');
   const _br=s=>{const m=String(s||'').match(/(\d{4})-(\d{2})-(\d{2})/);return m?`${m[3]}/${m[2]}`:'?';};
   // agrupa os abertos por tipo (Tracker/String): contagem, data mais antiga e exemplos
   const ab=(d.abertos||[]);
@@ -920,7 +1047,7 @@ function _cascLeitura(d){
   <div style="margin-top:12px">
     <div style="font-size:12.5px;font-weight:600;margin-bottom:7px">Pontos de atenção e ações prioritárias</div>
     ${omTot>0?`<div style="background:color-mix(in srgb,var(--amber) 10%,transparent);border:1px solid color-mix(in srgb,var(--amber) 30%,transparent);border-radius:7px;padding:8px 11px;margin-bottom:6px;font-size:11.5px">
-      <b style="color:var(--amber)">!</b> Perda evitável pelo O&M de <b>${nf(omTot,2)} MWh</b>.${maior?` Maior ofensor recuperável: <b>${maior[0]}</b>, com ${nf(maior[1],1)} MWh (${nf(100*maior[1]/omTot,0)}% das perdas recuperáveis).`:''}</div>`:''}
+      <b style="color:var(--amber)">!</b> Perda evitável pelo O&M de <b>${nf(omTot,2)} MWh</b>${semL?` <span class="selo">(sem ${semL}, que não responderam)</span>`:''}.${maior?` Maior ofensor recuperável: <b>${maior[0]}</b>, com ${nf(maior[1],1)} MWh (${nf(100*maior[1]/omTot,0)}% das perdas recuperáveis).`:''}</div>`:''}
     ${ab.length?`<div style="background:color-mix(in srgb,var(--amber) 10%,transparent);border:1px solid color-mix(in srgb,var(--amber) 30%,transparent);border-radius:7px;padding:8px 11px;font-size:11.5px">
       <b style="color:var(--amber)">!</b> Ofensor ainda em aberto: ${abBlock}. Sem recomposição no período — acompanhar e priorizar a normalização.</div>`:''}
   </div>`;
@@ -957,27 +1084,70 @@ async function loadCascata(mes){
   if(selM){ _prMesInit(selM); if(mes) selM.value=mes; }
   const q=mes?('&ano='+mes.slice(0,4)+'&mes='+(+mes.slice(5,7))):'';
   body.innerHTML='<div class="loading">Calculando a cascata…</div>';
-  let d; try{ d=await fetch('/api/cascata?usina='+encodeURIComponent(NOME)+q).then(r=>r.json()); }
-  catch(e){ card.style.display='none'; return; }
-  if(!d||!d.ok){ card.style.display=''; body.innerHTML=`<div class="empty">Cascata indisponível — ${(d&&d.motivo)||'sem dado'}.</div>`; return; }
+  // a cascata que não veio diz por quê (antes: o 500 virava "sem dado" e a rede caída escondia o card inteiro)
+  let d; try{ d=await _dgLer('/api/cascata?usina='+encodeURIComponent(NOME)+q); }
+  catch(e){ card.style.display=''; CASC_DADO=null;
+    body.innerHTML=`<div class="empty">${v2esc(_dgTxt({fonte:'A cascata',motivo:_dgMotivo(e)+(e&&e.det?': '+e.det:''),hora:_dgHora(),sessao:!!(e&&e.sessao)},'não é perda zero'))}.</div>`; return; }
+  if(!d.ok){ card.style.display=''; body.innerHTML=`<div class="empty">Cascata indisponível — ${v2esc(d.motivo||'sem dado')}.</div>`; return; }
   card.style.display='';
   CASC_DADO=d;                      // guardado p/ trocar de vista sem rebuscar no servidor
   _cascPinta();
   const sub=document.getElementById('cascSub');
-  if(sub) sub.innerHTML=`Da geração sem perdas (P50) à geração real. <b style="color:var(--muted)">Externo ${nf(d.externo,1)} MWh</b> · <b style="color:var(--ok)">evitável (O&amp;M) ${nf(d.om,1)} MWh</b> · não explicado ${nf(d.nao_explicado,1)} MWh. Strings ainda fora.`;
+  // Fracttal fora: a queda de energia e o equipamento saem 0 da rota e o "não explicado" fica com tudo; é sem leitura,
+  // não zero, e a tela diz isso em vez de deixar o degrau vazio passar por "nenhuma parada" (10/10/2026)
+  const frf=d.fracttal_ok===false?` <span class="selo">${v2esc(d.fracttal_erro||'o Fracttal não respondeu')} às ${_dgHora()}: queda de energia e equipamento sem leitura (não é zero), e o não explicado inclui o que eles seriam.</span>`:'';
+  const trf=d.trk_ok===false?` <span class="selo">${v2esc(d.trk_erro||'o livro de paradas não respondeu')} às ${_dgHora()}: tracker parado sem leitura (não é zero).</span>`:'';
+  if(sub) sub.innerHTML=`Da geração sem perdas (P50) à geração real. <b style="color:var(--muted)">Externo ${nf(d.externo,1)} MWh</b> · <b style="color:var(--ok)">evitável (O&amp;M) ${nf(d.om,1)} MWh</b> · não explicado ${nf(d.nao_explicado,1)} MWh. Strings ainda fora.${frf}${trf}`;
+}
+// null = buscando; 'ok' = o Fracttal respondeu (mesmo sem OS nenhuma: aí o zero é de verdade). A falha mora em FALHA.fracttal.
+let OSFR=null;
+// As OS POR INVERSOR só existem com a lista de inversores: o POST leva os nomes que a fonte devolveu. Com a fonte dos
+// inversores fora (ou a planta irmã), a rota só procurava as OS do nível da usina, respondia 200 com por_inversor {} e o
+// cartão dizia "Fracttal · OS abertas 0" com a lista "Nenhuma OS de corretiva..." — o print da prova da porta única, com
+// corretivas abertas nos inversores (revisão de 11/10/2026). Essa parte fica sem leitura, com o selo da fonte que faltou.
+function _osInvSemLista(){ return FALHA.plant?'plant':FALHA.irma?'irma':!PLANT?'plant':null; }
+let _osSeq=0, _osUlt=null;            // _osUlt = {rows, parcial} da última resposta, para repintar a lista sem pedir de novo
+function _osPintaLista(){
+  const list=document.getElementById('osList'); if(!list||!_osUlt) return;
+  const {rows, parcial}=_osUlt, kI=_osInvSemLista();
+  const seloInv=kI&&FALHA[kI]?`<div class="empty">${_dgSelo(kI,'OS por inversor sem leitura (a lista de inversores não veio); abaixo, só as do nível da usina')}.</div>`:'';
+  list.innerHTML=(parcial?`<div class="empty">${_dgSelo('fracttal','a lista abaixo é só o que chegou antes')}.</div>`:'')+seloInv
+    +(rows.length?rows.map(osLinha).join('')
+      :(parcial||seloInv)?'':'<div class="empty">Nenhuma OS de corretiva ou religamento aberta ou concluída no mês.</div>');
 }
 async function loadFracttalOS(){
   const card=document.getElementById('osCard'), list=document.getElementById('osList');
   if(!card||!list) return;
+  const seq=++_osSeq; OSFR=null;     // até a resposta, o cartão diz "buscando" (não o número da busca anterior)
   const invs=((PLANT&&PLANT.inversores)||[]).map(i=>i.nome).filter(Boolean);
-  let d; try{
-    d=await fetch('/api/fracttal/os',{method:'POST',headers:{'Content-Type':'application/json'},
-      // mes LOCAL (o resto do arquivo ja' usa getFullYear/getMonth): com toISOString(), no ultimo dia do
-      // mes depois das 21h o card pedia o mes SEGUINTE e sumia toda OS concluida do mes
-      body:JSON.stringify({usina:NOME, mes:(d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'))(new Date()),
-                           inversores:invs})}).then(r=>r.json());
-  }catch(e){ card.style.display=''; list.innerHTML='<div class="empty">Falha ao buscar OSs no Fracttal.</div>'; return; }
-  if(d&&d.sem_credencial){ card.style.display='none'; return; }
+  // O Fracttal que não respondeu (a cota da empresa vive esgotada: 429) não é "usina sem OS": a rota responde 502 com o
+  // que chegou antes da falha (parcial), e o cartão "Fracttal · OS abertas" fica "—" (10/10/2026).
+  let d, parcial=false;
+  try{
+    // mes LOCAL (o resto do arquivo ja' usa getFullYear/getMonth): com toISOString(), no ultimo dia do
+    // mes depois das 21h o card pedia o mes SEGUINTE e sumia toda OS concluida do mes
+    d=await _dgLer('/api/fracttal/os',{post:{usina:NOME, mes:(d=>d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'))(new Date()),
+                                             inversores:invs}});
+    if(seq!==_osSeq) return;          // uma busca mais nova (a das plantas irmãs somadas) já está a caminho
+  }catch(e){
+    if(seq!==_osSeq) return;
+    _dgFalhou('fracttal','Fonte Fracttal',e); OSFR=null; card.style.display='';
+    d=(e&&e.corpo&&typeof e.corpo==='object')?e.corpo:null;
+    if(!d||!((d.usina_os||[]).length||Object.keys(d.por_inversor||{}).length)){
+      _osUlt=null;
+      list.innerHTML=`<div class="empty">${_dgSelo('fracttal','não é usina sem OS')}.</div>`;
+      try{ refreshDiag(); }catch(_e){}
+      return;
+    }
+    parcial=true;
+  }
+  if(d&&d.sem_credencial){       // plataforma sem a credencial do Fracttal: não leu, não é "0 OS"
+    card.style.display='none';
+    _dgFalhou('fracttal','Fonte Fracttal',null,{motivo:'sem credencial nesta plataforma',semFaixa:true});
+    try{ refreshDiag(); }catch(_e){}
+    return;
+  }
+  if(!parcial){ OSFR='ok'; _dgVoltou('fracttal'); }
   // cruza OS ABERTAS por inversor p/ o diagnóstico (só os tipos acompanhados)
   OSBYINV={}; Object.entries(d.por_inversor||{}).forEach(([nm,v])=>{
     const ab=(v.os||[]).filter(o=>o.aberta&&OS_TIPOS.has(String(o.tipo||'').toLowerCase()));
@@ -996,8 +1166,7 @@ async function loadFracttalOS(){
   const sub=document.getElementById('osSub');
   if(sub) sub.innerHTML=`Corretiva, Corretiva Emergencial, Religamento e Religamento Remoto — ${rows.length} OS${rows.length!=1?'s':''}`
     +(nAb?` · <b style="color:var(--amber)">${nAb} aberta${nAb!=1?'s':''}</b>`:'')+'.';
-  list.innerHTML=rows.length?rows.map(osLinha).join('')
-    :'<div class="empty">Nenhuma OS de corretiva ou religamento aberta ou concluída no mês.</div>';
+  _osUlt={rows, parcial}; _osPintaLista();
   refreshDiag();   // agora o diagnóstico pode cruzar com as OS abertas
 }
 
@@ -1150,10 +1319,25 @@ function renderDiags(){
     ?(INVPR_META!=null?`<div class="csub" style="margin:0 0 8px">Motor da fonte + PR mensal por inversor (× meta) + OS abertas do Fracttal.</div>`:'')
     :`<div class="csub" style="margin:0 0 8px">Fonte ${CFG.label}: sem motor analógico — cruzo strings (abaixo dos pares)${extra}.</div>`;
   const el=document.getElementById('diags');
-  if(!ds.length){el.innerHTML=nota+'<div class="empty">Sem anomalias — usina dentro do esperado. 🎉</div>';return;}
+  // Sem leitura não é "sem anomalia" (10/10/2026): com o motor ou os inversores sem resposta, a lista vazia dizia "Sem
+  // anomalias — usina dentro do esperado" de uma usina que ninguém leu.
+  const semMotor=!!(CFG.diag&&!engine&&FALHA.diag), semInv=!engine&&!!FALHA.plant;
+  // E o motor que respondeu sem os trackers (trk_ok false: o "sem tracker travado associado" não descarta tracker), ou o
+  // PR do mês por inversor que não veio (FALHA.invpr: sem ele não há "Subperformance mensal") — revisão de 11/10/2026.
+  const semTrk=!!(engine&&DIAG&&DIAG.trk_ok===false), semPRm=!!FALHA.invpr;
+  const avisoLeit=(semMotor?`<div class="csub" style="margin:0 0 8px">${_dgSelo('diag','não é usina sem anomalia')}.</div>`:'')
+    +(semInv&&!semMotor?`<div class="csub" style="margin:0 0 8px">${_dgSelo('plant','não é usina sem anomalia')}.</div>`:'')
+    +(semTrk?`<div class="csub" style="margin:0 0 8px"><span class="selo" title="${v2esc(DIAG.trk_erro||'')}">Trackers sem leitura no motor (a fonte não respondeu): "sem tracker travado" não descarta tracker</span>.</div>`:'')
+    +(semPRm?`<div class="csub" style="margin:0 0 8px">${_dgSelo('invpr','o PR do mês por inversor ficou fora destes diagnósticos')}.</div>`:'');
+  if(!ds.length){
+    if(semMotor||semInv){ el.innerHTML=avisoLeit; return; }
+    if(semTrk||semPRm){ el.innerHTML=avisoLeit+'<div class="empty">Nenhum diagnóstico no que foi lido; a parte sem leitura está acima, não é usina dentro do esperado.</div>'; return; }
+    if(CFG.diag&&!DIAG){ el.innerHTML=nota+'<div class="loading">Cruzando string, inversor e tracker…</div>'; return; }   // o motor ainda não respondeu
+    if(INVPR===null){ el.innerHTML=nota+'<div class="loading">Cruzando com o PR do mês por inversor…</div>'; return; }   // o PR do mês ainda não veio
+    el.innerHTML=nota+'<div class="empty">Sem anomalias — usina dentro do esperado. 🎉</div>';return;}
   // LINHA fina por diagnóstico; evidência e ação abrem no clique. A linha carrega só o que
   // decide a triagem: onde, o quê e quanto abaixo — o "porquê" é leitura, não varredura.
-  el.innerHTML=nota+`<table class="dtab">
+  el.innerHTML=avisoLeit+nota+`<table class="dtab">
     <thead><tr><th></th><th>Inversor / escopo</th><th>Causa provável</th>
       <th class="r" title="PR do mês do inversor menos a meta da UFV, em pontos percentuais.">Δ vs meta</th>
       <th class="r">Conf.</th><th></th></tr></thead>
@@ -1194,10 +1378,16 @@ function renderDiags(){
   el.querySelectorAll('.seec').forEach(s=>s.onclick=(ev)=>{ ev.stopPropagation(); curva(ds[+s.dataset.curva]); });
 }
 
-function renderHeat(plant){
+// O PR do mês por inversor vem do BD_Performance, não da fonte ao vivo: é pedido em TODA saída do mapa de strings. Antes só
+// a saída de baixo pedia, e com o drill fora (o /api/pg/plant em 503), String Box ou tudo trancado ele nunca vinha — e a
+// lista de diagnósticos afirmava "Sem anomalias" sem o PR do mês (revisão de 11/10/2026).
+function renderHeat(plant){ try{ _renderHeat(plant); } finally { loadInvPR(); } }
+function _renderHeat(plant){
   const invsAll=((plant&&plant.inversores)||[]).filter(i=>(i.strings||[]).length);
   const el=document.getElementById('heatmap');
-  if(!invsAll.length){el.innerHTML='<div class="empty">Sem strings hoje (String Box ou sem leitura).</div>';return;}
+  // a fonte que não respondeu não é "sem strings hoje" (10/10/2026)
+  if(!invsAll.length){el.innerHTML=FALHA.plant?`<div class="empty">${_dgSelo('plant','não é string sem corrente')}.</div>`
+    :'<div class="empty">Sem strings hoje (String Box ou sem leitura).</div>';return;}
   // oculta strings trancadas — mostra só as "vivas" (OK / baixa / sem corrente)
   const nTranc=invsAll.reduce((a,i)=>a+(i.strings||[]).filter(s=>s.status==='trancada').length,0);
   const invs=invsAll.map(i=>({nome:i.nome,id:i.id,desligado:i.desligado,rampa:i.rampa,strings:(i.strings||[]).filter(s=>s.status!=='trancada')})).filter(i=>i.strings.length);
@@ -1228,7 +1418,6 @@ function renderHeat(plant){
     const nmJs=String(i.nome).replace(/'/g,"\\'");
     return `<div class="hm-row" data-inv="${i.nome}" style="cursor:pointer" onclick="selInvCurva('${nmJs}')" title="Clique para ver a curva das strings deste inversor"><div class="hm-pr" data-invpr="${i.nome}"></div><div class="hm-label" title="${i.nome}">${i.nome}${tag}</div><div class="hm-cells" style="grid-template-columns:repeat(${maxS},minmax(0,21px))">${cells}</div></div>`;
   }).join('');
-  loadInvPR();
 }
 
 /* PR mensal por inversor (absoluto: geração÷IPOA×potência, das abas do BD_Performance) no heatmap.
@@ -1243,8 +1432,29 @@ function _prMesInit(sel){
     html+=`<option value="${ym}">${M[dt.getMonth()]}/${dt.getFullYear()}${i===0?' (parcial)':''}</option>`; }
   sel.innerHTML=html; sel.dataset.done='1';
 }
+let _invprSeq=0;
 async function loadInvPR(mes){
-  let d; try{ d=await fetch('/api/inv/pr-mes?usina='+encodeURIComponent(NOME)+(mes?'&mes='+mes:'')).then(r=>r.json()); }catch(e){ return; }
+  const seq=++_invprSeq;
+  // Trocar o mês no seletor não deixa o PR do mês anterior sob o rótulo do novo enquanto a leitura não volta (nem depois,
+  // se ela falhar): limpa antes de pedir.
+  if(mes){ INVPR=null; INVPR_META=null; INVPR_USINA=null; document.querySelectorAll('.hm-pr').forEach(t=>{ t.textContent=''; }); }
+  let d;
+  try{ d=await _dgLer('/api/inv/pr-mes?usina='+encodeURIComponent(NOME)+(mes?'&mes='+mes:''),{exige:'inversores',ms:60000}); }
+  catch(e){
+    if(seq!==_invprSeq) return;
+    // O BD_Performance que não respondeu (travado pelo OneDrive, o caso conhecido; a rota dá 503) não é "nenhum inversor
+    // abaixo da meta": até 11/10/2026 o catch só saía, e a lista de diagnósticos dizia "Sem anomalias — usina dentro do
+    // esperado" sem o PR do mês. Agora FALHA.invpr: as pílulas mostram "—" e a lista não afirma "sem anomalia".
+    INVPR=null; INVPR_META=null; INVPR_USINA=null;
+    _dgFalhou('invpr','PR do mês por inversor (BD_Performance)',e);
+    const tt=v2esc(_dgTxt(FALHA.invpr));
+    document.querySelectorAll('.hm-pr').forEach(t=>{ t.innerHTML=`<span class="pill" style="color:var(--faint)" title="${tt}">—</span>`; });
+    const sub=document.getElementById('hmSub');
+    if(sub) sub.innerHTML=v2esc(sub.textContent.split(' — PR ')[0])+' — '+_dgSelo('invpr','não é inversor no alvo');
+    refreshDiag(); return;
+  }
+  if(seq!==_invprSeq) return;
+  if(FALHA.invpr){ _dgVoltou('invpr'); const s0=document.getElementById('hmSub'); if(s0) s0.textContent=s0.textContent.split(' — PR ')[0]; }
   INVPR=(d&&d.inversores)||{};
   INVPR_META=(d&&d.pr_meta!=null)?d.pr_meta:null;     // PR Meta da UFV (Info Mensal)
   INVPR_USINA=(d&&d.pr_usina!=null)?d.pr_usina:null;   // PR MTD da usina inteira
@@ -1321,20 +1531,25 @@ async function ensureInvCurva(nome){
   if(!CURVA_SCOPE){ INVCURVA={_naosuportado:true}; return INVCURVA; }
   const d=encodeURIComponent(_icDataBR());
   if(CURVA_SCOPE==='usina'){                 // pv/pg: usina inteira (cacheia 1x)
-    if(INVCURVA && !INVCURVA._perinv) return INVCURVA;
-    try{ INVCURVA=await fetch(CURVA_EP[FONTE](d)).then(r=>r.json()); }
-    catch(e){ INVCURVA={_erro:String(e)}; }
+    if(INVCURVA && !INVCURVA._perinv && !INVCURVA._falha) return INVCURVA;
+    try{ INVCURVA=await _dgLer(CURVA_EP[FONTE](d)); }
+    catch(e){ INVCURVA=_dgCurvaFalha(e); }
     return INVCURVA;
   }
   // athon/axis: por inversor (cache por nome de exibição; usina inteira no SunOp trava)
   if(_icCache[nome]){ INVCURVA=_icCache[nome]; return INVCURVA; }
   const apiId=(window.IC_INVID&&IC_INVID[nome])||nome;
   try{
-    const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
-    const j=await fetch(CURVA_EP[FONTE](d,apiId),{signal:ctrl.signal}).then(r=>r.json());
-    clearTimeout(tmo); j._perinv=true; _icCache[nome]=j; INVCURVA=j;
-  }catch(e){ INVCURVA={_erro:e.name==='AbortError'?'A Plataforma demorou demais (SunOp lento) — clique de novo.':String(e)}; }
+    // o 500 {"error", inversores: []} entrava no cache como curva vazia do inversor até trocar o dia (10/10/2026)
+    const j=await _dgLer(CURVA_EP[FONTE](d,apiId),{ms:90000});
+    j._perinv=true; _icCache[nome]=j; INVCURVA=j;
+  }catch(e){ INVCURVA=(e&&e.abortou)?{_erro:'A Plataforma demorou demais (SunOp lento) — clique de novo.'}:_dgCurvaFalha(e); }
   return INVCURVA;
+}
+// A curva que não veio: o motivo e a hora, para o subtítulo dizer "não respondeu" em vez de "sem curva" (10/10/2026)
+function _dgCurvaFalha(e){
+  return {_erro:_dgMotivo(e), _falha:{fonte:'Fonte '+CFG.label, motivo:_dgMotivo(e), hora:_dgHora(), sessao:!!(e&&e.sessao),
+                                       det:(e&&e.det)||''}};
 }
 // A resposta trouxe curva DESTE inversor? (pode vir sem inversores, sem este, ou com as strings todas nulas)
 function _icTemCurva(nome){
@@ -1351,7 +1566,8 @@ async function selInvCurva(nome){
   // OBS do Levi (11/09, CPP100 à 01:00): o card nasce em HOJE e de madrugada ainda não há curva — parecia defeito da
   // fonte. Sem curva de hoje para este inversor, recua UMA vez para ontem (último dia fechado) e diz isso no subtítulo.
   const ic=document.getElementById('icData');
-  if(!_icTemCurva(nome)&&ic&&ic.value===v2HojeISO()&&!_icRecuou){
+  // ...mas só quando a fonte RESPONDEU sem curva: a que não respondeu não é "ainda sem curva", e recuar escondia isso
+  if(!_icTemCurva(nome)&&ic&&ic.value===v2HojeISO()&&!_icRecuou&&!(INVCURVA&&INVCURVA._falha)){
     _icRecuou=true;
     const hojeBR=_icDataBR(), d=new Date(); d.setDate(d.getDate()-1);
     ic.value=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
@@ -1419,6 +1635,7 @@ function renderInvCurva(){
   const sub=document.getElementById('invCurvaSub'), read=document.getElementById('invCurvaRead'), title=document.getElementById('invCurvaTitle');
   read.style.display='none';
   if(!INVCURVA || INVCURVA._naosuportado){ sub.textContent=(FONTE==='2c')?'A 2C entrega leitura pontual das strings (sem série ao longo do dia) — curva por string indisponível nesta fonte.':'Curva por string indisponível nesta fonte.'; return; }
+  if(INVCURVA._falha){ sub.textContent=_dgTxt(INVCURVA._falha,'sem curva, não é inversor parado')+'.'; if(chInv){ chInv.destroy(); chInv=null; } return; }
   if(INVCURVA._erro || !INVCURVA.inversores){ sub.textContent='Sem curva de strings hoje para esta usina.'; return; }
   const inv=(INVCURVA.inversores||[]).find(i=>i.nome===icSelInv||String(i.nome).endsWith(icSelInv));
   const series=inv?_seriesOf(inv):[];
@@ -1504,7 +1721,8 @@ function renderTrackers(trk){
   // Sem resposta ainda não é "sem tracker": só afirma o vazio quando a resposta CHEGOU.
   // Antes, qualquer falha ou payload ausente virava "Sem trackers." e o analista lia isso
   // como diagnóstico da usina.
-  if(!trk){el.innerHTML='<div class="empty">Não consegui carregar os trackers desta usina.</div>';return;}
+  if(!trk){el.innerHTML=FALHA.trk?`<div class="empty">${_dgSelo('trk','não é tracker parado')}.</div>`
+    :'<div class="empty">Não consegui carregar os trackers desta usina.</div>';return;}
   if(trk.sem_comunicacao){el.innerHTML='<div class="empty">Usina sem comunicação de trackers agora.</div>';return;}
   if(!ts.length){el.innerHTML='<div class="empty">Esta usina não tem trackers cadastrados.</div>';return;}
   // CARDS ordenados parado→severo→médio→leve→normal, cor do card = status (Levi 22/07).
@@ -1549,7 +1767,7 @@ function _chartURL(){
 async function drawCurveByNum(num){
   if(!CFG.chart)return;
   try{
-    const c=await fetch(_chartURL()).then(r=>r.json());
+    const c=await _dgLer(_chartURL());
     const ts=(c.trackers||[]);
     const t=ts.find(x=>String(x.id).match(new RegExp('\\b'+num+'\\b')))||ts.find(x=>String(x.id).includes(num));
     if(t){lastCurveTrk=t;drawCurve(t);}
@@ -1562,12 +1780,12 @@ async function drawCurveById(id,mostrar){
   if(mostrar!==false) setCurvaVista('corr');   // clique humano no tracker → traz a Correlação para a frente
   document.getElementById('curveSub').textContent='Carregando curva do '+id+'…';
   try{
-    const c=await fetch(_chartURL()).then(r=>r.json());
+    const c=await _dgLer(_chartURL());
     const ts=(c.trackers||[]);
     const t=ts.find(x=>String(x.id)===String(id))||ts.find(x=>String(x.id).includes(String(id)));
     if(t){lastCurveTrk=t;drawCurve(t);}
     else document.getElementById('curveSub').textContent='Sem curva para '+id+' em '+v2DiaSel()+' (a fonte não retornou este tracker no dia).';
-  }catch(e){ document.getElementById('curveSub').textContent='Falha ao carregar a curva.'; }
+  }catch(e){ document.getElementById('curveSub').textContent=_dgTxt(_dgCurvaFalha(e)._falha,'sem curva, não é tracker parado')+'.'; }
 }
 function _flatTail(t){const ys=t.y.filter(v=>v!=null);if(ys.length<6)return false;const tail=ys.slice(-6);return (Math.max(...tail)-Math.min(...tail))<3;}
 function drawCurve(t){
@@ -1636,7 +1854,8 @@ const _invnum=s=>{const m=String(s==null?'':s).match(/(\d+(?:\.\d+)?)/);return m
 const v2nrm=s=>String(s||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().trim();
 const v2hhmm=t=>t?String(t).replace('T',' ').slice(11,16):'—', v2ddmm=t=>t?String(t).slice(8,10)+'/'+String(t).slice(5,7):'—';
 const V2_CORST={ativa:'var(--ok)',baixa_perf:'var(--amber)',sem_corrente:'var(--red)',desligado:'#7a2e2e',inativa:'var(--off)',trancada:'var(--raise)'};
-function v2GET(url,ms){const c=new AbortController();const t=setTimeout(()=>c.abort(),ms||10000);return fetch(url,{signal:c.signal}).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json();}).finally(()=>clearTimeout(t));}
+// leituras de apoio (PR, de-para, gêmeo...): a mesma régua do _dgLer — só 2xx com dado; a falha vai para o `nao(k)` de quem chama
+function v2GET(url,ms){ return _dgLer(url,{ms:ms||10000}); }
 window.v2Tab=t=>{V2.tab=t;document.querySelectorAll('.v2-tabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));document.querySelectorAll('.v2-pane').forEach(p=>{p.hidden=(p.id!=='v2-'+t);});v2Render();};
 window.v2FInv=v=>{V2.fInv=v;['todos','prob'].forEach(x=>{const b=document.getElementById('v2fi-'+x);if(b)b.classList.toggle('on',x===v);});v2Render();};
 // ── DATA do diagnóstico ───────────────────────────────────────────────────────────────────────────────────────
@@ -1662,8 +1881,16 @@ window.v2SetDia=v=>{
 function v2CarregaDia(){
   const dia=v2DiaSel(), q=v2DiaHoje()?'':'?date='+dia;
   if(!CFG.trk){ TRK={trackers:[],sem_fonte:true}; v2Render(); }
-  else v2GET(CFG.trk+q,90000).then(d=>{ if(dia!==v2DiaSel()) return; TRK=d; v2Render(); try{ renderTrackers(d); }catch(e){} })
-    .catch(e=>{ if(dia===v2DiaSel()){ TRK={trackers:[],_erro:String(e&&e.message||e)}; v2Render(); } });
+  else {
+    // O dia novo não herda os trackers do anterior: até a resposta, só o que a tela já leu DESTE dia (ou "…"). A falha
+    // virava {trackers: []} e o cartão dizia "0 / 0 parados" (10/10/2026); agora fica a última leitura boa do mesmo dia,
+    // com a hora dela, ou "—" quando a tela nunca leu este dia.
+    const bom0=_TRK_BOM[dia]; TRK=bom0?bom0.d:null;
+    _dgLer(CFG.trk+q,{ms:90000,exige:'trackers'}).then(d=>{ if(dia!==v2DiaSel()) return; _TRK_BOM[dia]={d,hora:_dgHora()};
+        _dgVoltou('trk'); TRK=d; v2Render(); try{ renderTrackers(d); }catch(e){} })
+      .catch(e=>{ if(dia!==v2DiaSel()) return; const b=_TRK_BOM[dia]; TRK=b?b.d:null;
+        _dgFalhou('trk','Fonte '+CFG.label,e,b?{velho:b.hora}:null); v2Render(); try{ renderTrackers(TRK); }catch(_e){} });
+  }
   if(v2DiaHoje()){ V2.edia=null; return; }
   v2GET('/api/'+V2_SK+'/inversores/energia-mes/'+ID+'?dia='+dia+'&usina='+encodeURIComponent(NOME),40000)
     .then(d=>{ if(dia===v2DiaSel()){ V2.edia=(d&&d.inversores)||{}; v2Render(); } })
@@ -1698,42 +1925,74 @@ function v2Padrao(i){ const P=V2.padrao; if(!P||!P.inversores) return null; cons
   return P.inversores.find(x=>v2nrm(x.inv)===k)||P.inversores.find(x=>a&&v2nrm(x.inv)===a)||P.inversores.find(x=>String(x.id)===String(i.id))||null; }
 function v2Status(i){ const h=new Date().getHours(), s=v2Strings(i), p=v2Pr(i), g=v2Gm(i), pd=v2Padrao(i);
   if(i.falha_comunicacao) return ['sem_com','sem com.'];
-  if(i.desligado||((i.eday==null||i.eday===0)&&h>=9&&h<18&&!i.rampa&&!i.sem_visao)) return ['parado','sem produção'];
+  // o eday nulo só prova "sem produção" quando a energia do dia FOI lida (FALHA.eday: o PR do dia do PG/SolarEdge não veio)
+  if(i.desligado||(!FALHA.eday&&(i.eday==null||i.eday===0)&&h>=9&&h<18&&!i.rampa&&!i.sem_visao)) return ['parado','sem produção'];
   if(pd&&pd.status==='critico') return ['abaixo','fora do padrão'];
   if(i.rampa) return ['rampa','rampa'];
   if(pd&&pd.status==='atencao') return ['atencao','abaixo do padrão'];
   if((p&&p.status==='severo')||(g&&g.razao!=null&&g.razao<0.85)) return ['abaixo','abaixo'];
   if((p&&p.status==='leve')||s.sem||s.baixa) return ['atencao','atenção'];
+  // sem o PR do dia, "nada abaixo" não foi conferido: a linha não vira "ok" verde só porque o PR faltou (11/10/2026)
+  if(FALHA.pr&&v2DiaHoje()) return ['sem_pr','PR sem leitura'];
   return ['ok','ok']; }
-const V2_ORD={sem_com:0,parado:1,abaixo:2,atencao:3,rampa:4,ok:5};
+const V2_ORD={sem_com:0,parado:1,abaixo:2,atencao:3,rampa:4,sem_pr:4.5,ok:5};
 function v2TrkInv(){ const m={}; Object.entries((DIAG&&DIAG.trackers_por_inversor)||{}).forEach(([inv,lst])=>(lst||[]).forEach(t=>{const n=v2num(t.id||t.tracker||t.nome);if(n!=null)m[n]=inv;})); return m; }
 /* ── 5 KPIs (substitui a função antiga: a última declaração vence) ── */
 function renderBelow(){
   const b=document.getElementById('below'); if(!b) return;
   const invs=((PLANT&&PLANT.inversores)||[]);
-  if(!invs.length&&!TRK){ b.innerHTML='<div class="bc"><div class="l">Carregando</div><div class="v">…</div></div>'; return; }
+  // Estado de cada leitura (10/10/2026): respondeu = o número, inclusive o zero de verdade; não respondeu = "—" e o selo;
+  // ainda vindo = "…". Antes a falha caía no `||[]` e a soma da lista vazia dava "0 sem produção", "0 kWh"...
+  const kP=FALHA.plant?'plant':FALHA.irma?'irma':null;   // a irmã que não respondeu também tira a usina inteira da conta
+  const pSt=kP?'falha':PLANT?'ok':'carregando', tSt=TRK?'ok':FALHA.trk?'falha':'carregando';
+  if(pSt==='carregando'&&tSt==='carregando'){ b.innerHTML='<div class="bc"><div class="l">Carregando</div><div class="v">…</div></div>'; return; }
+  const SEM='<span style="color:var(--faint)">—</span>', CAR='<span style="color:var(--faint)">…</span>';
+  // drill velho (snapshot do PG parado, drill da SunOp retido): os números ficam, com a hora deles na frente
+  const pVelho=FALHA.plantVelho?_dgSelo('plantVelho')+' · ':'';
+  const pCard=(rot,v,s,cls,oQue)=>pSt==='ok'?[rot,v,pVelho+s,cls]:pSt==='falha'?[rot,SEM,_dgSelo(kP,oQue),'sem']:[rot,CAR,'carregando','ok'];
   const st=invs.map(v2Status), semCom=st.filter(x=>x[0]==='sem_com').length, par=st.filter(x=>x[0]==='parado').length, ab=st.filter(x=>x[0]==='abaixo').length;
   const S=invs.map(v2Strings), ativas=invs.reduce((a,i)=>a+(i.strings_ativas||0),0), esp=invs.reduce((a,i)=>a+(i.str_esp||0),0), sem=S.reduce((a,s)=>a+s.sem,0), baixa=S.reduce((a,s)=>a+s.baixa,0), trc=S.reduce((a,s)=>a+s.trc,0);
   const T=TRK||{}, trs=T.trackers||[], trkFora=(T.parados||0)+(T.severos||0)+(T.medios||0)+(T.leves||0), trkOs=trs.filter(x=>x.ticket_status||x.ticket_usina).length, trkSem=trs.filter(x=>x.status==='parado'&&!x.ticket_status&&!x.ticket_usina).length;
   const osF=new Set(); Object.values(OSBYINV||{}).forEach(l=>l.forEach(o=>osF.add(o.folio))); (V2.osPerf||[]).forEach(o=>osF.add('p'+o.os));
   const eday=invs.reduce((a,i)=>a+(i.eday||0),0), kw=invs.some(i=>i.active_power!=null)?invs.reduce((a,i)=>a+(i.active_power||0),0):null;
-  const prs=invs.map(v2Pr).filter(p=>p&&p.pr!=null&&p.pr<=1.5).map(p=>p.pr).sort((a,b)=>a-b), prMed=prs.length?prs[Math.floor(prs.length/2)]:(V2.pr&&V2.pr.med);
+  // PR mediana: o PR que não respondeu é "—" (o `V2.pr=false` da falha virava false*100 = "PR mediana 0%")
+  const prs=invs.map(v2Pr).filter(p=>p&&p.pr!=null&&p.pr<=1.5).map(p=>p.pr).sort((a,b)=>a-b), prMed=prs.length?prs[Math.floor(prs.length/2)]:(V2.pr?V2.pr.med:null);
+  const prTxt=V2.pr===null?'…':prMed!=null?nf(prMed*100)+'%':'—';
   const pararam=invs.filter(i=>v2Eventos(i).length).length, desl=V2.gemeoMes?(V2.gemeoMes.paradas||[]).length:null, espMes=V2.gemeoMes?(V2.gemeoMes.inversores||[]).reduce((a,x)=>a+(x.esperado_kwh||0),0):null;
   const dp=V2.depara&&V2.depara.n?` · Fracttal ${(V2.depara.casados||0)+(V2.depara.a_confirmar||0)}/${V2.depara.n}`:'';
+  // o gêmeo que não respondeu não é "usina fora do gêmeo"
+  const deslTxt=desl!=null?`${desl} desligamento${desl===1?'':'s'} da usina no mês (gêmeo)`
+    :V2.gemeoMes===false?(V2.falhas.gemeoMes?'desligamentos do mês: o gêmeo não respondeu':'desligamentos do mês: usina fora do gêmeo'):'…';
+  // OS abertas = Fracttal (OS por inversor) + OS de performance: as duas têm de ter respondido para o número valer — e a
+  // lista de inversores também, porque sem ela as OS por inversor nem foram pedidas (_osInvSemLista)
+  const kI=_osInvSemLista(), fFal=!!(FALHA.fracttal||FALHA.osPerf||(kI&&FALHA[kI])), fCar=OSFR===null||V2.osPerf===null;
+  const trkVelho=TRK&&FALHA.trk&&FALHA.trk.velho?_dgSelo('trk')+' · ':'';
+  // "abaixo dos pares" vem do PR do dia: o PR que não respondeu não é "0 abaixo" em verde (revisão de 11/10/2026)
+  const abTxt=FALHA.pr?(ab?`${ab} abaixo dos pares (sem o PR: ${_dgSelo('pr','não é inversor no alvo')})`:`abaixo dos pares: ${_dgSelo('pr','não é inversor no alvo')}`)
+    :`${ab} abaixo dos pares`;
+  const edaySelo=FALHA.eday?` · ${_dgSelo('eday','"sem produção" aqui é só pela potência')}`:'';
   const cards=[
-    ['Inversores', `${invs.length} <small>· ${par} sem produção · ${semCom} sem com.</small>`, `${ab} abaixo dos pares${V2.gemeoMes?` · ${pararam} pararam no mês`:''}`, (semCom||par)?'crit':ab?'warn':'ok'],
-    ['Strings', `${nf(ativas)} <small>/ ${nf(esp)} ativas</small>`, `${sem} sem corrente · ${baixa} baixa performance · ${trc} trancadas`, sem?'crit':baixa?'warn':'ok'],
-    ['Trackers', TRK?`${nf(T.parados||0)} <small>/ ${nf(T.total||trs.length)} parados</small>`:'…', TRK?`${trkOs} com ticket · <b style="color:${trkSem?'var(--red)':'inherit'}">${trkSem} parado${trkSem===1?'':'s'} sem ticket</b> · ${trkFora} fora do alvo${dp}`:'carregando trackers', (T.parados||0)?'warn':'ok'],
-    ['Fracttal · OS abertas', `${osF.size}`, desl!=null?`${desl} desligamento${desl===1?'':'s'} da usina no mês (gêmeo)`:(V2.gemeoMes===false?'desligamentos do mês: usina fora do gêmeo':'…'), osF.size?'warn':'ok'],
-    ['Hoje', `${nf(eday)} <small>kWh${kw!=null?' · '+nf(kw)+' kW agora':''}</small>`, `PR mediana ${prMed!=null?nf(prMed*100)+'%':'—'}${espMes?` · esperado do mês ${nf(espMes/1000,1)} MWh`:''}`, 'info']];
+    pCard('Inversores', `${invs.length} <small>· ${par} sem produção · ${semCom} sem com.</small>`, `${abTxt}${V2.gemeoMes?` · ${pararam} pararam no mês`:''}${edaySelo}`, (semCom||par)?'crit':ab?'warn':(FALHA.pr||FALHA.eday)?'sem':'ok', 'não é usina parada'),
+    pCard('Strings', `${nf(ativas)} <small>/ ${nf(esp)} ativas</small>`, `${sem} sem corrente · ${baixa} baixa performance · ${trc} trancadas`, sem?'crit':baixa?'warn':'ok', 'não é string sem corrente'),
+    tSt==='ok'?['Trackers', `${nf(T.parados||0)} <small>/ ${nf(T.total||trs.length)} parados</small>`, `${trkVelho}${trkOs} com ticket · <b style="color:${trkSem?'var(--red)':'inherit'}">${trkSem} parado${trkSem===1?'':'s'} sem ticket</b> · ${trkFora} fora do alvo${dp}`, (T.parados||0)?'warn':'ok']
+      :tSt==='falha'?['Trackers', SEM, _dgSelo('trk','não é tracker parado'), 'sem']:['Trackers', '…', 'carregando trackers', 'ok'],
+    fFal?['Fracttal · OS abertas', SEM, [_dgSelo('fracttal','não é usina sem OS'), _dgSelo('osPerf','não é usina sem OS'),
+        kI?_dgSelo(kI,'OS por inversor sem leitura (a lista de inversores não veio), não é usina sem OS'):''].filter(Boolean).join(' · '), 'sem']
+      :fCar?['Fracttal · OS abertas', CAR, 'buscando as OS no Fracttal', 'ok']
+      :['Fracttal · OS abertas', `${osF.size}`, deslTxt, osF.size?'warn':'ok'],
+    (pSt==='ok'&&FALHA.eday)?['Hoje', SEM, `${pVelho}${_dgSelo('eday','não é geração zero')} · PR mediana ${prTxt}`, 'sem']
+    :pSt==='ok'?['Hoje', `${nf(eday)} <small>kWh${kw!=null?' · '+nf(kw)+' kW agora':''}</small>`, `${pVelho}PR mediana ${prTxt}${espMes?` · esperado do mês ${nf(espMes/1000,1)} MWh`:''}`, 'info']
+      :pSt==='falha'?['Hoje', SEM, `${_dgSelo(kP,'não é geração zero')} · PR mediana ${prTxt}`, 'sem']:['Hoje', CAR, `PR mediana ${prTxt}`, 'info']];
   b.innerHTML=cards.map(c=>`<div class="bc ${c[3]==='ok'?'':c[3]}"><div class="l">${c[0]}</div><div class="v num">${c[1]}</div><div class="s">${c[2]||''}</div></div>`).join('');
-  const nI=document.getElementById('v2nInv'), nT=document.getElementById('v2nTrk'); if(nI) nI.textContent=invs.length||''; if(nT) nT.textContent=trs.length||'';
+  const nI=document.getElementById('v2nInv'), nT=document.getElementById('v2nTrk'); if(nI) nI.textContent=(pSt==='ok'&&invs.length)||''; if(nT) nT.textContent=trs.length||'';
 }
 /* ── aba Inversores ── */
 function v2TabInv(){
   const el=document.getElementById('v2InvBody'), nota=document.getElementById('v2InvNota'); if(!el) return;
   const invs0=((PLANT&&PLANT.inversores)||[]);
-  if(!invs0.length){ el.innerHTML=PLANT?'<div class="v2vazio">A fonte não devolveu inversores para esta usina.</div>':'<div class="loading">Carregando inversores…</div>'; return; }
+  // a fonte que NÃO respondeu não é "a fonte não devolveu inversores" (10/10/2026): esse texto fica para o zero de verdade
+  if(!invs0.length){ el.innerHTML=FALHA.plant?`<div class="v2vazio">${_dgSelo('plant','não é usina parada')}.</div>`
+    :PLANT?'<div class="v2vazio">A fonte não devolveu inversores para esta usina.</div>':'<div class="loading">Carregando inversores…</div>'; return; }
   // Num dia passado a energia vem do banco / BD_Performance (`?dia=`); estado, strings e PR são leitura de AGORA e não
   // têm versão histórica — viram "só ao vivo" em vez de repetirem o número de hoje sob o rótulo de ontem.
   const _hj=v2DiaHoje(), _ed=i=>_hj?i.eday:((V2.edia&&V2.edia[i.nome]!=null)?V2.edia[i.nome]:null);
@@ -1760,7 +2019,7 @@ function v2TabInv(){
   const comE=invs0.filter(i=>_ed(i)!=null), maxE=Math.max(1,...comE.map(i=>_ed(i))), med=comE.length?comE.map(i=>_ed(i)).sort((a,b)=>a-b)[Math.floor(comE.length/2)]:null;
   const temKw=invs0.some(i=>i.active_power!=null), trkInv=v2TrkInv(), gm=!!V2.gemeoMes, emes=(V2.emes&&V2.emes.inversores)||{};
   const zer={}; (V2.notif||[]).forEach(e=>{ const k=v2nrm(e.inversor); zer[k]=(zer[k]||0)+1; });
-  const rows=invs.map(i=>{ const [st,rot]=v2Status(i), s=v2Strings(i), p=v2Pr(i), g=v2Gm(i), evs=v2Eventos(i), oss=v2OsInv(i), k=v2esc(i.nome), cor=(st==='parado'||st==='sem_com')?'var(--red)':(st==='abaixo'||st==='atencao')?'var(--amber)':'var(--ok)';
+  const rows=invs.map(i=>{ const [st,rot]=v2Status(i), s=v2Strings(i), p=v2Pr(i), g=v2Gm(i), evs=v2Eventos(i), oss=v2OsInv(i), k=v2esc(i.nome), cor=(st==='parado'||st==='sem_com')?'var(--red)':(st==='abaixo'||st==='atencao')?'var(--amber)':st==='sem_pr'?'var(--off)':'var(--ok)';
     const mesK=g&&g.medido_kwh!=null?g.medido_kwh:(emes[i.nome]!=null?emes[i.nome]:null), mesR=g?g.razao:null;
     const strTxt=i.sem_visao?'<span class="v2chip mudo">s/ visão</span>':(st==='sem_com'||st==='parado')?'<span style="color:var(--faint)">—</span>':`${nf(i.strings_ativas)}<span style="color:var(--faint)">/${nf(i.str_esp)}</span>${s.sem?` · <b style="color:var(--red)">${s.sem} s/ corr.</b>`:''}${s.baixa?` · <b style="color:var(--amber)">${s.baixa} baixa</b>`:''}${zer[v2nrm(i.nome)]?` · <b style="color:var(--red)">${zer[v2nrm(i.nome)]} zeraram hoje</b>`:''}`;
     const oc=[...(evs.length?[`<span class="v2tag ev" title="${v2esc(evs.map(e=>e.hora_ini).join(' · '))}">parou ${evs.length}× no mês · últ. ${v2esc(evs[evs.length-1].hora_ini||'')}</span>`]:[]),...oss.map(o=>`<span class="v2tag os" title="${v2esc(o.tit)}">${v2esc(o.rot)}${o.q?' · '+v2esc(o.q):''}</span>`)].join('')||'<span style="color:var(--faint)">—</span>';
@@ -1785,12 +2044,16 @@ function v2TabInv(){
       <div><h4>Strings agora · ${s.ss.length}</h4><div class="v2cells">${s.ss.map(x=>`<i title="${v2esc(x.id)} ${v2esc(x.st)}${x.a!=null?' '+nf(x.a,1)+' A':''}" style="background:${V2_CORST[x.st]||'var(--off)'}"></i>`).join('')}</div>
         <div class="v2leg"><span><i style="background:var(--ok)"></i>ok</span><span><i style="background:var(--amber)"></i>baixa</span><span><i style="background:var(--red)"></i>sem corrente</span><span><i style="background:#7a2e2e"></i>inversor parado</span><span><i style="background:var(--raise)"></i>trancada</span></div>
         <div style="margin-top:8px"><button class="v2act" onclick="v2Curva('${k.replace(/'/g,'')}',event)">curva de corrente por string</button></div>${(()=>{ try{ const pj=_strPiorJanela(_strCurvaDe(i.nome)||{}); return (pj&&pj.jan.length)?`<div style="margin-top:6px;font-size:11px;color:var(--amber)">${_strJanelaTexto(pj)}</div>`:''; }catch(e){ return ''; } })()}</div>
-      <div><h4>O que aconteceu</h4><div class="li">${evs.length?evs.map(e=>`<div><b>${v2esc(e.hora_ini||'')}</b> parou · ${nf(e.kwh)} kWh perdidos</div>`).join(''):`<div>${V2.gemeoMes?'sem parada detectada no mês':'sem gêmeo: paradas só via OS'}</div>`}${oss.length?oss.map(o=>`<div><b>${v2esc(o.rot)}</b>${o.q?' · '+v2esc(o.q):''}<br><span style="color:var(--faint)">${v2esc(o.tit)}</span></div>`).join(''):'<div>sem OS aberta neste inversor</div>'}</div></div>
+      <div><h4>O que aconteceu</h4><div class="li">${evs.length?evs.map(e=>`<div><b>${v2esc(e.hora_ini||'')}</b> parou · ${nf(e.kwh)} kWh perdidos</div>`).join(''):`<div>${V2.gemeoMes?'sem parada detectada no mês':'sem gêmeo: paradas só via OS'}</div>`}${oss.length?oss.map(o=>`<div><b>${v2esc(o.rot)}</b>${o.q?' · '+v2esc(o.q):''}<br><span style="color:var(--faint)">${v2esc(o.tit)}</span></div>`).join(''):((FALHA.fracttal||FALHA.osPerf)?`<div class="selo">${v2esc(_dgTxt(FALHA.fracttal||FALHA.osPerf,'não é inversor sem OS'))}</div>`:'<div>sem OS aberta neste inversor</div>')}</div></div>
       <div><h4>Trackers ligados</h4><div class="li">${trks.length?trks.map(n=>`<span class="v2tag" style="cursor:pointer" onclick="v2Trk('${v2esc(String(((((TRK&&TRK.trackers)||[]).find(t=>v2num(t.id)===n))||{id:'TRK'+n}).id)).replace(/'/g,'')}',event)">TRK${n}</span>`).join(' '):'<div style="color:var(--faint)">relação tracker × inversor não disponível nesta fonte</div>'}</div></div>${v2HistInv(i)}
       </div></td></tr>`;
     }catch(e){ console.error('[v2] expansão',e); return tr+`<tr class="v2exp"><td colspan="${NC}"><div class="li" style="color:var(--red)">Falha ao montar o detalhe deste inversor — ver console.</div></td></tr>`; } }).join('');
   el.innerHTML=`${temMes?`<div class="v2tog" title="hoje = energia de hoje · mês = acumulado do mês por inversor, em barra comparativa (traço = mediana dos inversores)"><button class="${!mm?'on':''}" onclick="v2InvModo('energia')">hoje</button><button class="${mm?'on':''}" onclick="v2InvModo('mes')">mês</button></div>`:''}<div style="overflow-x:auto"><table class="v2t"><thead><tr><th>Inversor</th><th>Agora</th>${mm?'<th>Acumulado no mês</th><th class="v2n">kWh mês</th><th class="v2n" title="kWh do inversor no mês ÷ mediana dos inversores da usina">vs mediana</th><th class="v2n" title="mês até hoje ÷ meta do inversor (histórico fechado)">% da meta</th>':'<th>Energia hoje</th><th class="v2n">kWh</th><th class="v2n">vs pares</th><th class="v2n" title="Energia de ONTEM do inversor em % da mediana da usina, contra o padrão dele nos 30 dias anteriores (só usinas sem visão por string)">vs padrão 30d</th><th class="v2n">PR hoje</th><th class="v2n">kWh mês</th><th class="v2n">vs esperado</th>'}<th>Strings</th><th>Ocorrências · OS</th><th class="v2n">Leitura</th></tr></thead><tbody>${rows||'<tr><td colspan="'+NC+'" class="v2vazio">nada com problema</td></tr>'}</tbody></table></div>`;
-  if(nota) nota.innerHTML=gm?`kWh mês e vs esperado: gêmeo digital (${(V2.gemeoMes.dias||[]).length} dias fechados). Ocorrências: paradas detectadas pelo gêmeo + OS do Fracttal no ativo do inversor.`:(V2.emes&&V2.emes.dias?`kWh mês: ${({bd_thopen:'BD_Thopen',bd_performance:'BD_Performance'})[V2.emes.origem]||V2.emes.origem} (${V2.emes.dias} dia${V2.emes.dias===1?'':'s'} fechado${V2.emes.dias===1?'':'s'}).`:`Sem kWh do mês por inversor${(V2.emes&&V2.emes.motivo)?': '+v2esc(V2.emes.motivo):' nesta fonte'}. Ocorrências = OS do Fracttal no ativo do inversor.`);
+  // (o kWh do mês que NÃO respondeu não é "sem kWh nesta fonte"; e a planta irmã fora deixa a tabela com uma planta só)
+  if(nota) nota.innerHTML=(FALHA.irma?_dgSelo('irma','a tabela mostra só a planta que respondeu')+'. ':'')
+    +(FALHA.eday&&_hj?_dgSelo('eday','o kWh de hoje fica —, não é inversor parado')+'. ':'')
+    +(FALHA.plantVelho?_dgSelo('plantVelho')+'. ':'')
+    +(V2.emes===false&&V2.falhas.emes?`kWh do mês por inversor: a leitura não respondeu (${v2esc(V2.falhas.emes)}). Ocorrências = OS do Fracttal no ativo do inversor.`:gm?`kWh mês e vs esperado: gêmeo digital (${(V2.gemeoMes.dias||[]).length} dias fechados). Ocorrências: paradas detectadas pelo gêmeo + OS do Fracttal no ativo do inversor.`:(V2.emes&&V2.emes.dias?`kWh mês: ${({bd_thopen:'BD_Thopen',bd_performance:'BD_Performance'})[V2.emes.origem]||V2.emes.origem} (${V2.emes.dias} dia${V2.emes.dias===1?'':'s'} fechado${V2.emes.dias===1?'':'s'}).`:`Sem kWh do mês por inversor${(V2.emes&&V2.emes.motivo)?': '+v2esc(V2.emes.motivo):' nesta fonte'}. Ocorrências = OS do Fracttal no ativo do inversor.`));
   if(nota&&mm&&H){ const _l=Object.values(hInv), _g=_l.reduce((a,x)=>a+(x.meta?x.ger:0),0), _m=_l.reduce((a,x)=>a+(x.meta||0),0);
     if(_m) nota.innerHTML+=` <b>Usina nesses ${H.n_dias} dia${H.n_dias===1?'':'s'}: ${nf(_g/_m*100)}% da meta</b> (Σ inversores ÷ Σ metas dos mesmos dias — é essa a base da tabela; o Gerencial cobre outros dias e vem do BD_Thopen).`; }
   if(nota&&mm&&H) nota.innerHTML+=` Meta: ${H.n_dias} dia${H.n_dias===1?'':'s'} fechado${H.n_dias===1?'':'s'}, fatia por ${H.rateio==='potencia'?'potência do cadastro':'partes iguais'}; % meta IPOA = gerado ÷ (potência × IPOA que veio × PR meta${H.pr_meta!=null?' '+nf(H.pr_meta*100)+'%':''}).`;
@@ -1803,6 +2066,7 @@ window.v2InvModo=m=>{ V2.invModo=m; v2Render(); };
 function v2HistInv(i){
   const H=V2.h30, cab='<h4>Histórico do mês</h4>';
   if(H===undefined||H===null) return `<div class="full">${cab}<div class="li">carregando…</div></div>`;
+  if(H===false&&V2.falhas.h30) return `<div class="full">${cab}<div class="li selo">o histórico do mês não respondeu (${v2esc(V2.falhas.h30)}): sem leitura, não é mês sem geração</div></div>`;
   if(!H||!(H.dias||[]).length) return `<div class="full">${cab}<div class="li" style="color:var(--faint)">${v2esc((H&&(H.motivo||H.erro))||'sem dias fechados por inversor nesta fonte')}</div></div>`;
   const k=i.nome, ka=i.nome_api, rows=H.dias.map(d=>({d,x:d.inv[k]||d.inv[ka]})).filter(r=>r.x);
   if(!rows.length) return `<div class="full">${cab}<div class="li" style="color:var(--faint)">este inversor não aparece nos dias fechados do mês</div></div>`;
@@ -1892,13 +2156,15 @@ async function v2HistDrawDia(k,dia){
   const id=_hdId(k,dia), sub=document.getElementById(id+'-sub'); if(!sub) return;   // a linha já fechou
   if(!CURVA_SCOPE){ sub.textContent=(FONTE==='2c')?'a 2C entrega leitura pontual das strings (sem série ao longo do dia)':'curva por string indisponível nesta fonte'; return; }
   const br=_hdBR(dia), ck=CURVA_SCOPE==='inv'?dia+'|'+k:dia;
-  if(!_hdCache.curva[ck]) _hdCache.curva[ck]=(async()=>{ const ctrl=new AbortController(); const tmo=setTimeout(()=>ctrl.abort(),90000);
-    try{ return await fetch(CURVA_EP[FONTE](encodeURIComponent(br),_hdApiId(k)),{signal:ctrl.signal}).then(r=>r.json()); }
-    catch(e){ return {_erro:e.name==='AbortError'?'a fonte demorou demais (SunOp lento) — feche e abra o dia de novo':String(e)}; }
-    finally{ clearTimeout(tmo); } })();
+  // o corpo do erro (500/502) não é curva: vira o motivo, e o drill diz "não respondeu" em vez de "sem curva" (10/10/2026)
+  if(!_hdCache.curva[ck]) _hdCache.curva[ck]=(async()=>{
+    try{ return await _dgLer(CURVA_EP[FONTE](encodeURIComponent(br),_hdApiId(k)),{ms:90000}); }
+    catch(e){ return {_erro:(e&&e.abortou)?'a fonte demorou demais (SunOp lento) — feche e abra o dia de novo':_dgTxt(_dgCurvaFalha(e)._falha)}; } })();
   if(!_hdCache.etm[dia]) _hdCache.etm[dia]=(async()=>{ const u=_hdEtmUrl(dia); if(!u) return null;
     try{ return await v2GET(u,40000); }catch(e){ return {_erro:String(e&&e.message||e)}; } })();
   const [cur,etm]=await Promise.all([_hdCache.curva[ck],_hdCache.etm[dia]]);
+  if(cur&&cur._erro) delete _hdCache.curva[ck];   // a falha não fica guardada: abrir o dia de novo tenta de novo
+  if(etm&&etm._erro) delete _hdCache.etm[dia];
   try{ _hdDesenha(k,dia,cur,etm); }catch(e){ console.error('[v2] drill do dia',e); const s2=document.getElementById(id+'-sub'); if(s2) s2.textContent='falha ao desenhar a curva — ver console'; }
 }
 function _hdDesenha(k,dia,cur,etm){
@@ -1987,8 +2253,9 @@ async function v2TrkDrawDia(id){
   const tid=_trkId(id), sub=document.getElementById(tid+'-sub'); if(!sub) return;
   if(!CFG.chart){ sub.textContent='sem curva de tracker nesta fonte'; return; }
   const dia=v2DiaSel();
-  if(!_hdCache.trk[dia]) _hdCache.trk[dia]=fetch(_chartURL()).then(r=>r.json()).catch(e=>({_erro:String(e)}));
+  if(!_hdCache.trk[dia]) _hdCache.trk[dia]=_dgLer(_chartURL()).catch(e=>({_erro:_dgTxt(_dgCurvaFalha(e)._falha)}));
   const c=await _hdCache.trk[dia];
+  if(c&&c._erro) delete _hdCache.trk[dia];   // a falha não fica guardada: abrir o tracker de novo tenta de novo
   const cv=document.getElementById(tid+'-ch'); if(!cv||cv.dataset.ok) return; cv.dataset.ok='1';
   const ts=(c&&c.trackers)||[], t=ts.find(x=>String(x.id)===String(id))||ts.find(x=>String(x.id).includes(String(id)));
   if(!t){ sub.textContent=(c&&c._erro)?'falha ao carregar a curva: '+c._erro:'sem curva para '+id+' em '+dia+' (a fonte não retornou este tracker no dia)'; return; }
@@ -2010,7 +2277,8 @@ function _trkDesenha(cv,t,els){
 /* ── aba Trackers ── */
 function v2TabTrk(){
   const el=document.getElementById('v2TrkBody'); if(!el) return;
-  if(!TRK){ el.innerHTML='<div class="loading">Carregando trackers…</div>'; return; }
+  // a fonte que não respondeu não é "usina sem tracker" (10/10/2026); a releitura que falhou fica com a anterior, avisada
+  if(!TRK){ el.innerHTML=FALHA.trk?`<div class="v2vazio">${_dgSelo('trk','não é usina sem tracker')}.</div>`:'<div class="loading">Carregando trackers…</div>'; return; }
   const trs0=(TRK.trackers||[]); if(!trs0.length){ el.innerHTML='<div class="v2vazio">'+(TRK.sem_fonte?'A plataforma não lê trackers desta fonte ('+CFG.label+').':'Esta usina não tem trackers cadastrados.')+'</div>'; return; }
   const ORD={parado:0,sem_comunicacao:1,severo:2,desvio:2,medio:3,leve:4,atraso:4,fora_media:4,normal:5};
   const stOf=t=>t.sem_comunicacao?'sem_comunicacao':(t.status||'normal');
@@ -2028,7 +2296,7 @@ function v2TabTrk(){
   const rows=trs.map(({t,n,st,h,horas,desde})=>{ const d=dp[String(n)]||{}, r=rec[n], sg=sug[n], g=gtrk[n], os=osTrk[n]||[], inv=trkInv[n], dv=t.disparidade;
     const tq=v2esc(String(t.id)).replace(/'/g,''), open=V2.trkAberto===String(t.id);
     const linha=`<tr class="l ${open?'sel':''}" onclick="v2TrkToggle('${tq}',event)" title="${open?'fechar a curva':'abrir a curva ângulo × alvo deste dia'}"><td><b>${open?'▾ ':'▸ '}${v2esc(t.id)}</b>${inv?`<div style="font-size:10.5px;color:var(--faint)">${v2esc(inv)}</div>`:''}</td>
-      <td>${d.code?`<span class="v2tag fr ${d.situacao||''}" title="${v2esc(d.fracttal||'')} · ${v2esc(d.situacao||'')}${d.obs?' · '+v2esc(d.obs):''}">${v2esc(d.code)}</span>`:(V2.depara===null?'…':'<span style="color:var(--faint)">sem par</span>')}</td>
+      <td>${d.code?`<span class="v2tag fr ${d.situacao||''}" title="${v2esc(d.fracttal||'')} · ${v2esc(d.situacao||'')}${d.obs?' · '+v2esc(d.obs):''}">${v2esc(d.code)}</span>`:(V2.depara===null?'…':V2.depara===false?`<span style="color:var(--faint)" title="o de-para não respondeu: ${v2esc(V2.falhas.depara||'')}">—</span>`:'<span style="color:var(--faint)">sem par</span>')}</td>
       <td><span class="v2chip ${st}">${st==='normal'?'ok':v2esc(st.replace('_',' '))}</span></td>
       <td class="v2n">${t.atual!=null?nf(t.atual)+'°':'—'} <span style="color:var(--faint)">/ ${t.alvo!=null?nf(t.alvo)+'°':'—'}</span></td><td class="v2n" style="color:${Math.abs(dv||0)>=10?'var(--red)':Math.abs(dv||0)>=3?'var(--amber)':'var(--muted)'}">${dv!=null?(dv>0?'+':'')+nf(dv)+'°':'—'}</td>
       <td class="v2n">${t.amplitude!=null?nf(t.amplitude)+'°':'—'}</td>
@@ -2042,7 +2310,7 @@ function v2TabTrk(){
     return open?linha+`<tr class="v2exp v2hd"><td colspan="10">${_trkDrillHtml(t)}</td></tr>`:linha; }).join('');
   el.innerHTML=`<div style="overflow-x:auto"><table class="v2t"><thead><tr><th>Tracker</th><th>Fracttal</th><th>Agora</th><th class="v2n">ângulo / alvo</th><th class="v2n">desvio</th><th class="v2n">amplitude</th><th>Parado (mês)</th><th class="v2c">Recorrência</th><th>Ticket · OS · sugestão</th><th class="v2n">perda kWh</th></tr></thead><tbody>${rows||'<tr><td colspan="10" class="v2vazio">nada neste filtro</td></tr>'}</tbody></table></div>`;
   if(V2.trkAberto) setTimeout(()=>v2TrkDrawDia(V2.trkAberto),0);   // o innerHTML acabou de recriar o canvas
-  const sub=document.getElementById('v2TrkSub'); if(sub) sub.textContent=`${V2.fTrk==='prob'?'só parados e severos':'parados e fora do alvo primeiro'} · ticket = planilha de Tickets, só ocorrência aberta · Fracttal = código do ativo (de-para${V2.depara&&V2.depara.n?`: ${(V2.depara.casados||0)+(V2.depara.a_confirmar||0)} com par`:''})${V2.gemeoMes?` · perda = gêmeo, ${(V2.gemeoMes.dias||[]).length} dias`:''}`;
+  const sub=document.getElementById('v2TrkSub'); if(sub) sub.textContent=(FALHA.trk&&FALHA.trk.velho?_dgTxt(FALHA.trk)+' · ':'')+`${V2.fTrk==='prob'?'só parados e severos':'parados e fora do alvo primeiro'} · ticket = planilha de Tickets, só ocorrência aberta · Fracttal = código do ativo (de-para${V2.depara&&V2.depara.n?`: ${(V2.depara.casados||0)+(V2.depara.a_confirmar||0)} com par`:''})${V2.gemeoMes?` · perda = gêmeo, ${(V2.gemeoMes.dias||[]).length} dias`:''}`;
 }
 // MODO HISTÓRICO: quem monta a tela é o bootHist(). Sem este portão, qualquer clique (aba, filtro)
 // chamava o render ao vivo, que sem dado ao vivo reescrevia a tabela com "Carregando inversores…"
@@ -2082,7 +2350,10 @@ async function v2Boot(){
   const _di=document.getElementById('v2Dia'); if(_di) _di.value=v2HojeISO();
   const _qd=(Q.get('dia')||'').trim(); if(/^\d{4}-\d{2}-\d{2}$/.test(_qd)&&_qd!==v2HojeISO()) v2SetDia(_qd);
   const ok=k=>v=>{V2[k]=v;v2Render();}, nao=k=>e=>{V2.falhas[k]=String(e&&e.message||e);V2[k]=false;v2Render();};
-  if(V2_PR) v2GET(V2_PR,30000).then(d=>{const m={};((d&&d.inversores)||[]).forEach(i=>{const k=v2nrm(i.nome||i.id);if(k)m[k]=i;});ok('pr')({map:m,med:d&&d.pr_mediana,usina:d&&d.pr});}).catch(nao('pr')); else V2.pr=false;
+  // o PR que não respondeu (rota em 5xx, ou 502 com a irradiância do dia sem resposta) é FALHA.pr: "abaixo dos pares" fica
+  // sem número e as linhas sem o PR não viram "ok" (11/10/2026). Fonte sem rota de PR (2C) não é falha: V2.pr=false só.
+  if(V2_PR) v2GET(V2_PR,30000).then(d=>{_dgVoltou('pr');const m={};((d&&d.inversores)||[]).forEach(i=>{const k=v2nrm(i.nome||i.id);if(k)m[k]=i;});ok('pr')({map:m,med:d&&d.pr_mediana,usina:d&&d.pr});})
+    .catch(e=>{ _dgFalhou('pr','PR do dia ('+CFG.label+')',e); nao('pr')(e); }); else V2.pr=false;
   v2GET('/api/trackers/de-para?fonte='+V2_SK+'&usina='+encodeURIComponent(NOME),10000).then(d=>ok('depara')(d&&!d.sem_depara?d:{n:0,por_num:{}})).catch(nao('depara'));
   v2GET('/api/perdas/'+V2_SK+'/trackers/paradas-hist?usina='+encodeURIComponent(NOME),25000).then(d=>ok('hist')((d&&d.rows)||[])).catch(nao('hist'));
   v2GET('/api/ronda/recorrentes?dias=14&usina='+encodeURIComponent(NOME),15000).then(d=>ok('rec')((d&&d.recorrentes)||[])).catch(nao('rec'));
@@ -2091,13 +2362,15 @@ async function v2Boot(){
   v2GET('/api/'+V2_SK+'/inversores/energia-mes/'+ID+'?usina='+encodeURIComponent(NOME),40000).then(ok('emes')).catch(nao('emes'));
   if(V2_SK==='pv') v2GET('/api/pv/inv-padrao/'+ID,15000).then(d=>ok('padrao')((d&&d.na_regua)?d:null)).catch(nao('padrao')); else V2.padrao=null;   // padrão por inversor (usinas sem visão por string)
   v2GET('/api/'+V2_SK+'/inversores/historico/'+ID+'?usina='+encodeURIComponent(NOME),120000).then(ok('h30')).catch(nao('h30'));   // mês fechado por inversor: meta, PR, IPOA (Levi, 07/09)
-  v2GET('/api/os-performance?usina='+encodeURIComponent(NOME),15000).then(d=>ok('osPerf')((d&&d.os)||[])).catch(nao('osPerf'));
+  // as OS de performance entram no cartão "Fracttal · OS abertas": a que não respondeu tira o número dele (10/10/2026)
+  v2GET('/api/os-performance?usina='+encodeURIComponent(NOME),15000).then(d=>{ _dgVoltou('osPerf'); ok('osPerf')((d&&d.os)||[]); })
+    .catch(e=>{ _dgFalhou('osPerf','Fonte Fracttal (OS de performance)',e); nao('osPerf')(e); });
   if(V2_GF){ v2GET('/gemeo/api/catalogo',8000).then(cat=>{ const l=cat||[]; const u=l.find(c=>c.fonte===V2_GF&&String(c.fonte_ref)===String(PLANT_ID))||l.find(c=>c.fonte===V2_GF&&v2nrm(c.codigo)===v2nrm(PLANT_ID))||l.find(c=>c.fonte===V2_GF&&v2nrm(c.nome).includes(v2nrm(NOME)));
       if(!u){ V2.gemeo=false; V2.gemeoMes=false; v2Render(); return; } V2.gid=u.id;
       const h=new Date().getHours(), ontem=new Date(Date.now()-86400000), qd=h<5?('dia='+ontem.getFullYear()+'-'+String(ontem.getMonth()+1).padStart(2,'0')+'-'+String(ontem.getDate()).padStart(2,'0')):'';
       v2GET('/gemeo/api/usina/'+u.id+(qd?'?'+qd:''),12000).then(ok('gemeo')).catch(nao('gemeo'));
       v2GET('/gemeo/api/usina/'+u.id+'?periodo=mes'+(qd?'&'+qd:''),15000).then(ok('gemeoMes')).catch(nao('gemeoMes'));
-    }).catch(()=>{ V2.gemeo=false; V2.gemeoMes=false; v2Render(); }); } else { V2.gemeo=false; V2.gemeoMes=false; }
+    }).catch(e=>{ V2.falhas.gemeoMes='o catálogo do gêmeo não respondeu'; V2.gemeo=false; V2.gemeoMes=false; v2Render(); }); } else { V2.gemeo=false; V2.gemeoMes=false; }
   // PLANT/TRK/OSBYINV chegam pelo boot() antigo em momentos diferentes: redesenha por um tempo até tudo assentar
   let n=0; (function tick(){ v2Render(); if(n++<90) setTimeout(tick, n<20?600:4000); })();
 }

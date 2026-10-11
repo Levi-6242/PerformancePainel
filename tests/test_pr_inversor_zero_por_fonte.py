@@ -59,6 +59,7 @@ def test_as_outras_fontes_ja_usavam_a_regua_certa():
     import pathlib
     src = pathlib.Path(app.__file__).read_text(encoding="utf-8")
     assert 'if (i["eday"] is not None and ipoa and i["pot_kwp"]) else None' in src, "API PV mudou de régua"
-    assert 'if (ger is not None and p["ipoa"] and pot) else None' in src, "PG mudou de régua"
+    # PG desde 11/10/2026: sem sol (IPOA abaixo de PR_IPOA_MIN) não há PR — a noite dava "PR −0%" no Diagnóstico
+    assert 'if (ger is not None and pot and p["ipoa"] is not None' in src and 'p["ipoa"] >= PR_IPOA_MIN) else None' in src,         "PG mudou de régua"
     assert 'if (kwh is not None and ipoa and pot) else None' in src, "SolarEdge mudou de régua"
     assert 'if (eday is not None and ipoa and pot) else None' in src, "SunOp/Axis mudou de régua"

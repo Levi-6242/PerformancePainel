@@ -101,6 +101,8 @@ def test_api_pv_usina_inteira_parada_nao_esconde_as_strings(usina_pv):
 # ── API PV: o drill (_pv_plant_inversores) ────────────────────────────────────
 
 class _Resp:
+    status_code = 200          # o drill confere o status desde 10/10/2026 (o 429 da API PV não vira usina parada)
+
     def __init__(self, d):
         self._d = d
 
