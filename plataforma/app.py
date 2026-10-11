@@ -1503,8 +1503,10 @@ def _dp_ids_hoje_api_pv(pid):
     if _ln.pedido_do_nexus():
         return [], "pedido só de leitura do Nexus: sem abrir a API PV"
     try:
+        # 10 s, não os 45 do drill: com a API PV lenta (11/10/2026, 20:50) o editor levava 45 s para abrir; sem a resposta,
+        # ele abre com os inversores do de-para e diz que a fonte não respondeu
         recs = _http().post(f"{BASE_URL}/day_inverter", headers={"x-access-token": _pv_token_for(pid)},
-                            json={"id": pid}, timeout=45).json()
+                            json={"id": pid}, timeout=10).json()
     except Exception as e:                                      # noqa: BLE001 — sem a fonte, o editor mostra os do de-para
         return [], type(e).__name__
     if not isinstance(recs, list):
