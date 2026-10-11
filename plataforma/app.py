@@ -947,6 +947,46 @@ def _gemeo_guia(nome_so: str) -> str:
     return "gemeo/deploy/README.md" if nome_so == "nt" else "gemeo/deploy/linux/README.md"
 
 
+def _gemeo_porque(erro, nome_so: str) -> str:
+    """Por que o gêmeo não respondeu, em português de quem usa. Levi, 11/10/2026: "EM gêmeo digital não está dando para
+    acessar!" — no PC a moldura do Nexus mostrava só "fora do ar (ConnectionError)", sem dizer que o gêmeo do PC está
+    desligado DE PROPÓSITO desde o corte para o servidor (30/09/2026: um banco só; nos dois, os bancos divergem e as
+    chamadas às fontes dobram). No servidor ele respondeu em 0,5 s no mesmo dia; o único ReadTimeout foi às 03:11 UTC,
+    na manutenção diária do banco dele."""
+    if nome_so == "nt":
+        return ("Neste computador o Gêmeo Digital está desligado de propósito desde 30/09/2026: ele roda no servidor, com "
+                "um banco só (rodando nos dois, os bancos divergem e as chamadas às fontes dobram). Abra pelo Nexus do "
+                "servidor.")
+    if isinstance(erro, requests.Timeout):
+        return ("O Gêmeo demorou mais de 30 s para responder. Perto da meia-noite de Brasília (03h UTC) ele faz a "
+                "manutenção diária do banco e fica lento por alguns minutos: tente de novo daqui a pouco.")
+    return "O serviço do Gêmeo não está atendendo neste servidor."
+
+
+def _gemeo_fora_do_ar(erro):
+    """503 com o porquê: página (navy, a moldura do Nexus a mostra) para quem navega; texto para o resto."""
+    from html import escape
+    from flask import Response
+    tipo = type(erro).__name__
+    porque = _gemeo_porque(erro, os.name)
+    tecnico = (f"o serviço dele não está atendendo nesta máquina ({GEMEO_URL}, {tipo}). Roteiro de instalação: "
+               f"{_gemeo_guia(os.name)}.")
+    if "text/html" not in (flask_request.headers.get("Accept") or ""):
+        return Response(f"Gêmeo Digital fora do ar ({tipo}): {porque} Detalhe: {tecnico}", status=503,
+                        mimetype="text/plain; charset=utf-8")
+    pagina = ('<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" '
+              'content="width=device-width,initial-scale=1"><title>Gêmeo Digital fora do ar</title><style>'
+              'html{color-scheme:dark}body{margin:0;background:#090d18;color:#c3cad7;'
+              'font:400 15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}'
+              'main{max-width:680px;margin:48px auto;padding:0 20px}'
+              'h1{font-size:20px;line-height:1.3;color:#e9eef6;margin:0 0 12px}'
+              '.det{margin-top:18px;font-size:12.5px;color:#96a0b4;border-top:1px solid rgba(255,255,255,.09);'
+              'padding-top:12px}</style></head><body><main>'
+              f'<h1>Gêmeo Digital fora do ar</h1><p>{escape(porque)}</p>'
+              f'<p class="det">Detalhe técnico: {escape(tecnico)}</p></main></body></html>')
+    return Response(pagina, status=503, mimetype="text/html; charset=utf-8")
+
+
 @app.route("/gemeo/", defaults={"sub": ""}, methods=["GET", "POST"])
 @app.route("/gemeo/<path:sub>", methods=["GET", "POST"])
 def gemeo_proxy(sub):
@@ -958,9 +998,7 @@ def gemeo_proxy(sub):
         r = requests.request(flask_request.method, f"{GEMEO_URL}/gemeo/{sub}", params=flask_request.args.to_dict(flat=False),
                              data=flask_request.get_data(), headers=cab, timeout=30, allow_redirects=False)
     except requests.RequestException as e:
-        return Response(f"Gêmeo Digital fora do ar ({type(e).__name__}): o serviço dele não está atendendo nesta "
-                        f"máquina ({GEMEO_URL}). Roteiro de instalação: {_gemeo_guia(os.name)}.",
-                        status=503, mimetype="text/plain; charset=utf-8")
+        return _gemeo_fora_do_ar(e)
     resp = Response(r.content, status=r.status_code, content_type=r.headers.get("Content-Type", "text/html; charset=utf-8"))
     for k, v in r.headers.items():
         if k.lower() in ("location", "cache-control"):
@@ -4865,12 +4903,6 @@ def painel_usina(plant_id):
     antigo = flask_request.args.get("antigo") == "1" or (_PAINEL_USINA_PADRAO == "antigo" and flask_request.args.get("novo") != "1")
     return render_template("painel_usina.html" if antigo else "painel_usina_v2.html", plant_id=plant_id,
                            today=datetime.now().strftime("%d/%m/%Y"))
-
-
-@app.route("/historico-plataforma")
-def historico_plataforma():
-    # Histórico por dia das usinas da API PV (Trackers tem curva; Strings/ETM só dia atual).
-    return render_template("historico_pv.html")
 
 
 _data_refreshing   = {"on": False}
@@ -26937,15 +26969,34 @@ except Exception:
     _whats_log = []
 
 
-def _whats_log_add(**e):
-    e["ts"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    _whats_log.append(e)
-    del _whats_log[:-400]
+def _whats_log_carregar():
     try:
-        with open(_WHATS_LOG_PATH, "w", encoding="utf-8") as f:
-            json.dump(_whats_log, f, ensure_ascii=False)
-    except Exception as ex:
-        print(f"[ronda-whats] log não salvo: {ex}")
+        with open(_WHATS_LOG_PATH, encoding="utf-8") as f:
+            return json.load(f) or []
+    except Exception:
+        return []
+
+
+_whats_log_lock = threading.Lock()
+
+
+def _whats_log_add(**e):
+    """Acrescenta uma linha ao log da ronda. Web (botão Reiniciar) e worker (ronda e watchdog) gravam no MESMO arquivo:
+    até 11/10/2026 cada processo gravava a SUA lista da memória, carregada no boot, e apagava as linhas do outro. Agora
+    relê o disco, acrescenta e troca o arquivo de uma vez (quem lê nunca pega JSON pela metade)."""
+    e["ts"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with _whats_log_lock:
+        log = _whats_log_carregar()
+        log.append(e)
+        del log[:-400]
+        _whats_log[:] = log
+        try:
+            tmp = _WHATS_LOG_PATH + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(log, f, ensure_ascii=False)
+            _replace_atomico(tmp, _WHATS_LOG_PATH)
+        except Exception as ex:
+            print(f"[ronda-whats] log não salvo: {ex}")
 
 
 def _ronda_whats_loop():
@@ -27049,6 +27100,53 @@ def _whats_service_restart():
 
 
 _whats_wd_state = {"ultimo_restart": 0.0, "restarts_hoje": 0, "dia": "", "notif_pend": None}
+# O watchdog roda no WORKER e o botão Reiniciar e a tela no WEB: o estado dele vai a um arquivo pequeno que os dois leem.
+# Até 11/10/2026 ficava só na memória de cada processo: a tela dizia "nenhum restart hoje" com o worker reiniciando o
+# serviço a cada ~6 min, e o reinício pelo botão não segurava o watchdog (dois reinícios seguidos).
+_WHATS_WD_PATH = os.path.join(_AQUI, "whats_watchdog.json")
+
+
+def _whats_wd_carregar() -> dict:
+    try:
+        with open(_WHATS_WD_PATH, encoding="utf-8") as f:
+            d = json.load(f) or {}
+        return {"ultimo_restart": float(d.get("ultimo_restart") or 0), "restarts_hoje": int(d.get("restarts_hoje") or 0),
+                "dia": str(d.get("dia") or "")}
+    except Exception:
+        return {"ultimo_restart": 0.0, "restarts_hoje": 0, "dia": ""}
+
+
+def _whats_wd_registrar_restart() -> dict:
+    """Conta um reinício do serviço (watchdog ou botão) no arquivo e na memória deste processo."""
+    st = _whats_wd_carregar()
+    hoje = datetime.now().strftime("%Y-%m-%d")
+    if st["dia"] != hoje:
+        st.update(dia=hoje, restarts_hoje=0)
+    st["restarts_hoje"] += 1
+    st["ultimo_restart"] = time.time()
+    try:
+        tmp = _WHATS_WD_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(st, f)
+        _replace_atomico(tmp, _WHATS_WD_PATH)
+    except Exception as e:
+        print(f"[whats-watchdog] estado não salvo: {e}")
+    _whats_wd_state.update(st)
+    return st
+
+
+def _whats_aguardando_pareamento(saude: dict) -> bool:
+    """O serviço de pé esperando o QR (ou o código): o /health dá ok:false porque o getState() do WhatsApp Web é
+    UNPAIRED/UNPAIRED_IDLE, mas nada está travado. Até 11/10/2026 o watchdog contava isso como quebra e reiniciava o node
+    a cada ~6,5 min: cada reinício matava o QR que estava na tela (e gravava duas linhas de "travou" no log)."""
+    st = str((saude or {}).get("status") or "")
+    return st.startswith("aguardando") or (saude or {}).get("state") in ("UNPAIRED", "UNPAIRED_IDLE")
+
+
+def _whats_quebrado(status_code: int, saude: dict) -> bool:
+    if status_code != 200:
+        return True                                   # 500 = getState() lançou ("detached Frame"): travado de verdade
+    return not ((saude or {}).get("ok") or _whats_aguardando_pareamento(saude))
 
 
 def _whats_watchdog_loop():
@@ -27066,17 +27164,19 @@ def _whats_watchdog_loop():
                 tok = cfg.get("token", "")
                 try:
                     h = _http().get(url + "/health", headers={"x-token": tok}, timeout=15)
-                    broken = (h.status_code != 200) or (not (h.json() or {}).get("ok"))
+                    try:
+                        saude = h.json() or {}
+                    except ValueError:
+                        saude = {}
+                    broken = _whats_quebrado(h.status_code, saude)
                 except Exception:
                     broken = True                     # timeout/sem resposta = travado ou caído
                 agora = time.time()
-                if broken and (agora - _whats_wd_state["ultimo_restart"]) > 300:
+                # o último reinício pode ter sido pelo botão (no processo web): vale o mais recente dos dois
+                ultimo = max(_whats_wd_state["ultimo_restart"], _whats_wd_carregar()["ultimo_restart"])
+                if broken and (agora - ultimo) > 300:
                     print("[whats-watchdog] serviço QUEBRADO (health falhou) — reiniciando...")
-                    _whats_wd_state["ultimo_restart"] = agora
-                    hoje = datetime.now().strftime("%Y-%m-%d")
-                    if _whats_wd_state["dia"] != hoje:
-                        _whats_wd_state.update({"dia": hoje, "restarts_hoje": 0})
-                    _whats_wd_state["restarts_hoje"] += 1
+                    _whats_wd_registrar_restart()
                     _whats_service_restart()
                     _whats_log_add(slot="watchdog", regiao=None, ok=False, trackers=None,
                                    erro="serviço WhatsApp travou — reiniciado automaticamente")
@@ -27109,12 +27209,17 @@ def api_ronda_whats_status():
         svc = {"ok": False, "erro": f"serviço WhatsApp fora do ar ({e})"}
     gset = set((cfg.get("grupos") or {}).keys())
     hoje = datetime.now().strftime("%Y-%m-%d")
-    env = {k: set(v) for k, v in _whats_state["enviados"].items() if k.startswith(hoje)}
+    # Do DISCO, não da memória (11/10/2026): quem envia é o worker; o web lia os envios, o log e o watchdog uma vez, no
+    # boot, e a tela mostrava "Não enviada" para a ronda que tinha saído e "nenhum restart hoje" com reinícios no dia.
+    env = {k: set(v) for k, v in _whats_sent_load().items() if k.startswith(hoje)}
+    wd = _whats_wd_carregar()
     try:                                              # teto de atraso efetivo (config > default)
         gmin = max(1, int(cfg.get("ronda_grace_min", RONDA_GRACE_MIN)))
     except Exception:
         gmin = RONDA_GRACE_MIN
     return jsonify({"enabled": bool(cfg.get("enabled")), "horarios": cfg.get("horarios"),
+                    # a versão do QR (a hora do arquivo, em ms): a tela troca a imagem só quando o QR muda
+                    "qr_versao": _whats_qr_versao(svc),
                     "grupos": sorted(gset), "servico": svc,
                     "enviados_hoje": sorted(k for k, v in env.items() if gset and v >= gset),
                     "parciais_hoje": {k: sorted(gset - v) for k, v in env.items()
@@ -27123,23 +27228,54 @@ def api_ronda_whats_status():
                     "slots_hoje": {k.split("|")[1]: sorted(v) for k, v in env.items()},
                     "grace_min": gmin,
                     "agora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "watchdog": {"restarts_hoje": (_whats_wd_state["restarts_hoje"]
-                                                   if _whats_wd_state["dia"] == hoje else 0),
-                                 "ultimo_restart": (datetime.fromtimestamp(_whats_wd_state["ultimo_restart"])
-                                                    .strftime("%d/%m %H:%M")
-                                                    if _whats_wd_state["ultimo_restart"] else None)},
-                    "log": _whats_log[-80:]})
+                    "watchdog": {"restarts_hoje": wd["restarts_hoje"] if wd["dia"] == hoje else 0,
+                                 "ultimo_restart": (datetime.fromtimestamp(wd["ultimo_restart"]).strftime("%d/%m %H:%M")
+                                                    if wd["ultimo_restart"] else None)},
+                    "log": _whats_log_carregar()[-80:]})
+
+
+_WHATS_QR_PATH = r"C:\GridcoWhats\qr.png"
+_PNG_INICIO, _PNG_FIM = b"\x89PNG\r\n\x1a\n", b"IEND\xaeB`\x82"
+
+
+def _whats_qr_vivo(svc: dict) -> bool:
+    """O serviço diz que há um QR esperando leitura. O qr.png sozinho não diz: o node não o apaga ao conectar (em
+    11/10/2026 o arquivo era de 05/10, com o chip conectado)."""
+    return bool((svc or {}).get("tem_qr")) and str((svc or {}).get("status") or "").startswith("aguardando")
+
+
+def _whats_qr_versao(svc: dict):
+    if not _whats_qr_vivo(svc):
+        return None
+    try:
+        return int(os.path.getmtime(_WHATS_QR_PATH) * 1000)
+    except OSError:
+        return None
 
 
 @app.route("/api/ronda/whats/qr")
 def api_ronda_whats_qr():
-    """Serve o qr.png do serviço WhatsApp (C:\\GridcoWhats) p/ o Monitor da Ronda MOSTRAR o QR quando o
-    chip cai (Levi 14/07). Sem cache — o QR troca a cada ~20s e o Monitor rebusca com ?t=."""
-    from flask import send_file
-    p = r"C:\GridcoWhats\qr.png"
-    if not os.path.exists(p):
+    """O QR de pareamento do chip da ronda, para as Rondas de Trackers o mostrarem quando o chip cai (Levi 14/07;
+    11/10/2026: "quando o whatsapp ficar fora aparecer o QR code para liberar por ele"). Só admin do Nexus na sessão do
+    passe (porta_nexus.ROTAS_SO_ADMIN): o QR liga ao serviço da ronda a conta de quem o escanear. 404 sem QR vivo; 503
+    com o PNG pela metade (o node o regrava a cada troca, ~20 s; a tela tenta de novo). Sem cache."""
+    from flask import Response
+    cfg = _whats_cfg()
+    try:
+        svc = _http().get(cfg.get("service_url", "http://127.0.0.1:5099").rstrip("/") + "/status",
+                          headers={"x-token": cfg.get("token", "")}, timeout=4).json()
+    except Exception:
+        svc = {}
+    if not _whats_qr_vivo(svc):
         return ("", 404)
-    resp = send_file(p, mimetype="image/png")
+    try:
+        with open(_WHATS_QR_PATH, "rb") as f:
+            dado = f.read()
+    except OSError:
+        return ("", 404)
+    if not (dado.startswith(_PNG_INICIO) and dado.endswith(_PNG_FIM)):
+        return ("", 503)
+    resp = Response(dado, mimetype="image/png")
     resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
     return resp
 
@@ -27517,20 +27653,15 @@ def api_ronda_obs_set():
 
 @app.route("/api/ronda/whats/reiniciar", methods=["POST"])
 def api_ronda_whats_reiniciar():
-    """Botão do Monitor: reergue o serviço WhatsApp NA HORA (mata zumbis + node e reinicia).
-    O node volta em ~30-60s; sem sessão válida ele gera o código de pareamento sozinho e o
-    Monitor exibe no próximo refresh."""
+    """Botão das Rondas de Trackers: reergue o serviço WhatsApp NA HORA (mata zumbis + node e reinicia).
+    O node volta em ~30-60s; sem sessão válida ele gera o QR de pareamento e a tela o mostra."""
     ok = _whats_service_restart()
-    _whats_wd_state["ultimo_restart"] = time.time()   # segura o watchdog (cooldown) p/ não duplicar
-    hoje = datetime.now().strftime("%Y-%m-%d")
-    if _whats_wd_state["dia"] != hoje:
-        _whats_wd_state.update({"dia": hoje, "restarts_hoje": 0})
-    _whats_wd_state["restarts_hoje"] += 1
+    _whats_wd_registrar_restart()                     # no arquivo: segura o watchdog do worker (cooldown) p/ não duplicar
     _whats_log_add(slot="manual", regiao=None, ok=bool(ok), trackers=None,
                    erro=None if ok else "reinício manual do serviço falhou",
-                   info="serviço reiniciado pelo botão do Monitor")
+                   info="serviço reiniciado pelo botão das Rondas de Trackers")
     return jsonify({"ok": bool(ok),
-                    "msg": "Serviço reiniciando — aguarde ~1 minuto; se precisar parear, o código aparece aqui."})
+                    "msg": "Serviço reiniciando — aguarde ~1 minuto; se precisar parear, o QR aparece aqui."})
 
 
 @app.route("/api/ronda/whats/grupos")

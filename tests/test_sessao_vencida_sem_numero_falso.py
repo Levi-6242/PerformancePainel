@@ -195,7 +195,7 @@ def _passe(email, admin=False, destino="/painel"):
 
 
 _TELAS = ("/painel", "/tempo-real", "/tempo-real/athon", "/monitor?fonte=pv&embed=1", "/gerencial",
-          "/gerencial/disponibilidade", "/painel/falhas", "/ronda/monitor", "/cos", "/tokens", "/historico-plataforma",
+          "/gerencial/disponibilidade", "/painel/falhas", "/ronda/monitor", "/cos", "/tokens",
           "/relatorio", "/relatorio/semanal")
 
 
@@ -206,7 +206,9 @@ def test_toda_tela_leva_o_aviso_mesmo_sem_a_chave_do_nexus(cli):
         html = cli.get(c).get_data(as_text=True)
         assert html.count("window.gcSessaoDaPlataforma = {") == 1, c
         assert "var SEM_ADMIN = false;" in html, c
-        assert "window.gcModoNexus=true" not in html and "modo-nexus" not in html, c
+        # a classe no <html> (posta pelo servidor só no modo Nexus): o CSS da própria tela pode trazer regras
+        # html.modo-nexus, como o Strings e trackers desde 11/10/2026, e elas não valem sem a classe
+        assert "window.gcModoNexus=true" not in html and not re.search(r"<html[^>]*modo-nexus", html), c
     assert "gcSessaoDaPlataforma" not in cli.get("/login").get_data(as_text=True)
 
 

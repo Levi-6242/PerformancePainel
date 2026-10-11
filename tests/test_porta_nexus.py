@@ -81,11 +81,11 @@ def entrar_com_senha(cli):
 def test_o_mapa_e_a_copia_do_nexus():
     """O Nexus é o dono do mapa; esta é a cópia. O mesmo texto canônico (e a mesma assinatura) está no teste do Nexus:
     mudou lá, muda aqui, e os dois testes mudam juntos."""
-    assert len(pn.MAPA) == 13
+    assert len(pn.MAPA) == 12
     assert pn.texto_canonico_do_mapa().splitlines()[0] == "performance|tempo-real|/tempo-real|/tempo-real/<fonte> /monitor|"
     assert pn.texto_canonico_do_mapa().splitlines()[-1] == "base|chaves-fontes|/tokens||admin"
-    assert pn.assinatura_do_mapa() == "b80243d6133920c6"
-    assert len({(t.torre, t.tela) for t in pn.MAPA}) == 13
+    assert pn.assinatura_do_mapa() == "cf3d44320c8225cf"
+    assert len({(t.torre, t.tela) for t in pn.MAPA}) == 12
 
 
 def test_cada_caminho_cai_na_sua_tela():
@@ -94,12 +94,12 @@ def test_cada_caminho_cai_na_sua_tela():
              "/painel/falhas": "strings-trackers", "/gerencial": "gerencial",
              "/gerencial/disponibilidade": "disponibilidade", "/relatorio": "relatorio",
              "/relatorio/semanal": "relatorio-semanal", "/gemeo/": "gemeo", "/gemeo/usina/12": "gemeo",
-             "/historico-plataforma": "historico-plataforma", "/ronda/monitor": "monitor-ronda", "/cos": "acompanhamento",
+             "/ronda/monitor": "monitor-ronda", "/cos": "acompanhamento",
              "/tokens": "chaves-fontes", "/painel/usina/1?antigo=1": "diagnostico"}
     for c, tela in casos.items():
         assert getattr(pn.tela_do_caminho(c), "tela", None) == tela, c
     for c in ("/", "/login", "/painel/nexus/entrar", "/api/data", "/painel/usina/1/x", "/painelx", "/gemeo",
-              "/os/", "/v2", "/monitoramento", "/tempo-real/a/b"):
+              "/os/", "/v2", "/monitoramento", "/tempo-real/a/b", "/historico-plataforma"):
         assert pn.tela_do_caminho(c) is None, c
 
 
@@ -465,6 +465,20 @@ def test_modo_nexus_so_com_a_sessao_do_passe_dentro_da_moldura(cli):
     assert "modo-nexus" not in senha
 
 
+def test_strings_e_trackers_no_navy_do_nexus_so_dentro_da_moldura(cli):
+    """Levi, 11/10/2026: "Em Strings e Trackers falta o tema escuro alá Nexus". A tela nasceu clara (identidade do site,
+    24/09) e nada a trocava na moldura. Dentro dela, a classe modo-nexus liga o navy; aberta direto, segue clara."""
+    entrar(cli, destino="/painel/falhas")
+    dentro = cli.get("/painel/falhas", headers=NA_MOLDURA).get_data(as_text=True)
+    assert re.search(r'<html[^>]*class="[^"]*modo-nexus', dentro)
+    bloco = re.search(r"html\.modo-nexus\{color-scheme:dark;(.*?)\}", dentro, re.S)
+    assert bloco and "--paper:#090d18" in bloco.group(1) and "--mist:#161d30" in bloco.group(1)
+    assert "#191528" not in bloco.group(1)                                   # navy, nunca o lilás
+    assert "html.modo-nexus .seg button.on{background:var(--green);color:#0b1220}" in dentro
+    fora = cli.get("/painel/falhas").get_data(as_text=True)                   # aba solta: a identidade clara de 24/09
+    assert "modo-nexus" not in fora.split("<style>", 1)[0] and "--paper:#FCFCFC" in fora
+
+
 def test_modo_nexus_nao_dobra_e_respeita_class_que_ja_existe():
     from flask import Response, session
     with app.app.test_request_context("/x", headers=NA_MOLDURA):
@@ -608,7 +622,8 @@ def test_administracao_da_plataforma_so_para_admin_do_nexus(cli):
     nada é gravado nem enviado neste teste."""
     for metodo, c in _ADMINISTRACAO:
         assert pn.so_admin(c), c
-    assert not pn.so_admin("/api/ronda/whats/status") and not pn.so_admin("/api/ronda/whats/qr")   # o Monitor lê
+    assert not pn.so_admin("/api/ronda/whats/status")                              # as Rondas de Trackers leem
+    assert pn.so_admin("/api/ronda/whats/qr")          # 11/10/2026: quem escaneia o QR liga a própria conta ao serviço
     assert not pn.so_admin("/api/administrativo")                                  # prefixo é por segmento
     entrar(cli, "analista@exemplo.com", admin=False)
     for metodo, c in _ADMINISTRACAO:

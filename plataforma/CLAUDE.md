@@ -45,9 +45,12 @@ Qualquer `.py` ou os demais templates precisam.
 **A ronda depende do guardião.** `ronda_guardian.py` roda pela Tarefa Agendada do Windows
 "GridCo Ronda Guardian" e sobe o servidor se ele cair, para a ronda das 08:25/13:15 disparar.
 A tarefa aponta para o caminho **desta pasta** — se mover o arquivo, atualize a tarefa, senão
-a ronda morre em silêncio. **O guardião só reconhece o `app.py`/`worker.py` DESTA pasta** (`_eh_da_plataforma`, 29/09/2026):
-antes, qualquer python com "app.py" na linha de comando contava — o do Nexus (temp/Nexus/app.py) também —, e depois do
-reinício das 17:43 a 5050 ficou fechada 20 min com o guardião rodando de 5 em 5. Teste: `tests/test_ronda_guardian.py`.
+a ronda morre em silêncio. **O guardião só reconhece o `app.py`/`worker.py` DESTA pasta** (`_eh_da_plataforma`): pelo
+caminho completo dela, ou pelo nome solto com o processo RODANDO nela (a pasta de trabalho vem do psutil; sem ele, o nome
+solto conta, na dúvida). Os dois casos que criaram a regra: em 29/09/2026 qualquer python com "app.py" na linha contava (o
+Nexus em temp/Nexus/app.py também) e a 5050 ficou fechada 20 min; em 11/10/2026, no reinício do PC, o Nexus subiu pelo nome
+solto (`pythonw app.py`, com a pasta dele), o guardião subiu só o worker e a 5050 (a ponte do OS Creator) ficou fechada até
+ser subida à mão. Teste: `tests/test_ronda_guardian.py`.
 
 ## Armadilhas que já custaram caro
 
@@ -129,8 +132,27 @@ token de API; o `/usage/*` não é cobrável e o dia deles é em UTC, consolidad
   processo web refazia as curvas de tracker a cada 30 min só para contar. Parados iguais nas 9 usinas (97); "com
   ticket" pelo `parados_com`, o da coluna Tickets.
 - **O contador diz de quem é a curva**: `analog_values:trk`, `:str`, `:etm` (pelos pathnames do pedido).
-- **O gêmeo do servidor está vazio** (29/09: `/gemeo/healthz` 503 "modelar nunca rodou", 0 usinas): no servidor a
-  curva nunca vem do acervo e vai toda à SunOp. O gêmeo com dado é o do PC.
+- **O gêmeo mora no servidor; o do PC está desligado de propósito desde 30/09/2026** (corte: um banco só; rodando nos
+  dois, os bancos divergem e as chamadas às fontes dobram). Medido em 11/10/2026: o do servidor respondeu em 0,5 s, fontes
+  com 13–21 min, `modelar` às 02:14 UTC; o único ReadTimeout (proxy de 30 s) foi às 03:11 UTC, na manutenção diária do
+  banco dele. No PC o `/gemeo/` dá 503 sempre: a página diz o porquê (`_gemeo_porque`: no Windows, "desligado de propósito";
+  no servidor, timeout = manutenção, tente de novo), em navy para quem navega (a moldura do Nexus) e em texto para o resto
+  (Levi, 11/10: "EM gêmeo digital não está dando para acessar!" — a moldura mostrava só "fora do ar (ConnectionError)").
+- **O QR de pareamento do WhatsApp nas Rondas de Trackers** (Levi, 11/10/2026: "quando o whatsapp ficar fora aparecer o
+  QR code para liberar por ele"). A tela mostrava o QR desde 14/07, mas quase nunca dava para escanear: o watchdog (no
+  worker) contava "aguardando QR" como travado (o `/health` dá `ok:false` em UNPAIRED) e reiniciava o node a cada ~6,5 min,
+  matando o QR; a tela rebaixava a imagem a cada 30 s com o QR trocando a cada ~20 s; e o `/api/ronda/whats/qr` servia o
+  qr.png que o node não apaga ao conectar (em 11/10 era de 05/10). Agora: `_whats_quebrado` não conta "aguardando" (o 500
+  do "detached Frame" segue reiniciando); o status traz `qr_versao` (hora do arquivo) e a tela troca a imagem só quando ela
+  muda, relendo o estado a cada 5 s enquanto não conecta (`svcRapido`); a rota do QR só serve com o serviço dizendo
+  `tem_qr` e o PNG inteiro (503 pela metade, a tela tenta de novo); com o QR à vista o botão Reiniciar some (mataria o QR).
+  **Só admin do Nexus vê o QR** (`ROTAS_SO_ADMIN`; quem o escaneia liga a PRÓPRIA conta ao serviço da ronda); a sessão da
+  senha vê, como antes. O WhatsApp só existe no PC: no servidor a tela diz fora do ar, sem QR.
+- **O estado da ronda na tela vem do disco** (11/10/2026): quem envia é o worker, e o web lia `whats_enviados.json`,
+  `whats_log.json` e o watchdog uma vez, no boot — a tela dizia "Não enviada" para a ronda que tinha saído e "nenhum
+  restart hoje" com reinícios no dia. O watchdog grava `whats_watchdog.json` (o botão Reiniciar também, e o watchdog
+  respeita os 5 min a partir de qualquer um dos dois); o log relê o arquivo antes de acrescentar (antes, web e worker
+  apagavam as linhas um do outro). Teste: `tests/test_rondas_qr.py`.
 - **Os cortes de 29/09 tiraram só ~15%** (oficial de 30/09: 19.477). A curva de tracker era 86% do resto (8.707 no
   servidor, 9.331 no PC em ronda). **Vazamento (01/10):** a SunOp devolve curva vazia para os trackers da MTS100, o
   `_sunop_eventos_calc` grava a usina assim mesmo (`eventos []`, `cobertura 0`, `classes None`), o dia das
@@ -315,8 +337,8 @@ apagada, segue como quem não entrou (spec 8: trocar a chave derruba o passe, n�
 de hoje; gravação (método fora de GET/HEAD/OPTIONS) só da mesma origem (403 "pedido de outro site": antes, um
 `<form enctype=text/plain>` de qualquer site gravava em nome do analista); administração só com `admin_nexus`, em
 qualquer perfil (`porta_nexus.ROTAS_SO_ADMIN`: `/tokens`, `/api/tokens*`, `/api/admin/*` (as bases do espelho e os
-caminhos do servidor), `/api/ronda/whats/testar`, `/reiniciar` e `/grupos` (o envio pelo chip, a qualquer número, e o
-serviço do WhatsApp); 403 página/JSON. Efeito: o botão "Reiniciar serviço" do Monitor da ronda é só de admin para
+caminhos do servidor), `/api/ronda/whats/testar`, `/reiniciar`, `/grupos` e `/qr` (o envio pelo chip, a qualquer
+número, o serviço do WhatsApp e, desde 11/10, o QR de pareamento); 403 página/JSON. Efeito: o botão "Reiniciar serviço" das Rondas de Trackers é só de admin para
 quem entra pelo Nexus; a senha segue como hoje); gestor só passa no
 `permitido_gestor` (403 "somente leitura (perfil gestor)") e o pedido dele leva `g.nexus_so_leitura`, que faz o
 `pedido_do_nexus()` valer: a API PV fica travada (a mesma trava da ponte) e o pedido não monta cache. Quem grava pelo passe
@@ -354,11 +376,13 @@ mesma origem; a ponte do Nexus busca no servidor e não repassa este cabeçalho;
 OS Creator é de outro endereço e não é a plataforma; o Thopen (Railway) e o App de Campo não emolduram nada daqui. No PC,
 porta diferente é OUTRA origem: a moldura só abre atrás da `ferramentas/porta_local.py` do Nexus (como no servidor).
 
-**O mapa** (`porta_nexus.MAPA`, spec 5.6) é a CÓPIA do mapa do Nexus (o dono): 13 telas, ids do Nexus (`tempo-real`,
+**O mapa** (`porta_nexus.MAPA`, spec 5.6) é a CÓPIA do mapa do Nexus (o dono): 12 telas, ids do Nexus (`tempo-real`,
 `noc`, `diagnostico`, `strings-trackers`, `gerencial`, `disponibilidade`, `relatorio`, `relatorio-semanal`, `gemeo`,
-`historico-plataforma`, `monitor-ronda`; COS `acompanhamento`; Base `chaves-fontes`, só admin). Os dois lados conferem o
+`monitor-ronda` = "Rondas de Trackers"; COS `acompanhamento`; Base `chaves-fontes`, só admin). Os dois lados conferem o
 mesmo texto canônico (`texto_canonico_do_mapa`, uma linha `torre|tela|caminho|tambem|admin` por tela) pela assinatura
-`b80243d6133920c6` (`test_o_mapa_e_a_copia_do_nexus`): mudou lá, muda aqui. Rota de página nova entra no `MAPA` ou no
+`cf3d44320c8225cf` (`test_o_mapa_e_a_copia_do_nexus`): mudou lá, muda aqui. Em 11/10/2026 o Histórico da plataforma
+(`/historico-plataforma`, `historico_pv.html`) foi APAGADO, rota e template (Levi: "Pode matar a seção histórico da
+plataforma!"); as APIs que ele lia (`/api/pv/trackers` e o gráfico por tracker) ficam, servem a outras telas. Rota de página nova entra no `MAPA` ou no
 `FORA_DO_MAPA` com o porquê (`test_toda_rota_de_pagina_tem_lugar_no_mapa`).
 
 **Provado de ponta a ponta no PC (10/10/2026)**, esta cópia de prova com a chave e a cópia do Nexus da branch da porta
@@ -430,7 +454,7 @@ diz por quê.** Peças:
   responde **503** `{"erro", "usinas": []}`, nunca 200; com 200 o Painel NOC trocava o mês bom pelo vazio ("Energia
   perdida 0,0 MWh", "0 MWp", "Mês/PG <agora>" como se fosse fresco; revisão adversarial de 10/10/2026, provado com o PG
   simulado fora), e o seletor de usinas do Nexus não dizia que o Gerencial faltou. O Painel NOC (`boot`) e o Gerencial
-  (`load`) também recusam corpo com `erro`, venha com o status que vier. Conferidas e já certas: Histórico da plataforma (`getJSON` confere `r.ok`),
+  (`load`) também recusam corpo com `erro`, venha com o status que vier. Conferidas e já certas:
   Criador de relatório e Relatório semanal (conferem `d.ok`, não releem sozinhos), Diagnóstico (`v2GET` confere `r.ok`; a
   carga antiga do `boot()` lê uma vez ao abrir, e o 401 dali liga a faixa).
 Prova no navegador (Chromium, 1440 px), app da worktree na 5151 com a rede cortada, dados falsos e sessão de 15 s, atrás
@@ -463,7 +487,7 @@ O `volta` do `/painel/nexus/sair` segue com a régua dele, mais estrita (recusa 
 **Avisos para quem não é admin (10/10/2026, auditoria B12).** `gcSessaoDaPlataforma.semAdmin` (o app.py marca quem
 entrou pelo passe sem `admin_nexus`): a curva das strings com o token da PV Plataforma vencido diz "peça a um
 administrador do Nexus" em vez de mandar à tela Tokens (`_curvaMotivoTxt` no Monitoramento, pelo `globalThis`: os testes da curva rodam a função sozinha no node; `tokens(msg)` no Diagnóstico,
-que troca o "Renove/Cole um na tela Tokens." do `_SPV_MOTIVO_MSG`). O "Reiniciar serviço" do Monitor da ronda mostra o
+que troca o "Renove/Cole um na tela Tokens." do `_SPV_MOTIVO_MSG`). O "Reiniciar serviço" das Rondas de Trackers mostra o
 403 na hora ("Só administradores reiniciam o serviço") em vez de girar ~80 s.
 
 Testes: `tests/test_porta_nexus.py` (passe válido, vencido, adulterado, repetido, na URL, de outro site; destino fora do

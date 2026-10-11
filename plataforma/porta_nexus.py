@@ -56,8 +56,9 @@ MAPA = (
     # O gêmeo é outro processo, servido pelo proxy /gemeo/*: tudo debaixo dele é a mesma tela (o Painel NOC abre
     # /gemeo/usina/<id>).
     Tela("performance", "gemeo", "Gêmeo digital", "/gemeo/", ("/gemeo/<path:resto>",), False),
-    Tela("performance", "historico-plataforma", "Histórico da plataforma", "/historico-plataforma", (), False),
-    Tela("performance", "monitor-ronda", "Monitor da ronda", "/ronda/monitor", (), False),
+    # O Histórico da plataforma saiu em 11/10/2026 (Levi: "Pode matar a seção histórico da plataforma!"), com a rota e
+    # o template. A ronda virou "Rondas de Trackers" no mesmo dia; o id ficou (é o endereço do item no Nexus).
+    Tela("performance", "monitor-ronda", "Rondas de Trackers", "/ronda/monitor", (), False),
     Tela("cos", "acompanhamento", "Acompanhamento COS", "/cos", (), False),
     # /tokens grava as chaves das fontes (SunOp, Axis, Plataforma): administração, só admin do Nexus (spec 5.3)
     Tela("base", "chaves-fontes", "Chaves das fontes", "/tokens", (), True),
@@ -116,10 +117,12 @@ def tela_do_caminho(caminho: str):
 #   e ver os caminhos do servidor (/api/admin/bases);
 # - mandar a ronda NA HORA pelo chip da empresa, aos grupos do COS ou a QUALQUER número (/api/ronda/whats/testar; a
 #   conta já foi restringida por spam), listar os grupos do chip (/grupos) e derrubar o serviço do WhatsApp
-#   (/reiniciar, o botão do Monitor da ronda quando o chip cai).
+#   (/reiniciar, o botão das Rondas de Trackers quando o chip cai);
+# - ver o QR de pareamento do chip (/qr, 11/10/2026): quem o escaneia liga a PRÓPRIA conta ao serviço da ronda.
 # A sessão da senha não passa por aqui: segue como hoje.
 ROTAS_SO_ADMIN = tuple(t.caminho for t in MAPA if t.so_admin) + (
-    "/api/tokens", "/api/admin", "/api/ronda/whats/testar", "/api/ronda/whats/reiniciar", "/api/ronda/whats/grupos")
+    "/api/tokens", "/api/admin", "/api/ronda/whats/testar", "/api/ronda/whats/reiniciar", "/api/ronda/whats/grupos",
+    "/api/ronda/whats/qr")
 
 
 def so_admin(caminho: str) -> bool:

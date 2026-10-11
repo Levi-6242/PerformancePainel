@@ -71,6 +71,28 @@ def test_fora_do_ar_aponta_o_roteiro_do_sistema_certo():
         assert (raiz / plataforma._gemeo_guia(so)).is_file()
 
 
+def test_o_503_diz_por_que_no_pc_e_no_servidor():
+    """Levi, 11/10/2026: "EM gêmeo digital não está dando para acessar!". No PC o gêmeo está desligado de propósito desde
+    30/09 (foi para o servidor, com um banco só): a tela dizia só "fora do ar (ConnectionError)"."""
+    pc = plataforma._gemeo_porque(requests.ConnectionError("recusada"), "nt")
+    assert "desligado de propósito desde 30/09/2026" in pc and "Nexus do servidor" in pc
+    lento = plataforma._gemeo_porque(requests.ReadTimeout("lento"), "posix")
+    assert "manutenção diária" in lento and "tente de novo" in lento
+    assert "não está atendendo" in plataforma._gemeo_porque(requests.ConnectionError("recusada"), "posix")
+
+
+def test_quem_navega_ve_a_pagina_navy_com_o_porque(cli, monkeypatch):
+    def fora(*a, **kw):
+        raise requests.ConnectionError("recusada")
+    monkeypatch.setattr(plataforma.requests, "request", fora)
+    r = cli.get("/gemeo/", headers={"Accept": "text/html,application/xhtml+xml"})
+    h = r.get_data(as_text=True)
+    assert r.status_code == 503 and r.mimetype == "text/html"
+    assert "<h1>Gêmeo Digital fora do ar</h1>" in h and "background:#090d18" in h          # navy, como a moldura
+    assert plataforma._gemeo_porque(requests.ConnectionError(), plataforma.os.name) in h
+    assert plataforma._gemeo_guia(plataforma.os.name) in h and "5075" in h
+
+
 def test_a_pagina_de_503_leva_o_roteiro_desta_maquina(cli, monkeypatch):
     def fora(*a, **kw):
         raise requests.ConnectionError("recusada")

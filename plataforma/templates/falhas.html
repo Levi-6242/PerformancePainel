@@ -21,6 +21,24 @@
     --amber-ink:#7E5300; --amber-tint:rgba(240,168,0,.16);
     --display:'Raleway',sans-serif; --font:'Poppins',sans-serif; --mono:ui-monospace,Consolas,'Cascadia Mono',monospace;
   }
+  /* Dentro do Nexus, o navy do Nexus (Levi, 11/10/2026: "Em Strings e Trackers falta o tema escuro alá Nexus"). A classe
+     modo-nexus é posta pelo servidor só na moldura, sem piscar (_porta_do_nexus_na_resposta); aberta direto, a tela segue
+     clara, na identidade do site de 24/09. Os valores são os tokens do tema escuro do nexus/static/nexus.css: navy, nunca
+     o lilás #191528 (nem como texto sobre o verde: lá vai o #0b1220). O resto do template já é todo por variável; as
+     regras abaixo das variáveis são os pontos que usavam a tinta escura como FUNDO ou cor fixa. */
+  html.modo-nexus{color-scheme:dark;
+    --paper:#090d18; --mist:#161d30; --mist2:#1c2640; --hair:rgba(255,255,255,.09); --hair2:rgba(255,255,255,.16);
+    --ink:#e9eef6; --graphite:#c3cad7; --stone:#96a0b4;
+    --green:#a3d900; --green-tint:rgba(163,217,0,.16); --moss:#c4e755; --moss2:#a3d900;
+    --magenta:#ff5b6e; --magenta-ink:#ff5b6e; --magenta-tint:rgba(255,91,110,.14);
+    --cyan-ink:#7fb8ff; --cyan-tint:rgba(91,157,255,.14);
+    --amber-ink:#ffd83d; --amber-tint:rgba(255,216,61,.14);
+  }
+  html.modo-nexus .mais button{background:var(--mist2);color:var(--ink)}
+  html.modo-nexus .mais button:hover,html.modo-nexus .seg button.on{background:var(--green);color:#0b1220}
+  html.modo-nexus pre{background:#0d1526;color:var(--graphite)}
+  html.modo-nexus .chk-col input{accent-color:var(--green)}
+  html.modo-nexus #tip{background:var(--mist2);box-shadow:0 8px 24px rgba(0,0,0,.45)}
   *{box-sizing:border-box;margin:0;padding:0}
   [hidden]{display:none!important}
   html{color-scheme:light}

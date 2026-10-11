@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Grid Co. · Monitor da Ronda</title>
+<title>Grid Co. · Rondas de Trackers</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -78,7 +78,7 @@ td{padding:7px 9px;border-bottom:1px solid var(--line);font-size:12.5px;vertical
 <body>
 <div class="top">
   <div class="logo" data-casca><b>Grid</b> Co.</div>
-  <div class="tit">Monitor da Ronda de Trackers</div>
+  <div class="tit">Rondas de Trackers</div>
   <div class="spacer"></div>
   <button class="btn" onclick="abrirWhats()" title="Abre o WhatsApp Web do chip da ronda em outra janela (pareia uma vez como aparelho vinculado)">WhatsApp</button>
   <button class="btn" onclick="load()">Atualizar</button>
@@ -94,11 +94,12 @@ td{padding:7px 9px;border-bottom:1px solid var(--line);font-size:12.5px;vertical
       <div class="t" id="svcTit">Verificando o WhatsApp…</div>
       <div class="s" id="svcSub">—</div>
       <button class="btn" id="btnReiniciar" onclick="reiniciarServico(this)"
-              style="display:none;margin-top:9px;border-color:rgba(248,113,113,.4);color:var(--red)">Reiniciar serviço e gerar código</button>
+              style="display:none;margin-top:9px;border-color:rgba(248,113,113,.4);color:var(--red)">Reiniciar serviço</button>
       <div id="svcQrBox" style="display:none;margin-top:12px">
-        <img id="svcQr" alt="QR para parear o chip" style="width:210px;height:210px;background:#fff;border-radius:12px;padding:10px;image-rendering:pixelated;box-shadow:0 4px 18px rgba(0,0,0,.25)">
+        <img id="svcQr" alt="QR para parear o chip" onerror="qrFalhou(this)" style="width:210px;height:210px;background:#fff;border-radius:12px;padding:10px;image-rendering:pixelated;box-shadow:0 4px 18px rgba(0,0,0,.25)">
         <div class="s" style="margin-top:6px;max-width:230px">Escaneie com o WhatsApp do <b>chip da ronda</b> (Aparelhos conectados → Conectar um aparelho). Atualiza sozinho.</div>
       </div>
+      <div class="s" id="svcQrSoAdmin" style="display:none;margin-top:10px;max-width:280px">O QR de pareamento só aparece para administradores do Nexus: quem o escaneia liga a própria conta ao serviço da ronda. Peça a um administrador.</div>
     </div>
     <div class="wd" id="svcWd"></div>
   </div>
@@ -233,7 +234,7 @@ async function reiniciarServico(bt){
   let n=0; const iv=setInterval(async()=>{ n++; await load();
     const t=document.getElementById('svcTit').textContent||'';
     if(n>=8 || t.includes('conectado') || t.includes('pareamento')){
-      clearInterval(iv); bt.disabled=false; bt.dataset.busy=''; bt.textContent='Reiniciar serviço e gerar código';
+      clearInterval(iv); bt.disabled=false; bt.dataset.busy=''; bt.textContent='Reiniciar serviço';
       bt.style.display=t.includes('conectado')?'none':'inline-block';
     }
   }, 10000);
@@ -284,23 +285,56 @@ async function carregarAnalise(force){
 
 const mins=s=>{const m=String(s).match(/(\d{1,2}):(\d{2})/);return m?(+m[1]*60+ +m[2]):null;};
 
+// QR de pareamento DENTRO da tela (Levi 14/07; 11/10/2026: "quando o whatsapp ficar fora aparecer o QR code para liberar
+// por ele"). Até 11/10 a imagem era rebaixada a cada leitura de 30 s, com o QR trocando a cada ~20 s (metade do tempo a
+// tela mostrava um QR vencido), e o watchdog reiniciava o serviço a cada ~6 min matando o QR. Agora: a imagem só troca
+// quando o QR muda (qr_versao = hora do arquivo), a tela relê o estado a cada 5 s enquanto não conecta (svcRapido) e o
+// watchdog não conta "aguardando QR" como travado. Só administrador do Nexus vê o QR (quem o escaneia liga a PRÓPRIA conta
+// ao serviço da ronda); a sessão da senha vê, como antes.
+function semAdminQr(){ const S=window.gcSessaoDaPlataforma; return !!(S&&S.semAdmin); }
+function urlQr(v, tentativa){ return (window.APP_PREFIX||'')+'/api/ronda/whats/qr?v='+encodeURIComponent(v)+(tentativa?'&r='+tentativa:''); }
+// o node grava o PNG sem troca atômica: a leitura pode pegar o arquivo pela metade (503); tenta de novo, até 5 vezes
+function qrFalhou(img){
+  const n=(+img.dataset.tentou||0)+1; img.dataset.tentou=String(n);
+  if(n<=5 && img.dataset.v) setTimeout(function(){ if(img.dataset.v) img.src=urlQr(img.dataset.v, n); }, 1500);
+}
+let SVC_RAPIDO=null;
+function svcRapido(ligar){
+  if(!ligar){ if(SVC_RAPIDO){ clearTimeout(SVC_RAPIDO); SVC_RAPIDO=null; } return; }
+  if(SVC_RAPIDO) return;
+  SVC_RAPIDO=setTimeout(async function(){
+    SVC_RAPIDO=null;
+    if(document.visibilityState==='hidden'){ svcRapido(true); return; }
+    try{ const r=await fetch('/api/ronda/whats/status'); if(!r.ok) throw new Error('HTTP '+r.status); svcBadge(await r.json()); }
+    catch(e){ svcRapido(true); }
+  }, 5000);
+}
+
 function svcBadge(d){
   const dot=document.getElementById('svcDot'), tit=document.getElementById('svcTit'), sub=document.getElementById('svcSub');
   const st=(d.servico&&d.servico.status)||'';
+  const semAdm=semAdminQr();
+  const temQr=st.startsWith('aguardando') && !!(d.servico && d.servico.tem_qr) && !!d.qr_versao;
   if(st==='conectado'){ dot.className='pulse ok'; tit.textContent='WhatsApp conectado'; sub.textContent='Chip da ronda ativo e pronto para enviar.'; }
   else if(st.startsWith('aguardando')){ dot.className='pulse warn'; tit.textContent='WhatsApp aguardando pareamento';
-    sub.textContent='O chip precisa parear de novo — abra o WhatsApp do chip em Aparelhos conectados'+(d.servico.codigo?' e digite o código '+d.servico.codigo:' e escaneie o QR (C:\\GridcoWhats\\qr.png)')+'.'; }
+    sub.textContent='O chip precisa parear de novo: no WhatsApp do chip, Aparelhos conectados → Conectar um aparelho'
+      +(d.servico.codigo?', e digite o código '+d.servico.codigo+'.':(temQr&&!semAdm?', e escaneie o QR abaixo.':'.')); }
   else if(!d.servico||d.servico.ok===false){ dot.className='pulse bad'; tit.textContent='Serviço do WhatsApp FORA DO AR';
-    sub.textContent=(d.servico&&d.servico.erro)||'Sem resposta em 127.0.0.1:5099 — o watchdog deve reerguer em até 3 min.'; }
+    sub.textContent=(d.servico&&d.servico.erro)||'Sem resposta do serviço: o watchdog o reergue em alguns minutos e, se o chip tiver desconectado, o QR para parear aparece aqui.'; }
   else { dot.className='pulse warn'; tit.textContent='WhatsApp: '+st; sub.textContent='Estado intermediário — acompanhando.'; }
-  // botão de reinício: aparece sempre que NÃO está conectado (serviço caído, travado ou aguardando)
+  const qrBox=document.getElementById('svcQrBox'), qrImg=document.getElementById('svcQr'), soAdm=document.getElementById('svcQrSoAdmin');
+  if(qrBox){
+    if(temQr && !semAdm){
+      if(qrImg.dataset.v!==String(d.qr_versao)){ qrImg.dataset.v=String(d.qr_versao); qrImg.dataset.tentou='0'; qrImg.src=urlQr(d.qr_versao); }
+      qrBox.style.display='';
+    } else { qrBox.style.display='none'; qrImg.removeAttribute('src'); qrImg.dataset.v=''; }
+  }
+  if(soAdm) soAdm.style.display=(temQr && semAdm)?'':'none';
+  // botão de reinício: aparece sempre que NÃO está conectado (serviço caído, travado ou aguardando), menos com o QR à
+  // vista: reiniciar mata o QR que a pessoa está escaneando
   const bt=document.getElementById('btnReiniciar');
-  if(bt && !bt.dataset.busy) bt.style.display=(st==='conectado')?'none':'inline-block';
-  // QR de pareamento DENTRO do Monitor (Levi 14/07): mostra a imagem quando o chip aguarda QR.
-  const qrBox=document.getElementById('svcQrBox'), qrImg=document.getElementById('svcQr');
-  const mostraQr=st.startsWith('aguardando') && d.servico && d.servico.tem_qr;
-  if(qrBox){ if(mostraQr){ qrImg.src='/api/ronda/whats/qr?t='+Date.now(); qrBox.style.display=''; }
-             else { qrBox.style.display='none'; qrImg.removeAttribute('src'); } }
+  if(bt && !bt.dataset.busy) bt.style.display=(st==='conectado' || (temQr && !semAdm))?'none':'inline-block';
+  svcRapido(st!=='conectado');
   const wd=d.watchdog||{};
   document.getElementById('svcWd').innerHTML=(wd.restarts_hoje
     ?`watchdog reiniciou o serviço <b>${wd.restarts_hoje}x hoje</b><br>último às <b>${wd.ultimo_restart||'—'}</b>`
