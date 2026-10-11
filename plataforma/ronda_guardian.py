@@ -38,17 +38,49 @@ def _linhas_de_comando_python():
     return [l for l in out.stdout.splitlines() if l.strip()]
 
 
-def _eh_da_plataforma(cmd, script):
-    """True se a linha de comando roda o `script` DESTA pasta: pelo nome solto (como `sobe` o chama, com cwd aqui)
-    ou pelo caminho completo dela. Ate 29/09/2026 bastava ter o texto do script em qualquer lugar da linha: o Nexus
-    (outro projeto, `python -u "...\\temp\\Nexus\\app.py"`) contava como a plataforma, e depois do reinicio das 17:43
-    a 5050 ficou fechada 20 minutos — o guardiao rodava de 5 em 5 e nunca subia o app.py."""
+def _processos_python():
+    """(linha de comando, pasta de trabalho) de cada python vivo. A pasta vem do psutil; sem ele (ou sem permissao
+    para ler um processo), None = desconhecida, e o nome solto volta a contar (na duvida, nao sobe)."""
+    try:
+        import psutil
+    except Exception:
+        return [(c, None) for c in _linhas_de_comando_python()]
+    procs = []
+    for p in psutil.process_iter(["name", "cmdline"]):
+        try:
+            if not (p.info["name"] or "").lower().startswith("python"):
+                continue
+            cmd = subprocess.list2cmdline(p.info["cmdline"] or [])
+            try:
+                cwd = p.cwd()
+            except (psutil.AccessDenied, psutil.ZombieProcess, OSError):
+                cwd = None
+            procs.append((cmd, cwd))
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return procs
+
+
+def _mesma_pasta(a, b):
+    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def _eh_da_plataforma(cmd, script, cwd=None):
+    """True se a linha de comando roda o `script` DESTA pasta: pelo caminho completo dela, ou pelo nome solto (como
+    `sobe` o chama) com o processo rodando NESTA pasta (`cwd`; None = desconhecida, conta, na duvida).
+    Ate 29/09/2026 bastava ter o texto do script em qualquer lugar da linha: o Nexus (outro projeto,
+    `python -u "...\\temp\\Nexus\\app.py"`) contava como a plataforma, e a 5050 ficou fechada 20 minutos. Em 11/10/2026,
+    no reinicio do PC, o Nexus subiu pelo nome SOLTO (`pythonw app.py`, com a pasta dele): o nome solto contava sem
+    olhar a pasta, o guardiao subiu so o worker e a 5050 (a ponte do OS Creator) ficou fechada ate ser subida a mao."""
     for m in re.finditer(r'"([^"]*)"|(\S+)', cmd or ""):
         tok = m.group(1) if m.group(1) is not None else m.group(2)
         pasta, nome = os.path.split(tok.replace("/", os.sep))
         if nome.lower() != script.lower():
             continue
-        if not pasta or os.path.normcase(os.path.abspath(pasta)) == os.path.normcase(DIR):
+        if pasta:
+            if _mesma_pasta(pasta, DIR):
+                return True
+        elif cwd is None or _mesma_pasta(cwd, DIR):
             return True
     return False
 
@@ -59,7 +91,7 @@ def ja_roda(script):
     1a carregava, e no Windows 2 processos co-escutam a 5050 = 2 loops de ronda = RONDA DOBRADA
     (Levi 20/07). So conta o script DESTA pasta (ver _eh_da_plataforma)."""
     try:
-        return any(_eh_da_plataforma(c, script) for c in _linhas_de_comando_python())
+        return any(_eh_da_plataforma(c, script, cwd) for c, cwd in _processos_python())
     except Exception:
         return True   # na duvida, NAO sobe (duplicar a ronda e pior que ficar fora um ciclo)
 

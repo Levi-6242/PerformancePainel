@@ -39,17 +39,48 @@ def test_outro_script_ou_outro_modulo_nao_conta():
     assert not g._eh_da_plataforma("", "app.py")
 
 
+NEXUS = r"C:\Users\Levi Maia\OneDrive - GRID CO\Área de Trabalho\temp\Nexus"
+
+
+def test_o_nexus_pelo_nome_solto_nao_conta_como_a_plataforma():
+    """Caso real (11/10/2026, reinício do PC): o Nexus subiu como `pythonw app.py`, com a pasta dele. O nome solto
+    contava sem olhar a pasta: o guardião subiu só o worker e a 5050 (a ponte do OS Creator) ficou fechada."""
+    assert not g._eh_da_plataforma(PYW + " app.py", "app.py", cwd=NEXUS)
+    assert g._eh_da_plataforma(PYW + " app.py", "app.py", cwd=g.DIR)
+    assert g._eh_da_plataforma(PYW + " app.py", "app.py", cwd=g.DIR + os.sep)       # barra no fim
+    assert g._eh_da_plataforma(PYW + " app.py", "app.py")                           # pasta desconhecida: conta
+
+
 def test_ja_roda_usa_a_mesma_regua(monkeypatch):
-    linhas = [PY + r' -u "C:\temp\Nexus\app.py"', PYW + " worker.py"]
-    monkeypatch.setattr(g, "_linhas_de_comando_python", lambda: linhas)
-    assert not g.ja_roda("app.py")                     # só o Nexus: a plataforma NÃO está rodando
+    procs = [(PY + r' -u "C:\temp\Nexus\app.py"', NEXUS), (PYW + " app.py", NEXUS), (PYW + " worker.py", g.DIR)]
+    monkeypatch.setattr(g, "_processos_python", lambda: procs)
+    assert not g.ja_roda("app.py")                     # só o Nexus (com e sem pasta): a plataforma NÃO está rodando
     assert g.ja_roda("worker.py")
-    linhas.append(PYW + " app.py")
+    procs.append((PYW + " app.py", g.DIR))
     assert g.ja_roda("app.py")
+
+
+def test_sem_psutil_cai_nas_linhas_de_comando(monkeypatch):
+    import builtins
+    original = builtins.__import__
+
+    def _sem_psutil(nome, *a, **k):
+        if nome == "psutil":
+            raise ImportError("sem psutil")
+        return original(nome, *a, **k)
+    monkeypatch.setattr(builtins, "__import__", _sem_psutil)
+    monkeypatch.setattr(g, "_linhas_de_comando_python", lambda: [PYW + " app.py"])
+    assert g._processos_python() == [(PYW + " app.py", None)]
+    assert g.ja_roda("app.py")                         # pasta desconhecida: na dúvida, conta
+
+
+def test_o_processo_deste_teste_aparece_com_a_pasta():
+    """O psutil de verdade: o python deste teste está na lista, com a pasta de trabalho dele."""
+    assert any(cwd and g._mesma_pasta(cwd, os.getcwd()) for _c, cwd in g._processos_python())
 
 
 def test_na_duvida_nao_sobe(monkeypatch):
     def _falha():
         raise RuntimeError("powershell fora")
-    monkeypatch.setattr(g, "_linhas_de_comando_python", _falha)
+    monkeypatch.setattr(g, "_processos_python", _falha)
     assert g.ja_roda("app.py")                         # duplicar a ronda é pior que ficar fora um ciclo
