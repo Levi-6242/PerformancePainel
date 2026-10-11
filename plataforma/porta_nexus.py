@@ -64,6 +64,8 @@ MAPA = (
     Tela("base", "chaves-fontes", "Chaves das fontes", "/tokens", (), True),
     # Fontes do tempo real (11/10/2026): quais usinas de cada fonte entram no tempo real e são coletadas; só admin
     Tela("base", "fontes-tempo-real", "Fontes do tempo real", "/admin/tempo-real", (), True),
+    # De-para de equipamentos (11/10/2026): o diagnóstico do de-para (fatia 1, só leitura); só admin
+    Tela("base", "de-para-equipamentos", "De-para de equipamentos", "/admin/de-para", (), True),
 )
 
 # Rotas de página da plataforma que NÃO são tela do Nexus, cada uma com o porquê. Rota de página nova tem de entrar no

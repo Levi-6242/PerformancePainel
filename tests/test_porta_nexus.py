@@ -81,11 +81,11 @@ def entrar_com_senha(cli):
 def test_o_mapa_e_a_copia_do_nexus():
     """O Nexus é o dono do mapa; esta é a cópia. O mesmo texto canônico (e a mesma assinatura) está no teste do Nexus:
     mudou lá, muda aqui, e os dois testes mudam juntos."""
-    assert len(pn.MAPA) == 13
+    assert len(pn.MAPA) == 14
     assert pn.texto_canonico_do_mapa().splitlines()[0] == "performance|tempo-real|/tempo-real|/tempo-real/<fonte> /monitor|"
-    assert pn.texto_canonico_do_mapa().splitlines()[-1] == "base|fontes-tempo-real|/admin/tempo-real||admin"
-    assert pn.assinatura_do_mapa() == "35c2ddcb8944b23a"
-    assert len({(t.torre, t.tela) for t in pn.MAPA}) == 13
+    assert pn.texto_canonico_do_mapa().splitlines()[-1] == "base|de-para-equipamentos|/admin/de-para||admin"
+    assert pn.assinatura_do_mapa() == "585df9483ce29999"
+    assert len({(t.torre, t.tela) for t in pn.MAPA}) == 14
 
 
 def test_cada_caminho_cai_na_sua_tela():
@@ -95,7 +95,7 @@ def test_cada_caminho_cai_na_sua_tela():
              "/gerencial/disponibilidade": "disponibilidade", "/relatorio": "relatorio",
              "/relatorio/semanal": "relatorio-semanal", "/gemeo/": "gemeo", "/gemeo/usina/12": "gemeo",
              "/ronda/monitor": "monitor-ronda", "/cos": "acompanhamento",
-             "/tokens": "chaves-fontes", "/admin/tempo-real": "fontes-tempo-real", "/painel/usina/1?antigo=1": "diagnostico"}
+             "/tokens": "chaves-fontes", "/admin/tempo-real": "fontes-tempo-real", "/admin/de-para": "de-para-equipamentos", "/painel/usina/1?antigo=1": "diagnostico"}
     for c, tela in casos.items():
         assert getattr(pn.tela_do_caminho(c), "tela", None) == tela, c
     for c in ("/", "/login", "/painel/nexus/entrar", "/api/data", "/painel/usina/1/x", "/painelx", "/gemeo",

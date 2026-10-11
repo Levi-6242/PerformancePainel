@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>De-para de equipamentos · Plataforma de Performance</title>
+{# De-para de equipamentos, fatia 1 (11/10/2026; Levi: "quero que o de-para da equipamentos seja feito na plataforma de
+   forma intuitiva"): o diagnóstico, só leitura. Para cada usina de cada fonte, como ela se liga ao cadastro, se tem
+   esperadas, se o número de inversores bate e de onde vem o nome de cada inversor. A regra mora em depara_diag.py. Só
+   administrador do Nexus (porta_nexus.ROTAS_SO_ADMIN). #}
+<style>
+  :root{
+    --bg:#090d18; --card:#161d30; --card2:#1c2640; --linha:rgba(255,255,255,.09); --linha2:rgba(255,255,255,.16);
+    --txt:#e9eef6; --txt2:#c3cad7; --txt3:#96a0b4;
+    --verde:#a3d900; --verde-txt:#c4e755; --verde-suave:rgba(163,217,0,.12);
+    --ambar:#ffd83d; --ambar-suave:rgba(255,216,61,.12); --vermelho:#ff5b6e; --vermelho-suave:rgba(255,91,110,.12);
+    --azul:#7fb8ff; --azul-suave:rgba(91,157,255,.14); --mudo-suave:rgba(150,160,180,.12);
+    --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{color-scheme:dark}
+  body{margin:0;background:var(--bg);color:var(--txt);font:400 14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .topo{border-bottom:1px solid var(--linha);padding:14px 22px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .topo h1{font-size:17px;font-weight:600;margin:0}
+  .topo a{color:var(--txt3);text-decoration:none;font-size:13px}
+  .topo a:hover{color:var(--verde-txt)}
+  .wrap{max-width:1180px;margin:0 auto;padding:20px 22px 48px}
+  .intro{color:var(--txt2);margin:0 0 16px;max-width:880px}
+  .resumo{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:0 0 16px}
+  .kpi{background:var(--card);border-radius:8px;padding:11px 14px}
+  .kpi .r{font-size:12px;color:var(--txt3)}
+  .kpi .v{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+  .kpi.critico .v{color:var(--vermelho)} .kpi.atencao .v{color:var(--ambar)}
+  .filtros{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 14px}
+  .filtros input[type=search],.filtros select{background:var(--card);color:var(--txt);border:1px solid var(--linha2);
+    border-radius:7px;padding:7px 10px;font:inherit;min-width:220px}
+  .filtros label{color:var(--txt2);font-size:13px;display:flex;gap:6px;align-items:center}
+  .bloco{background:var(--card);border-radius:10px;margin:0 0 14px;border-left:3px solid var(--linha2)}
+  .bloco.precisa{border-left-color:var(--ambar)}
+  .bcab{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:14px 16px 8px}
+  .bnome{font-size:15px;font-weight:600}
+  .bconta{color:var(--txt3);font-size:12.5px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-weight:500;color:var(--txt3);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;
+     padding:7px 16px;border-top:1px solid var(--linha)}
+  td{padding:8px 16px;border-top:1px solid var(--linha);vertical-align:top;color:var(--txt2)}
+  td.usina{color:var(--txt);font-weight:500}
+  td.chave{font-family:var(--mono);font-size:12px;color:var(--txt3)}
+  td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
+  .chip{display:inline-block;font-size:11.5px;padding:2px 8px;border-radius:99px;margin:1px 4px 1px 0}
+  .chip.critico{background:var(--vermelho-suave);color:var(--vermelho)}
+  .chip.atencao{background:var(--ambar-suave);color:var(--ambar)}
+  .chip.info{background:var(--azul-suave);color:var(--azul)}
+  .chip.ok{background:var(--verde-suave);color:var(--verde-txt)}
+  .vazio{color:var(--txt3);padding:12px 16px;font-size:13px}
+  .msg{font-size:12.5px;color:var(--txt3)}
+  .rodape{color:var(--txt3);font-size:12px;margin-top:22px;padding-top:12px;border-top:1px solid var(--linha);max-width:900px}
+</style>
+</head>
+<body>
+<div class="topo">
+  <h1>De-para de equipamentos</h1>
+  <a href="/" data-casca>← Início</a>
+  <span style="flex:1"></span>
+  <span class="msg" id="lido" role="status"></span>
+</div>
+<div class="wrap">
+  <p class="intro">Como cada usina de cada fonte se liga ao cadastro (a aba Equipamentos do BD_Performance): se tem strings
+    esperadas, se o número de inversores bate e de onde vem o nome de cada inversor. Usina sem esperadas não acusa string
+    morta; nome de inversor pela ordem pode trocar um inversor pelo outro. Por enquanto é só leitura: o próximo passo é
+    decidir aqui (ligar, trocar, confirmar) e gravar no banco.</p>
+  <div class="resumo" id="resumo"></div>
+  <div class="filtros">
+    <input type="search" id="busca" placeholder="Procurar usina ou chave" aria-label="Procurar usina ou chave">
+    <select id="fFonte" aria-label="Fonte"><option value="">Todas as fontes</option></select>
+    <label><input type="checkbox" id="soAlerta"> Só com alerta</label>
+  </div>
+  <div id="corpo"><p class="vazio">Lendo as fontes…</p></div>
+  <p class="rodape">A leitura usa as tabelas de strings que a plataforma já montou (nenhum pedido novo às fontes). Fonte
+    que esta máquina não leu (a SunOp no PC, em modo ronda) aparece como não lida.</p>
+</div>
+<script>
+(function(){
+  var D = null;
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function num(v){ return v == null ? '—' : String(v); }
+  async function ler(){
+    var r;
+    try { r = await fetch('/api/admin/de-para', {credentials:'same-origin'}); }
+    catch(e){ return falhou('sem resposta da plataforma'); }
+    if(!r.ok) return falhou(r.status === 403 ? 'só administradores do Nexus' : r.status === 401 ? 'sessão vencida: abra de novo pelo Nexus' : 'HTTP ' + r.status);
+    D = await r.json();
+    document.getElementById('lido').textContent = 'lido às ' + new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+    desenhar();
+  }
+  function falhou(motivo){
+    document.getElementById('lido').textContent = 'não atualizou (' + motivo + ')' + (D ? ': a lista é a da leitura anterior' : '');
+    if(!D) document.getElementById('corpo').innerHTML = '<p class="vazio">Não foi possível ler: ' + esc(motivo) + '.</p>';
+  }
+  function alertas(u){
+    if(!u.alertas.length) return '<span class="chip ok">ok</span>';
+    return u.alertas.map(function(a){ return '<span class="chip ' + a.nivel + '">' + esc(a.texto) + '</span>'; }).join('');
+  }
+  function tabela(us, comFonte){
+    if(!us.length) return '<p class="vazio">Nada com esse filtro.</p>';
+    var h = '<table><thead><tr>' + (comFonte ? '<th>Fonte</th>' : '') + '<th>Usina</th><th>Chave na fonte</th><th>Liga ao cadastro</th><th>Esperadas</th><th>Inversores<br>fonte / cadastro</th><th>Nome dos inversores</th><th>Situação</th></tr></thead><tbody>';
+    us.forEach(function(u){
+      h += '<tr>' + (comFonte ? '<td>' + esc(D.rotulos[u.fonte] || u.fonte) + '</td>' : '') + '<td class="usina">' + esc(u.usina) + '</td><td class="chave">' + esc(u.plant_id) +
+        '</td><td>' + esc(u.liga) + '</td><td class="n">' + num(u.str_esp) + '</td><td class="n">' + num(u.inv_fonte) + ' / ' + num(u.inv_esp) +
+        '</td><td>' + esc(u.nomes_inversor) + '</td><td>' + alertas(u) + '</td></tr>';
+    });
+    return h + '</tbody></table>';
+  }
+  function desenhar(){
+    var c = D.contagem;
+    document.getElementById('resumo').innerHTML =
+      '<div class="kpi"><div class="r">Usinas lidas</div><div class="v">' + c.usinas + '</div></div>' +
+      '<div class="kpi critico"><div class="r">Sem esperadas (string morta não acusa)</div><div class="v">' + c.criticos + '</div></div>' +
+      '<div class="kpi atencao"><div class="r">Precisam de atenção</div><div class="v">' + c.atencao + '</div></div>';
+    var sel = document.getElementById('fFonte');
+    if(sel.options.length <= 1) D.fontes.forEach(function(f){ var o = document.createElement('option'); o.value = f.id; o.textContent = f.nome; sel.appendChild(o); });
+    var busca = document.getElementById('busca').value.trim().toLowerCase(), soAlerta = document.getElementById('soAlerta').checked, ff = sel.value;
+    function passa(u){
+      if(soAlerta && !u.alertas.length) return false;
+      return !busca || String(u.usina).toLowerCase().indexOf(busca) >= 0 || String(u.plant_id).toLowerCase().indexOf(busca) >= 0;
+    }
+    var h = '';
+    var precisa = D.precisa.filter(function(u){ return (!ff || u.fonte === ff) && passa(u); });
+    if(precisa.length) h += '<section class="bloco precisa" aria-label="Precisa de você"><div class="bcab"><span class="bnome">Precisa de você</span><span class="bconta">' + precisa.length + ' usina(s)</span></div>' + tabela(precisa, true) + '</section>';
+    D.fontes.filter(function(f){ return !ff || f.id === ff; }).forEach(function(f){
+      if(!f.lida){ if(!busca && !soAlerta) h += '<section class="bloco"><div class="bcab"><span class="bnome">' + esc(f.nome) + '</span><span class="bconta">não lida nesta máquina</span></div></section>'; return; }
+      var us = f.usinas.filter(passa);
+      if((busca || soAlerta) && !us.length) return;
+      h += '<section class="bloco" aria-label="' + esc(f.nome) + '"><div class="bcab"><span class="bnome">' + esc(f.nome) + '</span><span class="bconta">' + f.usinas.length + ' usina(s)</span></div>' + tabela(us, false) + '</section>';
+    });
+    document.getElementById('corpo').innerHTML = h || '<p class="vazio">Nada com esse filtro.</p>';
+  }
+  ['busca', 'fFonte', 'soAlerta'].forEach(function(id){ document.getElementById(id).addEventListener(id === 'busca' ? 'input' : 'change', function(){ if(D) desenhar(); }); });
+  ler();
+  setInterval(function(){ if(document.visibilityState !== 'hidden') ler(); }, 120000);
+})();
+</script>
+</body>
+</html>

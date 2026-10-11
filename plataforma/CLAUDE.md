@@ -376,11 +376,12 @@ mesma origem; a ponte do Nexus busca no servidor e não repassa este cabeçalho;
 OS Creator é de outro endereço e não é a plataforma; o Thopen (Railway) e o App de Campo não emolduram nada daqui. No PC,
 porta diferente é OUTRA origem: a moldura só abre atrás da `ferramentas/porta_local.py` do Nexus (como no servidor).
 
-**O mapa** (`porta_nexus.MAPA`, spec 5.6) é a CÓPIA do mapa do Nexus (o dono): 13 telas, ids do Nexus (`tempo-real`,
+**O mapa** (`porta_nexus.MAPA`, spec 5.6) é a CÓPIA do mapa do Nexus (o dono): 14 telas, ids do Nexus (`tempo-real`,
 `noc`, `diagnostico`, `strings-trackers`, `gerencial`, `disponibilidade`, `relatorio`, `relatorio-semanal`, `gemeo`,
-`monitor-ronda` = "Rondas de Trackers"; COS `acompanhamento`; Base `chaves-fontes` e `fontes-tempo-real`, só admin). Os dois lados conferem o
+`monitor-ronda` = "Rondas de Trackers"; COS `acompanhamento`; Base `chaves-fontes`, `fontes-tempo-real` e
+`de-para-equipamentos`, só admin). Os dois lados conferem o
 mesmo texto canônico (`texto_canonico_do_mapa`, uma linha `torre|tela|caminho|tambem|admin` por tela) pela assinatura
-`35c2ddcb8944b23a` (`test_o_mapa_e_a_copia_do_nexus`): mudou lá, muda aqui. Em 11/10/2026 o Histórico da plataforma
+`585df9483ce29999` (`test_o_mapa_e_a_copia_do_nexus`): mudou lá, muda aqui. Em 11/10/2026 o Histórico da plataforma
 (`/historico-plataforma`, `historico_pv.html`) foi APAGADO, rota e template (Levi: "Pode matar a seção histórico da
 plataforma!"); as APIs que ele lia (`/api/pv/trackers` e o gráfico por tracker) ficam, servem a outras telas. Rota de página nova entra no `MAPA` ou no
 `FORA_DO_MAPA` com o porquê (`test_toda_rota_de_pagina_tem_lugar_no_mapa`).
@@ -654,6 +655,27 @@ coletada** (os dias fora ficam sem dado).
   voltava antes do filtro — corrigido (a lista fica inteira como inventário e o filtro vale também na volta antecipada).
 - **Desligar**: `TEMPO_REAL_COBERTURA=0` numa máquina (nada é filtrado). Banco ilegível sem cópia em disco: nada é filtrado.
   Os testes rodam com o filtro desligado (`conftest._cobertura_desligada_por_padrao`). Testes: `tests/test_cobertura_tempo_real.py`.
+
+## De-para de equipamentos (11/10/2026)
+
+Levi: "quero que o de-para da equipamentos seja feito na plataforma de forma intuitiva". O de-para de hoje mora em três
+lugares que ninguém vê: a aba Equipamentos do BD_Performance (chave "Usina Supervisório", sincronizada do Excel pelo
+coletor), constantes no código (`PV_NOME_POR_ID`, `PV_NOME_API_ALIAS`, `PV_ALIAS_CODIGO`, `PV_INV_NOMES`,
+`scadagridco.FONTES`) e a ordem dos ids. No mesmo dia ele quebrou quatro vezes em silêncio (a API renomeou a Ipixuna e a
+Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o grupo 2 rotulado como 1).
+
+- **Fatia 1: o diagnóstico, só leitura.** `/admin/de-para` (`templates/depara.html`), no Nexus como Base · De-para
+  de equipamentos, só admin (a API em `/api/admin/de-para`). Por fonte e usina: como liga ao cadastro (pelo id da ponte,
+  com o nome que a API escreve; por apelido no código; pelo nome), esperadas, inversores fonte × cadastro e de onde vem o
+  nome de cada inversor. Alertas: **crítico** = sem strings esperadas (string morta não acusa); **atenção** = inversores
+  na fonte ≠ cadastro, ou nome de inversor pela ORDEM (conta oem@ sem `PV_INV_NOMES`; scadaGridco sem de-para por valor);
+  **informação** = o provisório anotado em `PV_INV_PROVISORIOS` (só ele não vai a "Precisa de você"). A regra é pura, em
+  `depara_diag.py`; a rota lê as tabelas de strings que a plataforma JÁ montou (nenhum pedido às fontes), e fonte que a
+  máquina não leu (a SunOp no PC, em modo ronda) aparece "não lida". As fontes são as de `cobertura.FONTES`.
+- **Próximas fatias** (lista do Levi): decidir na tela (ligar, trocar, confirmar) gravando no livro
+  `nexus_depara · fato_decisao_depara` (registrar no catálogo do Nexus antes), migrar as constantes para ele, o coletor
+  ler o mesmo livro, trackers e atributos. Até lá a ponte segue no código.
+- Testes: `tests/test_depara_equipamentos.py`.
 
 ## Padrão por inversor (usinas sem visão por string)
 
@@ -991,7 +1013,8 @@ de-para fechado **por valor** contra o kWh diário do BD, nunca pela ordem dos i
 duas usinas ficaram SEM esperadas — string morta não acusava — e a Ipixuna deixou de juntar as três UGs): o
 `get_plants` passa a lista por `_pv_nome_do_cadastro`, que põe o nome do cadastro pelo ID (`PV_NOME_POR_ID`) e guarda o
 da API em `nome_api`. A Morada Nova ganhou o de-para por valor do coletor no `PV_INV_NOMES` (a ordem errava 6 de 8) e o
-id novo do INVERSOR08 (388164 → 402513). Ponte até o de-para virar tela.
+id novo do INVERSOR08 (388164 → 402513). A tela De-para de equipamentos mostra cada ponte (seção acima); decidir por
+ela é a fatia 2, e até lá a ponte segue no código.
 
 **O e-mail saiu do Tempo Real (29/09/2026, à noite**, Levi: "Ipixuna do Pará passar a puxar da API PV matando de vez o
 e-mail no tempo real!"). A Ipixuna do Pará entrou na conta oem@ como **três plantas, uma por UG** — Santa Cecilia 1

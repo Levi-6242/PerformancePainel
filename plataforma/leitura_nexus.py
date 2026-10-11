@@ -170,6 +170,7 @@ _GET_GESTOR = (
     "/api/ronda/whats/status", "/api/ronda/whats/qr",         # Monitor da ronda (só as leituras dele)
     "/api/tokens",                                            # Chaves das fontes: a validade (e só para admin)
     "/api/admin/tempo-real/fontes",                           # Fontes do tempo real: a lista (e só para admin)
+    "/api/admin/de-para",                                     # De-para de equipamentos: o diagnóstico (e só para admin)
 )
 
 # POSTs que só consultam: os da ponte e as OS do Fracttal da usina (corpo com usina e inversores)

@@ -1445,6 +1445,36 @@ def api_cob_decidir():
     return jsonify({"ok": True, "gravadas": len(novas), "total": total})
 
 
+@app.route("/admin/de-para")
+def pagina_depara():
+    """De-para de equipamentos, fatia 1 (11/10/2026): o diagnóstico, só leitura (depara_diag.py). Só admin do Nexus."""
+    return render_template("depara.html")
+
+
+def _depara_tabelas() -> dict:
+    """As linhas das tabelas de strings que esta plataforma já tem em cache, por fonte (nenhum pedido às fontes). Fonte
+    sem tabela montada fica de fora (a tela diz "não lida nesta máquina")."""
+    def rows(c):
+        return ((c or {}).get("payload") or {}).get("rows")
+    t = {"pv": rows(_cache), "pg": _pg_cache.get("summary"), "sunop": rows(_si("gridco").get("cache")),
+         "axis": rows(_si("axis").get("cache")), "solaredge": rows(_se_cache), "semp": rows(_semp_cache),
+         "alveslima": rows(_alveslima_cache), "2capi": rows(_2capi_cache),
+         "greenyellow": rows(_SG_CACHE.get("greenyellow")), "salenergia": rows(_SG_CACHE.get("salenergia"))}
+    return {f: v for f, v in t.items() if v is not None}
+
+
+@app.route("/api/admin/de-para")
+def api_depara():
+    import depara_diag
+    ctx = {"nome_api": {p["id"]: p["nome_api"] for p in (_plants_cache.get("data") or []) if p.get("nome_api")},
+           "ponte_ids": PV_NOME_POR_ID, "apelidos": PV_NOME_API_ALIAS, "inv_nomes": PV_INV_NOMES,
+           "provisorios": PV_INV_PROVISORIOS, "oem": PV_OEM_PLANTS,
+           "sg_por_ordem": {(f, c["id"]): True for f, d in _sg.FONTES.items() for c in d["usinas"] if not c.get("inversores")}}
+    d = depara_diag.diagnostico(_depara_tabelas(), ctx)
+    d["rotulos"] = depara_diag.ROTULOS
+    return jsonify(d)
+
+
 @app.route("/api/admin/tempo-real/migrar", methods=["POST"])
 def api_cob_migrar():
     """A foto de hoje de uma fonte: incluir para o que aparece no tempo real agora (a regra de antes), excluir para o resto
@@ -3054,6 +3084,13 @@ PV_INV_NOMES = {
 }
 
 
+# O que no PV_INV_NOMES ainda é provisório (a tela De-para de equipamentos mostra): fechar por valor quando houver dado.
+PV_INV_PROVISORIOS = {
+    18772125: "União: o grupo 1 (401322–401327) foi nomeado pela ordem dos ids; fechar por valor quando o BD tiver o 1.x",
+    18766373: "Morada Nova: o id novo do INVERSOR08 (402513) foi casado por eliminação (a API trocou o 388164)",
+}
+
+
 def _pv_nome_2c(idusina, idinv):
     """Nome do inversor da conta oem@ pelo de-para em código (PV_INV_NOMES) — o MESMO que o drill usa. A curva do
     dia, a de dia passado e o CSV nomeavam por plant_devices (negado a essa conta) ou pela ordem do cadastro (vazio),
@@ -3548,6 +3585,14 @@ def _pv_relogio_serie(pid, serie):
     return [(s[0] + timedelta(hours=h),) + tuple(s[1:]) if s and s[0] is not None else s for s in serie]
 
 
+def _pv_cadastro_da_linha(plant: dict) -> dict:
+    """O que a tela De-para de equipamentos lê da linha (11/10/2026): as esperadas do CADASTRO, antes dos descontos da
+    leitura (inversor sem visão, em rampa, desligado ou com OS: a String Box à noite fica com 0 na linha e parecia "sem
+    esperadas"), e o nome que a API escreve quando a ponte pelo id o trocou."""
+    return {"str_esp_cadastro": (ESPERADO.get(plant["nome"].strip()) or {}).get("str_esp"),
+            **({"nome_api": plant["nome_api"]} if plant.get("nome_api") else {})}
+
+
 def build_summary(plant: dict, records: list) -> dict:
     pid  = plant["id"]
     nome = nome_usina(pid, plant["nome"])
@@ -3810,6 +3855,7 @@ def build_summary(plant: dict, records: list) -> dict:
         # mostra "Sem visão de strings" (neutro). Sem isto, ativas=0 caía em "Sem geração" falso.
         "sem_visao": bool(sem_visao and strings_ativas == 0 and not em_rampa and (pot_med or prod)),
         "inv_sem_visao": sv_chaves, "ger_inv": ger_inv,     # tickets de strings pela geração (_com_tickets_str)
+        **_pv_cadastro_da_linha(plant),
     }
 
 
@@ -3821,7 +3867,7 @@ def process_plant(token: str, plant: dict, timeout: int = 45) -> dict:
             "qtd_inversores": None, "strings_ativas": None,
             "temp_media": None, "ultima_leitura": None,
             "sem_dados": True, "falha_comunicacao": False,
-            "stringbox": plant["nome"].strip() in STRING_BOX}
+            "stringbox": plant["nome"].strip() in STRING_BOX, **_pv_cadastro_da_linha(plant)}
     try:
         records = _http().post(f"{BASE_URL}/day_inverter",
                                 headers={"x-access-token": _pv_token_for(pid)},
@@ -3888,7 +3934,7 @@ def fetch_all(fonte: str = None) -> list:
                              "qtd_inversores": None, "strings_ativas": None,
                              "temp_media": None, "ultima_leitura": None,
                              "sem_dados": True, "falha_comunicacao": False,
-                             "stringbox": _p["nome"].strip() in STRING_BOX})
+                             "stringbox": _p["nome"].strip() in STRING_BOX, **_pv_cadastro_da_linha(_p)})
 
     rows_by_id = {r["plant_id"]: r for r in rows}
 
