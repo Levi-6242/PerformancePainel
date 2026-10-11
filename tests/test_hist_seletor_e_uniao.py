@@ -152,7 +152,9 @@ def test_o_card_mensal_vazio_mostra_o_motivo_e_o_cheio_volta_ao_texto_de_sempre(
 
 # ── 2) cadastro da União ─────────────────────────────────────────────────────────────────────────────────────────
 
-def test_o_cadastro_da_uniao_sob_o_codigo_uni_chega_a_usina_da_api_so_com_a_ug01(monkeypatch):
+def test_o_cadastro_da_uniao_sob_o_codigo_uni_chega_inteiro_a_usina_da_api(monkeypatch):
+    """Até 10/2026 a API tinha só 6 dos 12 inversores e a ponte copiava só esses; em 11/10/2026 ela devolvia os 12 e o
+    parcial escondia metade da usina (108 esperadas para 215 ativas)."""
     esp = {"UNI": {**{f"UNI_Inv_1.{i}": 18 for i in range(1, 7)}, **{f"UNI_Inv_2.{i}": 18 for i in range(1, 7)}}}
     nomes = {"UNI": {f"UNI_Inv_{u}.{i}": f"Inversor {u}.{i}" for u in (1, 2) for i in range(1, 7)}}
     monkeypatch.setattr(app, "ESPERADO_INV", esp)
@@ -165,16 +167,39 @@ def test_o_cadastro_da_uniao_sob_o_codigo_uni_chega_a_usina_da_api_so_com_a_ug01
     monkeypatch.setattr(app, "FULL_OM", {"UNI", "União 1 e 2"})
     monkeypatch.setattr(app, "STRING_BOX", set())
     app._aplica_alias_api_cadastro()
-    assert sorted(app.ESPERADO_INV["União"]) == [f"UNI_Inv_1.{i}" for i in range(1, 7)], "só a UG 01 — é o que a API tem"
-    assert app.ESPERADO["União"] == {"inv_esp": 6, "str_esp": 108}, "não 216: seriam 108 strings 'faltando' que não existem"
-    assert app.EQUIP_NAMES["União"]["UNI_Inv_1.1"] == "Inversor 1.1"
+    assert len(app.ESPERADO_INV["União"]) == 12, "os 12 inversores: é o que a API tem desde 10/2026"
+    assert app.ESPERADO["União"] == {"inv_esp": 12, "str_esp": 216}
+    assert app.EQUIP_NAMES["União"]["UNI_Inv_2.1"] == "Inversor 2.1"
     assert app._pot_inv("União", "UNI_Inv_1.6", "Inversor 1.6") == 360.36, "sem o kWp o PR por inversor sai nulo"
-    assert len(app.POWER_INV["União"]) == 12 and app._pot_inv("União", "UNI_Inv_2.1", "Inversor 2.1") is None
+    assert app._pot_inv("União", "UNI_Inv_2.1", "Inversor 2.1") == 360.36
     assert "União" in app.FULL_OM and app.USINA_DISPLAY["União"] == "União 1 e 2"
 
 
-def test_os_seis_inversores_da_uniao_tem_nome_de_cadastro():
-    assert [app._pv_nome_2c(18772125, 401313 + i) for i in range(6)] == [f"UNI_Inv_1.{i}" for i in range(1, 7)]
+def test_os_doze_inversores_da_uniao_tem_nome_de_cadastro_e_o_grupo_do_coletor():
+    """401313..401318 são o grupo 2 (o coletor fechou pela razão entre os trios e conferiu com o FusionSolar); a plataforma
+    os chamava de 1.x pela ordem. Os 6 novos (401322..401327) são o grupo 1, pela ordem (provisório)."""
+    assert [app._pv_nome_2c(18772125, 401313 + i) for i in range(6)] == [f"UNI_Inv_2.{i}" for i in range(1, 7)]
+    assert [app._pv_nome_2c(18772125, 401322 + i) for i in range(6)] == [f"UNI_Inv_1.{i}" for i in range(1, 7)]
+
+
+def test_a_ponte_pelo_id_segura_a_planta_que_a_api_renomeou():
+    """11/10/2026: a conta oem@ passou a escrever "Ipixuna do Pará 1/2/3" (era "Santa Cecilia 1/2/3") e "Morada Nova" (era
+    "MORADA NOVA"); o cadastro é chaveado pelo nome antigo e as duas usinas ficaram sem esperadas."""
+    api = [{"id": 18771915, "nome": "Ipixuna do Pará 1"}, {"id": 18766373, "nome": "Morada Nova"},
+           {"id": 18771898, "nome": "Araputanga"}, {"id": 18771929, "nome": "Santa Cecilia 2"}]
+    out = app._pv_nome_do_cadastro(api)
+    assert [p["nome"] for p in out] == ["Santa Cecilia 1", "MORADA NOVA", "Araputanga", "Santa Cecilia 2"]
+    assert out[0]["nome_api"] == "Ipixuna do Pará 1" and "nome_api" not in out[2] and "nome_api" not in out[3]
+    assert api[0]["nome"] == "Ipixuna do Pará 1"                                   # a lista da API não é mexida
+
+
+def test_a_morada_nova_tem_os_nomes_por_valor_e_o_id_novo_do_inversor_8():
+    """A ordem dos ids (o _pos_map) erra 6 dos 8; o de-para é o do coletor (por valor). Em 10/2026 a API trocou o id do
+    INVERSOR08 (388164 → 402513)."""
+    nomes = {i: app._pv_nome_2c(18766373, i) for i in (388158, 388159, 388160, 388161, 388162, 388163, 388165, 402513)}
+    assert nomes == {388162: "INVERSOR01", 388159: "INVERSOR02", 388158: "INVERSOR03", 388165: "INVERSOR04",
+                     388161: "INVERSOR05", 388163: "INVERSOR06", 388160: "INVERSOR07", 402513: "INVERSOR08"}
+    assert app._pv_nome_2c(18766373, 388164) == "INVERSOR08"                       # os dias passados
 
 
 # ── 3) a curva da 2C com os nomes do drill ───────────────────────────────────────────────────────────────────────

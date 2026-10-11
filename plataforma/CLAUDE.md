@@ -986,7 +986,12 @@ completa, curva, Diagnóstico v2. É o padrão SEMP/Alves Lima (`PV_FONTES` + bl
 fonte explícita filtra por **id**, não pelo `FULL_OM` (`_pv_plantas_da_fonte` — o FULL_OM é por nome de supervisório
 e "Sete Lagoa" não está lá); `PV_NOME_API_ALIAS` traduz o nome da API para o do cadastro em `nome_usina`; e
 `PV_INV_NOMES` dá o nome do inversor (a conta oem@ não devolve nome e as abas da 2C não têm linha no Equipamentos) —
-de-para fechado **por valor** contra o kWh diário do BD, nunca pela ordem dos ids.
+de-para fechado **por valor** contra o kWh diário do BD, nunca pela ordem dos ids. **A API renomeia planta** (a Tucano em
+26/08; em 11/10/2026 "Santa Cecilia 1/2/3" viraram "Ipixuna do Pará 1/2/3" e "MORADA NOVA" virou "Morada Nova", e as
+duas usinas ficaram SEM esperadas — string morta não acusava — e a Ipixuna deixou de juntar as três UGs): o
+`get_plants` passa a lista por `_pv_nome_do_cadastro`, que põe o nome do cadastro pelo ID (`PV_NOME_POR_ID`) e guarda o
+da API em `nome_api`. A Morada Nova ganhou o de-para por valor do coletor no `PV_INV_NOMES` (a ordem errava 6 de 8) e o
+id novo do INVERSOR08 (388164 → 402513). Ponte até o de-para virar tela.
 
 **O e-mail saiu do Tempo Real (29/09/2026, à noite**, Levi: "Ipixuna do Pará passar a puxar da API PV matando de vez o
 e-mail no tempo real!"). A Ipixuna do Pará entrou na conta oem@ como **três plantas, uma por UG** — Santa Cecilia 1
@@ -1070,12 +1075,13 @@ sem ela o card da 2C da Entrada a descartava por falta de cliente. Os trackers d
 
 **Cadastro da União (28/09/2026**, Levi: "já está na aba equipamentos porém não apareceu na plataforma"). O Equipamentos
 a preencheu sob o supervisório **"UNI"** (UNI_Inv_1.1 a 2.6, 12 inversores de 18 strings), não sob "União 1 e 2" —
-`PV_ALIAS_CODIGO` faz a cópia do alias procurar também o código. E a API tem só a **UG 01**: `PV_ALIAS_PARCIAL` copia os
-inversores 1.1 a 1.6 (6 × 360,36 kWp = os 2.162 kWp da API — é a conferência que fecha), com o esperado da usina somado
-deles: 108, não 216, que seriam 108 strings "faltando" que não existem. Na potência o filtro compara pelo `_nrm` do
-supervisório e do nome de exibição, que é como o `POWER_INV` é chaveado. Os nomes vêm de `PV_INV_NOMES` **pela ordem dos
-ids** (401313 → UNI_Inv_1.1 … 401318 → 1.6) — provisório, a única exceção à regra do valor: a conta oem@ não lista
-dispositivos, o e-mail da 2C não manda a União e o ativo do Fracttal não tem nº de série. Confirmar na PV Plataforma.
+`PV_ALIAS_CODIGO` faz a cópia do alias procurar também o código. **Desde 11/10/2026 a API tem os 12** (401313–401318 e
+401322–401327; até ali só 6, e o `PV_ALIAS_PARCIAL` copiava só esses): a ponte copia o cadastro inteiro (216
+esperadas). **401313–401318 são o GRUPO 2** (`UNI_Inv_2.x`): o coletor fechou assim em 28/09 pela razão entre os trios
+(1,17, a mesma do BD 2.1–2.3 × 2.4–2.6) e conferiu com o FusionSolar; a plataforma tinha posto "1.x" pela ordem e
+rotulou o grupo 2 como grupo 1 até 11/10/2026. Os 6 novos (401322–401327) são o grupo 1 PELA ORDEM, provisório (as
+colunas 1.x do BD estão vazias desde 05/10, sem valor para fechar). Na potência o filtro compara pelo `_nrm` do
+supervisório e do nome de exibição, que é como o `POWER_INV` é chaveado.
 Drill, curva do dia, curva de dia passado e CSV nomeiam pelo mesmo `_pv_nome_2c`, que vem **antes** da ordem do cadastro:
 a ordem é de texto ("1.10" antes de "1.2") e rotularia errado a usina de 10+ inversores que ganhasse cadastro. Até 28/09
 a curva de hoje das três da 2C saía "INV-400771" e o drill desenhava a do 1º inversor em todos.

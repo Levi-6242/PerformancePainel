@@ -2082,10 +2082,33 @@ PV_NOME_API_ALIAS = {"Sete Lagoa": "Sete Lagoas", "União": "União 1 e 2"}
 # apareceu na plataforma"). Sem isto a cópia do alias procurava "União 1 e 2", não achava, e a União seguia sem nomes
 # e sem esperadas.
 PV_ALIAS_CODIGO = {"União": "UNI"}
-# Usina da API que é só PARTE da usina do cadastro: a "União" da API (18772125, 2.162 kWp) é a UG 01 (Inversor 1.1 a
-# 1.6); a UG 02 (2.1 a 2.6) não está nela. Copiar o cadastro inteiro cobraria 216 strings de 6 inversores — 108
-# "faltando" que não existem. Fica só o que a API tem, e o esperado da usina sai da soma desses.
-PV_ALIAS_PARCIAL = {"União": {f"UNI_Inv_1.{i}" for i in range(1, 7)}}
+# Usina da API que é só PARTE da usina do cadastro: a "União" da API (18772125) tinha só 6 dos 12 inversores até 10/2026
+# e copiar o cadastro inteiro cobraria strings de inversores que a API não mostra. Em 11/10/2026 a API já devolvia os 12
+# (401313–401318 e 401322–401327, 215 strings ativas) e o parcial escondia metade da usina (108 esperadas para 215
+# ativas, os 6 novos como "INV-401322" sem esperadas): a União saiu daqui. Usina parcial nova entra com o conjunto dos
+# inversores que a API tem.
+PV_ALIAS_PARCIAL = {}
+
+
+# A API PV RENOMEIA planta (a Tucano em 26/08; em 11/10/2026 a conta oem@ trocou "Santa Cecilia 1/2/3" por "Ipixuna do
+# Pará 1/2/3" e "MORADA NOVA" por "Morada Nova"), e o cadastro (Usina Supervisório do Equipamentos) é chaveado pelo nome:
+# nesse dia a Ipixuna e a Morada Nova ficaram SEM strings esperadas — string morta não acusava — e a Ipixuna deixou de
+# juntar as três UGs. A ponte vai pelo ID da usina, que não muda: o nome que a plataforma usa por dentro é o do cadastro,
+# e o da API fica em `nome_api`. É ponte até o de-para virar tela (a fatia 0 da lista de 11/10/2026).
+PV_NOME_POR_ID = {18771915: "Santa Cecilia 1", 18771929: "Santa Cecilia 2", 18771930: "Santa Cecilia 3",
+                  18766373: "MORADA NOVA"}
+
+
+def _pv_nome_do_cadastro(plants):
+    """A lista do /plants com o nome do cadastro nas usinas da ponte (PV_NOME_POR_ID); o nome que a API escreveu fica em
+    `nome_api`. Usina fora da ponte passa como veio."""
+    out = []
+    for p in plants or []:
+        cad = PV_NOME_POR_ID.get(p.get("id"))
+        if cad and str(p.get("nome") or "").strip() != cad:
+            p = dict(p, nome=cad, nome_api=p.get("nome"))
+        out.append(p)
+    return out
 
 
 def _aplica_alias_api_cadastro():
@@ -3006,12 +3029,20 @@ PV_INV_NOMES = {
     18771901: {400784 + i: f"Inversor 1.{i + 1}" for i in range(10)},                        # Sete Lagoa(s)
     18750925: {**{367506 + i: f"Inversor 1.{i + 1}" for i in range(10)},                     # Tupi Paulista
                **{367516 + i: f"Inversor 2.{i + 1}" for i in range(10)}},
-    # União (28/09/2026) — PROVISÓRIO, PELA ORDEM DOS IDS: é a exceção à regra acima, e por falta de régua, não de
-    # vontade. A conta oem@ nega o plant_devices ("Invalid permission"), o e-mail da 2C não manda a União e o ativo no
-    # Fracttal não tem nº de série para casar com o `esn` da API. Nas outras três a ordem dos ids BATEU com o valor.
-    # Os nomes são os do supervisório no cadastro (Usina Supervisório "UNI"), que o EQUIP_NAMES traduz para
-    # "Inversor 1.x". Confirmar na PV Plataforma (o nome de cada id) e trocar se algum estiver fora de ordem.
-    18772125: {401313 + i: f"UNI_Inv_1.{i + 1}" for i in range(6)},                          # União (UG 01)
+    # União — 401313..401318 são o GRUPO 2 (UNI_Inv_2.x): o coletor fechou assim em 28/09 pela razão entre os trios
+    # (API 2009/1997/2007 × 1720/1719/1732 = 1,17, a mesma do BD 2.1–2.3 × 2.4–2.6) e conferiu com o FusionSolar; a
+    # plataforma tinha posto "1.x" pela ordem, provisório, e rotulava o grupo 2 como grupo 1 (achado em 11/10/2026). Os
+    # 6 que a API passou a devolver em 10/2026 (401322..401327) são o grupo 1, PELA ORDEM (provisório: as colunas 1.x
+    # do BD estão vazias desde 05/10, sem valor para fechar; nas outras usinas a ordem dos ids bateu com o valor).
+    18772125: {**{401313 + i: f"UNI_Inv_2.{i + 1}" for i in range(6)},                       # União, grupo 2 (valor)
+               **{401322 + i: f"UNI_Inv_1.{i + 1}" for i in range(6)}},                      # União, grupo 1 (ordem)
+    # Morada Nova (Alves Lima) — POR VALOR, o de-para do coletor (coletar_semp.USINAS["MORADA NOVA"]): a ordem dos ids
+    # (o `_pos_map`) erra 6 dos 8 e troca os dois inversores pequenos (6 strings) com os grandes. Em 10/2026 a API trocou
+    # o id do INVERSOR08: o 388164 sumiu e veio o 402513 (os outros 7 ids seguem) — por eliminação, o 402513 é o 08;
+    # o 388164 fica para os dias passados.
+    18766373: {388162: "INVERSOR01", 388159: "INVERSOR02", 388158: "INVERSOR03", 388165: "INVERSOR04",
+               388161: "INVERSOR05", 388163: "INVERSOR06", 388160: "INVERSOR07", 388164: "INVERSOR08",
+               402513: "INVERSOR08"},
     # Ipixuna do Pará (29/09/2026) — POR VALOR, como as três primeiras: o Eday de cada id bateu com a coluna do BD ao
     # centésimo de kWh em 26, 27 e 28/09 (20 de 20; o coletor fechou o mesmo de-para em 6 dias). Os ids crescem na ordem
     # das colunas, mas a Santa Cecilia 1 PULA 400841 e 400842. Os nomes são os do supervisório no Equipamentos, que o
@@ -3282,6 +3313,7 @@ def get_plants(token: str, force=False) -> list:
                                   f"{[p.get('nome') or p.get('name') for p in extra]}")
                 except Exception as e:
                     print(f"[API PV/OEM] não consegui juntar as usinas da conta OEM: {e}")
+            data = _pv_nome_do_cadastro(data)          # a API renomeia planta; o cadastro vai pelo id
             _plants_cache["data"], _plants_cache["ts"] = data, time.time()
         return data
 
