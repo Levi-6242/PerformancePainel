@@ -201,9 +201,12 @@ class GravacaoErro(RuntimeError):
 
 
 class Decisoes:
-    """Lê (com cache de `ttl` s e a última leitura boa em disco) e acrescenta decisões no livro do banco."""
+    """Lê (com cache de `ttl` s e a última leitura boa em disco) e acrescenta decisões no livro do banco. O livro, a aba e
+    o cabeçalho são os da cobertura por padrão; o De-para de equipamentos (depara.py) usa a mesma classe com os dele."""
 
-    def __init__(self, base: str, token, cache_path: str, ttl: int = 60, sessao=None):
+    def __init__(self, base: str, token, cache_path: str, ttl: int = 60, sessao=None, livro: str = LIVRO,
+                 aba: str = ABA, cab=None, nome_livro: str = NOME_LIVRO):
+        self.livro, self.aba, self.cab, self.nome_livro = livro, aba, list(cab or CAB), nome_livro
         self.base = base.rstrip("/")
         self._token = token if callable(token) else (lambda: token)
         self.cache_path = cache_path
@@ -228,7 +231,7 @@ class Decisoes:
         dados = r.json()
         dados = dados.get("items", dados) if isinstance(dados, dict) else dados
         for x in dados:
-            if x.get("workbook_key") == LIVRO and x.get("sheet_name") == ABA:
+            if x.get("workbook_key") == self.livro and x.get("sheet_name") == self.aba:
                 return x["id"]
         return None
 
@@ -243,8 +246,8 @@ class Decisoes:
             rows = r.json()
             rows = rows.get("rows", rows) if isinstance(rows, dict) else rows
             for x in rows:
-                d = dict(zip(x.get("headers") or CAB, x.get("values") or []))
-                out.append([d.get(c) for c in CAB])
+                d = dict(zip(x.get("headers") or self.cab, x.get("values") or []))
+                out.append([d.get(c) for c in self.cab])
             if len(rows) < 1000:
                 return out
             off += 1000
@@ -292,27 +295,27 @@ class Decisoes:
             r.raise_for_status()
             lista = r.json()
             lista = lista.get("items", lista) if isinstance(lista, dict) else lista
-            if LIVRO not in {w.get("key") for w in lista}:
-                self.sessao.post(f"{self.base}/api/workbooks", headers=h, json={"key": LIVRO, "display_name": NOME_LIVRO},
-                                 timeout=60).raise_for_status()
-            r = self.sessao.post(f"{self.base}/api/workbooks/{LIVRO}/sync-xlsx", headers=h, params={"replace": "true"},
-                                 files={"file": (f"{LIVRO}.xlsx", xlsx_bytes(todas),
+            if self.livro not in {w.get("key") for w in lista}:
+                self.sessao.post(f"{self.base}/api/workbooks", headers=h,
+                                 json={"key": self.livro, "display_name": self.nome_livro}, timeout=60).raise_for_status()
+            r = self.sessao.post(f"{self.base}/api/workbooks/{self.livro}/sync-xlsx", headers=h, params={"replace": "true"},
+                                 files={"file": (f"{self.livro}.xlsx", xlsx_bytes(todas, self.aba, self.cab),
                                                  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
                                  timeout=300)
             r.raise_for_status()
             gravadas = self._ler_banco()
             if len(gravadas) != len(todas):
-                raise GravacaoErro(f"{LIVRO}.{ABA}: enviei {len(todas)} linhas e o banco tem {len(gravadas)}")
+                raise GravacaoErro(f"{self.livro}.{self.aba}: enviei {len(todas)} linhas e o banco tem {len(gravadas)}")
             self._linhas, self._lido, self.erro, self.lido_em = gravadas, time.time(), None, agora_utc()
             return len(gravadas)
 
 
-def xlsx_bytes(linhas) -> bytes:
+def xlsx_bytes(linhas, aba: str = ABA, cab=None) -> bytes:
     from openpyxl import Workbook
     wb = Workbook()
     ws = wb.active
-    ws.title = ABA
-    ws.append(CAB)
+    ws.title = aba
+    ws.append(list(cab or CAB))
     for lin in linhas:
         ws.append(list(lin))
     buf = io.BytesIO()

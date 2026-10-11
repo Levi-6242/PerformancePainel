@@ -172,5 +172,6 @@ def test_nome_do_inversor_usa_o_de_para_da_conta_oem():
     import pathlib
     APP = (pathlib.Path(__file__).resolve().parents[1] / "plataforma" / "app.py").read_text(encoding="utf-8")
     bloco = APP.split("def _qualidade_usina")[1][:1800]
-    assert "PV_INV_NOMES.get(pid)" in bloco
+    # desde 11/10/2026 pelo `_pv_inv_nomes_de`: o PV_INV_NOMES com o decidido na tela De-para de equipamentos por cima
+    assert "_pv_inv_nomes_de(pid)" in bloco
     assert "nomes.setdefault" in bloco, "o nome da API, quando existe, tem precedência"

@@ -188,6 +188,18 @@ def _cobertura_desligada_por_padrao(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _depara_desligado_por_padrao(tmp_path, monkeypatch):
+    """De-para de equipamentos decidido na tela (11/10/2026): lê o livro no banco (rede). Desligado por padrão (só o
+    de-para do código, como antes), com a cópia no tmp_path; quem testa liga (`DEPARA_LIGADO`) e dubla o banco."""
+    monkeypatch.setattr(app, "DEPARA_LIGADO", False, raising=False)
+    cob, dp = getattr(app, "_cob", None), getattr(app, "_dp", None)
+    if cob is not None and dp is not None:
+        monkeypatch.setattr(app, "_DP_DECISOES", cob.Decisoes("http://127.0.0.1:9", "", str(tmp_path / "depara_decisoes.json"),
+                                                               livro=dp.LIVRO, aba=dp.ABA, cab=dp.CAB))
+        monkeypatch.setattr(app, "_DP_MEMO", {"linhas": None, "estado": {"usina": {}, "inversor": {}}})
+
+
+@pytest.fixture(autouse=True)
 def _sunop_sem_pausa_por_padrao(monkeypatch):
     """A pausa da SunOp (domingo e teto do dia, 04/10/2026) depende do dia e do contador: rodada num domingo, a suíte
     inteira veria a SunOp fechada. Desligada por padrão; tests/test_sunop_teto_domingo.py liga."""

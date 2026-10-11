@@ -84,9 +84,17 @@ def ordem_par(nome):
     return (int(n.group(1)), 0) if n else (9999, 0)
 
 
+# De-para decidido na tela (De-para de equipamentos da plataforma, 11/10/2026): o app pendura aqui quem devolve
+# {nº do equipamento: inversor} da usina; o decidido vence o mapa abaixo e a ordem do cadastro (vazio = vale o daqui).
+SOBREPOR = None
+
+
 def nome_inversor(cfg, equip, cadastro_ordem=()):
     """O inversor do cadastro para o equipamento do scadaGridco. Sem de-para fechado (Sal Energia), o N-ésimo do
-    cadastro em ordem natural; sem cadastro, o rótulo da fonte."""
+    cadastro em ordem natural; sem cadastro, o rótulo da fonte. O decidido na tela (SOBREPOR) vem antes de tudo."""
+    sob = SOBREPOR(cfg) if SOBREPOR else None
+    if sob and sob.get(str(equip)):
+        return sob[str(equip)]
     mapa = cfg.get("inversores")
     if mapa:
         return mapa.get(str(equip))

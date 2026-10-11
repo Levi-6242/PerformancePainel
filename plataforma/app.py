@@ -1447,8 +1447,259 @@ def api_cob_decidir():
 
 @app.route("/admin/de-para")
 def pagina_depara():
-    """De-para de equipamentos, fatia 1 (11/10/2026): o diagnóstico, só leitura (depara_diag.py). Só admin do Nexus."""
+    """De-para de equipamentos (11/10/2026): o diagnóstico (depara_diag.py) e o editor (depara.py). Só admin do Nexus."""
     return render_template("depara.html")
+
+
+_DP_OEM = ("semp", "alveslima", "2capi")                         # a conta oem@: o inversor liga pelo id
+_DP_SG = ("greenyellow", "salenergia")                             # scadaGridco: o inversor liga pelo nº do equipamento
+
+
+def _dp_log(texto):
+    try:
+        os.makedirs(os.path.join(_AQUI, "logs"), exist_ok=True)
+        with open(os.path.join(_AQUI, "logs", "depara.log"), "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}  {_quem_na_sessao()}  {texto}\n")
+    except Exception as e:                                      # noqa: BLE001
+        print(f"[de-para] log: {e}")
+
+
+def _dp_planta(pid):
+    """A usina da API PV pelo id na lista do /plants (o nome interno é o do cadastro pela ponte; o da API, `nome_api`)."""
+    plantas = _plants_cache.get("data")
+    if not plantas and not _ln.pedido_do_nexus():
+        try:
+            plantas = get_plants(get_token())
+        except Exception as e:                                  # noqa: BLE001 — sem a lista, o editor diz o que sabe
+            print(f"[de-para] lista de usinas: {e}")
+            plantas = []
+    return next((p for p in plantas or [] if p.get("id") == pid), None)
+
+
+def _dp_cadastro_usinas() -> list:
+    """As usinas do cadastro (Usina Supervisório) para a escolha da ponte, com o nome de exibição e as esperadas."""
+    return sorted(({"chave": k, "nome": USINA_DISPLAY.get(k) or k, "inv_esp": (v or {}).get("inv_esp"),
+                    "str_esp": (v or {}).get("str_esp")} for k, v in ESPERADO.items() if str(k).strip()),
+                  key=lambda u: (_nrm(u["nome"]), _nrm(u["chave"])))
+
+
+def _dp_alvos(cad, extras=()) -> list:
+    """Os inversores do cadastro da usina (Equipamento Supervisório) para escolher, com a exibição e as esperadas, mais os
+    nomes que o de-para já usa (as abas da 2C sem linha no Equipamentos usam "Inversor 1.x")."""
+    esp, exib = ESPERADO_INV.get(cad) or {}, EQUIP_NAMES.get(cad) or {}
+    out, vistos = [], set()
+    for n in list(esp) + list(exib) + [x for x in extras if x]:          # exib: os nomes da ordem do cadastro também
+        if n in vistos:
+            continue
+        vistos.add(n)
+        e = esp.get(n) if n in esp else _equip_lookup(esp, n)
+        out.append({"nome": n, "exibicao": exib.get(n), "esp": e if isinstance(e, (int, float)) else None})
+    out.sort(key=lambda a: _inv_hist_ord(a["exibicao"] or a["nome"]))
+    return out
+
+
+def _dp_ids_hoje_api_pv(pid):
+    """(ids de inversor que a API PV mandou hoje para a usina, erro): o day_inverter, a mesma chamada do drill."""
+    if _ln.pedido_do_nexus():
+        return [], "pedido só de leitura do Nexus: sem abrir a API PV"
+    try:
+        recs = _http().post(f"{BASE_URL}/day_inverter", headers={"x-access-token": _pv_token_for(pid)},
+                            json={"id": pid}, timeout=45).json()
+    except Exception as e:                                      # noqa: BLE001 — sem a fonte, o editor mostra os do de-para
+        return [], type(e).__name__
+    if not isinstance(recs, list):
+        return [], "a API não devolveu a lista de leituras"
+    return sorted({r.get("idefinversor") for r in recs if isinstance(r.get("idefinversor"), int)}), None
+
+
+def _dp_editor_api_pv(fonte, pid, est) -> dict:
+    p = _dp_planta(pid)
+    nome = str((p or {}).get("nome") or "")
+    cad = nome.strip()
+    tela_u = _dp.pontes(est).get(pid)
+    out = {"nome_api": (p or {}).get("nome_api") or nome or None, "nome_interno": nome or None,
+           "ponte": {"codigo": PV_NOME_POR_ID.get(pid), "tela": tela_u}, "apelido": PV_NOME_API_ALIAS.get(cad),
+           "edita_usina": True,
+           "cadastro_usinas": _dp_cadastro_usinas(), "edita_inversor": False}
+    if fonte not in _DP_OEM:
+        out["nota_inversor"] = "Nesta conta o nome do inversor vem da própria fonte e liga pelo nome: corrija no cadastro."
+        return out
+    codigo = PV_INV_NOMES.get(pid) or {}
+    tela = _dp.inversores(est, _DP_OEM, pid)
+    efetivo = _pv_inv_nomes_de(pid)
+    hoje, erro = _dp_ids_hoje_api_pv(pid)
+    ids = sorted(set(hoje) | set(codigo) | {int(i) for i in tela if str(i).isdigit()})
+    # sem de-para (a Tucano), o drill nomeia pela ORDEM do cadastro (_pv_nomes_por_ordem): é o nome que a tela mostra
+    ordem = {} if efetivo else _pv_nomes_por_ordem(cad, hoje)
+    linhas = [{"id": str(i), "nome": efetivo.get(i) or ordem.get(i),
+               "origem": "tela" if tela.get(str(i)) else ("codigo" if i in codigo else "ordem"),
+               "na_fonte_hoje": i in hoje, "codigo": codigo.get(i)} for i in ids]
+    out.update({"edita_inversor": True, "inversores": linhas, "fonte_hoje_erro": erro, "sugerir": True,
+                "alvos": _dp_alvos(cad, list(efetivo.values())),
+                "provisorio": None if tela else PV_INV_PROVISORIOS.get(pid)})
+    return out
+
+
+def _dp_editor_sg(fonte, cfg, est) -> dict:
+    codigo = {str(k): v for k, v in (cfg.get("inversores") or {}).items()}
+    tela = _dp.inversores(est, (fonte,), cfg["id"])
+    cad = _sg_cadastro(cfg["usina"])
+    equips, erro = [], None
+    try:
+        equips = sorted({str(x["equip"]) for x in _sg.leituras(fonte, cfg["id"])})
+    except Exception as e:                                      # noqa: BLE001 — sem token (o servidor) ou fora do ar
+        erro = type(e).__name__ if not isinstance(e, _sg.SemAcesso) else str(e)
+    num = lambda e: int(re.sub(r"\D", "", e) or 0)                                  # noqa: E731
+    todos = sorted(set(equips) | set(codigo) | set(tela) | {str(n) for n in range(1, len(cad) + 1)}, key=num)
+    linhas = [{"id": e, "nome": _sg.nome_inversor(cfg, e, list(cad)),
+               "origem": "tela" if tela.get(e) else ("codigo" if e in codigo else "ordem"),
+               "na_fonte_hoje": e in equips, "codigo": codigo.get(e)} for e in todos]
+    alvos = [{"nome": n, "exibicao": None, "esp": v if isinstance(v, (int, float)) else None}
+             for n, v in sorted(cad.items(), key=lambda kv: _sg.ordem_par(kv[0]))]
+    return {"nome_interno": cfg["usina"], "edita_usina": False, "edita_inversor": True, "inversores": linhas,
+            "fonte_hoje_erro": erro, "alvos": alvos, "sugerir": False,
+            "provisorio": None if (codigo or tela) else "Pela ordem do cadastro: o supervisório não lê os inversores para fechar por valor."}
+
+
+@app.route("/api/admin/de-para/usina")
+def api_depara_usina():
+    """O que o editor precisa de uma usina: a ponte (código e tela), o cadastro para escolher, os inversores que a fonte
+    manda hoje com o nome de cada um e de onde ele vem, e os inversores do cadastro para escolher."""
+    fonte = str(flask_request.args.get("fonte") or "")
+    uid = str(flask_request.args.get("id") or "").strip()
+    est = _dp_estado()
+    base = {"fonte": fonte, "id": uid, "decisoes": _dp_situacao()}
+    if fonte in _dp.FONTES_USINA:
+        try:
+            pid = int(uid)
+        except ValueError:
+            return jsonify({"error": "id de usina inválido"}), 400
+        return jsonify({**base, **_dp_editor_api_pv(fonte, pid, est)})
+    if fonte in _DP_SG:
+        cfg = _sg.usina_cfg(fonte, uid)
+        if not cfg:
+            return jsonify({"error": "usina desconhecida nesta fonte"}), 404
+        return jsonify({**base, **_dp_editor_sg(fonte, cfg, est)})
+    return jsonify({"error": "esta fonte liga pelo nome que ela manda: corrija no cadastro (aba Equipamentos)"}), 400
+
+
+def _dp_nomes_validos(fonte, uid) -> set:
+    if fonte in _DP_OEM:
+        pid = int(uid)
+        cad = str((_dp_planta(pid) or {}).get("nome") or "").strip()
+        return {a["nome"] for a in _dp_alvos(cad, list(_pv_inv_nomes_de(pid).values()))}
+    cfg = _sg.usina_cfg(fonte, uid)
+    return set(_sg_cadastro(cfg["usina"])) if cfg else set()
+
+
+@app.route("/api/admin/de-para/decidir", methods=["POST"])
+def api_depara_decidir():
+    """{"fonte", "id", "usina_supervisorio"?: chave do cadastro ou "" (sem ponte), "inversores"?: {id: nome ou ""}}:
+    confere cada valor no cadastro e acrescenta no livro do banco (relê, grava inteiro, confere a contagem). Vale no
+    próximo ciclo (a lista de usinas é relida a cada 5 min; os nomes de inversor, em até 1 min)."""
+    b = flask_request.get_json(silent=True) or {}
+    fonte, uid = str(b.get("fonte") or ""), str(b.get("id") or "").strip()
+    novas = []
+    try:
+        if "usina_supervisorio" in b:
+            alvo = str(b.get("usina_supervisorio") or "").strip()
+            if alvo and alvo not in ESPERADO:
+                return jsonify({"error": f"a usina \"{alvo}\" não está no cadastro (aba Equipamentos)"}), 400
+            novas.append(_dp.linha_usina(fonte, uid, alvo))
+        invs = b.get("inversores")
+        if invs is not None:
+            if not isinstance(invs, dict) or len(invs) > 300:
+                return jsonify({"error": "inversores: mande {id: nome}, até 300"}), 400
+            if fonte not in _DP_OEM + _DP_SG:
+                return jsonify({"error": "nesta fonte o inversor liga pelo nome que ela manda: corrija no cadastro"}), 400
+            validos = _dp_nomes_validos(fonte, uid)
+            for i, nome in invs.items():
+                nome = str(nome or "").strip()
+                if nome and nome not in validos:
+                    return jsonify({"error": f"o inversor \"{nome}\" não está no cadastro desta usina"}), 400
+                novas.append(_dp.linha_inversor(fonte, uid, i, nome))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if not novas:
+        return jsonify({"error": "nada para gravar"}), 400
+    try:
+        total = _DP_DECISOES.acrescentar(novas)
+    except _cob.GravacaoErro as e:
+        return jsonify({"error": str(e)}), 503
+    except Exception as e:                                      # noqa: BLE001 — rede, API: diz o tipo, não grava pela metade
+        return jsonify({"error": f"o banco não aceitou a gravação ({type(e).__name__})"}), 502
+    for lin in novas:
+        _dp_log(f"{lin[2]}:{lin[3]}" + (f" inversor {lin[4]} -> {lin[6] or '(código)'}" if lin[4]
+                                        else f" usina -> {lin[5] or '(nome da API)'}"))
+    return jsonify({"ok": True, "gravadas": len(novas), "total": total})
+
+
+@app.route("/api/admin/de-para/sugerir")
+def api_depara_sugerir():
+    """O nome de cada inversor da conta oem@ PELO VALOR: o Eday de cada id × as colunas da aba da usina no BD_Performance,
+    nos 3 dias mais recentes (dos 14 últimos) em que o BD tem valor (o jeito que fechou a Morada Nova, a Ipixuna e a 2C;
+    a ordem dos ids errava 6 de 8 na Morada). Custa até 3 consultas da cota histórica da API PV."""
+    fonte, uid = str(flask_request.args.get("fonte") or ""), str(flask_request.args.get("id") or "").strip()
+    if fonte not in _DP_OEM:
+        return jsonify({"error": "a sugestão pelo valor é da conta oem@ (SEMP, Alves Lima, 2C)"}), 400
+    if _ln.pedido_do_nexus():
+        return jsonify({"error": "pedido só de leitura do Nexus: sem abrir a API PV"}), 403
+    try:
+        pid = int(uid)
+    except ValueError:
+        return jsonify({"error": "id de usina inválido"}), 400
+    cad = str((_dp_planta(pid) or {}).get("nome") or "").strip()
+    exib = EQUIP_NAMES.get(cad) or {}
+    rev = {v: k for k, v in exib.items()}                        # exibição (a coluna do BD) → Equipamento Supervisório
+    # o BD primeiro (os 14 últimos dias fechados) e a fonte só nos 3 dias mais recentes em que o BD tem valor nas colunas
+    # desta usina: no PC o espelho do BD estava parado em 08/10 e, com os 3 últimos dias fixos, só 1 deles tinha valor
+    hoje = datetime.now().date()
+    janela = [hoje - timedelta(days=k) for k in range(1, 15)]
+    isos = {d.isoformat() for d in janela}
+    bd, aba = {}, None
+    for nome in dict.fromkeys(x for x in (USINA_GRUPO.get(cad), USINA_DISPLAY.get(cad), nome_usina(pid, cad), cad) if x):
+        lidos = {}
+        for (a, m) in sorted({(d.year, d.month) for d in janela}):
+            lidos.update(_bdperf_inv_dias(nome, a, m))
+        if lidos:
+            aba = nome
+            for dia, v in lidos.items():
+                if dia in isos:
+                    for col, kwh in (v.get("inv") or {}).items():
+                        bd.setdefault(col, {})[dia] = kwh
+            break
+    if exib:                                                     # a aba da Ipixuna é de três plantas: só as colunas desta
+        bd = {c: s for c, s in bd.items() if c in rev}
+    com_valor = sorted({d for s in bd.values() for d, v in s.items() if isinstance(v, (int, float)) and v > 0}, reverse=True)
+    dias = [datetime.strptime(d, "%Y-%m-%d").date() for d in com_valor[:3]]
+    fonte_kwh, motivos = {}, []
+    if aba is not None and len(dias) < 2:
+        motivos.append(f"o BD tem {len(dias)} dia(s) com valor nas colunas desta usina nos últimos 14: a sugestão precisa de 2")
+        dias = []
+    for d in dias:
+        recs, mot = _spv_day_records_hist(pid, _pv_token_for(pid), d.strftime("%d/%m/%Y"))
+        if mot:
+            motivos.append(f"{d:%d/%m}: {mot}")
+            continue
+        for r in recs:
+            i, e = r.get("idefinversor"), parse_cj(r.get("conteudojson")).get("Eday")
+            if i is not None and isinstance(e, (int, float)):
+                s = fonte_kwh.setdefault(str(i), {})
+                s[d.isoformat()] = max(s.get(d.isoformat(), 0.0), float(e))
+    res = _dp.sugerir_por_valor(fonte_kwh, bd)
+    for par in res["pares"].values():
+        par["nome"] = rev.get(par["coluna"]) or par["coluna"]
+    if aba is None:
+        motivos.append("a usina não tem aba com colunas de inversor no BD_Performance")
+    comparado = {"fonte": {i: len(v) for i, v in fonte_kwh.items()}, "bd": {c: len(v) for c, v in bd.items()}}
+    return jsonify({**res, "aba": aba, "dias": [d.isoformat() for d in sorted(dias)], "motivos": motivos,
+                    "comparado": comparado})
+
+
+def _dp_situacao() -> dict:
+    return {"ligado": DEPARA_LIGADO, "ok": _DP_DECISOES._linhas is not None or _DP_DECISOES.lido_em is not None,
+            "erro": _DP_DECISOES.erro, "lido_em": _DP_DECISOES.lido_em,
+            "pode_gravar": bool(os.environ.get("GRIDCO_SQL_TOKEN", "").strip())}
 
 
 def _depara_tabelas() -> dict:
@@ -1466,12 +1717,22 @@ def _depara_tabelas() -> dict:
 @app.route("/api/admin/de-para")
 def api_depara():
     import depara_diag
+    est = _dp_estado()
+    tela_p = _dp.pontes(est)
+    revistas = {(f, u) for (f, u, _i) in est["inversor"]}
+    ids_inv = set(PV_INV_NOMES) | {int(u) for (f, u) in revistas if f in _DP_OEM and u.isdigit()}
     ctx = {"nome_api": {p["id"]: p["nome_api"] for p in (_plants_cache.get("data") or []) if p.get("nome_api")},
-           "ponte_ids": PV_NOME_POR_ID, "apelidos": PV_NOME_API_ALIAS, "inv_nomes": PV_INV_NOMES,
-           "provisorios": PV_INV_PROVISORIOS, "oem": PV_OEM_PLANTS,
-           "sg_por_ordem": {(f, c["id"]): True for f, d in _sg.FONTES.items() for c in d["usinas"] if not c.get("inversores")}}
+           "ponte_ids": {k: v for k, v in {**PV_NOME_POR_ID, **tela_p}.items() if v},
+           "ponte_tela": {k for k, v in tela_p.items() if v},
+           "apelidos": PV_NOME_API_ALIAS, "inv_nomes": {i: _pv_inv_nomes_de(i) for i in ids_inv},
+           "provisorios": {k: v for k, v in PV_INV_PROVISORIOS.items() if not any(u == str(k) for (_f, u) in revistas)},
+           "oem": PV_OEM_PLANTS, "revistas": {u for (_f, u) in revistas},
+           "edita_usina": set(_dp.FONTES_USINA), "edita_inversor": set(_DP_OEM + _DP_SG),
+           "sg_por_ordem": {(f, c["id"]): True for f, d in _sg.FONTES.items() for c in d["usinas"]
+                            if not c.get("inversores") and not _dp.inversores(est, (f,), c["id"])}}
     d = depara_diag.diagnostico(_depara_tabelas(), ctx)
     d["rotulos"] = depara_diag.ROTULOS
+    d["decisoes"] = _dp_situacao()
     return jsonify(d)
 
 
@@ -2132,9 +2393,10 @@ PV_NOME_POR_ID = {18771915: "Santa Cecilia 1", 18771929: "Santa Cecilia 2", 1877
 def _pv_nome_do_cadastro(plants):
     """A lista do /plants com o nome do cadastro nas usinas da ponte (PV_NOME_POR_ID); o nome que a API escreveu fica em
     `nome_api`. Usina fora da ponte passa como veio."""
+    pontes = {**PV_NOME_POR_ID, **_dp.pontes(_dp_estado())}      # a tela (De-para de equipamentos) vence o código
     out = []
     for p in plants or []:
-        cad = PV_NOME_POR_ID.get(p.get("id"))
+        cad = pontes.get(p.get("id"))
         if cad and str(p.get("nome") or "").strip() != cad:
             p = dict(p, nome=cad, nome_api=p.get("nome"))
         out.append(p)
@@ -3091,13 +3353,23 @@ PV_INV_PROVISORIOS = {
 }
 
 
+def _pv_inv_nomes_de(pid) -> dict:
+    """{id do inversor: nome do cadastro} da usina da conta oem@: o PV_INV_NOMES com o decidido na tela De-para de
+    equipamentos por cima (o livro nexus_depara; ilegível = só o código, como antes)."""
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return {}
+    return _dp.aplica_inversores(PV_INV_NOMES.get(pid) or {}, _dp.inversores(_dp_estado(), ("semp", "alveslima", "2capi"), pid))
+
+
 def _pv_nome_2c(idusina, idinv):
     """Nome do inversor da conta oem@ pelo de-para em código (PV_INV_NOMES) — o MESMO que o drill usa. A curva do
     dia, a de dia passado e o CSV nomeavam por plant_devices (negado a essa conta) ou pela ordem do cadastro (vazio),
     e saíam "INV-400771": o drill pedia "Inversor 1.1", não achava e desenhava a curva do PRIMEIRO inversor da usina
     em todos os outros (Araputanga, Sete Lagoas e Tupi, até 28/09/2026)."""
     try:
-        return (PV_INV_NOMES.get(int(idusina)) or {}).get(int(idinv))
+        return _pv_inv_nomes_de(idusina).get(int(idinv))
     except (TypeError, ValueError):
         return None
 
@@ -3175,6 +3447,36 @@ _COB_DECISOES = _cob.Decisoes(_bd_api.API_BASE, lambda: os.environ.get("GRIDCO_S
                               os.path.join(_AQUI, "cobertura_decisoes.json"), ttl=60)
 _COB_INV = _cob.Inventario(os.path.join(_AQUI, "cobertura_inventario.json"))
 _COB_MEMO = {"linhas": None, "estado": None}
+
+# De-para de equipamentos decidido na tela (depara.py; livro nexus_depara · fato_decisao_depara). A decisão vence a
+# constante do código; livro ilegível sem cópia em disco = só o código, como antes. `DEPARA_TELA=0` desliga numa máquina.
+import depara as _dp  # noqa: E402
+DEPARA_LIGADO = os.environ.get("DEPARA_TELA", "1") != "0"
+_DP_DECISOES = _cob.Decisoes(_bd_api.API_BASE, lambda: os.environ.get("GRIDCO_SQL_TOKEN", ""),
+                             os.path.join(_AQUI, "depara_decisoes.json"), ttl=60, livro=_dp.LIVRO, aba=_dp.ABA,
+                             cab=_dp.CAB, nome_livro=_dp.NOME_LIVRO)
+_DP_MEMO = {"linhas": None, "estado": {"usina": {}, "inversor": {}}}
+
+
+def _dp_estado() -> dict:
+    """O de-para decidido na tela, vigente (cache de 60 s; a última leitura boa se o banco cair). Vazio = só o código."""
+    if not DEPARA_LIGADO:
+        return {"usina": {}, "inversor": {}}
+    try:
+        linhas = _DP_DECISOES.linhas()
+    except Exception as e:                                      # noqa: BLE001 — o de-para nunca derruba quem o usa
+        print(f"[de-para] {e}")
+        linhas = None
+    if linhas is None:
+        return {"usina": {}, "inversor": {}}
+    if _DP_MEMO["linhas"] is not linhas:
+        _DP_MEMO.update(linhas=linhas, estado=_dp.vigente(linhas))
+    return _DP_MEMO["estado"]
+
+
+def _dp_sg_inversores(cfg) -> dict:
+    """{nº do equipamento: inversor} decidido na tela para uma usina do scadaGridco (o scadagridco.nome_inversor usa)."""
+    return _dp.inversores(_dp_estado(), ("greenyellow", "salenergia"), (cfg or {}).get("id"))
 
 
 def _cob_linhas():
@@ -14336,6 +14638,7 @@ def api_solaredge_curva(site_id):
 #   o de-para dos inversores estão em scadagridco.py. Aqui: a linha da tabela, o drill e a curva, no formato da
 #   RenoGrid/Athon que a tela já desenha. Sem ETM nem trackers: essas usinas não mandam.
 import scadagridco as _sg
+_sg.SOBREPOR = _dp_sg_inversores          # De-para de equipamentos: o decidido na tela vence o mapa do scadagridco.py
 
 _gy_cache  = {"payload": None, "ts": 0.0}
 _sal_cache = {"payload": None, "ts": 0.0}
@@ -15283,7 +15586,7 @@ def _qualidade_usina(pid, nome):
     # 2C são justamente dela — sem o de-para a tela listaria "inv 367511". O `PV_INV_NOMES` existe
     # exatamente para isso, fechado POR VALOR contra o kWh do BD (nunca pela ordem dos ids).
     nomes = dict(_pv_dev_names(pid, _pv_token_for(pid)) or {})
-    for _id, _n in (PV_INV_NOMES.get(pid) or {}).items():
+    for _id, _n in _pv_inv_nomes_de(pid).items():
         nomes.setdefault(_id, _n)
     clip, trav = [], []
     for inv, pts in serie.items():
@@ -21912,7 +22215,7 @@ def _spv_day_records_por_inversor(idusina, token, d):
     do de-para da 2C (`PV_INV_NOMES`: a conta oem@ não lista dispositivos) ou do `plant_devices`. O registro por inversor
     vem sem o `idefinversor` e é carimbado aqui. Custa 1 consulta da cota histórica por inversor, e um inversor que
     falha derruba o dia: dia pela metade não vale."""
-    ids = list((PV_INV_NOMES.get(int(idusina)) or {}).keys())
+    ids = list(_pv_inv_nomes_de(idusina).keys())
     if not ids:
         try:
             ids = list((_pv_dev_names(idusina, token) or {}).keys())

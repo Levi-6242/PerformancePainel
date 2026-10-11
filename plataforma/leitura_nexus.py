@@ -180,7 +180,7 @@ POSTS_DE_CONSULTA_GESTOR = POSTS_DE_CONSULTA | {"/api/fracttal/os"}
 GRAVACOES_GESTOR = GRAVACOES + (
     "/api/state/comment", "/api/painel/falhas/desconsiderar", "/api/etm/ticket", "/api/ronda/obs",
     "/api/ronda/whats/reiniciar", "/api/relatorio/semanal/direcionamento", "/api/relatorio/semanal/emitir",
-    "/api/admin/tempo-real/decidir", "/api/admin/tempo-real/migrar",
+    "/api/admin/tempo-real/decidir", "/api/admin/tempo-real/migrar", "/api/admin/de-para/decidir",
     "/api/tokens/",
 )
 

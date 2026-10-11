@@ -658,24 +658,43 @@ coletada** (os dias fora ficam sem dado).
 
 ## De-para de equipamentos (11/10/2026)
 
-Levi: "quero que o de-para da equipamentos seja feito na plataforma de forma intuitiva". O de-para de hoje mora em três
-lugares que ninguém vê: a aba Equipamentos do BD_Performance (chave "Usina Supervisório", sincronizada do Excel pelo
-coletor), constantes no código (`PV_NOME_POR_ID`, `PV_NOME_API_ALIAS`, `PV_ALIAS_CODIGO`, `PV_INV_NOMES`,
+Levi: "quero que o de-para da equipamentos seja feito na plataforma de forma intuitiva" (e, na mesma noite, "RESOLVA"). O
+de-para morava em lugares que ninguém via: a aba Equipamentos do BD_Performance (chave "Usina Supervisório", sincronizada do
+Excel pelo coletor), constantes no código (`PV_NOME_POR_ID`, `PV_NOME_API_ALIAS`, `PV_ALIAS_CODIGO`, `PV_INV_NOMES`,
 `scadagridco.FONTES`) e a ordem dos ids. No mesmo dia ele quebrou quatro vezes em silêncio (a API renomeou a Ipixuna e a
 Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o grupo 2 rotulado como 1).
 
-- **Fatia 1: o diagnóstico, só leitura.** `/admin/de-para` (`templates/depara.html`), no Nexus como Base · De-para
-  de equipamentos, só admin (a API em `/api/admin/de-para`). Por fonte e usina: como liga ao cadastro (pelo id da ponte,
-  com o nome que a API escreve; por apelido no código; pelo nome), esperadas, inversores fonte × cadastro e de onde vem o
-  nome de cada inversor. Alertas: **crítico** = sem strings esperadas (string morta não acusa); **atenção** = inversores
-  na fonte ≠ cadastro, ou nome de inversor pela ORDEM (conta oem@ sem `PV_INV_NOMES`; scadaGridco sem de-para por valor);
-  **informação** = o provisório anotado em `PV_INV_PROVISORIOS` (só ele não vai a "Precisa de você"). A regra é pura, em
-  `depara_diag.py`; a rota lê as tabelas de strings que a plataforma JÁ montou (nenhum pedido às fontes), e fonte que a
-  máquina não leu (a SunOp no PC, em modo ronda) aparece "não lida". As fontes são as de `cobertura.FONTES`.
-- **Próximas fatias** (lista do Levi): decidir na tela (ligar, trocar, confirmar) gravando no livro
-  `nexus_depara · fato_decisao_depara` (registrar no catálogo do Nexus antes), migrar as constantes para ele, o coletor
-  ler o mesmo livro, trackers e atributos. Até lá a ponte segue no código.
-- Testes: `tests/test_depara_equipamentos.py`.
+- **A tela**: `/admin/de-para` (`templates/depara.html`), no Nexus como Base · De-para de equipamentos, só admin (API em
+  `/api/admin/de-para`, `/usina`, `/decidir`, `/sugerir`). Em cima, o diagnóstico (`depara_diag.py`, puro): por fonte e
+  usina, como liga ao cadastro (ponte pelo id, do código ou da tela, com o nome que a API escreve; apelido no código; pelo
+  nome), as esperadas DO CADASTRO, inversores fonte × cadastro e de onde vem o nome de cada inversor. **Crítico** = sem
+  esperadas no cadastro (string morta não acusa; com a régua por inversor vigiando, atenção); **atenção** = inversores ≠
+  cadastro, ou nome pela ORDEM; **informação** = provisório (`PV_INV_PROVISORIOS`, some quando a tela decide a usina). Lê
+  as tabelas de strings já montadas (nenhum pedido às fontes); fonte que a máquina não leu aparece "não lida".
+- **As esperadas são as do cadastro, não as da leitura**: o `str_esp` da linha da API PV já vem descontado (inversor sem
+  visão, rampa, desligado, com OS) e a String Box à noite fica com 0 — a 1ª versão deu 20 falsos "sem esperadas". A linha
+  da API PV leva `str_esp_cadastro` e `nome_api` (`_pv_cadastro_da_linha`, também na linha sem dados).
+- **O editor** ("Editar" em cada linha editável, numa gaveta): a **ponte da usina pelo id** nas contas da API PV (pv,
+  semp, alveslima, 2capi; escolha na lista do cadastro, com busca, ou "usar o nome da API") e o **nome de cada inversor**
+  onde o código liga pelo id (conta oem@: semp, alveslima, 2capi; scadaGridco: greenyellow, salenergia), com a origem de
+  cada nome (tela, código, ordem do cadastro), "Confirmar como está" e a **sugestão pelo kWh do BD** (conta oem@: o Eday de
+  cada id nos 3 últimos dias fechados × as colunas da aba da usina no BD_Performance, um para um, com o erro e a confiança;
+  custa até 3 consultas da cota histórica da API PV; coluna vazia no BD não fecha nada e a tela diz). A Thopen da conta
+  principal, a Athon, a Axis, o banco e a RenoGrid ligam pelo nome que a fonte manda: corrige-se no cadastro.
+- **O dado**: livro `nexus_depara · fato_decisao_depara` (`depara.py`, no catálogo do Nexus), só acrescenta, gravado pela
+  mesma `cobertura.Decisoes` (relê, grava inteiro, confere a contagem; cache de 60 s e a última leitura boa em
+  `depara_decisoes.json`). O cadastro entra pela chave de negócio (Usina Supervisório, Equipamento Supervisório), que a
+  rota confere antes de gravar; vazio = desfaz. Quem decidiu vai a `logs/depara.log`.
+- **Onde vale**: a decisão VENCE a constante (livro ilegível sem cópia = só o código, como antes). Ponte: `_pv_nome_do_cadastro`
+  (no `get_plants`: vale na próxima leitura da lista, até 5 min). Inversor da conta oem@: `_pv_inv_nomes_de` (o
+  `_pv_nome_2c` do drill, curvas, CSV e falhas; a qualidade; os ids do dia passado por inversor). scadaGridco:
+  `scadagridco.SOBREPOR`, que o `nome_inversor` pergunta antes do mapa e da ordem. **O coletor segue o mesmo livro**
+  (`coletar_semp.com_a_tela`, ver o CLAUDE.md dele): na usina de coluna direta o nome do cadastro vira a coluna do BD pela
+  aba Equipamentos; nome que não vira coluna fica de fora, com aviso.
+- **Fica no código, de propósito**: os apelidos por nome (`PV_NOME_API_ALIAS`/`PV_ALIAS_CODIGO`: Sete Lagoa e União), que
+  o resto do código usa com o nome da API — trocar por ponte mudaria o nome interno dessas usinas. A tela os mostra.
+- `DEPARA_TELA=0` desliga numa máquina; os testes rodam desligados (`conftest._depara_desligado_por_padrao`). Testes:
+  `tests/test_depara_equipamentos.py`.
 
 ## Padrão por inversor (usinas sem visão por string)
 
@@ -1013,8 +1032,8 @@ de-para fechado **por valor** contra o kWh diário do BD, nunca pela ordem dos i
 duas usinas ficaram SEM esperadas — string morta não acusava — e a Ipixuna deixou de juntar as três UGs): o
 `get_plants` passa a lista por `_pv_nome_do_cadastro`, que põe o nome do cadastro pelo ID (`PV_NOME_POR_ID`) e guarda o
 da API em `nome_api`. A Morada Nova ganhou o de-para por valor do coletor no `PV_INV_NOMES` (a ordem errava 6 de 8) e o
-id novo do INVERSOR08 (388164 → 402513). A tela De-para de equipamentos mostra cada ponte (seção acima); decidir por
-ela é a fatia 2, e até lá a ponte segue no código.
+id novo do INVERSOR08 (388164 → 402513). A tela De-para de equipamentos (seção acima) mostra e decide cada ponte; a
+decisão dela vence a constante.
 
 **O e-mail saiu do Tempo Real (29/09/2026, à noite**, Levi: "Ipixuna do Pará passar a puxar da API PV matando de vez o
 e-mail no tempo real!"). A Ipixuna do Pará entrou na conta oem@ como **três plantas, uma por UG** — Santa Cecilia 1

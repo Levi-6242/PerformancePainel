@@ -23,8 +23,10 @@ def _num(v):
 def linha(fonte: str, r: dict, ctx: dict) -> dict:
     """O diagnóstico de uma usina. `r` é a linha da tabela de strings (a da API PV traz `str_esp_cadastro` e, com a ponte,
     `nome_api`). `ctx`: nome_api {plant_id: nome que a API escreveu, quando a ponte trocou; reserva da linha},
-    ponte_ids (PV_NOME_POR_ID), apelidos (PV_NOME_API_ALIAS), inv_nomes (PV_INV_NOMES), provisorios {plant_id: texto},
-    oem (PV_OEM_PLANTS), sg_por_ordem {(fonte, id): True} (scadaGridco sem de-para de inversor)."""
+    ponte_ids {plant_id: usina} (código + tela), ponte_tela {plant_id} (as da tela), apelidos (PV_NOME_API_ALIAS),
+    inv_nomes {plant_id: {id: nome}} (código + tela), revistas {id da usina} (inversores decididos na tela), provisorios
+    {plant_id: texto}, oem (PV_OEM_PLANTS), sg_por_ordem {(fonte, id): True} (scadaGridco sem de-para de inversor),
+    edita_usina / edita_inversor (as fontes que a tela edita)."""
     pid = r.get("plant_id")
     usina = r.get("usina") or str(pid)
     # As esperadas são as do CADASTRO: a linha da API PV traz `str_esp_cadastro` porque o `str_esp` dela já vem com os
@@ -36,7 +38,8 @@ def linha(fonte: str, r: dict, ctx: dict) -> dict:
     # ── como a usina se liga ao cadastro ──
     if fonte in API_PV and pid in ctx.get("ponte_ids", {}):
         api = r.get("nome_api") or ctx.get("nome_api", {}).get(pid)
-        liga = f"pelo id (ponte): a API escreve “{api}”" if api else "pelo id (ponte)"
+        quem = "ponte da tela" if pid in ctx.get("ponte_tela", ()) else "ponte"
+        liga = f"pelo id ({quem}): a API escreve “{api}”" if api else f"pelo id ({quem})"
     elif fonte in API_PV and any(_mesmo(usina, a) for a in ctx.get("apelidos", {}).values()):
         liga = "por apelido no código"
     else:
@@ -52,7 +55,9 @@ def linha(fonte: str, r: dict, ctx: dict) -> dict:
     if inv_fonte and inv_esp and inv_fonte != inv_esp:
         alertas.append(("atencao", f"{inv_fonte:g} inversor(es) na fonte, {inv_esp:g} no cadastro"))
     # ── de onde vem o nome de cada inversor ──
-    if fonte in API_PV and pid in ctx.get("inv_nomes", {}):
+    if fonte in API_PV + ("greenyellow", "salenergia") and str(pid) in ctx.get("revistas", ()):
+        nomes = "decidido na tela"
+    elif fonte in API_PV and pid in ctx.get("inv_nomes", {}) and ctx["inv_nomes"][pid]:
         nomes = "de-para no código"
     elif fonte in API_PV and pid in ctx.get("oem", set()):
         nomes = "pela ordem do cadastro"
@@ -66,8 +71,10 @@ def linha(fonte: str, r: dict, ctx: dict) -> dict:
     if prov:
         alertas.append(("info", prov))
     alertas.sort(key=lambda a: SEVERIDADE[a[0]])
+    edita_u = fonte in ctx.get("edita_usina", ())
+    edita_i = fonte in ctx.get("edita_inversor", ()) and (fonte not in API_PV or pid in ctx.get("oem", ()))
     return {"fonte": fonte, "plant_id": pid, "usina": usina, "liga": liga, "str_esp": str_esp, "inv_esp": inv_esp,
-            "inv_fonte": inv_fonte, "nomes_inversor": nomes,
+            "inv_fonte": inv_fonte, "nomes_inversor": nomes, "edita_usina": edita_u, "edita_inversor": edita_i,
             "alertas": [{"nivel": n, "texto": t} for n, t in alertas],
             "pior": alertas[0][0] if alertas else "ok"}
 
