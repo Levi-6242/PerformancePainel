@@ -354,3 +354,15 @@ def test_a_sugestao_le_o_bd_primeiro_e_nao_gasta_cota_sem_dois_dias_no_bd(cli, m
     monkeypatch.setattr(app, "_spv_day_records_hist", lambda *a: pedidos.append(a) or ([], None))
     r = cli.get("/api/admin/de-para/sugerir?fonte=semp&id=18758732").get_json()
     assert pedidos == [] and r["pares"] == {} and "1 dia(s) com valor" in r["motivos"][0]
+
+
+def test_texto_vazio_vai_como_celula_vazia_no_xlsx():
+    """1ª gravação no servidor (11/10/2026, 20:28): o openpyxl gravou "" como inlineStr sem <is> e a API recusou o arquivo
+    inteiro ("Célula F2 é inlineStr sem elemento <is>")."""
+    import zipfile
+    from io import BytesIO
+    b = app._cob.xlsx_bytes([dp.linha_inversor("semp", 18758732, 378310, "", Q1)], dp.ABA, dp.CAB)
+    xml = zipfile.ZipFile(BytesIO(b)).read("xl/worksheets/sheet1.xml").decode("utf-8")
+    assert xml.count('t="inlineStr"') == xml.count("<is>")
+    from openpyxl import load_workbook
+    assert [c.value for c in load_workbook(BytesIO(b))[dp.ABA][2]][4:7] == ["378310", None, None]

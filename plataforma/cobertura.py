@@ -317,7 +317,9 @@ def xlsx_bytes(linhas, aba: str = ABA, cab=None) -> bytes:
     ws.title = aba
     ws.append(list(cab or CAB))
     for lin in linhas:
-        ws.append(list(lin))
+        # texto vazio vai como célula vazia: o openpyxl grava "" como inlineStr sem <is> e a API recusa o arquivo inteiro
+        # ("Célula F2 é inlineStr sem elemento <is>", na 1ª gravação do De-para de equipamentos, 11/10/2026)
+        ws.append([None if v == "" else v for v in lin])
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
