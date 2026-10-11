@@ -418,7 +418,8 @@ diz por quê.** Peças:
   Nexus**: a moldura, ao receber, pede um passe novo e reabre o mesmo `?p=`, também no máximo 1 vez a cada 60 s, e
   renova sozinha antes das 12 h. Fora do Nexus: "Sessão vencida: entre de novo", com o link do login que volta à tela. O
   `/monitor?embed=1` que o Tempo real embute passa o aviso para a página de cima (quem a moldura conhece) e só se lembra
-  dele. `falhou(motivo, quando)`/`voltou()`: a faixa "Não atualizou (...): os números na tela são de ..." para rede/500;
+  dele. `falhou(motivo, quando[, fim])`/`voltou()`: a faixa "Não atualizou (...): os números na tela são de ..." para
+  rede/500; `fim` troca o resto da frase na tela que lê uma vez e não tem número velho nem tenta de novo (o Diagnóstico);
 - cada tela guarda o último valor: Painel NOC (`_lerOk`; o "carregando" do web recém-subido também não vira 0 usinas;
   sem nenhuma leitura, "—", nunca 0,0 MWh), Tempo real/Entrada (o 401 virava "Fonte desconhecida" no nível 3 e martelava a
   cada 8 s; agora 60 s), Monitoramento (`fetchJSON` dá erro no 401 sempre e, com `exigeOk`, em qualquer não-2xx; sem
@@ -431,8 +432,49 @@ diz por quê.** Peças:
   perdida 0,0 MWh", "0 MWp", "Mês/PG <agora>" como se fosse fresco; revisão adversarial de 10/10/2026, provado com o PG
   simulado fora), e o seletor de usinas do Nexus não dizia que o Gerencial faltou. O Painel NOC (`boot`) e o Gerencial
   (`load`) também recusam corpo com `erro`, venha com o status que vier. Conferidas e já certas: Histórico da plataforma (`getJSON` confere `r.ok`),
-  Criador de relatório e Relatório semanal (conferem `d.ok`, não releem sozinhos), Diagnóstico (`v2GET` confere `r.ok`; a
-  carga antiga do `boot()` lê uma vez ao abrir, e o 401 dali liga a faixa).
+  Criador de relatório e Relatório semanal (conferem `d.ok`, não releem sozinhos). O Diagnóstico NÃO estava certo (a
+  carga do `boot()` desenhava o corpo do erro): ver "Diagnóstico de usina com a fonte fora", logo abaixo.
+
+**Diagnóstico de usina com a fonte fora: não é usina parada (10/10/2026, prova da porta única).** Com a API PV em 504, o
+`/painel/usina/<id>` mostrava "Inversores 0 · 0 sem produção", "Strings 0 / 0 ativas", "Hoje 0 kWh · PR mediana 0%" e
+"A fonte não devolveu inversores para esta usina": a tela de uma usina parada. Duas causas, as duas corrigidas: a tela
+lia `fetch(...).then(r => r.json())` e desenhava o corpo do erro como dado; e várias rotas engoliam a falha da fonte e
+respondiam 200 com vazio. Regra: **cada leitura falha por conta própria; a que não veio mostra "—" e o selo "Fonte X não
+respondeu (HTTP 504) às HH:MM: sem leitura — não é ...", e o zero DE VERDADE (a fonte respondeu, e é zero: de madrugada,
+usina sem tracker, sem OS) continua 0.** A diferença vem do backend:
+- rotas que agora dizem que falharam (o corpo segue no formato de sempre, mais `erro`, `fonte` e `fonte_ok: false`, porque a
+  tela antiga `?antigo=1` e o Painel NOC leem o JSON sem olhar o status): `/api/plant/<id>` 504 também com o dict de erro
+  da API PV (o 429 da cota virava a usina montada pelo cadastro, TODOS os inversores desligados); `/api/diagnostico/pv/<id>`
+  504 (era "Sem anomalias — usina dentro do esperado"); `/api/pv/trackers/<id>` (e a 2C pela API PV) 502 e fora do cache
+  (era 0 trackers por 5 min); `/api/pv/trackers/<id>/chart` 502 quando a API PV e a reserva não responderam (intervalo com
+  dia faltando: 200 com `parcial`); `/api/pg/trackers/<id>` e o `/chart` 503 com o PG fora (a falha fica só
+  `_PG_TRK_FALHA_S` = 30 s no cache); `/api/pg/plant/<id>` 503 com o snapshot frio (o pedido do Nexus só lê o que existe);
+  `/api/spv/usina/<id>` 502 com o dict de erro (era "Sem dados de inversores"); `/api/solaredge/plant/<id>` 502 quando a
+  lista de dispositivos não veio; `/api/fracttal/os` 502 (a 1ª falha encerra a busca, o que chegou antes vai `parcial`; o
+  `_frac_wos_raw` não guarda mais a falha como "sem OS" por 10 min, nem o `_frac_ativo_exato` como "ativo não existe" por
+  12 h); `/api/os-performance` 502 quando não há índice nenhum porque o Fracttal não respondeu a varredura (a página que
+  falha não é mais "fim da lista": o índice anterior fica, nada é gravado, e por `FRAC_OSPERF_FALHA_S` = 60 s não se varre
+  de novo); `/api/cascata` segue 200, com `fracttal_ok`/`fracttal_erro` (queda de energia e equipamento) e `trk_ok`/`trk_erro`
+  (livro de paradas).
+- a régua de "falhou" das funções muito dubladas nos testes NÃO ganha parâmetro novo: o `_pg_trk_plant_curvas` deixa o
+  motivo na entrada do cache (`_pg_trk_curvas_erro` lê), o `_pv_trk_grafico` em `_pv_trk_graf_falha` e o `se_devices` em
+  `_se_dev_falha` (quem chama confere se a falha é deste pedido, `ts >= início`). As que já tinham lista opcional
+  (`falhas=` no `_frac_os_filtradas`/`_frac_wos_raw`/`_frac_ativo`) ficaram assim.
+- a tela (`painel_usina_v2.html`): `_dgLer(url, {exige, ms, post})` é a régua do `_lerOk` do Painel NOC — só 2xx com dado;
+  401 é da faixa de sessão; corpo com `fonte_ok: false`, ou com `erro` no lugar da lista que a leitura promete, também é
+  falha. `FALHA[k]` por leitura (plant, irma, diag, trk, fracttal, osPerf e, no modo histórico, hInv/hDisp/hMen/hDia/hTk);
+  `_dgSelo(k, oQue)` escreve o selo; `_dgFaixa()` junta as fontes fora numa linha da faixa do `aviso_de_sessao.js`
+  (`falhou(motivo, '', fim)`). Os 5 cartões, as abas Inversores, Trackers (com a releitura que falha num dia já lido: fica a
+  última leitura boa DAQUELE dia, com a hora), Curvas (a falha não recua mais para ontem como se fosse "ainda sem curva"),
+  Mês (motor de diagnóstico, cascata com o degrau sem leitura em "—", OS, mapa de strings, cards de tracker) e o modo
+  histórico (`?hist=1`: "todos no alvo", "ainda não tem quebra por inversor" e "fora do Fracttal" saíam do corpo do 500).
+  PR que não respondeu é "PR mediana —" (o `false*100` dava 0%). A planta irmã (Nova Londrina) que não respondeu tira a
+  usina inteira dos cartões, com o nome dela no selo.
+Fica de fora, de propósito: a Athon/Axis (SunOp, fonte paga) — a curva de tracker vazia vira "sem comunicação", não 0, e
+mexer pede outra rodada; e o `gerencial.html`, que lê a mesma `/api/cascata` mas ainda não mostra o `fracttal_ok`.
+Testes: `tests/test_diagnostico_fonte_fora.py` (cada rota com a fonte dublada fora e o zero de verdade ao lado; a página
+inteira no node com a rede dublada, um cenário por cartão e aba, PV, PG e modo histórico). Rodados contra o código de
+antes: os de falha quebram, os de zero de verdade passam nos dois.
 Prova no navegador (Chromium, 1440 px), app da worktree na 5151 com a rede cortada, dados falsos e sessão de 15 s, atrás
 de uma moldura de teste: a moldura recebeu `nexus:sessao-vencida` com `/painel` (e `/tempo-real/athon` quando o 401 veio
 do `/monitor` embutido), uma vez só em 60 s; os números ficaram (12,5 MWh) e a faixa apareceu centrada. Essa prova achou

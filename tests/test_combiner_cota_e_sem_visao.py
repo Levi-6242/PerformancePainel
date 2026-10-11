@@ -61,6 +61,8 @@ def test_inversor_de_1_string_no_cadastro_continua_contando(usina, monkeypatch):
 
 def test_no_drill_a_corrente_unica_sem_combiner_fica_sem_visao(usina, monkeypatch):
     class _Resp:
+        status_code = 200      # o drill confere o status desde 10/10/2026 (o 429 da API PV não vira usina parada)
+
         def __init__(self, d):
             self._d = d
 

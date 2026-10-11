@@ -3658,8 +3658,18 @@ def _pv_plant_inversores_busca(plant_id, force=False):
     token = _pv_token_for(plant_id)
 
     def _leituras():
-        return _http().post(f"{BASE_URL}/day_inverter", headers={"x-access-token": token},
-                            json={"id": plant_id}, timeout=60).json() or []
+        r = _http().post(f"{BASE_URL}/day_inverter", headers={"x-access-token": token},
+                         json={"id": plant_id}, timeout=60)
+        corpo = r.json()
+        corpo = [] if corpo is None else corpo
+        # Erro da API PV vem como DICT ({"error": ...}: o 429 da cota, conta sem permissão, id de outra conta) ou lista
+        # de strings, nunca a lista de registros. Até 10/10/2026 virava "sem leitura hoje" e o drill montava a usina pelo
+        # cadastro de dispositivos com TODOS os inversores desligados e sem comunicação: o Diagnóstico de uma usina
+        # parada com a fonte respondendo erro. Agora sobe, e a rota responde 504 com o motivo. Lista vazia continua sendo
+        # "a usina não leu nada hoje" (zero de verdade, de madrugada).
+        if r.status_code != 200 or not isinstance(corpo, list) or not all(isinstance(x, dict) for x in corpo):
+            raise RuntimeError(f"API PV respondeu {r.status_code} no day_inverter: {str(corpo)[:160]}")
+        return corpo
 
     def _nome_api():
         # nome da usina (para lookup no ESPERADO_INV) — SEMPRE (mesmo sem leitura hoje)
@@ -3680,10 +3690,8 @@ def _pv_plant_inversores_busca(plant_id, force=False):
     # _pv_plant_devices, que só guarda resposta boa (falha de rede devolve a última lista, não uma vazia).
     with ThreadPoolExecutor(max_workers=3) as _ex:
         _f_rec, _f_nome, _f_devs = _ex.submit(_leituras), _ex.submit(_nome_api), _ex.submit(_nomes_dispositivos)
-        records = _f_rec.result()          # erro de rede aqui sobe, como antes (a rota devolve 504)
+        records = _f_rec.result()          # erro de rede, ou o dict de erro da API, sobe (a rota devolve 504)
         plant_nome_api, dev_names = _f_nome.result(), _f_devs.result()
-    if isinstance(records, dict):      # erro da API vem como dict → trata como "sem leitura"
-        records = []
 
     # Usina TODA sem leitura hoje (ex.: 0 geração de madrugada) NÃO pode sumir com os inversores no
     # expand: monta a lista pelo plant_devices, tudo 'desligado' (o loop trata rec=None). Só devolve
@@ -9454,6 +9462,13 @@ def api_os_performance():
         res = list(res) + _os_atribuidas_de(u)
     except Exception as e:
         print(f"[os-atribuidas] merge falhou p/ {u}: {e}")
+    falha = _frac_osperf_falha
+    if cod and not _frac_osperf_idx and falha:
+        # Sem índice nenhum porque o Fracttal não respondeu a varredura: não é "usina sem OS de Performance". Era 200
+        # com a lista vazia, e o cartão "Fracttal · OS abertas" do Diagnóstico somava 0 (10/10/2026). Com índice velho
+        # na mão, ele segue servindo (a última leitura boa); o corpo leva o formato de sempre, com as atribuídas.
+        return jsonify({"usina": u, "codigo": cod, "os": res, "erro": falha[1], "fonte": "Fracttal",
+                        "fonte_ok": False}), 502
     return jsonify({"usina": u, "codigo": cod, "os": res})
 
 
@@ -10630,10 +10645,18 @@ def _pv_trk_dia(idusina, data: str, fetch: bool = True) -> dict:
                              headers={"x-access-token": _pv_token_for(idusina),
                                       "Content-Type": "application/json"},
                              json={"idusina": idusina, "date": data}, timeout=180)
-            d = _pv_trk_parse_dia(r.json() if r.status_code == 200 else None, com_alvo=_pv_trk_fora(idusina))
+            corpo = r.json() if r.status_code == 200 else None
+            d = _pv_trk_parse_dia(corpo, com_alvo=_pv_trk_fora(idusina))
+            # `erro` = a API NÃO respondeu o dia (HTTP de erro, ou o dict de erro no lugar da lista). Lista vazia não é
+            # erro: é a usina sem tracker, ou a madrugada. Quem lê decide; o _pv_trackers_analise usa para não dizer
+            # "usina sem tracker" com a fonte fora (Diagnóstico, 10/10/2026). Vazio não entra no cache, com ou sem erro.
+            if r.status_code != 200:
+                d["erro"] = f"HTTP {r.status_code}"
+            elif not isinstance(corpo, list):
+                d["erro"] = f"resposta sem a lista de leituras ({str(corpo)[:80]})"
         except Exception as e:
             print(f"[trackers/apipv] usina {idusina} {data}: {e}")
-            d = {"curva": {}, "ultima": {}, "ultima_ts": None}
+            d = {"curva": {}, "ultima": {}, "ultima_ts": None, "erro": f"{type(e).__name__}: {str(e)[:160]}"}
         if d["curva"]:
             _pv_trk_dia_cache[key] = {"ts": time.time(), "d": d}
             return d
@@ -10645,6 +10668,7 @@ def _pv_trk_dia(idusina, data: str, fetch: bool = True) -> dict:
 _pv_trk_graf_cache  = {}     # (idusina, data) -> {ts, g}: grafico cru do trackerschart (reusa detalhe+chart)
 _pv_trk_graf_locks  = {}     # (idusina, data) -> Lock: DEDUP de fetch concorrente (1 busca por chave)
 _pv_trk_graf_lock_guard = threading.Lock()
+_pv_trk_graf_falha  = {}     # (idusina, data) -> (ts, motivo): a última busca que voltou vazia com a API PV fora
 
 
 def _pv_trk_grafico(idusina, data: str, fetch: bool = True) -> dict:
@@ -10655,7 +10679,11 @@ def _pv_trk_grafico(idusina, data: str, fetch: bool = True) -> dict:
     piorar nada — só tirar o PLAT_TOKEN do caminho crítico.
 
     fetch=False → SÓ o cache (não dispara a busca, pesada) — usado no refino do detalhe p/ não
-    travar/zerar a detecção."""
+    travar/zerar a detecção.
+
+    A curva que voltou vazia porque a API PV NÃO respondeu e a reserva não supriu (e não porque o dia não tem curva)
+    deixa o motivo em _pv_trk_graf_falha[(usina, dia)] — quem chama recebe {} como sempre; o gráfico do Diagnóstico
+    confere ali e responde 502 em vez de "a fonte não retornou este tracker no dia" (10/10/2026)."""
     d = _pv_trk_dia(idusina, data, fetch=fetch)
     if d.get("curva"):
         return d["curva"]
@@ -10677,18 +10705,27 @@ def _pv_trk_grafico(idusina, data: str, fetch: bool = True) -> dict:
         ent = _pv_trk_graf_cache.get(key)                 # re-check: outro thread já pode ter buscado
         if ent and ((data != hoje and ent["g"]) or (time.time() - ent["ts"]) < CACHE_TTL):
             return ent["g"]
+        erro_res = None
         try:
             r = _http().get(f"{PLAT_BASE}/v2/usinas/trackerschart", headers=_plat_headers(),
                             params={"idusina": idusina, "dataleitura": data}, timeout=90)
             g = (r.json() or {}).get("grafico") or {}
-        except Exception:
-            g = {}
+            erro_res = None if r.status_code == 200 else f"HTTP {r.status_code}"
+        except Exception as e:                                                 # noqa: BLE001
+            g, erro_res = {}, type(e).__name__
         if g:
             _pv_trk_graf_cache[key] = {"ts": time.time(), "g": g}
+            _pv_trk_graf_falha.pop(key, None)
             return g
         # busca vazia/falha (timeout/throttle sob carga): NÃO cacheia vazio — senão "Sem curva" gruda
         # por 5 min mesmo o Plataforma já devolvendo dado. Devolve a última curva boa.
-        return (ent or {}).get("g") or {}
+        velho = (ent or {}).get("g") or {}
+        if not velho and d.get("erro"):
+            _pv_trk_graf_falha[key] = (time.time(), f"API PV: {d['erro']}"
+                                       + (f" (reserva PV Plataforma: {erro_res})" if erro_res else ""))
+        else:
+            _pv_trk_graf_falha.pop(key, None)
+        return velho
 
 
 # ── Classificação de trackers (Levi 10/07, calibrada com 11 casos rotulados das 4 fontes; ver
@@ -11576,13 +11613,25 @@ def _pv_trackers_analise(idusina, nome_disp, date=None, curva=False, fetch_curva
         # API PV FIXA primeiro (22/09/2026). A mesma busca já alimenta a curva, então no detalhe
         # (curva=True) o instantâneo sai de graça do cache — e some a dependência do PLAT_TOKEN,
         # que vence toda semana e só se renova com alguém colando um token na tela.
-        j = _pv_trk_j_da_api(_pv_trk_dia(idusina, date, fetch=True))
+        dia = _pv_trk_dia(idusina, date, fetch=True)
+        j, erro_res = _pv_trk_j_da_api(dia), None
         if not j:                                   # reserva: a PV Plataforma, como estava
-            r = _http().get(f"{PLAT_BASE}/v2/usinas/trackers", headers=_plat_headers(),
-                             params={"idusina": idusina, "date": date}, timeout=30)
-            j = r.json() if r.status_code == 200 else {}
-    except Exception:
-        return base
+            try:
+                r = _http().get(f"{PLAT_BASE}/v2/usinas/trackers", headers=_plat_headers(),
+                                params={"idusina": idusina, "date": date}, timeout=30)
+                j = r.json() if r.status_code == 200 else {}
+                erro_res = None if r.status_code == 200 else f"HTTP {r.status_code}"
+            except Exception as e:                  # noqa: BLE001 — a reserva caída não derruba a API PV que respondeu
+                j, erro_res = {}, type(e).__name__
+            j = j if isinstance(j, dict) else {}
+        if not j and dia.get("erro"):
+            # A API PV NÃO respondeu e a reserva não supriu: sem leitura, que não é "usina sem tracker". Até 10/10/2026
+            # isto saía como 0 trackers (e a rota guardava no cache por 5 min): o Diagnóstico com a fonte fora dizia
+            # "Esta usina não tem trackers cadastrados". A rota responde 502 com o motivo; a varredura pula a usina.
+            return dict(base, fonte_ok=False,
+                        erro=f"API PV: {dia['erro']}" + (f" (reserva PV Plataforma: {erro_res})" if erro_res else ""))
+    except Exception as e:                          # noqa: BLE001
+        return dict(base, fonte_ok=False, erro=f"API PV: {type(e).__name__}: {str(e)[:160]}")
     lst, atuais = [], []
     for inv in (j.get("dados") or []):
         for t in (inv.get("trackers") or []):
@@ -12884,6 +12933,10 @@ def api_pv_trackers_plant(idusina):
     except Exception:
         nome = str(idusina)
     r = _pv_trackers_analise(idusina, nome, date=(None if data == hoje else data), curva=True)
+    if r.get("fonte_ok") is False:
+        # A fonte não respondeu: 502 com o motivo e FORA do cache (o corpo segue no formato de sempre, para quem lê o JSON
+        # sem olhar o status). Era 200 com 0 trackers, guardado 5 min: o Diagnóstico dizia "usina sem tracker" (10/10/2026).
+        return jsonify(dict(r, fonte="API PV")), 502
     _pv_trk_plant_det[key] = {"ts": time.time(), "payload": r}
     if data == hoje:
         _pv_trk_plant[idusina] = {"ts": time.time(), "payload": r}   # alimenta o cache do overview tb
@@ -12916,6 +12969,14 @@ def api_pv_trackers_chart(idusina):
         for gd in por_dia:
             for nome, pts in (gd or {}).items():
                 g.setdefault(nome, []).extend(pts or [])
+    # a API PV que não respondeu NESTE pedido (ver _pv_trk_grafico): um dia vazio por falha não é dia sem curva
+    dias_vistos = [data] if ndias == 1 else dias_
+    falhas = [f[1] for f in (_pv_trk_graf_falha.get((idusina, db)) for db in dias_vistos) if f and f[0] >= agora]
+    if not g and falhas:
+        # A fonte não respondeu: 502 com o motivo e FORA do cache. Era 200 com a lista vazia, guardado 5 min, e o
+        # Diagnóstico dizia "Sem curva para o tracker (a fonte não retornou este tracker no dia)" (10/10/2026).
+        return jsonify({"plant": idusina, "ini": ini_iso, "fim": fim_iso, "ndias": ndias, "trackers": [], "alvo": None,
+                        "erro": falhas[0], "fonte": "API PV", "fonte_ok": False}), 502
 
     _alvo_max = _trk_chart_down_alvo(ndias)
     def _down(serie):
@@ -12930,6 +12991,8 @@ def api_pv_trackers_chart(idusina):
                                for p in s]})
     payload = {"plant": idusina, "date": datetime.strptime(ini_iso, "%Y-%m-%d").strftime("%d/%m/%Y"),
                "ini": ini_iso, "fim": fim_iso, "ndias": ndias, "trackers": trackers, "alvo": None}
+    if falhas:                                       # intervalo com dia que não respondeu: a curva tem buraco, avisado
+        payload.update(parcial=True, erro=falhas[0])
     _trk_chart_aplica_status(trackers, g, payload, pid=idusina)   # MESMA régua dos cards (a API PV não manda alvo por tracker)
     if ndias == 1:
         _pv_trk_chart_cache[(idusina, payload["date"])] = {"ts": agora, "payload": payload}
@@ -13159,15 +13222,27 @@ def se_sites() -> list:
 
 
 # ── SolarEdge: dispositivos de um site (inversores + strings) ──────────────────
+_se_dev_falha = {}     # site_id -> (ts, motivo) da última lista de dispositivos que a SolarEdge não devolveu
+
+
 def se_devices(site_id) -> list:
+    """Dispositivos do site. A falha devolve [] como sempre e deixa o motivo em _se_dev_falha — o Diagnóstico confere
+    ali para não dizer "a fonte não devolveu inversores" com a SolarEdge fora (10/10/2026)."""
+    def _falhou(motivo):
+        _se_dev_falha[site_id] = (time.time(), motivo)
+        return []
     try:
         r = _http().get(f"{SE_BASE}/services/cni/ui-api/pages/site/analysis/custom/site/{site_id}/devices",
                          headers=_se_headers(), timeout=30)
         if r.status_code != 200:
-            return []
-        return r.json()
-    except Exception:
-        return []
+            return _falhou(f"SolarEdge respondeu HTTP {r.status_code}")
+        d = r.json()
+        if not isinstance(d, list):          # o erro vem como objeto; quem chama itera a lista com .get
+            return _falhou(f"SolarEdge sem a lista de dispositivos ({str(d)[:80]})")
+        _se_dev_falha.pop(site_id, None)
+        return d
+    except Exception as e:                                                     # noqa: BLE001
+        return _falhou(f"SolarEdge: {type(e).__name__}: {str(e)[:160]}")
 
 
 def _se_day_range(tzname):
@@ -13742,7 +13817,16 @@ def _se_plant_inversores(site_id: int) -> list:
 
 @app.route("/api/solaredge/plant/<int:site_id>")
 def api_solaredge_plant(site_id):
-    return jsonify({"plant_id": site_id, "inversores": _se_plant_inversores(site_id)})
+    t0 = time.time()
+    invs = _se_plant_inversores(site_id)
+    falha = _se_dev_falha.get(site_id)
+    if not invs and falha and falha[0] >= t0:
+        # A SolarEdge não respondeu: 502 com o motivo. Era 200 com a lista vazia, e o Diagnóstico da RenoGrid dizia "A
+        # fonte não devolveu inversores para esta usina" com "Inversores 0" e "Hoje 0 kWh" (10/10/2026). O corpo segue no
+        # formato de sempre (o Raio-X do Painel NOC já trata o não-2xx como "não respondeu").
+        return jsonify({"plant_id": site_id, "inversores": [], "error": "falha", "erro": falha[1],
+                        "fonte": "SolarEdge", "fonte_ok": False}), 502
+    return jsonify({"plant_id": site_id, "inversores": invs})
 
 
 _se_curva_cache = {}   # (site_id, dia, inv) -> {"ts", "payload"} — curva do dia por string (drill e aba Curva)
@@ -17408,8 +17492,10 @@ def _diagnostico_pv(idusina, nome_raw, nome_disp):
              "resumo": {"strings_abaixo": 0, "inversores_abaixo": 0, "trackers_parados": 0, "correlacoes": 0}}
     try:
         invs = _pv_plant_inversores(idusina)
-    except Exception:
-        return vazio
+    except Exception as e:                       # noqa: BLE001
+        # A fonte não respondeu: sem leitura, que não é "usina sem anomalia". O vazio daqui virava "Sem anomalias — usina
+        # dentro do esperado" no Diagnóstico com a API PV em 504 (10/10/2026); a rota responde 504 com o motivo.
+        return dict(vazio, fonte_ok=False, erro=f"API PV: {type(e).__name__}: {str(e)[:160]}")
     if not invs:
         return vazio
     strings_abaixo = sum(1 for i in invs for s in (i.get("strings") or [])
@@ -17506,6 +17592,9 @@ def api_diagnostico_pv(idusina):
     res.update({"idusina": idusina, "usina": disp,
                 "cobertura_bd_trackers": _nome_base(raw) in BD_TRK_USINAS,
                 "cache_ts": datetime.now().strftime("%H:%M:%S")})
+    if res.get("fonte_ok") is False:      # a API PV não respondeu: 504, como o /api/plant (a mesma leitura)
+        res["fonte"] = "API PV"
+        return jsonify(res), 504
     return jsonify(res)
 
 
@@ -17670,9 +17759,15 @@ def api_painel_correlacao(fonte, idusina):
 @app.route("/api/pg/plant/<int:plant_id>")
 def api_pg_plant(plant_id):
     try:
-        _, detail = _pg_get_snapshot(False)
+        summary, detail = _pg_get_snapshot(False)
     except Exception as e:
         return jsonify({"error": str(e), "inversores": []}), 500
+    if not summary and not detail:
+        # Snapshot ainda não montado: o pedido do Nexus só lê o que já existe (_pg_get_snapshot), e com o cache frio
+        # recebia {} — que aqui virava "A fonte não devolveu inversores" e "Inversores 0" no Diagnóstico (10/10/2026).
+        # Não é usina sem inversor: é leitura que ainda não houve.
+        return jsonify({"error": "snapshot do PG ainda não montado", "erro": "o snapshot do PG ainda não foi montado",
+                        "fonte": "PG", "fonte_ok": False, "inversores": []}), 503
     invs = detail.get(plant_id, [])
     # Reaplica a régua de trancadas no ato: o snapshot é cacheado (SWR), então uma string
     # recém-(des)marcada não estaria refletida aqui. Reclassifica sobre as correntes já no
@@ -20504,15 +20599,24 @@ def _pg_trk_default_date() -> str:
         return datetime.now().strftime("%Y-%m-%d")
 
 
+_PG_TRK_FALHA_S = 30   # a falha do PG fica só 30 s no cache: segura a rajada (a varredura pergunta por usina, 6 de cada
+                       # vez) sem prender o "sem leitura" por 5 min depois de o banco voltar
+
+
 def _pg_trk_plant_curvas(plant_id: str, date: str, date_fim: str = None) -> dict:
     """Série de uma usina → {tracker: {'alvo':[(ts,v)], 'atual':[(ts,v)]}}. date_fim=None → só o
-    'date'; senão o INTERVALO [date, date_fim] inclusive (gráfico De/Até multi-dia)."""
+    'date'; senão o INTERVALO [date, date_fim] inclusive (gráfico De/Até multi-dia).
+
+    O PG que não respondeu devolve {} como antes, mas a entrada do cache leva o motivo (`erro`) e vale só
+    _PG_TRK_FALHA_S: quem precisa separar "sem tracker" de "sem leitura" pergunta ao _pg_trk_curvas_erro. Até 10/10/2026
+    a falha ficava 5 min no cache como {}, e o detalhe da usina dizia "Esta usina não tem trackers cadastrados" com o
+    banco fora (Diagnóstico)."""
     fim = date_fim or date
     key = (str(plant_id), date, fim)
     ent = _pg_trk_curva_cache.get(key)
-    if ent and time.time() - ent["ts"] < CACHE_TTL:
+    if ent and time.time() - ent["ts"] < (_PG_TRK_FALHA_S if ent.get("erro") else CACHE_TTL):
         return ent["dados"]
-    dados = {}
+    dados, erro = {}, None
     try:
         conn = _pg_conn(); cur = conn.cursor()
         cur.execute("""
@@ -20534,8 +20638,16 @@ def _pg_trk_plant_curvas(plant_id: str, date: str, date_fim: str = None) -> dict
         conn.close()
     except Exception as e:
         print(f"[PG TRK] erro curvas {plant_id}/{date}..{fim}: {e}")
-    _pg_trk_curva_cache[key] = {"ts": time.time(), "dados": dados}
+        dados, erro = {}, f"{type(e).__name__}: {str(e)[:160]}"
+    _pg_trk_curva_cache[key] = {"ts": time.time(), "dados": dados, **({"erro": erro} if erro else {})}
     return dados
+
+
+def _pg_trk_curvas_erro(plant_id: str, date: str, date_fim: str = None):
+    """O motivo de o _pg_trk_plant_curvas ter voltado vazio porque o PG NÃO respondeu (None quando respondeu, mesmo sem
+    linha nenhuma). Lê a entrada do cache que a própria leitura acabou de gravar — não consulta o banco de novo."""
+    ent = _pg_trk_curva_cache.get((str(plant_id), date, date_fim or date)) or {}
+    return ent.get("erro") if time.time() - ent.get("ts", 0.0) < _PG_TRK_FALHA_S else None
 
 
 def _pg_trk_nome(plant_id: str) -> str:
@@ -20549,6 +20661,7 @@ def _pg_trackers_analise(plant_id: str, date: str = None) -> dict:
     """Detalhe por CURVA do dia (mesma lógica do Owen): parado/desvio/atraso."""
     date = date or _pg_trk_default_date()
     trks = _pg_trk_plant_curvas(plant_id, date)
+    erro = None if trks else _pg_trk_curvas_erro(plant_id, date)
     base = {"usina": _pg_trk_nome(plant_id), "plant_id": str(plant_id), "date": date,
             "total": 0, "parados": 0, "desvios": 0, "atrasos": 0, "sem_alvo": False,
             # severos/medios/leves aqui porque a saída antecipada desta função vai para o MESMO
@@ -20557,6 +20670,8 @@ def _pg_trackers_analise(plant_id: str, date: str = None) -> dict:
             "severos": 0, "medios": 0, "leves": 0,
             "pior_disparidade": None, "ultima_leitura": None,
             "trackers": [], "tem_trackers": bool(trks)}
+    if erro:                                       # o PG não respondeu: sem leitura, não "usina sem tracker" (10/10/2026)
+        return dict(base, fonte_ok=False, erro=f"PG: {erro}")
     if not trks:
         return base
     g = {n: [{"x": t.strftime("%Y-%m-%dT%H:%M:%S"), "y": v} for t, v in (d.get("atual") or [])]
@@ -20643,7 +20758,10 @@ def api_pg_trackers():
 
 @app.route("/api/pg/trackers/<plant_id>")
 def api_pg_trackers_plant(plant_id):
-    return jsonify(_pg_trackers_analise(plant_id, flask_request.args.get("date")))
+    r = _pg_trackers_analise(plant_id, flask_request.args.get("date"))
+    if r.get("fonte_ok") is False:      # o PG fora: 503, como o /api/gerencial (8633218), e o corpo no formato de sempre
+        return jsonify(dict(r, fonte="PG")), 503
+    return jsonify(r)
 
 
 @app.route("/api/pg/trackers/<plant_id>/chart")
@@ -20652,6 +20770,12 @@ def api_pg_trackers_chart(plant_id):
     if ndias == 1 and not flask_request.args.get("ini") and not flask_request.args.get("fim"):
         ini = fim = (flask_request.args.get("date") or _pg_trk_default_date()).strip()   # compat: default do PG
     trks = _pg_trk_plant_curvas(plant_id, ini, fim if ndias > 1 else None)
+    erro = None if trks else _pg_trk_curvas_erro(plant_id, ini, fim if ndias > 1 else None)
+    if erro:
+        # o PG fora: 503, como o /api/pg/trackers/<id>; era 200 sem curva, e o Diagnóstico dizia "a fonte não retornou
+        # este tracker no dia" (10/10/2026). O corpo segue no formato de sempre.
+        return jsonify({"plant": str(plant_id), "date": ini, "ini": ini, "fim": fim, "ndias": ndias, "trackers": [],
+                        "alvo": None, "erro": f"PG: {erro}", "fonte": "PG", "fonte_ok": False}), 503
     _alvo_max = _trk_chart_down_alvo(ndias)
     def _down(s): return s[::max(1, len(s) // _alvo_max)]
     out, alvo = [], None
@@ -21123,13 +21247,18 @@ def _spv_day_records(idusina, token, data: str) -> list:
     datas passadas → custom_query (best-effort, pode ser lento/timeout).
     Erro da API vem como DICT (ex.: 401 {"error": "Invalid id"} p/ id de outra conta) — sem o
     guard, o chamador iterava as CHAVES do dict como se fossem registros e a rota caía em 500
-    (Tucano/SEMP, 06/08). Mesma armadilha já corrigida no /api/plant."""
+    (Tucano/SEMP, 06/08). Mesma armadilha já corrigida no /api/plant.
+    Desde 10/10/2026 o dict de erro LEVANTA (a rota responde 502 com o motivo) em vez de virar lista vazia: vazio é "a
+    usina não leu nada hoje", e a curva dizia "Sem dados de inversores" com a API respondendo erro (Diagnóstico)."""
     H = {"x-access-token": token}
     hoje = datetime.now().strftime("%d/%m/%Y")
     if data == hoje:
-        recs = _http().post(f"{BASE_URL}/day_inverter", headers=H,
-                            json={"id": idusina}, timeout=60).json() or []
-        return recs if isinstance(recs, list) else []
+        r = _http().post(f"{BASE_URL}/day_inverter", headers=H, json={"id": idusina}, timeout=60)
+        recs = r.json()
+        recs = [] if recs is None else recs
+        if r.status_code != 200 or not isinstance(recs, list):
+            raise RuntimeError(f"API PV respondeu {r.status_code} no day_inverter: {str(recs)[:160]}")
+        return recs
     recs, _motivo = _spv_day_records_hist(idusina, token, data)
     return recs
 
@@ -21665,9 +21794,8 @@ def api_spv_usina(idusina):
         # da principal o day_inverter devolve o dict de erro — a curva da fonte SEMP nunca vinha.
         # O catálogo (/plants) é global, então o NOME continua vindo da conta principal abaixo.
         token = _pv_token_for(idusina)
-    except Exception as e:
-        return jsonify({"idusina": idusina, "data": data, "inversores": [],
-                        "msg": f"API PV indisponível: {e}"})
+    except Exception as e:                                                     # noqa: BLE001
+        return _spv_fonte_fora(idusina, data, e)
     # DIAS ANTERIORES → CORRENTE pela API PV (custom_query v2) quando ela tem o histórico; POTÊNCIA pela PV Plataforma
     # (trygenerate) no inversor, ou na usina, que não tiver (Levi, 28/09/2026). Histórico é imutável: cacheia p/ sempre
     # quando vier completo; vazio por falha de busca (token? fonte fora?) não cacheia → retenta depois.
@@ -21694,9 +21822,8 @@ def api_spv_usina(idusina):
     # HOJE → corrente via day_inverter (inalterado)
     try:
         records = _spv_day_records(idusina, token, data)
-    except Exception as e:
-        return jsonify({"idusina": idusina, "data": data, "inversores": [],
-                        "msg": f"API PV indisponível: {e}"})
+    except Exception as e:                                                     # noqa: BLE001
+        return _spv_fonte_fora(idusina, data, e)
     if not records:
         payload = {"idusina": idusina, "data": data, "inversores": [],
                    "msg": "Sem dados de inversores para esta usina/data (API PV)."}
@@ -21705,6 +21832,15 @@ def api_spv_usina(idusina):
     payload.pop("_sem_corrente", None)
     _spv_cache[key] = {"ts": agora, "payload": payload}
     return jsonify(payload)
+
+
+def _spv_fonte_fora(idusina, data, e):
+    """A API PV não respondeu a curva de HOJE: 502 com o motivo (Diagnóstico, 10/10/2026: era 200 com lista vazia, e o
+    dict de erro virava "Sem dados de inversores"). O corpo segue com `inversores` vazio e o `msg` de sempre, para a tela
+    antiga do Diagnóstico (painel_usina.html, ?antigo=1), que lê o JSON sem olhar o status."""
+    motivo = f"{type(e).__name__}: {str(e)[:200]}"
+    return jsonify({"idusina": idusina, "data": data, "inversores": [], "msg": f"API PV indisponível: {e}",
+                    "erro": f"API PV: {motivo}", "fonte": "API PV", "fonte_ok": False}), 502
 
 
 def _spv_payload_corrente(idusina, token, data: str, records: list, full: bool) -> dict:
@@ -23498,6 +23634,13 @@ def _frac_motivo_txt(mot):
     return f"HTTP {st}: {erro}" if erro else f"HTTP {st}"
 
 
+def _frac_falhou(mot) -> bool:
+    """O None do _frac_get foi FALHA (rede, cota 406/429, token 401, 5xx) — e não o Fracttal respondendo que aquilo não
+    existe (404 e afins)? Falha não pode virar "sem OS" nem "ativo não existe" no cache (Diagnóstico, 10/10/2026)."""
+    st = mot.get("status")
+    return st is None or st == 401 or st in FRAC_COTA_STATUS or st >= 500
+
+
 def _frac_get_paciente(ep, orcamento, **params):
     """_frac_get para as varreduras do WORKER. 429/406 = espera o reset que o Fracttal informa (+1 s) e repete o MESMO
     pedido; rede caída, 5xx ou exceção dentro do _frac_get (a renovação do token, que também leva 429 quando a cota da
@@ -23676,12 +23819,20 @@ def _frac_inv_code(usina, inv_disp):
     return f"{base}-INVR{m.group(0)}" if (m and base) else None
 
 
-def _frac_ativo_exato(code):
-    """items/{code} → {id, desc, code} (cacheado, falta também). None se o code não existir exatamente assim."""
+def _frac_ativo_exato(code, falhas=None):
+    """items/{code} → {id, desc, code} (cacheado, falta também). None se o code não existir exatamente assim.
+
+    O Fracttal que NÃO respondeu (cota, rede, 5xx) não é "não existe": não fica no cache — antes ficava 12 h, e o
+    inversor some das OS por meio dia depois de um 429 (Diagnóstico, 10/10/2026) — e o motivo vai para `falhas`."""
     ent = _frac_code_cache.get(code)
     if ent and (time.time() - ent["ts"]) < FRAC_CODE_TTL:
         return ent["ativo"]
-    d = _frac_get(f"items/{code}")
+    mot = {}
+    d = _frac_get(f"items/{code}", _motivo=mot)
+    if d is None and _frac_falhou(mot):
+        if falhas is not None:
+            falhas.append(_frac_motivo_txt(mot))
+        return None
     data = (d.get("data") if isinstance(d, dict) else d) or []
     it = data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) and data else None)
     ativo = ({"id": it.get("id"), "desc": str(it.get("description") or "").split("  ")[0].strip(), "code": code}
@@ -23690,22 +23841,29 @@ def _frac_ativo_exato(code):
     return ativo
 
 
-def _frac_ativo(code):
-    """Resolve um code Fracttal → {id, desc, code} (cacheado). None se não existir.
+def _frac_ativo(code, falhas=None):
+    """Resolve um code Fracttal → {id, desc, code} (cacheado). None se não existir — ou se o Fracttal não respondeu, e
+    aí o motivo vai para `falhas` (quem passa a lista fica sabendo; os outros seguem como antes).
 
     O code do inversor às vezes leva o PREFIXO do cliente e às vezes não (Levi, 24/09/2026: "o inversor de canarana 1
     existe: THPN-CNN100-INVR1.1 (...) flexibilize melhor"). Conferido no Fracttal: ALT100-INVR1.8, CTS100-INVR1.1 e
     MTS100-INVR6.2 existem sem ele; THPN-CNN100-INVR1.1, THPN-APR100-INVR1.10 e THPN-EBG100-INVR2.2 só com ele. Então:
     o code como veio e, se não existir, com o prefixo da usina (aba de usinas da planilha de tickets) e o da Thopen.
-    O achado fica no cache do code sem prefixo: a próxima busca sai direto. `code` no retorno é o que existe lá."""
-    ativo = _frac_ativo_exato(code)
+    O achado fica no cache do code sem prefixo: a próxima busca sai direto. `code` no retorno é o que existe lá.
+    Falhou uma busca: para ali (a do prefixo seguinte não decide nada com o Fracttal fora, e gastaria a cota)."""
+    f = []
+    ativo = _frac_ativo_exato(code, f)
     m = re.match(r"([A-Z]{3}\d{3})-", str(code or ""))
-    if ativo is None and m:
+    if ativo is None and m and not f:
         for pref in dict.fromkeys(p for p in (USINA_PREFIXO_FRAC.get(m.group(1)), "THPN") if p):
-            ativo = _frac_ativo_exato(f"{pref}-{code}")
+            ativo = _frac_ativo_exato(f"{pref}-{code}", f)
             if ativo:
                 _frac_code_cache[code] = {"ts": time.time(), "ativo": ativo}
                 break
+            if f:
+                break
+    if falhas is not None:
+        falhas.extend(f)
     return ativo
 
 
@@ -23756,6 +23914,8 @@ _frac_osperf_ts = 0.0
 _frac_openwo_idx = {}          # {Usina Fractall (norm) → [TODAS as OS abertas]} — pick-list do "Atribuir OS"
 _FRAC_OSPERF_FILE = _p_cache("frac_osperf_index.json")   # indice; o sweep custa ~19 requests
 FRAC_OSPERF_TTL = 30 * 60
+_frac_osperf_falha = None      # (ts, motivo) da última varredura que o Fracttal não respondeu; None depois de uma boa
+FRAC_OSPERF_FALHA_S = 60       # s sem varrer de novo depois de uma falha (segura a rajada de pedidos da tela)
 
 
 def _frac_grpkey(s):
@@ -23766,7 +23926,7 @@ def _frac_osperf_index(force=False):
     """{Usina Fractall (norm) → [OSs de Performance EM ABERTO]}. Varre work_orders status=1, mantém só as
     com a etiqueta PERFORMANCE (4660), agrupa por groups_1_description (= Usina Fractall). Cacheado 30 min
     + persistido (boot frio lê o arquivo)."""
-    global _frac_osperf_idx, _frac_osperf_ts, _frac_openwo_idx
+    global _frac_osperf_idx, _frac_osperf_ts, _frac_openwo_idx, _frac_osperf_falha
     if not force and _frac_osperf_idx and (time.time() - _frac_osperf_ts) < FRAC_OSPERF_TTL:
         return _frac_osperf_idx
     if not force and not _frac_osperf_idx:
@@ -23779,10 +23939,19 @@ def _frac_osperf_index(force=False):
                 return _frac_osperf_idx
         except Exception:
             pass
+    # O Fracttal acabou de não responder: não varre de novo a cada pedido (a cota é da empresa inteira e vive esgotada)
+    if not force and _frac_osperf_falha and (time.time() - _frac_osperf_falha[0]) < FRAC_OSPERF_FALHA_S:
+        return _frac_osperf_idx
     idx, openidx, start = {}, {}, 0
     try:
         while start < 8000:
-            d = _frac_get("work_orders/", id_status_work_order=1, start=start, limit=200)
+            mot = {}
+            d = _frac_get("work_orders/", _motivo=mot, id_status_work_order=1, start=start, limit=200)
+            if d is None and _frac_falhou(mot):
+                # Página que o Fracttal não respondeu (429 da cota, rede, 5xx) não é "acabaram as OS". Até 10/10/2026 o
+                # None encerrava a varredura como se fosse o fim: de boot frio gravava o índice VAZIO por 30 min ("OS
+                # abertas 0" no Diagnóstico), e no meio gravava só as páginas de antes. Agora fica o índice anterior.
+                raise RuntimeError(f"o Fracttal não respondeu ({_frac_motivo_txt(mot)})")
             rows = (d.get("data") if isinstance(d, dict) else d) or []
             if not rows:
                 break
@@ -23816,7 +23985,9 @@ def _frac_osperf_index(force=False):
                 break
     except Exception as e:
         print(f"[fracttal] sweep de OS de Performance falhou: {e}")
+        _frac_osperf_falha = (time.time(), str(e)[:200])   # sem índice nenhum, a rota diz que não leu (ver api_os_performance)
         return _frac_osperf_idx                    # mantém o índice anterior
+    _frac_osperf_falha = None                      # o Fracttal respondeu a varredura inteira
     for g in idx:
         idx[g].sort(key=lambda o: o.get("_ts") or "", reverse=True)
         for o in idx[g]:
@@ -25869,12 +26040,20 @@ FRAC_TIPOS_ALVO = {"corretiva", "corretiva emergencial", "inspeção", "inspecao
 _frac_wos_cache = {}     # id_item -> {ts, rows(brutas)}
 
 
-def _frac_wos_raw(id_item):
-    """WOs BRUTAS de um ativo (com tasks_log_task_type_main + creation_date), cacheado FRAC_OS_TTL."""
+def _frac_wos_raw(id_item, falhas=None):
+    """WOs BRUTAS de um ativo (com tasks_log_task_type_main + creation_date), cacheado FRAC_OS_TTL.
+
+    O Fracttal que não respondeu (a cota da empresa vive esgotada: 429) devolve [] SEM cache e põe o motivo em `falhas`.
+    Antes o [] ficava 10 min no cache, e o Diagnóstico dizia "Fracttal · OS abertas 0" depois de um soluço (10/10/2026)."""
     ent = _frac_wos_cache.get(id_item)
     if ent and (time.time() - ent["ts"]) < FRAC_OS_TTL:
         return ent["rows"]
-    d = _frac_get("work_orders/", id_item=id_item, limit=200)
+    mot = {}
+    d = _frac_get("work_orders/", _motivo=mot, id_item=id_item, limit=200)
+    if d is None and _frac_falhou(mot):
+        if falhas is not None:
+            falhas.append(_frac_motivo_txt(mot))
+        return []
     rows = (d.get("data") if isinstance(d, dict) else d) or []
     _frac_wos_cache[id_item] = {"ts": time.time(), "rows": rows}
     return rows
@@ -25924,12 +26103,13 @@ def _frac_dt_local(s):
     return d + timedelta(hours=FRAC_TZ_OFF_H)          # UTC → local
 
 
-def _frac_os_filtradas(id_item, mes=None):
+def _frac_os_filtradas(id_item, mes=None, falhas=None):
     """OSs do ativo nos 5 tipos-alvo (por tasks_log_task_type_main). Mostra: (a) toda OS NÃO encerrada
     (aberta), independentemente da data; (b) as concluídas do mês YYYY-MM pedido. NUNCA mostra
-    Canceladas (status 4). Dedup por folio (uma OS pode ter várias tarefas). Abertas em 1º lugar."""
+    Canceladas (status 4). Dedup por folio (uma OS pode ter várias tarefas). Abertas em 1º lugar.
+    `falhas` recebe o motivo quando o Fracttal não respondeu (ver _frac_wos_raw)."""
     seen = {}
-    for w in _frac_wos_raw(id_item):
+    for w in _frac_wos_raw(id_item, falhas):
         tipo = str(w.get("tasks_log_task_type_main") or "").strip()
         if tipo.lower() not in FRAC_TIPOS_ALVO:
             continue
@@ -25988,27 +26168,39 @@ def api_fracttal_os():
     mes = (body.get("mes") or "").strip() or None
     invs = body.get("inversores") or []
     out = {"ok": True, "usina": usina, "mes": mes, "usina_os": [], "por_inversor": {}}
+    # O Fracttal que NÃO respondeu (a cota da empresa vive esgotada: 429; rede; 5xx) não é "usina sem OS". Até 10/10/2026
+    # cada falha era engolida aqui (e o vazio ficava no cache), e o Diagnóstico mostrava "Fracttal · OS abertas 0". Agora
+    # a primeira falha encerra a busca (as seguintes só gastariam a cota) e a rota responde 502 com o motivo e o que
+    # chegou antes dela (parcial, marcado); quem lê o JSON sem olhar o status segue recebendo o formato de sempre.
+    falhas = []
     try:
         ent = _frac_usina_ent(usina)
         if ent and ent.get("site"):
-            out["usina_os"] = _frac_os_filtradas(ent["site"], mes)
-    except Exception as e:
+            out["usina_os"] = _frac_os_filtradas(ent["site"], mes, falhas=falhas)
+    except Exception as e:                                                     # noqa: BLE001
         out["erro_site"] = str(e)
+        falhas.append(f"{type(e).__name__}: {str(e)[:160]}")
     for nome in invs:
+        if falhas:
+            break
         try:
             code = _frac_inv_code(usina, nome)
-            ativo = _frac_ativo(code) if code else None
+            ativo = _frac_ativo(code, falhas=falhas) if code else None
             if not ativo:
                 continue
             m = re.search(r"(\d+)\.(\d+)", str(nome))
             out["por_inversor"][nome] = {
                 "cabine": int(m.group(1)) if m else None,
                 "inv": int(m.group(2)) if m else None,
-                "code": code, "os": _frac_os_filtradas(ativo["id"], mes)}
-        except Exception:
-            continue
+                "code": code, "os": _frac_os_filtradas(ativo["id"], mes, falhas=falhas)}
+        except Exception as e:                                                 # noqa: BLE001
+            falhas.append(f"{type(e).__name__}: {str(e)[:160]}")
     tot = len(out["usina_os"]) + sum(len(v["os"]) for v in out["por_inversor"].values())
     out["total"] = tot
+    if falhas:
+        out.update(ok=False, fonte_ok=False, fonte="Fracttal", parcial=True,
+                   erro=f"o Fracttal não respondeu ({falhas[0]})")
+        return jsonify(out), 502
     return jsonify(out)
 
 
@@ -28570,6 +28762,7 @@ def _cascata_usina(cliente, usina, ano, mes):
     # 2) tracker: o parado NÃO zera a fatia — perde o GANHO do rastreamento no tempo em que ficou parado
     fonte = _fonte_da_usina(usina)
     h_trk, n_trk, n_frota, sel = 0.0, 0, 0, []
+    trk_falha = None                                  # o livro de paradas não respondeu: degrau SEM leitura, não zero
     if fonte:
         try:
             rows = (_paradas_book_get(fonte).get("rows") or [])
@@ -28580,6 +28773,7 @@ def _cascata_usina(cliente, usina, ano, mes):
             n_frota = len({(r.get("usina"), r.get("tracker")) for r in sel})
         except Exception as e:
             print(f"[cascata] tracker {usina}: {e}")
+            trk_falha = f"o livro de paradas de tracker não respondeu ({type(e).__name__}: {str(e)[:120]})"
     trk_tot = _trk_frota_total(fonte, usina, sel)
     frac = (h_trk / (12.0 * n * trk_tot)) if (trk_tot and n) else 0.0
     perda_trk = round(possivel * min(1.0, frac) * TRK_GANHO_RASTREIO, 1)
@@ -28593,10 +28787,11 @@ def _cascata_usina(cliente, usina, ano, mes):
     # Corretiva/Emergencial = EQUIPAMENTO/MANUTENÇÃO. O tipo já vem do Fracttal — ninguém digita nada.
     h_rede = h_equip = 0.0
     n_rede = n_equip = 0
+    fr_falhas = []                                    # o Fracttal não respondeu: queda/equipamento SEM leitura, não zero
     try:
         ent = _frac_usina_ent(usina)
         if ent and ent.get("site"):
-            for o in _frac_os_filtradas(ent["site"], f"{ano:04d}-{mes:02d}"):
+            for o in _frac_os_filtradas(ent["site"], f"{ano:04d}-{mes:02d}", falhas=fr_falhas):
                 hs = o.get("horas_solares")
                 if hs and str(o.get("evento") or "").startswith(f"{ano:04d}-{mes:02d}"):
                     if "religamento" in str(o.get("tipo") or "").lower():
@@ -28605,6 +28800,7 @@ def _cascata_usina(cliente, usina, ano, mes):
                         h_equip += hs; n_equip += 1
     except Exception as e:
         print(f"[cascata] fracttal {usina}: {e}")
+        fr_falhas.append(f"{type(e).__name__}: {str(e)[:160]}")
     h_os, n_os = h_rede + h_equip, n_rede + n_equip
     frac_os = (h_os / (12.0 * n)) if n else 0.0
     perda_rede  = round(possivel * min(1.0, (h_rede / (12.0 * n)) if n else 0.0), 1)
@@ -28650,7 +28846,12 @@ def _cascata_usina(cliente, usina, ano, mes):
                    "rede": {"qtd": n_rede, "horas_solares": round(h_rede, 1)},
                    "equip": {"qtd": n_equip, "horas_solares": round(h_equip, 1)}},
             "abertos": abertos,
-            "externo": perda_ipoa, "om": round(perda_trk + perda_deslig, 1)}
+            "externo": perda_ipoa, "om": round(perda_trk + perda_deslig, 1),
+            # Fracttal fora (10/10/2026): a queda de energia e o equipamento saem 0 e o "não explicado" fica com tudo.
+            # A cascata segue (o resto é leitura boa), e a tela diz que esses dois degraus estão SEM leitura.
+            "fracttal_ok": not fr_falhas,
+            "fracttal_erro": (f"o Fracttal não respondeu ({fr_falhas[0]})" if fr_falhas else None),
+            "trk_ok": trk_falha is None, "trk_erro": trk_falha}
 
 
 def _fonte_da_usina(usina):
@@ -30140,7 +30341,8 @@ def _campo_analise(rec):
         except Exception:
             nome = rec["usina"]
         r = _pv_trackers_analise(idp, nome, curva=True)
-        _pv_trk_plant[idp] = {"ts": time.time(), "payload": r}
+        if r.get("fonte_ok") is not False:        # a falha não entra no cache do overview como "0 trackers" (10/10/2026)
+            _pv_trk_plant[idp] = {"ts": time.time(), "payload": r}
         return r
     if fonte == "pg":
         return _pg_trackers_analise(str(pid), None)

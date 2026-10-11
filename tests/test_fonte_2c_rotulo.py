@@ -63,5 +63,6 @@ def test_a_curva_do_tracker_usa_o_dia_do_cabecalho():
     src = (RAIZ / "plataforma" / "templates" / "painel_usina_v2.html").read_text(encoding="utf-8")
     assert "function _chartURL()" in src, "sumiu o montador da URL da curva com o dia"
     assert "'date='+encodeURIComponent(d)" in src
-    assert src.count("await fetch(_chartURL())") == 2, "alguma curva voltou a buscar sem o dia"
-    assert "await fetch(CFG.chart)" not in src
+    # desde 10/10/2026 a leitura passa pelo _dgLer (só 2xx com dado vira curva); a URL continua a do dia escolhido
+    assert src.count("await _dgLer(_chartURL())") == 2, "alguma curva voltou a buscar sem o dia"
+    assert "await fetch(CFG.chart)" not in src and "_dgLer(CFG.chart)" not in src

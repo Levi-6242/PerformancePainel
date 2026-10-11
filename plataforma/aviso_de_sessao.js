@@ -17,8 +17,10 @@
    - fora do Nexus, a faixa "Sessão vencida: entre de novo", com o link do login que volta a esta tela;
    - o /monitor?embed=1 que o Tempo real embute não fala sozinho: passa o aviso à página de cima, que é quem a moldura
      conhece (e o caminho que importa é o dela);
-   - gcSessaoDaPlataforma.falhou(motivo, quando) / voltou(): a faixa "não atualizou, os números na tela são de ..." que
-     as telas que releem sozinhas mostram quando a leitura falha por outro motivo (rede, 500);
+   - gcSessaoDaPlataforma.falhou(motivo, quando[, fim]) / voltou(): a faixa "não atualizou, os números na tela são de ..."
+     que as telas que releem sozinhas mostram quando a leitura falha por outro motivo (rede, 500). `fim` (texto) troca o
+     resto da frase, para a tela que lê uma vez e não tem número velho a mostrar nem vai tentar de novo sozinha: o
+     Diagnóstico (10/10/2026) diz "o que depende dessas leituras está com — (sem leitura): não é usina parada.";
    - gcSessaoDaPlataforma.semAdmin: quem entrou pelo Nexus sem ser administrador (o /tokens responde "Só
      administradores" para ela), e tokens(texto), que troca o "Renove na tela Tokens" pelo caminho que ela tem.
 
@@ -105,10 +107,12 @@
     setTimeout(function () { if (estado === "vencida") { dicaMenu = true; mostra(textoVencida(), "vencida"); } }, DICA_MS);
   }
   // A leitura falhou por outro motivo (rede, 500): a tela segue com o último número, e a faixa diz desde quando.
-  function falhou(motivo, quando) {
+  // `fim`: a tela diz o resto da frase (o Diagnóstico lê uma vez: não tem "última leitura" nem tenta de novo sozinho).
+  function falhou(motivo, quando, fim) {
     if (estado === "vencida") return;   // a sessão explica tudo; não troca a faixa dela
-    mostra("<b>Não atualizou</b>" + (motivo ? " (" + esc(motivo) + ")" : "") + (quando ? ": os números na tela são " +
-      esc(quando) + "." : ": a tela segue com a última leitura.") + " Tento de novo sozinho.", "falha");
+    mostra("<b>Não atualizou</b>" + (motivo ? " (" + esc(motivo) + ")" : "") + (fim ? ": " + esc(fim) :
+      (quando ? ": os números na tela são " + esc(quando) + "." : ": a tela segue com a última leitura.") +
+      " Tento de novo sozinho."), "falha");
   }
   function voltou() {
     if (faixa && estado) { faixa.hidden = true; faixa.innerHTML = ""; }
