@@ -530,7 +530,9 @@ function _dgFaixa(){
   const S=window.gcSessaoDaPlataforma; if(!S||typeof S.falhou!=='function') return;
   const fs=Object.values(FALHA).filter(f=>!f.sessao&&!f.semFaixa);
   if(fs.length){
-    const m=[...new Set(fs.map(f=>f.fonte.replace(/^Fonte /,'')+': '+f.motivo+' às '+f.hora))].join(' · ');
+    // só o nome das fontes (11/10/2026): com motivo e hora de cada uma a faixa passava de duas linhas; eles estão no selo
+    // de cada cartão
+    const m=[...new Set(fs.map(f=>f.fonte.replace(/^Fonte /,'')))].join(', ');
     S.falhou(m,'','o que depende dessas leituras está com — (sem leitura): não é usina parada.'); _dgFaixaLigada=true;
   } else if(_dgFaixaLigada&&!Object.values(FALHA).some(f=>f.sessao)){ S.voltou(); _dgFaixaLigada=false; }
 }

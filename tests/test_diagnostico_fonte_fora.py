@@ -581,7 +581,8 @@ def test_tela_inversores_da_fonte_fora_nao_vira_usina_parada(tmp_path):
     assert "Sem anomalias" not in r["diags"] and "não respondeu" in r["diags"], r["diags"]
     assert r["nInv"] == ""
     falhou = [a for a in r["avisos"] if a[0] == "falhou"]
-    assert falhou and "API PV" in falhou[-1][1] and "504" in falhou[-1][1], r["avisos"]
+    # desde 11/10/2026 a faixa cita só as fontes (cabe numa linha); o "HTTP 504 às HH:MM" está no selo de cada cartão
+    assert falhou and "API PV" in falhou[-1][1], r["avisos"]
 
 
 def test_tela_tudo_respondeu_mostra_os_numeros_e_nao_liga_a_faixa(tmp_path):

@@ -18318,6 +18318,9 @@ _pg_pr_cache = {}      # "YYYY-MM-DD" → {ts, summary, detail}
 _pg_pr_lock  = threading.Lock()
 
 
+PR_IPOA_MIN = 0.05          # kWh/m² no dia: abaixo disso é noite ou ruído da estação, não dá PR (11/10/2026)
+
+
 def _pg_pr_build(dia: str):
     sql = """
       WITH lidos AS (     -- dbt congelado → geração por inversor do CRU public.raw_inverter
@@ -18385,7 +18388,11 @@ def _pg_pr_build(dia: str):
                                       "gap": int(gapd) if gapd is not None else None, "invs": []})
         ger = float(ger) if ger is not None else None
         pot = _pot_inv(sup, dev)
-        pr  = round(ger / (p["ipoa"] * pot), 3) if (ger is not None and p["ipoa"] and pot) else None
+        # Sem sol não há PR (prova do Diagnóstico, 11/10/2026): às 03:00 a estação lia uns Wh/m² de ruído e a conta dava
+        # "PR mediana −0%" — um zero que não é leitura. Abaixo de PR_IPOA_MIN o PR é None ("—"); com sol e geração zero, o
+        # PR 0% continua (é usina parada de verdade).
+        pr  = (round(ger / (p["ipoa"] * pot), 3) + 0.0) if (ger is not None and pot and p["ipoa"] is not None
+                                                         and p["ipoa"] >= PR_IPOA_MIN) else None
         p["invs"].append({"id": did, "nome": (EQUIP_NAMES.get(sup, {}) or {}).get(dev, dev),
                           "nome_api": dev, "geracao_kwh": round(ger, 1) if ger is not None else None,
                           "pot_kwp": pot, "pr": pr})
@@ -21287,11 +21294,16 @@ def api_pv_pr_plant(plant_id):
     d = _pv_pr_cache["detail"].get(plant_id)
     if d and not d.get("falha_ipoa"):    # o do overview que ficou sem IPOA não é servido como PR: busca de novo
         return jsonify(d)
-    token = get_token()
+    # Fonte fora não é "usina não encontrada" (prova do Diagnóstico, 11/10/2026): o get_token() fora do try estourava
+    # num 500 em HTML quando a autenticação da API PV falhava, e a lista de usinas que falhava virava 404. Os dois são
+    # "a fonte não respondeu": 502 com erro/fonte, como o resto do Diagnóstico.
     try:
-        plant = next((p for p in get_plants(token) if p["id"] == plant_id), None)
-    except Exception:
-        plant = None
+        token = get_token()
+        plants = get_plants(token)
+    except Exception as e:
+        return jsonify({"erro": f"API PV não respondeu ({e.__class__.__name__})", "fonte": "API PV", "fonte_ok": False,
+                        "inversores": []}), 502
+    plant = next((p for p in plants or [] if p.get("id") == plant_id), None)
     if not plant:
         return jsonify({"error": "usina não encontrada", "inversores": []}), 404
     raw = _pv_pr_collect(token, plant)

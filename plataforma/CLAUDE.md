@@ -533,6 +533,16 @@ do `/monitor` embutido), uma vez só em 60 s; os números ficaram (12,5 MWh) e a
 dois erros que o node não via (a faixa com `left:50%` encolhia para metade da tela; a tela embutida, depois de passar o
 aviso para cima, cobria a explicação com "Não atualizou"), corrigidos.
 
+**As três pontas da prova (11/10/2026, cópia com navegador).** (1) A faixa de aviso (`aviso_de_sessao.js`) fica
+EMBAIXO (`bottom:12px`) e tem "×": no topo, com cinco fontes fora, tinha 77 px e cobria o seletor de dia e o "← Portfólio"
+(não dava para trocar o dia). O "×" fecha só aquele aviso: o mesmo texto não volta sozinho, um diferente volta; o "voltou"
+zera. A faixa do Diagnóstico cita só as FONTES (`API PV, Fracttal`); o motivo e a hora ficam no selo de cada cartão. (2)
+Sem sol não há PR no PG: abaixo de `PR_IPOA_MIN` (0,05 kWh/m² no dia) o PR é `None` ("—") — às 03:00 a estação lia ruído
+e a tela dizia "PR mediana −0%"; com sol e geração zero o PR 0% continua (usina parada de verdade), e sai `0.0`, nunca
+`-0.0`. (3) `/api/pv/pr/<id>` com a autenticação ou a lista de usinas da API PV fora responde 502 `{erro, fonte, fonte_ok}`
+(era 500 em HTML, e a lista que falhava virava 404 "usina não encontrada"); a usina que não existe continua 404. Prova:
+`tests/test_diagnostico_pontas_11_10.py`.
+
 **"Entrar pelo Nexus" volta à tela pedida (10/10/2026, auditoria B6).** Abrir uma tela pelo Nexus troca a sessão de
 30 dias da senha pela do passe (12 h, que some ao fechar o navegador); no dia seguinte o favorito cai no
 `/login?next=/painel` e o botão levava ao Início do Nexus. `_entrar_pelo_nexus_href`: o `next` passa pela régua do

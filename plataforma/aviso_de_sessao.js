@@ -65,6 +65,8 @@
       return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
     });
   }
+  var fechado = "", atual = "";            // o último aviso fechado no "×" e o que está na tela (o texto como foi
+                                          // montado: o innerHTML que o navegador devolve vem normalizado)
   function mostra(html, tipo) {
     estado = tipo;
     if (!faixa) {
@@ -74,15 +76,25 @@
       faixa.setAttribute("aria-live", "polite");
       // tema navy da plataforma; âmbar = dá para agir (a cor diz a severidade, sem ícone). Centrada por left/right 0 e
       // margin auto: com left:50% a caixa encolhia para metade da tela (provado no navegador, 10/10/2026)
-      faixa.style.cssText = "position:fixed;top:10px;left:0;right:0;margin:0 auto;width:fit-content;box-sizing:border-box;" +
+      // EMBAIXO (prova do Diagnóstico, 11/10/2026): no topo, com cinco fontes fora, ela tinha 77 px e cobria o seletor de
+      // dia e o "← Portfólio" — não dava para trocar o dia enquanto a fonte estava fora. E tem o "×" para fechar.
+      faixa.style.cssText = "position:fixed;bottom:12px;left:0;right:0;margin:0 auto;width:fit-content;box-sizing:border-box;" +
         "z-index:2147483000;max-width:min(760px,calc(100vw - 24px));padding:9px 16px;border-radius:10px;" +
         "background:#161d30;color:#e9eef6;" +
         "border:1px solid rgba(245,166,35,.45);border-left:3px solid #f5a623;box-shadow:0 14px 34px rgba(0,0,0,.5);" +
         "font:500 13px/1.45 'Inter',system-ui,-apple-system,sans-serif;text-align:left";
+      // o "×" fecha só ESTE aviso: o mesmo texto não volta sozinho; um aviso diferente (outra fonte, sessão vencida) volta
+      faixa.onclick = function (ev) {
+        var alvo = ev && ev.target;
+        if (alvo && alvo.getAttribute && alvo.getAttribute("data-fechar") !== null) { fechado = atual; faixa.hidden = true; }
+      };
       (document.body || document.documentElement).appendChild(faixa);
     }
-    faixa.innerHTML = html;
-    faixa.hidden = false;
+    var completo = html + ' <button type="button" data-fechar aria-label="Fechar o aviso" title="Fechar o aviso" ' +
+      'style="margin-left:10px;background:none;border:0;color:#e9eef6;font:600 15px/1 inherit;cursor:pointer;padding:0 2px">×</button>';
+    atual = completo;
+    faixa.innerHTML = completo;
+    faixa.hidden = completo === fechado;
   }
   function textoVencida() {
     if (naMoldura()) {
@@ -116,6 +128,7 @@
   }
   function voltou() {
     if (faixa && estado) { faixa.hidden = true; faixa.innerHTML = ""; }
+    fechado = "";
     estado = ""; dicaMenu = false;
   }
   // B12 (10/10/2026): "Renove na tela Tokens" para quem leva "Só administradores" ao abrir o /tokens.
