@@ -462,7 +462,8 @@ usina sem tracker, sem OS) continua 0.** A diferença vem do backend:
   (`falhas=` no `_frac_os_filtradas`/`_frac_wos_raw`/`_frac_ativo`) ficaram assim.
 - a tela (`painel_usina_v2.html`): `_dgLer(url, {exige, ms, post})` é a régua do `_lerOk` do Painel NOC — só 2xx com dado;
   401 é da faixa de sessão; corpo com `fonte_ok: false`, ou com `erro` no lugar da lista que a leitura promete, também é
-  falha. `FALHA[k]` por leitura (plant, irma, diag, trk, fracttal, osPerf e, no modo histórico, hInv/hDisp/hMen/hDia/hTk);
+  falha. `FALHA[k]` por leitura (plant, irma, diag, trk, fracttal, osPerf, desde 11/10 eday, plantVelho, pr e invpr — ver
+  o parágrafo seguinte — e, no modo histórico, hInv/hDisp/hMen/hDia/hTk);
   `_dgSelo(k, oQue)` escreve o selo; `_dgFaixa()` junta as fontes fora numa linha da faixa do `aviso_de_sessao.js`
   (`falhou(motivo, '', fim)`). Os 5 cartões, as abas Inversores, Trackers (com a releitura que falha num dia já lido: fica a
   última leitura boa DAQUELE dia, com a hora), Curvas (a falha não recua mais para ontem como se fosse "ainda sem curva"),
@@ -470,11 +471,62 @@ usina sem tracker, sem OS) continua 0.** A diferença vem do backend:
   histórico (`?hist=1`: "todos no alvo", "ainda não tem quebra por inversor" e "fora do Fracttal" saíam do corpo do 500).
   PR que não respondeu é "PR mediana —" (o `false*100` dava 0%). A planta irmã (Nova Londrina) que não respondeu tira a
   usina inteira dos cartões, com o nome dela no selo.
-Fica de fora, de propósito: a Athon/Axis (SunOp, fonte paga) — a curva de tracker vazia vira "sem comunicação", não 0, e
-mexer pede outra rodada; e o `gerencial.html`, que lê a mesma `/api/cascata` mas ainda não mostra o `fracttal_ok`.
+
+**A leitura que veio pela metade também não vira zero (11/10/2026, revisão adversarial do conserto acima).** Nove
+caminhos em que uma PARTE da leitura falhava e a tela seguia afirmando; regra: **o que depende de uma leitura que faltou
+fica sem leitura, mesmo que a rota dele tenha respondido.**
+- **OS por inversor dependem da lista de inversores.** O POST do `/api/fracttal/os` leva os nomes que a fonte devolveu;
+  com a fonte fora ele ia vazio, a rota respondia 200 só com as OS da usina e o cartão dizia "Fracttal · OS abertas 0" — é
+  o print da prova (P_2f). Com `FALHA.plant`/`FALHA.irma` (`_osInvSemLista`) o cartão fica "—" com o selo da fonte que
+  faltou, e a lista de OS diz que só tem as do nível da usina, nunca "Nenhuma OS". A irmã que respondeu entra: o
+  `completarIrmas` pede as OS de novo com os inversores das duas plantas (antes os da irmã nunca iam), com `_osSeq` para a
+  resposta velha não sobrescrever a nova.
+- **Energia do dia do PG e da RenoGrid vem do PR do dia** (`_inv_eday_do_pr`), que não tem reserva velha. Com o PG fora e o
+  snapshot ainda servido (no web o `_pg_get_snapshot` serve o velho sem limite de idade), todo `eday` vinha None e às 10:00
+  a tela dizia "30 sem produção" e "Hoje 0 kWh". O `/api/pg/plant` e o `/api/solaredge/plant` (este pelo
+  `_se_eday_falha`, mesma régua do `_se_dev_falha`) mandam `eday_ok: false` + `eday_erro`; a tela liga `FALHA.eday`: "Hoje
+  —" com o selo e o `v2Status` deixa de tomar `eday` nulo como prova de inversor parado. O `/api/pg/plant` manda também
+  `cache_ts`, `snapshot_idade_s` e `snapshot_velho` (acima de `PG_SNAPSHOT_VELHO_S` = 30 min): os números ficam, com
+  "não atualizou (snapshot de N min): números da leitura das HH:MM" (`FALHA.plantVelho`, sem faixa).
+- **SunOp sem ler** (pausa de domingo, teto do dia, borda aberta, Axis sem token de API e web vencido): o
+  `_sunop_plant_build` devolvia `[]` e o `/api/sunop/plant` respondia 200 com a lista vazia ("Inversores 0", "Hoje 0
+  kWh"). O motivo fica em `_so_plant_falha` (`_sunop_motivo_sem_leitura` diz qual: pausa, borda, credencial) e a rota
+  responde **502**; com um drill bom guardado, serve o retido com `retido: true`, `erro_releitura` e `cache_ts` = hora da
+  leitura (`lido` na entrada do cache, porque o `ts` é renovado para não reconstruir a cada pedido). O
+  `/api/sunop/trackers/<usina>` (e Axis) com a usina fora do metadata responde **503** (não pede o metadata: é chamada
+  paga); usina no metadata sem tracker segue 200 com `tem_trackers: false`, que é o zero de verdade.
+- **De-para do Fracttal sem leitura não é "usina fora do Fracttal".** O `_frac_codebase_index` lia a página que pegou 429
+  como fim da lista e gravava o parcial por 12 h; agora levanta, fica o índice anterior, nada é gravado e por
+  `FRAC_CB_FALHA_S` = 60 s não se varre de novo (`_frac_cb_falha`). O `_frac_fractall_map` com o xlsx travado no boot frio
+  marca `_frac_bd_falha`. `_frac_depara_falha(usina)` diz se a usina sem entrada é falta de leitura; o `/api/fracttal/os` e
+  o `/api/os-performance` respondem 502, e a `/api/cascata` põe em `fracttal_ok: false`.
+- **PR do mês por inversor (BD_Performance).** O `_bdperf_pr_inv` guardava a falha (planilha travada) 30 min no cache com
+  `inversores: {}`; agora não guarda e o `/api/inv/pr-mes` responde **503**. Na tela, `FALHA.invpr`: pílulas "—", selo no
+  mapa de strings e a lista de diagnósticos não afirma "Sem anomalias — usina dentro do esperado" (enquanto o PR do mês
+  não chega, "Cruzando com o PR do mês…"). Trocar o mês limpa o PR anterior antes de pedir. O PR do mês é pedido em TODA
+  saída do mapa de strings (`renderHeat` → `loadInvPR` no `finally`): com o drill fora, String Box ou tudo trancado ele
+  nunca era pedido.
+- **PR do dia que não respondeu** (`/api/pv/pr/<id>`: `day_inverter` com o dict de erro, ou `day_meteo` fora — era 200 com
+  todo PR nulo) responde **502** (`falha`/`falha_ipoa` no dict do `_pv_pr_collect`/`_pv_pr_compute`). Na tela, `FALHA.pr`:
+  o cartão Inversores diz "abaixo dos pares: <selo>" em vez de "0 abaixo dos pares" em verde, e a linha que só estaria "ok"
+  vira "PR sem leitura" (cinza).
+- **Motor de diagnóstico sem os trackers** (`_pv_trackers_analise` com `fonte_ok: false`): o R-09 dizia "sem tracker
+  travado associado" e mandava olhar a combiner. Agora o payload leva `trk_ok`/`trk_erro`, o R-09 diz "trackers sem
+  leitura: não dá para descartar tracker" (confiança baixa) e os cards de tracker por inversor ficam `sem_leitura`.
+- **PDF de strings** (`/api/spv/pdf`): o `api_spv_usina` devolve `(Response, 502)` desde 10/10, e o `.get_json()` da tupla
+  derrubava o PDF inteiro com 500. A usina sem leitura sai numa página "Usinas sem leitura neste relatório" (nunca "Todas
+  as strings OK"); só usinas sem leitura = 502 com a lista.
+- **Monitoramento** (`docs/redesign/Monitoramento (novo design).html`, `loadPlant`): o corpo de falha com `inversores: []`
+  passava pelo `!d.inversores` e a linha dizia "A fonte não devolveu inversores desta usina"; erro com a lista vazia, ou
+  `fonte_ok: false`, é falha ("Não consegui carregar os inversores", com "Tentar de novo").
+Fica de fora, de propósito: o `gerencial.html` e o `_gCarregarOsEv` do Painel NOC, que leem a `/api/cascata` e a
+`/api/fracttal/os` sem olhar `fracttal_ok`/status (seguem sem eventos de OS com o Fracttal fora, como antes); e a tela antiga
+`painel_usina.html` (`?antigo=1`), que lê o JSON sem olhar o status — os corpos de falha seguem no formato de sempre para ela.
 Testes: `tests/test_diagnostico_fonte_fora.py` (cada rota com a fonte dublada fora e o zero de verdade ao lado; a página
-inteira no node com a rede dublada, um cenário por cartão e aba, PV, PG e modo histórico). Rodados contra o código de
-antes: os de falha quebram, os de zero de verdade passam nos dois.
+inteira no node com a rede dublada, um cenário por cartão e aba, PV, PG e modo histórico) e
+`tests/test_diagnostico_leitura_parcial.py` (os nove caminhos de 11/10, com o zero de verdade ao lado; o harness ganhou
+`antes=` para relógio fixo e rota que responde conforme o corpo do POST). Rodados contra o código de antes: os de falha
+quebram (25 de 63 nos três arquivos, incluído o do Monitoramento), os de zero de verdade passam nos dois.
 Prova no navegador (Chromium, 1440 px), app da worktree na 5151 com a rede cortada, dados falsos e sessão de 15 s, atrás
 de uma moldura de teste: a moldura recebeu `nexus:sessao-vencida` com `/painel` (e `/tempo-real/athon` quando o 401 veio
 do `/monitor` embutido), uma vez só em 60 s; os números ficaram (12,5 MWh) e a faixa apareceu centrada. Essa prova achou

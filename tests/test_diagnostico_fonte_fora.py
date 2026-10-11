@@ -445,7 +445,7 @@ def test_cascata_com_o_fracttal_fora_marca_os_degraus_de_os_sem_leitura(cli, mon
 # ── 2. a tela: o script inteiro da página no node, com a rede dublada ──────────────────────────────────────────────
 _PAGINA = r"""
 const __CFG = %(cfg)s;
-const ELS = {}, avisos = [], pedidos = [];
+const ELS = {}, avisos = [], pedidos = [], corpos = [];
 function mkEl(id) { return { id, innerHTML: "", textContent: "", hidden: false, value: "", style: {}, dataset: {},
   className: "", title: "", disabled: false, parentNode: null, nextSibling: null,
   classList: { toggle() {}, add() {}, remove() {}, contains() { return false; } },
@@ -465,8 +465,11 @@ window.gcSessaoDaPlataforma = { falhou(m, q, f) { avisos.push(["falhou", m, q, f
   tokens: t => t, semAdmin: false, estado: () => "" };
 let R = __CFG.rotas;
 globalThis.fetch = async (u, o) => {
-  const k = String(u).split("?")[0], x = R[k];
+  const k = String(u).split("?")[0];
+  let x = R[k];
   pedidos.push(k);
+  if (o && o.body) corpos.push([k, JSON.parse(o.body)]);
+  if (typeof x === "function") x = x(o && o.body ? JSON.parse(o.body) : null);   // rota que responde conforme o pedido
   if (!x) throw new TypeError("Failed to fetch");
   if (x === "rede") throw new TypeError("Failed to fetch");
   return { ok: x[0] >= 200 && x[0] < 300, status: x[0], json: async () => x[1] };
@@ -529,13 +532,14 @@ def _rotas(**troca):
     return base
 
 
-def _pagina(rotas, roteiro, tmp_path, search="?fonte=pv&nome=Usina%20Teste"):
+def _pagina(rotas, roteiro, tmp_path, search="?fonte=pv&nome=Usina%20Teste", antes=""):
+    """`antes` = JS que roda antes do script da página (relógio fixo, rota que responde conforme o pedido)."""
     if not NODE:
         pytest.skip("node não instalado")
     h = TPL.read_text(encoding="utf-8")
     i = h.index("<script>\nconst PLANT_ID=")
     script = h[i + len("<script>"):h.index("</script>", i)].replace("{{ plant_id|tojson }}", str(PID))
-    js = (_PAGINA % {"cfg": json.dumps({"search": search, "rotas": rotas}), "pid": PID} + script
+    js = (_PAGINA % {"cfg": json.dumps({"search": search, "rotas": rotas}), "pid": PID} + antes + "\n" + script
           + "\n(async () => {\n await assenta();\n" + roteiro + "\n})().catch(e => { console.error(e); process.exit(3); });")
     arq = tmp_path / "pagina.js"
     arq.write_text(js, encoding="utf-8")
@@ -569,7 +573,9 @@ def test_tela_inversores_da_fonte_fora_nao_vira_usina_parada(tmp_path):
     assert "PR mediana 80%" in c["Hoje"]["s"], "o PR veio da rota dele e não some com os inversores"
     # o que respondeu segue com o número dele, inclusive o zero de verdade
     assert c["Trackers"]["v"].startswith("0 <small>/ 60 parados"), c["Trackers"]
-    assert c["Fracttal · OS abertas"]["v"] == "0", c["Fracttal · OS abertas"]
+    # ...e as OS por inversor, que dependem da lista de inversores, não: "OS abertas 0" era o print (revisão de 11/10/2026)
+    fr = c["Fracttal · OS abertas"]
+    assert _sem(fr["v"]) and "OS por inversor sem leitura" in fr["s"] and "HTTP 504" in fr["s"], fr
     assert "A fonte não devolveu inversores" not in r["inv"] and _SELO.search(r["inv"]), r["inv"]
     assert "Sem strings hoje" not in r["heat"] and _SELO.search(r["heat"]), r["heat"]
     assert "Sem anomalias" not in r["diags"] and "não respondeu" in r["diags"], r["diags"]
@@ -755,7 +761,9 @@ def test_tela_thopen_pg_fora_mostra_sem_leitura_nos_cartoes(tmp_path):
     for rot in ("Inversores", "Strings", "Hoje", "Trackers"):
         assert _sem(c[rot]["v"]), (rot, c[rot])
         assert "Fonte Thopen/PG não respondeu (HTTP 50" in c[rot]["s"], (rot, c[rot]["s"])
-    assert "PR mediana —" in c["Hoje"]["s"] and c["Fracttal · OS abertas"]["v"] == "0"
+    assert "PR mediana —" in c["Hoje"]["s"]
+    fr = c["Fracttal · OS abertas"]   # sem a lista de inversores, as OS por inversor nem foram pedidas: não é "0"
+    assert _sem(fr["v"]) and "OS por inversor sem leitura" in fr["s"] and "Thopen/PG não respondeu (HTTP 500)" in fr["s"]
     assert "A fonte não devolveu inversores" not in r["inv"]
 
 

@@ -66,6 +66,16 @@ def test_aos_10_s_a_linha_diz_que_esta_esperando():
     assert "demorando" not in r["depois"] and r["lento"] == {}
 
 
+def test_a_rota_que_diz_que_a_fonte_falhou_com_a_lista_vazia_e_falha():
+    """Desde 10-11/10/2026 a SunOp, a SolarEdge e o PG respondem 502/503 com o corpo no formato de sempre — `inversores:
+    []`, mais `erro` e `fonte_ok: false`. O `!d.inversores` não pegava (lista vazia é verdadeira em JS), e a linha dizia
+    "A fonte não devolveu inversores desta usina" com a SunOp pausada no domingo."""
+    r = _node("(async()=>{ resp={plant_id:'TST100',inversores:[],error:'falha',fonte:'SunOp',fonte_ok:false,"
+              "erro:'metadados da usina não vieram: SunOp pausada'}; await loadPlant(18747509);"
+              " process.stdout.write(JSON.stringify({e:_invErro(18747509)})); })();")
+    assert "Não consegui carregar os inversores" in r["e"] and "SunOp pausada" in r["e"], r["e"]
+
+
 def test_usina_que_a_fonte_devolveu_sem_inversor_diz_isso():
     r = _node("(async()=>{ resp={plant_id:1,inversores:[]}; await loadPlant(1);"
               " process.stdout.write(JSON.stringify({e:_invErro(1), v:_invVazio()})); })();")
