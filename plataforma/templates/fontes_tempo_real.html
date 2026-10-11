@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fontes do tempo real · Plataforma de Performance</title>
+{# Quem entra no tempo real, fonte por fonte (Levi, 11/10/2026: "um espaço para administração do que entra no tempo real
+   onde eu possa através da fonte permitir qual usina entra e qual não entra"). Regras dele: usina nova espera a liberação
+   (e o sino avisa); a escolha vale no Tempo real, no Monitoramento, no Painel NOC e na ronda; usina tirada para de ser
+   coletada. A regra mora em cobertura.py; as decisões, no banco (livro nexus_tempo_real), as mesmas no PC e no servidor.
+   Só administrador do Nexus (porta_nexus.ROTAS_SO_ADMIN: esta página e a API de administração). #}
+<style>
+  :root{
+    --bg:#090d18; --card:#161d30; --card2:#1c2640; --linha:rgba(255,255,255,.09); --linha2:rgba(255,255,255,.16);
+    --txt:#e9eef6; --txt2:#c3cad7; --txt3:#96a0b4;
+    --verde:#a3d900; --verde-txt:#c4e755; --verde-suave:rgba(163,217,0,.12);
+    --ambar:#ffd83d; --ambar-suave:rgba(255,216,61,.12); --vermelho:#ff5b6e; --vermelho-suave:rgba(255,91,110,.12);
+    --mudo-suave:rgba(150,160,180,.12);
+    --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{color-scheme:dark}
+  body{margin:0;background:var(--bg);color:var(--txt);font:400 14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .topo{border-bottom:1px solid var(--linha);padding:14px 22px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .topo h1{font-size:17px;font-weight:600;margin:0}
+  .topo a{color:var(--txt3);text-decoration:none;font-size:13px}
+  .topo a:hover{color:var(--verde-txt)}
+  .wrap{max-width:1180px;margin:0 auto;padding:20px 22px 48px}
+  .intro{color:var(--txt2);margin:0 0 16px;max-width:880px}
+  .faixa{border-radius:8px;padding:10px 14px;margin:0 0 12px;font-size:13.5px}
+  .faixa.ruim{background:var(--vermelho-suave);color:var(--vermelho)}
+  .faixa.atencao{background:var(--ambar-suave);color:var(--ambar)}
+  .resumo{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:0 0 16px}
+  .kpi{background:var(--card);border-radius:8px;padding:11px 14px}
+  .kpi .r{font-size:12px;color:var(--txt3)}
+  .kpi .v{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+  .kpi.novas .v{color:var(--ambar)}
+  .filtros{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 14px}
+  .filtros input[type=search],.filtros select{background:var(--card);color:var(--txt);border:1px solid var(--linha2);
+    border-radius:7px;padding:7px 10px;font:inherit;min-width:220px}
+  .filtros label{color:var(--txt2);font-size:13px;display:flex;gap:6px;align-items:center}
+  .fonte{background:var(--card);border-radius:10px;margin:0 0 14px;border-left:3px solid var(--linha2)}
+  .fonte.controlada{border-left-color:var(--verde)}
+  .fonte.tem-novas{border-left-color:var(--ambar)}
+  .fcab{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:14px 16px 8px}
+  .fnome{font-size:15px;font-weight:600}
+  .chip{font-size:11px;padding:2px 8px;border-radius:99px;letter-spacing:.03em;white-space:nowrap}
+  .chip.ok{background:var(--verde-suave);color:var(--verde-txt)}
+  .chip.fora{background:var(--mudo-suave);color:var(--txt2)}
+  .chip.nova{background:var(--ambar-suave);color:var(--ambar)}
+  .chip.antes{background:var(--mudo-suave);color:var(--txt3)}
+  .chip.sumiu{background:transparent;color:var(--txt3);border:1px dashed var(--linha2)}
+  .fconta{color:var(--txt3);font-size:12.5px;font-variant-numeric:tabular-nums}
+  .flida{color:var(--txt3);font-size:12px;margin-left:auto}
+  .fexplica{color:var(--txt2);font-size:13px;padding:0 16px 10px}
+  .facoes{display:flex;gap:8px;flex-wrap:wrap;padding:0 16px 12px;align-items:center}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th{text-align:left;font-weight:500;color:var(--txt3);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;
+     padding:7px 16px;border-top:1px solid var(--linha)}
+  td{padding:8px 16px;border-top:1px solid var(--linha);vertical-align:middle;color:var(--txt2)}
+  td.usina{color:var(--txt);font-weight:500}
+  td.chave{font-family:var(--mono);font-size:12px;color:var(--txt3)}
+  td.desde{font-variant-numeric:tabular-nums;color:var(--txt3);font-size:12.5px;white-space:nowrap}
+  td.acao{text-align:right;white-space:nowrap}
+  tr.nova td{background:rgba(255,216,61,.04)}
+  button{background:var(--card2);color:var(--txt);border:1px solid var(--linha2);border-radius:7px;padding:6px 12px;
+         font:500 12.5px system-ui,-apple-system,"Segoe UI",sans-serif;cursor:pointer}
+  button:hover{border-color:var(--verde);color:var(--verde-txt)}
+  button.prim{background:var(--verde);border-color:var(--verde);color:#0b1220;font-weight:600}
+  button.prim:hover{background:#8bbf00;color:#0b1220}
+  button.tirar:hover{border-color:var(--vermelho);color:var(--vermelho)}
+  button:disabled{opacity:.5;cursor:default}
+  .vazio{color:var(--txt3);padding:12px 16px;font-size:13px}
+  .msg{font-size:12.5px;color:var(--txt3)}
+  .msg.ruim{color:var(--vermelho)} .msg.bom{color:var(--verde-txt)}
+  .rodape{color:var(--txt3);font-size:12px;margin-top:22px;padding-top:12px;border-top:1px solid var(--linha);max-width:900px}
+  :focus-visible{outline:2px solid var(--verde);outline-offset:2px}
+</style>
+</head>
+<body>
+<div class="topo">
+  <h1>Fontes do tempo real</h1>
+  <a href="/" data-casca>← Início</a>
+  <span style="flex:1"></span>
+  <span class="msg" id="lido" role="status"></span>
+</div>
+<div class="wrap">
+  <p class="intro">Escolha, fonte por fonte, quais usinas entram no tempo real. A usina tirada some do Tempo real, do
+    Monitoramento, do Painel NOC e da ronda do WhatsApp, e para de ser coletada (os dias fora ficam sem dado). Usina nova
+    numa fonte espera a sua liberação, e o sino das telas avisa quando ela aparece.</p>
+  <div id="faixas"></div>
+  <div class="resumo" id="resumo"></div>
+  <div class="filtros">
+    <input type="search" id="busca" placeholder="Procurar usina ou chave" aria-label="Procurar usina ou chave">
+    <select id="fFonte" aria-label="Fonte"><option value="">Todas as fontes</option></select>
+    <label><input type="checkbox" id="soNovas"> Só as novas</label>
+  </div>
+  <div id="fontes"><p class="vazio">Lendo as fontes…</p></div>
+  <p class="rodape">As decisões ficam no banco (livro <code>nexus_tempo_real</code>), as mesmas para o PC e o servidor: são
+    lidas em até 1 minuto e valem na coleta seguinte (os cards do Tempo real refazem em até 30 minutos). Uma fonte passa a ser controlada por esta tela quando você começa
+    pela foto de hoje: o que aparecia no tempo real nesse momento continua aparecendo; daí em diante, quem decide é a tela.
+    Se o banco não responder, vale a última lista lida; sem nenhuma, nada é escondido.</p>
+</div>
+<script>
+(function(){
+  var D = null, NOVAS_ABERTAS = {};
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function hora(iso){ if(!iso) return '—'; var d = new Date(iso); if(isNaN(d)) return '—';
+    return d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit'}) + ' ' + d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); }
+  var SIT = {
+    incluida: ['ok', 'No tempo real'], excluida: ['fora', 'Fora'], nova: ['nova', 'Nova, esperando liberação'],
+    hoje: ['antes', 'No tempo real (regra de antes)'], fora_antes: ['antes', 'Fora (regra de antes)']
+  };
+
+  async function ler(){
+    var r;
+    try { r = await fetch('/api/admin/tempo-real/fontes', {credentials:'same-origin'}); }
+    catch(e){ return falhou('sem resposta da plataforma'); }
+    if(!r.ok) return falhou(r.status === 403 ? 'só administradores do Nexus' : r.status === 401 ? 'sessão vencida: abra de novo pelo Nexus' : 'HTTP ' + r.status);
+    D = await r.json();
+    document.getElementById('lido').textContent = 'lido às ' + new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'});
+    desenhar();
+  }
+  function falhou(motivo){
+    // só resposta 2xx vira estado: a leitura que falha não troca o que está na tela (regra de 10/10/2026)
+    document.getElementById('lido').textContent = 'não atualizou (' + motivo + ')' + (D ? ': a lista é a da leitura anterior' : '');
+    if(!D) document.getElementById('fontes').innerHTML = '<p class="vazio">Não foi possível ler as fontes: ' + esc(motivo) + '.</p>';
+  }
+
+  function desenhar(){
+    var fx = [], dec = D.decisoes || {};
+    if(!dec.ligada) fx.push(['ruim', 'O controle pelas fontes está desligado nesta máquina (TEMPO_REAL_COBERTURA=0): nada é filtrado.']);
+    else if(!dec.ok) fx.push(['ruim', 'As decisões não puderam ser lidas do banco (' + esc(dec.erro || 'sem resposta') + ') e não há cópia nesta máquina: nada está sendo escondido.']);
+    else if(dec.erro) fx.push(['atencao', 'O banco não respondeu na última leitura (' + esc(dec.erro) + '): vale a lista lida em ' + hora(dec.lido_em) + '.']);
+    if(dec.ligada && !dec.pode_gravar) fx.push(['atencao', 'Esta máquina não tem a chave de gravação do banco (GRIDCO_SQL_TOKEN): dá para ver, não para decidir.']);
+    if(D.novas_total) fx.push(['atencao', D.novas_total + (D.novas_total === 1 ? ' usina nova esperando' : ' usinas novas esperando') + ' a sua liberação.']);
+    document.getElementById('faixas').innerHTML = fx.map(function(f){ return '<p class="faixa ' + f[0] + '" role="status">' + f[1] + '</p>'; }).join('');
+
+    var c = {controladas:0, inc:0, exc:0, novas:0};
+    (D.fontes || []).forEach(function(f){ if(f.governada) c.controladas++; c.inc += f.contagem.no_tempo_real; c.exc += f.contagem.fora; c.novas += f.contagem.novas; });
+    document.getElementById('resumo').innerHTML =
+      kpi('Fontes controladas pela tela', c.controladas + ' de ' + (D.fontes || []).length) +
+      kpi('Usinas no tempo real', c.inc) + kpi('Fora do tempo real', c.exc) +
+      '<div class="kpi novas"><div class="r">Novas esperando liberação</div><div class="v">' + c.novas + '</div></div>';
+
+    var sel = document.getElementById('fFonte');
+    if(sel.options.length <= 1) (D.fontes || []).forEach(function(f){ var o = document.createElement('option'); o.value = f.id; o.textContent = f.nome; sel.appendChild(o); });
+    var busca = document.getElementById('busca').value.trim().toLowerCase(), soNovas = document.getElementById('soNovas').checked, ff = sel.value;
+    var html = (D.fontes || []).filter(function(f){ return !ff || f.id === ff; }).map(function(f){ return fonte(f, busca, soNovas); }).join('');
+    document.getElementById('fontes').innerHTML = html || '<p class="vazio">Nenhuma fonte com esse filtro.</p>';
+  }
+  function kpi(r, v){ return '<div class="kpi"><div class="r">' + esc(r) + '</div><div class="v">' + esc(v) + '</div></div>'; }
+
+  function fonte(f, busca, soNovas){
+    var us = (f.usinas || []).filter(function(u){
+      if(soNovas && u.situacao !== 'nova') return false;
+      return !busca || (u.nome || '').toLowerCase().indexOf(busca) >= 0 || String(u.chave).toLowerCase().indexOf(busca) >= 0;
+    });
+    if((busca || soNovas) && !us.length) return '';
+    var cls = 'fonte' + (f.governada ? ' controlada' : '') + (f.contagem.novas ? ' tem-novas' : '');
+    var h = '<section class="' + cls + '" aria-label="' + esc(f.nome) + '"><div class="fcab"><span class="fnome">' + esc(f.nome) + '</span>' +
+      (f.governada ? '<span class="chip ok">Controlada pela tela</span>' : '<span class="chip antes">Regra de antes</span>') +
+      '<span class="fconta">' + f.contagem.no_tempo_real + ' no tempo real · ' + f.contagem.fora + ' fora' + (f.contagem.novas ? ' · ' + f.contagem.novas + ' nova(s)' : '') + '</span>' +
+      '<span class="flida">' + (f.lido_em ? 'fonte lida em ' + hora(f.lido_em) : 'fonte ainda não lida nesta máquina') + '</span></div>';
+    if(f.nota) h += '<p class="fexplica">' + esc(f.nota) + '</p>';
+    if(!f.governada){
+      h += '<p class="fexplica">' + esc(f.regra_antes) + ' Para escolher usina por usina, comece pela foto de hoje: nada muda na tela no momento da troca.</p>' +
+        '<div class="facoes"><button class="prim" data-migrar="' + esc(f.id) + '"' + (f.lido_em && D.decisoes.pode_gravar && D.decisoes.ok ? '' : ' disabled') + '>Começar a controlar com a foto de hoje</button><span class="msg" id="m-' + esc(f.id) + '"></span></div>';
+    } else if(f.contagem.novas){
+      h += '<div class="facoes"><button class="prim" data-liberar-todas="' + esc(f.id) + '">Liberar as ' + f.contagem.novas + ' novas</button><span class="msg" id="m-' + esc(f.id) + '"></span></div>';
+    } else {
+      h += '<div class="facoes"><span class="msg" id="m-' + esc(f.id) + '"></span></div>';
+    }
+    if(!us.length) return h + '<p class="vazio">Nenhuma usina lida nesta fonte ainda.</p></section>';
+    h += '<table><thead><tr><th>Usina</th><th>Chave na fonte</th><th>Situação</th><th>Desde</th><th></th></tr></thead><tbody>';
+    us.forEach(function(u){
+      var s = SIT[u.situacao] || ['antes', u.situacao];
+      var chip = '<span class="chip ' + s[0] + '">' + s[1] + '</span>' + (u.na_fonte ? '' : ' <span class="chip sumiu" title="decidida antes, mas a fonte não a devolveu na última leitura">não veio na última leitura</span>');
+      var ac = '';
+      if(f.governada && D.decisoes.pode_gravar){
+        if(u.situacao === 'incluida') ac = '<button class="tirar" data-dec="excluir" data-f="' + esc(f.id) + '" data-c="' + esc(u.chave) + '" data-n="' + esc(u.nome) + '">Tirar</button>';
+        else if(u.situacao === 'excluida') ac = '<button data-dec="incluir" data-f="' + esc(f.id) + '" data-c="' + esc(u.chave) + '" data-n="' + esc(u.nome) + '">Incluir</button>';
+        else if(u.situacao === 'nova') ac = '<button class="prim" data-dec="incluir" data-f="' + esc(f.id) + '" data-c="' + esc(u.chave) + '" data-n="' + esc(u.nome) + '">Liberar</button> ' +
+          '<button data-dec="excluir" data-f="' + esc(f.id) + '" data-c="' + esc(u.chave) + '" data-n="' + esc(u.nome) + '">Manter fora</button>';
+      }
+      h += '<tr class="' + (u.situacao === 'nova' ? 'nova' : '') + '"><td class="usina">' + esc(u.nome || '—') + '</td><td class="chave">' + esc(u.chave) + '</td><td>' + chip +
+        '</td><td class="desde">' + (u.decidida_em ? hora(u.decidida_em) + (u.origem === 'migracao' ? ' (foto)' : '') : '—') + '</td><td class="acao">' + ac + '</td></tr>';
+    });
+    return h + '</tbody></table></section>';
+  }
+
+  async function postar(url, corpo){
+    var r = await fetch(url, {method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/json'}, body:JSON.stringify(corpo)});
+    var d = {}; try { d = await r.json(); } catch(e) {}
+    if(!r.ok) throw new Error(d.error || d.erro || ('HTTP ' + r.status));
+    return d;
+  }
+  function msg(fid, texto, tipo){ var el = document.getElementById('m-' + fid); if(el){ el.textContent = texto; el.className = 'msg ' + (tipo || ''); } }
+
+  document.addEventListener('click', async function(ev){
+    var b = ev.target.closest('button'); if(!b) return;
+    try {
+      if(b.dataset.dec){
+        var tirar = b.dataset.dec === 'excluir' && !b.closest('tr.nova');
+        if(tirar && !confirm('Tirar "' + b.dataset.n + '" do tempo real?\n\nEla some do Tempo real, do Monitoramento, do Painel NOC e da ronda, e para de ser coletada: os dias fora ficam sem dado. Dá para incluir de novo depois.')) return;
+        b.disabled = true; msg(b.dataset.f, 'gravando…');
+        await postar('/api/admin/tempo-real/decidir', {decisoes:[{fonte:b.dataset.f, chave:b.dataset.c, decisao:b.dataset.dec}]});
+        msg(b.dataset.f, 'gravado: vale na próxima coleta (os cards do Tempo real, em até 30 min)', 'bom'); await ler();
+      } else if(b.dataset.liberarTodas){
+        var f = (D.fontes || []).find(function(x){ return x.id === b.dataset.liberarTodas; });
+        var novas = (f.usinas || []).filter(function(u){ return u.situacao === 'nova'; });
+        if(!confirm('Liberar as ' + novas.length + ' usinas novas de ' + f.nome + '? Elas passam a ser coletadas e aparecem no tempo real.')) return;
+        b.disabled = true; msg(f.id, 'gravando…');
+        await postar('/api/admin/tempo-real/decidir', {decisoes: novas.map(function(u){ return {fonte:f.id, chave:u.chave, decisao:'incluir'}; })});
+        msg(f.id, 'gravado: vale na próxima coleta (os cards do Tempo real, em até 30 min)', 'bom'); await ler();
+      } else if(b.dataset.migrar){
+        var fid = b.dataset.migrar; b.disabled = true; msg(fid, 'conferindo a foto de hoje…');
+        var p = await postar('/api/admin/tempo-real/migrar', {fonte:fid});
+        if(!confirm('Foto de hoje de ' + p.nome + ': ' + p.incluir + ' usina(s) seguem no tempo real e ' + p.excluir + ' ficam fora, como estão agora.\n\nDaí em diante, quem decide é esta tela, e usina nova espera a sua liberação. Começar?')){ b.disabled = false; msg(fid, ''); return; }
+        await postar('/api/admin/tempo-real/migrar', {fonte:fid, confirmar:true});
+        msg(fid, 'controlada pela tela a partir de agora', 'bom'); await ler();
+      }
+    } catch(e) {
+      b.disabled = false;
+      var alvo = b.dataset.f || b.dataset.liberarTodas || b.dataset.migrar;
+      msg(alvo, 'não gravou: ' + e.message, 'ruim');
+    }
+  });
+  ['busca', 'fFonte', 'soNovas'].forEach(function(id){ document.getElementById(id).addEventListener(id === 'busca' ? 'input' : 'change', function(){ if(D) desenhar(); }); });
+  ler();
+  setInterval(function(){ if(document.visibilityState !== 'hidden') ler(); }, 60000);
+})();
+</script>
+</body>
+</html>

@@ -376,11 +376,11 @@ mesma origem; a ponte do Nexus busca no servidor e não repassa este cabeçalho;
 OS Creator é de outro endereço e não é a plataforma; o Thopen (Railway) e o App de Campo não emolduram nada daqui. No PC,
 porta diferente é OUTRA origem: a moldura só abre atrás da `ferramentas/porta_local.py` do Nexus (como no servidor).
 
-**O mapa** (`porta_nexus.MAPA`, spec 5.6) é a CÓPIA do mapa do Nexus (o dono): 12 telas, ids do Nexus (`tempo-real`,
+**O mapa** (`porta_nexus.MAPA`, spec 5.6) é a CÓPIA do mapa do Nexus (o dono): 13 telas, ids do Nexus (`tempo-real`,
 `noc`, `diagnostico`, `strings-trackers`, `gerencial`, `disponibilidade`, `relatorio`, `relatorio-semanal`, `gemeo`,
-`monitor-ronda` = "Rondas de Trackers"; COS `acompanhamento`; Base `chaves-fontes`, só admin). Os dois lados conferem o
+`monitor-ronda` = "Rondas de Trackers"; COS `acompanhamento`; Base `chaves-fontes` e `fontes-tempo-real`, só admin). Os dois lados conferem o
 mesmo texto canônico (`texto_canonico_do_mapa`, uma linha `torre|tela|caminho|tambem|admin` por tela) pela assinatura
-`cf3d44320c8225cf` (`test_o_mapa_e_a_copia_do_nexus`): mudou lá, muda aqui. Em 11/10/2026 o Histórico da plataforma
+`35c2ddcb8944b23a` (`test_o_mapa_e_a_copia_do_nexus`): mudou lá, muda aqui. Em 11/10/2026 o Histórico da plataforma
 (`/historico-plataforma`, `historico_pv.html`) foi APAGADO, rota e template (Levi: "Pode matar a seção histórico da
 plataforma!"); as APIs que ele lia (`/api/pv/trackers` e o gráfico por tracker) ficam, servem a outras telas. Rota de página nova entra no `MAPA` ou no
 `FORA_DO_MAPA` com o porquê (`test_toda_rota_de_pagina_tem_lugar_no_mapa`).
@@ -604,6 +604,50 @@ Nexus, embutido; a injeção; cada tela com 401/500 rodando o código da própri
 dá 503 e o Painel NOC/Gerencial não zeram com `erro`; o link "Entrar" da faixa encadeado pelo `/login` até o `?p=` que
 o Nexus lê, igual a `location.pathname+search`) e `tests/test_porta_nexus_destino_e_avisos.py` (o "Entrar pelo Nexus"
 com destino, os avisos de B12 e o next com `%09`/`%0a`/`%0d`/`%5C` na senha, no GET com sessão e no login Microsoft).
+
+## Fontes do tempo real (11/10/2026)
+
+Levi: "Antes o controle do que entra e o que não entra em tempo real estava sendo do Claude, eu passava as instruções e o
+claude inseria ao meu gosto. Precisamos de um espaço para administração do que entra no tempo real onde eu possa através da
+fonte permitir qual usina entra e qual não entra." Até aqui a lista de cada fonte morava em constantes (`PV_FONTES`,
+`scadagridco.FONTES`), no Full O&M do BD_Performance (só a API PV principal) e em "tudo que a conta devolve" (SunOp,
+SolarEdge, banco) — e mudar exigia commit e deploy. Regras dele, na mesma conversa: **usina nova espera a liberação, com
+notificação**; a escolha vale no **Tempo real, no Monitoramento, no Painel NOC e na ronda**; usina tirada **para de ser
+coletada** (os dias fora ficam sem dado).
+
+- **A tela**: `/admin/tempo-real` (`templates/fontes_tempo_real.html`), no Nexus como Base · Fontes do tempo real; só admin
+  do Nexus (`so_admin` no mapa; a API mora em `/api/admin/tempo-real/{fontes,decidir,migrar}`). A sessão da senha entra,
+  como no `/tokens`. Por fonte: a lista do que ela devolveu, a situação (no tempo real / fora / nova) e os botões Tirar,
+  Incluir, Liberar e Manter fora.
+- **O dado**: livro `nexus_tempo_real · fato_decisao_cobertura` (registrado no catálogo do Nexus), uma linha por decisão,
+  só acrescenta (`cobertura.Decisoes.acrescentar`: relê, grava inteiro, confere a contagem). O vigente é a última decisão
+  de cada fonte × chave nativa. Sem pessoa no banco (leitura aberta): quem decidiu vai a `logs/cobertura.log`. PC e
+  servidor leem o MESMO livro, com cache de 60 s e a última leitura boa em `cobertura_decisoes.json`.
+- **Foto de hoje (migração)**: uma fonte só é governada depois das linhas `migracao` (botão "Começar a controlar com a foto
+  de hoje"): incluir para o que aparecia pela regra de antes (`_cob_visivel_hoje`: Full O&M na `pv`, a lista fixa nas de ids
+  fixos, tudo nas outras), excluir para o resto do inventário. Sem a foto, a fonte segue como antes; a `pv` recusa a foto
+  com o Full O&M descarregado (a regra de antes viraria "todas").
+- **Onde o filtro mora (a lista de cada fonte, antes da coleta)**: `_cob_filtra` registra o inventário
+  (`cobertura_inventario.json`), devolve só as incluídas e avisa a usina nova no sino (tipo `usina_nova`, uma vez por
+  usina). API PV: `_pv_plantas_da_fonte` (pv, semp, alveslima, 2capi) e `_pv_monitorada` nos montadores que liam o
+  `FULL_OM` (trackers, PR, ocorrências, backfill, curva); o `_pv_trk_plant` é podado na LEITURA (`_pv_trk_itens`: o drill,
+  o App e o snapshot também o enchem); `INV_PADRAO_PLANTAS` e `QUALIDADE_PLANTAS`. 2C: plantas em `_2c_strings_dia_api` e
+  `_2c_trk_*`, e `_2c_codigos()` (o código sai só quando TODAS as plantas dele saem: tirando só as plantas, os parados
+  ligariam o errout). SunOp: o `/plants` em `ensure_sunop_meta` e o meta em `_sunop_meta_monitorada` (os laços perguntam ao
+  meta, que também recebe usina pelo drill e pelo snapshot). Banco: depois da consulta, no snapshot, trackers, ETM e PR
+  (chave como texto: int nas strings, str nos trackers). SolarEdge: em `fetch_all_solaredge` e `_se_pr_build`, nunca no
+  `se_sites` (o drill o usa). scadaGridco: `_sg_build`. **Reserva da exibição**: o `add()` do `_portfolio_rollup`, antes da
+  disputa "pior vence" e da soma das fatias. O drill por id não é filtrado (quem abre a usina tirada pelo endereço ainda a vê).
+- **O que fica de fora de propósito**: o índice do App de Campo (`_campo_index`, o App é do campo); o `excluir_usinas` do
+  `whats_ronda.json` (tira da ronda sem tirar do tempo real, como a Salto Pirapora); o Full O&M como escopo de contrato
+  (Gerencial, Disponibilidade, relatório semanal).
+- **Armadilhas**: a frota Thopen vem pela `pv` E pela `pg` (o rollup junta pelo nome): para tirar uma usina da Thopen de
+  todas as telas, tirar nas duas. Os cards da Entrada guardam o pacote até a próxima montagem (até 30 min). A SunOp retém o
+  último payload bom quando nenhuma linha tem dado (`_sunop_guarda_vazio`, até 30 min e sem prazo na pausa de domingo/teto).
+  Na SolarEdge, Xavantina 2 e Colider 2 usam a irradiância da 1 (`SE_IRR_MIRROR`): tirar a 1 deixa a 2 sem PR. O livro de
+  ocorrências do tracker_watch não fecha as abertas de quem saiu.
+- **Desligar**: `TEMPO_REAL_COBERTURA=0` numa máquina (nada é filtrado). Banco ilegível sem cópia em disco: nada é filtrado.
+  Os testes rodam com o filtro desligado (`conftest._cobertura_desligada_por_padrao`). Testes: `tests/test_cobertura_tempo_real.py`.
 
 ## Padrão por inversor (usinas sem visão por string)
 

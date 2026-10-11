@@ -152,7 +152,7 @@ ARQUIVOS_DE_ESTADO = (
     "_NOTAS_TRK_LOCAL", "_PERDAS_STR_PATH", "_PARADAS_PATH", "_REL_SEM_PATH",
     # gravados direto em plataforma/
     "_TOKENS_RT_PATH", "_ENTRADA_TRK_ULTIMO", "_SUNOP_PLANTS_ARQ", "_TUNNEL_URL_FILE", "_WHATS_SENT_PATH",
-    "_WHATS_LOG_PATH",
+    "_WHATS_LOG_PATH", "_WHATS_WD_PATH",
 )
 
 
@@ -172,6 +172,19 @@ def _estado_de_runtime_isolado(tmp_path, monkeypatch):
         if isinstance(atual, str):
             monkeypatch.setattr(app, nome, str(tmp_path / os.path.basename(atual)))
     monkeypatch.setattr(app, "_SUNOP_USO_FLUSH", 10 ** 9, raising=False)
+
+
+@pytest.fixture(autouse=True)
+def _cobertura_desligada_por_padrao(tmp_path, monkeypatch):
+    """Fontes do tempo real (11/10/2026): o filtro lê as decisões no banco (rede) e grava o inventário em plataforma/.
+    Desligado por padrão, com os arquivos no tmp_path; quem testa liga (`COBERTURA_LIGADA`) e dubla o banco."""
+    monkeypatch.setattr(app, "COBERTURA_LIGADA", False, raising=False)
+    cob = getattr(app, "_cob", None)
+    if cob is not None:
+        monkeypatch.setattr(app, "_COB_INV", cob.Inventario(str(tmp_path / "cobertura_inventario.json")))
+        monkeypatch.setattr(app, "_COB_DECISOES", cob.Decisoes("http://127.0.0.1:9", "",
+                                                                str(tmp_path / "cobertura_decisoes.json")))
+        monkeypatch.setattr(app, "_COB_MEMO", {"linhas": None, "estado": None})
 
 
 @pytest.fixture(autouse=True)

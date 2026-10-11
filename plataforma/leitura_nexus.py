@@ -169,6 +169,7 @@ _GET_GESTOR = (
     "/api/ronda/recorrentes", "/api/ronda/analise", "/api/ronda/book", "/api/ronda/obs",
     "/api/ronda/whats/status", "/api/ronda/whats/qr",         # Monitor da ronda (só as leituras dele)
     "/api/tokens",                                            # Chaves das fontes: a validade (e só para admin)
+    "/api/admin/tempo-real/fontes",                           # Fontes do tempo real: a lista (e só para admin)
 )
 
 # POSTs que só consultam: os da ponte e as OS do Fracttal da usina (corpo com usina e inversores)
@@ -178,6 +179,7 @@ POSTS_DE_CONSULTA_GESTOR = POSTS_DE_CONSULTA | {"/api/fracttal/os"}
 GRAVACOES_GESTOR = GRAVACOES + (
     "/api/state/comment", "/api/painel/falhas/desconsiderar", "/api/etm/ticket", "/api/ronda/obs",
     "/api/ronda/whats/reiniciar", "/api/relatorio/semanal/direcionamento", "/api/relatorio/semanal/emitir",
+    "/api/admin/tempo-real/decidir", "/api/admin/tempo-real/migrar",
     "/api/tokens/",
 )
 

@@ -62,6 +62,8 @@ MAPA = (
     Tela("cos", "acompanhamento", "Acompanhamento COS", "/cos", (), False),
     # /tokens grava as chaves das fontes (SunOp, Axis, Plataforma): administração, só admin do Nexus (spec 5.3)
     Tela("base", "chaves-fontes", "Chaves das fontes", "/tokens", (), True),
+    # Fontes do tempo real (11/10/2026): quais usinas de cada fonte entram no tempo real e são coletadas; só admin
+    Tela("base", "fontes-tempo-real", "Fontes do tempo real", "/admin/tempo-real", (), True),
 )
 
 # Rotas de página da plataforma que NÃO são tela do Nexus, cada uma com o porquê. Rota de página nova tem de entrar no

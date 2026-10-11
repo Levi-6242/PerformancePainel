@@ -67,11 +67,14 @@
       var tipo = e.tipo || "string_zerou";
       var k = [e.quando, e.fonte, e.plant_id, e.inversor, tipo].join("|");
       if (!m[k]) { m[k] = { chave: k, quando: e.quando, tipo: tipo, fonte: e.fonte, rotulo: e.rotulo, cliente: e.cliente, usina: e.usina, plant_id: e.plant_id, inversor: e.inversor, strings: [], padrao: null }; ordem.push(k); }
-      if (tipo === "inv_padrao") m[k].padrao = e; else m[k].strings.push(String(e.string));
+      if (tipo === "inv_padrao") m[k].padrao = e; else if (tipo !== "usina_nova") m[k].strings.push(String(e.string));
     });
     return ordem.map(function (k) { return m[k]; });
   }
   function link(g) {
+    // tipo "usina_nova" (11/10/2026): uma fonte controlada pela tela Fontes do tempo real devolveu uma usina sem decisão;
+    // ela fica fora da coleta até um administrador liberar (Levi: "espera eu liberar mas tem que ter uma notificação")
+    if (g.tipo === "usina_nova") return "/admin/tempo-real";
     if (g.tipo === "inv_padrao") return "/painel/usina/" + encodeURIComponent(g.plant_id) + "?fonte=" + encodeURIComponent(g.fonte || "pv") + "&nome=" + encodeURIComponent(g.usina || "");
     var fid = FONTE_ID[g.fonte];
     if (!fid) return "/tempo-real";
@@ -92,7 +95,10 @@
     var dia = p.dia ? " em " + String(p.dia).slice(8, 10) + "/" + String(p.dia).slice(5, 7) : "";
     return (p.status === "critico" ? "caiu para " : "abaixo do padrão: ") + r + "% do padrão de " + b + "% (" + (d > 0 ? "+" : "") + d + " pp" + dia + ")";
   }
-  function texto(g) { return "<b>" + esc(g.usina || "?") + "</b>" + (g.inversor ? " · " + esc(g.inversor) : "") + " · " + esc(g.tipo === "inv_padrao" ? textoPadrao(g) : textoStrings(g)); }
+  function texto(g) {
+    if (g.tipo === "usina_nova") return "<b>" + esc(g.usina || "?") + "</b> · usina nova esperando liberação no tempo real";
+    return "<b>" + esc(g.usina || "?") + "</b>" + (g.inversor ? " · " + esc(g.inversor) : "") + " · " + esc(g.tipo === "inv_padrao" ? textoPadrao(g) : textoStrings(g));
+  }
   function fonte(g) { return esc((g.rotulo || g.fonte || "") + (g.cliente && g.cliente !== g.rotulo && (g.rotulo || "").indexOf(g.cliente) < 0 ? " · " + g.cliente : "")); }
   function novo(g) { return g.quando > visto && !vistos[g.chave]; }
   function marcaVisto(g) {
@@ -140,7 +146,7 @@
     var ult = grupos.slice(-40).reverse();
     caixa.innerHTML = '<div class="gc-notif-cab"><span>Alertas · strings e inversores</span>' + (naoVistos.length ? '<button type="button" id="gc-notif-lidas">marcar como vistas</button>' : "") + "</div>"
       + (ult.length ? ult.map(function (g) {
-          return '<a class="gc-notif-item' + (novo(g) ? " novo" : "") + '" href="' + esc(link(g)) + '" data-chave="' + esc(g.chave) + '" title="' + (g.tipo === "inv_padrao" ? "abrir o diagnóstico da usina" : "abrir a curva deste inversor no dia") + '"><span class="q">' + dia(g.quando) + " " + hora(g.quando) + "</span><span>" + texto(g) + '<div class="f">' + fonte(g) + '</div></span><span class="ir" aria-hidden="true">›</span></a>';
+          return '<a class="gc-notif-item' + (novo(g) ? " novo" : "") + '" href="' + esc(link(g)) + '" data-chave="' + esc(g.chave) + '" title="' + (g.tipo === "usina_nova" ? "abrir as Fontes do tempo real" : g.tipo === "inv_padrao" ? "abrir o diagnóstico da usina" : "abrir a curva deste inversor no dia") + '"><span class="q">' + dia(g.quando) + " " + hora(g.quando) + "</span><span>" + texto(g) + '<div class="f">' + fonte(g) + '</div></span><span class="ir" aria-hidden="true">›</span></a>';
         }).join("") : '<div class="gc-notif-vazio">Nenhuma queda nova desde a última leitura.</div>')
       + '<div class="gc-notif-pe">' + rodape() + "</div>";
     var ml = document.getElementById("gc-notif-lidas");
@@ -151,7 +157,7 @@
     var caixa = document.querySelector(".gc-toasts");
     if (!caixa) { caixa = document.createElement("div"); caixa.className = "gc-toasts"; document.body.appendChild(caixa); }
     novos.slice(-4).forEach(function (g) {
-      var t = document.createElement("a"); t.className = "gc-toast"; t.href = link(g); t.title = "abrir a curva deste inversor";
+      var t = document.createElement("a"); t.className = "gc-toast"; t.href = link(g); t.title = g.tipo === "usina_nova" ? "abrir as Fontes do tempo real" : "abrir a curva deste inversor";
       t.innerHTML = texto(g) + " às " + hora(g.quando) + '<div class="f">' + fonte(g) + "</div>";
       t.addEventListener("click", function () { marcaVisto(g); });
       caixa.appendChild(t);

@@ -1327,6 +1327,162 @@ def api_admin_bases():
                     "tickets": _info(_tickets_path())})
 
 
+# ── Fontes do tempo real: a tela de administração (11/10/2026) ───────────────────────────────────────────────────────
+# Só administrador do Nexus (no mapa como base/fontes-tempo-real, só admin; a API mora em /api/admin/*). A sessão da senha
+# entra, como no /tokens. Quem decidiu vai ao log desta máquina (logs/cobertura.log): no banco, nada de pessoa (a API dele
+# é de leitura aberta, regra 8 da governança do Nexus).
+@app.route("/admin/tempo-real")
+def pagina_fontes_tempo_real():
+    return render_template("fontes_tempo_real.html")
+
+
+_COB_REGRA_ANTES = {
+    "pv": "Hoje entram as usinas com Full O&M = Sim na aba Equipamentos do BD_Performance.",
+    "semp": "Hoje entram as usinas da lista fixa da SEMP no código (conta oem@ da API PV).",
+    "alveslima": "Hoje entram as usinas da lista fixa da Alves Lima no código (conta oem@ da API PV).",
+    "2capi": "Hoje entram as usinas da lista fixa da 2C no código (conta oem@ da API PV).",
+}
+
+
+# A frota Thopen vem pela API PV E pelo banco, e o rollup junta as duas pelo nome: tirada numa só, a usina segue no Painel
+# NOC pela outra.
+_COB_NOTA = {f: "A frota Thopen vem por duas fontes, a API PV e o banco de dados: para tirar uma usina da Thopen de todas "
+                "as telas, tire nas duas." for f in ("pv", "pg")}
+
+
+def _cob_visivel_hoje(fonte, chave, nome) -> bool:
+    """A regra de antes da tela, a foto da migração: na API PV principal, o Full O&M do cadastro; nas de ids fixos (SEMP,
+    Alves Lima, 2C), estar na lista; nas outras (SunOp, SolarEdge, banco, scadaGridco), tudo o que a fonte devolve."""
+    if fonte == "pv":
+        return (not FULL_OM) or str(nome or "").strip() in FULL_OM
+    if fonte in PV_FONTES:
+        try:
+            return int(chave) in PV_FONTES[fonte]
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
+def _cob_log(texto):
+    try:
+        os.makedirs(os.path.join(_AQUI, "logs"), exist_ok=True)
+        with open(os.path.join(_AQUI, "logs", "cobertura.log"), "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}  {_quem_na_sessao()}  {texto}\n")
+    except Exception as e:                                      # noqa: BLE001
+        print(f"[cobertura] log: {e}")
+
+
+@app.route("/api/admin/tempo-real/fontes")
+def api_cob_fontes():
+    linhas = _cob_linhas()
+    vig, gov = _cob.vigente(linhas or []), _cob.governadas(linhas or [])
+    ultima = {}                                                  # (fonte, chave) → (quando, origem) da decisão vigente
+    for lin in (linhas or []):
+        d = dict(zip(_cob.CAB, lin)) if isinstance(lin, (list, tuple)) else dict(lin)
+        k, q = (str(d.get("fonte")), str(d.get("chave")).strip()), str(d.get("decidida_em") or "")
+        if k not in ultima or q >= str(ultima[k][0] or ""):
+            ultima[k] = (d.get("decidida_em"), d.get("origem"))
+    inv = _COB_INV.ler()
+    fontes, novas_total = [], 0
+    for fid, rotulo in _cob.FONTES.items():
+        vistas = inv["fontes"].get(fid) or {}
+        chaves = set(vistas) | {c for (f, c) in vig if f == fid}
+        usinas = []
+        for c in chaves:
+            nome = (vistas.get(c) or {}).get("nome") or ""
+            if fid in gov:
+                dec = vig.get((fid, c))
+                sit = {"incluir": "incluida", "excluir": "excluida"}.get(dec, "nova")
+            else:
+                sit = "hoje" if _cob_visivel_hoje(fid, c, nome) else "fora_antes"
+            quando, origem = ultima.get((fid, c), (None, None))
+            usinas.append({"chave": c, "nome": nome, "situacao": sit, "na_fonte": c in vistas,
+                           "decidida_em": quando, "origem": origem})
+        ordem = {"nova": 0, "incluida": 1, "hoje": 1, "excluida": 2, "fora_antes": 2}
+        usinas.sort(key=lambda u: (ordem.get(u["situacao"], 3), _nrm(u["nome"] or u["chave"])))
+        cont = {"no_tempo_real": sum(u["situacao"] in ("incluida", "hoje") for u in usinas),
+                "fora": sum(u["situacao"] in ("excluida", "fora_antes") for u in usinas),
+                "novas": sum(u["situacao"] == "nova" for u in usinas)}
+        novas_total += cont["novas"]
+        fontes.append({"id": fid, "nome": rotulo, "governada": fid in gov, "lido_em": (inv.get("lido_em") or {}).get(fid),
+                       "regra_antes": _COB_REGRA_ANTES.get(fid, "Hoje entram todas as usinas que a fonte devolve."),
+                       "nota": _COB_NOTA.get(fid),
+                       "contagem": cont, "usinas": usinas})
+    return jsonify({"decisoes": {"ligada": COBERTURA_LIGADA, "ok": linhas is not None, "erro": _COB_DECISOES.erro,
+                                 "lido_em": _COB_DECISOES.lido_em,
+                                 "pode_gravar": bool(os.environ.get("GRIDCO_SQL_TOKEN", "").strip())},
+                    "fontes": fontes, "novas_total": novas_total})
+
+
+@app.route("/api/admin/tempo-real/decidir", methods=["POST"])
+def api_cob_decidir():
+    """{"decisoes": [{"fonte", "chave", "decisao": "incluir"|"excluir"}]}: acrescenta no livro do banco (relê, grava
+    inteiro e confere a contagem). Só em fonte já governada: antes da foto de hoje a decisão não valeria."""
+    pedidas = (flask_request.get_json(silent=True) or {}).get("decisoes")
+    if not isinstance(pedidas, list) or not pedidas or len(pedidas) > 500:
+        return jsonify({"error": "mande de 1 a 500 decisões"}), 400
+    linhas = _cob_linhas()
+    if linhas is None:
+        return jsonify({"error": "as decisões não puderam ser lidas do banco agora; tente de novo"}), 503
+    gov = _cob.governadas(linhas)
+    try:
+        novas = []
+        for p in pedidas:
+            fonte = str((p or {}).get("fonte") or "")
+            if fonte not in gov:
+                return jsonify({"error": f"a fonte {fonte or '?'} ainda não é controlada pela tela: comece pela foto de hoje"}), 409
+            novas.append(_cob.linha(fonte, (p or {}).get("chave"), str((p or {}).get("decisao") or ""), "tela"))
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    try:
+        total = _COB_DECISOES.acrescentar(novas)
+    except _cob.GravacaoErro as e:
+        return jsonify({"error": str(e)}), 503
+    except Exception as e:                                      # noqa: BLE001 — rede, API: diz o tipo, não grava pela metade
+        return jsonify({"error": f"o banco não aceitou a gravação ({type(e).__name__})"}), 502
+    for lin in novas:
+        _cob_log(f"{lin[4]} {lin[2]}:{lin[3]}")
+    return jsonify({"ok": True, "gravadas": len(novas), "total": total})
+
+
+@app.route("/api/admin/tempo-real/migrar", methods=["POST"])
+def api_cob_migrar():
+    """A foto de hoje de uma fonte: incluir para o que aparece no tempo real agora (a regra de antes), excluir para o resto
+    do que ela devolveu. Sem `confirmar`, só a prévia (quantas entram e quantas ficam fora)."""
+    corpo = flask_request.get_json(silent=True) or {}
+    fonte = str(corpo.get("fonte") or "")
+    if fonte not in _cob.FONTES:
+        return jsonify({"error": "fonte desconhecida"}), 400
+    linhas = _cob_linhas()
+    if linhas is None:
+        return jsonify({"error": "as decisões não puderam ser lidas do banco agora; tente de novo"}), 503
+    if fonte in _cob.governadas(linhas):
+        return jsonify({"error": "esta fonte já é controlada pela tela"}), 409
+    vistas = _COB_INV.ler()["fontes"].get(fonte) or {}
+    if not vistas and fonte not in PV_FONTES:
+        return jsonify({"error": "a fonte ainda não foi lida nesta máquina; espere a próxima coleta"}), 409
+    if fonte == "pv" and not FULL_OM:
+        # sem o cadastro carregado, a regra de antes vale "todas": a foto incluiria as usinas sem Full O&M
+        return jsonify({"error": "o Full O&M do cadastro não está carregado agora; tente de novo em alguns minutos"}), 409
+    visiveis = [c for c, v in vistas.items() if _cob_visivel_hoje(fonte, c, v.get("nome"))]
+    if fonte in PV_FONTES:
+        visiveis += [str(i) for i in PV_FONTES[fonte]]            # a lista fixa entra mesmo que a conta não a tenha devolvido
+    semente = _cob.semente(fonte, vistas.keys(), visiveis)
+    n_inc = sum(1 for lin in semente if lin[4] == "incluir")
+    resumo = {"fonte": fonte, "nome": _cob.FONTES[fonte], "incluir": n_inc, "excluir": len(semente) - n_inc,
+              "lido_em": (_COB_INV.ler().get("lido_em") or {}).get(fonte)}
+    if not corpo.get("confirmar"):
+        return jsonify(dict(resumo, previa=True))
+    try:
+        total = _COB_DECISOES.acrescentar(semente)
+    except _cob.GravacaoErro as e:
+        return jsonify({"error": str(e)}), 503
+    except Exception as e:                                      # noqa: BLE001
+        return jsonify({"error": f"o banco não aceitou a gravação ({type(e).__name__})"}), 502
+    _cob_log(f"migração {fonte}: {n_inc} incluir, {len(semente) - n_inc} excluir")
+    return jsonify(dict(resumo, ok=True, total=total))
+
+
 BASE_URL = "https://apipv.pvoperation.com.br/api/v1"
 USERNAME = os.environ.get("PV_USERNAME", "")
 PASSWORD = os.environ.get("PV_PASSWORD", "")
@@ -2936,15 +3092,132 @@ def get_token_oem(force=False) -> str:
         return tok
 
 
+# ── Quem entra no tempo real, por fonte (11/10/2026) ─────────────────────────────────────────────────────────────────
+# Levi: "Precisamos de um espaço para administração do que entra no tempo real onde eu possa através da fonte permitir
+# qual usina entra e qual não entra" (até aqui era o Claude, editando constantes e a planilha a pedido dele). A regra e o
+# porquê moram em cobertura.py; aqui ficam as ligações: o filtro na LISTA de cada fonte, antes da coleta (usina tirada
+# para de ser coletada e some do Tempo real, do Monitoramento, do Painel NOC e da ronda), o inventário que a tela lista e
+# o sino da usina nova. Fonte que ainda não passou pela foto de hoje (a migração) segue com a regra de antes.
+# TEMPO_REAL_COBERTURA=0 desliga numa máquina; o conftest desliga nos testes (COBERTURA_LIGADA).
+import bd_api as _bd_api  # noqa: E402
+import cobertura as _cob  # noqa: E402
+
+COBERTURA_LIGADA = os.environ.get("TEMPO_REAL_COBERTURA", "1") != "0"
+_COB_DECISOES = _cob.Decisoes(_bd_api.API_BASE, lambda: os.environ.get("GRIDCO_SQL_TOKEN", ""),
+                              os.path.join(_AQUI, "cobertura_decisoes.json"), ttl=60)
+_COB_INV = _cob.Inventario(os.path.join(_AQUI, "cobertura_inventario.json"))
+_COB_MEMO = {"linhas": None, "estado": None}
+
+
+def _cob_linhas():
+    """As decisões (cache de 60 s, a última leitura boa se o banco cair), ou None: desligado ou nunca lidas."""
+    if not COBERTURA_LIGADA:
+        return None
+    try:
+        return _COB_DECISOES.linhas()
+    except Exception as e:                                      # noqa: BLE001 — sem decisão, nada é escondido
+        print(f"[cobertura] decisões não lidas: {e}")
+        return None
+
+
+def _cob_estado():
+    """(vigente {(fonte, chave): decisão}, fontes governadas), ou None sem decisões. Refeito só quando as linhas mudam."""
+    linhas = _cob_linhas()
+    if linhas is None:
+        return None
+    if _COB_MEMO["linhas"] is not linhas:
+        _COB_MEMO.update(linhas=linhas, estado=(_cob.vigente(linhas), _cob.governadas(linhas)))
+    return _COB_MEMO["estado"]
+
+
+def _cob_governada(fonte) -> bool:
+    est = _cob_estado()
+    return bool(est) and fonte in est[1]
+
+
+def _cob_entra(fonte, chave) -> bool:
+    """A usina está no tempo real? Para quem só pergunta (o filtro de exibição): não registra inventário."""
+    est = _cob_estado()
+    if est is None or fonte not in est[1]:
+        return True
+    return est[0].get((fonte, str(chave).strip())) == "incluir"
+
+
+def _cob_filtra(fonte, itens, chave_de, nome_de):
+    """O filtro de uma fonte na lista que vai ser coletada: guarda o inventário (o que a fonte devolveu), devolve só as que
+    entram e avisa no sino a usina nova (fonte governada, sem decisão). Sem decisões, ou fonte não governada: todas."""
+    itens = list(itens or [])
+    if not COBERTURA_LIGADA:
+        return itens
+    try:
+        _COB_INV.registrar(fonte, [(chave_de(i), nome_de(i)) for i in itens])
+    except Exception as e:                                      # noqa: BLE001
+        print(f"[cobertura] inventário de {fonte}: {e}")
+    entram, novas = _cob.filtrar(fonte, itens, chave_de, _cob_linhas())
+    if novas:
+        try:
+            _cob_avisa_novas(fonte, [(str(chave_de(i)).strip(), nome_de(i)) for i in novas])
+        except Exception as e:                                  # noqa: BLE001
+            print(f"[cobertura] aviso de usina nova ({fonte}): {e}")
+    return entram
+
+
+def _cob_avisa_novas(fonte, novas):
+    """O sino das telas (tipo "usina_nova"), uma vez por usina: Levi, 11/10/2026, "espera eu liberar mas tem que ter uma
+    notificação de usina nova"."""
+    fazer = set(_COB_INV.a_avisar(fonte, [c for c, _n in novas]))
+    if not fazer:
+        return
+    agora = datetime.now().isoformat(timespec="seconds")
+    evs = [{"quando": agora, "tipo": "usina_nova", "fonte": fonte, "rotulo": _cob.FONTES.get(fonte, fonte),
+            "usina": (n or c), "plant_id": c} for c, n in novas if c in fazer]
+    with _state_lock:
+        st = _load_state()
+        n = st.setdefault("notif", {})
+        n["eventos"] = ((n.get("eventos") or []) + evs)[-_NOTIF_MAX:]
+        _save_state(st)
+    print(f"[cobertura] {len(evs)} usina(s) nova(s) em {fonte}: {', '.join(e['usina'] for e in evs)[:200]}")
+
+
+def _pv_monitorada(p) -> bool:
+    """A usina da API PV está no que a plataforma monitora? A principal (fonte `pv`), governada pela tela, obedece à
+    decisão; antes disso, e nas usinas das outras contas, a regra de antes (Full O&M do cadastro; cadastro vazio = todas).
+    Substitui o `(not FULL_OM or nome in FULL_OM)` espalhado pelos montadores da API PV (trackers, PR, ocorrências)."""
+    velho = (not FULL_OM) or p["nome"].strip() in FULL_OM
+    outra = _pv_fonte_de(p["id"])
+    if outra is not None:
+        return velho and _cob_entra(outra, p["id"])
+    est = _cob_estado()
+    if est is None or "pv" not in est[1]:
+        return velho
+    return est[0].get(("pv", str(p["id"]).strip())) == "incluir"
+
+
+def _pv_trk_monitorada(pid) -> bool:
+    """A usina do `_pv_trk_plant` (trackers da API PV) segue no tempo real? O dicionário é preenchido pelo montador e
+    também pelo drill, pelo App de Campo, pela 2C e pelo snapshot: podar só no montador não bastaria."""
+    return _cob_entra(_pv_fonte_de(pid) or "pv", pid)
+
+
+def _pv_trk_itens():
+    """[(pid, ent)] do `_pv_trk_plant` só com as usinas que seguem no tempo real (cópia: a lista pode mudar no laço)."""
+    return [(pid, ent) for pid, ent in list(_pv_trk_plant.items()) if _pv_trk_monitorada(pid)]
+
+
 def _pv_plantas_da_fonte(all_plants, fonte):
     """As usinas da API PV que pertencem à `fonte`. A principal (None) passa pelo FULL_OM (nome de supervisório do
     Equipamentos) e exclui as das outras contas; uma fonte de PV_FONTES já é escolha explícita por ID — não passa
     pelo FULL_OM, porque a API pode escrever o nome diferente do cadastro ("Sete Lagoa" × "Sete Lagoas", 11/09/2026)
-    e a usina sumia da própria aba sem aviso."""
+    e a usina sumia da própria aba sem aviso. Desde 11/10/2026 cada uma passa pelo filtro das Fontes do tempo real
+    (`_cob_filtra`): governada pela tela, vale a decisão (na principal, no lugar do FULL_OM)."""
     if fonte is None:
-        base = [p for p in all_plants if p["nome"].strip() in FULL_OM] if FULL_OM else list(all_plants)
-        return [p for p in base if _pv_fonte_de(p["id"]) is None]
-    return [p for p in all_plants if _pv_fonte_de(p["id"]) == fonte]
+        universo = [p for p in all_plants if _pv_fonte_de(p["id"]) is None]
+        entram = _cob_filtra("pv", universo, lambda p: p["id"], lambda p: p["nome"])
+        if _cob_governada("pv"):
+            return entram
+        return [p for p in universo if p["nome"].strip() in FULL_OM] if FULL_OM else universo
+    itens = [p for p in all_plants if _pv_fonte_de(p["id"]) == fonte]
+    return _cob_filtra(fonte, itens, lambda p: p["id"], lambda p: p["nome"]) if fonte in _cob.FONTES else itens
 
 
 def _pv_is_oem(plant_id) -> bool:
@@ -6445,6 +6718,8 @@ def ensure_sunop_meta(inst: str = "gridco"):
             print(f"[SUNOP:{inst}] lista veio do serviço de DADOS: {len(de_dados)} usinas")
         plants = [{"name": n} for n in de_dados]
     nomes = [p["name"] for p in plants]
+    # Fontes do tempo real (11/10/2026): a usina tirada na tela não entra na lista nem ganha metadado (não é coletada)
+    nomes = _cob_filtra(_sunop_fonte(inst), nomes, str, lambda n: USINA_DISPLAY.get(n, n))
     _sunop_plants_lista[inst] = {"nomes": nomes, "ts": time.time()}
     faltam = [n for n in nomes if n not in S["meta"]]
     if not faltam:
@@ -6703,11 +6978,27 @@ def process_plant_sunop(plant_name: str, inst: str = "gridco", _lv=None) -> dict
     }
 
 
+def _sunop_fonte(inst) -> str:
+    """A fonte das Fontes do tempo real de cada instância da SunOp."""
+    return "axis" if inst == "axis" else "sunop"
+
+
+def _sunop_meta_monitorada(inst: str = "gridco") -> dict:
+    """O metadado das usinas da SunOp que seguem no tempo real. O meta guarda também a usina que veio pelo drill e pelo
+    snapshot: os laços de coleta (tabela, ETM, trackers, PR, ocorrências, backfill) perguntam a ele, não à lista do
+    /plants. Fonte não governada pela tela: o próprio meta, como antes."""
+    meta = _si(inst)["meta"]
+    f = _sunop_fonte(inst)
+    if not _cob_governada(f):
+        return meta
+    return {p: m for p, m in meta.items() if _cob_entra(f, p)}
+
+
 def fetch_all_sunop(inst: str = "gridco") -> list:
     ensure_sunop_meta(inst)
     # Percorre a LISTA DE USINAS, não as que têm meta: usina sem metadata tem que virar linha
     # "sem dados" (que acende alarme de comunicação), e não sumir da tabela em silêncio.
-    _nomes = (_sunop_plants_lista.get(inst) or {}).get("nomes") or list(_si(inst)["meta"])
+    _nomes = (_sunop_plants_lista.get(inst) or {}).get("nomes") or list(_sunop_meta_monitorada(inst))
     # o status de TODAS as usinas em lotes que atravessam usinas (SUNOP_LV_LOTE): 19 POSTs por leitura viraram 7
     meta = _si(inst)["meta"]
     pedidos = {p: _sunop_paths_tabela(meta[p]) for p in _nomes if meta.get(p)}
@@ -7062,7 +7353,7 @@ def fetch_sunop_etm_plant(plant_name: str, inst: str = "gridco", _by_path=None) 
 def _build_sunop_etm_payload(inst: str = "gridco"):
     ensure_sunop_meta(inst)
     # as estações de TODAS as usinas num pedido só (SUNOP_LV_LOTE): era 1 POST por usina
-    plantas = list(_si(inst)["meta"])
+    plantas = list(_sunop_meta_monitorada(inst))
     pedidos = {p: [x for paths in _sunop_etm_estacoes_da_usina(p, inst).values() for x in paths.values()] for p in plantas}
     lv = _sunop_last_values_multi({p: ps for p, ps in pedidos.items() if ps}, inst, timeout=15)
     rows = []
@@ -7097,7 +7388,7 @@ _sunop_analise_cache = {"payload": None, "ts": 0.0, "_ttl": SUNOP_TTL}
 def _sunop_etm_estacoes(inst: str = "gridco"):
     """→ lista de (plant, station_raw, {poa,ghi,poari: path}) p/ todas as estações."""
     out = []
-    for plant, meta in _si(inst)["meta"].items():
+    for plant, meta in _sunop_meta_monitorada(inst).items():
         stations = meta.get("etm_stations") or {"ESTM": {
             "poa": f"{plant}.ESTM.POA.IRAD", "ghi": f"{plant}.ESTM.GHI.IRAD",
             "poari": f"{plant}.ESTM.POA_R.IRAD"}}
@@ -7369,7 +7660,7 @@ def _trk_parada_reconcilia():
         if _trk_parada_total["date"] != hoje:
             _trk_parada_total["date"], _trk_parada_total["plants"] = hoje, {}
         st = _trk_parada_total["plants"]
-        for pid, ent in list(_pv_trk_plant.items()):
+        for pid, ent in _pv_trk_itens():
             pl = ent.get("payload", {})
             total = pl.get("total") or 0
             # "todos parados" = todos em estado anômalo (parado + desvio crítico): no overview a
@@ -7851,7 +8142,7 @@ def _trk_severidade(r) -> int:
 
 def _build_sunop_trk_payload(inst: str = "gridco"):
     ensure_sunop_meta(inst)
-    plantas = [p for p, m in _si(inst)["meta"].items() if m.get("trackers")]
+    plantas = [p for p, m in _sunop_meta_monitorada(inst).items() if m.get("trackers")]
     _sunop_trk_curvas_varias(plantas, datetime.now().strftime("%Y-%m-%d"), inst)   # as vencidas numa baixa só
     rows = []
     with ThreadPoolExecutor(max_workers=2) as ex:
@@ -8448,7 +8739,7 @@ def _sunop_pr_one(plant_name: str, dia: str, inst: str = "gridco"):
 
 def _sunop_pr_build(dia: str, inst: str = "gridco"):
     ensure_sunop_meta(inst)
-    plantas = [p for p, m in _si(inst)["meta"].items() if m.get("inv_strings")]
+    plantas = [p for p, m in _sunop_meta_monitorada(inst).items() if m.get("inv_strings")]
 
     def _one(pn):
         try:    return pn, _sunop_pr_one(pn, dia, inst)
@@ -8624,7 +8915,7 @@ def _sunop_parados_rows(inst, force=False):
     ensure_sunop_meta(inst)
     if force:
         _si(inst)["trk_hist"].clear()          # busta as curvas do dia → recomputa o status do zero
-    plantas = [p for p, m in _si(inst)["meta"].items() if m.get("trackers")]
+    plantas = [p for p, m in _sunop_meta_monitorada(inst).items() if m.get("trackers")]
     _sunop_trk_curvas_varias(plantas, datetime.now().strftime("%Y-%m-%d"), inst)   # as vencidas numa baixa só
     rows = []
     with ThreadPoolExecutor(max_workers=6) as ex:
@@ -8685,7 +8976,7 @@ def _sunop_eventos_calc(inst, date_iso):
         ensure_sunop_meta(inst)
     except Exception as e:
         print(f"[SUNOP:{inst}] eventos: metadata não carregou ({e})")
-    plantas = [p for p, m in _si(inst)["meta"].items() if m.get("trackers")]
+    plantas = [p for p, m in _sunop_meta_monitorada(inst).items() if m.get("trackers")]
     if not plantas:
         # UNIVERSO VAZIO NÃO VIRA RESPOSTA CACHEADA. Sem plantas não é "não há usinas com tracker",
         # é "não consegui calcular" — metadata ainda não carregado, ou a borda bloqueando o /data.
@@ -8759,9 +9050,9 @@ def _trk_ev_pids(fonte):
         elif fonte in ("sunop", "axis"):
             inst = "axis" if fonte == "axis" else "gridco"
             ensure_sunop_meta(inst)
-            pids = set(map(str, _si(inst)["meta"].keys()))
+            pids = set(map(str, _sunop_meta_monitorada(inst).keys()))
         elif fonte == "owen":
-            pids = set(map(str, OWEN_UFVS.keys()))
+            pids = set(map(str, _2c_codigos()))
         elif fonte == "pg":
             conn = _pg_conn(); cur = conn.cursor()
             # dbt congelado → lista de usinas de tracker vem da tabela CRUA public.raw_tracker
@@ -11791,7 +12082,7 @@ def _pv_trackers_analise(idusina, nome_disp, date=None, curva=False, fetch_curva
 def _build_pv_trk_payload(fetch_curvas=False):
     plants = get_plants(get_token())
     agora = time.time()
-    alvo_plants = [p for p in plants if (not FULL_OM or p["nome"].strip() in FULL_OM)]
+    alvo_plants = [p for p in plants if _pv_monitorada(p)]
     # Fica fora só quem já tem tracker por OUTRA fonte (as usinas da 2C: aba pela fonte 2C, parados pelo
     # e-mail) — ver PV_TRK_OUTRA_FONTE. Era "toda usina da conta OEM", e isso tirava a Tucano junto.
     alvo_plants = [p for p in alvo_plants if not _pv_trk_fora(p["id"])]
@@ -11888,7 +12179,7 @@ def _pv_trk_payload_da_fonte(fonte, force=False):
     ent = _pv_trk_fonte_cache.get(fonte)
     if ent and not force and (time.time() - ent["ts"]) < CACHE_TTL:
         return ent["payload"]
-    ids = sorted(PV_FONTES.get(fonte) or ())
+    ids = sorted(i for i in (PV_FONTES.get(fonte) or ()) if _cob_entra(fonte, i))
     rows = []
     if ids:
         # nome DA API → de-para do cadastro. Sem isto o fallback do `nome_usina` é o próprio id e a
@@ -11961,7 +12252,7 @@ def api_pv_trackers_alertas():
     if not _pv_trk_cache["payload"]:
         api_pv_trackers()                       # popula o cache
     alertas = []
-    for idusina, ent in _pv_trk_plant.items():
+    for idusina, ent in _pv_trk_itens():
         p = ent["payload"]
         for t in p.get("trackers", []):
             if t["status"] in ("desvio", "atraso") and not t.get("na_planilha"):
@@ -12043,7 +12334,7 @@ def _pv_parados_rows(force=False, errout=None):
         except Exception:
             livro = {}
     rows = []
-    for pid, ent in list(_pv_trk_plant.items()):
+    for pid, ent in _pv_trk_itens():
         pl = ent.get("payload") or {}
         if not pl.get("tem_trackers"):
             continue
@@ -12524,7 +12815,7 @@ def _trk_ev_backfill(ini_iso, fim_iso, force=False):
         except Exception:
             pass
         # só usinas COM trackers (evita gastar chamada em quem não tem)
-        com_trk = {pid: ent["payload"] for pid, ent in _pv_trk_plant.items()
+        com_trk = {pid: ent["payload"] for pid, ent in _pv_trk_itens()
                    if (ent.get("payload") or {}).get("total")}
         hoje_iso = datetime.now().strftime("%Y-%m-%d")
         fim_iso = min(fim_iso, hoje_iso)
@@ -12777,7 +13068,7 @@ def _trk_totais_fonte(fonte) -> dict:
             inst = "axis" if fonte == "axis" else "gridco"
             rows = (_swr(_si(inst)["trk_cache"], lambda: _build_sunop_trk_payload(inst)) or {}).get("rows") or []
         elif fonte == "owen":
-            rows = [_owen_trackers_analise(u) for u in OWEN_UFVS]
+            rows = [_owen_trackers_analise(u) for u in _2c_codigos()]
         else:
             return {}
     except Exception as e:                                   # fonte fora não derruba a regra
@@ -13762,7 +14053,7 @@ def process_site_solaredge(site: dict) -> dict:
 
 
 def fetch_all_solaredge() -> list:
-    sites = se_sites()
+    sites = _cob_filtra("solaredge", se_sites(), lambda s: s["id"], lambda s: s.get("nome"))   # Fontes do tempo real
     rows = []
     with ThreadPoolExecutor(max_workers=4) as ex:
         futs = {ex.submit(process_site_solaredge, s): s for s in sites}
@@ -14068,7 +14359,7 @@ def _sg_build(fonte):
     """A tabela de strings da fonte: uma usina por vez (regra da Automação), um pedido por usina. Sem token não
     insiste nas outras: as linhas saem sem dado e o `aviso` diz por quê."""
     rows, aviso = [], None
-    for cfg in _sg.FONTES[fonte]["usinas"]:
+    for cfg in _cob_filtra(fonte, _sg.FONTES[fonte]["usinas"], lambda c: c["id"], lambda c: c.get("usina")):
         leit = []
         if aviso is None:
             try:
@@ -14245,7 +14536,7 @@ def _se_parse_month(series, tzname, dia):
 
 
 def _se_pr_build(dia: str):
-    sites = se_sites()
+    sites = [s for s in se_sites() if _cob_entra("solaredge", s["id"])]                       # Fontes do tempo real
 
     def _one(site):
         sid, nome, tz = site["id"], site.get("nome"), site.get("timezone")
@@ -14520,6 +14811,10 @@ def _pg_build_snapshot():
             if inv["ts"] is None or ts > inv["ts"]: inv["ts"] = ts
             if p["ts"]   is None or ts > p["ts"]:   p["ts"]   = ts
 
+    # Fontes do tempo real (11/10/2026): o banco devolve toda usina com leitura; a tirada na tela sai aqui (e o
+    # inventário da tela vem desta lista)
+    _cob_ok = {str(k) for k in _cob_filtra("pg", list(plants), str, lambda k: plants[k]["sup"])}
+    plants = {k: v for k, v in plants.items() if str(k) in _cob_ok}
     summary, detail = [], {}
     _hoje = datetime.now().date()
     for pid, p in plants.items():
@@ -14798,7 +15093,8 @@ def _inv_padrao_ciclo():
         return _http().post(f"{BASE_URL}/custom_query", headers={"x-access-token": token}, json=payload, timeout=90).json()
 
     novo = {}
-    for pid in sorted(INV_PADRAO_PLANTAS):
+    # a usina tirada do tempo real na tela (Fontes do tempo real) para de ser coletada aqui também
+    for pid in sorted(p for p in INV_PADRAO_PLANTAS if _pv_trk_monitorada(p)):
         try:
             devs = _inv_padrao_store.devs(pid)
             if not devs:
@@ -14940,7 +15236,7 @@ def _qualidade_ciclo():
     except Exception as e:                                 # noqa: BLE001
         print(f"[qualidade] sem lista de plantas p/ nomear ({e})")
     out, n_erro = {}, 0
-    for pid in sorted(QUALIDADE_PLANTAS):
+    for pid in sorted(p for p in QUALIDADE_PLANTAS if _cob_entra("2capi", p)):   # tirada na tela: não coleta
         try:
             r = _qualidade_usina(pid, nome_usina(pid, nomes_api.get(pid) or str(pid)))
             if r:
@@ -15407,6 +15703,18 @@ def _somar_partes_da_usina(item, irmas):
                                      item["status"])
 
 
+_ROLLUP_COB_FONTE = {"Thopen": "pg", "Athon": "sunop", "Axis": "axis", "2C": "2capi", "RenoGrid": "solaredge",
+                     "SEMP": "semp", "GreenYellow": "greenyellow", "Sal Energia": "salenergia"}
+
+
+def _rollup_cob_fonte(rotulo, plant_id) -> str:
+    """A fonte das Fontes do tempo real de uma linha do rollup, pelo rótulo dela; "API PV" é da conta da usina (a SEMP e a
+    2C também passam pela API PV)."""
+    if rotulo == "API PV":
+        return _pv_fonte_de(plant_id) or "pv"
+    return _ROLLUP_COB_FONTE.get(rotulo, rotulo)
+
+
 def _portfolio_rollup() -> list:
     """Lista única de usinas do portfólio, pior→melhor. Reusa os caches das fontes.
     Nome pela coluna 'Usina' (Equipamentos); sub-usinas que caem na mesma 'Usina' física são
@@ -15420,6 +15728,11 @@ def _portfolio_rollup() -> list:
     _poa = _poa_atual_por_pid()                # pouca luz não é usina parada, como na tabela (29/09/2026)
 
     def add(fonte, r):
+        # Fontes do tempo real (11/10/2026): a reserva da exibição. A coleta já não traz a usina tirada, mas um cache de
+        # antes da decisão (ou o retido da SunOp) ainda pode trazê-la; o filtro fica ANTES da disputa "pior vence" e da
+        # soma das fatias, senão uma fatia tirada venceria e esconderia a que ficou.
+        if not _cob_entra(_rollup_cob_fonte(fonte, r.get("plant_id")), r.get("plant_id")):
+            return
         _d = _usina_desligada_de(r, *_dl)
         if _d:
             r = dict(r, desligada=_d)
@@ -18089,6 +18402,8 @@ def _build_pg_etm_payload():
     conn = _pg_conn(); cur = conn.cursor()
     cur.execute(sql)
     for pid, nome, ts, poa, ghi, tmod in cur.fetchall():
+        if not _cob_entra("pg", pid):                    # tirada na tela (Fontes do tempo real)
+            continue
         poa = float(poa) if poa is not None else None
         ghi = float(ghi) if ghi is not None else None
         _usina_sup = (nome or f"Usina {pid}").strip()
@@ -18137,6 +18452,8 @@ def _build_pg_analise_payload():
 
     plants = {}
     for pid, nome, ts, poa, ghi in recs:
+        if not _cob_entra("pg", pid):                    # tirada na tela (Fontes do tempo real)
+            continue
         p = plants.setdefault(pid, {"sup": (nome or f"Usina {pid}").strip(), "serie": []})
         p["serie"].append((ts, _etm_clamp(float(poa) if poa is not None else None),
                                _etm_clamp(float(ghi) if ghi is not None else None)))
@@ -18413,6 +18730,8 @@ def _pg_pr_build(dia: str):
 
     plants = {}
     for nome, pid, did, dev, ger, ipoa, nleit, gapd in recs:
+        if not _cob_entra("pg", pid):                    # tirada na tela (Fontes do tempo real)
+            continue
         sup = (nome or f"Usina {pid}").strip()
         p   = plants.setdefault(pid, {"sup": sup,
                                       "ipoa": float(ipoa) if ipoa is not None else None,
@@ -19215,6 +19534,13 @@ _2C_STR_DIA_TTL = 600                   # hoje: 10 min; dia fechado: até sair d
 _2C_STR_DIA_MAX = 3                     # o dia inteiro de ~1.600 strings pesa: guarda no máximo 3 (o do e-mail guardava 2)
 
 
+def _2c_codigos():
+    """Os códigos da 2C (ARA, IPX, STL, TUP) com ao menos uma planta no tempo real (Fontes do tempo real, 11/10/2026). O
+    código sem planta incluída sai inteiro: tirando só as plantas, ele ficaria sem dado e os parados ligariam o errout (a
+    Entrada mostraria a contagem velha "de tal hora" em vez de nada)."""
+    return [c for c in OWEN_UFVS if any(_cob_entra("2capi", pid) for pid in _2C_STR_PLANTAS.get(c, ()))]
+
+
 def _2c_strings_dia_api(date_iso, force=False):
     """{código: {"U.N": {"k": [(datetime, A)]}}} — as strings da 2C num dia pela API PV, com as chaves do antigo acervo
     do e-mail. Hoje: day_inverter; dia passado: o histórico da API (custom_query). Levanta RuntimeError quando a API não
@@ -19228,6 +19554,8 @@ def _2c_strings_dia_api(date_iso, force=False):
     out, falhas = {}, []
     for code, pids in _2C_STR_PLANTAS.items():
         for pid in pids:
+            if not _cob_entra("2capi", pid):                       # tirada na tela: não é coletada
+                continue
             try:
                 tok = _pv_token_for(pid)
                 if date_iso == hoje:
@@ -19808,7 +20136,7 @@ def _pv_strings_eventos(date_iso, force=False):
         return ent["rows"]
     token = get_token()
     try:
-        plants = [p for p in get_plants(token) if (not FULL_OM or p["nome"].strip() in FULL_OM)]
+        plants = [p for p in get_plants(token) if _pv_monitorada(p)]
     except Exception:
         return []
     data_br = datetime.strptime(date_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
@@ -19883,7 +20211,7 @@ def _sunop_strings_eventos(date_iso, inst="gridco", force=False):
             _si(inst)["str_hist"].pop(k, None)
     try:
         ensure_sunop_meta(inst)
-        plants = list(_si(inst)["meta"].keys())
+        plants = list(_sunop_meta_monitorada(inst).keys())
     except Exception:
         return []
 
@@ -20082,7 +20410,7 @@ def _2c_trk_renova_dias(agora=None) -> list:
     agora = agora or datetime.now()
     hoje_br = agora.strftime("%d/%m/%Y")
     renovadas = []
-    for pid in sorted({f[4] for f in _2C_TRK_FAIXAS}):
+    for pid in sorted({f[4] for f in _2C_TRK_FAIXAS if _cob_entra("2capi", f[4])}):
         ent = _pv_trk_dia_cache.get((pid, hoje_br))
         if ent and time.time() - ent["ts"] < TRK_DIA_TTL - 2 * _2C_TRK_LOOP_S:
             continue
@@ -20138,7 +20466,8 @@ def _2c_trk_build_api(date_iso, force=False, codigos=None):
         return ent[1] if codigos is None else {c: v for c, v in ent[1].items() if c in codigos}
     data_br = datetime.strptime(date_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
     out = {}
-    for pid in sorted({f[4] for f in _2C_TRK_FAIXAS if codigos is None or f[0] in codigos}):
+    for pid in sorted({f[4] for f in _2C_TRK_FAIXAS
+                       if (codigos is None or f[0] in codigos) and _cob_entra("2capi", f[4])}):
         if force and data_br == datetime.now().strftime("%d/%m/%Y"):
             _2c_trk_vence(pid, data_br)                             # a ronda quer a leitura de agora
         d = _pv_trk_dia(pid, data_br, fetch=True)
@@ -20351,7 +20680,7 @@ def _build_2c_trk_payload():
     # nome do tracker é o do e-mail e dos tickets ("Tracker 2.10"), pela análise de sempre (_owen_trackers_analise), que
     # agora lê a API (_2c_trk_build_api). A União não está no e-mail nem no de-para: segue pela API com os nomes dela.
     rows, por_codigo = [], {}
-    for u in OWEN_UFVS:
+    for u in _2c_codigos():
         try:
             a = dict(_owen_trackers_analise(u), sub_fonte="api")
         except Exception as e:                               # noqa: BLE001 — uma usina fora não derruba a aba
@@ -20369,7 +20698,8 @@ def _build_2c_trk_payload():
     disp_pid = _2c_disp_memo["disp"]
     for r in rows:
         r["disponibilidade_tempo"] = disp_pid.get(r["plant_id"])
-    fora = sorted(set(PV_FONTES.get("2capi") or ()) - {f[4] for f in _2C_TRK_FAIXAS})
+    fora = sorted(i for i in set(PV_FONTES.get("2capi") or ()) - {f[4] for f in _2C_TRK_FAIXAS}
+                  if _cob_entra("2capi", i))
     if fora:                                       # só elas: montar a 2capi inteira refazia as 6 do de-para à toa
         try:
             nomes_api = {p["id"]: p["nome"] for p in get_plants(get_token())}
@@ -20537,7 +20867,7 @@ def _owen_parados_rows(force=False, errout=None):
     # (force) refaz com a leitura de agora
     analises = None if force else _2c_trk_analises_publicadas()
     rows, com_dado = [], 0
-    for code in OWEN_UFVS:
+    for code in _2c_codigos():
         try:
             a = analises[code] if analises is not None else _owen_trackers_analise(code)
         except Exception:
@@ -20592,7 +20922,7 @@ def _owen_eventos_calc(date_iso):
     data_br = datetime.strptime(date_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
     dd = date_iso.split("-")
     rows, disp, disp_pid = [], {}, {}
-    for code in OWEN_UFVS:
+    for code in _2c_codigos():
         un = _owen_nome(code)
         try:
             res = _trk_eventos_do_dia(code, un, data_br, curve=_owen_curve_for(code, data_br))
@@ -20705,7 +21035,8 @@ def _pg_trackers_overview() -> dict:
         JOIN public.tb_power_plants p ON p.id = t.power_plant_id
         ORDER BY p.name
     """)
-    plants = cur.fetchall(); conn.close()
+    plants = [(pid, pname) for pid, pname in cur.fetchall() if _cob_entra("pg", pid)]   # Fontes do tempo real
+    conn.close()
 
     out = []
     # data-base calculada UMA vez: sem isto cada uma das 17 usinas do fan-out repetia o
@@ -21275,7 +21606,7 @@ def _pv_pr_compute(raw: dict, token: str) -> dict:
 def _build_pv_pr_payload():
     token = get_token()
     plants = get_plants(token)
-    plants = [p for p in plants if p["nome"].strip() in FULL_OM] if FULL_OM else plants
+    plants = [p for p in plants if _pv_monitorada(p)]
     # Fase A — todas as usinas (detecta string-box)
     raws = []
     with ThreadPoolExecutor(max_workers=8) as ex:
@@ -21654,7 +21985,7 @@ def api_spv_usinas():
         plants = get_plants(get_token())
     except Exception as e:
         return jsonify({"rows": [], "erro": f"API PV indisponível: {e}"})
-    plants = [p for p in plants if p["nome"].strip() in FULL_OM] if FULL_OM else plants
+    plants = [p for p in plants if _pv_monitorada(p)]
     rows, n_sbox = [], 0
     for p in plants:
         if _spv_is_stringbox(p["nome"]):
@@ -22159,7 +22490,7 @@ def api_spv_pdf():
         usinas_ids = [int(x) for x in sel.split(",") if x.strip().isdigit()]
         usinas_ids.sort(key=lambda i: nomes.get(i, str(i)))
     elif alvo == "todas":
-        cat = [p for p in plants if (not FULL_OM or p["nome"].strip() in FULL_OM)]
+        cat = [p for p in plants if _pv_monitorada(p)]
         usinas_ids = [p["id"] for p in cat if not _spv_is_stringbox(p["nome"])]
         usinas_ids.sort(key=lambda i: nomes.get(i, str(i)))
     elif alvo and alvo != "all":
@@ -22503,7 +22834,7 @@ def api_sunop_pdf():
     so_abaixo = flask_request.args.get("soabaixo", "0") == "1"
     sel = (flask_request.args.get("usinas") or "").strip()
     ensure_sunop_meta()
-    plants = [p for p, m in _sunop_meta.items() if m.get("inv_strings")]
+    plants = [p for p, m in _sunop_meta_monitorada("gridco").items() if m.get("inv_strings")]
     if sel:
         want = set(sel.split(","))
         plants = [p for p in plants if p in want]
@@ -25732,7 +26063,7 @@ def _falhas_backfill_sunop(inst, hoje=None):
     hoje = hoje or datetime.now().date()
     ensure_sunop_meta(inst)
     plantas = {p: [x for v in ((m or {}).get("inv_strings") or {}).values() for x in v]
-               for p, m in (_si(inst).get("meta") or {}).items()}
+               for p, m in (_sunop_meta_monitorada(inst) or {}).items()}
     plantas = {p: ps for p, ps in plantas.items() if ps}
     if not plantas:
         return 0
@@ -25858,7 +26189,7 @@ def _falhas_backfill_pv(hoje=None, maximo=None):
     hoje = hoje or datetime.now().date()
     maximo = FALHAS_BF_PV_MAX_PASSADA if maximo is None else maximo
     tok = get_token()
-    plantas = {str(p["id"]): p for p in get_plants(tok) if (not FULL_OM or p["nome"].strip() in FULL_OM)}
+    plantas = {str(p["id"]): p for p in get_plants(tok) if _pv_monitorada(p)}
     if not plantas:
         return 0
     reg = _falhas_persistir_mortas()       # a memória vai ao arquivo antes de decidir o que falta
@@ -28303,7 +28634,7 @@ def _trk_ocor_curva_list(fonte, dia):
     res = []
     if fonte == "pv":
         try:
-            plants = [p for p in get_plants(get_token()) if (not FULL_OM or p["nome"].strip() in FULL_OM)]
+            plants = [p for p in get_plants(get_token()) if _pv_monitorada(p)]
         except Exception:
             plants = []
         for p in plants:
@@ -28315,7 +28646,7 @@ def _trk_ocor_curva_list(fonte, dia):
     elif fonte in ("sunop", "axis"):
         inst = "axis" if fonte == "axis" else "gridco"
         try:
-            plantas = [p for p, m in _si(inst)["meta"].items() if m.get("trackers")]
+            plantas = [p for p, m in _sunop_meta_monitorada(inst).items() if m.get("trackers")]
         except Exception:
             plantas = []
         # numa baixa só (01/10/2026, cota): usina por usina eram ≈10 POSTs por dia; juntas, ≈4 (o ee70830 nas outras telas)
@@ -28332,7 +28663,7 @@ def _trk_ocor_curva_list(fonte, dia):
                     un = _macro_usina_nome(USINA_DISPLAY.get(p, p)) or USINA_DISPLAY.get(p, p)
                     res.append((str(p), un, g))
     elif fonte == "owen":
-        for code in OWEN_UFVS:
+        for code in _2c_codigos():
             try:
                 g = _owen_curve_for(code, data_br)
             except Exception:
@@ -30374,12 +30705,12 @@ def _trk_ev_fonte_total(fonte):
         if fonte == "pg":
             return len(_swr(_pg_trk_cache, _pg_trackers_overview, False).get("rows") or [])
         if fonte == "owen":
-            return len(OWEN_UFVS)
+            return len(_2c_codigos())
         if fonte in ("sunop", "axis"):
             inst = "axis" if fonte == "axis" else "gridco"
-            return len([p for p, m in _si(inst)["meta"].items() if m.get("trackers")])
+            return len([p for p, m in _sunop_meta_monitorada(inst).items() if m.get("trackers")])
         if fonte == "pv":
-            return sum(1 for e in _pv_trk_plant.values() if (e.get("payload") or {}).get("total"))
+            return sum(1 for _pid, e in _pv_trk_itens() if (e.get("payload") or {}).get("total"))
     except Exception:
         pass
     return 0
@@ -30587,7 +30918,7 @@ def _perdas_pv_warm_dm1_loop():
             _swr(_pv_trk_cache, _build_pv_trk_payload, force=not _pv_trk_plant)
         except Exception:
             pass
-        com_trk = [pid for pid, ent in _pv_trk_plant.items() if (ent.get("payload") or {}).get("total")]
+        com_trk = [pid for pid, ent in _pv_trk_itens() if (ent.get("payload") or {}).get("total")]
         for pid in com_trk:
             try:
                 _pv_trk_grafico(pid, ontem, fetch=True)   # busca+cacheia (dia passado fica quente)
