@@ -15,7 +15,10 @@ rota só aceita o que o cadastro tem. Valor vazio = desfaz (volta ao nome da API
 """
 from __future__ import annotations
 
+import re
+import unicodedata
 from datetime import datetime, timedelta, timezone
+from difflib import SequenceMatcher
 
 LIVRO = "nexus_depara"
 NOME_LIVRO = "Nexus · De-para de equipamentos"
@@ -29,6 +32,12 @@ ORIGENS = ("tela",)
 # fontes ligam pelo nome que a fonte manda: corrige-se no cadastro.
 FONTES_USINA = ("pv", "semp", "alveslima", "2capi")
 FONTES_INVERSOR = ("semp", "alveslima", "2capi", "greenyellow", "salenergia")
+# As fontes que mandam a usina só pelo NOME (a Thopen do banco, a Athon pela SunOp, a Axis: a chave delas é o próprio nome).
+# Até 12/10/2026 o conserto de um nome que não casava era editar a "Usina Supervisório" no Equipamentos do BD_Performance
+# e subir a planilha (Levi: "precisamos trazer para o Nexus e deixar mais dinâmico com a plataforma"). Agora a tela grava
+# um APELIDO (o nome que a fonte escreve → a usina do cadastro) e a plataforma o aplica como o PV_NOME_API_ALIAS do código.
+# A RenoGrid (SolarEdge) fica de fora: a chave dela é o id do site e a linha não traz o nome que casa com o cadastro.
+FONTES_APELIDO = ("pg", "sunop", "axis")
 
 _BRT = timezone(timedelta(hours=-3))
 
@@ -68,13 +77,26 @@ def linha_inversor(fonte: str, usina_fonte, inversor_fonte, equipamento_supervis
     return [quando, _dia(quando), fonte, uf, inv, "", _txt(equipamento_supervisorio), "tela"]
 
 
+def linha_apelido(fonte: str, nome_na_fonte, usina_supervisorio, quando: str | None = None) -> list:
+    """Liga a usina que a fonte manda PELO NOME à Usina Supervisório do cadastro; vazio = desfaz (vale o nome que ela
+    manda, como antes). `usina_fonte` guarda o nome exatamente como a fonte escreve."""
+    if fonte not in FONTES_APELIDO:
+        raise ValueError(f"a usina da fonte {fonte!r} não liga por apelido: corrija no cadastro")
+    nome = _txt(nome_na_fonte)
+    if not nome:
+        raise ValueError("usina sem nome")
+    quando = quando or agora_utc()
+    return [quando, _dia(quando), fonte, nome, "", _txt(usina_supervisorio), "", "tela"]
+
+
 def _como_dict(lin) -> dict:
     return dict(zip(CAB, lin)) if isinstance(lin, (list, tuple)) else dict(lin)
 
 
 def vigente(linhas) -> dict:
-    """{"usina": {(fonte, usina_fonte): {"valor", "quando"}}, "inversor": {(fonte, usina_fonte, inversor_fonte): {...}}}
-    pela última decisão de cada chave (a mais recente; no empate, a que veio depois). Valor "" fica: é o desfazer."""
+    """{"usina": {(fonte, usina_fonte): {"valor", "quando"}}, "inversor": {(fonte, usina_fonte, inversor_fonte): {...}},
+    "apelido": {(fonte, nome na fonte): {...}}} pela última decisão de cada chave (a mais recente; no empate, a que veio
+    depois). Valor "" fica: é o desfazer."""
     marcadas = []
     for i, lin in enumerate(linhas or []):
         d = _como_dict(lin)
@@ -86,7 +108,9 @@ def vigente(linhas) -> dict:
                 marcadas.append((_txt(d.get("decidida_em")), i, "inversor", (f, uf, inv), _txt(d.get("equipamento_supervisorio"))))
         elif f in FONTES_USINA:
             marcadas.append((_txt(d.get("decidida_em")), i, "usina", (f, uf), _txt(d.get("usina_supervisorio"))))
-    estado = {"usina": {}, "inversor": {}}
+        elif f in FONTES_APELIDO:
+            marcadas.append((_txt(d.get("decidida_em")), i, "apelido", (f, uf), _txt(d.get("usina_supervisorio"))))
+    estado = {"usina": {}, "inversor": {}, "apelido": {}}
     for q, _i, tipo, chave, valor in sorted(marcadas):
         estado[tipo][chave] = {"valor": valor, "quando": q}
     return estado
@@ -101,6 +125,11 @@ def pontes(estado) -> dict:
         except (TypeError, ValueError):
             continue
     return out
+
+
+def apelidos(estado) -> dict:
+    """{nome que a fonte escreve: Usina Supervisório} das fontes que ligam pelo nome. Só os ligados: o vazio desfaz."""
+    return {nome: v["valor"] for (_f, nome), v in ((estado or {}).get("apelido") or {}).items() if v.get("valor")}
 
 
 def inversores(estado, fontes, usina_fonte) -> dict:
@@ -166,3 +195,51 @@ def sugerir_por_valor(fonte_kwh: dict, bd_kwh: dict, minimo_dias: int = 2) -> di
         usados_c.add(c)
     sem_par = sorted(i for i in fonte_kwh if i not in pares)
     return {"pares": pares, "sem_par": sem_par, "colunas_vazias": colunas_vazias}
+
+
+# ── sugestão pelo NOME: a usina que a fonte manda e não casa com o cadastro ────────────────────────────────────────────
+# Caso que criou (12/10/2026): a API escreve "Itaja 1 (228)" e "Pharma 2 (644)"; o cadastro tem "Itaja 1 (551)" e
+# "Pharma 2". O número tem de bater ("Itaja 1" nunca sugere "Itaja 2") e o que está entre parênteses só avisa.
+_ROMANOS = {"i": "1", "ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6", "vii": "7", "viii": "8", "ix": "9", "x": "10"}
+
+
+def base_do_nome(nome) -> str:
+    """O nome para comparar: sem acento, minúsculo, sem o que está entre parênteses, sem "UFV", romano vira número."""
+    s = unicodedata.normalize("NFKD", _txt(nome)).encode("ascii", "ignore").decode().lower()
+    s = re.sub(r"\([^)]*\)", " ", s)
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return " ".join(_ROMANOS.get(t, t) for t in s.split() if t not in ("ufv", "usina"))
+
+
+def _parenteses(nome) -> list:
+    return [p.strip() for p in re.findall(r"\(([^)]*)\)", _txt(nome)) if p.strip()]
+
+
+def parecidas(nome, candidatos, limite: int = 3) -> list:
+    """As usinas do cadastro (`candidatos`: [{"chave", "nome"}]) com nome parecido com o que a fonte escreve, da mais
+    parecida para a menos: [{"chave", "nota", "confere"}]. Os números do nome têm de ser os mesmos; `confere` diz o que
+    olhar antes de ligar (o número entre parênteses diferente)."""
+    b = base_do_nome(nome)
+    if not b:
+        return []
+    txt_b = " ".join(t for t in b.split() if not t.isdigit())
+    num_b = [t for t in b.split() if t.isdigit()]
+    par_b = _parenteses(nome)
+    out = []
+    for c in candidatos or []:
+        nomes = [x for x in dict.fromkeys((c.get("chave"), c.get("nome"))) if x]
+        melhor = 0.0
+        for n in nomes:
+            bn = base_do_nome(n)
+            if not bn or [t for t in bn.split() if t.isdigit()] != num_b:
+                continue
+            txt_n = " ".join(t for t in bn.split() if not t.isdigit())
+            melhor = max(melhor, 1.0 if txt_n == txt_b else SequenceMatcher(None, txt_b, txt_n).ratio())
+        if melhor < 0.8:
+            continue
+        par_c = [p for n in nomes for p in _parenteses(n)]
+        confere = (f"o número entre parênteses é outro ({', '.join(par_b)} na fonte, {', '.join(dict.fromkeys(par_c))} "
+                   f"no cadastro): confira se é a mesma usina") if par_b and par_c and not set(par_b) & set(par_c) else None
+        out.append({"chave": c["chave"], "nota": round(melhor, 2), "confere": confere})
+    out.sort(key=lambda x: (-x["nota"], str(x["chave"]).lower()))
+    return out[:limite]

@@ -6,88 +6,134 @@
 <title>De-para de equipamentos · Plataforma de Performance</title>
 {# De-para de equipamentos (11/10/2026; Levi: "quero que o de-para da equipamentos seja feito na plataforma de forma
    intuitiva"). Em cima, o diagnóstico: para cada usina de cada fonte, como ela se liga ao cadastro, se tem esperadas, se o
-   número de inversores bate e de onde vem o nome de cada inversor (depara_diag.py). Em cada linha, "Editar": a ponte da
-   usina pelo id (contas da API PV) e o nome de cada inversor (conta oem@ e scadaGridco), com a sugestão pelo kWh do BD.
-   A decisão grava no livro nexus_depara do banco e vence o de-para do código (depara.py). Só administrador do Nexus. #}
+   número de inversores bate e de onde vem o nome de cada inversor (depara_diag.py). Em cada linha, "Ligar"/"Editar": a
+   ponte da usina pelo id (contas da API PV), o apelido pelo nome (Thopen do banco, Athon, Axis) e o nome de cada inversor
+   (conta oem@ e scadaGridco), com a sugestão pelo nome e pelo kWh do BD. A decisão grava no livro nexus_depara do banco
+   e vence o de-para do código (depara.py). Só administrador do Nexus.
+   12/10/2026 (Levi: "interface muito feia", "não deveria aparecer usina que já estão ligadas, a não ser que eu tirasse um
+   filtro", "pode aumentar a tela, não precisa ser uma barra lateral toda espremida", "em NOVO ao invés de manter tem que
+   alertar que está sem de-para"): a lista abre só no que está pendente, o editor é uma janela grande no centro, a lista do
+   cadastro esconde as usinas que outra fonte já liga e o inversor sem de-para diz isso em vez de "manter". #}
 <style>
   :root{
-    --bg:#090d18; --card:#161d30; --card2:#1c2640; --linha:rgba(255,255,255,.09); --linha2:rgba(255,255,255,.16);
+    --bg:#090d18; --card:#161d30; --card2:#1c2640; --card3:#222d4a; --linha:rgba(255,255,255,.08); --linha2:rgba(255,255,255,.15);
     --txt:#e9eef6; --txt2:#c3cad7; --txt3:#96a0b4;
     --verde:#a3d900; --verde-txt:#c4e755; --verde-suave:rgba(163,217,0,.12);
-    --ambar:#ffd83d; --ambar-suave:rgba(255,216,61,.12); --vermelho:#ff5b6e; --vermelho-suave:rgba(255,91,110,.12);
+    --ambar:#ffd83d; --ambar-suave:rgba(255,216,61,.12); --vermelho:#ff5b6e; --vermelho-suave:rgba(255,91,110,.13);
     --azul:#7fb8ff; --azul-suave:rgba(91,157,255,.14); --mudo-suave:rgba(150,160,180,.12);
     --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
   }
   *{box-sizing:border-box}
   html{color-scheme:dark}
   body{margin:0;background:var(--bg);color:var(--txt);font:400 14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
-  .topo{border-bottom:1px solid var(--linha);padding:14px 22px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-  .topo h1{font-size:17px;font-weight:600;margin:0}
+  [hidden]{display:none !important}
+  .topo{border-bottom:1px solid var(--linha);padding:14px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+  .topo h1{font-size:18px;font-weight:600;margin:0;letter-spacing:-.01em}
   .topo a{color:var(--txt3);text-decoration:none;font-size:13px}
   .topo a:hover{color:var(--verde-txt)}
-  .wrap{max-width:1240px;margin:0 auto;padding:20px 22px 48px}
-  .intro{color:var(--txt2);margin:0 0 16px;max-width:900px}
-  .resumo{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:0 0 16px}
-  .kpi{background:var(--card);border-radius:8px;padding:11px 14px}
-  .kpi .r{font-size:12px;color:var(--txt3)}
-  .kpi .v{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
-  .kpi.critico .v{color:var(--vermelho)} .kpi.atencao .v{color:var(--ambar)}
-  .filtros{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 14px}
+  .wrap{max-width:1320px;margin:0 auto;padding:20px 24px 48px}
+  .intro{color:var(--txt2);margin:0 0 18px;max-width:980px}
+  .intro b{color:var(--txt);font-weight:600}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin:0 0 18px}
+  .kpi{background:var(--card);border-radius:10px;padding:13px 16px;border-top:3px solid var(--linha2)}
+  .kpi .v{font-size:26px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.2}
+  .kpi .r{font-size:13px;color:var(--txt);font-weight:500}
+  .kpi .d{font-size:12px;color:var(--txt3)}
+  .kpi.critico{border-top-color:var(--vermelho)} .kpi.critico .v{color:var(--vermelho)}
+  .kpi.atencao{border-top-color:var(--ambar)} .kpi.atencao .v{color:var(--ambar)}
+  .kpi.ok{border-top-color:var(--verde)} .kpi.ok .v{color:var(--verde-txt)}
+  .filtros{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 16px}
   .filtros input[type=search],.filtros select{background:var(--card);color:var(--txt);border:1px solid var(--linha2);
-    border-radius:7px;padding:7px 10px;font:inherit;min-width:220px}
-  .filtros label{color:var(--txt2);font-size:13px;display:flex;gap:6px;align-items:center}
-  .bloco{background:var(--card);border-radius:10px;margin:0 0 14px;border-left:3px solid var(--linha2)}
-  .bloco.precisa{border-left-color:var(--ambar)}
-  .bcab{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:14px 16px 8px}
+    border-radius:8px;padding:8px 11px;font:inherit;min-width:240px}
+  .seg{display:inline-flex;background:var(--card);border:1px solid var(--linha2);border-radius:8px;padding:2px}
+  .seg button{border:0;background:transparent;color:var(--txt2);padding:6px 14px;border-radius:6px}
+  .seg button[aria-pressed=true]{background:var(--card3);color:var(--txt);font-weight:600}
+  .bloco{background:var(--card);border-radius:12px;margin:0 0 14px;overflow:hidden}
+  .bcab{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:14px 18px 10px}
   .bnome{font-size:15px;font-weight:600}
   .bconta{color:var(--txt3);font-size:12.5px}
   .tabwrap{overflow-x:auto}
   table{width:100%;border-collapse:collapse;font-size:13px}
-  th{text-align:left;font-weight:500;color:var(--txt3);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;
-     padding:7px 12px;border-top:1px solid var(--linha)}
-  td{padding:8px 12px;border-top:1px solid var(--linha);vertical-align:top;color:var(--txt2)}
-  td.usina{color:var(--txt);font-weight:500}
-  td.chave{font-family:var(--mono);font-size:12px;color:var(--txt3)}
+  th{text-align:left;font-weight:500;color:var(--txt3);font-size:11.5px;letter-spacing:.05em;text-transform:uppercase;
+     padding:8px 14px;border-top:1px solid var(--linha);white-space:nowrap}
+  td{padding:10px 14px;border-top:1px solid var(--linha);vertical-align:top;color:var(--txt2)}
+  tr.crit td:first-child{box-shadow:inset 3px 0 0 var(--vermelho)}
+  tr.aten td:first-child{box-shadow:inset 3px 0 0 var(--ambar)}
+  td.usina .n1{color:var(--txt);font-weight:500}
+  .chave{font-family:var(--mono);font-size:11.5px;color:var(--txt3)}
   td.n{font-variant-numeric:tabular-nums;white-space:nowrap}
-  .chip{display:inline-block;font-size:11.5px;padding:2px 8px;border-radius:99px;margin:1px 4px 1px 0}
-  .chip.critico{background:var(--vermelho-suave);color:var(--vermelho)}
-  .chip.atencao{background:var(--ambar-suave);color:var(--ambar)}
-  .chip.info{background:var(--azul-suave);color:var(--azul)}
-  .chip.ok{background:var(--verde-suave);color:var(--verde-txt)}
-  .chip.mudo{background:var(--mudo-suave);color:var(--txt2)}
-  .vazio{color:var(--txt3);padding:12px 16px;font-size:13px}
+  td.acao{text-align:right;white-space:nowrap}
+  .sub{font-size:12px;color:var(--txt3);margin-top:3px}
+  .tag{display:inline-block;font-size:12px;font-weight:500;padding:2px 9px;border-radius:6px;white-space:nowrap}
+  .tag.critico{background:var(--vermelho-suave);color:var(--vermelho)}
+  .tag.atencao{background:var(--ambar-suave);color:var(--ambar)}
+  .tag.info{background:var(--azul-suave);color:var(--azul)}
+  .tag.ok{background:var(--verde-suave);color:var(--verde-txt)}
+  .tag.mudo{background:var(--mudo-suave);color:var(--txt2)}
+  .alertas{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+  .sug{margin-top:6px;font-size:12.5px;color:var(--txt2)}
+  .sug b{color:var(--txt)}
+  .aviso{display:block;color:var(--ambar);font-size:12px}
+  .vazio{color:var(--txt3);padding:14px 18px;font-size:13px;margin:0}
+  .tudo-ok{background:var(--card);border-radius:12px;padding:22px;border-left:3px solid var(--verde)}
+  .tudo-ok b{color:var(--verde-txt)}
   .msg{font-size:12.5px;color:var(--txt3)}
-  .rodape{color:var(--txt3);font-size:12px;margin-top:22px;padding-top:12px;border-top:1px solid var(--linha);max-width:900px}
-  button{font:inherit;cursor:pointer;border-radius:7px;border:1px solid var(--linha2);background:var(--card2);color:var(--txt);
-    padding:6px 12px}
+  .rodape{color:var(--txt3);font-size:12px;margin-top:24px;padding-top:12px;border-top:1px solid var(--linha);max-width:980px}
+  button{font:inherit;cursor:pointer;border-radius:8px;border:1px solid var(--linha2);background:var(--card2);color:var(--txt);
+    padding:7px 14px}
   button:hover:not(:disabled){border-color:var(--verde);color:var(--verde-txt)}
   button:disabled{opacity:.5;cursor:default}
   button.prim{background:var(--verde);border-color:var(--verde);color:#0b1020;font-weight:600}
   button.prim:hover:not(:disabled){filter:brightness(1.08);color:#0b1020}
-  button.peq{padding:3px 10px;font-size:12.5px}
+  button.peq{padding:4px 12px;font-size:12.5px}
   button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--verde);outline-offset:2px}
-  /* gaveta do editor. O [hidden] precisa de regra própria: o display:flex da .gaveta vencia o hidden do navegador, e a
-     gaveta ficava aberta e vazia já na carga da página e não fechava no "Fechar" (Levi, 11/10/2026) */
-  [hidden]{display:none !important}
-  .veu{position:fixed;inset:0;background:rgba(3,6,14,.6);z-index:20}
-  .gaveta{position:fixed;top:0;right:0;bottom:0;width:min(760px,100vw);background:var(--bg);border-left:1px solid var(--linha2);
-    z-index:21;display:flex;flex-direction:column}
-  .gcab{padding:16px 20px 10px;border-bottom:1px solid var(--linha);display:flex;gap:12px;align-items:flex-start}
-  .gcab h2{font-size:16px;margin:0;font-weight:600}
-  .gcab .sub{color:var(--txt3);font-size:12.5px}
-  .gcorpo{padding:14px 20px 20px;overflow-y:auto;flex:1}
-  .sec{background:var(--card);border-radius:10px;padding:14px 16px;margin:0 0 14px}
-  .sec h3{font-size:14px;margin:0 0 6px;font-weight:600}
-  .sec p{margin:4px 0;color:var(--txt2);font-size:13px}
-  .sec .nota{color:var(--txt3);font-size:12.5px}
-  .linha-acoes{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px}
-  .gaveta input[type=search],.gaveta select{background:var(--card2);color:var(--txt);border:1px solid var(--linha2);
-    border-radius:7px;padding:6px 9px;font:inherit;width:100%}
-  .gaveta select[size]{padding:4px}
-  .gaveta table td,.gaveta table th{padding:6px 8px}
-  .gaveta td select{min-width:170px}
+
+  /* o editor: janela grande no centro (era uma gaveta de 760 px na direita, "toda espremida") */
+  .veu{position:fixed;inset:0;background:rgba(3,6,14,.72);z-index:20}
+  .dlg{position:fixed;inset:16px;margin:auto;max-width:1280px;background:var(--bg);border:1px solid var(--linha2);
+    border-radius:14px;z-index:21;display:flex;flex-direction:column;box-shadow:0 24px 64px rgba(0,0,0,.55)}
+  .dcab{padding:18px 24px 14px;border-bottom:1px solid var(--linha);display:flex;gap:14px;align-items:flex-start}
+  .dcab h2{font-size:18px;margin:0;font-weight:600}
+  .dcab .sub{font-size:12.5px}
+  .dcorpo{padding:18px 24px;overflow-y:auto;flex:1;display:grid;gap:16px;align-items:start}
+  .dcorpo.dois{grid-template-columns:minmax(0,5fr) minmax(0,7fr)}
+  @media (max-width:1000px){ .dcorpo.dois{grid-template-columns:1fr} }
+  .sec{background:var(--card);border-radius:12px;padding:16px 18px}
+  .sec h3{font-size:14.5px;margin:0 0 10px;font-weight:600}
+  .sec p{margin:6px 0;color:var(--txt2);font-size:13px}
+  .nota{color:var(--txt3);font-size:12.5px}
+  .estado{border-radius:10px;padding:10px 12px;margin:0 0 12px;font-size:13px;background:var(--card2);color:var(--txt2)}
+  .estado b{color:var(--txt)}
+  .estado.critico{background:var(--vermelho-suave);color:#ffd0d6}
+  .estado.critico b{color:var(--vermelho)}
+  .estado.ok b{color:var(--verde-txt)}
+  .estado.atencao{background:var(--ambar-suave);color:#fff0b8}
+  .estado.atencao b{color:var(--ambar)}
+  .sugbox{border:1px dashed var(--linha2);border-radius:10px;padding:10px 12px;margin:0 0 12px;font-size:13px}
+  .sugbox .t{color:var(--txt3);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+  .pbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 8px}
+  .pbar input[type=search]{flex:1;min-width:180px;background:var(--card2);color:var(--txt);border:1px solid var(--linha2);
+    border-radius:8px;padding:7px 10px;font:inherit}
+  .pbar label{color:var(--txt2);font-size:12.5px;display:flex;gap:6px;align-items:center}
+  .plista{max-height:44vh;overflow-y:auto;border:1px solid var(--linha);border-radius:10px;background:var(--bg)}
+  .op{display:flex;gap:10px;align-items:flex-start;width:100%;text-align:left;border:0;border-bottom:1px solid var(--linha);
+    border-radius:0;background:transparent;padding:9px 12px;color:var(--txt2)}
+  .op:last-child{border-bottom:0}
+  .op .on{flex:1;min-width:0}
+  .op .on .n1{color:var(--txt);font-weight:500}
+  .op[aria-pressed=true]{background:var(--verde-suave)}
+  .op[aria-pressed=true] .n1{color:var(--verde-txt)}
+  .op:hover:not(:disabled){border-color:var(--linha);color:var(--txt2)}
+  .op:hover:not(:disabled) .n1{color:var(--verde-txt)}
+  .acoes{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+  .dlg select{background:var(--card2);color:var(--txt);border:1px solid var(--linha2);border-radius:8px;padding:6px 9px;
+    font:inherit;width:100%;min-width:200px}
+  .dlg select.falta{border-color:var(--ambar);color:var(--ambar)}
+  .dlg select.mudou{border-color:var(--verde)}
+  .dlg table td,.dlg table th{padding:8px 10px}
   .ok-txt{color:var(--verde-txt)} .erro-txt{color:var(--vermelho)}
-  .gpe{padding:10px 20px;border-top:1px solid var(--linha);min-height:42px}
+  .dpe{padding:12px 24px;border-top:1px solid var(--linha);min-height:46px;display:flex;align-items:center}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 </style>
 </head>
 <body>
@@ -98,39 +144,46 @@
   <span class="msg" id="lido" role="status"></span>
 </div>
 <div class="wrap">
-  <p class="intro">Como cada usina de cada fonte se liga ao cadastro (a aba Equipamentos do BD_Performance): se tem strings
-    esperadas, se o número de inversores bate e de onde vem o nome de cada inversor. Em "Editar" você liga a usina ao
-    cadastro pelo id (quando a API renomeia) e dá o nome de cada inversor, com a sugestão pelo kWh do BD. A decisão grava
-    no banco e vence o de-para do código.</p>
-  <div class="resumo" id="resumo"></div>
+  <p class="intro">Liga o que cada fonte manda (a usina e cada inversor) ao <b>cadastro de equipamentos</b> — a aba
+    Equipamentos do BD_Performance, com as strings esperadas, a potência e o Full O&amp;M. A ligação feita aqui grava no
+    <b>banco do Nexus</b> (livro nexus_depara), vence o de-para do código e vale na plataforma em minutos, sem editar a
+    planilha.</p>
+  <div class="kpis" id="kpis"></div>
   <div class="filtros">
-    <input type="search" id="busca" placeholder="Procurar usina, nome na API ou chave" aria-label="Procurar usina, nome na API ou chave">
+    <input type="search" id="busca" placeholder="Procurar usina, nome na fonte ou chave" aria-label="Procurar usina, nome na fonte ou chave">
     <select id="fFonte" aria-label="Fonte"><option value="">Todas as fontes</option></select>
-    <label><input type="checkbox" id="soAlerta"> Só com alerta</label>
+    <div class="seg" role="group" aria-label="O que mostrar">
+      <button type="button" id="vPend" aria-pressed="true">Pendentes</button>
+      <button type="button" id="vTodas" aria-pressed="false">Todas</button>
+    </div>
   </div>
   <div id="corpo"><p class="vazio">Lendo as fontes…</p></div>
   <p class="rodape">A leitura usa as tabelas de strings que a plataforma já montou (nenhum pedido novo às fontes). Fonte
-    que esta máquina não leu (a SunOp no PC, em modo ronda) aparece como não lida. A Thopen da conta principal, a Athon,
-    a Axis, o banco da Thopen e a RenoGrid ligam pelo nome que a fonte manda: corrige-se no cadastro.</p>
+    que esta máquina não leu (a SunOp no PC, em modo ronda) aparece como não lida. As contas da API PV ligam a usina pelo
+    id; a Thopen do banco, a Athon e a Axis, pelo nome — com apelido decidido aqui quando o nome não casa. A RenoGrid
+    (SolarEdge) ainda se corrige no cadastro.</p>
 </div>
 
 <div class="veu" id="veu" hidden></div>
-<aside class="gaveta" id="ed" role="dialog" aria-modal="true" aria-labelledby="edTit" hidden>
-  <div class="gcab">
-    <div style="flex:1"><h2 id="edTit">Editar</h2><div class="sub" id="edSub"></div></div>
+<div class="dlg" id="ed" role="dialog" aria-modal="true" aria-labelledby="edTit" hidden>
+  <div class="dcab">
+    <div style="flex:1;min-width:0"><h2 id="edTit">Editar</h2><div class="sub" id="edSub"></div></div>
     <button type="button" id="edFechar" aria-label="Fechar o editor">Fechar</button>
   </div>
-  <div class="gcorpo" id="edCorpo"></div>
-  <div class="gpe msg" id="edMsg" role="status" aria-live="polite"></div>
-</aside>
+  <div class="dcorpo" id="edCorpo"></div>
+  <div class="dpe msg" id="edMsg" role="status" aria-live="polite"></div>
+</div>
 
 <script>
 (function(){
-  var D = null, ED = null, SUG = null;
-  var ORIGEM = {tela: 'decidido na tela', codigo: 'de-para no código', ordem: 'pela ordem do cadastro'};
+  var D = null, ED = null, SUG = null, VER = 'pendentes', SEL = null;
+  var ORIGEM = {tela: ['ok', 'Decidido na tela'], codigo: ['mudo', 'De-para no código'], ordem: ['atencao', 'Sem de-para (pela ordem)']};
+  var NOMES = {'decidido na tela': ['ok', 'Decidido na tela'], 'de-para no código': ['mudo', 'De-para no código'],
+               'pela ordem do cadastro': ['atencao', 'Sem de-para (pela ordem)'], 'o nome que a fonte manda': ['mudo', 'Nome da fonte']};
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
   function num(v){ return v == null ? '—' : String(v); }
   function $(id){ return document.getElementById(id); }
+  function tag(cls, txt){ return '<span class="tag ' + cls + '">' + esc(txt) + '</span>'; }
   async function lerJson(url, op){
     var r;
     try { r = await fetch(url, Object.assign({credentials:'same-origin'}, op || {})); }
@@ -156,57 +209,89 @@
     $('lido').textContent = 'não atualizou (' + motivo + ')' + (D ? ': a lista é a da leitura anterior' : '');
     if(!D) $('corpo').innerHTML = '<p class="vazio">Não foi possível ler: ' + esc(motivo) + '.</p>';
   }
-  function alertas(u){
-    if(!u.alertas.length) return '<span class="chip ok">ok</span>';
-    return u.alertas.map(function(a){ return '<span class="chip ' + a.nivel + '">' + esc(a.texto) + '</span>'; }).join('');
+  function pendente(u){ return u.pior === 'critico' || u.pior === 'atencao'; }
+
+  // ── a lista ───────────────────────────────────────────────────────────────────────────────────────────────────
+  function comoLiga(u){
+    if(u.sem_depara === 'usina') return tag('critico', 'Sem de-para');
+    var t = String(u.liga || ''), i = t.indexOf(': ');
+    var rot = (i > 0 ? t.slice(0, i) : t), cls = /^pelo id|apelido/.test(rot) ? 'info' : 'mudo';
+    return tag(cls, rot.charAt(0).toUpperCase() + rot.slice(1)) + (i > 0 ? '<div class="sub">' + esc(t.slice(i + 2)) + '</div>' : '');
   }
-  function tabela(us, comFonte){
-    if(!us.length) return '<p class="vazio">Nada com esse filtro.</p>';
-    var h = '<div class="tabwrap"><table><thead><tr>' + (comFonte ? '<th>Fonte</th>' : '') + '<th>Usina</th><th>Chave na fonte</th><th>Liga ao cadastro</th><th>Esperadas</th><th>Inversores<br>fonte / cadastro</th><th>Nome dos inversores</th><th>Situação</th><th><span class="sr">Ação</span></th></tr></thead><tbody>';
+  function sugestao(u){
+    if(!u.sugestao || !u.sugestao.length) return u.sem_depara === 'usina' ? '<div class="sug">Sem usina de nome parecido no cadastro.</div>' : '';
+    var s = u.sugestao[0];
+    return '<div class="sug">Parece: <b>' + esc(s.nome) + '</b>' + (s.nome !== s.chave ? ' <span class="chave">' + esc(s.chave) + '</span>' : '') +
+      (s.confere ? '<span class="aviso">' + esc(s.confere) + '</span>' : '') +
+      (s.ligada_a && s.ligada_a.length ? '<span class="aviso">já ligada a ' + esc(s.ligada_a.join(', ')) + '</span>' : '') + '</div>';
+  }
+  function situacao(u){
+    var a = u.alertas.filter(function(x){ return !(u.sem_depara === 'usina' && x.nivel === 'critico'); });
+    if(!a.length) return u.sem_depara === 'usina' ? '' : tag('ok', 'Ligada');
+    return '<div class="alertas">' + a.map(function(x){ return tag(x.nivel, x.texto); }).join('') + '</div>';
+  }
+  function tabela(us){
+    var h = '<div class="tabwrap"><table><thead><tr><th>Usina</th><th>Como liga</th><th>Inversores<br>fonte / cadastro</th><th>Strings<br>esperadas</th><th>Nome dos inversores</th><th>Situação</th><th><span class="sr">Ação</span></th></tr></thead><tbody>';
     us.forEach(function(u){
-      var pode = u.edita_usina || u.edita_inversor;
-      h += '<tr>' + (comFonte ? '<td>' + esc(D.rotulos[u.fonte] || u.fonte) + '</td>' : '') + '<td class="usina">' + esc(u.usina) + '</td><td class="chave">' + esc(u.plant_id) +
-        '</td><td>' + esc(u.liga) + '</td><td class="n">' + num(u.str_esp) + '</td><td class="n">' + num(u.inv_fonte) + ' / ' + num(u.inv_esp) +
-        '</td><td>' + esc(u.nomes_inversor) + '</td><td>' + alertas(u) + '</td><td>' +
-        (pode ? '<button type="button" class="peq" data-ed="' + esc(u.fonte) + '|' + esc(u.plant_id) + '" data-nome="' + esc(u.usina) + '">Editar</button>' : '') + '</td></tr>';
+      var pode = u.edita_usina || u.edita_inversor, nm = NOMES[u.nomes_inversor] || ['mudo', u.nomes_inversor];
+      var cls = u.pior === 'critico' ? 'crit' : u.pior === 'atencao' ? 'aten' : '';
+      h += '<tr class="' + cls + '"><td class="usina"><div class="n1">' + esc(u.usina) + '</div><div class="chave">' + esc(u.plant_id) + '</div>' + (u.sem_depara === 'usina' ? sugestao(u) : '') + '</td>' +
+        '<td>' + comoLiga(u) + '</td><td class="n">' + num(u.inv_fonte) + ' / ' + num(u.inv_esp) + '</td><td class="n">' + num(u.str_esp) + '</td>' +
+        '<td>' + tag(nm[0], nm[1]) + '</td><td>' + situacao(u) + '</td><td class="acao">' +
+        (pode ? '<button type="button" class="peq' + (u.sem_depara ? ' prim' : '') + '" data-ed="' + esc(u.fonte) + '|' + esc(u.plant_id) + '" data-nome="' + esc(u.usina) + '">' + (u.sem_depara ? 'Ligar' : 'Editar') + '</button>' : '') + '</td></tr>';
     });
     return h + '</tbody></table></div>';
   }
+  function kpis(){
+    var c = D.contagem, outros = Math.max(0, c.criticos + c.atencao - c.sem_depara_usina - c.sem_depara_inversor);
+    $('kpis').innerHTML =
+      '<div class="kpi ' + (c.sem_depara_usina ? 'critico' : 'ok') + '"><div class="v">' + c.sem_depara_usina + '</div><div class="r">Usinas sem de-para</div><div class="d">o nome que a fonte manda não está no cadastro</div></div>' +
+      '<div class="kpi ' + (c.sem_depara_inversor ? 'atencao' : 'ok') + '"><div class="v">' + c.sem_depara_inversor + '</div><div class="r">Inversores sem de-para</div><div class="d">nomeados pela ordem: podem estar trocados</div></div>' +
+      '<div class="kpi ' + (outros ? 'atencao' : 'ok') + '"><div class="v">' + outros + '</div><div class="r">Outros alertas</div><div class="d">sem esperadas, inversores a mais ou a menos</div></div>' +
+      '<div class="kpi ok"><div class="v">' + c.ok + '</div><div class="r">Ligadas</div><div class="d">de ' + c.usinas + ' usinas lidas</div></div>';
+  }
   function desenhar(){
-    var c = D.contagem;
-    $('resumo').innerHTML =
-      '<div class="kpi"><div class="r">Usinas lidas</div><div class="v">' + c.usinas + '</div></div>' +
-      '<div class="kpi critico"><div class="r">Sem esperadas (string morta não acusa)</div><div class="v">' + c.criticos + '</div></div>' +
-      '<div class="kpi atencao"><div class="r">Precisam de atenção</div><div class="v">' + c.atencao + '</div></div>';
+    kpis();
     var sel = $('fFonte');
     if(sel.options.length <= 1) D.fontes.forEach(function(f){ var o = document.createElement('option'); o.value = f.id; o.textContent = f.nome; sel.appendChild(o); });
-    var busca = $('busca').value.trim().toLowerCase(), soAlerta = $('soAlerta').checked, ff = sel.value;
+    var busca = $('busca').value.trim().toLowerCase(), ff = sel.value, todas = VER === 'todas';
+    $('vPend').textContent = 'Pendentes (' + (D.contagem.criticos + D.contagem.atencao) + ')';
+    $('vTodas').textContent = 'Todas (' + D.contagem.usinas + ')';
     function passa(u){
-      if(soAlerta && !u.alertas.length) return false;
+      if(!todas && !pendente(u)) return false;
       // o nome que a API escreve está no `liga` ("a API escreve “Ipixuna do Pará 1”"): procurar por ele acha a Santa Cecilia
       return !busca || [u.usina, u.plant_id, u.liga].some(function(x){ return String(x).toLowerCase().indexOf(busca) >= 0; });
     }
     var h = '';
-    var precisa = D.precisa.filter(function(u){ return (!ff || u.fonte === ff) && passa(u); });
-    if(precisa.length) h += '<section class="bloco precisa" aria-label="Precisa de você"><div class="bcab"><span class="bnome">Precisa de você</span><span class="bconta">' + precisa.length + ' usina(s)</span></div>' + tabela(precisa, true) + '</section>';
     D.fontes.filter(function(f){ return !ff || f.id === ff; }).forEach(function(f){
-      if(!f.lida){ if(!busca && !soAlerta) h += '<section class="bloco"><div class="bcab"><span class="bnome">' + esc(f.nome) + '</span><span class="bconta">não lida nesta máquina</span></div></section>'; return; }
+      if(!f.lida){ if(todas && !busca) h += '<section class="bloco"><div class="bcab"><span class="bnome">' + esc(f.nome) + '</span><span class="bconta">não lida nesta máquina</span></div></section>'; return; }
       var us = f.usinas.filter(passa);
-      if((busca || soAlerta) && !us.length) return;
-      h += '<section class="bloco" aria-label="' + esc(f.nome) + '"><div class="bcab"><span class="bnome">' + esc(f.nome) + '</span><span class="bconta">' + f.usinas.length + ' usina(s)</span></div>' + tabela(us, false) + '</section>';
+      if(!us.length && (!todas || busca)) return;
+      var pend = f.usinas.filter(pendente).length;
+      h += '<section class="bloco" aria-label="' + esc(f.nome) + '"><div class="bcab"><span class="bnome">' + esc(f.nome) + '</span><span class="bconta">' +
+        (todas ? f.usinas.length + ' usina(s)' + (pend ? ', ' + pend + ' pendente(s)' : '') : us.length + ' pendente(s) de ' + f.usinas.length) + '</span></div>' +
+        (us.length ? tabela(us) : '<p class="vazio">Nada com esse filtro.</p>') + '</section>';
     });
+    if(!h && !todas && !busca) h = '<div class="tudo-ok"><b>Tudo ligado.</b> Nenhuma usina pendente' + (ff ? ' nesta fonte' : '') + '. Em “Todas” estão as ' + D.contagem.usinas + ' usinas lidas.</div>';
     $('corpo').innerHTML = h || '<p class="vazio">Nada com esse filtro.</p>';
+  }
+  function ver(v){
+    VER = v;
+    $('vPend').setAttribute('aria-pressed', String(v === 'pendentes'));
+    $('vTodas').setAttribute('aria-pressed', String(v === 'todas'));
+    if(D) desenhar();
   }
 
   // ── o editor ──────────────────────────────────────────────────────────────────────────────────────────────────
   var ultimoFoco = null;
   function abrir(fonte, id, nome){
     ultimoFoco = document.activeElement;
-    ED = null; SUG = null;
+    ED = null; SUG = null; SEL = null;
     $('edTit').textContent = nome || id;
     $('edSub').textContent = (D && D.rotulos[fonte] || fonte) + ' · chave ' + id;
+    $('edCorpo').className = 'dcorpo';
     $('edCorpo').innerHTML = '<p class="vazio">Lendo o de-para desta usina e os inversores que a fonte mandou hoje (a primeira leitura pode levar até 1 min)…</p>';
-    $('edMsg').textContent = '';
+    $('edMsg').textContent = ''; $('edMsg').className = 'dpe msg';
     $('veu').hidden = false; $('ed').hidden = false;
     $('edFechar').focus();
     carregar(fonte, id);
@@ -223,73 +308,125 @@
   function rotAlvo(a){
     return a.nome + (a.exibicao && a.exibicao !== a.nome ? ' (' + a.exibicao + ')' : '') + (a.esp != null ? ' · ' + a.esp + ' strings' : '');
   }
-  function desenharEd(){
-    var h = '';
-    var dec = ED.decisoes || {};
-    if(!dec.pode_gravar) h += '<div class="sec"><p class="erro-txt">Esta máquina não grava decisões (sem a chave do banco). Abra pelo servidor.</p></div>';
-    if(ED.edita_usina){
-      var p = ED.ponte || {}, hoje;
-      if(p.tela) hoje = 'pela ponte da tela, à usina do cadastro “' + p.tela + '”';
+  function atual(){
+    // a usina do cadastro a que ela liga hoje (a chave da lista): a ponte da tela, o apelido, a ponte do código ou o nome
+    var p = ED.ponte || {};
+    if(p.tela) return p.tela;
+    if(ED.por_nome) return ED.no_cadastro ? ED.nome_api : '';
+    if(p.tela !== '' && p.codigo) return p.codigo;
+    if(ED.sem_depara) return '';
+    return ED.apelido || String(ED.nome_interno || '').trim();
+  }
+  function semDepara(x){ return x.origem === 'ordem' || !x.nome; }
+
+  function secUsina(pode){
+    var p = ED.ponte || {}, quem = ED.por_nome ? 'a fonte' : 'a API', est, h;
+    if(ED.sem_depara){
+      est = '<div class="estado critico"><b>Sem de-para.</b> ' + esc(quem.charAt(0).toUpperCase() + quem.slice(1)) + ' escreve “' + esc(ED.nome_api || '—') +
+        '” e o cadastro não tem esse nome: nada do cadastro vale para esta usina (esperadas, nomes dos inversores, Full O&amp;M). Ligue-a à usina do cadastro abaixo.</div>';
+    } else {
+      var hoje;
+      if(p.tela) hoje = (ED.por_nome ? 'pelo apelido da tela' : 'pela ponte da tela') + ', à usina do cadastro “' + p.tela + '”';
       else if(p.tela === '' && p.codigo) hoje = 'pelo nome da API (a tela desfez a ponte do código “' + p.codigo + '”)';
       else if(p.codigo) hoje = 'pela ponte do código, à usina do cadastro “' + p.codigo + '”';
       else if(ED.apelido) hoje = 'pelo apelido no código (“' + (ED.nome_api || '').trim() + '” é “' + ED.apelido + '” no cadastro)';
-      else hoje = 'pelo nome que a API escreve';
-      h += '<div class="sec"><h3>Usina no cadastro</h3>' +
-        '<p>Hoje liga ' + esc(hoje) + '.</p>' +
-        '<p class="nota">A API escreve: “' + esc(ED.nome_api || '—') + '”. Nome usado pela plataforma: “' + esc(ED.nome_interno || '—') + '”.</p>' +
-        '<label class="nota" for="uBusca" style="display:block;margin-top:8px">Ligar a</label>' +
-        '<input type="search" id="uBusca" placeholder="Procurar usina do cadastro" aria-label="Procurar usina do cadastro">' +
-        '<select id="uSel" size="7" aria-label="Usina do cadastro" style="margin-top:6px"></select>' +
-        '<p class="nota">Ligar pelo id troca o nome desta usina em toda a plataforma (esperadas, nomes dos inversores, Full O&amp;M). Vale na próxima leitura da lista de usinas, em até 5 min.</p>' +
-        '<div class="linha-acoes"><button type="button" class="prim" id="uSalvar"' + (dec.pode_gravar ? '' : ' disabled') + '>Salvar a ligação</button>' +
-        '<button type="button" id="uSemPonte"' + (dec.pode_gravar ? '' : ' disabled') + '>Usar o nome da API (sem ponte)</button></div></div>';
+      else hoje = 'pelo nome que ' + quem + ' escreve (o cadastro tem “' + (ED.nome_interno || ED.nome_api || '') + '”)';
+      est = '<div class="estado ok"><b>Ligada</b> ' + esc(hoje) + '.' + (ED.nome_api && ED.nome_api !== ED.nome_interno && !ED.por_nome ? ' <span class="nota">A API escreve “' + esc(ED.nome_api) + '”.</span>' : '') + '</div>';
     }
-    if(ED.edita_inversor){
-      h += '<div class="sec"><h3>Inversores</h3>';
-      if(ED.provisorio) h += '<p><span class="chip info">' + esc(ED.provisorio) + '</span></p>';
-      if(ED.fonte_hoje_erro) h += '<p class="nota">A fonte não respondeu agora (' + esc(ED.fonte_hoje_erro) + '): a lista mostra os ids do de-para.</p>';
-      h += '<div class="linha-acoes" style="margin:4px 0 10px">' +
-        (ED.sugerir ? '<button type="button" id="iSugerir">Sugerir pelo kWh do BD</button>' : '') +
-        '<span class="nota" id="iSugMsg"></span></div>';
-      h += '<div class="tabwrap"><table><thead><tr><th>ID na fonte</th><th>Nome hoje</th><th>Novo</th><th>Sugestão</th></tr></thead><tbody>';
-      ED.inversores.forEach(function(x, k){
-        var opts = '<option value="">manter</option><option value="__codigo__">voltar ao código</option>' +
-          ED.alvos.map(function(a){ return '<option value="' + esc(a.nome) + '">' + esc(rotAlvo(a)) + '</option>'; }).join('');
-        h += '<tr><td class="chave">' + esc(x.id) + (x.na_fonte_hoje ? '' : '<br><span class="chip mudo">não veio hoje</span>') + '</td>' +
-          '<td>' + esc(x.nome || '—') + '<br><span class="chip ' + (x.origem === 'ordem' ? 'atencao' : x.origem === 'tela' ? 'ok' : 'mudo') + '">' + esc(ORIGEM[x.origem] || x.origem) + '</span></td>' +
-          '<td><select data-inv="' + esc(x.id) + '" aria-label="Novo nome do inversor ' + esc(x.id) + '">' + opts + '</select></td>' +
-          '<td id="sug_' + k + '"></td></tr>';
+    h = '<section class="sec" aria-labelledby="secU"><h3 id="secU">Usina no cadastro</h3>' + est;
+    if(!ED.edita_usina) return h + '<p class="nota">Liga pelo nome que a fonte manda, e o cadastro tem esse nome: nada a decidir aqui.</p></section>';
+    if(ED.sugestao && ED.sugestao.length){
+      var s = ED.sugestao[0];
+      h += '<div class="sugbox"><div class="t">Sugestão pelo nome</div><div><b>' + esc(s.nome) + '</b>' + (s.nome !== s.chave ? ' <span class="chave">' + esc(s.chave) + '</span>' : '') + '</div>' +
+        (s.confere ? '<span class="aviso">' + esc(s.confere) + '</span>' : '') +
+        (s.ligada_a && s.ligada_a.length ? '<span class="aviso">já ligada a ' + esc(s.ligada_a.join(', ')) + '</span>' : '') +
+        '<div class="acoes" style="margin-top:8px"><button type="button" class="peq" id="uUsarSug">Escolher a sugestão</button></div></div>';
+    }
+    var ligadas = ED.cadastro_usinas.filter(function(u){ return u.ligada_a && u.ligada_a.length; }).length;
+    h += '<div class="pbar"><input type="search" id="uBusca" placeholder="Procurar usina do cadastro" aria-label="Procurar usina do cadastro">' +
+      '<label><input type="checkbox" id="uTodas"> Mostrar também as já ligadas (' + ligadas + ')</label></div>' +
+      '<div class="plista" id="uLista" aria-label="Usinas do cadastro"></div>' +
+      '<div class="acoes"><button type="button" class="prim" id="uSalvar"' + (pode ? '' : ' disabled') + '>Salvar a ligação</button>' +
+      (p.tela || (p.tela !== '' && p.codigo) ? '<button type="button" id="uSemPonte"' + (pode ? '' : ' disabled') + '>' + (ED.por_nome ? 'Desfazer o apelido' : 'Usar o nome da API (sem ponte)') + '</button>' : '') + '</div>' +
+      '<p class="nota">Ligar troca o nome desta usina em toda a plataforma (esperadas, nomes dos inversores, Full O&amp;M). ' +
+      (ED.por_nome ? 'Vale na próxima montagem da tabela da fonte, em poucos minutos.' : 'Vale na próxima leitura da lista de usinas, em até 5 min.') + '</p></section>';
+    return h;
+  }
+  function secInversores(pode){
+    var falta = ED.inversores.filter(semDepara).length, h = '<section class="sec" aria-labelledby="secI"><h3 id="secI">Inversores</h3>';
+    h += falta ? '<div class="estado atencao"><b>' + falta + ' de ' + ED.inversores.length + ' sem de-para.</b> O nome deles vem da ordem dos ids e pode trocar um inversor pelo outro: escolha o inversor do cadastro de cada um (a sugestão pelo kWh ajuda).</div>'
+               : '<div class="estado ok"><b>Todos os ' + ED.inversores.length + ' com de-para.</b></div>';
+    if(ED.provisorio) h += '<p>' + tag('info', ED.provisorio) + '</p>';
+    if(ED.fonte_hoje_erro) h += '<p class="nota">A fonte não respondeu agora (' + esc(ED.fonte_hoje_erro) + '): a lista mostra os ids do de-para.</p>';
+    if(ED.sugerir) h += '<div class="acoes" style="margin:0 0 10px"><button type="button" id="iSugerir">Sugerir pelo kWh do BD</button><span class="nota" id="iSugMsg"></span></div>';
+    h += '<div class="tabwrap"><table><thead><tr><th>ID na fonte</th><th>Hoje</th><th>Ligar a</th><th>Sugestão</th></tr></thead><tbody>';
+    ED.inversores.forEach(function(x, k){
+      var sem = semDepara(x), o = ORIGEM[x.origem] || ['mudo', x.origem];
+      var opts = (sem ? '<option value="">Sem de-para: escolha o inversor do cadastro</option>' : '<option value="">Manter: ' + esc(x.nome) + '</option>') +
+        (x.origem === 'tela' ? '<option value="__codigo__">Voltar ao de-para do código' + (x.codigo ? ' (' + esc(x.codigo) + ')' : ' (sem nome no código)') + '</option>' : '') +
+        ED.alvos.map(function(a){ return '<option value="' + esc(a.nome) + '">' + esc(rotAlvo(a)) + '</option>'; }).join('');
+      h += '<tr class="' + (sem ? 'aten' : '') + '"><td><span class="chave">' + esc(x.id) + '</span>' + (x.na_fonte_hoje ? '' : '<div>' + tag('mudo', 'não veio hoje') + '</div>') + '</td>' +
+        '<td><div>' + esc(x.nome || '—') + '</div><div>' + tag(o[0], o[1]) + '</div></td>' +
+        '<td><select data-inv="' + esc(x.id) + '" class="' + (sem ? 'falta' : '') + '" aria-label="Inversor do cadastro para o id ' + esc(x.id) + '">' + opts + '</select></td>' +
+        '<td id="sug_' + k + '"></td></tr>';
+    });
+    h += '</tbody></table></div>';
+    h += '<div class="acoes"><button type="button" class="prim" id="iSalvar"' + (pode ? '' : ' disabled') + '>Salvar inversores</button>' +
+      (ED.sugerir ? '<button type="button" id="iAplicar" disabled>Usar a sugestão</button>' : '') +
+      '<button type="button" id="iConfirmar"' + (pode ? '' : ' disabled') + '>Confirmar como está</button></div>' +
+      '<p class="nota">"Confirmar como está" grava os nomes de hoje como decisão da tela (tira o aviso de provisório). Vale em até 1 min.</p></section>';
+    return h;
+  }
+  function desenharEd(){
+    var dec = ED.decisoes || {}, pode = !!dec.pode_gravar, partes = [];
+    if(ED.sem_depara) $('edSub').innerHTML = esc($('edSub').textContent) + ' · ' + tag('critico', 'Sem de-para');
+    if(!pode) partes.push('<div class="sec" style="grid-column:1/-1"><p class="erro-txt">Esta máquina não grava decisões (sem a chave do banco). Abra pelo servidor.</p></div>');
+    var temU = ED.edita_usina || ED.sem_depara || ED.por_nome, temI = ED.edita_inversor;
+    if(temU || !temI) partes.push(secUsina(pode));
+    if(temI) partes.push(secInversores(pode));
+    if(ED.nota_inversor && !temI) partes.push('<section class="sec"><h3>Inversores</h3><p class="nota">' + esc(ED.nota_inversor) + '</p></section>');
+    var c = $('edCorpo');
+    c.className = 'dcorpo' + (partes.length - (pode ? 0 : 1) >= 2 ? ' dois' : '');
+    c.innerHTML = partes.join('');
+    SEL = atual() || (ED.sem_depara && ED.sugestao && ED.sugestao.length && !ED.sugestao[0].confere ? ED.sugestao[0].chave : null);
+    if($('uLista')){
+      preencherUsinas();
+      $('uBusca').addEventListener('input', preencherUsinas);
+      $('uTodas').addEventListener('change', preencherUsinas);
+      $('uLista').addEventListener('click', function(ev){
+        var b = ev.target.closest('button[data-k]'); if(!b) return;
+        SEL = b.getAttribute('data-k'); preencherUsinas();
+        var nb = document.querySelector('#uLista button[data-k="' + CSS.escape(SEL) + '"]'); if(nb) nb.focus();
       });
-      h += '</tbody></table></div>';
-      h += '<div class="linha-acoes">' +
-        '<button type="button" class="prim" id="iSalvar"' + (dec.pode_gravar ? '' : ' disabled') + '>Salvar inversores</button>' +
-        (ED.sugerir ? '<button type="button" id="iAplicar" disabled>Usar a sugestão</button>' : '') +
-        '<button type="button" id="iConfirmar"' + (dec.pode_gravar ? '' : ' disabled') + '>Confirmar como está</button></div>' +
-        '<p class="nota">"Confirmar como está" grava os nomes de hoje como decisão da tela (tira o aviso de provisório). Vale em até 1 min.</p></div>';
     }
-    if(ED.nota_inversor) h += '<div class="sec"><p class="nota">' + esc(ED.nota_inversor) + '</p></div>';
-    $('edCorpo').innerHTML = h;
-    if(ED.edita_usina){ preencherUsinas(''); $('uBusca').addEventListener('input', function(){ preencherUsinas(this.value); }); }
-    ligar('uSalvar', function(){ var v = $('uSel').value; if(!v){ msg('Escolha a usina do cadastro na lista.', true); return; } gravar({usina_supervisorio: v}, 'Ligação gravada'); });
-    ligar('uSemPonte', function(){ gravar({usina_supervisorio: ''}, 'Ponte desfeita: vale o nome da API'); });
+    ligar('uUsarSug', function(){ SEL = ED.sugestao[0].chave; $('uBusca').value = ''; if(ED.sugestao[0].ligada_a.length) $('uTodas').checked = true; preencherUsinas(); msg('Sugestão escolhida: confira e clique em Salvar a ligação.'); });
+    ligar('uSalvar', function(){ if(!SEL){ msg('Escolha a usina do cadastro na lista.', true); return; } if(SEL === atual()){ msg('Ela já liga a essa usina.', true); return; } gravar({usina_supervisorio: SEL}, 'Ligação gravada'); });
+    ligar('uSemPonte', function(){ gravar({usina_supervisorio: ''}, ED.por_nome ? 'Apelido desfeito: vale o nome que a fonte manda' : 'Ponte desfeita: vale o nome da API'); });
     ligar('iSalvar', salvarInversores);
     ligar('iConfirmar', confirmarInversores);
     ligar('iSugerir', sugerir);
     ligar('iAplicar', aplicarSugestao);
+    document.querySelectorAll('#edCorpo select[data-inv]').forEach(function(s){
+      s.addEventListener('change', function(){ s.classList.toggle('mudou', !!s.value); });
+    });
   }
   function ligar(id, fn){ var b = $(id); if(b) b.addEventListener('click', fn); }
-  function preencherUsinas(q){
-    q = (q || '').trim().toLowerCase();
-    var atual = (ED.ponte && (ED.ponte.tela || ED.ponte.codigo)) || '';
-    var sel = $('uSel'), h = '';
+  function preencherUsinas(){
+    var q = ($('uBusca').value || '').trim().toLowerCase(), todas = $('uTodas').checked, at = atual(), h = '', escondidas = 0;
     ED.cadastro_usinas.forEach(function(u){
-      var t = u.nome + (u.nome !== u.chave ? ' — ' + u.chave : '') + ' · ' + num(u.inv_esp) + ' inv. · ' + num(u.str_esp) + ' strings';
-      if(q && t.toLowerCase().indexOf(q) < 0) return;
-      h += '<option value="' + esc(u.chave) + '"' + (u.chave === atual ? ' selected' : '') + '>' + esc(t) + '</option>';
+      var t = (u.nome + ' ' + u.chave).toLowerCase();
+      if(q && t.indexOf(q) < 0) return;
+      var lig = u.ligada_a && u.ligada_a.length;
+      if(lig && !todas && u.chave !== at && u.chave !== SEL){ escondidas++; return; }
+      h += '<button type="button" class="op" data-k="' + esc(u.chave) + '" aria-pressed="' + (u.chave === SEL) + '"><span class="on"><span class="n1">' + esc(u.nome) + '</span>' +
+        (u.nome !== u.chave ? ' <span class="chave">' + esc(u.chave) + '</span>' : '') +
+        '<div class="sub">' + num(u.inv_esp) + ' inversores · ' + num(u.str_esp) + ' strings' + (lig ? ' · já ligada a ' + esc(u.ligada_a.join(', ')) : '') + '</div></span>' +
+        (u.chave === at ? tag('ok', 'atual') : lig ? tag('mudo', 'ligada') : tag('info', 'livre')) + '</button>';
     });
-    sel.innerHTML = h || '<option value="" disabled>nenhuma usina com esse nome</option>';
+    if(!h) h = '<p class="vazio">' + (escondidas ? 'Nenhuma usina livre com esse nome: ' + escondidas + ' já ligada(s) a outra fonte. Marque “Mostrar também as já ligadas”.' : 'Nenhuma usina do cadastro com esse nome.') + '</p>';
+    $('uLista').innerHTML = h;
   }
-  function msg(t, erro){ var m = $('edMsg'); m.textContent = t; m.className = 'gpe msg ' + (erro ? 'erro-txt' : 'ok-txt'); }
+  function msg(t, erro){ var m = $('edMsg'); m.textContent = t; m.className = 'dpe msg ' + (erro ? 'erro-txt' : 'ok-txt'); }
   function escolhidos(){
     var out = {};
     document.querySelectorAll('#edCorpo select[data-inv]').forEach(function(s){ if(s.value) out[s.getAttribute('data-inv')] = s.value === '__codigo__' ? '' : s.value; });
@@ -307,7 +444,7 @@
   }
   function salvarInversores(){
     var esc_ = escolhidos();
-    if(!Object.keys(esc_).length){ msg('Nada mudou: escolha o novo nome em pelo menos um inversor.', true); return; }
+    if(!Object.keys(esc_).length){ msg('Nada mudou: escolha o inversor do cadastro em pelo menos um id.', true); return; }
     var rep = repetidos(esc_);
     if(rep.length){ msg('Dois inversores com o mesmo nome: ' + rep.join(', ') + '. Corrija antes de gravar.', true); return; }
     gravar({inversores: esc_}, 'Inversores gravados');
@@ -326,6 +463,7 @@
     try {
       var d = await lerJson('/api/admin/de-para/decidir', {method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify(Object.assign({fonte: ED.fonte, id: ED.id}, corpo))});
+      $('edSub').textContent = (D && D.rotulos[ED.fonte] || ED.fonte) + ' · chave ' + ED.id;
       await carregar(ED.fonte, ED.id);
       msg(ok + ' (' + d.gravadas + ' decisão(ões); o livro tem ' + d.total + ').');
       ler();
@@ -352,7 +490,7 @@
       if(!p){ cel.innerHTML = '<span class="nota">sem par</span>'; return; }
       var cls = p.confianca === 'certa' ? 'ok' : p.confianca === 'provável' ? 'info' : 'atencao';
       cel.innerHTML = esc(p.nome) + (p.coluna !== p.nome ? ' <span class="nota">(' + esc(p.coluna) + ')</span>' : '') +
-        '<br><span class="chip ' + cls + '">' + esc(p.confianca) + ' · erro ' + String(p.erro_pct).replace('.', ',') + '% em ' + p.dias + ' dia(s)</span>';
+        '<div>' + tag(cls, p.confianca + ' · erro ' + String(p.erro_pct).replace('.', ',') + '% em ' + p.dias + ' dia(s)') + '</div>';
     });
     var ap = $('iAplicar'); if(ap) ap.disabled = !n;
   }
@@ -361,7 +499,7 @@
     var usados = 0;
     document.querySelectorAll('#edCorpo select[data-inv]').forEach(function(s){
       var p = SUG.pares[s.getAttribute('data-inv')];
-      if(p && p.confianca !== 'fraca' && Array.prototype.some.call(s.options, function(o){ return o.value === p.nome; })){ s.value = p.nome; usados++; }
+      if(p && p.confianca !== 'fraca' && Array.prototype.some.call(s.options, function(o){ return o.value === p.nome; })){ s.value = p.nome; s.classList.add('mudou'); usados++; }
     });
     msg(usados ? usados + ' nome(s) da sugestão nos campos (os de confiança fraca ficaram de fora). Confira e clique em Salvar inversores.' : 'Nenhuma sugestão com confiança para usar.', !usados);
   }
@@ -375,11 +513,13 @@
   $('edFechar').addEventListener('click', fechar);
   $('veu').addEventListener('click', fechar);
   document.addEventListener('keydown', function(ev){ if(ev.key === 'Escape' && !$('ed').hidden) fechar(); });
-  ['busca', 'fFonte', 'soAlerta'].forEach(function(id){ $(id).addEventListener(id === 'busca' ? 'input' : 'change', function(){ if(D) desenhar(); }); });
+  $('busca').addEventListener('input', function(){ if(D) desenhar(); });
+  $('fFonte').addEventListener('change', function(){ if(D) desenhar(); });
+  $('vPend').addEventListener('click', function(){ ver('pendentes'); });
+  $('vTodas').addEventListener('click', function(){ ver('todas'); });
   ler();
   setInterval(function(){ if(document.visibilityState !== 'hidden' && $('ed').hidden) ler(); }, 120000);
 })();
 </script>
-<style>.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}</style>
 </body>
 </html>
