@@ -117,6 +117,33 @@ def test_sem_final_date_cai_no_wo_final_com_flag():
     assert any("wo_final_date" in f for f in o["flags"])
 
 
+def test_em_janeiro_o_dezembro_ainda_conta_as_os_concluidas_nele():
+    # revisão adversarial de 11/10/2026: o fim só valia no ano de AGORA, e o índice do Gerencial é refeito com o relógio
+    # de agora. A partir de 01/01, toda OS concluída em dezembro virava "OS concluída sem data final válida" e o
+    # dezembro saía 100% em todos os dias — no Gerencial e na aba disponibilidade_dia do workbook de falhas
+    wos = {"7": [task(event_date="2026-12-15T12:00:00+00:00", final_date="2026-12-15T15:00:00+00:00")]}
+    ini, fim = datetime(2026, 12, 1), datetime(2027, 1, 1)
+    em_dezembro = calcular(wos, EQUIP, ini, fim, agora=datetime(2026, 12, 31, 12, 0))
+    em_janeiro = calcular(wos, EQUIP, ini, fim, agora=datetime(2027, 1, 5, 12, 0))
+    for r in (em_dezembro, em_janeiro):
+        assert a_os(r, 7)["excl"] is None
+        assert r["diario"]["Alfa"]["2026-12-15"]["h_eq"] == pytest.approx(3.0)
+        assert r["diario"]["Alfa"]["2026-12-15"]["disp"] == 75.0
+        assert so_alfa(r)["disp"] == pytest.approx(99.19, abs=0.005)       # 3 h de 12 h × 31 dias
+    assert em_janeiro == em_dezembro
+
+
+def test_fim_digitado_num_ano_antes_do_evento_segue_fora_e_vale_o_wo_final():
+    # "houve fim digitado como 2027 e 2025 na fase RDO" (docs/disponibilidade-por-os.md): o fim de um ano ANTES do
+    # evento não é fim. Sem final_date válido vale o carimbo da WO, como antes — aceitar todo fim do ano anterior (e não
+    # só o da OS cujo evento é do ano anterior) trocaria este caso por "fim muito antes do início" e tiraria a OS
+    r = roda({"9": [task(event_date="2026-07-10T12:00:00+00:00", final_date="2025-07-10T14:00:00+00:00",
+                         wo_final_date="2026-07-10T14:00:00+00:00")]})
+    o = a_os(r, 9)
+    assert o["excl"] is None and o["h_solar"] == pytest.approx(2.0)
+    assert any("wo_final_date" in f for f in o["flags"])
+
+
 def test_aberta_sem_fim_zero_no_calculo_e_cenario():
     r = roda({"7": [task(id_status_work_order=1,
                          event_date="2026-07-20T12:00:00+00:00")]})

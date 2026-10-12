@@ -321,6 +321,16 @@ def test_tracker_que_vem_do_mes_anterior_ja_vinha_parado():
     assert (t["total"], t["comecaram"], t["ja_vinham"]) == (1, 0, 1)
 
 
+def test_semana_da_virada_nao_conta_duas_vezes_o_tracker_que_mudou_de_fonte():
+    # revisão adversarial de 11/10/2026: setembro foi montado com a fonte pelo tamanho do id (o 21480 da Indaiatuba 1,
+    # da API PV, como Banco) e não é mais remontado; outubro sai com a fonte do cadastro. Na semana de 28/09 a 04/10 o
+    # mesmo tracker vem dos dois pacotes, um com cada fonte: é um tracker só
+    set_ = _trk("21480", "TRK1", "2026-09-29 08:00", fonte="pg")
+    out = _trk("21480", "TRK1", "2026-10-01 06:30", desde="2026-09-29 08:00", fonte="pv")
+    t = rs.trackers_pararam({"Indaiatuba": [set_, out]}, date(2026, 9, 28), date(2026, 10, 4))
+    assert (t["total"], t["comecaram"], t["seguem"]) == (1, 1, 1)
+
+
 def test_tracker_que_ficou_sem_comunicacao_vale_so_ate_o_ultimo_dia_visto_parado():
     # Santa Bárbara I, 21–27/09: parados desde 07/09 e sem comunicação desde 20/09 contavam a semana toda como parados
     ini, fim = date(2026, 9, 21), date(2026, 9, 27)

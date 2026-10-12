@@ -149,7 +149,7 @@ ARQUIVOS_DE_ESTADO = (
     "_FRAC_MTTA_BASE", "_FALHAS_STR_PATH", "_FALHAS_PV_DEV", "_FALHAS_IMPORTA_PATH", "_FALHAS_TRK_SEMCOM_PATH",
     "_FALHAS_OS_PATH", "_FALHAS_2C_PATH", "FALHAS_BF_ESTADO", "FALHAS_BF_PV_ESTADO", "FALHAS_DESC_PATH", "_WHATS_CFG_PATH",
     "_TRK_GARANTIA_PATH", "_TRK_GARANTIA_LOCAL", "_TRK_DEPARA_LOCAL", "_TRK_HIST_PATH", "_NOTAS_TRK_PATH",
-    "_NOTAS_TRK_LOCAL", "_PERDAS_STR_PATH", "_PARADAS_PATH", "_REL_SEM_PATH",
+    "_NOTAS_TRK_LOCAL", "_PERDAS_STR_PATH", "_PARADAS_PATH", "_REL_SEM_PATH", "_SG_EXTRAS_PATH",
     # gravados direto em plataforma/
     "_TOKENS_RT_PATH", "_ENTRADA_TRK_ULTIMO", "_SUNOP_PLANTS_ARQ", "_TUNNEL_URL_FILE", "_WHATS_SENT_PATH",
     "_WHATS_LOG_PATH", "_WHATS_WD_PATH",
@@ -192,6 +192,10 @@ def _depara_desligado_por_padrao(tmp_path, monkeypatch):
     """De-para de equipamentos decidido na tela (11/10/2026): lê o livro no banco (rede). Desligado por padrão (só o
     de-para do código, como antes), com a cópia no tmp_path; quem testa liga (`DEPARA_LIGADO`) e dubla o banco."""
     monkeypatch.setattr(app, "DEPARA_LIGADO", False, raising=False)
+    sg = getattr(app, "_sg", None)
+    if sg is not None:                       # usinas do scadaGridco descobertas na API: nenhuma, salvo quem testa
+        monkeypatch.setattr(sg, "EXTRAS", {})
+        monkeypatch.setitem(app._SG_EXTRAS_MEMO, "descoberto", float("inf"))
     cob, dp = getattr(app, "_cob", None), getattr(app, "_dp", None)
     if cob is not None and dp is not None:
         monkeypatch.setattr(app, "_DP_DECISOES", cob.Decisoes("http://127.0.0.1:9", "", str(tmp_path / "depara_decisoes.json"),

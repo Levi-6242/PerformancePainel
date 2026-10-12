@@ -114,7 +114,12 @@ do nosso linear na janela 06–18h.
   BD_Thopen — OSs esquecidas abertas somariam +965 MWh falsos. O painel avisa e mostra o custo
   potencial de cada uma ("cenário").
 - Validações: datas com ano fora do período ou no futuro são descartadas (houve fim digitado
-  como 2027 e 2025 na fase RDO).
+  como 2027 e 2025 na fase RDO). Início no ano corrente ou no anterior; fim `≤ agora`, no ano
+  corrente **ou, na OS cujo evento é do ano anterior, nele também** (11/10/2026: o índice é
+  refeito com o relógio de agora, e em janeiro toda OS concluída em dezembro virava "OS concluída
+  sem data final válida" — dezembro/2025 visto em 05/01 com as OS reais: parque 100,0% e 0 OS
+  contando, contra 99,907% e 9 OS em 31/12). Fim num ano **antes** do evento segue fora (a
+  digitação) e aí vale o `wo_final_date`.
 
 ### 4.1 A geração desmente a parada (juiz de parada-fantasma)
 

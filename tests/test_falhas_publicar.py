@@ -60,7 +60,7 @@ def linhas(tabs, aba):
     return [dict(zip(cab, lin)) for lin in tabs[aba]]
 
 
-def test_quatro_abas_com_o_cabecalho_na_linha_1():
+def test_cada_aba_com_o_cabecalho_na_linha_1():
     wb = load_workbook(io.BytesIO(pub.xlsx_bytes(pub.tabelas([pacote()]))))
     assert wb.sheetnames == list(pub.CABECALHOS)
     for aba, cab in pub.CABECALHOS.items():
@@ -152,3 +152,32 @@ def test_sincronizar_cria_o_workbook_so_se_faltar_e_manda_replace_true():
     assert [m for m, _, _ in s2.chamadas] == ["GET", "POST"]            # já existe: não cria de novo
     with pytest.raises(RuntimeError):
         pub.sincronizar(b"x", base="https://api.teste/db", token="tok", sessao=_Sessao(falha_sync=True))
+
+
+# ── Rodada 4 do Dashboard Thopen (Levi, 09/10/2026: "coluna para disponibilidade, calculada pelo Fracttal, da mesma forma
+# que calculamos pelo gerencial da plataforma"): a disponibilidade de cada usina por dia fechado, pela régua da aba
+# Disponibilidade do Gerencial. O 100 do dia sem OS vai ESCRITO — o 5080 nunca deduz um 100 pela falta da linha.
+DISP = {"periodo": ["2026-10-01", "2026-10-04"],          # fim exclusivo: até D-1
+        "usinas": [{"usina": "Guaratinguetá V", "fracttal": "Thopen - Guaratingueta 5 - SP", "cliente": "Thopen",
+                    "pot_kwp": 2700.0},
+                   {"usina": "Altair", "fracttal": "Thopen - Altair 1 - SP", "cliente": "Thopen", "pot_kwp": 6898.0}],
+        "diario": {"Guaratinguetá V": {"2026-10-02": {"disp": 95.8, "h_eq": 0.509}}}}
+
+
+def test_disponibilidade_por_dia_com_o_100_escrito_e_a_contagem_na_atualizacao():
+    p = pacote("2026-10")
+    p["disponibilidade"] = DISP
+    tabs = pub.tabelas([p])
+    d = linhas(tabs, "disponibilidade_dia")
+    assert len(d) == 6                                     # 2 usinas × 3 dias fechados (01 a 03/10)
+    gv = [(x["dia"], x["disp"], x["h_perdidas"]) for x in d if x["usina"] == "Guaratinguetá V"]
+    assert gv == [("2026-10-01", 100.0, 0), ("2026-10-02", 95.8, 0.509), ("2026-10-03", 100.0, 0)]
+    assert d[0]["usina_fracttal"] in ("Thopen - Altair 1 - SP", "Thopen - Guaratingueta 5 - SP")
+    assert [x["dia"] for x in d] == sorted(x["dia"] for x in d)          # dia novo entra no fim
+    (a,) = linhas(tabs, "atualizacao")
+    assert a["disponibilidade_dia"] == 6
+
+
+def test_mes_sem_disponibilidade_conta_vazio_e_nao_zero():
+    (a,) = linhas(pub.tabelas([pacote("2026-09")]), "atualizacao")
+    assert a["disponibilidade_dia"] is None

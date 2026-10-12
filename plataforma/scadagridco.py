@@ -71,8 +71,84 @@ FONTES = {
 }
 
 
+# Usinas DESCOBERTAS na API (11/10/2026, Levi: "Na API que está puxando as UFVs da GreenYellow não está aparecendo todas
+# as UFVs"): a lista acima era fixa, e o supervisório já tinha a Castelo do Piauí (16 inversores) e a "Cedro 1 e 2" (20)
+# lendo. O app classifica cada usina de `/api/usinas` pelo CLIENTE do cadastro (Info Geral) e pendura aqui as que não estão
+# acima ({fonte: [cfg]}); `ATUALIZAR` (o app) relê a lista do disco quando o worker a troca. Numa usina do cadastro que o
+# supervisório junta com outra (a Cedro 1 e a Cedro 2 são a "cedro"), a chave da usina é própria ("cedro_1") e o id do
+# supervisório vai em "scada".
+EXTRAS = {}
+ATUALIZAR = None
+
+
+def usinas(fonte):
+    """As usinas da fonte: a lista fixa acima e as descobertas na API."""
+    if ATUALIZAR:
+        try:
+            ATUALIZAR()
+        except Exception:                                    # noqa: BLE001 — sem a lista nova, vale a que já está
+            pass
+    return list(FONTES[fonte]["usinas"]) + list(EXTRAS.get(fonte) or [])
+
+
 def usina_cfg(fonte, pid):
-    return next((u for u in FONTES[fonte]["usinas"] if u["id"] == str(pid)), None)
+    return next((u for u in usinas(fonte) if u["id"] == str(pid)), None)
+
+
+def scada_id(fonte, pid):
+    """O id da usina NO SUPERVISÓRIO (o da URL): o da chave, menos na usina do cadastro que ele junta com outra."""
+    cfg = usina_cfg(fonte, pid) or {}
+    return cfg.get("scada") or str(pid)
+
+
+def via(fonte, pid):
+    cfg = usina_cfg(fonte, pid) or {}
+    return cfg.get("via") or FONTES[fonte]["via"]
+
+
+_RX_EQUIP = re.compile(r"^\D*?(\d+)(?:\D+(\d+))?\s*$")
+
+
+def grupo_e_numero(equip):
+    """'inversor-03' → (1, 3); 'inversor-03-12' → (2, 3): o supervisório põe o 2º grupo de inversores (a 2ª UG, ou a
+    2ª usina que ele junta) com o sufixo do endereço ('-12'). Número puro ('4') → (1, 4). Sem número → None."""
+    m = _RX_EQUIP.match(str(equip or ""))
+    if not m:
+        return None
+    return (2 if m.group(2) else 1), int(m.group(1))
+
+
+def mapa_pelo_nome(equips, cadastro, grupo=None, alvo_grupo=None):
+    """{equipamento: inversor do cadastro} PELO NOME do equipamento (provisório: sem dia em comum com o BD para fechar
+    pelo valor). `grupo` = só os equipamentos desse grupo (a Cedro 1 é o 1º, a Cedro 2 o 2º); `alvo_grupo` = o grupo do
+    nome no cadastro (as duas Cedro chamam os inversores de "Inversor 1.x"). Equipamento sem par no cadastro fica de
+    fora; se sobrar algum, devolve {} (vale a ordem do cadastro, com o aviso de sempre)."""
+    nomes = {(ordem_par(n)): n for n in cadastro}
+    out = {}
+    for e in equips:
+        gn = grupo_e_numero(e)
+        if gn is None or (grupo and gn[0] != grupo):
+            continue
+        alvo = nomes.get(((alvo_grupo or gn[0]), gn[1]))
+        if not alvo:
+            return {}
+        out[str(e)] = alvo
+    return out if len(set(out.values())) == len(out) else {}
+
+
+def descobrir(getter=None):
+    """[{id, nome, via, inv_total, equipamentos}] de todas as usinas do supervisório: `/api/usinas` (todas, com o total
+    de inversores) e `/api/mqtt` (as do gateway MQTT, com o nome e os equipamentos). 2 chamadas."""
+    getter = getter or get
+    todas = getter("/api/usinas") or {}
+    mq = {u.get("usina"): u for u in ((getter("/api/mqtt") or {}).get("usinas") or []) if u.get("usina")}
+    out = []
+    for uid, st in sorted(todas.items()):
+        u = mq.get(uid) or {}
+        eqs = [str(e.get("equipamento") or e.get("indice")) for e in (u.get("equipamentos") or []) if e.get("tipo") == "inverter"]
+        out.append({"id": uid, "nome": u.get("nome") or uid.replace("_", " "), "via": "mqtt" if uid in mq else "modbus",
+                    "inv_total": (st or {}).get("inv_total"), "equipamentos": eqs})
+    return out
 
 
 def ordem_par(nome):
@@ -98,6 +174,8 @@ def nome_inversor(cfg, equip, cadastro_ordem=()):
     mapa = cfg.get("inversores")
     if mapa:
         return mapa.get(str(equip))
+    if cfg.get("scada"):
+        return None                                          # usina que o supervisório junta: só o de-para dela é dela
     try:
         n = int(re.search(r"(\d+)", str(equip)).group(1))
     except (AttributeError, ValueError):
@@ -187,10 +265,11 @@ def leitura_modbus(unit) -> dict:
 
 def leituras(fonte, pid) -> list:
     """A leitura atual de todos os inversores da usina (1 chamada)."""
-    if FONTES[fonte]["via"] == "mqtt":
-        d = get(f"/api/mqtt/{pid}")
+    sid = scada_id(fonte, pid)
+    if via(fonte, pid) == "mqtt":
+        d = get(f"/api/mqtt/{sid}")
         return [leitura_mqtt(e) for e in (d.get("equipamentos") or []) if e.get("tipo") == "inverter"]
-    d = get(f"/api/inversores/{pid}")
+    d = get(f"/api/inversores/{sid}")
     return [leitura_modbus(u) for u in (d.get("units") or [])]
 
 
@@ -273,11 +352,14 @@ def curva_inversor(fonte, pid, equip, dia, apos_ts=None, getter=None) -> dict:
     """A curva de UM inversor num dia (≤ 45 dias atrás: é o que a API guarda). Um inversor por pedido: a usina inteira
     de uma vez são 19 MB e 22 s (Irecê 2, 06/10/2026); um inversor, 2,5 MB e 0,5 s."""
     getter = getter or get
-    if FONTES[fonte]["via"] == "mqtt":
-        regs = _paginas("/api/telemetria", {"usina": pid, "desde": dia, "ate": dia, "tipo": "inverter",
-                                            "indice": int(equip), "apos_ts": apos_ts}, getter)
+    sid = scada_id(fonte, pid)
+    if via(fonte, pid) == "mqtt":
+        # pelo NOME do equipamento: o `indice` só filtra quem tem nome numérico ("1"); na Cedro, "inversor-01" com
+        # indice=1 voltava vazio (11/10/2026). Na Demerval e na Irecê os dois dão o mesmo (1.433 e 1.430 registros)
+        regs = _paginas("/api/telemetria", {"usina": sid, "desde": dia, "ate": dia, "tipo": "inverter",
+                                            "equipamento": str(equip), "apos_ts": apos_ts}, getter)
         return curva_mqtt([r for r in regs if str(r.get("equipamento")) == str(equip)])
-    regs = _paginas(f"/api/dados/string", {"usina": pid, "desde": dia, "ate": dia, "slave_id": int(equip),
+    regs = _paginas(f"/api/dados/string", {"usina": sid, "desde": dia, "ate": dia, "slave_id": int(equip),
                                            "apos_ts": apos_ts}, getter)
     return curva_modbus([r for r in regs if str(r.get("slave_id")) == str(equip)])
 

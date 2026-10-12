@@ -88,6 +88,21 @@ FONTE_BACKFILL_FORA_DA_VAZIA = {"pv"}
 # Fontes cujo registro do dia ao vivo diz quantas entradas cada inversor manda (`entradas`, da curva da API PV — ver
 # app.PV_ENTRADA_MIN_FRAC): string de número acima disso é entrada que o inversor não tem (Fazenda Limão, 01/10/2026).
 FONTE_ENTRADAS_DO_REGISTRO = {"pv"}
+# OS de string sem quantidade (Dashboard Thopen, 08/10/2026): outubro foi aberto antes de o OS Creator escrever a linha
+# "Strings sem corrente: N (...)", e o Levi decidiu "adapte todas desse mês, do nosso lado, sem tocar no Fracttal" — a
+# OS com evento até esta data, sem a linha e sem string citada, leva as strings que a régua viu no inversor no dia do
+# evento ("estimado"). Depois dela, a OS que não escreve fica sem número ("sem_quantidade"): nunca 0.
+OS_STRING_ESTIMA_ATE = "2026-10-31"
+# O prefixo do código do ativo diz o cliente da OS. A Ipixuna é IPX100 na Thopen e "2C-IPX100" na 2C (o cadastro chama
+# a da 2C de 2CIPX100): pelo código solto, a OS da 2C cairia na usina da Thopen e no dashboard do cliente errado.
+PREFIXO_CLIENTE = {"THPN": "thopen", "2C": "2c", "GY": "greenyellow"}
+# A String Box é a MESMA usina da API PV, com o mesmo plant_id: a régua a guarda na chave "pvsb" só para um registro não
+# apagar o outro (27/09/2026). Para dizer de que SISTEMA é o plant_id — a fonte do tracker e a linha da `cobertura` —, as
+# duas são a API PV (revisão adversarial de 11/10/2026: Brodowski 297378, Mandaguaçu, Fernandópolis, Santo Antônio da
+# Platina e Sarandi saíam em duas linhas na cobertura, a da String Box com 0 dia de trackers e a da API PV com 0 de strings).
+FONTE_SISTEMA = {"pvsb": "pv"}
+# fontes que gravam no registro de trackers (trk_eventos.json, um store só para todas, chaveado pelo plant_id)
+FONTES_TRK = ("pv", "pg", "sunop", "axis", "owen")
 
 
 def _fim_do_dia(dia):
@@ -179,6 +194,20 @@ def chave_trk(fonte, pid, tracker, dia):
     return f"{fonte}|{pid}|{tracker}|{dia}"
 
 
+def fonte_pelo_id(pid) -> str:
+    """A fonte do cadastro de tracker pelo FORMATO do plant_id — a regra única até 11/10/2026: dígitos com até 5 casas =
+    Banco, mais = API PV; até 3 letras = 2C, mais = SunOp.
+
+    Errava a API PV de 5 dígitos (Indaiatuba 1 é o 21480; ver `montar`, "a fonte de cada cadastro de tracker"), e por
+    isso a fonte das linhas sai do cadastro. Fica para duas coisas: a CHAVE da ocorrência de tracker (`chave_trk`) —
+    o que o analista desconsidera e a tela devolve, gravado com esta regra desde 30/09 ("pg|21480|..."); mudar a chave
+    junto com a fonte devolveria à aba as ocorrências que ele já tirou — e o último recurso, sem prova nenhuma."""
+    pid = str(pid)
+    if pid.isdigit():
+        return "pv" if len(pid) > 5 else "pg"
+    return "owen" if len(pid) <= 3 else "sunop"
+
+
 def _nrm_semcom(s):
     import unicodedata
     s = unicodedata.normalize("NFKD", str(s or "")).encode("ascii", "ignore").decode().lower()
@@ -193,7 +222,8 @@ def chave_semcom(usina, tracker):
 
 
 def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_store=None, trk_store=None,
-           book=None, hist_2c=None, agora=None, abertos_antes=None, desconsideradas=None, trk_semcom=None, log=print):
+           book=None, hist_2c=None, agora=None, abertos_antes=None, desconsideradas=None, trk_semcom=None, log=print,
+           os_string=None):
     """Pacote {periodo, gerado_em, strings, trackers, regua} de [ini, fim] (AAAA-MM-DD, fim incluso).
     hist_2c(dia) → {"strings": {cod: {inv: {string: serie}}}} (padrão: app._2c_hist_api, a API PV com as chaves do
     antigo acervo do e-mail — o e-mail da 2C saiu do código em 03/10/2026).
@@ -201,7 +231,9 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
     (Levi, 30/09/2026 — strings da MAB200 que caíram com os trackers parados): sai dos episódios, da visão por inversor
     × dia e dos totais, e vai para `desconsideradas`, para a tela poder devolver.
     trk_semcom = {dia: {chave_semcom(usina, tracker)}}: tracker sem comunicação pela ronda, para o dia cujo registro
-    ainda não traz a marca `sem_comunicacao` (antes de 01/10/2026)."""
+    ainda não traz a marca `sem_comunicacao` (antes de 01/10/2026).
+    os_string = [OS de recomposição de string] do índice da Disponibilidade (app._falhas_os_string), para a aba
+    `strings_os` do Dashboard Thopen; None = índice ainda não publicado, e o pacote sai sem a chave (não é "0 OS")."""
     desc = desconsideradas or {}
     desc_str, desc_trk = set(desc.get("strings") or ()), set(desc.get("trackers") or ())
     str_desc, trk_desc = [], []
@@ -373,6 +405,49 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
             if g and g.get("kwp") and dia in g["dias"] and g["dias"][dia] > 0:
                 return g["dias"][dia] / g["kwp"]
         return None
+
+    # o último dia que a geração do mês JÁ cobre: o maior em que alguma usina gerou (revisão adversarial de 11/10/2026).
+    # A geração não chega no relógio — a da Disponibilidade é cortada no D-1 de quando ELA rodou (a das 23:50 vai até
+    # anteontem e serve a aba por até 3 h) e o BD_Thopen grava 0 até o fechamento das 23:30 —, então o dia que acabou
+    # de passar da meia-noite ainda não fechou para quem só prova pela geração (dia_sem_prova, abaixo)
+    GER_ATE = max((d_ for g_ in GER_N.values() for d_, v_ in ((g_ or {}).get("dias") or {}).items()
+                   if isinstance(v_, (int, float)) and v_ > 0), default=None)
+
+    # ── a usina comunicou no dia? (Levi, 08/10/2026, para o Dashboard Thopen: "quando fica parado sem comunicação
+    # essa ocorrência é ignorada; se a usina comunicou inversor ou string então aí conta"). Prova = a régua de strings
+    # leu PRODUÇÃO da usina nesse dia (qualquer fonte e qualquer cadastro dela — a Brodowski 297381 não tem registro de
+    # strings e a 297378, a mesma usina, tem todo dia) ou a geração do dia é > 0. Registro de madrugada sem nada gerando
+    # não prova (a mesma régua do "a usina apareceu" das strings). A geração sozinha não serve: ela é D-1, e o dia
+    # corrente sairia sempre "sem comunicação". A 2C entra mais abaixo, quando a curva dela é lida (dias_2c).
+    com_dia = defaultdict(set)
+    for dia_c, fontes_c in mortas_curva.items():
+        for usinas_c in (fontes_c or {}).values():
+            for pid_c, ent_c in (usinas_c or {}).items():
+                if ent_c.get("vivas") or ent_c.get("mortas"):
+                    com_dia[nrm(canon(ent_c.get("usina") or pid_c))].add(dia_c)
+
+    def usina_comunicou(usina, dia):
+        return dia in com_dia.get(nrm(canon(usina)), ()) or yield_dia(usina, dia) is not None
+
+    # ── o dia que ainda não fechou não prova nem desmente (revisão de 08/10/2026). Barretos, Céu Azul, Ceilândia 1 e
+    # Cidade Gaucha não têm string lida (o registro passa por elas com vivas e mortas vazias): a única prova é a
+    # geração, e o BD_Thopen grava 0 no dia corrente até o fechamento das 23:30. Às 15:00 de 08/10, 72 episódios Thopen
+    # do dia (69 da Barretos, 3 da Matão 2) saíam com 0 dia de comunicação, e o 5080 mostrava "0" com tracker parado.
+    # Esses dias vão à parte (dias_sem_prova) e o dias_comunicou continua só com prova; contar ou avisar é decisão do
+    # 5080 (Levi).
+    # FECHADO É PELA GERAÇÃO, NÃO PELO RELÓGIO (revisão adversarial de 11/10/2026). Até então só o dia corrente ficava
+    # sem prova: às 00:05 a geração em uso era a que a Disponibilidade buscou às 23:50 (até anteontem), e ontem, já
+    # "passado", saía "não comunicou" — o tracker parado só nesse dia sumia do card do 5080 e o dia, do Diário. Toda
+    # noite, até a 1ª volta da Disponibilidade depois da meia-noite (até 3 h com a varredura do Fracttal falhando); com
+    # o fechamento do BD_Thopen atrasado, dias. Agora o dia só fecha quando a geração do mês chega até ele (GER_ATE).
+    # Sem geração nenhuma no pacote, vale o relógio, como antes. Limite: a GER_ATE é da frota — com o banco da Thopen já
+    # fresco e o fechamento do BD_Thopen atrasado, a usina do BD_Thopen sem string lida ainda sai "não comunicou" no dia
+    # que o banco já cobre (o kWh do pacote não diz de qual base veio).
+    def dia_fechado(dia):
+        return dia < hoje and (GER_ATE is None or dia <= GER_ATE)
+
+    def dia_sem_prova(usina, dia):
+        return not dia_fechado(dia) and not usina_comunicou(usina, dia)
 
     # ══ STRINGS ══════════════════════════════════════════════════════════════════════════════
     # a queda da API PV gravada depois do fim do dia veio da potência da PV Plataforma (FONTE_POTENCIA_DEPOIS_DO_DIA):
@@ -557,6 +632,12 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
         dias_2c[dia] = ach[1]
     if novos_2c:
         _cache_2c_grava(app, log)
+    # a curva da 2C também prova que a usina comunicou (usina_comunicou, 08/10/2026): ela não passa pelo registro de
+    # strings, e os trackers da 2C usam o mesmo código (ARA, IPX, STL, TUP) e o mesmo nome
+    for dia_c, lst_c in dias_2c.items():
+        for _u, usina_2c, res_c in lst_c:
+            if res_c.get("vivas") or res_c.get("mortas"):
+                com_dia[nrm(canon(usina_2c))].add(dia_c)
 
     # ENTRADA VAZIA (27/09/2026). O cruzamento com as OS mostrou que Ipv29 a Ipv32 eram 41% dos episódios e 55% do kWh
     # de setembro: entradas sem string ligada (0 A cravado o dia inteiro: Santana do Ipanema 1.13, Guatambu 4.6),
@@ -1011,6 +1092,131 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
             e["flags"] = sorted(set(e["flags"]) | {f"vem do mês anterior (desde {v[8:10]}/{v[5:7]} {v[11:16]})"})
     log(f"[falhas] strings: {len(str_ep)} episódios, {len(str_rows)} linhas inversor-dia ({time.time()-t0:.0f}s)")
 
+    # ══ OS DE STRING DO FRACTTAL (Dashboard Thopen, revisão de 08/10/2026, tarde) ═══════════════════════════════════
+    # "Strings é OS" (Levi, depois do retorno da análise de performance): o card e a tabela do Diário contam as OS de
+    # recomposição de string pela DATA DO EVENTO, não a régua de 2 h. O índice vem pronto da varredura da Disponibilidade
+    # (app._falhas_os_string: código do ativo, dia do evento em Brasília, o que o texto diz); aqui a OS ganha usina,
+    # inversor, plant_id e a quantidade, com a origem dela:
+    # - texto: a linha "Strings sem corrente: N (Ipv3, ...)" que o OS Creator vai escrever (o N vale sem a lista);
+    # - citadas: as strings citadas no texto (o leitor das OS abertas, app._falhas_os_citadas);
+    # - estimado: evento até OS_STRING_ESTIMA_ATE, sem a linha e sem citação — as strings que a régua da aba viu sem
+    #   corrente naquele inversor no dia do evento (os episódios aceitos: trancada, entrada vazia, Ipv29–32 que o
+    #   inversor não manda, sombra e desconsiderada já ficaram fora; dia estimado sem varredura não conta);
+    # - sem_quantidade: o resto, com qtd vazio. Nunca 0: a OS existe, a quantidade é que não se sabe.
+    strings_os = None
+    if os_string is not None:
+        def _cli(x):
+            return re.sub(r"\s+", "", _nrm_semcom(x))
+
+        def cod_de(u):
+            for x in (u, canon(u)):
+                c_ = (getattr(app, "USINA_COD", None) or {}).get(app._usina_key(x))
+                if c_:
+                    return c_
+            return None
+
+        # código Fractal → usina. Primeiro as usinas que a plataforma leu (o nome canônico das outras abas); a Info
+        # Geral só cobre o código que nenhuma delas tem (usina sem string lida)
+        vistas = {canon(ent_v.get("usina") or pid_v)
+                  for fontes_v in list(mortas_curva.values()) + list(str_store.values())
+                  for usinas_v in (fontes_v or {}).values() for pid_v, ent_v in (usinas_v or {}).items()}
+        vistas |= {canon(us_) for lst_ in dias_2c.values() for _u, us_, _r in lst_}
+        us_cod, ig_cod = defaultdict(set), defaultdict(set)
+        for u_ in vistas:
+            if cod_de(u_):
+                us_cod[cod_de(u_)].add(u_)
+        for ig_ in (getattr(app, "INFO_GERAL", None) or {}).values():
+            if ig_.get("usina") and cod_de(ig_["usina"]):
+                ig_cod[cod_de(ig_["usina"])].add(canon(ig_["usina"]))
+        INV_NUM = defaultdict(set)              # nrm(usina) → {"1.3", ...}: o cadastro e o que a régua leu
+        for (usn_, eqs_) in CAD_INV_DISP:
+            m_ = re.search(r"\d+\.\d+", eqs_)
+            if m_:
+                INV_NUM[usn_].add(m_.group())
+        PIDS_INV = defaultdict(set)             # (nrm(usina), nrm(inversor do cadastro)) → {plant_id}
+        for (f_, p_, ni_), c_ in curva_inv.items():
+            PIDS_INV[(nrm(canon(c_["usina"])), ni_)].add(str(p_))
+            m_ = re.search(r"\d+\.\d+", str(c_["inv"]))
+            if m_:
+                INV_NUM[nrm(canon(c_["usina"]))].add(m_.group())
+        for (f_, p_, u_, i_, _s) in segs:
+            PIDS_INV[(nrm(u_), nrm(i_))].add(str(p_))
+        # o que a régua viu por usina, inversor e dia (episódios aceitos, só dia com varredura)
+        EST = defaultdict(lambda: defaultdict(set))
+        MODELO = defaultdict(list)              # rótulos das strings da usina ("Ipv13", "ST 03"): o formato da citação
+        for ep in aceitos:
+            f_, p_, u_, i_, s_ = ep["key"]
+            MODELO[nrm(u_)].append(str(s_))
+            m_ = re.search(r"\d+\.\d+", str(i_))
+            for sg in ep["segs"] if m_ else ():
+                if sg["mins"] > 0 and not sg.get("inferido"):
+                    EST[(nrm(u_), m_.group(), sg["dia"])][str(p_)].add(str(s_))
+        for fontes_v in mortas_curva.values():
+            for usinas_v in (fontes_v or {}).values():
+                for pid_v, ent_v in (usinas_v or {}).items():
+                    for r_ in ent_v.get("mortas") or []:
+                        MODELO[nrm(canon(ent_v.get("usina") or pid_v))].append(str(r_.get("string")))
+
+        def rotulo(usina, n):
+            """A string citada por número, no formato que a régua usa na usina (Ipv7; ST 07 na Athon e no Banco) —
+            para a mesma string de duas OS do inversor ser a mesma no 5080, que conta strings distintas."""
+            mods = [x for x in MODELO.get(nrm(usina or ""), ()) if re.fullmatch(r"\D*\d+\D*", x)]
+            if not mods:
+                return f"Ipv{n}"
+            m_ = re.search(r"\d+", mods[0])
+            larg = 2 if any(re.search(r"(?<!\d)0\d", x) for x in mods) else 1
+            return mods[0][:m_.start()] + str(n).zfill(larg) + mods[0][m_.end():]
+
+        def usina_da_os(o):
+            cb, pre = str(o.get("cb") or ""), str(o.get("prefixo") or "").upper()
+            cands = set()
+            for c_ in ([pre + cb] if pre else []) + [cb]:
+                cands = us_cod.get(c_) or ig_cod.get(c_) or set()
+                if cands:
+                    break
+            cands = sorted(cands)
+            alvo = PREFIXO_CLIENTE.get(pre)
+            if alvo:
+                mesmo = [u for u in cands if _cli(cliente(u)) == alvo]
+                # o prefixo da Thopen não tira usina cujo cliente o cadastro grafa diferente; o de outro cliente tira
+                cands = mesmo if (mesmo or alvo != "thopen") else cands
+            if len(cands) > 1 and o.get("inv"):
+                cands = [u for u in cands if str(o["inv"]) in INV_NUM.get(nrm(u), ())] or cands
+            return cands[0] if len(cands) == 1 else None      # na dúvida, sem usina: nunca a de outro cliente
+
+        def _num(s_):
+            m_ = re.search(r"\d+", str(s_))
+            return (int(m_.group()) if m_ else 0, str(s_))
+
+        strings_os = []
+        for o in os_string:
+            ev_ = str(o.get("evento") or "")[:10]
+            if not (ini <= ev_ <= fim):
+                continue                        # o dia do evento manda: a OS de 30/09 é de setembro
+            usina, inv_n = usina_da_os(o), (str(o["inv"]) if o.get("inv") else None)
+            inv_d = (inv_cadastro(usina, inv_nome(inv_n)) if usina else inv_nome(inv_n)) if inv_n else None
+            pids = set(PIDS_INV.get((nrm(usina), nrm(inv_d)), ())) if (usina and inv_d) else set()
+            qtd, strs, origem = None, [], "sem_quantidade"
+            if o.get("qtd_texto") is not None:
+                qtd, origem = int(o["qtd_texto"]), "texto"
+                strs = [rotulo(usina, n) for n in sorted(set(o.get("strings_texto") or []))]
+            elif o.get("cit"):
+                cit_ = sorted(set(o["cit"]))
+                qtd, origem, strs = len(cit_), "citadas", [rotulo(usina, n) for n in cit_]
+            elif ev_ <= OS_STRING_ESTIMA_ATE and usina and inv_n:
+                vistos_ = EST.get((nrm(usina), inv_n, ev_)) or {}
+                if vistos_:
+                    strs = sorted(set().union(*vistos_.values()), key=_num)
+                    qtd, origem, pids = len(strs), "estimado", set(vistos_)
+            strings_os.append({"data_evento": ev_, "os": str(o.get("os") or ""), "status": o.get("status"),
+                               "cliente": cliente(usina) if usina else None, "usina": usina,
+                               "plant_id": next(iter(pids)) if len(pids) == 1 else None, "inversor": inv_d,
+                               "strings": ", ".join(strs) or None, "qtd": qtd, "origem": origem})
+        # 1 linha = OS × inversor: a OS de vários inversores (Altair 13585, seis) sai uma vez por inversor
+        strings_os.sort(key=lambda x: (x["data_evento"], _num(x["os"]), x["inversor"] or ""))
+        log(f"[falhas] OS de string no período: {len(strings_os)} "
+            f"({dict(Counter(x['origem'] for x in strings_os))}; sem usina: {sum(1 for x in strings_os if not x['usina'])})")
+
     # ══ TRACKERS ═════════════════════════════════════════════════════════════════════════════
     dias_t = [x for x in sorted(trk_store) if ini <= x <= fim]
     # o último dia que o registro CLASSIFICOU: às 06:40 ninguém tem leitura suficiente e o parado de ontem segue em
@@ -1057,10 +1263,35 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
             frota_store[_pid].update((_e.get("classes") or {}).keys())
             frota_store[_pid].update(str(x["tracker"]) for x in (_e.get("eventos") or []))
 
+    # ── a fonte de cada cadastro de tracker (revisão adversarial de 11/10/2026). O registro é um store só das quatro
+    # fontes, chaveado pelo plant_id, e até 11/10 não dizia de qual fonte cada usina era: a fonte saía do tamanho do id
+    # (fonte_pelo_id: até 5 dígitos = Banco). A API PV tem cadastro de 5 dígitos — no PC, de 01 a 11/10, 29: Indaiatuba
+    # 1 a 4 (21480–21483), Embu Guaçu, Nova Londrina, Altair, Ceilândia II e 1, Céu Azul, Tanabi, Mandaguaçu e Canarana
+    # — e eles saíam "Thopen · Banco" nos episódios, no trackers_dia e na cobertura (o Banco vai de 1 a 34); o Nexus,
+    # que liga o plant_id pelo de-para do sistema, procuraria o 21480 no Banco. Vale, nesta ordem: a fonte que o
+    # registro gravou (os gravadores do app, desde 11/10); o de-para da API PV (falhas_pv_dev) e o registro de strings
+    # (o mesmo plant_id lido em pv/pvsb é da API PV, em pg é do Banco), quando dizem uma fonte só; e só sem nada disso,
+    # o tamanho do id. O id não se repete entre as fontes (o store é chaveado por ele).
+    fonte_gravada, fonte_lida = {}, defaultdict(set)
+    for _dia in sorted(trk_store):
+        for _pid, _e in (trk_store[_dia] or {}).items():
+            if (_e or {}).get("fonte") in FONTES_TRK:
+                fonte_gravada[str(_pid)] = _e["fonte"]
+    for _fontes in list(mortas_curva.values()) + list(str_store.values()):
+        for _f, _us in (_fontes or {}).items():
+            _f = FONTE_SISTEMA.get(_f, _f)
+            if _f in FONTES_TRK:
+                for _pid in (_us or {}):
+                    fonte_lida[str(_pid)].add(_f)
+    for _pid in pv_dev:
+        fonte_lida[str(_pid)].add("pv")
+
     def fonte_de(pid):
-        if pid.isdigit():
-            return "pv" if len(pid) > 5 else "pg"
-        return "owen" if len(pid) <= 3 else "sunop"
+        pid = str(pid)
+        if pid in fonte_gravada:
+            return fonte_gravada[pid]
+        lidas = fonte_lida.get(pid) or ()
+        return next(iter(lidas)) if len(lidas) == 1 else fonte_pelo_id(pid)
 
     def inversor_de(pid, trk):
         return app._bd_trk_lookup(nomes.get(pid, ""), app._trk_id_num(trk))
@@ -1126,6 +1357,11 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                 antes.add((r.get("usina"), str(r.get("tracker"))))
 
     trk_rows = []
+    # a ocorrência por DIA (análise de performance, 08/10/2026: "acho que eles esperam algo sobre dias também"):
+    # (fonte, pid, usina, dia) → os trackers dos episódios que ficam (nem descartados nem desconsiderados) parados nesse
+    # dia, só no dia em que a usina comunicou ("sim") ou no dia que a geração ainda não cobre — o corrente, ou o que
+    # acabou de fechar no relógio — sem outra prova ("sem prova" — decisão do orquestrador: conta)
+    trk_dia = defaultdict(lambda: {"com": None, "trk": set()})
     for (pid, trk), por_dia in serie.items():
         usina = nomes.get(pid, "")
         usina_c = canon(usina)
@@ -1173,7 +1409,18 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
             if hs * 60 < 30:
                 trk_q["descartado: < 30 min na janela solar"] += 1
                 return
-            chave = chave_trk(fonte, pid, trk, ep["ini_dia"])
+            # dias do episódio em que a USINA comunicou (o Dashboard Thopen só conta o tracker parado com ela lendo)
+            dias_com = sum(1 for dd, _x, _y in ep["dias"] if usina_comunicou(usina_c, dd))
+            dias_sp = sum(1 for dd, _x, _y in ep["dias"] if dia_sem_prova(usina_c, dd))
+            # a chave segue a fonte pelo tamanho do id (fonte_pelo_id): é o identificador que o analista desconsiderou
+            # ("pg|21480|..." para a Indaiatuba 1) e que a tela devolve — não a fonte da linha
+            chave = chave_trk(fonte_pelo_id(pid), pid, trk, ep["ini_dia"])
+            for dd, _x, _y in ep["dias"] if chave not in desc_trk else ():
+                com_ = "sim" if usina_comunicou(usina_c, dd) else ("sem prova" if dia_sem_prova(usina_c, dd) else None)
+                if com_:                         # a usina muda nesse dia: "essa ocorrência é ignorada" (Levi)
+                    td_ = trk_dia[(fonte, str(pid), usina_c, dd)]
+                    td_["com"] = com_
+                    td_["trk"].add(str(trk))
             if chave in desc_trk:
                 trk_q["desconsiderado pelo analista"] += 1
             (trk_desc if chave in desc_trk else trk_rows).append({
@@ -1185,6 +1432,7 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                              "kwp_tracker": round(kwp_t or 0, 2), "perda_kwh": round(perda, 1),
                              "cronico": (usina_c, trk) in antes and ep["ini_dia"] <= ini,
                              "visto_ate": ep["dias"][-1][0], "sem_com_desde": ep.get("sc_fim"),
+                             "dias_comunicou": dias_com, "dias_sem_prova": dias_sp,
                              "flags": sorted(flags)})
 
         def ddmm(d):
@@ -1297,13 +1545,19 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                 txt = "leitura incompleta da usina" if leu else "sem dado da usina"
                 trk_q[f"em aberto: {txt} depois"] += 1
                 fecha(aberto, None, None, "em aberto", extra=f"{txt} desde {ddmm(d_ult)}")
-    ant_t = {(f_, str(p_), str(t_)): v for (f_, p_, t_), v in ((abertos_antes or {}).get("trackers") or {}).items()}
+    # o "desde" casa pelo plant_id e o tracker, sem a fonte: o id não se repete entre as fontes (o registro é um store
+    # só, chaveado por ele) e o mês anterior pode ter sido montado com a fonte pelo tamanho do id — setembro, montado em
+    # 02/10 e não mais remontado, tem o 21480 da API PV como Banco
+    ant_t = {(str(p_), str(t_)): v for (f_, p_, t_), v in ((abertos_antes or {}).get("trackers") or {}).items()}
     for r in trk_rows:
         a = _hm(r["inicio"][11:16])
-        v = ant_t.get((r["fonte"], str(r["plant_id"]), str(r["tracker"])))
+        v = ant_t.get((str(r["plant_id"]), str(r["tracker"])))
         if v and r["inicio"][:10] == ini and a is not None and a <= 9 * 60:     # a parada da manhã é continuação
             r["desde"] = v
             r["flags"] = sorted(set(r["flags"]) | {f"vem do mês anterior (desde {v[8:10]}/{v[5:7]} {v[11:16]})"})
+    trackers_dia = sorted(({"dia": k[3], "fonte": k[0], "plant_id": k[1], "usina": k[2], "cliente": cliente(k[2]),
+                            "trackers": ", ".join(sorted(v["trk"], key=_ord)), "qtd": len(v["trk"]), "comunicou": v["com"]}
+                           for k, v in trk_dia.items()), key=lambda r: (r["dia"], r["usina"], r["fonte"], r["plant_id"]))
     log(f"[falhas] trackers: {len(trk_rows)} episódios ({time.time()-t0:.0f}s)")
 
     def resumo(rows, chave):
@@ -1333,6 +1587,58 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                 sombras_info.append({"fonte": "owen", "plant_id": u_s, "usina": canon(usina_s), "dia": dia_s, **x})
     if sombras_info:
         str_q["sombra (entrou ou saiu em rampa): fora"] = len(sombras_info)
+
+    # ── cobertura do mês (08/10/2026): quem a plataforma MEDIU, com ou sem falha. Sem ela, a usina sem linha nos
+    # episódios sairia "0 falhas" no dashboard do cliente — e pode ser usina que a plataforma nem monitora.
+    # 1 linha = SISTEMA × plant_id (revisão adversarial de 11/10/2026): a String Box entra na linha da API PV
+    # (FONTE_SISTEMA) e o tracker vai pela fonte do cadastro (fonte_de). Em outubro, no PC, 32 plant_ids saíam em duas
+    # linhas, cada uma com um 0 falso (21480: Banco com 0 dia de strings e 3 de trackers, API PV com 10 e 0). E o 0 é
+    # "olhou e não houve leitura": a régua que nem registrou o cadastro no mês (a de trackers na usina sem tracker
+    # monitorado, a de strings na que só tem tracker) fica VAZIA — não medido —, nunca 0
+    cob, olhou = {}, defaultdict(set)            # olhou: (sistema, plant_id) → as réguas que o registraram no mês
+
+    def _cob(fonte, pid, usina):
+        fonte = FONTE_SISTEMA.get(fonte, fonte)
+        return cob.setdefault((fonte, str(pid)), {"fonte": fonte, "plant_id": str(pid), "usina": canon(usina),
+                                                  "s": set(), "t": set()})
+
+    def _olhou(fonte, pid, regua):
+        olhou[(FONTE_SISTEMA.get(fonte, fonte), str(pid))].add(regua)
+    for dia_c in [x for x in sorted(mortas_curva) if ini <= x <= fim]:
+        for fonte_c, usinas_c in (mortas_curva[dia_c] or {}).items():
+            for pid_c, ent_c in (usinas_c or {}).items():
+                _olhou(fonte_c, pid_c, "s")              # registro sem produção (madrugada, Céu Azul) = olhou, 0 dia
+                if ent_c.get("vivas") or ent_c.get("mortas"):
+                    _cob(fonte_c, pid_c, ent_c.get("usina") or pid_c)["s"].add(dia_c)
+    for dia_c in [x for x in sorted(str_store) if ini <= x <= fim]:     # o store das quedas também é medição
+        for fonte_c, usinas_c in (str_store[dia_c] or {}).items():
+            if fonte_c == "owen":
+                continue                                                 # a 2C vem da curva (dias_2c, abaixo)
+            for pid_c, ent_c in (usinas_c or {}).items():
+                _olhou(fonte_c, pid_c, "s")
+                _cob(fonte_c, pid_c, ent_c.get("usina") or pid_c)["s"].add(dia_c)
+    for dia_c, lst_c in dias_2c.items():
+        for u_c, usina_2c, res_c in lst_c:
+            _olhou("owen", u_c, "s")
+            if res_c.get("vivas") or res_c.get("mortas"):
+                _cob("owen", u_c, usina_2c)["s"].add(dia_c)
+    for dia_c in dias_t:
+        for pid_c, ent_c in (trk_store.get(dia_c) or {}).items():
+            _olhou(fonte_de(pid_c), pid_c, "t")          # lido sem classificar, ou sem cobertura = olhou, 0 dia
+            if ent_c.get("classes") is not None and (ent_c.get("cobertura") or 0) > 0:
+                _cob(fonte_de(pid_c), pid_c, nomes.get(pid_c) or pid_c)["t"].add(dia_c)
+    _d0 = datetime.strptime(ini, "%Y-%m-%d")
+    todos_dias = [(_d0 + timedelta(days=i)).strftime("%Y-%m-%d")
+                  for i in range((datetime.strptime(fim, "%Y-%m-%d") - _d0).days + 1)]
+    # primeiro_dia não vai para a planilha: é a ordem da aba `cobertura` (falhas_publicar), para o cadastro que aparece
+    # no meio do mês entrar no fim, como os episódios pela data de início
+    cobertura = sorted(({"fonte": c["fonte"], "plant_id": c["plant_id"], "usina": c["usina"],
+                         "cliente": cliente(c["usina"]),
+                         "dias_strings": len(c["s"]) if "s" in olhou[k] else None,
+                         "dias_trackers": len(c["t"]) if "t" in olhou[k] else None,
+                         "dias_comunicou": sum(1 for d_ in todos_dias if usina_comunicou(c["usina"], d_)),
+                         "primeiro_dia": min(c["s"] | c["t"])}
+                        for k, c in cob.items()), key=lambda c: (c["usina"], c["fonte"], c["plant_id"]))
     return {"periodo": [ini, fim], "gerado_em": agora.strftime("%Y-%m-%d %H:%M"),
             "strings": {"rows": str_rows, "episodios": str_ep, "desconsideradas": str_desc, "qualidade": dict(str_q),
                         "entradas_vazias": vazias_info,
@@ -1349,6 +1655,9 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                          "sem_comunicacao": sorted(sc_fora.values(), key=lambda v: (v["usina"], str(v["tracker"]))),
                          "por_cliente": resumo(trk_rows, "cliente")[:12],
                          "por_usina": resumo(trk_rows, "usina")[:25]},
+            "cobertura": cobertura, "trackers_dia": trackers_dia,
+            # sem o índice do Fracttal, sem a chave: a `atualizacao` diz "não publicado", não "0 OS"
+            **({"strings_os": strings_os} if strings_os is not None else {}),
             "regua": {"sol_min_graus": SOL_MIN, "janela": "06–18h ∩ sol ≥ 8° no estado",
                       "janela_strings": "06–18h, 2 h seguidas sem corrente com o inversor gerando (≥ 12% do pico); "
                                         "perda ponderada pela altura do sol",
