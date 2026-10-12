@@ -81,7 +81,8 @@ Os cortes tiraram ~15%. A curva de tracker sozinha era ~86% do que sobrou, e o P
   toda hora.
 - A curva de reserva vem **numa baixa só** por dia (≈4 POSTs em vez de ≈10).
 - O PC em modo ronda **não aquece** as Ocorrências da Athon e da Axis (`_perdas_ocor_warm_fontes`). Quem abre a
-  aba Perdas é o servidor.
+  aba Perdas é o servidor. *(12/10/2026: o aquecimento saiu inteiro do worker, nas duas máquinas — enchia um cache que
+  o web nunca lê; ver "Teto de memória do worker" em `plataforma/CLAUDE.md`.)*
 
 **Conferência com dado real (acervo do PC, régua antiga × nova):**
 - Nos 23 dias com usina de curva parcial, **0 ocorrências diferentes**.

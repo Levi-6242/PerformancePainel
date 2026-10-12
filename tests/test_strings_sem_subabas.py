@@ -4,8 +4,8 @@
 
 Saem os botões, as telas, os carregadores e as 4 rotas que só elas usavam (/api/<fonte>/strings/problema e
 /strings/eventos, com os exports .xlsx). O MOTOR fica: a mesma leitura de "sem corrente" e de "caiu → voltou" alimenta a
-aba Falhas (que está sendo montada em paralelo), a aba Perdas ("Strings · Zeradas"), o sino de notificações e as
-linhas "em aberto" da cascata e do relatório — mapeado em 25/09. Tirar o motor é outra decisão.
+aba Falhas, o sino de notificações e as linhas "em aberto" da cascata e do relatório — mapeado em 25/09. (A aba Perdas,
+que também o lia pelo _str_ev_rows_range, saiu inteira em 12/10/2026: tests/test_perdas_fora.py.)
 """
 import pathlib
 
@@ -28,8 +28,8 @@ def test_as_rotas_das_subabas_sairam():
         assert rota not in regras, f"{rota} ainda existe"
 
 
-def test_o_motor_que_alimenta_falhas_perdas_e_o_sino_fica():
-    for f in ("_strings_problema_rows", "_strings_eventos_rows", "_str_ev_rows_range", "_pv_strings_eventos",
+def test_o_motor_que_alimenta_falhas_e_o_sino_fica():
+    for f in ("_strings_problema_rows", "_strings_eventos_rows", "_pv_strings_eventos",
               "_sunop_strings_eventos", "_notif_ciclo", "_falhas_registra"):
         assert callable(getattr(app, f, None)), f"{f} saiu junto — ele alimenta outras abas"
     regras = {str(r) for r in app.app.url_map.iter_rules()}

@@ -3148,7 +3148,6 @@ def pr_previsto(usina_display, ano=None, mes=None):
     return rec
 
 
-
 def meta_geracao_dia(usina_display, data, ipoa, validacao):
     """Meta de geração do DIA (MWh) — espelha fielmente a coluna DAX 'Meta Mensal Geração':
         1. Validação == 0          -> P50 mensal / dias do mês
@@ -5550,8 +5549,6 @@ def gerencial():
 def painel_portfolio():
     # Painel NOC — Monitoramento de Portfólio (versão rica). Consome /api/macro + /api/gerencial.
     return render_template("painel_portfolio.html", today=datetime.now().strftime("%d/%m/%Y"))
-
-
 
 
 _PAINEL_USINA_PADRAO = os.environ.get("PAINEL_USINA_PADRAO", "v2")   # "antigo" devolve a versão anterior como padrão
@@ -8135,7 +8132,6 @@ def _trk_accum_parados(pid):
     if med < TRK_ALVO_MOVE_MIN and (datetime.now().hour < TRK_PARADA_GLOBAL_HORA or _samp < TRK_ACCUM_MIN_CONF):
         return set()                    # cedo no dia OU acumulador raso e ninguém girou — não dá p/ julgar
     return {tid for tid, a in amps.items() if a < TRK_PARADO_AMP}
-
 
 
 def _sunop_trk_paths(plant_name: str, inst: str = "gridco") -> tuple:
@@ -11306,9 +11302,67 @@ TRK_PV_DESVIO_FROTA = 10.0   # ° — desvio do tracker vs a mediana da frota = 
 #   O preço: o instantâneo do overview envelhece até 30 min em vez de 5. Não muda decisão — a usina
 #   lê de 2,5 em 2,5 min e a régua de parado trabalha em horas — e "Atualizar status" busca na hora.
 TRK_DIA_TTL = 1800           # s — 30 min, alinhado ao job de eventos (CACHE_TTL aqui = 4× o tráfego)
-_pv_trk_dia_cache = {}       # (idusina, data) -> {ts, d}: dia cru da API PV, serve curva + instantâneo
+_pv_trk_dia_cache = {}       # (idusina, data) -> {ts, d, n, uso, usos}: dia cru da API PV, serve curva + instantâneo
 _pv_trk_dia_locks = {}       # (idusina, data) -> Lock: DEDUP (a busca é cara; 1 por chave)
 _pv_trk_dia_guard = threading.Lock()
+
+# TETO DO PASSADO (11/10/2026). "Dia fechado nunca expira" tinha virado "dia fechado nunca SAI". O worker de 11/10 subiu
+# às 00:39 e às 22:52 estava com 5,5 GB, deixando 0,3 GB livres de 20 no PC na hora do fechamento das 23:30 (o PC já
+# tinha travado na noite anterior). Medido DENTRO do worker (sys.remote_exec, às 23:45 de outro boot, 4,3 GB): este
+# cache era ~1,8 GB (por amostra) — 86 entradas de hoje (3,9 milhões de pontos), ontem, e plantas da 2C de 03/07 e 06/07
+# com ~273 mil pontos cada, trazidas pelo aquecimento das ocorrências de julho. Cada dia vivido ficava até o próximo
+# restart (~1–1,8 GB por dia), e cada dia antigo que um laço tocasse, também.
+# A regra: HOJE fica fora (é o que a tela, a ronda e a Entrada leem; o TTL de 30 min o renova). O PASSADO tem teto de
+# PONTOS, imposto na hora de guardar (não só a cada 10 min do faxineiro: o aquecimento traz centenas de MB nesse
+# intervalo). Passou do teto, sai primeiro o que foi lido UMA vez só (varredura: o aquecimento do D-1, o das ocorrências,
+# o dia de ontem que virou passado à meia-noite), o mais antigo antes; o que é RELIDO fica — é o backfill da hora relendo
+# os mesmos pares de cobertura baixa, que não pode rebaixá-los da API PV (paga) a cada volta. Medido no worker: esses
+# pares são de julho a outubro e pequenos (2–7 mil pontos), então nem "o dia mais antigo primeiro" nem um LRU puro
+# serviam. Dia passado que ninguém lê há PV_TRK_DIA_OCIOSO_S também sai. O que sai é dia FECHADO: pedido de novo, volta
+# IGUAL — custa uma busca, não um número diferente (tests/test_worker_memoria_teto.py, inclusive o mesmo backfill com e
+# sem teto). Só no WORKER (`_MODO_WEB` falso): no web, o dia passado em cache é o que o analista abriu no drill, e a aba
+# Perdas (curva quente) o enxerga; ali o teto mudaria o que a tela mostra, e o web não é quem incha.
+PV_TRK_DIA_TETO_PONTOS = 1_500_000     # ≈ 330 MB em objetos (220 B por ponto {x, y}); a maior planta-dia vista, 273 mil
+PV_TRK_DIA_OCIOSO_S = 2 * 3600
+
+
+def _pv_trk_dia_pontos(ent) -> int:
+    """Pontos da entrada (curva + alvo): a medida do teto. Guardado em `n` ao entrar; conta na hora se faltar."""
+    n = (ent or {}).get("n")
+    if n is None:
+        d = (ent or {}).get("d") or {}
+        n = sum(len(s) for s in (d.get("curva") or {}).values()) + sum(len(s) for s in (d.get("alvo") or {}).values())
+    return n
+
+
+def _pv_trk_dia_poda(agora=None) -> int:
+    """Tira do _pv_trk_dia_cache o dia PASSADO ocioso e o que passa do teto de pontos (primeiro o lido uma vez só, o mais
+    antigo antes), e os locks órfãos. Devolve quantas entradas saíram. Hoje nunca sai daqui."""
+    agora = agora or time.time()
+    hoje = datetime.now().strftime("%d/%m/%Y")
+    passado = [(k, e) for k, e in list(_pv_trk_dia_cache.items()) if k[1] != hoje]
+    uso = lambda e: max(e.get("ts") or 0.0, e.get("uso") or 0.0)        # noqa: E731
+    mortos = {k for k, e in passado if agora - uso(e) > PV_TRK_DIA_OCIOSO_S}
+    vivos = [(k, e) for k, e in passado if k not in mortos]
+    total = sum(_pv_trk_dia_pontos(e) for _k, e in vivos)
+    if total > PV_TRK_DIA_TETO_PONTOS:
+        vivos.sort(key=lambda kv: ((kv[1].get("usos") or 1) >= 2, uso(kv[1])))
+        for k, e in vivos:
+            if total <= PV_TRK_DIA_TETO_PONTOS:
+                break
+            mortos.add(k)
+            total -= _pv_trk_dia_pontos(e)
+    for k in mortos:
+        _pv_trk_dia_cache.pop(k, None)
+    # sob o MESMO guarda que cria os locks, e sem tirar o de quem está buscando (a chave só entra no cache depois da
+    # busca, até 180 s): o mesmo cuidado do faxineiro com os locks do gráfico de trackers
+    with _pv_trk_dia_guard:
+        for k in [k for k in list(_pv_trk_dia_locks.keys()) if k not in _pv_trk_dia_cache]:
+            lk = _pv_trk_dia_locks.get(k)
+            if lk is not None and lk.locked():
+                continue
+            _pv_trk_dia_locks.pop(k, None)
+    return len(mortos)
 
 
 def _pv_trk_parse_dia(payload, com_alvo: bool = False) -> dict:
@@ -11397,6 +11451,8 @@ def _pv_trk_dia(idusina, data: str, fetch: bool = True) -> dict:
     key, agora = (idusina, data), time.time()
     ent = _pv_trk_dia_cache.get(key)
     if ent and ((data != hoje and ent["d"]["curva"]) or (agora - ent["ts"]) < TRK_DIA_TTL):
+        if data != hoje:                          # relido = em uso: a poda o deixa por último (ver o teto acima)
+            ent["uso"], ent["usos"] = agora, (ent.get("usos") or 1) + 1
         return ent["d"]
     if not fetch:
         return (ent or {}).get("d") or {"curva": {}, "ultima": {}, "ultima_ts": None}
@@ -11405,6 +11461,8 @@ def _pv_trk_dia(idusina, data: str, fetch: bool = True) -> dict:
     with lk:
         ent = _pv_trk_dia_cache.get(key)          # re-check: outro thread pode ter buscado
         if ent and ((data != hoje and ent["d"]["curva"]) or (time.time() - ent["ts"]) < TRK_DIA_TTL):
+            if data != hoje:
+                ent["uso"], ent["usos"] = time.time(), (ent.get("usos") or 1) + 1
             return ent["d"]
         try:
             r = _http().post(f"{BASE_URL}/trackers",
@@ -11424,7 +11482,9 @@ def _pv_trk_dia(idusina, data: str, fetch: bool = True) -> dict:
             print(f"[trackers/apipv] usina {idusina} {data}: {e}")
             d = {"curva": {}, "ultima": {}, "ultima_ts": None, "erro": f"{type(e).__name__}: {str(e)[:160]}"}
         if d["curva"]:
-            _pv_trk_dia_cache[key] = {"ts": time.time(), "d": d}
+            _pv_trk_dia_cache[key] = {"ts": time.time(), "d": d, "n": _pv_trk_dia_pontos({"d": d})}
+            if data != hoje and not _MODO_WEB:
+                _pv_trk_dia_poda()                # o teto vale a cada dia passado que entra, não só no faxineiro
             return d
         # busca vazia (usina sem tracker, madrugada, throttle): NÃO cacheia vazio — senão "Sem curva"
         # gruda por 5 min mesmo com a fonte já respondendo. Mesmo cuidado do trackerschart.
@@ -12080,10 +12140,6 @@ def api_trk_regua_diff():
                        "ms_legacy": round(ms_l), "ms_v2": round(ms_v), "mudancas": len(mudou), "ex": mudou[:8]})
     return jsonify({"fonte": fonte, "dia": dia, "usinas": len(usinas), "flag_v2_ligado": TRK_REGUA_V2,
                     "agg_legacy": agg_l, "agg_v2": agg_v, "detalhe": usinas})
-
-
-def _trk_min_hhmm(mn):
-    return f"{int(mn) // 60:02d}:{int(mn) % 60:02d}" if mn is not None else None
 
 
 def _lst_usina(lst):
@@ -20287,7 +20343,6 @@ def _str_eventos_calc(usina, curvas_inv, zero_thr=None, inv_min=None, inv_min_fr
     return eventos
 
 
-
 _pv_dev_names_cache = {}   # pid -> {ts, names}
 
 
@@ -20664,71 +20719,9 @@ def _strings_eventos_rows(fonte, date_iso, force=False):
     return []
 
 
-def _str_ev_rows_stored(fonte, dia):
-    """Ocorrências de string do dia RECONSTRUÍDAS do store persistido (perdas_strings.json), capturado
-    quando o dia era 'hoje' (corrente) — fonte de verdade p/ dia FECHADO, sem depender do recompute frágil
-    da potência histórica (que zerava o PV de dia passado). [] se o dia/fonte não estão no store."""
-    with _perdas_str_lock:
-        node = dict((_perdas_str.get(dia, {}) or {}).get(fonte, {}) or {})
-    rows = []
-    for pid, pn in node.items():
-        usina = pn.get("usina")
-        for e in (pn.get("eventos") or []):
-            rows.append({"usina": usina, "plant_id": pid, "inversor": e.get("inversor"),
-                         "string": e.get("string"), "caiu": e.get("caiu"), "voltou": e.get("voltou"),
-                         "dur_min": e.get("dur_min"), "gerando_agora": e.get("gerando_agora")})
-    return rows
-
-
-def _str_ev_rows_range(fonte, di, dfim, force=False):
-    """Ocorrências de strings no intervalo [di..dfim], cada linha marcada com data/data_iso, sem trancadas.
-    Dia FECHADO LÊ do store persistido (`_str_ev_rows_stored`) — capturado com corrente quando era 'hoje';
-    o recompute (potência histórica) só entra se o store não tiver o dia. HOJE recomputa ao vivo.
-    #6 (gap→18:00): num dia PASSADO, "não voltou no dia" FECHA em 18:00 (a perda daquele dia é limitada pela
-    janela solar 06–18h) — MENOS quando a string segue ZERADA agora (parada aberta cobrindo o dia), aí sai da
-    ocorrência (é parada → book de zeradas; sem dupla contagem, análogo ao #9). Dia recente no topo."""
-    hoje = datetime.now().strftime("%Y-%m-%d")
-    WFIM_MIN, WFIM = PERDAS_SOL_FIM_H * 60, f"{PERDAS_SOL_FIM_H:02d}:00"     # 18:00
-    # strings AINDA zeradas AGORA (parada aberta) → {(usina, inversor, string): 'YYYY-MM-DD' do "desde"}
-    abertas = {}
-    try:
-        for r in (_strings_problema_rows(fonte, force=False) or []):
-            pid, inv, st = str(r.get("plant_id")), r.get("inversor"), r.get("string")
-            dd = _perdas_str_desde(fonte, pid, inv, st, hoje) if fonte in _STR_EV_FONTES else None
-            if not dd and r.get("desde"):
-                dd = _dt_iso(hoje + "T" + str(r.get("desde")))
-            abertas[(r.get("usina"), inv, st)] = (dd.strftime("%Y-%m-%d") if dd else hoje)
-    except Exception:
-        pass
-    rows, d = [], di
-    while d <= dfim:
-        diso = d.strftime("%Y-%m-%d"); passado = diso < hoje
-        if passado:                                          # dia FECHADO → store; vazio → recompute best-effort
-            base = _str_ev_rows_stored(fonte, diso) or (_strings_eventos_rows(fonte, diso, force) or [])
-        else:                                                # HOJE → recomputa ao vivo (corrente)
-            base = _strings_eventos_rows(fonte, diso, force) or []
-        for r in base:
-            rr = dict(r); rr["data"] = d.strftime("%d/%m"); rr["data_iso"] = diso
-            if passado and not rr.get("voltou"):                 # aberto no fim de um dia FECHADO
-                ab = abertas.get((rr.get("usina"), rr.get("inversor"), rr.get("string")))
-                if ab is not None and ab <= diso:
-                    continue                                     # #6/#9: ainda é parada aberta → não é ocorrência
-                rr["voltou"] = WFIM                              # #6: recuperou depois do gap → fecha em 18:00
-                try:
-                    hh, mm = str(rr.get("caiu") or "").split(":")[:2]
-                    rr["dur_min"] = max(0, WFIM_MIN - (int(hh) * 60 + int(mm)))
-                except Exception:
-                    pass
-                rr["gap_fechado"] = True
-            rows.append(rr)
-        d += timedelta(days=1)
-    rows.sort(key=lambda r: (r.get("usina", ""), str(r.get("inversor", "")), r.get("caiu", "")))
-    rows.sort(key=lambda r: r.get("data_iso", ""), reverse=True)   # estável → recente no topo, resto asc
-    return rows
-
 # (As rotas /api/<fonte>/strings/eventos e .../export.xlsx saíram em 25/09/2026 com a sub-aba "Ocorrências (caiu →
-#  voltou)". O motor acima fica: _str_ev_rows_range serve a aba Perdas; os construtores registram os episódios da aba
-#  Falhas (_falhas_registra) e gravam o perdas_strings.json.)
+#  voltou)", e a aba Perdas, que ainda as lia por outra rota, em 12/10/2026. O motor acima fica: os construtores
+#  registram os episódios da aba Falhas (_falhas_registra) e gravam o perdas_strings.json; o sino e o relatório leem.)
 
 
 # código da usina no CSV do e-mail (rodar_2c.MAP / OWEN_UFVS) → id na API PV. Casar por NOME não serve: depois do cadastro
@@ -20781,6 +20774,21 @@ def _2c_trk_da_api(pid, trk):
 _2c_trk_api_memo = {}   # date_iso -> (ts, trackers)
 _2c_trk_vazio = {}      # (pid, data_br) -> quando o dia veio vazio pela última vez
 _2C_TRK_LOOP_S = 60
+# Validade do memo e da marca de "veio vazio" — quem lê não aceita entrada mais velha que isso. Até 11/10/2026 cada DATA
+# ficava no dicionário para sempre: o memo de hoje, medido dentro do worker, tinha 96 MB de tuplas (datetime, valor), e o
+# de cada dia passado montado com todas as plantas (o fechamento das 01:30, as ocorrências) ficava até o restart.
+# Podar o que passou da validade não muda nada do que é servido.
+_2C_TRK_MEMO_S = 60
+_2C_TRK_VAZIO_S = 5 * 60
+
+
+def _2c_trk_memo_poda(agora=None) -> int:
+    """Tira do memo do dia da 2C a entrada que passou da validade (nenhum leitor a serve mais)."""
+    agora = agora or time.time()
+    velhas = [k for k, v in list(_2c_trk_api_memo.items()) if agora - v[0] >= _2C_TRK_MEMO_S]
+    for k in velhas:
+        _2c_trk_api_memo.pop(k, None)
+    return len(velhas)
 
 
 def _2c_trk_vence(pid, data_br):
@@ -20804,12 +20812,15 @@ def _2c_trk_renova_dias(agora=None) -> list:
             continue
         # dia ainda sem leitura (madrugada) ou API fora: o _pv_trk_dia não guarda vazio, e sem esta espera o laço
         # pediria o dia das 6 plantas a cada minuto
-        if not ent and time.time() - _2c_trk_vazio.get((pid, hoje_br), 0.0) < 5 * 60:
+        if not ent and time.time() - _2c_trk_vazio.get((pid, hoje_br), 0.0) < _2C_TRK_VAZIO_S:
             continue
         _2c_trk_vence(pid, hoje_br)
         if not (_pv_trk_dia(pid, hoje_br, fetch=True) or {}).get("curva"):
             _2c_trk_vazio[(pid, hoje_br)] = time.time()
         renovadas.append(pid)
+    # a marca só vale _2C_TRK_VAZIO_S para quem lê; sem a poda, uma por planta por dia ficava para sempre
+    for k in [k for k, t in list(_2c_trk_vazio.items()) if time.time() - t >= _2C_TRK_VAZIO_S]:
+        _2c_trk_vazio.pop(k, None)
     return renovadas
 
 
@@ -20850,7 +20861,7 @@ def _2c_trk_build_api(date_iso, force=False, codigos=None):
     plantas da 2C (8 a 64 MB cada) para desenhar uma — um dia passou de 600 s no servidor. O pedaço não entra no memo,
     que é o dia inteiro que a aba, os parados e a ronda leem."""
     ent = _2c_trk_api_memo.get(date_iso)
-    if ent and not force and time.time() - ent[0] < 60:
+    if ent and not force and time.time() - ent[0] < _2C_TRK_MEMO_S:
         return ent[1] if codigos is None else {c: v for c, v in ent[1].items() if c in codigos}
     data_br = datetime.strptime(date_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
     out = {}
@@ -20880,6 +20891,7 @@ def _2c_trk_build_api(date_iso, force=False, codigos=None):
     # vazio não entra no memo: a API sem resposta devolve o dia vazio e, guardado, os 4 códigos da aba saíam zerados
     # no mesmo minuto (30/09/2026, 15:07 no servidor: ARA, IPX, STL e TUP com 0 trackers)
     if out and codigos is None:
+        _2c_trk_memo_poda()
         _2c_trk_api_memo[date_iso] = (time.time(), out)
     return out
 
@@ -24078,6 +24090,22 @@ def _janitor_passada():
         if mortos:
             notas.append(f"{rotulo}:{len(mortos)}")
 
+    # o dia de trackers da API PV (11/10/2026: 1,8 GB dos 4,3 GB do worker, medido por dentro): o passado ocioso e o que
+    # passa do teto — ver PV_TRK_DIA_TETO_PONTOS. Também é podado na hora de guardar; aqui pega o dia que virou passado à
+    # meia-noite e o que ficou ocioso
+    try:
+        n = _pv_trk_dia_poda()
+        if n:
+            notas.append(f"PV dia trackers:{n}")
+    except Exception as e:
+        print(f"[janitor] dia de trackers: {e}")
+    try:
+        n = _2c_trk_memo_poda()
+        if n:
+            notas.append(f"2C memo:{n}")
+    except Exception as e:
+        print(f"[janitor] memo da 2C: {e}")
+
     # os locks do gráfico de trackers acompanham o cache (mesma chave); sem isto sobra
     # um objeto Lock por (usina, dia) para sempre
     try:
@@ -24094,22 +24122,7 @@ def _janitor_passada():
                 _pv_trk_graf_locks.pop(k, None)
     except Exception:
         pass
-
-    # os de Perdas são chaveados por (fonte, dia) e não têm ts → poda pela DATA.
-    # O _PERDAS_OCOR_CACHE guarda as LINHAS de ocorrência do dia e é alimentado pelo warm do
-    # mês inteiro — é dos que mais pesam quando o backfill roda.
-    corte = (datetime.now() - timedelta(days=45)).strftime("%Y-%m-%d")
-    for nome in ("_PERDAS_OCOR_CACHE", "_PERDAS_OCOR_COB", "_PERDAS_QUAL_CACHE"):
-        d = globals().get(nome)
-        if not isinstance(d, dict):
-            continue
-        n = 0
-        for k in list(d.keys()):
-            dia = k[1] if isinstance(k, tuple) and len(k) > 1 else None
-            if isinstance(dia, str) and len(dia) == 10 and dia < corte:
-                d.pop(k, None); n += 1
-        if n:
-            notas.append(f"{nome}:{n}")
+    # (os caches da aba Perdas — ocorrências, cobertura e qualidade por (fonte, dia) — saíram com ela em 12/10/2026)
     return ", ".join(notas)
 
 
@@ -24244,7 +24257,7 @@ def _iniciar_loops_de_fundo():
                  _estado_backup_loop,       # copia no banco do estado que ninguem reconstroi
                  _paradas_book_loop,        # book de paradas: prewarm + 1×/h
                  _fecha_dia_loop,           # fecha o D-1 todo dia às 01:30
-                 _perdas_str_backfill_loop,
+                 _perdas_str_backfill_loop, # strings (perdas_strings.json) e eventos de tracker do mês — a aba Falhas lê
                  _ronda_whats_loop,         # RONDA — só pode existir em UM processo
                  _whats_watchdog_loop,      # reergue o wa_service se travar
                  _sunop_keepalive_loop,     # renova tokens (escreve *_token.txt)
@@ -24254,8 +24267,6 @@ def _iniciar_loops_de_fundo():
                  _persist_loop,             # ÚNICO escritor do cache_snapshot.json
                  _trk_parada_loop,
                  _trk_ev_hoje_loop,
-                 _perdas_pv_warm_dm1_loop,
-                 _perdas_ocor_warm_loop,
                  _macro_prewarm_loop,
                  _tunnel_url_loop,
                  _notif_strings_loop,       # strings que zeraram desde a ultima leitura (30 min, de dia) → sino
@@ -28954,53 +28965,6 @@ def _dt_iso(s):
         return None
 
 
-def _perdas_parados_fn(fonte):
-    return {"pv": _pv_parados_rows, "pg": _pg_parados_rows,
-            "sunop": lambda force=False: _sunop_parados_rows("gridco", force),
-            "axis": lambda force=False: _sunop_parados_rows("axis", force),
-            "owen": _owen_parados_rows}.get(fonte)
-
-
-@app.route("/api/perdas/<fonte>/trackers/parados")
-def api_perdas_trk_parados(fonte):
-    fn = _perdas_parados_fn(fonte)
-    if not fn:
-        return jsonify({"rows": [], "indisponivel": True})
-    try:
-        rows = fn(force=flask_request.args.get("force") == "1") or []
-    except Exception as e:
-        return jsonify({"error": str(e), "rows": []}), 500
-    agora = datetime.now()
-    out = []
-    for r in rows:
-        desde = _dt_iso(r.get("parado_desde"))
-        hs = _horas_solares(desde, agora) if desde else None
-        out.append({**r, "origem": "parado", "encerrada": False,
-                    "horas_solares": hs, "horas_solares_fmt": _fmt_hsolar(hs)})
-    # PARADAS ENCERRADAS do período (o tracker VOLTOU). A lista acima é do AGORA: quando o tracker
-    # voltava, a parada sumia da tela e não sobrava registro — sem isso não dá p/ fechar a perda do mês.
-    # Reconstruídas do store (_trk_paradas_hist); as "abertas" de lá são as mesmas daqui, então só as
-    # FECHADAS entram, sem duplicar.
-    fech = 0
-    try:
-        hist = (_paradas_book_get(fonte).get("rows") or [])   # do BOOK persistido (não reconstrói aqui)
-        for h in hist:
-            if h.get("aberta"):
-                continue
-            fech += 1
-            out.append({"usina": h["usina"], "tracker": h["tracker"], "inversor": "",
-                        "parado_desde": h.get("parado_desde") or h["inicio"], "voltou_em": h["voltou_em"],
-                        "dias": h["dias"], "origem": "encerrada", "encerrada": True,
-                        "horas_solares": h["horas_solares"], "horas_solares_fmt": h["horas_solares_fmt"]})
-    except Exception as e:
-        print(f"[perdas] paradas encerradas {fonte}: {e}")
-    out.sort(key=lambda r: -(r.get("horas_solares") or 0))
-    return jsonify({"rows": out, "total": len(out), "abertas": len(out) - fech, "encerradas": fech,
-                    "com_desde": sum(1 for r in out if r.get("horas_solares") is not None),
-                    "horas_total": round(sum(r.get("horas_solares") or 0 for r in out), 1),
-                    "cache_ts": agora.strftime("%H:%M:%S")})
-
-
 def _perdas_trk_eventos_fonte(fonte, dia):
     """Eventos de tracker (travou→voltou) da fonte no dia — usados como ocorrências severo (≥30min). De
     quebra, chamar isto PERSISTE os eventos no histórico global (habilita o 'parado desde' da fonte)."""
@@ -29075,106 +29039,6 @@ def _trk_ocor_curva_list(fonte, dia):
                 if g:
                     res.append((pid, un, g))
     return res
-
-
-_PERDAS_OCOR_CACHE = {}          # (fonte, dia) -> rows — SÓ dias FECHADOS **E COMPLETOS**
-_PERDAS_OCOR_CACHE_LOCK = threading.Lock()
-_PERDAS_OCOR_COB = {}            # (fonte, dia) -> {"vistas","store","total","origem"} — cobertura do último build
-_PERDAS_PAR_CACHE = {}           # fonte -> (ts, [(usina, nº tracker, dia_iso do início da parada)])
-
-
-def _perdas_parados_pares(fonte, ttl=120):
-    """Paradas ABERTAS da fonte como [(usina, nº tracker, dia_iso)] — memoizado (ttl s). A lista é do
-    AGORA, não do dia; o build do mês a consultava 1× POR DIA (21 chamadas idênticas por aba aberta)."""
-    ent = _PERDAS_PAR_CACHE.get(fonte)
-    if ent and (time.time() - ent[0]) < ttl:
-        return ent[1]
-    out = []
-    try:
-        _pfn = _perdas_parados_fn(fonte)
-        for r in ((_pfn() if _pfn else []) or []):
-            pdt = _dt_iso(r.get("parado_desde"))
-            if pdt:
-                out.append((r.get("usina"), _trk_id_num(r.get("tracker")), pdt.strftime("%Y-%m-%d")))
-    except Exception as e:
-        print(f"[perdas_ocor] parados de {fonte}: {e}")
-        if ent:
-            return ent[1]                    # erro transitório não pode virar "ninguém parado"
-    _PERDAS_PAR_CACHE[fonte] = (time.time(), out)
-    return out
-
-
-def _trk_ocor_classes_list(fonte, dia):
-    """[(pid, nome, classes)] da CLASSIFICAÇÃO PERSISTIDA no store de eventos (curva FRESCA do backfill).
-
-    Origem CONFIÁVEL: o backfill busca a curva de TODAS as usinas da fonte no dia (fetch=True) e grava a
-    classificação junto (`classes`). Ler daqui acaba com o buraco do `_trk_ocor_curva_list` (fetch=False),
-    que pulava em SILÊNCIO toda usina com cache frio — era por isso que o mês do PV mostrava 13 ocorrências
-    e usinas inteiras (Sítio dos Nogueiras, TRK61/TRK62) simplesmente sumiam.
-    Devolve (itens, vistas, total) p/ a cobertura ser HONESTA em vez de virar 'sem ocorrência'."""
-    pids = _trk_ev_pids(fonte)
-    with _trk_eventos_lock:
-        dd = {k: dict(v) for k, v in (_trk_eventos.get(dia) or {}).items() if k in pids}
-    # 4º item = disparidade por tracker (grau de desvio no episódio), tirada dos EVENTOS já persistidos —
-    # a `classes` guarda só status/duração/intervalo. Pega o MAIOR desvio do dia p/ o tracker (o pico é o
-    # que descreve a gravidade). Assim a coluna aparece SEM precisar reprocessar o mês.
-    itens = []
-    for pid, e in dd.items():                                       # `{}` conta (usina limpa), None não (falhou)
-        if e.get("classes") is None:
-            continue
-        dmap = {}
-        for ev in (e.get("eventos") or []):
-            dv, tk = ev.get("desvio"), ev.get("tracker")
-            if tk and isinstance(dv, (int, float)) and abs(dv) > abs(dmap.get(tk) or 0):
-                dmap[tk] = dv
-        itens.append((pid, (e.get("nome") or pid), e["classes"], dmap))
-    # (itens, classificadas, NO STORE no dia, esperadas da fonte). "no store" é o denominador REAL da
-    # classificação (usina sem curva nenhuma no dia nunca entra no store); "esperadas" é o da cobertura
-    # de DADO — as duas contam histórias diferentes e a API devolve as duas.
-    # Usina SEM CURVA no dia não entra no "no store" (01/10/2026, cota da SunOp): o _sunop_eventos_calc grava a usina
-    # mesmo quando o _trk_eventos_do_dia sai cedo (eventos [], cobertura abaixo de TRK_EV_COBERTURA, classes None).
-    # A SunOp devolve curva vazia para os trackers da MTS100 e ela entrava assim em TODOS os dias desde 01/07: o dia
-    # nunca fechava, nunca ia para o cache, e o _perdas_ocor_warm_loop rebaixava a curva de cada usina da Athon de
-    # cada dia, de hora em hora — 8.707 curvas de tracker no servidor e 9.331 no PC em 30/09.
-    no_store = sum(1 for e in dd.values() if not _trk_ev_sem_curva(e))
-    return itens, len(itens), no_store, (_trk_ev_fonte_total(fonte) or len(pids) or 0)
-
-
-def _trk_ev_sem_curva(e) -> bool:
-    """Entrada do store de uma usina SEM CURVA NENHUMA no dia (cobertura 0: a fonte não devolveu ponto) — o
-    _trk_eventos_do_dia saiu cedo e não havia o que classificar; a curva de reserva também não acha nada (a MTS100 em
-    todos os dias desde 01/07). A de cobertura PARCIAL (com pontos, mas abaixo de TRK_EV_COBERTURA) continua contando:
-    a curva de reserva a classifica e as ocorrências dela aparecem na aba, como sempre — tirá-la também sumia com 168
-    ocorrências de 01/07 a 30/09 (TIM100 em 31/07: 38), medido contra a régua antiga em 01/10/2026."""
-    return e.get("classes") is None and not e.get("eventos") and not (e.get("cobertura") or 0)
-
-
-def _perdas_trk_ocor_cached(fonte, dia):
-    """Igual ao build, mas memoiza dias JÁ FECHADOS (dia < hoje) — o mês inteiro só paga o custo 1x."""
-    hoje = datetime.now().strftime("%Y-%m-%d")
-    if dia >= hoje:                                  # hoje ainda muda → sempre recalcula
-        return _perdas_trk_ocor_build(fonte, dia)
-    key = (fonte, dia)
-    hit = _PERDAS_OCOR_CACHE.get(key)
-    if hit is not None:
-        return hit
-    rows = _perdas_trk_ocor_build(fonte, dia)
-    # NÃO cacheia dia PARCIAL. Antes bastava "rows não vazio" → um dia com 3 de 67 usinas classificadas
-    # virava definitivo e o mês inteiro mentia pra sempre. Agora o gate é COBERTURA (usinas classificadas
-    # ÷ usinas da fonte). pg/owen lendo a curva LOCAL são exceção (0 = 0 real, não é cache frio).
-    cob = _PERDAS_OCOR_COB.get(key) or {}
-    _vis, _sto, _tot = cob.get("vistas") or 0, cob.get("store") or 0, cob.get("total") or 0
-    # Definitivo quando (a) a classificação cobre TUDO que o store tem do dia e (b) o store cobre o dia.
-    # Usina sem curva nenhuma no dia jamais entra no store — por isso o gate não é contra o total da fonte.
-    completo = (_sto > 0 and _vis >= _sto and _tot > 0 and _sto >= _tot * TRK_EV_COV_MIN) or \
-               (cob.get("origem") == "curva" and fonte in ("pg", "owen"))
-    if completo:
-        with _PERDAS_OCOR_CACHE_LOCK:
-            _PERDAS_OCOR_CACHE[key] = rows
-    else:
-        print(f"[perdas_ocor] {fonte} {dia}: PARCIAL (classificadas {_vis}/{_sto} no store, "
-              f"store {_sto}/{_tot} da fonte, origem={cob.get('origem')}) — não cacheado")
-    return rows
 
 
 def _trk_paradas_hist(fonte, ini=None, fim=None):
@@ -29340,8 +29204,9 @@ _fecha_dia_prog = {"ultimo": None, "ts": 0.0, "seg": 0, "erro": ""}
 
 
 def _fecha_dia_anterior(dia=None):
-    """Consolida o dia FECHADO: classifica nas 5 fontes → atualiza o book de paradas → memoiza as
-    ocorrências. Idempotente."""
+    """Consolida o dia FECHADO: classifica nas 5 fontes → atualiza o book de paradas (os dois a aba Falhas lê).
+    Idempotente. Até 12/10/2026 também memoizava as ocorrências da aba Perdas antiga — num cache do worker que o web
+    nunca lê; saiu com os aquecimentos dela (ver o comentário depois do _perdas_str_backfill_loop)."""
     dia = dia or (datetime.now().date() - timedelta(days=1)).isoformat()
     t0 = time.time()
     _fecha_dia_prog["erro"] = ""
@@ -29361,10 +29226,6 @@ def _fecha_dia_anterior(dia=None):
             _paradas_book_refresh(f)                           # book de paradas (abertas + encerradas)
         except Exception as e:
             print(f"[fecha_dia] book {f}: {e}")
-        try:
-            _perdas_trk_ocor_cached(f, dia)                    # ocorrências do dia (só cacheia se cobrir)
-        except Exception as e:
-            print(f"[fecha_dia] ocor {f}: {e}")
     _fecha_dia_prog.update({"ultimo": dia, "ts": time.time(), "seg": int(time.time() - t0)})
     print(f"[fecha_dia] {dia} consolidado em {_fecha_dia_prog['seg']}s")
 
@@ -29792,7 +29653,6 @@ def api_inv_historico(fonte, pid):
     with _inv_hist_lock:
         _inv_hist_cache[k] = {"ts": time.time(), "d": d}
     return jsonify(d)
-
 
 
 def _fecha_dia_loop():
@@ -30648,431 +30508,12 @@ def api_perdas_trk_paradas_hist(fonte):
                     "fim": _fim or datetime.now().strftime("%Y-%m-%d")})
 
 
-def _perdas_trk_ocor_build(fonte, dia):
-    """Ocorrências de tracker (TODAS as fontes) pelo STATUS REAL: classifica a curva do dia com
-    `_trk_classifica_curso_perdas` (MESMA régua da aba Trackers — severo/leve; ±55°/batente JÁ excluído
-    pelo `abs(V)<TRK_BATENTE`) e emite SÓ severo/leve, com o episódio (parou/voltou/duração) + horas
-    solares. NÃO fabrica severo por duração (o antigo fallback frio/‘tudo severo’ das outras fontes saiu).
-    parado/normal ficam de fora (parado vai pro book). #9: tracker JÁ parado cobrindo o dia
-    (parado_desde <= dia) NÃO entra — a parada começa ali (vai pro book), não é ocorrência recuperada."""
-    d5 = dia[8:10] + "/" + dia[5:7]
-    # (usina, nº tracker) com parada ABERTA cobrindo o dia (#9). A lista de parados é do AGORA (não do
-    # dia) → memoizada por fonte: o mês inteiro chamava isto 21× e era o grosso do tempo da aba.
-    ja_parado = set()
-    for u, t, pdia in _perdas_parados_pares(fonte):
-        if pdia <= dia:
-            ja_parado.add((u, t))
-    out = []
-    itens, _vis, _sto, _tot = _trk_ocor_classes_list(fonte, dia)   # 1º: classificação PERSISTIDA (completa)
-    origem = "store" if itens else "curva"
-    # FUNDE com a curva: usina que o store já classificou manda; as que ele ainda não tem (backfill no
-    # meio do caminho) entram pela curva quente, como antes. Assim nunca fica PIOR que a versão antiga.
-    # Só enquanto a migração está incompleta — usina sem curva NENHUMA no dia nunca entra no store, então
-    # `_vis < _tot` é permanente em várias fontes e faria a curva (cara) rodar pra sempre.
-    if _vis < _sto or _sto < (_tot or 0) * TRK_EV_COV_MIN:
-        _ja = {p for p, _n, _c, _d in itens}
-        for pid, nome, g in _trk_ocor_curva_list(fonte, dia):
-            if pid not in _ja:
-                itens.append((pid, nome, _trk_classifica_curso_perdas(g, usina=nome, manter=_trk_parados_antes(pid, dia)),
-                              {}))   # curva não traz disparidade
-        if len(itens) > _vis:
-            origem = "store+curva" if _vis else "curva"
-        # quem a curva classificou conta como vista (01/10/2026, cota da SunOp): sem isto o dia com uma usina de
-        # cobertura parcial nunca fechava, nunca ia para o cache, e a curva da Athon do dia era rebaixada de hora em hora
-        _vis = len(itens)
-    _sto = max(_sto, len(itens))
-    _tot = _tot or len(itens)
-    _PERDAS_OCOR_COB[(fonte, dia)] = {"vistas": _vis, "store": _sto, "total": _tot, "origem": origem}
-    for pid, nome, classes, dmap in itens:
-        for trk, c in classes.items():
-            if c["status"] != "severo":      # Perdas → Ocorrências = SÓ severo (foco em perda real; médio/leve saem)
-                continue
-            if (nome, _trk_id_num(trk)) in ja_parado:      # #9: já é parada aberta → não duplica na ocorrência
-                continue
-            parou, voltou = _trk_min_hhmm(c["ini_min"]), _trk_min_hhmm(c["fim_min"])
-            ini = _dt_iso(dia + "T" + parou) if parou else None
-            fim = _dt_iso(dia + "T" + voltou) if voltou else None
-            hs = _horas_solares(ini, fim) if (ini and fim) else round((c["dur_min"] or 0) / 60.0, 3)
-            _dv = c.get("desvio")
-            if _dv is None:
-                _dv = dmap.get(trk)          # disparidade do episódio (pico do dia), vinda dos eventos
-            out.append({"data": d5, "data_iso": dia, "usina": nome, "tracker": trk, "inversor": "",
-                        "status": c["status"], "parou": parou, "voltou": voltou, "dur_min": c["dur_min"],
-                        "desvio": (round(float(_dv), 1) if isinstance(_dv, (int, float)) else None),
-                        "horas_solares": hs, "horas_solares_fmt": _fmt_hsolar(hs), "fonte_class": "status"})
-    out.sort(key=lambda r: -(r.get("horas_solares") or 0))
-    return out
-
-
-QUAL_SOLAR_H = 12   # janela solar 06–18h = 12h; cobertura = horas distintas com leitura / 12 (métrica única p/ TODAS as fontes)
-
-
-def _perdas_qualidade_pg(ini_dt, fim_dt):
-    """Qualidade/cobertura do dado de tracker por usina×dia no PG (dbt.stg_tracker_analogic_data):
-    cobertura = HORAS distintas com leitura NA JANELA SOLAR (06–18h) ÷ 12. Baixa cobertura = dado
-    INCOMPLETO → a 'perda' daquele dia NÃO é confiável (sem dado ≠ sem perda). Motivado pelo caso
-    Ibaté 1 (15–18/07 = apagão de ingestão que passava como 'sem perda')."""
-    conn = _pg_conn(); cur = conn.cursor()
-    # dbt congelado → cobertura de tracker vem da tabela CRUA public.raw_tracker (timestamptz → hora local)
-    cur.execute("""
-        SELECT p.id, p.name, x.d,
-               COUNT(DISTINCT x.h) FILTER (WHERE x.h >= 6 AND x.h < 18) horas,
-               COUNT(DISTINCT x.tsl) ts
-        FROM (SELECT power_plant_id,
-                     (s2."timestamp" AT TIME ZONE 'America/Sao_Paulo') AS tsl,
-                     (s2."timestamp" AT TIME ZONE 'America/Sao_Paulo')::date AS d,
-                     EXTRACT(hour FROM (s2."timestamp" AT TIME ZONE 'America/Sao_Paulo'))::int AS h
-              FROM public.raw_tracker s2
-              WHERE s2."timestamp" >= (%s)::timestamp AT TIME ZONE 'America/Sao_Paulo'
-                AND s2."timestamp" <  (%s)::timestamp AT TIME ZONE 'America/Sao_Paulo') x
-        JOIN public.tb_power_plants p ON p.id = x.power_plant_id
-        GROUP BY 1, 2, x.d
-    """, (ini_dt, fim_dt))
-    by_u = {}
-    for pid, nome, d, horas, ts in cur.fetchall():
-        h = int(horas or 0)
-        u = by_u.setdefault(pid, {"nome": nome, "dias": {}})
-        u["dias"][d.isoformat()] = {"horas": h, "ts": int(ts), "cob": min(100, round(100 * h / QUAL_SOLAR_H))}
-    conn.close()
-    dias_periodo = []
-    dd = ini_dt.date()
-    while dd < fim_dt.date():
-        dias_periodo.append(dd.isoformat()); dd += timedelta(days=1)
-    out = []
-    for pid, u in by_u.items():
-        dias = []
-        for diso in dias_periodo:
-            e = u["dias"].get(diso) or {"horas": 0, "ts": 0, "cob": 0}
-            dias.append({"data": diso[8:10] + "/" + diso[5:7], "data_iso": diso, **e})
-        cobs = [x["cob"] for x in dias] or [0]
-        nome = re.sub(r"^\s*\(\d+\)\s*", "", u["nome"] or "")   # tira o "(NNN)" do tb_power_plants
-        out.append({"usina": nome, "pid": pid,
-                    "cobertura_media": round(sum(cobs) / len(cobs)),
-                    "dias_ruins": sum(1 for c in cobs if c < 50), "dias": dias})
-    out.sort(key=lambda x: (x["cobertura_media"], x["usina"]))   # piores primeiro
-    return out
-
-
-_PERDAS_QUAL_CACHE = {}   # (fonte, dia) -> {pid: {"nome","horas"}} — SÓ dias fechados (curva imutável)
-
-
-def _perdas_qual_dia_curva(fonte, dia):
-    """Cobertura por usina no DIA das fontes de CURVA (pv/sunop/axis/owen): horas distintas na janela
-    solar (06–18h) com leitura de tracker, extraídas da curva `_trk_ocor_curva_list`. Cacheia dia fechado.
-    Formato-agnóstico: aceita série [{x,y}] ou {x:[],y:[]} e x em HH:MM ou ISO."""
-    hoje = datetime.now().strftime("%Y-%m-%d")
-    if dia < hoje:
-        hit = _PERDAS_QUAL_CACHE.get((fonte, dia))
-        if hit is not None:
-            return hit
-    res = {}
-    try:
-        for pid, nome, g in _trk_ocor_curva_list(fonte, dia):
-            horas = set()
-            for _trk, serie in (g or {}).items():
-                if isinstance(serie, dict):
-                    xs = serie.get("x") or []
-                elif isinstance(serie, list):
-                    xs = [(p.get("x") if isinstance(p, dict) else p) for p in serie]
-                else:
-                    xs = []
-                for x in xs:
-                    m = re.search(r"(\d{1,2}):(\d{2})", str(x))
-                    if m:
-                        h = int(m.group(1))
-                        if 6 <= h < 18:
-                            horas.add(h)
-            res[str(pid)] = {"nome": nome, "horas": len(horas)}
-    except Exception as e:
-        print(f"[qualidade] {fonte} {dia}: {e}")
-        return res
-    if dia < hoje and res:                      # não cacheia vazio (curva fria → recalcula depois)
-        _PERDAS_QUAL_CACHE[(fonte, dia)] = res
-    return res
-
-
-def _perdas_qualidade_curva(fonte, ini_dt, fim_dt):
-    """Qualidade das fontes de curva: junta a cobertura de cada dia (via _perdas_qual_dia_curva) por usina."""
-    dias_periodo = []
-    dd = ini_dt.date()
-    while dd < fim_dt.date():
-        dias_periodo.append(dd.isoformat()); dd += timedelta(days=1)
-    by_u = {}
-    for diso in dias_periodo:
-        for pid, info in _perdas_qual_dia_curva(fonte, diso).items():
-            u = by_u.setdefault(pid, {"nome": info["nome"], "dias": {}})
-            u["dias"][diso] = info["horas"]
-    out = []
-    for pid, u in by_u.items():
-        dias = []
-        for diso in dias_periodo:
-            h = u["dias"].get(diso, 0)
-            dias.append({"data": diso[8:10] + "/" + diso[5:7], "data_iso": diso,
-                         "horas": h, "ts": 0, "cob": min(100, round(100 * h / QUAL_SOLAR_H))})
-        cobs = [x["cob"] for x in dias] or [0]
-        out.append({"usina": u["nome"], "pid": pid,
-                    "cobertura_media": round(sum(cobs) / len(cobs)),
-                    "dias_ruins": sum(1 for c in cobs if c < 50), "dias": dias})
-    out.sort(key=lambda x: (x["cobertura_media"], x["usina"]))
-    return out
-
-
-@app.route("/api/perdas/<fonte>/qualidade")
-def api_perdas_qualidade(fonte):
-    """Cobertura/qualidade do dado de tracker por usina no período de perdas (base → D-1). Métrica única
-    (horas na janela solar 06–18h ÷ 12) em TODAS as fontes. PG = query no banco (rápido); pv/sunop/axis/
-    owen = da curva de tracker (cacheada; 1ª carga do mês pode levar ~1–2 min, tipo as ocorrências)."""
-    if fonte not in ("pg", "owen"):
-        # SÓ PG (banco) e 2C (Owen): eles têm o dado de tracker LOCAL e completo. Em API PV/Athon/Axis a
-        # cobertura teria que sair da CURVA remota — que vem FRIA no API PV (fetch=False → cobertura
-        # falsamente baixa, e skids duplicados) ou LENTA demais no Athon (trava). Mostrar isso seria pior
-        # que não mostrar. (Régua confiável p/ gráfico = banco, ver preferência do Levi.)
-        return jsonify({"usinas": [], "indisponivel": True,
-                        "msg": ("Qualidade do dado confiável só no Banco de Dados (PG) e no 2C — eles têm o "
-                                "dado LOCAL. Em API PV/Athon/Axis a cobertura viria da curva remota (fria no "
-                                "API PV, lenta no Athon), então não bate ao vivo. Use o PG.")})
-    di = _perdas_ini_dt()
-    df = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)   # só dias FECHADOS (até D-1)
-    try:
-        us = _perdas_qualidade_pg(di, df) if fonte == "pg" else _perdas_qualidade_curva(fonte, di, df)
-    except Exception as e:
-        return jsonify({"error": str(e), "usinas": []}), 500
-    return jsonify({"fonte": fonte, "usinas": us, "total": len(us),
-                    "ini": di.strftime("%d/%m"), "fim": (df - timedelta(days=1)).strftime("%d/%m")})
-
-
-@app.route("/api/perdas/<fonte>/trackers/ocorrencias")
-def api_perdas_trk_ocorrencias(fonte):
-    if fonte not in ("pv", "pg", "owen", "sunop", "axis"):
-        return jsonify({"rows": [], "indisponivel": True})
-    mes = flask_request.args.get("mes") == "1"     # mês inteiro (base retroativa → D-1) agregado
-    cobs = []                                      # cobertura por dia (usinas classificadas ÷ usinas da fonte)
-    try:
-        if mes:
-            di = _perdas_ini_dt().date()            # 01/07 (base de perdas)
-            df = (datetime.now() - timedelta(days=1)).date()   # D-1 (dia fechado)
-            out, d = [], di
-            while d <= df:
-                try:
-                    out += _perdas_trk_ocor_cached(fonte, d.isoformat())
-                except Exception as e:
-                    print(f"[perdas] ocor mês {fonte} {d}: {e}")
-                _c = _PERDAS_OCOR_COB.get((fonte, d.isoformat())) or {}
-                cobs.append({"dia": d.isoformat(), "vistas": _c.get("vistas") or 0,
-                             "store": _c.get("store") or 0,
-                             "total": _c.get("total") or 0, "origem": _c.get("origem")})
-                d += timedelta(days=1)
-            out.sort(key=lambda r: (-(r.get("horas_solares") or 0)))
-            periodo = {"ini": di.isoformat(), "fim": df.isoformat(), "mes": True}
-        else:
-            dia = (flask_request.args.get("dia") or datetime.now().strftime("%Y-%m-%d")).strip()
-            if not re.match(r"^\d{4}-\d{2}-\d{2}$", dia):
-                dia = datetime.now().strftime("%Y-%m-%d")
-            out = _perdas_trk_ocor_build(fonte, dia)
-            _c = _PERDAS_OCOR_COB.get((fonte, dia)) or {}
-            cobs.append({"dia": dia, "vistas": _c.get("vistas") or 0,
-                         "store": _c.get("store") or 0,
-                         "total": _c.get("total") or 0, "origem": _c.get("origem")})
-            periodo = {"dia": dia}
-    except Exception as e:
-        return jsonify({"error": str(e), "rows": []}), 500
-    # Cobertura HONESTA: dia sem curva de todas as usinas não é "dia sem ocorrência" — o front avisa.
-    _falt = [c for c in cobs
-             if not (c["store"] and c["vistas"] >= c["store"] and c["total"]
-                     and c["store"] >= c["total"] * TRK_EV_COV_MIN)]
-    cobertura = {"dias": len(cobs), "dias_ok": len(cobs) - len(_falt),
-                 "pct": round(100.0 * (len(cobs) - len(_falt)) / len(cobs), 1) if cobs else None,
-                 "incompletos": _falt[:31]}
-    return jsonify({"rows": out, "total": len(out), "cobertura": cobertura,
-                    "severo": sum(1 for r in out if r["status"] == "severo"),
-                    "medio": sum(1 for r in out if r["status"] == "medio"),
-                    "leve": sum(1 for r in out if r["status"] == "leve"),
-                    "horas_total": round(sum(r["horas_solares"] or 0 for r in out), 1),
-                    "cache_ts": datetime.now().strftime("%H:%M:%S"), **periodo})
-
-
-@app.route("/api/perdas/<fonte>/strings/ocorrencias")
-def api_perdas_str_ocorrencias(fonte):
-    if fonte not in _STR_EV_FONTES:
-        return jsonify({"rows": [], "indisponivel": True})
-    dia = (flask_request.args.get("dia") or datetime.now().strftime("%Y-%m-%d")).strip()
-    if not re.match(r"^\d{4}-\d{2}-\d{2}$", dia):
-        dia = datetime.now().strftime("%Y-%m-%d")
-    try:
-        _di = datetime.strptime(dia, "%Y-%m-%d")
-        rows = _str_ev_rows_range(fonte, _di, _di, force=flask_request.args.get("force") == "1") or []
-    except Exception as e:
-        return jsonify({"error": str(e), "rows": []}), 500
-    out = []
-    for r in rows:
-        if not r.get("voltou"):                    # ocorrência = zerou E VOLTOU (#6: dia passado aberto fecha 18:00; parada aberta AGORA some)
-            continue
-        ini, fim = _dt_iso(dia + "T" + str(r.get("caiu"))), _dt_iso(dia + "T" + str(r.get("voltou")))
-        hs = _horas_solares(ini, fim) if (ini and fim) else round((r.get("dur_min") or 0) / 60.0, 3)
-        out.append({**r, "horas_solares": hs, "horas_solares_fmt": _fmt_hsolar(hs)})
-    return jsonify({"rows": out, "total": len(out), "dia": dia,
-                    "horas_total": round(sum(r.get("horas_solares") or 0 for r in out), 1),
-                    "cache_ts": datetime.now().strftime("%H:%M:%S")})
-
-
-@app.route("/api/perdas/<fonte>/strings/zeradas")
-def api_perdas_str_zeradas(fonte):
-    if fonte not in ("pv", "pg", "owen", "sunop", "axis"):
-        return jsonify({"rows": [], "indisponivel": True, "cache_ts": datetime.now().strftime("%H:%M:%S")})
-    hoje = datetime.now().strftime("%Y-%m-%d")
-    if flask_request.args.get("backfill") == "1" and fonte in _STR_EV_FONTES:
-        _perdas_str_backfill([fonte])
-    elif fonte in _STR_EV_FONTES:
-        try:                                       # garante o dia de hoje no store (pro "desde" fechar)
-            _perdas_str_grava_dia(fonte, hoje, _strings_eventos_rows(fonte, hoje) or [])
-        except Exception:
-            pass
-    # "zeradas AGORA" = snapshot sem_corrente (MESMA régua da aba Strings sem corrente); o store dá só o "desde".
-    try:
-        snap = _strings_problema_rows(fonte, force=flask_request.args.get("force") == "1") or []
-    except Exception as e:
-        return jsonify({"error": str(e), "rows": []}), 500
-    agora = datetime.now()
-    out = []
-    for r in snap:
-        pid, inv, st = str(r.get("plant_id")), r.get("inversor"), r.get("string")
-        desde = _perdas_str_desde(fonte, pid, inv, st, hoje) if fonte in _STR_EV_FONTES else None
-        if not desde and r.get("desde"):           # fallback: hora de hoje do snapshot
-            desde = _dt_iso(hoje + "T" + str(r.get("desde")))
-        hs = _horas_solares(desde, agora) if desde else None
-        out.append({"plant_id": pid, "usina": r.get("usina"), "inversor": inv, "string": st,
-                    "corrente": r.get("corrente"),
-                    "zerada_desde": desde.isoformat() if desde else None,
-                    "horas_solares": hs, "horas_solares_fmt": _fmt_hsolar(hs),
-                    "dias": (agora.date() - desde.date()).days if desde else None,
-                    "regiao": r.get("regiao"), "cliente": r.get("cliente")})
-    out.sort(key=lambda r: -(r.get("horas_solares") or 0))
-    return jsonify({"rows": out, "total": len(out),
-                    "horas_total": round(sum(r["horas_solares"] or 0 for r in out), 1),
-                    "usinas": len({r["usina"] for r in out}),
-                    "cache_ts": agora.strftime("%H:%M:%S")})
-
-
-# ── Export XLSX das 4 telas de perdas (mesmo padrão das outras tabelas) ──
-def _perdas_xlsx(rows, cols, sheet, prefix, fonte):
-    df = pd.DataFrame([{h: (fn(r) if fn else r.get(k)) for (k, h, fn) in cols} for r in rows],
-                      columns=[h for (_, h, _) in cols])
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as xl:
-        df.to_excel(xl, index=False, sheet_name=sheet[:31])
-        ws = xl.sheets[sheet[:31]]
-        for cc in ws.columns:
-            w = max((len(str(c.value)) for c in cc if c.value is not None), default=10)
-            ws.column_dimensions[cc[0].column_letter].width = min(w + 3, 46)
-    buf.seek(0)
-    return send_file(buf, as_attachment=True,
-                     download_name=f"perdas_{prefix}_{fonte}_{datetime.now().strftime('%Y-%m-%d')}.xlsx",
-                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-
-def _dtfmt(s):
-    d = _dt_iso(s)
-    return d.strftime("%d/%m %H:%M") if d else ""
-
-
-@app.route("/api/perdas/<fonte>/trackers/parados/export")
-def api_perdas_trk_parados_export(fonte):
-    fn = _perdas_parados_fn(fonte)
-    if not fn:
-        return jsonify({"error": "indisponível"}), 400
-    agora, rows = datetime.now(), []
-    for r in (fn(force=False) or []):
-        desde = _dt_iso(r.get("parado_desde"))
-        rows.append({**r, "estado": "em aberto", "voltou_em": "",
-                     "hs": _horas_solares(desde, agora) if desde else None})
-    # As ENCERRADAS vão junto: é o Excel do book do mês, não a foto do agora.
-    try:
-        hist = (_paradas_book_get(fonte).get("rows") or [])   # do BOOK persistido
-        for h in hist:
-            if not h.get("aberta"):
-                rows.append({"usina": h["usina"], "tracker": h["tracker"], "inversor": "",
-                             "parado_desde": h.get("parado_desde") or h["inicio"], "estado": "encerrada",
-                             "voltou_em": h["voltou_em"], "dias": h["dias"], "hs": h["horas_solares"]})
-    except Exception as e:
-        print(f"[perdas] export encerradas {fonte}: {e}")
-    rows.sort(key=lambda r: -(r.get("hs") or 0))
-    cols = [("usina", "Usina", None), ("tracker", "Tracker", None), ("inversor", "Inversor", None),
-            ("estado", "Estado", None),
-            ("parado_desde", "Parou desde", lambda r: _dtfmt(r.get("parado_desde"))),
-            ("voltou_em", "Voltou em", None), ("dias", "Dias", None),
-            ("hs", "Tempo parada (h solares)", None)]
-    return _perdas_xlsx(rows, cols, "Trackers parados", "trk_parados", fonte)
-
-
-@app.route("/api/perdas/<fonte>/trackers/ocorrencias/export")
-def api_perdas_trk_ocor_export(fonte):
-    if fonte not in ("pv", "pg", "owen", "sunop", "axis"):
-        return jsonify({"error": "indisponível"}), 400
-    if flask_request.args.get("mes") == "1":       # mês inteiro (base → D-1)
-        di = _perdas_ini_dt().date(); df = (datetime.now() - timedelta(days=1)).date()
-        rows, d = [], di
-        while d <= df:
-            try: rows += _perdas_trk_ocor_cached(fonte, d.isoformat())
-            except Exception: pass
-            d += timedelta(days=1)
-        rows.sort(key=lambda r: (-(r.get("horas_solares") or 0)))
-    else:
-        dia = (flask_request.args.get("dia") or datetime.now().strftime("%Y-%m-%d")).strip()
-        rows = _perdas_trk_ocor_build(fonte, dia)
-    cols = [("data", "Data", None), ("usina", "Usina", None), ("tracker", "Tracker", None),
-            ("status", "Status", None), ("desvio", "Disparidade (°)", None),
-            ("parou", "Parou", None), ("voltou", "Voltou", None),
-            ("horas_solares", "Duração (h solares)", None)]
-    return _perdas_xlsx(rows, cols, "Trk ocorrencias", "trk_ocorrencias", fonte)
-
-
-@app.route("/api/perdas/<fonte>/strings/ocorrencias/export")
-def api_perdas_str_ocor_export(fonte):
-    if fonte not in _STR_EV_FONTES:
-        return jsonify({"error": "indisponível"}), 400
-    dia = (flask_request.args.get("dia") or datetime.now().strftime("%Y-%m-%d")).strip()
-    if not re.match(r"^\d{4}-\d{2}-\d{2}$", dia):
-        dia = datetime.now().strftime("%Y-%m-%d")
-    rows = []
-    _di = datetime.strptime(dia, "%Y-%m-%d")
-    for r in (_str_ev_rows_range(fonte, _di, _di) or []):
-        if not r.get("voltou"):
-            continue
-        ini, fim = _dt_iso(dia + "T" + str(r.get("caiu"))), _dt_iso(dia + "T" + str(r.get("voltou")))
-        rows.append({"usina": r.get("usina"), "inversor": r.get("inversor"), "string": r.get("string"),
-                     "caiu": r.get("caiu"), "voltou": r.get("voltou"),
-                     "hs": _horas_solares(ini, fim) if (ini and fim) else round((r.get("dur_min") or 0) / 60.0, 3)})
-    rows.sort(key=lambda r: -(r.get("hs") or 0))
-    cols = [("usina", "Usina", None), ("inversor", "Inversor", None), ("string", "String", None),
-            ("caiu", "Zerou", None), ("voltou", "Voltou", None), ("hs", "Duração (h solares)", None)]
-    return _perdas_xlsx(rows, cols, "Str ocorrencias", "str_ocorrencias", fonte)
-
-
-@app.route("/api/perdas/<fonte>/strings/zeradas/export")
-def api_perdas_str_zeradas_export(fonte):
-    if fonte not in ("pv", "pg", "owen", "sunop", "axis"):
-        return jsonify({"error": "indisponível"}), 400
-    hoje = datetime.now().strftime("%Y-%m-%d")
-    if fonte in _STR_EV_FONTES:
-        try:
-            _perdas_str_grava_dia(fonte, hoje, _strings_eventos_rows(fonte, hoje) or [])
-        except Exception:
-            pass
-    agora, rows = datetime.now(), []
-    for r in (_strings_problema_rows(fonte, force=False) or []):
-        pid, inv, st = str(r.get("plant_id")), r.get("inversor"), r.get("string")
-        desde = _perdas_str_desde(fonte, pid, inv, st, hoje) if fonte in _STR_EV_FONTES else None
-        if not desde and r.get("desde"):
-            desde = _dt_iso(hoje + "T" + str(r.get("desde")))
-        rows.append({"usina": r.get("usina"), "inversor": inv, "string": st,
-                     "zerada_desde": desde.isoformat() if desde else None,
-                     "hs": _horas_solares(desde, agora) if desde else None,
-                     "dias": (agora.date() - desde.date()).days if desde else None})
-    rows.sort(key=lambda r: -(r.get("hs") or 0))
-    cols = [("usina", "Usina", None), ("inversor", "Inversor", None), ("string", "String", None),
-            ("zerada_desde", "Zerada desde", lambda r: _dtfmt(r.get("zerada_desde"))),
-            ("hs", "Tempo perdido (h solares)", None), ("dias", "Dias", None)]
-    return _perdas_xlsx(rows, cols, "Str zeradas", "str_zeradas", fonte)
+# ── A aba Perdas do Monitoramento SAIU em 12/10/2026 (Levi: "tira a aba Perdas do menu também — destrói essa
+# porcaria"; a tela de verdade é a Falhas do Diagnóstico). Foram junto as rotas que só ela usava — ocorrências e
+# parados de tracker, strings zeradas e ocorrências, qualidade do dado e os quatro exports .xlsx — e o que só elas
+# alcançavam (o cache de ocorrências, a classificação lida do store, a cobertura por curva). FICAM, porque outras telas
+# leem: /api/perdas/<fonte>/trackers/paradas-hist (painéis de usina e de portfólio) e /api/perdas/fechamento (o status
+# do fechamento das 01:30); o store de strings (perdas_strings.json) e o de eventos de tracker, que a Falhas lê.
 
 
 # ── Backfill de eventos de tracker (pg/owen/sunop/axis/pv) — mês COMPLETO e VERIFICÁVEL ─────────────
@@ -31292,65 +30733,14 @@ def _perdas_str_backfill_loop():
             print(f"[perdas] backfill loop: {e}")
 
 
-def _perdas_pv_warm_dm1_loop():
-    """Aquece 1× (por boot) a curva de tracker do PV de ONTEM (D-1 = base de perdas, dia FECHADO), gentil.
-    Curva de dia passado, uma vez cacheada, fica quente até o restart (sem re-fetch, ver _pv_trk_grafico) —
-    basta uma passada. Sem isso, após restart a ocorrência de tracker do PV fica vazia (usa curva quente).
-    HOJE já é aquecido pelo _trk_ev_hoje_loop (e vira 'ontem quente' ao virar o dia). Throttle p/ não
-    martelar o trackerschart (o prewarm em massa já fez a API PV bloquear)."""
-    time.sleep(300)                        # depois do prewarm/estabilização
-    ontem = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
-    try:
-        # (sem portão de PLAT: a fonte virou a API PV fixa)
-        try:
-            _swr(_pv_trk_cache, _build_pv_trk_payload, force=not _pv_trk_plant)
-        except Exception:
-            pass
-        com_trk = [pid for pid, ent in _pv_trk_itens() if (ent.get("payload") or {}).get("total")]
-        for pid in com_trk:
-            try:
-                _pv_trk_grafico(pid, ontem, fetch=True)   # busca+cacheia (dia passado fica quente)
-            except Exception:
-                pass
-            time.sleep(6)                  # GENTIL — evita bloqueio da API PV
-        print(f"[perdas_pv_warm] curva PV de ontem ({ontem}) aquecida: {len(com_trk)} usinas")
-    except Exception as e:
-        print(f"[perdas_pv_warm] falhou: {e}")
-
-
-def _perdas_ocor_warm_fontes():
-    """Fontes que o _perdas_ocor_warm_loop aquece. No PC em modo ronda (SUNOP_COLETA) sem a Athon e a Axis: quem abre a
-    aba Perdas é o servidor, e a ronda não usa as ocorrências (01/10/2026, cota da SunOp)."""
-    if SUNOP_COLETA == "ronda":
-        return ("pg", "owen", "pv")
-    return ("pg", "owen", "sunop", "axis", "pv")
-
-
-def _perdas_ocor_warm_loop():
-    """Pré-aquece a cache de ocorrências de tracker do MÊS (base→D-1) pra 'Perdas → Trackers · Ocorrências'
-    abrir na hora — senão a 1ª carga do mês custa ~1–4 min por fonte (pg ~240s). Dia fechado é imutável.
-    pg/owen (BD local) sempre disponíveis → pré-aquecem já; pv/sunop/axis dependem da curva estar quente
-    (o _perdas_trk_ocor_cached NÃO grava resultado incompleto → recalcula depois). pv usa curva quente
-    (fetch=False, sem bater na API). Repassa 1×/h pra completar o que ficou frio (cacheado = instantâneo)."""
-    time.sleep(300)                                # deixa o backfill (180s) começar a aquecer curvas
-    while True:
-        try:
-            di = _perdas_ini_dt().date()
-            df = (datetime.now() - timedelta(days=1)).date()
-            for fonte in _perdas_ocor_warm_fontes():
-                d = di
-                while d <= df:
-                    if (fonte, d.isoformat()) not in _PERDAS_OCOR_CACHE:
-                        try:
-                            _perdas_trk_ocor_cached(fonte, d.isoformat())
-                        except Exception:
-                            pass
-                        time.sleep(1.5)            # só descansa quando REALMENTE processou um dia
-                    d += timedelta(days=1)
-            print(f"[perdas_ocor_warm] cache: {len(_PERDAS_OCOR_CACHE)} (fonte,dia)")
-        except Exception as e:
-            print(f"[perdas_ocor_warm] {e}")
-        time.sleep(3600)                           # 1×/h completa dias que ainda estavam frios
+# Os aquecimentos da aba Perdas antiga SAÍRAM do worker em 12/10/2026 (Levi: "extirpa essa porcaria que não serve para
+# nada"; a tela de verdade é a Falhas do Diagnóstico). O `_perdas_ocor_warm_loop` (de 01/07 até ontem, no boot e de hora
+# em hora) e o `_perdas_pv_warm_dm1_loop` (a curva do D-1) enchiam o _PERDAS_OCOR_CACHE e o _pv_trk_dia_cache DO
+# WORKER, que o web nunca lê — são dois processos, cada um com a sua memória (sobra do modo SOLO). Para isso, a cada
+# boot, baixavam da API PV os dias de julho das plantas da 2C (8 a 64 MB cada): medido dentro do worker em 11–12/10,
+# 03/07 e 06/07 com ~273 mil pontos cada, parte dos 5,5 GB daquele dia. A aba Falhas não perde nada: ela lê o
+# trk_eventos.json, o perdas_strings.json e o paradas_book.json, que o backfill da hora, o laço de eventos e o
+# fechamento das 01:30 continuam enchendo. Não recoloque aquecimento de tela no worker sem a tela LER o que ele aquece.
 
 
 # ── API de campo: ronda de trackers por usina (integração externa) ─────────────

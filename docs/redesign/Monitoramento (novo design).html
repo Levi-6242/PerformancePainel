@@ -214,8 +214,8 @@ function _prendeOverlays(){ const v=_faixaVisivel(); if(!v) return;
   ['gc-osbar','gc-trkosbar'].forEach(id=>{ const bar=document.getElementById(id); if(bar&&bar.style.display!=='none'){ bar.style.bottom='auto'; bar.style.top=(v.top+v.h-bar.offsetHeight)+'px'; } }); }
 if(EMBED){ try{ parent.addEventListener('scroll',_prendeOverlays,{passive:true}); parent.addEventListener('resize',_prendeOverlays); }catch(e){} }
 // ?fonte=<id> vem dos cards da Entrada (/teste/tempo-real): o card de um cliente abre o Monitoramento ja na fonte dele (05/09/2026)
-const _VIEWS_URL=['strings','etm','geracao','trackers','pr','curva','perdas'];
-const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'),  invView:'strings', invGer:{modo:'mes',ini:null,fim:null}, trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, perdaSub:'trk-par', perdaDia:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, trkOsMode:false, etmMode:'cards', etmProb:false   /* Levi 21/09: nasce DESMARCADO. O ?etmprob=1 vinha da Entrada por causa da contagem do MÊS, e prendia a tela num filtro que o usuário não pediu */, gerIni:null, gerFim:null, gerModo:'usinas' };
+const _VIEWS_URL=['strings','etm','geracao','trackers','pr','curva'];
+const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'),  invView:'strings', invGer:{modo:'mes',ini:null,fim:null}, trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, trkOsMode:false, etmMode:'cards', etmProb:false   /* Levi 21/09: nasce DESMARCADO. O ?etmprob=1 vinha da Entrada por causa da contagem do MÊS, e prendia a tela num filtro que o usuário não pediu */, gerIni:null, gerFim:null, gerModo:'usinas' };
 function setState(patch){ Object.assign(state, patch); render(); }
 /* ═══ DADO REAL — por VISTA e por FONTE. Cada uma devolve {rows,summary}; muda só o endpoint. ═══ */
 // 2C tudo junto (11/09/2026): linha da 2C com id NUMÉRICO veio da API PV (conta oem@) → curva e ETM pelo caminho da API PV
@@ -232,7 +232,7 @@ const EP={
 // escolhe sozinho o token da conta que a enxerga (_pv_token_for). Só o recorte da LISTA muda.
 const PLANT={pv:'/api/plant/',pg:'/api/pg/plant/',sunop:'/api/sunop/plant/',axis:'/api/axis/plant/',solaredge:'/api/solaredge/plant/',owen:'/api/owen/strings/plant/',semp:'/api/plant/',alveslima:'/api/plant/','2capi':'/api/plant/',greenyellow:'/api/greenyellow/plant/',salenergia:'/api/salenergia/plant/'};
 function _urlFor(view,srcChip){ const base=(EP[view]||{})[SKEY[srcChip]]; if(!base) return null; return view==='pr'?base+'?date='+_todayISO():base; }   // data LOCAL: com toISOString(), das 21h em diante o BR pedia o dia SEGUINTE e a tabela voltava vazia
-const RD={pv:null,loading:false,na:false,erro:null,cache:{},plants:{},plantErro:{},plantLento:{},curva:{},curvaMeta:{},trk:{},trkMeta:{},trkOsFeitas:{},depara:{},trkChart:{},os:{},comments:{},tracking:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},invHist:{},perdas:{},osAtrib:{},_osList:null};
+const RD={pv:null,loading:false,na:false,erro:null,cache:{},plants:{},plantErro:{},plantLento:{},curva:{},curvaMeta:{},trk:{},trkMeta:{},trkOsFeitas:{},depara:{},trkChart:{},os:{},comments:{},tracking:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},invHist:{},osAtrib:{},_osList:null};
 
 /* ══ BUSCA COM ESPERA LIMITADA ══════════════════════════════════════════════
    01/09/2026: o Levi abriu as strings da Santana do Ipanema e a tela girou até ele desistir. A
@@ -521,7 +521,6 @@ async function loadCurrent(force){
     return;
   }
   if(view==='geracao'){ RD.na=false; RD.loading=false; loadGeracao(force); return; }     // Geração: pivô por inversor (o backend calcula o período dos últimos 7 dias)
-  if(view==='perdas'){ RD.na=false; RD.loading=false; loadPerda(state.perdaSub, force); return; }   // Perdas: ocorrências/paradas em horas solares
   if(!url){ RD.pv=null; RD.loading=false; RD.na=true; render(); return; }               // vista indisponível nessa fonte (ex.: ETM/Trackers no SolarEdge)
   RD.na=false;
   if(!force&&RD.cache[key]){ RD.pv=RD.cache[key]; RD.loading=false; render(); if(view==='strings'&&RD.pv&&RD.pv.rows) loadMeta(RD.pv); return; }   // do cache, mas SEMPRE reconta OS/comentários ao entrar na aba
@@ -1906,7 +1905,7 @@ function computeVals(){
   const s=state;
   const srcDefs=[{id:'thopen-pv',icon:'ph ph-broadcast',name:'Thopen',sub:'API PV Operation'},{id:'thopen-db',icon:'ph ph-database',name:'Thopen',sub:'Banco de Dados'},{id:'athon',icon:'ph ph-lightning',name:'Athon',sub:'API SunOp'},{id:'axis',icon:'ph ph-sun',name:'Axis',sub:'PE III / Ponto Belo'},{id:'renogrid',icon:'ph ph-diamond',name:'RenoGrid',sub:'API SolarEdge'},{id:'2c',icon:'ph ph-solar-panel',name:'2C',sub:'API PV Operation'},{id:'semp',icon:'ph ph-plug',name:'SEMP',sub:'API PV Operation'},{id:'alveslima',icon:'ph ph-buildings',name:'Alves Lima',sub:'API PV Operation'},{id:'greenyellow',icon:'ph ph-leaf',name:'GreenYellow',sub:'scadaGridco'},{id:'salenergia',icon:'ph ph-waves',name:'Sal Energia',sub:'scadaGridco'}];   // NÃO recriar o chip "2C · API PV": saiu do seletor em 11/09/2026 a pedido do Levi ("eu quero no tempo real, tudo junto"). A fonte `2c` é a 2C inteira pela API PV desde 29/09/2026 (a Ipixuna entrou como Santa Cecilia 1/2/3; o e-mail saiu do tempo real) — quem precisa de ETM/tracker da API é ela, não uma aba nova (test_2c_tempo_real_unificado)
   const sources=srcDefs.map(d=>{const on=s.source===d.id; return {icon:d.icon,name:d.name,sub:d.sub,id:d.id,iconBg:on?'color-mix(in srgb, var(--color-accent) 22%, transparent)':'var(--color-neutral-900)',iconColor:on?'var(--color-accent)':'var(--color-neutral-300)',nameColor:on?'var(--color-text)':'var(--color-neutral-300)',style:`display:flex;align-items:center;gap:11px;padding:10px 14px;border-radius:var(--radius-md);cursor:pointer;font-family:inherit;flex-shrink:0;background:var(--color-surface);border:1px solid ${on?'var(--color-accent)':'var(--color-divider)'};`};});
-  const viewDefs=[{id:'strings',label:'Strings'},{id:'etm',label:'ETM'},{id:'geracao',label:'Geração'},{id:'trackers',label:'Trackers'},{id:'pr',label:'PR Inversores'},{id:'curva',label:'Curva das strings'},{id:'perdas',label:'Perdas'}];
+  const viewDefs=[{id:'strings',label:'Strings'},{id:'etm',label:'ETM'},{id:'geracao',label:'Geração'},{id:'trackers',label:'Trackers'},{id:'pr',label:'PR Inversores'},{id:'curva',label:'Curva das strings'}];
   const views=viewDefs.map(v=>{const on=s.view===v.id; return {label:v.label,id:v.id,style:`padding:8px 15px;border-radius:var(--radius-md);cursor:pointer;font-family:var(--font-heading);font-size:13.5px;font-weight:500;background:${on?'var(--color-accent)':'transparent'};color:${on?'#161826':'var(--color-neutral-300)'};border:1px solid ${on?'var(--color-accent)':'var(--color-divider)'};`};});
   const cardsByView={
     strings:[{icon:'ph ph-factory',value:76,label:'Usinas',accent:'var(--gc-blue)',numColor:'var(--gc-blue)'},{icon:'ph ph-lightning',value:505,label:'Strings ativas',accent:'var(--color-accent)',numColor:'var(--color-accent)'},{icon:'ph ph-warning',value:67,label:'Sem geração',accent:'var(--gc-red)',numColor:'var(--gc-red)'},{icon:'ph ph-thermometer-hot',value:0,label:'Temp ≥ 65 °C',accent:'var(--gc-amber)',numColor:'var(--color-neutral-200)'},{icon:'ph ph-wifi-slash',value:6,label:'Falha comunicação',accent:'var(--gc-violet)',numColor:'var(--gc-violet)'}],
@@ -2164,11 +2163,11 @@ function computeVals(){
   const _cts=RD.pv&&(RD.pv.cache_ts||(RD.pv.summary||{}).cache_ts);
   // SunOp pausada (domingo / teto do dia, 04/10/2026): o dado da Athon/Axis fica parado de propósito
   const _sp=RD.pv&&RD.pv.sunop_pausa, _spTxt={domingo:'domingo',teto:'teto do dia'}[_sp]||'';
-  return {sunopPausa:_spTxt,lastUpdate:(_cts?String(_cts).slice(0,5):_horaAgora()),today:_dataHojeExt(),sources,views,cards,usinas,loading:RD.loading,na:RD.na,chart:getChart(),showStrings:s.view==='strings',showEtm:s.view==='etm',showTrackers:s.view==='trackers',showPr:s.view==='pr',showCurva:s.view==='curva',showGeracao:s.view==='geracao',showPerdas:s.view==='perdas',etmRows:etmRowsUse,trackerRows:trackerRowsUse,prRows:prRowsUse,curvaStrings,etmCards:etmCardsUse,etmModeCards:s.etmMode==='cards',etmModeTable:s.etmMode==='tabela',etmTabCards:segStyle(s.etmMode==='cards'),etmTabTable:segStyle(s.etmMode==='tabela'),etmProbOn:s.etmProb,etmProbN:_etmProbN,etmProbCards:_etmProbCards,etmTabProb:segStyleRed(s.etmProb),curvaLabel:'Alto Paraná 2 · Inversor 1.1 — corrente por string · 14/07/2026'};
+  return {sunopPausa:_spTxt,lastUpdate:(_cts?String(_cts).slice(0,5):_horaAgora()),today:_dataHojeExt(),sources,views,cards,usinas,loading:RD.loading,na:RD.na,chart:getChart(),showStrings:s.view==='strings',showEtm:s.view==='etm',showTrackers:s.view==='trackers',showPr:s.view==='pr',showCurva:s.view==='curva',showGeracao:s.view==='geracao',etmRows:etmRowsUse,trackerRows:trackerRowsUse,prRows:prRowsUse,curvaStrings,etmCards:etmCardsUse,etmModeCards:s.etmMode==='cards',etmModeTable:s.etmMode==='tabela',etmTabCards:segStyle(s.etmMode==='cards'),etmTabTable:segStyle(s.etmMode==='tabela'),etmProbOn:s.etmProb,etmProbN:_etmProbN,etmProbCards:_etmProbCards,etmTabProb:segStyleRed(s.etmProb),curvaLabel:'Alto Paraná 2 · Inversor 1.1 — corrente por string · 14/07/2026'};
 }
 
 /* ── handlers globais ── */
-window.setSource=id=>{ state.source=id; state.expandedUsina=null; state.expandedInversor=null; state.expandedTrk=null; state.trkGraf=null; state.curvaPid=null; state.osMode=false; state.trkOsMode=false; _fUfv=''; _fSt=''; _osSel.clear(); _osBar(); _trkOsSel.clear(); _trkOsBar(); loadCurrent(); _loadSub(); };   // troca de fonte zera os filtros (usina de outra fonte esconderia tudo)
+window.setSource=id=>{ state.source=id; state.expandedUsina=null; state.expandedInversor=null; state.expandedTrk=null; state.trkGraf=null; state.curvaPid=null; state.osMode=false; state.trkOsMode=false; _fSt=''; _osSel.clear(); _osBar(); _trkOsSel.clear(); _trkOsBar(); loadCurrent(); _loadSub(); };   // troca de fonte zera os filtros (usina de outra fonte esconderia tudo)
 window.setView=id=>{ state.view=id; state.expandedUsina=null; state.expandedInversor=null; state.expandedTrk=null; state.trkGraf=null; state.osMode=false; _osSel.clear(); _osBar(); state.trkOsMode=false; _trkOsSel.clear(); _trkOsBar(); loadCurrent(); _loadSub(); };
 window.setTracking=(key,value)=>{   // strings em acompanhamento por usina → /api/state/tracking (mesmo estado da plataforma original)
   const n=parseInt(value,10);
@@ -2223,7 +2222,7 @@ window.refreshApp=()=>{ if(RD.pv||RD.loading||RD.na) loadCurrent(true); else ren
 const COMM_STALE_MIN=120;   // min sem leitura nova = falha de comunicação (régua do Levi 22/07: 2h)
 let _q='';   // busca de usina (filtra a tabela Strings; re-render + re-foco pra não perder o cursor)
 window.onSearch=(val)=>{ _q=val; render(); const el=document.getElementById('flt-usina'); if(el){ el.focus(); try{ el.setSelectionRange(el.value.length,el.value.length); }catch(e){} } };
-function _matchQ(u){ return !_q || String(u||'').toLowerCase().includes(_q.toLowerCase()); }   // filtro de usina (#flt-usina) reusável nas sub-abas/perdas
+function _matchQ(u){ return !_q || String(u||'').toLowerCase().includes(_q.toLowerCase()); }   // filtro de usina (#flt-usina) reusável nas sub-abas
 // Filtro/contador por STATUS da tabela de strings. `_stCount` é preenchido na montagem das linhas
 // (ANTES de aplicar o filtro) — assim os números nunca mudam conforme você clica, só a tabela.
 let _fSt='', _stCount={}, _stTotal=0;
@@ -2497,7 +2496,7 @@ function _gerBlock(u){
 }
 function renderStrings(v){
   // As sub-abas "Strings sem corrente" e "Ocorrências (caiu → voltou)" saíram em 25/09/2026 (Levi: "remover os botões e o
-  // código relacionado a eles"). O motor delas fica no servidor: alimenta Falhas, Perdas, o sino e a cascata.
+  // código relacionado a eles"). O motor delas fica no servidor: alimenta a Falhas, o sino e a cascata.
   return `
   <div class="card" style="padding:0;overflow:hidden">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 22px;border-bottom:1px solid var(--color-divider)">
@@ -2541,7 +2540,7 @@ function renderETM(v){
 }
 function renderTrackers(v){
   if(v.na) return _naPanel('Trackers');
-  const bar='';   // "Parados & ocorrências" REMOVIDA dos Trackers (foco em Perdas) — só Tempo real
+  const bar='';   // "Parados & ocorrências" REMOVIDA dos Trackers — só Tempo real (o mês fica na aba Falhas do Diagnóstico)
   if(v.loading) return bar+_loadingPanel();
   const trows=(v.trackerRows||[]).filter(r=>_matchQ(r.name));
   return bar+`<div class="card" style="padding:0;overflow:hidden"><div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 22px;border-bottom:1px solid var(--color-divider)"><div style="display:flex;align-items:baseline;gap:12px"><span style="font-family:var(--font-heading);font-size:17px">Trackers — Seguidores solares</span><span class="text-muted" style="font-size:12.5px">${state.trkOsMode?'modo OS: abra a usina e clique nos trackers':'clique na usina para ver os trackers'}</span></div><div style="display:flex;align-items:center;gap:8px">${_trkOsBtn()}${_histBtn()}</div></div>
@@ -2987,7 +2986,7 @@ function _loadSub(){ if(state.view==='trackers'){ if(state.trkSub!=='live')loadT
 window.setTrkSub=id=>{ state.trkSub=id; render(); if(id!=='live')loadTrkProblemas(); };
 const EV_MAX_DIAS=7;   // teto do intervalo De/Até das ocorrências
 function _isoAdd(iso,n){ const d=new Date(iso+'T00:00:00'); d.setDate(d.getDate()+n); return d.toISOString().slice(0,10); }
-function _ontemISO(){ return _isoAdd(_todayISO(), -1); }   // base de perdas = D-1 (dia FECHADO; gráficos seguem ao vivo)
+function _ontemISO(){ return _isoAdd(_todayISO(), -1); }   // D-1 (dia FECHADO; gráficos seguem ao vivo)
 function _evR(){ const t=_ontemISO(), ini=state.evIni||t, fim=state.evFim||ini; return {ini, fim:(fim<ini?ini:fim)}; }
 function _isoDiff(a,b){ return Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/86400000); }
 function _evReload(){ if(state.view==='trackers'&&state.trkSub!=='live')loadTrkEventos(); }
@@ -3153,152 +3152,18 @@ function renderTrkProblemas(){ const f=_fonte(), rg=_evR();
   const body=Lf.map(l=>`<tr><td style="padding-left:22px">${BADGE[l.st]}</td><td style="font-weight:600">${_he(l.usina||'')}</td><td>${_he(l.tracker||'')}</td><td style="color:var(--color-neutral-400)">${l.inv?_he(l.inv):'—'}</td><td style="text-align:right;color:var(--gc-amber)">${l.disp!=null?Number(l.disp).toFixed(1)+'°':'—'}</td><td style="${_tnum()}">${l.ini}</td><td>${l.sit}</td><td style="text-align:right;padding-right:22px">${l.dur}</td></tr>`).join('');
   return bar+chips+`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Status</th><th>Usina</th><th>Tracker</th><th>Inversor</th><th style="text-align:right">Disparidade</th><th>Desde / Parada</th><th>Retorno / Situação</th><th style="text-align:right;padding-right:22px">Duração</th></tr></thead><tbody>${body}</tbody></table></div></div>`; }
 window.setTrkProbSt=id=>{ state.trkProbSt=id; render(); };
-/* ══ Vista "Perdas" — base de ocorrências/paradas em HORAS SOLARES (backend /api/perdas/*) ══ */
-const _PERDA_DEFS=[{id:'trk-ocor',lb:'Trackers · Ocorrências'},{id:'trk-par',lb:'Trackers · Parados'},{id:'str-zer',lb:'Strings · Zeradas'},{id:'qual',lb:'Qualidade do dado'}];   // Strings · Ocorrências removida (foco em zeradas)
-const _PERDA_EP={'trk-ocor':'trackers/ocorrencias','trk-par':'trackers/parados','str-ocor':'strings/ocorrencias','str-zer':'strings/zeradas','qual':'qualidade'};
-function _perdaTemDia(sub){ return sub==='str-ocor'; }   /* trk-ocor virou MÊS (agregado base→ontem), sem seletor de dia */
-function _perdaKey(sub){ return sub+'|'+_fonte()+'|'+(_perdaTemDia(sub)?(state.perdaDia||_ontemISO()):''); }
-async function loadPerda(sub,force){ const f=_fonte(), key=_perdaKey(sub); if(!force&&RD.perdas[key]!==undefined){ render(); return; }   // cacheado → RENDERIZA na hora (senão a view só atualiza no próximo refresh = "trava e carrega depois")
-  RD.perdas[key]=null; render();
-  let url='/api/perdas/'+f+'/'+_PERDA_EP[sub], dia=state.perdaDia||_ontemISO();
-  if(sub==='trk-ocor') url+='?mes=1'+(force?'&force=1':'');        /* ocorrências de tracker = MÊS inteiro (base → ontem) */
-  else url+=(_perdaTemDia(sub)?'?dia='+dia+(force?'&force=1':''):(force?'?force=1':''));
-  try{ RD.perdas[key]=await fetchJSON(url); }catch(e){ RD.perdas[key]={rows:[],erro:1}; } render(); }
-window.setPerdaSub=id=>{ state.perdaSub=id; _fUfv=''; render(); loadPerda(id); };   // filtro de UFV é por tela; não vaza pra outra sub-aba
-window.setPerdaDia=v=>{ state.perdaDia=v; render(); loadPerda(state.perdaSub); };
-function _perdaBdg(s){ const M={parado:['#ff5b6e','#ff5b6e'],severo:['#ff8f3c','#ff8f3c'],medio:['#ffb43d','#ffb43d'],leve:['#ffd83d','#ffd83d']}[s]||['var(--color-neutral-500)','var(--color-neutral-300)'], l={parado:'Parado',severo:'Severo',medio:'Médio',leve:'Leve'}[s]||s;
-  return `<span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:20px;font-size:11.5px;font-weight:650;white-space:nowrap;background:color-mix(in srgb, ${M[0]} 15%, transparent);color:${M[1]}"><span style="width:6px;height:6px;border-radius:50%;background:${M[0]}"></span>${l}</span>`; }
 /* ══ Helpers do padrão do mockup (barra de duração + faixa lateral + desde data-e-hora + badge aberto) ══ */
 function _sevColor(s){ return {parado:'#ff5b6e',severo:'#ff8f3c',medio:'#ffb43d',leve:'#ffd83d'}[s]||'#ff5b6e'; }   // faixa lateral: semáforo por status
 function _stTd(sev,extra){ return `padding-left:22px;box-shadow:inset 3px 0 0 ${_sevColor(sev)}${extra?';'+extra:''}`; }
 function _dtBR(s){ if(!s) return '—'; const t=String(s).replace('T',' '); const m=t.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}:\d{2})/); return m?`${m[3]}/${m[2]} ${m[4]}`:_he(t.slice(0,16)); }
 function _isHoje(iso){ return !!iso && String(iso).slice(0,10)===_todayISO(); }
-function _hojeBR(){ const t=_todayISO(); return t.slice(8,10)+'/'+t.slice(5,7); }
-function _hv(r){ return r.horas_solares!=null?r.horas_solares:((r.dur_min||0)/60); }
 function _durBar(val,mx,leve){ const w=Math.max(4,Math.round(78*(val||0)/(mx||1))); const bg=leve?'#ffd83d':'linear-gradient(90deg,#ff8f3c,#ff5b6e)'; return `<span style="display:inline-block;height:5px;border-radius:3px;flex:none;width:${w}px;background:${bg};opacity:.9"></span>`; }
 function _durCell(fmt,val,mx,leve){ return `<div style="display:flex;align-items:center;gap:9px;justify-content:flex-end">${_durBar(val,mx,leve)}<span style="min-width:52px;text-align:right;font-variant-numeric:tabular-nums;font-weight:600">${_he(fmt||'—')}</span></div>`; }
-function _openBdg(txt){ return `<span style="display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;white-space:nowrap;background:color-mix(in srgb, #e5484d 15%, transparent);color:#ff8a93"><span style="width:6px;height:6px;border-radius:50%;background:#e5484d;box-shadow:0 0 6px #e5484d"></span>${_he(txt)}</span>`; }
 function _tnum(){ return 'font-variant-numeric:tabular-nums'; }
-function _perdaExp(sub){ return _expBtn('/api/perdas/'+_fonte()+'/'+_PERDA_EP[sub]+'/export'+(sub==='trk-ocor'?'?mes=1':(_perdaTemDia(sub)?'?dia='+(state.perdaDia||_ontemISO()):''))); }
-function _atualBtnP(sub){ return `<button onclick="loadPerda('${sub}',1)" class="btn btn-secondary"><i class="ph ph-arrows-clockwise"></i> Atualizar</button>`; }
-function _perdaDiaInput(){ const dia=state.perdaDia||_ontemISO(); return `<span class="text-muted" style="font-size:12.5px">Dia</span><input type="date" value="${dia}" max="${_todayISO()}" onchange="setPerdaDia(this.value)" style="background:var(--color-neutral-900);border:1px solid var(--color-divider);border-radius:6px;color:var(--color-text);font-family:inherit;font-size:12.5px;padding:5px 8px">`; }
-function _kpiRow(kpis){ return `<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">${kpis.map(k=>`<div class="card" style="padding:12px 16px;min-width:130px"><div style="font-size:22px;font-weight:700;letter-spacing:-.02em;line-height:1;color:${k.c||'var(--color-text)'};font-variant-numeric:tabular-nums">${k.v}</div><div class="text-muted" style="font-size:11.5px;margin-top:5px">${k.l}</div></div>`).join('')}</div>`; }
-function renderPerdas(){
-  const nota=`<div class="text-muted" style="font-size:12px;margin-bottom:14px"><i class="ph ph-info" style="margin-right:5px"></i>Tempo em <b style="color:var(--color-neutral-200)">horas solares</b> (06–18h · 1 dia = 12h) · base retroativa desde <b style="color:var(--color-neutral-200)">01/07</b> · ocorrência = caiu e voltou · parada = caiu e não voltou.</div>`;
-  const bar=_subBtns(_PERDA_DEFS, state.perdaSub, 'setPerdaSub');
-  const sub=state.perdaSub, d=RD.perdas[_perdaKey(sub)];
-  let panel;
-  if(sub==='trk-par') panel=_renderPerdaTrkPar(d);
-  else if(sub==='trk-ocor') panel=_renderPerdaTrkOcor(d);
-  else if(sub==='str-ocor') panel=_renderPerdaStrOcor(d);
-  else if(sub==='qual') panel=_renderPerdaQualidade(d);
-  else panel=_renderPerdaStrZer(d);
-  return nota+bar+panel;
-}
-// Cards por UFV nas telas de Perdas: nome + quantidade, clicáveis p/ filtrar. Conta ANTES de filtrar
-// (o número do card não muda ao clicar). O nome da usina vai por ÍNDICE, não interpolado no onclick —
-// tem acento, espaço e parênteses, e aspas no meio quebrariam o handler.
-let _fUfv='', _ufvLst=[];
-window.onUfvPerda=(i)=>{ const u=(i<0?'':(_ufvLst[i]||'')); _fUfv=(_fUfv===u?'':u); render(); };
-function _chipsUfv(rows){
-  const c={}; rows.forEach(r=>{ const u=String(r.usina||'—'); c[u]=(c[u]||0)+1; });
-  const lst=Object.entries(c).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0]));   // mais parados primeiro
-  _ufvLst=lst.map(e=>e[0]);
-  if(lst.length<2) return '';                       // 1 usina só não precisa de filtro
-  const btn=(lbl,n,on,idx)=>`<button onclick="onUfvPerda(${idx})" title="${on?'Clique para tirar o filtro':'Mostrar só '+_he(lbl)}" style="display:inline-flex;align-items:center;gap:9px;padding:8px 14px;border-radius:9px;cursor:pointer;font-family:inherit;font-size:12.5px;font-weight:600;border:1px solid ${on?'var(--gc-red)':'var(--color-divider)'};background:${on?'color-mix(in srgb, var(--gc-red) 16%, transparent)':'var(--color-neutral-900)'};color:${on?'var(--gc-red)':'var(--color-neutral-200)'}">${_he(lbl)}<span style="font-variant-numeric:tabular-nums;font-weight:700;color:${on?'var(--gc-red)':'var(--color-neutral-400)'}">${n}</span></button>`;
-  return `<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px">${btn('Todas',rows.length,!_fUfv,-1)}${lst.map(([u,n],i)=>btn(u,n,_fUfv===u,i)).join('')}</div>`;
-}
-function _filtraUfv(rows){ return _fUfv?rows.filter(r=>String(r.usina||'')===_fUfv):rows; }
-// DISPARIDADE do episódio: maior desvio do alvo (°). Vem dos EVENTOS já persistidos no store, não da
-// `classes` — por isso a coluna funciona sem reprocessar o mês. Ocorrência vinda da curva (fallback do
-// backfill incompleto) não tem o campo e mostra "—", em vez de fingir 0.
-function _dvFmt(v){ return (v==null||isNaN(v))?'—':`${Number(v).toFixed(1)}°`; }
-function _dvSty(v){ const a=Math.abs(Number(v));
-  if(v==null||isNaN(v)) return 'color:var(--color-neutral-600)';
-  return a>=20?'color:#ff5b6e;font-weight:650':a>=10?'color:#ff8f3c;font-weight:600':'color:var(--color-neutral-300)'; }
-function _renderPerdaTrkPar(d){ const f=_fonte();
-  const rows0=((d&&d.rows)||[]).filter(r=>_matchQ(r.usina));
-  const chips=_chipsUfv(rows0), rows=_filtraUfv(rows0), filtrando=!!(_q||_fUfv);
-  const ht=filtrando?Math.round(rows.reduce((s,r)=>s+(r.horas_solares||0),0)*10)/10:((d&&d.horas_total)||0), tot=filtrando?rows.length:(d&&d.total);
-  const _nA=((d&&d.rows)||[]).filter(r=>!r.encerrada).length, _nF=(((d&&d.rows)||[]).length-_nA);
-  const bar=_subBar('Trackers parados — book de paradas', (d&&d.rows)?`${_nA} em aberto · ${_nF} encerradas · ${ht.toLocaleString('pt-BR')}h solares`:'', _perdaExp('trk-par')+_atualBtnP('trk-par'));
-  if(d===undefined||d===null) return bar+_subLoad('Calculando parados + horas solares… (API PV frio pode levar alguns min)');
-  if(d.indisponivel) return bar+_subMsg('Sem trackers nesta fonte.');
-  if(d.error) return bar+_subMsg('Erro: '+_he(d.error));
-  if(!rows.length) return bar+chips+_subMsg(_fUfv?`Nenhum tracker parado em ${_he(_fUfv)}.`:(_q?`Nenhuma usina casa "${_he(_q)}".`:'Nenhum tracker parado agora.'));
-  const nAb=rows.filter(r=>!r.encerrada).length, nFe=rows.length-nAb;
-  const kpis=[{v:nAb,l:'Paradas abertas'},{v:nFe,l:'Encerradas no período',c:'#6FA01E'},{v:ht.toLocaleString('pt-BR'),l:'Horas solares',c:'#ff8a93'},{v:new Set(rows.map(r=>r.usina)).size,l:'Usinas'}];
-  // Colunas: PAROU DESDE | FIM DA OCORRÊNCIA | ESTADO (Levi 22/07). O antigo badge "Parado" fixo saiu —
-  // era sempre igual; quem informa agora é o ESTADO, que alterna parado ⇄ encerrado.
-  const body=rows.map(r=>{ const enc=!!r.encerrada, hoje=!enc&&_isHoje(r.parado_desde), sev=enc?'normal':(hoje?'leve':'parado');
-    const estado=enc
-      ?`<span style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:#6FA01E"><span style="width:7px;height:7px;border-radius:50%;background:#6FA01E"></span>encerrado</span>`
-      :`<span style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;color:#ff5b6e"><span style="width:7px;height:7px;border-radius:50%;background:#ff5b6e"></span>parado</span>`;
-    return `<tr><td style="${_stTd(sev,'font-weight:600')}">${_he(r.usina||'')}</td><td>${_he(r.tracker||'')}</td><td style="color:var(--color-neutral-400)">${r.inversor?_he(r.inversor):'—'}</td><td class="text-muted" style="font-size:12.5px;${_tnum()}">${_dtBR(r.parado_desde)}</td><td style="font-size:12.5px;${_tnum()};color:${enc?'var(--color-neutral-300)':'var(--color-neutral-600)'}">${enc?(_dtBR(r.voltou_em)||'—'):'—'}</td><td>${estado}</td><td style="text-align:right;font-weight:650;color:${enc?'var(--color-neutral-300)':(hoje?'#ffd83d':'#ff5b6e')};padding-right:22px;${_tnum()}">${r.horas_solares_fmt||'—'}${enc&&r.dias?`<span class="text-muted" style="font-weight:400;font-size:11px"> · ${r.dias}d</span>`:''}</td></tr>`; }).join('');
-  return bar+_kpiRow(kpis)+chips+`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th>Tracker</th><th>Inversor</th><th>Parou desde</th><th>Fim da ocorrência</th><th>Estado</th><th style="text-align:right;padding-right:22px">Tempo parada (solar)</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
-}
-function _renderPerdaTrkOcor(d){ const f=_fonte();
-  const rows=((d&&d.rows)||[]).filter(r=>_matchQ(r.usina));
-  const ht=_q?Math.round(rows.reduce((s,r)=>s+(r.horas_solares||0),0)*10)/10:((d&&d.horas_total)||0), tot=_q?rows.length:(d&&d.total), us=new Set(rows.map(r=>r.usina)).size;   // só severo agora
-  const _br=s=>s?s.slice(8,10)+'/'+s.slice(5,7):'—', per=(d&&d.ini&&d.fim)?`<span class="text-muted" style="font-size:12.5px;align-self:center">mês · ${_br(d.ini)} → ${_br(d.fim)}</span>`:'';
-  const bar=_subBar('Trackers — ocorrências severas do mês', (d&&d.rows)?`${tot} severo · ${ht.toLocaleString('pt-BR')}h`:'', per+_perdaExp('trk-ocor')+_atualBtnP('trk-ocor'));
-  if(d===undefined||d===null) return bar+_subLoad('Agregando ocorrências do mês inteiro (base → ontem)…'+(f==='pv'?' (API PV pode levar ~1–2 min)':(f==='sunop'||f==='axis'?' (Athon pode levar ~1 min)':'')));
-  if(d.indisponivel) return bar+_subMsg(d.msg||'Ocorrências de tracker não disponíveis nesta fonte.');
-  if(d.error) return bar+_subMsg('Erro: '+_he(d.error));
-  if(!rows.length) return bar+_subMsg(_q?`Nenhuma usina casa "${_he(_q)}".`:'Nenhuma ocorrência severa no mês.');
-  const kpis=[{v:tot,l:'Ocorrências severas',c:'#ff8f3c'},{v:us,l:'Usinas'},{v:ht.toLocaleString('pt-BR'),l:'Horas solares',c:'#ff8a93'}];
-  const mx=Math.max(0.01,...rows.map(_hv));
-  const body=rows.map(r=>{ const lv=r.status==='leve';
-    return `<tr><td style="${_stTd(r.status)};${_tnum()}">${_he(r.data||r.data_iso||'')}</td><td style="font-weight:600">${_he(r.usina||'')}</td><td>${_he(r.tracker||'')}</td><td>${_perdaBdg(r.status)}</td><td style="text-align:right;${_tnum()};${_dvSty(r.desvio)}">${_dvFmt(r.desvio)}</td><td style="${_tnum()}">${_he(r.parou||'—')}</td><td style="${_tnum()}">${_he(r.voltou||'—')}</td><td style="padding-right:22px">${_durCell(r.horas_solares_fmt,_hv(r),mx,lv)}</td></tr>`; }).join('');
-  return bar+_kpiRow(kpis)+`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Data</th><th>Usina</th><th>Tracker</th><th>Status</th><th style="text-align:right" title="Maior desvio do alvo no episódio">Disparidade</th><th>Parou</th><th>Voltou</th><th style="text-align:right;padding-right:22px">Duração (solar)</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
-}
-function _renderPerdaStrOcor(d){
-  const rows=((d&&d.rows)||[]).filter(r=>_matchQ(r.usina));
-  const ht=_q?Math.round(rows.reduce((s,r)=>s+(r.horas_solares||0),0)*10)/10:((d&&d.horas_total)||0), tot=_q?rows.length:(d&&d.total);
-  const bar=_subBar('Strings — ocorrências (zerou → voltou)', (d&&d.rows)?`${tot} · ${ht.toLocaleString('pt-BR')}h solares`:'', _perdaDiaInput()+_perdaExp('str-ocor')+_atualBtnP('str-ocor'));
-  if(d===undefined||d===null) return bar+_subLoad('Processando curvas de string do dia… (~1 min)');
-  if(d.indisponivel) return bar+_subMsg('Ocorrências de string não disponíveis nesta fonte.');
-  if(!rows.length) return bar+_subMsg(_q?`Nenhuma usina casa "${_he(_q)}".`:'Nenhuma ocorrência de string no dia.');
-  const kpis=[{v:tot,l:'Ocorrências'},{v:ht.toLocaleString('pt-BR'),l:'Horas solares',c:'#ff8a93'}];
-  const mx=Math.max(0.01,...rows.map(_hv));
-  const body=rows.map(r=>{ const lv=_hv(r)<1;
-    return `<tr><td style="${_stTd(lv?'leve':'severo')};${_tnum()}">${_he(r.data||d.dia||'')}</td><td style="font-weight:600">${_he(r.usina||'')}</td><td style="color:var(--color-neutral-400)">${_he(r.inversor||'—')}</td><td>${_he(r.string||'')}</td><td style="${_tnum()}">${_he(r.caiu||'—')}</td><td style="${_tnum()}">${_he(r.voltou||'—')}</td><td style="padding-right:22px">${_durCell(r.horas_solares_fmt,_hv(r),mx,lv)}</td></tr>`; }).join('');
-  return bar+_kpiRow(kpis)+`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Data</th><th>Usina</th><th>Inversor</th><th>String</th><th>Zerou</th><th>Voltou</th><th style="text-align:right;padding-right:22px">Duração (solar)</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
-}
-function _renderPerdaStrZer(d){
-  const rows=((d&&d.rows)||[]).filter(r=>_matchQ(r.usina));
-  const ht=_q?Math.round(rows.reduce((s,r)=>s+(r.horas_solares||0),0)*10)/10:((d&&d.horas_total)||0), tot=_q?rows.length:((d&&d.total!=null)?d.total:((d&&d.rows||[]).length)), us=_q?new Set(rows.map(r=>r.usina)).size:((d&&d.usinas)||0);
-  const bar=_subBar('Strings zeradas (não trancadas)', (d&&d.rows)?`${tot} zeradas · ${us} usinas · ${ht.toLocaleString('pt-BR')}h solares`:'', _perdaExp('str-zer')+_atualBtnP('str-zer'));
-  if(d===undefined||d===null) return bar+_subLoad('Consultando strings sem corrente + costurando o "desde"… (~1 min)');
-  if(d.indisponivel) return bar+_subMsg('Strings zeradas não disponíveis nesta fonte.');
-  if(!rows.length) return bar+_subMsg(_q?`Nenhuma usina casa "${_he(_q)}".`:'Nenhuma string zerada agora.');
-  const kpis=[{v:tot,l:'Zeradas agora'},{v:us,l:'Usinas'},{v:(ht).toLocaleString('pt-BR'),l:'Horas solares',c:'#ff8a93'}];
-  const body=rows.map(r=>{ const hoje=(r.dias===0)||_isHoje(r.zerada_desde), sev=hoje?'leve':'severo';
-    const suf=(r.dias!=null&&r.dias>0)?` <span class="text-muted" style="font-weight:500">· ${r.dias}d</span>`:(hoje?` <span class="text-muted" style="font-weight:500">· hoje</span>`:'');
-    return `<tr><td style="${_stTd(sev,'font-weight:600')}">${_he(r.usina||'')}</td><td style="color:var(--color-neutral-400)">${_he(r.inversor||'—')}</td><td>${_he(r.string||'')}</td><td class="text-muted" style="font-size:12.5px;${_tnum()}">${_dtBR(r.zerada_desde)}</td><td style="text-align:right;font-weight:650;color:${hoje?'#ffd83d':'#ff5b6e'};${_tnum()}">${r.horas_solares_fmt||'—'}${suf}</td><td style="text-align:center;padding-right:22px">${_openBdg('aberta')}</td></tr>`; }).join('');
-  return bar+_kpiRow(kpis)+`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th>Inversor</th><th>String</th><th>Zerada desde</th><th style="text-align:right">Tempo perdido (solar)</th><th style="text-align:center;padding-right:22px">Estado</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
-}
-function _renderPerdaQualidade(d){ const f=_fonte();
-  const rows=((d&&d.usinas)||[]).filter(r=>_matchQ(r.usina));
-  const bar=_subBar('Qualidade do dado — cobertura de leituras de tracker (por usina · dia)', (d&&d.usinas)?`${rows.length} usinas · ${_he((d.ini||'')+'→'+(d.fim||''))}`:'', _atualBtnP('qual'));
-  if(d===undefined||d===null) return bar+_subLoad('Medindo cobertura de dado…'+(f==='pg'?'':' (fontes de curva podem levar ~1–2 min na 1ª vez)'));
-  if(d.indisponivel) return bar+_subMsg(d.msg||'Qualidade do dado indisponível nesta fonte.');
-  if(d.error) return bar+_subMsg('Erro: '+_he(d.error));
-  if(!rows.length) return bar+_subMsg(_q?`Nenhuma usina casa "${_he(_q)}".`:'Sem dado de cobertura.');
-  const cor=c=>c>=90?'#3fb950':c>=50?'#ffb43d':'#ff5b6e';
-  const kpis=[{v:rows.length,l:'Usinas'},{v:rows.filter(r=>r.cobertura_media<50).length,l:'Cobertura crítica (<50%)',c:'#ff5b6e'},{v:rows.reduce((s,r)=>s+(r.dias_ruins||0),0),l:'Dias ruins (soma)',c:'#ff8f3c'}];
-  const body=rows.map(r=>{
-    const cells=(r.dias||[]).map(dd=>`<span title="${_he(dd.data)}: ${dd.cob}% (${dd.horas}h na janela solar${dd.ts?' · '+dd.ts+' leituras':''})" style="display:inline-block;width:13px;height:16px;border-radius:2px;background:${cor(dd.cob)};opacity:${dd.cob>0?1:.28}"></span>`).join('');
-    const cm=r.cobertura_media;
-    return `<tr><td style="padding-left:22px;font-weight:600;box-shadow:inset 3px 0 0 ${cor(cm)}">${_he(r.usina)}</td><td style="text-align:right;font-weight:700;color:${cor(cm)};${_tnum()}">${cm}%</td><td style="text-align:center;color:${r.dias_ruins?'#ff8f3c':'var(--color-neutral-500)'};${_tnum()}">${r.dias_ruins||'—'}</td><td style="padding:8px 22px 8px 8px"><div style="display:flex;gap:2px;flex-wrap:wrap">${cells}</div></td></tr>`;
-  }).join('');
-  const leg=`<div class="text-muted" style="font-size:12px;margin-bottom:12px">Cada quadradinho = 1 dia (base→D-1). Cobertura = horas da janela solar (06–18h) com leitura ÷ 12. <span style="color:#3fb950;font-weight:600">verde ≥90%</span> · <span style="color:#ffb43d;font-weight:600">âmbar 50–90%</span> · <span style="color:#ff5b6e;font-weight:600">vermelho &lt;50%</span> = dado incompleto, a <b>perda do dia não é confiável</b> (sem dado ≠ sem perda).</div>`;
-  return bar+_kpiRow(kpis)+leg+`<div class="card" style="padding:0;overflow:hidden"><div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px">Usina</th><th style="text-align:right">Cobertura média</th><th style="text-align:center">Dias &lt;50%</th><th>Dias do período</th></tr></thead><tbody>${body}</tbody></table></div></div>`;
-}
 function render(){
   const v=computeVals();
   let panel='';
-  if(v.showStrings)panel=renderStrings(v); else if(v.showEtm)panel=renderETM(v); else if(v.showGeracao)panel=renderGeracao(); else if(v.showTrackers)panel=renderTrackers(v); else if(v.showPr)panel=renderPR(v); else if(v.showCurva)panel=renderCurva(v); else if(v.showPerdas)panel=renderPerdas();
+  if(v.showStrings)panel=renderStrings(v); else if(v.showEtm)panel=renderETM(v); else if(v.showGeracao)panel=renderGeracao(); else if(v.showTrackers)panel=renderTrackers(v); else if(v.showPr)panel=renderPR(v); else if(v.showCurva)panel=renderCurva(v);
   // A fonte não respondeu: o painel vira aviso. Fica DEPOIS do cálculo normal de propósito — as
   // abas, os chips de fonte e o botão Atualizar continuam desenhados, então dá para trocar de
   // fonte ou tentar de novo sem recarregar a página.
@@ -3325,7 +3190,7 @@ function render(){
       ${EMBED?'':`<div style="display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:28px"><div><div class="card-kicker" style="margin-bottom:8px">Monitoramento O&amp;M</div><h2 style="margin:0;font-size:30px">Strings, ETM &amp; Trackers</h2></div><div class="text-muted" style="font-size:13px">${v.today}</div></div>`}
       ${EMBED?'':renderSources(v)}
       ${renderViewTabs(v)}
-      ${(EMBED||v.showCurva||v.showGeracao||v.showPerdas||(RD.erro&&!RD.pv))?'':renderKPIs(v)}
+      ${(EMBED||v.showCurva||v.showGeracao||(RD.erro&&!RD.pv))?'':renderKPIs(v)}
       ${panel}
     </div>
   </div>`;

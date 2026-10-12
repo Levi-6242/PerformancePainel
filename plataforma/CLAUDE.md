@@ -158,8 +158,8 @@ token de API; o `/usage/*` não é cobrável e o dia deles é em UTC, consolidad
   `_sunop_eventos_calc` grava a usina assim mesmo (`eventos []`, `cobertura 0`, `classes None`), o dia das
   Ocorrências de Perdas ficava "parcial" nos 92 dias desde 01/07 e o `_perdas_ocor_warm_loop` rebaixava, de hora em
   hora, a curva de cada usina da Athon de cada dia, uma por uma. Agora usina com cobertura 0 não deixa o dia parcial
-  (`_trk_ev_sem_curva`), quem a curva de reserva classificou conta como visto (o dia fecha e vai para o cache), a
-  reserva vem numa baixa só e o PC em ronda não aquece Athon/Axis (`_perdas_ocor_warm_fontes`). Régua antiga × nova
+  (`_trk_ev_sem_curva`), quem a curva de reserva classificou conta como visto (o dia fecha e vai para o cache) e a
+  reserva vem numa baixa só. O aquecimento em si saiu do worker em 12/10/2026 (ver "Teto de memória do worker"). Régua antiga × nova
   com dado real: 0 ocorrências diferentes nos 23 dias de curva parcial — tirar também a de cobertura parcial (1ª
   versão, no ar por engano às 10:10 de 01/10 no 1302d77 de outra sessão) sumia com 168. Detalhe e medição:
   `docs/sunop-economia-requisicoes.md`.
@@ -253,6 +253,41 @@ vez (`_pv_plant_em_voo`): quem chega no meio espera a que está correndo e leva 
 uma segunda igual na API que já está lenta; se ela falhou, quem esperou leva a mesma falha (`_pv_plant_falha`) — às
 21:48 a Guatambu 4 deu 504 aos 60 s e a abertura que esperava fez outra busca, 504 aos 120 s. Quem chega depois da
 falha tenta de novo. Testes: `test_drill_usina_falha_visivel.py`, `test_drill_api_pv_rapido.py`.
+
+**Teto de memória do worker (11/10/2026).** O worker subiu às 00:39 de 11/10 e às 22:52 tinha 5,5 GB (0,3 GB livres de 20
+no PC, na hora do fechamento das 23:30; o PC já tinha travado na noite anterior), e cada restart voltava a passar de 3 GB
+em 15 min. Medido DENTRO do worker vivo (`sys.remote_exec` do Python 3.14, script só de leitura, com o Levi autorizando —
+o processo não para): às 23:45, 4,3 GB privados; o `_pv_trk_dia_cache` (dia cru de trackers da API PV, também o das
+plantas da 2C) era 1,8 GB — 86 entradas de hoje com 3,9 milhões de pontos, ontem, e plantas da 2C de 03/07 e 06/07 com
+~273 mil pontos cada, trazidas pelo `_perdas_ocor_warm_loop`; o memo da 2C, 96 MB; o `_trk_eventos`, 88 MB; o resto,
+miúdo. "Dia fechado nunca expira" tinha virado "nunca SAI": cada dia vivido (~1–1,8 GB) e cada dia antigo que um laço
+tocasse ficavam até o restart — e a reciclagem das 03:00 só vale com 12 h no ar. A regra agora (`PV_TRK_DIA_TETO_PONTOS`
+= 1,5 milhão de pontos ≈ 330 MB, `PV_TRK_DIA_OCIOSO_S` = 2 h, `_pv_trk_dia_poda`): HOJE fica fora; o PASSADO tem teto,
+imposto na hora de guardar e no faxineiro; passou dele, sai primeiro o que foi lido UMA vez (varredura: aquecimentos, o
+ontem que virou passado à meia-noite), o mais antigo antes, e o RELIDO fica — é o backfill da hora relendo os mesmos
+pares de cobertura baixa (julho a outubro, 2–7 mil pontos cada), que não pode rebaixá-los da API PV, que é paga; nem "o
+dia mais antigo primeiro" nem LRU puro serviam. Dia passado ocioso há 2 h sai. Só no worker: no web, o dia passado em
+cache é o drill que o analista abriu, e o web não é quem incha. O
+memo da 2C (`_2c_trk_memo_poda`) e a marca de "dia vazio" (`_2C_TRK_VAZIO_S`) só guardam o que ainda servem. Prova:
+`tests/test_worker_memoria_teto.py` — inclusive o MESMO backfill com e sem teto, acervo de eventos e curvas idênticos
+(o que sai é dia fechado e volta igual; custa uma busca, não um número).
+**Aquecimentos da aba Perdas antiga: fora do worker (12/10/2026, Levi: "extirpa essa porcaria que não serve para nada";
+a tela de verdade é a Falhas do Diagnóstico).** O `_perdas_ocor_warm_loop`, o `_perdas_pv_warm_dm1_loop` e as
+ocorrências que o fechamento das 01:30 montava enchiam o `_PERDAS_OCOR_CACHE` e o `_pv_trk_dia_cache` DO WORKER, que o
+web nunca lê (dois processos, duas memórias — sobra do modo SOLO); para isso baixavam da API PV os dias de julho da 2C a
+cada boot. A Falhas lê `trk_eventos.json`, `perdas_strings.json` e `paradas_book.json` (`falhas_job.py`), que o laço de
+eventos, o backfill da hora e o fechamento seguem enchendo. Não há gêmeo de strings para tirar: o aquecimento "strings
+SunOp/Axis" do ciclo também alimenta o sino e o relatório (`_strings_problema_rows`).
+**A aba Perdas do Monitoramento saiu inteira (12/10/2026, Levi: "tira a aba Perdas do menu também — destrói essa
+porcaria").** Ela vivia no iframe do Tempo real (`/monitor?fonte=…&embed=1`), ao lado de Strings, ETM, Geração, Trackers,
+PR e Curva. Saíram a vista, o item do menu e o `?view=perdas` (cai em Strings), as 9 rotas que só ela usava (ocorrências e
+parados de tracker, strings zeradas e ocorrências, qualidade do dado, os quatro exports) e o que só elas alcançavam
+(cache e classificação das ocorrências, cobertura por curva, `_str_ev_rows_range`). FICAM, porque outras telas leem:
+`/api/perdas/<fonte>/trackers/paradas-hist` (painéis de usina e de portfólio), `/api/perdas/fechamento` (status do
+fechamento das 01:30) e a curva de reserva `_trk_ocor_curva_list` (rota de depuração `/api/trk/regua/diff`). Prova:
+`tests/test_perdas_fora.py`. Ainda aberto: o backfill do mês do PV (`_trk_ev_pv_mes(force=True)`) reenfileira a cada
+hora os ~1.263 pares (usina, dia) que nunca classificam (cobertura 0), ~2,4 h por volta — enquanto roda, o
+`_trk_ev_hoje_loop` pula.
 
 ## Ponte do Nexus: chave só de leitura e sub-caminho (04/10/2026)
 
@@ -1062,7 +1097,7 @@ duas fontes na mesma análise, 28/09 cortado às 12:00: os mesmos parados nas qu
 Ipixuna porque o e-mail repete o último valor de 17:19 a 17:59 e a API para às 17:17 — os 6 são os travados em 0° nas
 duas. Os parados passaram a levar o `ticket_status` (antes a linha ia com `na_planilha=False`), e a API fora de dia vira
 `errout` (a Entrada mostra "de tal hora"), não zero parados. **Desde 03/10/2026 o e-mail saiu do código** (Levi: "agora
-está tudo via API do PV Operation"): a aba de falhas, Perdas → strings, a correlação e a curva por código leem a API PV
+está tudo via API do PV Operation"): a aba de falhas, a correlação e a curva por código leem a API PV
 pelo `_2c_strings_dia_api`, com as chaves do antigo acervo (código, inversor "U.N", string k = Ipvk) — o que já foi
 gravado com elas continua casando; API fora levanta erro (dia com buraco não é guardado). Saíram o `_owen_loop`, o
 acumulador (`owen_accum.json`), o `_hist_build`, a página Histórico 2C e as rotas `/api/2c/*`; os trackers de dia
