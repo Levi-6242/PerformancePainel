@@ -650,8 +650,9 @@ coletada** (os dias fora ficam sem dado).
 - **Estado (11/10/2026)**: foto de hoje gravada às 09:24 pelo servidor em 8 fontes — pv (115 incluídas, 31 fora: as sem
   Full O&M), pg 22, solaredge 7, semp 2, alveslima 1, 2capi 7, greenyellow 2, salenergia 5 (192 linhas no livro). Prova
   valor a valor, antes × depois da recoleta: as 10 tabelas de strings, o Painel NOC (115) e os cards da Entrada com as
-  MESMAS usinas (0 diferença). A Athon fica para a ronda do PC (domingo a SunOp só lê na ronda); a Axis, sem token, segue
-  na regra de antes. Armadilha achada no caminho: com a lista da SunOp em cache (e sempre na pausa) o `ensure_sunop_meta`
+  MESMAS usinas (0 diferença). A Athon entrou às 21:02, pela lista do catálogo da API da SunOp (Levi: "puxe pela API
+  todas as plantas, aí está sua foto! São todas da Athon"): as 10 da tabela, todas incluídas (202 linhas no livro); servidor e
+  PC com as 10 no tempo real e no Painel NOC. A Axis, sem token, segue na regra de antes. Armadilha achada no caminho: com a lista da SunOp em cache (e sempre na pausa) o `ensure_sunop_meta`
   voltava antes do filtro — corrigido (a lista fica inteira como inventário e o filtro vale também na volta antecipada).
 - **Desligar**: `TEMPO_REAL_COBERTURA=0` numa máquina (nada é filtrado). Banco ilegível sem cópia em disco: nada é filtrado.
   Os testes rodam com o filtro desligado (`conftest._cobertura_desligada_por_padrao`). Testes: `tests/test_cobertura_tempo_real.py`.
