@@ -1318,9 +1318,11 @@ resposta e a rota `/api/painel/falhas?mes=` só devolve os bytes. De `FALHAS_INI
   "vistos no store" inflava ~10×: o store só lista tracker com anomalia).
 - Geração: a que a Disponibilidade acabou de buscar (`_DISP_GER_ULTIMA`) ou `_disp_geracao(..., com_pg=False)` —
   nunca uma 2ª consulta do mês ao banco da Thopen.
-- **Workbook `falhas_performance` (Gridco API, id 39, criado em 25/09):** abas `strings_inversor_dia`,
-  `strings_episodios`, `trackers_episodios` e `atualizacao` (`falhas_publicar.py`, o caminho do gêmeo: xlsx +
-  `sync-xlsx?replace=true`). O worker sobe de hora em hora e só quando o dado muda (`_falhas_publicar_workbook`) — a
+- **Workbook `falhas_performance` (Gridco API, id 39, criado em 25/09):** oito abas, nesta ordem —
+  `strings_inversor_dia`, `strings_episodios`, `trackers_episodios`, `cobertura`, `strings_os`, `trackers_dia`,
+  `disponibilidade_dia` e `atualizacao` (`falhas_publicar.py`, o caminho do gêmeo: xlsx + `sync-xlsx?replace=true`; as
+  quatro do meio desde 11/10/2026, ver "11/10/2026 — as quatro abas do catálogo do Nexus", no fim desta seção). O worker
+  sobe de hora em hora e só quando o dado muda (`_falhas_publicar_workbook`) — a
   API guarda histórico por linha, por isso as linhas vão pela data de início e o "gerado em" mora na `atualizacao`.
   De 25 a 27/09 só gravava com `FALHAS_WORKBOOK=1` (em nenhuma): o registro do SERVIDOR só tinha 22/09 em diante e,
   ligado, ele trocou a carga completa pela parcial em 25/09 00:45. Desde 27/09 o servidor grava sozinho, com a trava de
@@ -1508,6 +1510,87 @@ strings citadas estão trancadas"). Não eram trava — as trancadas eram as Ipv
   DISTINTOS (fonte + id da usina na fonte + tracker) parados em algum momento da semana, por quantidade — total, quantos
   começaram na semana, quantos seguiam parados no fim e as usinas com mais trackers (Levi: "distintos viu, por
   quantidade"). 21–27/09 no PC: 770 (301 começaram, 500 seguiam parados; Barretos 106, Brodowski 102).
+
+**11/10/2026 — as quatro abas do catálogo do Nexus** (Levi: "Dê seguimento a todas essas que não foram criadas, faça
+funcionar"). O catálogo do Nexus (`nexus/dados/catalogo.py`, fatos `falha_tracker_dia`, `cobertura_falhas`, `os_string`
+e `disponibilidade_dia`; seção "Falhas da plataforma com `plant_id`" do `nexus/dados/CLAUDE.md`) registrou em 08 e
+09/10 abas que a plataforma nunca publicou: o desenho delas nasceu da Operação no Mês do Dashboard Thopen (5080; o
+leitor do 5080, `thopen/fonte_operacao.py`, e o spec, `docs/superpowers/specs/2026-10-08-thopen-operacao-no-mes-design.md`,
+ainda não estavam na main em 11/10). Aqui só a publicação. **Colunas novas só no FIM e abas novas antes da `atualizacao`**: nada que existia mudou de nome ou de lugar
+(o BI e o Nexus leem por posição). Tudo sai do que o worker JÁ monta — nenhuma chamada nova a fonte paga nem ao Fracttal.
+- **`plant_id`** no fim de `strings_episodios` e `trackers_episodios` (sempre texto: "297378" e 297378 viram células
+  diferentes). É a chave dos episódios no catálogo: pelo nome, a Brodowski junta os dois cadastros dela na API PV (52
+  trackers em vez de 103). O pacote do mês já o trazia; a `strings_inversor_dia` agrega usina × inversor × dia e segue
+  sem ele.
+- **`dias_comunicou` e `dias_sem_prova`** no fim de `trackers_episodios` (Levi, 08/10: "quando fica parado sem
+  comunicação essa ocorrência é ignorada; se a usina comunicou inversor ou string então aí conta"). Comunicou no dia = a
+  régua de strings leu PRODUÇÃO da USINA (nome canônico, qualquer fonte e cadastro — a Brodowski 297381 não tem
+  registro de strings e a 297378 tem todo dia; `vivas` ou `mortas` no registro, ou a curva da 2C) ou a geração do dia
+  passa de 0. Registro de madrugada sem nada gerando não prova; a geração sozinha não serve (é D-1: o dia corrente sairia
+  sempre "sem comunicação"). `dias_sem_prova` = dia de hoje sem prova nenhuma: Barretos, Céu Azul, Ceilândia 1 e Cidade
+  Gaúcha não têm string lida e só provam pela geração, que o BD_Thopen grava 0 até o fechamento das 23:30 (às 15:00 de
+  08/10, 72 episódios do dia saíam com 0 dia de comunicação). Volta a 0 quando o dia fecha.
+- **`cobertura`** (1 linha = mês × fonte × `plant_id`; `dias_strings`, `dias_trackers`, `dias_comunicou`): quem a
+  plataforma MEDIU no mês, com ou sem falha — sem ela, a usina sem linha nos episódios sairia "0 falhas" no cliente, e
+  pode ser usina que a plataforma nem monitora. Dia de strings = registro com `vivas`/`mortas`, queda gravada no store
+  (fora a 2C) ou curva da 2C; dia de trackers = registro classificado com cobertura > 0. O `dias_comunicou` é da USINA,
+  repetido em cada `plant_id` dela: não somar entre linhas. Vai pelo 1º dia medido, para o cadastro que aparece no meio
+  do mês entrar no fim.
+- **`trackers_dia`** (1 linha = fonte × `plant_id` × dia com tracker parado; `trackers` em lista, `qtd`, `comunicou` =
+  "sim" ou "sem prova"): só os episódios que ficam na aba (nem descartados nem desconsiderados), só no dia em que a usina
+  comunicou ou no de hoje ainda sem prova. Trackers distintos no mês saem da LISTA, nunca da soma da `qtd`.
+- **`strings_os`** ("Strings é OS", Levi, 08/10: o cliente vê as strings das OS do Fracttal, não a régua de 2 h). **1
+  linha = OS de recomposição de string × INVERSOR** com a **data do evento** no mês (`mes, data_evento, cliente, usina,
+  plant_id, inversor, os, status, strings, qtd, origem`): a OS 13585 da Altair tem seis tarefas, uma por inversor, e
+  sai em seis linhas, cada uma com as strings da sua `task_note`. **A chave é (`mes`, `os`, `inversor`)** — o catálogo
+  do Nexus diz (`mes`, `os`) e "1 linha = 1 OS", o que repete na OS de vários inversores: corrigir lá.
+  - Da varredura que a Disponibilidade já faz (`_frac_disp_recalcular`, 30 min): ela guarda `note`, `task_note` e
+    `creation_date` da MESMA resposta (`_DISP_CAMPOS_TASK`), o `_falhas_os_string(wos)` grava o índice **`os_string` no
+    `frac_disp_index.json`** e o worker das falhas o lê (`_falhas_os_string_indice` → `falhas_job.montar(os_string=)`).
+    Erro nesse índice não segura a Disponibilidade: sem a chave, o mês sai sem a aba (vazio, "não publicado").
+  - Entra a OS viva cuja descrição tem "recomposi" E "string" (só "recomposi" pegava a OS 15308, alimentação da ETM da
+    Inhapi); cancelada fora. Evento = `event_date`, ou a criação, no dia de Brasília — **até 11/10 a varredura não
+    guardava a criação** e a OS sem `event_date` ficava fora de todo mês. A nota da OS só vale para OS de um inversor.
+    Texto livre não vai ao índice (a nota tem nome de técnico): só o que foi lido dele.
+  - Usina pelo código do ativo + prefixo do cliente (`PREFIXO_CLIENTE`: a Ipixuna é IPX100 na Thopen e 2C-IPX100 na 2C);
+    na dúvida, sem usina — nunca a de outro cliente.
+  - `origem`: `texto` (a linha `Strings sem corrente: N (Ipv3, Ipv7)` que o OS Creator escreve, `_RX_OS_STR_QTD`; o N é a
+    quantidade), `citadas` (`_falhas_os_citadas`), `estimado` (evento até `OS_STRING_ESTIMA_ATE` = 31/10/2026, sem linha
+    nem citação: as strings que a régua viu sem corrente naquele inversor no dia do evento — Levi, "adapte todas desse
+    mês, do nosso lado, sem tocar no Fracttal") e `sem_quantidade` (`qtd` vazio, **nunca 0**: a OS existe, a quantidade
+    é que não se sabe). O 0 escrito na OS fica 0.
+- **`disponibilidade_dia`** (Levi, 09/10: a Disp (%) "calculada pelo Fracttal, da mesma forma que calculamos pelo
+  gerencial da plataforma"). 1 linha = usina do catálogo do Gerencial × dia FECHADO do mês (`mes, dia, cliente, usina,
+  usina_fracttal, pot_kwp, disp, h_perdidas`), do mesmo `frac_disp_index.json` da aba Gerencial › Disponibilidade
+  (`_falhas_disp_mes`): TODA usina × todo dia, inclusive o 100,0 com 0 h do dia sem OS — sem a linha, ninguém separa
+  "100%" de "não medido". `h_perdidas` vai junto porque o `disp` de 1 casa, arredondado, desvia a média do mês. Liga
+  pelo nome do Gerencial antes do Fracttal: um site do Fracttal pode ser de duas usinas (Aparecida do Taboado 1 e 2).
+  - O índice tem o mês corrente e o anterior. O mês remontado ganha a dele na volta; **o mês que a volta não remonta e o
+    índice ainda tem (o anterior, do dia 3 em diante) segue o índice** (`_falhas_disp_fora_da_volta`, só quando muda):
+    setembro foi montado em 02/10, antes da aba, e ficaria sem linha nenhuma, e o Gerencial segue recalculando o mês
+    anterior o mês todo (OS fechada com atraso). O mês que sai do índice fica com a última que recebeu.
+- **`atualizacao`** ganha no fim `cobertura`, `strings_os`, `trackers_dia` e `disponibilidade_dia` (as linhas de cada aba
+  no mês). **Aba que o pacote não montou conta VAZIO, não 0** (0 diria "nenhuma OS" / "nenhuma usina medida" onde só não
+  houve publicação); a montada e vazia conta 0.
+- **Janela (é condição, não data):** o worker remonta só o mês corrente (e o anterior até o dia 2). Mês montado antes do
+  deploy fica sem `dias_comunicou`/`dias_sem_prova` e sem linhas em `cobertura`, `strings_os` e `trackers_dia`
+  (contagens vazias) até ser remontado — setembro para sempre; outubro na 1ª volta depois do deploy. A `strings_os` só
+  ganha linhas depois da 1ª varredura da Disponibilidade com este código (até 30 min).
+- Exceções ao "nada muda a cada volta": os `dias_*` da `cobertura` sobem a cada dia, o `dias_sem_prova` volta a 0, o
+  status da OS muda quando ela fecha, a estimativa de outubro cresce durante o dia do evento, o "sem prova" vira "sim"
+  (ou sai) quando a geração fecha e a disponibilidade do mês anterior acompanha o Gerencial.
+- **Ensaio com o dado real do PC (11/10, 21:26; rede cortada, nada gravado; geração vazia, então `dias_comunicou` só
+  pela leitura de strings):** o `falhas_job` de antes e o novo sobre os MESMOS stores dão o MESMO pacote em tudo o que
+  já existia (só entram `cobertura` e `trackers_dia`); o workbook de setembro + outubro tem 1,19 MB — `cobertura` 192
+  linhas, `trackers_dia` 589 (575 "sim", 14 "sem prova"), `disponibilidade_dia` 5.200 (130 usinas × 30 + 10 dias),
+  `strings_os` 0 (o índice do PC ainda não tem `os_string`); 0 chave repetida (as do catálogo; na `strings_os`, mês +
+  OS + inversor) e 0 `plant_id` vazio; a soma das horas do dia dá o mês do Gerencial nas 130 usinas dos dois meses.
+- Governança (regra 10 do Nexus): aba ou coluna nova aqui = registro no catálogo do Nexus no mesmo trabalho.
+- Testes: `tests/test_falhas_workbook_abas.py` (o caminho do worker de ponta a ponta com o Fracttal e a API do banco
+  dublados: varredura → índice → volta das falhas → um POST com as 8 abas; zero medido × vazio; o "gerado em" não sobe
+  o workbook; o mês não remontado segue o índice; o erro do índice das OS não segura a Disponibilidade),
+  `tests/test_falhas_operacao_cliente.py` (a montagem: comunicou, sem prova, cobertura, OS de string e a origem da
+  quantidade, trackers por dia, colunas só no fim, contagem vazia × 0) e `tests/test_falhas_publicar.py`.
 
 ## Relatório Semanal Thopen (`/relatorio/semanal`, 29/09/2026)
 
