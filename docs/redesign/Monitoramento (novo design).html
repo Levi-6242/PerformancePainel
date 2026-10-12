@@ -232,7 +232,7 @@ const EP={
 // escolhe sozinho o token da conta que a enxerga (_pv_token_for). Só o recorte da LISTA muda.
 const PLANT={pv:'/api/plant/',pg:'/api/pg/plant/',sunop:'/api/sunop/plant/',axis:'/api/axis/plant/',solaredge:'/api/solaredge/plant/',owen:'/api/owen/strings/plant/',semp:'/api/plant/',alveslima:'/api/plant/','2capi':'/api/plant/',greenyellow:'/api/greenyellow/plant/',salenergia:'/api/salenergia/plant/'};
 function _urlFor(view,srcChip){ const base=(EP[view]||{})[SKEY[srcChip]]; if(!base) return null; return view==='pr'?base+'?date='+_todayISO():base; }   // data LOCAL: com toISOString(), das 21h em diante o BR pedia o dia SEGUINTE e a tabela voltava vazia
-const RD={pv:null,loading:false,na:false,erro:null,cache:{},plants:{},plantErro:{},plantLento:{},curva:{},curvaMeta:{},trk:{},trkMeta:{},trkOsFeitas:{},depara:{},trkChart:{},os:{},comments:{},tracking:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},invHist:{},osAtrib:{},_osList:null};
+const RD={pv:null,loading:false,na:false,erro:null,cache:{},plants:{},plantErro:{},plantLento:{},plantTs:{},plantRelendo:{},curva:{},curvaMeta:{},trk:{},trkMeta:{},trkOsFeitas:{},depara:{},trkChart:{},os:{},comments:{},tracking:{},trkPar:{},trkEv:{},curvaView:{},gerPivo:{},invHist:{},osAtrib:{},_osList:null};
 
 /* ══ BUSCA COM ESPERA LIMITADA ══════════════════════════════════════════════
    01/09/2026: o Levi abriu as strings da Santana do Ipanema e a tela girou até ele desistir. A
@@ -606,21 +606,47 @@ async function loadMeta(d){   // badges por usina: OS (Fracttal, por nome) + com
 // se esvazia recarregando a página. Agora a falha fica em RD.plantErro, com o motivo e "Tentar de novo", e não é guardada;
 // aos 10 s a linha diz que está esperando. O servidor termina a busca mesmo depois que a tela desiste e a guarda por 90 s,
 // e quem chega no meio espera por ela (_pv_plant_inversores): o "Tentar de novo" costuma voltar na hora.
+// Reabrir a usina depois de PLANT_RELER_MS busca os inversores de novo (Levi, 12/10/2026: a linha e o drill diziam
+// diferenças diferentes) — sem apagar a lista da tela enquanto busca; se a releitura falhar, fica a anterior.
 async function loadPlant(pid){
-  const cfg=PLANT[SKEY[state.source]]||'/api/plant/', key=state.source+'|'+pid;
-  if(RD.plants[key]!==undefined&&!RD.plantErro[key]) return;
+  const cfg=PLANT[SKEY[state.source]]||'/api/plant/', key=state.source+'|'+pid, RELER_MS=120000;
+  const tsDe=RD.plantTs||(RD.plantTs={}), relendo=RD.plantRelendo||(RD.plantRelendo={});
+  const reler=!!(RD.plants[key]&&RD.plants[key].length&&!RD.plantErro[key]&&(Date.now()-(tsDe[key]||0))>RELER_MS);
+  if(RD.plants[key]!==undefined&&!RD.plantErro[key]&&!reler) return;
+  if(relendo[key]) return;
   delete RD.plantErro[key]; delete RD.plantLento[key];
-  RD.plants[key]=null; render();
+  if(reler) relendo[key]=1; else { RD.plants[key]=null; render(); }
   try{ const d=await fetchJSON(cfg+encodeURIComponent(pid),{onLento:()=>{ if(RD.plants[key]===null){ RD.plantLento[key]=1; render(); } }});
     // A rota que diz que a fonte falhou manda o corpo no formato de sempre, com `inversores: []` (SunOp, SolarEdge, PG:
     // 502/503 com fonte_ok false desde 10-11/10/2026): o `!d.inversores` não pegava, e a linha dizia "A fonte não devolveu
     // inversores desta usina" com a fonte fora. Erro com a lista vazia, ou fonte_ok false, é falha.
     if(d&&((d.error&&!(d.inversores||[]).length)||d.fonte_ok===false))
       throw new Error('a fonte respondeu com erro ('+String(d.erro||d.detalhe||d.error).slice(0,160)+')');
-    RD.plants[key]=(d&&d.inversores)||[]; }
-  catch(e){ RD.plants[key]=[]; RD.plantErro[key]=(e&&e.message)||'a fonte não respondeu'; }
-  delete RD.plantLento[key];
+    RD.plants[key]=(d&&d.inversores)||[]; tsDe[key]=Date.now(); }
+  catch(e){ if(!reler){ RD.plants[key]=[]; RD.plantErro[key]=(e&&e.message)||'a fonte não respondeu'; } }
+  delete RD.plantLento[key]; delete relendo[key];
   render();
+}
+// A LINHA DA USINA PELOS INVERSORES QUE ACABARAM DE CHEGAR (Levi, 12/10/2026: "quando abrisse e o resultado desse que a
+// diferença é menor ou maior automaticamente atualizaria o número de diferença da UFV"). A linha vem da tabela montada
+// minutos antes; o drill busca na hora. SMP100 às 17:23: a linha dizia −2 (tabela das 17:18) e os inversores 5.2 −3 e
+// 6.1 −8. Com o drill mais novo que a linha, ativas, esperadas e diferença passam a ser as dos inversores NA CONTA, e a
+// diferença é a soma das faltas de cada um (a sobra de um não paga a falta de outro: a régua do _dif_por_inversor).
+// Inversor fora da conta (desligado, com OS, sem visão: diferença "—" no drill) fica fora, como no drill. Na conta sem
+// esperadas no cadastro, a conta não fecha: fica a linha da tabela. Tabela nova (leitura mais nova que o drill) vence.
+function _resumoDrill(pid, r){
+  const key=state.source+'|'+pid, invs=RD.plants[key], ts=(RD.plantTs||{})[key];
+  if(!invs||!invs.length||RD.plantErro[key]||!ts) return null;
+  const tLinha=Date.parse(String(r.ultima_leitura||'').replace(' ','T'));
+  if(isFinite(tLinha)&&tLinha>=ts) return null;
+  const conta=invs.filter(i=>i&&i.diferenca!=null&&!i.fora_da_conta&&!i.desligado);
+  if(!conta.length||conta.some(i=>typeof i.str_esp!=='number'||typeof i.strings_ativas!=='number'||typeof i.diferenca!=='number')) return null;
+  const ativas=conta.reduce((t,i)=>t+i.strings_ativas,0), esp=conta.reduce((t,i)=>t+i.str_esp,0);
+  const dif=conta.reduce((t,i)=>t+Math.min(0,i.diferenca),0);
+  if(ativas===r.strings_ativas&&esp===r.str_esp&&dif===r.diferenca) return null;
+  return {campos:{strings_ativas:ativas,str_esp:esp,diferenca:dif},
+          hora:new Date(ts).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}),
+          antes:r.diferenca, leitura:String(r.ultima_leitura||'').replace('T',' ').slice(11,16)};
 }
 function _invCarregando(pid){
   const lento=RD.plantLento[state.source+'|'+pid];
@@ -1931,6 +1957,8 @@ function computeVals(){
     ];
     usinas=pv.rows.filter(r=>!_q||String(r.usina||'').toLowerCase().includes(_q.toLowerCase())).map(r=>{
       const pid=String(r.plant_id), expanded=s.expandedUsina===pid;
+      const _drill=_resumoDrill(pid,r);                    // a usina aberta manda: ver _resumoDrill
+      if(_drill) r=Object.assign({},r,_drill.campos);
       const vkey=(VKEY[s.source]||'pv')+':'+r.plant_id, cCount=((RD.comments||{})[vkey]||[]).length, oCount=(RD.os||{})[r.usina]||0, tCount=(RD.tracking||{})[vkey];
       // DADO VELHO vem ANTES DE TUDO (régua do Levi 22/07: passou de 2h sem atualizar, é falha de
       // comunicação). Sem isto o sintoma escondia a causa: Ipixuna 1 e 2 com última leitura de ONTEM
@@ -1975,7 +2003,9 @@ function computeVals(){
         // a diferença é a soma das FALTAS de cada inversor (29/09/2026, Rodrigues 2.1): com 43/43 e −1 a tela diz por quê
         diffTit:dif==null?'':[(r.strings_acima_cadastro>0)?`Soma das faltas de cada inversor. ${r.strings_acima_cadastro} string${r.strings_acima_cadastro>1?'s':''} acima do cadastro em outro inversor não compensa${r.strings_acima_cadastro>1?'m':''} a falta.`:'',
           // OS atribuída a inversor que gera fica na conta (29/09/2026): a falta aparece e o título diz que alguém está nele
-          (r.os_na_conta&&r.os_na_conta.length)?`OS ${r.os_na_conta.join(', ')} atribuída ao inversor: a falta segue na conta até a string voltar.`:''].filter(Boolean).join(' '),
+          (r.os_na_conta&&r.os_na_conta.length)?`OS ${r.os_na_conta.join(', ')} atribuída ao inversor: a falta segue na conta até a string voltar.`:'',
+          _drill?`Atualizada pelos inversores que você abriu às ${_drill.hora} (a tabela${_drill.leitura?' das '+_drill.leitura:''} dizia ${_drill.antes==null?'—':_drill.antes}).`:''].filter(Boolean).join(' '),
+        diffDrill:!!_drill,
         acomp:(tCount!=null?tCount:''),tkStr:_tkStrCel(r,semSol||semCom||!!r.rampa),tkLista:(r.tickets_str&&r.tickets_str.lista)||[],tkMotivo:(r.tickets_str&&r.tickets_str.motivo)||'',tkNaoJulga:(semSol||semCom||!!r.rampa||!!r.sem_visao),_dif:(dif==null?null:dif),_grp,pulse:(_grp===0),lastRead:leit,staleRead:_velho,
         staleTit:(_velho?`Sem leitura nova há ${Math.floor(_idadeMin/60)}h${String(Math.round(_idadeMin%60)).padStart(2,'0')}`:''),
         status:stt,statusStyle:ps,hasFlag:cCount>0,flagCount:cCount,hasOS:oCount>0,osCount:oCount,vkey,caretDeg:expanded?90:0,diffColor2:0,expanded,id:pid,inversores:expanded?buildInversores(pid):[]};
@@ -2509,7 +2539,7 @@ function renderStrings(v){
       <tr class="gc-urow${(u.pulse&&!u.expanded)?' gc-alerta':''}" onclick="toggleUsina('${u.id}')" style="cursor:pointer;${u.expanded?'background:linear-gradient(90deg, color-mix(in srgb, #0a4f52 70%, transparent), color-mix(in srgb, #0a4f52 28%, transparent) 34%, transparent 58%);':''}">
         <td style="padding-left:22px;white-space:nowrap"><span style="${u.statusStyle}">${u.status}</span></td><td><span style="display:inline-flex;align-items:center;gap:9px"><i class="ph ph-caret-right" style="font-size:12px;color:var(--color-neutral-500);transition:transform .15s;transform:rotate(${u.caretDeg}deg)"></i><span style="display:inline-flex;flex-direction:column"><span style="font-weight:600">${u.name}</span>${u.deslNote?`<span class="gc-desl" style="color:var(--color-neutral-400);max-width:340px;overflow:hidden;text-overflow:ellipsis" title="${_he(u.deslNote.tit)}">${_he(u.deslNote.txt)}</span>`:''}</span>${u.hasOS?`<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="OS de performance — abrir" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:6px;background:color-mix(in srgb, var(--gc-amber) 16%, transparent);color:var(--gc-amber);font-size:11px;font-weight:600"><i class="ph ph-wrench"></i>${u.osCount}</span>`:''}<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="Comentários dos analistas" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:6px;${u.hasFlag?'background:#1D5FB5;color:#0e2a4d;font-weight:700;':'color:var(--color-neutral-600);'}font-size:11px"><i class="${u.hasFlag?'ph-fill ph-chat-circle':'ph ph-chat-circle'}" style="font-size:13px"></i>${u.hasFlag?u.flagCount:''}</span></span></td>
         <td style="text-align:center;color:var(--color-neutral-400)">${u.inv}</td><td style="text-align:right;color:var(--color-neutral-300)">${u.active}</td><td style="text-align:right;color:var(--color-neutral-300)"${u.expTit?` title="${_he(u.expTit)}"`:''}>${u.expected}${u.expNote?`<span class="gc-desl" title="${u.expNote.nomes?u.expNote.nomes+': ':''}potência zero de dia, com a usina gerando. As ${u.expNote.fora} strings dele${u.expNote.n>1?'s':''} ficam fora da conta: inversor desligado é falha de inversor, não de string.">${u.expNote.n} inv. desligado${u.expNote.n>1?'s':''} · ${u.expNote.fora} strings fora da conta</span>`:''}${u.padNote?`<span class="gc-desl" style="color:${u.padNote.cor}" title="${_he(u.padNote.tit)}">${_he(u.padNote.txt)}</span>`:''}</td>
-        <td style="text-align:right;font-weight:600;color:${u.diffColor}"${u.diffTit?` title="${_he(u.diffTit)}"`:''}>${u.diff}</td><td style="text-align:center" onclick="event.stopPropagation()"><input type="number" min="0" value="${u.acomp}" placeholder="—" title="Strings que você está acompanhando" class="gc-numin" onclick="event.stopPropagation()" onchange="setTracking('${u.vkey||''}',this.value)" style="width:58px;text-align:center;padding:5px 6px;font-size:12.5px;font-family:inherit;border:1px solid var(--color-divider);border-radius:6px;background:var(--color-neutral-900);color:var(--color-text)"></td><td style="text-align:center">${u.tkStr}</td>
+        <td style="text-align:right;font-weight:600;color:${u.diffColor}"${u.diffTit?` title="${_he(u.diffTit)}"`:''}>${u.diff}${u.diffDrill?' <i class="ph ph-arrows-clockwise" style="font-size:11px;opacity:.75" aria-label="atualizada pelos inversores"></i>':''}</td><td style="text-align:center" onclick="event.stopPropagation()"><input type="number" min="0" value="${u.acomp}" placeholder="—" title="Strings que você está acompanhando" class="gc-numin" onclick="event.stopPropagation()" onchange="setTracking('${u.vkey||''}',this.value)" style="width:58px;text-align:center;padding:5px 6px;font-size:12.5px;font-family:inherit;border:1px solid var(--color-divider);border-radius:6px;background:var(--color-neutral-900);color:var(--color-text)"></td><td style="text-align:center">${u.tkStr}</td>
         <td title="${u.staleTit||''}" style="text-align:right;padding-right:22px;font-size:12.5px;${u.staleRead?'color:#c9b6ff;font-weight:600':'color:var(--color-neutral-500)'}">${u.lastRead}</td>
       </tr>
       ${u.expanded?`<tr><td colspan="9" style="padding:0;border:0"><div style="background:color-mix(in srgb, var(--color-neutral-900) 55%, transparent);padding:18px 22px 22px">
