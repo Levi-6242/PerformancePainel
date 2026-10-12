@@ -6,6 +6,19 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex,nofollow,noarchive">
 <title>Falhas de strings e trackers</title>
+<script>
+// O tema do Nexus antes da 1ª pintura: o cookie nexus_tema (o mesmo endereço) ou, sem ele, o localStorage nexus.tema; e o
+// botão de tema do Nexus troca esta tela na hora (o evento storage chega às molduras da mesma origem).
+(function(){
+  var raiz = document.documentElement;
+  function aplica(t){ if(t === 'claro' || t === 'escuro') raiz.setAttribute('data-tema', t); }
+  try {
+    var c = document.cookie.match(/(?:^|;\s*)nexus_tema=(claro|escuro)(?:;|$)/);
+    aplica(c ? c[1] : localStorage.getItem('nexus.tema'));
+  } catch(e) {}
+  window.addEventListener('storage', function(ev){ if(ev.key === 'nexus.tema') aplica(ev.newValue); });
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&family=Raleway:wght@800&display=swap">
 <style>
@@ -26,7 +39,11 @@
      clara, na identidade do site de 24/09. Os valores são os tokens do tema escuro do nexus/static/nexus.css: navy, nunca
      o lilás #191528 (nem como texto sobre o verde: lá vai o #0b1220). O resto do template já é todo por variável; as
      regras abaixo das variáveis são os pontos que usavam a tinta escura como FUNDO ou cor fixa. */
-  html.modo-nexus{color-scheme:dark;
+  /* O tema do Nexus vale aqui dentro (12/10/2026, Levi: "em Falhas de strings e trackers falta o tema claro"): o navy só
+     com o Nexus no escuro. Com o Nexus no claro (`data-tema="claro"`, posto pelo script do <head> a partir do cookie
+     nexus_tema / localStorage nexus.tema, e trocado na hora pelo evento `storage` quando o botão do Nexus muda), valem as
+     cores claras do topo, as da identidade do site. */
+  html.modo-nexus:not([data-tema="claro"]){color-scheme:dark;
     --paper:#090d18; --mist:#161d30; --mist2:#1c2640; --hair:rgba(255,255,255,.09); --hair2:rgba(255,255,255,.16);
     --ink:#e9eef6; --graphite:#c3cad7; --stone:#96a0b4;
     --green:#a3d900; --green-tint:rgba(163,217,0,.16); --moss:#c4e755; --moss2:#a3d900;
@@ -34,11 +51,11 @@
     --cyan-ink:#7fb8ff; --cyan-tint:rgba(91,157,255,.14);
     --amber-ink:#ffd83d; --amber-tint:rgba(255,216,61,.14);
   }
-  html.modo-nexus .mais button{background:var(--mist2);color:var(--ink)}
-  html.modo-nexus .mais button:hover,html.modo-nexus .seg button.on{background:var(--green);color:#0b1220}
-  html.modo-nexus pre{background:#0d1526;color:var(--graphite)}
-  html.modo-nexus .chk-col input{accent-color:var(--green)}
-  html.modo-nexus #tip{background:var(--mist2);box-shadow:0 8px 24px rgba(0,0,0,.45)}
+  html.modo-nexus:not([data-tema="claro"]) .mais button{background:var(--mist2);color:var(--ink)}
+  html.modo-nexus:not([data-tema="claro"]) .mais button:hover,html.modo-nexus:not([data-tema="claro"]) .seg button.on{background:var(--green);color:#0b1220}
+  html.modo-nexus:not([data-tema="claro"]) pre{background:#0d1526;color:var(--graphite)}
+  html.modo-nexus:not([data-tema="claro"]) .chk-col input{accent-color:var(--green)}
+  html.modo-nexus:not([data-tema="claro"]) #tip{background:var(--mist2);box-shadow:0 8px 24px rgba(0,0,0,.45)}
   *{box-sizing:border-box;margin:0;padding:0}
   [hidden]{display:none!important}
   html{color-scheme:light}
