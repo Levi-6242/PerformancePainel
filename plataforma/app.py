@@ -1595,6 +1595,9 @@ def _dp_editor_api_pv(fonte, pid, est) -> dict:
            "ponte": {"codigo": PV_NOME_POR_ID.get(pid), "tela": tela_u}, "apelido": PV_NOME_API_ALIAS.get(cad),
            "edita_usina": True, "sem_depara": sem, "sugestao": _dp_sugestao(cad, cadastro) if sem else [],
            "cadastro_usinas": cadastro, "edita_inversor": False}
+    if fonte == "pv":
+        out.update(_dp_editor_inv_pv(pid, cad, est))
+        return out
     if fonte not in _DP_OEM:
         out["nota_inversor"] = "Nesta conta o nome do inversor vem da própria fonte e liga pelo nome: corrija no cadastro."
         return out
@@ -1611,6 +1614,34 @@ def _dp_editor_api_pv(fonte, pid, est) -> dict:
     out.update({"edita_inversor": True, "inversores": linhas, "fonte_hoje_erro": erro, "sugerir": True,
                 "alvos": _dp_alvos(cad, list(efetivo.values())),
                 "provisorio": None if tela else PV_INV_PROVISORIOS.get(pid)})
+    return out
+
+
+def _dp_editor_inv_pv(pid, cad, est) -> dict:
+    """Os inversores da conta principal da API PV (Levi, 12/10/2026: "não consigo ligar inversor a inversor, precisamos
+    ter essa visualização"): o id e o nome que a API dá (plant_devices), o nome que vale hoje (a tela por cima) e se ele
+    casa com o cadastro da usina. O que não casa é SEM DE-PARA: as esperadas dele não entram e string morta não acusa."""
+    tela = _dp.inversores(est, ("pv",), pid)
+    devs = {d["device_id"]: str(d.get("device_name_api") or d.get("device_name") or "").strip()
+            for d in _pv_plant_devices(pid) if isinstance(d, dict) and "device_id" in d}
+    hoje, erro = _dp_ids_hoje_api_pv(pid)
+    ids = set(hoje) | {int(i) for i in tela if str(i).isdigit()}
+    if not ids:                                  # a fonte não respondeu agora: os inversores do plant_devices
+        ids = {i for i, n in devs.items() if isinstance(i, int) and ("inv" in n.lower() or not n)}
+    esp_cad = ESPERADO_INV.get(cad) or {}
+    linhas = []
+    for i in sorted(ids, key=lambda i: (_inv_hist_ord(tela.get(str(i)) or devs.get(i) or ""), i)):
+        nome_api, decidido = devs.get(i) or None, tela.get(str(i)) or None
+        nome = decidido or nome_api
+        casa = bool(nome) and _equip_lookup(esp_cad, nome) is not None
+        linhas.append({"id": str(i), "nome": nome, "nome_api": nome_api,
+                       "origem": "tela" if decidido else ("nome" if casa else "sem"),
+                       "na_fonte_hoje": i in hoje, "codigo": None})
+    out = {"edita_inversor": True, "inversores": linhas, "fonte_hoje_erro": erro, "sugerir": False,
+           "alvos": _dp_alvos(cad), "provisorio": None}
+    if not esp_cad:
+        out["nota_inversor"] = ("A usina não está ligada a uma usina do cadastro: ligue a usina primeiro, e os inversores "
+                                "do cadastro aparecem aqui para escolher.")
     return out
 
 
@@ -1685,6 +1716,9 @@ def api_depara_usina():
 
 
 def _dp_nomes_validos(fonte, uid) -> set:
+    if fonte == "pv":
+        cad = str((_dp_planta(int(uid)) or {}).get("nome") or "").strip()
+        return {a["nome"] for a in _dp_alvos(cad)}
     if fonte in _DP_OEM:
         pid = int(uid)
         cad = str((_dp_planta(pid) or {}).get("nome") or "").strip()
@@ -1716,7 +1750,7 @@ def api_depara_decidir():
         if invs is not None:
             if not isinstance(invs, dict) or len(invs) > 300:
                 return jsonify({"error": "inversores: mande {id: nome}, até 300"}), 400
-            if fonte not in _DP_OEM + _DP_SG:
+            if fonte not in ("pv",) + _DP_OEM + _DP_SG:
                 return jsonify({"error": "nesta fonte o inversor liga pelo nome que ela manda: corrija no cadastro"}), 400
             validos = _dp_nomes_validos(fonte, uid)
             for i, nome in invs.items():
@@ -1834,7 +1868,7 @@ def api_depara():
            "apelidos": PV_NOME_API_ALIAS, "inv_nomes": {i: _pv_inv_nomes_de(i) for i in ids_inv},
            "provisorios": {k: v for k, v in PV_INV_PROVISORIOS.items() if not any(u == str(k) for (_f, u) in revistas)},
            "oem": PV_OEM_PLANTS, "revistas": {u for (_f, u) in revistas},
-           "edita_usina": set(_dp.FONTES_USINA + _dp.FONTES_APELIDO), "edita_inversor": set(_DP_OEM + _DP_SG),
+           "edita_usina": set(_dp.FONTES_USINA + _dp.FONTES_APELIDO), "edita_inversor": set(("pv",) + _DP_OEM + _DP_SG),
            "apelidos_tela": _dp.apelidos(est), "so_sem_depara": set(_dp.FONTES_APELIDO),
            "sg_por_ordem": {(f, c["id"]): True for f in _sg.FONTES for c in _sg.usinas(f)
                             if not c.get("inversores") and not _dp.inversores(est, (f,), c["id"])}}
@@ -9850,7 +9884,7 @@ def _pv_plant_devices(plant_id) -> list:
     mandar `params` devolve 401."""
     ent = _pv_devs_cache.get(plant_id)
     if ent and (time.time() - ent["ts"]) < 1800:
-        return ent["devs"]
+        return _pv_devs_com_a_tela(plant_id, ent["devs"])
     devs = []
     try:
         raw = _http().get(f"{BASE_URL}/plant_devices", headers={"x-access-token": _pv_token_for(plant_id)},
@@ -9864,9 +9898,9 @@ def _pv_plant_devices(plant_id) -> list:
             devs = []
     except Exception as e:
         print(f"[plant_devices] usina {plant_id}: {e}")
-        return (ent or {}).get("devs") or []
+        return _pv_devs_com_a_tela(plant_id, (ent or {}).get("devs") or [])
     _pv_devs_cache[plant_id] = {"ts": time.time(), "devs": devs}
-    return devs
+    return _pv_devs_com_a_tela(plant_id, devs)
 
 
 def _pv_comb_parse(rows, devs, agora=None, max_idade_h=_PV_COMB_MAX_IDADE_H) -> dict:
@@ -20670,10 +20704,40 @@ def _str_eventos_calc(usina, curvas_inv, zero_thr=None, inv_min=None, inv_min_fr
 _pv_dev_names_cache = {}   # pid -> {ts, names}
 
 
+def _pv_inv_da_tela(pid) -> dict:
+    """{id do inversor (int): Equipamento Supervisório} decidido na tela De-para para uma usina da conta principal da API
+    PV (12/10/2026). Vazio = vale o nome do plant_devices, como antes; "" na decisão (desfazer) também."""
+    if not DEPARA_LIGADO:
+        return {}
+    out = {}
+    for i, n in _dp.inversores(_dp_estado(), ("pv",), pid).items():
+        try:
+            if n:
+                out[int(i)] = n
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _pv_nomes_com_a_tela(pid, nomes: dict) -> dict:
+    tela = _pv_inv_da_tela(pid)
+    return {**(nomes or {}), **tela} if tela else (nomes or {})
+
+
+def _pv_devs_com_a_tela(pid, devs: list) -> list:
+    """O plant_devices com o nome decidido na tela no `device_name` (o da API fica em `device_name_api`). Cópia: o cache
+    guarda a resposta da API, e a decisão nova vale na leitura seguinte, sem esperar os 30 min."""
+    tela = _pv_inv_da_tela(pid)
+    if not tela:
+        return devs
+    return [dict(d, device_name=tela[d["device_id"]], device_name_api=d.get("device_name"))
+            if isinstance(d, dict) and d.get("device_id") in tela else d for d in devs or []]
+
+
 def _pv_dev_names(pid, token):
     ent = _pv_dev_names_cache.get(pid)
     if ent and time.time() - ent["ts"] < 1800:
-        return ent["names"]
+        return _pv_nomes_com_a_tela(pid, ent["names"])
     names = {}
     try:
         raw = _http().get(f"{BASE_URL}/plant_devices", headers={"x-access-token": token},
@@ -20687,7 +20751,7 @@ def _pv_dev_names(pid, token):
     except Exception:
         pass
     _pv_dev_names_cache[pid] = {"ts": time.time(), "names": names}
-    return names
+    return _pv_nomes_com_a_tela(pid, names)
 
 
 def _pv_curvas_strings(pid, nome_api, token, entradas=None):

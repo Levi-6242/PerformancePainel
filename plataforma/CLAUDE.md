@@ -261,6 +261,14 @@ vez (`_pv_plant_em_voo`): quem chega no meio espera a que está correndo e leva 
 uma segunda igual na API que já está lenta; se ela falhou, quem esperou leva a mesma falha (`_pv_plant_falha`) — às
 21:48 a Guatambu 4 deu 504 aos 60 s e a abertura que esperava fez outra busca, 504 aos 120 s. Quem chega depois da
 falha tenta de novo. Testes: `test_drill_usina_falha_visivel.py`, `test_drill_api_pv_rapido.py`.
+**A linha da usina pelo drill (12/10/2026**, Levi: "quando abrisse e o resultado desse que a diferença é menor ou maior
+automaticamente atualizaria o número de diferença da UFV"). A linha vem da tabela montada minutos antes; o drill busca na
+hora (SMP100 às 17:23: linha −2 da tabela das 17:18, inversores 5.2 −3 e 6.1 −8). Com o drill mais novo que a linha,
+`_resumoDrill` troca ativas, esperadas e diferença pelas dos inversores NA CONTA (diferença = soma das faltas, a régua do
+`_dif_por_inversor`; desligado, com OS e sem visão ficam fora, como no drill; inversor na conta sem esperadas = fica a
+linha), com o ícone e o título dizendo de quando. Tabela mais nova vence. Reabrir a usina depois de 2 min busca os
+inversores de novo sem apagar a lista (a releitura que falha mantém a anterior). Só na tela: a Entrada e o Painel NOC
+seguem a tabela. Teste: `tests/test_linha_usina_pelo_drill.py`.
 
 **Teto de memória do worker (11/10/2026).** O worker subiu às 00:39 de 11/10 e às 22:52 tinha 5,5 GB (0,3 GB livres de 20
 no PC, na hora do fechamento das 23:30; o PC já tinha travado na noite anterior), e cada restart voltava a passar de 3 GB
@@ -740,8 +748,16 @@ Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o
   cada id nos 3 últimos dias fechados × as colunas da aba da usina no BD_Performance, um para um, com o erro e a confiança;
   custa até 3 consultas da cota histórica da API PV; coluna vazia no BD não fecha nada e a tela diz). O inversor sem
   de-para (nome pela ordem, ou sem nome) aparece em âmbar com "Sem de-para: escolha o inversor do cadastro" no lugar de
-  "manter". O inversor das fontes que mandam o nome (Thopen da conta principal, Athon, Axis, banco, RenoGrid) e a usina
-  da Thopen do banco e da RenoGrid (a chave é um id e a linha não traz o nome do cadastro) ainda se corrigem no cadastro.
+  "manter". **Inversor a inversor na conta principal da API PV (12/10/2026**, Levi: "consigo ligar usinas mas não consigo
+  ligar inversor a inversor, precisamos ter essa visualização"): `pv` entrou em `depara.FONTES_INVERSOR`, pelo id do
+  inversor (que não muda quando a API renomeia). O editor (`_dp_editor_inv_pv`) lista os inversores que a API mandou hoje
+  (o `day_inverter`; sem resposta, os do `plant_devices` com "inv" no nome), com o nome da API, o que vale hoje e a origem:
+  "casa pelo nome" (o `_equip_lookup` acha no cadastro da usina), "sem de-para" (não acha: as esperadas dele não entram) ou
+  "decidido na tela". Sem a usina no cadastro (a Itaja 1 (228) antes da ponte), pede para ligar a usina primeiro. A decisão
+  vale nos DOIS lugares que dão nome ao inversor da conta principal: `_pv_dev_names` e `_pv_plant_devices`, na saída (o
+  cache de 30 min guarda a resposta da API; o nome da API fica em `device_name_api`). "Confirmar como está" só manda os
+  nomes que são do cadastro. O inversor das outras fontes que mandam o nome (Athon, Axis, banco, RenoGrid) e a usina da
+  Thopen do banco e da RenoGrid (a chave é um id e a linha não traz o nome do cadastro) ainda se corrigem no cadastro.
 - **O dado**: livro `nexus_depara · fato_decisao_depara` (`depara.py`, no catálogo do Nexus), só acrescenta, gravado pela
   mesma `cobertura.Decisoes` (relê, grava inteiro, confere a contagem; cache de 60 s e a última leitura boa em
   `depara_decisoes.json`). O cadastro entra pela chave de negócio (Usina Supervisório, Equipamento Supervisório), que a

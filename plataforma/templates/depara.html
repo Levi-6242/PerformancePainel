@@ -184,7 +184,8 @@
 <script>
 (function(){
   var D = null, ED = null, SUG = null, VER = 'pendentes', SEL = null;
-  var ORIGEM = {tela: ['ok', 'Decidido na tela'], codigo: ['mudo', 'De-para no código'], ordem: ['atencao', 'Sem de-para (pela ordem)']};
+  var ORIGEM = {tela: ['ok', 'Decidido na tela'], codigo: ['mudo', 'De-para no código'], ordem: ['atencao', 'Sem de-para (pela ordem)'],
+                nome: ['mudo', 'Casa pelo nome'], sem: ['atencao', 'Sem de-para (o nome não casa)']};
   var NOMES = {'decidido na tela': ['ok', 'Decidido na tela'], 'de-para no código': ['mudo', 'De-para no código'],
                'pela ordem do cadastro': ['atencao', 'Sem de-para (pela ordem)'], 'o nome que a fonte manda': ['mudo', 'Nome da fonte']};
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
@@ -324,7 +325,7 @@
     if(ED.sem_depara) return '';
     return ED.apelido || String(ED.nome_interno || '').trim();
   }
-  function semDepara(x){ return x.origem === 'ordem' || !x.nome; }
+  function semDepara(x){ return x.origem === 'ordem' || x.origem === 'sem' || !x.nome; }
 
   function secUsina(pode, so){
     var p = ED.ponte || {}, quem = ED.por_nome ? 'a fonte' : 'a API', est, h;
@@ -364,7 +365,13 @@
   }
   function secInversores(pode){
     var falta = ED.inversores.filter(semDepara).length, h = '<section class="sec" aria-labelledby="secI"><h3 id="secI">Inversores</h3>';
-    h += falta ? '<div class="estado atencao"><b>' + falta + ' de ' + ED.inversores.length + ' sem de-para.</b> O nome deles vem da ordem dos ids e pode trocar um inversor pelo outro: escolha o inversor do cadastro de cada um' + (ED.sugerir ? ' (a sugestão pelo kWh ajuda)' : '') + '.</div>'
+    if(!ED.alvos.length){
+      return h + '<p class="nota">' + esc(ED.nota_inversor || 'O cadastro desta usina não tem inversores para escolher.') + '</p>' +
+        '<p class="nota">A fonte manda ' + ED.inversores.length + ' inversor(es): ' + esc(ED.inversores.map(function(x){ return x.nome || ('id ' + x.id); }).join(', ')) + '.</p></section>';
+    }
+    var porque = ED.fonte === 'pv' ? 'O nome que a API dá a eles não casa com o cadastro: as esperadas deles não entram e string morta não acusa'
+                                   : 'O nome deles vem da ordem dos ids e pode trocar um inversor pelo outro';
+    h += falta ? '<div class="estado atencao"><b>' + falta + ' de ' + ED.inversores.length + ' sem de-para.</b> ' + porque + ': escolha o inversor do cadastro de cada um' + (ED.sugerir ? ' (a sugestão pelo kWh ajuda)' : '') + '.</div>'
                : '<div class="estado ok"><b>Todos os ' + ED.inversores.length + ' com de-para.</b></div>';
     if(ED.provisorio) h += '<p>' + tag('info', ED.provisorio) + '</p>';
     if(ED.fonte_hoje_erro) h += '<p class="nota">A fonte não respondeu agora (' + esc(ED.fonte_hoje_erro) + '): a lista mostra os ids do de-para.</p>';
@@ -373,10 +380,11 @@
     ED.inversores.forEach(function(x, k){
       var sem = semDepara(x), o = ORIGEM[x.origem] || ['mudo', x.origem];
       var opts = (sem ? '<option value="">Sem de-para: escolha o inversor do cadastro</option>' : '<option value="">Manter: ' + esc(x.nome) + '</option>') +
-        (x.origem === 'tela' ? '<option value="__codigo__">Voltar ao de-para do código' + (x.codigo ? ' (' + esc(x.codigo) + ')' : ' (sem nome no código)') + '</option>' : '') +
+        (x.origem === 'tela' ? '<option value="__codigo__">' + (ED.fonte === 'pv' ? 'Voltar ao nome da API' + (x.nome_api ? ' (' + esc(x.nome_api) + ')' : '')
+                                    : 'Voltar ao de-para do código' + (x.codigo ? ' (' + esc(x.codigo) + ')' : ' (sem nome no código)')) + '</option>' : '') +
         ED.alvos.map(function(a){ return '<option value="' + esc(a.nome) + '">' + esc(rotAlvo(a)) + '</option>'; }).join('');
       h += '<tr class="' + (sem ? 'aten' : '') + '"><td><span class="chave">' + esc(x.id) + '</span>' + (x.na_fonte_hoje ? '' : '<div>' + tag('mudo', 'não veio hoje') + '</div>') + '</td>' +
-        '<td><div>' + esc(x.nome || '—') + '</div><div>' + tag(o[0], o[1]) + '</div></td>' +
+        '<td><div>' + esc(x.nome || '—') + '</div>' + (x.nome_api && x.nome_api !== x.nome ? '<div class="nota">a API: ' + esc(x.nome_api) + '</div>' : '') + '<div>' + tag(o[0], o[1]) + '</div></td>' +
         '<td><select data-inv="' + esc(x.id) + '" class="' + (sem ? 'falta' : '') + '" aria-label="Inversor do cadastro para o id ' + esc(x.id) + '">' + opts + '</select></td>' +
         '<td id="sug_' + k + '"></td></tr>';
     });
@@ -459,8 +467,10 @@
     gravar({inversores: esc_}, 'Inversores gravados');
   }
   function confirmarInversores(){
-    var out = {};
-    ED.inversores.forEach(function(x){ if(x.nome) out[x.id] = x.nome; });
+    var out = {}, validos = {};
+    ED.alvos.forEach(function(a){ validos[a.nome] = 1; });
+    // só o nome que é do cadastro: o "sem de-para" da conta principal tem o nome da API, que o cadastro recusa
+    ED.inversores.forEach(function(x){ if(x.nome && validos[x.nome]) out[x.id] = x.nome; });
     if(!Object.keys(out).length){ msg('Nenhum inversor com nome para confirmar.', true); return; }
     var rep = repetidos({});
     if(rep.length){ msg('Dois inversores com o mesmo nome hoje: ' + rep.join(', ') + '. Corrija antes de confirmar.', true); return; }

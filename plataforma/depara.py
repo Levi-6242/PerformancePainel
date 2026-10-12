@@ -31,7 +31,10 @@ ORIGENS = ("tela",)
 # na conta oem@ (SEMP, Alves Lima, 2C) e pelo número do equipamento no scadaGridco. A Thopen da conta principal e as outras
 # fontes ligam pelo nome que a fonte manda: corrige-se no cadastro.
 FONTES_USINA = ("pv", "semp", "alveslima", "2capi")
-FONTES_INVERSOR = ("semp", "alveslima", "2capi", "greenyellow", "salenergia")
+# 12/10/2026 (Levi: "eu consigo ligar usinas mas não consigo ligar inversor a inversor"): a conta principal da API PV (pv)
+# entra aqui. O nome do inversor dela vem do plant_devices e só casava com o cadastro se a grafia batesse; agora o id do
+# inversor (que não muda quando a API renomeia) liga ao Equipamento Supervisório, como na conta oem@.
+FONTES_INVERSOR = ("pv", "semp", "alveslima", "2capi", "greenyellow", "salenergia")
 # As fontes que mandam a usina só pelo NOME (a Athon e a Axis, pela SunOp: a chave delas é o próprio nome, "CPP100").
 # Até 12/10/2026 o conserto de um nome que não casava era editar a "Usina Supervisório" no Equipamentos do BD_Performance
 # e subir a planilha (Levi: "precisamos trazer para o Nexus e deixar mais dinâmico com a plataforma"). Agora a tela grava

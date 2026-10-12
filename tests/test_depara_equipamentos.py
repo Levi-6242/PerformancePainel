@@ -109,7 +109,7 @@ def test_a_linha_tem_o_dia_de_brasilia_e_so_onde_o_codigo_liga_pelo_id():
         ["2026-10-12T02:30:00Z", 20261011, "2capi", "18771915", "", "Santa Cecilia 1", "", "tela"]
     assert dp.linha_inversor("salenergia", "salvales", 3, "Inversor 1.3", Q1)[2:7] == \
         ["salenergia", "salvales", "3", "", "Inversor 1.3"]
-    for ruim in (lambda: dp.linha_usina("sunop", "MRO100", "x"), lambda: dp.linha_inversor("pv", 1, 2, "x"),
+    for ruim in (lambda: dp.linha_usina("sunop", "MRO100", "x"), lambda: dp.linha_inversor("pg", 1, 2, "x"),
                  lambda: dp.linha_inversor("2capi", 1, "", "x"), lambda: dp.linha_usina("pv", " ", "x")):
         with pytest.raises(ValueError):
             ruim()
@@ -455,6 +455,8 @@ def _tabelas_do_dia(monkeypatch):
                                                                     {"id": 31, "nome": "Sete Lagoa"}]})
     for c in ("_2capi_cache", "_semp_cache", "_alveslima_cache", "_se_cache"):
         monkeypatch.setattr(app, c, {})
+    monkeypatch.setattr(app, "_pv_plant_devices", lambda pid: [])                  # sem API PV no teste
+    monkeypatch.setattr(app, "_dp_ids_hoje_api_pv", lambda pid: ([], None))
     # o servidor sem o token do scadaGridco: a linha vem sem leitura, e o nome não casa letra a letra com o cadastro
     monkeypatch.setattr(app, "_SG_CACHE", {"greenyellow": {"payload": {"rows": [
         {"plant_id": "dermeval_lobao", "usina": "Demerval Lobao", "str_esp": None, "sem_dados": True}]}}})
@@ -496,3 +498,45 @@ def test_o_apelido_das_fontes_que_ligam_pelo_nome_grava_e_rele_o_cadastro(cli, l
     assert cli.get("/api/admin/de-para/usina?fonte=pg&id=8").status_code == 400       # o banco segue no cadastro
     r = cli.post("/api/admin/de-para/decidir", json={"fonte": "sunop", "id": "MRO 1 NOVO", "usina_supervisorio": ""})
     assert r.status_code == 200 and app._dp_apelidos_da_tela() == {} and ligado.recargas == [1, 1]   # desfazer também relê
+
+
+# ── 12/10/2026: inversor a inversor na conta principal da API PV ─────────────────────────────────────────────────────
+# Levi: "no de-para equipamentos eu consigo ligar usinas mas não consigo ligar inversor a inversor, precisamos ter essa
+# visualização". O nome do inversor da conta principal vem do plant_devices e só casava com o cadastro pela grafia.
+def test_o_editor_da_conta_principal_mostra_cada_inversor_e_se_ele_casa_com_o_cadastro(cli, ligado, monkeypatch):
+    entrar_com_senha(cli)
+    monkeypatch.setattr(app, "ESPERADO_INV", {"Itaja 1 (551)": {"Inversor 1.1": 19, "Inversor 1.2": 19}})
+    monkeypatch.setattr(app, "EQUIP_NAMES", {})
+    monkeypatch.setattr(app, "_dp_planta", lambda pid: {"id": pid, "nome": "Itaja 1 (551)", "nome_api": "Itaja 1 (228)"})
+    monkeypatch.setattr(app, "_dp_ids_hoje_api_pv", lambda pid: ([501, 502, 503], None))
+    devs = [{"device_id": 501, "device_name": "Inversor 1.1"}, {"device_id": 502, "device_name": "INV-02"},
+            {"device_id": 503, "device_name": "INV-03"}, {"device_id": 9, "device_name": "Medidor"}]
+    monkeypatch.setattr(app, "_pv_devs_cache", {18749574: {"ts": app.time.time(), "devs": devs}})
+    monkeypatch.setattr(app, "_pv_dev_names_cache", {18749574: {"ts": app.time.time(),
+                                                                "names": {d["device_id"]: d["device_name"] for d in devs}}})
+    d = cli.get("/api/admin/de-para/usina?fonte=pv&id=18749574").get_json()
+    por = {x["id"]: x for x in d["inversores"]}
+    assert d["edita_inversor"] and set(por) == {"501", "502", "503"}                  # o medidor não é inversor
+    assert por["501"]["origem"] == "nome" and por["502"]["origem"] == "sem" and por["502"]["nome_api"] == "INV-02"
+    assert {a["nome"] for a in d["alvos"]} == {"Inversor 1.1", "Inversor 1.2"}
+    r = cli.post("/api/admin/de-para/decidir", json={"fonte": "pv", "id": "18749574", "inversores": {"502": "Inventado"}})
+    assert r.status_code == 400
+    r = cli.post("/api/admin/de-para/decidir", json={"fonte": "pv", "id": "18749574", "inversores": {"502": "Inversor 1.2"}})
+    assert r.status_code == 200
+    # a decisão vale nos dois lugares que dão nome ao inversor da conta principal, e o da API fica guardado
+    assert app._pv_dev_names(18749574, "tok")[502] == "Inversor 1.2"
+    d2 = {x["device_id"]: x for x in app._pv_plant_devices(18749574)}
+    assert d2[502]["device_name"] == "Inversor 1.2" and d2[502]["device_name_api"] == "INV-02"
+    assert d2[503]["device_name"] == "INV-03" and devs[1]["device_name"] == "INV-02"   # o cache segue com o da API
+    por = {x["id"]: x for x in cli.get("/api/admin/de-para/usina?fonte=pv&id=18749574").get_json()["inversores"]}
+    assert por["502"]["origem"] == "tela" and por["502"]["nome"] == "Inversor 1.2" and por["503"]["origem"] == "sem"
+
+
+def test_sem_a_usina_no_cadastro_o_editor_pede_para_ligar_a_usina_antes(cli, ligado, monkeypatch):
+    entrar_com_senha(cli)
+    monkeypatch.setattr(app, "ESPERADO_INV", {})
+    monkeypatch.setattr(app, "_dp_planta", lambda pid: {"id": pid, "nome": "Itaja 1 (228)"})
+    monkeypatch.setattr(app, "_dp_ids_hoje_api_pv", lambda pid: ([501], None))
+    monkeypatch.setattr(app, "_pv_devs_cache", {18749574: {"ts": app.time.time(), "devs": [{"device_id": 501, "device_name": "INV-01"}]}})
+    d = cli.get("/api/admin/de-para/usina?fonte=pv&id=18749574").get_json()
+    assert d["alvos"] == [] and "ligue a usina primeiro" in d["nota_inversor"] and d["inversores"][0]["origem"] == "sem"
