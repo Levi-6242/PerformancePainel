@@ -87,7 +87,8 @@ def test_o_diagnostico_junta_por_fonte_poe_o_pior_na_frente_e_diz_quem_nao_foi_l
     assert por["sunop"]["lida"] is False and por["pg"]["lida"] is True and por["pg"]["usinas"] == []
     assert [u["usina"] for u in por["2capi"]["usinas"]] == ["MORADA NOVA", "União 1 e 2", "Santa Cecilia 1"]
     assert [(u["usina"], u["pior"]) for u in d["precisa"]] == [("MORADA NOVA", "critico"), ("União 1 e 2", "atencao")]
-    assert d["contagem"] == {"usinas": 3, "criticos": 1, "atencao": 1}
+    assert d["contagem"] == {"usinas": 3, "criticos": 1, "atencao": 1, "sem_depara_usina": 0, "sem_depara_inversor": 0,
+                             "ok": 1}
 
 
 def test_o_diagnostico_diz_o_que_a_tela_decidiu_e_o_que_ela_edita():
@@ -201,7 +202,7 @@ class _Banco:
     """A db_performace de mentira, com o livro do de-para (lê o xlsx enviado de verdade)."""
 
     def __init__(self):
-        self.livros, self.linhas, self.fora = set(), None, False
+        self.livros, self.linhas, self.fora, self.recargas = set(), None, False, []
 
     def get(self, url, headers=None, params=None, timeout=None):
         if self.fora:
@@ -236,7 +237,8 @@ def ligado(monkeypatch, tmp_path):
     monkeypatch.setattr(app, "_DP_DECISOES", app._cob.Decisoes("https://x/db", lambda: app.os.environ.get("GRIDCO_SQL_TOKEN", ""),
                                                                str(tmp_path / "dp.json"), ttl=0, sessao=banco,
                                                                livro=dp.LIVRO, aba=dp.ABA, cab=dp.CAB))
-    monkeypatch.setattr(app, "_DP_MEMO", {"linhas": None, "estado": {"usina": {}, "inversor": {}}})
+    monkeypatch.setattr(app, "_DP_MEMO", {"linhas": None, "estado": {"usina": {}, "inversor": {}, "apelido": {}}})
+    monkeypatch.setattr(app, "_dp_recarregar_cadastro", lambda: banco.recargas.append(1))
     monkeypatch.setenv("GRIDCO_SQL_TOKEN", "tok")
     return banco
 
@@ -284,7 +286,7 @@ def test_decidir_confere_no_cadastro_e_grava(cli, ligado, monkeypatch):
                                                      "inversores": {"401322": "UNI_Inv_1.2", "401323": ""}})
     assert r.status_code == 200 and r.get_json()["total"] == 3
     assert app._pv_nome_2c(18772125, 401322) == "UNI_Inv_1.2"
-    assert cli.post("/api/admin/de-para/decidir", json={"fonte": "sunop", "id": "MRO100",
+    assert cli.post("/api/admin/de-para/decidir", json={"fonte": "solaredge", "id": "77",
                                                         "usina_supervisorio": "Santa Cecilia 1"}).status_code == 400
 
 
@@ -307,7 +309,7 @@ def test_o_editor_diz_de_onde_vem_cada_nome(cli, ligado, monkeypatch):
     d = cli.get("/api/admin/de-para/usina?fonte=2capi&id=18772125").get_json()
     x = next(x for x in d["inversores"] if x["id"] == "401322")
     assert (x["origem"], x["nome"], x["codigo"]) == ("tela", "UNI_Inv_1.2", "UNI_Inv_1.1") and d["provisorio"] is None
-    assert cli.get("/api/admin/de-para/usina?fonte=sunop&id=MRO100").status_code == 400
+    assert cli.get("/api/admin/de-para/usina?fonte=solaredge&id=77").status_code == 400
 
 
 def test_a_sugestao_pelo_valor_le_a_fonte_e_a_aba_da_usina(cli, monkeypatch):
@@ -376,3 +378,108 @@ def test_a_gaveta_do_editor_obedece_ao_hidden():
     html = (pathlib.Path(__file__).resolve().parents[1] / "plataforma" / "templates" / "depara.html").read_text(encoding="utf-8")
     assert re.search(r"\[hidden\]\s*\{\s*display\s*:\s*none\s*!important", html)
     assert 'id="ed" role="dialog" aria-modal="true" aria-labelledby="edTit" hidden' in html and 'id="veu" hidden' in html
+
+
+# ── 12/10/2026: sem de-para, a sugestão pelo nome, as já ligadas e o apelido das fontes que ligam pelo nome ─────────────
+# Levi: "não deveria aparecer usina que já estão ligadas, a não ser que eu tirasse um filtro"; "em NOVO ao invés de manter
+# tem que alertar que está sem de-para"; "precisamos trazer para o Nexus e deixar mais dinâmico com a plataforma". No dia,
+# 5 usinas da Thopen estavam "sem esperadas" e o problema era outro: a API escreve "Itaja 1 (228)" e "Pharma 2 (644)", e o
+# cadastro tem "Itaja 1 (551)" e "Pharma 2".
+CAD = [{"chave": "Itaja 1 (551)", "nome": "Itaja 1 (551)"}, {"chave": "Itaja 2 (552)", "nome": "Itaja 2 (552)"},
+       {"chave": "Pharma 2", "nome": "Pharma II"}, {"chave": "Ceu Azul 2", "nome": "Céu Azul II"}]
+
+
+def test_a_sugestao_pelo_nome_exige_o_mesmo_numero_e_avisa_o_parenteses():
+    s = dp.parecidas("Itaja 1 (228)", CAD)
+    assert [x["chave"] for x in s] == ["Itaja 1 (551)"] and "228 na fonte, 551 no cadastro" in s[0]["confere"]
+    assert dp.parecidas("Pharma 2 (644)", CAD) == [{"chave": "Pharma 2", "nota": 1.0, "confere": None}]
+    assert [x["chave"] for x in dp.parecidas("UFV Céu Azul II", CAD)] == ["Ceu Azul 2"]
+    assert dp.parecidas("Itaja 3 (230)", CAD) == [] and dp.parecidas("", CAD) == []
+
+
+def test_sem_de_para_e_o_nome_fora_do_cadastro_e_leva_a_sugestao():
+    sug = [{"chave": "Itaja 1 (551)", "nota": 1.0, "confere": "x"}]
+    ctx = {**CTX, "fora": {("pv", 18749574)}, "sugestoes": {("pv", 18749574): sug}, "edita_usina": {"pv"}}
+    u = dd.linha("pv", {**_r(18749574, "Itaja 1 (228)", None, 4, 4), "str_esp_cadastro": None}, ctx)
+    assert u["liga"] == "sem de-para" and u["sem_depara"] == "usina" and u["sugestao"] == sug and u["edita_usina"]
+    assert u["pior"] == "critico" and u["alertas"][0]["texto"].startswith("sem de-para: o cadastro não tem “Itaja 1 (228)”")
+    # no cadastro, mas sem esperadas: o alerta de antes, sem sugestão
+    u = dd.linha("pv", {**_r(5, "Usina X", None), "str_esp_cadastro": None}, ctx)
+    assert u["sem_depara"] is None and u["sugestao"] == [] and "string morta não acusa" in u["alertas"][0]["texto"]
+    assert dd.linha("salenergia", _r("boa", "Boa"), CTX)["sem_depara"] == "inversor"
+
+
+def test_o_apelido_vale_so_nas_fontes_que_ligam_pelo_nome_e_o_vazio_desfaz():
+    assert dp.linha_apelido("sunop", " MRO 1 NOVO ", "MRO100", Q1)[2:8] == ["sunop", "MRO 1 NOVO", "", "MRO100", "", "tela"]
+    for f in ("pv", "2capi", "solaredge"):
+        with pytest.raises(ValueError):
+            dp.linha_apelido(f, "X", "Y", Q1)
+    est = dp.vigente([dp.linha_apelido("sunop", "A", "MRO100", Q1), dp.linha_apelido("pg", "B", "Indaiatuba", Q1),
+                      dp.linha_apelido("sunop", "A", "", Q2), dp.linha_usina("pv", 7, "Itaja 1 (551)", Q1)])
+    assert dp.apelidos(est) == {"B": "Indaiatuba"} and dp.pontes(est) == {7: "Itaja 1 (551)"}
+    u = dd.linha("pg", _r("B", "Indaiatuba"), {**CTX, "apelidos_tela": dp.apelidos(est)})
+    assert u["liga"] == "por apelido da tela: a fonte escreve “B”"
+
+
+def test_o_apelido_da_tela_faz_o_cadastro_responder_pelo_nome_da_fonte_sem_sobrescrever(monkeypatch):
+    monkeypatch.setattr(app, "ESPERADO", {"MRO100": {"inv_esp": 4, "str_esp": 60}, "Outra": {"inv_esp": 1, "str_esp": 9}})
+    monkeypatch.setattr(app, "ESPERADO_INV", {"MRO100": {"INV1": 15}})
+    monkeypatch.setattr(app, "EQUIP_NAMES", {})
+    monkeypatch.setattr(app, "POWER_INV", {})
+    monkeypatch.setattr(app, "USINA_DISPLAY", {"MRO100": "Morro 100"})
+    monkeypatch.setattr(app, "FULL_OM", {"MRO100"})
+    monkeypatch.setattr(app, "STRING_BOX", set())
+    est = dp.vigente([dp.linha_apelido("sunop", "MRO 1 NOVO", "MRO100", Q1), dp.linha_apelido("sunop", "Outra", "MRO100", Q1)])
+    monkeypatch.setattr(app, "_DP_MEMO", {"linhas": [], "estado": est})
+    app._aplica_alias_api_cadastro()
+    assert app.ESPERADO["MRO 1 NOVO"] == {"inv_esp": 4, "str_esp": 60} and app.ESPERADO_INV["MRO 1 NOVO"] == {"INV1": 15}
+    assert app.USINA_DISPLAY["MRO 1 NOVO"] == "Morro 100" and "MRO 1 NOVO" in app.FULL_OM
+    assert app.ESPERADO["Outra"] == {"inv_esp": 1, "str_esp": 9}                       # o cadastro nunca é sobrescrito
+
+
+def _tabelas_do_dia(monkeypatch):
+    monkeypatch.setattr(app, "ESPERADO", {"Itaja 1 (551)": {"inv_esp": 4, "str_esp": 76},
+                                          "Indaiatuba": {"inv_esp": 20, "str_esp": 400},
+                                          "Sete Lagoa": {"inv_esp": 6}, "Sete Lagoas": {"inv_esp": 6}})
+    monkeypatch.setattr(app, "USINA_DISPLAY", {})
+    monkeypatch.setattr(app, "_cache", {"payload": {"rows": [
+        {**_r(18749574, "Itaja 1 (228)", None, 4, 4), "str_esp_cadastro": None},
+        {**_r(31, "Sete Lagoas", 100), "str_esp_cadastro": 100}]}})
+    monkeypatch.setattr(app, "_pg_cache", {"summary": [_r("Indaiatuba", "Indaiatuba", 400, 20, 20)], "detail": {}, "ts": 0.0})
+    monkeypatch.setattr(app, "_plants_cache", {"ts": 0.0, "data": [{"id": 18749574, "nome": "Itaja 1 (228)"},
+                                                                    {"id": 31, "nome": "Sete Lagoa"}]})
+    for c in ("_2capi_cache", "_semp_cache", "_alveslima_cache", "_se_cache"):
+        monkeypatch.setattr(app, c, {})
+
+
+def test_a_rota_diz_sem_de_para_com_a_sugestao_e_o_editor_esconde_o_que_ja_liga(cli, ligado, monkeypatch):
+    entrar_com_senha(cli)
+    _tabelas_do_dia(monkeypatch)
+    d = cli.get("/api/admin/de-para").get_json()
+    it = next(u for u in d["precisa"] if u["plant_id"] == 18749574)
+    assert it["sem_depara"] == "usina" and it["liga"] == "sem de-para" and it["edita_usina"]
+    assert it["sugestao"][0]["chave"] == "Itaja 1 (551)" and it["sugestao"][0]["ligada_a"] == []
+    assert d["contagem"]["sem_depara_usina"] == 1
+    ed = cli.get("/api/admin/de-para/usina?fonte=pv&id=18749574").get_json()
+    assert ed["sem_depara"] and ed["sugestao"][0]["chave"] == "Itaja 1 (551)"
+    cad = {u["chave"]: u["ligada_a"] for u in ed["cadastro_usinas"]}
+    assert cad == {"Itaja 1 (551)": [], "Indaiatuba": ["Thopen · Banco de dados · Indaiatuba"],
+                   "Sete Lagoas": ["Thopen · API PV · Sete Lagoas"]}                    # sem a cópia "Sete Lagoa"
+    ed = cli.get("/api/admin/de-para/usina?fonte=pv&id=31").get_json()             # a própria usina não conta
+    assert not ed["sem_depara"] and {u["chave"]: u["ligada_a"] for u in ed["cadastro_usinas"]}["Sete Lagoas"] == []
+
+
+def test_o_apelido_das_fontes_que_ligam_pelo_nome_grava_e_rele_o_cadastro(cli, ligado, monkeypatch):
+    entrar_com_senha(cli)
+    _tabelas_do_dia(monkeypatch)
+    ed = cli.get("/api/admin/de-para/usina?fonte=sunop&id=MRO%201%20NOVO").get_json()
+    assert ed["por_nome"] and ed["sem_depara"] and ed["edita_usina"] and not ed["edita_inversor"]
+    r = cli.post("/api/admin/de-para/decidir", json={"fonte": "sunop", "id": "MRO 1 NOVO", "usina_supervisorio": "Indaiatuba"})
+    assert r.status_code == 200 and ligado.recargas == [1]                     # relê o cadastro já, sem esperar 60 s
+    assert app._dp_apelidos_da_tela() == {"MRO 1 NOVO": "Indaiatuba"}
+    ed = cli.get("/api/admin/de-para/usina?fonte=sunop&id=MRO%201%20NOVO").get_json()
+    assert ed["ponte"]["tela"] == "Indaiatuba" and not ed["sem_depara"]
+    r = cli.post("/api/admin/de-para/decidir", json={"fonte": "pg", "id": "Indaiatuba", "usina_supervisorio": "Itaja 1 (551)"})
+    assert r.status_code == 400 and "liga pelo nome" in r.get_json()["error"]          # o nome já está no cadastro
+    r = cli.post("/api/admin/de-para/decidir", json={"fonte": "sunop", "id": "MRO 1 NOVO", "usina_supervisorio": ""})
+    assert r.status_code == 200 and app._dp_apelidos_da_tela() == {} and ligado.recargas == [1, 1]   # desfazer também relê

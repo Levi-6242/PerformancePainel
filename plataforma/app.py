@@ -1452,6 +1452,7 @@ def pagina_depara():
 
 
 _DP_OEM = ("semp", "alveslima", "2capi")                         # a conta oem@: o inversor liga pelo id
+_DP_API_PV = ("pv",) + _DP_OEM                                     # as contas da API PV: a usina liga pelo id
 _DP_SG = ("greenyellow", "salenergia")                             # scadaGridco: o inversor liga pelo nº do equipamento
 
 
@@ -1476,11 +1477,80 @@ def _dp_planta(pid):
     return next((p for p in plantas or [] if p.get("id") == pid), None)
 
 
-def _dp_cadastro_usinas() -> list:
-    """As usinas do cadastro (Usina Supervisório) para a escolha da ponte, com o nome de exibição e as esperadas."""
+def _dp_indice_cadastro() -> dict:
+    """{_nrm(Usina Supervisório ou nome de exibição): {chaves do cadastro}}: para achar a usina pelo nome que a linha traz."""
+    ix = {}
+    for k in ESPERADO:
+        for n in (k, USINA_DISPLAY.get(k)):
+            if n and str(n).strip():
+                ix.setdefault(_nrm(n), set()).add(k)
+    return ix
+
+
+def _dp_chaves_do_nome(nome, ix, apel) -> set:
+    """As usinas do cadastro que um nome alcança: pelo apelido (código ou tela), pela chave exata ou pelo nome de
+    exibição. Vazio = o nome não está no cadastro."""
+    nome = str(nome or "")
+    if not nome.strip():
+        return set()
+    alvo = apel.get(nome) or apel.get(nome.strip())
+    if alvo:
+        return {alvo} if alvo in ESPERADO else set()
+    if nome in ESPERADO:
+        return {nome}
+    return set(ix.get(_nrm(nome), ()))
+
+
+def _dp_chaves_da_linha(fonte, r, ix, apel, por_id) -> set:
+    """A usina do cadastro de uma linha da tabela de strings: na API PV, o nome por dentro (depois da ponte, na lista de
+    usinas); nas fontes que mandam o nome como chave (Thopen do banco, Athon, Axis), o próprio plant_id; e o nome da
+    linha (já de exibição quando casou)."""
+    pid = r.get("plant_id")
+    cands = []
+    if fonte in _DP_API_PV:
+        cands.append((por_id.get(pid) or {}).get("nome"))
+    if isinstance(pid, str):
+        cands.append(pid)
+    cands.append(r.get("usina"))
+    for c in cands:
+        ks = _dp_chaves_do_nome(c, ix, apel)
+        if ks:
+            return ks
+    return set()
+
+
+def _dp_ligacoes(excluir=None) -> dict:
+    """{Usina Supervisório: ["2C · Morada Nova", ...]}: quem já liga a cada usina do cadastro, pelas tabelas em cache.
+    `excluir` = (fonte, plant_id) da usina que está no editor (ela não conta como "já ligada a outra")."""
+    ix, apel = _dp_indice_cadastro(), _dp_aliases()
+    por_id = {p.get("id"): p for p in (_plants_cache.get("data") or [])}
+    rot = _cob.FONTES
+    out = {}
+    for f, rows in _depara_tabelas().items():
+        for r in rows or []:
+            if excluir and (f, str(r.get("plant_id"))) == (excluir[0], str(excluir[1])):
+                continue
+            for k in _dp_chaves_da_linha(f, r, ix, apel, por_id):
+                out.setdefault(k, []).append(f"{rot.get(f, f)} · {r.get('usina') or r.get('plant_id')}")
+    return out
+
+
+def _dp_cadastro_usinas(excluir=None) -> list:
+    """As usinas do cadastro (Usina Supervisório) para a escolha da ponte, com o nome de exibição, as esperadas e quem já
+    liga a cada uma (`ligada_a`; a tela esconde as já ligadas até o usuário pedir). Sem as cópias que os apelidos fazem
+    ("Sete Lagoa" é a "Sete Lagoas" do cadastro: listar as duas oferecia a mesma usina duas vezes)."""
+    apel, lig = _dp_aliases(), _dp_ligacoes(excluir)
     return sorted(({"chave": k, "nome": USINA_DISPLAY.get(k) or k, "inv_esp": (v or {}).get("inv_esp"),
-                    "str_esp": (v or {}).get("str_esp")} for k, v in ESPERADO.items() if str(k).strip()),
+                    "str_esp": (v or {}).get("str_esp"), "ligada_a": sorted(set(lig.get(k, ())))}
+                   for k, v in ESPERADO.items() if str(k).strip() and apel.get(k, k) == k),
                   key=lambda u: (_nrm(u["nome"]), _nrm(u["chave"])))
+
+
+def _dp_sugestao(nome, cadastro) -> list:
+    """A usina do cadastro com nome parecido (depara.parecidas), com quem já liga a ela."""
+    por = {u["chave"]: u for u in cadastro}
+    return [{**s, "nome": por[s["chave"]]["nome"], "ligada_a": por[s["chave"]]["ligada_a"]}
+            for s in _dp.parecidas(nome, cadastro)]
 
 
 def _dp_alvos(cad, extras=()) -> list:
@@ -1519,10 +1589,12 @@ def _dp_editor_api_pv(fonte, pid, est) -> dict:
     nome = str((p or {}).get("nome") or "")
     cad = nome.strip()
     tela_u = _dp.pontes(est).get(pid)
+    cadastro = _dp_cadastro_usinas((fonte, pid))
+    sem = not _dp_chaves_do_nome(cad, _dp_indice_cadastro(), _dp_aliases())
     out = {"nome_api": (p or {}).get("nome_api") or nome or None, "nome_interno": nome or None,
            "ponte": {"codigo": PV_NOME_POR_ID.get(pid), "tela": tela_u}, "apelido": PV_NOME_API_ALIAS.get(cad),
-           "edita_usina": True,
-           "cadastro_usinas": _dp_cadastro_usinas(), "edita_inversor": False}
+           "edita_usina": True, "sem_depara": sem, "sugestao": _dp_sugestao(cad, cadastro) if sem else [],
+           "cadastro_usinas": cadastro, "edita_inversor": False}
     if fonte not in _DP_OEM:
         out["nota_inversor"] = "Nesta conta o nome do inversor vem da própria fonte e liga pelo nome: corrija no cadastro."
         return out
@@ -1566,6 +1638,20 @@ def _dp_editor_sg(fonte, cfg, est) -> dict:
             "provisorio": None if (codigo or tela) else "Pela ordem do cadastro: o supervisório não lê os inversores para fechar por valor."}
 
 
+def _dp_editor_nome(fonte, nome, est) -> dict:
+    """A usina que a fonte manda pelo nome (Thopen do banco, Athon, Axis): liga pelo nome quando o cadastro o tem; senão,
+    pelo apelido da tela (o nome que a fonte escreve → a usina do cadastro)."""
+    tela = ((est or {}).get("apelido") or {}).get((fonte, nome))
+    cadastro = _dp_cadastro_usinas((fonte, nome))
+    no_cad = nome in ESPERADO and nome not in _dp_aliases()
+    sem = not no_cad and not (tela and tela.get("valor") in ESPERADO)
+    return {"nome_api": nome, "nome_interno": USINA_DISPLAY.get(nome) or nome, "por_nome": True, "no_cadastro": no_cad,
+            "ponte": {"codigo": None, "tela": tela["valor"] if tela else None}, "apelido": None,
+            "edita_usina": not no_cad, "sem_depara": sem, "sugestao": _dp_sugestao(nome, cadastro) if sem else [],
+            "cadastro_usinas": cadastro, "edita_inversor": False,
+            "nota_inversor": "Nesta fonte o nome do inversor vem da própria fonte e liga pelo nome: corrija no cadastro."}
+
+
 @app.route("/api/admin/de-para/usina")
 def api_depara_usina():
     """O que o editor precisa de uma usina: a ponte (código e tela), o cadastro para escolher, os inversores que a fonte
@@ -1585,6 +1671,8 @@ def api_depara_usina():
         if not cfg:
             return jsonify({"error": "usina desconhecida nesta fonte"}), 404
         return jsonify({**base, **_dp_editor_sg(fonte, cfg, est)})
+    if fonte in _dp.FONTES_APELIDO and uid:
+        return jsonify({**base, **_dp_editor_nome(fonte, uid, est)})
     return jsonify({"error": "esta fonte liga pelo nome que ela manda: corrija no cadastro (aba Equipamentos)"}), 400
 
 
@@ -1610,7 +1698,12 @@ def api_depara_decidir():
             alvo = str(b.get("usina_supervisorio") or "").strip()
             if alvo and alvo not in ESPERADO:
                 return jsonify({"error": f"a usina \"{alvo}\" não está no cadastro (aba Equipamentos)"}), 400
-            novas.append(_dp.linha_usina(fonte, uid, alvo))
+            if fonte in _dp.FONTES_APELIDO:
+                if uid in ESPERADO and uid not in _dp_aliases():
+                    return jsonify({"error": f"\"{uid}\" já está no cadastro com esse nome: liga pelo nome"}), 400
+                novas.append(_dp.linha_apelido(fonte, uid, alvo))
+            else:
+                novas.append(_dp.linha_usina(fonte, uid, alvo))
         invs = b.get("inversores")
         if invs is not None:
             if not isinstance(invs, dict) or len(invs) > 300:
@@ -1636,6 +1729,7 @@ def api_depara_decidir():
     for lin in novas:
         _dp_log(f"{lin[2]}:{lin[3]}" + (f" inversor {lin[4]} -> {lin[6] or '(código)'}" if lin[4]
                                         else f" usina -> {lin[5] or '(nome da API)'}"))
+    _dp_estado()                                  # o apelido novo relê o cadastro já, sem esperar o cache de 60 s
     return jsonify({"ok": True, "gravadas": len(novas), "total": total})
 
 
@@ -1732,7 +1826,8 @@ def api_depara():
            "apelidos": PV_NOME_API_ALIAS, "inv_nomes": {i: _pv_inv_nomes_de(i) for i in ids_inv},
            "provisorios": {k: v for k, v in PV_INV_PROVISORIOS.items() if not any(u == str(k) for (_f, u) in revistas)},
            "oem": PV_OEM_PLANTS, "revistas": {u for (_f, u) in revistas},
-           "edita_usina": set(_dp.FONTES_USINA), "edita_inversor": set(_DP_OEM + _DP_SG),
+           "edita_usina": set(_dp.FONTES_USINA + _dp.FONTES_APELIDO), "edita_inversor": set(_DP_OEM + _DP_SG),
+           "apelidos_tela": _dp.apelidos(est),
            "sg_por_ordem": {(f, c["id"]): True for f in _sg.FONTES for c in _sg.usinas(f)
                             if not c.get("inversores") and not _dp.inversores(est, (f,), c["id"])}}
     # usina descoberta no supervisório: o nome dos inversores veio do nome do equipamento (provisório até a tela decidir)
@@ -1740,7 +1835,23 @@ def api_depara():
                                         f"supervisório (inversor-03-12 = Inversor 2.3); conferir pelo valor"
                                for f in _sg.FONTES for c in _sg.usinas(f)
                                if c.get("descoberta") and c.get("inversores") and c["id"] not in ctx["revistas"]})
-    d = depara_diag.diagnostico(_depara_tabelas(), ctx)
+    # SEM DE-PARA = a linha não tem esperadas E o nome dela não alcança usina nenhuma do cadastro. Só reclassifica o
+    # "sem esperadas" que já era crítico: linha com esperadas veio do cadastro, então liga, por qualquer caminho.
+    tabelas = _depara_tabelas()
+    ix, apel = _dp_indice_cadastro(), _dp_aliases()
+    por_id = {p.get("id"): p for p in (_plants_cache.get("data") or [])}
+    cadastro = None
+    ctx["fora"], ctx["sugestoes"] = set(), {}
+    for f, rows in tabelas.items():
+        for r in rows:
+            esp = r.get("str_esp_cadastro") if "str_esp_cadastro" in r else r.get("str_esp")
+            if esp or r.get("plant_id") is None or _dp_chaves_da_linha(f, r, ix, apel, por_id):
+                continue
+            cadastro = cadastro if cadastro is not None else _dp_cadastro_usinas()
+            ctx["fora"].add((f, r["plant_id"]))
+            nome = (por_id.get(r["plant_id"]) or {}).get("nome") if f in _DP_API_PV else None
+            ctx["sugestoes"][(f, r["plant_id"])] = _dp_sugestao(nome or r.get("usina"), cadastro)
+    d = depara_diag.diagnostico(tabelas, ctx)
     d["rotulos"] = depara_diag.ROTULOS
     d["decisoes"] = _dp_situacao()
     return jsonify(d)
@@ -2413,11 +2524,26 @@ def _pv_nome_do_cadastro(plants):
     return out
 
 
+def _dp_apelidos_da_tela() -> dict:
+    """{nome que a fonte escreve: Usina Supervisório} decidido na tela De-para de equipamentos (as fontes que ligam pelo
+    nome: Thopen do banco, Athon, Axis), pela ÚLTIMA leitura do livro, sem ler o banco aqui: o load_equipamentos roda no
+    import, antes do livro existir nesta máquina (a 1ª carga é só a do código), e o _dp_estado relê o cadastro quando a
+    leitura do livro traz apelido novo ou desfeito."""
+    memo = globals().get("_DP_MEMO")
+    return _dp.apelidos(memo["estado"]) if memo else {}
+
+
+def _dp_aliases() -> dict:
+    """Todos os apelidos de usina: os do código (PV_NOME_API_ALIAS) e, por cima, os da tela."""
+    return {**PV_NOME_API_ALIAS, **_dp_apelidos_da_tela()}
+
+
 def _aplica_alias_api_cadastro():
     """Faz os mapas do cadastro responderem também pelo nome que a API escreve (ver PV_NOME_API_ALIAS): copia a entrada
     do nome do cadastro — ou do código do supervisório (PV_ALIAS_CODIGO) — para o nome da API, só onde o cadastro tem a
-    usina; na usina parcial (PV_ALIAS_PARCIAL), só os inversores que a API tem. Chamado no fim do load_equipamentos."""
-    for api, cad in PV_NOME_API_ALIAS.items():
+    usina; na usina parcial (PV_ALIAS_PARCIAL), só os inversores que a API tem. Chamado no fim do load_equipamentos.
+    Os apelidos da tela (fontes que ligam pelo nome) entram pelo mesmo caminho: nunca sobrescrevem o cadastro."""
+    for api, cad in _dp_aliases().items():
         fontes = [cad] + ([PV_ALIAS_CODIGO[api]] if api in PV_ALIAS_CODIGO else [])
         so = PV_ALIAS_PARCIAL.get(api)
         if so:
@@ -3465,23 +3591,39 @@ DEPARA_LIGADO = os.environ.get("DEPARA_TELA", "1") != "0"
 _DP_DECISOES = _cob.Decisoes(_bd_api.API_BASE, lambda: os.environ.get("GRIDCO_SQL_TOKEN", ""),
                              os.path.join(_AQUI, "depara_decisoes.json"), ttl=60, livro=_dp.LIVRO, aba=_dp.ABA,
                              cab=_dp.CAB, nome_livro=_dp.NOME_LIVRO)
-_DP_MEMO = {"linhas": None, "estado": {"usina": {}, "inversor": {}}}
+_DP_MEMO = {"linhas": None, "estado": {"usina": {}, "inversor": {}, "apelido": {}}}
 
 
 def _dp_estado() -> dict:
     """O de-para decidido na tela, vigente (cache de 60 s; a última leitura boa se o banco cair). Vazio = só o código."""
     if not DEPARA_LIGADO:
-        return {"usina": {}, "inversor": {}}
+        return {"usina": {}, "inversor": {}, "apelido": {}}
     try:
         linhas = _DP_DECISOES.linhas()
     except Exception as e:                                      # noqa: BLE001 — o de-para nunca derruba quem o usa
         print(f"[de-para] {e}")
         linhas = None
     if linhas is None:
-        return {"usina": {}, "inversor": {}}
+        return {"usina": {}, "inversor": {}, "apelido": {}}
     if _DP_MEMO["linhas"] is not linhas:
+        antes = _dp.apelidos(_DP_MEMO["estado"])
         _DP_MEMO.update(linhas=linhas, estado=_dp.vigente(linhas))
+        if _dp.apelidos(_DP_MEMO["estado"]) != antes:
+            _dp_recarregar_cadastro()
     return _DP_MEMO["estado"]
+
+
+def _dp_recarregar_cadastro():
+    """Apelido novo ou desfeito (nesta máquina ou na outra, lido do livro): relê o cadastro numa thread — é o
+    load_equipamentos que aplica os apelidos — para valer no próximo ciclo das tabelas, sem esperar o BD_Performance
+    mudar. Desfazer precisa da releitura inteira: o apelido aplicado é uma cópia da entrada do cadastro."""
+    def _vai():
+        try:
+            with _bd_lock:
+                load_equipamentos()
+        except Exception as e:                                  # noqa: BLE001 — sem a releitura, vale a carga anterior
+            print(f"[de-para] releitura do cadastro: {e}")
+    threading.Thread(target=_vai, daemon=True, name="depara-cadastro").start()
 
 
 def _dp_sg_inversores(cfg) -> dict:

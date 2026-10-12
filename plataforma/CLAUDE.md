@@ -668,28 +668,48 @@ Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o
 - **A tela**: `/admin/de-para` (`templates/depara.html`), no Nexus como Base · De-para de equipamentos, só admin (API em
   `/api/admin/de-para`, `/usina`, `/decidir`, `/sugerir`). Em cima, o diagnóstico (`depara_diag.py`, puro): por fonte e
   usina, como liga ao cadastro (ponte pelo id, do código ou da tela, com o nome que a API escreve; apelido no código; pelo
-  nome), as esperadas DO CADASTRO, inversores fonte × cadastro e de onde vem o nome de cada inversor. **Crítico** = sem
-  esperadas no cadastro (string morta não acusa; com a régua por inversor vigiando, atenção); **atenção** = inversores ≠
-  cadastro, ou nome pela ORDEM; **informação** = provisório (`PV_INV_PROVISORIOS`, some quando a tela decide a usina). Lê
-  as tabelas de strings já montadas (nenhum pedido às fontes); fonte que a máquina não leu aparece "não lida".
+  nome), as esperadas DO CADASTRO, inversores fonte × cadastro e de onde vem o nome de cada inversor. **Crítico** = SEM
+  DE-PARA (a linha não tem esperadas E o nome dela não alcança usina nenhuma do cadastro — `_dp_chaves_da_linha`: apelido,
+  chave exata ou nome de exibição; vem com a **sugestão pelo nome**, `depara.parecidas`) ou sem esperadas no cadastro
+  (string morta não acusa; com a régua por inversor vigiando, atenção); **atenção** = inversores ≠ cadastro, ou nome pela
+  ORDEM (= inversor sem de-para); **informação** = provisório (`PV_INV_PROVISORIOS`, some quando a tela decide a usina).
+  Lê as tabelas de strings já montadas (nenhum pedido às fontes); fonte que a máquina não leu aparece "não lida". Caso que
+  criou o "sem de-para" (12/10/2026): 5 usinas da Thopen "sem esperadas" eram outra coisa — a API escreve "Itaja 1 (228)"
+  e "Pharma 2 (644)", o cadastro tem "Itaja 1 (551)" e "Pharma 2". A sugestão exige o MESMO número ("Itaja 1" nunca
+  sugere "Itaja 2") e avisa quando o número entre parênteses é outro (228 × 551: conferir se é a mesma usina).
 - **As esperadas são as do cadastro, não as da leitura**: o `str_esp` da linha da API PV já vem descontado (inversor sem
   visão, rampa, desligado, com OS) e a String Box à noite fica com 0 — a 1ª versão deu 20 falsos "sem esperadas". A linha
   da API PV leva `str_esp_cadastro` e `nome_api` (`_pv_cadastro_da_linha`, também na linha sem dados).
-- **O editor** ("Editar" em cada linha editável, numa gaveta): a **ponte da usina pelo id** nas contas da API PV (pv,
-  semp, alveslima, 2capi; escolha na lista do cadastro, com busca, ou "usar o nome da API") e o **nome de cada inversor**
+- **A lista abre em "Pendentes"** (crítico e atenção); "Todas" mostra as 176. Levi, 12/10/2026: "não deveria aparecer
+  usina que já estão ligadas, a não ser que eu tirasse um filtro", "pode aumentar a tela, não precisa ser uma barra lateral
+  toda espremida", "em NOVO ao invés de manter tem que alertar que está sem de-para".
+- **O editor** ("Ligar" na usina sem de-para, "Editar" nas outras; uma janela grande no centro, usina à esquerda e
+  inversores à direita): a **ponte da usina pelo id** nas contas da API PV (pv, semp, alveslima, 2capi) e o **apelido pelo
+  nome** nas fontes que mandam o nome como chave (pg, sunop, axis: `depara.FONTES_APELIDO`; antes era editar a "Usina
+  Supervisório" no Excel e subir a planilha). A lista do cadastro ESCONDE as usinas que outra fonte já liga
+  (`_dp_cadastro_usinas`, campo `ligada_a`, sem contar a própria usina e sem as cópias dos apelidos, como "Sete Lagoa");
+  "Mostrar também as já ligadas" as traz. A sugestão pelo nome vem pré-escolhida só quando não há o que conferir. E o
+  **nome de cada inversor**
   onde o código liga pelo id (conta oem@: semp, alveslima, 2capi; scadaGridco: greenyellow, salenergia), com a origem de
   cada nome (tela, código, ordem do cadastro), "Confirmar como está" e a **sugestão pelo kWh do BD** (conta oem@: o Eday de
   cada id nos 3 últimos dias fechados × as colunas da aba da usina no BD_Performance, um para um, com o erro e a confiança;
-  custa até 3 consultas da cota histórica da API PV; coluna vazia no BD não fecha nada e a tela diz). A Thopen da conta
-  principal, a Athon, a Axis, o banco e a RenoGrid ligam pelo nome que a fonte manda: corrige-se no cadastro.
+  custa até 3 consultas da cota histórica da API PV; coluna vazia no BD não fecha nada e a tela diz). O inversor sem
+  de-para (nome pela ordem, ou sem nome) aparece em âmbar com "Sem de-para: escolha o inversor do cadastro" no lugar de
+  "manter". O inversor das fontes que mandam o nome (Thopen da conta principal, Athon, Axis, banco, RenoGrid) e a usina
+  da RenoGrid (a chave é o id do site e a linha não traz o nome do cadastro) ainda se corrigem no cadastro.
 - **O dado**: livro `nexus_depara · fato_decisao_depara` (`depara.py`, no catálogo do Nexus), só acrescenta, gravado pela
   mesma `cobertura.Decisoes` (relê, grava inteiro, confere a contagem; cache de 60 s e a última leitura boa em
   `depara_decisoes.json`). O cadastro entra pela chave de negócio (Usina Supervisório, Equipamento Supervisório), que a
-  rota confere antes de gravar; vazio = desfaz. Quem decidiu vai a `logs/depara.log`.
+  rota confere antes de gravar; vazio = desfaz. Quem decidiu vai a `logs/depara.log`. O apelido usa a mesma linha:
+  `usina_fonte` = o nome exatamente como a fonte escreve, `inversor_fonte` vazio (`linha_apelido`); o coletor as ignora
+  (só lê semp/alveslima/2capi com ids numéricos).
 - **Onde vale**: a decisão VENCE a constante (livro ilegível sem cópia = só o código, como antes). Ponte: `_pv_nome_do_cadastro`
   (no `get_plants`: vale na próxima leitura da lista, até 5 min). Inversor da conta oem@: `_pv_inv_nomes_de` (o
   `_pv_nome_2c` do drill, curvas, CSV e falhas; a qualidade; os ids do dia passado por inversor). scadaGridco:
-  `scadagridco.SOBREPOR`, que o `nome_inversor` pergunta antes do mapa e da ordem. **O coletor segue o mesmo livro**
+  `scadagridco.SOBREPOR`, que o `nome_inversor` pergunta antes do mapa e da ordem. Apelido: `_aplica_alias_api_cadastro`
+  (o MESMO caminho do `PV_NOME_API_ALIAS`: copia a entrada do cadastro para o nome da fonte, nunca sobrescreve), no fim do
+  `load_equipamentos`; o `_dp_estado` relê o cadastro numa thread (`_dp_recarregar_cadastro`) quando a leitura do livro
+  traz apelido novo ou desfeito — nesta máquina na hora (o `decidir` chama), na outra em até 60 s. **O coletor segue o mesmo livro**
   (`coletar_semp.com_a_tela`, ver o CLAUDE.md dele): na usina de coluna direta o nome do cadastro vira a coluna do BD pela
   aba Equipamentos; nome que não vira coluna fica de fora, com aviso.
 - **Fica no código, de propósito**: os apelidos por nome (`PV_NOME_API_ALIAS`/`PV_ALIAS_CODIGO`: Sete Lagoa e União), que

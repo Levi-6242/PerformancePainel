@@ -26,7 +26,9 @@ def linha(fonte: str, r: dict, ctx: dict) -> dict:
     ponte_ids {plant_id: usina} (código + tela), ponte_tela {plant_id} (as da tela), apelidos (PV_NOME_API_ALIAS),
     inv_nomes {plant_id: {id: nome}} (código + tela), revistas {id da usina} (inversores decididos na tela), provisorios
     {plant_id: texto}, oem (PV_OEM_PLANTS), sg_por_ordem {(fonte, id): True} (scadaGridco sem de-para de inversor),
-    edita_usina / edita_inversor (as fontes que a tela edita)."""
+    edita_usina / edita_inversor (as fontes que a tela edita), fora {(fonte, plant_id)} (o nome não está no cadastro: sem
+    de-para), sugestoes {(fonte, plant_id): [parecidas]}, apelidos_tela {nome na fonte: usina} (fontes que ligam pelo
+    nome)."""
     pid = r.get("plant_id")
     usina = r.get("usina") or str(pid)
     # As esperadas são as do CADASTRO: a linha da API PV traz `str_esp_cadastro` porque o `str_esp` dela já vem com os
@@ -35,16 +37,25 @@ def linha(fonte: str, r: dict, ctx: dict) -> dict:
     str_esp = _num(r.get("str_esp_cadastro") if tem_cad else r.get("str_esp"))
     inv_esp, inv_fonte = _num(r.get("inv_esp")), _num(r.get("qtd_inversores"))
     alertas = []
+    fora = (fonte, pid) in ctx.get("fora", ())
     # ── como a usina se liga ao cadastro ──
-    if fonte in API_PV and pid in ctx.get("ponte_ids", {}):
+    if fora:
+        liga = "sem de-para"
+    elif fonte in API_PV and pid in ctx.get("ponte_ids", {}):
         api = r.get("nome_api") or ctx.get("nome_api", {}).get(pid)
         quem = "ponte da tela" if pid in ctx.get("ponte_tela", ()) else "ponte"
         liga = f"pelo id ({quem}): a API escreve “{api}”" if api else f"pelo id ({quem})"
     elif fonte in API_PV and any(_mesmo(usina, a) for a in ctx.get("apelidos", {}).values()):
         liga = "por apelido no código"
+    elif str(pid) in ctx.get("apelidos_tela", {}):
+        liga = f"por apelido da tela: a fonte escreve “{pid}”"
     else:
         liga = "pelo nome"
-    if not str_esp:
+    if fora:
+        # 12/10/2026: "Itaja 1 (228)" e "Pharma 2 (644)" apareciam como "sem esperadas", e o problema era outro — o nome
+        # que a API manda não está no cadastro (que tem "Itaja 1 (551)" e "Pharma 2"): sem de-para, nada do cadastro vale
+        alertas.append(("critico", f"sem de-para: o cadastro não tem “{usina}” (sem esperadas, string morta não acusa)"))
+    elif not str_esp:
         if not tem_cad and (r.get("sem_visao") or r.get("rampa") or r.get("sem_dados")):
             # sem o total do cadastro, o zero desta leitura não prova nada (inversor sem visão, rampa, sem dados)
             alertas.append(("info", "sem leitura das strings agora: as esperadas não dão para conferir por esta linha"))
@@ -76,7 +87,9 @@ def linha(fonte: str, r: dict, ctx: dict) -> dict:
     return {"fonte": fonte, "plant_id": pid, "usina": usina, "liga": liga, "str_esp": str_esp, "inv_esp": inv_esp,
             "inv_fonte": inv_fonte, "nomes_inversor": nomes, "edita_usina": edita_u, "edita_inversor": edita_i,
             "alertas": [{"nivel": n, "texto": t} for n, t in alertas],
-            "pior": alertas[0][0] if alertas else "ok"}
+            "pior": alertas[0][0] if alertas else "ok",
+            "sem_depara": "usina" if fora else ("inversor" if nomes == "pela ordem do cadastro" else None),
+            "sugestao": list(ctx.get("sugestoes", {}).get((fonte, pid)) or []) if fora else []}
 
 
 def _mesmo(a, b) -> bool:
@@ -98,7 +111,11 @@ def diagnostico(tabelas: dict, ctx: dict) -> dict:
         fontes.append({"id": fid, "nome": rotulo, "lida": True, "usinas": us})
         precisa += [u for u in us if u["pior"] in ("critico", "atencao")]
     precisa.sort(key=lambda u: (SEVERIDADE[u["pior"]], u["fonte"], str(u["usina"]).lower()))
-    cont = {"usinas": sum(len(f["usinas"]) for f in fontes),
+    todas = [u for f in fontes for u in f["usinas"]]
+    cont = {"usinas": len(todas),
             "criticos": sum(1 for u in precisa if u["pior"] == "critico"),
-            "atencao": sum(1 for u in precisa if u["pior"] == "atencao")}
+            "atencao": sum(1 for u in precisa if u["pior"] == "atencao"),
+            "sem_depara_usina": sum(1 for u in todas if u["sem_depara"] == "usina"),
+            "sem_depara_inversor": sum(1 for u in todas if u["sem_depara"] == "inversor"),
+            "ok": sum(1 for u in todas if u["pior"] in ("ok", "info"))}
     return {"fontes": fontes, "precisa": precisa, "contagem": cont}
