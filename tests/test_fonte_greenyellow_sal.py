@@ -66,7 +66,7 @@ def api(monkeypatch):
     def get(rota, params=None, timeout=None):
         pedidos.append((rota, dict(params or {})))
         if rota == "/api/telemetria":
-            eq = str(params["indice"])
+            eq = str(params["equipamento"])                 # pelo nome do equipamento (11/10/2026)
             return {"registros": [{"communication_fault": 192, "data_hora": f"{params['desde']} 10:00:00",
                                    "ts": 1.0, "equipamento": eq,
                                    "pontos": {"string_current_01": 9.0, "string_current_02": 8.5,
@@ -147,7 +147,7 @@ def test_curva_do_inversor_de_dia_passado(api):
     assert iv["nome"] == "Inversor 1.8" and iv["id"] == "4"
     assert iv["curva"]["1"] == {"x": ["10:00"], "y": [9.0]} and "15" not in iv["curva"]
     assert ("/api/telemetria", {"usina": "irece_2", "desde": "2026-10-01", "ate": "2026-10-01", "tipo": "inverter",
-                                "indice": 4, "limit": sg.LIMITE}) in api.pedidos
+                                "equipamento": "4", "limit": sg.LIMITE}) in api.pedidos
 
 
 def test_curva_da_usina_inteira_vai_inversor_por_inversor(api):

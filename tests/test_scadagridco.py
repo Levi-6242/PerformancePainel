@@ -99,7 +99,8 @@ def test_curva_de_hoje_busca_so_o_que_chegou_depois(monkeypatch):
     b = cd.curva("greenyellow", "irece_2", "3", "2026-10-06", getter=getter, agora=1100.0)   # dentro dos 5 min
     c = cd.curva("greenyellow", "irece_2", "3", "2026-10-06", getter=getter, agora=1400.0)
     assert len(pedidos) == 2 and pedidos[0].get("apos_ts") is None and pedidos[1]["apos_ts"] == 1.0
-    assert pedidos[0]["indice"] == 3 and pedidos[0]["tipo"] == "inverter"
+    # pelo NOME do equipamento desde 11/10/2026 (o `indice` não filtra quem tem nome, como a "inversor-01" da Cedro)
+    assert pedidos[0]["equipamento"] == "3" and pedidos[0]["tipo"] == "inverter"
     assert a is b and [v for _t, v in c["strings"][1]] == [5.0, 5.0] and c["ultimo_ts"] == 2.0
 
 

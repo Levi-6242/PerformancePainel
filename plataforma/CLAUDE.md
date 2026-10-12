@@ -743,9 +743,20 @@ troca à Automação). Sem token ou com token errado a API responde **302 para o
   trackers (as usinas não mandam), sem sino e sem Ocorrências (como a RenoGrid).
 - **GreenYellow = gateway MQTT**: tabela/drill por `/api/mqtt/<usina>` (1 pedido, 0,1 s); curva por `/api/telemetria`
   **um inversor por pedido** (`indice=N`: 2,5 MB e 0,5 s; a usina inteira de uma vez são 19 MB e 22 s), 1 ponto por
-  minuto. A de hoje vem aos pedaços (`apos_ts`, `CurvasDoDia`), a de dia passado fica 6 h. Só a Demerval Lobão e a
-  Irecê 2 estão no scadaGridco; Balsas 1, Castelo do Piauí, Cedro 1/2, Icó 2 e Macaíba 1 não. Em 06/10 apareceu uma
-  `cedro` (20 inversores, offline, sem dado) — entra quando tiver leitura e de-para.
+  minuto. A de hoje vem aos pedaços (`apos_ts`, `CurvasDoDia`), a de dia passado fica 6 h. O histórico é pedido pelo
+  NOME do equipamento (`equipamento=`): o `indice` só filtra quem tem nome numérico ("1"), e a Cedro ("inversor-01")
+  voltava vazia; na Demerval e na Irecê os dois dão o mesmo.
+- **As usinas são descobertas na API** (11/10/2026, Levi: "Na API que está puxando as UFVs da GreenYellow não está
+  aparecendo todas as UFVs"): a lista fixa tinha só a Demerval Lobão e a Irecê 2, e o supervisório já lia a Castelo do
+  Piauí (16 inversores) e a "Cedro 1 e 2" (20). O worker lê `/api/usinas` e `/api/mqtt` de hora em hora
+  (`_sg_descobre_se_preciso`), classifica pelo CLIENTE do Info Geral (outro cliente fica de fora: Santo Inácio XII é
+  Thopen, Crateús é RenoGrid, Boa Esperança do Sul é de outro) e grava `sg_usinas_descobertas.json` (o web relê pelo
+  mtime, `_sg.ATUALIZAR`). "X 1 e 2" que o cadastro tem como duas usinas vira duas, cada uma com o seu grupo de
+  equipamentos: a Cedro 1 e a 2 são `cedro_1`/`cedro_2`, com `scada: "cedro"` (o id da URL). O nome dos inversores vem do
+  NOME do equipamento (`inversor-03-12` = 2º grupo, nº 3 → Inversor 2.3; nas Cedro, Inversor 1.3 de cada uma),
+  PROVISÓRIO (o histórico delas no supervisório começa em 11/10 e o BD vai até 06/10: sem dia em comum para fechar pelo
+  valor) — a tela De-para mostra o aviso e decide. A usina descoberta entra na fonte e espera a liberação nas Fontes do
+  tempo real. Balsas 1, Icó 2 e Macaíba 1 ainda não estão no supervisório.
 - **Sal Energia = Modbus**: `/api/inversores/<usina>` e `/api/dados/string` (5 min). Em 06/10/2026 as cinco estavam com
   `read_error: TimeoutError` e 0 kW desde pelo menos 17/09 (o supervisório não lê os inversores; o BD_Performance tem
   geração delas): na tela, **sem comunicação**, que é o que elas estão para a fonte. Campos Modbus conferidos na Boa

@@ -1551,8 +1551,11 @@ def _dp_editor_sg(fonte, cfg, est) -> dict:
         equips = sorted({str(x["equip"]) for x in _sg.leituras(fonte, cfg["id"])})
     except Exception as e:                                      # noqa: BLE001 — sem token (o servidor) ou fora do ar
         erro = type(e).__name__ if not isinstance(e, _sg.SemAcesso) else str(e)
-    num = lambda e: int(re.sub(r"\D", "", e) or 0)                                  # noqa: E731
-    todos = sorted(set(equips) | set(codigo) | set(tela) | {str(n) for n in range(1, len(cad) + 1)}, key=num)
+    if cfg.get("scada") and codigo:              # a Cedro 1 e a 2 dividem a "cedro": só os equipamentos desta
+        equips = [e for e in equips if e in codigo]
+    num = lambda e: _sg.grupo_e_numero(e) or (9, 0)                                 # noqa: E731
+    todos = sorted(set(equips) | set(codigo) | set(tela) | (set() if codigo else {str(n) for n in range(1, len(cad) + 1)}),
+                   key=num)
     linhas = [{"id": e, "nome": _sg.nome_inversor(cfg, e, list(cad)),
                "origem": "tela" if tela.get(e) else ("codigo" if e in codigo else "ordem"),
                "na_fonte_hoje": e in equips, "codigo": codigo.get(e)} for e in todos]
@@ -1730,8 +1733,13 @@ def api_depara():
            "provisorios": {k: v for k, v in PV_INV_PROVISORIOS.items() if not any(u == str(k) for (_f, u) in revistas)},
            "oem": PV_OEM_PLANTS, "revistas": {u for (_f, u) in revistas},
            "edita_usina": set(_dp.FONTES_USINA), "edita_inversor": set(_DP_OEM + _DP_SG),
-           "sg_por_ordem": {(f, c["id"]): True for f, d in _sg.FONTES.items() for c in d["usinas"]
+           "sg_por_ordem": {(f, c["id"]): True for f in _sg.FONTES for c in _sg.usinas(f)
                             if not c.get("inversores") and not _dp.inversores(est, (f,), c["id"])}}
+    # usina descoberta no supervisório: o nome dos inversores veio do nome do equipamento (provisório até a tela decidir)
+    ctx["provisorios"].update({c["id"]: f"{c['usina']}: os nomes dos inversores vieram do nome do equipamento no "
+                                        f"supervisório (inversor-03-12 = Inversor 2.3); conferir pelo valor"
+                               for f in _sg.FONTES for c in _sg.usinas(f)
+                               if c.get("descoberta") and c.get("inversores") and c["id"] not in ctx["revistas"]})
     d = depara_diag.diagnostico(_depara_tabelas(), ctx)
     d["rotulos"] = depara_diag.ROTULOS
     d["decisoes"] = _dp_situacao()
@@ -14649,6 +14657,107 @@ _sg_curvas = _sg.CurvasDoDia()           # curva de cada inversor: hoje aos peda
 SG_HIST_DIAS = 45                        # a API guarda 45 dias; antes disso a curva diz que não há, sem ir à rede
 
 
+# ── As usinas do scadaGridco descobertas na API (11/10/2026) ─────────────────────────────────────────────────────────
+#   Levi: "Na API que está puxando as UFVs da GreenYellow não está aparecendo todas as UFVs". A lista era fixa (Demerval
+#   Lobão e Irecê 2) e o supervisório já tinha a Castelo do Piauí (16 inversores) e a "Cedro 1 e 2" (20) lendo. O worker
+#   lê `/api/usinas` e `/api/mqtt` de hora em hora (`SG_DESCOBRIR_A_CADA_S`), classifica cada usina pelo CLIENTE do
+#   cadastro (Info Geral: Greenyellow / Sal Energia; outro cliente fica de fora, porque já vem pela fonte dele: a Santo
+#   Inácio XII é Thopen, a Crateús é RenoGrid, a Boa Esperança do Sul é de outro) e grava a lista em disco para o processo
+#   web. A usina nova entra na fonte e, como a fonte é controlada pela tela, espera a liberação nas Fontes do tempo real
+#   (com o sino). O nome dos inversores vem do NOME do equipamento ("inversor-03-12" = Inversor 2.3), provisório: não havia
+#   dia em comum entre o histórico do supervisório e o BD para fechar pelo valor; conferir pela tela De-para.
+SG_DESCOBRIR_A_CADA_S = 3600
+_SG_EXTRAS_PATH = _p_dado("sg_usinas_descobertas.json")
+_SG_EXTRAS_MEMO = {"mtime": None, "descoberto": 0.0}
+_SG_FONTE_DO_CLIENTE = {"greenyellow": "greenyellow", "sal energia": "salenergia"}
+
+
+def _sg_classifica(descobertas) -> dict:
+    """{fonte: [cfg]} das usinas do supervisório fora da lista fixa, pelo cliente do cadastro. "X 1 e 2" que o cadastro
+    tem como "X 1" e "X 2" (a Cedro) vira duas usinas: a 1ª com os equipamentos do 1º grupo, a 2ª com os do 2º."""
+    fixos = {c["id"] for d in _sg.FONTES.values() for c in d["usinas"]}
+    por_chave = {_usina_chave_solta(v.get("usina")): v for v in INFO_GERAL.values() if v.get("usina")}
+
+    def fonte_de(v):
+        return _SG_FONTE_DO_CLIENTE.get(str((v or {}).get("cliente") or "").strip().lower())
+
+    out = {}
+    for u in descobertas or []:
+        if u.get("id") in fixos:
+            continue
+        v = por_chave.get(_usina_chave_solta(u.get("nome")))
+        if v and fonte_de(v):
+            cad = list(_sg_cadastro(v["usina"]))
+            out.setdefault(fonte_de(v), []).append({"id": u["id"], "usina": v["usina"], "via": u.get("via"),
+                                                    "descoberta": True,
+                                                    "inversores": _sg.mapa_pelo_nome(u.get("equipamentos") or [], cad) or None})
+            continue
+        m = re.match(r"^(.*\S)\s+(\d+)\s+e\s+(\d+)$", str(u.get("nome") or "").strip())
+        partes = [por_chave.get(_usina_chave_solta(f"{m.group(1)} {n}")) for n in (m.group(2), m.group(3))] if m else []
+        fs = {fonte_de(p) for p in partes}
+        if not partes or not all(partes) or len(fs) != 1 or None in fs:
+            continue
+        f = fs.pop()
+        for g, (n, p) in enumerate(zip((m.group(2), m.group(3)), partes), start=1):
+            cad = list(_sg_cadastro(p["usina"]))
+            grupos = {_sg.ordem_par(x)[0] for x in cad}
+            mapa = _sg.mapa_pelo_nome(u.get("equipamentos") or [], cad, grupo=g,
+                                      alvo_grupo=(next(iter(grupos)) if len(grupos) == 1 else g))
+            out.setdefault(f, []).append({"id": f"{u['id']}_{n}", "scada": u["id"], "usina": p["usina"],
+                                          "via": u.get("via"), "descoberta": True, "inversores": mapa or None})
+    for f in out:
+        out[f].sort(key=lambda c: c["id"])
+    return out
+
+
+def _sg_extras_do_disco():
+    """O processo web relê a lista do worker quando o arquivo muda (um stat por pedido; sem arquivo, nada muda)."""
+    try:
+        mt = os.path.getmtime(_SG_EXTRAS_PATH)
+    except OSError:
+        return
+    if mt == _SG_EXTRAS_MEMO["mtime"]:
+        return
+    with open(_SG_EXTRAS_PATH, encoding="utf-8") as fh:
+        d = json.load(fh) or {}
+    _sg.EXTRAS.clear()
+    _sg.EXTRAS.update(d.get("extras") or {})
+    _SG_EXTRAS_MEMO["mtime"] = mt
+
+
+_sg.ATUALIZAR = _sg_extras_do_disco
+
+
+def _sg_descobre_se_preciso(agora=None):
+    """WORKER: de hora em hora, as usinas do supervisório. Sem token, API fora ou cadastro ainda não lido: fica a lista
+    de antes (nunca troca por vazia)."""
+    agora = time.time() if agora is None else agora
+    if agora - _SG_EXTRAS_MEMO["descoberto"] < SG_DESCOBRIR_A_CADA_S:
+        return
+    _SG_EXTRAS_MEMO["descoberto"] = agora
+    if not INFO_GERAL or not _sg.configurado():
+        return
+    try:
+        novas = _sg_classifica(_sg.descobrir())
+    except Exception as e:                                      # noqa: BLE001 — a lista de antes segue valendo
+        print(f"[scadaGridco] descoberta das usinas: {type(e).__name__}: {e}")
+        return
+    if novas == {f: v for f, v in _sg.EXTRAS.items() if v}:
+        return
+    _sg.EXTRAS.clear()
+    _sg.EXTRAS.update(novas)
+    try:
+        tmp = _SG_EXTRAS_PATH + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            json.dump({"descoberto_em": datetime.now().isoformat(timespec="seconds"), "extras": novas}, fh,
+                      ensure_ascii=False, indent=1)
+        os.replace(tmp, _SG_EXTRAS_PATH)
+        _SG_EXTRAS_MEMO["mtime"] = os.path.getmtime(_SG_EXTRAS_PATH)
+    except Exception as e:                                      # noqa: BLE001
+        print(f"[scadaGridco] lista das usinas descobertas não gravada: {e}")
+    print(f"[scadaGridco] usinas descobertas: { {f: [c['id'] for c in v] for f, v in novas.items()} }")
+
+
 def _sg_cadastro(usina) -> dict:
     """{"Inversor 1.1": esperadas} da usina, pelo nome de exibição (a GreenYellow e a Sal Energia não têm
     "Equipamento Supervisório" no cadastro, e o ESPERADO_INV é por ele)."""
@@ -14747,7 +14856,8 @@ def _sg_build(fonte):
     """A tabela de strings da fonte: uma usina por vez (regra da Automação), um pedido por usina. Sem token não
     insiste nas outras: as linhas saem sem dado e o `aviso` diz por quê."""
     rows, aviso = [], None
-    for cfg in _cob_filtra(fonte, _sg.FONTES[fonte]["usinas"], lambda c: c["id"], lambda c: c.get("usina")):
+    _sg_descobre_se_preciso()                     # as usinas que o supervisório tem e a lista fixa não (11/10/2026)
+    for cfg in _cob_filtra(fonte, _sg.usinas(fonte), lambda c: c["id"], lambda c: c.get("usina")):
         leit = []
         if aviso is None:
             try:
@@ -26038,7 +26148,7 @@ def _falhas_sg_varre(agora=None):
     n = 0
     for fonte, cache in _SG_CACHE.items():
         linhas = {str(r.get("plant_id")): r for r in ((cache.get("payload") or {}).get("rows") or [])}
-        for cfg in _sg.FONTES[fonte]["usinas"]:
+        for cfg in _sg.usinas(fonte):
             r = linhas.get(cfg["id"])
             if not r or r.get("sem_dados"):
                 continue
