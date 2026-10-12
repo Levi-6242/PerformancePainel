@@ -116,6 +116,8 @@ depara_decisoes.json
 depara_decisoes.json.tmp
 sg_usinas_descobertas.json
 sg_usinas_descobertas.json.tmp
+ger_publicado.json
+ger_publicado.json.tmp
 
 # histórico dos parados da ronda (runtime, alimenta o card "Trackers recorrentes") + export CSV
 trackers_parados_hist.jsonl

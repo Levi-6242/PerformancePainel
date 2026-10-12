@@ -796,6 +796,28 @@ Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o
 - `DEPARA_TELA=0` desliga numa máquina; os testes rodam desligados (`conftest._depara_desligado_por_padrao`). Testes:
   `tests/test_depara_equipamentos.py`.
 
+## Meta do mês no banco para o Nexus (12/10/2026)
+
+Levi: "Agora temos em um canto só as metas da performance, a disponibilidade, o tanto que o ativo parou, o tempo que o COS
+demora para abrir a OS, os chamados, rondas, PTs e APRs (...) construa a visão dos responsáveis da usina!". A Visão do
+responsável do Nexus (Campo · App) tira a meta do mês daqui: o worker publica o Gerencial no livro
+`nexus_performance · fato_meta_usina_mes` (registrado no catálogo do Nexus antes de existir).
+
+- **Os mesmos números da Visão gerencial**: `gerencial_publicar.linhas` copia o `_ger_cache` (o `_gerencial_payload` do
+  mês, refeito a cada 5 min) em linhas `mes_id × usina`, sem refazer conta. Energia em kWh (`prod` e `p50` do Gerencial,
+  que são MWh com 1 casa, × 1000): a regra 3 do catálogo do Nexus só aceita `_kwh` no nome da coluna. "—" vira vazio;
+  `full_oem` vira 1/0; o `pr_motivo` (texto livre) não vai (a API do banco tem leitura aberta).
+- **Quando**: `_ger_publicar_loop` espera 10 min o Gerencial aquecer e tenta a cada 10 min; publica no máximo de hora em
+  hora (`GER_PUB_TTL`) e só quando o conteúdo muda (sha1 das linhas novas). Refaz o mês corrente e, até o dia 5, o
+  anterior (`_gerencial_payload(ano, mes)`: OS e BD fecham com atraso); os outros meses ficam como estão
+  (`gerencial_publicar.mesclar` sobre o livro relido do banco, porque o `replace` troca a aba inteira).
+- **Travas**: Gerencial com `erro` ou sem usinas não publica (não apaga o mês que o banco tem); leitura do livro que
+  falha não grava nada; depois de gravar, relê e confere a contagem (diferença = tenta na próxima volta). Só o servidor
+  (Linux) grava: PC e servidor juntos alternariam os números de cada um. `GER_PUBLICAR=1/0` força numa máquina.
+  A última leitura boa do livro fica em `ger_publicado.json` (estado, fora do git).
+- Testes: `tests/test_gerencial_publicar.py` (as linhas sem texto livre, a mescla dos meses, o dia 5, publica e só
+  quando muda, Gerencial que falhou e banco fora não gravam, desligado não publica).
+
 ## Padrão por inversor (usinas sem visão por string)
 
 Ceilândia 1, Céu Azul e Ouro Branco (String Box com combiner não exposta) e Barretos (sem esperado no

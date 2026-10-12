@@ -24668,6 +24668,7 @@ def _iniciar_loops_de_fundo():
                  _frac_disp_loop,           # disponibilidade por OS (Gerencial) — varre + calcula
                  _frac_mtta_loop,           # Acompanhamento COS: tempo do evento até a OS (base acumulada)
                  _falhas_loop,              # Falhas de strings e trackers do mês, com a perda em kWh (Diagnóstico)
+                 _ger_publicar_loop,        # a meta do mês por usina no banco (nexus_performance), para o Nexus
                  _falhas_backfill_sunop_loop,   # curva de strings da SunOp dos dias passados → registro da aba
                  _falhas_backfill_pv_loop,      # idem da API PV, pela corrente (só no servidor: a cota é da conta)
                  _tranc_watch_loop,         # strings trancadas: o web grava, o worker tem de reler
@@ -27365,6 +27366,89 @@ def _falhas_publicar_workbook(meses):
     res = _fp.sincronizar(_fp.xlsx_bytes(tabs), base=bd_api.API_BASE, token=tok)
     _falhas_wb["marca"] = marca
     print(f"[falhas] workbook {_fp.WORKBOOK}: {res}")
+
+
+# ── A meta do mês por usina no banco (12/10/2026) ──────────────────────────────────────────────────────────────────────
+#   Levi: "Agora temos em um canto só as metas da performance, a disponibilidade, o tanto que o ativo parou, o tempo que o
+#   COS demora para abrir a OS, os chamados, rondas, PTs e APRs (...) construa a visão dos responsáveis da usina!". A Visão
+#   do responsável do Nexus lê a meta do livro `nexus_performance · fato_meta_usina_mes` (gerencial_publicar.py): o MESMO
+#   Gerencial do worker (`_ger_cache`, refeito a cada 5 min), publicado de hora em hora e só quando muda. Grava sozinho só
+#   no servidor (Linux), como o workbook das falhas: PC e servidor gravando juntos alternariam os números de cada um.
+#   `GER_PUBLICAR=1/0` força numa máquina.
+GER_PUB_TTL = 3600
+GER_PUB_PATH = _p_dado("ger_publicado.json")             # a última leitura boa do livro (para mesclar os meses)
+_ger_pub = {"ts": 0.0, "marca": None}
+
+
+def _ger_publicar_ligado() -> bool:
+    v = os.environ.get("GER_PUBLICAR", "").strip()
+    if v in ("0", "1"):
+        return v == "1"
+    return _sys.platform.startswith("linux")
+
+
+def _ger_publicar(agora=None) -> int | None:
+    """WORKER: o mês corrente (o Gerencial em cache) e, até o dia 5, o anterior, no livro do banco. Devolve quantas
+    linhas o livro tem depois de gravar; None quando não gravou (desligado, sem token, cedo, sem mudança, banco fora)."""
+    agora = agora or datetime.now()
+    tok = os.environ.get("GRIDCO_SQL_TOKEN", "").strip()
+    if not _ger_publicar_ligado() or not tok or time.time() - _ger_pub["ts"] < GER_PUB_TTL:
+        return None
+    import hashlib
+    import bd_api
+    import gerencial_publicar as _gp
+    import falhas_publicar as _fp
+    novas = {}
+    for a, m in _gp.meses_a_refazer(agora.year, agora.month, agora.day):
+        if (a, m) == (agora.year, agora.month):
+            g = _ger_cache.get("data")
+        else:
+            try:
+                g = _gerencial_payload(ano=a, mes=m)
+            except Exception as e:                             # noqa: BLE001 — o mês anterior fica como estava
+                print(f"[gerencial] mês {m:02d}/{a} não montou para publicar: {e}")
+                g = None
+        # o Gerencial que falhou (PG fora, snapshot frio) não apaga o mês que o banco já tem
+        if g and not g.get("erro") and g.get("usinas"):
+            novas[a * 100 + m] = _gp.linhas(g, a * 100 + m)
+    if not novas:
+        return None
+    _ger_pub["ts"] = time.time()
+    marca = hashlib.sha1(json.dumps(novas, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
+    if marca == _ger_pub["marca"]:
+        return None
+    leitor = _cob.Decisoes(bd_api.API_BASE, lambda: tok, GER_PUB_PATH, ttl=0, livro=_gp.LIVRO, aba=_gp.ABA,
+                           cab=_gp.CAB, nome_livro=_gp.NOME)
+    atuais = leitor.linhas(forcar=True)
+    if atuais is None or leitor.erro:                          # banco fora: sem saber o que há, não regrava nada
+        print(f"[gerencial] livro {_gp.LIVRO} não lido ({leitor.erro}): a publicação fica para a próxima volta")
+        return None
+    todas = _gp.mesclar(atuais, novas)
+    try:
+        res = _fp.sincronizar(_cob.xlsx_bytes(todas, _gp.ABA, _gp.CAB), base=bd_api.API_BASE, token=tok,
+                              chave=_gp.LIVRO, nome=_gp.NOME)
+    except Exception as e:                                     # noqa: BLE001 — a próxima volta tenta de novo
+        print(f"[gerencial] publicação recusada: {type(e).__name__}: {e}")
+        return None
+    conf = leitor.linhas(forcar=True)
+    if conf is None or len(conf) != len(todas):
+        print(f"[gerencial] {_gp.LIVRO}.{_gp.ABA}: enviei {len(todas)} linhas e o banco tem "
+              f"{None if conf is None else len(conf)}: tenta de novo na próxima volta")
+        return None
+    _ger_pub["marca"] = marca
+    print(f"[gerencial] {_gp.LIVRO}.{_gp.ABA}: {len(todas)} linhas ({', '.join(str(m) for m in sorted(novas))}) {res}")
+    return len(todas)
+
+
+def _ger_publicar_loop():
+    """WORKER, a cada 10 min (a publicação se segura em 1 h e só sobe quando o mês muda). Espera o Gerencial aquecer."""
+    time.sleep(600)
+    while True:
+        try:
+            _ger_publicar()
+        except Exception as e:                                 # noqa: BLE001
+            print(f"[gerencial] laço da publicação: {e}")
+        time.sleep(600)
 
 
 def _falhas_loop():
