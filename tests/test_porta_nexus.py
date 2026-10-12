@@ -467,14 +467,16 @@ def test_modo_nexus_so_com_a_sessao_do_passe_dentro_da_moldura(cli):
 
 def test_strings_e_trackers_no_navy_do_nexus_so_dentro_da_moldura(cli):
     """Levi, 11/10/2026: "Em Strings e Trackers falta o tema escuro alá Nexus". A tela nasceu clara (identidade do site,
-    24/09) e nada a trocava na moldura. Dentro dela, a classe modo-nexus liga o navy; aberta direto, segue clara."""
+    24/09) e nada a trocava na moldura. Dentro dela, a classe modo-nexus liga o navy; aberta direto, segue clara.
+    12/10/2026 ("falta o tema claro"): o navy só com o Nexus no escuro; no claro (data-tema="claro") valem as cores claras
+    (tests/test_falhas_tema_nexus.py)."""
     entrar(cli, destino="/painel/falhas")
     dentro = cli.get("/painel/falhas", headers=NA_MOLDURA).get_data(as_text=True)
     assert re.search(r'<html[^>]*class="[^"]*modo-nexus', dentro)
-    bloco = re.search(r"html\.modo-nexus\{color-scheme:dark;(.*?)\}", dentro, re.S)
+    bloco = re.search(r'html\.modo-nexus:not\(\[data-tema="claro"\]\)\{color-scheme:dark;(.*?)\}', dentro, re.S)
     assert bloco and "--paper:#090d18" in bloco.group(1) and "--mist:#161d30" in bloco.group(1)
     assert "#191528" not in bloco.group(1)                                   # navy, nunca o lilás
-    assert "html.modo-nexus .seg button.on{background:var(--green);color:#0b1220}" in dentro
+    assert 'html.modo-nexus:not([data-tema="claro"]) .seg button.on{background:var(--green);color:#0b1220}' in dentro
     fora = cli.get("/painel/falhas").get_data(as_text=True)                   # aba solta: a identidade clara de 24/09
     assert "modo-nexus" not in fora.split("<style>", 1)[0] and "--paper:#FCFCFC" in fora
 
