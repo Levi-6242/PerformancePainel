@@ -366,3 +366,13 @@ def test_texto_vazio_vai_como_celula_vazia_no_xlsx():
     assert xml.count('t="inlineStr"') == xml.count("<is>")
     from openpyxl import load_workbook
     assert [c.value for c in load_workbook(BytesIO(b))[dp.ABA][2]][4:7] == ["378310", None, None]
+
+
+def test_a_gaveta_do_editor_obedece_ao_hidden():
+    """11/10/2026: o display:flex da .gaveta vencia o hidden do navegador — a gaveta aparecia vazia na carga da página e o
+    "Fechar" não fechava. Todo elemento com hidden some, venha a regra de display de onde vier."""
+    import pathlib
+    import re
+    html = (pathlib.Path(__file__).resolve().parents[1] / "plataforma" / "templates" / "depara.html").read_text(encoding="utf-8")
+    assert re.search(r"\[hidden\]\s*\{\s*display\s*:\s*none\s*!important", html)
+    assert 'id="ed" role="dialog" aria-modal="true" aria-labelledby="edTit" hidden' in html and 'id="veu" hidden' in html

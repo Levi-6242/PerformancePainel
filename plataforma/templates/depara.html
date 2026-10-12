@@ -66,7 +66,9 @@
   button.prim:hover:not(:disabled){filter:brightness(1.08);color:#0b1020}
   button.peq{padding:3px 10px;font-size:12.5px}
   button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--verde);outline-offset:2px}
-  /* gaveta do editor */
+  /* gaveta do editor. O [hidden] precisa de regra própria: o display:flex da .gaveta vencia o hidden do navegador, e a
+     gaveta ficava aberta e vazia já na carga da página e não fechava no "Fechar" (Levi, 11/10/2026) */
+  [hidden]{display:none !important}
   .veu{position:fixed;inset:0;background:rgba(3,6,14,.6);z-index:20}
   .gaveta{position:fixed;top:0;right:0;bottom:0;width:min(760px,100vw);background:var(--bg);border-left:1px solid var(--linha2);
     z-index:21;display:flex;flex-direction:column}
