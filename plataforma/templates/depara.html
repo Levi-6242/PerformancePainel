@@ -102,7 +102,7 @@
     no banco e vence o de-para do código.</p>
   <div class="resumo" id="resumo"></div>
   <div class="filtros">
-    <input type="search" id="busca" placeholder="Procurar usina ou chave" aria-label="Procurar usina ou chave">
+    <input type="search" id="busca" placeholder="Procurar usina, nome na API ou chave" aria-label="Procurar usina, nome na API ou chave">
     <select id="fFonte" aria-label="Fonte"><option value="">Todas as fontes</option></select>
     <label><input type="checkbox" id="soAlerta"> Só com alerta</label>
   </div>
@@ -181,7 +181,8 @@
     var busca = $('busca').value.trim().toLowerCase(), soAlerta = $('soAlerta').checked, ff = sel.value;
     function passa(u){
       if(soAlerta && !u.alertas.length) return false;
-      return !busca || String(u.usina).toLowerCase().indexOf(busca) >= 0 || String(u.plant_id).toLowerCase().indexOf(busca) >= 0;
+      // o nome que a API escreve está no `liga` ("a API escreve “Ipixuna do Pará 1”"): procurar por ele acha a Santa Cecilia
+      return !busca || [u.usina, u.plant_id, u.liga].some(function(x){ return String(x).toLowerCase().indexOf(busca) >= 0; });
     }
     var h = '';
     var precisa = D.precisa.filter(function(u){ return (!ff || u.fonte === ff) && passa(u); });
