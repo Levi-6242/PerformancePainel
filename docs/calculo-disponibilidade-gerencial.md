@@ -158,9 +158,11 @@ Cada folio do Fracttal passa por um filtro duro antes de contar:
 
 **Datas** (as regras duras):
 
-- **Início** = `min(event_date | date_maintenance)`, exigindo ano corrente e `≤ agora`.
+- **Início** = `min(event_date | date_maintenance)`, no ano corrente ou no anterior.
 - **Fim** = `max(final_date)`; só cai no `wo_final_date` (carimbo administrativo da WO) se **não houver
-  nenhum** `final_date` — e marca uma flag, porque esse carimbo pode ser tardio.
+  nenhum** `final_date` — e marca uma flag, porque esse carimbo pode ser tardio. Fim válido = `≤ agora` e no
+  ano corrente ou, na OS cujo evento é do ano anterior, nele também (11/10/2026: só o ano corrente valia, e em
+  janeiro o dezembro perdia toda OS concluída nele e saía 100%). Fim num ano antes do evento é digitação: fora.
 - Fim **antes** do início: se por `≤ 1 h` (carimbo relâmpago) → duração 0; se por mais → descarta o fim.
 - **Sem início válido** → excluída. **Concluída sem fim válido** → excluída.
 - **Aberta sem fim** → conta **0 h** no cálculo, mas entra no **cenário das abertas** (§8), que estima

@@ -9397,7 +9397,8 @@ def _sunop_eventos_calc(inst, date_iso):
                     "nome": un, "ts": time.time(),
                     "cobertura": res.get("cobertura", 0), "eventos": res["eventos"],
                     "classes": res.get("classes"), "regua": REGUA_VER,
-                    "sem_comunicacao": res.get("sem_comunicacao")}        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
+                    "sem_comunicacao": res.get("sem_comunicacao"),        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
+                    "fonte": "axis" if inst == "axis" else "sunop"}       # o store é de todas as fontes (ver _TRK_EV_PATH)
         rws = [{"data_iso": date_iso, "data": f"{dd[2]}/{dd[1]}", "usina": un, "tracker": ev["tracker"],
                 "inversor": "", "parada": ev["parada"], "retorno": ev.get("retorno"), "dur_min": ev.get("dur_min"),
                 "desvio": ev.get("desvio")}
@@ -12857,7 +12858,11 @@ TRK_EV_STOW_TOL     = 10.0           # ° — tolerância (-65° a -45° conta c
 TRK_EV_STOW_INI     = 7 * 60 + 30    # 07:30 — janela onde o stow é esperado
 TRK_EV_STOW_FIM_MAX = 10 * 60 + 30   # 10:30 — limite p/ o tracker sair do stow sem virar ocorrência
 _TRK_EV_PATH = _p_dado("trk_eventos.json")   # historico multi-dia de eventos de tracker
-_trk_eventos = {}      # {data_iso: {str(pid): {"nome","ts","cobertura","eventos":[...]}}}
+# O store é UM para as quatro fontes (API PV, Banco, Athon/Axis, 2C), chaveado só pelo plant_id. Desde 11/10/2026 cada
+# gravador escreve também a `fonte` ("pv", "pg", "sunop"/"axis", "owen"): sem ela, a aba de falhas tirava a fonte do
+# tamanho do id (até 5 dígitos = Banco) e a API PV de 5 dígitos — Indaiatuba 1 é o 21480 — saía como Banco no workbook
+# falhas_performance (revisão adversarial de 11/10; falhas_job.fonte_pelo_id). Registro de antes não tem o campo.
+_trk_eventos = {}      # {data_iso: {str(pid): {"nome","ts","cobertura","eventos":[...],"fonte"}}}
 _trk_eventos_lock = threading.Lock()
 _trk_ev_prog = {"running": False, "feito": 0, "total": 0, "atual": "", "fim_ts": 0.0, "erro": ""}
 
@@ -13242,7 +13247,8 @@ def _trk_ev_backfill(ini_iso, fim_iso, force=False):
                         "cobertura": res["cobertura"], "eventos": res["eventos"],
                         "disponibilidade": res.get("disponibilidade"),
                         "classes": res.get("classes"), "regua": REGUA_VER,
-                        "sem_comunicacao": res.get("sem_comunicacao")}   # classificação da curva fresca (Perdas LÊ daqui)
+                        "sem_comunicacao": res.get("sem_comunicacao"),   # classificação da curva fresca (Perdas LÊ daqui)
+                        "fonte": "pv"}                                    # ver _TRK_EV_PATH
             except Exception:
                 pass
             time.sleep(0.3)                   # throttle leve
@@ -21432,7 +21438,8 @@ def _owen_eventos_calc(date_iso):
                     "nome": un, "ts": time.time(),
                     "cobertura": res.get("cobertura", 0), "eventos": res["eventos"],
                     "classes": res.get("classes"), "regua": REGUA_VER,
-                    "sem_comunicacao": res.get("sem_comunicacao")}        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
+                    "sem_comunicacao": res.get("sem_comunicacao"),        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
+                    "fonte": "owen"}                                      # ver _TRK_EV_PATH
         if res.get("disponibilidade") is not None:
             disp[un] = res["disponibilidade"]
             disp_pid[code] = res["disponibilidade"]
@@ -21892,7 +21899,8 @@ def _pg_eventos_calc(date_iso, ov_rows=None):
                     "nome": un, "ts": time.time(),
                     "cobertura": res.get("cobertura", 0), "eventos": res["eventos"],
                     "classes": res.get("classes"), "regua": REGUA_VER,
-                    "sem_comunicacao": res.get("sem_comunicacao")}        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
+                    "sem_comunicacao": res.get("sem_comunicacao"),        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
+                    "fonte": "pg"}                                        # ver _TRK_EV_PATH
         rws = [{"data_iso": date_iso, "data": f"{dd[2]}/{dd[1]}", "usina": un,
                 "tracker": ev["tracker"], "inversor": "",
                 "parada": ev["parada"], "retorno": ev.get("retorno"), "dur_min": ev.get("dur_min"),
@@ -25358,7 +25366,14 @@ _frac_disp_mem = {"mtime": 0.0, "dados": {}}
 _DISP_CAMPOS_TASK = ("tasks_log_task_type_main", "id_status_work_order", "event_date",
                      "date_maintenance", "final_date", "wo_final_date", "code",
                      "items_log_description", "groups_1_description", "description",
-                     "created_by", "personnel_description", "user_assigned")
+                     "created_by", "personnel_description", "user_assigned",
+                     # as observações da OS (`note`) e da tarefa: de onde sai a quantidade das OS de string do Dashboard
+                     # Thopen (_falhas_os_string, 08/10/2026) — a mesma varredura, sem chamada nova ao Fracttal
+                     "note", "task_note",
+                     # a criação é a data do evento de reserva da OS de string sem event_date (_falhas_os_string). Até
+                     # 11/10/2026 a varredura não a guardava e o "ou a criação" nunca valia: a OS sem event_date saía
+                     # com evento vazio e ficava fora de todo mês da aba `strings_os`. Já vem na mesma resposta
+                     "creation_date")
 
 _disp_equip_cache = {"ts": 0.0, "linhas": []}
 
@@ -25658,6 +25673,13 @@ def _frac_disp_recalcular():
     if falhas:
         _frac_disp_registrar(False, "; ".join(falhas) + ", nada publicado", resumo)
         return
+    # as OS de recomposição de string vão junto, da MESMA varredura inteira (Dashboard Thopen, 08/10/2026): a aba de
+    # falhas lê daqui (_falhas_os_string_indice). Erro aqui não segura a Disponibilidade — sem a chave, o mês sai sem a
+    # aba `strings_os` (vazio, "não publicado"), nunca com "0 OS"
+    try:
+        dados["os_string"] = _falhas_os_string(wos)
+    except Exception as e:                                   # noqa: BLE001
+        _log_arquivo("fracttal.log", f"[disp] OS de string fora do índice: {type(e).__name__}: {e}")
     tmp = _FRAC_DISP_FILE + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(dados, f, ensure_ascii=False)
@@ -26384,6 +26406,75 @@ def _falhas_os_abertas(forcar=False):
     return base
 
 
+# OS de recomposição de string do mês, para o Dashboard Thopen (Levi, 08/10/2026, depois do retorno da análise de
+# performance: "Strings é OS" — o card e a tabela do Diário contam as OS do Fracttal pela DATA DO EVENTO, não a régua de
+# 2 h). Sai da varredura que a Disponibilidade já faz a cada 30 min (todas as work_orders criadas desde 45 dias antes do
+# mês anterior; o evento
+# vem DEPOIS da criação na OS programada — MNG100, criada 23/09 com evento em 01/10): nenhuma chamada nova ao Fracttal,
+# cuja cota (200/min) é da empresa inteira. A quantidade vem da linha que o OS Creator vai escrever nas observações,
+# "Strings sem corrente: N (Ipv3, Ipv7, Ipv11, Ipv12)" — o N é a quantidade; a lista, quando houver, dá as strings.
+# Texto livre não vai para o índice (a nota tem nome de técnico): só o que foi lido dele.
+# Uma linha por OS × INVERSOR: a OS 13585 (Altair, 01/09) é uma OS com seis tarefas, uma por inversor, e cada task_note
+# cita as strings do seu ("Investigar strings PV3, PV11 e PV12" no 2.8, "Investigar string PV5" no 2.6). A nota da OS é
+# a mesma nas seis e não diz de qual inversor fala — numa OS de vários inversores ela não entra na conta de nenhum (o N
+# dela seria somado uma vez por inversor).
+_RX_OS_STR_QTD = re.compile(r"\bstrings?\s+sem\s+corrente\s*[:=\-]?\s*(\d{1,3})\b\s*(?:\(([^)]*)\))?", re.I)
+
+
+def _falhas_os_string(wos):
+    """Varredura da Disponibilidade ({folio: [tarefas]}) → [OS de recomposição de string não cancelada, uma por
+    inversor]: {os, code, prefixo, cb, inv, evento (dia de Brasília), status, qtd_texto, strings_texto, cit}. O
+    falhas_job casa a usina pelo código (cb + prefixo do cliente) e decide a origem da quantidade."""
+    def _sem_acento(s):
+        s = unicodedata.normalize("NFKD", str(s or ""))
+        return "".join(c for c in s if not unicodedata.combining(c)).lower()
+
+    def _inv(t):
+        code = str(t.get("code") or "").strip()
+        m = re.search(r"[A-Z]{3}\d{3}-INVR(\d+(?:\.\d+)?)$", code)
+        md = re.search(r"invers[oa]r(?:es)?\s*(\d+\.\d+)", str(t.get("description") or ""), re.I)
+        return m.group(1) if m else (md.group(1) if md else None)
+
+    out = []
+    for fol, tarefas in (wos or {}).items():
+        vivas = [t for t in tarefas or [] if t.get("id_status_work_order") != 4]
+        desc = _sem_acento((vivas[0] if vivas else {}).get("description"))
+        # "recomposi" sozinho pega "[INHAPI] Recomposição da alimentação da ETM" (OS 15308) e "recomposição de cabos CC"
+        if not vivas or "recomposi" not in desc or "string" not in desc:
+            continue
+        grupos = {}
+        for t in vivas:
+            grupos.setdefault(_inv(t), []).append(t)
+        notas_os = list(dict.fromkeys(str(t.get("note") or "") for t in vivas)) if len(grupos) == 1 else []
+        for inv, ts in grupos.items():
+            textos = " | ".join([str(t.get(k) or "") for t in ts for k in ("description", "task_note")] + notas_os)
+            evs = [d for d in (_frac_dt_local(t.get("event_date") or t.get("creation_date")) for t in ts) if d]
+            code = str(ts[0].get("code") or "").strip()
+            mb = re.search(r"([A-Z]{3}\d{3})", code)
+            mq = _RX_OS_STR_QTD.search(_sem_acento(textos))
+            lista = (mq.group(2) or "") if mq else ""
+            sts = {t.get("id_status_work_order") for t in ts}
+            st = min(sts, key=lambda s: (s in (2, 3), s if isinstance(s, int) else 99))   # aberta antes de concluída
+            out.append({"os": str(fol), "code": code, "prefixo": (code[:mb.start()].strip("-") or None) if mb else None,
+                        "cb": mb.group(1) if mb else None, "inv": inv,
+                        "evento": min(evs).strftime("%Y-%m-%d") if evs else None,
+                        "status": FRAC_WO_STATUS.get(st, "—"),
+                        "qtd_texto": int(mq.group(1)) if mq else None,
+                        # a lista do contrato é "Ipv3, Ipv7"; só números ("3, 7") também vale
+                        "strings_texto": _falhas_os_citadas(lista) or (
+                            sorted({int(n) for n in re.findall(r"\d{1,2}", lista)})
+                            if re.fullmatch(r"[\d\s,;/&e]*", lista) else []),
+                        "cit": _falhas_os_citadas(textos)})
+    out.sort(key=lambda o: (o["evento"] or "", o["os"], o["inv"] or ""))
+    return out
+
+
+def _falhas_os_string_indice():
+    """As OS de string que a Disponibilidade publicou no índice dela; None = ainda não publicadas (o mês sai sem a aba
+    `strings_os`, e a `atualizacao` diz vazio, não 0)."""
+    return _frac_disp_dados().get("os_string")
+
+
 def _falhas_travas_com_os(idx, pv_dev):
     """Strings TRANCADAS que uma OS de recomposição aberta cita. Casa pela chave da trava: API PV
     plant|idefinversor|IpvN (o de-para nome → id do falhas_pv_dev, o mesmo que confere a trava na aba) e Athon
@@ -26847,7 +26938,8 @@ def _falhas_recalcular():
     pv_dev = _falhas_pv_dev(store)
     hoje = datetime.now().date()
     meses = _falhas_meses(hoje)
-    for mes in _falhas_meses_a_montar(hoje, meses, lambda m: os.path.exists(_falhas_arquivo(m))):
+    a_montar = _falhas_meses_a_montar(hoje, meses, lambda m: os.path.exists(_falhas_arquivo(m)))
+    for mes in a_montar:
         i_mes = meses.index(mes)
         antes = _falhas_abertos(_falhas_ler(_falhas_arquivo(meses[i_mes - 1]))) if i_mes else None
         ini = max(FALHAS_INI, f"{mes}-01")
@@ -26856,7 +26948,14 @@ def _falhas_recalcular():
         pacote = falhas_job.montar(_sys.modules[__name__], _sol, ini, fim, geracao=_falhas_geracao(mes, ini, fim),
                                    pv_dev=pv_dev, mortas_curva=mortas, str_store=store, trk_store=trk, book=book,
                                    abertos_antes=antes, desconsideradas=_falhas_desc_chaves(),
-                                   trk_semcom=_falhas_trk_semcom_hist())
+                                   trk_semcom=_falhas_trk_semcom_hist(), os_string=_falhas_os_string_indice())
+        # a disponibilidade do dia (rodada 4 do Dashboard Thopen, 09/10/2026): a régua do Gerencial, do índice que o
+        # worker refaz a cada 30 min. O índice só tem o mês corrente e o anterior — o mês que sai dele guarda a dele
+        disp = _falhas_disp_mes(mes)
+        if disp is None:
+            disp = (_falhas_ler(_falhas_arquivo(mes)) or {}).get("disponibilidade")
+        if disp is not None:
+            pacote["disponibilidade"] = disp
         if mes == hoje.strftime("%Y-%m"):                  # a auditoria de travas é de agora: vai no mês corrente
             try:
                 idx = _falhas_os_abertas()
@@ -26868,9 +26967,54 @@ def _falhas_recalcular():
         print(f"[falhas] {mes} publicado: {len(pacote['strings']['episodios'])} episódios de string, "
               f"{len(pacote['trackers']['rows'])} de tracker ({time.time()-t0:.0f}s)")
     try:
+        _falhas_disp_fora_da_volta(a_montar)
+    except Exception as e:                                # noqa: BLE001 — o mês não remontado espera a próxima volta
+        print(f"[falhas] disponibilidade dos meses não remontados (fica a anterior): {e}")
+    try:
         _falhas_publicar_workbook(meses)
     except Exception as e:
         print(f"[falhas] workbook não subiu (tenta de novo em 1 h): {e}")
+
+
+def _falhas_disp_mes(mes):
+    """A disponibilidade de cada usina por dia no mês, do índice da aba Disponibilidade do Gerencial (frac_disp_index.json:
+    OS de religamento e corretiva emergencial, 06–18 h, ponderada pela potência afetada — Levi, 09/10/2026: "da mesma
+    forma que calculamos pelo gerencial"). Só o essencial para o workbook: o catálogo de usinas, o período fechado
+    (até D-1) e os dias com perda. None quando o índice não tem o mês."""
+    m = ((_frac_disp_dados() or {}).get("meses") or {}).get(mes)
+    if not m or not m.get("usinas") or not m.get("periodo"):
+        return None
+    return {"periodo": [str(m["periodo"]["ini"])[:10], str(m["periodo"]["fim"])[:10]],
+            "usinas": [{"usina": u.get("usina"), "fracttal": u.get("fracttal"), "cliente": u.get("cliente"),
+                        "pot_kwp": u.get("pot_kwp")} for u in m["usinas"]],
+            "diario": {u: {d: {"disp": v.get("disp"), "h_eq": v.get("h_eq")} for d, v in (dias or {}).items()}
+                       for u, dias in (m.get("diario") or {}).items()}}
+
+
+def _falhas_disp_fora_da_volta(montados):
+    """A disponibilidade do mês que o índice do Gerencial ainda tem e que esta volta NÃO remontou (o anterior, do dia 3
+    em diante) segue o índice — só ela; o resto do pacote fica como está. → os meses regravados.
+
+    Por quê (11/10/2026): o pacote do mês só ganha a disponibilidade quando é remontado, e o mês anterior só é remontado
+    até o dia 2. Setembro foi montado em 02/10, antes de a aba existir, e ficaria sem nenhuma linha na
+    `disponibilidade_dia` para sempre, embora o índice tenha setembro inteiro até 31/10. E o Gerencial segue
+    recalculando o mês anterior o mês todo (a OS fechada com atraso muda os dias dela): sem isto, o workbook congelaria
+    o mês anterior no dia 2 e deixaria de ser "a do Gerencial". O mês que sai do índice guarda a última que recebeu.
+    Grava só quando muda (a API guarda histórico por linha) e não toca no mês que o índice não tem."""
+    regravados = []
+    for mes in sorted(((_frac_disp_dados() or {}).get("meses") or {})):
+        arq = _falhas_arquivo(mes)
+        if mes in montados or not os.path.exists(arq):
+            continue                                       # remontado agora, ou mês sem pacote (antes do FALHAS_INI)
+        disp = _falhas_disp_mes(mes)
+        pac = _falhas_ler(arq)
+        if disp is None or not pac or pac.get("disponibilidade") == disp:
+            continue
+        pac["disponibilidade"] = disp
+        _falhas_gravar(arq, pac)
+        regravados.append(mes)
+        print(f"[falhas] {mes}: disponibilidade do Gerencial atualizada no pacote (mês não remontado nesta volta)")
+    return regravados
 
 
 def _falhas_publicar(mes, pacote, meses=None):
