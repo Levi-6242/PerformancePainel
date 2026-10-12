@@ -82,7 +82,8 @@ def linha(fonte: str, r: dict, ctx: dict) -> dict:
     if prov:
         alertas.append(("info", prov))
     alertas.sort(key=lambda a: SEVERIDADE[a[0]])
-    edita_u = fonte in ctx.get("edita_usina", ())
+    edita_u = fonte in ctx.get("edita_usina", ()) and (fonte not in ctx.get("so_sem_depara", ()) or fora
+                                                        or str(pid) in ctx.get("apelidos_tela", {}))
     edita_i = fonte in ctx.get("edita_inversor", ()) and (fonte not in API_PV or pid in ctx.get("oem", ()))
     return {"fonte": fonte, "plant_id": pid, "usina": usina, "liga": liga, "str_esp": str_esp, "inv_esp": inv_esp,
             "inv_fonte": inv_fonte, "nomes_inversor": nomes, "edita_usina": edita_u, "edita_inversor": edita_i,

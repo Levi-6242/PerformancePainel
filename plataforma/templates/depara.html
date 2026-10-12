@@ -7,7 +7,7 @@
 {# De-para de equipamentos (11/10/2026; Levi: "quero que o de-para da equipamentos seja feito na plataforma de forma
    intuitiva"). Em cima, o diagnóstico: para cada usina de cada fonte, como ela se liga ao cadastro, se tem esperadas, se o
    número de inversores bate e de onde vem o nome de cada inversor (depara_diag.py). Em cada linha, "Ligar"/"Editar": a
-   ponte da usina pelo id (contas da API PV), o apelido pelo nome (Thopen do banco, Athon, Axis) e o nome de cada inversor
+   ponte da usina pelo id (contas da API PV), o apelido pelo nome (Athon, Axis) e o nome de cada inversor
    (conta oem@ e scadaGridco), com a sugestão pelo nome e pelo kWh do BD. A decisão grava no livro nexus_depara do banco
    e vence o de-para do código (depara.py). Só administrador do Nexus.
    12/10/2026 (Levi: "interface muito feia", "não deveria aparecer usina que já estão ligadas, a não ser que eu tirasse um
@@ -167,8 +167,8 @@
   <div id="corpo"><p class="vazio">Lendo as fontes…</p></div>
   <p class="rodape">A leitura usa as tabelas de strings que a plataforma já montou (nenhum pedido novo às fontes). Fonte
     que esta máquina não leu (a SunOp no PC, em modo ronda) aparece como não lida. As contas da API PV ligam a usina pelo
-    id; a Thopen do banco, a Athon e a Axis, pelo nome — com apelido decidido aqui quando o nome não casa. A RenoGrid
-    (SolarEdge) ainda se corrige no cadastro.</p>
+    id; a Athon e a Axis, pelo nome — com apelido decidido aqui quando o nome não casa. A Thopen do banco (pelo id da
+    usina no banco) e a RenoGrid (SolarEdge) ainda se corrigem no cadastro.</p>
 </div>
 
 <div class="veu" id="veu" hidden></div>
@@ -319,7 +319,7 @@
     // a usina do cadastro a que ela liga hoje (a chave da lista): a ponte da tela, o apelido, a ponte do código ou o nome
     var p = ED.ponte || {};
     if(p.tela) return p.tela;
-    if(ED.por_nome) return ED.no_cadastro ? ED.nome_api : '';
+    if(ED.por_nome) return ED.cadastro_chave || '';
     if(p.tela !== '' && p.codigo) return p.codigo;
     if(ED.sem_depara) return '';
     return ED.apelido || String(ED.nome_interno || '').trim();

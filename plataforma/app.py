@@ -1638,16 +1638,24 @@ def _dp_editor_sg(fonte, cfg, est) -> dict:
             "provisorio": None if (codigo or tela) else "Pela ordem do cadastro: o supervisório não lê os inversores para fechar por valor."}
 
 
+def _dp_pelo_nome(nome) -> set:
+    """As usinas do cadastro que o nome alcança SEM os apelidos da tela (chave exata, nome de exibição, apelido do
+    código): o mesmo caminho do diagnóstico. Não vazio = liga pelo nome, e apelido da tela não tem o que fazer."""
+    return _dp_chaves_do_nome(nome, _dp_indice_cadastro(), PV_NOME_API_ALIAS)
+
+
 def _dp_editor_nome(fonte, nome, est) -> dict:
-    """A usina que a fonte manda pelo nome (Thopen do banco, Athon, Axis): liga pelo nome quando o cadastro o tem; senão,
-    pelo apelido da tela (o nome que a fonte escreve → a usina do cadastro)."""
+    """A usina que a fonte manda pelo nome (Athon, Axis): liga pelo nome quando o cadastro o tem; senão, pelo apelido da
+    tela (o nome que a fonte escreve → a usina do cadastro)."""
     tela = ((est or {}).get("apelido") or {}).get((fonte, nome))
     cadastro = _dp_cadastro_usinas((fonte, nome))
-    no_cad = nome in ESPERADO and nome not in _dp_aliases()
-    sem = not no_cad and not (tela and tela.get("valor") in ESPERADO)
-    return {"nome_api": nome, "nome_interno": USINA_DISPLAY.get(nome) or nome, "por_nome": True, "no_cadastro": no_cad,
+    pelo_nome = _dp_pelo_nome(nome)
+    sem = not pelo_nome and not (tela and tela.get("valor") in ESPERADO)
+    chave = sorted(pelo_nome)[0] if len(pelo_nome) == 1 else None
+    return {"nome_api": nome, "nome_interno": USINA_DISPLAY.get(chave or nome) or chave or nome, "por_nome": True,
+            "no_cadastro": bool(pelo_nome), "cadastro_chave": chave,
             "ponte": {"codigo": None, "tela": tela["valor"] if tela else None}, "apelido": None,
-            "edita_usina": not no_cad, "sem_depara": sem, "sugestao": _dp_sugestao(nome, cadastro) if sem else [],
+            "edita_usina": not pelo_nome, "sem_depara": sem, "sugestao": _dp_sugestao(nome, cadastro) if sem else [],
             "cadastro_usinas": cadastro, "edita_inversor": False,
             "nota_inversor": "Nesta fonte o nome do inversor vem da própria fonte e liga pelo nome: corrija no cadastro."}
 
@@ -1699,7 +1707,7 @@ def api_depara_decidir():
             if alvo and alvo not in ESPERADO:
                 return jsonify({"error": f"a usina \"{alvo}\" não está no cadastro (aba Equipamentos)"}), 400
             if fonte in _dp.FONTES_APELIDO:
-                if uid in ESPERADO and uid not in _dp_aliases():
+                if _dp_pelo_nome(uid):
                     return jsonify({"error": f"\"{uid}\" já está no cadastro com esse nome: liga pelo nome"}), 400
                 novas.append(_dp.linha_apelido(fonte, uid, alvo))
             else:
@@ -1827,7 +1835,7 @@ def api_depara():
            "provisorios": {k: v for k, v in PV_INV_PROVISORIOS.items() if not any(u == str(k) for (_f, u) in revistas)},
            "oem": PV_OEM_PLANTS, "revistas": {u for (_f, u) in revistas},
            "edita_usina": set(_dp.FONTES_USINA + _dp.FONTES_APELIDO), "edita_inversor": set(_DP_OEM + _DP_SG),
-           "apelidos_tela": _dp.apelidos(est),
+           "apelidos_tela": _dp.apelidos(est), "so_sem_depara": set(_dp.FONTES_APELIDO),
            "sg_por_ordem": {(f, c["id"]): True for f in _sg.FONTES for c in _sg.usinas(f)
                             if not c.get("inversores") and not _dp.inversores(est, (f,), c["id"])}}
     # usina descoberta no supervisório: o nome dos inversores veio do nome do equipamento (provisório até a tela decidir)

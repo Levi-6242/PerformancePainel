@@ -407,17 +407,22 @@ def test_sem_de_para_e_o_nome_fora_do_cadastro_e_leva_a_sugestao():
     u = dd.linha("pv", {**_r(5, "Usina X", None), "str_esp_cadastro": None}, ctx)
     assert u["sem_depara"] is None and u["sugestao"] == [] and "string morta não acusa" in u["alertas"][0]["texto"]
     assert dd.linha("salenergia", _r("boa", "Boa"), CTX)["sem_depara"] == "inversor"
+    # Athon/Axis: o "Editar" só onde há o que decidir (sem de-para, ou o apelido da tela para desfazer)
+    c2 = {**CTX, "edita_usina": {"sunop"}, "so_sem_depara": {"sunop"}}
+    assert not dd.linha("sunop", _r("CPP100", "CPP100"), c2)["edita_usina"]
+    assert dd.linha("sunop", _r("CPP101", "CPP101", None), {**c2, "fora": {("sunop", "CPP101")}})["edita_usina"]
+    assert dd.linha("sunop", _r("X", "CPP100"), {**c2, "apelidos_tela": {"X": "CPP100"}})["edita_usina"]
 
 
 def test_o_apelido_vale_so_nas_fontes_que_ligam_pelo_nome_e_o_vazio_desfaz():
     assert dp.linha_apelido("sunop", " MRO 1 NOVO ", "MRO100", Q1)[2:8] == ["sunop", "MRO 1 NOVO", "", "MRO100", "", "tela"]
-    for f in ("pv", "2capi", "solaredge"):
+    for f in ("pv", "2capi", "solaredge", "pg"):                 # o banco liga pelo id da usina nele, não pelo nome
         with pytest.raises(ValueError):
             dp.linha_apelido(f, "X", "Y", Q1)
-    est = dp.vigente([dp.linha_apelido("sunop", "A", "MRO100", Q1), dp.linha_apelido("pg", "B", "Indaiatuba", Q1),
+    est = dp.vigente([dp.linha_apelido("sunop", "A", "MRO100", Q1), dp.linha_apelido("axis", "B", "Indaiatuba", Q1),
                       dp.linha_apelido("sunop", "A", "", Q2), dp.linha_usina("pv", 7, "Itaja 1 (551)", Q1)])
     assert dp.apelidos(est) == {"B": "Indaiatuba"} and dp.pontes(est) == {7: "Itaja 1 (551)"}
-    u = dd.linha("pg", _r("B", "Indaiatuba"), {**CTX, "apelidos_tela": dp.apelidos(est)})
+    u = dd.linha("axis", _r("B", "Indaiatuba"), {**CTX, "apelidos_tela": dp.apelidos(est)})
     assert u["liga"] == "por apelido da tela: a fonte escreve “B”"
 
 
@@ -479,7 +484,10 @@ def test_o_apelido_das_fontes_que_ligam_pelo_nome_grava_e_rele_o_cadastro(cli, l
     assert app._dp_apelidos_da_tela() == {"MRO 1 NOVO": "Indaiatuba"}
     ed = cli.get("/api/admin/de-para/usina?fonte=sunop&id=MRO%201%20NOVO").get_json()
     assert ed["ponte"]["tela"] == "Indaiatuba" and not ed["sem_depara"]
-    r = cli.post("/api/admin/de-para/decidir", json={"fonte": "pg", "id": "Indaiatuba", "usina_supervisorio": "Itaja 1 (551)"})
-    assert r.status_code == 400 and "liga pelo nome" in r.get_json()["error"]          # o nome já está no cadastro
+    r = cli.post("/api/admin/de-para/decidir", json={"fonte": "axis", "id": "indaiatuba ", "usina_supervisorio": "Itaja 1 (551)"})
+    assert r.status_code == 400 and "liga pelo nome" in r.get_json()["error"]          # o nome já alcança o cadastro
+    ed = cli.get("/api/admin/de-para/usina?fonte=sunop&id=Indaiatuba").get_json()      # ligada: o editor não acusa
+    assert ed["no_cadastro"] and not ed["sem_depara"] and ed["cadastro_chave"] == "Indaiatuba" and not ed["edita_usina"]
+    assert cli.get("/api/admin/de-para/usina?fonte=pg&id=8").status_code == 400       # o banco segue no cadastro
     r = cli.post("/api/admin/de-para/decidir", json={"fonte": "sunop", "id": "MRO 1 NOVO", "usina_supervisorio": ""})
     assert r.status_code == 200 and app._dp_apelidos_da_tela() == {} and ligado.recargas == [1, 1]   # desfazer também relê

@@ -32,12 +32,13 @@ ORIGENS = ("tela",)
 # fontes ligam pelo nome que a fonte manda: corrige-se no cadastro.
 FONTES_USINA = ("pv", "semp", "alveslima", "2capi")
 FONTES_INVERSOR = ("semp", "alveslima", "2capi", "greenyellow", "salenergia")
-# As fontes que mandam a usina só pelo NOME (a Thopen do banco, a Athon pela SunOp, a Axis: a chave delas é o próprio nome).
+# As fontes que mandam a usina só pelo NOME (a Athon e a Axis, pela SunOp: a chave delas é o próprio nome, "CPP100").
 # Até 12/10/2026 o conserto de um nome que não casava era editar a "Usina Supervisório" no Equipamentos do BD_Performance
 # e subir a planilha (Levi: "precisamos trazer para o Nexus e deixar mais dinâmico com a plataforma"). Agora a tela grava
 # um APELIDO (o nome que a fonte escreve → a usina do cadastro) e a plataforma o aplica como o PV_NOME_API_ALIAS do código.
-# A RenoGrid (SolarEdge) fica de fora: a chave dela é o id do site e a linha não traz o nome que casa com o cadastro.
-FONTES_APELIDO = ("pg", "sunop", "axis")
+# Ficam de fora a Thopen do banco (a chave é o id da usina no banco, 8, 9, 31…, e o nome da linha já é o de exibição) e
+# a RenoGrid (a chave é o id do site): a 1ª versão incluía o banco e o editor chamava de "sem de-para" usina ligada.
+FONTES_APELIDO = ("sunop", "axis")
 
 _BRT = timezone(timedelta(hours=-3))
 

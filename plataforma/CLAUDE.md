@@ -720,8 +720,10 @@ Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o
   toda espremida", "em NOVO ao invés de manter tem que alertar que está sem de-para".
 - **O editor** ("Ligar" na usina sem de-para, "Editar" nas outras; uma janela grande no centro, usina à esquerda e
   inversores à direita): a **ponte da usina pelo id** nas contas da API PV (pv, semp, alveslima, 2capi) e o **apelido pelo
-  nome** nas fontes que mandam o nome como chave (pg, sunop, axis: `depara.FONTES_APELIDO`; antes era editar a "Usina
-  Supervisório" no Excel e subir a planilha). A lista do cadastro ESCONDE as usinas que outra fonte já liga
+  nome** nas fontes que mandam o nome como chave (sunop e axis, "CPP100": `depara.FONTES_APELIDO`; antes era editar a
+  "Usina Supervisório" no Excel e subir a planilha). A Thopen do banco NÃO: a chave dela é o id da usina no banco (8, 9,
+  31…) e o nome da linha já é o de exibição — a 1ª versão a incluía e o editor chamava de "sem de-para" usina ligada. O
+  editor acha a ligação pelo nome pelo MESMO caminho do diagnóstico (`_dp_pelo_nome`: chave, exibição, apelido do código). A lista do cadastro ESCONDE as usinas que outra fonte já liga
   (`_dp_cadastro_usinas`, campo `ligada_a`, sem contar a própria usina e sem as cópias dos apelidos, como "Sete Lagoa");
   "Mostrar também as já ligadas" as traz. A sugestão pelo nome vem pré-escolhida só quando não há o que conferir. E o
   **nome de cada inversor**
@@ -731,7 +733,7 @@ Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o
   custa até 3 consultas da cota histórica da API PV; coluna vazia no BD não fecha nada e a tela diz). O inversor sem
   de-para (nome pela ordem, ou sem nome) aparece em âmbar com "Sem de-para: escolha o inversor do cadastro" no lugar de
   "manter". O inversor das fontes que mandam o nome (Thopen da conta principal, Athon, Axis, banco, RenoGrid) e a usina
-  da RenoGrid (a chave é o id do site e a linha não traz o nome do cadastro) ainda se corrigem no cadastro.
+  da Thopen do banco e da RenoGrid (a chave é um id e a linha não traz o nome do cadastro) ainda se corrigem no cadastro.
 - **O dado**: livro `nexus_depara · fato_decisao_depara` (`depara.py`, no catálogo do Nexus), só acrescenta, gravado pela
   mesma `cobertura.Decisoes` (relê, grava inteiro, confere a contagem; cache de 60 s e a última leitura boa em
   `depara_decisoes.json`). O cadastro entra pela chave de negócio (Usina Supervisório, Equipamento Supervisório), que a
