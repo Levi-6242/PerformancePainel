@@ -13,9 +13,11 @@ o excedente — por isso o arquivo leva TODOS os meses publicados.
 As linhas vão pela data de início (o novo entra no fim) e nenhuma coluna muda sozinha a cada volta: o sync é de hora
 em hora e a API guarda histórico por linha — regravar o mês inteiro a cada volta encheria esse histórico. O "quando"
 mora na aba `atualizacao`, uma linha por mês. Exceções que crescem no mês corrente, como o episódio em aberto: a aba
-`cobertura` (08/10/2026) vai pelo 1º dia medido, mas os dias_* de cada linha sobem a cada dia; e o dias_sem_prova do
-tracker volta a 0 quando o dia fecha. Na `strings_os`, o status muda quando a OS fecha e a estimativa de outubro cresce
-durante o dia do evento; na `trackers_dia`, o "sem prova" do dia corrente vira "sim" (ou sai) quando a geração fecha;
+`cobertura` (08/10/2026) vai pelo 1º dia medido, mas os dias_* de cada linha sobem a cada dia (e o vazio de uma régua
+vira número no dia em que ela registra o cadastro); e o dias_sem_prova do tracker volta a 0 quando a geração do dia
+chega (não o relógio: revisão adversarial de 11/10/2026). Na `strings_os`, o status muda quando a OS fecha e a
+estimativa de outubro cresce durante o dia do evento; na `trackers_dia`, o "sem prova" vira "sim" (ou sai) quando a
+geração do dia chega;
 na `disponibilidade_dia`, o dia fechado muda quando o Gerencial o recalcula (a OS fechada com atraso), também no mês
 anterior enquanto ele estiver no índice (app._falhas_disp_fora_da_volta, 11/10/2026).
 """
@@ -38,24 +40,28 @@ CABECALHOS = {
                           "horas_sol", "perda_kwh", "perda_inferida_kwh", "kwp_string", "metodo", "avisos", "plant_id"],
     # dias_comunicou: dias do episódio em que a USINA leu string ou gerou (Levi, 08/10: "quando fica parado sem
     # comunicação essa ocorrência é ignorada; se a usina comunicou inversor ou string então aí conta").
-    # dias_sem_prova: dias do episódio que ainda não fecharam e não têm prova nenhuma — a usina sem string lida
-    # (Barretos, Matão 2 em 08/10) só prova pela geração, que o BD_Thopen grava 0 até o fechamento; não é "sem
-    # comunicação"
+    # dias_sem_prova: dias do episódio que a geração ainda não cobre e sem prova nenhuma — a usina sem string lida
+    # (Barretos, Matão 2 em 08/10) só prova pela geração, que o BD_Thopen grava 0 até o fechamento e a Disponibilidade
+    # corta no D-1 de quando roda; não é "sem comunicação". Volta a 0 quando a geração do dia chega
     "trackers_episodios": ["mes", "fonte", "cliente", "usina", "tracker", "inversor", "parou", "voltou", "situacao",
                            "horas_sol", "desvio_pico_graus", "fator_perda", "kwp_tracker", "perda_kwh", "cronico", "avisos",
                            "plant_id", "dias_comunicou", "dias_sem_prova"],
     # quem a plataforma MEDIU no mês, com ou sem falha (08/10/2026): separa "0" de "sem monitoramento" no dashboard do
-    # cliente. Entra antes da `atualizacao` só pela ordem das abas no xlsx; o conteúdo das abas existentes não muda
+    # cliente. Entra antes da `atualizacao` só pela ordem das abas no xlsx; o conteúdo das abas existentes não muda.
+    # 1 linha = SISTEMA × plant_id (revisão adversarial de 11/10/2026: a String Box sai na linha da API PV, e o tracker
+    # pela fonte do cadastro). dias_strings/dias_trackers: 0 = a régua registrou o cadastro e não houve leitura; vazio =
+    # a régua nem o registrou no mês (não medido — a de trackers na usina sem tracker monitorado)
     "cobertura": ["mes", "fonte", "cliente", "usina", "plant_id", "dias_strings", "dias_trackers", "dias_comunicou"],
     # "Strings é OS" (Levi, 08/10/2026, tarde): 1 linha = 1 OS de recomposição de string do Fracttal × inversor, com a
     # DATA DO EVENTO no mês (a OS 13585 da Altair tem seis inversores: seis linhas com o mesmo nº, cada uma com as
-    # strings do seu). origem = de onde veio a quantidade: texto (a linha "Strings sem corrente: N (...)" do OS
-    # Creator), citadas (strings citadas no texto), estimado (outubro: o que a régua viu no inversor no dia do evento)
-    # ou sem_quantidade (qtd vazio — nunca 0)
+    # strings do seu) — a chave é (mes, os, inversor), não (mes, os). origem = de onde veio a quantidade: texto (a linha
+    # "Strings sem corrente: N (...)" do OS Creator), citadas (strings citadas no texto), estimado (outubro: o que a
+    # régua viu no inversor no dia do evento) ou sem_quantidade (qtd vazio — nunca 0)
     "strings_os": ["mes", "data_evento", "cliente", "usina", "plant_id", "inversor", "os", "status", "strings", "qtd",
                    "origem"],
-    # 1 linha = usina-fonte-plant_id × dia com tracker parado e a usina comunicando ("sim") ou no dia corrente ainda
-    # sem prova ("sem prova"); o dia em que a usina não comunicou não entra (Levi: "essa ocorrência é ignorada")
+    # 1 linha = usina-fonte-plant_id × dia com tracker parado e a usina comunicando ("sim") ou no dia que a geração
+    # ainda não cobre, sem outra prova ("sem prova"); o dia em que a usina não comunicou não entra (Levi: "essa
+    # ocorrência é ignorada"). A fonte é a do cadastro (falhas_job.fonte_de), não a do tamanho do id
     "trackers_dia": ["mes", "dia", "fonte", "cliente", "usina", "plant_id", "trackers", "qtd", "comunicou"],
     # Disponibilidade do dia por usina (rodada 4 do Dashboard Thopen, Levi 09/10/2026: "coluna para disponibilidade,
     # calculada pelo Fracttal, da mesma forma que calculamos pelo gerencial da plataforma"): a régua da aba
@@ -128,7 +134,8 @@ def tabelas(pacotes):
                 r.get("kwp_tracker"), r.get("perda_kwh"), bool(r.get("cronico")),
                 [f for f in r.get("flags") or [] if f != "em aberto"], _pid(r.get("plant_id")),
                 r.get("dias_comunicou"), r.get("dias_sem_prova"))])
-        # _v(0) devolve 0: dias_trackers = 0 (olhou e não houve leitura) não vira célula vazia (coluna não publicada).
+        # _v(0) devolve 0: dias_trackers = 0 (olhou e não houve leitura) não vira célula vazia, e o vazio (a régua nem
+        # registrou o cadastro no mês, ou coluna não publicada) não vira 0.
         # Pelo 1º dia medido, como os episódios pela data de início: o cadastro que aparece no meio do mês entra no fim
         # e não empurra as linhas de baixo (a API guarda histórico por row_number)
         cs = sorted(p.get("cobertura") or [],

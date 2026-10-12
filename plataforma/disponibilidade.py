@@ -312,13 +312,18 @@ def consolidar_os(folio, tasks, agora):
         return o
     o["aberta"] = any(s in (0, 1, 5, 6) for s in sts)
 
-    ok_dt = lambda d: d and d.year == agora.year and d <= agora
     inis = [dt_frac(t.get("event_date") or t.get("date_maintenance")) for t in tasks]
     inis = [d for d in inis if d and agora.year - 1 <= d.year <= agora.year]
+    ini = min(inis) if inis else None
+    # fim no ano de agora OU, na OS cujo evento é do ano anterior, nele também (revisão adversarial de 11/10/2026). Só o
+    # ano de agora valia, e o índice do Gerencial é refeito com o relógio de agora: de 01/01 em diante, toda OS
+    # concluída em dezembro virava "OS concluída sem data final válida" e o dezembro (no Gerencial e na aba
+    # disponibilidade_dia do workbook de falhas) saía 100% em todos os dias. O fim num ano ANTES do evento continua fora
+    # — a digitação 2025 da fase RDO — e aí vale o wo_final_date, como antes; no futuro, também fora
+    ok_dt = lambda d: d and d <= agora and (d.year == agora.year or (ini is not None and d.year >= ini.year))
     # fim = max(final_date); wo_final_date SÓ sem final_date nenhum (carimbo administrativo)
     fins1 = [d for d in (dt_frac(t.get("final_date")) for t in tasks) if ok_dt(d)]
     fins2 = [d for d in (dt_frac(t.get("wo_final_date")) for t in tasks) if ok_dt(d)]
-    ini = min(inis) if inis else None
     fim = max(fins1) if fins1 else (max(fins2) if fins2 else None)
     if not fins1 and fins2:
         o["flags"].append("sem final_date → usei wo_final_date (carimbo da WO; pode ser tardio)")

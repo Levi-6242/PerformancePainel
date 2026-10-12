@@ -42,10 +42,11 @@ def registro(*dias, vivas=24, usina="Inhapi", pid=PID, fonte="pv"):
                                            "vivas": {"Inversor 3.3": vivas} if vivas else {}}}} for d in dias}
 
 
-def monta(trk_store, mortas=None, geracao=None, fim="2026-09-03", agora=datetime(2026, 9, 30, 12, 0), desc=None):
-    return falhas_job.montar(app, sol, "2026-09-01", fim, geracao=geracao or {}, str_store={}, trk_store=trk_store,
+def monta(trk_store, mortas=None, geracao=None, fim="2026-09-03", agora=datetime(2026, 9, 30, 12, 0), desc=None,
+          pv_dev=None, antes=None, ini="2026-09-01"):
+    return falhas_job.montar(app, sol, ini, fim, geracao=geracao or {}, str_store={}, trk_store=trk_store,
                              book={}, hist_2c=lambda dia: {}, mortas_curva=mortas or {}, log=lambda m: None,
-                             agora=agora, desconsideradas=desc)
+                             agora=agora, desconsideradas=desc, pv_dev=pv_dev, abertos_antes=antes)
 
 
 def test_tracker_parado_com_a_usina_lendo_strings_conta_os_dias_em_que_ela_comunicou():
@@ -104,6 +105,37 @@ def test_mes_fechado_nao_tem_dia_sem_prova():
     assert (r["dias_comunicou"], r["dias_sem_prova"]) == (0, 0)
 
 
+def test_dia_que_a_geracao_ainda_nao_cobre_fica_sem_prova_mesmo_ja_passado():
+    # revisão adversarial de 11/10/2026: às 00:05 a geração em uso é a que a Disponibilidade buscou às 23:50 — cortada no
+    # D-1 do relógio DELA, vai só até anteontem. Pelo relógio, ontem já tinha "fechado": a usina sem string lida (Céu
+    # Azul e Ceilândia 1 não têm leitura de string em outubro) saía com 0 dia de comunicação E 0 sem prova, o dia sumia
+    # do trackers_dia e o 5080 tirava o tracker do card — toda noite, até a 1ª volta da Disponibilidade depois da
+    # meia-noite (até 3 h com a varredura do Fracttal falhando). Fechado é o dia que a geração JÁ cobre
+    u = app._macro_usina_nome("Inhapi") or "Inhapi"
+    sem_strings = registro("01", "02", vivas=None)
+    as_23_50 = {u: {"kwp": 1000.0, "dias": {"2026-09-01": 4500.0}}}
+    p = monta(trk(d02=("parado", 35.0)), mortas=sem_strings, geracao=as_23_50, fim="2026-09-03",
+              agora=datetime(2026, 9, 3, 0, 5))
+    (r,) = p["trackers"]["rows"]
+    assert (r["dias_comunicou"], r["dias_sem_prova"]) == (0, 1)
+    assert _td(p) == [("2026-09-02", "pv", PID, "TRK1", 1, "sem prova")]
+    # a geração do dia chega (a volta da Disponibilidade depois da meia-noite): o dia ganha o veredito
+    com_o_dia = {u: {"kwp": 1000.0, "dias": {"2026-09-01": 4500.0, "2026-09-02": 4400.0}}}
+    p = monta(trk(d02=("parado", 35.0)), mortas=sem_strings, geracao=com_o_dia, fim="2026-09-03",
+              agora=datetime(2026, 9, 3, 0, 35))
+    (r,) = p["trackers"]["rows"]
+    assert (r["dias_comunicou"], r["dias_sem_prova"]) == (1, 0)
+    assert _td(p) == [("2026-09-02", "pv", PID, "TRK1", 1, "sim")]
+    # a geração já cobre o dia (outra usina gerou nele) e esta não gerou: não comunicou, e a ocorrência é ignorada
+    parada = {u: {"kwp": 1000.0, "dias": {"2026-09-01": 4500.0, "2026-09-02": 0.0}},
+              "Matão 2": {"kwp": 1000.0, "dias": {"2026-09-01": 4000.0, "2026-09-02": 4100.0}}}
+    p = monta(trk(d02=("parado", 35.0)), mortas=sem_strings, geracao=parada, fim="2026-09-03",
+              agora=datetime(2026, 9, 3, 0, 35))
+    (r,) = p["trackers"]["rows"]
+    assert (r["dias_comunicou"], r["dias_sem_prova"]) == (0, 0)
+    assert _td(p) == []
+
+
 def test_cobertura_diz_quem_foi_medido_no_mes_mesmo_sem_falha():
     p = monta(trk(d01=("normal", None), d02=("parado", 35.0)), mortas=registro("01", "02", "03"))
     (c,) = [x for x in p["cobertura"] if x["plant_id"] == PID]
@@ -140,6 +172,149 @@ def test_a_2c_le_a_curva_pela_api_pv_e_ela_tambem_prova_a_comunicacao_e_a_cobert
     (c,) = p["cobertura"]
     assert (c["fonte"], c["plant_id"], c["dias_strings"], c["dias_trackers"], c["dias_comunicou"]) == \
         ("owen", "TUP", 1, 1, 1)
+
+
+# ══ a fonte do tracker pelo cadastro, não pelo tamanho do id (revisão adversarial de 11/10/2026) ═══════════════════════
+# O registro de trackers (trk_eventos.json) é um store só das quatro fontes, chaveado pelo plant_id, e não dizia de qual
+# fonte cada usina era: a montagem chutava pelo tamanho do id (até 5 dígitos = Banco). A API PV tem cadastro de 5
+# dígitos — no PC (01 a 11/10), 29: Indaiatuba 1 a 4 (21480–21483), Embu Guaçu, Nova Londrina, Altair, Ceilândia II e 1,
+# Céu Azul, Tanabi, Mandaguaçu e Canarana — e eles saíam "Thopen · Banco" nos trackers; a cobertura de outubro tinha 32
+# plant_ids em duas linhas, cada uma com um 0 falso. O Banco vai de 1 a 34.
+INDAIATUBA_1 = "21480"     # Indaiatuba 1 na API PV (está no falhas_pv_dev.json do PC)
+
+
+def trk_de(pid, nome, *dias, fonte=None, status="parado"):
+    """O registro de trackers de um cadastro, um tracker parado nos dias de setembro dados; `fonte` = o campo que os
+    gravadores do app passam a escrever em 11/10/2026 (None = registro de antes)."""
+    out = {}
+    for d in dias:
+        e = {"nome": nome, "cobertura": 1.0, "classes": {"TRK1": {"status": status}},
+             "eventos": [{"tracker": "TRK1", "parada": "08:00", "retorno": None, "desvio": 35.0}]
+             if status == "parado" else []}
+        if fonte:
+            e["fonte"] = fonte
+        out[f"2026-09-{d}"] = {pid: e}
+    return out
+
+
+def test_cadastro_da_api_pv_de_5_digitos_e_api_pv_nos_trackers_e_numa_linha_so_da_cobertura():
+    # o caso medido: Indaiatuba 1 em outubro saía ('Thopen · Banco', 21480) com 0 dia de strings e 3 de trackers e
+    # ('Thopen · API PV', 21480) com 10 e 0 — o Banco nem tem esse cadastro
+    p = monta(trk_de(INDAIATUBA_1, "Indaiatuba 1 (131)", "01", "02"),
+              mortas=registro("01", "02", "03", usina="Indaiatuba 1", pid=INDAIATUBA_1))
+    (r,) = p["trackers"]["rows"]
+    assert r["fonte"] == "pv"
+    assert [(x["fonte"], x["plant_id"]) for x in p["trackers_dia"]] == [("pv", INDAIATUBA_1)] * 2
+    (c,) = [x for x in p["cobertura"] if x["plant_id"] == INDAIATUBA_1]
+    assert (c["fonte"], c["dias_strings"], c["dias_trackers"]) == ("pv", 3, 2)
+
+
+def test_a_fonte_vem_do_de_para_da_api_pv_ou_da_que_o_registro_gravou():
+    # sem leitura de string nenhuma: o de-para da API PV (plant_devices) diz que o 21480 é dela
+    p = monta(trk_de(INDAIATUBA_1, "Indaiatuba 1 (131)", "01"), pv_dev={INDAIATUBA_1: {"usina": "Indaiatuba 1"}})
+    assert p["trackers"]["rows"][0]["fonte"] == "pv"
+    # sem de-para e sem string: o registro de trackers grava a fonte desde 11/10/2026 (os gravadores do app)
+    p = monta(trk_de("60006", "Céu Azul I (102)", "01", fonte="pv"))
+    assert p["trackers"]["rows"][0]["fonte"] == "pv"
+    # o Banco segue Banco: Guaratinguetá V é o 26 do Banco, e o registro de strings o lê em "pg"
+    p = monta(trk_de("26", "Guaratinguetá V", "01"), mortas=registro("01", usina="Guaratinguetá V", pid="26", fonte="pg"))
+    assert p["trackers"]["rows"][0]["fonte"] == "pg"
+    (c,) = [x for x in p["cobertura"] if x["plant_id"] == "26"]
+    assert c["fonte"] == "pg"
+    # e sem prova nenhuma vale o tamanho do id, como antes
+    assert monta(trk_de("21999", "Sem Cadastro", "01"))["trackers"]["rows"][0]["fonte"] == "pg"
+
+
+def test_a_chave_da_ocorrencia_continua_a_de_antes_e_a_desconsiderada_segue_fora():
+    # a chave é o que o analista desconsidera (falhas_desconsideradas.json) e o que a tela devolve: o 21480 entrou nela
+    # como "pg|21480|...". Mudar a chave junto com a fonte devolveria à aba as ocorrências que ele já tirou
+    desc = {"trackers": {falhas_job.chave_trk("pg", INDAIATUBA_1, "TRK1", "2026-09-01")}}
+    p = monta(trk_de(INDAIATUBA_1, "Indaiatuba 1 (131)", "01"), desc=desc,
+              mortas=registro("01", usina="Indaiatuba 1", pid=INDAIATUBA_1))
+    assert p["trackers"]["rows"] == [] and p["trackers_dia"] == []
+    (d,) = p["trackers"]["desconsideradas"]
+    assert (d["chave"], d["fonte"]) == (falhas_job.chave_trk("pg", INDAIATUBA_1, "TRK1", "2026-09-01"), "pv")
+
+
+def test_o_parado_que_vem_do_mes_anterior_montado_com_a_fonte_antiga_leva_o_desde():
+    # setembro foi montado com o 21480 como Banco e não é remontado: o "desde" de outubro casa pelo plant_id e o tracker
+    antes = {"strings": {}, "trackers": {("pg", INDAIATUBA_1, "TRK1"): "2026-09-25 14:00"}}
+    t = {"2026-10-01": {INDAIATUBA_1: {"nome": "Indaiatuba 1 (131)", "cobertura": 1.0,
+                                       "classes": {"TRK1": {"status": "parado"}},
+                                       "eventos": [{"tracker": "TRK1", "parada": "06:30", "retorno": None,
+                                                    "desvio": 35.0}]}}}
+    p = monta(t, ini="2026-10-01", fim="2026-10-01", agora=datetime(2026, 10, 1, 12, 0), antes=antes,
+              pv_dev={INDAIATUBA_1: {"usina": "Indaiatuba 1"}})
+    (r,) = p["trackers"]["rows"]
+    assert (r["fonte"], r["desde"]) == ("pv", "2026-09-25 14:00")
+
+
+def test_string_box_e_a_mesma_usina_da_api_pv_e_a_cobertura_e_uma_linha():
+    # Brodowski 297378: strings pela String Box (pvsb — a mesma usina da API PV, guardada em outra chave só para um
+    # registro não apagar o outro) e trackers pela API PV. Eram duas linhas: (pvsb, 11 de strings, 0 de trackers) e
+    # (pv, 0, 11) — os dois zeros sem medição nenhuma
+    m = registro("01", "02", "03", usina="Brodowski", pid="297378", fonte="pvsb")
+    m["2026-09-02"]["pv"] = {"297378": {"usina": "Brodowski", "ts": 0, "mortas": [], "vivas": {"Inversor 1.1": 20}}}
+    p = monta(trk_de("297378", "Brodowski", "01", "02"), mortas=m)
+    (c,) = [x for x in p["cobertura"] if x["plant_id"] == "297378"]
+    assert (c["fonte"], c["dias_strings"], c["dias_trackers"]) == ("pv", 3, 2)
+
+
+def test_regua_que_nao_registrou_o_cadastro_no_mes_e_vazio_e_nao_zero():
+    # 0 na cobertura é "olhou e não houve leitura". A usina que a régua de trackers nem registrou no mês (sem tracker
+    # monitorado) tem os trackers NÃO MEDIDOS — vazio; a que a régua de strings registra sem produção (Céu Azul e
+    # Ceilândia 1: o registro passa por elas com vivas e mortas vazias) tem 0 de verdade
+    so_strings = monta({}, mortas=registro("01", "02"))
+    (c,) = so_strings["cobertura"]
+    assert (c["dias_strings"], c["dias_trackers"]) == (2, None)
+    so_trackers = monta(trk_de("60006", "Céu Azul I (102)", "01", "02", fonte="pv"))
+    (c,) = so_trackers["cobertura"]
+    assert (c["fonte"], c["dias_strings"], c["dias_trackers"]) == ("pv", None, 2)
+    sem_producao = monta(trk_de("60006", "Céu Azul I (102)", "01", "02", fonte="pv"),
+                         mortas=registro("01", "02", usina="Céu Azul I", pid="60006", vivas=None))
+    (c,) = sem_producao["cobertura"]
+    assert (c["fonte"], c["dias_strings"], c["dias_trackers"]) == ("pv", 0, 2)
+    # o tracker lido sem classificar (cobertura < 0,5) também foi olhado: 0, não vazio
+    lido = {"2026-09-01": {"60006": {"nome": "Céu Azul I (102)", "cobertura": 0.3, "classes": None, "eventos": [],
+                                      "fonte": "pv"}}}
+    p = monta(lido, mortas=registro("01", usina="Céu Azul I", pid="60006"))
+    (c,) = p["cobertura"]
+    assert (c["dias_strings"], c["dias_trackers"]) == (1, 0)
+
+
+def test_os_quatro_gravadores_do_registro_de_trackers_dizem_a_fonte(monkeypatch):
+    # "o registro de trackers passar a gravar a fonte" (revisão de 11/10): o store é um só para as quatro fontes e o
+    # plant_id sozinho não diz de quem é
+    dia = "2026-09-29"
+    store = {}
+    monkeypatch.setattr(app, "_trk_eventos", store)
+    monkeypatch.setattr(app, "_trk_ev_save", lambda: None)
+    monkeypatch.setattr(app, "_trk_eventos_do_dia", lambda *a, **k: {"eventos": [], "classes": {}, "cobertura": 1.0})
+    # Banco da Thopen
+    monkeypatch.setattr(app, "_pg_curve_for", lambda *a, **k: {})
+    monkeypatch.setattr(app, "_pg_ev_cache", {})
+    app._pg_eventos_calc(dia, ov_rows=[{"plant_id": 26, "usina": "Guaratinguetá V"}])
+    # 2C
+    monkeypatch.setattr(app, "_2c_codigos", lambda: ["TUP"])
+    monkeypatch.setattr(app, "_owen_curve_for", lambda *a, **k: {})
+    monkeypatch.setattr(app, "_owen_ev_cache", {})
+    app._owen_eventos_calc(dia)
+    # Athon e Axis (SunOp)
+    monkeypatch.setattr(app, "ensure_sunop_meta", lambda inst="gridco": None)
+    monkeypatch.setattr(app, "_sunop_meta_monitorada", lambda inst="gridco": {
+        ("MAB100" if inst == "gridco" else "AXS100"): {"trackers": {"TRK_1": {}}}})
+    monkeypatch.setattr(app, "_sunop_trk_curvas_varias", lambda *a, **k: None)
+    monkeypatch.setattr(app, "_sunop_curve_for", lambda *a, **k: {})
+    monkeypatch.setattr(app, "_sunop_ev_cache", {"gridco": {}, "axis": {}})
+    app._sunop_eventos_calc("gridco", dia)
+    app._sunop_eventos_calc("axis", dia)
+    # API PV
+    monkeypatch.setattr(app, "_swr", lambda *a, **k: {})
+    monkeypatch.setattr(app, "_pv_trk_itens", lambda: [("18748739", {"payload": {"total": 3, "usina": "Inhapi"}})])
+    monkeypatch.setattr(app, "_trk_ev_prog", {"running": False})
+    app._trk_ev_backfill(dia, dia)
+    assert {pid: e.get("fonte") for pid, e in store[dia].items()} == {
+        "26": "pg", "TUP": "owen", "MAB100": "sunop", "AXS100": "axis", "18748739": "pv"}
 
 
 # ══ trackers_dia: a ocorrência de tracker por usina e dia (análise de performance, 08/10: "esperam algo sobre dias") ══

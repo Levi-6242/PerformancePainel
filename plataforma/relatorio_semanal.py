@@ -438,7 +438,13 @@ def trackers_pararam(por_unidade, ini, fim):
     for nome, eps in (por_unidade or {}).items():
         ks, sg = set(), set()
         for e in eps or []:
-            k = (e.get("fonte"), str(e.get("plant_id") or nome), str(e.get("tracker")))
+            # com o plant_id, distinto por ele e o tracker, sem a fonte (revisão adversarial de 11/10/2026): o id não se
+            # repete entre as fontes (o registro de trackers é um store só, chaveado por ele), e a semana da virada
+            # junta o mês montado antes da fonte pelo cadastro (setembro: o 21480 da API PV como Banco) com o de depois
+            # — pela fonte, o mesmo tracker contaria duas vezes. Sem o plant_id (pacote antigo), a fonte e o nome
+            pid = e.get("plant_id")
+            k = ((str(pid), str(e.get("tracker"))) if pid not in (None, "")
+                 else (e.get("fonte"), nome, str(e.get("tracker"))))
             ks.add(k)
             d0, d1 = _data(e.get("desde") or e.get("inicio")), _data(e.get("fim"))
             if d0 is not None and d0 < ini:

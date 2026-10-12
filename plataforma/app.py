@@ -9389,7 +9389,8 @@ def _sunop_eventos_calc(inst, date_iso):
                     "nome": un, "ts": time.time(),
                     "cobertura": res.get("cobertura", 0), "eventos": res["eventos"],
                     "classes": res.get("classes"), "regua": REGUA_VER,
-                    "sem_comunicacao": res.get("sem_comunicacao")}        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
+                    "sem_comunicacao": res.get("sem_comunicacao"),        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
+                    "fonte": "axis" if inst == "axis" else "sunop"}       # o store é de todas as fontes (ver _TRK_EV_PATH)
         rws = [{"data_iso": date_iso, "data": f"{dd[2]}/{dd[1]}", "usina": un, "tracker": ev["tracker"],
                 "inversor": "", "parada": ev["parada"], "retorno": ev.get("retorno"), "dur_min": ev.get("dur_min"),
                 "desvio": ev.get("desvio")}
@@ -12849,7 +12850,11 @@ TRK_EV_STOW_TOL     = 10.0           # ° — tolerância (-65° a -45° conta c
 TRK_EV_STOW_INI     = 7 * 60 + 30    # 07:30 — janela onde o stow é esperado
 TRK_EV_STOW_FIM_MAX = 10 * 60 + 30   # 10:30 — limite p/ o tracker sair do stow sem virar ocorrência
 _TRK_EV_PATH = _p_dado("trk_eventos.json")   # historico multi-dia de eventos de tracker
-_trk_eventos = {}      # {data_iso: {str(pid): {"nome","ts","cobertura","eventos":[...]}}}
+# O store é UM para as quatro fontes (API PV, Banco, Athon/Axis, 2C), chaveado só pelo plant_id. Desde 11/10/2026 cada
+# gravador escreve também a `fonte` ("pv", "pg", "sunop"/"axis", "owen"): sem ela, a aba de falhas tirava a fonte do
+# tamanho do id (até 5 dígitos = Banco) e a API PV de 5 dígitos — Indaiatuba 1 é o 21480 — saía como Banco no workbook
+# falhas_performance (revisão adversarial de 11/10; falhas_job.fonte_pelo_id). Registro de antes não tem o campo.
+_trk_eventos = {}      # {data_iso: {str(pid): {"nome","ts","cobertura","eventos":[...],"fonte"}}}
 _trk_eventos_lock = threading.Lock()
 _trk_ev_prog = {"running": False, "feito": 0, "total": 0, "atual": "", "fim_ts": 0.0, "erro": ""}
 
@@ -13234,7 +13239,8 @@ def _trk_ev_backfill(ini_iso, fim_iso, force=False):
                         "cobertura": res["cobertura"], "eventos": res["eventos"],
                         "disponibilidade": res.get("disponibilidade"),
                         "classes": res.get("classes"), "regua": REGUA_VER,
-                        "sem_comunicacao": res.get("sem_comunicacao")}   # classificação da curva fresca (Perdas LÊ daqui)
+                        "sem_comunicacao": res.get("sem_comunicacao"),   # classificação da curva fresca (Perdas LÊ daqui)
+                        "fonte": "pv"}                                    # ver _TRK_EV_PATH
             except Exception:
                 pass
             time.sleep(0.3)                   # throttle leve
@@ -21322,7 +21328,8 @@ def _owen_eventos_calc(date_iso):
                     "nome": un, "ts": time.time(),
                     "cobertura": res.get("cobertura", 0), "eventos": res["eventos"],
                     "classes": res.get("classes"), "regua": REGUA_VER,
-                    "sem_comunicacao": res.get("sem_comunicacao")}        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
+                    "sem_comunicacao": res.get("sem_comunicacao"),        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
+                    "fonte": "owen"}                                      # ver _TRK_EV_PATH
         if res.get("disponibilidade") is not None:
             disp[un] = res["disponibilidade"]
             disp_pid[code] = res["disponibilidade"]
@@ -21782,7 +21789,8 @@ def _pg_eventos_calc(date_iso, ov_rows=None):
                     "nome": un, "ts": time.time(),
                     "cobertura": res.get("cobertura", 0), "eventos": res["eventos"],
                     "classes": res.get("classes"), "regua": REGUA_VER,
-                    "sem_comunicacao": res.get("sem_comunicacao")}        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
+                    "sem_comunicacao": res.get("sem_comunicacao"),        # classificação da curva FRESCA (Perdas → Ocorrências lê daqui)
+                    "fonte": "pg"}                                        # ver _TRK_EV_PATH
         rws = [{"data_iso": date_iso, "data": f"{dd[2]}/{dd[1]}", "usina": un,
                 "tracker": ev["tracker"], "inversor": "",
                 "parada": ev["parada"], "retorno": ev.get("retorno"), "dur_min": ev.get("dur_min"),

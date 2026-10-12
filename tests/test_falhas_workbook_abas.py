@@ -439,3 +439,66 @@ def test_a_varredura_guarda_tudo_o_que_o_indice_das_os_de_string_le():
     # sem erro nenhum (foi o caso da criação até 11/10/2026)
     lidos = {"description", "task_note", "note", "code", "event_date", "creation_date", "id_status_work_order"}
     assert lidos <= set(app._DISP_CAMPOS_TASK)
+
+
+# ══ 4. revisão adversarial de 11/10/2026 ═══════════════════════════════════════════════════════════════════════════════
+def test_strings_os_e_uma_linha_por_os_e_inversor_e_essa_e_a_chave(monkeypatch, banco):
+    # o catálogo do Nexus declarava o fato os_string com chave (mes, os) e "1 linha = 1 OS"; a aba sai com uma linha por
+    # OS × INVERSOR (a OS 13585 da Altair tem seis tarefas, uma por inversor, e sai em seis linhas com o mesmo nº). A chave
+    # que vale é (mes, os, inversor) — e ela não repete. O catálogo do Nexus é corrigido na frente do Nexus
+    _congela(monkeypatch)
+    _disponibilidade_dublada(monkeypatch)
+    _fracttal_dublado(monkeypatch, _ordens() + [
+        _wo(9006, "Corretiva", "THPN-INP100-INVR3.3", "Recomposição de String", "2026-10-08T12:00:00+00:00",
+            evento="2026-10-08T12:00:00+00:00", status=1, task_note="Strings Ipv1 e Ipv2 sem corrente"),
+        _wo(9006, "Corretiva", "THPN-INP100-INVR3.4", "Recomposição de String", "2026-10-08T12:00:00+00:00",
+            evento="2026-10-08T12:00:00+00:00", status=1, task_note="String Ipv9 sem corrente")])
+    _volta_das_falhas_dublada(monkeypatch)
+    _grava(_setembro())                               # já publicado: a volta de 11/10 não o remonta
+    app._frac_disp_recalcular()
+    app._falhas_recalcular()
+    (conteudo,) = banco.syncs
+    _, l = _xlsx(conteudo)
+    chaves = [(o["mes"], o["os"], o["inversor"]) for o in l["strings_os"]]
+    assert len(chaves) == len(set(chaves)) == 5                          # (mes, os, inversor) não repete
+    assert sum(1 for c in chaves if c[:2] == ("2026-10", "9006")) == 2    # (mes, os) repete: não é a chave
+    assert {(o["inversor"], o["strings"], o["qtd"]) for o in l["strings_os"] if o["os"] == "9006"} == {
+        ("Inversor 3.3", "Ipv1, Ipv2", 2), ("Inversor 3.4", "Ipv9", 1)}
+
+
+def test_em_janeiro_o_dezembro_do_workbook_segue_com_as_os_concluidas_nele(monkeypatch, banco):
+    # revisão adversarial de 11/10/2026: o Gerencial refaz o índice com o relógio de agora, e o fim da OS só valia no ano
+    # de agora. Em 05/01/2027 o dezembro do índice perdia toda OS concluída em dezembro ("OS concluída sem data final
+    # válida"); o _falhas_disp_fora_da_volta leva o índice para o pacote de dezembro (não remontado depois do dia 2) e a
+    # disponibilidade_dia saía com 100% em todos os dias. Aqui o worker da Disponibilidade roda com o relógio do
+    # servidor congelado em janeiro — sem `agora` na mão, como em produção
+    jan = datetime(2027, 1, 5, 10, 0)
+
+    class _Janeiro(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return jan
+    monkeypatch.setattr(app, "datetime", _Janeiro)
+    monkeypatch.setattr(app._disp_mod, "datetime", _Janeiro)
+    monkeypatch.setattr(app, "FRACTTAL_ON", True)
+    monkeypatch.setattr(app, "_frac_disp_mem", {"mtime": 0.0, "dados": {}})
+    monkeypatch.setattr(app, "_disp_equip_linhas", lambda: EQUIP)
+    monkeypatch.setattr(app, "_disp_geracao", lambda *a, **k: {})
+    monkeypatch.setattr(app, "_log_arquivo", lambda nome, msg: None)
+    monkeypatch.setattr(app, "_DISP_GER_ULTIMA", {})
+    # religamento da Alfa em 15/12, 12:00–15:00 de Brasília: 3 h perdidas (disp 75 no dia)
+    _fracttal_dublado(monkeypatch, [
+        _wo(9101, "Religamento", "TC-ALF100", "Religamento da Usina", "2026-12-15T15:00:00+00:00",
+            evento="2026-12-15T15:00:00+00:00", fim="2026-12-15T18:00:00+00:00", g1="TesteCo - Alfa 1 - SP")])
+    _grava(_base("2026-12", "2027-01-02 23:50", "2026-12-01", "2026-12-31"))     # montado pela última vez em 02/01
+
+    app._frac_disp_recalcular()
+    assert sorted(app._frac_disp_dados()["meses"]) == ["2026-12", "2027-01"]
+    assert app._falhas_disp_fora_da_volta(["2027-01"]) == ["2026-12"]        # a volta de 05/01 só remonta janeiro
+    app._falhas_publicar_workbook(["2026-12"])
+    (conteudo,) = banco.syncs
+    _, l = _xlsx(conteudo)
+    dez = {d["dia"]: (d["disp"], d["h_perdidas"]) for d in l["disponibilidade_dia"]}
+    assert len(dez) == 31
+    assert dez["2026-12-15"] == (75.0, 3.0)
+    assert dez["2026-12-14"] == (100.0, 0) and dez["2026-12-16"] == (100.0, 0)
