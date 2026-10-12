@@ -705,7 +705,7 @@ Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o
   usina, como liga ao cadastro (ponte pelo id, do código ou da tela, com o nome que a API escreve; apelido no código; pelo
   nome), as esperadas DO CADASTRO, inversores fonte × cadastro e de onde vem o nome de cada inversor. **Crítico** = SEM
   DE-PARA (a linha não tem esperadas E o nome dela não alcança usina nenhuma do cadastro — `_dp_chaves_da_linha`: apelido,
-  chave exata ou nome de exibição; vem com a **sugestão pelo nome**, `depara.parecidas`) ou sem esperadas no cadastro
+  chave exata ou nome de exibição; só nas contas da API PV, na Athon e na Axis, onde a ligação é esta — o scadaGridco liga pelo `_sg_cadastro`, e no servidor sem o token dele as 7 da GreenYellow e da Sal Energia viravam falsas; vem com a **sugestão pelo nome**, `depara.parecidas`) ou sem esperadas no cadastro
   (string morta não acusa; com a régua por inversor vigiando, atenção); **atenção** = inversores ≠ cadastro, ou nome pela
   ORDEM (= inversor sem de-para); **informação** = provisório (`PV_INV_PROVISORIOS`, some quando a tela decide a usina).
   Lê as tabelas de strings já montadas (nenhum pedido às fontes); fonte que a máquina não leu aparece "não lida". Caso que

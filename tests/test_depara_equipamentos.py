@@ -455,6 +455,9 @@ def _tabelas_do_dia(monkeypatch):
                                                                     {"id": 31, "nome": "Sete Lagoa"}]})
     for c in ("_2capi_cache", "_semp_cache", "_alveslima_cache", "_se_cache"):
         monkeypatch.setattr(app, c, {})
+    # o servidor sem o token do scadaGridco: a linha vem sem leitura, e o nome não casa letra a letra com o cadastro
+    monkeypatch.setattr(app, "_SG_CACHE", {"greenyellow": {"payload": {"rows": [
+        {"plant_id": "dermeval_lobao", "usina": "Demerval Lobao", "str_esp": None, "sem_dados": True}]}}})
 
 
 def test_a_rota_diz_sem_de_para_com_a_sugestao_e_o_editor_esconde_o_que_ja_liga(cli, ligado, monkeypatch):
@@ -465,6 +468,8 @@ def test_a_rota_diz_sem_de_para_com_a_sugestao_e_o_editor_esconde_o_que_ja_liga(
     assert it["sem_depara"] == "usina" and it["liga"] == "sem de-para" and it["edita_usina"]
     assert it["sugestao"][0]["chave"] == "Itaja 1 (551)" and it["sugestao"][0]["ligada_a"] == []
     assert d["contagem"]["sem_depara_usina"] == 1
+    gy = next(f for f in d["fontes"] if f["id"] == "greenyellow")["usinas"][0]               # liga pelo _sg_cadastro
+    assert gy["sem_depara"] is None and gy["pior"] == "info" and "sem leitura" in gy["alertas"][0]["texto"]
     ed = cli.get("/api/admin/de-para/usina?fonte=pv&id=18749574").get_json()
     assert ed["sem_depara"] and ed["sugestao"][0]["chave"] == "Itaja 1 (551)"
     cad = {u["chave"]: u["ligada_a"] for u in ed["cadastro_usinas"]}

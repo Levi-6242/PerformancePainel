@@ -1844,13 +1844,18 @@ def api_depara():
                                for f in _sg.FONTES for c in _sg.usinas(f)
                                if c.get("descoberta") and c.get("inversores") and c["id"] not in ctx["revistas"]})
     # SEM DE-PARA = a linha não tem esperadas E o nome dela não alcança usina nenhuma do cadastro. Só reclassifica o
-    # "sem esperadas" que já era crítico: linha com esperadas veio do cadastro, então liga, por qualquer caminho.
+    # "sem esperadas" que já era crítico: linha com esperadas veio do cadastro, então liga, por qualquer caminho. E só
+    # nas fontes em que o caminho da ligação é este (o nome por dentro da API PV; o nome da Athon e da Axis): o
+    # scadaGridco liga pelo `_sg_cadastro` e o banco e a RenoGrid pelo id — no servidor sem o token do scadaGridco
+    # (12/10/2026) as 7 da GreenYellow e da Sal Energia, sem leitura, viravam "sem de-para" falsas.
     tabelas = _depara_tabelas()
     ix, apel = _dp_indice_cadastro(), _dp_aliases()
     por_id = {p.get("id"): p for p in (_plants_cache.get("data") or [])}
     cadastro = None
     ctx["fora"], ctx["sugestoes"] = set(), {}
     for f, rows in tabelas.items():
+        if f not in _DP_API_PV + _dp.FONTES_APELIDO:
+            continue
         for r in rows:
             esp = r.get("str_esp_cadastro") if "str_esp_cadastro" in r else r.get("str_esp")
             if esp or r.get("plant_id") is None or _dp_chaves_da_linha(f, r, ix, apel, por_id):
