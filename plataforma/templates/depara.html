@@ -45,6 +45,7 @@
   .filtros{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 16px}
   .filtros input[type=search],.filtros select{background:var(--card);color:var(--txt);border:1px solid var(--linha2);
     border-radius:8px;padding:8px 11px;font:inherit;min-width:240px}
+  .filtros input[type=search]{min-width:320px}
   .seg{display:inline-flex;background:var(--card);border:1px solid var(--linha2);border-radius:8px;padding:2px}
   .seg button{border:0;background:transparent;color:var(--txt2);padding:6px 14px;border-radius:6px}
   .seg button[aria-pressed=true]{background:var(--card3);color:var(--txt);font-weight:600}
@@ -126,6 +127,12 @@
   .op:hover:not(:disabled){border-color:var(--linha);color:var(--txt2)}
   .op:hover:not(:disabled) .n1{color:var(--verde-txt)}
   .acoes{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:12px}
+  .acoes.fixa{position:sticky;bottom:-18px;background:var(--card);padding:12px 0 14px;margin-bottom:-4px;
+    border-top:1px solid var(--linha);z-index:2}
+  /* só a usina (a conta principal da API PV, as fontes por nome): a escolha à direita, o estado e os botões à esquerda */
+  .larga .lado{display:grid;grid-template-columns:minmax(0,4fr) minmax(0,6fr);gap:18px;align-items:start}
+  .larga .plista{max-height:58vh}
+  @media (max-width:900px){ .larga .lado{grid-template-columns:1fr} }
   .dlg select{background:var(--card2);color:var(--txt);border:1px solid var(--linha2);border-radius:8px;padding:6px 9px;
     font:inherit;width:100%;min-width:200px}
   .dlg select.falta{border-color:var(--ambar);color:var(--ambar)}
@@ -319,7 +326,7 @@
   }
   function semDepara(x){ return x.origem === 'ordem' || !x.nome; }
 
-  function secUsina(pode){
+  function secUsina(pode, so){
     var p = ED.ponte || {}, quem = ED.por_nome ? 'a fonte' : 'a API', est, h;
     if(ED.sem_depara){
       est = '<div class="estado critico"><b>Sem de-para.</b> ' + esc(quem.charAt(0).toUpperCase() + quem.slice(1)) + ' escreve “' + esc(ED.nome_api || '—') +
@@ -333,28 +340,31 @@
       else hoje = 'pelo nome que ' + quem + ' escreve (o cadastro tem “' + (ED.nome_interno || ED.nome_api || '') + '”)';
       est = '<div class="estado ok"><b>Ligada</b> ' + esc(hoje) + '.' + (ED.nome_api && ED.nome_api !== ED.nome_interno && !ED.por_nome ? ' <span class="nota">A API escreve “' + esc(ED.nome_api) + '”.</span>' : '') + '</div>';
     }
-    h = '<section class="sec" aria-labelledby="secU"><h3 id="secU">Usina no cadastro</h3>' + est;
-    if(!ED.edita_usina) return h + '<p class="nota">Liga pelo nome que a fonte manda, e o cadastro tem esse nome: nada a decidir aqui.</p></section>';
+    var notaInv = so && ED.nota_inversor ? '<p class="nota">Inversores: ' + esc(ED.nota_inversor.charAt(0).toLowerCase() + ED.nota_inversor.slice(1)) + '</p>' : '';
+    h = '<section class="sec' + (so ? ' larga' : '') + '" aria-labelledby="secU"><h3 id="secU">Usina no cadastro</h3>';
+    if(!ED.edita_usina) return h + est + '<p class="nota">Liga pelo nome que a fonte manda, e o cadastro tem esse nome: nada a decidir aqui.</p>' + notaInv + '</section>';
+    var esq = est;
     if(ED.sugestao && ED.sugestao.length){
       var s = ED.sugestao[0];
-      h += '<div class="sugbox"><div class="t">Sugestão pelo nome</div><div><b>' + esc(s.nome) + '</b>' + (s.nome !== s.chave ? ' <span class="chave">' + esc(s.chave) + '</span>' : '') + '</div>' +
+      esq += '<div class="sugbox"><div class="t">Sugestão pelo nome</div><div><b>' + esc(s.nome) + '</b>' + (s.nome !== s.chave ? ' <span class="chave">' + esc(s.chave) + '</span>' : '') + '</div>' +
         (s.confere ? '<span class="aviso">' + esc(s.confere) + '</span>' : '') +
         (s.ligada_a && s.ligada_a.length ? '<span class="aviso">já ligada a ' + esc(s.ligada_a.join(', ')) + '</span>' : '') +
         '<div class="acoes" style="margin-top:8px"><button type="button" class="peq" id="uUsarSug">Escolher a sugestão</button></div></div>';
     }
     var ligadas = ED.cadastro_usinas.filter(function(u){ return u.ligada_a && u.ligada_a.length; }).length;
-    h += '<div class="pbar"><input type="search" id="uBusca" placeholder="Procurar usina do cadastro" aria-label="Procurar usina do cadastro">' +
+    var lista = '<div class="pbar"><input type="search" id="uBusca" placeholder="Procurar usina do cadastro" aria-label="Procurar usina do cadastro">' +
       '<label><input type="checkbox" id="uTodas"> Mostrar também as já ligadas (' + ligadas + ')</label></div>' +
-      '<div class="plista" id="uLista" aria-label="Usinas do cadastro"></div>' +
-      '<div class="acoes"><button type="button" class="prim" id="uSalvar"' + (pode ? '' : ' disabled') + '>Salvar a ligação</button>' +
+      '<div class="plista" id="uLista" aria-label="Usinas do cadastro"></div>';
+    var acoes = '<div class="acoes' + (so ? '' : ' fixa') + '"><button type="button" class="prim" id="uSalvar"' + (pode ? '' : ' disabled') + '>Salvar a ligação</button>' +
       (p.tela || (p.tela !== '' && p.codigo) ? '<button type="button" id="uSemPonte"' + (pode ? '' : ' disabled') + '>' + (ED.por_nome ? 'Desfazer o apelido' : 'Usar o nome da API (sem ponte)') + '</button>' : '') + '</div>' +
       '<p class="nota">Ligar troca o nome desta usina em toda a plataforma (esperadas, nomes dos inversores, Full O&amp;M). ' +
-      (ED.por_nome ? 'Vale na próxima montagem da tabela da fonte, em poucos minutos.' : 'Vale na próxima leitura da lista de usinas, em até 5 min.') + '</p></section>';
-    return h;
+      (ED.por_nome ? 'Vale na próxima montagem da tabela da fonte, em poucos minutos.' : 'Vale na próxima leitura da lista de usinas, em até 5 min.') + '</p>';
+    if(so) return h + '<div class="lado"><div>' + esq + acoes + notaInv + '</div><div>' + lista + '</div></div></section>';
+    return h + esq + lista + acoes + '</section>';
   }
   function secInversores(pode){
     var falta = ED.inversores.filter(semDepara).length, h = '<section class="sec" aria-labelledby="secI"><h3 id="secI">Inversores</h3>';
-    h += falta ? '<div class="estado atencao"><b>' + falta + ' de ' + ED.inversores.length + ' sem de-para.</b> O nome deles vem da ordem dos ids e pode trocar um inversor pelo outro: escolha o inversor do cadastro de cada um (a sugestão pelo kWh ajuda).</div>'
+    h += falta ? '<div class="estado atencao"><b>' + falta + ' de ' + ED.inversores.length + ' sem de-para.</b> O nome deles vem da ordem dos ids e pode trocar um inversor pelo outro: escolha o inversor do cadastro de cada um' + (ED.sugerir ? ' (a sugestão pelo kWh ajuda)' : '') + '.</div>'
                : '<div class="estado ok"><b>Todos os ' + ED.inversores.length + ' com de-para.</b></div>';
     if(ED.provisorio) h += '<p>' + tag('info', ED.provisorio) + '</p>';
     if(ED.fonte_hoje_erro) h += '<p class="nota">A fonte não respondeu agora (' + esc(ED.fonte_hoje_erro) + '): a lista mostra os ids do de-para.</p>';
@@ -371,7 +381,7 @@
         '<td id="sug_' + k + '"></td></tr>';
     });
     h += '</tbody></table></div>';
-    h += '<div class="acoes"><button type="button" class="prim" id="iSalvar"' + (pode ? '' : ' disabled') + '>Salvar inversores</button>' +
+    h += '<div class="acoes fixa"><button type="button" class="prim" id="iSalvar"' + (pode ? '' : ' disabled') + '>Salvar inversores</button>' +
       (ED.sugerir ? '<button type="button" id="iAplicar" disabled>Usar a sugestão</button>' : '') +
       '<button type="button" id="iConfirmar"' + (pode ? '' : ' disabled') + '>Confirmar como está</button></div>' +
       '<p class="nota">"Confirmar como está" grava os nomes de hoje como decisão da tela (tira o aviso de provisório). Vale em até 1 min.</p></section>';
@@ -382,11 +392,10 @@
     if(ED.sem_depara) $('edSub').innerHTML = esc($('edSub').textContent) + ' · ' + tag('critico', 'Sem de-para');
     if(!pode) partes.push('<div class="sec" style="grid-column:1/-1"><p class="erro-txt">Esta máquina não grava decisões (sem a chave do banco). Abra pelo servidor.</p></div>');
     var temU = ED.edita_usina || ED.sem_depara || ED.por_nome, temI = ED.edita_inversor;
-    if(temU || !temI) partes.push(secUsina(pode));
+    if(temU || !temI) partes.push(secUsina(pode, !temI));
     if(temI) partes.push(secInversores(pode));
-    if(ED.nota_inversor && !temI) partes.push('<section class="sec"><h3>Inversores</h3><p class="nota">' + esc(ED.nota_inversor) + '</p></section>');
     var c = $('edCorpo');
-    c.className = 'dcorpo' + (partes.length - (pode ? 0 : 1) >= 2 ? ' dois' : '');
+    c.className = 'dcorpo' + (temU && temI ? ' dois' : '');
     c.innerHTML = partes.join('');
     SEL = atual() || (ED.sem_depara && ED.sugestao && ED.sugestao.length && !ED.sugestao[0].confere ? ED.sugestao[0].chave : null);
     if($('uLista')){
