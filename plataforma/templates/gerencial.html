@@ -112,6 +112,12 @@ function alternaTema(){ var esc=document.documentElement.getAttribute('data-them
     <label style="font-size:11px;color:var(--muted);font-weight:600">Cliente
       <select id="fCli" onchange="mudaCli()" style="margin-left:7px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:12px;background:var(--bg-soft);color:var(--ink);min-width:130px">
         <option value="">Todos</option></select></label>
+    <!-- Responsável (12/10/2026, Levi: "Quero um filtro de responsável -> Visão gerencial"): o responsável O&M e o gestor
+         de contrato de cada usina vêm do cadastro do Nexus, pela moldura (o nome da pessoa só existe decifrado lá). Fora
+         do Nexus o seletor não aparece. -->
+    <label id="fRespLbl" hidden style="font-size:11px;color:var(--muted);font-weight:600">Responsável
+      <select id="fResp" onchange="mudaResp()" style="margin-left:7px;padding:6px 9px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:12px;background:var(--bg-soft);color:var(--ink);min-width:170px">
+        <option value="">Todos</option></select></label>
     <span id="fInfo" style="font-size:10.5px;color:var(--faint)"></span>
   </div>
   <div class="scorecard" id="scorecard"></div>
@@ -477,11 +483,25 @@ async function tgCasc(tr){
 // ── Filtros (pedidos da Ana, 16/07): mês re-busca no servidor; cliente filtra NO NAVEGADOR e
 // recalcula scorecard/energia/melhores/piores só com as usinas daquela carteira. A tabela "Por
 // cliente" fica sempre completa (ela JÁ é a visão por cliente).
-let RAW=null, fCli='';
+let RAW=null, fCli='', fResp='', RESP=null;
+// A MESMA conta do `chave` do Nexus (nexus/performance/responsaveis.py): sem acento, minúsculo, pontuação vira espaço,
+// romano vira número. Mudou lá, muda aqui.
+const _ROM={i:'1',ii:'2',iii:'3',iv:'4',v:'5',vi:'6',vii:'7',viii:'8',ix:'9',x:'10'};
+function _chaveUsina(s){
+  return String(s==null?'':s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase()
+    .replace(/[^a-z0-9]+/g,' ').trim().split(/\s+/).filter(Boolean).map(t=>_ROM[t]||t).join(' ');
+}
+// fResp = "om|Nome" (responsável O&M) ou "gestor|Nome" (gestor de contrato)
+function _respDe(u){ return (RESP&&RESP[_chaveUsina(u.usina)])||null; }
+function _passaResp(u){
+  if(!fResp) return true;
+  const r=_respDe(u), i=fResp.indexOf('|'), tipo=fResp.slice(0,i), nome=fResp.slice(i+1);
+  return !!r&&(r[tipo]||'')===nome;
+}
 // Filtra por CLIENTE (nunca por carteira: Copel/Matrix/Polaris são recortes do 5080 e são todos Thopen).
 function deriva(j){
-  if(!fCli||!j) return j;
-  const us=(j.usinas||[]).filter(u=>(u.cliente||'—')===fCli);
+  if((!fCli&&!fResp)||!j) return j;
+  const us=(j.usinas||[]).filter(u=>(!fCli||(u.cliente||'—')===fCli)&&_passaResp(u));
   const com50=us.filter(u=>u.p50);
   const sp=com50.reduce((s,u)=>s+(u.prod||0),0), s50=com50.reduce((s,u)=>s+(u.p50||0),0);
   // Recurso solar TAMBÉM é recalculado no recorte — mesma régua do _roll do backend: média
@@ -512,12 +532,42 @@ function _fillCli(j){
   const cls=[...new Set((j.usinas||[]).map(u=>u.cliente||'—'))].filter(c=>c!=='—').sort();
   sel.innerHTML='<option value="">Todos</option>'+cls.map(c=>`<option value="${c}"${c===atual?' selected':''}>${c}</option>`).join('');
 }
+function _fillResp(){
+  const sel=document.getElementById('fResp'), lbl=document.getElementById('fRespLbl');
+  if(!sel||!lbl) return;
+  if(!RESP){ lbl.hidden=true; return; }
+  const us=(RAW&&RAW.usinas)||[], conta={om:{},gestor:{}};
+  us.forEach(u=>{ const r=_respDe(u); if(!r) return;
+    ['om','gestor'].forEach(t=>{ if(r[t]) conta[t][r[t]]=(conta[t][r[t]]||0)+1; }); });
+  const grupo=(t,rot)=>{ const ns=Object.keys(conta[t]).sort((a,b)=>a.localeCompare(b,'pt-BR'));
+    return ns.length?`<optgroup label="${rot}">`+ns.map(n=>{ const v=t+'|'+n;
+      return `<option value="${_he(v)}"${v===fResp?' selected':''}>${_he(n)} (${conta[t][n]})</option>`; }).join('')+'</optgroup>':''; };
+  const sem=us.filter(u=>!_respDe(u)).length;
+  sel.innerHTML='<option value="">Todos</option>'+grupo('om','Responsável O&M')+grupo('gestor','Gestor de contrato');
+  sel.title=sem?`${sem} usina(s) sem ligação com o cadastro do Nexus (Base · Governança de dados · Ligações entre bases): ficam fora quando um responsável é escolhido.`:'';
+  lbl.hidden=false;
+}
+function _he(s){ return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function _aplica(){
   render(deriva(RAW));
   const inf=document.getElementById('fInfo');
-  if(inf) inf.textContent=fCli?`filtro: ${fCli} · ${(deriva(RAW).usinas||[]).length} usinas`:'';
+  const partes=[fCli,fResp?fResp.slice(fResp.indexOf('|')+1):''].filter(Boolean);
+  if(inf) inf.textContent=partes.length?`filtro: ${partes.join(' · ')} · ${(deriva(RAW).usinas||[]).length} usinas`:'';
 }
 window.mudaCli=()=>{ fCli=document.getElementById('fCli').value; _aplica(); };
+window.mudaResp=()=>{ fResp=document.getElementById('fResp').value; _aplica(); };
+// Dentro do Nexus, pede os responsáveis à moldura (mesma origem) e escuta a resposta: só da janela de cima e da mesma origem.
+window.addEventListener('message',ev=>{
+  if(ev.origin!==location.origin||ev.source!==window.parent) return;
+  const d=ev.data;
+  if(!d||d.tipo!=='nexus:responsaveis') return;
+  RESP=(d.mapa&&typeof d.mapa==='object')?d.mapa:null;
+  if(!RESP) fResp='';
+  _fillResp(); if(RAW) _aplica();
+});
+if(window.parent&&window.parent!==window){
+  try{ window.parent.postMessage({tipo:'nexus:pede-responsaveis'},location.origin); }catch(e){}
+}
 window.mudaMes=()=>{ const v=document.getElementById('fMes').value; if(!v) return;
   const [a,m]=v.split('-'); load(+a,+m); };
 async function load(ano,mes){
@@ -537,7 +587,7 @@ async function load(ano,mes){
     RAW=j;
     const fm=document.getElementById('fMes');
     if(fm&&RAW&&RAW.ano) fm.value=`${RAW.ano}-${String(RAW.mes_num).padStart(2,'0')}`;
-    _fillCli(RAW); _aplica();
+    _fillCli(RAW); _fillResp(); _aplica();
     // a coluna Disponibilidade segue o MESMO mês do filtro (só existe p/ corrente e anterior)
     loadDisp(RAW&&RAW.ano?`${RAW.ano}-${String(RAW.mes_num).padStart(2,'0')}`:'');
   }catch(e){

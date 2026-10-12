@@ -427,6 +427,24 @@ mesma origem; a ponte do Nexus busca no servidor e não repassa este cabeçalho;
 OS Creator é de outro endereço e não é a plataforma; o Thopen (Railway) e o App de Campo não emolduram nada daqui. No PC,
 porta diferente é OUTRA origem: a moldura só abre atrás da `ferramentas/porta_local.py` do Nexus (como no servidor).
 
+**O tema do Nexus nas telas (12/10/2026**, Levi: "em Falhas de strings e trackers falta o tema claro"). A aba de Falhas
+era sempre navy na moldura; agora o navy vale só com o Nexus no escuro (`html.modo-nexus:not([data-tema="claro"])`), e o
+claro usa as cores da identidade do site. O tema vem do cookie `nexus_tema` (ou do localStorage `nexus.tema`) antes da 1ª
+pintura, e o botão do Nexus troca a tela na hora pelo evento `storage` (chega às molduras da mesma origem). Tela nova com
+navy próprio no modo Nexus segue a mesma régua. Teste: `tests/test_falhas_tema_nexus.py`.
+
+**Os responsáveis de cada usina, pela moldura (12/10/2026**, Levi: "Quero um filtro de responsável -> Visão gerencial").
+O nome da pessoa só existe decifrado no Nexus (no banco o cadastro guarda as pessoas cifradas, e a plataforma não tem a
+chave, de propósito). A Visão gerencial, dentro da moldura, pede `postMessage({tipo: "nexus:pede-responsaveis"},
+location.origin)` à janela de cima e recebe `{tipo: "nexus:responsaveis", mapa}` — {chave do nome da usina: {"om":
+responsável O&M, "gestor": gestor de contrato}}, `null` sem o cadastro —; aceita só da `window.parent` e da mesma origem.
+A chave do nome (`_chaveUsina`) é a MESMA do `chave` do Nexus (`nexus/performance/responsaveis.py`: sem acento,
+minúsculo, pontuação vira espaço, romano vira número): mudou num lado, muda no outro no mesmo trabalho. O seletor
+"Responsável" (O&M e gestor, com quantas usinas cada um tem) só aparece com o mapa, e recorta junto com o Cliente
+(`deriva`, que refaz o portfólio no recorte). Medido em 12/10 contra o Gerencial do PC: 140 de 161 usinas casam; as 21
+sem ligação no de-para publicado ficam fora quando um responsável é escolhido (o título do seletor diz quantas). Fora do
+Nexus o seletor não aparece. Teste: `tests/test_gerencial_filtro_responsavel.py`.
+
 **O mapa** (`porta_nexus.MAPA`, spec 5.6) é a CÓPIA do mapa do Nexus (o dono): 14 telas, ids do Nexus (`tempo-real`,
 `noc`, `diagnostico`, `strings-trackers`, `gerencial`, `disponibilidade`, `relatorio`, `relatorio-semanal`, `gemeo`,
 `monitor-ronda` = "Rondas de Trackers"; COS `acompanhamento`; Base `chaves-fontes`, `fontes-tempo-real` e
