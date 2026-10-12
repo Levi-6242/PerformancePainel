@@ -124,6 +124,14 @@ token de API; o `/usage/*` não é cobrável e o dia deles é em UTC, consolidad
   hora em hora (`SUNOP_TRK_TTL_RONDA`; a ronda busca o dia inteiro com `force` na hora de sair e o dia anterior vem do
   fechamento das 01:30). Sem tabela, ETM, strings, Axis, backfill da Falhas nem a Athon na Entrada do PC — quem olha é o
   servidor. Os testes rodam em `completa` por padrão (trava no `conftest.py`): o modo vem do tokens.txt da máquina.
+- **A Athon do PC vem do servidor** (12/10/2026, Levi: "a maioria das usinas do tempo real estão sem comunicação"):
+  em modo ronda a tabela da Athon não era montada desde 29/09, e o tempo real do PC (o que o Nexus local mostra)
+  julgava as 10 usinas pela tabela de 29/09 16:10 — 7 "sem comunicação" e 3 "desligadas", com as 10 normais no
+  servidor. O worker do PC lê a tabela que o servidor já montou (`_build_sunop_espelho`, tarefa "SunOp espelho" no
+  lugar da "SunOp"; `GET /api/sunop/data` com a senha do painel, a mesma nas duas máquinas, por sessão) e a aba
+  serve com `espelho` e sem "SunOp pausada". Nenhum pedido à SunOp; falhou, o SWR segura o último espelho bom. Só a
+  Athon (a Axis está sem token nos dois). `SUNOP_ESPELHO_URL` (padrão o servidor), `SUNOP_ESPELHO=0` desliga. Teste:
+  `tests/test_sunop_espelho_servidor.py`.
 - **Curva de tracker das usinas numa baixa só** (`_sunop_trk_curvas_varias`, mesmo método das strings de 02/09:
   cheia junto em 00:00, incrementais na menor janela; regras em `_sunop_trk_janela`/`_sunop_trk_funde`), chamada antes
   do laço no resumo, na disponibilidade e nos parados: 9 POSTs viraram 3. Nova × antiga real: 80.338 pontos, diferença

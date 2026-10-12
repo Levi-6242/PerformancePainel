@@ -7581,14 +7581,67 @@ def _build_sunop_payload(inst: str = "gridco"):
 def api_sunop_data():
     inst = "axis" if flask_request.path.startswith("/api/axis/") else "gridco"
     force = flask_request.args.get("force", "0") == "1"
+    build = (lambda: _build_sunop_espelho(inst)) if _sunop_espelho_ligado(inst) else (lambda: _build_sunop_payload(inst))
     return jsonify(_com_sunop_pausa(_servir_tabela_strings(
-        _swr(_si(inst)["cache"], lambda: _build_sunop_payload(inst), force), _sem_geracao_padrao)))
+        _swr(_si(inst)["cache"], build, force), _sem_geracao_padrao)))
 
 
 def _com_sunop_pausa(d):
     """`sunop_pausa` (None, "domingo" ou "teto") na saída das abas da Athon/Axis: a tela troca o "ao vivo" do topo por
-    "SunOp pausada", que é o que explica o dado parado (04/10/2026)."""
-    return dict(d, sunop_pausa=_sunop_pausa()) if isinstance(d, dict) else d
+    "SunOp pausada", que é o que explica o dado parado (04/10/2026). A tabela que veio do servidor (espelho) não está
+    pausada: a pausa é a desta máquina, e o dado é o de lá."""
+    if not isinstance(d, dict):
+        return d
+    return dict(d, sunop_pausa=None if d.get("espelho") else _sunop_pausa())
+
+
+# ── A Athon do SERVIDOR no PC em modo ronda (12/10/2026) ───────────────────────────────────────────────────────────
+# Levi, 12/10/2026: "a maioria das usinas do tempo real estão sem comunicação, investigue e resolva". No PC
+# (`SUNOP_COLETA=ronda`, a cota da SunOp) a tabela de strings da Athon não era montada desde 29/09, e o tempo real do
+# PC — que o Nexus local mostra — julgava as 10 usinas pela tabela de 29/09/2026 16:10: 7 "sem comunicação" e 3
+# "desligadas", com as 10 lendo normalmente no servidor na mesma hora. Em vez de gastar a cota da SunOp (o PC já usa os
+# 300 por dia dele na ronda), o PC lê a tabela que o SERVIDOR já montou, pela MESMA rota da aba (`/api/sunop/data`),
+# com a senha do painel, que é a mesma nas duas máquinas (sessão, nunca impressa). Nenhum pedido à SunOp. Falhou (rede,
+# senha trocada, servidor fora): levanta, e o SWR segura o último espelho bom — nunca volta a tabela de 29/09 como se
+# fosse de agora. A Axis não entra: está sem token desde julho, nos dois. `SUNOP_ESPELHO=0` desliga numa máquina.
+SUNOP_ESPELHO_URL = (os.environ.get("SUNOP_ESPELHO_URL") or "https://app.gridco.com.br").strip().rstrip("/")
+_SUNOP_ESPELHO = {"sessao": None}
+_SUNOP_ESPELHO_LOCK = threading.Lock()
+
+
+def _sunop_espelho_ligado(inst: str = "gridco") -> bool:
+    """O PC em modo ronda lê a tabela da Athon do servidor (só a Athon; o servidor, em `completa`, monta a dele)."""
+    return (inst == "gridco" and SUNOP_COLETA == "ronda" and bool(SUNOP_ESPELHO_URL) and bool(DASH_PASSWORD)
+            and os.environ.get("SUNOP_ESPELHO", "1").strip() != "0")
+
+
+def _build_sunop_espelho(inst: str = "gridco"):
+    """A tabela de strings da Athon como o servidor a serve agora, para o PC em modo ronda. Leva `espelho` (de onde
+    veio). Sessão vencida (401) entra de novo uma vez; sem linhas, levanta (o payload vazio apagaria o último bom)."""
+    import requests as _rq
+    if inst != "gridco":
+        raise RuntimeError("o espelho do servidor é só da Athon")
+    with _SUNOP_ESPELHO_LOCK:
+        for tentativa in (1, 2):
+            sessao = _SUNOP_ESPELHO["sessao"]
+            if sessao is None:
+                sessao = _rq.Session()
+                r = sessao.post(SUNOP_ESPELHO_URL + "/login", data={"senha": DASH_PASSWORD}, allow_redirects=False,
+                                timeout=30)
+                if r.status_code not in (302, 303):
+                    raise RuntimeError(f"espelho da Athon: o servidor recusou a senha do painel (HTTP {r.status_code})")
+                _SUNOP_ESPELHO["sessao"] = sessao
+            r = sessao.get(SUNOP_ESPELHO_URL + "/api/sunop/data", timeout=60)
+            if r.status_code == 401 and tentativa == 1:
+                _SUNOP_ESPELHO["sessao"] = None
+                continue
+            if r.status_code != 200:
+                raise RuntimeError(f"espelho da Athon: o servidor respondeu HTTP {r.status_code}")
+            d = r.json()
+            if not isinstance(d, dict) or not d.get("rows"):
+                raise RuntimeError("espelho da Athon: o servidor respondeu sem linhas")
+            return dict(d, espelho=SUNOP_ESPELHO_URL)
+    raise RuntimeError("espelho da Athon: a sessão no servidor não abriu")
 
 
 # ── SunOp: drill-down inversores (SWR por usina: serve cache na hora, atualiza em fundo) ─
@@ -23940,6 +23993,8 @@ def _prewarm_loop():
             ("2C API PV ETM anál.", _2capi_etm_analise_cache, _build_2capi_etm_analise_payload),
             ("PV PR",          _pv_pr_cache,         _build_pv_pr_payload),
         ]
+        if _sunop_espelho_ligado():           # o PC em modo ronda: a tabela da Athon vem do servidor (_build_sunop_espelho)
+            outros.append(("SunOp espelho", _sunop_cache, _build_sunop_espelho))
         # "PV trackers" NÃO entra aqui desde 22/09/2026: tem laço próprio (`_pv_trk_loop`). Levava 15 min
         # e o ciclo inteiro esperava por ela — ver o porquê lá.
 
