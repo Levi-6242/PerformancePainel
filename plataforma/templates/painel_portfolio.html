@@ -210,7 +210,6 @@ details.rx-fr .in{padding:0 14px 14px}
     <button class="on" data-mode="live"><span class="pulse" style="width:7px;height:7px"></span> Tempo real</button>
     <button data-mode="hist">⟲ Histórico</button>
   </div>
-  <div class="live-pill" id="livePill"><span class="pulse"></span> AO VIVO</div>
   <button class="darkbtn" id="darkBtn" onclick="toggleDark()" data-casca>Tema: Claro</button>
   <div class="upd" id="upd">—</div>
 </div>
@@ -266,16 +265,8 @@ details.rx-fr .in{padding:0 14px 14px}
         </div>
         <div class="feed" id="feed"><div class="empty">Carregando…</div></div>
       </div>
-      <div class="card" style="margin-top:14px;">
-        <div class="chead"><div><h3>Agrupamento 🗺️</h3><div class="csub">Faixa = status das usinas · atingimento/PR no mês onde há meta</div></div>
-          <div class="filters" id="grpFilters">
-            <button class="on" data-g="carteira">Carteira</button>
-            <button data-g="regiao">Região</button>
-            <button data-g="estado">Estado</button>
-          </div></div>
-        <div class="region" id="region"></div>
-        <div class="insight" id="insight"></div>
-      </div>
+      <!-- o "AO VIVO" do topo e o card "Agrupamento" (carteira/região/estado) saíram em 13/10/2026 (Levi: "Em painel NOC tire
+           o botão de "Ao vivo" e remova o dashboard "Agrupamento"") -->
     </div>
   </div>
 </div>
@@ -455,7 +446,7 @@ async function boot(){
       document.getElementById('wall').innerHTML='<div class="empty">Falha ao carregar: '+(falha?falha.message:'sem dado')+'. Tento de novo sozinho.</div>';
       stamp(falha); return;
     }
-    if(mOk||gOk){ merge(); renderKpis(); fillWallCli(); renderWall(); renderFeed(); renderRegion(); }   // a tabela "Usinas que exigem ação" saiu daqui (Levi, 08/09): o mosaico por meta já diz isso; ela segue no Histórico
+    if(mOk||gOk){ merge(); renderKpis(); fillWallCli(); renderWall(); renderFeed(); }   // a tabela "Usinas que exigem ação" saiu daqui (Levi, 08/09): o mosaico por meta já diz isso; ela segue no Histórico
     stamp(falha);
   }catch(e){ document.getElementById('wall').innerHTML='<div class="empty">Falha ao carregar: '+e+'</div>'; }
 }
@@ -789,40 +780,6 @@ document.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{
   c.classList.add('on');curFF=c.dataset.ff;renderFeed();});
 
 /* ====== AGRUPAMENTO (carteira / região / estado) ====== */
-let curGrp='carteira';
-function _grpKey(p){
-  if(curGrp==='regiao') return p.regiao||'Sem região';
-  if(curGrp==='estado') return p.estado||'Sem estado';
-  return (p.cliente && p.cliente!=='—')?p.cliente:p.fonte;   // carteira
-}
-function renderRegion(){
-  // agrupa TODAS as fontes do painel (MAP) pelo modo escolhido. Barra = mix de status;
-  // atg/PR do gerencial (PR só casa no modo carteira). Athon/Axis/2C aparecem em todos os modos.
-  const cliPR={}; (GER&&GER.clientes||[]).forEach(c=>{cliPR[c.cliente]=c.pr;});
-  const groups={};
-  Object.values(MAP).forEach(p=>{
-    const key=_grpKey(p);
-    const g=groups[key]||(groups[key]={key,n:0,ok:0,atencao:0,critico:0,sem_comm:0,prod:0,p50:0});
-    g.n++; g[p.status]=(g[p.status]||0)+1;
-    if(p.p50){g.prod+=(p.prod||0); g.p50+=p.p50;}
-  });
-  const arr=Object.values(groups).sort((a,b)=>b.n-a.n);
-  document.getElementById('region').innerHTML=arr.map(g=>{
-    const seg=st=>g[st]?`<i style="width:${g[st]/g.n*100}%;background:${COR[st]()}"></i>`:'';
-    const bar=seg('ok')+seg('atencao')+seg('critico')+seg('sem_producao')+seg('sem_comm');
-    const atg=g.p50?g.prod/g.p50*100:null, pr=(curGrp==='carteira')?cliPR[g.key]:null;
-    const info=`${g.n} us`+(atg!=null?` · atg ${nf(atg,0)}%`:'')+(pr!=null?` · PR ${nf(pr,0)}%`:'');
-    return `<div class="rrow"><div><div class="rc">${g.key}</div><div class="rbar">${bar}</div></div><div class="rk">${info}</div></div>`;
-  }).join('')||'<div class="empty">Sem usinas.</div>';
-  const pf=(GER&&GER.portfolio)||{};
-  if(pf.indice_recurso!=null||pf.indice_desempenho!=null){
-    document.getElementById('insight').innerHTML=`⛅ Decomposição do mês: <b>recurso (clima) ${pf.indice_recurso!=null?nf(pf.indice_recurso,0)+'%':'—'}</b> vs <b>desempenho ${pf.indice_desempenho!=null?nf(pf.indice_desempenho,0)+'%':'—'}</b>. `+
-      `O índice de recurso separa o que é clima do que é falha real — priorize as quedas com bom recurso (problema na usina).`;
-  } else document.getElementById('insight').innerHTML='Barra colorida = mix de status das usinas do grupo. Alterne entre carteira, região e estado no topo.';
-}
-document.querySelectorAll('#grpFilters button').forEach(b=>b.onclick=()=>{
-  document.querySelectorAll('#grpFilters button').forEach(x=>x.classList.remove('on'));
-  b.classList.add('on');curGrp=b.dataset.g;renderRegion();});
 
 /* ====== DRAWER · RAIO-X DA USINA (06/09/2026) ======
    O que ajuda o analista a entender a usina, nesta ordem: veredito do dia (gêmeo, quando há), as três perguntas
@@ -1815,7 +1772,6 @@ document.querySelectorAll('#modeToggle button').forEach(b=>b.onclick=()=>{
   b.classList.add('on');const live=b.dataset.mode==='live';
   document.getElementById('viewLive').classList.toggle('hidden',!live);
   document.getElementById('viewHist').classList.toggle('hidden',live);
-  document.getElementById('livePill').style.visibility=live?'visible':'hidden';
   if(!live)buildHist();
 });
 

@@ -681,6 +681,13 @@ dá 503 e o Painel NOC/Gerencial não zeram com `erro`; o link "Entrar" da faixa
 o Nexus lê, igual a `location.pathname+search`) e `tests/test_porta_nexus_destino_e_avisos.py` (o "Entrar pelo Nexus"
 com destino, os avisos de B12 e o next com `%09`/`%0a`/`%0d`/`%5C` na senha, no GET com sessão e no login Microsoft).
 
+## Painel NOC (`/painel`, `templates/painel_portfolio.html`)
+
+- **Enxuto (13/10/2026)**, Levi: "Em painel NOC tire o botão de "Ao vivo" e remova o dashboard "Agrupamento"". Saíram a
+  pílula "AO VIVO" do topo (só dizia que a visão Tempo real estava ligada; o seletor Tempo real/Histórico já diz) e o card
+  "Agrupamento" (a barra de status por carteira, região e estado, com a decomposição recurso × desempenho do mês), com o
+  `renderRegion` e o seletor dele. Prova: `tests/test_painel_noc_enxuto.py`.
+
 ## Fontes do tempo real (11/10/2026)
 
 Levi: "Antes o controle do que entra e o que não entra em tempo real estava sendo do Claude, eu passava as instruções e o
