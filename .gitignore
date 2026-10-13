@@ -38,6 +38,9 @@ spv_stringbox.json
 sunop_etm_accum.json
 cache_snapshot.json
 cache_snapshot.json.tmp
+# a última leitura boa da estrutura do Nexus no lugar da aba Equipamentos (estrutura_nexus.py, 13/10/2026)
+estrutura_nexus.json
+estrutura_nexus.json.tmp
 trk_eventos.json
 trk_eventos.json.tmp
 trk_eventos.json.bak*
