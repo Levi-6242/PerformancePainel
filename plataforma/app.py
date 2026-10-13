@@ -1590,8 +1590,37 @@ def _dp_alvos(cad, extras=()) -> list:
     return out
 
 
+# Levi, 13/10/2026: "Gostaria de entender porquê demora tanto para carregar o de-para de uma usina [...] Não é aceitável
+# essa demora toda". Cada abertura do editor de uma usina da API PV fazia, na hora, o POST day_inverter (o dia inteiro de
+# leituras, para saber só QUAIS inversores mandaram dado hoje; fonte paga, até 10 s) e, com o cache frio, o plant_devices
+# (até 20 s): medido no PC, 0,8 a 4,6 s por abertura, a 2ª igual à 1ª. O ciclo do worker já faz esse day_inverter de 5 em
+# 5 min para a tabela de strings; a linha dele agora leva `inv_ids_hoje`, e o editor lê de lá.
+_DP_TABELA_VALE_S = 1800            # a tabela do ciclo vale 30 min (o worker parado não engana o editor)
+_DP_HOJE_MEMO_S = 600               # a resposta ao vivo (usina fora da tabela) vale 10 min
+_DP_HOJE_MEMO: dict = {}
+
+
+def _dp_ids_da_tabela(pid):
+    """Os ids que a API PV mandou hoje para a usina, pela tabela de strings que o worker já montou; None = a tabela não
+    tem a usina, não traz os ids ou está velha."""
+    for c in (_cache, _semp_cache, _alveslima_cache, _2capi_cache):
+        if time.time() - float((c or {}).get("ts") or 0) > _DP_TABELA_VALE_S:
+            continue
+        for r in ((c or {}).get("payload") or {}).get("rows") or []:
+            if r.get("plant_id") == pid and isinstance(r.get("inv_ids_hoje"), list):
+                return [i for i in r["inv_ids_hoje"] if isinstance(i, int)]
+    return None
+
+
 def _dp_ids_hoje_api_pv(pid):
-    """(ids de inversor que a API PV mandou hoje para a usina, erro): o day_inverter, a mesma chamada do drill."""
+    """(ids de inversor que a API PV mandou hoje para a usina, erro): a tabela do ciclo; fora dela, o day_inverter (a
+    mesma chamada do drill), guardado 10 min."""
+    ids = _dp_ids_da_tabela(pid)
+    if ids is not None:
+        return ids, None
+    ent = _DP_HOJE_MEMO.get(pid)
+    if ent and time.time() - ent[0] < _DP_HOJE_MEMO_S:
+        return list(ent[1]), None
     if _ln.pedido_do_nexus():
         return [], "pedido só de leitura do Nexus: sem abrir a API PV"
     try:
@@ -1603,7 +1632,37 @@ def _dp_ids_hoje_api_pv(pid):
         return [], type(e).__name__
     if not isinstance(recs, list):
         return [], "a API não devolveu a lista de leituras"
-    return sorted({r.get("idefinversor") for r in recs if isinstance(r.get("idefinversor"), int)}), None
+    ids = sorted({r.get("idefinversor") for r in recs if isinstance(r.get("idefinversor"), int)})
+    _DP_HOJE_MEMO[pid] = (time.time(), ids)
+    return ids, None
+
+
+def _dp_nomes_api(pid) -> dict:
+    """{id: nome que a API PV dá ao dispositivo} para o editor, sem esperar a API quando ela já foi lida alguma vez: o
+    cache do plant_devices de qualquer idade (nome de inversor não muda de uma hora para outra), o do `_pv_dev_names`, a
+    cópia em disco das Falhas (7 dias); só sem nenhum deles, a API (o `_pv_plant_devices`, até 20 s)."""
+    ent = _pv_devs_cache.get(pid)
+    if not (ent and ent.get("devs")):
+        nomes = (_pv_dev_names_cache.get(pid) or {}).get("names") or {}
+        if not nomes:
+            try:
+                mt = os.path.getmtime(_FALHAS_PV_DEV)
+                if _PV_NOMES_FALHAS["mtime"] != mt:
+                    _PV_NOMES_FALHAS.update(mtime=mt, dados=_falhas_ler(_FALHAS_PV_DEV) or {})
+                nomes = ((_PV_NOMES_FALHAS["dados"].get(str(pid)) or {}).get("names") or {})
+            except OSError:
+                nomes = {}
+        out = {}
+        for k, v in nomes.items():
+            try:
+                out[int(k)] = str(v or "").strip()
+            except (TypeError, ValueError):
+                continue
+        if out:
+            return out
+    devs = _pv_devs_com_a_tela(pid, ent["devs"]) if ent and ent.get("devs") else _pv_plant_devices(pid)
+    return {d["device_id"]: str(d.get("device_name_api") or d.get("device_name") or "").strip()
+            for d in devs if isinstance(d, dict) and "device_id" in d}
 
 
 def _dp_editor_api_pv(fonte, pid, est) -> dict:
@@ -1644,8 +1703,7 @@ def _dp_editor_inv_pv(pid, cad, est) -> dict:
     ter essa visualização"): o id e o nome que a API dá (plant_devices), o nome que vale hoje (a tela por cima) e se ele
     casa com o cadastro da usina. O que não casa é SEM DE-PARA: as esperadas dele não entram e string morta não acusa."""
     tela = _dp.inversores(est, ("pv",), pid)
-    devs = {d["device_id"]: str(d.get("device_name_api") or d.get("device_name") or "").strip()
-            for d in _pv_plant_devices(pid) if isinstance(d, dict) and "device_id" in d}
+    devs = _dp_nomes_api(pid)
     hoje, erro = _dp_ids_hoje_api_pv(pid)
     ids = set(hoje) | {int(i) for i in tela if str(i).isdigit()}
     if not ids:                                  # a fonte não respondeu agora: os inversores do plant_devices
@@ -4521,6 +4579,8 @@ def build_summary(plant: dict, records: list) -> dict:
         **_pv_cadastro_da_linha(plant),
         # inversores cujo nome não casa com o cadastro (sem de-para): a tela avisa na linha e leva ao de-para (13/10/2026)
         **_pv_inv_sem_esp_campos(pid, plant["nome"].strip(), list(latest)),
+        # os inversores que mandaram leitura hoje, para o editor do de-para não ir à API PV a cada abertura (13/10/2026)
+        "inv_ids_hoje": sorted(i for i in latest if isinstance(i, int) and not isinstance(i, bool)),
     }
 
 

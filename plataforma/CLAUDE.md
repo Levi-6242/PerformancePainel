@@ -776,6 +776,16 @@ Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o
   cache de 30 min guarda a resposta da API; o nome da API fica em `device_name_api`). "Confirmar como está" só manda os
   nomes que são do cadastro. O inversor das outras fontes que mandam o nome (Athon, Axis, banco, RenoGrid) e a usina da
   Thopen do banco e da RenoGrid (a chave é um id e a linha não traz o nome do cadastro) ainda se corrigem no cadastro.
+- **O editor abre sem esperar a API PV (13/10/2026)**. Levi: "Gostaria de entender porquê demora tanto para carregar o
+  de-para de uma usina [...] Não é aceitável essa demora toda". Não era o banco: cada abertura do editor de uma usina da
+  API PV fazia, na hora, o POST `day_inverter` (o dia inteiro de leituras, fonte paga, até 10 s) só para saber QUAIS
+  inversores mandaram dado hoje e, com o cache frio, o `plant_devices` (até 20 s). Medido no PC: 0,8 a 4,6 s por
+  abertura, a 2ª igual à 1ª; as do scadaGridco, que não vão à API PV, 0,07 s. Agora a linha da tabela de strings
+  (`build_summary`, o ciclo do worker de 5 em 5 min, que já faz esse day_inverter) leva `inv_ids_hoje`, e o
+  `_dp_ids_hoje_api_pv` lê de lá (`_dp_ids_da_tabela`, tabela de até 30 min); fora dela, a API uma vez, guardada 10 min
+  (`_DP_HOJE_MEMO`). O nome que a API dá a cada inversor vem do que já foi lido (`_dp_nomes_api`: o cache do
+  plant_devices de qualquer idade, o do `_pv_dev_names`, a cópia das Falhas em disco), e a API só sem nenhum deles.
+  Prova: `tests/test_depara_editor_rapido.py` (o editor com a API PV proibida).
 - **Inversor sem de-para à vista no Tempo real (13/10/2026)**. Levi, com Sete Lagoas e Tupi Paulista abertas ("esp —" em
   todos os inversores e a linha com diferença 0): "é preciso eu saber isso sem eu precisar ficar abrindo a usina, e tem
   que abrir um atalho direto para o de-para". O caso: na conta oem@ (2C) o de-para em código chamava os inversores de

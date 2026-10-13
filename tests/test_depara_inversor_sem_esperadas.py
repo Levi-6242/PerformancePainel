@@ -99,6 +99,8 @@ def test_a_linha_da_usina_leva_a_conferencia(cadastro, monkeypatch, freeze_now):
     r = app.build_summary({"id": SETE, "nome": "Sete Lagoas"}, [_rec(i, 50.0, 24) for i in IDS])
     assert r["inv_sem_esp"] == 3 and r["inv_sem_esp_nomes"][0] == "Inversor 1.1"
     assert r["str_esp"] == 70                                  # a linha segue fechando pelo total do cadastro
+    # e leva os inversores que mandaram leitura hoje: o editor do de-para lê daqui em vez de ir à API PV (13/10/2026)
+    assert r["inv_ids_hoje"] == sorted(IDS)
 
 
 def test_o_diagnostico_do_de_para_acusa_inversor_sem_esperadas():
