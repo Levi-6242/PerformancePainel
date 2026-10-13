@@ -776,6 +776,20 @@ Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o
   cache de 30 min guarda a resposta da API; o nome da API fica em `device_name_api`). "Confirmar como está" só manda os
   nomes que são do cadastro. O inversor das outras fontes que mandam o nome (Athon, Axis, banco, RenoGrid) e a usina da
   Thopen do banco e da RenoGrid (a chave é um id e a linha não traz o nome do cadastro) ainda se corrigem no cadastro.
+- **Inversor sem de-para à vista no Tempo real (13/10/2026)**. Levi, com Sete Lagoas e Tupi Paulista abertas ("esp —" em
+  todos os inversores e a linha com diferença 0): "é preciso eu saber isso sem eu precisar ficar abrindo a usina, e tem
+  que abrir um atalho direto para o de-para". O caso: na conta oem@ (2C) o de-para em código chamava os inversores de
+  "Inversor 1.x" e o cadastro tinha "INVERSOR01".. (24 e 20 esperadas); a linha fechava pelo total (236 e 400) e o
+  diagnóstico dizia "ok", porque só conferia a QUANTIDADE de inversores. Agora a linha da API PV (`build_summary`) leva
+  `inv_sem_esp` e os nomes (`_pv_inv_sem_esperadas`): o nome de cada inversor pelo MESMO caminho do drill (plant_devices,
+  de-para da oem@ com a tela por cima, ordem do cadastro) e **sem rede** (a API PV é paga): o plant_devices só do cache,
+  depois o `_pv_dev_names_cache`, depois a cópia em disco da rotina das Falhas (`falhas_pv_dev.json`, 7 dias); sem nenhum,
+  não diz nada (campo ausente). O diagnóstico acusa em **atenção** ("N de M inversor(es) sem esperadas: o nome que chega
+  (...) não casa com o cadastro") e marca `sem_depara = "inversor"`. Na tela: a etiqueta âmbar "sem de-para · N inv." na
+  linha da usina, a barra na usina aberta e o título da diferença dizendo que ela é a da usina inteira. O atalho
+  (`/admin/de-para?editar=fonte|id`, que abre o editor já na usina) só aparece para quem abre a página dele (`/api/eu`:
+  `abre_admin`, que é o passe com admin, a senha ou o Microsoft); para os outros, o aviso diz para pedir a um
+  administrador. Prova: `tests/test_depara_inversor_sem_esperadas.py`.
 - **O dado**: livro `nexus_depara · fato_decisao_depara` (`depara.py`, no catálogo do Nexus), só acrescenta, gravado pela
   mesma `cobertura.Decisoes` (relê, grava inteiro, confere a contagem; cache de 60 s e a última leitura boa em
   `depara_decisoes.json`). O cadastro entra pela chave de negócio (Usina Supervisório, Equipamento Supervisório), que a

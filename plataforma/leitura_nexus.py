@@ -22,6 +22,8 @@ _PAGINAS = ("/tempo-real", "/monitor", "/static")
 _GET = tuple(f"/api/{f}" for f in FONTES_API) + (
     "/api/state", "/api/entrada/tempo-real", "/api/notificacoes", "/api/data", "/api/plant", "/api/spv", "/api/etm",
     "/api/perdas", "/api/trackers", "/api/strings", "/api/fracttal/ultima-os", "/api/os-abertas", "/api/os-performance",
+    # o que a sessão abre (13/10/2026: o atalho do Tempo real para o de-para); pela chave, sempre "não abre"
+    "/api/eu",
 )
 
 # POSTs que só consultam (corpo com a lista de usinas): contagem de OS, de-para do Fracttal, OS da ETM

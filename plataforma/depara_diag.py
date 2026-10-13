@@ -65,6 +65,16 @@ def linha(fonte: str, r: dict, ctx: dict) -> dict:
             alertas.append(("critico", "sem strings esperadas no cadastro: string morta não acusa"))
     if inv_fonte and inv_esp and inv_fonte != inv_esp:
         alertas.append(("atencao", f"{inv_fonte:g} inversor(es) na fonte, {inv_esp:g} no cadastro"))
+    # O NOME de cada inversor casa com o cadastro? (13/10/2026: Sete Lagoas e Tupi Paulista diziam "ok" com 10 de 10 e 20
+    # de 20, e nenhum inversor casava: "Inversor 1.1" no de-para em código, "INVERSOR01" no cadastro). A linha da API PV
+    # traz `inv_sem_esp`, conferido sem rede pelo caminho do drill.
+    n_sem = _num(r.get("inv_sem_esp"))
+    if n_sem and not fora:
+        nomes_sem = [str(n) for n in (r.get("inv_sem_esp_nomes") or [])]
+        ex = ", ".join(nomes_sem[:3]) + ("…" if len(nomes_sem) > 3 else "")
+        de = f" de {inv_fonte:g}" if inv_fonte else ""
+        alertas.append(("atencao", f"{n_sem:g}{de} inversor(es) sem esperadas: o nome que chega ({ex}) não casa com o "
+                                   "cadastro; ligue cada um no de-para"))
     # ── de onde vem o nome de cada inversor ──
     if fonte in API_PV + ("greenyellow", "salenergia") and str(pid) in ctx.get("revistas", ()):
         nomes = "decidido na tela"
@@ -89,7 +99,7 @@ def linha(fonte: str, r: dict, ctx: dict) -> dict:
             "inv_fonte": inv_fonte, "nomes_inversor": nomes, "edita_usina": edita_u, "edita_inversor": edita_i,
             "alertas": [{"nivel": n, "texto": t} for n, t in alertas],
             "pior": alertas[0][0] if alertas else "ok",
-            "sem_depara": "usina" if fora else ("inversor" if nomes == "pela ordem do cadastro" else None),
+            "sem_depara": "usina" if fora else ("inversor" if nomes == "pela ordem do cadastro" or n_sem else None),
             "sugestao": list(ctx.get("sugestoes", {}).get((fonte, pid)) or []) if fora else []}
 
 

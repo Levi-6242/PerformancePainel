@@ -1445,6 +1445,17 @@ def api_cob_decidir():
     return jsonify({"ok": True, "gravadas": len(novas), "total": total})
 
 
+@app.route("/api/eu")
+def api_eu():
+    """O que a sessão de agora abre, para a tela decidir o que oferecer (13/10/2026: o atalho do Tempo real para o de-para
+    só aparece para quem abre a página dele). O passe do Nexus abre a administração só com admin (`_pn.so_admin`); a
+    senha e o Microsoft abrem tudo (o portão das rotas só de admin vale para o passe). O pedido pela chave de leitura do
+    Nexus (a ponte, sem sessão) e o sem login não abrem: a chave só lê (`leitura_nexus`)."""
+    if getattr(flask_g, "nexus_leitura_ok", False) or not session.get("auth"):
+        return jsonify({"abre_admin": False})
+    return jsonify({"abre_admin": session.get("auth_kind") != "nexus" or bool(session.get("admin_nexus"))})
+
+
 @app.route("/admin/de-para")
 def pagina_depara():
     """De-para de equipamentos (11/10/2026): o diagnóstico (depara_diag.py) e o editor (depara.py). Só admin do Nexus."""
@@ -4093,6 +4104,74 @@ def _pv_cadastro_da_linha(plant: dict) -> dict:
             **({"nome_api": plant["nome_api"]} if plant.get("nome_api") else {})}
 
 
+_PV_NOMES_FALHAS = {"mtime": None, "dados": {}}      # a cópia dos nomes da API PV que a rotina das Falhas guarda
+
+
+def _pv_nomes_guardados(pid) -> dict:
+    """{id: nome} dos inversores de uma usina da API PV SEM rede: o cache do plant_devices (de qualquer idade: nome de
+    inversor não muda de uma hora para outra) e, sem ele, a cópia que a rotina das Falhas guarda em disco
+    (`_falhas_pv_dev`, renovada a cada 7 dias para todas as usinas). Com o decidido na tela De-para por cima. Vazio = não
+    se sabe (a conta oem@ não lê o plant_devices: o nome dela vem do de-para, em `_pv_inv_sem_esperadas`)."""
+    ent = _pv_devs_cache.get(pid)
+    if ent and ent.get("devs"):
+        return {d["device_id"]: str(d.get("device_name", "")).strip()
+                for d in _pv_devs_com_a_tela(pid, ent["devs"]) if isinstance(d, dict) and "device_id" in d}
+    ent = _pv_dev_names_cache.get(pid)
+    if ent and ent.get("names"):
+        return _pv_nomes_com_a_tela(pid, {k: str(v or "").strip() for k, v in ent["names"].items()})
+    try:
+        mt = os.path.getmtime(_FALHAS_PV_DEV)
+    except OSError:
+        return {}
+    if _PV_NOMES_FALHAS["mtime"] != mt:
+        _PV_NOMES_FALHAS.update(mtime=mt, dados=_falhas_ler(_FALHAS_PV_DEV) or {})
+    nomes = {}
+    for k, v in ((_PV_NOMES_FALHAS["dados"].get(str(pid)) or {}).get("names") or {}).items():
+        try:
+            nomes[int(k)] = str(v or "").strip()
+        except (TypeError, ValueError):
+            continue
+    return _pv_nomes_com_a_tela(pid, nomes) if nomes else {}
+
+
+def _pv_inv_sem_esperadas(pid, cad: str, ids) -> list | None:
+    """Os inversores da usina (API PV) cujo nome NÃO casa com o cadastro (a aba Equipamentos): as esperadas deles não
+    entram, e no drill o inversor fica com "esp —" e sem diferença (string parada nele não acusa no inversor). Levi,
+    13/10/2026, com Sete Lagoas e Tupi Paulista abertas: "é preciso eu saber isso sem eu precisar ficar abrindo a usina,
+    e tem que abrir um atalho direto para o de-para". O caso: o de-para em código chamava os inversores de "Inversor
+    1.x", e o cadastro tinha "INVERSOR01".. com 24 e 20 esperadas; a linha fechava pelo total (236 e 400) e o
+    diagnóstico do de-para dizia "ok" (só conferia a quantidade). O nome é o do drill (`_pv_plant_inversores_busca`),
+    pelo mesmo caminho e SEM rede, porque a API PV é paga: o plant_devices guardado, o de-para da conta oem@ (código e
+    tela) e a ordem do cadastro. None = não dá para saber (conta principal sem nome guardado); [] = todos casam."""
+    esp = ESPERADO_INV.get(cad) or {}
+    ids = [i for i in ids or () if isinstance(i, int) and not isinstance(i, bool)]
+    if not esp or not ids:
+        return []
+    dev = _pv_nomes_guardados(pid)
+    if not dev and pid not in PV_OEM_PLANTS:
+        return None
+    cod = {} if dev else _pv_inv_nomes_de(pid)
+    ordem = {} if dev else _pv_nomes_por_ordem(cad, ids)
+    faltam = []
+    for i in sorted(ids, key=lambda x: (len(str(x)), str(x))):
+        nome = dev.get(i) or cod.get(i) or ordem.get(i)
+        if not nome or not isinstance(_equip_lookup(esp, nome), (int, float)):
+            faltam.append(nome or f"INV-{i}")
+    return faltam
+
+
+def _pv_inv_sem_esp_campos(pid, cad: str, ids) -> dict:
+    """Os campos da linha: `inv_sem_esp` (quantos não casam; 0 = todos casam; ausente = não dá para saber) e os nomes."""
+    try:
+        faltam = _pv_inv_sem_esperadas(pid, cad, ids)
+    except Exception as e:                                      # noqa: BLE001 — a conferência nunca derruba a linha
+        print(f"[de-para] inversores sem esperadas, usina {pid}: {e}")
+        return {}
+    if faltam is None:
+        return {}
+    return {"inv_sem_esp": len(faltam), "inv_sem_esp_nomes": faltam[:12]}
+
+
 def build_summary(plant: dict, records: list) -> dict:
     pid  = plant["id"]
     nome = nome_usina(pid, plant["nome"])
@@ -4356,6 +4435,8 @@ def build_summary(plant: dict, records: list) -> dict:
         "sem_visao": bool(sem_visao and strings_ativas == 0 and not em_rampa and (pot_med or prod)),
         "inv_sem_visao": sv_chaves, "ger_inv": ger_inv,     # tickets de strings pela geração (_com_tickets_str)
         **_pv_cadastro_da_linha(plant),
+        # inversores cujo nome não casa com o cadastro (sem de-para): a tela avisa na linha e leva ao de-para (13/10/2026)
+        **_pv_inv_sem_esp_campos(pid, plant["nome"].strip(), list(latest)),
     }
 
 
