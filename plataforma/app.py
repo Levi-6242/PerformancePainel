@@ -31424,6 +31424,383 @@ def api_relatorio_semanal_emitir():
     return jsonify({"ok": True, "versao": v, "em": em, "por": por})
 
 
+# ═══════════════ RELATÓRIO POTÊNCIA ATIVA DOS INVERSORES (13/10/2026) ═══════════════
+# Levi, 13/10/2026: "Teria como ter um novo relatório de performance pegando a potência ativa de cada inversor e
+# sobrepondo por dia. Cada inversor terá uma cor diferente. Se chamará relatório Potência Ativa dos Inversores!"
+# As contas moram em potencia_ativa.py (puro, com teste); aqui só os leitores, e cada um reaproveita a leitura que a
+# plataforma JÁ faz para as curvas do Tempo real e do drill: nenhuma leitura nova a fonte paga. A página pede UM dia por
+# vez (desenha cada dia quando ele chega, e uma fonte lenta não segura os outros); a rota aceita até MAX_DIAS seguidos.
+import potencia_ativa as _pa
+
+# A reserva da cota histórica da API PV que o relatório não gasta: a mesma régua do backfill da aba de falhas
+# (FALHAS_BF_PV_RESERVA_DIA), porque a coleta da noite precisa de 300 (PV_COTA_RESERVA_DIA) e a combiner das String Box
+# vive do resto. Um relatório de 7 dias da Tupi Paulista são 140 consultas: com a régua da combiner (20 por hora) ele
+# levaria a hora inteira, e as String Box ficariam "sem visão" até a hora seguinte.
+PA_COTA_RESERVA_DIA = 450
+PA_COTA_RESERVA_HORA = 40
+# O dia lido fica na memória do processo web, por (família, usina, dia): dia que JÁ ACABOU e veio com leitura não muda
+# (a mesma régua do _spv_cache da Curva) e reabrir o relatório não gasta a cota de novo; dia sem leitura na fonte é
+# resultado, mas o registrador que volta a comunicar manda o dia atrasado, então vale 6 h; hoje, 5 min (CACHE_TTL); a
+# falha nunca fica guardada. Teto de 40 dias guardados, sai o mais antigo.
+_PA_CACHE = {}
+_PA_CACHE_MAX = 40
+_PA_SEM_DADO_TTL = 6 * 3600
+_pa_lock = threading.Lock()
+_pa_em_voo = {}               # chave -> Lock: duas pessoas pedindo o mesmo dia fazem UMA leitura (como o _pv_plant_em_voo)
+
+_PA_MOTIVO_API = {
+    "cota_api": "a cota histórica da API PV está na reserva ou zerada (o que sobra fica para a combiner e a coleta da "
+                "noite): tente mais tarde",
+    "erro_rede": "a API PV não respondeu",
+    "resposta_invalida": "a API PV respondeu fora do formato",
+    "data_invalida": "data inválida para a API PV",
+}
+
+
+def _pa_cota_permite() -> bool:
+    """Ainda dá para o relatório gastar a cota histórica da API PV? Leitura da cota com mais de 1 h não vale (a próxima
+    resposta traz a de agora), como no _pv_cota_permite, só que com a reserva maior acima."""
+    agora = time.time()
+    if agora < _pv_cota["zerada_ate"]:
+        return False
+    if _pv_cota["ts"] and agora - _pv_cota["ts"] < 3600:
+        if _pv_cota["dia"] is not None and _pv_cota["dia"] < PA_COTA_RESERVA_DIA:
+            return False
+        if _pv_cota["hora"] is not None and _pv_cota["hora"] < PA_COTA_RESERVA_HORA:
+            return False
+    return True
+
+
+def _pa_nomes_apipv(pid, ids) -> dict:
+    """{id do inversor: nome do cadastro} pelo MESMO caminho do drill (`_pv_plant_inversores_busca`): o nome do
+    plant_devices (com o decidido na tela De-para por cima, cache de 30 min), o de-para em código da conta oem@
+    (`_pv_nome_2c`) e, sem nenhum dos dois, a ordem do cadastro quando a quantidade bate; depois a tradução do
+    Equipamentos (EQUIP_NAMES). É o nome que a legenda mostra: o mesmo da tela do Tempo real."""
+    plant_nome_api = ""
+    try:
+        plant_nome_api = next((p["nome"].strip() for p in get_plants(get_token()) if p["id"] == pid), "")
+    except Exception:                                        # noqa: BLE001 — sem a lista, fica o nome da API
+        pass
+    try:
+        dev = {d["device_id"]: str(d.get("device_name") or "").strip()
+               for d in _pv_plant_devices(pid) if isinstance(d, dict) and "device_id" in d}
+    except Exception:                                        # noqa: BLE001
+        dev = {}
+    mapa = EQUIP_NAMES.get(plant_nome_api) or {}
+    pos = {} if dev else _pv_nomes_por_ordem(plant_nome_api, ids)
+    out = {}
+    for i in ids:
+        nome_api = dev.get(i) or _pv_nome_2c(pid, i) or pos.get(i) or f"INV-{i}"
+        out[i] = _equip_lookup(mapa, nome_api) or nome_api
+    return out
+
+
+def _pa_ler_apipv(pid: int, dia) -> dict:
+    """O Pac de cada inversor da usina no dia, das MESMAS leituras da Curva das strings (`api_spv_usina`): hoje o
+    day_inverter; dia passado o custom_query v2, 1 consulta da cota histórica (o `_spv_hist_recs` guarda os últimos dias
+    crus que o drill e esta tela leram, e o dia que já está lá não gasta nada)."""
+    if _ln.pedido_do_nexus():
+        # gestor pelo Nexus: a API PV fica de fora (spec 5.3 da porta única); o dia que um analista já leu sai do cache
+        raise _pa.ForaDoPerfil("pelo Nexus, no perfil gestor, a API PV fica de fora: vale só o que a plataforma já tem "
+                               "guardado, e este dia ainda não foi lido por um analista")
+    try:
+        token = _pv_token_for(pid)
+    except Exception as e:                                   # noqa: BLE001
+        raise _pa.FonteNaoRespondeu(f"a API PV não respondeu à autenticação ({type(e).__name__})") from None
+    data = dia.strftime("%d/%m/%Y")
+    if dia == datetime.now().date():
+        try:
+            recs = _spv_day_records(pid, token, data)
+        except Exception as e:                               # noqa: BLE001 — dict de erro da API ou rede: não é usina parada
+            raise _pa.FonteNaoRespondeu(f"a API PV não respondeu ({type(e).__name__}: {str(e)[:140]})") from None
+        if not recs:
+            return {"inversores": [], "motivo": "a API PV ainda não tem leitura de inversor desta usina hoje"}
+    else:
+        if (int(pid), data) not in _spv_hist_recs and not _pa_cota_permite():
+            raise _pa.FonteNaoRespondeu(_PA_MOTIVO_API["cota_api"])
+        recs, motivo = _spv_day_records_hist(pid, token, data)
+        if motivo == "sem_dados_api":
+            return {"inversores": [], "motivo": "a API PV respondeu sem leitura de inversor desta usina neste dia"}
+        if motivo:
+            raise _pa.FonteNaoRespondeu(_PA_MOTIVO_API.get(motivo) or (
+                f"a API PV respondeu HTTP {motivo[5:]}" if motivo.startswith("http_") else f"a API PV falhou ({motivo})"))
+    iso, por, tem_pac = dia.isoformat(), {}, False
+    for r in recs or ():
+        if not isinstance(r, dict) or r.get("idefinversor") is None:
+            continue
+        ts = str(r.get("tsleitura_new") or "")
+        if not ts.startswith(iso):
+            continue
+        pac = parse_cj(r.get("conteudojson")).get("Pac")
+        tem_pac = tem_pac or (isinstance(pac, (int, float)) and not isinstance(pac, bool))
+        por.setdefault(r["idefinversor"], []).append((ts[11:16], pac))
+    nomes = _pa_nomes_apipv(pid, list(por))
+    out = {"inversores": [{"id": i, "nome": nomes.get(i) or f"INV-{i}", "pontos": p} for i, p in por.items()]}
+    if not tem_pac:
+        out["motivo"] = "a API PV mandou as leituras deste dia sem a potência ativa (Pac) dos inversores"
+    h = _pv_relogio_h(pid)
+    if h:                       # Diamantino 1 e 2 (28/09/2026): o registrador está no horário de Cuiabá
+        out["obs"] = (f"horário do registrador da usina, {h} h atrás de Brasília (o mesmo da Curva das strings do "
+                      "Tempo real)")
+    return out
+
+
+# A potência ativa do inversor no banco da Thopen: a MESMA consulta da correlação tracker × inversor do drill
+# (`_pg_series_inversores`, que só lê hoje), para o dia pedido e com o id do dispositivo. Janela pelo índice do
+# hypertable (timestamptz), convertida para o dia de Brasília: sem o AT TIME ZONE o filtro cai 3 h fora e zera calado.
+_PA_SQL_PG = """
+    SELECT s.device_id, d.device_name, p.name, (s.timestamp AT TIME ZONE 'America/Sao_Paulo') AS ts,
+           (s.json_data->>'active_power')::float
+    FROM public.raw_inverter s
+    JOIN public.tb_devices d ON d.id = s.device_id
+    LEFT JOIN public.tb_power_plants p ON p.id = s.power_plant_id
+    WHERE s.power_plant_id = %(pid)s
+      AND s.timestamp >= (%(dia)s::date)::timestamp AT TIME ZONE 'America/Sao_Paulo'
+      AND s.timestamp <  ((%(dia)s::date) + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo'
+    ORDER BY s.timestamp
+"""
+
+
+def _pa_ler_pg(pid: int, dia) -> dict:
+    """A potência ativa de cada inversor da usina no dia, do banco da Thopen. O banco não é fonte paga, mas é dividido
+    com o pipeline da Thopen e já levou 83 s numa consulta com os dias comprimidos (24/09/2026): 45 s de teto."""
+    try:
+        conn = _pg_conn()
+    except Exception as e:                                   # noqa: BLE001
+        raise _pa.FonteNaoRespondeu(f"o banco da Thopen não respondeu ({type(e).__name__}: {str(e)[:120]})") from None
+    try:
+        cur = conn.cursor()
+        cur.execute("SET LOCAL statement_timeout = 45000")
+        cur.execute(_PA_SQL_PG, {"pid": int(pid), "dia": dia.isoformat()})
+        linhas = cur.fetchall()
+    except Exception as e:                                   # noqa: BLE001
+        raise _pa.FonteNaoRespondeu(f"o banco da Thopen não respondeu ({type(e).__name__}: {str(e)[:120]})") from None
+    finally:
+        conn.close()
+    por, sup = {}, ""
+    for dev_id, dname, pname, ts, pot in linhas:
+        sup = sup or (pname or "").strip()
+        e = por.setdefault(dev_id, {"nome_api": (dname or f"INV {dev_id}").strip(), "pontos": []})
+        if ts is not None:
+            e["pontos"].append((ts, pot))
+    mapa = EQUIP_NAMES.get(sup) or {}
+    out = {"inversores": [{"id": i, "nome": _equip_lookup(mapa, e["nome_api"]) or e["nome_api"], "pontos": e["pontos"]}
+                          for i, e in por.items()]}
+    if not por:
+        out["motivo"] = "o banco da Thopen não tem leitura de inversor desta usina neste dia"
+    return out
+
+
+def _pa_ler_sg(fonte, pid, dia) -> dict:
+    """A potência de cada inversor no dia, pela MESMA curva da aba Curva (`_sg_curvas`, que guarda hoje aos pedaços e o
+    dia passado por 6 h): a telemetria MQTT traz a potência ativa junto com as strings. Um inversor por pedido, em série
+    (regra da Automação); o que falhou não apaga os outros, e o dia com falta não fica guardado."""
+    cfg = _sg.usina_cfg(fonte, pid)
+    if not cfg:
+        raise _pa.Recusado("usina desconhecida nesta fonte")
+    if _sg.via(fonte, pid) != "mqtt":
+        return {"inversores": [], "motivo": "esta usina chega ao scadaGridco por Modbus: o histórico dela é por string, "
+                                            "sem a potência do inversor"}
+    hoje = datetime.strptime(_sg.hoje(), "%Y-%m-%d").date()
+    if (hoje - dia).days > SG_HIST_DIAS:
+        return {"inversores": [], "motivo": f"o scadaGridco guarda só {SG_HIST_DIAS} dias de histórico"}
+    cad = list(_sg_cadastro(cfg["usina"]))
+    invs, faltaram = [], []
+    for equip in _sg_equips(fonte, cfg):
+        nome = _sg.nome_inversor(cfg, equip, cad) or f"INV {equip}"
+        try:
+            c = _sg_curvas.curva(fonte, pid, equip, dia.isoformat())
+        except _sg.SemAcesso as e:
+            raise _pa.FonteNaoRespondeu(str(e)) from None
+        except Exception as e:                               # noqa: BLE001 — um inversor que falhou não apaga os outros
+            print(f"[potência ativa] scadaGridco {pid}/{equip} {dia}: {type(e).__name__}: {e}")
+            faltaram.append(nome)
+            continue
+        invs.append({"id": str(equip), "nome": nome, "pontos": list(c.get("pot") or [])})
+    if faltaram and not invs:
+        raise _pa.FonteNaoRespondeu("o scadaGridco não respondeu para nenhum inversor desta usina")
+    return {"inversores": invs, "faltaram": faltaram}
+
+
+def _pa_ler(familia, fonte, pid, dia) -> dict:
+    """O leitor de cada família (nomes resolvidos na chamada: os testes dublam um por um)."""
+    if familia == "apipv":
+        return _pa_ler_apipv(pid, dia)
+    if familia == "pg":
+        return _pa_ler_pg(pid, dia)
+    if familia == "scadagridco":
+        return _pa_ler_sg(fonte, pid, dia)
+    raise _pa.Recusado("esta fonte não tem histórico de potência por inversor")
+
+
+def _pa_ainda_vale(ent, agora_ts) -> bool:
+    if not ent:
+        return False
+    if ent["fechado"] and ent["dia"]["situacao"] == "ok":
+        return True
+    ttl = _PA_SEM_DADO_TTL if ent["fechado"] else CACHE_TTL
+    return agora_ts - ent["ts"] < ttl
+
+
+def _pa_dia(familia, fonte, pid, dia, agora=None) -> dict:
+    """Um dia do relatório: do cache (ver _PA_CACHE) ou do leitor da família. A leitura que falha vira o dia "falhou",
+    com o motivo, e não fica guardada (regra de 10/10/2026: a leitura que falhou não vira zero nem "sem dado")."""
+    agora = agora or datetime.now()
+    k = (familia, str(pid), dia.isoformat())
+    ent = _PA_CACHE.get(k)
+    if _pa_ainda_vale(ent, time.time()):
+        return ent["dia"]
+    with _pa_lock:
+        if len(_pa_em_voo) > 500:                            # as travas de dias que ninguém está lendo saem
+            for kk in [kk for kk, t in _pa_em_voo.items() if not t.locked()]:
+                _pa_em_voo.pop(kk, None)
+        trava = _pa_em_voo.setdefault(k, threading.Lock())
+    with trava:
+        ent = _PA_CACHE.get(k)
+        if _pa_ainda_vale(ent, time.time()):
+            return ent["dia"]
+        try:
+            leitura = _pa_ler(familia, fonte, pid, dia)
+        except _pa.Recusado:
+            raise
+        except _pa.FonteNaoRespondeu as e:
+            return _pa.dia_que_falhou(dia, str(e), agora, perfil=isinstance(e, _pa.ForaDoPerfil))
+        except Exception as e:                               # noqa: BLE001 — a tela diz o motivo, nada fica guardado
+            print(f"[potência ativa] {familia} {pid} {dia}: {type(e).__name__}: {e}")
+            return _pa.dia_que_falhou(dia, f"{type(e).__name__}: {str(e)[:160]}", agora)
+        d = _pa.monta_dia(dia, leitura, agora.date(), agora)
+        if not d["faltaram"]:                                # dia com inversor que não veio pode ser lido de novo
+            with _pa_lock:
+                _PA_CACHE.pop(k, None)
+                _PA_CACHE[k] = {"ts": time.time(), "fechado": dia < agora.date(), "dia": d}
+                while len(_PA_CACHE) > _PA_CACHE_MAX:
+                    _PA_CACHE.pop(next(iter(_PA_CACHE)))
+        return d
+
+
+def _pa_linhas_tempo_real(fonte) -> list:
+    """As linhas da tabela de strings que o Tempo real da fonte mostra (o snapshot que o worker publica): é daí que sai
+    a lista de usinas, "as mesmas que o Tempo real conhece". Só lê o que está em memória: nada é montado aqui."""
+    if fonte == "pg":
+        return list(_pg_cache.get("summary") or [])
+    cache = {"pv": _cache, "semp": _semp_cache, "alveslima": _alveslima_cache, "2capi": _2capi_cache,
+             "greenyellow": _gy_cache, "salenergia": _sal_cache}.get(fonte)
+    return list(((cache or {}).get("payload") or {}).get("rows") or [])
+
+
+def _pa_usinas(fonte) -> list:
+    """[{id, nome}] das usinas da fonte no Tempo real, em ordem natural. A GreenYellow com a tabela fria cai nas usinas
+    configuradas (cadastro do scadaGridco), com o filtro das Fontes do tempo real. Nome repetido (as três UGs da Ipixuna
+    do Pará levam o nome do cadastro) ganha o nome da API, ou o id."""
+    from collections import Counter
+    vistos, out = set(), []
+    for r in _pa_linhas_tempo_real(fonte):
+        pid = r.get("plant_id")
+        if pid is None or str(pid) in vistos:
+            continue
+        vistos.add(str(pid))
+        out.append({"id": str(pid), "nome": str(r.get("usina") or pid).strip()})
+    if not out and fonte == "greenyellow":
+        out = [{"id": str(c["id"]), "nome": str(c.get("usina") or c["id"])} for c in _sg.usinas(fonte)
+               if _cob_entra(fonte, c["id"])]
+    rep = Counter(u["nome"] for u in out)
+    api = {str(p.get("id")): str(p.get("nome_api") or p.get("nome") or "").strip()
+           for p in (_plants_cache.get("data") or []) if isinstance(p, dict)}
+    for u in out:
+        if rep[u["nome"]] > 1:
+            extra = api.get(u["id"])
+            u["nome"] = f"{u['nome']} · {extra}" if extra and extra != u["nome"] else f"{u['nome']} · id {u['id']}"
+    out.sort(key=lambda u: _pa.chave_natural(u["nome"]))
+    return out
+
+
+def _pa_usina_conhecida_api_pv(fonte, pid) -> bool:
+    """O id é de uma usina que a plataforma conhece na API PV (a tabela do Tempo real da fonte ou a lista de usinas da
+    API, as duas já em memória)? Um id digitado errado na URL gastaria uma consulta da cota histórica (paga) para voltar
+    "Invalid id". Sem nenhuma das duas listas (processo recém-subido), não há como saber, e passa."""
+    ids = {str(r.get("plant_id")) for r in _pa_linhas_tempo_real(fonte)}
+    ids |= {str(p.get("id")) for p in (_plants_cache.get("data") or []) if isinstance(p, dict)}
+    ids.discard("None")
+    return not ids or str(pid) in ids
+
+
+def _pa_nome_usina(fonte, pid) -> str:
+    nome = next((u["nome"] for u in _pa_usinas(fonte) if u["id"] == str(pid)), None)
+    if nome:
+        return nome
+    if fonte in ("greenyellow", "salenergia"):
+        return str((_sg.usina_cfg(fonte, pid) or {}).get("usina") or pid)
+    p = next((p for p in (_plants_cache.get("data") or []) if isinstance(p, dict) and str(p.get("id")) == str(pid)), None)
+    return nome_usina(p["id"], p["nome"]) if p else f"Usina {pid}"
+
+
+@app.route("/relatorio/potencia-ativa")
+def page_relatorio_potencia_ativa():
+    """Potência Ativa dos Inversores — página de impressão: fonte, usina e período → um gráfico por dia com a potência
+    ativa de cada inversor → Imprimir / PDF."""
+    return render_template("potencia_ativa.html")
+
+
+@app.route("/api/relatorio/potencia-ativa/usinas")
+def api_relatorio_potencia_ativa_usinas():
+    """As fontes do Tempo real, cada uma dizendo se tem histórico de potência por inversor (e por quê, quando não tem),
+    com as usinas que o Tempo real dela mostra."""
+    fontes = []
+    for f in _pa.FONTES:
+        item = {"fonte": f["fonte"], "rotulo": f["rotulo"], "historico": bool(f["familia"]), "usinas": []}
+        if not f["familia"]:
+            item["motivo"] = f["motivo"]
+        else:
+            item["origem"] = f["origem"]
+            try:
+                item["usinas"] = _pa_usinas(f["fonte"])
+            except Exception as e:                           # noqa: BLE001 — a fonte some da lista, as outras ficam
+                item["aviso"] = f"a lista de usinas não foi lida ({type(e).__name__})"
+            if not item["usinas"] and "aviso" not in item:
+                item["aviso"] = ("a lista de usinas desta fonte ainda não foi montada nesta máquina: o Tempo real dela "
+                                 "está aquecendo ou sem leitura")
+        fontes.append(item)
+    return jsonify({"ok": True, "hoje": datetime.now().date().isoformat(), "max_dias": _pa.MAX_DIAS,
+                    "passo_min": _pa.PASSO_MIN, "lacuna_max_min": _pa.LACUNA_MAX_MIN, "fontes": fontes})
+
+
+@app.route("/api/relatorio/potencia-ativa")
+def api_relatorio_potencia_ativa():
+    """?fonte=<fonte do Tempo real>&usina=<id na fonte>&ini=AAAA-MM-DD&fim=AAAA-MM-DD (até MAX_DIAS seguidos) → um
+    gráfico por dia: {dias: [{dia, situacao: ok|sem_dado|falhou, inversores: [{nome, pontos: [[minuto, kW]]}], ...}]}.
+    Fonte sem histórico de potência por inversor: `sem_historico` com o motivo, sem dia nenhum."""
+    a = flask_request.args
+    agora = datetime.now()
+    try:
+        f = _pa.fonte(a.get("fonte"))
+        pid = (a.get("usina") or "").strip()
+        if not pid:
+            raise _pa.Recusado("escolha a usina")
+        dias = _pa.periodo(a.get("ini"), a.get("fim"), agora.date())
+        if f["familia"] in ("apipv", "pg"):
+            try:
+                pid = int(pid)
+            except ValueError:
+                raise _pa.Recusado("usina inválida para esta fonte: o id é um número") from None
+            if f["familia"] == "apipv" and not _pa_usina_conhecida_api_pv(f["fonte"], pid):
+                raise _pa.Recusado("usina desconhecida na API PV: escolha uma usina da lista do Tempo real")
+        elif f["familia"] == "scadagridco" and not _sg.usina_cfg(f["fonte"], pid):
+            raise _pa.Recusado("usina desconhecida nesta fonte")
+    except _pa.Recusado as e:
+        return jsonify({"ok": False, "motivo": str(e)}), 400
+    base = {"ok": True, "fonte": f["fonte"], "fonte_rotulo": f["rotulo"], "usina": str(pid),
+            "usina_nome": _pa_nome_usina(f["fonte"], pid), "unidade": "kW", "passo_min": _pa.PASSO_MIN,
+            "lacuna_max_min": _pa.LACUNA_MAX_MIN, "max_dias": _pa.MAX_DIAS,
+            "ini": dias[0].isoformat(), "fim": dias[-1].isoformat()}
+    if not f["familia"]:
+        return jsonify({**base, "sem_historico": True, "motivo": f["motivo"], "dias": []})
+    try:
+        out = [_pa_dia(f["familia"], f["fonte"], pid, d, agora) for d in dias]
+    except _pa.Recusado as e:
+        return jsonify({"ok": False, "motivo": str(e)}), 400
+    return jsonify({**base, "sem_historico": False, "origem": f["origem"], "dias": out})
+
+
 @app.route("/api/perdas/fechamento")
 def api_perdas_fechamento():
     """Status do fechamento diário do D-1 (e ?dia=YYYY-MM-DD&run=1 força a consolidação de um dia)."""

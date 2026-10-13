@@ -1921,3 +1921,44 @@ ação, previsão) gravam em `relatorio_semanal.json`; "Emitir PDF" registra a v
   "Trackers parados". PR acima de 130% em 3+ dias dos últimos 30 = ETM medindo baixo, só no bloco 06.
 - **Campos editáveis** com `contenteditable="true"` (não "plaintext-only", que navegador antigo não conhece) e colar
   como texto puro. A edição é na página, antes de emitir: o PDF não é editável.
+
+## Relatório Potência Ativa dos Inversores (`/relatorio/potencia-ativa`, 13/10/2026)
+
+Levi: "Teria como ter um novo relatório de performance pegando a potência ativa de cada inversor e sobrepondo por dia.
+Cada inversor terá uma cor diferente. Se chamará relatório Potência Ativa dos Inversores!". Fonte e usina (as da tabela
+do Tempo real, lidas da memória: nada é montado), período de 1 a 7 dias → um gráfico por dia, uma linha por inversor
+(kW, média de 5 min; mais de 15 min sem leitura quebra a linha), legenda com o nome do cadastro, tabela por dia,
+Imprimir/PDF (A4 deitado, sempre claro). Contas em `potencia_ativa.py` (puro); leitores e rotas no bloco "RELATÓRIO
+POTÊNCIA ATIVA" do `app.py` (`/api/relatorio/potencia-ativa?fonte&usina&ini&fim` e `/usinas`); tela
+`templates/potencia_ativa.html`, que pede UM dia por vez.
+- **De onde vem a potência** (nenhuma leitura nova a fonte paga; cada leitor é a leitura que outra tela já fazia):
+  API PV (Thopen API PV, 2C, SEMP, Alves Lima) = o `Pac` das MESMAS leituras da Curva das strings (`_spv_day_records`:
+  hoje o day_inverter; dia passado o `_spv_day_records_hist`, 1 consulta da cota histórica por usina e dia, 20 na Tupi
+  Paulista), nome do inversor pelo caminho do drill; Banco da Thopen = o `active_power` do `raw_inverter`, a consulta da
+  correlação do drill (`_pg_series_inversores`) para qualquer dia, com 45 s de teto; GreenYellow = o `pot` que a telemetria
+  MQTT já traz na curva da aba Curva (`_sg_curvas`, 45 dias). **Sem histórico, e a tela diz o porquê**: Athon e Axis (a
+  SunOp só é lida na última leitura; o histórico de `P` seria pedido novo à SunOp, por usina e dia — decisão do Levi),
+  RenoGrid (a SolarEdge chega como potência CC por string) e Sal Energia (Modbus: histórico só por string).
+- **Teto de 7 dias** (`MAX_DIAS`): a cota histórica da API PV é da conta (800/dia, 200/h, dividida com a combiner e a
+  coleta da noite), o scadaGridco atende um pedido por vez (um por inversor e dia) e 7 gráficos são uma semana. O relatório
+  não gasta a cota abaixo de 450 no dia ou 40 na hora (`PA_COTA_RESERVA_*`, a régua do backfill das falhas); o dia que o
+  drill já baixou cru (`_spv_hist_recs`) não gasta nada; id de usina que a plataforma não conhece é 400 antes da API PV.
+- **Cache no web** (`_PA_CACHE`, 40 dias): dia que já acabou e veio com leitura fica até reiniciar; dia sem leitura na
+  fonte, 6 h; hoje, 5 min; **falha não fica guardada** e aparece como "a fonte não respondeu (motivo) — não é usina
+  parada", com "Tentar de novo"; "sem dado" é a fonte respondendo vazio. Inversor que a fonte listou sem potência, ou que
+  faltou num dia, é dito embaixo do gráfico, nunca uma linha em zero.
+- **Cores** (skill dataviz): as 8 da paleta categórica em ordem fixa, degraus próprios no claro e no navy, validadas pelo
+  validador da skill contra `#ffffff` e `#161d30` (no claro, aqua, amarelo e magenta abaixo de 3:1: o alívio é a tabela
+  do dia). Mais de 8 inversores = cor × traço (6 traços, até 48 por gráfico; passou, o dia vira dois gráficos), nunca uma
+  9ª cor; a cor segue o inversor pela ordem natural da união dos dias. Sem rótulo na ponta da linha: as curvas convergem
+  no amanhecer e no pôr do sol; a legenda (passar o mouse destaca, clicar esconde) e a dica com todos os inversores fazem
+  esse papel. A régua de ordem natural é a mesma no Python e no JS (há teste).
+- **Nexus**: a página já sai pronta para a moldura (`data-casca` na marca, na navegação e no botão de tema; no modo Nexus
+  segue o tema do Nexus pelo `window.gcModoNexus`, como o Painel NOC). Está no `FORA_DO_MAPA` até o mapa do Nexus (o dono)
+  ganhar a tela `performance|relatorio-potencia-ativa|/relatorio/potencia-ativa||` — muda lá e aqui no mesmo trabalho,
+  com a assinatura nova no `test_o_mapa_e_a_copia_do_nexus`, e sai do `FORA_DO_MAPA`. As APIs já estão no `_GET_GESTOR`
+  (`/api/relatorio`); para o gestor a API PV fica de fora e só o dia que um analista já leu aparece.
+- Prova: `tests/test_relatorio_potencia_ativa.py` (a rota com 2 inversores × 2 dias, o teto, sem dado × falhou, a cota,
+  o gestor, os três leitores com a fonte dublada, a lista de usinas e o JS da página no node). A tela foi conferida num
+  Chrome sem janela abrindo o template como arquivo, com o `fetch` dublado e a rede cortada (proxy morto): escuro, claro,
+  390 px dentro de iframe (o Chrome sem janela não desce de ~500 px de largura) e o PDF.

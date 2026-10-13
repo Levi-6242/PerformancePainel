@@ -86,6 +86,10 @@ FORA_DO_MAPA = {
     "/os/<path:sub>": "OS Creator Web (idem)",
     "/painel/nexus/entrar": "o passe do Nexus (esta porta), não é tela",
     "/painel/nexus/sair": "o Sair do Nexus passa por aqui, não é tela",
+    # Potência Ativa dos Inversores (13/10/2026): a página já sai pronta para a moldura (data-casca, tema do Nexus), mas o
+    # mapa é do Nexus e esta é a cópia — entra lá e aqui no mesmo trabalho (id `relatorio-potencia-ativa`, torre
+    # performance), e então sai desta lista. Até lá abre direto, ou por link de dentro de uma tela já aberta pelo Nexus.
+    "/relatorio/potencia-ativa": "Potência Ativa dos Inversores: espera entrar no mapa do Nexus (o dono do mapa)",
 }
 
 

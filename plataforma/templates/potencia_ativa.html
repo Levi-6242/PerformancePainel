@@ -1,0 +1,735 @@
+<!doctype html>
+{% raw %}
+<html lang="pt-BR" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Potência Ativa dos Inversores — Grid Co.</title>
+<script>
+// Tema antes da 1ª pintura (sem piscar). Fora do Nexus o escuro (o navy da plataforma) é o padrão, e o botão "Tema claro"
+// troca e lembra a escolha neste navegador (pa.tema). Dentro do Nexus o botão some (data-casca) e vale o tema do Nexus: o
+// cookie nexus_tema ou, sem ele, o localStorage nexus.tema; o botão do Nexus troca a tela na hora (o evento storage chega
+// às molduras da mesma origem). É a régua do Painel NOC e da Visão gerencial (13/10/2026): quem diz "no Nexus" é o
+// window.gcModoNexus do calço do modo Nexus (app.py), que entra no <head> antes deste script.
+(function(){
+  var raiz = document.documentElement;
+  function aplica(t){ if(t === 'claro') raiz.setAttribute('data-theme', 'light'); else if(t === 'escuro') raiz.setAttribute('data-theme', 'dark'); }
+  if(window.gcModoNexus === true){
+    try{ var c = document.cookie.match(/(?:^|;\s*)nexus_tema=(claro|escuro)(?:;|$)/); aplica(c ? c[1] : localStorage.getItem('nexus.tema')); }catch(e){}
+    window.addEventListener('storage', function(ev){ if(ev.key === 'nexus.tema') aplica(ev.newValue); });
+    return;
+  }
+  try{ aplica(localStorage.getItem('pa.tema')); }catch(e){}
+})();
+</script>
+<style>
+/* Potência Ativa dos Inversores (13/10/2026, Levi: "pegando a potência ativa de cada inversor e sobrepondo por dia. Cada
+   inversor terá uma cor diferente"). Tema escuro = o navy da plataforma (#090d18 fundo, #161d30 cartão) com o verde Grid
+   de acento; o claro é o de papel, e é o que vai para a impressão. As cores das séries são a paleta categórica da skill
+   dataviz, as 8 em ordem fixa, cada tema com os seus degraus, validadas pelo validador da skill contra o cartão de cada
+   tema (#ffffff e #161d30): no claro, aqua, amarelo e magenta ficam abaixo de 3:1 e pedem alívio — a tabela de cada dia e
+   a legenda com o traço de cada inversor. Mais de 8 inversores: a cor se combina com o traço (codificação composta),
+   nunca uma 9ª cor inventada (ver TRACOS no script). */
+:root{
+  color-scheme:light;
+  --pagina:#eef0f4; --cartao:#ffffff; --cartao-2:#f6f7f9; --borda:#e1e4ea; --borda-2:#c9ced8;
+  --tinta:#141821; --tinta-2:#465062; --mudo:#667085;
+  --grade:#e6e8ee; --eixo:#b4bbc7;
+  --verde:#a3d900; --verde-tinta:#4f7d0a; --sobre-verde:#0b1220;
+  --ambar:#8a5a00; --ambar-fundo:#fff7e6; --ambar-borda:#f0d9a8;
+  --barra:#ffffff; --sombra:0 1px 2px rgba(16,24,40,.05),0 1px 3px rgba(16,24,40,.07);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --pagina:#090d18; --cartao:#161d30; --cartao-2:#1b2338; --borda:rgba(255,255,255,.08); --borda-2:rgba(255,255,255,.16);
+  --tinta:#e9eef6; --tinta-2:#c3cad7; --mudo:#96a0b4;
+  --grade:rgba(255,255,255,.07); --eixo:rgba(255,255,255,.24);
+  --verde:#a3d900; --verde-tinta:#c4e755; --sobre-verde:#0b1220;
+  --ambar:#f5c877; --ambar-fundo:rgba(245,166,35,.10); --ambar-borda:rgba(245,166,35,.32);
+  --barra:#0f1523; --sombra:none;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--pagina);color:var(--tinta)}
+body{font:13px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+
+/* barra de trabalho (só na tela): em cima o nome da tela e a navegação da plataforma (casca: some no Nexus), embaixo os
+   filtros e as ações, que são da tela */
+.barra{position:sticky;top:0;z-index:20;background:var(--barra);border-bottom:1px solid var(--borda);padding:8px 16px 10px}
+.linha{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px}
+.linha.filtros{align-items:flex-end;margin-top:6px}
+.acoes{display:flex;align-items:center;gap:8px}
+.marca{font-weight:700;font-size:15px;letter-spacing:-.01em;white-space:nowrap}
+.marca b{color:var(--verde-tinta)}
+.titulo{margin:0;font-size:15px;font-weight:650;white-space:nowrap}
+.campo{display:flex;flex-direction:column;gap:3px;font-size:10.5px;font-weight:650;color:var(--mudo);text-transform:uppercase;
+  letter-spacing:.05em}
+.campo select,.campo input{font:inherit;font-size:13px;font-weight:500;text-transform:none;letter-spacing:0;color:var(--tinta);
+  background:var(--cartao-2);border:1px solid var(--borda-2);border-radius:8px;padding:6px 9px;min-height:34px}
+.campo select{min-width:190px;max-width:300px}
+.campo select:disabled{opacity:.6}
+.periodo{display:flex;gap:4px;align-items:center}
+.bt{font:inherit;font-size:13px;font-weight:600;border-radius:8px;padding:7px 14px;min-height:34px;cursor:pointer;
+  border:1px solid var(--borda-2);background:transparent;color:var(--tinta)}
+.bt:hover{border-color:var(--mudo)}
+.bt:focus-visible,.item:focus-visible,.graf:focus-visible{outline:2px solid var(--verde);outline-offset:2px}
+.bt.prim{background:var(--verde);border-color:var(--verde);color:var(--sobre-verde)}
+.bt:disabled{opacity:.5;cursor:default}
+.bt.mini{font-size:12px;padding:3px 10px;min-height:28px;font-weight:600}
+.periodo .bt{padding:5px 10px;min-height:34px;font-size:12px}
+.teto{font-size:11px;color:var(--mudo);align-self:center;white-space:nowrap;cursor:help;border-bottom:1px dotted var(--mudo)}
+.sep{flex:1}
+.nav{color:var(--mudo);text-decoration:none;font-size:12.5px;white-space:nowrap}
+.nav:hover{color:var(--tinta)}
+.st{font-size:12px;color:var(--mudo);min-width:1em}
+
+/* documento */
+main{max-width:1240px;margin:0 auto;padding:18px 16px 48px}
+.cab{background:var(--cartao);border:1px solid var(--borda);border-radius:12px;padding:16px 18px;margin-bottom:12px;box-shadow:var(--sombra)}
+.cab .kicker{font-size:10.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--mudo)}
+.cab h2{margin:4px 0 2px;font-size:22px;font-weight:700;letter-spacing:-.02em}
+.cab .sub{color:var(--tinta-2);font-size:14px;font-weight:550}
+.cab .meta{color:var(--mudo);font-size:12px;margin-top:8px;line-height:1.6}
+.cab .meta b{color:var(--tinta-2);font-weight:600}
+.aviso{font-size:12.5px;line-height:1.55;color:var(--ambar);background:var(--ambar-fundo);border:1px solid var(--ambar-borda);
+  border-radius:10px;padding:10px 12px;margin-bottom:12px}
+.aviso b{font-weight:700}
+.aviso-linha + .aviso-linha{margin-top:6px;padding-top:6px;border-top:1px solid var(--ambar-borda)}
+.vazio{color:var(--mudo);text-align:center;padding:64px 16px;font-size:14px}
+.vazio b{color:var(--tinta-2)}
+
+.legenda{background:var(--cartao);border:1px solid var(--borda);border-radius:12px;padding:10px 14px 12px;margin-bottom:12px;box-shadow:var(--sombra)}
+.legenda .topo{display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap;margin-bottom:6px}
+.legenda .topo .t{font-size:12.5px;font-weight:650}
+.legenda .topo .d{font-size:11.5px;color:var(--mudo);flex:1;min-width:200px}
+.legenda .grupo{font-size:11px;font-weight:650;color:var(--mudo);text-transform:uppercase;letter-spacing:.05em;margin:8px 0 2px}
+.itens{display:flex;flex-wrap:wrap;gap:2px 4px}
+.item{display:inline-flex;align-items:center;gap:7px;font:inherit;font-size:12px;color:var(--tinta);background:transparent;
+  border:1px solid transparent;border-radius:7px;padding:3px 8px;cursor:pointer;min-height:28px}
+.item:hover{border-color:var(--borda-2)}
+.item.oculto{color:var(--mudo);text-decoration:line-through}
+.item.oculto svg{opacity:.3}
+.item svg{flex:none;overflow:visible}
+
+.dia{background:var(--cartao);border:1px solid var(--borda);border-radius:12px;padding:14px 16px 12px;margin-bottom:12px;
+  box-shadow:var(--sombra);break-inside:avoid;page-break-inside:avoid}
+.dia-cab{display:flex;align-items:baseline;justify-content:space-between;gap:4px 12px;flex-wrap:wrap}
+.dia-cab h3{margin:0;font-size:15px;font-weight:650}
+.dia-cab .res{color:var(--mudo);font-size:12px}
+.dia .faceta{font-size:11px;font-weight:650;color:var(--mudo);text-transform:uppercase;letter-spacing:.05em;margin:10px 0 0}
+.lendo{color:var(--mudo);font-size:12.5px;padding:28px 0;text-align:center}
+.nota{font-size:12px;color:var(--tinta-2);margin-top:8px;line-height:1.55}
+.nota.ambar{color:var(--ambar);background:var(--ambar-fundo);border:1px solid var(--ambar-borda);border-radius:8px;padding:8px 10px}
+.nota .bt{margin-left:6px}
+.rodape-dia{display:flex;justify-content:flex-end;margin-top:6px}
+
+.graf{position:relative;margin-top:6px;border-radius:6px}
+.graf svg{display:block;width:100%;height:auto}
+.eixo-txt{fill:var(--mudo);font-size:11px;font-variant-numeric:tabular-nums}
+.grade{stroke:var(--grade);stroke-width:1;shape-rendering:crispEdges}
+.base{stroke:var(--eixo);stroke-width:1;shape-rendering:crispEdges}
+.serie{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.graf.com-foco .serie{opacity:.13}
+.graf.com-foco .serie.foco{opacity:1;stroke-width:2.75}
+.mira{stroke:var(--tinta-2);stroke-width:1;shape-rendering:crispEdges}
+.mira-ponto{stroke:var(--cartao);stroke-width:2}
+.alvo{fill:transparent;cursor:crosshair}
+
+.dica{position:fixed;z-index:50;pointer-events:none;background:var(--cartao);color:var(--tinta);border:1px solid var(--borda-2);
+  border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.28);padding:9px 11px;font-size:12px;max-width:calc(100vw - 24px)}
+.dica .hora{font-weight:700;margin-bottom:6px}
+.dica .linhas{display:grid;grid-template-columns:repeat(var(--cols,1),minmax(150px,auto));gap:2px 16px}
+.dica .lin{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.dica .lin b{font-weight:700;font-variant-numeric:tabular-nums;min-width:58px;text-align:right}
+.dica .lin span{color:var(--mudo)}
+.dica .nada{color:var(--mudo)}
+
+.tab{overflow-x:auto;margin-top:8px}
+table{border-collapse:collapse;width:100%;font-size:12px}
+th{text-align:right;font-size:10.5px;font-weight:650;color:var(--mudo);text-transform:uppercase;letter-spacing:.03em;padding:6px 8px;
+  border-bottom:1px solid var(--borda-2);white-space:nowrap}
+td{padding:5px 8px;border-bottom:1px solid var(--borda);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}
+td.nome{display:flex;align-items:center;gap:7px}
+
+@media (max-width:640px){
+  .barra{position:static}                /* no celular a barra de filtros presa no topo comeria metade da tela */
+  .campo select{min-width:0;max-width:none;width:100%}
+  .campo{flex:1 1 140px}
+  main{padding:14px 16px 40px}
+  .dia{padding:12px 12px 10px}
+}
+@media print{
+  :root,:root[data-theme="dark"]{color-scheme:light;
+    --pagina:#ffffff; --cartao:#ffffff; --cartao-2:#f6f7f9; --borda:#d6dae1; --borda-2:#c9ced8;
+    --tinta:#141821; --tinta-2:#465062; --mudo:#667085; --grade:#e6e8ee; --eixo:#b4bbc7;
+    --verde-tinta:#4f7d0a; --ambar:#8a5a00; --ambar-fundo:#fff7e6; --ambar-borda:#f0d9a8; --sombra:none;
+    --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#4a3aa7; --s8:#e34948;}
+  html,body{background:#fff}
+  body{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .barra,.dica,.so-tela,.aviso.so-tela{display:none!important}
+  main{max-width:none;padding:0}
+  .cab,.legenda,.dia{box-shadow:none}
+  .item{cursor:default}
+  @page{size:A4 landscape;margin:10mm}
+}
+</style>
+</head>
+<body>
+<header class="barra">
+  <div class="linha">
+    <span class="marca" data-casca>Grid<b> Co.</b></span>
+    <h1 class="titulo">Potência Ativa dos Inversores</h1>
+    <span class="sep"></span>
+    <a class="nav" href="/relatorio" data-casca>Criador de relatório</a>
+    <a class="nav" href="/" data-casca>← Início</a>
+    <button type="button" class="bt mini" id="tema" data-casca title="alternar tema claro/escuro (fica salvo neste navegador)">Tema claro</button>
+  </div>
+  <div class="linha filtros">
+    <label class="campo">Fonte<select id="fonte"><option value="">carregando…</option></select></label>
+    <label class="campo">Usina<select id="usina" disabled></select></label>
+    <label class="campo">De<input type="date" id="ini"></label>
+    <label class="campo">Até<input type="date" id="fim"></label>
+    <div class="periodo" role="group" aria-label="Atalhos de período">
+      <button type="button" class="bt" data-atalho="hoje">Hoje</button>
+      <button type="button" class="bt" data-atalho="ontem">Ontem</button>
+      <button type="button" class="bt" data-atalho="7">7 dias</button>
+    </div>
+    <span class="teto" id="teto" title="">até 7 dias</span>
+    <div class="acoes">
+      <button type="button" class="bt prim" id="gerar" disabled>Gerar</button>
+      <button type="button" class="bt" id="imprimir">Imprimir / PDF</button>
+      <span class="st" id="st" aria-live="polite"></span>
+    </div>
+  </div>
+</header>
+<main>
+  <div class="aviso so-tela" id="aviso" role="status" hidden></div>
+  <section class="cab" id="cab" hidden></section>
+  <section class="legenda" id="legenda" aria-label="Legenda: um traço por inversor" hidden></section>
+  <div id="dias"></div>
+  <div class="vazio" id="vazio">Escolha a fonte, a usina e o período e clique em <b>Gerar</b>.</div>
+</main>
+<div class="dica" id="dica" role="tooltip" hidden></div>
+<script>
+'use strict';
+const $ = (id) => document.getElementById(id);
+const SEMANA = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+// Cada inversor = uma cor da paleta categórica (8, em ordem fixa, nunca recicladas). Passou de 8 na usina, a cor se
+// combina com o traço: o 9º é a cor 1 tracejada, o 17º a cor 1 pontilhada (codificação composta cor × traço, a regra da
+// skill dataviz para mais séries que cores). Até 48 inversores num gráfico; passou disso, o dia vira mais de um gráfico.
+const TRACOS = ['', '7 5', '0.1 4.5', '12 4 0.1 4', '18 5', '9 4 0.1 4 0.1 4'];
+const N_CORES = 8, POR_GRAFICO = N_CORES * TRACOS.length;
+const S = { fontes: [], porFonte: {}, maxDias: 7, passo: 5, lacuna: 15, hoje: null, gen: 0, pedido: null, dias: [],
+            resp: {}, cartoes: {}, meta: null, ordem: [], idx: new Map(), oculto: new Set(), foco: null, tabela: new Set(),
+            larguraImpressao: null };
+
+// ── utilidades ───────────────────────────────────────────────────────────────────────────────────────────────────────
+const pad = (n) => String(n).padStart(2, '0');
+const isoLocal = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;   // data LOCAL (o toISOString é UTC)
+const dataDe = (iso) => { const [a, m, d] = String(iso).split('-').map(Number); return new Date(a, m - 1, d); };
+const somaDias = (iso, n) => { const d = dataDe(iso); d.setDate(d.getDate() + n); return isoLocal(d); };
+const difDias = (a, b) => Math.round((dataDe(b) - dataDe(a)) / 86400000);
+const br = (iso) => { const [a, m, d] = String(iso).split('-'); return `${d}/${m}/${a}`; };
+const hhmm = (min) => `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
+const nf = (v, c = 1) => (v == null || !isFinite(v)) ? '—'
+  : Number(v).toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c });
+function mk(tag, cls, txt) { const e = document.createElement(tag); if (cls) e.className = cls; if (txt != null) e.textContent = txt; return e; }
+
+// Ordem de gente ("Inversor 1.10" depois do "1.9"): a MESMA régua do potencia_ativa.chave_natural, e é ela que fixa a cor
+// de cada inversor — a cor segue o inversor, nunca a posição dele num filtro.
+function chaveNatural(nome) {
+  return String(nome == null ? '' : nome).trim().toLowerCase().split(/(\d+)/).filter((p) => p !== '')
+    .map((p) => (/^\d+$/.test(p) ? [0, Number(p), ''] : [1, 0, p]));
+}
+function comparaNatural(a, b) {
+  const x = chaveNatural(a), y = chaveNatural(b);
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    for (let j = 0; j < 3; j++) { if (x[i][j] < y[i][j]) return -1; if (x[i][j] > y[i][j]) return 1; }
+  }
+  return x.length - y.length;
+}
+
+// A chave visual de cada inversor: cor (8, em ordem) × traço; o índice é a posição na união dos inversores do relatório
+function chave(nome) {
+  const i = S.idx.has(nome) ? S.idx.get(nome) % POR_GRAFICO : 0;
+  return { cor: `var(--s${(i % N_CORES) + 1})`, traco: TRACOS[Math.floor(i / N_CORES)] || '' };
+}
+function grupos() {
+  const g = [];
+  for (let i = 0; i < S.ordem.length; i += POR_GRAFICO) g.push(S.ordem.slice(i, i + POR_GRAFICO));
+  return g.length ? g : [[]];
+}
+const SVGNS = 'http://www.w3.org/2000/svg';
+function chaveSvg(nome, w = 22) {
+  const k = chave(nome), s = document.createElementNS(SVGNS, 'svg'), l = document.createElementNS(SVGNS, 'line');
+  s.setAttribute('width', w); s.setAttribute('height', 8); s.setAttribute('aria-hidden', 'true');
+  l.setAttribute('x1', 1); l.setAttribute('x2', w - 1); l.setAttribute('y1', 4); l.setAttribute('y2', 4);
+  l.setAttribute('stroke-width', 2.5); l.setAttribute('stroke-linecap', 'round');
+  l.style.stroke = k.cor; if (k.traco) l.setAttribute('stroke-dasharray', k.traco);
+  s.appendChild(l); return s;
+}
+
+// Leitura que falha não vira número (regra de 10/10/2026): só 2xx com ok:true é dado; o resto vira o motivo na tela. O 401
+// (sessão vencida) é da faixa do aviso_de_sessao.js; aqui o dia só diz que não carregou.
+async function ler(url, ms) {
+  const ctl = window.AbortController ? new AbortController() : null;
+  const t = ctl ? setTimeout(() => ctl.abort(), ms || 60000) : null;
+  let r, j = null;
+  try { r = await fetch(url, { headers: { Accept: 'application/json' }, signal: ctl ? ctl.signal : undefined }); }
+  catch (e) {
+    const x = new Error(e && e.name === 'AbortError' ? `a leitura passou de ${Math.round((ms || 60000) / 1000)} s` : 'sem resposta do servidor');
+    x.rede = true; throw x;
+  } finally { if (t) clearTimeout(t); }
+  try { j = await r.json(); } catch (e) { j = null; }
+  if (r.status === 401) { const x = new Error('a sessão venceu: entre de novo'); x.sessao = true; throw x; }
+  if (!r.ok || !j || j.ok === false) {
+    const x = new Error((j && (j.motivo || j.erro || j.error)) || `o servidor respondeu HTTP ${r.status}`);
+    x.http = r.status; throw x;
+  }
+  return j;
+}
+
+// Dois avisos independentes, a fonte (sem histórico, sem usina) e o período (passou do teto): um não apaga o outro
+const AVISOS = { fonte: null, periodo: null };
+function avisa(qual, partes) {
+  AVISOS[qual] = partes || null;
+  const a = $('aviso'), ks = ['fonte', 'periodo'].filter((k) => AVISOS[k]);
+  a.textContent = ''; a.hidden = !ks.length;
+  ks.forEach((k) => { const p = mk('div', 'aviso-linha'); p.append(...AVISOS[k]); a.appendChild(p); });
+}
+function st(txt) { $('st').textContent = txt || ''; }
+
+// ── fontes, usinas e período ─────────────────────────────────────────────────────────────────────────────────────────
+function preencheFontes() {
+  const sel = $('fonte'); sel.textContent = '';
+  const com = mk('optgroup'); com.label = 'Com histórico de potência por inversor';
+  const sem = mk('optgroup'); sem.label = 'Sem histórico de potência por inversor';
+  for (const f of S.fontes) {
+    const o = mk('option', '', f.historico ? f.rotulo : `${f.rotulo} (sem histórico)`); o.value = f.fonte;
+    (f.historico ? com : sem).appendChild(o);
+  }
+  if (com.children.length) sel.appendChild(com);
+  if (sem.children.length) sel.appendChild(sem);
+}
+
+function preencheUsinas(escolhida) {
+  const f = S.porFonte[$('fonte').value], sel = $('usina');
+  sel.textContent = '';
+  avisa('fonte', null);
+  if (!f) { sel.disabled = true; $('gerar').disabled = true; return; }
+  if (!f.historico) {
+    sel.appendChild(mk('option', '', '—')); sel.disabled = true; $('gerar').disabled = true;
+    avisa('fonte', [mk('b', '', `${f.rotulo}: sem histórico de potência por inversor. `), f.motivo || '']);
+    return;
+  }
+  for (const u of f.usinas || []) { const o = mk('option', '', u.nome); o.value = u.id; sel.appendChild(o); }
+  sel.disabled = !(f.usinas || []).length;
+  $('gerar').disabled = sel.disabled;
+  if (sel.disabled) { sel.appendChild(mk('option', '', 'nenhuma usina')); avisa('fonte', [mk('b', '', `${f.rotulo}: `), f.aviso || 'sem usinas']); return; }
+  if (escolhida && [...sel.options].some((o) => o.value === String(escolhida))) sel.value = String(escolhida);
+}
+
+// O teto de dias: o período anda junto em vez de recusar (mexeu no início, o fim acompanha; mexeu no fim, o início).
+function ajustaPeriodo(quem) {
+  const ini = $('ini'), fim = $('fim'), hoje = S.hoje;
+  let a = ini.value || hoje, b = fim.value || a, mexeu = false;
+  if (a > hoje) a = hoje;
+  if (b > hoje) b = hoje;
+  if (b < a) { if (quem === 'fim') a = b; else b = a; }
+  if (difDias(a, b) + 1 > S.maxDias) {
+    if (quem === 'fim') a = somaDias(b, -(S.maxDias - 1)); else b = somaDias(a, S.maxDias - 1);
+    if (b > hoje) { b = hoje; a = somaDias(b, -(S.maxDias - 1)); }
+    mexeu = true;
+  }
+  ini.value = a; fim.value = b;
+  avisa('periodo', mexeu ? [mk('b', '', `O relatório vai até ${S.maxDias} dias seguidos. `), $('teto').title] : null);
+}
+
+function atalho(qual) {
+  const hoje = S.hoje;
+  if (qual === 'hoje') { $('ini').value = hoje; $('fim').value = hoje; }
+  else if (qual === 'ontem') { const o = somaDias(hoje, -1); $('ini').value = o; $('fim').value = o; }
+  else { $('fim').value = hoje; $('ini').value = somaDias(hoje, -(S.maxDias - 1)); }
+  ajustaPeriodo('ini');
+}
+
+// ── o relatório ─────────────────────────────────────────────────────────────────────────────────────────────────────
+function tituloDia(dia) {
+  const s = SEMANA[dataDe(dia).getDay()];
+  return `${s.charAt(0).toUpperCase()}${s.slice(1)}, ${br(dia)}`;
+}
+
+function montaCab(f, nomeUsina, ini, fim) {
+  const c = $('cab'); c.textContent = ''; c.hidden = false;
+  const n = difDias(ini, fim) + 1;
+  c.append(mk('div', 'kicker', 'Grid Co. · Relatório de performance'), mk('h2', '', 'Potência Ativa dos Inversores'),
+           mk('div', 'sub', `${nomeUsina} · ${f.rotulo} · ${ini === fim ? br(ini) : `${br(ini)} a ${br(fim)}`} (${n} dia${n > 1 ? 's' : ''})`));
+  const m = mk('div', 'meta');
+  const agora = new Date();
+  m.append(mk('b', '', 'Dado: '), f.origem || '', '. ',
+           mk('b', '', 'Leitura: '), `potência ativa de cada inversor em kW, média de ${S.passo} min; um gráfico por dia, uma linha `
+           + `por inversor. Mais de ${S.lacuna} min sem leitura quebra a linha: sem leitura não é zero. `,
+           mk('b', '', 'Gerado em '), `${br(isoLocal(agora))} ${pad(agora.getHours())}:${pad(agora.getMinutes())}.`);
+  c.append(m);
+}
+
+function montaDias() {
+  const box = $('dias'); box.textContent = ''; S.cartoes = {};
+  for (const dia of S.dias) { const c = mk('section', 'dia'); c.dataset.dia = dia; box.appendChild(c); S.cartoes[dia] = c; desenhaDia(dia); }
+}
+
+async function gerar() {
+  const fonte = $('fonte').value, usina = $('usina').value, f = S.porFonte[fonte];
+  ajustaPeriodo('ini');
+  const ini = $('ini').value, fim = $('fim').value;
+  if (!f || !f.historico || !usina || !ini || !fim) return;
+  const gen = ++S.gen;
+  S.pedido = { fonte, usina };
+  S.dias = Array.from({ length: difDias(ini, fim) + 1 }, (_, i) => somaDias(ini, i));
+  S.resp = {}; S.ordem = []; S.idx = new Map(); S.oculto.clear(); S.foco = null; S.tabela.clear(); S.meta = null;
+  try { history.replaceState(null, '', location.pathname + '?' + new URLSearchParams({ fonte, usina, ini, fim })); } catch (e) {}
+  montaCab(f, ($('usina').selectedOptions[0] || {}).textContent || usina, ini, fim);
+  $('vazio').hidden = true;
+  desenhaLegenda();
+  montaDias();
+  // Um dia por vez, em ordem: o dia passado da API PV gasta a cota e o scadaGridco atende um pedido por vez; cada dia
+  // aparece quando chega, e a fonte lenta num dia não segura os outros.
+  for (let i = 0; i < S.dias.length; i++) {
+    if (gen !== S.gen) return;
+    st(`lendo ${br(S.dias[i])} (${i + 1} de ${S.dias.length})…`);
+    await leDia(gen, S.dias[i]);
+  }
+  if (gen === S.gen) st('');
+}
+
+async function leDia(gen, dia) {
+  const p = S.pedido;
+  S.resp[dia] = { carregando: true }; desenhaDia(dia);
+  let d;
+  try {
+    const j = await ler(`/api/relatorio/potencia-ativa?fonte=${encodeURIComponent(p.fonte)}&usina=${encodeURIComponent(p.usina)}`
+                        + `&ini=${dia}&fim=${dia}`, 200000);
+    if (gen !== S.gen) return;
+    d = j.sem_historico ? { situacao: 'sem_dado', motivo: j.motivo } : ((j.dias || [])[0] || { situacao: 'falhou', motivo: 'a resposta veio sem o dia pedido', lido_em: '' });
+    if (!j.sem_historico) S.meta = j;
+  } catch (e) {
+    if (gen !== S.gen) return;
+    d = { situacao: 'erro', motivo: e.message, sessao: !!e.sessao };
+  }
+  if (d.situacao === 'ok') d.mapa = new Map(d.inversores.map((inv) => [inv.nome, new Map(inv.pontos.map(([m, v]) => [m, v]))]));
+  S.resp[dia] = d;
+  const antes = S.ordem.join('\n');
+  atualizaOrdem();
+  if (S.ordem.join('\n') !== antes) { desenhaLegenda(); S.dias.forEach(desenhaDia); }
+  else S.dias.forEach((x) => { if (x === dia || (S.resp[x] && S.resp[x].situacao === 'ok')) desenhaDia(x); });
+}
+
+function atualizaOrdem() {
+  const todos = new Set();
+  for (const dia of S.dias) { const r = S.resp[dia]; if (r && r.situacao === 'ok') r.inversores.forEach((i) => todos.add(i.nome)); }
+  S.ordem = [...todos].sort(comparaNatural);
+  S.idx = new Map(S.ordem.map((n, i) => [n, i]));
+}
+
+// A mesma escala em todos os dias do relatório: o dia nublado aparece mais baixo que o de sol, e o eixo do tempo vai do
+// primeiro ao último passo com potência no período, arredondados à hora.
+function escala() {
+  let x0 = Infinity, x1 = -Infinity, ymin = 0, ymax = 0;
+  for (const dia of S.dias) {
+    const r = S.resp[dia]; if (!r || r.situacao !== 'ok') continue;
+    for (const inv of r.inversores) for (const [m, v] of inv.pontos) {
+      if (v > 0) { if (m < x0) x0 = m; if (m + S.passo > x1) x1 = m + S.passo; }
+      if (v > ymax) ymax = v; if (v < ymin) ymin = v;
+    }
+  }
+  if (!isFinite(x0)) { x0 = 5 * 60; x1 = 19 * 60; }
+  x0 = Math.max(0, Math.floor(x0 / 60) * 60); x1 = Math.min(24 * 60, Math.ceil(x1 / 60) * 60);
+  if (x1 - x0 < 120) { x0 = Math.max(0, x0 - 60); x1 = Math.min(24 * 60, x0 + 180); }
+  const yt = ticksY(ymin, ymax > 0 ? ymax : 1);
+  return { x0, x1, y0: yt[0], y1: yt[yt.length - 1], yticks: yt };
+}
+function ticksY(min, max) {
+  const bruto = (max - min) / 5, mag = Math.pow(10, Math.floor(Math.log10(bruto)));
+  const passo = [1, 2, 2.5, 5, 10].map((k) => k * mag).find((s) => s >= bruto) || 10 * mag;
+  const a = Math.floor(min / passo) * passo, b = Math.max(a + passo, Math.ceil(max / passo) * passo);
+  const out = []; for (let v = a; v <= b + passo / 2; v += passo) out.push(Math.round(v * 1000) / 1000);
+  return out;
+}
+
+function resumoDia(r) {
+  let top = null;
+  for (const inv of r.inversores) for (const [m, v] of inv.pontos) if (!top || v > top.v) top = { v, m, nome: inv.nome };
+  const n = r.inversores.length;
+  return `${n} inversor${n > 1 ? 'es' : ''} com leitura` + (top ? ` · maior potência: ${nf(top.v)} kW às ${hhmm(top.m)} (${top.nome})` : '');
+}
+
+function desenhaDia(dia) {
+  const c = S.cartoes[dia]; if (!c) return;
+  const r = S.resp[dia];
+  c.textContent = '';
+  const cab = mk('div', 'dia-cab'), res = mk('span', 'res');
+  cab.append(mk('h3', '', tituloDia(dia)), res); c.appendChild(cab);
+  if (!r) { res.textContent = 'na fila'; return; }
+  if (r.carregando) { res.textContent = 'lendo a fonte…'; c.appendChild(mk('div', 'lendo', 'Lendo a potência dos inversores deste dia…')); return; }
+  if (r.situacao === 'erro' || r.situacao === 'falhou') {
+    // "perfil": a leitura nem foi pedida (o gestor pelo Nexus não abre a API PV): não é a fonte que falhou, e tentar de
+    // novo não adianta
+    const n = mk('div', 'nota ambar', r.situacao === 'erro' ? `Não carregou: ${r.motivo}.` : r.perfil ? `Sem leitura: ${r.motivo}.`
+      : `A fonte não respondeu${r.lido_em ? ` às ${r.lido_em}` : ''} (${r.motivo}): sem leitura — não é usina parada.`);
+    if (!r.sessao && !r.perfil) {
+      const b = mk('button', 'bt mini so-tela', 'Tentar de novo'); b.type = 'button';
+      b.onclick = () => { const g = S.gen; leDia(g, dia); };
+      n.appendChild(b);
+    }
+    c.appendChild(n); return;
+  }
+  if (r.situacao === 'sem_dado') { c.appendChild(mk('div', 'nota', `Sem leitura de potência por inversor neste dia: ${r.motivo}.`)); return; }
+  res.textContent = resumoDia(r);
+  const E = escala(), gs = grupos();
+  gs.forEach((grupo, gi) => {
+    if (gs.length > 1) c.appendChild(mk('div', 'faceta', `Inversores ${gi * POR_GRAFICO + 1} a ${gi * POR_GRAFICO + grupo.length}`));
+    c.appendChild(grafico(dia, r, grupo, E));
+  });
+  notasDia(c, dia, r);
+  const rod = mk('div', 'rodape-dia so-tela'), bt = mk('button', 'bt mini', S.tabela.has(dia) ? 'Esconder tabela' : 'Ver tabela');
+  bt.type = 'button'; bt.setAttribute('aria-expanded', String(S.tabela.has(dia)));
+  bt.onclick = () => { if (S.tabela.has(dia)) S.tabela.delete(dia); else S.tabela.add(dia); desenhaDia(dia); };
+  rod.appendChild(bt); c.appendChild(rod);
+  if (S.tabela.has(dia)) c.appendChild(tabelaDia(r));
+}
+
+function notasDia(c, dia, r) {
+  const nomes = new Set(r.inversores.map((i) => i.nome).concat(r.sem_leitura || []));   // o "listou sem potência" já é dito abaixo
+  const ausentes = S.ordem.filter((n) => !nomes.has(n));
+  const linhas = [];
+  if (r.parcial) linhas.push(`Hoje, até as ${r.lido_em}: o dia ainda não acabou.`);
+  if (r.obs) linhas.push(`${r.obs.charAt(0).toUpperCase()}${r.obs.slice(1)}.`);
+  if (ausentes.length) linhas.push(`Sem leitura neste dia: ${ausentes.join(', ')}.`);
+  if ((r.sem_leitura || []).length) linhas.push(`A fonte listou sem a potência: ${r.sem_leitura.join(', ')}.`);
+  if (linhas.length) c.appendChild(mk('div', 'nota', linhas.join(' ')));
+  if ((r.faltaram || []).length) c.appendChild(mk('div', 'nota ambar', `A fonte não respondeu para ${r.faltaram.join(', ')}: `
+    + 'fora do gráfico, sem leitura (não é inversor parado). Gere de novo para tentar.'));
+}
+
+function tabelaDia(r) {
+  const w = mk('div', 'tab'), t = mk('table'), th = mk('thead'), tb = mk('tbody'), tr = mk('tr');
+  ['Inversor', 'Pico (kW)', 'Hora do pico', 'Primeira leitura', 'Última leitura', `Passos de ${S.passo} min`].forEach((h) => tr.appendChild(mk('th', '', h)));
+  th.appendChild(tr);
+  for (const inv of [...r.inversores].sort((a, b) => comparaNatural(a.nome, b.nome))) {
+    let top = null; for (const [m, v] of inv.pontos) if (!top || v > top.v) top = { v, m };
+    const l = mk('tr'), n = mk('td', 'nome');
+    n.append(chaveSvg(inv.nome, 18), mk('span', '', inv.nome));
+    l.append(n, mk('td', '', nf(top && top.v)), mk('td', '', top ? hhmm(top.m) : '—'),
+             mk('td', '', inv.pontos.length ? hhmm(inv.pontos[0][0]) : '—'),
+             mk('td', '', inv.pontos.length ? hhmm(inv.pontos[inv.pontos.length - 1][0]) : '—'), mk('td', '', String(inv.pontos.length)));
+    tb.appendChild(l);
+  }
+  t.append(th, tb); w.appendChild(t); return w;
+}
+
+// ── o gráfico: SVG desenhado na largura real do cartão (texto nítido em qualquer tela; na impressão, a largura do papel)
+function geometria(largura) {
+  // na impressão, 250 px de altura: dois dias por página A4 deitada (com 300 cada dia ia para uma página sozinho)
+  const W = Math.max(320, Math.round(largura)), H = S.larguraImpressao ? 250 : (W < 640 ? 240 : 300);
+  return { W, H, l: 46, r: 12, t: 20, b: 26 };
+}
+
+function grafico(dia, r, grupo, E) {
+  const box = mk('div', 'graf');
+  box.tabIndex = 0;
+  const larg = S.larguraImpressao || ($('dias').clientWidth - 32) || 900;
+  const G = geometria(larg), pw = G.W - G.l - G.r, ph = G.H - G.t - G.b;
+  const X = (m) => G.l + (m - E.x0) / (E.x1 - E.x0) * pw, Y = (v) => G.t + (1 - (v - E.y0) / (E.y1 - E.y0)) * ph;
+  const visiveis = grupo.filter((n) => !S.oculto.has(n) && r.mapa && r.mapa.has(n));
+  let s = `<svg viewBox="0 0 ${G.W} ${G.H}" width="${G.W}" height="${G.H}" aria-hidden="true">`;
+  for (const t of E.yticks) {
+    const y = Y(t).toFixed(1);
+    s += `<line class="${t === 0 ? 'base' : 'grade'}" x1="${G.l}" x2="${G.W - G.r}" y1="${y}" y2="${y}"/>`
+       + `<text class="eixo-txt" x="${G.l - 7}" y="${y}" dy="0.32em" text-anchor="end">${nf(t, t % 1 ? 1 : 0)}</text>`;
+  }
+  s += `<text class="eixo-txt" x="${G.l - 7}" y="9" text-anchor="end">kW</text>`;
+  const passoX = (E.x1 - E.x0) > 14 * 60 || G.W < 560 ? 120 : 60;
+  for (let t = Math.ceil(E.x0 / passoX) * passoX; t <= E.x1; t += passoX) {
+    s += `<text class="eixo-txt" x="${X(t).toFixed(1)}" y="${G.H - 7}" text-anchor="middle">${hhmm(t)}</text>`;
+  }
+  for (const nome of visiveis) {
+    const inv = r.inversores.find((i) => i.nome === nome), k = chave(nome);
+    let d = '', seg = [];
+    const fecha = () => { if (seg.length === 1) d += `M${seg[0][0]} ${seg[0][1]}h0.1`; else if (seg.length) d += 'M' + seg.map((p) => `${p[0]} ${p[1]}`).join('L'); seg = []; };
+    let ant = null;
+    for (const [m, v] of inv.pontos) {
+      if (ant !== null && m - ant > S.lacuna) fecha();
+      seg.push([X(m).toFixed(1), Y(v).toFixed(1)]); ant = m;
+    }
+    fecha();
+    s += `<path class="serie" data-i="${S.idx.get(nome)}" d="${d}" style="stroke:${k.cor}"${k.traco ? ` stroke-dasharray="${k.traco}"` : ''}/>`;
+  }
+  s += `<line class="mira" x1="0" x2="0" y1="${G.t}" y2="${G.t + ph}" visibility="hidden"/><g class="mira-pontos"></g>`
+     + `<rect class="alvo" x="${G.l}" y="${G.t}" width="${pw}" height="${ph}"/></svg>`;
+  box.innerHTML = s;
+  let top = null;
+  for (const inv of r.inversores) for (const [m, v] of inv.pontos) if (!top || v > top.v) top = { v, m };
+  box.setAttribute('role', 'img');
+  box.setAttribute('aria-label', `Potência ativa de ${visiveis.length} inversores em ${br(dia)}` + (top ? `; maior potência ${nf(top.v)} kW às ${hhmm(top.m)}` : '')
+    + '. Setas esquerda e direita percorrem o dia; a tabela do dia tem os números.');
+  if (S.foco != null && S.idx.has(S.foco)) marcaFoco(box);
+  const svg = box.querySelector('svg'), mira = svg.querySelector('.mira'), pontos = svg.querySelector('.mira-pontos');
+  let atual = null;
+  const passos = (m) => Math.min(E.x1 - S.passo, Math.max(E.x0, Math.round(m / S.passo) * S.passo));
+  function mostra(m, cy) {
+    atual = m;
+    const x = X(m).toFixed(1);
+    mira.setAttribute('x1', x); mira.setAttribute('x2', x); mira.setAttribute('visibility', 'visible');
+    const linhas = [];
+    let pts = '';
+    for (const nome of visiveis) {
+      const v = r.mapa.get(nome).get(m);
+      if (v == null) continue;
+      linhas.push({ nome, v });
+      pts += `<circle class="mira-ponto" cx="${x}" cy="${Y(v).toFixed(1)}" r="4" style="fill:${chave(nome).cor}"/>`;
+    }
+    pontos.innerHTML = pts;
+    dica(svg, X(m), cy, m, linhas.sort((a, b) => b.v - a.v || comparaNatural(a.nome, b.nome)), G);
+  }
+  function esconde() { atual = null; mira.setAttribute('visibility', 'hidden'); pontos.innerHTML = ''; $('dica').hidden = true; }
+  svg.querySelector('.alvo').addEventListener('pointermove', (ev) => {
+    const rect = svg.getBoundingClientRect(), esc = rect.width / G.W;
+    mostra(passos(E.x0 + ((ev.clientX - rect.left) / esc - G.l) / pw * (E.x1 - E.x0)), ev.clientY);
+  });
+  svg.querySelector('.alvo').addEventListener('pointerleave', esconde);
+  box.addEventListener('focus', () => { mostra(passos(top ? top.m : (E.x0 + E.x1) / 2), null); });
+  box.addEventListener('blur', esconde);
+  box.addEventListener('keydown', (ev) => {
+    if (atual == null) return;
+    const salto = { ArrowLeft: -S.passo, ArrowRight: S.passo, PageDown: -60, PageUp: 60 }[ev.key];
+    if (salto) { ev.preventDefault(); mostra(passos(atual + salto), null); }
+    else if (ev.key === 'Home') { ev.preventDefault(); mostra(passos(E.x0), null); }
+    else if (ev.key === 'End') { ev.preventDefault(); mostra(passos(E.x1), null); }
+    else if (ev.key === 'Escape') esconde();
+  });
+  return box;
+}
+
+// Uma dica com TODOS os inversores naquele horário: o valor na frente, o nome atrás (a leitura é o número)
+function dica(svg, xPlot, cy, m, linhas, G) {
+  const el = $('dica'); el.textContent = '';
+  el.appendChild(mk('div', 'hora', `${hhmm(m)} – ${hhmm(m + S.passo)}`));
+  if (!linhas.length) el.appendChild(mk('div', 'nada', 'Sem leitura neste horário.'));
+  else {
+    const g = mk('div', 'linhas');
+    g.style.setProperty('--cols', linhas.length > 24 ? 3 : linhas.length > 10 ? 2 : 1);
+    for (const x of linhas) { const l = mk('div', 'lin'); l.append(chaveSvg(x.nome, 16), mk('b', '', `${nf(x.v)} kW`), mk('span', '', x.nome)); g.appendChild(l); }
+    el.appendChild(g);
+  }
+  el.hidden = false;
+  const rect = svg.getBoundingClientRect(), esc = rect.width / G.W, px = rect.left + xPlot * esc;
+  const w = el.offsetWidth, h = el.offsetHeight, vw = window.innerWidth, vh = window.innerHeight;
+  let left = px + 14; if (left + w > vw - 8) left = Math.max(8, px - 14 - w);
+  let top = (cy == null ? rect.top + G.t * esc : cy - h / 2); top = Math.min(Math.max(8, top), vh - h - 8);
+  el.style.left = `${left}px`; el.style.top = `${top}px`;
+}
+
+// ── legenda: um item por inversor; passar o mouse destaca, clicar esconde ou mostra (em todos os dias) ─────────────
+function desenhaLegenda() {
+  const el = $('legenda'); el.textContent = '';
+  if (!S.ordem.length) { el.hidden = true; return; }
+  el.hidden = false;
+  const topo = mk('div', 'topo');
+  topo.append(mk('span', 't', `${S.ordem.length} inversor${S.ordem.length > 1 ? 'es' : ''}`),
+              mk('span', 'd so-tela', 'Passe o mouse num inversor para destacá-lo nos gráficos; clique para esconder ou mostrar.'));
+  if (S.oculto.size) {
+    const b = mk('button', 'bt mini so-tela', 'Mostrar todos'); b.type = 'button';
+    b.onclick = () => { S.oculto.clear(); desenhaLegenda(); S.dias.forEach(desenhaDia); };
+    topo.appendChild(b);
+  }
+  el.appendChild(topo);
+  const gs = grupos();
+  gs.forEach((grupo, gi) => {
+    if (gs.length > 1) el.appendChild(mk('div', 'grupo', `Inversores ${gi * POR_GRAFICO + 1} a ${gi * POR_GRAFICO + grupo.length}`));
+    const itens = mk('div', 'itens');
+    for (const nome of grupo) {
+      const b = mk('button', 'item' + (S.oculto.has(nome) ? ' oculto' : '')); b.type = 'button';
+      b.setAttribute('aria-pressed', String(!S.oculto.has(nome)));
+      b.title = S.oculto.has(nome) ? 'escondido: clique para mostrar' : 'clique para esconder';
+      b.append(chaveSvg(nome), mk('span', '', nome));
+      b.addEventListener('mouseenter', () => focar(nome)); b.addEventListener('mouseleave', () => focar(null));
+      b.addEventListener('focus', () => focar(nome)); b.addEventListener('blur', () => focar(null));
+      b.addEventListener('click', () => {
+        if (S.oculto.has(nome)) S.oculto.delete(nome); else S.oculto.add(nome);
+        desenhaLegenda(); S.dias.forEach(desenhaDia);
+        const novo = [...$('legenda').querySelectorAll('.item')].find((x) => x.textContent === nome); if (novo) novo.focus();
+      });
+      itens.appendChild(b);
+    }
+    el.appendChild(itens);
+  });
+}
+function marcaFoco(box) {
+  box.classList.toggle('com-foco', S.foco != null);
+  box.querySelectorAll('.serie').forEach((p) => p.classList.toggle('foco', S.foco != null && p.dataset.i === String(S.idx.get(S.foco))));
+}
+function focar(nome) {
+  S.foco = (nome != null && !S.oculto.has(nome)) ? nome : null;
+  document.querySelectorAll('.graf').forEach(marcaFoco);
+}
+
+// ── impressão, tamanho da tela e tema ───────────────────────────────────────────────────────────────────────────────
+function redesenhaGraficos() { S.dias.forEach((d) => { if (S.resp[d] && S.resp[d].situacao === 'ok') desenhaDia(d); }); }
+// A4 deitado: os gráficos na largura do papel; o destaque de passar o mouse é da tela e não vai para o PDF (o inversor
+// escondido na legenda, sim: é escolha de quem imprime)
+function antesDeImprimir() { S.larguraImpressao = 1000; S.foco = null; $('dica').hidden = true; redesenhaGraficos(); }
+function depoisDeImprimir() { S.larguraImpressao = null; redesenhaGraficos(); }
+window.addEventListener('beforeprint', antesDeImprimir);
+window.addEventListener('afterprint', depoisDeImprimir);
+let _tLarg = null, _larg = 0;
+window.addEventListener('resize', () => {
+  clearTimeout(_tLarg);
+  _tLarg = setTimeout(() => { const w = $('dias').clientWidth; if (w && w !== _larg) { _larg = w; redesenhaGraficos(); } }, 150);
+});
+function alternaTema() {
+  const raiz = document.documentElement, escuro = raiz.getAttribute('data-theme') !== 'light';
+  raiz.setAttribute('data-theme', escuro ? 'light' : 'dark');
+  try { localStorage.setItem('pa.tema', escuro ? 'claro' : 'escuro'); } catch (e) {}
+  $('tema').textContent = escuro ? 'Tema escuro' : 'Tema claro';
+}
+
+// ── início ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+async function iniciar() {
+  $('tema').textContent = document.documentElement.getAttribute('data-theme') === 'light' ? 'Tema escuro' : 'Tema claro';
+  $('tema').addEventListener('click', alternaTema);
+  $('imprimir').addEventListener('click', () => window.print());
+  $('gerar').addEventListener('click', gerar);
+  $('fonte').addEventListener('change', () => preencheUsinas(null));
+  $('ini').addEventListener('change', () => ajustaPeriodo('ini'));
+  $('fim').addEventListener('change', () => ajustaPeriodo('fim'));
+  document.querySelectorAll('[data-atalho]').forEach((b) => b.addEventListener('click', () => atalho(b.dataset.atalho)));
+  let j;
+  try { j = await ler('/api/relatorio/potencia-ativa/usinas', 60000); }
+  catch (e) { $('fonte').textContent = ''; $('fonte').appendChild(mk('option', '', 'indisponível')); $('vazio').textContent = `Não consegui carregar as fontes: ${e.message}.`; return; }
+  S.fontes = j.fontes || []; S.porFonte = Object.fromEntries(S.fontes.map((f) => [f.fonte, f]));
+  S.maxDias = j.max_dias || 7; S.passo = j.passo_min || 5; S.lacuna = j.lacuna_max_min || 15; S.hoje = j.hoje || isoLocal(new Date());
+  $('teto').textContent = `até ${S.maxDias} dias`;
+  $('teto').title = `Teto de ${S.maxDias} dias seguidos: cada dia passado da API PV gasta uma consulta da cota histórica da conta `
+    + '(800 por dia e 200 por hora, divididas com a combiner e a coleta da noite; a Tupi Paulista gasta 20 por dia), o scadaGridco '
+    + `atende um pedido por vez (um por inversor e dia) e ${S.maxDias} gráficos são uma semana, o período do relatório semanal.`;
+  $('ini').max = S.hoje; $('fim').max = S.hoje;
+  preencheFontes();
+  const q = new URLSearchParams(location.search), qf = q.get('fonte'), qu = q.get('usina'), qi = q.get('ini'), qm = q.get('fim');
+  const primeira = S.fontes.find((f) => f.historico && (f.usinas || []).length) || S.fontes[0];
+  $('fonte').value = (qf && S.porFonte[qf]) ? qf : (primeira ? primeira.fonte : '');
+  preencheUsinas(qu);
+  const ontem = somaDias(S.hoje, -1);
+  $('ini').value = qi || ontem; $('fim').value = qm || qi || ontem;
+  ajustaPeriodo('ini');
+  // o link com o relatório inteiro (favorito, o F5 dentro do Nexus) abre gerado, como se a pessoa tivesse clicado em Gerar
+  if (qf && qu && qi && $('usina').value === qu && !$('gerar').disabled) gerar();
+}
+iniciar();
+</script>
+</body>
+</html>
+{% endraw %}
