@@ -51,10 +51,11 @@ FONTES = {
         "usinas": [
             {"id": "dermeval_lobao", "usina": "Demerval Lobao",
              "inversores": {str(i): f"Inversor 1.{i}" for i in range(1, 13)}},
+            # Irecê 2: ORDEM NATURAL desde 01/10/2026 (10/10 por valor em 01, 05 e 09/10, contra o que a equipe digitou).
+            # O de-para de 27-30/09 (4 = 1.8, 7 = 1.4...) só batia em setembro: em outubro a aba segue a ordem natural, e
+            # é ela que o coletor da GreenYellow grava desde 13/10 (coleta API PV/src/coletar_greenyellow.py).
             {"id": "irece_2", "usina": "Irece 2",
-             "inversores": {"1": "Inversor 1.1", "2": "Inversor 1.2", "3": "Inversor 1.3", "4": "Inversor 1.8",
-                            "5": "Inversor 1.9", "6": "Inversor 1.10", "7": "Inversor 1.4", "8": "Inversor 1.5",
-                            "9": "Inversor 1.6", "10": "Inversor 1.7"}},
+             "inversores": {str(i): f"Inversor 1.{i}" for i in range(1, 11)}},
         ],
     },
     "salenergia": {

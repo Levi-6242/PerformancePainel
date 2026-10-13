@@ -55,7 +55,7 @@ def _cadastro():
 
 @pytest.fixture
 def api(monkeypatch):
-    """A API falsa: a Irecê 2 com o equipamento 4 (= Inversor 1.8) com a string 3 sem corrente; a Sal Energia toda em
+    """A API falsa: a Irecê 2 com o equipamento 4 (= Inversor 1.4, ordem natural) com a string 3 sem corrente; a Sal Energia toda em
     timeout. Conta os pedidos."""
     pedidos = []
     resp = {"/api/mqtt/irece_2": _mqtt(10, {4: {"correntes": [9.0, 9.0, 0.0] + [9.0] * 11}}),
@@ -134,7 +134,7 @@ def test_drill_nomeia_pelo_de_para_e_mostra_so_as_ligadas(api):
     d = api.get("/api/greenyellow/plant/irece_2").get_json()
     inv = {i["nome"]: i for i in d["inversores"]}
     assert len(inv) == 10 and [i["nome"] for i in d["inversores"]][:3] == ["Inversor 1.1", "Inversor 1.2", "Inversor 1.3"]
-    i18 = inv["Inversor 1.8"]                                     # o equipamento 4 do scadaGridco
+    i18 = inv["Inversor 1.4"]                                     # o equipamento 4 (ordem natural desde 01/10/2026)
     assert i18["id"] == "4" and i18["str_esp"] == 14 and i18["strings_ativas"] == 13 and i18["diferenca"] == -1
     assert [s["id"] for s in i18["strings"]] == [str(k) for k in range(1, 15)]
     assert i18["strings"][2]["status"] == "sem_corrente" and i18["eday"] == 1204.0
@@ -144,7 +144,7 @@ def test_curva_do_inversor_de_dia_passado(api):
     d = api.get("/api/greenyellow/curva/irece_2?inv=4&data=2026-10-01").get_json()
     assert d["unidade"] == "A" and len(d["inversores"]) == 1
     iv = d["inversores"][0]
-    assert iv["nome"] == "Inversor 1.8" and iv["id"] == "4"
+    assert iv["nome"] == "Inversor 1.4" and iv["id"] == "4"
     assert iv["curva"]["1"] == {"x": ["10:00"], "y": [9.0]} and "15" not in iv["curva"]
     assert ("/api/telemetria", {"usina": "irece_2", "desde": "2026-10-01", "ate": "2026-10-01", "tipo": "inverter",
                                 "equipamento": "4", "limit": sg.LIMITE}) in api.pedidos
@@ -198,7 +198,7 @@ def test_aba_de_falhas_recebe_a_curva_do_dia(api, monkeypatch):
     n = app._falhas_sg_varre(datetime(2026, 10, 6, 10, 0))
     assert n == 2 and [r[1] for r in reg] == ["dermeval_lobao", "irece_2"] and {r[0] for r in reg} == {"greenyellow"}
     ir = next(r for r in reg if r[1] == "irece_2")
-    assert ir[2] == "Irece 2" and len(ir[3]) == 10 and ir[4]["Inversor 1.8"] == "4"
+    assert ir[2] == "Irece 2" and len(ir[3]) == 10 and ir[4]["Inversor 1.4"] == "4"
     assert app._falhas_sg_varre(datetime(2026, 10, 6, 5, 0)) == 0            # de madrugada não pergunta
 
 
@@ -220,4 +220,4 @@ def test_csv_da_curva(api):
     r = api.get("/api/greenyellow/strings/curva.csv?usina=irece_2&data=2026-10-01")
     linhas = r.get_data(as_text=True).strip().splitlines()
     assert r.status_code == 200 and linhas[0] == "inversor,string,hora,corrente_A"
-    assert "Inversor 1.8,1,10:00,9.0" in linhas and len(linhas) == 1 + 10 * 2
+    assert "Inversor 1.4,1,10:00,9.0" in linhas and len(linhas) == 1 + 10 * 2

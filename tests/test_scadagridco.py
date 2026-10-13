@@ -48,10 +48,11 @@ def test_leitura_modbus_em_kw_e_timeout_sem_valor():
     assert not y["ok"] and y["ts"] is None and y["strings"] == {}
 
 
-def test_de_para_da_irece_2_e_por_valor_nao_pela_ordem():
-    """Fechado pelo kWh diário de 27 a 30/09/2026 contra o BD_Performance: o equipamento 4 é o Inversor 1.8."""
+def test_de_para_da_irece_2_segue_a_ordem_natural_desde_outubro():
+    """Por valor contra o BD_Performance em 01, 05 e 09/10/2026 (10/10): o equipamento N é o Inversor 1.N. O de-para de
+    27 a 30/09 (4 = 1.8, 7 = 1.4) só batia em setembro."""
     cfg = sg.usina_cfg("greenyellow", "irece_2")
-    assert sg.nome_inversor(cfg, "4") == "Inversor 1.8" and sg.nome_inversor(cfg, "7") == "Inversor 1.4"
+    assert sg.nome_inversor(cfg, "4") == "Inversor 1.4" and sg.nome_inversor(cfg, "7") == "Inversor 1.7"
     assert sorted(cfg["inversores"].values(), key=sg.ordem_par) == [f"Inversor 1.{i}" for i in range(1, 11)]
     dem = sg.usina_cfg("greenyellow", "dermeval_lobao")
     assert len(dem["inversores"]) == 12 and sg.nome_inversor(dem, "12") == "Inversor 1.12"   # só a UG 01

@@ -967,7 +967,7 @@ troca à Automação). Sem token ou com token errado a API responde **302 para o
   geração delas): na tela, **sem comunicação**, que é o que elas estão para a fonte. Campos Modbus conferidos na Boa
   Esperança do Sul (`string_NN_i`, `active_power_w`, `daily_energy_kwh`).
 - **De-para dos inversores POR VALOR** (`scadagridco.FONTES`): energia do dia do scadaGridco × kWh diário da aba do
-  BD_Performance, 27 a 30/09. **Na Irecê 2 a ordem não é a do cadastro** (equipamento 4 = Inversor 1.8, 7 = 1.4…). A
+  BD_Performance, 27 a 30/09. **Irecê 2: ordem natural desde 01/10** (1 a 10 = 1.1 a 1.10, 10/10 em 01, 05 e 09/10; o de-para de 27 a 30/09, 4 = 1.8 e 7 = 1.4, só batia em setembro). A
   Demerval Lobão tem só a UG 01 (12 de 20, 1 a 12 = 1.1 a 1.12): a linha conta as esperadas dos 12, não as 280. **Sal
   Energia vai pela ORDEM do cadastro, provisório** — fechar por valor quando o supervisório voltar a ler.
 - **Esperadas pelo nome de exibição** (`ESPERADO_INV_DISP`, no `load_equipamentos`): essas usinas não têm "Equipamento
