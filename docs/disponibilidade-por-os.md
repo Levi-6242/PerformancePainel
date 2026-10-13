@@ -9,9 +9,10 @@ Cálculo de **disponibilidade mensal por usina e por cliente** a partir das orde
 do Fracttal, pesado pela estrutura física do BD_Performance. Vive em três lugares:
 
 - **Coluna "Disponibilidade ↗"** na tabela Geração × Meta P50 do `/gerencial` (mês do filtro);
-- **Painel `/gerencial/disponibilidade`** — filtros de cliente e mês (corrente + anterior), KPIs,
-  barras por usina, maiores eventos, mapa diário usina × dia (célula clicável abre o card da OS)
-  e exportação do mapa em Excel;
+- **Painel `/gerencial/disponibilidade`** — filtros de cliente e mês (corrente + anterior; o ícone
+  de atenção acima do mês lista as OS abertas sem data final), KPIs, disponibilidade por cliente
+  (abre as usinas do cliente e, na usina, as OS da conta dela), maiores eventos, mapa diário
+  usina × dia (célula clicável abre o card da OS) e exportação do mapa em Excel;
 - **API** `/api/gerencial/disponibilidade?mes=YYYY-MM[&cliente=X]` e
   `/api/gerencial/disponibilidade/export` (xlsx).
 
@@ -81,8 +82,9 @@ do equipamento × tempo de indisponibilidade); o que muda é a **classificação
 | **Por equipamento** | Corretiva Emergencial | falha física nossa — "tem disponibilidade elétrica, não tem disponibilidade física" |
 
 - O **total** continua sendo o número oficial (e é o que a coluna do `/gerencial` mostra); as
-  famílias são a **decomposição** dele, exibida em toda especificação: KPI do painel, colunas
-  "Por queda"/"Por equipamento" na tabela, etiqueta por OS na lista de eventos e no card do dia.
+  famílias são a **decomposição** dele, exibida nas colunas "Por queda"/"Por equipamento" da tabela
+  e na etiqueta da OS no card do dia. Desde 13/10/2026 não aparece no KPI nem na lista "O que
+  derrubou o mês" (Levi: "deixe só o valor principal"; "tem que deixar mais enxuto").
 - **As duas famílias não somam o total.** Evento de cada tipo no mesmo horário é capado em 100%
   no total e contado inteiro em cada recorte — a diferença é a sobreposição (medida em 29/08:
   0,06 pp no parque, ou seja, quase uma partição limpa).
@@ -185,6 +187,10 @@ absorve os demais; senão soma capada no kWp da usina).
 - **Por família** (queda / equipamento) = a mesma conta, rodando a varredura só com os eventos
   daquela origem — por isso cada família é sempre ≥ o total, e a soma das indisponibilidades das
   duas é ≥ a do total.
+- **Perda da OS em cada usina** (`kwh_usina`, 13/10/2026, para o drill-down por cliente da tela) =
+  a mesma parcela da varredura, separada por usina: soma a perda da OS e a da usina. Repartir a OS
+  pela potência erra quando a geração desmente o dia numa usina só (Rodrigues 1 e 2, setembro:
+  ~47,9 MWh na usina errada).
 
 ## 7. Arquitetura (quem faz o quê)
 
@@ -203,10 +209,13 @@ Catálogo de equipamentos cacheado por 12 h — mudança na aba Equipamentos val
 
 ## 8. Qualidade — como isso se mantém verdadeiro
 
-- **23 testes** em `tests/test_disp_fracttal.py`: cada régua acima é um caso (relâmpago,
-  wo_final_date, aberta sem fim, teto de 100%, janela noturna, escopos, sites agrupados,
-  régua da OS 11461, criador/escopo no payload) + **regressão com dado real**
+- `tests/test_disp_fracttal.py`: cada régua acima é um caso (relâmpago, wo_final_date, aberta
+  sem fim, teto de 100%, janela noturna, escopos, sites agrupados, régua da OS 11461,
+  criador/escopo no payload, perda por usina) + **regressão com dado real**
   (`tests/fixtures/frac_smp100_os10758.json`: OS 10758 do SMP100, 41,17 h / ~285 MWh).
+- `tests/test_disponibilidade_tela_13_10.py`: a tela inteira no node sobre a rota, e o gabarito
+  `tests/fixtures/disp_antes_13_10.json` (a saída do módulo antes de 13/10: o de agora tem de
+  devolver a mesma).
 - Validação de origem: o módulo reproduziu o motor de referência da análise de 26/08 em
   **117 de 120 usinas**; as 3 diferentes eram um bug do motor antigo (a "pista" de site
   agrupado lia o próprio nome do site) que o teste pegou — planilha de 26/08 subestimava
@@ -221,7 +230,7 @@ Catálogo de equipamentos cacheado por 12 h — mudança na aba Equipamentos val
   ao aposentar o RDO). Ocorrências manuais só entram em planilhas avulsas, marcadas — o painel
   nunca as inclui.
 - OSs **ainda abertas** entram com 0 h até ganharem `final_date` — fechar OS atrasado deixa o
-  mês "bom demais" temporariamente (o aviso do painel existe para isso).
+  mês "bom demais" temporariamente (o ícone de atenção acima do mês existe para isso).
 - **Qualidade do cadastro manda no peso.** Caso real (27/08): a UFV de Ipixuna 1 estava com o
   kWp do site inteiro (3.079 em vez de 1.255,8) e um inversor parado pesava 4,7% em vez de
   11,5%. Suspeitas abertas do scan: Inhapi (inversores sem kWp), Nova Londrina (UFV ≠ Σ
@@ -244,12 +253,18 @@ Catálogo de equipamentos cacheado por 12 h — mudança na aba Equipamentos val
   equipamento) em toda a especificação, mantendo a coluna do gerencial como número único; a
   hierarquia passou a sair da coluna `Equipamento Parente`. Dois pontos seguem em aberto com
   ela ("Corretiva" simples e IPOA).
+- **13/10** — tela mais enxuta (pedidos do Levi): o aviso das abertas virou ícone de atenção acima
+  do mês; KPI só com o valor principal; "O que derrubou o mês" em duas linhas (Usina – Equipamento
+  / OS · tipo · evento → fim · h solares, a perda ao lado); disponibilidade por cliente no lugar
+  das barras por usina, com as usinas e as OS em drill-down; `kwh_usina` no índice. Números
+  iguais aos de antes (provado com OS reais e com o índice real).
 
 ## 11. Onde estão as coisas
 
 - Código: `plataforma/disponibilidade.py`, bloco no `plataforma/app.py`,
   `plataforma/templates/disponibilidade.html`, `plataforma/templates/gerencial.html`
-- Testes: `tests/test_disp_fracttal.py` + `tests/fixtures/frac_smp100_os10758.json`
+- Testes: `tests/test_disp_fracttal.py` + `tests/fixtures/frac_smp100_os10758.json`;
+  `tests/test_disponibilidade_tela_13_10.py` + `tests/fixtures/disp_antes_13_10.json`
 - Índice publicado: `plataforma/frac_disp_index.json`
 - Entregas avulsas (Documentos): `Disponibilidade Fracttal x BD - agosto 2026 (atualizada).xlsx`,
   `Disponibilidade agosto - usinas selecionadas.xlsx` (com as manuais),

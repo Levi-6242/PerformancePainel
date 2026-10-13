@@ -34,7 +34,7 @@
   .head h1{font-size:30px;font-weight:800;letter-spacing:-.02em;line-height:1.15}
   .head h1 span{color:var(--grid)}
   .head .sub{margin-top:6px;color:var(--muted);font-size:13px}
-  .controles{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .controles{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-left:auto}
   select{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:7px;
     padding:8px 12px;font:600 13px var(--font);cursor:pointer}
   .btn{background:var(--surface);color:var(--ink);border:1px solid var(--line);border-radius:7px;
@@ -44,9 +44,23 @@
   .btn.destaque{background:var(--grid);color:var(--bg);border-color:var(--grid)}
   .btn.destaque:hover{background:var(--grid-300);color:var(--bg)}
 
-  .aviso{background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.3);border-radius:8px;
-    padding:10px 14px;font-size:12.5px;color:#f7c063;margin-bottom:14px}
-  .aviso b{color:#fbd58f}
+  /* atenção (Levi, 13/10/2026): o aviso das OS abertas sem data final saiu do corpo da tela e virou um ícone âmbar
+     acima do filtro do mês; o clique abre a mesma mensagem num balão */
+  .mes-col{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+  .atencao{position:relative}
+  .atencao-btn{width:30px;height:30px;border-radius:50%;border:1px solid rgba(245,166,35,.45);
+    background:rgba(245,166,35,.12);color:var(--amber);cursor:pointer;padding:0;display:inline-flex;
+    align-items:center;justify-content:center}
+  .atencao-btn svg{width:19px;height:19px;display:block}
+  .atencao-btn:hover,.atencao-btn[aria-expanded="true"]{background:rgba(245,166,35,.24);border-color:var(--amber)}
+  .balao{position:absolute;top:calc(100% + 10px);right:0;z-index:30;width:min(380px, calc(100vw - 32px));
+    background:linear-gradient(rgba(245,166,35,.09),rgba(245,166,35,.09)),var(--surface);
+    border:1px solid rgba(245,166,35,.38);border-radius:10px;box-shadow:0 14px 36px rgba(0,0,0,.5)}
+  .balao::before{content:'';position:absolute;top:-6px;right:10px;width:10px;height:10px;background:inherit;
+    border-top:1px solid rgba(245,166,35,.38);border-left:1px solid rgba(245,166,35,.38);transform:rotate(45deg)}
+  .balao .txt{padding:12px 14px;font-size:12.5px;line-height:1.55;color:#f7c063;
+    max-height:min(60vh, 420px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+  .balao .txt b{color:#fbd58f}
 
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px}
   .kpi{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px 14px}
@@ -57,12 +71,7 @@
   .kpi .note{font-size:12px;color:var(--muted);margin-top:2px}
   .kpi.destaque{border-color:rgba(163,217,0,.35)}
   .kpi.destaque .val{color:var(--grid)}
-  /* decomposição por origem da falha (queda × equipamento) */
-  .split{display:flex;gap:14px;margin-top:9px;padding-top:9px;border-top:1px solid var(--line)}
-  .split div{flex:1}
-  .split .sl{font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
-    color:var(--faint)}
-  .split .sv{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:1px}
+  /* origem da falha (queda × equipamento): só no card do dia — saiu dos KPIs e do "O que derrubou o mês" em 13/10/2026 */
   .tag-org{display:inline-block;font-size:10px;font-weight:700;letter-spacing:.06em;
     text-transform:uppercase;border-radius:3px;padding:1px 6px;margin-left:8px;vertical-align:1px}
   .t-queda{background:rgba(91,157,255,.17);color:#8fbcff}
@@ -79,20 +88,38 @@
   .barras::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px}
   .barras::-webkit-scrollbar-thumb:hover{background:var(--faint)}
   .barras::-webkit-scrollbar-track{background:transparent}
-  .linha-b{display:grid;grid-template-columns:150px 1fr 62px;gap:12px;align-items:center}
-  .linha-b .u{font-size:12px;font-weight:600;color:var(--muted);white-space:nowrap;overflow:hidden;
-    text-overflow:ellipsis}
-  .trilho{height:13px;background:var(--surface2);border-radius:4px;overflow:hidden}
-  .fill{height:100%;border-radius:4px 0 0 4px}
-  .linha-b .v{font-size:13px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+  .trilho{display:block;height:13px;background:var(--surface2);border-radius:4px;overflow:hidden}
+  .fill{display:block;height:100%;border-radius:4px 0 0 4px}
 
+  /* Disponibilidade por cliente (Levi, 13/10/2026): cliente → usinas → OSs; cada linha é um botão com aria-expanded */
+  #porCliente{gap:2px}
+  .ac-lin{display:grid;grid-template-columns:14px minmax(0,1.3fr) minmax(60px,1fr) 64px;gap:10px;align-items:center;
+    width:100%;background:none;border:0;border-radius:6px;padding:6px;color:var(--ink);font:inherit;text-align:left;
+    cursor:pointer}
+  .ac-lin:hover{background:rgba(150,160,180,.06)}
+  .ac-lin .seta{width:12px;height:12px;color:var(--faint);display:block}
+  .ac-lin[aria-expanded="true"] .seta{transform:rotate(90deg);color:var(--grid-300)}
+  .ac-lin .u{font-size:13px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .ac-lin .u small{font-size:11px;font-weight:500;color:var(--faint);margin-left:8px}
+  .ac-lin .v{font-size:13px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+  .ac-usinas{margin:2px 0 8px 12px;padding-left:9px;border-left:1px solid var(--line)}
+  .ac-usinas .ac-lin .u{font-size:12px;font-weight:600;color:var(--muted)}
+  .ac-usinas .ac-lin[aria-expanded="true"] .u{color:var(--ink)}
+
+  /* uma OS em duas linhas, perda ao lado: "O que derrubou o mês" e o drill-down da usina (Levi, 13/10/2026) */
   .evs .ev{display:grid;grid-template-columns:1fr auto;gap:3px 14px;padding:10px 0;border-top:1px solid var(--line)}
   .evs .ev:first-child{border-top:none;padding-top:2px}
   .ev .t{font-size:13px;font-weight:600}
   .ev .t em{font-style:normal;color:var(--grid-300);font-weight:700}
+  .ev .t small{font-size:11.5px;font-weight:500;color:var(--faint)}
   .ev .m{grid-column:1;font-size:12px;color:var(--faint)}
+  .ev .m .ab{color:#f7c063;font-weight:600}
   .ev .kwh{font-size:13.5px;font-weight:700;text-align:right;font-variant-numeric:tabular-nums;align-self:start}
   .ev .kwh small{display:block;font-size:10px;font-weight:600;letter-spacing:.06em;color:var(--faint)}
+  /* o drill-down da usina: depois das regras de .evs, que têm o mesmo peso */
+  .ac-drill{margin:2px 0 8px 22px;padding:6px 12px;background:var(--surface2);border:1px solid var(--line);border-radius:8px}
+  .ac-drill .ev{padding:8px 0}
+  .ac-drill .vazio{font-size:12px;color:var(--faint);padding:4px 0}
 
   .heat-scroll{overflow-x:auto;overflow-y:hidden;padding-bottom:8px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
   .heat-scroll::-webkit-scrollbar{height:6px}
@@ -179,6 +206,8 @@
   .frio{text-align:center;padding:70px 20px;color:var(--muted)}
   :focus-visible{outline:2px solid var(--grid);outline-offset:2px}
   @media (max-width:900px){ .kpis{grid-template-columns:repeat(2,1fr)} .row{grid-template-columns:1fr} }
+  /* no celular a barra encolhe para o nome do cliente caber (com 375 px saía "TesteCo 3 u…") */
+  @media (max-width:600px){ .ac-lin{grid-template-columns:14px minmax(0,1.8fr) minmax(32px,.6fr) 56px;gap:8px} }
 </style>
 </head>
 <body>
@@ -195,21 +224,28 @@
     </div>
     <div class="controles">
       <select id="selCliente" onchange="carregar()"><option value="">Todos os clientes</option></select>
-      <select id="selMes" onchange="carregar()"></select>
+      <div class="mes-col">
+        <!-- atenção (Levi, 13/10/2026: "um ícone de exclamação acima do filtro do mês, ao clicar no ícone aparece a
+             mensagem!"): as OS de religamento abertas sem data final; só aparece quando há o que avisar -->
+        <div class="atencao" id="avisoWrap" hidden>
+          <button type="button" class="atencao-btn" id="avisoBtn" aria-expanded="false" aria-controls="avisoBalao"
+                  aria-label="Atenção: OS de religamento abertas sem data final" title="Atenção">
+            <!-- ph-warning-circle do Phosphor, desenhado aqui: a tela não carrega a fonte de ícones -->
+            <svg viewBox="0 0 256 256" aria-hidden="true" focusable="false"><circle cx="128" cy="128" r="96" fill="none"
+              stroke="currentColor" stroke-width="16"/><line x1="128" y1="80" x2="128" y2="136" stroke="currentColor"
+              stroke-linecap="round" stroke-width="16"/><circle cx="128" cy="172" r="12" fill="currentColor"/></svg>
+          </button>
+          <div class="balao" id="avisoBalao" role="note" hidden><div class="txt" id="avisoTxt"></div></div>
+        </div>
+        <select id="selMes" onchange="carregar()"></select>
+      </div>
     </div>
   </div>
 
   <div id="conteudo" hidden>
-    <div class="aviso" id="avisoAbertas" hidden></div>
-
     <div class="kpis">
       <div class="kpi destaque"><div class="lbl">Disponibilidade</div>
-        <div class="val" id="kDisp">—</div><div class="note" id="kDispNote">ponderada pela potência (kWp)</div>
-        <div class="split">
-          <div><div class="sl">Por queda</div><div class="sv" id="kDispQ">—</div></div>
-          <div><div class="sl">Por equipamento</div><div class="sv" id="kDispE">—</div></div>
-        </div>
-      </div>
+        <div class="val" id="kDisp">—</div><div class="note" id="kDispNote">ponderada pela potência (kWp)</div></div>
       <div class="kpi"><div class="lbl">Perda estimada</div>
         <div class="val" id="kPerda">—</div><div class="note">à potência nominal (teto)</div></div>
       <div class="kpi"><div class="lbl">OSs consideradas</div>
@@ -220,9 +256,10 @@
 
     <div class="row">
       <div class="card">
-        <h2>Disponibilidade por usina</h2>
-        <div class="desc">da mais afetada para a menos · % do mês dentro da janela solar</div>
-        <div class="barras" id="barras"></div>
+        <h2>Disponibilidade por cliente</h2>
+        <div class="desc">da mais afetada para a menos · ponderada pela potência, como o total · clique no cliente para
+          ver as usinas e na usina para ver as OSs</div>
+        <div class="barras" id="porCliente"></div>
       </div>
       <div class="card">
         <h2>O que derrubou o mês</h2>
@@ -276,8 +313,9 @@
 
     <div class="metodo"><b style="color:var(--muted)">Metodologia:</b> OSs do Fracttal (Religamento, Religamento
       Remoto, Corretiva Emergencial; canceladas fora); início = event_date, fim = final_date da tarefa; OS aberta
-      sem fim entra com 0 h (aviso acima). Escopo pelo ativo: usina → 100% do kWp; cabine → kWp da UG; inversor →
-      kWp do inversor (aba Equipamentos). Perda = kWp afetado × horas solares indisponíveis, à potência nominal.
+      sem fim entra com 0 h (o ícone de atenção acima do mês diz quais). Escopo pelo ativo: usina → 100% do kWp;
+      cabine → kWp da UG; inversor → kWp do inversor (aba Equipamentos). Perda = kWp afetado × horas solares
+      indisponíveis, à potência nominal. Cliente = as usinas dele ponderadas pela potência, a mesma conta do total.
       Atualiza a cada 30 min. <span id="mAtual"></span></div>
   </div>
 
@@ -312,8 +350,10 @@ function classeCel(d){
   return 'c-r2';
 }
 function classePill(d){ return d == null ? '' : d >= 99 ? 'p-ok' : d >= 80 ? 'p-a' : 'p-r'; }
-// origem da falha (metodologia da Performance): queda = rede/concessionária; equipamento =
-// falha física nossa. Vale a etiqueta em toda especificação — lista de eventos e card do dia.
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+// origem da falha (metodologia da Performance): queda = rede/concessionária; equipamento = falha física nossa. A etiqueta
+// fica só no card do dia: os KPIs e o "O que derrubou o mês" deixaram a divisão em 13/10/2026 (Levi: "deixe só o valor
+// principal"; "tem que deixar mais enxuto")
 function tagOrigem(o){
   return o.origem === 'equipamento'
     ? '<span class="tag-org t-equip">equipamento</span>'
@@ -350,7 +390,7 @@ async function carregar(){
     j = await r.json();
   }catch(e){ naoLeu(e); return; }
   if (window.gcSessaoDaPlataforma) window.gcSessaoDaPlataforma.voltou();
-  if (!j.quente){ $('frio').hidden = false; $('conteudo').hidden = true; return; }
+  if (!j.quente){ $('frio').hidden = false; $('conteudo').hidden = true; $('avisoWrap').hidden = true; return; }
   DADOS = j;
   $('frio').hidden = true; $('conteudo').hidden = false;
 
@@ -370,18 +410,13 @@ async function carregar(){
 function render(j, cli){
   const us = j.usinas.slice().sort((a, b) => (a.disp ?? 101) - (b.disp ?? 101));
   const totKwp = us.reduce((s, u) => s + (u.pot_kwp || 0), 0);
-  const totH = 12 * j.periodo.dias;
-  const _pond = campo => totKwp
-    ? 100 * (1 - us.reduce((s, u) => s + u.pot_kwp * u[campo], 0) / (totKwp * totH)) : null;
-  const pond = _pond('h_perdidas');
+  const pond = dispPonderada(us, j.periodo.dias);
   const kwh = us.reduce((s, u) => s + u.kwh, 0);
   const nOss = new Set(j.oss.filter(o => !o.excl).map(o => o.folio)).size;
   const ok99 = us.filter(u => (u.disp ?? 0) >= 99).length;
 
-  // decomposição por origem: as duas famílias NÃO somam o total (evento simultâneo de cada
-  // tipo é capado em 100% no total e contado inteiro em cada recorte)
-  $('kDispQ').textContent = fmtp(_pond('h_queda')) + '%';
-  $('kDispE').textContent = fmtp(_pond('h_equip')) + '%';
+  // só o valor principal (Levi, 13/10/2026: "nos KPIS tire a informação de disponibilidade por queda e por
+  // equipamento, deixe só o valor principal")
   $('kDisp').innerHTML = fmtp(pond) + '<small>%</small>';
   $('kDispNote').textContent = `${us.length} usinas · ${fmt(Math.round(totKwp))} kWp · ${j.periodo.dias} dias`;
   $('kPerda').innerHTML = (kwh / 1000).toLocaleString('pt-BR', {maximumFractionDigits: 1}) + '<small> MWh</small>';
@@ -389,30 +424,26 @@ function render(j, cli){
   $('kOk99').innerHTML = `${ok99}<small> de ${us.length}</small>`;
   $('kOk99Note').textContent = '';
 
-  // aviso das OSs abertas ignoradas
+  // atenção: as OSs abertas sem data final, que entraram com 0 h — o ícone acima do mês só aparece quando há o que
+  // avisar, e a mensagem é a mesma da faixa de antes
   const cen = j.cenario_abertas || [];
-  $('avisoAbertas').hidden = !cen.length;
-  if (cen.length){
-    const pot = cen.reduce((s, c) => s + c.kwh_cenario, 0);
-    $('avisoAbertas').innerHTML = `<b>${cen.length} OS(s) de religamento ainda abertas sem data final</b> entraram
+  $('avisoWrap').hidden = !cen.length;
+  if (!cen.length) avisoAbrir(false);
+  const pot = cen.reduce((s, c) => s + c.kwh_cenario, 0);
+  $('avisoBtn').setAttribute('aria-label', `Atenção: ${cen.length} OS(s) de religamento abertas sem data final`);
+  $('avisoTxt').innerHTML = cen.length ? `<b>${cen.length} OS(s) de religamento ainda abertas sem data final</b> entraram
       com 0 h no cálculo (OSs esquecidas abertas distorceriam o mês). Se forem parada real, somariam até
-      <b>${fmt(pot)} kWh</b>: ` + cen.map(c => `OS ${c.folio} (${c.usinas.join(', ') || c.g1})`).join(' · ');
-  }
+      <b>${fmt(pot)} kWh</b>: ` + cen.map(c => `OS ${esc(c.folio)} (${esc((c.usinas || []).join(', ') || c.g1)})`).join(' · ')
+    : '';
 
-  // barras
-  $('barras').innerHTML = us.map(u => `<div class="linha-b" title="${u.usina}">
-    <div class="u">${u.usina}</div>
-    <div class="trilho"><div class="fill" style="width:${u.disp ?? 0}%;background:${corBarra(u.disp ?? 0)}"></div></div>
-    <div class="v">${fmtp(u.disp)}%</div></div>`).join('');
+  desenhaClientes(j);
 
-  // eventos (top 6 por perda)
+  // eventos (top 6 por perda), em duas linhas: "Usina – Equipamento" e, embaixo, a OS, o tipo, evento → fim e as horas
+  // de sol; a perda ao lado (Levi, 13/10/2026: "o que derruba o mês (...) Tem que deixar mais enxuto")
   const evs = j.oss.filter(o => !o.excl && o.kwh > 0).sort((a, b) => b.kwh - a.kwh).slice(0, 6);
-  $('eventos').innerHTML = evs.map(o => `<div class="ev">
-    <div class="t"><em>${(o.usinas || []).join(', ') || '—'}</em> · ${o.item || o.code}${tagOrigem(o)}</div>
-    <div class="kwh">${fmt(o.kwh)}<small>kWh</small></div>
-    <div class="m">OS ${o.folio} · ${(o.tipos || []).join('+')} · ${(o.ini || '').slice(5, 16).replace('T', ' ')}
-      &rarr; ${(o.fim || '').slice(5, 16).replace('T', ' ')} · ${o.h_solar} h solares</div></div>`).join('')
-    || '<div class="desc">Nenhum evento com perda no período.</div>';
+  $('eventos').innerHTML = evs.map(o => linhaOS(o,
+      `<em>${esc((o.usinas || []).join(', ') || '—')}</em> &ndash; ${esc(equipamento(o))}`, o.kwh, null, j.periodo))
+    .join('') || '<div class="desc">Nenhum evento com perda no período.</div>';
 
   desenhaHeat(j);
 
@@ -432,6 +463,146 @@ function render(j, cli){
     ? 'Última varredura: ' + new Date(j.atualizado * 1000).toLocaleString('pt-BR') + '.'
     : '';
 }
+
+// ── atenção: OSs abertas sem data final (Levi, 13/10/2026) ───────────────────────────────────────────────────────────
+// "tire esse aviso (...) deixe como um informação de atenção em um ícone de exclamação acima do filtro do mês, ao clicar
+// no ícone aparece a mensagem!" — a faixa saiu do corpo da tela; a MESMA mensagem abre num balão (o botão diz se está
+// aberto em aria-expanded; Esc e clique fora fecham, e o Esc devolve o foco ao ícone).
+function avisoAbrir(abrir){
+  $('avisoBtn').setAttribute('aria-expanded', abrir ? 'true' : 'false');
+  $('avisoBalao').hidden = !abrir;
+}
+$('avisoBtn').addEventListener('click', () => avisoAbrir($('avisoBtn').getAttribute('aria-expanded') !== 'true'));
+document.addEventListener('click', e => {
+  if ($('avisoBtn').getAttribute('aria-expanded') === 'true' && !e.target.closest('#avisoWrap')) avisoAbrir(false);
+});
+
+// ── Disponibilidade por cliente (Levi, 13/10/2026) ───────────────────────────────────────────────────────────────────
+// "mude a disponibilidade por usina e deixe disponibilidade por cliente! Ao clicar na linha vai expandir as usinas daquele
+// cliente! ao clicar na usina aparecerá as OSs em formato de dril down!!!". O cliente de cada usina é o do cadastro (coluna
+// Cliente da aba Equipamentos — o `cliente` do payload, o mesmo do filtro de cliente), e cada cliente pondera as usinas
+// dele pela MESMA conta do total: os clientes fecham com o total.
+const ABERTOS = {cli: new Set(), usi: new Set()};   // fora do render(): a releitura de 5 min não fecha o que está aberto
+
+// A disponibilidade de um conjunto de usinas, ponderada pela potência: 1 − Σ(kWp × horas perdidas) ÷ (Σ kWp × 12 h ×
+// dias). É a conta do KPI de antes, a mesma operação na mesma ordem (o total não muda nem no último dígito); só o mês sem
+// dia fechado (dia 1) dá "—" em vez de NaN.
+function dispPonderada(us, dias){
+  const kwp = us.reduce((s, u) => s + (u.pot_kwp || 0), 0);
+  const totH = 12 * dias;
+  return kwp && totH ? 100 * (1 - us.reduce((s, u) => s + u.pot_kwp * u.h_perdidas, 0) / (kwp * totH)) : null;
+}
+// [{cliente, usinas, disp}] do pior para o melhor; as usinas seguem a ordem que chegam (a da tela: a pior primeiro)
+function gruposPorCliente(us, dias){
+  const g = new Map();
+  for (const u of us){
+    const c = u.cliente || '—';
+    if (!g.has(c)) g.set(c, []);
+    g.get(c).push(u);
+  }
+  return [...g].map(([cliente, usinas]) => ({cliente, usinas, disp: dispPonderada(usinas, dias)}))
+    .sort((a, b) => (a.disp ?? 101) - (b.disp ?? 101) || a.cliente.localeCompare(b.cliente, 'pt-BR'));
+}
+
+// O equipamento da OS como o cadastro do Fracttal chama o ativo (Levi, 13/10/2026: "Usina - Equipamento (Inversor 1.1,
+// Usina, Cabine 1, Skid 1 etc)"). Sai do sufixo do código do ativo — o mesmo que o disponibilidade.py lê para o escopo —
+// com o nome que o cadastro dá a cada sufixo (items_log_description de 39 mil tarefas: "Cabine 5", "SKID 1", "QGBT 1",
+// "Ponto de Entrega 3", "Disjuntor do Transformador 2", "Inversor 2.9", "Disjuntor do Inversor 5.9"). Sem sufixo de
+// equipamento = a raiz do site = a usina inteira.
+const NOME_DO_ATIVO = {CABN: 'Cabine', SKID: 'Skid', QGBT: 'QGBT', PECN: 'Ponto de Entrega',
+                       DTRF: 'Disjuntor do Transformador', INVR: 'Inversor', DINV: 'Disjuntor do Inversor'};
+function equipamento(o){
+  const c = String((o && o.code) || '').toUpperCase();
+  const m = /-(DINV|INVR)R?(\d+(?:\.\d+)?)$/.exec(c) || /-(CABN|SKID|QGBT|PECN|DTRF)(\d+)$/.exec(c);
+  return m ? NOME_DO_ATIVO[m[1]] + ' ' + m[2] : 'Usina';
+}
+
+const fmtHs = h => (+h || 0).toLocaleString('pt-BR', {maximumFractionDigits: 1});
+// dias em que a geração desmentiu a parada (o juiz de parada-fantasma): sem isto, "12 h solares" ao lado de "0 kWh" parece
+// erro. Com a usina, os dias dela; sem, os dias da OS em qualquer usina
+function diasDesmentidos(o, usina){
+  const d = o.dias_exonerados || {};
+  const n = usina ? (d[usina] || []).length : new Set(Object.values(d).flat()).size;
+  return n ? ` · ${n} ${n > 1 ? 'dias desmentidos' : 'dia desmentido'} pela geração` : '';
+}
+// Uma OS em duas linhas, a perda ao lado (Levi, 13/10/2026: em cima "Usina - Equipamento"; embaixo "OS X Tipo de tarefa
+// Data do evento e data fim da atividade - hora solar"). As horas são as de sol da OS no mês (o h_solar, a régua da
+// conta): a OS que passa da borda do mês diz "no mês", e a que segue aberta no Fracttal diz "em aberto".
+function linhaOS(o, titulo, kwh, usina, per){
+  const borda = per && (String(o.ini) < per.ini || String(o.fim) > per.fim);
+  return `<div class="ev">
+    <div class="t">${titulo}</div>
+    <div class="kwh">${fmt(kwh)}<small>kWh</small></div>
+    <div class="m">OS ${esc(o.folio)} · ${esc((o.tipos || []).join(' + '))} · ${fmtHora(o.ini)} &rarr; ${fmtHora(o.fim)} ·
+      ${fmtHs(o.h_solar)} h solares${borda ? ' no mês' : ''}${diasDesmentidos(o, usina)}${o.aberta
+        ? ' · <span class="ab">em aberto</span>' : ''}</div></div>`;
+}
+
+// As OSs da usina no mês: as MESMAS da conta (as que têm evento na usina, o "OSs" da tabela), com a perda da OS NESTA
+// usina (`kwh_usina` do índice: a OS de duas usinas não reparte pela potência — a geração pode desmentir o dia numa só).
+// Índice de antes do deploy, sem `kwh_usina` (até a 1ª varredura do worker, 30 min): ficam as OSs com duração (a de 0 h,
+// aberta sem fim ou relâmpago, não tem evento) e a perda é a da OS inteira, dito assim quando ela pega mais de uma usina.
+function osDaUsina(j, usina){
+  return (j.oss || []).filter(o => !o.excl && (o.usinas || []).includes(usina)
+      && (o.kwh_usina ? usina in o.kwh_usina : o.ini !== o.fim))
+    .map(o => ({o, kwh: o.kwh_usina ? o.kwh_usina[usina] : o.kwh}))
+    .sort((a, b) => b.kwh - a.kwh || String(a.o.ini).localeCompare(String(b.o.ini)));
+}
+function drillUsina(j, usina){
+  const oss = osDaUsina(j, usina);
+  if (!oss.length) return '<div class="vazio">Nenhuma OS dos 3 tipos nesta usina no mês.</div>';
+  return oss.map(({o, kwh}) => {
+    const n = (o.usinas || []).length;
+    const nota = !o.kwh_usina && n > 1 ? `<small> · perda somada das ${n} usinas do site</small>` : '';
+    return linhaOS(o, esc(equipamento(o)) + nota, kwh, usina, j.periodo);
+  }).join('');
+}
+
+const SETA = '<svg class="seta" viewBox="0 0 256 256" aria-hidden="true" focusable="false"><polyline points="96 48 176 128 96 208" '
+  + 'fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="24"/></svg>';
+function linhaBarra(tipo, nome, id, aberto, extra, disp){
+  return `<button type="button" class="ac-lin" data-tipo="${tipo}" data-k="${encodeURIComponent(nome)}" title="${esc(nome)}"
+      aria-expanded="${aberto}" aria-controls="${id}">${SETA}<span class="u">${esc(nome)}${extra}</span>
+    <span class="trilho"><span class="fill" style="width:${disp ?? 0}%;background:${corBarra(disp ?? 0)}"></span></span>
+    <span class="v">${fmtp(disp)}%</span></button>`;
+}
+function htmlClientes(j){
+  const us = j.usinas.slice().sort((a, b) => (a.disp ?? 101) - (b.disp ?? 101));
+  return gruposPorCliente(us, j.periodo.dias).map((c, i) => {
+    const aberto = ABERTOS.cli.has(c.cliente), n = c.usinas.length;
+    const usinas = c.usinas.map((u, k) => {
+      const au = ABERTOS.usi.has(u.usina), id = `ac-u-${i}-${k}`;
+      return `<div>${linhaBarra('usi', u.usina, id, au, '', u.disp)}
+        <div class="ac-drill evs" id="${id}" role="group" aria-label="OSs de ${esc(u.usina)} no mês"${au ? '' : ' hidden'}>${
+          au ? drillUsina(j, u.usina) : ''}</div></div>`;
+    }).join('');
+    return `<div>${linhaBarra('cli', c.cliente, `ac-c-${i}`, aberto, `<small>${n} ${n > 1 ? 'usinas' : 'usina'}</small>`, c.disp)}
+      <div class="ac-usinas" id="ac-c-${i}" role="group" aria-label="Usinas de ${esc(c.cliente)}"${aberto ? '' : ' hidden'}>${usinas}</div></div>`;
+  }).join('') || '<div class="desc">Nenhuma usina neste recorte.</div>';
+}
+function desenhaClientes(j){
+  const cont = $('porCliente'), at = document.activeElement;
+  const foco = at && at.dataset && at.dataset.k ? `button[data-tipo="${at.dataset.tipo}"][data-k="${at.dataset.k}"]` : null;
+  cont.innerHTML = htmlClientes(j);
+  const b = foco && cont.querySelector(foco);                 // a releitura de 5 min devolve o foco ao mesmo botão
+  if (b) b.focus();
+}
+// abre e fecha no lugar: o botão diz se está aberto e a região que ele controla aparece ou some; a usina monta as OSs na
+// hora em que abre
+function alternar(b){
+  const abrir = b.getAttribute('aria-expanded') !== 'true';
+  const k = decodeURIComponent(b.dataset.k);
+  ABERTOS[b.dataset.tipo === 'cli' ? 'cli' : 'usi'][abrir ? 'add' : 'delete'](k);
+  b.setAttribute('aria-expanded', abrir ? 'true' : 'false');
+  const reg = document.getElementById(b.getAttribute('aria-controls'));
+  if (!reg) return;
+  if (abrir && b.dataset.tipo === 'usi' && DADOS) reg.innerHTML = drillUsina(DADOS, k);
+  reg.hidden = !abrir;
+}
+$('porCliente').addEventListener('click', e => {
+  const b = e.target.closest('button[data-k]');
+  if (b) alternar(b);
+});
 
 // ── card de detalhe do dia ───────────────────────────────────────────────────
 function hSolarDia(iniISO, fimISO, ano, mn, d){
@@ -492,7 +663,11 @@ function abrirDia(usina, d){
   $('overlay').classList.add('aberto');
 }
 function fecharModal(){ $('overlay').classList.remove('aberto'); }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') fecharModal(); });
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Escape') return;
+  fecharModal();
+  if ($('avisoBtn').getAttribute('aria-expanded') === 'true'){ avisoAbrir(false); $('avisoBtn').focus(); }
+});
 document.addEventListener('click', e => {
   const c = e.target.closest('.cel.click');
   if (c) abrirDia(decodeURIComponent(c.dataset.u), +c.dataset.d);

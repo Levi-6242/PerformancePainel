@@ -484,9 +484,13 @@ def horas_solares_por_dia(a, b, teto):
     return out
 
 
-def _varrer(eventos, usinas, per_fim):
+def _varrer(eventos, usinas, per_fim, det_os_usina=None):
     """Linha do tempo por usina → (h_eq, kwh, det_os) por dia. Hierarquia usina > cabine >
-    inversor e teto de 100% da usina. Chamada 3×: total, só queda, só equipamento."""
+    inversor e teto de 100% da usina. Chamada 3×: total, só queda, só equipamento.
+    `det_os_usina` (dict, opcional) recebe a MESMA parcela do det_os separada por (folio, usina): a perda de cada OS em
+    cada usina, que o drill-down da tela por cliente mostra (Levi, 13/10/2026: "ao clicar na usina aparecerá as OSs").
+    Repartir a perda da OS pela potência erra quando a geração desmente o dia numa usina só, ou quando o teto de 100%
+    pega uma e não a outra: em setembro/26 a Rodrigues 1 e 2 trocavam ~47,9 MWh entre si por essa conta."""
     h_eq = defaultdict(lambda: defaultdict(float))
     kwh = defaultdict(lambda: defaultdict(float))
     det_os = defaultdict(float)
@@ -511,7 +515,10 @@ def _varrer(eventos, usinas, per_fim):
                 h_eq[u][dia] += frac_af * h
                 kwh[u][dia] += kw_af * h
                 for e in donos:
-                    det_os[e["o"]["folio"]] += kw_af * (e["kwp"] / tot_kw) * h
+                    parte = kw_af * (e["kwp"] / tot_kw) * h
+                    det_os[e["o"]["folio"]] += parte
+                    if det_os_usina is not None:
+                        det_os_usina[(e["o"]["folio"], u)] += parte
     return h_eq, kwh, det_os
 
 
@@ -662,7 +669,15 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, geracao=None):
                                         "ini": ini_d, "fim": fim_d, "o": o})
                 d += timedelta(days=1)
 
-    h_eq, kwh, det_os = _varrer(eventos, usinas, per_fim)
+    det_os_usina = defaultdict(float)
+    h_eq, kwh, det_os = _varrer(eventos, usinas, per_fim, det_os_usina)
+    # a OS com evento na usina entra na conta dela mesmo sem hora de sol (é o que o n_os conta): fica com 0 kWh. A
+    # aberta sem data final não tem evento e fica fora — ela está no cenário das abertas
+    for e in eventos:
+        det_os_usina[(e["o"]["folio"], e["usina"])] += 0.0
+    kwh_os_usina = defaultdict(dict)
+    for (folio, u), v in sorted(det_os_usina.items()):
+        kwh_os_usina[folio][u] = round(v)
     # decomposição por origem: mesma varredura, só com os eventos de cada família
     h_qd, kwh_qd, _ = _varrer([e for e in eventos if e["o"]["origem"] == "queda"], usinas, per_fim)
     h_eq_ip, kwh_ip, _ = _varrer([e for e in eventos if e["o"]["origem"] == "equipamento"],
@@ -758,7 +773,9 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, geracao=None):
                              "kwp": round(k, 1)}
                             for (u, n, c, k) in os_escopo.get(o["folio"], [])],
                  "h_solar": os_h.get(o["folio"], 0.0),
-                 "kwh": round(det_os.get(o["folio"], 0.0))} for o in oss],
+                 "kwh": round(det_os.get(o["folio"], 0.0)),
+                 # a perda desta OS em cada usina da conta dela ({usina: kWh}; soma o `kwh`): o drill-down por usina
+                 "kwh_usina": dict(kwh_os_usina.get(o["folio"]) or {})} for o in oss],
         "cenario_abertas": cenario,
         "lacunas": lacunas,
     }

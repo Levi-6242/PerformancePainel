@@ -926,6 +926,53 @@ responsável do Nexus (Campo · App) tira a meta do mês daqui: o worker publica
   do banco, desligado não publica; e, de 13/10, a série pela geração do Gerencial, o `ger_dia` do BD_Thopen e do
   BD_Performance, a meta exata, o payload antigo sem série e a resposta sem o dia a dia).
 
+## Disponibilidade por OS (`/gerencial/disponibilidade`)
+
+A conta mora em `disponibilidade.py` (puro; réguas e decisões em `docs/disponibilidade-por-os.md`, o caminho de runtime
+em `docs/calculo-disponibilidade-gerencial.md`): o worker varre o Fracttal e publica `frac_disp_index.json` a cada 30 min,
+e o web só serve (`/api/gerencial/disponibilidade`). A tela desde 13/10/2026 (pedidos 3 a 6 do Levi):
+
+- **Atenção é ícone, não faixa** ("deixe como um informação de atenção em um ícone de exclamação acima do filtro do mês,
+  ao clicar no ícone aparece a mensagem!"): as OS de religamento abertas sem data final (entram com 0 h; o
+  `cenario_abertas`) ficam num ícone âmbar ACIMA do seletor do mês, fora do corpo, só quando há o que avisar — o
+  `ph-warning-circle` do Phosphor desenhado em SVG, porque a tela não carrega a fonte de ícones. O clique abre a MESMA
+  mensagem de antes num balão (`aria-expanded`; Esc e clique fora fecham, o Esc devolve o foco ao ícone). Mês que sai do
+  índice (`quente: false`) esconde o ícone junto.
+- **KPI só com o valor principal** ("tire a informação de disponibilidade por queda e por equipamento"). A divisão segue
+  no módulo e só aparece nas colunas da tabela "Detalhe por usina" e no card do dia: `origem` da OS = queda (Religamento,
+  Religamento Remoto: origem externa, rede/concessionária) ou equipamento (Corretiva Emergencial: falha física nossa), a
+  OS com os dois tipos conta como queda; cada família é a mesma varredura só com as OS dela, por isso as duas não somam o
+  total (metodologia da Ana Patrícia, 29/08).
+- **"O que derrubou o mês" em duas linhas** ("muita informação (...) Tem que deixar mais enxuto"): em cima `Usina –
+  Equipamento`, embaixo `OS · tipo · evento → fim · N h solares`, a perda ao lado (as 6 maiores, como antes). O equipamento
+  é o nome que o cadastro do Fracttal dá ao sufixo do código do ativo (`equipamento()` na tela; os nomes vêm do
+  `items_log_description` de 39 mil tarefas): CABN → Cabine, SKID → Skid, QGBT, PECN → Ponto de Entrega, DTRF → Disjuntor
+  do Transformador, INVR → Inversor, DINV → Disjuntor do Inversor; sem sufixo = Usina. As horas são o `h_solar` da OS
+  no mês ("no mês" quando ela passa da borda); OS ainda aberta no Fracttal diz "em aberto"; dia que a geração desmentiu
+  (`dias_exonerados`) é dito ("1 dia desmentido pela geração") — sem isso, "12 h solares" ao lado de "0 kWh" parece erro
+  (56 OS com dia desmentido em setembro).
+- **Disponibilidade por cliente** no lugar das barras por usina ("ao clicar na linha vai expandir as usinas daquele
+  cliente! ao clicar na usina aparecerá as OSs"): cliente → usinas → OS, cada linha um `<button>` com `aria-expanded`. O
+  cliente é o `cliente` da usina no payload (coluna Cliente da aba Equipamentos, o mesmo do filtro) e pondera as usinas
+  dele pela MESMA conta do total (`dispPonderada`: 1 − Σ(kWp × horas perdidas) ÷ (Σ kWp × 12 h × dias)): os clientes fecham
+  com o total e batem com o `clientes[].disp` do módulo. O que está aberto continua aberto na releitura de 5 min
+  (`ABERTOS`). O drill-down lista as OS da conta da usina (as com evento nela, o "OSs" da tabela; a aberta sem fim fica
+  no ícone), da maior perda para a menor, com a perda da OS NAQUELA usina.
+- **`kwh_usina`** (novo no índice, por OS: {usina: kWh}) é a mesma parcela do `det_os` separada por usina na varredura
+  (`_varrer`): soma a perda da OS e a da usina, e as chaves são as usinas onde a OS tem evento. Repartir pela potência
+  erra quando a geração desmente o dia numa usina só ou o teto de 100% pega uma e não a outra: no índice de 13/10 a
+  Rodrigues 1 e 2 trocavam ~47,9 MWh de setembro, e a Boa Esperança do Sul 1 e 2 ~2,5 MWh de outubro. O
+  `disponibilidade_os` do workbook de falhas (Nexus) ainda reparte pela potência. Índice de antes do deploy (sem o campo,
+  até a 1ª varredura do worker): a OS de 2+ usinas mostra a perda somada e diz isso.
+- **Prova (13/10/2026)**: o módulo de antes × o de agora sobre 39 mil tarefas reais (`frac_mtta_linhas.json`) e a aba
+  Equipamentos real, setembro e outubro, sem geração e com geração plena forçando o juiz: saída idêntica, e o `kwh_usina`
+  fecha com cada OS, cada usina e o `n_os`. A tela de antes × a de agora no node, sobre o índice real (2 meses × parque e
+  11 clientes, 520 linhas de usina): mesmo total (outubro 92,02%, setembro 94,51%) e mesmas usinas; os clientes fecham com
+  o total (diferença 0).
+- Testes: `tests/test_disponibilidade_tela_13_10.py` (a página inteira no node sobre a rota de verdade; o gabarito
+  `tests/fixtures/disp_antes_13_10.json` é a saída do módulo de antes), `tests/test_disp_fracttal.py` (o `kwh_usina`) e
+  `tests/test_disponibilidade_mapa_8.py` (o mapa diário e a rolagem da lista por cliente).
+
 ## Padrão por inversor (usinas sem visão por string)
 
 Ceilândia 1, Céu Azul e Ouro Branco (String Box com combiner não exposta) e Barretos (sem esperado no

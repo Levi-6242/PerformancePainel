@@ -223,7 +223,11 @@ atraso dizia a usina parada enquanto ela gerava (casos Parelhas e Marialva, 30/0
 6. **Diário** (o mapa usina × dia): por usina, por dia, `h_eq`, `disp`, `kWh` e a decomposição
    queda/equipamento (o card da célula).
 7. **Cenário das abertas**: as OS abertas sem fim contam 0 h, mas o payload traz quanto elas somariam
-   (`kwh_cenario`, `h_cenario`) se forem parada real até agora — o aviso amarelo da tela.
+   (`kwh_cenario`, `h_cenario`) se forem parada real até agora — o ícone de atenção da tela, acima do
+   filtro do mês (era uma faixa amarela até 13/10/2026).
+8. **Perda da OS em cada usina** (`kwh_usina`, 13/10/2026): a mesma parcela do `det_os`, separada por
+   usina na varredura — soma a perda da OS e a da usina; as chaves são as usinas onde a OS tem evento
+   (o `n_os`). É o drill-down da usina na lista por cliente.
 
 **Janela e período** (`_disp_meses_alvo`, `app.py:19063`): dois meses — o **corrente** (do dia 1 até
 **D-1**, fim exclusivo) e o **anterior** (cheio). No dia 1 o mês corrente vai vazio de propósito
@@ -258,7 +262,7 @@ Payload (quente):
   "clientes":[ {cliente, kwp, disp, kwh, disp_queda, disp_equip, n_os, n_usinas, abaixo99} ],
   "diario":  { "<Usina>": { "YYYY-MM-DD": {h_eq, disp, kwh, h_q, h_e} } },
   "oss":     [ {folio, tipos, origem, code, g1, desc, flags, excl, aberta, ini, fim,
-                usinas[], escopo[], h_solar, kwh, dias_exonerados} ],
+                usinas[], escopo[], h_solar, kwh, kwh_usina{usina: kWh}, dias_exonerados} ],
   "cenario_abertas": [...], "lacunas": [...] }
 ```
 

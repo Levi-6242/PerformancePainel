@@ -317,6 +317,46 @@ def test_os_com_os_dois_tipos_conta_como_queda():
     assert a_os(r, 34)["origem"] == "queda"
 
 
+# ── perda de cada OS em cada usina (drill-down por cliente da tela, Levi 13/10/2026) ──
+def test_perda_da_os_em_cada_usina_segue_o_dia_desmentido_de_cada_uma():
+    # site agrupado sem pista (Beta 1 e 2, 500 kWp cada), de 10/07 06 h a 11/07 18 h; a geração da Beta 1 desmente o
+    # dia 11. A Beta 1 perde só o dia 10 (12 h × 500 = 6.000 kWh) e a Beta 2 os dois (24 h × 500 = 12.000). Repartir os
+    # 18.000 da OS pela potência daria 9.000 e 9.000 — errado nas duas.
+    dias = {f"2026-07-{d:02d}": (0.0 if d == 10 else 2500.0) for d in range(1, 32)}
+    r = calcular({"20": [task(code="TC-BET100", groups_1_description="TesteCo - Beta 1 e 2 - RN",
+                              items_log_description="TesteCo - Beta 1 e 2 - RN  Endereço",
+                              description="Religamento da Usina",
+                              event_date="2026-07-10T09:00:00+00:00", final_date="2026-07-11T21:00:00+00:00")]},
+                 EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Beta 1": dias})
+    o = a_os(r, 20)
+    assert o["kwh"] == 18000
+    assert o["kwh_usina"] == {"Beta 1": 6000, "Beta 2": 12000}
+    assert {u["usina"]: u["kwh"] for u in r["usinas"] if u["usina"] != "Alfa"} == {"Beta 1": 6000, "Beta 2": 12000}
+
+
+def test_perda_por_usina_reparte_a_hora_sobreposta_como_o_total():
+    # usina 09→11 local + cabine 1 (600) 10→12: a hora sobreposta é da OS de usina (o teto de 100%) → 2.000 e 600,
+    # que somam os 2.600 da usina
+    r = roda({"12": [task(event_date="2026-07-10T12:00:00+00:00",
+                          final_date="2026-07-10T14:00:00+00:00")],
+              "13": [task(code="TC-ALF100-CABN1", items_log_description="Cabine 1",
+                          event_date="2026-07-10T13:00:00+00:00",
+                          final_date="2026-07-10T15:00:00+00:00")]})
+    assert a_os(r, 12)["kwh_usina"] == {"Alfa": 2000}
+    assert a_os(r, 13)["kwh_usina"] == {"Alfa": 600}
+    assert so_alfa(r)["kwh"] == 2600
+
+
+def test_os_sem_hora_de_sol_conta_na_usina_com_zero_e_a_aberta_sem_fim_nao():
+    # a noturna (20→23 h local) tem evento na usina: entra no n_os, com 0 kWh. A aberta sem data final entra com 0 h e
+    # não tem evento: fica fora da usina (vai para o cenário das abertas)
+    r = roda({"2": [task(event_date="2026-07-10T23:00:00+00:00", final_date="2026-07-11T02:00:00+00:00")],
+              "7": [task(id_status_work_order=1, event_date="2026-07-20T12:00:00+00:00")]})
+    assert a_os(r, 2)["kwh_usina"] == {"Alfa": 0}
+    assert a_os(r, 7)["kwh_usina"] == {}
+    assert so_alfa(r)["n_os"] == 1
+
+
 # ── hierarquia: coluna "Equipamento Parente" manda no nome ───────────────────
 def test_cabine_derivada_usa_equipamento_parente():
     # usina SEM linhas UG: os inversores se chamam "2.1/2.2" mas o BD diz que são da UG 01

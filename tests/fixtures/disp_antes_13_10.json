@@ -1,0 +1,1551 @@
+{
+ "_leia": "Entrada e saída do disponibilidade.py ANTES da mudança de 13/10/2026 (commit 6ad711e), gravadas por um roteiro avulso: tests/test_disponibilidade_tela_13_10.py roda o módulo de agora sobre a MESMA entrada e exige a MESMA saída (só a apresentação mudou).",
+ "entrada": {
+  "wos": {
+   "10": [
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-10T12:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-10T18:00:00+00:00",
+     "wo_final_date": null,
+     "code": "TC-ALF100",
+     "items_log_description": "TesteCo - Alfa 1 - SP  Endereço",
+     "groups_1_description": "TesteCo - Alfa 1 - SP",
+     "description": "Religamento da usina",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "11": [
+    {
+     "tasks_log_task_type_main": "Corretiva Emergencial",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-12T12:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-12T18:00:00+00:00",
+     "wo_final_date": null,
+     "code": "TC-ALF100-CABN2",
+     "items_log_description": "Cabine 2 Endereço",
+     "groups_1_description": "TesteCo - Alfa 1 - SP",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "12": [
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-12T16:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-12T19:00:00+00:00",
+     "wo_final_date": null,
+     "code": "TC-ALF100-INVR1.1",
+     "items_log_description": "Inversor 1.1 Sungrow",
+     "groups_1_description": "TesteCo - Alfa 1 - SP",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "13": [
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-15T12:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-15T14:00:00+00:00",
+     "wo_final_date": null,
+     "code": "TC-ALF100",
+     "items_log_description": "TesteCo - Alfa 1 - SP  Endereço",
+     "groups_1_description": "TesteCo - Alfa 1 - SP",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "14": [
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-15T13:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-15T15:00:00+00:00",
+     "wo_final_date": null,
+     "code": "TC-ALF100-CABN1",
+     "items_log_description": "Cabine 1 Endereço",
+     "groups_1_description": "TesteCo - Alfa 1 - SP",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "50": [
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 3,
+     "event_date": "2026-06-30T18:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-01T12:00:00+00:00",
+     "wo_final_date": null,
+     "code": "TC-ALF100-INVR2.1",
+     "items_log_description": "Inversor 2.1 Sungrow",
+     "groups_1_description": "TesteCo - Alfa 1 - SP",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "70": [
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-20T12:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": null,
+     "wo_final_date": "2026-07-20T14:00:00+00:00",
+     "code": "TC-ALF100",
+     "items_log_description": "TesteCo - Alfa 1 - SP  Endereço",
+     "groups_1_description": "TesteCo - Alfa 1 - SP",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "20": [
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-10T09:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-11T21:00:00+00:00",
+     "wo_final_date": null,
+     "code": "TC-BET100",
+     "items_log_description": "TesteCo - Beta 1 e 2 - RN  Endereço",
+     "groups_1_description": "TesteCo - Beta 1 e 2 - RN",
+     "description": "Religamento da usina",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "21": [
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-20T12:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-20T15:00:00+00:00",
+     "wo_final_date": null,
+     "code": "TC-BET100-CABN2",
+     "items_log_description": "Cabine 2 Endereço",
+     "groups_1_description": "TesteCo - Beta 1 e 2 - RN",
+     "description": "Religamento da cabine 2",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "30": [
+    {
+     "tasks_log_task_type_main": "Religamento Remoto",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-10T12:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-10T17:00:00+00:00",
+     "wo_final_date": null,
+     "code": "OC-GAM100-SKID1",
+     "items_log_description": "SKID 1 Endereço",
+     "groups_1_description": "OutraCo - Gama 1 - BA",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "31": [
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-11T13:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-11T15:00:00+00:00",
+     "wo_final_date": null,
+     "code": "OC-GAM100-QGBT2",
+     "items_log_description": "QGBT 2 Endereço",
+     "groups_1_description": "OutraCo - Gama 1 - BA",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "32": [
+    {
+     "tasks_log_task_type_main": "Corretiva Emergencial",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-12T11:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-12T15:00:00+00:00",
+     "wo_final_date": null,
+     "code": "OC-GAM100-DINV2.2",
+     "items_log_description": "Disjuntor do Inversor 2.2",
+     "groups_1_description": "OutraCo - Gama 1 - BA",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "33": [
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-14T10:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-14T12:00:00+00:00",
+     "wo_final_date": null,
+     "code": "OC-GAM100",
+     "items_log_description": "OutraCo - Gama 1 - BA  Endereço",
+     "groups_1_description": "OutraCo - Gama 1 - BA",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    },
+    {
+     "tasks_log_task_type_main": "Corretiva Emergencial",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-14T10:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-14T12:00:00+00:00",
+     "wo_final_date": null,
+     "code": "OC-GAM100",
+     "items_log_description": "OutraCo - Gama 1 - BA  Endereço",
+     "groups_1_description": "OutraCo - Gama 1 - BA",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "34": [
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 4,
+     "event_date": "2026-07-16T12:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-16T18:00:00+00:00",
+     "wo_final_date": null,
+     "code": "OC-GAM100",
+     "items_log_description": "OutraCo - Gama 1 - BA  Endereço",
+     "groups_1_description": "OutraCo - Gama 1 - BA",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "35": [
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-17T12:00:40+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-17T12:00:00+00:00",
+     "wo_final_date": null,
+     "code": "OC-GAM100",
+     "items_log_description": "OutraCo - Gama 1 - BA  Endereço",
+     "groups_1_description": "OutraCo - Gama 1 - BA",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "36": [
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-18T12:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-18T13:00:00+00:00",
+     "wo_final_date": null,
+     "code": "OC-GAM100-PECN1",
+     "items_log_description": "Ponto de Entrega 1",
+     "groups_1_description": "OutraCo - Gama 1 - BA",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "37": [
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-19T12:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-19T13:30:00+00:00",
+     "wo_final_date": null,
+     "code": "OC-GAM100-DTRF2",
+     "items_log_description": "Disjuntor do Transformador 2",
+     "groups_1_description": "OutraCo - Gama 1 - BA",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "40": [
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 1,
+     "event_date": "2026-07-25T12:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": null,
+     "wo_final_date": null,
+     "code": "OC-DLT100",
+     "items_log_description": "OutraCo - Delta 1 - BA  Endereço",
+     "groups_1_description": "OutraCo - Delta 1 - BA",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "41": [
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-20T23:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-21T01:00:00+00:00",
+     "wo_final_date": null,
+     "code": "OC-DLT100-INVR1.2",
+     "items_log_description": "Inversor 1.2 Sofar",
+     "groups_1_description": "OutraCo - Delta 1 - BA",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ],
+   "42": [
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 3,
+     "event_date": "2026-07-22T11:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": "2026-07-22T14:00:00+00:00",
+     "wo_final_date": null,
+     "code": "OC-DLT100-INVR1.1",
+     "items_log_description": "Inversor 1.1 Sofar",
+     "groups_1_description": "OutraCo - Delta 1 - BA",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    },
+    {
+     "tasks_log_task_type_main": "Religamento",
+     "id_status_work_order": 1,
+     "event_date": "2026-07-22T11:00:00+00:00",
+     "date_maintenance": null,
+     "final_date": null,
+     "wo_final_date": null,
+     "code": "OC-DLT100-INVR1.1",
+     "items_log_description": "Inversor 1.1 Sofar",
+     "groups_1_description": "OutraCo - Delta 1 - BA",
+     "description": "",
+     "created_by": "Analista Teste",
+     "personnel_description": "Técnico Teste",
+     "user_assigned": null
+    }
+   ]
+  },
+  "equip": [
+   {
+    "cliente": "TesteCo",
+    "usina": "Alfa",
+    "usina_fracttal": "TesteCo - Alfa 1 - SP",
+    "equipamento": "UFV",
+    "pot_kwp": 1000.0,
+    "n_inv": 2,
+    "full_om": "Sim"
+   },
+   {
+    "cliente": "TesteCo",
+    "usina": "Alfa",
+    "usina_fracttal": "TesteCo - Alfa 1 - SP",
+    "equipamento": "UG 01",
+    "pot_kwp": 600.0
+   },
+   {
+    "cliente": "TesteCo",
+    "usina": "Alfa",
+    "usina_fracttal": "TesteCo - Alfa 1 - SP",
+    "equipamento": "UG 02",
+    "pot_kwp": 400.0
+   },
+   {
+    "cliente": "TesteCo",
+    "usina": "Alfa",
+    "usina_fracttal": "TesteCo - Alfa 1 - SP",
+    "equipamento": "Inversor 1.1",
+    "parente": "UG 01",
+    "pot_kwp": 300.0
+   },
+   {
+    "cliente": "TesteCo",
+    "usina": "Alfa",
+    "usina_fracttal": "TesteCo - Alfa 1 - SP",
+    "equipamento": "Inversor 2.1",
+    "parente": "UG 02",
+    "pot_kwp": 200.0
+   },
+   {
+    "cliente": "TesteCo",
+    "usina": "Beta 1",
+    "usina_fracttal": "TesteCo - Beta 1 e 2 - RN",
+    "equipamento": "UFV",
+    "pot_kwp": 500.0,
+    "n_inv": 4,
+    "full_om": "Sim"
+   },
+   {
+    "cliente": "TesteCo",
+    "usina": "Beta 2",
+    "usina_fracttal": "TesteCo - Beta 1 e 2 - RN",
+    "equipamento": "UFV",
+    "pot_kwp": 500.0,
+    "n_inv": 4,
+    "full_om": "Sim"
+   },
+   {
+    "cliente": "OutraCo",
+    "usina": "Gama",
+    "usina_fracttal": "OutraCo - Gama 1 - BA",
+    "equipamento": "UFV",
+    "pot_kwp": 800.0,
+    "n_inv": 4,
+    "full_om": "Sim"
+   },
+   {
+    "cliente": "OutraCo",
+    "usina": "Gama",
+    "usina_fracttal": "OutraCo - Gama 1 - BA",
+    "equipamento": "UG 01",
+    "pot_kwp": 400.0
+   },
+   {
+    "cliente": "OutraCo",
+    "usina": "Gama",
+    "usina_fracttal": "OutraCo - Gama 1 - BA",
+    "equipamento": "UG 02",
+    "pot_kwp": 400.0
+   },
+   {
+    "cliente": "OutraCo",
+    "usina": "Gama",
+    "usina_fracttal": "OutraCo - Gama 1 - BA",
+    "equipamento": "Inversor 1.1",
+    "parente": "UG 01",
+    "pot_kwp": 200.0
+   },
+   {
+    "cliente": "OutraCo",
+    "usina": "Gama",
+    "usina_fracttal": "OutraCo - Gama 1 - BA",
+    "equipamento": "Inversor 1.2",
+    "parente": "UG 01",
+    "pot_kwp": 200.0
+   },
+   {
+    "cliente": "OutraCo",
+    "usina": "Gama",
+    "usina_fracttal": "OutraCo - Gama 1 - BA",
+    "equipamento": "Inversor 2.1",
+    "parente": "UG 02",
+    "pot_kwp": 200.0
+   },
+   {
+    "cliente": "OutraCo",
+    "usina": "Gama",
+    "usina_fracttal": "OutraCo - Gama 1 - BA",
+    "equipamento": "Inversor 2.2",
+    "parente": "UG 02",
+    "pot_kwp": 200.0
+   },
+   {
+    "cliente": "OutraCo",
+    "usina": "Delta",
+    "usina_fracttal": "OutraCo - Delta 1 - BA",
+    "equipamento": "UFV",
+    "pot_kwp": 300.0,
+    "n_inv": 2,
+    "full_om": "Sim"
+   },
+   {
+    "cliente": "OutraCo",
+    "usina": "Delta",
+    "usina_fracttal": "OutraCo - Delta 1 - BA",
+    "equipamento": "Inversor 1.1",
+    "parente": "UG 01",
+    "pot_kwp": 150.0
+   },
+   {
+    "cliente": "OutraCo",
+    "usina": "Delta",
+    "usina_fracttal": "OutraCo - Delta 1 - BA",
+    "equipamento": "Inversor 1.2",
+    "parente": "UG 01",
+    "pot_kwp": 150.0
+   },
+   {
+    "cliente": "OutraCo",
+    "usina": "Terceirizada",
+    "usina_fracttal": "OutraCo - Terc 1 - BA",
+    "equipamento": "UFV",
+    "pot_kwp": 800.0,
+    "n_inv": 2,
+    "full_om": "Não"
+   }
+  ],
+  "geracao": {
+   "Beta 1": {
+    "2026-07-01": 2500.0,
+    "2026-07-02": 2500.0,
+    "2026-07-03": 2500.0,
+    "2026-07-04": 2500.0,
+    "2026-07-05": 2500.0,
+    "2026-07-06": 2500.0,
+    "2026-07-07": 2500.0,
+    "2026-07-08": 2500.0,
+    "2026-07-09": 2500.0,
+    "2026-07-10": 0.0,
+    "2026-07-11": 2500.0,
+    "2026-07-12": 2500.0,
+    "2026-07-13": 2500.0,
+    "2026-07-14": 2500.0,
+    "2026-07-15": 2500.0,
+    "2026-07-16": 2500.0,
+    "2026-07-17": 2500.0,
+    "2026-07-18": 2500.0,
+    "2026-07-19": 2500.0,
+    "2026-07-20": 2500.0,
+    "2026-07-21": 2500.0,
+    "2026-07-22": 2500.0,
+    "2026-07-23": 2500.0,
+    "2026-07-24": 2500.0,
+    "2026-07-25": 2500.0,
+    "2026-07-26": 2500.0,
+    "2026-07-27": 2500.0,
+    "2026-07-28": 2500.0,
+    "2026-07-29": 2500.0,
+    "2026-07-30": 2500.0,
+    "2026-07-31": 2500.0
+   }
+  },
+  "per_ini": "2026-07-01T00:00:00",
+  "per_fim": "2026-08-01T00:00:00",
+  "agora": "2026-08-15T12:00:00"
+ },
+ "saida": {
+  "periodo": {
+   "ini": "2026-07-01T00:00:00",
+   "fim": "2026-08-01T00:00:00",
+   "dias": 31
+  },
+  "usinas": [
+   {
+    "usina": "Alfa",
+    "cliente": "TesteCo",
+    "fracttal": "TesteCo - Alfa 1 - SP",
+    "full_om": "Sim",
+    "pot_kwp": 1000.0,
+    "fonte_pot": "UFV",
+    "n_inv": 2,
+    "n_cab": 2,
+    "disp": 96.1,
+    "h_perdidas": 14.5,
+    "kwh": 14500,
+    "disp_queda": 96.75,
+    "h_queda": 12.1,
+    "kwh_queda": 12100,
+    "disp_equip": 99.35,
+    "h_equip": 2.4,
+    "kwh_equip": 2400,
+    "n_os": 7,
+    "inversores": [
+     {
+      "inversor": "Inversor 2.1",
+      "cabine": 2,
+      "disp": 94.89,
+      "h_perdidas": 19.0
+     },
+     {
+      "inversor": "Inversor 1.1",
+      "cabine": 1,
+      "disp": 96.24,
+      "h_perdidas": 14.0
+     }
+    ]
+   },
+   {
+    "usina": "Beta 1",
+    "cliente": "TesteCo",
+    "fracttal": "TesteCo - Beta 1 e 2 - RN",
+    "full_om": "Sim",
+    "pot_kwp": 500.0,
+    "fonte_pot": "UFV",
+    "n_inv": 4,
+    "n_cab": null,
+    "disp": 96.77,
+    "h_perdidas": 12.0,
+    "kwh": 6000,
+    "disp_queda": 96.77,
+    "h_queda": 12.0,
+    "kwh_queda": 6000,
+    "disp_equip": 100.0,
+    "h_equip": 0,
+    "kwh_equip": 0,
+    "n_os": 1,
+    "inversores": []
+   },
+   {
+    "usina": "Beta 2",
+    "cliente": "TesteCo",
+    "fracttal": "TesteCo - Beta 1 e 2 - RN",
+    "full_om": "Sim",
+    "pot_kwp": 500.0,
+    "fonte_pot": "UFV",
+    "n_inv": 4,
+    "n_cab": null,
+    "disp": 92.74,
+    "h_perdidas": 27.0,
+    "kwh": 13500,
+    "disp_queda": 92.74,
+    "h_queda": 27.0,
+    "kwh_queda": 13500,
+    "disp_equip": 100.0,
+    "h_equip": 0,
+    "kwh_equip": 0,
+    "n_os": 2,
+    "inversores": []
+   },
+   {
+    "usina": "Delta",
+    "cliente": "OutraCo",
+    "fracttal": "OutraCo - Delta 1 - BA",
+    "full_om": "Sim",
+    "pot_kwp": 300.0,
+    "fonte_pot": "UFV",
+    "n_inv": 2,
+    "n_cab": 1,
+    "disp": 99.6,
+    "h_perdidas": 1.5,
+    "kwh": 450,
+    "disp_queda": 99.6,
+    "h_queda": 1.5,
+    "kwh_queda": 450,
+    "disp_equip": 100.0,
+    "h_equip": 0,
+    "kwh_equip": 0,
+    "n_os": 2,
+    "inversores": [
+     {
+      "inversor": "Inversor 1.1",
+      "cabine": 1,
+      "disp": 99.19,
+      "h_perdidas": 3.0
+     },
+     {
+      "inversor": "Inversor 1.2",
+      "cabine": 1,
+      "disp": 100.0,
+      "h_perdidas": 0.0
+     }
+    ]
+   },
+   {
+    "usina": "Gama",
+    "cliente": "OutraCo",
+    "fracttal": "OutraCo - Gama 1 - BA",
+    "full_om": "Sim",
+    "pot_kwp": 800.0,
+    "fonte_pot": "UFV",
+    "n_inv": 4,
+    "n_cab": 2,
+    "disp": 97.92,
+    "h_perdidas": 7.75,
+    "kwh": 6200,
+    "disp_queda": 98.19,
+    "h_queda": 6.75,
+    "kwh_queda": 5400,
+    "disp_equip": 99.73,
+    "h_equip": 1.0,
+    "kwh_equip": 800,
+    "n_os": 6,
+    "inversores": [
+     {
+      "inversor": "Inversor 2.2",
+      "cabine": 2,
+      "disp": 97.45,
+      "h_perdidas": 9.5
+     },
+     {
+      "inversor": "Inversor 1.1",
+      "cabine": 1,
+      "disp": 97.85,
+      "h_perdidas": 8.0
+     },
+     {
+      "inversor": "Inversor 1.2",
+      "cabine": 1,
+      "disp": 97.85,
+      "h_perdidas": 8.0
+     },
+     {
+      "inversor": "Inversor 2.1",
+      "cabine": 2,
+      "disp": 98.52,
+      "h_perdidas": 5.5
+     }
+    ]
+   }
+  ],
+  "clientes": [
+   {
+    "cliente": "OutraCo",
+    "kwp": 1100,
+    "disp": 98.37,
+    "kwh": 6650,
+    "disp_queda": 98.57,
+    "kwh_queda": 5850,
+    "disp_equip": 99.8,
+    "kwh_equip": 800,
+    "n_os": 8,
+    "n_usinas": 2,
+    "abaixo99": 1
+   },
+   {
+    "cliente": "TesteCo",
+    "kwp": 2000,
+    "disp": 95.43,
+    "kwh": 34000,
+    "disp_queda": 95.75,
+    "kwh_queda": 31600,
+    "disp_equip": 99.68,
+    "kwh_equip": 2400,
+    "n_os": 10,
+    "n_usinas": 3,
+    "abaixo99": 3
+   }
+  ],
+  "diario": {
+   "Alfa": {
+    "2026-07-01": {
+     "h_eq": 0.6,
+     "disp": 95.0,
+     "kwh": 600,
+     "h_q": 0.6,
+     "h_e": 0.0
+    },
+    "2026-07-10": {
+     "h_eq": 6.0,
+     "disp": 50.0,
+     "kwh": 6000,
+     "h_q": 6.0,
+     "h_e": 0.0
+    },
+    "2026-07-12": {
+     "h_eq": 3.3,
+     "disp": 72.5,
+     "kwh": 3300,
+     "h_q": 0.9,
+     "h_e": 2.4
+    },
+    "2026-07-15": {
+     "h_eq": 2.6,
+     "disp": 78.3,
+     "kwh": 2600,
+     "h_q": 2.6,
+     "h_e": 0.0
+    },
+    "2026-07-20": {
+     "h_eq": 2.0,
+     "disp": 83.3,
+     "kwh": 2000,
+     "h_q": 2.0,
+     "h_e": 0.0
+    }
+   },
+   "Beta 1": {
+    "2026-07-10": {
+     "h_eq": 12.0,
+     "disp": 0.0,
+     "kwh": 6000,
+     "h_q": 12.0,
+     "h_e": 0.0
+    }
+   },
+   "Beta 2": {
+    "2026-07-10": {
+     "h_eq": 12.0,
+     "disp": 0.0,
+     "kwh": 6000,
+     "h_q": 12.0,
+     "h_e": 0.0
+    },
+    "2026-07-11": {
+     "h_eq": 12.0,
+     "disp": 0.0,
+     "kwh": 6000,
+     "h_q": 12.0,
+     "h_e": 0.0
+    },
+    "2026-07-20": {
+     "h_eq": 3.0,
+     "disp": 75.0,
+     "kwh": 1500,
+     "h_q": 3.0,
+     "h_e": 0.0
+    }
+   },
+   "Delta": {
+    "2026-07-22": {
+     "h_eq": 1.5,
+     "disp": 87.5,
+     "kwh": 450,
+     "h_q": 1.5,
+     "h_e": 0.0
+    }
+   },
+   "Gama": {
+    "2026-07-10": {
+     "h_eq": 2.5,
+     "disp": 79.2,
+     "kwh": 2000,
+     "h_q": 2.5,
+     "h_e": 0.0
+    },
+    "2026-07-11": {
+     "h_eq": 1.0,
+     "disp": 91.7,
+     "kwh": 800,
+     "h_q": 1.0,
+     "h_e": 0.0
+    },
+    "2026-07-12": {
+     "h_eq": 1.0,
+     "disp": 91.7,
+     "kwh": 800,
+     "h_q": 0.0,
+     "h_e": 1.0
+    },
+    "2026-07-14": {
+     "h_eq": 2.0,
+     "disp": 83.3,
+     "kwh": 1600,
+     "h_q": 2.0,
+     "h_e": 0.0
+    },
+    "2026-07-18": {
+     "h_eq": 0.5,
+     "disp": 95.8,
+     "kwh": 400,
+     "h_q": 0.5,
+     "h_e": 0.0
+    },
+    "2026-07-19": {
+     "h_eq": 0.75,
+     "disp": 93.8,
+     "kwh": 600,
+     "h_q": 0.75,
+     "h_e": 0.0
+    }
+   }
+  },
+  "oss": [
+   {
+    "folio": 10,
+    "tipos": [
+     "Religamento"
+    ],
+    "origem": "queda",
+    "code": "TC-ALF100",
+    "item": "TesteCo - Alfa 1 - SP  Endereço",
+    "g1": "TesteCo - Alfa 1 - SP",
+    "desc": "Religamento da usina",
+    "flags": [],
+    "excl": null,
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-07-10T09:00:00",
+    "fim": "2026-07-10T15:00:00",
+    "usinas": [
+     "Alfa"
+    ],
+    "escopo": [
+     {
+      "usina": "Alfa",
+      "nivel": "usina",
+      "rotulo": "Usina inteira",
+      "kwp": 1000.0
+     }
+    ],
+    "h_solar": 6.0,
+    "kwh": 6000
+   },
+   {
+    "folio": 11,
+    "tipos": [
+     "Corretiva Emergencial"
+    ],
+    "origem": "equipamento",
+    "code": "TC-ALF100-CABN2",
+    "item": "Cabine 2 Endereço",
+    "g1": "TesteCo - Alfa 1 - SP",
+    "desc": "",
+    "flags": [],
+    "excl": null,
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-07-12T09:00:00",
+    "fim": "2026-07-12T15:00:00",
+    "usinas": [
+     "Alfa"
+    ],
+    "escopo": [
+     {
+      "usina": "Alfa",
+      "nivel": "cabine",
+      "rotulo": "Cabine 2",
+      "kwp": 400.0
+     }
+    ],
+    "h_solar": 6.0,
+    "kwh": 2400
+   },
+   {
+    "folio": 12,
+    "tipos": [
+     "Religamento"
+    ],
+    "origem": "queda",
+    "code": "TC-ALF100-INVR1.1",
+    "item": "Inversor 1.1 Sungrow",
+    "g1": "TesteCo - Alfa 1 - SP",
+    "desc": "",
+    "flags": [],
+    "excl": null,
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-07-12T13:00:00",
+    "fim": "2026-07-12T16:00:00",
+    "usinas": [
+     "Alfa"
+    ],
+    "escopo": [
+     {
+      "usina": "Alfa",
+      "nivel": "inversor",
+      "rotulo": "Inversor 1.1",
+      "kwp": 300.0
+     }
+    ],
+    "h_solar": 3.0,
+    "kwh": 900
+   },
+   {
+    "folio": 13,
+    "tipos": [
+     "Religamento"
+    ],
+    "origem": "queda",
+    "code": "TC-ALF100",
+    "item": "TesteCo - Alfa 1 - SP  Endereço",
+    "g1": "TesteCo - Alfa 1 - SP",
+    "desc": "",
+    "flags": [],
+    "excl": null,
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-07-15T09:00:00",
+    "fim": "2026-07-15T11:00:00",
+    "usinas": [
+     "Alfa"
+    ],
+    "escopo": [
+     {
+      "usina": "Alfa",
+      "nivel": "usina",
+      "rotulo": "Usina inteira",
+      "kwp": 1000.0
+     }
+    ],
+    "h_solar": 2.0,
+    "kwh": 2000
+   },
+   {
+    "folio": 14,
+    "tipos": [
+     "Religamento"
+    ],
+    "origem": "queda",
+    "code": "TC-ALF100-CABN1",
+    "item": "Cabine 1 Endereço",
+    "g1": "TesteCo - Alfa 1 - SP",
+    "desc": "",
+    "flags": [],
+    "excl": null,
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-07-15T10:00:00",
+    "fim": "2026-07-15T12:00:00",
+    "usinas": [
+     "Alfa"
+    ],
+    "escopo": [
+     {
+      "usina": "Alfa",
+      "nivel": "cabine",
+      "rotulo": "Cabine 1",
+      "kwp": 600.0
+     }
+    ],
+    "h_solar": 2.0,
+    "kwh": 600
+   },
+   {
+    "folio": 50,
+    "tipos": [
+     "Religamento"
+    ],
+    "origem": "queda",
+    "code": "TC-ALF100-INVR2.1",
+    "item": "Inversor 2.1 Sungrow",
+    "g1": "TesteCo - Alfa 1 - SP",
+    "desc": "",
+    "flags": [],
+    "excl": null,
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-06-30T15:00:00",
+    "fim": "2026-07-01T09:00:00",
+    "usinas": [
+     "Alfa"
+    ],
+    "escopo": [
+     {
+      "usina": "Alfa",
+      "nivel": "inversor",
+      "rotulo": "Inversor 2.1",
+      "kwp": 200.0
+     }
+    ],
+    "h_solar": 3.0,
+    "kwh": 600
+   },
+   {
+    "folio": 70,
+    "tipos": [
+     "Religamento"
+    ],
+    "origem": "queda",
+    "code": "TC-ALF100",
+    "item": "TesteCo - Alfa 1 - SP  Endereço",
+    "g1": "TesteCo - Alfa 1 - SP",
+    "desc": "",
+    "flags": [
+     "sem final_date → usei wo_final_date (carimbo da WO; pode ser tardio)"
+    ],
+    "excl": null,
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-07-20T09:00:00",
+    "fim": "2026-07-20T11:00:00",
+    "usinas": [
+     "Alfa"
+    ],
+    "escopo": [
+     {
+      "usina": "Alfa",
+      "nivel": "usina",
+      "rotulo": "Usina inteira",
+      "kwp": 1000.0
+     }
+    ],
+    "h_solar": 2.0,
+    "kwh": 2000
+   },
+   {
+    "folio": 20,
+    "tipos": [
+     "Religamento"
+    ],
+    "origem": "queda",
+    "code": "TC-BET100",
+    "item": "TesteCo - Beta 1 e 2 - RN  Endereço",
+    "g1": "TesteCo - Beta 1 e 2 - RN",
+    "desc": "Religamento da usina",
+    "flags": [
+     "site agrupado ['Beta 1', 'Beta 2'] sem pista na descrição → grupo inteiro",
+     "Beta 1: 1 dia(s) exonerados — a geração desmente a parada (OS longa fechada com atraso não é parada real)"
+    ],
+    "excl": null,
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": {
+     "Beta 1": [
+      "2026-07-11"
+     ]
+    },
+    "ini": "2026-07-10T06:00:00",
+    "fim": "2026-07-11T18:00:00",
+    "usinas": [
+     "Beta 1",
+     "Beta 2"
+    ],
+    "escopo": [
+     {
+      "usina": "Beta 1",
+      "nivel": "usina",
+      "rotulo": "Usina inteira",
+      "kwp": 500.0
+     },
+     {
+      "usina": "Beta 2",
+      "nivel": "usina",
+      "rotulo": "Usina inteira",
+      "kwp": 500.0
+     }
+    ],
+    "h_solar": 24.0,
+    "kwh": 18000
+   },
+   {
+    "folio": 21,
+    "tipos": [
+     "Religamento"
+    ],
+    "origem": "queda",
+    "code": "TC-BET100-CABN2",
+    "item": "Cabine 2 Endereço",
+    "g1": "TesteCo - Beta 1 e 2 - RN",
+    "desc": "Religamento da cabine 2",
+    "flags": [
+     "cabine 2 do site agrupado = usina 'Beta 2' (configuração de 1 cabine por usina)"
+    ],
+    "excl": null,
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-07-20T09:00:00",
+    "fim": "2026-07-20T12:00:00",
+    "usinas": [
+     "Beta 2"
+    ],
+    "escopo": [
+     {
+      "usina": "Beta 2",
+      "nivel": "usina",
+      "rotulo": "Usina inteira",
+      "kwp": 500.0
+     }
+    ],
+    "h_solar": 3.0,
+    "kwh": 1500
+   },
+   {
+    "folio": 30,
+    "tipos": [
+     "Religamento Remoto"
+    ],
+    "origem": "queda",
+    "code": "OC-GAM100-SKID1",
+    "item": "SKID 1 Endereço",
+    "g1": "OutraCo - Gama 1 - BA",
+    "desc": "",
+    "flags": [],
+    "excl": null,
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-07-10T09:00:00",
+    "fim": "2026-07-10T14:00:00",
+    "usinas": [
+     "Gama"
+    ],
+    "escopo": [
+     {
+      "usina": "Gama",
+      "nivel": "cabine",
+      "rotulo": "Cabine 1",
+      "kwp": 400.0
+     }
+    ],
+    "h_solar": 5.0,
+    "kwh": 2000
+   },
+   {
+    "folio": 31,
+    "tipos": [
+     "Religamento"
+    ],
+    "origem": "queda",
+    "code": "OC-GAM100-QGBT2",
+    "item": "QGBT 2 Endereço",
+    "g1": "OutraCo - Gama 1 - BA",
+    "desc": "",
+    "flags": [],
+    "excl": null,
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-07-11T10:00:00",
+    "fim": "2026-07-11T12:00:00",
+    "usinas": [
+     "Gama"
+    ],
+    "escopo": [
+     {
+      "usina": "Gama",
+      "nivel": "cabine",
+      "rotulo": "Cabine 2",
+      "kwp": 400.0
+     }
+    ],
+    "h_solar": 2.0,
+    "kwh": 800
+   },
+   {
+    "folio": 32,
+    "tipos": [
+     "Corretiva Emergencial"
+    ],
+    "origem": "equipamento",
+    "code": "OC-GAM100-DINV2.2",
+    "item": "Disjuntor do Inversor 2.2",
+    "g1": "OutraCo - Gama 1 - BA",
+    "desc": "",
+    "flags": [],
+    "excl": null,
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-07-12T08:00:00",
+    "fim": "2026-07-12T12:00:00",
+    "usinas": [
+     "Gama"
+    ],
+    "escopo": [
+     {
+      "usina": "Gama",
+      "nivel": "inversor",
+      "rotulo": "Inversor 2.2",
+      "kwp": 200.0
+     }
+    ],
+    "h_solar": 4.0,
+    "kwh": 800
+   },
+   {
+    "folio": 33,
+    "tipos": [
+     "Corretiva Emergencial",
+     "Religamento"
+    ],
+    "origem": "queda",
+    "code": "OC-GAM100",
+    "item": "OutraCo - Gama 1 - BA  Endereço",
+    "g1": "OutraCo - Gama 1 - BA",
+    "desc": "",
+    "flags": [],
+    "excl": null,
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-07-14T07:00:00",
+    "fim": "2026-07-14T09:00:00",
+    "usinas": [
+     "Gama"
+    ],
+    "escopo": [
+     {
+      "usina": "Gama",
+      "nivel": "usina",
+      "rotulo": "Usina inteira",
+      "kwp": 800.0
+     }
+    ],
+    "h_solar": 2.0,
+    "kwh": 1600
+   },
+   {
+    "folio": 34,
+    "tipos": [
+     "Religamento"
+    ],
+    "origem": "queda",
+    "code": "OC-GAM100",
+    "item": "OutraCo - Gama 1 - BA  Endereço",
+    "g1": "OutraCo - Gama 1 - BA",
+    "desc": "",
+    "flags": [],
+    "excl": "OS cancelada",
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": null,
+    "fim": null,
+    "usinas": [],
+    "escopo": [],
+    "h_solar": 0.0,
+    "kwh": 0
+   },
+   {
+    "folio": 35,
+    "tipos": [
+     "Religamento"
+    ],
+    "origem": "queda",
+    "code": "OC-GAM100",
+    "item": "OutraCo - Gama 1 - BA  Endereço",
+    "g1": "OutraCo - Gama 1 - BA",
+    "desc": "",
+    "flags": [
+     "fim registrado minutos antes do evento → duração 0"
+    ],
+    "excl": null,
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-07-17T09:00:40",
+    "fim": "2026-07-17T09:00:40",
+    "usinas": [
+     "Gama"
+    ],
+    "escopo": [
+     {
+      "usina": "Gama",
+      "nivel": "usina",
+      "rotulo": "Usina inteira",
+      "kwp": 800.0
+     }
+    ],
+    "h_solar": 0.0,
+    "kwh": 0
+   },
+   {
+    "folio": 36,
+    "tipos": [
+     "Religamento"
+    ],
+    "origem": "queda",
+    "code": "OC-GAM100-PECN1",
+    "item": "Ponto de Entrega 1",
+    "g1": "OutraCo - Gama 1 - BA",
+    "desc": "",
+    "flags": [],
+    "excl": null,
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-07-18T09:00:00",
+    "fim": "2026-07-18T10:00:00",
+    "usinas": [
+     "Gama"
+    ],
+    "escopo": [
+     {
+      "usina": "Gama",
+      "nivel": "cabine",
+      "rotulo": "Cabine 1",
+      "kwp": 400.0
+     }
+    ],
+    "h_solar": 1.0,
+    "kwh": 400
+   },
+   {
+    "folio": 37,
+    "tipos": [
+     "Religamento"
+    ],
+    "origem": "queda",
+    "code": "OC-GAM100-DTRF2",
+    "item": "Disjuntor do Transformador 2",
+    "g1": "OutraCo - Gama 1 - BA",
+    "desc": "",
+    "flags": [],
+    "excl": null,
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-07-19T09:00:00",
+    "fim": "2026-07-19T10:30:00",
+    "usinas": [
+     "Gama"
+    ],
+    "escopo": [
+     {
+      "usina": "Gama",
+      "nivel": "cabine",
+      "rotulo": "Cabine 2",
+      "kwp": 400.0
+     }
+    ],
+    "h_solar": 1.5,
+    "kwh": 600
+   },
+   {
+    "folio": 40,
+    "tipos": [
+     "Religamento"
+    ],
+    "origem": "queda",
+    "code": "OC-DLT100",
+    "item": "OutraCo - Delta 1 - BA  Endereço",
+    "g1": "OutraCo - Delta 1 - BA",
+    "desc": "",
+    "flags": [
+     "OS ABERTA sem data final → 0h no cálculo (ver cenário)"
+    ],
+    "excl": null,
+    "aberta": true,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-07-25T09:00:00",
+    "fim": "2026-07-25T09:00:00",
+    "usinas": [
+     "Delta"
+    ],
+    "escopo": [
+     {
+      "usina": "Delta",
+      "nivel": "usina",
+      "rotulo": "Usina inteira",
+      "kwp": 300.0
+     }
+    ],
+    "h_solar": 0.0,
+    "kwh": 0
+   },
+   {
+    "folio": 41,
+    "tipos": [
+     "Religamento"
+    ],
+    "origem": "queda",
+    "code": "OC-DLT100-INVR1.2",
+    "item": "Inversor 1.2 Sofar",
+    "g1": "OutraCo - Delta 1 - BA",
+    "desc": "",
+    "flags": [],
+    "excl": null,
+    "aberta": false,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-07-20T20:00:00",
+    "fim": "2026-07-20T22:00:00",
+    "usinas": [
+     "Delta"
+    ],
+    "escopo": [
+     {
+      "usina": "Delta",
+      "nivel": "inversor",
+      "rotulo": "Inversor 1.2",
+      "kwp": 150.0
+     }
+    ],
+    "h_solar": 0,
+    "kwh": 0
+   },
+   {
+    "folio": 42,
+    "tipos": [
+     "Religamento"
+    ],
+    "origem": "queda",
+    "code": "OC-DLT100-INVR1.1",
+    "item": "Inversor 1.1 Sofar",
+    "g1": "OutraCo - Delta 1 - BA",
+    "desc": "",
+    "flags": [],
+    "excl": null,
+    "aberta": true,
+    "criado_por": "Analista Teste",
+    "responsavel": "Técnico Teste",
+    "dias_exonerados": null,
+    "ini": "2026-07-22T08:00:00",
+    "fim": "2026-07-22T11:00:00",
+    "usinas": [
+     "Delta"
+    ],
+    "escopo": [
+     {
+      "usina": "Delta",
+      "nivel": "inversor",
+      "rotulo": "Inversor 1.1",
+      "kwp": 150.0
+     }
+    ],
+    "h_solar": 3.0,
+    "kwh": 450
+   }
+  ],
+  "cenario_abertas": [
+   {
+    "folio": 40,
+    "g1": "OutraCo - Delta 1 - BA",
+    "desc": "",
+    "code": "OC-DLT100",
+    "ini": "2026-07-25T09:00:00",
+    "usinas": [
+     "Delta"
+    ],
+    "h_cenario": 81.0,
+    "kwh_cenario": 24300
+   }
+  ],
+  "lacunas": []
+ }
+}
