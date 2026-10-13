@@ -142,3 +142,53 @@ def test_inversor_casa_pelo_nome_de_exibicao_quando_o_codigo_da_fonte_e_outro(co
         assert cur.fetchone()[0] == {}
     assert at == {"kwp": 338.1, "n_strings_esperadas": 23}
     limpar_tudo(conn)
+
+
+
+def _visao_mro(strings=17):
+    """A Mae do Rio montada no Nexus igual a aba (a visao `nexus_estrutura_usina · aba_equipamentos`): a UFV na chave da
+    usina, sem "Usina Supervisório" porque a chave e o proprio nome; os IDs do Nexus no fim."""
+    comum = {"Cliente": "Athon", "Usina": "MRO100", "Usina Fractall": "Athon - Mãe do Rio 1 - PA", "String Box": "Não",
+             "Full O&M": "Sim", "usina_id": 7, "supervisorio_id": 1}
+    return [dict(comum, **{"Usina Supervisório": None, "Equipamento": "UFV", "Potência (kWp)": 6942.0, "N de Inversores": 25}),
+            dict(comum, **{"Usina Supervisório": "MRO100", "Equipamento": "Inversor 1.1", "Equipamento Supervisório": "INV_1",
+                           "Potência (kWp)": 277.68, "Strings Ativas": strings, "inversor_id": 1}),
+            dict(comum, **{"Usina Supervisório": "MRO100", "Equipamento": "Inversor 1.2", "Equipamento Supervisório": "INV_2",
+                           "Potência (kWp)": 277.68, "Strings Ativas": 17, "inversor_id": 2})]
+
+
+def test_a_visao_do_nexus_igual_a_aba_nao_muda_nada_e_mudar_no_nexus_muda():
+    """13/10/2026: as chaves que a tela Equipamentos das usinas do Nexus pos "no lugar da aba" chegam pela visao, no
+    formato da aba; a troca e invisivel quando a estrutura e a mesma."""
+    ls = cadastro.linhas_da_aba(Http(), "http://x", "tok", sheet_id=46, header_row=3)
+    so_aba = cadastro.separar_equipamentos(ls, piloto=("MRO100",))
+    junta = cadastro.sobrepor_nexus(ls, _visao_mro())
+    assert len(junta) == 3 and cadastro.separar_equipamentos(junta, piloto=("MRO100",)) == so_aba
+    us, invs = cadastro.separar_equipamentos(cadastro.sobrepor_nexus(ls, _visao_mro(strings=20)), piloto=("MRO100",))
+    assert invs["MRO100"][0]["n_strings_esperadas"] == 20
+    assert cadastro.sobrepor_nexus(ls, []) == ls                  # sem visao, a aba como esta
+
+
+def test_sem_o_livro_do_nexus_vale_a_aba_e_desligado_nem_le(monkeypatch):
+    class Cfg:
+        bd_api_base, bd_api_token = "http://x", "tok"
+
+    class SoSheets:
+        def __init__(self, lista):
+            self.lista, self.pedidos = lista, []
+
+        def get(self, url, params=None, headers=None, timeout=None):
+            self.pedidos.append(url)
+
+            class R:
+                status_code = 200
+                def __init__(s, j): s._j = j
+                def json(s): return s._j
+                def raise_for_status(s): pass
+            return R(self.lista)
+    http = SoSheets([{"id": 1, "workbook_key": "bd_performance", "sheet_name": "Equipamentos"}])
+    ing = cadastro.IngestorCadastro(Cfg(), conn=None, http=http)
+    assert ing._visao_nexus() == []                               # o livro ainda nao existe
+    monkeypatch.setenv("ESTRUTURA_NEXUS", "0")
+    http.pedidos.clear()
+    assert ing._visao_nexus() == [] and http.pedidos == []          # desligado: nem pergunta ao banco

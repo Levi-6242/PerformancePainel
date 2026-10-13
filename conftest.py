@@ -21,6 +21,9 @@ import requests
 
 # o código da plataforma vive em plataforma/ desde a separação por projeto
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "plataforma"))
+# Os testes não leem a estrutura do Nexus no banco (o livro nexus_estrutura_usina, fase 2 de 13/10/2026): o cadastro do
+# `import app` sai só da aba, e o teste da estrutura (tests/test_estrutura_nexus.py) liga e dubla a visão à mão.
+os.environ.setdefault("ESTRUTURA_NEXUS", "0")
 
 
 # ── Trava das fontes PAGAS (10/10/2026) ──────────────────────────────────────────────────────────────────────────────

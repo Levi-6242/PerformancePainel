@@ -3,6 +3,7 @@
 workbook mudou — a mesma revalidacao barata do bd_api da plataforma."""
 from __future__ import annotations
 import json
+import os
 import re
 
 import requests
@@ -35,6 +36,38 @@ def linhas_da_aba(http, base: str, token: str, sheet_id: int, header_row: int) -
 
 def _sim(v) -> bool:
     return str(v or "").strip().lower() in ("sim", "s", "true", "1")
+
+
+# A estrutura do Nexus no lugar da aba Equipamentos (13/10/2026, Levi: "pode fazer todas as fases! vamos pra cima!"): a
+# tela Base > Equipamentos das usinas do Nexus publica a visao `nexus_estrutura_usina · aba_equipamentos` (o formato da aba)
+# das chaves marcadas "no lugar da aba", e esta leitura troca as linhas dessas chaves pelas da visao. A mesma regra da
+# plataforma (plataforma/estrutura_nexus.py), do Nexus e do coletor: mudou la, muda aqui. ESTRUTURA_NEXUS=0 desliga.
+NEXUS_LIVRO, NEXUS_ABA = "nexus_estrutura_usina", "aba_equipamentos"
+
+
+def _usa_nexus() -> bool:
+    return os.environ.get("ESTRUTURA_NEXUS", "1") != "0"
+
+
+def _chave_efetiva(ln: dict) -> str:
+    """A chave da linha como a plataforma a le: "Usina Supervisório" e, sem ela, "Usina"."""
+    return " ".join(str(ln.get("Usina Supervisório") or "").split()) or " ".join(str(ln.get("Usina") or "").split())
+
+
+def _tipo(eq) -> str:
+    e = str(eq or "").strip()
+    return ("ufv" if e.upper() == "UFV" else "ug" if e.upper().startswith("UG")
+            else "inversor" if e.lower().startswith("inversor") else "")
+
+
+def sobrepor_nexus(linhas: list[dict], visao: list[dict]) -> list[dict]:
+    """As linhas da aba com as chaves da visao do Nexus trocadas: saem as de UFV, UG e inversor dessas chaves e entram as
+    da visao. Sem visao, a aba como esta."""
+    visao = [dict(x) for x in visao or () if _chave_efetiva(x)]
+    chaves = {_chave_efetiva(x) for x in visao}
+    if not chaves:
+        return list(linhas or ())
+    return [x for x in linhas or () if _chave_efetiva(x) not in chaves or not _tipo(x.get("Equipamento"))] + visao
 
 
 def separar_equipamentos(linhas: list[dict], piloto: tuple[str, ...]) -> tuple[dict, dict]:
@@ -198,6 +231,23 @@ class IngestorCadastro:
         lst = lst if isinstance(lst, list) else lst.get("items") or []
         return {str(s["sheet_name"]).strip().lower(): s for s in lst if s.get("workbook_key") == "bd_performance"}
 
+    def _visao_nexus(self) -> list[dict]:
+        """A visao do Nexus (as chaves no lugar da aba), ou [] (desligado, livro que nao existe, leitura que falha: a aba
+        inteira, como antes)."""
+        if not _usa_nexus():
+            return []
+        try:
+            lst = _get(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, "/api/sheets")
+            lst = lst if isinstance(lst, list) else lst.get("items") or []
+            s = next((s for s in lst if s.get("workbook_key") == NEXUS_LIVRO
+                      and str(s.get("sheet_name")).strip() == NEXUS_ABA), None)
+            if not s:
+                return []
+            return linhas_da_aba(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, s["id"], int(s.get("header_row") or 0))
+        except Exception as e:                       # noqa: BLE001 — a visao nunca derruba o cadastro
+            print(f"[cadastro] visao do Nexus nao lida ({e}); vale a aba Equipamentos inteira")
+            return []
+
     def _piloto_amplo(self) -> tuple[str, ...]:
         """Codigos do piloto MAIS o `nome` de cada usina ativa (22/09/2026).
 
@@ -221,13 +271,19 @@ class IngestorCadastro:
 
     def ciclo(self, force: bool = False) -> dict:
         wbs = _get(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, "/api/workbooks")
-        wb = next((w for w in (wbs if isinstance(wbs, list) else wbs.get("items") or []) if w.get("key") == "bd_performance"), {})
-        versao = f"{wb.get('updated_at') or ''}|{VERSAO_CADASTRO}"
+        lst_wbs = wbs if isinstance(wbs, list) else wbs.get("items") or []
+        wb = next((w for w in lst_wbs if w.get("key") == "bd_performance"), {})
+        # a visao do Nexus tambem muda o cadastro: com o livro dela, a versao leva o updated_at dele (sem o livro, a marca
+        # e a de sempre: nada a reprocessar)
+        nx = next((w for w in lst_wbs if w.get("key") == NEXUS_LIVRO), {}) if _usa_nexus() else {}
+        versao = (f"{wb.get('updated_at') or ''}|{nx['updated_at']}|{VERSAO_CADASTRO}" if nx.get("updated_at")
+                  else f"{wb.get('updated_at') or ''}|{VERSAO_CADASTRO}")
         if not force and versao and versao == _db.ler_estado(self.conn, "cadastro.updated_at"):
             return {"mudou": False}
         sheets = self._sheets()
         eq = sheets["equipamentos"]
         linhas = linhas_da_aba(self.http, self.cfg.bd_api_base, self.cfg.bd_api_token, eq["id"], int(eq.get("header_row") or 0))
+        linhas = sobrepor_nexus(linhas, self._visao_nexus())      # as chaves no lugar da aba vêm do Nexus (13/10/2026)
         usinas, invs = separar_equipamentos(linhas, self._piloto_amplo())
         # cada gravacao insiste no lock: as fontes escrevem no mesmo arquivo (12/09/2026: 'database is locked' no aplicar_trackers
         # enquanto a fonte plat gravava 17 mil angulos — a passada inteira do cadastro foi perdida)

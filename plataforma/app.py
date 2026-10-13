@@ -1445,6 +1445,17 @@ def api_cob_decidir():
     return jsonify({"ok": True, "gravadas": len(novas), "total": total})
 
 
+@app.route("/api/estrutura-nexus")
+def api_estrutura_nexus():
+    """O que o cadastro desta máquina leu da estrutura do Nexus (as chaves no lugar da aba Equipamentos): ligado ou não,
+    as chaves (inversores e strings de cada uma), quantas linhas da aba saíram e quando o cadastro foi carregado."""
+    leitor = _EN_ESTADO["leitor"]
+    return jsonify({"ligado": ESTRUTURA_NEXUS, "livro": f"{_en.LIVRO} · {_en.ABA}", "chaves": _EN_ESTADO["chaves"],
+                    "linhas_da_aba_trocadas": _EN_ESTADO["trocadas"], "cadastro_carregado_em": _EN_ESTADO["carregado_em"],
+                    "visao_mudou_desde_a_carga": bool(ESTRUTURA_NEXUS and _EN_ESTADO["marca_lida"] != _EN_ESTADO["carregada"]),
+                    "livro_lido_em": getattr(leitor, "lido_em", None), "erro": getattr(leitor, "erro", None)})
+
+
 @app.route("/api/eu")
 def api_eu():
     """O que a sessão de agora abre, para a tela decidir o que oferecer (13/10/2026: o atalho do Tempo real para o de-para
@@ -2629,6 +2640,63 @@ def _aplica_alias_api_cadastro():
                 conj.add(api)
 
 
+# ── A estrutura do Nexus no lugar da aba Equipamentos (fase 2, 13/10/2026) ──────────────────────────────────────
+# Levi: "pode fazer todas as fases! vamos pra cima!". A tela Base > Equipamentos das usinas do Nexus publica a estrutura
+# das chaves marcadas "no lugar da aba" numa visão com o formato da aba (`nexus_estrutura_usina · aba_equipamentos`), e
+# toda leitura da aba aqui (o cadastro, o mapa do "Usina Fractall", a disponibilidade) troca as linhas dessas chaves
+# pelas da visão (`estrutura_nexus.sobrepor_df`). Livro que não existe ou ilegível sem cópia = a aba inteira, como antes.
+# `ESTRUTURA_NEXUS=0` desliga numa máquina. O leitor é o mesmo do de-para (60 s de cópia, a última boa em disco), criado
+# no 1º uso: o cobertura e o bd_api só são importados mais abaixo, e o load_equipamentos roda no import.
+import estrutura_nexus as _en  # noqa: E402
+ESTRUTURA_NEXUS = os.environ.get("ESTRUTURA_NEXUS", "1") != "0"
+_EN_ESTADO = {"leitor": None, "marca_lida": None, "carregada": None, "chaves": {}, "trocadas": 0, "carregado_em": None}
+
+
+def _en_leitor():
+    if _EN_ESTADO["leitor"] is None:
+        import bd_api
+        import cobertura
+        _EN_ESTADO["leitor"] = cobertura.Decisoes(bd_api.API_BASE, lambda: "", _p_cache("estrutura_nexus.json"), ttl=60,
+                                                  livro=_en.LIVRO, aba=_en.ABA, cab=_en.CAB, nome_livro=_en.NOME_LIVRO)
+    return _EN_ESTADO["leitor"]
+
+
+def _en_visao() -> list:
+    """As linhas da visão do Nexus (dicionários no formato da aba), ou [] (desligado, sem livro, ilegível sem cópia)."""
+    if not ESTRUTURA_NEXUS:
+        return []
+    try:
+        return _en.linhas(_en_leitor().linhas())
+    except Exception as e:                                       # noqa: BLE001 — a visão nunca derruba o cadastro
+        print(f"[estrutura-nexus] leitura falhou ({e}); vale a aba")
+        return []
+
+
+def _en_mudou() -> bool:
+    """A visão do Nexus mudou desde a última carga do cadastro?"""
+    return ESTRUTURA_NEXUS and _en.marca(_en_visao()) != _EN_ESTADO["carregada"]
+
+
+def _aba_equipamentos_df():
+    """A aba Equipamentos do BD_Performance como está (o cabeçalho na linha 3), com os nomes de coluna limpos."""
+    df = pd.read_excel(_bd_readable(), sheet_name="Equipamentos", header=2)
+    df.columns = [str(c).strip() for c in df.columns]
+    return df
+
+
+def _equipamentos_df(registrar: bool = False):
+    """A aba Equipamentos com as chaves que o Nexus pôs no lugar dela trocadas. `registrar` (só o load_equipamentos)
+    guarda o que foi trocado, para o diagnóstico e para saber quando a visão mudou."""
+    df = _aba_equipamentos_df()
+    visao = _en_visao()
+    trocadas = 0
+    if visao:
+        df, trocadas = _en.sobrepor_df(df, visao)
+    if registrar:
+        _EN_ESTADO.update(marca_lida=_en.marca(visao), chaves=_en.resumo(visao), trocadas=trocadas)
+    return df
+
+
 def load_equipamentos():
     """(Re)carrega TODO o cadastro a partir da aba 'Equipamentos' do BD_Performance:
     esperadas (Strings Ativas), nomes de exibição, Full O&M e potência por inversor.
@@ -2637,8 +2705,7 @@ def load_equipamentos():
     global FULL_OM_DISP_NOMES, ESPERADO_INV_DISP
     try:
         path = _bd_perf_path()
-        df = pd.read_excel(_bd_readable(), sheet_name="Equipamentos", header=2)
-        df.columns = [str(c).strip() for c in df.columns]
+        df = _equipamentos_df(registrar=True)        # a aba, com as chaves que o Nexus pôs no lugar dela (fase 2)
         # ABA SEM CABEÇALHO PRECISA FALHAR ALTO. Estes cinco usavam `next()` SEM default, e um
         # `StopIteration` tem str() VAZIA: o except lá embaixo imprimia "não carregado: " e mais
         # nada, com o cadastro INTEIRO ficando vazio em silêncio. Foi o que aconteceu entre 25 e
@@ -2796,6 +2863,12 @@ def load_equipamentos():
             _bd_mtime = os.path.getmtime(path)
         except OSError:
             _bd_mtime = 0.0
+        _EN_ESTADO.update(carregada=_EN_ESTADO["marca_lida"], carregado_em=datetime.now().strftime("%d/%m %H:%M:%S"))
+        # o mapa do "Usina Fractall" e a disponibilidade guardam a aba por 12 h: relidos já, com a mesma troca
+        if "_frac_bd_ts" in globals():
+            globals()["_frac_bd_ts"] = 0.0
+        if "_disp_equip_cache" in globals():
+            _disp_equip_cache["ts"] = 0.0
         _n_pot = sum(len(v) for v in power_inv.values())
         # O rótulo tem de dizer de onde o dado VEIO, não de onde ele viria. Com BD_MEM (o padrão)
         # a leitura é um BytesIO montado pelo bd_api a partir da API, e `path` nem chega a ser
@@ -2808,9 +2881,11 @@ def load_equipamentos():
         else:
             _src = ("LOCAL (fallback)" if path == _BD_PERF_LOCAL
                     else "ESPELHO/API" if os.path.dirname(path) == _BASES_DIR else "ENV")
+        _nx = (f" | Nexus: {len(_EN_ESTADO['chaves'])} chave(s) no lugar da aba ({_EN_ESTADO['trocadas']} linhas da aba "
+               f"trocadas)") if _EN_ESTADO["chaves"] else ""
         print(f"[OK] BD_Performance/Equipamentos [{_src}]: {len(esperado_inv)} usinas c/ esperadas | "
               f"{len(FULL_OM)} Full O&M | {len(STRING_BOX)} String Box | {_n_pot} aliases de potência | "
-              f"{len(power_ufv)} aliases de potência UFV")
+              f"{len(power_ufv)} aliases de potência UFV{_nx}")
     except Exception as e:
         print(f"[AVISO] BD_Performance (Equipamentos) não carregado: {e}")
 
@@ -2928,7 +3003,13 @@ def _pot_inv(plant_sup: str, inv_api: str, inv_disp: str = None):
 
 
 def maybe_reload_equipamentos():
-    """Recarrega o cadastro se o BD_Performance mudou (verificação barata por mtime)."""
+    """Recarrega o cadastro se o BD_Performance mudou (verificação barata por mtime) ou se a visão do Nexus mudou (a
+    estrutura das chaves no lugar da aba: a leitura do livro tem cópia de 60 s, então é no máximo um pedido por minuto)."""
+    if _en_mudou():
+        with _bd_lock:
+            if _en_mudou():
+                print("[BD] estrutura do Nexus (chaves no lugar da aba) mudou -> recarregando o cadastro...")
+                load_equipamentos()
     try:
         m = os.path.getmtime(_bd_perf_path())
     except OSError:
@@ -25139,7 +25220,7 @@ def _frac_fractall_map():
         return _frac_bd_map
     m = {}
     try:
-        df = pd.read_excel(_bd_readable(), sheet_name="Equipamentos", header=2)
+        df = _equipamentos_df()                       # a aba, com as chaves do Nexus trocadas (fase 2, 13/10/2026)
         sub = df[["Usina", "Usina Supervisório", "Usina Fractall"]].dropna(subset=["Usina Fractall"])
         for _, r in sub.iterrows():
             fr = str(r["Usina Fractall"]).strip()
@@ -25783,7 +25864,7 @@ def _disp_equip_linhas():
         return _disp_equip_cache["linhas"]
     linhas = []
     try:
-        df = pd.read_excel(_bd_readable(), sheet_name="Equipamentos", header=2)
+        df = _equipamentos_df()                       # a aba, com as chaves do Nexus trocadas (fase 2, 13/10/2026)
         for _, r in df.iterrows():
             pot = r.get("Potência (kWp)")
             linhas.append({

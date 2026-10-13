@@ -48,6 +48,14 @@ Não é acidente: a planilha é genuinamente compartilhada. Extrair um módulo c
 que, num repositório único, não se paga. **Se um dia os projetos virarem repositórios separados,
 essa extração passa a ser obrigatória.**
 
+## Acoplamento conhecido: Nexus → plataforma, gêmeo e coletor (estrutura das usinas, 13/10/2026)
+
+A tela Base > Equipamentos das usinas do Nexus publica a visão `nexus_estrutura_usina · aba_equipamentos` (o formato da
+aba Equipamentos do BD_Performance) das chaves marcadas "no lugar da aba", e cada leitor da aba troca as linhas dessas
+chaves por ela, pela mesma regra: a plataforma (`plataforma/estrutura_nexus.py`), o gêmeo (`gemeo/gemeo/ingest/
+cadastro.py`), o coletor (`load_name_mapping`, desligado por padrão) e as Ligações do Nexus. Mudou a regra ou o formato
+num, muda nos outros no mesmo trabalho. Detalhe em `plataforma/CLAUDE.md` e em `nexus/cadastro/CLAUDE.md` (Nexus).
+
 ## Acoplamento conhecido: Nexus → plataforma (porta única, 09/10/2026)
 
 O Nexus (outro repositório, `Grid-Co-CODE/nexus`) abre as telas da plataforma numa moldura com um passe assinado

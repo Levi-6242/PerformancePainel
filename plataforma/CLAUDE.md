@@ -810,6 +810,32 @@ Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o
 - `DEPARA_TELA=0` desliga numa máquina; os testes rodam desligados (`conftest._depara_desligado_por_padrao`). Testes:
   `tests/test_depara_equipamentos.py`.
 
+## Estrutura do Nexus no lugar da aba Equipamentos (13/10/2026)
+
+Levi, com a tela Base > Equipamentos das usinas pronta no Nexus: "pode fazer todas as fases! vamos pra cima!". O Nexus
+publica a visão `nexus_estrutura_usina · aba_equipamentos` (o formato da aba Equipamentos, com os IDs do Nexus no fim) das
+chaves que o Levi marcou "no lugar da aba". Aqui (`estrutura_nexus.py`), **toda leitura da aba** passa por
+`_equipamentos_df()`: a aba do BD_Performance com as linhas de UFV, UG e inversor dessas chaves trocadas pelas da visão
+(chave efetiva = "Usina Supervisório" ou, sem ela, "Usina", o `us` do `load_equipamentos`). São três leitores: o
+`load_equipamentos` (ESPERADO, ESPERADO_INV, EQUIP_NAMES, USINA_DISPLAY, FULL_OM, STRING_BOX, POWER_*), o
+`_frac_fractall_map` e o `_disp_equip_linhas`; nenhum outro lê a aba (o `pd.read_excel(... "Equipamentos")` mora só em
+`_aba_equipamentos_df`).
+- Leitura: o mesmo `cobertura.Decisoes` do de-para (cópia de 60 s, a última boa em `estrutura_nexus.json` do cache),
+  criado no 1º uso (o `load_equipamentos` roda no import, antes do `cobertura`). Livro que não existe, vazio ou
+  ilegível sem cópia = a aba inteira, como antes.
+- Recarga: o `maybe_reload_equipamentos` (o vigia do web a cada 60 s e o ciclo do worker) relê o cadastro quando a
+  impressão da visão (`estrutura_nexus.marca`) muda, mesmo com o BD parado; a carga zera a cópia de 12 h do mapa do
+  "Usina Fractall" e da disponibilidade. O log da carga diz "Nexus: N chave(s) no lugar da aba (M linhas da aba trocadas)".
+- `GET /api/estrutura-nexus` (com login): ligado, as chaves (inversores e strings de cada uma), as linhas trocadas, quando
+  o cadastro carregou e se a visão mudou desde então.
+- `ESTRUTURA_NEXUS=0` desliga numa máquina; os testes rodam desligados (o conftest põe `ESTRUTURA_NEXUS=0`) e o
+  `tests/test_estrutura_nexus.py` liga e dubla a visão. O gêmeo faz o mesmo em `gemeo/gemeo/ingest/cadastro.py`
+  (`sobrepor_nexus`; a versão do cadastro leva o `updated_at` do livro), o coletor no `load_name_mapping` (desligado por
+  padrão, ver o CLAUDE.md dele) e o Nexus nas Ligações. A regra é a mesma nos quatro.
+- **Prova (13/10/2026):** a Altair (6 chaves, 46 linhas na visão) montada no Nexus pelo "Trazer da aba", com a aba real:
+  os 13 mapas do cadastro iguais com e sem a visão (só a UFV difere em 5e-12 kWp, fórmula da aba × potência real do
+  Registro mestre). No teste, a usina igual à aba não muda nenhum mapa e a esperada acompanha o Nexus quando muda.
+
 ## Meta do mês no banco para o Nexus (12/10/2026)
 
 Levi: "Agora temos em um canto só as metas da performance, a disponibilidade, o tanto que o ativo parou, o tempo que o COS
