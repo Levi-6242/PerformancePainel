@@ -4161,7 +4161,10 @@ def _pv_inv_sem_esperadas(pid, cad: str, ids) -> list | None:
 
 
 def _pv_inv_sem_esp_campos(pid, cad: str, ids) -> dict:
-    """Os campos da linha: `inv_sem_esp` (quantos não casam; 0 = todos casam; ausente = não dá para saber) e os nomes."""
+    """Os campos da linha: `inv_sem_esp` (quantos não casam; 0 = todos casam; ausente = não dá para saber), os nomes e
+    `depara_fonte`, a fonte com que o de-para conhece a usina (a conta da API PV: pv, semp, alveslima ou 2capi). A aba da
+    tela não serve para isso: a 2C da tela é "owen" por dentro (a 2C do e-mail), e o atalho de 13/10/2026 abria o editor
+    da Araputanga como "owen", que liga pelo nome ("corrija no cadastro")."""
     try:
         faltam = _pv_inv_sem_esperadas(pid, cad, ids)
     except Exception as e:                                      # noqa: BLE001 — a conferência nunca derruba a linha
@@ -4169,7 +4172,7 @@ def _pv_inv_sem_esp_campos(pid, cad: str, ids) -> dict:
         return {}
     if faltam is None:
         return {}
-    return {"inv_sem_esp": len(faltam), "inv_sem_esp_nomes": faltam[:12]}
+    return {"inv_sem_esp": len(faltam), "inv_sem_esp_nomes": faltam[:12], "depara_fonte": _pv_fonte_de(pid) or "pv"}
 
 
 def build_summary(plant: dict, records: list) -> dict:

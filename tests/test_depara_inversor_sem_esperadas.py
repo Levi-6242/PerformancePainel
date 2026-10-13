@@ -40,12 +40,15 @@ def test_conta_oem_com_o_de_para_do_codigo_que_nao_casa(cadastro, monkeypatch):
     monkeypatch.setattr(app, "_pv_inv_nomes_de", lambda pid: dict(DO_CODIGO))
     assert app._pv_inv_sem_esperadas(SETE, "Sete Lagoas", IDS) == ["Inversor 1.1", "Inversor 1.2", "Inversor 1.3"]
     assert app._pv_inv_sem_esp_campos(SETE, "Sete Lagoas", IDS) == {
-        "inv_sem_esp": 3, "inv_sem_esp_nomes": ["Inversor 1.1", "Inversor 1.2", "Inversor 1.3"]}
+        "inv_sem_esp": 3, "inv_sem_esp_nomes": ["Inversor 1.1", "Inversor 1.2", "Inversor 1.3"], "depara_fonte": "2capi"}
     # ligados na tela (o decidido vence o código): casam, inclusive com outra grafia ("INVERSOR 03")
     monkeypatch.setattr(app, "_pv_inv_nomes_de", lambda pid: {400784: "INVERSOR01", 400785: "INVERSOR02",
                                                                400786: "INVERSOR 03"})
     assert app._pv_inv_sem_esperadas(SETE, "Sete Lagoas", IDS) == []
-    assert app._pv_inv_sem_esp_campos(SETE, "Sete Lagoas", IDS) == {"inv_sem_esp": 0, "inv_sem_esp_nomes": []}
+    assert app._pv_inv_sem_esp_campos(SETE, "Sete Lagoas", IDS) == {"inv_sem_esp": 0, "inv_sem_esp_nomes": [],
+                                                                    "depara_fonte": "2capi"}
+    assert app._pv_inv_sem_esp_campos(7, "Sete Lagoas", []) == {"inv_sem_esp": 0, "inv_sem_esp_nomes": [],
+                                                                 "depara_fonte": "pv"}    # a conta principal
 
 
 def test_conta_oem_sem_de_para_vai_pela_ordem_do_cadastro_como_o_drill(cadastro, monkeypatch):
@@ -142,14 +145,14 @@ def _tela(js, abre_admin):
         pytest.skip("node não instalado")
     he = MON[MON.index("const _he="):MON.index("\n", MON.index("const _he="))]
     base = (he + "\n" + _func("_dpSem") + _func("_dpChip") + _func("_dpBarra")
-            + "const state={source:'2capi'}; const SKEY={'2capi':'2capi'}; const RD={abreAdmin:%s};"
+            + "const state={source:'2c'}; const SKEY={'2c':'owen'}; const RD={abreAdmin:%s};"   # a aba 2C é owen
             % ("true" if abre_admin else "undefined"))
     p = subprocess.run([node, "-e", base + js], capture_output=True, text=True, encoding="utf-8", timeout=60)
     assert p.returncode == 0, p.stderr
     return json.loads(p.stdout)
 
 
-LINHA = {"plant_id": SETE, "qtd_inversores": 10, "inv_sem_esp": 10,
+LINHA = {"plant_id": SETE, "qtd_inversores": 10, "inv_sem_esp": 10, "depara_fonte": "2capi",
          "inv_sem_esp_nomes": [f"Inversor 1.{n}" for n in range(1, 11)]}
 JS = ("const r=%s; const d=_dpSem(r); const u={dpSem:d};"
       "process.stdout.write(JSON.stringify({d, chip:_dpChip(u), barra:_dpBarra(u), nada:_dpSem({inv_sem_esp:0}),"

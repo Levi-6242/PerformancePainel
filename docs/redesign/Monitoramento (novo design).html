@@ -1472,7 +1472,8 @@ function _dpSem(r){
   const n=r&&r.inv_sem_esp; if(!(n>0)) return null;
   const tot=r.qtd_inversores||n, nomes=(r.inv_sem_esp_nomes||[]).map(String);
   const ex=nomes.slice(0,4).join(', ')+(nomes.length>4?'…':'');
-  const href=RD.abreAdmin?'/admin/de-para?editar='+encodeURIComponent((SKEY[state.source]||'pv')+'|'+r.plant_id):'';
+  // a fonte é a do DE-PARA (a conta da API PV, que a linha traz), não a da aba: a 2C da tela é "owen" por dentro
+  const href=RD.abreAdmin?'/admin/de-para?editar='+encodeURIComponent((r.depara_fonte||'pv')+'|'+r.plant_id):'';
   const motivo=`o nome que chega (${ex}) não casa com o cadastro (aba Equipamentos): sem as esperadas de cada inversor, a diferença por inversor não aparece e string parada nele não acusa.`;
   return {n,tot,href,motivo,tit:`${n} de ${tot} inversor${tot>1?'es':''} sem de-para: ${motivo}`+(href?' Clique para ligar no de-para.':' Peça a um administrador para ligar no de-para.')};
 }
