@@ -451,12 +451,14 @@ minúsculo, pontuação vira espaço, romano vira número): mudou num lado, muda
 sem ligação no de-para publicado ficam fora quando um responsável é escolhido (o título do seletor diz quantas). Fora do
 Nexus o seletor não aparece. Teste: `tests/test_gerencial_filtro_responsavel.py`.
 
-**O mapa** (`porta_nexus.MAPA`, spec 5.6) é a CÓPIA do mapa do Nexus (o dono): 14 telas, ids do Nexus (`tempo-real`,
-`noc`, `diagnostico`, `strings-trackers`, `gerencial`, `disponibilidade`, `relatorio`, `relatorio-semanal`, `gemeo`,
-`monitor-ronda` = "Rondas de Trackers"; COS `acompanhamento`; Base `chaves-fontes`, `fontes-tempo-real` e
-`de-para-equipamentos`, só admin). Os dois lados conferem o
-mesmo texto canônico (`texto_canonico_do_mapa`, uma linha `torre|tela|caminho|tambem|admin` por tela) pela assinatura
-`585df9483ce29999` (`test_o_mapa_e_a_copia_do_nexus`): mudou lá, muda aqui. Em 11/10/2026 o Histórico da plataforma
+**O mapa** (`porta_nexus.MAPA`, spec 5.6) é a CÓPIA do mapa do Nexus (o dono): 15 telas, ids do Nexus (Performance
+`tempo-real`, `noc`, `diagnostico`, `strings-trackers`, `gerencial`, `disponibilidade`, `gemeo`, `monitor-ronda` =
+"Rondas de Trackers"; Relatórios `relatorio`, `relatorio-semanal` e `potencia-ativa`; COS `acompanhamento`; Base
+`chaves-fontes`, `fontes-tempo-real` e `de-para-equipamentos`, só admin). Os relatórios foram para a torre Relatórios em
+13/10/2026 (Levi: "vai para a central de emissão no Nexus > Relatórios [...] Sai da parte de Performance!"): no Nexus
+eles abrem pela Central de emissão, filtrados pelo setor; aqui só muda a torre (o `/t/<torre>/<tela>` do "Entrar pelo
+Nexus"). Os dois lados conferem o mesmo texto canônico (`texto_canonico_do_mapa`, uma linha `torre|tela|caminho|tambem|admin`
+por tela) pela assinatura `69aca055f5d2c37a` (`test_o_mapa_e_a_copia_do_nexus`): mudou lá, muda aqui. Em 11/10/2026 o Histórico da plataforma
 (`/historico-plataforma`, `historico_pv.html`) foi APAGADO, rota e template (Levi: "Pode matar a seção histórico da
 plataforma!"); as APIs que ele lia (`/api/pv/trackers` e o gráfico por tracker) ficam, servem a outras telas. Rota de página nova entra no `MAPA` ou no
 `FORA_DO_MAPA` com o porquê (`test_toda_rota_de_pagina_tem_lugar_no_mapa`).
@@ -1954,9 +1956,9 @@ POTÊNCIA ATIVA" do `app.py` (`/api/relatorio/potencia-ativa?fonte&usina&ini&fim
   no amanhecer e no pôr do sol; a legenda (passar o mouse destaca, clicar esconde) e a dica com todos os inversores fazem
   esse papel. A régua de ordem natural é a mesma no Python e no JS (há teste).
 - **Nexus**: a página já sai pronta para a moldura (`data-casca` na marca, na navegação e no botão de tema; no modo Nexus
-  segue o tema do Nexus pelo `window.gcModoNexus`, como o Painel NOC). Está no `FORA_DO_MAPA` até o mapa do Nexus (o dono)
-  ganhar a tela `performance|relatorio-potencia-ativa|/relatorio/potencia-ativa||` — muda lá e aqui no mesmo trabalho,
-  com a assinatura nova no `test_o_mapa_e_a_copia_do_nexus`, e sai do `FORA_DO_MAPA`. As APIs já estão no `_GET_GESTOR`
+  segue o tema do Nexus pelo `window.gcModoNexus`, como o Painel NOC). No mapa desde 13/10/2026 como
+  `relatorios|potencia-ativa|/relatorio/potencia-ativa||`: no Nexus abre por Relatórios → Central de emissão, com os
+  outros relatórios, filtrada pelo setor. As APIs já estão no `_GET_GESTOR`
   (`/api/relatorio`); para o gestor a API PV fica de fora e só o dia que um analista já leu aparece.
 - Prova: `tests/test_relatorio_potencia_ativa.py` (a rota com 2 inversores × 2 dias, o teto, sem dado × falhou, a cota,
   o gestor, os três leitores com a fonte dublada, a lista de usinas e o JS da página no node). A tela foi conferida num

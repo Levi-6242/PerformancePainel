@@ -372,13 +372,15 @@ def test_lista_de_usinas_vem_das_tabelas_do_tempo_real(cli, monkeypatch):
     assert [x["fonte"] for x in j["fontes"]][:3] == ["pv", "pg", "sunop"]           # a ordem dos cards do Tempo real
 
 
-def test_a_pagina_abre_e_esta_fora_do_mapa_ate_o_nexus_a_registrar(cli):
+def test_a_pagina_abre_e_esta_no_mapa_na_central_de_emissao_do_nexus(cli):
+    """No mapa da porta única (cópia do Nexus) desde 13/10/2026: torre Relatórios, tela `potencia-ativa`, aberta pela
+    Central de emissão do Nexus."""
     import porta_nexus as pn
     r = cli.get("/relatorio/potencia-ativa")
     html = r.get_data(as_text=True)
     assert r.status_code == 200 and "<title>Potência Ativa dos Inversores" in html
-    assert pn.tela_do_caminho("/relatorio/potencia-ativa") is None and "/relatorio/potencia-ativa" in pn.FORA_DO_MAPA
-    assert pn.assinatura_do_mapa() == "585df9483ce29999"            # o mapa (cópia do Nexus) não mudou
+    t = pn.tela_do_caminho("/relatorio/potencia-ativa")
+    assert (t.torre, t.tela) == ("relatorios", "potencia-ativa") and "/relatorio/potencia-ativa" not in pn.FORA_DO_MAPA
     assert "modo-" + "nexus" not in TPL                             # "no Nexus" = o window.gcModoNexus do calço
 
 
