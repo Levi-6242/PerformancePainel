@@ -824,6 +824,15 @@ Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o
   mandam `{gc:'depara-fechar'}` à tela de baixo, que fecha (o clique fora também). O href segue no link (botão do meio
   abre numa aba). Provado numa cópia de prova: a janela cobre 1600×950, o Fechar e o clique fora fecham. Prova:
   `tests/test_depara_janela.py`.
+  **A mesma janela cria as OS do Tempo real (13/10/2026)**, Levi: "Em performance > tempo real > criar OS ao invés de
+  direcionar para o OS Creator aparece a tela de criação de OS sobrepondo toda a tela dando um blur de fundo, assim que a
+  pessoa finaliza a OS só aparece a notificação de criação!". O "Criar OS" das strings e o da ETM chamam `gcAbrirOs`
+  (antes, `window.open` numa aba nova, ou uma lista de links quando eram várias OS): o embutido pede à Entrada
+  (`{gc:'os', links}`), que abre `gcOsJanela`, uma FILA na mesma janela (uma OS por inversor, "Criar OS (2 de 3)") com
+  `/os/performance/criar?...&janela=1`. A ponte do OS Creator no Nexus (`_JANELA_OS`) entrega a tela sem o topo e avisa
+  `{gc:'os-criada', mensagem, detalhes}` quando o POST da criação deu certo: sai a notificação (`gcAviso`, no pé da tela,
+  7 s) e abre a próxima; a última fecha. Fechar no meio avisa quantas foram criadas e quantas ficaram. Só links do OS
+  Creator (`/os/...`) entram na fila. Na janela, o "×" fora do canto fecha (a tela do OS Creator não tem Fechar).
 - **O dado**: livro `nexus_depara · fato_decisao_depara` (`depara.py`, no catálogo do Nexus), só acrescenta, gravado pela
   mesma `cobertura.Decisoes` (relê, grava inteiro, confere a contagem; cache de 60 s e a última leitura boa em
   `depara_decisoes.json`). O cadastro entra pela chave de negócio (Usina Supervisório, Equipamento Supervisório), que a

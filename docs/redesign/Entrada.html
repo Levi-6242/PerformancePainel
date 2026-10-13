@@ -901,37 +901,77 @@
 </script>
 <script src="/static/notif.js" defer></script>
 <script>
-// O editor do de-para numa janela POR CIMA da tela, com o fundo desfocado (13/10/2026). Levi: "Essa forma taca um bloco
-// minúsculo de ridículo na tela abaixo dos cards de KPI e lota de scroll [...] ao clicar em "de-para" no ao vivo pode
-// aparecer um visual sobrepondo a tela e dando um blur de fundo"; "Esse scroll lateral não serve para nada!". O atalho era
-// um link comum: dentro da Entrada, ele trocava o iframe do Monitoramento pela página do de-para, e o editor (uma janela
-// fixa) ficava preso naquele iframe, com rolagem dentro de rolagem. Agora a página do de-para abre com ?janela=1 (só o
-// editor) num iframe que cobre a tela inteira; Fechar, Esc ou um clique fora fecham.
-function gcDeparaJanela(href){
-  gcDeparaFechar();
+// A JANELA POR CIMA DA TELA, com o fundo desfocado (13/10/2026), para o de-para e para criar OS.
+// De-para, Levi: "Essa forma taca um bloco minúsculo de ridículo na tela abaixo dos cards de KPI e lota de scroll [...]
+// ao clicar em "de-para" no ao vivo pode aparecer um visual sobrepondo a tela e dando um blur de fundo". O atalho era um
+// link comum: dentro da Entrada, ele trocava o iframe do Monitoramento pela página do de-para, e o editor ficava preso
+// naquele iframe, com rolagem dentro de rolagem. Agora a página do de-para abre com ?janela=1 (só o editor).
+// Criar OS, Levi: "Em performance > tempo real > criar OS ao invés de direcionar para o OS Creator aparece a tela de
+// criação de OS sobrepondo toda a tela dando um blur de fundo, assim que a pessoa finaliza a OS só aparece a notificação
+// de criação!". A tela de criação do OS Creator (/os/performance/criar?janela=1, sem o topo) abre na mesma janela; a ponte
+// do Nexus avisa ({gc:'os-criada'}) quando o POST da criação deu certo: a notificação aparece e a próxima OS da fila abre
+// (uma por inversor); a última fecha. Fechar, Esc ou um clique fora fecham a janela.
+var _gcOsFila=[], _gcOsCriadas=0;
+function gcDeparaJanela(href,rotulo){
+  gcDeparaFechar(true);
   var m=document.createElement('div');
   m.id='gc-depara-janela'; m.className='gc-overlay';
-  m.setAttribute('role','dialog'); m.setAttribute('aria-modal','true'); m.setAttribute('aria-label','De-para de equipamentos');
-  m.style.cssText='position:fixed;inset:0;z-index:600;background:rgba(4,7,15,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:24px';
+  m.setAttribute('role','dialog'); m.setAttribute('aria-modal','true'); m.setAttribute('aria-label',rotulo||'De-para de equipamentos');
+  m.style.cssText='position:fixed;inset:0;z-index:600;background:rgba(4,7,15,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:28px';
+  var c=document.createElement('div');
+  c.style.cssText='position:relative;width:min(1280px,100%);height:min(920px,100%)';
   var f=document.createElement('iframe');
-  f.title='De-para de equipamentos';
+  f.title=rotulo||'De-para de equipamentos';
   f.src=href+(href.indexOf('?')>=0?'&':'?')+'janela=1';
-  f.style.cssText='width:min(1280px,100%);height:min(920px,100%);border:0;border-radius:14px;background:transparent;box-shadow:0 24px 64px rgba(0,0,0,.55)';
-  m.appendChild(f);
+  f.style.cssText='width:100%;height:100%;border:0;border-radius:14px;background:var(--color-bg,#090d18);box-shadow:0 24px 64px rgba(0,0,0,.55)';
+  var x=document.createElement('button');
+  x.type='button'; x.setAttribute('aria-label','Fechar a janela'); x.textContent='×';
+  x.style.cssText='position:absolute;top:-14px;right:-14px;width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.25);background:#161d30;color:#e9eef6;font-size:20px;line-height:28px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.45)';
+  x.addEventListener('click',function(){ gcDeparaFechar(); });
+  c.appendChild(f); c.appendChild(x); m.appendChild(c);
   m.addEventListener('click',function(ev){ if(ev.target===m) gcDeparaFechar(); });
   document.body.appendChild(m);
   document.documentElement.style.overflow='hidden';                  // a tela de baixo não rola com a janela aberta
   f.focus();
 }
-function gcDeparaFechar(){
+function gcDeparaFechar(trocando){
   var m=document.getElementById('gc-depara-janela'); if(m) m.remove();
+  if(trocando) return;
   document.documentElement.style.overflow='';
+  if(_gcOsFila.length||_gcOsCriadas){                                 // fechou com OS na fila: diz o que ficou
+    if(_gcOsFila.length) gcAviso(_gcOsCriadas+' OS criada'+(_gcOsCriadas===1?'':'s')+'; '+_gcOsFila.length+' ficou'+(_gcOsFila.length===1?'':'aram')+' sem criar.',false);
+    _gcOsFila=[]; _gcOsCriadas=0;
+  }
+}
+function gcOsJanela(links){
+  _gcOsFila=(links||[]).filter(function(h){ return typeof h==='string'&&h.indexOf('/os/')===0; });
+  _gcOsCriadas=0;
+  _gcOsProxima();
+}
+function _gcOsProxima(){
+  if(!_gcOsFila.length){ _gcOsCriadas=0; gcDeparaFechar(); return; }
+  var total=_gcOsFila.length+_gcOsCriadas;
+  gcDeparaJanela(_gcOsFila.shift(),'Criar OS'+(total>1?' ('+(_gcOsCriadas+1)+' de '+total+')':''));
+}
+// a notificação: um aviso no pé da tela, que some sozinho
+function gcAviso(texto,ok){
+  var t=document.getElementById('gc-aviso-janela');
+  if(!t){ t=document.createElement('div'); t.id='gc-aviso-janela'; t.setAttribute('role','status'); document.body.appendChild(t); }
+  t.style.cssText='position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:700;max-width:min(560px,calc(100% - 32px));padding:12px 18px;border-radius:12px;font-size:13.5px;line-height:1.45;box-shadow:0 12px 32px rgba(0,0,0,.45);background:#161d30;color:#e9eef6;border:1px solid '+(ok===false?'rgba(255,216,61,.55)':'rgba(163,217,0,.55)');
+  t.textContent=texto; t.hidden=false;
+  clearTimeout(t._fim); t._fim=setTimeout(function(){ t.hidden=true; },7000);
 }
 document.addEventListener('keydown',function(ev){ if(ev.key==='Escape'&&document.getElementById('gc-depara-janela')) gcDeparaFechar(); });
 window.addEventListener('message',function(ev){
   var d=ev.data||{}; if(ev.origin!==location.origin) return;
   if(d.gc==='depara'&&typeof d.href==='string'&&d.href.indexOf('/admin/de-para')>=0) gcDeparaJanela(d.href);
   if(d.gc==='depara-fechar') gcDeparaFechar();
+  if(d.gc==='os'&&Array.isArray(d.links)) gcOsJanela(d.links);
+  if(d.gc==='os-criada'&&document.getElementById('gc-depara-janela')){
+    _gcOsCriadas++;
+    gcAviso((d.mensagem||'OS criada no Fracttal.')+((d.detalhes||[]).length?' '+d.detalhes.slice(0,3).join(' · '):''),true);
+    _gcOsProxima();
+  }
 });
 </script>
 </body>

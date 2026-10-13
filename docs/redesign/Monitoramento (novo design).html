@@ -1003,11 +1003,8 @@ window.osGerar=async()=>{
     if(rr.ok) fmap=(((await rr.json())||{}).map)||{};
   }catch(e){}
   const links=grupos.map(g=>_osLink(Object.assign({},g,{usina:fmap[g.usina]||g.usina})));
-  if(links.length===1){ window.open(links[0],'_blank','noopener'); osClear(); return; }
-  let m=document.getElementById('gc-osmodal'); if(!m){ m=document.createElement('div'); m.id='gc-osmodal'; document.body.appendChild(m); }
-  const inner=grupos.map((g,i)=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 0"><a href="${links[i]}" target="_blank" rel="noopener" style="background:var(--color-accent);color:#161826;font-weight:700;text-decoration:none;padding:7px 14px;border-radius:8px;font-size:12px;white-space:nowrap"><i class="ph ph-wrench" style="margin-right:5px"></i>Criar OS</a><span style="font-size:12.5px;color:var(--color-neutral-300)">${_he(g.usina)} · ${_he(g.inv)} · ${_he(_osObs(g.sids))}</span></div>`).join('');
-  m.innerHTML=`<div onclick="if(event.target===this)document.getElementById('gc-osmodal').remove()" class="gc-overlay" style="position:fixed;inset:0;z-index:500;background:rgba(4,7,15,.66);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:40px 16px"><div class="card" style="width:560px;max-width:100%;padding:20px 22px"><div style="font-family:var(--font-heading);font-size:16px;margin-bottom:12px">Criar ${grupos.length} OS (uma por inversor)</div>${inner}<div style="text-align:right;margin-top:14px"><button class="btn btn-secondary" onclick="document.getElementById('gc-osmodal').remove()">Fechar</button></div></div></div>`;
-  _prendeOverlays();
+  // uma OS por inversor, uma depois da outra na mesma janela por cima da tela (13/10/2026); a seleção limpa já
+  gcAbrirOs(links); osClear();
 };
 function _brdate(iso){ const p=String(iso).split('-'); return p.length===3?(p[2]+' / '+p[1]+' / '+p[0]):iso; }
 // ── Tooltip de gráfico: ponto mais próximo do cursor → nome + valor + horário (trackers e strings) ──
@@ -1178,7 +1175,7 @@ window.abrirOsEtm=(usina)=>{ const f=SKEY[state.source];
   const obs=(RD._etmObs||{})[usina]||'Estação meteorológica com anomalia, verificar';
   // `frase` = a FRASE do plano "Geração e ETM" na web (sem ela o roteador cai em Recomposição de
   // String — foi o caminho errado que o Levi viu em 26/08); modo=etm pede o segmentado ETM.
-  window.open(OS_WEB_CRIAR+'?'+new URLSearchParams({frase:'coleta de dados de geracao',usina:usina,ativo:'Estação Meteorológica',obs:obs,modo:'etm',origem:'plataforma-etm'}).toString(),'_blank','noopener'); };
+  gcAbrirOs([OS_WEB_CRIAR+'?'+new URLSearchParams({frase:'coleta de dados de geracao',usina:usina,ativo:'Estação Meteorológica',obs:obs,modo:'etm',origem:'plataforma-etm'}).toString()]); };
 window.abrirEtmChart=async(usina,pid)=>{ const date=_todayISO(); state._graf={t:'etm',usina:usina,pid:pid,date:date}; _renderEtmChart('load');
   let d=null; const url=_etmChartUrl(pid,usina,date); if(url){ try{ d=await fetchJSON(url); }catch(e){} }
   if(!state._graf||state._graf.t!=='etm'||String(state._graf.usina)!==String(usina)) return; _renderEtmChart(d); };
@@ -1468,37 +1465,77 @@ function _deslTit(d){
 // (`inv_sem_esp`, app.py `_pv_inv_sem_esperadas`): o que não casa fica sem esperadas no drill, e string parada nele não
 // acusa no inversor. O atalho abre o editor do de-para já nesta usina (`?editar=fonte|id`), só para quem abre a página
 // dele (`RD.abreAdmin`, do /api/eu); para os outros, o aviso diz para pedir a um administrador.
-// O editor do de-para numa janela POR CIMA da tela, com o fundo desfocado (13/10/2026). Levi: "Essa forma taca um bloco
-// minúsculo de ridículo na tela abaixo dos cards de KPI e lota de scroll [...] ao clicar em "de-para" no ao vivo pode
-// aparecer um visual sobrepondo a tela e dando um blur de fundo"; "Esse scroll lateral não serve para nada!". O atalho era
-// um link comum: dentro da Entrada, ele trocava o iframe do Monitoramento pela página do de-para, e o editor (uma janela
-// fixa) ficava preso naquele iframe, com rolagem dentro de rolagem. Agora a página do de-para abre com ?janela=1 (só o
-// editor) num iframe que cobre a tela inteira; Fechar, Esc ou um clique fora fecham.
-function gcDeparaJanela(href){
-  gcDeparaFechar();
+// A JANELA POR CIMA DA TELA, com o fundo desfocado (13/10/2026), para o de-para e para criar OS.
+// De-para, Levi: "Essa forma taca um bloco minúsculo de ridículo na tela abaixo dos cards de KPI e lota de scroll [...]
+// ao clicar em "de-para" no ao vivo pode aparecer um visual sobrepondo a tela e dando um blur de fundo". O atalho era um
+// link comum: dentro da Entrada, ele trocava o iframe do Monitoramento pela página do de-para, e o editor ficava preso
+// naquele iframe, com rolagem dentro de rolagem. Agora a página do de-para abre com ?janela=1 (só o editor).
+// Criar OS, Levi: "Em performance > tempo real > criar OS ao invés de direcionar para o OS Creator aparece a tela de
+// criação de OS sobrepondo toda a tela dando um blur de fundo, assim que a pessoa finaliza a OS só aparece a notificação
+// de criação!". A tela de criação do OS Creator (/os/performance/criar?janela=1, sem o topo) abre na mesma janela; a ponte
+// do Nexus avisa ({gc:'os-criada'}) quando o POST da criação deu certo: a notificação aparece e a próxima OS da fila abre
+// (uma por inversor); a última fecha. Fechar, Esc ou um clique fora fecham a janela.
+var _gcOsFila=[], _gcOsCriadas=0;
+function gcDeparaJanela(href,rotulo){
+  gcDeparaFechar(true);
   var m=document.createElement('div');
   m.id='gc-depara-janela'; m.className='gc-overlay';
-  m.setAttribute('role','dialog'); m.setAttribute('aria-modal','true'); m.setAttribute('aria-label','De-para de equipamentos');
-  m.style.cssText='position:fixed;inset:0;z-index:600;background:rgba(4,7,15,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:24px';
+  m.setAttribute('role','dialog'); m.setAttribute('aria-modal','true'); m.setAttribute('aria-label',rotulo||'De-para de equipamentos');
+  m.style.cssText='position:fixed;inset:0;z-index:600;background:rgba(4,7,15,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:28px';
+  var c=document.createElement('div');
+  c.style.cssText='position:relative;width:min(1280px,100%);height:min(920px,100%)';
   var f=document.createElement('iframe');
-  f.title='De-para de equipamentos';
+  f.title=rotulo||'De-para de equipamentos';
   f.src=href+(href.indexOf('?')>=0?'&':'?')+'janela=1';
-  f.style.cssText='width:min(1280px,100%);height:min(920px,100%);border:0;border-radius:14px;background:transparent;box-shadow:0 24px 64px rgba(0,0,0,.55)';
-  m.appendChild(f);
+  f.style.cssText='width:100%;height:100%;border:0;border-radius:14px;background:var(--color-bg,#090d18);box-shadow:0 24px 64px rgba(0,0,0,.55)';
+  var x=document.createElement('button');
+  x.type='button'; x.setAttribute('aria-label','Fechar a janela'); x.textContent='×';
+  x.style.cssText='position:absolute;top:-14px;right:-14px;width:32px;height:32px;border-radius:50%;border:1px solid rgba(255,255,255,.25);background:#161d30;color:#e9eef6;font-size:20px;line-height:28px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.45)';
+  x.addEventListener('click',function(){ gcDeparaFechar(); });
+  c.appendChild(f); c.appendChild(x); m.appendChild(c);
   m.addEventListener('click',function(ev){ if(ev.target===m) gcDeparaFechar(); });
   document.body.appendChild(m);
   document.documentElement.style.overflow='hidden';                  // a tela de baixo não rola com a janela aberta
   f.focus();
 }
-function gcDeparaFechar(){
+function gcDeparaFechar(trocando){
   var m=document.getElementById('gc-depara-janela'); if(m) m.remove();
+  if(trocando) return;
   document.documentElement.style.overflow='';
+  if(_gcOsFila.length||_gcOsCriadas){                                 // fechou com OS na fila: diz o que ficou
+    if(_gcOsFila.length) gcAviso(_gcOsCriadas+' OS criada'+(_gcOsCriadas===1?'':'s')+'; '+_gcOsFila.length+' ficou'+(_gcOsFila.length===1?'':'aram')+' sem criar.',false);
+    _gcOsFila=[]; _gcOsCriadas=0;
+  }
+}
+function gcOsJanela(links){
+  _gcOsFila=(links||[]).filter(function(h){ return typeof h==='string'&&h.indexOf('/os/')===0; });
+  _gcOsCriadas=0;
+  _gcOsProxima();
+}
+function _gcOsProxima(){
+  if(!_gcOsFila.length){ _gcOsCriadas=0; gcDeparaFechar(); return; }
+  var total=_gcOsFila.length+_gcOsCriadas;
+  gcDeparaJanela(_gcOsFila.shift(),'Criar OS'+(total>1?' ('+(_gcOsCriadas+1)+' de '+total+')':''));
+}
+// a notificação: um aviso no pé da tela, que some sozinho
+function gcAviso(texto,ok){
+  var t=document.getElementById('gc-aviso-janela');
+  if(!t){ t=document.createElement('div'); t.id='gc-aviso-janela'; t.setAttribute('role','status'); document.body.appendChild(t); }
+  t.style.cssText='position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:700;max-width:min(560px,calc(100% - 32px));padding:12px 18px;border-radius:12px;font-size:13.5px;line-height:1.45;box-shadow:0 12px 32px rgba(0,0,0,.45);background:#161d30;color:#e9eef6;border:1px solid '+(ok===false?'rgba(255,216,61,.55)':'rgba(163,217,0,.55)');
+  t.textContent=texto; t.hidden=false;
+  clearTimeout(t._fim); t._fim=setTimeout(function(){ t.hidden=true; },7000);
 }
 document.addEventListener('keydown',function(ev){ if(ev.key==='Escape'&&document.getElementById('gc-depara-janela')) gcDeparaFechar(); });
 window.addEventListener('message',function(ev){
   var d=ev.data||{}; if(ev.origin!==location.origin) return;
   if(d.gc==='depara'&&typeof d.href==='string'&&d.href.indexOf('/admin/de-para')>=0) gcDeparaJanela(d.href);
   if(d.gc==='depara-fechar') gcDeparaFechar();
+  if(d.gc==='os'&&Array.isArray(d.links)) gcOsJanela(d.links);
+  if(d.gc==='os-criada'&&document.getElementById('gc-depara-janela')){
+    _gcOsCriadas++;
+    gcAviso((d.mensagem||'OS criada no Fracttal.')+((d.detalhes||[]).length?' '+d.detalhes.slice(0,3).join(' · '):''),true);
+    _gcOsProxima();
+  }
 });
 // o atalho da linha e da barra: no embutido (dentro da Entrada) quem abre a janela é a Entrada, que cobre a tela inteira;
 // fora dele, esta página. O href fica no link (botão do meio abre numa aba, como antes)
@@ -1506,6 +1543,11 @@ function gcAbrirDepara(ev,href){
   if(ev){ ev.preventDefault(); ev.stopPropagation(); }
   if(EMBED){ try{ parent.postMessage({gc:'depara',href:href},location.origin); return false; }catch(e){} }
   gcDeparaJanela(href); return false;
+}
+// a criação de OS: no embutido quem abre a janela é a Entrada (a tela inteira); fora dele, esta página
+function gcAbrirOs(links){
+  if(EMBED){ try{ parent.postMessage({gc:'os',links:links},location.origin); return; }catch(e){} }
+  gcOsJanela(links);
 }
 function _dpSem(r){
   const n=r&&r.inv_sem_esp; if(!(n>0)) return null;
