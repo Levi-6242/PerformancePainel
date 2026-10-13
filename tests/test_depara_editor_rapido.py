@@ -91,3 +91,20 @@ def test_os_nomes_sem_rede_vem_da_copia_das_falhas(monkeypatch, tmp_path):
         raise AssertionError("foi à API PV")
     monkeypatch.setattr(app, "_pv_plant_devices", nao)
     assert app._dp_nomes_api(PID) == {501: "INV-01"}
+
+
+def test_api_pv_fora_espera_uma_vez_e_guarda_a_falha_2_min(cli, ligado, monkeypatch):  # noqa: F811
+    """No servidor, 13/10/2026: com a API PV em ReadTimeout, cada abertura esperava os 10 s inteiros."""
+    entrar_com_senha(cli)
+    _editor_rapido(monkeypatch, linha_ts=app.time.time() - 3600)
+    pedidos = []
+
+    class Fora:
+        def post(self, url, **k):
+            pedidos.append(k.get("timeout"))
+            raise app.requests.exceptions.ReadTimeout("fora")
+    monkeypatch.setattr(app, "_http", lambda: Fora())
+    for _ in range(3):
+        d = cli.get(f"/api/admin/de-para/usina?fonte=pv&id={PID}").get_json()
+        assert d["fonte_hoje_erro"] == "ReadTimeout" and {x["id"] for x in d["inversores"]} == {"501", "502"}
+    assert pedidos == [app._DP_HOJE_TIMEOUT_S] and app._DP_HOJE_TIMEOUT_S <= 4

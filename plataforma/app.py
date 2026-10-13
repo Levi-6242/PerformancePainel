@@ -1597,6 +1597,8 @@ def _dp_alvos(cad, extras=()) -> list:
 # 5 min para a tabela de strings; a linha dele agora leva `inv_ids_hoje`, e o editor lê de lá.
 _DP_TABELA_VALE_S = 1800            # a tabela do ciclo vale 30 min (o worker parado não engana o editor)
 _DP_HOJE_MEMO_S = 600               # a resposta ao vivo (usina fora da tabela) vale 10 min
+_DP_HOJE_FALHA_S = 120              # e a falha dela, 2 min: com a API PV fora, cada abertura esperava o timeout inteiro
+_DP_HOJE_TIMEOUT_S = 4              # a espera da API PV no editor (era 10 s: medido no servidor, 10,3 s a cada abertura)
 _DP_HOJE_MEMO: dict = {}
 
 
@@ -1619,21 +1621,25 @@ def _dp_ids_hoje_api_pv(pid):
     if ids is not None:
         return ids, None
     ent = _DP_HOJE_MEMO.get(pid)
-    if ent and time.time() - ent[0] < _DP_HOJE_MEMO_S:
+    if ent and ent[2] and time.time() - ent[0] < _DP_HOJE_FALHA_S:
+        return [], ent[2]
+    if ent and not ent[2] and time.time() - ent[0] < _DP_HOJE_MEMO_S:
         return list(ent[1]), None
     if _ln.pedido_do_nexus():
         return [], "pedido só de leitura do Nexus: sem abrir a API PV"
     try:
-        # 10 s, não os 45 do drill: com a API PV lenta (11/10/2026, 20:50) o editor levava 45 s para abrir; sem a resposta,
-        # ele abre com os inversores do de-para e diz que a fonte não respondeu
+        # 4 s, não os 45 do drill (11/10/2026, 20:50: o editor levava 45 s) nem os 10 de depois (13/10/2026, no servidor,
+        # 10,3 s a cada abertura com a API PV em ReadTimeout): sem a resposta, o editor abre com os inversores que já se
+        # conhecem e diz que a fonte não respondeu; a falha fica guardada 2 min
         recs = _http().post(f"{BASE_URL}/day_inverter", headers={"x-access-token": _pv_token_for(pid)},
-                            json={"id": pid}, timeout=10).json()
+                            json={"id": pid}, timeout=_DP_HOJE_TIMEOUT_S).json()
     except Exception as e:                                      # noqa: BLE001 — sem a fonte, o editor mostra os do de-para
+        _DP_HOJE_MEMO[pid] = (time.time(), [], type(e).__name__)
         return [], type(e).__name__
     if not isinstance(recs, list):
         return [], "a API não devolveu a lista de leituras"
     ids = sorted({r.get("idefinversor") for r in recs if isinstance(r.get("idefinversor"), int)})
-    _DP_HOJE_MEMO[pid] = (time.time(), ids)
+    _DP_HOJE_MEMO[pid] = (time.time(), ids, "")
     return ids, None
 
 

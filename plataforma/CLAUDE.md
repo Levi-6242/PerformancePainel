@@ -782,8 +782,9 @@ Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o
   inversores mandaram dado hoje e, com o cache frio, o `plant_devices` (até 20 s). Medido no PC: 0,8 a 4,6 s por
   abertura, a 2ª igual à 1ª; as do scadaGridco, que não vão à API PV, 0,07 s. Agora a linha da tabela de strings
   (`build_summary`, o ciclo do worker de 5 em 5 min, que já faz esse day_inverter) leva `inv_ids_hoje`, e o
-  `_dp_ids_hoje_api_pv` lê de lá (`_dp_ids_da_tabela`, tabela de até 30 min); fora dela, a API uma vez, guardada 10 min
-  (`_DP_HOJE_MEMO`). O nome que a API dá a cada inversor vem do que já foi lido (`_dp_nomes_api`: o cache do
+  `_dp_ids_hoje_api_pv` lê de lá (`_dp_ids_da_tabela`, tabela de até 30 min); fora dela, a API uma vez, com 4 s de espera
+  (era 10: no servidor, logo depois do deploy e com a API PV em ReadTimeout, cada abertura levava 10,3 s), guardada 10 min
+  quando responde e 2 min quando falha (`_DP_HOJE_MEMO`). O nome que a API dá a cada inversor vem do que já foi lido (`_dp_nomes_api`: o cache do
   plant_devices de qualquer idade, o do `_pv_dev_names`, a cópia das Falhas em disco), e a API só sem nenhum deles.
   Prova: `tests/test_depara_editor_rapido.py` (o editor com a API PV proibida).
 - **Inversor sem de-para à vista no Tempo real (13/10/2026)**. Levi, com Sete Lagoas e Tupi Paulista abertas ("esp —" em
