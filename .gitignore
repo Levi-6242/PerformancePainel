@@ -118,6 +118,8 @@ sg_usinas_descobertas.json
 sg_usinas_descobertas.json.tmp
 ger_publicado.json
 ger_publicado.json.tmp
+ger_publicado_dia.json
+ger_publicado_dia.json.tmp
 
 # histórico dos parados da ronda (runtime, alimenta o card "Trackers recorrentes") + export CSV
 trackers_parados_hist.jsonl

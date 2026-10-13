@@ -27270,11 +27270,21 @@ def _falhas_disp_mes(mes):
     m = ((_frac_disp_dados() or {}).get("meses") or {}).get(mes)
     if not m or not m.get("usinas") or not m.get("periodo"):
         return None
+    # as OS que formaram a disponibilidade (12/10/2026, Levi: "Quero também que apareça todas as OSs listadas que
+    # formaram aquele valor (...) a OS, que tipo de religamento foi, quanto tempo demorou, qual foi o total de perda de
+    # energia"): as da conta (sem as excluídas), sem a descrição nem quem criou (o banco tem leitura aberta)
+    oss = [{"folio": o.get("folio"), "tipos": o.get("tipos") or [], "origem": o.get("origem"), "code": o.get("code"),
+            "ini": o.get("ini"), "fim": o.get("fim"), "aberta": bool(o.get("aberta")), "usinas": o.get("usinas") or [],
+            "escopo": [{"usina": e.get("usina"), "rotulo": e.get("rotulo"), "kwp": e.get("kwp")}
+                       for e in o.get("escopo") or []],
+            "h_solar": o.get("h_solar"), "kwh": o.get("kwh")}
+           for o in m.get("oss") or [] if not o.get("excl")]
     return {"periodo": [str(m["periodo"]["ini"])[:10], str(m["periodo"]["fim"])[:10]],
             "usinas": [{"usina": u.get("usina"), "fracttal": u.get("fracttal"), "cliente": u.get("cliente"),
                         "pot_kwp": u.get("pot_kwp")} for u in m["usinas"]],
             "diario": {u: {d: {"disp": v.get("disp"), "h_eq": v.get("h_eq")} for d, v in (dias or {}).items()}
-                       for u, dias in (m.get("diario") or {}).items()}}
+                       for u, dias in (m.get("diario") or {}).items()},
+            "oss": oss}
 
 
 def _falhas_disp_fora_da_volta(montados):
@@ -27377,6 +27387,7 @@ def _falhas_publicar_workbook(meses):
 #   `GER_PUBLICAR=1/0` força numa máquina.
 GER_PUB_TTL = 3600
 GER_PUB_PATH = _p_dado("ger_publicado.json")             # a última leitura boa do livro (para mesclar os meses)
+GER_PUB_DIA_PATH = _p_dado("ger_publicado_dia.json")     # a mesma, da aba diária (fato_desempenho_usina_dia)
 _ger_pub = {"ts": 0.0, "marca": None}
 
 
@@ -27385,6 +27396,45 @@ def _ger_publicar_ligado() -> bool:
     if v in ("0", "1"):
         return v == "1"
     return _sys.platform.startswith("linux")
+
+
+def _ger_diario(cli, usina, ano, mes) -> dict | None:
+    """A série do PR diário do Painel NOC de uma usina: o próprio `/api/g/diario`, chamado por dentro (como o
+    `_relatorio_build` faz), para a aba diária ser a MESMA conta que o gráfico expandido desenha."""
+    try:
+        with app.test_request_context("/api/g/diario", query_string={"cliente": cli, "usina": usina, "ano": ano,
+                                                                     "mes": mes}):
+            r = api_g_diario()
+            return r.get_json() if hasattr(r, "get_json") else None
+    except Exception as e:                                     # noqa: BLE001 — a usina sem série fica de fora
+        print(f"[gerencial] série diária de {usina} ({cli}) {mes:02d}/{ano}: {type(e).__name__}: {e}")
+        return None
+
+
+def _ger_series_diarias(g, ano, mes) -> dict:
+    """{usina do Gerencial: o payload do /api/g/diario} das usinas do Gerencial do mês. O cliente é o que o seletor do
+    Histórico usa: Thopen para as do banco da Thopen, o cliente para as do BD_Performance. Medido em 12/10/2026: 129 de
+    161 com série; o nome do Gerencial que não acha a aba do BD_Thopen ("Piracicaba I") tenta o nome do BD_Thopen de
+    mesma chave solta ("Piracicaba 1")."""
+    out, nomes_th = {}, None
+    for u in (g or {}).get("usinas") or []:
+        nome = str(u.get("usina") or "").strip()
+        if not nome:
+            continue
+        cli = "Thopen" if u.get("src") == "pg" else str(u.get("cliente") or "").strip()
+        d = _ger_diario(cli, nome, ano, mes)
+        if not (d or {}).get("pontos") and cli in _g_th_carteiras():
+            if nomes_th is None:
+                import dashboard_thopen as _dth
+                nomes_th = {}
+                for k in _dth._CARTEIRA_DE:
+                    nomes_th.setdefault(_usina_chave_solta(k), k)
+            alt = nomes_th.get(_usina_chave_solta(nome))
+            if alt and alt != nome:
+                d = _ger_diario(cli, alt, ano, mes)
+        if (d or {}).get("pontos"):
+            out[nome] = d
+    return out
 
 
 def _ger_publicar(agora=None) -> int | None:
@@ -27398,7 +27448,7 @@ def _ger_publicar(agora=None) -> int | None:
     import bd_api
     import gerencial_publicar as _gp
     import falhas_publicar as _fp
-    novas = {}
+    novas, novas_dia = {}, {}
     for a, m in _gp.meses_a_refazer(agora.year, agora.month, agora.day):
         if (a, m) == (agora.year, agora.month):
             g = _ger_cache.get("data")
@@ -27411,32 +27461,41 @@ def _ger_publicar(agora=None) -> int | None:
         # o Gerencial que falhou (PG fora, snapshot frio) não apaga o mês que o banco já tem
         if g and not g.get("erro") and g.get("usinas"):
             novas[a * 100 + m] = _gp.linhas(g, a * 100 + m)
+            # a série diária do Painel NOC (a janela de Meta e de PR do Nexus): mês sem nenhuma série não apaga a do banco
+            dia = _gp.linhas_dia(_ger_series_diarias(g, a, m), a * 100 + m)
+            if dia:
+                novas_dia[a * 100 + m] = dia
     if not novas:
         return None
     _ger_pub["ts"] = time.time()
-    marca = hashlib.sha1(json.dumps(novas, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
+    marca = hashlib.sha1(json.dumps([novas, novas_dia], ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
     if marca == _ger_pub["marca"]:
         return None
     leitor = _cob.Decisoes(bd_api.API_BASE, lambda: tok, GER_PUB_PATH, ttl=0, livro=_gp.LIVRO, aba=_gp.ABA,
                            cab=_gp.CAB, nome_livro=_gp.NOME)
-    atuais = leitor.linhas(forcar=True)
-    if atuais is None or leitor.erro:                          # banco fora: sem saber o que há, não regrava nada
-        print(f"[gerencial] livro {_gp.LIVRO} não lido ({leitor.erro}): a publicação fica para a próxima volta")
+    leitor_dia = _cob.Decisoes(bd_api.API_BASE, lambda: tok, GER_PUB_DIA_PATH, ttl=0, livro=_gp.LIVRO,
+                               aba=_gp.ABA_DIA, cab=_gp.CAB_DIA, nome_livro=_gp.NOME)
+    atuais, atuais_dia = leitor.linhas(forcar=True), leitor_dia.linhas(forcar=True)
+    if atuais is None or leitor.erro or atuais_dia is None or leitor_dia.erro:
+        # banco fora: sem saber o que há, não regrava nada (o replace troca o livro inteiro, as duas abas juntas)
+        print(f"[gerencial] livro {_gp.LIVRO} não lido ({leitor.erro or leitor_dia.erro}): fica para a próxima volta")
         return None
-    todas = _gp.mesclar(atuais, novas)
+    todas, todas_dia = _gp.mesclar(atuais, novas), _gp.mesclar(atuais_dia, novas_dia)
     try:
-        res = _fp.sincronizar(_cob.xlsx_bytes(todas, _gp.ABA, _gp.CAB), base=bd_api.API_BASE, token=tok,
-                              chave=_gp.LIVRO, nome=_gp.NOME)
+        res = _fp.sincronizar(_gp.xlsx_bytes({_gp.ABA: (_gp.CAB, todas), _gp.ABA_DIA: (_gp.CAB_DIA, todas_dia)}),
+                              base=bd_api.API_BASE, token=tok, chave=_gp.LIVRO, nome=_gp.NOME)
     except Exception as e:                                     # noqa: BLE001 — a próxima volta tenta de novo
         print(f"[gerencial] publicação recusada: {type(e).__name__}: {e}")
         return None
-    conf = leitor.linhas(forcar=True)
-    if conf is None or len(conf) != len(todas):
-        print(f"[gerencial] {_gp.LIVRO}.{_gp.ABA}: enviei {len(todas)} linhas e o banco tem "
-              f"{None if conf is None else len(conf)}: tenta de novo na próxima volta")
+    conf, conf_dia = leitor.linhas(forcar=True), leitor_dia.linhas(forcar=True)
+    if conf is None or len(conf) != len(todas) or conf_dia is None or len(conf_dia) != len(todas_dia):
+        print(f"[gerencial] {_gp.LIVRO}: enviei {len(todas)} + {len(todas_dia)} linhas e o banco tem "
+              f"{None if conf is None else len(conf)} + {None if conf_dia is None else len(conf_dia)}: "
+              "tenta de novo na próxima volta")
         return None
     _ger_pub["marca"] = marca
-    print(f"[gerencial] {_gp.LIVRO}.{_gp.ABA}: {len(todas)} linhas ({', '.join(str(m) for m in sorted(novas))}) {res}")
+    print(f"[gerencial] {_gp.LIVRO}: {len(todas)} linhas do mês + {len(todas_dia)} da série diária "
+          f"({', '.join(str(m) for m in sorted(novas))}) {res}")
     return len(todas)
 
 

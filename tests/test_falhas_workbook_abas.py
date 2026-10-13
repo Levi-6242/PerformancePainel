@@ -6,7 +6,7 @@ O catálogo do Nexus (nexus/dados/catalogo.py) registrou em 08 e 09/10/2026 quat
 ao banco: `trackers_dia` (fato falha_tracker_dia), `cobertura` (cobertura_falhas), `strings_os` (os_string) e
 `disponibilidade_dia` (disponibilidade_dia). Aqui o caminho do worker de ponta a ponta, com o Fracttal e a API do banco
 DUBLADOS (nada sai da máquina): a varredura da Disponibilidade vira o índice (com as OS de string), os stores viram o
-pacote do mês, o pacote vira o xlsx e o xlsx vai num POST só — as 8 abas na ordem, o cabeçalho na linha 1, o zero
+pacote do mês, o pacote vira o xlsx e o xlsx vai num POST só — as 9 abas na ordem, o cabeçalho na linha 1, o zero
 medido como 0 e o que não foi medido como célula vazia (a API é de leitura aberta e o 5080 e o Nexus leem o vazio como
 "não medido": um 0 ali diria "nenhuma OS" ou "nenhuma usina monitorada").
 """
@@ -21,8 +21,9 @@ import app
 import falhas_job
 import falhas_publicar as pub
 
+# as OS da disponibilidade entraram em 12/10/2026 (a janela de Disponibilidade da Visão do responsável do Nexus)
 ABAS = ["strings_inversor_dia", "strings_episodios", "trackers_episodios", "cobertura", "strings_os", "trackers_dia",
-        "disponibilidade_dia", "atualizacao"]
+        "disponibilidade_dia", "disponibilidade_os", "atualizacao"]
 NOVAS = ("cobertura", "strings_os", "trackers_dia", "disponibilidade_dia")
 
 
@@ -151,7 +152,7 @@ def _grava(*pacotes):
         app._falhas_gravar(app._falhas_arquivo(p["mes"]), p)
 
 
-def test_o_post_leva_as_8_abas_com_o_zero_medido_e_o_vazio_do_que_nao_foi_medido(banco):
+def test_o_post_leva_as_9_abas_com_o_zero_medido_e_o_vazio_do_que_nao_foi_medido(banco):
     _grava(_setembro(), _outubro(), _novembro())
     app._falhas_publicar_workbook(MESES)
     (conteudo,) = banco.syncs                         # um POST só, com todos os meses: o replace troca a aba inteira
@@ -362,7 +363,7 @@ def _volta_das_falhas_dublada(monkeypatch):
         json.dump(_trackers(), f)
 
 
-def test_da_varredura_do_fracttal_ao_post_com_as_8_abas(monkeypatch, banco):
+def test_da_varredura_do_fracttal_ao_post_com_as_9_abas(monkeypatch, banco):
     _congela(monkeypatch)
     _disponibilidade_dublada(monkeypatch)
     _fracttal_dublado(monkeypatch, _ordens())

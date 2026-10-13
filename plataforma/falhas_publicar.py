@@ -70,9 +70,17 @@ CABECALHOS = {
     # 5080 nunca deduz o 100 pela falta da linha. usina_fracttal liga ao de-para do Nexus (o nome da usina é o do
     # BD_Performance)
     "disponibilidade_dia": ["mes", "dia", "cliente", "usina", "usina_fracttal", "pot_kwp", "disp", "h_perdidas"],
+    # As OS que formaram a disponibilidade do mês (12/10/2026, Levi, para a janela de Disponibilidade da Visão do
+    # responsável do Nexus: "a OS, que tipo de religamento foi, quanto tempo demorou, qual foi o total de perda de
+    # energia"): 1 linha = 1 OS da conta × usina (a OS de um ativo de duas usinas reparte a perda pela potência afetada).
+    # tipo = o tipo da tarefa no Fracttal; origem = queda (religamento) ou equipamento (corretiva emergencial); escopo =
+    # usina inteira, cabine N ou inversor N.M; duracao_sol_min = as horas de sol (06–18 h) da OS dentro do mês; perda_kwh
+    # = kWp afetado × horas (a régua do Gerencial, sem a irradiação). Sem a descrição nem quem criou (leitura aberta)
+    "disponibilidade_os": ["mes", "os", "usina", "usina_fracttal", "tipo", "origem", "codigo_ativo", "escopo", "kwp",
+                           "inicio", "fim", "aberta", "duracao_sol_min", "perda_kwh"],
     "atualizacao": ["mes", "periodo_inicio", "periodo_fim", "atualizado_em", "strings_inversor_dia", "strings_episodios",
                     "trackers_episodios", "regua_strings", "regua_trackers", "cobertura", "strings_os", "trackers_dia",
-                    "disponibilidade_dia"],
+                    "disponibilidade_dia", "disponibilidade_os"],
 }
 
 
@@ -159,6 +167,9 @@ def tabelas(pacotes):
         dsp = _disp_linhas(p.get("disponibilidade"))
         for r in dsp:
             out["disponibilidade_dia"].append([_v(x) for x in (mes,) + r])
+        dos = _disp_os_linhas(p.get("disponibilidade"))
+        for r in dos:
+            out["disponibilidade_os"].append([_v(x) for x in (mes,) + r])
         per = p.get("periodo") or [None, None]
         reg = p.get("regua") or {}
         # a contagem de cada aba é o que o 5080 confere na leitura: o sync troca linhas no lugar e, lida no meio dele,
@@ -170,7 +181,9 @@ def tabelas(pacotes):
         out["atualizacao"].append([_v(x) for x in (
             mes, per[0], per[1], p.get("gerado_em"), len(rs), len(es), len(ts), reg.get("janela_strings"),
             reg.get("fator_tracker"), _n("cobertura", cs), _n("strings_os", so), _n("trackers_dia", td),
-            _n("disponibilidade", dsp))])
+            _n("disponibilidade", dsp),
+            # pacote de antes de 12/10/2026 (sem as OS) conta VAZIO, não 0
+            len(dos) if (p.get("disponibilidade") or {}).get("oss") is not None else None)])
     return out
 
 
@@ -191,6 +204,37 @@ def _disp_linhas(d):
             out.append((k, u.get("cliente"), u.get("usina"), u.get("fracttal"), u.get("pot_kwp"),
                         v.get("disp", 100.0), v.get("h_eq", 0)))
         dia += _dt.timedelta(days=1)
+    return out
+
+
+def _disp_os_linhas(d):
+    """{usinas, oss} → [(os, usina, usina_fracttal, tipo, origem, codigo_ativo, escopo, kwp, inicio, fim, aberta,
+    duracao_sol_min, perda_kwh)] pela ordem do início (a OS nova entra no fim). Uma linha por OS × usina do escopo; a
+    perda da OS de duas usinas reparte pela potência afetada de cada uma."""
+    if not d or not d.get("oss"):
+        return []
+    fr = {u.get("usina"): u.get("fracttal") for u in d.get("usinas") or []}
+    out = []
+    for o in sorted(d["oss"], key=lambda o: (str(o.get("ini") or ""), _ordem_os(o.get("folio")))):
+        por = {}
+        for e in o.get("escopo") or []:
+            x = por.setdefault(e.get("usina"), {"rotulos": [], "kwp": 0.0})
+            x["rotulos"].append(e.get("rotulo"))
+            x["kwp"] += float(e.get("kwp") or 0)
+        for u in o.get("usinas") or []:
+            por.setdefault(u, {"rotulos": [], "kwp": 0.0})
+        tot = sum(x["kwp"] for x in por.values())
+        kwh = o.get("kwh")
+        for u, x in sorted(por.items(), key=lambda kv: str(kv[0])):
+            if not u:
+                continue
+            parte = (kwh * x["kwp"] / tot if tot else kwh / len(por)) if isinstance(kwh, (int, float)) else None
+            h = o.get("h_solar")
+            out.append((_pid(o.get("folio")), u, fr.get(u), "; ".join(o.get("tipos") or []) or None, o.get("origem"),
+                        o.get("code"), "; ".join(r for r in x["rotulos"] if r) or None, round(x["kwp"], 1) or None,
+                        o.get("ini"), o.get("fim"), bool(o.get("aberta")),
+                        round(h * 60) if isinstance(h, (int, float)) else None,
+                        round(parte) if parte is not None else None))
     return out
 
 

@@ -180,4 +180,35 @@ def test_disponibilidade_por_dia_com_o_100_escrito_e_a_contagem_na_atualizacao()
 
 def test_mes_sem_disponibilidade_conta_vazio_e_nao_zero():
     (a,) = linhas(pub.tabelas([pacote("2026-09")]), "atualizacao")
-    assert a["disponibilidade_dia"] is None
+    assert a["disponibilidade_dia"] is None and a["disponibilidade_os"] is None
+    # pacote de antes de 12/10/2026 (com o diário e sem as OS): as OS contam vazio, não 0
+    p = pacote("2026-10")
+    p["disponibilidade"] = DISP
+    (a,) = linhas(pub.tabelas([p]), "atualizacao")
+    assert a["disponibilidade_dia"] == 6 and a["disponibilidade_os"] is None
+
+
+def test_as_os_que_formaram_a_disponibilidade_uma_linha_por_os_e_usina():
+    """Levi, 12/10/2026: "Quero também que apareça todas as OSs listadas que formaram aquele valor (...) a OS, que tipo
+    de religamento foi, quanto tempo demorou, qual foi o total de perda de energia". A OS de duas usinas reparte a
+    perda pela potência afetada; sem descrição nem quem criou."""
+    p = pacote("2026-10")
+    p["disponibilidade"] = dict(DISP, oss=[
+        {"folio": 13001, "tipos": ["Religamento Remoto"], "origem": "queda", "code": "THPN-GTA500",
+         "ini": "2026-10-02T09:00:00", "fim": "2026-10-02T15:06:00", "aberta": False, "usinas": ["Guaratinguetá V"],
+         "escopo": [{"usina": "Guaratinguetá V", "rotulo": "Usina inteira", "kwp": 2700.0}], "h_solar": 6.1,
+         "kwh": 16470},
+        {"folio": 12990, "tipos": ["Corretiva Emergencial"], "origem": "equipamento", "code": "X-CABN1",
+         "ini": "2026-10-01T08:00:00", "fim": None, "aberta": True, "usinas": ["Guaratinguetá V", "Altair"],
+         "escopo": [{"usina": "Guaratinguetá V", "rotulo": "Cabine 1", "kwp": 300.0},
+                    {"usina": "Altair", "rotulo": "Cabine 2", "kwp": 100.0}], "h_solar": 2.0, "kwh": 800}])
+    tabs = pub.tabelas([p])
+    d = linhas(tabs, "disponibilidade_os")
+    assert [(x["os"], x["usina"], x["perda_kwh"]) for x in d] == [("12990", "Altair", 200), ("12990", "Guaratinguetá V", 600),
+                                                                ("13001", "Guaratinguetá V", 16470)]
+    g = d[2]
+    assert (g["tipo"], g["origem"], g["escopo"], g["kwp"], g["duracao_sol_min"], g["aberta"]) == (
+        "Religamento Remoto", "queda", "Usina inteira", 2700.0, 366, "não")
+    assert g["usina_fracttal"] == "Thopen - Guaratingueta 5 - SP" and d[0]["aberta"] == "sim" and d[0]["fim"] is None
+    (a,) = linhas(tabs, "atualizacao")
+    assert a["disponibilidade_os"] == 3

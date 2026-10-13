@@ -815,8 +815,20 @@ responsável do Nexus (Campo · App) tira a meta do mês daqui: o worker publica
   falha não grava nada; depois de gravar, relê e confere a contagem (diferença = tenta na próxima volta). Só o servidor
   (Linux) grava: PC e servidor juntos alternariam os números de cada um. `GER_PUBLICAR=1/0` força numa máquina.
   A última leitura boa do livro fica em `ger_publicado.json` (estado, fora do git).
-- Testes: `tests/test_gerencial_publicar.py` (as linhas sem texto livre, a mescla dos meses, o dia 5, publica e só
-  quando muda, Gerencial que falhou e banco fora não gravam, desligado não publica).
+- **A série diária do Painel NOC** (12/10/2026, para as janelas de Meta e de PR da Visão do responsável: "essa mesma
+  visão do PAINEL NOC > HISTÓRICO > PR > PR DIÁRIO EXPANDIDO"): a aba `fato_desempenho_usina_dia` do mesmo livro, com o
+  próprio `/api/g/diario` chamado por dentro (`_ger_diario`, como o `_relatorio_build` faz) para cada usina do Gerencial
+  (`_ger_series_diarias`): o cliente é o do seletor do Histórico (Thopen para as do banco da Thopen, o cliente para as do
+  BD_Performance); o nome que não acha a aba do BD_Thopen tenta o de mesma chave solta (`_usina_chave_solta`). 1 linha =
+  usina × dia com ponto: geração e meta do dia em kWh, POA e meta de POA, PR e meta de PR em %. A meta do dia é a do mês ÷
+  os dias do mês (igual todo dia, como o gráfico). Medido em 12/10 pelo 5050: 129 de 161 usinas com série, as 161 em 21 s;
+  na Boa Esperança do Sul 1 a soma dos dias (74,2 MWh) e a meta dos dias (7 × 18,57) são as do Gerencial (57,1%). Vai no
+  mesmo xlsx da meta (`gerencial_publicar.xlsx_bytes`: as duas abas juntas, porque o `replace` troca o livro), com a
+  mesma mescla por mês e a conferência das duas contagens; mês sem série nenhuma não apaga a do banco. A última leitura
+  boa da aba fica em `ger_publicado_dia.json`.
+- Testes: `tests/test_gerencial_publicar.py` (as linhas sem texto livre, a série diária, o xlsx de duas abas, a mescla
+  dos meses, o dia 5, publica e só quando muda, Gerencial que falhou e banco fora não gravam, mês sem série não apaga a
+  do banco, desligado não publica).
 
 ## Padrão por inversor (usinas sem visão por string)
 
@@ -1747,8 +1759,16 @@ ainda não estavam na main em 11/10). Aqui só a publicação. **Colunas novas s
     evento segue fora). Com as OS reais (`frac_mtta_linhas.json`): setembro e outubro de 2026 iguais, valor a valor, na
     antiga e na nova; dezembro/2025 visto em 05/01/2026 ia de 99,907% (9 usinas abaixo de 100, 9 OS) para 100,0% (0 OS)
     na antiga, e a nova dá o mesmo de 31/12.
-- **`atualizacao`** ganha no fim `cobertura`, `strings_os`, `trackers_dia` e `disponibilidade_dia` (as linhas de cada aba
-  no mês). **Aba que o pacote não montou conta VAZIO, não 0** (0 diria "nenhuma OS" / "nenhuma usina medida" onde só não
+- **`disponibilidade_os`** (12/10/2026, Levi, para a janela de Disponibilidade da Visão do responsável do Nexus: "Quero
+  também que apareça todas as OSs listadas que formaram aquele valor (...) a OS, que tipo de religamento foi, quanto
+  tempo demorou, qual foi o total de perda de energia"). 1 linha = OS da conta × usina do escopo dela (`mes, os, usina,
+  usina_fracttal, tipo, origem, codigo_ativo, escopo, kwp, inicio, fim, aberta, duracao_sol_min, perda_kwh`), das `oss`
+  do mesmo índice (`_falhas_disp_mes` leva a lista enxuta, sem as excluídas): `tipo` = o tipo da tarefa, `origem` = queda
+  ou equipamento, `escopo` = usina inteira, cabine N ou inversor N.M, `duracao_sol_min` = as horas de sol (06–18 h) da OS
+  no mês, `perda_kwh` = kWp afetado × horas (sem irradiação), repartida pela potência quando a OS pega duas usinas
+  (`_disp_os_linhas`). Sem a descrição nem quem criou (o banco tem leitura aberta). Pela data de início (a nova no fim).
+- **`atualizacao`** ganha no fim `cobertura`, `strings_os`, `trackers_dia`, `disponibilidade_dia` e `disponibilidade_os`
+  (as linhas de cada aba no mês; a das OS conta vazio no pacote de antes de 12/10/2026). **Aba que o pacote não montou conta VAZIO, não 0** (0 diria "nenhuma OS" / "nenhuma usina medida" onde só não
   houve publicação); a montada e vazia conta 0.
 - **Janela (é condição, não data):** o worker remonta só o mês corrente (e o anterior até o dia 2). Mês montado antes do
   deploy fica sem `dias_comunicou`/`dias_sem_prova` e sem linhas em `cobertura`, `strings_os` e `trackers_dia`
