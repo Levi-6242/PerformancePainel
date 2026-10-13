@@ -170,6 +170,9 @@ def test_a_linha_mostra_a_etiqueta_e_o_admin_tem_o_atalho_para_o_de_para():
     assert "10 de 10 inversores sem de-para" in t["barra"] and f'href="{href}"' in t["barra"]
     assert "Ligar no de-para" in t["barra"]
     assert t["nada"] is None and t["sem"] == ""                    # todos casam, ou não se sabe: nada na linha
+    # o clique abre a janela por cima da tela (13/10/2026), e não troca o iframe da Entrada pela página do de-para
+    abre = "onclick=\"return gcAbrirDepara(event,this.getAttribute('href'))\""
+    assert abre in t["chip"] and abre in t["barra"]
 
 
 def test_quem_nao_abre_o_de_para_ve_o_aviso_sem_o_atalho():

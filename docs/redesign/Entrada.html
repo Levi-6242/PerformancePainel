@@ -900,5 +900,39 @@
   });
 </script>
 <script src="/static/notif.js" defer></script>
+<script>
+// O editor do de-para numa janela POR CIMA da tela, com o fundo desfocado (13/10/2026). Levi: "Essa forma taca um bloco
+// minúsculo de ridículo na tela abaixo dos cards de KPI e lota de scroll [...] ao clicar em "de-para" no ao vivo pode
+// aparecer um visual sobrepondo a tela e dando um blur de fundo"; "Esse scroll lateral não serve para nada!". O atalho era
+// um link comum: dentro da Entrada, ele trocava o iframe do Monitoramento pela página do de-para, e o editor (uma janela
+// fixa) ficava preso naquele iframe, com rolagem dentro de rolagem. Agora a página do de-para abre com ?janela=1 (só o
+// editor) num iframe que cobre a tela inteira; Fechar, Esc ou um clique fora fecham.
+function gcDeparaJanela(href){
+  gcDeparaFechar();
+  var m=document.createElement('div');
+  m.id='gc-depara-janela'; m.className='gc-overlay';
+  m.setAttribute('role','dialog'); m.setAttribute('aria-modal','true'); m.setAttribute('aria-label','De-para de equipamentos');
+  m.style.cssText='position:fixed;inset:0;z-index:600;background:rgba(4,7,15,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:24px';
+  var f=document.createElement('iframe');
+  f.title='De-para de equipamentos';
+  f.src=href+(href.indexOf('?')>=0?'&':'?')+'janela=1';
+  f.style.cssText='width:min(1280px,100%);height:min(920px,100%);border:0;border-radius:14px;background:transparent;box-shadow:0 24px 64px rgba(0,0,0,.55)';
+  m.appendChild(f);
+  m.addEventListener('click',function(ev){ if(ev.target===m) gcDeparaFechar(); });
+  document.body.appendChild(m);
+  document.documentElement.style.overflow='hidden';                  // a tela de baixo não rola com a janela aberta
+  f.focus();
+}
+function gcDeparaFechar(){
+  var m=document.getElementById('gc-depara-janela'); if(m) m.remove();
+  document.documentElement.style.overflow='';
+}
+document.addEventListener('keydown',function(ev){ if(ev.key==='Escape'&&document.getElementById('gc-depara-janela')) gcDeparaFechar(); });
+window.addEventListener('message',function(ev){
+  var d=ev.data||{}; if(ev.origin!==location.origin) return;
+  if(d.gc==='depara'&&typeof d.href==='string'&&d.href.indexOf('/admin/de-para')>=0) gcDeparaJanela(d.href);
+  if(d.gc==='depara-fechar') gcDeparaFechar();
+});
+</script>
 </body>
 </html>

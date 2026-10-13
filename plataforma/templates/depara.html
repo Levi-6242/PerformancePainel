@@ -89,6 +89,11 @@
   button.peq{padding:4px 12px;font-size:12.5px}
   button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--verde);outline-offset:2px}
 
+  /* ?janela=1 (13/10/2026): só o editor, cobrindo a janela que o Tempo real abre por cima da tela, com o fundo
+     desfocado lá; sem o topo, a lista e o véu daqui (o Fechar e o Esc avisam a página de baixo para fechar) */
+  .janela body{background:transparent}
+  .janela .topo,.janela .wrap,.janela .veu{display:none!important}
+  .janela .dlg{inset:0;max-width:none;box-shadow:none}
   /* o editor: janela grande no centro (era uma gaveta de 760 px na direita, "toda espremida") */
   .veu{position:fixed;inset:0;background:rgba(3,6,14,.72);z-index:20}
   .dlg{position:fixed;inset:16px;margin:auto;max-width:1280px;background:var(--bg);border:1px solid var(--linha2);
@@ -144,6 +149,7 @@
 </style>
 </head>
 <body>
+<script>if(new URLSearchParams(location.search).get('janela')==='1') document.documentElement.classList.add('janela');</script>
 <div class="topo">
   <h1>De-para de equipamentos</h1>
   <a href="/" data-casca>← Início</a>
@@ -298,13 +304,17 @@
     $('edTit').textContent = nome || id;
     $('edSub').textContent = (D && D.rotulos[fonte] || fonte) + ' · chave ' + id;
     $('edCorpo').className = 'dcorpo';
-    $('edCorpo').innerHTML = '<p class="vazio">Lendo o de-para desta usina e os inversores que a fonte mandou hoje (a primeira leitura pode levar até 1 min)…</p>';
+    $('edCorpo').innerHTML = '<p class="vazio">Lendo o de-para desta usina e os inversores que a fonte mandou hoje…</p>';
     $('edMsg').textContent = ''; $('edMsg').className = 'dpe msg';
     $('veu').hidden = false; $('ed').hidden = false;
     $('edFechar').focus();
     carregar(fonte, id);
   }
   function fechar(){
+    if(document.documentElement.classList.contains('janela')){        // a janela por cima do Tempo real: quem fecha é ela
+      try { parent.postMessage({gc:'depara-fechar'}, location.origin); } catch(e){}
+      return;
+    }
     $('veu').hidden = true; $('ed').hidden = true;
     if(ultimoFoco && ultimoFoco.focus) ultimoFoco.focus();
   }

@@ -801,6 +801,16 @@ Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o
   (`/admin/de-para?editar=fonte|id`, que abre o editor já na usina) só aparece para quem abre a página dele (`/api/eu`:
   `abre_admin`, que é o passe com admin, a senha ou o Microsoft); para os outros, o aviso diz para pedir a um
   administrador. Prova: `tests/test_depara_inversor_sem_esperadas.py`.
+  **O atalho abre uma janela por cima da tela (13/10/2026)**. Levi: "Essa forma taca um bloco minúsculo de ridículo na
+  tela abaixo dos cards de KPI e lota de scroll [...] pode aparecer um visual sobrepondo a tela e dando um blur de fundo";
+  "Esse scroll lateral não serve para nada!". O atalho era um link comum: dentro da Entrada, ele trocava o iframe do
+  Monitoramento pela página do de-para, e o editor (janela fixa) ficava preso no iframe, com rolagem dentro de rolagem.
+  Agora o clique chama `gcAbrirDepara`: o Monitoramento embutido pede à Entrada (`postMessage {gc:'depara'}`, mesma
+  origem, só `/admin/de-para`) e ela abre `gcDeparaJanela`, um iframe de 1.280 px que cobre a tela inteira com o fundo
+  desfocado; fora do embutido, a própria página abre. O de-para com `?janela=1` mostra só o editor; o Fechar e o Esc dele
+  mandam `{gc:'depara-fechar'}` à tela de baixo, que fecha (o clique fora também). O href segue no link (botão do meio
+  abre numa aba). Provado numa cópia de prova: a janela cobre 1600×950, o Fechar e o clique fora fecham. Prova:
+  `tests/test_depara_janela.py`.
 - **O dado**: livro `nexus_depara · fato_decisao_depara` (`depara.py`, no catálogo do Nexus), só acrescenta, gravado pela
   mesma `cobertura.Decisoes` (relê, grava inteiro, confere a contagem; cache de 60 s e a última leitura boa em
   `depara_decisoes.json`). O cadastro entra pela chave de negócio (Usina Supervisório, Equipamento Supervisório), que a

@@ -1468,6 +1468,45 @@ function _deslTit(d){
 // (`inv_sem_esp`, app.py `_pv_inv_sem_esperadas`): o que não casa fica sem esperadas no drill, e string parada nele não
 // acusa no inversor. O atalho abre o editor do de-para já nesta usina (`?editar=fonte|id`), só para quem abre a página
 // dele (`RD.abreAdmin`, do /api/eu); para os outros, o aviso diz para pedir a um administrador.
+// O editor do de-para numa janela POR CIMA da tela, com o fundo desfocado (13/10/2026). Levi: "Essa forma taca um bloco
+// minúsculo de ridículo na tela abaixo dos cards de KPI e lota de scroll [...] ao clicar em "de-para" no ao vivo pode
+// aparecer um visual sobrepondo a tela e dando um blur de fundo"; "Esse scroll lateral não serve para nada!". O atalho era
+// um link comum: dentro da Entrada, ele trocava o iframe do Monitoramento pela página do de-para, e o editor (uma janela
+// fixa) ficava preso naquele iframe, com rolagem dentro de rolagem. Agora a página do de-para abre com ?janela=1 (só o
+// editor) num iframe que cobre a tela inteira; Fechar, Esc ou um clique fora fecham.
+function gcDeparaJanela(href){
+  gcDeparaFechar();
+  var m=document.createElement('div');
+  m.id='gc-depara-janela'; m.className='gc-overlay';
+  m.setAttribute('role','dialog'); m.setAttribute('aria-modal','true'); m.setAttribute('aria-label','De-para de equipamentos');
+  m.style.cssText='position:fixed;inset:0;z-index:600;background:rgba(4,7,15,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;padding:24px';
+  var f=document.createElement('iframe');
+  f.title='De-para de equipamentos';
+  f.src=href+(href.indexOf('?')>=0?'&':'?')+'janela=1';
+  f.style.cssText='width:min(1280px,100%);height:min(920px,100%);border:0;border-radius:14px;background:transparent;box-shadow:0 24px 64px rgba(0,0,0,.55)';
+  m.appendChild(f);
+  m.addEventListener('click',function(ev){ if(ev.target===m) gcDeparaFechar(); });
+  document.body.appendChild(m);
+  document.documentElement.style.overflow='hidden';                  // a tela de baixo não rola com a janela aberta
+  f.focus();
+}
+function gcDeparaFechar(){
+  var m=document.getElementById('gc-depara-janela'); if(m) m.remove();
+  document.documentElement.style.overflow='';
+}
+document.addEventListener('keydown',function(ev){ if(ev.key==='Escape'&&document.getElementById('gc-depara-janela')) gcDeparaFechar(); });
+window.addEventListener('message',function(ev){
+  var d=ev.data||{}; if(ev.origin!==location.origin) return;
+  if(d.gc==='depara'&&typeof d.href==='string'&&d.href.indexOf('/admin/de-para')>=0) gcDeparaJanela(d.href);
+  if(d.gc==='depara-fechar') gcDeparaFechar();
+});
+// o atalho da linha e da barra: no embutido (dentro da Entrada) quem abre a janela é a Entrada, que cobre a tela inteira;
+// fora dele, esta página. O href fica no link (botão do meio abre numa aba, como antes)
+function gcAbrirDepara(ev,href){
+  if(ev){ ev.preventDefault(); ev.stopPropagation(); }
+  if(EMBED){ try{ parent.postMessage({gc:'depara',href:href},location.origin); return false; }catch(e){} }
+  gcDeparaJanela(href); return false;
+}
 function _dpSem(r){
   const n=r&&r.inv_sem_esp; if(!(n>0)) return null;
   const tot=r.qtd_inversores||n, nomes=(r.inv_sem_esp_nomes||[]).map(String);
@@ -1481,13 +1520,13 @@ function _dpChip(u){
   const d=u.dpSem; if(!d) return '';
   const est='display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:6px;background:color-mix(in srgb, var(--gc-amber) 16%, transparent);color:var(--gc-amber);font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap';
   const txt=`<i class="ph ph-link-break"></i>sem de-para · ${d.n} inv.`;
-  return d.href?`<a class="gc-dp-chip" href="${d.href}" onclick="event.stopPropagation()" title="${_he(d.tit)}" style="${est}">${txt}</a>`
+  return d.href?`<a class="gc-dp-chip" href="${d.href}" onclick="return gcAbrirDepara(event,this.getAttribute('href'))" title="${_he(d.tit)}" style="${est}">${txt}</a>`
     :`<span class="gc-dp-chip" onclick="event.stopPropagation()" title="${_he(d.tit)}" style="${est};cursor:help">${txt}</span>`;
 }
 function _dpBarra(u){
   const d=u.dpSem; if(!d) return '';
   const box='display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 14px;margin-bottom:14px;border-radius:var(--radius-md);font-size:12.5px;background:color-mix(in srgb, var(--gc-amber) 9%, transparent);border:1px solid color-mix(in srgb, var(--gc-amber) 30%, transparent)';
-  return `<div class="gc-dp-barra" style="${box}"><i class="ph ph-link-break" style="color:var(--gc-amber);font-size:15px"></i><span style="flex:1;min-width:220px;color:var(--color-neutral-200)"><b>${d.n} de ${d.tot} inversor${d.tot>1?'es':''} sem de-para</b><span class="text-muted"> · ${_he(d.motivo)}${d.href?'':' Peça a um administrador para ligar no de-para.'}</span></span>${d.href?`<a class="btn btn-secondary" style="padding:5px 11px;font-size:12px;text-decoration:none" href="${d.href}" onclick="event.stopPropagation()"><i class="ph ph-arrow-square-out"></i> Ligar no de-para</a>`:''}</div>`;
+  return `<div class="gc-dp-barra" style="${box}"><i class="ph ph-link-break" style="color:var(--gc-amber);font-size:15px"></i><span style="flex:1;min-width:220px;color:var(--color-neutral-200)"><b>${d.n} de ${d.tot} inversor${d.tot>1?'es':''} sem de-para</b><span class="text-muted"> · ${_he(d.motivo)}${d.href?'':' Peça a um administrador para ligar no de-para.'}</span></span>${d.href?`<a class="btn btn-secondary" style="padding:5px 11px;font-size:12px;text-decoration:none" href="${d.href}" onclick="return gcAbrirDepara(event,this.getAttribute('href'))"><i class="ph ph-link"></i> Ligar no de-para</a>`:''}</div>`;
 }
 function _deslBarra(u){
   const d=u.desl, box='display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:10px 14px;margin-bottom:14px;border-radius:var(--radius-md);font-size:12.5px;';
