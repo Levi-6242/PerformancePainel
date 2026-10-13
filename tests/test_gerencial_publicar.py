@@ -51,6 +51,15 @@ def test_a_serie_diaria_do_painel_noc_em_linhas():
     assert gp.linhas_dia({"X": None, " ": SERIE["Altair 1"]}, 202610) == []
 
 
+def test_a_geracao_do_dia_e_a_do_gerencial_quando_vem():
+    """13/10/2026: o ponto traz a geração do Gerencial em kWh (`geracao_kwh`); None = dia fora da conta dele, mesmo com
+    o `geracao` do PR diário."""
+    serie = {"Altair 1": {**SERIE["Altair 1"], "pontos": [
+        {"dia": 1, "realizado": None, "poa": None, "geracao": 9.99, "geracao_kwh": 4321.4},
+        {"dia": 2, "realizado": 0.8491965, "geracao": 6.27, "poa": 2.09, "geracao_kwh": None}]}}
+    assert [(r[2], r[3], r[7]) for r in gp.linhas_dia(serie, 202610)] == [(20261001, 4321, None), (20261002, None, 84.9)]
+
+
 def test_o_xlsx_leva_as_duas_abas_e_vazio_de_verdade():
     from io import BytesIO
     from openpyxl import load_workbook
@@ -157,3 +166,102 @@ def test_desligado_nao_publica(monkeypatch):
     _ligar(monkeypatch, banco, {"usinas": [U1]})
     monkeypatch.setattr(app, "_ger_publicar_ligado", lambda: False)
     assert app._ger_publicar(agora=datetime(2026, 10, 12, 10)) is None and banco.linhas is None
+
+
+# ── a série diária pela geração do Gerencial (13/10/2026) ────────────────────────────────────────────────────────────
+# A tabela da janela da Meta do Nexus não fechava no % do Gerencial em 78 das 131 usinas: na Thopen o PR diário pula o
+# dia com POA até 0,3 (Indaiatuba: 5 dias e 87% contra 12 dias e 66%), e no BD_Performance escreve 0 no dia em branco
+# (Castelo do Piauí: 31 dias e 54,9% contra 9 dias e 189,1%).
+def _diario(pontos, meta_ger=10.0):
+    return {"usina": "X", "meta": 0.8, "pot": 1.0, "meta_ger": meta_ger, "meta_poa": 5.0, "pontos": pontos}
+
+
+def test_a_serie_diaria_tem_os_dias_e_a_geracao_do_gerencial(monkeypatch):
+    pr_th = [{"dia": 2, "realizado": 0.7, "geracao": 9.0, "poa": 5.0}, {"dia": 3, "realizado": 0.8, "geracao": 11.0, "poa": 6.0},
+             {"dia": 4, "realizado": 0.9, "geracao": 3.0, "poa": 1.0}]
+    pr_bp = [{"dia": d, "realizado": 0.8 if d <= 2 else None, "geracao": 12.0 if d <= 2 else 0.0,
+              "poa": 6.0 if d <= 2 else 0.0} for d in range(1, 32)]
+    chamadas = []
+
+    def falso(cli, usina, ano, mes):
+        chamadas.append(usina)
+        return _diario(pr_th) if usina == "Indaiatuba" else (None if usina == "Só PG" else _diario(pr_bp))
+    monkeypatch.setattr(app, "_ger_diario", falso)
+    g = {"usinas": [
+        # Thopen: o dia 1 (POA até 0,3) não está no PR diário e entra com a geração e sem PR; o dia 4 só do PR diário
+        # (com PR) entra sem geração
+        {"usina": "Indaiatuba", "cliente": "Thopen", "src": "bdthopen", "ger_dia": {1: 7000.0, 2: 9000.0, 3: 11000.0},
+         "p50": 30.0, "meta_dias": 3},
+        # BD_Performance: o dia em branco (0 no PR diário, sem PR) não vira linha; a chave em texto (JSON do snapshot)
+        {"usina": "Castelo", "cliente": "Greenyellow", "src": "bdperf", "ger_dia": {"1": 12000.0, "2": 12000.0},
+         "p50": 20.0, "meta_dias": 2},
+        # sem PR diário: a meta do dia vem do Gerencial (p50 ÷ dias da meta)
+        {"usina": "Só PG", "cliente": "Thopen", "src": "pg", "ger_dia": {5: 1500.0}, "p50": 9.0, "meta_dias": 3},
+        # a meta do dia exata do Gerencial vence a do PR diário (arredondada em 0,01 MWh)
+        {"usina": "Exata", "cliente": "Thopen", "src": "bdthopen", "ger_dia": {2: 9000.0}, "meta_dia_kwh": 10004.6},
+        {"usina": "Sem geração", "cliente": "Thopen", "src": "cadastro", "ger_dia": None},
+    ]}
+    s = app._ger_series_diarias(g, 2026, 10)
+    assert set(s) == {"Indaiatuba", "Castelo", "Só PG", "Exata"} and "Sem geração" not in chamadas
+    assert [r[4] for r in gp.linhas_dia({"Exata": s["Exata"]}, 202610) if r[3] is not None] == [10005]
+    assert [(p["dia"], p["geracao_kwh"], p["realizado"]) for p in s["Indaiatuba"]["pontos"]] == [
+        (1, 7000.0, None), (2, 9000.0, 0.7), (3, 11000.0, 0.8), (4, None, 0.9)]
+    assert [(p["dia"], p["geracao_kwh"]) for p in s["Castelo"]["pontos"]] == [(1, 12000.0), (2, 12000.0)]
+    assert s["Só PG"]["meta_ger"] == 3.0 and [(p["dia"], p["geracao_kwh"]) for p in s["Só PG"]["pontos"]] == [(5, 1500.0)]
+    # a soma dos dias com geração e a meta dos mesmos dias = o Gerencial (27 MWh de 30 nos 3 dias da Indaiatuba)
+    lin = [r for r in gp.linhas_dia(s, 202610) if r[1] == "Indaiatuba" and r[3] is not None]
+    assert sum(r[3] for r in lin) == 27000 and sum(r[4] for r in lin) == 30000
+
+
+def test_gerencial_de_antes_do_ger_dia_nao_publica_serie(monkeypatch):
+    """O snapshot do disco ao subir (de antes do `ger_dia`): nenhuma série, e o mês do banco fica como está."""
+    monkeypatch.setattr(app, "_ger_diario", lambda *a: _diario([{"dia": 1, "realizado": 0.8, "geracao": 1.0, "poa": 5.0}]))
+    assert app._ger_series_diarias({"usinas": [{"usina": "A", "cliente": "Thopen", "src": "bdthopen"}]}, 2026, 10) == {}
+
+
+def test_o_thopen_guarda_o_dia_a_dia_que_conta(monkeypatch):
+    """`ger_dia` = os dias do `dias_cob` (geração > 0, ou zero confirmado pelo sol medido), com a geração de cada um: a
+    soma é o `prod_mwh`."""
+    import dashboard_thopen as dth
+    from datetime import datetime as _dt
+    hoje = _dt.now()
+    d1 = hoje.replace(day=1)
+    monkeypatch.setattr(dth, "_registro", lambda: {"Usina W": {"cliente": "Thopen", "pot_mwp": 1.0}})
+    monkeypatch.setattr(dth, "_CARTEIRA_DE", {"Usina W": "Thopen"})
+    monkeypatch.setattr(dth, "_daily_records", lambda u: [
+        {"data": d1, "ger": 1000.0, "ipoa": 5.0},       # sol medido: conta
+        {"data": hoje, "ger": 900.0, "ipoa": None},     # sensor sem leitura, mas gerou: conta
+        {"data": hoje, "ger": 0.0, "ipoa": None},       # zero sem sol medido: lacuna, não conta
+    ])
+    monkeypatch.setattr(app, "_thopen_prod_cache", {"ts": 0.0, "ym": None, "data": {}, "warming": True})
+    r = app._thopen_prod_build()[app._nrm("Usina W")]
+    assert len(r["ger_dia"]) == r["dias_cob"] and round(sum(r["ger_dia"].values()) / 1000, 3) == round(r["prod_mwh"], 3)
+
+
+def test_o_bd_performance_guarda_o_dia_a_dia_que_conta(monkeypatch, tmp_path):
+    """Dia com número de inversor conta (zero = usina parada); dia em branco e linha lixo não contam."""
+    from openpyxl import Workbook
+    from datetime import datetime as _dt
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Usina BP"
+    ws.append(["Usina", "Data", "Inversor 1", "Inversor 2", "Validação", "IPOA DEF"])
+    ws.append(["Usina BP", _dt(2026, 9, 1), 100.0, 200.0, 1, 5.0])          # conta: 300
+    ws.append(["Usina BP", _dt(2026, 9, 2), None, None, None, None])        # em branco: não conta
+    ws.append(["Usina BP", _dt(2026, 9, 3), 0.0, 0.0, 1, 5.0])              # usina parada: conta com 0
+    ws.append(["Usina BP", _dt(2026, 9, 4), 1.3e6, 10.0, 0, 5.0])           # lixo (não validado, impossível): não conta
+    arq = tmp_path / "bd.xlsx"
+    wb.save(arq)
+    monkeypatch.setattr(app, "_bd_readable", lambda: str(arq))
+    monkeypatch.setattr(app, "INFO_GERAL", {app._nrm("Usina BP"): {"usina": "Usina BP", "cliente": "Greenyellow",
+                                                                   "potencia_mwp": 1.0}})
+    r = app._bdperf_prod_build(2026, 9)[app._nrm("Usina BP")]
+    assert r["ger_dia"] == {1: 300.0, 3: 0.0} and r["dias_cob"] == 2 and round(r["prod_mwh"], 3) == 0.3
+
+
+def test_a_resposta_do_gerencial_nao_leva_o_dia_a_dia(monkeypatch):
+    monkeypatch.setattr(app, "_gerencial_payload", lambda **k: {
+        "usinas": [{"usina": "A", "prod": 1.0, "ger_dia": {1: 1000.0}, "meta_dia_kwh": 9.5}], "portfolio": {}})
+    with app.app.test_request_context("/api/gerencial"):
+        d = app.api_gerencial().get_json()
+    assert d["usinas"] == [{"usina": "A", "prod": 1.0}]

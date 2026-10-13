@@ -7,11 +7,13 @@ responsável, no Nexus, lê a meta do mês daqui: os MESMOS números da Visão g
 (`_gerencial_payload`, que o worker já refaz a cada 5 min), sem o Nexus refazer a conta nem chamar a plataforma.
 
 A aba `fato_desempenho_usina_dia` (12/10/2026, Levi: "PR ao clicar aparece um card (...) essa mesma visão do PAINEL NOC >
-HISTÓRICO > PR > PR DIÁRIO EXPANDIDO"; e a meta "com uma tabelinha de dia do mês, geração meta, geração real"): a série
-do PR diário do Painel NOC (`/api/g/diario`, a MESMA que o gráfico expandido desenha), 1 linha = 1 usina do Gerencial ×
-1 dia com ponto, com a geração, a meta diária (a meta do mês ÷ os dias do mês, como lá), o POA, a meta de POA, o PR e a
-meta de PR. Medido em 12/10/2026: 129 das 161 usinas têm série; na Boa Esperança do Sul 1, a soma dos dias (74,2 MWh) e
-a meta dos dias (7 × 18,57 = 130,0) são as do Gerencial (57,1%).
+HISTÓRICO > PR > PR DIÁRIO EXPANDIDO"; e a meta "com uma tabelinha de dia do mês, geração meta, geração real"): 1 linha =
+1 usina do Gerencial × 1 dia, com a geração, a meta diária (a meta do mês ÷ os dias do mês, como no PR diário), o POA, a
+meta de POA, o PR e a meta de PR. A geração é a do dia que o Gerencial conta no atingimento (`ger_dia` do
+`_gerencial_payload`, 13/10/2026), e por isso a soma dos dias com geração fecha no Gerencial; o POA e o PR são os da
+série do PR diário do Painel NOC (`/api/g/diario`, a MESMA que o gráfico expandido desenha). Dia só do PR diário: sem
+geração; dia só do Gerencial (POA até 0,3 na Thopen): sem PR. Até 13/10 a geração vinha do PR diário e a tabela da Meta
+não fechava em 78 das 131 usinas (ver `_ger_series_diarias` no app.py).
 
 Grão (governança do Nexus, `nexus/dados/CLAUDE.md`, registrado no catálogo antes da 1ª gravação): 1 linha = 1 usina (o
 nome do Gerencial: a aba do BD ou a carteira do banco da Thopen) × 1 mês. Foto acumulada: o mês corrente se refaz a cada
@@ -73,7 +75,8 @@ def _pct(frac):
 def linhas_dia(series: dict, mes_id: int) -> list[list]:
     """As linhas da aba diária de um mês: `series` = {usina do Gerencial: o payload do `/api/g/diario`}, na ordem do
     CAB_DIA, pela usina e pelo dia. A meta do dia é a mesma em todos os dias (a meta do mês ÷ os dias do mês, como o
-    gráfico do Painel NOC desenha); o PR vazio fica vazio (dia sem POA)."""
+    gráfico do Painel NOC desenha); o PR vazio fica vazio (dia sem POA). A geração é o `geracao_kwh` do ponto quando
+    ele vem (a do Gerencial, em kWh; None = dia fora da conta dele) e, sem ele, o `geracao` do PR diário (MWh)."""
     ano, mes = divmod(int(mes_id), 100)
     out = []
     for usina, d in (series or {}).items():
@@ -85,7 +88,11 @@ def linhas_dia(series: dict, mes_id: int) -> list[list]:
             dia = p.get("dia")
             if not isinstance(dia, int) or not 1 <= dia <= 31:
                 continue
-            out.append([int(mes_id), nome, ano * 10000 + mes * 100 + dia, _kwh(p.get("geracao")), meta,
+            if "geracao_kwh" in p:
+                ger = None if _num(p["geracao_kwh"]) is None else round(p["geracao_kwh"])
+            else:
+                ger = _kwh(p.get("geracao"))
+            out.append([int(mes_id), nome, ano * 10000 + mes * 100 + dia, ger, meta,
                         _num(p.get("poa")), meta_poa, _pct(p.get("realizado")), pr_meta])
     out.sort(key=lambda r: (r[1].lower(), r[2]))
     return out

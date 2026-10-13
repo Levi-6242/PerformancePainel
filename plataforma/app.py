@@ -16800,6 +16800,14 @@ def _thopen_prod_build(ano=None, mes=None):
                             if _thopen_dia_coberto(r)
                             and r["data"].year == alvo_a and r["data"].month == alvo_m
                             and r["data"].day <= _lim})
+            # ...e a geração de cada um desses dias (13/10/2026): a janela da Meta do Nexus mostra o dia a dia que fecha
+            # no atingimento daqui. A série do PR diário (`_g_th_daily`) não serve para isso: ela pula o dia com POA até
+            # 0,3, e a Indaiatuba de outubro mostrava 5 dias (136,5 MWh, 87%) contra os 12 do Gerencial (248,3 MWh, 66%)
+            ger_dia = {}
+            for r in recs:
+                if (_thopen_dia_coberto(r) and r["data"].year == alvo_a and r["data"].month == alvo_m
+                        and r["data"].day <= _lim):
+                    ger_dia[r["data"].day] = round(ger_dia.get(r["data"].day, 0.0) + (r.get("ger") or 0.0), 1)
             if prod > 0:
                 pot = (reg.get(u) or {}).get("pot_mwp") or (INFO_GERAL.get(_nrm(u)) or {}).get("potencia_mwp")
                 # PR pelo MESMO motor do Dashboard de PR (/api/g/mensal, carteira do banco): Σger/1000 ÷
@@ -16816,7 +16824,7 @@ def _thopen_prod_build(ano=None, mes=None):
                                 # `prod_mwh` é o mês inteiro e serve ao atingimento.
                                 "prod_pr_mwh": gsum / 1000.0,
                                 "carteira": _dth._CARTEIRA_DE.get(u),
-                                "dias_cob": dias_cob,
+                                "dias_cob": dias_cob, "ger_dia": ger_dia,
                                 "pot_mwp": pot, "ipoa": round(isum, 1),
                                 "pr": round(pr_frac * 100, 1) if pr_frac is not None else None,
                                 # tudo que vem do BD_Thopen é cliente Thopen (regra Levi) — usina nova
@@ -16929,6 +16937,7 @@ def _bdperf_prod_build(ano=None, mes=None):
                 ipoa = 0.0
                 ghi = 0.0        # GHI medido: melhor coluna GHI de cada dia COMPLETO do mês
                 dias_cob = set()  # dias que a ABA reportou (linha com número), p/ prorratear a meta
+                ger_dia = {}      # a geração de cada um desses dias (a janela da Meta do Nexus, 13/10/2026)
                 for r in it:
                     d = r[1] if len(r) > 1 else None
                     if not isinstance(d, datetime) or d.year != alvo_a or d.month != alvo_m:
@@ -16946,6 +16955,9 @@ def _bdperf_prod_build(ano=None, mes=None):
                     # linha ausente ou lixo é lacuna. Dia FUTURO não conta.
                     if _vals and not _lixo and (not atual or d.date() <= hoje_d):
                         dias_cob.add(d.day)
+                        # o dia a dia que fecha no atingimento: a série do PR diário escreve 0 no dia ainda em branco
+                        # (Castelo do Piauí, outubro: 31 dias e 54,9% contra os 9 dias e 189,1% do Gerencial)
+                        ger_dia[d.day] = ger_dia.get(d.day, 0.0) + sum(_vals)
                     rowgen = 0.0 if _lixo else sum(_vals)
                     tot += rowgen
                     if ghic and d.date() < hoje_d:      # mesma régua de "dia completo" do IPOA
@@ -16985,6 +16997,7 @@ def _bdperf_prod_build(ano=None, mes=None):
                               "prod_pr_mwh": gen_pr / 1000.0,
                               "cliente": ig.get("cliente"), "pot_mwp": mwp,
                               "dias_cob": len(dias_cob),
+                              "ger_dia": {_d: round(_v, 1) for _d, _v in ger_dia.items()},
                               "ghi": round(ghi, 2) if ghi else None,
                               "ipoa": round(ipoa, 2),     # Σ IPOA (DEF/ETM) dos dias que entraram no PR
                               "pr": round(pr, 2) if pr is not None else None,
@@ -18084,7 +18097,7 @@ def _gerencial_payload(force=False, ano=None, mes=None):
             continue
         nome = _macro_usina_nome(name)
         d = agg.setdefault(_nrm(nome), {"usina": nome, "prod_kwh": 0.0, "ipoa": 0.0,
-                                        "prod_pr_kwh": 0.0, "ghi": 0.0, "dias": set()})
+                                        "prod_pr_kwh": 0.0, "ghi": 0.0, "dias": set(), "ger_dia": {}})
         if isinstance(ger, (int, float)):
             d["prod_kwh"] += ger
             # ...e, em paralelo, só o que casa com a IPOA logo abaixo: é este o numerador do PR
@@ -18094,6 +18107,9 @@ def _gerencial_payload(force=False, ano=None, mes=None):
             # É o denominador honesto da meta: ver _prorata_de().
             if row.get("data"):
                 d["dias"].add(row["data"])
+                # a geração de cada dia reportado: o dia a dia da janela da Meta do Nexus (13/10/2026)
+                _dd = int(str(row["data"])[8:10])
+                d["ger_dia"][_dd] = round(d["ger_dia"].get(_dd, 0.0) + ger, 1)
         if isinstance(ipoa, (int, float)): d["ipoa"]     += ipoa
         _g = row.get("ghi")
         if isinstance(_g, (int, float)):   d["ghi"]      += _g
@@ -18170,7 +18186,10 @@ def _gerencial_payload(force=False, ano=None, mes=None):
                        "ipoa_prev": round(ipoa_prev, 1) if ipoa_prev else None,
                        "ghi": round(d["ghi"], 1) if d.get("ghi") else None,
                        "ghi_prev": round(ghi_prev, 1) if ghi_prev else None,
-                       "dias_cob": _dcob or None, "dias_mes": dias_mes,
+                       "dias_cob": _dcob or None, "dias_mes": dias_mes, "ger_dia": d.get("ger_dia"),
+                       # a meta do dia sem arredondar (13/10/2026): com a do PR diário (0,01 MWh), a tabela da Meta do
+                       # Nexus errava 0,2 a 0,3 ponto nas usinas pequenas (Linhares 151,4% contra 151,6%)
+                       "meta_dia_kwh": round(p50_mes * 1000 / dias_mes, 3) if p50_mes else None,
                        "meta_dias": round(_prt * dias_mes),
                        "p50_src": p50_src, "src": "pg",
                        "full_oem": _nrm(d["usina"]) in full_om_nrm,
@@ -18247,7 +18266,10 @@ def _gerencial_payload(force=False, ano=None, mes=None):
                        "ipoa_prev": round(_ipoa_prev_th, 1) if _ipoa_prev_th else None,
                        # o BD_Thopen não registra GHI (só ger/ipoa/disp) — explícito, não esquecido
                        "ghi": None, "ghi_prev": None,
-                       "dias_cob": tp.get("dias_cob") or None, "dias_mes": dias_mes,
+                       "dias_cob": tp.get("dias_cob") or None, "dias_mes": dias_mes, "ger_dia": tp.get("ger_dia"),
+                       # a meta do dia sem arredondar (13/10/2026): com a do PR diário (0,01 MWh), a tabela da Meta do
+                       # Nexus errava 0,2 a 0,3 ponto nas usinas pequenas (Linhares 151,4% contra 151,6%)
+                       "meta_dia_kwh": round(p50_mes * 1000 / dias_mes, 3) if p50_mes else None,
                        "meta_dias": round(_prt * dias_mes),
                        "p50_src": (p50_src or "sem"), "src": "bdthopen",
                        "full_oem": _nrm(tp["usina"]) in full_om_nrm,
@@ -18309,7 +18331,10 @@ def _gerencial_payload(force=False, ano=None, mes=None):
                        "ipoa_prev": round(_ipp_bp, 1) if _ipp_bp else None,
                        "ghi": bp.get("ghi"),
                        "ghi_prev": round(_ghp_bp, 1) if _ghp_bp else None,
-                       "dias_cob": bp.get("dias_cob") or None, "dias_mes": dias_mes,
+                       "dias_cob": bp.get("dias_cob") or None, "dias_mes": dias_mes, "ger_dia": bp.get("ger_dia"),
+                       # a meta do dia sem arredondar (13/10/2026): com a do PR diário (0,01 MWh), a tabela da Meta do
+                       # Nexus errava 0,2 a 0,3 ponto nas usinas pequenas (Linhares 151,4% contra 151,6%)
+                       "meta_dia_kwh": round(p50_mes * 1000 / dias_mes, 3) if p50_mes else None,
                        "meta_dias": round(_prt * dias_mes),
                        "p50_src": "infogeral_anual12", "src": "bdperf",
                        "full_oem": _nrm(bp["usina"]) in full_om_nrm,
@@ -18527,7 +18552,10 @@ def api_gerencial():
     # "não veio": as telas guardam o último valor, e o seletor de usinas do Nexus diz que o Gerencial não respondeu.
     if g.get("erro"):
         return jsonify(g), 503
-    return jsonify(g)
+    # o dia a dia de cada usina (`ger_dia`, `meta_dia_kwh`) é da publicação no banco (a janela da Meta do Nexus), não
+    # da tela: fica fora da resposta (161 usinas × até 31 dias)
+    return jsonify({**g, "usinas": [{k: v for k, v in u.items() if k not in ("ger_dia", "meta_dia_kwh")}
+                                    for u in g.get("usinas") or []]})
 
 
 # ══ MOTOR DE DIAGNÓSTICO (Painel 2) — v0, Thopen-first, PEER-RELATIVO ═════════════
@@ -27412,14 +27440,25 @@ def _ger_diario(cli, usina, ano, mes) -> dict | None:
 
 
 def _ger_series_diarias(g, ano, mes) -> dict:
-    """{usina do Gerencial: o payload do /api/g/diario} das usinas do Gerencial do mês. O cliente é o que o seletor do
-    Histórico usa: Thopen para as do banco da Thopen, o cliente para as do BD_Performance. Medido em 12/10/2026: 129 de
-    161 com série; o nome do Gerencial que não acha a aba do BD_Thopen ("Piracicaba I") tenta o nome do BD_Thopen de
-    mesma chave solta ("Piracicaba 1")."""
+    """{usina do Gerencial: o payload do /api/g/diario, com a geração do Gerencial} das usinas do Gerencial do mês. O
+    cliente é o que o seletor do Histórico usa: Thopen para as do banco da Thopen, o cliente para as do BD_Performance.
+    Medido em 12/10/2026: 129 de 161 com série; o nome do Gerencial que não acha a aba do BD_Thopen ("Piracicaba I")
+    tenta o nome do BD_Thopen de mesma chave solta ("Piracicaba 1").
+
+    A geração de cada dia é a do Gerencial (13/10/2026): `ger_dia`, os dias que ele conta no atingimento, pela fonte e
+    pela régua dele. Com a geração do PR diário, a tabela da janela da Meta do Nexus não fechava no % do Gerencial em 78
+    das 131 usinas: na Thopen o PR diário pula o dia com POA até 0,3 (Indaiatuba: 5 dias, 87%, contra 12 dias, 66%), e no
+    BD_Performance escreve 0 no dia ainda em branco (Castelo do Piauí: 31 dias, 54,9%, contra 9 dias, 189,1%). O PR e o
+    POA continuam os do PR diário (a visão do Painel NOC); o dia que o Gerencial conta e o PR diário não tem entra com a
+    geração e sem PR, e o que só o PR diário tem entra sem geração (`geracao_kwh` None: fora da tabela da Meta). Payload
+    de antes do `ger_dia` (o snapshot do disco ao subir): nenhuma série, e o mês do banco fica como está."""
+    usinas = (g or {}).get("usinas") or []
+    if not any(u.get("ger_dia") is not None for u in usinas):
+        return {}
     out, nomes_th = {}, None
-    for u in (g or {}).get("usinas") or []:
+    for u in usinas:
         nome = str(u.get("usina") or "").strip()
-        if not nome:
+        if not nome or u.get("ger_dia") is None:             # sem geração no Gerencial (a linha do cadastro)
             continue
         cli = "Thopen" if u.get("src") == "pg" else str(u.get("cliente") or "").strip()
         d = _ger_diario(cli, nome, ano, mes)
@@ -27432,8 +27471,22 @@ def _ger_series_diarias(g, ano, mes) -> dict:
             alt = nomes_th.get(_usina_chave_solta(nome))
             if alt and alt != nome:
                 d = _ger_diario(cli, alt, ano, mes)
-        if (d or {}).get("pontos"):
-            out[nome] = d
+        d = dict(d or {})
+        pts = {p["dia"]: p for p in d.get("pontos") or [] if isinstance(p.get("dia"), int)}
+        dias = {int(k): v for k, v in (u.get("ger_dia") or {}).items()}    # chave texto depois do JSON do snapshot
+        if u.get("meta_dia_kwh"):
+            d["meta_ger"] = u["meta_dia_kwh"] / 1000      # a meta do dia do Gerencial, sem o arredondamento do PR diário
+        elif not d.get("meta_ger") and u.get("p50") and u.get("meta_dias"):
+            d["meta_ger"] = round(u["p50"] / u["meta_dias"], 2)
+        pontos = []
+        # o dia só do PR diário entra só com PR (o da fonte do PG que o BD_Thopen tem): o dia em branco do BD_Performance
+        # (0 de geração, sem PR) não vira linha
+        for dia in sorted(set(dias) | {k for k, x in pts.items() if x.get("realizado") is not None}):
+            p = dict(pts.get(dia) or {"dia": dia, "realizado": None, "poa": None})
+            p["geracao_kwh"] = dias.get(dia)
+            pontos.append(p)
+        if pontos:
+            out[nome] = {**d, "pontos": pontos}
     return out
 
 

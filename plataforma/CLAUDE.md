@@ -820,15 +820,26 @@ responsável do Nexus (Campo · App) tira a meta do mês daqui: o worker publica
   próprio `/api/g/diario` chamado por dentro (`_ger_diario`, como o `_relatorio_build` faz) para cada usina do Gerencial
   (`_ger_series_diarias`): o cliente é o do seletor do Histórico (Thopen para as do banco da Thopen, o cliente para as do
   BD_Performance); o nome que não acha a aba do BD_Thopen tenta o de mesma chave solta (`_usina_chave_solta`). 1 linha =
-  usina × dia com ponto: geração e meta do dia em kWh, POA e meta de POA, PR e meta de PR em %. A meta do dia é a do mês ÷
-  os dias do mês (igual todo dia, como o gráfico). Medido em 12/10 pelo 5050: 129 de 161 usinas com série, as 161 em 21 s;
-  na Boa Esperança do Sul 1 a soma dos dias (74,2 MWh) e a meta dos dias (7 × 18,57) são as do Gerencial (57,1%). Vai no
+  usina × dia: geração e meta do dia em kWh, POA e meta de POA, PR e meta de PR em %.
+  **A geração e os dias são os do Gerencial** (13/10/2026): os três motores do Gerencial guardam o dia a dia que entra no
+  atingimento (`ger_dia` = {dia: kWh}, os MESMOS dias do `dias_cob`, cada um com a régua da sua fonte: PG = dia que a
+  fonte reportou; BD_Thopen = `_thopen_dia_coberto`; BD_Performance = linha com número de inversor e sem lixo) e a meta
+  do dia sem arredondar (`meta_dia_kwh` = meta do mês ÷ dias do mês); a série usa os dois, e o POA e o PR continuam os do
+  PR diário. Por quê: com a geração do PR diário a tabela da Meta do Nexus não fechava em 78 de 131 usinas (a Thopen pula
+  o dia com POA até 0,3: Indaiatuba 5 dias e 87% contra 12 e 66%; o BD_Performance escreve 0 no dia em branco: Castelo
+  do Piauí 31 dias e 54,9% contra 9 e 189,1%; e a meta arredondada a 0,01 MWh errava 0,2 ponto nas pequenas). Dia que só
+  o PR diário tem entra só se tiver PR, com a geração vazia. Prova de 13/10 (o Gerencial de outubro montado com o código
+  novo): `ger_dia` fecha no `prod` e no `dias_cob` das 135 usinas que o têm, a tabela fecha no % das 135, e o Gerencial
+  segue IGUAL ao do servidor nas 161 (prod, meta, atingimento, dias, PR). Os dois campos não vão na resposta do
+  `/api/gerencial` (`api_gerencial` tira). Payload de antes do `ger_dia` (snapshot do disco ao subir): nenhuma série, e o
+  mês do banco fica como está. Vai no
   mesmo xlsx da meta (`gerencial_publicar.xlsx_bytes`: as duas abas juntas, porque o `replace` troca o livro), com a
   mesma mescla por mês e a conferência das duas contagens; mês sem série nenhuma não apaga a do banco. A última leitura
   boa da aba fica em `ger_publicado_dia.json`.
 - Testes: `tests/test_gerencial_publicar.py` (as linhas sem texto livre, a série diária, o xlsx de duas abas, a mescla
   dos meses, o dia 5, publica e só quando muda, Gerencial que falhou e banco fora não gravam, mês sem série não apaga a
-  do banco, desligado não publica).
+  do banco, desligado não publica; e, de 13/10, a série pela geração do Gerencial, o `ger_dia` do BD_Thopen e do
+  BD_Performance, a meta exata, o payload antigo sem série e a resposta sem o dia a dia).
 
 ## Padrão por inversor (usinas sem visão por string)
 
