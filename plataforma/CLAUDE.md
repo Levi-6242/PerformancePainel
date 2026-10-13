@@ -431,7 +431,13 @@ porta diferente é OUTRA origem: a moldura só abre atrás da `ferramentas/porta
 era sempre navy na moldura; agora o navy vale só com o Nexus no escuro (`html.modo-nexus:not([data-tema="claro"])`), e o
 claro usa as cores da identidade do site. O tema vem do cookie `nexus_tema` (ou do localStorage `nexus.tema`) antes da 1ª
 pintura, e o botão do Nexus troca a tela na hora pelo evento `storage` (chega às molduras da mesma origem). Tela nova com
-navy próprio no modo Nexus segue a mesma régua. Teste: `tests/test_falhas_tema_nexus.py`.
+navy próprio no modo Nexus segue a mesma régua. Teste: `tests/test_falhas_tema_nexus.py`. **Sem botão de tema dentro do
+Nexus (13/10/2026**, Levi: "tira o botão de tema das telas da plataforma também", depois de o 2º cabeçalho sair): o Painel
+NOC (`#darkBtn`, `painelDark`) e a Visão gerencial (`#tema`, `ger.tema`) marcam o botão com `data-casca` e, no modo Nexus,
+seguem o tema do Nexus pela mesma régua (cookie, localStorage, `storage`; o NOC remonta o histórico, que pinta com as cores
+do tema). Quem diz "no Nexus" é o `window.gcModoNexus` do calço, e não o nome da classe: fora do Nexus a página sai sem
+ele (`test_porta_nexus`). Fora do Nexus, cada tela segue com o botão e a escolha dela. Teste:
+`tests/test_tema_nexus_noc_gerencial.py`.
 
 **Os responsáveis de cada usina, pela moldura (12/10/2026**, Levi: "Quero um filtro de responsável -> Visão gerencial").
 O nome da pessoa só existe decifrado no Nexus (no banco o cadastro guarda as pessoas cifradas, e a plataforma não tem a

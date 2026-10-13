@@ -92,11 +92,24 @@ td{padding:9px 10px;border-bottom:1px solid var(--line)}td b{color:var(--grafite
   <div class="spacer"></div>
   <span class="upd" id="upd"></span>
   <a class="back" href="/" data-casca>← Início</a> <a class="back" href="/tempo-real" style="margin-left:8px" data-casca>Monitoramento</a>
-  <button type="button" class="back" id="tema" onclick="alternaTema()" style="margin-left:8px;background:transparent;cursor:pointer;font-family:inherit" title="alternar tema claro/escuro (fica salvo neste navegador)">Tema claro</button>
+  <button type="button" class="back" id="tema" onclick="alternaTema()" style="margin-left:8px;background:transparent;cursor:pointer;font-family:inherit" title="alternar tema claro/escuro (fica salvo neste navegador)" data-casca>Tema claro</button>
 </div>
 <script>
 // Tema (11/09/2026): escuro é o padrão; a escolha fica no navegador (ger.tema). Roda antes do resto para não piscar.
-(function(){ try{ if(localStorage.getItem('ger.tema')==='claro'){ document.documentElement.removeAttribute('data-theme'); var b=document.getElementById('tema'); if(b) b.textContent='Tema escuro'; } }catch(e){} })();
+// No Nexus (modo Nexus, 13/10/2026; Levi: "tira o botão de tema das telas da plataforma também"): o botão daqui some
+// (data-casca) e vale o tema do Nexus, o cookie nexus_tema ou o localStorage nexus.tema, como na aba de Falhas; o botão do
+// Nexus troca a tela na hora (o evento storage chega às molduras da mesma origem). Quem diz "no Nexus" é o gcModoNexus do
+// calço do modo Nexus (app.py), que entra no <head> antes deste script: fora do Nexus a página sai sem o nome da classe dele.
+(function(){
+  var raiz=document.documentElement;
+  if(window.gcModoNexus===true){
+    var aplica=function(t){ if(t==='claro') raiz.removeAttribute('data-theme'); else if(t==='escuro') raiz.setAttribute('data-theme','dark'); };
+    try{ var c=document.cookie.match(/(?:^|;\s*)nexus_tema=(claro|escuro)(?:;|$)/); aplica(c?c[1]:localStorage.getItem('nexus.tema')); }catch(e){}
+    window.addEventListener('storage',function(ev){ if(ev.key==='nexus.tema') aplica(ev.newValue); });
+    return;
+  }
+  try{ if(localStorage.getItem('ger.tema')==='claro'){ raiz.removeAttribute('data-theme'); var b=document.getElementById('tema'); if(b) b.textContent='Tema escuro'; } }catch(e){}
+})();
 function alternaTema(){ var esc=document.documentElement.getAttribute('data-theme')==='dark';
   if(esc){ document.documentElement.removeAttribute('data-theme'); } else { document.documentElement.setAttribute('data-theme','dark'); }
   try{ localStorage.setItem('ger.tema', esc?'claro':'dark'); }catch(e){}

@@ -211,7 +211,7 @@ details.rx-fr .in{padding:0 14px 14px}
     <button data-mode="hist">⟲ Histórico</button>
   </div>
   <div class="live-pill" id="livePill"><span class="pulse"></span> AO VIVO</div>
-  <button class="darkbtn" id="darkBtn" onclick="toggleDark()">Tema: Claro</button>
+  <button class="darkbtn" id="darkBtn" onclick="toggleDark()" data-casca>Tema: Claro</button>
   <div class="upd" id="upd">—</div>
 </div>
 
@@ -376,7 +376,22 @@ function fmtTs(t){  // timestamp (já em Brasília) → DD/MM/AAAA HH:MM
 /* ---- Dark toggle (persistente) ---- */
 function applyDark(on){document.body.classList.toggle('dark',on);document.getElementById('darkBtn').innerHTML=on?'Tema: Escuro':'Tema: Claro';}
 function toggleDark(){const on=!document.body.classList.contains('dark');localStorage.setItem('painelDark',on?'1':'0');applyDark(on);if(builtHist)buildHist(true);}
-applyDark(localStorage.getItem('painelDark')!=='0');   // ESCURO é o padrão (só fica claro se o usuário escolher claro = '0')
+/* No Nexus (modo Nexus, 13/10/2026; Levi: "tira o botão de tema das telas da plataforma também"): o botão daqui some
+   (data-casca) e vale o tema do Nexus, o cookie nexus_tema ou o localStorage nexus.tema, como na aba de Falhas; o botão
+   do Nexus troca a tela na hora (o evento storage chega às molduras da mesma origem). Fora dele, o de sempre: ESCURO é o
+   padrão, e só fica claro se o usuário escolher claro ('0' no painelDark). Quem diz "no Nexus" é o gcModoNexus do calço do
+   modo Nexus (app.py), que entra no <head> antes deste script; o nome da classe dele não aparece aqui de propósito:
+   fora do Nexus a página tem de sair sem nenhuma menção a ela (tests/test_porta_nexus.py). */
+(function(){
+  if(window.gcModoNexus!==true){ applyDark(localStorage.getItem('painelDark')!=='0'); return; }
+  var t=null;
+  try{ var c=document.cookie.match(/(?:^|;\s*)nexus_tema=(claro|escuro)(?:;|$)/); t=c?c[1]:localStorage.getItem('nexus.tema'); }catch(e){}
+  applyDark(t!=='claro');
+  window.addEventListener('storage',function(ev){
+    if(ev.key!=='nexus.tema'||(ev.newValue!=='claro'&&ev.newValue!=='escuro'))return;
+    applyDark(ev.newValue!=='claro'); if(builtHist)buildHist(true);
+  });
+})();
 
 /* ---- sparkline svg ---- */
 function spark(arr,color,w,h){w=w||64;h=h||18;if(!arr||arr.length<2)return '<svg width="'+w+'" height="'+h+'"></svg>';
