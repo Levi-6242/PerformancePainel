@@ -95,8 +95,12 @@ def test_monta_dia_sem_ponto_nenhum_e_sem_dado_com_o_motivo_da_fonte():
 
 
 def test_cada_fonte_do_tempo_real_tem_familia_ou_o_motivo_de_nao_ter():
-    assert {f["fonte"] for f in pa.FONTES} == {"pv", "pg", "sunop", "axis", "solaredge", "2capi", "semp", "alveslima",
-                                                "greenyellow", "salenergia"}
+    # Athon e Axis saíram (Levi, 13/10/2026: "Não, por hora pode tirar Axis e Athon")
+    assert {f["fonte"] for f in pa.FONTES} == {"pv", "pg", "solaredge", "2capi", "semp", "alveslima", "greenyellow",
+                                                "salenergia"}
+    # o RenoGrid é potência CC (a soma das strings), escrita como tal; as outras, potência ativa
+    assert pa.grandeza(pa.fonte("solaredge")) == "Potência CC" and "CC" in pa.fonte("solaredge")["rotulo"]
+    assert {pa.grandeza(f) for f in pa.FONTES if f["fonte"] != "solaredge"} == {"Potência ativa"}
     for f in pa.FONTES:
         assert (f["familia"] and f.get("origem")) or (not f["familia"] and len(f.get("motivo") or "") > 40), f["fonte"]
     assert {f["fonte"] for f in pa.FONTES if f["familia"] == "apipv"} == {"pv", "2capi", "semp", "alveslima"}
@@ -165,9 +169,11 @@ def test_dia_sem_dado_fica_guardado_e_o_que_falhou_nao(cli, monkeypatch, freeze_
 def test_fonte_sem_historico_diz_o_porque_e_nao_le_nada(cli, monkeypatch, freeze_now):
     freeze_now("2026-10-13 15:00:00")
     monkeypatch.setattr(app, "_pa_ler", lambda *a: pytest.fail("fonte sem histórico não pode ser lida"))
-    for fonte in ("sunop", "axis", "solaredge", "salenergia"):
-        j = cli.get(f"{ROTA}?fonte={fonte}&usina=QUALQUER&ini=2026-10-12&fim=2026-10-12").get_json()
-        assert j["ok"] and j["sem_historico"] is True and j["dias"] == [] and len(j["motivo"]) > 40, fonte
+    j = cli.get(f"{ROTA}?fonte=salenergia&usina=QUALQUER&ini=2026-10-12&fim=2026-10-12").get_json()
+    assert j["ok"] and j["sem_historico"] is True and j["dias"] == [] and len(j["motivo"]) > 40
+    for fora in ("sunop", "axis"):                                   # saíram do relatório: fonte desconhecida
+        r = cli.get(f"{ROTA}?fonte={fora}&usina=QUALQUER&ini=2026-10-12&fim=2026-10-12")
+        assert r.status_code == 400 and "fonte desconhecida" in r.get_json()["motivo"], fora
 
 
 # ── API PV (paga): as leituras da Curva, uma vez por dia, nunca com a cota na reserva nem pelo gestor ────────────────
@@ -368,8 +374,10 @@ def test_lista_de_usinas_vem_das_tabelas_do_tempo_real(cli, monkeypatch):
                                                       "Ipixuna do Pará · Santa Cecilia 2"]
     assert f["pv"]["historico"] is True and "Pac" in f["pv"]["origem"]
     assert f["pg"]["usinas"] == [] and "ainda não foi montada" in f["pg"]["aviso"]   # tabela fria: diz, não inventa
-    assert f["sunop"]["historico"] is False and "SunOp" in f["sunop"]["motivo"] and f["sunop"]["usinas"] == []
-    assert [x["fonte"] for x in j["fontes"]][:3] == ["pv", "pg", "sunop"]           # a ordem dos cards do Tempo real
+    assert "sunop" not in f and "axis" not in f                                    # fora a pedido do Levi (13/10)
+    assert f["solaredge"]["historico"] is True and f["solaredge"]["grandeza"] == "Potência CC"
+    assert f["pv"]["grandeza"] == "Potência ativa"
+    assert [x["fonte"] for x in j["fontes"]][:3] == ["pv", "pg", "solaredge"]       # a ordem dos cards do Tempo real
 
 
 def test_a_pagina_abre_e_esta_no_mapa_na_central_de_emissao_do_nexus(cli):
@@ -464,3 +472,84 @@ def test_escala_do_eixo_y_e_redonda():
     a, b, c = _node(js)
     assert a == [0, 50, 100, 150, 200, 250] and b[0] == 0 and b[-1] >= 1 and c[0] < 0 and c[-1] >= 98
     assert all(math.isclose(y - x, a[1] - a[0]) for x, y in zip(a, a[1:]))
+
+
+# ── RenoGrid (SolarEdge): potência CC, a soma das strings de cada inversor (Levi, 13/10/2026: "Quero sim") ─────────
+def _se_falso(monkeypatch, series, lotes_falhos=0, sites=None, devs=None):
+    """A SolarEdge dublada: 1 site em Cuiabá, 2 inversores com 2 strings cada; `series` = {uuid: [(HH:MM, W)]}."""
+    pedidos = {"sites": 0, "devs": 0, "series": 0}
+    sites = sites if sites is not None else [{"id": 4425840, "nome": "UFV RenoGrid PA", "timezone": "America/Cuiaba"}]
+    devs = devs if devs is not None else [
+        {"deviceType": "INVERTER", "deviceSerial": "INV-A", "deviceName": "Inverter 1"},
+        {"deviceType": "INVERTER", "deviceSerial": "INV-B", "deviceName": "Inverter 2"},
+        {"deviceType": "STRING", "deviceSerial": "S11", "deviceName": "String 1.1", "partOfSerial": "INV-A"},
+        {"deviceType": "STRING", "deviceSerial": "S12", "deviceName": "String 1.2", "partOfSerial": "INV-A"},
+        {"deviceType": "STRING", "deviceSerial": "S21", "deviceName": "String 2.1", "partOfSerial": "INV-B"},
+        {"deviceType": "STRING", "deviceSerial": "S22", "deviceName": "String 2.2", "partOfSerial": "INV-B"}]
+
+    def se_sites():
+        pedidos["sites"] += 1
+        return sites
+
+    def se_devices(site_id):
+        pedidos["devs"] += 1
+        return devs
+
+    def se_string_series(site_id, uuids, tzname, dia):
+        pedidos["series"] += 1
+        assert tzname == "America/Cuiaba"                    # a curva no fuso da usina, nunca em UTC
+        return {u: series[u] for u in uuids if u in series}, lotes_falhos
+    monkeypatch.setattr(app, "se_sites", se_sites)
+    monkeypatch.setattr(app, "se_devices", se_devices)
+    monkeypatch.setattr(app, "se_string_series", se_string_series)
+    monkeypatch.setattr(app, "_PA_SE_ESTRUTURA", {})
+    monkeypatch.setitem(app.EQUIP_NAMES, "UFV RenoGrid PA", {"Inverter 1": "Inversor 1.1", "Inverter 2": "Inversor 1.2"})
+    return pedidos
+
+
+def test_renogrid_soma_as_strings_de_cada_inversor_em_kw(monkeypatch):
+    pedidos = _se_falso(monkeypatch, {"S11": [("10:00", 6000.0), ("10:15", 6100.0)],
+                                      "S12": [("10:00", 5000.0), ("10:15", 5200.0)],
+                                      "S21": [("10:00", 4000.0)], "S22": [("10:00", 3500.5), ("10:15", 3600.0)]})
+    out = app._pa_ler_se(4425840, date(2026, 10, 12))
+    d = pa.monta_dia(date(2026, 10, 12), out, date(2026, 10, 13))
+    assert [(i["nome"], i["pontos"]) for i in d["inversores"]] == [
+        ("Inversor 1.1", [[600, 11.0], [615, 11.3]]),
+        ("Inversor 1.2", [[600, 7.5], [615, 3.6]])]          # a S21 sem o ponto das 10:15: a soma é só da S22...
+    assert "potência CC" in d["obs"] and "America/Cuiaba" in d["obs"]
+    assert "alguma string sem leitura" in d["obs"] and "Inversor 1.2 (1)" in d["obs"]     # ...e a tela diz onde
+    assert "Inversor 1.1 (" not in d["obs"]
+    # o site e os dispositivos ficam guardados: o 2º dia só pede as strings
+    app._pa_ler_se(4425840, date(2026, 10, 11))
+    assert pedidos == {"sites": 1, "devs": 1, "series": 2}
+
+
+def test_renogrid_lote_que_falhou_ou_resposta_vazia_e_falha_nao_dia_sem_dado(monkeypatch):
+    _se_falso(monkeypatch, {"S11": [("10:00", 6000.0)]}, lotes_falhos=1)
+    with pytest.raises(pa.FonteNaoRespondeu, match="soma sairia menor"):
+        app._pa_ler_se(4425840, date(2026, 10, 12))
+    _se_falso(monkeypatch, {})                               # 200 sem dado: o limite de pedidos da SolarEdge
+    with pytest.raises(pa.FonteNaoRespondeu, match="limite"):
+        app._pa_ler_se(4425840, date(2026, 10, 12))
+    _se_falso(monkeypatch, {}, sites=[])                     # sem o site não há o fuso: não desenha em UTC
+    with pytest.raises(pa.FonteNaoRespondeu, match="lista de sites"):
+        app._pa_ler_se(4425840, date(2026, 10, 12))
+
+
+def test_renogrid_pela_rota_diz_a_grandeza_e_recusa_a_usina_que_o_tempo_real_nao_conhece(cli, monkeypatch, freeze_now):
+    freeze_now("2026-10-13 15:00:00")
+    _se_falso(monkeypatch, {"S11": [("10:00", 6000.0)], "S21": [("10:00", 4000.0)]})
+    monkeypatch.setattr(app, "_se_cache", {"payload": {"rows": [{"plant_id": 4425840, "usina": "RenoGrid PA"}]}, "ts": 0})
+    j = cli.get(f"{ROTA}?fonte=solaredge&usina=4425840&ini=2026-10-12&fim=2026-10-12").get_json()
+    assert j["ok"] and j["grandeza"] == "Potência CC" and j["usina_nome"] == "RenoGrid PA"
+    assert j["dias"][0]["situacao"] == "ok" and [i["nome"] for i in j["dias"][0]["inversores"]] == [
+        "Inversor 1.1", "Inversor 1.2"]
+    r = cli.get(f"{ROTA}?fonte=solaredge&usina=999&ini=2026-10-12&fim=2026-10-12")
+    assert r.status_code == 400 and "desconhecida na SolarEdge" in r.get_json()["motivo"]
+    lista = {x["fonte"]: x for x in cli.get(f"{ROTA}/usinas").get_json()["fontes"]}
+    assert lista["solaredge"]["usinas"] == [{"id": "4425840", "nome": "RenoGrid PA"}]
+
+
+def test_a_pagina_escreve_a_grandeza_da_fonte():
+    assert "const gr = f.grandeza || 'Potência ativa';" in TPL and "Não é a potência ativa (CA) do inversor." in TPL
+    assert "${gr.toLowerCase()} de cada inversor em kW" in TPL

@@ -1985,9 +1985,14 @@ POTÊNCIA ATIVA" do `app.py` (`/api/relatorio/potencia-ativa?fonte&usina&ini&fim
   hoje o day_inverter; dia passado o `_spv_day_records_hist`, 1 consulta da cota histórica por usina e dia, 20 na Tupi
   Paulista), nome do inversor pelo caminho do drill; Banco da Thopen = o `active_power` do `raw_inverter`, a consulta da
   correlação do drill (`_pg_series_inversores`) para qualquer dia, com 45 s de teto; GreenYellow = o `pot` que a telemetria
-  MQTT já traz na curva da aba Curva (`_sg_curvas`, 45 dias). **Sem histórico, e a tela diz o porquê**: Athon e Axis (a
-  SunOp só é lida na última leitura; o histórico de `P` seria pedido novo à SunOp, por usina e dia — decisão do Levi),
-  RenoGrid (a SolarEdge chega como potência CC por string) e Sal Energia (Modbus: histórico só por string).
+  MQTT já traz na curva da aba Curva (`_sg_curvas`, 45 dias); RenoGrid = **potência CC**, a soma das strings de cada
+  inversor de 15 em 15 min, pela curva das strings do drill (`_se_strings_curva`; site e dispositivos guardados 30 min em
+  `_PA_SE_ESTRUTURA`). A SolarEdge não entrega a potência ativa (CA) do inversor: a fonte tem `grandeza` "Potência CC", o
+  rótulo diz "(potência CC)" e a página escreve a grandeza no cabeçalho (Levi, 13/10/2026: "Quero sim"). Lote de strings
+  que falhou e resposta sem nenhuma string (a SolarEdge sob limite responde 200 vazio) são falha, não "sem dado".
+  **Sem histórico, e a tela diz o porquê**: Sal Energia (Modbus: histórico só por string). **Athon e Axis saíram** (Levi,
+  13/10/2026: "Não, por hora pode tirar Axis e Athon"): o histórico de `P` seria pedido novo à SunOp, fonte paga de cota
+  estourada, ~1 por usina e dia; voltam se ele pedir.
 - **Teto de 7 dias** (`MAX_DIAS`): a cota histórica da API PV é da conta (800/dia, 200/h, dividida com a combiner e a
   coleta da noite), o scadaGridco atende um pedido por vez (um por inversor e dia) e 7 gráficos são uma semana. O relatório
   não gasta a cota abaixo de 450 no dia ou 40 na hora (`PA_COTA_RESERVA_*`, a régua do backfill das falhas); o dia que o

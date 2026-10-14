@@ -14746,14 +14746,18 @@ def _se_ordem_par(nome):
     return (int(n.group(1)), 0) if n else (9999, 0)
 
 
-def _se_strings_curva(site_id: int, dia: str, inv=None) -> dict:
+def _se_strings_curva(site_id: int, dia: str, inv=None, site=None, devs=None) -> dict:
     """Curva do dia por string de uma usina da SolarEdge (ou de UM inversor, pelo serial) — no formato da Athon
     ({inversores: [{id, nome, nome_api, curva: {string: {x, y}}, strings}]}), que a tela já desenha. A string tem o
-    MESMO nome do chip do drill ("41.1") e o inversor o do cadastro, como em _se_plant_inversores."""
-    site = next((x for x in se_sites() if int(x["id"]) == int(site_id)), None)
+    MESMO nome do chip do drill ("41.1") e o inversor o do cadastro, como em _se_plant_inversores. `site` e `devs`: o
+    relatório Potência Ativa (13/10/2026) passa os que já guardou, para não pedir a lista de sites e os dispositivos a
+    cada dia; sem eles, como sempre."""
+    if site is None:
+        site = next((x for x in se_sites() if int(x["id"]) == int(site_id)), None)
     tzname = site.get("timezone") if site else None
     site_nome = site.get("nome") if site else None
-    devs = se_devices(site_id)
+    if devs is None:
+        devs = se_devices(site_id)
     strings = [x for x in devs if x.get("deviceType") == "STRING"]
     inv_nome = {x["deviceSerial"]: x.get("deviceName", x["deviceSerial"]) for x in devs if x.get("deviceType") == "INVERTER"}
     por_inv = _se_por_inversor(strings)
@@ -31622,6 +31626,72 @@ def _pa_ler_sg(fonte, pid, dia) -> dict:
     return {"inversores": invs, "faltaram": faltaram}
 
 
+# RenoGrid (SolarEdge): a lista de sites e os dispositivos de cada um, guardados 30 min. Mudam com obra, não no dia, e
+# sem isto cada dia do relatório pediria os dois de novo (um searchSites da conta inteira por dia).
+_PA_SE_ESTRUTURA = {}
+_PA_SE_ESTRUTURA_TTL = 1800
+
+
+def _pa_se_estrutura(site_id: int):
+    """(site, dispositivos) da usina da SolarEdge, ou FonteNaoRespondeu: sem o site não há o fuso (a curva sairia em UTC,
+    3 a 4 h fora) e sem os dispositivos não há como somar as strings de cada inversor."""
+    ent = _PA_SE_ESTRUTURA.get(int(site_id))
+    if ent and time.time() - ent[0] < _PA_SE_ESTRUTURA_TTL:
+        return ent[1], ent[2]
+    site = next((x for x in se_sites() if str(x.get("id")) == str(site_id)), None)
+    if not site:
+        raise _pa.FonteNaoRespondeu("a SolarEdge não devolveu esta usina na lista de sites (ou não respondeu)")
+    devs = se_devices(int(site_id))
+    if not devs:
+        motivo = (_se_dev_falha.get(int(site_id)) or (0, "a SolarEdge não devolveu os dispositivos da usina"))[1]
+        raise _pa.FonteNaoRespondeu(motivo)
+    _PA_SE_ESTRUTURA[int(site_id)] = (time.time(), site, devs)
+    return site, devs
+
+
+def _pa_ler_se(pid, dia) -> dict:
+    """RenoGrid (SolarEdge): a POTÊNCIA CC de cada inversor = a soma das strings dele em cada quarto de hora, pela MESMA
+    curva das strings do drill (`_se_strings_curva`, o generate-chart do portal). Não é a potência ativa (CA) do inversor,
+    que a SolarEdge não entrega à plataforma: a tela escreve "Potência CC" (Levi, 13/10/2026: "Quero sim", para a soma
+    das strings rotulada como potência CC). Lote de strings que falhou derruba o dia (a soma sairia menor que a real), e a
+    resposta sem nenhuma string também (a SolarEdge sob limite responde 200 sem dado: memória solaredge-throttling):
+    nenhum dos dois fica guardado, e o dia pode ser lido de novo."""
+    site, devs = _pa_se_estrutura(int(pid))
+    c = _se_strings_curva(int(pid), dia.isoformat(), site=site, devs=devs)
+    if c.get("lotes_falhos"):
+        raise _pa.FonteNaoRespondeu(f"a SolarEdge não respondeu para {c['lotes_falhos']} lote(s) de strings: a soma "
+                                    "sairia menor que a real")
+    invs, incompletos = [], []
+    for inv in c.get("inversores") or []:
+        curvas = list((inv.get("curva") or {}).values())
+        soma, n = {}, {}
+        for curva in curvas:
+            for hora, w in zip(curva.get("x") or [], curva.get("y") or []):
+                if _pa._kw(w) is not None:                       # número finito (nem texto, nem NaN, nem infinito)
+                    soma[hora] = soma.get(hora, 0.0) + float(w)
+                    n[hora] = n.get(hora, 0) + 1
+        nome = inv.get("nome") or inv.get("nome_api") or inv.get("id")
+        # quarto de hora em que alguma string do inversor não leu: a soma é só das que leram. A linha segue (a string
+        # que parou à tarde não apaga o inversor), e a tela diz onde a soma está incompleta, para o degrau não ser lido
+        # como queda do inversor
+        faltou = sum(1 for h in soma if n[h] < len(curvas))
+        if faltou:
+            incompletos.append(f"{nome} ({faltou})")
+        invs.append({"id": inv.get("id"), "nome": nome,
+                     "pontos": [(h, round(v / 1000.0, 3)) for h, v in sorted(soma.items())]})
+    if not invs:
+        raise _pa.FonteNaoRespondeu("a SolarEdge respondeu sem nenhuma leitura de string neste dia (pode ser o limite "
+                                    "de pedidos dela): tente de novo em alguns minutos")
+    out = {"inversores": invs, "obs": "potência CC: a soma das strings de cada inversor, de 15 em 15 min"}
+    tz = site.get("timezone")
+    if tz and tz != "America/Sao_Paulo":
+        out["obs"] += f"; no horário da usina ({tz})"
+    if incompletos:
+        out["obs"] += ("; quartos de hora com alguma string sem leitura (a soma é só das que leram): "
+                       + ", ".join(incompletos[:6]) + (f" e mais {len(incompletos) - 6}" if len(incompletos) > 6 else ""))
+    return out
+
+
 def _pa_ler(familia, fonte, pid, dia) -> dict:
     """O leitor de cada família (nomes resolvidos na chamada: os testes dublam um por um)."""
     if familia == "apipv":
@@ -31630,6 +31700,8 @@ def _pa_ler(familia, fonte, pid, dia) -> dict:
         return _pa_ler_pg(pid, dia)
     if familia == "scadagridco":
         return _pa_ler_sg(fonte, pid, dia)
+    if familia == "solaredge":
+        return _pa_ler_se(pid, dia)
     raise _pa.Recusado("esta fonte não tem histórico de potência por inversor")
 
 
@@ -31684,7 +31756,7 @@ def _pa_linhas_tempo_real(fonte) -> list:
     if fonte == "pg":
         return list(_pg_cache.get("summary") or [])
     cache = {"pv": _cache, "semp": _semp_cache, "alveslima": _alveslima_cache, "2capi": _2capi_cache,
-             "greenyellow": _gy_cache, "salenergia": _sal_cache}.get(fonte)
+             "greenyellow": _gy_cache, "salenergia": _sal_cache, "solaredge": _se_cache}.get(fonte)
     return list(((cache or {}).get("payload") or {}).get("rows") or [])
 
 
@@ -31747,7 +31819,8 @@ def api_relatorio_potencia_ativa_usinas():
     com as usinas que o Tempo real dela mostra."""
     fontes = []
     for f in _pa.FONTES:
-        item = {"fonte": f["fonte"], "rotulo": f["rotulo"], "historico": bool(f["familia"]), "usinas": []}
+        item = {"fonte": f["fonte"], "rotulo": f["rotulo"], "historico": bool(f["familia"]), "usinas": [],
+                "grandeza": _pa.grandeza(f)}
         if not f["familia"]:
             item["motivo"] = f["motivo"]
         else:
@@ -31777,19 +31850,24 @@ def api_relatorio_potencia_ativa():
         if not pid:
             raise _pa.Recusado("escolha a usina")
         dias = _pa.periodo(a.get("ini"), a.get("fim"), agora.date())
-        if f["familia"] in ("apipv", "pg"):
+        if f["familia"] in ("apipv", "pg", "solaredge"):
             try:
                 pid = int(pid)
             except ValueError:
                 raise _pa.Recusado("usina inválida para esta fonte: o id é um número") from None
             if f["familia"] == "apipv" and not _pa_usina_conhecida_api_pv(f["fonte"], pid):
                 raise _pa.Recusado("usina desconhecida na API PV: escolha uma usina da lista do Tempo real")
+            # RenoGrid: id que o Tempo real não conhece não vai à SolarEdge (com a tabela fria, passa, como na API PV)
+            se_ids = {str(r.get("plant_id")) for r in _pa_linhas_tempo_real("solaredge")} - {"None"}
+            if f["familia"] == "solaredge" and se_ids and str(pid) not in se_ids:
+                raise _pa.Recusado("usina desconhecida na SolarEdge: escolha uma usina da lista do Tempo real")
         elif f["familia"] == "scadagridco" and not _sg.usina_cfg(f["fonte"], pid):
             raise _pa.Recusado("usina desconhecida nesta fonte")
     except _pa.Recusado as e:
         return jsonify({"ok": False, "motivo": str(e)}), 400
     base = {"ok": True, "fonte": f["fonte"], "fonte_rotulo": f["rotulo"], "usina": str(pid),
-            "usina_nome": _pa_nome_usina(f["fonte"], pid), "unidade": "kW", "passo_min": _pa.PASSO_MIN,
+            "usina_nome": _pa_nome_usina(f["fonte"], pid), "unidade": "kW", "grandeza": _pa.grandeza(f),
+            "passo_min": _pa.PASSO_MIN,
             "lacuna_max_min": _pa.LACUNA_MAX_MIN, "max_dias": _pa.MAX_DIAS,
             "ini": dias[0].isoformat(), "fim": dias[-1].isoformat()}
     if not f["familia"]:

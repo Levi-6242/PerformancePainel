@@ -370,8 +370,11 @@ function montaCab(f, nomeUsina, ini, fim) {
            mk('div', 'sub', `${nomeUsina} · ${f.rotulo} · ${ini === fim ? br(ini) : `${br(ini)} a ${br(fim)}`} (${n} dia${n > 1 ? 's' : ''})`));
   const m = mk('div', 'meta');
   const agora = new Date();
+  // a grandeza da fonte (13/10/2026): o RenoGrid é potência CC, a soma das strings, e não a potência ativa
+  const gr = f.grandeza || 'Potência ativa';
+  if (gr !== 'Potência ativa') c.append(mk('div', 'nota', `${gr}: a soma das strings de cada inversor. Não é a potência ativa (CA) do inversor.`));
   m.append(mk('b', '', 'Dado: '), f.origem || '', '. ',
-           mk('b', '', 'Leitura: '), `potência ativa de cada inversor em kW, média de ${S.passo} min; um gráfico por dia, uma linha `
+           mk('b', '', 'Leitura: '), `${gr.toLowerCase()} de cada inversor em kW, média de ${S.passo} min; um gráfico por dia, uma linha `
            + `por inversor. Mais de ${S.lacuna} min sem leitura quebra a linha: sem leitura não é zero. `,
            mk('b', '', 'Gerado em '), `${br(isoLocal(agora))} ${pad(agora.getHours())}:${pad(agora.getMinutes())}.`);
   c.append(m);
@@ -574,7 +577,7 @@ function grafico(dia, r, grupo, E) {
   let top = null;
   for (const inv of r.inversores) for (const [m, v] of inv.pontos) if (!top || v > top.v) top = { v, m };
   box.setAttribute('role', 'img');
-  box.setAttribute('aria-label', `Potência ativa de ${visiveis.length} inversores em ${br(dia)}` + (top ? `; maior potência ${nf(top.v)} kW às ${hhmm(top.m)}` : '')
+  box.setAttribute('aria-label', `${((S.porFonte[(S.pedido || {}).fonte] || {}).grandeza) || 'Potência ativa'} de ${visiveis.length} inversores em ${br(dia)}` + (top ? `; maior potência ${nf(top.v)} kW às ${hhmm(top.m)}` : '')
     + '. Setas esquerda e direita percorrem o dia; a tabela do dia tem os números.');
   if (S.foco != null && S.idx.has(S.foco)) marcaFoco(box);
   const svg = box.querySelector('svg'), mira = svg.querySelector('.mira'), pontos = svg.querySelector('.mira-pontos');

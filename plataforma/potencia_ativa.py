@@ -16,11 +16,14 @@ De onde vem a potência de cada fonte (a tabela `FONTES`):
 - Banco da Thopen: o `active_power` do `public.raw_inverter`, a mesma coluna da correlação tracker × inversor do drill
   (`_pg_series_inversores`), para qualquer dia;
 - GreenYellow (scadaGridco, MQTT): a potência que a telemetria de cada inversor já traz junto com as strings, a mesma
-  curva da aba Curva (`_sg_curvas`), até 45 dias atrás.
-Sem histórico de potência por inversor, e a tela diz isso em vez de inventar: Athon e Axis (a SunOp só é lida na
-ÚLTIMA leitura de potência; o histórico seria um pedido novo a uma fonte paga, de cota estourada), RenoGrid (a
-SolarEdge chega à plataforma como potência CC por string, nunca a potência ativa do inversor) e Sal Energia (Modbus: o
-histórico do scadaGridco é por string, sem a potência do inversor).
+  curva da aba Curva (`_sg_curvas`), até 45 dias atrás;
+- RenoGrid (SolarEdge): a POTÊNCIA CC, a soma das strings de cada inversor, de 15 em 15 min, pela mesma curva das strings
+  do drill (`_se_strings_curva`). A SolarEdge não entrega a potência ativa (CA) do inversor; a grandeza vai escrita na
+  tela (`grandeza`), e não como potência ativa (Levi, 13/10/2026: "Quero sim", para a soma rotulada "potência CC").
+Sem histórico de potência por inversor, e a tela diz isso em vez de inventar: Sal Energia (Modbus: o histórico do
+scadaGridco é por string, sem a potência do inversor). Athon e Axis SAÍRAM do relatório (Levi, 13/10/2026: "Não, por hora
+pode tirar Axis e Athon"): a SunOp só é lida na última leitura de potência, e o histórico seria um pedido novo a uma fonte
+paga de cota estourada. Voltam se o Levi pedir, lendo o histórico da medida P da SunOp (~1 pedido por usina e dia).
 """
 from __future__ import annotations
 
@@ -54,7 +57,8 @@ class ForaDoPerfil(FonteNaoRespondeu):
 
 
 # As fontes do Tempo real, na ordem dos cards da Entrada (`_ENTRADA_GRUPOS`), mais as abas Alves Lima e 2C · API PV do
-# Monitoramento. `familia` = quem lê (None = sem histórico de potência por inversor, com o motivo).
+# Monitoramento, menos Athon e Axis (fora a pedido do Levi, 13/10/2026; ver a docstring). `familia` = quem lê (None = sem
+# histórico de potência por inversor, com o motivo); `grandeza` = o que a curva mostra, quando não é a potência ativa.
 FONTES = (
     {"fonte": "pv", "rotulo": "Thopen · API PV", "familia": "apipv",
      "origem": "API PV Operation: o Pac de cada leitura do inversor (de minuto a minuto), as mesmas leituras da Curva "
@@ -62,16 +66,11 @@ FONTES = (
     {"fonte": "pg", "rotulo": "Thopen · Banco de dados", "familia": "pg",
      "origem": "Banco de dados da Thopen: a potência ativa (active_power) de cada leitura do inversor (a cada ~5 min), "
                "a mesma da correlação tracker × inversor do drill"},
-    {"fonte": "sunop", "rotulo": "Athon · SunOp", "familia": None,
-     "motivo": "A SunOp é lida só na última leitura de potência de cada inversor; a plataforma não guarda nem busca o "
-               "histórico dela. Buscar seria um pedido novo a uma fonte paga (cota de 100 mil por mês, já estourada em "
-               "setembro), por usina e por dia."},
-    {"fonte": "axis", "rotulo": "Axis · SunOp", "familia": None,
-     "motivo": "A Axis é SunOp: só a última leitura de potência de cada inversor é lida (e a conta está sem token de "
-               "API desde julho). Não há histórico de potência por inversor na plataforma."},
-    {"fonte": "solaredge", "rotulo": "RenoGrid · SolarEdge", "familia": None,
-     "motivo": "A SolarEdge chega à plataforma como potência por string (corrente contínua, de 15 em 15 min), não "
-               "como a potência ativa do inversor. Somar as strings daria outra grandeza: o relatório não inventa."},
+    {"fonte": "solaredge", "rotulo": "RenoGrid · SolarEdge (potência CC)", "familia": "solaredge",
+     "grandeza": "Potência CC",
+     "origem": "SolarEdge: a potência CC de cada inversor, a soma das strings dele de 15 em 15 min (a mesma curva das "
+               "strings do drill do Tempo real). Não é a potência ativa (CA) do inversor: a SolarEdge não a entrega à "
+               "plataforma"},
     {"fonte": "2capi", "rotulo": "2C · API PV", "familia": "apipv",
      "origem": "API PV Operation (conta oem@): o Pac de cada leitura do inversor (de minuto a minuto), as mesmas "
                "leituras da Curva das strings do Tempo real"},
@@ -87,6 +86,12 @@ FONTES = (
                "(corrente), sem a potência do inversor."},
 )
 _POR_FONTE = {f["fonte"]: f for f in FONTES}
+GRANDEZA_PADRAO = "Potência ativa"
+
+
+def grandeza(f: dict) -> str:
+    """O que a curva da fonte mostra: a potência ativa, ou a grandeza dela (o RenoGrid é potência CC)."""
+    return f.get("grandeza") or GRANDEZA_PADRAO
 
 
 def fonte(chave) -> dict:
