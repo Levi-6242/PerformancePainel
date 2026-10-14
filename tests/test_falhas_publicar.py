@@ -190,8 +190,9 @@ def test_mes_sem_disponibilidade_conta_vazio_e_nao_zero():
 
 def test_as_os_que_formaram_a_disponibilidade_uma_linha_por_os_e_usina():
     """Levi, 12/10/2026: "Quero também que apareça todas as OSs listadas que formaram aquele valor (...) a OS, que tipo
-    de religamento foi, quanto tempo demorou, qual foi o total de perda de energia". A OS de duas usinas reparte a
-    perda pela potência afetada; sem descrição nem quem criou."""
+    de religamento foi, quanto tempo demorou, qual foi o total de perda de energia". Sem descrição nem quem criou.
+    As OS daqui são do índice de antes do `kwh_usina` (13/10/2026): a de duas usinas reparte a perda pela potência
+    afetada, que é o que dá para fazer sem a perda de cada usina."""
     p = pacote("2026-10")
     p["disponibilidade"] = dict(DISP, oss=[
         {"folio": 13001, "tipos": ["Religamento Remoto"], "origem": "queda", "code": "THPN-GTA500",
@@ -212,3 +213,24 @@ def test_as_os_que_formaram_a_disponibilidade_uma_linha_por_os_e_usina():
     assert g["usina_fracttal"] == "Thopen - Guaratingueta 5 - SP" and d[0]["aberta"] == "sim" and d[0]["fim"] is None
     (a,) = linhas(tabs, "atualizacao")
     assert a["disponibilidade_os"] == 3
+
+
+def test_a_perda_de_cada_usina_e_a_do_indice_e_nao_a_reparticao_pela_potencia():
+    """A OS de duas usinas leva a perda que o índice mediu em cada uma (`kwh_usina`, 13/10/2026), não a repartição pela
+    potência: a geração desmente o dia numa usina só, e o teto de 100% pega uma e não a outra — em setembro a Rodrigues
+    1 e 2 trocavam ~47,9 MWh por essa conta. A usina do escopo em que a OS não perdeu nada (todo dia desmentido) segue
+    com a linha, em 0: a linha não some (a API guarda histórico por linha)."""
+    p = pacote("2026-10")
+    beta = [{"usina": "Beta 1", "rotulo": "Usina inteira", "kwp": 500.0},
+            {"usina": "Beta 2", "rotulo": "Usina inteira", "kwp": 500.0}]
+    p["disponibilidade"] = dict(DISP, oss=[
+        {"folio": 20, "tipos": ["Religamento"], "origem": "queda", "code": "TC-BET100", "ini": "2026-10-01T06:00:00",
+         "fim": "2026-10-02T18:00:00", "aberta": False, "usinas": ["Beta 1", "Beta 2"], "escopo": beta,
+         "h_solar": 24.0, "kwh": 18000, "kwh_usina": {"Beta 1": 6000, "Beta 2": 12000}},
+        {"folio": 21, "tipos": ["Religamento"], "origem": "queda", "code": "TC-BET100", "ini": "2026-10-03T06:00:00",
+         "fim": "2026-10-03T12:00:00", "aberta": False, "usinas": ["Beta 1", "Beta 2"], "escopo": beta,
+         "h_solar": 6.0, "kwh": 3000, "kwh_usina": {"Beta 2": 3000}}])
+    d = linhas(pub.tabelas([p]), "disponibilidade_os")
+    assert [(x["os"], x["usina"], x["kwp"], x["perda_kwh"]) for x in d] == [
+        ("20", "Beta 1", 500.0, 6000), ("20", "Beta 2", 500.0, 12000),
+        ("21", "Beta 1", 500.0, 0), ("21", "Beta 2", 500.0, 3000)]

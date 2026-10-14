@@ -72,10 +72,11 @@ CABECALHOS = {
     "disponibilidade_dia": ["mes", "dia", "cliente", "usina", "usina_fracttal", "pot_kwp", "disp", "h_perdidas"],
     # As OS que formaram a disponibilidade do mês (12/10/2026, Levi, para a janela de Disponibilidade da Visão do
     # responsável do Nexus: "a OS, que tipo de religamento foi, quanto tempo demorou, qual foi o total de perda de
-    # energia"): 1 linha = 1 OS da conta × usina (a OS de um ativo de duas usinas reparte a perda pela potência afetada).
-    # tipo = o tipo da tarefa no Fracttal; origem = queda (religamento) ou equipamento (corretiva emergencial); escopo =
-    # usina inteira, cabine N ou inversor N.M; duracao_sol_min = as horas de sol (06–18 h) da OS dentro do mês; perda_kwh
-    # = kWp afetado × horas (a régua do Gerencial, sem a irradiação). Sem a descrição nem quem criou (leitura aberta)
+    # energia"): 1 linha = 1 OS da conta × usina. tipo = o tipo da tarefa no Fracttal; origem = queda (religamento) ou
+    # equipamento (corretiva emergencial); escopo = usina inteira, cabine N ou inversor N.M; duracao_sol_min = as horas de
+    # sol (06–18 h) da OS dentro do mês; perda_kwh = a perda da OS NAQUELA usina pela régua do Gerencial (kWp afetado ×
+    # horas, sem a irradiação; `kwh_usina` do índice, 13/10/2026) — as linhas de uma usina somam a perda dela. Sem a
+    # descrição nem quem criou (leitura aberta)
     "disponibilidade_os": ["mes", "os", "usina", "usina_fracttal", "tipo", "origem", "codigo_ativo", "escopo", "kwp",
                            "inicio", "fim", "aberta", "duracao_sol_min", "perda_kwh"],
     "atualizacao": ["mes", "periodo_inicio", "periodo_fim", "atualizado_em", "strings_inversor_dia", "strings_episodios",
@@ -209,8 +210,8 @@ def _disp_linhas(d):
 
 def _disp_os_linhas(d):
     """{usinas, oss} → [(os, usina, usina_fracttal, tipo, origem, codigo_ativo, escopo, kwp, inicio, fim, aberta,
-    duracao_sol_min, perda_kwh)] pela ordem do início (a OS nova entra no fim). Uma linha por OS × usina do escopo; a
-    perda da OS de duas usinas reparte pela potência afetada de cada uma."""
+    duracao_sol_min, perda_kwh)] pela ordem do início (a OS nova entra no fim). Uma linha por OS × usina do escopo, com a
+    perda da OS NAQUELA usina: somadas, as linhas de uma usina dão a perda dela no Gerencial."""
     if not d or not d.get("oss"):
         return []
     fr = {u.get("usina"): u.get("fracttal") for u in d.get("usinas") or []}
@@ -225,10 +226,20 @@ def _disp_os_linhas(d):
             por.setdefault(u, {"rotulos": [], "kwp": 0.0})
         tot = sum(x["kwp"] for x in por.values())
         kwh = o.get("kwh")
+        # a perda de cada usina é a que o índice mediu nela (`kwh_usina`, 13/10/2026). Repartir a da OS pela potência
+        # erra quando a geração desmente o dia numa usina só, ou quando o teto de 100% pega uma e não a outra: em
+        # setembro a Rodrigues 1 e 2 trocavam ~47,9 MWh por essa conta, e em outubro a Boa Esperança do Sul 1 e 2
+        # ~2,5 MWh. A usina do escopo que não está no `kwh_usina` (todo dia desmentido) perdeu 0 com esta OS — e a linha
+        # fica, em 0. O índice publicado antes do campo (até a 1ª varredura do worker com o código de 13/10/2026) não o
+        # tem: aí segue a repartição pela potência, a única conta possível sem ele
+        kwh_u = o.get("kwh_usina")
         for u, x in sorted(por.items(), key=lambda kv: str(kv[0])):
             if not u:
                 continue
-            parte = (kwh * x["kwp"] / tot if tot else kwh / len(por)) if isinstance(kwh, (int, float)) else None
+            if kwh_u is not None:
+                parte = kwh_u.get(u, 0)
+            else:
+                parte = (kwh * x["kwp"] / tot if tot else kwh / len(por)) if isinstance(kwh, (int, float)) else None
             h = o.get("h_solar")
             out.append((_pid(o.get("folio")), u, fr.get(u), "; ".join(o.get("tipos") or []) or None, o.get("origem"),
                         o.get("code"), "; ".join(r for r in x["rotulos"] if r) or None, round(x["kwp"], 1) or None,

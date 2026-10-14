@@ -27540,7 +27540,10 @@ def _falhas_disp_mes(mes):
             "ini": o.get("ini"), "fim": o.get("fim"), "aberta": bool(o.get("aberta")), "usinas": o.get("usinas") or [],
             "escopo": [{"usina": e.get("usina"), "rotulo": e.get("rotulo"), "kwp": e.get("kwp")}
                        for e in o.get("escopo") or []],
-            "h_solar": o.get("h_solar"), "kwh": o.get("kwh")}
+            "h_solar": o.get("h_solar"), "kwh": o.get("kwh"),
+            # a perda da OS em cada usina ({usina: kWh}, 13/10/2026): é por ela que a aba `disponibilidade_os` reparte a
+            # OS de duas usinas. None = índice de antes do campo, e a aba volta a repartir pela potência
+            "kwh_usina": o.get("kwh_usina")}
            for o in m.get("oss") or [] if not o.get("excl")]
     return {"periodo": [str(m["periodo"]["ini"])[:10], str(m["periodo"]["fim"])[:10]],
             "usinas": [{"usina": u.get("usina"), "fracttal": u.get("fracttal"), "cliente": u.get("cliente"),

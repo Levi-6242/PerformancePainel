@@ -962,8 +962,10 @@ e o web só serve (`/api/gerencial/disponibilidade`). A tela desde 13/10/2026 (p
   (`_varrer`): soma a perda da OS e a da usina, e as chaves são as usinas onde a OS tem evento. Repartir pela potência
   erra quando a geração desmente o dia numa usina só ou o teto de 100% pega uma e não a outra: no índice de 13/10 a
   Rodrigues 1 e 2 trocavam ~47,9 MWh de setembro, e a Boa Esperança do Sul 1 e 2 ~2,5 MWh de outubro. O
-  `disponibilidade_os` do workbook de falhas (Nexus) ainda reparte pela potência. Índice de antes do deploy (sem o campo,
-  até a 1ª varredura do worker): a OS de 2+ usinas mostra a perda somada e diz isso.
+  `disponibilidade_os` do workbook de falhas (Nexus) usa o mesmo campo desde 13/10 (seção "Falhas de strings e
+  trackers" › `disponibilidade_os`).
+  Índice de antes do deploy (sem o campo, até a 1ª varredura do worker): a OS de 2+ usinas mostra a perda somada e diz
+  isso.
 - **Prova (13/10/2026)**: o módulo de antes × o de agora sobre 39 mil tarefas reais (`frac_mtta_linhas.json`) e a aba
   Equipamentos real, setembro e outubro, sem geração e com geração plena forçando o juiz: saída idêntica, e o `kwh_usina`
   fecha com cada OS, cada usina e o `n_os`. A tela de antes × a de agora no node, sobre o índice real (2 meses × parque e
@@ -1908,8 +1910,25 @@ ainda não estavam na main em 11/10). Aqui só a publicação. **Colunas novas s
   usina_fracttal, tipo, origem, codigo_ativo, escopo, kwp, inicio, fim, aberta, duracao_sol_min, perda_kwh`), das `oss`
   do mesmo índice (`_falhas_disp_mes` leva a lista enxuta, sem as excluídas): `tipo` = o tipo da tarefa, `origem` = queda
   ou equipamento, `escopo` = usina inteira, cabine N ou inversor N.M, `duracao_sol_min` = as horas de sol (06–18 h) da OS
-  no mês, `perda_kwh` = kWp afetado × horas (sem irradiação), repartida pela potência quando a OS pega duas usinas
-  (`_disp_os_linhas`). Sem a descrição nem quem criou (o banco tem leitura aberta). Pela data de início (a nova no fim).
+  no mês, `perda_kwh` = a perda da OS NAQUELA usina pela régua do Gerencial (kWp afetado × horas, sem irradiação): o
+  `kwh_usina` do índice (ver "Disponibilidade por OS"), que o `_falhas_disp_mes` leva e o `_disp_os_linhas` usa — as
+  linhas de uma usina somam a perda dela. Sem a descrição nem quem criou (o banco tem leitura aberta). Pela data de início
+  (a nova no fim).
+  - **A OS de duas usinas leva a perda de cada uma, não a repartição pela potência** (13/10/2026): repartir erra quando a
+    geração desmente o dia numa usina só ou o teto de 100% pega uma e não a outra. A usina do escopo fora do `kwh_usina`
+    (todo dia desmentido) fica com a linha, em 0 — a linha não some (a API guarda histórico por linha). O índice de antes
+    do campo (`kwh_usina` ausente, até a 1ª varredura do worker com o código de 13/10; o worker do PC ainda o publicava
+    às 21:29 de 13/10) segue a repartição pela potência — a única conta possível sem ele. A observação do fato
+    `disponibilidade_os` no catálogo do Nexus (`nexus/dados/catalogo.py`) ainda dizia "repartida pela potência" em 13/10.
+  - **Prova (13/10/2026)**, sobre a cópia do `frac_disp_index.json` do PC de 21:29 (sem o campo): o código de antes × o
+    novo dão `disponibilidade_dia`, `disponibilidade_os` e `atualizacao` iguais célula a célula (setembro e outubro; 910
+    e 495 linhas de OS). Com o `kwh_usina` reconstruído pela varredura do módulo (`_varrer`) sobre os eventos do mesmo
+    índice — a de uma usina leva o `kwh` dela, como no módulo; a de 2+ usinas reproduz o `kwh` da OS em 35 de 38 (±1 kWh
+    nas outras: o índice guarda o kWp com 1 casa) —, mudam só 8 células, todas `perda_kwh` de OS de duas usinas:
+    setembro, OS 14351 Rodrigues 1 66.065 → 113.958 e Rodrigues 2 54.627 → 6.734 kWh (47.893 kWh na usina errada);
+    outubro, Boa Esperança do Sul OS 16109 (2.093) e 16117 (372) e Rodrigues OS 16114 (5.166: a Rodrigues 2 teve o dia 12
+    desmentido e vai a 0). A soma das linhas de cada usina fecha com a perda dela em ±5 kWh (o arredondamento por OS,
+    igual antes); antes errava 47.895 kWh na Rodrigues 2 em setembro e 5.166 em outubro.
 - **`atualizacao`** ganha no fim `cobertura`, `strings_os`, `trackers_dia`, `disponibilidade_dia` e `disponibilidade_os`
   (as linhas de cada aba no mês; a das OS conta vazio no pacote de antes de 12/10/2026). **Aba que o pacote não montou conta VAZIO, não 0** (0 diria "nenhuma OS" / "nenhuma usina medida" onde só não
   houve publicação); a montada e vazia conta 0.
@@ -1921,7 +1940,10 @@ ainda não estavam na main em 11/10). Aqui só a publicação. **Colunas novas s
   no dia em que ela registra o cadastro), o `dias_sem_prova` volta a 0, o status da OS muda quando ela fecha, a
   estimativa de outubro cresce durante o dia do evento, o "sem prova" vira "sim" (ou sai) quando a geração do dia chega
   e a disponibilidade do mês anterior acompanha o Gerencial. Uma vez, no deploy: a fonte dos 29 cadastros da API PV de
-  5 dígitos passa de Banco a API PV no mês corrente (setembro fica como foi montado).
+  5 dígitos passa de Banco a API PV no mês corrente (setembro fica como foi montado). Outra, no deploy de 13/10/2026: a
+  `perda_kwh` das OS de duas usinas passa da repartição pela potência à perda de cada usina — também em setembro, que o
+  `_falhas_disp_fora_da_volta` regrava porque a disponibilidade do índice mudou (no índice de 13/10, 8 linhas: Rodrigues
+  e Boa Esperança do Sul).
 - **Ensaio com o dado real do PC (11/10, 21:26; rede cortada, nada gravado; geração vazia, então `dias_comunicou` só
   pela leitura de strings):** o `falhas_job` de antes e o novo sobre os MESMOS stores dão o MESMO pacote em tudo o que
   já existia (só entram `cobertura` e `trackers_dia`); o workbook de setembro + outubro tem 1,19 MB — `trackers_dia` 589
@@ -1941,7 +1963,9 @@ ainda não estavam na main em 11/10). Aqui só a publicação. **Colunas novas s
   `tests/test_falhas_operacao_cliente.py` (a montagem: comunicou, sem prova — também o dia que a geração ainda não
   cobre —, cobertura por sistema com o vazio da régua que não registrou, a fonte do tracker pelo cadastro com a chave e o
   "desde" de antes, os quatro gravadores com a `fonte`, OS de string e a origem da quantidade, trackers por dia, colunas
-  só no fim, contagem vazia × 0), `tests/test_falhas_publicar.py`, `tests/test_disp_fracttal.py` (o dezembro em
+  só no fim, contagem vazia × 0; e, de 13/10, o índice de verdade → `_falhas_disp_mes` → aba: a soma das OS de cada
+  usina fecha com a perda dela, e o índice sem `kwh_usina` volta a repartir pela potência), `tests/test_falhas_publicar.py`
+  (a perda de cada usina pelo `kwh_usina`, a usina sem perda em 0), `tests/test_disp_fracttal.py` (o dezembro em
   janeiro; o fim digitado num ano antes do evento) e `tests/test_relatorio_semanal.py` (a semana da virada).
 
 ## Relatório Semanal Thopen (`/relatorio/semanal`, 29/09/2026)

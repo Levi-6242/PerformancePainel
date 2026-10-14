@@ -729,3 +729,59 @@ def test_disponibilidade_do_mes_sai_do_indice_do_gerencial(monkeypatch):
     assert app._falhas_disp_mes("2026-08") is None
     (a,) = [dict(zip(pub.CABECALHOS["atualizacao"], x)) for x in pub.tabelas([{"mes": "2026-10", "disponibilidade": d}])["atualizacao"]]
     assert a["disponibilidade_dia"] == 8
+
+
+def _mes_disp_beta():
+    """Um mês do índice da Disponibilidade calculado pelo módulo de verdade (julho/2026 das fixtures do
+    test_disp_fracttal), com os dois casos em que repartir a perda da OS pela potência erra:
+    - OS 20: as duas Betas (500 kWp cada, site agrupado sem pista) de 10/07 06 h a 11/07 18 h, e a geração da Beta 1
+      desmente o dia 11 — a Beta 1 perde só o dia 10;
+    - OS 14: só a Beta 2 (pela descrição), 10/07 09 h → 15 h, por cima da 20 — o teto de 100% reparte essas 6 h entre
+      as duas OS na Beta 2, e não na Beta 1;
+    - OS 1: a Alfa inteira (1.000 kWp), 10/07 09 h → 15 h."""
+    import disponibilidade
+    from test_disp_fracttal import AGORA, EQUIP, PER_FIM, PER_INI, task
+    beta = {"code": "TC-BET100", "groups_1_description": "TesteCo - Beta 1 e 2 - RN",
+            "items_log_description": "TesteCo - Beta 1 e 2 - RN  Endereço"}
+    wos = {"20": [task(**beta, description="Religamento da Usina",
+                       event_date="2026-07-10T09:00:00+00:00", final_date="2026-07-11T21:00:00+00:00")],
+           "14": [task(**beta, description="Usina desligada — Beta 2, trip 27",
+                       event_date="2026-07-10T12:00:00+00:00", final_date="2026-07-10T18:00:00+00:00")],
+           "1": [task(event_date="2026-07-10T12:00:00+00:00", final_date="2026-07-10T18:00:00+00:00")]}
+    dias = {f"2026-07-{d:02d}": (0.0 if d == 10 else 2500.0) for d in range(1, 32)}
+    return disponibilidade.calcular(wos, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Beta 1": dias})
+
+
+def _perda_por_usina(mes_idx, monkeypatch):
+    """O mês do índice → pacote do mês (_falhas_disp_mes) → aba disponibilidade_os → Σ perda_kwh por usina."""
+    monkeypatch.setattr(app, "_frac_disp_dados", lambda: {"meses": {"2026-07": mes_idx}})
+    tabs = pub.tabelas([{"mes": "2026-07", "disponibilidade": app._falhas_disp_mes("2026-07")}])
+    soma = {}
+    for x in _linhas(tabs, "disponibilidade_os"):
+        soma[x["usina"]] = soma.get(x["usina"], 0) + x["perda_kwh"]
+    return soma
+
+
+def test_a_perda_das_os_na_aba_fecha_com_a_perda_de_cada_usina(monkeypatch):
+    """A aba `disponibilidade_os` (a janela de Disponibilidade do Nexus) soma, em cada usina, a perda da usina no
+    Gerencial (13/10/2026): cada OS leva a perda que o índice mediu nela (`kwh_usina`), e não a repartição pela potência
+    — que em setembro trocava ~47,9 MWh entre a Rodrigues 1 e a 2, e em outubro ~2,5 MWh entre a Boa Esperança do Sul 1
+    e a 2."""
+    mes = _mes_disp_beta()
+    soma = _perda_por_usina(mes, monkeypatch)
+    # Beta 1: só o dia 10 (12 h × 500); Beta 2: os dois dias (24 h × 500), com as 6 h da OS 14 dentro; Alfa: 6 h × 1.000
+    assert soma == {"Alfa": 6000, "Beta 1": 6000, "Beta 2": 12000}
+    assert soma == {u["usina"]: u["kwh"] for u in mes["usinas"]}
+
+
+def test_indice_de_antes_do_kwh_usina_segue_repartindo_pela_potencia(monkeypatch):
+    """O índice publicado antes do `kwh_usina` (até a 1ª varredura do worker com o código de 13/10/2026; o pacote que
+    guardou a disponibilidade de um mês que já saiu do índice) não tem a perda de cada usina: a OS de duas usinas volta
+    a repartir pela potência (a OS 20 tem 16.500 kWh: 8.250 em cada Beta), sem perder a perda da OS. Não fecha com a
+    usina — é o erro que o `kwh_usina` corrige."""
+    mes = _mes_disp_beta()
+    for o in mes["oss"]:
+        del o["kwh_usina"]
+    soma = _perda_por_usina(mes, monkeypatch)
+    assert soma == {"Alfa": 6000, "Beta 1": 8250, "Beta 2": 9750}          # Beta 2: 8.250 da OS 20 + 1.500 da 14
+    assert sum(soma.values()) == sum(o["kwh"] for o in mes["oss"])
