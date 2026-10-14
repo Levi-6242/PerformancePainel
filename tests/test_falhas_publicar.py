@@ -234,3 +234,46 @@ def test_a_perda_de_cada_usina_e_a_do_indice_e_nao_a_reparticao_pela_potencia():
     assert [(x["os"], x["usina"], x["kwp"], x["perda_kwh"]) for x in d] == [
         ("20", "Beta 1", 500.0, 6000), ("20", "Beta 2", 500.0, 12000),
         ("21", "Beta 1", 500.0, 0), ("21", "Beta 2", 500.0, 3000)]
+
+
+def test_a_parcela_de_cada_os_em_cada_dia_soma_a_perda_do_dia():
+    """Dashboard Thopen, 14/10/2026 (Levi: "A partir de outubro quero os comentários 100% OS Fracttal. Comentários e
+    disponibilidade!"): a aba `disponibilidade_os_dia` leva a parcela de cada OS em cada dia, da MESMA conta da
+    `disponibilidade_dia` — o dia que a geração desmentiu não tem linha, e o escopo e o kWp são os da OS naquela usina."""
+    p = pacote("2026-10")
+    oss = [{"folio": 13001, "tipos": ["Religamento Remoto"], "origem": "queda", "code": "THPN-GTA500",
+            "ini": "2026-10-02T09:00:00", "fim": "2026-10-02T15:06:00", "aberta": False, "usinas": ["Guaratinguetá V"],
+            "escopo": [{"usina": "Guaratinguetá V", "rotulo": "Usina inteira", "kwp": 2700.0}], "h_solar": 6.1,
+            "kwh": 16470},
+           {"folio": 12990, "tipos": ["Corretiva Emergencial"], "origem": "equipamento", "code": "X-CABN1",
+            "ini": "2026-10-01T08:00:00", "fim": None, "aberta": True, "usinas": ["Guaratinguetá V", "Altair"],
+            "escopo": [{"usina": "Guaratinguetá V", "rotulo": "Cabine 1", "kwp": 300.0},
+                       {"usina": "Altair", "rotulo": "Cabine 2", "kwp": 100.0}], "h_solar": 2.0, "kwh": 800}]
+    diario = {"Guaratinguetá V": {"2026-10-02": {"disp": 49.2, "h_eq": 6.1, "os": [
+        {"folio": 12990, "h": 0.0, "trechos": "06:00-09:00"},
+        {"folio": 13001, "h": 6.1, "trechos": "09:00-15:06"}]}},
+        "Altair": {"2026-10-01": {"disp": 99.5, "h_eq": 0.058, "os": [
+            {"folio": 12990, "h": 0.058, "trechos": "08:00-12:00"}]}}}
+    p["disponibilidade"] = dict(DISP, oss=oss, diario=diario)
+    tabs = pub.tabelas([p])
+    d = linhas(tabs, "disponibilidade_os_dia")
+    assert [(x["dia"], x["usina"], x["os"], x["escopo"], x["kwp"], x["trechos"], x["h_perdidas"]) for x in d] == [
+        ("2026-10-01", "Altair", "12990", "Cabine 2", 100.0, "08:00-12:00", 0.058),
+        ("2026-10-02", "Guaratinguetá V", "12990", "Cabine 1", 300.0, "06:00-09:00", 0.0),
+        ("2026-10-02", "Guaratinguetá V", "13001", "Usina inteira", 2700.0, "09:00-15:06", 6.1)]
+    g = d[2]
+    assert (g["tipo"], g["origem"], g["inicio"], g["fim"], g["aberta"], g["usina_fracttal"]) == (
+        "Religamento Remoto", "queda", "2026-10-02T09:00:00", "2026-10-02T15:06:00", "não", "Thopen - Guaratingueta 5 - SP")
+    (a,) = linhas(tabs, "atualizacao")
+    assert a["disponibilidade_os_dia"] == 3
+
+
+def test_indice_sem_a_parcela_do_dia_conta_vazio_e_nao_zero():
+    # o índice publicado antes do código de 14/10/2026 não tem a chave "os" nos dias: a aba sai vazia e a atualizacao
+    # diz VAZIO (não publicada) — o 5080 não pode ler isso como "nenhuma OS"
+    p = pacote("2026-10")
+    p["disponibilidade"] = DISP
+    tabs = pub.tabelas([p])
+    assert linhas(tabs, "disponibilidade_os_dia") == []
+    (a,) = linhas(tabs, "atualizacao")
+    assert a["disponibilidade_os_dia"] is None

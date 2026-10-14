@@ -27548,7 +27548,11 @@ def _falhas_disp_mes(mes):
     return {"periodo": [str(m["periodo"]["ini"])[:10], str(m["periodo"]["fim"])[:10]],
             "usinas": [{"usina": u.get("usina"), "fracttal": u.get("fracttal"), "cliente": u.get("cliente"),
                         "pot_kwp": u.get("pot_kwp")} for u in m["usinas"]],
-            "diario": {u: {d: {"disp": v.get("disp"), "h_eq": v.get("h_eq")} for d, v in (dias or {}).items()}
+            # a parcela de cada OS no dia (14/10/2026, `disponibilidade_os_dia`): vai só quando o índice a tem — o de
+            # antes do código novo não tem a chave, e a aba sai VAZIA (não publicada), nunca "nenhuma OS"
+            "diario": {u: {d: dict({"disp": v.get("disp"), "h_eq": v.get("h_eq")},
+                                   **({"os": v.get("os") or []} if "os" in v else {}))
+                           for d, v in (dias or {}).items()}
                        for u, dias in (m.get("diario") or {}).items()},
             "oss": oss}
 

@@ -253,11 +253,15 @@ def _itens_os(html):
 # ── 0. a conta é a mesma de antes ────────────────────────────────────────────────────────────────────────────────────
 def test_o_modulo_devolve_a_mesma_saida_de_antes_da_mudanca():
     """O disponibilidade.py de agora, sobre a entrada gravada, devolve exatamente a saída do de antes (6ad711e): usina por
-    usina, cliente por cliente, dia por dia e OS por OS. O que entrou de novo é só a perda de cada OS em cada usina
-    (`kwh_usina`, para o drill-down), que reparte a perda da OS e soma a da usina."""
+    usina, cliente por cliente, dia por dia e OS por OS. O que entrou de novo é a perda de cada OS em cada usina
+    (`kwh_usina`, para o drill-down), que reparte a perda da OS e soma a da usina, e a parcela de cada OS em cada dia
+    (`os` no diário, 14/10/2026, para o comentário do Dashboard Thopen), que soma o h_eq do dia."""
     novo = json.loads(json.dumps(_calcula(), ensure_ascii=False))
     partes = {o["folio"]: o.pop("kwh_usina") for o in novo["oss"]}
+    do_dia = {(u, d): v.pop("os") for u, dias in novo["diario"].items() for d, v in dias.items()}
     assert novo == GAB["saida"]
+    for (u, d), lst in do_dia.items():
+        assert lst and abs(sum(x["h"] for x in lst) - novo["diario"][u][d]["h_eq"]) <= 0.002 * len(lst), (u, d)
     for o in novo["oss"]:
         assert sum(partes[o["folio"]].values()) == o["kwh"], o["folio"]
     for u in novo["usinas"]:

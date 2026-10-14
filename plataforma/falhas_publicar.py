@@ -19,7 +19,8 @@ chega (não o relógio: revisão adversarial de 11/10/2026). Na `strings_os`, o 
 estimativa de outubro cresce durante o dia do evento; na `trackers_dia`, o "sem prova" vira "sim" (ou sai) quando a
 geração do dia chega;
 na `disponibilidade_dia`, o dia fechado muda quando o Gerencial o recalcula (a OS fechada com atraso), também no mês
-anterior enquanto ele estiver no índice (app._falhas_disp_fora_da_volta, 11/10/2026).
+anterior enquanto ele estiver no índice (app._falhas_disp_fora_da_volta, 11/10/2026); e a `disponibilidade_os_dia`
+(14/10/2026) muda junto com ela.
 """
 import io
 
@@ -79,9 +80,17 @@ CABECALHOS = {
     # descrição nem quem criou (leitura aberta)
     "disponibilidade_os": ["mes", "os", "usina", "usina_fracttal", "tipo", "origem", "codigo_ativo", "escopo", "kwp",
                            "inicio", "fim", "aberta", "duracao_sol_min", "perda_kwh"],
+    # A parcela de cada OS em cada dia (14/10/2026, Dashboard Thopen, Levi: "A partir de outubro quero os comentários 100%
+    # OS Fracttal. Comentários e disponibilidade!"): 1 linha = OS × usina × dia em que ela tirou disponibilidade, com os
+    # trechos das 06–18 h em que foi dona da perda ("06:00-08:06; 10:55-12:05") e as horas equivalentes do dia. Sai da
+    # MESMA varredura que a `disponibilidade_dia` (disponibilidade._varrer): somadas, as linhas de uma usina num dia dão
+    # o h_perdidas dela. O dia que a geração desmente e a OS de cabine coberta por uma de usina não têm linha (não
+    # tiraram nada). O 5080 escreve o comentário do dia só com estas linhas
+    "disponibilidade_os_dia": ["mes", "dia", "usina", "usina_fracttal", "os", "tipo", "origem", "escopo", "kwp",
+                               "inicio", "fim", "aberta", "trechos", "h_perdidas"],
     "atualizacao": ["mes", "periodo_inicio", "periodo_fim", "atualizado_em", "strings_inversor_dia", "strings_episodios",
                     "trackers_episodios", "regua_strings", "regua_trackers", "cobertura", "strings_os", "trackers_dia",
-                    "disponibilidade_dia", "disponibilidade_os"],
+                    "disponibilidade_dia", "disponibilidade_os", "disponibilidade_os_dia"],
 }
 
 
@@ -171,6 +180,9 @@ def tabelas(pacotes):
         dos = _disp_os_linhas(p.get("disponibilidade"))
         for r in dos:
             out["disponibilidade_os"].append([_v(x) for x in (mes,) + r])
+        dod = _disp_os_dia_linhas(p.get("disponibilidade"))
+        for r in dod:
+            out["disponibilidade_os_dia"].append([_v(x) for x in (mes,) + r])
         per = p.get("periodo") or [None, None]
         reg = p.get("regua") or {}
         # a contagem de cada aba é o que o 5080 confere na leitura: o sync troca linhas no lugar e, lida no meio dele,
@@ -184,7 +196,10 @@ def tabelas(pacotes):
             reg.get("fator_tracker"), _n("cobertura", cs), _n("strings_os", so), _n("trackers_dia", td),
             _n("disponibilidade", dsp),
             # pacote de antes de 12/10/2026 (sem as OS) conta VAZIO, não 0
-            len(dos) if (p.get("disponibilidade") or {}).get("oss") is not None else None)])
+            len(dos) if (p.get("disponibilidade") or {}).get("oss") is not None else None,
+            # índice de antes de 14/10/2026 (sem a parcela de cada OS no dia) conta VAZIO, não 0: o 5080 sabe que não
+            # foi publicada, e não que nenhuma OS tirou nada
+            len(dod) if _tem_os_do_dia(p.get("disponibilidade")) else None)])
     return out
 
 
@@ -246,6 +261,37 @@ def _disp_os_linhas(d):
                         o.get("ini"), o.get("fim"), bool(o.get("aberta")),
                         round(h * 60) if isinstance(h, (int, float)) else None,
                         round(parte) if parte is not None else None))
+    return out
+
+
+def _tem_os_do_dia(d):
+    """O índice já traz a parcela de cada OS no dia (a chave "os" nos dias do diário, código de 14/10/2026)?"""
+    diario = (d or {}).get("diario")
+    if not diario:
+        return bool(d and d.get("periodo"))         # mês sem perda nenhuma: 0 linhas, publicadas
+    return all("os" in v for dias in diario.values() for v in (dias or {}).values())
+
+
+def _disp_os_dia_linhas(d):
+    """{usinas, diario[u][dia].os, oss} → [(dia, usina, usina_fracttal, os, tipo, origem, escopo, kwp, inicio, fim,
+    aberta, trechos, h_perdidas)] pela ordem do dia (o dia novo entra no fim), depois da usina e do 1º trecho. O escopo
+    e o kWp são os da OS NAQUELA usina (a OS de duas usinas leva o de cada uma). Índice sem a parcela: nada."""
+    if not d or not d.get("diario") or not _tem_os_do_dia(d):
+        return []
+    fr = {u.get("usina"): u.get("fracttal") for u in d.get("usinas") or []}
+    por_os = {str(o.get("folio")): o for o in d.get("oss") or []}
+    out = []
+    for u in sorted(d["diario"], key=str):
+        for dia in sorted(d["diario"][u] or {}):
+            for x in (d["diario"][u][dia] or {}).get("os") or []:
+                o = por_os.get(str(x.get("folio"))) or {}
+                esc = [e for e in o.get("escopo") or [] if e.get("usina") == u]
+                kwp = sum(float(e.get("kwp") or 0) for e in esc)
+                out.append((str(dia)[:10], u, fr.get(u), _pid(x.get("folio")), "; ".join(o.get("tipos") or []) or None,
+                            o.get("origem"), "; ".join(e.get("rotulo") for e in esc if e.get("rotulo")) or None,
+                            round(kwp, 1) or None, o.get("ini"), o.get("fim"), bool(o.get("aberta")),
+                            x.get("trechos"), x.get("h")))
+    out.sort(key=lambda r: (r[0], str(r[1]), str(r[11] or "")))
     return out
 
 

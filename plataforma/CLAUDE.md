@@ -1929,8 +1929,31 @@ ainda não estavam na main em 11/10). Aqui só a publicação. **Colunas novas s
     outubro, Boa Esperança do Sul OS 16109 (2.093) e 16117 (372) e Rodrigues OS 16114 (5.166: a Rodrigues 2 teve o dia 12
     desmentido e vai a 0). A soma das linhas de cada usina fecha com a perda dela em ±5 kWh (o arredondamento por OS,
     igual antes); antes errava 47.895 kWh na Rodrigues 2 em setembro e 5.166 em outubro.
-- **`atualizacao`** ganha no fim `cobertura`, `strings_os`, `trackers_dia`, `disponibilidade_dia` e `disponibilidade_os`
-  (as linhas de cada aba no mês; a das OS conta vazio no pacote de antes de 12/10/2026). **Aba que o pacote não montou conta VAZIO, não 0** (0 diria "nenhuma OS" / "nenhuma usina medida" onde só não
+- **`disponibilidade_os_dia`** (14/10/2026, Dashboard Thopen, Levi: "A partir de outubro quero os comentários 100% OS
+  Fracttal. Comentários e disponibilidade! Antes deixe como estava!"). 1 linha = OS × usina × DIA em que ela tirou
+  disponibilidade (`mes, dia, usina, usina_fracttal, os, tipo, origem, escopo, kwp, inicio, fim, aberta, trechos,
+  h_perdidas`): `h_perdidas` = as horas equivalentes que a OS tirou da usina no dia e `trechos` = os horários das 06–18 h em
+  que ela foi dona da perda (`"06:00-08:06; 10:55-12:05"`). Sai da MESMA varredura da `disponibilidade_dia`: o `_varrer`
+  ganhou o `det_os_dia` (a parcela de cada dono em cada segmento, `frac_af × kWp ÷ ΣkWp dos donos × horas`) e o
+  `calcular` põe a lista em `diario[u][dia]["os"]` (`_os_do_dia`); o `_falhas_disp_mes` leva e o `_disp_os_dia_linhas`
+  publica. **As linhas de uma usina num dia somam o `h_perdidas` dela** (por construção); o dia que a geração desmente
+  não tem linha e a OS de cabine coberta por uma de usina inteira só tem os trechos fora dela.
+  - **Por que existe:** o 5080 escrevia o comentário do dia refazendo a conta com as OS do mês (`disponibilidade_os`,
+    início e fim) e errava: a Canarana 1 de 08 a 12/10 aparecia com "usina parada o dia todo" ao lado de 87,5% (a geração
+    desmentiu a OS de usina inteira e só o inversor 1.8 contou). Refeita fora daqui, a conta não pega a geração, a
+    exclusão nem a hierarquia; a parcela tem de vir da varredura.
+  - **Prova (14/10/2026)**, sobre a cópia do `frac_disp_index.json` do PC de 14:14 (sem a parcela): os eventos refeitos
+    das `oss` do índice (escopo, `dias_exonerados`, sem as excluídas) e o `_varrer` novo reproduzem o `h_eq` de TODOS os
+    1.203 dias-usina com perda (810 de setembro, 393 de outubro) e a soma das parcelas fecha com ele em todos; nenhum dia
+    com perda sem OS. No 5080 de ensaio com as duas abas desse índice: 250 dias abaixo de 100% em outubro, todos com OS
+    (315 linhas), nenhum dia de 100% com OS.
+  - Índice de antes do código (sem a chave `os` nos dias, até a 1ª varredura do worker depois do deploy): a aba sai vazia
+    e a `atualizacao` conta VAZIO — o 5080 diz "ainda não publicado", nunca "sem OS". Testes:
+    `tests/test_disp_os_do_dia.py` (a parcela e a hierarquia), `tests/test_falhas_publicar.py` (a aba e a contagem) e o
+    gabarito de `tests/test_disponibilidade_tela_13_10.py` (a saída de antes + a parcela somando o dia).
+- **`atualizacao`** ganha no fim `cobertura`, `strings_os`, `trackers_dia`, `disponibilidade_dia`, `disponibilidade_os`
+  e `disponibilidade_os_dia` (as linhas de cada aba no mês; a das OS conta vazio no pacote de antes de 12/10/2026, e a
+  parcela do dia no índice de antes de 14/10/2026). **Aba que o pacote não montou conta VAZIO, não 0** (0 diria "nenhuma OS" / "nenhuma usina medida" onde só não
   houve publicação); a montada e vazia conta 0.
 - **Janela (é condição, não data):** o worker remonta só o mês corrente (e o anterior até o dia 2). Mês montado antes do
   deploy fica sem `dias_comunicou`/`dias_sem_prova` e sem linhas em `cobertura`, `strings_os` e `trackers_dia`
