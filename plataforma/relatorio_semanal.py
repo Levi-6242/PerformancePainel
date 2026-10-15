@@ -270,13 +270,15 @@ def _horas_janela(a, b):
     return h
 
 
-def desligamentos(oss, ini, fim, usinas=None):
+def desligamentos(oss, ini, fim, usinas=None, agora=None):
     """Quedas de rede e desligamentos por equipamento que cruzam o período (a lista `oss` do índice, datas locais):
     quantidade e horas de sol dentro do período. A duração vai do evento ao fim da tarefa (Levi, 30/09/2026: "vai da
     data do evento até a data do fim da tarefa, esse é o tempo que ficou desligado") — é o `ini`/`fim` que o módulo
-    disponibilidade já dá a cada OS. OS aberta sem fim = 0 h (Mandaguaçu e Céu Azul geravam com OS esquecida aberta)."""
+    disponibilidade já dá a cada OS. OS aberta sem fim CONTA até o fim do período, no máximo até ontem (a régua do
+    módulo desde 15/10/2026: antes valia 0 h, e a usina saía com 0% de disponibilidade e 0 desligamentos)."""
     out = {"queda": {"n": 0, "h": 0.0}, "equip": {"n": 0, "h": 0.0}}
     lim_a, lim_b = datetime.combine(ini, time(0)), datetime.combine(fim + timedelta(days=1), time(0))
+    hoje = datetime.combine((agora or datetime.now()).date(), time(0))
     for o in oss or []:
         fam = {"queda": "queda", "equipamento": "equip"}.get(o.get("origem"))
         if not fam or (usinas is not None and not (set(o.get("usinas") or []) & set(usinas))):
@@ -284,7 +286,10 @@ def desligamentos(oss, ini, fim, usinas=None):
         a, b = _dt(o.get("ini")), _dt(o.get("fim"))
         if a is None:
             continue
-        fim_ef = b if (b is not None and b >= a) else a
+        if b is None and o.get("aberta"):
+            fim_ef = max(a, min(lim_b, hoje))
+        else:
+            fim_ef = b if (b is not None and b >= a) else a
         if fim_ef < lim_a or a >= lim_b:
             continue
         out[fam]["n"] += 1

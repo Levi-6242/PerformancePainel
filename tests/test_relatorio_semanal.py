@@ -9,7 +9,7 @@ régua que o número mostrado ao cliente depende:
 - o portfólio soma numeradores e denominadores, nunca faz média de PR;
 - fora da meta = PR abaixo de 97% da meta.
 """
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
@@ -144,11 +144,25 @@ def test_desligamento_que_comeca_antes_do_periodo_conta_so_a_parte_de_dentro():
     assert r["equip"] == {"n": 1, "h": pytest.approx(4.0)}           # 06:00–10:00 do dia 21
 
 
-def test_os_aberta_sem_fim_conta_na_quantidade_com_zero_hora():
-    # a régua do módulo disponibilidade: OS aberta sem fim = 0 h (Mandaguaçu e Céu Azul, gerando com OS esquecida)
+def test_os_aberta_sem_fim_conta_ate_o_fim_da_semana():
+    # a régua do módulo disponibilidade desde 15/10/2026: OS aberta sem fim CONTA (até o fim do período) — a mesma conta
+    # da disponibilidade da semana; antes valia 0 h e a usina saía com 0% de disponibilidade e 0 desligamentos (Brodowski,
+    # OS 12693, na semana de 06 a 12/10)
     r = rs.desligamentos([_os("queda", "2026-09-22T09:00:00", None, aberta=True)], date(2026, 9, 21),
-                         date(2026, 9, 27))
-    assert r["queda"] == {"n": 1, "h": 0.0}
+                         date(2026, 9, 27), agora=datetime(2026, 10, 1, 10, 0))
+    assert r["queda"] == {"n": 1, "h": pytest.approx(9.0 + 5 * 12.0)}      # 22/09 09h–18h + 23 a 27/09
+
+
+def test_os_aberta_de_antes_da_semana_conta_na_semana():
+    r = rs.desligamentos([_os("queda", "2026-09-02T09:00:00", None, aberta=True)], date(2026, 10, 6),
+                         date(2026, 10, 12), agora=datetime(2026, 10, 15, 10, 0))
+    assert r["queda"] == {"n": 1, "h": pytest.approx(7 * 12.0)}
+
+
+def test_os_aberta_na_semana_corrente_conta_ate_ontem():
+    r = rs.desligamentos([_os("queda", "2026-10-13T06:00:00", None, aberta=True)], date(2026, 10, 13),
+                         date(2026, 10, 19), agora=datetime(2026, 10, 15, 10, 0))
+    assert r["queda"] == {"n": 1, "h": pytest.approx(2 * 12.0)}             # 13 e 14/10
 
 
 def test_filtro_de_usinas_no_desligamento():

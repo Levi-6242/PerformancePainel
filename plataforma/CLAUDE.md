@@ -944,11 +944,39 @@ responsável do Nexus (Campo · App) tira a meta do mês daqui: o worker publica
 
 A conta mora em `disponibilidade.py` (puro; réguas e decisões em `docs/disponibilidade-por-os.md`, o caminho de runtime
 em `docs/calculo-disponibilidade-gerencial.md`): o worker varre o Fracttal e publica `frac_disp_index.json` a cada 30 min,
-e o web só serve (`/api/gerencial/disponibilidade`). A tela desde 13/10/2026 (pedidos 3 a 6 do Levi):
+e o web só serve (`/api/gerencial/disponibilidade`).
+
+**A regra desde 15/10/2026: só o Fracttal de outubro em diante.**
+Levi, 15/10/2026, a partir da OS 16338 (Corretiva Emergencial do Inversor 2.2 de Ipixuna 2, aberta desde 16/09, que valia
+0 h em setembro e sumia de outubro): "A disponibilidade será calculada somente pelo Fracttal a partir de outubro;
+setembro para trás vamos considerar o que está no BD_Thopen. Será considerado OSs fechadas e abertas; OSs com diferenças
+negativas (evento depois do fim) — a data de criação como data do evento"; fora da Thopen, "só a partir de outubro!"; e
+"não quero que olhe a geração (...) pode até apontar possíveis erros em criação de OS". Regras em
+`docs/disponibilidade-por-os.md` (§4, 4.1, 4.2) e o runtime em `docs/calculo-disponibilidade-gerencial.md`.
+
+- **De `DISP_SO_FRACTTAL_DESDE` ("2026-10") em diante** (`_frac_disp_recalcular` → `disponibilidade.calcular`): OS aberta
+  conta até o fim do período em todo mês em que seguir aberta; evento depois do fim usa a criação (fim antes até da
+  criação = 0 h); **o juiz da geração saiu** (não volte a cruzar com a geração). A geração ainda é lida no laço, só para
+  a aba Falhas (`_DISP_GER_ULTIMA`), e falhar nela não segura o índice.
+- **Antes** (`calcular_pelo_bd` + `_disp_dias_bd_thopen`): só as usinas da Thopen, pela "Disponibilidade Usina (%)" do
+  BD_Thopen (o leitor do 5080), sem OS e sem queda × equipamento; de-paras em `_DISP_BD_ABAS` (os do Gerencial).
+- **`alinhar`** no lugar do `cenario_abertas` (que saiu do payload): as OS que pedem um olho no Fracttal, só pelo dado
+  dele (aberta contando, evento depois do fim, `wo_final_date`, site agrupado sem a usina, Religamento com descrição de
+  verificação de comunicação ou inspeção, religamento de mais de um dia, OS fora da conta). A tela Disponibilidade mostra
+  a lista no balão do ícone de atenção e, no mês do BD, o aviso da fonte.
+- **Prova (15/10, varredura real × índice publicado com a regra antiga):** outubro Thopen 88,47% → 80,43% (~4,8 GWh dos
+  dias que o juiz exonerava, ~1,5 GWh de OS abertas desde setembro: Brodowski 12693 e Guatambu 13427); Ipixuna 2 91,1% →
+  76,7% (a 16338 com 168 h); 175 OS de outubro em "alinhar"; setembro Thopen 95,51% → 95,40%.
+- Testes: `tests/test_disp_fracttal.py`, `tests/test_disp_varredura_completa.py` (o corte por mês),
+  `tests/test_painel_v2_disp_dia.py` e `tests/test_disponibilidade_tela_13_10.py` (o gabarito de 13/10 virou a régua do
+  que a regra nova pode mudar: só a OS que a geração "desmentia" e a aberta sem data final).
+
+A tela desde 13/10/2026 (pedidos 3 a 6 do Levi):
 
 - **Atenção é ícone, não faixa** ("deixe como um informação de atenção em um ícone de exclamação acima do filtro do mês,
-  ao clicar no ícone aparece a mensagem!"): as OS de religamento abertas sem data final (entram com 0 h; o
-  `cenario_abertas`) ficam num ícone âmbar ACIMA do seletor do mês, fora do corpo, só quando há o que avisar — o
+  ao clicar no ícone aparece a mensagem!"): desde 15/10/2026 o ícone lista as OS para alinhar no Fracttal (o `alinhar`;
+  até 15/10 eram as abertas sem data final, que valiam 0 h) e, no mês do BD_Thopen, diz a fonte; ícone âmbar ACIMA do
+  seletor do mês, fora do corpo, só quando há o que avisar — o
   `ph-warning-circle` do Phosphor desenhado em SVG, porque a tela não carrega a fonte de ícones. O clique abre a MESMA
   mensagem de antes num balão (`aria-expanded`; Esc e clique fora fecham, o Esc devolve o foco ao ícone). Mês que sai do
   índice (`quente: false`) esconde o ícone junto.
@@ -962,19 +990,18 @@ e o web só serve (`/api/gerencial/disponibilidade`). A tela desde 13/10/2026 (p
   é o nome que o cadastro do Fracttal dá ao sufixo do código do ativo (`equipamento()` na tela; os nomes vêm do
   `items_log_description` de 39 mil tarefas): CABN → Cabine, SKID → Skid, QGBT, PECN → Ponto de Entrega, DTRF → Disjuntor
   do Transformador, INVR → Inversor, DINV → Disjuntor do Inversor; sem sufixo = Usina. As horas são o `h_solar` da OS
-  no mês ("no mês" quando ela passa da borda); OS ainda aberta no Fracttal diz "em aberto"; dia que a geração desmentiu
-  (`dias_exonerados`) é dito ("1 dia desmentido pela geração") — sem isso, "12 h solares" ao lado de "0 kWh" parece erro
-  (56 OS com dia desmentido em setembro).
+  no mês ("no mês" quando ela passa da borda); OS ainda aberta no Fracttal diz "em aberto". (De 13 a 15/10 a linha dizia
+  também os dias que a geração desmentia; saiu com o juiz.)
 - **Disponibilidade por cliente** no lugar das barras por usina ("ao clicar na linha vai expandir as usinas daquele
   cliente! ao clicar na usina aparecerá as OSs"): cliente → usinas → OS, cada linha um `<button>` com `aria-expanded`. O
   cliente é o `cliente` da usina no payload (coluna Cliente da aba Equipamentos, o mesmo do filtro) e pondera as usinas
   dele pela MESMA conta do total (`dispPonderada`: 1 − Σ(kWp × horas perdidas) ÷ (Σ kWp × 12 h × dias)): os clientes fecham
   com o total e batem com o `clientes[].disp` do módulo. O que está aberto continua aberto na releitura de 5 min
-  (`ABERTOS`). O drill-down lista as OS da conta da usina (as com evento nela, o "OSs" da tabela; a aberta sem fim fica
-  no ícone), da maior perda para a menor, com a perda da OS NAQUELA usina.
+  (`ABERTOS`). O drill-down lista as OS da conta da usina (as com evento nela, o "OSs" da tabela; desde 15/10 a aberta
+  sem fim também, porque conta), da maior perda para a menor, com a perda da OS NAQUELA usina.
 - **`kwh_usina`** (novo no índice, por OS: {usina: kWh}) é a mesma parcela do `det_os` separada por usina na varredura
   (`_varrer`): soma a perda da OS e a da usina, e as chaves são as usinas onde a OS tem evento. Repartir pela potência
-  erra quando a geração desmente o dia numa usina só ou o teto de 100% pega uma e não a outra: no índice de 13/10 a
+  erra quando o teto de 100% pega uma usina e não a outra (e, até 15/10, quando a geração desmentia o dia numa só): no índice de 13/10 a
   Rodrigues 1 e 2 trocavam ~47,9 MWh de setembro, e a Boa Esperança do Sul 1 e 2 ~2,5 MWh de outubro. O
   `disponibilidade_os` do workbook de falhas (Nexus) usa o mesmo campo desde 13/10 (seção "Falhas de strings e
   trackers" › `disponibilidade_os`).
@@ -1303,8 +1330,9 @@ caíam no BD_Performance, que não tem aba por inversor para elas. Sub-usina sem
 do dia do "Histórico do mês" abre um drill-down com a curva daquele dia (mesmos endpoints da aba Curvas; ETM da
 fonte para POA/GHI/POA-RI; `temp`/`pac` do inversor só na API PV e só HOJE — `_spv_analise_inversor`), séries
 ligáveis por chip; a coluna **% disp** refaz no front a régua do Gerencial (`disponibilidade.py`: só Religamento,
-Religamento Remoto e Corretiva Emergencial, janela solar 06–18h, OS aberta sem fim = 0 h; cabine e conferência
-pela geração ficam só no Gerencial) com as OS já carregadas do Fracttal (`OSALL`/`OSSITE`). Gotcha: a API PV só
+Religamento Remoto e Corretiva Emergencial, janela solar 06–18h, OS aberta conta até agora, evento depois do fim usa a
+`criada_ts`; dia antes de outubro sai "—", porque setembro para trás é a disponibilidade da USINA no BD_Thopen; cabine fica
+só no Gerencial) com as OS já carregadas do Fracttal (`OSALL`/`OSSITE`). Teste no node: `tests/test_painel_v2_disp_dia.py`. Gotcha: a API PV só
 entrega ETM intradiária do dia atual (dia passado → `sem_historico`) — o drill-down diz isso em vez de esconder.
 Na aba Curvas, de madrugada o card recua UMA vez para ontem quando hoje ainda não tem curva (`_icRecuou`).
 

@@ -12,7 +12,7 @@ medido como 0 e o que não foi medido como célula vazia (a API é de leitura ab
 """
 import io
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 from openpyxl import load_workbook
@@ -319,6 +319,9 @@ def _disponibilidade_dublada(monkeypatch):
     monkeypatch.setattr(app, "_disp_equip_linhas", lambda: EQUIP)
     monkeypatch.setattr(app, "_disp_geracao", lambda *a, **k: {})
     monkeypatch.setattr(app._disp_mod, "calcular", lambda *a, **k: real(*a, **{**k, "agora": AGORA}))
+    # setembro para trás vem do BD_Thopen (Levi, 15/10/2026): a planilha dublada com o Alfa 100% o mês inteiro
+    monkeypatch.setattr(app, "_disp_dias_bd_thopen", lambda ini, fim, equip: {
+        "Alfa": {(ini + timedelta(days=i)).date(): 1.0 for i in range((fim - ini).days)}})
     monkeypatch.setattr(app, "_log_arquivo", lambda nome, msg: None)
     monkeypatch.setattr(app, "_DISP_GER_ULTIMA", {})
 

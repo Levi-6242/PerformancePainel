@@ -18,6 +18,9 @@ O código-fonte da conta é `plataforma/disponibilidade.py`; o disparo e a publi
 - **Horas perdidas** = tempo em que a usina (ou parte dela) esteve parada, segundo as **OS do
   Fracttal** dos tipos-alvo, **pesado pela fração de potência (kWp)** que a OS derrubou.
 - Só entram **usinas Full O&M** (onde a Grid Co. faz a manutenção completa).
+- **Desde 15/10/2026:** de outubro de 2026 em diante, **só o Fracttal**, para todos os clientes (a geração não entra);
+  setembro para trás, **só a Thopen**, pela disponibilidade diária do BD_Thopen (`calcular_pelo_bd`, §8). Os outros
+  clientes não têm disponibilidade antes de outubro.
 
 Exemplo: uma cabine de 500 kWp de uma usina de 2.000 kWp parada por 4 h solares num mês de 30 dias
 perde `(500/2000) × 4 = 1,0` hora-equivalente. Disponibilidade `= 100 × (1 − 1,0 / (12×30)) = 99,72 %`.
@@ -126,13 +129,13 @@ Resultado: `wos = {folio: [tarefas reduzidas]}`.
 | Fonte | Função | Papel | Cache |
 |---|---|---|---|
 | **BD_Performance, aba Equipamentos** | `_disp_equip_linhas` (`app.py:19036`) | Estrutura e **pesos**: kWp por usina/cabine/inversor, cliente, Full O&M, Nº de inversores, nome supervisório e nome Fracttal | 12 h (`FRAC_CODE_TTL`) |
-| **PostgreSQL (banco)** | `_disp_geracao` (`app.py:19095`) | Geração diária por usina, o **juiz** contra parada-fantasma | por recálculo |
+| **BD_Thopen** | `_disp_dias_bd_thopen` (`app.py`) | Setembro para trás: a "Disponibilidade Usina (%)" diária das usinas da Thopen (pelo leitor do 5080) | por recálculo |
 
 A aba Equipamentos é lida de `bases/` (`pd.read_excel(..., sheet_name="Equipamentos", header=2)`) e vira
 o **catálogo** de usinas (`montar_catalogo`), com a potência de cada nível hierárquico.
 
-A geração casa o nome do PostgreSQL (`(289) Nome`) com o do BD (`Nome (152)`) tirando o número entre
-parênteses; leitura marcada como não-confiável é **descartada**.
+A geração (`_disp_geracao`) ainda é lida no mesmo laço, mas **só para a aba Falhas** (perda em kWh): desde 15/10/2026
+ela não entra na disponibilidade.
 
 ---
 
@@ -163,10 +166,11 @@ Cada folio do Fracttal passa por um filtro duro antes de contar:
   nenhum** `final_date` — e marca uma flag, porque esse carimbo pode ser tardio. Fim válido = `≤ agora` e no
   ano corrente ou, na OS cujo evento é do ano anterior, nele também (11/10/2026: só o ano corrente valia, e em
   janeiro o dezembro perdia toda OS concluída nele e saía 100%). Fim num ano antes do evento é digitação: fora.
-- Fim **antes** do início: se por `≤ 1 h` (carimbo relâmpago) → duração 0; se por mais → descarta o fim.
-- **Sem início válido** → excluída. **Concluída sem fim válido** → excluída.
-- **Aberta sem fim** → conta **0 h** no cálculo, mas entra no **cenário das abertas** (§8), que estima
-  quanto ela somaria se for parada real.
+- Fim **antes** do evento (15/10/2026): a **criação** da OS vira o evento; se o fim fica antes até da criação → 0 h e
+  vai para "alinhar". (Antes: até 1 h = duração 0; mais que isso, o fim era descartado.)
+- **Sem início válido** → excluída. **Concluída sem fim válido** → excluída (as duas aparecem em "alinhar").
+- **Aberta sem fim** → **conta** do evento até o fim do período (no mês corrente, até ontem), em todo mês em que seguir
+  aberta (15/10/2026; antes valia 0 h e sumia no mês seguinte), e aparece em "alinhar" com os dias em aberto.
 
 ---
 
@@ -190,18 +194,14 @@ O escopo é resolvido pelo **ativo** (`code`), nunca por texto solto, e devolve 
 
 ---
 
-## 7. O juiz da geração — `_dias_desmentidos` (`disponibilidade.py:526`)
+## 7. A lista "alinhar" (no lugar do juiz da geração, 15/10/2026)
 
-Antes de contar um dia como perdido, a **geração real** pode desmenti-lo. Uma OS longa fechada com
-atraso dizia a usina parada enquanto ela gerava (casos Parelhas e Marialva, 30/08).
-
-- **Normal da usina** (`_normal_kwh_kwp`) = **P75** dos dias com dado, em kWh/kWp — só vale se `≥ 4,5`
-  (`GER_PLENO_KWH_KWP`, usina praticamente plena); senão não se julga nada.
-- **Fatia perdida do dia** = fração de potência afetada × fração do dia solar coberto. Se `< 0,30`
-  (`GER_FRAC_MIN`), a geração não tem resolução para julgar — pula.
-- Se a usina **produziu mais** que `(1 − fatia) × normal + 15 %` (`GER_TOLERANCIA`), aquele dia é
-  **exonerado**: não conta como parada, e a OS ganha a flag e o registro em `dias_exonerados`.
-- Dia **sem dado** nunca exonera — ausência de prova não é prova.
+O juiz da geração (`_dias_desmentidos`, 30/08 a 15/10/2026) **saiu**: o Levi decidiu que a disponibilidade é do Fracttal
+e só dele. O que estiver estranho nas OS do período vai para `alinhar` (`_para_alinhar`), só com dado do Fracttal — a OS
+**continua contando**; a lista é para corrigir a OS no Fracttal: aberta sem data final, evento depois do fim, sem
+`final_date`, site agrupado sem a usina na descrição, Religamento com descrição de verificação de comunicação ou inspeção,
+religamento de mais de um dia e OS fora da conta por dado dela. Regras e números em
+[`disponibilidade-por-os.md`](disponibilidade-por-os.md), §4.1.
 
 ---
 
@@ -222,12 +222,14 @@ atraso dizia a usina parada enquanto ela gerava (casos Parelhas e Marialva, 30/0
    `100 × (1 − Σ(kWp × h_perdidas) ÷ (Σ kWp × 12 × n_dias))`.
 6. **Diário** (o mapa usina × dia): por usina, por dia, `h_eq`, `disp`, `kWh` e a decomposição
    queda/equipamento (o card da célula).
-7. **Cenário das abertas**: as OS abertas sem fim contam 0 h, mas o payload traz quanto elas somariam
-   (`kwh_cenario`, `h_cenario`) se forem parada real até agora — o ícone de atenção da tela, acima do
-   filtro do mês (era uma faixa amarela até 13/10/2026).
+7. **Lista "alinhar"** (15/10/2026, no lugar do cenário das abertas): as OS do período que pedem um olho no
+   Fracttal, com o motivo — o ícone de atenção da tela, acima do filtro do mês (era uma faixa amarela até 13/10/2026).
 8. **Perda da OS em cada usina** (`kwh_usina`, 13/10/2026): a mesma parcela do `det_os`, separada por
    usina na varredura — soma a perda da OS e a da usina; as chaves são as usinas onde a OS tem evento
    (o `n_os`). É o drill-down da usina na lista por cliente.
+9. **Setembro para trás** (`calcular_pelo_bd`): o mês antes de `DISP_SO_FRACTTAL_DESDE` sai do BD_Thopen — `fonte`
+   "BD_Thopen", só usinas da Thopen, disponibilidade = média dos dias com número, cliente ponderado por kWp, sem OS e sem
+   queda × equipamento (os campos vêm `null`). De-paras de nome em `_DISP_BD_ABAS` (os mesmos do Gerencial).
 
 **Janela e período** (`_disp_meses_alvo`, `app.py:19063`): dois meses — o **corrente** (do dia 1 até
 **D-1**, fim exclusivo) e o **anterior** (cheio). No dia 1 o mês corrente vai vazio de propósito
@@ -249,21 +251,22 @@ BD, cadastradas no Fracttal, fora de `PARQUE_EXCLUI` (`AP. do Taboado`, linha ag
 Parâmetros do JSON:
 
 - `mes` — `YYYY-MM`. Ausente → o mês mais recente do índice.
-- `cliente` — filtra `usinas`, `diario`, `oss` e `cenario_abertas` por cliente (case-insensitive).
+- `cliente` — filtra `usinas`, `diario`, `oss` e `alinhar` por cliente (case-insensitive).
 - Sem índice publicado → `{"quente": false, "meses": [...]}`.
 
 Payload (quente):
 
 ```
-{ "quente": true, "mes": "2026-09", "meses": [...], "atualizado": <epoch>,
+{ "quente": true, "mes": "2026-10", "fonte": "Fracttal" | "BD_Thopen", "meses": [...], "atualizado": <epoch>,
   "periodo": {"ini","fim","dias"},
   "usinas":  [ {usina, cliente, pot_kwp, disp, h_perdidas, kwh,
                 disp_queda, h_queda, kwh_queda, disp_equip, h_equip, kwh_equip, n_os, ...} ],
   "clientes":[ {cliente, kwp, disp, kwh, disp_queda, disp_equip, n_os, n_usinas, abaixo99} ],
   "diario":  { "<Usina>": { "YYYY-MM-DD": {h_eq, disp, kwh, h_q, h_e} } },
-  "oss":     [ {folio, tipos, origem, code, g1, desc, flags, excl, aberta, ini, fim,
-                usinas[], escopo[], h_solar, kwh, kwh_usina{usina: kWh}, dias_exonerados} ],
-  "cenario_abertas": [...], "lacunas": [...] }
+  "oss":     [ {folio, tipos, origem, code, g1, desc, flags, excl, aberta, criada, ini, fim (null na aberta),
+                usinas[], escopo[], h_solar, kwh, kwh_usina{usina: kWh}, dias_aberta} ],
+  "alinhar": [ {folio, motivo, usinas[], code, desc, criado_por, criada, ini, fim, dias_aberta} ],
+  "lacunas": [...] }
 ```
 
 ---
@@ -276,7 +279,8 @@ Payload (quente):
   grosso demais (muita coisa é trabalho programado sem parada).
 - Sites **agrupados sem pista** na descrição são atribuídos à 1ª usina do grupo, com flag "conferir".
 - `wo_final_date` pode ser um **carimbo tardio** — quando é a única data de fim, a OS vem com flag.
-- A régua da geração só julga usinas **praticamente plenas** (P75 ≥ 4,5 kWh/kWp) e fatias ≥ 30 % do dia.
+- **OS esquecida aberta derruba o mês** até ser fechada no Fracttal (15/10/2026: sem o juiz da geração, a OS vale pelas
+  datas dela) — por isso a lista "alinhar".
 
 ---
 
@@ -286,7 +290,7 @@ Payload (quente):
 |---|---|
 | A conta (catálogo, escopo, varredura, fórmulas) | `plataforma/disponibilidade.py` |
 | Auth + varredura do Fracttal | `plataforma/app.py` → `get_fracttal_token`, `_frac_get`, `_frac_disp_sweep` |
-| Geração (juiz) e aba Equipamentos | `plataforma/app.py` → `_disp_geracao`, `_disp_equip_linhas` |
+| Aba Equipamentos e o BD_Thopen de setembro para trás | `plataforma/app.py` → `_disp_equip_linhas`, `_disp_dias_bd_thopen`, `DISP_SO_FRACTTAL_DESDE` |
 | Worker (loop, recálculo, publicação) | `plataforma/app.py` → `_frac_disp_loop`, `_frac_disp_recalcular`, `_frac_disp_dados` |
 | Endpoints web + export Excel | `plataforma/app.py` → `gerencial_disponibilidade`, `api_gerencial_disponibilidade`, `api_gerencial_disp_export` |
 | Tela | `plataforma/templates/disponibilidade.html` |

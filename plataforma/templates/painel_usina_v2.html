@@ -900,6 +900,7 @@ let OSBYINV={};   // nome inversor (display) -> [OS ABERTAS dos tipos acompanhad
 // Emergencial contam; 'Corretiva' simples ficou de fora (decisão do Levi, 29/08).
 let OSALL={}, OSSITE=[];
 const DISP_TIPOS=new Set(['religamento','religamento remoto','corretiva emergencial']);
+const DISP_SO_FRACTTAL_DESDE='2026-10-01';   // o corte de 15/10/2026 (app.DISP_SO_FRACTTAL_DESDE)
 function osTipoCor(t){ t=(t||'').toLowerCase();
   if(t==='corretiva emergencial') return ['rgba(220,38,38,.14)','var(--red)'];
   if(t==='corretiva') return ['rgba(217,119,6,.14)','var(--amber)'];
@@ -2072,12 +2073,12 @@ function v2HistInv(i){
   if(!rows.length) return `<div class="full">${cab}<div class="li" style="color:var(--faint)">este inversor não aparece nos dias fechados do mês</div></div>`;
   const pc=v=>v==null?'—':`<span style="color:${v>=95?'var(--ok)':v>=85?'var(--amber)':'var(--red)'}">${nf(v)}%</span>`;
   const tt=H.inversores[k]||H.inversores[ka]||{}, kq=v2esc(k).replace(/'/g,''), ab=(V2.histAberto&&V2.histAberto.inv===k)?V2.histAberto.dia:null;
-  let hOs=0, comOs=0;
-  const tr=rows.map(({d,x})=>{ const dp=_dispDia(k,d.data); hOs+=dp.h; if(dp.det.length) comOs++;
+  let hOs=0, comOs=0, nDisp=0;
+  const tr=rows.map(({d,x})=>{ const dp=_dispDia(k,d.data); hOs+=dp.h; if(dp.det.length) comOs++; if(dp.pct!=null) nDisp++;
     const open=ab===d.data, dd=d.data.slice(8,10)+'/'+d.data.slice(5,7);
     const linha=`<tr class="l hd ${open?'sel':''}" onclick="v2HistToggle('${kq}','${d.data}',event)" title="${open?'fechar a curva deste dia':'abrir a curva deste dia: correlação (inversor × irradiância × temperatura) e strings'}"><td>${open?'▾':'▸'} ${dd}</td><td class="v2n">${nf(x.ger)}</td><td class="v2n">${d.ipoa==null?'—':nf(d.ipoa,2)}</td><td class="v2n">${x.pr==null?'—':nf(x.pr*100)+'%'}</td><td class="v2n">${x.meta==null?'—':nf(x.meta)}</td><td class="v2n">${x.meta_ipoa==null?'—':nf(x.meta_ipoa)}</td><td class="v2n">${pc(x.meta?x.ger/x.meta*100:null)}</td><td class="v2n">${pc(x.meta_ipoa?x.ger/x.meta_ipoa*100:null)}</td>${_dispTd(dp)}</tr>`;
     return open?linha+`<tr class="v2exp v2hd"><td colspan="9">${_histDrillHtml(k,d.data)}</td></tr>`:linha; }).join('');
-  const dispMes=rows.length?100*(1-hOs/(12*rows.length)):null;
+  const dispMes=nDisp?100*(1-hOs/(12*nDisp)):null;   // dia antes de outubro não tem disponibilidade por inversor
   if(ab) setTimeout(()=>v2HistDrawDia(k,ab),0);   // o innerHTML acabou de recriar os canvases: desenha depois do render
   return `<div class="full"><h4>Histórico do mês · ${v2esc(k)} · ${rows.length} dia${rows.length===1?'':'s'} fechado${rows.length===1?'':'s'}</h4>
     <div style="overflow-x:auto"><table class="v2t v2h"><thead><tr><th>Dia</th><th class="v2n">kWh</th><th class="v2n">IPOA</th><th class="v2n">PR</th><th class="v2n">meta do dia</th><th class="v2n">meta IPOA</th><th class="v2n">% meta</th><th class="v2n">% IPOA</th><th class="v2n" title="disponibilidade do inversor no dia = 1 − horas solares (06–18h) em OS de Religamento, Religamento Remoto ou Corretiva Emergencial (no inversor ou na usina inteira) ÷ 12 h — a régua do Gerencial; passe o mouse no valor para ver a OS e quanto durou">% disp</th></tr></thead>
@@ -2090,22 +2091,30 @@ window.v2HistToggle=(inv,dia,ev)=>{ if(ev)ev.stopPropagation();
 function _hFmt(h){ const m=Math.round((h||0)*60); return m<60?`${m} min`:`${Math.floor(m/60)}h${String(m%60).padStart(2,'0')}`; }
 // Disponibilidade do inversor num DIA — a régua do Gerencial (plataforma/disponibilidade.py) refeita no front com as OS já
 // carregadas do Fracttal para o mês: só Religamento, Religamento Remoto e Corretiva Emergencial; janela solar 06–18h (12 h);
-// OS do ATIVO do inversor + OS de nível USINA (usina inteira parada); OS aberta sem fim = 0 h (como lá, "cenário à parte");
-// sobreposições unidas — nunca passa de 12 h. O que fica só no Gerencial: escopo de CABINE e a conferência "OS longa × geração".
+// OS do ATIVO do inversor + OS de nível USINA (usina inteira parada); OS aberta sem fim conta até agora e o evento depois do
+// fim usa a criação (15/10/2026); sobreposições unidas — nunca passa de 12 h. O que fica só no Gerencial: escopo de CABINE.
 function _dispDia(nome, dia){
-  const j0=new Date(dia+'T06:00:00').getTime(), j1=new Date(dia+'T18:00:00').getTime();
+  // Régua do Gerencial desde 15/10/2026 (plataforma/disponibilidade.py): só o Fracttal, OS aberta conta até agora,
+  // evento depois do fim usa a criação. Setembro para trás a disponibilidade é a da USINA no BD_Thopen — por inversor
+  // não há, então o dia antes de outubro sai "—" (Levi: "setembro para trás vamos considerar o que está no BD_Thopen").
+  if(dia<DISP_SO_FRACTTAL_DESDE) return {pct:null,h:0,det:[],outras:['antes de outubro: a disponibilidade é a da usina, no BD_Thopen']};
+  const j0=new Date(dia+'T06:00:00').getTime(), j1=new Date(dia+'T18:00:00').getTime(), agora=Date.now();
   const lst=[]; ((OSALL||{})[nome]||[]).forEach(o=>lst.push({o,nivel:'inversor'})); (OSSITE||[]).forEach(o=>lst.push({o,nivel:'usina'}));
   const fmt=t=>{ const d=new Date(t); return String(d.getDate()).padStart(2,'0')+'/'+String(d.getMonth()+1).padStart(2,'0')+' '+String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
   const vis=new Set(), ints=[], det=[], outras=[];
   lst.forEach(({o,nivel})=>{
     if(vis.has(o.folio)) return; vis.add(o.folio);
     if(!DISP_TIPOS.has(String(o.tipo||'').toLowerCase())||!o.evento_ts) return;
-    const a=new Date(o.evento_ts).getTime(); if(isNaN(a)) return;
+    let a=new Date(o.evento_ts).getTime(); if(isNaN(a)) return;
     const rot=`OS #${o.folio||'?'} ${o.tipo||''}${nivel==='usina'?' · usina inteira':''}`;
-    if(!o.fim_ts){ if(a<=j1) outras.push(`${rot} · em aberto desde ${fmt(a)} — sem fim não conta (como no Gerencial)`); return; }
-    const b=new Date(o.fim_ts).getTime(); if(isNaN(b)) return;
+    const aberta=!o.fim_ts, b=aberta?agora:new Date(o.fim_ts).getTime(); if(isNaN(b)) return;
+    if(b<a){                                   // evento depois do fim: a criação vira o evento
+      const c=o.criada_ts?new Date(o.criada_ts).getTime():NaN;
+      if(isNaN(c)||c>b){ if(a>=j0&&a<=j1) outras.push(`${rot} · fim antes do evento e da criação — conta 0 h`); return; }
+      a=c;
+    }
     const x0=Math.max(a,j0), x1=Math.min(b,j1); if(x1<=x0) return;
-    ints.push([x0,x1]); det.push(`${rot} · ${_hFmt((x1-x0)/36e5)} solares neste dia · ${fmt(a)} → ${fmt(b)}${o.ativo?' · '+o.ativo:''}`);
+    ints.push([x0,x1]); det.push(`${rot} · ${_hFmt((x1-x0)/36e5)} solares neste dia · ${fmt(a)} → ${aberta?'ainda aberta':fmt(b)}${o.ativo?' · '+o.ativo:''}`);
   });
   ints.sort((p,q)=>p[0]-q[0]); let h=0, cur=null;
   ints.forEach(([a,b])=>{ if(cur&&a<=cur[1]) cur[1]=Math.max(cur[1],b); else { if(cur) h+=(cur[1]-cur[0]); cur=[a,b]; } }); if(cur) h+=(cur[1]-cur[0]);
@@ -2113,6 +2122,7 @@ function _dispDia(nome, dia){
   return {pct:100*(1-h/12),h,det,outras};
 }
 function _dispTd(dp){
+  if(dp.pct==null) return `<td class="v2n" style="color:var(--faint)" title="${v2esc(dp.outras.join('\n'))}">—</td>`;
   const c=dp.det.length?(dp.pct>=95?'var(--amber)':'var(--red)'):'var(--ok)';
   const tit=(dp.det.length?dp.det:['sem OS de parada neste dia']).concat(dp.outras).join('\n');
   return `<td class="v2n" style="color:${c}" title="${v2esc(tit)}">${nf(dp.pct)}%${dp.det.length?` <small style="color:var(--faint)">${_hFmt(dp.h)}</small>`:''}</td>`;

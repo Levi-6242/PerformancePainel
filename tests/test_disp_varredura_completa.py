@@ -262,6 +262,8 @@ def ambiente(monkeypatch, tmp_path, fracttal):
     monkeypatch.setattr(app, "_disp_equip_linhas", lambda: EQUIP)
     monkeypatch.setattr(app, "_disp_geracao", lambda *a, **k: {})
     monkeypatch.setattr(app, "_log_arquivo", lambda nome, msg: logs.append((nome, msg)))
+    # estes testes são da VARREDURA: os dois meses pelo Fracttal (o corte de 15/10/2026 tem teste próprio, no fim)
+    monkeypatch.setattr(app, "DISP_SO_FRACTTAL_DESDE", "2000-01")
     monkeypatch.setattr(app, "_DISP_GER_ULTIMA", {})          # a aba Falhas lê isto: não vazar a geração falsa
     monkeypatch.setattr(app, "DASH_PASSWORD", "")
     return {"dir": tmp_path, "logs": logs, "fracttal": fracttal, "web": app.app.test_client()}
@@ -383,3 +385,28 @@ def test_varredura_inteira_publica_diz_ate_onde_leu_e_limpa_o_aviso(ambiente):
     assert d["varredura"]["ate"] == "2026-06-01"
     assert any(o["folio"] == 2000 for o in d["oss"])
     assert ambiente["logs"] and ambiente["logs"][-1][0] == "fracttal.log"      # a volta também fica registrada
+
+
+# ── o corte de 15/10/2026: setembro para trás é da Thopen, pelo BD_Thopen; de outubro em diante, só o Fracttal ─────────
+def test_mes_antes_de_outubro_vem_do_bd_thopen_e_outubro_do_fracttal(ambiente, monkeypatch):
+    monkeypatch.setattr(app, "DISP_SO_FRACTTAL_DESDE", "2026-10")
+    monkeypatch.setattr(app, "_disp_meses_alvo", lambda hoje=None: [
+        ("2026-10", datetime(2026, 10, 1), datetime(2026, 10, 15)),
+        ("2026-09", datetime(2026, 9, 1), datetime(2026, 10, 1))])
+    pedidos = []
+
+    def _bd(ini, fim, equip):
+        pedidos.append(ini)
+        return {"Alfa": {datetime(2026, 9, 16).date(): 0.5}}
+    monkeypatch.setattr(app, "_disp_dias_bd_thopen", _bd)
+    ambiente["fracttal"]([_tarefa(3000, "2026-10-02T12:00:00+00:00", evento="2026-10-02T12:00:00+00:00",
+                                  fim="2026-10-02T15:00:00+00:00"),
+                          _tarefa(3001, "2026-09-16T12:00:00+00:00", evento="2026-09-16T12:00:00+00:00",
+                                  fim="2026-09-16T15:00:00+00:00")], tam=2)
+    app._frac_disp_recalcular()
+    idx = json.loads((ambiente["dir"] / "frac_disp_index.json").read_text(encoding="utf-8"))
+    out, set_ = idx["meses"]["2026-10"], idx["meses"]["2026-09"]
+    assert out["fonte"] == "Fracttal" and any(o["folio"] == 3000 for o in out["oss"])
+    assert set_["fonte"] == "BD_Thopen" and set_["oss"] == [] and pedidos == [datetime(2026, 9, 1)]
+    (u,) = set_["usinas"]
+    assert u["disp"] == 50.0 and set_["diario"]["Alfa"]["2026-09-16"]["disp"] == 50.0

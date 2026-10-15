@@ -44,7 +44,7 @@ def task(**kw):
     """task do Fracttal com defaults de religamento concluído na usina Alfa."""
     base = {"tasks_log_task_type_main": "Religamento", "id_status_work_order": 3,
             "event_date": None, "date_maintenance": None,
-            "final_date": None, "wo_final_date": None,
+            "final_date": None, "wo_final_date": None, "creation_date": None,
             "code": "TC-ALF100", "items_log_description": "TesteCo - Alfa 1 - SP  Endereço",
             "groups_1_description": "TesteCo - Alfa 1 - SP", "description": "Religamento da Usina"}
     base.update(kw)
@@ -90,13 +90,47 @@ def test_parada_atravessa_a_noite():
 
 
 # ── datas: as pegadinhas do Fracttal ─────────────────────────────────────────
-def test_relampago_final_antes_do_evento_dura_zero():
-    # final_date carimbado 40 s ANTES do event_date → duração 0, não exclusão
-    r = roda({"4": [task(event_date="2026-07-10T12:00:40+00:00",
-                         final_date="2026-07-10T12:00:00+00:00")]})
+# Evento DEPOIS do fim (Levi, 15/10/2026: "no caso de OSs com diferenças negativas (evento foi depois do fim da OS) será
+# considerado a data de criação como data do evento"). Substitui as duas réguas de antes: o "relâmpago" (até 1 h antes
+# = duração 0) e o "fim muito antes do início" (fim descartado).
+def alinhar(r, folio):
+    return [a for a in r["alinhar"] if a["folio"] == folio]
+
+
+def test_evento_depois_do_fim_usa_a_criacao_como_evento():
+    # evento 10/07 09:00:40 local, fim 09:00:00, criada 08:00 → de 08:00 a 09:00 = 1 h
+    r = roda({"4": [task(event_date="2026-07-10T12:00:40+00:00", final_date="2026-07-10T12:00:00+00:00",
+                         creation_date="2026-07-10T11:00:00+00:00")]})
     o = a_os(r, 4)
-    assert o["excl"] is None
-    assert o["h_solar"] == 0.0
+    assert o["excl"] is None and o["ini"] == "2026-07-10T08:00:00"
+    assert o["h_solar"] == pytest.approx(1.0)
+    assert so_alfa(r)["h_perdidas"] == pytest.approx(1.0)
+    (a,) = alinhar(r, 4)
+    assert "criação" in a["motivo"]
+
+
+def test_evento_dias_depois_do_fim_tambem_usa_a_criacao():
+    # evento 20/07, fim 10/07 15:00 local, criada 10/07 09:00 local → 6 h no dia 10 (antes, o fim era descartado)
+    r = roda({"8": [task(event_date="2026-07-20T12:00:00+00:00", final_date="2026-07-10T18:00:00+00:00",
+                         creation_date="2026-07-10T12:00:00+00:00")]})
+    assert a_os(r, 8)["h_solar"] == pytest.approx(6.0)
+    assert r["diario"]["Alfa"]["2026-07-10"]["h_eq"] == pytest.approx(6.0)
+
+
+def test_fim_antes_ate_da_criacao_conta_zero_e_vai_para_alinhar():
+    r = roda({"10": [task(event_date="2026-07-10T15:00:00+00:00", final_date="2026-07-10T12:00:00+00:00",
+                          creation_date="2026-07-11T12:00:00+00:00")]})
+    o = a_os(r, 10)
+    assert o["excl"] is None and o["h_solar"] == 0.0
+    assert so_alfa(r)["disp"] == 100.0
+    (a,) = alinhar(r, 10)
+    assert "antes" in a["motivo"] and "criação" in a["motivo"]
+
+
+def test_fim_antes_do_evento_sem_criacao_conta_zero_e_vai_para_alinhar():
+    r = roda({"11": [task(event_date="2026-07-10T15:00:00+00:00", final_date="2026-07-10T12:00:00+00:00")]})
+    assert a_os(r, 11)["h_solar"] == 0.0
+    assert alinhar(r, 11)
 
 
 def test_wo_final_date_nao_estica_a_parada():
@@ -144,18 +178,37 @@ def test_fim_digitado_num_ano_antes_do_evento_segue_fora_e_vale_o_wo_final():
     assert any("wo_final_date" in f for f in o["flags"])
 
 
-def test_aberta_sem_fim_zero_no_calculo_e_cenario():
-    r = roda({"7": [task(id_status_work_order=1,
-                         event_date="2026-07-20T12:00:00+00:00")]})
+# OS aberta CONTA (Levi, 15/10/2026: "Será considerado OSs fechadas e abertas"). Desde 26/08 ela valia 0 h e ia para um
+# "cenário" à parte; e no mês seguinte sumia de tudo (o fim = início a tirava do período): a 16338, Inversor 2.2 de
+# Ipixuna 2, aberta desde 16/09, não aparecia em outubro. Agora conta do evento até o fim do período (no mês corrente,
+# até ontem) em todo mês em que seguir aberta, e vai para a lista "alinhar" com os dias em aberto.
+def test_aberta_sem_fim_conta_ate_o_fim_do_periodo():
+    r = roda({"7": [task(id_status_work_order=1, event_date="2026-07-20T12:00:00+00:00")]})
     o = a_os(r, 7)
-    assert o["excl"] is None
-    assert o["h_solar"] == 0.0
-    assert so_alfa(r)["disp"] == 100.0
-    cen = r["cenario_abertas"]
-    assert len(cen) == 1 and cen[0]["folio"] == 7
-    # cenário: 20/07 09:00 local até 31/07 → 9 h do dia 20 + 11 dias × 12 h = 141 h
-    assert cen[0]["h_cenario"] == pytest.approx(141.0, abs=0.1)
-    assert cen[0]["kwh_cenario"] == pytest.approx(141000, rel=1e-3)
+    assert o["excl"] is None and o["aberta"] is True
+    # 20/07 09:00 local até 31/07 → 9 h do dia 20 + 11 dias × 12 h = 141 h
+    assert o["h_solar"] == pytest.approx(141.0, abs=0.01)
+    assert so_alfa(r)["disp"] == pytest.approx(100 * (1 - 141.0 / TOT_H), abs=0.01)
+    (a,) = alinhar(r, 7)
+    assert "aberta" in a["motivo"] and a["dias_aberta"] == 26      # 20/07 09:00 → 15/08 12:00
+    assert "cenario_abertas" not in r
+
+
+def test_aberta_do_mes_anterior_conta_no_mes_seguinte():
+    # agosto até ontem (agora = 15/08 12:00 → período 01/08 a 15/08 00:00): 14 dias × 12 h
+    wos = {"7": [task(id_status_work_order=1, event_date="2026-07-20T12:00:00+00:00")]}
+    r = calcular(wos, EQUIP, datetime(2026, 8, 1), datetime(2026, 8, 15), agora=AGORA)
+    assert a_os(r, 7)["h_solar"] == pytest.approx(168.0, abs=0.01)
+    assert so_alfa(r)["disp"] == 0.0
+    assert alinhar(r, 7)
+
+
+def test_aberta_com_fim_na_tarefa_vale_o_fim():
+    # a WO segue aberta, mas a tarefa tem data final: vale a data final (a usina voltou), sem ir para "alinhar"
+    r = roda({"12": [task(id_status_work_order=1, event_date="2026-07-10T12:00:00+00:00",
+                          final_date="2026-07-10T14:00:00+00:00")]})
+    assert a_os(r, 12)["h_solar"] == pytest.approx(2.0)
+    assert not alinhar(r, 12)
 
 
 def test_cancelada_fica_fora_mas_listada():
@@ -318,20 +371,18 @@ def test_os_com_os_dois_tipos_conta_como_queda():
 
 
 # ── perda de cada OS em cada usina (drill-down por cliente da tela, Levi 13/10/2026) ──
-def test_perda_da_os_em_cada_usina_segue_o_dia_desmentido_de_cada_uma():
-    # site agrupado sem pista (Beta 1 e 2, 500 kWp cada), de 10/07 06 h a 11/07 18 h; a geração da Beta 1 desmente o
-    # dia 11. A Beta 1 perde só o dia 10 (12 h × 500 = 6.000 kWh) e a Beta 2 os dois (24 h × 500 = 12.000). Repartir os
-    # 18.000 da OS pela potência daria 9.000 e 9.000 — errado nas duas.
-    dias = {f"2026-07-{d:02d}": (0.0 if d == 10 else 2500.0) for d in range(1, 32)}
+def test_perda_da_os_em_cada_usina_de_site_agrupado():
+    # site agrupado sem pista (Beta 1 e 2, 500 kWp cada), de 10/07 06 h a 11/07 18 h: as duas perdem os dois dias
+    # (24 h × 500 = 12.000 cada). Até 15/10/2026 a geração podia desmentir o dia numa usina só, e o kwh_usina seguia isso;
+    # o juiz saiu, a conta é pelas datas da OS
     r = calcular({"20": [task(code="TC-BET100", groups_1_description="TesteCo - Beta 1 e 2 - RN",
                               items_log_description="TesteCo - Beta 1 e 2 - RN  Endereço",
                               description="Religamento da Usina",
                               event_date="2026-07-10T09:00:00+00:00", final_date="2026-07-11T21:00:00+00:00")]},
-                 EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Beta 1": dias})
+                 EQUIP, PER_INI, PER_FIM, agora=AGORA)
     o = a_os(r, 20)
-    assert o["kwh"] == 18000
-    assert o["kwh_usina"] == {"Beta 1": 6000, "Beta 2": 12000}
-    assert {u["usina"]: u["kwh"] for u in r["usinas"] if u["usina"] != "Alfa"} == {"Beta 1": 6000, "Beta 2": 12000}
+    assert o["kwh"] == 24000
+    assert o["kwh_usina"] == {"Beta 1": 12000, "Beta 2": 12000}
 
 
 def test_perda_por_usina_reparte_a_hora_sobreposta_como_o_total():
@@ -347,14 +398,14 @@ def test_perda_por_usina_reparte_a_hora_sobreposta_como_o_total():
     assert so_alfa(r)["kwh"] == 2600
 
 
-def test_os_sem_hora_de_sol_conta_na_usina_com_zero_e_a_aberta_sem_fim_nao():
-    # a noturna (20→23 h local) tem evento na usina: entra no n_os, com 0 kWh. A aberta sem data final entra com 0 h e
-    # não tem evento: fica fora da usina (vai para o cenário das abertas)
+def test_os_sem_hora_de_sol_conta_na_usina_com_zero_e_a_aberta_sem_fim_tambem_conta():
+    # a noturna (20→23 h local) tem evento na usina: entra no n_os, com 0 kWh. A aberta sem data final CONTA desde
+    # 15/10/2026 (até o fim do período): 141 h × 1000 kWp
     r = roda({"2": [task(event_date="2026-07-10T23:00:00+00:00", final_date="2026-07-11T02:00:00+00:00")],
               "7": [task(id_status_work_order=1, event_date="2026-07-20T12:00:00+00:00")]})
     assert a_os(r, 2)["kwh_usina"] == {"Alfa": 0}
-    assert a_os(r, 7)["kwh_usina"] == {}
-    assert so_alfa(r)["n_os"] == 1
+    assert a_os(r, 7)["kwh_usina"] == {"Alfa": 141000}
+    assert so_alfa(r)["n_os"] == 2
 
 
 # ── hierarquia: coluna "Equipamento Parente" manda no nome ───────────────────
@@ -389,155 +440,24 @@ def test_cabine_derivada_cai_no_nome_sem_parente():
     assert sorted(cat["Delta"].ugs) == [1, 2]
 
 
-# ── parada-fantasma: OS longa em usina que estava gerando ────────────────────
+# ── a geração não entra na disponibilidade (Levi, 15/10/2026) ───────────────────────────────────────────────────────
+# "Não quero que olhe a geração, precisamos que você foque nos dados do Fracttal (...) não quero que cruze dados de
+# geração pois são objetivos diferentes." Até aqui, o juiz da geração desmentia a OS em usina que gerou (Parelhas, 30/08).
+# Saiu de vez: a OS conta pelas datas dela, e o que estiver estranho vai para a lista "alinhar".
 def _os_longa(folio="50", ini="2026-07-05T12:00:00+00:00", fim="2026-07-20T21:00:00+00:00"):
     return {folio: [task(event_date=ini, final_date=fim)]}
 
 
-def test_os_longa_com_geracao_normal_nao_conta():
-    # Alfa (1000 kWp) "parada" 15 dias, mas gerando 5.000 kWh/dia (5 kWh/kWp) — caso Parelhas
-    dias = {f"2026-07-{d:02d}": 5000.0 for d in range(1, 32)}
-    r = calcular(_os_longa(), EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
-    u = so_alfa(r)
-    assert u["h_perdidas"] == pytest.approx(0.0), "dia que gerou não pode contar como parada"
-    assert u["disp"] == 100.0
-    o = a_os(r, 50)
-    assert any("exonerados" in f for f in o["flags"])
-    assert len(o["dias_exonerados"]["Alfa"]) == 16
+def test_os_longa_conta_pelas_datas_dela_sem_olhar_geracao():
+    # 05/07 09:00 local até 20/07 18:00 local: 9 h + 14 dias × 12 h + 12 h = 189 h, a usina inteira
+    r = calcular(_os_longa(), EQUIP, PER_INI, PER_FIM, agora=AGORA)
+    assert so_alfa(r)["h_perdidas"] == pytest.approx(189.0, abs=0.01)
+    assert "dias_exonerados" not in a_os(r, 50)
 
 
-def test_os_longa_sem_geracao_conta_normal():
-    # mesma OS, mas a usina realmente parada (geração ~0) → conta tudo
-    dias = {f"2026-07-{d:02d}": 5.0 for d in range(1, 32)}
-    r = calcular(_os_longa(), EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
-    assert so_alfa(r)["h_perdidas"] > 100, "parada real tem de continuar contando"
-
-
-def test_os_longa_sem_dado_de_geracao_conta_normal():
-    # sem geração conhecida NÃO se exonera nada — ausência de prova não é prova
-    r = calcular(_os_longa(), EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao=None)
-    assert so_alfa(r)["h_perdidas"] > 100
-    r2 = calcular(_os_longa(), EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": {}})
-    assert so_alfa(r2)["h_perdidas"] > 100
-
-
-def test_parada_curta_no_dia_nao_e_julgada():
-    # 1 h de parada = 8% do dia solar: abaixo da resolução da geração, continua contando
-    dias = {f"2026-07-{d:02d}": 5000.0 for d in range(1, 32)}
-    curta = {"51": [task(event_date="2026-07-10T12:00:00+00:00",
-                         final_date="2026-07-10T13:00:00+00:00")]}
-    r = calcular(curta, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
-    assert so_alfa(r)["h_perdidas"] == pytest.approx(1.0)
-
-
-def test_os_de_24h_que_come_o_dia_e_conferida():
-    # caso Marialva: religamento aberto num dia e fechado no mesmo horário do seguinte come o
-    # dia solar inteiro. Dura 1 dia — a régua velha, amarrada a "OS longa", não conferia.
-    dias = {f"2026-07-{d:02d}": 5000.0 for d in range(1, 32)}
-    diaria = {"56": [task(event_date="2026-07-10T04:20:00+00:00",     # 01:20 local
-                          final_date="2026-07-11T04:30:00+00:00")]}
-    r = calcular(diaria, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
-    assert so_alfa(r)["h_perdidas"] == pytest.approx(0.0)
-    assert a_os(r, 56)["dias_exonerados"]["Alfa"]
-
-
-def test_cabine_parada_desmentida_por_geracao_plena():
-    # caso Junco: OS longa diz cabine 2 (400 de 1000 kWp = 40%) parada, mas a usina produz
-    # o normal cheio (5 kWh/kWp) — não dá para render 100% com 60% da capacidade
-    dias = {f"2026-07-{d:02d}": 5000.0 for d in range(1, 32)}
-    cab = {"52": [task(code="TC-ALF100-CABN2", items_log_description="Cabine 2",
-                       event_date="2026-07-05T12:00:00+00:00",
-                       final_date="2026-07-20T21:00:00+00:00")]}
-    r = calcular(cab, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
-    assert so_alfa(r)["h_perdidas"] == pytest.approx(0.0)
-    assert a_os(r, 52)["dias_exonerados"]["Alfa"]
-
-
-def test_cabine_parada_de_verdade_continua_contando():
-    # mesma OS, mas a usina produz ~60% do normal — coerente com a cabine 2 (40%) fora
-    dias = {f"2026-07-{d:02d}": (5000.0 if d < 5 else 3000.0) for d in range(1, 32)}
-    cab = {"53": [task(code="TC-ALF100-CABN2", items_log_description="Cabine 2",
-                       event_date="2026-07-05T12:00:00+00:00",
-                       final_date="2026-07-20T21:00:00+00:00")]}
-    r = calcular(cab, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
-    assert so_alfa(r)["h_perdidas"] > 60, "parada parcial real tem de continuar contando"
-
-
-def test_inversor_parado_nao_e_exonerado_por_usina_gerar():
-    # 1 inversor de 300 em 1000 kWp: a usina gerando 70-95% do normal é COERENTE com ele fora
-    dias = {f"2026-07-{d:02d}": 3600.0 for d in range(1, 32)}     # 90% de 4.000
-    inv = {"54": [task(code="TC-ALF100-INVR1.1", items_log_description="Inversor 1.1",
-                       event_date="2026-07-05T12:00:00+00:00",
-                       final_date="2026-07-20T21:00:00+00:00")]}
-    r = calcular(inv, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
-    assert so_alfa(r)["h_perdidas"] > 0, "inversor realmente parado não pode ser exonerado"
-
-
-def test_geracao_medida_no_complexo_julga_a_usina_irma():
-    # caso Nova Londrina: a medição cobre Beta 1 + Beta 2 juntas (1.000 kWp) e não será
-    # separada. OS diz Beta 1 (500 = 50% do complexo) parada, mas o complexo rende pleno.
-    dias = {f"2026-07-{d:02d}": 6000.0 for d in range(1, 32)}      # 6 kWh/kWp do complexo
-    ger = {"Beta 1": {"dias": dias, "kwp": 1000.0},
-           "Beta 2": {"dias": dias, "kwp": 1000.0}}
-    os_b1 = {"60": [task(code="TC-BET100", groups_1_description="TesteCo - Beta 1 e 2 - RN",
-                         items_log_description="TesteCo - Beta 1 e 2 - RN",
-                         description="Usina desligada — Beta 1",
-                         event_date="2026-07-05T12:00:00+00:00",
-                         final_date="2026-07-20T21:00:00+00:00")]}
-    r = calcular(os_b1, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao=ger)
-    b1 = next(u for u in r["usinas"] if u["usina"] == "Beta 1")
-    assert b1["h_perdidas"] == pytest.approx(0.0)
-    assert a_os(r, 60)["dias_exonerados"]["Beta 1"]
-
-
-def test_complexo_com_metade_fora_de_verdade_continua_contando():
-    # o complexo rende ~3 kWh/kWp (metade fora): patamar não é pleno → nada é exonerado
-    dias = {f"2026-07-{d:02d}": 3000.0 for d in range(1, 32)}
-    ger = {"Beta 1": {"dias": dias, "kwp": 1000.0}}
-    os_b1 = {"61": [task(code="TC-BET100", groups_1_description="TesteCo - Beta 1 e 2 - RN",
-                         items_log_description="TesteCo - Beta 1 e 2 - RN",
-                         description="Usina desligada — Beta 1",
-                         event_date="2026-07-05T12:00:00+00:00",
-                         final_date="2026-07-20T21:00:00+00:00")]}
-    r = calcular(os_b1, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao=ger)
-    b1 = next(u for u in r["usinas"] if u["usina"] == "Beta 1")
-    assert b1["h_perdidas"] > 60
-
-
-def test_dia_nublado_nao_atrapalha_a_exoneracao():
-    # patamar da usina é pleno (P75 = 6 kWh/kWp); dias de nuvem a 3,5 continuam desmentindo
-    # uma parada de usina INTEIRA — foi o que fazia Parelhas perder metade da exoneração
-    dias = {f"2026-07-{d:02d}": (6000.0 if d % 3 else 3500.0) for d in range(1, 32)}
-    r = calcular(_os_longa(), EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
-    assert so_alfa(r)["h_perdidas"] == pytest.approx(0.0)
-    assert len(a_os(r, 50)["dias_exonerados"]["Alfa"]) == 16
-
-
-def test_metade_parada_o_mes_todo_nao_vira_o_proprio_normal():
-    # usina de 1000 kWp rendendo 3,0 (metade fora): o patamar não é pleno → nada é exonerado
-    dias = {f"2026-07-{d:02d}": 3000.0 for d in range(1, 32)}
-    cab = {"55": [task(code="TC-ALF100-CABN1", items_log_description="Cabine 1",
-                       event_date="2026-07-05T12:00:00+00:00",
-                       final_date="2026-07-20T21:00:00+00:00")]}
-    r = calcular(cab, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
-    assert so_alfa(r)["h_perdidas"] > 60
-
-
-def test_usina_parada_o_mes_todo_nao_vira_o_proprio_normal():
-    # se a usina produz pouco o período INTEIRO, o P75 dela não é regime pleno → não exonera
-    dias = {f"2026-07-{d:02d}": 500.0 for d in range(1, 32)}       # 0,5 kWh/kWp
-    r = calcular(_os_longa(), EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
-    assert so_alfa(r)["h_perdidas"] > 100
-
-
-def test_exonera_apenas_os_dias_que_geraram():
-    # gerou até 12/07 e parou de verdade de 13 a 20/07
-    dias = {f"2026-07-{d:02d}": (5000.0 if d <= 12 else 0.0) for d in range(1, 32)}
-    r = calcular(_os_longa(), EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": dias})
-    o = a_os(r, 50)
-    assert o["dias_exonerados"]["Alfa"] == [f"2026-07-{d:02d}" for d in range(5, 13)]
-    # restam os dias 13..20 (8 dias): 7 dias cheios (12 h) + o dia 20 até 18:00 = 84 + 12 = 96 h
-    assert so_alfa(r)["h_perdidas"] == pytest.approx(96.0, abs=0.5)
+def test_calculo_nao_aceita_geracao():
+    with pytest.raises(TypeError):
+        calcular(_os_longa(), EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Alfa": {}})
 
 
 # ── só Full O&M entra no parque ──────────────────────────────────────────────
@@ -602,3 +522,104 @@ def test_regressao_os_10758_smp100():
     # gabarito da análise de 25/08: 41,17 h solares e ~285.275 kWh (usina de 6.930 kWp)
     assert o["h_solar"] == pytest.approx(41.17, abs=0.05)
     assert o["kwh"] == pytest.approx(285275, rel=0.005)
+
+
+# ── "alinhar": o que o Fracttal mostra de estranho, só com o dado do Fracttal (Levi, 15/10/2026) ───────────────────────
+# "pode até apontar possíveis erros em criação de OS porém não quero que cruze dados de geração". A lista substitui o
+# cenário das abertas na tela Disponibilidade: cada OS que toca o período e precisa de um olho humano, com o motivo.
+def test_alinhar_aponta_wo_final_date_grupo_sem_pista_e_concluida_sem_fim():
+    wos = {
+        "20": [task(event_date="2026-07-10T12:00:00+00:00", wo_final_date="2026-07-10T14:00:00+00:00")],
+        "21": [task(code="TC-BET100", groups_1_description="TesteCo - Beta 1 e 2 - RN",
+                    items_log_description="TesteCo - Beta 1 e 2 - RN", description="Religamento da usina",
+                    event_date="2026-07-11T12:00:00+00:00", final_date="2026-07-11T13:00:00+00:00")],
+        "22": [task(event_date="2026-07-12T12:00:00+00:00")],                     # concluída (status 3) sem fim
+        "23": [task(id_status_work_order=4, event_date="2026-07-13T12:00:00+00:00")],   # cancelada: não é erro
+    }
+    r = roda(wos)
+    assert "data final da WO" in alinhar(r, 20)[0]["motivo"]
+    assert "grupo" in alinhar(r, 21)[0]["motivo"]
+    assert "sem data final" in alinhar(r, 22)[0]["motivo"]
+    assert not alinhar(r, 23)
+
+
+def test_alinhar_nao_lista_a_os_bem_preenchida():
+    r = roda({"1": [task(event_date="2026-07-10T12:00:00+00:00", final_date="2026-07-10T18:00:00+00:00")]})
+    assert r["alinhar"] == []
+
+
+# ── setembro para trás, só a Thopen, pelo BD_Thopen (Levi, 15/10/2026) ───────────────────────────────────────────────
+# "A disponibilidade será calculada somente pelo Fracttal a partir de outubro; setembro para trás vamos considerar o que
+# está no BD_Thopen"; fora da Thopen, "só a partir de outubro!". O BD_Thopen tem a "Disponibilidade Usina (%)" de cada
+# dia por usina; o BD_Performance não tem disponibilidade.
+from disponibilidade import calcular_pelo_bd   # noqa: E402
+
+
+def test_mes_pelo_bd_usa_a_disponibilidade_diaria_da_planilha():
+    dias = {"Alfa": {"2026-07-10": 0.75, "2026-07-11": 1.0, "2026-08-01": 0.0}}   # 01/08 fora do período
+    r = calcular_pelo_bd(dias, EQUIP, PER_INI, PER_FIM)
+    assert r["fonte"] == "BD_Thopen"
+    (u,) = r["usinas"]                                          # Beta 1 e 2 sem dado no BD: fora
+    assert u["usina"] == "Alfa"
+    assert u["disp"] == pytest.approx(87.5)                     # 3 h perdidas em 2 dias com dado (24 h)
+    assert u["h_perdidas"] == pytest.approx(3.0)
+    assert u["kwh"] == 3000                                     # 1000 kWp × 3 h, a mesma régua nominal do Fracttal
+    assert r["diario"]["Alfa"]["2026-07-10"]["disp"] == 75.0
+    assert "2026-08-01" not in r["diario"]["Alfa"]
+    assert r["oss"] == [] and r["alinhar"] == []
+    (c,) = r["clientes"]
+    assert c["cliente"] == "TesteCo" and c["disp"] == pytest.approx(87.5)
+
+
+def test_mes_pelo_bd_aceita_fracao_ou_porcentagem():
+    a = calcular_pelo_bd({"Alfa": {"2026-07-10": 0.75}}, EQUIP, PER_INI, PER_FIM)
+    b = calcular_pelo_bd({"Alfa": {"2026-07-10": 75}}, EQUIP, PER_INI, PER_FIM)
+    assert a["usinas"] == b["usinas"] and a["diario"] == b["diario"]
+
+
+def test_mes_pelo_bd_pondera_o_cliente_pelo_kwp():
+    dias = {"Alfa": {"2026-07-10": 0.5}, "Beta 1": {"2026-07-10": 1.0}}
+    r = calcular_pelo_bd(dias, EQUIP, PER_INI, PER_FIM)
+    (c,) = r["clientes"]
+    assert c["disp"] == pytest.approx((1000 * 50 + 500 * 100) / 1500, abs=0.01)
+
+
+# Dois sinais só do Fracttal que a prova de 15/10/2026 mostrou pesando no mês (a OS CONTINUA contando; só vai para
+# "alinhar"): Religamento com descrição de "Verificação de comunicação" ou de inspeção (TIM200 15488, 06 a 13/10; Brodowski
+# 12693, aberta desde 02/09) e religamento que dura dias (Canarana 1 14924, 29/09 a 13/10).
+def test_alinhar_aponta_religamento_com_descricao_de_verificacao_de_comunicacao():
+    r = roda({"30": [task(description="[ATHN-TIM200] - Verificação de comunicação do ATHN-TIM200",
+                          event_date="2026-07-10T12:00:00+00:00", final_date="2026-07-10T14:00:00+00:00")]})
+    assert a_os(r, 30)["h_solar"] == pytest.approx(2.0)                   # conta
+    assert "comunicação" in alinhar(r, 30)[0]["motivo"]
+
+
+def test_alinhar_aponta_religamento_que_dura_mais_de_um_dia():
+    r = roda({"31": [task(event_date="2026-07-10T12:00:00+00:00", final_date="2026-07-13T12:00:00+00:00")]})
+    assert a_os(r, 31)["h_solar"] > 24                                    # conta
+    assert "3 dias" in alinhar(r, 31)[0]["motivo"]
+    r = roda({"33": [task(event_date="2026-07-10T12:00:00+00:00", final_date="2026-07-11T22:00:00+00:00")]})
+    assert "religamento de 34 h" in alinhar(r, 33)[0]["motivo"]          # abaixo de 2 dias, em horas
+
+
+def test_corretiva_longa_nao_e_apontada():
+    # troca de inversor leva dias de verdade: só o religamento longo é estranho
+    r = roda({"32": [task(tasks_log_task_type_main="Corretiva Emergencial", code="TC-ALF100-INVR1.1",
+                          description="Troca do inversor 1.1",
+                          event_date="2026-07-10T12:00:00+00:00", final_date="2026-07-15T12:00:00+00:00")]})
+    assert not alinhar(r, 32)
+
+
+# ── revisão adversarial de 15/10/2026 ──────────────────────────────────────────────────────────────────────────────
+def test_alinhar_pega_a_os_fora_da_conta_que_comecou_antes_do_periodo():
+    # Santo Antônio da Platina, OS 13489 (12/09 a 06/10): o site do Fracttal não casa com o cadastro, ela fica fora da
+    # conta, e outubro não a mostrava (o evento é de setembro, e setembro agora vem do BD, sem lista)
+    wos = {"40": [task(code="TC-XYZ100", groups_1_description="TesteCo - Xyz - SP", items_log_description="TesteCo - Xyz",
+                       event_date="2026-06-25T12:00:00+00:00", final_date="2026-07-05T12:00:00+00:00")]}
+    r = roda(wos)
+    assert "sem correspondência" in alinhar(r, 40)[0]["motivo"]
+
+
+def test_aberta_no_mes_ja_fechado_nao_diz_ate_ontem():
+    r = roda({"7": [task(id_status_work_order=1, event_date="2026-07-20T12:00:00+00:00")]})
+    assert "até ontem" not in alinhar(r, 7)[0]["motivo"] and "enquanto estiver aberta" in alinhar(r, 7)[0]["motivo"]

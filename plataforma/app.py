@@ -26186,6 +26186,46 @@ def _frac_disp_status():
         return {}
 
 
+# A disponibilidade é SÓ DO FRACTTAL de outubro de 2026 em diante, para todos os clientes; setembro para trás é da Thopen,
+# pela "Disponibilidade Usina (%)" diária do BD_Thopen, e os outros clientes não têm (Levi, 15/10/2026: "A disponibilidade
+# será calculada somente pelo Fracttal a partir de outubro; setembro para trás vamos considerar o que está no BD_Thopen";
+# fora da Thopen, "só a partir de outubro!"). O 5080 já fazia esse corte desde 14/10 (comentário e disponibilidade).
+DISP_SO_FRACTTAL_DESDE = "2026-10"
+# Usina do cadastro → aba(s) do BD_Thopen, quando o nome não casa sozinho. Os mesmos de-paras do Gerencial: Vargem Grande
+# IB é a aba Vargem Grande 1 (Levi, 14/09/2026); o BD mede Nova Londrina e Primavera juntas (as duas partes levam o
+# número do complexo) e separa Ouro Branco em I a V (a média do dia das cinco).
+_DISP_BD_ABAS = {
+    "Vargem Grande IB": ("Vargem Grande 1",),
+    "Nova Londrina 1": ("Nova Londrina",), "Nova Londrina 2": ("Nova Londrina",),
+    "Primavera 1": ("Primavera",), "Primavera 2": ("Primavera",),
+    "Ouro Branco": ("Ouro Branco I", "Ouro Branco II", "Ouro Branco III", "Ouro Branco IV", "Ouro Branco V"),
+}
+
+
+def _disp_dias_bd_thopen(per_ini, per_fim, equip):
+    """{usina do cadastro (Thopen, Full O&M): {dia: disponibilidade do BD_Thopen em fração}} no período. Lê pelo
+    dashboard_thopen (o mesmo leitor do 5080, que já tira os dias que ainda não aconteceram)."""
+    import dashboard_thopen as _dth
+    from collections import defaultdict as _dd
+    usinas, _lac = _disp_mod.montar_catalogo(equip)
+    nomes = set(_dth._registro()) | set(_dth._CARTEIRA_DE)
+    idx = {_disp_mod.norm2(n): n for n in nomes}
+    out = {}
+    for u, U in _disp_mod._parque(usinas).items():
+        if not _disp_mod.norm(U.cliente).startswith("THOPEN"):
+            continue
+        abas = _DISP_BD_ABAS.get(u) or ((idx[_disp_mod.norm2(u)],) if _disp_mod.norm2(u) in idx else ())
+        por_dia = _dd(list)
+        for aba in abas:
+            for r in _dth._daily_records(aba):
+                v = r.get("disp")
+                if per_ini.date() <= r["data"] < per_fim.date() and isinstance(v, (int, float)):
+                    por_dia[r["data"]].append(float(v))
+        if por_dia:
+            out[u] = {d: sum(vs) / len(vs) for d, vs in por_dia.items()}
+    return out
+
+
 def _frac_disp_recalcular():
     """WORKER: varre + calcula os 2 meses + persiste (atômico). Só publica o índice INTEIRO — varredura completa e os
     dois meses calculados. O resto (falha no meio, varredura vazia, mês que não calcula) deixa o índice anterior no ar,
@@ -26214,11 +26254,19 @@ def _frac_disp_recalcular():
     falhas = []
     for rot, ini, fim in meses:
         try:
-            ger = _disp_geracao(ini, fim, equip)
-            _DISP_GER_ULTIMA[rot] = {"ts": time.time(), "ger": ger}     # a aba Falhas reusa: sem 2ª consulta ao banco
-            dados["meses"][rot] = _disp_mod.calcular(wos, equip, ini, fim, geracao=ger)
+            if rot >= DISP_SO_FRACTTAL_DESDE:
+                dados["meses"][rot] = _disp_mod.calcular(wos, equip, ini, fim)
+            else:
+                dados["meses"][rot] = _disp_mod.calcular_pelo_bd(_disp_dias_bd_thopen(ini, fim, equip), equip, ini, fim)
         except Exception as e:
             falhas.append(f"cálculo de {rot} falhou: {type(e).__name__}: {e}")
+        # A geração NÃO entra na disponibilidade (Levi, 15/10/2026). Ela segue sendo lida aqui só para a aba Falhas, que
+        # pesa a perda em kWh por ela e reusa esta leitura (_falhas_geracao: sem uma 2ª consulta do mês ao banco);
+        # falhar nela não segura o índice.
+        try:
+            _DISP_GER_ULTIMA[rot] = {"ts": time.time(), "ger": _disp_geracao(ini, fim, equip)}
+        except Exception as e:                               # noqa: BLE001
+            _log_arquivo("fracttal.log", f"[disp] geração de {rot} para a aba Falhas: {type(e).__name__}: {e}")
     if falhas:
         _frac_disp_registrar(False, "; ".join(falhas) + ", nada publicado", resumo)
         return
@@ -26295,7 +26343,9 @@ def api_gerencial_disponibilidade():
         p = {**p, "usinas": usinas,
              "diario": {u: d for u, d in p["diario"].items() if u in nomes},
              "oss": [o for o in p["oss"] if set(o.get("usinas") or []) & nomes],
-             "cenario_abertas": [c for c in p["cenario_abertas"] if set(c.get("usinas") or []) & nomes]}
+             # a OS fora da conta não tem usina (o site do Fracttal não casou): vale o cliente escrito no começo do site
+             "alinhar": [a for a in p.get("alinhar") or [] if set(a.get("usinas") or []) & nomes
+                         or (not a.get("usinas") and (a.get("g1") or "").strip().lower().startswith(cliente.lower()))]}
     return jsonify({"quente": True, "mes": mes, "meses": sorted(meses), "atualizado": dados.get("ts"),
                     "varredura": dados.get("varredura"), "ultima_tentativa": tentativa, **p})
 
@@ -27554,7 +27604,8 @@ def _falhas_disp_mes(mes):
                                    **({"os": v.get("os") or []} if "os" in v else {}))
                            for d, v in (dias or {}).items()}
                        for u, dias in (m.get("diario") or {}).items()},
-            "oss": oss}
+            # mês de setembro para trás vem do BD_Thopen, sem OS (15/10/2026): a aba de OS sai VAZIA, não "nenhuma OS"
+            "oss": None if m.get("fonte") == "BD_Thopen" else oss}
 
 
 def _falhas_disp_fora_da_volta(montados):
@@ -28105,7 +28156,9 @@ def _frac_os_filtradas(id_item, mes=None, falhas=None):
                      "horas_solares": _hs, "horas_fmt": _fmt_hsolar(_hs),
                      # ISO LOCAL (sem fuso) — o front usa p/ ratear a perda por dia dentro da janela solar
                      "evento_ts": _i0.strftime("%Y-%m-%dT%H:%M:%S") if _i0 else "",
-                     "fim_ts": _f0.strftime("%Y-%m-%dT%H:%M:%S") if _f0 else ""}
+                     "fim_ts": _f0.strftime("%Y-%m-%dT%H:%M:%S") if _f0 else "",
+                     # a criação vira o evento quando o evento vem depois do fim (régua do Gerencial, 15/10/2026)
+                     "criada_ts": _cri_loc.strftime("%Y-%m-%dT%H:%M:%S") if _cri_loc else ""}
     # abertas primeiro, depois por data (mais recente no topo)
     return sorted(seen.values(), key=lambda x: (x["aberta"], x["criada"]), reverse=True)
 

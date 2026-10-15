@@ -9,10 +9,18 @@ na análise que virou `Disponibilidade Fracttal x BD - agosto 2026.xlsx`:
   canceladas NUNCA contam.
 - Início = event_date (ou date_maintenance). Fim = final_date da tarefa. `wo_final_date` é
   carimbo administrativo da WO (uma revisão em massa em 25/08 re-carimbou dezenas p/ o mesmo
-  minuto) — só entra como último recurso, com flag. Religamento-relâmpago com final_date
-  minutos ANTES do event_date = carimbo → duração 0.
-- OS ABERTA sem fim = 0h no cálculo + cenário à parte (Mandaguaçu/Céu Azul provaram: usina
-  gerando com OS "parada" esquecida aberta).
+  minuto) — só entra como último recurso, com flag.
+- SÓ O FRACTTAL (Levi, 15/10/2026: "não quero que cruze dados de geração pois são objetivos
+  diferentes"). Até 15/10 a geração do BD desmentia a OS (o "juiz" de 30/08); saiu de vez.
+- Evento DEPOIS do fim: a data de criação da OS vira o evento (Levi, 15/10/2026). Se o fim
+  fica antes até da criação, a OS conta 0 h e vai para a lista `alinhar`.
+- OS ABERTA sem fim CONTA, do evento até o fim do período (no mês corrente, até ontem), em todo
+  mês em que seguir aberta (Levi, 15/10/2026: "Será considerado OSs fechadas e abertas"). De
+  26/08 a 15/10 ela valia 0 h, com um cenário à parte, e sumia no mês seguinte.
+- `alinhar`: o que o próprio Fracttal mostra de estranho (aberta contando, evento depois do fim,
+  data final da WO, site agrupado sem a usina, OS sem data) — para corrigir a OS, não a conta.
+- Setembro para trás é da Thopen, pelo BD_Thopen (`calcular_pelo_bd`); fora da Thopen, só de
+  outubro em diante. Quem escolhe o caminho por mês é o app.py.
 - Escopo pelo ATIVO da OS (code): raiz do site → usina inteira; CABN/SKID/QGBT/PECN/DTRF N →
   cabine (UG) N; INVR/DINV N[.M] → inversor. Sites que agrupam 2+ usinas tentam pista na
   descrição; sem pista, valem para o grupo (flag).
@@ -30,34 +38,10 @@ from datetime import datetime, timedelta
 # nossa ("tem disponibilidade elétrica mas não tem disponibilidade física"). O total continua
 # sendo o número oficial; as famílias são a DECOMPOSIÇÃO dele e NÃO somam exatamente, porque
 # um evento de cada tipo no mesmo horário é capado em 100% no total e contado nos dois recortes.
-# ── Parada-fantasma por fechamento tardio de OS ──────────────────────────────
-# Caso real (30/08): OSs velhas fechadas EM LOTE em 27-28/08 ganharam final_date de "agora" e
-# viraram paradas de semanas. A OS 8891 dizia Parelhas parada de 03/07 a 28/08 enquanto a usina
-# gerava 13.111 kWh/dia, todos os dias. O Fracttal não ajuda a separar (`stop_assets` é False em
-# TODAS as 2.596 tarefas-alvo; `real_stop_assets_sec` só repete evento→fim), então o juiz é a
-# GERAÇÃO: dia em que a usina produziu de verdade não foi dia de usina parada.
-# Só vale para OS LONGA e de escopo USINA INTEIRA — OS curta é confiável e evento de cabine ou
-# inversor não deve zerar por a usina ter gerado com o resto dos equipamentos.
-# A conferência compara o que a OS AFIRMA com o que a usina PRODUZIU. Se a OS diz que uma
-# fração `f` da usina estava parada, a geração esperada é (1-f) do normal. Gerou muito acima
-# disso? Então havia mais capacidade rodando do que a OS afirma, e o dia não foi de parada.
-# Assim a régua vale para qualquer nível: pegou Parelhas (f=1, gerando pleno) e Junco (f=0,5,
-# gerando pleno) sem exonerar um inversor real parado (f=0,05 → a usina gera 95%, coerente).
-# A conferência é POR DIA, pela fatia do dia que a OS afirma perdida — não pela duração da OS.
-# Amarrar à duração deixava passar o caso Marialva: religamentos abertos num dia e fechados no
-# mesmo horário do seguinte comiam o dia solar inteiro, com a usina gerando 4,97 kWh/kWp (perto
-# do máximo dela), e como duravam "só" 1 dia nem eram conferidos.
-GER_TOLERANCIA = 0.15        # folga sobre o esperado (clima, sujeira, medição)
-# O piso ABSOLUTO se aplica ao PATAMAR da usina no período (o P75), não ao dia. Aplicá-lo dia a
-# dia punia dia nublado, que não prova nem desmente nada — Parelhas, com dias entre 3,5 e 6,
-# perdia metade da exoneração por causa de nuvem. Já o patamar precisa dele: sem esse piso, uma
-# usina com metade parada o mês inteiro faria o próprio nível reduzido virar o "normal" e toda
-# parada real seria exonerada. 4,5 kWh/kWp é usina praticamente plena (o típico vai de 3,5 a 5,5).
-GER_PLENO_KWH_KWP = 4.5
-# Abaixo desta fatia do DIA afirmada perdida, a geração NÃO tem resolução para desmentir a OS:
-# um inversor de 20 fora muda ~5% da produção, e meia hora de parada muda 4% — ambos se perdem
-# no ruído do clima. Não se tenta.
-GER_FRAC_MIN = 0.30
+#
+# O juiz da GERAÇÃO (30/08 a 15/10/2026) saiu: ele desmentia a OS em dia em que a usina gerou (OS 8891 dizia Parelhas
+# parada de 03/07 a 28/08 com 13.111 kWh/dia). O Levi decidiu (15/10) que a disponibilidade é do Fracttal e só dele —
+# a OS errada se corrige no Fracttal, e a lista `alinhar` mostra quais olhar. Não volte a cruzar com a geração.
 
 TIPOS_QUEDA = {"religamento", "religamento remoto"}
 # 'Corretiva' simples ficou DE FORA (decisão do Levi, 29/08: "esquece por enquanto, vamos pensar
@@ -305,7 +289,7 @@ def consolidar_os(folio, tasks, agora):
          "criado_por": str(tasks[0].get("created_by") or "").strip(),
          "responsavel": str(tasks[0].get("personnel_description")
                             or tasks[0].get("user_assigned") or "").strip(),
-         "aberta": False, "aberta_sem_fim": False, "ini": None, "fim": None}
+         "aberta": False, "aberta_sem_fim": False, "ini": None, "fim": None, "alinhar": []}
     sts = {t.get("id_status_work_order") for t in tasks}
     if sts == {4}:
         o["excl"] = "OS cancelada"
@@ -315,6 +299,8 @@ def consolidar_os(folio, tasks, agora):
     inis = [dt_frac(t.get("event_date") or t.get("date_maintenance")) for t in tasks]
     inis = [d for d in inis if d and agora.year - 1 <= d.year <= agora.year]
     ini = min(inis) if inis else None
+    crias = [d for d in (dt_frac(t.get("creation_date")) for t in tasks) if d and d <= agora]
+    o["criada"] = min(crias) if crias else None
     # fim no ano de agora OU, na OS cujo evento é do ano anterior, nele também (revisão adversarial de 11/10/2026). Só o
     # ano de agora valia, e o índice do Gerencial é refeito com o relógio de agora: de 01/01 em diante, toda OS
     # concluída em dezembro virava "OS concluída sem data final válida" e o dezembro (no Gerencial e na aba
@@ -327,26 +313,48 @@ def consolidar_os(folio, tasks, agora):
     fim = max(fins1) if fins1 else (max(fins2) if fins2 else None)
     if not fins1 and fins2:
         o["flags"].append("sem final_date → usei wo_final_date (carimbo da WO; pode ser tardio)")
+        o["alinhar"].append("sem data final na tarefa: usei a data final da WO")
     if ini is None:
         o["excl"] = "sem data de evento válida"
         return o
     if fim is not None and fim < ini:
-        if (ini - fim).total_seconds() <= 3600:      # relâmpago: carimbo minutos antes do evento
-            o["flags"].append("fim registrado minutos antes do evento → duração 0")
-            fim = ini
+        # evento DEPOIS do fim: a criação vira o evento (Levi, 15/10/2026). Antes: até 1 h = duração 0 ("relâmpago");
+        # mais que isso, o fim era descartado e a OS concluída saía do cálculo
+        if o["criada"] is not None and o["criada"] <= fim:
+            o["flags"].append(f"evento depois do fim → usei a criação da OS ({o['criada']:%d/%m %H:%M}) como evento")
+            o["alinhar"].append("evento depois do fim: usei a criação da OS como evento")
+            ini = o["criada"]
         else:
-            o["flags"].append("fim muito antes do início → descartado")
-            fim = None
+            sem_cria = o["criada"] is None
+            o["flags"].append("fim antes do evento" + (", sem data de criação" if sem_cria else " e da criação") + " → 0 h")
+            o["alinhar"].append("fim antes do evento" + (", sem data de criação" if sem_cria else " e antes da criação")
+                                + ": conta 0 h")
+            fim = ini
     if fim is None:
         if o["aberta"]:
-            o["aberta_sem_fim"] = True               # 0h no cálculo; cenário à parte
-            fim = ini
-            o["flags"].append("OS ABERTA sem data final → 0h no cálculo (ver cenário)")
+            # conta do evento até o fim do período (Levi, 15/10/2026); o calcular corta no per_fim
+            o["aberta_sem_fim"] = True
+            fim = agora
+            o["flags"].append("OS ABERTA sem data final → conta até agora")
+            o["alinhar"].append(f"OS aberta sem data final: conta enquanto estiver aberta ({(agora - ini).days} dias em aberto)")
+            o["dias_aberta"] = (agora - ini).days
         else:
             o["excl"] = "OS concluída sem data final válida"
             o["ini"] = ini
             return o
     o["ini"], o["fim"] = ini, fim
+    # Dois sinais só do Fracttal que a prova de 15/10/2026 mostrou pesando no mês — a OS CONTINUA contando, só vai para
+    # "alinhar": Religamento cuja descrição é verificação de comunicação ou inspeção (TIM200, OS 15488; Brodowski, OS
+    # 12693, aberta desde 02/09) e religamento que dura mais de um dia (Canarana 1, OS 14924, 29/09 a 13/10). Corretiva
+    # longa não entra: trocar um inversor leva dias de verdade.
+    if origem == "queda":
+        texto = norm(f"{o['desc']} {o['item']}")
+        if "COMUNICA" in texto or "INSPEC" in texto:
+            o["alinhar"].append("Religamento com descrição de verificação de comunicação ou inspeção: houve parada?")
+        horas = (fim - ini).total_seconds() / 3600
+        if horas > 24 and not o["aberta_sem_fim"]:          # a aberta já vai para "alinhar" pelos dias em aberto
+            dur = f"{int(horas // 24)} dias" if horas >= 48 else f"{round(horas)} h"
+            o["alinhar"].append(f"religamento de {dur}: conferir as datas")
     return o
 
 
@@ -424,6 +432,7 @@ def escopo_os(o, usinas, idx):
             else:
                 alvo = grupo[0]
                 o["flags"].append(f"site agrupado {grupo} sem pista → atribuí à 1ª ({alvo}); conferir")
+                o["alinhar"].append(f"site agrupado sem a usina na descrição: contei a cabine na 1ª ({alvo})")
         U = usinas[alvo]
         if not (U.pot and U.pot > 0):
             o["excl"] = f"usina '{alvo}' sem potência no BD"
@@ -447,6 +456,7 @@ def escopo_os(o, usinas, idx):
                 o["flags"].append(f"site agrupado → {pista} pela descrição")
             else:
                 o["flags"].append(f"site agrupado {grupo} sem pista na descrição → grupo inteiro")
+                o["alinhar"].append("site agrupado sem a usina na descrição: contei o grupo inteiro")
         evs = [(u, "usina", "ufv", usinas[u].pot) for u in alvos
                if usinas[u].pot and usinas[u].pot > 0]
         if evs:
@@ -607,60 +617,100 @@ def _disp_por_inversor(eventos, usinas, per_fim, tot_h):
 
 
 # ══ cálculo principal ════════════════════════════════════════════════════════
-def _normal_kwh_kwp(dias_ger, pot_kwp):
-    """Produção 'normal' da usina no período, em kWh/kWp: P75 dos dias com dado. O P75 (e não a
-    média) porque dias nublados e dias de parada real puxariam a referência para baixo — o que
-    se quer é o patamar de regime pleno. None se não dá para afirmar nada."""
-    vs = sorted(v / pot_kwp for v in dias_ger.values() if isinstance(v, (int, float)))
-    if len(vs) < 5:
-        return None
-    p75 = vs[min(int(len(vs) * 0.75), len(vs) - 1)]
-    # patamar abaixo de usina plena → não dá para usar como referência (ver comentário lá em cima)
-    return p75 if p75 >= GER_PLENO_KWH_KWP else None
+# Exclusão que não é erro de OS: cancelada e site de terceiros. As outras (sem data de evento, concluída sem fim, site
+# ou ativo que o cadastro não reconhece) vão para a lista `alinhar`.
+_EXCL_QUE_NAO_E_ERRO = ("OS cancelada", "site 'Grid Co.'")
 
 
-def _dias_desmentidos(usina, a, b, geracao, pot_kwp, kwp_afetado):
-    """Dias de [a,b] em que a GERAÇÃO DESMENTE a parada afirmada pela OS.
-
-    A OS diz que `kwp_afetado` de `pot_kwp` estava parado → a usina deveria produzir no máximo
-    (1 - f) do normal. Produziu bem mais que isso? Então rodava mais capacidade do que a OS
-    afirma, e esse dia não conta. Dia sem dado nunca entra: ausência de prova não é prova."""
-    if not geracao or not pot_kwp or pot_kwp <= 0:
-        return set()
-    ent = geracao.get(usina) or {}
-    # Duas formas aceitas: {dia: kWh} (a geração é só desta usina) ou
-    # {"dias": {...}, "kwp": N} — a medição cobre um COMPLEXO e N é o kWp somado dele. É o caso
-    # de Nova Londrina, que o BD_Thopen mede junto: a fração parada e o rendimento passam a ser
-    # calculados sobre o complexo, sem precisar separar a planilha.
-    if isinstance(ent.get("dias"), dict):
-        dias_ger, base = ent["dias"], (ent.get("kwp") or pot_kwp)
-    else:
-        dias_ger, base = ent, pot_kwp
-    if not base or base <= 0:
-        return set()
-    normal = _normal_kwh_kwp(dias_ger, base)
-    if not normal:
-        return set()
-    frac_pot = min(1.0, max(0.0, (kwp_afetado or 0) / base))
-    out = set()
-    # a fatia perdida do DIA é a fração de potência vezes a fatia do dia solar coberta
-    for d, horas in horas_solares_por_dia(a, b, b + timedelta(days=1)).items():
-        f_dia = frac_pot * min(1.0, horas / 12.0)
-        if f_dia < GER_FRAC_MIN:               # fatia pequena demais p/ a geração julgar
+def _para_alinhar(oss, os_escopo, per_ini, per_fim):
+    """As OS do período que precisam de um olho humano no Fracttal, com o motivo — só pelo dado do próprio Fracttal
+    (Levi, 15/10/2026: "pode até apontar possíveis erros em criação de OS porém não quero que cruze dados de geração").
+    A OS fora da conta entra pelo dia do evento (ou da criação, quando nem evento tem)."""
+    out = []
+    for o in oss:
+        if o["excl"]:
+            if o["excl"].startswith(_EXCL_QUE_NAO_E_ERRO):
+                continue
+            # pelo intervalo da OS quando ela tem as duas datas (a 13489, de 12/09 a 06/10, tocava outubro e não aparecia),
+            # senão pelo dia do evento ou da criação
+            a_, b_ = o.get("ini") or o.get("criada"), o.get("fim") or o.get("ini") or o.get("criada")
+            if not a_ or b_ < per_ini or a_ >= per_fim:
+                continue
+            motivo = f"fora da conta: {o['excl']}"
+        elif o.get("alinhar"):
+            motivo = "; ".join(dict.fromkeys(o["alinhar"]))
+        else:
             continue
-        kwh = dias_ger.get(d.isoformat())
-        if not isinstance(kwh, (int, float)):
-            continue
-        teto = (1.0 - f_dia) + GER_TOLERANCIA  # fração do normal compatível com a parada
-        if (kwh / base) / normal > teto:        # produziu mais do que a parada permitiria
-            out.add(d)
+        out.append({"folio": o["folio"], "motivo": motivo, "tipos": o["tipos"], "g1": o["g1"], "code": o["code"],
+                    "desc": o["desc"][:90], "criado_por": o["criado_por"],
+                    "usinas": sorted({u for (u, _n, _c, _k) in os_escopo.get(o["folio"], [])}),
+                    "ini": o["ini"].isoformat() if o.get("ini") else None,
+                    "fim": None if o.get("aberta_sem_fim") or not o.get("fim") else o["fim"].isoformat(),
+                    "criada": o["criada"].isoformat() if o.get("criada") else None,
+                    "dias_aberta": o.get("dias_aberta")})
+    out.sort(key=lambda a: (a["ini"] or a["criada"] or "", a["folio"]))
     return out
 
 
-def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, geracao=None):
+def _parque(usinas):
+    """SÓ FULL O&M (decisão do Levi, 30/08): onde a Grid Co. não faz a manutenção completa, a disponibilidade não é
+    responsabilidade nossa e as OSs do Fracttal não contam a história toda."""
+    return {u: U for u, U in usinas.items()
+            if U.fracttal and (U.pot or 0) > 0 and u not in PARQUE_EXCLUI
+            and norm(U.full_om).startswith("S")}
+
+
+def calcular_pelo_bd(dias_por_usina, linhas_equip, per_ini, per_fim):
+    """Mês de SETEMBRO PARA TRÁS, só a Thopen, pela "Disponibilidade Usina (%)" diária do BD_Thopen (Levi, 15/10/2026:
+    "setembro para trás vamos considerar o que está no BD_Thopen"; fora da Thopen, "só a partir de outubro!").
+    dias_por_usina = {usina do cadastro: {dia (data ou 'AAAA-MM-DD'): disponibilidade em fração (0,9139) ou em %}}.
+    Mesmo formato do `calcular` (a tela e o Gerencial leem igual), com `fonte` = "BD_Thopen"; o BD não separa queda de
+    equipamento nem guarda OS, então esses campos vêm vazios. Dia sem número no BD não entra (nem como 100%)."""
+    usinas, lacunas = montar_catalogo(linhas_equip)
+    ini_d, fim_d = per_ini.date(), per_fim.date()
+    res_usinas, diario = [], {}
+    for u, U in sorted(_parque(usinas).items()):
+        vals = {}
+        for d, v in (dias_por_usina.get(u) or {}).items():
+            d = d if hasattr(d, "isoformat") and not isinstance(d, str) else datetime.strptime(str(d)[:10], "%Y-%m-%d")
+            d = d.date() if isinstance(d, datetime) else d
+            if not (ini_d <= d < fim_d) or not isinstance(v, (int, float)) or v != v:
+                continue
+            pct = float(v) * 100.0 if float(v) <= 1.5 else float(v)       # a planilha guarda fração; aceita %
+            vals[d] = min(100.0, max(0.0, pct))
+        if not vals:
+            continue
+        h_dia = {d: 12.0 * (1 - p / 100.0) for d, p in vals.items()}
+        ph = sum(h_dia.values())
+        res_usinas.append({"usina": u, "cliente": U.cliente, "fracttal": U.fracttal, "full_om": U.full_om,
+                           "pot_kwp": round(U.pot, 1), "fonte_pot": U.fonte_pot, "n_inv": U.n_inv, "n_cab": U.n_cab,
+                           "disp": round(100.0 * (1 - ph / (12.0 * len(vals))), 2), "h_perdidas": round(ph, 2),
+                           "kwh": round(U.pot * ph),
+                           "disp_queda": None, "h_queda": None, "kwh_queda": None,
+                           "disp_equip": None, "h_equip": None, "kwh_equip": None,
+                           "n_os": 0, "inversores": [], "dias_bd": len(vals)})
+        diario[u] = {d.isoformat(): {"h_eq": round(h, 3), "disp": round(vals[d], 1), "kwh": round(U.pot * h),
+                                     "h_q": None, "h_e": None}
+                     for d, h in sorted(h_dia.items())}
+    por_cli = defaultdict(list)
+    for r in res_usinas:
+        por_cli[r["cliente"] or "—"].append(r)
+    clientes = [{"cliente": nome, "kwp": round(sum(r["pot_kwp"] for r in rs)),
+                 "disp": round(sum(r["pot_kwp"] * r["disp"] for r in rs) / sum(r["pot_kwp"] for r in rs), 2),
+                 "kwh": sum(r["kwh"] for r in rs), "disp_queda": None, "kwh_queda": None,
+                 "disp_equip": None, "kwh_equip": None, "n_os": 0, "n_usinas": len(rs),
+                 "abaixo99": sum(1 for r in rs if r["disp"] < 99)}
+                for nome, rs in sorted(por_cli.items())]
+    return {"fonte": "BD_Thopen",
+            "periodo": {"ini": per_ini.isoformat(), "fim": per_fim.isoformat(), "dias": (fim_d - ini_d).days},
+            "usinas": res_usinas, "clientes": clientes, "diario": diario, "oss": [], "alinhar": [],
+            "lacunas": lacunas}
+
+
+def calcular(wos, linhas_equip, per_ini, per_fim, agora=None):
     """wos = {folio: [tasks...]} (varredura crua do Fracttal); linhas_equip = aba Equipamentos.
     per_ini/per_fim = janela do mês (fim EXCLUSIVO, já cortado em D-1 pelo chamador).
-    → payload completo: usinas, clientes, diário, OSs, cenário das abertas, lacunas."""
+    → payload completo: usinas, clientes, diário, OSs, `alinhar`, lacunas. Só o Fracttal: a geração não entra."""
     agora = agora or datetime.now()
     usinas, lacunas = montar_catalogo(linhas_equip)
     idx = indices_g1(usinas)
@@ -686,29 +736,13 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, geracao=None):
         if b <= a:
             continue
         for (u, nivel, chave, kwp) in esc:
-            exon = _dias_desmentidos(u, a, b, geracao, usinas[u].pot, kwp)
-            if not exon:
-                eventos.append({"usina": u, "nivel": nivel, "chave": chave, "kwp": kwp, "ini": a, "fim": b, "o": o})
-                continue
-            # a geração desmente a parada nesses dias: parte o evento e pula
-            o["flags"].append(f"{u}: {len(exon)} dia(s) exonerados — a geração desmente a parada "
-                              f"(OS longa fechada com atraso não é parada real)")
-            o.setdefault("dias_exonerados", {})[u] = sorted(x.isoformat() for x in exon)
-            d = a.date()
-            while d <= b.date():
-                if d not in exon:
-                    ini_d = max(a, datetime(d.year, d.month, d.day))
-                    fim_d = min(b, datetime(d.year, d.month, d.day) + timedelta(days=1))
-                    if fim_d > ini_d:
-                        eventos.append({"usina": u, "nivel": nivel, "chave": chave, "kwp": kwp,
-                                        "ini": ini_d, "fim": fim_d, "o": o})
-                d += timedelta(days=1)
+            eventos.append({"usina": u, "nivel": nivel, "chave": chave, "kwp": kwp, "ini": a, "fim": b, "o": o})
 
     det_os_usina, det_os_dia = defaultdict(float), {}
     h_eq, kwh, det_os = _varrer(eventos, usinas, per_fim, det_os_usina, det_os_dia)
     os_do_dia = _os_do_dia(det_os_dia)
     # a OS com evento na usina entra na conta dela mesmo sem hora de sol (é o que o n_os conta): fica com 0 kWh. A
-    # aberta sem data final não tem evento e fica fora — ela está no cenário das abertas
+    # aberta sem data final também conta, até o fim do período (15/10/2026)
     for e in eventos:
         det_os_usina[(e["o"]["folio"], e["usina"])] += 0.0
     kwh_os_usina = defaultdict(dict)
@@ -721,26 +755,17 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, geracao=None):
     disp_inv = _disp_por_inversor(eventos, usinas, per_fim, tot_h)   # por inversor, com cascata da cabine (Levi 14/09)
 
     os_h = {}
-    cenario = []
     for o in oss:
         if o["excl"]:
             continue
         a, b = max(o["ini"], per_ini), min(o["fim"], per_fim)
         os_h[o["folio"]] = round(sum(horas_solares_por_dia(a, b, per_fim).values()), 2) if b > a else 0.0
-        if o["aberta_sem_fim"]:
-            h_cen = sum(horas_solares_por_dia(max(o["ini"], per_ini), per_fim, per_fim).values())
-            kwh_cen = sum(kwp * h_cen for (_u, _n, _c, kwp) in os_escopo.get(o["folio"], []))
-            cenario.append({"folio": o["folio"], "g1": o["g1"], "desc": o["desc"][:90],
-                            "code": o["code"], "ini": o["ini"].isoformat(),
-                            "usinas": sorted({u for (u, _n, _c, _k) in os_escopo.get(o["folio"], [])}),
-                            "h_cenario": round(h_cen, 1), "kwh_cenario": round(kwh_cen)})
+    alinhar = _para_alinhar(oss, os_escopo, per_ini, per_fim)
 
     # SÓ FULL O&M (decisão do Levi, 30/08): onde a Grid Co. não faz a manutenção completa, a
     # disponibilidade não é responsabilidade nossa e as OSs do Fracttal não contam a história
     # toda. Vale para o parque, para o resumo por cliente e para o diário.
-    parque = {u: U for u, U in usinas.items()
-              if U.fracttal and (U.pot or 0) > 0 and u not in PARQUE_EXCLUI
-              and norm(U.full_om).startswith("S")}
+    parque = _parque(usinas)
     res_usinas = []
     for u, U in sorted(parque.items()):
         ph = sum(h_eq[u].values())
@@ -788,6 +813,7 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, geracao=None):
                     for nome, c in sorted(por_cli.items())]
 
     return {
+        "fonte": "Fracttal",
         "periodo": {"ini": per_ini.isoformat(), "fim": per_fim.isoformat(), "dias": n_dias},
         "usinas": res_usinas,
         "clientes": res_clientes,
@@ -802,9 +828,11 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, geracao=None):
                        for d, h in sorted(dias.items())} for u, dias in h_eq.items()},
         "oss": [{**{k: o.get(k) for k in ("folio", "tipos", "origem", "code", "item", "g1",
                                           "desc", "flags", "excl", "aberta", "criado_por",
-                                          "responsavel", "dias_exonerados")},
+                                          "responsavel", "dias_aberta")},
                  "ini": o["ini"].isoformat() if o.get("ini") else None,
-                 "fim": o["fim"].isoformat() if o.get("fim") else None,
+                 "criada": o["criada"].isoformat() if o.get("criada") else None,
+                 # a aberta sem data final conta até o fim do período, mas não TERMINOU: sem fim na saída
+                 "fim": o["fim"].isoformat() if o.get("fim") and not o.get("aberta_sem_fim") else None,
                  "usinas": sorted({u for (u, _n, _c, _k) in os_escopo.get(o["folio"], [])}),
                  # discriminação do cálculo (card do dia): o que foi afetado e com quantos kWp
                  "escopo": [{"usina": u, "nivel": n, "rotulo": _rotulo_escopo(n, c),
@@ -814,6 +842,6 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, geracao=None):
                  "kwh": round(det_os.get(o["folio"], 0.0)),
                  # a perda desta OS em cada usina da conta dela ({usina: kWh}; soma o `kwh`): o drill-down por usina
                  "kwh_usina": dict(kwh_os_usina.get(o["folio"]) or {})} for o in oss],
-        "cenario_abertas": cenario,
+        "alinhar": alinhar,
         "lacunas": lacunas,
     }

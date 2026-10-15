@@ -735,9 +735,9 @@ def test_disponibilidade_do_mes_sai_do_indice_do_gerencial(monkeypatch):
 
 def _mes_disp_beta():
     """Um mês do índice da Disponibilidade calculado pelo módulo de verdade (julho/2026 das fixtures do
-    test_disp_fracttal), com os dois casos em que repartir a perda da OS pela potência erra:
-    - OS 20: as duas Betas (500 kWp cada, site agrupado sem pista) de 10/07 06 h a 11/07 18 h, e a geração da Beta 1
-      desmente o dia 11 — a Beta 1 perde só o dia 10;
+    test_disp_fracttal), com o caso em que repartir a perda da OS pela potência erra (desde 15/10/2026 a geração não
+    desmente mais dia nenhum, e o caso que sobra é o do teto):
+    - OS 20: as duas Betas (500 kWp cada, site agrupado sem pista) de 10/07 06 h a 11/07 18 h;
     - OS 14: só a Beta 2 (pela descrição), 10/07 09 h → 15 h, por cima da 20 — o teto de 100% reparte essas 6 h entre
       as duas OS na Beta 2, e não na Beta 1;
     - OS 1: a Alfa inteira (1.000 kWp), 10/07 09 h → 15 h."""
@@ -750,8 +750,7 @@ def _mes_disp_beta():
            "14": [task(**beta, description="Usina desligada — Beta 2, trip 27",
                        event_date="2026-07-10T12:00:00+00:00", final_date="2026-07-10T18:00:00+00:00")],
            "1": [task(event_date="2026-07-10T12:00:00+00:00", final_date="2026-07-10T18:00:00+00:00")]}
-    dias = {f"2026-07-{d:02d}": (0.0 if d == 10 else 2500.0) for d in range(1, 32)}
-    return disponibilidade.calcular(wos, EQUIP, PER_INI, PER_FIM, agora=AGORA, geracao={"Beta 1": dias})
+    return disponibilidade.calcular(wos, EQUIP, PER_INI, PER_FIM, agora=AGORA)
 
 
 def _perda_por_usina(mes_idx, monkeypatch):
@@ -771,19 +770,36 @@ def test_a_perda_das_os_na_aba_fecha_com_a_perda_de_cada_usina(monkeypatch):
     e a 2."""
     mes = _mes_disp_beta()
     soma = _perda_por_usina(mes, monkeypatch)
-    # Beta 1: só o dia 10 (12 h × 500); Beta 2: os dois dias (24 h × 500), com as 6 h da OS 14 dentro; Alfa: 6 h × 1.000
-    assert soma == {"Alfa": 6000, "Beta 1": 6000, "Beta 2": 12000}
+    # Beta 1 e Beta 2: os dois dias (24 h × 500), com as 6 h da OS 14 dentro da Beta 2 (a 20 fica com 10.500 nela);
+    # Alfa: 6 h × 1.000
+    assert soma == {"Alfa": 6000, "Beta 1": 12000, "Beta 2": 12000}
     assert soma == {u["usina"]: u["kwh"] for u in mes["usinas"]}
 
 
 def test_indice_de_antes_do_kwh_usina_segue_repartindo_pela_potencia(monkeypatch):
     """O índice publicado antes do `kwh_usina` (até a 1ª varredura do worker com o código de 13/10/2026; o pacote que
     guardou a disponibilidade de um mês que já saiu do índice) não tem a perda de cada usina: a OS de duas usinas volta
-    a repartir pela potência (a OS 20 tem 16.500 kWh: 8.250 em cada Beta), sem perder a perda da OS. Não fecha com a
+    a repartir pela potência (a OS 20 tem 22.500 kWh: 11.250 em cada Beta), sem perder a perda da OS. Não fecha com a
     usina — é o erro que o `kwh_usina` corrige."""
     mes = _mes_disp_beta()
     for o in mes["oss"]:
         del o["kwh_usina"]
     soma = _perda_por_usina(mes, monkeypatch)
-    assert soma == {"Alfa": 6000, "Beta 1": 8250, "Beta 2": 9750}          # Beta 2: 8.250 da OS 20 + 1.500 da 14
+    assert soma == {"Alfa": 6000, "Beta 1": 11250, "Beta 2": 12750}        # Beta 2: 11.250 da OS 20 + 1.500 da 14
     assert sum(soma.values()) == sum(o["kwh"] for o in mes["oss"])
+
+
+def test_mes_do_bd_thopen_vai_sem_a_aba_de_os(monkeypatch):
+    # setembro para trás vem do BD_Thopen (Levi, 15/10/2026), sem OS: a aba disponibilidade_os sai VAZIA (não publicada)
+    # — com 0 o Nexus diria "nenhuma OS formou" ao lado de Brodowski 63,33% em setembro (revisão de 15/10)
+    idx = {"meses": {"2026-09": {
+        "fonte": "BD_Thopen", "periodo": {"ini": "2026-09-01T00:00:00", "fim": "2026-10-01T00:00:00", "dias": 30},
+        "usinas": [{"usina": "Brodowski", "fracttal": "Thopen - Brodowski - SP", "cliente": "Thopen", "pot_kwp": 1000.0,
+                    "disp": 63.33}],
+        "diario": {"Brodowski": {"2026-09-03": {"h_eq": 12.0, "disp": 0.0, "kwh": 12000, "h_q": None, "h_e": None}}},
+        "oss": [], "alinhar": []}}}
+    monkeypatch.setattr(app, "_frac_disp_dados", lambda: idx)
+    d = app._falhas_disp_mes("2026-09")
+    assert d["oss"] is None and d["diario"] == {"Brodowski": {"2026-09-03": {"disp": 0.0, "h_eq": 12.0}}}
+    (a,) = [dict(zip(pub.CABECALHOS["atualizacao"], x)) for x in pub.tabelas([{"mes": "2026-09", "disponibilidade": d}])["atualizacao"]]
+    assert a["disponibilidade_os"] is None and a["disponibilidade_dia"] == 30          # 1 usina × 30 dias

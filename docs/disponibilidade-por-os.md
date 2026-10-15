@@ -109,12 +109,14 @@ do nosso linear na janela 06–18h.
 - **Fim** = maior `final_date` das tarefas. **`wo_final_date` NÃO é fim de parada** — é carimbo
   administrativo da WO (em 25/08 uma revisão em massa re-carimbou dezenas para o mesmo minuto;
   usá-lo levaria o parque de 97% para 79%). Só entra se não houver `final_date` nenhum, com aviso.
-- **Religamento-relâmpago:** `final_date` minutos ANTES do `event_date` (≤1 h) é carimbo
-  administrativo → duração 0, a OS continua listada.
-- **OS aberta sem fim → 0 h no cálculo + cenário à parte.** Prova (27/08): Mandaguaçu
-  (OS 11186) e Céu Azul (OS 11832) constavam "paradas" há dias com geração diária NORMAL no
-  BD_Thopen — OSs esquecidas abertas somariam +965 MWh falsos. O painel avisa e mostra o custo
-  potencial de cada uma ("cenário").
+- **Evento depois do fim** (Levi, 15/10/2026): a **data de criação** da OS vira o evento. Se o fim fica antes até da
+  criação, a OS conta 0 h e vai para a lista "alinhar". Substituiu as duas réguas de antes (o "relâmpago" de até 1 h =
+  duração 0, e o fim descartado quando vinha mais de 1 h antes).
+- **OS aberta sem fim CONTA** (Levi, 15/10/2026: "Será considerado OSs fechadas e abertas"): do evento até o fim do
+  período — no mês corrente, até ontem —, em todo mês em que seguir aberta. De 26/08 a 15/10 ela valia 0 h, com um
+  "cenário" à parte (a prova era Mandaguaçu, OS 11186, e Céu Azul, OS 11832, esquecidas abertas com a usina gerando), e
+  sumia no mês seguinte — a 16338, Inversor 2.2 de Ipixuna 2, aberta desde 16/09, não aparecia em outubro. A OS
+  esquecida aberta agora aparece na lista "alinhar" da tela, para corrigir no Fracttal.
 - Validações: datas com ano fora do período ou no futuro são descartadas (houve fim digitado
   como 2027 e 2025 na fase RDO). Início no ano corrente ou no anterior; fim `≤ agora`, no ano
   corrente **ou, na OS cujo evento é do ano anterior, nele também** (11/10/2026: o índice é
@@ -123,32 +125,37 @@ do nosso linear na janela 06–18h.
   contando, contra 99,907% e 9 OS em 31/12). Fim num ano **antes** do evento segue fora (a
   digitação) e aí vale o `wo_final_date`.
 
-### 4.1 A geração desmente a parada (juiz de parada-fantasma)
+### 4.1 Só o Fracttal — a geração não entra (15/10/2026)
 
-OS fechada com atraso vira parada de semanas no papel. Caso real: a OS 8891 dizia Parelhas
-parada de 03/07 a 28/08 enquanto a usina gerava 13.111 kWh/dia, todos os dias; a 12449 dizia
-metade do Junco fora o mês inteiro, com a usina em 6–7 kWh/kWp. O Fracttal não tem como
-distinguir — `stop_assets` é `False` nas 2.596 tarefas do escopo (ninguém preenche) e
-`real_stop_assets_sec` apenas repete evento→fim. **O juiz é a geração.**
+De 30/08 a 15/10/2026 a geração do BD e do banco desmentia a OS em dia em que a usina gerou (o "juiz de
+parada-fantasma": a OS 8891 dizia Parelhas parada de 03/07 a 28/08 com 13.111 kWh/dia). **Saiu de vez** (Levi, 15/10:
+"Não quero que olhe a geração, precisamos que você foque nos dados do Fracttal (...) não quero que cruze dados de geração
+pois são objetivos diferentes"). A OS conta pelas datas dela; o que estiver estranho vai para a lista **"alinhar"**
+(`disponibilidade._para_alinhar`), só com o dado do Fracttal:
 
-A régua compara o que a OS **afirma** com o que a usina **produziu**:
+- OS aberta sem data final (conta até ontem; quantos dias em aberto);
+- evento depois do fim (usou a criação) e fim antes até da criação, ou sem a criação (0 h);
+- sem `final_date` na tarefa (usou o `wo_final_date`);
+- site agrupado sem a usina na descrição;
+- Religamento cuja descrição é verificação de comunicação ou inspeção ("houve parada?");
+- religamento fechado que durou mais de um dia (a aberta já vai pelos dias em aberto; corretiva longa não: trocar
+  inversor leva dias);
+- OS fora da conta por dado da própria OS (sem evento, concluída sem fim, site ou ativo que o cadastro não reconhece).
 
-- Vale só para OS com mais de `DIAS_OS_LONGA` (3) dias — OS curta é confiável.
-- Vale só quando a fatia afirmada parada é ≥ `GER_FRAC_MIN` (30%). Abaixo disso a geração não
-  tem resolução: um inversor de 20 muda ~5% da produção, o que se perde no ruído do clima.
-- O **patamar** da usina no período (P75 dos dias, em kWh/kWp) precisa ser de usina plena
-  (≥ `GER_PLENO_KWH_KWP` = 4,5). Sem esse piso, uma usina com metade parada o mês inteiro faria
-  o próprio nível reduzido virar o "normal" e toda parada real seria exonerada.
-- Aí, dia a dia: se a OS afirma que a fração `f` estava parada, a usina deveria render no
-  máximo `(1 − f)` do patamar. Rendeu acima de `(1 − f) + 0,15`? Havia mais capacidade rodando
-  do que a OS afirma — **esse dia não conta**, e vai para `dias_exonerados` no payload.
-- O piso absoluto é do patamar, **não do dia**: dia nublado não prova nem desmente nada, e
-  aplicá-lo por dia fazia Parelhas perder metade da exoneração por causa de nuvem.
-- **Sem geração conhecida não se exonera nada.** Ausência de prova não é prova.
+Prova de 15/10/2026 (varredura real × o índice publicado com a regra antiga): outubro da Thopen 88,47% → 80,43%. Das
+perdas a mais, ~4,8 GWh eram dias que o juiz exonerava e ~1,5 GWh OS abertas desde setembro que sumiam (Brodowski 12693,
+"Verificação de comunicação", aberta desde 02/09; Guatambu 13427, "Inspeção e normalização", desde 10/09). 175 OS de
+outubro na lista "alinhar".
 
-Fonte da geração: PostgreSQL (`_pg_geracao_periodo`, ~20 usinas) mais BD_Thopen
-(`_daily_records`, ~63) — 83 das 118 Full O&M. As demais (Athon e as usinas renomeadas cujo
-nome deixou de casar com a aba do BD_Thopen) seguem sem conferência, contando a parada cheia.
+### 4.2 Setembro para trás: só a Thopen, pelo BD_Thopen (15/10/2026)
+
+"A disponibilidade será calculada somente pelo Fracttal a partir de outubro; setembro para trás vamos considerar o que
+está no BD_Thopen"; fora da Thopen, "só a partir de outubro!" (Levi, 15/10). O mês antes de `DISP_SO_FRACTTAL_DESDE`
+(app.py, "2026-10") sai de `disponibilidade.calcular_pelo_bd`: a "Disponibilidade Usina (%)" diária do BD_Thopen (pelo
+leitor do 5080, `dashboard_thopen._daily_records`), média dos dias com número, cliente ponderado por kWp, sem OS e sem a
+separação queda × equipamento (`fonte` = "BD_Thopen"). O casamento é pelo nome; os de-paras do Gerencial resolvem o resto
+(`_DISP_BD_ABAS`: Vargem Grande IB = aba Vargem Grande 1; Nova Londrina 1 e 2 e Primavera 1 e 2 levam o número do
+complexo; Ouro Branco = média de I a V). Setembro no PC: Thopen 95,51% (regra antiga) → 95,40% (BD).
 
 ## 5. Escopo — o que a OS derruba (pelo ATIVO, não por texto)
 
@@ -229,8 +236,8 @@ Catálogo de equipamentos cacheado por 12 h — mudança na aba Equipamentos val
 - **Fracttal é a fonte da verdade dos eventos:** parada real sem OS não aparece (foi a decisão
   ao aposentar o RDO). Ocorrências manuais só entram em planilhas avulsas, marcadas — o painel
   nunca as inclui.
-- OSs **ainda abertas** entram com 0 h até ganharem `final_date` — fechar OS atrasado deixa o
-  mês "bom demais" temporariamente (o ícone de atenção acima do mês existe para isso).
+- OSs **ainda abertas** contam até ontem enquanto não ganham `final_date` (15/10/2026) — OS esquecida aberta derruba o
+  mês até ser fechada; o ícone de atenção acima do mês lista as OS para alinhar no Fracttal.
 - **Qualidade do cadastro manda no peso.** Caso real (27/08): a UFV de Ipixuna 1 estava com o
   kWp do site inteiro (3.079 em vez de 1.255,8) e um inversor parado pesava 4,7% em vez de
   11,5%. Suspeitas abertas do scan: Inhapi (inversores sem kWp), Nova Londrina (UFV ≠ Σ
@@ -245,6 +252,8 @@ Catálogo de equipamentos cacheado por 12 h — mudança na aba Equipamentos val
 - **26/08** — RDO aposentado ("subir o nível"); Fracttal-only; decisões: fim = `final_date`
   da tarefa, canceladas fora, "Grid Co." = terceiros, abertas = 0 h + cenário (tratamento
   definitivo fica para depois). Mockup aprovado.
+- **15/10/2026** — só o Fracttal de outubro em diante (sai o juiz da geração), OS aberta conta, evento depois do fim usa a
+  criação, lista "alinhar" no lugar do cenário; setembro para trás só a Thopen, pelo BD_Thopen.
 - **27/08 (madrugada)** — feature no ar (worker + web); card do dia com criador e conta
   discriminada; export no card do mapa.
 - **27/08 (dia)** — régua da OS 11461 (cabine de site agrupado = usina); correção do cadastro

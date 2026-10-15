@@ -61,6 +61,10 @@
   .balao .txt{padding:12px 14px;font-size:12.5px;line-height:1.55;color:#f7c063;
     max-height:min(60vh, 420px);overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
   .balao .txt b{color:#fbd58f}
+  .balao .lst{list-style:none;margin:6px 0 0;padding:0;display:grid;gap:6px}
+  .balao .lst li{border-top:1px solid rgba(245,166,35,.22);padding-top:6px}
+  .balao .lst .os{font-weight:600;color:#fbd58f}
+  .balao .lst .mot{display:block;color:var(--ink)}
 
   .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:14px}
   .kpi{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px 14px}
@@ -311,12 +315,14 @@
       </table></div>
     </div>
 
-    <div class="metodo"><b style="color:var(--muted)">Metodologia:</b> OSs do Fracttal (Religamento, Religamento
-      Remoto, Corretiva Emergencial; canceladas fora); início = event_date, fim = final_date da tarefa; OS aberta
-      sem fim entra com 0 h (o ícone de atenção acima do mês diz quais). Escopo pelo ativo: usina → 100% do kWp;
-      cabine → kWp da UG; inversor → kWp do inversor (aba Equipamentos). Perda = kWp afetado × horas solares
+    <div class="metodo"><b style="color:var(--muted)">Metodologia:</b> de outubro de 2026 em diante, só as OSs do
+      Fracttal (Religamento, Religamento Remoto, Corretiva Emergencial; canceladas fora), sem cruzar com a geração;
+      início = event_date, fim = final_date da tarefa; evento depois do fim usa a criação da OS; OS aberta sem fim conta
+      até ontem (o ícone de atenção acima do mês lista as OS para alinhar no Fracttal). Escopo pelo ativo: usina → 100%
+      do kWp; cabine → kWp da UG; inversor → kWp do inversor (aba Equipamentos). Perda = kWp afetado × horas solares
       indisponíveis, à potência nominal. Cliente = as usinas dele ponderadas pela potência, a mesma conta do total.
-      Atualiza a cada 30 min. <span id="mAtual"></span></div>
+      Setembro para trás: só a Thopen, pela disponibilidade diária do BD_Thopen. Atualiza a cada 30 min.
+      <span id="mAtual"></span></div>
   </div>
 
   <div class="frio" id="frio" hidden>
@@ -424,17 +430,21 @@ function render(j, cli){
   $('kOk99').innerHTML = `${ok99}<small> de ${us.length}</small>`;
   $('kOk99Note').textContent = '';
 
-  // atenção: as OSs abertas sem data final, que entraram com 0 h — o ícone acima do mês só aparece quando há o que
-  // avisar, e a mensagem é a mesma da faixa de antes
-  const cen = j.cenario_abertas || [];
-  $('avisoWrap').hidden = !cen.length;
-  if (!cen.length) avisoAbrir(false);
-  const pot = cen.reduce((s, c) => s + c.kwh_cenario, 0);
-  $('avisoBtn').setAttribute('aria-label', `Atenção: ${cen.length} OS(s) de religamento abertas sem data final`);
-  $('avisoTxt').innerHTML = cen.length ? `<b>${cen.length} OS(s) de religamento ainda abertas sem data final</b> entraram
-      com 0 h no cálculo (OSs esquecidas abertas distorceriam o mês). Se forem parada real, somariam até
-      <b>${fmt(pot)} kWh</b>: ` + cen.map(c => `OS ${esc(c.folio)} (${esc((c.usinas || []).join(', ') || c.g1)})`).join(' · ')
-    : '';
+  // atenção (o ícone acima do mês, 13/10/2026): desde 15/10 ele lista as OS para alinhar no Fracttal — o que o próprio
+  // Fracttal mostra de estranho; a OS continua contando — e, no mês de setembro para trás, diz que o número é do BD_Thopen
+  const peloBd = j.fonte === 'BD_Thopen';
+  const al = j.alinhar || [];
+  $('avisoWrap').hidden = !peloBd && !al.length;
+  if (!peloBd && !al.length) avisoAbrir(false);
+  $('avisoBtn').setAttribute('aria-label', peloBd ? 'Atenção: mês pelo BD_Thopen'
+    : `Atenção: ${al.length} OS para alinhar no Fracttal`);
+  $('avisoTxt').innerHTML = peloBd
+    ? `<b>${esc(mesLabel(j.mes))}: disponibilidade diária do BD_Thopen</b>, só as usinas da Thopen e sem OS na conta.
+       A partir de outubro de 2026 a disponibilidade sai só das OS do Fracttal, para todos os clientes.`
+    : `<b>${al.length} OS para alinhar no Fracttal</b>. Elas continuam contando; o motivo diz o que conferir na OS.
+       <ul class="lst">` + al.map(a => `<li><span class="os">OS ${esc(a.folio)} · ${esc((a.usinas || []).join(', ')
+         || a.g1 || '—')}</span><span class="mot">${esc(a.motivo)}</span>${esc(a.criado_por || '')}${a.criada
+         ? ' · criada ' + esc(fmtHora(a.criada)) : ''}</li>`).join('') + '</ul>';
 
   desenhaClientes(j);
 
@@ -518,23 +528,18 @@ function equipamento(o){
 }
 
 const fmtHs = h => (+h || 0).toLocaleString('pt-BR', {maximumFractionDigits: 1});
-// dias em que a geração desmentiu a parada (o juiz de parada-fantasma): sem isto, "12 h solares" ao lado de "0 kWh" parece
-// erro. Com a usina, os dias dela; sem, os dias da OS em qualquer usina
-function diasDesmentidos(o, usina){
-  const d = o.dias_exonerados || {};
-  const n = usina ? (d[usina] || []).length : new Set(Object.values(d).flat()).size;
-  return n ? ` · ${n} ${n > 1 ? 'dias desmentidos' : 'dia desmentido'} pela geração` : '';
-}
 // Uma OS em duas linhas, a perda ao lado (Levi, 13/10/2026: em cima "Usina - Equipamento"; embaixo "OS X Tipo de tarefa
 // Data do evento e data fim da atividade - hora solar"). As horas são as de sol da OS no mês (o h_solar, a régua da
 // conta): a OS que passa da borda do mês diz "no mês", e a que segue aberta no Fracttal diz "em aberto".
 function linhaOS(o, titulo, kwh, usina, per){
-  const borda = per && (String(o.ini) < per.ini || String(o.fim) > per.fim);
+  // a aberta sem data final conta até o fim do período (15/10/2026) e não tem fim a mostrar
+  const borda = per && (String(o.ini) < per.ini || (o.fim && String(o.fim) > per.fim));
   return `<div class="ev">
     <div class="t">${titulo}</div>
     <div class="kwh">${fmt(kwh)}<small>kWh</small></div>
-    <div class="m">OS ${esc(o.folio)} · ${esc((o.tipos || []).join(' + '))} · ${fmtHora(o.ini)} &rarr; ${fmtHora(o.fim)} ·
-      ${fmtHs(o.h_solar)} h solares${borda ? ' no mês' : ''}${diasDesmentidos(o, usina)}${o.aberta
+    <div class="m">OS ${esc(o.folio)} · ${esc((o.tipos || []).join(' + '))} · ${fmtHora(o.ini)} &rarr; ${o.fim
+      ? fmtHora(o.fim) : 'sem data final'} ·
+      ${fmtHs(o.h_solar)} h solares${borda ? ' no mês' : ''}${o.aberta
         ? ' · <span class="ab">em aberto</span>' : ''}</div></div>`;
 }
 
@@ -622,8 +627,10 @@ function abrirDia(usina, d){
   const [ano, mn] = DADOS.mes.split('-');
   const k = `${ano}-${mn}-${String(d).padStart(2, '0')}`;
   const diaInfo = (DADOS.diario[usina] || {})[k] || {h_eq: 0, disp: 100, kwh: 0};
+  // a OS aberta sem data final conta até o fim do período (15/10/2026): o índice manda o fim nulo para dizer "ainda aberta"
+  const fimConta = o => o.fim || (o.aberta ? DADOS.periodo.fim : null);
   const oss = DADOS.oss.filter(o => !o.excl && (o.usinas || []).includes(usina)
-    && hSolarDia(o.ini, o.fim, ano, mn, d) > 0);
+    && hSolarDia(o.ini, fimConta(o), ano, mn, d) > 0);
   $('mTitulo').textContent = `${usina} · ${String(d).padStart(2, '0')}/${mn}/${ano}`;
   const hq = diaInfo.h_q || 0, he = diaInfo.h_e || 0;
   $('mResumo').innerHTML = `Disponibilidade do dia: <b>${fmtp(diaInfo.disp)}%</b> ·
@@ -633,7 +640,7 @@ function abrirDia(usina, d){
        + (hq && he ? ' <span style="color:var(--faint)">(as duas famílias podem se sobrepor no total)</span>' : '')
        : '');
   $('mOss').innerHTML = oss.map(o => {
-    const hDia = hSolarDia(o.ini, o.fim, ano, mn, d);
+    const hDia = hSolarDia(o.ini, fimConta(o), ano, mn, d);
     const linhas = (o.escopo || []).filter(e => e.usina === usina).map(e =>
       `<div class="cl"><span>${e.rotulo} · ${fmt(Math.round(e.kwp))} kWp × ${fmtH(hDia)} solares</span>
        <span>${fmt(Math.round(e.kwp * hDia))} kWh</span></div>`).join('');
@@ -645,7 +652,7 @@ function abrirDia(usina, d){
         <span>Criada por<br><b>${o.criado_por || '—'}</b></span>
         <span>Responsável<br><b>${o.responsavel || '—'}</b></span>
         <span>Aconteceu em<br><b>${fmtHora(o.ini)}</b></span>
-        <span>Terminou em<br><b>${o.aberta && o.ini === o.fim ? 'ainda aberta' : fmtHora(o.fim)}</b></span>
+        <span>Terminou em<br><b>${o.aberta && !o.fim ? 'ainda aberta' : fmtHora(o.fim)}</b></span>
         <span>Tempo solar neste dia<br><b>${fmtH(hDia)}</b></span>
         <span>Tempo solar total da OS<br><b>${fmtH(o.h_solar)}</b></span>
       </div>
@@ -656,7 +663,9 @@ function abrirDia(usina, d){
       </div>
       ${o.flags && o.flags.length ? `<div class="mflags">${o.flags.join(' · ')}</div>` : ''}
     </div>`;
-  }).join('') || '<div class="mos" style="color:var(--muted)">Nenhuma OS dos 3 tipos toca este dia — a perda pode vir de OS em usina agrupada.</div>';
+  }).join('') || (DADOS.fonte === 'BD_Thopen'
+    ? '<div class="mos" style="color:var(--muted)">Mês pelo BD_Thopen: a disponibilidade do dia é a da planilha, sem OS na conta.</div>'
+    : '<div class="mos" style="color:var(--muted)">Nenhuma OS dos 3 tipos toca este dia — a perda pode vir de OS em usina agrupada.</div>');
   if (oss.length > 1)
     $('mOss').insertAdjacentHTML('beforeend',
       `<div class="mres" style="margin-top:10px">Havendo sobreposição de OSs no mesmo horário, o total do dia é limitado a 100% da usina — a soma das OSs pode passar do total oficial acima.</div>`);
