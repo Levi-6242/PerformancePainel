@@ -5,7 +5,7 @@ disponibilidade por usina e por cliente: quais APIs são acionadas, com que par�
 que transforma OS do Fracttal em horas perdidas.
 
 Este documento é a referência de **runtime e API**. A metodologia e as decisões de negócio (por que
-P75, por que só duas famílias, etc.) estão em [`disponibilidade-por-os.md`](disponibilidade-por-os.md).
+só o Fracttal, por que só duas famílias, etc.) estão em [`disponibilidade-por-os.md`](disponibilidade-por-os.md).
 O código-fonte da conta é `plataforma/disponibilidade.py`; o disparo e a publicação, `plataforma/app.py`.
 
 ---
@@ -134,8 +134,10 @@ Resultado: `wos = {folio: [tarefas reduzidas]}`.
 A aba Equipamentos é lida de `bases/` (`pd.read_excel(..., sheet_name="Equipamentos", header=2)`) e vira
 o **catálogo** de usinas (`montar_catalogo`), com a potência de cada nível hierárquico.
 
-A geração (`_disp_geracao`) ainda é lida no mesmo laço, mas **só para a aba Falhas** (perda em kWh): desde 15/10/2026
-ela não entra na disponibilidade.
+**A geração não entra, nem passa por aqui** (Levi, 15/10/2026: "a geração não deve afetar a disponibilidade (...)
+disponibilidade é full Fracttal, isolada da geração"). Até 15/10 este laço ainda buscava a geração do mês para a aba
+Falhas antes de publicar o índice, e o banco lento atrasava a disponibilidade; a aba Falhas busca a dela sozinha
+(`_falhas_geracao`). Teste: `test_o_laco_da_disponibilidade_publica_sem_nunca_ler_a_geracao`.
 
 ---
 
@@ -299,5 +301,5 @@ Payload (quente):
 ---
 
 *Referência de runtime da disponibilidade do Gerencial. Constantes citadas: `FRAC_DISP_TTL` 30 min,
-`FRAC_DISP_MARGEM_D` 45 dias, rate limit 200 req/min, janela solar 06h–18h, P75 ≥ 4,5 kWh/kWp,
-tolerância 15 %, fatia mínima 30 %.*
+`FRAC_DISP_MARGEM_D` 45 dias, rate limit 200 req/min, janela solar 06h–18h, `DISP_SO_FRACTTAL_DESDE` "2026-10". As
+constantes do juiz da geração (P75 ≥ 4,5 kWh/kWp, tolerância 15 %, fatia mínima 30 %) saíram em 15/10/2026 com ele.*

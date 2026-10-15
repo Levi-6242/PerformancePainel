@@ -317,13 +317,13 @@ def _disponibilidade_dublada(monkeypatch):
     monkeypatch.setattr(app, "_frac_disp_mem", {"mtime": 0.0, "dados": {}})
     monkeypatch.setattr(app, "_disp_meses_alvo", lambda hoje=None: MESES_DISP)
     monkeypatch.setattr(app, "_disp_equip_linhas", lambda: EQUIP)
-    monkeypatch.setattr(app, "_disp_geracao", lambda *a, **k: {})
+    monkeypatch.setattr(app, "_ger_diaria_mes", lambda *a, **k: {})
     monkeypatch.setattr(app._disp_mod, "calcular", lambda *a, **k: real(*a, **{**k, "agora": AGORA}))
     # setembro para trás vem do BD_Thopen (Levi, 15/10/2026): a planilha dublada com o Alfa 100% o mês inteiro
     monkeypatch.setattr(app, "_disp_dias_bd_thopen", lambda ini, fim, equip: {
         "Alfa": {(ini + timedelta(days=i)).date(): 1.0 for i in range((fim - ini).days)}})
     monkeypatch.setattr(app, "_log_arquivo", lambda nome, msg: None)
-    monkeypatch.setattr(app, "_DISP_GER_ULTIMA", {})
+    monkeypatch.setattr(app, "_FALHAS_GER", {})              # a geração da aba Falhas: nada de vazar
 
 
 def _morta(st, inv="Inversor 3.3"):
@@ -488,9 +488,9 @@ def test_em_janeiro_o_dezembro_do_workbook_segue_com_as_os_concluidas_nele(monke
     monkeypatch.setattr(app, "FRACTTAL_ON", True)
     monkeypatch.setattr(app, "_frac_disp_mem", {"mtime": 0.0, "dados": {}})
     monkeypatch.setattr(app, "_disp_equip_linhas", lambda: EQUIP)
-    monkeypatch.setattr(app, "_disp_geracao", lambda *a, **k: {})
+    monkeypatch.setattr(app, "_ger_diaria_mes", lambda *a, **k: {})
     monkeypatch.setattr(app, "_log_arquivo", lambda nome, msg: None)
-    monkeypatch.setattr(app, "_DISP_GER_ULTIMA", {})
+    monkeypatch.setattr(app, "_FALHAS_GER", {})              # a geração da aba Falhas: nada de vazar
     # religamento da Alfa em 15/12, 12:00–15:00 de Brasília: 3 h perdidas (disp 75 no dia)
     _fracttal_dublado(monkeypatch, [
         _wo(9101, "Religamento", "TC-ALF100", "Religamento da Usina", "2026-12-15T15:00:00+00:00",

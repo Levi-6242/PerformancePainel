@@ -106,11 +106,11 @@ def test_mes_fechado_nao_tem_dia_sem_prova():
 
 
 def test_dia_que_a_geracao_ainda_nao_cobre_fica_sem_prova_mesmo_ja_passado():
-    # revisão adversarial de 11/10/2026: às 00:05 a geração em uso é a que a Disponibilidade buscou às 23:50 — cortada no
-    # D-1 do relógio DELA, vai só até anteontem. Pelo relógio, ontem já tinha "fechado": a usina sem string lida (Céu
+    # revisão adversarial de 11/10/2026: às 00:05 a geração em uso é a que foi buscada às 23:50 (até 15/10 pela
+    # Disponibilidade; hoje pela própria aba, `_falhas_geracao`) — cortada no D-1 do relógio dela, vai só até anteontem. Pelo relógio, ontem já tinha "fechado": a usina sem string lida (Céu
     # Azul e Ceilândia 1 não têm leitura de string em outubro) saía com 0 dia de comunicação E 0 sem prova, o dia sumia
-    # do trackers_dia e o 5080 tirava o tracker do card — toda noite, até a 1ª volta da Disponibilidade depois da
-    # meia-noite (até 3 h com a varredura do Fracttal falhando). Fechado é o dia que a geração JÁ cobre
+    # do trackers_dia e o 5080 tirava o tracker do card — toda noite, até a 1ª busca da geração depois da meia-noite.
+    # Fechado é o dia que a geração JÁ cobre
     u = app._macro_usina_nome("Inhapi") or "Inhapi"
     sem_strings = registro("01", "02", vivas=None)
     as_23_50 = {u: {"kwp": 1000.0, "dias": {"2026-09-01": 4500.0}}}
@@ -119,7 +119,7 @@ def test_dia_que_a_geracao_ainda_nao_cobre_fica_sem_prova_mesmo_ja_passado():
     (r,) = p["trackers"]["rows"]
     assert (r["dias_comunicou"], r["dias_sem_prova"]) == (0, 1)
     assert _td(p) == [("2026-09-02", "pv", PID, "TRK1", 1, "sem prova")]
-    # a geração do dia chega (a volta da Disponibilidade depois da meia-noite): o dia ganha o veredito
+    # a geração do dia chega (a busca seguinte, depois da meia-noite): o dia ganha o veredito
     com_o_dia = {u: {"kwp": 1000.0, "dias": {"2026-09-01": 4500.0, "2026-09-02": 4400.0}}}
     p = monta(trk(d02=("parado", 35.0)), mortas=sem_strings, geracao=com_o_dia, fim="2026-09-03",
               agora=datetime(2026, 9, 3, 0, 35))

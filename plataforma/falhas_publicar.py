@@ -42,8 +42,8 @@ CABECALHOS = {
     # dias_comunicou: dias do episódio em que a USINA leu string ou gerou (Levi, 08/10: "quando fica parado sem
     # comunicação essa ocorrência é ignorada; se a usina comunicou inversor ou string então aí conta").
     # dias_sem_prova: dias do episódio que a geração ainda não cobre e sem prova nenhuma — a usina sem string lida
-    # (Barretos, Matão 2 em 08/10) só prova pela geração, que o BD_Thopen grava 0 até o fechamento e a Disponibilidade
-    # corta no D-1 de quando roda; não é "sem comunicação". Volta a 0 quando a geração do dia chega
+    # (Barretos, Matão 2 em 08/10) só prova pela geração, que o BD_Thopen grava 0 até o fechamento e a busca da aba
+    # (_falhas_geracao) corta no D-1 de quando roda; não é "sem comunicação". Volta a 0 quando a geração do dia chega
     "trackers_episodios": ["mes", "fonte", "cliente", "usina", "tracker", "inversor", "parou", "voltou", "situacao",
                            "horas_sol", "desvio_pico_graus", "fator_perda", "kwp_tracker", "perda_kwh", "cronico", "avisos",
                            "plant_id", "dias_comunicou", "dias_sem_prova"],
@@ -84,8 +84,8 @@ CABECALHOS = {
     # OS Fracttal. Comentários e disponibilidade!"): 1 linha = OS × usina × dia em que ela tirou disponibilidade, com os
     # trechos das 06–18 h em que foi dona da perda ("06:00-08:06; 10:55-12:05") e as horas equivalentes do dia. Sai da
     # MESMA varredura que a `disponibilidade_dia` (disponibilidade._varrer): somadas, as linhas de uma usina num dia dão
-    # o h_perdidas dela. O dia que a geração desmente e a OS de cabine coberta por uma de usina não têm linha (não
-    # tiraram nada). O 5080 escreve o comentário do dia só com estas linhas
+    # o h_perdidas dela. A OS de cabine coberta por uma de usina não tem linha (não tirou nada; até 15/10/2026 o dia
+    # que a geração desmentia também não tinha). O 5080 escreve o comentário do dia só com estas linhas
     "disponibilidade_os_dia": ["mes", "dia", "usina", "usina_fracttal", "os", "tipo", "origem", "escopo", "kwp",
                                "inicio", "fim", "aberta", "trechos", "h_perdidas"],
     "atualizacao": ["mes", "periodo_inicio", "periodo_fim", "atualizado_em", "strings_inversor_dia", "strings_episodios",
@@ -242,10 +242,10 @@ def _disp_os_linhas(d):
         tot = sum(x["kwp"] for x in por.values())
         kwh = o.get("kwh")
         # a perda de cada usina é a que o índice mediu nela (`kwh_usina`, 13/10/2026). Repartir a da OS pela potência
-        # erra quando a geração desmente o dia numa usina só, ou quando o teto de 100% pega uma e não a outra: em
-        # setembro a Rodrigues 1 e 2 trocavam ~47,9 MWh por essa conta, e em outubro a Boa Esperança do Sul 1 e 2
-        # ~2,5 MWh. A usina do escopo que não está no `kwh_usina` (todo dia desmentido) perdeu 0 com esta OS — e a linha
-        # fica, em 0. O índice publicado antes do campo (até a 1ª varredura do worker com o código de 13/10/2026) não o
+        # erra quando o teto de 100% pega uma usina e não a outra (e, até 15/10/2026, quando a geração desmentia o dia
+        # numa só): em setembro a Rodrigues 1 e 2 trocavam ~47,9 MWh por essa conta, e em outubro a Boa Esperança do Sul
+        # 1 e 2 ~2,5 MWh. A usina do escopo que não está no `kwh_usina` (nenhuma hora de sol nela) perdeu 0 com esta OS
+        # — e a linha fica, em 0. O índice publicado antes do campo (até a 1ª varredura do worker com o código de 13/10/2026) não o
         # tem: aí segue a repartição pela potência, a única conta possível sem ele
         kwh_u = o.get("kwh_usina")
         for u, x in sorted(por.items(), key=lambda kv: str(kv[0])):

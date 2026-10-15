@@ -956,8 +956,17 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
 
 - **De `DISP_SO_FRACTTAL_DESDE` ("2026-10") em diante** (`_frac_disp_recalcular` → `disponibilidade.calcular`): OS aberta
   conta até o fim do período em todo mês em que seguir aberta; evento depois do fim usa a criação (fim antes até da
-  criação = 0 h); **o juiz da geração saiu** (não volte a cruzar com a geração). A geração ainda é lida no laço, só para
-  a aba Falhas (`_DISP_GER_ULTIMA`), e falhar nela não segura o índice.
+  criação = 0 h); **o juiz da geração saiu** e a disponibilidade é **isolada da geração** (Levi: "a geração não deve
+  afetar a disponibilidade (...) disponibilidade é full Fracttal, isolada da geração"): o laço não lê geração nenhuma
+  (até 15/10 ele a buscava para a aba Falhas antes de publicar, e o banco lento atrasava o índice; a aba Falhas busca a
+  dela, `_falhas_geracao`). Geração e disponibilidade lado a lado numa tela (Gerencial, Relatório Semanal) tudo bem; uma
+  mexer na outra, não. Teste: `test_o_laco_da_disponibilidade_publica_sem_nunca_ler_a_geracao`.
+- **A "Disponibilidade UFV" da cascata do Gerencial (`_cascata_usina`) e do Criador de Relatório (`_relatorio_build`)**
+  divide as horas de OS pelos dias FECHADOS do período, não pelos dias com geração na série (até 15/10/2026 um dia sem a
+  geração no BD tirava 12 h do divisor e derrubava a disponibilidade; achado da auditoria de 15/10). Sem dia fechado,
+  "—". As perdas em energia das duas seguem pelos dias da série (são da geração). As duas ainda usam a régua do BI antigo
+  (só OS de usina inteira, evento no período), não o índice da tela Disponibilidade: o número pode diferir dele.
+  Teste: `tests/test_disp_cascata_relatorio_sem_geracao.py`.
 - **Antes** (`calcular_pelo_bd` + `_disp_dias_bd_thopen`): só as usinas da Thopen, pela "Disponibilidade Usina (%)" do
   BD_Thopen (o leitor do 5080), sem OS e sem queda × equipamento; de-paras em `_DISP_BD_ABAS` (os do Gerencial).
 - **`alinhar`** no lugar do `cenario_abertas` (que saiu do payload): as OS que pedem um olho no Fracttal, só pelo dado
@@ -1647,8 +1656,10 @@ resposta e a rota `/api/painel/falhas?mes=` só devolve os bytes. De `FALHAS_INI
 - Trackers: régua de parado da plataforma; parado que vira severo/médio/leve sai; desvio < 2° o episódio todo não é
   falha; kWp do tracker = inversor ÷ trackers dele, ou o típico medido no cadastro (dividir a UFV pelos trackers
   "vistos no store" inflava ~10×: o store só lista tracker com anomalia).
-- Geração: a que a Disponibilidade acabou de buscar (`_DISP_GER_ULTIMA`) ou `_disp_geracao(..., com_pg=False)` —
-  nunca uma 2ª consulta do mês ao banco da Thopen.
+- Geração (`_falhas_geracao`): a do mês com o banco da Thopen, que uma thread da própria aba busca de 30 em 30 min,
+  um mês por vez (`_falhas_ger_buscar` → `_ger_diaria_mes`; vale até 3 h), ou, sem ela, BD_Thopen + BD_Performance na
+  hora (`com_pg=False`). A volta não espera o banco. Até 15/10/2026 quem buscava era o laço da Disponibilidade (antes
+  de publicar o índice dela); saiu de lá porque a disponibilidade é só do Fracttal e isolada da geração.
 - **Workbook `falhas_performance` (Gridco API, id 39, criado em 25/09):** oito abas, nesta ordem —
   `strings_inversor_dia`, `strings_episodios`, `trackers_episodios`, `cobertura`, `strings_os`, `trackers_dia`,
   `disponibilidade_dia` e `atualizacao` (`falhas_publicar.py`, o caminho do gêmeo: xlsx + `sync-xlsx?replace=true`; as
@@ -1936,6 +1947,12 @@ ainda não estavam na main em 11/10). Aqui só a publicação. **Colunas novas s
   (`_falhas_disp_mes`): TODA usina × todo dia, inclusive o 100,0 com 0 h do dia sem OS — sem a linha, ninguém separa
   "100%" de "não medido". `h_perdidas` vai junto porque o `disp` de 1 casa, arredondado, desvia a média do mês. Liga
   pelo nome do Gerencial antes do Fracttal: um site do Fracttal pode ser de duas usinas (Aparecida do Taboado 1 e 2).
+  - **Setembro para trás é o BD_Thopen** (15/10/2026, a regra da seção "Disponibilidade do Gerencial: só o Fracttal de
+    outubro em diante"): o índice traz o mês anterior a `DISP_SO_FRACTTAL_DESDE` com `fonte: "BD_Thopen"`, só as usinas
+    da Thopen e a "Disponibilidade Usina (%)" de cada dia. A `disponibilidade_dia` desse mês sai dela (as outras usinas
+    saem do mês); `disponibilidade_os` e `disponibilidade_os_dia` saem VAZIAS (não publicadas: o `_falhas_disp_mes` manda
+    `oss: None` e o dia vai sem a chave `os`), nunca "nenhuma OS". No 1º deploy, setembro (que segue o índice do dia 3
+    em diante) troca as linhas do Fracttal pelas do BD.
   - O índice tem o mês corrente e o anterior. O mês remontado ganha a dele na volta; **o mês que a volta não remonta e o
     índice ainda tem (o anterior, do dia 3 em diante) segue o índice** (`_falhas_disp_fora_da_volta`, só quando muda):
     setembro foi montado em 02/10, antes da aba, e ficaria sem linha nenhuma, e o Gerencial segue recalculando o mês
@@ -1956,9 +1973,10 @@ ainda não estavam na main em 11/10). Aqui só a publicação. **Colunas novas s
   `kwh_usina` do índice (ver "Disponibilidade por OS"), que o `_falhas_disp_mes` leva e o `_disp_os_linhas` usa — as
   linhas de uma usina somam a perda dela. Sem a descrição nem quem criou (o banco tem leitura aberta). Pela data de início
   (a nova no fim).
-  - **A OS de duas usinas leva a perda de cada uma, não a repartição pela potência** (13/10/2026): repartir erra quando a
-    geração desmente o dia numa usina só ou o teto de 100% pega uma e não a outra. A usina do escopo fora do `kwh_usina`
-    (todo dia desmentido) fica com a linha, em 0 — a linha não some (a API guarda histórico por linha). O índice de antes
+  - **A OS de duas usinas leva a perda de cada uma, não a repartição pela potência** (13/10/2026): repartir erra quando o
+    teto de 100% pega uma usina e não a outra (e, até 15/10/2026, quando a geração desmentia o dia numa só). A usina do
+    escopo fora do `kwh_usina` (nenhuma hora de sol nela) fica com a linha, em 0 — a linha não some (a API guarda
+    histórico por linha). O índice de antes
     do campo (`kwh_usina` ausente, até a 1ª varredura do worker com o código de 13/10; o worker do PC ainda o publicava
     às 21:29 de 13/10) segue a repartição pela potência — a única conta possível sem ele. A observação do fato
     `disponibilidade_os` no catálogo do Nexus (`nexus/dados/catalogo.py`) ainda dizia "repartida pela potência" em 13/10.
@@ -1978,12 +1996,12 @@ ainda não estavam na main em 11/10). Aqui só a publicação. **Colunas novas s
   que ela foi dona da perda (`"06:00-08:06; 10:55-12:05"`). Sai da MESMA varredura da `disponibilidade_dia`: o `_varrer`
   ganhou o `det_os_dia` (a parcela de cada dono em cada segmento, `frac_af × kWp ÷ ΣkWp dos donos × horas`) e o
   `calcular` põe a lista em `diario[u][dia]["os"]` (`_os_do_dia`); o `_falhas_disp_mes` leva e o `_disp_os_dia_linhas`
-  publica. **As linhas de uma usina num dia somam o `h_perdidas` dela** (por construção); o dia que a geração desmente
-  não tem linha e a OS de cabine coberta por uma de usina inteira só tem os trechos fora dela.
+  publica. **As linhas de uma usina num dia somam o `h_perdidas` dela** (por construção); a OS de cabine coberta por uma
+  de usina inteira só tem os trechos fora dela (até 15/10/2026 o dia que a geração desmentia também não tinha linha).
   - **Por que existe:** o 5080 escrevia o comentário do dia refazendo a conta com as OS do mês (`disponibilidade_os`,
     início e fim) e errava: a Canarana 1 de 08 a 12/10 aparecia com "usina parada o dia todo" ao lado de 87,5% (a geração
-    desmentiu a OS de usina inteira e só o inversor 1.8 contou). Refeita fora daqui, a conta não pega a geração, a
-    exclusão nem a hierarquia; a parcela tem de vir da varredura.
+    desmentiu a OS de usina inteira e só o inversor 1.8 contou). Refeita fora daqui, a conta não pega a exclusão nem a
+    hierarquia (nem, até 15/10/2026, a geração); a parcela tem de vir da varredura.
   - **Prova (14/10/2026)**, sobre a cópia do `frac_disp_index.json` do PC de 14:14 (sem a parcela): os eventos refeitos
     das `oss` do índice (escopo, `dias_exonerados`, sem as excluídas) e o `_varrer` novo reproduzem o `h_eq` de TODOS os
     1.203 dias-usina com perda (810 de setembro, 393 de outubro) e a soma das parcelas fecha com ele em todos; nenhum dia

@@ -260,11 +260,11 @@ def ambiente(monkeypatch, tmp_path, fracttal):
     monkeypatch.setattr(app, "_frac_disp_mem", {"mtime": 0.0, "dados": {}})
     monkeypatch.setattr(app, "_disp_meses_alvo", lambda hoje=None: MESES)
     monkeypatch.setattr(app, "_disp_equip_linhas", lambda: EQUIP)
-    monkeypatch.setattr(app, "_disp_geracao", lambda *a, **k: {})
+    monkeypatch.setattr(app, "_ger_diaria_mes", lambda *a, **k: {})
     monkeypatch.setattr(app, "_log_arquivo", lambda nome, msg: logs.append((nome, msg)))
     # estes testes são da VARREDURA: os dois meses pelo Fracttal (o corte de 15/10/2026 tem teste próprio, no fim)
     monkeypatch.setattr(app, "DISP_SO_FRACTTAL_DESDE", "2000-01")
-    monkeypatch.setattr(app, "_DISP_GER_ULTIMA", {})          # a aba Falhas lê isto: não vazar a geração falsa
+    monkeypatch.setattr(app, "_FALHAS_GER", {})              # a geração da aba Falhas: nada de vazar
     monkeypatch.setattr(app, "DASH_PASSWORD", "")
     return {"dir": tmp_path, "logs": logs, "fracttal": fracttal, "web": app.app.test_client()}
 
@@ -410,3 +410,51 @@ def test_mes_antes_de_outubro_vem_do_bd_thopen_e_outubro_do_fracttal(ambiente, m
     assert set_["fonte"] == "BD_Thopen" and set_["oss"] == [] and pedidos == [datetime(2026, 9, 1)]
     (u,) = set_["usinas"]
     assert u["disp"] == 50.0 and set_["diario"]["Alfa"]["2026-09-16"]["disp"] == 50.0
+
+
+# ── a disponibilidade é isolada da geração (Levi, 15/10/2026: "a geração não deve afetar a disponibilidade (...)
+# disponibilidade é full Fracttal, isolada da geração") ───────────────────────────────────────────────────────────────
+def test_o_laco_da_disponibilidade_publica_sem_nunca_ler_a_geracao(ambiente, monkeypatch):
+    # até 15/10 o laço buscava a geração do mês (para a aba Falhas) ANTES de publicar: com o banco preso, o índice
+    # esperava. Agora a leitura de geração explode se for chamada, e o índice sai igual
+    chamadas = []
+
+    def _proibida(*a, **k):
+        chamadas.append(a)
+        raise AssertionError("a disponibilidade leu a geração")
+    monkeypatch.setattr(app, "_ger_diaria_mes", _proibida)
+    monkeypatch.setattr(app, "_pg_geracao_periodo", _proibida)
+    ambiente["fracttal"](_tres_os(), tam=2)
+    app._frac_disp_recalcular()
+    idx = json.loads((ambiente["dir"] / "frac_disp_index.json").read_text(encoding="utf-8"))
+    assert chamadas == [] and set(idx["meses"]) == {"2026-09", "2026-08"}
+    assert all(m["fonte"] == "Fracttal" for m in idx["meses"].values())
+
+
+def test_a_aba_falhas_busca_a_propria_geracao_sem_esperar_pelo_banco(monkeypatch):
+    # a geração com o banco da Thopen vem de uma thread da aba Falhas: a volta não espera a consulta (que já ficou 45 min
+    # presa) e usa, enquanto isso, a sem o banco; com a da thread na mão (até 3 h), usa ela
+    import threading as _th
+    solta, pedidos = _th.Event(), []
+
+    def _ger(ini, fim, equip, com_pg=True):
+        pedidos.append(com_pg)
+        if com_pg:
+            solta.wait(5)
+            return {"Alfa": {"dias": {"2026-10-02": 900.0}, "kwp": 1000.0}}
+        return {"Alfa": {"dias": {"2026-10-02": 100.0}, "kwp": 1000.0}}
+    monkeypatch.setattr(app, "_ger_diaria_mes", _ger)
+    monkeypatch.setattr(app, "_disp_equip_linhas", lambda: EQUIP)
+    monkeypatch.setattr(app, "_FALHAS_GER", {})
+    monkeypatch.setattr(app, "_FALHAS_GER_PEDIDOS", {})
+    monkeypatch.setattr(app, "_log_arquivo", lambda nome, msg: None)
+    sem_banco = app._falhas_geracao("2026-10", "2026-10-01", "2026-10-14")
+    assert sem_banco["Alfa"]["dias"]["2026-10-02"] == 100.0          # não esperou a thread
+    solta.set()
+    for _ in range(100):
+        if "2026-10" in app._FALHAS_GER:
+            break
+        _th.Event().wait(0.05)
+    assert app._FALHAS_GER["2026-10"]["ger"]["Alfa"]["dias"]["2026-10-02"] == 900.0
+    assert app._falhas_geracao("2026-10", "2026-10-01", "2026-10-14")["Alfa"]["dias"]["2026-10-02"] == 900.0
+    assert sorted(pedidos) == [False, True]                           # uma com o banco (thread), uma sem (a 1ª volta)

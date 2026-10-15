@@ -25908,7 +25908,6 @@ import disponibilidade as _disp_mod
 _FRAC_DISP_FILE = _p_cache("frac_disp_index.json")   # o worker varre e calcula; ~3 min, mais a fila da cota do Fracttal
 _FRAC_DISP_STATUS = _p_cache("frac_disp_status.json")  # a última TENTATIVA (o índice só muda com varredura inteira)
 FRAC_DISP_TTL = 30 * 60
-_DISP_GER_ULTIMA = {}     # "AAAA-MM" → {ts, ger}: a geração do mês que a Disponibilidade acabou de buscar (worker)
 FRAC_DISP_MARGEM_D = 45          # OS criada até 45d antes do mês anterior ainda entra na varredura
 FRAC_DISP_TETO_LINHAS = 40000    # tarefas lidas sem chegar ao limite = algo errado (em 28/09 o limite veio em 17.499)
 _frac_disp_mem = {"mtime": 0.0, "dados": {}}
@@ -26013,14 +26012,14 @@ def _frac_disp_sweep(limite_dt, resumo=None):
     return wos
 
 
-def _disp_geracao(per_ini, per_fim, equip, com_pg=True):
-    """Geração diária por usina do BD (PostgreSQL) → {usina_bd: {'YYYY-MM-DD': kWh}}.
-    Serve de JUIZ contra parada-fantasma: OS longa fechada com atraso dizia a usina parada
-    enquanto ela gerava (caso Parelhas, 30/08). SÓ no worker — é SQL do mês inteiro.
-    O PG nomeia '(289) Nome' e o BD 'Nome (152)': casa pelo nome sem o número.
-    Leitura com confiavel=False é DESCARTADA — exonerar parada por dado ruim seria pior.
-    com_pg=False pula o banco da Thopen (a aba Falhas, quando não há a geração que a Disponibilidade
-    acabou de buscar: em 24/09 a consulta do mês ficou 45 min presa no banco saturado)."""
+def _ger_diaria_mes(per_ini, per_fim, equip, com_pg=True):
+    """Geração diária por usina no período → {usina do catálogo: {"dias": {'YYYY-MM-DD': kWh}, "kwp": kWp}}, do banco
+    da Thopen (o mais fresco), do BD_Thopen e das abas por usina do BD_Performance. É da aba Falhas (pesa a perda em kWh
+    de strings e trackers e prova que a usina comunicou no dia); a DISPONIBILIDADE NÃO A USA (Levi, 15/10/2026: "a
+    geração não deve afetar a disponibilidade (...) disponibilidade é full Fracttal, isolada da geração"). De 30/08 a
+    15/10/2026 ela foi o "juiz" da disponibilidade e se chamava `_disp_geracao`. SÓ no worker — é SQL do mês inteiro.
+    O PG nomeia '(289) Nome' e o BD 'Nome (152)': casa pelo nome sem o número. Leitura do PG com confiavel=False é
+    descartada. com_pg=False pula o banco da Thopen (em 24/09 a consulta do mês ficou 45 min presa no banco saturado)."""
     def _chave(s):
         s = re.sub(r"\(\s*\d+\s*\)", " ", str(s or ""))        # tira "(289)" de qualquer posição
         return _disp_mod.norm(s)
@@ -26071,7 +26070,7 @@ def _disp_geracao(per_ini, per_fim, equip, com_pg=True):
                     ent = out.setdefault(u, {"dias": {}, "kwp": kwp})
                     ent["dias"][str(r.get("data"))[:10]] = float(g)
     except Exception as e:
-        print(f"[disp] geração do PG falhou: {e}")
+        print(f"[falhas] geração do PG falhou: {e}")
     n_pg = len(out)
 
     # (2) BD_Thopen — cobre as Thopen, que o PG não alcança (é onde estavam Parelhas,
@@ -26097,7 +26096,7 @@ def _disp_geracao(per_ini, per_fim, equip, com_pg=True):
             for u in alvos:
                 out[u] = {"dias": dias, "kwp": kwp}
     except Exception as e:
-        print(f"[disp] geração do BD_Thopen falhou: {e}")
+        print(f"[falhas] geração do BD_Thopen falhou: {e}")
     n_thop = len(out)
 
     # (3) BD_Performance, abas por usina — cobre quem não está no PG nem no BD_Thopen (Athon,
@@ -26144,11 +26143,11 @@ def _disp_geracao(per_ini, per_fim, equip, com_pg=True):
                     for u in alvos:
                         out[u] = {"dias": dias, "kwp": kwp}
             wb.close()
-            print(f"[disp] BD_Performance: {achou} aba(s) por usina em {time.time()-t0:.1f}s")
+            print(f"[falhas] BD_Performance: {achou} aba(s) por usina em {time.time()-t0:.1f}s")
         except Exception as e:
-            print(f"[disp] geração do BD_Performance falhou: {e}")
+            print(f"[falhas] geração do BD_Performance falhou: {e}")
 
-    print(f"[disp] geração p/ o juiz de parada-fantasma: {len(out)} usinas (PG {n_pg}, "
+    print(f"[falhas] geração do mês p/ a aba Falhas: {len(out)} usinas (PG {n_pg}, "
           f"+{n_thop - n_pg} BD_Thopen, +{len(out) - n_thop} BD_Performance)"
           + (f" | {len(orfas)} nomes do PG sem correspondência" if orfas else ""))
     return out
@@ -26260,13 +26259,10 @@ def _frac_disp_recalcular():
                 dados["meses"][rot] = _disp_mod.calcular_pelo_bd(_disp_dias_bd_thopen(ini, fim, equip), equip, ini, fim)
         except Exception as e:
             falhas.append(f"cálculo de {rot} falhou: {type(e).__name__}: {e}")
-        # A geração NÃO entra na disponibilidade (Levi, 15/10/2026). Ela segue sendo lida aqui só para a aba Falhas, que
-        # pesa a perda em kWh por ela e reusa esta leitura (_falhas_geracao: sem uma 2ª consulta do mês ao banco);
-        # falhar nela não segura o índice.
-        try:
-            _DISP_GER_ULTIMA[rot] = {"ts": time.time(), "ger": _disp_geracao(ini, fim, equip)}
-        except Exception as e:                               # noqa: BLE001
-            _log_arquivo("fracttal.log", f"[disp] geração de {rot} para a aba Falhas: {type(e).__name__}: {e}")
+    # A disponibilidade é só do Fracttal e não toca na geração (Levi, 15/10/2026: "disponibilidade é full Fracttal,
+    # isolada da geração"). Até 15/10 este laço também buscava a geração do mês para a aba Falhas, ANTES de publicar: com
+    # o banco lento (24/09: a consulta do mês presa 45 min) o índice da disponibilidade esperava a geração. A aba Falhas
+    # busca a dela sozinha (_falhas_geracao).
     if falhas:
         _frac_disp_registrar(False, "; ".join(falhas) + ", nada publicado", resumo)
         return
@@ -27502,13 +27498,44 @@ def _falhas_abertos(pacote):
     return {"strings": s, "trackers": t}
 
 
+_FALHAS_GER = {}                    # "AAAA-MM" → {ts, ger}: a geração do mês com o banco da Thopen (thread da aba Falhas)
+_FALHAS_GER_PEDIDOS = {}            # "AAAA-MM" → (ini, fim): meses que a thread ainda vai buscar
+_FALHAS_GER_VOO = threading.Lock()  # uma thread por vez, um mês depois do outro: a consulta do mês ao banco pode demorar
+FALHAS_GER_RENOVA_S = 30 * 60       # o passo do _falhas_loop (o mesmo que a Disponibilidade tinha até 15/10)
+FALHAS_GER_VALIDADE_S = 3 * 3600
+
+
+def _falhas_ger_buscar():
+    """Thread da aba Falhas: a geração de cada mês pedido, com o banco da Thopen, um mês por vez (como era). Até
+    15/10/2026 quem a buscava era o laço da Disponibilidade, ANTES de publicar o índice dela, e o banco lento (24/09: a
+    consulta do mês presa 45 min) segurava a disponibilidade. A disponibilidade é só do Fracttal e não espera nem lê a
+    geração (Levi, 15/10/2026); a busca mora aqui, fora também do caminho do _falhas_loop."""
+    if not _FALHAS_GER_VOO.acquire(blocking=False):
+        return
+    try:
+        while _FALHAS_GER_PEDIDOS:
+            mes, (ini, fim) = _FALHAS_GER_PEDIDOS.popitem()
+            try:
+                ger = _ger_diaria_mes(datetime.strptime(ini, "%Y-%m-%d"),
+                                      datetime.strptime(fim, "%Y-%m-%d") + timedelta(days=1), _disp_equip_linhas())
+                _FALHAS_GER[mes] = {"ts": time.time(), "ger": ger}
+            except Exception as e:                           # noqa: BLE001 — fica a última boa (ou a sem o banco)
+                _log_arquivo("falhas.log", f"[falhas] geração de {mes} com o banco: {type(e).__name__}: {e}")
+    finally:
+        _FALHAS_GER_VOO.release()
+
+
 def _falhas_geracao(mes, ini, fim):
-    """Geração do mês: a que a Disponibilidade acabou de buscar (até 3 h) ou, sem ela, BD_Thopen + BD_Performance."""
-    c = _DISP_GER_ULTIMA.get(mes)
-    if c and time.time() - c["ts"] < 3 * 3600:
+    """Geração do mês para a aba Falhas: a que a thread dela buscou com o banco da Thopen (até 3 h) ou, sem ela,
+    BD_Thopen + BD_Performance na hora. Passados 30 min, pede outra à thread, sem esperar por ela."""
+    c = _FALHAS_GER.get(mes)
+    if not c or time.time() - c["ts"] >= FALHAS_GER_RENOVA_S:
+        _FALHAS_GER_PEDIDOS[mes] = (ini, fim)
+        threading.Thread(target=_falhas_ger_buscar, daemon=True, name="falhas-geracao").start()
+    if c and time.time() - c["ts"] < FALHAS_GER_VALIDADE_S:
         return c["ger"]
-    return _disp_geracao(datetime.strptime(ini, "%Y-%m-%d"), datetime.strptime(fim, "%Y-%m-%d") + timedelta(days=1),
-                         _disp_equip_linhas(), com_pg=False)
+    return _ger_diaria_mes(datetime.strptime(ini, "%Y-%m-%d"), datetime.strptime(fim, "%Y-%m-%d") + timedelta(days=1),
+                           _disp_equip_linhas(), com_pg=False)
 
 
 def _falhas_recalcular():
@@ -27577,9 +27604,10 @@ def _falhas_recalcular():
 
 def _falhas_disp_mes(mes):
     """A disponibilidade de cada usina por dia no mês, do índice da aba Disponibilidade do Gerencial (frac_disp_index.json:
-    OS de religamento e corretiva emergencial, 06–18 h, ponderada pela potência afetada — Levi, 09/10/2026: "da mesma
-    forma que calculamos pelo gerencial"). Só o essencial para o workbook: o catálogo de usinas, o período fechado
-    (até D-1) e os dias com perda. None quando o índice não tem o mês."""
+    de outubro/2026 em diante, OS de religamento e corretiva emergencial, 06–18 h, ponderada pela potência afetada — Levi,
+    09/10/2026: "da mesma forma que calculamos pelo gerencial"; setembro para trás, a "Disponibilidade Usina (%)" do
+    BD_Thopen, só a Thopen e sem OS — 15/10/2026). Só o essencial para o workbook: o catálogo de usinas, o período
+    fechado (até D-1) e os dias com perda. None quando o índice não tem o mês."""
     m = ((_frac_disp_dados() or {}).get("meses") or {}).get(mes)
     if not m or not m.get("usinas") or not m.get("periodo"):
         return None
@@ -30771,7 +30799,13 @@ def _cascata_usina(cliente, usina, ano, mes):
     perda_rede  = round(possivel * min(1.0, (h_rede / (12.0 * n)) if n else 0.0), 1)
     perda_equip = round(possivel * min(1.0, (h_equip / (12.0 * n)) if n else 0.0), 1)
     perda_deslig = round(perda_rede + perda_equip, 1)
-    disp_ufv = round(max(0.0, 1.0 - frac_os), 4)          # Disponibilidade UFV (%) — régua do BI antigo
+    # Disponibilidade UFV (%) — régua do BI antigo. O divisor são os dias FECHADOS do mês, não os dias com geração (Levi,
+    # 15/10/2026: "a geração não deve afetar a disponibilidade"): até 15/10 era o `n` acima, e um dia sem a geração no BD
+    # tirava 12 h do divisor e derrubava a disponibilidade. As perdas em energia seguem pelo `n` (são da geração).
+    hoje_d = datetime.now().date()
+    n_disp = (0 if (ano, mes) > (hoje_d.year, hoje_d.month)
+              else hoje_d.day - 1 if (ano, mes) == (hoje_d.year, hoje_d.month) else dias_mes)
+    disp_ufv = round(max(0.0, 1.0 - h_os / (12.0 * n_disp)), 4) if n_disp else None
     nao_expl = round(possivel - perda_trk - perda_deslig - ger, 1)
     # OFENSORES AINDA EM ABERTO (não recompuseram no período) — "acompanhar e priorizar" do relatório da Ana.
     abertos = []
@@ -31131,9 +31165,13 @@ def _relatorio_build(usina, ini, fim):
     perda_deslig = round(perda_rede + perda_equip, 1)
     n_os = n_rede + n_equip
     h_os_site = h_rede_s + h_equip_s
-    disp_ufv = round(max(0.0, 1.0 - (h_os_site / (12.0 * n) if n else 0.0)), 4)
+    # o divisor da disponibilidade são os dias FECHADOS do período, não os dias com geração (Levi, 15/10/2026: "a geração
+    # não deve afetar a disponibilidade"): até 15/10 era o `n` (dias com geração na série), e o dia sem geração no BD
+    # tirava 12 h do divisor. As perdas em energia seguem pelo `n`.
+    n_disp = max(0, (min(fim_d, datetime.now().date() - timedelta(days=1)) - ini_d).days + 1)
+    disp_ufv = round(max(0.0, 1.0 - h_os_site / (12.0 * n_disp)), 4) if n_disp else None
     equip_disp = [{"inversor": k, "n_desl": v["n_desl"], "h_indisp": round(v["h_indisp"], 1),
-                   "disp": round(max(0.0, 1.0 - v["h_indisp"] / (12.0 * n)) * 100, 2) if n else None}
+                   "disp": round(max(0.0, 1.0 - v["h_indisp"] / (12.0 * n_disp)) * 100, 2) if n_disp else None}
                   for k, v in equip_dt.items()]
     equip_disp.sort(key=lambda x: -x["h_indisp"])
     om = round(perda_trk + perda_deslig, 1)

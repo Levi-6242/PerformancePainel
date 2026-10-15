@@ -196,8 +196,8 @@ absorve os demais; senão soma capada no kWp da usina).
   duas é ≥ a do total.
 - **Perda da OS em cada usina** (`kwh_usina`, 13/10/2026, para o drill-down por cliente da tela) =
   a mesma parcela da varredura, separada por usina: soma a perda da OS e a da usina. Repartir a OS
-  pela potência erra quando a geração desmente o dia numa usina só (Rodrigues 1 e 2, setembro:
-  ~47,9 MWh na usina errada).
+  pela potência erra quando o teto de 100% pega uma usina e não a outra (e, até 15/10/2026, quando a
+  geração desmentia o dia numa só: Rodrigues 1 e 2, setembro, ~47,9 MWh na usina errada).
 
 ## 7. Arquitetura (quem faz o quê)
 

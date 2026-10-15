@@ -499,14 +499,16 @@ def _varrer(eventos, usinas, per_fim, det_os_usina=None, det_os_dia=None):
     inversor e teto de 100% da usina. Chamada 3×: total, só queda, só equipamento.
     `det_os_usina` (dict, opcional) recebe a MESMA parcela do det_os separada por (folio, usina): a perda de cada OS em
     cada usina, que o drill-down da tela por cliente mostra (Levi, 13/10/2026: "ao clicar na usina aparecerá as OSs").
-    Repartir a perda da OS pela potência erra quando a geração desmente o dia numa usina só, ou quando o teto de 100%
-    pega uma e não a outra: em setembro/26 a Rodrigues 1 e 2 trocavam ~47,9 MWh entre si por essa conta.
+    Repartir a perda da OS pela potência erra quando o teto de 100% pega uma usina e não a outra (e, até 15/10/2026,
+    quando a geração desmentia o dia numa só): em setembro/26 a Rodrigues 1 e 2 trocavam ~47,9 MWh entre si por essa
+    conta.
     `det_os_dia` (dict, opcional) recebe a parcela de cada OS em cada DIA, em horas equivalentes, e os trechos (de, até)
     das 06–18 h em que ela foi dona da perda: {(usina, dia, folio): {"h", "trechos"}}. Somadas, as parcelas do dia dão
     o h_eq do dia, porque saem desta MESMA conta (Dashboard Thopen, Levi 14/10/2026: "A partir de outubro quero os
     comentários 100% OS Fracttal. Comentários e disponibilidade!"). Refazer a conta fora daqui errava: a OS de usina
-    inteira da Canarana 1 de 08 a 12/10 virava "usina parada o dia todo" ao lado de 87,5%, porque a geração desmentiu
-    esses dias e só o inversor 1.8 contou; e a OS de cabine coberta por uma de usina não tira nada além da de usina."""
+    inteira da Canarana 1 de 08 a 12/10 virava "usina parada o dia todo" ao lado de 87,5% (naquela época a geração
+    desmentia esses dias e só o inversor 1.8 contava); e a OS de cabine coberta por uma de usina não tira nada além da
+    de usina."""
     h_eq = defaultdict(lambda: defaultdict(float))
     kwh = defaultdict(lambda: defaultdict(float))
     det_os = defaultdict(float)

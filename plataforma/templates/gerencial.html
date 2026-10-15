@@ -472,7 +472,7 @@ function renderCasc(d){
    +L('= Possível com o sol',d.possivel,'var(--muted)','o que o recurso solar do mês permitia',true)
    +L('− Tracker parado',-d.perda_trk,'#A9DB21',t.horas_solares?`${nf(t.horas_solares,0)}h solares · ${t.paradas} paradas · ganho do rastreio ${Math.round(100*(t.ganho||0))}%`:'sem parada de tracker no período')
    +L('− Queda de energia (rede)',-(d.perda_rede||0),'#8CB817',(os.rede&&os.rede.horas_solares)?`${nf(os.rede.horas_solares,1)}h solares · ${os.rede.qtd} OS de religamento (Fracttal)`:'sem religamento no mês')
-   +L('− Equipamento / manutenção',-(d.perda_equip||0),'#7BA80E',(os.equip&&os.equip.horas_solares)?`${nf(os.equip.horas_solares,1)}h solares · ${os.equip.qtd} OS corretiva (Fracttal) · disponibilidade UFV ${nf(100*(d.disponibilidade_ufv||0),1)}%`:`sem corretiva no mês · disponibilidade UFV ${nf(100*(d.disponibilidade_ufv||0),1)}%`)
+   +L('− Equipamento / manutenção',-(d.perda_equip||0),'#7BA80E',(os.equip&&os.equip.horas_solares)?`${nf(os.equip.horas_solares,1)}h solares · ${os.equip.qtd} OS corretiva (Fracttal) · disponibilidade UFV ${d.disponibilidade_ufv==null?'—':nf(100*d.disponibilidade_ufv,1)+'%'}`:`sem corretiva no mês · disponibilidade UFV ${d.disponibilidade_ufv==null?'—':nf(100*d.disponibilidade_ufv,1)+'%'}`)
    +L('− Não explicado',-d.nao_explicado,'var(--faint)','falta modelar (inversor abaixo dos pares, sujeira, degradação…)')
    +L('= Geração real',d.geracao,'#A9DB21',`PR ${d.pr_real!=null?nf(d.pr_real*100,1)+'%':'—'} · meta ${d.pr_meta!=null?nf(d.pr_meta*100,1)+'%':'—'}`,true);
 }

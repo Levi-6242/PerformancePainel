@@ -109,7 +109,7 @@ function render(d){
     <div class="tiles" style="margin-top:14px">
       ${tile('Geração vs P50', nf(d.geracao,1)+' MWh', (gPct!=null?nf(gPct,1)+'% · meta '+nf(d.p50,0):''))}
       ${tile('Performance Ratio', nf(real,1)+'%', 'meta '+nf(meta,1)+'%', abaixo?'var(--red)':'var(--greenD)')}
-      ${tile('Disponibilidade UFV', nf(d.disponibilidade_ufv*100,1)+'%', '')}
+      ${tile('Disponibilidade UFV', (d.disponibilidade_ufv==null?'—':nf(d.disponibilidade_ufv*100,1)+'%'), '')}
       ${tile('Perda evitável O&M', nf(d.om,2)+' MWh', 'externos '+nf(d.externo,1))}
     </div>
     <div class="leitura">A usina gerou <b>${nf(d.geracao,1)} MWh</b>${gPct!=null?`, equivalente a <b>${nf(gPct,1)}%</b> da meta P50`:''}${iPct!=null?` e <b>${nf(iPct,1)}%</b> da expectativa ajustada pela irradiância`:''}. Perda por baixo IPOA (recurso solar): <b>${nf(d.perda_ipoa,1)} MWh</b>; perda evitável pela operação (O&amp;M): <b>${nf(d.om,2)} MWh</b>.</div>
@@ -128,7 +128,7 @@ function render(d){
   html += H('03','Qualidade da Performance & Equipamentos','O PR normaliza pelo recurso solar; aberto por inversor frente à mediana dos pares. O desligamento entra na disponibilidade.')
     +`<div class="tiles">
       ${tile('PR realizado', nf(real,1)+'%', 'meta '+nf(meta,1)+'%', abaixo?'var(--red)':'var(--greenD)')}
-      ${tile('Disponibilidade UFV', nf(d.disponibilidade_ufv*100,1)+'%', 'equipamento')}
+      ${tile('Disponibilidade UFV', (d.disponibilidade_ufv==null?'—':nf(d.disponibilidade_ufv*100,1)+'%'), 'equipamento')}
       ${tile('Perda de inversor (medida)', nf(d.perda_inv_medida,1)+' MWh', 'déficit vs pares')}
     </div>`+invTable(d)+`</div>`;
   // ── 04 / 05 Contabilidade ──
@@ -165,7 +165,7 @@ function invTable(d){
     return `<tr><td style="font-weight:600">${r.inversor||'—'}</td><td>${r.pr!=null?nf(r.pr,1)+'%':'—'}</td>
       <td style="color:${dv<0?'var(--red)':'var(--greenD)'}">${dv!=null?pp(dv)+' pts':'—'}</td>
       <td>${r.deficit_mwh?nf(r.deficit_mwh,2):'—'}</td><td>${e.n_desl||0}</td><td>${e.h_indisp!=null?nf(e.h_indisp,1):'0,0'}</td>
-      <td>${e.disp!=null?nf(e.disp,1)+'%':'100,0%'}</td></tr>`; }).join('');
+      <td>${e.disp!=null?nf(e.disp,1)+'%':d.disponibilidade_ufv==null?'—':'100,0%'}</td></tr>`; }).join('');
   return `<div class="kicker">PR por inversor · déficit vs mediana dos pares</div>
     <table><thead><tr><th>Inversor</th><th>PR</th><th>Desvio</th><th>Déficit (MWh)</th><th>Nº Desl.</th><th>Indisp.(h)</th><th>Disp.</th></tr></thead><tbody>${rows}</tbody></table>`;
 }

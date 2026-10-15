@@ -217,9 +217,9 @@ def test_as_os_que_formaram_a_disponibilidade_uma_linha_por_os_e_usina():
 
 def test_a_perda_de_cada_usina_e_a_do_indice_e_nao_a_reparticao_pela_potencia():
     """A OS de duas usinas leva a perda que o índice mediu em cada uma (`kwh_usina`, 13/10/2026), não a repartição pela
-    potência: a geração desmente o dia numa usina só, e o teto de 100% pega uma e não a outra — em setembro a Rodrigues
-    1 e 2 trocavam ~47,9 MWh por essa conta. A usina do escopo em que a OS não perdeu nada (todo dia desmentido) segue
-    com a linha, em 0: a linha não some (a API guarda histórico por linha)."""
+    potência: o teto de 100% pega uma usina e não a outra (e, até 15/10/2026, a geração desmentia o dia numa só) — em
+    setembro a Rodrigues 1 e 2 trocavam ~47,9 MWh por essa conta. A usina do escopo em que a OS não perdeu nada (nenhuma
+    hora de sol nela) segue com a linha, em 0: a linha não some (a API guarda histórico por linha)."""
     p = pacote("2026-10")
     beta = [{"usina": "Beta 1", "rotulo": "Usina inteira", "kwp": 500.0},
             {"usina": "Beta 2", "rotulo": "Usina inteira", "kwp": 500.0}]
