@@ -689,6 +689,20 @@ com destino, os avisos de B12 e o next com `%09`/`%0a`/`%0d`/`%5C` na senha, no 
   pílula "AO VIVO" do topo (só dizia que a visão Tempo real estava ligada; o seletor Tempo real/Histórico já diz) e o card
   "Agrupamento" (a barra de status por carteira, região e estado, com a decomposição recurso × desempenho do mês), com o
   `renderRegion` e o seletor dele. Prova: `tests/test_painel_noc_enxuto.py`.
+- **À la Nexus (16/10/2026)**, Levi: "refaça o design de nexus > performance > painel noc, tem que ficar alá Nexus" e,
+  sobre a 1ª versão, "tá muito azul pô" (aprovado depois). Só o desenho; dado, rotas e cliques são os mesmos:
+  - **tokens do `nexus.css`** (claro em `:root`, escuro no `body.dark`) com os nomes de sempre da tela (`--panel`,
+    `--red`...): o JavaScript lê as cores daí (`cssv`), então blocos, linhas e gráficos acompanham. O `#16140e` (texto
+    sobre o verde) e o `#c2410c` (sem produção) viraram `--sobre-brand` e `--laranja`. Fontes do Nexus: Poppins no
+    texto, Raleway no título; ícones Phosphor (os mesmos do Nexus) no lugar dos emojis das causas;
+  - **cabeçalho das telas do Nexus**: "PERFORMANCE", "Painel NOC" e a linha do que a tela responde, com Tempo
+    real/Histórico e a hora à direita; a barra da plataforma (logo, Início, Monitoramento, Tema) é `data-casca` e some
+    na moldura (o botão de tema também, como pede o `test_tema_nexus_noc_gerencial.py`);
+  - **um nível de superfície**: os números do topo na faixa do Nexus (`gc-numeros`); Saúde da frota e Anomalias direto
+    no fundo, e os blocos e as anomalias são os cartões (eram três azuis um dentro do outro); a cor fica no estado (a
+    faixa lateral do bloco e o número), a linha "gerada · P50" vai neutra, e o que era azul de enfeite vai a cinza;
+  - sem o pulso do "Tempo real" e sem o pulinho do bloco (o Windows pede menos movimento).
+  Mockup aprovado com o template servido por um proxy só de leitura sobre o 5050, dentro da moldura do Nexus.
 
 ## Fontes do tempo real (11/10/2026)
 

@@ -3,29 +3,35 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Grid Co. · Monitoramento de Portfólio (NOC)</title>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Poppins:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<title>Painel NOC · Grid Co.</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Raleway:wght@700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
-/* ===== NOSSO ESTILO (claro) — padrão ===== */
+/* ===== Desenho do Nexus (16/10/2026, Levi: "refaça o design de nexus > performance > painel noc, tem que ficar alá
+   Nexus"): as cores, as fontes e os raios do nexus.css, claro e escuro, com os nomes de sempre desta tela. O JavaScript lê
+   as cores daqui (cssv), então os blocos, as linhas e os gráficos acompanham. ===== */
 :root{
-  --bg:#f3f5f0; --panel:#ffffff; --panel-2:#f8fafc; --raise:#eef2f7;
-  --line:#e5e7eb; --line-2:#d8dee6;
-  --txt:#1a1b2e; --muted:#6b7280; --faint:#9aa1ad;
-  --brand:#7aa300; --brand-d:#5f7f00;
-  --ok:#16a34a; --amber:#d97706; --red:#dc2626; --off:#94a3b8; --blue:#0369a1;
-  --nav:#0f1117; --shadow:0 1px 12px rgba(0,0,0,.06),0 4px 24px rgba(0,0,0,.04);
-  --font:'Inter',system-ui,sans-serif;
+  --bg:#fcfcfc; --panel:#ffffff; --panel-2:#f5f6f8; --raise:#eceef2;
+  --line:rgba(15,23,42,.10); --line-2:rgba(15,23,42,.18);
+  --txt:#1f2937; --txt-2:#475569; --muted:#5a6475; --faint:#606978;
+  --brand:#a9db21; --brand-d:#566610; --sobre-brand:#0d1526; --brand-suave:rgba(169,219,33,.18);
+  --ok:#166b36; --amber:#7a5200; --red:#b42230; --off:#5a6475; --blue:#0a5fc4; --info:#0a5fc4; --laranja:#a33d00;
+  --ok-s:rgba(31,136,61,.12); --amber-s:rgba(230,175,46,.18); --red-s:rgba(220,53,69,.09); --off-s:#eceef2;
+  --blue-s:rgba(9,105,218,.08); --laranja-s:rgba(247,140,60,.16);
+  --nav:#eef2f7; --shadow:none;
+  --font:'Poppins',system-ui,-apple-system,'Segoe UI',sans-serif; --font-display:'Raleway','Poppins',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',Consolas,monospace;
 }
-/* ===== DARK (azul-marinho: bg #090d18, cards #161d30 — verde Grid + branco; SEM lilás — pedido Levi) ===== */
 body.dark{
   --bg:#090d18; --panel:#161d30; --panel-2:#1c2640; --raise:#243154;
-  --line:rgba(255,255,255,.07); --line-2:rgba(255,255,255,.13);
-  --txt:#e9eef6; --muted:#94a3b8; --faint:#64748b;
-  --brand:#a3d900; --brand-d:#8bbf00;
-  --ok:#6FA01E; --amber:#F0B53D; --red:#FF5C4D; --off:#475569; --blue:#5BC8E8;
-  --nav:linear-gradient(180deg,#0d1526,#080d18); --shadow:0 2px 20px rgba(0,0,0,.45);
-  --font:'Poppins',system-ui,sans-serif;
+  --line:rgba(255,255,255,.09); --line-2:rgba(255,255,255,.16);
+  --txt:#e9eef6; --txt-2:#c3cad7; --muted:#96a0b4; --faint:#767d92;
+  --brand:#a3d900; --brand-d:#c4e755; --sobre-brand:#191528; --brand-suave:rgba(163,217,0,.12);
+  --ok:#4ade80; --amber:#ffd83d; --red:#ff5b6e; --off:#96a0b4; --blue:#7fb8ff; --info:#7fb8ff; --laranja:#ff9f43;
+  --ok-s:rgba(74,222,128,.14); --amber-s:rgba(255,216,61,.14); --red-s:rgba(255,91,110,.14); --off-s:#243154;
+  --blue-s:rgba(91,157,255,.14); --laranja-s:rgba(255,159,67,.14);
+  --nav:#0d1526; --shadow:none;
 }
 *{box-sizing:border-box;}
 html{background:#090d18;}   /* canvas escuro atrás do body (default do painel é escuro) — nunca mostra branco embaixo/enquanto carrega; no tema claro o body (min-height:100vh) cobre */
@@ -42,7 +48,7 @@ a{color:inherit;}
 .spacer{flex:1;}
 .toggle{display:flex;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.18);border-radius:9px;padding:3px;}
 .toggle button{background:transparent;border:0;color:#cbd5e1;font-family:inherit;font-size:12px;font-weight:500;padding:5px 13px;border-radius:7px;cursor:pointer;display:flex;align-items:center;gap:6px;}
-.toggle button.on{background:var(--brand);color:#16140e;}
+.toggle button.on{background:var(--brand);color:var(--sobre-brand);}
 .live-pill{display:flex;align-items:center;gap:7px;background:rgba(169,219,33,.12);border:1px solid rgba(169,219,33,.32);color:var(--brand);padding:5px 11px;border-radius:20px;font-size:12px;font-weight:600;}
 .pulse{width:8px;height:8px;border-radius:50%;background:var(--brand);animation:pulse 1.8s infinite;}
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(169,219,33,.5);}70%{box-shadow:0 0 0 7px rgba(169,219,33,0);}100%{box-shadow:0 0 0 0 rgba(169,219,33,0);}}
@@ -67,14 +73,14 @@ a{color:inherit;}
 .tagai{font-size:9px;font-weight:700;letter-spacing:.05em;background:rgba(3,105,161,.12);color:var(--blue);padding:2px 7px;border-radius:5px;text-transform:uppercase;}
 .filters{display:flex;gap:7px;align-items:center;flex-wrap:wrap;}
 .filters button,.filters select{background:var(--panel-2);border:1px solid var(--line);color:var(--muted);font-family:inherit;font-size:11.5px;padding:5px 11px;border-radius:7px;cursor:pointer;}
-.filters button.on{background:var(--brand);color:#16140e;border-color:var(--brand);}
+.filters button.on{background:var(--brand);color:var(--sobre-brand);border-color:var(--brand);}
 .filters .crit.on{background:var(--red);border-color:var(--red);color:#fff;}
 
 /* WALL */
 .wall{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:9px;max-height:640px;overflow:auto;padding-right:4px;}
 .tile{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:9px 10px;cursor:pointer;position:relative;border-top:3px solid var(--ok);transition:transform .1s;}
 .tile:hover{background:var(--raise);transform:translateY(-1px);}
-.tile.atencao{border-top-color:var(--amber);}.tile.critico{border-top-color:var(--red);}.tile.sem_comm{border-top-color:var(--off);opacity:.82;}.tile.sem_producao{border-top-color:#c2410c;}
+.tile.atencao{border-top-color:var(--amber);}.tile.critico{border-top-color:var(--red);}.tile.sem_comm{border-top-color:var(--off);opacity:.82;}.tile.sem_producao{border-top-color:var(--laranja);}
 .tile .tid{font-size:11.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .tile .tcli{font-size:9px;color:var(--faint);margin-bottom:5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .tile .tmw{font-size:15px;font-weight:700;}.tile .tmw .u{font-size:9px;color:var(--faint);font-weight:500;}
@@ -89,16 +95,16 @@ a{color:inherit;}
 .fhead{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center;}
 .split{font-size:11px;color:var(--muted);}.split b{color:var(--txt);font-weight:600;}
 .chip{background:var(--panel-2);border:1px solid var(--line);color:var(--muted);font-size:10.5px;padding:4px 9px;border-radius:6px;cursor:pointer;}
-.chip.on{background:var(--brand);color:#16140e;border-color:var(--brand);}
+.chip.on{background:var(--brand);color:var(--sobre-brand);border-color:var(--brand);}
 .feed{display:flex;flex-direction:column;gap:10px;max-height:660px;overflow:auto;padding-right:4px;}
 .anom{border:1px solid var(--line);border-left-width:4px;border-radius:11px;padding:11px 13px;background:var(--panel-2);cursor:pointer;}
 .anom:hover{background:var(--raise);}
-.anom.critico{border-left-color:var(--red);}.anom.atencao{border-left-color:var(--amber);}.anom.sem_comm{border-left-color:var(--off);}.anom.sem_producao{border-left-color:#c2410c;}.anom.clima{border-left-color:var(--blue);}
+.anom.critico{border-left-color:var(--red);}.anom.atencao{border-left-color:var(--amber);}.anom.sem_comm{border-left-color:var(--off);}.anom.sem_producao{border-left-color:var(--laranja);}.anom.clima{border-left-color:var(--blue);}
 .anom .top{display:flex;justify-content:space-between;align-items:center;gap:8px;}
 .anom .dev{font-weight:600;font-size:12.5px;}
 .anom .where{font-size:10px;color:var(--faint);margin-bottom:7px;}
 .sevtag{font-size:9px;font-weight:700;padding:2px 7px;border-radius:5px;letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;}
-.sevtag.critico{background:rgba(220,38,38,.16);color:var(--red);}.sevtag.atencao{background:rgba(217,119,6,.16);color:var(--amber);}.sevtag.sem_comm{background:rgba(148,163,184,.22);color:var(--muted);}.sevtag.sem_producao{background:rgba(194,65,12,.16);color:#c2410c;}.sevtag.clima{background:rgba(3,105,161,.16);color:var(--blue);}
+.sevtag.critico{background:rgba(220,38,38,.16);color:var(--red);}.sevtag.atencao{background:rgba(217,119,6,.16);color:var(--amber);}.sevtag.sem_comm{background:rgba(148,163,184,.22);color:var(--muted);}.sevtag.sem_producao{background:rgba(194,65,12,.16);color:var(--laranja);}.sevtag.clima{background:rgba(3,105,161,.16);color:var(--blue);}
 .dline{display:flex;align-items:center;gap:6px;font-size:11.5px;margin-bottom:5px;}
 .dline .ic{font-size:14px;}.dline .cz{font-weight:600;color:var(--txt);}
 .conf{font-size:8.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:1px 6px;border-radius:5px;background:rgba(22,163,74,.16);color:var(--ok);margin-left:auto;}
@@ -137,7 +143,7 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
 .dk{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:9px 11px;}
 .dk .l{font-size:10px;color:var(--muted);}.dk .v{font-size:17px;font-weight:600;margin-top:2px;}
 .dsec{font-size:12px;font-weight:600;margin:14px 0 8px;}
-.dbtn{display:block;width:100%;text-align:center;margin-top:16px;background:var(--brand);color:#16140e;font-weight:600;font-family:inherit;font-size:13px;border:0;border-radius:9px;padding:11px;cursor:pointer;text-decoration:none;}
+.dbtn{display:block;width:100%;text-align:center;margin-top:16px;background:var(--brand);color:var(--sobre-brand);font-weight:600;font-family:inherit;font-size:13px;border:0;border-radius:9px;padding:11px;cursor:pointer;text-decoration:none;}
 .minihm-row{display:grid;grid-template-columns:62px 1fr;align-items:center;gap:8px;margin-bottom:5px;}.minihm-row .ml{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
 .minihm-cells{display:grid;gap:4px;}.mcell{height:13px;border-radius:3px;border:1px solid rgba(0,0,0,.12);}
 .empty{color:var(--faint);font-size:12px;padding:18px;text-align:center;}
@@ -150,7 +156,7 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
 .rx-pill.critico{background:rgba(220,38,38,.12);color:var(--red)}.rx-pill.sem_comm{background:rgba(100,116,139,.18);color:var(--muted)}.rx-pill.atencao{background:rgba(217,119,6,.14);color:var(--amber)}.rx-pill.ok{background:rgba(22,163,74,.14);color:var(--ok)}
 .rx-links{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 16px}
 .rx-links a{font-size:12px;font-weight:600;color:var(--txt);text-decoration:none;padding:6px 11px;border:1px solid var(--line-2);border-radius:8px;background:var(--panel-2)}
-.rx-links a.p{background:var(--brand);color:#16140e;border-color:transparent}.rx-links a[hidden]{display:none}
+.rx-links a.p{background:var(--brand);color:var(--sobre-brand);border-color:transparent}.rx-links a[hidden]{display:none}
 .rx-ver{border:1px solid var(--line-2);border-left:3px solid var(--red);border-radius:12px;padding:12px 16px;background:var(--panel-2);margin-bottom:16px}
 .rx-ver .k{font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:700;margin-bottom:4px}
 .rx-ver .f{font-size:14.5px;line-height:1.45}.rx-ver .f b{color:var(--txt)}.rx-ver .motor{font-size:12px;color:var(--muted);margin-top:8px;line-height:1.45}.rx-ver .motor b{color:var(--txt)}
@@ -160,7 +166,7 @@ td{padding:9px 9px;border-bottom:1px solid var(--line);color:var(--muted);}td b{
 .rx-meta{min-height:0;margin-bottom:12px}.rx-meta-row{display:grid;grid-template-columns:auto 1fr auto;gap:14px;align-items:center;margin-top:6px}
 .rx-meta .v{margin:0;white-space:nowrap}.rx-meta .rx-barra{height:10px}.rx-meta .s{text-align:right;white-space:nowrap}
 .rx-tog{display:inline-flex;gap:2px;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:2px;margin-right:8px;vertical-align:middle}
-.rx-tog button{border:0;font:600 10.5px var(--font);padding:3px 9px;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer}.rx-tog button.on{background:var(--brand);color:#16140e}
+.rx-tog button{border:0;font:600 10.5px var(--font);padding:3px 9px;border-radius:6px;background:transparent;color:var(--muted);cursor:pointer}.rx-tog button.on{background:var(--brand);color:var(--sobre-brand)}
 @media (max-width:980px){.rx-meta-row{grid-template-columns:1fr}.rx-meta .s{text-align:left;white-space:normal}}
 .rx-bloco{background:var(--panel-2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;position:relative;min-height:112px}
 .rx-bloco .l{font-size:10.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:700;display:flex;justify-content:space-between;gap:6px}
@@ -197,22 +203,144 @@ details.rx-fr .in{padding:0 14px 14px}
 .legend span{display:flex;align-items:center;gap:5px;}.sw{width:11px;height:11px;border-radius:3px;display:inline-block;}
 .foot{margin-top:22px;text-align:center;font-size:10.5px;color:var(--faint);}.foot b{color:var(--brand-d);}
 @media(max-width:1080px){.kpis{grid-template-columns:repeat(3,1fr);}.grid-main{grid-template-columns:1fr;}}
+
+/* ===== Componentes do Nexus (16/10/2026): o cabeçalho das telas do Nexus (o rótulo verde, o título em Raleway e a
+   linha do que a tela responde), a faixa de números (gc-numeros), os grupos de botões, as etiquetas de status
+   (gc-status) e os cartões. Sem o pulso do "Tempo real" e sem o pulinho do bloco: o Windows pede menos movimento. ===== */
+html{background:var(--bg)}
+html,body{font-family:var(--font);font-size:14px;line-height:1.5}
+body{transition:none}
+.casca-barra{display:flex;align-items:center;gap:16px;padding:12px 32px;background:var(--nav);border-bottom:1px solid var(--line)}
+.casca-barra .logo .c{color:var(--txt)}
+.casca-barra .back{color:var(--muted);font-size:13px;font-weight:500;text-decoration:none}
+.casca-barra .back:hover{color:var(--txt)}
+.casca-barra .darkbtn{background:transparent;border:1px solid var(--line-2);color:var(--txt-2);font:600 12.5px/18px var(--font)}
+.topbar{position:static;display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;
+  max-width:1580px;margin:0 auto;padding:32px 32px 0;background:none;border:0}
+.topbar .eyebrow{font:500 12px/16px var(--font);letter-spacing:2px;text-transform:uppercase;color:var(--brand-d);margin:0}
+.topbar .titulo{font:800 30px/36px var(--font-display);letter-spacing:-.01em;margin:6px 0 10px;color:var(--txt)}
+.topbar .lead{font-size:15px;line-height:1.6;color:var(--txt-2);max-width:760px;margin:0}
+.topbar .cab-dir{display:flex;flex-direction:column;align-items:flex-end;gap:10px}
+.toggle{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:3px}
+.toggle button{color:var(--muted);font:600 13px/18px var(--font);padding:7px 14px;border-radius:8px}
+.toggle button:hover{color:var(--txt)}
+.toggle button.on{background:var(--brand);color:var(--sobre-brand)}
+.pulse{animation:none;width:7px;height:7px;background:currentColor;display:inline-block;border-radius:50%}
+.upd{font:500 12px/18px var(--mono);color:var(--muted);text-align:right;min-width:0}
+.upd b{color:var(--txt-2);font-weight:500}
+.wrap{padding:24px 32px 48px}
+.kpis{gap:0;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;margin:0 0 24px}
+.kpi{background:none;border:0;border-left:1px solid var(--line);border-radius:0;box-shadow:none;padding:18px 22px}
+.kpi:first-child{border-left:0}
+.kpi .l{font:700 11px/14px var(--font);letter-spacing:.05em;text-transform:uppercase;color:var(--muted)}
+.kpi .v{font:600 27px/32px var(--font);letter-spacing:-.02em;margin-top:6px;color:var(--txt)}
+.kpi .v .u{font-size:13px;color:var(--muted);font-weight:500}
+.kpi .d{font-size:13px;color:var(--txt-2);margin-top:2px}
+.kpi .d.bad{color:var(--red)}.kpi .d.warn{color:var(--amber)}
+.statline{gap:6px;flex-wrap:wrap;margin-top:10px;font:600 13px/18px var(--font)}
+.statline span{padding:3px 9px;border-radius:6px;background:var(--panel)}
+.statline i{width:7px;height:7px}
+.grid-main{gap:16px}
+.card{border-radius:10px;padding:20px;box-shadow:none}
+.card h3{font:600 16px/22px var(--font);margin:0 0 4px;gap:8px}
+.card .csub{font-size:13px;color:var(--muted);margin-bottom:14px}
+.tagai{font:600 11px/16px var(--font);letter-spacing:0;text-transform:none;padding:3px 9px;border-radius:6px;background:var(--blue-s);color:var(--blue)}
+.filters{gap:0;background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:3px}
+.filters button{background:transparent;border:0;color:var(--muted);font:600 12.5px/18px var(--font);padding:6px 12px;border-radius:8px}
+.filters button:hover{color:var(--txt)}
+.filters button.on{background:var(--brand);color:var(--sobre-brand)}
+.filters .crit.on{background:var(--red);color:#fff}
+.campo{font:400 13px/20px var(--font);color:var(--txt);background:var(--panel);border:1px solid var(--line-2);border-radius:8px;padding:7px 12px;min-width:0}
+.campo:focus{border-color:var(--brand);outline:none}
+.legend{font-size:12px;gap:16px;margin:8px 0 12px}
+.legend .sw{width:8px;height:8px;border-radius:50%}
+.wall{grid-template-columns:repeat(auto-fill,minmax(168px,1fr));gap:10px;max-height:680px}
+.tile{background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--ok);border-radius:8px;padding:12px 12px 10px;transition:none}
+.tile:hover{background:var(--raise);transform:none}
+.tile.atencao{border-left-color:var(--amber)}.tile.critico{border-left-color:var(--red)}
+.tile.sem_comm{border-left-color:var(--off);opacity:1}.tile.sem_producao{border-left-color:var(--laranja)}
+.tile.ok,.tile.atencao,.tile.critico,.tile.sem_comm,.tile.sem_producao{border-top-color:var(--line)}
+.barra-frota{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 8px}
+.barra-busca{display:flex;gap:10px;margin-left:auto;flex:1 1 300px;justify-content:flex-end;min-width:0}
+.barra-busca input{flex:1 1 140px;min-width:0;max-width:240px}.barra-busca select{flex:0 1 auto;max-width:200px;cursor:pointer}
+.fhead .split{flex-basis:100%;margin-bottom:2px}.fhead .spacer{display:none}
+.tile .tid{font:600 13px/18px var(--font);padding-right:34px}
+.tile .tcli{font-size:11px;color:var(--muted);margin-bottom:8px}
+.tile .tmw{font:600 22px/26px var(--font);letter-spacing:-.01em}
+.tile .tmw .u{font-size:11px;color:var(--muted);font-weight:500}
+.tile .tatg{font-size:11px;margin-top:4px}
+.tile .thist,.tile .talm{top:10px;right:10px;font:600 10px/14px var(--font);letter-spacing:0;text-transform:none;border:0;border-radius:6px;padding:1px 7px}
+.tile .thist{background:var(--blue-s);color:var(--blue)}
+.tile .talm.c{background:var(--red-s);color:var(--red)}.tile .talm.a{background:var(--amber-s);color:var(--amber)}
+.tile .tcause{font-size:10.5px}
+.split{font-size:12.5px;color:var(--muted)}
+.chip{font:600 12px/16px var(--font);padding:5px 12px;border-radius:999px;border:1px solid var(--line-2);background:transparent;color:var(--txt-2)}
+.chip:hover{background:var(--raise)}
+.chip.on{background:var(--brand-suave);border-color:var(--brand);color:var(--txt)}
+.feed{gap:10px;max-height:700px}
+.anom{background:var(--panel-2);border:1px solid var(--line);border-left-width:3px;border-radius:8px;padding:12px 14px}
+.anom:hover{background:var(--raise)}
+.anom .dev{font:600 14px/20px var(--font)}
+.anom .where{font-size:12px;color:var(--muted)}
+.sevtag{display:inline-flex;align-items:center;gap:6px;font:600 11px/16px var(--font);letter-spacing:0;text-transform:none;padding:3px 9px;border-radius:6px}
+.sevtag::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.sevtag.critico{background:var(--red-s);color:var(--red)}.sevtag.atencao{background:var(--amber-s);color:var(--amber)}
+.sevtag.sem_comm{background:var(--off-s);color:var(--muted)}.sevtag.sem_producao{background:var(--laranja-s);color:var(--laranja)}
+.sevtag.clima{background:var(--blue-s);color:var(--blue)}
+.dline{font-size:13px}.dline .ic{font-size:16px;line-height:1;color:var(--muted);display:inline-flex}
+.conf{font:600 10px/14px var(--font);letter-spacing:0;text-transform:none;border-radius:6px;padding:1px 7px;background:var(--ok-s)}
+.conf.media{background:var(--amber-s)}.conf.baixa{background:var(--off-s)}
+.action{font-size:12px}
+.invlink{font:600 12.5px/18px var(--font);color:var(--brand-d)}
+.invlink:hover{text-decoration:underline}
+.insight{background:var(--blue-s);border:1px solid var(--line);color:var(--txt-2);border-radius:8px}
+th{color:var(--muted);font:700 11px/14px var(--font);letter-spacing:.05em}
+.empty{font-size:13px;color:var(--muted)}
+.foot{font-size:12px;color:var(--muted)}.foot b{color:var(--brand-d)}
+/* Menos azul (16/10/2026, Levi: "tá muito azul pô, dá uma melhorada nessas cores"): eram três azuis um dentro do outro
+   (o fundo, a caixa do cartão e o bloco). Agora um nível só: os blocos e as anomalias SÃO os cartões, direto no fundo,
+   como as torres da Início do Nexus; o que era azul de enfeite (a etiqueta "hist", "Diagnóstico automático", o "sem
+   comunicação", o passar do mouse) vai para cinza neutro, e a cor fica só para o estado. */
+:root{--neutro-s:rgba(15,23,42,.06)}
+body.dark{--raise:rgba(255,255,255,.05);--off-s:rgba(150,160,180,.14);--neutro-s:rgba(255,255,255,.06)}
+#viewLive .grid-main>.card,#viewLive .grid-main>div>.card{background:transparent;border:0;padding:0;box-shadow:none}
+#viewLive .card h3{font:600 17px/24px var(--font)}
+.kpis{background:var(--panel)}
+.statline span{background:var(--neutro-s)}
+.toggle,.filters{background:var(--panel)}
+.tile,.anom{background:var(--panel)}
+.tile:hover,.anom:hover{background:var(--panel);border-color:var(--line-2)}
+.tile .thist{background:var(--neutro-s);color:var(--muted)}
+.tagai{background:var(--neutro-s);color:var(--muted)}
+.chip:hover{background:var(--neutro-s)}
+@media(max-width:1080px){.kpi{border-top:1px solid var(--line)}.kpi:nth-child(-n+3){border-top:0}.kpi:nth-child(3n+1){border-left:0}}
+@media(max-width:640px){.topbar,.wrap{padding-left:16px;padding-right:16px}.casca-barra{padding:10px 16px}
+  .kpis{grid-template-columns:1fr 1fr}.kpi{border-left:0}.kpi:nth-child(-n+3){border-top:1px solid var(--line)}.kpi:nth-child(-n+2){border-top:0}
+  .topbar .cab-dir{align-items:flex-start}}
 </style>
 </head>
 <body class="dark">
 
-<div class="topbar">
-  <div class="logo" data-casca><span class="g">Grid</span><span class="c"> Co.</span></div>
-  <a class="back" href="/" data-casca>← Início</a> <a class="back" href="/tempo-real" style="margin-left:8px" data-casca>Monitoramento</a>
-  <div class="scope">▸ Monitoramento de Portfólio</div>
-  <div class="spacer"></div>
-  <div class="toggle" id="modeToggle">
-    <button class="on" data-mode="live"><span class="pulse" style="width:7px;height:7px"></span> Tempo real</button>
-    <button data-mode="hist">⟲ Histórico</button>
-  </div>
+<div class="casca-barra" data-casca>
+  <div class="logo"><span class="g">Grid</span><span class="c"> Co.</span></div>
+  <a class="back" href="/">Início</a> <a class="back" href="/tempo-real">Monitoramento</a>
+  <span class="spacer"></span>
   <button class="darkbtn" id="darkBtn" onclick="toggleDark()" data-casca>Tema: Claro</button>
-  <div class="upd" id="upd">—</div>
 </div>
+<header class="topbar">
+  <div class="cab-txt">
+    <p class="eyebrow">Performance</p>
+    <h1 class="titulo">Painel NOC</h1>
+    <p class="lead">A frota agora: o que está abaixo da meta, o que parou e a causa provável.</p>
+  </div>
+  <div class="cab-dir">
+    <div class="toggle" id="modeToggle">
+      <button class="on" data-mode="live"><span class="pulse"></span> Tempo real</button>
+      <button data-mode="hist"><i class="ph ph-clock-counter-clockwise"></i> Histórico</button>
+    </div>
+    <div class="upd" id="upd">—</div>
+  </div>
+</header>
 
 <div class="wrap">
 <!-- ===== TEMPO REAL ===== -->
@@ -221,27 +349,27 @@ details.rx-fr .in{padding:0 14px 14px}
   <div class="grid-main">
     <div class="card">
       <div class="chead">
-        <div><h3>Frota — saúde por usina 🛰️</h3><div class="csub">Bloco = usina · cor = pior estado · ordenado pelas piores · clique para investigar</div></div>
+        <div><h3>Saúde da frota</h3><div class="csub">Cada bloco é uma usina, na cor do pior estado; as piores primeiro. Clique para investigar.</div></div>
+      </div>
+      <div class="barra-frota">
         <div class="filters" id="wallFilters">
           <button class="on" data-f="all">Todas</button>
           <button data-f="exc">Só exceções</button>
           <button class="crit" data-f="crit">Críticas</button>
         </div>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:2px 0 8px">
-        <span id="wallViewTog" style="display:inline-flex;background:var(--panel-2);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px">
+        <span id="wallViewTog" style="display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px">
           <!-- ordem e padrao pedidos pelo Levi (06/09): Meta (atingimento do mes) primeiro, depois PR, depois Strings -->
-          <button data-wv="meta" onclick="setWallView('meta')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:var(--brand);color:#16140e">Meta</button>
+          <button data-wv="meta" onclick="setWallView('meta')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:var(--brand);color:var(--sobre-brand)">Meta</button>
           <button data-wv="pr" onclick="setWallView('pr')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">PR</button>
           <button data-wv="str" onclick="setWallView('str')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">Strings</button>
           <!-- a visao "ETM" saiu do seletor em 06/09/2026 (Levi: "nao estamos usando agora"); renderEtm() segue no codigo -->
         </span>
-        <input id="wallSearch" type="search" placeholder="🔍  Filtrar usina..." oninput="wallFilterInput(this.value)"
-               style="width:220px;max-width:100%;box-sizing:border-box;margin-left:auto;padding:6px 10px;font-size:12px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--txt)">
-        <select id="wallCli" onchange="wallSetCli(this.value)" title="Filtrar a frota por cliente"
-                style="max-width:100%;box-sizing:border-box;padding:6px 10px;font-size:12px;border:1px solid var(--line);border-radius:7px;background:var(--panel-2);color:var(--txt);cursor:pointer">
-          <option value="">Todos os clientes</option>
-        </select>
+        <div class="barra-busca">
+          <input id="wallSearch" class="campo" type="search" placeholder="Buscar usina" aria-label="Buscar usina" oninput="wallFilterInput(this.value)">
+          <select id="wallCli" class="campo" onchange="wallSetCli(this.value)" title="Filtrar a frota por cliente" aria-label="Cliente">
+            <option value="">Todos os clientes</option>
+          </select>
+        </div>
       </div>
       <div class="legend" id="wallLegend">
         <!-- legenda inicial = visao Meta (padrao desde 06/09); setWallView troca ao clicar -->
@@ -254,8 +382,8 @@ details.rx-fr .in{padding:0 14px 14px}
     </div>
     <div>
       <div class="card">
-        <div class="chead"><div><h3>Anomalias do portfólio <span class="tagai">diagnóstico automático</span></h3>
-        <div class="csub">Causa provável (motor) · tendência · pronto para investigar</div></div></div>
+        <div class="chead"><div><h3>Anomalias <span class="tagai">Diagnóstico automático</span></h3>
+        <div class="csub">A causa provável, a tendência e o que fazer, usina a usina.</div></div></div>
         <div class="fhead">
           <span class="split" id="feedSplit"></span><span class="spacer"></span>
           <span class="chip on" data-ff="all">Todas</span>
@@ -275,7 +403,7 @@ details.rx-fr .in{padding:0 14px 14px}
 <div id="viewHist" class="hidden">
   <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px">
     <span id="histViewTog" style="display:inline-flex;background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:3px;gap:2px">
-      <button data-hv="perda" onclick="setHistView('perda')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:var(--brand);color:#16140e">Energia perdida (MWh)</button>
+      <button data-hv="perda" onclick="setHistView('perda')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:var(--brand);color:var(--sobre-brand)">Energia perdida (MWh)</button>
       <button data-hv="pr" onclick="setHistView('pr')" style="border:0;font:inherit;font-size:11.5px;font-weight:600;padding:5px 12px;border-radius:7px;cursor:pointer;background:transparent;color:var(--muted)">PR</button>
     </span>
   </div>
@@ -283,7 +411,7 @@ details.rx-fr .in{padding:0 14px 14px}
     <div class="kpis" id="kpisHist"></div>
     <div class="grid-main">
       <div>
-        <div class="card"><div class="chead"><div><h3>Top usinas por energia perdida (mês) 📉</h3><div class="csub">Déficit vs P50 prorrateado · MWh · onde concentrar a manutenção</div></div></div>
+        <div class="card"><div class="chead"><div><h3>Usinas com mais energia perdida no mês</h3><div class="csub">Déficit vs P50 prorrateado · MWh · onde concentrar a manutenção</div></div></div>
           <div class="cwrap" style="height:300px"><canvas id="chLost"></canvas></div></div>
         <div class="card" style="margin-top:14px;"><div class="chead"><div><h3>Distribuição da frota por atingimento</h3><div class="csub">Quantas usinas em cada faixa (gerada ÷ P50)</div></div></div>
           <div class="cwrap" style="height:210px"><canvas id="chDist"></canvas></div></div>
@@ -392,21 +520,22 @@ function spark(arr,color,w,h){w=w||64;h=h||18;if(!arr||arr.length<2)return '<svg
 function trendDir(arr){if(!arr||arr.length<3)return 'flat';const a=arr.slice(-4);const d=a[a.length-1]-a[0];if(d>0.5)return 'up';if(d<-0.5)return 'down';return 'flat';}
 const cssv=n=>getComputedStyle(document.body).getPropertyValue(n).trim();
 
-/* ---- emoji por causa ---- */
+/* ---- ícone por causa: os do Nexus (Phosphor), no lugar dos emojis (16/10/2026) ---- */
+function _ico(n){ return `<i class="ph ph-${n}" aria-hidden="true"></i>`; }
 function causaIco(p){
   const r=(p.diag&&p.diag.regra)||'', c=norm((p.diag&&p.diag.causa)||p.causa||'');
-  if(p.status==='sem_comm'||c.includes('comunica')||c.includes('telemetria')) return '📡';
-  if(p.status==='sem_producao'||c.includes('sem producao')) return '🔌';
-  if(r==='R-06'||c.includes('derate')||c.includes('termic')||c.includes('temperatura')) return '🌡️';
-  if(r==='R-10'||c.includes('tracker')) return '🧭';
-  if(r==='R-07'||c.includes('trip')||c.includes('parado')) return '⚡';
-  if(r==='R-08'||c.includes('isola')) return '🔌';
-  if(r==='R-09'||c.includes('subperf')||c.includes('string')) return '🔌';
-  if(c.includes('sem geracao')) return '🌑';
-  return '⚠️';
+  if(p.status==='sem_comm'||c.includes('comunica')||c.includes('telemetria')) return _ico('wifi-slash');
+  if(p.status==='sem_producao'||c.includes('sem producao')) return _ico('plugs');
+  if(r==='R-06'||c.includes('derate')||c.includes('termic')||c.includes('temperatura')) return _ico('thermometer-hot');
+  if(r==='R-10'||c.includes('tracker')) return _ico('compass');
+  if(r==='R-07'||c.includes('trip')||c.includes('parado')) return _ico('lightning-slash');
+  if(r==='R-08'||c.includes('isola')) return _ico('plug');
+  if(r==='R-09'||c.includes('subperf')||c.includes('string')) return _ico('solar-panel');
+  if(c.includes('sem geracao')) return _ico('moon');
+  return _ico('warning');
 }
 
-const COR={ok:()=>cssv('--ok'),atencao:()=>cssv('--amber'),critico:()=>cssv('--red'),sem_comm:()=>cssv('--off'),sem_producao:()=>'#c2410c'};
+const COR={ok:()=>cssv('--ok'),atencao:()=>cssv('--amber'),critico:()=>cssv('--red'),sem_comm:()=>cssv('--off'),sem_producao:()=>cssv('--laranja')};
 const NOME={ok:'Normal',atencao:'Atenção',critico:'Crítico',sem_comm:'Sem comunicação',sem_producao:'Sem produção'};
 
 let MACRO=null, GER=null, MAP={}, curWF='all', curFF='all', builtHist=false;
@@ -536,7 +665,7 @@ function renderKpis(){
    `<div class="kpi"><div class="l">PR ponderado (mês)</div><div class="v num">${pf.pr!=null?nf(pf.pr,1)+'%':'—'}</div><div class="d">atingimento ${pf.atingimento!=null?nf(pf.atingimento,1)+'%':'—'}</div></div>`+
    `<div class="kpi"><div class="l">Energia perdida (mês)</div><div class="v num">${nf(perda,1)} <span class="u">MWh</span></div><div class="d bad">vs P50 prorrateado</div></div>`+
    `<div class="kpi"><div class="l">Strings em risco agora</div><div class="v num">${nf(r.strings_faltando)}</div><div class="d warn">abaixo do esperado</div></div>`+
-   `<div class="kpi"><div class="l">Plantas por status</div><div class="statline">`+
+   `<div class="kpi"><div class="l">Usinas por estado</div><div class="statline">`+
      `<span><i style="background:${COR.ok()}"></i>${nf(r.ok)}</span>`+
      `<span><i style="background:${COR.atencao()}"></i>${nf(r.atencao)}</span>`+
      `<span><i style="background:${COR.critico()}"></i>${nf(r.critico)}</span>`+
@@ -561,7 +690,7 @@ function setWallView(v){
   if(v==='etm') v='str';   // botao removido em 06/09/2026; a visao continua no codigo, mas nao e mais alcancavel pela tela
   wallView=v;
   document.querySelectorAll('#wallViewTog button').forEach(b=>{ const on=b.dataset.wv===v;
-    b.style.background=on?'var(--brand)':'transparent'; b.style.color=on?'#16140e':'var(--muted)'; });
+    b.style.background=on?'var(--brand)':'transparent'; b.style.color=on?'var(--sobre-brand)':'var(--muted)'; });
   const lg=document.getElementById('wallLegend');
   if(lg) lg.innerHTML = v==='meta'
     ? `<span><span class="sw" style="background:var(--ok)"></span>Na meta (≥ 95%)</span><span><span class="sw" style="background:var(--amber)"></span>85–95%</span><span><span class="sw" style="background:var(--red)"></span>&lt; 85%</span><span><span class="sw" style="background:var(--faint)"></span>Sem meta no mês</span>`
@@ -602,7 +731,9 @@ function tileMeta(p){
   // sobre metade dos casos (Tanabi e Guaratinguetá V têm meta; ver /api/gerencial p50_src).
   const val=a!=null?`${nf(a,0)}%<span class="u"> da meta</span>`
            :temP50?`—<span class="u"> sem geração</span>`:`—<span class="u"> sem meta</span>`;
-  const sub=(p.prod!=null&&p.p50)?`<div class="tatg" style="color:${col}">gerada ${nf(p.prod,1)} · P50 ${nf(p.p50,1)} MWh</div>`
+  // a cor fica no número e na faixa do bloco; a linha de apoio vai neutra (16/10/2026: "tá muito azul", e o vermelho
+  // repetido em cada linha virava ruído)
+  const sub=(p.prod!=null&&p.p50)?`<div class="tatg" style="color:var(--txt-2)">gerada ${nf(p.prod,1)} · P50 ${nf(p.p50,1)} MWh</div>`
            :temP50?`<div class="tatg" style="color:var(--amber)">meta ${nf(p.p50,1)} MWh · geração do mês não encontrada</div>`
            :`<div class="tatg" style="color:var(--faint)">sem meta no mês</div>`;
   const pr=(_prReliable(p.pr)&&p.pr_meta!=null)?`<div class="tatg" style="color:var(--faint)">PR ${nf(p.pr,0)}% · meta ${nf(p.pr_meta,0)}%</div>`:'';
@@ -693,7 +824,7 @@ async function renderEtm(){
   const porCli={}; (ETMP.itens||[]).forEach(i=>{const c=i.cliente||'—'; porCli[c]=(porCli[c]||0)+1;});
   const cliTxt=Object.entries(porCli).sort((a,b)=>b[1]-a[1])
     .map(([c,q])=>{const on=etmCli===c;
-      return `<span class="etmcli" data-cli="${_esc(c)}" title="Clique para ${on?'limpar o filtro':'filtrar as usinas de '+_esc(c)}" style="cursor:pointer;padding:2px 8px;border-radius:12px;white-space:nowrap;${on?'background:var(--brand);color:#16140e;font-weight:700':''}">${_esc(c)} <b style="${on?'':'color:var(--txt)'}">${q}</b></span>`;})
+      return `<span class="etmcli" data-cli="${_esc(c)}" title="Clique para ${on?'limpar o filtro':'filtrar as usinas de '+_esc(c)}" style="cursor:pointer;padding:2px 8px;border-radius:12px;white-space:nowrap;${on?'background:var(--brand);color:var(--sobre-brand);font-weight:700':''}">${_esc(c)} <b style="${on?'':'color:var(--txt)'}">${q}</b></span>`;})
     .join(' ');
   const hdr=`<div style="font-size:11px;color:var(--muted);margin-bottom:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center">${its.length} usina(s)${etmCli?` de <b style="color:var(--txt)">${_esc(etmCli)}</b>`:''} com problema de ETM em ${ETMP.mes||''} · <b style="color:var(--amber)">${nAb} sem ticket</b> · varrido ${ETMP.cache_ts||''} · por cliente: ${cliTxt}</div>`;
   if(!its.length){ el.innerHTML=hdr+'<div class="empty">Nenhum problema de ETM neste filtro.</div>'; el.querySelectorAll('.etmcli').forEach(s=>s.onclick=()=>etmFiltraCli(s.dataset.cli)); return; }
@@ -748,7 +879,7 @@ function renderFeed(){
     const dir=trendDir(p.trend), dm={up:['up','▲','piorando'],down:['down','▼','melhorando'],flat:['flat','▬','estável']}[dir];
     const col=dir==='up'?cssv('--red'):dir==='down'?cssv('--ok'):cssv('--off');
     const conf=(p.diag&&p.diag.confianca)||'';
-    const _off=p.inv_off?`<span style="color:#c2410c;font-weight:600">${p.inv_off} inv. parado(s)</span>`:'';
+    const _off=p.inv_off?`<span style="color:var(--laranja);font-weight:600">${p.inv_off} inv. parado(s)</span>`:'';
     const _str=(p.status!=='sem_producao'&&p.strings_faltando)?`<span style="color:${cssv('--amber')};font-weight:600">−${p.strings_faltando} strings</span>`:'';
     const alm=(_off||_str)?`<span style="margin-left:auto;display:inline-flex;gap:10px">${_off}${_str}</span>`:'';
     // PR atual + Δ vs meta da UFV (abaixo do status/strings)
@@ -764,16 +895,16 @@ function renderFeed(){
       `<div class="trendrow">${spark(p.trend,col,70,20)}<span class="dir ${dm[0]}">${dm[1]} ${dm[2]}</span>${alm}</div>`+
       prline+
       (p.diag&&p.diag.acao?`<div class="action"><b>Ação:</b> ${p.diag.acao}</div>`:'')+
-      (hasDrill(p)?`<a class="invlink" href="${drillUrl(p)}" onclick="event.stopPropagation()">investigar →</a>`:'')+`</div>`;
+      (hasDrill(p)?`<a class="invlink" href="${drillUrl(p)}" onclick="event.stopPropagation()">Investigar</a>`:'')+`</div>`;
   }).join('');
   if(curFF==='all'||curFF==='clima') html+=clima.map(u=>
     `<div class="anom clima">`+
     `<div class="top"><span class="dev">${u.usina}</span><span class="sevtag clima">Recurso/Clima</span></div>`+
     `<div class="where">${u.cliente||'—'}</div>`+
-    `<div class="dline"><span class="ic">⛅</span><span class="cz">IPOA abaixo do previsto — déficit de recurso</span></div>`+
+    `<div class="dline"><span class="ic">${_ico('cloud-sun')}</span><span class="cz">IPOA abaixo do previsto — déficit de recurso</span></div>`+
     `<div class="action">Gerada ${nf(u.prod,1)} MWh · P50 ${nf(u.p50,1)} MWh · atingimento ${u.atingimento!=null?nf(u.atingimento,0)+'%':'—'} — <b>não despachar</b> (clima).</div></div>`
   ).join('');
-  document.getElementById('feed').innerHTML=html||'<div class="empty">Sem anomalias 🎉</div>';
+  document.getElementById('feed').innerHTML=html||'<div class="empty">Nenhuma anomalia agora.</div>';
 }
 document.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{
   document.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));
@@ -1319,7 +1450,7 @@ let gDailyData=null, gChX={};   // dados do diário (p/ a visão expandida tela-
 function setHistView(v){
   histView=v;
   document.querySelectorAll('#histViewTog button').forEach(b=>{ const on=b.dataset.hv===v;
-    b.style.background=on?'var(--brand)':'transparent'; b.style.color=on?'#16140e':'var(--muted)'; });
+    b.style.background=on?'var(--brand)':'transparent'; b.style.color=on?'var(--sobre-brand)':'var(--muted)'; });
   document.getElementById('histPerda').classList.toggle('hidden',v!=='perda');
   document.getElementById('histPr').classList.toggle('hidden',v!=='pr');
   if(v==='pr'&&!gInited){ gInited=true; gInit(); }
