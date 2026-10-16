@@ -6,8 +6,15 @@ render.yaml na raiz). Este zip é para quando alguém precisa instalar à mão �
 provedor, ou um servidor sem acesso ao GitHub. O conteúdo é o MESMO que a nuvem usaria, e o
 layout também: `thopen/` mais os arquivos de raiz, porque o startCommand faz `--chdir thopen`.
 
-O QUE ENTRA — o app são três arquivos (~105 KB), como dizem os comentários do railway.toml:
-  thopen/dashboard_thopen.py, thopen/fonte_api.py, thopen/templates/dashboard_thopen.html
+O QUE ENTRA — o app são doze arquivos (~260 KB), como dizem os comentários do railway.toml:
+  thopen/dashboard_thopen.py, thopen/fonte_api.py, thopen/fonte_operacao.py, thopen/operacao_mes.py,
+  thopen/rondas_cliente.py, thopen/fotos_ronda.py, thopen/contestacao.py, thopen/contestacao_banco.py,
+  thopen/acessos.py, thopen/livro_banco.py, thopen/templates/dashboard_thopen.html, thopen/templates/entrar.html
+(acessos + livro_banco + entrar.html desde 14/10/2026: o login por pessoa, com as contas do Nexus)
+(rondas_cliente + fotos_ronda + contestacao desde 09/10/2026: a janela das rondas do card e a contestação do cliente;
+contestacao_banco desde 13/10/2026: a contestação gravada no banco, cifrada, para o Nexus)
+(fonte_operacao + operacao_mes desde 08/10/2026: a Operação no Mês do Diário. O dashboard os importa no topo — o
+zip só com os três de antes nem subia; tests/test_thopen_operacao_rota.py confere ITENS contra os imports)
 mais requirements-thopen.txt (só flask+openpyxl+gunicorn; o requirements.txt da raiz arrasta
 pandas/numpy/matplotlib da plataforma) e os dois arquivos de configuração de nuvem.
 
@@ -17,7 +24,8 @@ O QUE NÃO ENTRA, E POR QUÊ:
     e-mail e chat; o token não pode circular junto. Sem ele o app SOBE e não lê nada.
   • thopen/data/ (5 MB de planilha) — desde 28/08/2026 o dashboard não abre arquivo nenhum.
     Mandar um BD_Thopen de julho para o servidor só convida alguém a achar que é a fonte.
-  • cache_bd_thopen.json.gz — é a última leitura boa DESTA máquina; o servidor faz a dele.
+  • cache_bd_thopen.json.gz e cache_operacao.json.gz — a última leitura boa DESTA máquina; o
+    servidor faz a dele.
   • .bat/.ps1/logs do túnel — tooling local do Levi, não do servidor.
 
 Uso: python thopen/deploy/_package_thopen.py
@@ -35,6 +43,15 @@ OUT = os.path.join(DEPLOY, "thopen-app.zip")
 ITENS = [
     ("thopen/dashboard_thopen.py",              "thopen/dashboard_thopen.py"),
     ("thopen/fonte_api.py",                     "thopen/fonte_api.py"),
+    ("thopen/fonte_operacao.py",                "thopen/fonte_operacao.py"),
+    ("thopen/operacao_mes.py",                  "thopen/operacao_mes.py"),
+    ("thopen/rondas_cliente.py",                "thopen/rondas_cliente.py"),
+    ("thopen/fotos_ronda.py",                   "thopen/fotos_ronda.py"),
+    ("thopen/contestacao.py",                   "thopen/contestacao.py"),
+    ("thopen/contestacao_banco.py",             "thopen/contestacao_banco.py"),
+    ("thopen/acessos.py",                       "thopen/acessos.py"),
+    ("thopen/livro_banco.py",                   "thopen/livro_banco.py"),
+    ("thopen/templates/entrar.html",            "thopen/templates/entrar.html"),
     ("thopen/templates/dashboard_thopen.html",  "thopen/templates/dashboard_thopen.html"),
     ("requirements-thopen.txt",                 "requirements-thopen.txt"),
     ("railway.toml",                            "railway.toml"),
@@ -43,8 +60,8 @@ ITENS = [
 
 LEIAME = """# Dashboard Thopen — instalação
 
-O app são três arquivos. Tudo que ele mostra vem da Gridco Performance API (PostgreSQL);
-ele NÃO abre planilha nenhuma.
+O app são doze arquivos (pasta thopen/). Tudo que ele mostra vem da Gridco Performance API
+(PostgreSQL); ele NÃO abre planilha nenhuma.
 
 ## Subir
 
@@ -65,6 +82,49 @@ No Windows, para testar, `python thopen/dashboard_thopen.py` sobe na 5080 (gunic
                        volume persistente se quiser que sobreviva.
     GRIDCO_API_IGNORA  opcional, abas a esconder do seletor, separadas por ";" (as `zz*` já são
                        ignoradas por regra).
+
+Operação no Mês (card e tabela do Diário, de 10/2026 em diante; lê pela mesma API e o mesmo
+GRIDCO_SQL_TOKEN, em segundo plano — a tela nunca espera essa leitura):
+
+    THOPEN_OPERACAO        opcional. "0" desliga o card e a tabela por dia (o Diário volta ao de
+                           antes de 10/2026); qualquer outro valor ou vazio = ligado.
+    THOPEN_OPERACAO_TTL    opcional, padrão 600 (segundos entre uma releitura e outra)
+    THOPEN_OPERACAO_CACHE  opcional. Arquivo da última leitura boa (padrão
+                           thopen/cache_operacao.json.gz); a mesma observação do GRIDCO_API_CACHE
+                           sobre disco efêmero.
+
+Rondas do mês e dúvida do cliente (o ícone de imagem do card, de 10/2026 em diante). Os três
+segredos abaixo NÃO estão no pacote: vão nas variáveis do provedor ou, no Windows, num .env na
+raiz do clone (linhas NOME=valor, ao lado da pasta thopen/):
+
+    THOPEN_RONDAS          opcional. "0" desliga a janela das rondas e as fotos.
+    FRACTTAL_CLIENT_ID     SECRETA. A credencial da API do Fracttal (a mesma da plataforma): as
+    FRACTTAL_CLIENT_SECRET fotos das rondas são os anexos das OS. Sem ela a janela mostra as
+                           rondas e avisa que as fotos não estão disponíveis.
+    THOPEN_TEAMS_PERFORMANCE  SECRETA. URL do fluxo do Teams do canal O&M > Performance (app
+                           Workflows: "Enviar alertas de webhook para um canal"): recebe a contestação
+                           de geração, string e tracker.
+    THOPEN_TEAMS_COS          SECRETA. URL do fluxo do canal do COS: recebe a de disponibilidade e
+                           desligamento (15/10/2026).
+    THOPEN_TEAMS_ZELADORIA    SECRETA. URL do fluxo do canal O&M > Zeladoria: recebe a de ronda.
+                           Item cujo canal não está configurado não aparece na tela.
+    THOPEN_CONTESTACAO_CHAVE_PUBLICA  a chave PÚBLICA (X25519, base64) do Nexus: a contestação vai
+                           também ao banco (livro thopen_contestacoes), com nome, contato e mensagem
+                           cifrados; só o Nexus abre. Sem ela, não grava no banco (o Teams segue).
+    GRIDCO_SQL_TOKEN       SECRETA. O token de escrita do banco (o tokens.txt da raiz serve): sem ele
+                           a contestação não vai ao banco.
+
+Login por pessoa (14/10/2026; as contas são criadas no Nexus, em Contratos e clientes → Acessos dos
+clientes):
+
+    THOPEN_LOGIN           "1" liga o login. Sem ela o painel segue público, como antes.
+    THOPEN_PREFIXO         o caminho em que o painel é servido ("/performance" no servidor da T.I.).
+    THOPEN_ACESSOS_CHAVE_PRIVADA  SECRETA. A chave privada do 5080 (X25519, base64): abre o nome e o
+                           e-mail das contas e cifra as senhas. A PÚBLICA do par vai no Nexus (Base →
+                           Chaves do Nexus). Sem a privada, ninguém entra.
+    THOPEN_SESSAO_CHAVE    SECRETA. Assina o cookie da sessão (32+ caracteres aleatórios). Sem ela,
+                           quem estava dentro entra de novo a cada reinício.
+    THOPEN_COOKIE_SEGURO   "0" só para testar em http local (o padrão é o cookie só em HTTPS).
 
 ## --workers 1
 
@@ -104,4 +164,7 @@ def main():
     print("gerado em: %s" % OUT)
 
 
-main()
+# Só como script (08/10/2026): o teste importa o módulo para conferir ITENS contra o que o dashboard importa, e o
+# import não pode gerar o zip na pasta do repositório
+if __name__ == "__main__":
+    main()

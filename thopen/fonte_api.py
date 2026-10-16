@@ -80,6 +80,26 @@ def _token():
     return ""
 
 
+def segredo(nome):
+    """Um segredo de configuração (FRACTTAL_CLIENT_ID, THOPEN_DUVIDA_TEAMS...): o ambiente do processo e, sem ele, o
+    `.env` e o `tokens.txt` da raiz do repositório (linhas NOME=valor). O clone do cliente
+    (C:\\GridcoAuto\\PerformancePainel) não tem .env: quem instala põe lá as linhas que o README do pacote lista.
+    Vazio = não configurado. Nunca imprime o valor."""
+    v = os.environ.get(nome)
+    if v and v.strip():
+        return v.strip()
+    padrao = re.compile(r"\s*%s\s*=\s*(.*)$" % re.escape(nome))
+    for arq in (".env", "tokens.txt"):
+        try:
+            for linha in io.open(os.path.join(_AQUI, "..", arq), encoding="utf-8", errors="surrogateescape"):
+                m = padrao.match(linha)
+                if m:
+                    return m.group(1).strip().strip('"').strip("'")
+        except OSError:
+            continue
+    return ""
+
+
 def _get(caminho, tok, tentativas=TENTATIVAS):
     erro = None
     for i in range(tentativas):

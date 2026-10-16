@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ 'Definir senha' if modo == 'convite' else 'Entrar' }} — Performance da Usina · Grid Co.</title>
+{# Login por pessoa (Levi, 14/10/2026; spec docs/superpowers/specs/2026-10-14-thopen-login-por-pessoa-design.md): a
+   entrada e a definição de senha pelo link de uso único que a Grid Co. gera no Nexus. A mesma marca do dashboard (a faixa
+   laranja → rosa e "Grid Co. THOPEN"); sem emoji. #}
+<style>
+  :root{ --navy:#1F2E6E; --bg:#eef0f3; --card:#fff; --line:#d7dce6; --txt:#22242a; --muted:#6b6f76; --neg:#c0392b; }
+  *{ box-sizing:border-box; }
+  body{ margin:0; min-height:100vh; display:flex; flex-direction:column; background:var(--bg); color:var(--txt);
+        font-family:Segoe UI,Roboto,Arial,sans-serif; font-size:14px; }
+  .faixa{ display:flex; align-items:center; padding:14px 22px; color:#fff;
+          background:linear-gradient(90deg,#FDB813 0%,#F7941E 32%,#EC1C5E 100%); }
+  .faixa h1{ margin:0; font-size:19px; font-weight:700; }
+  .marca{ margin-left:auto; text-align:right; line-height:1.1; }
+  .marca .g{ font-size:21px; font-weight:800; } .marca .t{ font-size:12px; font-weight:600; letter-spacing:3px; }
+  main{ flex:1; display:flex; align-items:flex-start; justify-content:center; padding:56px 16px; }
+  .cartao{ width:100%; max-width:400px; background:var(--card); border:1px solid #e2e4e9; border-radius:14px;
+           padding:28px 28px 24px; box-shadow:0 6px 24px rgba(31,46,110,.08); }
+  .cartao h2{ margin:0 0 4px; font-size:20px; color:var(--navy); }
+  .cartao p.sub{ margin:0 0 20px; color:var(--muted); font-size:13px; line-height:1.45; }
+  label{ display:block; font-size:12px; font-weight:700; color:#3a3e47; margin:14px 0 6px; }
+  input{ width:100%; font:inherit; padding:10px 12px; border:1px solid var(--line); border-radius:8px; color:var(--txt); }
+  input:focus{ outline:none; border-color:#F7941E; box-shadow:0 0 0 3px rgba(247,148,30,.18); }
+  button{ width:100%; margin-top:20px; padding:11px 14px; font:inherit; font-weight:700; color:#fff; background:var(--navy);
+          border:none; border-radius:8px; cursor:pointer; }
+  button:hover{ background:#17235a; }
+  .erro{ margin:0 0 6px; padding:10px 12px; border-radius:8px; background:#fdecea; color:var(--neg); font-size:13px;
+         line-height:1.4; }
+  .rodape{ margin-top:18px; color:var(--muted); font-size:12px; line-height:1.45; text-align:center; }
+</style>
+</head>
+<body>
+  <header class="faixa"><h1>Performance da Usina</h1><div class="marca"><div class="g">Grid Co.</div><div class="t">THOPEN</div></div></header>
+  <main>
+    <div class="cartao">
+    {% if modo == 'convite' %}
+      {% if conta %}
+      <h2>Definir senha</h2>
+      <p class="sub">Olá, {{ conta.nome or conta.usuario }}. Escolha a senha do seu acesso ao painel (usuário {{ conta.usuario }}).</p>
+      {% if erro %}<p class="erro" role="alert">{{ erro }}</p>{% endif %}
+      <form method="post" autocomplete="on">
+        <input type="text" name="usuario" value="{{ conta.usuario }}" autocomplete="username" hidden>
+        <label for="senha">Senha nova (mínimo {{ minimo }} caracteres)</label>
+        <input id="senha" name="senha" type="password" minlength="{{ minimo }}" required autocomplete="new-password" autofocus>
+        <label for="senha2">Repita a senha</label>
+        <input id="senha2" name="senha2" type="password" minlength="{{ minimo }}" required autocomplete="new-password">
+        <button type="submit">Salvar e entrar</button>
+      </form>
+      {% else %}
+      <h2>Link não vale</h2>
+      <p class="erro" role="alert">{{ erro }}</p>
+      <p class="rodape"><a href="{{ raiz }}/login">Ir para a entrada</a></p>
+      {% endif %}
+    {% else %}
+      <h2>Entrar</h2>
+      <p class="sub">Acesso ao painel de performance das usinas.</p>
+      {% if erro %}<p class="erro" role="alert">{{ erro }}</p>{% endif %}
+      <form method="post" autocomplete="on">
+        <label for="usuario">Usuário</label>
+        <input id="usuario" name="usuario" type="text" required autocomplete="username" autocapitalize="none"
+               spellcheck="false" value="{{ usuario }}" autofocus>
+        <label for="senha">Senha</label>
+        <input id="senha" name="senha" type="password" required autocomplete="current-password">
+        <button type="submit">Entrar</button>
+      </form>
+      <p class="rodape">Esqueceu a senha ou ainda não tem acesso? Peça um link à Grid Co.</p>
+    {% endif %}
+    </div>
+  </main>
+<script>
+  // um envio só (15/10/2026): o clique duplo em "Salvar e entrar" gravava a senha no 1º e mostrava "link já usado" no 2º
+  document.querySelectorAll('form').forEach(function (f) {
+    f.addEventListener('submit', function (ev) {
+      if (f.dataset.enviando) { ev.preventDefault(); return; }
+      f.dataset.enviando = '1';
+      var b = f.querySelector('button[type="submit"]'); if (b) { b.disabled = true; b.textContent = 'Aguarde…'; }
+    });
+  });
+</script>
+</body>
+</html>

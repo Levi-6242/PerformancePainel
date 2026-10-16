@@ -149,6 +149,7 @@ tokens.txt.old*
 # cache da ultima leitura boa da API (fonte_api.py) — regenerado sozinho
 cache_bd_thopen.json.gz
 thopen/cache_bd_thopen.json.gz
+thopen/cache_operacao.json.gz*
 
 # ── os_creator: MIGRADO em 28/08 para Grid-Co-CODE/oem ───────────────────────
 # Só o MOVIDO.md fica versionado. O resto é sobra da máquina de quem migrou:

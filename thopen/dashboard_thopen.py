@@ -33,15 +33,23 @@ Recarrega sozinho pelo TTL do `fonte_api`; o botão Atualizar derruba o cache. P
 import os
 import re
 import json
+import secrets
 import threading
 import unicodedata
 import datetime as dt
 from calendar import monthrange
 
 from openpyxl.utils import range_boundaries
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, abort, g, jsonify, redirect, render_template, request, session
 
 import fonte_api             # leitura pelo PostgreSQL (Gridco Performance API) — ÚNICA fonte
+import fonte_operacao        # Operação no Mês (08/10/2026): leitura própria, recarga em segundo plano
+import operacao_mes          # ... e as contas puras do card do Diário (nada dos dois roda no import)
+import rondas_cliente        # rodada 3 (09/10/2026): as rondas do mês na janela do card (puro)
+import fotos_ronda           # ... as fotos delas, dos anexos da OS no Fracttal (nada roda no import)
+import contestacao           # rodada 4: a contestação do cliente sobre um dia da tabela, que avisa a Grid Co. no Teams
+import contestacao_banco     # rodada 5 (13/10/2026): ... e fica no banco, cifrada, para o Nexus (Contratos e clientes)
+import acessos               # login por pessoa (14/10/2026): as contas vêm do Nexus, a senha o 5080 grava (o banco)
 
 # ── Localização dos dados: não há ──────────────────────────────────────────────
 # Este app NÃO ABRE ARQUIVO NENHUM (Levi, 28/08/2026: "não pode ter nada de excel, tem que ser
@@ -925,6 +933,181 @@ def _prod_anual_por_usina(usina):
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 app = Flask(__name__)
 
+# ── Login por pessoa (Levi, 14/10/2026: "É possível implementarmos uma visão de login e senha para o dashboard
+# thopen?"; spec docs/superpowers/specs/2026-10-14-thopen-login-por-pessoa-design.md). Contas por pessoa, ligadas a um
+# cliente (as carteiras que ela vê), administradas no Nexus (Contratos e clientes → Acessos dos clientes); o dashboard
+# sobe no servidor da T.I. em https://app.gridco.com.br/performance/ (entrada em /performance/login).
+# THOPEN_LOGIN=1 liga; sem ela o 5080 segue público como antes (o código sobe antes das contas existirem).
+# THOPEN_PREFIXO=/performance: o app funciona com o Caddy tirando ou não o prefixo, e gera os endereços com ele.
+PREFIXO = (os.environ.get("THOPEN_PREFIXO") or "").strip().rstrip("/")
+# a chave da sessão (assina o cookie): sem ela, uma por processo — quem estava dentro entra de novo depois de reiniciar
+app.secret_key = fonte_api.segredo("THOPEN_SESSAO_CHAVE") or secrets.token_hex(32)
+# cookie próprio: o mesmo domínio tem o `session` da plataforma e o `nexus_sessao` do Nexus (a porta única de 09/10
+# mostrou o `session` colidindo). Secure por padrão (HTTPS no servidor); THOPEN_COOKIE_SEGURO=0 só para o http local
+app.config.update(SESSION_COOKIE_NAME="thopen_sessao", SESSION_COOKIE_PATH=PREFIXO or "/", SESSION_COOKIE_HTTPONLY=True,
+                  SESSION_COOKIE_SAMESITE="Lax",
+                  SESSION_COOKIE_SECURE=os.environ.get("THOPEN_COOKIE_SEGURO", "1").strip() != "0",
+                  PERMANENT_SESSION_LIFETIME=dt.timedelta(hours=12))
+
+
+class _Prefixo:
+    """Serve o app debaixo de um caminho (/performance): o Caddy pode passar o caminho inteiro (handle) ou sem o prefixo
+    (handle_path) — os dois funcionam, e os endereços gerados (url_for, request.script_root) levam o prefixo."""
+
+    def __init__(self, app_wsgi, prefixo):
+        self.app_wsgi, self.prefixo = app_wsgi, prefixo
+
+    def __call__(self, environ, start_response):
+        caminho = environ.get("PATH_INFO", "")
+        if caminho == self.prefixo or caminho.startswith(self.prefixo + "/"):
+            environ["PATH_INFO"] = caminho[len(self.prefixo):] or "/"
+        environ["SCRIPT_NAME"] = self.prefixo
+        return self.app_wsgi(environ, start_response)
+
+
+if PREFIXO:
+    app.wsgi_app = _Prefixo(app.wsgi_app, PREFIXO)
+
+_TENTATIVAS = acessos.Limite(tentativas=5, janela=900)    # 5 erros em 15 min, por conta ou por endereço = espera
+_LIVRES = {"login", "logout", "convite", "static"}       # o que abre sem sessão
+
+
+def _login_ligado():
+    return os.environ.get("THOPEN_LOGIN", "").strip() == "1"
+
+
+def _ip():
+    return request.headers.get("CF-Connecting-IP") or request.headers.get("X-Forwarded-For", "").split(",")[0].strip() \
+        or request.remote_addr or "?"
+
+
+def _usuario():
+    """A conta da sessão, relida a cada pedido do cache de 2 min: desativada no Nexus = fora."""
+    if "usuario" not in g:
+        cid = session.get("conta_id")
+        g.usuario = acessos.conta(cid) if cid else None
+        if cid and g.usuario is None:
+            session.clear()
+    return g.usuario
+
+
+def _pode(usina):
+    """A conta vê esta usina? Login desligado ou papel grid: todas. Cliente: só as das carteiras dele."""
+    if not _login_ligado():
+        return True
+    u = _usuario()
+    if not u:
+        return False
+    if u["papel"] == "grid":
+        return True
+    return _CARTEIRA_DE.get(_NOME_CANON.get(usina, usina)) in set(u["carteiras"])
+
+
+def _carteiras_vistas():
+    if not _login_ligado():
+        return list(CARTEIRA_ORDEM)
+    u = _usuario() or {}
+    return list(CARTEIRA_ORDEM) if u.get("papel") == "grid" else [c for c in CARTEIRA_ORDEM if c in (u.get("carteiras") or [])]
+
+
+def _e_grid():
+    return not _login_ligado() or (_usuario() or {}).get("papel") == "grid"
+
+
+_POR_USINA = {"overview", "diario", "api_operacao", "api_rondas"}       # ?usina=
+_SO_GRID = {"comentario_extra", "reload_bd"}                           # gravar e forçar a releitura
+
+
+@app.before_request
+def _portao():
+    """Com THOPEN_LOGIN=1: tudo pede sessão (menos entrar, convite, sair e os estáticos) e cada conta só vê as usinas
+    das carteiras dela. A API responde 401/403; a página vai para a entrada."""
+    if not _login_ligado() or request.endpoint in _LIVRES:
+        return None
+    if not _usuario():
+        if request.path.startswith("/api/"):
+            return jsonify({"ok": False, "erro": "Sua sessão terminou. Entre de novo."}), 401
+        return redirect(request.script_root + "/login")
+    ep = request.endpoint
+    fora = jsonify({"ok": False, "erro": "Esta usina não está no seu acesso."}), 403
+    if ep in _POR_USINA and not _pode(request.args.get("usina", "")):
+        return fora
+    if ep == "geral" and request.args.get("carteira", "Thopen") not in _carteiras_vistas():
+        return fora
+    if ep == "api_contestar" and not _pode(str((request.get_json(silent=True) or {}).get("usina") or "").strip()):
+        return fora
+    if ep in ("api_ronda", "api_ronda_foto"):
+        r = rondas_cliente.da_os(fonte_operacao.dados(), (request.view_args or {}).get("os_"))
+        nomes = {str(x.get("chave_externa") or "") for x in (fonte_operacao.dados() or {}).get("de_para") or []
+                 if r and operacao_mes._int(x.get("usina_id")) == operacao_mes._int(r.get("usina_id"))}
+        if r and not any(_pode(n) for n in nomes):
+            return jsonify({"ok": False, "erro": "ronda não encontrada"}), 404
+    if ep in _SO_GRID and not _e_grid():
+        return jsonify({"ok": False, "erro": "Só a Grid Co. pode fazer isto."}), 403
+    return None
+
+
+def _entrar(conta):
+    session.clear()                       # sessão nova a cada entrada (nada da anterior sobra)
+    session.permanent = True
+    session["conta_id"] = conta["conta_id"]
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    erro = None
+    if request.method == "POST":
+        # o usuário de hoje do cliente ou um e-mail (15/10/2026, Levi: "Mesmo usuário e senha de hoje")
+        login_ = str(request.form.get("usuario") or "").strip().lower()
+        chaves = ("ip:" + _ip(), "conta:" + login_)
+        if any(_TENTATIVAS.bloqueado(k) for k in chaves):
+            erro = "Muitas tentativas. Espere 15 minutos e tente de novo."
+        else:
+            conta = acessos.verificar(login_, request.form.get("senha") or "")
+            if conta:
+                for k in chaves:
+                    _TENTATIVAS.zerar(k)
+                _entrar(conta)
+                return redirect(request.script_root + "/")
+            for k in chaves:
+                _TENTATIVAS.erro(k)
+            erro = ("O login não está disponível agora. Fale com a Grid Co." if acessos.estado()["erro"]
+                    and not acessos.estado()["contas"] else "Usuário ou senha não conferem.")
+    return render_template("entrar.html", modo="login", erro=erro, raiz=request.script_root,
+                           usuario=request.form.get("usuario", "") if request.method == "POST" else "")
+
+
+@app.route("/convite/<token>", methods=["GET", "POST"])
+def convite(token):
+    """O link de uso único que a Grid Co. gera no Nexus: definir a senha (a 1ª, ou uma nova) e já entrar."""
+    conta, motivo = acessos.convite(token)
+    # 15/10/2026: o "Salvar e entrar" clicado várias vezes mandava o formulário de novo — o 1º gravava a senha e já
+    # entrava, e o 2º mostrava "Este link já foi usado" por cima. Link usado com a pessoa já conectada: vai ao painel
+    if motivo == "usado" and _usuario():
+        return redirect(request.script_root + "/")
+    erro = None if motivo == "ok" else acessos.MOTIVOS.get(motivo, acessos.MOTIVOS["invalido"])
+    if request.method == "POST" and conta:
+        s1, s2 = request.form.get("senha") or "", request.form.get("senha2") or ""
+        if s1 != s2:
+            erro = "As duas senhas não são iguais."
+        else:
+            try:
+                _entrar(acessos.definir_senha(token, s1))
+                return redirect(request.script_root + "/")
+            except acessos.Recusada as e:
+                erro = str(e)
+            except Exception as e:               # noqa: BLE001 — banco fora: a senha não foi gravada
+                print("[acessos] não gravei a senha: %s" % type(e).__name__, flush=True)
+                erro = "Não consegui gravar agora. Tente de novo em alguns minutos."
+    return render_template("entrar.html", modo="convite", erro=erro, conta=conta, raiz=request.script_root,
+                           minimo=acessos.SENHA_MIN)
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(request.script_root + "/login")
+
 
 # ── Carteiras (cliente dono do portfólio) → usinas pelo NOME DE COLETA (coluna "Usina") ──────
 # De-para fixo aqui porque a coluna "Cliente" da aba "Dados Gerais Usinas" está vazia. Os nomes
@@ -993,18 +1176,23 @@ EXCLUIR_GERAL = {"Piancó 1"}
 FORA_DO_RELATORIO = {"Araci 1"}
 
 
+def _usinas_disponiveis():
+    """As usinas que o painel mostra (o seletor). A contestação só aceita uma delas: o 5080 é público."""
+    _wb()
+    return sorted({_NOME_CANON.get(u, u) for u in
+                   (set(_state["daily"].keys()) | set(_polaris_records().keys()) | set(_sheet_records().keys()))}
+                  - FORA_DO_RELATORIO)
+
+
 @app.route("/api/t/usinas")
 def usinas():
-    _wb()
-    us = sorted({_NOME_CANON.get(u, u) for u in
-                 (set(_state["daily"].keys()) | set(_polaris_records().keys()) | set(_sheet_records().keys()))}
-                - FORA_DO_RELATORIO)
+    us = [u for u in _usinas_disponiveis() if _pode(u)]     # login (14/10/2026): só as das carteiras da conta
     default = "Altair" if "Altair" in us else (us[0] if us else None)
     carteira_de = {u: _CARTEIRA_DE.get(u) for u in us}  # carteira de cada usina disponível
     today = dt.date.today()
     mes_max = today.month if today.year == ANO else 12  # p/ o filtro de mês GLOBAL do frontend
     return jsonify({"usinas": us, "default": default,
-                    "carteiras": CARTEIRA_ORDEM, "carteira_de": carteira_de,
+                    "carteiras": _carteiras_vistas(), "carteira_de": carteira_de,
                     "ano": ANO, "mes_max": mes_max})
 
 
@@ -1106,9 +1294,12 @@ def diario():
     meta_kwh = meta.get("meta")
     meta_dia = (meta_kwh / dias_mes) if meta_kwh else None
 
-    pontos = [{"dia": r["data"].day, "ger": r["ger"], "ipoa": r["ipoa"], "com": r["com"]}
+    # de 10/2026 em diante o comentário e a disponibilidade do cliente são só os das OS do Fracttal (_so_os_fracttal):
+    # o comentário da equipe e a disponibilidade do BD_Thopen nem saem daqui — a tela monta tudo pelo /api/t/operacao
+    so_os = _so_os_fracttal(ano, mes)
+    pontos = [{"dia": r["data"].day, "ger": r["ger"], "ipoa": r["ipoa"], "com": None if so_os else r["com"]}
               for r in recs]
-    disp_vals = [r["disp"] for r in recs if r["disp"] is not None]
+    disp_vals = [] if so_os else [r["disp"] for r in recs if r["disp"] is not None]
     kpis = {
         "acum_prod": sum((r["ger"] or 0) for r in recs),
         "acum_meta": meta_kwh,
@@ -1120,7 +1311,7 @@ def diario():
     # (ex.: "01/05/2026 a 06/05/2026"). Dia sem comentário ou texto diferente quebra a sequência.
     grupos = []
     prev_d = None
-    for r in recs:
+    for r in ([] if so_os else recs):
         c, d = r["com"], r["data"]
         if c:
             if (grupos and grupos[-1]["com"] == c and prev_d is not None
@@ -1141,16 +1332,38 @@ def diario():
                     "meta_dia": meta_dia, "kpis": kpis, "comentarios": coment})
 
 
+def _so_os_fracttal(ano, mes):
+    """De 10/2026 em diante o comentário e a disponibilidade do cliente são SÓ os das OS do Fracttal (Levi, 14/10/2026:
+    "A partir de outubro quero os comentários 100% OS Fracttal. Comentários e disponibilidade! Antes deixe como
+    estava!"). Por quê: o comentário da equipe no BD_Thopen e a disponibilidade do Gerencial são duas contas que não se
+    conversam — em 1 a 13/10, em 37 dias de 14 usinas a equipe registrava parada e o Gerencial dizia 100%, e em 90 dias
+    o mesmo desligamento saía duas vezes (Ipixuna II 01/10). Antes de outubro, o BD_Thopen como sempre."""
+    return (ano, mes) >= operacao_mes.DESDE
+
+
+def _disp_gerencial(usina, ano, mes):
+    """A disponibilidade do mês pelo Gerencial (fração 0–1), a mesma do card do Diário: a média dos dias da
+    disponibilidade_dia. None sem o dado (carregando, card desligado, usina fora do Gerencial) — nunca o 0 de
+    "não preenchido" do BD_Thopen (a Visão Geral de outubro mostrava a Altair com 0,0%)."""
+    if os.environ.get("THOPEN_OPERACAO", "1").strip() == "0":
+        return None
+    dados = fonte_operacao.dados()
+    dsp = operacao_mes.disp_por_dia(dados, usina, ano, mes) if dados else {}
+    return (sum(dsp.values()) / len(dsp)) / 100.0 if dsp else None
+
+
 def _resumo_usina(usina, ano, mes):
     """Linha do resumo (Visão Geral) de uma usina num mês — espelha as medidas DAX:
-    Produzida/Meta/Irradiação/Disp do mês + FC = Produzida / (Pot_kWp × 24 × dias)."""
+    Produzida/Meta/Irradiação/Disp do mês + FC = Produzida / (Pot_kWp × 24 × dias). De 10/2026 em diante a Disp é a do
+    Gerencial (OS do Fracttal, `_so_os_fracttal`)."""
     recs = [r for r in _daily_records(usina) if r["data"].year == ano and r["data"].month == mes]
     gers = [r["ger"] for r in recs if r["ger"] is not None]
     ipoas = [r["ipoa"] for r in recs if r["ipoa"] is not None]
     disps = [r["disp"] for r in recs if r["disp"] is not None]
     produzida = sum(gers) if gers else None
     irr_med = sum(ipoas) if ipoas else None
-    disp = (sum(disps) / len(disps)) if disps else None
+    disp = _disp_gerencial(usina, ano, mes) if _so_os_fracttal(ano, mes) else (
+        (sum(disps) / len(disps)) if disps else None)
     mt = _meta2026(usina).get(mes, {}) if ano == ANO else {}
     meta, irr_esp = mt.get("meta"), mt.get("metairr")
     pot_kwp = (_registro().get(usina, {}).get("pot_mwp") or 0) * 1000 or None
@@ -1233,6 +1446,166 @@ def reload_bd():
 # é o dado do banco — não há o que publicar, e o botão Atualizar apenas relê.
 
 
+@app.route("/api/t/operacao")
+def api_operacao():
+    """Operação no Mês do card do Diário (Levi, 08/10/2026): strings com saída, trackers parados com a usina
+    comunicando e a zeladoria da última ronda. Só agregados (operacao_mes.CHAVES — o 5080 é público, sem senha).
+
+    A requisição nunca espera a rede: o `fonte_operacao` serve o que tem e recarrega em segundo plano, fora do
+    `_lock` do `_wb()` e do /api/t/reload (a recarga do BD_Thopen já segura o 1º acesso do cliente por ~130 s).
+    `THOPEN_OPERACAO=0` no ambiente do processo desliga o card sem mexer no código (a tela o esconde)."""
+    usina, ano, mes, erro = _usina_ano_mes()
+    if erro:
+        return erro
+    hoje = dt.date.today()
+    if os.environ.get("THOPEN_OPERACAO", "1").strip() == "0":
+        r = operacao_mes.resposta(None, usina, ano, mes, hoje)
+        r["motivo"] = "desligado"
+        return jsonify(r)
+    r = operacao_mes.resposta(fonte_operacao.dados(), usina, ano, mes, hoje)
+    # rodada 4: que canais do Teams recebem a contestação — item sem canal configurado não aparece na tela
+    r["contestar"] = contestacao.canais() if r["disponivel"] else None
+    return jsonify(r)
+
+
+def _usina_ano_mes():
+    """(usina, ano, mes, None) ou (..., resposta 400): os limites do card valem para a janela das rondas."""
+    usina = (request.args.get("usina") or "").strip()
+    try:
+        ano, mes = int(request.args.get("ano", "")), int(request.args.get("mes", ""))
+    except ValueError:
+        return usina, 0, 0, (jsonify({"erro": "ano e mes precisam ser números"}), 400)
+    if not usina or not 1 <= mes <= 12 or not 2020 <= ano <= 2100:
+        return usina, ano, mes, (jsonify({"erro": "usina, ano (2020 a 2100) e mes (1 a 12) são obrigatórios"}), 400)
+    return usina, ano, mes, None
+
+
+# ── Rondas do mês e dúvida do cliente (rodada 3, Levi, 09/10/2026) ───────────────────────────────────────────────
+# O ícone do card abre as rondas do mês com as fotos ("Checklist + fotos, sem nome") e um campo de dúvida que avisa a
+# Grid Co. no Teams. O 5080 é público: foto e dúvida só de OS de ronda de usina do de-para do 5080, de 10/2026 em diante
+# (rondas_cliente.da_os). THOPEN_RONDAS=0 desliga as quatro rotas sem mexer no código.
+def _rondas_desligadas():
+    return os.environ.get("THOPEN_RONDAS", "1").strip() == "0"
+
+
+@app.route("/api/t/rondas")
+def api_rondas():
+    """As rondas do mês da usina, para a janela. Sem pedido ao Fracttal: as fotos vêm só quando a ronda é aberta."""
+    usina, ano, mes, erro = _usina_ano_mes()
+    if erro:
+        return erro
+    vazio = {"disponivel": False, "rondas": []}
+    if _rondas_desligadas():
+        return jsonify(dict(vazio, motivo="desligado"))
+    if (ano, mes) < operacao_mes.DESDE:
+        return jsonify(dict(vazio, disponivel=True, motivo="antes de 10/2026"))
+    dados = fonte_operacao.dados()
+    if dados is None:
+        return jsonify(dict(vazio, motivo="carregando"))
+    return jsonify({"disponivel": True, "motivo": None, "rondas": rondas_cliente.do_mes(dados, usina, ano, mes)})
+
+
+def _ronda_ou_404(os_):
+    r = None if _rondas_desligadas() else rondas_cliente.da_os(fonte_operacao.dados(), os_)
+    if r is None:
+        abort(404)
+    return r
+
+
+@app.route("/api/t/ronda/<int:os_>")
+def api_ronda(os_):
+    """Uma ronda montada para a janela, com as fotos casadas aos itens (1 pedido ao Fracttal por OS, guardado 20 min).
+    Fracttal fora ou sem credencial: a ronda aparece do mesmo jeito, com o aviso no lugar das fotos."""
+    r = _ronda_ou_404(os_)
+    descs, aviso = [], None
+    try:
+        descs = [a["desc"] for a in fotos_ronda.anexos(os_)]
+    except fotos_ronda.SemCredencial:
+        aviso = "As fotos desta ronda não estão disponíveis neste painel."
+    except fotos_ronda.Ocupado:
+        aviso = "O sistema de fotos está ocupado agora. Tente de novo em 1 minuto."
+    except Exception as e:                    # noqa: BLE001 — a ronda aparece mesmo sem as fotos
+        print("[rondas] anexos da OS %s: %s" % (os_, type(e).__name__), flush=True)
+        aviso = "Não consegui carregar as fotos agora. Tente de novo em 1 minuto."
+    out = rondas_cliente.detalhe(r, descs)
+    out["fotos_erro"] = aviso
+    return jsonify(out)
+
+
+@app.route("/api/t/ronda/<int:os_>/foto/<int:i>")
+def api_ronda_foto(os_, i):
+    """A foto (ou a miniatura, ?mini=1): o 5080 baixa do Fracttal e entrega — o link assinado não sai daqui."""
+    _ronda_ou_404(os_)
+    try:
+        corpo, mime = (fotos_ronda.miniatura if request.args.get("mini") else fotos_ronda.foto)(os_, i)
+    except fotos_ronda.SemFoto:
+        abort(404)
+    except Exception as e:                    # noqa: BLE001
+        print("[rondas] foto %s/%s: %s" % (os_, i, type(e).__name__), flush=True)
+        return Response("foto indisponível agora", status=502, mimetype="text/plain")
+    return Response(corpo, mimetype=mime, headers={"Cache-Control": "private, max-age=3600"})
+
+
+_LIMITE = contestacao.Limite()
+
+
+@app.route("/api/t/contestar", methods=["POST"])
+def api_contestar():
+    """A contestação do cliente sobre um dia da tabela do Diário (rodada 4, Levi 09/10/2026), para os canais do Teams:
+    ronda → O&M › Zeladoria, o resto → O&M › Performance. Nada é guardado: o registro é a mensagem no canal. Só de
+    10/2026 em diante e só para usina do painel (o 5080 é público)."""
+    b = request.get_json(silent=True) or {}
+    usina = str(b.get("usina") or "").strip()
+    try:
+        ano, mes, ini, fim = (int(b.get(k)) for k in ("ano", "mes", "dia_ini", "dia_fim"))
+    except (TypeError, ValueError):
+        return jsonify({"ok": False, "erro": "Dia inválido."}), 400
+    ultimo = monthrange(ano, mes)[1] if 1 <= mes <= 12 and 2020 <= ano <= 2100 else 0
+    if (ano, mes) < operacao_mes.DESDE or not 1 <= ini <= fim <= ultimo:
+        return jsonify({"ok": False, "erro": "Dia inválido."}), 400
+    if usina not in _usinas_disponiveis():
+        return jsonify({"ok": False, "erro": "Usina não encontrada."}), 404
+    u = _usuario() if _login_ligado() else None
+    # login (15/10/2026, Levi: "com a pessoa conectada, na contestação a pessoa não precisa preencher o e-mail, só o
+    # nome!"): o nome é o que a pessoa escreveu; o contato é o da conta — o e-mail dela ou, na conta pelo usuário de hoje,
+    # o usuário (a Grid Co. sabe de que conta veio)
+    conta_contato = (u["email"] or "usuário %s (conta do painel)" % (u.get("usuario") or "")) if u else None
+    d, erro = contestacao.validar(b, contato_da_conta=conta_contato)
+    if erro == "isca":
+        return jsonify({"ok": True, "destinos": []})        # robô: não avisa ninguém, e ele não fica sabendo
+    if erro:
+        return jsonify({"ok": False, "erro": erro}), 400
+    alvo = contestacao.destinos(d["itens"])
+    urls = {k: contestacao.url(k) for k in alvo}
+    if not all(urls.values()):
+        return jsonify({"ok": False, "erro": "O envio de contestações não está disponível agora."}), 503
+    if not _LIMITE.tenta(request.headers.get("CF-Connecting-IP") or request.remote_addr or "?"):
+        return jsonify({"ok": False, "erro": "Muitas mensagens em pouco tempo. Tente de novo mais tarde."}), 429
+    data_txt = ("%02d/%02d/%d" % (ini, mes, ano)) if ini == fim else ("%02d a %02d/%02d/%d" % (ini, fim, mes, ano))
+    enviados, falhou = [], []
+    for k in alvo:
+        try:
+            contestacao.enviar(contestacao.cartao(d, usina, data_txt, k), urls[k])
+            enviados.append(contestacao.CANAL[k])
+        except Exception as e:                # noqa: BLE001 — sem dado pessoal no log
+            print("[contestacao] o Teams (%s) não recebeu: %s" % (k, type(e).__name__), flush=True)
+            falhou.append(contestacao.CANAL[k])
+    # rodada 5 (Levi, 13/10/2026: "contestação ligada ao Nexus"): uma linha por setor no livro thopen_contestacoes, com
+    # o setor que o Teams recebeu — mesmo quando ele recusou, a contestação fica registrada. Em segundo plano (o cliente
+    # não espera o banco). O usina_id sai do de-para do Nexus; usina com dois ids (Primavera) fica sem (nunca chutar)
+    try:
+        ids = operacao_mes.ids_da_usina((fonte_operacao.dados() or {}).get("de_para") or [], usina)
+    except Exception:                         # noqa: BLE001 — leitura da Operação no Mês fora: grava sem o id
+        ids = set()
+    contestacao_banco.registrar_em_fundo(d, usina, next(iter(ids)) if len(ids) == 1 else None, ano, mes, ini, fim,
+                                         {k: contestacao.CANAL[k] in enviados for k in alvo})
+    if falhou:
+        msg = ("Enviado para %s, mas não para %s." % (" e ".join(enviados), " e ".join(falhou)) if enviados
+               else "Não consegui enviar agora.") + " Tente de novo em alguns minutos."
+        return jsonify({"ok": False, "erro": msg, "destinos": enviados}), 502
+    return jsonify({"ok": True, "destinos": enviados})
+
+
 @app.route("/api/t/versao")
 def versao():
     """Carimbo do dado que está na tela — quando o dashboard leu o banco."""
@@ -1241,7 +1614,12 @@ def versao():
 
 @app.route("/")
 def index():
-    return render_template("dashboard_thopen.html")
+    # regua: as frases dos 5 níveis da zeladoria para a aba Metodologia (08/10/2026) — a mesma cópia que a rota da
+    # Operação no Mês manda para o card (operacao_mes.REGUA); o HTML não repete frase nenhuma
+    u = _usuario() if _login_ligado() else None
+    return render_template("dashboard_thopen.html", regua=operacao_mes.REGUA, raiz=request.script_root,
+                           usuario={"nome": u["nome"], "email": u["email"], "usuario": u.get("usuario") or u["email"],
+                                    "papel": u["papel"]} if u else None)
 
 
 if __name__ == "__main__":

@@ -13,8 +13,13 @@
 # --workers 1 é obrigatório no plano free: cada worker carrega o BD_Thopen inteiro em
 # memória (medido: 334 MB de pico) e o free corta em 512 MB. Com 2, estoura.
 #
-# O deploy leva o REPOSITÓRIO, mas o app são 3 arquivos (~105 KB): thopen/dashboard_thopen.py,
-# thopen/fonte_api.py e thopen/templates/dashboard_thopen.html.
+# O deploy leva o REPOSITÓRIO, mas o app são 12 arquivos (~260 KB): thopen/dashboard_thopen.py,
+# thopen/fonte_api.py, thopen/fonte_operacao.py, thopen/operacao_mes.py (os dois da Operação no
+# Mês, 08/10/2026), thopen/rondas_cliente.py, thopen/fotos_ronda.py, thopen/contestacao.py (as rondas
+# e a contestação do cliente, 09/10/2026), thopen/contestacao_banco.py (a contestação no banco, para o Nexus,
+# 13/10/2026), thopen/acessos.py, thopen/livro_banco.py e thopen/templates/entrar.html (o login por pessoa,
+# 14/10/2026) e thopen/templates/dashboard_thopen.html. THOPEN_OPERACAO=0 no Environment
+# desliga a Operação no Mês sem deploy de código.
 services:
   - type: web
     name: thopen-dashboard

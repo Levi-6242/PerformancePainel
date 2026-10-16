@@ -8,7 +8,8 @@ com o que é específico dela — leia o da pasta em que estiver trabalhando.
 | `plataforma/` | Plataforma de Performance + ronda de trackers | Flask na porta **5050**, uso interno. É o maior (`app.py`, ~17 mil linhas) |
 | `coletor/` | Coletor automatizado de dados | Scripts **antigos**. O coletor que roda de verdade (22:30, fechamento das 23:30, Painel e widget) mora em `C:\Users\Levi Maia\OneDrive - GRID CO\Área de Trabalho\temp\coleta API PV`. **Antes de mexer em coleta, no BD_Thopen, no BD_Performance ou no fechamento, leia o `CLAUDE.md` de lá** e acrescente nele cada regra nova que aprender |
 | ~~`os_creator/`~~ | OS Creator | **Migrado em 28/08/2026** para [Grid-Co-CODE/oem](https://github.com/Grid-Co-CODE/oem) — ver `os_creator/MOVIDO.md` |
-| `thopen/` | Dashboard BD_Thopen | Flask na porta **5080**, produto para o **cliente**, publicado no Railway |
+| `thopen/` | Dashboard BD_Thopen | Flask na porta **5080**, produto para o **cliente**. Servido deste PC (clone `C:\GridcoAuto\PerformancePainel` + túnel trycloudflare); o Railway está fora do ar (404 em 08/10/2026) |
+| `gemeo/` | Gêmeo Digital (sombra digital das usinas) | Serviço separado da plataforma: porta **5075** em `127.0.0.1`, banco SQLite próprio fora do OneDrive; quem usa chega por `/gemeo/` na plataforma (proxy do `app.py`). Ainda sem CLAUDE.md: leia `gemeo/README.md`, `gemeo/deploy/README.md` e `gemeo/docs/runbook.md` |
 
 Documentação de arquitetura e regras de negócio: `README.md` e `docs/`.
 
@@ -21,8 +22,13 @@ provar); regra que mudou se **corrige**, não se empilha. Vale também para o co
 
 Só o que **não pertence a um projeto sozinho**: `CLAUDE.md`, `README.md`, `requirements*.txt`,
 `pytest.ini`, `conftest.py`, `run_tests.bat`, `docs/`, `tests/`, `.env` (a coleta também lê) e
-`tokens.txt` (arquivo único que a T.I. edita). Mais o `Iniciar Dashboards.bat`, que sobe a
-plataforma e o Thopen juntos.
+`tokens.txt` (arquivo único que a T.I. edita). Mais `railway.toml` e `render.yaml`, o deploy de nuvem do
+Thopen, na raiz porque o Railway só lê a configuração dali (ver `thopen/CLAUDE.md`).
+
+O `Iniciar Dashboards.bat` também está na raiz, mas **não sobe a plataforma, e nem o Thopen**: ele mata o processo
+que escuta na 5080 e roda `dashboard_thopen.py` a partir da raiz, onde o script não existe (mora em `thopen/`). Neste
+PC a 5080 é o Dashboard do **cliente** (`servir_thopen.py`): rodar o `.bat` derruba o cliente até o vigia religar, em
+até 3 min. Não use.
 
 Todo o resto mora na pasta do dono — inclusive **estado de runtime e credenciais**: caches,
 histórico de trackers, notas dos analistas, tokens auto-renovados e logs estão em `plataforma/`.
@@ -39,12 +45,15 @@ aquele arquivo.
 
 ## Acoplamento conhecido: plataforma → thopen
 
-`plataforma/app.py` importa `dashboard_thopen` para usar **quatro** leitores do BD_Thopen (hoje o PostgreSQL,
-via `bd_api`): `_CARTEIRA_DE`, `_registro()`, `_daily_records()` e `_daily_inversores()` (histórico por inversor). É resolvido por um `sys.path.insert` no topo
-do `app.py` apontando para `thopen/`.
+`plataforma/app.py` importa `dashboard_thopen` e usa **7 atributos** dele para ler o BD_Thopen (hoje o
+PostgreSQL, pelo `fonte_api` do próprio `thopen/`): `_CARTEIRA_DE`, `_registro()`, `_daily_records()`,
+`_daily_inversores()` (histórico por inversor), `_meta2026()` (metas do relatório semanal), `_wb()` e
+`_state["daily"]` (o índice das abas diárias). É resolvido por um `sys.path.insert` no topo do `app.py` apontando para
+`thopen/`. Consequência: **nada no `dashboard_thopen` (nem nos módulos que ele importa) pode rodar no import** — sem
+thread, sem rede.
 
-Não é acidente: a planilha é genuinamente compartilhada. Extrair um módulo comum arrastaria junto
-`_bd_path`, `_open_wb`, `_daily_bd` e `CARTEIRAS` — metade do `dashboard_thopen.py` — por um ganho
+Não é acidente: o BD_Thopen é genuinamente compartilhado. Extrair um módulo comum arrastaria junto
+`fonte_api`, `_wb`/`_indexa`, `_daily_bd` e `CARTEIRAS` — metade do `dashboard_thopen.py` — por um ganho
 que, num repositório único, não se paga. **Se um dia os projetos virarem repositórios separados,
 essa extração passa a ser obrigatória.**
 
