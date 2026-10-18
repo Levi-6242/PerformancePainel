@@ -400,8 +400,18 @@ function renderTodas(us){
   const _atg = u => u.atingimento == null
     ? '<span class="tag" title="Geração não encontrada nas fontes do mês (BD_Performance, BD_Thopen ou banco). A meta existe; o dado não chegou.">sem dado</span>'
     : `<span class="num ${atgCls(u.atingimento)}">${nf(u.atingimento,1)}%</span> ${atgTag(u.atingimento)}`;
+  // o valor estourado fora da conta (18/10/2026: a Ibirapuã II de 13/10 com os contadores acumulados dos medidores): a
+  // célula da geração diz quantos dias e o título diz quais, com o valor que a fonte trouxe
+  const _semLeit = u => {
+    const L = u.dias_sem_leitura || [];
+    if (!L.length) return '';
+    const tit = L.map(x => `${String(x.dia).padStart(2,'0')}: ${nf(x.ger_kwh,0)} kWh no dia (${nf(x.kwh_kwp,0)} kWh por kWp)`)
+      .join('; ');
+    return `<span class="tag" style="margin-right:6px" title="Fora da conta: geração acima da potência × 12 h é valor `
+      + `estourado na fonte (corrigir a linha no BD). ${tit}">${L.length} dia${L.length>1?'s':''} sem leitura</span>`;
+  };
   tb.innerHTML = us.map(u=>
-    `<tr style="cursor:pointer" data-u="${encodeURIComponent(u.usina)}" onclick="tgCasc(this)"><td><b>${u.usina}</b></td><td>${u.cliente||'—'}</td><td class="r num">${nf(u.prod,1)}</td>`+
+    `<tr style="cursor:pointer" data-u="${encodeURIComponent(u.usina)}" onclick="tgCasc(this)"><td><b>${u.usina}</b></td><td>${u.cliente||'—'}</td><td class="r num">${_semLeit(u)}${nf(u.prod,1)}</td>`+
     `<td class="r num" style="white-space:nowrap" title="Meta do mês rateada pelos ${u.meta_dias||'—'} dias que a fonte já reportou desta usina.">${_dias(u)}${nf(u.p50,1)}</td>`+
     `<td>${_atg(u)}</td>${_dispCell(u)}</tr>`).join('')
     || '<tr><td colspan="6" style="color:var(--muted)">Nenhuma usina com geração e meta neste filtro.</td></tr>';

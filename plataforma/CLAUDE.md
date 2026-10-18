@@ -940,6 +940,29 @@ responsável do Nexus (Campo · App) tira a meta do mês daqui: o worker publica
   do banco, desligado não publica; e, de 13/10, a série pela geração do Gerencial, o `ger_dia` do BD_Thopen e do
   BD_Performance, a meta exata, o payload antigo sem série e a resposta sem o dia a dia).
 
+## Valor estourado da Ibirapuã II fora do Gerencial (18/10/2026)
+
+O Gerencial de outubro deu 7.209% na Ibirapuã II (e a meta do mês do Nexus e a Visão do responsável junto): a linha de
+13/10 da aba dela no BD_Performance (digitada à mão; nenhuma etapa do coletor grava essa aba) veio com os CONTADORES
+ACUMULADOS dos medidores no lugar da geração do dia (multimedidor do SKID 1 = 4.351.190 kWh; 3.127 kWh por kWp num dia),
+e estava VALIDADA, então a trava de 14/09 (`_INV_DIA_MAX_KWH`, só dia não validado) deixou passar. Levi: "faça um filtro
+que filtre apenas esse valor estourado em Ibirapuã, faça especificamente para essa usina".
+- `_ger_dia_estourado` (motor do BD_Performance, `_bdperf_prod_build`): **só nas usinas de `GER_DIA_ESTOURADO_USINAS`
+  (hoje só a Ibirapuã II)**, o dia com geração acima da potência × 12 h (`GER_DIA_ESTOURADO_KWH_KWP`, o impossível) vira
+  "sem leitura": sai da geração, dos dias da meta, do PR e do `ger_dia`, e vai para `dias_sem_leitura` (dia, kWh, kWh/kWp).
+  Quando a linha for corrigida, o valor certo volta a contar sozinho. A tela marca "N dia(s) sem leitura" na célula da
+  geração; a série diária (`fato_desempenho_usina_dia`) sai sem geração e sem PR nesse dia.
+- **Régua geral não serve** (medido em 18/10 com o outubro real): o PR do dia acima de 150% tirava 13 de 15 dias das
+  Aparecida do Taboado 1 e 2 (a irradiação do banco da OEM é errada) e dias de Junco, Fernandópolis, Córrego do Sapucaia,
+  Sete Lagoas e Alto Paraná 2, com geração verdadeira. A potência × 12 h em todas as usinas só pegaria a Ibirapuã II, mas
+  o Levi pediu o filtro só dela.
+- Prova (18/10, o código novo × o servidor): só a Ibirapuã II muda (10.761,6 → 140,7 MWh, 10 → 9 dias); as outras 161
+  usinas, produção e dias iguais. O conserto da fonte é da equipe que digita a aba (trocar a linha de 13/10 pela geração
+  do dia e preencher 10–12/10).
+- Santo Anastácio (217,7%) e Álvares Machado (331,1%), no mesmo dia: a produção está normal; a META de outubro na aba
+  "Dados Mensais 2026" do BD_Thopen é que está baixa (~1,3 e ~0,9 kWh/kWp/dia). Não é da plataforma.
+- Teste: `tests/test_gerencial_valor_estourado.py`.
+
 ## Disponibilidade por OS (`/gerencial/disponibilidade`)
 
 A conta mora em `disponibilidade.py` (puro; réguas e decisões em `docs/disponibilidade-por-os.md`, o caminho de runtime

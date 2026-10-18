@@ -17115,6 +17115,33 @@ _BDPERF_PROD_TTL = 1800
 # 11/09: 1,3 mi kWh num inversor). Ver `_lixo` em _bdperf_prod_build.
 _INV_DIA_MAX_KWH = 100000.0
 
+# Valor ESTOURADO da Ibirapuã II fora da conta (Levi, 18/10/2026: "faça um filtro que filtre apenas esse valor
+# estourado em Ibirapuã, faça especificamente para essa usina"). Em 13/10 a aba veio com os CONTADORES ACUMULADOS dos
+# medidores no lugar da geração do dia (multimedidor do SKID 1 = 4.351.190 kWh; 3.127 kWh por kWp num dia) e o
+# Gerencial de outubro foi a 7.209% — a meta do mês do Nexus e a Visão do responsável junto. A trava de 14/09
+# (_INV_DIA_MAX_KWH) só pega o dia NÃO validado, e esse estava validado. Só nesta usina, o dia com geração acima da
+# potência × 12 h (o impossível: a potência nominal o dia de sol inteiro) vira "sem leitura": sai da geração, dos dias
+# da meta e do PR, e vai para `dias_sem_leitura` com o valor. Quando a equipe corrigir a linha, o valor certo volta a
+# contar sozinho. Uma régua geral (PR do dia acima de 150%) foi medida no mesmo dia e NÃO serve: derrubava geração
+# verdadeira onde a irradiação lê baixo (Aparecida do Taboado 1 e 2: 13 de 15 dias de outubro).
+GER_DIA_ESTOURADO_USINAS = {"ibirapuaii"}
+GER_DIA_ESTOURADO_KWH_KWP = 12.0
+
+
+def _ger_dia_estourado(usina, dia, ger_kwh, pot_mwp):
+    """→ {"dia", "ger_kwh", "kwh_kwp"} quando, numa usina de GER_DIA_ESTOURADO_USINAS, a geração do dia passa da potência
+    × 12 h; None em qualquer outro caso (outra usina, sem potência, valor possível)."""
+    # sem acento e sem espaço ("Ibirapuã II" → "ibirapuaii"): o _nrm guarda o acento, e a grafia varia entre as fontes
+    chave = re.sub(r"\W+", "", unicodedata.normalize("NFKD", str(usina or "")).encode("ascii", "ignore").decode()).lower()
+    if chave not in GER_DIA_ESTOURADO_USINAS:
+        return None
+    if not (isinstance(ger_kwh, (int, float)) and isinstance(pot_mwp, (int, float)) and pot_mwp > 0):
+        return None
+    k = ger_kwh / (pot_mwp * 1000.0)
+    if k <= GER_DIA_ESTOURADO_KWH_KWP:
+        return None
+    return {"dia": int(dia), "ger_kwh": round(ger_kwh, 1), "kwh_kwp": round(k, 1)}
+
 
 def _bdperf_prod_build(ano=None, mes=None):
     hoje = datetime.now()
@@ -17173,6 +17200,7 @@ def _bdperf_prod_build(ano=None, mes=None):
                 ghi = 0.0        # GHI medido: melhor coluna GHI de cada dia COMPLETO do mês
                 dias_cob = set()  # dias que a ABA reportou (linha com número), p/ prorratear a meta
                 ger_dia = {}      # a geração de cada um desses dias (a janela da Meta do Nexus, 13/10/2026)
+                sem_leitura = []  # o valor estourado da Ibirapuã II (_ger_dia_estourado, 18/10/2026): fora de tudo
                 for r in it:
                     d = r[1] if len(r) > 1 else None
                     if not isinstance(d, datetime) or d.year != alvo_a or d.month != alvo_m:
@@ -17186,6 +17214,13 @@ def _bdperf_prod_build(ano=None, mes=None):
                     # valor plausível (usina cujo mês ainda não foi validado, ex. Marialva/Ponto Belo,
                     # que geram de verdade) CONTINUA somando, senão a usina some da parede (regra 1).
                     _lixo = (not validado) and any(v > _INV_DIA_MAX_KWH for v in _vals)
+                    # o valor estourado da Ibirapuã II (13/10/2026: os contadores acumulados, VALIDADOS, passavam pela
+                    # trava de cima) sai de tudo: geração, dias da meta e PR
+                    _sl = (_ger_dia_estourado(nome, d.day, sum(_vals), ig.get("potencia_mwp"))
+                           if (_vals and not _lixo) else None)
+                    if _sl:
+                        sem_leitura.append(_sl)
+                        continue
                     # Dia PRESENTE = linha com número de inversor (mesmo que some zero = usina parada);
                     # linha ausente ou lixo é lacuna. Dia FUTURO não conta.
                     if _vals and not _lixo and (not atual or d.date() <= hoje_d):
@@ -17233,6 +17268,7 @@ def _bdperf_prod_build(ano=None, mes=None):
                               "cliente": ig.get("cliente"), "pot_mwp": mwp,
                               "dias_cob": len(dias_cob),
                               "ger_dia": {_d: round(_v, 1) for _d, _v in ger_dia.items()},
+                              "dias_sem_leitura": sem_leitura,
                               "ghi": round(ghi, 2) if ghi else None,
                               "ipoa": round(ipoa, 2),     # Σ IPOA (DEF/ETM) dos dias que entraram no PR
                               "pr": round(pr, 2) if pr is not None else None,
@@ -18567,6 +18603,7 @@ def _gerencial_payload(force=False, ano=None, mes=None):
                        "ghi": bp.get("ghi"),
                        "ghi_prev": round(_ghp_bp, 1) if _ghp_bp else None,
                        "dias_cob": bp.get("dias_cob") or None, "dias_mes": dias_mes, "ger_dia": bp.get("ger_dia"),
+                       "dias_sem_leitura": bp.get("dias_sem_leitura") or [],
                        # a meta do dia sem arredondar (13/10/2026): com a do PR diário (0,01 MWh), a tabela da Meta do
                        # Nexus errava 0,2 a 0,3 ponto nas usinas pequenas (Linhares 151,4% contra 151,6%)
                        "meta_dia_kwh": round(p50_mes * 1000 / dias_mes, 3) if p50_mes else None,
@@ -27800,11 +27837,16 @@ def _ger_series_diarias(g, ano, mes) -> dict:
         elif not d.get("meta_ger") and u.get("p50") and u.get("meta_dias"):
             d["meta_ger"] = round(u["p50"] / u["meta_dias"], 2)
         pontos = []
+        # o dia "sem leitura" do Gerencial (o valor estourado da Ibirapuã II, 18/10/2026) não tem geração lá e sai também
+        # sem o PR do PR diário, que ainda o mostra (13/10: 305%): fica só o POA
+        sem = {int(x["dia"]) for x in u.get("dias_sem_leitura") or [] if isinstance(x, dict) and x.get("dia")}
         # o dia só do PR diário entra só com PR (o da fonte do PG que o BD_Thopen tem): o dia em branco do BD_Performance
         # (0 de geração, sem PR) não vira linha
         for dia in sorted(set(dias) | {k for k, x in pts.items() if x.get("realizado") is not None}):
             p = dict(pts.get(dia) or {"dia": dia, "realizado": None, "poa": None})
             p["geracao_kwh"] = dias.get(dia)
+            if dia in sem:
+                p["realizado"], p["geracao_kwh"] = None, None
             pontos.append(p)
         if pontos:
             out[nome] = {**d, "pontos": pontos}
