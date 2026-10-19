@@ -9,11 +9,14 @@ O aviso vai para canais do Teams por fluxos do app Workflows ("Enviar alertas de
 string e tracker → O&M › Performance (THOPEN_TEAMS_PERFORMANCE); disponibilidade e desligamento → COS
 (THOPEN_TEAMS_COS; Levi, 15/10/2026: "Disponibilidade e desligamento vão para o setor de COS"); ronda → O&M ›
 Zeladoria (THOPEN_TEAMS_ZELADORIA). As URLs dos fluxos são segredo (quem as tem posta no canal) e vêm do ambiente ou do
-.env da raiz (fonte_api.segredo). Item cujo canal não está configurado não aparece na tela: nunca dizer "enviada" sem
-ter avisado ninguém. E-mail não serve: o envio do servidor está barrado no tenant desde 23/09.
+.env da raiz (fonte_api.segredo). E-mail não serve: o envio do servidor está barrado no tenant desde 23/09.
 
-A resposta ao cliente é por fora: o formulário pede nome e e-mail ou telefone. Nada é guardado aqui — o registro é a
-mensagem no canal; se o Teams recusar, o cliente vê o erro e tenta de novo.
+Desde 19/10/2026 o REGISTRO é o banco (contestacao_banco.py), que o Nexus mostra por setor em Contratos e clientes →
+Contestações (Levi: "vai direto para contestações do Nexus e a gente resolve lá, esquece teams" — o COS não tinha fluxo
+do Teams, e Disponibilidade e Desligamento não marcavam). O Teams é um aviso a mais onde o setor tem fluxo. Só setor
+sem banco e sem Teams fica fora da tela: nunca dizer "enviada" sem ter registrado.
+
+A resposta ao cliente é por fora: o formulário pede nome e e-mail ou telefone (com login, só o nome).
 
 O 5080 é público, sem senha: limite por endereço (3 por hora) e no total (40 por dia), campo-isca contra robô, texto
 curto. O endereço vem do CF-Connecting-IP (o túnel da Cloudflare põe; atrás dele o remote_addr é sempre 127.0.0.1).

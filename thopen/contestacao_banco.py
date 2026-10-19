@@ -16,8 +16,10 @@ cifra é efêmera): o 5080, público, tem só a chave PÚBLICA (`THOPEN_CONTESTA
 que ele mesmo gravou; só o Nexus abre, com a privada (`NEXUS_CONTESTACAO_CHAVE_PRIVADA`). A cifra é presa à linha
 (o contexto `thopen_contestacoes/<id>/dados` vai como dado associado): copiada para outra linha, não abre.
 
-Sem a chave pública ou sem o token de escrita (GRIDCO_SQL_TOKEN), o 5080 não grava e diz no log; o aviso no Teams segue
-igual. A gravação roda em segundo plano: o cliente não espera o banco.
+Desde 19/10/2026 o banco é o DESTINO de toda contestação (Levi: "vai direto para contestações do Nexus e a gente resolve
+lá, esquece teams"): a rota grava na hora e só diz "enviada" depois de o livro conferir; o Teams, onde há fluxo, é um
+aviso a mais. Sem a chave pública ou sem o token de escrita (GRIDCO_SQL_TOKEN), não grava (`configurado()` = falso) e
+o item sem Teams não aparece na tela.
 """
 import base64
 import io
@@ -109,7 +111,8 @@ def contexto(linha_id):
 
 
 def linhas(d, usina, usina_id, ano, mes, dia_ini, dia_fim, avisos, publica, agora=None):
-    """As linhas de uma contestação: uma por setor de `avisos` ({setor: o Teams recebeu?}), cada uma com só os itens
+    """As linhas de uma contestação: uma por setor de `avisos` ({setor: o Teams recebeu? — None = sem fluxo}), cada uma
+    com só os itens
     daquele setor. `d` = o que contestacao.validar devolveu. Sem a chave pública levanta (nada vai em claro)."""
     agora = agora or datetime.now(timezone.utc)
     cid = uuid.uuid4().hex[:12]
@@ -125,7 +128,8 @@ def linhas(d, usina, usina_id, ano, mes, dia_ini, dia_fim, avisos, publica, agor
             "data_id_contestada_ini": ano * 10000 + mes * 100 + dia_ini,
             "data_id_contestada_fim": ano * 10000 + mes * 100 + dia_fim,
             "usina": usina, "usina_id": usina_id, "setor": setor, "itens": ";".join(itens),
-            "avisado_teams": "sim" if avisado else "não", "origem": ORIGEM,
+            # None = o setor não tem fluxo do Teams (o COS, 19/10/2026): "sem canal", não "não" (= o Teams recusou)
+            "avisado_teams": "sim" if avisado else ("sem canal" if avisado is None else "não"), "origem": ORIGEM,
             "dados_cifrados": cifrar(json.dumps(dados, ensure_ascii=False), contexto(lid), publica)})
     return out
 
@@ -208,20 +212,20 @@ def registrar(novas, token=None):
         return len(depois)
 
 
-def registrar_em_fundo(d, usina, usina_id, ano, mes, dia_ini, dia_fim, avisos):
-    """Grava em segundo plano (o cliente não espera o banco). Sem a chave pública não grava; erro vai ao log só com o
-    tipo (nada do cliente no log)."""
+def configurado():
+    """O banco pode receber contestação: a chave pública (nada vai em claro) e o token de escrita. É o que libera na tela
+    o item sem Teams (Disponibilidade e Desligamento, do COS, desde 19/10/2026)."""
+    return bool(fonte_api.segredo(VAR_PUBLICA) and fonte_api._token())
+
+
+def registrar_contestacao(d, usina, usina_id, ano, mes, dia_ini, dia_fim, avisos):
+    """Grava NA HORA e devolve quantas linhas o livro tem (Levi, 19/10/2026: "vai direto para contestações do Nexus e a
+    gente resolve lá, esquece teams"). O banco é o destino de todo item: o cliente só lê "enviada" depois de o livro
+    conferir — até 19/10 a gravação era em segundo plano porque o Teams era o registro. Levanta GravacaoErro sem a
+    chave pública ou sem o token; o erro vai ao log só com o tipo (nada do cliente no log)."""
     publica = fonte_api.segredo(VAR_PUBLICA)
     if not publica:
-        print("[contestacao] não gravei no banco: falta a %s" % VAR_PUBLICA, flush=True)
-        return None
-
-    def _vai():
-        try:
-            n = registrar(linhas(d, usina, usina_id, ano, mes, dia_ini, dia_fim, avisos, publica))
-            print("[contestacao] gravada no banco (%s: %d linhas)" % (LIVRO, n), flush=True)
-        except Exception as e:     # noqa: BLE001
-            print("[contestacao] não gravei no banco: %s %s" % (type(e).__name__, str(e)[:120]), flush=True)
-    t = threading.Thread(target=_vai, name="thopen-contestacao", daemon=True)
-    t.start()
-    return t
+        raise GravacaoErro("falta a %s" % VAR_PUBLICA)
+    n = registrar(linhas(d, usina, usina_id, ano, mes, dia_ini, dia_fim, avisos, publica))
+    print("[contestacao] gravada no banco (%s: %d linhas)" % (LIVRO, n), flush=True)
+    return n

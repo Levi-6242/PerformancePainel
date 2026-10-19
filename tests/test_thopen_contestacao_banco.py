@@ -123,3 +123,28 @@ def test_sem_token_ou_sem_chave_nao_grava(monkeypatch):
     with pytest.raises(cb.CifraErro):
         cb.linhas(D, "Altair", 1, 2026, 10, 2, 2, {"performance": True}, "")
     assert api.gravacoes == []
+
+
+def test_gravacao_na_hora_e_o_que_diz_se_esta_pronto(monkeypatch):
+    # 19/10/2026 (Levi: "vai direto para contestações do Nexus e a gente resolve lá, esquece teams"): o banco é o
+    # destino de todo item, então a rota grava NA HORA (o cliente só lê "enviada" depois de o livro conferir) e só
+    # oferece o item sem Teams quando a chave pública e o token existem
+    api = ApiFalsa()
+    _usa(monkeypatch, api)
+    seg = {"THOPEN_CONTESTACAO_CHAVE_PUBLICA": PUB}
+    monkeypatch.setattr(cb.fonte_api, "segredo", lambda n: seg.get(n, ""))
+    monkeypatch.setattr(cb.fonte_api, "_token", lambda: "t")
+    assert cb.configurado()
+    # o COS não tem fluxo do Teams: "sem canal", para o Nexus não pintar como recusa ("não" = o Teams recusou)
+    assert cb.registrar_contestacao(D, "Altair", 1, 2026, 10, 2, 2, {"cos": None, "performance": False}) == 2
+    cos, perf = api.linhas
+    assert (cos["setor"], cos["avisado_teams"]) == ("cos", "sem canal") and cos["dados_cifrados"].startswith(cb.PREFIXO)
+    assert (perf["setor"], perf["avisado_teams"]) == ("performance", "não")
+    monkeypatch.setattr(cb.fonte_api, "_token", lambda: "")
+    assert not cb.configurado()
+    monkeypatch.setattr(cb.fonte_api, "_token", lambda: "t")
+    seg.clear()
+    assert not cb.configurado()
+    with pytest.raises(cb.GravacaoErro):
+        cb.registrar_contestacao(D, "Altair", 1, 2026, 10, 2, 2, {"cos": None})
+    assert api.gravacoes == [2]

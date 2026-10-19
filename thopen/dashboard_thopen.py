@@ -1464,7 +1464,7 @@ def api_operacao():
         return jsonify(r)
     r = operacao_mes.resposta(fonte_operacao.dados(), usina, ano, mes, hoje)
     # rodada 4: que canais do Teams recebem a contestação — item sem canal configurado não aparece na tela
-    r["contestar"] = contestacao.canais() if r["disponivel"] else None
+    r["contestar"] = _canais_da_contestacao() if r["disponivel"] else None
     return jsonify(r)
 
 
@@ -1549,11 +1549,20 @@ def api_ronda_foto(os_, i):
 _LIMITE = contestacao.Limite()
 
 
+def _canais_da_contestacao():
+    """{setor: a tela pode oferecer}. Desde 19/10/2026 (Levi: "vai direto para contestações do Nexus e a gente resolve
+    lá, esquece teams") o banco, que o Nexus mostra em Contratos e clientes → Contestações, basta: Disponibilidade e
+    Desligamento (COS) não marcavam por falta do fluxo do Teams do COS. Sem o banco, só o setor com fluxo do Teams."""
+    banco = contestacao_banco.configurado()
+    return {k: banco or v for k, v in contestacao.canais().items()}
+
+
 @app.route("/api/t/contestar", methods=["POST"])
 def api_contestar():
-    """A contestação do cliente sobre um dia da tabela do Diário (rodada 4, Levi 09/10/2026), para os canais do Teams:
-    ronda → O&M › Zeladoria, o resto → O&M › Performance. Nada é guardado: o registro é a mensagem no canal. Só de
-    10/2026 em diante e só para usina do painel (o 5080 é público)."""
+    """A contestação do cliente sobre um dia do Diário (rodada 4, Levi 09/10/2026). Desde 19/10/2026 o destino é o
+    banco (livro thopen_contestacoes), que o Nexus mostra por setor (geração, string e tracker → Performance;
+    disponibilidade e desligamento → COS; ronda → Zeladoria); o Teams, onde o setor tem fluxo, é um aviso a mais. Só diz
+    "enviada" quando cada setor ficou no banco ou no Teams. Só de 10/2026 em diante e só para usina do painel."""
     b = request.get_json(silent=True) or {}
     usina = str(b.get("usina") or "").strip()
     try:
@@ -1577,33 +1586,43 @@ def api_contestar():
         return jsonify({"ok": False, "erro": erro}), 400
     alvo = contestacao.destinos(d["itens"])
     urls = {k: contestacao.url(k) for k in alvo}
-    if not all(urls.values()):
+    banco = contestacao_banco.configurado()
+    if not banco and not all(urls.values()):  # setor sem banco e sem Teams: nunca dizer "enviada" sem ter registrado
         return jsonify({"ok": False, "erro": "O envio de contestações não está disponível agora."}), 503
     if not _LIMITE.tenta(request.headers.get("CF-Connecting-IP") or request.remote_addr or "?"):
         return jsonify({"ok": False, "erro": "Muitas mensagens em pouco tempo. Tente de novo mais tarde."}), 429
     data_txt = ("%02d/%02d/%d" % (ini, mes, ano)) if ini == fim else ("%02d a %02d/%02d/%d" % (ini, fim, mes, ano))
-    enviados, falhou = [], []
+    no_teams = set()
     for k in alvo:
+        if not urls[k]:
+            continue                          # setor sem fluxo do Teams (o COS, 19/10/2026): só o banco
         try:
             contestacao.enviar(contestacao.cartao(d, usina, data_txt, k), urls[k])
-            enviados.append(contestacao.CANAL[k])
+            no_teams.add(k)
         except Exception as e:                # noqa: BLE001 — sem dado pessoal no log
             print("[contestacao] o Teams (%s) não recebeu: %s" % (k, type(e).__name__), flush=True)
-            falhou.append(contestacao.CANAL[k])
-    # rodada 5 (Levi, 13/10/2026: "contestação ligada ao Nexus"): uma linha por setor no livro thopen_contestacoes, com
-    # o setor que o Teams recebeu — mesmo quando ele recusou, a contestação fica registrada. Em segundo plano (o cliente
-    # não espera o banco). O usina_id sai do de-para do Nexus; usina com dois ids (Primavera) fica sem (nunca chutar)
-    try:
-        ids = operacao_mes.ids_da_usina((fonte_operacao.dados() or {}).get("de_para") or [], usina)
-    except Exception:                         # noqa: BLE001 — leitura da Operação no Mês fora: grava sem o id
-        ids = set()
-    contestacao_banco.registrar_em_fundo(d, usina, next(iter(ids)) if len(ids) == 1 else None, ano, mes, ini, fim,
-                                         {k: contestacao.CANAL[k] in enviados for k in alvo})
-    if falhou:
-        msg = ("Enviado para %s, mas não para %s." % (" e ".join(enviados), " e ".join(falhou)) if enviados
+    # uma linha por setor no livro thopen_contestacoes, com o setor que o Teams recebeu (rodada 5, 13/10/2026). Na hora,
+    # não mais em segundo plano: é o registro que o setor vê no Nexus. O usina_id sai do de-para do Nexus; usina com dois
+    # ids (Primavera) fica sem (nunca chutar)
+    no_banco = False
+    if banco:
+        try:
+            ids = operacao_mes.ids_da_usina((fonte_operacao.dados() or {}).get("de_para") or [], usina)
+        except Exception:                     # noqa: BLE001 — leitura da Operação no Mês fora: grava sem o id
+            ids = set()
+        try:
+            contestacao_banco.registrar_contestacao(d, usina, next(iter(ids)) if len(ids) == 1 else None, ano, mes,
+                                                    ini, fim, {k: (k in no_teams) if urls[k] else None for k in alvo})
+            no_banco = True
+        except Exception as e:                # noqa: BLE001 — sem dado pessoal no log
+            print("[contestacao] não gravei no banco: %s %s" % (type(e).__name__, str(e)[:120]), flush=True)
+    foi = [contestacao.CANAL[k] for k in alvo if no_banco or k in no_teams]
+    nao = [contestacao.CANAL[k] for k in alvo if not (no_banco or k in no_teams)]
+    if nao:
+        msg = ("Enviado para %s, mas não para %s." % (" e ".join(foi), " e ".join(nao)) if foi
                else "Não consegui enviar agora.") + " Tente de novo em alguns minutos."
-        return jsonify({"ok": False, "erro": msg, "destinos": enviados}), 502
-    return jsonify({"ok": True, "destinos": enviados})
+        return jsonify({"ok": False, "erro": msg, "destinos": foi}), 502
+    return jsonify({"ok": True, "destinos": foi})
 
 
 @app.route("/api/t/versao")

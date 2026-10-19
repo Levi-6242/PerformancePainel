@@ -304,8 +304,8 @@ OS no Fracttal (`fotos_ronda.py`, abaixo).
 400 se faltar usina ou ano/mês inválido. Devolve exatamente `CHAVES`: `disponivel, motivo, usina, ano, mes, strings,
 trackers, zeladoria {data, sujidade {nivel, frase}, vegetacao {nivel, frase}} | {sem_cadastro}, regua, parcial_ate,
 atualizado_em, por_dia [{dia "DD/MM", strings, trackers, disp, ronda {sujidade, vegetacao} | null}], avisos [texto],
-disponibilidade, contestar {performance, zeladoria}`. `contestar` diz que canais do Teams estão configurados (a rota
-põe; item sem canal fica desabilitado na janela). Nunca número de OS, técnico ou texto da OS (o 5080 é público). Chave
+disponibilidade, contestar {performance, cos, zeladoria}`. `contestar` diz que setores a janela pode oferecer: todos com
+o banco configurado (19/10/2026); sem ele, só o que tem fluxo do Teams (item sem destino fica desabilitado). Nunca número de OS, técnico ou texto da OS (o 5080 é público). Chave
 nova na resposta = entrar em `CHAVES` + teste.
 
 ### Tela (`dashboard_thopen.html`)
@@ -401,12 +401,12 @@ nova na resposta = entrar em `CHAVES` + teste.
 - `THOPEN_RONDAS=0` desliga a janela das rondas e as fotos (as três rotas da rodada 3). Não mexe na contestação.
 - `FRACTTAL_CLIENT_ID` / `FRACTTAL_CLIENT_SECRET` (SECRETAS, as da plataforma) — fotos das rondas.
 - `THOPEN_CONTESTACAO_CHAVE_PUBLICA` (rodada 5) — a chave pública das contestações no banco (não é segredo: só cifra);
-  `GRIDCO_SQL_TOKEN` (SECRETA, o tokens.txt da raiz serve) — o token de escrita do banco. Sem as duas, a contestação só
-  vai ao Teams.
+  `GRIDCO_SQL_TOKEN` (SECRETA, o tokens.txt da raiz serve) — o token de escrita do banco. Desde 19/10/2026 são elas que
+  ligam a contestação (o banco é o destino); sem as duas, só o setor com fluxo do Teams aparece na janela.
 - `THOPEN_TEAMS_PERFORMANCE` / `THOPEN_TEAMS_COS` / `THOPEN_TEAMS_ZELADORIA` (SECRETAS, rodada 4; a do COS desde
-  15/10/2026) — URL do fluxo do Teams de cada canal da contestação (O&M › Performance, COS e O&M › Zeladoria). Canal sem
-  URL: os itens dele ficam desabilitados na janela ("Indisponível no momento") e, sem nenhum, o clique no gráfico não
-  abre a contestação. A `THOPEN_DUVIDA_TEAMS` da rodada 3 saiu com a dúvida.
+  15/10/2026) — URL do fluxo do Teams de cada canal da contestação (O&M › Performance, COS e O&M › Zeladoria). Opcionais desde
+  19/10/2026: aviso a mais, o registro é o banco. O COS não tem fluxo (`THOPEN_TEAMS_COS` vazia) e a contestação dele
+  vai só ao Nexus. Sem banco e sem fluxo, o item fica desabilitado ("Indisponível no momento"). A `THOPEN_DUVIDA_TEAMS` da rodada 3 saiu com a dúvida.
 - Os segredos vêm do ambiente ou, sem ele, do `.env`/`tokens.txt` da RAIZ do clone (`fonte_api.segredo`). O clone do
   cliente (`C:\GridcoAuto\PerformancePainel`) não tem `.env`: criar com as seis linhas no deploy (FRACTTAL_*, os dois
   THOPEN_TEAMS_*, a THOPEN_CONTESTACAO_CHAVE_PUBLICA e o GRIDCO_SQL_TOKEN, se o tokens.txt da raiz não tiver). Nunca imprimir.
@@ -448,34 +448,37 @@ tracker ou ronda. Ronda notificará o time de zeladoria do Teams."
 
 - **Janela** (`#ctFundo`): usina e dia, o que o cliente viu naquele dia — geração e irradiação (do gráfico),
   Disp, tracker, string, comentário (o do analista ou o registro da OS) e ronda —, as caixas Geração ·
-  Disponibilidade · Desligamento · String · Tracker · Ronda (item sem canal configurado fica desabilitado), "O que está
+  Disponibilidade · Desligamento · String · Tracker · Ronda (item sem destino fica desabilitado), "O que está
   diferente?" (opcional), nome e e-mail ou telefone (obrigatórios). Até a rodada 4 abria pelo "!" da linha da tabela.
 - **Canais** (`contestacao.py`, `ITENS`): ronda → O&M › **Zeladoria**; disponibilidade e desligamento → **COS** (Levi,
   15/10/2026: "Disponibilidade e desligamento vão para o setor de COS"; `THOPEN_TEAMS_COS`); geração (rodada 5:
-  "adiciona geração na contestação, será direcionado a performance"), string e tracker → O&M › **Performance**. Itens
-  de mais de um setor = uma mensagem por canal, cada uma com só os seus itens, e uma linha por setor no banco (o Nexus
-  mostra a aba COS a quem é do setor COS). Os setores daqui são os das abas do Nexus: o teste cruzado de lá confere.
+  "adiciona geração na contestação, será direcionado a performance"), string e tracker → O&M › **Performance**. **O destino é o Nexus** (Levi, 19/10/2026: "vai direto para contestações do Nexus e a
+  gente resolve lá, esquece teams" — sem o fluxo do Teams do COS, Disponibilidade e Desligamento nem marcavam): uma
+  linha por setor no banco, que o Nexus mostra na aba do setor; o Teams, onde o setor tem fluxo (Performance e
+  Zeladoria), recebe também uma mensagem com só os itens dele. Os setores daqui são os das abas do Nexus: o teste cruzado de lá confere.
   Teams por fluxo do app Workflows ("Enviar alertas de webhook para um canal"), cartão Adaptive Card com usina, dia,
   o que contesta, o que estava na tela (`TELA`: geração, irradiação, Disp, tracker, string, comentário, ronda), a
   mensagem, nome e contato. E-mail não serve (envio barrado no tenant).
   Resposta ao cliente é por fora, pelo contato informado.
 - **No banco, para o Nexus** (rodada 5, item 4, Levi 13/10: "contestação ligada ao Nexus"; "ficaria na API do PG, pode
   aplicar e construir!"): `contestacao_banco.py` grava o livro `thopen_contestacoes · contestacoes`, 1 linha por
-  contestação × setor (com `avisado_teams` sim/não), que o Nexus mostra em Contratos e clientes → Contestações. Nome,
+  contestação × setor (com `avisado_teams`: "sim", "não" = o Teams recusou, "sem canal" = o setor não tem fluxo), que o Nexus mostra em Contratos e clientes → Contestações. Nome,
   contato, mensagem e o que estava na tela vão só em `dados_cifrados`, com cifra ASSIMÉTRICA (X25519 + HKDF + AES-GCM,
   prefixo `cx1:`, presa à linha): o 5080 tem só a chave PÚBLICA (`THOPEN_CONTESTACAO_CHAVE_PUBLICA`) e não abre nada; o
   Nexus abre com a privada. O livro é trocado inteiro (sync-xlsx com replace) sob trava, relido antes — leitura que não
-  bate com a contagem da API NÃO regrava (apagaria contestações) — e conferido depois. Em segundo plano: o cliente não
-  espera o banco. Sem a chave pública ou sem o GRIDCO_SQL_TOKEN, não grava e diz no log; o Teams segue igual. O par de
+  bate com a contagem da API NÃO regrava (apagaria contestações) — e conferido depois. **Na hora** desde 19/10/2026
+  (`registrar_contestacao`; até então em segundo plano, quando o Teams era o registro): o cliente só lê "enviada"
+  depois de o livro conferir. Sem a chave pública ou sem o GRIDCO_SQL_TOKEN (`configurado()` falso), não grava. O par de
   chaves de 13/10 está em `C:\GridcoAuto\entrega-ti\contestacoes-chaves-2026-10-13\` (a pública vai no `.env` do clone do
   cliente; a privada, no do Nexus). Contrato com o Nexus: `LIVRO`, `ABA`, `CAB`, `PREFIXO` e a receita da cifra iguais
   aos de `nexus/contratos/contestacoes.py` — o teste cruzado de lá (`PLATAFORMA_REPO`) cifra com este código.
 - **Rota** `POST /api/t/contestar` (`usina, ano, mes, dia_ini, dia_fim, itens, mensagem, nome, contato, site,
-  tela{}`): só de 10/2026 em diante, dia dentro do mês, usina do painel (o 5080 é público) → 400/404. Canal de algum
-  item sem URL → 503 (nunca "enviada" sem ter avisado). Proteções: 3 por endereço por hora (CF-Connecting-IP — atrás
+  tela{}`): só de 10/2026 em diante, dia dentro do mês, usina do painel (o 5080 é público) → 400/404. Setor sem banco e
+  sem fluxo do Teams → 503 (nunca "enviada" sem ter registrado). Proteções: 3 por endereço por hora (CF-Connecting-IP — atrás
   do túnel o remote_addr é sempre 127.0.0.1), 40 por dia no total → 429; campo-isca `site` (robô recebe "ok" e
-  ninguém é avisado); mensagem até 1.000 caracteres, cada campo de `tela` até 400; e-mail ou telefone com DDD. Um
-  canal recusou e o outro não: 502 dizendo para onde foi e para onde não foi.
+  ninguém é avisado); mensagem até 1.000 caracteres, cada campo de `tela` até 400; e-mail ou telefone com DDD. Vale
+  quando cada setor ficou no banco ou no Teams: Teams recusado com o banco gravado é "enviada"; banco fora, só os setores
+  que o Teams recebeu, e 502 dizendo para onde foi e para onde não foi.
 - Provado em 09/10 com dado real (Guaratinguetá V, 02/10, Disponibilidade + Ronda) num Teams falso: uma mensagem no
   caminho do Performance e uma no da Zeladoria, cada uma com o seu item. Rodada 5 (13/10, dado ao vivo): clique na
   barra do dia 06/10 da Guaratinguetá V, Geração + Ronda → Performance com "Geração" e Zeladoria com "Ronda", as duas
