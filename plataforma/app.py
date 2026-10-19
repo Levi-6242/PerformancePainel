@@ -17125,7 +17125,46 @@ _INV_DIA_MAX_KWH = 100000.0
 # contar sozinho. Uma régua geral (PR do dia acima de 150%) foi medida no mesmo dia e NÃO serve: derrubava geração
 # verdadeira onde a irradiação lê baixo (Aparecida do Taboado 1 e 2: 13 de 15 dias de outubro).
 GER_DIA_ESTOURADO_USINAS = {"ibirapuaii"}
+# Número anômalo SINALIZADO, sem travar (Levi, 18/10/2026: "quero que apenas sinalize que o número está anômalo e o dado
+# pode estar errado, temos que sinalizar pela plataforma e não ficar travando a construção!"). A régua que ele escolheu:
+# a meta do mês fora de 2 a 8 kWh por kWp por dia (o portfólio fica de 4 a 6). Caso que criou: outubro/2026, Santo
+# Anastácio (1,28) e Álvares Machado (0,90) — a meta de outubro da aba "Dados Mensais 2026" do BD_Thopen baixa, e o
+# atingimento a 217,7% e 331,1%. O número fica como está. `anomalia` leva CÓDIGOS de uma lista fechada, separados por
+# vírgula (o fim do fato_meta_usina_mes, que a Visão do responsável do Nexus lê e traduz; a regra 8 do catálogo de lá
+# não aceita texto livre no fato), e `anomalia_txt` a frase de cada um, só para a tela daqui:
+#   meta_baixa / meta_alta: a meta do mês por kWp por dia fora de GER_META_KWH_KWP_DIA;
+#   geracao_impossivel: a usina tem dia "sem leitura" pela geração acima da potência × 12 h (o filtro da Ibirapuã II).
+# É o domínio `dominios.ANOMALIA_META` do catálogo do Nexus (os três, registrado lá em 18/10, 2b489cb); código novo =
+# domínio novo lá antes da 1ª gravação.
+# As outras réguas medidas no mesmo dia (PR do mês acima de 130%, geração do mês acima de 8 kWh/kWp/dia, atingimento
+# acima de 200%) ficaram de fora por decisão dele: código novo só com régua aprovada, e avisando o Nexus.
+GER_META_KWH_KWP_DIA = (2.0, 8.0)
 GER_DIA_ESTOURADO_KWH_KWP = 12.0
+
+
+def _ger_anomalia(u):
+    """Os sinais de número anômalo de uma usina do Gerencial → [(código, frase)], vazio quando normal. A meta do dia é
+    a do mês ÷ os dias do mês (`meta_dia_kwh`); sem ela, a meta prorrateada ÷ os dias da meta. Sem potência ou sem meta,
+    a régua da meta não julga."""
+    out = []
+    pot = u.get("pot_mwp")
+    md = u.get("meta_dia_kwh")
+    if not (isinstance(md, (int, float)) and md > 0):
+        p50, nd = u.get("p50"), u.get("meta_dias")
+        md = (p50 * 1000.0 / nd) if (isinstance(p50, (int, float)) and p50 > 0 and nd) else None
+    if md is not None and isinstance(pot, (int, float)) and pot > 0:
+        k = md / (pot * 1000.0)
+        lo, hi = GER_META_KWH_KWP_DIA
+        if not lo <= k <= hi:
+            out.append(("meta_baixa" if k < lo else "meta_alta",
+                        (f"meta do mês de {k:.1f} kWh por kWp por dia (o normal é de {lo:.0f} a {hi:.0f}): o dado da "
+                         f"meta pode estar errado").replace(".", ",", 1)))
+    dsl = u.get("dias_sem_leitura") or []
+    if dsl:
+        dias = ", ".join("%02d" % int(x.get("dia")) for x in dsl if isinstance(x, dict) and x.get("dia"))
+        out.append(("geracao_impossivel", f"geração acima da potência × 12 h no dia {dias}: o dia ficou fora da conta "
+                                          f"(o dado da fonte pode estar errado)"))
+    return out
 
 
 def _ger_dia_estourado(usina, dia, ger_kwh, pot_mwp):
@@ -18733,6 +18772,10 @@ def _gerencial_payload(force=False, ano=None, mes=None):
             u["cliente"] = _igc
         if not u.get("carteira") or u.get("carteira") == "—":
             u["carteira"] = _carteira_de(u["usina"]) or u.get("cliente") or "—"
+        # número anômalo: SÓ SINALIZA, o número fica (Levi, 18/10/2026; réguas e códigos em _ger_anomalia)
+        _an = _ger_anomalia(u)
+        u["anomalia"] = ",".join(c for c, _f in _an) or None
+        u["anomalia_txt"] = "; ".join(f for _c, f in _an) or None
 
     def _roll(lst):
         # cada razão sobre o SEU subconjunto válido (não mistura denominadores).

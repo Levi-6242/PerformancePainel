@@ -397,9 +397,13 @@ function renderTodas(us){
   const _dias = u => (u.meta_dias && u.dias_mes)
     ? `<span style="font-size:10px;color:var(--faint);font-weight:400;margin-right:9px">${u.meta_dias} de ${u.dias_mes} dias</span>` : '';
   // Usina com meta e SEM geração no mês entra como "sem dado": a linha cinza cobra o lançamento de quem lança.
+  // número anômalo: só SINALIZA, o número fica (Levi, 18/10/2026: "quero que apenas sinalize que o número está anômalo e
+  // o dado pode estar errado"); os códigos vêm do app (`anomalia`) e a frase de cada um em `anomalia_txt`
+  const _anom = u => u.anomalia
+    ? ` <span class="tag" style="color:var(--amber);border-color:var(--amber)" title="${String(u.anomalia_txt || u.anomalia).replace(/"/g,'&quot;')}">dado anômalo</span>` : '';
   const _atg = u => u.atingimento == null
     ? '<span class="tag" title="Geração não encontrada nas fontes do mês (BD_Performance, BD_Thopen ou banco). A meta existe; o dado não chegou.">sem dado</span>'
-    : `<span class="num ${atgCls(u.atingimento)}">${nf(u.atingimento,1)}%</span> ${atgTag(u.atingimento)}`;
+    : `<span class="num ${atgCls(u.atingimento)}">${nf(u.atingimento,1)}%</span> ${atgTag(u.atingimento)}${_anom(u)}`;
   // o valor estourado fora da conta (18/10/2026: a Ibirapuã II de 13/10 com os contadores acumulados dos medidores): a
   // célula da geração diz quantos dias e o título diz quais, com o valor que a fonte trouxe
   const _semLeit = u => {

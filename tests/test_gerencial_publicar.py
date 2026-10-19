@@ -20,9 +20,16 @@ def test_as_linhas_do_mes_sem_texto_livre_e_sem_o_traco():
         "mes_id": 202610, "usina": "Altair 1", "cliente": "Thopen", "carteira": "Thopen", "prod_kwh": 812400,
         "meta_kwh": 900000, "atingimento_pct": 90.3, "pr_pct": 78.1, "pr_meta_pct": 80.0, "ipoa_kwh_m2": 150.2,
         "ipoa_meta_kwh_m2": 160.0, "dias_cobertos_qtd": 11, "dias_mes_qtd": 31, "meta_dias_qtd": 11, "full_om": 1,
-        "fonte": "pg", "meta_fonte": "BD_Thopen"}
+        "fonte": "pg", "meta_fonte": "BD_Thopen", "anomalia": None}
     assert out[1][2] is None and out[1][14] == 0                       # "—" vira vazio; sem Full O&M = 0
     assert "texto livre" not in str(out)                               # o pr_motivo não vai (leitura aberta)
+
+
+def test_a_anomalia_vai_no_fim_da_linha():
+    # 18/10/2026 (Levi: "apenas sinalize que o número está anômalo"): a frase da régua do app, na ÚLTIMA coluna
+    assert gp.CAB[-1] == "anomalia" and gp.CAB[:-1][-1] == "meta_fonte"
+    (r,) = gp.linhas({"usinas": [{**U1, "anomalia": "meta_baixa,geracao_impossivel", "anomalia_txt": "frase"}]}, 202610)
+    assert r[-1] == "meta_baixa,geracao_impossivel" and "frase" not in r    # código, não frase (regra 8 do Nexus)
 
 
 def test_mesclar_troca_so_os_meses_refeitos():

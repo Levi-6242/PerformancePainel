@@ -28,7 +28,12 @@ NOME = "Nexus · Performance (meta do mês por usina)"
 ABA = "fato_meta_usina_mes"
 CAB = ["mes_id", "usina", "cliente", "carteira", "prod_kwh", "meta_kwh", "atingimento_pct", "pr_pct", "pr_meta_pct",
        "ipoa_kwh_m2", "ipoa_meta_kwh_m2", "dias_cobertos_qtd", "dias_mes_qtd", "meta_dias_qtd", "full_om", "fonte",
-       "meta_fonte"]
+       "meta_fonte",
+       # 18/10/2026, no FIM (coluna nova só no fim): o CÓDIGO do número anômalo, do domínio dominios.ANOMALIA_META do
+       # catálogo do Nexus (meta_baixa, meta_alta, geracao_impossivel; régua em app._ger_anomalia), separados por
+       # vírgula, vazia quando normal. Código e não frase:
+       # a regra 8 do catálogo do Nexus não aceita texto livre no fato; a Visão do responsável traduz
+       "anomalia"]
 ABA_DIA = "fato_desempenho_usina_dia"
 CAB_DIA = ["mes_id", "usina", "data_id", "geracao_kwh", "meta_kwh", "ipoa_kwh_m2", "ipoa_meta_kwh_m2", "pr_pct",
            "pr_meta_pct"]
@@ -59,7 +64,8 @@ def linhas(payload, mes_id: int) -> list[list]:
         out.append([int(mes_id), nome, _txt(u.get("cliente")), _txt(u.get("carteira")), _kwh(u.get("prod")),
                     _kwh(u.get("p50")), _num(u.get("atingimento")), _num(u.get("pr")), _num(u.get("pr_meta")),
                     _num(u.get("ipoa")), _num(u.get("ipoa_prev")), _num(u.get("dias_cob")), _num(u.get("dias_mes")),
-                    _num(u.get("meta_dias")), 1 if u.get("full_oem") else 0, _txt(u.get("src")), _txt(u.get("p50_src"))])
+                    _num(u.get("meta_dias")), 1 if u.get("full_oem") else 0, _txt(u.get("src")), _txt(u.get("p50_src")),
+                    _txt(u.get("anomalia"))])
     out.sort(key=lambda r: r[1].lower())
     return out
 

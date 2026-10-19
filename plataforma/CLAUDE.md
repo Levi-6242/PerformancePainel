@@ -963,6 +963,26 @@ que filtre apenas esse valor estourado em Ibirapuã, faça especificamente para 
   "Dados Mensais 2026" do BD_Thopen é que está baixa (~1,3 e ~0,9 kWh/kWp/dia). Não é da plataforma.
 - Teste: `tests/test_gerencial_valor_estourado.py`.
 
+## Número anômalo sinalizado no Gerencial (18/10/2026)
+
+Levi: "sobre as demais quero que apenas sinalize que o número está anômalo e o dado pode estar errado, temos que
+sinalizar pela plataforma e não ficar travando a construção!". **Só sinaliza: o número fica como está.**
+- `_ger_anomalia` (no fim do `_gerencial_payload`, em toda usina) → `anomalia` = CÓDIGOS de uma lista fechada,
+  separados por vírgula, e `anomalia_txt` = a frase de cada um (só para a tela daqui):
+  - `meta_baixa` / `meta_alta`: a meta do mês por kWp por dia (`meta_dia_kwh` ÷ kWp; sem ela, a meta prorrateada ÷ os
+    dias da meta) fora de `GER_META_KWH_KWP_DIA` = 2 a 8. Régua escolhida pelo Levi entre quatro medidas no outubro real
+    (PR do mês acima de 130%, geração do mês acima de 8 kWh/kWp/dia e atingimento acima de 200% ficaram de fora). Em
+    outubro pega Álvares Machado (0,9) e Santo Anastácio (1,3); o portfólio fica de 4 a 6.
+  - `geracao_impossivel`: a usina tem dia "sem leitura" (o filtro da Ibirapuã II, seção acima); sem limiar novo.
+  - É o domínio `dominios.ANOMALIA_META` do catálogo do Nexus (os três, registrado lá em 18/10, 2b489cb); código novo =
+    domínio novo lá antes da 1ª gravação.
+  - Código e não frase porque a regra 8 do catálogo do Nexus não aceita texto livre no fato (o mesmo motivo de o
+    `pr_motivo` ficar de fora); quem mostra traduz. Código novo só com régua aprovada pelo Levi, e avisando o Nexus.
+- A tela marca "dado anômalo" (âmbar) ao lado do atingimento, com a frase no título. O `fato_meta_usina_mes` leva a
+  coluna `anomalia` no FIM (depois de `meta_fonte`), vazia quando normal; a Visão do responsável do Nexus a lê pelo nome.
+  Coluna nova = registro no catálogo do Nexus antes da 1ª gravação (regra 10).
+- Teste: `tests/test_gerencial_anomalia.py`.
+
 ## Disponibilidade por OS (`/gerencial/disponibilidade`)
 
 A conta mora em `disponibilidade.py` (puro; réguas e decisões em `docs/disponibilidade-por-os.md`, o caminho de runtime
