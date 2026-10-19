@@ -62,14 +62,15 @@ _cache = {"ts": 0.0, "wb": None, "erro": None, "origem": None, "proxima": 0.0}
 
 
 def _token():
-    """Bearer do tokens.txt da raiz. Sem ele a API recusa a escrita; a leitura ainda e'
-    aberta, mas mandamos assim mesmo — se um dia fechar, o dashboard nao para."""
+    """Bearer do ambiente, do tokens.txt da raiz ou, por último, do .env da raiz. Sem ele a API recusa a escrita; a
+    leitura ainda é aberta, mas mandamos assim mesmo — se um dia fechar, o dashboard não para.
+    O .env entrou em 19/10/2026: o clone do cliente tinha só o .env (como os outros segredos, `segredo`), e no 5080 com
+    login a senha definida pelo link e a contestação não gravavam no banco, caladas, de 16 a 19/10."""
     v = os.environ.get("GRIDCO_SQL_TOKEN")
     if v:
         return v.strip()
-    aqui = os.path.dirname(os.path.abspath(__file__))
-    for cand in (os.path.join(aqui, "..", "tokens.txt"),
-                 os.path.join(aqui, "tokens.txt")):
+    for cand in (os.path.join(_AQUI, "..", "tokens.txt"),
+                 os.path.join(_AQUI, "tokens.txt")):
         try:
             for l in io.open(cand, encoding="utf-8", errors="surrogateescape"):
                 m = re.match(r"\s*GRIDCO_SQL_TOKEN\s*=\s*(.+)", l)
@@ -77,7 +78,7 @@ def _token():
                     return m.group(1).strip()
         except OSError:
             continue
-    return ""
+    return segredo("GRIDCO_SQL_TOKEN")
 
 
 def segredo(nome):

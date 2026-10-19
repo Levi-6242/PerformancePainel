@@ -115,7 +115,10 @@ a ser `date`) — por isso todos os leitores continuam sendo código de workshee
   `/api/t/versao`); 60 s sem tentar de novo depois de uma falha. **Não há fallback para `.xlsx`**, nem
   `THOPEN_FONTE`, nem `THOPEN_DATA_DIR` (saíram em 28/08: "tem que ser 100% postgresql"). Sem API e sem cache, a rota
   dá erro.
-- Token: `GRIDCO_SQL_TOKEN` do ambiente ou do `tokens.txt` da raiz (a leitura hoje é aberta; vai assim mesmo).
+- Token: `GRIDCO_SQL_TOKEN` do ambiente, do `tokens.txt` da raiz ou, por último, do `.env` da raiz (`fonte_api._token`;
+  a leitura hoje é aberta; vai assim mesmo). O `.env` entrou em 19/10/2026: o clone do cliente tinha só o `.env`, e no
+  5080 com login a senha do link e a contestação não gravavam, caladas, de 16 a 19/10
+  (`tests/test_thopen_fonte_api_token.py`).
 - O único dado que o app GRAVA: `comentarios_adicionais.json` (campo digitável do Diário; `COMENTARIOS_DIR`).
 - Trocar a fonte, ou qualquer mudança no `dashboard_thopen.py`, se prova com número: `_snap_dash.py` fotografa as
   ~1.300 respostas das rotas e `_diff_snap.py` compara antes × depois (0 diferença). Os dois não estão no repositório;
