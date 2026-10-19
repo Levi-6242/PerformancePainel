@@ -280,6 +280,8 @@ def desligamentos(oss, ini, fim, usinas=None, agora=None):
     lim_a, lim_b = datetime.combine(ini, time(0)), datetime.combine(fim + timedelta(days=1), time(0))
     hoje = datetime.combine((agora or datetime.now()).date(), time(0))
     for o in oss or []:
+        if o.get("excl"):                       # fora da conta (19/10/2026: a falta de comunicação também) não desliga
+            continue
         fam = {"queda": "queda", "equipamento": "equip"}.get(o.get("origem"))
         if not fam or (usinas is not None and not (set(o.get("usinas") or []) & set(usinas))):
             continue

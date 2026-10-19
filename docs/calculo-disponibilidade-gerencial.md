@@ -201,8 +201,9 @@ O escopo é resolvido pelo **ativo** (`code`), nunca por texto solto, e devolve 
 O juiz da geração (`_dias_desmentidos`, 30/08 a 15/10/2026) **saiu**: o Levi decidiu que a disponibilidade é do Fracttal
 e só dele. O que estiver estranho nas OS do período vai para `alinhar` (`_para_alinhar`), só com dado do Fracttal — a OS
 **continua contando**; a lista é para corrigir a OS no Fracttal: aberta sem data final, evento depois do fim, sem
-`final_date`, site agrupado sem a usina na descrição, Religamento com descrição de verificação de comunicação ou inspeção,
-religamento de mais de um dia e OS fora da conta por dado dela. Regras e números em
+`final_date`, site agrupado sem a usina na descrição, Religamento com descrição de inspeção, religamento de mais de um
+dia e OS fora da conta por dado dela. A OS de falta de comunicação ("Verificação de comunicação do ...") NÃO conta desde
+19/10/2026 (`EXCL_COMUNICACAO`) e aparece na lista como fora da conta, com a usina. Regras e números em
 [`disponibilidade-por-os.md`](disponibilidade-por-os.md), §4.1.
 
 ---

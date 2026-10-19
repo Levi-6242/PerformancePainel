@@ -2106,6 +2106,11 @@ function _dispDia(nome, dia){
     if(vis.has(o.folio)) return; vis.add(o.folio);
     if(!DISP_TIPOS.has(String(o.tipo||'').toLowerCase())||!o.evento_ts) return;
     let a=new Date(o.evento_ts).getTime(); if(isNaN(a)) return;
+    // falta de comunicação não é parada (Levi, 19/10/2026; a régua do disponibilidade.py): fica no título do dia
+    if(/COMUNICA/.test(String(o.descricao||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toUpperCase())){
+      if(a<=j1) outras.push(`OS #${o.folio||'?'} ${o.tipo||''} · falta de comunicação: fora da conta`);
+      return;
+    }
     const rot=`OS #${o.folio||'?'} ${o.tipo||''}${nivel==='usina'?' · usina inteira':''}`;
     const aberta=!o.fim_ts, b=aberta?agora:new Date(o.fim_ts).getTime(); if(isNaN(b)) return;
     if(b<a){                                   // evento depois do fim: a criação vira o evento

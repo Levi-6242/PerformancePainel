@@ -236,7 +236,8 @@ def test_metodologia_disponibilidade_so_das_os_sem_geracao():
     bloco = met[met.index("<h3>Disponibilidade</h3>"):met.index("<dt>Antes de 10/2026")]
     for trecho in ("religamento remoto", "corretiva emergencial", "de 06h a 18h", "as OS fechadas e as abertas",
                    "a OS ainda aberta, sem data final, conta até o último dia fechado", "data de criação",
-                   "anterior até à criação, a OS não conta", "a geração não entra nela", "Dia sem OS = 100%"):
+                   "anterior até à criação, a OS não conta", "a geração não entra nela", "Dia sem OS = 100%",
+                   "falta de comunicação não é usina parada"):
         assert trecho in bloco, trecho
     assert "geração mostra" not in bloco and "não é parada" not in bloco
     assert "anterior ao evento" not in bloco, "'evento' é jargão do Fracttal: o cliente lê 'início da parada'"

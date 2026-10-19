@@ -273,6 +273,19 @@ def resolve_g1(g1, usinas, idx):
 
 
 # ══ consolidação de uma OS (lista de tasks) ══════════════════════════════════
+# Falta de comunicação NÃO é parada (Levi, 19/10/2026: "a falta de comunicação não deve entrar no cálculo de
+# disponibilidade"). No Fracttal a OS de "Verificação de comunicação do ..." vem como Religamento (ou Corretiva
+# Emergencial), e a conta a tomava por usina parada: em outubro, até 18/10, 113 OS e 27,8% de toda a energia perdida
+# (Brodowski a 0% pela OS 12693, aberta desde 02/09; TIM200 a 57% pela 15488). Toda OS cuja descrição (ou o ativo) diz
+# "comunicação" sai da conta — vale para o tipo que for — e fica visível na lista "alinhar" como fora da conta, com a usina.
+EXCL_COMUNICACAO = "falta de comunicação: não é parada"
+
+
+def eh_falta_de_comunicacao(*textos):
+    """A OS é de falta de comunicação: "comunicação" no texto (descrição, ativo), sem acento e sem caixa."""
+    return "COMUNICA" in norm(" ".join(str(t or "") for t in textos))
+
+
 def consolidar_os(folio, tasks, agora):
     """→ dict da OS com datas locais validadas, tipos, status, flags — ou com 'excl' preenchido."""
     tipos_all = {str(t.get("tasks_log_task_type_main") or "").strip() for t in tasks}
@@ -343,14 +356,18 @@ def consolidar_os(folio, tasks, agora):
             o["ini"] = ini
             return o
     o["ini"], o["fim"] = ini, fim
+    # falta de comunicação não é parada (19/10/2026, EXCL_COMUNICACAO): fora da conta, com as datas para a lista
+    if eh_falta_de_comunicacao(o["desc"], o["item"]):
+        o["excl"] = EXCL_COMUNICACAO
+        return o
     # Dois sinais só do Fracttal que a prova de 15/10/2026 mostrou pesando no mês — a OS CONTINUA contando, só vai para
-    # "alinhar": Religamento cuja descrição é verificação de comunicação ou inspeção (TIM200, OS 15488; Brodowski, OS
-    # 12693, aberta desde 02/09) e religamento que dura mais de um dia (Canarana 1, OS 14924, 29/09 a 13/10). Corretiva
-    # longa não entra: trocar um inversor leva dias de verdade.
+    # "alinhar": Religamento cuja descrição é inspeção (até 19/10 também a verificação de comunicação, que saiu da conta)
+    # e religamento que dura mais de um dia (Canarana 1, OS 14924, 29/09 a 13/10). Corretiva longa não entra: trocar um
+    # inversor leva dias de verdade.
     if origem == "queda":
         texto = norm(f"{o['desc']} {o['item']}")
-        if "COMUNICA" in texto or "INSPEC" in texto:
-            o["alinhar"].append("Religamento com descrição de verificação de comunicação ou inspeção: houve parada?")
+        if "INSPEC" in texto:
+            o["alinhar"].append("Religamento com descrição de inspeção: houve parada?")
         horas = (fim - ini).total_seconds() / 3600
         if horas > 24 and not o["aberta_sem_fim"]:          # a aberta já vai para "alinhar" pelos dias em aberto
             dur = f"{int(horas // 24)} dias" if horas >= 48 else f"{round(horas)} h"
@@ -724,11 +741,17 @@ def calcular(wos, linhas_equip, per_ini, per_fim, agora=None):
         o = consolidar_os(folio, tasks, agora)
         if o is None:
             continue
-        if not o["excl"]:
+        if not o["excl"] or o["excl"] == EXCL_COMUNICACAO:
             if o["fim"] < per_ini or o["ini"] >= per_fim:
                 continue                             # não toca o período — fora do universo
         oss.append(o)
         if o["excl"]:
+            # a de falta de comunicação fica fora da conta, mas a lista e a tela dizem de qual usina ela é (o escopo numa
+            # cópia: ele não mexe na OS, que segue com o motivo dela)
+            if o["excl"] == EXCL_COMUNICACAO:
+                esc = escopo_os({**o, "excl": None, "flags": [], "alinhar": []}, usinas, idx)
+                if esc:
+                    os_escopo[o["folio"]] = esc
             continue
         esc = escopo_os(o, usinas, idx)
         if esc is None:

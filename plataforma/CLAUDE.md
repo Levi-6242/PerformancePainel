@@ -1012,10 +1012,18 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
   Teste: `tests/test_disp_cascata_relatorio_sem_geracao.py`.
 - **Antes** (`calcular_pelo_bd` + `_disp_dias_bd_thopen`): só as usinas da Thopen, pela "Disponibilidade Usina (%)" do
   BD_Thopen (o leitor do 5080), sem OS e sem queda × equipamento; de-paras em `_DISP_BD_ABAS` (os do Gerencial).
+- **Falta de comunicação NÃO é parada** (Levi, 19/10/2026: "a falta de comunicação não deve entrar no cálculo de
+  disponibilidade"). A OS cuja descrição (ou o ativo) diz "comunicação" (`disponibilidade.eh_falta_de_comunicacao`; no
+  Fracttal ela vem como "Verificação de comunicação do ...", tipo Religamento ou Corretiva Emergencial) fica fora da
+  conta (`EXCL_COMUNICACAO`), com a usina, e aparece no "alinhar" como "fora da conta: falta de comunicação". Vale também
+  no % disp do Diagnóstico (`_dispDia`), na cascata do Gerencial e no Criador de Relatório, e o Relatório Semanal não a
+  conta como desligamento. Em outubro (até 18/10) eram 113 OS e 27,8% da energia perdida: Thopen 81,47% → ~86,2%,
+  Athon 85,06% → ~92,5%, Renogrid 82,18% → ~90,5%; Brodowski 0% → 100% (OS 12693). O Tempo real não muda: a OS aberta
+  de Religamento na usina inteira segue marcando "usina desligada" (`_religamentos_abertos_usina`).
 - **`alinhar`** no lugar do `cenario_abertas` (que saiu do payload): as OS que pedem um olho no Fracttal, só pelo dado
   dele (aberta contando, evento depois do fim, `wo_final_date`, site agrupado sem a usina, Religamento com descrição de
-  verificação de comunicação ou inspeção, religamento de mais de um dia, OS fora da conta). A tela Disponibilidade mostra
-  a lista no balão do ícone de atenção e, no mês do BD, o aviso da fonte.
+  inspeção, religamento de mais de um dia, OS fora da conta — a de falta de comunicação inclusive). A tela
+  Disponibilidade mostra a lista no balão do ícone de atenção e, no mês do BD, o aviso da fonte.
 - **Prova (15/10, varredura real × índice publicado com a regra antiga):** outubro Thopen 88,47% → 80,43% (~4,8 GWh dos
   dias que o juiz exonerava, ~1,5 GWh de OS abertas desde setembro: Brodowski 12693 e Guatambu 13427); Ipixuna 2 91,1% →
   76,7% (a 16338 com 168 h); 175 OS de outubro em "alinhar"; setembro Thopen 95,51% → 95,40%.

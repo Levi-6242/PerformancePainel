@@ -584,14 +584,47 @@ def test_mes_pelo_bd_pondera_o_cliente_pelo_kwp():
     assert c["disp"] == pytest.approx((1000 * 50 + 500 * 100) / 1500, abs=0.01)
 
 
-# Dois sinais só do Fracttal que a prova de 15/10/2026 mostrou pesando no mês (a OS CONTINUA contando; só vai para
-# "alinhar"): Religamento com descrição de "Verificação de comunicação" ou de inspeção (TIM200 15488, 06 a 13/10; Brodowski
-# 12693, aberta desde 02/09) e religamento que dura dias (Canarana 1 14924, 29/09 a 13/10).
-def test_alinhar_aponta_religamento_com_descricao_de_verificacao_de_comunicacao():
+# Falta de comunicação NÃO é parada (Levi, 19/10/2026: "a falta de comunicação não deve entrar no cálculo de
+# disponibilidade"). No Fracttal a OS de "Verificação de comunicação do ..." vem como Religamento (ou Corretiva
+# Emergencial) e, até ali, contava como usina parada (só ia para "alinhar"): em outubro, até 18/10, 113 OS e 27,8% de toda
+# a energia perdida — Brodowski a 0% pela 12693, aberta desde 02/09; TIM200 a 57% pela 15488.
+def test_falta_de_comunicacao_sai_da_conta_e_fica_na_lista_com_a_usina():
+    from disponibilidade import EXCL_COMUNICACAO
     r = roda({"30": [task(description="[ATHN-TIM200] - Verificação de comunicação do ATHN-TIM200",
                           event_date="2026-07-10T12:00:00+00:00", final_date="2026-07-10T14:00:00+00:00")]})
-    assert a_os(r, 30)["h_solar"] == pytest.approx(2.0)                   # conta
-    assert "comunicação" in alinhar(r, 30)[0]["motivo"]
+    o = a_os(r, 30)
+    assert o["excl"] == EXCL_COMUNICACAO and o["kwh"] == 0 and o["usinas"] == ["Alfa"]
+    assert so_alfa(r)["disp"] == 100.0 and so_alfa(r)["n_os"] == 0          # não conta
+    (a,) = alinhar(r, 30)
+    assert a["motivo"] == "fora da conta: falta de comunicação: não é parada" and a["usinas"] == ["Alfa"]
+
+
+def test_falta_de_comunicacao_vale_para_qualquer_tipo_e_aberta_tambem():
+    r = roda({"31": [task(tasks_log_task_type_main="Corretiva Emergencial", code="TC-ALF100-INVR1.1",
+                          description="Falha de comunicacao do inversor 1.1",
+                          event_date="2026-07-10T12:00:00+00:00", final_date="2026-07-12T12:00:00+00:00")],
+              "32": [task(description="[THPN-BWK100] - Verificação de comunicação do THPN-BWK100", id_status_work_order=1,
+                          event_date="2026-07-02T12:00:00+00:00")]})
+    assert {a_os(r, f)["excl"] for f in (31, 32)} == {"falta de comunicação: não é parada"}
+    assert so_alfa(r)["disp"] == 100.0
+
+
+def test_a_aberta_de_comunicacao_fora_do_periodo_nao_entra_na_lista():
+    # a de comunicação é fora da conta, mas só aparece no mês que ela toca (como as que contam)
+    r = roda({"33": [task(description="Verificação de comunicação", event_date="2026-06-01T12:00:00+00:00",
+                          final_date="2026-06-02T12:00:00+00:00")]})
+    assert not [o for o in r["oss"] if o["folio"] == 33] and not alinhar(r, 33)
+
+
+# Dois sinais só do Fracttal que a prova de 15/10/2026 mostrou pesando no mês (a OS CONTINUA contando; só vai para
+# "alinhar"): Religamento com descrição de inspeção (Guatambu 13427, "Inspeção e normalização", desde 10/09) e religamento
+# que dura dias (Canarana 1 14924, 29/09 a 13/10). A verificação de comunicação, que também ia para cá, saiu da conta em
+# 19/10/2026 (acima).
+def test_alinhar_aponta_religamento_com_descricao_de_inspecao_e_ele_conta():
+    r = roda({"30": [task(description="[Thopen - Guatambú 1 - SC] - Inspeção e normalização",
+                          event_date="2026-07-10T12:00:00+00:00", final_date="2026-07-10T14:00:00+00:00")]})
+    assert a_os(r, 30)["h_solar"] == pytest.approx(2.0) and not a_os(r, 30)["excl"]     # conta
+    assert alinhar(r, 30)[0]["motivo"] == "Religamento com descrição de inspeção: houve parada?"
 
 
 def test_alinhar_aponta_religamento_que_dura_mais_de_um_dia():

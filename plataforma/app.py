@@ -30870,6 +30870,9 @@ def _cascata_usina(cliente, usina, ano, mes):
                 fr_falhas.append(_mot)
         if ent and ent.get("site"):
             for o in _frac_os_filtradas(ent["site"], f"{ano:04d}-{mes:02d}", falhas=fr_falhas):
+                # falta de comunicação não é parada (Levi, 19/10/2026; a régua do disponibilidade.py)
+                if _disp_mod.eh_falta_de_comunicacao(o.get("descricao"), o.get("ativo")):
+                    continue
                 hs = o.get("horas_solares")
                 if hs and str(o.get("evento") or "").startswith(f"{ano:04d}-{mes:02d}"):
                     if "religamento" in str(o.get("tipo") or "").lower():
@@ -31178,6 +31181,9 @@ def _relatorio_build(usina, ini, fim):
             for (ano, mes) in meses:
                 for o in _frac_os_filtradas(ent["site"], f"{ano:04d}-{mes:02d}"):
                     if not _os_no_periodo(o) or o.get("folio") in vistos:
+                        continue
+                    # falta de comunicação não é parada (Levi, 19/10/2026; a régua do disponibilidade.py)
+                    if _disp_mod.eh_falta_de_comunicacao(o.get("descricao"), o.get("ativo")):
                         continue
                     vistos.add(o.get("folio"))
                     hs, _sf = _os_hs(o)

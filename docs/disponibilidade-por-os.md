@@ -137,7 +137,8 @@ pois são objetivos diferentes"). A OS conta pelas datas dela; o que estiver est
 - evento depois do fim (usou a criação) e fim antes até da criação, ou sem a criação (0 h);
 - sem `final_date` na tarefa (usou o `wo_final_date`);
 - site agrupado sem a usina na descrição;
-- Religamento cuja descrição é verificação de comunicação ou inspeção ("houve parada?");
+- Religamento cuja descrição é inspeção ("houve parada?");
+- OS de falta de comunicação, que desde 19/10/2026 fica FORA da conta (abaixo), com a usina;
 - religamento fechado que durou mais de um dia (a aberta já vai pelos dias em aberto; corretiva longa não: trocar
   inversor leva dias);
 - OS fora da conta por dado da própria OS (sem evento, concluída sem fim, site ou ativo que o cadastro não reconhece).
@@ -146,6 +147,14 @@ Prova de 15/10/2026 (varredura real × o índice publicado com a regra antiga): 
 perdas a mais, ~4,8 GWh eram dias que o juiz exonerava e ~1,5 GWh OS abertas desde setembro que sumiam (Brodowski 12693,
 "Verificação de comunicação", aberta desde 02/09; Guatambu 13427, "Inspeção e normalização", desde 10/09). 175 OS de
 outubro na lista "alinhar".
+
+### 4.1.1 Falta de comunicação não é parada (19/10/2026)
+
+"A falta de comunicação não deve entrar no cálculo de disponibilidade" (Levi, 19/10). No Fracttal a OS de "Verificação de
+comunicação do ..." vem como Religamento (às vezes Corretiva Emergencial), e a conta a tomava por usina parada. Toda OS
+cuja descrição ou ativo diz "comunicação" (`disponibilidade.eh_falta_de_comunicacao`, sem acento e sem caixa) sai da conta
+(`EXCL_COMUNICACAO`), qualquer que seja o tipo, e fica na lista "alinhar" como fora da conta, com a usina. Em outubro, até
+18/10: 113 OS, 27,8% da energia perdida; Thopen 81,47% → ~86,2%; Brodowski 0% → 100% (OS 12693, aberta desde 02/09).
 
 ### 4.2 Setembro para trás: só a Thopen, pelo BD_Thopen (15/10/2026)
 

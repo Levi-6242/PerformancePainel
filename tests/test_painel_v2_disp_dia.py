@@ -71,6 +71,16 @@ def test_fim_antes_ate_da_criacao_conta_zero():
     assert r["h"] == 0 and r["pct"] == pytest.approx(100.0)
 
 
+def test_falta_de_comunicacao_nao_tira_disponibilidade_do_dia():
+    # Levi, 19/10/2026: "a falta de comunicação não deve entrar no cálculo de disponibilidade" — a OS de verificação de
+    # comunicação (Religamento no Fracttal) fica só no título do dia, fora da conta
+    os_com = {**_os(5, "2026-10-05T06:00:00", "2026-10-05T18:00:00"),
+              "descricao": "[THPN-BWK100] - Verificação de comunicação do THPN-BWK100"}
+    r = _roda({}, [os_com], "2026-10-05", "2026-10-14T10:00:00")
+    assert r["h"] == 0 and r["pct"] == pytest.approx(100.0)
+    assert any("falta de comunicação" in x for x in r["outras"])
+
+
 def test_dia_antes_de_outubro_nao_tem_disponibilidade_por_inversor():
     r = _roda({"Inversor 2.2": [_os(16338, "2026-09-16T06:00:29", tipo="Corretiva Emergencial")]}, [], "2026-09-20",
               "2026-10-14T10:00:00")

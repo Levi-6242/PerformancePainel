@@ -46,6 +46,18 @@ def test_relatorio_divide_pelos_dias_do_periodo_e_nao_pelos_dias_com_geracao(usi
     assert cheio["disponibilidade_ufv"] == falha["disponibilidade_ufv"] == 0.9667
 
 
+def test_falta_de_comunicacao_nao_entra_na_cascata_nem_no_relatorio(usina_controlada, monkeypatch):
+    # Levi, 19/10/2026: "a falta de comunicação não deve entrar no cálculo de disponibilidade"
+    usina_controlada("Usina X", "pv", [], [])
+    monkeypatch.setattr(app, "_frac_usina_ent", lambda *a, **k: {"site": "TesteCo - Usina X - SP"})
+    monkeypatch.setattr(app, "_frac_os_filtradas", lambda site, mes, falhas=None: [
+        {**OS_DE_UM_DIA[0], "descricao": "[THPN-BWK100] - Verificação de comunicação do THPN-BWK100"}])
+    c = app._cascata_usina("", "Usina X", 2026, 9)
+    r = app._relatorio_build("Usina X", "2026-09-01", "2026-09-30")
+    assert c["disponibilidade_ufv"] == 1.0 and c["os"]["qtd"] == 0
+    assert r["disponibilidade_ufv"] == 1.0
+
+
 def test_cascata_do_mes_que_ainda_nao_fechou_um_dia_sai_sem_disponibilidade(usina_controlada, monkeypatch):
     # mês futuro (nenhum dia fechado): "—" na tela, nunca 0% nem 100%
     usina_controlada("Usina X", "pv", [], [])
