@@ -271,6 +271,7 @@ def test_trackers_da_api_pv_e_o_rollup_seguem_a_decisao(ligado, monkeypatch):
     assert [pid for pid, _e in app._pv_trk_itens()] == [11]
     assert app._rollup_cob_fonte("API PV", 11) == "pv" and app._rollup_cob_fonte("API PV", 18758732) == "semp"
     assert app._rollup_cob_fonte("Thopen", 5) == "pg" and app._rollup_cob_fonte("RenoGrid", 9) == "solaredge"
+    assert app._rollup_cob_fonte("Alves Lima", 18766373) == "alveslima"                 # a Morada Nova (19/10/2026)
     assert app._cob_entra("pv", 12) is False and app._cob_entra("pg", 99) is True        # pg não governada
 
 

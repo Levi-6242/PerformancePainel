@@ -56,8 +56,8 @@ class ForaDoPerfil(FonteNaoRespondeu):
     única). A tela não diz "a fonte não respondeu" (ninguém perguntou) nem oferece tentar de novo (não adiantaria)."""
 
 
-# As fontes do Tempo real, na ordem dos cards da Entrada (`_ENTRADA_GRUPOS`), mais as abas Alves Lima e 2C · API PV do
-# Monitoramento, menos Athon e Axis (fora a pedido do Levi, 13/10/2026; ver a docstring). `familia` = quem lê (None = sem
+# As fontes do Tempo real, na ordem dos cards da Entrada (`_ENTRADA_GRUPOS`), mais a aba 2C · API PV do Monitoramento,
+# menos Athon e Axis (fora a pedido do Levi, 13/10/2026; ver a docstring). `familia` = quem lê (None = sem
 # histórico de potência por inversor, com o motivo); `grandeza` = o que a curva mostra, quando não é a potência ativa.
 FONTES = (
     {"fonte": "pv", "rotulo": "Thopen · API PV", "familia": "apipv",

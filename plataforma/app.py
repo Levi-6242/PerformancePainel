@@ -5214,11 +5214,13 @@ def entrada_teste(nivel=None):
 # (cliente, fonte como o rollup rotula, id da fonte no Monitoramento) — na ordem em que os cards aparecem
 # SÓ estes cards, nesta ordem (Levi, 25/09/2026: "quero que apareça apenas o que eu quero que apareça! Thopen, Athon,
 # Axis, 2C e RenoGrid!"). NENHUM card nasce fora desta lista — ver o filtro no fim do _entrada_tempo_real_build: usina
-# ou tracker sem cliente no cadastro não vira mais um "Sem cliente". Alves Lima saiu; a SEMP saiu junto e voltou na
-# mesma tarde, no lugar de antes ("sumiu as usinas da SEMP, pode botar de volta no tempo real").
+# ou tracker sem cliente no cadastro não vira mais um "Sem cliente". A SEMP saiu e voltou na mesma tarde, no lugar de
+# antes ("sumiu as usinas da SEMP, pode botar de volta no tempo real"). A Alves Lima (Morada Nova, conta oem@) saiu no
+# mesmo dia e voltou em 19/10/2026, logo depois da SEMP (Levi: "inclua a usina morada nova cliente Alves Lima no tempo
+# real!"); ela também entrou no _portfolio_rollup, onde nunca esteve — sem isso o card nasceria sempre vazio.
 _ENTRADA_GRUPOS = [("Thopen", "API PV", "thopen-pv"), ("Thopen", "Thopen", "thopen-db"), ("Athon", "Athon", "athon"),
                    ("Axis", "Axis", "axis"), ("Renogrid", "RenoGrid", "renogrid"), ("2C", "2C", "2c"),
-                   ("SEMP", "SEMP", "semp"),
+                   ("SEMP", "SEMP", "semp"), ("Alves Lima", "Alves Lima", "alveslima"),
                    # pelo scadaGridco (06/10/2026, Levi: "separe green yellow e sal energia"). O cliente é o da Info
                    # Geral, escrito como lá ("Greenyellow").
                    ("Greenyellow", "GreenYellow", "greenyellow"), ("Sal Energia", "Sal Energia", "salenergia")]
@@ -5358,8 +5360,8 @@ def _entrada_tempo_real_build() -> dict:
     except Exception:                                             # noqa: BLE001 — sem estado, tudo e "nao reconhecida"
         acomp_de = {}
 
-    # Os 8 pares cliente x fonte do Monitoramento existem SEMPRE, com ou sem dado (pedido do Levi, 05/09): Axis esta
-    # sem token web e Alves Lima nao esta no rollup, mas o plantao precisa ver o card e ler "sem leitura" nele.
+    # Os pares cliente x fonte de _ENTRADA_GRUPOS existem SEMPRE, com ou sem dado (pedido do Levi, 05/09): a Axis esta
+    # sem token web, mas o plantao precisa ver o card e ler "sem leitura" nele.
     for cliente, fonte, _fid in _ENTRADA_GRUPOS:
         g(cliente, fonte)
 
@@ -16741,7 +16743,8 @@ def _somar_partes_da_usina(item, irmas):
 
 
 _ROLLUP_COB_FONTE = {"Thopen": "pg", "Athon": "sunop", "Axis": "axis", "2C": "2capi", "RenoGrid": "solaredge",
-                     "SEMP": "semp", "GreenYellow": "greenyellow", "Sal Energia": "salenergia"}
+                     "SEMP": "semp", "Alves Lima": "alveslima", "GreenYellow": "greenyellow",
+                     "Sal Energia": "salenergia"}
 
 
 def _rollup_cob_fonte(rotulo, plant_id) -> str:
@@ -16837,6 +16840,11 @@ def _portfolio_rollup() -> list:
             add("SEMP", r)
     except Exception as e:
         print(f"[macro] SEMP indisponível: {e}")
+    try:                                      # Alves Lima (conta oem@ da API PV — Morada Nova), 19/10/2026 — SÓ cache
+        for r in (_alveslima_cache.get("payload") or {}).get("rows", []):
+            add("Alves Lima", r)
+    except Exception as e:
+        print(f"[macro] Alves Lima indisponível: {e}")
     for _rot, _c in (("GreenYellow", _gy_cache), ("Sal Energia", _sal_cache)):   # scadaGridco (06/10/2026) — SÓ cache
         try:
             for r in (_c.get("payload") or {}).get("rows", []):
@@ -19276,10 +19284,10 @@ def api_painel_correlacao(fonte, idusina):
             pid = int(idusina)
         except ValueError:
             return jsonify({"erro": "id inválido"}), 400
-        token = get_token()
+        token = _pv_token_for(pid)       # a conta que enxerga a usina: a oem@ para Tucano e Morada Nova (19/10/2026)
         nome_raw = str(pid)
         try:
-            nome_raw = next((p["nome"].strip() for p in get_plants(token) if p["id"] == pid), nome_raw)
+            nome_raw = next((p["nome"].strip() for p in get_plants(get_token()) if p["id"] == pid), nome_raw)
         except Exception:
             pass
         series, xs = _pv_series_inversores(pid, nome_raw, token)
@@ -22793,9 +22801,13 @@ def api_pv_pr_plant(plant_id):
     # Fonte fora não é "usina não encontrada" (prova do Diagnóstico, 11/10/2026): o get_token() fora do try estourava
     # num 500 em HTML quando a autenticação da API PV falhava, e a lista de usinas que falhava virava 404. Os dois são
     # "a fonte não respondeu": 502 com erro/fonte, como o resto do Diagnóstico.
+    # O token é o da conta que ENXERGA a usina (19/10/2026): Tucano 1 e 2, Morada Nova e as da 2C pela API PV são da
+    # conta oem@, e o day_inverter com o token da principal volta "Invalid id" — no servidor, às 23h de 19/10, o
+    # Diagnóstico da Tucano e da Araputanga dizia "PR do dia não respondeu" toda vez. A lista de usinas é uma só (o
+    # get_plants junta as da oem@).
     try:
-        token = get_token()
-        plants = get_plants(token)
+        plants = get_plants(get_token())
+        token = _pv_token_for(plant_id)
     except Exception as e:
         return jsonify({"erro": f"API PV não respondeu ({e.__class__.__name__})", "fonte": "API PV", "fonte_ok": False,
                         "inversores": []}), 502

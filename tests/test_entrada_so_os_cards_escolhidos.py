@@ -7,8 +7,9 @@ trackers parados da API PV ela se chama "Sete Lagoa", o nome não casava com o d
 dela ficavam sem cliente e viravam um card novo — com o link da Thopen PV, parecendo uma cópia dela. Três travas:
   1. o tracker casa com a usina do card também pelo plant_id (18771901 é a Sete Lagoas nos dois lados);
   2. nenhum card nasce fora da lista (_ENTRADA_GRUPOS): o que ainda ficar sem dono não vira "Sem cliente";
-  3. Alves Lima saiu da lista. A SEMP saiu junto e VOLTOU na mesma tarde ("sumiu as usinas da SEMP, pode botar de
-     volta no tempo real"), no lugar de antes, depois da 2C.
+  3. a SEMP saiu e VOLTOU na mesma tarde ("sumiu as usinas da SEMP, pode botar de volta no tempo real"), no lugar de
+     antes, depois da 2C. A Alves Lima saiu junto e voltou em 19/10/2026, logo depois da SEMP, com a Morada Nova ("inclua
+     a usina morada nova cliente Alves Lima no tempo real!").
 A União (2C, conta oem@ da API PV) entra no card da 2C pelo nome do cadastro, "União 1 e 2" (tests/test_2c_uniao.py).
 """
 import pytest
@@ -16,7 +17,7 @@ import pytest
 import app
 
 CARDS = [("Thopen", "API PV"), ("Thopen", "Thopen"), ("Athon", "Athon"), ("Axis", "Axis"),
-         ("Renogrid", "RenoGrid"), ("2C", "2C"), ("SEMP", "SEMP"),
+         ("Renogrid", "RenoGrid"), ("2C", "2C"), ("SEMP", "SEMP"), ("Alves Lima", "Alves Lima"),
          ("Greenyellow", "GreenYellow"), ("Sal Energia", "Sal Energia")]   # scadaGridco, 06/10/2026
 
 
@@ -28,7 +29,8 @@ def entrada(monkeypatch):
     monkeypatch.setattr(app, "INFO_GERAL", {
         "setelagoas": {"cliente": "2C", "estado": "MG", "regiao": "Sudeste"},
         "união1e2": {"usina": "União 1 e 2", "cliente": "2C", "estado": "Piaui", "regiao": "Nordeste"},
-        "ufvtucano1": {"cliente": "SEMP", "estado": "BA", "regiao": "Nordeste"}})
+        "ufvtucano1": {"cliente": "SEMP", "estado": "BA", "regiao": "Nordeste"},
+        "moradanova": {"cliente": "Alves Lima", "estado": "Ceará", "regiao": "Nordeste"}})
     monkeypatch.setattr(app, "_carteira_de", lambda nome: None)
     monkeypatch.setattr(app, "_etm_prob_cache", {"ts": 0.0, "data": {"itens": [], "mes": "09/2026"}})
     monkeypatch.setattr(app, "_ENTRADA_TRK_PRAZO_S", 3)
@@ -54,13 +56,19 @@ def test_so_os_cards_escolhidos_na_ordem(entrada):
 
 def test_ninguem_vira_sem_cliente_nem_card_fora_da_lista(entrada):
     d = app._entrada_tempo_real_build()
-    assert not [g for g in d["grupos"] if g["cliente"] in ("Sem cliente", "Alves Lima")]
+    assert not [g for g in d["grupos"] if g["cliente"] == "Sem cliente"]
 
 
 def test_a_semp_voltou_com_as_usinas_dela(entrada):
     d = app._entrada_tempo_real_build()
     semp = next(g for g in d["grupos"] if g["cliente"] == "SEMP")
     assert [u["usina"] for u in semp["usinas"]] == ["UFV Tucano 1"] and semp["fonte_id"] == "semp"
+
+
+def test_a_alves_lima_voltou_com_a_morada_nova(entrada):
+    d = app._entrada_tempo_real_build()
+    al = next(g for g in d["grupos"] if g["cliente"] == "Alves Lima")
+    assert [u["usina"] for u in al["usinas"]] == ["Morada Nova"] and al["fonte_id"] == "alveslima"
 
 
 def test_a_uniao_entra_no_card_da_2c(entrada):

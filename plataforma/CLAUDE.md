@@ -1411,6 +1411,23 @@ PR — 15 sem um dia no BD_Thopen (Delmiro Gouvea 1 a 4…) e a Guatambu, com ge
 Lyon e Pharma II a IV têm meta de PR 0 em setembro (cadastro vazio gravado como zero). Teste:
 `tests/test_hist_seletor_e_uniao.py`.
 
+## Alves Lima (Morada Nova) no tempo real (19/10/2026)
+
+Levi: "inclua a usina morada nova cliente Alves Lima no tempo real!". A fonte `alveslima` (conta oem@, `PV_FONTES`
+18766373) tinha a aba no Monitoramento desde 19/08, mas saiu dos cards da Entrada em 25/09 e **nunca esteve no
+`_portfolio_rollup`** — por isso, mesmo com o card na lista, ele nasceria vazio, e o Painel NOC não a via. Agora, como a
+SEMP: card ("Alves Lima", "Alves Lima", "alveslima") logo depois da SEMP em `_ENTRADA_GRUPOS`; `add("Alves Lima", r)` no
+rollup lendo SÓ o `_alveslima_cache`; "Alves Lima" → "alveslima" no `_ROLLUP_COB_FONTE` (a decisão vigente nas Fontes do
+tempo real é "incluir" desde a foto de 11/10); `'Alves Lima':'pv'` no `FMAP` do Painel NOC, para o drill. O cliente do
+card sai da Info Geral (Morada Nova = "Alves Lima", Ceará). **Acoplamento:** o `FONTE_DO_DIAGNOSTICO` de
+`nexus/static/porta.js` é cópia do `FMAP` — mudou um, muda o outro (sem a entrada, a Morada Nova some do seletor do
+Diagnóstico do Nexus). O `KEYPFX` do Painel NOC ganhou "SEMP" → "semp" e "Alves Lima" → "al" (o prefixo da aba no
+Monitoramento): sem ele o comentário publicado no drawer saía calado. **O Diagnóstico das usinas da oem@ pede o PR do dia
+com o token da conta que as enxerga** (`_pv_token_for` em `/api/pv/pr/<id>` e na correlação `pv`): até aqui ia o da
+principal e, no servidor às 23h de 19/10, Tucano e Araputanga voltavam "Invalid id" (502, "PR do dia não respondeu").
+Sem tracker na usina, o quadro de Trackers do card diz "sem leitura", como na RenoGrid. Teste:
+`tests/test_alveslima_tempo_real.py` e `tests/test_entrada_so_os_cards_escolhidos.py`.
+
 ## Fonte `2capi`: as três usinas da 2C pela API PV
 
 Desde 11/09/2026 Araputanga (18771898), "Sete Lagoa" (18771901 — singular na API, "Sete Lagoas" no cadastro) e Tupi

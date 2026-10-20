@@ -917,10 +917,12 @@ document.querySelectorAll('.chip').forEach(c=>c.onclick=()=>{
    (strings, trackers, ETM), comparativo entre inversores, curva do inversor sobre a da usina, últimos dias, o que
    aconteceu hoje. Fracttal e comentários ficam recolhidos no fim. Cada parte chega em paralelo com prazo próprio:
    quem não responde diz isso no lugar em vez de segurar o resto (o banco travou por 15 min em 05/09). */
-/* SEMP navega como 'pv': o id da usina é global na API PV e o backend resolve o token da conta
-   OEM sozinho (_pv_token_for) — o drill completo da Tucano vem de graça. RenoGrid entrou no drill em
-   07/09/2026 (v2 com inversores, PR e energia; sem trackers nem curva por string). */
-const FMAP={'API PV':'pv','Thopen':'pg','Athon':'athon','Axis':'axis','2C':'2c','SEMP':'pv','RenoGrid':'solaredge'};
+/* SEMP e Alves Lima navegam como 'pv': o id da usina é global na API PV e o backend resolve o token da conta
+   OEM sozinho (_pv_token_for) — o drill completo da Tucano e da Morada Nova vem de graça (a Alves Lima entrou no
+   rollup em 19/10/2026). RenoGrid entrou no drill em 07/09/2026 (v2 com inversores, PR e energia; sem trackers nem
+   curva por string). O Nexus tem a CÓPIA deste mapa (FONTE_DO_DIAGNOSTICO em nexus/static/porta.js): mudou aqui,
+   muda lá no mesmo trabalho. */
+const FMAP={'API PV':'pv','Thopen':'pg','Athon':'athon','Axis':'axis','2C':'2c','SEMP':'pv','Alves Lima':'pv','RenoGrid':'solaredge'};
 function hasDrill(p){return p._soHist?true:!!FMAP[p.fonte];}   // usina sem fonte ao vivo → diagnóstico HISTÓRICO (Levi 14/09)
 function hasEngine(p){return p.fonte==='API PV'||p.fonte==='Thopen';}  // motor de causa provável só pv/pg
 function drillUrl(p){
@@ -931,7 +933,9 @@ function drillUrl(p){
 function openHist(k){ const p=MAP[k]; if(p) window.open(drillUrl(p),'_blank'); }
 /* ---- Comentários multi-analista (thread) — MESMA chave/API do dashboard operacional (index.html),
    então um comentário publicado lá ou aqui aparece nos dois lugares. ---- */
-const KEYPFX={'API PV':'pv','Thopen':'pg','Athon':'so','Axis':'so','2C':'owen'};
+// SEMP e Alves Lima com o prefixo da aba deles no Monitoramento (o VKEY, o _ENTRADA_VKEY do app.py), 19/10/2026: sem
+// a chave, o comentário publicado aqui na Morada Nova saía calado (stateKey null) e o já feito no Monitoramento não vinha.
+const KEYPFX={'API PV':'pv','Thopen':'pg','Athon':'so','Axis':'so','2C':'owen','SEMP':'semp','Alves Lima':'al'};
 function stateKey(p){const pfx=KEYPFX[p.fonte];return pfx?(pfx+':'+p.plant_id):null;}
 let _comentKeyAtual=null;
 function _cmEsc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}

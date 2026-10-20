@@ -674,7 +674,8 @@ abrir duas vezes no livro. A PV Plataforma é só reserva.
 
 ### 12.2 O rollup (`_portfolio_rollup`) e o status do macro
 
-- Junta as fontes (Banco, API PV, Athon, Axis, 2C, RenoGrid, SEMP), uma entrada por usina de exibição (sub-usinas da
+- Junta as fontes (Banco, API PV, Athon, Axis, 2C, RenoGrid, SEMP, Alves Lima desde 19/10/2026, GreenYellow e Sal
+  Energia), uma entrada por usina de exibição (sub-usinas da
   mesma fonte somadas: Altair 1 a 5 viram "Altair"). Na disputa da usina, **vence a pior** (menor severidade).
 - **A 2C entra com a linha da tabela, só a da API** (`_2c_linhas_api`, 29/09): a Ipixuna do Pará são três plantas
   (Santa Cecilia 1, 2 e 3) somadas como fatias. Sem a tabela da API no cache, a 2C fica fora — o e-mail não é reserva.
