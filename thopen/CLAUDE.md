@@ -371,7 +371,8 @@ nova na resposta = entrar em `CHAVES` + teste.
   - **Dia que entra**: geração > 0, ou 0 com irradiação medida (a usina parada com sol). O 0 sem medição é a linha que o
     BD cria de antemão (em 20/10, hoje e ontem assim em 93 e 92 de 98 usinas): fica de fora. É **furo** ("N dias sem
     dado" na célula da usina, com os dias no título) todo dia do calendário sem dado até o **último dia coletado da
-    carteira** (revisão de 20/10: na Polaris, 7 de 23 usinas tinham parado em 14/10 com a carteira em 18/10 e sumiam sem
+    carteira** (o mais recente em que ao menos metade das usinas tem geração: uma usina adiantada não marca as outras;
+    revisão de 20/10: na Polaris, 7 de 23 usinas tinham parado em 14/10 com a carteira em 18/10 e sumiam sem
     marca). Nenhum dia coletado no mês (dia 1): "sem ETM" com o motivo "nenhum dia com geração coletado ainda".
   - **Meta e meta de IPOA do período** = Σ (mensal ÷ dias do mês) nesses dias (`_meta2026`: `meta`, `metairr`).
   - **IPOA do dia** = o da ETM se 0,3 a 12 kWh/m²; senão o GHI (coluna "GHI" da aba diária, `_ghi_por_dia`, leitor

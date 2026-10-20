@@ -84,7 +84,7 @@ Os cards do Diário (Energia acumulada, Irradiação no mês, Disponibilidade) *
 1. "Dia com geração" = `ger` > 0, **ou** `ger` = 0 com irradiação medida (a usina parada com sol: é dado ruim de
    verdade e tem de pesar). O 0 sem medição é a linha que o BD cria de antemão para o mês inteiro (medido em 20/10:
    hoje e ontem com 0 kWh e sem IPOA em 93 e 92 de 98 usinas): não entra. É **furo** todo dia do calendário sem dado
-   até o **último dia coletado da carteira** (revisão de 20/10/2026: com o limite no último dia da própria usina, a
+   até o **último dia coletado da carteira** (o mais recente em que ao menos metade das usinas tem geração; revisão de 20/10/2026: com o limite no último dia da própria usina, a
    usina com a coleta parada sumia sem marca); depois dele é "ainda não coletado". Sem nenhum dia coletado (dia 1 do
    mês): "sem ETM", motivo "nenhum dia com geração coletado ainda".
 2. Cobertura conta sobre os dias que entram (os com geração), não sobre os dias corridos.

@@ -174,3 +174,18 @@ def test_geral_marca_furo_ate_o_ultimo_dia_da_carteira(cli, monkeypatch):
     r = cli.get("/api/t/geral?carteira=Thopen&ano=2026&mes=10").get_json()
     assis = next(l for l in r["linhas"] if l["usina"] == "Assis")
     assert assis["furos"] == ["03/10", "04/10", "05/10"]          # até 05/10, o último dia coletado da carteira
+
+
+def test_um_dia_adiantado_de_uma_usina_nao_vira_furo_nas_outras(cli, monkeypatch):
+    # medido em 20/10/2026: uma usina da carteira Thopen já tinha 19/10 e as outras 58 paravam em 18/10 — com o limite
+    # no último dia de QUALQUER usina, as 58 saíam com "1 dia sem dado". O limite é o último dia em que pelo menos
+    # metade das usinas tem geração
+    adiantada = OUT + [{"data": dt.date(2026, 10, 6), "ger": 500.0, "ipoa": 5.0, "disp": None, "com": None}]
+    regs = {"Altair": OUT, "Assis": OUT, "Barretos": adiantada}
+    monkeypatch.setattr(dth, "_daily_records", lambda u: regs[u])
+    monkeypatch.setattr(dth, "_registro", lambda: {u: {"pot_mwp": 1.0} for u in regs})
+    monkeypatch.setattr(dth, "_state", dict(dth._state, daily={u: ("x", "A1") for u in regs}))
+    monkeypatch.setattr(dth, "CARTEIRAS", dict(dth.CARTEIRAS, Thopen=list(regs)))
+    r = cli.get("/api/t/geral?carteira=Thopen&ano=2026&mes=10").get_json()
+    alt = next(l for l in r["linhas"] if l["usina"] == "Altair")
+    assert alt["furos"] == ["03/10", "04/10"]

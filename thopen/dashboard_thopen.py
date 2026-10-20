@@ -1452,10 +1452,16 @@ def _resumo_possivel(usina, ano, mes, recs, produzida, meta_mes, metairr_mes, at
 
 
 def _ultimo_coletado(usinas, ano, mes):
-    """O último dia do mês com geração em alguma usina da carteira (None sem nenhum)."""
-    dias = [r["data"] for u in usinas for r in _daily_records(u)
-            if r["data"].year == ano and r["data"].month == mes and (r["ger"] or 0) > 0]
-    return max(dias) if dias else None
+    """O último dia do mês que a carteira já coletou: o mais recente em que pelo menos METADE das usinas com dado no mês
+    tem geração (None sem nenhum). Não o de qualquer usina: em 20/10/2026 uma usina da Thopen já tinha 19/10 e as outras
+    58 paravam em 18/10 — com o máximo, as 58 saíam com "1 dia sem dado"."""
+    por_usina = [{r["data"] for r in _daily_records(u)
+                  if r["data"].year == ano and r["data"].month == mes and (r["ger"] or 0) > 0} for u in usinas]
+    por_usina = [s for s in por_usina if s]
+    for d in sorted(set().union(*por_usina), reverse=True) if por_usina else []:
+        if 2 * sum(d in s for s in por_usina) >= len(por_usina):
+            return d
+    return None
 
 
 @app.route("/api/t/geral")
