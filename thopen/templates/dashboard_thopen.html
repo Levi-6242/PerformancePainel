@@ -39,6 +39,13 @@
   table.geral tr.tot td{ border-top:2px solid #c9ccd3; }
   table.geral tr.fora td{ border-top:1px dashed #c9ccd3; color:#555; font-style:italic; }
   table.geral tr.fora td:first-child{ font-style:normal; }
+  /* 20/10/2026, a geração possível pelo IPOA (de 10/2026 em diante): 14 colunas na mesma largura da folha (1400 px);
+     "sem ETM" (cobertura abaixo de metade ou sem meta de irradiação) e o furo de coleta ficam à vista, nunca calados */
+  #tblGeral.possivel{ font-size:11px; }
+  #tblGeral.possivel th{ font-size:10px; }
+  table.geral .sem-etm{ color:#8a8f99; font-style:italic; }
+  table.geral .furo{ display:inline-block; margin-left:6px; font-size:10px; font-weight:600; color:#b45309;
+    background:#fff4e5; border-radius:8px; padding:0 6px; }
   /* Capa (réplica do slide de abertura) */
   .capa{ position:relative; min-height:560px; background:#fff; border:1px solid var(--line); border-radius:8px; overflow:hidden; }
   .capa-bar{ position:absolute; left:0; top:0; bottom:0; width:170px; background:#8d8d8d; }
@@ -508,7 +515,7 @@
     <div class="card">
       <h3 id="geralTitulo" style="text-align:left">Resumo UFVs</h3>
       <div style="overflow:auto"><table id="tblGeral" class="geral">
-        <thead><tr>
+        <thead id="geralHead"><tr>
           <th>Usina</th><th>Potência (kWp)</th><th>Meta (kWh)</th><th>Energia Produzida (kWh)</th>
           <th>Diferença Produção (%)</th><th>Irradiação Esperada (kWh/m²)</th><th>Irradiação Medida (kWh/m²)</th>
           <th>Diferença Irradiação (%)</th><th>Disponibilidade (%)</th><th>FC Medido (%)</th>
@@ -633,6 +640,45 @@ async function setCarteira(nome){
 }
 
 // ---------- Visão Geral (resumo da carteira no mês de referência) ----------
+// o cabeçalho de antes de 10/2026 (10 colunas) e o da geração possível (14), Levi 20/10/2026
+const _GERAL_CAB='<tr><th>Usina</th><th>Potência (kWp)</th><th>Meta (kWh)</th><th>Energia Produzida (kWh)</th>'
+  +'<th>Diferença Produção (%)</th><th>Irradiação Esperada (kWh/m²)</th><th>Irradiação Medida (kWh/m²)</th>'
+  +'<th>Diferença Irradiação (%)</th><th>Disponibilidade (%)</th><th>FC Medido (%)</th></tr>';
+const _GERAL_CAB_POSSIVEL='<tr><th>Usina</th><th>Potência (kWp)</th><th>Meta (kWh)</th><th>Energia Produzida (kWh)</th>'
+  +'<th>Diferença Produção (%)</th><th>Irradiação Esperada (kWh/m²)</th><th>Irradiação Medida (kWh/m²)</th>'
+  +'<th>Diferença Irradiação (%)</th><th>Geração Possível (kWh)</th><th>Dif. Possível (%)</th>'
+  +'<th>Possível c/ Expurgos (kWh)</th><th>Dif. c/ Expurgos (%)</th><th>Disponibilidade (%)</th><th>FC Medido (%)</th></tr>';
+// De 10/2026 em diante (Levi, 20/10/2026): meta e irradiação esperada só dos dias com geração, a medida ajustada pela
+// cobertura e a geração possível pelo IPOA (com e sem o expurgo das OS); a conta e o Total vêm do servidor
+// (geracao_possivel.py) — aqui só se desenha. "sem ETM" e o furo de coleta sempre à vista
+function _geralPossivel(d,f,pc,cls){
+  $('tblGeral').classList.add('possivel'); $('geralHead').innerHTML=_GERAL_CAB_POSSIVEL;
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  const porque=r=>r.motivo==='sem_meta_ipoa'?'sem meta de irradiação no mês'
+    :`medição de irradiação em ${r.dias_medidos} de ${r.dias} dias (o mínimo é metade)`;
+  const sem=r=>`<span class="sem-etm" title="${esc(porque(r))}">sem ETM</span>`;
+  const furo=r=>{ const n=(r.furos||[]).length; if(!n) return '';
+    return ` <span class="furo" title="${esc('Sem dado no BD em '+r.furos.join(', '))}">${n===1?'1 dia sem dado':n+' dias sem dado'}</span>`; };
+  const v=x=>x==null?'—':f(x);
+  const linha=(r,c)=>`<tr${c?` class="${c}"`:''}><td>${esc(r.usina)}${furo(r)}</td><td>${f(r.pot_kwp)}</td><td>${f(r.meta)}</td>`
+    +`<td>${f(r.produzida)}</td><td class="${cls(r.dif_prod)}">${pc(r.dif_prod)}</td><td>${f(r.irr_esp)}</td>`
+    +(r.sem_etm?`<td>${sem(r)}</td><td></td><td>${sem(r)}</td><td></td><td></td><td></td>`
+      :`<td title="${esc(`medição de irradiação em ${r.dias_medidos} de ${r.dias} dias`)}">${f(r.irr_med)}</td>`
+      +`<td class="${cls(r.dif_irr)}">${pc(r.dif_irr)}</td><td>${v(r.possivel)}</td>`
+      +`<td class="${cls(r.dif_possivel)}">${pc(r.dif_possivel)}</td><td>${v(r.possivel_exp)}</td>`
+      +`<td class="${cls(r.dif_possivel_exp)}">${pc(r.dif_possivel_exp)}</td>`)
+    +`<td>${pc(r.disp)}</td><td>${pc(r.fc)}</td></tr>`;
+  const T=d.total||{};
+  const so=T.real_etm==null?'':` title="${esc('Só as usinas com ETM: real de '+f(T.real_etm)+' kWh')}"`;
+  return d.linhas.map(r=>linha(r)).join('')
+    +`<tr class="tot"><td>Total</td><td></td><td>${f(T.meta)}</td><td>${f(T.produzida)}</td>`
+    +`<td class="${cls(T.dif_prod)}">${pc(T.dif_prod)}</td><td>${f(T.meta_ipoa)}</td><td>${f(T.ipoa_ajustado)}</td>`
+    +`<td class="${cls(T.dif_ipoa)}">${pc(T.dif_ipoa)}</td><td${so}>${v(T.possivel)}</td>`
+    +`<td class="${cls(T.dif_possivel)}">${pc(T.dif_possivel)}</td><td>${v(T.possivel_exp)}</td>`
+    +`<td class="${cls(T.dif_possivel_exp)}">${pc(T.dif_possivel_exp)}</td><td>${pc(T.disp)}</td><td></td></tr>`
+    +(d.fora||[]).map(r=>linha(r,'fora')).join('');   // as usinas fora do Total (ex.: Piancó), abaixo dele
+}
+
 async function renderGeral(){
   const mv=$('selMes').value; if(!mv) return;
   const [a,m]=mv.split('-');
@@ -642,6 +688,8 @@ async function renderGeral(){
   const f=v=>v==null?'':nf2.format(v);
   const pc=v=>v==null?'':(v*100).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
   const cls=v=>v==null?'':(v<0?'neg':'pos');
+  if(d.regra==='possivel'){ $('geralBody').innerHTML=_geralPossivel(d,f,pc,cls); return; }
+  $('tblGeral').classList.remove('possivel'); $('geralHead').innerHTML=_GERAL_CAB;
   const row=r=>`<tr><td>${r.usina}</td><td>${f(r.pot_kwp)}</td><td>${f(r.meta)}</td><td>${f(r.produzida)}</td>`
     +`<td class="${cls(r.dif_prod)}">${pc(r.dif_prod)}</td><td>${f(r.irr_esp)}</td><td>${f(r.irr_med)}</td>`
     +`<td class="${cls(r.dif_irr)}">${pc(r.dif_irr)}</td><td>${pc(r.disp)}</td><td>${pc(r.fc)}</td></tr>`;

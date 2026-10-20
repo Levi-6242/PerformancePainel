@@ -85,3 +85,30 @@ def test_ghi_le_a_coluna_da_aba():
             ["Altair", dt.date(2026, 10, 2), None, None, 800]]
     assert dth._ghi_das_linhas(hdr, rows) == {dt.date(2026, 10, 1): 4.2}
     assert dth._ghi_das_linhas(hdr[:3] + hdr[4:], [r[:3] + r[4:] for r in rows]) == {}
+
+
+def _html():
+    return open(os.path.join(AQUI, "..", "thopen", "templates", "dashboard_thopen.html"), encoding="utf-8").read()
+
+
+def _corpo(nome):
+    h = _html()
+    i = h.index("async function %s(" % nome)
+    return h[i:h.index("\n}\n", i)]
+
+
+def test_visao_geral_de_outubro_com_as_14_colunas_e_o_total_do_servidor():
+    h = _html()   # o desenho da regra nova mora num auxiliar (_geralPossivel) chamado pelo renderGeral
+    g = h[h.index("const _GERAL_CAB="):h.index("\n}\n", h.index("async function renderGeral("))]
+    assert "d.regra==='possivel'" in g and "d.total" in g
+    for cab in ("Geração Possível (kWh)", "Dif. Possível (%)", "Possível c/ Expurgos (kWh)", "Dif. c/ Expurgos (%)"):
+        assert cab in g, cab
+    assert "sem ETM" in g and "dias sem dado" in g and "medição de irradiação em" in g
+    assert 'id="geralHead"' in _html()
+    # antes de outubro, o cabeçalho e o Total de antes (somado no navegador)
+    assert "Diferença Irradiação (%)" in g and "const sMeta=" in g
+
+
+def test_visao_geral_de_outubro_cabe_na_folha():
+    h = _html()
+    assert "#tblGeral.possivel" in h       # a fonte encolhe só com a regra nova
