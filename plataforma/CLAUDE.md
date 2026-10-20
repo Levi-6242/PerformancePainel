@@ -429,7 +429,7 @@ porta diferente é OUTRA origem: a moldura só abre atrás da `ferramentas/porta
 
 **O tema do Nexus nas telas (12/10/2026**, Levi: "em Falhas de strings e trackers falta o tema claro"). A aba de Falhas
 era sempre navy na moldura; agora o navy vale só com o Nexus no escuro (`html.modo-nexus:not([data-tema="claro"])`), e o
-claro usa as cores da identidade do site. O tema vem do cookie `nexus_tema` (ou do localStorage `nexus.tema`) antes da 1ª
+claro usa o claro do Nexus (desde o redesenho de 20/10/2026; antes, as cores da identidade do site). O tema vem do cookie `nexus_tema` (ou do localStorage `nexus.tema`) antes da 1ª
 pintura, e o botão do Nexus troca a tela na hora pelo evento `storage` (chega às molduras da mesma origem). Tela nova com
 navy próprio no modo Nexus segue a mesma régua. Teste: `tests/test_falhas_tema_nexus.py`. **Sem botão de tema dentro do
 Nexus (13/10/2026**, Levi: "tira o botão de tema das telas da plataforma também", depois de o 2º cabeçalho sair): o Painel
@@ -1705,6 +1705,34 @@ desde 29/09/2026 inclui a Ipixuna, pelas Santa Cecilia). Ciclo caiu de 80 s para
 `PV_INV_NOMES` porque a conta oem@ não pode chamar `/plant_devices`.
 
 ## Falhas de strings e trackers (aba do Diagnóstico, 24/09/2026)
+
+**A tela redesenhada do zero (20/10/2026**, Levi: "mantenha os pilares mas quero que fique mais fácil de entender e o
+design mais cara do Nexus"; o foco é o `/t/performance/strings-trackers` do Nexus, que é esta mesma página na moldura).
+Mockup com o dado real de outubro aprovado no mesmo dia. O que mudou em
+`templates/falhas.html`, sem mudar o pacote nem a régua:
+- **Ordem = a pergunta do plantão primeiro.** Cabeçalho do Nexus ("Performance" / "Strings e trackers" / a pergunta),
+  com o Mês e o frescor à direita (o Mês vale também na Qualidade, onde antes sumia). Abas com a pílula "N parados
+  agora" (o recorte de cliente, fonte e busca, sem a usina da outra aba). Faixa de números: **Parados agora** (clicável:
+  liga "Só parados agora"; num mês fechado vira "no fim do mês"), Perda no mês (com quanto dela tem estimativa), Pararam
+  no mês (não depende do "Só parados agora"), Usinas afetadas — com "Só parados agora" ligado, perda e usinas passam a
+  dizer "dos parados" (é a lista de baixo). Depois os **cartões por usina** do que segue parado (inclui os crônicos,
+  como o card "Parados em aberto" de antes, agora também nas strings), "Onde mais se perdeu" (barra neutra: perda não é
+  verde) com a tabela por cliente, e a lista com os filtros em cima.
+- **Avisos**: estimativa vai para o ≈ da perda (a dica diz qual), contexto vai para a coluna dele ("vinha parado desde",
+  "voltou e parou de novo", "voltou a girar com desvio severo"), o resto vira etiqueta cinza. Antes eram etiquetas âmbar
+  iguais em quase toda linha. A Qualidade traduz os contadores (`DIZ`, o nome de dentro fica no title) e junta os avisos
+  sem a data (eram 410 caixas em outubro, viram 26).
+- **Tirar da conta** = o desconsiderar de antes (mesma rota, mesma caixa: marcar tira, desmarcar devolve), com as tiradas
+  numa gaveta lateral (a mensagem sai dentro dela, o foco vai e volta; a perda é a do pacote do mês, o resumo da hora fica
+  de reserva); o 403 do gestor diz o motivo (`j.error`). Visão padrão das strings: **Por string** (parou /
+  voltou); "Por inversor e dia" segue no segmentado.
+- **Tema**: tokens do `nexus.css`; aberta direto e no Nexus claro, o claro do Nexus; no Nexus escuro, o navy. `--paper`,
+  `--mist` e `--green` guardam os nomes de antes porque o `test_porta_nexus` os confere. Sem `zoom` (era 1.2): a escala é
+  a do Nexus, como o Painel NOC. Sem o `#prop` vazio no hash.
+- **Prova**: os números do print do Levi (Trackers · 2C · Sete Lagoas, crônicos escondidos: 13,6 MWh, 56 paradas, 27
+  trackers, 4 parados agora) saem iguais; a 390 px a página não rola de lado. Os testes de tela (`test_falhas_*`,
+  `test_porta_nexus`, `test_sessao_vencida_sem_numero_falso`, `test_telas_sem_funcao_fantasma`) seguem passando com os
+  mesmos ids (`f-mes`, `f-inv`, `f-str`, `frio`, `fonte`, `t-vaz`, `t-trv`, `t-sc`) e o mesmo `filtra()`.
 
 `/painel/falhas` (debaixo do `/painel` por causa do Caddy): cada string sem corrente e cada tracker parado do mês,
 de quando saiu a quando voltou, com a perda em kWh. Link no card "Diagnóstico de performance" da Entrada.
