@@ -362,25 +362,44 @@ nova na resposta = entrar em `CHAVES` + teste.
   vez no `#chDiario`) abre a janela do dia. Dica "Clique na barra de um dia para contestar os dados dele" sob o título
   e cursor de mão (`.contesta`) só de 10/2026 em diante, com o card e com algum canal; fora de todo PDF. Dia futuro
   do mês corrente não abre.
-- **A linha preta é a geração esperada pelo IPOA** (Levi, 20/10/2026: "quero que faça um cálculo proporcional a kwp
-  para a linha mostrar qual seria a geração com aquele IPOA ao invés de só medir IPOA"; a conta escolhida, "kWp × IPOA ×
-  PR da meta"): `pontos[].esperada` = kWp do cadastro × IPOA do dia × PR da meta do mês (`_base_esperada`,
-  `_esperada_ipoa`; PR em % vira fração), no eixo da energia; o mouse mostra "Esperada pelo IPOA 24.015 kWh · IPOA 4,65
-  kWh/m²" e o título vira "Energia (kWh) × Geração esperada pelo IPOA (kWh)". Altair, 03/10/2026: 6.898 kWp × 4,6517 ×
-  0,748 = 24.014,6 kWh esperados contra 21.760 gerados. Em 20/10/2026 as 100 usinas tinham kWp e PR em outubro (PR de
-  0,654 a 0,879). Sem kWp ou sem PR na meta (`esperada_base` nula; o ano que não é o da meta), volta a linha da
-  irradiação em kWh/m², com o eixo da direita: nada some calado. A Metodologia diz a fórmula
-  (`tests/test_thopen_esperada_ipoa.py`).
+- **Geração possível pelo IPOA, de 10/2026 em diante** (Levi, 20/10/2026, a regra completa que trocou a conta kWp ×
+  IPOA × PR da manhã do mesmo dia; spec `docs/superpowers/specs/2026-10-20-thopen-geracao-possivel-design.md`). A conta
+  mora em `geracao_possivel.py` (puro) e vale na Visão Geral e na linha preta do Diário; antes de outubro, tudo como era
+  (a Visão Geral de 10 colunas, a linha da irradiação), conferido em 20/10: as respostas de setembro idênticas às da
+  `main`. As regras:
+  - **Dia que entra**: geração > 0, ou 0 com irradiação medida (a usina parada com sol). O 0 sem medição é a linha que o
+    BD cria de antemão (em 20/10, hoje e ontem assim em 93 e 92 de 98 usinas): fica de fora e só é **furo** antes do
+    último dia coletado ("N dias sem dado" na célula da usina, com os dias no título).
+  - **Meta e meta de IPOA do período** = Σ (mensal ÷ dias do mês) nesses dias (`_meta2026`: `meta`, `metairr`).
+  - **IPOA do dia** = o da ETM se 0,3 a 12 kWh/m²; senão o GHI (coluna "GHI" da aba diária, `_ghi_por_dia`, leitor
+    próprio: o `_daily_records` não muda de formato) se 1,0 a 10; senão sem medição. Os tetos: uma usina tinha GHI de
+    até 25,7 "kWh/m²" (parece MJ/m²) e 41 dias de outubro IPOA de 10 a 11,6 (tracker). Cobertura (dias medidos ÷ dias
+    que entram) abaixo de metade, ou sem meta de IPOA: **sem ETM** — sem possível, "sem ETM" em cinza na tabela e, no
+    Diário, sem a linha e com a nota sob o gráfico. IPOA medido ajustado = Σ medido ÷ cobertura.
+  - **Possível** = meta do período × ajustado ÷ meta de IPOA (o PR já está na meta); **com expurgos** = × disponibilidade
+    efetiva (a `disponibilidade_dia` das OS, isolada da geração como em 15/10 — o Levi escolheu manter assim em 20/10 —,
+    ponderada pelo IPOA do dia ou a meta de IPOA do dia sem medição; operação carregando = "—").
+  - **Visão Geral**: Meta, Irradiação Esperada e Medida passam a ser as do período (ajustada); 4 colunas novas
+    (Geração Possível, Dif. Possível, Possível c/ Expurgos, Dif. c/ Expurgos), 14 no total; o **Total** vem do servidor
+    (`/api/t/geral` → `total`, `geracao_possivel.portfolio`): meta e produzida das usinas com meta, possível e real só
+    das usinas com ETM, IPOA ponderado pela potência, Disponibilidade na média simples de sempre. Na folha, a tabela
+    ocupa a largura e o cabeçalho quebra (1.330 de 1.330 px; sem isso ia a 1.658 e o PDF cortava).
+  - **Diário**: `pontos[].possivel` = meta mensal × IPOA medido do dia ÷ meta mensal de IPOA, com `ipoa_med` e
+    `fonte_ipoa` (o mouse: "Possível pelo IPOA 21.705 kWh · IPOA 4,65 kWh/m² (ETM)"); `possivel_info` diz a cobertura.
+  - Medido em 20/10, carteira Thopen de outubro (59 usinas): 8 sem ETM, 11 com furo. Altair: meta do período 596.874
+    kWh (1.027.950 ÷ 31 × 18), irradiação 95,18 contra 127,92 esperados, possível 444.128 kWh, produzida 439.566 (−1,03%).
+  - Prova: `tests/test_thopen_geracao_possivel.py` (a regra, números à mão) e `tests/test_thopen_geracao_possivel_rotas.py`
+    (rotas, setembro como era, a tela e a folha).
 - **Zero dos eixos** (Ana, 14/10/2026: "o zero do IPOA deve sempre casar com o zero de geração"): quando a linha é a da
-  irradiação (sem a esperada), o eixo da direita vai SEMPRE de 0 ao maior IPOA do mês (× 1,08; sem irradiação, de 0 a 1) e o da geração é
+  irradiação (antes de 10/2026), o eixo da direita vai SEMPRE de 0 ao maior IPOA do mês (× 1,08; sem irradiação, de 0 a 1) e o da geração é
   "não negativo"; o do Mensal também. A Assis tem IPOA 0 em todo dia de outubro: o Plotly centrava o eixo em 0 (de -1 a
   1) e o zero da irradiação ficava no meio. Só "não negativo" no IPOA não bastava (a Altair começava em 1,82). Vale em
   todo mês.
 - **O valor ao passar o mouse, em todos os gráficos** (Levi, 15/10/2026: "ao passar o mouse na coluna não precisa
   mostrar o dia mas precisamos da unidade de medida certa"; "Precisa ajustar o valor e unidade de medida nessas colunas
   também"): só o valor com a unidade, no formato do Brasil (`_fmtU` + `customdata` + `_HOV`). Energia × Irradiação:
-  "31.249,5 kWh" na barra, "Esperada pelo IPOA 24.015 kWh · IPOA 4,65 kWh/m²" na linha preta (ou "5,43 kWh/m²" na
-  irradiação, sem a esperada), "Meta 31.000 kWh" na meta; Energia Acumulada no Mês e Produção
+  "31.249,5 kWh" na barra, "Possível pelo IPOA 21.705 kWh · IPOA 4,65 kWh/m² (ETM)" na linha preta (ou "5,43 kWh/m²"
+  na irradiação, antes de 10/2026), "Meta 31.000 kWh" na meta; Energia Acumulada no Mês e Produção
   Anual: "379.788 kWh", "3.343.983 kWh"; Mensal (cinco séries por mês): "Produzida 2026: 828,3 MWh". O padrão do Plotly
   dizia "(9, 31.2495k)", "(Meta, 379.7882k)", "(3.343983M, Meta 2026)": o "k"/"M" no lugar da unidade.
 - **Unidade nos títulos** (Levi, 13/10: "está em caps lock, troque por kWh e kWh/m²"): o `.card h3` é caixa alta; a

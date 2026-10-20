@@ -41,8 +41,10 @@
   table.geral tr.fora td:first-child{ font-style:normal; }
   /* 20/10/2026, a geração possível pelo IPOA (de 10/2026 em diante): 14 colunas na mesma largura da folha (1400 px);
      "sem ETM" (cobertura abaixo de metade ou sem meta de irradiação) e o furo de coleta ficam à vista, nunca calados */
-  #tblGeral.possivel{ font-size:11px; }
-  #tblGeral.possivel th{ font-size:10px; }
+  #tblGeral.possivel{ font-size:11px; width:100%; }   /* na largura da página: o cabeçalho quebra em vez de esticar */
+  #tblGeral.possivel th{ font-size:10px; white-space:normal; padding:5px 6px; }
+  #tblGeral.possivel td{ padding:5px 6px; }
+  #tblGeral.possivel td:first-child{ white-space:normal; }   /* a marca do furo desce para baixo do nome */
   table.geral .sem-etm{ color:#8a8f99; font-style:italic; }
   table.geral .furo{ display:inline-block; margin-left:6px; font-size:10px; font-weight:600; color:#b45309;
     background:#fff4e5; border-radius:8px; padding:0 6px; }

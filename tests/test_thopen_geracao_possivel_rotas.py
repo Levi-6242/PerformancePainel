@@ -111,7 +111,11 @@ def test_visao_geral_de_outubro_com_as_14_colunas_e_o_total_do_servidor():
 
 def test_visao_geral_de_outubro_cabe_na_folha():
     h = _html()
-    assert "#tblGeral.possivel" in h       # a fonte encolhe só com a regra nova
+    # medido em 20/10/2026 na largura da folha (1.400 px): sem isto a tabela de 14 colunas ia a 1.658 px e o PDF
+    # Carteira cortava as últimas colunas; com o cabeçalho quebrando, 1.330 de 1.330
+    i = h.index("#tblGeral.possivel{")
+    css = h[i:h.index("</style>", i)]
+    assert "width:100%" in css and "white-space:normal" in css
 
 
 def test_diario_de_outubro_com_a_possivel_do_dia(cli):
