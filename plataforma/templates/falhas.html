@@ -376,8 +376,9 @@
       if ((m = f.match(/^vem do mês anterior \(desde (.*)\)/))) { ctx.desde = m[1]; continue; }
       if ((m = f.match(/^voltou em (\d\d\/\d\d) e parou de novo às (\d\d:\d\d)/))) { ctx.denovo = `voltou em ${m[1]} e parou de novo às ${m[2]}`; continue; }
       if ((m = f.match(/^saiu: (\w+)/))) { ctx.saiu = m[1] === 'normal' ? 'voltou ao alvo' : `voltou a girar com desvio ${m[1].replace('medio', 'médio')}`; continue; }
-      // já ditos em outra coluna: o "parado agora" e o "sem comunicação" no Voltou, o "sem inversor no cadastro" sob o tracker
-      if (/^em aberto$|hora não registrada|^sem comunicação do tracker desde|^sem inversor no BD_Trackers/.test(f)) continue;
+      // já ditos em outra coluna: o "parado agora", o "sem comunicação" e a "usina sem dado" no Voltou, o "sem inversor no
+      // cadastro" sob o tracker
+      if (/^em aberto$|hora não registrada|^sem comunicação do tracker desde|^sem dado da usina desde|^sem inversor no BD_Trackers/.test(f)) continue;
       const c = CURTO.find(([re]) => re.test(f));
       outros.push(c ? f.replace(c[0], c[1]) : f);
     }
@@ -403,8 +404,13 @@
       && (semAberto || !S.aberto || (S.aba === 'trk' ? trkAberto(r) : r.fim_motivo === 'em aberto'))
       && (S.aba !== 'trk' || semCron || (S.aberto && !semAberto) || !S.cron || !r.cronico));
   }
-  // tracker em aberto = sem fim e sem ter ficado sem comunicação no fim (sem_com_desde: não se sabe se voltou)
-  function trkAberto(r) { return !r.fim && !r.sem_com_desde; }
+  // Tracker parado agora = sem fim, menos quando a USINA INTEIRA ficou sem dado depois (Levi, 20/10/2026: "Se a usina inteira
+  // ficou sem dado então sai da conta, se for só aquele tracker é bem possível que esteja parado então segue"). Até aqui o
+  // tracker que perdeu a comunicação sozinho (sem_com_desde) saía, e a usina calada ficava: no pacote de 20/10 11:03, saem
+  // 63 (Mandaguaçu 40, Salto Pirapora 3 16...) e entram 36 (Barretos 9, Aparecida 3 8, TIM100 8...). Leitura incompleta
+  // da usina não é "sem dado": segue.
+  function usinaSemDado(r) { const f = (r.flags || []).find(x => x.startsWith('sem dado da usina desde')); return f ? f.slice('sem dado da usina desde '.length) : ''; }
+  function trkAberto(r) { return !r.fim && !usinaSemDado(r); }
   const parado = r => S.aba === 'trk' ? trkAberto(r) : r.fim_motivo === 'em aberto';
   // o mesmo equipamento pelo cadastro na FONTE (plant_id): Guatambu 1 a 4 têm um TRK1 cada e todos aparecem como "Guatambu"
   const chaveEq = r => r.fonte + '|' + (r.plant_id || r.usina) + '|' + (S.aba === 'trk' ? r.tracker : r.inversor + '|' + r.string);
@@ -458,7 +464,7 @@
   // ── tempo parado, do início ao fim (ou ao último dado). Aproximado (≈) quando o fim não tem hora: "hora não registrada"
   // (meio-dia, ou antes da nova parada do mesmo dia), o tracker que perdeu a comunicação parado e a string que voltou entre
   // duas leituras (o fim é um teto) ──
-  const aproximado = r => (r.fim && r.fim.length <= 10) || (!r.fim && !!r.sem_com_desde) || r.fim_motivo === 'voltou entre varreduras';
+  const aproximado = r => (r.fim && r.fim.length <= 10) || (!r.fim && (!!r.sem_com_desde || !!usinaSemDado(r))) || r.fim_motivo === 'voltou entre varreduras';
   function horasParado(r) {
     const i = new Date(String(r.inicio).replace(' ', 'T'));
     let f = r.fim ? new Date((r.fim.length > 10 ? r.fim : r.fim + ' 12:00').replace(' ', 'T')) : AGORA;
@@ -466,7 +472,9 @@
       const m = (r.flags || []).map(x => x.match(/parou de novo às (\d\d:\d\d)/)).find(Boolean);
       if (m) f = new Date(Math.min(f, new Date(r.fim + 'T' + m[1])));
     }
-    if (!r.fim && r.sem_com_desde) f = new Date(r.sem_com_desde + 'T12:00');
+    // a usina inteira calada: até o dia em que ela sumiu (o tracker sem comunicação sozinho conta até agora: segue parado)
+    const sd = !r.fim && usinaSemDado(r);
+    if (sd) f = new Date(`${String(r.inicio).slice(0, 4)}-${sd.slice(3, 5)}-${sd.slice(0, 2)}T12:00`);
     return Math.max(0, (f - i) / 36e5);
   }
   function tempo(r) {
@@ -650,8 +658,11 @@
   }
   function voltou(r, a) {
     if (S.aba === 'trk') {
-      if (!r.fim && r.sem_com_desde) return `<span class="st semcom" title="Estava parado e perdeu a comunicação: não se sabe se voltou. A perda vai até o último dia em que ele foi visto parado (${dm(r.visto_ate) || '—'}).">sem comunicação desde ${dm(r.sem_com_desde)}</span>`;
-      if (!r.fim) return '<span class="st parado">parado agora</span>' + (a.ctx.denovo ? `<span class="det">${esc(a.ctx.denovo)}</span>` : '');
+      const sd = !r.fim && usinaSemDado(r);
+      if (sd) return `<span class="st semcom" title="A usina inteira parou de mandar dado: não se sabe se o tracker voltou. Fica fora de &quot;parado agora&quot;; a perda vai até o último dia em que ele foi visto parado (${dm(r.visto_ate) || '—'}).">usina sem dado desde ${esc(sd)}</span>`;
+      if (!r.fim) return '<span class="st parado">parado agora</span>' +
+        (r.sem_com_desde ? `<span class="det" title="Só este tracker perdeu a comunicação (a usina segue mandando dado): é bem possível que siga parado. A perda vai até o último dia em que ele foi visto parado (${dm(r.visto_ate) || '—'}).">sem comunicação desde ${dm(r.sem_com_desde)}</span>` : '') +
+        (a.ctx.denovo ? `<span class="det">${esc(a.ctx.denovo)}</span>` : '');
       return `<span class="tab">${fDH(r.fim)}</span>` + (r.fim.length <= 10 ? '<span class="det" title="A régua da plataforma não o viu parado neste dia, mas o registro não guarda a hora em que ele voltou. A perda vai até o fim do último dia parado.">hora não registrada</span>' : '') +
         (a.ctx.denovo ? `<span class="det">${esc(a.ctx.denovo)}</span>` : a.ctx.saiu ? `<span class="det">${esc(a.ctx.saiu)}</span>` : '');
     }
@@ -813,7 +824,7 @@
       `<b>Parada de tracker</b>A régua de parado da plataforma: pelo menos 30 min fora do alvo dentro de 06–18 h com sol acima de ${nf.format(D.regua.sol_min_graus)}°. A parada fecha na primeira vez que ele se mexe, mesmo que vire desvio severo; desvio menor que 2° a parada inteira não conta. "Hora não registrada": o registro guarda só a classe do dia.`,
       `<b>Perda</b>kWp do equipamento × o que a usina gerou por kWp no dia × a parte do dia em que ficou parado (strings: pela altura do sol; trackers: pelas horas de sol × 1 − cos do desvio ao alvo). kWp da string = kWp do inversor ÷ strings ativas; do tracker = kWp do inversor ÷ trackers dele, ou o tracker típico da carteira (${nf.format(D.regua.kwp_trk_tipico)} kWp).`,
       `${inf > 0 ? '!' : ''}<b>Estimativas (≈)</b>Dia ainda sem geração lida vale ${nf.format(D.regua.yield_padrao)} kWh/kWp; tracker sem ângulo conta 25%; dias em que a usina sumiu do registro entre dois dias com a string zerada contam como zerados (${fmtKwh(inf)} neste mês). "Só linhas confiáveis" tira as linhas com captura parcial, buraco de telemetria, dias estimados, sem kWp ou trava não conferida; nos trackers, também as sem ângulo.`,
-      `<b>Parado agora e crônico</b>Parado agora: não voltou até o último dado. Crônico: tracker que já estava parado antes do mês; fica escondido da lista por padrão, mas conta em "Parados agora". Cada mês conta a sua perda; quem vem do mês anterior leva a data em que começou.`,
+      `<b>Parado agora e crônico</b>Parado agora: não voltou até o último dado. Tracker que perdeu a comunicação sozinho segue parado agora (é bem possível que esteja parado); se a usina inteira ficou sem dado, sai. Crônico: tracker que já estava parado antes do mês; fica escondido da lista por padrão, mas conta em "Parados agora". Cada mês conta a sua perda; quem vem do mês anterior leva a data em que começou.`,
       `<b>API PV só pela corrente</b>A queda que a PV Plataforma grava pela potência errava a string (~95% em setembro: Rodrigues 2, Tanabi 2, Ipv29 a Ipv32). ${plural(D.strings.pv_potencia_fora || 0, 'usina-dia saiu', 'usinas-dia saíram')} por isso neste mês; o servidor busca a curva de corrente desses dias aos poucos, dentro da cota.`,
       '!<b>Sem tarifa</b>Nenhuma base tem o preço da energia: a conta para em kWh.',
     ];

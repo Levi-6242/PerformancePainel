@@ -1726,6 +1726,13 @@ Mockup com o dado real de outubro aprovado no mesmo dia. O que mudou em
   numa gaveta lateral (a mensagem sai dentro dela, o foco vai e volta; a perda é a do pacote do mês, o resumo da hora fica
   de reserva); o 403 do gestor diz o motivo (`j.error`). Visão padrão das strings: **Por string** (parou /
   voltou); "Por inversor e dia" segue no segmentado.
+- **Tracker parado agora** (Levi, 20/10/2026: "Se a usina inteira ficou sem dado então sai da conta, se for só aquele
+  tracker é bem possível que esteja parado então segue"): `trkAberto` = sem fim, menos quando o episódio tem o aviso "sem
+  dado da usina desde dd/mm" (o Voltou diz "usina sem dado desde", e o tempo parado vai até esse dia, com ≈). O tracker
+  que perdeu a comunicação sozinho (`sem_com_desde`) passou a contar: "parado agora" com "sem comunicação desde" embaixo,
+  tempo até agora. Leitura incompleta da usina segue contando. No pacote de 20/10 11:03: 925 → 898 (saem 63 — Mandaguaçu
+  40, Salto Pirapora 3 16, Boa Esperança do Sul 1 5, Marajoara I 2; entram 36 — Barretos 9, Mandaguaçu 9, Aparecida 3 8,
+  TIM100 8). Só a tela: a perda e o pacote não mudam. Teste: `tests/test_falhas_parado_agora.py`.
 - **Tema**: tokens do `nexus.css`; aberta direto e no Nexus claro, o claro do Nexus; no Nexus escuro, o navy. `--paper`,
   `--mist` e `--green` guardam os nomes de antes porque o `test_porta_nexus` os confere. Sem `zoom` (era 1.2): a escala é
   a do Nexus, como o Painel NOC. Sem o `#prop` vazio no hash.
