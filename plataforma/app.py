@@ -2,6 +2,7 @@
 import re
 import unicodedata
 import calendar
+import ctypes
 import io
 import csv
 import copy
@@ -20705,6 +20706,11 @@ def _2c_strings_dia_api(date_iso, force=False):
         return ent[1]
     data_br = datetime.strptime(date_iso, "%Y-%m-%d").strftime("%d/%m/%Y")
     out, falhas = {}, []
+    # Um datetime por MINUTO, o mesmo objeto em todas as strings do dia (Desempenho, 20/10/2026): medido dentro do worker
+    # do PC às 15:18, este cache tinha 518 MB (hoje e ontem), cada ponto (datetime, A) com um datetime próprio (48 B de
+    # ~112) e um strptime por ponto (o dia de ~1.600 strings leva minutos de processador no worker). Mesmo valor; o
+    # datetime não muda depois de criado, então dividir o objeto não muda nada para quem lê.
+    momentos = {}
     for code, pids in _2C_STR_PLANTAS.items():
         for pid in pids:
             if not _cob_entra("2capi", pid):                       # tirada na tela: não é coletada
@@ -20733,7 +20739,10 @@ def _2c_strings_dia_api(date_iso, force=False):
                     pts = []
                     for hhmm, v in serie:
                         try:
-                            pts.append((datetime.strptime(f"{date_iso} {hhmm}", "%Y-%m-%d %H:%M"), float(v)))
+                            quando = momentos.get(hhmm)
+                            if quando is None:
+                                quando = momentos[hhmm] = datetime.strptime(f"{date_iso} {hhmm}", "%Y-%m-%d %H:%M")
+                            pts.append((quando, float(v)))
                         except (TypeError, ValueError):
                             continue
                     if pts:
@@ -24873,9 +24882,53 @@ def _janitor_passada():
     return ", ".join(notas)
 
 
+# ── A memória que o worker já soltou volta ao sistema (Desempenho, 20/10/2026) ──────────────────────────────────────────
+# Raio-X do Nexus no servidor: às 14:17 de 20/10 a máquina (7,1 GB) tinha 0,2 GB livres e 3,2 GB no swap; às 14:45 este
+# worker ocupava 3 GB, quase metade dela, e o resto da máquina (o Nexus, o banco) trocava com o disco. Medido dentro do
+# worker do PC às 15:18: os dados somavam ~3,1 GB dos 4,4 GB privados; o resto é o próprio processo, inclusive o que já
+# foi liberado e o alocador guarda para si. No Linux (glibc), cada thread que aloca ao mesmo tempo ganha uma arena de
+# malloc (até 8 por núcleo; o worker tem ~30 threads) e a sobra fica espalhada nelas; e memória livre no meio do heap não
+# volta sozinha. Então: no máximo 2 arenas (o GIL já põe as threads em fila para alocar, então quase não há disputa), e
+# `malloc_trim(0)` depois de cada passada do faxineiro. Não muda nenhum dado. Fora do Linux (o PC) nada acontece. Prova:
+# tests/test_worker_devolve_memoria.py; o efeito se mede no servidor, pelo Raio-X do Nexus.
+M_ARENA_MAX = -8                       # o parâmetro do mallopt na glibc (malloc.h)
+
+
+def _libc_linux():
+    """A libc da glibc no Linux; None fora dele (o PC é Windows) ou sem ela."""
+    if not _sys.platform.startswith("linux"):
+        return None
+    try:
+        return ctypes.CDLL("libc.so.6")
+    except OSError:
+        return None
+
+
+def _limita_arenas(n: int = 2) -> bool:
+    """No máximo `n` arenas de malloc. Chamado pelo worker ANTES de subir as threads (vale para as arenas que elas abrem)."""
+    libc = _libc_linux()
+    if libc is None:
+        return False
+    try:
+        return bool(libc.mallopt(M_ARENA_MAX, n))
+    except Exception:                                   # noqa: BLE001 — sem o limite o worker segue como sempre
+        return False
+
+
+def _devolve_memoria() -> None:
+    """Devolve ao sistema a memória livre que o processo guarda (`malloc_trim`)."""
+    libc = _libc_linux()
+    if libc is not None:
+        try:
+            libc.malloc_trim(0)
+        except Exception:                               # noqa: BLE001
+            pass
+
+
 def _janitor_loop(intervalo=600):
     """Roda no worker, a cada 10 min. Medido em 25/07: o worker chega a 3,3 GB de residente
-    depois de ~15 min de backfills — daí varrer com frequência, não de meia em meia hora."""
+    depois de ~15 min de backfills — daí varrer com frequência, não de meia em meia hora. Depois de
+    cada passada, o que saiu volta ao sistema (`_devolve_memoria`, 20/10/2026)."""
     while True:
         time.sleep(intervalo)
         try:
@@ -24884,6 +24937,7 @@ def _janitor_loop(intervalo=600):
                 print(f"[janitor] descartado — {nota}")
         except Exception as e:
             print(f"[janitor] falhou: {e}")
+        _devolve_memoria()
 
 
 def _snapshot_watch_loop(intervalo=20):

@@ -304,6 +304,23 @@ fechamento das 01:30) e a curva de reserva `_trk_ocor_curva_list` (rota de depur
 `tests/test_perdas_fora.py`. Ainda aberto: o backfill do mês do PV (`_trk_ev_pv_mes(force=True)`) reenfileira a cada
 hora os ~1.263 pares (usina, dia) que nunca classificam (cobertura 0), ~2,4 h por volta — enquanto roda, o
 `_trk_ev_hoje_loop` pula.
+**Medido de novo em 20/10/2026 (chat de desempenho do Nexus).** O Raio-X do Nexus no servidor (7,1 GB) mostrou a
+máquina com 0,2 GB livres e 3,2 GB no swap às 14:17, este worker com 3 GB às 14:45 e 3,3 GB às 16:12, quando o Nexus
+inteiro travou esperando o disco (ele com 1,5 GB no swap). Dentro do worker do PC (`sys.remote_exec`, só leitura, Levi
+autorizando), às 15:18, 4,4 GB privados: `_pv_trk_dia_cache` 1,6 GB (o dia de HOJE, 88 usinas e 2,6 milhões de pontos
+às 15:24, fora do teto de propósito, ~218 B por ponto `{x, y}`; o passado no teto, 1,47 de 1,5 milhão), o
+`_2c_str_dia_cache` 518 MB (hoje e ontem), `_pv_comb_cache` 282 MB, `fonte_api._cache` 171 MB, o resto miúdo; e ~1,3 GB
+do próprio processo (o que o alocador guarda depois de liberado). Duas correções, sem mudar nenhum dado:
+- **As strings da 2C com um datetime por minuto** (`_2c_strings_dia_api`): cada ponto (datetime, A) tinha o seu
+  datetime (48 B de ~112) e um `strptime`; agora o minuto é um objeto só para todas as strings do dia. Dia sintético de
+  1.056 strings e 824 mil pontos: de 88 para 57 MB, montado em 5,6 s contra 2 a 3 min, igual valor a valor ao cálculo
+  antigo. Teste: `test_o_mesmo_minuto_e_um_objeto_so_nas_strings_do_dia` (`tests/test_2c_sem_email.py`).
+- **A memória solta volta ao Linux** (`_limita_arenas` no começo do `worker.py`, `_devolve_memoria` depois de cada
+  passada do faxineiro): no máximo 2 arenas de malloc (sem limite, as ~30 threads abrem até 8 por núcleo e a sobra fica
+  espalhada) e `malloc_trim(0)`. Só no Linux (no PC nada muda); o efeito se mede no servidor, pelo Raio-X do Nexus
+  (seção "Quem ocupa a memória da máquina"). Teste: `tests/test_worker_devolve_memoria.py`.
+O maior ganho que sobra é o dia de hoje dos trackers em formato compacto (~400–570 MB no fim do dia), que mexe em todos
+os leitores da curva e nas respostas das telas: Levi, 20/10, "não mexa nos trackers agora".
 
 ## Ponte do Nexus: chave só de leitura e sub-caminho (04/10/2026)
 

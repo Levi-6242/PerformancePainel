@@ -44,6 +44,20 @@ def test_dia_passado_vem_da_api_com_as_chaves_do_email(api_falsa, freeze_now):
     assert "STL" not in d and "TUP" not in d                 # a API respondeu sem dado: só ficam de fora
 
 
+def test_o_mesmo_minuto_e_um_objeto_so_nas_strings_do_dia(api_falsa, freeze_now):
+    """Desempenho, 20/10/2026: medido dentro do worker do PC às 15:18, o _2c_str_dia_cache tinha 518 MB (hoje e ontem),
+    cada ponto (datetime, A) com um datetime PRÓPRIO, ~1.600 strings × o dia inteiro. O mesmo minuto passa a ser um
+    objeto só para todas as strings do dia: o mesmo valor, sem o objeto repetido em cada ponto."""
+    freeze_now("2026-10-03 12:00:00")
+    api_falsa["hist"] = {18771898: {"Inversor 1.10": {"Ipv3": [("10:00", 5.0), ("09:55", 4.0)], "Ipv4": [("10:00", 6.0)]}},
+                         SC2: {"Inversor 2.4": {"Ipv1": [("10:00", 7.5), ("xx:yy", 1.0)]}}}
+    d = app._2c_strings_dia_api("2026-10-02")
+    a, b, c = d["ARA"]["1.10"]["3"], d["ARA"]["1.10"]["4"], d["IPX"]["2.4"]["1"]
+    assert a == [(_dt(2026, 10, 2, 9, 55), 4.0), (_dt(2026, 10, 2, 10, 0), 5.0)]     # o mesmo valor de antes
+    assert b == [(_dt(2026, 10, 2, 10, 0), 6.0)] and c == [(_dt(2026, 10, 2, 10, 0), 7.5)]   # o minuto ruim fica fora
+    assert a[1][0] is b[0][0] is c[0][0]                                               # 10:00: um objeto só
+
+
 def test_hoje_vem_do_day_inverter(api_falsa, freeze_now):
     freeze_now("2026-10-03 12:00:00")
     api_falsa["hoje"] = {18750925: {"Inversor 2.10": {"Ipv27": [("11:55", 8.1)]}}}

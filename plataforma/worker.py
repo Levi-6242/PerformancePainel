@@ -28,8 +28,9 @@ import app
 
 
 # Válvula de segurança: o residente do worker cresce ao longo do dia (medido 281 MB -> 4,1 GB
-# em 15 min de backfill) e o faxineiro dos caches NÃO estanca isso — o consumidor real ainda não
-# foi atribuído, falta perfilar. Enquanto isso, o processo se encerra numa janela silenciosa e o
+# em 15 min de backfill). Quem cresce já foi medido dentro do worker (11/10 e 20/10/2026, ver
+# plataforma/CLAUDE.md, "Teto de memória do worker"): sobretudo o dia de HOJE dos trackers da API PV,
+# fora do teto de propósito. Por isso o processo ainda se encerra numa janela silenciosa e o
 # guardião o traz de volta em até 5 min. Reiniciar é barato: o estado está todo em disco e o
 # snapshot é recarregado no boot. A janela é de madrugada de propósito, longe da ronda (08:25/13:00).
 RECICLA_APOS_H = 12
@@ -37,6 +38,9 @@ RECICLA_HORA = 3          # só recicla entre 03:00 e 03:59
 
 
 def main():
+    # antes de tudo: o limite de arenas do malloc vale para as que as threads abrirem (só no Linux; app._limita_arenas)
+    if app._limita_arenas():
+        print("[worker] malloc: no máximo 2 arenas; a memória solta volta ao sistema a cada passada do faxineiro")
     print("[worker] carregando estado do disco...")
     app._carregar_estado_do_disco()
 
