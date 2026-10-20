@@ -50,6 +50,7 @@ import fotos_ronda           # ... as fotos delas, dos anexos da OS no Fracttal 
 import contestacao           # rodada 4: a contestação do cliente sobre um dia da tabela, que avisa a Grid Co. no Teams
 import contestacao_banco     # rodada 5 (13/10/2026): ... e fica no banco, cifrada, para o Nexus (Contratos e clientes)
 import acessos               # login por pessoa (14/10/2026): as contas vêm do Nexus, a senha o 5080 grava (o banco)
+import geracao_possivel      # 20/10/2026: a geração possível pelo IPOA da Visão Geral e do Diário (puro)
 
 # ── Localização dos dados: não há ──────────────────────────────────────────────
 # Este app NÃO ABRE ARQUIVO NENHUM (Levi, 28/08/2026: "não pode ter nada de excel, tem que ser
@@ -534,6 +535,38 @@ def _daily_bd(usina):
             })
     _state["df"][key] = recs
     return recs
+
+
+def _ghi_das_linhas(hdr, rows):
+    """{data: GHI (kWh/m²)} das linhas de uma aba diária do BD_Thopen; `{}` sem a coluna GHI."""
+    iD, iGhi = _ci(hdr, "data"), _ci(hdr, "ghi")
+    if iD is None or iGhi is None:
+        return {}
+    out = {}
+    for r in rows:
+        d, v = r[iD], _num(r[iGhi])
+        if isinstance(d, (dt.datetime, dt.date)) and v is not None:
+            out[d.date() if isinstance(d, dt.datetime) else d] = v
+    return out
+
+
+def _ghi_por_dia(usina):
+    """O GHI do dia da aba diária do BD_Thopen (20/10/2026: a reserva da ETM na geração possível, quando o IPOA falta ou
+    é < 0,3). Leitor próprio de propósito: o `_daily_records` é usado pela plataforma e não muda de formato. As fontes
+    da Polaris, Copel e Matrix não têm GHI: `{}` e só a ETM conta."""
+    key = ("ghi", usina)
+    if key in _state["df"]:
+        return _state["df"][key]
+    wb = _wb()
+    entry = _state["daily"].get(usina)
+    if entry is None and usina in _BD_ALIAS:
+        entry = _state["daily"].get(_BD_ALIAS[usina])
+    out = {}
+    if entry:
+        sheet_title, ref = entry
+        out = _ghi_das_linhas(*_cols(_range_rows(wb[sheet_title], ref)))
+    _state["df"][key] = out
+    return out
 
 
 def _daily_inversores(usina):
@@ -1368,11 +1401,17 @@ def _disp_gerencial(usina, ano, mes):
     """A disponibilidade do mês pelo Gerencial (fração 0–1), a mesma do card do Diário: a média dos dias da
     disponibilidade_dia. None sem o dado (carregando, card desligado, usina fora do Gerencial) — nunca o 0 de
     "não preenchido" do BD_Thopen (a Visão Geral de outubro mostrava a Altair com 0,0%)."""
+    dsp = _disp_dias(usina, ano, mes)
+    return (sum(dsp.values()) / len(dsp)) / 100.0 if dsp else None
+
+
+def _disp_dias(usina, ano, mes):
+    """{data: disponibilidade %} das OS do Fracttal (a disponibilidade_dia da plataforma), ou None sem o dado
+    (carregando, desligado, usina fora do Gerencial): a Visão Geral fica sem o expurgo, nunca com um 0."""
     if os.environ.get("THOPEN_OPERACAO", "1").strip() == "0":
         return None
     dados = fonte_operacao.dados()
-    dsp = operacao_mes.disp_por_dia(dados, usina, ano, mes) if dados else {}
-    return (sum(dsp.values()) / len(dsp)) / 100.0 if dsp else None
+    return (operacao_mes.disp_por_dia(dados, usina, ano, mes) or None) if dados else None
 
 
 def _resumo_usina(usina, ano, mes):
@@ -1395,9 +1434,28 @@ def _resumo_usina(usina, ano, mes):
     fc = (produzida / (pot_kwp * 24 * dias)) if (produzida is not None and pot_kwp) else None
     dif_prod = ((produzida - meta) / meta) if (produzida is not None and meta) else None
     dif_irr = ((irr_med - irr_esp) / irr_esp) if (irr_med and irr_esp) else None
-    return {"usina": usina, "pot_kwp": pot_kwp, "meta": meta, "produzida": produzida,
-            "dif_prod": dif_prod, "irr_esp": irr_esp, "irr_med": irr_med, "dif_irr": dif_irr,
-            "disp": disp, "fc": fc}
+    linha = {"usina": usina, "pot_kwp": pot_kwp, "meta": meta, "produzida": produzida,
+             "dif_prod": dif_prod, "irr_esp": irr_esp, "irr_med": irr_med, "dif_irr": dif_irr,
+             "disp": disp, "fc": fc}
+    if _so_os_fracttal(ano, mes):
+        linha.update(_resumo_possivel(usina, ano, mes, recs, produzida, meta, irr_esp))
+    return linha
+
+
+def _resumo_possivel(usina, ano, mes, recs, produzida, meta_mes, metairr_mes):
+    """De 10/2026 em diante a Visão Geral pela regra da geração possível (Levi, 20/10/2026; geracao_possivel.py): a meta
+    e a irradiação esperada só dos dias com geração (no meio do mês a meta do mês inteiro punha toda usina "abaixo"), a
+    medida ajustada pela cobertura, a possível pelo IPOA e com o expurgo das OS. Meta, Irradiação Esperada e Medida
+    mudam de significado em vez de ganhar colunas: a tabela vai para a folha A4."""
+    p = geracao_possivel.periodo(recs, _ghi_por_dia(usina), meta_mes, metairr_mes, monthrange(ano, mes)[1],
+                                 _disp_dias(usina, ano, mes))
+    return {"meta": p["meta"], "irr_esp": p["meta_ipoa"], "irr_med": p["ipoa_ajustado"], "dif_irr": p["dif_ipoa"],
+            "dif_prod": ((produzida - p["meta"]) / p["meta"]) if (produzida is not None and p["meta"]) else None,
+            "real": p["real"], "meta_ipoa": p["meta_ipoa"], "ipoa_ajustado": p["ipoa_ajustado"],
+            "possivel": p["possivel"], "dif_possivel": p["dif_possivel"], "possivel_exp": p["possivel_exp"],
+            "dif_possivel_exp": p["dif_possivel_exp"], "sem_etm": p["sem_etm"], "motivo": p["motivo"],
+            "cobertura": p["cobertura"], "dias": p["dias"], "dias_medidos": p["dias_medidos"],
+            "furos": [d.strftime("%d/%m") for d in p["furos"]]}
 
 
 @app.route("/api/t/geral")
@@ -1422,8 +1480,16 @@ def geral():
     corte = (today if (ano == today.year and mes == today.month)
              else dt.date(ano, mes, monthrange(ano, mes)[1]))
     nome_carteira = next((c for c in CARTEIRA_ORDEM if c == carteira), carteira)
-    return jsonify({"carteira": nome_carteira, "ano": ano, "mes": mes,
-                    "corte": corte.strftime("%d/%m/%Y"), "linhas": linhas, "fora": fora})
+    out = {"carteira": nome_carteira, "ano": ano, "mes": mes,
+           "corte": corte.strftime("%d/%m/%Y"), "linhas": linhas, "fora": fora}
+    if _so_os_fracttal(ano, mes):
+        # a linha Total pelo portfólio (regra 6 do Levi, 20/10/2026): a possível só das usinas com ETM contra o real
+        # delas, a meta só das usinas com meta, o IPOA ponderado pela potência; a Disponibilidade, a média simples de
+        # sempre (até 20/10 o Total era somado no navegador)
+        dv = [r["disp"] for r in linhas if r.get("disp") is not None]
+        out.update(regra="possivel", total=dict(geracao_possivel.portfolio(linhas),
+                                                disp=(sum(dv) / len(dv)) if dv else None))
+    return jsonify(out)
 
 
 @app.route("/api/t/fonte")

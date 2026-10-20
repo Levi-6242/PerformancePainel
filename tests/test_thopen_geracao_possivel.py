@@ -27,7 +27,7 @@ REGS = [{"data": D[0], "ger": 900.0, "ipoa": 6.0},
         {"data": D[4], "ger": 700.0, "ipoa": None},    # entra sem medição (GHI abaixo de 1,0)
         {"data": D[5], "ger": 0.0, "ipoa": None}]      # linha pré-criada depois do último coletado: nem entra nem é furo
 GHI = {D[1]: 5.5, D[4]: 0.5}
-DISP = {1: 100.0, 2: 80.0, 5: 90.0}
+DISP = {D[0]: 100.0, D[1]: 80.0, D[4]: 90.0}     # como o operacao_mes.disp_por_dia: pela data
 
 
 def _p(**k):

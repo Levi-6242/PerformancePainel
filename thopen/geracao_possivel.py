@@ -48,7 +48,7 @@ def _razao(a, b):
 
 def periodo(registros, ghi, meta_mes, meta_ipoa_mes, dias_mes, disp):
     """A regra sobre um período (o mês até o corte). `registros` = [{data, ger, ipoa}]; `ghi` = {data: GHI}; `disp` =
-    {dia do mês: disponibilidade %} (as OS do Fracttal) ou None. Devolve as chaves que a Visão Geral mostra.
+    {data: disponibilidade %} (o `operacao_mes.disp_por_dia`, as OS do Fracttal) ou None. Devolve as chaves que a Visão Geral mostra.
 
     Dia que entra: geração > 0, ou 0 com irradiação medida (a usina parada com sol). O 0 sem medição é a linha que o
     BD cria de antemão para o mês inteiro (em 20/10/2026, hoje e ontem estavam assim em 93 e 92 de 98 usinas): não
@@ -88,7 +88,7 @@ def periodo(registros, ghi, meta_mes, meta_ipoa_mes, dias_mes, disp):
         num = den = 0.0
         for d, _, med in entram:
             w = med if med is not None else ((meta_ipoa_mes / dias_mes) if meta_ipoa_mes else None)
-            v = disp.get(d.day)
+            v = disp.get(d)
             if w is None or v is None:
                 continue
             num += v * w

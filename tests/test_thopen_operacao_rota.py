@@ -111,10 +111,10 @@ def test_zip_gerado_tem_os_oito_arquivos_e_as_variaveis_da_operacao(tmp_path, mo
     # rodada 3 (09/10): + rondas_cliente e fotos_ronda (a janela das rondas); rodada 4: + contestacao
     app = {"thopen/dashboard_thopen.py", "thopen/fonte_api.py", "thopen/fonte_operacao.py", "thopen/operacao_mes.py",
            "thopen/rondas_cliente.py", "thopen/fotos_ronda.py", "thopen/contestacao.py",
-           "thopen/contestacao_banco.py", "thopen/acessos.py", "thopen/livro_banco.py",
+           "thopen/contestacao_banco.py", "thopen/acessos.py", "thopen/livro_banco.py", "thopen/geracao_possivel.py",
            "thopen/templates/dashboard_thopen.html", "thopen/templates/entrar.html"}
     assert app <= nomes and not any("cache" in n for n in nomes)
-    assert "doze arquivos" in leiame and "nove arquivos" not in leiame
+    assert "treze arquivos" in leiame and "doze arquivos" not in leiame
     for v in ("THOPEN_OPERACAO", "THOPEN_OPERACAO_TTL", "THOPEN_OPERACAO_CACHE", "THOPEN_RONDAS",
               "FRACTTAL_CLIENT_ID", "FRACTTAL_CLIENT_SECRET", "THOPEN_TEAMS_PERFORMANCE", "THOPEN_TEAMS_COS",
               "THOPEN_TEAMS_ZELADORIA", "THOPEN_CONTESTACAO_CHAVE_PUBLICA", "GRIDCO_SQL_TOKEN", "THOPEN_LOGIN",
@@ -125,9 +125,9 @@ def test_zip_gerado_tem_os_oito_arquivos_e_as_variaveis_da_operacao(tmp_path, mo
 def test_comentarios_da_nuvem_dizem_oito_arquivos():
     for arq in ("railway.toml", "render.yaml"):
         txt = open(os.path.join(RAIZ, arq), encoding="utf-8").read()
-        assert "9 arquivos" not in txt and "12 arquivos" in txt, arq
+        assert "12 arquivos" not in txt and "13 arquivos" in txt, arq
         for m in ("fonte_operacao", "operacao_mes", "rondas_cliente", "fotos_ronda", "contestacao", "contestacao_banco",
-                  "acessos", "livro_banco"):
+                  "acessos", "livro_banco", "geracao_possivel"):
             assert "thopen/%s.py" % m in txt, (arq, m)
 
 

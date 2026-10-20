@@ -6,10 +6,12 @@ render.yaml na raiz). Este zip é para quando alguém precisa instalar à mão �
 provedor, ou um servidor sem acesso ao GitHub. O conteúdo é o MESMO que a nuvem usaria, e o
 layout também: `thopen/` mais os arquivos de raiz, porque o startCommand faz `--chdir thopen`.
 
-O QUE ENTRA — o app são doze arquivos (~260 KB), como dizem os comentários do railway.toml:
+O QUE ENTRA — o app são treze arquivos (~270 KB), como dizem os comentários do railway.toml:
   thopen/dashboard_thopen.py, thopen/fonte_api.py, thopen/fonte_operacao.py, thopen/operacao_mes.py,
   thopen/rondas_cliente.py, thopen/fotos_ronda.py, thopen/contestacao.py, thopen/contestacao_banco.py,
-  thopen/acessos.py, thopen/livro_banco.py, thopen/templates/dashboard_thopen.html, thopen/templates/entrar.html
+  thopen/acessos.py, thopen/livro_banco.py, thopen/geracao_possivel.py, thopen/templates/dashboard_thopen.html,
+  thopen/templates/entrar.html
+(geracao_possivel desde 20/10/2026: a geração possível pelo IPOA da Visão Geral e do Diário)
 (acessos + livro_banco + entrar.html desde 14/10/2026: o login por pessoa, com as contas do Nexus)
 (rondas_cliente + fotos_ronda + contestacao desde 09/10/2026: a janela das rondas do card e a contestação do cliente;
 contestacao_banco desde 13/10/2026: a contestação gravada no banco, cifrada, para o Nexus)
@@ -51,6 +53,7 @@ ITENS = [
     ("thopen/contestacao_banco.py",             "thopen/contestacao_banco.py"),
     ("thopen/acessos.py",                       "thopen/acessos.py"),
     ("thopen/livro_banco.py",                   "thopen/livro_banco.py"),
+    ("thopen/geracao_possivel.py",              "thopen/geracao_possivel.py"),
     ("thopen/templates/entrar.html",            "thopen/templates/entrar.html"),
     ("thopen/templates/dashboard_thopen.html",  "thopen/templates/dashboard_thopen.html"),
     ("requirements-thopen.txt",                 "requirements-thopen.txt"),
@@ -60,7 +63,7 @@ ITENS = [
 
 LEIAME = """# Dashboard Thopen — instalação
 
-O app são doze arquivos (pasta thopen/). Tudo que ele mostra vem da Gridco Performance API
+O app são treze arquivos (pasta thopen/). Tudo que ele mostra vem da Gridco Performance API
 (PostgreSQL); ele NÃO abre planilha nenhuma.
 
 ## Subir

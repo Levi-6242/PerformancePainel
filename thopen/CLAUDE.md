@@ -2,7 +2,7 @@
 
 Flask na porta **5080**. Réplica do Power BI "Performance da Usina" que o cliente Thopen acessa. **Com login por pessoa
 desde 16/10/2026** (seção abaixo; até então público, sem senha): com `THOPEN_LOGIN=1` cada conta entra com usuário (o de
-hoje do cliente, ou um e-mail) e senha e vê só as carteiras dela. O app são doze arquivos (a lista no `deploy/_package_thopen.py`, `ITENS`). Lê tudo do PostgreSQL pela
+hoje do cliente, ou um e-mail) e senha e vê só as carteiras dela. O app são treze arquivos (a lista no `deploy/_package_thopen.py`, `ITENS`). Lê tudo do PostgreSQL pela
 Gridco Performance API; não abre planilha nenhuma. Ver o `CLAUDE.md` da raiz para as convenções gerais.
 
 **É produto de cliente, não ferramenta interna.** Mudança aqui é visível para fora: teste antes
@@ -22,7 +22,7 @@ e evite alterar layout sem pedido.
 - **Railway: fora do ar** (404 em 08/10/2026). `railway.toml` e `render.yaml` da RAIZ continuam descrevendo o deploy de
   nuvem (`gunicorn dashboard_thopen:app --chdir thopen ... --workers 1`, 334 MB de pico por worker);
   `deploy/Procfile` e `deploy/railway.toml` daqui nunca foram lidos (o Railway lê a raiz).
-- **Instalador por zip** (`python thopen/deploy/_package_thopen.py` → `deploy/thopen-app.zip`): os 12 arquivos do app +
+- **Instalador por zip** (`python thopen/deploy/_package_thopen.py` → `deploy/thopen-app.zip`): os 13 arquivos do app +
   `requirements-thopen.txt`, `railway.toml`, `render.yaml` e um LEIAME com as variáveis; aborta se um segredo entrar.
   Arquivo novo que o dashboard importa entra em `ITENS` — o `tests/test_thopen_operacao_rota.py` confere ITENS contra
   os imports (o zip só com os 3 arquivos de antes de 08/10 nem subia).

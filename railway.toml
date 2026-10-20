@@ -11,11 +11,12 @@
 # --workers 1: cada worker carrega o BD_Thopen inteiro em memória (pico medido de 334 MB).
 # Suba para 2 só em plano com folga de RAM.
 #
-# O app são 12 arquivos (~260 KB): thopen/dashboard_thopen.py, thopen/fonte_api.py,
+# O app são 13 arquivos (~270 KB): thopen/dashboard_thopen.py, thopen/fonte_api.py,
 # thopen/fonte_operacao.py, thopen/operacao_mes.py (os dois da Operação no Mês, 08/10/2026),
 # thopen/rondas_cliente.py, thopen/fotos_ronda.py, thopen/contestacao.py (as rondas e a contestação do
 # cliente, 09/10/2026), thopen/contestacao_banco.py (a contestação no banco, para o Nexus, 13/10/2026),
-# thopen/acessos.py, thopen/livro_banco.py e thopen/templates/entrar.html (o login por pessoa, 14/10/2026) e
+# thopen/acessos.py, thopen/livro_banco.py e thopen/templates/entrar.html (o login por pessoa, 14/10/2026),
+# thopen/geracao_possivel.py (a geração possível pelo IPOA, 20/10/2026) e
 # thopen/templates/dashboard_thopen.html. O resto de thopen/ (data/, deploy/, logs, .bat,
 # .ps1, cache) é local e não faz falta na nuvem. THOPEN_OPERACAO=0 nas Variables desliga a
 # Operação no Mês sem deploy de código.
