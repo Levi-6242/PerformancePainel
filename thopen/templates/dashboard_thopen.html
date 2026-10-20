@@ -408,7 +408,7 @@
     <!-- 14/10/2026: o invólucro .dg só vira grade com o card na tela (.com-op); sem ele é um bloco e o Diário é o de antes -->
     <div class="dg">
     <div class="grid">
-      <div class="card" id="grafCard" style="display:flex;flex-direction:column"><h3>Energia <span class="un">(kWh)</span> × Irradiação <span class="un">(kWh/m²)</span></h3><div class="ct-dica hidden" id="ctDica">Clique na barra de um dia para contestar os dados dele</div><div id="chDiario" style="flex:1;min-height:280px"></div></div>
+      <div class="card" id="grafCard" style="display:flex;flex-direction:column"><h3 id="grafTit">Energia <span class="un">(kWh)</span> × Irradiação <span class="un">(kWh/m²)</span></h3><div class="ct-dica hidden" id="ctDica">Clique na barra de um dia para contestar os dados dele</div><div id="chDiario" style="flex:1;min-height:280px"></div></div>
       <div class="col" id="colDiario">
         <div class="card" id="acumCard"><h3>Energia Acumulada no Mês <span class="un">(kWh)</span></h3><div id="chAcum" style="height:150px"></div></div>
         <div class="card" id="irrCard"><h3>Irradiação no Mês <span class="un">(kWh/m²)</span></h3>
@@ -466,6 +466,7 @@
         <dt>Meta do mês</dt><dd>Meta mensal de energia de 2026 (P50) definida para a usina.</dd>
         <dt>Diferença de produção</dt><dd><span class="fx">Diferença (%) = (Produzida − Meta) ÷ Meta</span></dd>
         <dt>Meta diária (linha azul do Diário)</dt><dd><span class="fx">Meta diária = Meta do mês ÷ dias do mês</span></dd>
+        <dt>Geração esperada pelo IPOA (linha preta do Diário)</dt><dd><span class="fx">Esperada (kWh) = Potência (kWp) × IPOA do dia (kWh/m²) × PR da meta do mês</span>A geração que a irradiação daquele dia permitia, com a eficiência que a meta prevê. Sem a potência ou sem o PR na meta do mês, a linha mostra a irradiação (kWh/m²).</dd>
         <dt>Produção anual</dt><dd>Soma de janeiro até o mês selecionado. A meta anual soma os mesmos meses (só os meses com produção).</dd>
       </dl></div>
       <div class="card met"><h3>Fator de capacidade e irradiação</h3><dl>
@@ -1081,13 +1082,25 @@ async function renderDiario(ano,mes){
   const fmt=_fmtU;
   const bars={x,y:d.pontos.map(p=>p.ger),type:'bar',name:'Energia Produzida (kWh)',
     marker:{color:cores}, customdata:d.pontos.map(p=>fmt(p.ger,1,'kWh')), hovertemplate:'%{customdata}<extra></extra>'};
-  const irr={x,y:d.pontos.map(p=>p.ipoa),type:'scatter',mode:'lines',name:'Irradiação (kWh/m²)',
-    line:{color:'#222',width:1.5},yaxis:'y2',
-    customdata:d.pontos.map(p=>fmt(p.ipoa,2,'kWh/m²')), hovertemplate:'%{customdata}<extra></extra>'};
+  // a linha preta é a geração esperada pelo IPOA (20/10/2026, Levi: "quero que faça um cálculo proporcional a kwp para a
+  // linha mostrar qual seria a geração com aquele IPOA ao invés de só medir IPOA"): kWp × IPOA × PR da meta do mês, a
+  // conta do servidor (pontos[].esperada), no eixo da energia; o IPOA do dia segue no mouse. Sem kWp ou sem PR na meta
+  // (esperada_base nula), a linha da irradiação de antes, com o eixo dela: nada some calado
+  const esp=d.esperada_base;
+  const irr=esp ? {x,y:d.pontos.map(p=>p.esperada),type:'scatter',mode:'lines',name:'Esperada pelo IPOA (kWh)',
+      line:{color:'#222',width:1.5},
+      customdata:d.pontos.map(p=>p.esperada==null?'Sem IPOA no dia'
+        :'Esperada pelo IPOA '+fmt(p.esperada,0,'kWh')+' · IPOA '+fmt(p.ipoa,2,'kWh/m²')),
+      hovertemplate:'%{customdata}<extra></extra>'}
+    : {x,y:d.pontos.map(p=>p.ipoa),type:'scatter',mode:'lines',name:'Irradiação (kWh/m²)',
+      line:{color:'#222',width:1.5},yaxis:'y2',
+      customdata:d.pontos.map(p=>fmt(p.ipoa,2,'kWh/m²')), hovertemplate:'%{customdata}<extra></extra>'};
+  $('grafTit').innerHTML=esp?'Energia <span class="un">(kWh)</span> × Geração esperada pelo IPOA <span class="un">(kWh)</span>'
+    :'Energia <span class="un">(kWh)</span> × Irradiação <span class="un">(kWh/m²)</span>';
   const meta={x,y:x.map(()=>d.meta_dia),type:'scatter',mode:'lines',name:'Meta (kWh)',
     line:{color:'#2456c7',width:2},
     customdata:x.map(()=>'Meta '+fmt(d.meta_dia,0,'kWh')), hovertemplate:'%{customdata}<extra></extra>'};
-  const lay=Object.assign({},BASE,{margin:{l:56,r:54,t:10,b:54},
+  const lay=Object.assign({},BASE,{margin:{l:56,r:esp?16:54,t:10,b:54},
     legend:{orientation:'h',x:0.5,xanchor:'center',y:-0.22},
     xaxis:{tickmode:'array',tickvals:x,ticktext:ticktext,tickangle:0,tickfont:{size:8},gridcolor:'#fff'},
     // o zero dos dois eixos na mesma linha (Ana, 14/10/2026: "o zero do IPOA deve sempre casar com o zero de geração").
@@ -1097,7 +1110,7 @@ async function renderDiario(ano,mes){
     // o eixo da direita vai SEMPRE de 0 ao maior IPOA do mês: só "não negativo" deixava a Altair começar em 1,82 (o
     // Plotly ajusta a linha entre o mínimo e o máximo); sem irradiação no mês, de 0 a 1
     yaxis2:{title:'kWh/m²',overlaying:'y',side:'right',showgrid:false,zeroline:false,autorange:false,
-            range:[0,(Math.max(0,...d.pontos.map(p=>p.ipoa||0))||1)*1.08]}});
+            range:[0,(Math.max(0,...d.pontos.map(p=>p.ipoa||0))||1)*1.08],visible:!esp}});
   Plotly.react('chDiario',[bars,irr,meta],lay,CFG);
   // rodada 5 (Levi, 13/10/2026): o clique no dia do gráfico abre a contestação daquele dia (o Plotly.react guarda o
   // ouvinte: liga uma vez só)

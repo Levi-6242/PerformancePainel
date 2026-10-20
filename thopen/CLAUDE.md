@@ -362,15 +362,25 @@ nova na resposta = entrar em `CHAVES` + teste.
   vez no `#chDiario`) abre a janela do dia. Dica "Clique na barra de um dia para contestar os dados dele" sob o título
   e cursor de mão (`.contesta`) só de 10/2026 em diante, com o card e com algum canal; fora de todo PDF. Dia futuro
   do mês corrente não abre.
-- **Zero dos eixos** (Ana, 14/10/2026: "o zero do IPOA deve sempre casar com o zero de geração"): no gráfico Energia ×
-  Irradiação o eixo da direita vai SEMPRE de 0 ao maior IPOA do mês (× 1,08; sem irradiação, de 0 a 1) e o da geração é
+- **A linha preta é a geração esperada pelo IPOA** (Levi, 20/10/2026: "quero que faça um cálculo proporcional a kwp
+  para a linha mostrar qual seria a geração com aquele IPOA ao invés de só medir IPOA"; a conta escolhida, "kWp × IPOA ×
+  PR da meta"): `pontos[].esperada` = kWp do cadastro × IPOA do dia × PR da meta do mês (`_base_esperada`,
+  `_esperada_ipoa`; PR em % vira fração), no eixo da energia; o mouse mostra "Esperada pelo IPOA 24.015 kWh · IPOA 4,65
+  kWh/m²" e o título vira "Energia (kWh) × Geração esperada pelo IPOA (kWh)". Altair, 03/10/2026: 6.898 kWp × 4,6517 ×
+  0,748 = 24.014,6 kWh esperados contra 21.760 gerados. Em 20/10/2026 as 100 usinas tinham kWp e PR em outubro (PR de
+  0,654 a 0,879). Sem kWp ou sem PR na meta (`esperada_base` nula; o ano que não é o da meta), volta a linha da
+  irradiação em kWh/m², com o eixo da direita: nada some calado. A Metodologia diz a fórmula
+  (`tests/test_thopen_esperada_ipoa.py`).
+- **Zero dos eixos** (Ana, 14/10/2026: "o zero do IPOA deve sempre casar com o zero de geração"): quando a linha é a da
+  irradiação (sem a esperada), o eixo da direita vai SEMPRE de 0 ao maior IPOA do mês (× 1,08; sem irradiação, de 0 a 1) e o da geração é
   "não negativo"; o do Mensal também. A Assis tem IPOA 0 em todo dia de outubro: o Plotly centrava o eixo em 0 (de -1 a
   1) e o zero da irradiação ficava no meio. Só "não negativo" no IPOA não bastava (a Altair começava em 1,82). Vale em
   todo mês.
 - **O valor ao passar o mouse, em todos os gráficos** (Levi, 15/10/2026: "ao passar o mouse na coluna não precisa
   mostrar o dia mas precisamos da unidade de medida certa"; "Precisa ajustar o valor e unidade de medida nessas colunas
   também"): só o valor com a unidade, no formato do Brasil (`_fmtU` + `customdata` + `_HOV`). Energia × Irradiação:
-  "31.249,5 kWh" na barra, "5,43 kWh/m²" na irradiação, "Meta 31.000 kWh" na meta; Energia Acumulada no Mês e Produção
+  "31.249,5 kWh" na barra, "Esperada pelo IPOA 24.015 kWh · IPOA 4,65 kWh/m²" na linha preta (ou "5,43 kWh/m²" na
+  irradiação, sem a esperada), "Meta 31.000 kWh" na meta; Energia Acumulada no Mês e Produção
   Anual: "379.788 kWh", "3.343.983 kWh"; Mensal (cinco séries por mês): "Produzida 2026: 828,3 MWh". O padrão do Plotly
   dizia "(9, 31.2495k)", "(Meta, 379.7882k)", "(3.343983M, Meta 2026)": o "k"/"M" no lugar da unidade.
 - **Unidade nos títulos** (Levi, 13/10: "está em caps lock, troque por kWh e kWh/m²"): o `.card h3` é caixa alta; a

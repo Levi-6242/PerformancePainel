@@ -1280,6 +1280,27 @@ def comentario_extra():
     return jsonify({"ok": True})
 
 
+def _base_esperada(usina, meta):
+    """{pot_kwp, pr} para a geração esperada pelo IPOA, ou None sem um dos dois (a tela mantém a linha da irradiação).
+    Levi, 20/10/2026: "quero que faça um cálculo proporcional a kwp para a linha mostrar qual seria a geração com aquele
+    IPOA ao invés de só medir IPOA", com o PR da meta do mês (a eficiência que o contrato prevê). O kWp é o do cadastro,
+    o mesmo do cabeçalho; o PR escrito em % (74,8) vale o mesmo que 0,748."""
+    kwp = (_registro().get(usina, {}).get("pot_mwp") or 0) * 1000
+    pr = _num(meta.get("pr"))
+    if pr and pr > 1.5:
+        pr = pr / 100.0
+    if not kwp or not pr or pr <= 0:
+        return None
+    return {"pot_kwp": round(kwp, 3), "pr": pr}
+
+
+def _esperada_ipoa(base, ipoa):
+    """kWp × IPOA (kWh/m²) × PR: a geração que o sol daquele dia permitia, em kWh. Dia sem IPOA, sem número."""
+    if not base or ipoa is None:
+        return None
+    return round(base["pot_kwp"] * ipoa * base["pr"], 1)
+
+
 @app.route("/api/t/diario")
 def diario():
     usina = request.args.get("usina", "Altair")
@@ -1297,7 +1318,9 @@ def diario():
     # de 10/2026 em diante o comentário e a disponibilidade do cliente são só os das OS do Fracttal (_so_os_fracttal):
     # o comentário da equipe e a disponibilidade do BD_Thopen nem saem daqui — a tela monta tudo pelo /api/t/operacao
     so_os = _so_os_fracttal(ano, mes)
-    pontos = [{"dia": r["data"].day, "ger": r["ger"], "ipoa": r["ipoa"], "com": None if so_os else r["com"]}
+    base = _base_esperada(usina, meta)
+    pontos = [{"dia": r["data"].day, "ger": r["ger"], "ipoa": r["ipoa"], "com": None if so_os else r["com"],
+               "esperada": _esperada_ipoa(base, r["ipoa"])}
               for r in recs]
     disp_vals = [] if so_os else [r["disp"] for r in recs if r["disp"] is not None]
     kpis = {
@@ -1329,7 +1352,7 @@ def diario():
     coment = [{"data": _drange(g), "com": g["com"]} for g in grupos]
 
     return jsonify({"usina": usina, "ano": ano, "mes": mes, "pontos": pontos,
-                    "meta_dia": meta_dia, "kpis": kpis, "comentarios": coment})
+                    "meta_dia": meta_dia, "kpis": kpis, "comentarios": coment, "esperada_base": base})
 
 
 def _so_os_fracttal(ano, mes):
