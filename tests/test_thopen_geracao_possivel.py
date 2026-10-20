@@ -133,3 +133,20 @@ def test_portfolio_ipoa_ponderado_pela_potencia():
     b["ipoa_ajustado"], b["meta_ipoa"] = 13.25, 15.0
     t = gp.portfolio([a, b])
     assert t["ipoa_ajustado"] == pytest.approx((17.25 * 1000 + 13.25 * 3000) / 4000)
+
+
+def test_dia_1_sem_nenhum_dia_coletado():
+    # revisão de 20/10/2026: no dia 1 (só a linha pré-criada de hoje) a meta do período dava 0 e o motivo saía
+    # "sem meta de irradiação" em todas as usinas — falso; agora "sem_dias" e sem meta do período
+    p = gp.periodo([{"data": dt.date(2026, 11, 1), "ger": 0.0, "ipoa": None}], {}, 900000.0, 180.0, 30, None)
+    assert p["motivo"] == "sem_dias" and p["sem_etm"] is True and p["meta"] is None and p["dias"] == 0
+
+
+def test_furo_ate_o_ultimo_dia_coletado_da_carteira():
+    # revisão de 20/10/2026: a usina com a coleta parada em 14/10 (a carteira em 18/10) sumia sem marca; os dias até o
+    # último coletado da carteira (`ate`) que a usina não tem são furo
+    regs = [{"data": dt.date(2026, 10, d), "ger": 500.0 if d <= 2 else 0.0, "ipoa": 5.0 if d <= 2 else None}
+            for d in range(1, 6)]
+    assert gp.periodo(regs, {}, 31000.0, 155.0, 31, None)["furos"] == []
+    p = gp.periodo(regs, {}, 31000.0, 155.0, 31, None, ate=dt.date(2026, 10, 4))
+    assert p["furos"] == [dt.date(2026, 10, 3), dt.date(2026, 10, 4)] and p["dias"] == 2

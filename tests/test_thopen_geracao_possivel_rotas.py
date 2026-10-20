@@ -151,3 +151,26 @@ def test_tela_do_diario_desenha_a_possivel_e_a_metodologia():
     h = _html()
     m = h.index("Meta diária (linha azul do Diário)")
     assert "Geração possível pelo IPOA" in h[m:m + 3000] and "PR da meta" not in h
+
+
+def test_nota_sem_etm_aparece_no_pdf():
+    # revisão de 20/10/2026: a nota usava a classe .ct-dica, que o Ctrl+P, o Baixar PDF e o PDF Carteira escondem — o
+    # Diário de usina sem ETM saía sem a linha e sem explicação
+    h = _html()
+    i = h.index('id="posNota"')
+    tag = h[h.rindex("<div", 0, i):h.index(">", i)]
+    assert "ct-dica" not in tag and "pos-nota" in tag
+    assert ".pos-nota" in h
+
+
+def test_metodologia_de_antes_de_outubro_marcada():
+    h = _html()
+    assert "Irradiação medida (antes de 10/2026)" in h and "Irradiação esperada e diferença (antes de 10/2026)" in h
+
+
+def test_geral_marca_furo_ate_o_ultimo_dia_da_carteira(cli, monkeypatch):
+    parada = [dict(x) for x in OUT if x["data"].day <= 2]          # a coleta da Assis parou em 02/10
+    monkeypatch.setattr(dth, "_daily_records", lambda u: OUT if u == "Altair" else parada)
+    r = cli.get("/api/t/geral?carteira=Thopen&ano=2026&mes=10").get_json()
+    assis = next(l for l in r["linhas"] if l["usina"] == "Assis")
+    assert assis["furos"] == ["03/10", "04/10", "05/10"]          # até 05/10, o último dia coletado da carteira

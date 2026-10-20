@@ -15,6 +15,8 @@ Por quê: a Visão Geral comparava a produção até o corte com a meta do MÊS 
 Spec: docs/superpowers/specs/2026-10-20-thopen-geracao-possivel-design.md.
 """
 
+from datetime import timedelta
+
 IPOA_MIN = 0.3          # kWh/m²: abaixo disso a ETM não mediu (a régua do Histórico PR)
 GHI_MIN = 1.0           # kWh/m²: o GHI só substitui a ETM com um dia de sol de verdade
 # Teto físico (20/10/2026, medido no BD_Thopen): uma usina tinha GHI de 10 a 25,7 "kWh/m²" em 45 de 47 dias — parece
@@ -46,13 +48,15 @@ def _razao(a, b):
     return (a / b - 1) if (a is not None and b) else None
 
 
-def periodo(registros, ghi, meta_mes, meta_ipoa_mes, dias_mes, disp):
+def periodo(registros, ghi, meta_mes, meta_ipoa_mes, dias_mes, disp, ate=None):
     """A regra sobre um período (o mês até o corte). `registros` = [{data, ger, ipoa}]; `ghi` = {data: GHI}; `disp` =
     {data: disponibilidade %} (o `operacao_mes.disp_por_dia`, as OS do Fracttal) ou None. Devolve as chaves que a Visão Geral mostra.
 
     Dia que entra: geração > 0, ou 0 com irradiação medida (a usina parada com sol). O 0 sem medição é a linha que o
     BD cria de antemão para o mês inteiro (em 20/10/2026, hoje e ontem estavam assim em 93 e 92 de 98 usinas): não
-    entra, e só é furo de coleta quando vem antes do último dia que entrou."""
+    entra, e só é furo de coleta quando vem antes do último dia que entrou — ou até `ate`, o último dia coletado da
+    carteira (revisão de 20/10/2026: na Polaris, 7 de 23 usinas tinham parado em 14/10 com a carteira em 18/10, e os 4
+    dias sumiam do período sem marca nenhuma)."""
     ghi = ghi or {}
     marcados = []
     for r in sorted(registros, key=lambda x: x["data"]):
@@ -60,16 +64,29 @@ def periodo(registros, ghi, meta_mes, meta_ipoa_mes, dias_mes, disp):
         g = r.get("ger")
         marcados.append((r["data"], g is not None and (g > 0 or (g == 0 and med is not None)), g, med))
     ultimo = max((d for d, ok, _, _ in marcados if ok), default=None)
-    furos = [d for d, ok, _, _ in marcados if not ok and ultimo is not None and d < ultimo]
+    # pelos dias do calendário (o dia sem linha nenhuma no BD também é furo), do dia 1 até a véspera do último dia que
+    # entrou ou até `ate`, o que vier depois
+    limites = ([ultimo - timedelta(days=1)] if ultimo is not None else []) + ([ate] if ate is not None else [])
+    furos = []
+    if limites:
+        fim = max(limites)
+        entra = {d for d, ok, _, _ in marcados if ok}
+        d = fim.replace(day=1)
+        while d <= fim:
+            if d not in entra:
+                furos.append(d)
+            d += timedelta(days=1)
     entram = [(d, g, med) for d, ok, g, med in marcados if ok]
     n = len(entram)
 
-    meta = (meta_mes / dias_mes * n) if meta_mes else None
-    meta_ipoa = (meta_ipoa_mes / dias_mes * n) if meta_ipoa_mes else None
+    meta = (meta_mes / dias_mes * n) if (meta_mes and n) else None
+    meta_ipoa = (meta_ipoa_mes / dias_mes * n) if (meta_ipoa_mes and n) else None
     real = sum(g for _, g, _ in entram)
     medidos = [med for _, _, med in entram if med is not None]
     cobertura = (len(medidos) / n) if n else None
-    if not meta_ipoa:
+    if not n:
+        motivo = "sem_dias"            # dia 1 do mês: nada coletado ainda (não é "sem meta", revisão de 20/10/2026)
+    elif not meta_ipoa_mes:
         motivo = "sem_meta_ipoa"
     elif cobertura is None or cobertura < COBERTURA_MIN:
         motivo = "cobertura"

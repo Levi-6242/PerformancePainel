@@ -265,6 +265,8 @@
   /* rodada 5 (Levi, 13/10/2026: "ao invés de ficar pelas tabelas bote para contestar no gráfico de geração e
      irradiação"): o clique no dia do gráfico abre a contestação; a dica fica embaixo do título, só na tela */
   .ct-dica{ text-align:center; font-size:11px; color:var(--muted); margin:-4px 0 2px; }
+  /* a nota "Sem a geração possível" vai também para a folha (a .ct-dica some na impressão; revisão de 20/10/2026) */
+  .pos-nota{ text-align:center; font-size:11px; color:var(--muted); margin:4px 0 2px; }
   #pageDiario.contesta #chDiario .nsewdrag{ cursor:pointer !important; }
   .ct-chk{ display:flex; flex-wrap:wrap; gap:8px 14px; margin:6px 0 12px; }
   .ct-chk label{ display:flex; align-items:center; gap:6px; font-size:13px; font-weight:600; color:#22242a; cursor:pointer; }
@@ -417,7 +419,7 @@
     <!-- 14/10/2026: o invólucro .dg só vira grade com o card na tela (.com-op); sem ele é um bloco e o Diário é o de antes -->
     <div class="dg">
     <div class="grid">
-      <div class="card" id="grafCard" style="display:flex;flex-direction:column"><h3 id="grafTit">Energia <span class="un">(kWh)</span> × Irradiação <span class="un">(kWh/m²)</span></h3><div class="ct-dica hidden" id="ctDica">Clique na barra de um dia para contestar os dados dele</div><div id="chDiario" style="flex:1;min-height:280px"></div><div class="ct-dica hidden" id="posNota"></div></div>
+      <div class="card" id="grafCard" style="display:flex;flex-direction:column"><h3 id="grafTit">Energia <span class="un">(kWh)</span> × Irradiação <span class="un">(kWh/m²)</span></h3><div class="ct-dica hidden" id="ctDica">Clique na barra de um dia para contestar os dados dele</div><div id="chDiario" style="flex:1;min-height:280px"></div><div class="pos-nota hidden" id="posNota"></div></div>
       <div class="col" id="colDiario">
         <div class="card" id="acumCard"><h3>Energia Acumulada no Mês <span class="un">(kWh)</span></h3><div id="chAcum" style="height:150px"></div></div>
         <div class="card" id="irrCard"><h3>Irradiação no Mês <span class="un">(kWh/m²)</span></h3>
@@ -482,8 +484,8 @@
       <div class="card met"><h3>Fator de capacidade e irradiação</h3><dl>
         <dt>FC real</dt><dd><span class="fx">FC real (%) = Produzida (kWh) ÷ (Potência (kWp) × 24 h × dias)</span>Dias = dias do mês; no mês em andamento, até hoje.</dd>
         <dt>FC meta</dt><dd>Fator de capacidade previsto para o mês na meta da usina.</dd>
-        <dt>Irradiação medida</dt><dd><span class="fx">Irradiação (kWh/m²) = Σ irradiação diária no plano dos módulos (IPOA)</span></dd>
-        <dt>Irradiação esperada e diferença</dt><dd><span class="fx">Diferença (%) = (Medida − Esperada) ÷ Esperada</span>Esperada = meta de irradiação do mês.</dd>
+        <dt>Irradiação medida (antes de 10/2026)</dt><dd><span class="fx">Irradiação (kWh/m²) = Σ irradiação diária no plano dos módulos (IPOA)</span></dd>
+        <dt>Irradiação esperada e diferença (antes de 10/2026)</dt><dd><span class="fx">Diferença (%) = (Medida − Esperada) ÷ Esperada</span>Esperada = meta de irradiação do mês.</dd>
       </dl></div>
       <div class="card met"><h3>Disponibilidade</h3><dl>
         <dt>De 10/2026 em diante</dt>
@@ -657,7 +659,8 @@ const _GERAL_CAB_POSSIVEL='<tr><th>Usina</th><th>Potência (kWp)</th><th>Meta (k
 function _geralPossivel(d,f,pc,cls){
   $('tblGeral').classList.add('possivel'); $('geralHead').innerHTML=_GERAL_CAB_POSSIVEL;
   const esc=s=>String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
-  const porque=r=>r.motivo==='sem_meta_ipoa'?'sem meta de irradiação no mês'
+  const porque=r=>r.motivo==='sem_dias'?'nenhum dia com geração coletado no mês ainda'
+    :r.motivo==='sem_meta_ipoa'?'sem meta de irradiação no mês'
     :`medição de irradiação em ${r.dias_medidos} de ${r.dias} dias (o mínimo é metade)`;
   const sem=r=>`<span class="sem-etm" title="${esc(porque(r))}">sem ETM</span>`;
   const furo=r=>{ const n=(r.furos||[]).length; if(!n) return '';
@@ -1149,7 +1152,8 @@ async function renderDiario(ano,mes){
   $('grafTit').innerHTML=pi?'Energia <span class="un">(kWh)</span> × Geração possível pelo IPOA <span class="un">(kWh)</span>'
     :'Energia <span class="un">(kWh)</span> × Irradiação <span class="un">(kWh/m²)</span>';
   const nota=$('posNota');
-  nota.textContent=pi&&pi.sem_etm?('Sem a geração possível: '+(pi.motivo==='sem_meta_ipoa'?'sem meta de irradiação no mês.'
+  nota.textContent=pi&&pi.sem_etm?('Sem a geração possível: '+(pi.motivo==='sem_dias'?'nenhum dia com geração coletado no mês ainda.'
+    :pi.motivo==='sem_meta_ipoa'?'sem meta de irradiação no mês.'
     :`medição de irradiação em ${pi.dias_medidos} de ${pi.dias} dias com geração; o mínimo é metade.`)):'';
   nota.classList.toggle('hidden',!nota.textContent);
   const meta={x,y:x.map(()=>d.meta_dia),type:'scatter',mode:'lines',name:'Meta (kWh)',

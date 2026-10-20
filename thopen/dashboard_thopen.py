@@ -1407,7 +1407,7 @@ def _disp_dias(usina, ano, mes):
     return (operacao_mes.disp_por_dia(dados, usina, ano, mes) or None) if dados else None
 
 
-def _resumo_usina(usina, ano, mes):
+def _resumo_usina(usina, ano, mes, ate=None):
     """Linha do resumo (Visão Geral) de uma usina num mês — espelha as medidas DAX:
     Produzida/Meta/Irradiação/Disp do mês + FC = Produzida / (Pot_kWp × 24 × dias). De 10/2026 em diante a Disp é a do
     Gerencial (OS do Fracttal, `_so_os_fracttal`)."""
@@ -1431,17 +1431,17 @@ def _resumo_usina(usina, ano, mes):
              "dif_prod": dif_prod, "irr_esp": irr_esp, "irr_med": irr_med, "dif_irr": dif_irr,
              "disp": disp, "fc": fc}
     if _so_os_fracttal(ano, mes):
-        linha.update(_resumo_possivel(usina, ano, mes, recs, produzida, meta, irr_esp))
+        linha.update(_resumo_possivel(usina, ano, mes, recs, produzida, meta, irr_esp, ate))
     return linha
 
 
-def _resumo_possivel(usina, ano, mes, recs, produzida, meta_mes, metairr_mes):
+def _resumo_possivel(usina, ano, mes, recs, produzida, meta_mes, metairr_mes, ate=None):
     """De 10/2026 em diante a Visão Geral pela regra da geração possível (Levi, 20/10/2026; geracao_possivel.py): a meta
     e a irradiação esperada só dos dias com geração (no meio do mês a meta do mês inteiro punha toda usina "abaixo"), a
     medida ajustada pela cobertura, a possível pelo IPOA e com o expurgo das OS. Meta, Irradiação Esperada e Medida
     mudam de significado em vez de ganhar colunas: a tabela vai para a folha A4."""
     p = geracao_possivel.periodo(recs, _ghi_por_dia(usina), meta_mes, metairr_mes, monthrange(ano, mes)[1],
-                                 _disp_dias(usina, ano, mes))
+                                 _disp_dias(usina, ano, mes), ate=ate)
     return {"meta": p["meta"], "irr_esp": p["meta_ipoa"], "irr_med": p["ipoa_ajustado"], "dif_irr": p["dif_ipoa"],
             "dif_prod": ((produzida - p["meta"]) / p["meta"]) if (produzida is not None and p["meta"]) else None,
             "real": p["real"], "meta_ipoa": p["meta_ipoa"], "ipoa_ajustado": p["ipoa_ajustado"],
@@ -1449,6 +1449,13 @@ def _resumo_possivel(usina, ano, mes, recs, produzida, meta_mes, metairr_mes):
             "dif_possivel_exp": p["dif_possivel_exp"], "sem_etm": p["sem_etm"], "motivo": p["motivo"],
             "cobertura": p["cobertura"], "dias": p["dias"], "dias_medidos": p["dias_medidos"],
             "furos": [d.strftime("%d/%m") for d in p["furos"]]}
+
+
+def _ultimo_coletado(usinas, ano, mes):
+    """O último dia do mês com geração em alguma usina da carteira (None sem nenhum)."""
+    dias = [r["data"] for u in usinas for r in _daily_records(u)
+            if r["data"].year == ano and r["data"].month == mes and (r["ger"] or 0) > 0]
+    return max(dias) if dias else None
 
 
 @app.route("/api/t/geral")
@@ -1464,11 +1471,13 @@ def geral():
                     | set(_sheet_records().keys()))} - FORA_DO_RELATORIO
     nomes = sorted({u for u in CARTEIRAS.get(carteira, [])
                     if u in disponiveis and u not in EXCLUIR_GERAL})
-    linhas = [r for r in (_resumo_usina(u, ano, mes) for u in nomes) if r["produzida"] is not None]
+    # o último dia coletado da carteira: até ele, o dia sem dado de uma usina é furo (a coleta parada aparece)
+    ate = _ultimo_coletado(nomes, ano, mes) if _so_os_fracttal(ano, mes) else None
+    linhas = [r for r in (_resumo_usina(u, ano, mes, ate) for u in nomes) if r["produzida"] is not None]
     # Usinas da carteira que aparecem ABAIXO do Total (não entram no cálculo). Ex.: Piancó.
     fora_nomes = sorted({u for u in CARTEIRAS.get(carteira, [])
                          if u in disponiveis and u in EXCLUIR_GERAL})
-    fora = [r for r in (_resumo_usina(u, ano, mes) for u in fora_nomes) if r["produzida"] is not None]
+    fora = [r for r in (_resumo_usina(u, ano, mes, ate) for u in fora_nomes) if r["produzida"] is not None]
     today = dt.date.today()
     corte = (today if (ano == today.year and mes == today.month)
              else dt.date(ano, mes, monthrange(ano, mes)[1]))
