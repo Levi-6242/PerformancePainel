@@ -112,3 +112,38 @@ def test_visao_geral_de_outubro_com_as_14_colunas_e_o_total_do_servidor():
 def test_visao_geral_de_outubro_cabe_na_folha():
     h = _html()
     assert "#tblGeral.possivel" in h       # a fonte encolhe só com a regra nova
+
+
+def test_diario_de_outubro_com_a_possivel_do_dia(cli):
+    r = cli.get("/api/t/diario?usina=Altair&ano=2026&mes=10").get_json()
+    p1, p2 = r["pontos"][0], r["pontos"][1]
+    assert p1["possivel"] == pytest.approx(gp.possivel_do_dia(31000.0, 155.0, 6.0)) and p1["fonte_ipoa"] == "ETM"
+    assert p2["possivel"] == pytest.approx(gp.possivel_do_dia(31000.0, 155.0, 5.5)) and p2["fonte_ipoa"] == "GHI"
+    assert p2["ipoa_med"] == 5.5 and r["pontos"][4]["possivel"] is None            # dia sem medição: sem ponto
+    assert r["possivel_info"] == {"sem_etm": False, "motivo": None, "dias": 3, "dias_medidos": 2}
+    assert "esperada" not in p1 and "esperada_base" not in r                         # a conta kWp × IPOA × PR saiu
+
+
+def test_diario_sem_cobertura_nao_tem_linha(cli, monkeypatch):
+    poucos = [dict(x, ipoa=None) for x in OUT]
+    monkeypatch.setattr(dth, "_daily_records", lambda u: poucos)
+    monkeypatch.setattr(dth, "_ghi_por_dia", lambda u: {})
+    r = cli.get("/api/t/diario?usina=Altair&ano=2026&mes=10").get_json()
+    assert r["possivel_info"]["sem_etm"] is True and r["possivel_info"]["motivo"] == "cobertura"
+    assert all(p["possivel"] is None for p in r["pontos"])
+
+
+def test_diario_de_setembro_como_antes(cli):
+    r = cli.get("/api/t/diario?usina=Altair&ano=2026&mes=9").get_json()
+    assert "possivel_info" not in r and "possivel" not in r["pontos"][0] and "esperada" not in r["pontos"][0]
+
+
+def test_tela_do_diario_desenha_a_possivel_e_a_metodologia():
+    d = _corpo("renderDiario")
+    assert "d.possivel_info" in d and "p.possivel" in d and "Possível pelo IPOA" in d
+    assert "medição de irradiação em" in d                                           # a nota sem cobertura
+    assert "Irradiação (kWh/m²)" in d and "yaxis2" in d                               # antes de outubro, como era
+    assert "esperada_base" not in d
+    h = _html()
+    m = h.index("Meta diária (linha azul do Diário)")
+    assert "Geração possível pelo IPOA" in h[m:m + 3000] and "PR da meta" not in h
