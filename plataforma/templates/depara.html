@@ -18,7 +18,7 @@
    apresentar uma usina por linha"): a aba "Por usina" vem primeiro, no padrão do Monitoramento — UMA USINA POR LINHA, por
    conta da API PV (Usina na fonte · Chave do cadastro · Usina no Registro mestre · Usina no Fracttal · Inversores ligados/na
    fonte · Strings corretas · kWp · Situação), e o Abrir dá a mesma tabela por inversor do Tempo real (o componente de
-   /static/depara_tabela.js; quem grava a estrutura é o Nexus, e a ponte da fonte vai depois, por aqui). O diagnóstico e o
+   static/depara_tabela.js, servido por /admin/de-para/tabela.js: o /static/* do servidor é do Nexus; quem grava a estrutura é o Nexus, e a ponte da fonte vai depois, por aqui). O diagnóstico e o
    editor da ponte de antes ficam na aba "Diagnóstico" e no ?editar= (o atalho "sem de-para" do Tempo real abre nele). O tema
    segue o do Nexus na moldura (navy no escuro, o claro do Nexus no claro); aberta direto e em janela, o navy de sempre. #}
 <script>
@@ -34,7 +34,7 @@
   window.addEventListener('storage', function(ev){ if(ev.key === 'nexus.tema') aplica(ev.newValue); });
 })();
 </script>
-<script src="/static/depara_tabela.js"></script>
+<script src="/admin/de-para/tabela.js"></script>
 <style>
   :root{
     --bg:#090d18; --card:#161d30; --card2:#1c2640; --card3:#222d4a; --linha:rgba(255,255,255,.08); --linha2:rgba(255,255,255,.15);
@@ -627,7 +627,7 @@
     throw new Error('a tabela ainda está montando');
   }
   async function lerUsinas(){
-    if(DP || !window.DeparaTabela) { if(!window.DeparaTabela) $('porUsina').innerHTML = '<p class="vazio erro-txt">O componente do de-para não carregou (/static/depara_tabela.js).</p>'; return; }
+    if(DP || !window.DeparaTabela) { if(!window.DeparaTabela) $('porUsina').innerHTML = '<p class="vazio erro-txt">O componente do de-para não carregou (/admin/de-para/tabela.js).</p>'; return; }
     DP = window.DeparaTabela.criar({resumo: true, blocos: CONTAS.map(function(c){ return {id: c.id, nome: c.nome}; }), redesenhar: desenharUsinas});
     var linhas = [], vistos = {};
     await Promise.all(CONTAS.map(async function(c){

@@ -1485,6 +1485,16 @@ def pagina_depara():
     return render_template("depara.html")
 
 
+@app.route("/admin/de-para/tabela.js")
+def depara_tabela_js():
+    """O componente da tabela do de-para (static/depara_tabela.js), o mesmo do Tempo real e da Base, por um caminho da
+    plataforma: com o Nexus na raiz o Caddy manda /static/* ao Nexus (menos fonts, logos e notif.js), e o
+    /static/depara_tabela.js dava 404 no servidor (conferido em 21/10/2026, antes do 1º push) — o botão do Modo de-para
+    sumiria calado e a Base diria "o componente não carregou". Debaixo de /admin/de-para: só admin, como a Base
+    (`porta_nexus.so_admin`); o Monitoramento só o pede para quem grava (RD.gravaAdmin)."""
+    return send_file(os.path.join(_AQUI, "static", "depara_tabela.js"), mimetype="application/javascript", max_age=0)
+
+
 _DP_OEM = ("semp", "alveslima", "2capi")                         # a conta oem@: o inversor liga pelo id
 _DP_API_PV = ("pv",) + _DP_OEM                                     # as contas da API PV: a usina liga pelo id
 _DP_SG = ("greenyellow", "salenergia")                             # scadaGridco: o inversor liga pelo nº do equipamento

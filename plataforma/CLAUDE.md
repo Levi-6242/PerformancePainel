@@ -1215,9 +1215,11 @@ leitores do cadastro que passam a seguir o que o Nexus grava) e, no fim, **as te
   o `?janela=1` abrem o editor da ponte como sempre (na janela, a aba Por usina nem carrega). As outras fontes (banco, Athon,
   Axis, RenoGrid, scadaGridco) seguem só no Diagnóstico: o resumo por inversor é das contas da API PV. Tema: navy aberta direto
   e na janela; na moldura, o do Nexus (`nexus_tema`/`nexus.tema`, o claro em `html.modo-nexus[data-tema="claro"]:not(.janela)`).
-- **Armadilhas**: (1) `/static/depara_tabela.js` vem do `/static/` da plataforma; na fase 4 (o Nexus na raiz) o Caddy manda
-  `/static/*` ao Nexus, menos fontes, logos e notif.js: o arquivo tem de entrar nessa exceção, senão o botão some calado (o
-  `_dpPode` exige `window.DeparaTabela`). (2) A foto do Fracttal é de 22/09: usina refeita depois que ainda aparece na aba
+- **Armadilhas**: (1) o componente NÃO vem de `/static/`: com o Nexus na raiz o Caddy manda `/static/*` ao Nexus (menos
+  fontes, logos e notif.js), e o `/static/depara_tabela.js` dava 404 no servidor (conferido em 21/10/2026, antes do 1º
+  push; o botão sumiria calado, porque o `_dpPode` exige `window.DeparaTabela`). Ele sai por `/admin/de-para/tabela.js`
+  (`depara_tabela_js`, só admin pelo `so_admin`, no `FORA_DO_MAPA`); a Base o pede no `<script>`, e o Monitoramento só
+  para quem grava (`_dpCarrega`, depois do /api/eu; os outros levariam o login em HTML no lugar do script). (2) A foto do Fracttal é de 22/09: usina refeita depois que ainda aparece na aba
   com o nome velho (a PHS200) só sai certa porque a mais nova casa os inversores; com nomes que não casam em nenhuma, vale a da
   aba. (3) O Conferido é da linha: a falta da chave (do grupo) segura só o Salvar.
 - Testes: `tests/test_depara_tabela_telas.py` (Itajá e Pharmas, o número do código, a subusina, a conta do kWp, a tabela, o

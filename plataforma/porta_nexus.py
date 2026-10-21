@@ -90,6 +90,7 @@ FORA_DO_MAPA = {
     "/os/<path:sub>": "OS Creator Web (idem)",
     "/painel/nexus/entrar": "o passe do Nexus (esta porta), não é tela",
     "/painel/nexus/sair": "o Sair do Nexus passa por aqui, não é tela",
+    "/admin/de-para/tabela.js": "o componente da tabela do de-para (Tempo real e Base), não é tela: o /static/* do servidor é do Nexus",
 }
 
 

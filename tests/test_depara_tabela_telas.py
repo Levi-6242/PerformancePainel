@@ -1028,8 +1028,27 @@ def test_o_botao_so_aparece_para_admin_nas_contas_da_api_pv(tmp_path):
     assert json.loads(p.stdout) == [True, True, True, True, True, True, True, True]
 
 
+def test_o_componente_vem_por_caminho_da_plataforma_e_so_para_quem_grava():
+    """21/10/2026, antes do 1º push: com o Nexus na raiz o Caddy manda /static/* ao Nexus (menos fonts, logos e notif.js), e
+    o /static/depara_tabela.js dava 404 no servidor (o botão sumiria calado). O componente vem de /admin/de-para/tabela.js
+    (só admin, como a Base); o Monitoramento só o pede para quem grava, depois do /api/eu."""
+    assert '<script src="/static/depara_tabela.js"' not in MON
+    assert '<script src="/static/depara_tabela.js"' not in DEP and '<script src="/admin/de-para/tabela.js"></script>' in DEP
+    i = MON.index("function _dpCarrega(")
+    c = MON[i:MON.index("\n}\n", i)]
+    assert "!RD.abreAdmin||!RD.gravaAdmin) return;" in c and "(window.__pfx||(u=>u))('/admin/de-para/tabela.js')" in c
+    assert "s.onload=()=>{ if(window.DeparaTabela) render(); };" in c
+    i = MON.index("RD.gravaAdmin=!!eu.grava_admin;")
+    assert "_dpCarrega();" in MON[i:i + 200]                                   # logo depois do /api/eu
+    import app
+    from porta_nexus import so_admin
+    assert so_admin("/admin/de-para/tabela.js")
+    r = app.app.test_client().get("/admin/de-para/tabela.js")                 # sem DASH_PASSWORD no teste: aberto
+    assert r.status_code == 200 and r.mimetype == "application/javascript"
+    assert r.get_data() == COMP.read_bytes()
+
+
 def test_o_monitoramento_segue_o_molde_do_criar_os():
-    assert '<script src="/static/depara_tabela.js" defer></script>' in MON
     assert "dpMode:false" in MON and "${_dpBtn()}${_osBtn()}${_histBtn()}" in MON
     for f in ("window.setView=", "window.setSource="):                         # trocar de aba ou de fonte sai do modo
         linha = MON[MON.index(f):MON.index("\n", MON.index(f))]
@@ -1057,7 +1076,7 @@ def test_o_inversor_aparece_com_o_nome_do_fracttal_e_a_cabine_do_cadastro():
 def test_a_base_tem_as_abas_e_o_editor_de_antes_fica():
     assert '<h1>De-para de equipamentos</h1>' in DEP and 'href="/" data-casca' in DEP
     assert 'id="abaUsina" aria-selected="true"' in DEP and 'id="secDiag" role="tabpanel" aria-labelledby="abaDiag" hidden' in DEP
-    assert '<script src="/static/depara_tabela.js"></script>' in DEP
+    assert '<script src="/admin/de-para/tabela.js"></script>' in DEP
     assert "if(!document.documentElement.classList.contains('janela')) lerUsinas();" in DEP   # a janela é só o editor
     assert 'id="ed" role="dialog" aria-modal="true" aria-labelledby="edTit" hidden' in DEP
     # o tema do Nexus na moldura; na janela por cima do Tempo real, o navy dele

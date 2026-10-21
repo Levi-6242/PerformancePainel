@@ -6,8 +6,9 @@
 <title>Grid Co. — Monitoramento O&amp;M (novo design)</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="/static/notif.js" defer></script>
-<!-- Modo de-para (20/10/2026): a tabela por inversor, o mesmo componente da Base · De-para de equipamentos -->
-<script src="/static/depara_tabela.js" defer></script>
+<!-- Modo de-para (20/10/2026): a tabela por inversor, o mesmo componente da Base · De-para de equipamentos, vem de
+     /admin/de-para/tabela.js e só para quem grava (_dpCarrega, depois do /api/eu): o /static/* do servidor é do Nexus -->
+
 <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
 <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
 <style>
@@ -582,6 +583,7 @@ async function _pollFresco(url,key,view,src){
 async function loadMeta(d){   // badges por usina: OS (Fracttal, por nome) + comentários (thread por vkey)
   // quem é a sessão (13/10/2026): o atalho para o de-para (_dpSem) só aparece para quem abre a página dele
   if(RD.abreAdmin===undefined){ try{ const eu=await fetchJSON('/api/eu'); if(eu&&!eu.error){ RD.abreAdmin=!!eu.abre_admin; RD.gravaAdmin=!!eu.grava_admin; } }catch(e){} }
+  _dpCarrega();
   const names=[...new Set((d.rows||[]).map(r=>r.usina).filter(Boolean))];
   if(names.length){ try{ const os=await fetchJSON('/api/os-performance/counts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usinas:names})}); if(os&&typeof os==='object')RD.os=os; }catch(e){} }
   // /api/state traz comentários, ACOMPANHAMENTO (coluna ACOMP.) e OS atribuídas. O catch aqui
@@ -1015,10 +1017,23 @@ window.osGerar=async()=>{
    ficar nesse padrão de tabela". O botão fica ao lado do Criar OS, só nas contas da API PV (o que a fonte manda de cada
    inversor já vem na linha do ciclo, `inv_resumo`: abrir o drill de 115 usinas seria chamada paga na hora) e só para quem
    abre a administração e grava (`RD.abreAdmin` e `RD.gravaAdmin`, o /api/eu). O molde é o do Criar OS: o estado, o "Sair do modo", a barra fixa no
-   rodapé (no embutido, presa pelo `_prendeOverlays`) e sair ao trocar de fonte ou de aba. A tabela é o componente de
-   /static/depara_tabela.js, o mesmo da Base; quem grava a estrutura é o Nexus, e a ponte da fonte vai depois. ── */
+   rodapé (no embutido, presa pelo `_prendeOverlays`) e sair ao trocar de fonte ou de aba. A tabela é o componente
+   static/depara_tabela.js, o mesmo da Base; quem grava a estrutura é o Nexus, e a ponte da fonte vai depois. ── */
 const _DP_FONTES=['pv','semp','alveslima','2capi','owen'];   // a 2C da tela é "owen" por dentro: as linhas dela são da 2capi
-let _dpI=null;
+let _dpI=null, _dpPedido=false;
+/* o componente vem de /admin/de-para/tabela.js (21/10/2026): com o Nexus na raiz o Caddy manda /static/* ao Nexus (menos
+   fonts, logos e notif.js), e o script de /static/depara_tabela.js dava 404 no servidor: o botão sumia calado. O
+   caminho é só de admin, então só quem grava o pede (os outros levariam o login em HTML no lugar do script). Uma vez só;
+   quando chega, redesenha para o botão aparecer */
+function _dpCarrega(){
+  if(_dpPedido||window.DeparaTabela||!RD.abreAdmin||!RD.gravaAdmin) return;
+  _dpPedido=true;
+  const s=document.createElement('script');
+  s.src=(window.__pfx||(u=>u))('/admin/de-para/tabela.js');
+  s.onload=()=>{ if(window.DeparaTabela) render(); };
+  s.onerror=()=>{ _dpPedido=false; };
+  document.head.appendChild(s);
+}
 function _dpLinhas(){ return ((RD.pv&&RD.pv.rows)||[]).filter(r=>Array.isArray(r.inv_resumo)); }
 /* grava_admin (20/10/2026): o gestor que é admin do Nexus abre a administração mas não grava (a ponte da fonte levava 403 depois
    de o Nexus gravar a estrutura, gravação pela metade); o modo é de quem grava. Ele confere na Base · De-para, só leitura. */
