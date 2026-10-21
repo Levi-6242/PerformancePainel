@@ -207,6 +207,18 @@ def _depara_desligado_por_padrao(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _vinculos_das_falhas_sem_banco_por_padrao(tmp_path, monkeypatch):
+    """Vínculo ocorrência ↔ OS da aba Strings e trackers (20/10/2026): lê e grava o livro nexus_falhas no banco (rede) e
+    escreve em plataforma/logs. Por padrão, o banco é um endereço que recusa na hora e a cópia e o log ficam no tmp_path;
+    quem testa dubla a sessão do banco (tests/test_falhas_vincular_os.py)."""
+    cob, fv = getattr(app, "_cob", None), getattr(app, "_fv", None)
+    if cob is not None and fv is not None:
+        monkeypatch.setattr(app, "_FV_DECISOES", cob.Decisoes("http://127.0.0.1:9", "", str(tmp_path / "falhas_vinculos.json"),
+                                                               livro=fv.LIVRO, aba=fv.ABA, cab=fv.CAB))
+        monkeypatch.setattr(app, "_FV_LOG", str(tmp_path / "falhas_vinculos.log"))
+
+
+@pytest.fixture(autouse=True)
 def _sunop_sem_pausa_por_padrao(monkeypatch):
     """A pausa da SunOp (domingo e teto do dia, 04/10/2026) depende do dia e do contador: rodada num domingo, a suíte
     inteira veria a SunOp fechada. Desligada por padrão; tests/test_sunop_teto_domingo.py liga."""

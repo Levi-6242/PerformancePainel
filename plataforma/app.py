@@ -11161,19 +11161,26 @@ def _tickets_str_da_linha(nome) -> list:
     return []
 
 
-def _tk_str_cod_da_linha(nome) -> str:
-    """Código-base (CNN100) da usina de uma linha da tabela de strings, pelo de-para mestre (aba "Info Geral" do
-    BD_Performance, USINA_COD): o nome cru, sem o " - Skid", e o do macro. A linha da Athon já é o código (MTS100).
-    O código da Info Geral pode vir com a parte ("ADT100-1"): vale a base, porque é a base que o ticket guarda."""
+def _tk_str_cod_bruto_da_linha(nome) -> str:
+    """O Código Fractal da usina de uma linha COMO a aba "Info Geral" do BD_Performance o escreve (USINA_COD): com a
+    parte ("ADT100-1") e com o cliente colado no código de dois clientes ("2CIPX100" é a Ipixuna do Pará da 2C; a da
+    Thopen é "IPX100"). Mesma ordem de nomes do _tk_str_cod_da_linha, que fica com a base."""
     s = str(nome or "").strip()
     if re.fullmatch(r"[A-Za-z]{3}\d{3}", s):
         return s.upper()
     for nm in (s, re.sub(r"\s*-\s*skid\s*", " ", s, flags=re.I), _macro_usina_nome(s) or ""):
         cod = USINA_COD.get(_usina_key(nm)) if nm else None
-        m = re.search(r"[A-Za-z]{3}\d{3}", str(cod or ""))
-        if m:
-            return m.group(0).upper()
+        if re.search(r"[A-Za-z]{3}\d{3}", str(cod or "")):
+            return str(cod).strip()
     return ""
+
+
+def _tk_str_cod_da_linha(nome) -> str:
+    """Código-base (CNN100) da usina de uma linha da tabela de strings, pelo de-para mestre (aba "Info Geral" do
+    BD_Performance, USINA_COD): o nome cru, sem o " - Skid", e o do macro. A linha da Athon já é o código (MTS100).
+    O código da Info Geral pode vir com a parte ("ADT100-1"): vale a base, porque é a base que o ticket guarda."""
+    m = re.search(r"[A-Za-z]{3}\d{3}", _tk_str_cod_bruto_da_linha(nome))
+    return m.group(0).upper() if m else ""
 
 
 def _tk_str_achados(rows) -> list:
@@ -27300,13 +27307,34 @@ def _falhas_os_abertas(forcar=False):
 _RX_OS_STR_QTD = re.compile(r"\bstrings?\s+sem\s+corrente\s*[:=\-]?\s*(\d{1,3})\b\s*(?:\(([^)]*)\))?", re.I)
 
 
+def _falhas_sem_acento(s):
+    """Minúsculo e sem acento: é assim que a régua das OS de string compara ("Recomposição" = "recomposicao")."""
+    s = unicodedata.normalize("NFKD", str(s or ""))
+    return "".join(c for c in s if not unicodedata.combining(c)).lower()
+
+
+def _falhas_os_vivas_de_string(tarefas):
+    """As tarefas NÃO canceladas de uma OS (as linhas dela no work_orders, uma por tarefa) quando ela é de RECOMPOSIÇÃO
+    DE STRING; [] quando não é. A régua ÚNICA do `strings_os`, do Dashboard Thopen e da busca do "Vincular OS" da aba
+    Strings e trackers (Levi, 20/10/2026): "recomposi" E "string" na descrição, sem acento; cancelada fora. "recomposi"
+    sozinho pega "[INHAPI] Recomposição da alimentação da ETM" (OS 15308) e "recomposição de cabos CC"; a 16724 da
+    Mandaguaçu ("Recomposição de cabeamento de 4 strings – INV07") passa."""
+    vivas = [t for t in tarefas or [] if t.get("id_status_work_order") != 4]
+    desc = _falhas_sem_acento((vivas[0] if vivas else {}).get("description"))
+    return vivas if (vivas and "recomposi" in desc and "string" in desc) else []
+
+
+def _falhas_os_status(tarefas):
+    """O status de uma OS pelas tarefas dela: aberta antes de concluída (uma tarefa ainda aberta = a OS segue aberta)."""
+    sts = {t.get("id_status_work_order") for t in tarefas}
+    return min(sts, key=lambda s: (s in (2, 3), s if isinstance(s, int) else 99))
+
+
 def _falhas_os_string(wos):
     """Varredura da Disponibilidade ({folio: [tarefas]}) → [OS de recomposição de string não cancelada, uma por
     inversor]: {os, code, prefixo, cb, inv, evento (dia de Brasília), status, qtd_texto, strings_texto, cit}. O
     falhas_job casa a usina pelo código (cb + prefixo do cliente) e decide a origem da quantidade."""
-    def _sem_acento(s):
-        s = unicodedata.normalize("NFKD", str(s or ""))
-        return "".join(c for c in s if not unicodedata.combining(c)).lower()
+    _sem_acento = _falhas_sem_acento
 
     def _inv(t):
         code = str(t.get("code") or "").strip()
@@ -27316,10 +27344,8 @@ def _falhas_os_string(wos):
 
     out = []
     for fol, tarefas in (wos or {}).items():
-        vivas = [t for t in tarefas or [] if t.get("id_status_work_order") != 4]
-        desc = _sem_acento((vivas[0] if vivas else {}).get("description"))
-        # "recomposi" sozinho pega "[INHAPI] Recomposição da alimentação da ETM" (OS 15308) e "recomposição de cabos CC"
-        if not vivas or "recomposi" not in desc or "string" not in desc:
+        vivas = _falhas_os_vivas_de_string(tarefas)
+        if not vivas:
             continue
         grupos = {}
         for t in vivas:
@@ -27332,8 +27358,7 @@ def _falhas_os_string(wos):
             mb = re.search(r"([A-Z]{3}\d{3})", code)
             mq = _RX_OS_STR_QTD.search(_sem_acento(textos))
             lista = (mq.group(2) or "") if mq else ""
-            sts = {t.get("id_status_work_order") for t in ts}
-            st = min(sts, key=lambda s: (s in (2, 3), s if isinstance(s, int) else 99))   # aberta antes de concluída
+            st = _falhas_os_status(ts)                                                       # aberta antes de concluída
             out.append({"os": str(fol), "code": code, "prefixo": (code[:mb.start()].strip("-") or None) if mb else None,
                         "cb": mb.group(1) if mb else None, "inv": inv,
                         "evento": min(evs).strftime("%Y-%m-%d") if evs else None,
@@ -28234,23 +28259,53 @@ def api_painel_falhas_desconsideradas():
         return jsonify({"ok": False, "motivo": f"{type(e).__name__}: {e}"}), 500
 
 
+FALHAS_DESC_LOTE_MAX = 60              # chaves por pedido (a maior ocorrência de string de outubro tinha 33)
+
+
+def _falhas_desc_resumo(r) -> dict:
+    """O resumo que a gaveta "Tiradas da conta" mostra: só estes campos, curtos (o arquivo vai para o disco do web)."""
+    return {k: v for k, v in (r.items() if isinstance(r, dict) else ())
+            if k in ("usina", "cliente", "inversor", "string", "tracker", "inicio", "fim", "perda_kwh")
+            and isinstance(v, (str, int, float)) and len(str(v)) <= 120}
+
+
 @app.route("/api/painel/falhas/desconsiderar", methods=["POST"])
 def api_painel_falhas_desconsiderar():
-    """{tipo: strings|trackers, chave, desconsiderar: bool, resumo: {usina, inversor, string|tracker, inicio, perda_kwh}}"""
+    """{tipo: strings|trackers, chave | chaves: [...], desconsiderar: bool, resumo: {usina, inversor, string|tracker,
+    inicio, perda_kwh} | resumos: {chave: resumo}}.
+
+    `chaves` (Levi, 20/10/2026, a tabela única das strings): a linha passa a ser a OCORRÊNCIA do inversor, e a caixa dela
+    tira (ou devolve) todas as chaves de episódio da ocorrência de uma vez — a Inhapi 3.3 são 4 strings; em outubro uma
+    ocorrência chegou a 33 chaves. Até FALHAS_DESC_LOTE_MAX, cada uma conferida como a `chave` sozinha, numa gravação só
+    (tudo ou nada: uma chave fora do formato recusa o pedido inteiro). O resumo de cada chave vem de `resumos`; sem ele,
+    o `resumo` vale para todas. `chave` sozinha segue valendo (trackers e quem já chama)."""
     b = flask_request.get_json(silent=True) or {}
-    tipo, chave = b.get("tipo"), str(b.get("chave") or "").strip()
-    if tipo not in ("strings", "trackers") or not chave or len(chave) > 300 or chave.count("|") != (4 if tipo == "strings" else 3):
+    tipo = b.get("tipo")
+    if tipo not in ("strings", "trackers"):
         return jsonify({"ok": False, "motivo": "tipo strings|trackers e a chave da ocorrência"}), 400
-    resumo = {k: v for k, v in (b.get("resumo") or {}).items()
-              if k in ("usina", "cliente", "inversor", "string", "tracker", "inicio", "fim", "perda_kwh")
-              and isinstance(v, (str, int, float)) and len(str(v)) <= 120}
+    if b.get("chaves") is not None:
+        lote = b.get("chaves")
+        if not isinstance(lote, list) or not 1 <= len(lote) <= FALHAS_DESC_LOTE_MAX:
+            return jsonify({"ok": False, "motivo": f"chaves: de 1 a {FALHAS_DESC_LOTE_MAX} chaves de ocorrência"}), 400
+        chaves = list(dict.fromkeys(str(c if isinstance(c, str) else "").strip() for c in lote))
+    else:
+        chaves = [str(b.get("chave") or "").strip()]
+    barras = 4 if tipo == "strings" else 3
+    if any(not c or len(c) > 300 or c.count("|") != barras for c in chaves):
+        return jsonify({"ok": False, "motivo": "tipo strings|trackers e a chave da ocorrência"}), 400
+    resumo = _falhas_desc_resumo(b.get("resumo"))
+    resumos = b.get("resumos") if isinstance(b.get("resumos"), dict) else {}
     try:
         with _falhas_desc_lock:
             d = _falhas_desc_ler()
             if b.get("desconsiderar", True):
-                d[tipo][chave] = {**resumo, "por": _quem_na_sessao(), "em": datetime.now().strftime("%Y-%m-%d %H:%M")}
+                por, em = _quem_na_sessao(), datetime.now().strftime("%Y-%m-%d %H:%M")
+                for chave in chaves:
+                    r = _falhas_desc_resumo(resumos[chave]) if chave in resumos else resumo
+                    d[tipo][chave] = {**r, "por": por, "em": em}
             else:
-                d[tipo].pop(chave, None)
+                for chave in chaves:
+                    d[tipo].pop(chave, None)
             tmp = FALHAS_DESC_PATH + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump(d, f, ensure_ascii=False, indent=1)
@@ -28258,6 +28313,495 @@ def api_painel_falhas_desconsiderar():
     except Exception as e:                                   # noqa: BLE001 — a tela diz que não gravou
         return jsonify({"ok": False, "motivo": f"não gravou — {type(e).__name__}: {e}"}), 500
     return jsonify({"ok": True, "n": len(d[tipo])})
+
+
+# ── Vincular OS na aba Strings e trackers (Levi, 20/10/2026) ──────────────────────────────────────────────────────────
+# "1.5 Opção de vincular OS, eu clico no botão e buscas as OSs de recomposição de string desse inversor (...) 1.7 A OS só
+# carrega se eu clicar em vincular, caso eu não clique não deve carregar nem fazer requisição alguma do fractal (...) 1.8
+# faça algo parecido com os trackers!". A BUSCA (abaixo) é a única chamada da tela ao Fracttal, e só no clique: 2 a 4
+# pedidos com o cache frio (code → ativo, 1 a 3, guardado 12 h; ativo → OS, 1, guardado 10 min). O VÍNCULO gravado — o
+# que aparece sem clique — vem do banco do Nexus (falhas_vinculos.py), nunca do Fracttal.
+#
+# Strings: o ativo é o inversor, {código da usina}-INVR{N.M}. O código sai da Info Geral (USINA_COD), NUNCA do
+# _frac_codebase: com o índice de ativos vencido (o do PC estava em 13/10, sete dias), ele varre ~150 páginas de items/
+# dentro do clique, na cota de 200/min da empresa inteira. Em outubro a Info Geral cobria 48 das 49 usinas com parada de
+# string (o _frac_codebase, 46). Filtro: a régua do strings_os (_falhas_os_vivas_de_string). Guatambu 1.2, parada de 01 a
+# 20/10: OS 16561 em andamento, evento 01/10. Mandaguaçu 4.4 (01 a 15/10): só a 9915, de 23/07 — vem "anterior" (evento
+# antes do início da ocorrência), como no card do ticket, para ninguém vincular a OS velha achando que é a desta parada.
+#
+# Trackers: o ativo é o "Code Fracttal" do de-para dos trackers (trackers_depara.xlsx), o mesmo do "Criar OS" de tracker
+# do Monitoramento; OS = todas as não canceladas do ativo (a OS de tracker é uma por tracker). A 2C não está no de-para: a
+# Sete Lagoas Tracker 1.49 tem a OS 15481 no SLG200-ETKR49.200 do Fracttal, e a busca diz "sem de-para" em vez de casar
+# pelo número (a regra Tracker 1.N = ETKR N.200 é pergunta para o Levi, não está combinada).
+#
+# O Fracttal que não respondeu (429 da cota, rede, 5xx) é 502 com o motivo — nunca "sem OS": a armadilha do card do
+# ticket, que chama sem `falhas=` e mostra um 429 como "inversor não achado".
+FALHAS_OS_TIPOS = ("strings", "trackers")
+
+
+def _falhas_os_prefixo(cod) -> str:
+    """O cliente colado ao código-base no Código Fractal da Info Geral: "2CIPX100" → "2C", "THPN-ALT100" → "THPN";
+    "IPX100" e "ADT100-1" → "" (sem prefixo)."""
+    m = re.search(r"[A-Za-z]{3}\d{3}", str(cod or ""))
+    return str(cod)[:m.start()].strip("- ").upper() if m else ""
+
+
+def _falhas_os_base(cod) -> str:
+    m = re.search(r"[A-Za-z]{3}\d{3}", str(cod or ""))
+    return m.group(0).upper() if m else ""
+
+
+def _falhas_os_alvo_inversor(usina, inversor):
+    """O que se sabe do ativo do inversor de uma linha da aba SEM perguntar nada a ninguém → (alvo | None, motivo | None).
+    alvo = {cb, n (o N.M do código), code, pref (o cliente: "THPN" ou o prefixo colado ao código, "2C"), dois (o código
+    é de dois clientes)}. O código da usina vem da Info Geral (_tk_str_cod_bruto_da_linha), nunca do índice de ativos."""
+    bruto = _tk_str_cod_bruto_da_linha(usina)
+    cb = _falhas_os_base(bruto)
+    if not cb:
+        return None, f"a usina {usina} não tem Código Fractal na aba Info Geral do BD_Performance"
+    code = _frac_inv_code(cb, inversor)             # cb já é o código: o _frac_codebase o devolve sem ir ao índice
+    if not code:
+        return None, f"o inversor \"{inversor}\" não tem número para montar o código do ativo ({cb}-INVR…)"
+    donos = {_falhas_os_prefixo(c) or "THPN" for c in set(USINA_COD.values()) if _falhas_os_base(c) == cb}
+    return {"cb": cb, "n": code.split("-INVR", 1)[1], "code": code, "pref": _falhas_os_prefixo(bruto) or "THPN",
+            "dois": len(donos) > 1}, None
+
+
+def _falhas_os_ativo_inversor(alvo, falhas):
+    """O ativo do Fracttal do inversor → (ativo {id, desc, code} | None, motivo | None). O Fracttal que não respondeu vai
+    para `falhas` (quem chama responde 502, ou a reserva do índice)."""
+    if not alvo["dois"]:
+        ativo = _frac_ativo(alvo["code"], falhas)
+        return ativo, None if ativo else f"o ativo {alvo['code']} não existe no Fracttal (nem com o prefixo do cliente)"
+    # Código de DOIS clientes (IPX100: "IPX100" é a Ipixuna da Thopen e "2CIPX100" a do Pará da 2C; no Fracttal,
+    # IPX100-INVR1.1 e 2C-IPX100-INVR1.1): o ativo com o prefixo do cliente primeiro, como a api_tickets_str_os, e nunca o
+    # do outro cliente — a regra da strings_os (falhas_job: "na dúvida, sem usina"). O _frac_ativo tentaria o código sem
+    # prefixo (o da Thopen) e o prefixo da aba de usinas, que pode ser o da 2C.
+    code = alvo["code"]
+    tentativas = [code, f"THPN-{code}"] if alvo["pref"] == "THPN" else [f"{alvo['pref']}-{code}"]
+    for c in tentativas:
+        ativo = _frac_ativo_exato(c, falhas)
+        if ativo or falhas:
+            return ativo, None
+    return None, (f"o código {alvo['cb']} é de dois clientes e o ativo deste cliente ({' ou '.join(tentativas)}) não "
+                  f"existe no Fracttal — o outro é de outro cliente")
+
+
+def _falhas_os_reserva(alvo, desde):
+    """Quando o Fracttal não respondeu, as OS de recomposição do MESMO inversor no índice que a varredura da
+    Disponibilidade publica a cada 30 min (_falhas_os_string_indice: código da usina + N.M, o cliente pelo prefixo do
+    código) → {os: [no formato da busca], varrido_em, code (o do ativo, como o Fracttal o escreve)} ou None sem índice ou
+    sem OS dele. O índice não guarda texto livre nem as datas da OS: vêm o nº, o status, o dia do evento e as strings
+    citadas; tipo, criação, conclusão e descrição ficam vazios. Coordenador, 20/10/2026: a varredura das 15:03 esperou a
+    cota 15 vezes — "o Fracttal não respondeu" vai acontecer, e a tela ainda tem o que mostrar."""
+    dados = _frac_disp_dados()
+    idx = dados.get("os_string")
+    if not idx:
+        return None
+    por, code = {}, None
+    for o in idx:
+        if o.get("cb") != alvo["cb"] or str(o.get("inv") or "") != alvo["n"]:
+            continue
+        if alvo["dois"] and (str(o.get("prefixo") or "").upper() or "THPN") != alvo["pref"]:
+            continue                                         # código de dois clientes: só a OS do cliente desta usina
+        fol = str(o.get("os") or "")
+        if fol and fol not in por:
+            code = code or (str(o.get("code") or "").strip() or None)
+            ev = str(o.get("evento") or "")[:10] or None
+            por[fol] = {"folio": fol, "status": o.get("status") or "—", "tipo": None, "criada": None, "evento": ev,
+                        "concluida": None, "descricao": None, "strings": sorted(set(o.get("cit") or [])),
+                        "anterior": bool(desde and ev and ev < desde), "link": f"/os/os/folio/{fol}"}
+    if not por:
+        return None
+    ts = dados.get("ts")
+    return {"os": sorted(por.values(), key=lambda o: (o["evento"] or "", int(o["folio"]) if o["folio"].isdigit() else 0),
+                         reverse=True),
+            "varrido_em": datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M") if isinstance(ts, (int, float)) else None,
+            "code": code}
+
+
+def _falhas_trk_nome_cadastro(plant_id):
+    """O nome da usina com que a fonte cadastra o plant_id, do registro de trackers (_trk_eventos), no dia mais recente
+    em que ele aparece. É o nome com que o drill do Monitoramento pede o de-para ("Altair 3 (75)"); a linha da aba traz a
+    usina canônica ("Altair" = Altair 1 a 5) e o número do tracker se repete entre as sub-usinas (outubro: pelo canônico,
+    365 dos 1.335 trackers ficavam com o número em mais de uma; pelo plant_id, nenhum). None = o registro não o tem."""
+    pid = str(plant_id or "").strip()
+    with _trk_eventos_lock:
+        for dia in sorted(_trk_eventos, reverse=True):
+            nome = ((_trk_eventos.get(dia) or {}).get(pid) or {}).get("nome")
+            if nome:
+                return str(nome)
+    return None
+
+
+def _falhas_os_code_tracker(fonte, plant_id, usina, tracker):
+    """O "Code Fracttal" do tracker pelo de-para dos trackers → (code | None, motivo | None). Sem chutar: sem o nome do
+    cadastro, a usina canônica só vale se o de-para tiver uma usina só com ela; e o número do tracker que se repete com
+    codes diferentes só vale pelo nome exato."""
+    nome = _falhas_trk_nome_cadastro(plant_id)
+    dp = _trk_depara_usina(fonte, nome or usina)
+    if not dp:
+        return None, (f"a usina {nome or usina} ({fonte}) não está no de-para de trackers (trackers_depara.xlsx)"
+                      + (": a 2C ainda não tem de-para" if fonte == "owen" else ""))
+    if not nome and len(dp.get("usinas") or ()) > 1:
+        return None, (f"o registro de trackers desta máquina não tem o cadastro do plant_id {plant_id}, e a {usina} tem "
+                      f"{len(dp['usinas'])} usinas no de-para com os mesmos números de tracker")
+    n = _trk_id_num(tracker)
+    cands = [x for x in dp.get("trackers") or () if n is not None and x.get("num") == n]
+    if not cands:
+        return None, f"o {tracker} não está no de-para de trackers da {', '.join(dp.get('usinas') or [usina])}"
+    if len({x.get("code") for x in cands}) > 1:
+        def _cru(s):
+            return re.sub(r"\s+", "", str(s or "")).lower()
+        exatos = [x for x in cands if _cru(x.get("tracker")) == _cru(tracker)]
+        if len({x.get("code") for x in exatos}) != 1:
+            return None, (f"o número do {tracker} se repete no de-para da {', '.join(dp.get('usinas') or [usina])} "
+                          f"com ativos diferentes ({', '.join(sorted(str(x.get('code')) for x in cands))})")
+        cands = exatos
+    x = cands[0]
+    if not x.get("code"):
+        return None, f"o {tracker} está no de-para sem Code Fracttal" + (f" ({x['obs']})" if x.get("obs") else "")
+    return x["code"], None
+
+
+def _falhas_os_lista(rows, de_string: bool, desde: str | None) -> list:
+    """As OS de um ativo, das linhas do work_orders/?id_item= (UMA POR TAREFA), uma por OS e a mais nova primeiro.
+    Strings: só as de recomposição de string (a régua do strings_os); trackers: todas as não canceladas. A leitura de
+    cada OS é a do card do ticket (_tk_str_ultima_recomposicao), para a lista: datas no relógio daqui (_frac_dt_local:
+    o Fracttal manda UTC), a conclusão pelo MAIOR final_date das tarefas (quando o técnico executou — o wo_final_date é
+    carimbo administrativo) e `anterior` = o evento é de antes de `desde` (o início da ocorrência)."""
+    def _hm(d):
+        return d.strftime("%Y-%m-%d %H:%M") if d else None
+
+    por = {}
+    for w in rows or []:
+        fol = str(w.get("wo_folio") or "").strip()
+        if fol:
+            por.setdefault(fol, []).append(w)
+    out = []
+    for fol, tarefas in por.items():
+        vivas = (_falhas_os_vivas_de_string(tarefas) if de_string
+                 else [t for t in tarefas if t.get("id_status_work_order") != 4])
+        if not vivas:
+            continue
+        st = _falhas_os_status(vivas)
+        criadas = [d for d in (_frac_dt_local(t.get("creation_date")) for t in vivas) if d]
+        eventos = [d for d in (_frac_dt_local(t.get("event_date") or t.get("creation_date")) for t in vivas) if d]
+        concluida = None
+        if st in (2, 3):
+            fins = [d for d in (_frac_dt_local(t.get("final_date")) for t in vivas) if d]
+            concluida = max(fins) if fins else next(
+                (d for d in (_frac_dt_local(t.get("wo_final_date")) for t in vivas) if d), None)
+        evento = min(eventos) if eventos else None
+        tipos = dict.fromkeys(" ".join(str(t.get("tasks_log_task_type_main") or "").split()) for t in vivas)
+        o = {"folio": fol, "status": FRAC_WO_STATUS.get(st, "—"), "tipo": ", ".join(x for x in tipos if x) or None,
+             "criada": _hm(min(criadas)) if criadas else None, "evento": _hm(evento), "concluida": _hm(concluida),
+             "descricao": " ".join(str(vivas[0].get("description") or "").split())[:160],
+             "anterior": bool(desde and evento and evento.strftime("%Y-%m-%d") < desde),
+             "link": f"/os/os/folio/{fol}"}
+        if de_string:
+            # as strings que a OS cita (descrição, instrução e nota de cada tarefa), pela régua do índice das abertas
+            o["strings"] = _falhas_os_citadas(" | ".join(str(t.get(k) or "") for t in vivas
+                                                         for k in ("description", "task_note", "note")))
+        out.append(o)
+    out.sort(key=lambda o: (o["criada"] or "", int(o["folio"]) if o["folio"].isdigit() else 0), reverse=True)
+    return out
+
+
+@app.route("/api/painel/falhas/os")
+def api_painel_falhas_os():
+    """As OS do Fracttal de UMA ocorrência da aba, SÓ no clique do "Vincular OS" (a tela não chama isto ao abrir, filtrar,
+    ordenar, abrir o drill nem baixar o arquivo). ?tipo=strings|trackers&fonte=&plant_id=&usina=&inversor=&tracker=&desde=
+    → {ok, ativo: {code, nome}|null, motivo?, os: [...], buscado_em}. O Fracttal sem resposta → nas strings, a reserva
+    do índice de 30 min (200, fonte_ok false, reserva "varredura") quando ele tem OS do inversor; senão 502."""
+    a = flask_request.args
+    tipo = (a.get("tipo") or "").strip()
+    fonte, pid = (a.get("fonte") or "").strip(), (a.get("plant_id") or "").strip()
+    usina, inversor = (a.get("usina") or "").strip(), (a.get("inversor") or "").strip()
+    tracker, desde = (a.get("tracker") or "").strip(), (a.get("desde") or "").strip()[:10] or None
+    if tipo not in FALHAS_OS_TIPOS:
+        return jsonify({"ok": False, "motivo": "tipo strings|trackers"}), 400
+    if desde and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", desde):
+        return jsonify({"ok": False, "motivo": "desde: AAAA-MM-DD (o dia do início da ocorrência)"}), 400
+    if tipo == "strings" and not (usina and inversor):
+        return jsonify({"ok": False, "motivo": "strings: informe a usina e o inversor"}), 400
+    if tipo == "trackers" and not (fonte and pid and tracker):
+        return jsonify({"ok": False, "motivo": "trackers: informe a fonte, o plant_id e o tracker"}), 400
+    if not FRACTTAL_ON:
+        return jsonify({"ok": False, "fonte_ok": False, "sem_credencial": True,
+                        "motivo": "sem a credencial do Fracttal nesta máquina"}), 503
+    falhas, ativo, rows, alvo, code = [], None, [], None, None
+    # o que se resolve sem perguntar a ninguém (a Info Geral, o de-para e o registro de trackers desta máquina)
+    if tipo == "strings":
+        alvo, motivo = _falhas_os_alvo_inversor(usina, inversor)
+    else:
+        code, motivo = _falhas_os_code_tracker(fonte, pid, usina, tracker)
+    try:
+        if alvo:
+            ativo, motivo = _falhas_os_ativo_inversor(alvo, falhas)
+        elif code:
+            ativo = _frac_ativo(code, falhas)
+            if not ativo:
+                motivo = f"o ativo {code} do de-para de trackers não existe no Fracttal"
+        if ativo and not falhas:
+            rows = _frac_wos_raw(ativo["id"], falhas)
+    except Exception as e:                                   # noqa: BLE001 — token/JSON do Fracttal: falha, não "sem OS"
+        falhas.append(f"{type(e).__name__}: {str(e)[:160]}")
+    if falhas:
+        erro = f"o Fracttal não respondeu ({falhas[0]})"
+        res = _falhas_os_reserva(alvo, desde) if alvo else None
+        if res:                                              # só nas strings, e só com OS do inversor no índice
+            return jsonify({"ok": True, "fonte_ok": False, "reserva": "varredura", "varrido_em": res["varrido_em"],
+                            "motivo": erro, "ativo": {"code": (ativo or {}).get("code") or res["code"] or alvo["code"],
+                                                      "nome": (ativo or {}).get("desc")},
+                            "os": res["os"]})
+        return jsonify({"ok": False, "fonte_ok": False, "motivo": erro}), 502
+    ts = (_frac_wos_cache.get(ativo["id"]) or {}).get("ts") if ativo else None
+    out = {"ok": True, "ativo": {"code": ativo.get("code"), "nome": ativo.get("desc")} if ativo else None,
+           "os": _falhas_os_lista(rows, tipo == "strings", desde) if ativo else [],
+           "buscado_em": datetime.fromtimestamp(ts or time.time()).strftime("%Y-%m-%d %H:%M")}
+    if not ativo:
+        out["motivo"] = motivo or "o ativo não foi achado no Fracttal"
+    return jsonify(out)
+
+
+# O vínculo gravado (falhas_vinculos.py): livro nexus_falhas · fato_decisao_vinculo_os, no molde do de-para de
+# equipamentos (_DP_DECISOES): cache de 60 s, a última leitura boa em disco, GRIDCO_SQL_TOKEN para gravar; o PC e o
+# servidor leem o MESMO livro. Quem vinculou vai só ao log da máquina (regra 8 do Nexus: o banco é de leitura aberta).
+import falhas_vinculos as _fv  # noqa: E402
+_FV_DECISOES = _cob.Decisoes(_bd_api.API_BASE, lambda: os.environ.get("GRIDCO_SQL_TOKEN", ""),
+                             _p_cache("falhas_vinculos.json"), ttl=60, livro=_fv.LIVRO, aba=_fv.ABA, cab=_fv.CAB,
+                             nome_livro=_fv.NOME_LIVRO)
+_FV_LOG = os.path.join(_AQUI, "logs", "falhas_vinculos.log")
+
+
+def _fv_log(texto):
+    try:
+        os.makedirs(os.path.dirname(_FV_LOG), exist_ok=True)
+        with open(_FV_LOG, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now():%Y-%m-%d %H:%M:%S}  {_quem_na_sessao()}  {texto}\n")
+    except Exception as e:                                      # noqa: BLE001 — o log nunca derruba a gravação
+        print(f"[falhas] log dos vínculos: {e}")
+
+
+def _fv_vigentes() -> dict:
+    """{ok, vinculos, lido_em, erro?}: os vínculos que valem. Banco fora = a última leitura boa (memória ou disco) com o
+    erro dito; nenhuma leitura boa nesta máquina = ok false e a lista vazia."""
+    linhas = _FV_DECISOES.linhas()
+    out = {"ok": linhas is not None, "vinculos": _fv.vigentes(linhas or []), "lido_em": _FV_DECISOES.lido_em}
+    if _FV_DECISOES.erro:
+        out["erro"] = (f"o banco do Nexus não respondeu ({_FV_DECISOES.erro}): "
+                       + (f"vale a última leitura boa, de {_FV_DECISOES.lido_em}" if linhas is not None
+                          else "nenhuma leitura boa nesta máquina"))
+    return out
+
+
+@app.route("/api/painel/falhas/vinculos", methods=["GET", "POST"])
+def api_painel_falhas_vinculos():
+    """GET → os vínculos vigentes (o que a tela mostra sem clique, do banco — nunca do Fracttal).
+    POST {tipo, fonte, plant_id, equipamento, dia_inicio, os, decisao: vincular|desvincular} → confere tudo, acrescenta
+    no livro (relê, grava inteiro, confere a contagem) → {ok, vinculos}. Gestor leva 403 no portão (GRAVACOES_GESTOR)."""
+    if flask_request.method == "GET":
+        return jsonify(_fv_vigentes())
+    b = flask_request.get_json(silent=True)
+    if not isinstance(b, dict):
+        return jsonify({"ok": False, "motivo": "mande {tipo, fonte, plant_id, equipamento, dia_inicio, os, decisao}"}), 400
+    try:
+        lin = _fv.linha(b.get("tipo"), b.get("fonte"), b.get("plant_id"), b.get("equipamento"), b.get("dia_inicio"),
+                        b.get("os"), b.get("decisao"))
+    except ValueError as e:
+        return jsonify({"ok": False, "motivo": str(e)}), 400
+    try:
+        _FV_DECISOES.acrescentar([lin])
+    except _cob.GravacaoErro as e:
+        return jsonify({"ok": False, "motivo": f"não gravou — {e}"}), 500
+    except Exception as e:                                      # noqa: BLE001 — rede, API: diz o tipo, não grava pela metade
+        return jsonify({"ok": False, "motivo": f"não gravou — o banco do Nexus não aceitou ({type(e).__name__})"}), 500
+    d = dict(zip(_fv.CAB, lin))
+    _fv_log(f"{d['decisao']} OS {d['os']} · {d['tipo']} {d['fonte']}|{d['plant_id']}|{d['equipamento']}|"
+            f"{d['data_id_inicio']}")
+    return jsonify({"ok": True, "vinculos": _fv.vigentes(_FV_DECISOES.linhas() or [])})
+
+
+# ── Exportar Excel da aba Strings e trackers (Levi, 20/10/2026: "1.4 botão de download"; depois, "Exportar Excel", como
+# nas outras telas) ──────────────────────────────────────────────────────────────────────────────────────────────────────
+# A TELA manda as linhas que ela mostra (o recorte filtrado inteiro, sem o corte da paginação) e o servidor só formata:
+# nem refaz o filtro em Python nem abre o pacote do mês (~4,5 MB) no web. Corpo genérico:
+# {nome, abas: [{nome, colunas: [{titulo, tipo: texto|inteiro|numero|data|datahora}], linhas: [[...]]}]}; número e data
+# vão como célula de número e de data de verdade (o Excel soma e filtra), no padrão das exportações da casa (cabeçalho
+# navy, painel congelado, autofiltro). Write-only: 30 mil linhas não montam célula a célula na memória do web.
+FALHAS_EXPORT_ABAS_MAX = 4
+FALHAS_EXPORT_COLUNAS_MAX = 40
+FALHAS_EXPORT_LINHAS_MAX = 30000                       # somando as abas; outubro inteiro dava ~16 mil (paradas + dias)
+# Teto de células (linhas × colunas, somando as abas), revisão de 20/10/2026: o escritor XML do openpyxl sem lxml leva
+# ~9 s para o mês de trackers do PC (4.826 paradas + 9.354 dias, ~190 mil células) e ~62 s para 30 mil linhas × 40
+# colunas, com uma thread do waitress presa. 600 mil é o triplo do mês real e fecha o pior caso em ~30 s.
+FALHAS_EXPORT_CELULAS_MAX = 600000
+FALHAS_EXPORT_TEXTO_MAX = 500
+FALHAS_EXPORT_CORPO_MAX = 16 * 1024 * 1024             # o Flask desta plataforma não tem MAX_CONTENT_LENGTH
+FALHAS_EXPORT_TIPOS = ("texto", "inteiro", "numero", "data", "datahora")
+_FALHAS_EXPORT_FORMATO = {"inteiro": "0", "numero": "#,##0.0", "data": "dd/mm/yyyy", "datahora": "dd/mm/yyyy hh:mm"}
+
+
+class _ExportRecusa(ValueError):
+    """Pedido de exportação fora do formato ou dos limites: 400 com o motivo."""
+
+
+def _falhas_export_ilegal(s) -> bool:
+    """Caractere de controle que o openpyxl recusa (\\x01, \\x0b…): sem esta conferência ele levantava fora da recusa e a
+    rota dava 500 em HTML, sem motivo (revisão de 20/10/2026)."""
+    from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+    return bool(ILLEGAL_CHARACTERS_RE.search(s))
+
+
+def _falhas_export_valor(v, tipo, onde):
+    """O valor que a tela mandou → o da célula. Vazio (None, "") fica vazio. A datahora só com o dia ("2026-10-05": o
+    tracker que voltou em hora que o registro não guarda) vira data, sem inventar 00:00."""
+    import math
+    if v is None or v == "":
+        return None
+    if tipo == "texto":
+        if isinstance(v, bool) or not isinstance(v, (str, int, float)):
+            raise _ExportRecusa(f"{onde}: texto, número ou vazio")
+        s = str(v)
+        if len(s) > FALHAS_EXPORT_TEXTO_MAX:
+            raise _ExportRecusa(f"{onde}: texto com mais de {FALHAS_EXPORT_TEXTO_MAX} caracteres")
+        if _falhas_export_ilegal(s):
+            raise _ExportRecusa(f"{onde}: caractere de controle que o Excel não aceita")
+        return s
+    if isinstance(v, bool):
+        raise _ExportRecusa(f"{onde}: {tipo}, não verdadeiro/falso")
+    if tipo in ("inteiro", "numero"):
+        if not isinstance(v, (int, float)) or (isinstance(v, float) and not math.isfinite(v)):
+            raise _ExportRecusa(f"{onde}: {tipo} (número JSON) ou vazio")
+        if tipo == "numero":
+            return float(v)
+        if isinstance(v, float) and not v.is_integer():
+            raise _ExportRecusa(f"{onde}: inteiro, veio {v}")
+        return int(v)
+    s = v.strip().replace("T", " ") if isinstance(v, str) else ""
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+            return datetime.strptime(s, "%Y-%m-%d").date()
+        if tipo == "datahora" and re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}(:\d{2})?", s):
+            return datetime.strptime(s[:16], "%Y-%m-%d %H:%M")
+    except ValueError:
+        pass
+    raise _ExportRecusa(f"{onde}: {'AAAA-MM-DD' if tipo == 'data' else 'AAAA-MM-DD HH:MM'}, veio {str(v)[:40]!r}")
+
+
+def _falhas_export_nome_arquivo(nome) -> str:
+    """O nome que a tela sugere, sem acento e só com letras, números, ponto, hífen e sublinhado (vai no cabeçalho
+    HTTP, que é latin-1) + .xlsx."""
+    s = unicodedata.normalize("NFKD", str(nome or "")).encode("ascii", "ignore").decode()
+    s = re.sub(r"[^A-Za-z0-9._-]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("._-")[:100]
+    s = re.sub(r"\.xlsx$", "", s, flags=re.I) or "falhas"
+    return s + ".xlsx"
+
+
+def _falhas_export_planilha(corpo):
+    """Confere o corpo inteiro (nada é escrito antes) → (workbook write-only, nome do arquivo)."""
+    import openpyxl
+    from openpyxl.cell import WriteOnlyCell
+    from openpyxl.styles import Font, PatternFill
+    from openpyxl.utils import get_column_letter
+    if not isinstance(corpo, dict) or not isinstance(corpo.get("abas"), list):
+        raise _ExportRecusa("mande {nome, abas: [{nome, colunas: [{titulo, tipo}], linhas: [[...]]}]}")
+    abas = corpo["abas"]
+    if not 1 <= len(abas) <= FALHAS_EXPORT_ABAS_MAX:
+        raise _ExportRecusa(f"de 1 a {FALHAS_EXPORT_ABAS_MAX} abas")
+    total, prontas, nomes = 0, [], set()
+    for i, aba in enumerate(abas, start=1):
+        if not isinstance(aba, dict):
+            raise _ExportRecusa(f"aba {i}: {{nome, colunas, linhas}}")
+        nome = str(aba.get("nome") or "").strip()
+        if not nome or len(nome) > 31 or re.search(r"[\[\]:*?/\\]", nome) or nome.startswith("'") or nome.endswith("'") \
+                or _falhas_export_ilegal(nome):
+            raise _ExportRecusa(f"aba {i}: o nome tem de ter de 1 a 31 caracteres, sem [ ] : * ? / \\ (regra do Excel)")
+        if nome.lower() in nomes:
+            raise _ExportRecusa(f"aba {i}: nome repetido ({nome})")
+        nomes.add(nome.lower())
+        cols, linhas = aba.get("colunas"), aba.get("linhas")
+        if not isinstance(cols, list) or not 1 <= len(cols) <= FALHAS_EXPORT_COLUNAS_MAX:
+            raise _ExportRecusa(f"aba {nome}: de 1 a {FALHAS_EXPORT_COLUNAS_MAX} colunas")
+        tipos, titulos = [], []
+        for j, c in enumerate(cols, start=1):
+            t = c.get("tipo") if isinstance(c, dict) else None
+            tit = str(c.get("titulo") or "").strip() if isinstance(c, dict) else ""
+            if t not in FALHAS_EXPORT_TIPOS or not tit or len(tit) > FALHAS_EXPORT_TEXTO_MAX or _falhas_export_ilegal(tit):
+                raise _ExportRecusa(f"aba {nome}, coluna {j}: {{titulo, tipo: {'|'.join(FALHAS_EXPORT_TIPOS)}}}")
+            tipos.append(t)
+            titulos.append(tit)
+        if not isinstance(linhas, list):
+            raise _ExportRecusa(f"aba {nome}: linhas é uma lista de listas")
+        total += len(linhas)
+        if total > FALHAS_EXPORT_LINHAS_MAX:
+            raise _ExportRecusa(f"mais de {FALHAS_EXPORT_LINHAS_MAX} linhas somando as abas")
+        celulas = sum(len(p[1]) * len(p[3]) for p in prontas) + len(tipos) * len(linhas)
+        if celulas > FALHAS_EXPORT_CELULAS_MAX:
+            raise _ExportRecusa(f"mais de {FALHAS_EXPORT_CELULAS_MAX:,} células somando as abas".replace(",", "."))
+        larg = [len(t) for t in titulos]
+        vals = []
+        for k, lin in enumerate(linhas, start=1):
+            if not isinstance(lin, list) or len(lin) != len(tipos):
+                raise _ExportRecusa(f"aba {nome}, linha {k}: {len(tipos)} valores, um por coluna")
+            conv = [_falhas_export_valor(v, tipos[j], f"aba {nome}, linha {k}, coluna {titulos[j]}")
+                    for j, v in enumerate(lin)]
+            for j, v in enumerate(conv):
+                if v is not None:
+                    n = (16 if isinstance(v, datetime) else 10 if hasattr(v, "year") else
+                         len(f"{v:,.1f}") if isinstance(v, float) else len(str(v)))
+                    larg[j] = max(larg[j], n)
+            vals.append(conv)
+        prontas.append((nome, titulos, tipos, vals, larg))
+    wb = openpyxl.Workbook(write_only=True)
+    fundo, letra = PatternFill("solid", fgColor="1A1B2E"), Font(color="FFFFFF", bold=True)   # o navy das exportações
+    for nome, titulos, tipos, vals, larg in prontas:
+        ws = wb.create_sheet(nome)
+        ws.freeze_panes = "A2"
+        for j, w in enumerate(larg, start=1):
+            ws.column_dimensions[get_column_letter(j)].width = min(60, max(8, w + 2))
+        cab = []
+        for t in titulos:
+            c = WriteOnlyCell(ws, value=t)
+            c.data_type = "s"                                  # o título também nunca vira fórmula (um "=" na frente)
+            c.fill, c.font = fundo, letra
+            cab.append(c)
+        ws.append(cab)
+        for conv in vals:
+            out = []
+            for j, v in enumerate(conv):
+                if v is None or tipos[j] == "texto":
+                    if isinstance(v, str) and v.startswith("="):
+                        v = WriteOnlyCell(ws, value=v)
+                        v.data_type = "s"                    # texto, nunca fórmula: o Excel não executa o que veio da tela
+                    out.append(v)
+                    continue
+                c = WriteOnlyCell(ws, value=v)
+                # a datahora que veio só com o dia leva o formato de data (sem 00:00 inventado)
+                c.number_format = (_FALHAS_EXPORT_FORMATO["data"] if tipos[j] == "datahora" and not isinstance(v, datetime)
+                                   else _FALHAS_EXPORT_FORMATO[tipos[j]])
+                out.append(c)
+            ws.append(out)
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(titulos))}{len(vals) + 1}"
+    return wb, _falhas_export_nome_arquivo(corpo.get("nome"))
+
+
+@app.route("/api/painel/falhas/exportar", methods=["POST"])
+def api_painel_falhas_exportar():
+    """O Excel do recorte que a tela mostra (o "Exportar Excel" da aba). Consulta, não gravação: o gestor também baixa
+    (POSTS_DE_CONSULTA_GESTOR). Fora do formato ou dos limites → 400 com o motivo; corpo grande demais → 413."""
+    tam = flask_request.content_length
+    if tam is None or tam > FALHAS_EXPORT_CORPO_MAX:
+        return jsonify({"ok": False, "motivo": f"corpo de até {FALHAS_EXPORT_CORPO_MAX // (1024 * 1024)} MB, com o "
+                                               f"tamanho declarado"}), 413
+    corpo = flask_request.get_json(silent=True)
+    try:
+        wb, arquivo = _falhas_export_planilha(corpo)
+    except _ExportRecusa as e:
+        return jsonify({"ok": False, "motivo": str(e)}), 400
+    return _xlsx_resp(wb, arquivo)
 
 
 def _falhas_bytes(mes):

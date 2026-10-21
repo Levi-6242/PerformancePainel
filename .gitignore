@@ -117,6 +117,9 @@ cobertura_inventario.json
 cobertura_inventario.json.tmp
 depara_decisoes.json
 depara_decisoes.json.tmp
+# a cópia do livro nexus_falhas (o vínculo ocorrência ↔ OS da aba Strings e trackers, 20/10/2026)
+falhas_vinculos.json
+falhas_vinculos.json.tmp
 sg_usinas_descobertas.json
 sg_usinas_descobertas.json.tmp
 ger_publicado.json

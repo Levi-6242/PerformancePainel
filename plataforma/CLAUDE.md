@@ -749,6 +749,17 @@ coletada** (os dias fora ficam sem dado).
   só acrescenta (`cobertura.Decisoes.acrescentar`: relê, grava inteiro, confere a contagem). O vigente é a última decisão
   de cada fonte × chave nativa. Sem pessoa no banco (leitura aberta): quem decidiu vai a `logs/cobertura.log`. PC e
   servidor leem o MESMO livro, com cache de 60 s e a última leitura boa em `cobertura_decisoes.json`.
+- **Trava contra apagar o histórico** (20/10/2026, governança do Nexus, ao abrir o `nexus_falhas`; vale para os três livros
+  que a `Decisoes` grava: `nexus_tempo_real`, `nexus_depara` e `nexus_falhas`). O "relê, grava inteiro" tinha um buraco: o
+  `_ler_banco` devolve [] quando a listagem `/api/sheets` omite a aba por um instante, e o sync com `replace=true` gravava
+  só as linhas novas — o livro inteiro trocado pela decisão do momento —, com a conferência passando (ela compara com o
+  que acabou de enviar). Agora o `acrescentar` recusa (`GravacaoErro`) pela mesma conta do `livros._conferir_antes` do
+  Nexus: (1) a releitura com MENOS linhas do que a última leitura boa desta máquina (memória, ou a cópia em disco no
+  processo recém-ligado) não grava — inclusive quando `/api/workbooks` e `/api/sheets` somem juntos e o livro pareceria
+  novo (o POST de livro aceita chave que já existe e o replace apagaria tudo); (2) livro que existe e voltou vazio só
+  grava se o banco disser que ele não tem aba (`sheet_count` 0: o livro criado cuja 1ª gravação caiu no sync, como a do
+  De-para em 11/10 — sem isso ele ficaria travado para sempre); sem o `sheet_count`, ou com aba, é soluço e não grava.
+  Livro novo de verdade grava. Teste: `tests/test_decisoes_trava_historico.py` (revisão adversarial de 20/10).
 - **Foto de hoje (migração)**: uma fonte só é governada depois das linhas `migracao` (botão "Começar a controlar com a foto
   de hoje"): incluir para o que aparecia pela regra de antes (`_cob_visivel_hoje`: Full O&M na `pv`, a lista fixa nas de ids
   fixos, tudo nas outras), excluir para o resto do inventário. Sem a foto, a fonte segue como antes; a `pv` recusa a foto
@@ -1739,10 +1750,14 @@ Mockup com o dado real de outubro aprovado no mesmo dia. O que mudou em
 `templates/falhas.html`, sem mudar o pacote nem a régua:
 - **Ordem = a pergunta do plantão primeiro.** Cabeçalho do Nexus ("Performance" / "Strings e trackers" / a pergunta),
   com o Mês e o frescor à direita (o Mês vale também na Qualidade, onde antes sumia). Abas com a pílula "N parados
-  agora" (o recorte de cliente, fonte e busca, sem a usina da outra aba). Faixa de números: **Parados agora** (clicável:
+  agora" (o recorte de cliente, busca e confiáveis, sem a usina da outra aba). Faixa de números: **Parados agora** (clicável:
   liga "Só parados agora"; num mês fechado vira "no fim do mês"), Perda no mês (com quanto dela tem estimativa), Pararam
   no mês (não depende do "Só parados agora"), Usinas afetadas — com "Só parados agora" ligado, perda e usinas passam a
-  dizer "dos parados" (é a lista de baixo). Depois os **cartões por usina** do que segue parado (inclui os crônicos,
+  dizer "dos parados". A faixa soma as PARADAS de string (com o filtro, só as que seguem paradas) e a lista soma as
+  OCORRÊNCIAS inteiras, com as strings delas que já voltaram: no pacote de 20/10 13:45, 79,4 MWh na faixa × 88,5 MWh nas 66
+  ocorrências. Com o filtro de String (ou a busca que acha uma string) é igual: a faixa fica com a string, a lista com a
+  ocorrência que a contém. A regra é do Levi e fica; o total da lista leva a dica (title) do que soma (`dicaConta`); sem
+  nenhum dos dois, as somas são a mesma (partição). Depois os **cartões por usina** do que segue parado (inclui os crônicos,
   como o card "Parados em aberto" de antes, agora também nas strings), "Onde mais se perdeu" (barra neutra: perda não é
   verde) com a tabela por cliente, e a lista com os filtros em cima.
 - **Avisos**: estimativa vai para o ≈ da perda (a dica diz qual), contexto vai para a coluna dele ("vinha parado desde",
@@ -1751,8 +1766,81 @@ Mockup com o dado real de outubro aprovado no mesmo dia. O que mudou em
   sem a data (eram 410 caixas em outubro, viram 26).
 - **Tirar da conta** = o desconsiderar de antes (mesma rota, mesma caixa: marcar tira, desmarcar devolve), com as tiradas
   numa gaveta lateral (a mensagem sai dentro dela, o foco vai e volta; a perda é a do pacote do mês, o resumo da hora fica
-  de reserva); o 403 do gestor diz o motivo (`j.error`). Visão padrão das strings: **Por string** (parou /
-  voltou); "Por inversor e dia" segue no segmentado.
+  de reserva); o 403 do gestor diz o motivo (`j.error`) e põe a tela em só leitura (ver Vincular OS). Nas strings a caixa da
+  linha tira TODAS as paradas de string da ocorrência num pedido só (`chaves` + `resumos`; a Inhapi 3.3 são 4, em outubro
+  uma chegou a 33) e a linha fica riscada na hora (as tiradas nesta visita formam uma ocorrência à parte, `fora`, que volta
+  a juntar ao desmarcar). A chave é por DIA (`fonte|cadastro|inversor|string|dia`; a do tracker, `fonte|cadastro|tracker|
+  dia`): duas ocorrências do mesmo equipamento que começam no mesmo dia dividem as chaves e a caixa de uma tira a outra
+  (Xavantina 2 · 2.3, 18/10: a das 08:45 leva a das 13:45; nos trackers, 442 chaves repetidas no pacote das 13:45). A regra
+  é a de sempre (o worker tira pela chave); a mensagem diz quem saiu ou voltou junto (`juntasTxt`), e a caixa de tracker
+  acha a linha pelo id (chave + hora do início), não pela chave (pegava a primeira, com a hora da outra). O recado de erro
+  não repete o prefixo: as rotas mandam "não gravou — ..." e a tela dizia "Não gravou: não gravou — ..." (`naoGravou`).
+- **Strings = uma tabela só, por OCORRÊNCIA DO INVERSOR (20/10/2026, tarde**; Levi: "Por inversor e dia como tabela
+  principal e única", com quantidade de strings, parada, retorno, download, Vincular OS e drill de mais de um dia; saiu o
+  segmentado "Por string / Por inversor e dia"). Montada na TELA (`ocorrencias()`), dos episódios que ela já baixa — o
+  pacote e o workbook não mudam: as paradas de string do mesmo `fonte|plant_id|usina|inversor`, em ordem de início; a que
+  começa ATÉ o fim da ocorrência aberta entra nela (junção inclusiva: o fim é o maior fim, e uma parada em aberto a deixa
+  aberta). Sem tolerância. Pacote de 20/10 13:45: 1.456 paradas → **344 ocorrências** (66 paradas agora, 116 com 2+ dias);
+  no das 11:03, 337. A estrita ("antes do fim") dava 349/342 — os 5 a mais são Castelo do Piauí: uma string volta às 11:20
+  e outra cai às 11:20, na mesma leitura. "Só linhas confiáveis" tira a PARADA com aviso da régua antes de juntar.
+  - Colunas: Usina | Inversor | Strings (as distintas; embaixo a lista curta, "máx. N juntas" quando difere — Guaratinguetá
+    V 1.3, 07 a 14/10: 10 distintas, 6 juntas — e "N paradas agora" quando parte já voltou) | Parou | Voltou | Duração
+    (relógio; "N dias" embaixo) | Perda | OS | Avisos | Tirar da conta. Parado agora = alguma string `em aberto` (a régua
+    de sempre das strings; a do `dcf725a` é só dos trackers).
+  - **Volta sem hora inventada:** "voltou de madrugada" (43% das ocorrências de outubro) mostra só o dia + "de madrugada"
+    (o `fim` é o nascer do dia seguinte, não uma leitura) e a duração leva ≈ (conta a noite); "entre duas leituras" = "até
+    dd/mm". Trackers seguem com "hora não registrada".
+  - **≈ pelo DIA:** a perda estimada da ocorrência é a soma das linhas do dia (`strings.rows`) dela que têm estimativa —
+    Inhapi 3.3: 1.114,8 de 8.024,8 kWh (4 dias); em outubro, 84 MWh pelos dias contra 161 MWh marcando a parada inteira.
+    Sem as linhas do dia (pacote antigo), a flag das paradas, como antes.
+  - **Drill (`cn-linha`/`cn-detalhe` do Nexus) só com 2+ dias:** o acompanhamento diário pelas linhas do dia do inversor
+    — Dia | Strings paradas | Das–às | Duração no dia | Perda —, casadas por fonte + `plant_id` + inversor (`indexaDias`).
+    A linha que soma dois cadastros com o mesmo nome de inversor no dia (`plant_id` null + `cadastros`, o formato do
+    `falhas_job`) entra ITEM A ITEM, pelo plant_id de cada cadastro, e a soma não entra em ocorrência nenhuma; a reserva por
+    fonte + usina + inversor é só da linha SEM o campo `plant_id` (o pacote de antes, setembro) e vale dia a dia. Até a
+    revisão de 20/10 a tela escolhia um mapa inteiro (o do plant_id OU o da usina) e ignorava o `cadastros`: na Itajá
+    (18749574 × 18749576, pacote do worker novo) o drill de um cadastro levava a perda do outro — 14 ocorrências com o drill
+    longe da perda em mais de 1 kWh, agora 2 (Santana do Ipanema, 1 kWh de arredondamento). O ≈ pelo dia e as colunas "Dia
+    a dia" e "Perda estimada" do Excel saem do mesmo casamento. O dia dividido entre duas ocorrências (Xavantina 2 · 2.3 e
+    Xavantina 1 · 1.4, 18/10) leva a dica, e a perda dele é a da ocorrência menos a dos outros dias. O detalhe NÃO ganha
+    outro tom de fundo (16/10, um nível de superfície): recuo, fio à esquerda e letra menor. O aberto mora em `S.abre` (o
+    `desenha()` refaz a tabela); trocar de aba ou mês zera.
+  - Números do topo, cartões e pílulas seguem nas PARADAS de string (os episódios do mesmo recorte); as barras e o "Por
+    cliente" contam ocorrências.
+- **Trackers:** 1 linha = 1 parada, como sempre (juntar "voltou e parou de novo" é decisão do Levi; o print da Sete Lagoas
+  segue com 56 paradas), + coluna OS e o drill da parada de 2+ dias (do dia do início ao `visto_ate`: 1.460 em outubro)
+  pelo `dias` da linha (dia, das, às, horas, perda, comunicação). O drill lista TODOS os dias do cabeçalho "N dias com
+  parada" (`diasDaParada`): o dia em que o tracker não mandou leitura não vem no `dias` (a parada atravessa, sem perda) e
+  aparece como "sem leitura do tracker no dia", sem horas nem perda — Aparecida 3 · Tracker 24, 13 a 18/10: 6 dias, 3 com
+  leitura; no pacote do worker novo eram 272 das 1.612 paradas de 2+ dias com menos linhas que o cabeçalho, agora 0. A aba
+  "Dia a dia" do Excel segue os mesmos dias (fecha com a coluna Dias). Pacote sem `dias` (setembro): os dias do
+  `trackers_dia` ("parado neste dia", os outros "sem leitura") e a frase "Detalhe por hora a partir de outubro".
+- **Vincular OS na tela (1.5 e 1.7):** o vínculo gravado aparece SEM clique (chips "OS n" → `/os/os/folio/n`, lidos no
+  `carrega()` de `GET /api/painel/falhas/vinculos` — o livro do Nexus, não o Fracttal). A leitura NÃO segura a 1ª pintura:
+  a tela desenha com as tiradas (o arquivo local, como antes) e os vínculos entram num 2º desenho quando chegam, com teto
+  de 10 s (`leVinculos`, AbortController); até lá o cabeçalho da coluna OS diz "lendo…" e, com erro ou teto, "incompleta"
+  com o motivo na dica (`thOS`). Antes era um `Promise.all` com as tiradas: o banco do Nexus lento deixava a tela em branco.
+  A leitura mais nova vale (`VINC_SEQ`: outro mês, ou a lista que volta de uma gravação). A busca `GET /api/painel/falhas/os`
+  mora SÓ no `ouvinteOS` (o clique em "Vincular OS"): abrir, filtrar, ordenar, abrir o drill e baixar o Excel fazem zero
+  pedido de OS. O painel abre logo abaixo da linha (ou no topo do drill); 502 = erro dito como erro, com "Tentar de novo",
+  nunca "nenhuma OS"; a reserva da varredura (`fonte_ok: false` + `reserva`) diz "O Fracttal não respondeu; estas são as
+  OS da varredura das HH:MM (pode faltar a mais nova)" e vincula igual. O vínculo cola na linha do mesmo equipamento cujo
+  intervalo de dias contém o `dia_inicio` (no dia de duas linhas, a que começou nele). Desvincular confirma na própria
+  linha, sem `confirm()`. O link da OS (chip e painel) sai do número conferido (só dígitos → `/os/os/folio/<n>`), nunca do
+  `link` que veio na resposta; fora do formato, sem link e sem "Vincular". Depois de cada ação (abrir e fechar a busca,
+  vincular, desvincular, confirmar, a caixa "Tirar da conta") o `desenha()` refaz a tabela e o foco volta ao controle
+  equivalente da mesma linha (`devolveFoco`; o "Cancelar" ao pedir para desvincular, o "×" ao cancelar), sem roubar o de
+  quem já está em outro lugar. **Só leitura (gestor):** a tela só descobre o perfil pela recusa — o gestor vê os controles
+  até o 1º 403 (de qualquer gravação: tirar da conta ou vincular); depois dele somem o "Vincular OS", o "×", a coluna
+  "Tirar da conta" inteira e o "voltar para a conta" da gaveta (`ficaSoLeitura`; escondidos, não desabilitados).
+- **Baixar Excel (1.4):** a tela monta as abas com TODAS as linhas filtradas da aba (o filtro e a ordem da tabela, sem o
+  corte de 60; as tiradas da conta ficam fora) e manda à `POST /api/painel/falhas/exportar`, que só formata; por fetch →
+  blob → `<a download>` (com `location.href`, um erro em JSON navegaria a moldura do Nexus); erro na própria tela
+  (`baixa-msg`). Strings: "Ocorrências" + "Dia a dia" (ocorrência × dia); trackers: "Paradas" + "Dia a dia" (só com
+  `dias`). A volta sem hora vai como DATA em "Voltou" e o "de madrugada"/"não registrada" em "Hora da volta".
+- **Sem o filtro de Fonte** (Levi, 20/10/2026: "Tire o filtro de fonte"): nenhuma usina aparece em duas fontes (49 nas
+  strings, 63 nos trackers, em setembro e em outubro). Ficam o `id="fonte"` (é o FRESCOR do cabeçalho, que o teste de
+  sessão vencida lê), o mapa `FONTE` e a fonte na chave e no rótulo "cliente · fonte".
 - **Tracker parado agora** (Levi, 20/10/2026: "Se a usina inteira ficou sem dado então sai da conta, se for só aquele
   tracker é bem possível que esteja parado então segue"): `trkAberto` = sem fim, menos quando o episódio tem o aviso "sem
   dado da usina desde dd/mm" (o Voltou diz "usina sem dado desde", e o tempo parado vai até esse dia, com ≈). O tracker
@@ -1765,8 +1853,17 @@ Mockup com o dado real de outubro aprovado no mesmo dia. O que mudou em
   a do Nexus, como o Painel NOC. Sem o `#prop` vazio no hash.
 - **Prova**: os números do print do Levi (Trackers · 2C · Sete Lagoas, crônicos escondidos: 13,6 MWh, 56 paradas, 27
   trackers, 4 parados agora) saem iguais; a 390 px a página não rola de lado. Os testes de tela (`test_falhas_*`,
-  `test_porta_nexus`, `test_sessao_vencida_sem_numero_falso`, `test_telas_sem_funcao_fantasma`) seguem passando com os
-  mesmos ids (`f-mes`, `f-inv`, `f-str`, `frio`, `fonte`, `t-vaz`, `t-trv`, `t-sc`) e o mesmo `filtra()`.
+  `test_porta_nexus`, `test_sessao_vencida_sem_numero_falso`, `test_telas_sem_funcao_fantasma`) prendem os ids `f-mes`,
+  `f-inv`, `f-str`, `frio`, `fonte` (o frescor), `t-vaz`, `t-trv` e `t-sc` pelo texto, e o `filtra()` (que serve à
+  ocorrência e aos episódios dos números do topo). Os testes de node NÃO prendiam id nenhum: o DOM de mentira cria
+  qualquer id que se peça, e o mutante sem `b-xls`, `baixa-msg` e `lista-msg` passava em tudo (revisão de 20/10). Quem
+  prende é `test_todo_id_que_o_script_pede_existe_na_pagina`: todo `$('x')`, `getElementById('x')` e `querySelector('#x')`
+  do script tem `id="x"` na página (o varredor acha os três do mutante). `tests/test_falhas_ocorrencias.py` roda a página
+  INTEIRA no node (DOM de mentira, fetch dublado) com os casos reais (Inhapi 3.3, Guatambu 2.5, Guaratinguetá V 1.3, Itajá,
+  Xavantina 2, Aparecida 3): a junção, a perda = soma das paradas, o ≈ pelo dia, o parado agora parcial, a dica do total,
+  o drill que segue aberto depois de redesenhar, o casamento por cadastro (o formato exato do `cadastros`), os dias sem
+  leitura do tracker, a busca de OS só no ouvinte (estático e pelos pedidos), os vínculos que não seguram a tela (e o teto),
+  o vínculo, o 502, a reserva, o link pelo número, o foco, o só leitura, a chave do dia, o "Não gravou" e o Excel.
 
 `/painel/falhas` (debaixo do `/painel` por causa do Caddy): cada string sem corrente e cada tracker parado do mês,
 de quando saiu a quando voltou, com a perda em kWh. Link no card "Diagnóstico de performance" da Entrada.
@@ -1850,8 +1947,9 @@ resposta e a rota `/api/painel/falhas?mes=` só devolve os bytes. De `FALHAS_INI
   passou o 23/09 sem uma leitura acima de 0,5 A na curva, e as quedas "voltavam" 30 min às 12:40 e às 14:30. O que
   sobra desse tipo em setembro é 1 caso (MTS100 4.2 ST13, 23/09): a régua das quedas só marcou a queda às 12:30 —
   sem a curva daquele dia gravada, não há como provar; a curva da SunOp de dia passado existe e resolveria.
-- **Filtro por inversor e por string/tracker** na aba (`f-inv`, `f-str`; ordem natural, 3.1 ≠ 3.10; na visão por inversor
-  e dia vale a string da lista). Rótulo e seletor ficam no mesmo `.fpar` para quebrarem de linha juntos.
+- **Filtro por inversor e por string/tracker** na aba (`f-inv`, `f-str`; ordem natural, 3.1 ≠ 3.10; na ocorrência do
+  inversor vale a string da lista: a ocorrência entra se a contém). Rótulo e seletor ficam no mesmo `.fpar` para quebrarem
+  de linha juntos.
 - **Trackers em aberto × tempo real** (Levi: "batem com o tempo real?"): às 15:44 batiam 359 dos 738 parados. Três causas,
   todas no `falhas_job`: (1) o descarte "no alvo (desvio < 2°)" usa o desvio do registro, medido contra a MEDIANA DA
   FROTA — com metade ou mais da frota parada (`FRAC_FROTA_PARADA`, frota = cadastro ou a vista no mês) ele dá ~0 e sumia
@@ -1923,13 +2021,14 @@ strings citadas estão trancadas"). Não eram trava — as trancadas eram as Ipv
   atrás se o servidor não gravar — a caixa não trava esperando a resposta (Inhapi TRK13/TRK52 gravaram às 12:15 e as
   caixas ficaram marcadas e cinzas). Na visita seguinte a desconsiderada some da tabela e fica em "desconsideradas
   (N)", de onde volta. Teste: `tests/test_falhas_desconsiderar.py`.
-- **Duração na visão por inversor e dia** (05/10): o `h_sol` da linha SOMA as strings (20 strings × 10,9 h = 218 h na
+- **Duração no dia** (05/10, na visão por inversor e dia; desde 20/10/2026 no acompanhamento diário da ocorrência, que
+  substituiu essa visão): o `h_sol` da linha SOMA as strings (20 strings × 10,9 h = 218 h na
   Guaratinguetá V 1.4); `dur_h`/`dur_min_h` são a maior e a menor duração de uma string no dia e `janela` o
   "HH:MM–HH:MM" (no título). É de RELÓGIO entre 06 e 18 h (`dur_relogio`): string fora o dia todo = **12 h**, o
   período solar (Levi: "pode colocar duração 12 hrs, que é o período solar (6 as 18)"); amanheceu morta (desde a
   partida do inversor, ou caiu até 07:30 sem essa hora) conta das 06:00, sem volta vai até as 18:00 (hoje, até agora).
   A perda segue pesada pelo sol. Outubro no PC: 390 de 539 linhas com 12 h. Pacote montado antes da coluna (setembro,
-  que não remonta mais) mostra "≈" a média por string em horas de sol.
+  que não remonta mais) mostra "—" (a média por string em horas de sol, o "≈" de antes, não é duração de relógio).
 - **A volta do fim da tarde precisa de prova** (MTS100 6.3 ST06, 13/09 16:50): a string morta lê 0,1–0,35 A de fuga, passa
   dos 10% das vizinhas que também caíram e "voltava" — o episódio de 11 a 15/09 virou dois. A volta do ÚLTIMO trecho do
   dia só vale com sol forte ou a string a ≥ 50% das vizinhas (`falhas.avaliar_dia`); régua `2026-09-30-volta-com-prova`.
@@ -1993,8 +2092,9 @@ ainda não estavam na main em 11/10). Aqui só a publicação. **Colunas novas s
 (o BI e o Nexus leem por posição). Tudo sai do que o worker JÁ monta — nenhuma chamada nova a fonte paga nem ao Fracttal.
 - **`plant_id`** no fim de `strings_episodios` e `trackers_episodios` (sempre texto: "297378" e 297378 viram células
   diferentes). É a chave dos episódios no catálogo: pelo nome, a Brodowski junta os dois cadastros dela na API PV (52
-  trackers em vez de 103). O pacote do mês já o trazia; a `strings_inversor_dia` agrega usina × inversor × dia e segue
-  sem ele.
+  trackers em vez de 103). O pacote do mês já o trazia nos episódios; desde 20/10/2026 as linhas inversor × dia do
+  pacote (`strings.rows`) também o levam (ver "Strings e trackers: tabela única, Vincular OS e download"), mas a
+  `strings_inversor_dia` segue agregando usina × inversor × dia e sem a coluna (colunas explícitas no `falhas_publicar`).
 - **`dias_comunicou` e `dias_sem_prova`** no fim de `trackers_episodios` (Levi, 08/10: "quando fica parado sem
   comunicação essa ocorrência é ignorada; se a usina comunicou inversor ou string então aí conta"). Comunicou no dia = a
   régua de strings leu PRODUÇÃO da USINA (nome canônico, qualquer fonte e cadastro — a Brodowski 297381 não tem
@@ -2180,6 +2280,116 @@ ainda não estavam na main em 11/10). Aqui só a publicação. **Colunas novas s
   usina fecha com a perda dela, e o índice sem `kwh_usina` volta a repartir pela potência), `tests/test_falhas_publicar.py`
   (a perda de cada usina pelo `kwh_usina`, a usina sem perda em 0), `tests/test_disp_fracttal.py` (o dezembro em
   janeiro; o fim digitado num ano antes do evento) e `tests/test_relatorio_semanal.py` (a semana da virada).
+
+### Strings e trackers: tabela única, Vincular OS e download (20/10/2026) — o backend
+
+Pedido do Levi (20/10): nas strings, uma tabela só, por inversor (a OCORRÊNCIA: as paradas de string do inversor que se
+encostam no tempo), com quantidade de strings, parada, retorno, drill diário para mais de um dia, download e "1.5 Opção de
+vincular OS, eu clico no botão e buscas as OSs de recomposição de string desse inversor (...) 1.7 A OS só carrega se eu
+clicar em vincular, caso eu não clique não deve carregar nem fazer requisição alguma do fractal"; "1.8 faça algo parecido
+com os trackers!"; sem o filtro de fonte. A ocorrência é montada na TELA a partir do pacote; aqui fica o que a tela pede
+ao servidor. Nenhuma régua, filtro ou limiar novo: tudo reaproveita a régua que existia.
+
+- **Pacote** (`falhas_job.montar`; o workbook não muda — o `falhas_publicar` escreve colunas explícitas):
+  - `trackers.rows[].dias` = `[[dia, de "HH:MM", até "HH:MM", horas, kWh, comunicou], ...]`: o que a conta da perda JÁ
+    fazia por dia e jogava fora, para o drill da parada de mais de um dia. Horas e kWh repartidos pelas somas acumuladas
+    arredondadas (`_reparte`): os dias somam o `h_sol` e o `perda_kwh` da linha, sem sobra. O dia em que o TRACKER
+    ficou sem comunicação não entra (atravessa, como na perda); `comunicou` é da USINA no dia, a régua do
+    `dias_comunicou`: "sim", "sem comunicação" (dia fechado sem prova) ou "sem prova" (a geração ainda não cobre).
+    Pacote de antes (setembro) não tem `dias`. Medido sobre o registro de trackers do PC de 20/10 (outubro, 4.826
+    paradas, 9.354 tracker-dias = 1,94 por parada): +0,55 a 0,68 MB no JSON cru, +51 a 54 KB no gzip que o Flask-Compress
+    manda (a parte dos trackers: 119 → 170–173 KB); 0 das 4.826 paradas com a soma dos dias diferente da linha.
+  - `strings.rows[].plant_id`: o cadastro da linha inversor × dia. O drill casa o dia com a ocorrência por fonte +
+    `plant_id` + inversor, e cinco usinas têm mais de um cadastro (Altair 4, Guatambu 3, Indaiatuba 2, Mandaguaçu 2,
+    Santo Antonio do Platina 2). A linha segue no grão de sempre (usina × inversor × dia: é a chave da
+    `falha_string_inversor_dia` no catálogo do Nexus e o `n` do `por_cliente`); quando dois cadastros têm o MESMO nome de
+    inversor no dia, ela leva `plant_id` None e a linha de cada um em `cadastros` (mesmos campos, com o `plant_id`). A tela
+    casa cada item de `cadastros` pelo plant_id DELE (a linha somada não entra em ocorrência nenhuma) e só usa a reserva por
+    fonte + usina + inversor na linha SEM o campo `plant_id` (pacote de antes), dia a dia — até a revisão de 20/10 ela
+    ignorava o `cadastros` (ver "Drill" acima; teste com o formato exato em `tests/test_falhas_ocorrencias.py`). Nos
+    stores do PC de 20/10 é a Itajá (18749574 e 18749576, INVERSOR01 a 04, 24 linhas; no pacote do servidor, nenhuma) — e
+    ela parece o MESMO inversor cadastrado duas vezes: as mesmas 11 strings e a mesma perda nos dois, e a linha de sempre
+    soma os dois (1.570,9 kWh no dia, `dur_h` 24 h). Antiga × nova sobre os stores do PC (outubro, mesmo "agora", sem
+    geração): 8.744 linhas iguais sem o `plant_id`/`cadastros`, 4.826 paradas de tracker iguais sem os `dias`, o resto
+    do pacote igual e o workbook igual célula a célula.
+- **Busca de OS** — `GET /api/painel/falhas/os?tipo=strings|trackers&fonte=&plant_id=&usina=&inversor=&tracker=&desde=`,
+  a ÚNICA chamada da tela ao Fracttal, só no clique: 2 a 4 pedidos com o cache frio (code → ativo, guardado 12 h;
+  ativo → OS, 10 min), 0 no mesmo ativo dentro do cache. Resposta `{ok: true, ativo: {code, nome} | null, motivo?, os: [{folio,
+  status, tipo, criada, evento, concluida, descricao (≤160), strings (só nas strings), anterior, link "/os/os/folio/<n>"}],
+  buscado_em}`, a mais nova primeiro; datas "AAAA-MM-DD HH:MM" no relógio daqui (`_frac_dt_local`); `concluida` = a
+  MAIOR `final_date` das tarefas (como o card do ticket), só com a OS concluída; `anterior` = evento antes de `desde`.
+  - **Strings**: ativo `{código}-INVR{N.M}` com o código da Info Geral (`_tk_str_cod_bruto_da_linha`), **nunca o
+    `_frac_codebase`**: com o índice de ativos vencido (o do PC era de 13/10) ele varre ~150 páginas de `items/` dentro do
+    clique. Código de dois clientes (IPX100: "IPX100" é a Ipixuna da Thopen, "2CIPX100" a do Pará da 2C): só o ativo do
+    cliente da usina (2C-IPX100-INVR1.1 para a 2C; o sem prefixo e o THPN para a Thopen) — nunca o do outro cliente.
+    Filtro = a régua do `strings_os` ("recomposi" E "string", sem acento, cancelada fora), agora numa função só
+    (`_falhas_os_vivas_de_string`), que o `_falhas_os_string` também usa. Casos: Guatambu 1.2 (01 a 20/10) → OS 16561, em
+    andamento, evento 01/10 (no índice: THPN-GTB100-INVR1.2, Ipv18); Mandaguaçu 4.4 (01 a 15/10) → só a 9915, de 23/07,
+    que vem `anterior`. As strings citadas leem descrição, instrução e nota de cada tarefa do ativo (`_falhas_os_citadas`;
+    na OS de vários inversores a nota pode citar string de outro — a 16561 tem seis).
+  - **Trackers**: o "Code Fracttal" do de-para dos trackers (`trackers_depara.xlsx`, o mesmo do "Criar OS" de tracker),
+    casado pelo nome do CADASTRO do `plant_id` (`_falhas_trk_nome_cadastro`, do registro `_trk_eventos`: é o nome do drill
+    do Monitoramento, "Altair 3 (75)") e pelo número do tracker. A linha da aba traz a usina canônica ("Altair" = 1 a 5) e
+    o número se repete entre as sub-usinas: em outubro, pelo canônico, 365 dos 1.335 trackers ficavam ambíguos; pelo
+    `plant_id`, 1.061 com code e nenhum ambíguo (133 em usina fora do de-para, 141 sem Code Fracttal). Número repetido com
+    codes diferentes só vale pelo nome exato; sem o cadastro do `plant_id`, a canônica de várias sub-usinas não chuta.
+    OS = todas as não canceladas do ativo (a OS de tracker é uma por tracker). Sem code (a 2C/owen, fora do de-para — a
+    Sete Lagoas Tracker 1.49 tem a 15481 no SLG200-ETKR49.200, e a regra "Tracker 1.N = ETKR N.200" não está combinada —
+    ou o tracker "sem par") → `ativo: null` com o motivo, sem pedido ao Fracttal.
+  - **Fracttal sem resposta** (429 da cota, rede, 5xx, token): **502** `{ok: false, fonte_ok: false, motivo: "o Fracttal
+    não respondeu (...)"}` — nunca "sem OS" (o card do ticket chama sem `falhas=` e mostra o 429 como "inversor não
+    achado"). Nas STRINGS, com OS do mesmo inversor (código + N.M, o cliente pelo prefixo) no índice `os_string` da
+    varredura de 30 min da Disponibilidade, a reserva responde 200 `{ok: true, fonte_ok: false, reserva: "varredura",
+    varrido_em, motivo, ativo, os}` (sem tipo, criação, conclusão e descrição: o índice não guarda texto livre). Sem
+    credencial do Fracttal: 503.
+- **O vínculo gravado** (`falhas_vinculos.py`, a regra pura; a leitura e a gravação são a `cobertura.Decisoes` do
+  `_FV_DECISOES`, no molde do `_DP_DECISOES`: cache de 60 s, a última leitura boa em `falhas_vinculos.json` do cache,
+  `GRIDCO_SQL_TOKEN` para gravar; PC e servidor leem o MESMO livro). Livro `nexus_falhas · fato_decisao_vinculo_os`,
+  REGISTRADO no catálogo do Nexus pela frente do Nexus antes da 1ª gravação (regra 10); aqui só se grava. CAB
+  `decidida_em, data_id, tipo, fonte, plant_id, equipamento, data_id_inicio, os, decisao, origem`: o dia do início vai
+  como PAPEL em AAAAMMDD (regra 7) e a API da tela segue com `dia_inicio` "AAAA-MM-DD" (a conversão mora no módulo).
+  Só acrescenta; vigente = a última decisão de cada (tipo, fonte, `plant_id`, equipamento, `data_id_inicio`, os).
+  Sem pessoa nem texto (regra 8): quem vinculou vai a `logs/falhas_vinculos.log` (`_quem_na_sessao`). Só a FORMA de
+  id e de equipamento passa (revisão de 20/10: o livro é de leitura aberta, nunca se apaga, e aceitava "Fulano da
+  Silva" no `plant_id` e telefone com quebra de linha no equipamento, que ainda forjava linha no log): `plant_id`
+  `[A-Za-z0-9_.:-]{1,40}`, equipamento `[\w .,#/()+-]{1,40}` com um número (medido nos pacotes de set. e out.: todos
+  passam, o maior tem 13 caracteres), OS de 1 a 10⁹.
+  - `GET /api/painel/falhas/vinculos` → `{ok, vinculos: [{tipo, fonte, plant_id, equipamento, dia_inicio, os,
+    decidida_em}], lido_em, erro?}` (só os `vincular`); banco fora = a última leitura boa + `erro`; nenhuma = `ok: false`.
+  - `POST` `{tipo, fonte, plant_id, equipamento, dia_inicio, os, decisao: vincular|desvincular}` → confere tudo (400 com
+    o motivo), acrescenta (relê, grava, confere; e a trava contra apagar o histórico, em "Fontes do tempo real") →
+    `{ok, vinculos}`; não gravou → 500 com o motivo. **Fonte = as do pacote da aba** (`pv, pvsb, pg, sunop, axis, owen,
+    solaredge, greenyellow, salenergia`, o `FONTE_ROT` do workbook), não as da `cobertura.FONTES`, onde a 2C é `2capi`:
+    a 2C dos trackers (owen) e a String Box (pvsb) seriam recusadas. Em `GRAVACOES_GESTOR`: o gestor leva 403.
+- **Tirar da conta em lote**: o `POST /api/painel/falhas/desconsiderar` aceita `chaves: [...]` (até 60, cada uma
+  conferida como a `chave`, numa gravação só, tudo ou nada) e `resumos: {chave: resumo}` (sem ele, o `resumo` vale para
+  todas). A caixa da ocorrência tira as chaves de todos os episódios dela (a Inhapi 3.3 são 4; uma linha de outubro
+  chegou a 33). `chave` sozinha segue valendo (trackers).
+- **Exportar Excel** — `POST /api/painel/falhas/exportar`, corpo `{nome, abas: [{nome, colunas: [{titulo, tipo:
+  texto|inteiro|numero|data|datahora}], linhas: [[...]]}]}`: a TELA manda as linhas que mostra e o servidor só formata
+  (não refaz o filtro nem abre o pacote no web). Número e data viram célula de número e de data de verdade (`#,##0.0`,
+  `0`, `dd/mm/yyyy`, `dd/mm/yyyy hh:mm`); a datahora só com o dia (o tracker que voltou em hora não registrada) vira data,
+  sem 00:00 inventado; texto que começa com "=" fica texto, inclusive no título da coluna (revisão de 20/10: o título
+  "=HYPERLINK(...)" saía como fórmula), e caractere de controle (\x01, \x0b) dá 400 com o motivo, não 500. Até 600 mil
+  células somando as abas (o mês de trackers do PC tem ~190 mil e leva ~9 s; 30 mil × 40 levavam ~62 s com uma thread
+  do waitress presa, pelo escritor XML do openpyxl sem lxml). Cabeçalho navy das exportações, painel congelado, autofiltro e
+  largura; write-only (30 mil linhas não montam célula a célula na memória do web). Limites, 400 com o motivo: até 4
+  abas, nome de aba de 1 a 31 caracteres sem `[ ] : * ? / \` (e sem repetir), até 40 colunas, até 30.000 linhas somando
+  as abas, texto até 500 caracteres; corpo acima de 16 MB, ou sem tamanho declarado, 413 (o Flask desta plataforma não tem
+  `MAX_CONTENT_LENGTH`). Nome do arquivo sem acento + `.xlsx`. Consulta, não gravação: em `POSTS_DE_CONSULTA_GESTOR`
+  (o gestor também baixa). Prova (20/10): amostra com as linhas reais de outubro (Inhapi 3.3, Guaratinguetá V 1.3,
+  Guatambu 1.2, Mandaguaçu 4.4; Sete Lagoas e Altair nos trackers) aberta no Excel pelo COM, só leitura: as três abas, a
+  data como data ("01/10/2026 06:30", série 46296,27), o número como número ("8.024,8", a soma da coluna igual à do JSON),
+  a volta sem hora como data ("17/10/2026").
+- **O gestor** (porta única): a busca e a leitura dos vínculos passam pelo prefixo `/api/painel/falhas` do
+  `_GET_GESTOR` (um clique dele chama o Fracttal, como já chama na `/api/fracttal/os`); o POST dos vínculos é gravação.
+  A ponte (`X-Nexus-Leitura`) segue sem a aba.
+- Testes: `tests/test_falhas_vincular_os.py` (a busca com o `_frac_get` dublado e o `_frac_ativo`/`_frac_wos_raw` de
+  verdade por cima, o índice de ativos proibido; o código de dois clientes; o 502, a reserva e o 503; trackers com e sem
+  code; os vínculos com o banco de mentira; o gestor), `tests/test_falhas_exportar.py`, `tests/test_falhas_dias_e_plant_id.py`
+  (os dias somam a linha, o dia sem comunicação do tracker, o `plant_id` por cadastro, o workbook igual),
+  `tests/test_decisoes_trava_historico.py` e os de lote em `tests/test_falhas_desconsiderar.py`. O `conftest.py` aponta o
+  `_FV_DECISOES` para um endereço que recusa na hora e o log para o `tmp_path` (`_vinculos_das_falhas_sem_banco_por_padrao`).
 
 ## Relatório Semanal Thopen (`/relatorio/semanal`, 29/09/2026)
 

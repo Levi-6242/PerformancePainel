@@ -184,6 +184,20 @@ def _dias_entre(a, z):
         a = _prox(a)
 
 
+def _reparte(valores, casas):
+    """Arredonda as parcelas de um total para que a soma delas seja o total arredondado: cada parcela é a diferença entre
+    as somas acumuladas arredondadas. Cada uma fica a menos de uma casa da conta exata, e o drill diário dos trackers
+    (20/10/2026) fecha com a linha — sem os 0,1 kWh que sobrariam arredondando dia a dia. Os valores vêm na ordem em que
+    o total foi somado, então a última soma acumulada é o próprio total."""
+    out, acc, ant = [], 0.0, 0.0
+    for v in valores:
+        acc += v
+        cur = round(acc, casas)
+        out.append(round(cur - ant, casas))
+        ant = cur
+    return out
+
+
 def chave_str(fonte, pid, inversor, string, dia):
     """A ocorrência de string que o analista desconsidera: fonte, usina, inversor, string e o DIA em que saiu. O dia, não
     a hora: o backfill refaz o dia e a hora da saída pode andar alguns minutos (07:10 → 07:20) sem ser outra ocorrência."""
@@ -1045,41 +1059,68 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
         f_ = min(max(f_, JAN_INI), JAN_FIM)
         return i_, f_, max(0, f_ - i_)
 
-    por_inv = defaultdict(lambda: {"strings": set(), "min": 0, "perda": 0.0, "perda_nom": 0.0, "flags": set(),
-                                   "kwp_str": None, "yield": None, "min_str": defaultdict(int), "x": None, "y": None})
+    def _acumula(r, s_, string):
+        r["strings"].add(string)
+        r["min"] += s_["mins"]
+        i_, f_, d_ = dur_relogio(s_)
+        r["min_str"][string] += d_
+        r["x"] = i_ if r["x"] is None else min(r["x"], i_)
+        r["y"] = f_ if r["y"] is None else max(r["y"], f_)
+        r["perda"] += s_["perda"]
+        r["perda_nom"] += s_["perda_nom"]
+        r["flags"] |= s_["flags"]
+        r["kwp_str"] = r["kwp_str"] or s_["kwp_str"]
+        r["yield"] = r["yield"] or s_["yield"]
+
+    def _nova():
+        return {"strings": set(), "min": 0, "perda": 0.0, "perda_nom": 0.0, "flags": set(), "kwp_str": None,
+                "yield": None, "min_str": defaultdict(int), "x": None, "y": None}
+
+    # O CADASTRO de cada linha (o plant_id, 20/10/2026): o drill da tabela única casa o dia com a ocorrência do inversor
+    # por fonte + plant_id + inversor, e cinco usinas têm mais de um cadastro (Altair 4, Guatambu 3, Indaiatuba 2,
+    # Mandaguaçu 2, Santo Antonio do Platina 2). A linha segue sendo usina × inversor × dia — é o grão da
+    # strings_inversor_dia do workbook (chave do catálogo do Nexus: fonte, usina, inversor, dia) e do por_cliente — e
+    # ganha o `plant_id` do cadastro dela. Quando dois cadastros da usina têm o MESMO nome de inversor no mesmo dia (nos
+    # stores do PC de 20/10: Itajá, 18749574 e 18749576, INVERSOR01 a 04, 24 linhas; no pacote do servidor, nenhuma), a
+    # linha soma os dois como sempre somou, leva `plant_id` None e `cadastros` com a linha de cada um — senão a perda do
+    # dia de um cadastro iria para a ocorrência do outro.
+    por_inv, por_cad = defaultdict(_nova), defaultdict(_nova)
     for ep in aceitos:
         fonte, pid, usina, inv, string = ep["key"]
         for s_ in ep["segs"]:
             if s_["mins"] <= 0:
                 continue
-            r = por_inv[(s_["dia"], fonte, usina, inv)]
-            r["strings"].add(string)
-            r["min"] += s_["mins"]
-            i_, f_, d_ = dur_relogio(s_)
-            r["min_str"][string] += d_
-            r["x"] = i_ if r["x"] is None else min(r["x"], i_)
-            r["y"] = f_ if r["y"] is None else max(r["y"], f_)
-            r["perda"] += s_["perda"]
-            r["perda_nom"] += s_["perda_nom"]
-            r["flags"] |= s_["flags"]
-            r["kwp_str"] = r["kwp_str"] or s_["kwp_str"]
-            r["yield"] = r["yield"] or s_["yield"]
+            _acumula(por_inv[(s_["dia"], fonte, usina, inv)], s_, string)
+            _acumula(por_cad[(s_["dia"], fonte, usina, inv, pid)], s_, string)
+    cadastros = defaultdict(list)
+    for (dia, fonte, usina, inv, pid), r in por_cad.items():
+        cadastros[(dia, fonte, usina, inv)].append((pid, r))
 
     def _ord(s_):
         m = re.search(r"\d+", s_)
         return (int(m.group()) if m else 0, s_)
 
+    def _linha(dia, fonte, usina, inv, r):
+        strs = sorted(r["strings"], key=_ord)
+        return {"dia": dia, "fonte": fonte, "cliente": cliente(usina), "usina": usina, "inversor": inv,
+                "qtd": len(strs), "strings": ", ".join(strs), "h_sol": round(r["min"] / 60, 2),
+                "dur_h": round(max(r["min_str"].values()) / 60, 2),
+                "dur_min_h": round(min(r["min_str"].values()) / 60, 2),
+                "janela": f"{_fmt(r['x'])}–{_fmt(r['y'])}" if r["x"] is not None else None,
+                "perda_kwh": round(r["perda"], 1), "perda_nominal_kwh": round(r["perda_nom"], 1),
+                "kwp_string": round(r.get("kwp_str") or 0, 2), "yield": round(r.get("yield") or 0, 2),
+                "flags": sorted(r["flags"])}
+
     str_rows = []
     for (dia, fonte, usina, inv), r in por_inv.items():
-        strs = sorted(r["strings"], key=_ord)
-        str_rows.append({"dia": dia, "fonte": fonte, "cliente": cliente(usina), "usina": usina, "inversor": inv,
-                         "qtd": len(strs), "strings": ", ".join(strs), "h_sol": round(r["min"] / 60, 2),
-                         "dur_h": round(max(r["min_str"].values()) / 60, 2),
-                         "dur_min_h": round(min(r["min_str"].values()) / 60, 2),
-                         "janela": f"{_fmt(r['x'])}–{_fmt(r['y'])}" if r["x"] is not None else None,
-                         "perda_kwh": round(r["perda"], 1), "perda_nominal_kwh": round(r["perda_nom"], 1),
-                         "kwp_string": round(r.get("kwp_str") or 0, 2), "yield": round(r.get("yield") or 0, 2),
-                         "flags": sorted(r["flags"])})
+        row = _linha(dia, fonte, usina, inv, r)
+        cads = cadastros[(dia, fonte, usina, inv)]
+        if len(cads) == 1:
+            row["plant_id"] = cads[0][0]
+        else:
+            row["plant_id"] = None
+            row["cadastros"] = [dict(_linha(dia, fonte, usina, inv, rc), plant_id=pid_) for pid_, rc in cads]
+        str_rows.append(row)
     # virada de mês (27/09/2026): o pacote de outubro começa em 01/10, e a string zerada desde 20/09 apareceria como
     # "saiu 01/10 06:10". Quem amanhece zerado no 1º dia e estava em aberto no fim do mês anterior leva o "desde" de lá
     # (abertos_antes, do pacote anterior). A perda segue dentro do mês — o "desde" só conta a história.
@@ -1397,15 +1438,19 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                 flags.add("maioria da frota parada (sem referência de ângulo)")
             if ep.get("sc_meio") or ep.get("sc_desde"):
                 flags.add("sem comunicação em parte do episódio")       # esses dias não contam perda
+            por_dia = []                         # (dia, de, até, horas, kWh) de cada dia: o drill diário da tela
             for dd, x, y in ep["dias"]:
                 mins = max(0, y - x)
                 hs += mins / 60
+                p_dia = 0.0
                 if kwp_t:
                     y_ = yield_dia(usina_c, dd)
                     if y_ is None:
                         y_ = YIELD_PADRAO
                         flags.add("sem geração no dia (4,5 kWh/kWp)")
-                    perda += kwp_t * y_ * (mins / 60) / (h_sol_dia(usina_c, dd) or 12.0) * fator
+                    p_dia = kwp_t * y_ * (mins / 60) / (h_sol_dia(usina_c, dd) or 12.0) * fator
+                    perda += p_dia
+                por_dia.append((dd, x, y, mins / 60, p_dia))
             if hs * 60 < 30:
                 trk_q["descartado: < 30 min na janela solar"] += 1
                 return
@@ -1423,6 +1468,19 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                     td_["trk"].add(str(trk))
             if chave in desc_trk:
                 trk_q["desconsiderado pelo analista"] += 1
+            # O dia a dia da parada, para o drill da tela (Levi, 20/10/2026: "para ocorrências com mais de um dia quero que
+            # ao clicar na linha abra um drill mostrando o acompanhamento diário e a duração (...) faça algo parecido com
+            # os trackers!"). É o que esta conta já fazia e jogava fora: [dia, de, até, horas de sol paradas, kWh, a usina
+            # comunicou no dia]. Horas e kWh repartidos pelas somas acumuladas arredondadas (_reparte): os dias somam o
+            # h_sol e o perda_kwh da linha, sem sobra de arredondamento. O dia em que o TRACKER ficou sem comunicação não
+            # está aqui (atravessa, como na perda); "sem comunicação" é a USINA sem prova de que leu ou gerou no dia
+            # fechado (a régua do dias_comunicou e do trackers_dia). Fica fora do workbook: falhas_publicar escreve
+            # colunas explícitas.
+            h_rep, p_rep = _reparte([d_[3] for d_ in por_dia], 2), _reparte([d_[4] for d_ in por_dia], 1)
+            dias_ep = [[dd, _fmt(x), _fmt(y), h_rep[i], p_rep[i],
+                        "sim" if usina_comunicou(usina_c, dd) else ("sem prova" if dia_sem_prova(usina_c, dd)
+                                                                    else "sem comunicação")]
+                       for i, (dd, x, y, _h, _p) in enumerate(por_dia)]
             (trk_desc if chave in desc_trk else trk_rows).append({
                              "chave": chave, "fonte": fonte, "plant_id": pid, "cliente": cliente(usina_c), "usina": usina_c,
                              "tracker": trk,
@@ -1433,7 +1491,7 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
                              "cronico": (usina_c, trk) in antes and ep["ini_dia"] <= ini,
                              "visto_ate": ep["dias"][-1][0], "sem_com_desde": ep.get("sc_fim"),
                              "dias_comunicou": dias_com, "dias_sem_prova": dias_sp,
-                             "flags": sorted(flags)})
+                             "flags": sorted(flags), "dias": dias_ep})
 
         def ddmm(d):
             return f"{d[8:10]}/{d[5:7]}"

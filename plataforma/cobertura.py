@@ -295,7 +295,29 @@ class Decisoes:
             r.raise_for_status()
             lista = r.json()
             lista = lista.get("items", lista) if isinstance(lista, dict) else lista
-            if self.livro not in {w.get("key") for w in lista}:
+            entrada = next((w for w in lista if w.get("key") == self.livro), None)
+            existe = entrada is not None
+            # TRAVA CONTRA APAGAR O HISTÓRICO (20/10/2026, governança do Nexus, ao abrir o livro nexus_falhas): o
+            # _ler_banco devolve [] quando a listagem /api/sheets omite a aba por um instante, e o sync com replace=true
+            # gravaria só as linhas novas — apagando o livro inteiro, com a conferência de depois passando (ela compara
+            # com o que acabou de enviar). Duas regras, a mesma conta do livros._conferir_antes do Nexus:
+            # 1. a releitura com MENOS linhas do que a última leitura boa desta máquina (memória ou disco) não grava —
+            #    também quando as duas listagens (/api/workbooks e /api/sheets) somem juntas e o livro pareceria novo
+            #    (o POST /api/workbooks aceita chave que já existe, e o replace apagaria tudo);
+            # 2. livro que existe e voltou vazio só grava se o próprio banco disser que ele não tem aba nenhuma
+            #    (sheet_count 0): é o livro criado cuja 1ª gravação caiu no sync, como a do De-para em 11/10/2026 — sem
+            #    isso ele ficaria travado para sempre. Sem o sheet_count, ou com aba, é soluço: não grava.
+            conhecidas = max(len(self._linhas or []), len(self._disco()[0] or []))
+            if len(atuais) < conhecidas:
+                raise GravacaoErro(f"o livro {self.livro}.{self.aba} veio com {len(atuais)} linhas e eu conhecia "
+                                   f"{conhecidas}: não gravei para não apagar o histórico")
+            if existe and not atuais:
+                folhas = entrada.get("sheet_count")
+                if folhas is None or int(folhas or 0) > 0:
+                    raise GravacaoErro(f"o livro {self.livro}.{self.aba} veio com 0 linhas e o banco "
+                                       f"{'diz que ele tem abas' if folhas else 'não diz quantas abas ele tem'}: não "
+                                       f"gravei para não apagar o histórico")
+            if not existe:
                 self.sessao.post(f"{self.base}/api/workbooks", headers=h,
                                  json={"key": self.livro, "display_name": self.nome_livro}, timeout=60).raise_for_status()
             r = self.sessao.post(f"{self.base}/api/workbooks/{self.livro}/sync-xlsx", headers=h, params={"replace": "true"},

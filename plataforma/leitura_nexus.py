@@ -166,7 +166,10 @@ _GET_GESTOR = (
     "/api/gerencial",                                         # Visão gerencial, grupos e Disponibilidade (e o Excel)
     "/api/cascata", "/api/macro", "/api/g", "/api/inv/pr-mes",  # Painel NOC e Diagnóstico
     "/api/diagnostico", "/api/painel/correlacao",             # Diagnóstico (o lado API PV fica de fora, abaixo)
-    "/api/painel/falhas",                                     # Strings e trackers (o desconsiderar é POST: fora)
+    # Strings e trackers: o pacote, as tiradas da conta, os vínculos gravados e a busca de OS do "Vincular OS"
+    # (/api/painel/falhas/os, 20/10/2026: só no clique; o gestor alcança como já alcança a /api/fracttal/os). O
+    # desconsiderar e o POST dos vínculos são gravação: fora, pelo método
+    "/api/painel/falhas",
     "/api/relatorio",                                         # Criador de relatório e Relatório semanal
     "/api/ronda/recorrentes", "/api/ronda/analise", "/api/ronda/book", "/api/ronda/obs",
     "/api/ronda/whats/status", "/api/ronda/whats/qr",         # Monitor da ronda (só as leituras dele)
@@ -175,12 +178,14 @@ _GET_GESTOR = (
     "/api/admin/de-para",                                     # De-para de equipamentos: o diagnóstico (e só para admin)
 )
 
-# POSTs que só consultam: os da ponte e as OS do Fracttal da usina (corpo com usina e inversores)
-POSTS_DE_CONSULTA_GESTOR = POSTS_DE_CONSULTA | {"/api/fracttal/os"}
+# POSTs que só consultam: os da ponte, as OS do Fracttal da usina (corpo com usina e inversores) e o Excel da aba Strings
+# e trackers (20/10/2026: a tela manda as linhas que mostra e o servidor só formata; o gestor também baixa)
+POSTS_DE_CONSULTA_GESTOR = POSTS_DE_CONSULTA | {"/api/fracttal/os", "/api/painel/falhas/exportar"}
 
 # o que as telas do mapa gravam além do que a ponte já listava (documentação e teste): para o gestor, tudo é 403
 GRAVACOES_GESTOR = GRAVACOES + (
-    "/api/state/comment", "/api/painel/falhas/desconsiderar", "/api/etm/ticket", "/api/ronda/obs",
+    "/api/state/comment", "/api/painel/falhas/desconsiderar", "/api/painel/falhas/vinculos", "/api/etm/ticket",
+    "/api/ronda/obs",
     "/api/ronda/whats/reiniciar", "/api/relatorio/semanal/direcionamento", "/api/relatorio/semanal/emitir",
     "/api/admin/tempo-real/decidir", "/api/admin/tempo-real/migrar", "/api/admin/de-para/decidir",
     "/api/tokens/",
