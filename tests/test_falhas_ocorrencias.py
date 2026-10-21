@@ -896,3 +896,33 @@ def test_a_coluna_strings_tem_prioridade_sobre_avisos():
     assert "th.col-str,td.col-str{min-width:260px}" in HTML and "td.col-av .tag{white-space:normal}" in HTML
     assert '<td class="col-str">${strCel(r)}</td>' in HTML
     assert "' +' + (o.lista.length" not in HTML                       # a lista inteira, sem o "Ipv1, Ipv2 +2"
+
+
+# ── 8. A tabela no estilo do Nexus, os cartões com a contagem do mês e sem as barras (Levi, 21/10/2026: "quero a tabela de
+# strings e trackers no estilo Nexus, está transparente"; "nos cards de strings já mostra também a quantidade de
+# ocorrências nessas usinas e mata os gráficos de Onde mais se perdeu no mês e Por cliente"; "nos cards de trackers bota a
+# quantidade de paradas e mata de uma vez")
+def test_a_tabela_no_cartao_do_nexus_e_sem_onde_mais_se_perdeu_nem_por_cliente():
+    assert '<div class="rolo cartao-tab"><table id="tab"></table></div>' in HTML
+    assert ".cartao-tab{background:var(--mist);border:1px solid var(--linha);border-radius:10px}" in HTML
+    assert ".cartao-tab>table>thead th{background:var(--mist2)" in HTML
+    for fora in ('id="barras"', 'id="t-cli"', "Onde mais se perdeu", "Por cliente", "function barras(", "class=\"duas\""):
+        assert fora not in HTML, fora
+    assert "un = trk ? ['parada', 'paradas'] : ['ocorrência', 'ocorrências']" in HTML
+
+
+@precisa_node
+def test_o_cartao_conta_as_ocorrencias_da_usina_no_mes(tmp_path):
+    eps = [ep("Guatambu", "Inversor 2.5", "Ipv1", "2026-10-03 09:50", "2026-10-04 12:00", "voltou", "2026-10-03", "2026-10-04", 100),
+           ep("Guatambu", "Inversor 2.5", "Ipv2", "2026-10-19 07:00", None, "em aberto", "2026-10-19", "2026-10-20", 50),
+           ep("Inhapi", "Inversor 3.3", "Ipv1", "2026-10-01 06:30", None, "em aberto", "2026-10-01", "2026-10-20", 400, pid="2")]
+    r = _roda(tmp_path, pacote(eps), "T.desenha(); out(ELS.cards.innerHTML);")
+    gt = r[r.index('data-u="Guatambu"'):]
+    assert "<b>2</b> ocorrências no mês" in gt.split("</button>")[0]      # a fechada e a aberta: as duas do mês
+    ih = r[r.index('data-u="Inhapi"'):]
+    assert "<b>1</b> ocorrência no mês" in ih.split("</button>")[0]
+
+
+def test_a_perda_estimada_sem_o_sublinhado_tracejado():
+    # 21/10/2026, Levi: "tira esse underline traçado de perda" — o ≈ e a dica ficam
+    assert "dotted" not in HTML and ".est{cursor:help}" in HTML

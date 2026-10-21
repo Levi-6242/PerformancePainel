@@ -38,7 +38,7 @@
     --green:#a9db21; --verde-suave:rgba(169,219,33,.18); --verde-texto:#566610; --sobre-verde:#0d1526; --foco:#566610;
     --ok:#166b36; --alerta:#7a5200; --alerta-suave:rgba(230,175,46,.16);
     --critico:#b42230; --critico-suave:rgba(220,53,69,.09); --critico-cheio:#ef5d6e;
-    --neutro-s:rgba(15,23,42,.06); --off-s:#eceef2; --perda-barra:rgba(71,85,105,.40);
+    --neutro-s:rgba(15,23,42,.06); --off-s:#eceef2;
     --sombra:rgba(15,23,42,.16); --veu:rgba(15,23,42,.32); --rolagem:#c3c9d3;
     --display:"Raleway","Poppins",system-ui,sans-serif; --font:"Poppins",system-ui,-apple-system,"Segoe UI",sans-serif;
     --mono:"IBM Plex Mono","Cascadia Mono",Consolas,monospace;
@@ -53,7 +53,7 @@
     --green:#a3d900; --verde-suave:rgba(163,217,0,.12); --verde-texto:#c4e755; --sobre-verde:#0b1220; --foco:#a3d900;
     --ok:#4ade80; --alerta:#ffd83d; --alerta-suave:rgba(255,216,61,.12);
     --critico:#ff5b6e; --critico-suave:rgba(255,91,110,.14); --critico-cheio:#ff5b6e;
-    --neutro-s:rgba(255,255,255,.06); --off-s:rgba(150,160,180,.14); --perda-barra:rgba(195,202,215,.45);
+    --neutro-s:rgba(255,255,255,.06); --off-s:rgba(150,160,180,.14);
     --sombra:rgba(0,0,0,.35); --veu:rgba(9,13,24,.55); --rolagem:#243154;
   }
   html.modo-nexus:not([data-tema="claro"]) .seg button.on{background:var(--green);color:#0b1220}
@@ -133,21 +133,17 @@
   .card .m{font-size:12px;color:var(--mudo);line-height:1.45}
   .card .m b{color:var(--tinta2);font-weight:600}
   .vazio{padding:18px;border:1px dashed var(--linha-forte);border-radius:10px;color:var(--mudo);font-size:13px;text-align:center}
-  /* onde mais se perdeu: barra neutra (perda não é "bom": nada de verde nela) */
-  .duas{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:28px}
-  .barras{display:flex;flex-direction:column}
-  .barra{display:grid;grid-template-columns:minmax(120px,190px) minmax(0,1fr) 92px 100px;align-items:center;gap:12px;padding:7px 8px;border-radius:8px;background:transparent;border:0;font:inherit;color:inherit;text-align:left;cursor:pointer}
-  .barra:hover{background:var(--neutro-s)}
-  .barra.on{background:var(--verde-suave)}
-  .barra .u{font-size:13px;color:var(--tinta);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .barra .u small{display:block;font-size:11.5px;color:var(--mudo)}
-  .trilho{height:8px;border-radius:999px;background:var(--neutro-s);overflow:hidden}
-  .trilho i{display:block;height:100%;border-radius:999px;background:var(--perda-barra)}
-  .barra .k{font:600 13px/18px var(--font);text-align:right;white-space:nowrap}
-  .barra .q{font-size:12px;color:var(--mudo);text-align:right;white-space:nowrap}
   /* tabelas: sem fundo no cabeçalho, fio fino nas linhas, número à direita. O realce da linha e o riscado da tirada só
      nas células da própria linha (>): a tabela do drill, dentro da linha de baixo, não acende junto */
   .rolo{overflow-x:auto}
+  /* a lista no padrão de tabela do Nexus (o .cn-tab do campo.css; 21/10/2026, Levi: "quero a tabela de strings e trackers
+     no estilo Nexus, está transparente atualmente"): a superfície do cartão, com borda e canto, e o cabeçalho no 2º tom.
+     Um nível só: o drill aberto fica na mesma superfície (recuo e fio), sem outro fundo */
+  .cartao-tab{background:var(--mist);border:1px solid var(--linha);border-radius:10px}
+  .cartao-tab>table>thead th{background:var(--mist2);padding:11px 12px;border-bottom:1px solid var(--linha)}
+  .cartao-tab>table>tbody>tr:not(.cn-detalhe)>td{padding:12px}
+  .cartao-tab>table>tbody>tr:last-child>td{border-bottom:0}
+  .cartao-tab>table>tbody>tr:not(.cn-detalhe):hover>td{background:var(--mist2)}
   table{width:100%;border-collapse:collapse;font-size:13px}
   th{font:700 11px/14px var(--font);letter-spacing:.05em;text-transform:uppercase;color:var(--mudo);text-align:left;padding:8px 10px;border-bottom:1px solid var(--linha-forte);white-space:nowrap;user-select:none}
   th[data-k]{cursor:pointer}
@@ -169,7 +165,9 @@
   .st.parado{background:var(--critico-suave);color:var(--critico)}
   .st.semcom{background:var(--off-s);color:var(--mudo)}
   .tag{display:inline-block;font:600 11px/16px var(--font);padding:1px 7px;border-radius:6px;background:var(--neutro-s);color:var(--mudo);margin:0 4px 4px 0;white-space:nowrap}
-  .est{border-bottom:1px dotted var(--mudo);cursor:help}
+  /* a perda com estimativa: o ≈ na frente e a dica no mouse, sem o sublinhado tracejado (21/10/2026, Levi: "tira esse
+     underline traçado de perda") */
+  .est{cursor:help}
   .chk-col{width:1%;text-align:center}
   .chk-col input{accent-color:var(--green);width:16px;height:16px;cursor:pointer}
   /* Strings antes de Avisos (Levi, 21/10/2026: "aumenta o tamanho da coluna de strings prioriza mais isso que avisos"):
@@ -233,7 +231,7 @@
   .chip i{font-size:14px}
   .chips .conta{margin-left:auto;font-size:12.5px;color:var(--mudo)}
   .chips .conta b{color:var(--tinta);font-weight:600}
-  .chips .conta b[title]{border-bottom:1px dotted var(--mudo);cursor:help}
+  .chips .conta b[title]{cursor:help}
   /* segmentado: o das duas visões das strings saiu em 20/10/2026 (virou uma tabela só); a regra fica para o próximo, e o
      teste da porta confere o verde dele no escuro */
   .seg{display:inline-flex;gap:2px;padding:3px;border:1px solid var(--linha);border-radius:10px;background:var(--mist)}
@@ -270,9 +268,8 @@
   .gaveta .voltar{font:600 12px/16px var(--font);padding:4px 10px;border-radius:8px;border:1px solid var(--linha-forte);background:transparent;color:var(--tinta);cursor:pointer;white-space:nowrap}
   .dica{position:fixed;z-index:50;max-width:300px;padding:8px 12px;border:1px solid var(--linha);border-radius:8px;background:var(--mist2);color:var(--tinta);font:500 12.5px/1.45 var(--font);box-shadow:0 8px 24px var(--sombra);pointer-events:none}
   .dica ul{margin:4px 0 0;padding-left:16px}
-  .duas>div{min-width:0}
-  @media (max-width:1100px){.duas{grid-template-columns:minmax(0,1fr)}.numeros{grid-template-columns:repeat(2,minmax(0,1fr))}.numeros>:nth-child(3){border-left:0}.numeros>:nth-child(n+3){border-top:1px solid var(--linha)}}
-  @media (max-width:820px){.wrap{padding-left:16px;padding-right:16px}.regras,.contas{grid-template-columns:1fr}.barra{grid-template-columns:minmax(0,1fr) 84px}.barra .trilho,.barra .q{display:none}.migalha{display:none}}
+  @media (max-width:1100px){.numeros{grid-template-columns:repeat(2,minmax(0,1fr))}.numeros>:nth-child(3){border-left:0}.numeros>:nth-child(n+3){border-top:1px solid var(--linha)}}
+  @media (max-width:820px){.wrap{padding-left:16px;padding-right:16px}.regras,.contas{grid-template-columns:1fr}.migalha{display:none}}
 </style>
 </head>
 <body>
@@ -310,19 +307,6 @@
       <div class="cards" id="cards"></div>
     </section>
 
-    <section class="secao">
-      <div class="duas">
-        <div>
-          <div class="secao-cab"><div><h2>Onde mais se perdeu no mês</h2><p class="sub">As usinas com mais kWh perdidos no recorte. Clique para ver só a usina na lista abaixo.</p></div></div>
-          <div class="barras" id="barras"></div>
-        </div>
-        <div>
-          <div class="secao-cab"><div><h2>Por cliente</h2><p class="sub">A mesma perda, somada por cliente.</p></div></div>
-          <div class="rolo"><table id="t-cli"></table></div>
-        </div>
-      </div>
-    </section>
-
     <section class="secao" id="s-lista">
       <div class="secao-cab">
         <div><h2 id="tab-h"></h2><p class="sub" id="tab-d"></p></div>
@@ -344,7 +328,7 @@
         <button class="btn" id="b-desc" title="Ocorrências tiradas da conta pela caixa da lista"><i class="ph ph-archive"></i><span id="b-desc-t">Tiradas da conta (0)</span></button>
       </div>
       <div class="estado" id="baixa-msg" hidden></div>
-      <div class="rolo"><table id="tab"></table></div>
+      <div class="rolo cartao-tab"><table id="tab"></table></div>
       <div class="mais" id="mais"></div>
     </section>
   </section>
@@ -482,7 +466,7 @@
     const cli = [...new Set(rows.map(r => r.cliente).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
     opcoes($('f-cli'), cli, 'Todos os clientes');
     $('f-cli').value = cli.includes(S.cli) ? S.cli : '';
-    // usinas do recorte de cliente; a barra, o cartão e o seletor mexem no mesmo S.usina
+    // usinas do recorte de cliente; o cartão e o seletor mexem no mesmo S.usina
     const usn = [...new Set(rows.filter(r => !S.cli || r.cliente === S.cli).map(r => r.usina).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
     opcoes($('f-us'), usn, 'Todas as usinas');
     if (S.usina && !usn.includes(S.usina)) S.usina = null;
@@ -595,6 +579,12 @@
       const ini = inicioReal(r);
       if (!a.desde || ini < a.desde) a.desde = ini;
     }
+    // quantas linhas da lista a usina tem no mês (21/10/2026, Levi: "nos cards de strings já mostra também a quantidade de
+    // ocorrências nessas usinas"; "nos cards de trackers bota a quantidade de paradas"): as ocorrências do inversor nas
+    // strings, as paradas nos trackers — o recorte da lista sem o "Só parados agora" e sem a usina escolhida, como o cartão
+    const noMes = {};
+    for (const r of filtra(base(), false, true, true).filter(naConta)) noMes[r.usina] = (noMes[r.usina] || 0) + 1;
+    const un = trk ? ['parada', 'paradas'] : ['ocorrência', 'ocorrências'];
     const L = Object.values(g).sort((a, b) => b.eq.size - a.eq.size || b.kwh - a.kwh), ag = agoraTxt();
     $('agora-h').textContent = trk ? `Trackers parados ${ag}, por usina` : `Strings sem corrente ${ag}, por usina`;
     $('agora-d').textContent = (trk ? 'Não voltaram a girar até o último dado' : 'Não voltaram até o último dado') +
@@ -603,7 +593,7 @@
     $('cards').innerHTML = ver.length ? ver.map(a => `<button class="card${S.usina === a.usina ? ' on' : ''}" data-u="${esc(a.usina)}">
         <span class="u" title="${esc(a.usina)}">${esc(a.usina)}</span><span class="c">${esc(a.cliente)} · ${esc([...a.fontes].join(', '))}</span>
         <span class="n"><b>${nf.format(a.eq.size)}</b><span>${trk ? (a.eq.size > 1 ? 'trackers parados' : 'tracker parado') : (a.eq.size > 1 ? 'strings sem corrente' : 'string sem corrente')}</span></span>
-        <span class="m">o mais antigo desde <b>${fDH(a.desde)}</b> (${plural(diasDesde(a.desde), 'dia', 'dias')})<br>perda no mês <b>${fmtKwh(a.kwh)}</b>${a.antes.size ? ` · ${nf.format(a.antes.size)} já vinham de antes do mês` : ''}</span>
+        <span class="m">o mais antigo desde <b>${fDH(a.desde)}</b> (${plural(diasDesde(a.desde), 'dia', 'dias')})<br>perda no mês <b>${fmtKwh(a.kwh)}</b>${a.antes.size ? ` · ${nf.format(a.antes.size)} já vinham de antes do mês` : ''}<br><b>${nf.format(noMes[a.usina] || 0)}</b> ${(noMes[a.usina] || 0) === 1 ? un[0] : un[1]} no mês</span>
       </button>`).join('') : '<div class="vazio">Nada parado agora neste recorte.</div>';
     $('agora-todas').hidden = L.length <= 8;
     $('agora-todas').textContent = S.todas ? 'Mostrar só as 8 primeiras' : `Ver as ${nf.format(L.length)} usinas`;
@@ -618,26 +608,6 @@
     if (S.usina) $('s-lista').scrollIntoView({block: 'start'});
   });
   $('agora-todas').addEventListener('click', () => { S.todas = !S.todas; desenha(); });
-
-  // ── onde mais se perdeu + por cliente ───────────────────────────────────────────────
-  function barras(rows) {
-    const g = {}, gc = {};
-    for (const r of rows) {
-      const a = g[r.usina] || (g[r.usina] = {usina: r.usina, cliente: r.cliente, kwh: 0, n: 0}); a.kwh += r.perda_kwh; a.n++;
-      const c = gc[r.cliente] || (gc[r.cliente] = {kwh: 0, n: 0, us: new Set()}); c.kwh += r.perda_kwh; c.n++; c.us.add(r.usina);
-    }
-    const L = Object.values(g).sort((a, b) => b.kwh - a.kwh).slice(0, 10), mx = Math.max(1, ...L.map(a => a.kwh));
-    // a contagem é a das linhas da lista: paradas nos trackers, ocorrências do inversor nas strings
-    const un = S.aba === 'trk' ? ['parada', 'paradas'] : ['ocorrência', 'ocorrências'];
-    $('barras').innerHTML = L.map(a => `<button class="barra${S.usina === a.usina ? ' on' : ''}" data-u="${esc(a.usina)}">
-        <span class="u" title="${esc(a.usina)}">${esc(a.usina)}<small>${esc(a.cliente)}</small></span><span class="trilho"><i style="width:${Math.max(2, a.kwh / mx * 100).toFixed(1)}%"></i></span>
-        <span class="k">${fmtKwh(a.kwh)}</span><span class="q">${plural(a.n, un[0], un[1])}</span></button>`).join('') || '<div class="vazio">Nenhuma perda neste recorte.</div>';
-    const tot = rows.reduce((a, r) => a + r.perda_kwh, 0) || 1;
-    $('t-cli').innerHTML = `<thead><tr><th>Cliente</th><th class="r">Usinas</th><th class="r">${S.aba === 'trk' ? 'Paradas' : 'Ocorrências'}</th><th class="r">Perda</th><th class="r">Parte</th></tr></thead><tbody>` +
-      (Object.entries(gc).sort((a, b) => b[1].kwh - a[1].kwh).map(([c, a]) => `<tr><td><b>${esc(c)}</b></td><td class="r">${nf.format(a.us.size)}</td><td class="r">${nf.format(a.n)}</td><td class="r"><b>${fmtKwh(a.kwh)}</b></td><td class="r">${nf.format(Math.round(a.kwh / tot * 100))}%</td></tr>`).join('')
-       || '<tr><td colspan="5" style="text-align:center;color:var(--mudo)">Nada no recorte.</td></tr>') + '</tbody>';
-  }
-  $('barras').addEventListener('click', e => { const b = e.target.closest('.barra[data-u]'); if (!b) return; S.usina = S.usina === b.dataset.u ? null : b.dataset.u; S.inv = S.str = null; S.lim = 60; desenha(); });
 
   // ── strings: a OCORRÊNCIA DO INVERSOR (Levi, 20/10/2026: "Por inversor e dia como tabela principal e única", com a
   // quantidade de strings, a parada, o retorno e o acompanhamento diário no drill) ──────────────────
@@ -1511,7 +1481,7 @@
     INICIOS = new Set(base().map(r => chaveVinc(r) + faixa(r)[0]));
     // os números do topo seguem nas paradas (nas strings, os episódios do mesmo recorte); a lista e as barras, nas linhas dela
     const paradas = S.aba === 'trk' ? rows : filtra(D.strings.episodios, false).filter(naConta);
-    numeros(paradas); cartoes(); barras(rows); tabela(todas);
+    numeros(paradas); cartoes(); tabela(todas);
     const kLista = rows.reduce((a, r) => a + r.perda_kwh, 0), dica = S.aba === 'str' ? dicaConta(kLista, paradas.reduce((a, r) => a + r.perda_kwh, 0)) : '';
     $('conta').innerHTML = `<b>${nf.format(rows.length)}</b> ${S.aba === 'trk' ? (rows.length === 1 ? 'parada' : 'paradas') : (rows.length === 1 ? 'ocorrência' : 'ocorrências')} · <b${dica ? ` title="${esc(dica)}"` : ''}>${fmtKwh(kLista)}</b> no recorte`;
   }

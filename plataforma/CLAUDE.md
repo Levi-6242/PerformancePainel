@@ -2061,8 +2061,14 @@ Mockup com o dado real de outubro aprovado no mesmo dia. O que mudou em
   ocorrências. Com o filtro de String (ou a busca que acha uma string) é igual: a faixa fica com a string, a lista com a
   ocorrência que a contém. A regra é do Levi e fica; o total da lista leva a dica (title) do que soma (`dicaConta`); sem
   nenhum dos dois, as somas são a mesma (partição). Depois os **cartões por usina** do que segue parado (inclui os crônicos,
-  como o card "Parados em aberto" de antes, agora também nas strings), "Onde mais se perdeu" (barra neutra: perda não é
-  verde) com a tabela por cliente, e a lista com os filtros em cima.
+  como o card "Parados em aberto" de antes, agora também nas strings), cada um com quantas linhas da lista a usina tem no
+  mês — "N ocorrências no mês" nas strings, "N paradas no mês" nos trackers, o recorte da lista sem o "Só parados agora" e
+  sem a usina escolhida —, e a lista com os filtros em cima. **Saíram "Onde mais se perdeu no mês" e "Por cliente"** (21/10/2026,
+  Levi: "nos cards de strings já mostra também a quantidade de ocorrências nessas usinas e mata os gráficos de Onde mais se
+  perdeu no mês e Por cliente"; nos trackers, "mata de uma vez"). A lista fica no **cartão do Nexus** (`.cartao-tab`, o
+  `.cn-tab` do campo.css: a superfície com borda e canto de 10 px, o cabeçalho no 2º tom; Levi: "quero a tabela de
+  strings e trackers no estilo Nexus, está transparente"); o drill aberto segue na mesma superfície. A perda com
+  estimativa leva o ≈ e a dica, sem o sublinhado tracejado (21/10: "tira esse underline traçado de perda").
 - **Avisos**: estimativa vai para o ≈ da perda (a dica diz qual), contexto vai para a coluna dele ("vinha parado desde",
   "voltou e parou de novo", "voltou a girar com desvio severo"), o resto vira etiqueta cinza. Antes eram etiquetas âmbar
   iguais em quase toda linha. A Qualidade traduz os contadores (`DIZ`, o nome de dentro fica no title) e junta os avisos
@@ -2110,8 +2116,8 @@ Mockup com o dado real de outubro aprovado no mesmo dia. O que mudou em
     Xavantina 1 · 1.4, 18/10) leva a dica, e a perda dele é a da ocorrência menos a dos outros dias. O detalhe NÃO ganha
     outro tom de fundo (16/10, um nível de superfície): recuo, fio à esquerda e letra menor. O aberto mora em `S.abre` (o
     `desenha()` refaz a tabela); trocar de aba ou mês zera.
-  - Números do topo, cartões e pílulas seguem nas PARADAS de string (os episódios do mesmo recorte); as barras e o "Por
-    cliente" contam ocorrências.
+  - Números do topo, cartões e pílulas seguem nas PARADAS de string (os episódios do mesmo recorte); a contagem "no mês"
+    do cartão é de ocorrências.
 - **Trackers:** 1 linha = 1 parada, como sempre (juntar "voltou e parou de novo" é decisão do Levi; o print da Sete Lagoas
   segue com 56 paradas), + coluna OS e o drill da parada de 2+ dias (do dia do início ao `visto_ate`: 1.460 em outubro)
   pelo `dias` da linha (dia, das, às, horas, perda, comunicação). O drill lista TODOS os dias do cabeçalho "N dias com
