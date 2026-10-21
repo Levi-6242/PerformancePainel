@@ -508,6 +508,53 @@ def test_coracao_2_a_chave_da_aba_o_parado_e_o_nome_do_cadastro(tmp_path):
     assert r["ponte"] == [{"fonte": "pv", "id": "18747863", "usina_supervisorio": "Coração 2 (112)"}]
 
 
+_CORACAO1 = """const CORACAO1 = {plant_id: 18747862, usina: 'Coração 1', depara_fonte: 'pv', qtd_inversores: 12, strings_ativas: 240,
+  inv_resumo: Array.from({length: 12}, (_, i) => Object.assign(inv_(18747862, i + 1, null, 20), {esp: 20}))};
+"""
+
+
+def test_a_irma_sem_chave_escolhida_tambem_segura_a_usina(tmp_path):
+    """Revisão do acerto final (21/10/2026), dado real da `pv`: as duas Coração chegam sem chave (sem ligação hoje e a usina
+    77 vazia no Nexus). Escolhida só a "Coração 2 (112)", ela ia sozinha e o Nexus gravava 3.250 ÷ 80 = 812,5 kWp por
+    inversor. A Coração 1, sem chave escolhida mas com a "Coração 1 (111)" da aba entre as opções, segura a usina."""
+    r = _node(_REAIS + _CORACAO1 + """F.linhas = [CORACAO1, CORACAO];
+      const inst = DT.criar({fonte: 'pv'}); await inst.entrar(F.linhas, 'pv');
+      const A = '18747862', B = '18747863', out = {};
+      out.chave = [inst.S.gsel[A].chave, inst.S.gsel[B].chave];
+      inst.mudarChave(B, 'Coração 2 (112)'); inst.conferirTodos();
+      out.pronto = [inst.pronto(A), inst.pronto(B)];
+      out.tela = inst.html().includes('Coração 1 também é desta usina do Registro e a chave dela ainda não está no Nexus');
+      await inst.salvar();
+      out.salvar = PEDIDOS.filter(p => p.url.endsWith('/salvar')).length;
+      return out;""", tmp_path)
+    assert r["chave"] == ["", ""]
+    assert r["pronto"] == [False, False] and r["tela"] and r["salvar"] == 0
+
+
+def test_usina_com_pendencia_nao_grava_ponte_derivada(tmp_path):
+    """Revisão do acerto final (21/10/2026): com a "Coração 1 (111)" gravada e conferida no Nexus (usina 77), a Coração 2 sem
+    ligação recebe a sugestão dessa chave e os INVERSOR01..03 dela casam pelo nome com os da Coração 1: a ponte "derivava"
+    mesmo com a pendência vermelha "a chave também está em Coração 1", e um Salvar só da Pharma II mandava junto o decidir
+    Coração 2 → "Coração 1 (111)" (a planta passava a ler o cadastro da outra). Com pendência, nenhuma ponte."""
+    r = _node(_REAIS + _CORACAO1 + """const u = F.nexus[77];
+      u.chaves.push({supervisorio_id: 900, usina_supervisorio: 'Coração 1 (111)', principal: true, substitui_aba: false});
+      for (let n = 1; n <= 12; n++) u.inversores.push(Object.assign(nInv(9000 + n, 900, 'Coração 1 (111)', 'Inversor 1.' + n,
+        'INVERSOR' + String(n).padStart(2, '0'), null, 20, 0), {codigo_fracttal: 'COR100-INVR1.' + n, fracttal_ligado_por: 'conferido',
+        conferido_em: '2026-10-21T12:00:00Z'}));
+      const C1 = Object.assign({}, CORACAO1, {chave_cadastro: 'Coração 1 (111)'});
+      const PH = F.linhas.find(l => l.usina === 'Pharma II');
+      const inst = DT.criar({fonte: 'pv'}); await inst.entrar([C1, CORACAO, PH], 'pv');
+      const B = '18747863', P = '18758592', out = {};
+      out.chave = inst.S.gsel[B].chave;
+      out.ponte = inst.pontePendente(B);
+      inst.S.porPid[P].invs.forEach(i => inst.conferir(P + '|' + i.id, true));
+      await inst.salvar();
+      out.decidir = PEDIDOS.filter(p => p.url.includes('decidir')).map(p => String(p.body.id));
+      return out;""", tmp_path)
+    assert r["chave"] == "Coração 1 (111)"                     # a sugestão continua (a pendência diz o que fazer)
+    assert r["ponte"] is False and "18747863" not in r["decidir"]
+
+
 def test_a_fonte_que_manda_o_nome_do_cadastro_casa_com_o_inversor_da_aba(tmp_path):
     """A Pharma II manda "Inversor 1.1".."1.6"; a aba e o Nexus têm a "Pharma 2" com INVERSOR01..06 chamados "Inversor 1.1"..
     (o banco de 20/10). Só pelo Equipamento Supervisório a tela não reconhecia: contava os 6 duas vezes no kWp (12 membros,

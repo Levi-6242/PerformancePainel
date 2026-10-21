@@ -1133,8 +1133,11 @@ leitores do cadastro que passam a seguir o que o Nexus grava) e, no fim, **as te
     que o Nexus ainda não tem, vai no mesmo Salvar ou nenhuma das duas vai (pendência "a chave X (de Y) também é desta usina
     do Registro e ainda não está no Nexus: confira e salve as duas juntas", `irmaFora`, calculada com o que vai no Salvar).
     A Coração 2 salva sozinha dividia os 3.250 do Registro só pelas 80 strings dela (812,5 por inversor) e, com a Coração 1
-    (111) seguindo pela aba, a usina somaria 6.500 nos leitores; juntas, 3.250 ÷ 320 × 20 = 203,125. O Nexus recusa o
-    mesmo caso pelas Ligações (quando a Usina Fractall da irmã está nelas; a da Coração 1 (111) não está);
+    (111) seguindo pela aba, a usina somaria 6.500 nos leitores; juntas, 3.250 ÷ 320 × 20 = 203,125. Conta também a irmã
+    SEM chave escolhida que tem, entre as opções, uma chave da aba fora do Nexus (revisão do acerto final, 21/10/2026: no
+    dado real as duas Coração chegam sem chave, e escolhida só a "Coração 2 (112)" ela ia sozinha; pendência "Coração 1
+    também é desta usina do Registro e a chave dela ainda não está no Nexus: escolha a chave de Coração 1..."). O Nexus
+    recusa o mesmo caso pelas Ligações (quando a Usina Fractall da irmã está nelas; a da Coração 1 (111) não está);
   - **duas CABN de mesmo número na mesma usina do Registro** (a Ipixuna do Pará, usina 56: a Santa Cecilia 1 na
     IPX100-CABN1 e a 2 na 2C-IPX100-CABN1) caíam na mesma "UG 01" sem pendência, e o Nexus recusava a usina a cada Salvar.
     Agora é pendência nas plantas dela (também quando a UG de mesmo número já tem outro código no Nexus), com o porquê.
@@ -1182,7 +1185,12 @@ leitores do cadastro que passam a seguir o que o Nexus grava) e, no fim, **as te
   cria uma a cada "Modo de-para" e a Base uma por carga, e reaberta a Itaja 1 (228) aparecia "ligada e conferida", com
   "sugestão: a ponte grava ao salvar" e o Salvar desligado. Há ponte pendente quando a chave escolhida não é a de hoje, o
   Nexus já tem essa chave na usina do Registro e todo inversor da fonte que vai está nela com o código do Fracttal e
-  Conferido (o rastro do Salvar; os 1.932 do "Ligar pela aba" não têm código). O "Sair do modo de-para" do Tempo real
+  Conferido (o rastro do Salvar; os 1.932 do "Ligar pela aba" não têm código). **Usina com pendência (do grupo ou de linha)
+  não grava ponte nenhuma**, nem a derivada nem a que ficou pendente nesta instância (revisão do acerto final, 21/10/2026,
+  `comPendencia`): a Coração 2 sem ligação recebia a sugestão "Coração 1 (111)", os INVERSOR01..03 dela casavam pelo nome
+  com os da Coração 1 gravados e conferidos, e a ponte derivava com a pendência vermelha "a chave também está em Coração 1"
+  na tela; um Salvar só da Pharma II mandava junto o decidir Coração 2 → "Coração 1 (111)" (a planta passava a ler o
+  cadastro da outra). O "Sair do modo de-para" do Tempo real
   pergunta também pelas pontes pendentes (`pontesPendentes()`), não só pelas usinas mexidas.
 - **"Deixar de fora"** (por linha com pendência): a API PV ainda lista o inversor trocado ("INVERSOR 2.1 (old)",
   "INVERSOR03-Cancelado", "INVERSOR02 - Antigo"), que casa o mesmo ativo do novo e prendia a usina inteira no "inversor

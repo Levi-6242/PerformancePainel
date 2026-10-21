@@ -811,13 +811,21 @@
     // os 3.250 do Registro só pelas 80 strings dela (250 → 812,5 kWp por inversor), e com a Coração 1 (111) seguindo pela aba
     // a usina somaria 6.500 nos leitores. Outra planta da tela na MESMA usina do Registro, com uma chave da aba que o Nexus
     // ainda não tem, vai no mesmo Salvar ou nenhuma das duas vai (o Nexus recusa o mesmo caso pelas Ligações)
+    // A irmã SEM chave escolhida também segura (revisão do acerto final, 21/10/2026): no dado real as duas Coração chegam com
+    // a chave vazia (sem ligação hoje e a usina 77 vazia no Nexus, então nada sugere a chave); escolhida só a "Coração 2 (112)",
+    // ela ia sozinha e o Nexus gravava 812,5 kWp por inversor. Conta a planta da mesma usina do Registro que não escolheu
+    // chave mas tem, entre as opções, uma chave da aba que o Nexus ainda não tem
     function irmaFora(g, nos) {
       const gs = S.gsel[g.pid] || {};
       if (!gs.reg) return '';
+      const daAbaFora = c => c && nk(c) !== nk(gs.chave) && !S.ctx.chaveUsina[nk(c)] && S.ctx.cadPor[nk(c)];
       const h = S.grupos.find(x => { const xs = S.gsel[x.pid] || {};
-        return x !== g && xs.reg === gs.reg && xs.chave && nk(xs.chave) !== nk(gs.chave) && !S.ctx.chaveUsina[nk(xs.chave)]
-          && S.ctx.cadPor[nk(xs.chave)] && !nos.has(x.pid); });
-      return h ? `a chave “${S.gsel[h.pid].chave}” (de ${h.usina}) também é desta usina do Registro e ainda não está no Nexus: confira e salve as duas juntas (o Nexus divide o kWp do Registro pelas strings da usina inteira; sem ela, a divisão sairia só pelas outras)` : '';
+        if (x === g || xs.reg !== gs.reg || nos.has(x.pid)) return false;
+        return xs.chave ? daAbaFora(xs.chave) : chavesDoCadastro(x).some(daAbaFora); });
+      if (!h) return '';
+      const hc = (S.gsel[h.pid] || {}).chave;
+      return hc ? `a chave “${hc}” (de ${h.usina}) também é desta usina do Registro e ainda não está no Nexus: confira e salve as duas juntas (o Nexus divide o kWp do Registro pelas strings da usina inteira; sem ela, a divisão sairia só pelas outras)`
+        : `${h.usina} também é desta usina do Registro e a chave dela ainda não está no Nexus: escolha a chave de ${h.usina}, confira e salve as duas juntas (o Nexus divide o kWp do Registro pelas strings da usina inteira; sem ela, a divisão sairia só pelas outras)`;
     }
     function pendencia(g, inv) {
       const M = memo(), key = k(g, inv);
@@ -910,8 +918,16 @@
     }
     // a ponte que ficou pendente (P-b): o Nexus gravou e a ponte não. O próximo Salvar manda só o decidir, enquanto a chave
     // escolhida for a mesma. Devolve a ponte ({chave, alvo, motivo}) ou null
+    // Usina com pendência NÃO grava ponte (revisão do acerto final, 21/10/2026): a ponte derivada da Coração 2 saía com a
+    // pendência vermelha "a chave 'Coração 1 (111)' também está em Coração 1" na tela (os INVERSOR01..03 dela casavam pelo
+    // nome com os da Coração 1 já gravados), e um Salvar só da Pharma II ligava a planta Coração 2 à chave da outra planta.
+    // Vale também para a ponte que ficou pendente nesta instância: com pendência, a pessoa resolve antes
+    function comPendencia(g) {
+      return pendenciasTela(g).length > 0 || g.invs.some(inv => !(S.sel[k(g, inv)] || {}).fora && !!pendencia(g, inv));
+    }
     function precisaPonte(g) {
       const p = S.pontePend[g.pid], gs = S.gsel[g.pid] || {};
+      if (comPendencia(g)) return null;
       return p && nk(p.chave) === nk(gs.chave) ? p : ponteDerivada(g);
     }
 
