@@ -9,7 +9,8 @@ Entradas (o chamador entrega; aqui nada vai à rede):
   de 24/09 em diante) — por usina-dia, a régua nova vence;
 - curva do 2C (API PV pelo app._2c_hist_api; até 03/10/2026, o 2C_historico do e-mail) com a régua nova para todos os dias;
 - episódios de tracker (`trk_eventos.json`) e o book de paradas (crônicos);
-- cadastro: Equipamentos e Info Geral (kWp, strings ativas, cliente), BD_Trackers (tracker → inversor);
+- cadastro: Equipamentos (pelo `app._equipamentos_df`, com a estrutura do Nexus no lugar da aba, desde 20/10/2026) e
+  Info Geral (kWp, strings ativas, cliente), BD_Trackers (tracker → inversor);
 - travas de string (ufv_state), o de-para de inversor da API PV e a geração diária do mês (o juiz do kWh/kWp).
 
 Réguas (pedidos do Levi, 24/09):
@@ -235,6 +236,31 @@ def chave_semcom(usina, tracker):
     return f"{_nrm_semcom(usina)}|{_nrm_semcom(tracker)}"
 
 
+def cadastro_da_aba(df, nrm):
+    """(CAD_INV, CAD_UFV, CLIENTE_DE, CAD_INV_DISP) da aba Equipamentos (o DataFrame do `app._equipamentos_df`), pelo
+    NOME DE EXIBIÇÃO, que é o que os stores guardam. A conta é a de 24/09, sem mudança: só saiu do `montar` para a prova
+    de 20/10/2026 (a aba lida direto e pelo `_equipamentos_df`, valor a valor, com a visão do Nexus vazia)."""
+    import pandas as pd
+    CAD_INV, CAD_UFV, CLIENTE_DE, CAD_INV_DISP = {}, {}, {}, {}
+    for _, r in df.iterrows():
+        us, eq = r.get("Usina"), r.get("Equipamento")
+        if pd.isna(us) or pd.isna(eq):
+            continue
+        usn, eqs = nrm(us), str(eq).strip()
+        pot = r.get("Potência (kWp)")
+        pot = float(pot) if pd.notna(pot) else None
+        if pd.notna(r.get("Cliente")):
+            CLIENTE_DE.setdefault(usn, str(r["Cliente"]).strip())
+        if eqs.upper() == "UFV":
+            CAD_UFV[usn] = {"kwp": pot, "n_inv": int(r["N de Inversores"]) if pd.notna(r.get("N de Inversores")) else None}
+        elif eqs.lower().startswith("inversor"):
+            sa = r.get("Strings Ativas")
+            CAD_INV[(usn, nrm(eqs))] = {"kwp": pot, "strings": int(round(float(sa))) if pd.notna(sa) else None,
+                                        "sup": str(r.get("Equipamento Supervisório") or "").strip()}
+            CAD_INV_DISP[(usn, eqs)] = CAD_INV[(usn, nrm(eqs))]
+    return CAD_INV, CAD_UFV, CLIENTE_DE, CAD_INV_DISP
+
+
 def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_store=None, trk_store=None,
            book=None, hist_2c=None, agora=None, abertos_antes=None, desconsideradas=None, trk_semcom=None, log=print,
            os_string=None):
@@ -280,24 +306,10 @@ def montar(app, sol, ini, fim, *, geracao, pv_dev=None, mortas_curva=None, str_s
     SOL_MIN = sol.SOL_BAIXO_GRAUS
 
     # ── cadastro por NOME DE EXIBIÇÃO (é o que os stores guardam) ─────────────────────────────
-    df = pd.read_excel(app._bd_readable(), sheet_name="Equipamentos", header=2)
-    CAD_INV, CAD_UFV, CLIENTE_DE, CAD_INV_DISP = {}, {}, {}, {}
-    for _, r in df.iterrows():
-        us, eq = r.get("Usina"), r.get("Equipamento")
-        if pd.isna(us) or pd.isna(eq):
-            continue
-        usn, eqs = nrm(us), str(eq).strip()
-        pot = r.get("Potência (kWp)")
-        pot = float(pot) if pd.notna(pot) else None
-        if pd.notna(r.get("Cliente")):
-            CLIENTE_DE.setdefault(usn, str(r["Cliente"]).strip())
-        if eqs.upper() == "UFV":
-            CAD_UFV[usn] = {"kwp": pot, "n_inv": int(r["N de Inversores"]) if pd.notna(r.get("N de Inversores")) else None}
-        elif eqs.lower().startswith("inversor"):
-            sa = r.get("Strings Ativas")
-            CAD_INV[(usn, nrm(eqs))] = {"kwp": pot, "strings": int(round(float(sa))) if pd.notna(sa) else None,
-                                        "sup": str(r.get("Equipamento Supervisório") or "").strip()}
-            CAD_INV_DISP[(usn, eqs)] = CAD_INV[(usn, nrm(eqs))]
+    # pelo `_equipamentos_df` (Modo de-para, 20/10/2026): a aba com as chaves que o Nexus pôs no lugar dela, como os
+    # outros três leitores da plataforma. Até aqui as Falhas liam a aba direto, e as strings e o kWp corrigidos no Nexus
+    # não chegavam ao kWp da string (kWp do inversor ÷ strings) — a perda das Falhas seguiria a aba velha.
+    CAD_INV, CAD_UFV, CLIENTE_DE, CAD_INV_DISP = cadastro_da_aba(app._equipamentos_df(), nrm)
     # Info Geral: kWp e nº de trackers — fallback de quem não está no BD_Trackers nem tem linha UFV com kWp
     IG_TRK, IG_KWP, IG_NINV = {}, {}, {}
     try:

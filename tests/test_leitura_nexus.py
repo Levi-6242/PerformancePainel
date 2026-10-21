@@ -207,5 +207,19 @@ def test_a_lista_cobre_as_rotas_das_paginas():
                 continue
             if any(r.match(rota) for r in ln.NEGADOS_API_PV):
                 continue                                     # fora de propósito: abre a usina na API PV (05/10/2026)
+            if any(rota == a or rota.startswith(a + "/") for a in ln.ADMIN_DAS_PAGINAS):
+                continue                                     # fora de propósito: administração (o Modo de-para, 20/10/2026)
             soltas.add(rota)
     assert not soltas, f"rotas das páginas fora da lista do Nexus: {sorted(soltas)}"
+
+
+def test_a_chave_nao_alcanca_a_administracao_do_modo_de_para():
+    """O Modo de-para do Tempo real (20/10/2026) chama rotas de administração; a ponte (sem sessão, só leitura) segue sem
+    alcançá-las, e a gravação da ponte da fonte está entre as gravações. O gestor admin do Nexus lê, e não grava."""
+    for c in ("/api/admin/de-para", "/api/admin/de-para/fracttal/usinas", "/api/admin/de-para/fracttal/arvore",
+              "/api/admin/de-para/registro", "/api/admin/de-para/cadastro"):
+        assert not ln.permitido("GET", c), c
+        assert ln.permitido_gestor("GET", c), c
+    assert not ln.permitido("POST", "/api/admin/de-para/decidir")
+    assert not ln.permitido_gestor("POST", "/api/admin/de-para/decidir")
+    assert "/api/admin/de-para/decidir" in ln.GRAVACOES

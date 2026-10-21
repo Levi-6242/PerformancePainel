@@ -260,6 +260,23 @@ class Decisoes:
         except Exception:
             return None, None
 
+    def vencida(self) -> bool:
+        """A cópia em memória passou do `ttl` (ou nunca houve): a próxima `linhas()` vai ao banco."""
+        return self._linhas is None or time.time() - self._lido >= self.ttl
+
+    def sem_rede(self):
+        """(linhas, lido_em) SEM ir ao banco: a memória e, sem ela, a última leitura boa em disco; (None, None) = nada.
+        Para quem não pode prender o pedido esperando o banco (o Modo de-para lê a dimensão de equipamento, 23 páginas de
+        1.000 linhas, numa thread: `depara_fracttal.LivroEmFundo`, 20/10/2026)."""
+        if self._linhas is not None:
+            return self._linhas, self.lido_em
+        linhas, lido = self._disco()
+        if linhas is not None:
+            # fica na memória (8 MB de JSON não se relê a cada pedido) e continua vencida (`_lido` não muda): a próxima
+            # `linhas()` vai ao banco
+            self._linhas, self.lido_em = linhas, lido
+        return linhas, lido
+
     def linhas(self, forcar: bool = False):
         """As decisões, ou None se nunca foi possível ler (nem banco, nem memória, nem disco)."""
         with self._lock:

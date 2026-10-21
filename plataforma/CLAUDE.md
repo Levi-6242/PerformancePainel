@@ -802,7 +802,9 @@ Excel pelo coletor), constantes no código (`PV_NOME_POR_ID`, `PV_NOME_API_ALIAS
 Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o grupo 2 rotulado como 1).
 
 - **A tela**: `/admin/de-para` (`templates/depara.html`), no Nexus como Base · De-para de equipamentos, só admin (API em
-  `/api/admin/de-para`, `/usina`, `/decidir`, `/sugerir`). Em cima, o diagnóstico (`depara_diag.py`, puro): por fonte e
+  `/api/admin/de-para`, `/usina`, `/decidir`, `/sugerir`). Desde 20/10/2026 a tela tem duas abas: **Por usina**, a 1ª (a
+  tabela do Modo de-para, uma usina por linha: seção "Modo de-para" abaixo), e **Diagnóstico**, com o que segue aqui. O
+  diagnóstico (`depara_diag.py`, puro): por fonte e
   usina, como liga ao cadastro (ponte pelo id, do código ou da tela, com o nome que a API escreve; apelido no código; pelo
   nome), as esperadas DO CADASTRO, inversores fonte × cadastro e de onde vem o nome de cada inversor. **Crítico** = SEM
   DE-PARA (a linha não tem esperadas E o nome dela não alcança usina nenhuma do cadastro — `_dp_chaves_da_linha`: apelido,
@@ -913,10 +915,13 @@ Levi, com a tela Base > Equipamentos das usinas pronta no Nexus: "pode fazer tod
 publica a visão `nexus_estrutura_usina · aba_equipamentos` (o formato da aba Equipamentos, com os IDs do Nexus no fim) das
 chaves que o Levi marcou "no lugar da aba". Aqui (`estrutura_nexus.py`), **toda leitura da aba** passa por
 `_equipamentos_df()`: a aba do BD_Performance com as linhas de UFV, UG e inversor dessas chaves trocadas pelas da visão
-(chave efetiva = "Usina Supervisório" ou, sem ela, "Usina", o `us` do `load_equipamentos`). São três leitores: o
-`load_equipamentos` (ESPERADO, ESPERADO_INV, EQUIP_NAMES, USINA_DISPLAY, FULL_OM, STRING_BOX, POWER_*), o
-`_frac_fractall_map` e o `_disp_equip_linhas`; nenhum outro lê a aba (o `pd.read_excel(... "Equipamentos")` mora só em
-`_aba_equipamentos_df`).
+(chave efetiva = "Usina Supervisório" ou, sem ela, "Usina", o `us` do `load_equipamentos`). São quatro leitores: o
+`load_equipamentos` (ESPERADO, ESPERADO_INV, EQUIP_NAMES, USINA_DISPLAY, FULL_OM, STRING_BOX, POWER_* e, desde 20/10/2026,
+FRAC_COD_INV, FRAC_COD_INV_DISP, FRAC_COD_CAB e EQUIP_PARENTE), o `_frac_fractall_map`, o `_disp_equip_linhas` e o
+cadastro das Falhas (`falhas_job.cadastro_da_aba`, desde 20/10/2026). Até 20/10 este parágrafo dizia "nenhum outro lê a
+aba", e estava errado: o `falhas_job.montar` fazia o próprio `pd.read_excel` e as strings e o kWp do Nexus não chegavam
+ao kWp da string das Falhas. Agora o `pd.read_excel(... "Equipamentos")` mora só em `_aba_equipamentos_df` (o
+`tests/test_modo_depara_backend.py` prende a montagem das Falhas no `_equipamentos_df`).
 - Leitura: o mesmo `cobertura.Decisoes` do de-para (cópia de 60 s, a última boa em `estrutura_nexus.json` do cache),
   criado no 1º uso (o `load_equipamentos` roda no import, antes do `cobertura`). Livro que não existe, vazio ou
   ilegível sem cópia = a aba inteira, como antes.
@@ -925,13 +930,301 @@ chaves que o Levi marcou "no lugar da aba". Aqui (`estrutura_nexus.py`), **toda 
   "Usina Fractall" e da disponibilidade. O log da carga diz "Nexus: N chave(s) no lugar da aba (M linhas da aba trocadas)".
 - `GET /api/estrutura-nexus` (com login): ligado, as chaves (inversores e strings de cada uma), as linhas trocadas, quando
   o cadastro carregou e se a visão mudou desde então.
+- **A grafia da chave é a da aba** (`estrutura_nexus.herda_grafia`, 20/10/2026): a troca compara as chaves pelo `texto()`
+  (espaços juntados), e a linha da visão HERDA a "Usina Supervisório" e a "Usina" como a aba as escreve quando o texto bate.
+  O caso: a aba e a API PV escrevem "Assis Chateaubriand  Skid 1 (79)" (espaço duplo) e o Nexus grava com o `texto()`;
+  marcada no lugar da aba, a visão entrava com a grafia do Nexus, o `load_equipamentos` guardava a chave de espaço único e
+  o `build_summary` (que procura pela grafia exata da API) deixava a usina sem esperadas, kWp, nome de exibição e Full O&M,
+  sem aviso nenhum. Chave que a aba não tem fica como o Nexus escreve. Prova: `tests/test_estrutura_nexus.py`
+  (`test_a_chave_com_espaco_duplo_herda_a_grafia_da_aba`, pela chave da API tudo segue preenchido depois de marcada).
+- **O "Usina Fractall" também herda a grafia da aba** (`grafias_fracttal`, 2ª revisão final de 21/10/2026), pela MESMA
+  chave e quando o `texto()` bate (só os espaços): o `_frac_usina_ent` (e o `_frac_depara_falha`) procura a usina no índice
+  de code-base pela description EXATA do Fracttal, e a Belo Jardim ("Thopen - Belo Jardim  1 - PE", espaço duplo na aba,
+  no Fracttal e nas Ligações) marcada com o nome de espaços juntados ia de {cb: BJD100, site: 46256021} para None: sem o
+  badge de OS abertas, sem as OS no Diagnóstico e no drill, a cascata de queda (h_rede/h_equip) em 0 e sem a estação pelo
+  code-base. O Nexus passou a escrever o nome como as Ligações o têm, e o acento diferente ele mesmo acusa (a chave não
+  marca). Outras três da aba têm espaço irregular no nome do Fracttal (Matões 2, Timon 1 e 2). Prova:
+  `tests/test_estrutura_nexus.py::test_belo_jardim_o_nome_do_fracttal_herda_a_grafia_da_aba_e_segue_no_fracttal`.
 - `ESTRUTURA_NEXUS=0` desliga numa máquina; os testes rodam desligados (o conftest põe `ESTRUTURA_NEXUS=0`) e o
   `tests/test_estrutura_nexus.py` liga e dubla a visão. O gêmeo faz o mesmo em `gemeo/gemeo/ingest/cadastro.py`
-  (`sobrepor_nexus`; a versão do cadastro leva o `updated_at` do livro), o coletor no `load_name_mapping` (desligado por
-  padrão, ver o CLAUDE.md dele) e o Nexus nas Ligações. A regra é a mesma nos quatro.
+  (`sobrepor_nexus`, com a mesma herança da grafia, a da chave e a do "Usina Fractall"; a versão do cadastro leva o
+  `updated_at` do livro), o coletor no
+  `load_name_mapping` (desligado por padrão, ver o CLAUDE.md dele; **a herança da grafia NÃO está lá**: o repositório do
+  coletor tem trabalho de outra sessão sem commit, e quem ligar o `load_name_mapping` tem de pôr a mesma regra antes) e o
+  Nexus nas Ligações. A regra é a mesma nos quatro.
 - **Prova (13/10/2026):** a Altair (6 chaves, 46 linhas na visão) montada no Nexus pelo "Trazer da aba", com a aba real:
   os 13 mapas do cadastro iguais com e sem a visão (só a UFV difere em 5e-12 kWp, fórmula da aba × potência real do
   Registro mestre). No teste, a usina igual à aba não muda nenhum mapa e a esperada acompanha o Nexus quando muda.
+
+## Modo de-para (20/10/2026)
+
+Levi, com o protótipo aprovado: "Boa, é isso mesmo. Implementa no tempo real e adapta na base o de-para para ficar nesse
+padrão de tabela e apresentar uma usina por linha". No Tempo real (fontes da API PV, só admin) e na Base · De-para de
+equipamentos, a tela liga cada inversor da fonte ao ativo do Fracttal, à cabine (sempre a CABN: "foque em cabine") e à
+usina do Registro mestre, com as strings corretas e o kWp pela regra do Levi. **Quem grava é o Nexus** (a estrutura das
+usinas, `/t/base/equipamentos/depara/salvar`, que também marca a chave "no lugar da aba"); a ponte da fonte segue no
+`POST /api/admin/de-para/decidir` daqui. Esta seção tem o lado de **backend** da plataforma (o que ela lê para a tela e os
+leitores do cadastro que passam a seguir o que o Nexus grava) e, no fim, **as telas** (o componente, o Tempo real e a Base).
+
+- **Leitores (fase 0, sem mudar número com a visão vazia)**:
+  - as Falhas leem o cadastro pelo `_equipamentos_df` (`falhas_job.cadastro_da_aba`). Prova (20/10, aba real do espelho e
+    da cópia de 11:41): CAD_INV 2.183, CAD_UFV 146, CLIENTE_DE 146 e CAD_INV_DISP 2.183 iguais valor a valor, lidos direto
+    e pelo caminho novo; o teste refaz a prova com a aba que o `import app` leu;
+  - a visão do Nexus ganhou **"Código Fracttal"** no fim (`estrutura_nexus.CAB`; na linha do inversor e na da UG). O
+    `load_equipamentos` monta `FRAC_COD_INV {chave: {nrm(equip_sup) e nrm(Equipamento): código}}`, `FRAC_COD_INV_DISP
+    {nrm(Usina): {nrm(Equipamento): código}}` (os chamadores do `_frac_inv_code` passam o nome de exibição), `FRAC_COD_CAB
+    {chave: {N da UG: código da CABN}}` e `EQUIP_PARENTE {chave: {equip_sup: "UG 02"}}`; a aba não tem a coluna, então
+    sem o Nexus os três FRAC_COD ficam vazios. Os quatro passam pelo `_aplica_alias_api_cadastro` como os outros mapas;
+  - `_frac_inv_code`: o código **gravado** primeiro (`_frac_cod_gravado`), o derivado do nome depois. O caso: na Pharma
+    II o derivado dá THPN-PHS200-INVR1.1 (a "Usina Fractall" da aba é a árvore de antes de 22/09) e o Fracttal de hoje
+    tem THPN-PHS100-INVR2.1.
+- **Rotas novas (só leitura, só admin: moram debaixo de `/api/admin`)**, a regra pura em `depara_fracttal.py`:
+  - `GET /api/admin/de-para/fracttal/usinas` → `{usinas: [{codigo, nome, cliente, usina_id, cabines: [{codigo, nome}],
+    fonte}], fonte: "foto", lido_em, foto_em, carregando}`;
+  - `GET /api/admin/de-para/fracttal/arvore?codigo=` (aceita o código-base: ITA100 acha THOPEN-ITA100; ambíguo, como o
+    IPX100 da 2C e da Thopen, não acha) → `{codigo, nome, cliente, usina_id, cabines: [{codigo, nome, inversores:
+    [{codigo, nome, descricao, cabine_por}]}], sem_cabine, fonte: "foto"|"fracttal", lido_em, foto_em, fora_da_foto,
+    pendente, aviso?}`;
+  - `GET /api/admin/de-para/registro` → `{usinas: [{usina_id, codigo, nome, status, kwp, kwp_de, cliente}], lido_em}`.
+  - Sem leitura nenhuma do banco ainda nesta máquina: 503 com `carregando`.
+  - `GET /api/admin/de-para/cadastro` (20/10, da memória, nada à rede) → `{chaves: [{chave, exibicao, inversores: [{esup,
+    nome, esp, kwp, ug}]}], carregado_em}`: as chaves do cadastro DESTA plataforma (o ESPERADO: a aba com as chaves do
+    Nexus por cima), sem os apelidos do nome da API ("Sete Lagoa"). A tela usa para quatro coisas: oferecer a chave da aba
+    que o Nexus ainda não tem (a "Coração 2 (112)"), mostrar o inversor da chave que não leu agora, mandar ao Nexus o nome
+    do cadastro de cada inversor (e conhecer o que ele vai semear da aba para a conta do kWp) e saber que a chave escolhida
+    não está na aba nem no Nexus (pendência: o Nexus a recusa).
+  - **`POST /api/admin/de-para/decidir`** (a ponte, que já existia) aceita a chave na grafia do Nexus e grava a do cadastro
+    (pelo `texto()`, quando é uma só: "Assis Chateaubriand Skid 1 (79)" → "Assis Chateaubriand  Skid 1 (79)", a que a fonte
+    procura) e, com a chave fora do ESPERADO, relê a visão do Nexus AGORA (`_en_leitor().linhas(forcar=True)` +
+    `maybe_reload_equipamentos`) antes de recusar (`_dp_alvo_no_cadastro`): a ponte vem segundos depois do salvar do Nexus,
+    e a chave que só existe lá dava 400 "não está no cadastro" sempre, até o vigia de 60 s.
+  - **`/api/eu`** ganhou `grava_admin` = abre a administração e não é gestor (o perfil do passe). O gestor que é admin do
+    Nexus abre (lê) e não grava: no Modo de-para o Nexus gravava a estrutura e a ponte levava 403, gravação pela metade.
+- **De onde vem**: a árvore é a dimensão de equipamento do Nexus (`nexus_equipamentos · dim_equipamento`, a FOTO dos
+  ativos de 22/09; cópia de 3 h, a última boa em `depara_dim_equipamento.json` do cache); o Registro é o `cadastro_nexus ·
+  usinas` (10 min, `depara_registro_usinas.json`), só as colunas que não são sensíveis, e o cliente pelo `clientes`. A
+  leitura do banco vai numa thread (`LivroEmFundo`, sobre os `vencida`/`sem_rede` do `cobertura.Decisoes`): com cópia, o
+  pedido sai na hora; sem nenhuma, espera a 1ª leitura até 20 s; banco fora e sem cópia, não prende os seguintes por 60 s.
+  A indexação da foto (22,5 mil membros, ~0,15 s) é uma vez por leitura.
+- **A árvore**: o inversor cai na CABN **subindo pelo `pai_id`** (Itajá: INVR1.1 → QGBT1 → SKID1 → CABN1; na Altair os 40
+  inversores caem na CABN1, a cabine é uma só); sem pai até uma cabine, pelo número do código (INVR2.x → a CABN2 da usina,
+  se houver uma; `cabine_por: "codigo"`); sem os dois, `sem_cabine` (a Qair Cascavel, INVR → PECN → USINA: 187). O nome
+  sai **do código** ("Inversor 2.1", "Cabine 2"), nunca da descrição: 2.380 das 2.477 descrições trazem marca e modelo, e o
+  número tirado delas acertaria 39 de 1.743 (o "1" do "H1"). Medido na foto de 20/10: 2.477 inversores, 2.217 pelo pai, 39
+  pelo código, 221 sem cabine; 147 usinas (144 da foto + THPN-PHS100, APOL-GVT200 e APOL-RDP100, que só existem pelos
+  códigos que o PCM gravou).
+- **Fora da foto** (a raiz não está na foto, ou alguma cabine/inversor entrou só pelo código: a Pharmas refeita como
+  THPN-PHS100 com CABN2/3/4, a Apolo, a Faro): a rota devolve a árvore da foto **já**, com `pendente: true`, e a
+  `BuscaFracttal` lê no próprio Fracttal em fundo (`items/{código}` e `items/?location_code=` de pai em pai, só pelos
+  locais; 1 pedido por segundo, uma usina de cada vez, numa thread; a cota de 200/min é da empresa) e guarda 7 dias em
+  `depara_fracttal_arvores.json`. O próximo pedido sai com `fonte: "fracttal"`, e a lista de usinas passa a levar a lida
+  por cima da foto. Filtro que o Fracttal ignora (devolve o catálogo inteiro, 23 mil) falha alto; árvore de mais de 150
+  pedidos também. Sem `FRACTTAL_CLIENT_ID` nesta máquina, nada vai ao Fracttal e a resposta leva o `aviso`.
+- **kWp do Registro** (decisão 3 do Levi, alterada em 20/10: "onde não tem potência real, vai usar potência contratual"):
+  `potencia_real` × 1.000 (`kwp_de: "real"`); vazia, zero ou ilegível (o "0,,643" da Rodrigues II) → `potencia_contratual`
+  × 1.000 (`"contratual"`); sem as duas, `kwp` vazio. No banco de 20/10: 190 real, 68 contratual, 0 sem as duas.
+- **`inv_resumo` nas linhas das contas da API PV** (`/api/data`, `/api/semp/data`, `/api/alveslima/data`,
+  `/api/2capi/data`): `[{id, nome_api, nome, ativas, total, esp, sem_visao}]`, montado no `build_summary` com o que o ciclo
+  já leu (`_pv_inv_resumo`; o nome pelo mesmo caminho sem rede do `_pv_inv_sem_esperadas`, agora `_pv_nomes_sem_rede`):
+  é o que dá ao modo uma linha por inversor de TODAS as usinas da fonte sem abrir o drill de cada uma (pago na hora).
+  `ativas` = None no inversor sem visão ou em rampa, 0 no desligado por potência (como o drill); `esp` = as esperadas do
+  CADASTRO, sem os descontos da leitura. Tamanho estimado sobre o snapshot de 20/10 (as 120 linhas da `pv` com um resumo
+  por inversor, nomes da cópia das Falhas): `/api/data` 83 → 191 KB; com o gzip, que é o que trafega, 7,5 → 14,7 KB.
+- **Drill da API PV** (`/api/plant/<id>` e o da 2C pela `owen`): por inversor, `nome_fracttal` ("Inversor N.M" do código
+  gravado) e `cabine` ("Cabine N"), só quando houver (`_dp_rotulos_fracttal`). O `nome` NÃO muda (decisão 5 do Levi): é a
+  chave dos tickets, do padrão de 30 dias, das OS e a coluna do BD. A `cabine` só sai quando a UG do inversor ("Equipamento
+  Parente") tem a CABN GRAVADA (`FRAC_COD_CAB`, procurado na chave e no nome de exibição da usina, porque a UG mora na chave
+  da UFV): até a revisão de 20/10 ela vinha do "Equipamento Parente" da aba para a frota inteira, sem ninguém usar o modo,
+  e onde a UG da aba é o SKID (294 inversores, a Altair entre eles: UG 01 a 05 debaixo de uma CABN1 só) o drill de todo
+  mundo passava a dizer "Cabine 3" para um SKID. Sem a CABN gravada, o drill fica como era (a cabine do nome).
+- **Quem alcança** (`leitura_nexus.py`): a chave da ponte não alcança nada disto (fora de `permitido`;
+  `ADMIN_DAS_PAGINAS` diz ao teste das páginas que é de propósito) e o `decidir` está nas `GRAVACOES`; o gestor admin do
+  Nexus lê pelo `_GET_GESTOR` ("/api/admin/de-para") e não grava. Nenhuma das rotas chama a API PV nem a SunOp.
+- **Coletor e gêmeo**: o gêmeo lê a visão por nome de coluna e não usa o código (`gemeo/tests/test_ingest_cadastro.py`
+  prova que a coluna a mais não muda o cadastro) e herda a grafia da aba na chave, como aqui. O coletor (`load_name_mapping`,
+  desligado por padrão) converte a visão para o cabeçalho da aba e descarta a coluna nova; NÃO foi editado (há trabalho de
+  outra sessão sem commit naquele repositório) e faltam lá duas coisas antes de ligar o `load_name_mapping`: registrar no
+  CLAUDE.md dele a coluna "Código Fracttal" e pôr a herança da grafia da chave (a Assis Skid 1 de espaço duplo).
+- Testes: `tests/test_modo_depara_backend.py` (as Falhas pelo `_equipamentos_df` com a aba real, o código gravado vence o
+  derivado, a árvore da Itajá pela foto e da Pharmas pelo código e pelo Fracttal dublado, o Registro, o leitor em fundo, o
+  `inv_resumo` sem API PV, o drill e a cabine só com a CABN gravada, o `grava_admin` do gestor, a ponte que relê a visão e
+  aceita a grafia do Nexus, a rota do cadastro); `tests/test_estrutura_nexus.py` (os quatro mapas novos entram na prova
+  "igual à aba"; a Assis Skid 1 de espaço duplo segue com o cadastro inteiro pela chave da API depois de marcada);
+  `tests/test_leitura_nexus.py` (a ponte não alcança, o gestor lê).
+- **`chave_cadastro` na linha das contas da API PV** (`_pv_chave_da_linha`, no `build_summary`): a chave do cadastro a que
+  a linha liga HOJE (o nome por dentro depois da ponte; nos apelidos do código, a chave de verdade: "Sete Lagoa" → "Sete
+  Lagoas", "União" → "UNI"). Sem ligação (a Itaja 1 (228)), a linha não leva o campo. É com ela que a tela pede ao Nexus o
+  estado e decide se precisa gravar a ponte.
+
+### As telas (20/10/2026)
+
+- **O componente** `static/depara_tabela.js` (`window.DeparaTabela`): a tabela do protótipo aprovado, a MESMA nas duas telas
+  (uma linha por inversor agrupada pela usina da fonte; Inversor · Com corrente agora · Strings corretas · Usina no
+  Registro mestre · kWp do inversor · Usina no Fracttal · Cabine · Inversor no Fracttal · Situação; tracejado = sugestão,
+  cheio = conferido; Conferido e desfazer por linha, "conferir todos os sugeridos", a barra fixa no rodapé com Salvar). A
+  regra pura (sugestões, conta do kWp) fica em `DeparaTabela.regras` e os testes a rodam no node. Lê: as linhas da tabela
+  da fonte (`inv_resumo` + `chave_cadastro`, nada novo à API PV), `/api/admin/de-para/fracttal/usinas|arvore|registro|cadastro`,
+  a "Usina Fractall" da aba (`/api/os-creator/fractall-usinas`), o `/api/eu` e o estado do Nexus.
+- **Quem grava** (revisão de 20/10): o `grava_admin` do `/api/eu`. Sem ele (o gestor que é admin do Nexus), a tabela abre só
+  de leitura, com o motivo nas fontes e na barra, e o Salvar não sai; no Tempo real o botão nem aparece (`_dpPode` pede
+  `RD.gravaAdmin`): o gestor confere na Base.
+- **A chave é comparada pela forma normalizada** (`nk` = o `texto()` do Nexus, espaços juntados): a "Assis Chateaubriand
+  Skid 1 (79)" da aba (espaço duplo) e a do Nexus (único) são UMA chave na lista, na conta e no "já está no Nexus". Pela
+  igualdade exata a tela somava os inversores do Nexus e os da tela como membros diferentes (no ensaio da Itajá, 216,3 kWp no
+  lugar de 324,5) e pulava a ponte. Ao Nexus vai a grafia DELE (`chaveParaNexus`); à ponte, a do cadastro da plataforma.
+- **As opções de chave** são a de hoje, as do Nexus para a usina do Registro e as do cadastro da plataforma (a rota
+  `/cadastro`) com o mesmo nome-base e o mesmo número da planta ("Coração 2" → "Coração 2 (112)", marcada "da aba
+  Equipamentos"). A sugestão automática segue a de antes (a de hoje, ou a do Nexus com o mesmo número). **A "Nova chave"
+  (o nome que a fonte manda, fora da aba) saiu** (2ª revisão final, 21/10/2026): ela nunca vale no lugar da aba (os leitores
+  não a conhecem), o Nexus a gravava como a chave da usina e prendia nela os códigos do Fracttal (na Pharma 3 (851),
+  escolhida a "Pharma 3 (851)" e depois a "Pharma 3" da aba, as 6 linhas ficavam "já está no Inversor 1.m (Pharma 3 (851))
+  no Nexus" para sempre), e o Nexus agora a recusa. A planta sem opção nenhuma (Itaja 1 e 2 (228/229), Pharma 3 e 4
+  (851/852) de hoje, quando o cadastro não tem a chave do número) fica em "falta a chave do cadastro: esta planta não tem
+  chave na aba Equipamentos nem no Nexus (ligue a chave na Base > Equipamentos das usinas)"; a chave escolhida que não está
+  na aba nem no Nexus é pendência com o porquê.
+- **Os inversores sem leitura agora**: o `inv_resumo` só traz quem leu no ciclo; o inversor da chave escolhida que está no
+  cadastro (ou no Nexus) e não leu vira uma linha "sem leitura agora", com as strings do cadastro, editáveis. Começa "de
+  fora" (o Nexus não mexe nele) quando a sugestão não fecha — na Sapopema, os 2 parados sem strings; com tudo sugerido (o
+  INVERSOR04 parado da Coração 2 → COR100-INVR2.4, 20 strings), vai como os outros, a conferir. "incluir" põe de volta.
+  Troca de chave refaz essas linhas. Na `pv` de 20/10 (a bancada): 3 linhas, as da Ouro Branco 4 (773), cadastro com 7 e a
+  API lendo 4. A linha de fora que o Nexus já tem segue na conta dele e mostra o kWp que ELE vai gravar (os 3 parados da Ouro
+  Branco 4, com 17 strings no Nexus, vão de 145,2 a 133,7 junto com os outros), não "o de hoje".
+- **O inversor do cadastro para a linha da fonte** (`cadDoInv`): pelo Equipamento Supervisório e, sem ele, pelo nome do
+  cadastro igual ao que a fonte manda. A Pharma II manda "Inversor 1.1" e a aba e o Nexus têm a "Pharma 2" com INVERSOR01 =
+  "Inversor 1.1": só pelo supervisório, a tela contava os 6 duas vezes no kWp (12 membros) e punha os 6 de novo como "sem
+  leitura agora".
+- **As strings corretas sugeridas**: do Nexus, senão do cadastro da chave, senão da LEITURA de agora. A da leitura é
+  pendência "confira as strings: vieram da leitura de agora" até o Conferido DA LINHA (o "conferir todos" não as confere;
+  digitar também resolve): 155 inversores da aba não têm Strings Ativas, e uma string parada na hora viraria "não esperada"
+  para sempre e entraria na divisão do kWp. A troca de chave passa a sugestão da leitura às strings do cadastro da nova.
+- **O nome do inversor no pedido** (`nome`): o do cadastro da chave escolhida para o Equipamento Supervisório (vazio quando
+  não há). O inversor que o Nexus cria nasce com o "Equipamento" da aba, a coluna do BD (decisão 5), e não com o
+  "Inversor N.M" do código: na Coração 2 a aba diz "Inversor 1.1" e o Fracttal INVR2.1. O inversor do Nexus é achado pela
+  chave e pelo Equipamento Supervisório, e sem ele pelo nome do cadastro dentro da usina (o mesmo do salvar do Nexus).
+- **O Nexus na mesma origem**: a tela roda dentro da moldura do Nexus (porta única), e o Nexus é a página de CIMA; o prefixo
+  dele é o que vem antes do `/t/` no caminho dela (`/nexus/t/performance/tempo-real` → `/nexus`; na raiz, vazio), e o pedido
+  leva o cookie `nexus_sessao` (caminho `/nexus`). Estado: `GET <prefixo>/t/base/equipamentos/depara/estado?chaves=A|B&usinas=93`
+  (até 50 de cada por pedido). **Fora da moldura não há Nexus**: a tela mostra e sugere, e o Salvar fica desligado dizendo
+  "abra pelo Nexus". Na bancada, `window.GC_NEXUS_BASE` força o prefixo.
+- **As sugestões** (contrato e `levantamento/cobertura.md`): usina do Fracttal pela "Usina Fractall" da aba, pelo código no
+  nome, pelo nome-base com o número e pelas irmãs do mesmo código-base; vence a que casa mais inversores pelo CÓDIGO N.M
+  (o N.M do nome, ou o número da planta com o do inversor), e no empate a árvore mais nova — a Pharma II casa os 6 na
+  THPN-PHS100 de hoje e também na PHS200 da foto, que não existe mais no Fracttal. Planta com rótulo de subusina
+  ("Ceilandia 1.2 (90)", "Junco 2.1 (134)"): o número é o N do rótulo e o nome do cadastro vence o empate (lido como planta 2,
+  a Ceilandia 1.2 ia para os INVR2.x: 33 erros). Registro: a usina da chave no Nexus, a do Fracttal, o código cheio, o fim do
+  código (só se de UMA usina: o IPX100) e a irmã com o número da planta. Chave: a de hoje; senão a da usina do Registro com o
+  mesmo número da planta ("Itaja 1 (228)" → "Itaja 1 (551)"); "Nova chave" (o nome da fonte) só por escolha. **Medido em
+  20/10** sobre as cópias do banco e as 120 linhas da `pv` do levantamento: **839 de 841** inversores com o ativo que a
+  plataforma já liga hoje (a sugestão do protótipo acertava 481); entrar no modo, ~100 ms de conta no node.
+- **O kWp mostrado é o que o Nexus vai gravar**, com a conta DELE (`contaKwp`, a mesma regra do salvar do Nexus):
+  - o kWp da usina é o do estado do Nexus (`kwp`/`kwp_de` do GET, o Registro com que ele calcula); a cópia do Registro da
+    plataforma (`/registro`, 10 min) só vale sem o Nexus e no rótulo da lista. As duas diferentes: a faixa diz "a cópia desta
+    tela diz X; o Nexus grava com Y: vale o do Nexus" (no ensaio da Itajá com 2.700 no Nexus e 2.596 na cópia, a tela
+    mostrava 324,5 "igual ao de hoje" e o Nexus gravava 337,5);
+  - a usina INTEIRA do Registro no Nexus (todas as chaves dela), com as usinas que vão no Salvar por cima e a própria linha;
+    a chave que o Nexus ainda não tem entra como ele a vai semear da aba antes do remendo (todos os inversores do cadastro
+    dela, com as strings e o kWp da aba): a Coração 2 (112) dá 3.250 ÷ 80 × 20 = 812,5, com "250,0 → 812,5" na linha (o
+    Registro de 3.250 é só o da Coração 1, e a regra vale assim: decisão do Levi, "aplica direto");
+  - o inversor vivo sem strings corretas fica com o kWp de antes, e ele sai do Registro ANTES de dividir pelos que têm
+    strings (a soma da usina continua o Registro: na Sapopema, 3.196 − 2 × 159,8 ÷ 288 strings = 159,8 nos 18; antes, 3.515,6,
+    +10%); se os de antes já somam o Registro, a usina fica com a pendência e o Nexus a recusaria;
+  - sem potência no Registro (nem real nem contratual), ninguém muda: "fica o de antes" (0 ou vazio NUNCA por cima de dado);
+  - **a chave irmã** (2ª revisão final, 21/10/2026): outra planta da tela na MESMA usina do Registro, com uma chave da aba
+    que o Nexus ainda não tem, vai no mesmo Salvar ou nenhuma das duas vai (pendência "a chave X (de Y) também é desta usina
+    do Registro e ainda não está no Nexus: confira e salve as duas juntas", `irmaFora`, calculada com o que vai no Salvar).
+    A Coração 2 salva sozinha dividia os 3.250 do Registro só pelas 80 strings dela (812,5 por inversor) e, com a Coração 1
+    (111) seguindo pela aba, a usina somaria 6.500 nos leitores; juntas, 3.250 ÷ 320 × 20 = 203,125. O Nexus recusa o
+    mesmo caso pelas Ligações (quando a Usina Fractall da irmã está nelas; a da Coração 1 (111) não está);
+  - **duas CABN de mesmo número na mesma usina do Registro** (a Ipixuna do Pará, usina 56: a Santa Cecilia 1 na
+    IPX100-CABN1 e a 2 na 2C-IPX100-CABN1) caíam na mesma "UG 01" sem pendência, e o Nexus recusava a usina a cada Salvar.
+    Agora é pendência nas plantas dela (também quando a UG de mesmo número já tem outro código no Nexus), com o porquê.
+    Como nomear a 2ª CABN1 é regra nova, a levar ao Levi; até lá, "deixar de fora" as linhas de uma das plantas;
+  - a cabine da faixa é a do Nexus que a CABN vai ocupar (a que tem o código, senão a "UG NN" de mesmo número), com os
+    inversores do Nexus que já estão nela. "hoje → novo" quando muda. Sem o Nexus, só a tela (e a faixa diz isso).
+- **Salvar**: só as usinas MEXIDAS (mudou algo ou conferiu) e sem pendência; as mexidas com pendência ficam de fora e a barra
+  diz quantas. O "já está no X no Nexus" só se isenta quando o X vai no MESMO Salvar (a conta repete até parar de mudar):
+  isento por estar em qualquer usina da tela, o código que o Nexus ainda tinha numa usina com pendência passava e o Nexus
+  recusava o lote inteiro com 409. Primeiro o Nexus (`POST <prefixo>/t/base/equipamentos/depara/salvar`, lotes de até 50
+  chaves, nunca partindo uma usina: o selo é da usina, e o 2º pedido dela daria 409; e as usinas que trocam códigos do
+  Fracttal entre si no MESMO pedido, porque o Nexus confere "um código num inversor vivo só" por pedido: a THPN-PHS100 é um
+  site só para as Pharmas 2, 3 e 4, e a troca dos blocos entre a 2 e a 3 em dois pedidos era recusada nos dois, sempre. A
+  usina lida no Fracttal de hoje NÃO vai mais num pedido só dela: a recusa do código fora da dimensão volta com a culpada e o
+  resto vai de novo), depois a ponte (`/api/admin/de-para/decidir`). Cada usina diz o que foi. As regras da resposta:
+  - **a recusa 4xx que é de uma usina** traz o `usina_id` (e a `usina_supervisorio`) dela: a tela tira essa usina do lote e
+    manda o resto de novo, no máximo 3 vezes; ela diz "o Nexus recusou esta usina (motivo)";
+  - **sem resposta, estouro de 180 s, o 500 do Nexus ("leia o estado de novo") e o 502/504**: não se sabe se o Nexus
+    gravou. A tela relê as usinas do lote pelo GET, e **espera** (2ª revisão final, 21/10/2026): o pedido abandonado
+    continua no Nexus, e a releitura na hora devolvia o selo de antes; a tela dizia "como antes: salve de novo", guardava o
+    selo velho, o Nexus gravava segundos depois e o 2º Salvar levava 409 sem a ponte. Agora: o selo que mudou quer dizer que
+    gravou (o pedido é um passo só) e segue para a ponte, com a marca relida do estado (a chave que não vale no lugar da
+    aba vira aviso); o selo igual só é "como antes: salve de novo" com o Nexus dizendo `gravando: false`; com ele gravando
+    (ou sem dizer, um Nexus de antes), relê a cada 15 s até 5 min e meio (o teto do sync do livro é 300 s) e, sem saber até
+    lá, diz "não se sabe se o Nexus gravou: recarregue daqui a alguns minutos", sem trocar a base da usina pelo selo relido
+    (ela segue pendente). A releitura que falha diz "não se sabe" com as duas falhas. Os tempos são `esperaSelo`/`prazoSelo`
+    das opções (os testes usam milissegundos). A recusa 4xx e o 503 em JSON do Nexus (o banco fora antes de gravar) são
+    "nada foi gravado";
+  - **a resposta que não é JSON** (o `_tela` do Nexus devolve 403 em HTML para quem não é admin e HTML com status 200 sem a
+    chave do cadastro) diz quem respondeu, o quê (a página e o título) e o que quer dizer, nunca "HTTP 200 sem JSON";
+  - **os avisos do Nexus** vão com a usina: o que cita a chave (“…”) com a usina da fonte dela, o da usina (o nome do
+    Registro, "(usina N)") com a 1ª usina dela no pedido, o resto no fim; o "não vale no lugar da aba porque…" em destaque
+    (vermelho), na barra e no cabeçalho da usina até o próximo Salvar;
+  - **a manchete diz o que não vale no lugar da aba** (2ª revisão final, 21/10/2026): gravar no Nexus já não quer dizer valer
+    nos leitores (a usina vale por inteiro ou nada, ver o CLAUDE.md do Nexus), e a manchete dizia em verde "De-para salvo ...
+    Vale no tempo real em até 1 min" com toda chave em `nao_marcada`. Ela conta as chaves que não valem pela `marcacao` do
+    Nexus (no caminho "respondeu tarde", pelo `substitui_aba` do estado relido) e fica âmbar: "Gravado no Nexus: N usina(s);
+    K chave(s) NÃO valem no lugar da aba (...): nelas os leitores seguem com a aba, e o tempo real não muda".
+- **A ponte** (depois do Nexus, só onde ele gravou): nenhuma quando a chave é a de hoje (pela forma normalizada) ou quando a
+  linha NÃO tem `nome_api` e já se chama como a chave; com `nome_api` (a ponte por id renomeou a planta) e a chave igual a
+  ele, a ponte vai VAZIA ("sem ponte": vale o nome da API, que é a chave); senão, a chave como o cadastro da plataforma a
+  escreve. A ponte que falha NÃO vira a base da usina: ela fica "ponte pendente" (dito no cabeçalho, na Situação e na
+  barra) e o Salvar seguinte manda SÓ o decidir, sem ir ao Nexus de novo, enquanto a chave escolhida for a mesma. **A ponte
+  pendente vem do ESTADO** (2ª revisão final, 21/10/2026; `ponteDerivada`), não só da memória da instância: o Tempo real
+  cria uma a cada "Modo de-para" e a Base uma por carga, e reaberta a Itaja 1 (228) aparecia "ligada e conferida", com
+  "sugestão: a ponte grava ao salvar" e o Salvar desligado. Há ponte pendente quando a chave escolhida não é a de hoje, o
+  Nexus já tem essa chave na usina do Registro e todo inversor da fonte que vai está nela com o código do Fracttal e
+  Conferido (o rastro do Salvar; os 1.932 do "Ligar pela aba" não têm código). O "Sair do modo de-para" do Tempo real
+  pergunta também pelas pontes pendentes (`pontesPendentes()`), não só pelas usinas mexidas.
+- **"Deixar de fora"** (por linha com pendência): a API PV ainda lista o inversor trocado ("INVERSOR 2.1 (old)",
+  "INVERSOR03-Cancelado", "INVERSOR02 - Antigo"), que casa o mesmo ativo do novo e prendia a usina inteira no "inversor
+  repetido". A linha de fora não vai no pedido (o remendo do Nexus não mexe nela) nem na conta; tudo de fora não salva (a
+  chave iria "no lugar da aba" sem inversor). O `inv_resumo` de verdade só traz quem leu hoje, então isto deve ser raro.
+- **Desenho**: um `<tbody>` por usina; a mudança redesenha só as usinas que alcança (a mesma usina do Registro, a mesma chave,
+  os mesmos códigos). Medido na bancada (`pv` inteira, 990 linhas): a tabela inteira são 2,7 MB de HTML e ~520 ms; um
+  Conferido, ~57 ms. Na 2ª rodada (20/10, no node, o mesmo dado): 993 linhas, 2,8 MB, **192 ms** a tabela inteira; o perfil
+  mostrou o `kw` criando um `Intl.NumberFormat` a cada chamada (~230 ms por desenho) e o "mexido" da usina calculado em cada
+  linha: com os dois guardados, de 843 ms para 192. A sugestão segue acertando 839 de 841. As listas grandes (258 usinas do
+  Registro, 147 do Fracttal) só ganham as opções quando a pessoa abre o select (`data-lazy`).
+- **Tempo real** (`docs/redesign/Monitoramento (novo design).html`): botão "Modo de-para" ao lado do Criar OS só com
+  `RD.abreAdmin` E `RD.gravaAdmin`, na aba Strings, nas contas da API PV (pv, semp, alveslima, 2capi; a 2C da tela é `owen`) e com o
+  `inv_resumo` na linha (`_dpPode`/`_dpBtn`); `state.dpMode`; o Criar OS fica desabilitado; os chips de status somem; a barra
+  `#gc-dpbar` entra no `_prendeOverlays`; `setSource`/`setView` saem do modo (`_dpSair`); "Sair do modo de-para" com
+  mudança não salva pergunta antes. A busca da tela filtra as usinas do modo. No drill, `renderInversor` mostra o
+  `nome_fracttal` com o da fonte embaixo ("na fonte Inversor 1.1") e a `cabine` do cadastro no lugar da do nome; o `name`
+  segue sendo a chave. A `gcDeparaJanela` e o atalho "sem de-para" (o editor da ponte) ficam.
+- **Base · De-para** (`templates/depara.html`): aba **Por usina** (padrão) com um bloco por conta da API PV e UMA USINA POR
+  LINHA (Usina na fonte · Chave do cadastro · Usina no Registro mestre · Usina no Fracttal · Inversores ligados/na fonte ·
+  Strings corretas · kWp · Situação · Abrir → a tabela por inversor dela); aba **Diagnóstico** com o de antes; o `?editar=` e
+  o `?janela=1` abrem o editor da ponte como sempre (na janela, a aba Por usina nem carrega). As outras fontes (banco, Athon,
+  Axis, RenoGrid, scadaGridco) seguem só no Diagnóstico: o resumo por inversor é das contas da API PV. Tema: navy aberta direto
+  e na janela; na moldura, o do Nexus (`nexus_tema`/`nexus.tema`, o claro em `html.modo-nexus[data-tema="claro"]:not(.janela)`).
+- **Armadilhas**: (1) `/static/depara_tabela.js` vem do `/static/` da plataforma; na fase 4 (o Nexus na raiz) o Caddy manda
+  `/static/*` ao Nexus, menos fontes, logos e notif.js: o arquivo tem de entrar nessa exceção, senão o botão some calado (o
+  `_dpPode` exige `window.DeparaTabela`). (2) A foto do Fracttal é de 22/09: usina refeita depois que ainda aparece na aba
+  com o nome velho (a PHS200) só sai certa porque a mais nova casa os inversores; com nomes que não casam em nenhuma, vale a da
+  aba. (3) O Conferido é da linha: a falta da chave (do grupo) segura só o Salvar.
+- Testes: `tests/test_depara_tabela_telas.py` (Itajá e Pharmas, o número do código, a subusina, a conta do kWp, a tabela, o
+  Conferido, o repetido, o "deixar de fora", o Salvar e as duas falhas parciais, sem o Nexus, a Base com uma usina por linha, o
+  botão só para admin, o molde do Criar OS, o drill e a `chave_cadastro`; e os da 1ª revisão, com os casos reais: a conta da
+  Sapopema com os sem strings, o "fica o de antes" sem Registro, a Coração 2 com a chave da aba, o parado e o nome do
+  cadastro, a Assis Skid 1 de espaço duplo, a usina recusada que sai do lote, o gestor só leitura, a ponte pendente, o kWp
+  do Nexus, as strings da leitura, o código que o Nexus tem numa usina que não vai, a releitura pelo selo, a ponte com
+  `nome_api`, os avisos por usina e a resposta que não é JSON; e os da 2ª revisão final de 21/10: a "Nova chave" fora da
+  lista e a chave fora da aba e do Nexus como pendência, a ponte pendente que volta ao reabrir, a releitura que espera o
+  Nexus (o selo velho no meio da gravação, o `gravando`, o prazo), a troca de códigos entre usinas num pedido só, as duas
+  CABN de mesmo número, a manchete com as chaves que não valem, a chave irmã da Coração). Mutações
+  (`scratchpad .../r2_plat/mutar_plat.py` e, as de 21/10, `scratchpad .../r3/mutar_r3.py`): cada regra quebrada de
+  propósito faz o teste dela falhar. Bancada: as páginas reais com as leituras dubladas pelas cópias
+  do banco e o Nexus imitado em `/nexus` (o script ficou no scratchpad da sessão de 20/10).
 
 ## Meta do mês no banco para o Nexus (12/10/2026)
 

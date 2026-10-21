@@ -1465,10 +1465,18 @@ def api_eu():
     """O que a sessão de agora abre, para a tela decidir o que oferecer (13/10/2026: o atalho do Tempo real para o de-para
     só aparece para quem abre a página dele). O passe do Nexus abre a administração só com admin (`_pn.so_admin`); a
     senha e o Microsoft abrem tudo (o portão das rotas só de admin vale para o passe). O pedido pela chave de leitura do
-    Nexus (a ponte, sem sessão) e o sem login não abrem: a chave só lê (`leitura_nexus`)."""
+    Nexus (a ponte, sem sessão) e o sem login não abrem: a chave só lê (`leitura_nexus`).
+
+    `grava_admin` (20/10/2026): abre a administração E grava. O gestor que é admin do Nexus abre (lê o de-para), mas o
+    portão o deixa só ler (`permitido_gestor` recusa o POST do `/api/admin/de-para/decidir`): no Modo de-para ele gravava a
+    estrutura no Nexus (que só confere o admin dele) e a ponte da fonte levava 403, gravação pela metade. O Salvar do modo
+    e o botão do Tempo real pedem este campo; o gestor vê a tabela só de leitura."""
     if getattr(flask_g, "nexus_leitura_ok", False) or not session.get("auth"):
-        return jsonify({"abre_admin": False})
-    return jsonify({"abre_admin": session.get("auth_kind") != "nexus" or bool(session.get("admin_nexus"))})
+        return jsonify({"abre_admin": False, "grava_admin": False})
+    passe = session.get("auth_kind") == "nexus"
+    abre = not passe or bool(session.get("admin_nexus"))
+    gestor = passe and _pn.perfil_de(session.get("user"), PLATAFORMA_ANALISTAS, PLATAFORMA_GESTORES) == _pn.GESTOR
+    return jsonify({"abre_admin": abre, "grava_admin": abre and not gestor})
 
 
 @app.route("/admin/de-para")
@@ -1817,6 +1825,33 @@ def _dp_nomes_validos(fonte, uid) -> set:
     return set(_sg_cadastro(cfg["usina"])) if cfg else set()
 
 
+def _dp_chave_pelo_texto(alvo) -> str | None:
+    """A chave do cadastro (como o ESPERADO a guarda) que escreve o mesmo que `alvo` com os espaços juntados, quando é
+    uma só: o Nexus grava "Assis Chateaubriand Skid 1 (79)" e o cadastro (e a API PV) "Assis Chateaubriand  Skid 1 (79)".
+    A ponte grava a grafia do cadastro, que é a que a fonte procura."""
+    t = _en.texto(alvo)
+    achadas = [k for k in ESPERADO if _en.texto(k) == t]
+    return achadas[0] if len(achadas) == 1 else None
+
+
+def _dp_alvo_no_cadastro(alvo) -> str | None:
+    """A chave do cadastro para a ponte que o Modo de-para grava logo depois do Nexus (20/10/2026), ou None.
+
+    O caso: a chave que existe só no Nexus (criada pelo salvar, ou ligada à mão, fora da aba) entra no ESPERADO quando
+    a plataforma relê a visão (cópia de 60 s + a recarga do cadastro). A ponte vinha segundos depois do Nexus e dava 400
+    "não está no cadastro" sempre, com a chave já no lugar da aba. Antes de recusar: a grafia do cadastro pelo texto(),
+    e, sem ela, a visão relida AGORA (o leitor com `forcar` e a recarga do cadastro, como o vigia de 60 s faria)."""
+    achada = _dp_chave_pelo_texto(alvo)
+    if achada or not ESTRUTURA_NEXUS:
+        return achada
+    try:
+        _en_leitor().linhas(forcar=True)
+        maybe_reload_equipamentos()
+    except Exception as e:                                       # noqa: BLE001 — a releitura nunca derruba a ponte
+        print(f"[de-para] releitura da visão do Nexus para a ponte falhou ({type(e).__name__})")
+    return alvo if alvo in ESPERADO else _dp_chave_pelo_texto(alvo)
+
+
 @app.route("/api/admin/de-para/decidir", methods=["POST"])
 def api_depara_decidir():
     """{"fonte", "id", "usina_supervisorio"?: chave do cadastro ou "" (sem ponte), "inversores"?: {id: nome ou ""}}:
@@ -1828,6 +1863,8 @@ def api_depara_decidir():
     try:
         if "usina_supervisorio" in b:
             alvo = str(b.get("usina_supervisorio") or "").strip()
+            if alvo and alvo not in ESPERADO:
+                alvo = _dp_alvo_no_cadastro(alvo) or alvo
             if alvo and alvo not in ESPERADO:
                 return jsonify({"error": f"a usina \"{alvo}\" não está no cadastro (aba Equipamentos)"}), 400
             if fonte in _dp.FONTES_APELIDO:
@@ -2612,6 +2649,15 @@ POWER_INV_DISP = {}     # {nrm(usina EXIBIÇÃO): {nrm(equipamento): kwp}} — m
 ESPERADO_INV_DISP = {}  # {nrm(usina EXIBIÇÃO): {"Inversor 1.1": strings esperadas}} — o ESPERADO_INV é por
                         # "Equipamento Supervisório", e a GreenYellow e a Sal Energia não o têm (06/10/2026): é por aqui
                         # que o scadaGridco acha as esperadas, pelo nome do inversor como está no cadastro.
+# O Modo de-para (20/10/2026): o código do ativo do Fracttal que o Nexus GRAVA na estrutura da usina chega pela coluna
+# "Código Fracttal" da visão (a aba Equipamentos não tem a coluna: aba sozinha = os três vazios = tudo como antes). Até
+# aqui o código do inversor só era DERIVADO do nome ("{code-base}-INVR{N.M}", _frac_inv_code), e na Pharma II a "Usina
+# Fractall" da aba (a PHS200, a árvore de antes de 22/09) dava THPN-PHS200-INVR1.1 onde o Fracttal de hoje tem
+# THPN-PHS100-INVR2.1. O gravado vence o derivado.
+FRAC_COD_INV  = {}      # {usina_sup: {nrm(equip_sup) e nrm(Equipamento): código do inversor no Fracttal}}
+FRAC_COD_INV_DISP = {}  # {nrm(usina EXIBIÇÃO): {nrm(Equipamento): código}} — os chamadores passam o nome de exibição
+FRAC_COD_CAB  = {}      # {usina_sup: {N da "UG NN": código da CABN no Fracttal}}
+EQUIP_PARENTE = {}      # {usina_sup: {equip_sup: "UG 02"}} — a cabine do inversor no cadastro ("Equipamento Parente")
 _bd_mtime     = 0.0
 _bd_lock      = threading.Lock()
 
@@ -2688,10 +2734,17 @@ def _aplica_alias_api_cadastro():
             # filtrado pelo nome cru, a União ficava sem o kWp de inversor nenhum
             nomes = next((EQUIP_NAMES[f] for f in fontes if f in EQUIP_NAMES), {})
             so = set(so) | {_nrm(x) for x in so} | {_nrm(nomes[x]) for x in so if x in nomes}
-        for m in (ESPERADO_INV, EQUIP_NAMES, POWER_INV):
+        # o código do Fracttal e a cabine (Modo de-para, 20/10/2026) pelo MESMO caminho: o FRAC_COD_INV é chaveado como o
+        # POWER_INV (pelo _nrm) e o EQUIP_PARENTE como o ESPERADO_INV (pelo Equipamento Supervisório)
+        for m in (ESPERADO_INV, EQUIP_NAMES, POWER_INV, FRAC_COD_INV, EQUIP_PARENTE):
             src = next((f for f in fontes if f in m), None)
             if src is not None and api not in m:
                 m[api] = {k: v for k, v in m[src].items() if k in so} if so else m[src]
+        # a CABN gravada de cada UG (o drill só chama de "Cabine N" a UG que tem o código): por número de UG, sem o filtro
+        # dos inversores da usina parcial
+        src = next((f for f in fontes if f in FRAC_COD_CAB), None)
+        if src is not None and api not in FRAC_COD_CAB:
+            FRAC_COD_CAB[api] = FRAC_COD_CAB[src]
         if api not in ESPERADO:
             if so and ESPERADO_INV.get(api):
                 ESPERADO[api] = {"inv_esp": len(ESPERADO_INV[api]),
@@ -2770,7 +2823,7 @@ def load_equipamentos():
     esperadas (Strings Ativas), nomes de exibição, Full O&M e potência por inversor.
     Chamada na init e sempre que o arquivo muda (mtime). Uma só leitura alimenta tudo."""
     global ESPERADO_INV, EQUIP_NAMES, USINA_DISPLAY, USINA_GRUPO, ESPERADO, FULL_OM, STRING_BOX, POWER_INV, POWER_UFV, FULL_OM_DISP, POWER_INV_DISP, _bd_mtime
-    global FULL_OM_DISP_NOMES, ESPERADO_INV_DISP
+    global FULL_OM_DISP_NOMES, ESPERADO_INV_DISP, FRAC_COD_INV, FRAC_COD_INV_DISP, FRAC_COD_CAB, EQUIP_PARENTE
     try:
         path = _bd_perf_path()
         df = _equipamentos_df(registrar=True)        # a aba, com as chaves que o Nexus pôs no lugar dela (fase 2)
@@ -2798,8 +2851,13 @@ def load_equipamentos():
         c_full = next((c for c in df.columns if "full" in c.lower()), None)
         c_sa   = next((c for c in df.columns if "string" in c.lower() and "ativ" in c.lower()), None)
         c_sb   = next((c for c in df.columns if "string" in c.lower() and "box" in c.lower()), None)
+        # Modo de-para (20/10/2026): o código do Fracttal só vem na visão do Nexus (a aba não tem a coluna) e a cabine do
+        # inversor é o "Equipamento Parente" (UG NN). Coluna ausente = mapa vazio, sem erro.
+        c_cf   = next((c for c in df.columns if c.lower() in ("código fracttal", "codigo fracttal")), None)
+        c_par  = next((c for c in df.columns if c.lower() == "equipamento parente"), None)
 
         esperado_inv, equip_names, usina_display, power_inv = {}, {}, {}, {}
+        frac_cod_inv, frac_cod_inv_disp, frac_cod_cab, equip_parente = {}, {}, {}, {}
         power_ufv = {}                       # potência da USINA (linha Equipamento = "UFV")
         full_om_disp = set()                 # Full O&M pelo nome de EXIBIÇÃO (pega usina sem supervisório)
         full_om_disp_nomes = set()           # idem, o nome como está escrito (ver FULL_OM_DISP_NOMES)
@@ -2861,12 +2919,28 @@ def load_equipamentos():
                 full_om.add(us)
             if c_sb and str(row[c_sb]).strip().lower() == "sim":
                 string_box.add(us)
+            # o código do Fracttal da cabine (a CABN da UG NN, gravado pelo Modo de-para no Nexus)
+            _cod = re.sub(r"\s+", "", _en.texto(row[c_cf])).upper() if c_cf else ""   # o canônico da dimensão
+            _ug = re.match(r"\s*UG\s*0*(\d+)\b", _en.texto(row[c_eq]), re.I)
+            if _cod and _ug:
+                frac_cod_cab.setdefault(us, {})[int(_ug.group(1))] = _cod
             # Daqui pra baixo: só inversores individuais
             eq = row[c_eq]
             if pd.isna(eq) or not str(eq).strip().lower().startswith("inversor"):
                 continue
             eq = str(eq).strip()
             es = str(row[c_es]).strip() if pd.notna(row[c_es]) else None
+            # o código do ativo do inversor no Fracttal (Modo de-para): pelos dois nomes, como a potência; e pelo nome de
+            # exibição da usina, que é o que o drill, as OS e o Criador de Relatório passam ao _frac_inv_code
+            if _cod:
+                for alias in (es, eq):
+                    if alias:
+                        frac_cod_inv.setdefault(us, {})[_nrm(alias)] = _cod
+                if _dsp:
+                    frac_cod_inv_disp.setdefault(_nrm(_dsp), {})[_nrm(eq)] = _cod
+            _par = _en.texto(row[c_par]) if c_par else ""
+            if es and _par:
+                equip_parente.setdefault(us, {})[es] = _par
             # Potência (kWp) — indexada por equip_sup e display (ambas chaves possíveis da API)
             try:
                 pk = float(row[c_pot])
@@ -2917,6 +2991,8 @@ def load_equipamentos():
         POWER_UFV, FULL_OM_DISP, POWER_INV_DISP = power_ufv, full_om_disp, power_inv_disp
         FULL_OM_DISP_NOMES = full_om_disp_nomes
         ESPERADO_INV_DISP = esperado_inv_disp
+        FRAC_COD_INV, FRAC_COD_INV_DISP, FRAC_COD_CAB = frac_cod_inv, frac_cod_inv_disp, frac_cod_cab
+        EQUIP_PARENTE = equip_parente
         _aplica_alias_api_cadastro()             # "Sete Lagoa" (API) responde pelo cadastro "Sete Lagoas"
         # CADASTRO VAZIO NÃO CARIMBA O MTIME. No reboot de 26/08 o app subiu às 07:54, antes de
         # o OneDrive hidratar os arquivos: a leitura "deu certo" com ZERO usinas, o mtime foi
@@ -3837,6 +3913,214 @@ def _dp_sg_inversores(cfg) -> dict:
     return _dp.inversores(_dp_estado(), ("greenyellow", "salenergia"), (cfg or {}).get("id"))
 
 
+# ── Modo de-para (20/10/2026): o que a tela LÊ para sugerir ─────────────────────────────────────────────────────────
+# Levi, com o protótipo aprovado: "Boa, é isso mesmo. Implementa no tempo real e adapta na base o de-para para ficar nesse
+# padrão de tabela e apresentar uma usina por linha". A tela (Tempo real e Base · De-para de equipamentos) liga cada
+# inversor da fonte ao ativo do Fracttal, à cabine (a CABN) e à usina do Registro mestre; quem grava a estrutura é o Nexus
+# (`/t/base/equipamentos/depara/salvar`) e a ponte da fonte continua no `/api/admin/de-para/decidir`. Aqui só as leituras,
+# só admin (moram debaixo de /api/admin): a árvore do Fracttal (a dimensão de equipamento do Nexus, a foto de 22/09, e o
+# próprio Fracttal em fundo para a usina que a foto não tem) e o Registro mestre. Nenhuma chamada à API PV nem à SunOp.
+# A regra pura e os leitores em fundo: depara_fracttal.py.
+import depara_fracttal as _dpf  # noqa: E402
+
+_DPF_FOTO_PATH = _p_cache("depara_dim_equipamento.json")       # a última leitura boa da dimensão de equipamento
+_DPF_REGISTRO_PATH = _p_cache("depara_registro_usinas.json")    # do Registro mestre (só as colunas não sensíveis)
+_DPF_CLIENTES_PATH = _p_cache("depara_registro_clientes.json")
+_DPF_ARVORES_PATH = _p_cache("depara_fracttal_arvores.json")    # as árvores lidas no Fracttal (7 dias)
+# a dimensão é regerada pela carga do Nexus de hora em hora, mas a foto por trás dela só muda quando o Levi a renova:
+# 3 h de cópia; o Registro muda num Publicar do cadastro: 10 min
+_DPF_LIVROS = {"foto": (_dpf.LIVRO_EQUIP, _dpf.ABA_EQUIP, _dpf.CAB_EQUIP, 3 * 3600),
+               "usinas": (_dpf.LIVRO_CADASTRO, _dpf.ABA_USINAS, _dpf.CAB_USINAS, 600),
+               "clientes": (_dpf.LIVRO_CADASTRO, _dpf.ABA_CLIENTES, _dpf.CAB_CLIENTES, 3600)}
+_DPF = {"leitores": {}, "foto": (None, None), "busca": {}}
+
+
+def _dpf_livro(nome) -> "_dpf.LivroEmFundo":
+    """O leitor em fundo de um livro do banco (um por caminho: os testes trocam o caminho e ganham um leitor só deles)."""
+    caminho = {"foto": _DPF_FOTO_PATH, "usinas": _DPF_REGISTRO_PATH, "clientes": _DPF_CLIENTES_PATH}[nome]
+    chave = (nome, caminho)
+    if chave not in _DPF["leitores"]:
+        livro, aba, cab, ttl = _DPF_LIVROS[nome]
+        _DPF["leitores"][chave] = _dpf.LivroEmFundo(_cob.Decisoes(_bd_api.API_BASE, lambda: "", caminho, ttl=ttl,
+                                                                  livro=livro, aba=aba, cab=cab, nome_livro=livro))
+    return _DPF["leitores"][chave]
+
+
+def _dpf_foto():
+    """(Foto indexada ou None, carregando, lido_em). A indexação (22,5 mil membros, ~0,15 s) é feita uma vez por leitura."""
+    linhas, carregando, lido = _dpf_livro("foto").linhas()
+    if linhas is None:
+        return None, carregando, None
+    chave = (lido, len(linhas), id(linhas))
+    if _DPF["foto"][0] != chave:
+        _DPF["foto"] = (chave, _dpf.Foto(linhas))
+    return _DPF["foto"][1], carregando, lido
+
+
+def _dpf_pedir(ep, **params):
+    """Um GET ao Fracttal para a leitura da árvore (thread da BuscaFracttal, nunca o pedido da tela). Cota (429/406):
+    espera o reset que o Fracttal informa e repete o MESMO pedido; rede ou 5xx: até 4 vezes, com 5, 15 e 45 s. O Fracttal
+    respondendo que não existe (404 e afins) volta {} ("não existe"), não falha."""
+    mot, seguidas = {}, 0
+    for _ in range(8):
+        mot = {}
+        d = _frac_get(ep, _motivo=mot, **params)
+        if d is not None:
+            return d
+        if not _frac_falhou(mot):
+            return {}
+        st = mot.get("status")
+        if st in FRAC_COTA_STATUS:
+            try:
+                espera = min(max(int(float(mot.get("reset") or 60)), 1), 60) + 1
+            except ValueError:
+                espera = 61
+        else:
+            seguidas += 1
+            if seguidas >= FRAC_FALHAS_SEGUIDAS_MAX:
+                break
+            espera = 5 * 3 ** (seguidas - 1)
+        time.sleep(espera)
+    raise RuntimeError(f"o Fracttal não respondeu {ep}: {_frac_motivo_txt(mot)}")
+
+
+def _dpf_busca() -> "_dpf.BuscaFracttal":
+    if _DPF_ARVORES_PATH not in _DPF["busca"]:
+        _DPF["busca"][_DPF_ARVORES_PATH] = _dpf.BuscaFracttal(_DPF_ARVORES_PATH, lambda ep, **p: _dpf_pedir(ep, **p),
+                                                              ligado=lambda: FRACTTAL_ON)
+    return _DPF["busca"][_DPF_ARVORES_PATH]
+
+
+@app.route("/api/admin/de-para/fracttal/usinas")
+def api_dpf_usinas():
+    """As usinas do Fracttal com as cabines, para a coluna "Usina no Fracttal" do Modo de-para: a foto (a dimensão de
+    equipamento do Nexus) com as que a plataforma já leu no Fracttal por cima (a THPN-PHS100 com as cabines de hoje)."""
+    foto, carregando, lido = _dpf_foto()
+    lidas = _dpf_busca().todas()
+    if foto is None and not lidas:
+        return jsonify({"error": "a foto dos ativos do Fracttal ainda não foi lida do banco nesta máquina; tente em "
+                                 "instantes", "carregando": carregando}), 503
+    return jsonify({"usinas": _dpf.usinas_fracttal(foto, lidas), "fonte": "foto", "lido_em": lido,
+                    "foto_em": foto.foto_em if foto else None, "carregando": carregando})
+
+
+@app.route("/api/admin/de-para/fracttal/arvore")
+def api_dpf_arvore():
+    """A árvore de UMA usina do Fracttal (?codigo=THOPEN-ITA100; aceita o código-base, ITA100): as cabines (CABN) e os
+    inversores de cada uma, o nome pelo código. Usina fora da foto (THPN-PHS100, Apolo, Faro): a do Fracttal quando a
+    plataforma já a leu (7 dias); senão a da foto, com `pendente: true`, e a leitura no Fracttal vai em fundo."""
+    pedido = _dpf.canon(flask_request.args.get("codigo"))
+    if not pedido:
+        return jsonify({"error": "mande ?codigo= (o código da usina no Fracttal)"}), 400
+    foto, carregando, lido = _dpf_foto()
+    busca = _dpf_busca()
+    cod = (foto.achar(pedido) if foto else None) or pedido
+    ent = busca.entrada(cod)
+    a = foto.arvore(cod) if foto else None
+    if ent is not None:
+        if ent.get("existe"):
+            return jsonify(dict(_dpf.arvore_do_fracttal(cod, ent), pendente=False))
+        if a is None:
+            return jsonify({"error": f"o código {cod} não existe no Fracttal (lido em {ent.get('lido_em')})"}), 404
+        # a foto tem, o Fracttal de hoje não: a da foto, dita como velha (a PHS200 depois que a Pharmas virou PHS100)
+        return jsonify(dict(a, lido_em=lido, pendente=False,
+                            aviso=f"o Fracttal de hoje não tem a usina {cod} (lido em {ent.get('lido_em')}): esta é a "
+                                  f"árvore da foto de {foto.foto_em}"))
+    if a is None and foto is None and carregando:
+        return jsonify({"error": "a foto dos ativos do Fracttal ainda não foi lida do banco nesta máquina; tente em "
+                                 "instantes", "carregando": True}), 503
+    fora = a is None or a["fora_da_foto"]
+    pendente = busca.pedir_arvore(cod) if fora else False
+    if a is None:
+        if not pendente:
+            motivo = busca.falha(cod) or ("sem credencial do Fracttal nesta máquina" if not busca.ligado() else "")
+            return jsonify({"error": f"o código {cod} não está na foto dos ativos do Fracttal"
+                                     + (f"; leitura no Fracttal: {motivo}" if motivo else "")}), 404
+        a = {"codigo": cod, "nome": cod, "cliente": None, "usina_id": None, "cabines": [], "sem_cabine": [],
+             "fonte": "foto", "foto_em": None, "fora_da_foto": True}
+    out = dict(a, lido_em=lido, pendente=pendente)
+    if fora and not pendente:
+        out["aviso"] = ("a usina não está inteira na foto dos ativos de " + str(foto.foto_em if foto else "?") + " e "
+                        + (f"a leitura no Fracttal falhou: {busca.falha(cod)}" if busca.falha(cod)
+                           else "esta máquina não tem a credencial do Fracttal"))
+    return jsonify(out)
+
+
+@app.route("/api/admin/de-para/registro")
+def api_dpf_registro():
+    """O Registro mestre do Nexus (`cadastro_nexus · usinas`) para a coluna "Usina no Registro mestre": código, nome,
+    situação e o kWp (real × 1.000; sem a real, a contratual; sem as duas, vazio). Só as colunas que não são sensíveis."""
+    usinas, carregando, lido = _dpf_livro("usinas").linhas()
+    clientes, car_cli, _ = _dpf_livro("clientes").linhas()
+    if usinas is None:
+        return jsonify({"error": "o Registro mestre ainda não foi lido do banco nesta máquina; tente em instantes",
+                        "carregando": carregando}), 503
+    return jsonify({"usinas": _dpf.registro(usinas, clientes or ()), "lido_em": lido,
+                    "carregando": carregando or car_cli})
+
+
+@app.route("/api/admin/de-para/cadastro")
+def api_dpf_cadastro():
+    """As chaves do cadastro DESTA plataforma (o ESPERADO: a aba com as chaves que o Nexus pôs no lugar dela) com os
+    inversores de cada uma, para o Modo de-para (20/10/2026). Sai do que já está na memória: nenhuma leitura nova, nada
+    da API PV. Para três coisas da tela:
+    - as opções de chave: a Coração 1 e 2 da `pv` não ligam a nada hoje e o cadastro tem "Coração 1 (111)" e "Coração 2
+      (112)", que o Nexus não tem; a tela só oferecia "Nova chave", uma chave paralela à da aba;
+    - o inversor da chave que não mandou leitura agora (o parado, justamente) vira linha "sem leitura agora" em vez de
+      sumir da tela, com as strings do cadastro;
+    - o nome do cadastro de cada inversor vai no pedido ao Nexus (o "Equipamento", a coluna do BD, não muda) e a conta do
+      kWp da tela conhece o que o Nexus semeia da aba (as strings e o kWp de antes) para a chave que ele ainda não tem.
+    {chaves: [{chave, exibicao, inversores: [{esup, nome, esp, kwp, ug}]}], carregado_em}. Os apelidos do nome da API
+    ("Sete Lagoa") não são chaves do cadastro e ficam de fora."""
+    apelidos = set(_dp_aliases())
+    esperado_inv, nomes_de, pot_de, par_de = ESPERADO_INV, EQUIP_NAMES, POWER_INV, EQUIP_PARENTE   # a mesma carga
+    out = []
+    for chave in sorted(set(esperado_inv) | set(nomes_de)):
+        if chave in apelidos:
+            continue
+        esp, nomes, pot, par = (esperado_inv.get(chave) or {}, nomes_de.get(chave) or {}, pot_de.get(chave) or {},
+                                par_de.get(chave) or {})
+        invs = []
+        for esup in dict.fromkeys(list(nomes) + list(esp)):
+            nome = nomes.get(esup) or esup
+            k = pot.get(_nrm(esup))
+            if k is None:
+                k = pot.get(_nrm(nome))
+            e = esp.get(esup)
+            invs.append({"esup": esup, "nome": nome, "esp": e if isinstance(e, (int, float)) else None,
+                         "kwp": k if isinstance(k, (int, float)) else None, "ug": par.get(esup) or None})
+        out.append({"chave": chave, "exibicao": USINA_GRUPO.get(chave) or USINA_DISPLAY.get(chave) or None,
+                    "inversores": invs})
+    return jsonify({"chaves": out, "carregado_em": _EN_ESTADO.get("carregado_em")})
+
+
+def _dp_rotulos_fracttal(chave, nome_api, nome) -> dict:
+    """O que o drill da API PV mostra do de-para por inversor (20/10/2026): `nome_fracttal` ("Inversor 2.1") pelo código
+    do Fracttal GRAVADO no cadastro e `cabine` ("Cabine 2") pelo "Equipamento Parente" (UG 02). Só quando houver. O `nome`
+    do inversor NÃO muda: é a chave dos tickets, do padrão de 30 dias, das OS e a coluna do BD (decisão 5 do Levi)."""
+    out = {}
+    cods = FRAC_COD_INV.get(chave) or {}
+    cod = next((cods[_nrm(n)] for n in (nome_api, nome) if n and _nrm(n) in cods), None)
+    rot = _dpf.nome_inversor(cod) if cod else None
+    if rot:
+        out["nome_fracttal"] = rot
+    # a `cabine` só quando a UG do inversor tem a CABN gravada (o código da cabine na visão do Nexus, FRAC_COD_CAB). Até
+    # 20/10 vinha do "Equipamento Parente" da aba para a frota inteira, e onde a UG da aba é o SKID (a Altair: UG 01 a 05
+    # debaixo de uma CABN1 só) o drill de todo mundo passava a chamar de "Cabine 3" o que é um SKID, sem ninguém usar o
+    # modo. Sem a CABN gravada, o drill fica como era (a cabine do nome). A UG mora na chave da UFV (a "Itajá"), não na do
+    # inversor ("Itaja 1 (551)"): procura nas duas, pelo nome de exibição da usina.
+    ug = re.match(r"\s*UG\s*0*(\d+)\b", str(_equip_lookup(EQUIP_PARENTE.get(chave), nome_api) or ""), re.I)
+    if ug:
+        cabs = {}
+        for k in (USINA_GRUPO.get(chave), USINA_DISPLAY.get(chave), chave):
+            if k:
+                cabs.update(FRAC_COD_CAB.get(k) or {})
+        cab = _dpf.nome_cabine(cabs.get(int(ug.group(1))) or "")
+        if cab:
+            out["cabine"] = cab
+    return out
+
+
 def _cob_linhas():
     """As decisões (cache de 60 s, a última leitura boa se o banco cair), ou None: desligado ou nunca lidas."""
     if not COBERTURA_LIGADA:
@@ -4253,6 +4537,19 @@ def _pv_cadastro_da_linha(plant: dict) -> dict:
             **({"nome_api": plant["nome_api"]} if plant.get("nome_api") else {})}
 
 
+def _pv_chave_da_linha(plant: dict) -> dict:
+    """A chave do cadastro ("Usina Supervisório") a que a linha da API PV liga HOJE, para o Modo de-para do Tempo real
+    (20/10/2026) mandar ao Nexus a chave certa e só gravar a ponte quando a pessoa escolher outra. É o nome por dentro
+    (depois da ponte) e, nos apelidos do código, a chave de verdade: "Sete Lagoa" (API) é a "Sete Lagoas" do cadastro, e a
+    "União" está sob o código "UNI". Sem ligação (a Itaja 1 (228), que o cadastro tem como "Itaja 1 (551)"): nada."""
+    nome = plant["nome"].strip()
+    alvo = _dp_aliases().get(nome)
+    cands = ([alvo] + ([PV_ALIAS_CODIGO[nome]] if nome in PV_ALIAS_CODIGO else [])) if alvo else [nome]
+    chave = (next((c for c in cands if c and c in ESPERADO_INV), None)
+             or next((c for c in cands if c and c in ESPERADO), None))
+    return {"chave_cadastro": chave} if chave else {}
+
+
 _PV_NOMES_FALHAS = {"mtime": None, "dados": {}}      # a cópia dos nomes da API PV que a rotina das Falhas guarda
 
 
@@ -4296,17 +4593,55 @@ def _pv_inv_sem_esperadas(pid, cad: str, ids) -> list | None:
     ids = [i for i in ids or () if isinstance(i, int) and not isinstance(i, bool)]
     if not esp or not ids:
         return []
+    nomes = _pv_nomes_sem_rede(pid, cad, ids)
+    if nomes is None:
+        return None
+    faltam = []
+    for i in sorted(ids, key=lambda x: (len(str(x)), str(x))):
+        nome = nomes.get(i)
+        if not nome or not isinstance(_equip_lookup(esp, nome), (int, float)):
+            faltam.append(nome or f"INV-{i}")
+    return faltam
+
+
+def _pv_nomes_sem_rede(pid, cad: str, ids) -> dict | None:
+    """{id: nome do inversor como o drill o chama} SEM rede (a API PV é paga): o plant_devices guardado (com a tela por
+    cima) e, na conta oem@ (que não lê o plant_devices), o de-para dela (código e tela) e a ordem do cadastro. None = não
+    dá para saber (conta principal sem nome guardado). O caminho de 13/10/2026 do `_pv_inv_sem_esperadas`, que o resumo
+    por inversor da linha (Modo de-para, 20/10/2026) também usa."""
+    ids = [i for i in ids or () if isinstance(i, int) and not isinstance(i, bool)]
     dev = _pv_nomes_guardados(pid)
     if not dev and pid not in PV_OEM_PLANTS:
         return None
     cod = {} if dev else _pv_inv_nomes_de(pid)
     ordem = {} if dev else _pv_nomes_por_ordem(cad, ids)
-    faltam = []
-    for i in sorted(ids, key=lambda x: (len(str(x)), str(x))):
-        nome = dev.get(i) or cod.get(i) or ordem.get(i)
-        if not nome or not isinstance(_equip_lookup(esp, nome), (int, float)):
-            faltam.append(nome or f"INV-{i}")
-    return faltam
+    return {i: dev.get(i) or cod.get(i) or ordem.get(i) for i in ids}
+
+
+def _pv_inv_resumo(pid, cad: str, ids, ativas: dict, totais: dict, neutros, sem_visao) -> list:
+    """Um resumo por inversor na linha da usina (Modo de-para do Tempo real, 20/10/2026): a tela monta UMA LINHA POR
+    INVERSOR de todas as usinas da fonte sem abrir o drill de cada uma (o drill da API PV é chamada paga na hora, e a `pv`
+    tem 115 usinas). Sai do que o `build_summary` já leu no ciclo do worker, sem nenhuma chamada nova à API PV:
+    {id, nome_api (como a fonte chama, pelo caminho do drill), nome (o do cadastro), ativas (None no inversor sem visão
+    ou em rampa: não há contagem), total (as strings lidas), esp (as esperadas do CADASTRO, sem os descontos da leitura),
+    sem_visao}."""
+    try:
+        nomes = _pv_nomes_sem_rede(pid, cad, ids) or {}
+    except Exception as e:                                      # noqa: BLE001 — o resumo nunca derruba a linha
+        print(f"[de-para] resumo por inversor, usina {pid}: {e}")
+        nomes = {}
+    esp_cad, exib = ESPERADO_INV.get(cad) or {}, EQUIP_NAMES.get(cad) or {}
+    out = []
+    for i in ids:
+        if not isinstance(i, int) or isinstance(i, bool):
+            continue
+        api = nomes.get(i) or f"INV-{i}"
+        e = _equip_lookup(esp_cad, api)
+        out.append({"id": i, "nome_api": api, "nome": _equip_lookup(exib, api) or api,
+                    "ativas": None if i in neutros else ativas.get(i), "total": totais.get(i),
+                    "esp": e if isinstance(e, (int, float)) else None, "sem_visao": i in sem_visao})
+    out.sort(key=lambda x: (_inv_hist_ord(x["nome"]), x["nome"]))
+    return out
 
 
 def _pv_inv_sem_esp_campos(pid, cad: str, ids) -> dict:
@@ -4359,6 +4694,7 @@ def build_summary(plant: dict, records: list) -> dict:
     _esp_cad = ESPERADO_INV.get(plant["nome"].strip()) or {}
     _nomes_cad: dict = {}
     _usou_cmb = False                         # alguma string veio da combiner: a régua da aba de falhas usa a curva dela
+    totais_de = {}                            # strings lidas por inversor (o resumo do Modo de-para, 20/10/2026)
 
     def _nomes_dispositivos() -> dict:
         """id → nome do plant_devices (cache de 30 min do _pv_plant_devices, que só guarda resposta boa)."""
@@ -4422,6 +4758,7 @@ def build_summary(plant: dict, records: list) -> dict:
                 sv_ids.append(inv_id)
                 ipv_keys = []
         correntes = [cj[k] for k in ipv_keys]
+        totais_de[inv_id] = len(ipv_keys)
         # exclui trancadas e aplica a régua relativa à mediana do inversor
         _at = _str_ativas(_classifica_strings(pid, inv_id, ipv_keys, correntes))
         # Inversor GERANDO com 0 strings ativas — mesma divisão do drill (ver _pv_plant_inversores):
@@ -4591,6 +4928,13 @@ def build_summary(plant: dict, records: list) -> dict:
         **_pv_inv_sem_esp_campos(pid, plant["nome"].strip(), list(latest)),
         # os inversores que mandaram leitura hoje, para o editor do de-para não ir à API PV a cada abertura (13/10/2026)
         "inv_ids_hoje": sorted(i for i in latest if isinstance(i, int) and not isinstance(i, bool)),
+        # uma linha por inversor no Modo de-para sem abrir o drill de cada usina (20/10/2026): do que este ciclo já leu.
+        # O desligado por potência vai com 0 ativas, como o drill o mostra (a corrente reversa residual não é string viva)
+        "inv_resumo": _pv_inv_resumo(pid, plant["nome"].strip(), list(latest),
+                                     {i: (0 if i in off_ids else a) for i, a in ativas_de.items()}, totais_de,
+                                     set(neutros_ids), set(sv_ids)),
+        # a chave do cadastro de hoje (Modo de-para): a tela manda ao Nexus a chave certa e só grava a ponte se mudar
+        **_pv_chave_da_linha(plant),
     }
 
 
@@ -4998,6 +5342,8 @@ def _pv_plant_inversores_busca(plant_id, force=False):
             "sem_visao": sem_visao,      # String Box sem combiner exposta → sem contagem (neutro)
             "rampa": rampa,              # correntes reais porém baixas (amanhecer/anoitecer) → exibe, não conta
             "strings": strings,
+            # Modo de-para (20/10/2026): o nome do Fracttal pelo código gravado e a cabine do cadastro, quando houver
+            **_dp_rotulos_fracttal(plant_nome_api, inv_nome_api, inv_nome),
         })
 
     # Deduplica por nome_api: se mesmo inversor aparecer duplicado, fica o com dados
@@ -25746,8 +26092,27 @@ def _frac_codebase(usina):
     return ent.get("cb") if ent else None
 
 
+def _frac_cod_gravado(usina, inv):
+    """O código do ativo do inversor no Fracttal GRAVADO no cadastro (a estrutura do Nexus, pelo Modo de-para de
+    20/10/2026), pela chave do supervisório ou pelo nome de exibição da usina, e pelo nome do inversor (Equipamento ou
+    Equipamento Supervisório). None = nada gravado (hoje, toda usina que não passou pelo Modo de-para)."""
+    u, k = str(usina or "").strip(), _nrm(inv or "")
+    if not u or not str(inv or "").strip():
+        return None
+    for mapa, chave in ((FRAC_COD_INV, u), (FRAC_COD_INV_DISP, _nrm(u))):
+        cod = (mapa.get(chave) or {}).get(k)
+        if cod:
+            return cod
+    return None
+
+
 def _frac_inv_code(usina, inv_disp):
-    """Code Fracttal do inversor: "{CODE-BASE}-INVR{N.M}" (N.M do display "Inversor N.M")."""
+    """Code Fracttal do inversor: o GRAVADO no cadastro (Modo de-para, 20/10/2026) e, sem ele, o derivado do nome,
+    "{CODE-BASE}-INVR{N.M}" (N.M do display "Inversor N.M"). O derivado erra onde a árvore do Fracttal mudou depois da
+    "Usina Fractall" da aba: na Pharma II ele dá THPN-PHS200-INVR1.1, e o Fracttal de hoje tem THPN-PHS100-INVR2.1."""
+    gravado = _frac_cod_gravado(usina, inv_disp)
+    if gravado:
+        return gravado
     m = re.search(r"\d+\.\d+|\d+", str(inv_disp or ""))
     base = _frac_codebase(usina)
     return f"{base}-INVR{m.group(0)}" if (m and base) else None

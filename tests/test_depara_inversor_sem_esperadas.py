@@ -116,19 +116,20 @@ def test_o_diagnostico_do_de_para_acusa_inversor_sem_esperadas():
 
 
 def test_api_eu_diz_quem_abre_o_de_para(cli):
+    # `grava_admin` (20/10/2026): abre E grava; o gestor admin do Nexus abre e só lê (tests/test_modo_depara_backend.py)
     entrar_com_senha(cli)
-    assert cli.get("/api/eu").get_json() == {"abre_admin": True}
+    assert cli.get("/api/eu").get_json() == {"abre_admin": True, "grava_admin": True}
     entrar(cli, "analista@exemplo.com", admin=False)
-    assert cli.get("/api/eu").get_json() == {"abre_admin": False}
+    assert cli.get("/api/eu").get_json() == {"abre_admin": False, "grava_admin": False}
     entrar(cli, "admin@exemplo.com", admin=True)
-    assert cli.get("/api/eu").get_json() == {"abre_admin": True}
+    assert cli.get("/api/eu").get_json() == {"abre_admin": True, "grava_admin": True}
 
 
 def test_pela_chave_de_leitura_do_nexus_nao_abre(cli, monkeypatch):
     """A ponte do Nexus lê com a chave, sem sessão: a página que ela mostra nunca oferece o atalho."""
     monkeypatch.setattr(app, "NEXUS_LEITURA_TOKEN", "chave-de-teste")
     r = cli.get("/api/eu", headers={"X-Nexus-Leitura": "chave-de-teste"})
-    assert r.status_code == 200 and r.get_json() == {"abre_admin": False}
+    assert r.status_code == 200 and r.get_json() == {"abre_admin": False, "grava_admin": False}
 
 
 # ── a tela ────────────────────────────────────────────────────────────────────────────────────────────────────────────

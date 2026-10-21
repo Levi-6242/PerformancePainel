@@ -47,6 +47,31 @@ def test_usina_fora_do_piloto_e_ignorada():
     assert us == {} and invs == {}
 
 
+def test_a_coluna_codigo_fracttal_da_visao_do_nexus_nao_muda_o_cadastro():
+    """Modo de-para (20/10/2026): a visao do Nexus ganhou "Código Fracttal" no FIM (o codigo do ativo que o Nexus grava, na
+    linha do inversor e na da UG). O gemeo le por nome de coluna e nao usa o codigo: a visao igual a aba, com a coluna a
+    mais, da o mesmo cadastro."""
+    ls = cadastro.linhas_da_aba(Http(), "http://x", "tok", sheet_id=46, header_row=3)
+    visao = [dict(x, **{"Código Fracttal": "MRO100-INVR1.1" if x["Equipamento"] == "Inversor 1.1" else None}) for x in ls]
+    com_nexus = cadastro.separar_equipamentos(cadastro.sobrepor_nexus(ls, visao), piloto=("MRO100",))
+    assert com_nexus == cadastro.separar_equipamentos(ls, piloto=("MRO100",))
+
+
+def test_a_chave_com_espaco_duplo_herda_a_grafia_da_aba():
+    """20/10/2026: a aba (e a API PV) escrevem "Assis Chateaubriand  Skid 1 (79)", com espaco duplo, e o Nexus grava a chave
+    com os espacos juntados. Marcada no lugar da aba, a linha da visao herda a grafia da aba: o `separar_equipamentos`
+    compara a "Usina Supervisório" crua, e com a grafia do Nexus a usina saia do cadastro do gemeo. Vale o kWp do Nexus."""
+    dupla = "Assis Chateaubriand  Skid 1 (79)"
+    aba = [{"Cliente": "Thopen", "Usina": "Assis", "Usina Supervisório": dupla, "Equipamento": f"Inversor 1.{m}",
+            "Equipamento Supervisório": f"INVERSOR0{m}", "Equipamento Parente": "UG 01", "Potência (kWp)": 323.4,
+            "Strings Ativas": 21, "Full O&M": "Sim", "String Box": "Não"} for m in (1, 2, 3, 4)]
+    visao = [dict(x, **{"Usina Supervisório": "Assis Chateaubriand Skid 1 (79)", "Potência (kWp)": 314.052}) for x in aba]
+    lidas = cadastro.sobrepor_nexus(aba, visao)
+    assert {x["Usina Supervisório"] for x in lidas} == {dupla} and len(lidas) == 4
+    _, invs = cadastro.separar_equipamentos(lidas, piloto=(dupla,))
+    assert [i["kwp"] for i in invs[dupla]] == [314.052] * 4
+
+
 def test_info_geral_da_a_placa_total_e_vence_a_soma_parcial_da_equipamentos(conn):
     import sys
     from pathlib import Path
@@ -192,3 +217,15 @@ def test_sem_o_livro_do_nexus_vale_a_aba_e_desligado_nem_le(monkeypatch):
     monkeypatch.setenv("ESTRUTURA_NEXUS", "0")
     http.pedidos.clear()
     assert ing._visao_nexus() == [] and http.pedidos == []          # desligado: nem pergunta ao banco
+
+
+def test_o_nome_do_fracttal_herda_a_grafia_da_aba_belo_jardim():
+    """2a revisao final (21/10/2026): o gemeo guarda o "Usina Fractall" da usina, e a "Thopen - Belo Jardim  1 - PE" (espaco
+    duplo na aba e no Fracttal) chegava do Nexus com os espacos juntados. Herda a grafia da aba da MESMA chave."""
+    bj = "Thopen - Belo Jardim  1 - PE"
+    aba = [{"Cliente": "Thopen", "Usina": "Belo Jardim", "Usina Supervisório": "Belo Jardim (588)", "Usina Fractall": bj,
+            "Equipamento": "UFV", "Potência (kWp)": 2664.0}]
+    visao = [dict(aba[0], **{"Usina Fractall": "Thopen - Belo Jardim 1 - PE"})]
+    assert [x["Usina Fractall"] for x in cadastro.sobrepor_nexus(aba, visao)] == [bj]
+    us, _ = cadastro.separar_equipamentos(cadastro.sobrepor_nexus(aba, visao), piloto=("Belo Jardim (588)",))
+    assert us["Belo Jardim (588)"]["fracttal"] == bj

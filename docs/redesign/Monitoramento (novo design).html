@@ -6,6 +6,8 @@
 <title>Grid Co. — Monitoramento O&amp;M (novo design)</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="/static/notif.js" defer></script>
+<!-- Modo de-para (20/10/2026): a tabela por inversor, o mesmo componente da Base · De-para de equipamentos -->
+<script src="/static/depara_tabela.js" defer></script>
 <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
 <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/fill/style.css">
 <style>
@@ -211,11 +213,11 @@ function _faixaVisivel(){ if(!EMBED) return null;
     return (vb-vt>120)?{top:vt,h:vb-vt}:{top:vt,h:Math.min(ph,r.height)}; }catch(e){ return null; } }
 function _prendeOverlays(){ const v=_faixaVisivel(); if(!v) return;
   document.querySelectorAll('.gc-overlay').forEach(o=>{ o.style.top=v.top+'px'; o.style.height=v.h+'px'; o.style.bottom='auto'; });
-  ['gc-osbar','gc-trkosbar'].forEach(id=>{ const bar=document.getElementById(id); if(bar&&bar.style.display!=='none'){ bar.style.bottom='auto'; bar.style.top=(v.top+v.h-bar.offsetHeight)+'px'; } }); }
+  ['gc-osbar','gc-trkosbar','gc-dpbar'].forEach(id=>{ const bar=document.getElementById(id); if(bar&&bar.style.display!=='none'){ bar.style.bottom='auto'; bar.style.top=(v.top+v.h-bar.offsetHeight)+'px'; } }); }
 if(EMBED){ try{ parent.addEventListener('scroll',_prendeOverlays,{passive:true}); parent.addEventListener('resize',_prendeOverlays); }catch(e){} }
 // ?fonte=<id> vem dos cards da Entrada (/teste/tempo-real): o card de um cliente abre o Monitoramento ja na fonte dele (05/09/2026)
 const _VIEWS_URL=['strings','etm','geracao','trackers','pr','curva'];
-const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'),  invView:'strings', invGer:{modo:'mes',ini:null,fim:null}, trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, trkOsMode:false, etmMode:'cards', etmProb:false   /* Levi 21/09: nasce DESMARCADO. O ?etmprob=1 vinha da Entrada por causa da contagem do MÊS, e prendia a tela num filtro que o usuário não pediu */, gerIni:null, gerFim:null, gerModo:'usinas' };
+const state = { source:(new URLSearchParams(location.search).get('fonte')||'thopen-pv'), view:(_VIEWS_URL.includes(new URLSearchParams(location.search).get('view'))?new URLSearchParams(location.search).get('view'):'strings'),  invView:'strings', invGer:{modo:'mes',ini:null,fim:null}, trkSub:'live', evDia:null, curvaPid:null, curvaData:null, invData:null, expandedUsina:(new URLSearchParams(location.search).get('usina')||null), expandedInversor:null, expandedTrk:null, trkGraf:null, trkGrafIni:null, trkGrafFim:null, trkGrafRed:true, curvaRed:false, trkGrafFiltro:'todos', trkGrafExp:false, trkHide:{}, osMode:false, dpMode:false, trkOsMode:false, etmMode:'cards', etmProb:false   /* Levi 21/09: nasce DESMARCADO. O ?etmprob=1 vinha da Entrada por causa da contagem do MÊS, e prendia a tela num filtro que o usuário não pediu */, gerIni:null, gerFim:null, gerModo:'usinas' };
 function setState(patch){ Object.assign(state, patch); render(); }
 /* ═══ DADO REAL — por VISTA e por FONTE. Cada uma devolve {rows,summary}; muda só o endpoint. ═══ */
 // 2C tudo junto (11/09/2026): linha da 2C com id NUMÉRICO veio da API PV (conta oem@) → curva e ETM pelo caminho da API PV
@@ -579,7 +581,7 @@ async function _pollFresco(url,key,view,src){
 }
 async function loadMeta(d){   // badges por usina: OS (Fracttal, por nome) + comentários (thread por vkey)
   // quem é a sessão (13/10/2026): o atalho para o de-para (_dpSem) só aparece para quem abre a página dele
-  if(RD.abreAdmin===undefined){ try{ const eu=await fetchJSON('/api/eu'); if(eu&&!eu.error) RD.abreAdmin=!!eu.abre_admin; }catch(e){} }
+  if(RD.abreAdmin===undefined){ try{ const eu=await fetchJSON('/api/eu'); if(eu&&!eu.error){ RD.abreAdmin=!!eu.abre_admin; RD.gravaAdmin=!!eu.grava_admin; } }catch(e){} }
   const names=[...new Set((d.rows||[]).map(r=>r.usina).filter(Boolean))];
   if(names.length){ try{ const os=await fetchJSON('/api/os-performance/counts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usinas:names})}); if(os&&typeof os==='object')RD.os=os; }catch(e){} }
   // /api/state traz comentários, ACOMPANHAMENTO (coluna ACOMP.) e OS atribuídas. O catch aqui
@@ -923,7 +925,10 @@ function buildInversores(pid){
     const nTrc=(inv.strings||[]).filter(sx=>sx.trancada).length;   // p/ o botão de destrancar em lote
     return { id:iid, pid, usina:_un, invId:inv.id, nSem, semList, tks, tkSemN:(_semSolU?0:cob.semTicket), semSolU:_semSolU, semComU:!!(_urow&&_urow.falha_comunicacao), temBaixa, nTrc, semVisao:!!inv.sem_visao, rampa:!!inv.rampa,
       /* rampa (correntes reais porém baixas, amanhecer/anoitecer) NÃO é "sem geração": as strings existem e aparecem, só não entram na contagem */
-      semGer:(!inv.sem_visao&&!inv.rampa&&Number(inv.strings_ativas)===0), atrib:(RD.osAtrib||{})[pid+'|'+inv.id]||null, name:inv.nome, cabine:cab?('cabine '+cab[1]):'', kwh:(inv.eday!=null?inv.eday:'—'),
+      semGer:(!inv.sem_visao&&!inv.rampa&&Number(inv.strings_ativas)===0), atrib:(RD.osAtrib||{})[pid+'|'+inv.id]||null, name:inv.nome,
+      /* o Modo de-para (20/10/2026): o nome do Fracttal pelo código gravado e a cabine do cadastro (UG NN → "Cabine N"), quando
+         houver; o `name` segue o da fonte: é a chave dos tickets, do padrão de 30 dias, das OS e a coluna do BD (decisão 5) */
+      nomeFracttal:(inv.nome_fracttal&&inv.nome_fracttal!==inv.nome)?inv.nome_fracttal:'', cabine:inv.cabine||(cab?('cabine '+cab[1]):''), kwh:(inv.eday!=null?inv.eday:'—'),
       active:((inv.sem_visao||inv.rampa)?'—':(inv.strings_ativas+'/'+inv.total_strings)), esp:(inv.str_esp!=null?inv.str_esp:'—'), diff:(inv.diferenca!=null?inv.diferenca:'—'),
       lastRead:(inv.ultima_leitura?String(inv.ultima_leitura).slice(0,16).replace('T',' '):'—'), caretDeg:expanded?90:0, expanded, isReal:true, trackers:[],
       padrao:((inv.sem_visao||_urow&&_urow.inv_padrao)?(_pdInv.find(x=>_nrmU(x.inv)===_nrmU(inv.nome)||_nrmU(x.inv)===_nrmU(inv.nome_api||''))||null):null), padraoDia:_pdDia, padraoPend:(_pd[pid]===null), osAtrib:!!inv.os_atribuida, strings };
@@ -971,8 +976,8 @@ function _srcNome(){ return ({'thopen-pv':'API PV Operation','thopen-db':'Banco 
 /* ── Modo "Criar OS": seleciona strings SEM CORRENTE → abre o OS Creator WEB em /os/ (1 OS por inversor). Barra fixa no rodapé; some fora do modo. ── */
 const _osSel=new Map();   // "pid|invId|sid" → {pid,invId,sid,usina,inv}
 function _osKey(p,i,s){ return p+'|'+i+'|'+s; }
-function _osBtn(){ if(!['pv','pg','sunop','owen','semp','2capi'].includes(SKEY[state.source])) return ''; const on=state.osMode; return `<button onclick="toggleOsMode()" class="btn ${on?'btn-primary':'btn-secondary'}"><i class="ph ph-wrench"></i> ${on?'Sair do modo OS':'Criar OS'}</button>`; }
-window.toggleOsMode=()=>{ const on=!state.osMode; if(!on)_osSel.clear(); setState({osMode:on}); _osBar(); };
+function _osBtn(){ if(!['pv','pg','sunop','owen','semp','2capi'].includes(SKEY[state.source])) return ''; if(state.dpMode) return `<button class="btn btn-secondary" disabled style="opacity:.45" title="Saia do modo de-para para criar OS"><i class="ph ph-wrench"></i> Criar OS</button>`; const on=state.osMode; return `<button onclick="toggleOsMode()" class="btn ${on?'btn-primary':'btn-secondary'}"><i class="ph ph-wrench"></i> ${on?'Sair do modo OS':'Criar OS'}</button>`; }
+window.toggleOsMode=()=>{ if(state.dpMode) return; const on=!state.osMode; if(!on)_osSel.clear(); setState({osMode:on}); _osBar(); };
 window.osToggle=(pid,invId,sid,usina,inv)=>{ const k=_osKey(pid,invId,sid); if(_osSel.has(k))_osSel.delete(k); else _osSel.set(k,{pid:String(pid),invId:String(invId),sid:String(sid),usina:usina||'',inv:inv||''}); render(); _osBar(); };
 window.osClear=()=>{ _osSel.clear(); render(); _osBar(); };
 function _osGrupos(){ const g=new Map(); _osSel.forEach(v=>{ const k=v.pid+'|'+v.invId; if(!g.has(k))g.set(k,{pid:v.pid,invId:v.invId,usina:v.usina,inv:v.inv,sids:[]}); g.get(k).sids.push(v.sid); }); return [...g.values()]; }
@@ -1006,6 +1011,37 @@ window.osGerar=async()=>{
   // uma OS por inversor, uma depois da outra na mesma janela por cima da tela (13/10/2026); a seleção limpa já
   gcAbrirOs(links); osClear();
 };
+/* ── Modo de-para (20/10/2026): Levi, com o protótipo aprovado: "Implementa no tempo real e adapta na base o de-para para
+   ficar nesse padrão de tabela". O botão fica ao lado do Criar OS, só nas contas da API PV (o que a fonte manda de cada
+   inversor já vem na linha do ciclo, `inv_resumo`: abrir o drill de 115 usinas seria chamada paga na hora) e só para quem
+   abre a administração e grava (`RD.abreAdmin` e `RD.gravaAdmin`, o /api/eu). O molde é o do Criar OS: o estado, o "Sair do modo", a barra fixa no
+   rodapé (no embutido, presa pelo `_prendeOverlays`) e sair ao trocar de fonte ou de aba. A tabela é o componente de
+   /static/depara_tabela.js, o mesmo da Base; quem grava a estrutura é o Nexus, e a ponte da fonte vai depois. ── */
+const _DP_FONTES=['pv','semp','alveslima','2capi','owen'];   // a 2C da tela é "owen" por dentro: as linhas dela são da 2capi
+let _dpI=null;
+function _dpLinhas(){ return ((RD.pv&&RD.pv.rows)||[]).filter(r=>Array.isArray(r.inv_resumo)); }
+/* grava_admin (20/10/2026): o gestor que é admin do Nexus abre a administração mas não grava (a ponte da fonte levava 403 depois
+   de o Nexus gravar a estrutura, gravação pela metade); o modo é de quem grava. Ele confere na Base · De-para, só leitura. */
+function _dpPode(){ return !!RD.abreAdmin&&!!RD.gravaAdmin&&state.view==='strings'&&_DP_FONTES.includes(SKEY[state.source])&&!!window.DeparaTabela&&_dpLinhas().length>0; }
+function _dpBtn(){ if(!state.dpMode&&!_dpPode()) return ''; const on=state.dpMode; return `<button onclick="toggleDpMode()" class="btn ${on?'btn-primary':'btn-secondary'}" title="${on?'Volta à tabela de strings':'Liga cada inversor da fonte ao Fracttal, à cabine e ao Registro mestre, com as strings corretas e o kWp'}"><i class="ph ph-link"></i> ${on?'Sair do modo de-para':'Modo de-para'}</button>`; }
+function _dpSair(){ state.dpMode=false; if(_dpI){ _dpI.sair(); _dpI=null; } }
+window.toggleDpMode=()=>{
+  if(state.dpMode){
+    /* a ponte pendente conta também (2ª revisão final, 21/10/2026): o Nexus já gravou a estrutura e a fonte segue sem ponte;
+       depois do Salvar nada fica "mexido", e sair calado deixava a Itaja 1 (228) sem ponte (a tela reaberta a acha de novo) */
+    const n=_dpI?_dpI.mexidos():0, p=_dpI&&_dpI.pontesPendentes?_dpI.pontesPendentes():0;
+    if((n||p)&&!confirm(`Sair do modo de-para? ${[n?`${n} usina(s) mexida(s) não foram salvas`:'',p?`${p} ponte(s) pendente(s): a fonte segue sem ligar à chave que o Nexus já gravou`:''].filter(Boolean).join('; ')}.`)) return;
+    _dpSair(); render(); return;
+  }
+  if(!_dpPode()) return;
+  state.osMode=false; _osSel.clear(); _osBar(); state.dpMode=true;
+  const f=SKEY[state.source]==='owen'?'2capi':SKEY[state.source];
+  _dpI=window.DeparaTabela.criar({fonte:f, redesenhar:()=>{ if(state.dpMode) render(); }, aoBarra:_prendeOverlays,
+    aoDescartar:()=>{ _dpSair(); render(); return false; }});
+  _dpI.entrar(_dpLinhas(), f);
+  render();
+};
+function _dpTabela(){ return _dpI?_dpI.html(g=>!_q||String(g.usina||'').toLowerCase().includes(_q.toLowerCase())):''; }
 function _brdate(iso){ const p=String(iso).split('-'); return p.length===3?(p[2]+' / '+p[1]+' / '+p[0]):iso; }
 // ── Tooltip de gráfico: ponto mais próximo do cursor → nome + valor + horário (trackers e strings) ──
 let _gtip=null;
@@ -2308,8 +2344,8 @@ function computeVals(){
 }
 
 /* ── handlers globais ── */
-window.setSource=id=>{ state.source=id; state.expandedUsina=null; state.expandedInversor=null; state.expandedTrk=null; state.trkGraf=null; state.curvaPid=null; state.osMode=false; state.trkOsMode=false; _fSt=''; _osSel.clear(); _osBar(); _trkOsSel.clear(); _trkOsBar(); loadCurrent(); _loadSub(); };   // troca de fonte zera os filtros (usina de outra fonte esconderia tudo)
-window.setView=id=>{ state.view=id; state.expandedUsina=null; state.expandedInversor=null; state.expandedTrk=null; state.trkGraf=null; state.osMode=false; _osSel.clear(); _osBar(); state.trkOsMode=false; _trkOsSel.clear(); _trkOsBar(); loadCurrent(); _loadSub(); };
+window.setSource=id=>{ state.source=id; state.expandedUsina=null; state.expandedInversor=null; state.expandedTrk=null; state.trkGraf=null; state.curvaPid=null; state.osMode=false; state.trkOsMode=false; _fSt=''; _osSel.clear(); _osBar(); _trkOsSel.clear(); _trkOsBar(); _dpSair(); loadCurrent(); _loadSub(); };   // troca de fonte zera os filtros (usina de outra fonte esconderia tudo)
+window.setView=id=>{ state.view=id; state.expandedUsina=null; state.expandedInversor=null; state.expandedTrk=null; state.trkGraf=null; state.osMode=false; _osSel.clear(); _osBar(); state.trkOsMode=false; _trkOsSel.clear(); _trkOsBar(); _dpSair(); loadCurrent(); _loadSub(); };
 window.setTracking=(key,value)=>{   // strings em acompanhamento por usina → /api/state/tracking (mesmo estado da plataforma original)
   const n=parseInt(value,10);
   if(!value||isNaN(n)||n<=0){ if(RD.tracking)delete RD.tracking[key]; } else { RD.tracking=RD.tracking||{}; RD.tracking[key]=n; }
@@ -2478,7 +2514,7 @@ function renderInversor(inv,chart){
   return `<div style="border-radius:var(--radius-md);margin-bottom:8px;${outBg}">
     <div class="gc-chip" data-inv="${inv.id}" onclick="toggleInversor('${inv.id}',event,'${inv.pid||''}','${inv.invId||''}','${(inv.name||'').replace(/['"\\]/g,'')}')" style="display:flex;align-items:center;gap:14px;padding:12px 16px;cursor:pointer;border-radius:var(--radius-md)">
       <i class="ph ph-caret-right" style="font-size:11px;color:var(--color-neutral-500);transform:rotate(${inv.caretDeg}deg)"></i>
-      <span style="font-weight:600;font-size:14px">${inv.name}</span>${inv.cabine?`<span class="tag tag-neutral">${inv.cabine}</span>`:''}<span class="text-muted" style="font-size:12px">${inv.kwh} kWh</span>${semTxt?`<span style="flex:1;text-align:center;font-size:14.4px;color:#a1a39d">${semTxt}</span>`:''}
+      ${inv.nomeFracttal?`<span style="display:inline-flex;flex-direction:column;line-height:1.25"><span style="font-weight:600;font-size:14px">${_he(inv.nomeFracttal)}</span><span class="text-muted" style="font:400 11px/1.3 'IBM Plex Mono',Consolas,monospace" title="O nome que a fonte manda: é ele que liga os tickets, as OS e o BD">na fonte ${_he(inv.name)}</span></span>`:`<span style="font-weight:600;font-size:14px">${inv.name}</span>`}${inv.cabine?`<span class="tag tag-neutral">${_he(inv.cabine)}</span>`:''}<span class="text-muted" style="font-size:12px">${inv.kwh} kWh</span>${semTxt?`<span style="flex:1;text-align:center;font-size:14.4px;color:#a1a39d">${semTxt}</span>`:''}
       <span style="margin-left:auto;display:flex;align-items:center;gap:22px;font-size:13px">
         ${_tkStrTag(inv)}${_osBtn}${(inv.padrao||inv.padraoPend)&&inv.semVisao!==undefined&&(inv.semVisao||inv.padrao)?_padraoSpans(inv):`<span class="text-muted">ativas <b style="color:var(--color-neutral-200)">${inv.active}</b></span><span class="text-muted" title="Strings esperadas deste inversor (aba Equipamentos)">esp <b style="color:var(--color-neutral-200)">${inv.esp}</b></span><span class="text-muted">dif <b style="color:${difRed?'var(--gc-red)':'var(--color-neutral-300)'}">${inv.diff}</b></span>`}
         <span class="text-muted" style="font-size:12px">${inv.lastRead}</span>
@@ -2641,11 +2677,11 @@ function renderStrings(v){
   return `
   <div class="card" style="padding:0;overflow:hidden">
     <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px 22px;border-bottom:1px solid var(--color-divider)">
-      <div style="display:flex;align-items:baseline;gap:12px"><span style="font-family:var(--font-heading);font-size:17px">${_srcNome()} — Detalhamento por Usina</span><span class="text-muted" style="font-size:12.5px">${state.osMode?'modo OS: clique nas strings sem corrente':'clique na linha para expandir'}</span></div>
-      <div style="display:flex;align-items:center;gap:10px">${_osBtn()}${_histBtn()}</div>
+      <div style="display:flex;align-items:baseline;gap:12px"><span style="font-family:var(--font-heading);font-size:17px">${_srcNome()} — Detalhamento por Usina</span><span class="text-muted" style="font-size:12.5px">${state.dpMode?'modo de-para: preencha a linha de cada inversor':state.osMode?'modo OS: clique nas strings sem corrente':'clique na linha para expandir'}</span></div>
+      <div style="display:flex;align-items:center;gap:10px">${_dpBtn()}${_osBtn()}${_histBtn()}</div>
     </div>
-    ${v.loading?'':_chipsStatus()}
-    <div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px;width:1%;white-space:nowrap">Status</th><th>Usina</th><th style="text-align:center">Inv.</th><th style="text-align:right">Ativas</th><th style="text-align:right">Esperadas</th><th style="text-align:right">Diferença</th><th style="text-align:center">Acomp.</th><th style="text-align:center" title="Strings com ticket aberto na planilha de tickets (aba Strings indisp) / strings faltando agora">Tickets</th><th style="text-align:right;padding-right:22px">Última leitura</th></tr></thead>
+    ${(v.loading||state.dpMode)?'':_chipsStatus()}
+    ${state.dpMode?`<div id="gc-dp">${_dpTabela()}</div>`:`<div style="overflow-x:auto"><table class="table"><thead><tr><th style="padding-left:22px;width:1%;white-space:nowrap">Status</th><th>Usina</th><th style="text-align:center">Inv.</th><th style="text-align:right">Ativas</th><th style="text-align:right">Esperadas</th><th style="text-align:right">Diferença</th><th style="text-align:center">Acomp.</th><th style="text-align:center" title="Strings com ticket aberto na planilha de tickets (aba Strings indisp) / strings faltando agora">Tickets</th><th style="text-align:right;padding-right:22px">Última leitura</th></tr></thead>
     <tbody>${v.loading?`<tr><td colspan="9" style="padding:44px;text-align:center" class="text-muted"><i class="ph ph-circle-notch gc-spin"></i> Coletando dados da fonte…</td></tr>`:(!v.usinas.length?_semLinhas():v.usinas.map(u=>`
       <tr class="gc-urow${(u.pulse&&!u.expanded)?' gc-alerta':''}" onclick="toggleUsina('${u.id}')" style="cursor:pointer;${u.expanded?'background:linear-gradient(90deg, color-mix(in srgb, #0a4f52 70%, transparent), color-mix(in srgb, #0a4f52 28%, transparent) 34%, transparent 58%);':''}">
         <td style="padding-left:22px;white-space:nowrap"><span style="${u.statusStyle}">${u.status}</span></td><td><span style="display:inline-flex;align-items:center;gap:9px"><i class="ph ph-caret-right" style="font-size:12px;color:var(--color-neutral-500);transition:transform .15s;transform:rotate(${u.caretDeg}deg)"></i><span style="display:inline-flex;flex-direction:column"><span style="font-weight:600">${u.name}</span>${u.deslNote?`<span class="gc-desl" style="color:var(--color-neutral-400);max-width:340px;overflow:hidden;text-overflow:ellipsis" title="${_he(u.deslNote.tit)}">${_he(u.deslNote.txt)}</span>`:''}</span>${u.hasOS?`<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="OS de performance — abrir" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:6px;background:color-mix(in srgb, var(--gc-amber) 16%, transparent);color:var(--gc-amber);font-size:11px;font-weight:600"><i class="ph ph-wrench"></i>${u.osCount}</span>`:''}${_dpChip(u)}<span onclick="event.stopPropagation();abrirComent('${u.vkey}','${esc(u.name).replace(/['"\\]/g,'')}')" title="Comentários dos analistas" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:6px;${u.hasFlag?'background:#1D5FB5;color:#0e2a4d;font-weight:700;':'color:var(--color-neutral-600);'}font-size:11px"><i class="${u.hasFlag?'ph-fill ph-chat-circle':'ph ph-chat-circle'}" style="font-size:13px"></i>${u.hasFlag?u.flagCount:''}</span></span></td>
@@ -2657,7 +2693,7 @@ function renderStrings(v){
         ${RD.pv?'':`<div style="display:flex;flex-wrap:wrap;gap:22px;padding:12px 16px;margin-bottom:16px;border-radius:var(--radius-md);background:color-mix(in srgb, var(--gc-blue) 10%, transparent);font-size:13px">
           <span><b>0</b> <span class="text-muted">strings abaixo</span></span><span><b>0</b> <span class="text-muted">inversores abaixo dos pares</span></span><span><b style="color:var(--gc-amber)">1</b> <span class="text-muted">trackers parados</span></span><span><b>0</b> <span class="text-muted">correlação tracker→inversor</span></span>
         </div>`}${RD.pv?_deslBarra(u):''}${_dpBarra(u)}${RD.pv?_ddBarra(u):''}${RD.pv?_tkCardsUsina(u):''}${u.inversores==='loading'?_invCarregando(u.id):(_invErro(u.id)||(state.invView==='geracao'?_gerBlock(u):((u.inversores||[]).length?u.inversores.map(inv=>renderInversor(inv,v.chart)).join(''):_invVazio())))}</div></td></tr>`:''}
-    `).join(''))}</tbody></table></div>
+    `).join(''))}</tbody></table></div>`}
   </div>
   <div class="text-muted" style="text-align:center;margin-top:18px;font-size:12.5px">${v.usinas.length} usinas</div>`;
 }

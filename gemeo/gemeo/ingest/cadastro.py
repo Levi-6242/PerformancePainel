@@ -42,6 +42,9 @@ def _sim(v) -> bool:
 # tela Base > Equipamentos das usinas do Nexus publica a visao `nexus_estrutura_usina · aba_equipamentos` (o formato da aba)
 # das chaves marcadas "no lugar da aba", e esta leitura troca as linhas dessas chaves pelas da visao. A mesma regra da
 # plataforma (plataforma/estrutura_nexus.py), do Nexus e do coletor: mudou la, muda aqui. ESTRUTURA_NEXUS=0 desliga.
+# Desde o Modo de-para (20/10/2026) a visao leva "Código Fracttal" no fim (o ativo que o Nexus grava): aqui cada linha e um
+# dicionario por nome de coluna, e o gemeo nao usa o codigo — a coluna a mais passa sem mudar nada (teste em
+# tests/test_ingest_cadastro.py). Se um dia o gemeo precisar do ativo do Fracttal, e dela que ele sai.
 NEXUS_LIVRO, NEXUS_ABA = "nexus_estrutura_usina", "aba_equipamentos"
 
 
@@ -60,13 +63,48 @@ def _tipo(eq) -> str:
             else "inversor" if e.lower().startswith("inversor") else "")
 
 
+def _grafias_da_aba(linhas: list[dict]) -> dict:
+    """{nome com os espacos juntados: o nome como a aba o escreve}, so onde a aba escreve diferente (espaco duplo). A
+    "Usina Supervisório" vence a "Usina". A mesma regra de plataforma/estrutura_nexus.py (`grafias_da_aba`)."""
+    out = {}
+    for col in ("Usina Supervisório", "Usina"):
+        for x in linhas or ():
+            v = x.get(col)
+            if isinstance(v, str) and v.strip() and v.strip() != " ".join(v.split()):
+                out.setdefault(" ".join(v.split()), v.strip())
+    return out
+
+
 def sobrepor_nexus(linhas: list[dict], visao: list[dict]) -> list[dict]:
     """As linhas da aba com as chaves da visao do Nexus trocadas: saem as de UFV, UG e inversor dessas chaves e entram as
-    da visao. Sem visao, a aba como esta."""
+    da visao. Sem visao, a aba como esta.
+
+    A linha da visao HERDA a grafia da aba quando o nome bate com os espacos juntados (20/10/2026): o Nexus grava a chave
+    "Assis Chateaubriand Skid 1 (79)" e a aba (e a API PV) escrevem "Assis Chateaubriand  Skid 1 (79)", com espaco duplo.
+    O `separar_equipamentos` compara a "Usina Supervisório" crua com o piloto: com a grafia do Nexus, a usina marcada no
+    lugar da aba saia do cadastro do gemeo. A mesma regra da plataforma (`estrutura_nexus.herda_grafia`).
+    O "Usina Fractall" tambem herda, pela MESMA chave e com os espacos juntados batendo (2a revisao final, 21/10/2026): o
+    gemeo guarda o nome do Fracttal da usina, e a "Thopen - Belo Jardim  1 - PE" (espaco duplo na aba e no Fracttal)
+    chegava com os espacos juntados."""
     visao = [dict(x) for x in visao or () if _chave_efetiva(x)]
     chaves = {_chave_efetiva(x) for x in visao}
     if not chaves:
         return list(linhas or ())
+    grafias = _grafias_da_aba(linhas)
+    fracttal = {}
+    for x in linhas or ():
+        v = x.get("Usina Fractall")
+        if isinstance(v, str) and v.strip():
+            fracttal.setdefault((_chave_efetiva(x), " ".join(v.split())), v.strip())
+    for x in visao:
+        k = _chave_efetiva(x)
+        for col in ("Usina Supervisório", "Usina"):
+            g = grafias.get(" ".join(str(x.get(col) or "").split()))
+            if g is not None:
+                x[col] = g
+        fr = fracttal.get((k, " ".join(str(x.get("Usina Fractall") or "").split())))
+        if fr is not None:
+            x["Usina Fractall"] = fr
     return [x for x in linhas or () if _chave_efetiva(x) not in chaves or not _tipo(x.get("Equipamento"))] + visao
 
 

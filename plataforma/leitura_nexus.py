@@ -35,7 +35,16 @@ GRAVACOES = (
     "/api/state/string-trancada", "/api/state/comment/add", "/api/state/comment/del", "/api/state/os-atribuir",
     "/api/state/os-desatribuir", "/api/state/usina-desligada", "/api/state/usina-religada", "/api/state/tracking",
     "/api/strings/tickets/", "/api/entrada/tempo-real/atualizar", "/api/notificacoes/ler-agora",
+    # o Salvar do Modo de-para do Tempo real (20/10/2026) grava a ponte da fonte depois da estrutura no Nexus
+    "/api/admin/de-para/decidir",
 )
+
+# Administração que o Tempo real chama no Modo de-para (20/10/2026: a árvore do Fracttal, o Registro mestre, o
+# diagnóstico): só admin, e a tela só oferece o modo com `RD.abreAdmin` (o `/api/eu`, que pela chave diz sempre "não
+# abre"). A chave da ponte NÃO alcança nada disto (403: fora de `permitido` de propósito; a ponte não tem sessão, muito
+# menos de admin). Fica listado para o teste das páginas saber que é escolha, não esquecimento. O gestor que é admin do
+# Nexus lê pelo `_GET_GESTOR` ("/api/admin/de-para").
+ADMIN_DAS_PAGINAS = ("/api/admin/de-para",)
 
 # parâmetros de query que disparam trabalho pesado (rebuild/coleta/backfill): a ponte do Nexus os remove,
 # e a chave recusa como segunda camada de defesa — com eles, mesmo GET passa a ser operação cara
@@ -175,7 +184,9 @@ _GET_GESTOR = (
     "/api/ronda/whats/status", "/api/ronda/whats/qr",         # Monitor da ronda (só as leituras dele)
     "/api/tokens",                                            # Chaves das fontes: a validade (e só para admin)
     "/api/admin/tempo-real/fontes",                           # Fontes do tempo real: a lista (e só para admin)
-    "/api/admin/de-para",                                     # De-para de equipamentos: o diagnóstico (e só para admin)
+    # De-para de equipamentos (e só para admin): o diagnóstico, o editor e, desde 20/10/2026, as leituras do Modo de-para
+    # (/fracttal/usinas, /fracttal/arvore e /registro: o banco do Nexus e o Fracttal em fundo, nunca a API PV)
+    "/api/admin/de-para",
 )
 
 # POSTs que só consultam: os da ponte, as OS do Fracttal da usina (corpo com usina e inversores) e o Excel da aba Strings

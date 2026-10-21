@@ -13,7 +13,28 @@
    12/10/2026 (Levi: "interface muito feia", "não deveria aparecer usina que já estão ligadas, a não ser que eu tirasse um
    filtro", "pode aumentar a tela, não precisa ser uma barra lateral toda espremida", "em NOVO ao invés de manter tem que
    alertar que está sem de-para"): a lista abre só no que está pendente, o editor é uma janela grande no centro, a lista do
-   cadastro esconde as usinas que outra fonte já liga e o inversor sem de-para diz isso em vez de "manter". #}
+   cadastro esconde as usinas que outra fonte já liga e o inversor sem de-para diz isso em vez de "manter".
+   20/10/2026 (Levi, com o protótipo do Modo de-para aprovado: "adapta na base o de-para para ficar nesse padrão de tabela e
+   apresentar uma usina por linha"): a aba "Por usina" vem primeiro, no padrão do Monitoramento — UMA USINA POR LINHA, por
+   conta da API PV (Usina na fonte · Chave do cadastro · Usina no Registro mestre · Usina no Fracttal · Inversores ligados/na
+   fonte · Strings corretas · kWp · Situação), e o Abrir dá a mesma tabela por inversor do Tempo real (o componente de
+   /static/depara_tabela.js; quem grava a estrutura é o Nexus, e a ponte da fonte vai depois, por aqui). O diagnóstico e o
+   editor da ponte de antes ficam na aba "Diagnóstico" e no ?editar= (o atalho "sem de-para" do Tempo real abre nele). O tema
+   segue o do Nexus na moldura (navy no escuro, o claro do Nexus no claro); aberta direto e em janela, o navy de sempre. #}
+<script>
+// O tema do Nexus antes da 1ª pintura (a régua das Falhas, 12/10/2026): o cookie nexus_tema ou, sem ele, o localStorage
+// nexus.tema; o botão de tema do Nexus troca esta tela na hora (o evento storage chega às molduras da mesma origem).
+(function(){
+  var raiz = document.documentElement;
+  function aplica(t){ if(t === 'claro' || t === 'escuro') raiz.setAttribute('data-tema', t); }
+  try {
+    var c = document.cookie.match(/(?:^|;\s*)nexus_tema=(claro|escuro)(?:;|$)/);
+    aplica(c ? c[1] : localStorage.getItem('nexus.tema'));
+  } catch(e) {}
+  window.addEventListener('storage', function(ev){ if(ev.key === 'nexus.tema') aplica(ev.newValue); });
+})();
+</script>
+<script src="/static/depara_tabela.js"></script>
 <style>
   :root{
     --bg:#090d18; --card:#161d30; --card2:#1c2640; --card3:#222d4a; --linha:rgba(255,255,255,.08); --linha2:rgba(255,255,255,.15);
@@ -22,9 +43,30 @@
     --ambar:#ffd83d; --ambar-suave:rgba(255,216,61,.12); --vermelho:#ff5b6e; --vermelho-suave:rgba(255,91,110,.13);
     --azul:#7fb8ff; --azul-suave:rgba(91,157,255,.14); --mudo-suave:rgba(150,160,180,.12);
     --mono:ui-monospace,"Cascadia Mono",Consolas,monospace;
+    /* os tokens do Monitoramento: a tabela por inversor (depara_tabela.js) é a MESMA do Tempo real */
+    --color-bg:#090d18; --color-surface:#161d30; --color-neutral-900:#0e1626; --color-neutral-500:#767d92;
+    --color-neutral-400:#96a0b4; --color-neutral-300:#c3cad7; --color-neutral-200:#e2e7f0; --color-text:#e9eef6;
+    --color-divider:rgba(255,255,255,.09); --color-accent:#a3d900; --color-accent-200:#ddf094; --color-accent-300:#c4e755;
+    --gc-red:#f2555a; --gc-amber:#f5a623; --gc-blue:#5b9dff; --radius-md:10px;
   }
+  /* o claro do Nexus (os tokens do nexus.css, os mesmos das Falhas): só na moldura com o Nexus no claro, e nunca na janela
+     por cima do Tempo real, que é navy */
+  html.modo-nexus[data-tema="claro"]:not(.janela){color-scheme:light;
+    --bg:#FCFCFC; --card:#ffffff; --card2:#f5f6f8; --card3:#eceef2; --linha:rgba(15,23,42,.10); --linha2:rgba(15,23,42,.18);
+    --txt:#1f2937; --txt2:#475569; --txt3:#5a6475;
+    --verde:#a9db21; --verde-txt:#566610; --verde-suave:rgba(169,219,33,.18);
+    --ambar:#7a5200; --ambar-suave:rgba(230,175,46,.16); --vermelho:#b42230; --vermelho-suave:rgba(220,53,69,.09);
+    --azul:#1d4ed8; --azul-suave:rgba(29,78,216,.08); --mudo-suave:rgba(15,23,42,.06);
+    --color-bg:#FCFCFC; --color-surface:#ffffff; --color-neutral-900:#f5f6f8; --color-neutral-500:#606978;
+    --color-neutral-400:#5a6475; --color-neutral-300:#475569; --color-neutral-200:#334155; --color-text:#1f2937;
+    --color-divider:rgba(15,23,42,.10); --color-accent:#a9db21; --color-accent-200:#566610; --color-accent-300:#566610;
+    --dp-acao:#566610; --dp-amb-txt:#7a5200; --dp-red-txt:#b42230; --dp-ok-txt:#166b36; --dp-hover:rgba(15,23,42,.04);
+  }
+  html.modo-nexus[data-tema="claro"]:not(.janela) .estado.critico{color:#7a1c26}
+  html.modo-nexus[data-tema="claro"]:not(.janela) .estado.atencao{color:#5c3d00}
+  html.modo-nexus[data-tema="claro"]:not(.janela) .veu{background:rgba(15,23,42,.32)}
   *{box-sizing:border-box}
-  html{color-scheme:dark}
+  html:not([data-tema="claro"]),html.janela{color-scheme:dark}
   body{margin:0;background:var(--bg);color:var(--txt);font:400 14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
   [hidden]{display:none !important}
   .topo{border-bottom:1px solid var(--linha);padding:14px 24px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
@@ -146,6 +188,14 @@
   .ok-txt{color:var(--verde-txt)} .erro-txt{color:var(--vermelho)}
   .dpe{padding:12px 24px;border-top:1px solid var(--linha);min-height:46px;display:flex;align-items:center}
   .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  /* as abas: "Por usina" (o padrão novo, 20/10/2026) e o "Diagnóstico" de antes */
+  .abas{display:flex;gap:4px;margin:0 0 18px;border-bottom:1px solid var(--linha)}
+  .abas button{border:0;border-bottom:3px solid transparent;border-radius:0;background:transparent;color:var(--txt3);
+    font-weight:600;padding:9px 14px 8px;margin-bottom:-1px}
+  .abas button[aria-selected=true]{color:var(--txt);border-bottom-color:var(--verde)}
+  .abas button:hover:not(:disabled){border-color:transparent;border-bottom-color:var(--linha2);color:var(--txt)}
+  .abas button[aria-selected=true]:hover{border-bottom-color:var(--verde)}
+  #secUsina{padding-bottom:120px}
 </style>
 </head>
 <body>
@@ -157,10 +207,28 @@
   <span class="msg" id="lido" role="status"></span>
 </div>
 <div class="wrap">
-  <p class="intro">Liga o que cada fonte manda (a usina e cada inversor) ao <b>cadastro de equipamentos</b> — a aba
-    Equipamentos do BD_Performance, com as strings esperadas, a potência e o Full O&amp;M. A ligação feita aqui grava no
-    <b>banco do Nexus</b> (livro nexus_depara), vence o de-para do código e vale na plataforma em minutos, sem editar a
-    planilha.</p>
+  <p class="intro">Liga cada inversor que a fonte manda ao <b>ativo dele no Fracttal</b>, à cabine e à <b>usina do Registro
+    mestre</b>, com as strings corretas e o kWp pela regra do Registro (kWp da usina ÷ strings corretas da usina inteira ×
+    strings do inversor). <b>Por usina</b>: uma usina das contas da API PV por linha; <b>Abrir</b> mostra a tabela por inversor,
+    a mesma do modo de-para do Tempo real. Quem grava a estrutura é o <b>Nexus</b> (que passa a valer no lugar da aba
+    Equipamentos para a usina salva); a ponte da fonte para a chave do cadastro grava aqui (livro nexus_depara).
+    <b>Diagnóstico</b>: como cada fonte liga ao cadastro hoje, com o editor da ponte.</p>
+  <div class="abas" role="tablist" aria-label="De-para">
+    <button type="button" role="tab" id="abaUsina" aria-selected="true" aria-controls="secUsina">Por usina</button>
+    <button type="button" role="tab" id="abaDiag" aria-selected="false" aria-controls="secDiag">Diagnóstico</button>
+  </div>
+  <section id="secUsina" role="tabpanel" aria-labelledby="abaUsina">
+    <div class="filtros">
+      <input type="search" id="pBusca" placeholder="Procurar usina, nome na fonte ou chave" aria-label="Procurar usina na aba Por usina">
+      <select id="pFonte" aria-label="Conta da API PV"><option value="">Todas as contas da API PV</option></select>
+    </div>
+    <div id="porUsina"><p class="vazio">Lendo as tabelas das contas da API PV…</p></div>
+    <p class="rodape">As linhas vêm da tabela de strings que o ciclo já montou (nenhum pedido novo à API PV): cada inversor que a
+      fonte mandou hoje, com o nome dele. A árvore do Fracttal é a foto dos ativos no banco do Nexus; a usina refeita depois
+      dela (a Pharmas virou THPN-PHS100) a plataforma lê no Fracttal em fundo. As outras fontes (o banco da Thopen, a Athon,
+      a Axis, a RenoGrid e o scadaGridco) seguem na aba Diagnóstico.</p>
+  </section>
+  <section id="secDiag" role="tabpanel" aria-labelledby="abaDiag" hidden>
   <div class="kpis" id="kpis"></div>
   <div class="filtros">
     <input type="search" id="busca" placeholder="Procurar usina, nome na fonte ou chave" aria-label="Procurar usina, nome na fonte ou chave">
@@ -175,6 +243,7 @@
     que esta máquina não leu (a SunOp no PC, em modo ronda) aparece como não lida. As contas da API PV ligam a usina pelo
     id; a Athon e a Axis, pelo nome — com apelido decidido aqui quando o nome não casa. A Thopen do banco (pelo id da
     usina no banco) e a RenoGrid (SolarEdge) ainda se corrigem no cadastro.</p>
+  </section>
 </div>
 
 <div class="veu" id="veu" hidden></div>
@@ -532,6 +601,54 @@
     });
     msg(usados ? usados + ' nome(s) da sugestão nos campos (os de confiança fraca ficaram de fora). Confira e clique em Salvar inversores.' : 'Nenhuma sugestão com confiança para usar.', !usados);
   }
+
+  // ── a aba Por usina (20/10/2026) ──────────────────────────────────────────────────────────────────────────────────
+  // As contas da API PV: a linha de cada usina já traz o resumo por inversor (`inv_resumo`) e a chave do cadastro de hoje.
+  var CONTAS = [{id: 'pv', url: '/api/data', nome: 'Thopen · API PV Operation'}, {id: 'semp', url: '/api/semp/data', nome: 'SEMP · API PV Operation'},
+                {id: 'alveslima', url: '/api/alveslima/data', nome: 'Alves Lima · API PV Operation'}, {id: '2capi', url: '/api/2capi/data', nome: '2C · API PV Operation'}];
+  var DP = null, DP_FALHAS = [];
+  function filtroUsina(g){
+    var q = $('pBusca').value.trim().toLowerCase(), f = $('pFonte').value;
+    if(f && g.fonte !== f) return false;
+    return !q || [g.usina, g.plant_id, g.nome_api, g.chave_cadastro].some(function(x){ return String(x || '').toLowerCase().indexOf(q) >= 0; });
+  }
+  function desenharUsinas(){
+    if(!DP) return;
+    $('porUsina').innerHTML = (DP_FALHAS.length ? '<p class="vazio erro-txt">Não lidas agora: ' + esc(DP_FALHAS.join(' · ')) + '. As outras seguem abaixo.</p>' : '') + DP.html(filtroUsina);
+  }
+  async function lerConta(c){
+    // a 1ª leitura do web recém-subido responde `carregando`: espera a tabela do ciclo (até 1 min)
+    for(var n = 0; n < 10; n++){
+      var d = await lerJson(c.url);
+      if(d && Array.isArray(d.rows)) return d.rows;
+      if(!(d && d.carregando)) throw new Error('a tabela veio sem linhas');
+      await new Promise(function(r){ setTimeout(r, 6000); });
+    }
+    throw new Error('a tabela ainda está montando');
+  }
+  async function lerUsinas(){
+    if(DP || !window.DeparaTabela) { if(!window.DeparaTabela) $('porUsina').innerHTML = '<p class="vazio erro-txt">O componente do de-para não carregou (/static/depara_tabela.js).</p>'; return; }
+    DP = window.DeparaTabela.criar({resumo: true, blocos: CONTAS.map(function(c){ return {id: c.id, nome: c.nome}; }), redesenhar: desenharUsinas});
+    var linhas = [], vistos = {};
+    await Promise.all(CONTAS.map(async function(c){
+      try { (await lerConta(c)).forEach(function(r){ if(r.plant_id == null || vistos[r.plant_id]) return; vistos[r.plant_id] = 1; linhas.push(Object.assign({}, r, {depara_fonte: r.depara_fonte || c.id})); }); }
+      catch(e){ DP_FALHAS.push(c.nome + ': ' + e.message); }
+    }));
+    var sel = $('pFonte');
+    CONTAS.forEach(function(c){ var o = document.createElement('option'); o.value = c.id; o.textContent = c.nome; sel.appendChild(o); });
+    await DP.entrar(linhas, 'pv');
+  }
+  function aba(qual){
+    var u = qual === 'usina';
+    $('abaUsina').setAttribute('aria-selected', String(u)); $('abaDiag').setAttribute('aria-selected', String(!u));
+    $('secUsina').hidden = !u; $('secDiag').hidden = u;
+    if(DP){ if(u) DP.barra(); else { var b = document.getElementById('gc-dpbar'); if(b) b.style.display = 'none'; } }
+  }
+  $('abaUsina').addEventListener('click', function(){ aba('usina'); });
+  $('abaDiag').addEventListener('click', function(){ aba('diag'); });
+  $('pBusca').addEventListener('input', desenharUsinas);
+  $('pFonte').addEventListener('change', desenharUsinas);
+  if(!document.documentElement.classList.contains('janela')) lerUsinas();
 
   $('corpo').addEventListener('click', function(ev){
     var b = ev.target.closest('button[data-ed]');
