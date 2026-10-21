@@ -2075,8 +2075,11 @@ Mockup com o dado real de outubro aprovado no mesmo dia. O que mudou em
   sem a data (eram 410 caixas em outubro, viram 26).
 - **Tirar da conta** = o desconsiderar de antes (mesma rota, mesma caixa: marcar tira, desmarcar devolve), com as tiradas
   numa gaveta lateral (a mensagem sai dentro dela, o foco vai e volta; a perda é a do pacote do mês, o resumo da hora fica
-  de reserva); o 403 do gestor diz o motivo (`j.error`) e põe a tela em só leitura (ver Vincular OS). Nas strings a caixa da
-  linha tira TODAS as paradas de string da ocorrência num pedido só (`chaves` + `resumos`; a Inhapi 3.3 são 4, em outubro
+  de reserva); o 403 do gestor diz o motivo (`j.error`) e põe a tela em só leitura (ver Vincular OS). **Nas strings a coluna
+  saiu em 21/10/2026** (Levi: "tire a coluna tirar da conta em strings"): fica só nos trackers; as tiradas de string de antes
+  seguem fora dos totais e na gaveta, onde dá para voltar. O que vem abaixo sobre a caixa das strings vale para quando ela
+  voltar (o código e os testes do lote ficaram). Nas strings a caixa da
+  linha tirava TODAS as paradas de string da ocorrência num pedido só (`chaves` + `resumos`; a Inhapi 3.3 são 4, em outubro
   uma chegou a 33) e a linha fica riscada na hora (as tiradas nesta visita formam uma ocorrência à parte, `fora`, que volta
   a juntar ao desmarcar). A chave é por DIA (`fonte|cadastro|inversor|string|dia`; a do tracker, `fonte|cadastro|tracker|
   dia`): duas ocorrências do mesmo equipamento que começam no mesmo dia dividem as chaves e a caixa de uma tira a outra

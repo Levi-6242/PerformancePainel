@@ -885,8 +885,10 @@
     const txt = r.dur_min_h != null && r.dur_h - r.dur_min_h >= 0.1 ? `${nf1.format(r.dur_min_h)} a ${nf1.format(r.dur_h)} h` : `${nf1.format(r.dur_h)} h`;
     return r.janela ? `<span title="das ${esc(r.janela.replace('–', ' às '))}">${txt}</span>` : txt;
   }
+  // nas strings não há mais a coluna "Tirar da conta" (21/10/2026, Levi: "tire a coluna tirar da conta em strings"): as
+  // tiradas de antes seguem fora dos totais e na gaveta "Tiradas da conta" (dá para voltar por lá); nos trackers, fica
   const COLS = {
-    str: [['usina', 'Usina'], ['inversor', 'Inversor'], ['qtd', 'Strings', 'col-str'], ['inicio', 'Parou'], ['fim', 'Voltou'], ['_dur', 'Duração'], ['perda_kwh', 'Perda', 'r'], [null, 'OS'], [null, 'Avisos', 'col-av'], ['_desc', 'Tirar da conta', 'chk-col']],
+    str: [['usina', 'Usina'], ['inversor', 'Inversor'], ['qtd', 'Strings', 'col-str'], ['inicio', 'Parou'], ['fim', 'Voltou'], ['_dur', 'Duração'], ['perda_kwh', 'Perda', 'r'], [null, 'OS'], [null, 'Avisos', 'col-av']],
     trk: [['usina', 'Usina'], ['_eq', 'Tracker'], ['inicio', 'Parou'], ['fim', 'Voltou'], ['_dur', 'Tempo parado'], ['desvio_pico', 'Desvio', 'r'], ['perda_kwh', 'Perda', 'r'], [null, 'OS'], [null, 'Avisos', 'col-av'], ['_desc', 'Tirar da conta', 'chk-col']],
   };
   // o acompanhamento diário do drill (Levi, 20/10/2026, 1.6: "ao clicar na linha abra um drill mostrando o acompanhamento
@@ -917,7 +919,8 @@
     const usina = `<td><div class="cel-u"><span class="seta${abre ? '' : ' sem'}" aria-hidden="true"></span><div><b>${esc(r.usina)}</b><span class="det">${esc(r.cliente)} · ${esc(FONTE[r.fonte] || r.fonte)}</span></div></div></td>`;
     // os dias de calendário com parada, que não são o relógio de cima (Inhapi 3.3: 19 dias de relógio, em 20 dias com parada)
     const ndias = abre ? `<span class="det">${plural(nd, 'dia', 'dias')} com parada</span>` : '';
-    const chk = SO_LEITURA ? '' : `<td class="chk-col">${chkDesc(r)}</td>`;      // só leitura: a coluna inteira sai
+    // só leitura: a coluna inteira sai; nas strings ela não existe mais (21/10/2026)
+    const chk = SO_LEITURA || !trk ? '' : `<td class="chk-col">${chkDesc(r)}</td>`;
     const mae = trk
       ? `${tr}${usina}<td><span class="mono">${esc(r.tracker)}</span><span class="det">${r.inversor ? esc(r.inversor) : 'sem inversor no cadastro'}</span></td>
       <td>${parou(r, a)}</td><td>${voltou(r, a)}</td><td class="tab">${tempo(r)}${ndias}</td>

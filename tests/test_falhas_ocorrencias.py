@@ -305,7 +305,7 @@ def test_o_drill_abre_na_linha_de_varios_dias_e_continua_aberto_depois_de_redese
     assert r["abre"] == [r["id"]]
     for html in (r["aberto"], r["depois"]):                          # o desenha() refaz a tabela e o aberto fica aberto
         assert linha.search(html.replace(' class="cn-linha com-detalhe"', ' class="cn-linha"')).group(1) == "true"
-        assert f'<tr class="cn-detalhe" data-de="{r["id"]}"><td colspan="10">' in html
+        assert f'<tr class="cn-detalhe" data-de="{r["id"]}"><td colspan="9">' in html     # 9: sem o "Tirar da conta" (21/10)
         assert "Acompanhamento diário · <b>20 dias com parada</b>" in html and "Duração no dia" in html
     assert r["abreFim"] == [] and 'class="cn-detalhe"' not in r["fechado"]     # Enter na linha fecha
     # a ocorrência de um dia só não abre: sem seta, sem cn-linha
@@ -651,8 +651,6 @@ def test_o_foco_volta_ao_botao_equivalente_da_mesma_linha(tmp_path):
       await clica(noBotao('vincular', id));
       RESP['/api/painel/falhas/vinculos'] = [200, {ok: true, vinculos: [%s]}];
       await clica(noBotao('vinc', id, 16561)); f.vinculou = ult();
-      const ev = {target: {closest: () => ({dataset: {chave: g2.chave, id}, checked: true})}};
-      await ELS.tab._ouv.change[0](ev); await espera(); f.caixa = ult();
       out({id, f});""" % json.dumps(VINC_16561)
     r = _roda(tmp_path, pacote(GUATAMBU_EPS, GUATAMBU_DIAS), js, vinculos=[VINC_16561],
               resp={"/api/painel/falhas/os": [200, OS_RESP], "/api/painel/falhas/desconsiderar": [200, {"ok": True, "n": 5}]})
@@ -661,7 +659,6 @@ def test_o_foco_volta_ao_botao_equivalente_da_mesma_linha(tmp_path):
     assert f["pediu"] == [i, '[data-os="desv-nao"]']                    # o "Cancelar" (Enter duas vezes não desvincula)
     assert f["cancelou"] == [i, '[data-os="desv"][data-n="16561"]']     # de volta ao "×" daquela OS
     assert f["desvinculou"] == [i, '[data-os="vincular"]'] and f["vinculou"] == [i, '[data-os="vincular"]']
-    assert f["caixa"] == [i, "input.desc-chk"]                          # a caixa "Tirar da conta" também
 
 
 @precisa_node
@@ -678,7 +675,8 @@ def test_depois_do_1o_403_a_caixa_e_o_voltar_para_a_conta_tambem_somem(tmp_path)
     r = _roda(tmp_path, pacote(INHAPI_EPS, INHAPI_DIAS), js, resp={
         "/api/painel/falhas/desconsideradas": [200, desc],
         "/api/painel/falhas/desconsiderar": [403, {"error": "somente leitura (perfil gestor)"}]})
-    assert 'class="desc-chk"' in r["antes"]["tab"] and "voltar para a conta" in r["antes"]["gaveta"]
+    # nas strings a coluna "Tirar da conta" saiu em 21/10/2026; a gaveta segue com o "voltar para a conta"
+    assert 'class="desc-chk"' not in r["antes"]["tab"] and "voltar para a conta" in r["antes"]["gaveta"]
     assert 'data-os="vincular"' in r["antes"]["tab"]
     assert "desc-chk" not in r["tab"] and "Tirar da conta" not in r["tab"] and 'data-os="vincular"' not in r["tab"]
     assert 'colspan="9"' in r["tab"] and "disabled" not in r["tab"]     # o drill acompanha a coluna que saiu
@@ -926,3 +924,15 @@ def test_o_cartao_conta_as_ocorrencias_da_usina_no_mes(tmp_path):
 def test_a_perda_estimada_sem_o_sublinhado_tracejado():
     # 21/10/2026, Levi: "tira esse underline traçado de perda" — o ≈ e a dica ficam
     assert "dotted" not in HTML and ".est{cursor:help}" in HTML
+
+
+# ── 9. Sem a coluna "Tirar da conta" nas strings (Levi, 21/10/2026: "tire a coluna tirar da conta em strings") ─────────
+@precisa_node
+def test_as_strings_sem_a_coluna_tirar_da_conta_e_os_trackers_com_ela(tmp_path):
+    trk = [{"fonte": "pg", "plant_id": "21", "cliente": "Thopen", "usina": "Aparecida 3", "tracker": "Tracker 32", "inversor": "",
+            "desvio_pico": 60.0, "cronico": False, "sem_com_desde": None, "flags": [], "chave": "pg|21|Tracker 32|2026-10-04",
+            "visto_ate": "2026-10-04", "inicio": "2026-10-04 08:00", "fim": "2026-10-04 10:00", "perda_kwh": 5.0}]
+    js = """T.desenha(); const str = ELS.tab.innerHTML; T.S.aba = 'trk'; T.desenha(); out({str, trk: ELS.tab.innerHTML});"""
+    r = _roda(tmp_path, pacote(INHAPI_EPS, INHAPI_DIAS, trk=trk), js)
+    assert "Tirar da conta" not in r["str"] and "desc-chk" not in r["str"] and "chk-col" not in r["str"]
+    assert "Tirar da conta" in r["trk"] and 'class="desc-chk"' in r["trk"]
