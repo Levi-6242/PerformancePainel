@@ -321,6 +321,16 @@ do próprio processo (o que o alocador guarda depois de liberado). Duas correç�
   (seção "Quem ocupa a memória da máquina"). Teste: `tests/test_worker_devolve_memoria.py`.
 O maior ganho que sobra é o dia de hoje dos trackers em formato compacto (~400–570 MB no fim do dia), que mexe em todos
 os leitores da curva e nas respostas das telas: Levi, 20/10, "não mexa nos trackers agora".
+**O relatório de memória do worker, que o Raio-X do Nexus mostra (20/10/2026, à noite).** No servidor o worker foi de
+3,7 para 5,0 GB (com o swap) entre 16:12 e 16:38 de 20/10, rápido demais para o que se mediu no PC: um backfill que só
+roda lá, e a medição de dentro (`sys.remote_exec`) só dava no PC. A cada passada do faxineiro, depois de devolver a
+memória, o worker (`_relatorio_memoria_worker`) estima POR AMOSTRA (`_tamanho_estimado`: contêiner com mais de 100 itens
+tem 10 medidos e o resto pela média) e com teto de 3 s quanto cada variável dos módulos da plataforma ocupa, e grava em
+`/dev/shm/gridco_plataforma_worker.json` (`RELATORIO_MEMORIA_ARQ`; a memória compartilhada da máquina, que o Nexus, outro
+usuário, lê sem configuração: por isso 0644) as 12 maiores, a memória do processo e o histórico das últimas 3 h (18
+passadas). Gravado com outro nome e trocado de uma vez: o processo morto no meio deixa o relatório anterior inteiro. Só no
+Linux; não muda nenhum dado. O Raio-X do Nexus (seção "Dentro do worker da plataforma") mostra cada variável agora × ~1 h
+antes e avisa quando o relatório passa de 30 min (o worker parou de anotar). Teste: `tests/test_worker_relatorio_memoria.py`.
 
 ## Ponte do Nexus: chave só de leitura e sub-caminho (04/10/2026)
 

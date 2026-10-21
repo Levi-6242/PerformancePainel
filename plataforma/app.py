@@ -2,8 +2,11 @@
 import re
 import unicodedata
 import calendar
+import collections
 import ctypes
 import io
+import itertools
+import types
 import csv
 import copy
 import time
@@ -24925,10 +24928,141 @@ def _devolve_memoria() -> None:
             pass
 
 
+# ── O relatório de memória do worker, que o Raio-X do Nexus mostra (Desempenho, 20/10/2026) ───────────────────────────
+# No servidor o worker foi de 3,7 para 5,0 GB (com o swap) em 26 min, entre 16:12 e 16:38 de 20/10, e o Nexus travou
+# esperando o disco. A medição de dentro (sys.remote_exec) só dá no PC, que não roda os backfills do servidor: quem cresce
+# lá ninguém via. A cada passada do faxineiro o worker estima, POR AMOSTRA (percorrer o worker inchado custaria segundos
+# de processador, e no swap, disco) e com teto de tempo, quanto cada variável dos módulos da plataforma ocupa, e grava um
+# JSON pequeno em /dev/shm (a memória compartilhada da máquina: o Nexus, outro usuário, lê sem configuração), com o
+# histórico das últimas 3 h para se ver o que cresceu. Só no Linux; não muda nenhum dado. Prova:
+# tests/test_worker_relatorio_memoria.py.
+RELATORIO_MEMORIA_ARQ = "gridco_plataforma_worker.json"
+_RELATORIO_HISTORICO = 18                  # 18 passadas de 10 min = 3 h
+_RELATORIO_TETO_S = 3.0                    # o relatório nunca segura o worker mais que isso
+_RELATORIO_MEMORIA: list = []              # as últimas passadas: {quando, rss_mb, swap_mb, caches: {nome: mb}}
+
+
+def _pasta_relatorio():
+    """/dev/shm no Linux; None fora dele (no PC, nada)."""
+    if _sys.platform.startswith("linux") and os.path.isdir("/dev/shm"):
+        return "/dev/shm"
+    return None
+
+
+def _ler_status_proprio() -> str:
+    try:
+        with open("/proc/self/status", encoding="ascii", errors="replace") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
+def _tamanho_estimado(obj, vistos: set, lim: int = 100, amostra: int = 10) -> float:
+    """Bytes de `obj` e do que ele guarda, por amostra: contêiner com mais de `lim` itens tem `amostra` deles medidos e
+    o resto estimado pela média (medido no worker do PC em 20/10: a estimativa por amostra bate com a medida real)."""
+    total, pilha = 0.0, [(obj, 1.0)]
+    while pilha:
+        o, peso = pilha.pop()
+        if id(o) in vistos or isinstance(o, (types.ModuleType, types.FunctionType, type)):
+            continue
+        vistos.add(id(o))
+        try:
+            total += _sys.getsizeof(o) * peso
+        except Exception:                               # noqa: BLE001
+            continue
+        if isinstance(o, dict):
+            n = len(o)
+            try:
+                itens = list(itertools.islice(o.items(), amostra)) if n > lim else list(o.items())
+            except RuntimeError:                        # mudou de tamanho no meio (outra thread): fica o que já contou
+                continue
+            f = peso * n / len(itens) if itens and n > lim else peso
+            for k, v in itens:
+                pilha.append((k, f))
+                pilha.append((v, f))
+        elif isinstance(o, (list, tuple, set, frozenset, collections.deque)):
+            n = len(o)
+            try:
+                if n > lim:
+                    itens = ([o[j * n // amostra] for j in range(amostra)] if isinstance(o, (list, tuple))
+                             else list(itertools.islice(o, amostra)))
+                else:
+                    itens = list(o)
+            except (IndexError, RuntimeError):
+                continue
+            f = peso * n / len(itens) if itens and n > lim else peso
+            for x in itens:
+                pilha.append((x, f))
+        elif type(o).__module__.startswith("pandas"):
+            try:
+                mu = o.memory_usage(index=True, deep=False)
+                total += float(mu.sum() if hasattr(mu, "sum") else mu) * peso
+            except Exception:                           # noqa: BLE001
+                pass
+    return total
+
+
+def _relatorio_memoria_worker(pasta=None, teto: int = 12):
+    """Estima quanto cada variável dos módulos da plataforma ocupa e grava o relatório em `pasta` (padrão: /dev/shm no
+    Linux). Devolve o relatório, ou None sem pasta."""
+    pasta = pasta or _pasta_relatorio()
+    if not pasta:
+        return None
+    t0, parcial, vistos, caches = time.monotonic(), False, set(), []
+    raiz = os.path.normcase(_RAIZ)
+    mods = [m for m in list(_sys.modules.values())
+            if getattr(m, "__file__", None) and os.path.normcase(os.path.abspath(m.__file__)).startswith(raiz)]
+    for m in mods:
+        for nome, valor in list(vars(m).items()):
+            if nome.startswith("__") or isinstance(valor, (types.ModuleType, types.FunctionType, type)):
+                continue
+            if time.monotonic() - t0 > _RELATORIO_TETO_S:
+                parcial = True
+                break
+            mb = _tamanho_estimado(valor, vistos) / 2**20
+            if mb >= 1:
+                item = {"nome": f"{m.__name__}.{nome}", "mb": round(mb, 1)}
+                try:
+                    item["itens"] = len(valor)
+                except TypeError:
+                    pass
+                caches.append(item)
+        if parcial:
+            break
+    caches.sort(key=lambda c: -c["mb"])
+    kb = {}
+    for linha in _ler_status_proprio().splitlines():
+        campo, _, resto = linha.partition(":")
+        if campo in ("VmRSS", "VmSwap") and resto.split():
+            kb[campo] = int(resto.split()[0])
+    rel = {"quando": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"), "pid": os.getpid(),
+           "rss_mb": round(kb.get("VmRSS", 0) / 1024), "swap_mb": round(kb.get("VmSwap", 0) / 1024),
+           "caches": caches[:teto], "parcial": parcial, "segundos": round(time.monotonic() - t0, 2)}
+    _RELATORIO_MEMORIA.append({"quando": rel["quando"], "rss_mb": rel["rss_mb"], "swap_mb": rel["swap_mb"],
+                               "caches": {c["nome"]: c["mb"] for c in caches[:teto]}})
+    del _RELATORIO_MEMORIA[:-_RELATORIO_HISTORICO]
+    rel["historico"] = list(_RELATORIO_MEMORIA)
+    fd, tmp = tempfile.mkstemp(dir=pasta, prefix=".gridco_worker_", suffix=".tmp")
+    try:
+        if hasattr(os, "fchmod"):
+            os.fchmod(fd, 0o644)                        # o Nexus roda como outro usuário
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(rel, f, ensure_ascii=False)
+        os.replace(tmp, os.path.join(pasta, RELATORIO_MEMORIA_ARQ))
+    except Exception:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
+    return rel
+
+
 def _janitor_loop(intervalo=600):
     """Roda no worker, a cada 10 min. Medido em 25/07: o worker chega a 3,3 GB de residente
     depois de ~15 min de backfills — daí varrer com frequência, não de meia em meia hora. Depois de
-    cada passada, o que saiu volta ao sistema (`_devolve_memoria`, 20/10/2026)."""
+    cada passada, o que saiu volta ao sistema (`_devolve_memoria`) e o relatório de memória que o
+    Raio-X do Nexus mostra é regravado (`_relatorio_memoria_worker`), 20/10/2026."""
     while True:
         time.sleep(intervalo)
         try:
@@ -24938,6 +25072,10 @@ def _janitor_loop(intervalo=600):
         except Exception as e:
             print(f"[janitor] falhou: {e}")
         _devolve_memoria()
+        try:
+            _relatorio_memoria_worker()
+        except Exception as e:                          # noqa: BLE001 — o relatório nunca derruba o faxineiro
+            print(f"[janitor] relatório de memória falhou: {e}")
 
 
 def _snapshot_watch_loop(intervalo=20):
