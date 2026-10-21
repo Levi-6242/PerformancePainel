@@ -1783,8 +1783,10 @@ Mockup com o dado real de outubro aprovado no mesmo dia. O que mudou em
   aberta). Sem tolerância. Pacote de 20/10 13:45: 1.456 paradas → **344 ocorrências** (66 paradas agora, 116 com 2+ dias);
   no das 11:03, 337. A estrita ("antes do fim") dava 349/342 — os 5 a mais são Castelo do Piauí: uma string volta às 11:20
   e outra cai às 11:20, na mesma leitura. "Só linhas confiáveis" tira a PARADA com aviso da régua antes de juntar.
-  - Colunas: Usina | Inversor | Strings (as distintas; embaixo a lista curta, "máx. N juntas" quando difere — Guaratinguetá
-    V 1.3, 07 a 14/10: 10 distintas, 6 juntas — e "N paradas agora" quando parte já voltou) | Parou | Voltou | Duração
+  - Colunas: Usina | Inversor | Strings (as distintas; embaixo a lista INTEIRA, "máx. N juntas" quando difere — Guaratinguetá
+    V 1.3, 07 a 14/10: 10 distintas, 6 juntas — e "N paradas agora" quando parte já voltou; 21/10/2026, Levi: "aumenta o
+    tamanho da coluna de strings prioriza mais isso que avisos": `col-str` com 260 px no mínimo e a lista sem o "+N",
+    `col-av` encolhida com as etiquetas quebrando em linhas) | Parou | Voltou | Duração
     (relógio; "N dias" embaixo) | Perda | OS | Avisos | Tirar da conta. Parado agora = alguma string `em aberto` (a régua
     de sempre das strings; a do `dcf725a` é só dos trackers).
   - **Volta sem hora inventada:** "voltou de madrugada" (43% das ocorrências de outubro) mostra só o dia + "de madrugada"

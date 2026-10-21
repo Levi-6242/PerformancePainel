@@ -413,7 +413,7 @@ def test_trackers_ganham_a_coluna_os_e_o_drill_pelo_dia_a_dia_da_linha(tmp_path)
     js = """T.S.aba = 'trk'; T.desenha();
       for (const r of T.D.trackers.rows) T.S.abre.add(T.idLinha(r)); T.desenha(); out(ELS.tab.innerHTML);"""
     html = _roda(tmp_path, pacote(trk=[com_dias, sem_dias], trackers_dia=td), js)
-    assert '<th class="">OS</th><th class="">Avisos</th>' in html    # a coluna nova, antes de Avisos
+    assert '<th class="">OS</th><th class="col-av">Avisos</th>' in html    # a coluna nova, antes de Avisos
     assert "Horas paradas" in html and "9,5 h" in html and "180 kWh" in html and "comunicou" in html
     assert "parado neste dia" in html and "Detalhe por hora a partir de outubro." in html      # pacote sem `dias`
     # o pacote sem `dias` também lista todos os dias (01 a 03/10): o 02/10 do registro e os outros dois sem leitura
@@ -888,3 +888,11 @@ def test_o_filtro_de_fonte_saiu_e_o_frescor_ficou():
     assert 'id="f-fonte"' not in HTML and "S.fonte" not in HTML and "fonte: ''" not in HTML
     assert 'id="fonte"' in HTML and "const FONTE = {" in HTML                 # o frescor (sessão vencida) e o rótulo
     assert 'id="vis"' not in HTML and "S.vis" not in HTML and "data-vis" not in HTML   # a visão "Por string" saiu
+
+
+# ── 7. Strings antes de Avisos (Levi, 21/10/2026: "aumenta o tamanho da coluna de strings prioriza mais isso que avisos")
+def test_a_coluna_strings_tem_prioridade_sobre_avisos():
+    assert "['qtd', 'Strings', 'col-str']" in HTML and "[null, 'Avisos', 'col-av']" in HTML
+    assert "th.col-str,td.col-str{min-width:260px}" in HTML and "td.col-av .tag{white-space:normal}" in HTML
+    assert '<td class="col-str">${strCel(r)}</td>' in HTML
+    assert "' +' + (o.lista.length" not in HTML                       # a lista inteira, sem o "Ipv1, Ipv2 +2"
