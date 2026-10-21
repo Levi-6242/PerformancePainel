@@ -65,6 +65,12 @@ chaves por ela, pela mesma regra: a plataforma (`plataforma/estrutura_nexus.py`)
 cadastro.py`), o coletor (`load_name_mapping`, desligado por padrão) e as Ligações do Nexus. Mudou a regra ou o formato
 num, muda nos outros no mesmo trabalho. Detalhe em `plataforma/CLAUDE.md` e em `nexus/cadastro/CLAUDE.md` (Nexus).
 
+Desde o Modo de-para (21/10/2026, Nexus 6454293 + plataforma d21dc35): a visão ganhou a coluna **"Código Fracttal"** no
+fim, e o `sobrepor` da plataforma, do gêmeo e do Nexus faz a linha da visão **herdar a grafia da aba** (a chave e a Usina
+Fractall) quando só os espaços diferem — a "Assis Chateaubriand  Skid 1 (79)", de espaço duplo, sumia dos leitores. O
+**coletor ainda não tem as duas regras** (o repositório dele tinha trabalho de outra sessão sem commit): quem ligar o
+`load_name_mapping` põe as duas antes.
+
 ## Acoplamento conhecido: Nexus → plataforma (porta única, 09/10/2026)
 
 O Nexus (outro repositório, `Grid-Co-CODE/nexus`) abre as telas da plataforma numa moldura com um passe assinado
