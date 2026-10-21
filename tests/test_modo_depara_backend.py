@@ -458,10 +458,14 @@ def test_o_cadastro_da_plataforma_para_o_modo(cli, monkeypatch):
     """P-j, P-m e P-i: as chaves do cadastro desta plataforma com os inversores de cada uma (o nome, as strings, o kWp de antes
     e a UG), do que já está na memória. A Coração 2 (112) da aba, que o Nexus não tem; o apelido do nome da API ("Sete
     Lagoa") não é chave do cadastro e fica de fora. Só admin."""
-    monkeypatch.setattr(app, "ESPERADO_INV", {"Coração 2 (112)": {"INVERSOR01": 20, "INVERSOR02": 20}, "Sete Lagoa": {"INV1": 10}})
-    monkeypatch.setattr(app, "EQUIP_NAMES", {"Coração 2 (112)": {"INVERSOR01": "Inversor 1.1", "INVERSOR02": "Inversor 1.2"},
+    # o INVERSOR03 com o kWp NaN (célula vazia da aba): no servidor, em 21/10/2026, 37 "kwp": NaN deixavam o JSON inválido
+    monkeypatch.setattr(app, "ESPERADO_INV", {"Coração 2 (112)": {"INVERSOR01": 20, "INVERSOR02": 20, "INVERSOR03": float("nan")},
+                                              "Sete Lagoa": {"INV1": 10}})
+    monkeypatch.setattr(app, "EQUIP_NAMES", {"Coração 2 (112)": {"INVERSOR01": "Inversor 1.1", "INVERSOR02": "Inversor 1.2",
+                                                                 "INVERSOR03": "Inversor 1.3"},
                                               "Sete Lagoa": {"INV1": "Inversor 1.1"}})
-    monkeypatch.setattr(app, "POWER_INV", {"Coração 2 (112)": {app._nrm("INVERSOR01"): 250.0, app._nrm("Inversor 1.2"): 250.0}})
+    monkeypatch.setattr(app, "POWER_INV", {"Coração 2 (112)": {app._nrm("INVERSOR01"): 250.0, app._nrm("Inversor 1.2"): 250.0,
+                                                               app._nrm("INVERSOR03"): float("nan")}})
     monkeypatch.setattr(app, "EQUIP_PARENTE", {"Coração 2 (112)": {"INVERSOR01": "UG 01"}})
     monkeypatch.setattr(app, "USINA_GRUPO", {"Coração 2 (112)": "Coração 2"})
     monkeypatch.setattr(app, "PV_NOME_API_ALIAS", {"Sete Lagoa": "Sete Lagoas"})
@@ -469,7 +473,10 @@ def test_o_cadastro_da_plataforma_para_o_modo(cli, monkeypatch):
     entrar(cli, "analista@exemplo.com", admin=False)
     assert cli.get("/api/admin/de-para/cadastro").status_code == 403
     entrar(cli, "admin@exemplo.com", admin=True)
-    j = cli.get("/api/admin/de-para/cadastro").get_json()
+    r = cli.get("/api/admin/de-para/cadastro")
+    assert "NaN" not in r.get_data(as_text=True)
+    j = json.loads(r.get_data(as_text=True))                 # o parse estrito, como o do navegador
     assert j["chaves"] == [{"chave": "Coração 2 (112)", "exibicao": "Coração 2", "inversores": [
         {"esup": "INVERSOR01", "nome": "Inversor 1.1", "esp": 20, "kwp": 250.0, "ug": "UG 01"},
-        {"esup": "INVERSOR02", "nome": "Inversor 1.2", "esp": 20, "kwp": 250.0, "ug": None}]}]
+        {"esup": "INVERSOR02", "nome": "Inversor 1.2", "esp": 20, "kwp": 250.0, "ug": None},
+        {"esup": "INVERSOR03", "nome": "Inversor 1.3", "esp": None, "kwp": None, "ug": None}]}]

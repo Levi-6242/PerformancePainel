@@ -4097,8 +4097,10 @@ def api_dpf_cadastro():
             if k is None:
                 k = pot.get(_nrm(nome))
             e = esp.get(esup)
-            invs.append({"esup": esup, "nome": nome, "esp": e if isinstance(e, (int, float)) else None,
-                         "kwp": k if isinstance(k, (int, float)) else None, "ug": par.get(esup) or None})
+            # o NaN da aba (célula de kWp vazia lida pelo pandas) saía como `NaN` no JSON, que o navegador recusa: no
+            # servidor, em 21/10/2026, 37 deles (a Aparecida 2 com "kwp": NaN) e a tela inteira ficava sem o cadastro
+            num = lambda x: x if isinstance(x, (int, float)) and not isinstance(x, bool) and x == x and abs(x) != float("inf") else None
+            invs.append({"esup": esup, "nome": nome, "esp": num(e), "kwp": num(k), "ug": par.get(esup) or None})
         out.append({"chave": chave, "exibicao": USINA_GRUPO.get(chave) or USINA_DISPLAY.get(chave) or None,
                     "inversores": invs})
     return jsonify({"chaves": out, "carregado_em": _EN_ESTADO.get("carregado_em")})
