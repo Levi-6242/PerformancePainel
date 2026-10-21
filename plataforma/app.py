@@ -25367,9 +25367,10 @@ def _tamanho_estimado(obj, vistos: set, lim: int = 100, amostra: int = 10) -> fl
     return total
 
 
-def _relatorio_memoria_worker(pasta=None, teto: int = 12):
+def _relatorio_memoria_worker(pasta=None, teto: int = 12, arquivo: str = None):
     """Estima quanto cada variável dos módulos da plataforma ocupa e grava o relatório em `pasta` (padrão: /dev/shm no
-    Linux). Devolve o relatório, ou None sem pasta."""
+    Linux), no `arquivo` deste processo (o do worker, ou o do web: `_memoria_web_loop`). Devolve o relatório, ou None
+    sem pasta."""
     pasta = pasta or _pasta_relatorio()
     if not pasta:
         return None
@@ -25413,7 +25414,7 @@ def _relatorio_memoria_worker(pasta=None, teto: int = 12):
             os.fchmod(fd, 0o644)                        # o Nexus roda como outro usuário
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(rel, f, ensure_ascii=False)
-        os.replace(tmp, os.path.join(pasta, RELATORIO_MEMORIA_ARQ))
+        os.replace(tmp, os.path.join(pasta, arquivo or RELATORIO_MEMORIA_ARQ))
     except Exception:
         try:
             os.remove(tmp)
@@ -25441,6 +25442,28 @@ def _janitor_loop(intervalo=600):
             _relatorio_memoria_worker()
         except Exception as e:                          # noqa: BLE001 — o relatório nunca derruba o faxineiro
             print(f"[janitor] relatório de memória falhou: {e}")
+
+
+# ── O web também se mede (Desempenho, 21/10/2026) ──────────────────────────────────────────────────────────────────────
+# Raio-X do Nexus às 14:55 de 21/10: o processo WEB da plataforma foi de 0,8 GB às 14:36 para 3,1 GB e 0,7 GB no swap,
+# 11 a 30 min depois do deploy das 14:25, com a máquina sem memória (0,2 GB livres, o disco ocupado 71% do tempo e um
+# pedido do Nexus 3,5 min preso esperando a memória voltar do disco). O relatório e a devolução da memória só rodavam no
+# worker; o web, que tem os mesmos caches por usina e dia, enchidos pelos pedidos de quem abre as telas, ninguém via.
+# Aqui o web faz o mesmo relatório, noutro arquivo, e devolve ao sistema a memória livre a cada 10 min. Não descarta cache
+# nenhum: o faxineiro segue só no worker (no web ele mexeria nos caches de tracker; Levi, 20/10: "não mexa nos trackers
+# agora"). Prova: tests/test_web_relatorio_memoria.py.
+RELATORIO_MEMORIA_ARQ_WEB = "gridco_plataforma_web.json"
+
+
+def _memoria_web_loop(intervalo=600):
+    """WEB: a cada 10 min devolve a memória livre e grava o relatório do web (o do worker é o `_janitor_loop`)."""
+    while True:
+        time.sleep(intervalo)
+        _devolve_memoria()
+        try:
+            _relatorio_memoria_worker(arquivo=RELATORIO_MEMORIA_ARQ_WEB)
+        except Exception as e:                          # noqa: BLE001 — o relatório nunca derruba o web
+            print(f"[web] relatório de memória falhou: {e}")
 
 
 def _snapshot_watch_loop(intervalo=20):
@@ -33628,9 +33651,12 @@ if __name__ == "__main__":
         # Modo normal: o worker (worker.py) reconstrói e publica; aqui só lemos e servimos.
         _MODO_WEB = True
         print("[server] modo WEB — quem reconstrói é o worker.py; este processo só serve")
+        if _limita_arenas():                # 2 arenas de malloc, como o worker, antes destas threads e das do waitress
+            print("[server] malloc: no máximo 2 arenas")
         threading.Thread(target=_snapshot_watch_loop, daemon=True).start()
         threading.Thread(target=_tranc_watch_loop, daemon=True).start()
         threading.Thread(target=_cadastro_watch_loop, daemon=True).start()   # cadastro/tickets mudaram → relê sem clique
+        threading.Thread(target=_memoria_web_loop, daemon=True).start()      # o relatório de memória (Raio-X do Nexus)
     try:
         from waitress import serve
         print("[server] waitress em http://0.0.0.0:5050 (threads=16)")

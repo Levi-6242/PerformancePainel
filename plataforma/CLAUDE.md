@@ -332,6 +332,15 @@ passadas). Gravado com outro nome e trocado de uma vez: o processo morto no meio
 Linux; não muda nenhum dado. O Raio-X do Nexus (seção "Dentro do worker da plataforma") mostra cada variável agora × ~1 h
 antes e avisa quando o relatório passa de 30 min (o worker parou de anotar). Teste: `tests/test_worker_relatorio_memoria.py`.
 
+**O web também se mede (21/10/2026).** Raio-X do Nexus às 14:55 de 21/10: o processo WEB (este `app.py` no waitress)
+foi de 0,8 GB às 14:36 para 3,1 GB e 0,7 GB no swap, 11 a 30 min depois do deploy das 14:25, com a máquina em 0,2 GB
+livres e o disco ocupado 71% do tempo; o relatório e a devolução de memória só rodavam no worker. No modo web, o
+`__main__` limita o malloc a 2 arenas (`_limita_arenas`, como o worker) antes de subir as vigias e o `_memoria_web_loop`,
+que a cada 10 min devolve a memória livre (`_devolve_memoria`) e grava o mesmo relatório em
+`/dev/shm/gridco_plataforma_web.json` (`RELATORIO_MEMORIA_ARQ_WEB`); o Raio-X do Nexus mostra "Dentro do web da
+plataforma". O web NÃO roda o faxineiro: ele descartaria caches de tracker (Levi, 20/10: "não mexa nos trackers agora").
+Teste: `tests/test_web_relatorio_memoria.py`.
+
 ## Ponte do Nexus: chave só de leitura e sub-caminho (04/10/2026)
 
 O Nexus (`Grid-Co-CODE/nexus`, torre Performance → Tempo real) mostra a Entrada e o Monitoramento desta plataforma por
