@@ -160,6 +160,47 @@ def _como_dict(x, cab):
     return dict(zip(cab, x)) if isinstance(x, (list, tuple)) else dict(x or {})
 
 
+CAB_DE_PARA = ("usina_id", "sistema", "chave_externa", "casou_por")
+ABA_DE_PARA = "de_para"
+
+
+def _nome_chave(s) -> str:
+    """Nome para casar: sem acento, sem caixa, espaços únicos ("Pharma  II" ≡ "pharma ii")."""
+    import unicodedata
+    t = unicodedata.normalize("NFKD", _txt(s)).encode("ascii", "ignore").decode()
+    return re.sub(r"\s+", " ", t).strip().upper()
+
+
+def kwp_por_nome(usinas, de_para, nomes) -> dict:
+    """{nome: kWp do Registro mestre} para os `nomes` (as usinas da aba Equipamentos do BD_Performance) que casam com UMA
+    usina do Registro pelo de-para do Nexus (qualquer sistema) ou pelo nome do próprio Registro. A reserva da potência da
+    disponibilidade (22/10/2026: as Pharma II, III e IV sem potência na aba saíam da conta). Nome que casa com duas
+    usinas, ou usina sem kWp no Registro, fica de fora: nunca chutar."""
+    kwp = {}
+    for x in usinas or ():
+        d = _como_dict(x, CAB_USINAS)
+        uid = _int(d.get("usina_id"))
+        if uid is None or _txt(d.get("excluido")).lower() == "sim":
+            continue
+        k, _ = kwp_do_registro(d.get("potencia_real"), d.get("potencia_contratual"))
+        if k:
+            kwp[uid] = (k, _nome_chave(d.get("nome")))
+    ids_por_nome = {}
+    for uid, (_, nome) in kwp.items():
+        ids_por_nome.setdefault(nome, set()).add(uid)
+    for x in de_para or ():
+        d = _como_dict(x, CAB_DE_PARA)
+        uid = _int(d.get("usina_id"))
+        if uid in kwp and _txt(d.get("chave_externa")):
+            ids_por_nome.setdefault(_nome_chave(d.get("chave_externa")), set()).add(uid)
+    out = {}
+    for n in nomes or ():
+        ids = ids_por_nome.get(_nome_chave(n)) or set()
+        if len(ids) == 1:
+            out[n] = kwp[next(iter(ids))][0]
+    return out
+
+
 def registro(usinas, clientes=()) -> list:
     """As usinas do Registro mestre para a tela: {usina_id, codigo, nome, status, kwp, kwp_de, cliente}. Sem as excluídas."""
     nomes = {}

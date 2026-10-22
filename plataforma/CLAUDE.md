@@ -1392,6 +1392,22 @@ negativas (evento depois do fim) — a data de criação como data do evento"; f
   conta como desligamento. Em outubro (até 18/10) eram 113 OS e 27,8% da energia perdida: Thopen 81,47% → ~86,2%,
   Athon 85,06% → ~92,5%, Renogrid 82,18% → ~90,5%; Brodowski 0% → 100% (OS 12693). O Tempo real não muda: a OS aberta
   de Religamento na usina inteira segue marcando "usina desligada" (`_religamentos_abertos_usina`).
+- **As Pharma II, III e IV** (Levi, 22/10/2026: "Pharmas mudou o nome no fracttal, esse mês vai pegar as OSs no nome
+  antigo e no novo. No novo se diferencia por cabine, nos antigo é nome mesmo"). Até 22/10 as três ficavam fora da conta e
+  "—" no Dashboard Thopen, por dois motivos:
+  - **Sem potência na aba Equipamentos** (as 24 linhas delas vazias): toda OS saía com "nenhuma usina do site ... tem
+    potência no BD". Agora a usina SEM potência nenhuma na aba usa o kWp do Registro mestre do Nexus (`pot_reserva` do
+    `calcular`, montado por `_disp_pot_reserva` com `depara_fracttal.kwp_por_nome`: o nome da aba casa com UMA usina do
+    Registro pelo de-para do Nexus ou pelo nome; a real × 1.000, sem ela a contratual — a regra do kWp de 20/10/2026). As
+    Pharma: 990 kWp cada; o inversor, 990 ÷ 6 = 165. O que a aba tiver vence, e a reserva vira lacuna. Em 22/10 mais três
+    usinas estavam sem potência e sem reserva única (Sol Maior 2 - TO, Taguaí 1 e 2): seguem fora.
+  - **O site novo:** o Fracttal refez as Pharmas depois de 22/09 em UM site, "Thopen - Pharmas - PR" (THPN-PHS100), com a
+    CABN2/3/4 e os inversores INVR2.x/3.x/4.x. `disponibilidade.SITES_POR_CABINE`: a cabine N é a Pharma N inteira, o
+    inversor N.M é o 1.M da Pharma N no BD, a raiz vale para as três e o resto (estação, infraestrutura) fica fora como
+    não-geração. O nome antigo ("Thopen - Pharmas N - PR") segue pela "Usina Fractall" da aba.
+  - Prova (22/10): as 12 OS válidas das Pharma de outubro (todas fora da conta antes) entram, cada uma na usina certa (10
+    na usina inteira, 990 kWp; a THPN-PHS300-INVR1.1 e a THPN-PHS400-INVR1.6 no inversor, 165 kWp);
+    `tests/test_disp_pharmas.py`.
 - **`alinhar`** no lugar do `cenario_abertas` (que saiu do payload): as OS que pedem um olho no Fracttal, só pelo dado
   dele (aberta contando, evento depois do fim, `wo_final_date`, site agrupado sem a usina, Religamento com descrição de
   inspeção, religamento de mais de um dia, OS fora da conta — a de falta de comunicação inclusive). A tela

@@ -140,9 +140,14 @@ class UsinaCat:
         return None
 
 
-def montar_catalogo(linhas):
+def montar_catalogo(linhas, pot_reserva=None):
     """linhas = dicts com cliente/usina/usina_fracttal/equipamento/parente/pot_kwp/n_inv (a aba
-    Equipamentos crua). → {usina: UsinaCat} com potências completadas e cabines derivadas."""
+    Equipamentos crua). → {usina: UsinaCat} com potências completadas e cabines derivadas.
+
+    `pot_reserva` = {usina: kWp} do Registro mestre do Nexus, só para a usina SEM potência nenhuma na aba (nem na UFV, nem
+    nas UGs, nem nos inversores). Caso que criou (22/10/2026): as Pharma II, III e IV têm as 24 linhas da aba com a
+    potência vazia, e toda OS delas saía da conta ("nenhuma usina do site ... tem potência no BD") — a disponibilidade
+    delas no Dashboard Thopen era "—". O que estiver na aba vence; a reserva vira lacuna, para alguém preencher a aba."""
     usinas = {}
     lacunas = []
     for e in linhas:
@@ -212,6 +217,10 @@ def montar_catalogo(linhas):
                 U.fonte_pot = "soma inversores"
             if U.pot:
                 lacunas.append(f"{U.nome}: potência da UFV vazia → {U.fonte_pot} ({U.pot:.0f} kWp)")
+        if U.pot is None and (pot_reserva or {}).get(U.nome):
+            U.pot = float(pot_reserva[U.nome])
+            U.fonte_pot = "Registro mestre"
+            lacunas.append(f"{U.nome}: sem potência na aba Equipamentos → Registro mestre do Nexus ({U.pot:.0f} kWp)")
         # Lacuna só interessa em usina Full O&M — fora delas o cadastro incompleto não é
         # problema nosso e só faria barulho na lista.
         if norm(U.full_om).startswith("S") and not U.fracttal and (U.pot or 0) > 0:
@@ -394,12 +403,68 @@ def _pista_no_texto(o, grupo):
     return sorted(achou)
 
 
+# O Fracttal refez as Pharmas depois de 22/09/2026 (Levi, 22/10/2026: "No novo se diferencia por cabine, nos antigo é nome
+# mesmo"): os sites "Thopen - Pharmas 2/3/4 - PR" (PHS200/300/400) viraram UM, "Thopen - Pharmas - PR" (THPN-PHS100), com a
+# CABN2, CABN3 e CABN4 e os inversores INVR2.x, INVR3.x e INVR4.x. A cabine N é a usina N inteira (cada Pharma tem uma UG
+# só no BD) e o inversor N.M do Fracttal é o inversor 1.M da usina N no BD (o código da plataforma já registrava
+# THPN-PHS100-INVR2.1 = o 1.1 da Pharma II). O nome antigo segue casando pela "Usina Fractall" da aba, como sempre.
+SITES_POR_CABINE = {"THPN-PHS100": {2: "Pharma II", 3: "Pharma III", 4: "Pharma IV"}}
+
+
+def _escopo_por_cabine(o, usinas):
+    """(True, escopo ou None) quando o ativo é de um site de SITES_POR_CABINE; (False, None) quando não é."""
+    code = o["code"]
+    base = next((b for b in SITES_POR_CABINE if code == b or code.startswith(b + "-")), None)
+    if base is None:
+        return False, None
+    mapa = {n: u for n, u in SITES_POR_CABINE[base].items() if u in usinas}
+
+    def _usina(n, oque):
+        u = mapa.get(n)
+        if u is None:
+            o["excl"] = f"{oque} do site {base} sem usina no cadastro"
+            return None
+        if not (usinas[u].pot and usinas[u].pot > 0):
+            o["excl"] = f"usina '{u}' sem potência no BD"
+            return None
+        return u
+
+    m = re.search(r"-D?INVR?(\d+)\.(\d+)$", code)
+    if m:
+        u = _usina(int(m.group(1)), f"inversor {m.group(1)}.{m.group(2)}")
+        if u is None:
+            return True, None
+        U, num = usinas[u], f"1.{m.group(2)}"
+        kwp = U.invs.get(num) or U.pot_inv_media()
+        o["flags"].append(f"site refeito por cabine: inversor {m.group(1)}.{m.group(2)} do Fracttal = {num} de '{u}'")
+        return True, [(u, "inversor", f"inv{num}", min(kwp, U.pot))]
+    m = re.search(r"-(" + "|".join(SUF_CABINE) + r")(\d+)$", code)
+    if m:
+        u = _usina(int(m.group(2)), f"cabine {m.group(2)}")
+        if u is None:
+            return True, None
+        o["flags"].append(f"site refeito por cabine: cabine {m.group(2)} = usina '{u}' inteira")
+        return True, [(u, "usina", "ufv", usinas[u].pot)]
+    if code == base:
+        evs = [(u, "usina", "ufv", usinas[u].pot) for u in mapa.values() if usinas[u].pot and usinas[u].pot > 0]
+        if evs:
+            o["flags"].append(f"site refeito por cabine: a raiz {base} vale para as usinas dele")
+            return True, evs
+        o["excl"] = f"nenhuma usina do site '{o['g1']}' tem potência no BD"
+        return True, None
+    o["excl"] = f"ativo não é de geração ou não mapeável: '{code}' ({o['item'][:40]})"
+    return True, None
+
+
 def escopo_os(o, usinas, idx):
     """→ lista [(usina, nivel, chave, kwp)]; None = exclusão (o motivo fica em o['excl'])."""
     code = o["code"]
     if norm(o["g1"]).startswith("GRID CO") or code == "GRID":
         o["excl"] = "site 'Grid Co.' = usina de terceiros sem contrato (fora do parque)"
         return None
+    aplica, esc = _escopo_por_cabine(o, usinas)
+    if aplica:
+        return esc
     grupo = resolve_g1(o["g1"], usinas, idx)
     if not grupo:
         o["excl"] = f"site do Fracttal sem correspondência no BD: '{o['g1'] or code}'"
@@ -726,12 +791,12 @@ def calcular_pelo_bd(dias_por_usina, linhas_equip, per_ini, per_fim):
             "lacunas": lacunas}
 
 
-def calcular(wos, linhas_equip, per_ini, per_fim, agora=None):
+def calcular(wos, linhas_equip, per_ini, per_fim, agora=None, pot_reserva=None):
     """wos = {folio: [tasks...]} (varredura crua do Fracttal); linhas_equip = aba Equipamentos.
     per_ini/per_fim = janela do mês (fim EXCLUSIVO, já cortado em D-1 pelo chamador).
     → payload completo: usinas, clientes, diário, OSs, `alinhar`, lacunas. Só o Fracttal: a geração não entra."""
     agora = agora or datetime.now()
-    usinas, lacunas = montar_catalogo(linhas_equip)
+    usinas, lacunas = montar_catalogo(linhas_equip, pot_reserva)
     idx = indices_g1(usinas)
     n_dias = (per_fim.date() - per_ini.date()).days
     tot_h = 12.0 * n_dias

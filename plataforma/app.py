@@ -3936,18 +3936,21 @@ import depara_fracttal as _dpf  # noqa: E402
 _DPF_FOTO_PATH = _p_cache("depara_dim_equipamento.json")       # a última leitura boa da dimensão de equipamento
 _DPF_REGISTRO_PATH = _p_cache("depara_registro_usinas.json")    # do Registro mestre (só as colunas não sensíveis)
 _DPF_CLIENTES_PATH = _p_cache("depara_registro_clientes.json")
+_DPF_DE_PARA_PATH = _p_cache("depara_registro_de_para.json")    # o de-para do Nexus (a reserva da potência, 22/10/2026)
 _DPF_ARVORES_PATH = _p_cache("depara_fracttal_arvores.json")    # as árvores lidas no Fracttal (7 dias)
 # a dimensão é regerada pela carga do Nexus de hora em hora, mas a foto por trás dela só muda quando o Levi a renova:
 # 3 h de cópia; o Registro muda num Publicar do cadastro: 10 min
 _DPF_LIVROS = {"foto": (_dpf.LIVRO_EQUIP, _dpf.ABA_EQUIP, _dpf.CAB_EQUIP, 3 * 3600),
                "usinas": (_dpf.LIVRO_CADASTRO, _dpf.ABA_USINAS, _dpf.CAB_USINAS, 600),
-               "clientes": (_dpf.LIVRO_CADASTRO, _dpf.ABA_CLIENTES, _dpf.CAB_CLIENTES, 3600)}
+               "clientes": (_dpf.LIVRO_CADASTRO, _dpf.ABA_CLIENTES, _dpf.CAB_CLIENTES, 3600),
+               "de_para": (_dpf.LIVRO_CADASTRO, _dpf.ABA_DE_PARA, _dpf.CAB_DE_PARA, 3600)}
 _DPF = {"leitores": {}, "foto": (None, None), "busca": {}}
 
 
 def _dpf_livro(nome) -> "_dpf.LivroEmFundo":
     """O leitor em fundo de um livro do banco (um por caminho: os testes trocam o caminho e ganham um leitor só deles)."""
-    caminho = {"foto": _DPF_FOTO_PATH, "usinas": _DPF_REGISTRO_PATH, "clientes": _DPF_CLIENTES_PATH}[nome]
+    caminho = {"foto": _DPF_FOTO_PATH, "usinas": _DPF_REGISTRO_PATH, "clientes": _DPF_CLIENTES_PATH,
+               "de_para": _DPF_DE_PARA_PATH}[nome]
     chave = (nome, caminho)
     if chave not in _DPF["leitores"]:
         livro, aba, cab, ttl = _DPF_LIVROS[nome]
@@ -26973,6 +26976,21 @@ def _disp_dias_bd_thopen(per_ini, per_fim, equip):
     return out
 
 
+def _disp_pot_reserva(equip):
+    """{usina da aba Equipamentos: kWp do Registro mestre}, a reserva da potência da disponibilidade para a usina sem
+    potência nenhuma na aba (22/10/2026: as Pharma II, III e IV, com as 24 linhas vazias, saíam da conta e ficavam "—" no
+    Dashboard Thopen). Liga pelo de-para do Nexus; sem o Registro ou o de-para lidos, {} (a conta segue como antes)."""
+    try:
+        reg, _c1, _l1 = _dpf_livro("usinas").linhas()
+        dp, _c2, _l2 = _dpf_livro("de_para").linhas()
+    except Exception as e:                                   # noqa: BLE001 — a reserva nunca derruba o cálculo
+        print(f"[disponibilidade] reserva de potência sem o Registro: {type(e).__name__}: {e}")
+        return {}
+    if not reg:
+        return {}
+    return _dpf.kwp_por_nome(reg, dp or (), {str(e.get("usina") or "").strip() for e in equip if e.get("usina")})
+
+
 def _frac_disp_recalcular():
     """WORKER: varre + calcula os 2 meses + persiste (atômico). Só publica o índice INTEIRO — varredura completa e os
     dois meses calculados. O resto (falha no meio, varredura vazia, mês que não calcula) deixa o índice anterior no ar,
@@ -26997,12 +27015,13 @@ def _frac_disp_recalcular():
         _frac_disp_registrar(False, "sem aba Equipamentos — índice não recalculado", resumo)
         return
     resumo["s"] = round(time.time() - t0)
+    reserva = _disp_pot_reserva(equip)
     dados = {"ts": time.time(), "meses": {}, "varredura": resumo}
     falhas = []
     for rot, ini, fim in meses:
         try:
             if rot >= DISP_SO_FRACTTAL_DESDE:
-                dados["meses"][rot] = _disp_mod.calcular(wos, equip, ini, fim)
+                dados["meses"][rot] = _disp_mod.calcular(wos, equip, ini, fim, pot_reserva=reserva)
             else:
                 dados["meses"][rot] = _disp_mod.calcular_pelo_bd(_disp_dias_bd_thopen(ini, fim, equip), equip, ini, fim)
         except Exception as e:
