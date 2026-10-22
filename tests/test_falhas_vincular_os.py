@@ -340,7 +340,7 @@ def test_vincular_grava_sem_pessoa_e_devolve_os_vigentes(banco):
     assert r.status_code == 200
     assert r.get_json()["vinculos"] == [{"tipo": "strings", "fonte": "pv", "plant_id": "18747508",
                                          "equipamento": "Inversor 1.2", "dia_inicio": "2026-10-01", "os": 16561,
-                                         "decidida_em": banco.linhas[0][0]}]
+                                         "decidida_em": banco.linhas[0][0], "origem": "tela"}]
     (lin,) = banco.linhas
     d = dict(zip(fv.CAB, lin))
     # o dia do início vai ao livro como papel AAAAMMDD (regra 7 do Nexus); a API da tela segue com "AAAA-MM-DD"
@@ -352,6 +352,21 @@ def test_vincular_grava_sem_pessoa_e_devolve_os_vigentes(banco):
     assert [v["os"] for v in r.get_json()["vinculos"]] == [16561, 9915]
     j = c.get("/api/painel/falhas/vinculos").get_json()
     assert j["ok"] is True and len(j["vinculos"]) == 2 and j["lido_em"] and "erro" not in j
+
+
+def test_vinculo_forcado_grava_a_origem_e_aparece_nos_vigentes(banco):
+    # 22/10/2026, Levi: "ao vincular OS e não achar nada, pode ter um 'forçar vínculo' eu digito a OS e fica registrado uma
+    # OS, mesmo que não seja daquele ativo específico" (Santarém 1 · Inversor 1.8: a busca não achou nada no STR100-INVR1.8)
+    c = app.app.test_client()
+    r = c.post("/api/painel/falhas/vinculos", json=dict(GUATAMBU, os="12097", origem="forcado"))
+    assert r.status_code == 200
+    (v,) = r.get_json()["vinculos"]
+    assert (v["os"], v["origem"]) == (12097, "forcado")
+    assert dict(zip(fv.CAB, banco.linhas[-1]))["origem"] == "forcado"
+    assert "vincular OS 12097" in open(app._FV_LOG, encoding="utf-8").read() and "· forcado" in open(app._FV_LOG, encoding="utf-8").read()
+    # origem fora do conjunto: 400 e nada gravado
+    r = c.post("/api/painel/falhas/vinculos", json=dict(GUATAMBU, origem="qualquer"))
+    assert r.status_code == 400 and len(banco.linhas) == 1
 
 
 def test_desvincular_so_acrescenta_e_tira_dos_vigentes(banco):
@@ -426,7 +441,7 @@ def test_vigentes_le_o_que_o_banco_devolve_em_outro_tipo():
     volta = [q, 20261020.0, "strings", "pv", 18747508.0, "Inversor 1.2", "20261001", 16561.0, "vincular", "tela"]
     assert fv.vigentes([volta]) == fv.vigentes([lin]) == [
         {"tipo": "strings", "fonte": "pv", "plant_id": "18747508", "equipamento": "Inversor 1.2",
-         "dia_inicio": "2026-10-01", "os": 16561, "decidida_em": q}]
+         "dia_inicio": "2026-10-01", "os": 16561, "decidida_em": q, "origem": "tela"}]
     # a última decisão vale; linha ilegível não conta
     tira = fv.linha("strings", "pv", "18747508", "Inversor 1.2", "2026-10-01", 16561, "desvincular",
                     quando="2026-10-20T15:05:00Z")

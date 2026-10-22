@@ -205,6 +205,11 @@
   .os-chip .sem-link{padding:1px 2px 1px 8px;color:var(--tinta2)}
   .os-chip button{border:0;background:none;color:var(--mudo);cursor:pointer;padding:2px 6px;line-height:1;font-size:12px}
   .os-chip button:hover{color:var(--critico)}
+  /* o vínculo forçado (a OS digitada à mão, 22/10/2026): o mesmo chip, com "à mão" ao lado do número */
+  .os-chip small{font:500 10.5px/18px var(--font);color:var(--mudo);padding-left:4px}
+  .os-forca{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:10px 0 0;font-size:12px;color:var(--tinta2)}
+  .os-forca label{display:inline-flex;align-items:center;gap:8px}
+  .os-forca input{width:110px;padding:3px 8px;font-size:12.5px}
   .btn.mini{font-size:12px;line-height:16px;padding:3px 9px;gap:5px;white-space:nowrap}
   .os-conf{display:block;font-size:12px;color:var(--tinta2)}
   .os-conf .btn{margin:4px 6px 4px 0}
@@ -1112,6 +1117,12 @@
     const tr = e.target.closest('tr.cn-linha'); if (tr) alternaDrill(tr);
   });
   $('tab').addEventListener('keydown', e => {
+    // Enter no número do "Forçar vínculo" = o botão ao lado (o campo não abre nem fecha o drill)
+    if (e.key === 'Enter' && e.target.matches && e.target.matches('[data-os-forca]')) {
+      e.preventDefault(); const box = e.target.closest('.os-forca'), btn = box && box.querySelector('[data-os="forca"]');
+      if (btn) btn.click(); return;                     // o clique passa pelo mesmo ouvinte dos botões de OS
+    }
+    if (e.target.matches && e.target.matches('[data-os-forca]')) return;
     if (e.key !== 'Enter' && e.key !== ' ') return;
     const th = e.target.closest('th[data-k]'); if (th) { e.preventDefault(); ordena(th); return; }
     if (e.target.matches && e.target.matches('tr.cn-linha')) { e.preventDefault(); alternaDrill(e.target); }
@@ -1159,7 +1170,7 @@
       // a pergunta é um grupo com o próprio texto como nome: o foco cai no "Cancelar" e o leitor de tela lê a pergunta junto
       return conf === +v.os
         ? `<span class="os-conf" role="group" aria-label="Desvincular a OS ${n} desta linha?">Desvincular a OS ${n} desta linha?<br><button class="btn mini" data-os="desv-sim" data-n="${n}">Desvincular</button><button class="btn mini fantasma" data-os="desv-nao">Cancelar</button></span>`
-        : `<span class="os-chip">${f ? `<a href="${hrefOS(f)}" target="_blank" rel="noopener" title="Abrir a OS ${f} no OS Creator (nova aba)">OS ${f}</a>` : `<span class="sem-link">OS ${n}</span>`}${SO_LEITURA ? '' : `<button data-os="desv" data-n="${n}" title="Desvincular a OS ${n} desta linha" aria-label="Desvincular a OS ${n}"><i class="ph ph-x"></i></button>`}</span>`;
+        : `<span class="os-chip${v.origem === 'forcado' ? ' forcado' : ''}"${v.origem === 'forcado' ? ' title="Vínculo forçado: a OS foi digitada à mão e pode não ser deste ativo"' : ''}>${f ? `<a href="${hrefOS(f)}" target="_blank" rel="noopener" title="Abrir a OS ${f} no OS Creator (nova aba)">OS ${f}</a>` : `<span class="sem-link">OS ${n}</span>`}${v.origem === 'forcado' ? '<small>à mão</small>' : ''}${SO_LEITURA ? '' : `<button data-os="desv" data-n="${n}" title="Desvincular a OS ${n} desta linha" aria-label="Desvincular a OS ${n}"><i class="ph ph-x"></i></button>`}</span>`;
     }).join('');
     const alvo = S.aba === 'trk' ? 'as OS deste tracker' : 'as OS de recomposição de string deste inversor';
     const btn = SO_LEITURA ? '' : `<button class="btn mini" data-os="vincular" aria-expanded="${S.os === id}" title="Buscar no Fracttal ${alvo} (só busca quando você clica)"><i class="ph ph-link"></i>${S.os === id ? 'Fechar a busca' : 'Vincular OS'}</button>`;
@@ -1172,15 +1183,19 @@
     const b = OS_BUSCA.get(id) || {estado: 'buscando'}, trk = S.aba === 'trk';
     const alvo = trk ? `do ${esc(r.tracker)}` : `de recomposição de string do ${esc(r.inversor)}`;
     const fecha = '<button class="link" data-os="fecha">Fechar</button>';
+    // forçar o vínculo (22/10/2026, Levi: "ao vincular OS e não achar nada, pode ter um 'forçar vínculo' eu digito a OS e
+    // fica registrado uma OS, mesmo que não seja daquele ativo específico"): o número digitado vai ao livro com a origem
+    // "forcado" (o chip diz "à mão") e não pede nada ao Fracttal. Vale também com a lista cheia e com o Fracttal fora
+    const forca = SO_LEITURA ? '' : `<p class="os-forca"><label>Forçar vínculo <input class="campo mono" data-os-forca inputmode="numeric" maxlength="9" autocomplete="off" placeholder="nº da OS" aria-label="Número da OS para forçar o vínculo nesta linha"></label><button class="btn mini" data-os="forca">Forçar vínculo</button><span class="det">a OS fica registrada nesta linha mesmo que não seja deste ${trk ? 'tracker' : 'inversor'}</span></p>`;
     if (b.estado === 'buscando') return `<div class="os-painel"><p class="os-cab"><span>Buscando as OS ${alvo} no Fracttal…</span>${fecha}</p></div>`;
     // erro do Fracttal é erro, nunca "nenhuma OS" (a armadilha do card do ticket, que mostrava um 429 como "não achado")
-    if (b.estado === 'erro') return `<div class="os-painel"><p class="os-cab"><span class="erro">Não consegui buscar as OS ${alvo}: ${esc(b.msg)}.</span><span><button class="btn mini" data-os="busca">Tentar de novo</button> ${fecha}</span></p></div>`;
+    if (b.estado === 'erro') return `<div class="os-painel"><p class="os-cab"><span class="erro">Não consegui buscar as OS ${alvo}: ${esc(b.msg)}.</span><span><button class="btn mini" data-os="busca">Tentar de novo</button> ${fecha}</span></p>${forca}</div>`;
     const j = b.j || {}, L = j.os || [], ja = new Set(vinculosDa(r).map(v => +v.os));
     const extra = [j.ativo ? `ativo ${esc(j.ativo.code || '')}` : '', j.buscado_em ? `buscado às ${esc(hhmm(j.buscado_em))}` : ''].filter(Boolean).join(' · ');
     const cab = `<p class="os-cab"><span><b>OS ${alvo}</b>${extra ? ' · ' + extra : ''}</span><span><button class="link" data-os="busca">Buscar de novo</button> · ${fecha}</span></p>`;
     // o Fracttal fora: a busca das strings pode vir do índice da varredura de 30 min, e a tela diz isso com todas as letras
     const reserva = j.fonte_ok === false && j.reserva ? `<p class="nota aviso-txt" title="${esc(j.motivo || '')}">O Fracttal não respondeu; estas são as OS da varredura das ${esc(hhmm(j.varrido_em) || '—')} (pode faltar a mais nova).</p>` : '';
-    if (!L.length) return `<div class="os-painel">${cab}${reserva}<p class="nota">${!j.ativo && j.motivo && !reserva ? esc(j.motivo) : trk ? 'Nenhuma OS neste tracker.' : 'Nenhuma OS de recomposição de string neste inversor.'}</p></div>`;
+    if (!L.length) return `<div class="os-painel">${cab}${reserva}<p class="nota">${!j.ativo && j.motivo && !reserva ? esc(j.motivo) : trk ? 'Nenhuma OS neste tracker.' : 'Nenhuma OS de recomposição de string neste inversor.'}</p>${forca}</div>`;
     const corpo = L.map(o => {
       const cit = Array.isArray(o.strings) ? o.strings.join(', ') : o.strings, f = folioOk(o.folio);
       const num = f ? `<a class="mono" href="${hrefOS(f)}" target="_blank" rel="noopener">${f}</a>` : `<span class="mono" title="Número de OS fora do formato: sem link">${esc(o.folio == null ? '—' : o.folio)}</span>`;
@@ -1189,7 +1204,7 @@
         <td>${esc(o.descricao || '')}${cit ? `<span class="det">strings citadas: ${esc(cit)}</span>` : ''}</td>
         <td class="r">${f && ja.has(+f) ? '<span class="det">vinculada</span>' : SO_LEITURA || !f ? '' : `<button class="btn mini" data-os="vinc" data-n="${f}">Vincular</button>`}</td></tr>`;
     }).join('');
-    return `<div class="os-painel">${cab}${reserva}${tabDia([['folio', 'OS'], ['status', 'Situação'], ['tipo', 'Tipo'], ['evento', 'Datas'], ['descricao', 'Descrição'], [null, '']], corpo)}</div>`;
+    return `<div class="os-painel">${cab}${reserva}${tabDia([['folio', 'OS'], ['status', 'Situação'], ['tipo', 'Tipo'], ['evento', 'Datas'], ['descricao', 'Descrição'], [null, '']], corpo)}${forca}</div>`;
   }
   // o ouvinte dos botões de OS: o ÚNICO lugar da tela que pede OS ao Fracttal (pela plataforma), e só quando alguém clica
   async function ouvinteOS(e) {
@@ -1223,10 +1238,22 @@
       } catch (err) { OS_BUSCA.set(id, {estado: 'erro', msg: 'a plataforma não respondeu'}); }
       redesenha(id, osSel(acao)); return;
     }
-    if (acao === 'vinc' || acao === 'desv-sim') {
-      const vinc = acao === 'vinc', os = +b.dataset.n, v = vinc ? null : vinculosDa(r).find(x => +x.os === os);
+    // forçar: o número digitado no painel (só dígitos, até 9); fora disso, diz e não grava
+    let forcado = null;
+    if (acao === 'forca') {
+      const box = b.closest && b.closest('.os-forca'), campo = box && box.querySelector && box.querySelector('[data-os-forca]');
+      forcado = folioOk(campo && campo.value);
+      if (!forcado || forcado.length > 9 || !+forcado) {
+        OS_MSG.set(id, {erro: true, txt: 'Digite o número da OS (só dígitos) para forçar o vínculo.'});
+        redesenha(id, '[data-os-forca]'); return;
+      }
+    }
+    if (acao === 'vinc' || acao === 'forca' || acao === 'desv-sim') {
+      const vinc = acao !== 'desv-sim', os = forcado ? +forcado : +b.dataset.n, v = vinc ? null : vinculosDa(r).find(x => +x.os === os);
+      if (forcado && vinculosDa(r).some(x => +x.os === os)) { OS_MSG.set(id, {txt: `A OS ${os} já está vinculada nesta linha.`}); redesenha(id, '[data-os-forca]'); return; }
       const corpo = {tipo: trk ? 'trackers' : 'strings', fonte: r.fonte, plant_id: String(r.plant_id), equipamento: equip(r),
                      dia_inicio: v ? v.dia_inicio : String(r.inicio).slice(0, 10), os, decisao: vinc ? 'vincular' : 'desvincular'};
+      if (forcado) corpo.origem = 'forcado';
       b.disabled = true;
       try {
         const resp = await fetch('/api/painel/falhas/vinculos', {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(corpo)});
@@ -1236,9 +1263,9 @@
         else {
           // a lista que volta da gravação é a do livro depois dela: vale mais que uma leitura ainda a caminho (VINC_SEQ)
           if (Array.isArray(j.vinculos)) { VINC = j.vinculos; VINC_SEQ++; VINC_LENDO = false; VINC_ERRO = ''; }
-          else if (vinc) VINC = [...VINC, {tipo: corpo.tipo, fonte: corpo.fonte, plant_id: corpo.plant_id, equipamento: corpo.equipamento, dia_inicio: corpo.dia_inicio, os}];
+          else if (vinc) VINC = [...VINC, {tipo: corpo.tipo, fonte: corpo.fonte, plant_id: corpo.plant_id, equipamento: corpo.equipamento, dia_inicio: corpo.dia_inicio, os, origem: corpo.origem || 'tela'}];
           else VINC = VINC.filter(x => !(x === v));
-          OS_MSG.set(id, {txt: vinc ? `OS ${os} vinculada.` : `OS ${os} desvinculada.`});
+          OS_MSG.set(id, {txt: forcado ? `OS ${os} vinculada à mão (vínculo forçado).` : vinc ? `OS ${os} vinculada.` : `OS ${os} desvinculada.`});
         }
       } catch (err) { OS_MSG.set(id, {erro: true, txt: 'Não gravou: a plataforma não respondeu.'}); }
       S.desv = null; redesenha(id, osSel(acao, os));
@@ -1314,7 +1341,7 @@
     return [S.aba === 'trk' ? 'trackers' : 'strings', D.mes || '', limpo(S.cli), limpo(S.usina)].filter(Boolean).join('_');
   }
   function planilha(rows) {
-    const T = (titulo, tipo) => ({titulo, tipo}), os = r => vinculosDa(r).map(v => v.os).join(', ');
+    const T = (titulo, tipo) => ({titulo, tipo}), os = r => vinculosDa(r).map(v => v.os + (v.origem === 'forcado' ? ' (à mão)' : '')).join(', ');
     if (S.aba === 'trk') {
       const abas = [{nome: 'Paradas', colunas: [T('Cliente', 'texto'), T('Usina', 'texto'), T('Fonte', 'texto'), T('Tracker', 'texto'), T('Inversor', 'texto'),
           T('Parou', 'datahora'), T('Voltou', 'data'), T('Hora da volta', 'texto'), T('Situação', 'texto'), T('Duração (h)', 'numero'), T('Dias', 'inteiro'),

@@ -38,7 +38,9 @@ ABA = "fato_decisao_vinculo_os"
 CAB = ["decidida_em", "data_id", "tipo", "fonte", "plant_id", "equipamento", "data_id_inicio", "os", "decisao", "origem"]
 TIPOS = ("strings", "trackers")
 DECISOES = ("vincular", "desvincular")
-ORIGENS = ("tela",)
+# "forcado" (22/10/2026, Levi: "ao vincular OS e não achar nada, pode ter um 'forçar vínculo' eu digito a OS e fica
+# registrado uma OS, mesmo que não seja daquele ativo específico"): o número digitado à mão, sem vir da busca no ativo
+ORIGENS = ("tela", "forcado")
 # As fontes do pacote da aba (falhas_job): as das strings e as dos trackers — a mesma lista do rótulo do workbook
 # (falhas_publicar.FONTE_ROT), conferida no teste. Fonte fora dela é linha que nenhuma ocorrência da tela tem.
 FONTES = ("pv", "pvsb", "pg", "sunop", "axis", "owen", "solaredge", "greenyellow", "salenergia")
@@ -143,7 +145,7 @@ def _como_dict(lin) -> dict:
 def vigentes(linhas) -> list:
     """Os vínculos que valem: a última decisão de cada (tipo, fonte, plant_id, equipamento, data_id_inicio, os) — a mais
     recente; no empate, a que veio depois — quando ela é `vincular`. Linha que não se lê (tipo, fonte, data ou OS fora
-    do formato) não conta. → [{tipo, fonte, plant_id, equipamento, dia_inicio "AAAA-MM-DD", os, decidida_em}], em ordem
+    do formato) não conta. → [{tipo, fonte, plant_id, equipamento, dia_inicio "AAAA-MM-DD", os, decidida_em, origem}], em ordem
     de chave (o dia volta ao formato da API da tela)."""
     marcadas = []
     for i, lin in enumerate(linhas or []):
@@ -158,10 +160,10 @@ def vigentes(linhas) -> list:
             chave = (tipo, f, pid, eq, dia_de_data_id(d.get("data_id_inicio")), _os(d.get("os")))
         except ValueError:
             continue
-        marcadas.append((_txt(d.get("decidida_em")), i, chave, dec))
+        marcadas.append((_txt(d.get("decidida_em")), i, chave, dec, _txt(d.get("origem"))))
     estado = {}
-    for quando, _i, chave, dec in sorted(marcadas):
-        estado[chave] = (dec, quando)
+    for quando, _i, chave, dec, origem in sorted(marcadas):
+        estado[chave] = (dec, quando, origem)
     return [{"tipo": k[0], "fonte": k[1], "plant_id": k[2], "equipamento": k[3], "dia_inicio": k[4], "os": k[5],
-             "decidida_em": quando}
-            for k, (dec, quando) in sorted(estado.items()) if dec == "vincular"]
+             "decidida_em": quando, "origem": origem}
+            for k, (dec, quando, origem) in sorted(estado.items()) if dec == "vincular"]

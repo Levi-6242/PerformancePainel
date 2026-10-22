@@ -936,3 +936,29 @@ def test_as_strings_sem_a_coluna_tirar_da_conta_e_os_trackers_com_ela(tmp_path):
     r = _roda(tmp_path, pacote(INHAPI_EPS, INHAPI_DIAS, trk=trk), js)
     assert "Tirar da conta" not in r["str"] and "desc-chk" not in r["str"] and "chk-col" not in r["str"]
     assert "Tirar da conta" in r["trk"] and 'class="desc-chk"' in r["trk"]
+
+
+# ── 10. Forçar vínculo (Levi, 22/10/2026: "ao vincular OS e não achar nada, pode ter um 'forçar vínculo' eu digito a OS e
+# fica registrado uma OS, mesmo que não seja daquele ativo específico") ─────────────────────────────────────────────
+@precisa_node
+def test_forcar_vinculo_grava_a_os_digitada_mesmo_sem_achar_no_ativo(tmp_path):
+    vazia = {"ok": True, "ativo": {"code": "THPN-INH100-INVR3.3", "nome": "Inversor 3.3"}, "buscado_em": "2026-10-22 12:21", "os": []}
+    js = r"""T.desenha(); const id = T.idLinha(T.OC[0]);
+      const forca = valor => { const campo = {value: valor}, box = {querySelector: s => s === '[data-os-forca]' ? campo : null};
+        const b = {dataset: {os: 'forca'}, disabled: false, closest: s => s.startsWith('tr[data-id]') ? {dataset: {id}} : s === '.os-forca' ? box : null};
+        return {target: {closest: s => s === '[data-os]' || s.startsWith('a, button') ? b : null, matches: () => false}, stopPropagation() {}, preventDefault() {}}; };
+      await clica(noBotao('vincular', id)); const painel = ELS.tab.innerHTML;
+      await clica(forca('12a')); const invalido = ELS.tab.innerHTML, postsAntes = PEDIDOS.filter(p => p.metodo === 'POST').length;
+      RESP['/api/painel/falhas/vinculos'] = [200, {ok: true, vinculos: [{tipo: 'strings', fonte: 'pv', plant_id: T.OC[0].plant_id + '',
+        equipamento: 'Inversor 3.3', dia_inicio: T.OC[0].inicio.slice(0, 10), os: 12097, origem: 'forcado', decidida_em: '2026-10-22T15:00:00Z'}]}];
+      await clica(forca('12097'));
+      out({painel, invalido, postsAntes, corpo: PEDIDOS.filter(p => p.metodo === 'POST').map(p => p.corpo), tab: ELS.tab.innerHTML,
+           planilha: JSON.stringify(T.planilha(T.ordenadas(T.linhas().filter(T.naConta)).sorted))});"""
+    r = _roda(tmp_path, pacote(INHAPI_EPS, INHAPI_DIAS), js, resp={"/api/painel/falhas/os": [200, vazia]})
+    assert "Nenhuma OS de recomposição de string neste inversor." in r["painel"]
+    assert 'data-os="forca"' in r["painel"] and "data-os-forca" in r["painel"] and "Forçar vínculo" in r["painel"]
+    assert "Digite o número da OS (só dígitos) para forçar o vínculo." in r["invalido"] and r["postsAntes"] == 0
+    [corpo] = r["corpo"]
+    assert (corpo["os"], corpo["origem"], corpo["decisao"], corpo["equipamento"]) == (12097, "forcado", "vincular", "Inversor 3.3")
+    assert ">OS 12097</a><small>à mão</small>" in r["tab"] and "OS 12097 vinculada à mão (vínculo forçado)." in r["tab"]
+    assert "12097 (à mão)" in r["planilha"]

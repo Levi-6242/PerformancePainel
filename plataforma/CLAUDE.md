@@ -2169,7 +2169,12 @@ Mockup com o dado real de outubro aprovado no mesmo dia. O que mudou em
   mora SÓ no `ouvinteOS` (o clique em "Vincular OS"): abrir, filtrar, ordenar, abrir o drill e baixar o Excel fazem zero
   pedido de OS. O painel abre logo abaixo da linha (ou no topo do drill); 502 = erro dito como erro, com "Tentar de novo",
   nunca "nenhuma OS"; a reserva da varredura (`fonte_ok: false` + `reserva`) diz "O Fracttal não respondeu; estas são as
-  OS da varredura das HH:MM (pode faltar a mais nova)" e vincula igual. O vínculo cola na linha do mesmo equipamento cujo
+  OS da varredura das HH:MM (pode faltar a mais nova)" e vincula igual. **Forçar vínculo** (22/10/2026, Levi: "ao vincular
+  OS e não achar nada, pode ter um 'forçar vínculo' eu digito a OS e fica registrado uma OS, mesmo que não seja daquele
+  ativo específico"): no fim do painel (com a lista, sem nada achado ou com o Fracttal fora), um campo para o número da
+  OS (só dígitos, até 9; Enter vale o botão) grava o vínculo com `origem: "forcado"` — o livro aceita `tela` e `forcado`
+  (`falhas_vinculos.ORIGENS`), os vigentes devolvem a origem, o chip mostra "à mão" (com a dica "pode não ser deste
+  ativo") e o Excel escreve "12097 (à mão)". Não pergunta nada ao Fracttal. O vínculo cola na linha do mesmo equipamento cujo
   intervalo de dias contém o `dia_inicio` (no dia de duas linhas, a que começou nele). Desvincular confirma na própria
   linha, sem `confirm()`. O link da OS (chip e painel) sai do número conferido (só dígitos → `/os/os/folio/<n>`), nunca do
   `link` que veio na resposta; fora do formato, sem link e sem "Vincular". Depois de cada ação (abrir e fechar a busca,

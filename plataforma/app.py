@@ -29076,7 +29076,7 @@ def api_painel_falhas_vinculos():
         return jsonify({"ok": False, "motivo": "mande {tipo, fonte, plant_id, equipamento, dia_inicio, os, decisao}"}), 400
     try:
         lin = _fv.linha(b.get("tipo"), b.get("fonte"), b.get("plant_id"), b.get("equipamento"), b.get("dia_inicio"),
-                        b.get("os"), b.get("decisao"))
+                        b.get("os"), b.get("decisao"), origem=b.get("origem") or "tela")   # "forcado": o nº digitado à mão
     except ValueError as e:
         return jsonify({"ok": False, "motivo": str(e)}), 400
     try:
@@ -29087,7 +29087,7 @@ def api_painel_falhas_vinculos():
         return jsonify({"ok": False, "motivo": f"não gravou — o banco do Nexus não aceitou ({type(e).__name__})"}), 500
     d = dict(zip(_fv.CAB, lin))
     _fv_log(f"{d['decisao']} OS {d['os']} · {d['tipo']} {d['fonte']}|{d['plant_id']}|{d['equipamento']}|"
-            f"{d['data_id_inicio']}")
+            f"{d['data_id_inicio']} · {d['origem']}")
     return jsonify({"ok": True, "vinculos": _fv.vigentes(_FV_DECISOES.linhas() or [])})
 
 
