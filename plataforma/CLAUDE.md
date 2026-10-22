@@ -282,8 +282,8 @@ tocasse ficavam até o restart — e a reciclagem das 03:00 só vale com 12 h no
 imposto na hora de guardar e no faxineiro; passou dele, sai primeiro o que foi lido UMA vez (varredura: aquecimentos, o
 ontem que virou passado à meia-noite), o mais antigo antes, e o RELIDO fica — é o backfill da hora relendo os mesmos
 pares de cobertura baixa (julho a outubro, 2–7 mil pontos cada), que não pode rebaixá-los da API PV, que é paga; nem "o
-dia mais antigo primeiro" nem LRU puro serviam. Dia passado ocioso há 2 h sai. Só no worker: no web, o dia passado em
-cache é o drill que o analista abriu, e o web não é quem incha. O
+dia mais antigo primeiro" nem LRU puro serviam. Dia passado ocioso há 2 h sai. Vale também no web desde 22/10/2026 (ver
+"Os caches da API PV com prazo e teto também no web"; até ali era só no worker). O
 memo da 2C (`_2c_trk_memo_poda`) e a marca de "dia vazio" (`_2C_TRK_VAZIO_S`) só guardam o que ainda servem. Prova:
 `tests/test_worker_memoria_teto.py` — inclusive o MESMO backfill com e sem teto, acervo de eventos e curvas idênticos
 (o que sai é dia fechado e volta igual; custa uma busca, não um número).
@@ -338,8 +338,24 @@ livres e o disco ocupado 71% do tempo; o relatório e a devolução de memória 
 `__main__` limita o malloc a 2 arenas (`_limita_arenas`, como o worker) antes de subir as vigias e o `_memoria_web_loop`,
 que a cada 10 min devolve a memória livre (`_devolve_memoria`) e grava o mesmo relatório em
 `/dev/shm/gridco_plataforma_web.json` (`RELATORIO_MEMORIA_ARQ_WEB`); o Raio-X do Nexus mostra "Dentro do web da
-plataforma". O web NÃO roda o faxineiro: ele descartaria caches de tracker (Levi, 20/10: "não mexa nos trackers agora").
-Teste: `tests/test_web_relatorio_memoria.py`.
+plataforma". O web não roda o faxineiro inteiro, só as podas dos dois caches da API PV (abaixo). Teste:
+`tests/test_web_relatorio_memoria.py`.
+
+**Os caches da API PV com prazo e teto também no web (22/10/2026).** O relatório do web, às 08:51 de 22/10, mostrou dois
+caches da API PV parados desde antes das 07:59, com a máquina em 0,5 GB livres e 3,6 GB no swap: o dia de trackers
+(`_pv_trk_dia_cache`, 545 MB em 19 dias de usina abertos no gráfico de trackers) e o dia de strings
+(`_spv_hist_recs`, 493 MB em 3 dias; o "~6 MB cada" do código era a usina de 4 inversores, e a de 20 tem ~28,8 mil
+registros no dia, ~165 MB). Levi: "resolva esses da API PV que estão atrapalhando". Agora:
+- o dia de strings sai quando ninguém o relê há `SPV_HIST_OCIOSO_S` (20 min: o drill e o CSV do mesmo dia vêm em
+  minutos), e a soma dos registros tem teto (`SPV_HIST_TETO_REGISTROS`; sai o lido há mais tempo, e o que acabou de
+  entrar fica, mesmo sozinho acima dele), além dos 3 dias de antes (`_spv_hist_poda`, na hora de guardar, a cada 10 min no
+  web e no faxineiro do worker);
+- a poda do dia de trackers (o passado parado há 2 h e o teto de 1,5 milhão de pontos, ver "Teto de memória do worker")
+  vale também no web, na hora de guardar e a cada 10 min. Ficava só no worker porque a aba Perdas lia esse cache no web
+  sem buscar; a aba saiu em 12/10, e o único leitor que não busca um dia passado é a rota de depuração da régua.
+O que sai é dia FECHADO: pedido de novo, volta igual, ao custo de uma busca na API PV (no dia de strings, 1 consulta da
+cota histórica da conta). Os combiners da API PV (`_pv_comb_cache`, 159 MB no worker) ficam como estão: é o dia de hoje
+de cada usina, trocado a cada leitura, não acumula. Teste: `tests/test_api_pv_caches_no_web.py`.
 
 ## Ponte do Nexus: chave só de leitura e sub-caminho (04/10/2026)
 

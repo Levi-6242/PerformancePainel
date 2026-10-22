@@ -12173,8 +12173,10 @@ _pv_trk_dia_guard = threading.Lock()
 # pares são de julho a outubro e pequenos (2–7 mil pontos), então nem "o dia mais antigo primeiro" nem um LRU puro
 # serviam. Dia passado que ninguém lê há PV_TRK_DIA_OCIOSO_S também sai. O que sai é dia FECHADO: pedido de novo, volta
 # IGUAL — custa uma busca, não um número diferente (tests/test_worker_memoria_teto.py, inclusive o mesmo backfill com e
-# sem teto). Só no WORKER (`_MODO_WEB` falso): no web, o dia passado em cache é o que o analista abriu no drill, e a aba
-# Perdas (curva quente) o enxerga; ali o teto mudaria o que a tela mostra, e o web não é quem incha.
+# sem teto). Vale também no WEB desde 22/10/2026 (Desempenho): até ali era só no worker, porque no web a aba Perdas lia
+# este cache sem buscar (fetch=False) e o teto mudaria o que ela mostrava. A aba saiu em 12/10, o único leitor que não
+# busca um dia passado é a rota de depuração da régua (`_trk_ocor_curva_list`), e o web passou a inchar: às 08:51 de
+# 22/10, 545 MB em 19 dias de usina abertos no gráfico de trackers, com a máquina no swap (tests/test_api_pv_caches_no_web.py).
 PV_TRK_DIA_TETO_PONTOS = 1_500_000     # ≈ 330 MB em objetos (220 B por ponto {x, y}); a maior planta-dia vista, 273 mil
 PV_TRK_DIA_OCIOSO_S = 2 * 3600
 
@@ -12336,8 +12338,8 @@ def _pv_trk_dia(idusina, data: str, fetch: bool = True) -> dict:
             d = {"curva": {}, "ultima": {}, "ultima_ts": None, "erro": f"{type(e).__name__}: {str(e)[:160]}"}
         if d["curva"]:
             _pv_trk_dia_cache[key] = {"ts": time.time(), "d": d, "n": _pv_trk_dia_pontos({"d": d})}
-            if data != hoje and not _MODO_WEB:
-                _pv_trk_dia_poda()                # o teto vale a cada dia passado que entra, não só no faxineiro
+            if data != hoje:
+                _pv_trk_dia_poda()                # o teto vale a cada dia passado que entra, no worker e no web
             return d
         # busca vazia (usina sem tracker, madrugada, throttle): NÃO cacheia vazio — senão "Sem curva"
         # gruda por 5 min mesmo com a fonte já respondendo. Mesmo cuidado do trackerschart.
@@ -23295,7 +23297,45 @@ def _spv_day_records(idusina, token, data: str) -> list:
 # Custa 1 consulta da cota histórica da CONTA (800/dia, 200/h, dividida com a combiner e o coletor da noite): respeita a
 # mesma reserva da combiner, e o dia inteiro fica guardado (dia passado não muda) para o drill e o CSV não pagarem 2x.
 _spv_hist_recs = {}           # (idusina, "DD/MM/AAAA") → registros do dia inteiro
-_SPV_HIST_RECS_MAX = 3        # ~6 MB cada (usina de 4 inversores); cobre "abri o drill e baixei o CSV"
+_SPV_HIST_RECS_MAX = 3        # no máximo 3 dias; cobre "abri o drill e baixei o CSV"
+# PRAZO E TETO (Desempenho, 22/10/2026). O Raio-X do Nexus mostrou, dentro do web às 08:51 de 22/10, este cache com 493
+# MB em 3 dias de usina, parados desde antes das 07:59, com a máquina em 0,5 GB livres e 3,6 GB no swap: o "~6 MB cada"
+# que estava aqui é a usina de 4 inversores; na de 20, o dia cru tem ~28,8 mil registros, ~165 MB em objetos. E nada o
+# tirava: ficava até o próximo reinício. Agora o dia que ninguém relê há SPV_HIST_OCIOSO_S sai (o drill e o CSV do mesmo
+# dia vêm em minutos), e a soma dos registros guardados tem teto (sai o lido há mais tempo; o que acabou de entrar fica,
+# mesmo sozinho acima dele). O que sai é dia FECHADO: pedido de novo, volta igual, ao custo de 1 consulta da cota
+# histórica da conta. Poda na hora de guardar (`_spv_day_records_hist`), a cada 10 min no web (`_memoria_web_loop`) e no
+# faxineiro do worker. Teste: tests/test_api_pv_caches_no_web.py.
+SPV_HIST_OCIOSO_S = 20 * 60
+SPV_HIST_TETO_REGISTROS = 30_000     # ~170 a ~330 MB em objetos (5 a 11 KB por registro, conforme a usina); cabe o
+                                     # dia inteiro da usina de 20 inversores (28,8 mil registros)
+_spv_hist_uso = {}                   # (idusina, "DD/MM/AAAA") → quando foi guardado ou relido pela última vez
+
+
+def _spv_hist_poda(agora=None, manter=None) -> int:
+    """Tira do _spv_hist_recs o dia que ninguém relê há SPV_HIST_OCIOSO_S e, do lido há mais tempo para o mais recente,
+    o que passa do teto de registros ou dos _SPV_HIST_RECS_MAX dias; `manter` (o que acabou de entrar) nunca sai.
+    Devolve quantos saíram."""
+    agora = agora or time.time()
+    chaves = list(_spv_hist_recs)
+    for k in chaves:
+        _spv_hist_uso.setdefault(k, agora)            # guardado por fora, sem o carimbo: o prazo conta a partir de agora
+    mortos = {k for k in chaves if k != manter and agora - _spv_hist_uso.get(k, agora) > SPV_HIST_OCIOSO_S}
+    vivos = sorted((k for k in chaves if k not in mortos), key=lambda k: _spv_hist_uso.get(k, agora))
+    total, restam = sum(len(_spv_hist_recs.get(k) or ()) for k in vivos), len(vivos)
+    for k in vivos:
+        if total <= SPV_HIST_TETO_REGISTROS and restam <= _SPV_HIST_RECS_MAX:
+            break
+        if k == manter:
+            continue
+        mortos.add(k)
+        total -= len(_spv_hist_recs.get(k) or ())
+        restam -= 1
+    for k in mortos:
+        _spv_hist_recs.pop(k, None)
+    for k in [k for k in list(_spv_hist_uso) if k not in _spv_hist_recs]:      # o que saiu por aqui ou por outro caminho
+        _spv_hist_uso.pop(k, None)
+    return len(mortos)
 
 
 def _spv_day_records_hist(idusina, token, data: str):
@@ -23303,8 +23343,10 @@ def _spv_day_records_hist(idusina, token, data: str):
     motivo: None · "cota_api" (reserva da cota ou 429) · "http_<n>" · "erro_rede" · "resposta_invalida" ·
     "sem_dados_api" (respondeu sem registro do dia) · "data_invalida"."""
     k = (int(idusina), data)
-    if k in _spv_hist_recs:
-        return _spv_hist_recs[k], None
+    guardado = _spv_hist_recs.get(k)          # .get: a poda de outra thread pode tirar a chave entre o `in` e a leitura
+    if guardado is not None:
+        _spv_hist_uso[k] = time.time()        # relido = em uso: o prazo recomeça
+        return guardado, None
     try:
         d = datetime.strptime(data, "%d/%m/%Y")
     except ValueError:
@@ -23338,9 +23380,9 @@ def _spv_day_records_hist(idusina, token, data: str):
     recs = [x for x in recs if str(x.get("tsleitura_new") or "").startswith(iso)]
     if not recs:
         return [], "sem_dados_api"
-    if len(_spv_hist_recs) >= _SPV_HIST_RECS_MAX:
-        _spv_hist_recs.pop(next(iter(_spv_hist_recs)))
     _spv_hist_recs[k] = recs
+    _spv_hist_uso[k] = time.time()
+    _spv_hist_poda(manter=k)                  # o prazo, o teto de registros e os 3 dias, na hora de guardar
     return recs, None
 
 
@@ -25229,6 +25271,12 @@ def _janitor_passada():
             notas.append(f"2C memo:{n}")
     except Exception as e:
         print(f"[janitor] memo da 2C: {e}")
+    try:
+        n = _spv_hist_poda()                  # o dia de strings da API PV parado há mais que o prazo (22/10/2026)
+        if n:
+            notas.append(f"dia de strings da API PV:{n}")
+    except Exception as e:
+        print(f"[janitor] dia de strings da API PV: {e}")
 
     # os locks do gráfico de trackers acompanham o cache (mesma chave); sem isto sobra
     # um objeto Lock por (usina, dia) para sempre
@@ -25456,9 +25504,18 @@ RELATORIO_MEMORIA_ARQ_WEB = "gridco_plataforma_web.json"
 
 
 def _memoria_web_loop(intervalo=600):
-    """WEB: a cada 10 min devolve a memória livre e grava o relatório do web (o do worker é o `_janitor_loop`)."""
+    """WEB: a cada 10 min poda os dois caches da API PV que incham o web (o dia de trackers e o dia de strings, 22/10/2026:
+    545 e 493 MB às 08:51), devolve a memória livre e grava o relatório do web (o do worker é o `_janitor_loop`). Só as
+    podas da API PV: o faxineiro inteiro segue no worker."""
     while True:
         time.sleep(intervalo)
+        for poda in (_pv_trk_dia_poda, _spv_hist_poda):
+            try:
+                n = poda()
+                if n:
+                    print(f"[web] {poda.__name__}: {n} saíram")
+            except Exception as e:                      # noqa: BLE001 — a poda nunca derruba o web
+                print(f"[web] {poda.__name__} falhou: {e}")
         _devolve_memoria()
         try:
             _relatorio_memoria_worker(arquivo=RELATORIO_MEMORIA_ARQ_WEB)
