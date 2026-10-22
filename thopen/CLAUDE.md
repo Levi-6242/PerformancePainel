@@ -326,7 +326,12 @@ nova na resposta = entrar em `CHAVES` + teste.
   Mostrar/esconder o card refaz o tamanho do gráfico diário (`Plotly.Plots.resize`). O PDF Carteira espera o Diário
   inteiro (`await renderDiario`, que espera o card).
 - **Card "Disponibilidade Usina"**: de 10/2026 em diante, a `disponibilidade` da rota (Gerencial, 2 casas e "%");
-  antes, o modelo anterior (`k.disp` do `/api/t/diario`). Sem valor no Gerencial: "—".
+  antes, o modelo anterior (`k.disp` do `/api/t/diario`). Sem valor no Gerencial: "—". **A tabelinha** (Levi,
+  22/10/2026: "um ícone de tabelinha no canto superior direito; ao clicar mostra os dias do período e a disponibilidade!
+  os que é abaixo de 100% mostra o comentário"): o ícone `#dispTab` (o mesmo botão das fotos das rondas, fora do PDF) só
+  de 10/2026 em diante e com a disponibilidade das OS publicada; a janela `#dpFundo` (`abrirDisponibilidade`) lista os
+  dias do mês até o último com disponibilidade, o comentário das OS só no dia abaixo de 100% (as mesmas frases da tabela
+  de Comentários) e a média do mês com 2 casas, igual ao card (`tests/test_thopen_disp_tabela.py`).
 - **Grade única do Diário com o card (14/10, Levi: "Energia (kWh) × Irradiação ocupando muito espaço, limita ele ao
   tamanho de Energia Acumulada no Mês até Disponibilidade Usina (%). O resto sobe!")**: o invólucro `.dg` vira uma grade
   só (`.com-op .dg`, áreas `graf graf acum / graf graf irr / graf graf disp / cmt rp op / cmt rp anual / cmt rp .`): o

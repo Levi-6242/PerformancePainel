@@ -162,6 +162,12 @@
             text-transform:none; }
   /* ícone das rondas do mês no canto do card (rodada 3, 09/10/2026) */
   .op-card{ position:relative; }
+  /* a tabelinha da Disponibilidade (Levi, 22/10/2026): o ícone no canto, o mesmo botão das fotos das rondas (fora do PDF) */
+  .disp-card{ position:relative; }
+  .dp-tab{ width:100%; }
+  .dp-tab td.dp-com{ text-align:left; white-space:normal; color:#33363d; font-size:12px; line-height:1.45; }
+  .dp-tab td.dp-v{ font-weight:700; }
+  .dp-tab td.dp-v.baixa{ color:var(--neg); }
   .op-fotos{ position:absolute; top:9px; right:10px; width:32px; height:30px; display:flex; align-items:center;
              justify-content:center; border:1px solid var(--line); border-radius:8px; background:#f4f5f7;
              color:var(--navy); cursor:pointer; padding:0; }
@@ -428,7 +434,9 @@
             <div><div class="kpi-big" id="irrMeta">—</div><div class="kpi-lbl">Meta</div></div>
           </div>
         </div>
-        <div class="card" id="dispCard"><h3>Disponibilidade Usina (%)</h3>
+        <div class="card disp-card" id="dispCard"><button class="op-fotos hidden" id="dispTab" type="button"
+          title="Disponibilidade de cada dia do mês" aria-label="Disponibilidade de cada dia do mês"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 9.5v10"/></svg></button>
+          <h3>Disponibilidade Usina (%)</h3>
           <div class="kpi-big" id="disp" style="text-align:center">—</div>
         </div>
       </div>
@@ -1194,9 +1202,12 @@ async function renderDiario(ano,mes){
   await opP.catch(e=>console.error('Operação no Mês',e));
   // de 10/2026 em diante a disponibilidade do mês é a do Gerencial (OS do Fracttal), a mesma da coluna Disp da tabela
   // (Levi, 09/10/2026: "a partir de outubro somente; antes disso é modelo anterior")
+  $('dispTab').classList.add('hidden');
   if(ano*100+mes>=202610){
     const op=_mesmo(_cmtOp,{usina,ano,mes})?_cmtOp.d:null, v=op&&op.disponivel?op.disponibilidade:null;
     $('disp').textContent=v==null?'—':v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
+    // a tabelinha só com a disponibilidade das OS (a mesma do valor do card) publicada em algum dia
+    $('dispTab').classList.toggle('hidden', !(v!=null&&Object.values(_opPorDia(op)).some(r=>r.disp!=null)));
   }
   renderCmt();
 }
@@ -1401,6 +1412,13 @@ init();
     <div id="rdCorpo"></div>
   </div>
 </div>
+<div class="rd-fundo hidden" id="dpFundo">
+  <div class="rd-modal" role="dialog" aria-modal="true" aria-labelledby="dpTit">
+    <div class="rd-topo"><div><div class="rd-tit" id="dpTit">Disponibilidade do mês</div><div class="rd-sub" id="dpSub"></div></div>
+      <button class="rd-x" id="dpX" type="button" aria-label="Fechar">&times;</button></div>
+    <div id="dpCorpo"></div>
+  </div>
+</div>
 <div class="rd-luz hidden" id="rdLuz"><img id="rdLuzImg" alt=""><div class="rd-luz-leg" id="rdLuzLeg"></div></div>
 <script>
 // ---------- Rondas do mês (rodada 3, Levi, 09/10/2026); a dúvida virou a contestação da tabela (rodada 4) ----------
@@ -1478,6 +1496,36 @@ async function abrirRondas(){
   if(!_rd.lista.length){ $('rdCorpo').innerHTML='<div class="rd-vazio">Nenhuma ronda registrada neste mês.</div>'; return; }
   _rdAbre(0);
 }
+// a tabelinha da Disponibilidade Usina (Levi, 22/10/2026: "ao clicar mostra os dias do período e a disponibilidade! os
+// que é abaixo de 100% mostra o comentário"): os dias do mês até o último com a disponibilidade das OS — a mesma conta do
+// valor do card —, o comentário só no dia abaixo de 100% (as frases das OS da tabela de Comentários) e a média do mês
+function abrirDisponibilidade(){
+  const o=_cmtOp; if(!o||!o.d||!o.d.disponivel) return;
+  const pd=_opPorDia(o.d), dias=Object.keys(pd).map(Number).filter(n=>pd[n].disp!=null);
+  if(!dias.length) return;
+  const ult=Math.max(...dias), mm=String(o.mes).padStart(2,'0');
+  const pc=v=>v==null?'—':v.toLocaleString('pt-BR',{minimumFractionDigits:1,maximumFractionDigits:1})+'%';
+  let h='<table class="geral dp-tab"><thead><tr><th>Data</th><th>Disponibilidade</th><th>Comentário</th></tr></thead><tbody>';
+  for(let n=1;n<=ult;n++){
+    const r=pd[n]||{}, v=r.disp, baixo=v!=null&&v<100;
+    const com=!baixo?'':(r.os==null?_CMT_SEM_PUB
+      :(r.os.length?r.os.map(_opEsc).join('<br>'):'Indisponibilidade registrada no Fracttal sem o detalhe da OS.'));
+    h+=`<tr><td>${String(n).padStart(2,'0')}/${mm}</td><td class="dp-v${v!=null&&v<99?' baixa':''}">${pc(v)}</td>`
+      +`<td class="dp-com">${com}</td></tr>`;
+  }
+  // a média com 2 casas, como o valor do card (94,66%, não 94,7%)
+  const media=o.d.disponibilidade==null?'—':o.d.disponibilidade.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})+'%';
+  h+=`<tr class="tot"><td>Média do mês</td><td>${media}</td><td class="dp-com">`
+    +`Média dos dias, pelas OS do Fracttal (horas paradas de 06h a 18h, pela potência)</td></tr></tbody></table>`;
+  $('dpSub').textContent=`${OV.nome||o.usina} · ${mm}/${o.ano}`;
+  $('dpCorpo').innerHTML=h;
+  $('dpFundo').classList.remove('hidden'); document.body.style.overflow='hidden'; $('dpX').focus();
+}
+function fecharDisponibilidade(){ $('dpFundo').classList.add('hidden'); document.body.style.overflow=''; }
+$('dispTab').addEventListener('click', abrirDisponibilidade);
+$('dpX').addEventListener('click', fecharDisponibilidade);
+$('dpFundo').addEventListener('click', e=>{ if(e.target===$('dpFundo')) fecharDisponibilidade(); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && !$('dpFundo').classList.contains('hidden')) fecharDisponibilidade(); });
 function fecharRondas(){ $('rdFundo').classList.add('hidden'); $('rdLuz').classList.add('hidden');
   document.body.style.overflow=''; _rd.seq++; $('opFotos').focus(); }
 $('opFotos').addEventListener('click', abrirRondas);
