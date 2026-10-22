@@ -28211,13 +28211,24 @@ def _falhas_pv_dev(store):
     base = _falhas_ler(_FALHAS_PV_DEV) or {}
     usina_de = {pid: ent.get("usina") for dia, fs in store.items() if dia >= FALHAS_INI
                 for pid, ent in (fs.get("pv") or {}).items()}
-    # 60 por volta: com 20, as 58 usinas da API PV levavam 3 voltas (1h30) e, nesse meio, a trava não era conferida
-    velhos = [p for p in sorted(usina_de) if time.time() - float((base.get(p) or {}).get("ts") or 0) > 7 * 86400][:60]
-    if not velhos:
-        return base
     try:
         tok = get_token()
         nomes = {str(p["id"]): str(p["nome"]).strip() for p in get_plants(tok)}
+    except Exception as e:
+        print(f"[falhas] de-para da API PV (mantido o anterior): {e}")
+        return base
+    # TODAS as usinas da conta principal, não só as que já tiveram falha de string (22/10/2026): o Modo de-para lê o nome
+    # dos inversores daqui, sem ir à API PV, e as Pharmas 3 e 4 (sem visão de string, nunca entram no store) chegavam
+    # como "INV-368373" — a tela não sabia qual inversor do cadastro era e o Levi viu os 6 duplicados. A que ainda não
+    # tem nome vai primeiro (a idade 0 ordena antes)
+    for pid, nm in nomes.items():
+        usina_de.setdefault(pid, nm)
+    idade = lambda p: float((base.get(p) or {}).get("ts") or 0)
+    # 60 por volta: com 20, as 58 usinas da API PV levavam 3 voltas (1h30) e, nesse meio, a trava não era conferida
+    velhos = [p for p in sorted(usina_de, key=lambda p: (idade(p), p)) if time.time() - idade(p) > 7 * 86400][:60]
+    if not velhos:
+        return base
+    try:
         for pid in velhos:
             names = _pv_dev_names(pid, tok) or {}
             if names:

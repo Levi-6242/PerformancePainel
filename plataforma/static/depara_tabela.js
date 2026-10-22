@@ -679,6 +679,11 @@
     function semLeituraDe(g, chave) {
       if (!chave) return [];
       const c = nk(chave), lid = lidas(g), out = [], visto = new Set();
+      // A fonte mandou inversor SEM o nome ("INV-368373": a plataforma não sabe o nome dele sem ir à API PV) — Levi, 22/10/2026,
+      // com print da Pharma 3 (851): "duplicou a quantidade de inversores de pharmas 3 pharmas 4". Sem o nome não dá para
+      // saber qual inversor do cadastro já está na tela: os 6 do cadastro apareciam de novo como "sem leitura agora", 12
+      // linhas para 6 inversores. Com um só sem nome, não se acrescenta nenhum; a linha diz "sem o nome do inversor na fonte"
+      if (lid.some(i => /^INV-\d+$/.test(String(i.nome_api || '')))) return [];
       const nxLidos = new Set(lid.map(inv => (invNexus(S.ctx, chave, inv) || {}).inversor_id).filter(x => x != null));
       // a linha da fonte que já é este inversor: pelo cadastro (o supervisório ou o nome igual ao da fonte, `cadDoInv`), ou
       // pelo nome do cadastro da chave de hoje

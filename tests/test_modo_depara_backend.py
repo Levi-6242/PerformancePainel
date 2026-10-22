@@ -480,3 +480,28 @@ def test_o_cadastro_da_plataforma_para_o_modo(cli, monkeypatch):
         {"esup": "INVERSOR01", "nome": "Inversor 1.1", "esp": 20, "kwp": 250.0, "ug": "UG 01"},
         {"esup": "INVERSOR02", "nome": "Inversor 1.2", "esp": 20, "kwp": 250.0, "ug": None},
         {"esup": "INVERSOR03", "nome": "Inversor 1.3", "esp": None, "kwp": None, "ug": None}]}]
+
+
+def test_os_nomes_dos_inversores_cobrem_todas_as_usinas_da_conta(monkeypatch):
+    """22/10/2026, Levi com print da Pharma 3 (851): "duplicou a quantidade de inversores de pharmas 3 pharmas 4". A cópia
+    dos nomes da API PV (falhas_pv_dev) só tinha as usinas que já tiveram falha de string; as Pharmas (sem visão de
+    string) nunca entravam e chegavam ao Modo de-para como "INV-368373". Agora ela cobre a conta principal inteira, e a
+    que ainda não tem nome vai primeiro; a que tem nome de menos de 7 dias não é pedida de novo."""
+    agora = app.time.time()
+    gravado = {}
+    monkeypatch.setattr(app, "_falhas_ler", lambda p: {"18749574": {"ts": agora - 3600, "names": {"365249": "INVERSOR01"}}})
+    monkeypatch.setattr(app, "_falhas_gravar", lambda p, d: gravado.update(d))
+    monkeypatch.setattr(app, "get_token", lambda: "tok")
+    monkeypatch.setattr(app, "get_plants", lambda tok: [{"id": 18749574, "nome": "Itaja 1 (551)"},
+                                                        {"id": 18751504, "nome": "Pharma 3 (851)"}])
+    pedidos = []
+
+    def nomes(pid, tok):
+        pedidos.append(pid)
+        return {368373: "INVERSOR01", 368374: "INVERSOR02"}
+    monkeypatch.setattr(app, "_pv_dev_names", nomes)
+    monkeypatch.setattr(app.time, "sleep", lambda s: None)
+    base = app._falhas_pv_dev({})                              # o store das falhas sem nenhuma das duas
+    assert pedidos == ["18751504"]                                # a Itajá tem nome de 1 h: não vai à API PV
+    assert base["18751504"]["names"] == {"368373": "INVERSOR01", "368374": "INVERSOR02"}
+    assert gravado["18751504"]["nome_api"] == "Pharma 3 (851)" and "18749574" in gravado

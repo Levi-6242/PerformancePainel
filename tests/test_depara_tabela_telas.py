@@ -1111,3 +1111,24 @@ def test_as_rotas_que_o_componente_chama_estao_classificadas():
         gestor = (ln.permitido_gestor("GET", r) or ln.permitido_gestor("POST", r)
                   or any(r.startswith(g) for g in ln.GRAVACOES_GESTOR))
         assert ponte and gestor, r
+
+
+def test_fonte_sem_o_nome_do_inversor_nao_duplica_os_do_cadastro(tmp_path):
+    """22/10/2026, Levi com print da Pharma 3 (851): "duplicou a quantidade de inversores de pharmas 3 pharmas 4". A API PV
+    chegou sem o nome dos inversores ("INV-368373"..: a plataforma não o tinha guardado), a tela não sabia qual inversor do
+    cadastro era cada um e punha os 6 da "Pharma 3" de novo como "sem leitura agora": 12 linhas para 6 inversores. Sem o
+    nome, nenhuma linha do cadastro é acrescentada; as 6 da fonte dizem "sem o nome do inversor na fonte"."""
+    r = _node("""
+      F.nexus[109] = {usina_id: 109, nome: 'Pharmas 3', codigo: 'THPN-PHS300', selo: 'selo-109', kwp: 990, kwp_de: 'real',
+        chaves: [{supervisorio_id: 171, usina_supervisorio: 'Pharma 3', principal: true, substitui_aba: false}],
+        cabines: [{cabine_id: 191, nome: 'UG 03', codigo_fracttal: null, potencia_kwp: 990}],
+        inversores: [1, 2, 3, 4, 5, 6].map(m => nInv(1410 + m, 171, 'Pharma 3', 'Inversor 1.' + m, 'INVERSOR0' + m, 191, 14, 165))};
+      const ids = [368373, 368374, 368375, 368376, 368377, 368378];
+      F.linhas[3] = Object.assign({}, F.linhas[3], {chave_cadastro: 'Pharma 3',
+        inv_resumo: ids.map(id => ({id, nome_api: 'INV-' + id, nome: 'INV-' + id, ativas: 0, total: 0, esp: null, sem_visao: false}))});
+      F.cadastro.push(C('Pharma 3', 'Pharma III', [1, 2, 3, 4, 5, 6].map(m => ['INVERSOR0' + m, 'Inversor 1.' + m, 14, 165, 'UG 03'])));
+      const inst = DT.criar({fonte: 'pv'}); await inst.entrar(F.linhas, 'pv');
+      const g = inst.S.porPid['18751504'];
+      return {linhas: g.invs.length, sem_leitura: g.invs.filter(i => i.sem_leitura).length,
+        aviso: inst.html().includes('sem o nome do inversor na fonte')};""", tmp_path)
+    assert r == {"linhas": 6, "sem_leitura": 0, "aviso": True}
