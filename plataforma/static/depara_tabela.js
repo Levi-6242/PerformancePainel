@@ -682,7 +682,9 @@
       // A fonte mandou inversor SEM o nome ("INV-368373": a plataforma não sabe o nome dele sem ir à API PV) — Levi, 22/10/2026,
       // com print da Pharma 3 (851): "duplicou a quantidade de inversores de pharmas 3 pharmas 4". Sem o nome não dá para
       // saber qual inversor do cadastro já está na tela: os 6 do cadastro apareciam de novo como "sem leitura agora", 12
-      // linhas para 6 inversores. Com um só sem nome, não se acrescenta nenhum; a linha diz "sem o nome do inversor na fonte"
+      // linhas para 6 inversores. Com um só sem nome, não se acrescenta nenhum; a linha diz que a PLATAFORMA ainda não tem o
+      // nome (o texto antigo, "sem o nome do inversor na fonte", fazia parecer que a API PV não tinha; Levi: "como assim sem
+      // nome na fonte?")
       if (lid.some(i => /^INV-\d+$/.test(String(i.nome_api || '')))) return [];
       const nxLidos = new Set(lid.map(inv => (invNexus(S.ctx, chave, inv) || {}).inversor_id).filter(x => x != null));
       // a linha da fonte que já é este inversor: pelo cadastro (o supervisório ou o nome igual ao da fonte, `cadDoInv`), ou
@@ -843,7 +845,7 @@
     function pendenciaSemMemo(g, inv) {
       const key = k(g, inv), s = S.sel[key] || {}, gs = S.gsel[g.pid] || {};
       if (s.fora) return '';
-      if (/^INV-\d+$/.test(String(inv.nome_api || ''))) return 'sem o nome do inversor na fonte';
+      if (/^INV-\d+$/.test(String(inv.nome_api || ''))) return 'a plataforma ainda não tem o nome deste inversor (a API PV mandou só o número; chega no próximo ciclo)';
       if (!s.uf) return 'falta a usina do Fracttal';
       if (!s.cab) return 'falta a cabine';
       if (!s.ativo) return 'falta o inversor';

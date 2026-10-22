@@ -893,7 +893,9 @@ Morada Nova e as duas ficaram sem esperadas; a União com 6 de 12 inversores e o
   usinas que já tiveram falha de string, e a que ainda não tem nome vai primeiro: as Pharmas 3 e 4 (sem visão de string)
   nunca entravam, chegavam ao Modo de-para como "INV-368373" e a tela mostrava os 6 do cadastro de novo como "sem leitura
   agora" (Levi: "duplicou a quantidade de inversores de pharmas 3 pharmas 4"). E a tela não acrescenta linha do cadastro
-  quando algum inversor da fonte veio sem nome (`semLeituraDe`). O diagnóstico acusa em **atenção** ("N de M inversor(es) sem esperadas: o nome que chega
+  quando algum inversor da fonte veio sem nome (`semLeituraDe`); a linha dele diz "a plataforma ainda não tem o nome
+deste inversor (a API PV mandou só o número; chega no próximo ciclo)" — o texto antigo, "sem o nome do inversor na fonte",
+fazia parecer que a API PV não tinha o nome (Levi: "como assim sem nome na fonte?"). O diagnóstico acusa em **atenção** ("N de M inversor(es) sem esperadas: o nome que chega
   (...) não casa com o cadastro") e marca `sem_depara = "inversor"`. Na tela: a etiqueta âmbar "sem de-para · N inv." na
   linha da usina, a barra na usina aberta e o título da diferença dizendo que ela é a da usina inteira. O atalho
   (`/admin/de-para?editar=fonte|id`, que abre o editor já na usina) só aparece para quem abre a página dele (`/api/eu`:

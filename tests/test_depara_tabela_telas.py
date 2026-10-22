@@ -1117,7 +1117,8 @@ def test_fonte_sem_o_nome_do_inversor_nao_duplica_os_do_cadastro(tmp_path):
     """22/10/2026, Levi com print da Pharma 3 (851): "duplicou a quantidade de inversores de pharmas 3 pharmas 4". A API PV
     chegou sem o nome dos inversores ("INV-368373"..: a plataforma não o tinha guardado), a tela não sabia qual inversor do
     cadastro era cada um e punha os 6 da "Pharma 3" de novo como "sem leitura agora": 12 linhas para 6 inversores. Sem o
-    nome, nenhuma linha do cadastro é acrescentada; as 6 da fonte dizem "sem o nome do inversor na fonte"."""
+    nome, nenhuma linha do cadastro é acrescentada; as 6 da fonte dizem que a plataforma ainda não tem o nome delas (22/10: o texto antigo, "sem o nome do
+    inversor na fonte", fazia parecer que a API PV não tinha o nome; quem não tinha era a plataforma)."""
     r = _node("""
       F.nexus[109] = {usina_id: 109, nome: 'Pharmas 3', codigo: 'THPN-PHS300', selo: 'selo-109', kwp: 990, kwp_de: 'real',
         chaves: [{supervisorio_id: 171, usina_supervisorio: 'Pharma 3', principal: true, substitui_aba: false}],
@@ -1130,5 +1131,5 @@ def test_fonte_sem_o_nome_do_inversor_nao_duplica_os_do_cadastro(tmp_path):
       const inst = DT.criar({fonte: 'pv'}); await inst.entrar(F.linhas, 'pv');
       const g = inst.S.porPid['18751504'];
       return {linhas: g.invs.length, sem_leitura: g.invs.filter(i => i.sem_leitura).length,
-        aviso: inst.html().includes('sem o nome do inversor na fonte')};""", tmp_path)
+        aviso: inst.html().includes('a plataforma ainda não tem o nome deste inversor')};""", tmp_path)
     assert r == {"linhas": 6, "sem_leitura": 0, "aviso": True}
