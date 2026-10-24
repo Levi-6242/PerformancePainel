@@ -14,7 +14,10 @@ e evite alterar layout sem pedido.
   (`127.0.0.1:5080`, 8 threads, um processo só) a partir do clone `C:\GridcoAuto\PerformancePainel\thopen`, e o
   `C:\GridcoAuto\vigia_thopen.ps1` (tarefa agendada "Dashboard Thopen - Vigia", a cada 3 min) religa o servidor se a
   5080 não escuta e reabre o túnel **trycloudflare** quando a URL de `C:\GridcoAuto\thopen_url.txt` não responde em
-  `/api/t/versao`. O quick tunnel troca de endereço quando reabre: o link do cliente muda. (A docstring do
+  `/api/t/versao`. O quick tunnel troca de endereço quando reabre: o link do cliente muda. **A tarefa roda na bateria e
+  recupera a hora perdida no descanso** (desde 24/10/2026: com o padrão do Agendador, "só na tomada", ela parou em
+  23/10 às 17:15 com o notebook na bateria, o servidor caiu e ninguém religou até 12:05 do dia seguinte). Não
+  acorda o PC (sem `WakeToRun`): com o notebook dormindo, a 5080 fica fora até ele acordar. (A docstring do
   `servir_thopen.py` ainda fala em ler o `.xlsx` do OneDrive — vale o código, que só importa este app.)
 - **Atualizar o cliente:** `git pull` no clone e reiniciar SÓ o `pythonw` do `servir_thopen.py` — achar o processo pelo
   caminho do script na linha de comando, nunca pelo nome (há outros `pythonw` na máquina) — sem tocar no `cloudflared`
